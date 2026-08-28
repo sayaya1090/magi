@@ -113,7 +113,17 @@ public class SettingsElement {
         String said = tr("pref.theme") + ": " + tr("pref.theme." + now);
         btn.setAttribute("aria-label", said);
         btn.setAttribute("title", said);
-        btn.textContent = "system".equals(now) ? "◐" : "light".equals(now) ? "☀" : "☾";
+        // 하늘 하나에 세 몸이 들어 있고, 지금 것만 자리에 선다(운영 .sky/.sun/.moon/.auto —
+        // 갈아 끼우는 것이 아니라 서로를 지나쳐 움직인다). 낱자(◐ ☀ ☾)로 대신하면 그 움직임도,
+        // 굵기도 옆 버튼들과 어긋난다.
+        btn.innerHTML = "<svg class=\"sky\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+                + "<g class=\"sun\"><circle cx=\"12\" cy=\"12\" r=\"4.2\" stroke=\"currentColor\" stroke-width=\"1.8\" fill=\"none\"/>"
+                + "<path d=\"M12 2.4v2.4M12 19.2v2.4M21.6 12h-2.4M4.8 12H2.4M18.6 5.4l-1.7 1.7M7.1 16.9l-1.7 1.7M18.6 18.6l-1.7-1.7M7.1 7.1L5.4 5.4\" "
+                + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" fill=\"none\"/></g>"
+                + "<g class=\"moon\"><path d=\"M20 14.2A8.4 8.4 0 0 1 9.8 4a8.4 8.4 0 1 0 10.2 10.2z\" "
+                + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linejoin=\"round\" fill=\"none\"/></g>"
+                + "<g class=\"auto\"><circle cx=\"12\" cy=\"12\" r=\"7.4\" stroke=\"currentColor\" stroke-width=\"1.8\" fill=\"none\"/>"
+                + "<path d=\"M12 4.6a7.4 7.4 0 0 0 0 14.8z\" fill=\"currentColor\"/></g></svg>";
         btn.addEventListener("click", evt -> {
             String next = Prefs.nextTheme(store.pref("theme", "system"));
             store.keep("theme", next);
@@ -282,6 +292,53 @@ public class SettingsElement {
                 Js.asPropertyMap(key).set("value", "");
             });
         });
+        // 지금 돌고 있는 백엔드에서 고른다 — 콘솔의 설정에서 뽑으면 그 데몬이 닿지도 못하는
+        // 모델을 내놓는다. 고르면 <b>채우기만</b> 한다: 이름은 사람이 짓고 저장도 사람이 누른다.
+        HTMLElement provRow = el("div");
+        provRow.className = "profadd provrow";
+        provRow.setAttribute("hidden", "");
+        HTMLElement provSel = el("md-outlined-select");
+        provSel.id = "provSel";
+        provSel.setAttribute("label", tr("prof.provider"));
+        HTMLElement provModel = el("md-outlined-select");
+        provModel.id = "provModelSel";
+        provModel.setAttribute("label", tr("prof.provider_model"));
+        provRow.append(provSel, provModel);
+        add(out, provRow);
+        // 그 두 고르개가 무엇인지 한 줄 — 골라도 저장되지 않고 아래 칸을 채울 뿐이라는 것을
+        // 여기서 말해 두지 않으면 사람이 고르고 나서 무엇을 더 해야 하는지 모른다(운영 provWhy).
+        HTMLElement provWhy = el("div");
+        provWhy.className = "prefsay";
+        provWhy.id = "provWhy";
+        provWhy.setAttribute("hidden", "");
+        HTMLElement provWhySay = el("div");
+        provWhySay.className = "say";
+        provWhySay.id = "provWhyText";
+        provWhySay.textContent = tr("prof.from_provider_why");
+        provWhy.append(provWhySay);
+        add(out, provWhy);
+        store.providers(got -> {
+            JsArrayLike<Object> all = Js.uncheckedCast(got);
+            // 서빙하는 것이 하나도 없으면 그 줄은 아예 서지 않는다 — 빈 고르개는 사람들에게
+            // "여기는 열어 볼 것 없다"를 가르친다.
+            if (all == null || all.getLength() == 0) return;
+            provRow.removeAttribute("hidden");
+            provWhy.removeAttribute("hidden");
+            fill(provSel, names(all), tr("prof.provider"));
+            fill(provModel, new java.util.ArrayList<>(), tr("prof.provider_model"));
+            provSel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = byName(all, value(provSel));
+                fill(provModel, models(chosen), tr("prof.provider_model"));
+            });
+            provModel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = byName(all, value(provSel));
+                String pick = value(provModel);
+                if (chosen == null || pick.isEmpty()) return;
+                Js.asPropertyMap(base).set("value", str(chosen, "base"));
+                Js.asPropertyMap(model).set("value", pick);
+                if (value(name).trim().isEmpty()) Js.asPropertyMap(name).set("value", str(chosen, "name"));
+            });
+        });
         HTMLElement form = el("div");
         form.className = "profadd";
         form.append(name, base, model, key, save);
@@ -378,7 +435,8 @@ public class SettingsElement {
         // 버튼의 말은 "연다"이다 — 줄의 제목이 무엇을 여는지 이미 말했고, 제목을 버튼에 한 번
         // 더 적으면 390px에서 글자 기둥이 반으로 눌려 두 줄이 된다(실측: 줄 높이 40 대 67).
         go.textContent = tr("access.open");
-        go.setAttribute("aria-label", tr("nav.access"));
+        // 접근 이름을 따로 달지 않는다: 달면 보이는 말("연다")과 읽히는 이름이 갈라져, 말로
+        // 부리는 사람이 화면에 적힌 그 낱말로는 이 버튼을 부를 수 없다(운영도 달지 않는다).
         go.addEventListener("click", evt -> dev.sayaya.magi.bridge.GoSharing.view("access"));
         r.append(go);
         add(out, r);
@@ -445,28 +503,47 @@ public class SettingsElement {
         // 줄의 제목은 어느 설정인지 말한다(코드 완성 모델) — 칸의 라벨은 고르는 것이 무엇인지
         // 말한다(프로필). 둘이 같은 말이면 한 줄에 같은 말이 두 번 선다(운영의 그 구분).
         sel.setAttribute("label", tr("ac.profile_pick"));
-        HTMLElement none = el("md-select-option");
-        none.setAttribute("value", "");
-        HTMLElement noneHead = el("div");
-        noneHead.setAttribute("slot", "headline");
-        noneHead.textContent = tr("ac.profile_none");
-        none.append(noneHead);
-        sel.append(none);
+        opt(sel, "", tr("ac.profile_none"), now);
+        // 항목마다 <b>어디에 적힌 것인지</b>를 함께: 이름만 세우면 방금 만든 프로필이 왜 여기
+        // 없는지 답할 수 없다 — 그것은 적힌 층에서만 풀린다(운영의 그 문장). 답이 이름 문자열
+        // 하나로 오는 낡은 데몬도 있어, 그때는 전역으로 읽는다.
         JsArrayLike<Object> profiles = Js.uncheckedCast(complete().get("profiles"));
+        boolean known = now == null || now.isEmpty();
         for (int i = 0; profiles != null && i < profiles.getLength(); i++) {
-            String name = String.valueOf(profiles.getAt(i));
-            HTMLElement opt = el("md-select-option");
-            opt.setAttribute("value", name);
-            HTMLElement head = el("div");
-            head.setAttribute("slot", "headline");
-            head.textContent = name;
-            opt.append(head);
-            sel.append(opt);
+            Object one = profiles.getAt(i);
+            JsPropertyMap<Object> pm = one instanceof String ? null : Js.uncheckedCast(one);
+            String name = pm == null ? String.valueOf(one) : str(pm, "name");
+            String tier = pm == null ? "global" : str(pm, "tier");
+            opt(sel, name, name + " — " + tr("project".equals(tier) ? "ac.profile_here" : "ac.profile_everywhere"), now);
+            if (name.equals(now)) known = true;
         }
-        Js.asPropertyMap(sel).set("value", now);
+        // 물려는 있는데 정의가 사라진 프로필 — 감추면 빈 고르개가 되어 그 어긋남이 안 보인다.
+        if (!known) opt(sel, now, now + " — " + tr("ac.profile_missing"), now);
+        // 값은 <b>컴포넌트가 그려진 뒤에</b> 넣는다: md-select의 setter는 아직 없는 메뉴에서
+        // 그 값을 찾다 조용히 포기한다(운영 실측: 저장된 선택이 매번 빈칸으로 열렸다).
+        Object done = Js.asPropertyMap(sel).get("updateComplete");
+        if (done != null) {
+            Js.<elemental2.promise.Promise<Object>>uncheckedCast(done)
+                    .then(x -> { Js.asPropertyMap(sel).set("value", now); return null; });
+        } else Js.asPropertyMap(sel).set("value", now);
         sel.addEventListener("change", evt -> store.save(field, value(sel)));
         put(r, sel);
         return r;
+    }
+
+    /** 고르개의 한 항목 — 고른 것은 속성으로도 표시한다(폼 reset이 프로퍼티만 든 선택을 지운다). */
+    private static void opt(HTMLElement sel, String value, String word, String now) {
+        HTMLElement o = el("md-select-option");
+        o.setAttribute("value", value);
+        HTMLElement head = el("div");
+        head.setAttribute("slot", "headline");
+        head.textContent = word;
+        o.append(head);
+        if (value.equals(now == null ? "" : now)) {
+            Js.asPropertyMap(o).set("selected", true);
+            o.setAttribute("selected", "");
+        }
+        sel.append(o);
     }
 
     private HTMLElement daemonSwitch(String kId, String whyId, String kKey, String whyKey,
@@ -538,6 +615,46 @@ public class SettingsElement {
             control.setAttribute(field ? "label" : "aria-label", name);
         }
         row.append(control);
+    }
+
+    private static java.util.List<String> names(JsArrayLike<Object> all) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (int i = 0; i < all.getLength(); i++) {
+            out.add(str(Js.<JsPropertyMap<Object>>uncheckedCast(all.getAt(i)), "name"));
+        }
+        return out;
+    }
+
+    private static java.util.List<String> models(JsPropertyMap<Object> provider) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        JsArrayLike<Object> all = provider == null ? null : Js.uncheckedCast(provider.get("models"));
+        for (int i = 0; all != null && i < all.getLength(); i++) out.add(String.valueOf(all.getAt(i)));
+        return out;
+    }
+
+    private static JsPropertyMap<Object> byName(JsArrayLike<Object> all, String name) {
+        for (int i = 0; i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (str(one, "name").equals(name)) return one;
+        }
+        return null;
+    }
+
+    /** 고를 것들을 다시 적는다 — 첫 자리는 "아직 아무것도"(고르개는 빈 값을 가질 수 있다). */
+    private static void fill(HTMLElement sel, java.util.List<String> items, String placeholder) {
+        sel.replaceChildren();
+        java.util.List<String> all = new java.util.ArrayList<>();
+        all.add("");
+        all.addAll(items);
+        for (String it : all) {
+            HTMLElement o = el("md-select-option");
+            o.setAttribute("value", it);
+            HTMLElement head = el("div");
+            head.setAttribute("slot", "headline");
+            head.textContent = it.isEmpty() ? placeholder : it;
+            o.append(head);
+            sel.append(o);
+        }
     }
 
     private HTMLElement group(String id, String words) {

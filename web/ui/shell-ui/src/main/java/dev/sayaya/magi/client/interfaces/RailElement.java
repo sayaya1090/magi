@@ -56,12 +56,14 @@ public class RailElement implements RailView {
         this.mode = mode;
         build(panel);
         roster.subscribe(this::countWaiting);
+        // 말이 바뀌면 문 이름도 바뀐다 — 사람이 언어를 갈면 이 기둥부터 눈에 들어온다.
+        dev.sayaya.magi.bridge.Labels.onPack(this::paint);
         mode.subscribe(this::applyModes);
         // 능력이 늦게 도착해도 문은 따라 접힌다 — 취하는 쪽만: 숨긴 것을 되살리진 않는다(운영 applyMay).
-        may.subscribe(m -> {
+        may.subscribe(n -> {
             for (Destination d : Destination.doors()) {
                 HTMLElement item = items.get(d.id);
-                if (item != null && !m.may(d.may)) item.setAttribute("hidden", "");
+                if (item != null && !may.may(d.may)) item.setAttribute("hidden", "");
             }
         });
     }

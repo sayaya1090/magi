@@ -1,5 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Icons;
+
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.Facts;
 import dev.sayaya.magi.client.domain.Destination;
@@ -32,7 +34,9 @@ public class MastheadElement {
     private final HTMLElement header = el("header");
     private final HTMLElement whereami = el("span");
     private final HTMLElement back = el("a");
-    private final HTMLElement deep = el("span");
+    // 계단은 링크다 — 한 겹 들어간 화면에서 이것이 대화로 돌아가는 길이고, 서 있는 자리일
+    // 때도 같은 요소여야 두 상태가 같은 계단으로 읽힌다(운영도 <a>다).
+    private final HTMLElement deep = el("a");
     private final HTMLElement state = el("span");
     private final HTMLElement chrome = el("span");   // 화면이 미는 창 손잡이의 자리
     private final HTMLElement gear = el("md-icon-button");   // 환경설정으로 가는 문
@@ -47,7 +51,13 @@ public class MastheadElement {
         this.roster = roster;
         this.palette = palette;
         build();
-        nav.subscribe(place -> { standing = place; crumbs(); });
+        dev.sayaya.magi.bridge.Labels.onPack(this::paint);
+        nav.subscribe(place -> {
+            standing = place;
+            crumbs();
+            // 자리가 바뀌면 그 줄의 몫도 바뀐다 — 목록에서는 수를, 컴패니언 곁에서는 점만.
+            count(lastRoster);
+        });
         roster.subscribe(list -> { count(list); crumbs(); });
         roster.subscribeLink(up -> {
             state.classList.toggle("live", up);
@@ -104,6 +114,13 @@ public class MastheadElement {
         } else {
             deep.className = "here";
             deep.textContent = nameOf(standing.socket);
+            deep.addEventListener("click", evt -> { evt.preventDefault(); nav.goPast(null); });
+            // 이 계단도 링크다 — 한 겹 들어간 화면(지난 일·표결)에서 이것이 대화로 돌아가는
+            // 길이고, 서 있는 자리일 때도 같은 요소여야 그 둘이 같은 계단으로 읽힌다.
+            deep.setAttribute("href", Windows.here() + "?d="
+                    + elemental2.core.Global.encodeURIComponent(standing.socket)
+                    + (standing.peer == null || standing.peer.isEmpty() ? ""
+                       : "&p=" + elemental2.core.Global.encodeURIComponent(standing.peer)));
             back.insertAdjacentElement("afterend", deep);
         }
         markRungs(inCompanion);
@@ -164,7 +181,10 @@ public class MastheadElement {
         // ?d= 가 그대로 남으므로 화면이 그 사실을 읽는다.
         gear.id = "prefs";
         gear.setAttribute("aria-label", tr("nav.preferences"));
-        gear.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+        // data-i를 단다: 구운 스프라이트가 있는 빌드에서는 Icons.dress가 이 도형을 그것으로
+        // 갈아입힌다(운영 dressIcons와 같은 거래). 없으면 여기 그린 도형이 그대로 산다 —
+        // 없는 이름을 달아 두면 그 자리만 다른 알파벳을 쓰는 아이콘이 된다(실측: 이 둘만 달랐다).
+        gear.innerHTML = "<svg data-i=\"#i-sl-sliders\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<path d=\"M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0\" fill=\"none\" "
                 + "stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/>"
                 + "<circle cx=\"16\" cy=\"7\" r=\"2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
@@ -175,16 +195,28 @@ public class MastheadElement {
         // 단축키는 아무도 발견하지 못한다(운영이 이 버튼을 둔 이유).
         palBtn.id = "palOpen";
         palBtn.addEventListener("click", evt -> palette.show());
-        palBtn.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
+        palBtn.innerHTML = "<svg data-i=\"#i-sl-magnifying-glass\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
                 + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
         header.append(mark, whereami, crumbs, state, chrome, palBtn, gear);
+        // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
+        Icons.dress(header);
     }
 
     /** 몇이 있고 몇이 기다리는가 — 그리고 기다림은 누르면 그리로 간다. */
     private void count(dev.sayaya.magi.bridge.FleetAgent[] list) {
         if (list == null) return;   // 못 읽음은 점(lost)이 말한다; 수는 마지막 앎을 지킨다
         lastRoster = list;
+        // 컴패니언 곁에서만 걷는다 — 그 줄은 그 컴패니언의 계단을 이고 있고, 860px에서는 이 수
+        // 때문에 바가 두 줄로 접혀 아래 줄의 아이콘이 본문을 밀어냈다. <b>다른 화면에서는 남는다</b>:
+        // 화면을 옮길 때마다 나타났다 사라지는 줄은 그 자체로 눈에 띄고, 기다리는 사람이 몇인지는
+        // 어느 문 안에 있든 같은 사실이다(먼저 목록에서만 그리게 했더니 그 깜빡임이 생겼다).
+        if (standing != null && standing.isCompanion()) {
+            said = "";
+            state.replaceChildren();
+            state.classList.toggle("asking", false);
+            return;
+        }
         int waiting = 0;
         for (dev.sayaya.magi.bridge.FleetAgent a : list) if ("waiting".equals(a.state)) waiting++;
         String n = String.valueOf(list.length);

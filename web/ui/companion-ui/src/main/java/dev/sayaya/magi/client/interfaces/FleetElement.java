@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
@@ -174,6 +175,19 @@ public class FleetElement {
             summary.append(toView("map", "nav.map", false, "#i-sl-share-from-square",
                     "M12 4.2a2 2 0 1 1 0 4 2 2 0 0 1 0-4M6 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4"
                             + "M18 15.8a2 2 0 1 1 0 4 2 2 0 0 1 0-4M12 8.2v3.6M12 11.8H6v4M12 11.8h6v4"));
+        }
+        // 회의는 레일에도 문이 있지만 여기에도 둔다: 레일은 600px 아래에서 아예 그려지지 않고,
+        // 무엇보다 <b>부를 사람들이 여기 있다</b> — 그 일은 고를 목록 곁에 서는 것이 맞다.
+        // 이 기계의 컴패니언이 둘부터(하나를 부르는 회의는 회의가 아니다), 부를 수 있는 사람에게만.
+        int local = 0;
+        for (int i = 0; last != null && i < last.length; i++) {
+            if (!last[i].elsewhere && (last[i].peer == null || last[i].peer.isEmpty())) local++;
+        }
+        if (local > 1 && May.can("prompt")) {
+            summary.append(toView("meet", "nav.meet", false, "#i-sl-comments",
+                    "M9.5 4h6.8A2.7 2.7 0 0 1 19 6.7v4.1a2.7 2.7 0 0 1-2.7 2.7H15l-3 2.6v-2.6H9.5"
+                            + "a2.7 2.7 0 0 1-2.7-2.7V6.7A2.7 2.7 0 0 1 9.5 4M5 9.4v5.9a2.7 2.7 0 0 0 2.7 2.7H9v2.4"
+                            + "l2.8-2.4h2"));
         }
     }
 

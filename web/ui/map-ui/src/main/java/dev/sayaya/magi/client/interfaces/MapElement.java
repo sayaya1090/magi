@@ -49,7 +49,12 @@ public class MapElement {
         frame.replaceChildren(root);
         if (wired) return;
         wired = true;
-        store.subscribe(this::render);
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
+        // 명단 전체가 아니라 <b>이 지도가 그리는 것</b>만 듣는다 — 걸음 수가 늘었다고 지도가
+        // 다시 설 이유는 없다(실측: 10초에 70번).
+        store.drawn().subscribe(sig -> render());
         store.start();
     }
 
@@ -66,7 +71,7 @@ public class MapElement {
         // 표로 돌아가는 길 — 두 목적지가 아니라 한 목적지의 두 시선(운영 toTable).
         HTMLElement back = el("md-text-button");
         back.className = "astable";
-        back.textContent = tr("map.as_table");
+        Icons.say(back, tr("map.as_table"), "#i-sl-layer-group");
         back.addEventListener("click", evt -> GoSharing.view("fleet"));
         head.append(back);
         if (rows == null || hands == null) {

@@ -97,6 +97,24 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void pullRequest(CompanionContext ctx, Consumer<Object> cb) {
+        cb.accept(Global.JSON.parse("{\"repo\":true,\"branch\":\"work\",\"base\":\"origin/main\",\"pushed\":false,"
+                + "\"commits\":[{\"sha\":\"abc1234\",\"subject\":\"do the thing\"}],"
+                + "\"diff\":\"@@ -1 +1 @@\\n-old\\n+new\"}"));
+    }
+
+    @Override
+    public void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said) {
+        said.accept("a drafted request");
+    }
+
+    @Override
+    public void openPullRequest(CompanionContext ctx, String title, String text, Consumer<String> urlOrWhy) {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_pr", title + "|" + text);
+        urlOrWhy.accept("https://example.test/pr/1");
+    }
+
+    @Override
     public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_gitmsg", rules);
         said.accept("a drafted message");

@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CardSharing;
+import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.Render;
 import dev.sayaya.magi.bridge.May;
@@ -61,29 +62,51 @@ public class WorkspaceElement {
         frame.replaceChildren(root);
         if (wired) return;
         wired = true;
-        store.subscribe(this::render);
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(() -> { treeDirty = gitDirty = true; render(); });
+        // 판마다 제 조각을 듣는다 — 파일 하나를 눌렀다고 깃 판이 다시 서지 않게(실측: 깜빡였다).
+        store.treeFacts().subscribe(sig -> { treeDirty = true; render(); });
+        store.gitFacts().subscribe(sig -> { gitDirty = true; render(); });
+        store.subscribe(this::arrange);
         // 부모가 다른 탭으로 옮기면 트리의 표시도 따라간다.
-        CardSharing.onShowing(this::render);
+        CardSharing.onShowing(() -> { treeDirty = true; render(); });
+        // 판이 열리는 순간이 첫 걸음의 순간이다 — 닫힌 판은 걷지 않는다.
+        dev.sayaya.magi.bridge.PaneSharing.onOpened((slot, open) -> { if (open && "left".equals(slot)) store.walk(); });
     }
 
     /** 폰의 작업공간이 지금 보이는 것 — 트리("files")냐 git이냐. 넓은 화면에서는 둘 다 선다. */
     private String shows = "files";
 
+    // 어느 판을 다시 지어야 하는가 — 조각이 흘렀을 때만 참이 된다.
+    private boolean treeDirty = true, gitDirty = true;
+    private HTMLElement treeBox = null, gitBox = null;
+
+    /** 무엇이 어디에 서는가 — 자리만 정한다(판을 짓지 않는다). */
+    private void arrange() { render(); }
+
     private void render() {
-        root.replaceChildren();
+        // 아무도 열어 본 적 없는 판은 아직 아무것도 아니다 — 요청도, 마크업도(운영 규칙).
+        // 열리는 순간 첫 걸음이 떨어지고, 그 답이 이 판을 짓는다.
+        if (!dev.sayaya.magi.bridge.PaneSharing.isOpen("left") && !store.walked()) return;
         // 한 기둥이면 한 번에 하나다(운영의 그 규칙): 마흔 개 이름 아래에 깔린 git 판은 아무도
         // 스크롤해 내려가지 않고, 그 판의 행동들은 손끝이 닿을 자리에 있지도 않다.
         // console.css가 #files[data-shows]로 그 감춤을 맡는다 — 여기서는 무엇을 보이는지만 적는다.
+        // 판은 <b>제 조각이 흘렀을 때만</b> 다시 짓는다. 자리를 바꾸는 것은 노드를 옮기는 일이라
+        // 그 자체로는 다시 짓지 않는다.
+        if (treeDirty || treeBox == null) { treeBox = treeCard(); treeDirty = false; }
+        if (gitDirty || gitBox == null) { gitBox = gitCard(); gitDirty = false; }
+        root.replaceChildren();
         if (Windows.onePane()) {
             root.setAttribute("data-shows", shows);
             if ("git".equals(shows)) {
-                root.append(backRow(tr("nav.files_short"), () -> { shows = "files"; render(); }), gitCard());
+                root.append(backRow(tr("nav.files_short"), () -> { shows = "files"; render(); }), gitBox);
             } else {
-                root.append(treeCard(), gitRow(), gitCard());
+                root.append(treeBox, gitRow(), gitBox);
             }
         } else {
             root.removeAttribute("data-shows");
-            root.append(treeCard(), gitCard());
+            root.append(treeBox, gitBox);
         }
         publishCards();
     }
@@ -405,7 +428,8 @@ public class WorkspaceElement {
     private void publishCards() {
         java.util.List<HTMLElement> cards = new java.util.ArrayList<>();
         for (String key : store.openPaths()) {
-            cards.add(WorkspaceStore.COMMIT.equals(key) ? commitCard()
+            cards.add(WorkspaceStore.PR.equals(key) ? prCard()
+                    : WorkspaceStore.COMMIT.equals(key) ? commitCard()
                     : WorkspaceStore.isDiff(key) ? diffCard(key) : fileCard(key));
         }
         // 카드 줄은 창에 하나다 — 제 몫만 놓고, 합치는 일은 한 곳에서 한다(OpenCards).
@@ -716,6 +740,123 @@ public class WorkspaceElement {
         box.append(inner);
         return box;
     }
+
+    /**
+     * 요청 작업대 — 어느 가지를 어디에 얹는지, 무엇을 싣는지, 그리고 요청 그 자체.
+     *
+     * 커밋 작업대와 같은 모양이고 같은 이유다: 요청은 <b>싣는 것을 읽으면서</b> 쓰는 글이고,
+     * 그것을 보여 주지 않는 상자에서 쓴 요청이 하루 두 번 "update"가 된다.
+     */
+    private HTMLElement prCard() {
+        HTMLElement box = el("div");
+        box.id = WorkspaceStore.PR;
+        box.setAttribute("title", tr("git.pr"));
+        box.style.setProperty("display", "contents");
+        CardSharing.closable(box, () -> store.closeFile(WorkspaceStore.PR));
+        HTMLElement bar = cell("filebar", null);
+        if (CardSharing.alone()) bar.append(backToList());
+        HTMLElement where = cell("filedir", tr("git.pr"));
+        bar.append(where);
+        box.append(bar);
+        HTMLElement inner = cell("commitbox", null);
+        HTMLElement list = cell("commitfiles", null);
+        list.append(cell("filesnote", tr("detail.loading")));
+        HTMLElement diff = el("pre");
+        diff.className = "filecode diffbody commitdiff";
+        HTMLElement foot = cell("commitfoot", null);
+        HTMLElement msg = el("md-outlined-text-field");
+        msg.className = "commitmsg";
+        msg.setAttribute("label", tr("git.pr_text"));
+        msg.setAttribute("type", "textarea");
+        msg.setAttribute("rows", "4");
+        Js.asPropertyMap(msg).set("value", prDraft);
+        msg.addEventListener("input", evt -> prDraft = value(msg));
+        HTMLElement rulesWrap = cell("commitruleswrap", null);
+        rulesWrap.setAttribute("hidden", "");
+        HTMLElement rules = el("md-outlined-text-field");
+        rules.className = "commitrules";
+        rules.setAttribute("label", tr("git.rules"));
+        rules.setAttribute("type", "textarea");
+        rules.setAttribute("rows", "2");
+        Js.asPropertyMap(rules).set("value", prRules);
+        rules.addEventListener("input", evt -> prRules = value(rules));
+        rulesWrap.append(cell("commitrulesrow", null));
+        rulesWrap.firstElementChild.append(rules);
+        HTMLElement said = cell("filesnote", "");
+        said.setAttribute("hidden", "");
+        HTMLElement acts = cell("commitacts", null);
+        HTMLElement rulesGo = el("md-text-button");
+        rulesGo.append(Icons.orGlyph("#i-sl-sliders", "\u22EF", "sic"));
+        rulesGo.textContent = tr("git.rules");
+        rulesGo.addEventListener("click", evt -> {
+            if (rulesWrap.hasAttribute("hidden")) rulesWrap.removeAttribute("hidden");
+            else rulesWrap.setAttribute("hidden", "");
+        });
+        HTMLElement draft = el("md-text-button");
+        draft.append(Icons.orGlyph("#i-sl-wand-magic-sparkles", "\u2726", "sic"));
+        draft.textContent = tr("git.draft");
+        draft.addEventListener("click", evt -> store.draftPullRequest(prRules, out -> {
+            if (out == null || out.trim().isEmpty()) return;
+            prDraft = out;
+            Js.asPropertyMap(msg).set("value", out);
+        }));
+        HTMLElement go = el("md-filled-tonal-button");
+        go.append(Icons.orGlyph("#i-sl-share-from-square", "\u2197", "sic"));
+        go.textContent = tr("git.pr");
+        go.addEventListener("click", evt -> {
+            String text = value(msg).trim();
+            if (text.isEmpty()) {
+                said.textContent = tr("git.need_message");
+                said.removeAttribute("hidden");
+                return;
+            }
+            // 첫 줄이 제목, 나머지가 본문 — 사람들이 이미 커밋을 쓰는 그 모양이고, gh도 같은
+            // 순서로 읽는다.
+            int nl = text.indexOf('\n');
+            String title = nl < 0 ? text : text.substring(0, nl);
+            String body = nl < 0 ? "" : text.substring(nl + 1).trim();
+            store.openPullRequest(title, body, urlOrWhy -> {
+                said.textContent = urlOrWhy == null || urlOrWhy.isEmpty() ? tr("error.unreachable") : urlOrWhy;
+                said.removeAttribute("hidden");
+            });
+        });
+        acts.append(rulesGo, draft, go);
+        foot.append(msg, rulesWrap, acts, said);
+        inner.append(list, diff, foot);
+        box.append(inner);
+        store.pullRequest(got -> {
+            list.replaceChildren();
+            diff.replaceChildren();
+            JsPropertyMap<Object> st = got == null ? null : Js.uncheckedCast(got);
+            if (st == null) { list.append(cell("filesnote", tr("pr.unreachable"))); return; }
+            if (!Js.isTruthy(st.get("repo"))) { list.append(cell("filesnote", tr("git.not_a_repo"))); return; }
+            String base = str(st, "base");
+            if (base.isEmpty()) { list.append(cell("filesnote", tr("pr.no_base"))); return; }
+            where.textContent = tr("git.pr") + "  \u00B7  " + str(st, "branch") + " \u2192 " + base;
+            JsArrayLike<Object> commits = Js.uncheckedCast(st.get("commits"));
+            if (commits == null || commits.getLength() == 0) {
+                list.append(cell("filesnote", tr("pr.nothing_to_send")));
+            }
+            for (int i = 0; commits != null && i < commits.getLength(); i++) {
+                JsPropertyMap<Object> c = Js.uncheckedCast(commits.getAt(i));
+                HTMLElement row = cell("treerow state", null);
+                row.append(cell("gitkind", str(c, "sha")), cell("treename", str(c, "subject")));
+                list.append(row);
+            }
+            String text = str(st, "diff");
+            if (text.trim().isEmpty()) { diff.append(cell("filesnote", tr("diff.same"))); return; }
+            for (String line : text.split("\n", -1)) {
+                HTMLElement row = el("span");
+                row.className = diffClass(line);
+                row.textContent = line + "\n";
+                diff.append(row);
+            }
+        });
+        return box;
+    }
+
+    private String prDraft = "";
+    private String prRules = "";
 
     private String commitDraft = "";
     private String commitRules = "";
@@ -1197,6 +1338,8 @@ public class WorkspaceElement {
         } else {
             act(box, "git.unstash", "#i-sl-arrows-rotate", "\u21BB", () -> store.gitDo("unstash", null, null));
         }
+        // 요청을 내는 것은 push와 같은 심부름의 끝이라 그 곁에 선다 — 메뉴 어딘가가 아니라.
+        act(box, "git.pr", "#i-sl-share-from-square", "\u2197", () -> store.openPullRequestBench());
         act(box, "git.new_branch", "#i-sl-plus", "+", () ->
                 dialogs.line(tr("git.new_branch"), tr("git.new_branch_who"), tr("git.branch"),
                         "", null, null, (said, ignored) -> {

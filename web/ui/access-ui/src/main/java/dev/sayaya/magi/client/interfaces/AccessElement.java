@@ -1,5 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.May;
+
 import dev.sayaya.magi.client.usecase.AccessStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
@@ -36,10 +38,12 @@ public class AccessElement {
     private final AccessStore store;
     private final HTMLElement root = el("div");
     private boolean wired = false;
+    private final dev.sayaya.magi.component.Dialogs dialogs;
 
     @Inject
-    public AccessElement(AccessStore store) {
+    public AccessElement(AccessStore store, dev.sayaya.magi.component.Dialogs dialogs) {
         this.store = store;
+        this.dialogs = dialogs;
         root.id = "access";
     }
 
@@ -47,6 +51,9 @@ public class AccessElement {
         frame.replaceChildren(root);
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
         store.subscribe(this::render);
         store.start();
     }
@@ -91,10 +98,45 @@ public class AccessElement {
         if (!people.isEmpty() || filter == null) {
             kids.add(rosterHead("access.exceptions", "access.exceptions_why"));
             kids.add(list(people));
+            // 사람을 들이는 문. 아무도 없는 콘솔에서는 <b>첫 사람이 admin일 수 있어야</b> 한다:
+            // 사람은 있는데 admin이 없는 콘솔은 아예 뜨지 않아 서버가 그런 첫 줄을 거절한다.
+            // 그래서 물을 때 기본값을 거절당하지 않을 쪽으로 놓는다(운영 addPersonButton).
+            if (May.can("admin")) kids.add(addPerson(Js.uncheckedCast(got.get("roles")), people.isEmpty()));
         }
         kids.add(rosterHead("access.legend", null));
         kids.add(legend(got));
         root.replaceChildren(kids.toArray(new HTMLElement[0]));
+    }
+
+    /** 사람을 들이는 문 — 누구를, 어떤 역할로. */
+    private HTMLElement addPerson(JsArrayLike<Object> roles, boolean first) {
+        List<String> names = new ArrayList<>();
+        String adminRole = "", plain = "";
+        for (int i = 0; roles != null && i < roles.getLength(); i++) {
+            JsPropertyMap<Object> r = Js.uncheckedCast(roles.getAt(i));
+            String name = str(r, "name");
+            names.add(name);
+            JsArrayLike<Object> can = Js.uncheckedCast(r.get("can"));
+            for (int k = 0; adminRole.isEmpty() && can != null && k < can.getLength(); k++) {
+                if ("admin".equals(String.valueOf(can.getAt(k)))) adminRole = name;
+            }
+            if ("viewer".equals(name)) plain = name;
+        }
+        if (plain.isEmpty() && !names.isEmpty()) plain = names.get(0);
+        String[][] choices = new String[names.size()][];
+        for (int i = 0; i < names.size(); i++) choices[i] = new String[]{names.get(i), names.get(i)};
+        final String start = first && !adminRole.isEmpty() ? adminRole : plain;
+        final boolean firstOne = first && !adminRole.isEmpty();
+        HTMLElement b = el("md-text-button");
+        b.textContent = tr("access.add");
+        b.addEventListener("click", evt -> dialogs.line(tr("access.add"),
+                tr(firstOne ? "access.add_first" : "access.add_who"),
+                tr("access.who"), "", choices, start,
+                (who, role) -> {
+                    if (who.trim().isEmpty()) return;
+                    store.setPerson(who.trim(), role == null || role.isEmpty() ? start : role, "");
+                }));
+        return b;
     }
 
     private List<HTMLElement> rows(Object arr, String filter,

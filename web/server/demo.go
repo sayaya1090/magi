@@ -75,6 +75,11 @@ const demoShim = `
 `
 
 // emitDemo writes the assembled console as a self-answering static site into dir.
+//
+// The answers come from one module (web/ui/demo-ui) rather than from the screens: it hangs its
+// fixtures on the console's own seam (Console.raw/stream), so the screens run the same code they
+// run in life. Production never sees it — assembleConsole leaves it out, and only this emitter
+// copies it in.
 func emitDemo(dir, ui, oldConsole string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -83,6 +88,14 @@ func emitDemo(dir, ui, oldConsole string) error {
 	if err := copyTree(ui, filepath.Join(dir, "ui")); err != nil {
 		return fmt.Errorf("ui assets: %w", err)
 	}
+	// The demo's mock, beside the screens it answers for. The page loads it first and waits.
+	if mock := filepath.Join(filepath.Dir(ui), "demo-mock", "demo"); dirExists(mock) {
+		if err := copyTree(mock, filepath.Join(dir, "ui", "demo")); err != nil {
+			return fmt.Errorf("demo mock: %w", err)
+		}
+	} else {
+		return fmt.Errorf("demo mock not built: %s — run assembleDemoMock", mock)
+	}
 	// The single-source assets the BFF serves in life: the material bundle and the language packs.
 	if err := copyTree(filepath.Join(oldConsole, "i18n"), filepath.Join(dir, "i18n")); err != nil {
 		return fmt.Errorf("i18n: %w", err)
@@ -90,9 +103,13 @@ func emitDemo(dir, ui, oldConsole string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
 		return err
 	}
-	if err := copyFile(filepath.Join(oldConsole, "vendor", "material.js"),
-		filepath.Join(dir, "vendor", "material.js")); err != nil {
-		return fmt.Errorf("vendor: %w", err)
+	// material.js draws the controls; rxjs.js is what the screens' stores are made of, and the
+	// page asks for it by name before the shell boots — a demo without it is a blank console.
+	for _, name := range []string{"material.js", "rxjs.js"} {
+		if err := copyFile(filepath.Join(oldConsole, "vendor", name),
+			filepath.Join(dir, "vendor", name)); err != nil {
+			return fmt.Errorf("vendor: %w", err)
+		}
 	}
 	// The stylesheet's own absolute paths. The typeface lives at the site root (the old console's
 	// demo puts it there) and this shell lives a directory down, so `url(/font/…)` inside the
@@ -129,7 +146,13 @@ func emitDemo(dir, ui, oldConsole string) error {
 		page = strings.ReplaceAll(page, `"`+prefix, `"./`+strings.TrimPrefix(prefix, "/"))
 		page = strings.ReplaceAll(page, "'"+prefix, "'./"+strings.TrimPrefix(prefix, "/"))
 	}
-	page = strings.Replace(page, "<script src=", demoShim+"<script src=", 1)
+	// 표식 자리에 — 셸 페이지가 명시적으로 내준 곳이다. 없으면 여기서 멈춘다: 목이 빠진
+	// 데모는 화면마다 404를 받아 빈 콘솔이 되고, 그것을 알아채는 데 한참 걸린다(밟아 봤다).
+	const shimMark = "<!--DEMO-SHIM-->"
+	if !strings.Contains(page, shimMark) {
+		return fmt.Errorf("console.html: %s marker not found — the demo mock has nowhere to stand", shimMark)
+	}
+	page = strings.Replace(page, shimMark, demoShim, 1)
 	page = withSprite(page)
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(page), 0o644); err != nil {
 		return err
@@ -157,6 +180,11 @@ func emitDemo(dir, ui, oldConsole string) error {
 		}
 	}
 	return nil
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func copyTree(from, to string) error {

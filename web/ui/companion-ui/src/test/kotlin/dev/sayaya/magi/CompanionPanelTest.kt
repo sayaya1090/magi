@@ -161,7 +161,9 @@ internal class CompanionPanelTest : GwtTestSpec({
                 (page.evaluate("document.body.getAttribute('panel')")) shouldBe "talk"
                 page.locator("#stream .cfill:not([hidden])").count() shouldBe 1
                 page.locator("#detail[hidden]").count() shouldBe 1
-                page.locator("#filecol[hidden]").count() shouldBe 1
+                // 기둥은 서 있고 그 속이 숨는다(운영도 그렇다: 폰에서 #filecol은 높이 0의 빈
+                // 기둥으로 남는다) — 기둥째 걷으면 옆 기둥들이 그 자리만큼 흔들린다.
+                page.locator("#filecol > .cfill[hidden]").count() shouldBe 1
             }
             Then("정보 탭은 사실판을 보인다") {
                 page.locator("#ptab-facts").click()
@@ -170,11 +172,11 @@ internal class CompanionPanelTest : GwtTestSpec({
             }
             Then("작업공간 탭은 왼쪽 기둥을, 진행 탭은 오른쪽 판을 보인다") {
                 page.locator("#ptab-files").click()
-                page.waitForSelector("#filecol:not([hidden])")
+                page.waitForSelector("#filecol > .cfill:not([hidden])")
                 page.locator("#detail[hidden]").count() shouldBe 1
                 page.locator("#ptab-plan").click()
-                page.waitForSelector("#sidecol:not([hidden])")
-                page.locator("#filecol[hidden]").count() shouldBe 1
+                page.waitForSelector("#sidecol #side:not([hidden])")
+                page.locator("#filecol > .cfill[hidden]").count() shouldBe 1
             }
             Then("가로 스크롤은 없다") {
                 (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true

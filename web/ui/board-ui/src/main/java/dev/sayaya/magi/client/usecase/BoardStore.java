@@ -13,9 +13,8 @@ import java.util.function.Consumer;
  * 명단이 오면 각 컴패니언의 /history를 한 번씩 걷어 온다(운영과 같은 두 요청, 새 엔드포인트 없음).
  */
 @Singleton
-public class BoardStore {
+public class BoardStore extends dev.sayaya.magi.bridge.Told {
     private final BoardSource source;
-    private final List<Runnable> observers = new ArrayList<>();
     private Object fleet = null;
     private boolean fleetAnswered = false;
     private final Map<String, Object> histories = new HashMap<>();
@@ -37,7 +36,7 @@ public class BoardStore {
         source.fleet(list -> {
             fleet = list;
             fleetAnswered = true;
-            emit();
+            told();
         });
     }
 
@@ -46,11 +45,32 @@ public class BoardStore {
         String key = (peer == null ? "" : peer) + "|" + socket;
         if (histories.containsKey(key)) return;
         histories.put(key, null);
-        source.history(socket, peer, h -> { histories.put(key, h); emit(); });
+        source.history(socket, peer, h -> { histories.put(key, h); told(); });
     }
 
     public Object historyOf(String socket, String peer) {
         return histories.get((peer == null ? "" : peer) + "|" + socket);
+    }
+
+    /**
+     * 보드가 그리는 것 — 어느 컴패니언들이 있고(이름·소켓), 그들의 지난 일이 무엇이며,
+     * 보는 날과 좁히는 말이 무엇인가. 걸음 수나 지금 무엇을 하는지는 이 화면에 없다.
+     */
+    public dev.sayaya.rx.Observable<String> drawn() { return when(this::sig); }
+
+    private String sig() {
+        StringBuilder b = new StringBuilder(day).append('|').append(query).append('|').append(fleetAnswered);
+        jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(fleet);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> a = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+            b.append(a.get("socket")).append(',').append(a.get("name")).append(',')
+             .append(a.get("peer")).append(',').append(a.get("team")).append(';');
+        }
+        for (Map.Entry<String, Object> e : histories.entrySet()) {
+            b.append('|').append(e.getKey()).append('=')
+             .append(e.getValue() == null ? "" : elemental2.core.Global.JSON.stringify(e.getValue()));
+        }
+        return b.toString();
     }
 
     public Object fleet() { return fleet; }
@@ -58,10 +78,8 @@ public class BoardStore {
     public String day() { return day; }
     public String query() { return query; }
 
-    public void day(String d) { if (d != null && !d.isEmpty()) { day = d; emit(); } }
-    public void query(String q) { query = q == null ? "" : q; emit(); }
+    public void day(String d) { if (d != null && !d.isEmpty()) { day = d; told(); } }
+    public void query(String q) { query = q == null ? "" : q; told(); }
 
-    public void subscribe(Runnable o) { observers.add(o); o.run(); }
 
-    private void emit() { for (Runnable o : observers) o.run(); }
 }

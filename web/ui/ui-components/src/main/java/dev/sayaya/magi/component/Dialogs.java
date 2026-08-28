@@ -1,4 +1,4 @@
-package dev.sayaya.magi.client.interfaces;
+package dev.sayaya.magi.component;
 
 import dev.sayaya.magi.bridge.Icons;
 import elemental2.dom.DomGlobal;
@@ -12,6 +12,9 @@ import static dev.sayaya.magi.bridge.Labels.tr;
 
 /**
  * 묻는 자리 두 가지 — 한 줄을 받는 상자와, 되돌릴 수 없는 일을 확인하는 상자.
+ *
+ * 여기(ui-components)에 사는 이유: 묻는 자리는 화면마다 다시 지을 것이 아니다 — 두 화면이
+ * 각자 지으면 취소가 확인 왼쪽인지 오른쪽인지가 화면마다 달라진다.
  *
  * 브라우저의 prompt()를 쓰지 않는 이유는 운영이 그것을 쓰지 않는 이유와 같다: 그 상자는 이
  * 콘솔의 것이 아니라 브라우저의 것이라 말도, 모양도, 초점도 이 페이지가 정할 수 없고, 어떤

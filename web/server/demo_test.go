@@ -79,13 +79,16 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	ui, old, out := filepath.Join(dir, "ui"), filepath.Join(dir, "old"), filepath.Join(dir, "out")
 	write(t, filepath.Join(ui, "console.html"),
 		`<html><head><link rel="stylesheet" href="/ui/console.css">`+
-			`<script src="/vendor/material.js"></script>`+
-			`<script src="/ui/shell/shell.nocache.js"></script></head><body></body></html>`)
+			`<!--DEMO-SHIM-->`+
+			`<script type="module">import '/vendor/material.js';import * as rxjs from '/vendor/rxjs.js';`+
+			`window.rxjs=rxjs;const b=document.createElement('script');b.src='/ui/shell/shell.nocache.js';`+
+			`document.head.append(b);</script></head><body></body></html>`)
 	write(t, filepath.Join(ui, "console.css"),
 		"@font-face{src:url(/font/pretendard.woff2)}\n.row{color:red}\n")
 	write(t, filepath.Join(ui, "shell", "shell.nocache.js"),
 		`var p='/ui/'+m+'/';var s="/ui/companion.css";var t='/i18n/language.'+w+'.json';`)
 	write(t, filepath.Join(old, "vendor", "material.js"), "export const md = 1;\n")
+	write(t, filepath.Join(old, "vendor", "rxjs.js"), "export const BehaviorSubject = 1;\n")
 	write(t, filepath.Join(old, "i18n", "language.ko.json"), `{"nav.companions":"컴패니언"}`)
 
 	if err := emitDemo(out, ui, old); err != nil {
@@ -109,8 +112,12 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	if !strings.Contains(page, "MAGI_DEMO") {
 		t.Error("the page never says it is a demo — every module would then ask the real network")
 	}
-	if strings.Index(page, "MAGI_DEMO") > strings.Index(page, "<script src=") {
-		t.Error("the flag goes in after the first script — a module could boot before reading it")
+	// 그리고 그 사실은 <b>첫 스크립트보다 먼저</b> 적혀야 한다. 부트스트랩이 태그가 아니라
+	// 모듈 스크립트 안으로 들어가면서 "<script src=" 이라는 기준점이 사라졌고, 그때 목이
+	// 조용히 빠져 데모가 통째로 404가 됐다(밟았다) — 그래서 기준점은 표식이 아니라 실제로
+	// 회선을 여는 첫 스크립트다.
+	if strings.Index(page, "MAGI_DEMO") > strings.Index(page, "shell.nocache.js") {
+		t.Error("the flag goes in after the shell boots — modules would ask the real network first")
 	}
 	// The compiled module's own literals, both quote styles (GWT writes single).
 	js := read(t, filepath.Join(out, "ui", "shell", "shell.nocache.js"))
@@ -131,7 +138,7 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	}
 
 	// The single-source assets travelled: the packs and the bundle the page names.
-	for _, want := range []string{"i18n/language.ko.json", "vendor/material.js"} {
+	for _, want := range []string{"i18n/language.ko.json", "vendor/material.js", "vendor/rxjs.js"} {
 		if _, err := os.Stat(filepath.Join(out, want)); err != nil {
 			t.Errorf("%s did not travel into the demo: %v", want, err)
 		}

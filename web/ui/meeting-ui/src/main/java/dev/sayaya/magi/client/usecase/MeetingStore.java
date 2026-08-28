@@ -16,9 +16,8 @@ import java.util.function.Consumer;
  * DOM에만 있던 값은 문장 한가운데서 사라진다.
  */
 @Singleton
-public class MeetingStore {
+public class MeetingStore extends dev.sayaya.magi.bridge.Told {
     private final MeetingSource source;
-    private final List<Runnable> obs = new ArrayList<>();
 
     private String room = null;          // 주소가 대는 회의(?m=), 없으면 목록
     private Object one = null;           // 그 회의
@@ -33,9 +32,29 @@ public class MeetingStore {
     @Inject
     public MeetingStore(MeetingSource source) { this.source = source; }
 
-    public void subscribe(Runnable o) { obs.add(o); }
 
-    private void tell() { for (Runnable o : new ArrayList<>(obs)) o.run(); }
+
+    /**
+     * 이 화면이 그리는 것 — 어느 방을 보고 있고, 그 방과 목록이 무엇이며, 부를 수 있는 이들이
+     * 누구인가. 쓰던 주제와 하던 말은 여기 없다: 그것은 사람의 손에 있는 것이라, 폴이 그것을
+     * 이유로 판을 다시 세우면 문장 한가운데서 글자가 사라진다.
+     */
+    public dev.sayaya.rx.Observable<String> drawn() { return when(this::sig); }
+
+    private String sig() {
+        StringBuilder b = new StringBuilder(room == null ? "" : room).append('|').append(gone)
+                .append('|').append(String.join(",", picked));
+        b.append('|').append(one == null ? "" : elemental2.core.Global.JSON.stringify(one));
+        b.append('|').append(rooms == null ? "" : elemental2.core.Global.JSON.stringify(rooms));
+        // 명단에서 이 화면이 쓰는 것은 부를 수 있는 이들의 이름과 자리뿐이다.
+        jsinterop.base.JsArrayLike<Object> all = jsinterop.base.Js.uncheckedCast(fleet);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            jsinterop.base.JsPropertyMap<Object> a = jsinterop.base.Js.uncheckedCast(all.getAt(i));
+            b.append(a.get("socket")).append(',').append(a.get("name")).append(',')
+             .append(a.get("live")).append(',').append(a.get("team")).append(';');
+        }
+        return b.toString();
+    }
 
     public String room() { return room; }
     public Object one() { return one; }
@@ -65,21 +84,21 @@ public class MeetingStore {
         one = null;
         gone = false;
         saying = "";
-        tell();
+        told();
         read();
     }
 
     /** 지금 보는 것을 다시 읽는다 — 폴이 부른다. */
     public void read() {
         if (room == null) {
-            source.fleet(list -> { fleet = list; tell(); });
-            source.rooms(list -> { rooms = list; tell(); });
+            source.fleet(list -> { fleet = list; told(); });
+            source.rooms(list -> { rooms = list; told(); });
             return;
         }
         source.room(room, m -> {
             gone = m == null;
             if (m != null) one = m;
-            tell();
+            told();
         });
     }
 

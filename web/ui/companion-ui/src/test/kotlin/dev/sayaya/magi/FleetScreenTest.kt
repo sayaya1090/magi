@@ -20,8 +20,13 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.locator("#summary md-filter-chip.idle .n").textContent() shouldBe "1"
                 page.locator("#summary md-filter-chip.gone .n").textContent() shouldBe "1"
             }
-            Then("칩들 곁에 나가는 길들이 선다(.toview) — 보드, 그리고 둘 이상이라 맵") {
-                page.locator("#summary .toview").count() shouldBe 2
+            Then("칩들 곁에 나가는 길들이 선다(.toview) — 보드·맵, 그리고 이 기계에 둘 이상이라 회의") {
+                // 회의가 여기에도 있는 이유: 레일은 600px 아래에서 그려지지 않고, 부를 사람들이
+                // 이 목록에 있다 — 그 일은 고를 목록 곁에 서는 것이 맞다(운영의 그 자리).
+                page.locator("#summary .toview").count() shouldBe 3
+                // 이름은 md 컴포넌트가 섀도로 위임하며 호스트에서 걷어간다(여러 번 밟은 함정) —
+                // 그 자리의 그림으로 어느 길인지 잰다.
+                page.locator("#summary .toview svg[data-i='#i-sl-comments']").count() shouldBe 1
             }
             Then("행은 다섯: elsewhere 포함 전부 그려진다") {
                 page.locator("#fleet .card").count() shouldBe 5

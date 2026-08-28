@@ -14,8 +14,7 @@ import java.util.List;
  * dismissed(←)는 접힌 기둥의 것: 드로어를 열거나 도구 목록이 바뀌면 걷힌다.
  */
 @Singleton
-public class RailMode {
-    private final List<Runnable> observers = new ArrayList<>();
+public class RailMode extends dev.sayaya.magi.bridge.Told {
     private final ToolList tools;
     private boolean open = false;
     private boolean hovering = false;
@@ -29,7 +28,7 @@ public class RailMode {
             int n = list == null ? 0 : list.size();
             if (n != toolCount) dismissed = false;   // 새 문맥은 새 판단
             toolCount = n;
-            emit();
+            told();
         });
     }
 
@@ -37,20 +36,20 @@ public class RailMode {
     public void drawer(boolean isOpen) {
         open = isOpen;
         if (isOpen) dismissed = false;
-        emit();
+        told();
     }
 
     /** 손끝이 레일 위에 있는가 — 접힌 툴 레일의 피크(라벨 노출)가 읽는다. */
     public void hover(boolean over) {
         if (hovering == over) return;
         hovering = over;
-        emit();
+        told();
     }
 
     /** ←: 접힌 툴 기둥을 접고 메뉴 기둥으로 — 선택은 그대로다(handbook 데스크톱 규칙). */
     public void dismiss() {
         dismissed = true;
-        emit();
+        told();
     }
 
     public boolean open() { return open; }
@@ -59,12 +58,4 @@ public class RailMode {
 
     public RailModes.State tool() { return RailModes.tool(open, toolCount, hovering, dismissed); }
 
-    public void subscribe(Runnable o) {
-        observers.add(o);
-        o.run();
-    }
-
-    private void emit() {
-        for (Runnable o : observers) o.run();
-    }
 }

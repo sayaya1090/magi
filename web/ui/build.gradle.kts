@@ -28,6 +28,9 @@ val screens = linkedMapOf(
     "access-ui" to ("dev.sayaya.magi.Access" to "dev.sayaya.magi.AccessTest"),
     "meeting-ui" to ("dev.sayaya.magi.Meeting" to "dev.sayaya.magi.MeetingTest"),
     "settings-ui" to ("dev.sayaya.magi.Settings" to "dev.sayaya.magi.SettingsTest"),
+    // 화면이 아니다 — 정적 데모에서만 실리는 목. 표에 있는 이유는 빌드 규약이 같아서고,
+    // 운영 콘솔의 자산에는 들어가지 않는다(assembleConsole이 뺀다).
+    "demo-ui" to ("dev.sayaya.magi.Demo" to "dev.sayaya.magi.DemoTest"),
 )
 
 subprojects {
@@ -105,6 +108,8 @@ screens.entries.forEachIndexed { i, (name, both) ->
         // 머티리얼 번들과 콘솔 CSS, 그리고 이 모듈이 제 것으로 둔 스타일시트가 있으면 그것도.
         val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
             from("${rootDir}/../../cmd/magi-web/vendor/material.js") { into("js") }
+            // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
+            from("${rootDir}/../../cmd/magi-web/vendor/rxjs.js") { into("js") }
             from("${rootDir}/../../cmd/magi-web/page.css") { into("css"); rename { "console.css" } }
             val own = file("src/main/webapp")
             if (own.isDirectory) from(own) { include("*.css"); into("css") }
@@ -123,6 +128,15 @@ tasks.register<Copy>("assembleConsole") {
     // 팔레트·표 CSS는 기존 콘솔의 단일 원천에서 매 빌드 복사한다.
     from("../../cmd/magi-web/page.css") { rename { "console.css" } }
     subprojects.forEach { p -> from(p.layout.buildDirectory.dir("gwt/war")) }
+    // 목은 운영 자산이 아니다 — 데모를 낼 때만 따로 실어 나른다(assembleDemoMock).
+    exclude("demo/**", "demo.nocache.js")
     into(layout.buildDirectory.dir("console"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// 데모의 목만 따로 — 정적 데모를 낼 때 이 디렉토리가 페이지 곁으로 간다.
+tasks.register<Copy>("assembleDemoMock") {
+    dependsOn(":demo-ui:gwtCompile")
+    from(project(":demo-ui").layout.buildDirectory.dir("gwt/war"))
+    into(layout.buildDirectory.dir("demo-mock"))
 }

@@ -6,11 +6,13 @@ import elemental2.core.Global;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.URLSearchParams;
 
+import dev.sayaya.rx.subject.BehaviorSubject;
+import lombok.experimental.Delegate;
+
 import javax.inject.Inject;
 import javax.inject.Singleton;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Consumer;
+
+import static dev.sayaya.rx.subject.BehaviorSubject.behavior;
 
 /**
  * 어디에 있는가 — 주소가 원본이고 이 클래스는 그 독본이다.
@@ -20,15 +22,21 @@ import java.util.function.Consumer;
  */
 @Singleton
 public class Navigation {
-    private final List<Consumer<Place>> observers = new ArrayList<>();
-    private Place current = null;
+    // 흐름 그 자체다 — 늦게 온 구독자도 지금 서 있는 자리를 즉시 받는다(BehaviorSubject의
+    // 그 성질이, 손으로 쓰던 "현재값 재생"이었다). 아직 첫 자리를 정하기 전(start 이전)에는
+    // null이 흐르므로, 읽는 쪽은 늘 그랬듯 null을 "아직 모른다"로 읽는다.
+    @Delegate private final BehaviorSubject<Place> _this = behavior(null);
 
     @Inject
     public Navigation() {}
 
-    public void subscribe(Consumer<Place> o) {
-        observers.add(o);
-        if (current != null) o.accept(current);
+    /**
+     * 자리가 정해진 뒤에만 부른다 — 흐름의 첫 값은 "아직 모른다"(null)이고, 그것을 자리로
+     * 읽으면 판들이 아무 데도 아닌 곳을 그린다. 거르는 자리는 여기다: 읽는 쪽 넷이 저마다
+     * 같은 null 가드를 다는 대신.
+     */
+    public dev.sayaya.rx.Subscription subscribe(java.util.function.Consumer<Place> o) {
+        return _this.filter(java.util.Objects::nonNull).subscribe(o);
     }
 
     public void start() {
@@ -51,12 +59,12 @@ public class Navigation {
 
     /** 지난 일 층위 — 서 있는 컴패니언 위에서만 뜻이 있다: null=지금 대화, ""=목록, 값=그 세션. */
     public void goPast(String pastOrNull) {
-        if (current == null || !current.isCompanion()) return;
-        move(Place.companion(current.socket, current.peer, pastOrNull));
+        if (getValue() == null || !getValue().isCompanion()) return;
+        move(Place.companion(getValue().socket, getValue().peer, pastOrNull));
     }
 
     private void move(Place p) {
-        if (p.same(current)) { DomGlobal.window.scrollTo(0, 0); return; }
+        if (p.same(getValue())) { DomGlobal.window.scrollTo(0, 0); return; }
         String path = DomGlobal.window.location.pathname;
         String url;
         if (p.isCompanion()) {
@@ -96,7 +104,6 @@ public class Navigation {
     private static String nz(String s) { return s == null ? "" : s; }
 
     private void settle(Place p) {
-        current = p;
-        for (Consumer<Place> o : observers) o.accept(p);
+        _this.next(p);
     }
 }

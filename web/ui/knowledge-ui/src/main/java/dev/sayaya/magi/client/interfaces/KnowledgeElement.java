@@ -77,12 +77,17 @@ public class KnowledgeElement {
         layout();
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
         // 폭이 바뀌면 다시 정한다 — 넓어진 창은 셋을 한 열에 세우고 고르개를 걷는다.
         DomGlobal.window.addEventListener("resize", evt -> layout());
         RosterSharing.subscribe(list -> roster = list);
         store.subscribe(this::render);
         store.askConsole();
         store.start();
+        // 그림판은 셸이 가져온다 — 이 판이 그보다 먼저 그려지면 낱말만 남고 다시 그릴 일이 없다.
+        Icons.onReady(this::render);
     }
 
     /**
@@ -140,6 +145,7 @@ public class KnowledgeElement {
         final HTMLElement box = el("div");
         final HTMLElement head;
         final HTMLElement findBox = el("div");
+        HTMLElement say = null;      // 판을 소개하는 한 줄 — 쉬고 있을 때만 선다
         final HTMLElement find = el("md-outlined-text-field");
         final List<HTMLElement> dyn = new ArrayList<>();
 
@@ -153,7 +159,7 @@ public class KnowledgeElement {
             head.setAttribute("aria-label", tr(headKey));
             box.append(head);
             if (lead) {
-                HTMLElement say = el("div");
+                say = el("div");
                 say.className = "accsay";
                 say.textContent = tr("shared.lead");
                 box.append(say);
@@ -176,6 +182,12 @@ public class KnowledgeElement {
             dyn.clear();
             findBox.setAttribute("hidden", "");
             if (findShown) findBox.removeAttribute("hidden");
+            // 소개 한 줄은 <b>쉴 때만</b>: 아직 아무것도 없는 판은 빈 상태가 그 말을 대신하고,
+            // 좁혀 읽는 중에는 몇 건인지가 그 자리의 말이다(운영 loadSkills의 그 두 분기).
+            if (say != null) {
+                boolean atRest = findShown && query.trim().isEmpty();
+                if (atRest) say.removeAttribute("hidden"); else say.setAttribute("hidden", "");
+            }
             if (!query.trim().isEmpty()) {
                 HTMLElement note = cell("filesnote",
                         tr(shownOfQuery == 1 ? "find.result" : "find.results", "n", String.valueOf(shownOfQuery)));
@@ -237,7 +249,7 @@ public class KnowledgeElement {
             folded.setAttribute("hidden", "");
             top.append(readFold(folded, name));
         }
-        HTMLElement drop = button("drop", tr("action.forget_named", "name", name));
+        HTMLElement drop = button("drop", tr("action.forget_named", "name", name), "#i-sl-eraser");
         arm(drop, tr("action.forget"), () -> store.forget(name, str(sk, "tier"), str(sk, "team"),
                 str(sk, "socket"), nul(str(sk, "peer"))));
         top.append(drop);
@@ -315,7 +327,7 @@ public class KnowledgeElement {
             mcpActionOn = true;
             HTMLElement open = el("md-filled-tonal-button");
             open.className = "mcpopen";
-            open.textContent = tr("action.add_server");
+            Icons.say(open, tr("action.add_server"), "#i-sl-plus");
             open.addEventListener("click", evt -> dialog.open(null));
             mcp.action(open);
         }
@@ -341,11 +353,11 @@ public class KnowledgeElement {
                 : tr("reach.only", "name", companion)));
         String name = str(sv, "name");
         top.append(cell("what", name));
-        HTMLElement edit = button("srvedit", tr("action.edit_named", "name", name));
-        edit.textContent = tr("action.edit");
+        HTMLElement edit = button("srvedit", tr("action.edit_named", "name", name), "#i-sl-pen-to-square");
+        Icons.reword(edit, tr("action.edit"));
         edit.addEventListener("click", evt -> dialog.open(sv));
         top.append(edit);
-        HTMLElement drop = button("drop", tr("action.remove_named", "name", name));
+        HTMLElement drop = button("drop", tr("action.remove_named", "name", name), "#i-ss-trash-can");
         arm(drop, tr("action.remove"), () -> store.removeServer(name, nul(str(sv, "socket"))));
         top.append(drop);
         row.append(top);
@@ -390,7 +402,7 @@ public class KnowledgeElement {
         note.setAttribute("rows", "1");
         HTMLElement save = el("md-filled-button");
         save.id = "skSave";
-        save.textContent = tr("action.write_down");
+        Icons.say(save, tr("action.write_down"), "#i-sl-plus");
         save.setAttribute("disabled", "");
         note.addEventListener("input", evt -> {
             if (value(note).trim().isEmpty()) save.setAttribute("disabled", "");
@@ -422,7 +434,7 @@ public class KnowledgeElement {
     /** 접기 버튼 — 본문 상자는 부르는 쪽이 만들어 제자리에 붙인다(운영의 순서: 메타 다음). */
     private HTMLElement readFold(HTMLElement text, String name) {
         HTMLElement more = button("fold", tr("action.read_named", "name", name));
-        more.textContent = tr("action.read");
+        Icons.say(more, tr("action.read"), "#i-sl-file-lines");
         more.setAttribute("aria-expanded", "false");
         more.addEventListener("click", evt -> {
             boolean open = text.hasAttribute("hidden");
@@ -450,7 +462,7 @@ public class KnowledgeElement {
 
     /** 두 단계 확인 — 누르면 "확인?"으로 무장, 5초면 풀린다(운영 arm의 이식). */
     private static void arm(HTMLElement btn, String word, Runnable act) {
-        btn.textContent = word;
+        Icons.reword(btn, word);
         final boolean[] armed = {false};
         final double[] timer = {-1};
         String named = btn.getAttribute("aria-label");
@@ -459,18 +471,18 @@ public class KnowledgeElement {
                 DomGlobal.clearTimeout(timer[0]);
                 armed[0] = false;
                 btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
+                Icons.reword(btn, word);
                 act.run();
                 return;
             }
             armed[0] = true;
             btn.className += " armed";
-            btn.textContent = tr("action.confirm");
+            Icons.reword(btn, tr("action.confirm"));
             if (named != null) btn.setAttribute("aria-label", tr("action.confirm") + " — " + named);
             timer[0] = DomGlobal.setTimeout(a -> {
                 armed[0] = false;
                 btn.className = btn.className.replace(" armed", "");
-                btn.textContent = word;
+                Icons.reword(btn, word);
                 if (named != null) btn.setAttribute("aria-label", named);
             }, 5000);
         });
@@ -710,9 +722,23 @@ public class KnowledgeElement {
     }
 
     private static HTMLElement button(String cls, String ariaLabel) {
+        return button(cls, ariaLabel, null);
+    }
+
+    /**
+     * 이 화면의 낱말 버튼 — 운영은 <b>슬롯에</b> 그림을 함께 단다(.sic slot="icon").
+     *
+     * 그림 없이 낱말만 두면 이 판만 다른 데서 온 화면처럼 읽힌다: 옆 화면들의 같은 무게 버튼은
+     * 전부 그림을 이고 있다(실측: 읽기·잊기·적어 두기·서버 더하기 넷 다 빠져 있었다).
+     * 스프라이트가 없는 빌드에서는 아무것도 넣지 않는다 — 낱말 옆의 글자 도형은 낱말이 아니다.
+     */
+    private static HTMLElement button(String cls, String ariaLabel, String mark) {
         HTMLElement b = el("md-text-button");
         b.className = cls;
         if (ariaLabel != null) b.setAttribute("aria-label", ariaLabel);
+        // 표는 적어만 둔다 — 이 버튼들은 말을 나중에 받고("정말?"로 갈아입기도 한다), 그때
+        // Icons.reword가 표를 다시 세운다.
+        if (mark != null) b.setAttribute("data-mark", mark);
         return b;
     }
 

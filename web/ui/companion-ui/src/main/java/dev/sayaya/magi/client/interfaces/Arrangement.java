@@ -127,6 +127,8 @@ public class Arrangement {
     private void say(String key, boolean open) {
         DomGlobal.document.body.setAttribute(key, open ? "open" : "shut");
         store("magi." + key, open ? "open" : "shut");
+        // 그 자리를 채우는 쪽에게 알린다 — 아무도 열어 본 적 없는 판은 요청을 쓰지 않는다.
+        dev.sayaya.magi.bridge.PaneSharing.opened("files".equals(key) ? "left" : "side", open);
         HTMLElement btn = "files".equals(key) ? filesToggle : sideToggle;
         Js.asPropertyMap(btn).set("selected", open);
         btn.setAttribute("aria-expanded", String.valueOf(open));
@@ -162,6 +164,14 @@ public class Arrangement {
             if (!kids.getAt(i).hasAttribute("hidden")) return false;
         }
         return true;
+    }
+
+    /** 지금 기억하고 있는 두 기둥의 상태를 다시 말한다 — 폰에서 탭이 하던 말을 되돌릴 때. */
+    public void sayPanes() {
+        dev.sayaya.magi.bridge.PaneSharing.opened("left",
+                "open".equals(DomGlobal.document.body.getAttribute("files")));
+        dev.sayaya.magi.bridge.PaneSharing.opened("side",
+                "open".equals(DomGlobal.document.body.getAttribute("side")));
     }
 
     /** 판의 속이 바뀌면 손잡이의 말도 바뀐다 — 그 사실을 아는 쪽이 알려 준다. */

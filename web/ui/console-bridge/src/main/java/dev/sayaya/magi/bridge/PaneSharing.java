@@ -40,4 +40,37 @@ public final class PaneSharing {
         if (!win.has(KEY)) return;
         Js.<SlotFn>cast(win.get(KEY)).call(slot, render);
     }
+
+    // ── 그 자리가 지금 열려 있는가 ────────────────────────────────────────────
+    //
+    // 아무도 열어 본 적 없는 판은 <b>한 번도 요청을 쓰지 않는다</b>(운영 규칙). 그 판이 열려
+    // 있는지는 배치를 아는 부모만 알고, 무엇을 청할지는 자식만 안다 — 그래서 사실 하나가 오간다.
+
+    private static final String OPEN = "__magi_pane_open";
+    private static final String OPEN_OBS = "__magi_pane_open_obs";
+
+    @JsFunction
+    public interface Opened { void call(String slot, boolean open); }
+
+    /** 부모: 이 자리가 열렸다/닫혔다. */
+    public static void opened(String slot, boolean open) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        JsPropertyMap<Object> all = Js.uncheckedCast(win.get(OPEN));
+        if (all == null) { all = JsPropertyMap.of(); win.set(OPEN, all); }
+        Object had = all.get(slot);
+        if (had != null && Js.isTruthy(had) == open) return;   // 같은 말을 다시 하지 않는다
+        all.set(slot, open);
+        Object l = win.get(OPEN_OBS);
+        if (l != null) Js.<Opened>cast(l).call(slot, open);
+    }
+
+    /** 자식: 지금 열려 있는가(부모가 말한 적 없으면 열린 것으로 본다 — 부모 없는 페이지). */
+    public static boolean isOpen(String slot) {
+        JsPropertyMap<Object> all = Js.uncheckedCast(Js.asPropertyMap(DomGlobal.window).get(OPEN));
+        Object v = all == null ? null : all.get(slot);
+        return v == null || Js.isTruthy(v);
+    }
+
+    /** 자식: 그 사실이 바뀌면 알려 달라. */
+    public static void onOpened(Opened l) { Js.asPropertyMap(DomGlobal.window).set(OPEN_OBS, l); }
 }

@@ -62,6 +62,8 @@ public class BoardElement {
         Icons.glass(find);
         find.addEventListener("input", evt -> store.query(value(find)));
         head.append(prev, day, fwd, today, find);
+        // 그림판은 셸이 늦게 가져온다 — 화살은 한 번만 그려지므로 그때 다시 입힌다.
+        Icons.onReady(() -> { Icons.dress(prev); Icons.dress(fwd); });
         root.append(head, body);
     }
 
@@ -69,7 +71,12 @@ public class BoardElement {
         frame.replaceChildren(root);
         if (wired) return;
         wired = true;
-        store.subscribe(this::render);
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::render);
+        // 명단 전체가 아니라 이 보드가 그리는 것만 — 걸음 수가 늘었다고 하루치 표가 다시
+        // 설 이유는 없다(실측: 10초에 11번).
+        store.drawn().subscribe(sig -> render());
         store.start(todayISO());
     }
 
@@ -214,9 +221,13 @@ public class BoardElement {
 
     private static void arrow(HTMLElement b, boolean left, String key) {
         b.setAttribute("aria-label", tr(key));
-        b.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\"><path d=\""
+        // 제 도형을 그려 두고 그림판이 있으면 갈아입힌다(운영의 그 순서: data-i + dressIcons) —
+        // 없는 빌드에서는 이 화살이 그대로 남는다.
+        b.innerHTML = "<svg data-i=\"" + (left ? "#i-sl-chevron-left" : "#i-sl-chevron-right")
+                + "\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\"><path d=\""
                 + (left ? "M14.5 5.5 8 12l6.5 6.5" : "M9.5 5.5 16 12l-6.5 6.5")
                 + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";
+        Icons.dress(b);
     }
 
     private static String todayISO() {

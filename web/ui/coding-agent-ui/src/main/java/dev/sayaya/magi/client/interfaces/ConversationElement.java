@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.Stylesheet;
@@ -80,6 +81,9 @@ public class ConversationElement {
         wired = true;
         store.start();
         store.onContext(ctx -> { lastSig = null; layer(ctx); });
+        store.alive().subscribe(this::aliveIs);
+        // 이름은 명단 조각에서 온다 — 그 행이 같은 말을 다시 하면 스토어가 흘리지 않는다.
+        store.aimed().subscribe(row -> aimed = row);
         store.onRows(this::paintRows);
         store.onPast(this::paintPast);
     }
@@ -208,7 +212,9 @@ public class ConversationElement {
         wasAnswering = now;
         dressed = true;
         field.setAttribute("label", tr(now ? "label.answer" : "label.ask"));
-        sendBtn.textContent = tr(now ? "action.answer" : "action.send");
+        // 표도 몫을 따른다(운영 withMark의 그 삼항): 답하는 자리에서는 되돌려 주는 화살,
+        // 묻는 자리에서는 종이비행기.
+        Icons.say(sendBtn, tr(now ? "action.answer" : "action.send"), now ? "#i-sl-reply" : "#i-ss-paper-plane");
         String had = value();
         value(parked);
         parked = had;
@@ -277,18 +283,9 @@ public class ConversationElement {
         return form;
     }
 
-    /** 지금 보는 컴패니언의 이름 — 명단에서 소켓으로 찾는다(없으면 빈 문자열). */
+    /** 지금 보는 컴패니언의 이름 — 스토어가 잘라 준 그 행의 것(없으면 빈 문자열). */
     private String nameOfAimed() {
-        dev.sayaya.magi.bridge.CompanionContext ctx = store.context();
-        if (ctx == null || ctx.socket == null) return "";
-        final String[] found = {""};
-        dev.sayaya.magi.bridge.RosterSharing.subscribe(list -> {
-            dev.sayaya.magi.bridge.FleetAgent[] all = Js.uncheckedCast(list);
-            for (int i = 0; all != null && i < all.length; i++) {
-                if (ctx.socket.equals(all[i].socket) && all[i].name != null) { found[0] = all[i].name; return; }
-            }
-        });
-        return found[0];
+        return aimed == null || aimed.name == null ? "" : aimed.name;
     }
 
     /**
@@ -329,6 +326,26 @@ public class ConversationElement {
         $wnd.navigator.clipboard.writeText(String(text || ''))
             .then(function () { ok(true); })["catch"](function () { ok(false); });
     }-*/;
+
+    /**
+     * 홈통에 적히는 이름 — <b>누가 말했는가</b>이지 어느 기계가 냈는가가 아니다.
+     *
+     * 카운슬 행은 그 자리의 이름을 쓴다("council"이 세 번 서 있으면 어느 자리인지 못 말한다),
+     * 사람의 행은 "당신"(컴패니언이 이름을 붙였으면 그 이름), 시스템 행은 magi의 어느 부분이
+     * 썼는지, 모델의 행은 magi다(운영 whoWord 그대로).
+     */
+    private static String whoWord(JsPropertyMap<Object> r, String who) {
+        if ("council".equals(who) && !str(r, "member").isEmpty()) return str(r, "member");
+        // 컴패니언이 사람을 달리 부르면 그 이름이지만(플러그인이 붙이는 사실), 그것은 로그에
+        // 없고 데몬의 버스에만 있다 — 그 문이 생기기 전까지는 "당신"이다.
+        if ("user".equals(who)) return tr("row.you");
+        if ("system".equals(who)) {
+            String by = str(r, "by");
+            return by.isEmpty() ? tr("row.system") : by;
+        }
+        if ("assistant".equals(who)) return "magi";
+        return who;
+    }
 
     /**
      * 한 표결이 무엇을 보고 내려졌는가 — 가운데의 카드로 편다(사실판·파일과 같은 줄을 쓴다).
@@ -460,10 +477,46 @@ public class ConversationElement {
 
 
 
+    /**
+     * 이 소켓의 데몬이 아직 답하는가 — 명단에 없거나 있어도 live가 거짓이면 멈춘 것이다
+     * (운영 companionAlive의 그 판정: 소켓이 치워졌거나, 남아 있어도 답하지 않거나).
+     */
+    private boolean alive = true;
+    private dev.sayaya.magi.bridge.FleetAgent[] roster = null;
+
+    private dev.sayaya.magi.bridge.FleetAgent aimed = null;
+
+    private void aliveIs(boolean now) {
+        if (alive == now) return;
+        alive = now;
+        if (!now) {
+            // 대화가 있던 자리에 그 사정을 적는다. 상태줄 한 줄로는 왜 화면이 비었는지 알 수
+            // 없고(운영 실측: 탭 띠와 컴포저 사이 378px의 빈 곳), 컴포저는 그대로 둔다 —
+            // 다시 띄우면 이어서 말할 자리다.
+            lastSig = null;
+            forgetDrawn();
+            HTMLElement empty = el("div");
+            empty.className = "empty";
+            empty.append(DomGlobal.document.createTextNode(tr("state.companion_gone")),
+                    el("br"), DomGlobal.document.createTextNode(tr("state.gone_how")));
+            log.replaceChildren(empty);
+        } else {
+            lastSig = null;   // 돌아왔다 — 다음 프레임이 전사를 통째로 다시 세운다.
+        }
+    }
+
+    /** 지금 서 있는 행들과 그 말 — 자리로 견주기 위한 것(운영의 shownRows). */
+    private final java.util.List<HTMLElement> drawn = new java.util.ArrayList<>();
+    private final java.util.List<String> sigs = new java.util.ArrayList<>();
+
+    private void forgetDrawn() { drawn.clear(); sigs.clear(); }
+
     private void paintRows(Object rowsOrNull) {
+        if (!alive) return;   // 멈춘 컴패니언의 자리에는 그 사정이 서 있다.
         if (rowsOrNull == null) {
             // 아직 모른다 — 이전 컴패니언의 대화가 새 화면에 비치면 안 된다.
             lastSig = null;
+            forgetDrawn();
             log.replaceChildren();
             return;
         }
@@ -472,9 +525,32 @@ public class ConversationElement {
         if (sig.equals(lastSig)) return;
         lastSig = sig;
         boolean stick = atBottom();
-        // 첫 조각은 통째 다시 그린다 — 재사용 윈도우잉은 잔여(원본 draw()의 몫).
-        log.replaceChildren();
-        for (int i = 0; i < rows.getLength(); i++) log.append(rowNode(Js.uncheckedCast(rows.getAt(i))));
+        // 자리로 견주어 <b>달라진 행만</b> 짓는다(운영 draw()의 그 규칙).
+        //
+        // 전사는 한 턴씩 자라고, 통째로 다시 그리면 자란 것 하나 때문에 이미 읽고 있던 행이
+        // 전부 새 노드가 된다 — 펼쳐 둔 툴 결과가 접히고, 고르던 글자가 풀리고, 브라우저는
+        // 매 프레임 화면 전체를 다시 칠한다(실측: 10초에 49번, 그중 새 행은 여섯).
+        for (int i = 0; i < rows.getLength(); i++) {
+            JsPropertyMap<Object> row = Js.uncheckedCast(rows.getAt(i));
+            String want = rowSig(row);
+            HTMLElement had = i < drawn.size() ? drawn.get(i) : null;
+            if (had != null && want.equals(sigs.get(i))) continue;   // 같은 말이면 그대로 둔다
+            HTMLElement made = rowNode(row);
+            if (had == null) {
+                log.append(made);
+                drawn.add(made);
+                sigs.add(want);
+            } else {
+                had.replaceWith(made);
+                drawn.set(i, made);
+                sigs.set(i, want);
+            }
+        }
+        // 남은 것은 이제 없는 행이다(전사가 짧아지는 자리: 컴패니언을 옮기거나 접었을 때).
+        for (int i = drawn.size() - 1; i >= rows.getLength(); i--) {
+            drawn.remove(i).remove();
+            sigs.remove(i);
+        }
         if (stick) toBottom();
     }
 
@@ -488,7 +564,7 @@ public class ConversationElement {
                 Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")));
         HTMLElement w = el("div");
         w.className = "who";
-        w.textContent = who;
+        w.textContent = whoWord(r, who);
         // 카운슬 자리의 이름은 누를 수 있다 — 그 표결이 <b>무엇을 보고</b> 내려졌는지로 간다.
         // 표를 검증 가능하게 만드는 반쪽이고, 전사의 한 줄에는 그것이 들어갈 자리가 없다.
         String member = str(r, "member");
@@ -497,7 +573,7 @@ public class ConversationElement {
             HTMLElement name = el("button");
             name.setAttribute("type", "button");
             name.className = "who whoin hit48";
-            name.textContent = who;
+            name.textContent = whoWord(r, who);
             name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
             name.setAttribute("title", tr("detail.evidence"));
             final int at = (int) round;

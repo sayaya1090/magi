@@ -98,10 +98,15 @@ public class CompanionElement {
         Motion.enter(stream);
         arrange.engage();
         side.onChanged(arrange::sideChanged);
+        // 사실판이 속을 얻거나 잃으면 자리를 다시 정한다 — 보일지 말지는 이 판이 아니라 배치다.
+        detail.onChanged(this::layout);
         // 무엇에 걸려 있는지는 컴포저 바로 위에 선다 — 답하려고 목록으로 되돌아가지 않게.
         arrange.putPrompt(prompt.element());
         if (wired) return;
         wired = true;
+        // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
+        // 만나지 않게(운영 labels$의 그 구독).
+        dev.sayaya.magi.bridge.Labels.onPack(this::layout);
         // 자식이 미는 렌더를 받을 자리 — 가운데는 하나, 왼쪽은 쌓인다.
         // 자식이 미는 렌더를 받을 자리 — 셋 다 이미 옷을 입은 채로 건넨다.
         // 자식은 상자가 어느 기둥인지도, 창 바닥에 고정된 도크인지도 모른다.
@@ -163,6 +168,7 @@ public class CompanionElement {
      */
     private String wsShows = "files";
     private boolean cardsAlone = false;
+    private boolean deepCard = false;   // 지금 선 카드가 가운데를 통째로 쓰는 것인가
 
     /** 지금 이 줄에 설 카드 전부 — 이 판의 것 다음에 자식의 것(연 순서대로). */
     private java.util.List<elemental2.dom.Element> allCards() {
@@ -182,7 +188,7 @@ public class CompanionElement {
             cardTabs.replaceChildren();
             cardArea.setAttribute("hidden", "");
             cardArea.replaceChildren();
-            show(detail.element(), store.context() != null);
+            show(detail.element(), store.context() != null && detail.hasFacts());
             cardShows = "facts";
             CardSharing.showing(cardShows);
             // 여기서도 배치가 마지막 말이다 — 폰에서는 사실판이 제 탭에서만 선다. 이 갈래가
@@ -194,6 +200,10 @@ public class CompanionElement {
         cardTabs.replaceChildren();
         cardTabs.removeAttribute("hidden");
         cardTabs.append(cardTab(tr("field.facts"), "facts", null));
+        // 누가 <b>이것을 보여 달라</b>고 말했으면 그것이 먼저다. 트리에서 이미 열어 둔 파일을
+        // 다시 누르는 것이 그 말이다 — 새 카드가 아니니 아래의 "방금 열린 것" 규칙에 걸리지
+        // 않고, 그래서 눌러도 아무 일이 없었다(실측: 세 번째 클릭에도 옆 파일이 서 있었다).
+        String asked = CardSharing.showing();
         boolean known = "facts".equals(cardShows);
         // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
         // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
@@ -213,11 +223,20 @@ public class CompanionElement {
         cardsSeen.retainAll(now);
         cardsSeen.addAll(now);
         if (opened != null) { cardShows = opened; known = true; wsShows = opened; }
+        else if (asked != null && !asked.isEmpty() && !asked.equals(cardShows)) {
+            boolean here = "facts".equals(asked);
+            for (int i = 0; i < n && !here; i++) here = asked.equals(cards.get(i).id);
+            if (here) { cardShows = asked; known = true; wsShows = asked; }
+        }
         if (!known) cardShows = cards.get(n - 1).id;
         CardSharing.showing(cardShows);
+        // 가서 보는 것(도구·루프·표결)은 가운데를 <b>통째로</b> 쓴다: 그것들은 전사를 곁들여
+        // 읽는 것이 아니라 한 겹 들어간 화면이고, 운영도 전사를 물리고 그 자리에 편다.
+        // 파일·디프·작업대는 반대다 — 대화를 보며 읽는 것이라 전사가 그대로 남는다.
+        deepCard = !"facts".equals(cardShows) && (ownCards.containsKey(cardShows) || cardShows.startsWith("cr:"));
         // 고른 것만 그린다 — 사실판과 카드가 같은 자리를 나눠 쓴다(운영 showCard).
         boolean facts = "facts".equals(cardShows);
-        show(detail.element(), facts && store.context() != null);
+        show(detail.element(), facts && store.context() != null && detail.hasFacts());
         show(cardArea, !facts);
         if (!facts) {
             // 고른 노드 하나만 세운다 — 나머지는 자식이 들고 있고, 탭을 누르면 그것이 선다.
@@ -316,8 +335,12 @@ public class CompanionElement {
             tabs.setAttribute("hidden", "");
             DomGlobal.document.body.removeAttribute("panel");
             dev.sayaya.magi.bridge.ChromeSharing.remeasure();
-            show(detail.element(), companion && "facts".equals(cardShows));
+            // 넓어졌다: 여는 것은 다시 손잡이의 몫이다 — 기억해 둔 그 상태로 돌려 말한다.
+            arrange.sayPanes();
+            show(detail.element(), companion && detail.hasFacts() && "facts".equals(cardShows));
             show(cardArea, companion && !"facts".equals(cardShows));
+            // 한 겹 들어간 화면이 서면 전사는 물러난다(운영의 그 층위).
+            show(centreFill, !deepCard);
             show(filecol, true);
             show(stream, true);
             show(sidecol, true);
@@ -330,15 +353,24 @@ public class CompanionElement {
         // 폰에서는 한 번에 하나 — 운영의 네 탭 그대로(대화·정보·파일·계획).
         // 폰의 작업공간은 <b>한 번에 하나</b>다 — 트리냐, 거기서 연 카드냐. 둘을 쌓으면 마흔 개
         // 이름 아래에서 아무도 아래까지 내려가지 않는다(운영이 이 화면에서 배운 것).
+        // 폰에서 그 판을 여는 것은 손잡이가 아니라 <b>탭</b>이다(손잡이는 이 폭에서 그려지지도
+        // 않는다) — 그러니 여는 쪽이 그 사실을 말한다. 이걸 빠뜨리면 폰의 작업공간 탭이 영영
+        // 걷지 않는 판이 된다(실측: 트리도 git도 비어 있었다).
+        dev.sayaya.magi.bridge.PaneSharing.opened("left", "files".equals(panel));
+        dev.sayaya.magi.bridge.PaneSharing.opened("side", "plan".equals(panel));
         boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
         standAlone(cardHere);
         show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
-        show(detail.element(), "facts".equals(panel));
-        show(centreFill, "talk".equals(panel));
+        show(detail.element(), "facts".equals(panel) && detail.hasFacts());
+        show(centreFill, "talk".equals(panel) && !deepCard);
         show(cardTabs, cardHere);
         show(cardArea, cardHere);
-        show(filecol, "files".equals(panel) && !cardHere);
-        show(sidecol, "plan".equals(panel));
+        // 기둥은 서 있고, 그 <b>속</b>이 숨는다 — 운영도 그렇게 한다(폰에서 #filecol은 높이 0의
+        // 빈 기둥으로 남는다). 기둥째 걷으면 그 자리의 격자가 한 칸 줄어, 옆 기둥들이 흔들린다.
+        show(leftFill, "files".equals(panel) && !cardHere);
+        show(filecol, true);
+        show(side.element(), "plan".equals(panel));
+        show(sidecol, true);
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {
             elemental2.dom.Element tab = all.getAt(i);
@@ -367,6 +399,10 @@ public class CompanionElement {
 
     /** 타입이 정해지면 그 자식을 들인다 — 한 창에서 한 번만(ModuleInject가 센다). */
     private void adopt(CompanionContext ctx) {
+        // 도크는 <b>컴패니언 곁에서만</b> 선다. 그것은 body에 붙는 창 바닥의 상자라, 화면을 옮겨도
+        // 아무도 걷어 주지 않으면 지식·보드·설정 위에까지 따라다닌다 — 그 화면들에는 한 마디
+        // 보낼 상대가 없다(실측: 목록 말고 전부에서 컴포저가 떠 있었다).
+        if (ctx == null) arrange.dismiss(); else arrange.engage();
         layout();
         if (ctx == null || ctx.ui == null || ctx.ui.isEmpty()) return;
         if (ctx.ui.equals(childLoaded)) return;

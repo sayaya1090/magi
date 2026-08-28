@@ -19,17 +19,14 @@ import java.util.List;
  * 브라우저의 사정이 아니다.
  */
 @Singleton
-public class SettingsStore {
+public class SettingsStore extends dev.sayaya.magi.bridge.Told {
     private final SettingsSource source;
-    private final List<Runnable> obs = new ArrayList<>();
     private Object complete = null;   // 데몬 쪽 설정(못 읽었으면 null)
 
     @Inject
     public SettingsStore(SettingsSource source) { this.source = source; }
 
-    public void subscribe(Runnable o) { obs.add(o); }
 
-    private void tell() { for (Runnable o : new ArrayList<>(obs)) o.run(); }
 
     public Object complete() { return complete; }
 
@@ -43,7 +40,7 @@ public class SettingsStore {
         String socket = socket();
         source.read(socket.isEmpty() ? null : socket, peer().isEmpty() ? null : peer(), got -> {
             complete = got;
-            tell();
+            told();
         });
     }
 
@@ -65,9 +62,12 @@ public class SettingsStore {
 
     public Object profiles() { return profiles; }
 
+    /** 제공자 목록 — 화면이 물을 때 한 번(없으면 그 줄은 서지 않는다). */
+    public void providers(java.util.function.Consumer<Object> cb) { source.providers(cb); }
+
     public void readProfiles() {
         String socket = socket();
-        source.profiles(socket.isEmpty() ? null : socket, got -> { profiles = got; tell(); });
+        source.profiles(socket.isEmpty() ? null : socket, got -> { profiles = got; told(); });
     }
 
     public void saveProfile(String name, String baseUrl, String model, String key, boolean delete,

@@ -63,7 +63,9 @@ public class DetailElement {
         wrap.append(grid);
         card.append(bar, wrap);
         store.onContext(c -> { ctx = c; render(); });
-        store.onRoster(list -> { a = rowOf(list); render(); });
+        // 명단 전체가 아니라 <b>내 행</b>을 듣는다 — 그 행이 같은 말을 다시 하면 스토어가
+        // 흘리지 않으므로, 이 판은 "바뀌었나"를 스스로 따질 필요가 없다.
+        store.aimed().subscribe(row -> { a = row; render(); });
         store.onContextInfo(i -> { info = i; render(); });
         // 접힘의 기본은 창이 정한다 — 누른 적 있는 독자만 기억된다(운영 규칙).
         String said = stored("facts");
@@ -71,16 +73,6 @@ public class DetailElement {
     }
 
     public HTMLElement element() { return card; }
-
-    private FleetAgent rowOf(Object list) {
-        if (list == null || ctx == null) return a;
-        JsArrayLike<Object> rows = Js.uncheckedCast(list);
-        for (int i = 0; i < rows.getLength(); i++) {
-            FleetAgent r = Js.uncheckedCast(rows.getAt(i));
-            if (ctx.socket.equals(r.socket)) return r;
-        }
-        return null;
-    }
 
     private void fold(boolean want, boolean chosen) {
         if (want) card.setAttribute("folded", ""); else card.removeAttribute("folded");
@@ -98,33 +90,98 @@ public class DetailElement {
 
     public void cardsGo(Cards go) { this.cards = go; }
 
+    /**
+     * 어느 컴패니언의 판인가 — 사람이 다른 컴패니언으로 옮기면 그때는 통째로 다시 세운다
+     * (같은 키의 줄이 남의 값을 이어받지 않게).
+     */
+    private String shownFor = "";
+
+    /** 이 판에 할 말이 있는가 — 보일지는 부모가 정한다. */
+    public boolean hasFacts() { return full; }
+
+    /** 그 사실이 바뀌면 부모가 다시 배치한다. */
+    public interface Changed { void call(); }
+
+    private Changed changed = () -> { };
+    private boolean full = false;
+
+    public void onChanged(Changed c) { this.changed = c; }
+
+    // ── 격자를 제자리에서 고치는 일 ─────────────────────────────────────────
+    //
+    // 운영 drawDetail의 그 화해(put): 줄을 새로 짓되, <b>말이 그대로면 서 있던 것을 둔다</b>.
+    // 통째로 갈아엎으면 그 안의 md-select가 문서를 떠났다 돌아오고, 떠난 고르개는 열려 있던
+    // 메뉴를 닫는다 — 명단이 몇 초마다 흐르니 사람은 고르는 족족 손 밑에서 닫히는 것을 본다.
+    private final java.util.Set<String> seen = new java.util.HashSet<>();
+
+    private void put(HTMLElement row) {
+        if (row == null) return;
+        String k = row.getAttribute("data-k");
+        if (k == null || k.isEmpty()) { grid.append(row); return; }
+        seen.add(k);
+        HTMLElement had = null;
+        for (int i = 0; i < grid.childNodes.getLength(); i++) {
+            elemental2.dom.Element c = Js.uncheckedCast(grid.childNodes.getAt(i));
+            if (k.equals(c.getAttribute("data-k"))) { had = Js.uncheckedCast(c); break; }
+        }
+        if (had == null) { grid.append(row); return; }
+        if (had == row) return;   // 계속 쓰는 줄(컨트롤을 인 줄) — 이미 제자리다
+        // 말이 같으면 서 있던 줄이 남는다. 컨트롤을 이고 있는 줄은 방금 그 컨트롤을 새 줄로
+        // 데려갔으므로 말이 달라지고, 그때는 새 줄이 들어선다 — 어느 쪽이든 고르개는 문서 안이다.
+        if (words(had).equals(words(row))) return;
+        had.replaceWith(row);
+    }
+
+    /** 이번에 아무도 대지 않은 줄은 이제 없는 사실이다. */
+    private void sweep() {
+        for (int i = grid.childNodes.getLength() - 1; i >= 0; i--) {
+            elemental2.dom.Element c = Js.uncheckedCast(grid.childNodes.getAt(i));
+            String k = c.getAttribute("data-k");
+            if (k != null && !k.isEmpty() && !seen.contains(k)) c.remove();
+        }
+    }
+
+    private static String words(elemental2.dom.Element n) {
+        return n == null || n.textContent == null ? "" : n.textContent;
+    }
+
     private void render() {
-        if (ctx == null || a == null) { card.setAttribute("hidden", ""); return; }
-        card.removeAttribute("hidden");
-        sum.textContent = stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir);
+        // 이 판이 <b>보일지</b>는 여기서 정하지 않는다: 폰에서는 제 탭에서만 서고, 그 사실은
+        // 배치를 아는 부모의 것이다. 여기서 hidden을 손대면 명단이 흐를 때마다 그 규칙이
+        // 뒤집힌다(실측: 폰의 대화 탭 위에 사실판이 다시 섰다). 여기서는 "속이 있는가"만 말한다.
+        boolean has = ctx != null && a != null;
+        if (has != full) { full = has; changed.call(); }
+        if (!has) { grid.replaceChildren(); kept.clear(); return; }
+        say(sum, stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir));
         sum.setAttribute("title", sum.textContent);
-        grid.replaceChildren();
+        // 명단은 몇 초마다 흐른다. 그때마다 이 격자를 다시 지으면 그 안의 고르개가 <b>다시
+        // 부모를 얻고</b>, 부모가 바뀐 md-select는 열려 있던 메뉴를 닫는다 — 사람이 고르는 중에
+        // 손 밑에서 닫히니 편집이 아예 되지 않는다(실측: 깜빡이며 못 고름). 말이 그대로면 그대로 둔다.
+        String who = a.socket == null ? "" : a.socket;
+        if (!who.equals(shownFor)) { shownFor = who; grid.replaceChildren(); kept.clear(); }
+        seen.clear();
         // 질문이 오는 순서 — 이 목록이 곧 배치다(그리드는 DOM 순서로 짠다, 운영 규칙).
         String load = carrying(a);
         if (!load.isEmpty()) {
-            grid.append(field("field.status", stateWord(a.state) + " · " + load, "state " + a.state));
+            put(field("field.status", stateWord(a.state) + " · " + load, "state " + a.state));
         }
-        grid.append(field("field.steps", a.steps > 0 ? String.valueOf(a.steps) : "—", null));
-        grid.append(field("field.last_activity", a.idle >= 0 ? tr("time.ago", "d", dur(a.idle)) : "—", null));
-        if (a.role != null && !a.role.isEmpty()) grid.append(wide(field("field.role", a.role, null)));
+        put(field("field.steps", a.steps > 0 ? String.valueOf(a.steps) : "—", null));
+        put(field("field.last_activity", a.idle >= 0 ? tr("time.ago", "d", dur(a.idle)) : "—", null));
+        if (a.role != null && !a.role.isEmpty()) put(wide(field("field.role", a.role, null)));
         if (a.team != null && !a.team.isEmpty()) {
-            grid.append(field("field.team", a.team + (a.hub ? " · " + tr("team.speaks") : ""), null));
+            put(field("field.team", a.team + (a.hub ? " · " + tr("team.speaks") : ""), null));
         }
         String host = (a.instance != null && !a.instance.isEmpty() ? a.instance : a.host)
                 + (a.addr != null && !a.addr.isEmpty() ? " · " + a.addr : "")
                 + (a.pid > 0 ? " · pid " + a.pid : "");
-        grid.append(field("field.host", host, null));
-        if (a.version != null && !a.version.isEmpty()) grid.append(field("field.version", a.version, null));
-        grid.append(wide(field("field.workspace", a.workdir, null)));
-        grid.append(wide(sessionField()));
-        grid.append(permField());
+        put(field("field.host", host, null));
+        if (a.version != null && !a.version.isEmpty()) put(field("field.version", a.version, null));
+        put(wide(field("field.workspace", a.workdir, null)));
+        put(wide(sessionField()));
+        put(permField());
         contextRows();
-        grid.append(actionsRow());
+        put(actionsRow());
+        sweep();
     }
 
     // ── 바꿀 수 있는 것들 ────────────────────────────────────────────────────
@@ -142,15 +199,51 @@ public class DetailElement {
     private final HTMLElement sessSel = el("md-outlined-select");
     private boolean permWired = false, modelWired = false, sessWired = false;
     private String permWant = "", modelWant = "";
+    private String modelWas = "";
     private String sessFor = null;
     private Object sessList = null;
     private static final String[][] PERM_MODES = {
             {"ask", "perm.ask"}, {"auto", "perm.auto"}, {"allow", "perm.allow"}, {"deny", "perm.deny"}};
 
+    /**
+     * 컨트롤을 이고 있는 줄 — <b>한 번만 짓고 계속 그것을 쓴다</b>.
+     *
+     * 값만 바뀐 줄은 새로 지어 갈아 끼워도 그만이지만(위 put), 고르개가 든 줄은 다르다:
+     * 새 껍데기를 지으면 그 고르개를 새 껍데기로 데려가야 하고, 옮겨진 md-select는 열려 있던
+     * 메뉴를 닫는다. 그래서 껍데기를 키로 기억해 두고 속만 고친다 — 고르개는 문서에서 한 번도
+     * 떠나지 않는다.
+     */
+    private final java.util.Map<String, HTMLElement> kept = new java.util.LinkedHashMap<>();
+
+    private HTMLElement rowFor(String key, String cls) {
+        HTMLElement f = kept.get(key);
+        if (f == null) {
+            f = cell(cls, null);
+            f.setAttribute("data-k", key);
+            f.append(cell("k", null), cell("v", null));
+            kept.put(key, f);
+        } else f.className = cls;
+        say(Js.uncheckedCast(f.childNodes.getAt(0)), tr(key));
+        return f;
+    }
+
+    /** 같은 말이면 다시 쓰지 않는다 — 대입은 그때마다 새 글자 노드를 만든다. */
+    private static void say(HTMLElement e, String word) {
+        if (word.equals(e.textContent)) return;
+        e.textContent = word;
+    }
+
+    /** 그 줄의 값 칸. */
+    private static HTMLElement vOf(HTMLElement row) { return Js.uncheckedCast(row.childNodes.getAt(1)); }
+
+    /** 이 칸에 저것 하나만 — 이미 그렇다면 손대지 않는다. */
+    private static void hold(HTMLElement v, HTMLElement one) {
+        if (v.childNodes.getLength() == 1 && v.childNodes.getAt(0) == one) return;
+        v.replaceChildren(one);
+    }
+
     private HTMLElement permField() {
-        HTMLElement f = cell("f", null);
-        f.setAttribute("data-k", "field.permission");
-        f.append(cell("k", tr("field.permission")));
+        HTMLElement f = rowFor("field.permission", "f");
         if (!permWired) {
             permWired = true;
             permSel.className = "permsel";
@@ -166,16 +259,17 @@ public class DetailElement {
         String now = !permWant.isEmpty() ? permWant : (a.permission == null ? "" : a.permission);
         pick(permSel, now);
         gate(permSel, May.can("configure"));
-        HTMLElement v = cell("v", null);
-        v.append(permSel);
-        f.append(v);
+        hold(vOf(f), permSel);
         return f;
     }
 
+    private final HTMLElement provSel = el("md-outlined-select");
+    private boolean provWired = false;
+    private Object provList = null;
+    private boolean modelBlank = false;   // 백엔드를 갈아탄 뒤: 이 칸은 비어 있어야 한다
+
     private HTMLElement modelField(String showing) {
-        HTMLElement f = cell("f wide", null);
-        f.setAttribute("data-k", "field.model");
-        f.append(cell("k", tr("field.model")));
+        HTMLElement f = rowFor("field.provider_model", "f wide");
         if (!modelWired) {
             modelWired = true;
             modelSel.className = "permsel";
@@ -187,7 +281,11 @@ public class DetailElement {
             });
         }
         modelSel.setAttribute("aria-label", tr("field.model"));
-        String now = !modelWant.isEmpty() ? modelWant : showing;
+        // 갈아탄 뒤에는 비워 둔다 — 그 이름은 이전 백엔드의 것이다(데몬이 새 이름을 말하기 전까지).
+        // 갈아탄 뒤 데몬이 <b>새</b> 이름을 말하면 그때 다시 채운다 — 그 전까지는 비어 있다.
+        if (modelBlank && !showing.isEmpty() && !showing.equals(modelWas)) modelBlank = false;
+        modelWas = showing;
+        final String now = !modelWant.isEmpty() ? modelWant : modelBlank ? "" : showing;
         // 목록은 그 <b>데몬</b>이 답한 것이다 — 콘솔의 설정에서 뽑으면 그 컴패니언이 닿지도 못하는
         // 모델을 내놓는다. 답이 비면(너무 낡은 데몬, 죽은 백엔드) 지금 것 하나만 세운다.
         store.models(names -> {
@@ -202,16 +300,88 @@ public class DetailElement {
             pick(modelSel, now);
         });
         gate(modelSel, May.can("configure"));
-        HTMLElement v = cell("v", null);
-        v.append(modelSel);
-        f.append(v);
+        // 백엔드가 앞, 모델이 뒤 — 물음이 그 순서다("어느 백엔드, 그 다음 그 백엔드의 어느 모델").
+        // 한 줄인 이유는 앞의 것을 바꾸면 뒤의 것이 내놓을 수 있는 것이 바뀌기 때문이다.
+        // 이 짝도 한 번만 짓는다: 다시 지으면 두 고르개가 함께 옮겨진다.
+        if (modelPair.childNodes.getLength() == 0) {
+            modelPair.className = "modelpair";
+            modelPair.append(providerPick(), modelSel);
+        } else providerPick();
+        hold(vOf(f), modelPair);
         return f;
     }
 
+    private final HTMLElement modelPair = el("div");
+
+    /**
+     * 어느 백엔드에 물려 있나 — 그리고 갈아타는 문.
+     *
+     * 서빙하는 것이 하나도 없으면 서지 않는다: 뒤에 아무것도 없는 컨트롤이 된다. 갈아타면 모델
+     * 이름은 <b>비운다</b>: 백엔드끼리 어휘를 나눠 쓰지 않아서 이전 이름은 새 백엔드가 모르는
+     * 이름이고, 남겨 두면 다음 요청에서 거절당할 값이 아무 말 없이 서 있게 된다. 대신 고르지도
+     * 않는다 — 남의 카탈로그에서 무엇을 뜻했는지 아는 규칙이 없다. 그래서 비우고 캐럿을 준다.
+     */
+    private HTMLElement providerPick() {
+        if (!provWired) {
+            provWired = true;
+            provSel.className = "permsel";
+            provSel.setAttribute("aria-label", tr("field.provider"));
+            provSel.addEventListener("change", evt -> {
+                JsPropertyMap<Object> chosen = providerNamed(value(provSel));
+                if (chosen == null) return;
+                store.useProvider(str(chosen, "base"), why -> {
+                    if (why != null && !why.isEmpty()) return;
+                    modelWant = "";
+                    modelBlank = true;
+                    // 다음 폴은 3초 뒤다 — 그때까지 이전 백엔드의 모델을 이 백엔드의 것인 양
+                    // 세워 두지 않는다.
+                    Js.asPropertyMap(modelSel).set("value", "");
+                    Js.<HTMLElement>uncheckedCast(modelSel).focus();
+                    render();
+                });
+            });
+        }
+        provSel.setAttribute("aria-label", tr("field.provider"));
+        store.providers(got -> {
+            provList = got;
+            JsArrayLike<Object> all = Js.uncheckedCast(got);
+            int n = all == null ? 0 : all.getLength();
+            java.util.List<String[]> opts = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                opts.add(new String[]{str(Js.<JsPropertyMap<Object>>uncheckedCast(all.getAt(i)), "name"), null});
+            }
+            options(provSel, opts.toArray(new String[0][]));
+            pick(provSel, nameOfBackend());
+            if (n < 1) provSel.setAttribute("hidden", ""); else provSel.removeAttribute("hidden");
+            // 하나뿐이면 고를 것이 없다 — 읽을 수는 있게 두고 누름만 죽인다.
+            gate(provSel, May.can("configure") && n > 1);
+        });
+        return provSel;
+    }
+
+    /** 지금 물려 있는 백엔드의 이름 — 명단은 주소(backend)로 말한다. */
+    private String nameOfBackend() {
+        String base = a == null || a.backend == null ? "" : a.backend;
+        if (base.isEmpty()) return "";
+        JsArrayLike<Object> all = Js.uncheckedCast(provList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (base.equals(str(one, "base"))) return str(one, "name");
+        }
+        return "";
+    }
+
+    private JsPropertyMap<Object> providerNamed(String name) {
+        JsArrayLike<Object> all = Js.uncheckedCast(provList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (str(one, "name").equals(name)) return one;
+        }
+        return null;
+    }
+
     private HTMLElement sessionField() {
-        HTMLElement f = cell("f wide", null);
-        f.setAttribute("data-k", "field.session");
-        f.append(cell("k", tr("field.session")));
+        HTMLElement f = rowFor("field.session", "f wide");
         if (!sessWired) {
             sessWired = true;
             sessSel.className = "permsel";
@@ -232,9 +402,7 @@ public class DetailElement {
         boolean idle = "idle".equals(a.state) || "stopped".equals(a.state);
         gate(sessSel, idle);
         sessSel.setAttribute("title", tr(idle ? "hint.session_pick" : "hint.session_busy"));
-        HTMLElement v = cell("v", null);
-        v.append(sessSel);
-        f.append(v);
+        hold(vOf(f), sessSel);
         return f;
     }
 
@@ -345,15 +513,39 @@ public class DetailElement {
      * 결재를 청할 때 실을 보고서의 뼈대 — 이것은 취향이 아니라 <b>빠뜨리면 거절당하는</b> 목록이다.
      * 그래서 어디서 온 뼈대인지도 함께 적는다(이 워크스페이스·이 콘솔·아직 아무것도).
      */
+    /**
+     * 결재를 청할 때 실을 보고서의 뼈대 — <b>다이얼로그</b>다(운영도 그렇다).
+     *
+     * 카드가 아닌 이유: 이것은 보는 것이 아니라 고쳐서 저장하는 짧은 일이고, 카드로 열면 그 자리에
+     * 있던 파일이나 전사를 밀어낸 채 사람이 저장을 누를 때까지 남는다. 그리고 이것은 취향이 아니라
+     * <b>빠뜨리면 거절당하는</b> 목록이라, 어디서 온 뼈대인지도 함께 적는다.
+     */
     private void showFormat() {
-        HTMLElement box = deepBox();
-        box.append(cell("dnote", tr("detail.loading")));
+        HTMLElement dialog = el("md-dialog");
+        dialog.id = "fmtDialog";
+        HTMLElement head = el("div");
+        head.setAttribute("slot", "headline");
+        head.textContent = tr("fmt.headline");
+        HTMLElement content = el("div");
+        content.setAttribute("slot", "content");
+        content.append(cell("dnote", tr("detail.loading")));
+        HTMLElement actions = el("div");
+        actions.setAttribute("slot", "actions");
+        HTMLElement cancel = el("md-text-button");
+        cancel.textContent = tr("action.cancel");
+        cancel.addEventListener("click", evt -> close(dialog));
+        HTMLElement save = el("md-filled-button");
+        save.textContent = tr("action.save");
+        actions.append(cancel, save);
+        dialog.append(head, content, actions);
+        DomGlobal.document.body.append(dialog);
+        open(dialog);
         store.reportFormat(got -> {
-            box.replaceChildren();
+            content.replaceChildren();
             JsPropertyMap<Object> f = got == null ? null : Js.uncheckedCast(got);
-            box.append(cell("dlgsup", tr("fmt.about")));
+            content.append(cell("dlgsup", tr("fmt.about")));
             String from = f == null ? "" : str(f, "from");
-            box.append(cell("dlgsup from", tr("workspace".equals(from) ? "fmt.from_workspace"
+            content.append(cell("dlgsup from", tr("workspace".equals(from) ? "fmt.from_workspace"
                     : "console".equals(from) ? "fmt.from_console" : "fmt.from_default")));
             HTMLElement form = cell("fmtform", null);
             HTMLElement more = el("md-text-button");
@@ -366,11 +558,7 @@ public class DetailElement {
             }
             more.addEventListener("click", evt -> form.insertBefore(fmtRow("", ""), more));
             form.append(more);
-            HTMLElement save = el("md-filled-button");
-            save.textContent = tr("action.save");
-            Icons.mark(save, "#i-sl-floppy-disk");
-            HTMLElement said = cell("dnote", "");
-            said.setAttribute("hidden", "");
+            content.append(form);
             save.addEventListener("click", evt -> {
                 java.util.List<String> keys = new ArrayList<>(), prompts = new ArrayList<>();
                 elemental2.dom.NodeList<elemental2.dom.Element> rows = form.querySelectorAll(".fmtrow");
@@ -381,14 +569,18 @@ public class DetailElement {
                     keys.add(k);
                     prompts.add(pmt);
                 }
-                store.reportFormat(keys, prompts, why -> {
-                    said.textContent = why == null || why.isEmpty() ? tr("fmt.saved") : why;
-                    said.removeAttribute("hidden");
-                });
+                store.reportFormat(keys, prompts, why -> close(dialog));
             });
-            box.append(form, save, said);
         });
-        cards.show("insp.format", tr("insp.format"), box);
+    }
+
+    private static native void open(HTMLElement dialog) /*-{
+        if (dialog.show) dialog.show(); else dialog.setAttribute('open', '');
+    }-*/;
+
+    private static void close(HTMLElement dialog) {
+        Js.asPropertyMap(dialog).set("open", false);
+        DomGlobal.setTimeout(a -> dialog.remove(), 300);
     }
 
     private HTMLElement fmtRow(String key, String prompt) {
@@ -435,7 +627,15 @@ public class DetailElement {
     }
 
     /** 고를 것들을 다시 적는다 — 말은 지금 실려 있는 언어의 것이다. */
+    /**
+     * 고르개의 항목들 — <b>같으면 손대지 않는다</b>.
+     *
+     * 명단은 몇 초마다 흐르고 그때마다 이 목록을 다시 지으면, 열어 둔 메뉴의 항목이 사람 손
+     * 밑에서 통째로 갈린다(실측: 12초에 600번). 그러면 고를 수가 없다 — 누르려던 줄이 그
+     * 순간 다른 노드다. 그래서 지금 서 있는 것과 대 보고, 다른 때만 다시 짓는다.
+     */
     private static void options(HTMLElement sel, String[][] all) {
+        if (sameOptions(sel, all)) return;
         sel.replaceChildren();
         for (String[] o : all) {
             HTMLElement opt = el("md-select-option");
@@ -446,6 +646,19 @@ public class DetailElement {
             opt.append(head);
             sel.append(opt);
         }
+    }
+
+    private static boolean sameOptions(HTMLElement sel, String[][] all) {
+        if (sel.childNodes.getLength() != all.length) return false;
+        for (int i = 0; i < all.length; i++) {
+            elemental2.dom.Element opt = Js.uncheckedCast(sel.childNodes.getAt(i));
+            String[] o = all[i];
+            String want = o.length > 2 && o[2] != null ? o[2] : (o[1] == null ? o[0] : tr(o[1]));
+            String had = opt.getAttribute("value");
+            if (had == null || !had.equals(o[0])) return false;
+            if (!want.equals(opt.textContent == null ? "" : opt.textContent.trim())) return false;
+        }
+        return true;
     }
 
     /** 고른 것 — 사람이 그 안에 서 있으면(포커스) 손대지 않는다. */
@@ -469,12 +682,12 @@ public class DetailElement {
         JsPropertyMap<Object> c = info == null ? null : Js.uncheckedCast(info);
         String model = c != null && !str(c, "model").isEmpty() ? str(c, "model")
                 : a.model == null ? "" : a.model;
-        grid.append(modelField(model));
+        put(modelField(model));
         if (c == null) return;
         boolean estimated = Js.isTruthy(c.get("estimated"));
         boolean cacheReported = Js.isTruthy(c.get("cacheReported"));
         if (!cacheReported && !estimated) {
-            grid.append(field("field.cache", tr("context.no_cache_report"), null));
+            put(field("field.cache", tr("context.no_cache_report"), null));
         }
         double used = num(c, "used"), window = num(c, "window");
         HTMLElement size = cell("v", (estimated ? "~" : "") + fmt(used)
@@ -503,13 +716,13 @@ public class DetailElement {
         // 레버는 읽기 곁에 — 지금, 턴 사이에 접고 싶은 사람의 것(운영 규칙).
         HTMLElement fold = el("md-text-button");
         fold.className = "fold";
-        fold.textContent = tr("action.compact_now");
+        Icons.say(fold, tr("action.compact_now"), "#i-sl-compress");
         fold.addEventListener("click", evt -> {
             fold.setAttribute("disabled", "");
             store.compact(() -> fold.removeAttribute("disabled"));
         });
         f.append(fold);
-        grid.append(f);
+        put(f);
         double folds = num(c, "compactions");
         if (folds > 0) {
             HTMLElement v = cell("v", folds == 1 ? tr("context.fold")
@@ -527,7 +740,7 @@ public class DetailElement {
             HTMLElement cf = cell("f", null);
             cf.setAttribute("data-k", "field.summarised_away");
             cf.append(cell("k", tr("field.summarised_away")), v);
-            grid.append(cf);
+            put(cf);
         }
     }
 

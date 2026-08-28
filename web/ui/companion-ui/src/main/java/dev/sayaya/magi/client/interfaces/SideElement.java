@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
@@ -51,13 +52,18 @@ public class SideElement {
         side.append(plan, strip, handoffs, queued, cron, empty);
         store.onPlan(this::paint);
         // 명단이 흐를 때마다 다시 묻는다 — 이 셋은 로그에 없어서 흐름에 실려 오지 않는다.
-        store.onRoster(list -> refresh());
+        store.onRoster(list -> {
+            rosterList = list;
+            refresh();
+        });
         store.onContext(c -> refresh());
     }
 
     public HTMLElement element() { return side; }
 
     /** 로그 밖의 사실들을 다시 읽는다 — 답이 같으면 다시 그리지 않는다(열린 메뉴·스크롤 보호). */
+    private Object rosterList = null;
+
     private void refresh() {
         if (store.context() == null) {
             for (HTMLElement card : new HTMLElement[]{strip, handoffs, queued, cron}) {
@@ -79,7 +85,11 @@ public class SideElement {
             sayEmpty();
         });
         store.handoffs(got -> {
-            String sig = got == null ? "" : elemental2.core.Global.JSON.stringify(got);
+            // 이름이 갈 수 있는 곳인지는 명단이 답한다(wayTo) — 그래서 그 답도 서명의 일부다.
+            // 명단이 흐를 때마다 서명을 지우고 있었는데, 그러면 초당 한 번씩 이 카드가 다시
+            // 서고 그 안에서 펼쳐 둔 부탁이 접힌다(실측: 10초에 30번).
+            String sig = (got == null ? "" : elemental2.core.Global.JSON.stringify(got))
+                    + "|" + reachable(got);
             if (sig.equals(lastHands)) return;
             lastHands = sig;
             drawHandoffs(Js.uncheckedCast(got));
@@ -106,8 +116,9 @@ public class SideElement {
             boolean running = Js.isTruthy(c.get("running"));
             boolean bad = Js.isTruthy(c.get("err"));
             if (!running && !bad) continue;
+            // 자식으로 들어가는 문은 아직 없다(그 화면은 잔여) — 문이 생기기 전까지는 사실로 둔다.
             box.append(chip(tr("detail.subagent"), str(c, "tool").isEmpty() ? tr("detail.subagent") : str(c, "tool"),
-                    oneLine(str(c, "task"), 48), running, bad));
+                    oneLine(str(c, "task"), 48), running, bad, null));
             n++;
         }
         for (int i = 0; background != null && i < background.getLength(); i++) {
@@ -115,7 +126,7 @@ public class SideElement {
             boolean running = Js.isTruthy(b.get("running"));
             double exit = b.get("exit") == null ? 0 : Js.coerceToDouble(b.get("exit"));
             box.append(chip(tr("job.command"), oneLine(str(b, "command"), 40), lastLine(str(b, "tail")),
-                    running, !running && exit != 0));
+                    running, !running && exit != 0, null));
             n++;
         }
         if (n == 0) { strip.setAttribute("hidden", ""); strip.replaceChildren(); return; }
@@ -157,7 +168,10 @@ public class SideElement {
         for (int i = 0; i < list.getLength(); i++) {
             JsPropertyMap<Object> h = Js.uncheckedCast(list.getAt(i));
             HTMLElement row = cell("ho " + str(h, "state"), null);
-            row.append(cell("to", str(h, "to")));
+            // 이름은 그 컴패니언으로 가는 길이다 — 건넨 일은 이 화면이 <b>화면에 없는 누군가</b>를
+            // 이야기하는 유일한 자리이고, "그래서 그게 어떻게 되고 있나"의 답은 그쪽 화면에 있다.
+            // 이 콘솔이 그 이름을 아는 경우에만: 아무 데도 안 가는 링크는 맨 글자보다 나쁘다.
+            row.append(wayTo(str(h, "to")));
             HTMLElement req = cell("req", str(h, "request"));
             req.setAttribute("role", "button");
             req.setAttribute("tabindex", "0");
@@ -170,6 +184,50 @@ public class SideElement {
             handoffs.append(row);
         }
         handoffs.removeAttribute("hidden");
+    }
+
+    /** 건네받은 쪽으로 가는 길 — 명단에 그 이름이 있을 때만 링크가 된다. */
+    /** 이 손길들이 가리키는 이름 중 <b>지금 명단에 있는</b> 것들 — 링크가 되느냐가 여기서 갈린다. */
+    private String reachable(Object list) {
+        if (list == null) return "";
+        StringBuilder b = new StringBuilder();
+        JsArrayLike<Object> hands = Js.uncheckedCast(list);
+        for (int i = 0; i < hands.getLength(); i++) {
+            JsPropertyMap<Object> h = Js.uncheckedCast(hands.getAt(i));
+            String name = str(h, "to");
+            JsArrayLike<Object> all = Js.uncheckedCast(rosterList);
+            for (int j = 0; all != null && j < all.getLength(); j++) {
+                FleetAgent one = Js.uncheckedCast(all.getAt(j));
+                if (name.equals(one.name) && one.socket != null && !one.socket.isEmpty()) {
+                    b.append(name).append('>').append(one.socket).append('|');
+                    break;
+                }
+            }
+        }
+        return b.toString();
+    }
+
+    private HTMLElement wayTo(String name) {
+        FleetAgent peer = null;
+        JsArrayLike<Object> all = Js.uncheckedCast(rosterList);
+        for (int i = 0; all != null && i < all.getLength(); i++) {
+            FleetAgent one = Js.uncheckedCast(all.getAt(i));
+            if (name.equals(one.name) && one.socket != null && !one.socket.isEmpty()) { peer = one; break; }
+        }
+        if (peer == null) return cell("to", name);
+        final FleetAgent go = peer;
+        HTMLElement a = el("a");
+        a.className = "to";
+        a.textContent = name;
+        a.setAttribute("href", dev.sayaya.magi.bridge.Windows.here() + "?d="
+                + elemental2.core.Global.encodeURIComponent(go.socket)
+                + (go.peer == null || go.peer.isEmpty() ? ""
+                   : "&p=" + elemental2.core.Global.encodeURIComponent(go.peer)));
+        a.addEventListener("click", evt -> {
+            evt.preventDefault();
+            dev.sayaya.magi.bridge.GoSharing.go(go.socket, go.peer == null || go.peer.isEmpty() ? null : go.peer);
+        });
+        return a;
     }
 
     /** 예약된 일 — 언제 다시 도는가, 또는 <b>왜 영영 안 도는가</b>(그 표시가 이 목록의 값이다). */
@@ -230,10 +288,25 @@ public class SideElement {
     }
 
     /** 작은 알갱이 하나 — 자식은 들어가는 문이고 명령은 사실이다(그래서 하나만 누를 수 있다). */
-    private HTMLElement chip(String kind, String name, String say, boolean running, boolean bad) {
-        HTMLElement c = cell("jobchip" + (running ? " going" : "") + (bad ? " bad" : ""), null);
-        c.append(cell("jobkind", kind), cell("jobname", name));
-        if (!say.isEmpty()) c.append(cell("jobsay", say));
+    private HTMLElement chip(String kind, String name, String say, boolean running, boolean bad, Runnable go) {
+        // 운영의 그 마크업(.job/.jdot/.jname/.jsay): 도는 것은 점 하나를 앞에 달고, 이름은 28자,
+        // 하는 말은 44자에서 끊는다 — 이 판은 좁고, 여기 오는 것은 요약이지 로그가 아니다.
+        // 자식은 들어가는 문이고 배경 명령은 사실이다 — 그래서 하나만 누를 수 있다: 눌리는
+        // 것처럼 보이는데 아무 일도 안 하는 것은 맨 글자보다 나쁘다.
+        HTMLElement c = el(go == null ? "div" : "button");
+        c.className = "job" + (go == null ? "" : " press") + (running ? " live" : " done") + (bad ? " bad" : "");
+        if (go == null) {
+            if (running) c.append(cell("jdot", ""));
+            c.append(cell("jname", oneLine(name, 28)));
+            if (!say.isEmpty()) c.append(cell("jsay", oneLine(say, 44)));
+        } else {
+            // 버튼 안에서는 한 줄로 — 세 조각을 넣으면 컴포넌트가 그것을 쌓아 긴 것이 알갱이
+            // 밖으로 흘러나간다(운영이 실측한 그 결함).
+            c.setAttribute("type", "button");
+            c.textContent = oneLine(name, 28) + (say.isEmpty() ? "" : " \u00B7 " + oneLine(say, 44));
+            c.addEventListener("click", evt -> go.run());
+        }
+        c.setAttribute("aria-label", kind + ": " + name + (say.isEmpty() ? "" : " \u2014 " + say));
         return c;
     }
 

@@ -89,6 +89,26 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     }
 
     @Override
+    public void pullRequest(CompanionContext ctx, Consumer<Object> cb) {
+        Console.fetchList("/pr" + base(ctx), cb::accept);
+    }
+
+    @Override
+    public void draftPullRequest(CompanionContext ctx, String rules, Consumer<String> said) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("rules", rules == null ? "" : rules);
+        Console.postText("/pr-msg", body, ctx.socket, ctx.peer).then(w -> { said.accept(w); return null; });
+    }
+
+    @Override
+    public void openPullRequest(CompanionContext ctx, String title, String text, Consumer<String> urlOrWhy) {
+        elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
+        body.set("title", title);
+        body.set("body", text);
+        Console.postText("/git-pr", body, ctx.socket, ctx.peer).then(w -> { urlOrWhy.accept(w); return null; });
+    }
+
+    @Override
     public void draftCommitMessage(CompanionContext ctx, String rules, Consumer<String> said) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("rules", rules == null ? "" : rules);

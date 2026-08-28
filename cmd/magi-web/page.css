@@ -1141,6 +1141,10 @@
   .profempty { color:var(--magi-ref-muted); font-size:.85rem; }
   .profadd { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
   .profadd md-outlined-text-field { width:100%; }
+  /* And the pickers in that block, for the same reason the fields have it: a select sizes to its
+     widest option, and the provider list carries model names nobody chose the length of. Without
+     this the two of them pushed a phone screen sideways (measured at 390px: 405px of page). */
+  .profadd md-outlined-select { width:100%; min-width:0; }
   .profadd md-text-button { justify-self:end; }
   /* A row that belongs to the width where the rail is not drawn. The default is hidden and the
      narrow query puts it back, so the phone case is the exception that has to be stated — the

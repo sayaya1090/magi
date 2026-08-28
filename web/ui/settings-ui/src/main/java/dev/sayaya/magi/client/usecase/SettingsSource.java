@@ -13,6 +13,12 @@ public interface SettingsSource {
     /** 이 콘솔이 아는 모델 프로파일들 — 위의 완성 설정이 고르는 그 백엔드들이다. */
     void profiles(String socket, Consumer<Object> list);
 
+    /**
+     * CLI 백엔드가 답한 제공자들(/providers) — 이름·주소·그 주소가 서빙하는 모델들.
+     * 이 콘솔의 설정이 아니라 <b>지금 돌고 있는 것</b>이라, 고르면 주소와 모델이 함께 채워진다.
+     */
+    void providers(Consumer<Object> list);
+
     /** 프로파일 하나를 저장하거나(delete=false) 지운다. why는 거부 사유, 성공은 빈 문자열. */
     void saveProfile(String socket, String name, String baseUrl, String model, String key,
                      boolean delete, Consumer<String> why);
