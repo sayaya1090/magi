@@ -3,11 +3,13 @@ import { DeckPort } from '../port/DeckPort.js';
 /**
  * DeckPort 를 Office.js 로 구현한다. **이 파일만 Office 를 안다.**
  *
- * ⚠ 이 머신에는 PowerPoint 가 없다. **`capabilities()` 만 돈다** — Office.js 를 안 부르고
+ * ⚠ 이 머신에는 PowerPoint 가 없다. `capabilities()` 는 Office.js 를 안 부르고
  * `isSetSupported` 가 답한 것을 나르기만 해서 stub 위에서 나르는 계약을 실제로 잰다
- * (`tools/smoke.mjs`). `selection()` 과 `point()` 는 `PowerPoint.run` 이 필요해 **한 번도
- * 안 돌았다** — 여기 적힌 것은 문서를 읽고 쓴 것이고, S13·S14 를 재는 자리가 정확히 그 둘이다.
- * 돌려 보기 전까지 "된다"고 적지 않는다.
+ * (`tools/smoke.mjs`). `selection()` 도 stub 위에서 돌지만 **그 stub 은 이 저장소가 문서를
+ * 읽고 적은 흉내지 호스트가 아니다** — 거기서 잰 것은 우리가 고른 가지뿐이고(1.8 이 없으면
+ * index 를 안 묻는다 / 빈 선택은 왕복 한 번 / 글을 잃어도 신원은 산다), 호스트가 실제로 어떻게
+ * 답하는지는 안 재 봤다. `point()` 는 한 번도 안 돌았다. **S13·S14 는 둘 다 열려 있고**, 재는
+ * 자리가 정확히 이 둘이다. 돌려 보기 전까지 "된다"고 적지 않는다.
  */
 export class OfficeDeck extends DeckPort {
   get label() { return 'PowerPoint (Office.js)'; }

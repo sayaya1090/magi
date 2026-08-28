@@ -3,11 +3,14 @@
 // 이게 이 목업에서 **오늘 실제로 검증되는 전부**다. 유스케이스가 Office.js 를 모르기 때문에
 // FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다.
 //
-// `OfficeDeck` 에서 **오늘 도는 것은 `capabilities()` 하나**다. 그건 Office.js 를 호출하지
-// 않고 `isSetSupported` 가 답한 것을 나르기만 하는 함수라, 그 자리에 stub 을 세우면 나르는
-// 계약(여섯을 요약 안 한다 / 던진 것을 「아니오」로 안 접는다)을 진짜로 잰다. `selection()`
-// 과 `point()` 는 `PowerPoint.run` 이 필요해 **여전히 한 번도 안 돌았다** — 안 돌려 본 것을
-// "된다"고 세지 않는다.
+// `OfficeDeck` 에서 **호스트 없이 도는 것은 둘**이다. `capabilities()` 는 Office.js 를
+// 호출하지 않고 `isSetSupported` 가 답한 것을 나르기만 하는 함수라, 그 자리에 stub 을 세우면
+// 나르는 계약(여섯을 요약 안 한다 / 던진 것을 「아니오」로 안 접는다)을 진짜로 잰다.
+// `selection()` 은 `PowerPoint.run` 을 흉내 낸 stub 위에서 도는데, **그건 호스트가 아니다** —
+// 거기서 무는 것은 우리가 고른 가지(1.8 이 없으면 index 를 안 묻는다 / 빈 선택은 왕복 한 번 /
+// 글을 잃어도 신원은 산다)뿐이고, 호스트가 실제로 어떻게 답하는지는 **여전히 안 재 봤다.**
+// `point()` 는 아직 한 번도 안 돌았다. S13·S14 는 둘 다 열려 있다 — 안 돌려 본 것을 "된다"고
+// 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
@@ -1010,6 +1013,15 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 새 리스너가 아무 심사 없이 통과한다.
   const dead = [...allowed.keys()].filter((k) => !sites.includes(k));
   ok('허용 목록에 없어진 자리가 남아 있지 않다', dead.length === 0, dead.join(' / '));
+  // **열쇠가 첫 줄 글자라, 같은 첫 줄을 가진 자리가 둘 되면 하나의 사유로 둘이 통과한다.**
+  // 오늘 열한 자리가 다 다른 것은 사실이지 규칙이 아니다 — 규칙을 어길 자리는 보통 **새로
+  // 생기는 자리**고, 그게 `b.addEventListener('click', () => {` 처럼 흔한 머리면 아무 심사
+  // 없이 들어온다. 그래서 「하나에 하나」를 여기서 못 박는다.
+  const doubled = [...allowed.keys()]
+    .map((k) => [k, sites.filter((h) => h === k).length])
+    .filter(([, n]) => n > 1);
+  ok('허용된 첫 줄 하나가 자리 둘을 덮고 있지 않다', doubled.length === 0,
+    doubled.map(([k, n]) => `${n}× ${k}`).join(' / '));
 }
 
 // ── 요구 집합 계측(§12 #4). `OfficeDeck.capabilities()` 를 stub 위에서 실제로 돌린다.
@@ -1254,6 +1266,170 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w.poll();
   ok('닿으면 말한 것을 잊는다', w.saidLost === false && w.reachable === true);
   ok('닿는 동안 「말했다」가 남아 있지 않다', !(w.reachable && w.saidLost));
+}
+
+// ── 계측기가 틀리면 초록이 거짓말이 된다 ──────────────────────────────────────
+//
+// 위 블록과 같은 계측을 **어댑터에도** 돌렸다(2026-08-29). 26 을 뒤집어 10 이 살아남았는데,
+// 그중 다섯은 `OfficeDeck` 의 `selection()` 안이라 이 머신에서 애초에 안 돈다(이 파일 머리에
+// 적어 둔 그대로다 — 안 돌려 본 것을 "된다"고 세지 않는다). 남은 다섯은 사정이 다르다:
+// **가짜들이 흉내 내는 계약 자체가 아무 데도 안 물려 있었다.**
+//
+// 이게 위험한 이유는 가짜가 유스케이스의 시험에 쓰이기 때문이다. 가짜가 틀리면 그 위의 시험은
+// **틀린 이유로 초록**이 된다 — 이 파일이 §5.7 의 셋째 종을 찾아 나선 그 모양인데, 하필 그것을
+// 찾는 도구 쪽에서 나왔다. 그래서 여기서는 유스케이스가 아니라 **가짜의 계약**을 문다.
+{
+  // 하나 — 범위 **안**의 since 는 거절이 아니다. `since > 0 && since > latest` 의 `&&` 를
+  // `||` 로 바꿔도 아무 시험이 안 죽었는데, 그동안 이어 붙는 시험이 전부 `since` 0(처음부터)
+  // 이었기 때문이다. 실제 이어 붙기는 **로그 한복판**에서 일어나고, 거기서 거절이 나오면
+  // 화면은 이미 본 것을 통째로 다시 그린다.
+  const log = [
+    { seq: 1, sessionId: 's', type: 'user.prompt' },
+    { seq: 2, sessionId: 's', type: 'assistant.part' },
+    { seq: 3, sessionId: 's', type: 'assistant.part' },
+  ];
+  const t = new FakeTranscript({ s: log });
+  const got = []; let restart = null;
+  t.subscribe('s', 2, { onEvent: (e) => got.push(e.seq), onRestart: (m) => { restart = m; },
+    onEnd: () => {} });
+  ok('로그 안에 떨어지는 since 는 거절하지 않는다', restart === null, restart);
+  // 둘 — `ev.seq <= from` 의 `<=` 를 `<` 로 바꾸면 **커서가 가리키던 그 줄을 다시 보낸다.**
+  // 화면에서는 한 줄이 두 번 서는 것으로 보이고, 그건 이 문서가 §5.7 에서 이름 댄 결함이다.
+  ok('이어 붙으면 커서 다음부터 온다', JSON.stringify(got) === '[3]', got.join(','));
+
+  const t2 = new FakeTranscript({ s: log });
+  let restart2 = null; const got2 = [];
+  t2.subscribe('s', 9, { onEvent: (e) => got2.push(e.seq), onRestart: (m) => { restart2 = m; },
+    onEnd: () => {} });
+  ok('끝을 넘은 since 는 사유를 먼저 내고 처음부터 보낸다',
+    typeof restart2 === 'string' && JSON.stringify(got2) === '[1,2,3]',
+    `${restart2} / ${got2.join(',')}`);
+}
+{
+  // 셋 — 자리를 안 실은 push 는 **다음 번호**를 받는다. `e.seq > max` 를 재는 줄의 타입 검사를
+  // 뒤집으면 max 가 영영 0 이라 둘째 push 도 1 을 받는데, 그러면 두 이벤트가 같은 자리에 앉는다.
+  // 커서가 자리로 도는 이상(§5.7) 그건 하나를 영영 못 보는 것과 같다.
+  const t = new FakeTranscript({ s: [{ seq: 4, sessionId: 's', type: 'user.prompt' }] });
+  t.subscribe('s', 0, { onEvent: () => {}, onRestart: () => {}, onEnd: () => {} });
+  const a = t.push({ sessionId: 's', type: 'assistant.part' });
+  const b = t.push({ sessionId: 's', type: 'assistant.part' });
+  ok('자리 없는 push 는 로그 끝 다음을 받는다', a.seq === 5 && b.seq === 6, `${a.seq},${b.seq}`);
+  const z = t.push({ sessionId: 's', type: 'assistant.part.delta', seq: 0 });
+  ok('0 을 실어 보내면 0 그대로 둔다', z.seq === 0, z.seq);
+}
+{
+  // 넷 — 슬라이드를 옮기면 선택이 풀린다. 가짜 덱의 `goTo` 가 같은 슬라이드에서 일찍 돌아가는
+  // 줄인데, 그 조건을 뒤집으면 **옮겨도 아무 일이 안 일어난다.** 인용은 「지금 슬라이드의 선택」
+  // 위에 서 있으므로, 이게 틀리면 옮긴 뒤에도 옛 도형이 골라진 채로 인용된다.
+  const d = new FakeDeck(fixture);
+  const [s1, s2] = fixture.slides;
+  d.goTo(s1.id);
+  d.click(s1.shapes[0].id, false);
+  ok('고른 것이 하나 있다', d.selected.size === 1, d.selected.size);
+  d.goTo(s2.id);
+  ok('슬라이드를 옮기면 선택이 풀린다', d.currentSlide === s2.id && d.selected.size === 0,
+    `${d.currentSlide} / ${d.selected.size}`);
+  let rang = 0;
+  const off = d.onChange(() => { rang += 1; });
+  d.goTo(s2.id);
+  ok('같은 슬라이드로 옮기면 종을 안 친다', rang === 0, rang);
+  off();
+}
+{
+  // 다섯 — `pickDeck()` 을 **인자 없이** 부르는 길. 시험은 늘 `office` 를 손으로 넣었고,
+  // 그래서 기본값 줄(`typeof Office === 'undefined' ? null : Office`)은 한 번도 안 돌았다.
+  // 그 줄이 곧 **제품이 도는 길**이다 — `main.js` 는 인자 없이 부른다. 뒤집으면 Office 가
+  // 없는 판에서 `ReferenceError` 가 나고, 그건 창이 아무것도 안 그리는 것으로 보인다.
+  const r = await pickDeck();
+  ok('Office 없는 판에서 인자 없이 불러도 가짜 덱이 선다',
+    r.why === 'no-office' && r.deck && r.late === null, `${r.why} / ${!!r.deck}`);
+}
+
+// ── 안 돌아 본 함수의 가지치기만 문다 ────────────────────────────────────────
+//
+// ⚠ **이 블록은 S13·S14 를 안 닫는다.** 여기서 세우는 `PowerPoint` 는 이 파일이 문서를 읽고
+// 적은 흉내지 호스트가 아니다. 흉내가 틀리면 이 시험은 **틀린 것에 대고 초록**이 된다 — 그래서
+// 무는 것을 하나로 좁힌다: **우리가 고른 가지**. 「1.8 이 없으면 index 를 아예 안 load 한다」는
+// §3.3 의 논증이고, 그 논증이 코드에 그대로 있는지는 호스트 없이도 잰다. 호스트가 실제로 어떻게
+// 답하는지는 여전히 안 재 봤고, 이 파일 머리의 그 문장은 그대로 둔다.
+//
+// 계측이 이 자리를 가리켰다(2026-08-29): `selection()` 안에서 연산자를 뒤집어도 아무것도 안
+// 죽는 줄이 다섯이었다. 그중 셋은 `#supports` 라, 뒤집히면 **1.8 을 지원하는 호스트에서도
+// 번호를 안 읽는 조용한 퇴화**가 된다(화면은 id 로 적고 아무도 안 운다).
+{
+  const stub = ({ slide, shapes, textThrows = false, supports = () => true }) => {
+    const seen = { slides: null, shapes: null, syncs: 0 };
+    globalThis.Office = { context: { requirements: { isSetSupported: supports } } };
+    globalThis.PowerPoint = {
+      run: async (cb) => cb({
+        presentation: {
+          getSelectedSlides: () => ({ items: slide ? [slide] : [],
+            load(q) { seen.slides = q; } }),
+          getSelectedShapes: () => ({ items: shapes, load(q) { seen.shapes = q; } }),
+        },
+        sync: async () => {
+          seen.syncs += 1;
+          if (seen.syncs > 1 && textThrows) throw new Error('textFrame 없는 도형이 섞였다');
+        },
+      }),
+    };
+    return seen;
+  };
+  const shape = (id, text) => ({
+    id, name: `이름 ${id}`, type: 'GeometricShape', width: 72, height: 36,
+    textFrame: { textRange: { load() {}, text } },
+  });
+  const clear = () => { delete globalThis.Office; delete globalThis.PowerPoint; };
+
+  try {
+    // 하나 — 1.8 이 있으면 번호를 묻고, **0-based 를 1-based 로** 바꿔 올린다.
+    let seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가나')] });
+    let r = await new OfficeDeck().selection();
+    ok('1.8 이면 index 까지 load 한다', seen.slides === 'items/id,items/index', seen.slides);
+    ok('번호는 0-based 를 +1 해서 올린다', r.slideNo === 5, r.slideNo);
+    ok('신원과 글이 같이 온다',
+      r.slideId === 'sl1' && r.shapes[0].id === 'sh1' && r.shapes[0].text === '가나',
+      JSON.stringify(r.shapes[0]));
+    ok('글을 읽었으면 못 읽었다고 안 적는다', r.shapes[0].textUnavailable === false);
+
+    // 둘 — 1.8 이 없으면 **묻지도 않는다.** §3.3: 바닥 아래 호스트에서 이 속성을 load 하면
+    // sync 가 통째로 실패해 **선택까지 잃는다.** 흉내는 안 터지므로, 여기서 무는 것은
+    // 「안 터졌다」가 아니라 **load 문자열에 index 가 없다**는 우리 쪽 가지다.
+    seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가')],
+      supports: () => false });
+    r = await new OfficeDeck().selection();
+    ok('1.8 이 없으면 index 를 안 묻는다', seen.slides === 'items/id', seen.slides);
+    ok('안 물었으면 번호를 지어내지 않는다', r.slideNo === null, r.slideNo);
+
+    // 셋 — 「지원한다」는 **`true` 여야 한다.** 옛 호스트가 진리값 비슷한 것을 돌려주는 판을
+    // 대비해 `=== true` 로 좁혀 뒀는데, 그 좁힘이 시험에 안 물려 있었다.
+    seen = stub({ slide: { id: 'sl1', index: 4 }, shapes: [shape('sh1', '가')],
+      supports: () => 'yes' });
+    r = await new OfficeDeck().selection();
+    ok('true 아닌 답은 지원으로 안 읽는다', seen.slides === 'items/id' && r.slideNo === null,
+      `${seen.slides} / ${r.slideNo}`);
+
+    // 넷 — 고른 도형이 없으면 **둘째 왕복을 안 돈다.** 빈 선택에 텍스트를 물으러 가는 것은
+    // 사람이 아무것도 안 골랐는데 덱을 한 번 더 건드리는 일이다.
+    seen = stub({ slide: { id: 'sl1', index: 0 }, shapes: [] });
+    r = await new OfficeDeck().selection();
+    ok('빈 선택은 왕복 한 번에 끝난다', seen.syncs === 1 && r.shapes.length === 0, seen.syncs);
+    ok('빈 선택에도 슬라이드 신원은 온다', r.slideId === 'sl1' && r.slideNo === 1,
+      `${r.slideId} / ${r.slideNo}`);
+
+    // 다섯 — 글 읽기가 통째로 실패해도 **신원은 산다.** 그리고 못 읽었다고 적는다 — 빈
+    // 문자열로만 두면 「글이 없는 도형」과 값이 같아진다(`Quote.textUnavailable`).
+    seen = stub({ slide: { id: 'sl1', index: 0 },
+      shapes: [shape('sh1', '가'), shape('sh2', '나')], textThrows: true });
+    r = await new OfficeDeck().selection();
+    ok('글을 잃어도 신원 둘은 그대로 온다',
+      r.shapes.map((x) => x.id).join(',') === 'sh1,sh2', r.shapes.length);
+    ok('못 읽은 것은 못 읽었다고 적는다',
+      r.shapes.every((x) => x.textUnavailable === true && x.text === ''),
+      JSON.stringify(r.shapes.map((x) => [x.text, x.textUnavailable])));
+  } finally {
+    clear();
+  }
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
