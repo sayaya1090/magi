@@ -113,16 +113,28 @@ func TestTheDoorIsInTheAcceptedList(t *testing.T) {
 // the only alternative to a handshake answer is calling the method to read the error back, which
 // cannot tell "this build does not know it" from "this build refused you".
 func TestTheHandshakeAdvertisesTheDoor(t *testing.T) {
-	var has bool
-	for _, c := range Caps() {
-		if c == "tool-servers" {
-			has = true
+	has := func(caps []string, want string) bool {
+		for _, c := range caps {
+			if c == want {
+				return true
+			}
 		}
+		return false
 	}
-	if !has {
-		t.Errorf("mcp-attach is dispatched but unadvertised: %v", Caps())
+	if !has(capsOf(&attachEngine{}), "tool-servers") {
+		t.Errorf("a daemon that attaches did not say so: %v", capsOf(&attachEngine{}))
 	}
 	if _, ok := answers["mcp-attach"]; !ok {
 		t.Error("…and the reverse would be worse: advertised and not dispatched")
+	}
+	// The capability belongs to the ENGINE, not to the build. The door is an optional interface, so
+	// a daemon carrying an engine without it would otherwise advertise the door and then refuse —
+	// which is the distinction the capability exists to make, reappearing one layer down. What the
+	// caller needs before it offers a companion to a person is "this daemon will take it".
+	if has(capsOf(struct{ Engine }{}), "tool-servers") {
+		t.Error("a daemon that cannot attach advertised the door")
+	}
+	if !has(capsOf(struct{ Engine }{}), "handshake") {
+		t.Error("the build-level floor went missing with it")
 	}
 }

@@ -1220,7 +1220,7 @@ func answerAbout(ctx context.Context, eng Engine, req Request) Response {
 	// The rendered description as before, plus the structured handshake so a caller can negotiate:
 	// the wire protocol and capabilities this build speaks, and — when the engine carries it — the
 	// binary version. All additive and omitempty, so an older client that only reads Out is unaffected.
-	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: Caps()}
+	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: capsOf(eng)}
 	if v, ok := eng.(Versioner); ok {
 		resp.Version = v.Version()
 	}
@@ -1562,16 +1562,39 @@ const ProtoVersion = 1
 // silently drop — encoding/json ignores unknown fields, which would turn a shape mismatch into wrong
 // behaviour rather than an error. The list grows as gated features land; "handshake" marks a build
 // that answers this versioned about at all (every build from this one on).
-// "tool-servers" marks a build whose door accepts mcp-attach / mcp-detach. It is here because the
-// door landed without it, and a client had no way left to ask: an application that IS a tool server
-// (an editor plugin, a slide add-in) attaches to whatever daemon is running, including one built
-// before the door existed, and calling a method that is not there to read the error back is
-// precisely what a handshake exists to make unnecessary — the answer it gets, "unknown method",
-// cannot be told apart from a refusal by the daemon that does have it.
+func Caps() []string { return capsOf(nil) }
+
+// capsOf is Caps for a known engine, which is the only honest way to answer it.
 //
-// This repository has a name for advertising that runs ahead of the code. This was the other
-// direction, which is quieter: the code ran ahead of the advertisement, and nothing failed.
-func Caps() []string { return []string{"handshake", "tool-servers"} }
+// A capability that is a property of the BUILD can be a constant; "tool-servers" is not one. The
+// door is an optional interface (ToolServerHost), so whether this daemon accepts mcp-attach is a
+// fact about the engine it is running, and a build-level list would advertise it and then refuse —
+// reintroducing, one layer down, exactly the distinction the capability exists to make. Two lines
+// below, Version already asks the engine; this one did not.
+//
+// nil engine answers the build-level floor: what any daemon from this build speaks whoever is
+// behind it.
+func capsOf(eng Engine) []string {
+	// "handshake" marks a build that answers this versioned about at all.
+	caps := []string{"handshake"}
+	// "tool-servers": this daemon accepts mcp-attach / mcp-detach. Asked of the engine because an
+	// application that IS a tool server (an editor plugin, a slide add-in) draws a list of
+	// companions and decides which ones it can attach to BEFORE attaching — so what it needs from
+	// this answer is "this daemon will take it", not "this build contains the code".
+	//
+	// It is advertised at all because the door landed dispatched and unadvertised, leaving a client
+	// nothing to ask: it would have to call the method and read the refusal back, and prose is not
+	// a contract — the two refusals differ in wording today (one lists the accepted methods, the
+	// other says this daemon cannot attach tool servers) and one of them has already been reworded
+	// once in this repository.
+	//
+	// This repository has a name for advertising that runs ahead of the code. This was the other
+	// direction, which is quieter: the code ran ahead of the advertisement, and nothing failed.
+	if _, ok := eng.(ToolServerHost); ok {
+		caps = append(caps, "tool-servers")
+	}
+	return caps
+}
 
 // About asks a companion to describe itself.
 func (c *Client) About() (string, error) {
