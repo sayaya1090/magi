@@ -8,6 +8,8 @@ import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel } from '../src/domain/Advice.js';
 import { foldAdvice } from '../src/domain/AdviceBoard.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
+import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
+import { pickDeck } from '../src/adapter/pickDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
 import { SendTurn } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
@@ -706,6 +708,51 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   d.reading = true;
   const ok2 = await qs.run();
   ok('손잡이를 되돌리면 다시 읽는다', ok2.added.length === 1, JSON.stringify(ok2.reason));
+}
+
+// ── 어느 덱에 붙는가. 사유 넷을 **갈라 돌려주는지**를 잰다 — 갈라 놓고 뭉치면 화면이 안 일어난
+// 일을 적는다. 여기까지 시험이 하나도 없었고, 그래서 「던진 것을 시한 초과라 적는」 결함이
+// 살아 있었다. 밖에서는 Office 가 없으므로 전역 대신 손으로 넣는다.
+{
+  const host = (h, ms = 0) => ({
+    HostType: { PowerPoint: 'PowerPoint' },
+    onReady: () => new Promise((r) => setTimeout(() => r({ host: h }), ms)),
+  });
+
+  const none = await pickDeck({ office: null });
+  ok('Office 가 없으면 가짜로 간다', none.why === 'no-office' && none.deck instanceof FakeDeck);
+
+  const ppt = await pickDeck({ office: host('PowerPoint') });
+  ok('PowerPoint 면 진짜 덱이다', ppt.why === null && ppt.deck instanceof OfficeDeck);
+
+  // Office **안**인데 PowerPoint 가 아니다. 옆의 가짜 캔버스가 설명이 못 되는 경우라
+  // 무엇에 붙었는지가 값에 실려야 화면이 말할 수 있다.
+  const word = await pickDeck({ office: host('Word') });
+  ok('PowerPoint 가 아니면 그렇다고 갈라 든다', word.why === 'not-powerpoint');
+  ok('무엇이었는지도 같이 든다', word.host === 'Word', String(word.host));
+
+  // **던진 것과 늦은 것은 다른 사실이다.** 앞 판본은 던짐을 `timeout` 으로 적었고, 그때
+  // 화면은 「1.5초 안에 안 와」라고 말했다 — 안 일어난 일이다. 게다가 `onReady()` 가 그
+  // 자리에서 던지면 늦은 답이 아예 없어 **뒤늦게 바로잡아 줄 것도 없다.**
+  const boom = new Error('office.js 를 못 읽었습니다');
+  const threw = await pickDeck({ office: { HostType: { PowerPoint: 'PowerPoint' },
+    onReady: () => { throw boom; } } });
+  ok('던진 것을 시한 초과라 적지 않는다', threw.why === 'threw', threw.why);
+  ok('던진 것을 값에 싣는다', threw.error === boom);
+  ok('던졌으면 늦은 답도 없다', threw.late === null);
+
+  // 늦은 것은 늦은 것이다 — 그리고 늦은 답을 **계속 듣는다**(화면이 나중에 바로잡는다).
+  const slow = await pickDeck({ office: host('PowerPoint', 50), waitMs: 5 });
+  ok('시계가 이기면 가짜로 가되 사유가 다르다',
+    slow.why === 'timeout' && slow.deck instanceof FakeDeck);
+  ok('늦은 답을 계속 듣는다', slow.late !== null);
+  ok('늦게 온 답이 진짜로 온다', (await slow.late) === 'PowerPoint');
+
+  // `HostType` 이 없는 판. 호스트를 안 밝힌 답(`null`)과 「PowerPoint 다」를 같다고 세면
+  // Word 위에서 진짜 덱을 만든다 — 모르는 둘을 같다고 세는 자리다.
+  const blind = await pickDeck({ office: { onReady: async () => ({}) } });
+  ok('모르는 둘을 같다고 세지 않는다',
+    blind.why === 'not-powerpoint' && blind.deck instanceof FakeDeck, blind.why);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
