@@ -284,12 +284,17 @@ public class KnowledgeElement {
         JsArrayLike<Object> list = Js.uncheckedCast(store.skills());
         if (list == null) { skills.fill("", 0, false, failed()); return; }
         if (list.getLength() == 0) {
-            skills.fill("", 0, false, empty("empty.nothing_learned", "empty.nothing_learned_how"), writeBox(list));
+            List<HTMLElement> only = new ArrayList<>();
+            refused(store.skillsRefusal(), only);
+            only.add(empty("empty.nothing_learned", "empty.nothing_learned_how"));
+            only.add(writeBox(list));
+            skills.fill("", 0, false, only.toArray(new HTMLElement[0]));
             return;
         }
         List<JsPropertyMap<Object>> shown = ranked(list, store.skillQuery(), r ->
                 join(str(r, "description"), str(r, "name"), str(r, "body"), str(r, "source")));
         List<HTMLElement> kids = new ArrayList<>();
+        refused(store.skillsRefusal(), kids);
         String q = store.skillQuery();
         if (!q.trim().isEmpty() || !hasBothKinds(shown)) {
             for (JsPropertyMap<Object> sk : shown) kids.add(skillRow(sk));
@@ -409,15 +414,31 @@ public class KnowledgeElement {
         JsArrayLike<Object> list = Js.uncheckedCast(store.mcp());
         if (list == null) { mcp.fill("", 0, false, failed()); return; }
         if (list.getLength() == 0) {
-            mcp.fill("", 0, false, empty("empty.no_servers", "empty.no_servers_how"));
+            List<HTMLElement> only = new ArrayList<>();
+            refused(store.mcpRefusal(), only);
+            only.add(empty("empty.no_servers", "empty.no_servers_how"));
+            mcp.fill("", 0, false, only.toArray(new HTMLElement[0]));
             return;
         }
         List<JsPropertyMap<Object>> shown = ranked(list, store.mcpQuery(), r ->
                 join(str(r, "name"), str(r, "command"), str(r, "url"), str(r, "companion")));
         List<HTMLElement> kids = new ArrayList<>();
+        refused(store.mcpRefusal(), kids);
         for (JsPropertyMap<Object> sv : shown) kids.add(serverRow(sv));
         if (shown.isEmpty()) kids.add(empty("empty.no_match", "empty.no_match_how"));
         mcp.fill(store.mcpQuery(), shown.size(), true, kids.toArray(new HTMLElement[0]));
+    }
+
+    /**
+     * 거절당한 press의 사유를 그 판 <b>맨 위</b>에 — 지워지지 않은 줄은 눌리기 전 그대로라
+     * 곁에 세워 봐야 가리킬 것이 없다. 서버의 문장을 그대로 옮긴다.
+     */
+    private void refused(String why, List<HTMLElement> into) {
+        if (why == null || why.isEmpty()) return;
+        HTMLElement no = cell("refused");
+        no.textContent = why;
+        no.setAttribute("role", "alert");
+        into.add(no);
     }
 
     private HTMLElement serverRow(JsPropertyMap<Object> sv) {

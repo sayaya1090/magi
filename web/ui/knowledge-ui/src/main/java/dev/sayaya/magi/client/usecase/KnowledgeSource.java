@@ -13,14 +13,17 @@ public interface KnowledgeSource {
 
     void mcp(Consumer<Object> listOrNull);
 
-    /** 규칙/기억을 잊는다 — 운영 규칙: project는 그 소켓에서, 나머지는 피어 라우팅. */
-    void forget(String name, String tier, String team, String socket, String peer, Runnable done);
+    /**
+     * 규칙/기억을 잊는다 — 운영 규칙: project는 그 소켓에서, 나머지는 피어 라우팅.
+     * 답은 <b>사유 한 줄</b>이다(빈 것=됐다) — {@link #saveServer}가 이미 쓰던 그 말.
+     */
+    void forget(String name, String tier, String team, String socket, String peer, Consumer<String> why);
 
     /** 한 줄 적어 두기 — tier는 global 또는 team(팀명 동반). */
-    void remember(String text, String tier, String team, Runnable done);
+    void remember(String text, String tier, String team, Consumer<String> why);
 
     /** MCP 서버 제거 — 소켓 없는 것은 이 콘솔의 global. */
-    void removeServer(String name, String socket, Runnable done);
+    void removeServer(String name, String socket, Consumer<String> why);
 
     /**
      * MCP 서버 저장(추가=편집: 같은 이름은 그 파일에서 갈아끼운다 — 운영 규칙).

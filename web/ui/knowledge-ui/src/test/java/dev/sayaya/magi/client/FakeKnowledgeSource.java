@@ -47,18 +47,20 @@ public class FakeKnowledgeSource implements KnowledgeSource {
     public void mcp(Consumer<Object> cb) { cb.accept(mcp); }
 
     @Override
-    public void forget(String name, String tier, String team, String socket, String peer, Runnable done) {
+    public void forget(String name, String tier, String team, String socket, String peer, Consumer<String> why) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set("__magi_test_forgot", name + "@" + tier);
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
         skills = skills.filter((v, i) -> !name.equals(Js.asPropertyMap(v).get("name")));
-        done.run();
+        why.accept("");
     }
 
     @Override
-    public void remember(String text, String tier, String team, Runnable done) {
+    public void remember(String text, String tier, String team, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_remembered",
                 text + "@" + tier + (team == null ? "" : ":" + team));
-        done.run();
+        why.accept(refuses());
     }
 
     @Override
@@ -76,10 +78,22 @@ public class FakeKnowledgeSource implements KnowledgeSource {
     public void console(java.util.function.Consumer<String> embedModel) { embedModel.accept(""); }
 
     @Override
-    public void removeServer(String name, String socket, Runnable done) {
+    public void removeServer(String name, String socket, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_removed",
                 name + "@" + (socket == null ? "global" : socket));
+        String no = refuses();
+        if (!no.isEmpty()) { why.accept(no); return; }
         mcp = mcp.filter((v, i) -> !name.equals(Js.asPropertyMap(v).get("name")));
-        done.run();
+        why.accept("");
+    }
+
+    /**
+     * 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 다이얼로그 저장이 이미 쓰던
+     * {@code __magi_test_refuse}와 <b>다른</b> 칸이다: 그쪽은 폼 안에 사유가 서고 이쪽은
+     * 판 위에 서서, 한 칸을 나눠 쓰면 어느 자리를 재고 있는지 스펙이 말하지 못한다.
+     */
+    private static String refuses() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_press_refuses");
+        return v == null ? "" : String.valueOf(v);
     }
 }

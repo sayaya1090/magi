@@ -85,7 +85,7 @@ public class AccessElement {
         // 그 줄은 눌리기 전 모습 그대로라 곁에 세워 봐야 무엇이 안 됐는지 가리키지 못한다.
         // 서버의 문장을 그대로 옮긴다 — 우리가 지어낼 수 있는 말이 아니다.
         if (!store.refusal().isEmpty()) {
-            HTMLElement no = cell("accnote", store.refusal());
+            HTMLElement no = cell("refused", store.refusal());
             no.setAttribute("role", "alert");
             kids.add(no);
         }

@@ -22,6 +22,8 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
     private String skillQuery = "";
     private String wikiQuery = "";
     private String mcpQuery = "";
+    private String skillsRefusal = "";
+    private String mcpRefusal = "";
     private boolean started = false;
 
     @Inject
@@ -51,26 +53,46 @@ public class KnowledgeStore extends dev.sayaya.magi.bridge.Told {
     public String skillQuery() { return skillQuery; }
     public String wikiQuery() { return wikiQuery; }
     public String mcpQuery() { return mcpQuery; }
+    public String skillsRefusal() { return skillsRefusal; }
+    public String mcpRefusal() { return mcpRefusal; }
     public void skillQuery(String q) { skillQuery = q == null ? "" : q; told(); }
     public void wikiQuery(String q) { wikiQuery = q == null ? "" : q; told(); }
     public void mcpQuery(String q) { mcpQuery = q == null ? "" : q; told(); }
 
     public void forget(String name, String tier, String team, String socket, String peer) {
-        source.forget(name, tier, team, socket, peer, this::reloadSkills);
+        source.forget(name, tier, team, socket, peer, this::skillsSaid);
     }
 
     public void remember(String text, String tier, String team) {
-        source.remember(text, tier, team, this::reloadSkills);
+        source.remember(text, tier, team, this::skillsSaid);
     }
 
     public void removeServer(String name, String socket) {
-        source.removeServer(name, socket, this::reloadMcp);
+        source.removeServer(name, socket, this::mcpSaid);
+    }
+
+    /**
+     * 거절당한 사유는 <b>그 판의 것</b>이다 — 이 화면은 판이 셋이라, 하나로 모으면 서버를
+     * 지우려다 들은 말이 규칙 목록 위에 서게 된다.
+     *
+     * <p>사유를 먼저 쥐고 나서 다시 읽는다: 다시 읽기가 판을 칠하므로 순서가 곧 그림이다.</p>
+     */
+    private void skillsSaid(String why) {
+        skillsRefusal = why == null ? "" : why;
+        reloadSkills();
+    }
+
+    private void mcpSaid(String why) {
+        mcpRefusal = why == null ? "" : why;
+        reloadMcp();
     }
 
     /** 저장이 거부되면 사유가 그대로 돌아온다 — 성공("")일 때만 목록을 다시 읽는다. */
     public void saveServer(String socket, jsinterop.base.JsPropertyMap<String> fields,
                            java.util.function.Consumer<String> why) {
         source.saveServer(socket, fields, w -> {
+            // 이쪽 사유는 판이 아니라 <b>다이얼로그</b>가 세운다(사람이 그 폼을 아직 보고
+            // 있으므로) — 그래서 mcpRefusal을 건드리지 않는다.
             if (w == null || w.isEmpty()) reloadMcp();
             why.accept(w == null ? "" : w);
         });

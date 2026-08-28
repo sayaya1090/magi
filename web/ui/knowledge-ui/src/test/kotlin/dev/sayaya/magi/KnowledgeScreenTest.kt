@@ -231,6 +231,41 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 }
             }
         }
+        When("잊기가 거절당하면") {
+            page.evaluate("window.__magi_test_press_refuses = 'that rule is pinned by the workspace'")
+            page.locator("#skills .sk .drop").first().click()
+            page.locator("#skills .sk .drop.armed").click()
+            Then("서버가 한 말이 경험 판 위에 서고, 지워지지 않은 줄은 그대로다") {
+                page.waitForSelector("#skills .refused")
+                page.locator("#skills .refused").textContent() shouldBe "that rule is pinned by the workspace"
+                page.locator("#skills .sk").count() shouldBe 2
+                page.locator("#skills .refused").getAttribute("role") shouldBe "alert"
+            }
+            Then("다른 판은 조용하다 — 사유는 그 판의 것이다") {
+                // 이 화면은 판이 셋이라, 사유를 한 자리에 모으면 서버를 지우려다 들은 말이
+                // 규칙 목록 위에 서게 된다.
+                page.locator("#mcp .refused").count() shouldBe 0
+            }
+        }
+        When("이번엔 서버 제거가 거절당하면") {
+            page.locator("#mcp .srv .drop").first().click()
+            page.locator("#mcp .srv .drop.armed").click()
+            Then("사유는 서버 판 위에 서고, 그 줄도 그대로다") {
+                page.waitForSelector("#mcp .refused")
+                page.locator("#mcp .refused").textContent() shouldBe "that rule is pinned by the workspace"
+                page.locator("#mcp .srv").count() shouldBe 1
+            }
+        }
+        When("경험 판에서 다음에 누른 것이 받아들여지면") {
+            page.evaluate("delete window.__magi_test_press_refuses")
+            page.locator("#skills .sk .drop").first().click()
+            page.locator("#skills .sk .drop.armed").click()
+            Then("그 판의 말만 사라진다 — 서버 판은 아직 청한 대로가 아니다") {
+                page.waitForCondition { page.locator("#skills .refused").count() == 0 }
+                page.locator("#skills .sk").count() shouldBe 1
+                page.locator("#mcp .refused").count() shouldBe 1
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("고르개가 서고 셋 중 하나만 보인다 — 폰에서 세 목적을 한 열에 세우지 않는다") {
