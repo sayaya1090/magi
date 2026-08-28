@@ -380,3 +380,45 @@ magi.log("err=" .. tostring(e))`,
 		t.Errorf("set_base_url without a registry should report unavailable: %q", out)
 	}
 }
+
+// deafBaseReg is a registry that redirects nothing and says so the only way the interface allows:
+// a zero token. The shape a provider wrapper takes when what it wraps has no redirect in it.
+type deafBaseReg struct{ calls int }
+
+func (d *deafBaseReg) SetBaseURL(string) uint64 { d.calls++; return 0 }
+func (d *deafBaseReg) ClearBaseURL(uint64)      {}
+
+// A registry that redirected nothing is reported to the plugin as a failure.
+//
+// The bridge used to push true whatever came back, so a plugin pointing the agent at its own
+// loopback server was told the switch was installed while every request still went to the old
+// backend — and the plugin, having no other signal, carried on serving a gateway nobody was
+// calling. The zero token is the registry saying it did nothing.
+func TestSetBaseURLReportsARegistryThatRedirectedNothing(t *testing.T) {
+	reg := &deafBaseReg{}
+	_, out := loadHost(t, HostConfig{BaseReg: reg},
+		`name="b"`+"\n"+`permissions=["net:127.0.0.1"]`,
+		`local r, e = magi.set_base_url("http://127.0.0.1:9123/v1")
+magi.log("failed=" .. tostring(r == nil) .. " err=" .. tostring(e))`,
+	)
+	if reg.calls != 1 {
+		t.Fatalf("the registry was called %d times; the test measures nothing", reg.calls)
+	}
+	if !strings.Contains(out, "failed=true") || !strings.Contains(out, "cannot be redirected") {
+		t.Errorf("a registry that redirected nothing must be reported as a failure: %q", out)
+	}
+}
+
+// Clearing is not a redirect, and a registry with nothing installed answers 0 for it. The refusal
+// must not swallow a plugin releasing its own override.
+func TestClearingTheBaseURLIsNotRefusedForAZeroToken(t *testing.T) {
+	reg := &deafBaseReg{}
+	_, out := loadHost(t, HostConfig{BaseReg: reg},
+		`name="b"`+"\n"+`permissions=["net:127.0.0.1"]`,
+		`local r, e = magi.set_base_url("")
+magi.log("cleared=" .. tostring(r == true) .. " err=" .. tostring(e))`,
+	)
+	if !strings.Contains(out, "cleared=true") {
+		t.Errorf("clearing must not be refused for a zero token: %q", out)
+	}
+}

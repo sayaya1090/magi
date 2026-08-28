@@ -52,6 +52,8 @@ type LLMHeaderRegistry interface {
 // in-process via magi.serve. An empty string clears the override.
 type BaseURLRegistry interface {
 	// SetBaseURL installs the override and returns an ownership token to release it with.
+	// A real token is never 0; 0 means nothing was redirected, which is what a registry that
+	// forwards to a backend with no redirect in it answers. The token is the answer, not the call.
 	SetBaseURL(url string) uint64
 	// ClearBaseURL releases the override only if tok still identifies the current one, so
 	// unloading/reloading one plugin can't wipe an override a newer Set installed since

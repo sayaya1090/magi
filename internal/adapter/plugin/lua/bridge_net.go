@@ -504,7 +504,16 @@ func (p *plugin) bridgeSetBaseURL(L *lua.LState) int {
 			return fail(L, "permission denied: net:"+u.Hostname())
 		}
 	}
-	p.baseTok = p.host.baseReg.SetBaseURL(raw) // token used to release only our own override
+	// The token, not the call, is the answer: a real one is never 0, so 0 means the registry
+	// redirected nothing. Both wirings here pass the concrete client, which always can — but the
+	// registry is an INTERFACE, and a provider wrapper satisfies it by forwarding to whatever it
+	// holds, answering 0 when that is a backend with no redirect in it. Pushing true regardless
+	// would tell the plugin its gateway is installed while every request still goes to the old one.
+	tok := p.host.baseReg.SetBaseURL(raw) // token used to release only our own override
+	if tok == 0 && raw != "" {
+		return fail(L, "set_base_url: this backend cannot be redirected")
+	}
+	p.baseTok = tok
 	p.baseSet = raw != ""
 	p.logf("[" + p.name + "] set LLM base URL: " + raw)
 	L.Push(lua.LTrue)
