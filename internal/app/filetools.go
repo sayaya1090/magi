@@ -20,8 +20,40 @@ import (
 
 // fileTouch is what a call does to a file: the path it names, and whether it changes it.
 type fileTouch struct {
-	path   string
+	path string
+	// guard is the loop guard's SLOT for this call — the path when there is one, and the tool's
+	// own name when there is not. Only the two guard readers that key a per-file ledger use it
+	// (runGuard.mutated and runGuard.repeatEpoch); everything else wants `path` and reads `path`.
+	//
+	// It is a second field rather than a fallback written into `path` because six other readers
+	// take that field AS A PATH: the secret/guardrail deny rules, the pre-call snapshot, the
+	// post-edit diagnostics, the created-set, the read-coverage drop, and the change record the
+	// council is shown. Each is already correct against "" — they skip — and each would be wrong
+	// against a tool NAME: a 12-second LSP round trip on a file that does not exist, a non-file
+	// entry in the list of what this turn changed.
+	//
+	// Nor can the guard simply skip a path-less write. check() counts every call toward the
+	// no-progress window and only mutated() clears it, so skipping would mean a turn that
+	// successfully edits through a path-less tool never registers progress at all — and the
+	// stalled nudge, which re-arms without a cap and has no force-stop behind it, would tell an
+	// agent doing real work that it is stalled, every twelve calls, forever.
+	guard  string
 	writes bool
+}
+
+// guardKey is the guard slot for a call that names `path` through the tool called `name`.
+//
+// "" is a perfectly good map key, so without this every path-less writer shares ONE slot in
+// runGuard.lastMut: two such tools alternating would each read the other's signature as the
+// world having moved, so neither one's identical rewrite could ever be recognised as the
+// idempotent no-op it is, and every swing would be credited as progress. The tool name is
+// prefixed with a NUL so it can never collide with a real relative path — the same convention
+// the bash mutation slot ("\x00bash") already uses.
+func guardKey(path, name string) string {
+	if path != "" {
+		return path
+	}
+	return "\x00" + name
 }
 
 // builtinFileTools is the default vocabulary — what a tool that declares nothing is taken to be.
@@ -68,7 +100,8 @@ func touchesFileIn(reg port.ToolRegistry, name string, args json.RawMessage) (fi
 	if reg != nil {
 		if t, ok := reg.Get(name); ok {
 			if ft, declares := t.(port.FileTool); declares {
-				return fileTouch{path: strings.TrimSpace(ft.FileArg(args)), writes: ft.WritesFile()}, true
+				p := strings.TrimSpace(ft.FileArg(args))
+				return fileTouch{path: p, guard: guardKey(p, lower), writes: ft.WritesFile()}, true
 			}
 		}
 	}
@@ -76,5 +109,6 @@ func touchesFileIn(reg port.ToolRegistry, name string, args json.RawMessage) (fi
 	if !known {
 		return fileTouch{}, false
 	}
-	return fileTouch{path: pathArg(args), writes: writes}, true
+	p := pathArg(args)
+	return fileTouch{path: p, guard: guardKey(p, lower), writes: writes}, true
 }

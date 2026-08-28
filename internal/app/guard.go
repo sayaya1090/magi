@@ -393,9 +393,13 @@ func (g *runGuard) forgetRecalledTopics() {
 // What the term should track is the one thing that decides both: whether THAT PATH has changed since.
 // lastMut holds exactly that — the args of the last mutation recorded for the path — so an identical
 // write accumulates while the file stands still, and starts over the moment it does not.
+//
+// Keyed by the touch's GUARD slot rather than its path: a write that names no file (port.FileTool's
+// FileArg answers "" for a call that names none) would otherwise share one slot with every other
+// such write, and each would read the other's signature as the world having moved.
 func (g *runGuard) repeatEpoch(name string, args json.RawMessage) string {
 	if touch, ok := g.touches(name, args); ok && touch.writes {
-		return g.lastMut[touch.path]
+		return g.lastMut[touch.guard]
 	}
 	return strconv.Itoa(g.epoch)
 }
@@ -423,19 +427,21 @@ func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, 
 }
 
 // mutated records a successful file mutation and bumps the epoch ONLY when the change to
-// `path` differs from the last mutation of that path (sig = the call's canonical args).
+// `key` differs from the last mutation recorded under it (sig = the call's canonical args).
+// `key` is the caller's guard slot — a file path for a call that names one, the tool's own name
+// for one that does not (see guardKey), and the synthetic "\x00bash" slot for a bash write.
 // An idempotent rewrite (writing identical content) is not progress, so it must NOT reset
 // the repeat counts — otherwise a write-the-same-thing loop would never be caught.
 // mutated returns whether it actually reset the progress counters (true) or short-circuited as
 // an idempotent rewrite (false). The caller uses that so retractProgress only ever undoes a reset
 // this same call produced.
-func (g *runGuard) mutated(path, sig string) (reset bool) {
+func (g *runGuard) mutated(key, sig string) (reset bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if g.lastMut[path] == sig {
+	if g.lastMut[key] == sig {
 		return false // no real change → leave the loop-guard counters intact
 	}
-	g.lastMut[path] = sig
+	g.lastMut[key] = sig
 	g.epoch++
 	g.prevSince = g.sinceProgress // snapshot for a possible retraction (see prevSince)
 	g.prevStallAt = g.lastStallAt

@@ -68,7 +68,11 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 				// error let a run delete a file it had only edited without being asked.
 				guard.noteCreated(absUnder(workdir, p))
 			}
-			mutatedReset = guard.mutated(touch.path, canonicalArgs(tc.Args))
+			// The guard SLOT, not the path: a writing tool that names no file (port.FileTool's
+			// FileArg answers "" for a call that names none) would otherwise land in the one
+			// shared "" slot with every other such tool, where two of them alternating each read
+			// the other's signature as a change and no identical rewrite is ever recognised.
+			mutatedReset = guard.mutated(touch.guard, canonicalArgs(tc.Args))
 			if mutatedReset {
 				// The file's contents are new, so what magi has already shown of it no longer
 				// describes it: reading it again is gathering information, not circling.
