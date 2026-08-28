@@ -51,6 +51,12 @@ type ContextProber interface {
 
 type BaseRedirector interface {
 	// SetBaseURL points the backend elsewhere and returns a token to release the override with.
+	//
+	// A real token is never 0, so 0 means NOTHING WAS REDIRECTED — which is the answer a wrapper
+	// gives for an inner backend that cannot be pointed anywhere. A wrapper implements this
+	// method whether or not what it wraps does, so the type assertion a caller used to ask the
+	// question with succeeds either way; the token is what actually answers it. A caller that
+	// only looks at the assertion reports a switch that did not happen.
 	SetBaseURL(url string) uint64
 	ClearBaseURL(tok uint64)
 	// BaseURL is where requests go RIGHT NOW — the override when one is installed, else what the

@@ -192,16 +192,28 @@ func (a *App) ListModels(ctx context.Context) ([]string, error) {
 // Refused rather than silently ignored when the provider cannot be redirected (a double in a test,
 // a backend built without the capability): a control that reports success and changes nothing is
 // the defect this tree keeps finding.
+//
+// That refusal was itself unreachable for as long as it has existed. The provider here is always
+// WRAPPED — the hang guard, and the usage meter over it — and a wrapper implements SetBaseURL
+// whether or not the backend under it does, forwarding to nothing and answering 0. So the type
+// assertion succeeded on every real build, and the one line that reports "this backend cannot be
+// redirected" was reachable only through a bare double nothing in this tree constructs. The token
+// is what answers the question (see port.BaseRedirector): 0 is nothing redirected.
 func (a *App) UseBackend(sid session.SessionID, base string) error {
 	base = strings.TrimSpace(base)
 	if base == "" {
 		return fmt.Errorf("no backend named")
 	}
+	// The setter alone, not port.BaseRedirector: pointing a backend somewhere else needs this one
+	// method, and demanding the reader and the release with it would refuse a provider that can do
+	// exactly what is being asked.
 	setter, ok := a.llm.(interface{ SetBaseURL(string) uint64 })
 	if !ok {
 		return fmt.Errorf("this backend cannot be redirected")
 	}
-	setter.SetBaseURL(base)
+	if setter.SetBaseURL(base) == 0 {
+		return fmt.Errorf("this backend cannot be redirected")
+	}
 	a.adoptServedModel(sid)
 	return nil
 }

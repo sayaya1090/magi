@@ -97,7 +97,7 @@ func (m *meteredProvider) ProbeContextWindow(ctx context.Context, model string) 
 func (m *meteredProvider) SetBaseURL(url string) uint64 {
 	setter, ok := m.inner.(port.BaseRedirector)
 	if !ok {
-		return 0
+		return 0 // nothing was redirected; the caller reads the token, not the assertion
 	}
 	return setter.SetBaseURL(url)
 }

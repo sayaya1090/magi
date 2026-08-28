@@ -147,7 +147,7 @@ func (g guardedProvider) ListModels(ctx context.Context) ([]string, error) {
 func (g guardedProvider) SetBaseURL(url string) uint64 {
 	setter, ok := g.inner.(port.BaseRedirector)
 	if !ok {
-		return 0
+		return 0 // nothing was redirected; the caller reads the token, not the assertion
 	}
 	return setter.SetBaseURL(url)
 }
