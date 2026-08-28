@@ -14,6 +14,9 @@ import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { fixture } from '../src/ui/deckFixture.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
+import { FakeStatus } from '../src/adapter/FakeStatus.js';
+import { WatchPrompt } from '../src/usecase/WatchPrompt.js';
+import { DECISIONS, CLEARED } from '../src/domain/Pending.js';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -233,6 +236,72 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const sent = await new SendTurn(chat, new Conversation()).run('제목 줄여줘');
   ok('스트림이 죽어도 제출은 간다', sent !== null && sent.text === '제목 줄여줘');
   ok('제출 성공이 스트림을 되살리지 않는다', read3.view.live === false);
+}
+
+// ── 권한 물음(§5.7). 스트림에 안 오는 것이라 따로 돈다.
+{
+  const st = new FakeStatus();
+  let drew = 0;
+  const w = new WatchPrompt(st, { onChange: () => { drew++; } });
+
+  st.ask({ id: 'call_7', kind: 'permission', what: 'mcp__ppt__set_text',
+    reason: '쓰기 도구는 허용 규칙에 없습니다' });
+  await w.poll();
+  ok('묻는 것이 서면 화면에 선다', w.view.pending?.id === 'call_7');
+
+  // 폴링이 같은 것을 계속 실어 온다. 매번 새로 그리면 고르던 것이 지워지고, 스크린 리더는
+  // 대기가 이어지는 내내 같은 말을 되풀이한다.
+  const before = drew;
+  await w.poll(); await w.poll();
+  ok('같은 물음을 다시 그리지 않는다', drew === before, `${drew - before}회 더 그림`);
+
+  // 답을 보내는 것과 물음이 내려가는 것은 다른 일이다. 직접 내리면 답이 실패했는데도 사라진다.
+  await w.answer('always');
+  ok('답은 call id 로 간다',
+    st.answers.length === 1 && st.answers[0].callId === 'call_7'
+    && st.answers[0].decision === 'always');
+  ok('보냈다고 화면에서 안 내린다', w.view.pending?.id === 'call_7');
+  st.clear();
+  await w.poll();
+  ok('내려가는 것은 다음 status 가 말한다', w.view.pending === null);
+  ok('우리가 답한 것으로 적힌다', w.view.clearedBy === CLEARED.answered);
+
+  // 남이 답한 경우. 무엇으로 답했는지는 안 찍는다 — 찍으면 남의 입에 결정을 넣는 것이 된다.
+  st.ask({ id: 'call_8', kind: 'permission', what: 'mcp__ppt__delete_shape' });
+  await w.poll();
+  st.clear();
+  await w.poll();
+  ok('남이 답하면 사유가 다르다', w.view.clearedBy === CLEARED.elsewhere);
+  ok('무엇으로 답했는지는 안 찍는다',
+    !['allow', 'deny', 'always', 'persist'].includes(w.view.clearedBy));
+
+  // 못 닿음. 「묻는 게 없다」와 값이 같으면 안 된다 — 앞은 아는 것이고 뒤는 모르는 것이다.
+  st.ask({ id: 'call_9', kind: 'permission', what: 'mcp__ppt__set_text' });
+  await w.poll();
+  st.reachable = false;
+  await w.poll();
+  ok('못 닿으면 세운 것을 내리되 사유가 다르다',
+    w.view.pending === null && w.view.clearedBy === CLEARED.unreachable);
+  ok('못 닿으면 소리 내어 말한다', w.view.lostNote !== null);
+  const said = drew;
+  await w.poll(); await w.poll();
+  ok('못 닿는다는 말은 한 번뿐이다', drew === said, `${drew - said}회 더 말함`);
+
+  // 문이 아예 안 열리는 것도 못 닿은 것이다. 예외를 삼키되 사실은 남긴다.
+  const st2 = new FakeStatus();
+  st2.throwOnStatus = true;
+  const w2 = new WatchPrompt(st2);
+  await w2.poll();
+  ok('dial 실패도 못 닿음이다', w2.view.reachable === false && w2.view.lostNote !== null);
+
+  // 단추 문구가 여는 폭을 말해야 한다.
+  // 「허용」/「항상 허용」이면 세션 전체를 여는 줄 모르고 누른다.
+  const widths = new Set(DECISIONS.map((d) => d.width));
+  ok('넷이 다 있고 폭이 셋으로 갈린다',
+    DECISIONS.length === 4 && widths.size === 3, [...widths].join('/'));
+  ok('문구가 폭을 말한다',
+    DECISIONS.every((d) => d.width === 'call' || /세션|계속|설정/.test(d.label)),
+    DECISIONS.map((d) => d.label).join(' · '));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
