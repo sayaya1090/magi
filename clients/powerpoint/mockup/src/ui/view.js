@@ -35,13 +35,16 @@ export class View {
   mount() {
     $('#adapter').textContent = this.deck.label;
     this.renderCaps();
-    $('#quote').addEventListener('click', () => this.onQuote());
+    $('#quote').addEventListener('click',
+      () => this.guard(() => this.onQuote(), '인용을 못 붙였습니다'));
     // **누르기 전 읽기**(S14 의 대조군). 호버는 포커스를 안 옮기므로 여기서 읽은 선택이
     // 「작업창이 포커스를 가져가기 전」의 값이다. 들어올 때마다 덮어써서 낡지 않게 둔다.
     $('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());
-    $('#send').addEventListener('click', () => this.onSend());
+    $('#send').addEventListener('click', () => this.guard(() => this.onSend(), '못 보냈습니다'));
     $('#input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) this.onSend();
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        this.guard(() => this.onSend(), '못 보냈습니다');
+      }
     });
     this.renderPending();
     if (this.readTranscript) {
@@ -249,11 +252,28 @@ export class View {
    * 보냈다)도 문이 죽은 것도 여기서는 똑같이 「안 갔다」이고, 안 간 것을 조용히 두면 사람은
    * 답이 간 줄 안다.
    */
-  async send(fn) {
+  async send(fn) { await this.guard(fn, '답을 못 보냈습니다'); }
+
+  /**
+   * 단추 하나가 하는 일 전체를 감싼다 — **단추는 조용히 죽지 않는다.**
+   *
+   * 안쪽의 유스케이스들은 던지는 대신 사유를 값에 실어 돌려주기로 돼 있다(`SendTurn` 의
+   * `why`, `QuoteSelection` 의 `reason`, `PointAtAdvice` 의 `ok/reason` 셋 다 그렇다).
+   * 그 약속이 지켜지는 동안 이 자리는 아무 일도 안 한다.
+   *
+   * 문제는 그것이 **약속일 뿐**이라는 것이었다. 한 군데서 깨진 날 — 덱이 선택을 안 내주면
+   * `QuoteSelection.run` 이 그대로 던졌다 — 이벤트 리스너의 거절은 콘솔까지만 가고 누른
+   * 사람에게는 **아무 일도 일어나지 않는다.** 그러면 그 침묵은 「안 골랐다」와 똑같이 생겨서
+   * 사람이 제 탓으로 읽는다. 사유를 값에 싣는 것과 같은 이야기다: **안 실리면 없는 일이 된다.**
+   *
+   * 그래서 약속을 믿는 대신 깨져도 화면에 뜨게 한다. 이름을 가진 사유가 언제나 낫지만
+   * (`readFailed` 처럼), 이름 없는 사유도 침묵보다는 낫다.
+   */
+  async guard(fn, what) {
     try {
       await fn();
     } catch (e) {
-      this.note(`답을 못 보냈습니다: ${e.message}`, { sticky: true });
+      this.note(`${what}: ${e?.message ?? String(e)}`, { sticky: true });
     }
   }
 
