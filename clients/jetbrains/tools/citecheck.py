@@ -15,7 +15,7 @@
   1. 줄 번호 인용이 돌아오지 않았는가        (본문에 한해서 — 규칙 자체를 적는 머리말은 예외)
   2. `파일` 의 `심볼`  → 그 파일에 그 식별자가 있는가
   3. `파일`, ... "문장"  → 그 파일에 그 문장이 **한 줄로** 들어 있는가
-  4. 맨몸 파일 이름이 저장소에서 하나로 풀리는가
+  4. 맨몸 파일 이름이 저장소에서 하나로 풀리는가 (`.js`/`.mjs` 는 예외 — `BARE` 주석)
 
 세 번째가 한 줄이어야 하는 이유는 grep 이 줄 단위이기 때문이다. 네 번째가 있는 이유는 이 검사기
 자신이 한 번 속아서다 — `search.go` 는 `cmd/magi-web` 과 `internal/app` 에 하나씩 있고, 검사기가
@@ -41,12 +41,20 @@ SKIP_DIRS = {".git", "build", "node_modules", ".gradle", "vendor", "scratchpad",
 
 # 파일 이름의 백틱은 있어도 되고 없어도 된다. 마크다운은 두르고 KDoc 은 안 두른다. 처음엔
 # 백틱을 요구했고, 그래서 Kotlin 주석에 줄 번호를 되돌리는 시험이 통과해 버렸다.
-BARE = r'(?<![\w:/])([A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt))(?![\w])'
+# `.js`/`.mjs` 는 **경로가 있는 인용만** 잡는다. 맨몸으로 넓히면 `Office.js` 가
+# `그런 파일이 없다` 로 떨어진다 — 남의 라이브러리 이름과 우리 파일 이름은 맨몸에서 구별이
+# 안 되고, go/md/kt 는 이 트리 밖 이름이 산문에 안 나와서 여태 그 문제가 없었을 뿐이다.
+# 그렇다고 js 만 "없는 파일은 조용히 넘김"으로 두면 목업 파일 이름을 바꾸는 순간 그 인용
+# 전부가 검사에서 빠진다 — 가장 큰 썩음이 가장 조용해지는 그 모양(아래 resolve 주석).
+# 그래서 규칙을 바꾸는 대신 **적는 쪽에 경로를 요구한다.** 맨몸 js 는 안 잡는 대신
+# 아래에서 반드시 나열한다 — 안 보는 것과 못 보는 것을 가른다.
+BARE = (r'(?<![\w:/])((?:[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt)'
+        r'|[A-Za-z_][A-Za-z_.-]*(?:/[A-Za-z_.-]+)+\.(?:js|mjs)))(?![\w])')
 # 심볼에 숫자를 허용한다. `[A-Za-z_.]+` 이었을 때 `sha256Of` 같은 이름이 전부 조용히 빠졌다.
 SYMBOL = re.compile(r'`?' + BARE + r'`?[^`\n]{0,14}`([A-Za-z_][\w.]*)`')
 QUOTE = re.compile(r'`?' + BARE + r'`?[^`\n"]{0,30}"([^"\n]{12,120})"')
 MENTION = re.compile(r'`?' + BARE + r'`?')
-LINENO = re.compile(r'(?<![\w:/])[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt|ts|yml):\d+')
+LINENO = re.compile(r'(?<![\w:/])[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt|ts|js|mjs|yml):\d+')
 
 
 def sources():
@@ -63,7 +71,7 @@ def sources():
         # 사인이 거짓이다 — 문서가 아니라 이 검사기가 고장난 것이다.
         raise SystemExit(f"citecheck: git ls-files 가 아무것도 못 냈다 (rc={tracked.returncode})")
     for rel in tracked.stdout.split("\0"):
-        if rel.endswith((".go", ".md", ".kt")):
+        if rel.endswith((".go", ".md", ".kt", ".js", ".mjs")):
             index.setdefault(os.path.basename(rel), []).append(os.path.join(ROOT, rel))
     return index
 
@@ -136,6 +144,7 @@ def documents():
 
 
 FENCE = re.compile(r"^```.*?^```", re.S | re.M)
+BAREJS = re.compile(r'(?<![\w:/])([A-Za-z_][A-Za-z_.-]*\.(?:js|mjs))(?![\w])')
 
 
 def check(doc, where, bad, unchecked):
@@ -206,6 +215,13 @@ def check(doc, where, bad, unchecked):
         # 소스 파일을 심볼 없이 가리키는 것만 약한 손가락으로 남긴다.
         if path and not name.endswith(".md"):
             unchecked.append(f"{where}: `{name}` 를 심볼 없이 가리킨다")
+
+    # 경로 없는 js 언급. [BARE] 가 일부러 안 잡는 것들인데, **안 잡는 것과 못 보는 것은
+    # 다르다** — 그냥 두면 목업이 커질수록 사각지대가 같이 커지면서 총계는 그대로 0 이 된다.
+    # 여기 한 줄로 서면 남의 라이브러리는 사람이 한 번 보고 넘기고, 우리 파일이면 경로를
+    # 붙이라는 말이 된다. 실측: 지금 코퍼스에서 이 목록은 `Office.js` 한 줄이다.
+    for name in sorted({m.group(1) for m in BAREJS.finditer(doc)}):
+        unchecked.append(f"{where}: `{name}` 를 경로 없이 가리킨다 — 우리 파일이면 경로를 붙일 것")
     return len(checked), quotes
 
 
