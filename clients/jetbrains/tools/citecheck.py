@@ -22,7 +22,18 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-DOC = os.path.join(ROOT, "clients/jetbrains/README.md")
+HERE = os.path.join(ROOT, "clients/jetbrains")
+
+# 검사 대상은 설계 문서 하나가 아니다. Kotlin 주석도 Go 원본을 짚고, SocketPath.kt 는 그것이
+# 존재 이유인 파일이다 — 그리고 실제로 DaemonClient.kt 와 Wire.kt 에 밀린 줄 번호가 일곱 개
+# 남아 있었다. 문서만 고치고 코드 주석을 두면 다음 사람은 두 규칙을 보게 된다.
+def documents():
+    out = [os.path.join(HERE, "README.md")]
+    for base, _, names in os.walk(os.path.join(HERE, "plugin")):
+        if "build" in base.split(os.sep):
+            continue
+        out += [os.path.join(base, n) for n in sorted(names) if n.endswith(".kt")]
+    return out
 
 # 파일 이름만 적은 인용(`daemon.go`)을 풀어 줄 후보 디렉토리. 앞에 있는 것이 이긴다.
 # 동명 파일이 실재한다 — search.go 는 cmd/magi-web 과 internal/app 에 하나씩 있고, 이 순서를
@@ -35,9 +46,12 @@ BASES = [
     "docs", "web/ui", ".",
 ]
 
-SYMBOL = re.compile(r'`([A-Za-z_/.-]+\.(?:go|md|kt))`[^`\n]{0,14}`([A-Za-z_.]+)`')
-QUOTE = re.compile(r'`([A-Za-z_/.-]+\.(?:go|md|kt))`[^`\n"]{0,30}"([^"\n]{12,120})"')
-LINENO = re.compile(r'`[A-Za-z_/.-]+\.(?:go|md|kt|ts|yml):\d+')
+# 파일 이름의 백틱은 있어도 되고 없어도 된다. 마크다운은 두르고 KDoc 은 안 두른다.
+SYMBOL = re.compile(r'`?([A-Za-z_/.-]+\.(?:go|md|kt))`?[^`\n]{0,14}`([A-Za-z_.]+)`')
+QUOTE = re.compile(r'`?([A-Za-z_/.-]+\.(?:go|md|kt))`?[^`\n"]{0,30}"([^"\n]{12,120})"')
+# 앞 백틱은 필수가 아니다. 마크다운은 두르지만 KDoc 은 `(daemon.go:980)` 처럼 맨몸으로 적는다.
+# 처음엔 백틱을 요구했고, 그래서 Kotlin 주석에 줄 번호를 되돌리는 시험이 통과해 버렸다.
+LINENO = re.compile(r'(?<![\w:/])[A-Za-z_][A-Za-z_/.-]*\.(?:go|md|kt|ts|yml):\d+')
 
 
 def candidates(name):
@@ -50,8 +64,19 @@ def read(path):
 
 
 def main():
-    doc = read(DOC)
     bad = []
+    syms, quotes = 0, 0
+    for path in documents():
+        n_s, n_q = check(read(path), os.path.relpath(path, ROOT), bad)
+        syms += n_s
+        quotes += n_q
+    for line in bad:
+        print(f"  !! {line}")
+    print(f"심볼 {syms}개 · 인용문 {quotes}개 검사 → 못 찾은 것 {len(bad)}")
+    return 1 if bad else 0
+
+
+def check(doc, where, bad):
 
     # 줄 번호로 되돌아가는 것을 막는다. 한 번 겪은 실패다.
     #
@@ -61,7 +86,7 @@ def main():
     first_section = doc.find("\n## ")
     body = doc[first_section:] if first_section > 0 else doc
     for m in LINENO.finditer(body):
-        bad.append(f"줄 번호 인용이 다시 들어왔다: {m.group(0)} — 심볼이나 한 줄 인용문으로 적을 것")
+        bad.append(f"{where}: 줄 번호 인용이 다시 들어왔다: {m.group(0)} — 심볼이나 한 줄 인용문으로")
 
     seen, checked_syms = set(), 0
     for name, sym in SYMBOL.findall(doc):
@@ -71,11 +96,10 @@ def main():
         seen.add((name, sym))
         found = candidates(name)
         if not found:
-            bad.append(f"{name}: 그런 파일이 없다")
             continue
         checked_syms += 1
         if not any(re.search(rf"\b{re.escape(sym)}\b", read(p)) for p in found):
-            bad.append(f"{name} 에 `{sym}` 가 없다 — 이름이 바뀌었거나 지워졌다")
+            bad.append(f"{where}: {name} 에 `{sym}` 가 없다 — 이름이 바뀌었거나 지워졌다")
 
     checked_quotes = 0
     for name, quote in QUOTE.findall(doc):
@@ -84,12 +108,9 @@ def main():
             continue
         checked_quotes += 1
         if not any(quote in read(p) for p in found):
-            bad.append(f'{name} 에 이 문장이 한 줄로 없다: "{quote[:60]}"')
+            bad.append(f'{where}: {name} 에 이 문장이 한 줄로 없다: "{quote[:60]}"')
 
-    for line in bad:
-        print(f"  !! {line}")
-    print(f"심볼 {checked_syms}개 · 인용문 {checked_quotes}개 검사 → 못 찾은 것 {len(bad)}")
-    return 1 if bad else 0
+    return checked_syms, checked_quotes
 
 
 if __name__ == "__main__":
