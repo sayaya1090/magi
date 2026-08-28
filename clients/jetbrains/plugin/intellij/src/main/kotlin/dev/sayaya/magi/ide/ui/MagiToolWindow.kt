@@ -9,6 +9,7 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
+import dev.sayaya.magi.ide.model.Ask
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.HandServer
@@ -261,22 +262,11 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 대기 중인 프롬프트를 그린다. 퍼미션이면 세 갈래, 질문이면 선택지 그대로.
+         * 대기 중인 프롬프트를 그린다. **무엇을 그릴지는 [Waiting.ask] 가 정하고 여기는 그리기만 한다.**
          *
-         * **두 갈래가 전부라는 것은 여기 사실이 아니다.** 코어가 만드는 종류는 오늘 둘뿐이고
-         * (`internal/app/permission.go` 의 `askUserFn` 이 `"question"`, 같은 파일의
-         * `requestPermission` 이 `"permission"`), 그래서 `else` 는 실질적으로 질문 가지다. 그런데 코어의
-         * `Waiting.Event` 는 같은 자리를 **반대로** 갈랐다 — `"question"` 이 아니면 전부 권한
-         * 물음이다. 셋째 종류가 생기면 콘솔은 세 단추를 그리고 이 창은 `else` 로 떨어진다.
-         *
-         * 떨어진 뒤가 문제다. 질문 가지는 `options` 를 그대로 펴므로 그 목록이 비면 **단추가 하나도
-         * 안 생긴다** — 사람은 물음을 보는데 누를 것이 없고, 컴패니언은 답을 기다리며 막혀 있다.
-         * 지금 그 일이 안 나는 이유는 이 파일에 없다: `askuser.go` 가 선택지 2개 미만을 거절한다.
-         * **딴 파일의 약속에 기대고 있다는 뜻이고, 그 약속이 바뀌면 여기가 조용히 부서진다.**
-         *
-         * 그래서 지금은 안 고친다. 만들 수 없는 입력을 위한 가지를 지어 두면 부르는 데 없는 코드가
-         * 되고, 그건 우연에 기댄 면역을 "고쳤다"고 세는 것과 같은 모양이다. 대신 기대고 있는
-         * 자리를 적어 둔다 — 셋째 종류를 들이는 사람이 코어와 이 창을 **같이** 봐야 한다.
+         * 갈래가 왜 셋인지는 그 주석에 있다. 여기서 지키는 것은 하나다 — **못 그릴 때 침묵하지 않는다.**
+         * 단추 없는 물음만 떠 있으면 사람은 창이 고장 난 줄 모르고, 컴패니언은 답을 기다리며 막혀 있다.
+         * 그 침묵이 바로 이전 판의 `else` 가 하던 일이었다.
          */
         private fun drawPrompt(w: Waiting?) {
             buttons.removeAll()
@@ -284,13 +274,18 @@ class MagiToolWindow : ToolWindowFactory {
                 prompt.text = " "
             } else {
                 val at = if (w.total > 1) " (${w.index}/${w.total})" else ""
-                prompt.text = "<html><b>${w.what}</b>$at<br/>${w.reason ?: ""}</html>"
-                if (w.isPermission) {
-                    add("허용") { it.allow(w.id) }
-                    add("거부") { it.deny(w.id) }
-                    add("항상") { it.always(w.id) }
-                } else {
-                    w.options.orEmpty().forEach { opt -> add(opt) { it.answer(w.id, opt) } }
+                val ask = w.ask
+                val why = (ask as? Ask.Undrawable)?.why?.let { "<br/><i>$it</i>" }.orEmpty()
+                prompt.text = "<html><b>${w.what}</b>$at<br/>${w.reason ?: ""}$why</html>"
+                when (ask) {
+                    is Ask.Permission -> {
+                        add("허용") { it.allow(w.id) }
+                        add("거부") { it.deny(w.id) }
+                        add("항상") { it.always(w.id) }
+                    }
+                    is Ask.Choose -> ask.options.forEach { opt -> add(opt) { it.answer(w.id, opt) } }
+                    // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
+                    is Ask.Undrawable -> Unit
                 }
             }
             buttons.revalidate(); buttons.repaint()

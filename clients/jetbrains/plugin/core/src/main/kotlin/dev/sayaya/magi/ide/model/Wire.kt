@@ -99,7 +99,49 @@ data class Waiting(
     val total: Int = 0,
     val since: String? = null,
 ) {
-    val isPermission: Boolean get() = kind == "permission"
+    /**
+     * 이 물음에 이 창이 그릴 수 있는 것.
+     *
+     * 처음엔 `isPermission` 하나였고 나머지는 전부 질문이었다. 그 `else` 가 **모르는 종류를 질문이라고
+     * 넘겨짚는다.** 코어는 같은 자리를 반대로 가른다 — `daemon.go` 의 `Waiting.Event` 는 `"question"`
+     * 이 아니면 전부 권한 물음으로 그린다. 셋째 종류가 생기면 두 창이 같은 물음을 다르게 그리고, 둘 중
+     * 하나는 반드시 틀린다.
+     *
+     * **틀린 답이 통과하지는 않는다.** 코어의 등록부가 종류별로 갈려 있다 — `app.go` 의
+     * `RespondQuestion` 은 `st.questions` 만 보고 `RespondPermission` 은 `st.perms` 만 본다. 잘못
+     * 보낸 답은 채널을 못 찾고 거절된다. 문제는 **거절이 사유를 틀리게 댄다**는 것이다: "이미 답했거나
+     * 만료됐다"고 하는데 사실은 그 종류에 그 답을 보낸 적이 없다. 사람은 없는 경합을 찾아 나선다.
+     *
+     * 그래서 여기서 넘겨짚지 않는다. **거절은 뜻을 안 정하므로 틀릴 수가 없다.** 값은 답할 줄 아는
+     * 창으로 한 번 옮겨 가는 것이고, 그 대신 사유가 맞는다.
+     *
+     * [Ask.Undrawable] 이 둘을 함께 잡는다. 선택지 없는 질문도 단추가 안 나오는데, 그게 지금 안 나는
+     * 이유는 이 파일에 없었다 — `askuser.go` 가 선택지 2개 미만을 거절해서였다. 딴 파일의 약속에
+     * 기대는 대신 여기서 말이 되게 한다.
+     */
+    val ask: Ask get() {
+        if (kind == "permission") return Ask.Permission
+        if (kind != "question") return Ask.Undrawable(
+            "이 창이 모르는 종류의 물음이다(kind=$kind). 답할 줄 아는 창에서 답해야 한다.")
+        val opts = options.orEmpty()
+        return if (opts.isEmpty()) Ask.Undrawable("선택지 없이 온 질문이다. 누를 것을 지어내지 않는다.")
+        else Ask.Choose(opts)
+    }
+}
+
+/** [Waiting.ask] 의 결과. 화면은 이 셋만 그린다. */
+sealed interface Ask {
+    /** 허용·거부·항상. */
+    data object Permission : Ask
+
+    /** 선택지 그대로. **비어 있지 않다** — 비면 [Undrawable] 이다. */
+    data class Choose(val options: List<String>) : Ask
+
+    /**
+     * 그릴 단추가 없다. [why] 를 사람에게 **그대로 보인다** — 조용히 비워 두면 물음만 떠 있고,
+     * 사람은 자기 창이 고장 난 줄 모르고, 컴패니언은 답을 기다리며 계속 막혀 있다.
+     */
+    data class Undrawable(val why: String) : Ask
 }
 
 /** 데몬이 소켓 옆에 공표하는 것. daemon.go 의 `Info`. */

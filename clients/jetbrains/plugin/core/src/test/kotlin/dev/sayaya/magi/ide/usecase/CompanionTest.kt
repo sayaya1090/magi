@@ -1,5 +1,6 @@
 package dev.sayaya.magi.ide.usecase
 
+import dev.sayaya.magi.ide.model.Ask
 import dev.sayaya.magi.ide.transport.DaemonClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -151,7 +152,7 @@ class CompanionTest {
         fake.close()
 
         assertEquals("c9", w?.id)
-        assertEquals(false, w?.isPermission)
+        assertEquals(Ask.Choose(listOf("A", "B")), w?.ask)
         assertEquals(listOf("A", "B"), w?.options)
         assertEquals(2, w?.total)
     }
