@@ -462,8 +462,30 @@ magi의 `read`를 안 지난다 — OS로 연다.
 대가는 `list_slides` 같은 순수 읽기도 `ask`/`auto`에서 **매번 묻는다**는 것이다. 답은 허용 규칙이다:
 
 ```toml
-allow = ["mcp__ppt__list_*(**)", "mcp__ppt__read_*(**)", "mcp__ppt__render_*(**)"]
+allow = [
+  "mcp__ppt__list_slides(**)", "mcp__ppt__read_slide(**)",
+  "mcp__ppt__render_slide(**)", "mcp__ppt__export_slide_ooxml(**)",
+  "mcp__ppt__find_shapes(**)", "mcp__ppt__snapshot_slide(**)",
+  "mcp__ppt__advise(**)", "mcp__ppt__clear_advice(**)",
+]
 ```
+
+⚠ **앞 판본은 여기 `mcp__ppt__list_*(**)`라고 적었고, 그 줄은 안 먹는다 — 실측했다.** 규칙의
+**도구 자리는 글롭이 아니다**: `internal/app/policy.go`의 `matches`가 `r.tool != "*" && r.tool !=
+tool`로 **문자열 비교**를 하고, 와일드카드로 통하는 것은 도구 이름 전체가 `*`인 경우뿐이다.
+글롭이 도는 곳은 괄호 안(주어)뿐이다. 그래서 `list_*`짜리 규칙은 `parseRule`을 **통과하고**
+(문법이 틀린 게 아니다) 어떤 호출에도 안 걸린다. 괄호를 빼면 더 조용하다 — `parseRule`이
+ok=false를 돌려주고 `newPolicy`가 그 줄을 **말없이 버린다.** 규칙 파일을 검사하는 자리는 코드
+어디에도 없다.
+
+**두 실패의 증상이 같고, 그게 「규칙을 아직 안 썼다」와도 같다:** 읽기마다 사람에게 물음이 뜬다.
+`ask` 컴패니언에서 그건 `list_slides` 한 번에 클릭 한 번이라는 뜻이고, §2.1이 「안 뜰 이유를
+없앤다」고 적은 스냅샷이 제일 먼저 무너진다.
+
+**그래서 규칙은 도구마다 한 줄씩이고, 이 목록은 §6의 「덱을 안 고치는가」와 같이 움직인다.**
+괄호 안은 `(**)`로 둔다 — 우리 도구에는 `path` 인자가 없어서 `subjectOf`가 **빈 문자열**을 주고
+(`bash`·`wait_for`·`webfetch`가 아닌 것은 전부 `args["path"]`다), 빈 주어에 걸리는 글롭이라야
+한다. `*(**)`는 **모든 도구**를 여는 규칙이라 쓰지 않는다.
 
 **쓰기 도구는 규칙에 넣지 않는다.** 덱을 고치는 것은 물어야 하는 일이 맞다.
 
@@ -1112,7 +1134,9 @@ door 계약이 이름을 인자로 받으므로 **고르는 쪽이 우리다.** 
 
 - **고정이다. PID·창 번호·덱 이름을 안 넣는다.** `mcp__` 접두는 무조건 danger tool이고(§4.4 ②),
   그걸 면하는 **유일한 수단이 오퍼레이터의 allow 룰**이다(§4.4 ②의
-  `allow = ["mcp__ppt__list_*(**)", …]`). 이름이 실행마다 바뀌면 그 룰이 재시작마다 무효가 된다 —
+  `allow = ["mcp__ppt__list_slides(**)", …]`). **그 룰의 도구 자리에는 와일드카드가 없으므로**
+  (§4.4 ②) 규칙은 도구 이름을 **하나씩 그대로** 적는다 — 이름이 실행마다 바뀌면 그 룰이
+  재시작마다 무효가 된다 —
   하나뿐인 완화책을 못 쓰게 만드는 이름은 고를 이유가 없다. 이 논거는 `ide/`에서 그대로 가져왔고,
   **두 제품이 상의 없이 같은 결론에 닿았다는 사실 자체가** 이게 제품 사정이 아니라는 증거다.
 - **자기 자신으로 다듬어진다.** 코어가 이름을 `sanitizeToolPart`로 통과시킨다(`[a-zA-Z0-9_-]` 밖은
@@ -1561,6 +1585,16 @@ is unavailable."*고 위 예제는 빈 문자열이다. 어느 쪽이든 **아�
 `internal/adapter/daemon/daemon.go`의 `Transcriber`이고, 방법 이름은 `transcript`, 커서 인자는
 `since`다. 아래 기본값 문단은 지어낸 요구가 아니라 **선 계약에 대한 서술로 바뀐다.**
 
+⚠ **그 문은 연결을 통째로 가져간다 — 그래서 헬퍼는 소켓에 두 번 붙는다.** `transcript`는 `watch`와
+같은 모양이다: 데몬 쪽은 스트림이 끝나면 연결도 끝내고(`daemon.go`가 그 자리에 *"this connection
+was a stream"*이라고 적어 뒀다), 클라이언트 쪽은 `Client.Transcript`가 다른 모든 호출이 한 왕복만
+잡는 그 뮤텍스를 **읽는 내내** 쥔다. 그러니 같은 `Client`로 `status`나 `permission`을 부르면
+거절도 에러도 아니고 **그냥 안 돌아온다** — `Dial`은 데드라인을 안 걸어서 영영. 아래에서 정하는
+「붙을 때 두 곳에 묻는다」는 그래서 왕복 둘이 아니라 **연결 둘**이다. 위 §5.5 문단의 「새 연결도
+없다」는 애드인↔헬퍼 링크에 대한 말이고, **헬퍼↔데몬 쪽은 하나 는다.** 그리고 스트림 연결이
+끊기는 것은 **에러로 안 온다**(문이 「깨끗한 끝은 에러가 아니다」라고 적는다). 되붙이는 규칙은
+§5.4 그대로지만, **락스텝 연결이 멀쩡한 것은 스트림이 살아 있다는 증거가 아니다.**
+
 **커서 없이 붙으면 전량이 온다.** 지어낼 값이 아니라 이미 서 있는 계약이라 그대로 따른다 —
 스토어의 `filterFrom`이 `fromSeq > 0`일 때만 자르고 seq는 1부터 시작하므로 **0도 -1도 "전부"**이며,
 콘솔이 첫 패스를 `lastSeq = -1`로 여는 것이 그 값이다. **두 번째 절반도 같이 따른다: 대화가 바뀌면
@@ -1847,6 +1881,11 @@ magi가 집계 도구 넷을 지우면서 세운 기준("호출 0회면 도구�
 **허용 규칙의 기준은 위 표의 제목이 아니라 "덱을 고치는가"다.** MCP 도구는 전부 danger tool이라
 규칙이 없으면 `list_slides`도 매번 묻는다(§4.4 ②). 그래서 **덱을 안 고치는 것은 규칙에 넣고**,
 고치는 것은 안 넣는다 — 덱을 고치는 것은 물어야 하는 일이 맞다.
+
+**그리고 이 절의 판정이 곧 그 파일의 줄 수다.** 규칙의 도구 자리에는 와일드카드가 없어서(§4.4 ②)
+「안 고치는 것」 하나가 규칙 한 줄이고, 여기에 읽기 도구를 하나 더하면 **오퍼레이터의 config도
+같이 고쳐야 한다.** 안 고치면 새 도구만 매번 묻는데, 그 증상은 「규칙이 원래 없다」와 구분이 안
+된다.
 
 앞 판본은 이걸 "읽기에만 준다"로 적었다. 제목으로 가르면 도구 둘이 틀린 쪽에 선다.
 
@@ -2286,7 +2325,7 @@ not what you get from running the same weights again; it is what you get from di
 | **S9** | `mcp-attach` door가 실제로 필요한가 | 켜진 데몬에 런타임으로 HTTP MCP 서버를 붙여 본다: (나)로 — 작은 Lua 플러그인 + `register_mcp` — 되는 데까지 가 보고 어디서 막히는지 적는다 | **돌렸다 → §5.0.2.** (나)는 기동 때 붙이는 데까지는 되고, 런타임에 고르는 것은 예상과 **다른 이유로** 막힌다 |
 | **S10** | 브라우저의 Local Network Access가 **우리 타깃에서** 어디를 막나 | 데스크톱 PowerPoint(Mac 16.96+ · Windows 2504+)와 Office on the web에서 **같은** 루프백 https 호출을 하고 거부 사유를 그대로 적는다. Chrome은 `chrome://flags/#local-network-access-check`를 Enabled(Blocking)으로 두면 미리 재현된다. **fetch만 재면 안 된다** — 147이 게이트에 넣는 것은 WebSocket이고 그게 §5.5가 고른 전송이다. 그러니 같은 자리에서 fetch 한 번, WebSocket 핸드셰이크 한 번을 **따로** 걸고 각각의 거부 사유를 적는다. **그리고 https 말고 평문 루프백도 거는데, 여기서도 fetch(`http://127.0.0.1`)와 WebSocket(`ws://127.0.0.1`)을 따로 건다** — Chromium의 혼합 콘텐츠 면제가 WebView2에서 사는지가 §12 #3 ㄱ-2의 답인데, **인증서를 지우는 것은 전송 쪽 답뿐이다**(Mac은 WKWebView라 이미 아니다). 프롬프트가 뜨는지도 같이 적는다(부록 A의 벤더 공지 둘이 이 점에서 갈린다). **그리고 같은 호출을 로컬에서 서빙된 페이지에서 한 번 더 건다** — 헬퍼가 애드인 페이지를 직접 내주면 요청하는 쪽이 공개 오리진이 아니게 되고(§5.5), 그때 거부 사유가 달라지는지가 §12 #7의 셋째 후보가 서는지를 가른다 | **데스크톱도 막히면 §5.5의 전송이 무너진다** — 브라우저 밖을 도는 길(커스텀 스킴, 파일 폴링)로 다시 고르거나 §3.4의 B가 살아난다. **fetch는 되는데 WebSocket만 막히면** 전송을 롱폴로 내리는 것으로 끝나므로 그 갈래를 따로 본다. 웹판만 막히면 §3.3(c)의 배제가 확정되고 배포 형태가 사내 카탈로그로 굳는다(§12 #3) |
 | **S11** | **문서 신원이 무엇인가** — 저장 안 된 덱에서도 서는가(§5.6) | 저장 전 새 덱 **둘**을 열고 각 창에서 `context.presentation.id` · `Office.context.document.url` · `getFilePropertiesAsync().url` 셋을 다 읽어 값을 비교한다. 그다음 한쪽을 저장하고 셋이 어떻게 바뀌는지, 특히 `id`가 그대로인지 본다 | 두 새 덱의 `id`가 다르고 저장이 그것을 안 바꾸면 §5.6의 키는 `presentation.id`다. 같거나 바뀌면 **헬퍼가 발급**하는 쪽으로 간다. 셋 다 못 가르면 저장 안 된 덱은 **거부하고 저장을 청한다**(§5.0) |
-| **S12** | 슬라이드 치수를 **1.8 안에서** 얻을 수 있나(§6.1의 핀, 그리고 §2.2 2층의 「슬라이드 밖」) | 4:3 · 16:9 · 사용자 지정 크기 셋으로 덱을 만들고, `pageSetup` 없이 아는 길을 잰다 — 렌더 이미지의 픽셀 비율, `export_slide_ooxml`에 `p:sldSz`가 실려 오는지 | 못 얻으면 §6.1의 핀은 **기본 두 크기에서만** 뜨고 나머지는 목록과 선택만이며, §2.2 2층의 「슬라이드 밖」 검사도 같은 자리에서 같이 좁아진다. `sldSz`가 슬라이드 OOXML에 실려 오면 셋 다 정확해진다 |
+| **S12** | 슬라이드 치수를 **1.8 안에서** 얻을 수 있나(§6.1의 핀, 그리고 §2.2 2층의 「슬라이드 밖」) | 4:3 · 16:9 · 사용자 지정 크기 셋으로 덱을 만들고, `pageSetup` 없이 아는 길을 잰다 — **옵션 없는 `getImageAsBase64`의 픽셀 치수**(문서가 그것을 「the true size of the slide」라고 적는다 — 부록 A. 그래서 재는 것은 비율이 아니라 **픽셀↔포인트 배율**이고, 그 배율이 문서에 없다), `export_slide_ooxml`에 `p:sldSz`가 실려 오는지 | 못 얻으면 §6.1의 핀은 **기본 두 크기에서만** 뜨고 나머지는 목록과 선택만이며, §2.2 2층의 「슬라이드 밖」 검사도 같은 자리에서 같이 좁아진다. `sldSz`가 슬라이드 OOXML에 실려 오면 셋 다 정확해진다 |
 | **S13** | **안 보고 있는 슬라이드의 도형을 잡을 수 있나**(§6.1의 "여기") | 3번 슬라이드를 보는 채로 5번 슬라이드의 도형에 `setSelectedShapes`를 부른다. 그다음 `setSelectedSlides`를 먼저 부르고 같은 것을 다시 한다. 각각 화면이 실제로 따라가는지, 조용히 아무 일도 안 일어나는지 본다 | 첫째가 되면 항목 클릭 한 번에 끝난다. 안 되면 **두 번 부르는 것이 계약**이 된다(문서가 침묵하므로 어느 쪽이든 그 순서로 적는다). 둘 다 안 되면 도형 지시를 핀에 넘기고, 그때는 S12가 **선택 과제가 아니라 필수**가 된다 |
 | **S14** | **작업창으로 포커스가 가면 도형 선택이 남는가**(§5.8) | 도형을 셋 잡고 작업창 안을 클릭한 뒤 `getSelectedShapes()`를 부른다. 입력칸에 타이핑한 뒤에도 다시 부른다 | 남으면 §5.8의 버튼 길이 서고 단축키는 가속기로 남는다. 안 남으면 인용은 **단축키로만** 되고 그 바닥이 Windows 2601 · Mac 16.105.2라 사실상 최신 빌드 전용 기능이 된다 — 그때는 §12에 "인용을 그 값에 살 것인가"를 새 항목으로 올린다 |
 **S9는 끝났다(§5.0.2). 남은 것 중 S1·S3·S10이 먼저다.** 셋 중 하나라도 안 되면 나머지는 의미가
@@ -2623,8 +2662,9 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
   *"The first item in the collection is the active slide that is visible in the editing area"*
   라고 적어 첫 항목이 그것임을 보장한다.
 - **⚠ 이 결론을 뒤집을 뻔한 것이 하나 있는데, MS 문서끼리 어긋난다.** 공통 API에
-  `Office.EventType.DocumentSelectionChanged`가 있고, 위 "문서 열 때 코드 돌리기" 안내의
-  **PowerPoint 예제가 그것을 직접 등록한다**(`Office.context.document.addHandlerAsync`). 그런데
+  `Office.EventType.DocumentSelectionChanged`가 있고, **아래 공유 런타임 항목이 링크한 안내
+  (「문서를 열 때 코드가 돈다」로 시작하는 ⚠ 문단이다)의 PowerPoint 예제가 그것을 직접
+  등록한다**(`Office.context.document.addHandlerAsync`). 그런데
   [`Office.EventType`](https://learn.microsoft.com/en-us/javascript/api/office/office.eventtype)의
   그 항목 설명은 *"Occurs when a document-level selection happens in Excel or Word."* — **PowerPoint가
   없다.** 같은 페이지에서 PowerPoint 몫으로 적힌 것은 `ActiveViewChanged`뿐이다.
@@ -2643,10 +2683,22 @@ and shapes"*라고 적는데, **집합별 페이지와 멤버별 페이지는 �
   `themeColorScheme`(1.10)
 - 메서드: `applyLayout`(1.8) · `delete`(1.2) · **`exportAsBase64`(1.8)** ·
   **`getImageAsBase64`(1.8, PNG)** · `moveTo`(1.8) · `setSelectedShapes`(1.5)
+- **`index`는 0부터다** — *"Returns the zero-based index of the slide representing its position
+  in the presentation."* 사람에게 보이는 번호는 **+1**이고, 목업의 `OfficeDeck`이 그렇게 적는다.
+  이 문서에 안 적혀 있던 값인데 화면에 나가는 수가 여기 걸려 있다.
+- **`getImageAsBase64`는 옵션을 안 주면 「슬라이드의 실제 크기」로 그린다** — *"If width and height
+  aren't specified, the true size of the slide is used. If only one of either width or height is
+  specified, the other will be calculated to preserve aspect ratio."* **S12가 여기서 세진다** —
+  옵션 없는 렌더의 픽셀 치수가 비율만이 아니라 **치수 후보**다. 다만 픽셀↔포인트 배율은 문서에
+  없으므로 확정이 아니라 **재야 아는 값**이고, 그게 S12가 재는 것이다.
 - **목록에 없는 것: 발표자 노트, 애니메이션, 전환.** §2.3의 근거.
 - `exportAsBase64`에 문서가 단 주의: *"This method is optimized to export a single slide.
   Exporting multiple slides can impact performance."* — 덱 전체 스냅샷을 슬라이드 루프로 뜨는
   것은 비싸다는 뜻. §8의 "범위를 좁게"와 §9의 S6이 여기서 나왔다.
+- **한 번에 여러 장을 뜨는 것이 있기는 하다 — `SlideCollection.exportAsBase64Presentation`,
+  그런데 1.10이다.** 바닥(1.8)보다 두 칸 위라 **우리에게는 없는 API**고, 그래서 S6이 재는 비용은
+  플랫폼이 안 준 것이 아니라 **바닥을 1.8로 고른 값**이다. §12 #4에서 바닥이 움직이면 이 줄이
+  같이 움직인다 — 그때는 루프가 한 번의 호출이 된다.
 
 **`PowerPoint.Shape`** — [레퍼런스](https://learn.microsoft.com/en-us/javascript/api/powerpoint/powerpoint.shape)
 
