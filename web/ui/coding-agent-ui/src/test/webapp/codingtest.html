@@ -11,6 +11,8 @@
     <script type="module">
       import './js/material.js';
       import * as rxjs from './js/rxjs.js';
+      const marked = await import('./js/marked.js');
+      window.mdlex = marked.lexer;
       window.rxjs = rxjs;
       const boot = document.createElement('script');
       boot.src = 'codingtest/codingtest.nocache.js';

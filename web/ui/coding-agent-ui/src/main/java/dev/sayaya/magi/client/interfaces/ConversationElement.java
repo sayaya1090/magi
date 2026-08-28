@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Markdown;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
@@ -652,7 +653,16 @@ public class ConversationElement {
         if (("user".equals(who) || "assistant".equals(who)) && !said.trim().isEmpty()) w.append(copyChip(said));
         HTMLElement t = el("div");
         t.className = "txt";
-        t.textContent = str(r, "text");
+        // 그리는 규칙은 누가 말했느냐로 갈린다(운영 rowNode의 그 세 갈래).
+        //
+        // 사람이 쓴 것은 <b>쓴 그대로</b> 보인다 — 파이프 표가 든 프롬프트를 마크다운으로 그리면
+        // 자기가 치지 않은 모양으로 돌아온다. 에러는 색이 아니라 마크로 이끈다: 빨강만으로 말한
+        // 상태는 잉크로만 말한 것이다. 나머지(모델의 말)는 마크다운으로 그린다 — 이 줄이 없던
+        // 동안 표는 파이프의 벽으로, 펜스 블록은 백틱 셋과 붙은 본문으로 도착했다.
+        String body = str(r, "text");
+        if ("error".equals(who)) t.textContent = "\u2717 " + body;
+        else if ("user".equals(who)) t.textContent = body;
+        else Markdown.into(t, body);
         d.append(w, t);
         return d;
     }
@@ -699,20 +709,26 @@ public class ConversationElement {
             } else if (!args.isEmpty() || !out.isEmpty()) {
                 if (!args.isEmpty()) {
                     if (blocks > 1) body.append(foldKey("fold.asked"));
-                    body.append(pre(args, Rows.looksLikeDiff(args)));
+                    body.append(block(args));
                 }
                 if (!out.isEmpty()) {
                     if (blocks > 1) body.append(foldKey("fold.answered"));
-                    body.append(pre(out, Rows.looksLikeDiff(out)));
+                    body.append(block(out));
                 }
             } else {
                 body.append(pre(str(r, "text"), Rows.looksLikeDiff(str(r, "text"))));
             }
         } else {
-            // thinking·council: 요약이 첫 줄을 이미 말했으니 속은 전체 본문이다.
+            // thinking·council: 요약이 첫 줄을 이미 말했으니 속은 전체 본문이고, 그 본문은 모델이
+            // 쓴 글이라 전사 행과 같은 규칙으로 그린다. 카운슬은 요약이 이미 말한 첫 줄을 빼고
+            // 나머지를 그린다(운영의 그 두 갈래).
             HTMLElement t = el("div");
-            t.textContent = str(r, "text");
-            body.append(t);
+            String said = str(r, "text");
+            if ("council".equals(who)) {
+                String[] lines = said.split("\n", 2);
+                said = lines.length > 1 ? lines[1].trim() : "";
+            }
+            body.append(Markdown.into(t, said));
         }
         det.append(body);
         if (pending) {
@@ -764,6 +780,35 @@ public class ConversationElement {
         k.className = "foldk";
         k.textContent = tr(key);
         return k;
+    }
+
+    /**
+     * 접힌 행 안의 한 덩어리 — 디프면 줄마다 클래스, <b>아는 키를 가진 객체면 인자표</b>,
+     * 아니면 디코드된 텍스트 한 덩어리.
+     *
+     * 인자표가 있어야 하는 이유: 도구 인자는 이미 객체이고, 그것을 한 줄의 JSON으로 보이면
+     * 경로도 명령도 본문도 escape 된 따옴표 사이에 묻힌다. 표로 펴면 이름은 고랑에, 값은 그
+     * 옆에, 여러 줄인 값은 제 블록에 선다(운영 pairsInto의 계약 .args/.argk/.argv).
+     */
+    private static HTMLElement block(String raw) {
+        if (Rows.looksLikeDiff(raw)) return pre(raw, true);
+        java.util.List<String[]> pairs = Rows.jsonPairs(raw);
+        if (pairs == null) return pre(raw, false);
+        HTMLElement box = el("div");
+        box.className = "args";
+        for (String[] kv : pairs) {
+            HTMLElement k = el("div");
+            k.className = "argk";
+            k.textContent = kv[0];
+            box.append(k);
+            // 어느 쪽이든 pre다 — 인자는 경로나 명령이나 본문이고, 셋 다 공백이 접히면 안 된다.
+            // 한 줄짜리는 제 블록이 필요 없을 뿐이다.
+            HTMLElement v = el("pre");
+            v.className = "argv" + (kv[1].contains("\n") ? " tall" : "");
+            v.textContent = kv[1];
+            box.append(v);
+        }
+        return box;
     }
 
     /** 본문 블록 — 디프면 줄마다 클래스, 아니면 디코드된 텍스트 한 덩어리(pre). */

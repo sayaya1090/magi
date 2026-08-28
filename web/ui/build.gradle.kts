@@ -110,6 +110,9 @@ screens.entries.forEachIndexed { i, (name, both) ->
             from("${rootDir}/../../cmd/magi-web/vendor/material.js") { into("js") }
             // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
             from("${rootDir}/../../cmd/magi-web/vendor/rxjs.js") { into("js") }
+            // 마크다운 렉서 — 전사가 그리는 것을 테스트 페이지에서도 그리려면 같은 번들이어야
+            // 한다. 스텁을 두면 스텁을 시험하게 된다.
+            from("${rootDir}/../../cmd/magi-web/vendor/marked.js") { into("js") }
             from("${rootDir}/../../cmd/magi-web/page.css") { into("css"); rename { "console.css" } }
             val own = file("src/main/webapp")
             if (own.isDirectory) from(own) { include("*.css"); into("css") }

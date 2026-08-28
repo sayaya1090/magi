@@ -103,9 +103,11 @@ func emitDemo(dir, ui, oldConsole string) error {
 	if err := os.MkdirAll(filepath.Join(dir, "vendor"), 0o755); err != nil {
 		return err
 	}
-	// material.js draws the controls; rxjs.js is what the screens' stores are made of, and the
+	// material.js draws the controls; rxjs.js is what the screens' stores are made of; marked.js is
+	// the markdown lexer the transcript reads with — the same three files the old console loads, so
+	// a demo of either console is the same bytes. The
 	// page asks for it by name before the shell boots — a demo without it is a blank console.
-	for _, name := range []string{"material.js", "rxjs.js"} {
+	for _, name := range []string{"material.js", "rxjs.js", "marked.js"} {
 		if err := copyFile(filepath.Join(oldConsole, "vendor", name),
 			filepath.Join(dir, "vendor", name)); err != nil {
 			return fmt.Errorf("vendor: %w", err)

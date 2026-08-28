@@ -39,6 +39,11 @@
       import '/vendor/material.js';
       import * as rxjs from '/vendor/rxjs.js';
       window.rxjs = rxjs;
+      // 마크다운 <b>렉서</b>, 그리고 그것뿐. 전사는 모델과 도구가 뱉은 임의의 글이라 여기서
+      // HTML 문자열을 만드는 일은 없다 — 토큰이 들어오고 DOM 노드가 나간다(옛 콘솔과 같은
+      // 번들, 같은 규칙). 자바 쪽은 전역 `mdlex`를 본다.
+      const marked = await import('/vendor/marked.js');
+      window.mdlex = marked.lexer;
       const boot = () => {
         const s = document.createElement('script');
         s.src = '/ui/shell/shell.nocache.js';
