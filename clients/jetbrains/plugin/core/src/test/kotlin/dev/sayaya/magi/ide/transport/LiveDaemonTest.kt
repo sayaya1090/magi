@@ -46,6 +46,17 @@ class LiveDaemonTest {
             val models = c.exchange(Request(method = "models"))
             assertTrue(models.ok || models.why != null, "models 가 답도 사유도 안 줬다")
 
+            // 교차 언어 검사. 골든 문자열은 JVM 만 못박으므로, Go 쪽 shortHash 가 바뀌면
+            // 코틀린 테스트는 전부 초록인 채로 플러그인만 아무도 안 듣는 소켓을 본다. 여기서는
+            // **돌던 데몬이 스스로 적은 소켓 이름**과 우리가 그 workdir 로 계산한 것을 맞댄다.
+            val rec = Published.of(sock)
+            val wd = rec?.workdir
+            if (!wd.isNullOrBlank() && !rec.socket.isNullOrBlank()) {
+                val computed = SocketPath.of(java.nio.file.Paths.get(rec.socket!!).parent, Paths.get(wd))
+                assertEquals(rec.socket, computed.toString(),
+                    "Go 가 지은 소켓 이름과 JVM 이 계산한 것이 다르다 — 이식이 갈렸다")
+            }
+
             // 락스텝 확인: 두 번을 연달아 주고받아도 답이 밀리지 않는다.
             val again = c.exchange(Request(method = "about"))
             assertEquals(about.out, again.out, "두 번째 about 이 첫 번째와 다르다 — 답이 밀렸다")

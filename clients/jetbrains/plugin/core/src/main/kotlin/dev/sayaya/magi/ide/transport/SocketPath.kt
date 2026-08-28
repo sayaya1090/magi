@@ -1,5 +1,6 @@
 package dev.sayaya.magi.ide.transport
 
+import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 
@@ -8,7 +9,9 @@ import java.nio.file.Paths
  *
  * 여기는 magi 의 `internal/adapter/daemon/daemon.go` 를 **그대로 옮긴 자리**다. 한 글자라도
  * 어긋나면 증상이 "여기 데몬 없음"이고, 그 말은 참이 아니면서 참처럼 보인다. 그래서 각 함수에
- * 원본의 위치를 적어 둔다. 원본이 바뀌면 여기도 바뀌어야 하고, 그 사실을 테스트가 잡는다.
+ * 원본을 **심볼 이름으로** 짚는다. 줄 번호로 적었다가 하루 만에 다섯 개가 다 밀렸다
+ * (587→616, 576→605, 2474→2569, 2330→2425, 2341→2436). 원본을 추적하는 것이 이 파일의 존재
+ * 이유인데 가리키는 손가락이 제일 먼저 썩으면 곤란하다. 심볼은 grep 으로 늘 찾힌다.
  */
 object SocketPath {
 
@@ -16,27 +19,52 @@ object SocketPath {
     const val MAX_SOCKET_PATH = 100
 
     /**
-     * daemon.go:587 `WorkspaceKey`.
+     * daemon.go 의 `WorkspaceKey`.
      *
      * 절대경로로 만들고 **심링크를 푼 뒤** 해싱한다. 푸는 단계를 빼면 `/tmp/x` 와
      * `/private/tmp/x` 가 서로 다른 소켓을 갖는다. macOS 에서 실제로 그렇게 갈렸다.
      */
     fun workspaceKey(workdir: Path): String {
         val abs = runCatching { workdir.toAbsolutePath() }.getOrDefault(workdir)
-        val real = runCatching { abs.toRealPath() }.getOrDefault(abs)
+        val real = evalSymlinks(abs)
         val s = real.toString()
         return sanitize(baseName(s)) + "-" + shortHash(s)
     }
 
-    /** daemon.go:576 `SocketPath`. */
+    /**
+     * Go 의 `filepath.EvalSymlinks` 와 같은 걸음. **`toRealPath()` 를 쓰면 안 된다.**
+     *
+     * 자바의 `toRealPath()` 는 심링크를 풀면서 **대소문자까지 정규화한다.** 실측: 대소문자를
+     * 무시하는 볼륨에서 `.../casedir` 을 물으면 `.../CaseDir` 을 돌려준다. Go 는 lstat 로
+     * 컴포넌트를 걷기만 해서 준 대로 돌려준다. 그러면 IDE 가 온디스크와 다른 대소문자로 경로를
+     * 넘겼을 때 JVM 과 Go 가 서로 다른 문자열을 해싱하고, 소켓이 둘로 갈리고, 증상은
+     * **"여기 데몬 없음"** 이다 — 심링크를 푸는 단계가 애초에 막으려던 바로 그 증상이다.
+     *
+     * 소켓 이름의 주인은 데몬이므로 맞춰야 하는 쪽은 이쪽이다. 그래서 심링크만 푼다.
+     */
+    internal fun evalSymlinks(path: Path): Path {
+        var out = path.root ?: return path.normalize()
+        for (part in path.normalize()) {
+            var next = out.resolve(part)
+            var hops = 0
+            while (Files.isSymbolicLink(next) && hops++ < 32) {
+                val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: break
+                next = if (target.isAbsolute) target.normalize() else next.parent.resolve(target).normalize()
+            }
+            out = next
+        }
+        return out
+    }
+
+    /** daemon.go 의 `SocketPath`. */
     fun of(configDir: Path, workdir: Path): Path =
         configDir.resolve("daemon-" + workspaceKey(workdir) + ".sock")
 
-    /** 데몬이 소켓 옆에 자기를 적어 두는 파일. daemon.go:2474 `SessionFile`. */
+    /** 데몬이 소켓 옆에 자기를 적어 두는 파일. daemon.go 의 `SessionFile`. */
     fun sessionFile(socket: Path): Path = Paths.get(socket.toString() + ".session")
 
     /**
-     * daemon.go:605 `tooLong`. OS 는 이 실패를 "invalid argument" 로만 말하고 길이 얘기를 안 한다.
+     * daemon.go 의 `tooLong`. OS 는 이 실패를 "invalid argument" 로만 말하고 길이 얘기를 안 한다.
      * 그래서 사유를 여기서 만든다. null 이면 문제 없음.
      */
     fun tooLong(socket: Path): String? {
@@ -47,7 +75,7 @@ object SocketPath {
     }
 
     /**
-     * platform.go:89 `ConfigDir` 를 옮긴 것.
+     * platform.go 의 `ConfigDir`(메서드다 — `func (OS) ConfigDir()`) 를 옮긴 것.
      *
      * IDE 를 Dock 으로 띄우면 셸 프로필의 환경변수를 못 물려받는다. `MAGI_CONFIG_DIR` 을 쓰는
      * 사용자는 그래서 플러그인과 터미널이 서로 다른 경로를 계산하게 되므로, 호출자가 env 를
@@ -71,7 +99,7 @@ object SocketPath {
     }
 
     /**
-     * daemon.go:2330 `sanitize`.
+     * daemon.go 의 `sanitize`.
      *
      * 원본은 **룬** 단위로 돈다. 자바의 char 단위로 돌면 서로게이트 쌍이 '-' 둘이 되어 이름이
      * 갈린다. 그래서 코드포인트로 걷는다.
@@ -90,7 +118,7 @@ object SocketPath {
     }
 
     /**
-     * daemon.go:2341 `shortHash` — FNV-1a 64비트를 base36 여덟 자리로.
+     * daemon.go 의 `shortHash` — FNV-1a 64비트를 base36 여덟 자리로.
      *
      * 두 곳이 자바에서 틀리기 쉽다. 첫째, 원본이 **바이트**를 XOR 하므로 UTF-8 바이트로 걷는다.
      * 둘째, 나눗셈과 나머지가 **부호 없는** 연산이다. Long 은 부호가 있어 상위 비트가 서면
