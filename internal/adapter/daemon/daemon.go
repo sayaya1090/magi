@@ -431,6 +431,35 @@ type CronController interface {
 	ReloadCron()
 }
 
+// Transcriber is an engine that can read out a conversation: everything already written, then
+// whatever happens next, down one connection.
+//
+// Optional and asserted at dispatch, like Taker and CronController, for the reason they give.
+//
+// # Why a READ crosses here, when Engine's own comment says most do not
+//
+// It does not earn the crossing the way Waiting and Doing do. Those are facts that exist only in
+// the memory of the process holding the run and are in no log, so nobody else can work them out. A
+// transcript is the opposite: it IS the log, and the terminal's --attach and the web console both
+// build an App of their own over the same directory and reconstruct it themselves. For those two
+// this method would be a second way to learn what they already know.
+//
+// It earns it because of the readers that cannot do that. The JetBrains plugin is a JVM process
+// with a socket and no Go store; a slide add-in outside this module is in the same position. They
+// cannot open the log AT ALL — not "would rather not", cannot — and the choice for them is this
+// door or no transcript. That is a different argument from the one Waiting makes, and it is the
+// only one holding this method up: an in-process reader should still read the log directly.
+type Transcriber interface {
+	// Subscribe replays the persisted events after fromSeq and then streams live ones, in order.
+	// fromSeq 0 (and any negative, which the store treats the same way) means everything.
+	Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error)
+	// NewSince is here to check a cursor before it is honoured, and for nothing else. Asked with 0
+	// it answers the highest seq this session's log holds, which is the one fact that can tell a
+	// caller's `since` from a caller's mistake — see answerable. It is a binary search over a
+	// cached tail, so asking costs about as much as not asking.
+	NewSince(ctx context.Context, sid session.SessionID, seq int64) (latest int64, changed bool, err error)
+}
+
 // Request is one line on the wire. One object per line, so a reader needs no framing beyond what
 // bufio already does and a person can watch the socket with `nc` and read it.
 type Request struct {
@@ -471,6 +500,15 @@ type Request struct {
 	// told. It rides with the console's own changes — an edit, a git command — and turns the note
 	// they leave in the log from a record into a steer.
 	Ask bool `json:"ask,omitempty"`
+	// Since is the transcript method's cursor: send what came AFTER this seq. Zero — which is what
+	// an absent field decodes to — and any negative both mean everything, because that is what the
+	// store already means by them (its filterFrom only cuts when fromSeq > 0, and seqs start at 1)
+	// and a second reading of one number is how two processes come to disagree about where a
+	// conversation starts.
+	//
+	// Its own field rather than N, which is an int and would have truncated a seq on a 32-bit
+	// client, and whose comment says it carries a number of turns to rewind.
+	Since int64 `json:"since,omitempty"`
 }
 
 // Response is the reply. Err is a STRING rather than a bool: a client told only that something
@@ -534,6 +572,14 @@ type Response struct {
 	Version string   `json:"version,omitempty"`
 	Proto   int      `json:"proto,omitempty"`
 	Caps    []string `json:"caps,omitempty"`
+	// Event is one frame of a transcript: the log's own event, whole and unrenamed.
+	//
+	// Whole rather than a diff, and the same shape the store holds rather than a rendering. A
+	// client that has the log's vocabulary can do everything the console does with it; one that
+	// only had a rendering could not, and two spellings of one stream drift the first time either
+	// is fixed. A pointer so an absent event is absent — a frame that carries only a sentence (see
+	// Why) is a real frame with nothing to draw, not an event with every field zeroed.
+	Event *event.Event `json:"event,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -1042,6 +1088,60 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 			}
 			return // this connection was a stream; it ends with it
 		}
+		// transcript is the second method that turns a connection into a stream, and it is framed
+		// like watch on purpose: one request line, then the connection is given over, then it ends
+		// when the peer hangs up. Two streaming styles in one protocol would be two things to get
+		// right in every client that speaks it.
+		//
+		// It carries a conversation — everything already in the log, then everything that happens
+		// next — for the clients that have no way to read the log themselves. See Transcriber for
+		// why a READ is on this socket at all.
+		if req.Method == "transcript" {
+			tr, ok := eng.(Transcriber)
+			if !ok {
+				// Refused before the connection is given over, so it is still an ordinary exchange
+				// and this connection stays open, like every other refusal in this loop.
+				if enc.Encode(Response{Err: "this daemon cannot read out a transcript"}) != nil {
+					return
+				}
+				continue
+			}
+			sid := session.SessionID(req.Session)
+			since, note := answerable(ctx, tr, sid, req.Since)
+			// The peer hanging up is the only thing that ends a transcript nothing is happening
+			// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
+			// holds a goroutine until the daemon stops, because there is nothing to write and so
+			// nothing to fail. Anything actually read is discarded — a reader has said its piece.
+			rctx, hungUp := context.WithCancel(ctx)
+			go func() {
+				for sc.Scan() { //nolint:revive // draining, not reading
+				}
+				hungUp()
+			}()
+			evs, unsubscribe, serr := tr.Subscribe(rctx, sid, since)
+			if serr != nil {
+				hungUp()
+				_ = enc.Encode(Response{Err: serr.Error()})
+				return
+			}
+			// Said BEFORE the first event, because it changes what the events that follow mean: a
+			// client that asked for a tail and is being sent a whole conversation has to know, or
+			// it appends the beginning of the session to the end of what it is showing.
+			if note != "" && enc.Encode(Response{OK: true, Why: note}) != nil {
+				hungUp()
+				unsubscribe()
+				return
+			}
+			for e := range evs {
+				frame := e
+				if enc.Encode(Response{OK: true, Event: &frame}) != nil {
+					break // the peer is gone
+				}
+			}
+			hungUp()
+			unsubscribe()
+			return // this connection was a stream; it ends with it
+		}
 		err := dispatch(ctx, eng, req)
 		resp = Response{OK: err == nil}
 		if err != nil {
@@ -1053,6 +1153,52 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 	}
 }
 
+// answerable settles which cursor a transcript is really sent from, and returns a sentence when
+// that is not the one the caller asked for.
+//
+// # The case this exists for
+//
+// The console opens a session at -1 and RESETS to -1 when the companion moves to another
+// conversation, because carrying a cursor across a conversation boundary blinds you to the start of
+// the new one. A client on the other side of this socket has the same problem and less to go on: it
+// reconnects after a daemon restart holding a number it read in a conversation that is no longer the
+// one it is being given, and every seq it holds is a plausible seq somewhere.
+//
+// So the number is checked against the log it names. `since` past the end of that log is a cursor no
+// event in this session can account for — nothing after it has happened, and nothing after it is
+// going to have happened before whatever comes next. Honouring it would hand back an empty replay
+// followed by live events, which is indistinguishable, on the client's screen, from a conversation
+// that started where it happens to be looking. That silent missing span is the thing this whole
+// tree is built to avoid, so the cursor is refused OUT LOUD and the conversation is sent whole.
+//
+// What this does NOT catch, and cannot: a stale cursor that happens to land INSIDE the new
+// session's range. Seq 40 from yesterday's conversation is a real position in today's, and no fact
+// on this side distinguishes them — the wire carries a number, not which log it was counted in. A
+// client that wants that guarantee has to hold the session id beside the seq and send both, which
+// is what the console does locally when it resets. Naming the limit rather than implying it is
+// covered: the check catches the reconnect-after-restart case and no other.
+func answerable(ctx context.Context, tr Transcriber, sid session.SessionID, since int64) (int64, string) {
+	// 0 and negative already mean everything, to the store and therefore here. There is nothing to
+	// distrust in a cursor that is asking for the whole thing.
+	if since <= 0 {
+		return since, ""
+	}
+	// Asked with 0, NewSince answers the highest seq the log holds (0 for a session with none).
+	latest, _, err := tr.NewSince(ctx, sid, 0)
+	if err != nil {
+		// Could not check. Subscribe is about to read the same log and will refuse in words if it
+		// is unreadable; throwing away a good cursor over a transient failure to stat a file would
+		// resend a whole conversation for no reason a client could act on.
+		return since, ""
+	}
+	if since <= latest {
+		return since, ""
+	}
+	return 0, fmt.Sprintf("since %d is past the end of this session's log, which ends at %d — that "+
+		"cursor was counted in some other conversation, so it is refused rather than honoured; "+
+		"replaying %s from the beginning", since, latest, sid)
+}
+
 // The methods that answer with something, one function each.
 //
 // serveConn used to hold all of them inline: nineteen blocks of `if req.Method == …`, each ending
@@ -1061,8 +1207,9 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 // and 466 lines in one function is a place where the next method gets added by copying the one
 // above it.
 //
-// The two that are NOT here are the two that do more than answer: shutdown replies and then stops
-// the daemon, and watch gives the connection over to a stream and never returns to the loop.
+// The three that are NOT here are the three that do more than answer: shutdown replies and then
+// stops the daemon, and watch and transcript each give the connection over to a stream and never
+// return to the loop.
 var answers = map[string]func(context.Context, Engine, Request) Response{
 	"status":     answerStatus,
 	"models":     answerModels,
@@ -1593,6 +1740,14 @@ func capsOf(eng Engine) []string {
 	if _, ok := eng.(ToolServerHost); ok {
 		caps = append(caps, "tool-servers")
 	}
+	// "transcript": this daemon will read a conversation out down the socket. Asked of the engine
+	// for the reason above, and advertised for the reason above: the clients this door exists for
+	// are the ones with no log reader, and the only alternative to an answer here is calling the
+	// method and reading a sentence back — which cannot tell a build that does not know the method
+	// from an engine that will not do it.
+	if _, ok := eng.(Transcriber); ok {
+		caps = append(caps, "transcript")
+	}
 	return caps
 }
 
@@ -1740,6 +1895,51 @@ func (c *Client) Watch(receipt string, each func(Handover) bool) error {
 	return c.sc.Err()
 }
 
+// Transcript reads a conversation out of a companion: everything the log holds after since, then
+// everything that happens next, one event per call to each. Returning false from each stops
+// listening.
+//
+// This connection is given over to it, exactly as Watch's is — the mutex every other call takes for
+// one exchange is held for as long as the caller keeps reading, so a reader opens a connection of
+// its own. A clean end is not an error.
+//
+// since 0 (or any negative) is everything. restart is called, before the first event, when the
+// daemon would not honour the cursor and is sending the whole conversation instead: a caller that
+// is appending to something must throw that away first, or it stitches the beginning of the session
+// onto the end of what it is already showing. nil is fine for a caller that asked for everything.
+func (c *Client) Transcript(sid string, since int64, restart func(why string), each func(event.Event) bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: since}); err != nil {
+		return fmt.Errorf("daemon: send: %w", err)
+	}
+	for c.sc.Scan() {
+		var resp Response
+		if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
+			return fmt.Errorf("daemon: malformed reply: %w", err)
+		}
+		if !resp.OK {
+			why := resp.Err
+			if why == "" {
+				why = "the daemon refused without saying why"
+			}
+			return Refused{Why: why}
+		}
+		if resp.Event == nil {
+			// A frame with no event is the daemon saying something about the stream rather than
+			// carrying a piece of it — today, only that the cursor was refused.
+			if resp.Why != "" && restart != nil {
+				restart(resp.Why)
+			}
+			continue
+		}
+		if !each(*resp.Event) {
+			return nil
+		}
+	}
+	return c.sc.Err()
+}
+
 // Handed asks what became of work handed over under a receipt.
 func (c *Client) Handed(receipt string) (Handover, error) {
 	resp, err := c.exchange(Request{Method: "hand-state", Name: receipt})
@@ -1833,7 +2033,7 @@ var acceptedMethods = sync.OnceValue(func() string {
 		"submit": true, "steer": true, "interrupt": true, "permission": true, "answer": true,
 		"rewind": true, "compact": true, "set-model": true, "set-permission": true, "use-backend": true,
 		"resume": true, "reload-cron": true, "watch": true, "shutdown": true, "restart": true,
-		"update": true,
+		"update": true, "transcript": true,
 	}
 	for m := range answers {
 		names[m] = true
