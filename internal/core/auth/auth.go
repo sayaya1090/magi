@@ -223,10 +223,13 @@ func (p Policy) ScopeWith(who string, groups []string) []string {
 
 // InScope reports whether this person may see or act on one companion, named and placed.
 //
-// Exported because a scope is not one check. The gate can ask it for a request that NAMES its
-// companion, but the routes that answer "what else is there" — the fleet and its kin — have
-// nothing for a gate to inspect and must filter what they produce instead. One predicate, many
-// callers, rather than several ideas of what a scope means.
+// ⚠ Nothing calls this or InScopeWith today, and the essay that used to sit here claimed the
+// opposite — "one predicate, many callers" — which is how it survived. The predicate the console
+// actually filters lists with is Grant.InScope, reached through magi-web's seen(). The two are
+// not the same answer: this pair refuses a caller the policy does not know, and Grant.InScope,
+// being the scope half alone, does not ask. auth_test.go pins that disagreement. Read it before
+// wiring either one, and prefer moving a caller ONTO this pair over adding a third idea of what a
+// scope means.
 //
 // `peer` is the console a companion was reported by, empty for this machine. An entry may be a
 // bare name, which matches that name anywhere, or "peer/name", which matches one machine's. Bare
