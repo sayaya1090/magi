@@ -28,6 +28,35 @@ final class Mock {
         return q < 0 ? u : u.substring(0, q);
     }
 
+    /** 쓰는 부름인가 — 몸이 있으면 쓴 것이다(운영의 그 계약: 같은 길이 읽기이자 쓰기다). */
+    static boolean wrote(elemental2.dom.RequestInit init) {
+        return init != null && jsinterop.base.Js.asPropertyMap(init).get("body") != null;
+    }
+
+    /** 보낸 몸에서 값 하나 — 콘솔은 URLSearchParams로 보낸다(Console.post). */
+    static String field(elemental2.dom.RequestInit init, String key) {
+        if (init == null) return "";
+        Object body = jsinterop.base.Js.asPropertyMap(init).get("body");
+        if (body == null) return "";
+        Object got = jsinterop.base.Js.<elemental2.dom.URLSearchParams>uncheckedCast(body).get(key);
+        return got == null ? "" : String.valueOf(got);
+    }
+
+    /** 같은 이름으로 여럿 딸려 오는 것(트리의 &path=… 여러 개). */
+    static java.util.List<String> params(String url, String key) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String u = url == null ? "" : url;
+        int q = u.indexOf('?');
+        if (q < 0) return out;
+        for (String part : u.substring(q + 1).split("&")) {
+            int eq = part.indexOf('=');
+            if (eq > 0 && part.substring(0, eq).equals(key)) {
+                out.add(elemental2.core.Global.decodeURIComponent(part.substring(eq + 1)));
+            }
+        }
+        return out;
+    }
+
     /** 딸린 값 하나 — 없으면 빈 문자열. */
     static String param(String url, String key) {
         String u = url == null ? "" : url;

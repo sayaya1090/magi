@@ -28,6 +28,13 @@ public class DemoApplication implements EntryPoint {
     private static Promise<Response> answer(String url, elemental2.dom.RequestInit init) {
         String path = Mock.pathOf(url);
         Promise<Response> got = Fleet.answer(path);
+        if (got == null) got = Knowledge.answer(path, init);
+        if (got == null) got = People.answer(path, init);
+        if (got == null) got = Sessions.answer(path, url);
+        if (got == null) got = Meetings.answer(path, url, init);
+        if (got == null) got = Settings.answer(path, init);
+        if (got == null) got = Companion.answer(path, init);
+        if (got == null) got = Workspace.answer(path, url, init);
         return got;
     }
 

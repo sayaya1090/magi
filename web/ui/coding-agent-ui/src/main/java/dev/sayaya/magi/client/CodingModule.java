@@ -1,30 +1,19 @@
 package dev.sayaya.magi.client;
 
+import dagger.Binds;
 import dagger.Module;
-import dagger.Provides;
-import dev.sayaya.magi.bridge.Demo;
 import dev.sayaya.magi.client.interfaces.api.BridgeCompanionSource;
-import dev.sayaya.magi.client.interfaces.api.DemoCompanionSource;
-import dev.sayaya.magi.client.interfaces.api.DemoWorkspaceSource;
 import dev.sayaya.magi.client.interfaces.api.FetchWorkspaceSource;
 import dev.sayaya.magi.client.usecase.CompanionSource;
 import dev.sayaya.magi.client.usecase.WorkspaceSource;
 
-import javax.inject.Provider;
-import javax.inject.Singleton;
-
-/** 데모면 이 모듈 제 목을 문다 — 목은 그 모듈과 함께 실려 그 배포에 따라붙는다. */
+/**
+ * 포트에 무엇을 물릴지 — 갈래는 없다. 뒤에 데몬이 없을 때 답하는 일은 회선의 이음매에 걸린
+ * 목이 맡고(demo-ui), 그래서 이 화면은 데모를 모른다.
+ */
 @Module
 public abstract class CodingModule {
-    @Provides
-    @Singleton
-    static CompanionSource source(Provider<BridgeCompanionSource> live, Provider<DemoCompanionSource> demo) {
-        return Demo.on() ? demo.get() : live.get();
-    }
+    @Binds abstract CompanionSource source(BridgeCompanionSource impl);
 
-    @Provides
-    @Singleton
-    static WorkspaceSource workspace(Provider<FetchWorkspaceSource> live, Provider<DemoWorkspaceSource> demo) {
-        return Demo.on() ? demo.get() : live.get();
-    }
+    @Binds abstract WorkspaceSource workspace(FetchWorkspaceSource impl);
 }

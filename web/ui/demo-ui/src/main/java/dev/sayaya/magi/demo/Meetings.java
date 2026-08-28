@@ -1,76 +1,35 @@
-package dev.sayaya.magi.client.interfaces.api;
+package dev.sayaya.magi.demo;
 
-import dev.sayaya.magi.bridge.RosterSharing;
-import dev.sayaya.magi.client.usecase.MeetingSource;
 import elemental2.core.Global;
+import elemental2.dom.RequestInit;
+import elemental2.dom.Response;
+import elemental2.promise.Promise;
 import jsinterop.base.Js;
-
-import javax.inject.Inject;
-import javax.inject.Singleton;
-import java.util.function.Consumer;
+import jsinterop.base.JsPropertyMap;
 
 /**
- * 데몬 없이 도는 회의실 — 이 모듈이 제 목을 싣는다.
+ * 회의 — 목록과 방 하나, 그리고 그 방의 전사.
  *
- * 부를 수 있는 이들은 여기서 지어내지 않는다: 명단은 셸의 것이라 데모에서도 브리지로 온다.
- * 그래야 데모의 회의실이 데모의 플릿과 같은 이름을 말한다 — 화면마다 다른 세상을 지으면
- * 그 데모는 아무것도 증명하지 못한다.
+ * 방 하나는 목록의 그 방 그대로다: 목록과 방이 다른 사실을 말하지 않게 픽스처는 하나다.
+ * 데모는 방을 <b>열지 않는다</b> — 이름 없는 주소로 사람을 보내느니 목록에 머문다.
  */
-@Singleton
-public class DemoMeetingSource implements MeetingSource {
-    @Inject
-    public DemoMeetingSource() {}
+final class Meetings {
+    private Meetings() {}
 
-    @Override
-    public void rooms(Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse(ROOMS));
-    }
-
-    @Override
-    public void fleet(Consumer<Object> cb) { RosterSharing.subscribe(cb::accept); }
-
-    @Override
-    public void room(String id, Consumer<Object> cb) {
-        // 방 하나는 목록의 그 방 그대로다 — 목록과 방이 다른 사실을 말하지 않게(하나의 픽스처).
+    static Promise<Response> answer(String path, String url, RequestInit init) {
+        if (!"/meet".equals(path)) return null;
+        if (Mock.wrote(init)) return Mock.json("");   // 말하기·닫기·다시 열기: 받아만 둔다
+        String id = Mock.param(url, "id");
+        if (id.isEmpty()) return Mock.json(ROOMS);
         elemental2.core.JsArray<Object> all = Js.uncheckedCast(Global.JSON.parse(ROOMS));
         for (int i = 0; i < all.length; i++) {
-            jsinterop.base.JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
-            if (id.equals(String.valueOf(one.get("id")))) { cb.accept(one); return; }
+            JsPropertyMap<Object> one = Js.uncheckedCast(all.getAt(i));
+            if (id.equals(String.valueOf(one.get("id")))) return Mock.json(Global.JSON.stringify(one));
         }
-        cb.accept(null);   // 없는 방은 없다고 답한다 — 빈 방과 사라진 방은 다른 화면이다
+        // 없는 방은 없다고 답한다 — 빈 방과 사라진 방은 다른 화면이다.
+        return Mock.json("null");
     }
 
-    @Override
-    public void convene(String topic, String[] sockets, Consumer<Object> made, Consumer<String> why) {
-        // 데모는 방을 열지 않는다: 이름 없는 주소로 사람을 보내느니 목록에 머문다.
-        made.accept(null);
-    }
-
-    @Override
-    public void say(String id, String text, String call, boolean hold, Consumer<String> why) { why.accept(""); }
-
-    @Override
-    public void close(String id, Runnable then) { then.run(); }
-
-    @Override
-    public void reopen(String id, String why, Runnable then) { then.run(); }
-
-    @Override
-    public void hand(String id, String who, Consumer<String> why) { why.accept(""); }
-
-    @Override
-    public void roomRows(String socket, String room, Consumer<Object> cb) {
-        cb.accept(Global.JSON.parse("[{\"who\":\"user\",\"text\":\"round 1: which store?\"},"
-                + "{\"who\":\"thinking\",\"text\":\"weigh ordering against ops\"},"
-                + "{\"who\":\"tool\",\"tool\":\"bash\",\"out\":\"pg_isready: accepting connections\",\"ok\":true},"
-                + "{\"who\":\"assistant\",\"text\":\"postgres, for the ordering\"}]"));
-    }
-
-    /**
-     * 구 콘솔의 데모와 같은 여섯 — 열려 있는 것, 아직 준비 중인 것, 닿지 못하는 참가자가 있는 것,
-     * 두 번 쉰 참가자가 있는 것, 그리고 각자 할 일을 안고 끝난 것 둘. 잘 풀린 경우만 담은 픽스처는
-     * 이 화면이 왜 있는지 한 번도 보여 주지 못한다.
-     */
     private static final String ROOMS = "[{\"id\": \"m20260813-090400-0\", \"topic\": \"how long may the fleet table take to load, and who owns it\","
             + " \"opened\": true, \"round\": 2, \"max\": 5, \"holder\": \"you\", \"held\": true, \"trouble\": \"ops: no daemon at /demo/ops.sock\","
             + " \"speakers\": [{\"name\": \"design\", \"socket\": \"/demo/design.sock\"}, {\"name\": \"api\", \"socket\": \"/demo/api.sock\","
