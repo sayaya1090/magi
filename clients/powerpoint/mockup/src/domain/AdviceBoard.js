@@ -64,6 +64,29 @@ export function foldAdvice(rows, { server = 'ppt' } = {}) {
   return { items, strays: [...strays], dropped };
 }
 
+/**
+ * 위 셈 중 **화면이 말해야 하는 둘**을 한 줄로 짓는다. 붙은 안내는 포스트잇이 스스로 말하므로
+ * 여기 안 든다 — 여기 드는 것은 **안 붙은 것들의 사유**뿐이다.
+ *
+ * **글을 화면 밖에서 짓는다.** 화면에 두면 DOM 이 있어야 돌아서 못 재는데, 이 두 문장은 정확히
+ * 「설정 한 줄이 기능을 껐다」와 「모델이 말을 빼고 불렀다」를 사람에게 알리는 유일한 통로다
+ * (`pickNote` 를 화면 밖으로 내린 것과 같은 이유고, 거기서는 그 덕에 성공 갈래가 사유 그물에
+ * 걸려 있던 것을 잡았다).
+ *
+ * 빈 문자열은 **할 말이 없다**는 뜻이고, 화면은 그때 쪽지 칸을 숨긴다.
+ */
+export function adviceNote({ strays = [], dropped = 0 } = {}) {
+  const notes = [];
+  // 이름이 우리 서버가 아니라서 못 붙인 것. **조용히 안 끝낸다** — 설정 한 줄이 기능을
+  // 껐다는 사실이 화면 어딘가엔 있어야 한다.
+  if (strays.length) {
+    notes.push(`안내를 부른 도구가 이 창이 아는 이름이 아닙니다: ${strays.join(', ')}`);
+  }
+  if (dropped) notes.push(`안내 ${dropped}건은 무엇을 말하는지 안 실려 못 붙였습니다.`);
+  // 둘 다면 한 줄에 나란히 선다. 뒤엣것을 덮어쓰면 남의 서버 이름이 화면에서 사라진다.
+  return notes.join(' · ');
+}
+
 /** `mcp__ppt__advise` → `advise`. 서버 이름이 뭐든 뒤 토막은 도구 이름이다. */
 function tail(name) {
   const at = name.lastIndexOf('__');

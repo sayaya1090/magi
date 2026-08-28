@@ -64,3 +64,26 @@ export class SendTurn {
     return true;
   }
 }
+
+/**
+ * 전사 뷰를 위 두 메서드가 먹는 모양으로 옮겨 싣는다.
+ *
+ * **화면에서 여기로 내렸다.** 위 갈래 셋은 전부 이 두 칸에서 갈리는데, 이 칸들을 **채우는
+ * 쪽**은 화면 안에 있어서 한 번도 안 돌아 봤다 — 소비자는 손으로 지은 객체로 샅샅이 재고
+ * 생산자는 아무도 안 재는, `OfficeDeck.selection` 에서 본 것과 같은 모양이다. 옮겨 싣는
+ * 자리가 틀리면 위 주석이 지키려는 것이 통째로 무너지는데도.
+ *
+ * 두 칸이 각각 무엇을 지키는지:
+ * - `userRows` 는 **사람 줄만** 센다. 모든 줄을 세면 모델이 한 마디 하는 순간 수가 늘어
+ *   `settle` 이 메아리로 읽고, 아직 안 돌아온 사람 글을 지운다(`Composer.echoed`).
+ * - `live` 는 **그대로 나른다.** 없는 것을 `true` 로 채우면 안 올 메아리를 기다리며 잠기고,
+ *   그 함정은 위 `run` 주석이 이미 한 번 걷어 낸 것이다.
+ *
+ * @param {{rows:Array, live:boolean}|null|undefined} view `ReadTranscript.view`
+ */
+export function logShapeOf(view) {
+  // 읽는 유스케이스가 아예 없는 판(문에 안 붙었다). **읽는 중이 아니다** — 눈감고 보내는
+  // 쪽으로 가야 사람이 안 갇힌다.
+  if (!view) return { userRows: 0, live: false };
+  return { userRows: view.rows.filter((r) => r.kind === 'user').length, live: view.live };
+}

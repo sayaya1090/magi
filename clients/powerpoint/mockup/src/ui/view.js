@@ -1,6 +1,8 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
-import { foldAdvice } from '../domain/AdviceBoard.js';
+import { foldAdvice, adviceNote } from '../domain/AdviceBoard.js';
 import { targetLabel, SlideNumbers } from '../domain/Advice.js';
+import { logShapeOf } from '../usecase/SendTurn.js';
+import { quoteNote } from '../usecase/QuoteSelection.js';
 import { DECISIONS, WIDTH_NOTE, CLEARED } from '../domain/Pending.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -342,19 +344,9 @@ export class View {
     const { added, skipped, empty, reason, beforeCount } = await this.quoteSelection.run();
     if (empty) {
       // **사유를 뭉개지 않는다.** 넷이 다른 말이다 — 못 읽었다 / 날아갔다 / 모른다 / 안 골랐다.
-      // 앞 읽기가 없는 채로 「안 골랐다」라고 적으면 그게 S14 를 못 재게 만드는 그 뭉갬이고,
-      // 읽기가 죽은 채로 그렇게 적으면 **덱이 죽은 것을 사람 탓으로 돌리는** 셈이다.
-      if (reason === 'readFailed') {
-        this.note('선택을 못 읽었습니다 — 덱이 답하지 않았습니다. '
-          + '골라 둔 것은 그대로이니, 잠시 뒤 다시 누르거나 새로고침하세요.', { sticky: true });
-      } else if (reason === 'lostFocus') {
-        this.note(`선택이 날아갔습니다 — 누르기 직전엔 ${beforeCount}개를 잡고 있었습니다. (S14)`);
-      } else if (reason === 'unknown') {
-        this.note('잡힌 도형이 없습니다 — 누르기 전 읽기가 없어 '
-          + '"안 골랐다"와 "포커스가 가져갔다"를 못 가릅니다.');
-      } else {
-        this.note('잡힌 도형이 없습니다 — 캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요.');
-      }
+      // 글은 `quoteNote` 가 짓는다: 화면 밖이라야 잰다.
+      const n = quoteNote({ reason, beforeCount });
+      this.note(n.text, { sticky: n.sticky });
       return;
     }
     if (skipped) this.note(`${skipped}개는 이미 인용돼 있습니다.`);
@@ -386,12 +378,8 @@ export class View {
     this.renderSent();
   }
 
-  /** 지금 로그에서 보이는 것. 없으면 **읽는 중이 아니다**(`live:false`). */
-  logShape() {
-    const v = this.readTranscript?.view;
-    if (!v) return { userRows: 0, live: false };
-    return { userRows: v.rows.filter((r) => r.kind === 'user').length, live: v.live };
-  }
+  /** 지금 로그에서 보이는 것. 셈은 `logShapeOf` 가 한다 — 화면 밖이라야 잰다. */
+  logShape() { return logShapeOf(this.readTranscript?.view); }
 
   /** 로그가 움직였다. 여기 하나로 대화·안내·컴포저가 다 따라간다. */
   onLog() {
@@ -599,14 +587,7 @@ export class View {
   renderAdviceFrom(rows) {
     const { items, strays, dropped } = foldAdvice(rows);
     this.advices = items;
-    const notes = [];
-    // 이름이 우리 서버가 아니라서 못 붙인 것. **조용히 안 끝낸다** — 설정 한 줄이 기능을
-    // 껐다는 사실이 화면 어딘가엔 있어야 한다.
-    if (strays.length) {
-      notes.push(`안내를 부른 도구가 이 창이 아는 이름이 아닙니다: ${strays.join(', ')}`);
-    }
-    if (dropped) notes.push(`안내 ${dropped}건은 무엇을 말하는지 안 실려 못 붙였습니다.`);
-    this.adviceNote = notes.join(' · ');
+    this.adviceNote = adviceNote({ strays, dropped });
     // 이 안내들의 슬라이드를 **언제 처음 봤는지** 먼저 적는다. 물음보다 앞이라야 「그 뒤에 던진
     // 물음의 답」이라는 말이 성립한다.
     for (const a of items) this.slideNos.note(a.slideId);

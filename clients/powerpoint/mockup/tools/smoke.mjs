@@ -14,13 +14,13 @@
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
-import { foldAdvice } from '../src/domain/AdviceBoard.js';
+import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
 import { DeckPort } from '../src/port/DeckPort.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { OfficeDeck } from '../src/adapter/OfficeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from '../src/adapter/pickDeck.js';
-import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
-import { SendTurn } from '../src/usecase/SendTurn.js';
+import { QuoteSelection, quoteNote } from '../src/usecase/QuoteSelection.js';
+import { SendTurn, logShapeOf } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { readFileSync } from 'node:fs';
@@ -686,7 +686,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     width: 100, height: 20 };
   comp.attach(new Quote({ slideId: 's4', slideNo: 4, ...shape, shapeId: 'sh1' }));
 
-  const rows = () => read.view.rows.filter((r) => r.kind === 'user').length;
+  // **셈을 여기서 다시 짓지 않는다.** 앞 판본은 이 자리에 `filter(kind === 'user')` 를 손으로
+  // 적어 뒀는데, 그러면 아래 블록 전체가 프로덕션의 셈이 아니라 **시험이 베낀 규칙**을 재게
+  // 된다 — 화면 쪽 셈이 바뀌어도 여기는 초록이다. 지금은 화면이 부르는 그 함수를 그대로 쓴다.
+  const rows = () => logShapeOf(read.view).userRows;
   const r1 = await send.run('제목 줄여줘', { userRows: rows(), live: true });
   ok('보내면 간다', r1.sent === true && chat.sent.length === 1);
   // 여기서 화면에 미리 붙이면 로그가 같은 말을 실어 올 때 두 벌이 된다.
@@ -695,6 +698,34 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     && read.view.rows[0].text.includes('제목 줄여줘'));
   ok('메아리가 오면 컴포저가 빈다',
     send.settle(rows()) === true && comp.pending.length === 0 && comp.waiting === false);
+
+  // **사람 줄만 센다.** 이 셈이 모든 줄을 세면 모델이 한 마디 하는 순간 수가 늘어 `settle` 이
+  // 그걸 메아리로 읽고, **아직 안 돌아온 사람 글을 지운다** — 사람은 자기가 적은 것이 갔는지
+  // 모른 채 빈 칸을 본다. 위 블록은 이 갈래를 못 가른다(사람 줄만 밀어 넣으므로 어느 셈이든
+  // 같은 수가 나온다). 여기서 모델 줄을 하나 밀어 가른다.
+  // 표시는 `run` 을 안 거치고 직접 찍는다. 가짜 문의 `submit` 은 사람 줄을 **그 자리에서**
+  // 로그에 앉히므로 `run` 으로는 이 틈이 안 생기는데, 진짜 데몬에서는 submit 이 왕복이라
+  // 사람 줄이 늦게 오고 그 사이에 **앞 턴의 모델 델타**가 먼저 도착한다. 재려는 것이 그 틈이다.
+  const comp7 = new Composer();
+  const send7 = new SendTurn(chat, comp7);
+  const mark7 = rows();
+  comp7.hold('세어 보자', mark7);
+  port.push({ type: 'part.appended', data: { messageId: 'm7',
+    part: { kind: 'text', text: '모델이 한 마디' } } });
+  ok('모델 줄은 사람 줄 수를 안 올린다', rows() === mark7, `${mark7} → ${rows()}`);
+  ok('모델이 말했다고 사람 글이 지워지지 않는다',
+    send7.settle(rows()) === false && comp7.waiting === true);
+  port.push({ type: 'prompt.submitted', actor: { kind: 'user', id: 'attach' },
+    data: { messageId: 'u7', parts: [{ kind: 'text', text: '세어 보자' }] } });
+  ok('사람 줄이 오면 그때 비운다', send7.settle(rows()) === true && comp7.waiting === false);
+
+  // 읽는 유스케이스가 없으면 **읽는 중이 아니다.** `live` 를 여기서 참으로 지어내면 위 셋째
+  // 갈래(눈감고 보냄)가 안 돌고, 사람은 안 올 메아리를 기다리며 잠긴다.
+  ok('읽는 데가 없으면 눈감은 것이다',
+    logShapeOf(null).live === false && logShapeOf(undefined).userRows === 0);
+  ok('살아 있음은 지어내지 않고 그대로 나른다',
+    logShapeOf({ rows: [], live: false }).live === false
+    && logShapeOf({ rows: [], live: true }).live === true);
 
   // 낸 뒤 메아리 전에는 잠긴다 — 두 벌로 나가는 것을 막는 자리.
   const comp2 = new Composer();
@@ -1033,6 +1064,54 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   d.reading = true;
   const ok2 = await qs.run();
   ok('손잡이를 되돌리면 다시 읽는다', ok2.added.length === 1, JSON.stringify(ok2.reason));
+}
+
+// ── 그 사유가 **사람에게 무슨 말로 나가는가**. 갈라 놓은 값이 화면에서 한 문장으로 뭉치면
+// 갈라 놓은 것이 없는 것과 같다 — `pickNote` 에서 실제로 그렇게 됐다. 여기서는 사유를 손으로
+// 적지 않고 **`run()` 이 실제로 낸 것**을 그대로 먹인다. 값의 철자가 한쪽에서만 바뀌면
+// (`'readFailed'` → `'read_failed'` 같은) 그건 드리프트지 두 벌이 다 맞는 게 아니다.
+{
+  const shape = fixture.slides[0].shapes[0];
+  const two = { slideId: 's1', slideNo: 1,
+    shapes: [shape, fixture.slides[0].shapes[1]] };
+  const none = { slideId: 's1', slideNo: 1, shapes: [] };
+  const feed = (...answers) => ({ async selection() { return answers.shift() ?? none; } });
+
+  const lost = new QuoteSelection(feed(two, none), new Composer());
+  await lost.sampleBeforeFocus();
+  const rLost = await lost.run();
+  const noneQ = new QuoteSelection(feed(none, none), new Composer());
+  await noneQ.sampleBeforeFocus();
+  const rNone = await noneQ.run();
+  const rUnknown = await new QuoteSelection(feed(none), new Composer()).run();
+  const dead = { async selection() { throw new Error('덱이 안 답한다'); } };
+  const rRead = await new QuoteSelection(dead, new Composer()).run();
+
+  const say = (r) => quoteNote(r);
+  // 덱이 죽은 것을 **사람 탓으로 안 돌린다.** 그리고 안 사라진다 — 다시 누를지 새로고침할지
+  // 정하는 사이에 쪽지가 없어지면 사유가 통째로 없어진다.
+  ok('못 읽은 것은 붙어 있는다',
+    say(rRead).sticky === true && say(rRead).text.includes('덱이 답하지 않았습니다'),
+    JSON.stringify(say(rRead)));
+  // **수를 싣는다.** 「날아갔다」만으로는 사람이 자기 눈을 안 믿는다.
+  ok('날아간 선택은 몇 개였는지까지 적는다',
+    say(rLost).text.includes('2개') && rLost.beforeCount === 2, say(rLost).text);
+  // 갈라 놓은 값이 여기서 도로 뭉치면 S14 가 안 재진다.
+  ok('「모른다」와 「안 골랐다」는 다른 말로 나간다',
+    say(rUnknown).text !== say(rNone).text
+    && say(rUnknown).text.includes('못 가릅니다'), say(rUnknown).text);
+  ok('안 고른 사람에게는 무엇을 할지 알려 준다',
+    say(rNone).text.includes('클릭') && say(rNone).sticky === false, say(rNone).text);
+  // **다섯째 사유가 생기면 여기서 소리가 난다.** 앞 판본의 `else` 는 그걸 「도형을 클릭한 뒤
+  // 다시 눌러 주세요」로 접어 사람 탓으로 바꿔 적었다 — 아무 표시 없이.
+  const fifth = quoteNote({ reason: 'lockedByOther', beforeCount: 0 });
+  ok('모르는 사유는 사람 탓으로 안 접힌다',
+    fifth.text.includes('lockedByOther') && fifth.sticky === true
+    && fifth.text !== say(rNone).text, fifth.text);
+  // 넷이 서로 다른 말이라는 것 자체가 계약이다. 둘이 같아지면 위 개별 단언 중 하나는 여전히
+  // 초록일 수 있다(부분 문자열이라).
+  ok('사유마다 다른 말이 나간다',
+    new Set([rRead, rLost, rUnknown, rNone].map((r) => say(r).text)).size === 4);
 }
 
 // ── 어느 덱에 붙는가. 사유 넷을 **갈라 돌려주는지**를 잰다 — 갈라 놓고 뭉치면 화면이 안 일어난
@@ -1459,6 +1538,36 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     twoCalls.items.map((a) => a.id).join(','));
   ok('자리 없는 호출 둘이 같은 신원을 안 쓴다',
     new Set(twoCalls.items.map((a) => a.id)).size === 3);
+
+  // **안 붙은 것들의 사유를 적는 한 줄.** 화면 안에 있어서 여태 한 번도 안 돌았는데, 이 줄은
+  // 「설정 한 줄이 기능을 껐다」와 「모델이 말을 빼고 불렀다」를 사람에게 알리는 **유일한**
+  // 통로다. 접는 함수가 낸 것을 그대로 먹인다 — 손으로 지어 넣으면 두 함수가 칸 이름을 두고
+  // 갈라져도 아무도 안 운다(이제 갈라진 파일 둘에 산다).
+  ok('말썽이 없으면 할 말이 없다', adviceNote(foldAdvice([])) === '',
+    JSON.stringify(adviceNote(foldAdvice([]))));
+  ok('붙은 안내만 있으면 쪽지가 안 선다', adviceNote(foldAdvice([
+    { kind: 'tool', tool: 'mcp__ppt__advise', callId: 'cN', args: { message: '괜찮다' } },
+  ])) === '');
+  // 남의 서버 이름은 **전부** 나와야 한다. 하나만 적으면 사용자는 설정을 한 군데만 고치고
+  // 나머지는 여전히 조용히 꺼진 채로 남는다.
+  const twoStrays = adviceNote(foldAdvice([
+    { kind: 'tool', tool: 'mcp__powerpoint__advise', callId: 'x1', args: { message: '가' } },
+    { kind: 'tool', tool: 'mcp__deck__advise', callId: 'x2', args: { message: '나' } },
+  ]));
+  ok('남의 서버 이름이 다 적힌다',
+    twoStrays.includes('mcp__powerpoint__advise') && twoStrays.includes('mcp__deck__advise'),
+    twoStrays);
+  ok('못 붙인 수가 적힌다',
+    adviceNote({ dropped: 2 }) === '안내 2건은 무엇을 말하는지 안 실려 못 붙였습니다.',
+    adviceNote({ dropped: 2 }));
+  // 둘이 겹치면 **둘 다 남는다.** 뒤엣것이 앞엣것을 덮으면 남의 서버 이름이 화면에서 사라지고,
+  // 사용자는 못 붙은 것을 전부 「말이 안 실려서」로 읽는다 — 고칠 데가 아닌 곳을 본다.
+  const both = adviceNote(foldAdvice([
+    { kind: 'tool', tool: 'mcp__deck__advise', callId: 'y1', args: { message: '가' } },
+    { kind: 'tool', tool: 'mcp__ppt__advise', callId: 'y2', args: { slideId: 's1' } },
+  ]));
+  ok('사유 둘이 겹치면 둘 다 남는다',
+    both.includes('mcp__deck__advise') && both.includes('1건') && both.includes(' · '), both);
 }
 
 {

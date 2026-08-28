@@ -104,3 +104,45 @@ export class QuoteSelection {
     return { added, skipped, empty: false, reason: null, beforeCount };
   }
 }
+
+/**
+ * 빈 답의 사유를 사람에게 주는 한 줄. `sticky` 는 **스스로 안 사라져야 하는가**다.
+ *
+ * **글을 화면 밖에서 짓는다.** 앞 판본은 `view.onQuote` 안의 `if/else` 사슬이었고, 그러면
+ * DOM 이 있어야 돌아서 못 잰다 — `pickNote` 가 꼭 그 상태였고, 그 사슬 끝의 `else` 가 성공을
+ * 같이 걷어 올려서 진짜 PowerPoint 안에서 판 자리에 거짓말이 떴다.
+ *
+ * 여기 사슬 끝의 `else` 도 같은 모양이었다. 위 `run` 이 낼 수 있는 사유는 넷인데 셋만 이름으로
+ * 받고 나머지가 **전부** 「캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요」로 떨어졌다. 오늘은
+ * `none` 하나뿐이라 맞는 말이지만, 다섯째가 생기면 화면이 그 사유를 **사람 탓**으로 바꿔 적는다
+ * — 갈라 놓은 값을 도로 뭉치는 그 상태로, 아무 표시 없이. `switch` 로 두면 `default` 가 운다.
+ *
+ * @param {{reason:string, beforeCount:number}} r `run()` 의 빈 답
+ * @returns {{text:string, sticky:boolean}}
+ */
+export function quoteNote({ reason, beforeCount } = {}) {
+  switch (reason) {
+    // 덱이 죽은 것을 **사람 탓으로 돌리지 않는다.** 그리고 스스로 안 사라진다 — 다시 누를지
+    // 새로고침할지 정하는 데 시간이 걸리는데 그 사이에 쪽지가 없어지면 사유가 통째로 없어진다.
+    case 'readFailed':
+      return { sticky: true,
+        text: '선택을 못 읽었습니다 — 덱이 답하지 않았습니다. '
+          + '골라 둔 것은 그대로이니, 잠시 뒤 다시 누르거나 새로고침하세요.' };
+    // 누르기 직전엔 잡고 있었다. **수를 싣는다** — 「날아갔다」만으로는 사람이 못 믿는다.
+    case 'lostFocus':
+      return { sticky: false,
+        text: `선택이 날아갔습니다 — 누르기 직전엔 ${beforeCount}개를 잡고 있었습니다. (S14)` };
+    // 앞 읽기가 없다. **안 골랐다고 적지 않는다** — 그게 S14 를 못 재게 만드는 뭉갬이다.
+    case 'unknown':
+      return { sticky: false,
+        text: '잡힌 도형이 없습니다 — 누르기 전 읽기가 없어 '
+          + '"안 골랐다"와 "포커스가 가져갔다"를 못 가릅니다.' };
+    case 'none':
+      return { sticky: false,
+        text: '잡힌 도형이 없습니다 — 캔버스에서 도형을 클릭한 뒤 다시 눌러 주세요.' };
+    // 다섯째 사유. 사람 탓으로 접지 않고 **모른다고 적는다** — 창을 고쳐야 하는 자리다.
+    default:
+      return { sticky: true,
+        text: `선택을 못 인용했는데 이 창이 사유를 모릅니다(${reason}). 이 창을 고쳐야 합니다.` };
+  }
+}
