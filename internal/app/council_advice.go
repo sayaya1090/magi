@@ -152,7 +152,14 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// sentence. The FIRST repeat still runs, because the members now see their own prior objection
 	// fed back and may hold or refine it; from the second identical rejection on, the answer will
 	// not move, so it is short-circuited. Only for a completion declaration; a question always runs.
-	if complete && identicalRejections(evs, lastText, changes) >= 2 {
+	// …and only when the turn has done NOTHING since. `changes` alone cannot carry that: it is
+	// clipped to councilDiffCap for the members to read, and buildCouncilChanges lays the files
+	// out in first-seen order, so edits to a file sitting past the clip leave the string
+	// byte-identical. A turn that spent a minute editing was then told "no new edits, no new
+	// result" — the one sentence the record must never say wrongly, since it tells the agent its
+	// work did not happen. epoch is the guard's mutation count and is already an argument here:
+	// noteCouncilRejection, twelve lines down, reads it for this exact question.
+	if complete && identicalRejections(evs, lastText, changes, epoch) >= 2 {
 		dd, _ := json.Marshal(event.CouncilDecidedData{
 			Round: 1, Decision: string(council.Continue),
 			Note: "the agent declared finished again without changing anything since the last councils said no",
@@ -178,6 +185,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		Round: 1, Members: labels, Rule: string(rule), Task: task, Plan: plan,
 		Report: lastText, Actions: clipEvidenceForRecord(actions, councilDiffCap),
 		Changes: changes, NoChanges: strings.TrimSpace(changes) == "",
+		// The discriminator the clipped Changes cannot be: see CouncilConvenedData.Epoch.
+		Epoch: epoch,
 	})
 	a.appendFact(ctx, sid, event.TypeCouncilConvened, councilActor, cd)
 	for _, m := range members {
@@ -369,13 +378,21 @@ func (a *App) resetCouncilRejections(sid session.SessionID) {
 }
 
 // identicalRejections counts how many of the most recent consecutive councils REJECTED a finish on
-// this exact report and these exact changes. It pairs each council.decided with the council.convened
-// that preceded it, walks from the end, and stops at the first council that either accepted or judged
-// different evidence — so a genuine change (new edits, a new result) resets the count to zero and the
-// next declaration runs a fresh fan-out.
-func identicalRejections(evs []event.Event, report, changes string) int {
+// this exact report, these exact changes, and with no file mutation since. It pairs each
+// council.decided with the council.convened that preceded it, walks from the end, and stops at the
+// first council that either accepted or judged different evidence — so a genuine change (new edits,
+// a new result) resets the count to zero and the next declaration runs a fresh fan-out.
+//
+// epoch is the third axis and not a redundant one. Report and changes are what the members were
+// SHOWN, and `changes` is clipped to fit them; epoch is what the turn actually DID. Without it the
+// short-circuit reads a rendering budget as a fact about the work, and a turn whose edits landed
+// past the clip is told it made none. Councils recorded before this field carry zero, which
+// compares equal to other zeros and unequal to any live epoch — so an old log at worst runs the
+// fan-out it would have run anyway. This can only ever narrow the short-circuit, never widen it.
+func identicalRejections(evs []event.Event, report, changes string, epoch int) int {
 	type outcome struct {
 		decision, report, changes string
+		epoch                     int
 	}
 	var seq []outcome
 	var lastConvened *event.CouncilConvenedData
@@ -390,13 +407,14 @@ func identicalRejections(evs []event.Event, report, changes string) int {
 		case event.TypeCouncilDecided:
 			var d event.CouncilDecidedData
 			if json.Unmarshal(e.Data, &d) == nil && lastConvened != nil {
-				seq = append(seq, outcome{d.Decision, lastConvened.Report, lastConvened.Changes})
+				seq = append(seq, outcome{d.Decision, lastConvened.Report, lastConvened.Changes, lastConvened.Epoch})
 			}
 		}
 	}
 	n := 0
 	for i := len(seq) - 1; i >= 0; i-- {
-		if seq[i].decision != "continue" || seq[i].report != report || seq[i].changes != changes {
+		if seq[i].decision != "continue" || seq[i].report != report || seq[i].changes != changes ||
+			seq[i].epoch != epoch {
 			break
 		}
 		n++

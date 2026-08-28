@@ -288,6 +288,15 @@ type CouncilConvenedData struct {
 	// asked and none answered — and a gate that silently stops asking looks identical to one that
 	// asks and gets nothing. That ambiguity is exactly what hid the unwired plan phase for five days.
 	Keep bool `json:"keep,omitempty"`
+	// Epoch is the guard's mutation count when this council was convened — how many real file
+	// changes the turn had made by then. Turn-local and meaningless as a display fact; it is here
+	// because the record has to be able to answer "was there work between these two councils",
+	// and Changes cannot answer it. Changes is CLIPPED (councilDiffCap) for the members to read,
+	// so two councils that edited different files can carry byte-identical Changes whenever the
+	// edits land past the clip — and the short-circuit that reads them then tells a turn that did
+	// real work it made "no new edits". The counter that already means exactly this is the one the
+	// rejection cap reads two lines below it; recording it makes the log say the same thing.
+	Epoch int `json:"epoch,omitempty"`
 }
 
 // CouncilVerdictData — TypeCouncilVerdict (one member's vote).
