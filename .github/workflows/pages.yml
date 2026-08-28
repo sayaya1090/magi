@@ -35,8 +35,39 @@ permissions:
   actions: write
 
 jobs:
+  # 같은 커밋이 web/도 건드렸으면 이 레인은 비켜선다.
+  #
+  # 두 레인이 같은 사이트를 짓는다: 이쪽은 cmd/magi-web의 변화에, test-web은 web/의 변화에.
+  # 한 커밋이 둘 다 건드리면 둘이 함께 떠서 같은 8분을 두 번 쓰고, pages 동시성 그룹이 하나를
+  # 취소한다 — 남는 것은 옳지만 취소된 줄이 실패처럼 보이고 컴퓨트는 이미 쓰였다. 그래서
+  # 여기서 먼저 묻는다: 저쪽이 어차피 배포하는가.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.look.outputs.skip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: look
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "push" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          base="$BEFORE"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="HEAD~1"; fi
+          if git diff --name-only "$base" HEAD | grep -q '^web/'; then
+            echo "이 커밋은 web/도 건드렸다 — 사이트는 test-web이 낸다"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # 아이콘은 한 번만 굽고 산출물로 넘긴다 — 사이트를 짓는 잡마다 npm을 다시 설치하지 않게.
   icons:
+    needs: scope
+    if: needs.scope.outputs.skip != 'true' 
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

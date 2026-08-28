@@ -67,8 +67,11 @@ final class Sessions {
         if (socket != null && socket.contains("ops.sock")) {
             return Mock.json(
                     "[{\"id\":\"o1\",\"title\":\"rotate the staging certificates before they expire\","
-                            + "\"started\":\"" + yesterday + "T22:00:00\",\"ended\":\"" + yesterday + "T23:59:00\","
-                            + "\"model\":\"qwen3-coder:30b\"}]");
+                            + "\"started\":\"" + yesterday + "T22:00:00\",\"ended\":\"" + today + "T00:00:00\","
+                            // 어제 것은 지금 도는 모델이다 — 두 모델이 픽스처에 함께 있는 이유는
+                            // 그 라벨이 컴패니언이 아니라 <b>세션</b>의 것임을 보이기 위해서고,
+                            // 오래된 것에만 옛 모델을 적는다(운영의 그 규칙: 하루 넘은 것).
+                            + "\"model\":\"qwen3-coder-next\"}]");
         }
         return Mock.json("[]");
     }

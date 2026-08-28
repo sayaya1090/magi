@@ -174,7 +174,11 @@ public class SettingsElement {
         sw.id = "notifySwitch";
         sw.setAttribute("touch-target", "wrapper");
         elemental2.dom.Element why = r.querySelector(".say");
-        String blocked = notifications.blocked();
+        // 데모에서는 브라우저의 사정보다 <b>이 페이지의 사정</b>이 먼저다: 뒤에 함대를 지켜보는
+        // 것이 없으니 이 스위치는 어차피 아무것도 켜지 못한다(운영도 그 사실을 먼저 말한다).
+        // 브라우저가 거절했다는 말을 여기서 하면, 데모를 보는 사람이 제 브라우저 설정을 고치러
+        // 간다 — 고쳐도 달라질 것이 없는 자리다.
+        String blocked = store.demo() ? "notify.demo" : notifications.blocked();
         if (!blocked.isEmpty()) {
             sw.setAttribute("disabled", "");
             if (why != null) why.textContent = tr(blocked);
