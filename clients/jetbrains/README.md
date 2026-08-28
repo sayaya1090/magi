@@ -238,9 +238,24 @@ flowchart TD
 IDE의 프로세스 그룹에 남고, 윈도우에서는 IDE의 Job Object에 묶여 **IDE와 함께 죽는다.** "IDE를 닫아도
 데몬은 남는다"가 공짜로 되지 않는다.
 
-그래서 플러그인이 떼어 준다. 유닉스는 자식을 새 세션으로 보내고(magi 자신이 배경 작업에 쓰는 것과
-같은 수단이다, `internal/adapter/platform/detach_unix.go` 의 `detach`), 윈도우는 `DETACHED_PROCESS`와
-`CREATE_BREAKAWAY_FROM_JOB`을 준다.
+⚠ **여기 한때 "플러그인이 떼어 준다 — 유닉스는 새 세션, 윈도우는 `DETACHED_PROCESS` +
+`CREATE_BREAKAWAY_FROM_JOB`" 이라고 적혀 있었고, 그것은 JVM 에서 부를 수 있는지 확인하지 않은
+주장이었다.** 재보니 셋이 걸린다.
+
+- **`ProcessBuilder` 에는 생성 플래그 API 가 없다.** 공개 API 어디에도 윈도우 `CreationFlags` 를
+  넘기는 자리가 없다. 그 두 플래그는 Java 에서 **직접 못 준다.**
+- **macOS 에 `setsid(1)` 이 없다.** 셸 유틸로 우회하려던 길이 개발 중인 바로 그 플랫폼에서 막힌다
+  (리눅스에는 있다).
+- **애초에 이 플러그인은 아직 데몬을 안 띄운다.** `DaemonLifecycle` 의 `start` 는 주입받는
+  `(Path) -> Unit` 이고 지금 부르는 곳은 전부 `start = {}` 다. 기전을 적어 두고 구현이 없는 상태였다.
+
+그리고 전제 자체도 다시 봐야 한다. **"IDE 와 함께 죽는다"가 유닉스에서는 참이 아닐 수 있다** —
+부모가 나가도 자식은 죽지 않고 init 에 재부모된다. 죽는 경로는 터미널이 닫히며 오는 SIGHUP 이나
+누가 그룹을 죽이는 것인데, GUI IDE 는 터미널이 아니다. 윈도우의 Job Object 는 진짜 위험으로 남지만
+그것도 **IntelliJ 가 실제로 자식을 죽이는 잡을 쓰는지**를 재야 아는 일이다.
+
+그래서 이 절은 **요구만 남기고 기전은 §8 로 옮긴다.** 요구는 하나다 — IDE 를 닫아도 데몬이 남아야
+한다. 어떻게는 플랫폼마다 재서 정한다.
 
 **stderr는 파일로 보낸다.** 크래시 루프를 진단하려면 마지막 기동의 stderr가 있어야 하는데, 떼어 낸
 프로세스의 출력은 IDE가 죽으면 갈 곳이 없다. config 디렉토리 아래 소켓 이름을 딴 로그 파일 하나면
@@ -1106,6 +1121,19 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 - **컨텐트 루트가 여럿인 프로젝트.** magi의 워크스페이스는 디렉토리 하나이고 `project.basePath`를
   쓰기로 했는데, 모노레포처럼 루트가 여럿이면 그게 맞는 답인지 확실하지 않다. 루트마다 컴패니언을
   두는 것이 magi의 모양에는 더 맞지만, 그러면 IDE 창 하나가 데몬 여럿을 감시하게 된다.
+- **데몬을 어떻게 떼어 놓고 띄우는가.** §2 가 이 자리에 기전을 적어 뒀다가 물렸다 — `ProcessBuilder`
+  에 생성 플래그 API 가 없고 macOS 에 `setsid(1)` 이 없어서, 적어 둔 두 수단이 **둘 다 JVM 에서
+  부를 수 없다.** 재야 할 것이 셋이다. (a) macOS·리눅스에서 IDE 를 닫으면 `ProcessBuilder` 로 띄운
+  자식이 실제로 죽는가 — 유닉스 의미론상 안 죽어야 하고, 그러면 아무것도 안 해도 된다. (b) 윈도우
+  IntelliJ 가 자식을 죽이는 Job Object 를 쓰는가. (c) 쓴다면 JVM 에서 breakaway 를 얻는 길 —
+  `cmd /c start /b` 를 거치거나, 작은 런처를 두거나, magi 자신에게 배경화 플래그를 청하거나.
+  마지막 안은 코어 결정이라 여기서 못 정한다.
+
+  형제 프로젝트가 이 근처에서 하나 더 짚었다: `CREATE_NEW_PROCESS_GROUP` 은 이 트리에서
+  `internal/graceful/graceful_windows.go` 의 `reexec` **한 곳뿐**이고, 자식을 띄우는
+  `internal/adapter/platform/detach_windows.go` 는 no-op 이다. 다만 그 `detach` 는 **출력을 캡처하는
+  셸 명령**용이지 데몬 기동용이 아니라(그 파일 주석이 그렇게 적는다) 이 플러그인의 경로와는 다르다.
+  이쪽이 `DETACHED_PROCESS` 를 얻을 수 있다면 콘솔 자체가 없으므로 Ctrl-C 문제는 함께 사라진다.
 - **원격 개발.** JetBrains Remote Development나 WSL·devcontainer에서는 IDE 프런트엔드와 코드가 다른
   호스트에 있다. 소켓은 코드가 있는 쪽에 생기므로 플러그인의 백엔드 부분이 거기서 돌아야 한다.
   IntelliJ의 플러그인 모델이 그것을 어떻게 나누는지 확인하지 않았다.
