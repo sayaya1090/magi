@@ -32,6 +32,16 @@ public class FakeCompanionSource implements CompanionSource {
     @JsFunction
     interface RowsHook { void call(String json); }
 
+    @JsFunction
+    interface Fire { void call(); }
+
+    /** 붙들린 두 읽기 — 놓기 전까지가 「아직」이다. */
+    private Consumer<Object> heldList = null;
+    private Consumer<Object> heldRows = null;
+
+    /** 붙들리는 아이 · 전사를 읽지 못하는 아이 — 갈래마다 제 아이디를 준다. */
+    private static final String SLOW = "s_slow", UNREAD = "s_unread";
+
     @Override
     public void start(Listener l) {
         listener = l;
@@ -48,6 +58,17 @@ public class FakeCompanionSource implements CompanionSource {
         // 프레임에서만 보인다). 그 두 번째를 여기서 준다.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_transcript", (RowsHook) json ->
                 listener.transcript(json == null ? null : Global.JSON.parse(json)));
+        // 붙들었던 두 읽기를 한꺼번에 놓는다 — 「아직」과 「읽고 났다」가 갈리는 그 순간이
+        // 실제 소켓에는 있고 동기 콜백에는 없다. 그 사이를 스펙이 볼 수 있게 여는 문.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_sub_release", (Fire) () -> {
+            Consumer<Object> list = heldList, rows = heldRows;
+            heldList = heldRows = null;
+            if (list != null) list.accept(Global.JSON.parse(
+                    "[{\"id\":\"s_slow\",\"role\":\"judge\",\"task\":\"weigh it\","
+                    + "\"model\":\"qwen3-coder-next\",\"running\":true}]"));
+            if (rows != null) rows.accept(Global.JSON.parse(
+                    "[{\"who\":\"user\",\"text\":\"weigh it\"}]"));
+        });
         l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +
@@ -76,7 +97,9 @@ public class FakeCompanionSource implements CompanionSource {
 
     @Override
     public void subagents(CompanionContext ctx, Consumer<Object> cb) {
+        if (SLOW.equals(ctx.sub)) { heldList = cb; return; }
         // 하나면 족하다 — 스펙이 재는 것은 "그 아이의 자리가 서는가"이지 목록의 길이가 아니다.
+        // 하나뿐이라는 것이 <b>명단에 없는 아이</b> 갈래도 연다(다른 아이디를 대면 못 찾는다).
         cb.accept(Global.JSON.parse(
                 "[{\"id\":\"s_kid\",\"role\":\"scout\",\"task\":\"find the empty states\","
                 + "\"model\":\"qwen3-coder-next\",\"running\":false}]"));
@@ -92,6 +115,9 @@ public class FakeCompanionSource implements CompanionSource {
     @Override
     public void pastTranscript(CompanionContext ctx, String session, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_past_read", session);
+        if (SLOW.equals(session)) { heldRows = cb; return; }
+        // 읽지 못한 전사는 null로 온다 — 거부도 불통도 깨진 본문도 한 값이다(Console.fetchList).
+        if (UNREAD.equals(session)) { cb.accept(null); return; }
         // 끝난 일에도 표는 있다 — 그리고 그 표의 근거를 물을 때 어느 세션에 묻는가가
         // 운영이 되밟은 자리다("일이 끝나면 카운슬의 근거에 닿을 수 없다"). 그 갈래를
         // 여기서만 열 수 있으므로 지난 전사에도 카운슬 행 하나를 둔다.

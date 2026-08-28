@@ -155,6 +155,8 @@
   "detail.next": "다음 단계",
   "detail.no_changes": "파일 변경 없음 — 읽기 전용 턴.",
   "detail.no_grounds": "제시 없음",
+  "detail.no_transcript": "이 서브에이전트의 전사를 읽지 못했습니다.",
+  "detail.not_in_roster": "이 서브에이전트를 명단에서 찾지 못했습니다.",
   "detail.nothing_yet": "아직 대화 기록이 없습니다.",
   "detail.plan": "컴패니언의 계획",
   "detail.rationale": "근거",

@@ -155,6 +155,8 @@
   "detail.next": "Next step",
   "detail.no_changes": "No files changed — a read-only turn.",
   "detail.no_grounds": "none given",
+  "detail.no_transcript": "Could not read its transcript.",
+  "detail.not_in_roster": "This subagent is not in the roster.",
   "detail.nothing_yet": "Nothing in its transcript yet.",
   "detail.plan": "The companion's own plan",
   "detail.rationale": "Rationale",

@@ -171,15 +171,27 @@ public class ConversationElement {
                 past.append(cell("dk", tr("detail.asked")));
                 past.append(cell("dv", task));
             }
+        } else if (store.subMetaRead()) {
+            // 명단이 답했는데 그 안에 이 아이가 없었다 — 낡은 링크로도 닿고, 도는 회의의
+            // 칩으로도 닿는다(문은 /jobs의 children, 여기 명단은 /subagents이고 그쪽은
+            // 회의 자식을 빼낸다). 줄을 조용히 빼면 화면은 <b>이름 없는 자식</b>이 되고
+            // 사람은 무엇이 잘못됐는지 알 길이 없다. 못 찾았다는 그 말이 필요한 전부다.
+            past.append(cell("dnote", tr("detail.not_in_roster")));
         }
         past.append(cell("dk dhero", tr("detail.what_it_did")));
         HTMLElement dlog = el("div");
         dlog.className = "dlog";
+        // 셋을 갈라 적는다 — 아직 안 읽음 · 읽지 못함 · 읽었는데 빈 전사. 값으로는 앞의 둘이
+        // 같은 null이라(Console.fetchList가 거부·불통·깨진 본문을 다 null로 접는다) 스토어가
+        // 「돌아왔는가」를 따로 말한다. 이 셋을 한 문장으로 접으면 아직 아무것도 안 읽은
+        // 화면과 서버가 거절한 화면이 똑같이 "아직 대화 기록이 없습니다"라고 적는다 —
+        // 자매 함수 paintPast가 null을 아예 그리지 않는 것과 같은 이유다.
         JsArrayLike<Object> list = rows == null ? null : Js.uncheckedCast(rows);
         for (int i = 0; list != null && i < list.getLength(); i++) {
             dlog.append(rowNode(Js.uncheckedCast(list.getAt(i))));
         }
-        if (list == null || list.getLength() == 0) dlog.append(cell("dnote", tr("detail.nothing_yet")));
+        if (list != null && list.getLength() == 0) dlog.append(cell("dnote", tr("detail.nothing_yet")));
+        else if (list == null && store.subRowsRead()) dlog.append(cell("dnote", tr("detail.no_transcript")));
         past.append(dlog);
     }
 

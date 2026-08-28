@@ -350,6 +350,50 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock form:not([hidden])").count() shouldBe 1
             }
         }
+        When("명단에 없는 아이로 들어가면") {
+            // 낡은 링크로만 닿는 자리가 아니다 — 들어가는 문(SideElement의 칩)은 /jobs의
+            // children을 보고, 이 화면의 머리는 /subagents를 본다. 뒤엣것은 회의 자식을
+            // 빼내므로, 회의가 도는 동안 칩을 누른 사람이 바로 이 화면에 선다.
+            page.evaluate("window.__magi_test_sub('s_ghost')")
+            page.waitForSelector("#agentdetail:not([hidden]) .sectionhead")
+            Then("못 찾았다고 <b>적는다</b> — 줄을 조용히 빼면 이름 없는 자식이 서 있을 뿐이다") {
+                page.waitForCondition {
+                    page.locator("#agentdetail .dnote").first().textContent() == "detail.not_in_roster"
+                }
+                page.locator("#agentdetail .sectionhead span").first().textContent() shouldBe "detail.subagent"
+            }
+        }
+        When("그 아이의 전사를 읽지 못하면") {
+            // 서버가 거절해도(`not this companion's to read`) 값은 null 하나다 —
+            // Console.fetchList가 거부·불통·깨진 본문을 다 그렇게 접는다.
+            page.evaluate("window.__magi_test_sub('s_unread')")
+            Then("읽지 못했다고 적는다 — 「아직 아무 말도 안 했다」로 바꿔 적지 않는다") {
+                page.waitForCondition {
+                    page.locator("#agentdetail .dlog .dnote").first().textContent() == "detail.no_transcript"
+                }
+                page.locator("#agentdetail .dlog .row").count() shouldBe 0
+            }
+        }
+        When("두 읽기가 아직 안 돌아왔으면") {
+            page.evaluate("window.__magi_test_sub('s_slow')")
+            page.waitForSelector("#agentdetail:not([hidden]) .sectionhead")
+            Then("아무 사실도 적지 않는다 — 안 읽은 화면이 읽기가 끝난 것처럼 서면 안 된다") {
+                // 자매 함수 paintPast가 null을 아예 그리지 않는 그 규칙이다. 여기서 「없다」를
+                // 적으면 첫 프레임마다 <b>완성된 거짓 문장</b>이 한 번씩 선다.
+                page.locator("#agentdetail .dnote").count() shouldBe 0
+                page.locator("#agentdetail .dlog .row").count() shouldBe 0
+                page.locator("#agentdetail .dk.dhero").count() shouldBe 1
+            }
+            page.evaluate("window.__magi_test_sub_release()")
+            Then("돌아오면 그때 사실이 선다") {
+                page.waitForCondition { page.locator("#agentdetail .dlog .row").count() == 1 }
+                page.locator("#agentdetail .sectionhead span").first().textContent() shouldBe "judge"
+                page.locator("#agentdetail .dnote").first().textContent() shouldBe
+                    "detail.running \u00b7 qwen3-coder-next"
+            }
+            page.evaluate("window.__magi_test_sub(null)")
+            page.waitForSelector("#log:not([hidden])")
+        }
         When("새 일을 줄 능력이 없는 사람이 보면") {
             page.evaluate("window.__magi_may = ['answer']; window.__magi_test_fleet('working', 's_now')")
             Then("상자는 남되 잠기고, 왜 잠겼는지를 그 자리가 적는다") {
