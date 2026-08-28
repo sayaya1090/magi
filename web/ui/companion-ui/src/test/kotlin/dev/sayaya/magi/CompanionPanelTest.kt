@@ -279,5 +279,48 @@ internal class CompanionPanelTest : GwtTestSpec({
                 opts.nth(3).textContent()?.trim() shouldBe "s_bare · session.untitled"
             }
         }
+
+        When("한 시간을 일한 뒤에 묻는 긴 질문이면 — 폰을 눕힌 채로(664×390)") {
+            // 운영이 딥 화면(?ask=)을 지은 이유가 이 모양이다: 명령 한 줄과 산문 세 토막.
+            // 이 콘솔에는 그 화면이 없고 도크가 인다 — 그러면 도크가 이것을 감당하는지가
+            // 딥 화면 없음의 값을 정한다. 눕힌 폰은 높이가 가장 적은 창이고, 운영이 한 번
+            // 밟은 자리다(캡이 세로 폰의 미디어쿼리 안에 적혀 있어 가로에선 캡이 없었다).
+            page.setViewportSize(664, 390)
+            page.evaluate("window.__magi_test_ask_long()")
+            page.waitForSelector("#dock #prompt:not([hidden])")
+            Then("도크는 창의 절반까지만 — 고정된 띠가 화면을 먹지 않는다") {
+                page.waitForCondition {
+                    (page.evaluate("document.getElementById('dock').getBoundingClientRect().height" +
+                        " <= window.innerHeight / 2 + 1") as Boolean)
+                }
+                // 그리고 전사가 남는다 — 절반은 여전히 대화의 것이다.
+                (page.evaluate("document.getElementById('dock').getBoundingClientRect().top" +
+                    " >= window.innerHeight / 2 - 1") as Boolean) shouldBe true
+            }
+            Then("잘리지 않는다 — 넘치는 만큼 도크가 제 안에서 구른다") {
+                (page.evaluate("(() => { const d = document.getElementById('dock');" +
+                    " return d.scrollHeight > d.clientHeight" +
+                    " && getComputedStyle(d).overflowY !== 'hidden'; })()") as Boolean) shouldBe true
+                // 질문은 통째로 있다(가로로 잘라 내지 않는다 — 명령은 끝까지 읽어야 한다).
+                ((page.locator("#prompt .asking").textContent()?.length ?: 0) > 1000) shouldBe true
+                (page.evaluate("(() => { const q = document.querySelector('#prompt .asking');" +
+                    " return q.scrollWidth <= q.clientWidth + 1; })()") as Boolean) shouldBe true
+            }
+            Then("답은 어디까지 굴러도 그 자리에 있다 — 읽는 것과 하는 것이 갈리지 않게") {
+                val seen = "(() => { const d = document.getElementById('dock').getBoundingClientRect();" +
+                    " const b = document.querySelector('#prompt .answer .bgroup md-outlined-button');" +
+                    " if (!b) return false; const r = b.getBoundingClientRect();" +
+                    " return r.height > 0 && r.top >= d.top - 1 && r.bottom <= d.bottom + 1" +
+                    " && r.bottom <= window.innerHeight + 1; })()"
+                (page.evaluate(seen) as Boolean) shouldBe true
+                page.evaluate("(() => { const d = document.getElementById('dock');" +
+                    " d.scrollTop = d.scrollHeight; return true; })()")
+                page.waitForCondition { page.evaluate(seen) as Boolean }
+            }
+            Then("가로 스크롤은 없다") {
+                (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
+            }
+            page.setViewportSize(1400, 900)
+        }
     }
 })

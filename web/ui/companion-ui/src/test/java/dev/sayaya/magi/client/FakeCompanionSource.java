@@ -95,11 +95,42 @@ public class FakeCompanionSource implements CompanionSource {
     @jsinterop.annotations.JsFunction
     public interface StopFn { void call(); }
 
+    /**
+     * 한 시간을 아무도 안 보는 채로 일하고 나서 묻는 질문 — 긴 명령 하나와 산문 세 토막.
+     * 운영이 딥 화면을 지은 이유가 이 모양이다("a strip at the bottom of a transcript is where
+     * prose goes to be skipped"). 이 콘솔은 딥 화면 대신 도크가 이것을 인다: 잰다.
+     */
+    private void openLongAskDoor() {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_ask_long", (StopFn) () -> {
+            if (rosterCb == null) return;
+            StringBuilder cmd = new StringBuilder("psql -h prod-1 -c \\\"");
+            for (int i = 0; i < 40; i++) {
+                cmd.append("delete from staging_invoices_2026_0").append(i % 10)
+                   .append(" where imported_at < now() - interval '90 days'; ");
+            }
+            cmd.append("\\\"");
+            String prose = "we ran it against the replica first and it took 41 minutes there, "
+                    + "which is longer than the window the nightly job leaves open, and the rows "
+                    + "it touches are the ones the invoice export reads at 03:00. ";
+            rosterCb.accept(Global.JSON.parse(
+                    "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"waiting\"," +
+                    "\"steps\":7,\"idle\":42,\"workdir\":\"/Users/you/work/app\"," +
+                    "\"session\":\"s_demo1\",\"permission\":\"ask\"," +
+                    "\"asking\":\"" + cmd + "\",\"askId\":\"call_9\"," +
+                    "\"askKind\":\"permission\",\"askIndex\":1,\"askTotal\":1," +
+                    "\"report\":[{\"key\":\"tried\",\"text\":\"" + prose + prose + "\"}," +
+                    "{\"key\":\"found\",\"text\":\"" + prose + prose + "\"}," +
+                    "{\"key\":\"risk\",\"text\":\"" + prose + prose + "\"}]}]"));
+        });
+    }
+
+
     @Override
     public void roster(Consumer<Object> cb) {
         rosterCb = cb;
         openAskDoor();
         openStopDoor();
+        openLongAskDoor();
         cb.accept(Global.JSON.parse(
                 "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
                 "\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\",\"team\":\"core\",\"hub\":true," +
