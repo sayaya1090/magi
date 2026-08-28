@@ -115,7 +115,16 @@ func (t *httpTransport) call(ctx context.Context, method string, params any, out
 
 	resp, err := t.httpClient.Do(httpReq)
 	if err != nil {
-		t.missed()
+		// Only when NOBODY was there. Do also fails when this side gave up — the per-call deadline
+		// in tool.go, or a person interrupting the turn — and neither says anything about the
+		// server. Measured on the first version of this: a live server that took longer than the
+		// deadline was reached three times and had its tools taken away anyway, and three
+		// interrupted turns closed a transport nothing had even dialled. The client carries no
+		// Timeout of its own, so every deadline arrives through ctx and this one line separates
+		// "we stopped waiting" from "there is nobody to wait for".
+		if ctx.Err() == nil {
+			t.missed()
+		}
 		return err
 	}
 	defer resp.Body.Close()
@@ -244,6 +253,8 @@ func (t *httpTransport) notify(method string, params any) error {
 // gives up and closes itself.
 //
 // Three, and only for calls that never reached anybody — a refused dial, a dropped connection.
+// Not a call this side abandoned: our own deadline and a person's interrupt both look like a failed
+// request here, and neither is evidence about the server.
 // An HTTP status is not counted: a server that answers 500 is present and having a bad time, and
 // dropping its tools mid-conversation would be this daemon deciding a running server is dead.
 const unreachableStreak = 3
