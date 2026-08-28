@@ -40,6 +40,33 @@ node tools/smoke.mjs          # PowerPoint 없이 도는 확인
 안 들어간다 — 도형 선택을 만들 곳이 필요해서 있다. 도형을 클릭해 잡고(Shift 로 여러 개)
 오른쪽에서 「선택 인용」을 누르면 인용부호로 담긴다.
 
+### 「데몬 흉내」 단추들
+
+브라우저 화면 아래 줄이다. **눌러 볼 자리가 없으면 CSS 한 줄이 틀려도 아무도 모른 채 착지한다.**
+
+| 단추 | 만드는 상황 |
+|---|---|
+| 권한 물음 · 질문 · 모르는 종류 | 데몬이 무엇에 막혀 있는지 — 모르는 `kind` 는 단추 없이 사실만(§5.7) |
+| 남이 답함 | 다른 창이 답해서 물음만 내려가는 경우 — 이 창은 무엇으로 답했는지 모른다 |
+| 문 끊기 / 잇기 | 요청 쪽이 죽은 경우 |
+| 스트림 끊기 / 잇기 | **받는 쪽만** 죽은 경우 — 이때는 잠그지 않고 「확인 못 함」으로 적는다 |
+| 검증 못 한 끝 | `TurnFinishedData.Unverified` — 「고쳤다」와 「고쳤다는데 아무도 못 봤다」 |
+| 남의 서버 안내 | 서버 이름이 다른 `advise` — 한 장도 안 붙고, 몇 개를 왜 못 붙였는지 적힌다 |
+
+### 브라우저에서만 잡힌 것 셋
+
+`tools/smoke.mjs` 는 전부 초록인데 화면은 틀려 있던 것들이다. 목업의 값이 여기 있다.
+
+1. **부팅 화면이 「스트림이 끊겼습니다」라고 단언했다.** `detach()` 는 알리는데 `attach()` 는
+   안 알려서, 빈 대화에 붙으면 **붙기 전에 그린 그림**이 영영 서 있었다. 비대칭 통지는
+   거짓말 생성기다.
+2. **사용자 말이 가운데 정렬됐다.** 줄 종류를 `class="turn ${kind}"` 로 적으니 끝난 턴이
+   `class="turn turn"` 이 되고, CSS 에서 `.turn.turn` 은 그냥 `.turn` 이라 한 줄에 준 모양이
+   모든 줄에 걸렸다. 지금은 `kind-` 를 붙인다.
+3. **첫 도형 클릭에 위 단추들이 통째로 사라졌다.** 가짜 캔버스가 공유 `root` 에
+   `replaceChildren()` 을 했다. 그 단추가 §5.7 물음 창에 닿는 유일한 길이라, 못 눌러 본 화면은
+   안 만든 화면이 될 뻔했다.
+
 ## PowerPoint 에 붙이기 (미검증 경로)
 
 Office 는 애드인 소스를 https 로만 받는다. 인증서는 **직접** 만들어야 한다 — 개발용 CA 를
@@ -80,18 +107,27 @@ node tools/serve.mjs                       # 인증서를 찾으면 https 로 �
 
 ```mermaid
 graph TD
-  UI[ui: view, fakeCanvas] --> UC[usecase: QuoteSelection, PointAtAdvice, SendTurn]
-  UC --> D[domain: Quote, Advice, Conversation]
-  UC --> P[port: DeckPort, ChatPort]
+  UI[ui: view, fakeCanvas, fakePrompts]
+  UC[usecase: QuoteSelection, PointAtAdvice, SendTurn, ReadTranscript, WatchPrompt]
+  UI --> UC
+  UC --> D[domain: Quote, Advice, AdviceBoard, Composer, Transcript, Cursor, Pending]
+  UC --> P[port: DeckPort, ChatPort, TranscriptPort, StatusPort]
   OD[adapter: OfficeDeck] --> P
   FD[adapter: FakeDeck] --> P
-  FC[adapter: FakeChat] --> P
+  FC[adapter: FakeChat, FakeTranscript, FakeStatus] --> P
   M[main.js] --> UI
   M --> OD
   M --> FD
 ```
 
-- `domain/` — 값만 있다. `Quote` 는 **스냅숏**이다. 담을 때의 글과 크기를 그대로 들고 가고
+**보내는 문과 받는 문이 갈라져 있다**(`ChatPort` · `TranscriptPort`). 취향이 아니라 계약이다 —
+`transcript` 는 연결을 통째로 가져가므로 요청 쪽과 받는 쪽이 **서로의 생존 증거가 아니다**
+(§5.7). 갈라 뒀기 때문에 「스트림만 죽은」 경우를 아래 단추 하나로 만들어 볼 수 있다.
+
+- `domain/` — 값만 있다. `Transcript` 는 로그를 접어 줄을 만들고, `Composer` 는 낸 글을 쥔 채
+  잠기며(메아리로만 풀린다), `AdviceBoard` 는 `tool-call` 조각을 접어 안내를 만든다 — **셋 다
+  쌓지 않는다.** 화면이 안 받은 것을 단언하지 않게 하는 자리가 여기다.
+  `Quote` 는 **스냅숏**이다. 담을 때의 글과 크기를 그대로 들고 가고
   나중에 다시 안 읽는다. 보낼 때 도형이 달라졌으면 **조용히 바꿔치기하지 않고 멈춘다**(§5.8).
 - `port/` — 덱으로 난 유일한 구멍. `selection()` 은 **풀 전용**이다. 도형 선택이 바뀌었다고
   알려 주는 이벤트가 PowerPoint 몫으로 적힌 곳이 없고(부록 A — MS 문서끼리 어긋나는 자리다),
