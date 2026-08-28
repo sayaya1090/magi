@@ -380,8 +380,9 @@ allow = ["mcp__ppt__list_*(**)", "mcp__ppt__read_*(**)", "mcp__ppt__render_*(**)
 
 - **60초는 줄어들기만 하고 늘어나지 않는다.** `context.WithTimeout(ctx, 60*time.Second)`는 caller의
   기한과 **짧은 쪽**을 택하므로, 호출자가 넉넉히 준다고 이 천장이 올라가지 않는다. 환경변수도 인자도
-  없다(`MAGI_*_TIMEOUT` 계열에 MCP 몫이 없고, `mcp` 패키지의 상수는 이것과 `mcpRegisterTimeout`
-  30초 둘뿐이다). 대비되는 자리가 바로 옆에 있다 — magi 자기 `bash` 도구는 기본 **120초**에 호출자가
+  없다(`MAGI_*_TIMEOUT` 계열에 MCP 몫이 없고, 이 패키지에서 **호출 시간을 정하는** 상수는 이것과
+  `mcpRegisterTimeout` 30초 둘뿐이다 — 그 뒤로 상수가 늘긴 했으나 크기(`imageCap`)·보관 기간
+  (`imageLifetime`)·횟수(`unreachableStreak`)라 이 천장과 무관하다). 대비되는 자리가 바로 옆에 있다 — magi 자기 `bash` 도구는 기본 **120초**에 호출자가
   **600초**까지 인자로 올린다(`defaultBashTimeout`/`maxBashTimeout`). 같은 렌더를 셸로 돌리면
   기본값이 이미 MCP 천장의 두 배고, 더 달라고 말할 수도 있다. **도구가 "이건 오래 걸린다"고 말할 길이
   없다는 점에서 §4.4 ⑤와 같은 모양이다.**
