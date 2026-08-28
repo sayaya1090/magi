@@ -75,6 +75,43 @@ internal class FleetScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_last") shouldBe "answer alpha-1 deny"
             }
         }
+        When("멈추라는 명령이 거절당하면") {
+            // 이 화면의 열 번째 「눌렀는데 아무 말도 없던 자리」: 거절당해도 명단만 다시 서고
+            // 그 컴패니언은 여전히 working이라, 「멈추는 중」과 화면이 구별되지 않았다.
+            page.evaluate("window.__magi_test_press_refuses = 'no turn is open'")
+            page.locator("#fleet .card.working .actions md-icon-button.stop").click()
+            page.waitForSelector("md-dialog.askconfirm")
+            page.locator("md-dialog.askconfirm md-text-button.armed").last().click()
+            Then("사유는 누른 카드에 선다 — 카드는 눌리기 전 그대로 working이다") {
+                page.waitForCondition { page.locator("#fleet .card.working .refused").count() == 1 }
+                page.locator("#fleet .card.working .refused").textContent() shouldBe "no turn is open"
+                page.locator("#fleet .card.working .refused").getAttribute("role") shouldBe "alert"
+                // 사유는 <b>그 카드의 것</b>이다: 화면 어디에도 두 줄이 서지 않는다.
+                page.locator("#fleet .refused").count() shouldBe 1
+                page.locator("#fleet .card.working").count() shouldBe 1
+            }
+        }
+        When("다시 눌러 이번엔 서면") {
+            page.evaluate("delete window.__magi_test_press_refuses")
+            page.locator("#fleet .card.working .actions md-icon-button.stop").click()
+            page.waitForSelector("md-dialog.askconfirm")
+            page.locator("md-dialog.askconfirm md-text-button.armed").last().click()
+            Then("낡은 사유는 걷힌다 — 서고 나면 그 자리는 다시 조용해야 한다") {
+                page.waitForCondition { page.locator("#fleet .refused").count() == 0 }
+            }
+        }
+        When("답이 거부당하면") {
+            page.evaluate("window.__magi_test_refuse = 'that call was already answered'")
+            page.locator("#fleet .card.waiting .answer .bgroup md-outlined-button").first().click()
+            Then("사유는 답한 카드에 선다 — 멈춤이 쓰는 그 한 줄이다") {
+                page.waitForCondition { page.locator("#fleet .card.waiting .refused").count() == 1 }
+                page.locator("#fleet .card.waiting .refused").textContent() shouldBe
+                    "that call was already answered"
+                // 답 상자는 그대로다: 답이 서지 못했으니 물음도 그대로다.
+                page.locator("#fleet .card.waiting .answer").count() shouldBe 1
+                page.evaluate("delete window.__magi_test_refuse")
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤 없이 행들이 그대로 읽힌다(운영 css의 폰 배치)") {

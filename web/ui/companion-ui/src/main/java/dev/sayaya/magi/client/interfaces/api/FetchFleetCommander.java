@@ -17,9 +17,8 @@ public class FetchFleetCommander implements FleetCommander {
     public FetchFleetCommander() {}
 
     @Override
-    public void interrupt(FleetAgent a, Runnable then) {
-        // ⚠ 사유가 설 자리가 이 포트에 없다 — 멈추라는 명령이 거절당해도 명단만 다시 선다.
-        Console.post("/interrupt", null, a.socket, a.peer, (ok, w) -> then.run());
+    public void interrupt(FleetAgent a, java.util.function.Consumer<String> why) {
+        Console.post("/interrupt", null, a.socket, a.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override

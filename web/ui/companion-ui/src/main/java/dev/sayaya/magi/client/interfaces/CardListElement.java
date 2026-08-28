@@ -42,6 +42,14 @@ public class CardListElement {
     private final Dialogs dialogs;
     private final Map<String, String> wasState = new HashMap<>();
     private final Map<String, Memo> shownCards = new HashMap<>();
+    /**
+     * 거절당한 명령의 사유 — <b>그 카드의 것</b>이라 카드 열쇠로 쥔다.
+     *
+     * <p>멈추라는 명령이 거절당하면 명단만 다시 서고, 그 컴패니언은 계속 working이다 —
+     * 「멈추는 중」과 구별이 안 된다. 명단을 다시 읽는 것이 이 화면을 칠하므로 사유를
+     * <b>먼저</b> 쥐고 나서 읽는다(접근·설정 화면과 같은 순서).</p>
+     */
+    private final Map<String, String> refusals = new HashMap<>();
 
     private static final class Memo {
         final String sig; final HTMLElement node;
@@ -59,6 +67,7 @@ public class CardListElement {
         Set<String> alive = new HashSet<>(), aliveSockets = new HashSet<>();
         for (FleetAgent a : list) { alive.add(key(a)); aliveSockets.add(a.socket); }
         shownCards.keySet().removeIf(k -> !alive.contains(k));
+        refusals.keySet().removeIf(k -> !alive.contains(k));
         wasState.keySet().removeIf(s -> !aliveSockets.contains(s));
     }
 
@@ -89,6 +98,8 @@ public class CardListElement {
             r.append(v).append('\1');
         }
         if (a.report != null) for (FleetAgent.ReportSection s : a.report) r.append(s.key).append(':').append(s.text).append('|');
+        // 사유도 이 카드의 모습이다 — 빼면 거절이 와도 캐시된 옛 카드가 그대로 선다.
+        r.append('\1').append(refusals.getOrDefault(key(a), ""));
         return r.toString();
     }
 
@@ -181,6 +192,15 @@ public class CardListElement {
         row.append(host);
 
         row.append(rowActions(a, after));
+        String no = refusals.get(key(a));
+        if (no != null && !no.isEmpty()) {
+            // 사유는 <b>이 카드</b>에 선다 — 누른 단추가 여기 있고, 거절되면 카드는 눌리기 전
+            // 그대로라(여전히 working) 다른 데 세워 봐야 무엇이 안 됐는지 가리키지 못한다.
+            // 서버의 문장을 그대로 옮긴다 — 우리가 지어낼 수 있는 말이 아니다.
+            HTMLElement said = cell("refused", no);
+            said.setAttribute("role", "alert");
+            row.append(said);
+        }
         HTMLElement why = grounds(a);
         if (why != null) row.append(why);
         return row;
@@ -226,7 +246,11 @@ public class CardListElement {
         stopBtn.addEventListener("click", evt -> {
             evt.preventDefault();
             evt.stopPropagation();
-            dialogs.stop(a.name, () -> commander.interrupt(a, after));
+            dialogs.stop(a.name, () -> commander.interrupt(a, no -> {
+                if (no == null || no.isEmpty()) refusals.remove(key(a));
+                else refusals.put(key(a), no);
+                after.run();
+            }));
         });
         box.append(stopBtn);
         return box;
@@ -236,12 +260,16 @@ public class CardListElement {
     private HTMLElement answerBox(FleetAgent a, Runnable after, Consumer<String> jumpNext) {
         HTMLElement box = el("div");
         box.className = "answer";
-        // 거부 사유를 버린다 — 카드에는 그것을 적을 줄이 없다. 대신 after가 명단을 다시
-        // 읽으므로, 서지 못한 답은 그 컴패니언을 waiting인 채로 되돌려 놓는다(화면이 명단을
-        // 이기지 않는다). 운영의 그 자리도 같다.
+        // 사유는 멈춤이 거부됐을 때와 <b>같은 줄</b>에 선다. 예전엔 버렸고 그 이유를 "카드에는
+        // 적을 줄이 없다"고 적어 두었는데, 이제 있다 — 줄이 생겼으니 버릴 까닭도 사라졌다.
+        // 거부된 답은 다음 대기 행으로 넘어가지 않는다: 방금 세운 사유에서 눈을 떼게 하는
+        // 이동이고, 답이 서지 못한 자리는 바로 그 카드다.
         Consumer<String> send = text -> commander.answer(a, text, why -> {
+            boolean refused = why != null && !why.isEmpty();
+            if (refused) refusals.put(key(a), why);
+            else refusals.remove(key(a));
             after.run();
-            jumpNext.accept(a.socket);
+            if (!refused) jumpNext.accept(a.socket);
         });
         if ("question".equals(a.askKind) && a.askOptions != null && a.askOptions.length > 0) {
             // 목록이 제안이다: 가운데 정렬 — 이건 질문에 대한 툴바가 아니라 질문의 답이다.
