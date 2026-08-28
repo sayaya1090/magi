@@ -157,7 +157,18 @@ export class View {
       const el = document.createElement('button');
       el.className = 'advice';
       el.disabled = !a.pointable;
-      el.textContent = a.message;
+      const what = document.createElement('div');
+      what.textContent = a.message;
+      el.append(what);
+      // **가리킬 곳을 글로도 적는다**(§6.1 층 1: 슬라이드 · 도형 id · 무엇을 · 왜).
+      // 목업은 축소판을 안 그리므로 여기가 유일하게 "어느 슬라이드냐"가 사는 곳이다.
+      // 이게 없으면 사람이 알아내는 길이 **눌러 보는 것**뿐인데, 누르면 잡고 있던 선택을 뺏는다.
+      if (a.pointable) {
+        const where = document.createElement('div');
+        where.className = 'advice-target';
+        where.textContent = [`슬라이드 ${a.slideId}`, ...a.shapeIds].join(' · ');
+        el.append(where);
+      }
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
       el.addEventListener('click', async () => {
         const { ok, reason } = await this.pointAt.run(a);
