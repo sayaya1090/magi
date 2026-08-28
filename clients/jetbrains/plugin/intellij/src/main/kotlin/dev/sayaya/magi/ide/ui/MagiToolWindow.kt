@@ -202,7 +202,23 @@ class MagiToolWindow : ToolWindowFactory {
             ).apply { resizeWeight = 0.65 }
             root.add(split, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
-            follow()
+            // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
+            // 그대로 말하는데 이 줄은 안 했다 — 같은 init 의 두 줄이 실패를 다르게 다뤘다.
+            //
+            // 안 하면 이렇게 된다. IDE 를 먼저 열고 터미널에서 데몬을 나중에 띄우는 것이
+            // **보통의 차례**인데, 그때 `.session` 이 아직 없어 [Published.of] 가 null 을
+            // 주고 [follow] 는 false 로 돌아온다. 그 false 를 아무도 안 읽었다: 화면에
+            // 한 줄도 안 나가고, [reattach] 는 [ended] 에서만 불리는데 스트림이 선 적이
+            // 없으므로 [ended] 도 영영 안 온다. **창은 그대로 죽어 있고 데몬을 띄워도 안
+            // 살아난다** — 사람이 툴윈도를 닫았다 여는 수밖에 없다.
+            //
+            // 빈 전사에 붙은 것과 못 붙은 것이 **똑같이 빈 화면**이었다. `began` 이 그
+            // 둘을 갈랐고(위), 이 줄이 못 붙은 쪽에 말과 재시도를 준다.
+            //
+            // 사유는 안 댄다. [follow] 는 셋(basePath 없음·`.session` 없음·연결 실패)을
+            // 불리언 하나로 접어서 돌려주므로, 여기서 「데몬이 없다」고 쓰면 모르는 것을
+            // 아는 척하는 것이 된다. 되풀이되는 실패를 안 적는 것은 [reattach] 의 규칙 그대로다.
+            if (!follow()) { append("— 전사에 못 붙었다. 다시 붙어 본다."); reattach() }
             offerHand()
         }
 
