@@ -27,12 +27,20 @@ import (
 // A check that reads a file it did not declare will silently not run. This one reads a file no
 // package here imports (cmd/magi-web does not depend on adapter/tui at all), so nothing about
 // compiling this package can notice that styles.go moved. What notices is the test cache: the go
-// command records every file the test opened and hashes it into the cache key — but only for files
-// under the module root. An open outside it is ignored, and the result stays green while the file
-// it was watching changes underneath. Measured: cached on a second run, then re-ran after a comment
-// was appended to styles.go. And no check here depends on an input outside the module root: the
-// paths that do fall outside it — t.TempDir(), the sandbox probe's $HOME scratch — are files the
-// test itself makes, so there is nothing stale for them to stay green on.
+// command records every file the test opened and hashes its size and mtime into the cache key — but
+// only for files under the module root. An open outside it is ignored, and the result stays green
+// while the file it was watching changes underneath. And no check here depends on an input outside
+// the module root: the paths that do fall outside it — t.TempDir(), the sandbox probe's $HOME
+// scratch — are files the test itself makes, so there is nothing stale for them to stay green on.
+//
+// Size and mtime, not the bytes: hashOpen calls hashWriteStat and stops there, and the comment at
+// test.go:2106 says why outright — files can be very large, so the mtime and size are assumed good
+// enough. Measured here rather than read: styles.go's dark primary was changed to a different hex
+// of the same length and its mtime put back with touch -r, and this test reported ok (cached) while
+// the palette and the page disagreed; the same tree with -count=1 fails on that line. Ordinary
+// editing moves the mtime, so what this leaves uncovered is the copy that preserves it — cp -p,
+// rsync --times, a tar extracted with its timestamps. If styles.go ever arrives that way, this
+// check is the one that will not notice.
 func TestTheWebTakesItsColoursFromHere(t *testing.T) {
 	src, err := os.ReadFile("../../internal/adapter/tui/styles.go")
 	if err != nil {
