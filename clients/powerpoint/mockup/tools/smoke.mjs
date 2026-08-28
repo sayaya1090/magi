@@ -1007,6 +1007,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('끝내 못 잡은 것은 늦게 온 답과 다른 문장이다',
     lateFailNote(boom).includes('office.js 를 못 읽었습니다')
       && lateFailNote(boom) !== lateNote(null, 'PowerPoint'));
+
+  // **Error 가 아닌 것으로 거절하는 약속을 이 창은 못 건다.** `Office.onReady()` 는 남의
+  // 코드고, `Promise.reject('...')` 로 문자열을 던지는 것은 흔하다. `msgOf` 의 `?? String(e)`
+  // 가 그날을 위한 줄인데, 스위트 전체에서 이 자리에 간 값이 **Error 하나뿐**이라 그 줄은 한
+  // 번도 안 돌았다(인자 값 다양성 계측). 안 돌면 남는 것은 「(undefined)」고, 그것은 사유가
+  // 아니라 **사유가 빠졌다는 표시조차 아닌 값**이다.
+  ok('Error 가 아닌 것을 던져도 사유가 실린다',
+    lateFailNote('boom').includes('boom') && !lateFailNote('boom').includes('undefined'),
+    lateFailNote('boom'));
+  const wordy = pickNote({ why: 'threw', host: null, error: 'boom' });
+  ok('첫 쪽지도 같은 자리에서 안 비어야 한다',
+    wordy.includes('boom') && !wordy.includes('undefined'), wordy);
 }
 
 // ── 단추는 조용히 죽지 않는다 ────────────────────────────────────────────────
