@@ -41,7 +41,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * 일이라 셸을 거칠 이유가 없다.
  *
  * 쓰는 컨트롤은 shell 능력이 있을 때만 그린다(May) — 게이트는 언제나 서버가 지고, 여기서
- * 하는 일은 눌러서 거절에 닿는 버튼을 없애는 것뿐이다. 잔여: diff·PR·룩오버.
+ * 하는 일은 눌러서 거절에 닿는 버튼을 없애는 것뿐이다.
  */
 @Singleton
 public class WorkspaceElement {
