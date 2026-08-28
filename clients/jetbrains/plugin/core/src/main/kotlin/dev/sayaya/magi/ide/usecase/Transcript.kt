@@ -46,6 +46,29 @@ class Transcript(
          * 정한다(`Wire.kt` 의 [LogEvent] 주석) — 그래서 술어만 여기 두고 부르는 것은 화면이다.
          */
         fun echoesFact(e: LogEvent): Boolean = e.type == "part.delta"
+
+        /**
+         * 이 프레임이 **사람에게 물을 것이 달라졌다**고 말하는가.
+         *
+         * 프롬프트는 로그에 안 실린다 — `permission.requested` 와 `question.requested` 는 전이라
+         * 스토어를 안 지난다. 그래서 데몬이 `status` 의 `waiting` 으로 다시 조립해 주는데
+         * (`Wire.kt` 의 `Waiting`), **묻지 않으면 안 온다.** 창이 열릴 때 한 번 물어 보고 마는 것이
+         * 이전 판이었고, 그러면 창을 연 뒤에 올라온 물음은 영영 안 그려진다: 로그에는
+         * `#0 permission.requested` 한 줄이 뜨는데 누를 단추가 없고, 컴패니언은 계속 막혀 있다.
+         *
+         * 그래서 **이 넷을 다시 물어보라는 신호로 쓴다.** 답한 쪽(`permission.decided` ·
+         * `question.answered`)도 넣는다 — 다른 창이 먼저 답하면 이 창의 단추는 이미 지나간 물음을
+         * 가리키고 있고, 그걸 누르면 틀린 사유의 거절을 받는다.
+         *
+         * 폴링이 아니다. 코어가 이 넷을 **버릴 수 없는 것**으로 못박아 뒀고(`event.go` 의
+         * `droppableTypes` 주석: 낮은 빈도의 상태 전이는 하나만 잃어도 UI 가 영구히 어긋난다),
+         * 그 보장이 있어야 이벤트를 신호로 쓸 수 있다.
+         */
+        fun movesPrompt(e: LogEvent): Boolean = e.type in promptMoves
+
+        private val promptMoves = setOf(
+            "permission.requested", "question.requested", "permission.decided", "question.answered",
+        )
     }
 
     /** 화면이 이 셋만 안다. 전사가 어떻게 오는지는 안 본다. */

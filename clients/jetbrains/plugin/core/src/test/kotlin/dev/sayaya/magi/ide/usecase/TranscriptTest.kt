@@ -113,5 +113,22 @@ class TranscriptTest {
         assertEquals(listOf("e0", "e1"), sink.seen)
     }
 
+    @Test
+    fun `물음이 움직인 넷은 다시 물어보라는 신호다`() {
+        // 창이 열릴 때 한 번만 묻던 판에서는 이 넷이 와도 아무 일도 안 났다. 답한 쪽 둘까지 넣는
+        // 이유는 다른 창이 먼저 답하면 이 창의 단추가 지나간 물음을 가리키기 때문이다.
+        for (t in listOf("permission.requested", "question.requested", "permission.decided", "question.answered")) {
+            assertTrue(Transcript.movesPrompt(LogEvent(seq = 0, type = t)), t)
+        }
+    }
+
+    @Test
+    fun `물음과 무관한 것은 다시 묻게 하지 않는다`() {
+        // 매 프레임마다 status 를 왕복하면 전사 하나가 소켓 왕복 수백 개가 된다.
+        for (t in listOf("part.appended", "part.delta", "tool.progress", "council.verdict")) {
+            assertFalse(Transcript.movesPrompt(LogEvent(seq = 0, type = t)), t)
+        }
+    }
+
     private fun ev(seq: Long) = Response(ok = true, event = LogEvent(seq = seq, type = "part.appended"))
 }
