@@ -555,6 +555,31 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w6.poll();
   ok('시각까지 같으면 같은 물음이다', w6.view.answered === true);
 
+  // 같은 물음을 보는 **동안** 뒤에 물음이 더 쌓이는 경우. 신원(id·종류·시각)은 안 바뀌므로
+  // 「같은 물음」인 것이 맞고, 판을 다시 세우면 사람이 적던 답이 지워지니 안 세우는 것도 맞다.
+  // 틀린 것은 **값을 옛것으로 계속 쥐는 것**이다 — 「모두 2개」가 3개가 돼도 영영 2개로 선다.
+  // 신원이 같다는 말과 보여 줄 것이 같다는 말은 다른 말이다.
+  const st7 = new FakeStatus();
+  let drew7 = 0;
+  const w7 = new WatchPrompt(st7, { onChange: () => { drew7++; } });
+  const q7 = { id: 'call_30', kind: 'question', what: '어느 쪽으로?',
+               since: '2026-08-29T02:00:00Z', index: 1, total: 2 };
+  st7.ask(q7);
+  await w7.poll();
+  ok('처음엔 실린 대로 선다', w7.view.pending?.placement === '1번째 · 모두 2개',
+     String(w7.view.pending?.placement));
+  const rang = drew7;
+  st7.ask({ ...q7, total: 3 });
+  await w7.poll();
+  ok('같은 물음을 보는 동안 뒤가 늘면 그 수가 따라 온다',
+     w7.view.pending?.placement === '1번째 · 모두 3개', String(w7.view.pending?.placement));
+  ok('보여 줄 것이 달라졌을 때만 종이 울린다', drew7 === rang + 1, `${drew7 - rang}회`);
+  // 값만 바뀌고 보일 것이 그대로면 종은 안 울린다 — 울리면 매 폴마다 판이 다시 선다.
+  const rang2 = drew7;
+  st7.ask({ ...q7, total: 3 });
+  await w7.poll();
+  ok('같은 것이 또 와도 종은 안 울린다', drew7 === rang2, `${drew7 - rang2}회`);
+
   // 물음이 **무엇을 근거로** 왔는지. 코어가 소켓으로 실어 보내는데 이 창이 버리면 화면에
   // 남는 것은 예/아니오뿐이고, 그건 판단이 아니라 클릭이다.
   const st5 = new FakeStatus();

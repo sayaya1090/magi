@@ -73,6 +73,19 @@ export function mountFakePrompts(status, root, { stream, readTranscript, session
   clear.addEventListener('click', () => status.clear());
   box.append(clear);
 
+  // **같은 물음을 보는 동안 뒤가 늘어나는 자리.** 이게 없으면 「모두 N개」 줄이 늘 처음 값으로만
+  // 뜨고, 그 줄이 안 고쳐지는 결함을 아무도 못 본다. 물음의 신원(`id`)은 그대로 두는 것이
+  // 요점이다 — 신원이 바뀌면 판을 다시 세우므로 저절로 고쳐져서 아무것도 안 재게 된다.
+  const more = document.createElement('button');
+  more.textContent = '뒤에 하나 더';
+  more.title = '서 있는 물음은 그대로 두고 뒤에 쌓인 수만 늘린다';
+  more.addEventListener('click', () => {
+    const p = status.pending;
+    if (!p) return;
+    status.ask({ ...p, index: p.index ?? 1, total: (p.total ?? 1) + 1 });
+  });
+  box.append(more);
+
   const cut = document.createElement('button');
   cut.textContent = '문 끊기 / 잇기';
   cut.addEventListener('click', () => { status.reachable = !status.reachable; });

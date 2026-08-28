@@ -79,7 +79,8 @@ export class OfficeDeck extends DeckPort {
       const slideNo = (wantsNo && typeof idx === 'number') ? idx + 1 : null;
       if (shapes.items.length === 0) return { slideId, slideNo, shapes: [] };
 
-      // 텍스트는 두 번째 왕복에서. 도형에 textFrame 이 없을 수 있어 낱개로 묻고, 없으면 빈 문자열이다.
+      // 텍스트는 두 번째 왕복에서. 도형에 textFrame 이 없을 수 있어 낱개로 묻고,
+      // 없으면 빈 문자열이다.
       const frames = shapes.items.map((s) => {
         const tf = s.textFrame;
         tf.textRange.load('text');
@@ -115,7 +116,8 @@ export class OfficeDeck extends DeckPort {
    * 덱 전체의 번호표. 1.8 아래면 **null 이다** — 지어내지 않는다.
    *
    * 한 번 왕복한다. 안내가 도착할 때만 부르므로 누를 때마다 드는 값이 아니고, 여기서 캐시하지
-   * 않는 이유는 **슬라이드 순서가 사용자 손에서 바뀌기 때문**이다. 낡은 번호는 없는 번호보다 나쁘다.
+   * 않는 이유는 **슬라이드 순서가 사용자 손에서 바뀌기 때문**이다. 낡은 번호는 없는 번호보다
+   * 나쁘다.
    */
   async slideNumbers() {
     if (!this.#supports('PowerPointApi', '1.8')) return null;

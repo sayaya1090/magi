@@ -77,7 +77,18 @@ export class WatchPrompt {
 
     const next = s.pending ? new Pending(s.pending) : null;
     if (next && this.pending?.same(next)) {
-      // 같은 물음이다. 아무것도 안 한다 — 이 줄이 없으면 고르던 것이 매 폴마다 지워진다.
+      // 같은 물음이다. **판은 다시 안 세운다** — 세우면 고르던 것과 적던 답이 매 폴마다
+      // 지워진다. 그렇다고 옛 값을 계속 쥐면 안 된다: 뒤에 쌓인 물음의 수는 **같은 물음을
+      // 보는 동안에도** 늘고, 그러면 「모두 2개」가 3개가 돼도 영영 2개로 선다. 신원이 같다는
+      // 말과 보여 줄 것이 같다는 말은 다른 말인데, 이 자리는 앞엣말로 뒤엣말을 대신했었다.
+      //
+      // 그래서 값은 **늘** 새것을 쥐고, 종은 **보일 것이 달라졌을 때만** 친다. 매 폴마다
+      // 치면 판을 다시 세우는 것과 같아지고, 아예 안 치면 새로 쥔 값을 아무도 안 읽는다.
+      // 「보일 것」을 `placement` 하나로 재는 것은 지금 화면이 이 문 안에서 그 줄만 갈아
+      // 끼우기 때문이다(`view.refreshPlace`). **갈아 끼우는 것이 늘면 여기도 같이 는다.**
+      const was = this.pending.placement;
+      this.pending = next;
+      if (next.placement !== was) this.onChange();
     } else if (next) {
       this.pending = next;
       this.clearedBy = null;

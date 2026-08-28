@@ -74,7 +74,15 @@ export class View {
     // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다.
     const sig = [v.pending?.id ?? '', v.pending?.kind ?? '', v.answered ? '1' : '0',
       v.reachable ? '1' : '0', v.clearedBy ?? ''].join('|');
-    if (sig === this.askSig) return;
+    if (sig === this.askSig) {
+      // **줄 하나는 이 문 밖이다.** 서명에 없는 것이 하나 있다 — 뒤에 쌓인 물음의 수다. 같은
+      // 물음을 보는 동안에도 뒤가 늘면 「모두 2개」가 3개가 되고, 서명이 그대로라 여기서
+      // 돌아가면 그 줄은 **영영 안 고쳐진다**(없다가 생기는 경우엔 아예 안 뜬다). 서명에 넣어
+      // 해결하면 안 되는데, 그러면 뒤가 늘 때마다 판이 다시 서서 사람이 적던 답이 지워진다 —
+      // 이 문이 있는 바로 그 이유다. 좁힐 때 신선해야 하는 것은 좁히는 지점 **밖**에 둔다.
+      this.refreshPlace(v);
+      return;
+    }
 
     // **먼저 만들고 나중에 갈아 끼운다.** 만들다 터지면 직전 화면이 그대로 서 있고 다음 폴이
     // 다시 시도한다. 표시를 먼저 남기면 한 번 터진 물음은 **영영 안 그려지고**, 데몬은 바로
@@ -88,6 +96,18 @@ export class View {
     if (el) box.append(el);
     box.hidden = el == null;
     this.askSig = sig;
+  }
+
+  /** 자리 하나에 문장 하나. 두 곳이 같은 말을 짓지 않게 한 자리에 둔다. */
+  fillPlace(pl, placement) {
+    pl.textContent = placement ? `${placement} — 이걸 답하면 다음 물음이 옵니다.` : '';
+    pl.hidden = !placement;
+  }
+
+  /** 판을 안 다시 세우고 그 줄만 고친다 — 글자만 만지므로 적던 답과 포커스가 안 다친다. */
+  refreshPlace(v) {
+    const pl = $('#ask')?.querySelector('.ask-place');
+    if (pl) this.fillPlace(pl, v.pending?.placement ?? null);
   }
 
   /**
@@ -164,12 +184,12 @@ export class View {
       r.textContent = `멈춘 이유: ${p.reason}`;
       box.append(r);
     }
-    if (p.placement) {
-      const pl = document.createElement('p');
-      pl.className = 'ask-place';
-      pl.textContent = `${p.placement} — 이걸 답하면 다음 물음이 옵니다.`;
-      box.append(pl);
-    }
+    // **자리를 늘 만든다.** 뒤에 물음이 더 쌓이면 이 줄은 없다가 생기는데, 없는 자리는 갈아
+    // 끼울 데가 없어서 판을 통째로 다시 세워야 하고, 그러면 사람이 적던 답이 지워진다.
+    const pl = document.createElement('p');
+    pl.className = 'ask-place';
+    box.append(pl);
+    this.fillPlace(pl, p.placement);
     // 근거는 **접지 않는다.** 접힌 근거는 안 읽히고, 안 읽힌 근거로 누른 것은 판단이 아니다.
     if (p.report.length) {
       const dl = document.createElement('dl');
