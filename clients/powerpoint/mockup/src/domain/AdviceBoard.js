@@ -27,7 +27,18 @@ export function foldAdvice(rows, { server = 'ppt' } = {}) {
     const bare = tail(r.tool);
     if (bare !== 'advise' && bare !== 'clear_advice') continue;
     if (!r.tool.startsWith(mine)) { strays.add(r.tool); continue; }
-    if (bare === 'clear_advice') { items.length = 0; continue; }
+    if (bare === 'clear_advice') {
+      // **못 붙인 셈도 같이 걷는다.** 이 수는 걷힌 그 호출들에서 나온 것이라, 남겨 두면
+      // 없어진 안내를 두고 "몇 건은 못 붙였다"고 적는 쪽지가 된다 — 게다가 화면은 목록과
+      // 쪽지가 **둘 다** 비어야 안내 층을 숨기므로(`view.js`), 다 걷은 판이 쪽지 하나 때문에
+      // 계속 서 있게 된다.
+      //
+      // `strays` 는 **안 걷는다.** 그건 안내가 아니라 **설정이 어긋났다는 사실**이고, 우리
+      // `clear_advice` 가 남의 서버 판을 걷지도 못한다. 걷히는 것은 우리가 세운 것뿐이다.
+      items.length = 0;
+      dropped = 0;
+      continue;
+    }
 
     const list = itemsOf(r.args);
     list.forEach((it, i) => {

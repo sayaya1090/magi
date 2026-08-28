@@ -576,6 +576,25 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     args: { items: [{ slideId: 's1' }] } }]);
   ok('말 없는 안내는 안 붙이고 센다', empty.items.length === 0 && empty.dropped === 1);
 
+  // **걷은 뒤의 못 붙인 셈.** 위 두 경우가 각각 「걷힘」과 「셈」을 재는데, 현장에서 흔한 것은
+  // 둘이 겹친 이 길이다 — 안내가 왔고 그 중 하나가 말이 없었고 모델이 다 걷었다. 셈이 안 걷히면
+  // 없어진 안내를 두고 "몇 건은 못 붙였다"는 쪽지가 남고, 화면은 목록과 쪽지가 **둘 다** 비어야
+  // 안내 층을 숨기므로 다 걷은 판이 계속 서 있는다.
+  const clearedAfterDrop = foldAdvice([
+    { kind: 'tool', tool: 'mcp__ppt__advise', callId: 'c1',
+      args: { items: [{ slideId: 's1', message: '여기' }, { slideId: 's1' }] } },
+    { kind: 'tool', tool: 'mcp__powerpoint__advise', callId: 'c2',
+      args: { items: [{ message: '남의 것' }] } },
+    { kind: 'tool', tool: 'mcp__ppt__clear_advice', args: {} },
+  ]);
+  ok('걷으면 못 붙인 셈도 같이 걷힌다',
+    clearedAfterDrop.items.length === 0 && clearedAfterDrop.dropped === 0,
+    `items=${clearedAfterDrop.items.length} dropped=${clearedAfterDrop.dropped}`);
+  // 그런데 **설정이 어긋났다는 사실은 안 걷는다.** 우리 `clear_advice` 는 남의 서버 판을 걷지도
+  // 못하고, 걷었다고 이름이 맞아지지도 않는다. 이 비대칭이 다음 사람 손에 지워지지 않게 못 박는다.
+  ok('남의 서버 이름은 걷어도 남는다',
+    clearedAfterDrop.strays[0] === 'mcp__powerpoint__advise', String(clearedAfterDrop.strays));
+
   // 이름이 글이 아닌 도구 호출 하나가 오면 접다가 터진다 — 그러면 프레임 **한 장이**
   // 안내 층 전체를 끈다. `Transcript` 가 이름을 못 믿을 땐 null 로 눕힌다.
   const nameless = new Transcript();
