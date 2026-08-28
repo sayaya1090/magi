@@ -78,10 +78,13 @@ internal class Workspace(private val project: Project) {
             } catch (e: Exception) {
                 val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
                 trouble(
+                    // `else` 를 안 쓴다. 판정이 하나 늘면 여기서 컴파일이 서는 것이, 새 갈래가
+                    // 옛 문장 뒤에 조용히 숨는 것보다 싸다.
                     when (v) {
-                        DaemonLifecycle.Verdict.LEFT -> "데몬이 없다 — 아직 안 켰거나 질서 있게 나갔다."
-                        DaemonLifecycle.Verdict.KILLED -> "소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다."
-                        DaemonLifecycle.Verdict.ALIVE -> "붙었다가 끊겼다: ${e.message}"
+                        is DaemonLifecycle.Verdict.Left -> "데몬이 없다 — 아직 안 켰거나 질서 있게 나갔다."
+                        is DaemonLifecycle.Verdict.Killed -> "소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다."
+                        is DaemonLifecycle.Verdict.Alive -> "붙었다가 끊겼다: ${e.message}"
+                        is DaemonLifecycle.Verdict.Unknown -> "데몬이 살았는지 물어볼 수가 없었다: ${v.why}"
                     }
                 )
             }

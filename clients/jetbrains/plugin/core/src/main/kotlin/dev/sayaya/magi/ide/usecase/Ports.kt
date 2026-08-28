@@ -38,23 +38,71 @@ interface Daemon : Closeable {
 }
 
 /**
+ * 소켓 하나에 붙어 보고 **무엇을 만났는지**. 관측이지 결정이 아니다 — 되살릴지 말지는
+ * [DaemonLifecycle.Verdict] 가 정한다.
+ *
+ * **왜 `Boolean` 이 아닌가.** 예전엔 `alive(): Boolean` 이었고 붙어 보다 난 예외를 **전부**
+ * false 로 접었다. 접힌 것을 [DaemonLifecycle] 이 "파일은 있는데 안 듣는다 = 죽임을 당했다"로
+ * 폈다 — 못 물어본 것을 데몬에 대한 **긍정 진술**로 바꾼 셈이고, 그 판정에는 재기동이 달려 있다.
+ * 갈래는 넷 다 실측이다(macOS, JDK 유닉스 소켓):
+ *
+ * | 만난 것 | 예외 | 갈래 |
+ * |---|---|---|
+ * | 듣고 있음 | 없음 | [Listening] |
+ * | 죽은 데몬, 소켓 파일 남음 | `ConnectException: Connection refused` | [Refused] |
+ * | 없는 경로 | `SocketException: No such file or directory` | [Absent] |
+ * | 소켓이 아닌 보통 파일 | `SocketException: … non-socket` | [CouldNotAsk] |
+ * | 볼 수 없는 디렉토리 | `BindException: Permission denied` | [CouldNotAsk] |
+ *
+ * 즉 **진짜 "아무도 안 듣는다"는 `ConnectException` 하나뿐**이고 나머지는 데몬에 대해 아무것도
+ * 안 말한다. 갈래를 나누는 기준은 늘 같다: **받는 쪽이 할 일이 다르면 갈래다.**
+ */
+sealed interface Reach {
+
+    /** 붙었다. */
+    data object Listening : Reach
+
+    /**
+     * 소켓 파일이 **확실히** 없다. 질서 있게 나간 자리다.
+     *
+     * "확실히"가 [CouldNotAsk] 와 가르는 말이다. `Files.exists` 는 볼 수 없을 때도 false 라서
+     * 그걸로 판정하면 「못 봤다」가 「나갔다」로 둔갑한다. `Files.notExists` 는 그 자리에서 false 를
+     * 준다(실측: 볼 수 없는 자리에서 `exists=false, notExists=false`).
+     */
+    data object Absent : Reach
+
+    /** 파일은 있는데 붙기를 **거절당했다** = 아무도 안 듣는다. 이것만이 "죽었다"이다. */
+    data object Refused : Reach
+
+    /**
+     * 물어볼 수가 없었다. [why] 는 만난 것 그대로.
+     *
+     * **데몬에 대해 아무 말도 안 한다.** 살았는지 죽었는지 모르는 것이지 죽은 것이 아니다.
+     */
+    data class CouldNotAsk(val why: String) : Reach
+}
+
+/**
  * 소켓 경로 하나에 대해 전송이 답할 수 있는 것들.
  *
- * [DaemonLifecycle] 이 transport 의 `SocketPath` 를 직접 부르지 않게 하려고
- * [unusable] 과 [present] 까지 여기로 올렸다. 둘 다 실은 전송의 질문이다 — "이 경로로 애초에
- * 열 수 있나"는 AF_UNIX 주소 길이 문제이고, "파일이 그 자리에 있나"는 파일시스템이다. 규칙 쪽에
- * 남겨 두면 예외 하나짜리 경계가 되고, 예외 하나짜리 경계는 곧 예외 둘이 된다.
+ * [DaemonLifecycle] 이 transport 의 `SocketPath` 와 `Files` 를 직접 부르지 않게 하려고
+ * [unusable] 과 [reach] 의 파일 확인까지 여기로 내렸다. 둘 다 실은 전송의 질문이다 — "이 경로로
+ * 애초에 열 수 있나"는 AF_UNIX 주소 길이 문제이고, "파일이 그 자리에 있나"는 파일시스템이다.
+ * 규칙 쪽에 남겨 두면 예외 하나짜리 경계가 되고, 예외 하나짜리 경계는 곧 예외 둘이 된다.
  */
 interface Daemons {
 
     /** 붙는다. 못 붙으면 던지고, **그 예외가 곧 "내가 데몬이 될 차례"라는 답**이다. */
     fun connect(socket: Path): Daemon
 
-    /** 붙을 수 있는지만 본다. 파일의 존재로 판정하면 안 되는 이유는 설계 문서 §2. */
-    fun alive(socket: Path): Boolean
-
-    /** 소켓 파일이 그 자리에 있는가. [alive] 가 거짓일 때 "나갔다"와 "죽었다"를 가른다. */
-    fun present(socket: Path): Boolean
+    /**
+     * 붙어 보고 무엇을 만났는지. 파일의 존재만으로 판정하면 안 되는 이유는 설계 문서 §2.
+     *
+     * 파일 확인이 이 안에 있는 것은 **두 번 묻지 않기 위해서**다. 예전엔 `alive` 와 `present` 를
+     * 따로 물어 그 사이에 파일이 사라질 수 있었고, 그러면 "붙는 데 실패했고 파일도 없다"가 되어
+     * 죽은 데몬이 [Reach.Absent] 로 보였다.
+     */
+    fun reach(socket: Path): Reach
 
     /** 이 경로로는 열 수 없다는 이유, 열 수 있으면 null. */
     fun unusable(socket: Path): String?

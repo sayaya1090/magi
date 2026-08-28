@@ -5,12 +5,15 @@ import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Wire
 import dev.sayaya.magi.ide.usecase.Daemon
 import dev.sayaya.magi.ide.usecase.Daemons
+import dev.sayaya.magi.ide.usecase.Reach
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.net.ConnectException
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.Channels
 import java.nio.channels.SocketChannel
+import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
@@ -95,9 +98,26 @@ class DaemonClient private constructor(
             )
         }
 
-        /** 붙을 수 있는지만 본다. 소켓 파일의 존재로 판정하면 안 되는 이유는 설계 문서 §2. */
-        fun alive(socket: Path): Boolean =
-            runCatching { connect(socket).use { true } }.getOrDefault(false)
+        /**
+         * 붙어 보고 **무엇을 만났는지**. 갈래의 뜻과 실측 표는 [Reach].
+         *
+         * 예전엔 `alive(): Boolean` 이었고 `runCatching { … }.getOrDefault(false)` 로 예외를
+         * 전부 접었다. 접힌 것을 부르는 쪽이 "죽었다"로 폈으므로, 여기서 접는 것이 곧 저기서
+         * 거짓말이었다. **접는 자리를 없애는 것이 고침이다** — 펴는 쪽을 고치면 다음 부르는
+         * 쪽에서 같은 일이 또 일어난다.
+         */
+        fun reach(socket: Path): Reach {
+            // 확실히 없는 것만 없다고 한다. `exists` 가 아니라 `notExists` 인 이유는 [Reach.Absent].
+            if (Files.notExists(socket)) return Reach.Absent
+            return try {
+                connect(socket).use { Reach.Listening }
+            } catch (e: ConnectException) {
+                // 유일하게 "아무도 안 듣는다"를 뜻하는 예외. 나머지는 아래로 간다.
+                Reach.Refused
+            } catch (e: Exception) {
+                Reach.CouldNotAsk("${e.javaClass.simpleName}: ${e.message}")
+            }
+        }
     }
 }
 
@@ -107,7 +127,6 @@ class DaemonClient private constructor(
  */
 object SocketDaemons : Daemons {
     override fun connect(socket: Path): Daemon = DaemonClient.connect(socket)
-    override fun alive(socket: Path): Boolean = DaemonClient.alive(socket)
-    override fun present(socket: Path): Boolean = java.nio.file.Files.exists(socket)
+    override fun reach(socket: Path): Reach = DaemonClient.reach(socket)
     override fun unusable(socket: Path): String? = SocketPath.tooLong(socket)
 }
