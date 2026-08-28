@@ -28,6 +28,17 @@ class SourceTextTest {
             .filter { it.isFile && it.extension == "kt" && "${File.separator}build${File.separator}" !in it.path }
             .toList()
         assertTrue(kt.size > 10, "소스를 못 찾았다(${root.absolutePath}). 이 시험이 아무것도 안 보고 있다")
+        // **반쯤 죽는 것이 통째로 죽는 것보다 나쁘다.** 바닥이 열이면 `intellij` 가 통째로 빠져도
+        // `core` 만으로 넘는다(오늘 core main 14 + core test 17) — 그런데 이 시험이 보는 것은
+        // 대부분 `intellij` 쪽이다. 그때 파일을 훑어 `isEmpty()` 를 묻는 규칙들은 위반이 없어서가
+        // 아니라 **잴 것이 없어서** 초록이 되고, 그 사실은 화면에서 통과와 같아 보인다.
+        //
+        // 개수는 안 못박는다 — 누구나 파일을 더 만들 수 있고 합칠 수도 있다. 오늘의 배치 말고
+        // **두 모듈이 있다는 것**이 붙들어 두는 것만 묻는다: 둘 다 한 장이라도 보이는가.
+        for (m in listOf("core", "intellij")) assertTrue(
+            kt.any { "${File.separator}$m${File.separator}src${File.separator}main${File.separator}" in it.path },
+            "`$m` 의 main 소스가 한 장도 안 보인다(${root.absolutePath}) — 훑어서 «없음»을 " +
+                "확인하는 규칙들이 전부 빈 목록을 보고 초록이 된다")
         kt
     }
 
