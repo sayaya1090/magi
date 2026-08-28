@@ -1,8 +1,5 @@
 package dev.sayaya.magi.ide.usecase
 
-import dev.sayaya.magi.ide.transport.DaemonClient
-import dev.sayaya.magi.ide.transport.SocketPath
-import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.random.Random
 
@@ -15,6 +12,11 @@ import kotlin.random.Random
 class DaemonLifecycle(
     private val socket: Path,
     private val start: (Path) -> Unit,
+    /**
+     * 전송. 이 클래스는 소켓을 모른다 — 원격 개발에서 갈아 끼울 자리가 여기 하나이고, 시험은
+     * 진짜 소켓 없이 이 자리에 페이크를 준다.
+     */
+    private val daemons: Daemons,
     private val sleep: (Long) -> Unit = { Thread.sleep(it) },
     private val random: Random = Random.Default,
 ) {
@@ -32,8 +34,8 @@ class DaemonLifecycle(
     }
 
     fun verdict(): Verdict = when {
-        DaemonClient.alive(socket) -> Verdict.ALIVE
-        !Files.exists(socket) -> Verdict.LEFT
+        daemons.alive(socket) -> Verdict.ALIVE
+        !daemons.present(socket) -> Verdict.LEFT
         else -> Verdict.KILLED
     }
 
@@ -52,9 +54,9 @@ class DaemonLifecycle(
         attempts: Int = 6,
         firstBackoffMillis: Long = 120,
     ): Outcome {
-        SocketPath.tooLong(socket)?.let { return Outcome.Unreachable(it) }
+        daemons.unusable(socket)?.let { return Outcome.Unreachable(it) }
 
-        runCatching { return Outcome.Attached(DaemonClient.connect(socket)) }
+        runCatching { return Outcome.Attached(daemons.connect(socket)) }
 
         var started = false
         var backoff = firstBackoffMillis
@@ -64,7 +66,7 @@ class DaemonLifecycle(
             }
             sleep(backoff + random.nextLong(backoff / 2 + 1))
             backoff = (backoff * 2).coerceAtMost(2_000)
-            runCatching { return Outcome.Attached(DaemonClient.connect(socket)) }
+            runCatching { return Outcome.Attached(daemons.connect(socket)) }
         }
         return Outcome.Unreachable(
             "데몬에 못 붙었다: $socket — 기동을 ${attempts}회 시도했고 마지막까지 응답이 없다"
@@ -72,7 +74,7 @@ class DaemonLifecycle(
     }
 
     sealed interface Outcome {
-        data class Attached(val client: DaemonClient) : Outcome
+        data class Attached(val client: Daemon) : Outcome
         data class Unreachable(val reason: String) : Outcome
     }
 }

@@ -12,6 +12,7 @@ import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.model.Waiting
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.Published
+import dev.sayaya.magi.ide.transport.SocketDaemons
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Assist
@@ -123,7 +124,7 @@ class MagiToolWindow : ToolWindowFactory {
                     DaemonClient.connect(sock).use { work(Companion(it, sid)) }
                 } catch (e: Exception) {
                     // 못 붙은 것을 빈 화면으로 말하지 않는다(§0.5-7).
-                    val v = DaemonLifecycle(sock, start = {}).verdict()
+                    val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
                     say(state, when (v) {
                         DaemonLifecycle.Verdict.LEFT -> "데몬이 없다 — 아직 안 켰거나 질서 있게 나갔다."
                         DaemonLifecycle.Verdict.KILLED -> "소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다."

@@ -1,7 +1,6 @@
 package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.model.Request
-import dev.sayaya.magi.ide.transport.DaemonClient
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -17,7 +16,7 @@ import java.util.concurrent.atomic.AtomicInteger
  * 클라이언트가 아니라 **여는 방법**을 받는다.
  */
 class Assist(
-    private val open: () -> DaemonClient,
+    private val open: () -> Daemon,
     /** 켜고 끄는 것은 magi 쪽 `[autocomplete]` 가 정한다. 플러그인이 두 번째 스위치를 만들지 않는다. */
     private val enabled: () -> Boolean = { true },
 ) {
@@ -66,7 +65,7 @@ class Assist(
     fun setOpenFile(path: String, text: String): Boolean =
         call { c -> if (c.exchange(Request(method = "open-file", name = path, text = text)).ok) "y" else null } != null
 
-    private fun <T> call(work: (DaemonClient) -> T?): T? {
+    private fun <T> call(work: (Daemon) -> T?): T? {
         if (!enabled()) return null
         flight.incrementAndGet()
         return try {

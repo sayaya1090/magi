@@ -3,9 +3,10 @@ package dev.sayaya.magi.ide.transport
 import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Wire
+import dev.sayaya.magi.ide.usecase.Daemon
+import dev.sayaya.magi.ide.usecase.Daemons
 import java.io.BufferedReader
 import java.io.BufferedWriter
-import java.io.Closeable
 import java.net.StandardProtocolFamily
 import java.net.UnixDomainSocketAddress
 import java.nio.channels.Channels
@@ -32,12 +33,12 @@ class DaemonClient private constructor(
     private val channel: SocketChannel,
     private val reader: BufferedReader,
     private val writer: BufferedWriter,
-) : Closeable {
+) : Daemon {
 
     private val lock = ReentrantLock()
 
     /** 한 번의 요청과 그 답. 락스텝이므로 통째로 잠근다. */
-    fun exchange(request: Request): Response = lock.withLock {
+    override fun exchange(request: Request): Response = lock.withLock {
         writer.write(Wire.json.encodeToString(Request.serializer(), request))
         writer.write("\n")
         writer.flush()
@@ -80,4 +81,15 @@ class DaemonClient private constructor(
         fun alive(socket: Path): Boolean =
             runCatching { connect(socket).use { true } }.getOrDefault(false)
     }
+}
+
+/**
+ * 유닉스 소켓으로 데몬을 여는 [Daemons]. 규칙 층이 보는 유일한 전송 구현이고, 원격 개발(Gateway,
+ * WSL)에서 갈아 끼울 자리도 여기 하나다.
+ */
+object SocketDaemons : Daemons {
+    override fun connect(socket: Path): Daemon = DaemonClient.connect(socket)
+    override fun alive(socket: Path): Boolean = DaemonClient.alive(socket)
+    override fun present(socket: Path): Boolean = java.nio.file.Files.exists(socket)
+    override fun unusable(socket: Path): String? = SocketPath.tooLong(socket)
 }

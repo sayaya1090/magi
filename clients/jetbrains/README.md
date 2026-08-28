@@ -115,15 +115,36 @@ clients/jetbrains/
     ├── gradle/libs.versions.toml   # 버전은 여기 한 곳
     ├── core/              # 평범한 Kotlin/JVM. IntelliJ SDK 를 모른다
     │   └── …/ide/model/        와이어 DTO — Go 의 json 태그와 이름이 같다
-    │   └── …/ide/transport/    소켓 경로 계산 + JSON Lines 클라이언트
-    │   └── …/ide/usecase/      데몬 수명주기(붙거나 띄우거나·감시)
+    │   └── …/ide/usecase/      규칙. Ports.kt 가 전송에게 물을 것을 선언한다
+    │   └── …/ide/transport/    그 포트의 유닉스 소켓 구현 + 소켓 경로 계산
     └── intellij/          # IntelliJ Platform. 화면만 여기 산다
-        └── …/ide/ui/
+        └── …/ide/ui/           조립 지점 — 여기서 SocketDaemons 를 꽂는다
+    └── tools/citecheck.py  # 이 문서와 주석의 인용이 아직 무언가를 가리키는지
 ```
 
 **모듈 둘로 나눈 것은 취향이 아니라 시험 가능성이다.** `core` 가 SDK 를 모르므로 화면 없이 계약을
 시험할 수 있고, SDK 를 못 받는 자리에서도 컴파일된다. 의존은 `intellij → core` 한 방향뿐이고, 그
-반대가 생기면 `core` 가 SDK 를 끌어온다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
+반대가 생기면 `core` 가 SDK 를 끌어온다.
+
+**`core` 안에서는 `usecase` 가 안쪽이고 `transport` 가 바깥이다.** 처음에는 반대였다 — `Companion`,
+`Assist`, `DaemonLifecycle` 셋이 구체 클래스 `DaemonClient` 를 직접 잡고 있었다. 돌아가는 데는 문제가
+없었고, 이 역전이 막는 것은 오늘의 고장이 아니라 **원격 개발**이다. Gateway 나 WSL 에서는 소켓이 다른
+호스트에 있어 전송이 진짜로 달라지는데, 그때 "언제 `steer` 이고 언제 `submit` 인가" 같은 규칙까지
+`SocketChannel` 을 안다는 이유로 따라 움직이면 갈아 끼울 수가 없다.
+
+포트는 `usecase/Ports.kt` 에 둘, 통틀어 다섯 함수다. `Daemon` 이 `exchange`·`close`,
+`Daemons` 가 `connect`·`alive`·`present`·`unusable`. 뒤의 둘은 원래 `DaemonLifecycle` 이
+`Files.exists` 와 `SocketPath.tooLong` 으로 직접 하던 것을 옮긴 것이다. 규칙 쪽에 남겨 두면 "전송을
+import 하지 않는다, 단 `SocketPath` 는 빼고"가 되고, **예외 하나짜리 경계는 곧 예외 둘이 된다.**
+
+값이 실제로 나온 자리는 시험이다. `DaemonLifecycle` 은 백오프·지터·판정 셋을 다 갖고 있으면서
+**시험이 하나도 없었다** — 시험하려면 진짜 소켓을 여닫고 진짜로 자야 했기 때문이다. 포트가 생기자
+페이크 하나로 열 개가 붙었다(`DaemonLifecycleTest`).
+
+**와이어 DTO 를 도메인 엔티티로 옮기지는 않는다.** 클린 아키텍처의 통상 처방이지만 여기서 그러면
+데몬 계약의 **두 번째 표현**이 생긴다. 이 저장소가 이미 겪은 결함이다 — 같은 규칙을 두 곳에 적었더니
+`sanitize` 가 갈렸고 문서가 코드와 갈렸다. 이 플러그인에는 "턴이란 무엇인가"에 대한 독자적 규칙이
+없다. **데몬의 어휘가 곧 도메인이다.** 경계는 `ArchitectureTest` 가 얼려 둔다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
 같은 규칙은 아니다(`web/ui/README.md` 의 "클린 아키텍처 규칙") — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
 와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
 
@@ -252,8 +273,8 @@ sequenceDiagram
 **그 경합에서 감시자는 반드시 져야 한다.** 앞서 "결과가 같으니 무해하다"고 쓸 뻔했는데, 같지 않다.
 후계는 이전 대화 id를 환경변수로 물려받아 그 대화를 다시 연다(`cmd/magi/main.go` 의 `restartSessionEnv`, 소비는
 같은 파일의 `os.Getenv(restartSessionEnv)`). 감시자가 이겨서 후계가 못 뜨면 감시자의 데몬은 `CreateSession`으로 **빈 대화를 새로 만들어
-게시하고**(`main.go` 의 `a.CreateSession` 호출), `RunCron`이 그 위에서 시작하며(`main.go` 의 `a.RunCron` 호출), 다른 뷰어는 전부
-`PublishedSession`으로 그 빈 대화를 따라간다(`main.go` 의 `daemon.PublishedSession` 호출). 자기 자신만 나중에 `resume`으로
+게시하고**(`cmd/magi/main.go` 의 `a.CreateSession` 호출), `RunCron`이 그 위에서 시작하며(`cmd/magi/main.go` 의 `a.RunCron` 호출), 다른 뷰어는 전부
+`PublishedSession`으로 그 빈 대화를 따라간다(`cmd/magi/main.go` 의 `daemon.PublishedSession` 호출). 자기 자신만 나중에 `resume`으로
 돌아오는 것은 고침이 아니다. 나머지 모두에게 결함이 재현된다. 그래서 유예는 재시작 창보다 넉넉히
 길어야 하고, 이 값은 실측해서 정한다.
 
@@ -329,6 +350,45 @@ unsolicited frame"). 추가-전용 규칙은 **필드 이름**에 대한 것이�
 
 감시는 **워크스페이스 단위**다. 창 여럿이 같은 프로젝트를 열면 감시자도 여럿이지만 데몬은 하나이고,
 서로를 몰라도 된다. 다른 프로젝트의 데몬은 감시하지 않는다.
+
+### 한 워크스페이스를 IDE 두 종류로 열면
+
+같은 폴더를 IntelliJ IDEA 와 PyCharm 으로 동시에 여는 것은 **드문 일이 아니다** — 서버가 자바이고
+스크립트가 파이썬인 저장소에서 흔하다. 그리고 이 플러그인은 `plugin.xml` 이
+`com.intellij.modules.platform` 에만 의존하므로 **모든 JetBrains IDE 에 설치된다**(`modules.java`
+였다면 PyCharm 에는 안 붙는다). 그러니 가정이 아니라 일어나는 일이다.
+
+`WorkspaceKey` 는 워크스페이스 **경로**로 만들고 IDE 종류가 안 들어간다. 그래서 셋이 갈린다.
+
+**① 데몬은 하나다 — 의도한 대로 된다.** 둘이 같은 소켓 경로를 계산하고, 먼저 뜬 쪽이 띄우고 나중
+쪽이 붙는다. 위의 `flock` 규칙이 그대로 적용된다. 여기는 고칠 것이 없다.
+
+**② 열린 버퍼는 서로를 덮어쓴다 — 지금 이미 그렇다.** `openFiles` 는 `session.SessionID` 가 키다
+(`internal/app/app.go` 의 `App`). 두 IDE 가 같은 게시 세션에 붙으므로 **같은 칸**에 쓴다. PyCharm 이
+`foo.py` 를, IDEA 가 `bar.java` 를 보내면 나중 것이 이긴다. `OpenBufferListener` 가
+`selectionChanged` 마다 쏘므로 실제로는 **사람이 마지막으로 클릭한 IDE** 가 이긴다.
+
+이것을 결함이라고 부르기 전에 따져야 할 것이 있다. 사람이 방금 클릭한 창이 사람이 보고 있는
+곳이므로 **마지막이 이기는 것이 맞는 답일 수 있다.** 문제는 그것이 설계가 아니라 사고라는 점이다 —
+`SetOpenFile` 은 콘솔 편집기 하나를 상정하고 쓰였고, 두 IDE 가 번갈아 쏠 때 무엇이 옳은지는 아무 데도
+안 적혀 있다. 결정하고 적기 전까지는 우연이다. 덧붙여 `ambientTTL` 이 지나면 조용히 사라지므로,
+"왜 에이전트가 내가 보던 파일을 모르지"의 원인이 둘이 된다.
+
+**③ 손은 하나만 될 수 있다 — 앞으로 확실히 부딪힌다.** MCP 이름을 `jetbrains` 로 **고정**했고(§4),
+코어는 같은 이름 둘을 거부한다: `"jetbrains" is already attached; two servers cannot share one name`
+(`internal/adapter/mcp/manager.go` 의 `registerClient`). 그러면 둘째 IDE 는 뷰어로만 살고,
+에이전트의 `apply_edit` 는 **먼저 붙은 IDE** 로만 간다. 사람이 PyCharm 을 보고 있어도 편집은 IDEA 에서
+일어난다.
+
+이름을 IDE 별로 나누는 것은 답이 아니다. 고정한 근거가 "`mcp__` 도구는 항상 위험 도구로 취급되고
+(`internal/app/execute.go` 의 `dangerGated`) allow 규칙은 이름에 걸리므로, 이름이 바뀌면 사람이 써
+둔 규칙이 무효가 된다"이고 그 근거는 IDE 가 둘이어도 그대로다. **먼저 붙은 쪽이 손이다**를 규칙으로
+삼되, 거절을 삼키지 말고 **보여야** 한다 — "이 워크스페이스의 손은 IntelliJ IDEA 가 잡고 있다"를
+둘째 IDE 의 툴윈도에 적는다. 손이 아닌 것과 고장난 것은 다른 사건이고, §0.5-7 이 그 둘을 빈 화면으로
+합치지 말라고 한다.
+
+오늘 ③은 아직 안 터진다. 손을 아직 안 붙였기 때문이다(`McpName` 은 있고 `mcp-attach` 를 부르는
+자리는 없다). 붙이는 날 같이 정해야 하는 것이라 여기 적어 둔다.
 
 ### 바이너리를 어디서 찾는가
 
@@ -799,6 +859,19 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   없어서**였다 — 깨뜨리는 시험도 실제로 쓰이는 값을 골라야 한다.
 - **와이어 골든.** 요청·응답 JSON을 고정 문자열로 두고 코틀린 DTO가 그대로 읽는지 본다. Go 쪽
   `wire_invariant_test.go`와 짝이다. 한쪽만 있으면 필드가 조용히 갈라진다.
+- **수명주기 규칙 — 소켓 없이.** 판정 셋(살았다·나갔다·죽었다), 기동을 한 번만 하는지, 못 붙으면
+  빈 화면 대신 이유를 말하는지, 백오프가 늘어나다 상한에서 멈추는지, 지터가 실제로 붙는지. 전송과
+  자는 것과 난수를 전부 주입하므로 벽시계를 안 기다린다 — 시험이 벽시계를 기다리면 느린 것이
+  문제가 아니라 **CI 에서 가끔 실패**하는 것이 문제다.
+- **경계.** `ArchitectureTest` 가 `usecase` 의 `import` 줄을 읽어 `transport` 가 없는지 본다.
+  리플렉션으로는 안 되는데, 인터페이스만 쓰는 코드와 구현을 직접 부르는 코드가 런타임에는 구분이
+  안 되고 여기서 막고 싶은 것이 정확히 그 구분이기 때문이다. 시험이 **빈 디렉토리를 읽고 조용히
+  초록**이 되는 것을 막으려고 파일 목록도 같이 못박는다.
+- **인용이 아직 무언가를 가리키는가.** `tools/citecheck.py` 가 이 문서와 Kotlin 주석의 심볼·인용문을
+  원본에 맞춰 본다. 깨뜨려서 확인한 것 여덟 가지: 심볼 이름(md·kt), 인용문 한 글자, 줄 번호 복귀
+  (md·kt), 모호한 맨몸 파일명, Go 메서드 리시버, 숫자 든 심볼. 마지막 둘은 검사기 자신의 구멍이라
+  **깨뜨려 보고서야** 나왔다 — 심볼 정규식이 숫자를 안 받았고, 줄 번호 패턴이 앞 백틱을 요구해서
+  KDoc 에 옛 형태(`파일.go` 뒤에 콜론과 줄 번호)를 되돌려도 통과했다.
 - **라이브 데몬.** 골든이 맞아도 전송이 틀리면 소용없으므로 한 번은 실물에 붙는다. 이 트리의 관례대로
   env로 잠근다 — `MAGI_IDE_PROBE_SOCK=<socket> ./gradlew :core:test`. 부르는 것은 `about` 과 `models`
   뿐이라 턴을 안 건드리고, 같은 요청을 두 번 보내 답이 밀리지 않는 것으로 락스텝을 확인한다.
@@ -811,8 +884,13 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 
 | 레인 | 언제 | 무엇 |
 |---|---|---|
-| `test-jetbrains.yml` | `clients/jetbrains/**` 푸시·PR | `:core:test` 먼저(SDK 없이 몇 초), 그다음 플러그인 조립 |
+| `test-jetbrains.yml` | `clients/jetbrains/**` 푸시·PR | `citecheck.py`(초), `:core:test`(SDK 없이 몇 초), 그다음 플러그인 조립 |
+| `ci.yml` | 코어 변경 | `citecheck.py` 를 **여기서도** 부른다 — 아래 |
 | `release-jetbrains.yml` | `jetbrains-v*` 태그 | 테스트 → zip → 릴리스 |
+
+**`citecheck.py` 가 두 레인에 다 있는 이유.** 이 문서의 인용이 썩는 것은 **Go 쪽에서 이름이 바뀔
+때**인데, `test-jetbrains.yml` 은 `clients/jetbrains/**` 필터라 그 rename 을 아예 못 본다. 한쪽만
+두면 정작 원인이 되는 변경이 검사를 안 지난다.
 
 `core` 를 먼저 따로 돌리는 이유가 있다. 이식이 깨지면 거의 항상 거기가 깨지는데, `intellij` 은
 컴파일하려고 IDE 를 통째로(~1GB) 받는다. 그래서 실패가 다운로드 **뒤**가 아니라 1분 안에 온다.
@@ -855,6 +933,10 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   물어봤다"가 같은 답으로 온다.** `Hello` 가 `(PeerInfo, error)` 를 주므로 에러는 "지금 못 물었다"
   (재시도)이고, 성공하고도 cap 이 없으면 "못 받는 빌드"(제안하지 않음)다. 그리고 그 답이
   `Client` 인스턴스에 캐시되므로(`c.peer`), 고른 클라이언트를 attach 까지 쥐고 있어야 두 번 안 묻는다.
+- **IDE 두 종류가 같은 워크스페이스를 열었을 때 누가 손인가.** §2 가 갈래 셋을 적었고 그중 둘이 여기
+  걸린다. **버퍼**는 지금 마지막에 클릭한 IDE 가 이기는데, 그것이 옳은 답일 수 있으나 **결정된 적이
+  없다** — `SetOpenFile` 은 편집기 하나를 상정하고 쓰였다. **손**은 이름이 고정이라 먼저 붙은 쪽만
+  되고, 둘째에게 그 사실을 어떻게 보일지가 안 정해졌다. 손을 붙이는 날 같이 정한다.
 - **`read`가 열린 버퍼를 보게 할 것인가.** §5의 손이 `SetOpenFile`로 저장 안 된 버퍼를 알려도 `read`
   툴은 여전히 디스크를 읽는다. 에이전트가 낡은 내용을 추론하는 창이 남는다는 뜻인데, 고치는 자리가
   코어라 여기서 정하지 않는다. 플러그인 쪽 임시방편은 고치기 전에 IDE 읽기 도구를 부르게 하는 것인데
