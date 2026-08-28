@@ -39,6 +39,12 @@ public class MastheadElement {
     // 때도 같은 요소여야 두 상태가 같은 계단으로 읽힌다(운영도 <a>다).
     private final HTMLElement deep = el("a");
     private final HTMLElement state = el("span");
+    // 지나가는 말이 가는 자리 — 위의 수(#state)와 <b>따로</b>다. 그 줄은 명단 프레임마다 다시
+    // 세워지므로 거기 적은 말은 다음 프레임까지밖에 못 산다(운영이 그 자리에서 배운 것).
+    private final HTMLElement note = el("span");
+    // 보이지 않고 들리기만 하는 줄. 라이브영역은 글이 바뀌기 <b>전에</b> 문서에 있어야 해서
+    // 여기서 한 번 세운다 — 말할 때 만들어 넣으면 이미 채워진 채로 들어와 아무 말도 하지 않는다.
+    private final HTMLElement say = el("span");
     private final HTMLElement chrome = el("span");   // 화면이 미는 창 손잡이의 자리
     private final HTMLElement gear = el("md-icon-button");   // 환경설정으로 가는 문
     private final HTMLElement palBtn = el("md-icon-button");  // ⌘K가 없는 손을 위한 같은 문
@@ -177,6 +183,15 @@ public class MastheadElement {
         state.id = "state";
         state.setAttribute("role", "status");
         state.setAttribute("aria-live", "polite");
+        note.id = "note";
+        note.setAttribute("role", "status");
+        note.setAttribute("aria-live", "polite");
+        say.id = "say";
+        say.className = "sr-only";
+        say.setAttribute("role", "status");
+        say.setAttribute("aria-live", "polite");
+        // 이 줄의 주인이 정해졌다고 창에 알린다 — 화면 모듈은 제 판 밖에 적을 자리가 없다.
+        dev.sayaya.magi.bridge.Says.host(this::says, this::sayIt);
         chrome.id = "chrome";
         // 톱니는 늘 그 자리다 — 환경설정은 레일의 문이 아니라 이 창의 chrome이라서(운영도
         // 마스트헤드에 둔다). 컴패니언 위에서 누르면 그 컴패니언의 설정으로 간다: 주소의
@@ -200,7 +215,7 @@ public class MastheadElement {
         palBtn.innerHTML = "<svg data-i=\"#i-sl-magnifying-glass\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
                 + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
-        header.append(mark, whereami, crumbs, state, chrome, palBtn, gear);
+        header.append(mark, whereami, crumbs, state, note, say, chrome, palBtn, gear);
         // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
         Icons.dress(header);
     }
@@ -230,10 +245,46 @@ public class MastheadElement {
      * 말할 수 없다. 명단을 아직 못 읽은 것도 참이다 — "모른다"는 "죽었다"가 아니다.
      */
     private void connFor(dev.sayaya.magi.bridge.FleetAgent[] list) {
-        companionUp = standing == null || !standing.isCompanion() || list == null
+        boolean up = standing == null || !standing.isCompanion() || list == null
                 || dev.sayaya.magi.bridge.AgentStates.answering(rowFor(list));
+        if (up == companionUp) return;   // 가장자리에서만: 아래를 보라
+        companionUp = up;
         paintConn();
+        // 색만으로는 "멈췄다"가 아니라 "회색이다"이고, 그 둘은 다른 말이다. 그래서 낱말로도
+        // 적는다 — 다만 <b>달라진 순간에만</b>: 이 줄에는 쓰는 이가 여럿이라(MCP의 거절 같은)
+        // 명단이 흐를 때마다 같은 문장을 다시 쓰면 남의 말을 3초마다 덮는다(운영 규칙).
+        says(up ? "" : tr("state.companion_gone"));
     }
+
+    /**
+     * 보이는 한 줄. 빈 문자열은 걷는다는 뜻이다(console.css의 `#note:empty{display:none}`).
+     *
+     * 같은 문장을 다시 쓰지 않는 이유는 이것이 polite 라이브영역이기 때문이다: 같은 글을 두 번
+     * 넣으면 두 번 발표된다. 잘린 꼬리는 title이 들고 있는다 — 운영은 제가 그리는 툴팁(data-tip)에
+     * 실었고 이 콘솔에는 그 기계가 없어 브라우저의 것을 쓴다. 잘라 놓고 읽을 길을 안 주는 것만
+     * 아니면 되는 자리다.
+     */
+    private void says(String text) {
+        String t = text == null ? "" : text;
+        if (t.equals(note.textContent)) return;
+        note.textContent = t;
+        if (t.isEmpty()) note.removeAttribute("title");
+        else note.setAttribute("title", t);
+    }
+
+    /**
+     * 들리기만 하는 한 줄. 같은 문장이 다시 오면 비웠다가 한 프레임 뒤에 도로 적는다 — 라이브영역은
+     * <b>달라짐</b>을 발표하므로, 같은 글을 그대로 두면 두 번째는 침묵이다(운영 say의 그 규칙).
+     */
+    private void sayIt(String text) {
+        String t = text == null ? "" : text;
+        DomGlobal.clearTimeout(sayTimer);
+        if (!t.equals(say.textContent)) { say.textContent = t; return; }
+        say.textContent = "";
+        sayTimer = DomGlobal.setTimeout(args -> say.textContent = t, 60);
+    }
+
+    private double sayTimer = 0;
 
     private dev.sayaya.magi.bridge.FleetAgent rowFor(dev.sayaya.magi.bridge.FleetAgent[] list) {
         String peer = standing.peer == null ? "" : standing.peer;

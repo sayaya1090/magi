@@ -143,11 +143,24 @@ internal class ShellDrawerTest : GwtTestSpec({
                 // 팩이 없는 페이지라 키가 곧 문구다.
                 page.locator("#state").getAttribute("aria-label") shouldBe "state.lost"
             }
+            Then("낱말로도 적힌다 — 회색은 \"멈췄다\"가 아니라 \"회색이다\"이므로") {
+                // #note는 #state와 따로 선다. 명단 프레임은 3초마다 오는데 이 줄에는 쓰는 이가
+                // 여럿이라(지식 화면의 거절도 여기로 온다) 달라진 순간에만 쓴다 — 그래서 이
+                // 문장이 남의 말을 덮지 않는다.
+                page.waitForSelector("#masthead #note")
+                page.locator("#note").textContent() shouldBe "state.companion_gone"
+                page.locator("#note").getAttribute("title") shouldBe "state.companion_gone"
+            }
             Then("답하는 컴패니언으로 옮기면 점이 돌아온다 — 사실이 바뀐 것이지 회선이 아니다") {
                 page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
                 page.waitForSelector("#masthead #state.live")
                 page.locator("#state.lost").count() shouldBe 0
                 page.locator("#state").getAttribute("aria-label") shouldBe "state.live"
+            }
+            Then("그 말은 걷힌다 — 빈 줄은 자리도 차지하지 않는다(#note:empty)") {
+                page.waitForCondition { page.locator("#note").textContent().isEmpty() }
+                page.locator("#note[title]").count() shouldBe 0
+                page.evaluate("getComputedStyle(document.querySelector('#note')).display") shouldBe "none"
             }
             Then("목록으로 나오면 다시 회선만의 것이다 — 하나가 멈춘 것을 이 점이 말할 수는 없다") {
                 page.evaluate("window.__magi_go_view('fleet')")
