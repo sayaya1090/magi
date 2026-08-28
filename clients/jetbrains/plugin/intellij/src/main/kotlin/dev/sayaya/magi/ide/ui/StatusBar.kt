@@ -48,6 +48,16 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         override fun getTooltipText() = "magi — 이 워크스페이스의 컴패니언"
         override fun getClickConsumer(): Consumer<MouseEvent>? = null
 
+        /**
+         * 컴패니언이 못 만지는 컨텐트 루트가 몇 개인가. 프로젝트가 열릴 때 한 번 센다 — 데몬이
+         * 아니라 IDE 가 아는 사실이라 붙기 전에도 답이 있다.
+         *
+         * **우측 판에만 두면 안 보인다.** 그 판은 툴윈도라 게으르고, 사람이 안 열면 만들어지지도
+         * 않는다(실측: 루트가 밖에 있는 프로젝트를 열었는데 판이 안 만들어져 경고가 계산조차 안
+         * 됐다). 경고를 게으른 자리에만 두면 **경고가 필요한 사람이 제일 못 본다.**
+         */
+        private val unreachable = workspace.rootsOutsideWorkspace().size
+
         override fun install(statusBar: StatusBar) {
             bar = statusBar
             timer.start()
@@ -61,7 +71,7 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             // 화면에는 "데몬 없음" 넉 자뿐이라 사람이 원인을 볼 길이 없다 — 이 위젯의 결함 하나가
             // 정확히 그 모양으로 숨어 있었다(사유는 Workspace.onDaemon 의 주석).
             LOG.info("magi: 상태를 못 읽었다 — $it")
-            say("magi: 데몬 없음")
+            say("magi: 데몬 없음" + if (unreachable > 0) " · 못 만지는 루트 $unreachable" else "")
         }) { comp -> say(label(comp.facts())) }
 
         /**
@@ -74,7 +84,8 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                 f.doing != null -> "도는 중"
                 else -> "쉬는 중"
             }
-            return "magi: $what" + (f.permission?.let { " · $it" } ?: "")
+            val jail = if (unreachable > 0) " · 못 만지는 루트 $unreachable" else ""
+            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + jail
         }
 
         private fun say(s: String) {
