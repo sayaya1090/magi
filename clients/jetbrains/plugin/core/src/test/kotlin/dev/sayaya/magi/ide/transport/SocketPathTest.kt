@@ -69,6 +69,26 @@ class SocketPathTest {
     }
 
     /**
+     * 경계가 이 함수의 전부다 — 그런데 경계에 선 시험이 없었다.
+     *
+     * 재던 것은 넉넉히 짧은 것 하나와 넉넉히 긴 것 하나뿐이라, `<=` 를 `<` 로 바꿔도 스위트가
+     * 안 죽었다(돌연변이로 재 봤다, 2026-08-29). 딱 한 바이트가 걸린 자리는 아무도 안 밟는다.
+     *
+     * 어긋나면 나는 일: **딱 그 바이트에서 한쪽은 되고 한쪽은 안 된다.** 이쪽이 엄하면 데몬이
+     * 잘 바인딩할 경로를 두고 "더 짧은 데로 옮겨라"라고 하고, 이쪽이 무르면 이 함수가 설명해
+     * 주기로 한 그 실패("invalid argument")가 설명 없이 나간다. 뒤쪽이 이 함수가 존재하는
+     * 이유 자체다.
+     */
+    @Test
+    fun `딱 그 바이트까지는 되는 쪽이다`() {
+        fun of(n: Int) = Paths.get("/" + "x".repeat(n - 8) + "/a.sock")
+        val max = SocketPath.MAX_SOCKET_PATH
+        assertEquals(max, of(max).toString().toByteArray().size, "시험이 재려던 길이를 못 만들었다")
+        assertNull(SocketPath.tooLong(of(max)), "딱 맞는 것은 되는 쪽이다 — 코어의 `tooLong` 도 그렇다")
+        assertTrue(SocketPath.tooLong(of(max + 1)) != null, "한 바이트 넘으면 사유가 나와야 한다")
+    }
+
+    /**
      * Go 의 EvalSymlinks 는 준 대소문자를 그대로 돌려준다. 자바의 toRealPath() 는 고친다.
      * 대소문자를 무시하는 볼륨에서 그 차이가 소켓을 둘로 가른다.
      */

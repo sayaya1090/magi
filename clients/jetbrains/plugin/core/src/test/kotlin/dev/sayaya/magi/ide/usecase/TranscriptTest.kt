@@ -89,6 +89,19 @@ class TranscriptTest {
     }
 
     @Test
+    fun `커서를 주면 그 값이 그대로 실려 간다`() {
+        // 위 시험의 **짝**이다. 「안 실린다」만 있으면 *일부러 비운 것* 과 *애초에 못 싣는 것* 이
+        // 구별이 안 된다 — `follow` 가 `since` 를 통째로 흘려버려도 위 시험은 초록이고, 창도
+        // 멀쩡히 뜬다. 틀린 것이 보이는 자리는 **한복판에서 다시 붙는 순간** 하나뿐이고, 거기서
+        // 나는 증상은 「로그를 처음부터 다시 그린다」라 아무도 결함으로 안 읽는다.
+        //
+        // 값을 0 아닌 것으로 준다. 시험이 전부 0(또는 안 줌)이면 커서가 **가리키는 자리가
+        // 있을 때** 의 갈래가 한 번도 안 돈다.
+        val (_, fake) = run(listOf(ev(9)), since = 8L)
+        assertEquals(8L, fake.asked?.since)
+    }
+
+    @Test
     fun `에러 프레임은 스트림을 끝낸다`() {
         val (sink, _) = run(listOf(ev(1), Response(ok = false, error = "문이 없다")))
         assertEquals(listOf("began", "e1"), sink.seen)

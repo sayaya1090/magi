@@ -287,6 +287,42 @@ class SourceTextTest {
                 "라이브분을 먼저 갈라라 — 지금 `Sink.frame` 은 그 둘을 구분해 주지 않는다")
     }
 
+
+    @Test
+    fun `소켓 길이 한계는 코어와 같은 수 같은 부등호로 갈린다`() {
+        // `SocketPath.tooLong` 은 포트다 — 그 KDoc 이 "daemon.go 의 `tooLong`" 이라고 적고 있다.
+        // 포트에서 조용히 갈라지는 것은 수만이 아니라 **부등호**이기도 하다. 코어가 실제 한계
+        // (macOS 104·리눅스 108)로 올리면 이쪽만 100 에서 막아 데몬이 잘 여는 경로를 두고
+        // "더 짧은 데로 옮겨라"라고 하고, 부등호만 갈라지면 **딱 그 바이트짜리 경로 하나**에서
+        // 둘의 대답이 다르다. 어느 쪽이든 컴파일되고 시험도 통과하고 화면도 멀쩡하다.
+        //
+        // 늦게 우는 것은 `600ms` 짝과 같다: `test-jetbrains.yml` 은 `clients/jetbrains/**` 에만
+        // 걸려서 코어만 고친 커밋에서는 안 돈다. 듣는 사람은 이 모듈을 다음에 건드리는 사람이고,
+        // 그건 안 듣는 것보다는 낫다 — 「코어가 바꾸는 순간 운다」로 읽으면 틀린다.
+        val root = generateSequence(File(System.getProperty("user.dir"))) { it.parentFile }
+            .firstOrNull { File(it, "go.mod").isFile }
+        assertTrue(root != null, "저장소 뿌리(`go.mod`)를 못 찾았다 — 이 시험이 말하는 것은 " +
+            "「지킨다」가 아니라 「못 봤다」이다")
+
+        val go = File(root, "internal/adapter/daemon/daemon.go").readText()
+        val theirs = Regex("""maxSocketPath\s*=\s*(\d+)""").find(go)
+        assertTrue(theirs != null, "코어의 `maxSocketPath` 가 없어졌다. 옮겨 간 것이면 이 시험도 " +
+            "같이 옮겨라 — 못 찾은 것을 통과로 읽지 않는다")
+
+        val mine = sources.first { it.name == "SocketPath.kt" }.readText()
+        val ours = Regex("""MAX_SOCKET_PATH\s*=\s*(\d+)""").find(mine)
+        assertTrue(ours != null, "이쪽 `MAX_SOCKET_PATH` 를 못 찾았다")
+        assertTrue(theirs!!.groupValues[1] == ours!!.groupValues[1],
+            "한계가 갈라졌다 — 이쪽 ${ours.groupValues[1]}, 코어 ${theirs.groupValues[1]}. " +
+                "한쪽만 올리면 다른 쪽이 멀쩡한 경로를 거절하거나 못 여는 경로를 통과시킨다")
+
+        // 부등호까지 본다. 수가 같아도 한쪽이 `<` 면 딱 그 길이에서 대답이 갈린다.
+        assertTrue(Regex("""len\(path\)\s*<=\s*maxSocketPath""") in go,
+            "코어가 경계를 여는 자리를 `<=` 로 안 쓴다. 부등호가 갈라지면 딱 그 바이트에서만 " +
+                "틀리고, 그건 아무도 안 밟는 자리다")
+        assertTrue(Regex("""n\s*<=\s*MAX_SOCKET_PATH""") in mine,
+            "이쪽이 경계를 여는 자리를 `<=` 로 안 쓴다")
+    }
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
 }

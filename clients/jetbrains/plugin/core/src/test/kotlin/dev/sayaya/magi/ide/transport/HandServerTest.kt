@@ -108,4 +108,27 @@ class HandServerTest {
             assertTrue(s.url.startsWith("http://127.0.0.1:"), "루프백이 아니면 이 머신 밖이 닿는다: ${s.url}")
         }
     }
+
+    @Test
+    fun `고치기는 준 글자와 「전부」 를 그대로 넘긴다`() {
+        // **성공하는 `apply_edit` 을 지나가는 시험이 없었다.** 있던 것은 인자가 빠졌을 때의 거절
+        // 하나뿐이라, 가짜는 넷을 다 적어 두는데 아무도 그 적힌 것을 안 봤다 — 그래서
+        // `replaceAll` 판단을 뒤집어도 스위트가 안 죽었다(돌연변이로 재 봤다, 2026-08-29).
+        //
+        // 이 깃발이 정하는 것은 사람 파일에서 **한 군데를 고치느냐 전부를 고치느냐**다. 뒤집혀도
+        // 도구는 성공을 돌려주고 모델은 시킨 대로 됐다고 읽는다. 틀린 것이 드러나는 자리는 사람이
+        // 한참 뒤에 자기 파일을 볼 때다.
+        val ide = FakeIde()
+        HandServer.start(Hand(ide)).use { s ->
+            rpc(s, "tools/call",
+                """{"name":"apply_edit","arguments":{"path":"a.kt","old":"x","new":"y","replaceAll":true}}""")
+            assertEquals(listOf("a.kt", "x", "y", "true"), ide.edit,
+                "글자든 깃발이든 하나라도 어긋나면 사람 파일이 시킨 것과 다르게 고쳐진다")
+
+            // 안 주면 한 군데다. 「안 준 것」이 「전부」로 읽히는 쪽이 제일 나쁜 갈래다.
+            rpc(s, "tools/call", """{"name":"apply_edit","arguments":{"path":"b.kt","old":"x","new":"y"}}""")
+            assertEquals(listOf("b.kt", "x", "y", "false"), ide.edit,
+                "안 준 깃발은 거짓이다 — 기본이 「전부」면 한 군데만 고치라는 말을 할 수가 없다")
+        }
+    }
 }
