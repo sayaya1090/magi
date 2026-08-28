@@ -62,6 +62,34 @@ internal class KnowledgeScreenTest : GwtTestSpec({
             page.locator("#skills .skfind md-outlined-text-field textarea, #skills .skfind md-outlined-text-field input").first().fill("")
             page.waitForCondition { page.locator("#skills .sk").count() == 3 }
         }
+        When("아무것도 걸리지 않는 말을 치면") {
+            // 셸의 다른 귓구멍 — 이쪽은 눈에 보이지 않고 들리기만 하는 줄(#say)이다.
+            // 마지막 값이 함수면 플레이라이트가 그것을 부른다 — 귓구멍이 빈 인자로 한 번 울려
+            // 배열 머리에 null이 앉는다(실측). 값 하나로 닫아 그 부름을 막는다.
+            page.evaluate("window.__magi_test_said = []; window.__magi_say = t => { window.__magi_test_said.push(t) }; true")
+            page.locator("#skills .skfind md-outlined-text-field textarea, #skills .skfind md-outlined-text-field input").first().fill("zzzzz-nothing-here")
+            Then("0건이야말로 소리로 간다 — 목록이 줄어드는 것은 안 보이는 사람에게 아무 소리도 아니다") {
+                page.waitForCondition { page.locator("#skills .sk").count() == 0 }
+                page.waitForCondition { page.evaluate("window.__magi_test_said.length") as Number != 0 }
+                page.evaluate("window.__magi_test_said.at(-1)") shouldBe "find.results"
+            }
+            Then("다른 말을 쳐서 또 0건이어도 다시 말한다 — 수가 같다고 물음이 같은 것은 아니다") {
+                page.locator("#skills .skfind md-outlined-text-field textarea, #skills .skfind md-outlined-text-field input").first().fill("qqqqq-also-nothing")
+                page.waitForCondition { (page.evaluate("window.__magi_test_said.length") as Number).toInt() == 2 }
+            }
+            Then("비우면 몇 건인지는 더 말하지 않는다 — 쉬는 판이 할 말은 그것이 아니다") {
+                page.locator("#skills .skfind md-outlined-text-field textarea, #skills .skfind md-outlined-text-field input").first().fill("")
+                page.waitForCondition { page.locator("#skills .sk").count() == 3 }
+                val counts = "window.__magi_test_said.filter(t => t.indexOf('find.') === 0).length"
+                (page.evaluate(counts) as Number).toInt() shouldBe 2
+            }
+            Then("대신 화면 전체의 요약이 나간다 — 상자를 비운 그 순간 화면은 다시 전체가 된다") {
+                page.waitForCondition {
+                    page.evaluate("window.__magi_test_said.at(-1)") ==
+                            "count.rules \u00b7 count.remembered_one \u00b7 count.crossing \u00b7 count.pages \u00b7 count.servers"
+                }
+            }
+        }
         When("잊기를 두 번 눌러 확인하면") {
             page.locator("#skills .sk .drop").first().click()
             Then("먼저 확인으로 무장한다") {
@@ -73,6 +101,13 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_forgot") shouldBe "rule-cache@global"
                 page.locator("#skills .sk").count() shouldBe 2
             }
+            // 이 화면은 보지 않는 사람에게 세 판이 아니라 한 문장이다 — 운영 sayShared의 자리.
+            Then("요약이 다시 나간다 — 규칙이 하나 남아 단수 키로, 위키·서버 수는 뒤에 그대로 붙는다") {
+                page.waitForCondition {
+                    page.evaluate("window.__magi_test_said.at(-1)") ==
+                            "count.rule \u00b7 count.remembered_one \u00b7 count.crossing \u00b7 count.pages \u00b7 count.servers"
+                }
+            }
         }
         When("한 줄 적어 두면") {
             page.locator("#skills .skwrite md-outlined-text-field textarea").fill("always run gofmt")
@@ -80,6 +115,10 @@ internal class KnowledgeScreenTest : GwtTestSpec({
             Then("global로 기록되고 상자는 빈다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_remembered") != null }
                 page.evaluate("window.__magi_test_remembered") shouldBe "always run gofmt@global"
+            }
+            Then("목록이 그대로면 요약은 다시 나가지 않는다 — 걸음마다 같은 문장이면 그 줄은 못 쓰게 된다") {
+                val same = "window.__magi_test_said.filter(t => t.indexOf('count.rule \u00b7') === 0).length"
+                (page.evaluate(same) as Number).toInt() shouldBe 1
             }
         }
         When("서버 추가를 눌러 채우고 저장하면") {
@@ -117,6 +156,66 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_saved") shouldBe null
             }
         }
+        // ── 거절이 가는 자리 (운영 page.js:5556-5580) ──────────────────────────
+        When("서버가 이름 대는 칸을 짚어 거절하면") {
+            page.evaluate("window.__magi_test_refuse = 'a server needs a name, and the name can only contain letters, numbers, hyphens and underscores'")
+            page.locator("#mcp .sectionhead .mcpopen").click()
+            page.waitForSelector("#mcpDialog[open]")
+            page.locator("#mcpForm md-outlined-text-field[name=url] input, #mcpForm md-outlined-text-field[name=url] textarea").first().fill("https://mcp.example.dev/")
+            page.locator("#mcpForm md-outlined-text-field[name=name] input, #mcpForm md-outlined-text-field[name=name] textarea").first().fill("bad name")
+            page.locator("#mcpDialog [slot=actions] md-text-button[value=add]").click()
+            Then("그 칸의 라벨이 사유를 인다 — 상자는 열린 채다") {
+                page.waitForSelector("#mcpForm md-outlined-text-field[name=name][error]")
+                page.locator("#mcpForm md-outlined-text-field[name=name]").getAttribute("error-text") shouldContain "can only contain letters"
+                page.locator("#mcpForm md-outlined-text-field[name=url][error]").count() shouldBe 0
+                page.locator("#mcpDialog[open]").count() shouldBe 1
+            }
+            Then("다시 열면 지난번의 빨간 줄은 없다 — 아직 아무것도 보내지 않았다") {
+                page.locator("#mcpDialog [slot=actions] md-text-button[value=cancel]").click()
+                page.waitForCondition { page.locator("#mcpDialog[open]").count() == 0 }
+                page.locator("#mcp .sectionhead .mcpopen").click()
+                page.waitForSelector("#mcpDialog[open]")
+                page.locator("#mcpForm md-outlined-text-field[error]").count() shouldBe 0
+                page.locator("#mcpDialog [slot=actions] md-text-button[value=cancel]").click()
+                page.waitForCondition { page.locator("#mcpDialog[open]").count() == 0 }
+            }
+        }
+        When("stdio 서버를 고치다가 주소·명령 둘 다 부르는 거절을 받으면") {
+            page.evaluate("window.__magi_test_refuse = 'a server is either a url (HTTP) or a command (stdio) — this is neither'")
+            page.locator("#mcp .srv").last().locator(".srvedit").click()
+            page.waitForSelector("#mcpDialog[open]")
+            // waitForSelector는 기본이 "보일 때까지"다 — 접힌 칸은 영영 보이지 않아 그대로
+            // 쓰면 타임아웃으로 죽는다(실측). 여기서 기다리는 것은 가시성이 아니라 접힘이다.
+            page.waitForCondition { page.locator("#mcpForm md-outlined-text-field[name=url][hidden]").count() == 1 }
+            page.locator("#mcpDialog [slot=actions] md-text-button[value=add]").click()
+            Then("빨간 줄은 접힌 주소 칸이 아니라 서 있는 명령 칸에 선다") {
+                // 이름 순서로만 고르면 url이 먼저 걸리는데 그 칸은 지금 0×0이다(운영 페이지에서
+                // 운영의 두 갈래를 그대로 돌려 실측: picked=url, w=0 h=0 display:none).
+                page.waitForSelector("#mcpForm md-outlined-text-field[name=command][error]")
+                page.locator("#mcpForm md-outlined-text-field[name=url][error]").count() shouldBe 0
+                page.locator("#mcpForm md-outlined-text-field[name=command]").getAttribute("error-text") shouldContain "either a url"
+            }
+        }
+        When("어느 칸의 것도 아닌 이유로 거절하면(여럿이 닿는 콘솔의 403이 그렇다)") {
+            // 셸의 귓구멍을 세운다 — 이 페이지에는 마스트헤드가 없고, 화면 모듈은 제 판 밖에
+            // 적지 않는다. 재는 것은 픽셀이 아니라 <b>화면이 셸에 청했는가</b>다.
+            page.evaluate("window.__magi_test_note = null; window.__magi_says = t => { window.__magi_test_note = t }; true")
+            page.evaluate("window.__magi_test_refuse = 'changing which MCP servers this machine runs is off on this console: it has an auth.toml, so more than one person reaches it. Do it from a terminal on that machine.'")
+            page.locator("#mcpDialog [slot=actions] md-text-button[value=add]").click()
+            Then("사유가 셸의 상태줄로 간다 — 아무 칸도 붉지 않고, 상자는 열린 채다") {
+                page.waitForCondition { page.evaluate("window.__magi_test_note") != null }
+                (page.evaluate("window.__magi_test_note") as String) shouldContain "off on this console"
+                // 잘려도 읽을 길이 있어야 해서 80자에서 끊는다(운영과 같은 길이).
+                (page.evaluate("window.__magi_test_note.length") as Number).toInt() shouldBe 80
+                page.locator("#mcpForm md-outlined-text-field[error]").count() shouldBe 0
+                page.locator("#mcpDialog[open]").count() shouldBe 1
+            }
+            Then("치우고 나온다") {
+                page.evaluate("window.__magi_test_refuse = null")
+                page.locator("#mcpDialog [slot=actions] md-text-button[value=cancel]").click()
+                page.waitForCondition { page.locator("#mcpDialog[open]").count() == 0 }
+            }
+        }
         When("서버 제거를 확인까지 누르면") {
             page.locator("#mcp .srv .drop").first().click()
             page.locator("#mcp .srv .drop.armed").click()
@@ -124,6 +223,12 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.waitForCondition { page.evaluate("window.__magi_test_removed") != null }
                 page.evaluate("window.__magi_test_removed") shouldBe "github@global"
                 page.locator("#mcp .srv").count() shouldBe 1
+            }
+            Then("요약의 서버 수도 함께 줄어 단수가 된다 — 세 판의 수가 한 문장에 모인다") {
+                page.waitForCondition {
+                    page.evaluate("window.__magi_test_said.at(-1)") ==
+                            "count.rule \u00b7 count.remembered_one \u00b7 count.crossing \u00b7 count.pages \u00b7 count.server"
+                }
             }
         }
         When("폰 폭(390px)으로 줄이면") {

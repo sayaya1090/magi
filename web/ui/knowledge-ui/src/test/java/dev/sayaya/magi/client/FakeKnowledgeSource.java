@@ -63,6 +63,10 @@ public class FakeKnowledgeSource implements KnowledgeSource {
 
     @Override
     public void saveServer(String socket, JsPropertyMap<String> fields, java.util.function.Consumer<String> why) {
+        // 거절도 답이다 — 스펙이 그 문장을 창에 적어 두면 그대로 돌려준다(운영 서버가 403·400·500
+        // 본문으로 주는 그 자리). 없으면 받아들인다.
+        Object refuse = Js.asPropertyMap(DomGlobal.window).get("__magi_test_refuse");
+        if (refuse != null && !String.valueOf(refuse).isEmpty()) { why.accept(String.valueOf(refuse)); return; }
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_saved",
                 fields.get("name") + "@" + (socket == null ? "global" : socket));
         why.accept("");

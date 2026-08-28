@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.RosterSharing;
+import dev.sayaya.magi.bridge.Says;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.component.Rank;
 import dev.sayaya.magi.client.usecase.KnowledgeStore;
@@ -27,8 +28,8 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  * .skwrite/.sectionhead/.empty/.filesnote)는 운영 그대로 — console.css가 입힌다.
  *
  * 운영과 같은 직계 구조로 프레임에 앉는다 — 판(#skills/#wiki/#mcp)을 새 래퍼로 감싸면
- * 운영 CSS의 자식 결합자 여백이 죽는다(rect 대조로 실측). 잔여(대조표): 폰의 반쪽 스위처
- * (sharedTabs), 낭독 요약(sayShared)·say 라이브 리전, 다이얼로그 닫기 X·필드별 에러 매핑.
+ * 운영 CSS의 자식 결합자 여백이 죽는다(rect 대조로 실측). 잔여(대조표): 없음 — 폰의
+ * 반쪽 스위처·낭독 요약·다이얼로그 닫기 X·필드별 에러 매핑까지 모두 이 판의 것이다.
  */
 @Singleton
 public class KnowledgeElement {
@@ -176,6 +177,9 @@ public class KnowledgeElement {
             box.append(findBox);
         }
 
+        private String saidQuery = null;
+        private int saidCount = -1;
+
         void action(HTMLElement control) {
             // 판의 액션은 머리에 산다 — 목록을 지나 스크롤하게 하지 않는다(운영 sectionHead).
             head.append(control);
@@ -193,11 +197,19 @@ public class KnowledgeElement {
                 if (atRest) say.removeAttribute("hidden"); else say.setAttribute("hidden", "");
             }
             if (!query.trim().isEmpty()) {
-                HTMLElement note = cell("filesnote",
-                        tr(shownOfQuery == 1 ? "find.result" : "find.results", "n", String.valueOf(shownOfQuery)));
+                String much = tr(shownOfQuery == 1 ? "find.result" : "find.results", "n", String.valueOf(shownOfQuery));
+                HTMLElement note = cell("filesnote", much);
                 dyn.add(note);
                 box.append(note);
+                // 눈으로 보는 사람은 목록이 줄어드는 것을 본다. 안 보는 사람에게는 그 줄어듦이
+                // 아무 소리도 아니어서 셸에 소리내어 청한다 — <b>0건일 때가 가장 중요하다</b>
+                // (운영이 배운 자리: 그 announce가 early return 뒤에 있어 0건만 조용했다).
+                // 같은 물음에 같은 수면 다시 말하지 않는다: 명단이 흘러 다시 그려질 뿐인데
+                // 세 걸음마다 같은 말을 반복하면 그 줄은 못 쓰게 된다.
+                if (!query.equals(saidQuery) || shownOfQuery != saidCount) Says.say(much);
             }
+            saidQuery = query;
+            saidCount = shownOfQuery;
             for (HTMLElement k : kids) {
                 dyn.add(k);
                 box.append(k);
@@ -206,9 +218,63 @@ public class KnowledgeElement {
     }
 
     private void render() {
+        // 요약이 먼저다: 같은 순간에 찾기의 "몇 건"도 나갈 수 있고, 그때 그 자리의 말은
+        // 방금 친 글자에 대한 답이어야 한다(운영도 loadSkills 머리에서 이것을 먼저 말한다).
+        sayShared();
         renderSkills();
         renderWiki();
         renderMcp();
+    }
+
+    private String saidShared = null;
+    private boolean wasFinding = false;
+
+    /**
+     * 이 화면의 요약을 소리로 — 운영 sayShared의 이식.
+     *
+     * 목록이 줄고 느는 것은 눈으로 보는 사람에게만 정보다. 보지 않는 사람에게 이 화면은
+     * 세 판이 아니라 한 문장이어야 하고, 그 문장이 여기서 나간다.
+     *
+     * 대답한 것만 센다. 초기값은 0이 아니라 "아직 모름"이라, /skills가 거절당했는데 요약이
+     * 나가면 그것은 실패를 덮는 <b>거짓 주장</b>이 된다(운영이 겪은 자리: 거절 문장 위로
+     * "0 rules · 0 remembered"가 덧씌워졌다). 그래서 스킬이 답하기 전에는 아무 말도 하지
+     * 않고, 위키·서버 수는 그 둘이 답한 뒤에만 붙는다.
+     *
+     * 상태줄이 아니라 낭독이다 — 상태줄에 적으면 지워지지 않아 폰의 좁은 바를 영구히
+     * 차지하고, 방금 일어난 일(거절·실패)이 그 자리를 두고 다퉈야 한다.
+     */
+    private void sayShared() {
+        if (!store.skillsAnswered()) return;
+        JsArrayLike<Object> sk = Js.uncheckedCast(store.skills());
+        if (sk == null) return;   // 거절은 판이 말한다 — 요약이 그 위를 덮지 않는다
+        int rules = 0, crossing = 0;
+        for (int i = 0; i < sk.getLength(); i++) {
+            JsPropertyMap<Object> r = Js.uncheckedCast(sk.getAt(i));
+            if (!"memory".equals(str(r, "kind"))) rules++;
+            if ("global".equals(str(r, "tier"))) crossing++;
+        }
+        int facts = sk.getLength() - rules;
+        List<String> bits = new ArrayList<>();
+        bits.add(tr(rules == 1 ? "count.rule" : "count.rules", "n", String.valueOf(rules)));
+        bits.add(tr(facts == 1 ? "count.remembered_one" : "count.remembered", "n", String.valueOf(facts)));
+        bits.add(tr("count.crossing", "n", String.valueOf(crossing)));
+        JsArrayLike<Object> wk = Js.uncheckedCast(store.wiki());
+        if (store.wikiAnswered() && wk != null)
+            bits.add(tr(wk.getLength() == 1 ? "count.page" : "count.pages", "n", String.valueOf(wk.getLength())));
+        JsArrayLike<Object> sv = Js.uncheckedCast(store.mcp());
+        if (store.mcpAnswered() && sv != null)
+            bits.add(tr(sv.getLength() == 1 ? "count.server" : "count.servers", "n", String.valueOf(sv.getLength())));
+        String much = String.join(" \u00b7 ", bits);
+        // 바뀐 것만 말한다. 이 화면은 글자 하나에도 다시 그려지는데(찾기는 여기서 거르므로
+        // 목록을 다시 읽지 않는다), 같은 문장을 걸음마다 되풀이하면 그 줄은 못 쓰게 된다.
+        // 예외 하나: 찾기 상자를 비운 순간. 그때 화면은 좁혀 본 것에서 다시 전체가 되므로
+        // 같은 문장이어도 다시 말한다(운영도 그 자리에서 다시 말한다 — 실측: 정적 데모 둘).
+        boolean finding = !store.skillQuery().trim().isEmpty();
+        boolean back = wasFinding && !finding;
+        wasFinding = finding;
+        if (much.equals(saidShared) && !back) return;
+        saidShared = much;
+        Says.say(much);
     }
 
     // ── 경험: 규칙과 기억 ────────────────────────────────────────────────────
@@ -648,6 +714,9 @@ public class KnowledgeElement {
             headline.textContent = tr(editing ? "label.edit_server" : "label.add_server");
             go.textContent = tr(editing ? "action.save" : "action.add_or_replace");
             showKind();
+            // 지난번의 빨간 줄은 지난번의 것이다 — 다시 열린 상자가 아직 아무것도 안 보낸 채로
+            // 거절을 이고 서 있으면, 사람은 방금 제가 한 일 때문이라고 읽는다(운영도 열 때 지운다).
+            for (HTMLElement f : fields) { f.removeAttribute("error"); f.removeAttribute("error-text"); }
             Js.<Dialog>uncheckedCast(element).show();
         }
 
@@ -665,14 +734,28 @@ public class KnowledgeElement {
                 }
                 // 거부는 그 필드의 라벨에 — 어느 필드의 일인지 사유가 이름을 댄다(운영 규칙).
                 for (HTMLElement f : fields) { f.removeAttribute("error"); f.removeAttribute("error-text"); }
+                // 지금 <b>서 있는</b> 칸 중에서 고른다. 종류가 stdio면 주소 칸은 접혀 있고(실측
+                // 0×0 display:none), 서버의 그 거절은 "either a url (HTTP) or a command (stdio)"라
+                // 두 낱말을 다 부른다 — 이름 순서로만 고르면 접힌 칸에 빨간 줄을 긋고 보이지 않는
+                // 필드에 focus()를 부른다(운영 page.js:5571의 두 갈래를 그 페이지에서 그대로
+                // 돌려 재 봤다: picked=url, 0×0). 사람이 고칠 수 있는 칸은 서 있는 칸이다.
+                HTMLElement at = null;
                 for (HTMLElement f : fields) {
-                    if (why.contains(f.getAttribute("name"))) {
-                        f.setAttribute("error", "");
-                        f.setAttribute("error-text", why.length() > 120 ? why.substring(0, 120) : why);
-                        f.focus();
-                        return;
-                    }
+                    if (f.hasAttribute("hidden")) continue;
+                    if (why.contains(f.getAttribute("name"))) { at = f; break; }
                 }
+                if (at != null) {
+                    at.setAttribute("error", "");
+                    at.setAttribute("error-text", why.length() > 120 ? why.substring(0, 120) : why);
+                    at.focus();
+                    return;
+                }
+                // 서 있는 어느 칸의 것도 아닌 거절은 <b>어딘가에</b> 적혀야 한다. 여기 없으면
+                // 사람이 누른 버튼은 아무 일도 안 한 것이 된다. 실제로 오는 말이다: 여럿이 닿는
+                // 콘솔은 이 쓰기를 통째로 거절하고(403 refuseWhenShared) 그 문장은 어느 칸의
+                // 이름도 부르지 않으며, 파일 쓰기 실패(500)도 그렇다. 상자는 열린 채 둔다 —
+                // 사유를 읽고 고칠 자리가 이 상자다.
+                Says.note(why.length() > 80 ? why.substring(0, 80) : why);
             });
         }
 
