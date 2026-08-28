@@ -137,7 +137,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
                     if (Transcript.movesPrompt(e)) refresh()
                     Problems.dissentOf(e)?.let { d ->
-                        problems.append("· 카운슬 ${'$'}{d.member} 반대  #${'$'}{d.seq}  ${'$'}{d.at.orEmpty()}\n    ${'$'}{d.why}\n")
+                        problems.append("· 카운슬 ${d.member} 반대  #${d.seq}  ${d.at.orEmpty()}\n    ${d.why}\n")
                     }
                 }
                 // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
@@ -155,7 +155,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun ended(end: End) = when (end) {
                     End.ByUs -> append("— 전사를 끊었다.")
                     End.ByDaemon -> { append("— 전사가 끝났다(데몬이 닫았다). 다시 붙어 본다."); reattach() }
-                    is End.Broken -> { append("— 전사가 끊겼다: ${'$'}{end.why}. 다시 붙어 본다."); reattach() }
+                    is End.Broken -> { append("— 전사가 끊겼다: ${end.why}. 다시 붙어 본다."); reattach() }
                 }
             }
 
@@ -299,7 +299,7 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun render(e: LogEvent): String {
             val who = e.actor?.name?.takeIf { it.isNotBlank() } ?: e.actor?.kind.orEmpty()
-            return "#${'$'}{e.seq} ${'$'}{e.type}" + if (who.isBlank()) "" else "  (${'$'}who)"
+            return "#${e.seq} ${e.type}" + if (who.isBlank()) "" else "  ($who)"
         }
 
         /**
@@ -311,8 +311,8 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun note(p: Problems.Problem) {
             val head = if (p.advisory) "· 했음(읽을 것 있음)" else "· 실패"
-            val where = p.where?.let { "  ${'$'}{it.path}:${'$'}{it.line}" } ?: ""
-            problems.append("${'$'}head ${'$'}{p.tool.orEmpty()}  #${'$'}{p.seq}  ${'$'}{p.at.orEmpty()}${'$'}where\n")
+            val where = p.where?.let { "  ${it.path}:${it.line}" } ?: ""
+            problems.append("$head ${p.tool.orEmpty()}  #${p.seq}  ${p.at.orEmpty()}$where\n")
             problems.append("    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n")
             SwingUtilities.invokeLater { problems.caretPosition = problems.document.length }
         }
@@ -334,7 +334,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 그새 사람이 더 쳤으면 낡은 제안이다. 붙이지 않는다.
                     if (input.text != prefix) return@invokeLater
                     suggestion = said?.takeIf { it.isNotBlank() }
-                    hint.text = suggestion?.let { "<html><i>제안: ${'$'}it &nbsp;<b>Tab</b></i></html>" } ?: " "
+                    hint.text = suggestion?.let { "<html><i>제안: $it &nbsp;<b>Tab</b></i></html>" } ?: " "
                 }
             }
         }

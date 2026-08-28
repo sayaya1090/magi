@@ -31,11 +31,11 @@ class McpNameTest {
 
         for (row in g["sanitizeToolPart"]!!.jsonArray) {
             val (input, want) = row.jsonArray.map { it.jsonPrimitive.content }
-            assertEquals(want, McpName.sanitize(input), "sanitize(${'$'}input)\n${'$'}why")
+            assertEquals(want, McpName.sanitize(input), "sanitize($input)\n$why")
         }
         for (row in g["namespacedToolName"]!!.jsonArray) {
             val (server, tool, want) = row.jsonArray.map { it.jsonPrimitive.content }
-            assertEquals(want, McpName.toolName(server, tool), "toolName(${'$'}server, ${'$'}tool)\n${'$'}why")
+            assertEquals(want, McpName.toolName(server, tool), "toolName($server, $tool)\n$why")
         }
     }
 

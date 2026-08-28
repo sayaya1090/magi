@@ -13,4 +13,16 @@ dependencies {
     testRuntimeOnly(libs.junit.launcher)
 }
 
-tasks.test { useJUnitPlatform() }
+tasks.test {
+    useJUnitPlatform()
+    // `SourceTextTest` 는 클래스가 아니라 **소스 글자**를 읽는다. 그게 입력으로 안 걸려 있으면
+    // gradle 은 딴 모듈의 .kt 가 바뀌어도 이 작업을 UP-TO-DATE 로 건너뛰고, 그러면 검사는
+    // 초록인데 **돈 적이 없다.** 실제로 그 상태를 한 번 만들어 봤다: 창 코드에 결함을 도로
+    // 넣었는데 통과했다. 그래서 읽는 것을 그대로 입력으로 적는다.
+    inputs.files(
+        fileTree(rootProject.projectDir) {
+            include("**/src/**/*.kt")
+            exclude("**/build/**")
+        }
+    ).withPropertyName("scannedSources").withPathSensitivity(PathSensitivity.RELATIVE)
+}
