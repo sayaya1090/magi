@@ -256,6 +256,30 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock #send[disabled]").count() shouldBe 0
             }
         }
+        When("새 일을 줄 능력이 없는 사람이 보면") {
+            page.evaluate("window.__magi_may = ['answer']; window.__magi_test_fleet('working', 's_now')")
+            Then("상자는 남되 잠기고, 왜 잠겼는지를 그 자리가 적는다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "may.not_prompt"
+                }
+                page.locator("#dock form:not([hidden])").count() shouldBe 1
+                page.locator("#dock #t[disabled]").count() shouldBe 1
+                page.locator("#dock #send[disabled]").count() shouldBe 1
+            }
+        }
+        When("둘 다 없는 사람이 보면") {
+            page.evaluate("window.__magi_may = []; window.__magi_test_fleet('idle', 's_now')")
+            Then("상자가 통째로 물러난다 — 누를 데가 하나도 없는 상자는 자리만 차지한다") {
+                page.waitForCondition { page.locator("#dock form[hidden]").count() == 1 }
+            }
+            // 원래대로 — 상자를 <b>다시 세우는</b> 것은 층위의 몫이라(reach는 물리기만 한다)
+            // 능력을 지우는 것만으로는 돌아오지 않는다. 뒤 스펙에 선 상자를 넘긴다.
+            page.evaluate("delete window.__magi_may; window.__magi_test_past(null)")
+            Then("능력이 돌아오면 상자도 돌아온다") {
+                page.waitForCondition { page.locator("#dock form:not([hidden])").count() == 1 }
+                page.locator("#dock #t[disabled]").count() shouldBe 0
+            }
+        }
         When("워크스페이스(왼쪽)가 그려지면") {
             Then("트리 카드와 git 카드가 각자 선다 — 하나의 스크롤로 묶지 않는다") {
                 page.waitForSelector("#filecol #files .pane-files")
@@ -498,6 +522,24 @@ internal class CodingScreenTest : GwtTestSpec({
                     (page.evaluate("window.__magi_test_answered") as String?) != null
                 }
                 page.evaluate("window.__magi_test_answered") shouldBe "call_9/question/yes, drop it"
+            }
+        }
+        When("질문이 서 있는데 답할 능력만 없으면") {
+            page.evaluate("window.__magi_may = ['prompt']; window.__magi_test_fleet('working', 's_now')")
+            Then("지금 몫인 그 능력으로 거절한다 — 새 일은 줘도 되지만 대신 답하지는 못한다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "may.not_answer"
+                }
+                page.locator("#dock form:not([hidden])").count() shouldBe 1
+                page.locator("#dock #t[disabled]").count() shouldBe 1
+                page.locator("#dock #send[disabled]").count() shouldBe 1
+            }
+            page.evaluate("delete window.__magi_may; window.__magi_test_fleet('idle', 's_now')")
+            Then("능력이 돌아오면 답하는 자리로 돌아온다") {
+                page.waitForCondition {
+                    page.locator("#dock #t").getAttribute("label") == "label.answer"
+                }
+                page.locator("#dock #send[disabled]").count() shouldBe 0
             }
         }
         When("질문이 걷히면") {
