@@ -32,6 +32,15 @@ var builtinFileTools = map[string]bool{ // name → writes
 	"read": false, "grep": false, "glob": false, "list": false,
 }
 
+// confinedEdit reports one of magi's OWN writing file tools — the ones resolvePath keeps inside the
+// workspace. Deliberately not "anything that writes files": the difference between a tool magi
+// confines and a tool that merely says it writes is the whole of what a permission mode is
+// promising when it says edits may run unasked.
+func confinedEdit(name string) bool {
+	writes, ok := builtinFileTools[strings.ToLower(strings.TrimSpace(name))]
+	return ok && writes
+}
+
 // touchesFile answers what a call does to a file. ok is false when this tool touches none, which is
 // the common case and not a failure.
 func (a *App) touchesFile(name string, args json.RawMessage) (fileTouch, bool) {

@@ -189,3 +189,31 @@ func TestALargeFileThatWasEditedIsNotRecordedAsCreated(t *testing.T) {
 		t.Error("a file this run wrote from nothing was not recorded as created")
 	}
 }
+
+// Declaring adds obligations; it must never subtract a question.
+//
+// Under --permission auto ("accept edits") magi's own file tools are approved without asking,
+// because they are confined to the workspace. When the recogniser stopped being a list of three
+// names, that shortcut silently widened to any tool that declared itself — including an MCP tool,
+// which is another process with this machine's privileges and no jail, and which has always been
+// asked about through the danger gate. The first thing a tool would have learned is that saying "I
+// edit files" is how you stop being asked.
+func TestDeclaringDoesNotBuyAnMCPToolAutoApproval(t *testing.T) {
+	a := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__edit", writes: true}}}
+	if !a.changesFile("mcp__jetbrains__edit") {
+		t.Fatal("the premise moved: a declared editor is no longer read as an edit")
+	}
+	if confinedEdit("mcp__jetbrains__edit") {
+		t.Error("a declared MCP editor would run unasked under --permission auto")
+	}
+	// …and magi's own edit tools still do, or accept-edits stops meaning anything.
+	for _, own := range []string{"write", "edit", "multiedit"} {
+		if !confinedEdit(own) {
+			t.Errorf("%s lost its accept-edits shortcut", own)
+		}
+	}
+	// A reader is not an edit either, whoever declares it.
+	if confinedEdit("read") {
+		t.Error("reading a file counted as an edit")
+	}
+}

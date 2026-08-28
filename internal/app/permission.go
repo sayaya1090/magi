@@ -107,7 +107,14 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 			// Accept-edits: file modifications are auto-approved, but commands and
 			// network access (bash/webfetch) still prompt — the convenient default
 			// for an editing session without going full YOLO.
-			if a.changesFile(tc.Name) {
+			//
+			// "File modifications" means magi's OWN, which resolvePath confines to the workspace.
+			// A tool that merely DECLARES itself a file tool (port.FileTool) is not covered: an MCP
+			// server is another process with this machine's privileges and no jail, and it has
+			// always been asked about here. Declaring adds obligations — the secret floor, the
+			// change tracking, the diagnostics — and must never subtract a question, or the first
+			// thing a tool learns is that saying "I edit files" is how you stop being asked.
+			if confinedEdit(tc.Name) {
 				return true
 			}
 			// Non-edit tools fall through to the interactive "ask" path below.
