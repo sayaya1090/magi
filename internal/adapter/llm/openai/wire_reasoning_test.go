@@ -22,7 +22,7 @@ func TestReasoningIsResentOnlyInsideTheOpenTurn(t *testing.T) {
 			{Kind: session.PartReasoning, Text: "LIVE-ANALYSIS"},
 			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "read", Args: []byte(`{}`)}}}},
 	}
-	out := convertMessages(msgs)
+	out := convertMessages(msgs, false)
 	var live, old string
 	for _, m := range out {
 		switch {
@@ -50,7 +50,7 @@ func TestReasoningResendCanBeSwitchedOff(t *testing.T) {
 			{Kind: session.PartReasoning, Text: "ANALYSIS"},
 			{Kind: session.PartText, Text: "answer"}}},
 	}
-	for _, m := range convertMessages(msgs) {
+	for _, m := range convertMessages(msgs, false) {
 		if m.Reasoning != "" {
 			t.Fatalf("reasoning sent with the flag off: %q", m.Reasoning)
 		}
@@ -67,7 +67,7 @@ func TestReasoningResendIsOnByDefault(t *testing.T) {
 			{Kind: session.PartToolCall, ToolCall: &session.ToolCall{CallID: "c1", Name: "read", Args: []byte(`{}`)}}}},
 	}
 	found := false
-	for _, m := range convertMessages(msgs) {
+	for _, m := range convertMessages(msgs, false) {
 		if m.Reasoning == "ANALYSIS" {
 			found = true
 		}

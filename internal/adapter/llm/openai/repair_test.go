@@ -23,7 +23,7 @@ func toolRes(id, content string) session.Message {
 
 // wireRoles converts and returns the role sequence for assertion.
 func wireRoles(msgs []session.Message) []string {
-	wm := convertMessages(msgs)
+	wm := convertMessages(msgs, false)
 	roles := make([]string, len(wm))
 	for i, m := range wm {
 		roles[i] = m.Role
@@ -60,7 +60,7 @@ func TestRepairDemotesOrphanToolResult(t *testing.T) {
 		toolRes("gone", "orphaned output"), // its assistant tool-call was summarized away
 		userMsg("continue"),
 	}
-	wm := convertMessages(in)
+	wm := convertMessages(in, false)
 	for _, m := range wm {
 		if m.Role == "tool" {
 			t.Fatalf("orphan tool result must be demoted, got a tool message: %+v", m)
