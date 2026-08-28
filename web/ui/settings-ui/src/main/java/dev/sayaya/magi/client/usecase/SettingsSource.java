@@ -8,7 +8,7 @@ public interface SettingsSource {
     void read(String socket, String peer, Consumer<Object> cb);
 
     /** 한 칸을 바꾼다 — 누를 때마다 저장한다(그래서 이 화면엔 저장 버튼이 없다). */
-    void save(String socket, String peer, String field, String value, Runnable then);
+    void save(String socket, String peer, String field, String value, Consumer<String> why);
 
     /** 이 콘솔이 아는 모델 프로파일들 — 위의 완성 설정이 고르는 그 백엔드들이다. */
     void profiles(String socket, Consumer<Object> list);
@@ -27,5 +27,5 @@ public interface SettingsSource {
     void pushKey(Consumer<String> key);
 
     /** 이 브라우저를 구독에 올리거나(delete=false) 내린다. */
-    void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then);
+    void push(String endpoint, String p256dh, String auth, boolean delete, Consumer<String> why);
 }

@@ -121,6 +121,33 @@ internal class SettingsScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_saved") shouldBe "/tmp/a1.sock|ambient=off"
             }
         }
+        When("서버가 그 칸의 쓰기를 거절하면") {
+            page.evaluate("window.__magi_test_press_refuses = 'this console is read-only here'")
+            page.locator("#settings md-switch[data-field=crossSession]").click()
+            Then("서버가 한 말이 <b>그 줄</b>에 선다 — 설정은 줄이 스무 개다") {
+                page.waitForCondition {
+                    page.locator("#settings [data-field=crossSession] .refused").count() == 1
+                }
+                page.locator("#settings [data-field=crossSession] .refused").textContent()
+                    .shouldBe("this console is read-only here")
+                // 눈으로 보는 사람만 아는 사고는 사고가 아니다 — 읽는 기계도 이 줄을 받는다.
+                page.locator("#settings [data-field=crossSession] .refused")
+                    .getAttribute("role") shouldBe "alert"
+            }
+            Then("안내 문장은 덮이지 않는다 — 그 자리는 이 설정이 무엇인지 말하는 몫이다") {
+                page.locator("#settings [data-field=crossSession] .say").count() shouldBe 1
+            }
+            Then("다른 줄은 조용하다 — 사유는 눌린 칸의 것이다") {
+                page.locator("#settings .refused").count() shouldBe 1
+            }
+        }
+        When("다음에 누른 것이 받아들여지면") {
+            page.evaluate("delete window.__magi_test_press_refuses")
+            page.locator("#settings md-switch[data-field=crossSession]").click()
+            Then("그 말은 사라진다") {
+                page.waitForCondition { page.locator("#settings .refused").count() == 0 }
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             // 그 폭에서 <b>다시 그린다</b>: md-select는 첫 그리기의 폭을 제 그림자 상자에 새겨

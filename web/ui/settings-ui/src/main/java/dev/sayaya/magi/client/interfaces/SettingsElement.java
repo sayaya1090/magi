@@ -83,7 +83,37 @@ public class SettingsElement {
         if (May.can("configure")) for (HTMLElement one : completeGroup()) form.append(one);
         if (May.can("configure")) for (HTMLElement one : profilesGroup()) form.append(one);
         for (HTMLElement one : consoleGroup()) form.append(one);
+        sayRefusal(form);
         root.append(form);
+    }
+
+    /**
+     * 거절당한 사유가 서는 자리 — <b>그 칸의 줄</b>이다.
+     *
+     * <p>설정은 줄이 스무 개다. 사유를 판 위쪽 한 자리에 모으면 사람은 방금 만진 칸이 그것인지
+     * 알 수 없고, 다른 칸을 고치러 갔다가 그 줄을 만난다. 그래서 저장소가 칸 이름을 함께 쥐고
+     * (`refusedField`), 다시 그린 폼에서 그 줄을 찾아 한 줄 세운다.</p>
+     *
+     * <p>안내 문장(`.say`)을 <b>덮지 않는다</b> — 그 자리는 이 설정이 무엇인지 말하는 몫이고,
+     * 사유는 이번 한 번의 일이다. 둘을 한 칸에 밀어 넣으면 다음 그리기가 안내를 되살리면서
+     * 사유를 지운다(회의 화면이 `data-fixed`로 막고 있는 바로 그 사고다).</p>
+     *
+     * <p>여기가 이 화면에서 사유를 그리는 <b>유일한</b> 자리다. 줄마다 손으로 끼워 넣으면,
+     * 줄을 하나 더 만드는 날 그 줄만 조용해진다.</p>
+     */
+    private void sayRefusal(HTMLElement form) {
+        String why = store.refusal(), field = store.refusedField();
+        if (why.isEmpty() || field.isEmpty()) return;
+        elemental2.dom.Element row = form.querySelector(
+                ".prefrow[data-field=\"" + field + "\"], .prefsay[data-field=\"" + field + "\"]");
+        if (row == null) return;
+        HTMLElement no = el("div");
+        no.className = "refused";
+        no.setAttribute("role", "alert");
+        no.textContent = why;
+        // 줄 안의 설명 묶음에 붙인다 — 컨트롤 옆이 아니라 그 줄의 말이 사는 곳이다.
+        elemental2.dom.Element say = row.querySelector(".prefsay");
+        Js.<HTMLElement>uncheckedCast(say == null ? row : say).append(no);
     }
 
     /** 어느 파일을 고치는가 — 다음에 묻는 질문이고, 가서 읽을 수 있는 것이라 경로째 적는다. */
@@ -195,7 +225,10 @@ public class SettingsElement {
                 boolean want = Js.isTruthy(Js.asPropertyMap(sw).get("selected"));
                 if (!want) {
                     notifications.turnOff((err, endpoint, p256dh, auth) -> {
-                        if (!endpoint.isEmpty()) store.push(endpoint, p256dh, auth, true, () -> { });
+                        // 끄기가 거절당해도 브라우저 쪽 구독은 이미 없다 — 스위치는 꺼진 것이
+                        // 맞고, 서버가 한 말만 옮긴다(그쪽에 남은 등록은 다음 발송에서 죽는다).
+                        if (!endpoint.isEmpty()) store.push(endpoint, p256dh, auth, true,
+                                no -> { if (why != null && !no.isEmpty()) why.textContent = no; });
                         if (why != null) why.textContent = err.isEmpty() ? tr("notify.how") : err;
                     });
                     return;
@@ -212,8 +245,17 @@ public class SettingsElement {
                             if (why != null) why.textContent = err.startsWith("notify.") ? tr(err) : err;
                             return;
                         }
-                        store.push(endpoint, p256dh, auth, false,
-                                () -> { if (why != null) why.textContent = tr("notify.is_on"); });
+                        // 브라우저는 받아들였는데 <b>서버가 거절하면</b> 알림은 오지 않는다 —
+                        // 켜진 채로 둔 스위치는 오지 않을 것을 온다고 말하는 셈이라, 되돌리고
+                        // 서버가 한 말을 그대로 옮긴다.
+                        store.push(endpoint, p256dh, auth, false, no -> {
+                            if (!no.isEmpty()) {
+                                Js.asPropertyMap(sw).set("selected", false);
+                                if (why != null) why.textContent = no;
+                                return;
+                            }
+                            if (why != null) why.textContent = tr("notify.is_on");
+                        });
                     });
                 });
             });
@@ -480,6 +522,7 @@ public class SettingsElement {
         // 같은 이름이 두 번 세어진다(운영과 견주다 드러난 그 한 겹).
         HTMLElement r = el("div");
         r.className = "prefsay";
+        r.setAttribute("data-field", field);
         HTMLElement k = el("div");
         k.className = "k";
         k.id = kId;
@@ -505,6 +548,7 @@ public class SettingsElement {
     private HTMLElement profileRow(String kId, String whyId, String kKey, String whyKey,
                                    String field, String now) {
         HTMLElement r = row(kId, whyId, kKey, whyKey);
+        r.setAttribute("data-field", field);
         HTMLElement sel = el("md-outlined-select");
         sel.className = "profsel";
         sel.setAttribute("data-field", field);
@@ -557,6 +601,7 @@ public class SettingsElement {
     private HTMLElement daemonSwitch(String kId, String whyId, String kKey, String whyKey,
                                      boolean on, String field) {
         HTMLElement r = row(kId, whyId, kKey, whyKey);
+        r.setAttribute("data-field", field);
         HTMLElement sw = el("md-switch");
         sw.setAttribute("touch-target", "wrapper");
         sw.setAttribute("data-field", field);

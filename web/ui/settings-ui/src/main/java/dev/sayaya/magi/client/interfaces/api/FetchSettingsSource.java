@@ -66,22 +66,21 @@ public class FetchSettingsSource implements SettingsSource {
     }
 
     @Override
-    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
+    public void push(String endpoint, String p256dh, String auth, boolean delete, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("endpoint", endpoint);
         body.set("p256dh", p256dh);
         body.set("auth", auth);
         if (delete) body.set("delete", "1");
-        // ⚠ 사유가 설 자리가 이 포트에 없다 — 알림 등록이 거절당해도 스위치는 그대로 켜진다.
-        Console.post("/push", body, null, null, (ok, w) -> then.run());
+        Console.post("/push", body, null, null, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
-    public void save(String socket, String peer, String field, String value, Runnable then) {
+    public void save(String socket, String peer, String field, String value, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set(field, value);
         // 전역 config는 소켓으로 지목하지 않는다 — 어느 컴패니언의 것도 아니라서.
         if (socket == null || socket.isEmpty()) body.set("tier", "global");
-        Console.post("/autocomplete", body, socket, peer, (ok, w) -> then.run());   // ⚠ 위와 같다
+        Console.post("/autocomplete", body, socket, peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 }

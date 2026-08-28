@@ -50,11 +50,32 @@ public class SettingsStore extends dev.sayaya.magi.bridge.Told {
         readProfiles();
     }
 
+    /**
+     * 사유를 <b>먼저</b> 쥐고 나서 다시 읽는다 — 다시 읽기가 이 판을 칠하므로 순서가 곧 그림이다.
+     *
+     * <p>이 화면의 사유는 <b>어느 칸</b>의 것인지가 함께 있어야 한다: 설정 줄이 스무 개인데
+     * 사유만 하나 세우면, 사람은 방금 만진 칸이 그것인지 알 수 없다. 그래서 칸 이름과 문장을
+     * 같이 쥔다 — 다음 쓰기가 답하면 어느 쪽이든 여기를 지나므로, 됐을 때 오는 빈 문자열이
+     * 앞의 사유를 덮는다(따로 비우는 줄을 두지 않는다).</p>
+     */
     public void save(String field, String value) {
         String socket = socket();
         source.save(socket.isEmpty() ? null : socket, peer().isEmpty() ? null : peer(),
-                field, value, this::read);
+                field, value, why -> {
+                    refusal = why == null ? "" : why;
+                    refusedField = refusal.isEmpty() ? "" : field;
+                    read();
+                });
     }
+
+    private String refusal = "";
+    private String refusedField = "";
+
+    /** 거절당한 그 칸의 이름 — 빈 것이면 세울 사유가 없다. */
+    public String refusedField() { return refusedField; }
+
+    /** 서버가 한 말 그대로 — 우리가 지어낼 수 있는 말이 아니다. */
+    public String refusal() { return refusal; }
 
     private Object profiles = null;
 
@@ -79,8 +100,9 @@ public class SettingsStore extends dev.sayaya.magi.bridge.Told {
 
     public void pushKey(java.util.function.Consumer<String> key) { source.pushKey(key::accept); }
 
-    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
-        source.push(endpoint, p256dh, auth, delete, then);
+    public void push(String endpoint, String p256dh, String auth, boolean delete,
+                     java.util.function.Consumer<String> why) {
+        source.push(endpoint, p256dh, auth, delete, why);
     }
 
     /** 데모면 키가 없는 이유가 다르다 — "이 콘솔엔 키가 없다"가 아니라 "여긴 사본이다". */

@@ -42,17 +42,23 @@ public class FakeSettingsSource implements SettingsSource {
     public void pushKey(Consumer<String> key) { key.accept("BM9-demo-key"); }
 
     @Override
-    public void push(String endpoint, String p256dh, String auth, boolean delete, Runnable then) {
+    public void push(String endpoint, String p256dh, String auth, boolean delete, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_push",
                 (delete ? "off|" : "on|") + endpoint);
-        then.run();
+        why.accept(refuses());
     }
 
     @Override
-    public void save(String socket, String peer, String field, String value, Runnable then) {
+    public void save(String socket, String peer, String field, String value, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_saved",
                 (socket == null ? "global" : socket) + "|" + field + "=" + value);
-        then.run();
+        why.accept(refuses());
+    }
+
+    /** 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 서버가 사유를 실어 돌려보내듯. */
+    private static String refuses() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_press_refuses");
+        return v == null ? "" : String.valueOf(v);
     }
 
     @Override
