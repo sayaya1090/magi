@@ -1,0 +1,41 @@
+// PowerPoint 자리를 대신하는 미니 캔버스. **목업 전용이고 애드인에는 안 들어간다.**
+// 여기 있는 이유는 하나다 — 이 머신에 PowerPoint 가 없어서 선택을 만들 곳이 필요하다.
+export function mountFakeCanvas(deck, root) {
+  const render = () => {
+    root.replaceChildren();
+
+    const strip = document.createElement('div');
+    strip.className = 'strip';
+    for (const s of deck.model.slides) {
+      const b = document.createElement('button');
+      b.className = 'thumb' + (s.id === deck.currentSlide ? ' on' : '');
+      b.textContent = `${s.no}`;
+      b.title = s.title;
+      b.addEventListener('click', () => deck.goTo(s.id));
+      strip.append(b);
+    }
+
+    const slide = deck.slide(deck.currentSlide);
+    const canvas = document.createElement('div');
+    canvas.className = 'canvas';
+    for (const sh of slide.shapes) {
+      const el = document.createElement('div');
+      el.className = 'shape' + (deck.selected.has(sh.id) ? ' sel' : '');
+      el.style.left = sh.x + '%';
+      el.style.top = sh.y + '%';
+      el.style.width = sh.w + '%';
+      el.style.height = sh.h + '%';
+      el.textContent = sh.text || `[${sh.type}]`;
+      el.addEventListener('click', (e) => deck.click(sh.id, e.shiftKey));
+      canvas.append(el);
+    }
+
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = '도형을 클릭해 잡고(Shift 로 여러 개) 오른쪽에서 「선택 인용」을 누릅니다. 진짜 PowerPoint 에서는 이 자리가 슬라이드 편집 영역입니다.';
+
+    root.append(strip, canvas, hint);
+  };
+  deck.onChange(render);
+  render();
+}
