@@ -35,10 +35,16 @@ export class Quote {
   /**
    * 모델에게 가는 모양. **텍스트다**(개정 3 — 이미지를 주로 쓰지 않는다).
    * 도구가 그대로 받을 수 있게 신원(slide/shape)이 먼저 온다.
+   *
+   * 긴 글은 자른다(§5.8). 자르면 **잘랐다고 적는다** — 안 적으면 모델은 그게 전문인 줄 알고
+   * 뒤쪽을 없는 것으로 치고 고친다. 신원을 받았으니 전문이 필요하면 읽기 도구로 물으면 된다.
    */
-  toPrompt() {
+  toPrompt(limit = 400) {
     const head = `[인용] slide=${this.slideId} shape=${this.shapeId} type=${this.type}` +
       (this.name ? ` name="${this.name}"` : '');
-    return this.text ? `${head}\n       text="${this.text}"` : head;
+    if (!this.text) return head;
+    const cut = this.text.length > limit;
+    const body = cut ? this.text.slice(0, limit) : this.text;
+    return `${head}${cut ? ` textTruncated=${this.text.length}` : ''}\n       text="${body}"`;
   }
 }
