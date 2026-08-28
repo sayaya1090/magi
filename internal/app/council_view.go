@@ -61,6 +61,11 @@ type CouncilMark struct {
 	Silent bool `json:"silent,omitempty"`
 	// Tally is set on an outcome: how the vote came out, in words.
 	Tally string `json:"tally,omitempty"`
+	// Debate is set on an outcome that had a rebuttal round, in words. A rebuttal runs only when
+	// the independent vote SPLIT, and the tally beside it is the one taken after — so a unanimous
+	// line can be the product of an argument rather than of agreement, and a reader who cannot see
+	// that reads three members agreeing where there were two and one who was talked round.
+	Debate string `json:"debate,omitempty"`
 	// Confidence, Feedback and Keep are the rest of a vote, carried for a surface that shows one
 	// whole rather than one line. They were dropped here while the terminal read them straight off
 	// the event, which is why the console could show a verdict and not what the member wanted done
@@ -128,7 +133,7 @@ func councilMarks(evs []event.Event) []CouncilMark {
 				continue
 			}
 			out = append(out, CouncilMark{After: last, Round: d.Round, Decision: d.Decision,
-				Why: d.Note, Tally: tallyWords(d.Tally),
+				Why: d.Note, Tally: tallyWords(d.Tally), Debate: debateWords(d.Debate),
 				// No votes at all, and some member never answered: the round did not judge the
 				// work, so the surface must not spell its outcome "reject".
 				Silent: d.Tally.Voters == 0 && d.Tally.Silent > 0})
@@ -165,4 +170,35 @@ func tallyWords(b council.Breakdown) string {
 		out += fmt.Sprintf(" (%d no answer)", b.Silent)
 	}
 	return out
+}
+
+// debateWords says whether a rebuttal round ran and what it did, or "" when none ran.
+//
+// CouncilDecidedData.Debate was added because the round left no trace and "did arguing change the
+// outcome" could not be asked of a run. Three surfaces then learned to read it — the TUI verdict
+// line, the headless transcript, the loop map — and the console, the one with the most room to
+// show it, was not among them: the field never reached the wire, so neither browser could have
+// rendered it if it had tried. The comment above councilText in magi-web says two surfaces
+// reading one record must not each drop the half the other kept. This is the half that was still
+// being dropped.
+//
+// A rebuttal that moved NOBODY is named too, and deliberately: that the members heard each other
+// out and did not budge is the more interesting of the two outcomes, and silence about it is
+// indistinguishable from no debate having run.
+func debateWords(d *council.DebateOutcome) string {
+	if d == nil {
+		return ""
+	}
+	moved := fmt.Sprintf("%d members moved", d.Changed)
+	if d.Changed == 1 {
+		moved = "1 member moved"
+	}
+	switch {
+	case d.Changed == 0:
+		return "debated, no one moved"
+	case d.Before != d.After:
+		return fmt.Sprintf("debated: %s→%s, %s", d.Before, d.After, moved)
+	default:
+		return fmt.Sprintf("debated: %s held, %s", d.After, moved)
+	}
 }
