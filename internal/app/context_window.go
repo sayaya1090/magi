@@ -94,10 +94,14 @@ func (a *App) WindowOf(id string) int { return a.contextWindow(id) }
 // — a plugin contributes models, and the window probe registers what it learns — so an adapter that
 // kept its own copy of the built-in catalogue would answer for a model nobody had declared yet.
 //
-// A model the table does not know answers false. That is the safe direction: an image block sent to
-// a backend that cannot read one is an error, or silently dropped content the model is then asked
-// about, while a model that CAN see and is told it cannot still gets the line of text naming the
-// file.
+// A model the table does not know — and whose family it does not know either — answers false. The
+// table answers a ":tag" variant from its family, which is how "qwen3-vl:8b" inherits the facts of
+// "qwen3-vl" and how every other field in it behaves; a name with no relative in the table gets
+// nothing.
+//
+// False is the safe direction: an image block sent to a backend that cannot read one is an error,
+// or silently dropped content the model is then asked about, while a model that CAN see and is told
+// it cannot still gets the line of text naming the file.
 func (a *App) VisionOf(id string) bool { return a.cfg.Models.Get(id).Vision }
 
 func (a *App) contextWindow(id string) int {

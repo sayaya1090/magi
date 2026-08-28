@@ -31,10 +31,16 @@ var catalogue = sync.OnceValue(func() *model.Registry { return model.NewRegistry
 // instead (the first version of this did) means a model somebody registered at runtime, declaring
 // Vision, is still told it cannot see: the answer was frozen at process start.
 //
-// A model nobody has declared answers false. A request with an image_url block to a backend that
-// cannot read one is either an error or, worse, silently dropped content the model is then asked
-// about. The text line naming the file goes either way, so false costs the model a picture, never
-// the fact that there was one.
+// A model nobody has declared, AND whose family nobody has declared, answers false. The table
+// answers a ":tag" variant from its family — how "qwen3-vl:8b" gets the facts of "qwen3-vl", and
+// how every other field in it works — so a variant of a vision model is taken to see. That is the
+// right answer for a quantisation and the wrong one for a distill that dropped the encoder; the
+// registry cannot tell them apart, and a name nobody has declared at all is still false.
+//
+// False is the safe direction. A request with an image_url block to a backend that cannot read one
+// is either an error or, worse, silently dropped content the model is then asked about. The text
+// line naming the file goes either way, so false costs the model a picture, never the fact that
+// there was one.
 func (c *Client) seesImages(modelID string) bool {
 	if c.vision != nil {
 		return c.vision(modelID)
@@ -69,12 +75,17 @@ const (
 // bytes, rounded up to the padded quantum.
 func onWire(n int) int { return (n + 2) / 3 * 4 }
 
-// riders are the pictures of one tool call that go on this request, and how many of that call's
-// pictures did not.
+// riders are the pictures of one tool call that go on this request, and what happened to the ones
+// that did not. Two counters, not one total, because the model is told the reason and the two
+// reasons ask for different things of it: a picture left behind for SIZE invites a smaller render,
+// and one left behind because the request already carries four does not.
 type riders struct {
-	refs []session.ImageRef
-	left int
+	refs    []session.ImageRef
+	tooBig  int
+	tooMany int
 }
+
+func (r riders) left() int { return r.tooBig + r.tooMany }
 
 // pickImages decides which pictures ride, walking BACKWARDS from the end of the conversation.
 //
@@ -93,6 +104,12 @@ type riders struct {
 //     in the log, and permanently invisible to the only reader that could look at it.
 func pickImages(msgs []session.Message) map[string]riders {
 	picked := map[string]riders{}
+	// Which files are already riding. keepImages names a picture by its CONTENT, so two calls that
+	// produced the same bytes share one file — which is what re-rendering a deck after changing one
+	// slide produces, every time. Counted per ref, the same picture took two of the four places and
+	// two thirds of the budget, and the model was sent it twice. A repeat is not "left out" either:
+	// the request already carries it, and the result's text names the same path.
+	seen := map[string]bool{}
 	bytes, count, looked := 0, 0, 0
 	for i := len(msgs) - 1; i >= 0 && looked < imageScanDepth && count < imagesPerReply; i-- {
 		if msgs[i].Role != session.RoleTool {
@@ -105,6 +122,9 @@ func pickImages(msgs []session.Message) map[string]riders {
 			r := picked[p.ToolResult.CallID]
 			for _, ref := range p.ToolResult.Images {
 				looked++
+				if seen[ref.Path] {
+					continue
+				}
 				fi, err := os.Stat(ref.Path)
 				if err != nil {
 					continue // gone; its line of text still names it, and that is not an error
@@ -112,16 +132,17 @@ func pickImages(msgs []session.Message) map[string]riders {
 				cost := onWire(int(fi.Size()))
 				switch {
 				case count >= imagesPerReply:
-					r.left++
+					r.tooMany++
 				case count > 0 && bytes+cost > imageBudget:
-					r.left++
+					r.tooBig++
 				default:
 					r.refs = append(r.refs, ref)
+					seen[ref.Path] = true
 					bytes += cost
 					count++
 				}
 			}
-			if len(r.refs) > 0 || r.left > 0 {
+			if len(r.refs) > 0 || r.left() > 0 {
 				picked[p.ToolResult.CallID] = r
 			}
 		}
@@ -134,12 +155,12 @@ func pickImages(msgs []session.Message) map[string]riders {
 //
 // Read from disk at this moment rather than carried in the log: the log holds references precisely
 // so that it stays small, and the bytes are only needed while a request is being built.
-func encodeImages(r riders) (blocks []any, left int) {
-	left = r.left
+func encodeImages(r riders) (blocks []any, left riders) {
+	left = riders{tooBig: r.tooBig, tooMany: r.tooMany}
 	for _, ref := range r.refs {
 		raw, err := os.ReadFile(ref.Path)
 		if err != nil {
-			left++
+			left.tooBig++ // it was chosen and could not be read; the honest half of "not here"
 			continue
 		}
 		mime := ref.MIME
@@ -160,11 +181,22 @@ func encodeImages(r riders) (blocks []any, left int) {
 // in a tool result: role "tool" takes a string. So the pictures follow the result they belong to,
 // with one line saying whose they are — without it the model is handed an image out of nowhere,
 // after a tool result that said a file was written.
-func imageMessage(callID string, blocks []any, left int) wireMessage {
+func imageMessage(callID string, blocks []any, left riders) wireMessage {
 	said := fmt.Sprintf("The images from tool call %s:", callID)
-	if left > 0 {
+	// Why they were left out, not just how many. Saying "too large" about pictures that were left
+	// behind by the COUNT tells the model to render smaller, which does not help and costs it a
+	// round: at four pictures the size of each one is not what ran out.
+	switch {
+	case left.tooBig > 0 && left.tooMany > 0:
+		said += fmt.Sprintf(" (%d more were left out — %d too large for one request and %d over the "+
+			"limit of %d pictures; all are named in the result above)",
+			left.left(), left.tooBig, left.tooMany, imagesPerReply)
+	case left.tooBig > 0:
 		said += fmt.Sprintf(" (%d more were left out — too large for one request, "+
-			"and named in the result above)", left)
+			"and named in the result above)", left.tooBig)
+	case left.tooMany > 0:
+		said += fmt.Sprintf(" (%d more were left out — one request carries at most %d pictures, "+
+			"not because of their size; all are named in the result above)", left.tooMany, imagesPerReply)
 	}
 	content := append([]any{textBlock{Type: "text", Text: said}}, blocks...)
 	return wireMessage{Role: "user", Content: content}
