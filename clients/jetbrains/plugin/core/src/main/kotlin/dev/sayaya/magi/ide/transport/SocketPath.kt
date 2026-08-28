@@ -47,24 +47,39 @@ object SocketPath {
      * 주는 경로에 `..` 가 낄 일은 사실상 없지만 두 답이 다르다는 것은 적어 둔다.
      */
     internal fun evalSymlinks(path: Path): Path {
-        var out = path.root ?: return path
-        for (part in path) {
-            var next = out.resolve(part)
-            var hops = 0
-            while (Files.isSymbolicLink(next)) {
-                if (hops++ >= 32) return path        // 순환. Go 는 ELOOP 를 내고 안 푼 경로를 쓴다
-                val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: return path
-                next = if (target.isAbsolute) target else next.parent.resolve(target)
+        var current = path
+        var restarts = 0
+        while (true) {
+            // 전체 반복 상한. Go 는 255에서 ELOOP 를 내고 그러면 WorkspaceKey 가 안 푼 경로를
+            // 쓰므로, 여기서도 입력을 그대로 돌려준다.
+            if (restarts++ > 64) return path
+            var out = current.root ?: return path
+            val parts = current.toList()
+            var restarted = false
+            for (i in parts.indices) {
+                val next = out.resolve(parts[i])
+                if (Files.isSymbolicLink(next)) {
+                    val target = runCatching { Files.readSymbolicLink(next) }.getOrNull() ?: return path
+                    // **타깃 + 남은 컴포넌트로 경로를 새로 만들고 처음부터 다시 걷는다.**
+                    // 이 자리를 이어 걷기로 두면 절대 타깃 안쪽의 링크가 안 풀린다. 실측:
+                    //   hop -> $TMP/real, entry -> $TMP/hop/x 일 때
+                    //   go     = /private/tmp/…/real/x
+                    //   이어 걷기 = /tmp/…/hop/x      ← hop 도 /tmp 도 안 풀린 답
+                    // macOS 는 /var·/tmp 가 이미 심링크라 특이한 배치가 아니다.
+                    var rebuilt = if (target.isAbsolute) target else out.resolve(target)
+                    for (j in i + 1 until parts.size) rebuilt = rebuilt.resolve(parts[j])
+                    current = rebuilt
+                    restarted = true
+                    break
+                }
+                // Go 는 컴포넌트마다 lstat 하고 하나라도 없으면 에러를 낸다. 그러면 WorkspaceKey 는
+                // `if err == nil` 이라 안 푼 abs 를 그대로 쓴다. 반쯤 푼 경로는 Go 가 절대 내지
+                // 않는 답이라 여기서도 내면 안 된다.
+                if (!Files.exists(next)) return path
+                out = next
             }
-            // Go 는 컴포넌트마다 lstat 하고 하나라도 없으면 EvalSymlinks 가 에러를 낸다. 그러면
-            // WorkspaceKey 는 `if err == nil` 이라 **안 푼 abs 를 그대로 쓴다.** 실측:
-            //   EvalSymlinks("/tmp/evtest/link/nope") = "", err=lstat …/real/nope: no such file
-            // 반쯤 푼 경로는 Go 가 절대 내지 않는 답이고, 앞이 심링크이고 꼬리가 아직 없는
-            // 경로에서 소켓을 가른다. 그러니 여기서도 입력을 그대로 돌려준다.
-            if (!Files.exists(next)) return path
-            out = next
+            if (!restarted) return out
         }
-        return out
     }
 
     /** daemon.go 의 `SocketPath`. */
