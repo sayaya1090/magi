@@ -86,7 +86,17 @@ RosterSharing(window `__magi_roster_subscribe`/`__magi_roster_refresh`)으로 �
 상태줄(점 3형태 live/asking/lost + 컴패니언 수 + "N명이 기다림" 점프→플릿 첫 대기 행)·
 body[scrolled]. 레일 배지: 접히면 아이콘 위, 열리면 라벨 뒤(부모 재배치), 수는 문의
 aria-label에 실린다.
-잔여: 폰 탭바, #tip(쓸 사람이 생길 때), 설정 문(그 화면과 함께). 팔레트는 들어왔다.
+잔여였던 셋은 전부 들어왔다. 팔레트, 폰 탭바(companion-ui `CompanionElement:88` `#ptabs`),
+설정 문(`MastheadElement:200` `#prefs` → Destination.SETTINGS).
+**#tip도 2026-08-28에 들어왔다**: 창에 판 하나(shell-ui `TipElement`)를 세우고 화면들은
+`data-tip`만 적는다(console-bridge `Tips`) — data-tip은 평범한 DOM 속성이라 브리지가 필요 없는
+유일한 공유다. 판이 하나라 한 물음에 답이 둘일 수 없고, 여는 길은 호버·**포커스**·손가락
+0.5초 길게 누르기 셋이라 `title=`이 하지 못하던 절반(키보드로 탭해 온 사람, 호버가 없는 손가락)을
+덮는다. 나가는 데 1.5초를 주되 그 셈은 되감기지 않는다 — 되감으면 주인 밖 pointermove마다
+처음으로 돌아가 판이 영영 안 걷힌다(운영이 밟은 자리다. 일부러 되감게 고쳐 보니 그 Then 하나만 깨졌다).
+주인이 폴에 치워지면 pointerout이 없어서 isConnected로 걷는다. 운영/신규 정적 데모 실측 대조:
+같은 컨트롤에서 같은 말·gap 4·dx −15·높이 24, 뜨고 걷히는 시각도 같고, 두 콘솔 다 `[title]` 0개
+(툴팁 두 겹 없음). 남은 차이는 운영의 톱니에 말이 없다는 것뿐 — 신규가 하나 앞선다.
 **두 귓구멍(#note/#say)도 2026-08-28에 들어왔다**(아래 지식 행).
 
 ### 컴패니언 화면 + 타입별 UI 기전 (2026-08-27)
