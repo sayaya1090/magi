@@ -193,6 +193,9 @@ func SweepImages(dir string, now time.Time) (removed int, freed int64) {
 		if left == 0 {
 			// Only ever an empty directory — a non-empty one refuses, which is the guard here. A
 			// folder that will not go is not a failure of the sweep: its files are already gone.
+			//
+			// The continue is inert today because nothing follows it. Anything added below this
+			// line has to run for a folder that would not go, so move this check when that happens.
 			if err := os.Remove(home); err != nil {
 				continue
 			}
