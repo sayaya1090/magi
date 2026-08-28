@@ -1,7 +1,9 @@
 package mcp
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -30,10 +32,25 @@ func keepImages(dir, sessionID, callID string, blocks []contentBlock) ([]session
 	var kept []session.ImageRef
 	var notes []string
 	if dir == "" {
+		// Say it. A host with nowhere to put pictures is a fact the model needs: an answer that was
+		// only a picture is otherwise the empty string again, which is the thing this whole path
+		// exists to stop. Reported once, not once per block — the reason is the same for all of them.
+		for _, c := range blocks {
+			if c.Type == "image" && c.Data != "" {
+				return nil, []string{"[image: this daemon keeps no images, so it was not saved]"}
+			}
+		}
 		return nil, nil
 	}
 	for i, c := range blocks {
 		if c.Type != "image" || c.Data == "" {
+			continue
+		}
+		// Measured before decoding: base64 of a 100MB image is 133MB of string, and decoding it to
+		// find out it is too big means holding both. DecodedLen is the size the bytes will be.
+		if base64.StdEncoding.DecodedLen(len(c.Data)) > imageCap {
+			notes = append(notes, fmt.Sprintf("[image %d: about %d bytes, over the %d cap — dropped]",
+				i+1, base64.StdEncoding.DecodedLen(len(c.Data)), imageCap))
 			continue
 		}
 		raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(c.Data))
@@ -51,7 +68,15 @@ func keepImages(dir, sessionID, callID string, blocks []contentBlock) ([]session
 			notes = append(notes, fmt.Sprintf("[image %d: %v]", i+1, err))
 			continue
 		}
-		name := fmt.Sprintf("%s-%d%s", safePart(callID), i+1, extFor(c.MimeType))
+		// Named by what is IN it, not by which call made it.
+		//
+		// The name was <tool>-<index>, which is the same path every time that tool is called: render
+		// slide 3, then slide 9, and the log line about slide 3 resolves to slide 9's picture
+		// (measured). A reference that will not resolve is bad; one that resolves to the WRONG
+		// picture is worse, because nothing about it looks wrong. Two calls that produced the same
+		// bytes now share one file, which is the only case where sharing is honest.
+		sum := sha256.Sum256(raw)
+		name := fmt.Sprintf("%s-%s%s", safePart(callID), hex.EncodeToString(sum[:6]), extFor(c.MimeType))
 		path := filepath.Join(home, name)
 		if err := os.WriteFile(path, raw, 0o600); err != nil {
 			notes = append(notes, fmt.Sprintf("[image %d: %v]", i+1, err))

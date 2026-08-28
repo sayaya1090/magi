@@ -37,6 +37,10 @@ type App struct {
 	providers   map[string]port.LLMProvider // named LLM profiles (per-agent endpoint/key routing)
 	profileDefs map[string]ProfileDef       // profile definitions (guarded by mu), for the /route editor
 	tools       port.ToolRegistry
+	// toolServers attaches a tool server while this daemon runs. Set by the binary that owns the
+	// MCP manager (core holds the port, never the adapter); nil in a build that has none, and the
+	// door then refuses rather than pretending.
+	toolServers port.ToolServers
 	// subagentPrefs is the user's own settings per subagent (guarded by mu). Only what they
 	// touched; the rest falls back to what the tool declared. Off means not advertised.
 	subagentPrefs    map[string]SubagentPref
@@ -143,6 +147,36 @@ func (a *App) bgContext() context.Context {
 		return context.Background()
 	}
 	return a.bg
+}
+
+// UseToolServers gives this app the door to attach tool servers at runtime. Called once at wiring
+// time by the binary that built the MCP manager.
+func (a *App) UseToolServers(s port.ToolServers) { a.toolServers = s }
+
+// AttachToolServer connects an HTTP MCP server to this companion and answers with the tools it
+// brought. The names matter to the caller: they are what it may ask for now.
+func (a *App) AttachToolServer(ctx context.Context, name, url string, headers map[string]string) ([]string, error) {
+	if a.toolServers == nil {
+		return nil, fmt.Errorf("this build attaches no tool servers")
+	}
+	// A server may not take a name the companion already answers to. The MCP registry namespaces
+	// its tools (mcp__<name>__<tool>) so a server cannot shadow a builtin by advertising `read`,
+	// but nothing stopped a server called `read` from being attached and reading oddly in every
+	// list. Refused by name here, where the whole roster is known.
+	for _, t := range a.tools.List() {
+		if t.Name() == name {
+			return nil, fmt.Errorf("%q is the name of a tool this companion already has", name)
+		}
+	}
+	return a.toolServers.Attach(ctx, name, url, headers)
+}
+
+// DetachToolServer removes one by name; false when there was none.
+func (a *App) DetachToolServer(name string) bool {
+	if a.toolServers == nil {
+		return false
+	}
+	return a.toolServers.Detach(name)
 }
 
 // ToolNames returns the names of all registered tools, sorted.

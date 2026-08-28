@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // A picture comes back as base64 in a block with no text at all. Before this, the whole answer
@@ -43,14 +45,60 @@ func TestImageBlocksAreKeptAndNamed(t *testing.T) {
 	}
 }
 
+// Two calls of the same tool are two pictures. The name used to be <tool>-<index>, which is the
+// same path every time — render slide 3, then slide 9, and the log line about slide 3 resolved to
+// slide 9's picture. Measured on the first version of this file.
+func TestTwoCallsOfOneToolDoNotOverwriteEachOther(t *testing.T) {
+	dir := t.TempDir()
+	one := keepOne(t, dir, "mcp__ppt__render", []byte("SLIDE-3-RENDER"))
+	two := keepOne(t, dir, "mcp__ppt__render", []byte("SLIDE-9-RENDER"))
+	if one.Path == two.Path {
+		t.Fatalf("both calls wrote %q — the second answer overwrote the first", one.Path)
+	}
+	back, err := os.ReadFile(one.Path)
+	if err != nil {
+		t.Fatalf("the first reference no longer resolves: %v", err)
+	}
+	if string(back) != "SLIDE-3-RENDER" {
+		t.Errorf("the first reference resolves to %q — a reference to the wrong picture is worse "+
+			"than one that fails", string(back))
+	}
+}
+
+// The same bytes twice are one file. Sharing is honest only when the content is identical.
+func TestTheSamePictureTwiceIsOneFile(t *testing.T) {
+	dir := t.TempDir()
+	a := keepOne(t, dir, "mcp__ppt__render", []byte("SAME"))
+	b := keepOne(t, dir, "mcp__ppt__render", []byte("SAME"))
+	if a.Path != b.Path {
+		t.Errorf("identical pictures were written twice: %q and %q", a.Path, b.Path)
+	}
+}
+
+func keepOne(t *testing.T, dir, tool string, raw []byte) session.ImageRef {
+	t.Helper()
+	kept, notes := keepImages(dir, "s_1", tool, []contentBlock{
+		{Type: "image", Data: base64.StdEncoding.EncodeToString(raw), MimeType: "image/png"},
+	})
+	if len(kept) != 1 {
+		t.Fatalf("kept %d images (notes %v), want 1", len(kept), notes)
+	}
+	return kept[0]
+}
+
 // A host with nowhere to put them says so. Writing to a temp file that disappears would leave a
 // reference in the log that never resolves, which reads as data loss rather than as a limit.
 func TestNoDirectoryKeepsNothing(t *testing.T) {
 	kept, notes := keepImages("", "s_1", "call", []contentBlock{
 		{Type: "image", Data: base64.StdEncoding.EncodeToString([]byte("x")), MimeType: "image/png"},
 	})
-	if len(kept) != 0 || len(notes) != 0 {
-		t.Fatalf("kept %v notes %v — a host with no image directory keeps none", kept, notes)
+	if len(kept) != 0 {
+		t.Fatalf("kept %v — a host with no image directory keeps none", kept)
+	}
+	// And SAYS so: an answer that was only a picture is otherwise the empty string, which is the
+	// symptom this whole path exists to stop.
+	if len(notes) != 1 || !strings.Contains(notes[0], "keeps no images") {
+		t.Fatalf("notes %v — silence here is the old bug wearing a different hat", notes)
 	}
 }
 
