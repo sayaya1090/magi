@@ -301,5 +301,26 @@ internal class KnowledgeScreenTest : GwtTestSpec({
                 page.locator("#mcp:not([hidden])").count() shouldBe 1
             }
         }
+        // 끊긴 회선은 <b>맨 끝</b>에 잰다: 이 화면에는 다시 읽는 문이 쓰기의 답 하나뿐이라,
+        // 목록을 못 읽은 뒤에는 누를 행조차 없어 스스로 돌아오지 못한다(새로고침 말고는).
+        // 앞 장면들이 그 상태를 물려받지 않도록 자리를 여기로 뒀다.
+        When("회선이 끊긴 채로 눌러 거절당하면") {
+            // 우리가 지어낸 말(`error.unreachable`)이 서는 경우가 곧 <b>목록도 못 읽는</b>
+            // 경우다: 쓰기가 못 닿았으면 뒤따르는 읽기도 못 닿는다. 그래서 이 둘은 겹쳐서
+            // 재야 한다 — 겹치지 않게 재면 「말할 것이 우리 것뿐인 때에만 말하지 않는」
+            // 화면을 초록으로 통과시킨다.
+            page.evaluate("window.__magi_test_unreachable = true")
+            page.evaluate("window.__magi_test_press_refuses = 'error.unreachable'")
+            page.locator("#skills .sk .drop").first().click()
+            page.locator("#skills .sk .drop.armed").click()
+            Then("목록을 못 읽어도 사유는 선다 — 그때가 이 줄이 가장 필요한 때다") {
+                page.waitForCondition { page.locator("#skills .refused").count() == 1 }
+                page.locator("#skills .refused").textContent() shouldBe "error.unreachable"
+                // 목록은 못 읽었으니 행이 없다 — 사유는 목록의 자식이 아니라 판의 것이다.
+                page.locator("#skills .sk").count() shouldBe 0
+                page.evaluate("delete window.__magi_test_unreachable")
+                page.evaluate("delete window.__magi_test_press_refuses")
+            }
+        }
     }
 })

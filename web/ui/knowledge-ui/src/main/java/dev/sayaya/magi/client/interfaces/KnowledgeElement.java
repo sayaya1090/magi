@@ -48,9 +48,11 @@ public class KnowledgeElement {
     @Inject
     public KnowledgeElement(KnowledgeStore store) {
         this.store = store;
-        skills = new Pane("skills", "nav.lessons", true, store::skillQuery);
+        // 사유는 <b>그 판의 것</b>이다 — 하나로 모으면 서버를 지우려다 들은 말이 규칙 목록
+        // 위에 선다. 위키는 이 화면에서 쓰지 않으므로 세울 사유가 없다.
+        skills = new Pane("skills", "nav.lessons", true, store::skillQuery, store::skillsRefusal);
         wiki = new Pane("wiki", "nav.wiki", false, store::wikiQuery);
-        mcp = new Pane("mcp", "nav.mcp", false, store::mcpQuery);
+        mcp = new Pane("mcp", "nav.mcp", false, store::mcpQuery, store::mcpRefusal);
         dialog = new McpDialog();
         // 다이얼로그는 <b>창의 것</b>이라 창(body)에 붙인다 — 판 안에 두면 그 판의 등장
         // 애니메이션이 남긴 transform이 고정 위치의 기준을 그 판으로 바꿔, 화면을 덮어야 할
@@ -154,8 +156,25 @@ public class KnowledgeElement {
         HTMLElement say = null;      // 판을 소개하는 한 줄 — 쉬고 있을 때만 선다
         final HTMLElement find = el("md-outlined-text-field");
         final List<HTMLElement> dyn = new ArrayList<>();
+        /**
+         * 이 판의 거절 사유를 어디서 읽는가 — <b>판이 스스로</b> 안다.
+         *
+         * <p>처음엔 그리는 갈래마다 손으로 한 줄씩 끼워 넣었다. 갈래가 여섯이었고, 그 중
+         * <b>넷을 빠뜨렸다</b> — 하필 목록을 못 읽은 갈래들(`list == null`)을. 그런데 우리가
+         * 지어낸 말(`error.unreachable`)이 서는 경우가 바로 그 경우다: 쓰기가 못 닿았으면
+         * 뒤따르는 읽기도 못 닿아 목록이 null로 온다. <b>말할 것이 우리 것뿐인 때에만 말하지
+         * 않는</b> 화면이었던 셈이다. 그래서 자리를 갈래에서 걷어 판으로 옮겼다.</p>
+         */
+        private final java.util.function.Supplier<String> refusal;
+        private HTMLElement refused = null;
 
         Pane(String id, String headKey, boolean lead, java.util.function.Consumer<String> onQuery) {
+            this(id, headKey, lead, onQuery, () -> "");
+        }
+
+        Pane(String id, String headKey, boolean lead, java.util.function.Consumer<String> onQuery,
+             java.util.function.Supplier<String> refusal) {
+            this.refusal = refusal;
             box.id = id;
             head = el("h2");
             head.className = "sectionhead";
@@ -178,6 +197,26 @@ public class KnowledgeElement {
             box.append(findBox);
         }
 
+        /**
+         * 거절당한 press의 사유 — 목록 <b>위</b>, 머리 바로 아래에 선다. 거절되면 눌린 줄은
+         * 눌리기 전 그대로라 곁에 세워 봐야 가리킬 것이 없고, 목록을 아예 못 읽었을 수도 있다
+         * (그때가 이 줄이 가장 필요한 때다). 서버의 문장을 그대로 옮긴다.
+         */
+        private void sayRefusal() {
+            String why = refusal.get();
+            if (why == null || why.isEmpty()) {
+                if (refused != null) { refused.remove(); refused = null; }
+                return;
+            }
+            if (refused == null) {
+                refused = cell("refused", null);
+                refused.setAttribute("role", "alert");
+            }
+            refused.textContent = why;
+            // 머리(그리고 있으면 소개 줄) 바로 다음 — 찾기 상자보다 위다.
+            box.insertBefore(refused, say != null ? say.nextSibling : head.nextSibling);
+        }
+
         private String saidQuery = null;
         private int saidCount = -1;
 
@@ -189,6 +228,7 @@ public class KnowledgeElement {
         void fill(String query, int shownOfQuery, boolean findShown, HTMLElement... kids) {
             for (HTMLElement d : dyn) d.remove();
             dyn.clear();
+            sayRefusal();
             findBox.setAttribute("hidden", "");
             if (findShown) findBox.removeAttribute("hidden");
             // 소개 한 줄은 <b>쉴 때만</b>: 아직 아무것도 없는 판은 빈 상태가 그 말을 대신하고,
@@ -284,17 +324,13 @@ public class KnowledgeElement {
         JsArrayLike<Object> list = Js.uncheckedCast(store.skills());
         if (list == null) { skills.fill("", 0, false, failed()); return; }
         if (list.getLength() == 0) {
-            List<HTMLElement> only = new ArrayList<>();
-            refused(store.skillsRefusal(), only);
-            only.add(empty("empty.nothing_learned", "empty.nothing_learned_how"));
-            only.add(writeBox(list));
-            skills.fill("", 0, false, only.toArray(new HTMLElement[0]));
+            skills.fill("", 0, false, empty("empty.nothing_learned", "empty.nothing_learned_how"),
+                    writeBox(list));
             return;
         }
         List<JsPropertyMap<Object>> shown = ranked(list, store.skillQuery(), r ->
                 join(str(r, "description"), str(r, "name"), str(r, "body"), str(r, "source")));
         List<HTMLElement> kids = new ArrayList<>();
-        refused(store.skillsRefusal(), kids);
         String q = store.skillQuery();
         if (!q.trim().isEmpty() || !hasBothKinds(shown)) {
             for (JsPropertyMap<Object> sk : shown) kids.add(skillRow(sk));
@@ -414,31 +450,15 @@ public class KnowledgeElement {
         JsArrayLike<Object> list = Js.uncheckedCast(store.mcp());
         if (list == null) { mcp.fill("", 0, false, failed()); return; }
         if (list.getLength() == 0) {
-            List<HTMLElement> only = new ArrayList<>();
-            refused(store.mcpRefusal(), only);
-            only.add(empty("empty.no_servers", "empty.no_servers_how"));
-            mcp.fill("", 0, false, only.toArray(new HTMLElement[0]));
+            mcp.fill("", 0, false, empty("empty.no_servers", "empty.no_servers_how"));
             return;
         }
         List<JsPropertyMap<Object>> shown = ranked(list, store.mcpQuery(), r ->
                 join(str(r, "name"), str(r, "command"), str(r, "url"), str(r, "companion")));
         List<HTMLElement> kids = new ArrayList<>();
-        refused(store.mcpRefusal(), kids);
         for (JsPropertyMap<Object> sv : shown) kids.add(serverRow(sv));
         if (shown.isEmpty()) kids.add(empty("empty.no_match", "empty.no_match_how"));
         mcp.fill(store.mcpQuery(), shown.size(), true, kids.toArray(new HTMLElement[0]));
-    }
-
-    /**
-     * 거절당한 press의 사유를 그 판 <b>맨 위</b>에 — 지워지지 않은 줄은 눌리기 전 그대로라
-     * 곁에 세워 봐야 가리킬 것이 없다. 서버의 문장을 그대로 옮긴다.
-     */
-    private void refused(String why, List<HTMLElement> into) {
-        if (why == null || why.isEmpty()) return;
-        HTMLElement no = cell("refused");
-        no.textContent = why;
-        no.setAttribute("role", "alert");
-        into.add(no);
     }
 
     private HTMLElement serverRow(JsPropertyMap<Object> sv) {

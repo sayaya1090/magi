@@ -38,13 +38,26 @@ public class FakeKnowledgeSource implements KnowledgeSource {
     public FakeKnowledgeSource() {}
 
     @Override
-    public void skills(Consumer<Object> cb) { cb.accept(skills); }
+    public void skills(Consumer<Object> cb) { cb.accept(unreachable() ? null : skills); }
+
+    /**
+     * 회선이 끊긴 판 — 목록 읽기가 <b>null</b>로 온다({@code Console.fetchList}가 거부·불통·
+     * 깨진 본문을 전부 null로 접으므로).
+     *
+     * <p>이것이 거절과 <b>겹치는</b> 판을 만들 수 있어야 한다: 쓰기가 못 닿아 우리가 지어낸
+     * 말이 설 때는, 뒤따르는 읽기도 못 닿는다. 그 겹침이 페이크에 없어서 스펙이 「사유가 목록
+     * 실패 갈래에서 버려진다」를 못 봤다.</p>
+     */
+    private static boolean unreachable() {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_unreachable");
+        return v != null && !"false".equals(String.valueOf(v));
+    }
 
     @Override
     public void wiki(Consumer<Object> cb) { cb.accept(wiki); }
 
     @Override
-    public void mcp(Consumer<Object> cb) { cb.accept(mcp); }
+    public void mcp(Consumer<Object> cb) { cb.accept(unreachable() ? null : mcp); }
 
     @Override
     public void forget(String name, String tier, String team, String socket, String peer, Consumer<String> why) {
