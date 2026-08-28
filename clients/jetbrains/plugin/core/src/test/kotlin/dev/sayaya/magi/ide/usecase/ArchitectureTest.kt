@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
 
@@ -24,9 +25,23 @@ class ArchitectureTest {
     /**
      * 두 모듈의 Kotlin 원본 전부. 아래 "달린 문장" 검사는 모듈 경계와 무관한 결함이라 둘 다 본다 —
      * `intellij` 에는 시험 소스 세트가 없고(SDK 를 받아야 돌아서), 그 결함이 실제로 거기서 났다.
+     *
+     * **뿌리마다 실제로 파일이 나왔는지 못박는다.** 없는 디렉토리에 `walkTopDown()` 을 걸면 예외가
+     * 아니라 **빈 시퀀스**라, 경로가 한 칸만 밀려도 검사가 0개를 훑고 초록이 된다. 모듈 이름이
+     * 바뀌거나 시험의 작업 디렉토리가 옮겨지면 그렇게 된다 — 그리고 그때 증상이 "규칙 통과"다.
+     * 이 파일이 잡으라고 있는 결함과 정확히 같은 부류라(참이 아니면서 참처럼 보이는 것) 여기서
+     * 봉합한다. 실측으로 확인했다: 뿌리를 틀린 이름으로 바꾸면 시험이 그대로 통과했다.
      */
-    private fun sources(): List<File> = listOf(File("src/main/kotlin"), File("../intellij/src/main/kotlin"))
-        .flatMap { d -> d.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
+    private fun sources(): List<File> {
+        val roots = listOf(File("src/main/kotlin"), File("../intellij/src/main/kotlin"))
+        val byRoot = roots.associateWith { d ->
+            d.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        }
+        byRoot.forEach { (root, files) ->
+            assertTrue(files.isNotEmpty(), "$root 에서 .kt 를 하나도 못 찾았다 — 경로가 밀렸거나 모듈이 옮겨졌다")
+        }
+        return byRoot.values.flatten()
+    }
 
     @Test
     fun `usecase 는 transport 를 import 하지 않는다`() {
@@ -76,7 +91,9 @@ class ArchitectureTest {
      */
     @Test
     fun `return 뒤에 이어지는 척하는 문장이 없다`() {
-        val dangling = Regex("return@\\w+\\s*$")
+        // 라벨 있는 것과 없는 것 둘 다. 함수 안의 `if (x) return` 뒤에 더 들여쓴 줄도 같은 함정이고
+        // 눈에 속는 정도도 같다. 넓혀도 이 트리에서 오탐 0으로 실측됐다.
+        val dangling = Regex("""(return@\w+|(?<![\w.])return)\s*$""")
         fun indent(s: String) = s.length - s.trimStart().length
         val bad = sources().flatMap { f ->
             val lines = f.readLines()
