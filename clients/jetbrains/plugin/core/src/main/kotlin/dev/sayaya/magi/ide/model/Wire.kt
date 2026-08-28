@@ -64,11 +64,11 @@ data class Response(
 )
 
 /**
- * 사람에게 물어 놓고 답을 기다리는 프롬프트. daemon.go:511 `Waiting`.
+ * 사람에게 물어 놓고 답을 기다리는 프롬프트. daemon.go 의 `Waiting`.
  *
  * 이것이 응답에 실려 오는 이유가 설계상 중요하다. `permission.requested` 는 **전이 이벤트라
  * 로그에 없으므로**, 로그만 꼬리 무는 클라이언트는 프롬프트를 영영 못 본다. 데몬이 한 곳에서
- * 다시 조립해 주고(daemon.go:542) 그 자리가 여기다.
+ * 다시 조립해 주고(daemon.go 의 `Waiting` 주석) 그 자리가 여기다.
  */
 @Serializable
 data class Waiting(
