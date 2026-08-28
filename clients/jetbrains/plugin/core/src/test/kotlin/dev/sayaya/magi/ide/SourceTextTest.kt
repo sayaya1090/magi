@@ -337,58 +337,113 @@ class SourceTextTest {
     /**
      * 라벨에 남의 글자를 **안 거르고** 붙이는 자리를 잡는다.
      *
-     * 스윙 라벨은 `<html>` 로 시작하면 안을 마크업으로 읽는다. `rm x && echo <done>` 의
+     * 스윙 라벨은 여는 태그로 시작하면 안을 마크업으로 읽는다. `rm x && echo <done>` 의
      * `<done>` 은 태그로 먹혀 사라지고, 사람은 짧아진 글을 보고 「허용」을 누르거나 Tab 을
      * 누른다 — **보이는 것과 정해지는 것이 다른 창**이다.
      *
      * **이 시험이 있는 이유가 그것 자체다.** `Markup.text` 를 만들고 권한 물음을 고친 다음
-     * 「문을 뒀다」고 적었는데, 같은 저장소에 **안 거치는 라벨이 이미 둘 더 있었다**(모델이 지은
-     * 제안, 컨텐트 루트 경로). 손으로 부르는 함수는 문이 아니라 습관이고, 습관은 다음 사람에게
-     * 안 전해진다.
+     * 「거쳐야만 들어가는 문을 뒀다」고 적었는데, 같은 저장소에 **안 거치는 라벨이 그 순간에도
+     * 둘 더 서 있었다**(모델이 지은 제안, 컨텐트 루트 경로). 손으로 부르는 함수는 문이 아니라
+     * 습관이고, 습관은 다음 사람에게 안 전해진다.
      *
      * **이건 트립와이어지 증명이 아니다.** 진짜 문은 타입이다 — 라벨 대입이 `String` 대신
      * 「이미 거른 것」만 받으면 안 거른 것은 **적을 수가 없다.** 그건 아직 안 만들었다. 여기서
-     * 재는 것은 소스 글자뿐이라, 라벨을 딴 함수에 넘겨 짓거나 조각을 변수에 담아 두면 안 보인다.
-     * 그러니 초록은 「안 샌다」가 아니라 **「이 두 모양으로는 안 샌다」**로 읽어라.
+     * 재는 것은 소스 글자뿐이고, 못 재는 것은 아래 시험에 **돌아가는 갈래로** 적어 뒀다 —
+     * 주석으로 적으면 그물이 넓어져도 아무도 안 지운다.
      */
     @Test
     fun `라벨에 붙는 남의 글자는 거쳐야 한다`() {
-        val labels = sources.filter { "\"<html>" in it.readText() }
-        assertTrue(labels.isNotEmpty(), "`<html>` 라벨을 한 장도 못 찾았다 — 이 시험이 " +
-            "아무것도 안 보고 있다(옮겼으면 같이 옮겨라)")
-
-        // 첫째: 라벨을 짓는 파일은 거르는 함수를 알아야 한다. 새 파일에 라벨이 생기는 것이
-        // 제일 흔한 모양이고, 그때 이 줄이 운다.
-        val unaware = labels.filter { "Markup" !in it.readText() }.map { it.name }
-        assertTrue(unaware.isEmpty(), "`<html>` 라벨을 짓는데 `Markup` 를 안 쓰는 파일: " +
-            "$unaware — 붙이는 글자가 전부 이 파일이 지은 것이면 주석으로 그렇게 적고 " +
-            "`Markup` 를 한 번은 거쳐라. 안 거른 채 남의 글자가 섞이면 화면이 조용히 딴것을 보인다")
-
-        // 둘째: 라벨 줄에 **끼워 넣는 것**은 거른 것이어야 한다. `${...}` 와 `$이름` 둘 다 본다 —
-        // 처음엔 앞의 것만 봤는데, 그러면 이 파일이 이미 쓰고 있는 뒤의 꼴이 통째로 그물 밖이라
-        // 「검사한다」는 말이 절반만 참이 된다.
-        //
-        // 예외는 이름만 적지 않고 **왜인지를 같이 적는다.** 예외가 이름뿐이면 다음 사람이 늘리는
-        // 데 드는 값이 0 이고, 값이 0 인 목록은 곧 전부가 된다.
-        val safe = mapOf(
-            "out.size" to "수다 — 글자가 아니라 마크업을 실을 수가 없다",
-            "at" to "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
-            "subject" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
-            "why" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
-        )
-        val raw = labels.flatMap { f ->
-            f.readText().lines().withIndex()
-                .filter { (_, l) -> "<html>" in l }
-                .flatMap { (i, l) ->
-                    Regex("""\$(?:\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_.]*))""").findAll(l)
-                        .map { (it.groupValues[1] + it.groupValues[2]).trim() }
-                        .filterNot { it.startsWith("Markup.text(") || it in safe }
-                        .map { "${f.name}:${i + 1}: \$$it" }
-                }
-        }
-        assertTrue(raw.isEmpty(), "라벨 안에서 안 거른 보간: $raw — `Markup.text(...)` 를 " +
-            "거치거나, 못 거칠 값이면 이 시험의 `safe` 에 **근거와 함께** 적어라")
+        // 「훑어서 없음」은 잴 것이 없어도 초록이다. 그러니 먼저 **이 그물에 걸릴 것이 실제로
+        // 있는지**를 묻는다: 거르는 함수를 지운 셈 치면 어딘가는 울어야 한다.
+        assertTrue(sources.any { labelLeaks(it.name, it.readText().replace("Markup", "")).isNotEmpty() },
+            "라벨을 한 장도 못 찾았다 — 이 시험이 아무것도 안 보고 있다(옮겼으면 같이 옮겨라)")
+        val leaks = sources.flatMap { labelLeaks(it.name, it.readText()) }
+        assertTrue(leaks.isEmpty(), "라벨에 안 거르고 붙는 자리: $leaks")
     }
+
+    /**
+     * 그물이 실제로 우는지, 그리고 **어디서 안 우는지**를 못 박는다.
+     *
+     * 위 시험은 저장소가 깨끗하면 초록인데, 규칙 하나를 통째로 눌러도 똑같이 초록이었다(실측).
+     * 규칙마다 가짜 소스를 한 장씩 먹여야 그 규칙이 서 있다는 말이 검사가 된다.
+     *
+     * 마지막 갈래가 이 그물의 **경계**다. 거르기가 라벨 밖에서 일어나면 여기선 안 보인다 —
+     * 못 고치는 것이 아니라 **소스 글자로는 못 재는 것**이고, 그래서 [safeInLabels] 가
+     * 구멍을 메우는 대신 근거를 말로 남긴다.
+     */
+    @Test
+    fun `라벨 그물이 우는 자리와 안 우는 자리`() {
+        // 여는 태그를 통째로 안 적고 이어 붙인다 — 통째로 적으면 이 파일이 자기 규칙에 걸리고,
+        // 이 파일만 빼 주면 규칙에서 빠져나갈 구멍이 하나 생긴다(위 달러 규칙과 같은 이유).
+        val open = "\"" + "<" + "html>"
+        fun leaks(inner: String) = labelLeaks("Fake.kt", "val x = $open$inner</html>\"")
+
+        assertTrue(leaks("\${cmd}").isNotEmpty(), "안 거른 중괄호 보간을 놓쳤다")
+        assertTrue(leaks("\$cmd").isNotEmpty(), "안 거른 이름 보간을 놓쳤다")
+        assertTrue(leaks("\" + xs.joinToString(\"<br/>\") + \"").isNotEmpty(),
+            "원소를 안 거르고 이어 붙이는 `joinToString` 을 놓쳤다")
+        assertTrue(leaks("\" + xs.joinToString(\"<br/>\") { Markup.text(it) } + \"").isEmpty(),
+            "원소를 거쳐 붙였는데 울었다")
+        assertTrue(leaks("ok").isEmpty(), "붙이는 것이 없는 라벨까지 울면 사람이 이 시험을 끈다")
+        assertTrue(leaks("\" + Markup.text(cmd) + \"").isEmpty(), "거친 것을 붙였는데 울었다")
+
+        // **여기가 경계다.** 거르기를 윗줄에서 해 두고 라벨엔 이름만 놓으면, 거른 것인지가 라벨에
+        // 안 적혀 있어 이 그물은 못 가른다. 그래서 그런 이름은 통과시키지 않고 근거를 요구한다.
+        assertTrue(labelLeaks("Fake.kt", "val safeBit = Markup.text(cmd)\nval x = ${open}\$safeBit</html>\"")
+            .isNotEmpty(), "이름만 놓인 것을 근거 없이 통과시켰다")
+    }
+
+    /** 라벨에서 안 거치고 붙는 자리들. 파일 하나의 글자만 보고 판정한다. */
+    private fun labelLeaks(name: String, text: String): List<String> {
+        val lines = text.lines()
+        val head = "\"" + "<" + "html>"
+        val spans = mutableListOf<Pair<Int, String>>()
+        var i = 0
+        while (i < lines.size) {
+            if (head in lines[i]) {
+                var j = i
+                while (j < lines.size - 1 && "</html>" !in lines[j]) j++
+                spans += (i + 1) to lines.subList(i, j + 1).joinToString("\n")
+                i = j + 1
+            } else i++
+        }
+        // 붙이는 것이 없는 라벨은 이 규칙의 대상이 아니다. 글자를 다 이 파일이 지었으면 뭉갤
+        // 남의 글자가 없다.
+        val open = spans.filter { (_, s) -> "\$" in s || "joinToString(" in s }
+        if (open.isEmpty()) return emptyList()
+
+        val out = mutableListOf<String>()
+        // 첫째: 라벨에 남을 붙이는 파일은 거르는 함수를 알아야 한다. 새 파일이 생기는 것이
+        // 제일 흔한 모양이고, 그때 이 줄이 운다.
+        if ("Markup" !in text) out += "$name: 라벨에 붙이면서 `Markup` 를 한 번도 안 쓴다"
+        for ((at, span) in open) {
+            // 둘째: 끼워 넣는 것은 거른 것이어야 한다. 중괄호 꼴과 이름 꼴을 **둘 다** 본다 —
+            // 처음엔 앞의 것만 봤는데, 그러면 이 저장소가 이미 쓰고 있는 뒤의 꼴이 통째로 그물
+            // 밖이라 「검사한다」는 말이 절반만 참이 된다.
+            Regex("""\$(?:\{([^}]*)\}|([A-Za-z_][A-Za-z0-9_.]*))""").findAll(span)
+                .map { (it.groupValues[1] + it.groupValues[2]).trim() }
+                .filterNot { it.startsWith("Markup.text(") || it in safeInLabels }
+                .forEach { out += "$name:$at: \$$it" }
+            // 셋째: 여럿을 이어 붙이는 자리. 원소 하나가 남의 글자면 하나짜리와 같은 결함이다.
+            if ("joinToString(" in span &&
+                !Regex("""joinToString\([^)]*\)\s*\{[^}]*Markup\.text\(""").containsMatchIn(span)
+            ) out += "$name:$at: `joinToString` 이 원소를 안 거르고 붙인다"
+        }
+        return out
+    }
+
+    /**
+     * 라벨에 이름만 놓여도 되는 것들. **이름만 적지 않고 왜인지를 같이 적는다** — 예외가
+     * 이름뿐이면 다음 사람이 늘리는 데 드는 값이 0 이고, 값이 0 인 목록은 곧 전부가 된다.
+     *
+     * 이 목록의 항목은 검사가 아니라 **주장**이다. 틀리면 여기 적힌 근거를 보고 안다.
+     */
+    private val safeInLabels = mapOf(
+        "out.size" to "수다 — 글자가 아니라 마크업을 실을 수가 없다",
+        "at" to "이 파일이 지은 `(2/3)` 꼴, 안이 다 수다",
+        "subject" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+        "why" to "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
+    )
 
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
