@@ -53,18 +53,26 @@ internal class MeetingScreenTest : GwtTestSpec({
                 page.evaluate("window.__magi_test_convened") shouldBe
                     "which store for the queue?|/tmp/a1.sock,/tmp/b1.sock"
             }
-            Then("거절당하면 서버가 한 말이 그 자리에 서고, 다음 글자에 지워지지 않는다") {
+            Then("거절당하면 서버가 한 말이 제 줄에 선다 — 안내와 자리를 다투지 않고") {
                 page.evaluate("window.__magi_test_press_refuses = 'beta is already in a meeting'")
                 page.locator("#meet .meetgo").click()
-                page.waitForCondition {
-                    page.locator("#meet .meetnote").textContent() == "beta is already in a meeting"
-                }
-                // 이 한 줄은 둘을 실어 나른다 — 「아직 열 수 없다」는 우리 안내와 「열려다
-                // 거절당했다」는 서버의 말. 안내는 폼을 볼 때마다 다시 계산되므로, 지키지
-                // 않으면 사유가 글자 하나에 지워진다(운영은 이 검사를 갖고 있다).
-                page.locator("#meet .meettopicfield textarea").fill("which store for the queue??")
-                page.locator("#meet .meetnote").textContent() shouldBe "beta is already in a meeting"
+                page.waitForSelector("#meet .refused")
+                page.locator("#meet .refused").textContent() shouldBe "beta is already in a meeting"
+                page.locator("#meet .refused").getAttribute("role") shouldBe "alert"
                 page.evaluate("delete window.__magi_test_press_refuses")
+            }
+            Then("다음 글자에 지워지지 않는다") {
+                page.locator("#meet .meettopicfield textarea").fill("which store for the queue??")
+                page.locator("#meet .refused").textContent() shouldBe "beta is already in a meeting"
+            }
+            Then("그래도 안내는 제 일을 한다 — 한 줄에 두 말을 태우지 않으므로") {
+                // 애초의 잘못은 사유와 안내를 한 줄에 태운 것이었다. 사유를 지키려고 그 줄에
+                // 표를 찍었는데(`data-fixed`) 지우는 곳이 없어, 「아직 열 수 없다」가 영영
+                // 돌아오지 못했다 — 사유의 수명이 남의 사정으로 정해졌다.
+                page.locator("#meet .meettopicfield textarea").fill("")
+                page.waitForCondition { page.locator("#meet .meetnote").textContent().isNotEmpty() }
+                page.locator("#meet .meetnote").textContent() shouldContain "meet.need_"
+                page.locator("#meet .refused").textContent() shouldBe "beta is already in a meeting"
             }
         }
         When("방으로 들어가면(주소의 ?m=)") {
@@ -123,24 +131,39 @@ internal class MeetingScreenTest : GwtTestSpec({
         }
         When("마무리하려는데 거절당하면") {
             page.evaluate("window.__magi_test_press_refuses = 'a round is still in flight'")
+            // 폴이 두 초마다 한 번씩 읽는다 — 방금 그 한 번이 지나간 직후부터 재야 우리가
+            // 부른 읽기만 센다(안 그러면 틱 하나가 끼어들어 초록이 빨강이 된다).
+            val tick = page.evaluate("window.__magi_test_reads || 0") as Int
+            page.waitForCondition { (page.evaluate("window.__magi_test_reads || 0") as Int) > tick }
             val readsBefore = page.evaluate("window.__magi_test_reads || 0") as Int
             page.locator("#meet .meetsay md-text-button").last().click()
             Then("서버가 한 말이 그 상자에 서고, 방은 여전히 돌고 있다") {
-                page.waitForCondition {
-                    page.locator("#meet .meetsay .meetnote").count() > 0 &&
-                        page.locator("#meet .meetsay .meetnote").last().textContent() ==
-                            "a round is still in flight"
-                }
+                page.waitForSelector("#meet .meetsay .refused")
+                page.locator("#meet .meetsay .refused").textContent() shouldBe "a round is still in flight"
+                page.locator("#meet .meetsay .refused").getAttribute("role") shouldBe "alert"
                 // 끝내기가 거절당했는데 결론이 서면, 사람은 끝난 줄 안다.
                 page.locator("#meet .meettasks .meettask").count() shouldBe 0
             }
-            Then("거절이면 다시 읽지 않는다 — 다시 읽기가 사유를 세운 상자를 헐기 때문에") {
-                // 「사유가 보인다」로만 재면 시간에 기댄다: 다시 읽기가 지우기 전에 스펙이
-                // 보고 지나가 버려, 지우는 코드를 넣어도 초록이 난다(되돌림 검사로 실측).
-                // 그래서 규칙 자체를 잰다 — 다시 읽은 횟수가 늘지 않았다.
+            Then("거절이면 다시 읽지 않는다 — 거절은 아무것도 바꾸지 않았으므로") {
+                // 사유가 다시 읽기를 견디게 된 지금도 이 규칙은 남는다: 거절당한 누름은
+                // 서버의 아무것도 바꾸지 않아서, 다시 읽어 봐야 같은 답이다(공연한 churn).
+                // 화면으로 재지 않고 규칙 자체를 잰다 — 다시 읽은 횟수가 늘지 않았다.
                 page.evaluate("window.__magi_test_reads || 0") shouldBe readsBefore
                 page.evaluate("delete window.__magi_test_press_refuses")
             }
+            Then("남이 말해 판이 새로 서도 사유는 제자리에 다시 선다") {
+                // 이 화면은 두 초마다 다시 읽고, 남이 말하면 판을 통째로 다시 세운다. 사유를
+                // 노드에 적어 두면 그때 함께 헐린다 — 그래서 사유는 화면이 쥐고, 새 판에
+                // 다시 세운다. 예전엔 노드에 표를 찍어 막았고, 그 표는 이 재조립을 못 막았다.
+                page.evaluate("document.querySelector('#meet .meetbox').dataset.spec = '1'")
+                page.evaluate("window.__magi_test_room('held')")
+                page.waitForCondition {
+                    page.evaluate("!document.querySelector('#meet .meetbox').dataset.spec") as Boolean
+                }
+                page.locator("#meet .meetsay .refused").textContent() shouldBe "a round is still in flight"
+                page.evaluate("window.__magi_test_room('open')")
+            }
+
         }
         When("마무리하면") {
             page.locator("#meet .meetsay md-text-button").last().click()
@@ -171,16 +194,16 @@ internal class MeetingScreenTest : GwtTestSpec({
             }
             Then("다시 열기가 거절당하면 서버가 한 말이 그 상자에 서고, 다시 읽지 않는다") {
                 page.evaluate("window.__magi_test_press_refuses = 'that room was archived'")
+            // 폴이 두 초마다 한 번씩 읽는다 — 방금 그 한 번이 지나간 직후부터 재야 우리가
+            // 부른 읽기만 센다(안 그러면 틱 하나가 끼어들어 초록이 빨강이 된다).
+                val tick = page.evaluate("window.__magi_test_reads || 0") as Int
+                page.waitForCondition { (page.evaluate("window.__magi_test_reads || 0") as Int) > tick }
                 val readsBefore = page.evaluate("window.__magi_test_reads || 0") as Int
                 page.locator("#meet .meetsay md-filled-tonal-button").click()
-                page.waitForCondition {
-                    page.locator("#meet .meetsay .meetnote").count() > 0 &&
-                        page.locator("#meet .meetsay .meetnote").last().textContent() ==
-                            "that room was archived"
-                }
+                page.waitForSelector("#meet .meetsay .refused")
+                page.locator("#meet .meetsay .refused").textContent() shouldBe "that room was archived"
                 page.locator("#meet .meettasks .meettask").count() shouldBe 2
-                // 이 화면의 사유는 저장소가 아니라 눌린 상자가 쥐고 있어서, 다시 읽으면
-                // 그 상자를 헐어 사유가 함께 사라진다.
+                // 거절은 아무것도 바꾸지 않았다 — 다시 읽어 봐야 같은 답이라 읽지 않는다.
                 page.evaluate("window.__magi_test_reads || 0") shouldBe readsBefore
                 page.evaluate("delete window.__magi_test_press_refuses")
             }

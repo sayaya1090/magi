@@ -45,6 +45,10 @@ public class MeetingElement {
     private HTMLElement topicField = null;
     private HTMLElement sayField = null;
     private String drawnShape = "";
+    // 거절의 사유는 <b>이 화면이</b> 쥔다 — 어느 상자에서 눌렀는지, 그때 어느 방이었는지까지.
+    private String refusal = "";
+    private String refusalAt = "";
+    private String refusalRoom = "";
 
     @Inject
     public MeetingElement(MeetingStore store) { this.store = store; }
@@ -108,7 +112,8 @@ public class MeetingElement {
         go.textContent = tr("meet.start");
         Icons.mark(go, "#i-sl-comments");
         go.addEventListener("click", evt -> whileItRuns(go, () ->
-                store.convene(why -> note(box, why), id -> {
+                store.convene(why -> note("convene", why), id -> {
+                    note("convene", "");
                     if (id == null || id.isEmpty()) { store.read(); return; }
                     GoSharing.viewWith("meet", "m", id);
                 })));
@@ -116,6 +121,7 @@ public class MeetingElement {
         for (HTMLElement one : roomLists()) box.append(one);
         root.replaceChildren(box);
         arm(box);
+        sayRefusal();
     }
 
     /** 부를 수 있는 이들만 — 남의 기계의 컴패니언은 이 콘솔이 한 번도 걸어 본 적 없는 행이다. */
@@ -235,6 +241,7 @@ public class MeetingElement {
         empty.append(cell("emptywhat", tr("meet.gone")), cell("emptyhow", tr("meet.gone_how")));
         box.append(empty);
         root.replaceChildren(box);
+        sayRefusal();
     }
 
 
@@ -297,6 +304,7 @@ public class MeetingElement {
         if (bool(m, "closed") && len(m, "tasks") > 0) box.append(conclusions(m));
         if (bool(m, "closed")) box.append(reopenBox(m));
         root.replaceChildren(box);
+        sayRefusal();
     }
 
     /** 명단 — 색으로 갈리고, 지금 쥔 이는 선택되어 있다. 누르면 그 이를 지명한다. */
@@ -461,7 +469,7 @@ public class MeetingElement {
         send.addEventListener("click", evt -> {
             String text = value(f).trim();
             if (text.isEmpty()) return;
-            store.say(text, why -> note(box, why));
+            store.say(text, why -> note("say", why));
             value(f, "");
         });
         HTMLElement leave = el("md-text-button");
@@ -474,7 +482,7 @@ public class MeetingElement {
                 DomGlobal.document.createTextNode(" " + tr("meet.wrap")));
         // 사유는 <b>이 상자</b>에 선다 — 끝내기 단추가 여기 있고, 바로 위의 보내기가 거절당할
         // 때 쓰는 자리와 같다. 방 목록 화면의 `.meetnote`는 남의 판이다.
-        stop.addEventListener("click", evt -> whileItRuns(stop, () -> store.close(why -> note(box, why))));
+        stop.addEventListener("click", evt -> whileItRuns(stop, () -> store.close(why -> note("say", why))));
         box.append(f, send, leave, stop);
         return box;
     }
@@ -502,8 +510,8 @@ public class MeetingElement {
                     // 그리는 쪽이 아니라 누른 자리가 답을 보이는 것이 옳다(운영도 replaceWith).
                     go.addEventListener("click", evt -> whileItRuns(go,
                             () -> store.hand(who, why -> {
-                                if (why != null && !why.isEmpty()) { note(box, why); return; }
-                                go.replaceWith(sent(m, who));
+                                note("tasks", why);
+                                if (why == null || why.isEmpty()) go.replaceWith(sent(m, who));
                             })));
                     row.append(go);
                 }
@@ -546,7 +554,7 @@ public class MeetingElement {
         go.append(Icons.shape("#i-sl-play", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.reopen")));
         go.addEventListener("click", evt -> whileItRuns(go, () ->
-                store.reopen(value(f), why -> note(box, why))));
+                store.reopen(value(f), why -> note("say", why))));
         box.append(f, go);
         return box;
     }
@@ -641,12 +649,11 @@ public class MeetingElement {
         if (go != null) {
             if (ready) go.removeAttribute("disabled"); else go.setAttribute("disabled", "");
         }
-        // 서버가 거절하며 한 말이 이 자리에 서 있으면 건드리지 않는다(`data-fixed`). 이 줄은
-        // 두 가지를 실어 나른다 — <b>아직 열 수 없다</b>는 안내(이쪽이 쓴다)와 <b>열려다
-        // 거절당했다</b>는 서버의 말(note()가 쓴다). 안내는 폼을 볼 때마다 다시 계산되므로,
-        // 지키지 않으면 거절 사유가 다음 글자 하나에 지워진다. 운영은 이 검사를 갖고 있었고
-        // (`page.js`의 armConvene), 이식은 표시만 옮기고 <b>읽는 쪽을 빠뜨렸다</b>.
-        if (note != null && !note.hasAttribute("data-fixed")) {
+        // 이 줄은 <b>안내만</b> 싣는다 — 아직 열 수 없다는 말. 서버가 거절하며 한 말은 제
+        // 줄(`.refused`)에 서므로, 둘이 한 자리를 다투지 않는다. 한때는 여기 `data-fixed`를
+        // 찍어 안내가 사유를 덮지 못하게 막았는데, 그 표시를 지우는 곳이 없어 안내가 영영
+        // 돌아오지 못했다 — 두 말을 한 줄에 태운 것이 애초의 잘못이었다.
+        if (note != null) {
             String key = Rooms.blockedKey(store.topic(), store.picked().size(), callableCount());
             note.textContent = ready || key.isEmpty() ? "" : tr(key);
         }
@@ -662,14 +669,49 @@ public class MeetingElement {
         return n;
     }
 
-    /** 거절의 사유는 사람 눈에 보이는 자리에 — 조용히 삼키면 눌린 줄 알고 기다린다. */
-    private void note(HTMLElement box, String why) {
-        if (why == null || why.isEmpty()) return;
-        elemental2.dom.Element note = box.querySelector(".meetnote");
-        HTMLElement line = note != null ? Js.uncheckedCast(note) : cell("meetnote", null);
-        line.setAttribute("data-fixed", "");
-        line.textContent = why.length() > 120 ? why.substring(0, 120) : why;
-        if (note == null) box.append(line);
+    /**
+     * 거절의 사유는 사람 눈에 보이는 자리에 — 조용히 삼키면 눌린 줄 알고 기다린다. 그리고
+     * 그 말은 <b>이 화면이</b> 쥔다, 노드가 아니라: 이 판은 두 초마다 폴이 다시 세우므로
+     * 노드에 적어 둔 말은 데이터가 조금 달라지는 순간 함께 헐린다. 예전엔 그 노드에
+     * `data-fixed`를 찍어 안내가 덮지 못하게 막았는데, 그 표시를 <b>지우는 곳이 없어</b>
+     * 사유의 수명이 남의 사정으로 정해졌다 — 아무 일 없으면 영영 서서 안내를 막고, 무언가
+     * 바뀌면 두 초 만에 사라졌다.
+     *
+     * 빈 말은 걷는다는 뜻이다: 통한 누름이 앞서 선 거절을 지운다.
+     */
+    private void note(String at, String why) {
+        refusal = why == null ? "" : why.length() > 120 ? why.substring(0, 120) : why;
+        refusalAt = refusal.isEmpty() ? "" : at;
+        refusalRoom = refusal.isEmpty() ? "" : orEmpty(store.room());
+        sayRefusal();
+    }
+
+    /** 사유가 설 상자 — 누른 단추가 있던 그 상자다(여는 화면은 폼, 방 안은 말하는 칸과 결론). */
+    private static String placeOf(String at) {
+        return "say".equals(at) ? ".meetsay" : "tasks".equals(at) ? ".meettasks" : ".meetbox";
+    }
+
+    /** 판을 다시 세울 때마다 부른다 — 사유는 새 판에서도 제자리에 다시 선다. */
+    private void sayRefusal() {
+        // 방을 옮기면 남의 말이 된다 — 그 자리에서 눌러 들은 말이라 따라다니지 않는다.
+        if (!refusal.isEmpty() && !refusalRoom.equals(orEmpty(store.room()))) {
+            refusal = ""; refusalAt = ""; refusalRoom = "";
+        }
+        elemental2.dom.Element had = root.querySelector(".refused");
+        elemental2.dom.Element at = refusal.isEmpty() ? null : root.querySelector(placeOf(refusalAt));
+        if (at == null) { if (had != null) had.remove(); return; }
+        HTMLElement box = Js.uncheckedCast(at);
+        HTMLElement line = had != null ? Js.uncheckedCast(had) : cell("refused", null);
+        line.setAttribute("role", "alert");
+        // 같은 말이면 손대지 않는다 — role=alert는 이 줄이 바뀔 때마다 읽는 기계가 다시 읽어
+        // 주는 자리인데, 이 판은 두 초마다 다시 선다.
+        if (!refusal.equals(line.textContent)) line.textContent = refusal;
+        if (line.parentNode != box) {
+            // 안내 줄 바로 아래 — 그 위의 단추를 눌러 들은 말이라, 방 목록보다 앞에 선다.
+            elemental2.dom.Element guide = box.querySelector(".meetnote");
+            if (guide != null && guide.parentNode == box) box.insertBefore(line, guide.nextSibling);
+            else box.append(line);
+        }
     }
 
     /** 도는 동안은 눌리지 않는다 — 두 번 눌러 두 방이 열리지 않게. */

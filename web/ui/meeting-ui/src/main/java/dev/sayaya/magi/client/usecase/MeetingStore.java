@@ -110,9 +110,11 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
         }, failed);
     }
 
-    public void say(String text, Consumer<String> failed) {
+    /** 사유는 <b>통했을 때도</b> 올려 보낸다(빈 말로) — 그래야 앞서 선 거절이 걷힌다. */
+    public void say(String text, Consumer<String> said) {
         source.say(room, text, null, false, why -> {
-            if (why != null && !why.isEmpty()) { failed.accept(why); return; }
+            if (why != null && !why.isEmpty()) { said.accept(why); return; }
+            said.accept("");
             saying = "";
             read();
         });
@@ -135,16 +137,18 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
      * {@link #say}가 이미 그렇게 하고 있다 — 다른 화면들이 「사유를 쥐고 나서 다시 읽는」 것과
      * 반대로 보이지만, 규칙은 하나다: <b>사유를 세운 것을 다시 읽기가 지우게 두지 않는다.</b>
      */
-    public void close(Consumer<String> failed) {
+    public void close(Consumer<String> said) {
         source.close(room, why -> {
-            if (why != null && !why.isEmpty()) { failed.accept(why); return; }
+            if (why != null && !why.isEmpty()) { said.accept(why); return; }
+            said.accept("");
             read();
         });
     }
 
-    public void reopen(String text, Consumer<String> failed) {
+    public void reopen(String text, Consumer<String> said) {
         source.reopen(room, text, why -> {
-            if (why != null && !why.isEmpty()) { failed.accept(why); return; }
+            if (why != null && !why.isEmpty()) { said.accept(why); return; }
+            said.accept("");
             read();
         });
     }
