@@ -382,6 +382,26 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await w2.poll();
   ok('dial 실패도 못 닿음이다', w2.view.reachable === false && w2.view.lostNote !== null);
 
+  // 「…하는 중」은 **지금**에 대한 말이라 못 닿는 순간 근거가 없어진다. 로그 줄은 지나간
+  // 일이라 못 닿아도 참인데 이건 아니다 — 그대로 두면 죽은 데몬이 영영 일하는 중으로 선다.
+  // 지우지도 않는다(뭘 하다 놓쳤는지는 알아야 한다). 값과 **아직 유효한지**를 같이 싣는다.
+  const stD = new FakeStatus();
+  const wD = new WatchPrompt(stD);
+  stD.doing = '도구를 실행하는 중';
+  await wD.poll();
+  ok('하는 일은 status 가 말한 그대로 온다',
+    wD.view.doing === '도구를 실행하는 중' && wD.view.doingFresh === true);
+  stD.reachable = false;
+  await wD.poll();
+  ok('못 닿으면 하는 일을 안 지우고', wD.view.doing === '도구를 실행하는 중', wD.view.doing);
+  ok('지금 읽은 것이 아니라고 값에 싣는다', wD.view.doingFresh === false);
+  // 다시 닿았는데 이제 아무것도 안 하면, 마지막 읽기가 그 자리를 계속 지키면 안 된다.
+  stD.reachable = true;
+  stD.doing = '';
+  await wD.poll();
+  ok('다시 닿아 조용해지면 그 말은 내려간다',
+    wD.view.doing === '' && wD.view.doingFresh === true, wD.view.doing);
+
   // 단추 문구가 여는 폭을 말해야 한다.
   // 「허용」/「항상 허용」이면 세션 전체를 여는 줄 모르고 누른다.
   const widths = new Set(DECISIONS.map((d) => d.width));

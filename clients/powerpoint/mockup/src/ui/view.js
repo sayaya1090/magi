@@ -70,7 +70,7 @@ export class View {
   renderAsk() {
     if (!this.watchPrompt) return;
     const v = this.watchPrompt.view;
-    this.renderDoing(v.doing);
+    this.renderDoing(v.doing, v.doingFresh);
 
     // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다.
     const sig = [v.pending?.id ?? '', v.pending?.kind ?? '', v.answered ? '1' : '0',
@@ -91,9 +91,15 @@ export class View {
     this.askSig = sig;
   }
 
-  renderDoing(doing) {
+  /**
+   * 데몬이 하는 일. **못 닿는 동안엔 현재형으로 안 적는다** — 그 말의 근거는 방금 읽은
+   * status 뿐이라, 못 닿으면 근거 없이 「지금 …하는 중」이라고 말하는 것이 된다. 지우지도
+   * 않는다: 마지막으로 뭘 하다 놓쳤는지는 사람이 알아야 할 것이고, 그건 지난 일이라 여전히
+   * 참이다. 시제를 바꾸는 것이 곧 그 차이를 적는 일이다.
+   */
+  renderDoing(doing, fresh) {
     const el = $('#doing');
-    el.textContent = doing ?? '';
+    el.textContent = !doing ? '' : fresh ? doing : `마지막으로 읽었을 때: ${doing}`;
     el.hidden = !doing;
   }
 

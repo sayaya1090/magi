@@ -28,7 +28,11 @@
 
     <!-- 냈는데 아직 로그에 안 뜬 것. 「생각 중…」이 아니다 — 짐작을 안 적는다. -->
     <div id="sent" class="sent" hidden></div>
-    <!-- 데몬이 스스로 말하는 「지금 하는 일」. 이건 짐작이 아니라 status 가 말한 사실이다. -->
+    <!--
+      데몬이 스스로 말하는 「지금 하는 일」. 이건 짐작이 아니라 status 가 말한 사실이다 —
+      **방금 읽었을 때만.** 못 닿는 동안엔 근거가 없어지므로 현재형을 버리고 「마지막으로
+      읽었을 때」로 적는다(`WatchPrompt` 의 `doingFresh`).
+    -->
     <div id="doing" class="doing" hidden></div>
 
     <div id="advice-wrap" class="advice-wrap" hidden>
