@@ -612,9 +612,10 @@ HTTP면 헬퍼가 먼저 서고 데몬들이 클라이언트로 붙는다. 헬�
   사용자당 하나로 남는 것은 Office 애드인을 받아주는 로컬 헬퍼뿐이고(§5.2), 그건 magi 데몬이
   아니라 **다른 층**이다.
 
-**⚠ 그런데 밖에서 붙일 door가 없다.** 데몬 프로토콜 메서드 전량이 submit · steer · interrupt ·
-permission · answer · resume · rewind · compact · set-model · set-permission · use-backend ·
-reload-cron · hand 이고, **MCP를 다루는 것이 하나도 없다.**
+**~~⚠ 그런데 밖에서 붙일 door가 없다.~~ → 났다(§5.0.3). 아래는 그 요청이 선 경위다.**
+요청하던 시점의 메서드 전량이 submit · steer · interrupt · permission · answer · resume · rewind ·
+compact · set-model · set-permission · use-backend · reload-cron · hand 이었고, **MCP를 다루는 것이
+하나도 없었다.** 지금은 `mcp-attach`·`mcp-detach` 둘이 있다.
 
 런타임 등록 자체는 있다. `Manager.AddHTTP` / `AddHTTPDynamic` / `Remove`가 있고 **Lua 플러그인
 브리지가 이미 그것을 부른다** — `magi.register_mcp{name=, url=, headers=fn}` → `AddHTTPDynamic`
@@ -692,7 +693,8 @@ door가 나면서 새로 보이게 된 것은 §5.0.4에 적었다.
 - **실패 사유도 이미 셋 있다**: 이름 중복(`"%q is already attached; two servers cannot share one
   name"`), initialize 실패, list tools 실패. 새로 발명하지 않는다.
 
-**⚠ 그런데 수명이 비어 있다. 이건 door 요청서에 실을 증거다.**
+**~~⚠ 그런데 수명이 비어 있다. 이건 door 요청서에 실을 증거다.~~ → 닫혔다(§5.0.3, 같은 커밋).
+아래는 그 요구가 선 경위이고, 계약으로 남은 것은 마지막 두 항목이다.**
 
 `registerClient`는 등록 후 `<-client.Done()`을 기다렸다가 `Remove(name)`을 한다. stdio에서는
 프로세스가 죽으면 파이프가 닫히고 `readLoop`가 끝나 `done`이 닫힌다 — 자동 청소가 돈다. **HTTP는
@@ -1443,10 +1445,21 @@ not what you get from running the same weights again; it is what you get from di
 오히려 그걸 눈으로 판정하게 만든다.
 
 ⚠ 단 **zip base64를 통째로 뱉으면 안 된다. 헬퍼가 풀어서 해당 조각만 돌려준다.** magi의 도구 결과는
-64KB에서 잘리는데(`toolResultCap`, `internal/app/guard.go`), 문제가 잘림이 아니라 **더 나쁘다** —
-잘린 JSON이 이벤트 마샬러에 거부당하고 그 거부가 버려져서 **에이전트가 결과를 아예 못 받은** 실측이
-코드 주석에 붙어 있다(같은 턴에 64KB+ 파일 두 개를 읽고 둘 다 `data: null`). "크게 실으면 잘린다"가
-아니라 **"크게 실으면 조용히 없어진다"**이다.
+64KB에서 잘린다(`toolResultCap`, `internal/app/guard.go`). ~~그리고 잘린 JSON이 이벤트 마샬러에
+거부당해 에이전트가 결과를 아예 못 받는다~~ → **그건 지금 코어가 아니다**(2026-08-28, `capToolResult`를
+읽어 확인). 그 실측(같은 턴에 64KB+ 파일 둘, 둘 다 `data: null`)은 코드 주석에 **지금 모양이 왜
+그런지의 근거로** 남아 있는 것이고, 오늘은 자르기가 **페이로드 안에서** 일어나고 결과를 다시 인코딩한다.
+
+**그래도 결론은 그대로다 — 이유가 바뀔 뿐이고, 우리 경우엔 더 나쁜 쪽으로 바뀐다.**
+
+- 헬퍼가 base64를 **문자열로** 돌려주면 그건 잘려서 온다 — 뒤에 "narrower range로 다시 부르라"는
+  표시가 붙으므로 조용하지는 않다. **다만 base64의 앞부분은 조각이 아니라 쓰레기다.** 로그도 화면도
+  자료가 온 것처럼 보이는데 풀면 아무것도 아니다. 잘림이 정직해도 **이 자료형에서는 정직함이 안 듣는다.**
+- 헬퍼가 그것을 **객체로 감싸** 돌려주면 통째로 사라지고 대신 `[result omitted: N bytes of
+  structured output exceeded the …]` 한 줄이 온다. 이쪽은 자료를 못 받았다는 것이 분명해서 낫지만,
+  **한 번의 왕복을 통째로 버린다.**
+
+즉 어느 쪽이든 **자르기가 우리 대신 범위를 좁혀 주지 못한다.** 좁히는 것은 헬퍼의 일이다.
 
 **픽셀이 유일한 답인 것은 시각적 결함 계열뿐이다** — 넘침, 겹침, 슬라이드 밖으로 나감, 대비. OOXML은
 값은 말하지만 **그게 어떻게 보이는지는 말하지 않는다.** 세 층은 다 섰지만(§4.4 ①) **부르는 범위는 그 계열로
