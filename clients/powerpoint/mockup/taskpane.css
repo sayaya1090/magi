@@ -70,6 +70,7 @@ header strong { color: var(--accent); }
 }
 .advice:hover:not(:disabled) { border-color: var(--sel); }
 .advice:disabled { color: var(--muted); cursor: default; }
+.advice-target { margin-top: 3px; font-size: 11px; color: var(--muted); }
 
 .note {
   margin: 0 14px 8px; padding: 6px 9px; border-radius: 6px;
