@@ -21,6 +21,13 @@ class ArchitectureTest {
 
     private val usecase = File("src/main/kotlin/dev/sayaya/magi/ide/usecase")
 
+    /**
+     * 두 모듈의 Kotlin 원본 전부. 아래 "달린 문장" 검사는 모듈 경계와 무관한 결함이라 둘 다 본다 —
+     * `intellij` 에는 시험 소스 세트가 없고(SDK 를 받아야 돌아서), 그 결함이 실제로 거기서 났다.
+     */
+    private fun sources(): List<File> = listOf(File("src/main/kotlin"), File("../intellij/src/main/kotlin"))
+        .flatMap { d -> d.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList() }
+
     @Test
     fun `usecase 는 transport 를 import 하지 않는다`() {
         val offenders = usecase.listFiles { f -> f.name.endsWith(".kt") }.orEmpty()
@@ -49,6 +56,46 @@ class ArchitectureTest {
             setOf("Assist.kt", "Companion.kt", "DaemonLifecycle.kt", "McpName.kt", "Ports.kt"),
             names,
             "usecase 의 파일 목록이 예상과 다르다 — 옮겼으면 이 시험의 경로도 같이 옮길 것",
+        )
+    }
+
+    /**
+     * 이어지는 것처럼 보이는 `return@` 을 막는다.
+     *
+     * 실제로 난 결함이다. `Workspace.onDaemon` 이 이렇게 적혀 있었다 — `if (...)` 뒤에
+     * `return@executeOnPooledThread` 로 줄이 끝나고, 다음 줄에 `trouble(...)` 이 더 들여쓴 채
+     * 있었다. 눈에는 조건의 몸으로 보이는데 코틀린은 **별개 문장**으로 읽는다. 그래서 정상일
+     * 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 — 메시지가 정확히 거꾸로였다.
+     *
+     * 단위 시험으로는 안 잡혔다. 그 자리가 IntelliJ `Project` 를 요구해 시험이 없었고,
+     * **샌드박스 IDE 를 실제로 띄워 로그를 읽고서야** 나왔다(폴 46회 전부 trouble 과 ok 가 같은
+     * 밀리초에 찍혔다).
+     *
+     * 잡는 모양은 좁다: `return@…` 으로 줄이 끝나고 **다음 줄이 더 들여쓰였을 때**. 같은 들여쓰기면
+     * 이어지는 척을 안 하므로 정상이다 — `MagiToolWindow` 의 낡은-제안 가드가 그 모양이고 의도대로다.
+     */
+    @Test
+    fun `return 뒤에 이어지는 척하는 문장이 없다`() {
+        val dangling = Regex("return@\\w+\\s*$")
+        fun indent(s: String) = s.length - s.trimStart().length
+        val bad = sources().flatMap { f ->
+            val lines = f.readLines()
+            lines.indices.mapNotNull { i ->
+                val here = lines[i]
+                val next = lines.getOrNull(i + 1)
+                when {
+                    !dangling.containsMatchIn(here) -> null
+                    next == null || next.isBlank() -> null
+                    indent(next) > indent(here) -> "${f.name}:${i + 1}"
+                    else -> null
+                }
+            }
+        }
+        assertEquals(
+            emptyList<String>(),
+            bad,
+            "`return@…` 으로 줄을 끝내고 다음 줄을 더 들여쓰면 그 줄은 조건 밖의 문장이다. " +
+                "의도가 '조건일 때만'이면 중괄호를 쓸 것.",
         )
     }
 }

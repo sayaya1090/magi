@@ -37,8 +37,14 @@ internal class Workspace(private val project: Project) {
                 // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로 고르면
                 // 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
                 val sid = Published.of(sock)?.session
-                if (sid.isNullOrBlank()) return@executeOnPooledThread
+                // 중괄호가 장식이 아니다. 이 줄이 한때 `if (…) return@executeOnPooledThread` 로
+                // 끝나고 `trouble(…)` 이 다음 줄에 더 들여쓴 채 있었는데, 코틀린은 그것을 **별개
+                // 문장**으로 읽는다. 그래서 정상일 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 —
+                // 메시지가 정확히 거꾸로였다. 실측: 폴 46회 전부 trouble 과 ok 가 같은 밀리초에.
+                if (sid.isNullOrBlank()) {
                     trouble("데몬이 어느 대화에 있는지 공표하지 않았다 — 붙을 자리를 넘겨짚지 않는다.")
+                    return@executeOnPooledThread
+                }
                 DaemonClient.connect(sock).use { work(Companion(it, sid)) }
             } catch (e: Exception) {
                 val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
