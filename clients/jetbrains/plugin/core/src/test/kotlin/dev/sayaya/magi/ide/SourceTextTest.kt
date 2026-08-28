@@ -376,7 +376,11 @@ class SourceTextTest {
         // 여는 태그를 통째로 안 적고 이어 붙인다 — 통째로 적으면 이 파일이 자기 규칙에 걸리고,
         // 이 파일만 빼 주면 규칙에서 빠져나갈 구멍이 하나 생긴다(위 달러 규칙과 같은 이유).
         val open = "\"" + "<" + "html>"
-        fun leaks(inner: String) = labelLeaks("Fake.kt", "val x = $open$inner</html>\"")
+        // **가짜 소스마다 우는 규칙이 하나여야 한다.** 처음엔 이 주석 줄이 없었는데, 그러면
+        // 「이 파일이 거르는 함수를 모른다」가 모든 갈래에서 같이 울어 **다른 규칙의 울음을
+        // 가렸다** — 규칙 셋을 통째로 눌러도 시험은 초록이었다. 규칙이 서 있다는 말이 검사가
+        // 되려면 그 규칙 말고는 울 것이 없어야 한다.
+        fun leaks(inner: String) = labelLeaks("Fake.kt", "// Markup\nval x = $open$inner</html>\"")
 
         assertTrue(leaks("\${cmd}").isNotEmpty(), "안 거른 중괄호 보간을 놓쳤다")
         assertTrue(leaks("\$cmd").isNotEmpty(), "안 거른 이름 보간을 놓쳤다")
@@ -384,8 +388,21 @@ class SourceTextTest {
             "원소를 안 거르고 이어 붙이는 `joinToString` 을 놓쳤다")
         assertTrue(leaks("\" + xs.joinToString(\"<br/>\") { Markup.text(it) } + \"").isEmpty(),
             "원소를 거쳐 붙였는데 울었다")
+        assertTrue(leaks("\" + cmd + \"").isNotEmpty(), "이름을 그대로 이어 붙이는 꼴을 놓쳤다")
         assertTrue(leaks("ok").isEmpty(), "붙이는 것이 없는 라벨까지 울면 사람이 이 시험을 끈다")
+        // 규칙 하나씩 서 있는지 보려면 **그 규칙만 걸리는** 소스가 하나씩 있어야 한다. 아래는
+        // 붙는 것이 근거 있는 이름뿐이라, 우는 이유가 「이 파일이 거르는 함수를 아예 모른다」
+        // 하나로 좁혀진다.
+        assertTrue(labelLeaks("Fake.kt", "val x = $open\$at</html>\"").isNotEmpty(),
+            "라벨에 붙이면서 `Markup` 를 모르는 파일을 놓쳤다")
+        assertTrue(labelLeaks("Fake.kt", "// Markup 을 쓴다\nval x = $open\$at</html>\"").isEmpty(),
+            "근거 있는 이름만 붙었는데 울었다")
         assertTrue(leaks("\" + Markup.text(cmd) + \"").isEmpty(), "거친 것을 붙였는데 울었다")
+
+        // 라벨은 한 줄로 안 끝난다. 여는 태그 줄만 보면 **둘째 줄에 붙는 것**이 통째로 안 보이고,
+        // 안 보이는 것은 위반이 없는 것과 화면에서 같아 보인다.
+        assertTrue(labelLeaks("Fake.kt", "// Markup\nval x = $open\" +\n    cmd + \"</html>\"")
+            .isNotEmpty(), "여는 태그 다음 줄에 붙는 것을 놓쳤다")
 
         // **여기가 경계다.** 거르기를 윗줄에서 해 두고 라벨엔 이름만 놓으면, 거른 것인지가 라벨에
         // 안 적혀 있어 이 그물은 못 가른다. 그래서 그런 이름은 통과시키지 않고 근거를 요구한다.
@@ -409,7 +426,7 @@ class SourceTextTest {
         }
         // 붙이는 것이 없는 라벨은 이 규칙의 대상이 아니다. 글자를 다 이 파일이 지었으면 뭉갤
         // 남의 글자가 없다.
-        val open = spans.filter { (_, s) -> "\$" in s || "joinToString(" in s }
+        val open = spans.filter { (_, s) -> "\$" in s || "joinToString(" in s || bareConcat(s).any() }
         if (open.isEmpty()) return emptyList()
 
         val out = mutableListOf<String>()
@@ -428,9 +445,19 @@ class SourceTextTest {
             if ("joinToString(" in span &&
                 !Regex("""joinToString\([^)]*\)\s*\{[^}]*Markup\.text\(""").containsMatchIn(span)
             ) out += "$name:$at: `joinToString` 이 원소를 안 거르고 붙인다"
+            // 넷째: 보간 말고 **이어 붙이는** 꼴. `"<b>" + cmd + "</b>"` 는 보간과 하는 일이
+            // 같은데 글자 모양만 다르다. 이 갈래를 안 보면 다음 사람이 쓰는 꼴에 따라 그물이
+            // 있다 없다 한다.
+            bareConcat(span).filterNot { it in safeInLabels }
+                .forEach { out += "$name:$at: + $it" }
         }
         return out
     }
+
+    /** 라벨에 함수 호출이 아니라 **이름 그대로** 이어 붙는 것들. */
+    private fun bareConcat(span: String): List<String> =
+        Regex("""\+\s*([A-Za-z_][A-Za-z0-9_.]*)\s*(?![\w(.])""").findAll(span)
+            .map { it.groupValues[1] }.toList()
 
     /**
      * 라벨에 이름만 놓여도 되는 것들. **이름만 적지 않고 왜인지를 같이 적는다** — 예외가
