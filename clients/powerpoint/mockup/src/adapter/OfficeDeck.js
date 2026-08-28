@@ -14,14 +14,21 @@ export class OfficeDeck extends DeckPort {
    * 호스트에게 요구 집합을 **직접 묻는다.** `isSetSupported` 는 동기고 `PowerPoint.run` 밖에서
    * 돈다 — 덱을 안 건드리므로 이 계측이 사용자의 선택을 흔들 일이 없다.
    *
-   * 무엇을 묻는지가 임의가 아니다. 넷 다 설계가 어딘가에서 기대는 값이다:
-   * - **1.5** — LTSC 2021 의 천장. 여기서 멈추면 §12 #4(LTSC 를 받을 것인가)가 실물로 답해진다.
+   * 무엇을 묻는지가 임의가 아니다. 다섯 다 설계가 어딘가에서 기대는 값이다:
+   * - **1.2** — LTSC **2021** 의 천장. 이게 없으면 2021 에서 아래 넷이 전부 ✗ 로 나와서
+   *   「LTSC 다」와 「그보다 아래 아무거나」가 화면에서 구분이 안 된다.
+   * - **1.5** — LTSC **2024** 의 천장(부록 A 의 표: 1.3 부터가 2024 다). 여기서 멈추면
+   *   §12 #4(LTSC 를 받을 것인가)가 실물로 답해진다.
    * - **1.6** — 하이퍼링크. **1.7** — customXmlParts.
    * - **1.8** — §3.3 이 고른 바닥.
    * - **SharedRuntime 1.1** — §5.7 의 전제. 이게 거짓이면 작업창을 닫는 순간 대화가 죽는다.
    *
-   * 최고 지원 버전을 따로 세지 않고 **넷을 다 그대로 돌려준다.** 요약하면 어디서 끊겼는지가
+   * 최고 지원 버전을 따로 세지 않고 **다섯을 다 그대로 돌려준다.** 요약하면 어디서 끊겼는지가
    * 사라지는데, 알고 싶은 것이 정확히 그 지점이다.
+   *
+   * ⚠ **말하는 것은 천장이지 SKU 가 아니다.** 오래된 리테일 빌드도 같은 자리에서 끊긴다
+   * (표에서 1.5 는 리테일 2208). 바닥을 어디에 둘지에는 천장이면 충분하지만, 이 화면을
+   * 「이 사람은 LTSC 다」로 읽으면 틀린다.
    */
   capabilities() {
     const req = (typeof Office !== 'undefined') && Office.context && Office.context.requirements;
@@ -29,6 +36,7 @@ export class OfficeDeck extends DeckPort {
       return { measured: false, note: 'Office.context.requirements 가 없다', sets: [] };
     }
     const want = [
+      ['PowerPointApi', '1.2'],
       ['PowerPointApi', '1.5'], ['PowerPointApi', '1.6'],
       ['PowerPointApi', '1.7'], ['PowerPointApi', '1.8'],
       ['SharedRuntime', '1.1'],
