@@ -51,11 +51,16 @@ func (c *Client) seesImages(modelID string) bool {
 // What one request may carry in pictures, in bytes and in count.
 //
 // A conversation accumulates them: reviewing a deck is dozens of renders, and re-sending every one
-// on every turn would grow the request without bound and re-bill it each time. Worse, the window
-// accounting cannot see them — magi estimates a request's size from its text (compact.go's
-// estimateTokens), and a picture is thousands of tokens that estimate knows nothing about. So the
-// bound is deliberately small and BOTH kinds: four pictures and four megabytes, whichever runs out
-// first, counted from the END of the conversation.
+// on every turn would grow the request without bound and re-bill it each time. And a picture is
+// thousands of tokens that a text estimate knows nothing about, so the bound is deliberately small
+// and BOTH kinds: four pictures and four megabytes, whichever runs out first, counted from the END
+// of the conversation.
+//
+// The bound is not the whole answer to that blindness, only a ceiling on it. The output-cap fit
+// charges what rides (ridingTokens, below), because there an under-count is a refused request.
+// The COMPACTION trigger is still blind — internal/app's estimateTokens counts text and cannot
+// import this package — and there an under-count only means compacting a little late, which the
+// overflow-and-retry path already survives.
 //
 // The bytes counted are what goes on the WIRE, not what is on disk: a picture is base64 there, four
 // bytes for every three. Counting the file made the real request a third larger than the budget it
@@ -74,6 +79,34 @@ const (
 // onWire is what a file of n bytes costs inside the request: base64, four characters per three
 // bytes, rounded up to the padded quantum.
 func onWire(n int) int { return (n + 2) / 3 * 4 }
+
+// imageTokens is what one riding picture is charged against the context window.
+//
+// A flat number, and deliberately a high one. What a backend really charges depends on the
+// picture's DIMENSIONS, which the bytes on disk do not give: a PNG's size is its compression, not
+// its pixels. The two published formulas bracket the answer — OpenAI counts 85 plus 170 a tile,
+// and Anthropic counts width×height/750 up to a 1568² ceiling, which is where ~1600 comes from.
+// So this over-charges a small icon several times over and under-charges nothing.
+//
+// Over-charging is the safe direction here, and cheaply: it can only LOWER an output cap, by at
+// most four pictures' worth, and only in a window already nearly full. Under-charging is how the
+// request goes over the window and the turn dies — the failure fitMaxTokens exists to prevent.
+const imageTokens = 1600
+
+// ridingTokens is what the pictures on this request cost the window.
+//
+// Counted from pickImages rather than from the parts, so the estimate charges for exactly the
+// pictures that will be SENT: the budget drops some, a repeat of the same file rides once, and a
+// picture whose file has gone rides not at all. That is a second walk of the tail of the
+// conversation, and a second stat of each candidate, which is the price of the two numbers being
+// about the same request — the alternative is an estimate of a body nobody built.
+func ridingTokens(msgs []session.Message) int {
+	n := 0
+	for _, r := range pickImages(msgs) {
+		n += len(r.refs)
+	}
+	return n * imageTokens
+}
 
 // riders are the pictures of one tool call that go on this request, and what happened to the ones
 // that did not. Two counters, not one total, because the model is told the reason and the two

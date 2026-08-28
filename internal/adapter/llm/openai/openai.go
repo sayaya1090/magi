@@ -200,7 +200,7 @@ func (c *Client) fitMaxTokens(r port.ChatRequest) int {
 	if window <= 0 {
 		return c.maxTokens // unknown window: nothing to fit under
 	}
-	room := window - estimateRequestTokens(r) - windowMargin
+	room := window - c.inputTokens(r) - windowMargin
 	if room < minOutputTokens {
 		// Too little left to write anything worth having. Ask for the floor and let the request
 		// fail on its own terms if it must — silently sending a cap of ~0 would produce an empty
@@ -211,6 +211,31 @@ func (c *Client) fitMaxTokens(r port.ChatRequest) int {
 		return room
 	}
 	return c.maxTokens
+}
+
+// inputTokens is what this request costs the window: its text, plus the pictures that will ride
+// with it.
+//
+// The pictures are counted here because nothing else counts them anywhere. estimateRequestTokens
+// walks the parts, and a picture is not in the parts — it is a reference the wire builder reads
+// from disk and base64s in, thousands of tokens after this number was taken. Vision arrived after
+// the fit did, and the fit went on measuring a request that no longer existed: on a 200,000 window
+// with 190,001 tokens of text and three renders riding, it answered 5,903 — the window spent to the
+// last token on text and cap, with the pictures still to be added. Whether that request is refused
+// then turns on a rate this side cannot see; at the rate a 1024-square picture is charged it lands
+// a few hundred tokens over.
+//
+// The four-picture budget bounds the error and does not remove it: four pictures outweigh
+// windowMargin on their own, and the margin is already spent on the slack in the character count.
+//
+// Charged only where they can actually ride: a model that cannot see is not sent the blocks, so
+// charging it for them would cut its output cap for pictures it never receives.
+func (c *Client) inputTokens(r port.ChatRequest) int {
+	n := estimateRequestTokens(r)
+	if c.seesImages(r.Model) {
+		n += ridingTokens(r.Messages)
+	}
+	return n
 }
 
 const (
