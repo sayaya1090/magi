@@ -351,10 +351,10 @@ public class WorkspaceElement {
         item(menu, "files.copy_path", "#i-sl-copy", () -> copy(path));
         item(menu, "git.discard", "#i-sl-eraser", () ->
                 dialogs.confirm(tr("git.discard_head", "path", path), tr("git.discard_body"),
-                        tr("git.discard"), () -> store.gitDo("discard", path, null)));
+                        tr("git.discard"), "#i-sl-eraser", () -> store.gitDo("discard", path, null)));
         item(menu, "files.delete", "#i-sl-trash-can", () ->
                 dialogs.confirm(tr("files.delete_head", "path", path), tr("files.delete_body"),
-                        tr("files.delete"), () -> store.fileDo("delete", path, null)));
+                        tr("files.delete"), "#i-sl-trash-can", () -> store.fileDo("delete", path, null)));
         open.addEventListener("click", evt -> {
             evt.stopPropagation();
             Js.asPropertyMap(menu).set("open", !Js.isTruthy(Js.asPropertyMap(menu).get("open")));
@@ -1278,7 +1278,7 @@ public class WorkspaceElement {
             // 되돌리기는 남이 쓴 것을 지우는 일이라 이름을 대고 묻는다.
             item(menu, "git.discard", "#i-sl-eraser", () ->
                     dialogs.confirm(tr("git.discard_head", "path", path), tr("git.discard_body"),
-                            tr("git.discard"), () -> store.gitDo("discard", path, null)));
+                            tr("git.discard"), "#i-sl-eraser", () -> store.gitDo("discard", path, null)));
         }
         open.addEventListener("click", evt -> {
             evt.stopPropagation();
@@ -1309,10 +1309,13 @@ public class WorkspaceElement {
         pick.addEventListener("change", evt -> {
             String to = value(pick);
             if (to.isEmpty() || to.equals(here)) return;
-            dialogs.confirm(tr("git.switch_head", "branch", to), tr("git.switch_body"), tr("git.switch"),
+            // 아니라고 하면 메뉴는 이미 고르지 않은 가지로 움직여 있다 — 되돌려 둔다. 그 일은
+            // 무르는 쪽 버튼이 진다(onKeep): 여기서 곧바로 되돌리면 상자가 서 있는 동안 메뉴가
+            // 이미 옛 가지를 가리켜, 무엇을 물어보고 있는지와 화면이 어긋난다.
+            dialogs.confirm(tr("git.switch_head", "branch", to), tr("git.switch_body"),
+                    null, "#i-sl-xmark", tr("git.switch"), "#i-sl-arrows-rotate",
+                    () -> Js.asPropertyMap(pick).set("value", here),
                     () -> store.gitDo("switch", null, to));
-            // 아니라고 하면 메뉴는 이미 고르지 않은 가지로 움직여 있다 — 되돌려 둔다.
-            Js.asPropertyMap(pick).set("value", here);
         });
         return pick;
     }
@@ -1334,7 +1337,7 @@ public class WorkspaceElement {
         if (dirty) {
             act(box, "git.stash", "#i-sl-floppy-disk", "\u2913", () ->
                     dialogs.confirm(tr("git.stash_head"), tr("git.stash_body"), tr("git.stash"),
-                            () -> store.gitDo("stash", null, null)));
+                            "#i-sl-floppy-disk", () -> store.gitDo("stash", null, null)));
         } else {
             act(box, "git.unstash", "#i-sl-arrows-rotate", "\u21BB", () -> store.gitDo("unstash", null, null));
         }

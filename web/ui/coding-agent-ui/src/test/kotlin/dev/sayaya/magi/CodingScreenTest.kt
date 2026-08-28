@@ -198,7 +198,13 @@ internal class CodingScreenTest : GwtTestSpec({
             page.locator("#dock .composer #t textarea").fill("carry this on")
             page.locator("#dock .composer #send").click()
             page.waitForSelector("md-dialog.askconfirm")
-            page.locator("md-dialog.askconfirm md-filled-tonal-button").last().click()
+            Then("그림판이 없는 빌드에서는 낱말만 남는다 — 낱자를 대신 세우지 않는다") {
+                // 스프라이트는 구 콘솔이 굽는 것이라 이 페이지에는 없다(라이선스 조건). 그때
+                // 운영 withMark는 그냥 돌아선다 — 표 없는 버튼이지 "☰ 취소"가 아니다.
+                page.locator("md-dialog.askconfirm md-text-button svg").count() shouldBe 0
+                page.locator("md-dialog.askconfirm md-text-button.armed").count() shouldBe 1
+            }
+            page.locator("md-dialog.askconfirm md-text-button.armed").last().click()
             Then("옮기기만 시도되고 보내기는 따라가지 않는다 — 쓰던 말은 돌아온다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_resumed") == "s_old" }
                 // 직전 블록이 지금-대화로 보낸 그 한 마디 그대로다: 새로 보낸 것이 없다.
@@ -211,14 +217,35 @@ internal class CodingScreenTest : GwtTestSpec({
         }
         When("옮기고 보내기를 누르면") {
             page.evaluate("delete window.__magi_test_resume_refuses; window.__magi_test_resumed = null")
+            // 이 페이지에는 그림판이 없다(스프라이트는 구 콘솔이 굽는다) — 표가 어디에 붙는지를
+            // 재려면 잴 표가 있어야 하므로, 이 장면 동안만 두 그림을 심는다.
+            page.evaluate(
+                """
+                const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                s.id = 'isprite';
+                s.innerHTML = '<symbol id="i-ss-paper-plane"></symbol><symbol id="i-sl-xmark"></symbol>';
+                document.body.prepend(s);
+                """
+            )
             page.locator("#dock .composer #send").click()
             page.waitForSelector("md-dialog.askconfirm")
             Then("무엇이 어디로 옮겨 가는지 두 이름을 대고 묻는다") {
                 val ask = page.locator("md-dialog.askconfirm").last()
-                ask.locator(".asksay").textContent() shouldBe "move.body"
-                ask.locator("md-filled-tonal-button").textContent().trim() shouldBe "action.move_and_send"
+                // 말은 감싼 것 없이 슬롯에 바로 온다(운영 #stopBody와 같은 모양) — 묶음을
+                // 하나 끼우면 textContent는 그대로라 눈치채지 못하므로, 자식 수로 잰다.
+                ask.locator("[slot=content]").textContent() shouldBe "move.body"
+                ask.locator("[slot=content] > *").count() shouldBe 0
+                ask.locator("md-text-button.armed").textContent().trim() shouldBe "action.move_and_send"
+                // 되돌릴 수 없는 쪽은 채운 버튼이 아니라 armed이고, 상자는 alert다(운영 계약).
+                ask.locator("md-text-button").count() shouldBe 2
+                ask.getAttribute("type") shouldBe "alert"
+                // 표는 자식이 아니라 슬롯에 온다 — 자식으로 붙이면 라벨 크기를 물려받아 작아진다.
+                ask.locator("md-text-button.armed svg[slot=icon]").count() shouldBe 1
+                ask.locator("md-text-button:not(.armed)").textContent().trim() shouldBe "action.cancel"
+                ask.locator("md-text-button:not(.armed) svg[slot=icon]").count() shouldBe 1
             }
-            page.locator("md-dialog.askconfirm md-filled-tonal-button").last().click()
+            page.locator("md-dialog.askconfirm md-text-button.armed").last().click()
+            page.evaluate("document.getElementById('isprite').remove()")
             Then("옮기고, 그 다음에 보내고, 읽던 층위를 접는다") {
                 page.waitForCondition { page.evaluate("window.__magi_test_resumed") == "s_old" }
                 page.waitForCondition {
@@ -455,8 +482,8 @@ internal class CodingScreenTest : GwtTestSpec({
             Then("지우기는 무엇이 사라지는지 이름을 대고 묻는다 — 되돌릴 수 없어서") {
                 page.locator("#files .treeline .rowmenu").first().locator("md-menu-item").last().click()
                 page.waitForSelector("md-dialog.askconfirm")
-                page.locator("md-dialog.askconfirm .asksay").textContent() shouldBe "files.delete_body"
-                page.locator("md-dialog.askconfirm md-filled-tonal-button").click()
+                page.locator("md-dialog.askconfirm [slot=content]").textContent() shouldBe "files.delete_body"
+                page.locator("md-dialog.askconfirm md-text-button.armed").click()
                 page.waitForCondition { page.evaluate("window.__magi_test_filedo") != null }
                 (page.evaluate("window.__magi_test_filedo") as String).startsWith("delete|") shouldBe true
             }
