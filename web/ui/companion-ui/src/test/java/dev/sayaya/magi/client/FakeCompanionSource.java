@@ -74,10 +74,32 @@ public class FakeCompanionSource implements CompanionSource {
     @jsinterop.annotations.JsFunction
     public interface AskFn { void call(String kind, String optionsJson); }
 
+    /**
+     * 같은 문의 다른 쪽 — window.__magi_test_stopped()를 부르면 이 컴패니언이 답하기를
+     * 멈춘 채로 명단이 다시 흐른다. 행은 <b>남는다</b>: 소켓 파일은 데몬보다 오래 살아서,
+     * 명단이 실어 나르는 것은 "없다"가 아니라 "답하지 않는다"다.
+     */
+    private void openStopDoor() {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_stopped",
+                (StopFn) () -> {
+                    if (rosterCb == null) return;
+                    rosterCb.accept(Global.JSON.parse(
+                            "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"stopped\"," +
+                            "\"live\":false,\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\"," +
+                            "\"team\":\"core\",\"host\":\"devbox\",\"version\":\"v0.28.0\",\"trust\":\"own\"," +
+                            "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\"," +
+                            "\"permission\":\"ask\",\"model\":\"gpt-oss:120b\"}]"));
+                });
+    }
+
+    @jsinterop.annotations.JsFunction
+    public interface StopFn { void call(); }
+
     @Override
     public void roster(Consumer<Object> cb) {
         rosterCb = cb;
         openAskDoor();
+        openStopDoor();
         cb.accept(Global.JSON.parse(
                 "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
                 "\"steps\":7,\"idle\":42,\"role\":\"keeps the build green\",\"team\":\"core\",\"hub\":true," +
@@ -95,7 +117,10 @@ public class FakeCompanionSource implements CompanionSource {
     public void history(CompanionContext ctx, Consumer<Object> cb) {
         cb.accept(Global.JSON.parse(
                 "[{\"id\":\"s_now\",\"title\":\"the open one\",\"ago\":0,\"current\":true}," +
-                "{\"id\":\"s_old\",\"title\":\"fix the retry storm\",\"ago\":7200}]"));
+                "{\"id\":\"s_old\",\"title\":\"fix the retry storm\",\"ago\":7200}," +
+                // 제목 없는 지난 세션 — 제목은 첫 프롬프트에서 나므로 아무 말도 오가지 않은
+                // 세션에는 없다. 고르개가 이것을 뭐라 적는지가 지금 이 세션과 갈린다.
+                "{\"id\":\"s_bare\",\"ago\":9000}]"));
     }
 
     @Override
