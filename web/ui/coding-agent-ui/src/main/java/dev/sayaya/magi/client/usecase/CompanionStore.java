@@ -191,6 +191,8 @@ public class CompanionStore implements CompanionSource.Listener {
 
     // ── 자식 층위: 그 아이가 무엇이었나 + 그 아이의 전사 ────────────────────
     private final BehaviorSubject<Object> subOf = dev.sayaya.rx.subject.BehaviorSubject.behavior(null);
+    private boolean subMetaRead = false;
+    private boolean subRowsRead = false;
     private Object subMeta = null;    // /subagents의 그 행
     private Object subRows = null;    // 그 아이디로 읽은 전사
     private String subFor = null;
@@ -200,9 +202,19 @@ public class CompanionStore implements CompanionSource.Listener {
 
     public Object subMeta() { return subMeta; }
 
+    /**
+     * 두 읽기가 <b>돌아왔는가</b> — 값만으로는 「아직」과 「없음」이 같은 null이다.
+     * 이 둘을 섞으면 아직 아무것도 안 읽은 화면이 읽기가 끝난 것처럼 선다(자매 함수
+     * paintPast는 그래서 null을 그리지 않는다).
+     */
+    public boolean subMetaRead() { return subMetaRead; }
+
+    public boolean subRowsRead() { return subRowsRead; }
+
     private void askSub() {
         if (ctx == null || ctx.sub == null || ctx.sub.isEmpty()) {
             subMeta = subRows = null;
+            subMetaRead = subRowsRead = false;
             subFor = null;
             emitSub();
             return;
@@ -211,16 +223,20 @@ public class CompanionStore implements CompanionSource.Listener {
         if (want.equals(subFor)) return;
         subFor = want;
         subMeta = subRows = null;
+        subMetaRead = subRowsRead = false;
         emitSub();
         final String id = ctx.sub;
         source.subagents(ctx, list -> {
             if (!want.equals(subFor)) return;   // 늦은 답이 새 층위에 앉지 않게
             subMeta = rowWithId(list, id);
+            // 답은 왔다 — 그 안에 이 아이가 없었다는 것까지가 읽은 것이다.
+            subMetaRead = true;
             emitSub();
         });
         source.pastTranscript(ctx, id, rows -> {
             if (!want.equals(subFor)) return;
             subRows = rows;
+            subRowsRead = true;
             emitSub();
         });
     }

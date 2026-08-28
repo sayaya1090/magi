@@ -911,5 +911,62 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#dock .composer #send").count() shouldBe 1
             }
         }
+        When("전사가 자라면 — 같은 화면에 두 번째 프레임이 오면") {
+            // 전사는 한 번에 오지 않는다. 한 프레임만 그려 보면 그리는 규칙은 다 맞아 보이고,
+            // <b>두 번째</b> 프레임에서만 갈리는 것이 셋이다: 안 달라진 행을 그대로 두는가,
+            // 없어진 꼬리를 걷는가, 그리고 가운데가 달라진 프레임을 알아보는가.
+            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"tool","tool":"bash","args":"{}","pending":true},{"who":"assistant","text":"c"}]')""")
+            page.waitForCondition { page.locator("#log .row").count() == 3 }
+            // 지금 서 있는 노드에 표를 찍는다 — 같은 노드인지는 밖에서 이렇게만 보인다.
+            page.evaluate("document.querySelectorAll('#log .row').forEach((n,i)=>{n.dataset.mark='m'+i})")
+            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"tool","tool":"bash","args":"{}","ok":true},{"who":"assistant","text":"c"}]')""")
+            Then("가운데 툴이 끝난 프레임이 그려진다 — 길이도 같고 마지막 말도 같은 프레임이다") {
+                // 길이와 마지막 행만 견주면 이 프레임은 통째로 버려지고, 그 툴 행은 뒤에
+                // 다른 행이 붙어 있는 한 <b>영영</b> 도는 중으로 서 있는다.
+                page.waitForSelector("#log .row.tool.toolok")
+                page.locator("#log .row.pending").count() shouldBe 0
+            }
+            Then("달라진 그 행만 새로 서고, 같은 말을 하던 행은 노드째 남는다") {
+                // 통째로 다시 그리면 펼쳐 둔 툴 결과가 접히고 고르던 글자가 풀린다.
+                page.locator("#log .row").nth(0).getAttribute("data-mark") shouldBe "m0"
+                page.locator("#log .row").nth(2).getAttribute("data-mark") shouldBe "m2"
+                withClue("달라진 행은 새 노드여야 한다 — 표가 남아 있으면 옛 말이 서 있는 것이다") {
+                    page.locator("#log .row").nth(1).getAttribute("data-mark") shouldBe null
+                }
+            }
+            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"}]')""")
+            Then("전사가 짧아지면 남은 꼬리는 걷힌다 — 없는 행이 화면에 남지 않게") {
+                page.waitForCondition { page.locator("#log .row").count() == 1 }
+                page.locator("#log .row").nth(0).getAttribute("data-mark") shouldBe "m0"
+            }
+        }
+        When("컴패니언이 답하기를 멈추면") {
+            // 명단에 있다는 것과 답한다는 것은 다른 사실이다(AgentStates.answering).
+            page.evaluate("window.__magi_test_fleet('idle', 's_now', false)")
+            Then("대화가 있던 자리에 그 사정이 선다 — 빈 곳으로 두지 않는다") {
+                page.waitForSelector("#log .empty")
+                page.locator("#log .row").count() shouldBe 0
+                page.locator("#log .empty").textContent() shouldContain "state.companion_gone"
+            }
+            Then("컴포저는 그대로다 — 다시 띄우면 이어서 말할 자리다") {
+                page.locator("#dock form:not([hidden])").count() shouldBe 1
+            }
+            page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"a"},{"who":"assistant","text":"said while gone"}]')""")
+            Then("멈춘 자리에 새 말이 끼어들지 않는다 — 사정 밑에 대화가 자라면 둘 다 거짓이 된다") {
+                page.locator("#log .empty").count() shouldBe 1
+                page.locator("#log .row").count() shouldBe 0
+            }
+        }
+        When("컴패니언이 돌아오면") {
+            page.evaluate("window.__magi_test_fleet('idle', 's_now', true)")
+            Then("사정은 걷히고, 멈춘 동안 도착한 말까지 선다") {
+                // 사정은 <b>제 까닭보다 오래 살면 안 된다</b>. 행은 같은 말을 두 번 흘리지
+                // 않으므로, 돌아온 자리에서 다시 그리지 않으면 살아 있는 대화 위에 "멈췄다"가
+                // 서 있는다 — 돌아온 컴패니언이 새 말을 할 때까지, 어쩌면 영영.
+                page.waitForCondition { page.locator("#log .row").count() == 2 }
+                page.locator("#log .empty").count() shouldBe 0
+                page.locator("#log .row").nth(1).locator(".txt").textContent() shouldBe "said while gone"
+            }
+        }
     }
 })

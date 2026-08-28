@@ -29,6 +29,9 @@ public class FakeCompanionSource implements CompanionSource {
     @JsFunction
     interface SubHook { void call(String sub); }
 
+    @JsFunction
+    interface RowsHook { void call(String json); }
+
     @Override
     public void start(Listener l) {
         listener = l;
@@ -40,6 +43,11 @@ public class FakeCompanionSource implements CompanionSource {
         // 그렇게 만든다). 한 훅에 둘을 받게 하면 스펙이 설 수 없는 자리를 세울 수 있다.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_sub", (SubHook) sub ->
                 listener.context(CompanionContext.of("/tmp/a1.sock", null, "1", null, null, false, "", sub)));
+        // 전사는 <b>자란다</b> — 한 번만 밀면 자라는 자리에서 무엇이 일어나는지를 잴 수 없다
+        // (행 재사용도, 짧아진 전사의 꼬리 제거도, 가운데 행이 끝나는 프레임도 전부 두 번째
+        // 프레임에서만 보인다). 그 두 번째를 여기서 준다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_transcript", (RowsHook) json ->
+                listener.transcript(json == null ? null : Global.JSON.parse(json)));
         l.context(CompanionContext.of("/tmp/a1.sock", null, "1", null));
         l.transcript(Global.JSON.parse(
                 "[{\"who\":\"user\",\"text\":\"fix the build\",\"at\":\"2026-08-27T04:00:00Z\"}," +

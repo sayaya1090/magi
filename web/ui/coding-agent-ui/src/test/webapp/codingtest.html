@@ -17,9 +17,12 @@
       // 셸이 서 있을 자리 둘 — 이 페이지가 셸 없이 뜨기 때문에 여기서 대신 선다.
       // 명단: 컴포저가 "이 컴패니언이 지금 어느 대화에 있나"를 묻는 곳이 이것뿐이다.
       const roster = [];
-      const fleet = (state, session) => {
+      // live는 명단이 <b>따로</b> 싣는 사실이다(명단에 있다 ≠ 답한다). 답이 끊긴 화면과
+      // 돌아온 화면은 여기서만 갈릴 수 있어서, 셋째 조각으로 받는다(안 주면 산 것).
+      const fleet = (state, session, live) => {
         const list = [{socket: '/tmp/a1.sock', peer: '', name: 'alpha',
-                       state: state, live: true, session: session}];
+                       state: state, live: live === undefined ? true : live,
+                       session: session}];
         roster.forEach(cb => cb(list));
       };
       window.__magi_roster_subscribe = cb => { roster.push(cb); fleet('idle', 's_now'); };

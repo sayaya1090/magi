@@ -721,7 +721,14 @@ public class ConversationElement {
                     el("br"), DomGlobal.document.createTextNode(tr("state.gone_how")));
             log.replaceChildren(empty);
         } else {
-            lastSig = null;   // 돌아왔다 — 다음 프레임이 전사를 통째로 다시 세운다.
+            // 돌아왔다 — 사정을 적은 자리를 걷고, 쥐고 있던 행으로 그 자리에 대화를 다시
+            // 세운다. 여기서 다시 그리지 않으면 그 사정은 <b>제 까닭보다 오래 산다</b>:
+            // 행은 같은 말을 두 번 흘리지 않으므로(BehaviorSubject), 돌아온 컴패니언이
+            // 새 말을 하기 전까지 살아 있는 대화 자리에 "멈췄다"가 서 있는다.
+            lastSig = null;
+            forgetDrawn();
+            log.replaceChildren();
+            paintRows(heldRows);
         }
     }
 
@@ -731,7 +738,14 @@ public class ConversationElement {
 
     private void forgetDrawn() { drawn.clear(); sigs.clear(); }
 
+    /**
+     * 마지막으로 받은 행 — 답이 끊긴 동안에도 쥐고 있는다. 흘려보내면 돌아왔을 때
+     * 다시 세울 것이 없다(그 사이 도착한 말까지 함께 사라진다).
+     */
+    private Object heldRows = null;
+
     private void paintRows(Object rowsOrNull) {
+        heldRows = rowsOrNull;
         if (!alive) return;   // 멈춘 컴패니언의 자리에는 그 사정이 서 있다.
         if (rowsOrNull == null) {
             // 아직 모른다 — 이전 컴패니언의 대화가 새 화면에 비치면 안 된다.
@@ -741,7 +755,16 @@ public class ConversationElement {
             return;
         }
         JsArrayLike<Object> rows = Js.uncheckedCast(rowsOrNull);
-        String sig = rows.getLength() + "|" + rowSig(rows.getLength() == 0 ? null : rows.getAt(rows.getLength() - 1));
+        // 자리마다의 말을 <b>다</b> 이어 견준다. 길이와 마지막 행만 보면 가운데가 달라진
+        // 프레임이 통째로 버려진다: 툴 하나가 뒤에 다른 행이 붙은 다음에 끝나는 자리가
+        // 그렇고(길이도 같고 마지막 말도 같다), 그 행은 영영 "도는 중"으로 서 있는다.
+        String[] want = new String[rows.getLength()];
+        StringBuilder all = new StringBuilder().append(rows.getLength());
+        for (int i = 0; i < rows.getLength(); i++) {
+            want[i] = rowSig(rows.getAt(i));
+            all.append('|').append(want[i]);
+        }
+        String sig = all.toString();
         if (sig.equals(lastSig)) return;
         lastSig = sig;
         boolean stick = atBottom();
@@ -752,18 +775,17 @@ public class ConversationElement {
         // 매 프레임 화면 전체를 다시 칠한다(실측: 10초에 49번, 그중 새 행은 여섯).
         for (int i = 0; i < rows.getLength(); i++) {
             JsPropertyMap<Object> row = Js.uncheckedCast(rows.getAt(i));
-            String want = rowSig(row);
             HTMLElement had = i < drawn.size() ? drawn.get(i) : null;
-            if (had != null && want.equals(sigs.get(i))) continue;   // 같은 말이면 그대로 둔다
+            if (had != null && want[i].equals(sigs.get(i))) continue;   // 같은 말이면 그대로 둔다
             HTMLElement made = rowNode(row);
             if (had == null) {
                 log.append(made);
                 drawn.add(made);
-                sigs.add(want);
+                sigs.add(want[i]);
             } else {
                 had.replaceWith(made);
                 drawn.set(i, made);
-                sigs.set(i, want);
+                sigs.set(i, want[i]);
             }
         }
         // 남은 것은 이제 없는 행이다(전사가 짧아지는 자리: 컴패니언을 옮기거나 접었을 때).
