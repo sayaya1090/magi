@@ -45,10 +45,19 @@ export class Cursor {
     // **자리 없는 이벤트는 자리를 못 민다.** 버스 전용(transient) 이벤트는 로그에 안 앉으므로
     // `seq == 0` 으로 온다 — `part.delta`, `tool.progress`, `permission.requested`,
     // `question.requested`, `context.usage`, `workflow.phase`, `council.deliberating`,
-    // `model.changed`, `user.label.changed` 가 그렇다(`internal/core/event/event.go`).
+    // `question.answered` 여덟이다(`internal/core/event/event.go` 의 `transientTypes`,
+    // 2026-08-29 에 세어 확인).
     // 그대로 커서에 넣으면 자리가 0 으로 **뒤로 간다**. 그리고 0 은 계약상 "전부"라서
     // 다음 접속이 대화를 통째로 다시 받는데, `answerable` 은 `since <= 0` 을 정상으로 보고
     // **거절 프레임도 안 보낸다** — 화면은 두 벌이 되고 아무도 왜인지 모른다.
+    //
+    // 그 여덟은 **2026-08-29 에 다시 셌고, 그때 이 주석이 틀린 것을 고쳤다.** 앞 판본은
+    // `model.changed`·`user.label.changed` 를 적고 `question.answered` 를 뺐는데, 그 둘은
+    // 전이가 아니라 **영속되는 타입**이다 — `docs/ARCHITECTURE.md` 의 목록을 옮긴 것이었고
+    // 그 목록이 틀렸다(§5.7 이 넷을 세어 적는다). 살아남은 것이 요점이다:
+    // **판단은 목록이 아니라 값에 건다.** 아래 `seq <= 0` 은 이 목록을 한 번도 안 보므로,
+    // 주석이 틀려 있던 동안에도 그 줄은 안 틀렸다.
+    //
     // ⚠ 오늘 이 줄은 **없어도 이 클라이언트는 안 다친다** — 돌연변이 시험으로 확인했다
     // (지우고 돌려도 아무 시험이 안 죽었다). 바로 아래 단조 규칙이 세션 안에서 이미 막고,
     // 세션이 다르면 `sinceFor` 가 -1 을 내며, 와이어에서 0 과 -1 이 같은 뜻이기 때문이다.

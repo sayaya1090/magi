@@ -623,9 +623,11 @@ tool that edits the same workspace and is called mcp\_\_jetbrains\_\_edit; a sli
 
 - 비-테스트 Go 전체에서 `FileArg`/`WritesFile`를 구현하는 타입이 **0개**다. 나오는 곳은 선언
   (`internal/port/port.go`)과 읽는 곳(`internal/app/filetools.go`의 `touchesFileIn`) 둘뿐이다.
+  (**2026-08-29에 다시 셌고 그대로다** — 코어가 이 이음매를 매일 손대는 중이라 날짜를 남긴다.)
 - `touchesFileIn`은 `reg.Get(name)`이 돌려준 값을 `port.FileTool`로 타입 단언한다. MCP 도구가
-  레지스트리에 드는 값은 `internal/adapter/mcp/tool.go`의 `mcpTool`이고, 이 타입은
-  `Name`/`Description`/`Schema`/`Execute` 넷만 갖는다.
+  레지스트리에 드는 값은 `internal/adapter/mcp/tool.go`의 `mcpTool`이고, 이 타입이 **가진
+  메서드가 `Name`/`Description`/`Schema`/`Execute` 넷**이다(필드는 그보다 많다 — 그림 두는
+  자리가 붙어 있다. 세는 것은 메서드다).
 - 전선에도 자리가 없다. `internal/adapter/mcp/jsonrpc.go`의 `toolDef`는 `{name, description,
   inputSchema}`뿐이고, MCP 표준의 `annotations`(`readOnlyHint` 등)를 **파싱하지 않는다**.
 
@@ -662,7 +664,8 @@ both read as '', so content alone cannot tell a creation or a deletion from a no
 매번 "이 런이 그 경로를 만들었다"로 기록된다.** `.pptx`는 사실상 항상 그 위다.
 
 그 기록이 무엇을 하는지도 실측했다 — `didCreate`를 읽는 유일한 자리가 되돌릴 수 없는 명령의
-카운슬 게이트다(`internal/app/irreversible.go`의 `didCreate`):
+카운슬 게이트다(`internal/app/guard.go`의 `didCreate`를 `internal/app/irreversible.go`가 부르는
+자리 하나. 시험 밖의 호출자가 그것뿐인 것은 2026-08-29에 다시 확인했다):
 
 ```
 rm -rf ~/Decks/q3.pptx   didCreate=false -> council gate=true  "rm -rf /Users/…/q3.pptx"
@@ -1790,9 +1793,13 @@ id를 seq 옆에 같이 들고 있는 것은 클라이언트 몫이다. 위 문�
 두었다: 로그의 어휘를 가진 클라이언트는 콘솔이 하는 일을 다 할 수 있지만 렌더만 받은 쪽은 못 하고,
 한 스트림을 두 가지로 적으면 어느 한쪽을 고칠 때 갈라진다. **그래서 그리는 것은 읽는 쪽 일이다.**
 우리에게 이건 §12 #5의 답을 바꾼다 — 밖으로 나갈 때 없어지는 것은 **저장소를 읽어야 한다는 조건**
-하나이고, `internal/core/event/event.go`의 `Event`와 그 27가지 `Type`을 아는 코드는 **그대로
+하나이고, `internal/core/event/event.go`의 `Event`와 그 `Type` 상수 전부를 아는 코드는 **그대로
 딸려 온다.** 채팅창에 필요한 것이 그중 몇 개뿐이라도, 모르는 종류를 조용히 버리면 그게 곧 §5.7이
 피하려는 「아무도 안 보는 곳에서 대기」다.
+
+**수를 안 적는 것이 일부러다.** 2026-08-29에 세면 27개인데, 그 수는 코어가 타입 하나를 더하는
+날 틀린다. 이 문단이 기대는 것은 수가 아니라 **모르는 것이 와도 안 버린다**는 규칙이라, 수에
+걸면 규칙이 목록을 따라 낡는다 — 바로 아래 §5.7이 그 낡음을 실물로 겪은 자리다.
 
 **그 어휘를 그대로 받기로 한 이상 어휘의 규칙도 그대로 받는다 — 그런데 둘을 이 문서가 안 적고
 있었다.** 목업에 이 창을 실제로 만들면서 걸린 것들이고, 안 적혔다는 것은 `2026-08-28`에 문서를
@@ -1800,14 +1807,25 @@ id를 seq 옆에 같이 들고 있는 것은 클라이언트 몫이다. 위 문�
 지금 적는다.
 
 **하나 — 로그에 안 앉는 이벤트는 `Seq`가 0이다.** `event.go`의 `Seq` 주석이 그렇게 적어 두었다 —
-"transient (bus-only) events carry Seq == 0". `part.delta`·`tool.progress`·`permission.requested`·
-`question.requested`·`context.usage`·`workflow.phase`·`council.deliberating`·`model.changed`·
-`user.label.changed`가 그렇다. 그래서 **받은 이벤트의 `seq`를 그대로 커서에 넣는 창은 커서가 0으로
-뒤로 간다.** 그리고 0은 이 문의 계약에서 "전부"다 — `answerable`은 `since <= 0`을 정상으로 보고
+"transient (bus-only) events carry Seq == 0". `transientTypes`가 그 집합이고, 여덟이다 —
+`part.delta`·`tool.progress`·`permission.requested`·`question.requested`·`context.usage`·
+`workflow.phase`·`council.deliberating`·`question.answered`. 그래서 **받은 이벤트의 `seq`를
+그대로 커서에 넣는 창은 커서가 0으로 뒤로 간다.** 그리고 0은 이 문의 계약에서 "전부"다 —
+`answerable`은 `since <= 0`을 정상으로 보고
 **거절 프레임도 안 보낸다**. §5.7이 커서에 이만큼 말을 쓴 이유가 화면이 두 벌 되는 것을 막는
 것이었는데, **바로 그 사고가 아무 소리 없이 일어난다.** 규칙: 커서를 미는 것은 `seq > 0`인
 이벤트뿐이다. (목업의 `Cursor`는 오늘 이걸 안 지켜도 안 다치는데, 그건 단조 규칙과 「-1과 0이
 와이어에서 같다」는 두 우연 덕이다. 우연에 기대는 면역은 규칙이 아니라서 코드에도 같이 적었다.)
+
+**그 여덟은 2026-08-29에 다시 셌고, 그때 이 문단이 틀린 것을 고쳤다.** 앞 판본은 아홉을 적으면서
+`question.answered`를 빼고 `model.changed`·`user.label.changed`를 넣었는데, 그 둘은 전이가
+아니라 **영속되는 타입**이다. 어디서 왔는지도 안다 — `docs/ARCHITECTURE.md`의 목록이 그렇게
+적고, 그걸 보고 옮겼다. 바로 아래 §5.7이 「문서 넷이 서로 다른 집합을 적는다」고 세는데, **그
+넷을 세면서 이 문서 자신이 다섯째였다는 것**이 이번에 나온 것이다.
+
+여기서 살아남은 것이 하나 있고 그게 요점이다. **규칙은 안 틀렸다** — 「커서를 미는 것은 `seq > 0`인
+이벤트뿐」은 목록을 안 보고 **값을 본다.** 목록을 베낀 문장은 낡았고 값을 읽는 문장은 안 낡았다.
+집합을 적어야 할 때는 적되, **판단은 값에 걸고 목록에 걸지 않는다.**
 
 **둘 — 모델의 한 마디가 두 번 온다.** 도는 중에는 조각이 `part.delta`로(버스 전용) 오고, 끝나면
 같은 말이 `part.appended`로 로그에 앉는다. `MessageID`가 같다. 그래서 **둘 다 새 줄로 쌓는 창은
@@ -3222,15 +3240,21 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
 
    **그래서 답은 「나가도 된다」이되, 대가가 사라진 게 아니라 작아진 것이다.** 없어진 것은 magi의
    **이벤트 저장소를 읽어야 한다**는 조건 하나다. 남는 것은 **어휘**다 — 문이 흘리는 것이 렌더가
-   아니라 로그 자신의 이벤트라서, `internal/core/event/event.go`의 `Event`와 그 27가지 `Type`을
-   아는 코드가 헬퍼 쪽에 딸려 온다(§5.7). **한 저장소가 편한 이유는 이제 그것 하나로 줄었고,
-   그건 코어 변경을 청해야 하는 것과 급이 다르다.**
+   아니라 로그 자신의 이벤트라서, `internal/core/event/event.go`의 `Event`와 그 `Type` 상수
+   전부를 아는 코드가 헬퍼 쪽에 딸려 온다(§5.7 — 수는 일부러 안 적는다). **한 저장소가 편한
+   이유는 이제 그것 하나로 줄었고, 그건 코어 변경을 청해야 하는 것과 급이 다르다.**
 
-   **다만 문이 어디로 났는지는 우리 배치에 걸린다 — 제어 소켓 전용이다.** 함대 door가 나르는 네
-   방법(`cmd/magi/door.go`의 `doorAllows`)에 **일부러 안 넣었다**: 그 건널목은 남의 ssh 키를 위한
-   것이고 그 뒤에 대화가 있으면 낯선 사람이 남의 대화를 읽는다. 우리에게는 값이 아니라 확인이다 —
-   §5.2가 헬퍼를 **사용자당 하나, 그 머신 안**으로 못 박아 둔 것이 여기서 한 번 더 맞는다. 그리고 §11의 「여러 머신에 걸치지 않는다」가
-   이제 취향이 아니라 **문이 그렇게 나 있다**는 사실이 된다.
+   **다만 문이 어디로 났는지는 우리 배치에 걸린다 — 제어 소켓 전용이다.** 함대 door가 나르는
+   방법 목록(`cmd/magi/door.go`의 `doorAllows`)에 **일부러 안 넣었다**: 그 건널목은 남의 ssh 키를
+   위한 것이고 그 뒤에 대화가 있으면 낯선 사람이 남의 대화를 읽는다. 우리에게는 값이 아니라
+   확인이다 — §5.2가 헬퍼를 **사용자당 하나, 그 머신 안**으로 못 박아 둔 것이 여기서 한 번 더
+   맞는다. 그리고 §11의 「여러 머신에 걸치지 않는다」가 이제 취향이 아니라 **문이 그렇게 나 있다**는
+   사실이 된다.
+
+   여기서도 **수는 안 적는다.** 앞 판본이 「네 방법」이라 적었고 2026-08-29에 세면 실제로 넷인데
+   (`about`·`hand`·`hand-state`·`watch`), 그 함수 위 주석이 **이달에만 셋이 늘었다**고 스스로
+   적는다. 우리가 기대는 것은 수가 아니라 **대화가 그 목록에 없다**는 것이고, 그건 목록이 자라도
+   안 변한다 — 자라서 대화가 들어가는 날엔 수를 세도 못 알아챈다.
 6. ~~**덱 도구를 어느 워크스페이스가 쓰게 할 것인가.**~~ **닫혔다 — §5.0.** 답은 "글로벌이냐
    프로젝트냐"가 아니라 **어느 쪽도 아니다**였다. 애드인이 붙을 컴패니언을 고르고 런타임에 붙인다.
    config에 적는 길은 door가 열릴 때까지의 임시 경로로만 남는다(M1).
