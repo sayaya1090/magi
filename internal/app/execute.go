@@ -356,17 +356,26 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// For a file edit, snapshot the file's content BEFORE the tool runs so the council can
 	// be shown the agent's actual before→after change (reconstructed from its own tools).
 	var changeBefore, changePath string
-	var changeReadable bool
+	var changeReadable, changeExisted bool
 	if touch, ok := a.touchesFile(tc.Name, tc.Args); guard != nil && ok && touch.writes {
 		changePath = touch.path
 		if changePath != "" {
 			changeBefore, changeReadable = readForChange(workdir, changePath)
+			// …and whether it was THERE, which the content cannot say. An absent file and an empty
+			// one both read as "", and so does a file too large to snapshot (readForChange refuses
+			// past its cap, because a part of a file is not the file). The bash path has taken this
+			// stat from the beginning, with that reason written beside it; the file-tool path asked
+			// the content instead, so every write to a file over the cap was recorded as "this run
+			// created it". The one reader of that record is the gate on irreversible commands,
+			// which lets a run delete what it made — so a big file magi merely EDITED could be
+			// deleted without the question being asked.
+			changeExisted = pathExists(workdir, changePath)
 		}
 		// Journal it for a child, before the call runs. This is the only moment the pre-touch state
 		// exists, and a loop that wants to put a failed round back has nothing else to go on.
 		if depth > 0 && changePath != "" {
 			a.journalFor(sid, workdir).note(relForChange(workdir, changePath),
-				changeBefore, changeReadable, pathExists(workdir, changePath))
+				changeBefore, changeReadable, changeExisted)
 		}
 	}
 	// The same snapshot for a bash mutation, whose destination has to be read out of the command
@@ -574,7 +583,8 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// place (see noteToolOutcome).
 	a.noteToolOutcome(sid, guard, toolOutcome{
 		tc: tc, res: &res, workdir: workdir, fp: guardFP, novel: guardNovel, toolOK: toolOK,
-		changePath: changePath, changeBefore: changeBefore, bashChanges: bashChanges,
+		changePath: changePath, changeBefore: changeBefore, changeExisted: changeExisted,
+		bashChanges: bashChanges,
 	})
 
 	// This call is no longer the thing being waited on, so its last progress note stops being true

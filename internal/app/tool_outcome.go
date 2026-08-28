@@ -32,7 +32,10 @@ type toolOutcome struct {
 	toolOK       bool   // the TOOL's own success, before post-edit hooks/diagnostics flipped IsError
 	changePath   string
 	changeBefore string
-	bashChanges  []bashChange
+	// changeExisted is the stat taken with changeBefore, for the same reason bashChange keeps one:
+	// an absent path, an empty file and a file too large to read all say "" as content.
+	changeExisted bool
+	bashChanges   []bashChange
 }
 
 // noteToolOutcome records everything one finished tool call means to the loop guard.
@@ -56,9 +59,13 @@ func (a *App) noteToolOutcome(sid session.SessionID, guard *runGuard, o toolOutc
 	if guard != nil && guardFP != "" {
 		touch, touchesFile := a.touchesFile(tc.Name, tc.Args)
 		if !res.IsError && touchesFile && touch.writes {
-			if p := strings.TrimSpace(touch.path); p != "" && changeBefore == "" &&
+			if p := strings.TrimSpace(touch.path); p != "" && !o.changeExisted &&
 				pathExists(workdir, p) {
-				// Empty before + present after: this call is what made it.
+				// Absent before + present after: this call is what made it. Asked of the stat, not
+				// of the content — "" is also what an empty file and a file past the snapshot cap
+				// say, and answering from content recorded every write to a large file as a
+				// creation. What reads this record is the gate on irreversible commands, so the
+				// error let a run delete a file it had only edited without being asked.
 				guard.noteCreated(absUnder(workdir, p))
 			}
 			mutatedReset = guard.mutated(touch.path, canonicalArgs(tc.Args))

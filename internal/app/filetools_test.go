@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -137,5 +139,53 @@ func TestTheCouncilSeesADeclaredToolsEdit(t *testing.T) {
 	// And with no answer behind it, the builtin names still are the vocabulary.
 	if got := observeEvents(evs, nil).changed; len(got) != 0 {
 		t.Errorf("an undeclared name counted as a change: %v", got)
+	}
+}
+
+// "This run created it" decides whether an irreversible command is asked about, so the question has
+// to be asked of the filesystem. It was asked of the CONTENT: an empty before-snapshot meant a
+// creation — and a before-snapshot is also empty when the file was too large to snapshot at all
+// (readForChange stops at its cap, because part of a file is not the file).
+//
+// So every write to a file over that cap was recorded as a creation, and a run could then delete a
+// file it had only edited without the gate ever asking. The bash path has always taken the stat,
+// with the reason written beside it; this is the same question, answered the same way.
+func TestALargeFileThatWasEditedIsNotRecordedAsCreated(t *testing.T) {
+	dir := t.TempDir()
+	big := filepath.Join(dir, "deck.bin")
+	if err := os.WriteFile(big, make([]byte, changeReadCap+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if before, ok := readForChange(dir, big); before != "" || ok {
+		t.Fatalf("the premise moved: a file over the cap now snapshots as %q/%v", before, ok)
+	}
+
+	a := &App{tools: oneTool{declaredTool{name: "write", writes: true}}}
+	guard := newRunGuard(a.touchesFile)
+	args, _ := json.Marshal(map[string]string{"file": big})
+	a.noteToolOutcome("s1", guard, toolOutcome{
+		tc: &session.ToolCall{CallID: "c1", Name: "write", Args: args}, res: &session.ToolResult{},
+		workdir: dir, fp: "fp", toolOK: true,
+		changePath: big, changeBefore: "", changeExisted: true, // it WAS there; it was only edited
+	})
+	if guard.didCreate(big) {
+		t.Error("editing a file the run did not create was recorded as creating it — " +
+			"the gate on irreversible commands reads this, and would let the run delete it unasked")
+	}
+
+	// …and a file this run really did make is still recorded, or the gate asks about the run's own
+	// scratch output forever.
+	made := filepath.Join(dir, "new.txt")
+	if err := os.WriteFile(made, []byte("hi"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args2, _ := json.Marshal(map[string]string{"file": made})
+	a.noteToolOutcome("s1", guard, toolOutcome{
+		tc: &session.ToolCall{CallID: "c2", Name: "write", Args: args2}, res: &session.ToolResult{},
+		workdir: dir, fp: "fp2", toolOK: true,
+		changePath: made, changeBefore: "", changeExisted: false,
+	})
+	if !guard.didCreate(made) {
+		t.Error("a file this run wrote from nothing was not recorded as created")
 	}
 }
