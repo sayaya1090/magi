@@ -96,6 +96,83 @@ internal class AccessScreenTest : GwtTestSpec({
                 page.waitForCondition { page.locator("#access .refused").count() == 0 }
             }
         }
+        When("답을 기다리지 않고 두 번 눌러, <b>나중 것이 먼저</b> 답하면") {
+            // 사람은 답을 기다려 주지 않는다 — 고르개를 두 번 고르면 쓰기가 둘 떠 있고, 답이
+            // 청한 순서로 온다는 보장은 어디에도 없다. 그 판을 만들려면 대답을 손에 쥐어야
+            // 한다. 명부 읽기는 쥐지 않는다: 그것까지 붙잡으면 판이 안 그려져 무엇을 재는지가
+            // 흐려진다.
+            page.evaluate("window.__magi_test_hold = 'write'")
+            // 붙잡아 둔 것은 놓아준 뒤에도 자리를 차지한다(번호가 곧 순서라 지우지 않는다).
+            // 그래서 재는 것은 크기가 아니라 <b>늘어난 만큼</b>이다.
+            val heldBefore = page.evaluate("window.__magi_test_held()") as Int
+            page.evaluate("window.__magi_test_press_refuses = 'the last admin cannot be demoted'")
+            page.evaluate(
+                "document.querySelector('#access .acc.person md-outlined-select')" +
+                    ".dispatchEvent(new Event('change'))"
+            )
+            page.evaluate("delete window.__magi_test_press_refuses")
+            page.evaluate(
+                "document.querySelector('#access .acc.person md-outlined-select')" +
+                    ".dispatchEvent(new Event('change'))"
+            )
+            page.waitForCondition {
+                (page.evaluate("window.__magi_test_held()") as Int) == heldBefore + 2
+            }
+            Then("나중 것이 통하면 사유는 걷힌다") {
+                page.evaluate("window.__magi_test_release(${heldBefore + 1})") shouldBe true
+                page.waitForCondition { page.locator("#access .refused").count() == 0 }
+            }
+            Then("뒤늦게 온 <b>먼저 누른 것</b>의 거절은 그 그림을 되돌리지 못한다") {
+                // 놓아준 것이 실제로 지나갔는지를 함께 묻는다 — 아무 일도 안 일어나서 조용한
+                // 초록과, 옛 말을 버려서 조용한 초록은 화면만 봐서는 같아 보인다.
+                val fired = page.evaluate("window.__magi_test_release($heldBefore)")
+                // 치우는 것을 <b>단언보다 먼저</b> 한다: 여기서 터지면 붙잡아 두는 문이 열린 채
+                // 남아, 뒤따르는 판들이 제 결함이 아닌 것으로 함께 빨개진다(실측: 되돌림 하나에
+                // 2 실패였고 둘째는 이 새는 문 때문이었다).
+                page.evaluate("delete window.__magi_test_hold")
+                fired shouldBe true
+                page.locator("#access .refused").count() shouldBe 0
+            }
+        }
+        When("명부 읽기도 둘 떠 있고, 나중 것이 먼저 답하면") {
+            // 쓰기마다 읽기를 하나씩 부르므로 읽기도 둘 떠 있을 수 있다. 여기서는 두 읽기가
+            // 서로 <b>다른 것</b>을 실어 와야 순서를 볼 수 있다: 먼저 청한 것은 명부를 싣고,
+            // 나중 청한 것은 못 읽었다는 뜻의 빈손(null)을 싣는다.
+            page.evaluate("window.__magi_test_hold = 'read'")
+            val readsHeld = page.evaluate("window.__magi_test_held()") as Int
+            page.evaluate(
+                "document.querySelector('#access .acc.person md-outlined-select')" +
+                    ".dispatchEvent(new Event('change'))"
+            )
+            page.evaluate("window.__magi_test_unreachable = true")
+            page.evaluate(
+                "document.querySelector('#access .acc.person md-outlined-select')" +
+                    ".dispatchEvent(new Event('change'))"
+            )
+            page.waitForCondition {
+                (page.evaluate("window.__magi_test_held()") as Int) == readsHeld + 2
+            }
+            Then("나중 것이 못 읽었다면 판은 그렇게 선다") {
+                page.evaluate("window.__magi_test_release(${readsHeld + 1})") shouldBe true
+                page.waitForCondition { page.locator("#access .acc.person").count() == 0 }
+            }
+            Then("뒤늦게 온 <b>옛 명부</b>는 그 판을 덮지 않는다 — 지운 사람이 다시 서는 그림이다") {
+                val fired = page.evaluate("window.__magi_test_release($readsHeld)")
+                page.evaluate("delete window.__magi_test_hold")
+                page.evaluate("delete window.__magi_test_unreachable")
+                // 재는 것을 먼저 손에 쥐고, 치우는 것을 <b>단언보다 먼저</b> 한다 — 여기서
+                // 터지면 판이 빈 채로 남아 뒤따르는 것들이 제 결함이 아닌 것으로 빨개진다.
+                val rows = page.locator("#access .acc.person").count()
+                // 판을 원래대로 되돌려 두는 데 <b>새로 여는 것 말고 길이 없다</b>: 이 화면이
+                // 명부를 다시 청하는 문은 쓰기의 대답 하나뿐인데(poll이 없다), 명부가 없으면
+                // 누를 줄도 없다. 아래 「회선이 끊긴 채로」가 맨 끝에 선 이유와 같은 사실이고,
+                // 여기서는 뒤따르는 판들이 명부를 필요로 하므로 다시 연다.
+                page.reload()
+                page.waitForCondition { page.locator("#access .acc.person").count() >= 1 }
+                fired shouldBe true
+                rows shouldBe 0
+            }
+        }
         When("폰 폭(390px)으로 줄이면") {
             page.setViewportSize(390, 844)
             Then("가로 스크롤 없이 명부가 그대로 읽힌다") {

@@ -18,15 +18,59 @@ public class FakeAccessSource implements AccessSource {
     private boolean samGone = false;
 
     @Inject
-    public FakeAccessSource() {}
+    public FakeAccessSource() {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        // 붙잡아 둔 대답을 스펙이 <b>고른 순서로</b> 놓아준다. 순서를 바꿔 볼 길이 없으면
+        // "먼저 누른 것이 나중에 답한다"는 판을 스펙이 만들 수 없고, 그 판에서만 드러나는
+        // 결함은 영영 안 보인다.
+        win.set("__magi_test_release", (Release) i -> {
+            if (i < 0 || i >= held.size()) return false;
+            Runnable one = held.get(i);
+            held.set(i, null);
+            if (one == null) return false;
+            one.run();
+            return true;
+        });
+        win.set("__magi_test_held", (Held) () -> held.size());
+    }
+
+    /** 놓아준 것이 <b>실제로 있었는지</b>를 돌려준다 — 아무 일도 안 일어난 초록과 갈라야 한다. */
+    @jsinterop.annotations.JsFunction
+    public interface Release { boolean call(int i); }
+
+    @jsinterop.annotations.JsFunction
+    public interface Held { int call(); }
+
+    private final java.util.List<Runnable> held = new java.util.ArrayList<>();
+
+    /**
+     * 어느 갈래를 손에 쥘 것인가 — `'write'`, `'read'`, 또는 둘 다(`'write read'`).
+     *
+     * <p>갈래를 갈라 쥘 수 있어야 한다: 쓰기의 순서를 재는 스펙은 그 사이의 명부 읽기까지
+     * 붙잡히면 판이 안 그려져서, 무엇을 재는지가 흐려진다.</p>
+     */
+    private static boolean holding(String kind) {
+        Object v = Js.asPropertyMap(DomGlobal.window).get("__magi_test_hold");
+        return v != null && String.valueOf(v).contains(kind);
+    }
+
+    private void answer(Consumer<String> why, String said) {
+        if (holding("write")) held.add(() -> why.accept(said));
+        else why.accept(said);
+    }
+
+    private void answer(Consumer<Object> cb, Object got) {
+        if (holding("read")) held.add(() -> cb.accept(got));
+        else cb.accept(got);
+    }
 
     @Override
     public void roster(Consumer<Object> cb) {
-        if (unreachable()) { cb.accept(null); return; }
+        if (unreachable()) { answer(cb, null); return; }
         String sam = samGone ? "" :
                 ",{\"who\":\"sam@laptop\",\"role\":\"" + samRole + "\",\"can\":[\"read\"]" +
                 (samScope.isEmpty() ? "" : ",\"companions\":[\"" + samScope.replace(",", "\",\"") + "\"]") + "}";
-        cb.accept(Global.JSON.parse(
+        answer(cb, Global.JSON.parse(
                 "{\"configured\":true,\"named\":true," +
                 "\"instance\":{\"who\":\"you@devbox\",\"configDir\":\"~/.config/magi\"}," +
                 "\"roles\":[{\"name\":\"viewer\",\"can\":[\"read\"]}," +
@@ -42,18 +86,18 @@ public class FakeAccessSource implements AccessSource {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
         win.set("__magi_test_set", who + "|" + role + "|" + companions);
         String no = refuses();
-        if (!no.isEmpty()) { why.accept(no); return; }
+        if (!no.isEmpty()) { answer(why, no); return; }
         if (who.startsWith("sam")) { samRole = role; samScope = companions == null ? "" : companions; }
-        why.accept("");
+        answer(why, "");
     }
 
     @Override
     public void removePerson(String who, Consumer<String> why) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_removed_person", who);
         String no = refuses();
-        if (!no.isEmpty()) { why.accept(no); return; }
+        if (!no.isEmpty()) { answer(why, no); return; }
         if (who.startsWith("sam")) samGone = true;
-        why.accept("");
+        answer(why, "");
     }
 
     /** 스펙이 창에 적어 두면 그 다음 쓰기가 거절당한다 — 서버가 사유를 실어 돌려보내듯. */
