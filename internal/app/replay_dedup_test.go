@@ -134,13 +134,21 @@ drain:
 			break drain
 		}
 	}
-	want := []int64{seqs[3], seqs[4], seqs[5], seqs[5] + 1}
-	if len(got) != len(want) {
-		t.Fatalf("resumed at %d and got seqs %v, want %v", cursor, got, want)
+	// The replayed part is named, the live one is only CONSTRAINED: after the last replayed
+	// event, and exactly one of it. Writing the tail as seqs[5]+1 would be the test copying the
+	// store's numbering rule — consecutive allocation — into an expectation about delivery, and a
+	// store that ever numbered sparsely would fail this for a reason that is not the dedup.
+	want := []int64{seqs[3], seqs[4], seqs[5]}
+	if len(got) != len(want)+1 {
+		t.Fatalf("resumed at %d and got seqs %v, want %v then one live event", cursor, got, want)
 	}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("resumed at %d and got seqs %v, want %v", cursor, got, want)
+			t.Fatalf("resumed at %d and got seqs %v, want %v then one live event", cursor, got, want)
 		}
+	}
+	if got[len(want)] <= seqs[5] {
+		t.Fatalf("the event after the seam is %d, not past the last replayed %d — the stream did "+
+			"not stay live, or it repeated", got[len(want)], seqs[5])
 	}
 }
