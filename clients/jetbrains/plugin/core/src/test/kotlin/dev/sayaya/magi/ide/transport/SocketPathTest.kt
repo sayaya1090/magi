@@ -157,3 +157,22 @@ class EvalSymlinksTest {
         assertEquals(dangling, SocketPath.evalSymlinks(dangling))
     }
 }
+
+/**
+ * 링크를 푼 뒤 **처음부터 다시 걷는지.** `/link/x` 한 겹으로는 안 갈린다 — 타깃 **안쪽에**
+ * 링크가 하나 더 있어야 드러난다. macOS 는 `/var`·`/tmp` 가 이미 심링크라 흔한 배치다.
+ */
+class NestedSymlinkTest {
+    @Test
+    fun `절대 타깃 안쪽의 링크도 푼다`() {
+        val tmp = java.nio.file.Files.createTempDirectory("magi-nest")
+        val real = java.nio.file.Files.createDirectories(tmp.resolve("real/x"))
+        java.nio.file.Files.createSymbolicLink(tmp.resolve("hop"), tmp.resolve("real"))
+        val entry = java.nio.file.Files.createSymbolicLink(tmp.resolve("entry"), tmp.resolve("hop/x"))
+
+        val got = SocketPath.evalSymlinks(entry)
+        // 이어 걷기 판본은 여기서 .../hop/x 를 냈다 — hop 도, tmp 앞의 링크도 안 푼 답.
+        assertTrue(!got.toString().contains("hop"), "hop 이 안 풀렸다: $got")
+        assertEquals(real.toRealPath(), got, "Go 가 내는 답과 달라진다")
+    }
+}
