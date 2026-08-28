@@ -240,7 +240,9 @@ func buildRequest(r port.ChatRequest, stream, cache bool, reasoningEffort string
 		}
 		out.Messages = append(out.Messages, sys)
 	}
-	out.Messages = append(out.Messages, convertMessages(r.Messages)...)
+	// Pictures ride only to a model that can read them — see canSeeImages, the first reader the
+	// Vision flag has ever had.
+	out.Messages = append(out.Messages, convertMessages(r.Messages, canSeeImages(r.Model))...)
 	out.Messages = normalizeSystemPlacement(out.Messages)
 
 	for _, t := range r.Tools {
@@ -476,7 +478,14 @@ func normalizeSystemPlacement(msgs []wireMessage) []wireMessage {
 }
 
 // convertMessages maps domain messages (with parts) to OpenAI wire messages.
-func convertMessages(msgs []session.Message) []wireMessage {
+func convertMessages(msgs []session.Message, withImages bool) []wireMessage {
+	// Which tool results get to carry their pictures, decided BACKWARDS from the end of the
+	// conversation: the newest are the ones being talked about. Without this the first render of a
+	// long session would keep its place in every request while the one just made was dropped.
+	showImages := map[string]bool{}
+	if withImages {
+		showImages = recentImages(msgs)
+	}
 	msgs = repairToolOrdering(msgs)
 	// The resend window: assistant reasoning travels back only for messages AFTER the last user
 	// message — the open turn's own tool-calling continuation. That is where the harmony contract
@@ -519,6 +528,17 @@ func convertMessages(msgs []session.Message) []wireMessage {
 						ToolCallID: p.ToolResult.CallID,
 						Content:    toolResultContent(p.ToolResult.Content),
 					})
+					// And its pictures after it, as their own user message: the API gives a tool
+					// result nowhere to put one (role "tool" takes a string). The result's text
+					// names them either way, so a model that cannot see them still knows they
+					// exist — and one that can is shown them next to the call they came from.
+					if !showImages[p.ToolResult.CallID] {
+						continue
+					}
+					blocks, left, _ := imagesFor(p.ToolResult.Images, imageBudget, imagesPerReply)
+					if len(blocks) > 0 {
+						out = append(out, imageMessage(p.ToolResult.CallID, blocks, left))
+					}
 				}
 			}
 		}
