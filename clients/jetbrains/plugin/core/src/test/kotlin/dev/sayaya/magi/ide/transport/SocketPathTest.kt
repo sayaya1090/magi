@@ -68,6 +68,28 @@ class SocketPathTest {
         assertTrue(why != null && why.contains("MAGI_CONFIG_DIR"))
     }
 
+    /**
+     * Go 의 EvalSymlinks 는 준 대소문자를 그대로 돌려준다. 자바의 toRealPath() 는 고친다.
+     * 대소문자를 무시하는 볼륨에서 그 차이가 소켓을 둘로 가른다.
+     */
+    @Test
+    fun `심링크는 풀되 대소문자는 고치지 않는다`() {
+        val base = java.nio.file.Files.createTempDirectory("magi-case")
+        java.nio.file.Files.createDirectory(base.resolve("CaseDir"))
+        val asked = base.resolve("casedir")
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            java.nio.file.Files.exists(asked), "대소문자 구분 볼륨 — 건너뜀")
+        assertEquals("casedir", SocketPath.evalSymlinks(asked).fileName.toString())
+    }
+
+    @Test
+    fun `심링크는 실제로 푼다`() {
+        val base = java.nio.file.Files.createTempDirectory("magi-link")
+        val real = java.nio.file.Files.createDirectory(base.resolve("real"))
+        val link = java.nio.file.Files.createSymbolicLink(base.resolve("link"), real)
+        assertEquals(real.fileName.toString(), SocketPath.evalSymlinks(link).fileName.toString())
+    }
+
     @Test
     fun `설정 디렉토리는 MAGI_CONFIG_DIR 이 이긴다`() {
         val dir = SocketPath.configDir(env = { if (it == "MAGI_CONFIG_DIR") "/tmp/mw1" else null })
