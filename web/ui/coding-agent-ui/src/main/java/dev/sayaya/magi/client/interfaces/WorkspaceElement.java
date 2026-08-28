@@ -1,6 +1,7 @@
 package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.CardSharing;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.Keys;
@@ -195,7 +196,7 @@ public class WorkspaceElement {
         b.className = "paneagain";
         b.append(Icons.shape("#i-sl-arrows-rotate", "sic"));
         b.setAttribute("aria-label", tr("files.again"));
-        b.setAttribute("title", tr("files.again"));
+        Tips.on(b, tr("files.again"));
         // 접는 버튼 안이 아니라 옆이다 — 컨트롤 속의 컨트롤은 어디를 눌렀느냐로 두 가지 일 중
         // 하나를 하는 누름이 된다.
         b.addEventListener("click", evt -> { evt.stopPropagation(); again.run(); });
@@ -355,7 +356,7 @@ public class WorkspaceElement {
         open.id = "rm" + (++menuCount);
         open.append(Icons.shape("#i-sl-sliders", null));
         open.setAttribute("aria-label", tr("files.more_named", "name", name));
-        open.setAttribute("title", tr("files.more"));
+        Tips.on(open, tr("files.more"));
         HTMLElement menu = el("md-menu");
         menu.setAttribute("anchor", open.id);
         // 이 기둥은 제 안에서 구르는 상자다 — 메뉴를 그 안에 두면 판의 경계에서 잘리고, 가까운
@@ -722,7 +723,7 @@ public class WorkspaceElement {
         btn.replaceChildren(Icons.shape(fly > 0 ? "#i-sl-spinner-third" : ref, fly > 0 ? "mk spin" : "mk"));
         String say = fly > 0 ? tr("action.working") : (armed ? tr("edit.ask_armed", "what", word) : word);
         btn.setAttribute("aria-label", say);
-        btn.setAttribute("title", say);
+        Tips.on(btn, say);
         btn.setAttribute("aria-busy", fly > 0 ? "true" : "false");
     }
 
@@ -1394,7 +1395,7 @@ public class WorkspaceElement {
         row.append(cell("gitkind", tr(kindWord(str(c, "kind")))));
         HTMLElement name = cell("treename", str(c, "path"));
         // 18rem 기둥에서 잘리는 이름이라, 통째로는 어딘가에 있어야 한다.
-        name.setAttribute("title", str(c, "path"));
+        Tips.on(name, str(c, "path"));
         row.append(name);
         final String path = str(c, "path");
         row.addEventListener("click", evt -> store.openFile(path));
@@ -1437,7 +1438,7 @@ public class WorkspaceElement {
         // 다섯 개의 똑같은 "더 보기"는 스크린 리더에게 다섯 번의 "더 보기"다 — 읽히는 이름이
         // 어느 파일의 것인지 말한다(툴팁은 짧은 낱말 그대로).
         open.setAttribute("aria-label", tr("files.more_named", "name", baseName(path)));
-        open.setAttribute("title", tr("files.more"));
+        Tips.on(open, tr("files.more"));
         HTMLElement menu = el("md-menu");
         menu.setAttribute("anchor", open.id);
         menu.setAttribute("positioning", canPopover() ? "popover" : "fixed");
@@ -1539,7 +1540,7 @@ public class WorkspaceElement {
         // 트리 행 28 대 29). 버튼 안의 그림 크기는 버튼이 정한다(운영 act/rowMenu와 같다).
         b.append(Icons.shape(mark, null));
         b.setAttribute("aria-label", tr(key));
-        b.setAttribute("title", tr(key));
+        Tips.on(b, tr(key));
         b.addEventListener("click", evt -> run.run());
         box.append(b);
     }
@@ -1557,7 +1558,7 @@ public class WorkspaceElement {
         // 작업대가 열리면 화면에 "커밋"이 둘이다 — 하나는 검토를 열고 하나는 실제로 쓴다.
         // 같은 낱말, 다른 일이라 읽히는 이름을 다르게 준다.
         go.setAttribute("aria-label", tr("git.commit_open"));
-        go.setAttribute("title", tr(anyStaged ? "git.commit_who" : "git.nothing_staged"));
+        Tips.on(go, tr(anyStaged ? "git.commit_who" : "git.nothing_staged"));
         go.addEventListener("click", evt -> { commitPick = ""; store.openCommit(); });
         box.append(go);
         return box;

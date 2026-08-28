@@ -5,6 +5,7 @@ import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.FleetAgent;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.domain.Updates;
 import dev.sayaya.magi.client.domain.Versions;
@@ -165,7 +166,7 @@ public class DetailElement {
         if (has != full) { full = has; changed.call(); }
         if (!has) { grid.replaceChildren(); kept.clear(); return; }
         say(sum, stateWord(a.state) + " · " + (a.workdir == null ? "" : a.workdir));
-        sum.setAttribute("title", sum.textContent);
+        Tips.on(sum, sum.textContent);
         // 명단은 몇 초마다 흐른다. 그때마다 이 격자를 다시 지으면 그 안의 고르개가 <b>다시
         // 부모를 얻고</b>, 부모가 바뀐 md-select는 열려 있던 메뉴를 닫는다 — 사람이 고르는 중에
         // 손 밑에서 닫히니 편집이 아예 되지 않는다(실측: 깜빡이며 못 고름). 말이 그대로면 그대로 둔다.
@@ -506,7 +507,7 @@ public class DetailElement {
         // 없는 제안이다.
         boolean idle = "idle".equals(a.state) || "stopped".equals(a.state);
         gate(sessSel, idle);
-        sessSel.setAttribute("title", tr(idle ? "hint.session_pick" : "hint.session_busy"));
+        Tips.on(sessSel, tr(idle ? "hint.session_pick" : "hint.session_busy"));
         hold(vOf(f), sessSel);
         return f;
     }

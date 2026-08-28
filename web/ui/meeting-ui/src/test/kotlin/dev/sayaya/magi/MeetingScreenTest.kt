@@ -21,7 +21,7 @@ internal class MeetingScreenTest : GwtTestSpec({
                 page.locator("#meet .meetwho md-filter-chip[label=gamma]").count() shouldBe 0
                 // 팀은 색으로 갈린다(tm0/tm1) — 색이 유일한 말이 아니라 팀 이름은 툴팁에도 있다.
                 page.locator("#meet .meetwho md-filter-chip.tm0").count() shouldBe 1
-                (page.locator("#meet .meetwho md-filter-chip").first().getAttribute("title"))
+                (page.locator("#meet .meetwho md-filter-chip").first().getAttribute("data-tip"))
                     .shouldContain("meet.of_team")
             }
             Then("아직 열 수 없다 — 무엇이 빠졌는지 말한다") {

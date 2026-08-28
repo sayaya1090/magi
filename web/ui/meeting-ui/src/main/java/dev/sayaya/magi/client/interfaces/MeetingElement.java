@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.client.domain.Rooms;
 import dev.sayaya.magi.client.usecase.MeetingStore;
@@ -165,7 +166,8 @@ public class MeetingElement {
                 c.setAttribute("label", str(a, "name"));
                 String says = joinBits(str(a, "team").isEmpty() ? ""
                         : tr("meet.of_team", "team", str(a, "team")), str(a, "role"));
-                if (!says.isEmpty()) c.setAttribute("title", says);
+                // 빈 말이면 붙지 않는다(Tips.on의 계약).
+                Tips.on(c, says);
                 Js.asPropertyMap(c).set("selected", store.picked().contains(socket));
                 c.addEventListener("click", evt -> {
                     store.pick(socket);
@@ -331,7 +333,7 @@ public class MeetingElement {
                     : bool(s, "next") ? tr("meet.next")
                     : num(s, "passes") >= 2 ? tr("meet.resting")
                     : person ? tr("meet.you") : "";
-            c.setAttribute("title", what.isEmpty() ? tr("meet.call", "who", name) : name + " — " + what);
+            Tips.on(c, what.isEmpty() ? tr("meet.call", "who", name) : name + " — " + what);
             c.setAttribute("aria-label", what.isEmpty() ? name : name + " — " + what);
             if (closed) {
                 c.setAttribute("disabled", "");
@@ -465,7 +467,7 @@ public class MeetingElement {
         HTMLElement leave = el("md-text-button");
         leave.append(Icons.shape("#i-sl-chevron-left", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.leave")));
-        leave.setAttribute("title", tr("meet.leave_why"));
+        Tips.on(leave, tr("meet.leave_why"));
         leave.addEventListener("click", evt -> GoSharing.viewWith("meet", "m", ""));
         HTMLElement stop = el("md-text-button");
         stop.append(Icons.shape("#i-sl-flag-checkered", "mk"),

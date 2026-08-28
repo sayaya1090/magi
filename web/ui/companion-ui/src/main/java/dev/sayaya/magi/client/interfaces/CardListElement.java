@@ -1,5 +1,6 @@
 package dev.sayaya.magi.client.interfaces;
 
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
@@ -219,7 +220,7 @@ public class CardListElement {
         // 대상으로 이름 붙인다: 다섯 행의 "Interrupt" 다섯 개는 리더에게 같은 단어 다섯 번이다.
         String stopName = tr("action.for_companion", "action", tr("action.interrupt"), "name", a.name == null ? "" : a.name);
         stopBtn.setAttribute("aria-label", stopName);
-        stopBtn.setAttribute("title", stopName);
+        Tips.on(stopBtn, stopName);
         stopBtn.innerHTML = "<svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
                 + "<rect x=\"7\" y=\"7\" width=\"10\" height=\"10\" rx=\"1.5\" fill=\"currentColor\"/></svg>";
         stopBtn.addEventListener("click", evt -> {

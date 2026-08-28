@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Markdown;
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.bridge.Icons;
 import dev.sayaya.magi.bridge.May;
@@ -458,7 +459,7 @@ public class ConversationElement {
         b.className = "copy hit48";
         b.append(Icons.shape("#i-sl-copy", null));
         b.setAttribute("aria-label", tr("action.copy"));
-        b.setAttribute("title", tr("action.copy"));
+        Tips.on(b, tr("action.copy"));
         b.addEventListener("click", evt -> {
             evt.preventDefault();
             evt.stopPropagation();
@@ -787,7 +788,7 @@ public class ConversationElement {
             name.className = "who whoin hit48";
             name.textContent = whoWord(r, who);
             name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
-            name.setAttribute("title", tr("detail.evidence"));
+            Tips.on(name, tr("detail.evidence"));
             final int at = (int) round;
             name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, r); });
             w = name;

@@ -75,7 +75,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 손잡이 자신도 같은 사실을 말한다. 상태는 md-* 컴포넌트의 프로퍼티로 잰다:
                 // aria-*는 이 컴포넌트가 제 그림자 안쪽으로 옮겨 호스트에서는 사라진다(실측).
                 (page.evaluate("document.getElementById('sideToggle').selected")) shouldBe false
-                (page.evaluate("document.getElementById('sideToggle').title")) shouldBe "side.show"
+                (page.evaluate("document.getElementById('sideToggle').dataset.tip")) shouldBe "side.show"
             }
             Then("넓은 화면엔 탭이 없다 — 나란히 있는 것을 고를 이유가 없다") {
                 page.locator("#ptabs[hidden]").count() shouldBe 1

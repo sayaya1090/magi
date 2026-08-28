@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.Labels;
 import dev.sayaya.magi.bridge.May;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.client.domain.Prefs;
 import dev.sayaya.magi.client.usecase.SettingsStore;
 import elemental2.dom.DomGlobal;
@@ -115,7 +116,7 @@ public class SettingsElement {
         // 무엇에 관한 버튼인지와 지금 무엇인지를 함께 — 그림(하늘)은 지금 것만 말할 수 있다.
         String said = tr("pref.theme") + ": " + tr("pref.theme." + now);
         btn.setAttribute("aria-label", said);
-        btn.setAttribute("title", said);
+        Tips.on(btn, said);
         // 하늘 하나에 세 몸이 들어 있고, 지금 것만 자리에 선다(운영 .sky/.sun/.moon/.auto —
         // 갈아 끼우는 것이 아니라 서로를 지나쳐 움직인다). 낱자(◐ ☀ ☾)로 대신하면 그 움직임도,
         // 굵기도 옆 버튼들과 어긋난다.

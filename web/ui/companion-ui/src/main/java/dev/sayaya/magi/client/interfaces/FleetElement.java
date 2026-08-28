@@ -4,6 +4,7 @@ import dev.sayaya.magi.bridge.May;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
 import dev.sayaya.magi.bridge.Icons;
+import dev.sayaya.magi.bridge.Tips;
 import dev.sayaya.magi.bridge.StateMark;
 import dev.sayaya.magi.client.domain.Roster;
 import dev.sayaya.magi.client.usecase.FleetStore;
@@ -188,6 +189,9 @@ public class FleetElement {
         HTMLElement b = el("md-icon-button");
         b.className = "toview" + (lead ? " lead" : "");
         b.setAttribute("aria-label", tr(labelKey));
+        // 그림뿐인 길이다. md 컴포넌트는 이름을 섀도로 위임하며 호스트에서 걷어가고(위 테스트가
+        // 밟은 자리), 그러면 눈으로는 이 도형이 무엇인지 알 방법이 없다 — 창의 판이 대신 말한다.
+        Tips.on(b, tr(labelKey));
         b.innerHTML = "<svg data-i=\"" + ref + "\" viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" aria-hidden=\"true\">"
                 + "<path d=\"" + path + "\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" "
                 + "stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>";

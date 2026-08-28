@@ -2,6 +2,7 @@ package dev.sayaya.magi.client.interfaces;
 
 import dev.sayaya.magi.bridge.ChromeSharing;
 import dev.sayaya.magi.bridge.Render;
+import dev.sayaya.magi.bridge.Tips;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
@@ -150,7 +151,7 @@ public class Arrangement {
         boolean empty = "side".equals(key) && sideIsEmpty();
         String word = empty ? tr("side.nothing") : tr(key + (open ? ".hide" : ".show"));
         btn.setAttribute("aria-label", word);
-        btn.setAttribute("title", word);
+        Tips.on(btn, word);
         if (empty && !open) Js.asPropertyMap(btn).set("disabled", true);
         else Js.asPropertyMap(btn).set("disabled", false);
     }

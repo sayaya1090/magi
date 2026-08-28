@@ -27,6 +27,9 @@ internal class FleetScreenTest : GwtTestSpec({
                 // 이름은 md 컴포넌트가 섀도로 위임하며 호스트에서 걷어간다(여러 번 밟은 함정) —
                 // 그 자리의 그림으로 어느 길인지 잰다.
                 page.locator("#summary .toview svg[data-i='#i-sl-comments']").count() shouldBe 1
+                // 그래서 이 길들은 말을 들고 있어야 한다: 이름이 호스트에서 걷힌 그림 버튼이
+                // 아무 말도 없으면, 눌러 보는 것 말고 알아낼 방법이 없다(운영도 여기에 붙인다).
+                page.locator("#summary .toview[data-tip]").count() shouldBe 3
             }
             Then("행은 다섯: elsewhere 포함 전부 그려진다") {
                 page.locator("#fleet .card").count() shouldBe 5

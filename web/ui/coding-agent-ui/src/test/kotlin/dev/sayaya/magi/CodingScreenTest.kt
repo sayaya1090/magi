@@ -473,8 +473,8 @@ internal class CodingScreenTest : GwtTestSpec({
                 // aria-label → data-aria-label). 이름은 그림자 안 버튼이 이어받으므로 읽는
                 // 기계에는 그대로 닿는다 — 그 사실을 역할·이름으로 따로 잰다. 운영도 같은
                 // 컴포넌트라 이 계약은 두 콘솔이 공유한다(page.js:9312).
-                ask.nth(0).getAttribute("title") shouldBe "edit.look_now"
-                ask.nth(1).getAttribute("title") shouldBe "edit.ask_armed"
+                ask.nth(0).getAttribute("data-tip") shouldBe "edit.look_now"
+                ask.nth(1).getAttribute("data-tip") shouldBe "edit.ask_armed"
                 ask.nth(0).getAttribute("data-aria-busy") shouldBe "false"
                 page.getByRole(AriaRole.BUTTON, Page.GetByRoleOptions().setName("edit.look_now"))
                     .count() shouldBe 1
@@ -499,7 +499,7 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForCondition { page.evaluate("window.__magi_test_look_asked") == 2 }
                 val look = page.locator("#fileview .filebar .fileacts .editask").nth(0)
                 look.getAttribute("data-aria-busy") shouldBe "true"
-                look.getAttribute("title") shouldBe "action.working"
+                look.getAttribute("data-tip") shouldBe "action.working"
                 page.evaluate("window.__magi_test_look_release()")
                 withClue("깃발이었다면 여기서 표가 꺼진다 — 아직 하나가 떠 있는데도") {
                     look.getAttribute("data-aria-busy") shouldBe "true"
