@@ -60,26 +60,25 @@ public final class Console {
     public interface Said { void call(boolean ok, String text); }
 
     /**
-     * POST하고 <b>본문을 그대로</b> 받는다 — 답이 곧 글인 것들(완성·제안·초안)의 문.
+     * POST하고 <b>답했는가와 그 글</b>을 받는다 — 이 콘솔이 무언가를 시키는 유일한 문.
      * <p>
      * 셋을 갈라 넘긴다: 답했고 그 글이 이것 · <b>거절했고 그 사유가 이것</b> · 닿지 못했다.
-     * 앞서 이 함수는 셋을 빈 문자열 하나로 접었고(성공 본문만 읽고 거절 본문을 버렸다),
-     * 그러자 부르는 쪽이 셋을 구별할 수 없어 사람이 누른 단추가 <b>조용히</b> 아무것도
-     * 안 하거나(초안 둘), 서버가 사유까지 적어 보낸 거절을 "닿지 못했다"로 적었다(/git-pr).
+     * 앞서 여기에는 문이 <b>둘</b>이었고, 둘 다 셋을 빈 문자열 하나로 접었다 — 서로 반대쪽
+     * 절반을 버리면서. `postText`는 성공 본문만 읽고 거절 본문을 버려, 사람이 누른 단추가
+     * <b>조용히</b> 아무것도 안 하거나(초안 둘) 서버가 사유까지 적어 보낸 거절을 "닿지
+     * 못했다"로 적게 했다(/git-pr). `post`는 거절 본문만 읽고, 몸 없는 4xx를 <b>성공</b>으로
+     * 읽었으며(빈 문자열이 이 문의 말로 성공이다), 닿지 못한 것에는 `"unreachable"`이라는
+     * 번역되지 않은 영어 낱말을 지어내 "서버가 이렇게 말했다" 자리에 앉혔다.
+     * <p>
+     * 셋을 가르고 나니 두 문이 같은 함수가 됐다 — 애초에 버리는 절반이 다를 뿐이었다.
      * 사유를 버리는 것이 옳은 자리도 있지만(사람이 누르지 않은 도움), 그 버림은 부르는
      * 쪽이 <b>골라서</b> 할 일이지 이 문이 대신 정할 일이 아니다.
      */
-    public static void postText(String path, URLSearchParams body, String socket, String peer, Said then) {
-        StringBuilder q = new StringBuilder();
-        if (socket != null && !socket.isEmpty()) q.append("d=").append(elemental2.core.Global.encodeURIComponent(socket));
-        if (peer != null && !peer.isEmpty()) {
-            if (q.length() > 0) q.append('&');
-            q.append("p=").append(elemental2.core.Global.encodeURIComponent(peer));
-        }
+    public static void post(String path, URLSearchParams body, String socket, String peer, Said then) {
         RequestInit init = RequestInit.create();
         init.setMethod("POST");
         if (body != null) init.setBody(body);
-        raw(path + (q.length() > 0 ? "?" + q : ""), init)
+        raw(path + query(socket, peer), init)
                 .then(r -> r.text().then(said -> {
                     String text = said == null ? "" : said.trim();
                     if (!r.ok) DomGlobal.console.warn("magi-console", r.status, path, text);
@@ -90,26 +89,21 @@ public final class Console {
                 .catch_(err -> { then.call(false, ""); return null; });
     }
 
-    /** POST path?d=socket&p=peer. resolve 값: 성공 ""; 거부면 사유 본문. */
-    public static Promise<String> post(String path, URLSearchParams body, String socket, String peer) {
-        StringBuilder q = new StringBuilder();
-        if (socket != null && !socket.isEmpty()) q.append("d=").append(elemental2.core.Global.encodeURIComponent(socket));
-        if (peer != null && !peer.isEmpty()) {
-            if (q.length() > 0) q.append('&');
-            q.append("p=").append(elemental2.core.Global.encodeURIComponent(peer));
-        }
-        RequestInit init = RequestInit.create();
-        init.setMethod("POST");
-        if (body != null) init.setBody(body);
-        return raw(path + (q.length() > 0 ? "?" + q : ""), init)
-                .then(r -> {
-                    if (r.ok) return Promise.resolve("");
-                    return r.text().then(why -> {
-                        DomGlobal.console.warn("magi-console", r.status, path, why);
-                        return Promise.resolve(why);
-                    });
-                })
-                .catch_(err -> Promise.resolve("unreachable"));
+    /**
+     * 셋을 <b>사유 한 줄</b>로 옮긴다 — 포트의 말이 "빈 문자열이면 됐다"인 자리들을 위해.
+     * <p>
+     * 셋 중 둘은 그 말로 적을 수 있다: 됐으면 빈 문자열, 거절이면 서버가 적어 보낸 사유.
+     * 셋째는 적을 수 없어서 <b>우리 말을 대신 세운다</b> — 아무도 아무 말도 하지 않았으니
+     * 서버의 말을 옮기는 것이 아니라 우리가 아는 것(닿지 못했다)을 이 사람의 말로 적는 것이다.
+     * 앞서 그 자리에는 `"unreachable"`이 있었다: 번역되지 않은 영어 낱말이, 하필 "서버가
+     * 이렇게 말했다"고 그려지는 자리에.
+     * <p>
+     * 이 옮김은 <b>ok를 잃는다</b>(거절과 불통이 한 줄이 된다). 그래도 되는 자리에서만 쓴다 —
+     * 둘을 갈라 달리 굴어야 하는 자리는 `Said`를 그대로 받아 제가 조합한다.
+     */
+    public static String why(boolean ok, String text) {
+        if (ok) return "";
+        return text == null || text.isEmpty() ? Labels.tr("error.unreachable") : text;
     }
 
     /**
@@ -117,9 +111,8 @@ public final class Console {
      *
      * 위의 둘로는 안 되는 자리가 있다. 갱신(/update)의 거부는 "실패"가 아니라 <b>지시</b>다:
      * 남의 기계 것을 여기서 갱신하려 하면 403과 함께 "그 기계에서 하라"가 오고, 데몬이 답을
-     * 못 내면 502와 함께 그 데몬이 말한 사유가 온다. postText는 답했는가와 글을 <b>갈라</b> 넘겨
-     * 부르는 쪽이 조합하게 하고, post는 성공한 몸을 버린다(사유만 읽는다) — 이 문은 가를 것도
-     * 없이 어느 쪽이든 사람이 읽을 한 줄이다.
+     * 못 내면 502와 함께 그 데몬이 말한 사유가 온다. post는 답했는가와 글을 <b>갈라</b> 넘겨
+     * 부르는 쪽이 조합하게 하지만, 이 문은 가를 것도 없이 어느 쪽이든 사람이 읽을 한 줄이다.
      *
      * 빈 문자열은 <b>회선이 끊긴 것</b>만 뜻한다(fetch 자체가 거절됨): 그때는 아무도 아무 말도
      * 하지 않았으므로 부르는 쪽이 제 말을 대신 세우고 다시 눌러 볼 수 있게 둔다.

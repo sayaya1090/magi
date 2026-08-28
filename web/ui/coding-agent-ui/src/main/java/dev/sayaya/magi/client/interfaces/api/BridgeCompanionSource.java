@@ -53,20 +53,19 @@ public class BridgeCompanionSource implements CompanionSource {
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("text", text);
-        Console.post("/submit", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/submit", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
     public void resume(CompanionContext ctx, String session, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("session", session);
-        Console.post("/resume", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/resume", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
     public void interrupt(CompanionContext ctx, Consumer<String> why) {
-        Console.post("/interrupt", new URLSearchParams(), ctx.socket, ctx.peer)
-                .then(w -> { why.accept(w); return null; });
+        Console.post("/interrupt", new URLSearchParams(), ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
@@ -82,7 +81,7 @@ public class BridgeCompanionSource implements CompanionSource {
         body.set("prefix", prefix);
         // 사유를 <b>일부러</b> 버린다 — 컴포저가 멈춘 것을 보고 부르는 도움이라, 사람은
         // 아무것도 청한 적이 없다. 거절도 침묵으로 지나간다.
-        Console.postText("/suggest", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
+        Console.post("/suggest", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
     }
 
     private static String q(CompanionContext ctx) {

@@ -89,21 +89,21 @@ public class BridgeCompanionSource implements CompanionSource {
     public void useProvider(CompanionContext ctx, String base, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("base", base);
-        Console.post("/providers", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/providers", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
     public void model(CompanionContext ctx, String name, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("model", name);
-        Console.post("/model", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/model", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
     public void permission(CompanionContext ctx, String mode, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("mode", mode);
-        Console.post("/permission", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/permission", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     /**
@@ -139,8 +139,7 @@ public class BridgeCompanionSource implements CompanionSource {
             body.append("key", keys.get(i));
             body.append("prompt", prompts.get(i));
         }
-        Console.post("/report-format", body, ctx.socket, ctx.peer)
-                .then(w -> { why.accept(w); return null; });
+        Console.post("/report-format", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     private static String q(CompanionContext ctx) {
@@ -160,14 +159,16 @@ public class BridgeCompanionSource implements CompanionSource {
 
     @Override
     public void compact(CompanionContext ctx, Runnable done) {
-        Console.post("/compact", null, ctx.socket, ctx.peer).then(w -> { done.run(); return null; });
+        // 사유를 버려도 되는 자리다 — done은 전사를 다시 읽는 일이고, 접히지 않은 전사가
+        // 곧 "접히지 않았다"는 말이다(다음 읽기가 진실을 되돌려 그린다).
+        Console.post("/compact", null, ctx.socket, ctx.peer, (ok, w) -> done.run());
     }
 
     @Override
     public void submit(CompanionContext ctx, String text, Consumer<String> why) {
         URLSearchParams body = new URLSearchParams();
         body.set("text", text);
-        Console.post("/submit", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/submit", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     /** 단독 모드: 주소가 컨텍스트다(타입 해석해 줄 셸이 없으니 ?type=, 없으면 기본). */

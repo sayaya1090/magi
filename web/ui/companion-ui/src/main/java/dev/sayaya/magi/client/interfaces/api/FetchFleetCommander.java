@@ -18,7 +18,8 @@ public class FetchFleetCommander implements FleetCommander {
 
     @Override
     public void interrupt(FleetAgent a, Runnable then) {
-        Console.post("/interrupt", null, a.socket, a.peer).then(r -> { then.run(); return null; });
+        // ⚠ 사유가 설 자리가 이 포트에 없다 — 멈추라는 명령이 거절당해도 명단만 다시 선다.
+        Console.post("/interrupt", null, a.socket, a.peer, (ok, w) -> then.run());
     }
 
     @Override
@@ -29,6 +30,6 @@ public class FetchFleetCommander implements FleetCommander {
         p.append("text", text);
         // post가 이미 재어 온 것을 그대로 넘긴다 — 성공이면 "", 거부면 서버가 적은 사유.
         // 여기서 버리면 그 사유를 다시 만들 수 있는 곳이 없다.
-        Console.post("/answer", p, a.socket, a.peer).then(r -> { then.accept(r == null ? "" : r); return null; });
+        Console.post("/answer", p, a.socket, a.peer, (ok, w) -> then.accept(Console.why(ok, w)));
     }
 }

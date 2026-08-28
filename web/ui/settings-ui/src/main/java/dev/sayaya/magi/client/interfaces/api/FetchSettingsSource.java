@@ -56,8 +56,7 @@ public class FetchSettingsSource implements SettingsSource {
             // 키는 <b>적었을 때만</b> 보낸다: 빈 칸을 보내면 이미 있는 키를 지우는 뜻이 된다.
             if (key != null && !key.isEmpty()) body.set("apiKey", key);
         }
-        Console.post("/profiles", body, socket == null || socket.isEmpty() ? null : socket, null)
-                .then(w -> { why.accept(w); return null; });
+        Console.post("/profiles", body, socket == null || socket.isEmpty() ? null : socket, null, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
@@ -73,7 +72,8 @@ public class FetchSettingsSource implements SettingsSource {
         body.set("p256dh", p256dh);
         body.set("auth", auth);
         if (delete) body.set("delete", "1");
-        Console.post("/push", body, null, null).then(w -> { then.run(); return null; });
+        // ⚠ 사유가 설 자리가 이 포트에 없다 — 알림 등록이 거절당해도 스위치는 그대로 켜진다.
+        Console.post("/push", body, null, null, (ok, w) -> then.run());
     }
 
     @Override
@@ -82,6 +82,6 @@ public class FetchSettingsSource implements SettingsSource {
         body.set(field, value);
         // 전역 config는 소켓으로 지목하지 않는다 — 어느 컴패니언의 것도 아니라서.
         if (socket == null || socket.isEmpty()) body.set("tier", "global");
-        Console.post("/autocomplete", body, socket, peer).then(w -> { then.run(); return null; });
+        Console.post("/autocomplete", body, socket, peer, (ok, w) -> then.run());   // ⚠ 위와 같다
     }
 }

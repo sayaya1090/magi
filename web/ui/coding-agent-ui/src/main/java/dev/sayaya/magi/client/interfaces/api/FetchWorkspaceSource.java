@@ -45,7 +45,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         body.set("path", path);
         if (patch != null && !patch.isEmpty()) body.set("patch", patch);
         else body.set("text", text);
-        Console.post("/save", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/save", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
@@ -54,7 +54,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         body.set("do", what);
         body.set("path", path);
         if (to != null && !to.isEmpty()) body.set("to", to);
-        Console.post("/file-do", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/file-do", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     @Override
@@ -65,7 +65,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         body.set("suffix", suffix);
         // 사유를 <b>일부러</b> 버린다 — 사람이 누른 것이 아니라 타이핑이 부른 도움이라, 거절도
         // 침묵으로 지나가는 것이 맞다(누를 단추도, 사유를 적을 줄도 없다).
-        Console.postText("/complete", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
+        Console.post("/complete", body, ctx.socket, ctx.peer, (ok, said) -> text.accept(ok ? said : ""));
     }
 
     @Override
@@ -73,7 +73,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("path", path);
         body.set("text", numbered);
-        Console.postText("/look", body, ctx.socket, ctx.peer, notes::call);
+        Console.post("/look", body, ctx.socket, ctx.peer, notes::call);
     }
 
     @Override
@@ -81,7 +81,9 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("path", path);
         body.set("text", text);
-        Console.post("/open-file", body, ctx.socket, ctx.peer);
+        // 사유를 <b>일부러</b> 버린다 — 이것은 귀띔이다(에디터에게 "이 파일을 보고 있다"고
+        // 알릴 뿐). 사람이 청한 것이 아니라 파일을 연 것이 부른 일이라, 거절도 침묵으로 지나간다.
+        Console.post("/open-file", body, ctx.socket, ctx.peer, (ok, w) -> { });
     }
 
     @Override
@@ -99,7 +101,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
     public void draftPullRequest(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("rules", rules == null ? "" : rules);
-        Console.postText("/pr-msg", body, ctx.socket, ctx.peer, said::call);
+        Console.post("/pr-msg", body, ctx.socket, ctx.peer, said::call);
     }
 
     @Override
@@ -107,14 +109,14 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("title", title);
         body.set("body", text);
-        Console.postText("/git-pr", body, ctx.socket, ctx.peer, urlOrWhy::call);
+        Console.post("/git-pr", body, ctx.socket, ctx.peer, urlOrWhy::call);
     }
 
     @Override
     public void draftCommitMessage(CompanionContext ctx, String rules, WorkspaceSource.Said said) {
         elemental2.dom.URLSearchParams body = new elemental2.dom.URLSearchParams();
         body.set("rules", rules == null ? "" : rules);
-        Console.postText("/git-msg", body, ctx.socket, ctx.peer, said::call);
+        Console.post("/git-msg", body, ctx.socket, ctx.peer, said::call);
     }
 
     @Override
@@ -123,7 +125,7 @@ public class FetchWorkspaceSource implements WorkspaceSource {
         body.set("do", what);
         if (path != null && !path.isEmpty()) body.set("path", path);
         if (message != null && !message.isEmpty()) body.set("message", message);
-        Console.post("/git-do", body, ctx.socket, ctx.peer).then(w -> { why.accept(w); return null; });
+        Console.post("/git-do", body, ctx.socket, ctx.peer, (ok, w) -> why.accept(Console.why(ok, w)));
     }
 
     private static String base(CompanionContext ctx) {
