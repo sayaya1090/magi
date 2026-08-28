@@ -291,7 +291,13 @@ magi가 한 번도 가진 적 없는 기능이라 작은 요청이 아니었는�
 picture keeps its own name" · "a model that can see is shown the picture, not told about it" ·
 "four ways the picture budget was wrong, all of them at deck size" · "the same picture twice is one
 picture, and the reason it was cut is said" · "the door was reachable in ways the config file never
-was". 우리가 실측해 보낸 결함 여덟이 전부 닫혔다. **설계가 지금 기대는 보장만 남긴다:**
+was". 우리가 실측해 보낸 결함이 전부 닫혔다.
+
+여기 한동안 **"결함 여덟"**이라고 수를 적어 뒀는데 뺀다. 그 수는 우리가 보낸 보고에서 나온 것이라
+**이 저장소에서 확인할 길이 없다** — 커밋 여섯은 `git log`가 받치고, 여덟은 아무것도 안 받친다.
+틀렸다는 게 아니라 **검사할 수 없는 수**라는 것이고, 그런 수는 아무도 안 볼 때 썩는다. 게다가 이
+수에 걸린 설계 결정이 하나도 없다 — 설계가 기대는 것은 아래 보장이지 결함의 개수가 아니다.
+**설계가 지금 기대는 보장만 남긴다:**
 
 - 이미지 블록이 파일로 떨어지고(`data`/`mimeType` → `session.ToolResult.Images []ImageRef`),
   이름을 **내용으로** 짓는다(`images/<session>/<tool>-<sha256[:6]>.<ext>`). 그래서 슬라이드 3의
@@ -802,10 +808,11 @@ door 계약이 이름을 인자로 받으므로 **고르는 쪽이 우리다.** 
 - **자기 자신으로 다듬어진다.** 코어가 이름을 `sanitizeToolPart`로 통과시킨다(`[a-zA-Z0-9_-]` 밖은
   `_`). 다듬은 뒤 달라지는 이름을 고르면 **사람이 목록에서 보는 이름과 allow 룰에 적어야 하는
   이름이 갈린다.** `ppt`는 소문자뿐이라 항등이다. **항등이라야 두 검사가 같은 문자열을 본다** —
-코어의 충돌 검사는 준 이름 그대로 보고(`App.AttachToolServer`), 네임스페이스 충돌은 다듬은 키로
-어댑터가 본다(`manager.go`). 코어가 자기 판본의 다듬기를 갖지 않으려고 일부러 나눈 것이라
-없앨 수 있는 갈래가 아니고, 항등인 이름에서만 그 갈래가 안 보인다. 다듬기 규칙 자체는 이제 골든이 잰다(같은 커밋의
-  둘째 절반) — 손으로 적은 기대값이 그 이식에서 세 번 틀렸던 자리다.
+  코어의 충돌 검사는 준 이름 그대로 보고(`App.AttachToolServer`), 네임스페이스 충돌은 다듬은
+  키로 어댑터가 본다(`manager.go`). 코어가 자기 판본의 다듬기를 갖지 않으려고 일부러 나눈
+  것이라 없앨 수 있는 갈래가 아니고, 항등인 이름에서만 그 갈래가 안 보인다. 다듬기 규칙 자체는
+  이제 골든이 잰다(같은 커밋의 둘째 절반) — 손으로 적은 기대값이 그 이식에서 세 번 틀렸던
+  자리다.
 - **`office`가 아니다.** 이름 하나가 **도구 한 벌**이다. Word 애드인이 생기면 도구가 다른데 같은
   이름으로는 못 붙고(`manager.go`: *"two servers cannot share one name"*), 그때 `office`는 거짓이
   되거나 붙을 자리가 없어진다. 지금 넓게 지어 둘 이유가 없다 — 넓힐 일이 오면 그건 **새 이름**이다.
