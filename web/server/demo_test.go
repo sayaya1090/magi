@@ -90,6 +90,7 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 		`var p='/ui/'+m+'/';var s="/ui/companion.css";var t='/i18n/language.'+w+'.json';`)
 	write(t, filepath.Join(old, "vendor", "material.js"), "export const md = 1;\n")
 	write(t, filepath.Join(old, "vendor", "rxjs.js"), "export const BehaviorSubject = 1;\n")
+	write(t, filepath.Join(old, "vendor", "marked.js"), "export const marked = 1;\n")
 	write(t, filepath.Join(old, "i18n", "language.ko.json"), `{"nav.companions":"컴패니언"}`)
 	// 목은 콘솔 자산 옆의 제 디렉토리에서 온다(운영 번들에는 없다) — 데모를 낼 때만 실린다.
 	write(t, filepath.Join(dir, "demo-mock", "demo", "demo.nocache.js"), "// the mock\n")
@@ -141,7 +142,7 @@ func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
 	}
 
 	// The single-source assets travelled: the packs and the bundle the page names.
-	for _, want := range []string{"i18n/language.ko.json", "vendor/material.js", "vendor/rxjs.js"} {
+	for _, want := range []string{"i18n/language.ko.json", "vendor/material.js", "vendor/rxjs.js", "vendor/marked.js"} {
 		if _, err := os.Stat(filepath.Join(out, want)); err != nil {
 			t.Errorf("%s did not travel into the demo: %v", want, err)
 		}
