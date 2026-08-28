@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -13,6 +14,7 @@ type attachEngine struct {
 	gotHeaders      map[string]string
 	tools           []string
 	err             error
+	detachErr       error
 	detached        bool
 	hadIt           bool
 }
@@ -22,10 +24,10 @@ func (e *attachEngine) AttachToolServer(_ context.Context, name, url string, h m
 	return e.tools, e.err
 }
 
-func (e *attachEngine) DetachToolServer(name string) bool {
+func (e *attachEngine) DetachToolServer(name string) (bool, error) {
 	e.detached = true
 	e.gotName = name
-	return e.hadIt
+	return e.hadIt, e.detachErr
 }
 
 // The door answers with the tools, because that is what the caller can act on. An add-in that
@@ -76,8 +78,23 @@ func TestDetachSaysWhetherThereWasOne(t *testing.T) {
 	}
 	none := &attachEngine{hadIt: false}
 	resp := answerMCPDetach(context.Background(), none, Request{Name: "ppt"})
-	if resp.OK || !strings.Contains(resp.Err, "no tool server") {
-		t.Fatalf("answered ok=%v err=%q for a name nothing holds", resp.OK, resp.Err)
+	if !resp.OK || resp.Removed || resp.Err != "" {
+		t.Fatalf("answered ok=%v removed=%v err=%q — already clean is the answer the caller wanted, "+
+			"not a failure it has to parse", resp.OK, resp.Removed, resp.Err)
+	}
+}
+
+// …and a refusal is neither of those. The door removes what the door attached, so a name that
+// belongs to a server the operator declared comes back as an error, not as "there was none" —
+// which would send a reconnecting helper on to attach under a name it can never have.
+func TestDetachRefusedIsNotTheSameAsNothingToRemove(t *testing.T) {
+	eng := &attachEngine{detachErr: errors.New("declared in this daemon's config")}
+	resp := answerMCPDetach(context.Background(), eng, Request{Name: "ppt"})
+	if resp.OK || resp.Err == "" {
+		t.Fatalf("a refusal answered ok=%v err=%q", resp.OK, resp.Err)
+	}
+	if resp.Removed {
+		t.Error("a refusal reported a removal")
 	}
 }
 

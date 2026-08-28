@@ -202,11 +202,20 @@ func (doctorSink) SetUserLabel(string) {}
 // It also returns one check per scanned plugin source (and per load failure), so
 // -doctor shows WHY a plugin's probes are absent — a skipped directory or a load
 // error used to leave no trace, making a missing plugin undiagnosable.
+// doctorMCP is the manager the probes register their servers with. It keeps pictures in the same
+// place the daemon does: a probe that calls a tool which answers with one would otherwise be told
+// this host keeps none, which is a fact about the doctor and not about the host it is diagnosing.
+func doctorMCP(sink mcp.ToolSink, plat *platform.OS) *mcp.Manager {
+	m := mcp.NewManager(sink)
+	m.ImageDir = plat.DataDir()
+	return m
+}
+
 func loadDoctorProbes(cfg config.Config, plat *platform.OS, wd, pluginsDir string, llm *openai.Client) ([]port.DoctorProbe, []doctorCheck) {
 	reg := builtin.Default()
 	host := pluginlua.NewHostWithConfig(pluginlua.HostConfig{
 		ToolSink:      reg,
-		MCPMgr:        mcp.NewManager(reg),
+		MCPMgr:        doctorMCP(reg, plat),
 		LLMReg:        llm,
 		BaseReg:       llm,
 		PluginConfigs: cfg.Plugins,

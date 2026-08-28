@@ -159,22 +159,24 @@ func (a *App) AttachToolServer(ctx context.Context, name, url string, headers ma
 	if a.toolServers == nil {
 		return nil, fmt.Errorf("this build attaches no tool servers")
 	}
-	// A server may not take a name the companion already answers to. The MCP registry namespaces
-	// its tools (mcp__<name>__<tool>) so a server cannot shadow a builtin by advertising `read`,
-	// but nothing stopped a server called `read` from being attached and reading oddly in every
-	// list. Refused by name here, where the whole roster is known.
+	// A server may not take a namespace the companion already has tools in. The registry names an
+	// MCP tool mcp__<server>__<tool>, so the collision to look for is that PREFIX — comparing the
+	// server name against tool names (which this did) could never match one, because no tool is
+	// ever called plainly "ppt". Refused here, where the whole roster is known.
+	ns := "mcp__" + name + "__"
 	for _, t := range a.tools.List() {
-		if t.Name() == name {
-			return nil, fmt.Errorf("%q is the name of a tool this companion already has", name)
+		if t.Name() == name || strings.HasPrefix(t.Name(), ns) {
+			return nil, fmt.Errorf("%q is already the name of tools this companion has", name)
 		}
 	}
 	return a.toolServers.Attach(ctx, name, url, headers)
 }
 
-// DetachToolServer removes one by name; false when there was none.
-func (a *App) DetachToolServer(name string) bool {
+// DetachToolServer removes one by name: false when there was none, an error when there was one and
+// this caller may not remove it.
+func (a *App) DetachToolServer(name string) (bool, error) {
 	if a.toolServers == nil {
-		return false
+		return false, fmt.Errorf("this build attaches no tool servers")
 	}
 	return a.toolServers.Detach(name)
 }

@@ -567,9 +567,12 @@ type ToolServers interface {
 	// Attach connects to an HTTP MCP server, registers its tools under name, and returns the tool
 	// names that were registered — evidence rather than an ack, so the caller can say what it got.
 	Attach(ctx context.Context, name, url string, headers map[string]string) ([]string, error)
-	// Detach removes a server and its tools. Reports whether there was one to remove: a caller
-	// reconnecting after a crash wants to know whether it is cleaning up or was already clean.
-	Detach(name string) bool
+	// Detach removes a server and its tools. Reports whether there was one to remove — a caller
+	// reconnecting after a crash wants to know whether it is cleaning up or was already clean —
+	// and separately whether it was refused, which "no" alone cannot say. An implementation may
+	// only remove what it attached through this door: a server the operator declared is not
+	// this caller's to take away, and nothing here can put it back until the daemon restarts.
+	Detach(name string) (bool, error)
 }
 
 // ---- Context providers ----

@@ -1,11 +1,19 @@
 package mcp
 
 import (
+	"bytes"
+	"context"
 	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -133,5 +141,135 @@ func TestIdsCannotEscapeTheDirectory(t *testing.T) {
 	}
 	if !strings.HasPrefix(kept[0].Path, dir) {
 		t.Errorf("wrote outside its directory: %q", kept[0].Path)
+	}
+}
+
+// A picture near the cap arrives over SSE as one enormous line. The scanner used to stop at 1MB,
+// which put the real ceiling at about 750KB of picture — well under the 8MB the code says it
+// allows, and reported as a scanner error rather than as a picture that was too big.
+func TestAPictureBiggerThanAMegabyteSurvivesTheWire(t *testing.T) {
+	const size = 3 << 20 // over the old 1MB line limit, under imageCap
+	picture := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x89}, size))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var req request
+		if err := json.Unmarshal(body, &req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if req.Method != "tools/call" {
+			r.Body = io.NopCloser(bytes.NewReader(body)) // the handshake still needs to read it
+			fakeHTTPServer().ServeHTTP(w, r)
+			return
+		}
+		result, _ := json.Marshal(callToolResult{
+			Content: []contentBlock{{Type: "image", Data: picture, MimeType: "image/png"}},
+		})
+		event, _ := json.Marshal(message{JSONRPC: jsonRPCVersion, ID: &req.ID, Result: result})
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: %s\n\n", event)
+	}))
+	defer srv.Close()
+
+	client := newHTTPClient(srv.URL, nil, nil)
+	defer client.Close()
+	ctx := context.Background()
+	if err := client.Initialize(ctx); err != nil {
+		t.Fatal(err)
+	}
+	res, err := client.CallTool(ctx, "http_echo", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("a %dMB picture did not survive the wire: %v", size>>20, err)
+	}
+	if len(res.Content) != 1 || res.Content[0].Data != picture {
+		t.Fatalf("the picture came back different: %d blocks", len(res.Content))
+	}
+}
+
+// Nothing else ever removes a picture: the turn ends in minutes and the log naming it is kept
+// forever. What the sweep must not do is take the ones a session is still likely to be about.
+func TestOldPicturesAreSweptAndRecentOnesAreNot(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "images", "sess-1")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := filepath.Join(home, "render-aaaaaa.png")
+	recent := filepath.Join(home, "render-bbbbbb.png")
+	for _, p := range []string{old, recent} {
+		if err := os.WriteFile(p, make([]byte, 1024), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Now()
+	stale := now.Add(-imageLifetime - time.Hour)
+	if err := os.Chtimes(old, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, freed := SweepImages(dir, now)
+	if removed != 1 || freed != 1024 {
+		t.Fatalf("swept %d files (%d bytes), want 1 and 1024", removed, freed)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Error("the old picture is still there")
+	}
+	if _, err := os.Stat(recent); err != nil {
+		t.Errorf("a picture from this week was swept: %v", err)
+	}
+	// The folder stays while something is in it…
+	if _, err := os.Stat(home); err != nil {
+		t.Errorf("the session's folder went with it: %v", err)
+	}
+	// …and goes when nothing is.
+	if err := os.Chtimes(recent, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	SweepImages(dir, now)
+	if _, err := os.Stat(home); !os.IsNotExist(err) {
+		t.Error("an empty session folder was left behind")
+	}
+}
+
+// A host with no image directory has nothing to sweep, and a directory that was never written to is
+// not an error to report at startup.
+func TestSweepingNothingIsQuiet(t *testing.T) {
+	if n, _ := SweepImages("", time.Now()); n != 0 {
+		t.Error("sweeping an unset directory did something")
+	}
+	if n, _ := SweepImages(t.TempDir(), time.Now()); n != 0 {
+		t.Error("sweeping a directory with no images did something")
+	}
+}
+
+// The cap is measured on the picture, not on the string carrying it. Base64 counts padding and line
+// breaks as picture, so measuring the cap with the encoded length refused a picture of exactly the
+// cap — and refused a line-wrapped one (76 columns, which MIME does) well under it.
+func TestAPictureAtTheCapIsKeptHoweverItIsEncoded(t *testing.T) {
+	dir := t.TempDir()
+	raw := bytes.Repeat([]byte{0x89}, imageCap)
+	flat := base64.StdEncoding.EncodeToString(raw)
+
+	var wrapped strings.Builder
+	for i := 0; i < len(flat); i += 76 {
+		end := min(i+76, len(flat))
+		wrapped.WriteString(flat[i:end] + "\n")
+	}
+
+	for name, data := range map[string]string{"flat": flat, "wrapped": wrapped.String()} {
+		kept, notes := keepImages(dir, "sess-"+name, "render",
+			[]contentBlock{{Type: "image", Data: data, MimeType: "image/png"}})
+		if len(kept) != 1 {
+			t.Errorf("%s base64 of a picture AT the cap was refused: %v", name, notes)
+		}
+	}
+
+	// And one genuinely over it still is.
+	over := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x89}, imageCap+1))
+	kept, notes := keepImages(dir, "sess-over", "render",
+		[]contentBlock{{Type: "image", Data: over, MimeType: "image/png"}})
+	if len(kept) != 0 || len(notes) != 1 {
+		t.Errorf("a picture over the cap was kept anyway (%d kept, notes %v)", len(kept), notes)
 	}
 }

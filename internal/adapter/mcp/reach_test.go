@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,9 +15,12 @@ import (
 // stopped waiting is the same mistake as calling a 500 "dead", but worse: a 500 is the server's
 // own signal, a timeout is ours.
 func TestASlowServerKeepsItsTools(t *testing.T) {
+	var mu sync.Mutex
 	reached := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		reached++
+		mu.Unlock()
 		time.Sleep(300 * time.Millisecond) // longer than the caller is willing to wait
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
@@ -29,9 +33,12 @@ func TestASlowServerKeepsItsTools(t *testing.T) {
 		_ = tr.call(ctx, "tools/list", nil, nil)
 		cancel()
 	}
-	if reached != unreachableStreak {
+	mu.Lock()
+	seen := reached
+	mu.Unlock()
+	if seen != unreachableStreak {
 		t.Fatalf("the server was reached %d times, want %d — the test itself is wrong otherwise",
-			reached, unreachableStreak)
+			seen, unreachableStreak)
 	}
 	select {
 	case <-tr.Done():

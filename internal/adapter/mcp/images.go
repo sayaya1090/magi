@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -17,6 +18,16 @@ import (
 // their own bound. 8MB is a full-page render at print resolution and two orders above a screenshot;
 // past it the answer is a path the caller can fetch, not bytes in a conversation.
 const imageCap = 8 << 20
+
+// How far over the cap a base64 string may measure before it is refused unread. Padding and line
+// breaks make the encoded form measure larger than the picture inside it: at 76-column wrapping
+// that is about 1.3%, so this is room enough for any legal encoding of a picture at the cap and far
+// short of the runaway the pre-check exists to stop.
+const imageSlack = 1 << 20
+
+// The largest single JSON-RPC frame a transport will read. A picture at the cap arrives base64'd
+// (four bytes per three) inside a JSON message, so the frame is bigger than the file it carries.
+const sseFrameCap = imageCap*4/3 + 1<<20
 
 // keepImages writes the image blocks of one answer to disk and returns references to them.
 //
@@ -46,9 +57,13 @@ func keepImages(dir, sessionID, callID string, blocks []contentBlock) ([]session
 		if c.Type != "image" || c.Data == "" {
 			continue
 		}
-		// Measured before decoding: base64 of a 100MB image is 133MB of string, and decoding it to
-		// find out it is too big means holding both. DecodedLen is the size the bytes will be.
-		if base64.StdEncoding.DecodedLen(len(c.Data)) > imageCap {
+		// Sized before decoding, because base64 of a 100MB image is 133MB of string and decoding it
+		// to find out it is too big means holding both. But DecodedLen is an UPPER bound on a
+		// string that may carry padding and line breaks — it counts both as picture — so measuring
+		// the cap with it rejected a picture of exactly the cap, and rejected line-wrapped base64
+		// (76 columns, which MIME does and the spec allows) a good deal under it. The pre-check
+		// keeps its purpose with room to spare; the cap itself is applied to the decoded bytes.
+		if base64.StdEncoding.DecodedLen(len(c.Data)) > imageCap+imageSlack {
 			notes = append(notes, fmt.Sprintf("[image %d: about %d bytes, over the %d cap — dropped]",
 				i+1, base64.StdEncoding.DecodedLen(len(c.Data)), imageCap))
 			continue
@@ -123,4 +138,61 @@ func safePart(s string) string {
 		return "unnamed"
 	}
 	return b.String()
+}
+
+// How long a picture stays on disk. The turn that made it is over in minutes; the log naming it is
+// kept forever, and a deck review can write tens of megabytes in an afternoon. Neither "delete when
+// the turn ends" (a viewer opens that log tomorrow) nor "keep everything" (nothing ever removes an
+// 8MB render) is the right answer, so pictures outlive the turn by a season and no longer.
+//
+// What an older log loses is the picture, not the fact: the tool result still carries the line
+// naming the file and its type, every reader of a missing file already treats it as absent rather
+// than as an error, and the model was never shown pictures from that far back anyway.
+const imageLifetime = 30 * 24 * time.Hour
+
+// SweepImages removes pictures older than imageLifetime, and any session folder left empty by that.
+// Called once at startup: the daemon writes these all day and nothing else would ever take them
+// away. Errors are the caller's to report or ignore — a sweep that cannot read its own directory is
+// not a reason to refuse to start.
+func SweepImages(dir string, now time.Time) (removed int, freed int64) {
+	if dir == "" {
+		return 0, 0
+	}
+	root := filepath.Join(dir, "images")
+	sessions, err := os.ReadDir(root)
+	if err != nil {
+		return 0, 0
+	}
+	for _, s := range sessions {
+		if !s.IsDir() {
+			continue
+		}
+		home := filepath.Join(root, s.Name())
+		files, err := os.ReadDir(home)
+		if err != nil {
+			continue
+		}
+		left := 0
+		for _, f := range files {
+			info, err := f.Info()
+			if err != nil {
+				left++
+				continue
+			}
+			if now.Sub(info.ModTime()) < imageLifetime {
+				left++
+				continue
+			}
+			if err := os.Remove(filepath.Join(home, f.Name())); err != nil {
+				left++
+				continue
+			}
+			removed++
+			freed += info.Size()
+		}
+		if left == 0 {
+			_ = os.Remove(home) // only ever an empty directory; a non-empty one refuses
+		}
+	}
+	return removed, freed
 }

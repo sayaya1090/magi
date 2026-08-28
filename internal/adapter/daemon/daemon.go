@@ -201,8 +201,9 @@ type ToolServerHost interface {
 	// AttachToolServer connects to an HTTP MCP server and answers with the tool names it
 	// registered — evidence, not an ack.
 	AttachToolServer(ctx context.Context, name, url string, headers map[string]string) ([]string, error)
-	// DetachToolServer removes one by name; false when there was none to remove.
-	DetachToolServer(name string) bool
+	// DetachToolServer removes one by name: false when there was none to remove, an error when
+	// there was one this caller may not remove (a server the operator declared in config).
+	DetachToolServer(name string) (bool, error)
 }
 
 // UserNamer is an engine that knows what to call the person it is talking to.
@@ -504,6 +505,11 @@ type Response struct {
 	// Tools answers the tools method: the roster this companion is actually running with, which
 	// only the process holding it can say.
 	Tools []string `json:"tools,omitempty"`
+	// Removed answers mcp-detach: whether there was a server to remove. Its own field because "no"
+	// here is not a failure — a helper reconnecting after a crash detaches first, and being told
+	// it was already clean is the answer it wanted. Reported as Err, it was indistinguishable from
+	// a refusal.
+	Removed bool `json:"removed,omitempty"`
 	// Models answers the models method: what this daemon's backend says it could run on.
 	Models []string `json:"models,omitempty"`
 	// Why carries a reason with an otherwise-empty answer — the backend refused, or timed out —
@@ -1116,10 +1122,11 @@ func answerMCPDetach(ctx context.Context, eng Engine, req Request) Response {
 	if !ok {
 		return Response{Err: "this daemon cannot attach tool servers"}
 	}
-	if !h.DetachToolServer(req.Name) {
-		return Response{Err: fmt.Sprintf("no tool server named %q is attached", req.Name)}
+	removed, err := h.DetachToolServer(req.Name)
+	if err != nil {
+		return Response{Err: err.Error()} // refused: there is one, and it is not this caller's
 	}
-	return Response{OK: true}
+	return Response{OK: true, Removed: removed}
 }
 
 func answerStatus(ctx context.Context, eng Engine, req Request) Response {
@@ -2029,11 +2036,18 @@ func (c *Client) AttachMCP(name, url string, headers map[string]string) ([]strin
 	return resp.Tools, nil
 }
 
-// DetachMCP removes one by name. An application reconnecting after its own crash sends this first:
-// the name is locked while a dead registration holds it.
-func (c *Client) DetachMCP(name string) error {
-	_, err := c.exchange(Request{Method: "mcp-detach", Name: name})
-	return err
+// DetachMCP removes a server this caller attached. An application reconnecting after its own crash
+// sends this first: the name is locked while a dead registration holds it.
+//
+// The bool is whether there was one, and "already clean" is a normal answer rather than a failure.
+// An error means the daemon refused — including when the name belongs to a server the operator
+// declared in config, which this door does not own.
+func (c *Client) DetachMCP(name string) (bool, error) {
+	resp, err := c.exchange(Request{Method: "mcp-detach", Name: name})
+	if err != nil {
+		return false, err
+	}
+	return resp.Removed, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {
