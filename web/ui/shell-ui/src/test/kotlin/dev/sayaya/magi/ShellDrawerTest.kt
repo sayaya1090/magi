@@ -131,6 +131,30 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#crumbs .up").count() shouldBe 0
             }
         }
+        When("멈춘 컴패니언(명단에 있고 답하지 않는다) 곁에 서면") {
+            page.evaluate("window.__magi_go('/tmp/gone.sock', '')")
+            page.waitForCondition { page.url().contains("gone.sock") }
+            Then("점이 끊김을 말한다 — 회선은 멀쩡하다(가짜 회선은 link(true)다)") {
+                // 재는 것은 바로 이것이다: 서버는 서 있고 데몬만 죽었다. 점이 회선 하나만
+                // 읽으면 여기서 초록으로 남는다 — 운영이 세 번째 사실을 배운 그 자리.
+                page.waitForSelector("#masthead #state.lost")
+                page.locator("#state.live").count() shouldBe 0
+                // 컴패니언 곁에서 이 줄은 점 하나가 전부다(수는 걷힌다) — 그래서 말로도 적는다.
+                // 팩이 없는 페이지라 키가 곧 문구다.
+                page.locator("#state").getAttribute("aria-label") shouldBe "state.lost"
+            }
+            Then("답하는 컴패니언으로 옮기면 점이 돌아온다 — 사실이 바뀐 것이지 회선이 아니다") {
+                page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
+                page.waitForSelector("#masthead #state.live")
+                page.locator("#state.lost").count() shouldBe 0
+                page.locator("#state").getAttribute("aria-label") shouldBe "state.live"
+            }
+            Then("목록으로 나오면 다시 회선만의 것이다 — 하나가 멈춘 것을 이 점이 말할 수는 없다") {
+                page.evaluate("window.__magi_go_view('fleet')")
+                page.waitForCondition { !page.url().contains("d=") }
+                page.locator("#state.live").count() shouldBe 1
+            }
+        }
         When("컴패니언에 다시 서서 지난 일 층위의 문(__magi_go_past)을 청하면") {
             page.evaluate("window.__magi_go('/tmp/a1.sock', '')")
             page.waitForCondition { page.url().contains("d=") }
