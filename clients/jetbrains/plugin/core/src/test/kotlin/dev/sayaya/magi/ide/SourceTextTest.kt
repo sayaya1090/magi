@@ -266,14 +266,23 @@ class SourceTextTest {
         //
         // 지금 이 조건은 주석으로만 서 있었다. 맞는 답이 맞는 근거로 맞고 있는 자리라, 다음
         // 사람이 근거를 모른 채 옳은 방향으로 손대면 답이 틀려진다.
-        val window = sources.first { it.name == "MagiToolWindow.kt" }.readText()
-        val branch = Regex("movesPrompt\\(e\\)\\)(.*)").find(window)
-        assertTrue(branch != null,
+        //
+        // **부르는 자리를 하나로 안 좁힌다.** 오늘 부르는 곳이 하나인 것은 사실이지 규칙이
+        // 아니고, 규칙을 어길 자리는 보통 **새로 생기는 자리**다. 첫 매치만 보면 그 줄 밑에 한
+        // 줄을 더 붙이는 것만으로 빠져나간다. 시험 소스는 뺀다 — 거기서 이 술어를 부르는 것은
+        // 술어 자체를 재는 일이라 이 규칙의 대상이 아니다.
+        val calls = sources.filter { "${File.separator}main${File.separator}" in it.path }
+            .flatMap { f ->
+                Regex("movesPrompt\\(\\w+\\)\\)(.*)").findAll(f.readText())
+                    .map { f.name to it.groupValues[1].trim() }.toList()
+            }
+        assertTrue(calls.isNotEmpty(),
             "`movesPrompt` 를 쓰는 자리를 못 찾았다. 없앤 것이면 이 시험도 같이 지우고, 옮긴 " +
                 "것이면 옮긴 자리를 보게 고쳐라 — 못 찾은 것을 통과로 읽지 않는다")
-        val did = branch!!.groupValues[1].trim()
-        assertTrue(did == "refresh()",
-            "재생으로 또 오는 신호에서 `refresh()` 말고 다른 것을 한다: `$did`. 그 자리에서 " +
+        val stray = calls.filter { it.second != "refresh()" }
+        assertTrue(stray.isEmpty(),
+            "재생으로 또 오는 신호에서 `refresh()` 말고 다른 것을 한다: " +
+                stray.joinToString(", ") { "${it.first} 의 `${it.second}`" } + ". 그 자리에서 " +
                 "`e` 를 읽으면 지나간 물음을 지금 것으로 그린다. 정말 필요하면 재생분과 " +
                 "라이브분을 먼저 갈라라 — 지금 `Sink.frame` 은 그 둘을 구분해 주지 않는다")
     }
