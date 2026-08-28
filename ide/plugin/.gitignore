@@ -1,0 +1,10 @@
+.gradle/
+build/
+.kotlin/
+# IntelliJ Platform Gradle Plugin 이 받아 두는 것: 플랫폼 레이아웃 인덱스, 릴리스 목록,
+# 그리고 runIde 용 샌드박스. 샌드박스 안에는 방금 만든 플러그인 jar 까지 들어 있다.
+# web/ui 가 컴파일 산출물을 커밋해 버린 적이 있어서 거기 규칙이 "이름이 아니라 자리로
+# 무시한다"인데, 같은 이유로 디렉토리째 막는다.
+.intellijPlatform/
+# 로컬 전용 설정(경로·토큰).
+gradle.properties
