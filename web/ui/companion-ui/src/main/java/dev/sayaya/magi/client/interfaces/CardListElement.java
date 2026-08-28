@@ -3,6 +3,7 @@ package dev.sayaya.magi.client.interfaces;
 import dev.sayaya.magi.bridge.Windows;
 import dev.sayaya.magi.bridge.FleetAgent;
 import dev.sayaya.magi.bridge.GoSharing;
+import dev.sayaya.magi.component.Dialogs;
 import dev.sayaya.magi.component.Spans;
 import dev.sayaya.magi.client.domain.Versions;
 import dev.sayaya.magi.client.usecase.FleetCommander;
@@ -37,7 +38,7 @@ import static dev.sayaya.magi.client.interfaces.Dom.el;
 @Singleton
 public class CardListElement {
     private final FleetCommander commander;
-    private final StopDialogElement stop;
+    private final Dialogs dialogs;
     private final Map<String, String> wasState = new HashMap<>();
     private final Map<String, Memo> shownCards = new HashMap<>();
 
@@ -47,9 +48,9 @@ public class CardListElement {
     }
 
     @Inject
-    public CardListElement(FleetCommander commander, StopDialogElement stop) {
+    public CardListElement(FleetCommander commander, Dialogs dialogs) {
         this.commander = commander;
-        this.stop = stop;
+        this.dialogs = dialogs;
     }
 
     /** 명단에서 사라진 것은 기억할 가치도 사라진 것이다 — 탭 수명만큼 자라는 맵 방지. */
@@ -224,7 +225,7 @@ public class CardListElement {
         stopBtn.addEventListener("click", evt -> {
             evt.preventDefault();
             evt.stopPropagation();
-            stop.ask(a.name, () -> commander.interrupt(a, after));
+            dialogs.stop(a.name, () -> commander.interrupt(a, after));
         });
         box.append(stopBtn);
         return box;

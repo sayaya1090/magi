@@ -405,9 +405,7 @@ public class ConversationElement {
             // 이름은 명단이 안다 — 셸이 실어 보내는 그 창의 사실(RosterSharing). 이름을 모르면
             // 이름 자리를 비워 두지 않고 이름 없는 물음을 쓴다(운영의 두 문장 그대로).
             String who = nameOfAimed();
-            dialogs.confirm(who.isEmpty() ? tr("stop.headline_plain")
-                            : tr("stop.headline", "name", who),
-                    tr("stop.body"), tr("action.interrupt"), () -> store.interrupt(why -> { }));
+            dialogs.stop(who, () -> store.interrupt(why -> { }));
         });
         group.append(send, stopBtn);
         box.append(field, group);
