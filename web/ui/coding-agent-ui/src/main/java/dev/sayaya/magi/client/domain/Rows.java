@@ -7,13 +7,32 @@ package dev.sayaya.magi.client.domain;
 public final class Rows {
     private Rows() {}
 
+    /** 카운슬의 세 자리 — 이름을 그대로 선택자로 쓰지 않는다(로그의 문자열이 클래스가 되는 것). */
+    public static String seatClass(String member) {
+        if (member == null) return "";
+        switch (member.toLowerCase()) {
+            case "melchior": return "m-melchior";
+            case "balthasar": return "m-balthasar";
+            case "casper": return "m-casper";
+            default: return "";
+        }
+    }
+
     /**
      * 행의 클래스 목록. ok는 셋 중 하나다: 모름(null 취급, hasOk=false)·성공·실패.
      * 실패에 주석(note)이 달리면 toolfail 대신 toolnote — 원본의 그 규칙.
+     *
+     * <p>카운슬 행은 표(v-*)와 자리(seated m-*)를 함께 입는다. 없이 그리면 아홉 행이 한 색이다 —
+     * 실측: 운영은 자리마다 다른 세 색이고 여기는 아홉 줄 전부 같은 갈색이었다. 표의 색은 요약
+     * 줄이 갖고, 홈통은 자리가 갖는다(그래서 seated 가 따로 있다).
      */
     public static String rowClass(String who, boolean hasOk, boolean ok, boolean note,
-                                  boolean pending, boolean abandoned) {
+                                  boolean pending, boolean abandoned,
+                                  String decision, String member) {
         StringBuilder r = new StringBuilder("row ").append(who == null ? "" : who);
+        if (decision != null && !decision.isEmpty()) r.append(" v-").append(decision);
+        String seat = seatClass(member);
+        if (!seat.isEmpty()) r.append(" seated ").append(seat);
         if (abandoned) r.append(" abandoned");
         if ("tool".equals(who) && hasOk) {
             if (!ok && !note) r.append(" toolfail");

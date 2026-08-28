@@ -43,6 +43,16 @@ public class FakeCompanionSource implements CompanionSource {
                     "\"out\":\"\\\"ok: 12 packages\\\\nwarnings: 0\\\"\",\"ok\":true}," +
                 "{\"who\":\"tool\",\"tool\":\"edit\",\"args\":\"{\\\"path\\\":\\\"main.go\\\"}\"," +
                     "\"diff\":\"--- a/main.go\\n+++ b/main.go\\n@@ -1 +1 @@\\n-old\\n+new\",\"ok\":false}," +
+                // 한 자리의 표 — 전선에 실려 오는 그대로(결정·렌즈·확신·이유·다음·유지·근거).
+                // 이 여섯이 없으면 표결 카드는 이름 하나와 "근거: 없음"뿐이다.
+                "{\"who\":\"council\",\"round\":2,\"member\":\"Melchior\",\"decision\":\"continue\"," +
+                    "\"lens\":\"correctness\",\"confidence\":0.9,\"text\":\"\\u2717 reject (correctness) \\u00b7 90%\"," +
+                    "\"why\":\"the report summarises instead of quoting\"," +
+                    "\"feedback\":\"paste the exact output\",\"keep\":\"the build fix already landed\"," +
+                    "\"cite\":\"bash ls -la: exit 0\"}," +
+                // 아무 것도 대지 않은 찬성 — 근거 없음이 그 자체로 읽을 사실인 쪽.
+                "{\"who\":\"council\",\"round\":2,\"member\":\"Balthasar\",\"decision\":\"done\"," +
+                    "\"text\":\"\\u2713 done\"}," +
                 "{\"who\":\"assistant\",\"text\":\"one failure left\",\"pending\":true}]"));
         l.turn(true, 12);
     }

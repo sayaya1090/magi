@@ -3303,24 +3303,29 @@
   #agentdetail { max-width:var(--magi-sys-page); display:flex; flex-direction:column; gap:var(--magi-sys-space-200); min-width:0; }
   #agentdetail .dhead { display:flex; align-items:baseline; gap:var(--magi-sys-space-200); flex-wrap:wrap; }
   #agentdetail .dwho { font:600 var(--md-sys-typescale-title-medium-size)/1.4 var(--magi-ref-display); color:var(--magi-ref-primary); }
-  #agentdetail .dchip { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  #agentdetail .dchip, .dinsp .dchip { font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted); }
+  /* Second scope: .dinsp is the same content in a CARD rather than on the detail screen — the
+     new console opens a verdict beside the transcript instead of one level in. These rules were
+     written against an id, so in the card every one of them missed: measured, .dk there computed
+     to no font at all and the body colour, which is a heading that looks exactly like the text
+     under it. Same cells, same look, wherever the surface chose to put them. */
   /* The section headings. Small and quiet: they are labels on the things below them, and the
      things below them are the content. */
-  #agentdetail .dk {
+  #agentdetail .dk, .dinsp .dk {
     font:600 var(--md-sys-typescale-label-small-size)/1.9 var(--magi-ref-mono);
     letter-spacing:.05em; color:var(--magi-ref-muted); text-transform:none;
   }
   /* The evidence heading leads, because the order is the argument: what was judged, then the
      judgement. A verdict read first can only be believed. */
-  #agentdetail .dhero { color:var(--magi-ref-accent); border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-200); }
-  #agentdetail .dbody { max-width:var(--magi-sys-measure); overflow-wrap:anywhere; }
-  #agentdetail .dbody pre {
+  #agentdetail .dhero, .dinsp .dhero { color:var(--magi-ref-accent); border-top:1px solid var(--magi-ref-outlineVariant); padding-top:var(--magi-sys-space-200); }
+  #agentdetail .dbody, .dinsp .dbody { max-width:var(--magi-sys-measure); overflow-wrap:anywhere; }
+  #agentdetail .dbody pre, .dinsp .dbody pre {
     font:var(--magi-sys-body-s) var(--magi-ref-mono); white-space:pre; max-width:100%;
     overflow-x:auto; overscroll-behavior-x:contain; background:var(--magi-ref-surface);
     padding:var(--magi-sys-space-150); border-radius:var(--magi-sys-shape-xs);
   }
-  #agentdetail .dnote { color:var(--magi-ref-muted); font:var(--magi-sys-body-s) var(--magi-ref-mono); }
-  #agentdetail .dseen { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
+  #agentdetail .dnote, .dinsp .dnote { color:var(--magi-ref-muted); font:var(--magi-sys-body-s) var(--magi-ref-mono); }
+  #agentdetail .dseen, .dinsp .dseen { display:flex; flex-direction:column; gap:var(--magi-sys-space-100); }
   /* The decision's own controls, at the size a decision deserves. The bar under the transcript
      keeps its compact ones; this is the screen somebody opened BECAUSE the compact ones were not
      enough to answer from. */
@@ -4341,6 +4346,19 @@
     text-align:right;
   }
   .who.whoin:hover, .who.whoin:focus-visible { text-decoration:underline; text-underline-offset:2px; }
+  /* And the fold below it has to stop reaching up over it. Every fold draws a 48px press target
+     centred on a 24px line, so it overhangs 12px in each direction — harmless above a plain gutter
+     label, but a council row is the one row whose gutter is a CONTROL, and in the stacked layout
+     (the transcript column at 448px, which is what a phone gets) the name sits 21px above that
+     summary. Measured: elementFromPoint at the centre of the name answered SUMMARY, and a click on
+     the name opened the fold instead. The seat name was unpressable at that width.
+
+     Anchored to its own top the target grows downward into the fold's own space and the name keeps
+     its ink — the same move, and the same reason, as the copy control above
+     (`.who .copy.hit48::after`). Neither control gets the full 48 in that layout: the two of them
+     have 45px of ink between them and cannot both have 48, and two press targets that overlap mean
+     one of them answers nothing at all. Partitioned, both answer. */
+  .row.council .fold > summary::after { top:0; transform:none; }
   /* Casper was #B3261E in the light theme — the error colour, to the digit — and #FF8A8A in the
      dark one, which is the error colour's neighbour. So one of the three seats was indistinguishable
      from a rejection, on a row whose whole job is to say who is speaking. Violet: no other role on

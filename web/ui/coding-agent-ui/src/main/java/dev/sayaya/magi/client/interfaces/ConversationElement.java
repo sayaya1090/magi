@@ -406,7 +406,7 @@ public class ConversationElement {
      * 증거가 없는 라운드는 그렇다고 <b>말한다</b>: 소집이 접혀 나간 라운드의 증거는 정말로
      * 사라진 것이고, 그 자리를 조용히 비워 두면 못 읽은 것처럼 보여 사람이 다시 누르게 된다.
      */
-    private void showVerdict(int round, String member, String saidInRow) {
+    private void showVerdict(int round, String member, JsPropertyMap<Object> vote) {
         HTMLElement box = el("div");
         String key = "cr:" + round + ":" + member;
         box.id = key;
@@ -414,7 +414,14 @@ public class ConversationElement {
         box.style.setProperty("display", "contents");
         dev.sayaya.magi.bridge.CardSharing.closable(box, () -> { });
         HTMLElement bar = cell("filebar", null);
-        bar.append(cell("filedir", member));
+        HTMLElement who = cell("filedir", member.isEmpty() ? tr("council.outcome") : member);
+        // 그 자리의 색 — 전사의 행이 쓰는 바로 그 토큰이라 둘이 어긋날 수가 없다. 아는 셋에만
+        // 준다: 로그가 뭐라 적었든 그 문자열이 토큰 이름이 되지는 않는다.
+        String seat = Rows.seatClass(member);
+        if (!seat.isEmpty()) who.style.setProperty("color", "var(--magi-ref-" + member.toLowerCase() + ")");
+        bar.append(who);
+        String chip = voteChip(vote);
+        if (!chip.isEmpty()) bar.append(cell("dchip", chip));
         HTMLElement body = cell("dinsp", null);
         body.append(cell("dnote", tr("detail.loading")));
         box.append(bar, body);
@@ -434,11 +441,48 @@ public class ConversationElement {
                 section(body, "detail.changes", str(ev, "changes"), true);
                 if (Js.isTruthy(ev.get("noChanges"))) body.append(cell("dnote", tr("detail.no_changes")));
             }
-            // 그 줄에 적혀 있던 말(표결과 이유) — 카드는 그 위에 증거를 얹는 것이지 대신하지 않는다.
-            if (!saidInRow.trim().isEmpty()) {
-                body.append(cell("dk", tr("detail.rationale")), cell("dbody", saidInRow));
-            }
+            // 그리고 표 자체 — 증거 다음이다. 순서가 논지다: 먼저 읽은 표는 믿는 수밖에 없고,
+            // 나중에 읽은 표는 확인할 수 있다.
+            section(body, "detail.rationale", str(vote, "why"), false);
+            section(body, "detail.next", str(vote, "feedback"), false);
+            // 수정이 <b>잃으면 안 되는 것</b>. 만들어지고, 자리마다 기록되고, 모델에게 되먹여지는데
+            // 어디에도 그려지지 않았다 — 끝난 일을 지키는 그 한 줄만 아무도 못 읽고 있었다.
+            section(body, "detail.keep", str(vote, "keep"), false);
+            // 근거는 없는 두 경우까지 말한다: 보고의 내용으로 판단했다고 밝힌 표(NO-EVIDENCE)와,
+            // 아무 것도 대지 않은 표. 아무 것도 딛지 않은 "done"은 그 자체가 봐야 할 사실이다.
+            String cite = str(vote, "cite").trim();
+            body.append(cell("dk", tr("detail.grounds")));
+            body.append(cell("dbody", cite.isEmpty() ? tr("detail.no_grounds")
+                    : "NO-EVIDENCE".equals(cite.toUpperCase()) ? tr("detail.judged_on_report")
+                    : "\"" + cite + "\""));
         });
+    }
+
+    /**
+     * 표를 한 줄로 — 결정어 · 렌즈 · 확신. 운영 detailHead의 그 칩과 같은 조립이다.
+     *
+     * <p>렌즈와 확신은 전선에 없어서 <b>매번</b> undefined였다(실측: 카운슬 행이 실어 온 것은
+     * decision·member·round·text 넷뿐). 55%의 찬성과 95%의 찬성은 다른 표다.
+     */
+    private static String voteChip(JsPropertyMap<Object> v) {
+        StringBuilder b = new StringBuilder();
+        String decision = str(v, "decision");
+        if (!decision.isEmpty()) b.append(councilWord(decision));
+        String lens = str(v, "lens");
+        if (!lens.isEmpty()) b.append(b.length() == 0 ? "" : " \u00b7 ").append(lens);
+        double conf = v.get("confidence") == null ? 0 : Js.coerceToDouble(v.get("confidence"));
+        if (conf > 0) b.append(b.length() == 0 ? "" : " \u00b7 ").append((int) Math.round(conf * 100)).append('%');
+        return b.toString();
+    }
+
+    /** 표를 사람의 말로 — 운영 councilWordOf의 그 세 키(모르는 결정은 로그의 말 그대로). */
+    private static String councilWord(String decision) {
+        switch (decision) {
+            case "done": return tr("council.accept");
+            case "continue": return tr("council.reject");
+            case "abstain": return tr("council.abstain");
+            default: return decision;
+        }
     }
 
     /** 이 화면이 연 카드들 — 파일과 같은 줄에 선다(부모가 그 줄을 그린다). */
@@ -458,10 +502,13 @@ public class ConversationElement {
         if (text == null || text.trim().isEmpty()) return;
         into.append(cell("dk", tr(key)));
         if (!pre) { into.append(cell("dbody", text)); return; }
+        // 감싸는 .dbody 안의 pre — console.css가 코드 블록을 입히는 자리가 거기다(.dbody pre).
+        // 밖에 두었을 땐 등폭도, 가로 스크롤도, 배경도 없이 본문 글꼴로 흘렀다.
+        HTMLElement wrap = cell("dbody", null);
         HTMLElement p = el("pre");
-        p.className = "dpre";
         p.textContent = text;
-        into.append(p);
+        wrap.append(p);
+        into.append(wrap);
     }
 
     /**
@@ -614,7 +661,8 @@ public class ConversationElement {
         boolean pending = Js.isTruthy(r.get("pending"));
         HTMLElement d = el("div");
         d.className = Rows.rowClass(who, hasOk, ok,
-                Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")));
+                Js.isTruthy(r.get("note")), pending, Js.isTruthy(r.get("abandoned")),
+                str(r, "decision"), str(r, "member"));
         HTMLElement w = el("div");
         w.className = "who";
         w.textContent = whoWord(r, who);
@@ -630,8 +678,7 @@ public class ConversationElement {
             name.setAttribute("aria-label", tr("detail.evidence") + ": " + member);
             name.setAttribute("title", tr("detail.evidence"));
             final int at = (int) round;
-            final String said = str(r, "text");
-            name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, said); });
+            name.addEventListener("click", evt -> { evt.stopPropagation(); showVerdict(at, member, r); });
             w = name;
         }
         String at = str(r, "at");
