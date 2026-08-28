@@ -74,7 +74,12 @@ export class FakeDeck extends DeckPort {
 
   async slideNumbers() {
     if (!this.numbering) return null;   // 1.8 아래 호스트 흉내. **지어내지 않는다.**
-    return new Map(this.model.slides.map((s) => [s.id, s.no]));
+    // 번호가 없는 슬라이드는 **안 싣는다.** 실으면 값이 `undefined` 인 칸이 생기고,
+    // `targetLabel` 의 `no != null` 이 그 칸을 못 알아봐 **「지금 덱에 없습니다」**로 샌다 —
+    // 표에 있는데 없다고 적는 것이다. 계약이 `Map<string, number>` 라 숫자만 앉힌다.
+    return new Map(this.model.slides
+      .filter((s) => typeof s.no === 'number')
+      .map((s) => [s.id, s.no]));
   }
 
   async point(slideId, shapeIds) {

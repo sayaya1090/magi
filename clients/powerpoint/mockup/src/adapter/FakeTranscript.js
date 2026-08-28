@@ -40,7 +40,11 @@ export class FakeTranscript extends TranscriptPort {
       if (from > 0 && ev.seq <= from) continue;
       handlers.onEvent(ev);
     }
-    return () => { this._handlers = null; };
+    // **자기 것만 끊는다.** 앞엣것을 끊는 손이 뒤엣것의 귀를 막으면, 그 뒤로 아무 이벤트도
+    // 안 오는데 그게 시험에는 「아무 일도 안 일어났다」로 보인다 — 계측기가 내는 **거짓
+    // 초록**이다. 오늘 `ReadTranscript.attach` 는 붙기 **전에** 끊어서 안 다치는데, 그건
+    // 순서가 그렇다는 우연이지 규칙이 아니다(`Cursor.advanced` 에 적어 둔 것과 같은 모양).
+    return () => { if (this._handlers === handlers) this._handlers = null; };
   }
 
   /**

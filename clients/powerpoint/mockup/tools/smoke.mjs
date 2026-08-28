@@ -703,6 +703,23 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   d.numbering = false;
   ok('번호를 못 주는 덱은 null 을 준다', (await d.slideNumbers()) === null);
 
+  // 계측기 자신이 내는 **거짓 초록**. 앞의 구독을 끊는 손이 뒤엣것의 귀를 막으면, 그 뒤로
+  // 아무 이벤트도 안 오는데 시험에는 「아무 일도 안 일어났다」로 보인다.
+  const ft = new FakeTranscript({ A: [] });
+  const heard = [];
+  const off1 = ft.subscribe('A', -1, { onEvent: () => {}, onRestart() {}, onEnd() {} });
+  ft.subscribe('A', -1, { onEvent: (e) => heard.push(e), onRestart() {}, onEnd() {} });
+  off1();
+  ft.push({ sessionId: 'A', type: 'x' });
+  ok('앞엣것을 끊어도 뒤엣것 귀는 안 막는다', heard.length === 1, String(heard.length));
+
+  // 번호 없는 슬라이드를 표에 실으면 값이 `undefined` 인 칸이 생기고, `targetLabel` 이
+  // 그 칸을 못 알아봐 「지금 덱에 없습니다」로 샌다 — 표에 있는데 없다고 적는 것이다.
+  const noNo = new FakeDeck({ slides: [{ id: 'sx', title: '번호 없음', shapes: [] }] });
+  const m = await noNo.slideNumbers();
+  ok('번호 없는 슬라이드는 표에 안 앉는다', m.has('sx') === false, JSON.stringify([...m]));
+  ok('표의 값은 전부 숫자다', [...m.values()].every((v) => typeof v === 'number'));
+
   // ── 답이 **언제 것인가**. 「물어본 적 있다」를 「이 안내에 답을 받았다」로 쓰면, 첫 답 뒤에
   // 도착한 안내가 낡은 스냅숏에 없다는 이유로 「지금 덱에 없습니다」가 된다 — 덱에는 있고
   // 우리가 안 물어봤을 뿐이다.
