@@ -2949,7 +2949,7 @@ func (d daemonEngine) LookOver(ctx context.Context, path, text string) (string, 
 const completeDeadline = 12 * time.Second
 
 // CompleteCode is inline completion at the cursor on the fast profile — see app.CompleteCode.
-func (d daemonEngine) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
+func (d daemonEngine) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, app.CompleteReason, error) {
 	rctx, cancel := context.WithTimeout(ctx, completeDeadline)
 	defer cancel()
 	return d.App.CompleteCode(rctx, d.handover.at.now(), path, prefix, suffix)

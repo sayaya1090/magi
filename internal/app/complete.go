@@ -146,6 +146,35 @@ func (a *App) openFileFor(sid session.SessionID) (openFile, bool) {
 	return f, ok
 }
 
+// CompleteReason says WHY an inline completion came back with nothing to insert.
+//
+// CompleteCode had five ways to return ("", nil) and its caller could see only one of them: off,
+// no profile routed, nothing around the cursor, the model offering nothing — and a failed call.
+// Four of those are genuine absence, differing in what the person should be told; the fifth was
+// not absence at all. An IDE could not tell a quiet completer from a dead one, nor a switched-off
+// one from a misconfigured one, and those are three different things to say to the person typing.
+//
+// So the failure is an error now, and the four absences carry which one they are. The split is
+// 4:1 and not 5:0 on purpose: fold the failure in with the rest and it becomes quietly normal;
+// make all five errors and ordinary silence starts looking like a fault.
+type CompleteReason string
+
+const (
+	// CompleteProduced — there is text. The zero value, so "no reason given" means it worked.
+	CompleteProduced CompleteReason = ""
+	// CompleteOff — code completion is switched off. Nothing is broken; it can be turned on.
+	CompleteOff CompleteReason = "off"
+	// CompleteUnrouted — no fast code profile resolves to both a registered provider and a model.
+	// A configuration mistake, and the one most worth surfacing: it is indistinguishable from a
+	// model with nothing to say, and unlike that model it will never have anything to say.
+	CompleteUnrouted CompleteReason = "unrouted"
+	// CompleteNothingAsked — there was no code on either side of the cursor to complete.
+	CompleteNothingAsked CompleteReason = "nothing-asked"
+	// CompleteNoAnswer — the model was asked and offered nothing. The only one of the four that
+	// means the completer is working and simply had no suggestion here.
+	CompleteNoAnswer CompleteReason = "no-answer"
+)
+
 // CompleteCode returns inline completion text to insert at the cursor in a file the user is editing
 // in the console. prefix is the buffer up to the cursor and suffix the buffer after it, so the model
 // sees both sides (fill-in-the-middle) rather than only what came before.
@@ -154,16 +183,21 @@ func (a *App) openFileFor(sid session.SessionID) (openFile, bool) {
 // falling back to the main model, because that would bill the strong model on every keystroke. The
 // answer is raw insertion text: any code fence or echo of the surrounding lines the model adds anyway
 // is trimmed, since only the insertion is usable.
-func (a *App) CompleteCode(ctx context.Context, sid session.SessionID, path, prefix, suffix string) (string, error) {
+//
+// Empty text always comes with a CompleteReason saying which kind of empty it is, and a call that
+// FAILED returns an error rather than empty text — see CompleteReason.
+func (a *App) CompleteCode(ctx context.Context, sid session.SessionID, path, prefix, suffix string) (string, CompleteReason, error) {
 	if !a.cfg.Autocomplete.CodeOn() {
-		return "", nil
+		return "", CompleteOff, nil
 	}
 	model, ok := a.completeReady(a.cfg.Autocomplete.CodeProfile)
 	if !ok {
-		return "", nil // no fast code profile routed — never fall through to the main model
+		// No fast code profile routed — never fall through to the main model. Named, because from
+		// the outside this looked exactly like a model that had nothing to suggest.
+		return "", CompleteUnrouted, nil
 	}
 	if strings.TrimSpace(prefix)+strings.TrimSpace(suffix) == "" {
-		return "", nil
+		return "", CompleteNothingAsked, nil
 	}
 	// Keep the code NEAR the cursor when the buffer is large: the tail of the prefix and the head of
 	// the suffix are what a completion is about, and a 40k-line file would otherwise blow the cap on
@@ -182,7 +216,18 @@ func (a *App) CompleteCode(ctx context.Context, sid session.SessionID, path, pre
 	user := "File: " + path + "\n\n" + prefix + "<CURSOR>" + suffix
 	out, err := a.complete(ctx, a.cfg.Autocomplete.CodeProfile, model, system, user)
 	if err != nil {
-		return "", nil // a cut/cancelled/failed completion inserts nothing
+		// A cut, cancelled or failed completion still inserts nothing — that part never changes,
+		// and every caller drops the text on an error. What changes is that the caller is now TOLD.
+		// Reported as "" rather than as an absence because the absence would be a false statement:
+		// something did happen, and whether to retry it or to say the completer is down is the
+		// caller's call to make, which it cannot make on a fact it was never given.
+		return "", CompleteProduced, err
 	}
-	return stripCodeFence(out), nil
+	said := stripCodeFence(out)
+	if said == "" {
+		// Asked, and it offered nothing. Judged AFTER the fence strip, because a reply that was
+		// only an empty fence is the model saying nothing just as much as an empty reply is.
+		return "", CompleteNoAnswer, nil
+	}
+	return said, CompleteProduced, nil
 }

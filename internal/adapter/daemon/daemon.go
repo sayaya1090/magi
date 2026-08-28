@@ -344,7 +344,9 @@ type Reviewer interface {
 	DraftCommit(ctx context.Context, rules string) (string, error)
 	// CompleteCode is inline completion text at the cursor: prefix and suffix are the buffer either
 	// side of it. The same no-turn shape as LookOver, on a fast routed profile — see app.CompleteCode.
-	CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error)
+	// Empty text arrives with an app.CompleteReason saying which kind of empty it is, and a call
+	// that failed arrives as an error — a dead completer and a quiet one used to look the same.
+	CompleteCode(ctx context.Context, path, prefix, suffix string) (string, app.CompleteReason, error)
 	// SetOpenFile records the file the editor has open and its unsaved buffer, so the agent's next
 	// turn sees it as ambient context. Nothing is generated or recorded — see app.SetOpenFile.
 	SetOpenFile(ctx context.Context, path, text string) error
@@ -538,6 +540,12 @@ type Response struct {
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
+	// Reason answers the complete method when Out is empty: WHICH empty it is (app.CompleteReason
+	// — off, unrouted, nothing-asked, no-answer). A failed completion is Err, not a reason. Without
+	// it every one of those arrived as an empty string, so an editor could not tell a completer
+	// that had nothing to say from one that was switched off, misconfigured, or never asked.
+	// Absent on a completion that produced text, and absent on every other method.
+	Reason string `json:"reason,omitempty"`
 	// Jobs answers the jobs method: the work running BESIDE the turn.
 	Jobs *Jobs `json:"jobs,omitempty"`
 	// Tools answers the tools method: the roster this companion is actually running with, which
@@ -1609,11 +1617,11 @@ func answerComplete(ctx context.Context, eng Engine, req Request) Response {
 			return Response{Err: err.Error()}
 		}
 	}
-	out, err := rev.CompleteCode(ctx, req.Name, a.Prefix, a.Suffix)
+	out, why, err := rev.CompleteCode(ctx, req.Name, a.Prefix, a.Suffix)
 	if err != nil {
 		return Response{Err: err.Error()}
 	}
-	return Response{OK: true, Out: out}
+	return Response{OK: true, Out: out, Reason: string(why)}
 }
 
 func answerOpenFile(ctx context.Context, eng Engine, req Request) Response {
@@ -2443,13 +2451,16 @@ func (c *Client) LookOver(path, text string) (string, error) {
 // sides of the cursor in Args (raw JSON, the same way the tool methods carry their arguments) — a
 // completion needs both, and Text alone carries one. The relay for the console editor's ghost text,
 // and the endpoint a future IDE extension would call for the same thing.
-func (c *Client) CompleteCode(path, prefix, suffix string) (string, error) {
+//
+// Three values because empty text is not one outcome: the reason says which empty it is, and a
+// completion that FAILED comes back as an error instead of as silence.
+func (c *Client) CompleteCode(path, prefix, suffix string) (string, app.CompleteReason, error) {
 	args, _ := json.Marshal(completeArgs{Prefix: prefix, Suffix: suffix})
 	resp, err := c.exchange(Request{Method: "complete", Name: path, Args: args})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return resp.Out, nil
+	return resp.Out, app.CompleteReason(resp.Reason), nil
 }
 
 // SetOpenFile tells the daemon which file the editor has open and its unsaved buffer, so the agent's

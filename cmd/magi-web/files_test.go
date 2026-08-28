@@ -221,8 +221,8 @@ func (e *slowModel) OpenPR(ctx context.Context, title, body string) (string, err
 }
 func (e *slowModel) PRFacts(ctx context.Context) (string, error)               { return "{}", nil }
 func (e *slowModel) DraftPR(ctx context.Context, rules string) (string, error) { return "", nil }
-func (e *slowModel) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, error) {
-	return "", nil
+func (e *slowModel) CompleteCode(ctx context.Context, path, prefix, suffix string) (string, app.CompleteReason, error) {
+	return "", app.CompleteNoAnswer, nil
 }
 func (e *slowModel) SetOpenFile(ctx context.Context, path, text string) error { return nil }
 func (e *slowModel) SuggestPrompt(ctx context.Context, prefix string) (string, error) {

@@ -85,12 +85,17 @@ func completeApp(t *testing.T, def port.LLMProvider, ac config.AutocompleteConfi
 // backend — the whole point of the split is that a keystroke never spends the main model.
 func TestCompleteCodeSelfDisablesWithoutAProfile(t *testing.T) {
 	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{ /* CodeProfile empty */ }, nil, nil)
-	got, err := a.CompleteCode(context.Background(), sid, "x.go", "func main() {", "}")
+	got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "func main() {", "}")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "" {
 		t.Errorf("a completion came back with no profile routed: %q", got)
+	}
+	// And it says WHICH silence this is. An unrouted completer will never produce anything, and
+	// telling that apart from a model with nothing to suggest is the whole point of the reason.
+	if why != CompleteUnrouted {
+		t.Errorf("no profile routed was reported as %q, want %q", why, CompleteUnrouted)
 	}
 }
 
@@ -98,12 +103,15 @@ func TestCompleteCodeSelfDisablesWithoutAProfile(t *testing.T) {
 // — not fall through to the default provider, which is the main model billed on every keystroke.
 func TestCompleteCodeSelfDisablesWithAnUnregisteredProfile(t *testing.T) {
 	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "ghost"}, nil, nil)
-	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
+	got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "" {
 		t.Errorf("an unregistered profile still produced a completion (fell through to default?): %q", got)
+	}
+	if why != CompleteUnrouted {
+		t.Errorf("an unregistered profile was reported as %q, want %q", why, CompleteUnrouted)
 	}
 }
 
@@ -114,12 +122,15 @@ func TestCompleteCodeSelfDisablesWhenProfileHasNoModel(t *testing.T) {
 	a, sid := completeApp(t, acFailLLM{t},
 		config.AutocompleteConfig{CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": cap}, nil) // provider registered, but no ProfileModels
-	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
+	got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "" || cap.called() {
 		t.Errorf("a profile with no model still ran: got=%q called=%v", got, cap.called())
+	}
+	if why != CompleteUnrouted {
+		t.Errorf("a profile with no model was reported as %q, want %q", why, CompleteUnrouted)
 	}
 }
 
@@ -129,13 +140,13 @@ func TestCompleteCodeStripsAFenceButKeepsCodeBackticks(t *testing.T) {
 	fence := &acCapLLM{text: "```go\n\treturn 0\n```"}
 	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": fence}, map[string]string{"fast": "m"})
-	if got, _ := a.CompleteCode(context.Background(), sid, "m.go", "func f() int {", "}"); strings.TrimSpace(got) != "return 0" {
+	if got, _, _ := a.CompleteCode(context.Background(), sid, "m.go", "func f() int {", "}"); strings.TrimSpace(got) != "return 0" {
 		t.Errorf("fence not stripped cleanly: %q", got)
 	}
 	tick := &acCapLLM{text: "`) + suffix"}
 	b, sid2 := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": tick}, map[string]string{"fast": "m"})
-	if got, _ := b.CompleteCode(context.Background(), sid2, "m.go", "s := fmt.Sprintf(`x", ""); got != "`) + suffix" {
+	if got, _, _ := b.CompleteCode(context.Background(), sid2, "m.go", "s := fmt.Sprintf(`x", ""); got != "`) + suffix" {
 		t.Errorf("a code backtick was eaten: %q", got)
 	}
 }
@@ -150,12 +161,16 @@ func TestCompleteCodeSelfDisablesWhenTurnedOff(t *testing.T) {
 	a, sid := completeApp(t, acFailLLM{t},
 		config.AutocompleteConfig{Enabled: &off, CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": cap}, map[string]string{"fast": "m"})
-	got, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
+	got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "a := ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got != "" || cap.called() {
 		t.Errorf("a disabled completion ran anyway: got=%q called=%v", got, cap.called())
+	}
+	// Off is not the same silence as broken: this one the person can simply turn on.
+	if why != CompleteOff {
+		t.Errorf("a switched-off completer was reported as %q, want %q", why, CompleteOff)
 	}
 }
 
@@ -167,9 +182,12 @@ func TestCompleteCodeRoutesToItsProfile(t *testing.T) {
 		config.AutocompleteConfig{CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": cap},
 		map[string]string{"fast": "tiny-fim"})
-	got, err := a.CompleteCode(context.Background(), sid, "main.go", "func f() int {", "\n}")
+	got, why, err := a.CompleteCode(context.Background(), sid, "main.go", "func f() int {", "\n}")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if why != CompleteProduced {
+		t.Errorf("a completion that produced text carried the reason %q", why)
 	}
 	if !cap.called() {
 		t.Fatal("the routed profile was never called")
@@ -200,7 +218,7 @@ func TestCompleteCancellationReachesTheProvider(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		_, _ = a.CompleteCode(ctx, sid, "x.go", "a", "")
+		_, _, _ = a.CompleteCode(ctx, sid, "x.go", "a", "")
 		close(done)
 	}()
 	cancel()
@@ -352,15 +370,25 @@ func (acPartialThenErrLLM) StreamChat(_ context.Context, _ port.ChatRequest) (<-
 
 // A cut stream must insert NOTHING — a partial completion spliced mid-token is worse than none. This
 // is the feature's explicit safety contract; without it "retur" would land in the buffer.
-func TestCompleteCodeInsertsNothingOnACutStream(t *testing.T) {
+//
+// It must also SAY SO. Returning ("", nil) here made a failed call indistinguishable from a model
+// with no suggestion, which is the difference between a completer that is quiet and one that is
+// dead — and the caller is the only one that can decide whether to retry or to tell the person the
+// backend is down. The two halves are independent: no text either way, and now a fact about why.
+func TestCompleteCodeInsertsNothingOnACutStreamAndSaysItFailed(t *testing.T) {
 	a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
 		map[string]port.LLMProvider{"fast": acPartialThenErrLLM{}}, map[string]string{"fast": "m"})
-	got, err := a.CompleteCode(context.Background(), sid, "x.go", "func f() int { ", "}")
-	if err != nil {
-		t.Fatalf("a cut is not the caller's error to see: %v", err)
+	got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "func f() int { ", "}")
+	if err == nil {
+		t.Error("a failed completion was reported as ordinary silence")
 	}
 	if got != "" {
 		t.Errorf("partial text from a cut stream was returned for insertion: %q", got)
+	}
+	// The failure is the error, not one more kind of absence — an absence would be the false half
+	// of the statement, since something did happen.
+	if why != CompleteProduced {
+		t.Errorf("a failed completion also claimed an absence reason: %q", why)
 	}
 }
 
@@ -411,4 +439,44 @@ func acRun(dir, name string, args ...string) (string, error) {
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err
+}
+
+// The two absences that are NOT faults: a cursor with nothing around it, and a working completer
+// that simply had no suggestion here. Both were ("", nil) before, indistinguishable from a dead one.
+func TestCompleteCodeNamesTheOrdinarySilences(t *testing.T) {
+	t.Run("nothing around the cursor", func(t *testing.T) {
+		cap := &acCapLLM{text: "x"}
+		a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
+			map[string]port.LLMProvider{"fast": cap}, map[string]string{"fast": "m"})
+		got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "  ", "\n\t")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "" || cap.called() {
+			t.Errorf("an empty buffer was sent to the model anyway: got=%q called=%v", got, cap.called())
+		}
+		if why != CompleteNothingAsked {
+			t.Errorf("nothing to complete was reported as %q, want %q", why, CompleteNothingAsked)
+		}
+	})
+	t.Run("asked, and it had nothing to say", func(t *testing.T) {
+		// A reply that is only a fence is the model saying nothing, which is why the reason is
+		// judged after the fence strip and not on the raw text.
+		cap := &acCapLLM{text: "```go\n```"}
+		a, sid := completeApp(t, acFailLLM{t}, config.AutocompleteConfig{CodeProfile: "fast"},
+			map[string]port.LLMProvider{"fast": cap}, map[string]string{"fast": "m"})
+		got, why, err := a.CompleteCode(context.Background(), sid, "x.go", "func f() {", "}")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "" {
+			t.Errorf("an empty fence was returned for insertion: %q", got)
+		}
+		if !cap.called() {
+			t.Fatal("the model was never asked, so this is not the silence under test")
+		}
+		if why != CompleteNoAnswer {
+			t.Errorf("a model with no suggestion was reported as %q, want %q", why, CompleteNoAnswer)
+		}
+	})
 }

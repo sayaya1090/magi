@@ -397,13 +397,23 @@ func (s *server) complete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out string
+	var why app.CompleteReason
 	if derr := s.alone(r, func(cl *daemon.Client, _ session.SessionID) error {
-		said, cerr := cl.CompleteCode(path, prefix, suffix)
-		out = said
+		said, reason, cerr := cl.CompleteCode(path, prefix, suffix)
+		out, why = said, reason
 		return cerr
 	}); derr != nil {
 		http.Error(w, derr.Error(), http.StatusBadGateway)
 		return
+	}
+	// WHICH empty this is, for an editor that wants to say so. The body is unchanged — the ghost
+	// text is the body and an empty one still means "insert nothing" — so a console that ignores
+	// this header behaves exactly as before. It carries the distinction the daemon now makes:
+	// "unrouted" is a configuration mistake that will never produce a completion, and it used to be
+	// indistinguishable from a model that simply had nothing to suggest. A completion that FAILED
+	// is not here at all; it is the 502 above.
+	if why != app.CompleteProduced {
+		w.Header().Set("X-Magi-Complete", string(why))
 	}
 	writeText(w, out)
 }
