@@ -26,7 +26,7 @@ func TestCanonicalArgs(t *testing.T) {
 // runGuard blocks a tool call once it repeats past repeatLimit and reports the
 // run as stuck only after enough blocked repeats accumulate.
 func TestRunGuard(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	args := json.RawMessage(`{"x":1}`)
 	// Identical calls climb one counter and are NEVER refused — the count is what the advisory
 	// nudge reads.
@@ -77,7 +77,7 @@ func TestCapToolResult(t *testing.T) {
 // a file-modifying call's fingerprint tracks the last mutation of ITS OWN path, so a scratch
 // redirect between two identical writes no longer hands the second a fresh count.
 func TestRunGuardIdempotentMutationStillBlocks(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	w := json.RawMessage(`{"path":"a.txt","content":"same"}`)
 	sig := canonicalArgs(w)
 	// The first write to the path is a real change → bumps the epoch (file created/modified).

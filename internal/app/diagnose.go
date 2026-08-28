@@ -13,10 +13,6 @@ import (
 	"github.com/sayaya1090/magi/internal/port"
 )
 
-// fileModifiers are tools whose successful result should trigger a post-edit
-// diagnostics pass so the agent can self-correct (LSP-style feedback loop).
-var fileModifiers = map[string]bool{"write": true, "edit": true, "multiedit": true}
-
 // diagnose runs a fast language checker on a just-modified file. It returns two
 // things the caller treats differently: diag is a correctness problem found in the
 // file (the edit should be flagged so the agent self-corrects), while advice is a

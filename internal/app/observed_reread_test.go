@@ -33,7 +33,7 @@ func TestRecordSaysWhatWasReadTwice(t *testing.T) {
 		toolCallEv("3", "bash", `{"command":"cd /app/ocaml/runtime && sed -n '570,652p' shared_heap.c"}`),
 		toolCallEv("4", "read", `{"path":"/app/ocaml/HACKING.adoc"}`),
 	}
-	o := observeEvents(evs)
+	o := observeEvents(evs, nil)
 	if got := o.looked[p]; got != 2 {
 		t.Fatalf("two reads magi served count two, got %d", got)
 	}
@@ -53,7 +53,8 @@ func TestRecordSaysWhatWasReadTwice(t *testing.T) {
 func TestRereadNeverInventsAPath(t *testing.T) {
 	o := observeEvents([]event.Event{
 		toolCallEv("1", "bash", `{"command":"cat notes.txt && grep -n foo *.c"}`),
-	})
+	}, nil)
+
 	if len(o.reread()) != 0 || len(o.looked) != 0 {
 		t.Fatalf("a bare command must not put paths into the record, got %v", o.looked)
 	}
@@ -61,7 +62,8 @@ func TestRereadNeverInventsAPath(t *testing.T) {
 	o = observeEvents([]event.Event{
 		toolCallEv("1", "read", `{"path":"notes.txt"}`),
 		toolCallEv("2", "bash", `{"command":"cat notes.txt"}`),
-	})
+	}, nil)
+
 	if got := o.looked["notes.txt"]; got != 1 {
 		t.Errorf("one read is one look; the cat is its own line, got %d", got)
 	}
@@ -76,7 +78,8 @@ func TestExercisingCommandIsNotALook(t *testing.T) {
 	o := observeEvents([]event.Event{
 		toolCallEv("1", "read", `{"path":"main.c"}`),
 		toolCallEv("2", "bash", `{"command":"gcc -o main main.c && ./main"}`),
-	})
+	}, nil)
+
 	if got := o.looked["main.c"]; got != 1 {
 		t.Errorf("building a file is not re-reading it, got %d looks", got)
 	}
@@ -91,7 +94,7 @@ func TestRereadOrdersByHowOftenItWasOpened(t *testing.T) {
 		toolCallEv("4", "read", `{"path":"b.c"}`),
 		toolCallEv("5", "read", `{"path":"b.c"}`),
 	}
-	got := observeEvents(evs).reread()
+	got := observeEvents(evs, nil).reread()
 	if len(got) != 2 || !strings.HasPrefix(got[0], "b.c") {
 		t.Errorf("most-opened first, got %v", got)
 	}
@@ -105,7 +108,8 @@ func TestOnlyServedReadsAreLooks(t *testing.T) {
 		toolCallEv("1", "list", `{"path":"/app/runtime"}`),
 		toolCallEv("2", "read", `{"path":"/app/runtime/heap.c"}`),
 		toolCallEv("3", "bash", `{"command":"cd /app/runtime && sed -n '1,80p' heap.c"}`),
-	})
+	}, nil)
+
 	if got := o.looked["/app/runtime"]; got != 1 {
 		t.Errorf("the directory was listed once, got %d", got)
 	}
@@ -131,7 +135,7 @@ func TestRepeatedInspectCommandsAreCounted(t *testing.T) {
 		toolCallEv("3", "bash", probe),
 		toolCallEv("4", "bash", `{"command":"ls /tmp"}`),
 	}
-	o := observeEvents(evs)
+	o := observeEvents(evs, nil)
 	again := o.repeatedCommands()
 	if len(again) != 1 {
 		t.Fatalf("only the repeated command is worth stating, got %v", again)
@@ -151,7 +155,8 @@ func TestRepeatedBuildIsARepeatNotALook(t *testing.T) {
 		toolCallEv("1", "bash", `{"command":"make -j4 world"}`),
 		toolCallEv("2", "bash", `{"command":"make -j4 world"}`),
 		toolCallEv("3", "bash", `{"command":"make -j4 world"}`),
-	})
+	}, nil)
+
 	if got := o.reread(); len(got) != 0 {
 		t.Errorf("re-running a build is not re-reading it, got %v", got)
 	}
@@ -171,7 +176,7 @@ func TestRewritingOneFileIsCounted(t *testing.T) {
 		toolCallEv("3", "edit", `{"path":"/app/apply_macros.vim"}`),
 		toolCallEv("4", "write", `{"path":"/app/other.txt","content":"x"}`),
 	}
-	o := observeEvents(evs)
+	o := observeEvents(evs, nil)
 	got := o.rewritten()
 	if len(got) != 1 || !strings.Contains(got[0], "apply_macros.vim") || !strings.HasSuffix(got[0], "×3") {
 		t.Fatalf("only the repeatedly-authored path is worth stating, got %v", got)

@@ -29,7 +29,7 @@ func TestAnotherHarnessesToolNameRunsAndIsNamed(t *testing.T) {
 
 	for _, called := range []string{"todo_write", "todo write", "todo"} {
 		a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor,
-			&session.ToolCall{CallID: "c-" + called, Name: called, Args: json.RawMessage(todos)}, newRunGuard(), "")
+			&session.ToolCall{CallID: "c-" + called, Name: called, Args: json.RawMessage(todos)}, newRunGuard(nil), "")
 		body := resultBody(t, a, sid, "c-"+called)
 		if strings.HasPrefix(body, "unknown tool") {
 			t.Errorf("%q was refused though it names a registered tool: %s", called, body)
@@ -51,7 +51,7 @@ func TestAnotherHarnessesToolNameRunsAndIsNamed(t *testing.T) {
 	// `run` is the real one: 33 calls, arguments all over the place, nothing to resolve it to.
 	a.executeTool(ctx, s, AgentSpec{Name: "coder"}, 0, actor,
 		&session.ToolCall{CallID: "c-run", Name: "run",
-			Args: json.RawMessage(`{"command":"ls"}`)}, newRunGuard(), "")
+			Args: json.RawMessage(`{"command":"ls"}`)}, newRunGuard(nil), "")
 	body := resultBody(t, a, sid, "c-run")
 	if !strings.HasPrefix(body, "unknown tool: run") {
 		t.Errorf("an unresolvable name must still be refused, got:\n%s", body)
@@ -78,7 +78,7 @@ func TestADisallowedToolIsRefusedInTheNameTheModelUsed(t *testing.T) {
 	spec := AgentSpec{Name: "reader", Tools: []string{"read", "list"}}
 	a.executeTool(ctx, s, spec, 0, actor,
 		&session.ToolCall{CallID: "c1", Name: "todo_write",
-			Args: json.RawMessage(`{"todos":[{"content":"x","status":"pending"}]}`)}, newRunGuard(), "")
+			Args: json.RawMessage(`{"todos":[{"content":"x","status":"pending"}]}`)}, newRunGuard(nil), "")
 	body := resultBody(t, a, sid, "c1")
 	if strings.Contains(body, "exact registered name") {
 		t.Errorf("the alias reached a tool the agent may not call:\n%s", body)

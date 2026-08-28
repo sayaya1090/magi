@@ -120,7 +120,7 @@ func TestBashWritePathsReadsPastTheRedirections(t *testing.T) {
 // wall clock. The content check is the only thing that can see it, and it already exists for
 // write/edit; this pins that a bash mutation goes through it too.
 func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "shared_heap.c"
 
 	// v0 → v1: a real new version. It is progress, so the counters restart and the nudge re-arms.
@@ -164,7 +164,7 @@ func TestBashRevertIsNotANewDeliverableVersion(t *testing.T) {
 // a state it has NOT held before is real forward motion and must keep every counter reset — the
 // retraction is for reverts only, and over-retracting would stall an agent that is working.
 func TestBashRewriteToANewStateKeepsItsProgress(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const path = "main.go"
 	g.noteEdit(path, "v0", "v1")
 	g.sinceProgress = noProgressNudge

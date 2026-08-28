@@ -41,7 +41,7 @@ func TestTheIgnoredArgumentNoteSaysWhetherTheCallRan(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
 	s := a.sessionInfo(context.Background(), sid)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	g := newRunGuard()
+	g := newRunGuard(nil)
 
 	// The failing shape: the misspelling took the required argument with it.
 	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor,

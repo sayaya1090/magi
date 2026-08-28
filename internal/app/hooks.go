@@ -97,7 +97,7 @@ func (a *App) runPostToolHooks(ctx context.Context, workdir, tool, path string) 
 	// an exact-string edit against what it wrote got "old string not present" and lost a step. A
 	// `gofmt -l` first tells us whether the file will change; if so, the note points the model at
 	// re-reading before it edits.
-	if a.cfg.Harness && fileModifiers[tool] && filepath.Ext(path) == ".go" && a.plat != nil {
+	if a.cfg.Harness && a.changesFile(tool) && filepath.Ext(path) == ".go" && a.plat != nil {
 		listed, _ := a.plat.Exec(ctx, port.Cmd{Path: "gofmt", Args: []string{"-l", path}, Dir: workdir})
 		_, _ = a.plat.Exec(ctx, port.Cmd{Path: "gofmt", Args: []string{"-w", path}, Dir: workdir})
 		if strings.TrimSpace(string(listed.Stdout)) != "" {

@@ -734,6 +734,15 @@ configuration a person has to have, not something to assume.
 **Guardrail policy (`app/policy.go`)** sits above interactive permission prompting:
 - `Tool(spec)` allow/deny pattern rules (e.g. `Bash(git push:*)`, `Read(**/.env)`);
   secret paths are denied by default (hard floor).
+- **Which calls the floor applies to is asked of the call, not of a list of names.** The secret
+  and guardrail patterns used to be expanded into one rule per name × glob for `read`, `write`,
+  `edit`, `multiedit`, which was exact while those were the only file tools. A tool implementing
+  `port.FileTool` says which file its arguments name and whether it writes it, and gets the same
+  floor — and the same change tracking, post-edit diagnostics, per-path repeat epoch and council
+  evidence that used to hang off those three names. That matters for an editor plugin or a slide
+  add-in, which edits the workspace under a name like `mcp__jetbrains__edit`. The declaration is
+  read BEFORE the call: a floor that answers after the write is not a floor. A tool that declares
+  nothing is unchanged — undeclared MCP tools still go through the danger gate, which prompts.
 - bash command scan: destructive / pipe-to-shell / network-egress / secret-path →
   forces a prompt (or deny). Optional egress host allowlist.
 - **Profiles** = 2 axes: Permission (ask|auto|allow|deny) × Sandbox

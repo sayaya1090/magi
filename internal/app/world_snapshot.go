@@ -422,7 +422,7 @@ func missingFromWorld(workdir string, recorded []string) []string {
 // at the finish, where "the record says written, the disk says no" is worth the walk.
 func (a *App) runState(evs []event.Event) string {
 	var parts []string
-	if rec := observeEvents(evs).render(); rec != "" {
+	if rec := observeEvents(evs, a.touchesFile).render(); rec != "" {
 		parts = append(parts, rec)
 	}
 	if jobs := a.liveJobsNow(jobIDsIn(evs)); jobs != "" {

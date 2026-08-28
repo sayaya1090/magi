@@ -10,7 +10,7 @@ import (
 // counter: limit is dropped from the read fingerprint, so 60/65/70 collapse onto one count just as
 // a byte-identical repeat would.
 func TestReadLoopLimitJitterSharesOneCounter(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	n := 0
 	read := func(limit int) {
 		raw := json.RawMessage(`{"path":"init.lua","offset":456,"limit":` + strconv.Itoa(limit) + `}`)
@@ -30,7 +30,7 @@ func TestReadLoopLimitJitterSharesOneCounter(t *testing.T) {
 // Genuine paging (advancing offset) reads DIFFERENT heads and is real forward motion,
 // so it must never be treated as a repeat, no matter how many pages.
 func TestReadPagingNotBlocked(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	for _, off := range []int{1, 200, 400, 600, 800} {
 		raw := json.RawMessage(`{"path":"big.go","offset":` + strconv.Itoa(off) + `,"limit":200}`)
 		if block, _, _ := g.check("read", raw); block {
@@ -42,7 +42,7 @@ func TestReadPagingNotBlocked(t *testing.T) {
 // The limit-drop normalization is read-specific: other tools keep full-args fingerprints,
 // so a differing argument still counts as a distinct call (no collapse, no false block).
 func TestNonReadKeepsFullArgs(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	for i := 0; i < 5; i++ {
 		raw := json.RawMessage(`{"cmd":"ls","n":` + strconv.Itoa(i) + `}`)
 		if block, _, _ := g.check("bash", raw); block {

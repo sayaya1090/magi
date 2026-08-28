@@ -11,19 +11,19 @@ import (
 // reading without having measured which — and the write/edit path reached it, because only the bash
 // path guarded the case at its own call site.
 func TestNoWriteClaimWhenThereWasNoContentEitherSide(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if warn, reg := g.noteEdit("new.txt", "", ""); warn != "" || reg {
 		t.Errorf("magi cannot tell a created empty file from an unchanged one: %q reg=%v", warn, reg)
 	}
 	// The note it exists for is untouched: the same bytes written over themselves.
-	g2 := newRunGuard()
+	g2 := newRunGuard(nil)
 	warn, reg := g2.noteEdit("f.c", "A", "A")
 	if !strings.Contains(warn, "byte-for-byte") || reg {
 		t.Errorf("a real no-op rewrite still says so: %q reg=%v", warn, reg)
 	}
 	// And emptying a file that HAD content is a real change, still tracked as a revert when it
 	// returns to the pre-turn state.
-	g3 := newRunGuard()
+	g3 := newRunGuard(nil)
 	g3.noteEdit("f.c", "", "A")
 	if warn, reg := g3.noteEdit("f.c", "A", ""); !reg || warn == "" {
 		t.Errorf("emptying a file back to its baseline is a revert: %q reg=%v", warn, reg)
@@ -32,7 +32,7 @@ func TestNoWriteClaimWhenThereWasNoContentEitherSide(t *testing.T) {
 
 // The oscillation report counts what it says it counts.
 func TestOscillationReportCountsHold(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	steps := [][2]string{{"A", "B"}, {"B", "A"}, {"A", "B"}, {"B", "A"}, {"A", "B"}}
 	var last string
 	for _, s := range steps {

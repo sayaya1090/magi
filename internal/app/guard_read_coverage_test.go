@@ -14,7 +14,7 @@ import (
 // Replayed from the live sequence (fix-ocaml-gc, one file, 49 minutes, no edit): offsets
 // 640/642 with limits 30–50, over a region already delivered in full at the very first read.
 func TestReReadingADeliveredWindowIsNotNewInformation(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "runtime/shared_heap.c"
 
 	if !g.noteReadCoverage(p, 540, 200) {
@@ -48,7 +48,7 @@ func TestReReadingADeliveredWindowIsNotNewInformation(t *testing.T) {
 // A read with no offset/limit is the whole navigable window, so repeating it is a re-read even
 // though neither call names a line.
 func TestABareReadCoversItsDefaultWindow(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if !g.noteReadCoverage("notes.txt", 0, 0) {
 		t.Fatal("the first bare read is new information")
 	}
@@ -65,7 +65,7 @@ func TestABareReadCoversItsDefaultWindow(t *testing.T) {
 // next read is information again. Without this the guard would count a post-edit re-read as
 // circling and climb toward a nudge for exactly the behavior it wants.
 func TestChangingAFileMakesItWorthReadingAgain(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "runtime/shared_heap.c"
 	g.noteReadCoverage(p, 640, 40)
 	if g.noteReadCoverage(p, 640, 40) {
@@ -86,7 +86,7 @@ func TestChangingAFileMakesItWorthReadingAgain(t *testing.T) {
 // Coverage is stored as disjoint regions, so a run that pages one file a hundred times holds a
 // handful of spans rather than a hundred — the check runs on every read.
 func TestCoverageStaysCompact(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	const p = "big.c"
 	for i := 0; i < 100; i++ {
 		g.noteReadCoverage(p, 1+i*10, 10) // contiguous pages, in order
@@ -109,7 +109,7 @@ func TestCoverageStaysCompact(t *testing.T) {
 // and reporting fresh coverage for a window already delivered.
 func TestReReadThroughTheSeamDoesNotResetTheStallWindow(t *testing.T) {
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	read := func(args string) {
 		tc := &session.ToolCall{CallID: "c" + args, Name: "read", Args: json.RawMessage(args)}
 		_, n, _ := g.check(tc.Name, tc.Args)

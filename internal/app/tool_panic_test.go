@@ -37,7 +37,7 @@ func TestAPanicUnderOneToolCallDoesNotEndTheRun(t *testing.T) {
 
 	tc := &session.ToolCall{CallID: "c1", Name: "boom", Args: json.RawMessage(`{}`)}
 	// Does not panic out: the deferred recover turns it into this call's failure.
-	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor, tc, newRunGuard(), "")
+	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor, tc, newRunGuard(nil), "")
 
 	// The call is answered — an unanswered call is the failure mode this must not reintroduce.
 	txt := allEventText(t, a, sid)
@@ -74,7 +74,7 @@ func TestAPanicUnderOneToolCallDoesNotEndTheRun(t *testing.T) {
 
 	// A tool that works is untouched by any of this.
 	ok := &session.ToolCall{CallID: "c2", Name: "read", Args: json.RawMessage(`{"path":"nope.txt"}`)}
-	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor, ok, newRunGuard(), "")
+	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor, ok, newRunGuard(nil), "")
 	if r := toolResultFor(t, a, sid, "c2"); r == nil {
 		t.Error("an ordinary call still gets its result")
 	}

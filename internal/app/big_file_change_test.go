@@ -50,7 +50,7 @@ func TestAFileTooBigToCompareIsNotComparedAtAll(t *testing.T) {
 // …and the guard says nothing about such a path, rather than something false. Both sides come back
 // empty, which is the shape noteEdit already refuses to read as a rewrite.
 func TestNoNoOpClaimAboutAFilePastTheReadCap(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	// This is what the call sites hand over once readForChange declines: "" on both sides.
 	if warn, reg := g.noteEdit("huge.csv", "", ""); warn != "" || reg {
 		t.Errorf("nothing may be claimed about a path with no comparable content: warn=%q regressed=%v", warn, reg)

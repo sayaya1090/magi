@@ -15,7 +15,7 @@ import (
 // The note states the observation and stops there: nothing moved, which is a fact, and whether
 // that was intended is the agent's to say.
 func TestANoOpWriteSaysSo(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	body := "call setreg('a', \"dd\")\n"
 
 	if warn, regressed := g.noteEdit("apply.vim", "", body); warn != "" || regressed {
@@ -43,7 +43,7 @@ func TestANoOpWriteSaysSo(t *testing.T) {
 // baseline must be recorded so a later real edit is still seen as forward motion rather than as a
 // return to a state nobody registered.
 func TestANoOpWriteOnAFileNotYetSeenStillRegistersItsBaseline(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	same := "already here\n"
 	if warn, _ := g.noteEdit("f.txt", same, same); warn == "" {
 		t.Fatal("a write matching the file's existing bytes must be reported on first touch too")
@@ -62,7 +62,7 @@ func TestANoOpWriteOnAFileNotYetSeenStillRegistersItsBaseline(t *testing.T) {
 // fresh repeat count — so nine replays in five minutes read as nine first-time writes and the
 // repeat was invisible to everything downstream.
 func TestAScratchRedirectDoesNotRearmAnIdenticalWrite(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	w := jsonRaw(`{"path":"apply.vim","content":"call setreg('a', \"dd\")"}`)
 	sig := canonicalArgs(w)
 

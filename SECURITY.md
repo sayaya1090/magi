@@ -194,6 +194,14 @@ Stated plainly, because a security page that only lists strengths is worse than 
 - **A companion's work cannot be rolled back from another machine.** Every mutation has exactly one
   owner and one log; there is no fleet-wide undo.
 - **No supply-chain verification of the models you point it at.** `base_url` goes where you say.
+- **What a command PRINTS is never scanned for secrets.** The secret defences are path-based: the
+  deny rules attach to file tools and match the path being opened, so `.env` and `id_rsa` cannot be
+  read by name. Nothing looks at output. `env`, `printenv`, a build log that echoes a token, a
+  `docker inspect` — whatever those print goes into the model's context and into the session log,
+  which is kept. Redacting output was considered and refused for now: a regex that removes
+  secret-shaped strings both invites trust it cannot keep and silently corrupts what it misfires on
+  (a truncated hash, a gutted payload) with no way for the model to tell. Keep secrets out of the
+  environment the daemon runs in.
 - **Third-party MCP servers are processes you asked magi to spawn.** They run with your privileges,
   outside the Lua sandbox. Their tools go through the same permission gate as any other tool, which
   bounds what they can do *through the agent*, not what the process itself can do.

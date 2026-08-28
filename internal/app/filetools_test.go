@@ -1,0 +1,141 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+// declaredTool is what an editor plugin's edit tool looks like from here: a name none of the
+// built-in lists contain, and a path argument that is not called "path".
+type declaredTool struct {
+	name   string
+	writes bool
+}
+
+func (d declaredTool) Name() string            { return d.name }
+func (d declaredTool) Description() string     { return "edits a file through the IDE" }
+func (d declaredTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (d declaredTool) WritesFile() bool        { return d.writes }
+func (d declaredTool) FileArg(a json.RawMessage) string {
+	var v struct {
+		File string `json:"file"`
+	}
+	_ = json.Unmarshal(a, &v)
+	return v.File
+}
+func (d declaredTool) Execute(context.Context, json.RawMessage, port.ToolEnv) (session.ToolResult, error) {
+	return session.ToolResult{}, nil
+}
+
+type oneTool struct{ t port.Tool }
+
+func (r oneTool) Register(port.Tool) {}
+func (r oneTool) Unregister(string)  {}
+func (r oneTool) List() []port.Tool  { return []port.Tool{r.t} }
+func (r oneTool) Get(n string) (port.Tool, bool) {
+	if r.t != nil && r.t.Name() == n {
+		return r.t, true
+	}
+	return nil, false
+}
+
+// The five things that hang off "this was an edit" used to hang off three names. A tool that edits
+// the same workspace under any other name got none of them — which is every tool an editor plugin
+// or a slide add-in attaches, because those are called mcp__<server>__<tool>.
+func TestAToolThatSaysItEditsIsTreatedAsAnEdit(t *testing.T) {
+	a := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__edit", writes: true}}}
+
+	if !a.changesFile("mcp__jetbrains__edit") {
+		t.Error("a tool that declares it writes files was not read as an edit")
+	}
+	got := a.filePathOf("mcp__jetbrains__edit", json.RawMessage(`{"file":"/w/main.go"}`))
+	if got != "/w/main.go" {
+		t.Errorf("path %q — the tool says where its path is; magi used to assume an argument called \"path\"", got)
+	}
+	// And the builtin names still answer, for a registry that holds none of this.
+	if !a.changesFile("edit") || a.changesFile("read") || a.changesFile("bash") {
+		t.Error("the builtin vocabulary changed")
+	}
+}
+
+// A tool that declares it only READS is not an edit. Otherwise every declaring tool would bump the
+// guard's epoch and count as progress, which is the opposite of what the declaration is for.
+func TestAReadingToolIsNotAnEdit(t *testing.T) {
+	a := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__open", writes: false}}}
+	if a.changesFile("mcp__jetbrains__open") {
+		t.Error("a declared reader was counted as a file change")
+	}
+	if got := a.filePathOf("mcp__jetbrains__open", json.RawMessage(`{"file":"/w/x.go"}`)); got != "/w/x.go" {
+		t.Errorf("a reader's path is still its path: %q", got)
+	}
+}
+
+// The floor is the half that cannot move to the result: it has to answer before the write. A
+// declared file tool is refused a secret exactly as the builtins are — and the refusal is the hard
+// kind, not the confirmation prompt an unknown tool would get.
+func TestTheSecretFloorHoldsForADeclaredTool(t *testing.T) {
+	p := newPolicy(nil, nil, nil)
+	a := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__edit", writes: true}}}
+	p.touches = a.touchesFile
+
+	for _, path := range []string{"/w/.env", "/w/deploy/id_rsa"} {
+		args, _ := json.Marshal(map[string]string{"file": path})
+		verdict, reason := p.Decide("mcp__jetbrains__edit", args)
+		if verdict != "deny" {
+			t.Errorf("%s through a declared editor: verdict=%q reason=%q — the floor is a floor or it is not",
+				path, verdict, reason)
+		}
+	}
+
+	// The guardrail half is writes-only: an agent may read its own config and may not rewrite it.
+	args, _ := json.Marshal(map[string]string{"file": "/w/.magi/config.toml"})
+	if v, _ := p.Decide("mcp__jetbrains__edit", args); v != "deny" {
+		t.Errorf("a declared editor rewrote the guardrail file: %q", v)
+	}
+	reader := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__open", writes: false}}}
+	p2 := newPolicy(nil, nil, nil)
+	p2.touches = reader.touchesFile
+	if v, _ := p2.Decide("mcp__jetbrains__open", args); v == "deny" {
+		t.Error("reading .magi/config.toml was denied — the guardrail is about writing it")
+	}
+	// …but a secret is refused to a reader too.
+	secret, _ := json.Marshal(map[string]string{"file": "/w/.env"})
+	if v, _ := p2.Decide("mcp__jetbrains__open", secret); v != "deny" {
+		t.Errorf("a declared reader was allowed a secret: %q", v)
+	}
+}
+
+// A tool that declares nothing is unchanged: no path, no floor, no edit machinery. The declaration
+// adds a way in; it does not put every MCP tool through the file path.
+func TestAToolThatDeclaresNothingIsUntouched(t *testing.T) {
+	a := &App{tools: oneTool{nil}}
+	if _, ok := a.touchesFile("mcp__ppt__render", json.RawMessage(`{"path":"/w/.env"}`)); ok {
+		t.Error("an undeclared tool was treated as a file tool because its argument was called path")
+	}
+	p := newPolicy(nil, nil, nil)
+	p.touches = a.touchesFile
+	if v, _ := p.Decide("mcp__ppt__render", json.RawMessage(`{"path":"/w/.env"}`)); v == "deny" {
+		t.Error("the floor fired for a tool that never said it opens files — it goes through the danger gate instead")
+	}
+}
+
+// The evidence the council reads is "what changed this turn", and it was gathered by the same three
+// names. A tool that edits under any other one left no trace in it — so a turn that did its work
+// through an editor plugin read as a turn that changed nothing.
+func TestTheCouncilSeesADeclaredToolsEdit(t *testing.T) {
+	a := &App{tools: oneTool{declaredTool{name: "mcp__jetbrains__edit", writes: true}}}
+	evs := []event.Event{toolCallEv("c1", "mcp__jetbrains__edit", `{"file":"main.go"}`)}
+
+	if got := observeEvents(evs, a.touchesFile).changed; len(got) != 1 || got[0] != "main.go" {
+		t.Errorf("the council was shown %v — a turn that edited a file read as one that changed nothing", got)
+	}
+	// And with no answer behind it, the builtin names still are the vocabulary.
+	if got := observeEvents(evs, nil).changed; len(got) != 0 {
+		t.Errorf("an undeclared name counted as a change: %v", got)
+	}
+}

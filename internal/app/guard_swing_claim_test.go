@@ -14,7 +14,7 @@ import (
 // versions it has moved among.
 func TestTheSwingNoteSaysOnlyWhatItCounted(t *testing.T) {
 	const p = "run_test_interrupt.py"
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	g.noteEdit(p, "", "v1")
 	g.noteEdit(p, "v1", "")
 	g.noteEdit(p, "", "v2")

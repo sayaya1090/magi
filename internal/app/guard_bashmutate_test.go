@@ -61,7 +61,7 @@ func TestMutatesFiles(t *testing.T) {
 // the ones that ran to the external deadline produced 76. check() never returns a block — what a
 // repeat past the limit still does is climb a counter that fires ONE advisory nudge.
 func TestGuardCountsRepeatsButNeverRefuses(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	build := json.RawMessage(`{"command":"go build ./..."}`)
 	insp := json.RawMessage(`{"command":"cat main.go"}`)
 	rd := json.RawMessage(`{"file":"main.go"}`)
@@ -89,7 +89,7 @@ func TestGuardCountsRepeatsButNeverRefuses(t *testing.T) {
 	}
 
 	// A detected mutation still resets the window (stall accuracy), fingerprints re-key.
-	g4 := newRunGuard()
+	g4 := newRunGuard(nil)
 	g4.check("bash", build)
 	if authored, _ := g4.noteBashWrite("sed -i 's/a/b/' main.go"); !authored {
 		t.Fatal("sed -i must register as a file mutation")
@@ -106,7 +106,7 @@ func TestGuardCountsRepeatsButNeverRefuses(t *testing.T) {
 // bash-driven fix cycle produces files, and a guard that cannot see them reads real progress as
 // a stall.
 func TestBashMutationBumpsTheEpoch(t *testing.T) {
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if authored, _ := g.noteBashWrite("sed -i 's/a/b/' f.go"); !authored {
 		t.Error("a redirect-less mutation must bump the epoch")
 	}

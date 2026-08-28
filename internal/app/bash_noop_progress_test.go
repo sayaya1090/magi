@@ -27,7 +27,7 @@ func TestAnIdenticalRegenerationIsNotProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow"})
-	g := newRunGuard()
+	g := newRunGuard(nil)
 
 	run := func(cmd string, changes []bashChange) {
 		tc := &session.ToolCall{CallID: "c", Name: "bash",

@@ -37,7 +37,7 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	guard := newRunGuard()
+	guard := newRunGuard(nil)
 	run := func(cmd string) {
 		t.Helper()
 		args, _ := json.Marshal(map[string]string{"command": cmd})
@@ -104,7 +104,7 @@ func TestRemovingAPathThatNeverExistedSaysNothing(t *testing.T) {
 	ctx := context.Background()
 	s := a.sessionInfo(ctx, sid)
 	actor := event.Actor{Kind: event.ActorAgent, ID: "coder"}
-	guard := newRunGuard()
+	guard := newRunGuard(nil)
 	run := func(cmd string) string {
 		t.Helper()
 		args, _ := json.Marshal(map[string]string{"command": cmd})

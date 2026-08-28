@@ -356,6 +356,34 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage, env ToolEnv) (session.ToolResult, error)
 }
 
+// FileTool is a tool that opens a named file, and says which one BEFORE it runs.
+//
+// magi recognised a file edit by the tool's NAME: `write`, `edit`, `multiedit`, with the path read
+// from an argument called "path". Five things hang off that recognition — the secret and guardrail
+// deny rules, the pre-call snapshot the council is shown, the post-edit diagnostics pass, the
+// repeat guard's per-path epoch, and the record of what changed this turn — and a tool that edits
+// files under any other name got none of them. Not a gap while every file tool was a builtin; it
+// became one the moment an editor plugin or a slide add-in attached its own, which is a tool that
+// edits the same workspace and is called mcp__jetbrains__edit.
+//
+// Implement it and a tool joins that machinery. Decline it and nothing changes: the builtin names
+// are still recognised, so this adds a way in rather than taking one away.
+//
+// BEFORE it runs is the whole point. A declaration in the RESULT would arrive after the write, and
+// the secret rules have to answer before it — a floor that says "you should not have" is not a
+// floor. So the path is read from the arguments, which is also what makes it checkable: the same
+// string the deny rules match is the one the tool will open.
+type FileTool interface {
+	// FileArg answers the file this call names, read from the call's own arguments. "" when the
+	// call names none — which is not an error, only a call this machinery has nothing to say about.
+	FileArg(args json.RawMessage) string
+	// WritesFile reports whether the call CHANGES the file rather than only reading it. The two
+	// halves are gated differently: secrets are refused to readers and writers alike, while the
+	// guardrail paths (.magi/config.toml, .magi/plugins/**) and the whole change-tracking machinery
+	// are about writes.
+	WritesFile() bool
+}
+
 // Question is one thing put to a person, with everything a surface needs to draw it whole.
 //
 // A struct rather than a longer parameter list: the position arrived after the text and the

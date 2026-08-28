@@ -33,7 +33,7 @@ func TestTheCoverageWindowIsWhatWasDeliveredNotWhatWasAsked(t *testing.T) {
 	}
 
 	// What that fixes: the region past the cut is still new information.
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if !g.noteReadCoverage("runtime/major_gc.c", lo, n) {
 		t.Fatal("the first read of a file is new information")
 	}
@@ -42,7 +42,7 @@ func TestTheCoverageWindowIsWhatWasDeliveredNotWhatWasAsked(t *testing.T) {
 	}
 	// For contrast, the shape this replaced: booking the request as 2000 lines swallows the 761
 	// it never sent, and the read above is refused.
-	g2 := newRunGuard()
+	g2 := newRunGuard(nil)
 	g2.noteReadCoverage("runtime/major_gc.c", 1, 2000)
 	if g2.noteReadCoverage("runtime/major_gc.c", 1400, 200) {
 		t.Error("the contrast is stale: booking the request no longer over-claims")

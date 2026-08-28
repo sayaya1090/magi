@@ -43,7 +43,7 @@ func TestTurnNotesComeBackVerbatimAtTheFinish(t *testing.T) {
 		t.Errorf("an accepted declaration must hand the notes back too:\n%s", out)
 	}
 	// The other finish seam: the agent went quiet and is asked to declare.
-	tc := turnCtx{s: s, agent: AgentSpec{Name: "coder"}, guard: newRunGuard()}
+	tc := turnCtx{s: s, agent: AgentSpec{Name: "coder"}, guard: newRunGuard(nil)}
 	a.cfg.Workflow = false
 	if _, done := a.requireFinishDeclaration(ctx, tc, true, "", &turnState{}); !done {
 		t.Fatal("a working turn that never declared must be asked")

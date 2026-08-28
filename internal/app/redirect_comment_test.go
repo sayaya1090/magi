@@ -41,7 +41,7 @@ func TestARedirectInACommentIsNotARedirect(t *testing.T) {
 	}
 
 	// The consumer that matters: a phantom write must not be booked as progress.
-	g := newRunGuard()
+	g := newRunGuard(nil)
 	if authored, _ := g.noteBashWrite("make world  # writes > out.txt"); authored {
 		t.Error("a comment mentioning a path is not a file this command authored")
 	}
