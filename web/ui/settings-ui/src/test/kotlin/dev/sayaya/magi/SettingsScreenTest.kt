@@ -140,6 +140,43 @@ internal class SettingsScreenTest : GwtTestSpec({
             Then("다른 줄은 조용하다 — 사유는 눌린 칸의 것이다") {
                 page.locator("#settings .refused").count() shouldBe 1
             }
+            Then("판이 다시 서도 그 말을 <b>다시 읽어 주지는</b> 않는다 — 아무 일도 안 일어났으므로") {
+                // 이 판은 다시 그릴 때마다 통째로 헐고 새로 세운다. 그래서 사유의 줄도 매번 새
+                // 노드이고, `role=alert`를 단 노드가 들어올 때마다 읽는 기계는 새 사고로 읽어
+                // 준다. 노드를 붙들어 재는 법은 여기선 못 쓴다(붙들 노드가 없다) — 들어온 것을
+                // 센다. 한 번에 붙는 것은 폼 전체라, 딸려 들어온 것까지 내려가며 세야 한다.
+                page.evaluate(
+                    """
+                    window.__magi_test_alerts = 0;
+                    new MutationObserver(ms => { for (const m of ms) m.addedNodes.forEach(n => {
+                        if (n.nodeType !== 1) return;
+                        window.__magi_test_alerts +=
+                            (n.matches('.refused[role=alert]') ? 1 : 0)
+                            + n.querySelectorAll('.refused[role=alert]').length;
+                    }); }).observe(document.querySelector('#settings'),
+                                   {childList: true, subtree: true});
+                    """.trimIndent()
+                )
+                // 테마는 이 브라우저에만 적는 것이라 서버에 아무것도 묻지 않는다 — 그런데도
+                // 판은 세 번 다시 선다.
+                repeat(3) { page.locator("#settings #themeToggle").click() }
+                page.waitForCondition {
+                    page.locator("#settings [data-field=crossSession] .refused").count() == 1
+                }
+                page.evaluate("window.__magi_test_alerts") shouldBe 0
+                // 그래도 사유는 제자리에 그대로 선다 — 안 읽어 주는 것이지 지우는 것이 아니다.
+                page.locator("#settings [data-field=crossSession] .refused").textContent()
+                    .shouldBe("this console is read-only here")
+            }
+            Then("같은 말을 <b>다시 들으면</b> 다시 읽어 준다 — 그것은 새로 일어난 일이다") {
+                // 문장으로 가르면 이 자리가 조용해진다: 같은 칸을 또 눌러 또 거절당한 것은 두
+                // 번 일어난 일인데 문장은 하나다. 그래서 화면은 대답이 <b>올 때만</b> 오르는
+                // 수를 본다.
+                page.locator("#settings md-switch[data-field=crossSession]").click()
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_alerts") as Int) == 1
+                }
+            }
         }
         When("다음에 누른 것이 받아들여지면") {
             page.evaluate("delete window.__magi_test_press_refuses")

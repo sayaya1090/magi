@@ -87,6 +87,9 @@ public class SettingsElement {
         root.append(form);
     }
 
+    /** 몇 번째 대답까지 읽어 주었는가 — 붙들 노드가 없으니 이 화면이 대신 센다. */
+    private int announced = 0;
+
     /**
      * 거절당한 사유가 서는 자리 — <b>그 칸의 줄</b>이다.
      *
@@ -102,6 +105,12 @@ public class SettingsElement {
      *
      * <p>여기가 이 화면에서 사유를 그리는 <b>유일한</b> 자리다. 줄마다 손으로 끼워 넣으면,
      * 줄을 하나 더 만드는 날 그 줄만 조용해진다.</p>
+     *
+     * <p>읽어 주는 것은 <b>처음 한 번</b>뿐이다. 이 판은 다시 그릴 때마다 통째로 헐고 새로
+     * 세우므로 사유의 줄도 매번 새 노드인데, `role=alert`가 붙은 노드가 들어올 때마다 읽는
+     * 기계는 그것을 새로 일어난 일로 읽어 준다. 테마 단추를 세 번 누르면 아무 일도 없었는데
+     * 같은 말을 세 번 더 듣는다. 회의 화면은 노드를 살려 두어 같은 말이면 손대지 않는 것으로
+     * 막았지만, 여기엔 붙들 노드가 없다 — 그래서 <b>화면이 세어</b> 가른다(`announced`).</p>
      */
     private void sayRefusal(HTMLElement form) {
         String why = store.refusal(), field = store.refusedField();
@@ -111,7 +120,13 @@ public class SettingsElement {
         if (row == null) return;
         HTMLElement no = el("div");
         no.className = "refused";
-        no.setAttribute("role", "alert");
+        // 이 대답을 아직 읽어 준 적이 없을 때만 alert다. 판을 다시 세운 것은 아무 일도 아니고,
+        // 같은 말이라도 새로 들었으면(수가 올랐으면) 새로 일어난 일이다.
+        int said = store.refusalSeq();
+        if (said != announced) {
+            no.setAttribute("role", "alert");
+            announced = said;
+        }
         no.textContent = why;
         // 줄 안의 설명 묶음에 붙인다 — 컨트롤 옆이 아니라 그 줄의 말이 사는 곳이다.
         elemental2.dom.Element say = row.querySelector(".prefsay");
@@ -250,6 +265,11 @@ public class SettingsElement {
                         // 브라우저는 받아들였는데 <b>서버가 거절하면</b> 알림은 오지 않는다 —
                         // 켜진 채로 둔 스위치는 오지 않을 것을 온다고 말하는 셈이라, 되돌리고
                         // 서버가 한 말을 그대로 옮긴다.
+                        //
+                        // 이 규칙에는 스펙이 없다 — 하네스가 브라우저 구독을 켜지 못해 여기까지
+                        // 온 적이 없다. 한때 이 되돌림을 잰다던 스펙이 하나 서 있었는데 실은
+                        // 아무것도 재지 않아 지웠다(19→18). <b>못 재게 된 것이지 규칙이 없어진
+                        // 것이 아니다</b> — 그 둘은 다른 말이라 규칙을 여기 적어 둔다.
                         store.push(endpoint, p256dh, auth, false, no -> {
                             if (!no.isEmpty()) {
                                 Js.asPropertyMap(sw).set("selected", false);
