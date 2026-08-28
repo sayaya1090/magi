@@ -4,6 +4,7 @@
 // FakeDeck 하나만 갈아 끼우면 흐름이 끝까지 돈다. OfficeDeck 은 여기 안 들어온다 — 이 머신에
 // PowerPoint 가 없고, 안 돌려 본 것을 "된다"고 세지 않는다.
 import { Conversation } from '../src/domain/Conversation.js';
+import { Quote } from '../src/domain/Quote.js';
 import { Advice } from '../src/domain/Advice.js';
 import { FakeDeck } from '../src/adapter/FakeDeck.js';
 import { QuoteSelection } from '../src/usecase/QuoteSelection.js';
@@ -30,6 +31,15 @@ const r1 = await quote.run();
 ok('하나 인용', r1.added.length === 1 && conv.pending.length === 1);
 ok('인용문에 식별자가 남는다', conv.pending[0].toPrompt().includes('shape=sh8c30'),
    conv.pending[0].headline);
+
+// 긴 글은 자르되 **자른 티가 나야** 한다 — 모델이 그걸 전문으로 읽으면 뒤쪽을 없는 셈 친다.
+{
+  const long = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '가'.repeat(900) });
+  const p = long.toPrompt();
+  ok('긴 인용은 잘리고 잘렸다고 적힌다', p.includes('textTruncated=900') && p.length < 900);
+  const short = new Quote({ slideId: 's1', shapeId: 'sh1', type: 'TextBox', text: '짧다' });
+  ok('짧은 인용에는 그 표시가 없다', !short.toPrompt().includes('textTruncated'));
+}
 
 // 같은 도형 또 인용 — 중복은 안 쌓인다.
 const r2 = await quote.run();
