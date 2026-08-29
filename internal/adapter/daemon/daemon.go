@@ -435,6 +435,15 @@ type ConversationKeeper interface {
 	NewSession(ctx context.Context) (session.SessionID, error)
 }
 
+// CronTeller is the read half of standing work, for a dock that shows what is coming: the TUI
+// reads it in-process (scheduledSoon), and a socket client had only the write half (reload-cron).
+type CronTeller interface {
+	// ScheduledHere answers this workspace's jobs — the runnable with their next instant, and the
+	// never-runnable with the reason, which a listing MUST carry since nothing else will ever
+	// mention them again.
+	ScheduledHere() []app.ScheduledJobInfo
+}
+
 // CronController is the part of an engine that holds scheduled work.
 //
 // Optional and asserted at dispatch, like Controller, and separate from it for the reason Controller
@@ -608,6 +617,8 @@ type Response struct {
 	Roster []RosterRow `json:"roster,omitempty"`
 	// Sessions answers the `sessions` method: this workspace's conversations, newest first.
 	Sessions []SessionRow `json:"sessions,omitempty"`
+	// Cron answers the `cron` method: the standing schedule, broken first, then soonest first.
+	Cron []CronRow `json:"cron,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -1276,6 +1287,44 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"mcp-detach":  answerMCPDetach,
 	"sessions":    answerSessions,
 	"session-new": answerSessionNew,
+	"cron":        answerCron,
+}
+
+// CronRow is one standing job as the dock draws it: when it runs next, or why it never will.
+type CronRow struct {
+	Name     string `json:"name"`
+	Schedule string `json:"schedule,omitempty"`
+	Enabled  bool   `json:"enabled,omitempty"`
+	// Next is RFC3339, and empty when the job never runs — switched off, or Problem says why.
+	Next string `json:"next,omitempty"`
+	// Problem is why this job can NEVER run, in words. A row carrying one is the row a dock must
+	// mark: nothing else on any screen will mention it again.
+	Problem string `json:"problem,omitempty"`
+}
+
+// answerCron reads the standing schedule out: broken jobs first (they are the ones nobody else
+// mentions), then soonest first — the same order the TUI's own panel draws.
+func answerCron(ctx context.Context, eng Engine, req Request) Response {
+	t, ok := eng.(CronTeller)
+	if !ok {
+		return Response{Err: "this daemon cannot read its schedule"}
+	}
+	jobs := t.ScheduledHere()
+	sort.SliceStable(jobs, func(i, k int) bool {
+		if (jobs[i].Problem != "") != (jobs[k].Problem != "") {
+			return jobs[i].Problem != ""
+		}
+		return jobs[i].Next.Before(jobs[k].Next)
+	})
+	rows := make([]CronRow, 0, len(jobs))
+	for _, j := range jobs {
+		r := CronRow{Name: j.Name, Schedule: j.Schedule, Enabled: j.Enabled, Problem: j.Problem}
+		if !j.Next.IsZero() {
+			r.Next = j.Next.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, r)
+	}
+	return Response{OK: true, Cron: rows}
 }
 
 // SessionRow is one conversation as the sessions door reports it: what a picker needs and no
@@ -2408,6 +2457,15 @@ func (c *Client) NewSession() (string, error) {
 		return "", err
 	}
 	return resp.Session, nil
+}
+
+// Cron reads the standing schedule: what runs next, and what never will and why.
+func (c *Client) Cron() ([]CronRow, error) {
+	resp, err := c.exchange(Request{Method: "cron"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Cron, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {

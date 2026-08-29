@@ -2709,6 +2709,12 @@ func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error)
 	return sid, nil
 }
 
+// ScheduledHere satisfies daemon.CronTeller: the same standing-work answer the TUI panel reads
+// in-process, for the dock on the other side of the socket.
+func (d daemonEngine) ScheduledHere() []app.ScheduledJobInfo {
+	return d.App.ScheduledJobs(d.workdir)
+}
+
 // Resume satisfies daemon.SessionMover: continue a different conversation of this companion's own.
 //
 // Three refusals before anything changes, and each is a way the move would be a lie:

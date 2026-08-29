@@ -125,6 +125,13 @@ func (o *omniEngine) NewSession(_ context.Context) (session.SessionID, error) {
 	return "s_fresh", nil
 }
 
+func (o *omniEngine) ScheduledHere() []app.ScheduledJobInfo {
+	return []app.ScheduledJobInfo{
+		{Name: "tick", Schedule: "@daily", Enabled: true, Next: time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC)},
+		{Name: "cursed", Schedule: "not-a-cron", Problem: "unparseable schedule"},
+	}
+}
+
 func (o *omniEngine) About() string   { return "a companion" }
 func (o *omniEngine) Version() string { return "v-test" }
 
@@ -141,6 +148,7 @@ func TestAnswerersRefuseInWords(t *testing.T) {
 		"look-over": answerLookOver, "complete": answerComplete, "open-file": answerOpenFile,
 		"suggest": answerSuggest, "shell": answerShell, "about": answerAbout,
 		"sessions": answerSessions, "session-new": answerSessionNew,
+		"cron": answerCron,
 	} {
 		resp := fn(ctx, bare, Request{Method: method, Name: "x", Text: "y"})
 		if resp.OK || resp.Err == "" {
@@ -256,5 +264,13 @@ func TestAnswerersMapBothDirections(t *testing.T) {
 	if r := answerSessionNew(ctx, o, Request{}); !r.OK || r.Session != "s_fresh" ||
 		o.calls[len(o.calls)-1] != "new-session" {
 		t.Fatalf("session-new: %+v", r)
+	}
+
+	// The schedule reads out broken-first, and a job that never runs carries its why with an
+	// empty next — never a zero time pretending to be an instant.
+	if r := answerCron(ctx, o, Request{}); !r.OK || len(r.Cron) != 2 ||
+		r.Cron[0].Name != "cursed" || r.Cron[0].Problem == "" || r.Cron[0].Next != "" ||
+		r.Cron[1].Name != "tick" || r.Cron[1].Next == "" {
+		t.Fatalf("cron: %+v", r.Cron)
 	}
 }
