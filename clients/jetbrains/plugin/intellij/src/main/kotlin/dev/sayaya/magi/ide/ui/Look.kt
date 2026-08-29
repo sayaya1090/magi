@@ -43,17 +43,25 @@ internal object Look {
     /** 눌러서 갈 수 있는 것 — 경로와 줄 번호. */
     val accent = of(Palette.accent)
 
-    /** 본문. */
-    val body = of(Palette.onSurface)
+    /**
+     * 본문 — 그리고 아래 회색 셋. **IDE 의 대응 롤에서 오고, 팔레트는 폴백이다.**
+     *
+     * M3 의 색은 팔레트가 아니라 「배경 X 위에는 on-X」라는 **짝**이고, 짝이 대비를 보장한다
+     * (스킬 §1 의 판정). 이 창의 배경은 IDE 테마가 칠하므로 — §6a 에 기록된 그 이탈 — 짝을
+     * 보장할 수 있는 것도 테마뿐이다: 회색 계열을 팔레트 고정값으로 얹으면 낯선 테마에서
+     * 대비가 미검증이 된다. 그래서 **뜻이 있는 색만** 팔레트에서 오고(아래 primary·자리색·
+     * error 들 — 세 화면이 공유하는 약속), 뜻 없는 회색은 테마의 손에 맡긴다.
+     */
+    val body = JBColor.namedColor("Label.foreground", of(Palette.onSurface))
 
     /** 읽히되 앞에 안 나서는 것 — 일련번호, 시각, 창이 스스로 하는 말. */
-    val faint = of(Palette.onSurfaceVariant)
+    val faint = JBColor.namedColor("Label.infoForeground", of(Palette.onSurfaceVariant))
 
     /** 그보다 더 뒤로. */
-    val muted = of(Palette.muted)
+    val muted = JBColor.namedColor("Component.infoForeground", of(Palette.muted))
 
     /** 구역을 가르는 실선. */
-    val edge = of(Palette.outlineVariant)
+    val edge = JBColor.namedColor("Separator.separatorColor", of(Palette.outlineVariant))
 
     val error = of(Palette.error)
     val warn = of(Palette.warn)

@@ -143,10 +143,27 @@ class MagiToolWindow : ToolWindowFactory {
          * 연결의 점. "— 전사에 붙었다" 같은 문장 행이 대화 사이에 끼는 대신(사용자 실측: 읽기를
          * 끊는다) 색 하나로 선다 — 웹이 그렇게 한다. 사유는 툴팁에.
          */
-        private val link = JBLabel("●").apply { foreground = Look.muted; toolTipText = "아직 안 붙었다" }
-        private fun mood(colour: Color, why: String) = SwingUtilities.invokeLater {
-            link.foreground = colour
-            link.toolTipText = why
+        // 초기값도 두-지표 규칙 안에 있다(리뷰: ●-muted 는 붙음-success 와 색만 달랐다) — 안
+        // 붙은 상태의 글리프는 ◌ 다.
+        private val link = JBLabel("◌").apply { foreground = Look.muted; toolTipText = "아직 안 붙었다" }
+
+        // 상태는 **두 지표**로 말한다(M3 상호작용 규칙 — 웹 감사가 "연결 점 세 상태가 색만"으로
+        // 정확히 이 자리를 잡았었다): 색 + 글리프. ● 붙음 · ↻ 다시 붙는 중 · ✕ 끊김 · ◌ 끊었다.
+        // 그리고 스트림의 수준과 손(hand)의 수준은 **딴 사실**이라 딴 필드에 산다 — 한 칸에
+        // 실으면 다음 스트림 이벤트가 손 정보를 지운다(결함 모양 「한 변수가 두 사실」).
+        @Volatile private var linkColour: Color = Look.muted
+        @Volatile private var linkGlyph: String = "◌"
+        @Volatile private var streamWhy: String = "아직 안 붙었다"
+        @Volatile private var handWhy: String? = null
+        private fun mood(colour: Color, glyph: String, why: String) {
+            linkColour = colour; linkGlyph = glyph; streamWhy = why
+            paintLink()
+        }
+        private fun handSaid(t: String?) { handWhy = t; paintLink() }
+        private fun paintLink() = SwingUtilities.invokeLater {
+            link.text = linkGlyph
+            link.foreground = linkColour
+            link.toolTipText = streamWhy + (handWhy?.let { " · $it" } ?: "")
         }
 
         /**
@@ -225,7 +242,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 비움은 여기가 아니라 [follow] 다 — 커서가 있으면 재생이 증분이라 비울 것이
                     // 없고, 그 판정(since==null)을 아는 것은 follow 뿐이다. 문장 행 대신 점.
                     everBegan = true
-                    mood(Look.success, "전사에 붙어 있다")
+                    mood(Look.success, "●", "전사에 붙어 있다")
                 }
 
                 override fun frame(e: LogEvent) {
@@ -279,7 +296,7 @@ class MagiToolWindow : ToolWindowFactory {
                     authors.forget()
                     shaper.clear()
                     SwingUtilities.invokeLater { problems.text = "" }
-                    mood(Look.warn, why)
+                    mood(Look.warn, "↻", why)
                     redrawLog()
                 }
                 /**
@@ -289,9 +306,11 @@ class MagiToolWindow : ToolWindowFactory {
                  * 단추가 같이 죽는다.**
                  */
                 override fun ended(end: End) = when (end) {
-                    End.ByUs -> mood(Look.muted, "전사를 끊었다")
-                    End.ByDaemon -> { mood(Look.warn, "전사가 끝났다(데몬이 닫았다) — 다시 붙는 중"); reattach() }
-                    is End.Broken -> { mood(Look.error, "전사가 끊겼다: ${end.why} — 다시 붙는 중"); reattach() }
+                    End.ByUs -> mood(Look.muted, "◌", "전사를 끊었다")
+                    // 손의 소식도 여기서 거둔다(리뷰): 손은 저 데몬에 붙었던 것이라 스트림이 죽으면
+                    // 그 사실도 죽는다 — 안 거두면 새 데몬이 모르는 "손: …"을 툴팁이 영구 주장한다.
+                    End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", "전사가 끝났다(데몬이 닫았다) — 다시 붙는 중"); reattach() }
+                    is End.Broken -> { handSaid(null); mood(Look.error, "✕", "전사가 끊겼다: ${end.why} — 다시 붙는 중"); reattach() }
                 }
             }
 
@@ -505,7 +524,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 성공은 침묵 — 손이 붙었는지는 링크 점 툴팁이 안다. 거절은 그대로 보인다(§7 다섯째).
                 if (r.ok) {
                     clearNotice()
-                    mood(Look.success, "전사에 붙어 있다 · 손: " + (r.tools?.joinToString(", ") ?: "붙음"))
+                    handSaid("손: " + (r.tools?.joinToString(", ") ?: "붙음"))
                 } else report("손을 못 붙였다 — " + (r.error ?: "사유 없음"))
             }
         }
@@ -578,7 +597,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 같은 줄을 무한히 쌓으면 사람이 읽던 전사가 밀려난다([reattach] 의 규칙).
          */
         private fun lost(why: String) {
-            mood(Look.error, "전사에 못 붙었다: $why — 다시 붙는 중")
+            mood(Look.error, "✕", "전사에 못 붙었다: $why — 다시 붙는 중")
             reattach()
         }
 

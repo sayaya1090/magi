@@ -55,10 +55,23 @@ class PlanToolWindow : ToolWindowFactory {
         // 사건 라벨 하나 — 뒤 사건이 앞 사건을 덮는 그 무늬인 것을 알고 둔다(리뷰 지적). 수준이
         // 안 섞여 원판(사유가 수준에 지워짐)보다 약하고, 유닛2의 상태점 재편에서 자리째 재론한다.
         val said = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
+        // 낡음을 지금인 양 두지 않는다(결함 모양 #10 「낡았는데 자신만만」): 폴이 실패하면 판을
+        // 지우는 대신 — 마지막 값은 여전히 값이다 — 그 사실을 말로 세운다.
+        val stale = JBLabel("데몬에 못 닿는다 — 아래는 마지막으로 읽힌 값이다").apply {
+            foreground = Look.warn
+            border = JBUI.Borders.empty(2, 12)
+            isVisible = false
+        }
         fun tell(t: String) = SwingUtilities.invokeLater { said.text = t }
 
         // 사람이 고른 것과 판이 다시 채우는 것을 가른다 — 가르지 않으면 리프레시마다 동사가 나간다.
         var painting = false
+        // 늦게 온 완료를 버린다(리뷰: 느린 성공 틱이 빠른 실패 틱의 낡음-배너를 지우고 죽기 전
+        // 값을 지금인 양 세웠다). 각 틱이 번호를 들고, 자기보다 새 틱이 있으면 그리지 않는다.
+        val pollSeq = java.util.concurrent.atomic.AtomicLong()
+        // 국소함수는 전방 참조가 안 된다 — 단추 리스너(위)가 목록 새로고침(아래)을 불러야
+        // 해서 손잡이로 잇는다. 선언 뒤에 실체가 앉는다.
+        var refreshTalks: () -> Unit = {}
         /** 콤보의 「제목 (s_…끝6)」 표시에서 id 를 되찾는 지도. 렌더된 문장에서 파내지 않는다. */
         var talkIds: Map<String, String> = emptyMap()
 
@@ -87,6 +100,7 @@ class PlanToolWindow : ToolWindowFactory {
                     val r = comp.newSession()
                     // 턴이 도는 중이면 데몬이 거부한다 — 인터럽트 먼저라는 계약을 그대로 보인다.
                     tell(if (r.ok) "새 대화: ${r.session?.takeLast(6) ?: ""}" else "안 갔다: ${r.error ?: "사유 없음"}")
+                    if (r.ok) refreshTalks() // 동사 뒤엔 목록이 낡았다 — 새 대화가 콤보에 서야 한다
                 }
             }
         }
@@ -101,6 +115,7 @@ class PlanToolWindow : ToolWindowFactory {
 
         val controls = JBPanel<JBPanel<*>>().apply {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            add(stale)
             add(Look.gutter("대기·작업"))
             add(work)
             add(Look.gutter("플릿"))
@@ -175,12 +190,16 @@ class PlanToolWindow : ToolWindowFactory {
 
         // 데몬 왕복들 — EDT 밖에서 묻고 EDT 로 그린다. 실패는 조용히: 3초마다 우는 판은 사람이
         // 끄고, 못 붙음의 보고는 상태 표시줄이 이미 한다.
-        fun poll() = workspace.onDaemon({}) { comp ->
+        fun poll() {
+            val my = pollSeq.incrementAndGet()
+            workspace.onDaemon({ if (my == pollSeq.get()) SwingUtilities.invokeLater { stale.isVisible = true } }) { comp ->
             val jr = comp.jobs()
             val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
             SwingUtilities.invokeLater {
+                if (my != pollSeq.get()) return@invokeLater // 더 새 틱이 이미 섰다 — 낡은 그림 금지
+                stale.isVisible = false
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
                 val bgRunning = j?.background.orEmpty().filter { it.running }
@@ -262,12 +281,27 @@ class PlanToolWindow : ToolWindowFactory {
                 cronPane.revalidate(); cronPane.repaint()
             }
         }
+        }
 
         // 대화 목록은 매 틱이 아니라 펴는 순간과 동사 뒤에만 — 스토어 훑기를 3초마다 시키지 않는다.
         fun loadTalks() = workspace.onDaemon({}) { comp ->
-            val list = comp.sessions().sessions ?: return@onDaemon
+            val sr = comp.sessions()
+            // 모름≠없음의 갈림은 ok 다 — 빈 목록은 omitempty 로 통째 생략돼 null 로 온다
+            // (cron 이 판 그 함정의 sessions 판). 문이 없을 때만 ok=false 다.
+            val list = if (sr.ok) sr.sessions.orEmpty() else null
+            if (list == null) {
+                // 눌리게 그려놓고 아무 일도 안 나는 콤보를 두지 않는다(M3: 불가능한 동작은 비활성).
+                SwingUtilities.invokeLater {
+                    talk.isEnabled = false
+                    talk.toolTipText = "이 데몬엔 sessions 문이 없다" +
+                        (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
+                }
+                return@onDaemon
+            }
             val now = comp.facts().session
             SwingUtilities.invokeLater {
+                talk.isEnabled = true
+                talk.toolTipText = null
                 painting = true
                 talkIds = list.associate { row ->
                     val label = (row.title?.take(40)?.ifBlank { null } ?: "(제목 없음)") + "  ·" + row.id.takeLast(6)
@@ -280,8 +314,25 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
         fun loadModels() = workspace.onDaemon({}) { comp ->
-            val m = comp.models().models ?: return@onDaemon
+            val mr = comp.models()
+            // 같은 함정의 models 판: 빈 목록도 ok=true 로 오되 필드는 생략된다. why 는 백엔드가
+            // 잠깐 죽었다는 말이라 그때도 목록은 못 믿는다 — 비활성+사유가 정직하다.
+            val m = if (mr.ok && mr.why == null) mr.models.orEmpty() else null
+            if (m.isNullOrEmpty()) {
+                SwingUtilities.invokeLater {
+                    model.isEnabled = false
+                    model.toolTipText = when {
+                        !mr.ok -> "이 데몬엔 models 문이 없다" +
+                            (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
+                        mr.why != null -> "모델 목록을 못 받았다 — " + mr.why!!.lineSequence().first().take(80)
+                        else -> "백엔드가 모델을 하나도 안 줬다"
+                    }
+                }
+                return@onDaemon
+            }
             SwingUtilities.invokeLater {
+                model.isEnabled = true
+                model.toolTipText = null
                 painting = true
                 val keep = model.selectedItem
                 model.removeAllItems()
@@ -291,8 +342,17 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
 
+        refreshTalks = { loadTalks() }
         refresh(); poll(); loadTalks(); loadModels()
-        val timer = Timer(3_000) { if (toolWindow.isVisible) { refresh(); poll() } }.apply { isRepeats = true }
+        val timer = Timer(3_000) {
+            if (toolWindow.isVisible) {
+                refresh(); poll()
+                // 죽은 콤보는 틱마다 되살려 본다(리뷰: 접었다 펴야만 풀리는 「영영 죽음」이었다).
+                // 산 콤보는 안 두드린다 — 목록 새로고침은 펴는 순간과 동사 뒤의 일이다.
+                if (!talk.isEnabled) loadTalks()
+                if (!model.isEnabled) loadModels()
+            }
+        }.apply { isRepeats = true }
         timer.start()
         Disposer.register(toolWindow.disposable) { timer.stop() }
         project.messageBus.connect(toolWindow.disposable).subscribe(
