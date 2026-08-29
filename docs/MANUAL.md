@@ -882,7 +882,11 @@ is costing. Three things make the rest of this section legible:
 
 - **Enter sends, and Enter during a run steers.** You do not have to wait for a turn to end to say
   something; a mid-turn message goes into the running turn rather than queueing behind it.
-- **Esc interrupts.** The turn unwinds, the work so far stands, and nothing is lost.
+- **Esc interrupts.** The turn unwinds, the work so far stands, and nothing is lost. Stop also
+  clears what was **already queued when you pressed it** — stopping means "reset this context",
+  not "run the requests I forgot I stacked" — while anything you type after the interrupt is new
+  intent and runs. A turn that dies on its own (timeout, shutdown) clears nothing: the queue is
+  somebody's waiting request, and nobody pressed stop.
 - **Dangerous tools ask first.** `write`, `edit` and `bash` stop for a `y` / `a` / `n` unless you
   have said otherwise (`Shift+Tab` cycles the mode, `/permission` sets it).
 

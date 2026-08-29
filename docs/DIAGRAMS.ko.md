@@ -464,13 +464,6 @@ classDiagram
     +Retrieve(ctx, query) MemoriesAndSkills
     +Propose(ctx, Contribution) error
   }
-  class PluginHost {
-    <<interface>>
-    +Load(ctx, dir) PluginInfo
-    +Unload(name) error
-    +Reload(name) error
-    +Capabilities() CapabilitySet
-  }
   class ContextProvider {
     <<interface>>
     +Provide(ctx, ContextQuery) ContextChunk[]
@@ -503,7 +496,6 @@ classDiagram
   Store <|.. JSONLStore
   ToolRegistry <|.. BuiltinRegistry
   Tool <|.. BuiltinRegistry
-  PluginHost <|.. LuaHost
   Tool <|.. LuaHost
   Tool <|.. MCPClient
   Council <|.. LLMCouncil
@@ -512,9 +504,12 @@ classDiagram
   ContextProvider <|.. LuaHost
 ```
 
-포트는 12개다: 위 9개 + `DoctorProbe`(`-doctor` 진단 항목) + `PluginCommand`(슬래시 명령) +
-`Scheduler`. **툴 인터페이스에 구현이 셋**(builtin · lua · mcp)인 것이 확장 지점의 핵심이다 —
-루프는 셋을 구별하지 않는다.
+포트는 18개다: 위 8개 + 프로바이더 엑스트라(`ModelLister` · `ContextProber` · `BaseRedirector`,
+합쳐서 `ProviderExtras` — 타입 단언으로 닿고 모든 래퍼가 전달한다) + `FileTool`(실행 **전에**
+자기 파일을 대는 툴) + `MetaTool` + `ToolServers`(런타임 attach 문) + `WikiStore` +
+`DoctorProbe`(`-doctor` 진단 항목) + `PluginCommand`(슬래시 명령). Lua 호스트는 포트 뒤가 아니라
+`cmd/magi`가 직접 배선한다 — 옛 `PluginHost`·`Scheduler` 포트는 사라졌다. **툴 인터페이스에
+구현이 셋**(builtin · lua · mcp)인 것이 확장 지점의 핵심이다 — 루프는 셋을 구별하지 않는다.
 
 ## L7 — app 코어 클래스 (`internal/app`)
 

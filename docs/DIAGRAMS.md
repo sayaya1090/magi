@@ -473,13 +473,6 @@ classDiagram
     +Retrieve(ctx, query) MemoriesAndSkills
     +Propose(ctx, Contribution) error
   }
-  class PluginHost {
-    <<interface>>
-    +Load(ctx, dir) PluginInfo
-    +Unload(name) error
-    +Reload(name) error
-    +Capabilities() CapabilitySet
-  }
   class ContextProvider {
     <<interface>>
     +Provide(ctx, ContextQuery) ContextChunk[]
@@ -512,7 +505,6 @@ classDiagram
   Store <|.. JSONLStore
   ToolRegistry <|.. BuiltinRegistry
   Tool <|.. BuiltinRegistry
-  PluginHost <|.. LuaHost
   Tool <|.. LuaHost
   Tool <|.. MCPClient
   Council <|.. LLMCouncil
@@ -521,10 +513,14 @@ classDiagram
   ContextProvider <|.. LuaHost
 ```
 
-There are twelve ports: the nine above plus `DoctorProbe` (a `-doctor` diagnostic item),
-`PluginCommand` (a slash command) and `Scheduler`. That **the Tool interface has three
-implementations** (builtin, lua, mcp) is the heart of the extension story — the loop cannot tell them
-apart.
+There are eighteen ports: the eight above plus the provider extras (`ModelLister`,
+`ContextProber`, `BaseRedirector`, together `ProviderExtras` — reached by type assertion, forwarded
+by every wrapper), `FileTool` (a tool that names its file BEFORE it runs), `MetaTool`,
+`ToolServers` (the runtime attach door), `WikiStore`, `DoctorProbe` (a `-doctor` diagnostic item)
+and `PluginCommand` (a slash command). The Lua host is wired directly by `cmd/magi` rather than
+behind a port — the old `PluginHost` and `Scheduler` ports are gone. That **the Tool interface has
+three implementations** (builtin, lua, mcp) is the heart of the extension story — the loop cannot
+tell them apart.
 
 ## L7 — App core classes (`internal/app`)
 

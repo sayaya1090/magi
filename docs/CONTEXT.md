@@ -18,7 +18,7 @@ cmd/magi/                 # 진입점: 플래그 파싱, DI, 헤드리스 옵션
 cmd/magi-web/             # 콘솔: 이 머신(과 피어)의 모든 데몬을 보는 읽기 위주 웹 화면
 internal/
   core/                  # 도메인 모델 (session, event, command, artifact, tool, model, plugin, agent, bus)
-  port/                  # 포트 인터페이스 (LLMProvider, Store, Tool, ToolEnv, Platform, PluginHost, ExperienceStore)
+  port/                  # 포트 인터페이스 (LLMProvider, Store, Tool, ToolEnv, FileTool, ToolServers, Platform, ExperienceStore)
   app/                   # 애플리케이션 서비스 (app.go, loop.go, loop_gates.go, workflow.go, policy.go, 등)
   config/                # TOML 설정 로더
   adapter/

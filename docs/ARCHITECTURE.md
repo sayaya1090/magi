@@ -170,9 +170,9 @@ flowchart LR
         P1[LLMProvider]
         P2[Store]
         P3[Tool · ToolEnv]
-        P4[PluginHost]
+        P4[ToolServers · FileTool]
         P5[Council]
-        P6[Platform · Scheduler]
+        P6[Platform]
     end
     subgraph in [internal/core — imports nothing outward]
         direction TB
@@ -211,7 +211,7 @@ internal/
     change/ rank/ embed/    edit tracking, ranking, embeddings (recall)
     cron/ lang/ text/ report/  schedules, language detection, text shaping, run reports
   port/                     interfaces the core depends on (port.go): LLMProvider, Store,
-                            Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
+                            Tool/ToolEnv/FileTool, ToolServers, ExperienceStore, Platform…
   app/                      application service + the agent loop + guardrails + workflow
     app.go                  App (the Application): commands in → events out; session/turn state
     routing.go query.go     model/profile routing and permission config (routing.go); the
@@ -451,10 +451,11 @@ written, rather than a menu going quiet six months later.
   "noted" on a note the bounded queue discarded; and `Recall` / `RecallMemory` are
   different stores — one recovers what a compaction shed from *this* session, the other
   reaches durable team memory.
-- **`ExperienceStore`** (Retrieve/Propose), **`PluginHost`** (Load/Unload/Reload/Capabilities),
-  **`Platform`** (Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime), **`ContextProvider`**,
-  **`Council`** (Deliberate), **`ToolRegistry`**, **`DoctorProbe`**, **`PluginCommand`**,
-  **`Scheduler`**.
+- **`ExperienceStore`** (Retrieve/Propose), **`WikiStore`** (the in-place wiki, riding the same
+  Propose seam), **`Platform`** (Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime),
+  **`ContextProvider`**, **`Council`** (Deliberate), **`ToolRegistry`**, **`FileTool`**,
+  **`MetaTool`**, **`DoctorProbe`**, **`PluginCommand`**. The Lua host is wired directly by
+  `cmd/magi` — the old `PluginHost` and `Scheduler` ports are gone.
 - **`ToolServers`** (Attach/Detach) is the one port a *running* daemon exposes to the outside: an
   application that IS a tool server — an editor plugin, a slide add-in — attaching itself for as
   long as it is open. It takes a URL and never a command line, because the safety argument for the

@@ -161,9 +161,9 @@ flowchart LR
         P1[LLMProvider]
         P2[Store]
         P3[Tool · ToolEnv]
-        P4[PluginHost]
+        P4[ToolServers · FileTool]
         P5[Council]
-        P6[Platform · Scheduler]
+        P6[Platform]
     end
     subgraph in [internal/core — 바깥으로 아무것도 임포트하지 않는다]
         direction TB
@@ -204,7 +204,7 @@ internal/
     change/ rank/ embed/    편집 추적·랭킹·임베딩(회상)
     cron/ lang/ text/ report/  스케줄·언어 감지·텍스트 정형·런 리포트
   port/                     코어가 의존하는 인터페이스(port.go): LLMProvider, Store,
-                            Tool/ToolEnv, ExperienceStore, PluginHost, Platform, Scheduler…
+                            Tool/ToolEnv/FileTool, ToolServers, ExperienceStore, Platform…
   app/                      애플리케이션 서비스 + 에이전트 루프 + 가드레일 + 워크플로
     app.go                  App(애플리케이션): 커맨드 in → 이벤트 out; 세션/턴 상태
     routing.go query.go     모델/프로파일 라우팅과 권한 설정(routing.go); TUI가 읽는
@@ -432,10 +432,11 @@ type Actor struct { Kind ActorKind; ID string } // user | agent | system
   **에러**를 돌려줍니다 — 경계 잡힌 큐가 버린 노트를 두고 툴이 "적어뒀다"고 답할 수 없게 하기 위해서입니다.
   그리고 `Recall`과 `RecallMemory`는 **서로 다른 저장소**다 — 하나는 *이* 세션의 압축이 떨궈낸 것을
   되찾고, 다른 하나는 지속되는 팀 기억에 닿습니다.
-- **`ExperienceStore`**(Retrieve/Propose), **`PluginHost`**(Load/Unload/Reload/Capabilities),
-  **`Platform`**(Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime), **`ContextProvider`**,
-  **`Council`**(Deliberate), **`ToolRegistry`**, **`DoctorProbe`**, **`PluginCommand`**,
-  **`Scheduler`**.
+- **`ExperienceStore`**(Retrieve/Propose), **`WikiStore`**(제자리 위키 — 같은 Propose 이음새에
+  올라탐), **`Platform`**(Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime),
+  **`ContextProvider`**, **`Council`**(Deliberate), **`ToolRegistry`**, **`FileTool`**,
+  **`MetaTool`**, **`DoctorProbe`**, **`PluginCommand`**. Lua 호스트는 `cmd/magi`가 직접
+  배선합니다 — 옛 `PluginHost`·`Scheduler` 포트는 사라졌습니다.
 - **`ToolServers`**(Attach/Detach)는 *돌아가는* 데몬이 바깥으로 내놓는 유일한 포트입니다. 툴
   서버가 곧 애플리케이션인 경우 — 에디터 플러그인, 슬라이드 애드인 — 가 열려 있는 동안만 자기를
   붙입니다. 커맨드라인이 아니라 URL을 받는데, 이 문의 안전 근거가 아무것도 spawn하지 않는다는 데
