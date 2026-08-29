@@ -174,6 +174,10 @@ func (p *pushState) load() {
 // An empty owner is nobody's claim: a row subscribed before the console had people hears nothing
 // anyway (mayHear treats no-name as no-scope), and its documented cure is "re-subscribing from
 // the page fixes it in one tap" — a guard that held the empty owner locked that door for good.
+// The carve-out's own edge, reviewed and accepted: an empty-owner row CAN be claimed by
+// whoever replaces it first, since the true owner loses nothing they had (that row heard
+// nothing — an unnamed subscriber is out of every scope); the residue is an audit line naming
+// the claimer.
 func mayTouchSub(owner string, held bool, who string, configured bool) bool {
 	if !configured || !held || owner == "" {
 		return true

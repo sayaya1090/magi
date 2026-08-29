@@ -112,6 +112,8 @@ func TestMayTouchSubOneRuleBothVerbs(t *testing.T) {
 		{"", true, "bob", true, true},        // legacy empty owner: re-subscribe must work
 		{"", false, "bob", true, true},       // unheld endpoint: nothing to protect
 		{"alice", true, "bob", false, true},  // no people configured: no scopes to defend
+		{"alice", true, "", true, false},     // the unnamed caller has no claim on a named row
+		{"", true, "", true, true},           // unnamed on unnamed: nothing anybody could lose
 	} {
 		if got := mayTouchSub(c.owner, c.held, c.who, c.conf); got != c.want {
 			t.Errorf("mayTouchSub(%q,%v,%q,%v) = %v, want %v", c.owner, c.held, c.who, c.conf, got, c.want)
