@@ -343,3 +343,36 @@ func TestAFailingReviewIsReportedNotTakenAsYes(t *testing.T) {
 }
 
 var errTestReview = errors.New("the reviewer blew up")
+
+// The budget holds under concurrency: the check and the reservation are one locked step, so four
+// spawns racing each other cannot all read the same "nothing spent yet" and together overshoot
+// the bound by three children.
+func TestConcurrentSpawnsCannotOvershootTheBudget(t *testing.T) {
+	old := spawnCallStepBudget
+	spawnCallStepBudget = 3
+	t.Cleanup(func() { spawnCallStepBudget = old })
+
+	a, parent, _ := spawnApp(t, &usageLLM{text: "done"})
+	hooks := a.spawnFnFor(0, parent, event.Actor{Kind: event.ActorAgent, ID: "coder"}, "c1", "looper")
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	ran := 0
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := hooks.Spawn(context.Background(), port.SpawnSpec{Prompt: "go"}); err == nil {
+				mu.Lock()
+				ran++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if ran > spawnCallStepBudget {
+		t.Fatalf("%d children ran concurrently on a %d-step budget", ran, spawnCallStepBudget)
+	}
+	if ran == 0 {
+		t.Fatal("the budget refused everybody — a reservation that never refunds")
+	}
+}

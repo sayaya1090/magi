@@ -85,3 +85,25 @@ func TestSayingTheDepthDoesNotHoldTheQueueShut(t *testing.T) {
 	}()
 	<-done
 }
+
+// Two pieces run at once by design — a looking piece beside a writing one — and the busy flag
+// must outlive the FIRST to end, not the last. As a bool it was cleared by whichever piece
+// finished first, and the published record said "free" about a companion mid-change.
+func TestOverlappingPiecesKeepTheBusyFlagUntilTheLastEnds(t *testing.T) {
+	type ann struct {
+		n    int
+		hand bool
+	}
+	var said []ann
+	w := newWaiting(func(n int, h bool) { said = append(said, ann{n, h}) })
+	w.began() // a writing piece starts
+	w.began() // a looking piece starts beside it
+	w.ended() // the looking piece finishes first
+	if last := said[len(said)-1]; !last.hand {
+		t.Fatal("one piece ended and the advertisement said free while the other still runs")
+	}
+	w.ended()
+	if last := said[len(said)-1]; last.hand {
+		t.Fatal("all pieces ended and the advertisement still says busy")
+	}
+}
