@@ -2208,5 +2208,229 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   }
 }
 
+// ── 화면이 정하는 것(`screen.js`) ──────────────────────────────────────────────
+//
+// 왜 이 블록이 생겼나. `view.js` 에 돌연변이 32개를 심었더니 **30개가 살아남았다.** 시험이
+// 뷰에서 부를 수 있는 것이 `headOf` 하나뿐이라, 나머지 결정 — 보내는 키가 무엇인가, 쪽지가
+// 언제 사라지는가, 안 눌리는 안내에 무엇을 적는가 — 은 아무도 안 보고 있었다. 결정을
+// `screen.js` 로 옮겼으니 여기서 **하나씩 잰다.** 옮기기만 하고 안 재면 살아남은 30개는
+// 그대로 살아남는다: 답만 맞고 근거는 여전히 없는 것이 된다.
+//
+// 규칙 하나 — 값을 되뇌지 않는다. 「이 함수가 'x' 를 돌려준다」는 함수를 두 번 적은 것이고,
+// 함수가 틀리면 시험도 같이 틀린다. **가르는 것**을 잰다: 둘이 다른가, 어느 쪽이 어느 조건에서 오는가.
+{
+  // 보내는 키. Enter 혼자로 보내지면 여러 줄을 적을 수 없다 — 줄바꿈이 발송이 된다.
+  ok('Cmd/Ctrl 을 짚어야 보낸다',
+    isSendKey({ key: 'Enter', metaKey: true }) && isSendKey({ key: 'Enter', ctrlKey: true })
+      && !isSendKey({ key: 'Enter' }),
+    `plain=${isSendKey({ key: 'Enter' })}`);
+  ok('Enter 가 아니면 짚어도 안 보낸다', !isSendKey({ key: 'k', metaKey: true }));
+
+  // 판을 다시 세우면 사람이 적던 답과 포커스가 지워진다. 서명이 같은 동안은 안 세운다.
+  ok('서명이 같으면 판을 안 다시 세운다',
+    askAction('a', 'a') === 'refresh' && askAction('a', 'b') === 'rebuild'
+      && askAction('a', null) === 'rebuild',
+    `same=${askAction('a', 'a')} diff=${askAction('a', 'b')} first=${askAction('a', null)}`);
+
+  // 넷은 서로 다른 화면이다. 특히 known/unknown 이 뭉치면 **모르는 종류에 단추가 달린다**(§5.7).
+  const kinds = [
+    askKind({ reachable: false }),
+    askKind({ reachable: true, pending: null }),
+    askKind({ reachable: true, pending: { known: true } }),
+    askKind({ reachable: true, pending: { known: false } }),
+  ];
+  ok('물음 판 넷이 안 뭉친다', new Set(kinds).size === 4, kinds.join(' · '));
+  ok('못 닿는 것이 물음 없음보다 앞선다', kinds[0] === 'lost' && kinds[1] === 'last');
+
+  // 권한인지 아닌지가 **머리에서** 갈려야 사람이 무게를 안다.
+  ok('권한 물음은 머리부터 다르다',
+    askHead({ isPermission: true }) !== askHead({ isPermission: false })
+      && askHead({ isPermission: true }).includes('권한'),
+    askHead({ isPermission: true }));
+
+  // 안 실린 것을 빈 칸으로 두면 「다 읽었다」로 보인다.
+  ok('무엇인지 안 실렸으면 그렇다고 적는다',
+    whatText({ what: '파일을 지운다' }) === '파일을 지운다'
+      && whatText({ what: '' }).includes('안 실렸'),
+    whatText({ what: '' }));
+
+  // 글로 온 인자는 그대로, 값으로 온 것은 펴서. 편 것은 여러 줄이라 눈으로 갈린다.
+  // `typeof` 를 먼저 본다 — 값 인자가 안 펴진 채 나오면 `.includes` 에서 **터져서** 뒤
+  // 단언 수십 개가 안 돈다. 터진 것도 빨갛긴 하지만, 한 자리가 망가진 것과 여러 자리가
+  // 망가진 것이 같은 화면이 된다.
+  const argsObj = argsText({ args: { path: '/tmp', force: true } });
+  ok('글 인자는 안 펴고 값 인자는 편다',
+    argsText({ args: 'rm -rf /' }) === 'rm -rf /'
+      && typeof argsObj === 'string' && argsObj.includes('\n'),
+    typeof argsObj === 'string' ? argsObj.replace(/\n/g, '⏎') : `글이 아님: ${typeof argsObj}`);
+
+  // 자리는 늘 서 있고 말만 없다 — 자리를 없애면 갈아 끼울 데가 없어 판을 다시 세우게 된다.
+  ok('다음 물음 안내는 있을 때만 말한다',
+    placeLine('뒤에 2개') .hidden === false && placeLine('뒤에 2개').text.includes('뒤에 2개')
+      && placeLine(null).hidden === true && placeLine(null).text === '',
+    placeLine('뒤에 2개').text);
+
+  // 못 닿는 동안엔 현재형으로 안 적는다 — 근거가 방금 읽은 status 뿐이다.
+  ok('못 닿으면 하던 일을 과거형으로 적는다',
+    doingLine('빌드 중', true).text === '빌드 중'
+      && doingLine('빌드 중', false).text !== '빌드 중'
+      && doingLine('빌드 중', false).text.includes('빌드 중'),
+    doingLine('빌드 중', false).text);
+  ok('하던 일이 없으면 칸이 안 선다',
+    doingLine('', true).hidden === true && doingLine('빌드 중', true).hidden === false);
+
+  // 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다. `show:false` 는 **할 말이 없다**는 뜻뿐.
+  ok('직전 물음 줄은 할 말이 없을 때만 안 선다',
+    lastAskShape(null).show === false
+      && lastAskShape(CLEARED.answered).show === true
+      && lastAskShape('무슨-사유인지-모름').show === true,
+    lastAskShape('무슨-사유인지-모름').text);
+
+  // 폭이 넓은 결정은 넓게 생겨야 한다 — 문구만으로는 안 읽고 누른다(§5.7).
+  const widths = new Set(DECISIONS.map(decisionClass));
+  ok('폭이 다른 결정은 단추 모양이 다르다', widths.size === 2, [...widths].join(' | '));
+  ok('한 번만 여는 것이 좁은 쪽이다',
+    decisionClass({ width: 'call' }) === 'ghost'
+      && decisionClass({ width: 'session' }).includes('wide'));
+
+  // 「화면이 지금 거짓말을 하고 있다」는 말은 4초 뒤 없어지면 안 된다.
+  const fn = failNote('못 보냈습니다', new Error('문이 닫혔다'));
+  ok('터진 사유는 안 사라진다', fn.sticky === true);
+  ok('터진 사유는 무엇이 터졌는지와 왜를 같이 적는다',
+    fn.text.includes('못 보냈습니다') && fn.text.includes('문이 닫혔다'), fn.text);
+  ok('메시지 없는 것도 뭔가는 적는다',
+    failNote('x', 'just a string').text.includes('just a string')
+      && failNote('x', null).text.includes('null'),
+    failNote('x', null).text);
+
+  ok('sticky 쪽지만 수명이 없다',
+    noteLife() === 4000 && noteLife({}) === 4000 && noteLife({ sticky: false }) === 4000
+      && noteLife({ sticky: true }) === null,
+    `기본=${noteLife()} sticky=${noteLife({ sticky: true })}`);
+
+  // 안 잰 것을 잰 것처럼 안 적는다 — 어댑터가 아예 안 답하는 경우까지 값으로 만든다.
+  // 없는 문을 부르려 들면 던진다. 그것도 **한 줄로** 운다 — 위와 같은 이유다.
+  let mute, muteErr = '';
+  try { mute = capsOf({}); } catch (e) { mute = {}; muteErr = `물어보다 터졌다: ${e.message}`; }
+  ok('안 답하는 어댑터도 사유를 갖고 온다',
+    !muteErr && mute.measured === false && mute.note.length > 0 && Array.isArray(mute.sets),
+    muteErr || mute.note);
+  const said = { measured: true, note: '', sets: [] };
+  ok('답한 것은 그대로 쓴다', capsOf({ capabilities: () => said }) === said);
+  ok('안 잰 것은 안 잰 것으로 적는다',
+    capsText({ measured: false, note: '가짜 덱' }).includes('가짜 덱')
+      && capsText({ measured: false, note: '' }).includes('사유를 안 실었다'),
+    capsText({ measured: false, note: '' }));
+  // ok 가 null 인 것은 "아니오"가 아니라 **물어보다 던졌다**이므로 셋이 갈려야 한다.
+  const capLine = capsText({ measured: true, sets: [
+    { name: 'A', version: '1.1', ok: true },
+    { name: 'B', version: '1.2', ok: false },
+    { name: 'C', version: '1.3', ok: null },
+  ] });
+  // **있는지가 아니라 어느 것이 어느 것인지**를 잰다. 셋이 다 떠 있기만 하면 ✓ 와 ✗ 가
+  // 서로 자리를 바꿔도 잠잠하다 — 실제로 `s.ok === false` 를 뒤집은 변이가 그 틈으로
+  // 살아남았고, 그때 화면은 「지원한다」를 「못 물어봤다」로 적고 있었다.
+  ok('지원·미지원·못 물어봄이 각자 제 표를 단다',
+    capLine.includes('A 1.1 ✓') && capLine.includes('B 1.2 ✗') && capLine.includes('C 1.3 ?'),
+    capLine);
+
+  // 문은 깨끗한 끝을 에러로 안 준다 — 이 줄이 없으면 사람은 안 오는 답을 영원히 기다린다.
+  ok('조용한 대화와 죽은 스트림이 갈린다',
+    streamLine({ live: true }).hidden === true
+      && streamLine({ live: false }).hidden === false
+      && streamLine({ live: false }).text.includes('끊겼'),
+    streamLine({ live: false }).text);
+  ok('거절과 끊김은 둘 다 적는다',
+    streamLine({ live: false, refusal: '커서가 낡았다' }).text.includes('커서가 낡았다')
+      && streamLine({ live: false, refusal: '커서가 낡았다' }).text.includes('끊겼'),
+    streamLine({ live: false, refusal: '커서가 낡았다' }).text);
+  ok('못 읽은 것이 없으면 칸이 안 선다',
+    unknownLine(null).hidden === true && unknownLine(null).text === ''
+      && unknownLine('2줄을 못 읽었다').hidden === false);
+
+  // 「글이 없다」와 「글을 못 읽었다」는 다른 문장이다 — 뭉치면 빈 상자를 고치러 간다.
+  const q = (o) => ({ preview: () => '앞부분', ...o });
+  ok('글 없음과 못 읽음이 안 뭉친다',
+    quoteBody(q({ text: '', textUnavailable: true }))
+      !== quoteBody(q({ text: '', textUnavailable: false })),
+    quoteBody(q({ text: '', textUnavailable: true })));
+  ok('글이 있으면 미리보기를 따옴표로 싣는다',
+    quoteBody(q({ text: '길다' })).includes('앞부분'), quoteBody(q({ text: '길다' })));
+  ok('빈 꼬리표는 구분자만 남기지 않는다',
+    quoteMeta({ type: '표', sizeLabel: '' }) === '표'
+      && quoteMeta({ type: '표', sizeLabel: '3×4' }).includes(' · '),
+    quoteMeta({ type: '표', sizeLabel: '' }));
+
+  // `class="turn turn"` 이 되면 `.turn.turn` 은 CSS 에서 그냥 `.turn` 이라, 그 한 줄에 준
+  // 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
+  ok('종류는 접두사와 함께 적힌다',
+    rowClass({ kind: 'turn' }) === 'turn kind-turn'
+      && rowClass({ kind: 'turn' }).split(' ')[1] !== 'turn');
+
+  // `⚙` 하나로는 무엇이 슬라이드를 고쳤는지 모른다.
+  ok('도구 줄은 이름까지 적는다',
+    rowHead({ kind: 'tool', tool: 'set_text' }).includes('set_text')
+      && rowHead({ kind: 'tool' }).includes('이름 없음'),
+    rowHead({ kind: 'tool' }));
+  ok('사람과 모델의 말에는 머리가 없다',
+    !rowHead({ kind: 'user' }) && !rowHead({ kind: 'assistant' }));
+  const shapes = ['tool', 'turn', 'user', 'think'].map((k) => rowShape({ kind: k }));
+  ok('도구·끝난 턴·말이 다른 모양으로 그려진다',
+    shapes[0] === 'tool' && shapes[1] === 'turn' && shapes[2] === shapes[3]
+      && shapes[2] === 'text',
+    shapes.join(' · '));
+
+  // 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
+  ok('인자 없는 것과 있는 것이 갈린다',
+    argsCell({ args: null }).includes('인자 없음')
+      && argsCell({ args: { a: 1 } }).includes('"a"'),
+    argsCell({ args: { a: 1 } }).replace(/\n/g, '⏎'));
+  const long = argsCell({ args: { s: 'x'.repeat(2000) } });
+  ok('긴 인자는 잘리고 잘린 표시가 남는다',
+    long.length === 300 && long.endsWith('…'), `${long.length}자`);
+
+  // 검증 못 한 착지를 보통 끝처럼 그리지 않는다(`TurnFinishedData`).
+  ok('검증 안 된 끝은 보통 끝과 다르게 적힌다',
+    endText({ unverified: true }) !== endText({ unverified: false })
+      && endText({ unverified: true }).includes('검증'),
+    endText({ unverified: true }));
+  ok('사유가 있으면 같이 적고 없으면 안 짓는다',
+    endText({ unverified: true, reason: '빌드 실패' }).includes('빌드 실패')
+      && !endText({ unverified: true }).includes('—'),
+    endText({ unverified: true, reason: '빌드 실패' }));
+  ok('빈 말줄은 빈 채로 안 둔다',
+    bodyText({ text: '' }).includes('글 없음') && bodyText({ text: '안녕' }) === '안녕');
+
+  // 안내가 0개라도 **사유만 있으면 층이 선다** — 아니면 그 말이 갈 곳이 없다.
+  ok('안내도 사유도 없을 때만 층이 안 선다',
+    adviceBoard([], '').wrapHidden === true
+      && adviceBoard([], '2개를 못 읽었다').wrapHidden === false
+      && adviceBoard([{}], '').wrapHidden === false);
+  ok('사유 줄은 사유가 있을 때만 선다',
+    adviceBoard([{}], '').noteHidden === true
+      && adviceBoard([{}], '2개를 못 읽었다').noteHidden === false
+      && adviceBoard([{}], '2개를 못 읽었다').noteText === '2개를 못 읽었다');
+
+  // 회색으로만 두면 "모델이 어딜 말 안 했다"와 "이 창이 고장났다"가 같은 화면이 된다.
+  const pointable = { pointable: true, slideId: 'sl1', shapeIds: ['shA'], unpointableReason: '안 쓰임' };
+  const blocked = { pointable: false, slideId: 'sl1', shapeIds: [], unpointableReason: '도형을 안 짚었다' };
+  ok('안 눌리는 안내는 왜 안 눌리는지를 그 자리에 적는다',
+    adviceTargetText(blocked, new Map(), true) === '도형을 안 짚었다');
+  ok('눌리는 안내는 어디를 가리키는지 적는다',
+    adviceTargetText(pointable, new Map([['sl1', 3]]), true)
+      === targetLabel(pointable, new Map([['sl1', 3]]), true),
+    adviceTargetText(pointable, new Map([['sl1', 3]]), true));
+
+  // 못 펴는 것(순환 참조)도 **뭔가는 적는다** — 여기서 던지면 줄 하나가 화면 전체를 없앤다.
+  const cyc = {}; cyc.self = cyc;
+  ok('못 펴는 값도 뭔가는 적는다', typeof pretty(cyc) === 'string' && pretty(cyc).length > 0,
+    pretty(cyc));
+  ok('편 값은 여러 줄이 된다', pretty({ a: 1 }).includes('\n'));
+  ok('자른 표시까지가 길이다',
+    clip('12345', 10) === '12345' && clip('1234567890', 5).length === 5
+      && clip('1234567890', 5).endsWith('…'),
+    clip('1234567890', 5));
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);
