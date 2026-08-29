@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -191,5 +193,58 @@ func TestAnUnreadablePayloadIsSkipped(t *testing.T) {
 	worse := event.Event{Type: event.TypeCouncilDecided, Actor: event.Actor{Kind: event.ActorSystem}, Data: []byte(`not json`)}
 	if marks := councilMarks([]event.Event{bad, worse}); len(marks) != 0 {
 		t.Errorf("neither event says anything readable: %+v", marks)
+	}
+}
+
+// TestAMarkNeverPointsAtAMessageTheTranscriptDropped is the one thing CouncilMarks adds over the
+// walk it delegates to, and it was held by nothing.
+//
+// An interjection that gets resurfaced leaves two prompts in the log — the original and the copy —
+// and reconstruct drops the original, so the rendered transcript does not contain it. A verdict
+// that landed right after the original anchors to it, and the console splices each mark in after
+// the message named on it: an anchor naming a message that is not there matches nothing and the
+// mark is silently never drawn. The vote happened; the reader is simply never shown it.
+func TestAMarkNeverPointsAtAMessageTheTranscriptDropped(t *testing.T) {
+	a, sid := sessionLog(t,
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
+			event.PromptSubmittedData{MessageID: "m_ask", Parts: []session.Part{{Kind: session.PartText, Text: "go"}}}),
+		mkEvent(event.TypePartAppended, event.ActorAgent,
+			event.PartAppendedData{MessageID: "m_reply", Role: session.RoleAssistant,
+				Part: session.Part{Kind: session.PartText, Text: "working"}}),
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
+			event.PromptSubmittedData{MessageID: "m_orig", Parts: []session.Part{{Kind: session.PartText, Text: "wait — also check the parser"}}}),
+		mkEvent(event.TypeCouncilVerdict, event.ActorSystem,
+			event.CouncilVerdictData{Round: 1, Member: "melchior", Decision: "continue"}),
+		mkEvent(event.TypePromptSubmitted, event.ActorUser,
+			event.PromptSubmittedData{MessageID: "m_again", ResurfacedFrom: "m_orig",
+				Parts: []session.Part{{Kind: session.PartText, Text: "wait — also check the parser"}}}),
+	)
+	marks, err := a.CouncilMarks(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marks) != 1 {
+		t.Fatalf("one verdict is one mark, got %d", len(marks))
+	}
+	if marks[0].After == "m_orig" {
+		t.Error("the mark follows a prompt the transcript does not contain, so it will never be drawn")
+	}
+	if marks[0].After != "m_reply" {
+		t.Errorf("with the original gone the mark follows the last message that survived, got %q", marks[0].After)
+	}
+}
+
+// TestCouncilMarksOfAnUnreadableLogIsNotAnEmptyRound: no marks is how a session that never convened
+// a council reads. A log that could not be opened is not that, and answering with it would put
+// "the council said nothing" on a session whose council may well have vetoed the work.
+func TestCouncilMarksOfAnUnreadableLogIsNotAnEmptyRound(t *testing.T) {
+	boom := errors.New("log is on a disk that went away")
+	a := &App{store: unreadableStore{err: boom}}
+	marks, err := a.CouncilMarks(context.Background(), session.SessionID("s_log"))
+	if !errors.Is(err, boom) {
+		t.Errorf("read failure did not reach the caller; err = %v", err)
+	}
+	if marks != nil {
+		t.Errorf("a failed read still produced %d mark(s)", len(marks))
 	}
 }
