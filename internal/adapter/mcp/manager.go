@@ -116,6 +116,11 @@ func (m *Manager) AddHTTPDynamic(ctx context.Context, name, url string, headersF
 // MCP server can't block startup forever (callers pass context.Background()).
 const mcpRegisterTimeout = 30 * time.Second
 
+// mcpProbeTimeout bounds the is-anybody-home probe of a name's current holder. Short, because a
+// live server answers a ping in milliseconds and a dead one refuses the connection immediately;
+// the deadline only matters for a hung-but-listening holder, which is treated as alive.
+const mcpProbeTimeout = 2 * time.Second
+
 // registerClient is the common logic for registering a client (stdio or HTTP). It answers with the
 // published server so a caller can read the tools it registered without going back to the map by
 // name — by then the name may be someone else's.
@@ -133,19 +138,44 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 	// take the first's tool names silently and detaching it left the first claiming to be attached
 	// with nothing registered.
 	key := sanitizeToolPart(name)
-	m.mu.Lock()
-	if held, taken := m.servers[key]; taken {
+	var sc *serverConn
+	for attempt := 0; ; attempt++ {
+		m.mu.Lock()
+		held, taken := m.servers[key]
+		if !taken {
+			sc = &serverConn{name: name, cmd: cmd, viaDoor: viaDoor}
+			m.servers[key] = sc
+			m.mu.Unlock()
+			break
+		}
+		heldClient, heldName := held.client, held.name
 		m.mu.Unlock()
+		// A held name is not always a live holder. The lifetime net waits on the client's Done,
+		// which an HTTP transport never closes on its own — nothing there observes the far side —
+		// so a hand that died without detaching (kill -9 took the IDE) held its name for the life
+		// of the daemon, and every reconnect was refused for ever. The one moment somebody CARES
+		// about the name, the holder is asked directly. Only a fully published holder: a
+		// reservation (client still nil) is a handshake in flight, alive by definition. Only
+		// transport-level "nobody was there" counts as dead — a refusal, an error reply, or the
+		// probe's own deadline all mean somebody is home, so two LIVE holders still cannot share
+		// a name. One attempt: the retry after a removal is a fresh claim, and whoever raced in
+		// behind the removal is a live claimant this attach must not eat.
+		if attempt == 0 && heldClient != nil {
+			pctx, pcancel := context.WithTimeout(ctx, mcpProbeTimeout)
+			alive := heldClient.Reachable(pctx)
+			pcancel()
+			if !alive {
+				m.removeConn(key, held)
+				continue
+			}
+		}
 		client.Close()
-		if held.name != name {
+		if heldName != name {
 			return nil, fmt.Errorf("mcp: %q collides with %q, which is already attached (both become %q in tool names)",
-				name, held.name, key)
+				name, heldName, key)
 		}
 		return nil, fmt.Errorf("mcp: %q is already attached; two servers cannot share one name", name)
 	}
-	sc := &serverConn{name: name, cmd: cmd, viaDoor: viaDoor}
-	m.servers[key] = sc
-	m.mu.Unlock()
 	// The reservation is released on every failure below. Holding it would burn the name for the
 	// life of the daemon over one server that was not listening — worse than the collision it is
 	// there to prevent, because nothing would ever be able to take it.

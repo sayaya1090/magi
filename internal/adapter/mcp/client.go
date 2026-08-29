@@ -232,3 +232,23 @@ func (c *Client) Close() error {
 
 // Done is closed when the read loop exits (server gone / transport closed).
 func (c *Client) Done() <-chan struct{} { return c.done }
+
+// Reachable says whether anybody is still home behind this client. stdio answers from the read
+// loop — a dead process closes done; HTTP has nothing that observes the far side, so it asks
+// with one probe. The caller owns the deadline via ctx.
+func (c *Client) Reachable(ctx context.Context) bool {
+	if c.tr != nil {
+		// The probe lives on the concrete HTTP transport; a transport that cannot say is treated
+		// as alive, because "I do not know" must never cost a live server its name.
+		if r, ok := c.tr.(interface{ reachable(context.Context) bool }); ok {
+			return r.reachable(ctx)
+		}
+		return true
+	}
+	select {
+	case <-c.done:
+		return false
+	default:
+		return true
+	}
+}

@@ -486,3 +486,34 @@ func TestAFailedAttachReleasesOnlyItsOwnClaim(t *testing.T) {
 		t.Error("mcp__ppt__render is not registered: the surviving attach never published")
 	}
 }
+
+// A hand that died without detaching (kill -9 took the IDE) used to hold its name for the life of
+// the daemon: the lifetime net waits on Done, which an HTTP transport never closes on its own, so
+// nothing ever observed the death and every reconnect was refused. The next attach now probes the
+// holder and takes over a dead one — while a live holder still refuses
+// (TestTheSameNameCannotBeAttachedTwice is that half of the contract).
+func TestADeadHandsNameIsTakenOverByTheNextAttach(t *testing.T) {
+	dead := mcpHTTP(t, "old")
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+	if _, err := m.Attach(context.Background(), "jetbrains", dead.URL, nil); err != nil {
+		t.Fatalf("first attach: %v", err)
+	}
+	dead.Close() // kill -9, as the transport sees it: connection refused, and no detach ever sent
+	alive := mcpHTTP(t, "new")
+	defer alive.Close()
+	names, err := m.Attach(context.Background(), "jetbrains", alive.URL, nil)
+	if err != nil {
+		t.Fatalf("the reconnect was refused by a dead holder: %v", err)
+	}
+	if len(names) != 1 || names[0] != "mcp__jetbrains__new" {
+		t.Fatalf("attached %v", names)
+	}
+	if sink.has("mcp__jetbrains__old") {
+		t.Error("the dead hand's tools are still in the registry")
+	}
+	if !sink.has("mcp__jetbrains__new") {
+		t.Error("the new hand's tools are not in the registry")
+	}
+}

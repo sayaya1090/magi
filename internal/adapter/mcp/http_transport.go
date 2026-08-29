@@ -85,6 +85,36 @@ func (t *httpTransport) captureSession(resp *http.Response) {
 // call sends a JSON-RPC request via HTTP POST and handles the response.
 // The server may respond with either application/json (single response) or
 // text/event-stream (SSE stream for multiple messages).
+// reachable asks whether anybody is home at the endpoint, with one raw POST of a "ping". Only
+// "nobody was there" is a no: a refusal, an RPC error, junk — any HTTP response at all — is
+// somebody answering, and a probe that ran out of its own deadline says we stopped waiting, not
+// that there was nobody to wait for (the same line call draws below).
+func (t *httpTransport) reachable(ctx context.Context) bool {
+	t.mu.Lock()
+	if t.closed {
+		t.mu.Unlock()
+		return false
+	}
+	t.nextID++
+	id := t.nextID
+	t.mu.Unlock()
+	body, err := json.Marshal(request{JSONRPC: jsonRPCVersion, ID: id, Method: "ping"})
+	if err != nil {
+		return true // our own marshalling says nothing about the server
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", t.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return true
+	}
+	t.applyHeaders(httpReq, "application/json, text/event-stream")
+	resp, err := t.httpClient.Do(httpReq)
+	if err != nil {
+		return ctx.Err() != nil // we gave up is not the same fact as nobody home
+	}
+	resp.Body.Close()
+	return true
+}
+
 func (t *httpTransport) call(ctx context.Context, method string, params any, out any) error {
 	t.mu.Lock()
 	if t.closed {
