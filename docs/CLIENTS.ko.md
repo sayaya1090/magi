@@ -96,10 +96,13 @@ IDE 창 하나(프로젝트 하나)를 컴패니언 하나로 만듭니다: 켜�
   서명된 가십의 목격담(1시간 감쇠) — 데몬은 이 둘을 항상 **같이** 읽습니다(`Known`).
 - **없는 것은 문 하나입니다.** 컨트롤 소켓에 "누가 있는가"를 묻는 메서드가 없습니다.
 
-그래서 계약은 `roster` 메서드 하나입니다: 요청은 `{"method":"roster"}`, 응답은 가십 멤버 모양
-(host·socket·name·role·team/hub·workdir·state·version·능력·대기, 그리고 **어느 반쪽에서 왔는지**
-— 이 머신의 실측인지, 남이 서명한 목격담인지와 그 나이). `about`의 caps에 `roster`로 광고해
-클라이언트가 부르기 전에 알 수 있게 합니다.
+그래서 계약은 `roster` 메서드 하나입니다(★구현됨): 요청은 `{"method":"roster"}`, 응답은 행마다
+host·socket·name·role·team/hub·workdir·state·version·능력·대기, 그리고 **어느 반쪽에서 왔는지** —
+이 머신의 실측(`sighting=false`)인지, 남이 서명한 목격담(`sighting=true`)인지와 그 나이
+(`ageSeconds`). 못박은 것 둘: **state 어휘는 `waiting`(사람을 기다림)·`working`·`idle` 셋**이고
+"사람 기다림"은 별도 값입니다(배지가 여기 걸립니다). **이 머신의 행은 `session`(지금 대화의 id)을
+실어** transcript 문에 왕복 하나로 붙게 하고, 목격담엔 없습니다 — 어차피 머신 밖으로는 구독할 수
+없습니다. `about`의 caps에 `roster`로 광고해 클라이언트가 부르기 전에 알 수 있게 합니다.
 
 경계는 transcript를 fleet 문에 올리지 않은 것과 같은 논리로 긋습니다: **가십은 발견까지,
 대화와 조종은 그 컴패니언의 자기 문으로.** A가 B의 대화를 중계하면 컴패니언별 접근 경계와

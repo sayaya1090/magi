@@ -104,11 +104,15 @@ out and only one piece is missing:
 - **What is missing is one door.** The control socket has no method that answers "who is out
   there".
 
-So the contract is one `roster` method: the request is `{"method":"roster"}`, the reply is rows in
-the gossip member shape (host, socket, name, role, team/hub, workdir, state, version,
-capabilities, waiting — and **which half each row came from**: this machine's own measurement, or
-a sighting somebody signed, with its age). Advertised in `about`'s caps as `roster`, so a client
-can know before calling.
+So the contract is one `roster` method (★implemented): the request is `{"method":"roster"}`, the
+reply is rows carrying host, socket, name, role, team/hub, workdir, state, version, capabilities,
+waiting — and **which half each row came from**: this machine's own measurement
+(`sighting=false`), or a sighting somebody signed (`sighting=true`), with its age (`ageSeconds`).
+Two things are pinned: **the state vocabulary is exactly `waiting` (on a person), `working`,
+`idle`** — waiting-on-a-person is its own value (a badge hangs on it); and **this machine's rows
+carry `session`** (the conversation's id) so a client reaches the transcript door in one round
+trip — sightings do not, since nothing can subscribe across machines anyway. Advertised in
+`about`'s caps as `roster`, so a client can know before calling.
 
 The boundary follows the same reasoning that kept the transcript off the fleet door: **gossip
 carries discovery; conversation and command go through that companion's own door.** A relaying
