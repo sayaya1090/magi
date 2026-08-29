@@ -741,6 +741,9 @@ func firstJSONValue(b []byte) json.RawMessage {
 type toolAccumulator struct {
 	order []int
 	calls map[int]*session.ToolCall
+	// seen counts the call ids handed out on this stream, so a backend that reuses them across
+	// steps cannot make two calls share one id (see finish).
+	seen map[string]int
 }
 
 func newToolAccumulator() *toolAccumulator {
@@ -781,6 +784,21 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 		if tc.CallID == "" {
 			tc.CallID = fmt.Sprintf("call_%d_%d", idx, time.Now().UnixNano())
 		}
+		// Unique across the SESSION, not just this reply. Everything downstream keys on the id
+		// and assumes it names one call: the elide map (reconstruct), the digested/lastResult
+		// bookkeeping in compaction, and the wire layer's first-wins result pairing. A backend
+		// that numbers its calls per response — "call_0", "call_1", the shape several
+		// OpenAI-compatible local servers emit — hands the same id out every step, and then one
+		// call's elided stub stands in for another call's answer, and a repair pairs the first
+		// call's result with the second declaration. Suffixed only on a REPEAT, so the common
+		// case keeps the provider's own id verbatim.
+		if a.seen == nil {
+			a.seen = map[string]int{}
+		}
+		if n := a.seen[tc.CallID]; n > 0 {
+			tc.CallID = fmt.Sprintf("%s_%d", tc.CallID, n)
+		}
+		a.seen[tc.CallID]++
 		out = append(out, tc)
 	}
 	// Prevent double emission if finish_reason appears more than once.
