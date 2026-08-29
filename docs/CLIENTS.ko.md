@@ -192,8 +192,7 @@ seq == 0 이벤트를 버려야** 합니다: 그들이 알리는 것은 전부 �
 1. **발견**: 설정 디렉토리의 `daemon-*.sock` 글롭, 또는 아무 산 컴패니언의 `roster` 문.
    워크스페이스를 아는 클라이언트(IDE)는 소켓 이름을 유도하고(WorkspaceKey — 골든이 지킴),
    없으면 띄웁니다.
-2. **악수**: `about` — 응답의 `caps`는 **엔진-게이트 문**(있을 수도 없을 수도 있는 문: `roster`·`transcript`·`sessions`·`cron`·`job-kill`·`tool-servers`…)의 광고입니다. 모든 빌드가 말하는 기본 동사들(submit·steer·status…)은 광고에 없고, 그 전체 목록은 unknown-method 거절문이 알려 줍니다(`roster`·
-   `tool-servers`·`transcript`…). 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
+2. **악수**: `about` — 응답의 `caps`는 이 데몬이 답하는 문의 명단입니다: `handshake`·`roster`는 항상 있고(빌드 수준), 나머지는 엔진-게이트라 없을 수 있습니다(`transcript`·`sessions`·`session-new`·`cron`·`job-kill`·`tool-servers`). 모든 빌드가 말하는 기본 동사들(submit·steer·status…)은 광고에 없고, unknown-method 거절문이 이 데몬이 받는 전부를 알려 줍니다. 없는 문을 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
 3. **구독**: 대화는 `transcript`(리플레이+라이브, 커서 거부 시 restart 콜백), 목록 폴은
    `roster`, 피커는 `sessions`, 계기판은 `cron`·`jobs`.
 4. **행동**: 조종(스티어·인터럽트·답)·파일·git은 그 컴패니언 자기 소켓의 메서드로, 도구를
