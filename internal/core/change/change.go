@@ -25,13 +25,22 @@ func EditDiff(name, args string) string {
 	switch name {
 	case "edit":
 		var a struct {
-			Old string `json:"old"`
-			New string `json:"new"`
+			Old        string `json:"old"`
+			New        string `json:"new"`
+			At         string `json:"at"`
+			ReplaceAll bool   `json:"replaceAll"`
 		}
 		if json.Unmarshal([]byte(args), &a) != nil || (a.Old == "" && a.New == "") {
 			return ""
 		}
-		return LineDiff(a.Old, a.New)
+		// An anchored edit ({at,to}) removes lines the ARGUMENTS do not carry, and replaceAll
+		// changes every occurrence where a diff of one would lie about the count. A diff this
+		// function cannot make truthfully is one it must not fake — absence falls back to the
+		// arguments view, which is at least honest about what it is.
+		if a.At != "" || a.ReplaceAll {
+			return ""
+		}
+		return capDiffBytes(LineDiff(a.Old, a.New))
 	case "write":
 		var a struct {
 			Content string `json:"content"`
@@ -40,9 +49,22 @@ func EditDiff(name, args string) string {
 			return ""
 		}
 		lines := strings.Split(strings.TrimRight(a.Content, "\n"), "\n")
-		return clampDiff(prefixLines("+", lines))
+		return capDiffBytes(clampDiff(prefixLines("+", lines)))
 	}
 	return ""
+}
+
+// diffByteCap bounds a rendered diff in BYTES. The line clamp alone let a one-line minified
+// bundle ride whole: a multi-megabyte "+<line>" passes a 40-line cap, and a status reply carrying
+// it breaks the client's line scanner — the prompt door dying mid-prompt. 64KB draws any diff a
+// person would actually read.
+const diffByteCap = 64 << 10
+
+func capDiffBytes(s string) string {
+	if len(s) <= diffByteCap {
+		return s
+	}
+	return s[:diffByteCap] + "\n… (diff truncated — the change is larger than a preview)"
 }
 
 // LineDiff returns a unified line diff (context " ", removals "-", additions "+") of two

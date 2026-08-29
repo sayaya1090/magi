@@ -2689,13 +2689,31 @@ type daemonEngine struct {
 // SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the
 // bottom dock's picker. The store's own listing, unreshaped.
 func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, error) {
-	return d.App.ListSessions(ctx, d.workdir)
+	metas, err := d.App.ListSessions(ctx, d.workdir)
+	if err != nil {
+		return nil, err
+	}
+	// The CURRENT conversation may be unborn — created, never spoken in — and the listing scans
+	// the disk, so a picker drawn from it alone cannot show the one conversation the person is
+	// in. Joined here, stamped now: it is the live one, which is what "newest activity" means for
+	// a conversation that has no words yet.
+	cur := d.handover.at.now()
+	if cur != "" && !slices.ContainsFunc(metas, func(m session.SessionMeta) bool { return m.ID == cur }) {
+		metas = append([]session.SessionMeta{{ID: cur, Workdir: d.workdir, LastActivity: time.Now()}}, metas...)
+	}
+	return metas, nil
 }
 
 // NewSession opens a fresh conversation and moves this companion onto it — create, then the same
 // move Resume performs, so the record, the mark in the old log and the mid-turn refusal are one
 // code path. The model falls to the config default inside CreateSession.
 func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error) {
+	// Refused BEFORE anything is created: mid-turn is exactly when the dock's button gets pressed,
+	// and creating first would mint the row-nobody-asked-for this verb exists to avoid. (The move
+	// re-checks inside its lock; this check is what keeps the failure empty-handed.)
+	if busy, running := d.App.Running(); running {
+		return "", fmt.Errorf("this companion is mid-turn in %s — interrupt it or wait for it to finish", busy)
+	}
 	sid, err := d.App.CreateSession(ctx, command.CreateSession{
 		Workdir: d.workdir,
 		Actor:   event.Actor{Kind: event.ActorUser, ID: "attach"},
@@ -2703,7 +2721,7 @@ func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error)
 	if err != nil {
 		return "", err
 	}
-	if err := d.Resume(ctx, sid); err != nil {
+	if err := d.moveTo(ctx, sid, false); err != nil {
 		return "", err
 	}
 	return sid, nil
@@ -2733,6 +2751,15 @@ func (d daemonEngine) Resume(ctx context.Context, sid session.SessionID) error {
 	if sid == "" {
 		return errors.New("no conversation named")
 	}
+	return d.moveTo(ctx, sid, true)
+}
+
+// moveTo is the one move. mustExist is the difference between resume (an id a CONSOLE named, which
+// must already be a conversation of this workspace) and session-new (an id this process minted a
+// moment ago, which CANNOT be in the listing yet — a created session is unborn until its first
+// words, deliberately, so the disk never holds a conversation nobody spoke in). Reviewed and
+// measured: checking the listing for a freshly minted id refused every session-new ever made.
+func (d daemonEngine) moveTo(ctx context.Context, sid session.SessionID, mustExist bool) error {
 	return d.handover.at.move(func(from session.SessionID) (session.SessionID, error) {
 		// Inside the lock, against the session this move is actually starting from — the console
 		// may have decided against a record that has since changed.
@@ -2743,12 +2770,14 @@ func (d daemonEngine) Resume(ctx context.Context, sid session.SessionID) error {
 			return "", fmt.Errorf("this companion is mid-turn in %s — interrupt it or wait for it "+
 				"to finish", busy)
 		}
-		known, err := d.App.ListSessions(ctx, d.workdir)
-		if err != nil {
-			return "", fmt.Errorf("this companion cannot read its own conversations: %w", err)
-		}
-		if !slices.ContainsFunc(known, func(m session.SessionMeta) bool { return m.ID == sid }) {
-			return "", fmt.Errorf("%s is not a conversation of this workspace", sid)
+		if mustExist {
+			known, err := d.App.ListSessions(ctx, d.workdir)
+			if err != nil {
+				return "", fmt.Errorf("this companion cannot read its own conversations: %w", err)
+			}
+			if !slices.ContainsFunc(known, func(m session.SessionMeta) bool { return m.ID == sid }) {
+				return "", fmt.Errorf("%s is not a conversation of this workspace", sid)
+			}
 		}
 		if nerr := d.App.NoteSessionMoved(ctx, from, sid); nerr != nil {
 			// Said, not swallowed, and the move still happens: a reader left without the reason

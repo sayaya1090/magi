@@ -59,3 +59,11 @@ func TestLightRowClaimsOnlyWhatItRead(t *testing.T) {
 		t.Fatal("a light row must not carry claims only a log could establish")
 	}
 }
+
+// A word the vocabulary does not know — a newer daemon's — draws as the minimum claim, never as
+// another machine's row (which is what stateHeard's unknown answer would have made of it).
+func TestLightRowUnknownWordIsTheMinimumClaim(t *testing.T) {
+	if got := lightRow(daemonInfo("reviewing", true)); got.State != Idle {
+		t.Fatalf("an unknown live state is the minimum claim, got %v", got.State)
+	}
+}

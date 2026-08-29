@@ -59,3 +59,35 @@ func TestLineDiffClamps(t *testing.T) {
 		t.Errorf("clamped diff missing truncation note:\n%s", got)
 	}
 }
+
+// An anchored edit removes lines the arguments do not carry, and replaceAll changes a count the
+// diff cannot draw — a preview this function cannot make truthfully must be absent, never faked.
+// (Reviewed: {at,to} used to render a range-replace as an insertion, on an APPROVAL screen whose
+// contract forbids the viewer to recompute.)
+func TestEditDiffRefusesWhatItCannotTellTruthfully(t *testing.T) {
+	if got := EditDiff("edit", `{"at":"5","to":"20","new":"x"}`); got != "" {
+		t.Fatalf("an anchored edit must have no diff, got %q", got)
+	}
+	if got := EditDiff("edit", `{"at":"5","to":"40","new":""}`); got != "" {
+		t.Fatalf("an anchored range DELETE above all, got %q", got)
+	}
+	if got := EditDiff("edit", `{"old":"a","new":"b","replaceAll":true}`); got != "" {
+		t.Fatalf("replaceAll changes every occurrence; a diff of one lies about the count: %q", got)
+	}
+	if got := EditDiff("edit", `{"old":"a","new":"b"}`); got == "" {
+		t.Fatal("the plain substitution keeps its preview")
+	}
+}
+
+// A one-line minified bundle passes any line clamp; the byte cap is what keeps a diff out of the
+// scanner-killing range, and it says it truncated.
+func TestDiffByteCapHolds(t *testing.T) {
+	huge := strings.Repeat("x", diffByteCap+1000)
+	got := EditDiff("write", `{"path":"b.js","content":"`+huge+`"}`)
+	if len(got) > diffByteCap+200 {
+		t.Fatalf("the cap did not hold: %d bytes", len(got))
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Fatal("a cut diff says it was cut")
+	}
+}

@@ -134,6 +134,7 @@ func (o *omniEngine) ScheduledHere() []app.ScheduledJobInfo {
 	return []app.ScheduledJobInfo{
 		{Name: "tick", Schedule: "@daily", Enabled: true, Next: time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC)},
 		{Name: "cursed", Schedule: "not-a-cron", Problem: "unparseable schedule"},
+		{Name: "off", Schedule: "@weekly"}, // disabled: no problem, no next — it never runs
 	}
 }
 
@@ -291,9 +292,10 @@ func TestAnswerersMapBothDirections(t *testing.T) {
 	if r := answerJobKill(ctx, o, Request{Name: " "}); r.OK || r.Err != "no job named" {
 		t.Fatalf("a nameless kill is refused before the registry: %+v", r)
 	}
-	if r := answerCron(ctx, o, Request{}); !r.OK || len(r.Cron) != 2 ||
+	if r := answerCron(ctx, o, Request{}); !r.OK || len(r.Cron) != 3 ||
 		r.Cron[0].Name != "cursed" || r.Cron[0].Problem == "" || r.Cron[0].Next != "" ||
-		r.Cron[1].Name != "tick" || r.Cron[1].Next == "" {
-		t.Fatalf("cron: %+v", r.Cron)
+		r.Cron[1].Name != "tick" || r.Cron[1].Next == "" ||
+		r.Cron[2].Name != "off" || r.Cron[2].Next != "" {
+		t.Fatalf("cron: broken first, the runnable next, the switched-off last: %+v", r.Cron)
 	}
 }

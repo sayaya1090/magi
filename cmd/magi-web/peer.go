@@ -155,7 +155,11 @@ func (s *server) fleetOf(ctx context.Context, p peer) ([]fleet.Agent, error) {
 // that hides it. The row carries the reason, so "the tunnel is down" and "the console is up and has
 // nothing" do not look the same.
 func (s *server) federated(ctx context.Context, local []fleet.Agent) []fleet.Agent {
-	return append(local, s.peerFleet(ctx)...)
+	// A copy, never an append onto the caller's slice: local may be the shared cached answer, and
+	// two stream ticks appending peers onto one backing array is a race with no reader.
+	out := make([]fleet.Agent, 0, len(local)+4)
+	out = append(out, local...)
+	return append(out, s.peerFleet(ctx)...)
 }
 
 // peerFleet is the other machines' companions, asked for at most every peerEvery.

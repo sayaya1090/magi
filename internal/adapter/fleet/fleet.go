@@ -1209,11 +1209,17 @@ func localMembers(found []daemon.Info, now time.Time) []cluster.Member {
 // directly when none does (a machine of corpses still deserves its list). Either way, what a
 // full row derives from a log is absent here and stays absent: a light row that guessed at a
 // task would be a claim nothing established.
-func ListLight(configDir, here string) []Agent {
+func ListLight(configDir, here string) ([]Agent, error) {
 	now := time.Now()
 	locals, members, viaRoster := rosterSources(configDir, now)
 	if !viaRoster {
-		locals, _ = daemon.List(configDir)
+		var err error
+		locals, err = daemon.List(configDir)
+		if err != nil {
+			// An unreadable directory is "cannot say", and cannot-say drawn as an empty fleet is
+			// the shrug this package's own empty-list rule exists to prevent.
+			return nil, err
+		}
 		members = daemon.Elsewhere(configDir, now)
 	}
 	out := make([]Agent, 0, len(locals)+len(members))
@@ -1224,7 +1230,7 @@ func ListLight(configDir, here string) []Agent {
 	}
 	out = append(out, elsewhereRows(members, configDir, now, out)...)
 	electHubs(out, append(localMembers(locals, now), members...), now)
-	return out
+	return out, nil
 }
 
 // lightRow is one local companion without its log: the record and the dial, and an honest state
@@ -1240,12 +1246,17 @@ func lightRow(in daemon.Info) Agent {
 		Idle: -1,
 	}
 	switch {
-	case in.Live && in.State != "":
-		a.State = stateHeard(in.State) // the vocabulary the daemon wrote: waiting / working / idle
-	case in.Live:
-		a.State = Idle // alive and saying nothing more — the minimum claim
-	default:
+	case !in.Live:
 		a.State = Stopped
+	case in.State == string(Waiting):
+		a.State = Waiting
+	case in.State == string(Working):
+		a.State = Working
+	default:
+		// "idle", the empty string, and any word a NEWER daemon may one day write: the minimum
+		// claim. Explicit rather than stateHeard, whose unknown-word answer is Remote — a local
+		// row drawn as another machine's the day the vocabulary grows.
+		a.State = Idle
 	}
 	return a
 }

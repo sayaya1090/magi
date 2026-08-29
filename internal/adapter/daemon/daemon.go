@@ -598,7 +598,7 @@ type Response struct {
 	Why string `json:"why,omitempty"`
 	// Session is the conversation an answer was produced in, when the caller has a use for it.
 	//
-	// Only the meeting methods set it, and the use is one the screen has: a participant speaks from
+	// The meeting methods and session-new set it, and the use is one the screen has: a participant speaks from
 	// a session of its own, and what it thought and read on the way to a sentence is in there. The
 	// console cannot know that id any other way — the room is opened inside the daemon — so a
 	// viewer that wanted to show the working had nothing to ask for.
@@ -1341,7 +1341,14 @@ func answerCron(ctx context.Context, eng Engine, req Request) Response {
 	jobs := t.ScheduledHere()
 	sort.SliceStable(jobs, func(i, k int) bool {
 		if (jobs[i].Problem != "") != (jobs[k].Problem != "") {
-			return jobs[i].Problem != ""
+			return jobs[i].Problem != "" // broken first: nothing else will mention them again
+		}
+		// Then the runnable, soonest first. A job with no next instant and no problem is switched
+		// OFF — it belongs after everything that will actually run, not (as zero-before-anything
+		// would put it) ahead of the whole schedule.
+		ni, nk := !jobs[i].Next.IsZero(), !jobs[k].Next.IsZero()
+		if ni != nk {
+			return ni
 		}
 		return jobs[i].Next.Before(jobs[k].Next)
 	})
@@ -1923,6 +1930,18 @@ func capsOf(eng Engine) []string {
 	if _, ok := eng.(Transcriber); ok {
 		caps = append(caps, "transcript")
 	}
+	// The dock's verbs, engine-gated like the two above and advertised for the same reason: an
+	// IDE deciding whether to draw a picker cannot tell an old build from a refusing engine by
+	// calling and reading prose back.
+	if _, ok := eng.(ConversationKeeper); ok {
+		caps = append(caps, "sessions", "session-new")
+	}
+	if _, ok := eng.(CronTeller); ok {
+		caps = append(caps, "cron")
+	}
+	if _, ok := eng.(JobKiller); ok {
+		caps = append(caps, "job-kill")
+	}
 	return caps
 }
 
@@ -2208,7 +2227,7 @@ var acceptedMethods = sync.OnceValue(func() string {
 		"submit": true, "steer": true, "interrupt": true, "permission": true, "answer": true,
 		"rewind": true, "compact": true, "set-model": true, "set-permission": true, "use-backend": true,
 		"resume": true, "reload-cron": true, "watch": true, "shutdown": true, "restart": true,
-		"update": true, "transcript": true,
+		"update": true, "transcript": true, "roster": true,
 	}
 	for m := range answers {
 		names[m] = true
