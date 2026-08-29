@@ -91,17 +91,20 @@ class SourceTextTest {
             .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("""//[^\n]*"""), "")
 
+        // 자리가 라벨에서 **제목표시줄**로 갔다(수준은 창이 무엇인지 말하는 자리로 — 그 판은
+        // 거의 안 변하는 큰 한 줄로 전사 위를 먹고 있었다). 재는 것은 같다: 수준이 지나는 손이
+        // `title` 하나이고, 그 손을 부르는 자리가 [Level] 만 받는 문 안 하나뿐인가.
         val door = "private fun say(l: Level)"
-        val writes = Regex("""\bstate\.text\b""").findAll(code).count()
-        assertTrue(writes == 1 && door in code && "state.text" in code.substringAfter(door),
-            "라벨에 글자를 넣는 자리가 $writes 이고 문은 `$door`" +
+        val writes = Regex("""\btitle\(""").findAll(code).count()
+        assertTrue(writes == 1 && door in code && "title(" in code.substringAfter(door),
+            "제목에 글자를 넣는 자리가 $writes 이고 문은 `$door`" +
                 (if (door in code) "" else " — 그 문이 없다") + ". 하나여야 하고 그 안이어야 한다. " +
                 "문이 늘거나 `Level` 이 아닌 것을 받게 되면 「수준만 쓴다」를 지키는 것이 다시 " +
                 "주석뿐이 된다")
 
-        assertTrue("say(state" !in code,
-            "라벨을 인자로 받는 `say` 가 돌아왔다. 그러면 아무 글자나 설 수 있어서 보고가 다시 " +
-                "라벨로 간다 — 사건은 `report()` 로 전사에 낸다")
+        assertTrue("say(title" !in code && Regex("""\bstate\b""").findAll(code).count() == 0,
+            "수준의 옛 자리(state 라벨)가 돌아왔거나 문이 글자를 받게 됐다. 사건은 `report()` 로 " +
+                "전사에, 수준은 `say(Level)` 로 제목에 — 자리를 가른 사유가 둘의 KDoc 에 있다")
     }
 
     @Test

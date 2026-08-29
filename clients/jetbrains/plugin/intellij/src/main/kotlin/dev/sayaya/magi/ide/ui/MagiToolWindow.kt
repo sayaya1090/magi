@@ -61,6 +61,10 @@ class MagiToolWindow : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
+        // 수준이 서는 자리. 라벨이었을 때는 거의 안 변하는 큰 한 줄이 전사 위 판 하나를 먹었다
+        // (사용자 실측: "왜 이렇게 커? 변하는 데이터도 없네") — 창이 무엇인지 말하는 자리는
+        // 제목표시줄이고, 항상 보여야 하는 쪽은 상태 표시줄이 이미 한다(docs/UI.ko.md §3.1).
+        view.title = { t -> SwingUtilities.invokeLater { toolWindow.setTitle(t) } }
         MagiWindows.put(project, view)
         // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
         Disposer.register(toolWindow.disposable, view)
@@ -73,7 +77,8 @@ class MagiToolWindow : ToolWindowFactory {
     internal class View(private val project: Project) : Disposable {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
-        private val state = JBLabel(" ").apply { border = JBUI.Borders.empty(8, 12, 6, 12) }
+        /** 수준을 제목표시줄에 쓰는 손. 창을 만든 쪽이 채운다 — 여기서는 IDE 를 모른다. */
+        var title: (String) -> Unit = {}
         private val prompt = JBLabel(" ").apply { border = Look.quiet }
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
@@ -205,7 +210,6 @@ class MagiToolWindow : ToolWindowFactory {
 
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
-            top.add(state, BorderLayout.NORTH)
             top.add(prompt, BorderLayout.CENTER)
             top.add(buttons, BorderLayout.SOUTH)
             // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
@@ -629,6 +633,14 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun socket() = workspace.socket()
 
+        /**
+         * 상태 표시줄이 묻는 두 사실 — 턴이 언제 열렸고 카운슬이 몇 라운드인가. 원천은 전사
+         * 셰이퍼라 이 창이 살아 있는 동안만 답이 있다. 셰이퍼 자체를 내주지 않는 것은 문을
+         * 좁게 두는 것이다 — 넓은 문은 언젠가 딴것도 지나간다.
+         */
+        fun turnOpenedAt(): String? = if (shaper.open) shaper.openedAt else null
+        fun councilRound(): Int? = shaper.councilRound
+
         /** 데몬에 한 번 붙어 무언가 하고 끊는다. 배선은 [Workspace] 가 갖는다 — 창 둘이 같이 쓴다. */
         private fun onDaemon(work: (Companion) -> Unit) =
             workspace.onDaemon({ say(Level.Unreachable(it)) }, work)
@@ -764,21 +776,12 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 라벨에 글자를 넣는 **하나뿐인 문**. 밖에서 `state.text` 를 건드리지 않는다 — 문이
-         * 여럿이면 [Level] 을 받는 것이 그중 하나일 뿐이라 아무것도 못 막는다. 문이 하나인
-         * 것은 `SourceTextTest` 가 붙든다.
+         * 수준을 쓰는 **하나뿐인 문**. 자리가 라벨에서 제목표시줄로 갔고([title]), 문이 하나에
+         * [Level] 만 받는 규칙은 그대로다 — 문이 여럿이면 타입은 그중 하나만 지킨다
+         * (`SourceTextTest`). 라벨 시절의 수준 색은 여기서 끝났다: 제목은 IDE 의 글자라 색을
+         * 못 받는데, 색은 원래 글자를 대신하지 않는 보조였으니 잃는 것은 보조뿐이다.
          */
-        private fun say(l: Level) = SwingUtilities.invokeLater {
-            state.text = l.text
-            // 사람이 할 일이 갈래를 나눈 기준이므로(`Level` 의 KDoc), 색도 그 기준으로 준다.
-            // 할 일이 없으면 초록, 답할 것이 있으면 주황, 못 닿으면 붉다. **글자를 대신하지
-            // 않는다** — 색만 보고 알아야 하는 화면은 색을 못 보는 사람에게 아무 말도 안 한다.
-            state.foreground = when (l) {
-                Level.Attached -> Look.success
-                Level.Waiting -> Look.primary
-                is Level.Unreachable -> Look.error
-            }
-        }
+        private fun say(l: Level) = title(l.text)
     }
 }
 

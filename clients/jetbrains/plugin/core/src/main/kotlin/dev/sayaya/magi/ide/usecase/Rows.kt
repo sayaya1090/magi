@@ -73,6 +73,13 @@ class Rows {
     var openedAt: String? = null
         private set
 
+    /**
+     * 열려 있는 카운슬 라운드. 판정이 서면 그 라운드, 합의가 나면 null — 터미널 머리의
+     * `⚖ council rN` 칩이 아는 것과 같은 사실이다. 행이 아니라 세션의 사실이라 따로 든다.
+     */
+    var councilRound: Int? = null
+        private set
+
     val open: Boolean get() = synchronized(rows) { openPrompt != null }
 
     fun list(): List<Row> = synchronized(rows) { rows.toList() }
@@ -88,6 +95,7 @@ class Rows {
         rows.clear()
         openPrompt = null
         openedAt = null
+        councilRound = null
     }
 
     /**
@@ -240,6 +248,7 @@ class Rows {
 
     private fun verdict(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
+        councilRound = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: councilRound
         val silent = d["silent"]?.jsonPrimitive?.content == "true"
         rows += Row(
             Who.Council,
@@ -257,6 +266,7 @@ class Rows {
 
     private fun decided(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
+        councilRound = null // 합의가 라운드를 닫는다
         rows += Row(
             Who.Council,
             d["note"]?.jsonPrimitive?.content.orEmpty(),

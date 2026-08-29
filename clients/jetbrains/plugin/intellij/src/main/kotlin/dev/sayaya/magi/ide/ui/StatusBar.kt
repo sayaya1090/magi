@@ -30,7 +30,7 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         const val ID = "magi.status"
     }
 
-    private class Widget(project: Project) : StatusBarWidget, StatusBarWidget.TextPresentation {
+    private class Widget(private val project: Project) : StatusBarWidget, StatusBarWidget.TextPresentation {
         private val LOG = logger<Widget>()
         private val workspace = Workspace(project)
         private var bar: StatusBar? = null
@@ -102,7 +102,30 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             }
             val n = unreachable()
             val jail = if (n > 0) " · 못 만지는 루트 $n" else ""
-            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + jail
+            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + turn() + jail
+        }
+
+        /**
+         * 턴 경과와 카운슬 라운드 — 터미널이 발치 미터와 머리 칩으로 그리는 그 둘이다
+         * (docs/UI.ko.md §4.3). 원천은 전사 셰이퍼라 **툴윈도가 살아 있을 때만 안다**:
+         * 툴윈도는 게으르고, 셰이퍼는 그 창의 스트림에 산다. 창이 없으면 이 조각은 비고
+         * 수준은 그대로 선다 — 모름을 0초로 그리지 않는다(§0.5-7).
+         *
+         * 경과는 연 시각(이벤트 ts)에서 이 기계의 시계로 센다. 두 기계의 시계를 비교하는
+         * 것이 맞나 싶지만 반대다 — ts 를 한 번 받고 그 뒤로 여기 시계로 **이어** 세는 것이라,
+         * 시계가 어긋나면 첫 값이 어긋날 뿐 흐르는 속도는 맞는다.
+         */
+        private fun turn(): String {
+            val v = MagiWindows.of(project) ?: return ""
+            val bits = mutableListOf<String>()
+            v.turnOpenedAt()?.let { ts ->
+                runCatching { java.time.Instant.parse(ts) }.getOrNull()?.let { t0 ->
+                    val s = java.time.Duration.between(t0, java.time.Instant.now()).seconds.coerceAtLeast(0)
+                    bits += "턴 " + if (s >= 60) "${s / 60}m${s % 60}s" else "${s}s"
+                }
+            }
+            v.councilRound()?.let { bits += "⚖ r$it" }
+            return bits.joinToString("") { " · $it" }
         }
 
         private fun say(s: String) {
