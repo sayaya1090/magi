@@ -78,7 +78,7 @@ data class Row(
 | `part.appended` kind=`text` | **Agent 행 추가.** `inReplyTo` 가 있으면 그 User 행을 이 답 위로 재배치 | TUI `onPartAppended` |
 | `part.appended` kind=`reasoning` | **Thinking 행 추가** — 화면이 접어 그린다 | 웹 `who:"thinking"` |
 | `part.appended` kind=`tool-call` | **Tool 행 추가** — 이름·인자·callId | 호출과 결과는 한 행의 절반 |
-| `part.appended` kind=`tool-result` | **새 행 없음** — callId 로 Tool 행을 찾아 `ok=!isError`, `note=advisory`, 실패면 `out` 채움 | 웹: 갈라 그리면 "됐나"를 찾아 열어야 안다 |
+| `part.appended` kind=`tool-result` | **새 행 없음** — callId 로 Tool 행을 찾아 `ok`(advisory 면 참 — 일은 일어났다), `note=advisory`, 실패면 `out` 채움 | 웹: 갈라 그리면 "됐나"를 찾아 열어야 안다. `ok` 만은 웹의 원식(`!isError`)에서 한 발 더 갔다 — advisory 를 실패로 그린 것이 그 원식의 실측 결함이었다 |
 | `permission.*` · `question.*` | 행 없음 — 다시 묻는 신호(§1) | `movesPrompt` |
 | `interjection.deferred` | 그 User 행에 **queued 표시** | TUI 의 대기 글리프 |
 | `interjection.answered` | 그 User 행을 마지막 Agent 행 위로 **재배치**, queued 해제 | TUI: 이미 제자리여도 글리프는 거둔다 |

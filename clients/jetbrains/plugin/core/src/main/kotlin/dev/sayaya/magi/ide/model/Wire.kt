@@ -214,10 +214,10 @@ data class Published(
 /**
  * 로그 이벤트 하나 — `internal/core/event` 의 `Event` 를 옮긴 것.
  *
- * **여기서 렌더하지 않는다.** 이것은 사실이고, 사람이 읽는 줄로 바꾸는 것은 파생이다. 콘솔이
- * `cmd/magi-web/main.go` 의 `line` 에서 그 파생을 하고 있고, 같은 것을 코틀린으로 다시 쓰면
- * **같은 규칙의 두 번째 표현**이 생긴다(설계 문서 §3 이 안 C 를 고른 그 사유). 그래서 이 층은
- * 받은 것을 그대로 나르고, 무엇을 어떻게 보일지는 화면이 얕게 정한다 — 깊은 렌더는 §8 의 미결이다.
+ * **여기서 렌더하지 않는다.** 이것은 사실이고, 사람이 읽는 줄로 바꾸는 것은 파생이다. 그 파생은
+ * usecase 의 `Rows.kt` 가 한다 — 처음에는 웹의 `line` 짓기를 코어로 옮겨 같이 쓰려 했으나
+ * `cmd/magi-web` 이 헐릴 예정이라 **클라이언트가 각자 짓는 것**으로 정해졌다(2026-08-29,
+ * `docs/TRANSCRIPT.ko.md`). 이 층이 그대로 나르는 것은 변함없다 — 전송은 사실을, 규칙은 행을.
  */
 @Serializable
 data class LogEvent(
@@ -230,5 +230,6 @@ data class LogEvent(
     val data: JsonElement? = null,
 )
 
+/** 행위자. 와이어의 이름은 `id` 다(코어 `event.go` 의 `Actor`) — `name` 은 안 실려 온다. */
 @Serializable
-data class Actor(val kind: String = "", val name: String? = null)
+data class Actor(val kind: String = "", val name: String? = null, val id: String? = null)
