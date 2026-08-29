@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -993,4 +994,48 @@ func (rebuttalHang) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan 
 	ch <- port.ProviderEvent{Type: port.ProviderFinish}
 	close(ch)
 	return ch, nil
+}
+
+// The deadline sweep rewrites only the slots nobody answered. It covers the panel call AND the
+// closing call, so a round whose verdicts arrived whole and whose close ran long had its genuine
+// abstentions relabelled "the council did not answer" and marked silent — a member who
+// deliberated and declined, recorded as an unreachable backend.
+func TestASlowCloseDoesNotEraseAGenuineAbstain(t *testing.T) {
+	verdicts := []council.Verdict{
+		{Member: "Melchior", Lens: "correctness", Decision: council.Done, Rationale: "ok"},
+		{Member: "Balthasar", Lens: "verification", Decision: council.Abstain,
+			Rationale: "my lens cannot judge a docs-only turn"},
+		{Member: "Casper", Lens: "completeness", Decision: council.Abstain,
+			Silent: true, Rationale: panelUnanswered},
+	}
+	// The sweep, as the deliberation runs it when the poll context has expired.
+	for i := range verdicts {
+		if verdicts[i].Decision == council.Abstain && verdicts[i].Silent {
+			verdicts[i].Rationale = "the council did not answer within 300ms"
+		}
+	}
+	if verdicts[1].Rationale != "my lens cannot judge a docs-only turn" || verdicts[1].Silent {
+		t.Errorf("a member who declined was overwritten: %+v", verdicts[1])
+	}
+	if !strings.Contains(verdicts[2].Rationale, "did not answer within") || !verdicts[2].Silent {
+		t.Errorf("a slot nobody answered must still be swept: %+v", verdicts[2])
+	}
+}
+
+// A rebuttal round keeps each member's cite. It was the one verdict-building site that never
+// assigned it, so after any debate every member's grounds vanished — and an empty cite is itself
+// worth seeing, which made "no grounds given" indistinguishable from "discarded in transit".
+func TestARebuttalKeepsTheCite(t *testing.T) {
+	if !strings.Contains(readRepoSource(t, "council.go"), "v.Cite = strings.TrimSpace(string(r.Cite))") {
+		t.Error("pollRebut does not carry the cite")
+	}
+}
+
+func readRepoSource(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }

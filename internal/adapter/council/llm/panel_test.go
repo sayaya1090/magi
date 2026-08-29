@@ -443,3 +443,101 @@ func TestAGenuineAbstainIsNotOverwrittenByTheLensFallback(t *testing.T) {
 		}
 	}
 }
+
+// The closing call may only ever tighten, so an UNRECOGNISED decision word is not a "continue" —
+// it is no close at all. Read loosely, "complete" overturned a unanimous done and handed the
+// agent feedback that said nothing was wrong.
+func TestAnUnrecognisedClosingWordIsNoCloseAtAll(t *testing.T) {
+	for _, word := range []string{"complete", "finished", "pass", ""} {
+		if cl := closeOf(`{"rationale":"all three walks agree","decision":"` + word + `"}`); cl.Decision != "" {
+			t.Errorf("close %q read as %q — an unreadable close must decide nothing", word, cl.Decision)
+		}
+	}
+	if cl := closeOf(`{"rationale":"item 3 is unproven","decision":"continue"}`); cl.Decision != council.Continue {
+		t.Errorf("a real continue must still arrive, got %q", cl.Decision)
+	}
+	if cl := closeOf(`{"rationale":"agreed","decision":"done"}`); cl.Decision != council.Done {
+		t.Errorf("a real done must still arrive, got %q", cl.Decision)
+	}
+}
+
+// The two shapes a model sends when it ignores the wrapper actually parse. Both tolerances were
+// advertised in the comment and dead in the code: a bare array is an ARRAY span the object
+// extractor never sees, and the fallback branch was being handed objects.
+func TestPanelReadsTheShapesItSaysItTolerates(t *testing.T) {
+	body := `{"member":"Melchior","lens":"correctness","decision":"done","rationale":"ok"}`
+	cases := map[string]string{
+		"bare array":       "[" + body + "]",
+		"another key":      `{"council":[` + body + `]}`,
+		"the real wrapper": `{"verdicts":[` + body + `]}`,
+	}
+	for name, reply := range cases {
+		vs, ok := parsePanel(reply)
+		if !ok || len(vs) != 1 || strings.TrimSpace(string(vs[0].Member)) != "Melchior" {
+			t.Errorf("%s: parsePanel read %d verdict(s), ok=%v", name, len(vs), ok)
+		}
+	}
+}
+
+// A verdict that states no decision is not a vote: it must not be entered as a continue, and it
+// must not be marked silent either — somebody answered, they just did not decide.
+func TestAVerdictWithNoDecisionIsNotAVote(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return `{"verdicts":[{"member":"Melchior","lens":"correctness","decision":"done","rationale":"ok"},` +
+			`{"member":"Casper","lens":"completeness","rationale":"ran, but no decision key"}]}`
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range d.Verdicts {
+		if v.Member != "Casper" {
+			continue
+		}
+		if v.Decision == council.Continue {
+			t.Errorf("a member who stated no decision was counted as rejecting the work")
+		}
+		if v.Decision != council.Abstain || v.Silent {
+			t.Errorf("want a spoken abstain, got decision=%q silent=%v", v.Decision, v.Silent)
+		}
+	}
+}
+
+// The positional last resort exists for RENAMES. A leftover verdict whose own lens names a slot
+// somebody already filled is a duplicate reading, and crediting it to the lens that never
+// answered is the echo the prompt warns about, turned into a vote.
+func TestTheLastResortDoesNotLaunderADuplicateLens(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return replyWith([3]string{"Melchior", "correctness", "done"},
+			[3]string{"Melchior", "correctness", "continue"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range d.Verdicts {
+		if v.Lens != "correctness" && !v.Silent {
+			t.Errorf("%s (%s) was given a second correctness reading: %q", v.Member, v.Lens, v.Rationale)
+		}
+	}
+}
+
+// The panel's retry asks for the PANEL's shape. Reused verbatim from the single-member path, the
+// reminder told the model to "send the object again with decision" — one verdict, which the panel
+// parser cannot read, so the recovery guaranteed a second failure and lost all three votes.
+func TestThePanelRetryAsksForThePanelShape(t *testing.T) {
+	got := councilRetryReminderFor(`{"decision":"done"}`, panelShapeAsk)
+	if !strings.Contains(got, "verdicts") || !strings.Contains(got, "ARRAY") {
+		t.Errorf("the panel reminder must name the panel shape:\n%s", got)
+	}
+	if strings.Contains(got, "Send the object again with it.") {
+		t.Errorf("the panel reminder still asks for a single verdict:\n%s", got)
+	}
+	if solo := councilRetryReminder(`{"rationale":"x"}`); !strings.Contains(solo, "Send the object again with it.") {
+		t.Errorf("the single-member reminder must be unchanged:\n%s", solo)
+	}
+}

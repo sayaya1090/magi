@@ -105,8 +105,13 @@ func (c *Council) Deliberate(ctx context.Context, req port.DeliberationRequest) 
 		// than hidden behind a wording that suggests a reply arrived.
 		if pollCtx.Err() != nil {
 			for i := range verdicts {
-				if verdicts[i].Decision == council.Abstain {
-					verdicts[i].Silent = true
+				// Only a slot nobody answered. The deadline covers the panel call AND the closing
+				// call, so a round whose verdicts arrived whole and whose CLOSE ran long used to
+				// have its genuine abstentions rewritten as "the council did not answer" and
+				// marked Silent — a member who deliberated and declined, recorded as a backend
+				// that was unreachable. Silent is still set on the placeholders, which is what
+				// the sweep is for.
+				if verdicts[i].Decision == council.Abstain && verdicts[i].Silent {
 					verdicts[i].Rationale = "the council did not answer within " + memberDeadline.String()
 				}
 			}
@@ -448,6 +453,11 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	v.Rationale = string(r.Rationale)
 	v.Feedback = string(r.Feedback)
 	v.Keep = string(r.Keep)
+	// Cite travels too. Assigned everywhere else a verdict is built (poll), and forgotten here, so
+	// EVERY member's grounds vanished after a debate round — and an empty cite is itself worth
+	// seeing (council_view), which made "no grounds given" indistinguishable from "grounds
+	// discarded in transit".
+	v.Cite = strings.TrimSpace(string(r.Cite))
 	return v
 }
 
@@ -458,7 +468,21 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 // written, produced the identical malformation on the retry, and lost its vote anyway. So the
 // diagnosis magi already computes for the log is fed back to the model instead of being kept from
 // the only party that can act on it.
-func councilRetryReminder(text string) string {
+// panelShapeAsk and memberShapeAsk are what the retry must ask FOR — the reminder was written
+// for the single-member shape and reused verbatim by the panel, where obeying it ("send the
+// object again with `decision`") produces a single verdict the panel parser cannot read: the
+// recovery instructed the shape that guarantees a second failure and lost all three votes.
+const (
+	memberShapeAsk = "The `decision` field is required and must be exactly \"done\" or \"continue\". " +
+		"Send the object again with it."
+	panelShapeAsk = "Every lens must appear as its own entry in a top-level `verdicts` ARRAY, and each " +
+		"entry needs its own `decision`, exactly \"done\" or \"continue\". One object with a single " +
+		"decision is not a panel reply. Send the whole panel again in that shape."
+)
+
+func councilRetryReminder(text string) string { return councilRetryReminderFor(text, memberShapeAsk) }
+
+func councilRetryReminderFor(text, shapeAsk string) string {
 	const head = "\n\n# Reply format\nYour previous reply could not be read. "
 	d := jsonx.Diagnose(text)
 	switch {
@@ -468,8 +492,7 @@ func councilRetryReminder(text string) string {
 			"Every `[` must be closed by `]` BEFORE the next key begins, every `{` by `}`, and every string " +
 			"by its closing quote."
 	case strings.HasPrefix(d, "the JSON parses"):
-		return head + "The JSON is well-formed but does not carry a verdict: " + d + "\nThe `decision` " +
-			"field is required and must be exactly \"done\" or \"continue\". Send the object again with it."
+		return head + "The JSON is well-formed but does not carry a verdict: " + d + "\n" + shapeAsk
 	default:
 		return head + "Reply with ONLY the JSON object — no prose, explanation, or markdown fences " +
 			"before or after it."
@@ -793,6 +816,21 @@ func evidence(req port.DeliberationRequest) string {
 // decisionOf maps a member's free-form decision string to a Decision. An
 // unrecognized but parsed value resolves to Continue (the gate never finishes on
 // an ambiguous vote).
+// decisionWord is decisionOf plus whether the word was RECOGNISED. Callers where an unknown word
+// must not become a vote (the panel's close, a verdict with no decision) ask this one; callers
+// where the safe default is `continue` keep asking decisionOf.
+func decisionWord(s string) (council.Decision, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "done":
+		return council.Done, true
+	case "continue":
+		return council.Continue, true
+	case "abstain":
+		return council.Abstain, true
+	}
+	return council.Continue, false
+}
+
 func decisionOf(s string) council.Decision {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "done":

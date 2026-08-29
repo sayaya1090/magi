@@ -210,9 +210,19 @@ type closeReply struct {
 func closeOf(text string) panelClose {
 	for _, js := range jsonx.Objects(text) {
 		var r closeReply
-		if jsonx.Unmarshal(js, &r) && strings.TrimSpace(string(r.Decision)) != "" {
+		// RECOGNISED, not merely present. decisionOf's default is `continue`, which is the safe
+		// side for a member (an ambiguous vote must not finish) and the destructive side here:
+		// the close is clamped so it can only ever turn a done into a continue, so an
+		// unrecognised word ("complete", "finished", "pass") silently overturned a unanimous
+		// done and handed the agent feedback saying nothing was wrong. An unreadable close is
+		// what this function's own comment says it is — nothing at all.
+		if !jsonx.Unmarshal(js, &r) {
+			continue
+		}
+		dec, known := decisionWord(strings.TrimSpace(string(r.Decision)))
+		if known {
 			return panelClose{
-				Decision:  decisionOf(strings.TrimSpace(string(r.Decision))),
+				Decision:  dec,
 				Rationale: strings.TrimSpace(string(r.Rationale)),
 				Feedback:  strings.TrimSpace(string(r.Feedback)),
 			}
@@ -241,12 +251,32 @@ type panelReply struct {
 
 // parsePanel pulls the verdicts out of a reply, tolerating the two shapes a model sends when it
 // ignores the wrapper: a bare array, and the array under some other key.
+//
+// Both tolerances were dead for their whole life. jsonx.Objects returns only `{…}` spans, so a
+// bare `[…]` reply arrived as its individual verdict objects — none of which carries a `verdicts`
+// key — and the "bare array" branch was handed an object, which can never unmarshal into a slice.
+// Since the schema shown to the model IS the wrapper, dropping it is the likeliest deviation
+// there is, and the cost was the whole council: three abstains at once and a round resolved on no
+// information.
 func parsePanel(text string) ([]panelVerdict, bool) {
 	for _, js := range jsonx.Objects(text) {
 		var r panelReply
 		if jsonx.Unmarshal(js, &r) && len(r.Verdicts) > 0 {
 			return r.Verdicts, true
 		}
+		// The array under some other key ("council", "members", …): any key whose value reads as
+		// verdicts will do — the wrapper's NAME was never the contract, its shape is.
+		var loose map[string][]panelVerdict
+		if jsonx.Unmarshal(js, &loose) {
+			for _, vs := range loose {
+				if len(vs) > 0 {
+					return vs, true
+				}
+			}
+		}
+	}
+	// A bare array is an ARRAY span, which the object extractor above cannot see at all.
+	for _, js := range jsonx.BalancedArrays(text) {
 		var bare []panelVerdict
 		if jsonx.Unmarshal(js, &bare) && len(bare) > 0 {
 			return bare, true
@@ -262,13 +292,19 @@ func parsePanel(text string) ([]panelVerdict, bool) {
 		}
 		var r panelReply
 		if jsonx.Unmarshal(cut, &r) && len(r.Verdicts) > 0 {
-			fmt.Fprintf(os.Stderr, "magi: a council panel reply was cut off; kept %d verdict(s) from its prefix\n",
-				len(r.Verdicts))
+			fmt.Fprintf(os.Stderr, "magi: a council panel reply was cut off; kept %d verdict(s) from its prefix "+
+				"(the last one is %q — fields after the defect are missing, so its grounds may be partial)\n",
+				len(r.Verdicts), strings.TrimSpace(string(r.Verdicts[len(r.Verdicts)-1].Lens)))
 			return r.Verdicts, true
 		}
 	}
 	return nil, false
 }
+
+// panelUnanswered is the placeholder rationale a slot carries until somebody's verdict lands in
+// it. One spelling, because two fallback passes and the deadline sweep all ask "has anybody
+// landed here" by recognising it.
+const panelUnanswered = "the council panel did not return a verdict for this lens"
 
 // pollPanel runs the whole council in one call and returns one verdict per member, in member
 // order. A member the reply did not speak for comes back as an abstain that says so, which the
@@ -278,7 +314,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	for i, m := range members {
 		out[i] = council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight,
 			Decision: council.Abstain, Silent: true,
-			Rationale: "the council panel did not return a verdict for this lens"}
+			Rationale: panelUnanswered}
 	}
 	model := req.DefaultModel
 	if model == "" {
@@ -332,9 +368,13 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	if !ok {
 		noteUnparsed("the council panel's verdicts (every lens recorded as an abstain)", raw)
 		first := raw
-		if retry, rerr := ask(user + councilRetryReminder(raw)); rerr == nil {
+		if retry, rerr := ask(user + councilRetryReminderFor(raw, panelShapeAsk)); rerr == nil {
 			raw = retry
 			vs, ok = parsePanel(raw)
+		} else {
+			// A retry that never completed is a different fact from a reply that could not be
+			// read, and the round's own wording only says the latter.
+			fmt.Fprintf(os.Stderr, "magi: the council panel's retry call failed: %v\n", rerr)
 		}
 		if !ok {
 			// A reply this cannot read as verdicts is still the model's ANSWER, and throwing it
@@ -377,7 +417,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	// abstained also answers, so a real abstain could be overwritten by an unrelated verdict that
 	// happened to share the lens. One test, used by both fallback passes.
 	unfilled := func(i int) bool {
-		return strings.HasPrefix(out[i].Rationale, "the council panel did not return")
+		return out[i].Rationale == panelUnanswered
 	}
 	take := func(i int, j int) {
 		v := vs[j]
@@ -387,7 +427,16 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		// only beside an abstain nobody chose, and making three screens (TUI, web, IDE) draw a
 		// spoken verdict as "no answer".
 		out[i].Silent = false
-		out[i].Decision = decisionOf(strings.TrimSpace(string(v.Decision)))
+		// A verdict that states no decision is not a vote. decisionOf's default would enter it as
+		// a `continue` — a member who never judged, rendered on three screens as one who weighed
+		// the work and rejected it, and under a unanimous rule enough to flip the round. The
+		// single-member path already refuses exactly this (parseReply); the panel path counted
+		// it. Not Silent either: somebody DID answer, they just did not decide.
+		if dec, known := decisionWord(strings.TrimSpace(string(v.Decision))); known {
+			out[i].Decision = dec
+		} else {
+			out[i].Decision = council.Abstain
+		}
 		out[i].Confidence = float64(v.Confidence)
 		out[i].Rationale = string(v.Rationale)
 		out[i].Feedback = string(v.Feedback)
@@ -418,11 +467,25 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 			}
 		}
 	}
+	filledLens := map[string]bool{}
+	for i, m := range members {
+		if !unfilled(i) {
+			filledLens[strings.ToLower(strings.TrimSpace(m.Lens))] = true
+		}
+	}
 	for i := range members {
 		if !unfilled(i) {
 			continue
 		}
 		for j := range vs {
+			// Position is the last resort and its justification is RENAMING — "a model that
+			// renames a member has still cast its votes". A leftover whose own lens names a slot
+			// somebody already filled is not a rename, it is a duplicate reading, and crediting
+			// it to the lens that never answered is the echo the prompt warns against, converted
+			// into a vote.
+			if lens := strings.ToLower(strings.TrimSpace(string(vs[j].Lens))); lens != "" && filledLens[lens] {
+				continue
+			}
 			if !used[j] {
 				take(i, j)
 				break
