@@ -197,7 +197,9 @@ diff rides only for **old/new substitutions and write**; an anchored edit ({at,t
 lines are not in the arguments), replaceAll (a diff of one lies about the count) and multiedit
 answer with **absence** and fall back to the arguments view, because a faked preview on an
 approval screen is the worst of the options. Byte-capped at 64KB, and a cut diff says it was
-cut.
+cut. A write's diff is taken against the file's CURRENT content at ask time — one
+added line reads as one added line; only a file that does not exist yet shows all additions,
+because that is its truth.
 
 **The transcript cursor can be trusted.** seq survives compaction (the snapshot inherits upToSeq
 and later events keep their numbers) — a reconnecting client sends its last seq as `since` and
