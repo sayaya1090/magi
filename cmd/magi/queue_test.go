@@ -1,6 +1,8 @@
 package main
 
 import (
+	"sync"
+
 	"testing"
 )
 
@@ -105,5 +107,32 @@ func TestOverlappingPiecesKeepTheBusyFlagUntilTheLastEnds(t *testing.T) {
 	w.ended()
 	if last := said[len(said)-1]; last.hand {
 		t.Fatal("all pieces ended and the advertisement still says busy")
+	}
+}
+
+// The LAST word about busy matches the state. Publishing outside the state lock let two
+// concurrent ended()s land in the wrong order and leave "busy" as the final record about an
+// idle companion — permanent, since nothing else announces until the next handover.
+func TestTheLastWordAboutBusyMatchesTheState(t *testing.T) {
+	type ann struct {
+		n    int
+		hand bool
+	}
+	var mu sync.Mutex
+	var said []ann
+	w := newWaiting(func(n int, h bool) { mu.Lock(); said = append(said, ann{n, h}); mu.Unlock() })
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		w.began()
+	}
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); w.ended() }()
+	}
+	wg.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	if last := said[len(said)-1]; last.hand {
+		t.Fatalf("everything ended and the final published word is still busy (%v)", said[len(said)-8:])
 	}
 }

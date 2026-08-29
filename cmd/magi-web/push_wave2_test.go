@@ -133,3 +133,27 @@ func TestCompanionOfLabelCutsTheMachineSuffix(t *testing.T) {
 		}
 	}
 }
+
+// The qualified scope form hears a remote asker: "deskB/api" is the documented way to name a
+// same-named companion across machines, and the answer notification's check now runs the
+// asker's name under its host as the peer.
+func TestQualifiedScopeHearsARemoteAsker(t *testing.T) {
+	s := withPolicy(t, `
+[people."boss@corp.com"]
+role = "operator"
+
+[people."kim@corp.com"]
+role = "responder"
+companions = ["deskB/api", "docs"]
+`)
+	p := &pushState{
+		subs: map[string]webpush.Subscription{"https://push.example/kim": {Endpoint: "https://push.example/kim"}},
+		who:  map[string]string{"https://push.example/kim": "kim@corp.com"},
+	}
+	if got := p.mayHearPairs(s.policy, splitPair("api on deskB"), hearPair{name: "docs"}); len(got) != 1 {
+		t.Fatalf("the deskB/api + docs subscriber must hear an 'api on deskB' → docs answer, got %d", len(got))
+	}
+	if got := p.mayHearPairs(s.policy, splitPair("api on deskC"), hearPair{name: "docs"}); len(got) != 0 {
+		t.Fatalf("deskC is not deskB; the qualified scope must not widen, got %d", len(got))
+	}
+}

@@ -401,16 +401,23 @@ func justSettled(list []fleet.Agent, was map[string]fleet.State) []fleet.Agent {
 //
 // The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
 // companion; "design's question came back" is the thing the reader is waiting on.
-// companionOfLabel cuts a fleet display label back to the companion's own name: a handoff dispatched
-// across machines is labelled "api on deskB", a string no policy scope entry can ever match —
-// the scope vocabulary is names and peer/name, never prose — so a scoped subscriber silently
-// never heard that a remote asker's answer came. Display keeps the full label; only the
-// permission question uses the bare name.
-func companionOfLabel(label string) string {
+// splitLabel takes a fleet display label apart: a handoff dispatched across machines is
+// labelled "api on deskB", a string no policy scope entry can ever match — the scope
+// vocabulary is names and peer/name, never prose. The name half serves bare-name scope
+// entries; the host half is the peer qualifier, so the documented qualified form
+// ("deskB/api") hears too. Display keeps the full label; only the permission question
+// takes it apart.
+func splitLabel(label string) (name, host string) {
 	if i := strings.Index(label, " on "); i > 0 {
-		return label[:i]
+		return label[:i], label[i+len(" on "):]
 	}
-	return label
+	return label, ""
+}
+
+// companionOfLabel is splitLabel's name half, kept for callers that need only it.
+func companionOfLabel(label string) string {
+	name, _ := splitLabel(label)
+	return name
 }
 
 func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
@@ -453,7 +460,7 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 		// Both names, because the payload carries both: the title is the asker and the body is the
 		// receiver and what it said. Somebody scoped to one of the pair would be told the other
 		// exists, and told what it answered.
-		if subs := p.mayHear(s.policy, "", companionOfLabel(h.From), companionOfLabel(h.To)); len(subs) > 0 {
+		if subs := p.mayHearPairs(s.policy, splitPair(h.From), hearPair{name: h.To}); len(subs) > 0 {
 			s.send(body, subs)
 		}
 	}
@@ -465,14 +472,31 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 // Allows the routes use, not a scope test of its own. Two consequences worth stating: a person
 // whose role lost `read` stops being buzzed without anybody remembering to unsubscribe them, and a
 // subscription with no name attached hears nothing once the console has people in it.
+// hearPair is one name a notification carries, with the peer qualifier its scope check runs
+// under — a remote asker checks under its host, the local receiver under "".
+type hearPair struct{ name, peer string }
+
+func splitPair(label string) hearPair {
+	name, host := splitLabel(label)
+	return hearPair{name: name, peer: host}
+}
+
 func (p *pushState) mayHear(policy auth.Policy, peer string, names ...string) []webpush.Subscription {
+	pairs := make([]hearPair, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, hearPair{name: name, peer: peer})
+	}
+	return p.mayHearPairs(policy, pairs...)
+}
+
+func (p *pushState) mayHearPairs(policy auth.Policy, pairs ...hearPair) []webpush.Subscription {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]webpush.Subscription, 0, len(p.subs))
 	for endpoint, sub := range p.subs {
 		ok := true
-		for _, name := range names {
-			if !policy.Allows(p.who[endpoint], auth.Read, name, peer) {
+		for _, pr := range pairs {
+			if !policy.Allows(p.who[endpoint], auth.Read, pr.name, pr.peer) {
 				ok = false
 				break
 			}

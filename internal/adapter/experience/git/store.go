@@ -45,6 +45,10 @@ type Store struct {
 	// sometimes ad hoc (New per call), so the cross-process and cross-instance halves are
 	// covered by WikiTouch's merge-on-write, not by this lock.
 	usageMu sync.Mutex
+	// usageWriteHook, when set (tests only), fires between WikiTouch's read-modify and its
+	// merge-write — the window the merge exists for; without a seam no test can tell the
+	// merge from its absence.
+	usageWriteHook func()
 }
 
 // New returns a store rooted at dir.

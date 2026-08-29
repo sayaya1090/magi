@@ -428,6 +428,9 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		reserved := spec.MaxSteps
 		usedSteps += reserved
 		mu.Unlock()
+		// A panic between reservation and settlement would leak the reservation — but the
+		// hooks are per tool call, so the leaked budget dies with this closure (noted by
+		// review, accepted).
 		refund := func() {
 			mu.Lock()
 			usedSteps -= reserved

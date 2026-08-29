@@ -376,4 +376,9 @@ func TestConcurrentSpawnsCannotOvershootTheBudget(t *testing.T) {
 	if ran == 0 {
 		t.Fatal("the budget refused everybody — a reservation that never refunds")
 	}
+	// Settlement returns what the child did not spend: the winner reserved the whole budget (3)
+	// and spent 1, so a later spawn on the same call must be admitted against spent=1.
+	if _, err := hooks.Spawn(context.Background(), port.SpawnSpec{Prompt: "after"}); err != nil {
+		t.Fatalf("the unspent reservation was never returned: %v", err)
+	}
 }

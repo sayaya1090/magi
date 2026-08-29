@@ -94,6 +94,13 @@ type waiting struct {
 	// beside a writing one by design, and when this was a bool whichever piece ended first
 	// cleared it, advertising a companion mid-change as free.
 	inHand int
+	// annMu makes "read the state, publish the state" one atomic act. The reads were under
+	// w.mu and the publish outside it (the callback writes the published record and must not
+	// run under the state lock), so two concurrent ended()s could publish in the wrong order
+	// and leave a stale "busy" as the FINAL record about an idle companion — the exact
+	// stuck-busy the ended() comment says nothing would ever clear. Ordered publishes make
+	// the last word match the state.
+	annMu sync.Mutex
 	// changed says what this companion is carrying, whenever that changes. It is how both numbers
 	// reach the published record and from there the roster somebody chooses from — pushed, because
 	// nothing outside this process can see a queue held in memory.
@@ -119,6 +126,8 @@ func (w *waiting) announce(n int, handling bool) {
 // the refusal still protects the workspace, whereas a flag stuck at "busy" would push every asker
 // away from a companion that is fine and nothing would ever clear it.
 func (w *waiting) began() {
+	w.annMu.Lock()
+	defer w.annMu.Unlock()
 	w.mu.Lock()
 	w.inHand++
 	depth := len(w.items)
@@ -127,6 +136,8 @@ func (w *waiting) began() {
 }
 
 func (w *waiting) ended() {
+	w.annMu.Lock()
+	defer w.annMu.Unlock()
 	w.mu.Lock()
 	w.inHand--
 	if w.inHand < 0 {
@@ -155,9 +166,14 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 		return len(w.items), false
 	}
 	w.items = append(w.items, p)
-	ahead, depth, hand := len(w.items)-1, len(w.items), w.inHand > 0
+	ahead = len(w.items) - 1
+	w.mu.Unlock()
+	w.annMu.Lock()
+	w.mu.Lock()
+	depth, hand := len(w.items), w.inHand > 0
 	w.mu.Unlock()
 	w.announce(depth, hand)
+	w.annMu.Unlock()
 	w.wake()
 	return ahead, true
 }
@@ -186,9 +202,13 @@ func (w *waiting) next() (pending, bool) {
 	}
 	p := w.items[0]
 	w.items = w.items[1:]
+	w.mu.Unlock()
+	w.annMu.Lock()
+	w.mu.Lock()
 	depth, hand := len(w.items), w.inHand > 0
 	w.mu.Unlock()
 	w.announce(depth, hand)
+	w.annMu.Unlock()
 	return p, true
 }
 

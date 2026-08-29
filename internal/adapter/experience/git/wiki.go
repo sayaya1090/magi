@@ -296,6 +296,9 @@ func (s *Store) WikiTouch(titles []string) {
 	if !changed {
 		return
 	}
+	if s.usageWriteHook != nil {
+		s.usageWriteHook()
+	}
 	// Merge-on-write: another PROCESS (the team tier is one directory shared by every daemon on
 	// the machine) — or another ad-hoc Store instance — may have recorded touches between our
 	// read and this write, and a whole-file replace would forget them. Atomic write prevents torn

@@ -423,10 +423,15 @@ func TestTouchMergesWhatAnotherProcessWrote(t *testing.T) {
 	for _, p := range []string{"mine", "theirs"} {
 		wikiWriteT(t, s, p, "body", "seed", "tester")
 	}
-	// Another process's record, already on disk before our touch runs.
+	// Another process's record lands INSIDE the window — after this touch has read and
+	// decided, before it writes. (Written on disk beforehand, the plain read already saw it
+	// and the test could not tell the merge from its absence — it was vacuous, and passed
+	// with the merge deleted.)
 	other := wikiSlug("theirs") + "\t2026-08-01\n"
-	if err := os.WriteFile(filepath.Join(dir, "wiki", ".usage"), []byte(other), 0o644); err != nil {
-		t.Fatal(err)
+	s.usageWriteHook = func() {
+		if err := os.WriteFile(filepath.Join(dir, "wiki", ".usage"), []byte(other), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	s.WikiTouch([]string{"mine"})
 	raw, _ := os.ReadFile(filepath.Join(dir, "wiki", ".usage"))
