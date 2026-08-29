@@ -159,15 +159,16 @@ class SourceTextTest {
         assertTrue("private val unreachable" !in bar,
             "못 만지는 루트 수를 `val` 로 세어 뒀다. 매 틱 그리는 줄이 한 번 잰 값을 실어 나른다")
 
-        val facts = sources.first { it.name == "FactsToolWindow.kt" }.readText()
-        val refresh = facts.substringAfter("fun refresh() {").substringBefore("}")
+        // 사실 판이 설정 화면으로 접히면서(사용자 결정 2026-08-29) 이 규칙의 자리도 옮겨 갔다.
+        // 3초 타이머 단언은 함께 떠나지 않았다 — 설정 화면은 모달이라 열림이 곧 reset() 이고,
+        // 상시로 다시 묻는 자리는 상태 표시줄 하나만 남는다(위의 unreachable 단언이 그쪽이다).
+        val facts = sources.first { it.name == "MagiConfigurable.kt" }.readText()
+        val refresh = facts.substringAfter("override fun reset() {").substringBefore("}")
         assertTrue("sayOutside()" in refresh,
             "그리기 문이 밖 루트 줄을 안 다시 쓴다. 생성 때 한 번 쓰면 고쳐도 안 지워진다")
-        val outside = facts.substringAfter("private fun sayOutside() {").substringBefore("\n        }")
+        val outside = facts.substringAfter("private fun sayOutside() {").substringBefore("\n    }")
         assertTrue("say(outside, \" \")" in outside,
             "밖 루트가 없을 때 지우는 갈래가 없다. 안 쓰는 것으로 지움을 흉내내면 처음 한 번만 맞는다")
-        assertTrue("isRepeats = true" in facts,
-            "사실 판이 다시 안 묻는다. 「지금 무엇을 하나」를 판 연 순간의 뜻으로 세워 두게 된다")
     }
 
     @Test
@@ -188,11 +189,8 @@ class SourceTextTest {
         // 답을 안 붙이는 문지기는 있었지만 그건 늦게 온 답을 막을 뿐 이미 선 제안은 아무도 안 거뒀다.
         //
         // 규칙 한 줄로: **다시 묻는 것과 지금 답을 거두는 것은 한 사건이다.**
-        val facts = sources.first { it.name == "FactsToolWindow.kt" }.readText()
-        assertTrue("toolWindowShown" in facts,
-            "판을 펴는 순간에 다시 안 묻는다. `isVisible` 로 좁혀 놓고 펴는 종을 안 잡으면 " +
-                "접어 둔 시간만큼 낡은 것을 「지금」으로 읽힌다")
-
+        // 사실 판 절반은 설정 화면으로 접히며 규칙째 사라졌다 — 열림=reset 이라 「펴는 종」이
+        // 구조에 들어 있고, 소스 글자로 잴 자리가 없다. 거들기 절반만 남는다.
         val chat = sources.first { it.name == "MagiToolWindow.kt" }.readText()
         val listener = chat.substringAfter("addDocumentListener").substringBefore("registerKeyboardAction")
         assertTrue("dropSuggestion()" in listener,
@@ -581,7 +579,7 @@ class SourceTextTest {
      * 이 목록의 항목은 검사가 아니라 **주장**이고, [anchors] 가 그 주장을 반증 가능하게 만든다.
      */
     private val safeInLabels = mapOf(
-        "FactsToolWindow.kt:out.size" to Safe(
+        "MagiConfigurable.kt:out.size" to Safe(
             "수다 — 글자가 아니라 마크업을 실을 수가 없다",
             listOf("val out = workspace.rootsOutsideWorkspace()"),
         ),

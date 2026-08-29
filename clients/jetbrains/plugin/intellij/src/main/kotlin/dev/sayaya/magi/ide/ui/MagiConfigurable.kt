@@ -7,6 +7,9 @@ import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
+import dev.sayaya.magi.ide.model.Response
+import dev.sayaya.magi.ide.model.RosterRow
+import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Markup
 import java.awt.GridBagConstraints
@@ -37,6 +40,17 @@ class MagiConfigurable(private val project: Project) : Configurable {
 
     private val workspace by lazy { Workspace(project) }
 
+    // ── 「지금」 장 — 우측 독(magi.facts)에 살던 사실들. 사용자 결정(2026-08-29)으로 이
+    // 화면 안에 접혔다: 상시 감시는 상태 표시줄이 하고 있고, 자세히 보는 판은 열 때 읽으면
+    // 된다 — 설정 화면은 열림이 곧 reset() 이라 「펴는 순간 다시 묻기」가 구조로 공짜다.
+    private val doing = JBLabel(" ")
+    private val perm = JBLabel(" ")
+    private val sessionL = JBLabel(" ").apply { font = Look.mono() }
+    private val outside = JBLabel(" ").apply { foreground = Look.warn }
+    private val fleet = JBPanel<JBPanel<*>>().apply {
+        layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+    }
+
     private val permission = JComboBox(arrayOf("ask", "auto", "allow", "deny"))
     private val model = JComboBox<String>().apply { isEditable = true }
     private val backend = JBTextField()
@@ -50,6 +64,13 @@ class MagiConfigurable(private val project: Project) : Configurable {
     override fun createComponent(): JComponent {
         val p = JBPanel<JBPanel<*>>(GridBagLayout()).apply { border = JBUI.Borders.empty(8, 12) }
         var y = 0
+        fun head(text: String) {
+            p.add(Look.gutter(text), GridBagConstraints().apply {
+                gridx = 0; gridy = y; gridwidth = 2; anchor = GridBagConstraints.LINE_START
+                insets = Insets(if (y == 0) 0 else 14, 0, 2, 0)
+            })
+            y++
+        }
         fun row(name: String, c: JComponent) {
             p.add(JBLabel(name).apply { foreground = Look.faint }, GridBagConstraints().apply {
                 gridx = 0; gridy = y; anchor = GridBagConstraints.LINE_START; insets = Insets(4, 0, 4, 12)
@@ -66,6 +87,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
             })
             y++
         }
+        head("지금")
+        row("하는 일", doing)
+        row("승인", perm)
+        row("대화", sessionL)
+        row(" ", outside)
+        head("설정")
         row("승인 모드", permission)
         note("코어의 낱말 그대로 — ask 는 매번 묻고, auto 는 편집만 통과시킨다.")
         row("모델", model)
@@ -74,6 +101,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
         note("프로필 이름을 적으면 use-backend 로 간다. 목록을 주는 문은 아직 없다.")
         row("예약·크론", JBLabel("읽는 문이 없다 — 워크스페이스의 config.toml 이 원천이다."))
         row("서브에이전트 · 컨텍스트 창", JBLabel("쓰기 문이 없다 — 문이 생기면 칸이 된다."))
+        head("플릿")
+        p.add(fleet, GridBagConstraints().apply {
+            gridx = 0; gridy = y; gridwidth = 2; weightx = 1.0
+            fill = GridBagConstraints.HORIZONTAL; anchor = GridBagConstraints.LINE_START
+        })
+        y++
         p.add(said, GridBagConstraints().apply {
             gridx = 0; gridy = y; gridwidth = 2; anchor = GridBagConstraints.LINE_START
             insets = Insets(12, 0, 0, 0)
@@ -112,16 +145,76 @@ class MagiConfigurable(private val project: Project) : Configurable {
     }
 
     override fun reset() {
+        sayOutside() // 데몬을 안 기다리는 줄이 먼저다 — 못 붙는 워크스페이스에서도 이 경고는 선다
         workspace.onDaemon({ tell("데몬에 못 닿는다: $it") }) { comp -> pull(comp); tell(" ") }
+    }
+
+    /**
+     * 컴패니언이 못 만지는 컨텐트 루트. 데몬이 아니라 IDE 가 아는 사실이라 붙기 전에도 답이
+     * 있고, **빈 갈래도 쓴다** — 안 쓰는 것으로 지움을 흉내내면 처음 한 번만 맞는다.
+     */
+    private fun sayOutside() {
+        val out = workspace.rootsOutsideWorkspace()
+        if (out.isEmpty()) return say(outside, " ")
+        say(outside, "<html>못 만지는 컨텐트 루트 ${out.size}개 — 워크스페이스는 프로젝트 디렉토리 하나다:<br/>" +
+            out.joinToString("<br/>") { Markup.text(it) } + "</html>")
+    }
+
+    private fun say(label: JBLabel, text: String) = SwingUtilities.invokeLater { label.text = text }
+
+    /** 플릿을 다시 그린다. 문이 없는 데몬(옛 빌드)이면 그 사실을 적는다 — 빈 판은 「없다」와
+     *  「못 물었다」를 못 가른다. 목격담은 흐리게, 나이와 함께. */
+    private fun paintFleet(r: Response) = SwingUtilities.invokeLater {
+        fleet.removeAll()
+        val rows = r.roster
+        when {
+            rows == null -> fleet.add(JBLabel("이 데몬엔 roster 문이 없다" +
+                (r.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply { foreground = Look.faint })
+            rows.isEmpty() -> fleet.add(JBLabel("이 머신이 이름 댈 컴패니언이 없다").apply { foreground = Look.faint })
+            else -> rows.sortedBy { it.sighting }.forEach { row -> fleet.add(fleetRow(row)) }
+        }
+        fleet.revalidate(); fleet.repaint()
+    }
+
+    private fun fleetRow(r: RosterRow): JBLabel {
+        val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
+        val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        val state = when (r.state) {
+            "waiting" -> " — 사람을 기다린다"
+            "working" -> " — 도는 중"
+            "idle" -> ""
+            else -> r.state?.let { " — $it" }.orEmpty()
+        }
+        val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
+        val seen = if (r.sighting) "  · ${r.ageSeconds}s 전 목격" else ""
+        return JBLabel(name + role + state + where + seen).apply {
+            foreground = when {
+                r.sighting -> Look.muted
+                r.state == "waiting" -> Look.primary
+                else -> Look.body
+            }
+            border = JBUI.Borders.empty(2, 0)
+            toolTipText = r.socket
+        }
     }
 
     /** 데몬이 아는 것을 화면으로. 모델 목록이 늦거나 없어도 나머지는 선다. */
     private fun pull(comp: Companion) {
-        val perm = comp.facts().permission
+        val f = comp.facts()
+        SwingUtilities.invokeLater {
+            doing.text = when (val a = Activity.of(f)) {
+                Activity.Waiting -> "사람을 기다리는 중"
+                is Activity.Doing -> a.what
+                Activity.Unsaid -> "도는 것 없음"
+            }
+            perm.text = f.permission ?: "데몬이 안 말했다"
+            sessionL.text = f.session
+        }
+        paintFleet(comp.roster())
         val m = comp.models()
         SwingUtilities.invokeLater {
-            read = perm
-            if (perm != null) permission.selectedItem = perm
+            read = f.permission
+            if (f.permission != null) permission.selectedItem = f.permission
             model.removeAllItems()
             model.addItem("")
             m.models?.forEach { model.addItem(it) }

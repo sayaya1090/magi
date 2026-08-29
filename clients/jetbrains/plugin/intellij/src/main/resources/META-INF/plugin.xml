@@ -26,8 +26,12 @@
     -->
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="magi" anchor="bottom" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
-        <toolWindow id="magi.facts" anchor="right"
-                    factoryClass="dev.sayaya.magi.ide.ui.FactsToolWindow"/>
+        <!--
+            No right-dock facts window any more (user decision, 2026-08-29): the always-on level
+            lives on the status bar, and the detailed facts + fleet fold into Settings > Tools >
+            magi, where opening the screen IS the re-read (Configurable.reset). A pane that mostly
+            said "still attached" was paying rent in the dock for one glance a day.
+        -->
 
         <!--
             The status bar is not a duplicate of the tool windows. Tool windows are LAZY: they are

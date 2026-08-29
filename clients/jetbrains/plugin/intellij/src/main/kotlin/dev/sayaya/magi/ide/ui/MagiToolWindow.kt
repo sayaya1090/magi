@@ -47,8 +47,7 @@ import javax.swing.text.StyleConstants
  *
  * 콘솔에서는 대화가 가운데다(`docs/UI.md` §2.2). IDE 에서 가운데는 **고치는 것**의 자리라 그대로
  * 옮기면 §5 의 첫 규칙("IDE 와 겹치는 것은 만들지 않는다")을 배치로 어긴다. 그리고 계속 흘러내리는
- * 글을 IntelliJ 가 두는 자리는 아래다 — Run, Terminal, Build 가 전부 거기 있다. 사실 판은 우측으로
- * 갈렸다([FactsToolWindow]).
+ * 글을 IntelliJ 가 두는 자리는 아래다 — Run, Terminal, Build 가 전부 거기 있다. 사실 판은 설정 화면 안으로 접혔다([MagiConfigurable] — 사용자 결정 2026-08-29, 상시 수준은 상태 표시줄이 잇는다).
  *
  * 전사는 데몬의 `transcript` 문에서 이벤트로 오고, 셰이퍼([Rows])가 행으로 편다 — 무엇이
  * 행이 되는지는 `docs/TRANSCRIPT.ko.md` 의 표가 정하고, 이 창은 그 행을 붓질만 한다

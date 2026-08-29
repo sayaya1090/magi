@@ -112,7 +112,7 @@ class CompanionTest {
         // 세션은 데몬이 말한 것이 이긴다. 부르는 쪽이 들고 있던 값은 낡을 수 있다.
         assertEquals("s_9", f.session)
         assertTrue(fake.seen[0].contains(""""method":"status""""))
-        // 두 화면(`FactsToolWindow`·`StatusBar`)이 「사람을 기다리는 중」을 이 칸 **하나**로
+        // 두 화면(`MagiConfigurable`·`StatusBar`)이 「사람을 기다리는 중」을 이 칸 **하나**로
         // 판단한다. 안 옮겨 실으면 사람이 막고 선 것이 화면에서 **쉬는 중**과 같아 보인다 —
         // 화면의 마지막 말이 영영 거짓이 되는 그 종류다.
         assertEquals("c1", f.waiting?.id)

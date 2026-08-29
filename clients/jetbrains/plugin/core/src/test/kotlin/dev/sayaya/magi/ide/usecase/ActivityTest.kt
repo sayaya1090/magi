@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test
 /**
  * 화면 둘이 한 벌씩 적어 두고 있던 판정을 여기서 잰다.
  *
- * 이 시험이 새로 생긴 것이 요점이다. 같은 `when` 이 `StatusBar` 와 `FactsToolWindow` 에 있을
+ * 이 시험이 새로 생긴 것이 요점이다. 같은 `when` 이 `StatusBar` 와 `MagiConfigurable` 에 있을
  * 때는 **잴 자리가 없었다** — `intellij` 모듈에는 테스트 소스셋이 아예 없어서, 그쪽 글자를
  * 무엇으로 바꿔도 스위트는 초록이었다. 실제로 그 둘은 이미 갈라져 있었고 갈라진 쪽이 안 재지는
  * 쪽이었다([Activity] 의 주석).
