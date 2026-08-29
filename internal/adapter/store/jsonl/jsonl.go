@@ -461,6 +461,11 @@ func readLogLine(r *bufio.Reader) (line []byte, skip bool, err error) {
 // Compact rewrites the log so that all events with seq <= upToSeq are replaced
 // by a single snapshot event, preserving events with seq > upToSeq. The original
 // is kept alongside as "<file>.archive".
+// A 2026-08-29 hunt note: production compaction does NOT come through here — App.compactNow
+// appends a TypeCompaction FACT and leaves the log physically whole, which is what keeps every
+// seq a transcript cursor might hold valid. This physical rewrite is the store honouring its own
+// port contract (and its tests); a caller that starts using it must first reconcile it with the
+// cursor promise in docs/CLIENTS ("the transcript cursor can be trusted").
 func (s *Store) Compact(ctx context.Context, sid session.SessionID, upToSeq int64, snapshot event.Event) error {
 	if snapshot.Type.IsTransient() {
 		return fmt.Errorf("jsonl: snapshot cannot be a transient event")

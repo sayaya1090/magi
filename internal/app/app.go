@@ -316,6 +316,12 @@ func (a *App) appendPrompt(ctx context.Context, c command.SubmitPrompt) error {
 	if a.cfg.Observer != nil && c.Actor.Kind == event.ActorUser {
 		var texts []string
 		for _, pt := range c.Parts {
+			// The rendered attachment block stays out of the observation: it is workspace bytes,
+			// not the person's words, and a plugin that wants file contents holds a file grant
+			// rather than reading them off a user-message side channel (hunted 2026-08-29).
+			if strings.HasPrefix(pt.Text, attachedHeader) {
+				continue
+			}
 			if pt.Kind == session.PartText && strings.TrimSpace(pt.Text) != "" {
 				texts = append(texts, pt.Text)
 			}

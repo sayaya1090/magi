@@ -9,7 +9,6 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
-// bashChange is a file a bash command was about to write, and its content just before it ran.
 // bashChange is a destination a bash command was about to write, with its content beforehand.
 // readable says whether magi could actually read that content: a directory, or a path it could not
 // open, has no content to compare, and a comparison it cannot make is one it must not report.

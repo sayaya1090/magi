@@ -19,6 +19,12 @@ import (
 // sliced to the named lines, capped, and appended to the prompt event — so the transcript shows
 // exactly what the agent was shown, and a replay shows it again.
 
+// attachedHeader opens the rendered block, and is also the marker the observer path reads: the
+// excerpts are workspace bytes, and what an observer plugin is told about a prompt is the
+// person's words — a plugin that wants file contents holds a file grant, and must not receive
+// them riding a user-message notification instead.
+const attachedHeader = "── ATTACHED BY THE USER ──\n"
+
 // refCap bounds one excerpt, and refsCap the lot: an attachment is context, not a file transfer,
 // and a prompt that arrives with a megabyte riding it is somebody's window gone.
 const (
@@ -35,26 +41,40 @@ func (a *App) appendRefs(ctx context.Context, c *command.SubmitPrompt) {
 	}
 	workdir := a.sessionInfo(ctx, c.SessionID).Workdir
 	var b strings.Builder
-	total := 0
+	total, folded := 0, 0
 	for _, r := range c.Refs {
+		// Past the budget, the rest FOLD to one closing line: rendering a per-ref refusal for
+		// thousands of refs is itself an unbounded block, which the hunt's fix measured the hard
+		// way (5000 tiny refs, 123KB of headers and refusals under a 64KB budget).
+		if total >= refsCap {
+			folded++
+			continue
+		}
 		b.WriteString(renderRef(workdir, r, &total))
+	}
+	if folded > 0 {
+		fmt.Fprintf(&b, "\n(+%d more attachment(s) not shown — the budget is full)\n", folded)
 	}
 	if b.Len() == 0 {
 		return
 	}
 	c.Parts = append(c.Parts, session.Part{Kind: session.PartText,
-		Text: "── ATTACHED BY THE USER ──\n" + b.String()})
+		Text: attachedHeader + b.String()})
 }
 
 // renderRef is one attachment: a header naming what was asked for, then the excerpt or the reason
-// there is none.
+// there is none. total counts EVERYTHING rendered — headers included — because a budget that
+// hands out free lines is a budget many small refs walk straight past (hunted: hundreds of
+// one-line refs, each header uncounted, and the 64KB the cap exists to hold was gone).
 func renderRef(workdir string, r command.FileRef, total *int) string {
 	head := "\n## " + r.Path
 	if r.Lines != "" {
 		head += " (lines " + r.Lines + ")"
 	}
 	head += "\n"
-	if *total >= refsCap {
+	*total += len(head)
+	remaining := refsCap - *total
+	if remaining <= 0 {
 		return head + "(not shown — the attachments before this one already fill the budget)\n"
 	}
 	abs, err := insideWorkdir(workdir, r.Path)
@@ -67,8 +87,12 @@ func renderRef(workdir string, r command.FileRef, total *int) string {
 		return head + "(not shown — " + rerr.Error() + ")\n"
 	}
 	text := sliceLines(string(raw), r.Lines)
-	if len(text) > refCap {
-		text = text[:refCap] + "\n… (the rest of this attachment is not shown)"
+	cap := refCap
+	if remaining < cap {
+		cap = remaining // the ref that crosses the line is clipped AT the line, not waved through
+	}
+	if len(text) > cap {
+		text = text[:cap] + "\n… (the rest of this attachment is not shown)"
 	}
 	*total += len(text)
 	return head + text + "\n"

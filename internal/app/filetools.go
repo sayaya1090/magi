@@ -109,6 +109,9 @@ func touchesFileIn(reg port.ToolRegistry, name string, args json.RawMessage) (fi
 	if !known {
 		return fileTouch{}, false
 	}
-	p := pathArg(args)
+	// Trimmed HERE, like the FileTool branch above: downstream the created-check trims its own
+	// copy while the guard slot and the read-coverage key did not, so a whitespace-padded path
+	// split one file across two slots — the exact shape guardKey exists to prevent.
+	p := strings.TrimSpace(pathArg(args))
 	return fileTouch{path: p, guard: guardKey(p, lower), writes: writes}, true
 }
