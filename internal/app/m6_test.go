@@ -165,3 +165,54 @@ func lastData(evs []event.Event, typ event.Type, out any) bool {
 	}
 	return false
 }
+
+// The compaction boundary never splits a message: a step writes reasoning, text and tool calls
+// as separate parts under one message id, and a boundary landing between them used to lose the
+// post-boundary parts from BOTH sides of the fold (the entry dropped by its opening seq, the
+// summarizer cut at the boundary).
+func TestCompactionBoundarySnapsToAMessageSeam(t *testing.T) {
+	mk := func(seq int64, typ event.Type, data any) event.Event {
+		b, _ := json.Marshal(data)
+		return event.Event{Seq: seq, Type: typ, Data: b}
+	}
+	part := func(msg, txt string) event.PartAppendedData {
+		return event.PartAppendedData{MessageID: msg, Role: session.RoleAssistant,
+			Part: session.Part{Kind: session.PartText, Text: txt}}
+	}
+	evs := []event.Event{
+		mk(1, event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "u1"}),
+		mk(2, event.TypePartAppended, part("a1", "reasoning")),
+		mk(3, event.TypePartAppended, part("a1", "the tool call")), // a1 spans 2..3
+		mk(4, event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "u2"}),
+	}
+	if got := snapToMessageSeam(evs, 2); got != 1 {
+		t.Fatalf("a boundary inside a1 must snap below its first part, got %d", got)
+	}
+	if got := snapToMessageSeam(evs, 3); got != 3 {
+		t.Fatalf("a boundary at a message's LAST part is a seam, got %d", got)
+	}
+	// Chained straddles resolve to the outermost seam.
+	evs = append(evs,
+		mk(5, event.TypePartAppended, part("a2", "x")),
+		mk(6, event.TypePartAppended, part("a2", "y")),
+	)
+	if got := snapToMessageSeam(evs, 5); got != 4 {
+		t.Fatalf("a boundary inside a2 snaps to 4, got %d", got)
+	}
+	if got := snapToMessageSeam(evs, 4); got != 4 {
+		t.Fatalf("a clean seam stays put, got %d", got)
+	}
+	// When lowering runs out of log — the straddling message IS the log — the other direction
+	// folds it whole instead of splitting it.
+	one := []event.Event{
+		mk(1, event.TypePartAppended, part("solo", "a")),
+		mk(2, event.TypePartAppended, part("solo", "b")),
+		mk(3, event.TypePartAppended, part("solo", "c")),
+	}
+	if got := snapToMessageSeam(one, 2); got != 0 {
+		t.Fatalf("lowering inside the only message reaches zero, got %d", got)
+	}
+	if got := raiseToMessageSeam(one, 2); got != 3 {
+		t.Fatalf("raising folds the message whole, got %d", got)
+	}
+}

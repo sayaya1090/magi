@@ -159,12 +159,28 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 		return false // not enough to compact
 	}
 	boundary := factSeqs[len(factSeqs)-keepRecentEvents-1]
-
-	// Summarize everything up to the boundary.
-	older := reconstruct(truncateAt(evs, boundary))
+	// The boundary must not fall INSIDE a message. One step writes reasoning, text and tool
+	// calls as separate PartAppended events under one message id, and a boundary chosen by
+	// counting fact events lands between them routinely — the fold then dropped the whole
+	// entry (its OPENING seq is under the boundary) with the post-boundary parts merged in,
+	// while the summarizer's input was cut at the boundary and never saw them either: an
+	// assistant's tool call vanished from both sides, its result surviving as an orphan.
+	// Snapped DOWN to the nearest seam — keeping more, never losing — and a snap that
+	// reaches zero means the log is one giant message: nothing safe to fold.
+	snapped := snapToMessageSeam(evs, boundary)
+	older := reconstruct(truncateAt(evs, snapped))
 	if len(older) == 0 {
-		return false
+		// Lowering left nothing to fold — the straddling message reaches (nearly) to the head
+		// of the log, so everything foldable is inside it. Folding a message WHOLE is also not
+		// splitting it: raise to its far side instead, trading some of the kept tail for a
+		// fold that still happens.
+		snapped = raiseToMessageSeam(evs, boundary)
+		older = reconstruct(truncateAt(evs, snapped))
+		if len(older) == 0 {
+			return false
+		}
 	}
+	boundary = snapped
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
 	shards := shardByPath(older, s.Workdir)
@@ -341,6 +357,71 @@ func shardPath(workdir string, args json.RawMessage) string {
 }
 
 // truncateAt returns events with seq <= boundary.
+// raiseToMessageSeam is snapToMessageSeam's other direction: boundary climbs to the straddling
+// message's last part, repeating until no message is split. Used only when lowering reached
+// zero — it folds MORE than asked, never less than whole messages.
+func raiseToMessageSeam(evs []event.Event, boundary int64) int64 {
+	for {
+		moved := false
+		for _, sp := range messageSpans(evs) {
+			if sp.first <= boundary && boundary < sp.last {
+				boundary = sp.last
+				moved = true
+			}
+		}
+		if !moved {
+			return boundary
+		}
+	}
+}
+
+// snapToMessageSeam lowers boundary until no message's parts straddle it: for any message with
+// parts on both sides, the boundary moves to just before that message's first part, repeating
+// until stable. Lowering is the safe direction — it folds less, it never loses.
+func snapToMessageSeam(evs []event.Event, boundary int64) int64 {
+	spans := messageSpans(evs)
+	for {
+		moved := false
+		for _, sp := range spans {
+			if sp.first <= boundary && boundary < sp.last {
+				boundary = sp.first - 1
+				moved = true
+			}
+		}
+		if !moved {
+			return boundary
+		}
+	}
+}
+
+// span is one message's first and last part seq; messageSpans indexes them for the seam walks.
+type span struct{ first, last int64 }
+
+func messageSpans(evs []event.Event) map[string]*span {
+	spans := map[string]*span{}
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil || d.MessageID == "" {
+			continue
+		}
+		sp, ok := spans[d.MessageID]
+		if !ok {
+			spans[d.MessageID] = &span{first: e.Seq, last: e.Seq}
+			continue
+		}
+		if e.Seq < sp.first {
+			sp.first = e.Seq
+		}
+		if e.Seq > sp.last {
+			sp.last = e.Seq
+		}
+	}
+	return spans
+}
+
 func truncateAt(evs []event.Event, boundary int64) []event.Event {
 	out := make([]event.Event, 0, len(evs))
 	for _, e := range evs {
