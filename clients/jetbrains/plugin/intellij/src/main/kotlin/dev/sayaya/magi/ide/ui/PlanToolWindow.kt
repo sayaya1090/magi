@@ -10,7 +10,10 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
+import com.intellij.openapi.application.ApplicationManager
+import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.RosterRow
+import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.model.SessionRow
 import java.awt.BorderLayout
 import javax.swing.BoxLayout
@@ -49,6 +52,10 @@ class PlanToolWindow : ToolWindowFactory {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(0, 12)
         }
+        val askedPane = JBPanel<JBPanel<*>>().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(0, 12)
+        }
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         val talk = JComboBox<String>()
         val model = JComboBox<String>()
@@ -69,9 +76,27 @@ class PlanToolWindow : ToolWindowFactory {
         // 늦게 온 완료를 버린다(리뷰: 느린 성공 틱이 빠른 실패 틱의 낡음-배너를 지우고 죽기 전
         // 값을 지금인 양 세웠다). 각 틱이 번호를 들고, 자기보다 새 틱이 있으면 그리지 않는다.
         val pollSeq = java.util.concurrent.atomic.AtomicLong()
+
+        /**
+         * 이 창에서 다른 컴패니언에게 건넨 일들 — 접수증과 함께. 조종은 계약 경계 그대로
+         * **그 컴패니언의 소켓**으로 간다(hand/hand-state — docs/CLIENTS §2). 창이 사는 동안만
+         * 기억한다: 접수증의 원본은 저쪽 데몬이고, 여기는 물어볼 열쇠만 든다.
+         */
+        class Asked(val socket: String, val who: String, val receipt: String, val ask: String) {
+            /** 마지막으로 알게 된 문장 — 종결 후에도 폴 없이 그린다. */
+            @Volatile var line: String? = null
+            /** 더 안 물어본다: done/over, 또는 저쪽이 접수증을 모른다(재시작·만료 — Handed 계약). */
+            @Volatile var over = false
+        }
+        val asked = java.util.Collections.synchronizedList(mutableListOf<Asked>())
         // 국소함수는 전방 참조가 안 된다 — 단추 리스너(위)가 목록 새로고침(아래)을 불러야
         // 해서 손잡이로 잇는다. 선언 뒤에 실체가 앉는다.
         var refreshTalks: () -> Unit = {}
+        // 아래 둘도 같은 무늬의 지역 var 다 — 클래스 프로퍼티로 두면 **팩토리가 애플리케이션
+        // 싱글턴**이라(플랫폼: ToolWindowEP 가 한 번 만들어 캐시) 두 프로젝트가 서로의 판을
+        // 그리고 서로의 이름으로 hand 를 보낸다(리뷰 F2 — Project 누수까지).
+        var askOf: (RosterRow) -> Unit = {}
+        var paintAsked: (Long) -> Unit = {}
         /** 콤보의 「제목 (s_…끝6)」 표시에서 id 를 되찾는 지도. 렌더된 문장에서 파내지 않는다. */
         var talkIds: Map<String, String> = emptyMap()
 
@@ -120,6 +145,8 @@ class PlanToolWindow : ToolWindowFactory {
             add(work)
             add(Look.gutter("플릿"))
             add(fleet)
+            add(Look.gutter("건넨 일"))
+            add(askedPane)
             add(Look.gutter("예약"))
             add(cronPane)
             add(Look.gutter("계기"))
@@ -251,7 +278,30 @@ class PlanToolWindow : ToolWindowFactory {
                         foreground = Look.faint
                     })
                     rows.isEmpty() -> fleet.add(JBLabel("이름 댈 컴패니언이 없다").apply { foreground = Look.faint })
-                    else -> rows.sortedBy { it.sighting }.forEach { row -> fleet.add(fleetRow(row)) }
+                    else -> {
+                        // 동거 경고의 재료: 같은 workdir 에 둘 이상이 살면 그 사실이 행에 선다 —
+                        // 동시 작업의 파일 충돌은 사용자가 이름 댄 고통이다.
+                        // 「살면」의 셈: 산 로컬 행만, (host, workdir) 로 — 목격담의 같은 경로
+                        // 문자열이나 시체가 동거로 서면 배지가 거짓말한다(리뷰 F5).
+                        val crowd = rows.filter { it.live && !it.sighting && !it.workdir.isNullOrEmpty() }
+                            .groupingBy { (it.host ?: "") to it.workdir!! }.eachCount()
+                        rows.sortedBy { it.sighting }.forEach { row ->
+                            val crowded = row.live && !row.sighting && !row.workdir.isNullOrEmpty() &&
+                                (crowd[(row.host ?: "") to row.workdir!!] ?: 0) > 1
+                            val label = fleetRow(row, crowded)
+                            if (row.live && !row.sighting) {
+                                label.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                                label.addMouseListener(object : java.awt.event.MouseAdapter() {
+                                    // 자기 자신 행도 산다 — 자기에게 건네면 자기 큐 뒤에 선다(의도:
+                                    // 막지 않는다, 지금 턴 뒤로 미루는 정당한 쓰임이 있다).
+                                    override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                                        if (SwingUtilities.isLeftMouseButton(e)) askOf(row)
+                                    }
+                                })
+                            }
+                            fleet.add(label)
+                        }
+                    }
                 }
                 work.revalidate(); work.repaint(); fleet.revalidate(); fleet.repaint()
                 cronPane.removeAll()
@@ -280,6 +330,7 @@ class PlanToolWindow : ToolWindowFactory {
                 }
                 cronPane.revalidate(); cronPane.repaint()
             }
+            paintAsked(my) // 풀 스레드 — 원격 왕복은 EDT 밖(리뷰 F1)
         }
         }
 
@@ -342,6 +393,89 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
 
+        fun paintAskedNow() = SwingUtilities.invokeLater {
+            askedPane.removeAll()
+            val snap = synchronized(asked) { asked.toList() }
+            snap.forEach { a ->
+                askedPane.add(JBLabel("→ ${a.who}: ${a.ask.lineSequence().first().take(48)} — …").apply {
+                    foreground = Look.faint
+                    border = JBUI.Borders.empty(1, 0)
+                })
+            }
+            askedPane.revalidate(); askedPane.repaint()
+        }
+        paintAsked = { my ->
+            // **풀 스레드에서 돈다**(poll 의 pooled 구간이 부른다) — 접수증당 원격 연결 하나라
+            // EDT 에 올리면 웨지된 상대가 IDE 를 통째로 세운다(리뷰 F1). ⚠ DaemonClient 에
+            // 타임아웃이 없다는 잔여는 문서에 기록 — 웨지는 이 폴 스레드를 세우는 데서 그친다.
+            val snap = synchronized(asked) { asked.toList() }
+            snap.forEach { a ->
+                if (a.over) return@forEach // 종결된 건은 더 안 묻는다 — 헛폴이 창 수명만큼 갔었다
+                val r = runCatching {
+                    DaemonClient.connect(java.nio.file.Paths.get(a.socket)).use {
+                        it.exchange(Request(method = "hand-state", name = a.receipt))
+                    }
+                }.getOrNull()
+                val h = r?.handover
+                when {
+                    r == null -> a.line = "…(연결을 못 했다)"
+                    !r.ok -> {
+                        // 거절은 「대기를 끝내라」다(Taker.Handed 계약: 재시작·만료) — 연결
+                        // 실패와 접으면 죽은 접수증을 영영 폴한다(리뷰 F4).
+                        a.over = true; a.line = "끝(안 온다): " + (r.error ?: "접수증을 모른다")
+                    }
+                    h == null -> a.line = "…(답이 비었다)"
+                    h.over -> { a.over = true; a.line = "끝(안 온다): " + (h.news ?: "사유 없음") }
+                    h.done -> { a.over = true; a.line = "답: " + (h.answer?.lineSequence()?.firstOrNull() ?: "") }
+                    else -> a.line = "도는 중"
+                }
+            }
+            SwingUtilities.invokeLater {
+                if (my != pollSeq.get()) return@invokeLater // 늦은 완료가 새 그림을 덮지 않게(F6)
+                askedPane.removeAll()
+                snap.forEach { a ->
+                    val t = "→ ${a.who}: ${a.ask.lineSequence().first().take(40)} — ${a.line ?: "…"}"
+                    askedPane.add(JBLabel(t).apply {
+                        foreground = if (a.over && "답:" !in (a.line ?: "")) Look.warn else Look.faint
+                        border = JBUI.Borders.empty(1, 0)
+                    })
+                }
+                askedPane.revalidate(); askedPane.repaint()
+            }
+        }
+        askOf = { row ->
+            val name = row.name?.takeIf { it.isNotBlank() } ?: row.socket.substringAfterLast('/')
+            val q = com.intellij.openapi.ui.Messages.showInputDialog(
+                project, "「$name」에게 — 질문은 읽기 전용으로 돌고, 부탁은 그쪽 턴을 연다.",
+                "컴패니언에게", null,
+            )
+            if (!q.isNullOrBlank()) {
+                val looking = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                    project, "질문(읽기 전용)으로 보낼까? 아니오 = 일로 건넨다.",
+                    "종류", "질문", "부탁", null,
+                ) == com.intellij.openapi.ui.Messages.YES
+                ApplicationManager.getApplication().executeOnPooledThread {
+                    val r = runCatching {
+                        DaemonClient.connect(java.nio.file.Paths.get(row.socket)).use {
+                            // 라벨은 코어 규약을 탄다: DispatchMark("— asked by ")가 첫머리에
+                            // 없으면 수신 쪽 셋이 조용히 빠진다 — 체이닝 금지 판정, 발신자 파싱,
+                            // 회신 경로 지침(리뷰 F3; fleet.go 의 그 마크).
+                            it.exchange(Request(
+                                method = "hand",
+                                name = "— asked by ide:" + project.name +
+                                    " (사람이 IDE 플릿 판에서 보냄; 답은 hand-state 로 읽는다 — 회신 채널 없음)",
+                                text = q, looking = looking,
+                            ))
+                        }
+                    }.getOrElse { e -> tell("못 건넸다 — ${e.message}"); return@executeOnPooledThread }
+                    if (r.ok && !r.out.isNullOrBlank()) {
+                        asked.add(Asked(row.socket, name, r.out!!, q))
+                        tell("건넸다 → $name (접수증 ${r.out!!.takeLast(6)})")
+                        paintAskedNow()
+                    } else tell("거절됐다 — ${r.error ?: "사유 없음"}") // mid-turn 등 — 거절도 답이다
+                }
+            }
+        }
         refreshTalks = { loadTalks() }
         refresh(); poll(); loadTalks(); loadModels()
         val timer = Timer(3_000) {
@@ -365,6 +499,7 @@ class PlanToolWindow : ToolWindowFactory {
         )
     }
 
+
     /** 토큰 수를 사람 눈금으로. 정수 나눗셈의 "0k" 를 안 만든다(1k 미만은 그대로). */
     private fun k(n: Int): String = if (n >= 1000) "${n / 1000}k" else "$n"
 
@@ -372,7 +507,7 @@ class PlanToolWindow : ToolWindowFactory {
      * 플릿 한 행. 목격담은 흐리게+나이, 사람 기다리면 강조 — 그리고 **저쪽에 쌓인 대기**가
      * 있으면 센다(`waiting`): 남에게 청한 일이 어디서 기다리는지가 이 판의 절반이다.
      */
-    private fun fleetRow(r: RosterRow): JBLabel {
+    private fun fleetRow(r: RosterRow, crowded: Boolean = false): JBLabel {
         val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
         val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
         val state = when (r.state) {
@@ -384,7 +519,8 @@ class PlanToolWindow : ToolWindowFactory {
         val load = if (r.waiting > 0) "  · 대기 ${r.waiting}" else ""
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
         val seen = if (r.sighting) "  · ${r.ageSeconds}s 전 목격" else ""
-        return JBLabel(name + role + state + load + where + seen).apply {
+        val share = if (crowded) "  · ⚠동거" else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
+        return JBLabel(name + role + state + load + where + share + seen).apply {
             foreground = when {
                 r.sighting -> Look.muted
                 r.state == "waiting" -> Look.primary

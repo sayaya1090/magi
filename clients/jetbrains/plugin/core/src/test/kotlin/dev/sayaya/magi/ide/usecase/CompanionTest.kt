@@ -165,6 +165,25 @@ class CompanionTest {
     }
 
     @Test
+    fun `건넨 일의 지금은 넷이 갈라져 온다 — 뭉치면 추락이 빈 답으로 보인다`() {
+        // 와이어 양쪽 다 이 4필드를 재는 시험이 없었다(리뷰 F9) — 이름이 어긋나면 조용히 버려진다.
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"handover":{"done":true,"answer":"됐다 — 여기"}}""",
+            """{"ok":true,"handover":{"over":true,"news":"저쪽이 추락했다"}}""",
+        ))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val a = c.exchange(dev.sayaya.magi.ide.model.Request(method = "hand-state", name = "r1")).handover
+            val b = c.exchange(dev.sayaya.magi.ide.model.Request(method = "hand-state", name = "r2")).handover
+            assertTrue(a?.done == true && a.answer == "됐다 — 여기")
+            assertTrue(b?.over == true && b.news == "저쪽이 추락했다" && b.done == false,
+                "over 와 done 은 다른 사실이다 — 추락을 빈 답으로 접으면 안 된다")
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"hand-state"""") && fake.seen[0].contains(""""name":"r1""""))
+    }
+
+    @Test
     fun `행동의 동사들도 어휘 그대로 나간다`() {
         val ok = """{"ok":true}"""
         val fake = FakeDaemon(listOf(ok, ok))

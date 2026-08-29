@@ -101,10 +101,24 @@ data class Response(
     val jobs: Jobs? = null,
     /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`daemon.go` 의 `SessionRow`), 최근 활동 순. */
     val sessions: List<SessionRow>? = null,
+    /** 건넨 일 하나의 지금 — `hand-state` 의 답(`daemon.go` 의 `Handover`). */
+    val handover: Handover? = null,
     /** 예약들 — `cron` 문의 답(`daemon.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
     val cron: List<CronRow>? = null,
     /** `job-kill`·`mcp-detach` 의 「있었는지」 — 두 번 누른 ✕ 는 거짓이 아니라 이미-없음이다. */
     val removed: Boolean = false,
+)
+
+/**
+ * 건넨 일의 지금 — 넷을 뭉치면 추락이 빈 답으로 보인다(코어 주석 그대로): [answer] 는 말한 것,
+ * [over] 는 더 안 온다는 것, [news] 는 그 사유.
+ */
+@Serializable
+data class Handover(
+    val done: Boolean = false,
+    val answer: String? = null,
+    val news: String? = null,
+    val over: Boolean = false,
 )
 
 /**
