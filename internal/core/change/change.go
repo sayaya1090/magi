@@ -40,7 +40,7 @@ func EditDiff(name, args string) string {
 		if a.At != "" || a.ReplaceAll {
 			return ""
 		}
-		return capDiffBytes(LineDiff(a.Old, a.New))
+		return CapDiffBytes(LineDiff(a.Old, a.New))
 	case "write":
 		var a struct {
 			Content string `json:"content"`
@@ -49,7 +49,7 @@ func EditDiff(name, args string) string {
 			return ""
 		}
 		lines := strings.Split(strings.TrimRight(a.Content, "\n"), "\n")
-		return capDiffBytes(clampDiff(prefixLines("+", lines)))
+		return CapDiffBytes(clampDiff(prefixLines("+", lines)))
 	}
 	return ""
 }
@@ -60,7 +60,9 @@ func EditDiff(name, args string) string {
 // person would actually read.
 const diffByteCap = 64 << 10
 
-func capDiffBytes(s string) string {
+// CapDiffBytes is exported for the one caller outside this package that builds a diff of its
+// own (the write-approval preview): every diff that rides a prompt obeys the same byte contract.
+func CapDiffBytes(s string) string {
 	if len(s) <= diffByteCap {
 		return s
 	}

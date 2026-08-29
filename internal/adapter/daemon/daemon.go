@@ -1186,6 +1186,10 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop
 					// listed nor ever written to is refused. An unborn CHILD (spawned, no events
 					// yet) would land here too; today a spawn's first act is appending, so the
 					// window is the same one the born-lazy current already accepts.
+					// And a store that COULD NOT answer (nerr != nil) serves rather than
+					// refuses — a real child must not be refused over a transient read
+					// failure, at the accepted price that an invented id under the same
+					// failure streams the old silence.
 					if _, known, nerr := tr.NewSince(ctx, sid, 0); nerr == nil && !known {
 						if enc.Encode(Response{Err: fmt.Sprintf("no conversation %q in this workspace — `sessions` lists them", sid)}) != nil {
 							return

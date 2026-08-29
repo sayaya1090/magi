@@ -1,11 +1,16 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The write-approval diff is taken against the file as it is, so a one-line addition reads as one
@@ -44,7 +49,70 @@ func TestWriteApprovalDiffFallsBackHonestly(t *testing.T) {
 	}
 	noop, _ := json.Marshal(map[string]string{"path": "same.txt", "content": "keep\n"})
 	diff, ok := writeApprovalDiff(wd, noop)
-	if !ok || diff != "" {
-		t.Errorf("an identical rewrite is authoritatively a no-op, got ok=%v diff=%q", ok, diff)
+	if !ok || !strings.Contains(diff, "no change") {
+		t.Errorf("an identical rewrite says so in words — omitempty wire fields cannot carry an empty authoritative answer — got ok=%v diff=%q", ok, diff)
 	}
+}
+
+// Truncation is the most destructive write there is, and empty content is how it looks: the
+// preview shows every line removed, not the raw args.
+func TestWriteApprovalDiffShowsATruncationAsRemovals(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "gone.txt"), []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"path": "gone.txt"})
+	diff, ok := writeApprovalDiff(wd, args)
+	if !ok || !strings.Contains(diff, "-one") || !strings.Contains(diff, "-two") {
+		t.Fatalf("emptying a file must preview as removals, got ok=%v diff=%q", ok, diff)
+	}
+}
+
+// A symlink inside the workdir pointing outside is exactly what the real jail refuses; the
+// preview must refuse it too, or it reads jail-refused bytes onto approval screens for a write
+// that cannot happen.
+func TestWriteApprovalDiffRefusesASymlinkOutOfTheJail(t *testing.T) {
+	wd, outside := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("s3cret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wd, "link")); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]string{"path": "link/secret", "content": "x"})
+	if diff, ok := writeApprovalDiff(wd, args); ok {
+		t.Fatalf("a symlink out of the workdir must not be read for a preview, got %q", diff)
+	}
+}
+
+// The prompt actually carries the real-file diff: drop the override in requestPermission and this
+// fails, which is the point — the unit tests above cannot see that seam.
+func TestTheAskCarriesTheRealFileDiff(t *testing.T) {
+	a, wd := newApp(t, &fakeLLM{}, Config{Permission: "ask", Interactive: true, AnswerWait: 5 * time.Second})
+	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: wd})
+	if err := os.WriteFile(filepath.Join(wd, "a.txt"), []byte("one\ntwo\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tc := &session.ToolCall{CallID: "c1", Name: "write", Args: json.RawMessage(`{"path":"a.txt","content":"one\ntwo\nthree\n"}`)}
+	got := make(chan bool, 1)
+	go func() {
+		got <- a.requestPermission(context.Background(), sid, event.Actor{Kind: event.ActorUser, ID: "u"}, tc, true, "")
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if ask, ok := a.Waiting(sid); ok {
+			if !strings.Contains(ask.Diff, "+three") || strings.Contains(ask.Diff, "+one") {
+				t.Errorf("the ask must carry the real-file diff, got %q", ask.Diff)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the prompt never registered")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if err := a.RespondPermission(context.Background(), command.RespondPermission{SessionID: sid, CallID: "c1", Decision: "deny"}); err != nil {
+		t.Fatal(err)
+	}
+	<-got
 }

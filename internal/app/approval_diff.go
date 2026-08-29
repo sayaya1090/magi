@@ -27,19 +27,21 @@ const approvalReadCap = 1 << 20
 // diff is computed here and CARRIED, and the pure fallback remains for everything else.
 //
 // ok=false means "no authoritative answer — keep the args view": absent file (all-additions is
-// the truth for a new file), unreadable args, a path that leaves the workdir (the write itself
-// will be refused; previewing foreign bytes helps nobody), or a file past the read cap.
+// the truth for a new file), unreadable args, a path that leaves the workdir lexically or through
+// a symlink (the write itself will be refused; previewing foreign bytes helps nobody), or a file
+// past the read cap. Empty content is a real write — truncation — and gets its all-removed diff.
 func writeApprovalDiff(workdir string, args json.RawMessage) (string, bool) {
 	var a struct {
 		Path    string `json:"path"`
 		Content string `json:"content"`
 	}
-	if json.Unmarshal(args, &a) != nil || a.Path == "" || a.Content == "" || workdir == "" {
+	if json.Unmarshal(args, &a) != nil || a.Path == "" || workdir == "" {
 		return "", false
 	}
-	// The tool's own jail (resolvePath) is mirrored lexically. The symlink half is deliberately
-	// not: this path only READS, for a preview shown to the daemon's own operator, and the write
-	// that follows still goes through the real jail.
+	// The tool's own jail (resolvePath) is mirrored: the lexical half below, and the symlink half
+	// with EvalSymlinks after the file is known to exist — a symlink inside the workdir pointing
+	// outside used to be READ here, before anyone approved anything, putting jail-refused bytes
+	// on every status viewer as the preview of a write the real jail was going to refuse anyway.
 	base := filepath.Clean(workdir)
 	abs := filepath.Clean(a.Path)
 	if !filepath.IsAbs(abs) {
@@ -52,13 +54,28 @@ func writeApprovalDiff(workdir string, args json.RawMessage) (string, bool) {
 	if st, serr := os.Stat(abs); serr != nil || !st.Mode().IsRegular() || st.Size() > approvalReadCap {
 		return "", false
 	}
-	old, rerr := os.ReadFile(abs)
-	if rerr != nil {
+	realBase, berr := filepath.EvalSymlinks(base)
+	realAbs, aerr := filepath.EvalSymlinks(abs)
+	if berr != nil || aerr != nil {
 		return "", false
 	}
-	// An identical rewrite answers ("", true): the truthful preview of a no-op is no diff, and
-	// the caller must not fall back to a view that shows every line as added.
-	return change.LineDiff(string(old), a.Content), true
+	if rrel, rerr := filepath.Rel(realBase, realAbs); rerr != nil || rrel == ".." || strings.HasPrefix(rrel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	old, rerr := os.ReadFile(abs)
+	if rerr != nil || len(old) > approvalReadCap {
+		// Re-checked after the read: the size seen by Stat is not the size read a moment later,
+		// and the byte cap below must never be fed more than it was promised.
+		return "", false
+	}
+	// An identical rewrite answers a SENTENCE, not "": both wire fields carrying the diff are
+	// omitempty, so an empty authoritative answer arrives identical to "no diff computed" and
+	// viewers fall back to the args view — the very all-added rendering this exists to replace.
+	d := change.LineDiff(string(old), a.Content)
+	if d == "" {
+		return "(this write matches the file exactly — no change)", true
+	}
+	return change.CapDiffBytes(d), true
 }
 
 // writeApprovalDiffFor resolves the session's workdir and delegates. Called WITHOUT a.mu held —
