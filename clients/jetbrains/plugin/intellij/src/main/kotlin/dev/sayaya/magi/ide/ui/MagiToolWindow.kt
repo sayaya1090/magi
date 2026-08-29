@@ -67,6 +67,14 @@ class MagiToolWindow : ToolWindowFactory {
         view.title = { t -> SwingUtilities.invokeLater { toolWindow.setTitle(t) } }
         // 행동의 동사들은 기어 메뉴로(설정 화면은 남는 상태의 자리다 — docs/UI.ko.md §5). 결과는
         // 전사로 보고된다: 사건은 라벨이 아니라 전사라는 그 규칙이 여기도 그대로다.
+        // 세우기는 제목줄로 — 도는 턴을 세우는 손은 늘 보이되 앞자리를 안 먹는다(TUI 의 esc 와
+        // 같은 급). 보내기 옆에 쌍둥이로 서 있던 동안 매 턴의 동사처럼 읽혔다(사용자 실측).
+        toolWindow.setTitleActions(listOf(object : com.intellij.openapi.actionSystem.AnAction(
+            "세우기", "도는 턴을 세운다", com.intellij.icons.AllIcons.Actions.Suspend) {
+            override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                MagiWindows.of(project)?.interruptFromTitle()
+            }
+        }))
         toolWindow.setAdditionalGearActions(com.intellij.openapi.actionSystem.DefaultActionGroup(
             view.verb("대화 요약해 접기 (compact)") { it.compact() },
             view.verb("마지막 턴 되감기 (rewind)") { it.rewind(1) },
@@ -91,7 +99,7 @@ class MagiToolWindow : ToolWindowFactory {
         private val prompt = JBLabel(" ").apply { border = Look.quiet }
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
-        private val input = JBTextArea(3, 40).apply { border = JBUI.Borders.empty(8, 10) }
+        private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
         private val hint = JBLabel(" ").apply {
             foreground = Look.faint
             border = JBUI.Borders.empty(2, 12, 6, 12)
@@ -231,20 +239,24 @@ class MagiToolWindow : ToolWindowFactory {
                 }
             }
 
+        /** 대기 프롬프트가 서는 윗판. **물음이 없으면 통째로 숨는다** — 빈 라벨과 빈 단추 줄이
+         *  여백으로 남아 탭과 전사 사이에 죽은 띠를 만들었다(사용자 실측). */
+        private lateinit var head: JBPanel<JBPanel<*>>
+
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
             top.add(prompt, BorderLayout.CENTER)
             top.add(buttons, BorderLayout.SOUTH)
             // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
             // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
-            val head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 add(top, BorderLayout.CENTER)
                 add(Look.rule(), BorderLayout.SOUTH)
+                isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
             val send = JButton("보내기").apply { addActionListener { say() } }
-            val stop = JButton("세우기").apply { addActionListener { interrupt() } }
-            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(stop); add(send) }
+            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(send) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 border = JBUI.Borders.empty(8, 12, 0, 8)
                 add(JBScrollPane(input), BorderLayout.CENTER)
@@ -267,7 +279,13 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun insertUpdate(e: javax.swing.event.DocumentEvent) = retract()
                 override fun removeUpdate(e: javax.swing.event.DocumentEvent) = retract()
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
-                private fun retract() { dropSuggestion(); debounce.restart() }
+                private fun retract() {
+                    dropSuggestion(); debounce.restart()
+                    // 치는 만큼 자란다(1..5줄). 고정 3줄은 빈 대화에서 벽이었고, 무한정 자라면
+                    // 입력이 전사를 밀어낸다.
+                    val want = input.text.count { ch -> ch == '\n' }.plus(1).coerceIn(1, 5)
+                    if (input.rows != want) { input.rows = want; input.revalidate() }
+                }
             })
             // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
             input.registerKeyboardAction({ acceptSuggestion() },
@@ -740,6 +758,9 @@ class MagiToolWindow : ToolWindowFactory {
          *
          * 답은 안 버린다 — 같은 파일의 [add] 가 삼키다 고친 그 규칙이다.
          */
+        /** 제목줄 액션의 손잡이. 보고 규칙은 [interrupt] 그대로다. */
+        fun interruptFromTitle() = interrupt()
+
         private fun interrupt() = onDaemon { comp ->
             val r = comp.interrupt()
             report(if (r.ok) "세우라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
@@ -764,6 +785,7 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun drawPrompt(w: Waiting?) {
             buttons.removeAll()
+            head.isVisible = w != null // 없는 물음의 자리를 비워 두지 않는다 — 죽은 띠가 된다
             // 물음이 서 있는 동안은 그 자리에 막대를 하나 세운다. 콘솔이 답 없는 물음에 긋는 것과
             // 같은 선이고(`.row.pending .txt`), 터미널도 같은 자리에 긋는다. 색으로만 말하지
             // 않는다 — 글자는 그대로 있고 막대는 **어디를 보라**는 표시다.
