@@ -26,6 +26,10 @@
     -->
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="magi" anchor="bottom" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
+        <!-- The right dock's tenant is the PLAN (user decision, 2026-08-29): the one fact worth
+             standing room — a plan that scrolls away is a plan you have to go find. Fed from the
+             transcript stream's todos.changed facts; no new door. -->
+        <toolWindow id="magi.plan" anchor="right" factoryClass="dev.sayaya.magi.ide.ui.PlanToolWindow"/>
         <!--
             No right-dock facts window any more (user decision, 2026-08-29): the always-on level
             lives on the status bar, and the detailed facts + fleet fold into Settings > Tools >

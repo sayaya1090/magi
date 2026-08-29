@@ -117,6 +117,32 @@ class RowsTest {
     }
 
     @Test
+    fun `계획은 행이 아니라 사실이다 — 매번 전체가 갈아끼워진다`() {
+        val r = Rows()
+        val n = r.list().size
+        r.feed(ev("todos.changed", """{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress"}]}"""))
+        assertEquals(n, r.list().size, "계획은 전사에 줄을 안 만든다")
+        assertEquals(listOf("a" to "completed", "b" to "in_progress"), r.todos.map { it.content to it.status })
+        r.feed(ev("todos.changed", """{"todos":[{"content":"c","status":"pending"}]}"""))
+        assertEquals(listOf("c"), r.todos.map { it.content }, "델타가 아니라 전체 교체다 — 코어가 그렇게 싣는다")
+        r.clear()
+        assertEquals(0, r.todos.size, "스트림이 다시 시작하면 계획도 모른다로 돌아간다")
+    }
+
+    @Test
+    fun `계기판의 사실들 — 모델은 재생되고 컨텍스트는 전이라 모른다로 돌아간다`() {
+        val r = Rows()
+        r.feed(ev("session.created", """{"workdir":"/w","agent":"a","model":{"provider":"openai","model":"gpt-oss:20b"}}"""))
+        assertEquals("gpt-oss:20b", r.model, "session.created 가 심는다")
+        r.feed(ev("model.changed", """{"model":"gpt-oss:120b-cloud"}"""))
+        assertEquals("gpt-oss:120b-cloud", r.model, "model.changed 가 갈아끼운다")
+        r.feed(ev("context.usage", """{"tokens":22000,"window":65536,"percent":33.5}"""))
+        assertEquals(33.5, r.context?.percent)
+        r.clear()
+        assertEquals(null, r.context, "전이는 재생이 없다 — 모름을 0% 로 그리면 안 된다")
+    }
+
+    @Test
     fun `카운슬은 제자리에 온다 — 스트림이 차례를 이미 안다`() {
         val r = Rows()
         r.feed(user("끝났나 봐줘", "m1"))

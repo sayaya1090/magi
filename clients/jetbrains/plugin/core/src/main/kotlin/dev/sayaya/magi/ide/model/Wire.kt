@@ -81,6 +81,67 @@ data class Response(
     val event: LogEvent? = null,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
     val roster: List<RosterRow>? = null,
+    /** 작업 — `jobs` 문의 답(`internal/adapter/daemon/daemon.go` 의 `Jobs`). */
+    val jobs: Jobs? = null,
+    /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`daemon.go` 의 `SessionRow`), 최근 활동 순. */
+    val sessions: List<SessionRow>? = null,
+)
+
+/**
+ * 대화 하나. **열린 턴 여부는 일부러 없다** — 계약이 뺐다(답하려면 로그 전부를 읽어야 하고,
+ * 문제되는 대화는 현재 것뿐이라 roster 행의 session 과 비교하면 된다).
+ */
+@Serializable
+data class SessionRow(
+    val id: String = "",
+    val title: String? = null,
+    val model: String? = null,
+    val labels: List<String>? = null,
+    val created: String? = null,
+    @SerialName("lastActivity") val lastActivity: String? = null,
+)
+
+/**
+ * 이 워크스페이스의 작업들 — 코어 `Jobs` 를 옮긴 것. [queued] 가 **다음에 돌 것**을 돌 차례
+ * 그대로 싣는다: 사람이 세워 둔 말 먼저, 그다음 남이 건넨 일 — 대기열은 둘(계약이 다르다)인데
+ * 차례는 하나다(에이전트가 하나라서). 한쪽만 그리는 화면은 거짓말을 한다(코어 주석 그대로).
+ */
+@Serializable
+data class Jobs(
+    val background: List<BackgroundJob>? = null,
+    val children: List<ChildJob>? = null,
+    val queued: List<QueuedWork>? = null,
+)
+
+@Serializable
+data class BackgroundJob(
+    val id: String = "",
+    val command: String? = null,
+    val running: Boolean = false,
+    val killed: Boolean = false,
+    val exit: Int = 0,
+    val started: String? = null,
+    val tail: String? = null,
+)
+
+@Serializable
+data class ChildJob(
+    val id: String = "",
+    val tool: String? = null,
+    val task: String? = null,
+    val started: String? = null,
+    val ended: String? = null,
+    val running: Boolean = false,
+    val steps: Int = 0,
+    val err: String? = null,
+)
+
+/** 대기 하나. [kind] 는 person(여기서 친 것) | handover(남이 청한 것 — [from] 이 그 이름). */
+@Serializable
+data class QueuedWork(
+    val kind: String = "",
+    val text: String? = null,
+    val from: String? = null,
 )
 
 /**

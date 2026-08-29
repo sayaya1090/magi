@@ -73,6 +73,25 @@ class Companion(
      */
     fun roster(): Response = client.exchange(Request(method = "roster"))
 
+    /** 작업 — 도는 백그라운드, 자식, 그리고 다음에 돌 대기열(사람 말 먼저, 그다음 건넨 일). */
+    fun jobs(): Response = client.exchange(Request(method = "jobs", session = session))
+
+    /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
+    fun sessions(): Response = client.exchange(Request(method = "sessions"))
+
+    /**
+     * 다른 대화로 옮긴다. 워크스페이스에 없는 id 는 데몬이 거부한다 — **id 를 지어내지 않는다**,
+     * 새 대화는 [newSession] 이 정식 동사다.
+     */
+    fun resume(target: String): Response =
+        client.exchange(Request(method = "resume", session = target))
+
+    /**
+     * 새 대화 — 생성과 이동이 한 동사다(만들어졌는데 현재가 아닌 세션은 아무도 원한 적 없는 행).
+     * 턴이 도는 중이면 거부된다 — 인터럽트 먼저.
+     */
+    fun newSession(): Response = client.exchange(Request(method = "session-new"))
+
     /**
      * 설정 화면의 동사들 — 남는 상태를 데몬에 쓴다(설계 문서 docs/UI.ko.md §5). 값을 IDE 에
      * 한 벌 더 두지 않으므로 화면은 열 때 읽고, 적용이 쓰고, 다시 읽어 확인한다(§5.1).

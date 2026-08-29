@@ -121,6 +121,24 @@ class MagiToolWindow : ToolWindowFactory {
         private val shaper = Rows()
 
         /**
+         * 전사에 한 번이라도 붙었나 — 계획 판의 「모른다/없다」 갈림이 여기 걸린다.
+         *
+         * **`init` 보다 위에 선다**([dirty] 와 같은 함정, 리뷰가 실측): `follow` 는 워커 기동
+         * 전에 `began` 을 동기로 부르므로 init 중에 true 가 쓰이는데, 선언이 init 뒤면
+         * 초기화자가 그 값을 도로 false 로 덮는다 — 계획 판이 보통 경로에서 영영 "모른다"였다.
+         */
+        @Volatile private var everBegan = false
+
+        /**
+         * 지금 따르는 대화. `session.moved` 의 낡음 판정이 여기 걸린다 — 그 사실은 떠난 세션
+         * 로그에 영속이라 재생마다 다시 오고, 공표된 현재와 이 값이 같으면 그것은 역사다.
+         */
+        @Volatile private var followedSid: String? = null
+
+        /** [follow] 와 moved-재접속이 같은 자물쇠를 잡는다 — 진 쪽 스트림이 안 닫힌 채 남으면 안 된다. */
+        private val followLock = Any()
+
+        /**
          * 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다.
          *
          * **`init` 보다 위에 선다.** 코틀린은 선언 순서대로 초기화하고, `init` 의 못-붙음 보고가
@@ -191,6 +209,7 @@ class MagiToolWindow : ToolWindowFactory {
                  * 그것을 지운다.
                  */
                 override fun began() {
+                    everBegan = true
                     authors.forget()
                     shaper.clear() // 커서를 안 보내므로 재생이 통째로 다시 온다 — 여기서 비워야 두 벌이 안 쌓인다
                     SwingUtilities.invokeLater { problems.text = "" }
@@ -198,6 +217,19 @@ class MagiToolWindow : ToolWindowFactory {
                 }
 
                 override fun frame(e: LogEvent) {
+                    // 대화가 옮겨 갔다(우측 판의 갈아타기·새 대화, 혹은 다른 화면에서). 이 스트림은
+                    // 옛 대화의 것이라 여기 남으면 화면과 컨트롤이 서로 다른 대화를 믿는다 — 끊고
+                    // 새 공표를 따라 다시 붙는다. close 가 ByUs 로 접히므로 재접속은 직접 건다.
+                    if (e.type == "session.moved") {
+                        // 낡음 가드(리뷰 실측): 이 사실은 재생마다 온다. 공표된 현재가 지금 따르는
+                        // 대화와 같으면 움직일 일이 없다 — 없으면 끊고-붙기 무한 루프다(`to` 비교로는
+                        // 못 막는다: 낡은 사실의 to 는 영원히 현재와 다르다).
+                        ApplicationManager.getApplication().executeOnPooledThread {
+                            val now = socket()?.let { p -> runCatching { Published.of(p)?.session }.getOrNull() }
+                            if (now != null && now != followedSid && follow() != Attach.Ok) reattach()
+                        }
+                        return
+                    }
                     // 판을 비우는 것은 여기가 아니라 [began] 이다. 사유는 그쪽에 적었다.
                     // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
@@ -422,7 +454,10 @@ class MagiToolWindow : ToolWindowFactory {
             data class Failed(val why: String) : Attach
         }
 
-        private fun follow(): Attach {
+        private fun follow(): Attach = synchronized(followLock) {
+            // 자물쇠 하나(리뷰 4): 호출자가 init·reattach 백오프·moved 프레임 셋으로 늘었다.
+            // 잠그지 않으면 동시 follow 둘이 각자 스트림을 열고 진 쪽이 안 닫힌 채 같은 sink 에
+            // 계속 먹인다 — clear 와 재생이 뒤섞여 행이 두 벌 선다.
             val sock = socket() ?: return Attach.NoWorkspace
             val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return Attach.NoSession
             following?.let { runCatching { it.close() } }
@@ -433,6 +468,7 @@ class MagiToolWindow : ToolWindowFactory {
                 Transcript({ DaemonClient.connect(sock) }, sid).follow(sink)
             }.getOrElse { return Attach.Failed(it.message ?: it.toString()) }
             following = started
+            followedSid = sid
             return Attach.Ok
         }
 
@@ -694,6 +730,14 @@ class MagiToolWindow : ToolWindowFactory {
          */
         fun turnOpenedAt(): String? = if (shaper.open) shaper.openedAt else null
         fun councilRound(): Int? = shaper.councilRound
+
+        /**
+         * 계획 판이 묻는다. null = **모른다**(전사에 한 번도 못 붙었다), 빈 목록 = 계획이 없다 —
+         * 둘을 한 값으로 뭉치면 화면이 모르는 것을 아는 척한다(§0.5-7).
+         */
+        fun plan(): List<Rows.Todo>? = if (everBegan) shaper.todos else null
+        fun modelNow(): String? = shaper.model
+        fun contextNow(): Rows.Ctx? = shaper.context
 
         /**
          * 기어 메뉴의 동사 하나. 답을 버리지 않는 것은 [add] 와 같은 규칙이고, 보고가 전사로

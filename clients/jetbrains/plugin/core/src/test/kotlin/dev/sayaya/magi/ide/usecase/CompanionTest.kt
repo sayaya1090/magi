@@ -85,6 +85,39 @@ class CompanionTest {
     }
 
     @Test
+    fun `대기열은 차례 그대로 온다 — 사람 말과 건넨 일이 한 줄에`() {
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"jobs":{"queued":[{"kind":"person","text":"이것부터"},{"kind":"handover","text":"저쪽 부탁","from":"mel"}],"background":[{"id":"b1","command":"go test","running":true}]}}""",
+        ))
+        fake.start()
+        val r = DaemonClient.connect(fake.path).use { Companion(it, "s_1").jobs() }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"jobs""""))
+        val q = r.jobs?.queued ?: error("queued 가 없다")
+        assertEquals(listOf("person", "handover"), q.map { it.kind }, "차례가 계약이다 — 사람 말 먼저")
+        assertEquals("mel", q[1].from, "건넨 일은 누가 청했는지가 같이 온다")
+        assertTrue(r.jobs?.background?.single()?.running == true)
+    }
+
+    @Test
+    fun `대화 목록과 새 대화 — id 는 데몬이 준다`() {
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"sessions":[{"id":"s_2","title":"셰이퍼 골든","lastActivity":"2026-08-29T05:00:00Z"},{"id":"s_1","title":"하이"}]}""",
+            """{"ok":true,"session":"s_3"}""",
+        ))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            assertEquals(listOf("s_2", "s_1"), comp.sessions().sessions?.map { it.id },
+                "차례는 데몬이 정했다 — 최근 활동 순")
+            assertEquals("s_3", comp.newSession().session, "새 id 는 지어내지 않고 받는다")
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"sessions""""))
+        assertTrue(fake.seen[1].contains(""""method":"session-new""""))
+    }
+
+    @Test
     fun `행동의 동사들도 어휘 그대로 나간다`() {
         val ok = """{"ok":true}"""
         val fake = FakeDaemon(listOf(ok, ok))

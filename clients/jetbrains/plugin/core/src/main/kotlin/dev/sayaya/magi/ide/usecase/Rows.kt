@@ -70,14 +70,33 @@ class Rows {
     private var openPrompt: String? = null
 
     /** 턴이 열린 시각(이벤트 ts). 경과는 받는 쪽이 자기 시계로 이어 센다 — 시계 비교는 안 한다. */
-    var openedAt: String? = null
+    @Volatile var openedAt: String? = null
         private set
 
     /**
      * 열려 있는 카운슬 라운드. 판정이 서면 그 라운드, 합의가 나면 null — 터미널 머리의
      * `⚖ council rN` 칩이 아는 것과 같은 사실이다. 행이 아니라 세션의 사실이라 따로 든다.
      */
-    var councilRound: Int? = null
+    @Volatile var councilRound: Int? = null
+        private set
+
+    /**
+     * 에이전트의 계획(TodoWrite). 행이 아니라 세션의 사실이다 — 매번 **전체**가 온다(코어
+     * `TodosChangedData`: 델타를 재생하는 독자는 처음부터 틀린다). `todos.changed` 는 사실
+     * 타입이라 재생에 실리므로, 다시 붙은 창도 마지막 계획을 안다. 새 문이 필요 없던 이유다.
+     */
+    @Volatile var todos: List<Todo> = emptyList()
+        private set
+
+    /**
+     * 컨텍스트 계기. `context.usage` 는 **전이**라 재생에 안 실린다 — 다시 붙으면 다음 턴이
+     * 돌 때까지 모른다이고, 그 모름은 0% 로 그리지 않는다.
+     */
+    @Volatile var context: Ctx? = null
+        private set
+
+    /** 지금 모델. `session.created` 가 심고 `model.changed` 가 갈아끼운다 — 둘 다 사실이라 재생된다. */
+    @Volatile var model: String? = null
         private set
 
     val open: Boolean get() = synchronized(rows) { openPrompt != null }
@@ -96,6 +115,9 @@ class Rows {
         openPrompt = null
         openedAt = null
         councilRound = null
+        todos = emptyList()
+        context = null
+        model = null
     }
 
     /**
@@ -113,6 +135,34 @@ class Rows {
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)
             "turn.finished" -> finished()
+            "session.created" -> {
+                model = e.data?.jsonObject?.get("model")?.jsonObject?.get("model")?.jsonPrimitive?.content
+                false
+            }
+            "model.changed" -> {
+                model = str(e, "model") ?: model
+                false
+            }
+            "context.usage" -> {
+                val d = e.data?.jsonObject
+                context = Ctx(
+                    d?.get("tokens")?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                    d?.get("window")?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
+                    d?.get("percent")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0,
+                )
+                false
+            }
+            "todos.changed" -> {
+                todos = e.data?.jsonObject?.get("todos")?.jsonArray.orEmpty().mapNotNull { t ->
+                    t.jsonObject.let { o ->
+                        Todo(
+                            o["content"]?.jsonPrimitive?.content.orEmpty(),
+                            o["status"]?.jsonPrimitive?.content.orEmpty(),
+                        )
+                    }
+                }
+                false // 전사 행은 아니다 — 계획 판이 따로 읽는다
+            }
             "error" -> error(e)
             "council.verdict" -> verdict(e)
             "council.decided" -> decided(e)
@@ -312,6 +362,12 @@ class Rows {
         rows[i] = f(rows[i])
         return true
     }
+
+    /** 계획 한 칸. status 는 코어 낱말 그대로다: pending | in_progress | completed. */
+    data class Todo(val content: String, val status: String)
+
+    /** 컨텍스트 계기 한 벌 — 코어 `ContextUsageData` 의 셋. */
+    data class Ctx(val tokens: Int, val window: Int, val percent: Double)
 
     private fun str(e: LogEvent, key: String): String? =
         e.data?.jsonObject?.get(key)?.jsonPrimitive?.content
