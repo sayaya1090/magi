@@ -12,7 +12,11 @@ import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Markup
-import java.awt.GridLayout
+import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
+import java.awt.GridBagConstraints
+import java.awt.GridBagLayout
+import java.awt.Insets
 import javax.swing.BoxLayout
 import javax.swing.SwingUtilities
 import javax.swing.Timer
@@ -66,36 +70,81 @@ class FactsToolWindow : ToolWindowFactory {
     }
 
     private class View(project: Project) {
-        val root = JBPanel<JBPanel<*>>().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
+        // **위로 쌓고 남는 자리는 비워 둔다.** 세로 `BoxLayout` 하나만 있으면 남는 높이를 판들이
+        // 나눠 갖느라 두 줄짜리 장이 창 절반만큼 벌어진다 — 사실 셋을 읽으려고 여는 판에서 그건
+        // 사실 사이의 거리가 뜻을 갖는 것처럼 보이게 한다.
+        val root = JBPanel<JBPanel<*>>(BorderLayout())
+        private val column = JBPanel<JBPanel<*>>().apply { layout = BoxLayout(this, BoxLayout.Y_AXIS) }
         private val workspace = Workspace(project)
 
         private val doing = JBLabel(" ")
         private val permission = JBLabel(" ")
-        private val session = JBLabel(" ")
-        private val trouble = JBLabel(" ")
+        // 세션 아이디는 사람이 읽는 문장이 아니라 **식별자**다. 고정폭으로 둔다(§3.3) — 옮겨
+        // 적을 일이 있는 글자가 비례폭이면 1 과 l 이 같아 보인다.
+        private val session = JBLabel(" ").apply { font = Look.mono() }
+        private val trouble = JBLabel(" ").apply {
+            foreground = Look.error
+            border = Look.quiet
+        }
 
-        private val outside = JBLabel(" ")
+        private val outside = JBLabel(" ").apply {
+            foreground = Look.warn
+            border = Look.quiet
+        }
 
         init {
-            root.add(card("지금", doing, "승인", permission, "대화", session))
-            root.add(trouble)
+            root.add(column, BorderLayout.NORTH)
+            column.add(section("지금"))
+            column.add(card("지금", doing, "승인", permission, "대화", session))
+            column.add(trouble)
             // 거절이 오기 전에 말한다. 컴패니언이 못 만지는 루트가 있으면 그 사실이 화면에 있어야
             // 하고, 없으면 이 줄은 비어 있다 — 없는 문제를 광고하지 않는다. 채우는 것은 `refresh`
             // 하나뿐이다. 여기서도 한 번 채우면 문이 둘이 되고, 둘이 되면 한쪽만 고치게 된다.
-            root.add(outside)
+            column.add(outside)
             // 아직 문이 없어 못 채우는 장들. 이름을 세워 두는 것이 빈자리로 두는 것보다 낫다 —
             // 사람이 "이 화면이 원래 이만큼인가"를 묻지 않게 된다.
-            for (name in listOf("계획", "건넨 일", "예약·크론", "받은 지시")) {
-                root.add(JBLabel("$name — 데몬에 읽기 문이 생기면 온다(설계 문서 §3)."))
-            }
+            //
+            // **사유는 한 번만 적는다.** 넷마다 같은 문장을 달면 판의 절반이 같은 말이고, 같은
+            // 말이 네 번 있으면 읽는 사람은 그것을 안 읽는다 — 그러면 「왜 비었나」를 적은 뜻이
+            // 없어진다. 이름은 그대로 넷 다 선다(위 주석의 사유).
+            column.add(section("아직 안 오는 것"))
+            column.add(card(*listOf("계획", "건넨 일", "예약·크론", "받은 지시")
+                .flatMap { listOf(it, JBLabel("아직 안 온다").apply { foreground = Look.faint }) }
+                .toTypedArray()))
+            column.add(JBLabel("데몬에 읽기 문이 생기면 온다(설계 문서 §3).").apply {
+                foreground = Look.faint
+                border = JBUI.Borders.empty(2, 12, 8, 12)
+            })
         }
 
+        /** 장 이름표와 그 아래 실선. 콘솔 옆 칼럼의 장 머리를 옮긴 것이다. */
+        private fun section(name: String) = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+            add(Look.gutter(name), BorderLayout.CENTER)
+            add(Look.rule(), BorderLayout.SOUTH)
+        }
+
+        /**
+         * 이름과 값의 짝. **이름 칸은 안 늘어난다.**
+         *
+         * 예전엔 `GridLayout(0, 2)` 였는데 그건 두 칸을 **똑같이** 나눈다 — 「승인」 두 글자가
+         * 판의 절반을 먹고 값은 남은 절반에서 잘렸다. 이름은 제 폭만 갖고 남는 자리는 값이
+         * 가져가는 것이 맞다: 긴 쪽은 언제나 값이다.
+         */
         private fun card(vararg pairs: Any): JBPanel<JBPanel<*>> {
-            val p = JBPanel<JBPanel<*>>(GridLayout(0, 2, 8, 2))
+            val p = JBPanel<JBPanel<*>>(GridBagLayout()).apply { border = JBUI.Borders.empty(4, 12, 8, 12) }
             var i = 0
             while (i < pairs.size) {
-                p.add(JBLabel(pairs[i] as String))
-                p.add(pairs[i + 1] as JBLabel)
+                val at = GridBagConstraints().apply {
+                    gridx = 0; gridy = i / 2; anchor = GridBagConstraints.LINE_START
+                    insets = Insets(2, 0, 2, 12)
+                }
+                p.add(JBLabel(pairs[i] as String).apply { foreground = Look.faint }, at)
+                p.add(pairs[i + 1] as JBLabel, GridBagConstraints().apply {
+                    gridx = 1; gridy = i / 2; weightx = 1.0
+                    fill = GridBagConstraints.HORIZONTAL
+                    anchor = GridBagConstraints.LINE_START
+                    insets = Insets(2, 0, 2, 0)
+                })
                 i += 2
             }
             return p

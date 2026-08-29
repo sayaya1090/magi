@@ -11,6 +11,7 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.content.ContentFactory
+import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.model.Ask
 import dev.sayaya.magi.ide.model.Subject
 import dev.sayaya.magi.ide.model.Response
@@ -29,9 +30,14 @@ import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
+import java.awt.Color
 import java.awt.FlowLayout
+import javax.swing.BorderFactory
 import javax.swing.JButton
+import javax.swing.JTextPane
 import javax.swing.SwingUtilities
+import javax.swing.text.SimpleAttributeSet
+import javax.swing.text.StyleConstants
 
 /**
  * 대화 — 컴패니언에게 말을 걸고, 그가 묻는 것에 답하는 창. **하단 독**에 산다.
@@ -63,11 +69,15 @@ class MagiToolWindow : ToolWindowFactory {
     internal class View(private val project: Project) : Disposable {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
-        private val state = JBLabel(" ")
-        private val prompt = JBLabel(" ")
-        private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT))
-        private val input = JBTextArea(3, 40)
-        private val hint = JBLabel(" ")
+        private val state = JBLabel(" ").apply { border = JBUI.Borders.empty(8, 12, 6, 12) }
+        private val prompt = JBLabel(" ").apply { border = Look.quiet }
+        private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
+            .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
+        private val input = JBTextArea(3, 40).apply { border = JBUI.Borders.empty(8, 10) }
+        private val hint = JBLabel(" ").apply {
+            foreground = Look.faint
+            border = JBUI.Borders.empty(2, 12, 6, 12)
+        }
         /** 마지막으로 받은 제안. 탭으로 받아들인다. */
         private var suggestion: String? = null
         private val debounce = javax.swing.Timer(400) { askSuggestion() }.apply { isRepeats = false }
@@ -76,14 +86,14 @@ class MagiToolWindow : ToolWindowFactory {
          * 전사. **연결을 단독으로 소유한다** — 스트림은 락스텝이 아니라 연결을 통째로 넘겨받으므로
          * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
          */
-        private val log = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+        private val log = Look.pane()
 
         /**
          * 문제 판. IntelliJ 자신의 Problems 뷰에 넣지 않았다 — 거기는 IDE 가 자기 인스펙션으로
          * 채우는 자리이고, 컴패니언이 자기 실행에서 본 것을 섞으면 **누가 언제 말한 것인지**가
          * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
          */
-        private val problems = JBTextArea().apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+        private val problems = Look.pane()
 
         /**
          * 어느 턴이 무엇을 건드렸나. 전사에서 같이 쌓는다 — 두 번째 스트림을 열지 않는다.
@@ -149,7 +159,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
-                    if (!Transcript.echoesFact(e)) append(render(e))
+                    if (!Transcript.echoesFact(e)) entry(e)
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
                     authors.feed(e)
@@ -164,9 +174,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 프레임이 불러도 지금 값이 그려진다. 이 줄이 `e` 를 보기 시작하면 재생이
                     // 지나간 물음을 지금 것으로 그린다.
                     if (Transcript.movesPrompt(e)) refresh()
-                    Problems.dissentOf(e)?.let { d ->
-                        problems.append("· 카운슬 ${d.member} 반대  #${d.seq}  ${d.at.orEmpty()}\n    ${d.why}\n")
-                    }
+                    Problems.dissentOf(e)?.let { dissent(it) }
                 }
                 // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
                 // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
@@ -192,13 +200,24 @@ class MagiToolWindow : ToolWindowFactory {
             top.add(state, BorderLayout.NORTH)
             top.add(prompt, BorderLayout.CENTER)
             top.add(buttons, BorderLayout.SOUTH)
+            // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
+            // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
+            val head = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                add(top, BorderLayout.CENTER)
+                add(Look.rule(), BorderLayout.SOUTH)
+            }
 
             val send = JButton("보내기").apply { addActionListener { say() } }
             val stop = JButton("세우기").apply { addActionListener { interrupt() } }
-            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT)).apply { add(stop); add(send) }
+            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(stop); add(send) }
+            val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                border = JBUI.Borders.empty(8, 12, 0, 8)
+                add(JBScrollPane(input), BorderLayout.CENTER)
+                add(acts, BorderLayout.EAST)
+            }
             val bottom = JBPanel<JBPanel<*>>(BorderLayout())
-            bottom.add(JBScrollPane(input), BorderLayout.CENTER)
-            bottom.add(acts, BorderLayout.EAST)
+            bottom.add(Look.rule(), BorderLayout.NORTH)
+            bottom.add(writing, BorderLayout.CENTER)
             bottom.add(hint, BorderLayout.SOUTH)
 
             // 치는 동안 제안을 묻는다. 매 글자마다가 아니라 멈추면 — 모델 호출이라 값이 있다.
@@ -219,10 +238,15 @@ class MagiToolWindow : ToolWindowFactory {
             input.registerKeyboardAction({ acceptSuggestion() },
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
 
-            root.add(top, BorderLayout.NORTH)
+            root.add(head, BorderLayout.NORTH)
+            // 두 판이 각자 무엇인지 말한다. 이름이 없으면 오른쪽 판은 「전사가 왜 두 개지」로
+            // 읽히고, 실제로 그 둘은 출처가 다르다 — 왼쪽은 데몬이 보낸 것 전부, 오른쪽은 그중
+            // 사람이 손대야 하는 것만이다.
             val split = javax.swing.JSplitPane(
-                javax.swing.JSplitPane.HORIZONTAL_SPLIT, JBScrollPane(log), JBScrollPane(problems)
-            ).apply { resizeWeight = 0.65 }
+                javax.swing.JSplitPane.HORIZONTAL_SPLIT,
+                Look.titled("전사", JBScrollPane(log).apply { border = JBUI.Borders.empty() }),
+                Look.titled("문제", JBScrollPane(problems).apply { border = JBUI.Borders.empty() }),
+            ).apply { resizeWeight = 0.65; border = JBUI.Borders.empty(); dividerSize = 1 }
             root.add(split, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
             // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
@@ -399,9 +423,13 @@ class MagiToolWindow : ToolWindowFactory {
          * §3 이 안 C 를 고른 바로 그 사유다. 그래서 여기서는 사실만 적고, 깊은 렌더를 어디서 할지는
          * §8 에 미결로 남긴다.
          */
-        private fun render(e: LogEvent): String {
+        private fun entry(e: LogEvent) = SwingUtilities.invokeLater {
             val who = e.actor?.name?.takeIf { it.isNotBlank() } ?: e.actor?.kind.orEmpty()
-            return "#${e.seq} ${e.type}" + if (who.isBlank()) "" else "  ($who)"
+            push(log, "#${e.seq} ", Look.muted)
+            push(log, e.type, Look.body)
+            if (who.isNotBlank()) push(log, "  ($who)", Look.seat(who) ?: Look.faint)
+            push(log, "\n", null)
+            log.caretPosition = log.document.length
         }
 
         /**
@@ -411,17 +439,55 @@ class MagiToolWindow : ToolWindowFactory {
          * `where` 가 없으면 그대로 둔다. 못 읽은 앵커를 지어내면 엉뚱한 줄을 가리키고, 그건 항목이
          * 안 눌리는 것보다 나쁘다.
          */
-        private fun note(p: Problems.Problem) {
+        private fun note(p: Problems.Problem) = SwingUtilities.invokeLater {
             val head = if (p.advisory) "· 했음(읽을 것 있음)" else "· 실패"
-            val where = p.where?.let { "  ${it.path}:${it.line}" } ?: ""
-            problems.append("$head ${p.tool.orEmpty()}  #${p.seq}  ${p.at.orEmpty()}$where\n")
-            problems.append("    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n")
-            SwingUtilities.invokeLater { problems.caretPosition = problems.document.length }
+            push(problems, head, if (p.advisory) Look.warn else Look.error, bold = true)
+            push(problems, " ${p.tool.orEmpty()}", Look.body)
+            push(problems, "  #${p.seq}  ${p.at.orEmpty()}", Look.muted)
+            p.where?.let { push(problems, "  ${it.path}:${it.line}", Look.accent) }
+            push(problems, "\n    " + p.text.trim().lines().firstOrNull().orEmpty().take(160) + "\n",
+                Look.faint)
+            problems.caretPosition = problems.document.length
+        }
+
+        /**
+         * 카운슬의 반대. 문제 판에 같이 서지만 **[Problems.of] 가 고른 것과 섞이지 않게** 자리
+         * 색으로 누가 말했는지를 적는다 — 실패는 붉고, 반대는 그 자리의 색이다. 콘솔이 긋는 선과
+         * 같다: 판정은 판정의 색이고 이름은 누구인지의 색이다(`console.css`).
+         */
+        private fun dissent(d: Problems.Dissent) = SwingUtilities.invokeLater {
+            push(problems, "· 카운슬 ", Look.faint)
+            push(problems, d.member, Look.seat(d.member) ?: Look.faint, bold = true)
+            push(problems, " 반대", Look.body)
+            push(problems, "  #${d.seq}  ${d.at.orEmpty()}", Look.muted)
+            push(problems, "\n    ${d.why}\n", Look.faint)
+            problems.caretPosition = problems.document.length
         }
 
         private fun append(line: String) = SwingUtilities.invokeLater {
-            log.append(line + "\n")
+            push(log, line + "\n", Look.faint, italic = true)
             log.caretPosition = log.document.length
+        }
+
+        /**
+         * 판에 글자 한 토막을 얹는다. **여기가 색이 붙는 유일한 자리다.**
+         *
+         * 글자를 정하지 않는다는 것이 규칙이다 — 무엇을 적을지는 부르는 쪽이 이미 정했고 여기는
+         * 그것을 어떻게 보이게 할지만 안다. 반대로 하면(여기서 줄을 조립하면) 같은 서식이 두 군데
+         * 생기고, 그중 한쪽만 고치는 날이 온다.
+         *
+         * 전부 EDT 에서 부른다. 예전 `problems.append` 는 스트림 스레드에서 문서를 고치고 캐럿만
+         * EDT 로 옮겼는데, 그건 Swing 이 금지하는 것을 두 줄 중 한 줄만 지킨 것이다.
+         */
+        private fun push(
+            pane: JTextPane, text: String, colour: Color?,
+            italic: Boolean = false, bold: Boolean = false,
+        ) {
+            val a = SimpleAttributeSet()
+            colour?.let { StyleConstants.setForeground(a, it) }
+            if (italic) StyleConstants.setItalic(a, true)
+            if (bold) StyleConstants.setBold(a, true)
+            pane.styledDocument.insertString(pane.styledDocument.length, text, a)
         }
 
         /**
@@ -551,6 +617,10 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun drawPrompt(w: Waiting?) {
             buttons.removeAll()
+            // 물음이 서 있는 동안은 그 자리에 막대를 하나 세운다. 콘솔이 답 없는 물음에 긋는 것과
+            // 같은 선이고(`.row.pending .txt`), 터미널도 같은 자리에 긋는다. 색으로만 말하지
+            // 않는다 — 글자는 그대로 있고 막대는 **어디를 보라**는 표시다.
+            prompt.border = if (w == null) Look.quiet else Look.pending()
             if (w == null) {
                 prompt.text = " "
             } else {
@@ -613,7 +683,17 @@ class MagiToolWindow : ToolWindowFactory {
          * 여럿이면 [Level] 을 받는 것이 그중 하나일 뿐이라 아무것도 못 막는다. 문이 하나인
          * 것은 `SourceTextTest` 가 붙든다.
          */
-        private fun say(l: Level) = SwingUtilities.invokeLater { state.text = l.text }
+        private fun say(l: Level) = SwingUtilities.invokeLater {
+            state.text = l.text
+            // 사람이 할 일이 갈래를 나눈 기준이므로(`Level` 의 KDoc), 색도 그 기준으로 준다.
+            // 할 일이 없으면 초록, 답할 것이 있으면 주황, 못 닿으면 붉다. **글자를 대신하지
+            // 않는다** — 색만 보고 알아야 하는 화면은 색을 못 보는 사람에게 아무 말도 안 한다.
+            state.foreground = when (l) {
+                Level.Attached -> Look.success
+                Level.Waiting -> Look.primary
+                is Level.Unreachable -> Look.error
+            }
+        }
     }
 }
 
