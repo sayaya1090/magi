@@ -120,13 +120,16 @@ B's conversation would flatten per-companion access and freshness into A's. Rows
 machines draw as visible-but-not-commandable (until the client holds that machine's keys) — the
 same stance the web console takes toward peers.
 
-**Then could the web run on roster alone?** No — discovery converges, direct reading stays. A
-stopped companion has no socket, only its log, and the web's history, search and dead-session
-transcripts work by reading that log directly (routed through one companion, the whole fleet goes
-dark the moment that one dies). Live facts like "asking right now" are in neither the log nor the
-gossip — they are in that process's memory and must be asked of it. And command keeps the boundary
-above: each companion's own door. What the roster door replicates is the stance the web already
-takes toward other **machines** — not attached, drawn from sightings, not commandable.
+**The web uses this door too (★implemented).** The web console's fleet listing now consumes the
+roster door **as its first source** — it asks whichever live local companion answers, rebuilds
+measurement rows into records and sighting rows into members, and draws the same screen. What
+stays direct is exactly what the door cannot carry: the **fallback** (a machine whose companions
+are all stopped, or a build without the door — records and logs outlive the processes, and that
+machine's fleet still deserves drawing), the **per-row dial** (live facts like "asking right now"
+are what no snapshot can say, so they are re-asked every time), **direct log reading** (history,
+search, dead-session transcripts), and **command** (the boundary above — each companion's own
+door). What this door replicated is the stance the web already took toward other **machines**:
+not attached, drawn from sightings, not commandable.
 
 ### Companion to companion, machine to machine
 
