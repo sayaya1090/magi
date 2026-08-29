@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -404,14 +405,10 @@ func (g *runGuard) repeatEpoch(name string, args json.RawMessage) string {
 	return strconv.Itoa(g.epoch)
 }
 
-// The hard block applies only to repeats whose outcome provably cannot change: re-reading
-// an unchanged file, re-running an inspect-only banner, replaying the identical write. An
-// EXEC bash command (build/test/run — anything not inspect-only) is exempt: its outcome
-// can legitimately change through state the guard cannot see (a `sed -i` the mutation
-// heuristics missed, a dependency install, a daemon coming up), so blocking the third
-// identical `go build`/`go test` obstructs real fix cycles. A genuine test-rerun spin is
-// still terminated by the stall layer (sinceProgress keeps climbing here → nudges →
-// force-stop); it just isn't hard-blocked call-by-call.
+// check COUNTS repeats and never blocks — the hard block this comment once described was
+// removed (execute.go notes the removal; block is unconditionally false below). The counts
+// still matter: they feed the nudges and the stall layer, which is what terminates a
+// genuine repeat spin now.
 func (g *runGuard) check(name string, args json.RawMessage) (block bool, n int, fp string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -545,7 +542,12 @@ func (g *runGuard) noteBashWrite(cmd string) (authored, reset bool) {
 	// It matters here more than on the edit path: every bash mutation shares the single "\x00bash"
 	// slot and is compared by COMMAND TEXT, so two commands that undo each other — `sed -i` then
 	// `cp f.bak f` — always read as two different changes no matter how many times they alternate.
-	return true, g.mutated("\x00bash", cmd)
+	// The SIGNATURE folds the echo tail exactly like the fingerprint does (guardArgs): kept
+	// raw, the same write under a fresh `&& echo …` label was a NEW signature every time —
+	// epoch rose, sinceProgress reset, and the repeat/blocked counters were laundered by a
+	// label that changes no state. The fingerprint learned this first; the signature lagged,
+	// and the asymmetry was the leak.
+	return true, g.mutated("\x00bash", stripEchoTail(cmd))
 }
 
 // noteBashExec records that a bash command actually EXERCISED the deliverable — it ran a
@@ -1051,9 +1053,13 @@ func diffOnlyContext(d string) bool {
 
 // canonicalArgs returns a stable string for tool args so logically identical
 // calls fingerprint equally regardless of JSON key ordering or whitespace.
+// Numbers decode as json.Number, not float64: two integers past 2^53 used to
+// collapse to one canonical form and two DIFFERENT calls fingerprinted equal.
 func canonicalArgs(raw json.RawMessage) string {
 	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&v); err != nil {
 		return string(raw)
 	}
 	b, err := json.Marshal(v) // Go marshals map keys in sorted order

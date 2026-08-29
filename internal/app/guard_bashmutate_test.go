@@ -117,3 +117,29 @@ func TestBashMutationBumpsTheEpoch(t *testing.T) {
 		t.Error("a read-only command must not bump the epoch")
 	}
 }
+
+// The mutation SIGNATURE folds the echo tail like the fingerprint does: the same write under a
+// fresh `&& echo …` label used to be a new signature every time, so epoch rose on every variant
+// and the repeat counters were laundered by a label that changes no state.
+func TestAnEchoTailDoesNotLaunderTheMutationSignature(t *testing.T) {
+	g := newRunGuard(nil)
+	if authored, reset := g.noteBashWrite(`sed -i 's/a/b/' f.txt && echo "round one"`); !authored || !reset {
+		t.Fatalf("the first write is progress: authored=%v reset=%v", authored, reset)
+	}
+	if _, reset := g.noteBashWrite(`sed -i 's/a/b/' f.txt && echo "round two"`); reset {
+		t.Fatal("the same write under a different echo label counted as new progress")
+	}
+	if _, reset := g.noteBashWrite(`sed -i 's/x/y/' f.txt && echo "round three"`); !reset {
+		t.Fatal("a genuinely different write must still count")
+	}
+}
+
+// Integers past 2^53 keep their identity in the canonical form; through float64 they collapsed
+// and two different calls fingerprinted equal.
+func TestCanonicalArgsKeepsBigIntegersApart(t *testing.T) {
+	a := canonicalArgs([]byte(`{"n":9007199254740993}`))
+	b := canonicalArgs([]byte(`{"n":9007199254740992}`))
+	if a == b {
+		t.Fatalf("two different calls share one canonical form: %q", a)
+	}
+}
