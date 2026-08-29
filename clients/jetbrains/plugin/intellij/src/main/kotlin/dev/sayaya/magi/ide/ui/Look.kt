@@ -243,7 +243,7 @@ internal object Look {
      * 컴포넌트로 바꾸고도 화면이 "예전 로그와 똑같다"고 읽힌 실측이 있었고, 남은 원인이
      * 이것이었다 — 한국어 산문이 고정폭 한 색이면 구조를 어떻게 짜도 덤프로 보인다. 고정폭이
      * 증거의 옷인 것은 **옮겨 적을 것**(도구 이름·인자·경로)의 이야기라 그쪽([toolHead],
-     * [aside])에 남긴다. 본문은 사람이 읽는 글이다.
+     * [code])에 남긴다. 본문은 사람이 읽는 글이다.
      */
     fun prose(text: String): JComponent = measured(javax.swing.JTextArea(text).apply {
         isEditable = false
@@ -256,15 +256,8 @@ internal object Look {
         border = JBUI.Borders.empty(3, 14, 0, 0)
     })
 
-    /** 곁말 — 생각의 첫 줄, keep, 실패의 첫 줄, 창이 하는 말. 앞에 안 나선다. */
+    /** 곁말 — 생각의 첫 줄, keep, 창이 하는 말. 앞에 안 나선다. */
     fun aside(text: String, hue: Color = faint): JComponent = measured(asideArea(text, hue))
-
-    /**
-     * 기계의 출력 원문이 입는 곁말 옷 — **산문 상한은 안 입는다**. 옮겨 적을 것(도구 결과·
-     * 실패 원문, §3.3)에 60ch 를 걸면 스택트레이스·경로가 ~430px 에서 접힌다(리뷰 F2).
-     * 곁말 옷이 고정폭이 아닌 것은 기왕의 모습 그대로 두고(승격은 별건), 여기선 상한만 벗는다.
-     */
-    fun outAside(text: String, hue: Color = faint): JComponent = asideArea(text, hue)
 
     private fun asideArea(text: String, hue: Color): javax.swing.JTextArea = javax.swing.JTextArea(text).apply {
         isEditable = false
@@ -276,14 +269,19 @@ internal object Look {
         border = JBUI.Borders.empty(2, 14, 0, 0)
     }
 
-    /** 펼친 도구 행의 본문 — 인자·출력 원문. 옮겨 적을 것이라 고정폭이다(§3.3). */
-    fun code(text: String): JComponent = javax.swing.JTextArea(text).apply {
+    /**
+     * 펼친 도구 행의 본문 — 인자·출력 원문. 옮겨 적을 것이라 고정폭이고(§3.3) **산문 상한도
+     * 안 입는다**(60ch 에서 접힌 스택트레이스·경로는 다친 증거다). 실패 원문은 [error] 색을
+     * 얹는다 — 한동안 출력이 이탤릭 곁말 옷을 입어 「고정폭이다」 주석이 거짓말을 하고
+     * 있었다(리뷰 2회 적발).
+     */
+    fun code(text: String, hue: Color = muted): JComponent = javax.swing.JTextArea(text).apply {
         isEditable = false
         isOpaque = false
         lineWrap = true
         wrapStyleWord = true
         font = mono().deriveFont(JBFont.small().size.toFloat())
-        foreground = muted
+        foreground = hue
         border = JBUI.Borders.empty(2, 14, 0, 0)
     }
 

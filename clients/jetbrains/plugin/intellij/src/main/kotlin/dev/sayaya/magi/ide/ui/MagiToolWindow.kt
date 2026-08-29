@@ -778,7 +778,7 @@ class MagiToolWindow : ToolWindowFactory {
                             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                             isOpaque = false
                             r.args?.let { add(Look.code(it)) }
-                            r.out?.let { add(Look.outAside(it, Look.error)) }
+                            r.out?.let { add(Look.code(it, Look.error)) }
                             // 지나간 편집도 같은 규칙으로 나란히-보기 — 인자의 old/new 원문 두 면,
                             // 앵커·replaceAll 은 제외(승인 diff 와 같은 「인자가 전체 진실」 집합).
                             toolDiffSides(r)?.let { (path2, old2, new2) ->
@@ -800,7 +800,7 @@ class MagiToolWindow : ToolWindowFactory {
                         p.add(body, BorderLayout.CENTER)
                     } else {
                         // 접힘: 실패의 첫 줄만. 전문과 파일:줄 앵커는 문제 탭의 몫이다.
-                        r.out?.let { p.add(Look.outAside("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
+                        r.out?.let { p.add(Look.code("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
                             BorderLayout.CENTER) }
                     }
                     foldable(p, r)
