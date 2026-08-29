@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -527,7 +528,7 @@ func WriteDefaultIfMissing(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(defaultConfigTemplate), 0o644)
+	return atomicfile.Write(path, []byte(defaultConfigTemplate), 0o644)
 }
 
 // Load reads config.toml from dir. A missing file is not an error.

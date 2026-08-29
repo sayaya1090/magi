@@ -45,6 +45,9 @@ func (a *App) bear(ctx context.Context, sid session.SessionID) error {
 		wait := st.bornWait
 		a.mu.Unlock()
 		if wait != nil {
+			// Iteration, not recursion: under a pathologically failing store every retry round
+			// would otherwise add a frame. Local-disk appends make the wait finite in practice;
+			// a hung network filesystem is accepted as the caller's hang, not guarded here.
 			<-wait
 			return a.bear(ctx, sid)
 		}

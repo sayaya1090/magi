@@ -19,10 +19,12 @@ var setKeyMu sync.Mutex
 // withFileLock serializes the read-modify-write of `target` across SEPARATE processes,
 // which setKeyMu cannot: two magi instances sharing one config.toml (e.g. a plugin doing
 // a live set_model in each) otherwise both read the same bytes, edit independently, and
-// the last WriteFile clobbers the other's change — or, mid-write, the reader parses a torn
-// file. An O_EXCL sidecar lock (portable to Windows, unlike flock) makes the RMW atomic
-// between processes. On contention it waits briefly then proceeds unlocked rather than
-// deadlock a rare config write; a lock left by a crashed process is reclaimed once stale.
+// two writers, the last write clobbers the first's change. The write itself is ATOMIC now
+// (temp+rename via atomicfile), so a reader always sees the old file or the new one — what this
+// lock adds is serializing the read-modify-write between WRITERS, which rename alone cannot: two
+// concurrent SetKeys would each rewrite the file from their own stale read and the last rename
+// would silently drop the first's edit. (An earlier commit claimed this correction and shipped
+// without it — an unasserted replace applied nothing; the region is matched live now.)
 func withFileLock(target string, fn func() error) error {
 	lock := target + ".lock"
 	deadline := time.Now().Add(3 * time.Second)

@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -69,13 +70,7 @@ func (a *App) appendRefs(ctx context.Context, c *command.SubmitPrompt) {
 func renderRef(workdir string, r command.FileRef, total *int) string {
 	// The header's halves come off the wire, and an unclipped one was the last free ride: a
 	// megabyte "path" rendered a megabyte header once, before any body counted.
-	name, lines := r.Path, r.Lines
-	if len(name) > 300 {
-		name = name[:300] + "…"
-	}
-	if len(lines) > 40 {
-		lines = lines[:40] + "…"
-	}
+	name, lines := clipBytes(r.Path, 300), clipBytes(r.Lines, 40)
 	head := "\n## " + name
 	if lines != "" {
 		head += " (lines " + lines + ")"
@@ -96,7 +91,7 @@ func renderRef(workdir string, r command.FileRef, total *int) string {
 	// 16KB excerpt to 512 bytes, which the in-place test caught before the commit did.
 	refused := func(msg string) string {
 		if len(msg) > 512 {
-			msg = msg[:512] + "…\n"
+			msg = clipBytes(msg, 512) + "\n"
 		}
 		return said(msg)
 	}
@@ -148,4 +143,16 @@ func sliceLines(content, lines string) string {
 		hi = len(all)
 	}
 	return strings.Join(all[lo-1:hi], "\n")
+}
+
+// clipBytes cuts s to at most n bytes WITHOUT splitting a rune — a mid-rune cut is stored as
+// U+FFFD by the JSON encoder, which is harmless and ugly; whole characters cost three lines.
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "…"
 }
