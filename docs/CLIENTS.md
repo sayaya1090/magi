@@ -174,7 +174,8 @@ sliced 1-indexed and inclusive the way every editor counts, capped per ref (16KB
 clipped AT the line, and the overflow folded to one "+N more attachment(s) not shown" closing
 line), and persisted with the prompt event — the transcript shows exactly what the agent was shown, and a
 replay shows it again. No attachment vanishes: a ref that cannot be served says why where its
-excerpt would have been. An observer plugin's user-message notification carries **the
+excerpt would have been — and the refusal itself is counted and bounded like the sentence it is
+(512B; error strings used to echo the wire path whole). An observer plugin's user-message notification carries **the
 person's words only** — the rendered attachment block is excluded: workspace bytes reach a
 plugin through a file grant, never through a notification side channel. A malformed line range falls back to the whole file — the person pointed
 at the file, and losing it over a typo drops the half that mattered.
