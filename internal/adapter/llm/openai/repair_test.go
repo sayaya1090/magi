@@ -116,17 +116,21 @@ func contains(s, sub string) bool {
 // different calls share one id: everything downstream keys on it — the elide map, compaction's
 // digested/lastResult bookkeeping, the wire layer's first-wins result pairing — and a shared id
 // makes one call's stub stand in for another's answer.
-func TestRepeatedProviderIdsAreMadeUnique(t *testing.T) {
-	a := &toolAccumulator{calls: map[int]*session.ToolCall{}}
-	a.add([]wireToolCall{{Index: 0, ID: "call_0", Function: wireFuncCall{Name: "read", Arguments: `{}`}}})
-	first := a.finish()
-	a.add([]wireToolCall{{Index: 0, ID: "call_0", Function: wireFuncCall{Name: "write", Arguments: `{}`}}})
-	second := a.finish()
+func TestRepeatedProviderIdsAreMadeUniqueAcrossSteps(t *testing.T) {
+	// One client, two responses — which is what production does; the ids repeat across STEPS,
+	// and an accumulator-scoped table (the first attempt) died with each stream and fixed nothing.
+	c := &Client{}
+	step := func() []*session.ToolCall {
+		a := newToolAccumulator(c.uniqueCallID)
+		a.add([]wireToolCall{{Index: 0, ID: "call_0", Function: wireFuncCall{Name: "read", Arguments: `{}`}}})
+		return a.finish()
+	}
+	first, second := step(), step()
 	if len(first) != 1 || len(second) != 1 {
 		t.Fatalf("want one call per step, got %d and %d", len(first), len(second))
 	}
 	if first[0].CallID == second[0].CallID {
-		t.Fatalf("two different calls share the id %q", first[0].CallID)
+		t.Fatalf("two calls from different steps share the id %q", first[0].CallID)
 	}
 	if first[0].CallID != "call_0" {
 		t.Errorf("the first call must keep the provider's own id, got %q", first[0].CallID)

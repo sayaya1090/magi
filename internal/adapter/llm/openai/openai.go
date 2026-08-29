@@ -14,6 +14,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -41,6 +42,15 @@ type Client struct {
 	sampling        Sampling                // configured sampling defaults ([sampling]); nil fields = provider default
 
 	headers *httpx.Headers // static (config) + dynamic (plugin) custom headers
+
+	// callIDs remembers the tool-call ids this client has issued, because the problem it solves
+	// is a CROSS-STEP one: a backend that numbers its calls per response hands out "call_0"
+	// again on the next request, and everything downstream (the elide map, compaction's
+	// bookkeeping, the wire layer's first-wins result pairing) keys on the id as if it named one
+	// call. The first attempt kept this on the per-response accumulator, where it died with the
+	// stream and fixed nothing — its test reused one accumulator, which production never does.
+	callMu  sync.Mutex
+	callIDs map[string]int
 }
 
 // baseOverride is a runtime LLM base-URL override plus the ownership token that installed it.
@@ -572,7 +582,7 @@ var streamDiag = os.Getenv("MAGI_STREAM_DIAG") != ""
 // chunk) arrive, consume stops; a bounded epilogue (cancel) backstops the rare
 // backend that sends neither usage nor `[DONE]`.
 func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io.Reader, ch chan<- port.ProviderEvent, known map[string]bool) {
-	acc := newToolAccumulator()
+	acc := newToolAccumulator(c.uniqueCallID)
 	var fullText strings.Builder
 	nativeCalls := false
 	var (
@@ -741,13 +751,42 @@ func firstJSONValue(b []byte) json.RawMessage {
 type toolAccumulator struct {
 	order []int
 	calls map[int]*session.ToolCall
-	// seen counts the call ids handed out on this stream, so a backend that reuses them across
-	// steps cannot make two calls share one id (see finish).
-	seen map[string]int
+	// unique issues an id nothing else has been given — client-scoped, because ids repeat across
+	// STEPS, not within one reply.
+	unique func(string) string
 }
 
-func newToolAccumulator() *toolAccumulator {
-	return &toolAccumulator{calls: make(map[int]*session.ToolCall)}
+func newToolAccumulator(unique func(string) string) *toolAccumulator {
+	if unique == nil {
+		unique = func(id string) string { return id } // a bare accumulator issues ids as they arrive
+	}
+	return &toolAccumulator{calls: make(map[int]*session.ToolCall), unique: unique}
+}
+
+// uniqueCallID hands back an id nothing else has been given by this client. Suffixed only on a
+// REPEAT, so the common case still carries the provider's own id verbatim. Bounded: past the cap
+// the table is cleared and said out loud — a session that has made a hundred thousand tool calls
+// is far past any context this could still be protecting, and silently letting it grow is the
+// worse of the two failures.
+func (c *Client) uniqueCallID(id string) string {
+	if id == "" {
+		return id
+	}
+	c.callMu.Lock()
+	defer c.callMu.Unlock()
+	if c.callIDs == nil {
+		c.callIDs = map[string]int{}
+	}
+	if len(c.callIDs) > 100000 {
+		fmt.Fprintln(os.Stderr, "magi: the tool-call id table passed its bound and was cleared")
+		c.callIDs = map[string]int{}
+	}
+	out := id
+	if n := c.callIDs[id]; n > 0 {
+		out = fmt.Sprintf("%s_%d", id, n)
+	}
+	c.callIDs[id]++
+	return out
 }
 
 func (a *toolAccumulator) add(tcs []wireToolCall) {
@@ -784,21 +823,9 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 		if tc.CallID == "" {
 			tc.CallID = fmt.Sprintf("call_%d_%d", idx, time.Now().UnixNano())
 		}
-		// Unique across the SESSION, not just this reply. Everything downstream keys on the id
-		// and assumes it names one call: the elide map (reconstruct), the digested/lastResult
-		// bookkeeping in compaction, and the wire layer's first-wins result pairing. A backend
-		// that numbers its calls per response — "call_0", "call_1", the shape several
-		// OpenAI-compatible local servers emit — hands the same id out every step, and then one
-		// call's elided stub stands in for another call's answer, and a repair pairs the first
-		// call's result with the second declaration. Suffixed only on a REPEAT, so the common
-		// case keeps the provider's own id verbatim.
-		if a.seen == nil {
-			a.seen = map[string]int{}
-		}
-		if n := a.seen[tc.CallID]; n > 0 {
-			tc.CallID = fmt.Sprintf("%s_%d", tc.CallID, n)
-		}
-		a.seen[tc.CallID]++
+		// Unique across the client, not just this reply: ids repeat across STEPS (see
+		// Client.uniqueCallID for what breaks downstream when two calls share one).
+		tc.CallID = a.unique(tc.CallID)
 		out = append(out, tc)
 	}
 	// Prevent double emission if finish_reason appears more than once.
