@@ -1,14 +1,15 @@
 # The console, published as a static demo you can click.
 #
-# Nobody can look at that screen without running a daemon, a console and a companion — so a change
-# to the front end gets reviewed as a diff of a Go string. This publishes the page itself, answered
-# by a mock in the browser (GitHub Pages serves files, not processes), so the review is looking at
-# it instead.
+# Nobody can look at those screens without running a daemon, a console and a companion — so a change
+# to the front end would otherwise get reviewed as a diff of compiled Java. This publishes the
+# console itself, answered by a mock in the browser (GitHub Pages serves files, not processes), so
+# the review is looking at it instead.
 #
-# What a green deploy means, exactly: the Go tests passed — including the ones that run the page's
-# real javascript under node against a fake DOM — and the page rendered here is the string this
-# binary serves, byte for byte, with one script appended. It does NOT mean any handler works: every
-# answer in the demo is a fixture. That is why the tests run first and the deploy is gated on them.
+# What a green deploy means, exactly: the Go tests passed — including the one that walks every path
+# the screens ask for and holds the mock to it — and what is published is the assembled console this
+# binary serves, file for file, with one script put in front of the selector. It does NOT mean any
+# handler works: every answer in the demo is a fixture. That is why the tests run first and the
+# deploy is gated on them.
 name: Pages
 
 on:
@@ -101,16 +102,16 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # The functional check. These run the page's own javascript under node against a fake DOM —
-      # the states, the filters, the tabs, the forms — so a demo that deploys is one whose behaviour
-      # was verified rather than eyeballed.
+      # The functional check for the half this lane owns: the server. The screens' own behaviour is
+      # tested where it is written — gwt-test and Playwright specs, in test-web.yml — and this lane
+      # only fires when web/ did not move, so those results already stand for this commit.
       - name: test the console
         run: go test ./cmd/magi-web/ -count=1
 
       # The site is one artifact and deploy-pages replaces it whole, so every lane that
-      # publishes must build everything — the shared recipe (icons, old demo, bench report,
-      # and the NEW console's demo under next/) lives in one composite action, used here and
-      # by test-web.yml. The new console builds with gradle, so java comes first.
+      # publishes must build everything — the shared recipe (icons, the console's demo, the
+      # bench report) lives in one composite action, used here and by test-web.yml. The
+      # console builds with gradle, so java comes first.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin

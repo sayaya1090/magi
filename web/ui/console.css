@@ -126,9 +126,9 @@
      and a light machine chosen dark. A page with only the query can be moved one way and not back.
      The :not([color-theme]) is what makes the query yield the moment somebody chooses.
 
-     The two blocks carry the SAME declarations and a test in page_test.go fails if they stop
-     doing so — CSS has no way to give one ruleset two selectors across a media query, so the copy
-     is unavoidable and the drift is not.
+     The two blocks carry the SAME declarations and TestBothLightThemesSayTheSameThing (in
+     cmd/magi-web/palette_test.go) fails if they stop doing so — CSS has no way to give one ruleset
+     two selectors across a media query, so the copy is unavoidable and the drift is not.
 
      The attribute is written by the inline script in the markup, before this stylesheet paints, so
      a chosen theme does not flash the other one first. */
@@ -402,7 +402,7 @@
              clip-path:inset(50%); white-space:nowrap; border:0; }
 
   /* On opacity: every value below is set so the RESULT clears WCAG AA (4.5:1) against the page in
-     BOTH themes, which is checked in page_test.go. Editorial layouts get their hierarchy from
+     BOTH themes, which is checked in cmd/magi-web/contrast_test.go. Editorial layouts get theirs from
      dimming secondary text, and the arithmetic is easy to get wrong twice over — the muted role is
      already lowered, and light mode has less headroom than dark. Measured before this note: eight
      of thirteen dimmed pairs were under, the worst at 2.47:1. */

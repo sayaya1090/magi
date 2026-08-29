@@ -147,13 +147,15 @@ var openToRead = map[string]bool{
 	"/meet": true,
 }
 
-// public is the page itself and what it is made of.
+// public is the console itself and what it is made of.
 //
 // Not a hole: it is an empty shell that fetches everything through the routes above, and refusing
 // it would hand somebody a broken browser instead of a screen that can say "ask an operator".
-// The login page, when there is one, belongs here for the same reason.
+// The login page, when there is one, belongs here for the same reason. /ui/ is the compiled
+// modules and the stylesheet — the shell, in the same sense the document is, and refusing them
+// leaves a page that loads and then draws nothing at all.
 var public = map[string]bool{
-	"/": true, "/vendor/": true, "/i18n/": true, "/font/": true,
+	"/": true, "/ui/": true, "/vendor/": true, "/i18n/": true, "/font/": true,
 	"/icon.svg": true, "/icon-maskable.svg": true, "/manifest.webmanifest": true, "/sw.js": true,
 	// And the answer to "who am I here", which has to reach somebody the console will refuse
 	// everything else to — it is how the page knows to say so instead of drawing an empty fleet.

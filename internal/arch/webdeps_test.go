@@ -28,11 +28,11 @@ var consoleSurface = map[string]bool{
 	"internal/adapter/tool/builtin":   true,
 	"internal/app":                    true,
 	"internal/atomicfile":             true,
-	// 콘솔이 내놓는 파일들과 정적 데모의 목 — 콘솔의 주기로 나가는 것이 맞다: 매니페스트도
-	// 워커도 아이콘 스프라이트도 데모의 답도 전부 "이 콘솔이 무엇으로 보이는가"에 대한 것이고,
-	// 두 콘솔(옛 것과 새 것)이 같은 바이트를 내야 하므로 코어가 아니라 여기 공용 자리에 산다.
+	// 콘솔이 내놓는 파일들 — 콘솔의 주기로 나가는 것이 맞다: 매니페스트도 워커도 아이콘
+	// 스프라이트도 전부 "이 콘솔이 무엇으로 보이는가"에 대한 것이다. 데모의 목은 이 목록에서
+	// 빠졌다: 이제 답하는 것이 Go 문자열이 아니라 콘솔과 같이 컴파일되는 모듈(web/ui/demo-ui)
+	// 이고, 그러니 코어가 실어 나를 것이 아니다.
 	"internal/webassets":    true,
-	"internal/webdemo":      true,
 	"internal/config":       true,
 	"internal/core/auth":    true,
 	"internal/core/bus":     true,

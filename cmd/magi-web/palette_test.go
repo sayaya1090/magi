@@ -49,7 +49,7 @@ func TestTheWebTakesItsColoursFromHere(t *testing.T) {
 	dark, light := paletteIn(t, string(src), "nervDark"), paletteIn(t, string(src), "nervLight")
 
 	// The stylesheet's dark values sit on bare :root; the reader's light choice repeats the light
-	// ones, and TestBothLightThemesSayTheSameThing already holds those two copies together.
+	// ones, and TestBothLightThemesSayTheSameThing below holds those two copies together.
 	for _, c := range []struct {
 		what, selector string
 		want           map[string]string
@@ -75,6 +75,58 @@ func TestTheWebTakesItsColoursFromHere(t *testing.T) {
 		if matched < 20 {
 			t.Errorf("only %d %s roles were checked against the palette; the token block has "+
 				"shrunk and this test is no longer looking at the theme", matched, c.what)
+		}
+	}
+}
+
+// consoleCSS is the console's stylesheet, read off disk.
+//
+// It used to be a Go string: the old console was one page with its <style> in it, and these checks
+// sliced that constant. The console is a set of compiled modules now and the stylesheet is a file
+// they all share — web/ui/console.css, which gradle copies into the assembled console verbatim. So
+// the checks read the file, which is also the thing the build copies, rather than a second copy of
+// it kept for testing.
+//
+// The test cache watches it, because it is under the module root — see the note on
+// TestTheWebTakesItsColoursFromHere for what that does and does not cover.
+func consoleCSS(t *testing.T) string {
+	t.Helper()
+	b, err := os.ReadFile("../../web/ui/console.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+// The light theme is written twice and both copies have to say the same thing.
+//
+// CSS cannot give one ruleset two selectors across a media query, so the light palette exists as
+// `@media (prefers-color-scheme: light) :root:not([color-theme])` — the machine's own choice — and
+// again as `:root[color-theme="light"]`, which is the reader overriding it. The duplication is
+// forced; the drift is not. A reader who picks light and gets a different orange from the one the
+// machine would have given them is looking at a bug nobody can see in either theme alone.
+//
+// This check lived in page_test.go and died with the old console, while the comment in console.css
+// went on saying it was there.
+func TestBothLightThemesSayTheSameThing(t *testing.T) {
+	machine := cssColoursIn(t, ":root:not([color-theme]) {")
+	chosen := cssColoursIn(t, `:root[color-theme="light"] {`)
+	if len(machine) < 20 {
+		t.Fatalf("only %d colours in the media query's light block — the parser has lost it", len(machine))
+	}
+	for role, hex := range machine {
+		got, ok := chosen[role]
+		if !ok {
+			t.Errorf("%s is light when the MACHINE is light and unset when the READER chooses light", role)
+			continue
+		}
+		if !strings.EqualFold(got, hex) {
+			t.Errorf("%s: the machine's light theme says %s, the reader's says %s", role, hex, got)
+		}
+	}
+	for role := range chosen {
+		if _, ok := machine[role]; !ok {
+			t.Errorf("%s is light only when the reader asks — a light machine gets the dark value", role)
 		}
 	}
 }
@@ -107,11 +159,12 @@ func paletteIn(t *testing.T, src, name string) map[string]string {
 // compared the two spellings would find nothing and pass while saying it had checked.
 func cssColoursIn(t *testing.T, selector string) map[string]string {
 	t.Helper()
-	at := strings.Index(indexHTML, selector)
+	css := consoleCSS(t)
+	at := strings.Index(css, selector)
 	if at < 0 {
-		t.Fatalf("the page has no %q rule", selector)
+		t.Fatalf("the stylesheet has no %q rule", selector)
 	}
-	body := indexHTML[at+len(selector):]
+	body := css[at+len(selector):]
 	end := strings.Index(body, "\n  }")
 	if end < 0 {
 		t.Fatalf("the %q rule is unterminated", selector)

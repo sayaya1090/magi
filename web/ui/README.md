@@ -1,14 +1,14 @@
 # web/ui — 새 콘솔의 UI 개발문서
 
-상위 [`web/README.md`](../README.md)가 무엇을 왜 하는지(스트랭글러 좌표·대조표·컷오버 조건)를
+상위 [`web/README.md`](../README.md)가 무엇을 왜 하는지(스트랭글러 좌표·대조표·컷오버 기록)를
 말한다면, 이 문서는 어떻게 하는지다: 모듈이 어떻게 나뉘고, 셸과 화면이 무슨 계약으로 만나고,
-화면 하나를 이식할 때 어디를 만지는지. 정본은 아직 기존 콘솔(`cmd/magi-web`)이다 — 여기
-적힌 것과 기존 콘솔이 다르게 굴면 기존 콘솔이 맞다.
+화면 하나를 이식할 때 어디를 만지는지. 여기가 정본이다 — 기존 콘솔은 없어졌고(`web/server`
+프록시도 함께), `cmd/magi-web`이 내주는 것이 이 디렉토리의 조립본이다.
 
 ## 지도
 
 ```
-console.html                     ← web/server(7778)가 /next 에서 서빙
+console.html                     ← magi-web(7777)이 / 에서 서빙
 └── /ui/shell/shell.nocache.js   셸(shell-ui): 레일·마스트헤드·라우팅·모듈 주입
     ├── /ui/fleet/fleet.nocache.js       화면 모듈 — 필요할 때 셸이 주입
     ├── /ui/companion/… (예정)
@@ -188,9 +188,10 @@ assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — �
 생성물이고 gitignore다. 거기서 소스는
 테스트 페이지 html뿐이다.
 
-## 정적 데모 (Pages의 next/)
+## 정적 데모 (Pages의 사이트 루트)
 
-`go run ./web/server -emit-demo <dir>` — 조립된 콘솔을 자답(自答) 정적 사이트로 쓴다.
+`go run ./cmd/magi-web -console build/console -emit-demo <dir>` — 조립된 콘솔을 자답(自答)
+정적 사이트로 쓴다(리포지토리 루트에서: `-console web/ui/build/console`).
 
 목은 **화면이 아니라 회선의 이음매**에 걸린다. 모듈마다 `Demo*Source`를 싣던 방식(11개,
 1193줄)은 운영 번들에 데모를 함께 실었고, 화면이 실제로 쓰는 회선 코드(경로 조립·스트림
@@ -212,11 +213,12 @@ assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — �
 로드한다(페이지가 `window.__magi_demo_mock`을 기다린다). 회귀 가드는
 `TestTheMockAnswersEveryPathTheScreensAsk` — 화면이 부르는 모든 경로를 목이 답하는지 본다.
 
-루트절대 자산 경로(/ui/·/vendor/)는 상대로 고쳐 하위 경로(Pages의 `next/`)에서도
-산다 — 구콘솔 demo.go의 그 수법. CI에선 `.github/actions/pages-site`(복합 액션)가 구
-데모(루트)+벤치 보고서+새 데모(next/)를 한 사이트로 짓고, pages.yml(코어 변경)과
-test-web.yml(웹 변경)이 같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로
-누가 내보내든 전부를 내보낸다.
+루트절대 자산 경로(/ui/·/vendor/)는 상대로 고쳐 하위 경로에서도 산다 — 구콘솔 demo.go에서
+물려받은 수법이고, 데모가 사이트 루트로 옮겨 온 지금도 남긴다(하위 경로에 얹을 수 있다는
+성질이 없어질 이유가 없다). CI에선 `.github/actions/pages-site`(복합 액션)가 데모(루트)와
+벤치 보고서(`bench/`)를 한 사이트로 짓고, pages.yml(코어 변경)과 test-web.yml(웹 변경)이
+같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로 누가 내보내든 전부를
+내보낸다.
 
 ## 부모가 진다 — 자식이 지켜야 할 계약을 줄이는 것이 이 층의 일
 
@@ -338,8 +340,8 @@ console.css의 배치 기계가 통째로 비켜갔다(실측: 1024px 창에서 
 ```sh
 cd web/ui && ./gradlew build      # 컴파일 + 전체 테스트 (Gradle 9.3 / Java 25)
 ./gradlew assembleConsole         # build/console/ 에 서빙 루트 집결
-cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기존 magi-web)로 프록시
-# → http://127.0.0.1:7778/next
+cd ../.. && go run ./cmd/magi-web -console web/ui/build/console
+# → http://127.0.0.1:7777/
 ```
 
 - 의존성은 `gradle/libs.versions.toml` 한 곳 — handbook의 sayaya-web 번들 미러.
@@ -348,8 +350,11 @@ cd ../.. && go run ./web/server   # 7778: /ui/* 정적 + 나머지는 7777(기�
 - sayaya-ui 등은 GitHub Packages에서 온다. 자격증명은 `~/.gradle/gradle.properties`의
   `github_username`/`github_password` 또는 `GITHUB_USERNAME`/`GITHUB_TOKEN` 환경변수 —
   이 디렉토리의 `gradle.properties`는 gitignore라 커밋에 실리지 않는다.
-- web/server는 요청의 Origin을 BFF 오리진으로 고쳐 보낸다 — 기존 콘솔의 same-site
-  가드가 프록시 오리진(7778)을 교차 출처 POST로 읽고 거절하기 때문이다.
+- `-console`은 디렉토리를 **요청마다 다시 읽는다**. `assembleConsole`을 다시 돌리고
+  새로고침하면 끝이고, 복사도 재빌드도 없다. 앞에 프록시를 하나 더 세우던 시절
+  (`web/server`, 7778)이 있었지만 그것은 오리진이 달라 same-site 가드에 걸렸고, 무엇보다
+  운영과 다른 코드였다. 플래그는 프로세스보다 작고, 운영에서 벗어날 수가 없다 —
+  **그것이 운영이 도는 그 코드**이기 때문이다.
 
 ## 컴패니언 화면은 두 겹이다 (셸의 그 관계를 한 번 더)
 

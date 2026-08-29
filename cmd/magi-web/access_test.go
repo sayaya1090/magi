@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -230,45 +229,5 @@ func TestAnUnclaimedConsoleSaysHowToClaimIt(t *testing.T) {
 	s2.claimHint(r)
 	if said.Len() != 0 {
 		t.Errorf("a configured console offered to be claimed:\n%s", said.String())
-	}
-}
-
-// The access screen has a way in — two, and both of them gated.
-//
-// It was reachable only by typing ?v=access, and a screen nobody can find is a screen that has not
-// been built: it got asked about as one. The rail's foot carries it on a wide screen; below
-// 37.4375em the rail is not drawn at all, so the preferences dialog carries it there.
-func TestThereIsAWayToTheAccessScreen(t *testing.T) {
-	if !strings.Contains(indexHTML, `id="accessGo"`) {
-		t.Error("nothing in the preferences opens the access screen")
-	}
-	if !strings.Contains(indexHTML, `id="railAccess"`) {
-		t.Error("the navigation does not carry the access screen")
-	}
-	// At the FOOT of the rail, which is where the guide puts what is about the console rather than
-	// about the work — and which is the difference between a third destination and a third
-	// destination that reads as one of the two you live on.
-	foot := regexp.MustCompile(`(?s)<div id="railFoot">.*?id="railAccess"`)
-	if !foot.MatchString(indexHTML) {
-		t.Error("the rail's access item is not in the foot")
-	}
-	// Behind the same capability as the screen: a control offering a place somebody will be refused
-	// is the offer this console does not make. Both of them.
-	row := regexp.MustCompile(`(?s)<div class="prefrow narrowonly" data-may="admin">.*?id="accessGo"`)
-	if !row.MatchString(indexHTML) {
-		t.Error("the preferences row is not gated on admin, or is no longer the narrow-width door")
-	}
-	// And it is the NARROW width's door only. The rail carries the same address everywhere else,
-	// and two visible ways to one screen is a reader wondering which one is the real one.
-	if !strings.Contains(indexHTML, ".prefrow.narrowonly { display:none; }") {
-		t.Error("the preferences row is drawn at every width, beside the rail item that does the same thing")
-	}
-	rail := regexp.MustCompile(`(?s)id="railAccess"[^>]*data-may="admin"`)
-	if !rail.MatchString(indexHTML) {
-		t.Error("the rail item is not gated on admin, so it is offered to people the screen refuses")
-	}
-	// And the page wires them to the screen's own address rather than a hand-written one.
-	if !strings.Contains(scriptBody(t, indexHTML), "HREF.access") {
-		t.Error("the control does not navigate to the access view")
 	}
 }

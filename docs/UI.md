@@ -5,22 +5,36 @@
 > **Current reference.** The two surfaces — what is on each screen, the design rules they keep, and why.
 
 Both surfaces: what is on them, the design rules, and why. §1–5 are the **web console**
-(`cmd/magi-web`); §6 is the **terminal UI** (`internal/adapter/tui`).
+(served by `cmd/magi-web`, compiled from `web/ui`); §6 is the **terminal UI**
+(`internal/adapter/tui`).
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
 
 > **Look at it:** <https://sayaya1090.github.io/magi/> — the real page, answered by a mock in the
 > browser. Every action there reports what it would have sent rather than pretending it happened,
 > and every reading is a fixture: it shows the screens, not a working server. Published by
-> `.github/workflows/pages.yml` on any change under `cmd/magi-web/`, and only after that package's
-> tests pass. A push publishes only from main; a hand-run publishes from whatever
+> `.github/workflows/pages.yml` on a change under `cmd/magi-web/` and by `test-web.yml` on a change
+> under `web/` — whichever lane fires builds the whole site, and only after its tests pass. A push
+> publishes only from main; a hand-run publishes from whatever
 > branch it was asked for, if the github-pages environment allows that branch (Settings →
 > Environments → github-pages → Deployment branches).
 
-> **As-built.** The console's front end is one file — `cmd/magi-web/page.go`, a Go string holding
-> the HTML, CSS and JS — and the rules below are pinned by tests that run its real JavaScript under
-> node (`render_test.go`). The TUI lives in `internal/adapter/tui`, with its own tests for
-> rendering, mouse handling and width measurement.
+> **As-built, with one caveat about the front end.** The console described below was one file for
+> most of its life — `cmd/magi-web/page.go`, a Go string holding the HTML, CSS and JS — and the
+> rules in §1–5 were written against it and pinned by tests that ran its real JavaScript under node.
+> That console was replaced on 2026-08-29 by the GWT modules in `web/ui`, which were built to be
+> equivalent to it screen by screen and measured against it before it was deleted.
+>
+> The **rules** below still hold: they are what the modules were ported to keep, and the ones a test
+> can state are still stated by one — the palette and contrast guards in `cmd/magi-web/*_test.go`
+> now read `web/ui/console.css`. The **file references** in §1–5 (`page.html`, `page.js`, the node
+> DOM harness) are historical: what to touch today is a module under `web/ui`, and the map from
+> screen to module is in [`../web/ui/README.md`](../web/ui/README.md). The cutover itself — what was
+> compared against what, and what was still open when it happened — is recorded in
+> [`../web/README.md`](../web/README.md).
+>
+> The TUI lives in `internal/adapter/tui`, with its own tests for rendering, mouse handling and
+> width measurement; nothing in §6 changed.
 
 ---
 
@@ -431,10 +445,13 @@ MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web    # from a kit d
 MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./cmd/magi-web   # in CI
 ```
 
-Both layouts are `svgs/<style>/<name>.svg`, which is why there is one reader. `gen_icons.go` greps
-`page.html` and `page.js` for `#i-<style>-<icon>` — **the page is the manifest**, because a list
-kept beside it is the second place to edit and the place an icon goes missing — and writes
-`icons_gen.go`, which is git-ignored and sets the sprite in an init.
+Both layouts are `svgs/<style>/<name>.svg`, which is why there is one reader. `gen_icons.go` walks
+every `*.java` under `web/ui/*/src/main/java` for `#i-<style>-<icon>` — **the screens are the
+manifest**, because a list kept beside them is the second place to edit and the place an icon goes
+missing — and writes `internal/webassets/sprite_gen.go`, which is git-ignored and sets the sprite in
+an init. Test sources are deliberately outside the walk: a name that appears only in a test is a
+name nobody sees, and baking art for it would put a licence-restricted file in the binary to satisfy
+an assertion.
 
 Three things follow, and each is load-bearing:
 
@@ -738,11 +755,18 @@ phone for months.
 
 ## 5. How it is verified
 
-The page is a Go string, so no Go test can execute it. `cmd/magi-web/testdata/dom.mjs` is a **fake
-DOM** — createElement, textContent, className, classList, append, replaceChildren, a listener
-registry, about that much — and the tests run the page's real JavaScript against it under node.
-Anything the fake cannot express is a sign the page is doing more than it should, which is why it is
-not jsdom.
+> **What verifies the console today** — the screens are compiled Java, so they are tested where they
+> are written: `gradlew :<module>:test` runs each module's gwt-test and Playwright specs against a
+> real browser, one runner per module, in `test-web.yml`. On the Go side, `cmd/magi-web`'s tests read
+> `web/ui` directly: one walks every path the screens ask for and holds the demo mock to it, and the
+> palette and contrast guards read `web/ui/console.css`. The section below is the harness that came
+> before, kept because its seven corrections are the reason several of the rules above exist.
+
+The page was a Go string, so no Go test could execute it. `cmd/magi-web/testdata/dom.mjs` was a
+**fake DOM** — createElement, textContent, className, classList, append, replaceChildren, a listener
+registry, about that much — and the tests ran the page's real JavaScript against it under node.
+Anything the fake could not express was a sign the page was doing more than it should, which is why
+it was not jsdom.
 
 ⚠ **The fake has been wrong seven times, always in the direction that hides a bug.** Each
 correction was worth more than the test it unblocked. Here they are. `textContent` did not clear children, so a
@@ -798,9 +822,9 @@ were not doing: an action that cannot happen is **disabled**, not hidden and not
 ⚠ **And the gate itself lied twice in one session.** A wrapper that grepped its output for
 `--- FAIL` called a Go syntax error green: a build failure prints neither that string nor anything
 else the filter kept. Judge by the exit code. Both errors were the same mistake — a backtick in a
-comment, which ended the Go raw string the whole page used to live in. The page is three embedded
-files now (`page.html`, `page.css`, `page.js`), so that particular trap is gone; the lesson about
-the gate is not.
+comment, which ended the Go raw string the whole page used to live in. The page became three
+embedded files (`page.html`, `page.css`, `page.js`) and is now compiled modules, so that particular
+trap went twice over; the lesson about the gate is not.
 
 The standing guards, each pinned by removing the thing it guards and watching it fail:
 

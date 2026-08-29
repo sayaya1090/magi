@@ -8,15 +8,28 @@ DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 PKG     := github.com/sayaya1090/magi/internal/version
 LDFLAGS := -s -w -X $(PKG).Version=$(VERSION) -X $(PKG).Commit=$(COMMIT) -X $(PKG).Date=$(DATE)
 
-.PHONY: build web test test-race cover vet fmt e2e snapshot licenses clean
+.PHONY: build web console test test-race cover vet fmt e2e snapshot licenses clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi ./cmd/magi
 
 # The browser viewer, built separately because it is separate: a daemon that nobody watches should
 # not carry a web server, and a machine that never opens one should not ship it.
+#
+# This does NOT build the console — see the target below. A magi-web with no console in it is a
+# working BFF whose `/` says which build it is; that is the supported state, not a failure, and
+# depending on a JDK here would put gradle in the path of everyone who never opens a browser.
 web:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi-web ./cmd/magi-web
+
+# The console, compiled and put where go:embed can reach it. Needs a JDK and gradle; CI runs this
+# before it builds a release. `make console web` gives a binary with the screens inside it.
+#
+# For developing the screens themselves, skip it: `gradlew assembleConsole` then
+# `magi-web -console web/ui/build/console` serves the directory and re-reads it on every request.
+console:
+	cd web/ui && ./gradlew assembleConsole
+	cp -R web/ui/build/console/. cmd/magi-web/console/
 
 test:
 	go test ./... -skip E2E
@@ -59,3 +72,5 @@ snapshot:
 clean:
 	rm -f magi
 	rm -rf dist
+	# 조립된 콘솔은 산출물이다 — 자리지기 README만 남기고 지운다.
+	find cmd/magi-web/console -mindepth 1 ! -name README.md -delete

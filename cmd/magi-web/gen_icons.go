@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Bake the icons the page asks for into a sprite this binary carries.
+// Bake the icons the console asks for into a sprite this binary carries.
 //
 // # Why a generator and not files in the repository
 //
@@ -22,15 +22,17 @@
 //
 // # What it emits, and what happens without it
 //
-// icons_gen.go, which is git-ignored, and which sets iconSprite in an init. Without it iconSprite
-// stays empty, the page draws the shapes it has always drawn, and nothing is broken: a build with
-// no licence produces a working console with plainer icons. The test suite runs both ways.
+// internal/webassets/sprite_gen.go, which is git-ignored, and which sets Sprite in an init.
+// Without it Sprite stays empty, the screens draw the shapes they have always drawn, and nothing is
+// broken: a build with no licence produces a working console with plainer icons. The test suite
+// runs both ways.
 //
 // # Which icons
 //
-// The ones the page NAMES. Every reference is written <use href="#i-<style>-<icon>">, so the page
-// itself is the list — a manifest kept beside it would be a second place to edit and the place
-// where an icon goes missing.
+// The ones the CONSOLE names. Every reference is written <use href="#i-<style>-<icon>">, so the
+// screens themselves are the list — a manifest kept beside them would be a second place to edit
+// and the place where an icon goes missing. They are mined from web/ui, whose modules draw every
+// screen; this command's own directory has none left to name.
 package main
 
 import (
@@ -44,7 +46,7 @@ import (
 )
 
 // styleDir maps the prefix used in an id to the directory it comes from. Short, because it is
-// typed into every reference in the page: sl = sharp light, ss = sharp solid, b = brands.
+// typed into every reference on a screen: sl = sharp light, ss = sharp solid, b = brands.
 var styleDir = map[string]string{
 	"sl": "sharp-light",
 	"ss": "sharp-solid",
@@ -54,13 +56,13 @@ var styleDir = map[string]string{
 func main() {
 	root := os.Getenv("MAGI_FA_DIR")
 	if root == "" {
-		fmt.Fprintln(os.Stderr, "gen_icons: MAGI_FA_DIR is not set — no sprite written, the page will draw its own shapes")
+		fmt.Fprintln(os.Stderr, "gen_icons: MAGI_FA_DIR is not set — no sprite written, the screens will draw their own shapes")
 		return
 	}
 	// Where it is looking, checked before what is in it.
 	//
-	// Without this a wrong path produced the same message as a missing icon — "the page asks for
-	// icons this download does not have", followed by every name on the page, because none of them
+	// Without this a wrong path produced the same message as a missing icon — "the console asks for
+	// icons this download does not have", followed by every name it uses, because none of them
 	// were found. Two very different problems with one sentence between them, and the one that is
 	// nearly always true (the path) is not the one it named.
 	abs, _ := filepath.Abs(root)
@@ -85,30 +87,49 @@ func main() {
 	}
 	for prefix, dir := range styleDir {
 		if st, serr := os.Stat(filepath.Join(root, "svgs", dir)); serr != nil || !st.IsDir() {
-			die(fmt.Errorf("%s/svgs has no %s/ — the page names icons as #i-%s-… and they come "+
+			die(fmt.Errorf("%s/svgs has no %s/ — the console names icons as #i-%s-… and they come "+
 				"from there.\nA kit download only contains the styles the kit was built with; the "+
 				"Pro package has them all", abs, dir, prefix))
 		}
 	}
-	// The two files that can name an icon. The stylesheet cannot: an id in CSS would be a reference
-	// nothing renders.
-	var srcs []string
-	for _, f := range []string{"page.html", "page.js"} {
-		b, err := os.ReadFile(f)
-		if err != nil {
-			die(err)
-		}
-		srcs = append(srcs, string(b))
-	}
+	// Everything a screen is made of. The console is a set of compiled modules now, so the names
+	// are spread across their sources rather than sitting in one page — but they are still only in
+	// what RENDERS: the stylesheet cannot name an icon (an id in CSS is a reference nothing draws),
+	// and the modules' own tests are not screens, so a name that appears only in a test is a name
+	// nobody sees and is not baked.
 	want := map[string]bool{}
 	ref := regexp.MustCompile(`#i-(sl|ss|b)-([a-z0-9-]+)`)
-	for _, s := range srcs {
-		for _, m := range ref.FindAllStringSubmatch(s, -1) {
+	uiRoot := filepath.Join("..", "..", "web", "ui")
+	mainJava := filepath.Join("src", "main", "java")
+	err := filepath.WalkDir(uiRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		// build/ holds the compiled output, which repeats every name in obfuscated form and would
+		// make this depend on whether the last build was for this tree.
+		if d.IsDir() {
+			if d.Name() == "build" || d.Name() == ".gradle" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".java") || !strings.Contains(path, mainJava) {
+			return nil
+		}
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		for _, m := range ref.FindAllStringSubmatch(string(b), -1) {
 			want[m[1]+"-"+m[2]] = true
 		}
+		return nil
+	})
+	if err != nil {
+		die(fmt.Errorf("reading the console's sources under %s: %w", uiRoot, err))
 	}
 	if len(want) == 0 {
-		fmt.Fprintln(os.Stderr, "gen_icons: the page names no icons; nothing to bake")
+		fmt.Fprintln(os.Stderr, "gen_icons: the console names no icons; nothing to bake")
 		return
 	}
 
@@ -143,10 +164,10 @@ func main() {
 	}
 	sprite.WriteString(`</svg>`)
 
-	// A named icon with no file is a hole in the page, not a warning to scroll past: the build
+	// A named icon with no file is a hole in a screen, not a warning to scroll past: the build
 	// stops and says which, because the alternative is a screen with a gap where a control was.
 	if len(missing) > 0 {
-		die(fmt.Errorf("%s does not have %d of the %d icons the page names: %s\n"+
+		die(fmt.Errorf("%s does not have %d of the %d icons the console names: %s\n"+
 			"A kit download only contains what was added to that kit — add them and download "+
 			"again, or point MAGI_FA_DIR at the Pro package (npm i @fortawesome/fontawesome-pro), "+
 			"which has every icon", abs, len(missing), len(names), strings.Join(missing, ", ")))

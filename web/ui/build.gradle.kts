@@ -106,6 +106,8 @@ screens.entries.forEachIndexed { i, (name, both) ->
         }
         // 테스트 페이지의 자산은 단일 원천에서 매 빌드 복사한다(스냅샷 드리프트 없음):
         // 머티리얼 번들과 콘솔 CSS, 그리고 이 모듈이 제 것으로 둔 스타일시트가 있으면 그것도.
+        // 번들 셋은 아직 cmd/magi-web/vendor에 산다 — 콘솔을 서빙하는 바이너리가 그것을
+        // /vendor/로 내주기 때문이고, 시험 페이지도 같은 파일을 물어야 같은 것을 시험한다.
         val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
             from("${rootDir}/../../cmd/magi-web/vendor/material.js") { into("js") }
             // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
@@ -113,7 +115,7 @@ screens.entries.forEachIndexed { i, (name, both) ->
             // 마크다운 렉서 — 전사가 그리는 것을 테스트 페이지에서도 그리려면 같은 번들이어야
             // 한다. 스텁을 두면 스텁을 시험하게 된다.
             from("${rootDir}/../../cmd/magi-web/vendor/marked.js") { into("js") }
-            from("${rootDir}/../../cmd/magi-web/page.css") { into("css"); rename { "console.css" } }
+            from("${rootDir}/console.css") { into("css") }
             val own = file("src/main/webapp")
             if (own.isDirectory) from(own) { include("*.css"); into("css") }
             into("src/test/webapp")
@@ -128,8 +130,10 @@ tasks.register<Copy>("assembleConsole") {
     mustRunAfter(subprojects.map { "${it.path}:gwtTestCompile" })
     // 화면 모듈이 제 것으로 둔 자산(css 등)도 함께.
     subprojects.forEach { p -> from(p.projectDir.resolve("src/main/webapp")) }
-    // 팔레트·표 CSS는 기존 콘솔의 단일 원천에서 매 빌드 복사한다.
-    from("../../cmd/magi-web/page.css") { rename { "console.css" } }
+    // 팔레트·표 CSS. 화면 하나의 것이 아니라 콘솔 전체의 것이라 모듈 밖(web/ui/console.css)에
+    // 산다 — 예전에는 옛 콘솔의 page.css를 매 빌드 복사해 왔고, 그 콘솔이 사라지면서 원본이
+    // 이리로 왔다.
+    from("console.css")
     subprojects.forEach { p -> from(p.layout.buildDirectory.dir("gwt/war")) }
     // 목은 운영 자산이 아니다 — 데모를 낼 때만 따로 실어 나른다(assembleDemoMock).
     exclude("demo/**", "demo.nocache.js")

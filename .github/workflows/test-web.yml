@@ -131,15 +131,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Vet and build web/server
+      # 그리고 그 콘솔을 실제로 내줄 서버가 그것과 맞는지 — 이 레인이 여기서 닫는 경계다.
+      # ci.yml은 web/** 변경을 무시하는데, cmd/magi-web의 시험은 이제 web/ui를 직접 읽는다
+      # (화면들이 묻는 경로, 함께 쓰는 스타일시트). 그러니 web/만 바뀐 커밋에서 그 시험을
+      # 돌리는 자리는 여기뿐이고, 여기서 안 돌리면 아무 데서도 안 돈다.
+      - name: Vet and test the server that serves it
         run: |
-          gofmt -l web/server | tee /dev/stderr | test -z "$(cat)"
-          go vet ./web/server
-          go build ./web/server
+          set -euo pipefail
+          cp -R web/ui/build/console/. cmd/magi-web/console/
+          gofmt -l cmd/magi-web | tee /dev/stderr | test -z "$(cat)"
+          go vet ./cmd/magi-web
+          go build ./cmd/magi-web
+          go test ./cmd/magi-web/ -count=1
 
-  # 개발 중의 예시: main에 실리면 Pages의 next/ 하위 경로로 새 콘솔 데모가 나간다.
-  # deploy-pages는 사이트를 통째로 갈아끼우므로, 이 레인도 전체 사이트(구 데모 포함)를
-  # 짓는다 — 조리법은 pages.yml과 같은 composite 하나다.
+  # main에 실리면 Pages로 콘솔 데모가 나간다 — 사이트 루트에, 한 벌만.
+  # deploy-pages는 사이트를 통째로 갈아끼우므로, 이 레인도 전체 사이트를 짓는다 —
+  # 조리법은 pages.yml과 같은 composite 하나다.
   site:
     needs: [test, icons]
     if: github.ref == 'refs/heads/main'

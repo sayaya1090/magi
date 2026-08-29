@@ -574,9 +574,14 @@ func TestNoPartKindIsSilentlyDropped(t *testing.T) {
 //
 // A row with a class the stylesheet has never heard of is not a visible bug — it renders, in the
 // default colour, looking like an assistant reply. Both new kinds arrived that way.
+//
+// The two ends are far apart now: the kind is decided here, written into a class by Rows.java in
+// the browser, and painted by web/ui/console.css. Nothing compiles across that gap, so this is
+// what holds it.
 func TestEveryRowKindHasAStyle(t *testing.T) {
+	css := consoleCSS(t)
 	for _, kind := range []string{"user", "assistant", "thinking", "tool", "result", "failed", "image", "error"} {
-		if !strings.Contains(indexHTML, ".row."+kind+" ") {
+		if !strings.Contains(css, ".row."+kind+" ") {
 			t.Errorf("a %q row has no style; it draws as an assistant reply", kind)
 		}
 	}
@@ -856,12 +861,13 @@ func TestTheApprovalModeIsReadAndSetOverTheSocket(t *testing.T) {
 
 // The document is revalidated too, not only the assets under it.
 //
-// It carries the whole front end, so a browser holding yesterday's copy is a person looking at
-// yesterday's console — reporting bugs that were fixed and not seeing controls that exist. With no
-// Cache-Control at all a browser applies its own heuristic, which is the worst of both: sometimes
-// stale, never predictably.
+// It names the modules the browser then loads, so a browser holding yesterday's copy is a person
+// looking at yesterday's console — reporting bugs that were fixed and not seeing controls that
+// exist. With no Cache-Control at all a browser applies its own heuristic, which is the worst of
+// both: sometimes stale, never predictably.
 func TestThePageIsRevalidatedRatherThanHeuristicallyCached(t *testing.T) {
 	f := newFleetFixture(t)
+	withConsole(t, f.srv, map[string]string{"console.html": "<html><body>console</body></html>"})
 	w := get(t, f.srv.page, "/")
 	if w.Code != 200 {
 		t.Fatalf("the page answered %d", w.Code)

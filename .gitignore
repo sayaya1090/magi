@@ -69,5 +69,8 @@ cmd/magi-web/package-lock.json
 bench/harbor/state/
 web/ui/gradle.properties
 
-# go build ./web/server 가 떨구는 바이너리
-/server
+# 조립된 콘솔 — CI가 gradle로 만들어 이 자리에 놓으면 go:embed가 바이너리에 싣는다.
+# 산출물이라 저장소에 두지 않는다(README.md 하나만 남아 디렉토리를 지킨다: Go는 빈
+# 디렉토리를 임베드하지 못한다). cmd/magi-web/console/README.md 참고.
+cmd/magi-web/console/*
+!cmd/magi-web/console/README.md

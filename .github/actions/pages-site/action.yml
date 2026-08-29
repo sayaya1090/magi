@@ -1,12 +1,15 @@
-# Builds the WHOLE Pages site — the old console's demo at the root, the benchmark report, and
-# the new console's demo under next/. One action used by two workflows (pages.yml for core
-# changes, test-web.yml for web changes), because deploy-pages replaces the whole site: whichever
-# lane publishes must publish everything.
+# Builds the WHOLE Pages site — the console's demo at the root, and the benchmark report under
+# bench/. One action used by two workflows (pages.yml for core changes, test-web.yml for web
+# changes), because deploy-pages replaces the whole site: whichever lane publishes must publish
+# everything.
+#
+# There used to be two demos here, the old console's at the root and the new one under next/.
+# The old console is gone — the new one took its place, at the address people already had.
 name: build-pages-site
 description: assemble the full Pages site into _site/
 inputs:
   fa-token:
-    description: Font Awesome Pro npm token (optional — without it the page draws its own shapes)
+    description: Font Awesome Pro npm token (optional — without it the screens draw their own shapes)
     required: false
     default: ""
 runs:
@@ -14,16 +17,7 @@ runs:
   steps:
     # 아이콘은 앞 단계(bake-icons)가 구워 산출물로 넘긴다 — 이 액션은 그것이 이미 제자리에
     # 있다고 보고 짓는다. 없으면(라이선스 없는 런) 화면들이 늘 그리던 도형을 그린다.
-    - name: build the old console's demo
-      shell: bash
-      run: go run ./cmd/magi-web -emit-demo ./_site
-    - name: carry the benchmark report onto the site
-      shell: bash
-      run: |
-        set -euo pipefail
-        mkdir -p ./_site/bench
-        cp docs/bench/*.html ./_site/bench/
-    - name: build the new console's demo under next/
+    - name: assemble the console
       shell: bash
       run: |
         set -euo pipefail
@@ -39,4 +33,15 @@ runs:
         if [ ! -f web/ui/build/demo-mock/demo/demo.nocache.js ]; then
           (cd web/ui && ./gradlew assembleDemoMock -q)
         fi
-        go run ./web/server -emit-demo ./_site/next
+    # -console은 조립본을 디스크에서 읽으라는 뜻이다. 임베드된 사본을 쓰지 않는 이유는
+    # 하나뿐: 그러려면 먼저 cmd/magi-web/console/ 로 복사하고 `go build`를 해야 하는데,
+    # 여기서 필요한 것은 바이너리가 아니라 그 바이너리가 그릴 정적 사본이다.
+    - name: emit the console's demo at the site root
+      shell: bash
+      run: go run ./cmd/magi-web -console web/ui/build/console -emit-demo ./_site
+    - name: carry the benchmark report onto the site
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ./_site/bench
+        cp docs/bench/*.html ./_site/bench/

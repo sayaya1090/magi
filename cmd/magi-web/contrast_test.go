@@ -61,7 +61,7 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 	// silently, because the fallback is also a legal answer.
 	colour := regexp.MustCompile(`color:var\(--magi-ref-([A-Za-z][A-Za-z-]*)\)`)
 	op := regexp.MustCompile(`opacity:([0-9.]+)`)
-	css := indexHTML[strings.Index(indexHTML, "<style>"):strings.Index(indexHTML, "</style>")]
+	css := consoleCSS(t)
 	// Keyframes first. This check is about text that RESTS at an unreadable opacity; a keyframe is a
 	// tenth of a second on the way somewhere, and "from { opacity:0 }" is what an entrance IS. A
 	// keyframe that ended dimmed would still be caught, because whatever it left the element at is
@@ -146,13 +146,14 @@ func TestNoOpacityInTheStylesheetGoesBelowWhatItsRoleAllows(t *testing.T) {
 	}
 }
 
-// themeRoles reads both palettes out of the page.
+// themeRoles reads both palettes out of the stylesheet.
 func themeRoles(t *testing.T) (dark, light map[string]string) {
 	t.Helper()
-	lightAt := strings.Index(indexHTML, "@media (prefers-color-scheme: light)")
-	endAt := strings.Index(indexHTML, "* { box-sizing")
+	css := consoleCSS(t)
+	lightAt := strings.Index(css, "@media (prefers-color-scheme: light)")
+	endAt := strings.Index(css, "* { box-sizing")
 	if lightAt < 0 || endAt < 0 {
-		t.Fatal("the page's palette blocks are not where this check expects them")
+		t.Fatal("the stylesheet's palette blocks are not where this check expects them")
 	}
 	// The reference layer wears its namespace now, and the role is what follows it — the pattern
 	// that read a bare name found none and reported every role missing from both themes.
@@ -167,7 +168,7 @@ func themeRoles(t *testing.T) (dark, light map[string]string) {
 		}
 		return out
 	}
-	dark, light = read(indexHTML[:lightAt]), read(indexHTML[lightAt:endAt])
+	dark, light = read(css[:lightAt]), read(css[lightAt:endAt])
 	for _, need := range []string{"bg", "fg", "muted", "primary", "accent"} {
 		if dark[need] == "" || light[need] == "" {
 			t.Fatalf("role %q is missing from one of the themes", need)

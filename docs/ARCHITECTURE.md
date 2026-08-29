@@ -195,7 +195,9 @@ inside.
 cmd/magi/                 entrypoint: flag parsing, DI wiring, -p headless, TUI launch,
                           -daemon (engine with no UI) / -attach (a UI onto one) / -agents
 cmd/magi-web/             the console: a read-mostly web view of every daemon on the machine,
-                          and of other consoles' (peer.go). page.go is the whole front end
+                          and of other consoles' (peer.go). The front end is compiled from
+                          web/ui and assembled into console/ by CI; a build without it is a
+                          working BFF whose / says so
 internal/
   core/                     domain — no outward deps
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta

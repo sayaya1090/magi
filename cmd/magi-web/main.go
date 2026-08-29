@@ -87,10 +87,19 @@ func run() int {
 	userHeader := flag.String("user-header", "",
 		"header the authenticating proxy in front puts the person's name in, recorded with each "+
 			"change (e.g. X-Forwarded-User); unset records where a request came from and not who")
-	// Writing the page out as a static site, answered by a mock in the browser. Here rather than in
-	// its own command because it must emit the string THIS binary serves — a generator with its own
-	// copy of the page is a demo that drifts, which is worse than none.
+	// Where the console comes from. Empty is the ordinary case — the tree gradle assembled and CI
+	// baked into this binary. Naming a directory serves that instead, which is the development loop:
+	// `gradlew assembleConsole` writes into web/ui/build/console and a reload picks it up, with no
+	// copy step and no second server in front.
+	consoleDir := flag.String("console", "",
+		"serve the assembled console from this directory instead of the one built into this binary "+
+			"(development: web/ui/build/console)")
+	// Writing the console out as a static site, answered by a mock in the browser. Here rather than
+	// in its own command because it must emit the tree THIS binary serves — a generator with its own
+	// copy is a demo that drifts, which is worse than none.
 	emit := flag.String("emit-demo", "", "write the console as a static demo into this directory, then exit")
+	demoMock := flag.String("demo-mock", "web/ui/build/demo-mock/demo",
+		"the demo's mock module (gradlew assembleDemoMock), copied in beside the screens by -emit-demo")
 	flag.Parse()
 
 	peers, perr := parsePeers(peerSpecs)
@@ -129,8 +138,14 @@ func run() int {
 		cd = plat.ConfigDir()
 	}
 
+	ui, uierr := consoleTree(*consoleDir)
+	if uierr != nil {
+		fmt.Fprintln(os.Stderr, "magi-web:", uierr)
+		return 1
+	}
+
 	if *emit != "" {
-		if err := emitDemo(*emit); err != nil {
+		if err := emitDemo(*emit, ui, *demoMock); err != nil {
 			fmt.Fprintln(os.Stderr, "magi-web:", err)
 			return 1
 		}
@@ -183,6 +198,13 @@ func run() int {
 		http:       &http.Client{Timeout: peerTimeout},
 		stream:     &http.Client{},
 		embedModel: os.Getenv("MAGI_EMBED_MODEL"),
+		ui:         ui, consoleDir: *consoleDir, consolePage: consolePage(ui),
+	}
+	// Said once, at startup, because the alternative is finding it out from a browser. A build with
+	// no console still serves every route the console would have called — see ui.go.
+	if srv.consolePage == "" {
+		fmt.Fprintln(os.Stderr, "magi-web: no console in this build — / will say so "+
+			"(cmd/magi-web/console/README.md)")
 	}
 	defer srv.closeAll()
 	defer audit.Close()
@@ -404,6 +426,14 @@ type server struct {
 	groupsHeader string
 	// claimOnce keeps the "nobody has claimed this console" note to one line per process.
 	claimOnce sync.Once
+
+	// ui is the assembled console — the embedded tree, or the directory -console named. consoleDir
+	// is that flag, kept because it is the one case where the page is re-read per request: a
+	// directory can be rebuilt under a running process and that is the whole point of the flag.
+	// consolePage is console.html with the icons in, read once (empty = this build has no console).
+	ui          fs.FS
+	consoleDir  string
+	consolePage string
 
 	// Other consoles this one reads, from the operator's flags. Empty is the ordinary case: one
 	// machine, no federation, nothing on the network.
@@ -946,50 +976,6 @@ func notRunning(in daemon.Info, err error) error {
 		nameOfSocket(in.Socket), where)
 }
 
-// page is the whole front end. Server-rendered with an inline script and no build step: magi ships
-// one static binary with no toolchain behind it, and a bundler for a transcript and a text box
-// would be a second thing to keep working.
-//
-// One page for both views. `/` is the dashboard, `/?d=<socket>` is one agent — the same document,
-// which is why entering an agent and coming back costs no reload and why the two cannot drift into
-// two different ideas of what magi looks like.
-func (s *server) page(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// Cached and revalidated, like the assets under it. The document carries the whole front end,
-	// so a browser holding yesterday's copy is a person looking at yesterday's console — reporting
-	// bugs that were fixed and not seeing controls that exist. With no Cache-Control at all a
-	// browser applies its own heuristic, which is the worst of both: sometimes stale, never
-	// predictably. The ETag makes the check a round trip with no body.
-	sum := sha256.Sum256([]byte(indexHTML))
-	etag := "\"" + hex.EncodeToString(sum[:8]) + "\""
-	w.Header().Set("ETag", etag)
-	w.Header().Set("Cache-Control", "no-cache")
-	if match := r.Header.Get("If-None-Match"); match == etag {
-		w.WriteHeader(http.StatusNotModified)
-		return
-	}
-	// The English pack, inlined ahead of the page's own script. The page fetches the reader's
-	// locale after it loads, but the FIRST paint happens before any fetch answers — without a seed
-	// every label would show its dotted key for a moment, which is debug output on somebody's
-	// dashboard. One source: the same file the /i18n route serves.
-	if pack, err := assetFS.ReadFile("i18n/language.en.json"); err == nil {
-		if _, werr := w.Write([]byte("<script>window.__LANG=" + string(pack) + "</script>\n")); werr != nil {
-			log.Printf("magi-web: writing the language seed: %v", werr)
-			return
-		}
-	}
-	// A write that fails means the browser hung up mid-page. There is nobody left to tell and no
-	// second attempt worth making, but the reason is worth having in the log of a process whose
-	// whole job is to be watched.
-	if _, err := io.WriteString(w, indexHTML); err != nil {
-		log.Printf("magi-web: writing the page: %v", err)
-	}
-}
-
 // routes is every path this server answers, in one place.
 //
 // Wrapped where the table is built, not where the server is started: a guard applied at the call
@@ -1033,8 +1019,11 @@ func (s *server) handlers() map[string]http.HandlerFunc {
 		// fails the whole ES module — so on a real console NOTHING ran: no components, no script, no
 		// language beyond the seed inlined above. The demo hid it for as long as it existed, because
 		// a static export writes these files to disk beside the page.
-		"/vendor/":       s.asset,
-		"/i18n/":         s.asset,
+		"/vendor/": s.asset,
+		"/i18n/":   s.asset,
+		// The console itself: every compiled module, every stylesheet. See uiAsset for the cache
+		// contract, which is GWT's.
+		"/ui/":           s.uiAsset,
 		"/skills":        s.skills,
 		"/wiki":          s.wiki,
 		"/forget":        s.forgetSkill,

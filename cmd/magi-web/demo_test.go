@@ -1,7 +1,11 @@
+// The demo is the only build output a stranger sees (Pages), and nothing in the browser tells it
+// when it is wrong: a path the shim does not know answers 404 and the screen just stays empty.
+// Three such holes shipped before these tests existed — /console, /context, and the typeface. So
+// both tests here read the real thing rather than a description of it: the first asks the modules
+// themselves what they fetch, the second runs the emitter and looks at what it wrote.
 package main
 
 import (
-	"github.com/sayaya1090/magi/internal/webdemo"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -9,168 +13,188 @@ import (
 	"testing"
 )
 
-// The demo is the page plus a mock, never a copy of the page.
+// 화면이 묻는 길은 목이 답해야 한다 — 하나라도 빠지면 그 판은 배포된 데모에서 빈 채로 뜬다.
 //
-// A generator with its own copy is a demo that drifts, and a drifted demo is worse than none: it is
-// evidence about something that is not shipped.
-func TestTheDemoIsThePageItself(t *testing.T) {
-	dir := t.TempDir()
-	if err := emitDemo(dir); err != nil {
-		t.Fatal(err)
-	}
-	b, err := os.ReadFile(filepath.Join(dir, "index.html"))
+// 목이 화면마다 있던 시절의 검사(모듈마다 Demo* 구현을 요구)를 대신한다. 이제 목은 회선의
+// 이음매에 걸린 모듈 하나이고, 답하는 단위도 화면이 아니라 <b>경로</b>다. 그래서 여기서
+// 재는 것도 경로다: 화면들이 부르는 길을 소스에서 캐고, demo-ui가 그 길에 답하는지 본다.
+func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
+	asked := map[string]string{} // 경로 → 그 길을 부르는 모듈
+	answers := map[string]bool{} // 목이 답하는 경로
+	root := filepath.Join("..", "..", "web", "ui")
+	// 부르는 모양을 하나라도 빠뜨리면 이 검사는 통과하면서 아무것도 안 본다. postText와
+	// postSaid가 빠져 있던 동안 /suggest·/complete·/git-msg·/git-pr·/pr-msg 다섯이 이 눈
+	// 밖에 있었고, 그 중 /suggest는 공개 데모에서 501이었다(실측). 그러니 이름을 열거하지
+	// 말고 Console의 <b>모든</b> 부름을 본다 — 다음에 늘어나는 이름도 저절로 들어온다.
+	call := regexp.MustCompile(`Console\.[a-zA-Z]+\("(/[a-zA-Z0-9_-]+)`)
+	// 목이 답하는 모양 둘: switch의 case와, 길 하나만 보는 자리의 equals(스트림이 그렇다).
+	answered := regexp.MustCompile(`(?:case "(/[a-zA-Z0-9_-]+)"|"(/[a-zA-Z0-9_-]+)"\.equals\()`)
+	err := filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".java") ||
+			!strings.Contains(p, filepath.Join("src", "main", "java")) {
+			return err
+		}
+		rel := strings.TrimPrefix(p, root+string(filepath.Separator))
+		mod := strings.SplitN(rel, string(filepath.Separator), 2)[0]
+		src, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		if mod == "demo-ui" {
+			for _, m := range answered.FindAllStringSubmatch(string(src), -1) {
+				answers[m[1]+m[2]] = true
+			}
+			return nil
+		}
+		for _, m := range call.FindAllStringSubmatch(string(src), -1) {
+			asked[m[1]] = mod
+		}
+		return nil
+	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("walking %s: %v", root, err)
 	}
-	got := string(b)
-	// The page is in there byte for byte. It is no longer the FIRST thing in the file — the
-	// language seed goes ahead of it, exactly as the handler writes it for a real browser — so the
-	// check is containment plus "nothing before it but the seed".
-	// The page, with one transformation and no other: root-relative asset paths become relative,
-	// because a project site lives under /<repo>/ and a leading slash escapes to the domain root.
-	// Compared after applying the same rewrite to the original, so any OTHER difference still
-	// fails — the demo must not become a second page.
-	want := indexHTML
-	for _, prefix := range []string{"/vendor/", "/font/", "/i18n/"} {
-		want = strings.ReplaceAll(want, "'"+prefix, "'."+prefix)
-		want = strings.ReplaceAll(want, `"`+prefix, `".`+prefix)
-		want = strings.ReplaceAll(want, "url("+prefix, "url(."+prefix)
+	if len(asked) < 20 {
+		t.Fatalf("only %d paths found under %s — the miner has gone stale, and a stale miner "+
+			"passes by finding nothing", len(asked), root)
 	}
-	for _, file := range []string{"/icon.svg", "/manifest.webmanifest"} {
-		want = strings.ReplaceAll(want, `"`+file+`"`, `".`+file+`"`)
-	}
-	at := strings.Index(got, want)
-	if at < 0 {
-		t.Fatal("the demo does not carry the page this binary serves, byte for byte")
-	}
-	// Nothing the browser loads may still be root-relative: under /<repo>/ that is a 404, and for
-	// the module import a 404 is a blank page.
-	for _, ref := range referencedPaths(got) {
-		if strings.HasPrefix(ref, "/") {
-			t.Errorf("%s is still root-relative — on a project site that resolves to the domain "+
-				"root and 404s", ref)
+	for path, mod := range asked {
+		// 파일로 서빙되는 것들은 목의 것이 아니다 — 데모 사이트가 제 사본을 함께 낸다.
+		if served[path] {
+			continue
+		}
+		if !answers[path] {
+			t.Errorf("%s asks for %s and the mock does not answer it — that screen comes up "+
+				"empty on the published demo", mod, path)
 		}
 	}
-	if before := got[:at]; !strings.HasPrefix(before, "<script>window.__LANG=") || strings.Count(before, "<script>") != 1 {
-		t.Errorf("something other than the language seed was put ahead of the page:\n%s", before)
+}
+
+// 목이 아니라 파일이 답하는 길 — 데모 사이트가 그 사본을 함께 내보낸다.
+var served = map[string]bool{
+	"/i18n": true,
+}
+
+// What the emitter leaves behind, read off disk. The demo is opened from a directory rather than
+// served by the binary that embeds it, so anything that stayed root-absolute is a 404 there and
+// nowhere else — which is why this is checked here and not by opening the page.
+func TestEmitDemoLeavesNothingRootAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	ui, mock, out := filepath.Join(dir, "ui"), filepath.Join(dir, "demo-mock", "demo"), filepath.Join(dir, "out")
+	demoWrite(t, filepath.Join(ui, "console.html"),
+		`<html><head><link rel="stylesheet" href="/ui/console.css">`+
+			`<!--DEMO-SHIM-->`+
+			`<script type="module">import '/vendor/material.js';import * as rxjs from '/vendor/rxjs.js';`+
+			`window.rxjs=rxjs;const b=document.createElement('script');b.src='/ui/shell/shell.nocache.js';`+
+			`document.head.append(b);</script></head><body></body></html>`)
+	demoWrite(t, filepath.Join(ui, "console.css"),
+		"@font-face{src:url(/font/newsreader-400.woff2)}\n.row{color:red}\n")
+	demoWrite(t, filepath.Join(ui, "shell", "shell.nocache.js"),
+		`var p='/ui/'+m+'/';var s="/ui/companion.css";var t='/i18n/language.'+w+'.json';`)
+	// 목은 콘솔 자산 옆의 제 디렉토리에서 온다(운영 번들에는 없다) — 데모를 낼 때만 실린다.
+	demoWrite(t, filepath.Join(mock, "demo.nocache.js"), "// the mock\n")
+
+	if err := emitDemo(out, os.DirFS(ui), mock); err != nil {
+		t.Fatalf("emitDemo: %v", err)
 	}
-	if !strings.Contains(got, "demo — the real page") {
-		t.Error("the demo does not say it is one")
+	css := demoRead(t, filepath.Join(out, "ui", "console.css"))
+	if strings.Contains(css, "url(/font/") {
+		t.Error("console.css still points at /font/ — two faces 404 on every demo page")
 	}
-	// EVERY path the page reaches for has to be in the directory. A missing font degrades the look;
-	// a missing module means the script never runs and the page is blank — which is what shipped
-	// the first time this page became a module and emitDemo still copied only the fonts.
-	for _, ref := range referencedPaths(got) {
-		if _, err := os.Stat(filepath.Join(dir, strings.TrimPrefix(strings.TrimPrefix(ref, "."), "/"))); err != nil {
-			t.Errorf("the page reaches for %s and the demo does not carry it: %v", ref, err)
+	if !strings.Contains(css, "url(../font/") {
+		t.Error("the typeface was not repointed relative to the stylesheet's own place")
+	}
+	page := demoRead(t, filepath.Join(out, "index.html"))
+	for _, absolute := range []string{`"/ui/`, `'/ui/`, `"/vendor/`, `'/vendor/`} {
+		if strings.Contains(page, absolute) {
+			t.Errorf("index.html still carries %s — root-absolute under a subpath is a 404", absolute)
 		}
 	}
-	// And the language seed, or the first paint is a screen of dotted keys.
-	if !strings.Contains(got, "window.__LANG=") {
-		t.Error("the demo has no language seed, so it opens showing its own key names")
+	// 페이지가 하는 일은 한 줄이다: 지금은 데모라는 사실. 답은 모듈들이 제 목으로 한다.
+	if !strings.Contains(page, "MAGI_DEMO") {
+		t.Error("the page never says it is a demo — every module would then ask the real network")
 	}
-	for _, want := range []string{".nojekyll", "font"} {
-		if _, err := os.Stat(filepath.Join(dir, want)); err != nil {
+	// 그리고 그 사실은 <b>첫 스크립트보다 먼저</b> 적혀야 한다. 부트스트랩이 태그가 아니라
+	// 모듈 스크립트 안으로 들어가면서 "<script src=" 이라는 기준점이 사라졌고, 그때 목이
+	// 조용히 빠져 데모가 통째로 404가 됐다(밟았다) — 그래서 기준점은 표식이 아니라 실제로
+	// 회선을 여는 첫 스크립트다.
+	if strings.Index(page, "MAGI_DEMO") > strings.Index(page, "shell.nocache.js") {
+		t.Error("the flag goes in after the shell boots — modules would ask the real network first")
+	}
+	// The compiled module's own literals, both quote styles (GWT writes single).
+	js := demoRead(t, filepath.Join(out, "ui", "shell", "shell.nocache.js"))
+	if strings.Contains(js, `'/ui/`) || strings.Contains(js, `"/ui/`) {
+		t.Errorf("the loader still builds absolute module paths: %s", js)
+	}
+	// 말은 제 사본에서 읽는다. 그리고 `./`이지 `../`가 아니다: JS의 상대경로는 스크립트가
+	// 아니라 문서를 기준으로 푼다(실측).
+	if strings.Contains(js, `'/i18n/`) || strings.Contains(js, `"/i18n/`) {
+		t.Error("the console still asks the site root for its language pack")
+	}
+	if strings.Contains(js, `'../i18n/`) {
+		t.Error("`../i18n/` resolves against the document, which is index.html at the root")
+	}
+	if !strings.Contains(js, `'./i18n/`) {
+		t.Error("the language pack path was not repointed at this console's own copy")
+	}
+
+	// 살아서 바이너리가 나눠 주던 것들이 파일로 따라 나왔는가. 손으로 적은 목록이 아니라
+	// 임베드한 디렉토리에서 통째로 복사하므로, 여기서는 각 갈래가 비지 않았는지를 본다 —
+	// 번들 하나가 늘어도 이 검사는 저절로 따라온다.
+	for _, one := range []struct{ dir, suffix string }{
+		{"vendor", ".js"}, {"i18n", ".json"}, {"font", ".woff2"},
+	} {
+		names, err := os.ReadDir(filepath.Join(out, one.dir))
+		if err != nil {
+			t.Errorf("%s/ did not travel into the demo: %v", one.dir, err)
+			continue
+		}
+		got := 0
+		for _, n := range names {
+			if strings.HasSuffix(n.Name(), one.suffix) {
+				got++
+			}
+		}
+		if got == 0 {
+			t.Errorf("%s/ travelled empty — nothing in it ends in %s", one.dir, one.suffix)
+		}
+	}
+	// 밑줄로 시작하는 파일을 감추는 호스트가 사이트의 일부를 먹지 않게.
+	for _, want := range []string{".nojekyll", "manifest.webmanifest", "icon.svg", "sw.js"} {
+		if _, err := os.Stat(filepath.Join(out, want)); err != nil {
 			t.Errorf("%s is missing: %v", want, err)
 		}
 	}
-	fonts, err := os.ReadDir(filepath.Join(dir, "font"))
-	if err != nil || len(fonts) == 0 {
-		t.Errorf("no fonts were written: %v", err)
+}
+
+// 콘솔이 없는 빌드에서 데모를 내라고 하면, 빈 디렉토리를 만들어 두고 성공했다고 하면 안 된다.
+// 그 자리에서 이유를 대야 CI가 조립 단계를 빠뜨린 것을 그때 안다.
+func TestEmitDemoWithoutAConsoleSaysSo(t *testing.T) {
+	dir := t.TempDir()
+	err := emitDemo(filepath.Join(dir, "out"), os.DirFS(filepath.Join(dir, "empty")), dir)
+	if err == nil {
+		t.Fatal("a build with no console emitted a demo anyway")
 	}
-	for _, f := range fonts {
-		if !strings.HasSuffix(f.Name(), ".woff2") {
-			t.Errorf("%s is not a font", f.Name())
-		}
+	if !strings.Contains(err.Error(), "console") {
+		t.Errorf("the error does not name what is missing: %v", err)
 	}
 }
 
-// Every route the page fetches has an answer in the mock, and every answer is a route the page
-// actually fetches. The first keeps a screen from being blank in the demo; the second keeps a
-// fixture alive for a route that no longer exists.
-func TestTheMockAnswersExactlyWhatThePageAsksFor(t *testing.T) {
-	asked := map[string]bool{}
-	for _, m := range fetchPathsIn(indexHTML) {
-		asked[m] = true
+func demoWrite(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	if len(asked) < 5 {
-		t.Fatalf("only found %d fetched paths — the scan has lost its subject: %v", len(asked), asked)
-	}
-	for path := range asked {
-		// /i18n is answered by prefix (any locale falls back to English), not by an exact key.
-		if path == "/events" || path == "/i18n" {
-			continue
-		}
-		if !strings.Contains(webdemo.Script, "'"+path+"'") {
-			t.Errorf("the page fetches %s and the mock has no answer for it — that screen is blank "+
-				"in the demo", path)
-		}
-	}
-	for _, quoted := range mockRoutesIn(webdemo.Script) {
-		if !asked[quoted] {
-			t.Errorf("the mock answers %s and the page never asks for it", quoted)
-		}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
-// fetchPathsIn finds the paths the page READS. Only those need a fixture: a POST is answered by the
-// mock's "would have sent" branch, which is deliberate — a demo that silently accepts a delete
-// teaches the wrong thing about the real console.
-func fetchPathsIn(page string) []string {
-	var out []string
-	// Every helper that READS. The list is the point: a new one that this does not know about makes
-	// the whole check silently narrower, which is how /council was fetched by the page and answered
-	// by nothing for as long as it took to notice.
-	// The hyphen is part of a route name. Without it /report-format was read as "/report", and the
-	// check then looked for a mock answer to a path the page never asks for — passing or failing
-	// on a name neither side uses, which is a check that has quietly stopped checking.
-	for _, re := range []*regexp.Regexp{
-		regexp.MustCompile(`fetch\('(/[a-z0-9-]+)`),
-		regexp.MustCompile(`fetchList\('(/[a-z0-9-]+)`),
-		regexp.MustCompile(`fetchOne\('(/[a-z0-9-]+)`),
-		// sideFetch(id, a, '/path' …) — the keyed side-card hold, whose path is the third argument.
-		regexp.MustCompile(`sideFetch\('[a-z]+', [^,]+, '(/[a-z0-9-]+)`),
-	} {
-		for _, m := range re.FindAllStringSubmatch(page, -1) {
-			out = append(out, m[1])
-		}
+func demoRead(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
 	}
-	return out
-}
-
-// mockRoutesIn finds the routes the fixture answers.
-func mockRoutesIn(script string) []string {
-	var out []string
-	for _, m := range regexp.MustCompile(`\n    '(/[a-z]+)':`).FindAllStringSubmatch(script, -1) {
-		out = append(out, m[1])
-	}
-	return out
-}
-
-// referencedPaths is every root-relative path the page loads: module imports, scripts, styles,
-// links and CSS url()s. The demo must carry all of them, because it is opened from a directory
-// rather than served by the binary that embeds them.
-func referencedPaths(page string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, re := range []*regexp.Regexp{
-		regexp.MustCompile(`from '(\.?/[^']+)'`),
-		// A side-effect import has no `from`, and the first version of this scan did not look for
-		// one — so the Material Web bundle was missing from the demo and the check said fine.
-		regexp.MustCompile(`import '(\.?/[^']+)'`),
-		regexp.MustCompile(`(?:src|href)="(\.?/[^"]+)"`),
-		regexp.MustCompile(`url\((\.?/[^)]+)\)`),
-	} {
-		for _, m := range re.FindAllStringSubmatch(page, -1) {
-			p := strings.Trim(m[1], "'\"")
-			// Routes the mock answers are not files; only what the BROWSER loads is.
-			// A link with a query is navigation within the page, not a file to carry.
-			if seen[p] || strings.Contains(p, "/i18n/") || p == "/" || strings.Contains(p, "?") {
-				continue
-			}
-			seen[p] = true
-			out = append(out, p)
-		}
-	}
-	return out
+	return string(b)
 }

@@ -1,14 +1,21 @@
-# web/ — 콘솔 신규 구현 (스트랭글러)
+# web/ — 콘솔 (스트랭글러, 컷오버 완료)
 
-기존 콘솔(`cmd/magi-web`)은 **무변경으로 유지**하고, 여기서 동일 기능을 새로 구현한다.
-대조표가 전부 ✓가 되고 프로브 게이트를 통과하면 기존을 삭제한다. 그 전까지 정본은 기존 콘솔이다.
+기존 콘솔은 **삭제됐다**(2026-08-29). `cmd/magi-web`이 한 페이지로 들고 있던 것 — `page.html`·
+`page.js`·`page.css`와 그 테스트들 — 이 여기 있는 모듈들로 대체됐고, 새 UI를 앞에서 서빙하던
+개발용 프록시(`web/server`)도 함께 없어졌다. `cmd/magi-web`은 이제 BFF이고, 여기서 조립한 것을
+`/`에서 내준다.
+
+조립본은 저장소에 없다. GWT 컴파일에는 JDK와 gradle이 필요한데, 그것을 `go build`의 앞에 세우면
+프론트를 열 일이 없는 사람의 빌드까지 거기 매인다 — 그래서 조립은 **CI가 하고**(`release-web.yml`·
+`test-web.yml`), `cmd/magi-web/console/`에는 자리지기 README만 커밋되어 있다. 콘솔 없이 빌드한
+바이너리도 **선다**: 모든 경로가 답하는 온전한 BFF이고 `/`만이 "이 빌드에는 콘솔이 없다"고
+제 입으로 말한다. 개발 중에는 `magi-web -console web/ui/build/console`이 조립본을 요청마다 다시
+읽는다(복사도 재빌드도 없다).
 
 UI 쪽 상세 — 모듈 계약·셸 흐름·화면 이식 절차·빌드 — 는 [`ui/README.md`](ui/README.md)에 있다.
 
 ```
 web/
-├── server/   # 씬 개발 서버(Go): 새 UI 정적 서빙 + 나머지 전부를 기존 magi-web으로 리버스 프록시
-│             #   → 새 프론트가 기존 BFF의 실데이터로 렌더 = 대조가 곧 개발 루프
 └── ui/       # handbook식 GWT 멀티모듈 (Gradle) — 화면 하나 = 모듈 하나
     ├── console-bridge/  # 셸↔화면 계약: Render/Uri/Label 공유 + SseSharing(스트림 단독 소유) + FetchApi(목킹 지점)
     ├── ui-components/   # 공용 위젯(트랜스크립트 렌더러·게이지·컴포저)
@@ -135,7 +142,16 @@ CompanionSharing이 해석된 컨텍스트를 나른다. 화면이 이동을 청
 셋 — 시계 미설치·맵 문장 미배선·상세 슬롯 미배선 — 각각 제 단언 하나씩만 물었다. 상세는
 `ui/README.md`.
 
-## 대조표 (100% = 전부 ✓ + 프로브 통과 → cmd/magi-web 삭제)
+## 대조표 (컷오버 기록)
+
+`상태` 칸은 끝내 한 번도 채워지지 않았다 — 열다섯 줄 전부 ☐다. 그대로 둔다. 컷오버는 이 표가
+스스로 걸어 둔 조건(전부 ✓ + 프로브 통과)이 충족돼서 일어난 것이 아니라, 행마다 적힌 실측
+대조를 근거로 사람이 결정한 것이기 때문이다. ☐를 지금 ✓로 고치면 이 표가 제 조건대로 닫힌
+것처럼 읽히고, 그것은 일어나지 않은 일이다.
+
+`기존` 칸이 가리키던 콘솔은 이제 없다. 이 표는 **그것이 있던 동안 무엇과 무엇을 맞대어
+재었는지**의 기록이고, 각 칸의 실측(픽셀·바이트·문자열 동일)은 그 대조가 가능했던 시점의
+것이다. 새 결함이 나오면 여기가 아니라 코드와 스펙에서 잡는다.
 
 | 화면/기능 | 기존 | 신규 | 상태 |
 |---|---|---|---|
@@ -601,6 +617,12 @@ CompanionSharing이 해석된 컨텍스트를 나른다. 화면이 이동을 청
   `./gradlew assembleConsole` → `build/console/`에 서빙 루트(console.html+모듈 스크립트) 집결.
   sayaya-ui 등은 GitHub Packages — 로컬은 gradle 캐시로 통과, CI는
   `GITHUB_USERNAME`/`GITHUB_TOKEN`(또는 gradle.properties) 필요.
-- `web/server`: `go build ./web/server` — 기존 magi-web(기본 127.0.0.1:7777)을 띄운 채
-  `go run ./web/server`로 실행(기본 -ui web/ui/build/console), http://127.0.0.1:7778 에서 새 UI 개발.
-- 컷오버 시점에: 산출물 go:embed·web-v* 릴리스 레인 전환·기존 삭제.
+- `cmd/magi-web`: `go build ./cmd/magi-web` — JDK 없이도 선다(콘솔 없는 BFF). 화면을 함께
+  보려면 `make console` 뒤에 `make web`, 또는 개발 중이라면 굽지 말고
+  `go run ./cmd/magi-web -console web/ui/build/console`(요청마다 다시 읽는다).
+- CI: `test-web.yml`이 모듈별 스펙 → 조립 → `go test ./cmd/magi-web/`까지 가고,
+  `release-web.yml`이 web-v* 태그에서 조립본을 패키지 안에 넣은 뒤 여섯 벌을 굽는다.
+  Pages는 `.github/actions/pages-site` 한 조리법으로 사이트 루트에 데모 한 벌을 낸다.
+- 컷오버(2026-08-29)에 한 것: 조립본 go:embed(`cmd/magi-web/console/`)·CI 조립 단계 신설·
+  `web/server` 삭제·기존 콘솔(page.html/js/css와 그 테스트) 삭제·Pages 데모를 `next/`에서
+  루트로 이동.

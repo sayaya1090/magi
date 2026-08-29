@@ -188,7 +188,9 @@ flowchart LR
 cmd/magi/                 진입점: 플래그 파싱, DI 배선, -p 헤드리스, TUI 기동,
                           -daemon(UI 없는 엔진) / -attach(거기 붙는 UI) / -agents
 cmd/magi-web/             콘솔: 이 머신의 모든 데몬을 — 그리고 다른 콘솔의 것까지(peer.go) —
-                          읽기 위주로 보는 웹 화면. page.go가 프런트엔드 전체
+                          읽기 위주로 보는 웹 화면. 프런트엔드는 web/ui에서 컴파일돼
+                          CI가 console/에 조립한다. 그것 없이 빌드해도 서고, 그때 /가
+                          제 입으로 그렇게 말한다
 internal/
   core/                     도메인 — 바깥으로 나가는 의존 없음
     session/                Session, Message, Part, ToolCall, ToolResult, Todo, SessionMeta
