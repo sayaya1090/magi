@@ -36,17 +36,49 @@ class DaemonClient private constructor(
     private val channel: SocketChannel,
     private val reader: BufferedReader,
     private val writer: BufferedWriter,
+    private val patienceMs: Long,
 ) : Daemon {
 
     private val lock = ReentrantLock()
 
-    /** 한 번의 요청과 그 답. 락스텝이므로 통째로 잠근다. */
+    /**
+     * 한 번의 요청과 그 답. 락스텝이므로 통째로 잠근다.
+     *
+     * **시한이 있다.** `readLine` 은 무한 대기라, 연결은 받되 답하지 않는(웨지된) 데몬 하나가
+     * 부른 스레드를 영영 세웠다 — 우측 독 폴이 그 소켓을 3초마다 두드리면 스레드가 쌓인다(리뷰
+     * 실측 잔여의 승격). AF_UNIX 채널엔 읽기 SO_TIMEOUT 이 없어 **워치독이 연결을 닫는** 것으로
+     * 시한을 만든다: 락스텝 연결은 답이 밀린 순간 이미 못 쓰는 물건이라, 닫는 것이 곧 정직한
+     * 실패다. 기본 시한이 넉넉한 이유(2분)는 이 문으로 모델 호출(초안·제안)이 지나가서다 —
+     * 짧게 잡으면 느린 로컬 모델의 정답이 시한 초과로 둔갑한다.
+     */
     override fun exchange(request: Request): Response = lock.withLock {
-        writer.write(Wire.json.encodeToString(Request.serializer(), request))
-        writer.write("\n")
-        writer.flush()
-        val line = reader.readLine()
-            ?: throw DaemonGone("데몬이 답하기 전에 연결을 닫았다: ${request.method}")
+        // 워치독은 **쓰기보다 먼저** 무장한다(리뷰 실측): AF_UNIX 버퍼는 8KB 라, 받기만 하고
+        // 안 읽는 상대에 큰 요청(열린 버퍼 전문, look-over)을 쓰면 flush 가 무한 블록이다 —
+        // 뒤에 무장하면 이 유닛이 죽이려던 hang 이 write 쪽으로 그대로 남는다.
+        val hung = java.util.concurrent.atomic.AtomicBoolean(false)
+        val watchdog = reaper.schedule({
+            hung.set(true)
+            runCatching { channel.close() }
+        }, patienceMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        val line = try {
+            writer.write(Wire.json.encodeToString(Request.serializer(), request))
+            writer.write("\n")
+            writer.flush()
+            reader.readLine()
+        } catch (e: java.io.IOException) {
+            if (hung.get()) throw DaemonGone("응답 시한(${patienceMs}ms)을 넘겨 연결을 끊었다: ${request.method}")
+            throw e
+        } finally {
+            // 답이 정확히 시한 언저리에 오면 cancel 이 이미 도는 리퍼를 못 막아, 이번 답은
+            // 정상 반환하고 **연결만** 닫히는 µs 창이 있다(리뷰 F2) — 같은 연결의 다음 교환이
+            // "끊겼다"로 오귀속된다. 락스텝 연결은 시한을 스친 순간 어차피 사망 선고가 맞아
+            // 창을 없애는 대신 여기 적는다.
+            watchdog.cancel(false)
+        }
+        line ?: run {
+            if (hung.get()) throw DaemonGone("응답 시한(${patienceMs}ms)을 넘겨 연결을 끊었다: ${request.method}")
+            throw DaemonGone("데몬이 답하기 전에 연결을 닫았다: ${request.method}")
+        }
         Wire.json.decodeFromString(Response.serializer(), line)
     }
 
@@ -83,7 +115,7 @@ class DaemonClient private constructor(
          * AF_UNIX 는 어디서나 쓴다. 윈도우도 마찬가지이고 거기서는 담긴 디렉토리의 ACL 이
          * 권한을 정한다(listen_windows.go 의 `listenOwnerOnly`).
          */
-        fun connect(socket: Path): DaemonClient {
+        fun connect(socket: Path, patienceMs: Long = 120_000): DaemonClient {
             val ch = SocketChannel.open(StandardProtocolFamily.UNIX)
             try {
                 ch.connect(UnixDomainSocketAddress.of(socket))
@@ -95,7 +127,17 @@ class DaemonClient private constructor(
                 ch,
                 Channels.newReader(ch, Charsets.UTF_8).buffered(),
                 Channels.newWriter(ch, Charsets.UTF_8).buffered(),
+                patienceMs,
             )
+        }
+
+        /** 워치독 시계 하나. 데몬 스레드라 IDE 종료를 안 붙든다. */
+        private val reaper = java.util.concurrent.ScheduledThreadPoolExecutor(1) { r ->
+            Thread(r, "magi-daemonclient-watchdog").apply { isDaemon = true }
+        }.apply {
+            // 취소된 워치독을 큐에서 즉시 걷는다(기본 false — 실측): 안 걷으면 취소분이 시한
+            // (2분)까지 닫힌 채널을 붙들고 폴러당 ~40개씩 상시 잔류한다. 유계지만 공짜로 0이다.
+            removeOnCancelPolicy = true
         }
 
         /**

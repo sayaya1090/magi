@@ -406,8 +406,8 @@ class PlanToolWindow : ToolWindowFactory {
         }
         paintAsked = { my ->
             // **풀 스레드에서 돈다**(poll 의 pooled 구간이 부른다) — 접수증당 원격 연결 하나라
-            // EDT 에 올리면 웨지된 상대가 IDE 를 통째로 세운다(리뷰 F1). ⚠ DaemonClient 에
-            // 타임아웃이 없다는 잔여는 문서에 기록 — 웨지는 이 폴 스레드를 세우는 데서 그친다.
+            // EDT 에 올리면 웨지된 상대가 IDE 를 세운다. 웨지는 DaemonClient 의 워치독이 시한에
+            // 끊어 DaemonGone 으로 돌아온다 — 이 폴 스레드가 그 시한만큼 서는 것이 상한이다.
             val snap = synchronized(asked) { asked.toList() }
             snap.forEach { a ->
                 if (a.over) return@forEach // 종결된 건은 더 안 묻는다 — 헛폴이 창 수명만큼 갔었다
