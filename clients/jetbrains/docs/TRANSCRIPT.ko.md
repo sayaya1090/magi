@@ -25,12 +25,23 @@
 **사실만 재생된다.** 코어가 이벤트를 둘로 가른다(`internal/core/event/event.go` 의
 `transientTypes`) — 사실은 저장되고 재생되며, 전이(`part.delta` · `tool.progress` ·
 `permission.requested` · `question.requested` · `context.usage` · `workflow.phase` ·
-`council.deliberating`)는 라이브로 붙어 있는 동안만 온다. 따라서:
+`council.deliberating` · `question.answered` · `user.label.changed` — 9종, 거울 시험이
+코어와 대조한다)는 라이브로 붙어 있는 동안만 온다. 따라서:
 
 - **같은 말이 두 번 온다.** `part.delta` 조각들 뒤에 같은 `messageId` 의 `part.appended`
   사실이 온다. 조각에 행을 주면 답이 두 벌 쌓이고, 재생분에는 조각이 없어 **다시 붙은 창과
   붙어 있던 창이 갈린다**. 그래서 조각은 행이 아니다 — `Transcript.kt` 의 `echoesFact` 가
   이 술어다. (조각으로 같은 행을 고쳐 쓰는 라이브 타자기는 §8.)
+  같은 결 하나 더(라이브 QA 실측 → 리뷰가 생산자 전수로 판정): 라이브 버스는 사실-타입
+  프레임을 seq 0 으로도 싣는다 — 결함이 아니라 **설계된 라이브 전용 신호**다.
+  `council.verdict` 는 반박 전 프리뷰(사실은 반박 후 세트라 내용이 다를 수 있다),
+  `turn.finished` 는 사실 뒤의 런 은퇴 신호. 계약은 **저장 계약**이다: 사실=seq>0 은
+  jsonl 저장 경로의 실보장이고, 버스의 seq 0 얹기는 그 밖이다. 그래서 `echoesFact` 는
+  seq 0 인데 전이 타입이 아닌 프레임에 행 몫을 주지 않는다.
+  ⚠ 트레이드오프(기록): 이 필터로 붙어 있는 창의 카운슬 **프리뷰가 침묵**한다 — 심의가
+  끝나야 판정 행이 선다(TUI 는 프리뷰를 그린다). 프리뷰를 살리려면 §8 타자기처럼
+  (round,member) 열쇠의 임시 행을 사실로 덮는 렌더가 필요하고, 코어가 프리뷰를 별도
+  전이 타입으로 분리하는 안이 논의 중이다 — 그때 opt-in 으로 되살린다.
 - **물음은 행이 아니라 신호다.** `permission.requested` 류 넷(`Transcript.kt` 의
   `movesPrompt`)은 이벤트 내용으로 그리지 않고 「프롬프트를 다시 물어라」로만 쓴다 — 재생이
   지나간 물음을 지금 것으로 그리는 사고를 막는 근거가 그 술어의 주석에 있다. 기존 그대로다.

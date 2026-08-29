@@ -151,6 +151,38 @@ class TranscriptTest {
         // 없다. 자리가 0 이라는 이유로 싸잡아 버리면 화면이 권한 요청을 못 보게 된다.
         assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "permission.requested")))
         assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "tool.progress")))
+        // 라이브 전용 신호 방어: 사실-타입이 seq 0 으로 오면 저장 안 된 프레임이라 행 몫이
+        // 없다(카운슬 프리뷰·런 은퇴 신호 — 사유는 echoesFact 주석). 전이는 seq 0 이 정상.
+        assertTrue(Transcript.echoesFact(LogEvent(seq = 0, type = "council.verdict")))
+        assertTrue(Transcript.echoesFact(LogEvent(seq = 0, type = "turn.finished")))
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 5, type = "council.verdict")))
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "context.usage")))
+        // 처음 거울을 7종으로 낡게 적었을 때 빠졌던 둘 — 이 둘은 사실이 영영 안 따라오는
+        // 진짜 전이라, 에코로 걸면 판정 자체가 거짓이 된다(리뷰 F1).
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "question.answered")))
+        assertFalse(Transcript.echoesFact(LogEvent(seq = 0, type = "user.label.changed")))
+    }
+
+    @Test
+    fun `전이 거울은 코어의 transientTypes 와 같다`() {
+        // 거울이 낡으면 어느 방향이든 판정이 거짓이 된다: 코어에 있는데 여기 없으면 그 전이가
+        // 「곧 사실이 올 에코」로 오독되고(질문 답·라벨 변경이 실제로 그렇게 낡아 있었다),
+        // 여기 있는데 코어에 없으면 사실-타입을 전이로 통과시킨다. 그래서 원천(event.go)을
+        // 파싱해 대조한다 — 목록 두 벌이 아니라 한 벌+거울 시험이다.
+        val magi = java.io.File(System.getProperty("user.dir"))
+            .parentFile.parentFile.parentFile.parentFile
+        val ev = java.io.File(magi, "internal/core/event/event.go")
+        assertTrue(ev.isFile, "${ev.absolutePath} 가 없다 — 이 시험이 아무것도 안 보고 있다")
+        val src = ev.readText()
+        val block = src.substringAfter("var transientTypes = map[Type]bool{", "")
+            .substringBefore("}")
+        assertTrue(block.isNotBlank(), "event.go 에서 transientTypes 블록을 못 찾았다 — 파서가 낡았다")
+        val core = Regex("Type\\w+").findAll(block).map { id ->
+            Regex(Regex.escape(id.value) + "\\s+Type\\s*=\\s*\"([^\"]+)\"")
+                .find(src)?.groupValues?.get(1)
+                ?: error("${id.value} 의 문자열 선언을 event.go 에서 못 찾았다")
+        }.toSet()
+        assertEquals(core, Transcript.transients, "전이 거울이 코어와 갈렸다 — 갈린 쪽을 코어에 맞출 것")
     }
 
     @Test

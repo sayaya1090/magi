@@ -45,7 +45,32 @@ class Transcript(
          * 판단은 [Transcript] 가 안 한다. 이 층은 받은 것을 그대로 나르고 무엇을 보일지는 화면이
          * 정한다(`Wire.kt` 의 [LogEvent] 주석) — 그래서 술어만 여기 두고 부르는 것은 화면이다.
          */
-        fun echoesFact(e: LogEvent): Boolean = e.type == "part.delta"
+        fun echoesFact(e: LogEvent): Boolean =
+            e.type == "part.delta" ||
+                // 라이브 버스는 사실-타입 프레임을 seq 0 으로도 싣는다(라이브 QA 실측) — 결함이
+                // 아니라 **설계된 라이브 전용 신호 둘**이다(리뷰가 생산자 전수로 확인):
+                // council.verdict 는 반박 전 프리뷰(internal/app/council_advice.go — 사실은
+                // 반박 후 세트라 **내용이 다를 수 있다**), turn.finished 는 사실 뒤에 오는 런
+                // 은퇴 신호(internal/app/app.go — 로그에 둘째 turn.finished 를 안 남기려고
+                // 일부러 전이). 어느 쪽이든 저장 계약(사실=seq>0, jsonl 이 실보장) 밖의
+                // 프레임이라 **행 몫이 없다**: seq==0 ⇒ 저장 안 된 프레임 ⇒ 행 없음.
+                (e.seq == 0L && e.type !in transients)
+
+        /**
+         * 전이 타입들 — seq 0 이 정상인 것들. 코어 `internal/core/event/event.go` 의
+         * `transientTypes` 를 거울로 비추고, 거울이 낡으면 [TranscriptTest] 의 거울 시험이
+         * 운다(처음 적을 때 7종으로 낡게 적었다가 리뷰에 잡혔다 — 9종이다).
+         *
+         * 여기 빠진 **새** 전이는 셰이퍼에서 걸러질 뿐 행 손실이 아니다(Rows 의 else 가
+         * 어차피 미지 타입에 행을 안 준다) — 다만 그 안전은 echoesFact 의 소비자가
+         * shaper.feed 하나뿐인 오늘의 모양에 기댄 것이니, 두 번째 소비자를 달기 전에
+         * 이 문장을 다시 읽어라.
+         */
+        internal val transients = setOf(
+            "part.delta", "tool.progress", "permission.requested", "question.requested",
+            "context.usage", "workflow.phase", "council.deliberating",
+            "question.answered", "user.label.changed",
+        )
 
         /**
          * 이 프레임이 **사람에게 물을 것이 달라졌다**고 말하는가.
