@@ -588,6 +588,10 @@ type Response struct {
 	// is fixed. A pointer so an absent event is absent — a frame that carries only a sentence (see
 	// Why) is a real frame with nothing to draw, not an event with every field zeroed.
 	Event *event.Event `json:"event,omitempty"`
+	// Roster answers the `roster` method: every companion this machine can name — its own
+	// (measurements, with a session id to subscribe to) and other machines' (signed sightings,
+	// with their age). Empty list = an empty fleet; the field absent = some other method.
+	Roster []RosterRow `json:"roster,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -851,7 +855,7 @@ func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 			defer wg.Done()
 			defer d.untrack(conn)
 			defer conn.Close()
-			serveConn(ctx, eng, conn, d.Stop, d.Restart)
+			serveConn(ctx, eng, conn, homeOf(d.path), d.Stop, d.Restart)
 		}()
 	}
 }
@@ -929,7 +933,7 @@ func (d *Daemon) stopped() bool {
 
 // serveConn reads requests until the peer hangs up. One bad request answers with an error and the
 // connection stays open: a UI that mistypes a method should get told, not disconnected.
-func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart func()) {
+func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop, restart func()) {
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20) // a steer can be long; the default 64K is not enough
 	enc := json.NewEncoder(conn)
@@ -941,6 +945,15 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, stop, restart fun
 			// looping on a socket nobody is holding.
 			if enc.Encode(Response{Err: "malformed request: " + err.Error()}) != nil {
 				return
+			}
+			continue
+		}
+		// roster is answered here rather than from the answers map: that map's shape is
+		// (ctx, Engine, Request), and who is out there is a fact about the MACHINE — the home
+		// directory the listener sits in — which no Engine method answers. See roster.go.
+		if req.Method == "roster" {
+			if enc.Encode(answerRoster(home)) != nil {
+				return // the peer is gone
 			}
 			continue
 		}
@@ -1732,6 +1745,10 @@ func Caps() []string { return capsOf(nil) }
 func capsOf(eng Engine) []string {
 	// "handshake" marks a build that answers this versioned about at all.
 	caps := []string{"handshake"}
+	// "roster": this daemon answers who is out there (roster.go). Build-level, unlike the two
+	// below: the answer is read from the listener's home directory, not from an engine interface,
+	// so any daemon from this build speaks it.
+	caps = append(caps, "roster")
 	// "tool-servers": this daemon accepts mcp-attach / mcp-detach. Asked of the engine because an
 	// application that IS a tool server (an editor plugin, a slide add-in) draws a list of
 	// companions and decides which ones it can attach to BEFORE attaching — so what it needs from
@@ -2288,6 +2305,18 @@ func (c *Client) DetachMCP(name string) (bool, error) {
 		return false, err
 	}
 	return resp.Removed, nil
+}
+
+// Roster asks who is out there: this machine's companions as measurements (with the session id a
+// transcript subscription needs), other machines' as signed sightings (with their age). Discovery
+// only — command and conversation go through each row's own socket, which is the boundary the
+// door keeps (see roster.go).
+func (c *Client) Roster() ([]RosterRow, error) {
+	resp, err := c.exchange(Request{Method: "roster"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Roster, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {
