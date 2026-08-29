@@ -116,6 +116,14 @@ B's conversation would flatten per-companion access and freshness into A's. Rows
 machines draw as visible-but-not-commandable (until the client holds that machine's keys) — the
 same stance the web console takes toward peers.
 
+**Then could the web run on roster alone?** No — discovery converges, direct reading stays. A
+stopped companion has no socket, only its log, and the web's history, search and dead-session
+transcripts work by reading that log directly (routed through one companion, the whole fleet goes
+dark the moment that one dies). Live facts like "asking right now" are in neither the log nor the
+gossip — they are in that process's memory and must be asked of it. And command keeps the boundary
+above: each companion's own door. What the roster door replicates is the stance the web already
+takes toward other **machines** — not attached, drawn from sightings, not commandable.
+
 ### Companion to companion, machine to machine
 
 On one machine, companions hand work to each other (hand_off — the first finished turn's last
