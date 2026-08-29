@@ -88,7 +88,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(" ", outside)
         head("설정")
         row("승인 모드", permission)
-        note("코어의 낱말 그대로 — ask 는 매번 묻고, auto 는 편집만 통과시킨다.")
+        note("코어의 낱말 그대로 — ask 매번 묻기 · auto 는 magi 자신의 파일 수정만 자동(명령·네트워크는 묻는다) · allow 전부 통과 · deny 전부 거부. 어느 모드든 사람이 답하면 그 답이 이긴다.")
         row("모델", model)
         note("목록은 데몬이 주고, 「지금 무엇인지는 데몬이 말하지 않는다」 — 고르면 바뀐다.")
         row("백엔드", backend)
