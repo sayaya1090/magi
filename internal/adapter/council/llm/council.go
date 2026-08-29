@@ -788,6 +788,17 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("\n\n")
 	}
 	section("Task (the goal)", req.Task)
+	if req.Declared {
+		// Said as a fact, not as an instruction to approve: the declaration is what convened
+		// this round, and a member who cannot see it can only infer it from the report's
+		// wording — which is how "the agent never declared it finished" became the reason for
+		// rejecting a turn that had.
+		b.WriteString("# How this round was convened\n" +
+			"The agent has DECLARED this task finished — that " +
+			"declaration is what convened you, and it was made as a tool call rather than as a sentence " +
+			"in the report. Whether a declaration was made is settled; what you judge is whether the " +
+			"work behind it is done.\n\n")
+	}
 	section("The agent’s own plan (its todo list, not a contract anyone else authored)", req.Plan)
 	section("Agent's report (the claim)", req.Report)
 	// The identifiers the task NAMES, and whether each is in what the turn wrote. A comparison of

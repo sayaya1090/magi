@@ -230,6 +230,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		Declared:     complete,
 		NoChanges:    strings.TrimSpace(changes) == "",
 		Members:      members,
 		Rule:         rule,

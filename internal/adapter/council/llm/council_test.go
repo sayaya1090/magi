@@ -1039,3 +1039,17 @@ func readRepoSource(t *testing.T, name string) string {
 	}
 	return string(b)
 }
+
+// A completion declaration is a tool call, so members cannot see it in the evidence — and one
+// round rejected a finished turn because "the agent never declared the task finished", which the
+// declaration convening it had already settled. The evidence says so now.
+func TestEvidenceSaysWhenTheRoundWasConvenedByADeclaration(t *testing.T) {
+	asked := evidence(port.DeliberationRequest{Task: "ship it", Report: "done", Declared: false})
+	if strings.Contains(asked, "DECLARED") {
+		t.Error("a question round must not claim a declaration")
+	}
+	declared := evidence(port.DeliberationRequest{Task: "ship it", Report: "done", Declared: true})
+	if !strings.Contains(declared, "DECLARED") || !strings.Contains(declared, "tool call") {
+		t.Errorf("a declaration round must say so:\n%s", declared)
+	}
+}

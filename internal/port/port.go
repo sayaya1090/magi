@@ -187,8 +187,15 @@ type DeliberationRequest struct {
 	// reasonable report rather than demand edits that were never going to exist.
 	NoChanges bool
 	Task      string // the user's original goal/request
-	Plan      string // acceptance criteria / contract
-	Report    string // the agent's self-reported result / claim (optional)
+	// Declared says this round was convened by the agent DECLARING the task finished, rather
+	// than by a question it asked. Members could not see the difference: the declaration is a
+	// tool call, and the evidence carries only the task, the report and the work — so a task
+	// whose wording asks the agent to "declare completion when done" was read as unmet by the
+	// very round that declaration convened (observed live, 2026-08-29: a 3:0 continue whose
+	// stated reason was that no completion had been declared).
+	Declared bool
+	Plan     string // acceptance criteria / contract
+	Report   string // the agent's self-reported result / claim (optional)
 	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
 	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
 	// judge a create/write turn in a non-git workdir on what happened, not on an absent
