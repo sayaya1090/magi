@@ -144,7 +144,7 @@ id, first-prompt title, model, labels, timestamps, newest activity first) and `s
 (open a fresh conversation AND move onto it — one verb). Open-turn is deliberately absent:
 answering it reads every log whole, and the one conversation it could matter for is the current
 one, whose id the roster row already carries. `resume` refuses an id that is not already this
-workspace's — a client never invents one; it reads what `session-new` answers. And `cron` is
+workspace's — a client never invents one; it reads what `session-new` answers. `job-kill` is the row's ✕ — Removed answers "was there one", so a second press reads already-gone, never failure. And `cron` is
 the read half of standing work (reload-cron is the write): broken jobs first — the never-runnable
 row is the one no other screen will mention again — then soonest, each row carrying its next
 instant (RFC3339) or an empty next with the `problem` that explains it.
@@ -155,6 +155,17 @@ On one machine, companions hand work to each other (hand_off — the first finis
 words come back as the answer) and hold meetings (participants get the four looking tools only).
 Between machines there is one TLS door, trusted by ssh key, carrying narrowed queries and the
 set-union replication of team knowledge (exp-sync).
+
+**An edit approval carries its diff (★implemented).** The permission prompt for an edit-class
+call carries **the diff a yes would apply** — computed once in the app (the same derivation the
+web's folding diff draws) and riding everywhere the prompt travels: the transient event, the
+status door, the rebuilt prompt a socket viewer replays. A viewer never recomputes it: two
+renderings of one edit is how an approval screen comes to show something the tool will not do.
+
+**The transcript cursor can be trusted.** seq survives compaction (the snapshot inherits upToSeq
+and later events keep their numbers) — a reconnecting client sends its last seq as `since` and
+receives only the increment, and when the daemon refuses a cursor the restart callback says
+"throw yours away" before the first event.
 
 ### The path a new client walks
 
