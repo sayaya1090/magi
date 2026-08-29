@@ -25,7 +25,12 @@ import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fixture } from '../src/ui/deckFixture.js';
-import { headOf } from '../src/ui/view.js';
+import {
+  headOf, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
+  isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
+  unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
+} from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
