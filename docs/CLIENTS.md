@@ -217,6 +217,13 @@ the stream as the log must therefore **drop seq == 0 events of fact types**: eve
 announce arrives again as the real fact, with its number — and the seq-0 copy may differ from the
 fact that lands (a preview is a vote before revision, not an echo of the result).
 
+**A council verdict's `silent` means nobody answered.** It rides only beside an abstain that was
+a failure rather than a choice — a member the reply never spoke for, a backend that was down, a
+round that ran out of time — so a client may draw "no answer" on it and nothing else. A verdict
+carrying a decision and a rationale is somebody's answer, `silent` absent. (It was set on every
+panel verdict for a while, and three screens drew spoken verdicts as silence; the flag is the
+contract, not a hint.)
+
 ### The path a new client walks
 
 A client consuming these doors for the first time needs four steps — all of them ordering of
