@@ -224,6 +224,13 @@ carrying a decision and a rationale is somebody's answer, `silent` absent. (It w
 panel verdict for a while, and three screens drew spoken verdicts as silence; the flag is the
 contract, not a hint.)
 
+So an abstain comes in two kinds and a client can tell them apart: a **spoken abstain** (`abstain`
+without `silent`) is a member who read the work and declined to judge it — draw the decision mark
+and their words; an **unanswered** one (`abstain` with `silent`) is a member who never answered —
+draw "no answer" beside it. Both carry whatever rationale exists. A verdict that states no
+decision at all is a spoken abstain, never a `continue`: nobody may be recorded as rejecting work
+they did not judge.
+
 ### The path a new client walks
 
 A client consuming these doors for the first time needs four steps — all of them ordering of
