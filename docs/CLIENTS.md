@@ -179,7 +179,11 @@ person's words only** — the rendered attachment block is excluded: workspace b
 plugin through a file grant, never through a notification side channel. A malformed line range falls back to the whole file — the person pointed
 at the file, and losing it over a typo drops the half that mattered.
 
-**Deferred, and the candidate ledger.** Outside-workspace content-root read-only is **deferred**
+**Deferred, and the candidate ledger.** (Four low-severity wave-2 observations join it: the
+shared team store's WikiTouch/observation-count lost-updates (advisory data) · an already-open
+transcript stream is not re-checked after a repolicy · unborn session state accumulates slowly
+over a daemon's lifetime · notifyAnswers checks peer as "" — revisit the day handoffs go
+remote.) Outside-workspace content-root read-only is **deferred**
 (a 2026-08-29 user decision — the workspace stays the trust boundary). On the ledger:
 same-workspace contention (worktree isolation / file leases — the cheap half, a duplicate-workdir
 warning badge, is the plugin's, from roster material it already has).
