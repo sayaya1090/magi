@@ -126,10 +126,13 @@ class SourceTextTest {
             val b = src.indexOf(to, a).also { assertTrue(it >= 0, "`$from` 뒤에 `$to` 가 없다") }
             src.substring(a, b)
         }
-        assertTrue(body("override fun began()", "override fun frame(").contains("log.text = \"\""),
-            "붙었다는 말에 판을 비우는 것이 없다. 프레임에 걸면 프레임이 안 오는 전사를 못 비운다")
-        assertTrue(!body("override fun frame(", "override fun note(").contains("log.text = \"\""),
-            "프레임이 판을 비운다. 그러면 프레임이 하나도 안 오는 전사 — 데몬 재시작 뒤의 보통 경로 " +
+        // 비움의 실체는 이제 판 글자가 아니라 **셰이퍼**다: 판은 셰이퍼의 재생(`redrawLog`)이
+        // 통째로 다시 그리므로, 셰이퍼를 비우는 것이 곧 판을 비우는 것이다. 재는 글자만 바뀌었고
+        // 계약 — 비움은 붙었다는 말에, 프레임에는 절대 — 은 그대로다.
+        assertTrue(body("override fun began()", "override fun frame(").contains("shaper.clear()"),
+            "붙었다는 말에 셰이퍼를 비우는 것이 없다. 프레임에 걸면 프레임이 안 오는 전사를 못 비운다")
+        assertTrue(!body("override fun frame(", "override fun note(").contains("shaper.clear()"),
+            "프레임이 셰이퍼를 비운다. 그러면 프레임이 하나도 안 오는 전사 — 데몬 재시작 뒤의 보통 경로 " +
                 "— 에서 지난 대화가 그대로 서 있는다. 비움은 `began` 에 건다")
     }
 

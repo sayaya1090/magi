@@ -106,8 +106,8 @@ internal object Look {
      *
      * `JBTextArea` 가 아니라 [javax.swing.JTextPane] 인 이유는 **한 줄 안에서 색이 갈려야**
      * 해서다 — 일련번호는 뒤로, 이름은 자리 색으로, 창이 스스로 하는 말은 기울여서. 글자는 그대로
-     * 두고 색만 얹는다: 무엇을 적을지는 데몬이 정하고 이 창은 얕게 그린다는 규칙
-     * (`MagiToolWindow.entry`)이 그대로다.
+     * 두고 색만 얹는다: 무엇을 적을지는 셰이퍼가 정하고 이 창은 붓만 잡는다는 규칙
+     * (`MagiToolWindow.renderRow`)이 그대로다.
      */
     fun pane(): javax.swing.JTextPane = javax.swing.JTextPane().apply {
         isEditable = false

@@ -28,6 +28,9 @@ import dev.sayaya.magi.ide.usecase.Authorship
 import dev.sayaya.magi.ide.usecase.Hand
 import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
+import dev.sayaya.magi.ide.usecase.Row
+import dev.sayaya.magi.ide.usecase.Rows
+import dev.sayaya.magi.ide.usecase.Who
 import dev.sayaya.magi.ide.usecase.Transcript
 import java.awt.BorderLayout
 import java.awt.Color
@@ -47,9 +50,10 @@ import javax.swing.text.StyleConstants
  * 글을 IntelliJ 가 두는 자리는 아래다 — Run, Terminal, Build 가 전부 거기 있다. 사실 판은 우측으로
  * 갈렸다([FactsToolWindow]).
  *
- * 전사는 아직 없다 — 데몬에 `transcript` 문이 생겨야 온다(설계 문서 §3). 그때까지도 이 창은
- * 비어 있으면 안 되므로(§0.5 불변식 7) 지금 할 수 있는 둘을 먼저 한다: 지시를 보내는 것과
- * 대기 중인 프롬프트에 답하는 것. 둘 다 이미 있는 메서드로 된다.
+ * 전사는 데몬의 `transcript` 문에서 이벤트로 오고, 셰이퍼([Rows])가 행으로 편다 — 무엇이
+ * 행이 되는지는 `docs/TRANSCRIPT.ko.md` 의 표가 정하고, 이 창은 그 행을 붓질만 한다
+ * ([renderRow]). 한동안 이 창은 `#seq type (actor)` 만 적었고 사람이 친 글도 답도 화면에
+ * 없었다 — 살아 있는 샌드박스에서 실측한 구멍이라, 몸통이 행에 서는 것부터 골든이 붙든다.
  *
  * 소켓 입출력은 전부 풀 스레드에서 돈다. EDT 에서 소켓을 잡으면 데몬이 느린 동안 IDE 가 선다.
  */
@@ -87,6 +91,9 @@ class MagiToolWindow : ToolWindowFactory {
          * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
          */
         private val log = Look.pane()
+
+        /** 전사 셰이퍼. 이벤트는 워커 스레드에서 먹고, 그리는 것은 EDT 가 스냅샷으로 한다. */
+        private val shaper = Rows()
 
         /**
          * 문제 판. IntelliJ 자신의 Problems 뷰에 넣지 않았다 — 거기는 IDE 가 자기 인스펙션으로
@@ -150,7 +157,8 @@ class MagiToolWindow : ToolWindowFactory {
                  */
                 override fun began() {
                     authors.forget()
-                    SwingUtilities.invokeLater { log.text = ""; problems.text = "" }
+                    shaper.clear() // 커서를 안 보내므로 재생이 통째로 다시 온다 — 여기서 비워야 두 벌이 안 쌓인다
+                    SwingUtilities.invokeLater { problems.text = "" }
                     append("— 전사에 붙었다.")
                 }
 
@@ -159,7 +167,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
-                    if (!Transcript.echoesFact(e)) entry(e)
+                    if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
                     authors.feed(e)
@@ -178,8 +186,8 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
                 // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
-                override fun note(why: String) = SwingUtilities.invokeLater {
-                    log.text = ""
+                override fun note(why: String) {
+                    shaper.clear() // 커서를 못 믿겠다는 통보 — 이미 그린 것을 지우라는 뜻이다
                     append("— $why")
                 }
                 /**
@@ -237,6 +245,16 @@ class MagiToolWindow : ToolWindowFactory {
             // 탭으로 받아들인다. 제안이 없으면 탭은 원래 하던 일을 한다.
             input.registerKeyboardAction({ acceptSuggestion() },
                 javax.swing.KeyStroke.getKeyStroke("TAB"), javax.swing.JComponent.WHEN_FOCUSED)
+            // Enter 는 보낸다 — 웹도 터미널도 그렇다. 줄바꿈은 Shift+Enter 로 남긴다.
+            // registerKeyboardAction 이 아니라 inputMap 인 이유: JTextArea 의 insert-break 가
+            // ENTER 에 앉아 있어서, 그 자리를 바꿔 앉혀야 눌림과 줄바꿈이 같이 안 난다.
+            input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
+                .put(javax.swing.KeyStroke.getKeyStroke("ENTER"), "magi.send")
+            input.getInputMap(javax.swing.JComponent.WHEN_FOCUSED)
+                .put(javax.swing.KeyStroke.getKeyStroke("shift ENTER"), "insert-break")
+            input.actionMap.put("magi.send", object : javax.swing.AbstractAction() {
+                override fun actionPerformed(e: java.awt.event.ActionEvent) = say()
+            })
 
             root.add(head, BorderLayout.NORTH)
             // 두 판이 각자 무엇인지 말한다. 이름이 없으면 오른쪽 판은 「전사가 왜 두 개지」로
@@ -415,21 +433,83 @@ class MagiToolWindow : ToolWindowFactory {
             }
         }
 
+        /** 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다. */
+        private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
+
         /**
-         * 이벤트 하나를 한 줄로. **얕게 그린다.**
-         *
-         * 사람이 읽는 전사로 바꾸는 것은 파생이고, 콘솔이 `cmd/magi-web/main.go` 의 `line` 에서
-         * 이미 하고 있다. 그것을 코틀린으로 다시 쓰면 **같은 규칙의 두 번째 표현**이 생긴다 —
-         * §3 이 안 C 를 고른 바로 그 사유다. 그래서 여기서는 사실만 적고, 깊은 렌더를 어디서 할지는
-         * §8 에 미결로 남긴다.
+         * 전사를 통째로 다시 그린다. **덧붙이기가 아니라 재생이다** — 셰이퍼의 변이에 재배치가
+         * 있어서(재부상, 인라인 답) 붙이기만 하는 판은 순서를 잃는다. 지우는 사건은 없으므로
+         * (docs/TRANSCRIPT.ko.md §4) 이 재생은 언제나 같은 것을 더 그릴 뿐, 사람이 읽던 것을
+         * 다른 것으로 바꾸지 않는다.
          */
-        private fun entry(e: LogEvent) = SwingUtilities.invokeLater {
-            val who = e.actor?.name?.takeIf { it.isNotBlank() } ?: e.actor?.kind.orEmpty()
-            push(log, "#${e.seq} ", Look.muted)
-            push(log, e.type, Look.body)
-            if (who.isNotBlank()) push(log, "  ($who)", Look.seat(who) ?: Look.faint)
-            push(log, "\n", null)
-            log.caretPosition = log.document.length
+        private fun redrawLog() {
+            if (!dirty.compareAndSet(false, true)) return
+            SwingUtilities.invokeLater {
+                dirty.set(false)
+                log.text = ""
+                shaper.list().forEach { renderRow(it) }
+                log.caretPosition = log.document.length
+            }
+        }
+
+        /**
+         * 행 하나를 붓질한다. **무엇을 적을지는 셰이퍼가 정했고 여기는 색과 자리만 안다** —
+         * 반대로 하면 행 규칙이 판 수만큼 생긴다(그 규칙이 `docs/TRANSCRIPT.ko.md` §0 이다).
+         */
+        private fun renderRow(r: Row) {
+            when (r.who) {
+                Who.User -> {
+                    push(log, "사람", Look.primary, bold = true)
+                    if (r.queued) push(log, "  ⌛ 대기", Look.faint)
+                    if (r.abandoned) push(log, "  ✕ 버려짐", Look.muted)
+                    if (r.pending) push(log, "  … 처리 중", Look.faint, italic = true)
+                    push(log, "\n${r.text}\n", Look.body)
+                }
+                Who.Agent -> {
+                    push(log, "magi\n", Look.accent, bold = true)
+                    push(log, r.text + "\n", Look.body)
+                }
+                // 생각은 접는 대신 첫 줄만 — JTextPane 에 접이가 없고, 전문은 로그에 있다.
+                Who.Thinking -> push(log, "(생각) ${r.text.lineSequence().firstOrNull().orEmpty()}\n",
+                    Look.faint, italic = true)
+                Who.Tool -> {
+                    push(log, "· ", Look.muted)
+                    push(log, r.tool.orEmpty(), Look.body)
+                    when {
+                        r.ok == null -> push(log, " …", Look.faint)
+                        r.note -> push(log, " ✓ 읽을 것 있음", Look.warn)
+                        r.ok == true -> push(log, " ✓", Look.success)
+                        else -> push(log, " ✗", Look.error)
+                    }
+                    r.args?.let { push(log, "  ${oneLine(it, 120)}", Look.muted) }
+                    // 실패가 말한 것의 첫 줄. 전문과 파일:줄 앵커는 문제 판의 몫이다.
+                    r.out?.let { push(log, "\n  ↳ ${it.lineSequence().firstOrNull().orEmpty()}", Look.error) }
+                    push(log, "\n", null)
+                }
+                Who.Council -> {
+                    push(log, "⚖ ", Look.faint)
+                    val name = r.member ?: "합의"
+                    push(log, name, Look.seat(name) ?: Look.body, bold = true)
+                    r.decision?.let {
+                        push(log, "  $it", when (it) {
+                            "done" -> Look.success
+                            "continue" -> Look.warn
+                            else -> Look.faint
+                        })
+                    }
+                    if (r.text.isNotBlank()) push(log, " — ${r.text}", Look.body)
+                    r.keep?.takeIf { it.isNotBlank() }?.let { push(log, "\n  keep: $it", Look.faint) }
+                    r.why?.takeIf { it.isNotBlank() }?.let { push(log, "\n  $it", Look.faint) }
+                    push(log, "\n", null)
+                }
+                Who.Info -> push(log, r.text + "\n", Look.faint, italic = true)
+            }
+        }
+
+        /** 한 줄로 줄인다. 인자가 길면 전사가 그 인자만으로 화면을 다 먹는다. */
+        private fun oneLine(s: String, max: Int): String {
+            val one = s.lineSequence().joinToString(" ")
+            return if (one.length <= max) one else one.take(max) + "…"
         }
 
         /**
@@ -464,9 +544,14 @@ class MagiToolWindow : ToolWindowFactory {
             problems.caretPosition = problems.document.length
         }
 
-        private fun append(line: String) = SwingUtilities.invokeLater {
-            push(log, line + "\n", Look.faint, italic = true)
-            log.caretPosition = log.document.length
+        /**
+         * 창이 하는 말. **판에 직접 쓰지 않고 셰이퍼에 넣는다** — 전사가 통째 다시 그리기라
+         * ([redrawLog]), 흐름 밖에 쓴 줄은 다음 프레임에 지워진다. 같은 흐름에 서면 "전사는
+         * 덧붙이기만 하므로 덮일 자리가 없다"([report] 의 계약)가 그대로 산다.
+         */
+        private fun append(line: String) {
+            shaper.info(line)
+            redrawLog()
         }
 
         /**
