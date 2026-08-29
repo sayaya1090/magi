@@ -435,6 +435,14 @@ type ConversationKeeper interface {
 	NewSession(ctx context.Context) (session.SessionID, error)
 }
 
+// JobKiller stops a background command — the same stop bash_kill performs, offered to the
+// person watching the row. Split from JobRunner the way CronTeller is from CronController:
+// showing and stopping are different grants for a fake to give.
+type JobKiller interface {
+	// KillBackgroundJob reports whether a job with that id existed to kill.
+	KillBackgroundJob(id string) bool
+}
+
 // CronTeller is the read half of standing work, for a dock that shows what is coming: the TUI
 // reads it in-process (scheduledSoon), and a socket client had only the write half (reload-cron).
 type CronTeller interface {
@@ -631,6 +639,9 @@ type Waiting struct {
 	Args    json.RawMessage `json:"args,omitempty"`
 	Reason  string          `json:"reason,omitempty"`
 	Options []string        `json:"options,omitempty"`
+	// Diff is what approving would change, for edit-class prompts — computed once in the app and
+	// carried, never recomputed by a viewer (PermissionRequestedData.Diff).
+	Diff string `json:"diff,omitempty"`
 	// Report is the grounds a question was asked on. It crosses the socket for the same reason the
 	// options do: a console in another process draws the prompt, and a prompt whose grounds stayed
 	// behind is the one this exists to stop.
@@ -671,7 +682,7 @@ func (w *Waiting) Event(sid session.SessionID) (event.Event, error) {
 	default:
 		typ = event.TypePermissionRequested
 		data, err = json.Marshal(event.PermissionRequestedData{
-			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason})
+			CallID: w.ID, Name: w.What, Args: w.Args, Reason: w.Reason, Diff: w.Diff})
 	}
 	if err != nil {
 		return event.Event{}, fmt.Errorf("daemon: rebuilding the prompt: %w", err)
@@ -1288,6 +1299,20 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"sessions":    answerSessions,
 	"session-new": answerSessionNew,
 	"cron":        answerCron,
+	"job-kill":    answerJobKill,
+}
+
+// answerJobKill stops one background command. Removed answers whether the id named a job — a ✕
+// pressed twice must read "already gone", not "failure".
+func answerJobKill(ctx context.Context, eng Engine, req Request) Response {
+	k, ok := eng.(JobKiller)
+	if !ok {
+		return Response{Err: "this daemon cannot stop background commands"}
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return Response{Err: "no job named"}
+	}
+	return Response{OK: true, Removed: k.KillBackgroundJob(req.Name)}
 }
 
 // CronRow is one standing job as the dock draws it: when it runs next, or why it never will.
@@ -1424,6 +1449,7 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 		resp.Waiting = &Waiting{
 			ID: ask.ID, Kind: ask.Kind, What: ask.What, Args: ask.Args,
 			Reason: ask.Reason, Options: ask.Options, Report: ask.Report,
+			Diff:  ask.Diff,
 			Index: ask.Index, Total: ask.Total,
 			Since: ask.Since.UTC().Format(time.RFC3339),
 		}
@@ -2466,6 +2492,16 @@ func (c *Client) Cron() ([]CronRow, error) {
 		return nil, err
 	}
 	return resp.Cron, nil
+}
+
+// KillJob stops a background command on the companion. The bool is whether the id named one —
+// pressing ✕ twice reads "already gone", never "failure".
+func (c *Client) KillJob(id string) (bool, error) {
+	resp, err := c.exchange(Request{Method: "job-kill", Name: id})
+	if err != nil {
+		return false, err
+	}
+	return resp.Removed, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {

@@ -125,6 +125,11 @@ func (o *omniEngine) NewSession(_ context.Context) (session.SessionID, error) {
 	return "s_fresh", nil
 }
 
+func (o *omniEngine) KillBackgroundJob(id string) bool {
+	o.note("kill:" + id)
+	return id == "j1"
+}
+
 func (o *omniEngine) ScheduledHere() []app.ScheduledJobInfo {
 	return []app.ScheduledJobInfo{
 		{Name: "tick", Schedule: "@daily", Enabled: true, Next: time.Date(2026, 8, 30, 9, 0, 0, 0, time.UTC)},
@@ -148,7 +153,7 @@ func TestAnswerersRefuseInWords(t *testing.T) {
 		"look-over": answerLookOver, "complete": answerComplete, "open-file": answerOpenFile,
 		"suggest": answerSuggest, "shell": answerShell, "about": answerAbout,
 		"sessions": answerSessions, "session-new": answerSessionNew,
-		"cron": answerCron,
+		"cron": answerCron, "job-kill": answerJobKill,
 	} {
 		resp := fn(ctx, bare, Request{Method: method, Name: "x", Text: "y"})
 		if resp.OK || resp.Err == "" {
@@ -268,6 +273,24 @@ func TestAnswerersMapBothDirections(t *testing.T) {
 
 	// The schedule reads out broken-first, and a job that never runs carries its why with an
 	// empty next — never a zero time pretending to be an instant.
+	// A pending edit prompt carries its diff across the status door — the app computed it once,
+	// and a viewer must never recompute it.
+	o.waiting = &app.Ask{ID: "c9", Kind: "permission", What: "edit", Diff: "-x\n+y"}
+	if r := answerStatus(ctx, o, Request{Session: "s"}); r.Waiting == nil || r.Waiting.Diff != "-x\n+y" {
+		t.Fatalf("status must carry the prompt's diff: %+v", r.Waiting)
+	}
+	o.waiting = nil
+
+	if r := answerJobKill(ctx, o, Request{Name: "j1"}); !r.OK || !r.Removed ||
+		o.calls[len(o.calls)-1] != "kill:j1" {
+		t.Fatalf("job-kill reaches the registry and answers whether it existed: %+v", r)
+	}
+	if r := answerJobKill(ctx, o, Request{Name: "gone"}); !r.OK || r.Removed {
+		t.Fatalf("a second press reads already-gone, never failure: %+v", r)
+	}
+	if r := answerJobKill(ctx, o, Request{Name: " "}); r.OK || r.Err != "no job named" {
+		t.Fatalf("a nameless kill is refused before the registry: %+v", r)
+	}
 	if r := answerCron(ctx, o, Request{}); !r.OK || len(r.Cron) != 2 ||
 		r.Cron[0].Name != "cursed" || r.Cron[0].Problem == "" || r.Cron[0].Next != "" ||
 		r.Cron[1].Name != "tick" || r.Cron[1].Next == "" {

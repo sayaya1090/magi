@@ -414,6 +414,12 @@ type PermissionRequestedData struct {
 	// empty for a routine danger-tool confirmation. Shown in the modal so the
 	// user decides on the policy's grounds, not just the raw command.
 	Reason string `json:"reason,omitempty"`
+	// Diff is what approving would change, as a unified-ish diff, for the edit-class calls whose
+	// arguments already say so (change.EditDiff). A viewer with a diff pane (the IDE) shows the
+	// change itself instead of the arguments that imply it; empty for everything else, and never
+	// computed by the viewer — two renderings of one edit is how an approval screen comes to show
+	// something the tool will not do.
+	Diff string `json:"diff,omitempty"`
 }
 
 // QuestionRequestedData — TypeQuestionRequested: the agent asks the USER to pick

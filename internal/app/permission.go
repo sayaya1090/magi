@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/core/change"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -145,7 +146,11 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.stateLocked(sid).perms = map[string]chan string{}
 	}
 	a.stateLocked(sid).perms[tc.CallID] = ch
-	a.noteAskingLocked(sid, tc.CallID, Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Since: time.Now()})
+	// The diff a yes would apply, for the prompts whose arguments already say (edit-class calls).
+	// Computed ONCE, here, and carried everywhere the prompt travels — a viewer that computed its
+	// own could show a change the tool will not make.
+	diff := change.EditDiff(tc.Name, string(tc.Args))
+	a.noteAskingLocked(sid, tc.CallID, Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Diff: diff, Since: time.Now()})
 	a.mu.Unlock()
 
 	defer func() {
@@ -155,7 +160,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.mu.Unlock()
 	}()
 
-	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args, Reason: reason})
+	rd, _ := json.Marshal(event.PermissionRequestedData{CallID: tc.CallID, Name: tc.Name, Args: tc.Args, Reason: reason, Diff: diff})
 	a.publishTransient(sid, event.TypePermissionRequested, actor, rd)
 
 	// A bounded wait when the answerer is in another process (see Config.AnswerWait). The timer is
@@ -380,6 +385,8 @@ type Ask struct {
 	Args    json.RawMessage
 	Reason  string
 	Options []string
+	// Diff is what approving would change, for edit-class calls — see PermissionRequestedData.Diff.
+	Diff string
 	// Report is why the decision is being put to a person: what the agent tried, what each option
 	// costs, which way it leans — whatever the decision-report skill asks for. It travels with the
 	// prompt because a viewer in another process has no other way to reach it, and a question

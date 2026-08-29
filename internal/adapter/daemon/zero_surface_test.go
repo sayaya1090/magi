@@ -111,4 +111,18 @@ func TestWaitingEventRebuildsTheAskablePrompt(t *testing.T) {
 	if json.Unmarshal(ev.Data, &d) != nil {
 		t.Fatal("the payload must be the wire's own JSON")
 	}
+
+	// A permission prompt carries the diff a yes would apply — computed once in the app, and it
+	// must survive this rebuild too, or the IDE's replay path shows arguments where the change is.
+	p := &Waiting{ID: "call_8", Kind: "permission", What: "edit", Diff: "-a\n+b"}
+	pev, err := p.Event("s_p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type == pev.Type {
+		t.Fatal("a permission is not a question")
+	}
+	if !strings.Contains(string(pev.Data), "-a\\n+b") && !strings.Contains(string(pev.Data), "diff") {
+		t.Fatalf("the diff must ride the rebuilt prompt: %s", pev.Data)
+	}
 }
