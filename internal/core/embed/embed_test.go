@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -206,5 +209,70 @@ func TestOmittedIndexFallsBackToPositionalOrder(t *testing.T) {
 		if len(got[i]) != 2 || got[i][0] != want[i][0] || got[i][1] != want[i][1] {
 			t.Errorf("vector %d = %v, want %v — omitted index collapsed the batch", i, got[i], want[i])
 		}
+	}
+}
+
+// A cache that cannot be written to fails on every entry of every search. The line is worth saying
+// — a search that quietly went back to a paid round trip per query is the kind of thing somebody
+// spends an afternoon on — and it is worth saying once: a hundred copies of it is not a hundred
+// facts, and it would bury whatever the daemon logs next.
+func TestACacheThatCannotBeWrittenIsSaidOncePerThingThatIsWrong(t *testing.T) {
+	var said []string
+	dir := t.TempDir()
+	c := &Client{Model: "any-embed", CacheDir: dir, Warn: func(s string) { said = append(said, s) }}
+
+	// A directory sitting where the entry's file goes, so the write fails for a reason that does
+	// not depend on who is running the test.
+	for _, text := range []string{"a", "b"} {
+		if err := os.MkdirAll(filepath.Join(dir, c.key(text)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.writeCached("a", []float32{1, 0})
+	c.writeCached("a", []float32{1, 0})
+	if len(said) != 1 {
+		t.Fatalf("said %d times: %v", len(said), said)
+	}
+	if !strings.HasPrefix(said[0], "cannot cache an embedding in "+dir+":") {
+		t.Errorf("the warning does not lead with the directory that cannot be written to: %q", said[0])
+	}
+	c.writeCached("b", []float32{0, 1})
+	if len(said) != 2 {
+		t.Errorf("said %d times: %v — a second thing going wrong is a second fact", len(said), said)
+	}
+
+	// Concurrent searches are the ordinary case, and the dedupe has to hold across them.
+	c2 := &Client{Model: "any-embed", CacheDir: dir}
+	var mu sync.Mutex
+	n := 0
+	c2.Warn = func(string) { mu.Lock(); n++; mu.Unlock() }
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() { defer wg.Done(); c2.warn("the same thing") }()
+	}
+	wg.Wait()
+	if n != 1 {
+		t.Errorf("said %d times from 20 goroutines", n)
+	}
+
+	// A caller that set nothing gets silence, which is right for a test and wrong for a daemon.
+	(&Client{Model: "any-embed", CacheDir: dir}).writeCached("a", []float32{1, 0})
+}
+
+// Nothing to cache, or nowhere to put it, is not a failure and must not warn about one.
+func TestThereIsNothingToSayWhenThereIsNothingToCache(t *testing.T) {
+	var said []string
+	warn := func(s string) { said = append(said, s) }
+
+	(&Client{Model: "m", Warn: warn}).writeCached("a", []float32{1, 0}) // no cache configured
+	dir := t.TempDir()
+	c := &Client{Model: "m", CacheDir: dir, Warn: warn}
+	c.writeCached("a", nil) // a model that answered with no vector
+	if len(said) != 0 {
+		t.Fatalf("said %v", said)
+	}
+	if ents, err := os.ReadDir(dir); err != nil || len(ents) != 0 {
+		t.Errorf("wrote %v (err %v) for an empty vector", ents, err)
 	}
 }
