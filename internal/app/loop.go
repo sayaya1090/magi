@@ -229,7 +229,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// the lock — it is a filesystem walk, and holding the app mutex across one would stall every
 	// other session.
 	worldBase := indexWorkspace(s.Workdir)
-	preDirt := preexistingDirtPaths(a.GitFacts(ctx, s.Workdir))
+	// Only when a council can convene: the disclaimer has exactly one reader, and a probe run
+	// for a consumer that does not exist is a git status per turn nobody reads.
+	var preDirt []string
+	if a.cfg.Council != nil {
+		preDirt = preexistingDirtPaths(a.GitFacts(ctx, s.Workdir))
+	}
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.turnStart = runStart // what a check means by "before the step ran"
