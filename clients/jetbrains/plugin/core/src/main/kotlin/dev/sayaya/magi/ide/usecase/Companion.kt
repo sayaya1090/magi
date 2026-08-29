@@ -67,6 +67,23 @@ class Companion(
     private fun status(): Response = client.exchange(Request(method = "status", session = session))
 
     /**
+     * 설정 화면의 동사들 — 남는 상태를 데몬에 쓴다(설계 문서 docs/UI.ko.md §5). 값을 IDE 에
+     * 한 벌 더 두지 않으므로 화면은 열 때 읽고, 적용이 쓰고, 다시 읽어 확인한다(§5.1).
+     *
+     * 넷 다 데몬 어휘 그대로다: 모델·백엔드·승인은 `name` 한 칸에 실린다(`daemon.go` 의
+     * `dispatch` — `SetModel(sid, r.Name)`), 승인 모드의 낱말은 코어의 것이다
+     * (`internal/app/routing.go` 의 `SetPermission`: ask | auto | allow | deny).
+     */
+    fun models(): Response = client.exchange(Request(method = "models", session = session))
+    fun setModel(name: String): Response =
+        client.exchange(Request(method = "set-model", session = session, name = name))
+    fun useBackend(name: String): Response =
+        client.exchange(Request(method = "use-backend", session = session, name = name))
+    fun setPermission(mode: String): Response =
+        client.exchange(Request(method = "set-permission", session = session, name = mode))
+    fun reloadCron(): Response = client.exchange(Request(method = "reload-cron", session = session))
+
+    /**
      * 우측 판의 **사실 장** — 지금 무엇을 하고 있고, 어떤 승인 모드이고, 어느 대화인가.
      *
      * `docs/UI.md` §2.2 가 콘솔에서 그 카드에 담는 것과 같은 질문이되, **오늘 데몬이 답할 수 있는

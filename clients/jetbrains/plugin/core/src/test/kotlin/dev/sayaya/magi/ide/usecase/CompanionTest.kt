@@ -46,6 +46,27 @@ class CompanionTest {
     }
 
     @Test
+    fun `설정의 동사들은 데몬 어휘 그대로 나간다`() {
+        // 넷 다 name 한 칸이다 — 화면이 필드를 새로 짓기 시작하면 데몬은 조용히 무시한다
+        // (dispatch 는 모르는 인자를 거절하지 않는다). 그래서 와이어 모양을 여기서 못박는다.
+        val ok = """{"ok":true}"""
+        val fake = FakeDaemon(listOf(ok, ok, ok, """{"ok":true,"models":["a","b"]}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            comp.setPermission("auto")
+            comp.setModel("gpt-oss:20b")
+            comp.useBackend("claude")
+            assertEquals(listOf("a", "b"), comp.models().models)
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"set-permission"""") && fake.seen[0].contains(""""name":"auto""""))
+        assertTrue(fake.seen[1].contains(""""method":"set-model"""") && fake.seen[1].contains(""""name":"gpt-oss:20b""""))
+        assertTrue(fake.seen[2].contains(""""method":"use-backend"""") && fake.seen[2].contains(""""name":"claude""""))
+        assertTrue(fake.seen[3].contains(""""method":"models""""))
+    }
+
+    @Test
     fun `사실 장은 데몬이 말한 것만 담는다`() {
         val fake = FakeDaemon(listOf(
             """{"ok":true,"doing":"go test ./...","permission":"auto","session":"s_9","waiting":{"id":"c1","kind":"permission","what":"bash","reason":"rm"}}""",

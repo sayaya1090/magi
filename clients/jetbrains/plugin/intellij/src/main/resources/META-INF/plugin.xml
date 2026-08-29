@@ -46,6 +46,15 @@
         -->
         <inline.completion.provider
             implementation="dev.sayaya.magi.ide.ui.MagiInlineCompletion"/>
+
+        <!--
+            Settings > Tools > magi. What used to be slash commands in the terminal, split by
+            docs/UI.ko.md §5: standing state edits here, one-shot verbs on the tool window's
+            title bar, and anything without a daemon door drawn read-only with the reason.
+            Values live in the daemon, never in a PersistentStateComponent (§5.1).
+        -->
+        <projectConfigurable parentId="tools" id="magi.settings" displayName="magi"
+                             instance="dev.sayaya.magi.ide.ui.MagiConfigurable"/>
     </extensions>
 
     <actions>
