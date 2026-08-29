@@ -170,6 +170,9 @@ func (h handover) Hand(ctx context.Context, label, request string, looking bool)
 		h.note(!took, ahead)
 	}
 	if !took {
+		// Nothing crossed, so nothing stays askable-about: a receipt minted a moment ago for
+		// a piece the queue refused would otherwise sit unreadable for its whole TTL.
+		h.receipts.Drop(id)
 		return "", fmt.Errorf("this companion already has %d pieces of work waiting and does one "+
 			"at a time. Ask somebody else — a queue this long is not an answer coming later, it "+
 			"is an answer that would come too late to be one", ahead)

@@ -90,7 +90,10 @@ type waiting struct {
 	// Not derivable from the queue, which this piece has already left, and not from the state a
 	// dashboard shows, which is read off the session a person attaches to. Without it a companion
 	// working through somebody's request looks exactly like one with nothing to do.
-	inHand bool
+	// inHand counts pieces running right now — a COUNT, not a flag: a looking piece runs
+	// beside a writing one by design, and when this was a bool whichever piece ended first
+	// cleared it, advertising a companion mid-change as free.
+	inHand int
 	// changed says what this companion is carrying, whenever that changes. It is how both numbers
 	// reach the published record and from there the roster somebody chooses from — pushed, because
 	// nothing outside this process can see a queue held in memory.
@@ -117,7 +120,7 @@ func (w *waiting) announce(n int, handling bool) {
 // away from a companion that is fine and nothing would ever clear it.
 func (w *waiting) began() {
 	w.mu.Lock()
-	w.inHand = true
+	w.inHand++
 	depth := len(w.items)
 	w.mu.Unlock()
 	w.announce(depth, true)
@@ -125,10 +128,13 @@ func (w *waiting) began() {
 
 func (w *waiting) ended() {
 	w.mu.Lock()
-	w.inHand = false
-	depth := len(w.items)
+	w.inHand--
+	if w.inHand < 0 {
+		w.inHand = 0 // ended runs on lost-track paths too; a stray extra call must not wedge the count
+	}
+	depth, hand := len(w.items), w.inHand > 0
 	w.mu.Unlock()
-	w.announce(depth, false)
+	w.announce(depth, hand)
 }
 
 // list is what is waiting, oldest first — the order it will be started in.
@@ -149,7 +155,7 @@ func (w *waiting) take(p pending) (ahead int, ok bool) {
 		return len(w.items), false
 	}
 	w.items = append(w.items, p)
-	ahead, depth, hand := len(w.items)-1, len(w.items), w.inHand
+	ahead, depth, hand := len(w.items)-1, len(w.items), w.inHand > 0
 	w.mu.Unlock()
 	w.announce(depth, hand)
 	w.wake()
@@ -180,7 +186,7 @@ func (w *waiting) next() (pending, bool) {
 	}
 	p := w.items[0]
 	w.items = w.items[1:]
-	depth, hand := len(w.items), w.inHand
+	depth, hand := len(w.items), w.inHand > 0
 	w.mu.Unlock()
 	w.announce(depth, hand)
 	return p, true

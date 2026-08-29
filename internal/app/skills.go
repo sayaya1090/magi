@@ -148,6 +148,14 @@ func dirSignature(dirs []string) string {
 						if mfi, err := os.Stat(filepath.Join(d, e.Name(), "SKILL.md")); err == nil {
 							fmt.Fprintf(&b, "m%d;", mfi.ModTime().UnixNano())
 						}
+					} else if strings.HasSuffix(e.Name(), ".md") {
+						// A FLAT skill is one file, and editing it in place bumps the file's mtime,
+						// not the directory's — so the cache served the old body for ever while the
+						// contract comment above promised otherwise (it held only for creates). Stat
+						// the file too, symmetric with the SKILL.md stat above.
+						if sfi, err := os.Stat(filepath.Join(d, e.Name())); err == nil {
+							fmt.Fprintf(&b, "f%s=%d;", e.Name(), sfi.ModTime().UnixNano())
+						}
 					}
 				}
 			}

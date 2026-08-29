@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
@@ -86,5 +87,32 @@ func TestAFlatSkillWithoutFrontmatterStillUsesItsFirstLine(t *testing.T) {
 	got := New(nil, nil, nil, nil, nil, Config{}).Skills(wd)
 	if len(got) != 1 || got[0].Description != "tidies the tree" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// A flat skill edited in place is served fresh. The signature stat'd directories and SKILL.md
+// files but never the flat .md entries themselves, so an in-place overwrite changed nothing it
+// measured and the daemon served the old body until restart.
+func TestAFlatSkillEditedInPlaceIsServedFresh(t *testing.T) {
+	wd := t.TempDir()
+	a := &App{}
+	dir := filepath.Join(wd, ".magi", "skills")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "deploy.md"), []byte("how to deploy\n\nrun make ship\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body, ok := a.skillBody(wd, "deploy")
+	if !ok || !strings.Contains(body, "make ship") {
+		t.Fatalf("the flat skill did not load: ok=%v body=%q", ok, body)
+	}
+	time.Sleep(10 * time.Millisecond) // a distinct mtime on coarse filesystems
+	if err := os.WriteFile(filepath.Join(dir, "deploy.md"), []byte("how to deploy\n\nrun make deploy-v2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body2, _ := a.skillBody(wd, "deploy")
+	if !strings.Contains(body2, "deploy-v2") {
+		t.Fatalf("the edited skill is still served stale: %q", body2)
 	}
 }

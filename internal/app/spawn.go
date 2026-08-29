@@ -398,16 +398,17 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 			started = time.Now()
 		}
 		spent, kids, elapsed := usedSteps, children, time.Since(started)
-		mu.Unlock()
 		// Say which bound and what it was. A plugin told only "refused" cannot tell a budget from
 		// a crash, and its loop will keep asking.
 		if spent >= spawnCallStepBudget {
+			mu.Unlock()
 			return port.SpawnResult{}, fmt.Errorf(
 				"spawn: this tool call has used its whole child-step budget (%d/%d steps across %d children); "+
 					"return what you have to the caller instead of starting another",
 				spent, spawnCallStepBudget, kids)
 		}
 		if elapsed >= spawnCallDeadline {
+			mu.Unlock()
 			return port.SpawnResult{}, fmt.Errorf(
 				"spawn: this tool call has been running children for %s (bound %s); return what you have",
 				elapsed.Round(time.Second), spawnCallDeadline)
@@ -419,6 +420,19 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 			spec.MaxSteps = spawnDefaultSteps
 		}
 		spec.MaxSteps = min(spec.MaxSteps, spawnCallStepBudget-spent) // >= 1: spent < budget above
+		// RESERVE the clamp under the same lock as the check, or the budget is only advisory:
+		// concurrent spawns each saw the same `spent`, each clamped against it, and together ran
+		// past the stated bound by up to three whole children — the charge landed only at
+		// settlement. The reservation is settled to the real spend below, and refunded on every
+		// refusal between here and the child actually running.
+		reserved := spec.MaxSteps
+		usedSteps += reserved
+		mu.Unlock()
+		refund := func() {
+			mu.Lock()
+			usedSteps -= reserved
+			mu.Unlock()
+		}
 		// The user's choice in /subagents outranks what the plugin asked for. Planning on a strong
 		// model while the work runs on a cheap one is the case this exists for, and the setting
 		// belongs where the user can see and change it — not in a plugin's own config section,
@@ -433,6 +447,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		// of these at once on the strength of it, and what it is promising about is two children
 		// writing the same file at the same time.
 		if err := onlyLooks(a.tools, toolName, spec.Tools); err != nil {
+			refund()
 			return port.SpawnResult{}, err
 		}
 		// IsolatedChildren is applied here for the same reason ReadOnlyChildren is checked here:
@@ -463,6 +478,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		select {
 		case slots <- struct{}{}:
 		case <-sctx.Done():
+			refund()
 			return port.SpawnResult{}, fmt.Errorf("spawn: %w", sctx.Err())
 		}
 		res, err := a.spawnChild(sctx, s, actor, spec, func(line string) {
@@ -475,7 +491,7 @@ func (a *App) spawnFnFor(depth int, s session.Session, actor event.Actor, callID
 		// that produced nothing measurable still costs something; without it a failing spawn is
 		// free and the loop is unbounded again.
 		mu.Lock()
-		usedSteps += max(res.Steps, 1)
+		usedSteps += max(res.Steps, 1) - reserved // settle the reservation to the real spend
 		children++
 		accounts = append(accounts, childAccount(res, err))
 		if res.SessionID != "" {

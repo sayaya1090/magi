@@ -97,6 +97,14 @@ func (r *Receipts) Give(sid string) (string, error) {
 	return id, nil
 }
 
+// Drop takes back a receipt whose work was refused on the way in: nothing crossed, so nothing
+// must remain askable-about. Unknown ids are a no-op — the TTL sweep may have taken it first.
+func (r *Receipts) Drop(id string) {
+	r.mu.Lock()
+	delete(r.kept, id)
+	r.mu.Unlock()
+}
+
 // Started records where the log stood as the work begins, which is the position its answer is
 // found after. Called once, by whatever takes it off the queue.
 func (r *Receipts) Started(id string, since int64) {
