@@ -84,6 +84,15 @@ class Companion(
     fun reloadCron(): Response = client.exchange(Request(method = "reload-cron", session = session))
 
     /**
+     * 행동의 동사들 — 한 번 하고 끝나는 것이라 설정 화면이 아니라 제목표시줄 기어 메뉴로 간다
+     * (docs/UI.ko.md §5 의 갈래). resume 은 여기 없다: 와이어가 목적지 세션을 요구하는데
+     * 고르는 화면이 아직 없다 — 지어낸 목록으로 단추를 만들면 틀린 답을 보낸다.
+     */
+    fun compact(): Response = client.exchange(Request(method = "compact", session = session))
+    fun rewind(n: Int = 1): Response =
+        client.exchange(Request(method = "rewind", session = session, n = n))
+
+    /**
      * 우측 판의 **사실 장** — 지금 무엇을 하고 있고, 어떤 승인 모드이고, 어느 대화인가.
      *
      * `docs/UI.md` §2.2 가 콘솔에서 그 카드에 담는 것과 같은 질문이되, **오늘 데몬이 답할 수 있는

@@ -67,6 +67,21 @@ class CompanionTest {
     }
 
     @Test
+    fun `행동의 동사들도 어휘 그대로 나간다`() {
+        val ok = """{"ok":true}"""
+        val fake = FakeDaemon(listOf(ok, ok))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            comp.compact()
+            comp.rewind(2)
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"compact""""))
+        assertTrue(fake.seen[1].contains(""""method":"rewind"""") && fake.seen[1].contains(""""n":2"""))
+    }
+
+    @Test
     fun `사실 장은 데몬이 말한 것만 담는다`() {
         val fake = FakeDaemon(listOf(
             """{"ok":true,"doing":"go test ./...","permission":"auto","session":"s_9","waiting":{"id":"c1","kind":"permission","what":"bash","reason":"rm"}}""",

@@ -65,6 +65,12 @@ class MagiToolWindow : ToolWindowFactory {
         // (사용자 실측: "왜 이렇게 커? 변하는 데이터도 없네") — 창이 무엇인지 말하는 자리는
         // 제목표시줄이고, 항상 보여야 하는 쪽은 상태 표시줄이 이미 한다(docs/UI.ko.md §3.1).
         view.title = { t -> SwingUtilities.invokeLater { toolWindow.setTitle(t) } }
+        // 행동의 동사들은 기어 메뉴로(설정 화면은 남는 상태의 자리다 — docs/UI.ko.md §5). 결과는
+        // 전사로 보고된다: 사건은 라벨이 아니라 전사라는 그 규칙이 여기도 그대로다.
+        toolWindow.setAdditionalGearActions(com.intellij.openapi.actionSystem.DefaultActionGroup(
+            view.verb("대화 요약해 접기 (compact)") { it.compact() },
+            view.verb("마지막 턴 되감기 (rewind)") { it.rewind(1) },
+        ))
         MagiWindows.put(project, view)
         // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
         Disposer.register(toolWindow.disposable, view)
@@ -646,6 +652,19 @@ class MagiToolWindow : ToolWindowFactory {
          */
         fun turnOpenedAt(): String? = if (shaper.open) shaper.openedAt else null
         fun councilRound(): Int? = shaper.councilRound
+
+        /**
+         * 기어 메뉴의 동사 하나. 답을 버리지 않는 것은 [add] 와 같은 규칙이고, 보고가 전사로
+         * 가는 것은 [report] 의 규칙이다 — 단추마다 한 벌씩 다시 적지 않으려고 여기로 접는다.
+         */
+        fun verb(label: String, act: (Companion) -> Response): com.intellij.openapi.actionSystem.AnAction =
+            object : com.intellij.openapi.actionSystem.AnAction(label) {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) =
+                    onDaemon { comp ->
+                        val r = act(comp)
+                        report(if (r.ok) "$label — 보냈다." else "$label — 안 갔다: ${r.error ?: "사유 없음"}")
+                    }
+            }
 
         /** 데몬에 한 번 붙어 무언가 하고 끊는다. 배선은 [Workspace] 가 갖는다 — 창 둘이 같이 쓴다. */
         private fun onDaemon(work: (Companion) -> Unit) =
