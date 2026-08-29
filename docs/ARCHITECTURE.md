@@ -455,6 +455,14 @@ written, rather than a menu going quiet six months later.
   **`Platform`** (Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime), **`ContextProvider`**,
   **`Council`** (Deliberate), **`ToolRegistry`**, **`DoctorProbe`**, **`PluginCommand`**,
   **`Scheduler`**.
+- **`ToolServers`** (Attach/Detach) is the one port a *running* daemon exposes to the outside: an
+  application that IS a tool server — an editor plugin, a slide add-in — attaching itself for as
+  long as it is open. It takes a URL and never a command line, because the safety argument for the
+  door is that it spawns nothing, and it writes nothing to config, because a server that existed
+  this afternoon must not leave a line the daemon dials every morning. `EXTENDING.md` §1.4 is the
+  contract; the daemon speaks it as `mcp-attach` / `mcp-detach` and advertises it as the
+  `tool-servers` capability — asked of the engine, since whether a daemon accepts the door is a
+  fact about what it is running and not about this build.
 
 `ToolEnv` used to carry two more fields — `Ask` (a subagent escalating to its
 orchestrator) and `Report` (a subagent's structured final result, `port.ReportInput`).
@@ -1128,7 +1136,12 @@ forgotten — no deregistration step exists because no registration step does.
 
 - **Lua plugins** (`adapter/plugin/lua`, `-plugins <dir>`): capability bundles
   (tools/hooks), hot-reloadable. NOT for transport-level concerns (auth/TLS).
-- **MCP** (`adapter/mcp`, `config.toml [mcp]`): external tool servers over stdio.
+- **MCP** (`adapter/mcp`, `config.toml [mcp]`): external tool servers over stdio or Streamable
+  HTTP. Two facts live beside the transport: an HTTP server can also be **attached at runtime**
+  through the daemon's `mcp-attach` door (`port.ToolServers` — §3) with nothing written to config;
+  and a tool that answers with a **picture** has it written beside the sessions in the daemon's
+  data directory (the log keeps the path, the file keeps the picture; 8MB per image, swept after
+  30 days), sent to the model only when the registry says that model reads images.
 - **Hooks** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop shell commands
   (POSIX shell; not available on Windows).
 - **The council**: `port.Council` is the seam. The bundled implementation polls three members over

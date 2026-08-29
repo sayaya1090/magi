@@ -161,8 +161,8 @@ type Actor struct {
 | `prompt.submitted` | `{messageId, parts[]}` (role=user) |
 | `part.appended` | `{messageId, role, part}` (완성된 part 1개) |
 | `permission.decided` | `{callId, decision}` (감사용) |
-| `council.convened` | `{round, members[], rule}` (D14 출하 M9 — 종료 게이트 소집) |
-| `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
+| `council.convened` | `{round, members[], rule, task, plan, report, actions, changes, noChanges, keep, epoch}` (D14 출하 M9 — 종료 게이트 소집) — 라운드가 자기 증거를 스스로 공표; `epoch`는 소집 시점 가드의 변이 카운트로, 잘려 실리는 `changes`가 될 수 없는 판별자 |
+| `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback, keep, silent}` — `silent`는 아무도 내지 않은 평결 표시(백엔드 다운·시한·해독 불가 응답); `abstain` 옆에 실려 실패가 숙고된 기권으로 보고되지 않게 함 |
 | `council.decided` | `{round, decision, tally, injectedFeedback}` (continue면 feedback이 prompt.submitted로 주입됨) |
 | `compaction` | `{summary, replacesUpToSeq, tokens:{before,after}}` |
 | `turn.finished` | `{usage:{in,out,cost}}` |

@@ -176,8 +176,55 @@ Fields (`config.MCPServer`):
   collision left is **using the same label twice**, and `[mcp.<name>]` is a map, so config merging has
   already folded those into one.
 - If a server dies mid-session, only its tools leave the registry; the session continues.
+- **A tool may answer with a picture.** An `image` content block is decoded, bounded at 8MB (a
+  result's text is trimmed at 64KB, and half a PNG is not half a picture, so images ride beside the
+  text with their own cap), and written **beside the sessions in the daemon's data directory** —
+  not the turn's scratch, which is removed when the turn ends while a viewer opens the log tomorrow.
+  The log keeps the path; the file keeps the picture. It is sent to the model only when the model
+  registry marks that model as reading pictures; otherwise the result says a picture arrived and
+  where it is. A daemon with nowhere to keep pictures **says so in the result** rather than answering
+  the empty string. Pictures older than 30 days are swept at startup: what an older log loses is the
+  picture, not the fact — the line naming the file and its type stays in the result.
 
-### 1.4 Troubleshooting
+### 1.4 Attaching one at runtime — an application that IS the server
+
+Everything above is a server an **operator installed**: config names it, and the daemon keeps it for
+its life. That is the wrong shape for a tool server that is itself the application a person is using
+— an editor plugin, a slide add-in — which starts and stops on its own clock and cannot be in a file
+the daemon read hours ago.
+
+Such an application attaches itself over the daemon socket:
+
+| Method | Arguments | What it does |
+|---|---|---|
+| `mcp-attach` | `name`, `url`, `headers` (optional) | connects to an HTTP MCP server, registers its tools under `mcp__<name>__<tool>`, and answers with **the tool names that registered** |
+| `mcp-detach` | `name` | removes that server and its tools, and answers whether there was one to remove |
+
+From Go, `daemon.Client.AttachMCP` / `DetachMCP`. Five properties of this door are deliberate:
+
+- **It takes a URL and never a command line.** The safety argument is that this door spawns nothing
+  — which is why the `[mcp.*]` section it stands beside is refused to plugins, since that one names
+  a command line this machine will run. An argument that lives in the signature cannot be lost later
+  to convenience: a caller that needs to start a process needs a different door, not one more field.
+- **Runtime only. Nothing is written to config.** A server that existed this afternoon must not
+  leave a line the daemon tries to dial every morning. A daemon that restarts has forgotten, and the
+  application attaches again when it notices.
+- **The reply is evidence, not an ack.** A caller told `ok` knows the handshake worked; a caller told
+  `mcp__ppt__render, mcp__ppt__open` knows what it may now ask for; a caller told an empty list knows
+  the server attached and offers nothing. One ack flattens three different situations into one.
+- **Detach reports whether there was one**, because an application reconnecting after its own crash
+  wants to know whether it is cleaning up or was already clean — "already clean" is a normal answer,
+  not a failure. It is **refused** for a name the operator declared in config: this door only owns
+  what it attached, and nothing here could put an operator's server back before a restart.
+- **Ask before you attach.** The door is an optional capability of the engine, not a property of the
+  build, so `about` advertises `tool-servers` only when *this* daemon accepts it. An application that
+  draws a list of companions decides from that which ones it can attach to, instead of calling the
+  method and reading a refusal in prose.
+
+Once attached, the tools are MCP tools like any other: same `mcp__` naming, same danger-tool
+treatment and permission prompt as §1.3.
+
+### 1.5 Troubleshooting
 
 | Symptom | Cause / what to do |
 |---|---|

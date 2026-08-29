@@ -169,8 +169,8 @@ type Actor struct {
 | `prompt.submitted` | `{messageId, parts[]}` (role=user) |
 | `part.appended` | `{messageId, role, part}` (one completed part) |
 | `permission.decided` | `{callId, decision}` (for audit) |
-| `council.convened` | `{round, members[], rule}` (D14) |
-| `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback}` |
+| `council.convened` | `{round, members[], rule, task, plan, report, actions, changes, noChanges, keep, epoch}` (D14) — the round announces its own evidence; `epoch` is the guard's mutation count at convening, the discriminator the clipped `changes` cannot be |
+| `council.verdict` | `{round, member, decision(done\|continue\|abstain), confidence, rationale, feedback, keep, silent}` — `silent` marks a verdict nobody gave (backend down, deadline, unreadable reply); it rides beside `abstain` so a failure is not reported as a considered abstention |
 | `council.decided` | `{round, decision, tally, feedback}` |
 | `compaction` | `{summary, replacesUpToSeq, tokens:{before,after}}` |
 | `turn.finished` | `{usage:{in,out,cost}}` |

@@ -436,6 +436,14 @@ type Actor struct { Kind ActorKind; ID string } // user | agent | system
   **`Platform`**(Exec/ConfigDir/DataDir/TerminalCaps/ProcessCPUTime), **`ContextProvider`**,
   **`Council`**(Deliberate), **`ToolRegistry`**, **`DoctorProbe`**, **`PluginCommand`**,
   **`Scheduler`**.
+- **`ToolServers`**(Attach/Detach)는 *돌아가는* 데몬이 바깥으로 내놓는 유일한 포트입니다. 툴
+  서버가 곧 애플리케이션인 경우 — 에디터 플러그인, 슬라이드 애드인 — 가 열려 있는 동안만 자기를
+  붙입니다. 커맨드라인이 아니라 URL을 받는데, 이 문의 안전 근거가 아무것도 spawn하지 않는다는 데
+  있기 때문입니다. 설정에는 아무것도 쓰지 않는데, 오늘 오후에 있었던 서버가 매일 아침 데몬이
+  걸어 보는 줄로 남으면 안 되기 때문입니다. 계약은 `EXTENDING.ko.md` §1.4이고, 데몬은 이것을
+  `mcp-attach` / `mcp-detach`로 말하며 `tool-servers` 능력으로 광고합니다 — 그 광고는 엔진에게
+  묻습니다. 데몬이 이 문을 받아 주는지는 이 빌드가 아니라 그 데몬이 무엇을 돌리고 있는지에 대한
+  사실이기 때문입니다.
 
 `ToolEnv`에는 예전에 두 필드가 더 있었습니다 — `Ask`(서브에이전트가 오케스트레이터에게 올리는 질의)와
 `Report`(서브에이전트의 구조적 최종 결과, `port.ReportInput`). 에이전트 단일화가 들어온 뒤로는
@@ -1045,7 +1053,11 @@ flowchart TB
 
 - **Lua 플러그인** (`adapter/plugin/lua`, `-plugins <dir>`): 능력 번들(툴/훅), 핫 리로드 가능.
   전송 계층 관심사(인증/TLS)에는 **쓰지 않습니다.**
-- **MCP** (`adapter/mcp`, `config.toml [mcp]`): stdio를 통한 외부 툴 서버.
+- **MCP** (`adapter/mcp`, `config.toml [mcp]`): stdio 또는 Streamable HTTP를 통한 외부 툴 서버.
+  전송 방식 옆에 사실 둘이 더 삽니다: HTTP 서버는 데몬의 `mcp-attach` 문(`port.ToolServers` —
+  §3)으로 설정에 아무것도 쓰지 않고 **런타임에 붙일 수도** 있고, **그림**으로 답하는 툴의
+  그림은 데몬 데이터 디렉토리의 세션들 옆에 기록됩니다(로그는 경로를, 파일은 그림을; 장당
+  8MB, 30일 뒤 청소). 모델에는 레지스트리가 그림을 읽는다고 말하는 모델일 때만 전달됩니다.
 - **훅** (`config.toml [[hooks]]`): PreToolUse/PostToolUse/Stop 셸 커맨드
   (POSIX 셸. 윈도우에서는 쓸 수 없습니다).
 - **카운슬**: `port.Council`이 이음매입니다. 번들된 구현은 OpenAI 호환 백엔드로 세 위원에게 묻고

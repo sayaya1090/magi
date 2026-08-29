@@ -45,8 +45,17 @@ deny rules → allow rules → approval mode → guardrail scan → run
 
 **Secret-looking paths ship denied.** `**/.env`, `**/.env.*`, `**/*.pem`, `**/*.key`, `**/id_rsa`,
 `**/id_ed25519`, `**/.ssh/**`, `**/.aws/credentials`, `**/.aws/config`, `**/.netrc`, `**/.npmrc`,
-`**/.pypirc`, `**/secrets/**`, `**/*.secret`, `**/credentials.json`. Denied for the file tools and
-flagged in bash commands, so a prompt-injected agent cannot quietly read or exfiltrate them.
+`**/.pypirc`, `**/secrets/**`, `**/*.secret`, `**/credentials.json`. Flagged in bash commands, and
+denied for **any call that says it opens a file** — so a prompt-injected agent cannot quietly read
+or exfiltrate them. Which calls those are is asked of the call, not of a list of names: the patterns
+used to be expanded into one rule per name × glob for `read`, `write`, `edit` and `multiedit`, which
+was exact while those were the only file tools and is not exact once an editor plugin attaches one
+called `mcp__jetbrains__edit`. A tool that declares which file its arguments name (`port.FileTool`)
+gets the same floor, read from its arguments **before** the call — a floor that answers after the
+write is not a floor. Two consequences worth stating: the floor now also covers the searching tools
+(`grep`, `glob`, `list`), which are reads and were never under it; and declaring alone buys no
+exemption in the other direction — a tool under an `mcp__` name is still a danger tool and still
+prompts.
 
 **The files that decide what the agent may do are denied for writing and allowed for reading.**
 Knowing your own posture is useful and harmless; rewriting it is the entire problem. The project
@@ -101,6 +110,16 @@ declared shape is **checked, not trusted**: a tool that says `readonly_children`
 inspected at the moment the child's tools are decided, and a spec asking for anything outside
 `read`/`grep`/`glob`/`list` is refused by name. An absent or empty tool list is refused too, because
 it does not mean "nothing", it means everything this companion has.
+
+**Attaching a tool server while the daemon runs** is a third door with limits of its own. An
+application that IS a tool server — an editor plugin, a slide add-in — attaches itself over the
+daemon socket (`mcp-attach`), and what it may say is bounded by the signature: **a URL, never a
+command line**, so this door spawns no process. That is the same distinction the plugin deny-list
+draws: `mcp` is one of the four config keys a plugin cannot write precisely because that section
+names a command line this machine will run. Nothing attached this way is written to config, so a
+restart forgets it rather than dialling it every morning; `mcp-detach` removes only what this door
+attached and is refused for a server the operator declared. The tools that arrive are MCP tools
+like any other — `mcp__<name>__<tool>`, danger-gated, prompting under `ask` and `auto`.
 
 ## 4. The console
 
