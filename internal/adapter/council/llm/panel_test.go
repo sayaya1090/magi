@@ -386,3 +386,60 @@ func TestSuiteWalkClauseRidesTheVerificationLensOnly(t *testing.T) {
 		t.Fatal("the no-more-tests guard is missing from the clause")
 	}
 }
+
+// A verdict somebody actually gave is not silent. The slots start as placeholders marked
+// silent:true — a verdict nobody gave — and the merge filled every other field over them while
+// leaving the mark, so every panel verdict shipped silent:true and three screens drew spoken
+// verdicts as "no answer".
+func TestASpokenPanelVerdictIsNotMarkedSilent(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return replyWith([3]string{"Melchior", "correctness", "done"},
+			[3]string{"Balthasar", "verification", "abstain"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spoke, silent int
+	for _, v := range d.Verdicts {
+		switch {
+		case strings.HasPrefix(v.Rationale, "the council panel did not return"):
+			silent++
+			if !v.Silent {
+				t.Errorf("%s never answered and is not marked silent", v.Member)
+			}
+		default:
+			spoke++
+			if v.Silent {
+				t.Errorf("%s answered %q and is marked silent", v.Member, v.Decision)
+			}
+		}
+	}
+	if spoke != 2 || silent != 1 {
+		t.Fatalf("want two spoken verdicts and one unanswered slot, got %d and %d", spoke, silent)
+	}
+}
+
+// A member who genuinely abstained keeps their own words: the lens fallback used to treat "an
+// abstain with a rationale" as an empty slot, so an unrelated verdict sharing the lens could
+// overwrite a real one.
+func TestAGenuineAbstainIsNotOverwrittenByTheLensFallback(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		// Melchior answers by NAME with an abstain; a second entry claims the same lens.
+		return replyWith([3]string{"Melchior", "correctness", "abstain"},
+			[3]string{"someone-else", "correctness", "done"})
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range d.Verdicts {
+		if v.Member == "Melchior" && v.Decision != council.Abstain {
+			t.Fatalf("Melchior's own abstain was overwritten with %q", v.Decision)
+		}
+	}
+}

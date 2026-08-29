@@ -372,9 +372,21 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	// Match by name, then by lens, then by position: a model that renames a member has still cast
 	// its votes, and losing the whole round over a label is the failure this is guarding against.
 	used := make([]bool, len(vs))
+	// unfilled says a slot still holds the placeholder — nobody's verdict has landed in it. The
+	// lens pass used to ask "is it an abstain with a rationale", which a member who GENUINELY
+	// abstained also answers, so a real abstain could be overwritten by an unrelated verdict that
+	// happened to share the lens. One test, used by both fallback passes.
+	unfilled := func(i int) bool {
+		return strings.HasPrefix(out[i].Rationale, "the council panel did not return")
+	}
 	take := func(i int, j int) {
 		v := vs[j]
 		used[j] = true
+		// Somebody spoke for this lens: the slot is no longer a verdict nobody gave. Left set,
+		// every panel verdict shipped silent:true — breaking the contract that the mark rides
+		// only beside an abstain nobody chose, and making three screens (TUI, web, IDE) draw a
+		// spoken verdict as "no answer".
+		out[i].Silent = false
 		out[i].Decision = decisionOf(strings.TrimSpace(string(v.Decision)))
 		out[i].Confidence = float64(v.Confidence)
 		out[i].Rationale = string(v.Rationale)
@@ -396,7 +408,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		}
 	}
 	for i, m := range members {
-		if out[i].Decision != council.Abstain || out[i].Rationale == "" {
+		if !unfilled(i) {
 			continue
 		}
 		for j, v := range vs {
@@ -407,7 +419,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		}
 	}
 	for i := range members {
-		if !strings.HasPrefix(out[i].Rationale, "the council panel did not return") {
+		if !unfilled(i) {
 			continue
 		}
 		for j := range vs {
