@@ -55,8 +55,11 @@ func TestKillOwnerSignalsOnePid(t *testing.T) {
 // drop removes exactly the server it was handed — a replacement that took the key meanwhile is
 // not this caller's to evict — and closes the dropped one off-thread.
 func TestLSPPoolDropEvictsByIdentity(t *testing.T) {
-	mine := &warmLSP{cli: &lspClient{}}
-	other := &warmLSP{cli: &lspClient{}}
+	// The fake needs a closable stdin: drop closes the evicted server on a goroutine, and a nil
+	// pipe there is a panic that only fires when the scheduler feels like it — measured as a
+	// full-suite crash after three green single runs.
+	mine := &warmLSP{cli: &lspClient{in: nopWC{}}}
+	other := &warmLSP{cli: &lspClient{in: nopWC{}}}
 	m := &lspPoolManager{warm: map[string]*warmLSP{"go": mine}}
 	m.drop("go", other) // not the one under the key
 	if m.warm["go"] != mine {
@@ -67,3 +70,8 @@ func TestLSPPoolDropEvictsByIdentity(t *testing.T) {
 		t.Fatal("the handed server leaves the pool")
 	}
 }
+
+type nopWC struct{}
+
+func (nopWC) Write(p []byte) (int, error) { return len(p), nil }
+func (nopWC) Close() error                { return nil }
