@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -134,5 +135,32 @@ func TestClientWrappersRoundTrip(t *testing.T) {
 	}
 	if err := c.Resume("s_x"); err == nil {
 		t.Fatal("Resume on an engine that cannot must surface the refusal")
+	}
+}
+
+// Over is the byte-pipe constructor — the --relay path, where the connection was made by
+// something else (ssh, a test, a pipe) and the client only speaks over it.
+func TestOverSpeaksOverAForeignConnection(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-ov.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	go func() { _ = d.Serve(context.Background(), &omniEngine{}) }()
+
+	conn, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Over(conn)
+	defer c.Close()
+	if about, err := c.About(); err != nil || about != "a companion" {
+		t.Fatalf("a dumb byte pipe is a full client: (%q, %v)", about, err)
 	}
 }
