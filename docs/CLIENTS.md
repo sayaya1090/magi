@@ -156,6 +156,26 @@ words come back as the answer) and hold meetings (participants get the four look
 Between machines there is one TLS door, trusted by ssh key, carrying narrowed queries and the
 set-union replication of team knowledge (exp-sync).
 
+### The path a new client walks
+
+A client consuming these doors for the first time needs four steps — all of them ordering of
+contracts this page already states.
+
+1. **Discovery**: glob `daemon-*.sock` in the config directory, or ask any live companion's
+   `roster` door. A client that knows its workspace (the IDE) derives the socket name
+   (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
+2. **Handshake**: `about` — the reply's `caps` is everything this daemon will accept (`roster`,
+   `tool-servers`, `transcript`, …). Read the advertisement and call; never call and read the
+   refusal.
+3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
+   on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
+   `cron` and `jobs`.
+4. **Action**: steering, interrupting, answering, files and git are methods on that companion's
+   own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
+   and `mcp-detach`s on the way out.
+
+A refusal always carries its reason in the `err` string — no door fails in silence.
+
 ## 3. The web screen map — what is the screen of what
 
 The shell resolves a destination **by the companion's type**: entering a detail view loads that
