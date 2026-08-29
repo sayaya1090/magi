@@ -156,6 +156,20 @@ words come back as the answer) and hold meetings (participants get the four look
 Between machines there is one TLS door, trusted by ssh key, carrying narrowed queries and the
 set-union replication of team knowledge (exp-sync).
 
+**Attachments are a field (★implemented).** submit/steer carry `refs[]` (path, lines?) — the
+IDE's selection, the composer's paperclip. The excerpt is the CORE's rendering: resolved inside
+the workspace (the same jail every read keeps — an outside path renders its refusal in place),
+sliced 1-indexed and inclusive the way every editor counts, capped per ref and in total, and
+persisted with the prompt event — the transcript shows exactly what the agent was shown, and a
+replay shows it again. No attachment vanishes: a ref that cannot be served says why where its
+excerpt would have been. A malformed line range falls back to the whole file — the person pointed
+at the file, and losing it over a typo drops the half that mattered.
+
+**Deferred, and the candidate ledger.** Outside-workspace content-root read-only is **deferred**
+(a 2026-08-29 user decision — the workspace stays the trust boundary). On the ledger:
+same-workspace contention (worktree isolation / file leases — the cheap half, a duplicate-workdir
+warning badge, is the plugin's, from roster material it already has).
+
 **An edit approval carries its diff (★implemented).** The permission prompt for an edit-class
 call carries **the diff a yes would apply** — computed once in the app (the same derivation the
 web's folding diff draws) and riding everywhere the prompt travels: the transient event, the
