@@ -143,6 +143,47 @@ class RowsTest {
     }
 
     @Test
+    fun `디스크를 고친 사실은 새로고침 대장에 남는다`() {
+        val r = Rows()
+        fun call(id: String, tool: String, args: String) = ev(
+            "part.appended",
+            """{"messageId":"m","part":{"kind":"tool-call","toolCall":{"callId":"$id","name":"$tool","args":$args}}}""",
+        )
+        fun done(id: String, err: Boolean = false) = ev(
+            "part.appended",
+            """{"messageId":"m","part":{"kind":"tool-result","toolResult":{"callId":"$id","isError":$err,"content":"ok"}}}""",
+        )
+        r.feed(call("c1", "edit", """{"path":"src/a.kt","old":"x","new":"y"}"""))
+        r.feed(done("c1"))
+        r.feed(call("c2", "read", """{"path":"b.kt"}"""))
+        r.feed(done("c2"))
+        r.feed(call("c3", "write", """{"path":"c.md","content":"z"}"""))
+        r.feed(done("c3", err = true))
+        var d = r.drainDisk()
+        assertEquals(listOf("src/a.kt"), d.paths, "성공한 변이만 — 읽기와 실패는 아니다")
+        assertFalse(d.broad)
+        assertTrue(r.drainDisk().paths.isEmpty(), "드레인은 비운다")
+        // 경로를 모르는 변이(bash)는 턴이 끝날 때 한 번 훑으라는 신호로 접힌다.
+        r.feed(call("c4", "bash", """{"command":"touch x"}"""))
+        r.feed(done("c4"))
+        assertFalse(r.drainDisk().broad, "턴 중에는 아직 아니다")
+        r.feed(ev("turn.finished", "{}"))
+        assertTrue(r.drainDisk().broad)
+        assertFalse(r.drainDisk().broad, "신호도 드레인으로 비워진다")
+        // bash_output 도 접힌다 — detach 된 프로세스는 결과 이후에도 쓴다(리뷰 F6a).
+        r.feed(call("c5", "bash_output", """{"id":"bg1"}"""))
+        r.feed(done("c5"))
+        r.feed(ev("turn.finished", "{}"))
+        assertTrue(r.drainDisk().broad)
+        // clear 는 대장도 처음부터다 — 세션을 갈아타면 옛 변이가 새 대화에 실리면 안 된다.
+        r.feed(call("c6", "edit", """{"path":"d.kt","old":"x","new":"y"}"""))
+        r.feed(done("c6"))
+        r.clear()
+        val after = r.drainDisk()
+        assertTrue(after.paths.isEmpty() && !after.broad, "clear 뒤 대장은 비어 있다")
+    }
+
+    @Test
     fun `나란히-보기 판정은 결손 쪽으로 접는다 — FlexBool 모양까지`() {
         fun args(extra: String = "") =
             """{"path":"src/a.kt","old":"x","new":"y"$extra}"""

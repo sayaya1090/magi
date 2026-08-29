@@ -324,6 +324,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
                     if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
+                    refreshDisk() // 컴패니언이 고친 디스크를 IDE 가 다시 보게(사유는 Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 사실만 커서가 된다(전이는 seq==0)
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
@@ -712,6 +713,52 @@ class MagiToolWindow : ToolWindowFactory {
          * 여백 없는 로그 덤프로 읽혔다(사용자 실측). 행마다 판을 주면 사이 여백·대기 막대·접힌
          * 인자 펼치기가 전부 스윙의 보통 물건이 된다.
          */
+        // 디스크 새로고침의 코얼레스 창(리뷰 F1). `turn.finished` 는 사실이라 재생에도 실린다
+        // — 창을 열면 과거 턴 전부가 프레임 단위로 흘러 들어오고, 프레임마다 refresh 를 치면
+        // 워크스페이스 통째 훑기가 "bash 있던 턴 수"만큼 돈다. 그래서 드레인은 모으기만 하고,
+        // 반 초 뒤 한 번에 민다 — broad 가 섰으면 개별 경로는 생략(통째가 덮는다).
+        private val diskPaths = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        private val diskBroad = java.util.concurrent.atomic.AtomicBoolean(false)
+        private val diskArmed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
+         * 셰이퍼의 디스크 대장([Rows.drainDisk])을 가져다 IDE 의 VFS 를 깨운다 — 데몬(외부
+         * 프로세스)이 고친 파일을 에디터가 포커스 전환 없이도 보게. 판정(어느 파일, 언제
+         * 통째)은 core 가 했고 여기는 호출만 한다. 실행은 풀드 스레드다(리뷰 F4):
+         * refreshAndFindFileByPath 는 캐시에 없는 경로면 **그 스레드에서 동기 IO** 를 하는
+         * API 라 EDT 에 올리면 안 되고, markDirtyAndRefresh(async=true)는 스레드 무관이라
+         * EDT 를 고를 이유가 없다.
+         */
+        private fun refreshDisk() {
+            val d = shaper.drainDisk()
+            if (d.paths.isEmpty() && !d.broad) return
+            if (d.broad) diskBroad.set(true) else diskPaths.addAll(d.paths)
+            if (!diskArmed.compareAndSet(false, true)) return
+            ApplicationManager.getApplication().executeOnPooledThread {
+                Thread.sleep(500)
+                diskArmed.set(false) // 스냅숏 전에 내린다 — 이후 도착분은 새 플러시를 무장한다
+                val broad = diskBroad.getAndSet(false)
+                val paths = ArrayList(diskPaths).also { diskPaths.clear() }
+                val base = project.basePath ?: return@executeOnPooledThread
+                val lfs = com.intellij.openapi.vfs.LocalFileSystem.getInstance()
+                if (broad) {
+                    lfs.refreshAndFindFileByPath(base)?.let {
+                        com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(true, true, false, it)
+                    }
+                    return@executeOnPooledThread
+                }
+                for (rel in paths) {
+                    // 모델이 보낸 원문이라 윈도우즈 백슬래시가 실릴 수 있다 — VFS 는 '/' 만
+                    // 알아듣고, 틀린 구분자는 에러가 아니라 조용한 no-op 이다(리뷰 F5).
+                    val slashed = rel.replace('\\', '/')
+                    val abs = if (java.nio.file.Paths.get(slashed).isAbsolute) slashed else "$base/$slashed"
+                    lfs.refreshAndFindFileByPath(abs)?.let {
+                        com.intellij.openapi.vfs.VfsUtil.markDirtyAndRefresh(true, false, false, it)
+                    }
+                }
+            }
+        }
+
         private fun redrawLog() {
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {

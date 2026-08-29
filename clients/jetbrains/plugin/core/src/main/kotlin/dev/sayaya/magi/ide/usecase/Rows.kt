@@ -112,6 +112,11 @@ class Rows {
         todos = emptyList()
         context = null
         model = null
+        // 디스크 대장도 처음부터 — 세션을 갈아타면 옛 대화의 변이가 새 대화의 첫 드레인에
+        // 실려 나가면 안 된다(리뷰 F2: clear 계약 위반).
+        touched.clear()
+        unknownDisk = false
+        broadPending = false
     }
 
     /**
@@ -128,7 +133,11 @@ class Rows {
             "interjection.answered" -> answered(e)
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)
-            "turn.finished" -> finished()
+            "turn.finished" -> {
+                // 경로를 모르는 변이가 이 턴에 있었으면, 이제 한 번 훑을 때다([drainDisk]).
+                if (unknownDisk) { broadPending = true; unknownDisk = false }
+                finished()
+            }
             "session.created" -> {
                 model = e.data?.jsonObject?.get("model")?.jsonObject?.get("model")?.jsonPrimitive?.content
                 false
@@ -198,6 +207,57 @@ class Rows {
         return true
     }
 
+    /** [drainDisk] 의 답 — 다시 볼 파일들과, 워크스페이스를 통째 훑으라는 신호. */
+    class Disk(val paths: List<String>, val broad: Boolean)
+
+    private val touched = mutableListOf<String>()
+    private var unknownDisk = false // 경로를 모르는 변이(bash)가 이 턴에 있었다
+    private var broadPending = false // …그리고 턴이 끝났다 — 한 번 훑을 때다
+
+    /**
+     * 컴패니언이 이 화면 밖에서 고친 디스크 — 뷰가 가져다 IDE 의 파일 캐시(VFS)를 깨운다.
+     *
+     * IDE 는 남(데몬 프로세스)이 고친 디스크를 저절로 안 본다: 재스캔은 창 포커스가 나갔다
+     * 돌아올 때인데, magi 판이 IDE 안에 있으니 포커스가 안 나가고 에디터는 낡은 사본을 보여
+     * 준다(라이브 실측 — 사람이 「파일이 전혀 안 고쳐졌다」고 읽었다. 고쳐져 있었다). 판정이
+     * 여기(core) 있는 이유는 폭 판정과 같다 — intellij 모듈엔 시험이 없다.
+     *
+     * 경로를 아는 변이(edit·write·multiedit, **성공한 결과만** — 거부된 편집으로 캐시를
+     * 깨우면 안 바뀐 파일을 다시 읽는 낭비다)는 그 파일만 싣고, 경로를 모르는 변이(bash)는
+     * 턴이 끝날 때 한 번 훑으라는 신호로 접는다 — 매 bash 마다 통째 훑기는 큰 프로젝트에서
+     * 비싸고, 턴 중간의 낡음은 다음 사실이 오면 곧 걷힌다.
+     *
+     * 한계(리뷰 F6b): 이 대장은 builtin 이름만 안다 — exec 를 선언한 플러그인/MCP 도구가
+     * 디스크를 고치면 여기 안 실린다. 그쪽까지 접으려면 도구 선언(쓰기 능력)을 셰이퍼가
+     * 알아야 하고, 그것은 새 문이라 별건이다.
+     */
+    fun drainDisk(): Disk = synchronized(rows) {
+        // feed 와 같은 잠금이다 — 평시엔 같은 워커 스레드지만, 재접속은 워커를 갈고 갈아탄
+        // 직후 옛 세션 프레임 하나가 착지할 수 있다(frame 가드의 실측 주석). 무락 읽기는
+        // 그 창에서 동시 변이 + 가시성 미보장이다(리뷰 F3).
+        val d = Disk(touched.toList(), broadPending)
+        touched.clear()
+        broadPending = false
+        d
+    }
+
+    private fun noteDisk(tool: String?, args: String?) {
+        when (tool) {
+            "edit", "write", "multiedit" -> {
+                val o = runCatching {
+                    kotlinx.serialization.json.Json.parseToJsonElement(args.orEmpty())
+                }.getOrNull() as? kotlinx.serialization.json.JsonObject
+                val path = (o?.get("path") as? kotlinx.serialization.json.JsonPrimitive)
+                    ?.takeIf { it.isString }?.content
+                // 경로를 못 읽으면 안전 방향은 「모른다」다 — 안 깨우는 것이 아니라 훑는 쪽.
+                if (path.isNullOrBlank()) unknownDisk = true else touched += path
+            }
+            // bash_output/bash_kill 도 접는다: &-detach 된 백그라운드 프로세스는 툴 결과
+            // **이후**에도 쓴다 — 이어지는 턴이 폴링만 하면 신호가 영영 안 선다(리뷰 F6a).
+            "bash", "bash_input", "bash_output", "bash_kill" -> unknownDisk = true
+        }
+    }
+
     private fun part(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         val part = d["part"]?.jsonObject ?: return false
@@ -241,6 +301,7 @@ class Rows {
                     ok = !isError || advisory, note = advisory,
                     out = if (isError && !advisory) said else null,
                 )
+                if (rows[i].ok == true) noteDisk(rows[i].tool, rows[i].args)
             }
             else -> return false
         }
