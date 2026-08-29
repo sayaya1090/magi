@@ -101,6 +101,15 @@ class MagiToolWindow : ToolWindowFactory {
         private val shaper = Rows()
 
         /**
+         * 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다.
+         *
+         * **`init` 보다 위에 선다.** 코틀린은 선언 순서대로 초기화하고, `init` 의 못-붙음 보고가
+         * [append]→[redrawLog] 로 이 값을 두드린다 — 아래 있던 동안 그 첫 보고가 NPE 로 죽어
+         * **툴윈도 내용이 통째로 안 만들어졌다**(샌드박스 실측: 입력칸까지 같이 사라진다).
+         */
+        private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        /**
          * 문제 판. IntelliJ 자신의 Problems 뷰에 넣지 않았다 — 거기는 IDE 가 자기 인스펙션으로
          * 채우는 자리이고, 컴패니언이 자기 실행에서 본 것을 섞으면 **누가 언제 말한 것인지**가
          * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
@@ -436,9 +445,6 @@ class MagiToolWindow : ToolWindowFactory {
                 }
             }
         }
-
-        /** 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다. */
-        private val dirty = java.util.concurrent.atomic.AtomicBoolean(false)
 
         /**
          * 전사를 통째로 다시 그린다. **덧붙이기가 아니라 재생이다** — 셰이퍼의 변이에 재배치가
