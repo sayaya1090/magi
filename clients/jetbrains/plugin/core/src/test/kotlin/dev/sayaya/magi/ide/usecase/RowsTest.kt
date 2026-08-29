@@ -143,6 +143,26 @@ class RowsTest {
     }
 
     @Test
+    fun `나란히-보기 판정은 결손 쪽으로 접는다 — FlexBool 모양까지`() {
+        fun args(extra: String = "") =
+            """{"path":"src/a.kt","old":"x","new":"y"$extra}"""
+        // 일반 치환만 참이다.
+        assertEquals(Triple("a.kt", "x", "y"), Rows.EditSides.of("edit", args()))
+        // 데몬 FlexBool 의 참 모양 전부 — "yes" 가 단일 치환으로 그려지면 금지된 왜곡이다.
+        for (v in listOf("\"yes\"", "\"on\"", "\"True\"", "\"1\"", "1", "true")) {
+            assertEquals(null, Rows.EditSides.of("edit", args(""","replaceAll":$v""")),
+                "replaceAll=$v 는 전-출현 치환이다 — 두 면을 그리면 안 된다")
+        }
+        // 앵커: 문자열이든 숫자든 내용이 있으면 결손(숫자 at 가 isString 게이트로 새던 구멍).
+        assertEquals(null, Rows.EditSides.of("edit", args(""","at":"fun main"""")))
+        assertEquals(null, Rows.EditSides.of("edit", args(""","at":42""")))
+        // 별칭 철자·타 도구·필드 결손 — 전부 정직한 미표시.
+        assertEquals(null, Rows.EditSides.of("Edit", args()))
+        assertEquals(null, Rows.EditSides.of("write", args()))
+        assertEquals(null, Rows.EditSides.of("edit", """{"path":"a","old":"x"}"""))
+    }
+
+    @Test
     fun `카운슬은 제자리에 온다 — 스트림이 차례를 이미 안다`() {
         val r = Rows()
         r.feed(user("끝났나 봐줘", "m1"))

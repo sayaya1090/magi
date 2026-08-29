@@ -357,6 +357,40 @@ class Rows {
         return true
     }
 
+    /**
+     * 「인자가 전체 진실」인 편집 판정 — diff 나란히-보기(승인·전사)가 공유하는 **한 벌**이다.
+     * 두 벌로 적혔던 동안 데몬의 FlexBool 관용("yes"·"on"·1 도 참)과 갈라져, replaceAll:"yes"
+     * 인 전-출현 치환이 단일 치환 두 면으로 그려질 뻔했다(리뷰 실측) — 규칙을 두 벌 적으면
+     * 안 재지는 쪽이 갈라진다. 여기는 core 라 골든이 붙는다(`RowsTest`).
+     *
+     * 안전 방향은 **결손**이다: 모르는 모양(비문자 at, 낯선 replaceAll 값)은 그리지 않는다 —
+     * 안 그린 것은 정직한 미표시고, 잘못 그린 두 면은 금지된 왜곡이다.
+     */
+    object EditSides {
+        /** 데몬 FlexBool 의 참 모양들(common.go) — 이 밖의 낯선 값도 결손 쪽으로 접는다. */
+        private val truthy = setOf("true", "True", "yes", "on", "1")
+
+        fun of(tool: String?, argsJson: String?): Triple<String, String, String>? {
+            if (tool != "edit") return null // 별칭 철자는 결손 — 정확한 builtin 이름만
+            val o = runCatching {
+                kotlinx.serialization.json.Json.parseToJsonElement(argsJson ?: return null)
+            }.getOrNull() as? kotlinx.serialization.json.JsonObject ?: return null
+            fun prim(k: String) = o[k] as? kotlinx.serialization.json.JsonPrimitive
+            // at 는 문자열이든 아니든 내용이 비지 않으면 앵커다 — isString 게이트로 숫자 at 가
+            // 빠져나가던 구멍(리뷰 F4)을 여기서 같이 막는다. 데몬의 TrimSpace 와 같은 셈.
+            if (!prim("at")?.content?.trim().isNullOrEmpty()) return null
+            prim("replaceAll")?.content?.let { if (it in truthy || it !in setOf("false", "False", "no", "off", "0", "")) {
+                if (it in truthy) return null
+                // 낯선 값: 데몬 FlexBool 은 에러(호출 실패)지만, 판정은 결손 쪽으로.
+                return null
+            } }
+            val old = prim("old")?.takeIf { it.isString }?.content ?: return null
+            val new = prim("new")?.takeIf { it.isString }?.content ?: return null
+            val path = prim("path")?.takeIf { it.isString }?.content?.substringAfterLast('/') ?: "변경"
+            return Triple(path, old, new)
+        }
+    }
+
     /** 계획 한 칸. status 는 코어 낱말 그대로다: pending | in_progress | completed. */
     data class Todo(val content: String, val status: String)
 

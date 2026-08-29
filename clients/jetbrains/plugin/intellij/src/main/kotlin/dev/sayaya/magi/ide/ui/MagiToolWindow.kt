@@ -779,6 +779,23 @@ class MagiToolWindow : ToolWindowFactory {
                             isOpaque = false
                             r.args?.let { add(Look.code(it)) }
                             r.out?.let { add(Look.aside(it, Look.error)) }
+                            // 지나간 편집도 같은 규칙으로 나란히-보기 — 인자의 old/new 원문 두 면,
+                            // 앵커·replaceAll 은 제외(승인 diff 와 같은 「인자가 전체 진실」 집합).
+                            toolDiffSides(r)?.let { (path2, old2, new2) ->
+                                add(JButton("diff 뷰어로").apply {
+                                    addActionListener {
+                                        val f = com.intellij.diff.DiffContentFactory.getInstance()
+                                        com.intellij.diff.DiffManager.getInstance().showDiff(
+                                            project,
+                                            com.intellij.diff.requests.SimpleDiffRequest(
+                                                "magi 편집 — $path2",
+                                                f.create(project, old2), f.create(project, new2),
+                                                "이전", "이후",
+                                            ),
+                                        )
+                                    }
+                                })
+                            }
                         }
                         p.add(body, BorderLayout.CENTER)
                     } else {
@@ -828,11 +845,24 @@ class MagiToolWindow : ToolWindowFactory {
                 }
             }
             fun hook(c: java.awt.Component) {
+                // 단추 서브트리는 접기 그물 밖이다(리뷰 F1): 같은 클릭이 diff 를 열면서 행을
+                // 접으면, 연 것이 눈앞에서 사라진다 — 단추는 제 일 하나만 한다.
+                if (c is javax.swing.AbstractButton) return
                 c.addMouseListener(flip)
                 c.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                 if (c is java.awt.Container) c.components.forEach { hook(it) }
             }
             hook(p)
+        }
+
+        /**
+         * 도구 행의 나란히-보기 재료 — 판정은 core 의 한 벌([Rows.EditSides], 골든 있음)에
+         * 위임한다. 여기 남는 것 하나: **적용된 행만**(ok==true) — ✗ 행에 「이전/이후」를 세우면
+         * 일어나지 않은 이후를 주장한다(승인 제목을 "물음 시점/제안"으로 바꾼 그 사유).
+         */
+        private fun toolDiffSides(r: Row): Triple<String, String, String>? {
+            if (r.ok != true) return null
+            return Rows.EditSides.of(r.tool, r.args)
         }
 
         /** 물음 id → 이미 연 가상 파일. 클릭마다 새 인스턴스면 같은 이름의 탭이 쌓인다(리뷰). */
@@ -846,19 +876,16 @@ class MagiToolWindow : ToolWindowFactory {
             val old = str("old")
             val new = str("new")
             val path = str("path") ?: "변경"
-            // 안전을 콜사이트가 아니라 여기에도 둔다(리뷰): 나란히-보기는 「인자가 전체 진실」인
-            // 편집(일반 치환)에만 참이다 — 앵커(at)나 replaceAll 이 실렸으면, 지금은 diff 게이트가
-            // 막아 도달 불가지만, 버튼이 이사하는 날 replaceAll 이 단일 치환으로 그려지는 거짓이
-            // 바로 그 금지된 왜곡이다.
-            val anchored = !str("at").isNullOrEmpty() ||
-                (o?.get("replaceAll") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
-            if (old != null && new != null && !anchored) {
+            // 판정은 core 의 한 벌에 위임한다 — 두 벌로 적힌 동안 FlexBool 모양("yes"·1)에서
+            // 갈라졌었다(리뷰). 여기 것과 전사 것이 같은 함수를 부르므로 갈라질 자리가 없다.
+            val sides = Rows.EditSides.of(w.what, o?.toString())
+            if (sides != null) {
                 val f = com.intellij.diff.DiffContentFactory.getInstance()
                 com.intellij.diff.DiffManager.getInstance().showDiff(
                     project,
                     com.intellij.diff.requests.SimpleDiffRequest(
-                        "magi 승인 — $path",
-                        f.create(project, old), f.create(project, new),
+                        "magi 승인 — ${sides.first}",
+                        f.create(project, sides.second), f.create(project, sides.third),
                         // 이 창은 물음 순간의 스냅샷이다 — 답이 끝난 뒤에도 "지금"을 주장하면
                         // 거짓이 된다(비대칭-통지의 그 원칙).
                         "물음 시점", "제안",
