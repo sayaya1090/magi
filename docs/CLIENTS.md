@@ -212,7 +212,7 @@ contracts this page already states.
 1. **Discovery**: glob `daemon-*.sock` in the config directory, or ask any live companion's
    `roster` door. A client that knows its workspace (the IDE) derives the socket name
    (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
-2. **Handshake**: `about` — the reply's `caps` is everything this daemon will accept (`roster`,
+2. **Handshake**: `about` — the reply's `caps` advertises the **engine-gated doors** (the ones a daemon may or may not have: `roster`, `transcript`, `sessions`, `cron`, `job-kill`, `tool-servers`, …). The base verbs every build speaks (submit, steer, status, …) are not advertised; the unknown-method refusal names the full set (`roster`,
    `tool-servers`, `transcript`, …). Read the advertisement and call; never call and read the
    refusal.
 3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
@@ -222,7 +222,7 @@ contracts this page already states.
    own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
    and `mcp-detach`s on the way out.
 
-A refusal always carries its reason in the `err` string — no door fails in silence.
+A refusal always carries its reason in the `err` string — no door fails in silence. One caution for the stream doors (watch, transcript): **do not half-close the write side** — a one-shot client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero frames. Keeping the write half open while you read is half the stream contract.
 
 ## 3. The web screen map — what is the screen of what
 

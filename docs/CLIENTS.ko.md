@@ -184,14 +184,14 @@ replaceAll(한 번의 diff가 개수를 속임)·multiedit은 **부재**로 답�
 1. **발견**: 설정 디렉토리의 `daemon-*.sock` 글롭, 또는 아무 산 컴패니언의 `roster` 문.
    워크스페이스를 아는 클라이언트(IDE)는 소켓 이름을 유도하고(WorkspaceKey — 골든이 지킴),
    없으면 띄웁니다.
-2. **악수**: `about` — 응답의 `caps`가 이 데몬이 받아 줄 문의 전부입니다(`roster`·
+2. **악수**: `about` — 응답의 `caps`는 **엔진-게이트 문**(있을 수도 없을 수도 있는 문: `roster`·`transcript`·`sessions`·`cron`·`job-kill`·`tool-servers`…)의 광고입니다. 모든 빌드가 말하는 기본 동사들(submit·steer·status…)은 광고에 없고, 그 전체 목록은 unknown-method 거절문이 알려 줍니다(`roster`·
    `tool-servers`·`transcript`…). 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
 3. **구독**: 대화는 `transcript`(리플레이+라이브, 커서 거부 시 restart 콜백), 목록 폴은
    `roster`, 피커는 `sessions`, 계기판은 `cron`·`jobs`.
 4. **행동**: 조종(스티어·인터럽트·답)·파일·git은 그 컴패니언 자기 소켓의 메서드로, 도구를
    내놓는 애플리케이션이면 `mcp-attach`(URL만)로 자기를 등록하고 나갈 때 `mcp-detach`.
 
-거부는 언제나 `err` 문자열에 사유가 실립니다 — 침묵으로 실패하는 문은 없습니다.
+거부는 언제나 `err` 문자열에 사유가 실립니다 — 침묵으로 실패하는 문은 없습니다. 스트림 문(watch·transcript) 하나 주의: 연결의 **쓰기 반을 닫지 마십시오** — 반닫음(`nc -w`류 one-shot)은 데몬에게 hang-up으로 읽혀 프레임 0개로 끝납니다. 요청을 보낸 뒤 읽는 동안 쓰기 쪽을 열어 두는 것이 스트림 계약의 절반입니다.
 
 ## 3. 웹 화면 지도 — 무엇이 무엇의 화면인가
 
