@@ -193,7 +193,51 @@ internal object Look {
         }
 
     /**
-     * 본문. 접히고(줄 단위), 고르지 않고, **UI 글꼴**을 쓴다.
+     * 산문 한 줄 상한 — M3 「모든 브레이크포인트에서 한 줄 40–60자」(guide-foundations §3).
+     * 집 규칙 「새 화면에 max-width 금지」의 **명시된 예외 대상**이 정확히 이것이다: 상한은
+     * 판이 아니라 **읽는 글**에 건다 — 행 판은 여전히 뷰포트 폭을 다 쓰고, 글만 왼쪽에서
+     * 60ch 에 선다. 웹 콘솔이 74ch 로 어겨 재검토 대상에 올랐던 그 항목의 IDE 쪽 답이다.
+     *
+     * 스윙의 랩-높이 함정이 이걸 미루게 했던 이유다: JTextArea 의 선호 높이는 **지금 폭**
+     * 기준 랩을 답하므로, 폭을 좁혀 놓고 높이를 물어야 한다. 그래서 선호 크기를 묻기 전에
+     * 목표 폭으로 setSize 를 먼저 친다 — 레이아웃 전 컴포넌트에 크기를 심어 랩 높이를 세게
+     * 하는 표준 요령이고, 이 순서가 없으면 접힌 글이 한 줄 높이로 잘린다.
+     *
+     * 자 셈은 ch(숫자 0 의 폭) 기준이다 — 한글은 전각이라 실제로는 ~30자 안팎에서 접힌다.
+     * M3 의 40–60 이 라틴 셈이므로 이쪽이 원문에 충실하다.
+     */
+    private fun measured(area: javax.swing.JTextArea): JComponent =
+        object : JBPanel<JBPanel<*>>(null) {
+            init {
+                isOpaque = false
+                // 지금은 죽은 손잡이다(리뷰 F5 근거 정정): 아래 getMaximumSize 폭이 MAX 라
+                // BoxLayout 은 래퍼를 항상 전폭으로 늘이고 정렬이 낄 자리가 없다. 최대폭을
+                // 상한으로 줄이는 날 좌측 고정이 필요해지므로 그때를 위해 박아 둔다.
+                alignmentX = LEFT_ALIGNMENT
+                add(area)
+            }
+            private fun cap(): Int =
+                area.getFontMetrics(area.font).charWidth('0') * 60 +
+                    area.insets.left + area.insets.right
+            // 「이 폭에서 글은 몇 픽셀인가」는 core 의 한 벌이 답한다 — 두 오버라이드가 각자
+            // 셈하던 동안 폭 0(콜드 첫 패스)에서 갈라져 서로 되돌렸다(리뷰 F1; 시험은
+            // core 의 MeasureTest — 이 모듈엔 시험 소스셋이 없다).
+            private fun w(): Int = dev.sayaya.magi.ide.usecase.Measure.proseWidth(width, cap())
+            override fun doLayout() {
+                area.setBounds(0, 0, w(), height)
+            }
+            override fun getPreferredSize(): Dimension {
+                val w = w()
+                if (area.width != w) area.setSize(w, Integer.MAX_VALUE / 2)
+                return Dimension(w, area.preferredSize.height)
+            }
+            override fun getMinimumSize(): Dimension = Dimension(0, preferredSize.height)
+            override fun getMaximumSize(): Dimension =
+                Dimension(Integer.MAX_VALUE, preferredSize.height)
+        }
+
+    /**
+     * 본문. 접히고(줄 단위), 고르지 않고, **UI 글꼴**을 쓰고, 한 줄이 60ch 를 안 넘는다([measured]).
      *
      * §3.3(기계의 말은 고정폭)을 여기서 **일부러 어긴다**(§6a: 어긴 것은 적는다). 행 구조를
      * 컴포넌트로 바꾸고도 화면이 "예전 로그와 똑같다"고 읽힌 실측이 있었고, 남은 원인이
@@ -201,7 +245,7 @@ internal object Look {
      * 증거의 옷인 것은 **옮겨 적을 것**(도구 이름·인자·경로)의 이야기라 그쪽([toolHead],
      * [aside])에 남긴다. 본문은 사람이 읽는 글이다.
      */
-    fun prose(text: String): JComponent = javax.swing.JTextArea(text).apply {
+    fun prose(text: String): JComponent = measured(javax.swing.JTextArea(text).apply {
         isEditable = false
         isOpaque = false
         lineWrap = true
@@ -210,10 +254,19 @@ internal object Look {
         foreground = body
         // 머리줄 아래로 들여 — 이름 기둥과 본문 기둥이 갈리면 눈이 대화의 차례를 탄다.
         border = JBUI.Borders.empty(3, 14, 0, 0)
-    }
+    })
 
     /** 곁말 — 생각의 첫 줄, keep, 실패의 첫 줄, 창이 하는 말. 앞에 안 나선다. */
-    fun aside(text: String, hue: Color = faint): JComponent = javax.swing.JTextArea(text).apply {
+    fun aside(text: String, hue: Color = faint): JComponent = measured(asideArea(text, hue))
+
+    /**
+     * 기계의 출력 원문이 입는 곁말 옷 — **산문 상한은 안 입는다**. 옮겨 적을 것(도구 결과·
+     * 실패 원문, §3.3)에 60ch 를 걸면 스택트레이스·경로가 ~430px 에서 접힌다(리뷰 F2).
+     * 곁말 옷이 고정폭이 아닌 것은 기왕의 모습 그대로 두고(승격은 별건), 여기선 상한만 벗는다.
+     */
+    fun outAside(text: String, hue: Color = faint): JComponent = asideArea(text, hue)
+
+    private fun asideArea(text: String, hue: Color): javax.swing.JTextArea = javax.swing.JTextArea(text).apply {
         isEditable = false
         isOpaque = false
         lineWrap = true

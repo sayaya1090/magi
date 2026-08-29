@@ -151,7 +151,7 @@ data class Row(
 - ~~diff~~ **됐다**: 펼친 `edit` 행(builtin 철자 그대로일 때만 — 별칭 철자는 정직한 미표시)
   중 **적용된 것**(✗ 행에 「이전/이후」는 일어나지 않은 이후의 주장)에 「diff 뷰어로」 —
   인자의 old/new 원문 두 면을 IDE 나란히-보기로. 「인자가 전체 진실」 판정은 승인 diff 와
-  **같은 함수 한 벌**(`Rows.kt` 의 `EditSides` — 데몬 FlexBool 의 참 모양들까지 골든으로
-  못박음)이라 갈라질 자리가 없다.
+  **같은 함수 한 벌**(`Rows.kt` 의 `EditSides` — 데몬 FlexBool 의 참 모양들까지 core 유닛
+  시험이 못박음)이라 갈라질 자리가 없다.
 - **`confidence`·`feedback`·`by`** 를 행에 얹기, `result.elided` 표시.
 - **diff 통지** — 목록이 커져 통짜 재그리기가 보이는 지연이 되면 그때.
