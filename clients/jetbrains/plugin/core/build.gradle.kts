@@ -44,6 +44,21 @@ tasks.test {
             exclude("**/build/**")
         }
     ).withPropertyName("scannedSources").withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // `PaletteTest` 도 클래스가 아니라 **딴 트리의 파일**을 읽는다 — 색의 원본인
+    // `internal/adapter/tui/styles.go`. 위와 같은 함정이고 한 단 더 나쁘다: 그 파일은 이
+    // gradle 트리 **밖**이라 위의 `fileTree` 에도 안 걸린다. 안 적어 두면 원본의 주황을 바꿔도
+    // 이 작업은 UP-TO-DATE 고, 대조는 초록인 채 두 화면이 다른 색을 그린다.
+    //
+    // 경로를 시험에 **넘겨준다.** 시험이 스스로 위로 올라가며 찾게 두면 재는 쪽(시험)과 다시
+    // 돌게 하는 쪽(이 선언)이 서로 다른 파일을 볼 수 있고, 그러면 둘 다 자기 몫은 하는데 합쳐서
+    // 아무것도 안 막는다.
+    //
+    // `inputs.files` 는 없는 파일을 참아 준다. 일부러다 — 원본이 사라졌을 때 **빌드**가 아니라
+    // **시험**이 울어야 무엇이 왜 안 맞는지가 사람에게 문장으로 간다.
+    val palette = rootProject.projectDir.resolve("../../../internal/adapter/tui/styles.go").canonicalFile
+    inputs.files(palette).withPropertyName("paletteOrigin").withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("magi.palette.origin", palette.absolutePath)
 }
 
 // **이 검사를 「한 번 실패시켜」 확인할 때, 볼 것은 초록이 아니라 `> Task :core:test` 가
