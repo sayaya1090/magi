@@ -79,6 +79,37 @@ data class Response(
     val caps: List<String>? = null,
     /** 전사 프레임 하나. `transcript` 스트림에서만 실린다. */
     val event: LogEvent? = null,
+    /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
+    val roster: List<RosterRow>? = null,
+)
+
+/**
+ * 이 머신이 이름 댈 수 있는 컴패니언 하나 — `internal/adapter/daemon/roster.go` 의 `RosterRow` 를 옮긴 것.
+ * 필드를 전부 옮긴다: 골라 옮기면 코어가 필드를 더할 때 여기가 조용히 덜 아는 화면이 된다.
+ * `state` 어휘는 계약에 못박혔다: waiting(사람을 기다림) · working · idle.
+ */
+@Serializable
+data class RosterRow(
+    val host: String? = null,
+    val socket: String = "",
+    val name: String? = null,
+    val role: String? = null,
+    val team: String? = null,
+    val hub: Boolean = false,
+    val workdir: String? = null,
+    val account: String? = null,
+    val state: String? = null,
+    val version: String? = null,
+    val can: Int = 0,
+    val does: List<String>? = null,
+    val waiting: Int = 0,
+    val handling: Boolean = false,
+    /** 지금 대화. 이 머신의 행에만 실린다 — 목격담엔 구독할 길이 없어 의미도 없다. */
+    val session: String? = null,
+    val live: Boolean = false,
+    /** true 면 남이 서명한 목격담이다 — 실측이 아니라 흐리게 그린다. */
+    val sighting: Boolean = false,
+    @SerialName("ageSeconds") val ageSeconds: Long = 0,
 )
 
 /**

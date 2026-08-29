@@ -12,6 +12,8 @@ import com.intellij.ui.content.ContentFactory
 import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Markup
+import dev.sayaya.magi.ide.model.RosterRow
+import dev.sayaya.magi.ide.model.Response
 import com.intellij.util.ui.JBUI
 import java.awt.BorderLayout
 import java.awt.GridBagConstraints
@@ -92,6 +94,11 @@ class FactsToolWindow : ToolWindowFactory {
             border = Look.quiet
         }
 
+        private val fleet = JBPanel<JBPanel<*>>().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(4, 12, 8, 12)
+        }
+
         init {
             root.add(column, BorderLayout.NORTH)
             column.add(section("지금"))
@@ -101,6 +108,10 @@ class FactsToolWindow : ToolWindowFactory {
             // 하고, 없으면 이 줄은 비어 있다 — 없는 문제를 광고하지 않는다. 채우는 것은 `refresh`
             // 하나뿐이다. 여기서도 한 번 채우면 문이 둘이 되고, 둘이 되면 한쪽만 고치게 된다.
             column.add(outside)
+            // 플릿 — roster 문(docs/CLIENTS.md §2)의 첫 소비자. 가십은 발견까지라 여기는 보기만
+            // 하고, 조종 동선은 per-companion 소켓이 화면을 얻을 때 붙는다.
+            column.add(section("플릿"))
+            column.add(fleet)
             // 아직 문이 없어 못 채우는 장들. 이름을 세워 두는 것이 빈자리로 두는 것보다 낫다 —
             // 사람이 "이 화면이 원래 이만큼인가"를 묻지 않게 된다.
             //
@@ -108,10 +119,10 @@ class FactsToolWindow : ToolWindowFactory {
             // 말이 네 번 있으면 읽는 사람은 그것을 안 읽는다 — 그러면 「왜 비었나」를 적은 뜻이
             // 없어진다. 이름은 그대로 넷 다 선다(위 주석의 사유).
             column.add(section("아직 안 오는 것"))
-            column.add(card(*listOf("플릿", "계획", "건넨 일", "예약·크론", "받은 지시")
+            column.add(card(*listOf("계획", "건넨 일", "예약·크론", "받은 지시")
                 .flatMap { listOf(it, JBLabel("아직 안 온다").apply { foreground = Look.faint }) }
                 .toTypedArray()))
-            column.add(JBLabel("데몬에 읽기 문이 생기면 온다. 플릿은 roster 문이 계약됐다(docs/CLIENTS.md §2) — 서면 첫째로 온다.").apply {
+            column.add(JBLabel("데몬에 읽기 문이 생기면 온다(설계 문서 §3).").apply {
                 foreground = Look.faint
                 border = JBUI.Borders.empty(2, 12, 8, 12)
             })
@@ -153,7 +164,10 @@ class FactsToolWindow : ToolWindowFactory {
         fun refresh() {
             // 데몬을 안 기다리는 줄이 먼저다. 못 붙는 프로젝트에서도 이 경고는 떠야 한다.
             sayOutside()
-            workspace.onDaemon({ say(trouble, it) }) { comp -> paint(comp.facts()) }
+            workspace.onDaemon({ say(trouble, it) }) { comp ->
+                paint(comp.facts())
+                paintFleet(comp.roster())
+            }
         }
 
         /**
@@ -186,6 +200,49 @@ class FactsToolWindow : ToolWindowFactory {
             permission.text = f.permission ?: "데몬이 안 말했다"
             session.text = f.session
             trouble.text = " "
+        }
+
+        /**
+         * 플릿을 다시 그린다. 문이 없는 데몬(옛 빌드)이면 그 사실을 적는다 — 빈 판은 「없다」와
+         * 「못 물었다」를 못 가른다(§0.5-7). 목격담은 흐리게, 나이와 함께 — 남이 서명한 것을
+         * 실측처럼 그리면 화면이 아는 척을 한다.
+         */
+        private fun paintFleet(r: Response) = SwingUtilities.invokeLater {
+            fleet.removeAll()
+            val rows = r.roster
+            when {
+                rows == null -> fleet.add(JBLabel("이 데몬엔 roster 문이 없다" +
+                    (r.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
+                    foreground = Look.faint
+                })
+                rows.isEmpty() -> fleet.add(JBLabel("이 머신이 이름 댈 컴패니언이 없다").apply {
+                    foreground = Look.faint
+                })
+                else -> rows.sortedBy { it.sighting }.forEach { row -> fleet.add(fleetRow(row)) }
+            }
+            fleet.revalidate(); fleet.repaint()
+        }
+
+        private fun fleetRow(r: RosterRow): JBLabel {
+            val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
+            val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+            val state = when (r.state) {
+                "waiting" -> " — 사람을 기다린다"
+                "working" -> " — 도는 중"
+                "idle" -> ""
+                else -> r.state?.let { " — $it" }.orEmpty()
+            }
+            val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
+            val seen = if (r.sighting) "  · ${r.ageSeconds}s 전 목격" else ""
+            return JBLabel(name + role + state + where + seen).apply {
+                foreground = when {
+                    r.sighting -> Look.muted          // 목격담 — 남의 서명, 흐리게
+                    r.state == "waiting" -> Look.primary // 지금 사람이 손대야 하는 자리
+                    else -> Look.body
+                }
+                border = JBUI.Borders.empty(2, 0)
+                toolTipText = r.socket
+            }
         }
 
         private fun say(label: JBLabel, text: String) = SwingUtilities.invokeLater { label.text = text }

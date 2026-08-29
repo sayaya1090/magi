@@ -67,6 +67,22 @@ class CompanionTest {
     }
 
     @Test
+    fun `플릿은 행으로 온다 — 목격담과 실측이 갈린 채`() {
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"roster":[{"socket":"/a.sock","name":"mel","role":"lead","state":"waiting","workdir":"/w","session":"s_7","live":true},{"socket":"/b.sock","name":"cas","state":"idle","sighting":true,"ageSeconds":42}]}""",
+        ))
+        fake.start()
+        val r = DaemonClient.connect(fake.path).use { Companion(it, "s_1").roster() }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"roster""""))
+        val rows = r.roster ?: error("roster 가 없다")
+        assertEquals("waiting", rows[0].state)
+        assertEquals("s_7", rows[0].session, "이 머신의 행은 지금 대화를 싣는다 — transcript 로 한 왕복에 붙는 열쇠")
+        assertTrue(rows[1].sighting && rows[1].ageSeconds == 42L, "목격담은 나이와 함께 흐리게 그릴 갈래다")
+        assertNull(rows[1].session, "목격담엔 세션이 없다 — 머신 밖 구독은 불가")
+    }
+
+    @Test
     fun `행동의 동사들도 어휘 그대로 나간다`() {
         val ok = """{"ok":true}"""
         val fake = FakeDaemon(listOf(ok, ok))

@@ -67,6 +67,13 @@ class Companion(
     private fun status(): Response = client.exchange(Request(method = "status", session = session))
 
     /**
+     * 플릿 — 이 머신이 이름 댈 수 있는 컴패니언들. 세션을 안 싣는 것은 이 물음이 대화가 아니라
+     * **머신**에 대한 것이라서다(`internal/adapter/daemon/roster.go` 의 `answerRoster`). 가십은 발견까지 — 조종은 그
+     * 컴패니언의 자기 소켓으로(계약 경계, docs/CLIENTS.md §2).
+     */
+    fun roster(): Response = client.exchange(Request(method = "roster"))
+
+    /**
      * 설정 화면의 동사들 — 남는 상태를 데몬에 쓴다(설계 문서 docs/UI.ko.md §5). 값을 IDE 에
      * 한 벌 더 두지 않으므로 화면은 열 때 읽고, 적용이 쓰고, 다시 읽어 확인한다(§5.1).
      *
