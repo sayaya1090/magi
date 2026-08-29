@@ -486,6 +486,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
             val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
             p.border = if (r.pending) Look.pendingRow() else Look.row()
+            p.isOpaque = false
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {

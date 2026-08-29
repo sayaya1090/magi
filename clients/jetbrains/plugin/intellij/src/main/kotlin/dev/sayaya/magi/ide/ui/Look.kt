@@ -146,7 +146,7 @@ internal object Look {
         }
 
     /** 행 하나의 여백. 사이가 없으면 대화가 로그로 읽힌다. */
-    fun row(): javax.swing.border.Border = JBUI.Borders.empty(6, 12)
+    fun row(): javax.swing.border.Border = JBUI.Borders.empty(8, 12)
 
     /** 답을 기다리는 행 — [pending] 의 왼쪽 막대를 행 판에 두른 것. */
     fun pendingRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
@@ -158,6 +158,7 @@ internal object Look {
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
+            add(JBLabel("● ").apply { font = JBFont.small(); foreground = hue })
             add(JBLabel(name).apply { font = JBFont.small().asBold(); foreground = hue })
             for ((t, c) in marks) {
                 add(javax.swing.Box.createHorizontalStrut(8))
@@ -172,7 +173,7 @@ internal object Look {
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
             isOpaque = false
-            add(JBLabel("· $name").apply { font = mono(); foreground = body })
+            add(JBLabel("· $name").apply { font = mono().deriveFont(JBFont.small().size.toFloat()); foreground = body })
             add(javax.swing.Box.createHorizontalStrut(6))
             add(JBLabel(glyph).apply { font = JBFont.small(); foreground = hue })
             if (args.isNotEmpty()) {
@@ -183,15 +184,24 @@ internal object Look {
             if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
         }
 
-    /** 본문. 접히고(줄 단위), 고르지 않고, 편집기 글꼴을 쓴다(§3.3). */
+    /**
+     * 본문. 접히고(줄 단위), 고르지 않고, **UI 글꼴**을 쓴다.
+     *
+     * §3.3(기계의 말은 고정폭)을 여기서 **일부러 어긴다**(§6a: 어긴 것은 적는다). 행 구조를
+     * 컴포넌트로 바꾸고도 화면이 "예전 로그와 똑같다"고 읽힌 실측이 있었고, 남은 원인이
+     * 이것이었다 — 한국어 산문이 고정폭 한 색이면 구조를 어떻게 짜도 덤프로 보인다. 고정폭이
+     * 증거의 옷인 것은 **옮겨 적을 것**(도구 이름·인자·경로)의 이야기라 그쪽([toolHead],
+     * [aside])에 남긴다. 본문은 사람이 읽는 글이다.
+     */
     fun prose(text: String): JComponent = javax.swing.JTextArea(text).apply {
         isEditable = false
         isOpaque = false
         lineWrap = true
         wrapStyleWord = true
-        font = mono()
+        font = JBFont.regular()
         foreground = body
-        border = JBUI.Borders.emptyTop(2)
+        // 머리줄 아래로 들여 — 이름 기둥과 본문 기둥이 갈리면 눈이 대화의 차례를 탄다.
+        border = JBUI.Borders.empty(3, 14, 0, 0)
     }
 
     /** 곁말 — 생각의 첫 줄, keep, 실패의 첫 줄, 창이 하는 말. 앞에 안 나선다. */
@@ -200,9 +210,9 @@ internal object Look {
         isOpaque = false
         lineWrap = true
         wrapStyleWord = true
-        font = mono().deriveFont(Font.ITALIC, JBFont.small().size.toFloat())
+        font = JBFont.small().deriveFont(Font.ITALIC)
         foreground = hue
-        border = JBUI.Borders.emptyTop(1)
+        border = JBUI.Borders.empty(2, 14, 0, 0)
     }
 
     /** 이름표를 이고 있는 구역. 전사와 문제 판이 각자 무엇인지 말하게 한다. */
