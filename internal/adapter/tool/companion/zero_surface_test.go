@@ -1,6 +1,9 @@
 package companion
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -70,5 +73,30 @@ func TestStateOfSpeaksForTheDeadHonestly(t *testing.T) {
 		State: fleet.Waiting, Asking: "may I run rm?"})
 	if news, over := StateOf(waiting, "s_ask"); over || !strings.Contains(news, "blocked waiting") {
 		t.Fatalf("blocked-on-a-person is news, not an ending, got (%q, %v)", news, over)
+	}
+}
+
+// learnedIn is the experience column: empty for a workspace with nothing, and the most-observed
+// descriptions for one that has learned.
+func TestLearnedInReadsTheWorkspaceTier(t *testing.T) {
+	if got := learnedIn(context.Background(), ""); got != "" {
+		t.Fatalf("no workspace, no claim: %q", got)
+	}
+	wd := t.TempDir()
+	if got := learnedIn(context.Background(), wd); got != "" {
+		t.Fatalf("no store, no claim: %q", got)
+	}
+	mem := filepath.Join(wd, ".magi", "experience", "memories")
+	if err := os.MkdirAll(mem, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mem, "m1.md"), []byte("tags: ops\nRestart the cache after deploys.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := learnedIn(context.Background(), wd); !strings.Contains(got, "Restart the cache") {
+		t.Fatalf("what it learned is the column: %q", got)
+	}
+	if d := (List{}).Description(); !strings.Contains(d, "matching") {
+		t.Fatalf("the tool's own words teach the filter: %q", d)
 	}
 }

@@ -1,6 +1,8 @@
 package fleet
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -65,5 +67,30 @@ func TestLightRowClaimsOnlyWhatItRead(t *testing.T) {
 func TestLightRowUnknownWordIsTheMinimumClaim(t *testing.T) {
 	if got := lightRow(daemonInfo("reviewing", true)); got.State != Idle {
 		t.Fatalf("an unknown live state is the minimum claim, got %v", got.State)
+	}
+}
+
+// ListLight itself: a machine of corpses still deserves its list (the fallback path), and an
+// unreadable directory answers an error — never an empty fleet asserted by nobody.
+func TestListLightFallbackAndHonestError(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "daemon-dead.sock"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := daemon.Publish(filepath.Join(home, "daemon-dead.sock"), "/w/dead", "s_d", daemon.Identity{Name: "dead"}); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ListLight(home, "")
+	if err != nil || len(rows) != 1 || rows[0].Name != "dead" || rows[0].State != Stopped {
+		t.Fatalf("the corpse draws Stopped via the fallback: (%+v, %v)", rows, err)
+	}
+
+	locked := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(locked, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+	if _, err := ListLight(locked, ""); err == nil {
+		t.Skip("this filesystem lets us read an unreadable directory (root?)")
 	}
 }

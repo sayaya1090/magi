@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 )
@@ -23,5 +24,21 @@ func TestMCPToolFaceIsTheDeclaration(t *testing.T) {
 	var v any
 	if err := json.Unmarshal(mt.Schema(), &v); err != nil {
 		t.Fatalf("schema: %v", err)
+	}
+}
+
+// AddHTTPDynamic is the plugin bridge's way onto the same registration path the config and the
+// door use — one code path, however a server arrives.
+func TestAddHTTPDynamicRegisters(t *testing.T) {
+	srv := mcpHTTP(t, "render")
+	defer srv.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+	if err := m.AddHTTPDynamic(context.Background(), "dyn", srv.URL, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !sink.has("mcp__dyn__render") {
+		t.Fatal("the dynamic server's tool must land in the registry")
 	}
 }

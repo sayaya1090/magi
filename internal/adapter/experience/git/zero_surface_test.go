@@ -94,3 +94,26 @@ func TestInventoryAndForgetCoverBothHalves(t *testing.T) {
 		t.Fatal("forgetting by its listed name removes it")
 	}
 }
+
+// WikiList reads the chains as the parser groups them: the newest revision of each page, newest
+// pages first — and an empty store is an empty list.
+func TestWikiListReadsTheChains(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	if got := s.WikiList(context.Background()); len(got) != 0 {
+		t.Fatalf("an empty store lists nothing, got %+v", got)
+	}
+	slug, _ := SlugOf("Deploy Steps")
+	rev := filepath.Join(dir, "wiki", "revisions", slug)
+	if err := os.MkdirAll(rev, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rev, "0001-x.md"),
+		[]byte("---\ntitle: Deploy Steps\nts: 2026-08-29T01:00:00Z\n---\npush, then watch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := s.WikiList(context.Background())
+	if len(got) != 1 || got[0].Title != "Deploy Steps" || got[0].Body != "push, then watch" {
+		t.Fatalf("the chain's winner is the page: %+v", got)
+	}
+}

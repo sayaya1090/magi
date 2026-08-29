@@ -48,3 +48,14 @@ func TestLuaToolFaceAndErrResult(t *testing.T) {
 		t.Fatalf("an error result is marked and carries its words: %+v", res)
 	}
 }
+
+// Watch stands up its watcher and returns; a cancelled context ends the loop — the host's
+// lifetime, not the caller's patience.
+func TestWatchStandsUpAndObeysCancel(t *testing.T) {
+	h := &Host{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := h.Watch(ctx); err != nil {
+		t.Fatalf("an empty host watches nothing and errors on nothing: %v", err)
+	}
+}

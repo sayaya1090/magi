@@ -119,6 +119,22 @@ func TestClientWrappersRoundTrip(t *testing.T) {
 	if out, err := c.GitDo("commit", "f.go", "msg", false); err != nil || out != "done" {
 		t.Fatalf("GitDo: (%q, %v)", out, err)
 	}
+	// The dock's verbs, across the wire once each.
+	if rows, err := c.Sessions(); err != nil || len(rows) != 2 || rows[0].ID != "s_new" {
+		t.Fatalf("Sessions: (%+v, %v)", rows, err)
+	}
+	if sid, err := c.NewSession(); err != nil || sid != "s_fresh" {
+		t.Fatalf("NewSession: (%q, %v)", sid, err)
+	}
+	if jobs, err := c.Cron(); err != nil || len(jobs) != 3 || jobs[0].Name != "cursed" {
+		t.Fatalf("Cron: (%+v, %v)", jobs, err)
+	}
+	if had, err := c.KillJob("j1"); err != nil || !had {
+		t.Fatalf("KillJob: (%v, %v)", had, err)
+	}
+
+	// Watch LAST among the exchanges: it gives the connection over to a stream, and the daemon
+	// closes it when the stream ends — every wrapper after it would write into a hung-up pipe.
 	if err := c.Watch("receipt-1", func(Handover) bool { return true }); err != nil {
 		t.Fatalf("Watch: a clean end is not an error, got %v", err)
 	}
