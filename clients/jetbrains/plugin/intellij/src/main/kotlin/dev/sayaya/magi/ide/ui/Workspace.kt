@@ -66,14 +66,23 @@ internal class Workspace(private val project: Project) {
      * 못 붙으면 [trouble] 로 **말한다.** 빈 화면은 "할 일 없음"처럼 보이는데 사실은 "모른다"이고,
      * 이 트리는 그 둘을 구분한다(§0.5-7).
      */
-    fun onDaemon(trouble: (String) -> Unit, work: (Companion) -> Unit) {
+    fun onDaemon(trouble: (String) -> Unit, work: (Companion) -> Unit) = onDaemon(null, trouble, work)
+
+    /**
+     * [at] 를 주면 공표된 현재 대신 **그 대화**에 붙는다 — 고정 탭의 문이다. 기본형과 오버로드로
+     * 가른 이유: 꼬리의 기본값 인자는 트레일링 람다를 빼앗는다(람다는 **마지막** 파라미터에만
+     * 붙는다) — 실제로 `onDaemon({}) { … }` 호출 전부가 깨졌다.
+     */
+    fun onDaemon(at: String?, trouble: (String) -> Unit, work: (Companion) -> Unit) {
         val sock = socket() ?: return trouble("이 프로젝트에는 경로가 없어 워크스페이스를 정할 수 없다.")
         ApplicationManager.getApplication().executeOnPooledThread {
             SocketPath.tooLong(sock)?.let { return@executeOnPooledThread trouble(it) }
             try {
                 // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로 고르면
                 // 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
-                val sid = Published.of(sock)?.session
+                // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는
+                // 자리를 모를 때의 규칙이지, 이름 댄 자리를 막는 규칙이 아니다(리뷰).
+                val sid = at ?: Published.of(sock)?.session
                 // 중괄호가 장식이 아니다. 이 줄이 한때 `if (…) return@executeOnPooledThread` 로
                 // 끝나고 `trouble(…)` 이 다음 줄에 더 들여쓴 채 있었는데, 코틀린은 그것을 **별개
                 // 문장**으로 읽는다. 그래서 정상일 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 —
@@ -82,7 +91,7 @@ internal class Workspace(private val project: Project) {
                     trouble("데몬이 어느 대화에 있는지 공표하지 않았다 — 붙을 자리를 넘겨짚지 않는다.")
                     return@executeOnPooledThread
                 }
-                DaemonClient.connect(sock).use { work(Companion(it, sid)) }
+                DaemonClient.connect(sock).use { work(Companion(it, at ?: sid)) }
             } catch (e: Exception) {
                 val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
                 trouble(

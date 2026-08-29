@@ -102,7 +102,9 @@ class SourceTextTest {
                 "문이 늘거나 `Level` 이 아닌 것을 받게 되면 「수준만 쓴다」를 지키는 것이 다시 " +
                 "주석뿐이 된다")
 
-        assertTrue("say(title" !in code && Regex("""\bstate\b""").findAll(code).count() == 0,
+        // `.state` 는 예외다 — 와이어 필드(RosterRow.state)의 이름이라 점 뒤에 정당하게 선다.
+        // 이 그물이 잡는 것은 점 없는 식별자, 즉 옛 라벨 `state` 의 부활이다.
+        assertTrue("say(title" !in code && Regex("""(?<![.\w])state\b""").findAll(code).count() == 0,
             "수준의 옛 자리(state 라벨)가 돌아왔거나 문이 글자를 받게 됐다. 사건은 `report()` 로 " +
                 "전사에, 수준은 `say(Level)` 로 제목에 — 자리를 가른 사유가 둘의 KDoc 에 있다")
     }

@@ -23,6 +23,7 @@ import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Markup
 import dev.sayaya.magi.ide.model.FileRef
 import dev.sayaya.magi.ide.model.LogEvent
+import dev.sayaya.magi.ide.model.SessionRow
 import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.End
 import dev.sayaya.magi.ide.usecase.Authorship
@@ -76,6 +77,52 @@ class MagiToolWindow : ToolWindowFactory {
             }
         }))
         toolWindow.setAdditionalGearActions(com.intellij.openapi.actionSystem.DefaultActionGroup(
+            object : com.intellij.openapi.actionSystem.AnAction("대화 탭 열기…") {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                    // 목록은 sessions 문(최근 활동 순 — 차례는 데몬 것), 고르면 고정 탭이 선다.
+                    // 탭 전환은 보기다 — resume 을 부르지 않는다(§4.2b).
+                    fun balloon(t: String) = com.intellij.notification.NotificationGroupManager
+                        .getInstance().getNotificationGroup("magi")
+                        .createNotification(t, com.intellij.notification.NotificationType.WARNING)
+                        .notify(project)
+                    Workspace(project).onDaemon({ balloon("대화 목록을 못 받았다 — $it") }) { comp ->
+                        // 침묵 금지(§0.5-7): 문이 없거나 목록이 비면 그 사실이 풍선으로 선다 —
+                        // 눌렀는데 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다.
+                        val sr = comp.sessions()
+                        val rows = if (sr.ok) sr.sessions.orEmpty() else null
+                        if (rows == null) {
+                            balloon("이 데몬엔 sessions 문이 없다" +
+                                (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""))
+                            return@onDaemon
+                        }
+                        if (rows.isEmpty()) { balloon("열 대화가 없다"); return@onDaemon }
+                        SwingUtilities.invokeLater {
+                            // 라벨-역찾기(indexOf)는 같은 라벨 둘에서 오결합한다 — 행을 든 채 고른다.
+                            class Pick(val row: SessionRow) {
+                                override fun toString() =
+                                    (row.title?.take(40)?.ifBlank { null } ?: "(제목 없음)") + "  ·" + row.id.takeLast(6)
+                            }
+                            com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                                .createPopupChooserBuilder(rows.map { Pick(it) })
+                                .setTitle("어느 대화를 탭으로?")
+                                .setItemChosenCallback { picked ->
+                                    val sid = picked.row.id
+                                    val tab = View(project, pinned = sid)
+                                    val content = ContentFactory.getInstance()
+                                        .createContent(tab.root, "·" + sid.takeLast(6), false)
+                                    content.isCloseable = true
+                                    // 탭이 닫히면 스트림도 닫힌다 — 고아 스트림 금지.
+                                    com.intellij.openapi.util.Disposer.register(content, tab)
+                                    toolWindow.contentManager.addContent(content)
+                                    toolWindow.contentManager.setSelectedContent(content)
+                                    tab.refresh()
+                                }
+                                .createPopup()
+                                .showInFocusCenter()
+                        }
+                    }
+                }
+            },
             view.verb("대화 요약해 접기 (compact)") { it.compact() },
             view.verb("마지막 턴 되감기 (rewind)") { it.rewind(1) },
         ))
@@ -91,7 +138,12 @@ class MagiToolWindow : ToolWindowFactory {
         view.refresh()
     }
 
-    internal class View(private val project: Project) : Disposable {
+    /**
+     * [pinned] 가 있으면 이 판은 **그 대화에 고정**된다(세션 탭 — docs/UI.ko.md §4.2b): 공표를
+     * 안 따르고, session.moved 에도 안 움직이며, 입력은 그 대화로 간다(계약: submit/steer 는
+     * 이름 댄 세션에 턴을 연다). null 이면 공표를 따르는 주 판이다.
+     */
+    internal class View(private val project: Project, private val pinned: String? = null) : Disposable {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
         /** 수준을 제목표시줄에 쓰는 손. 창을 만든 쪽이 채운다 — 여기서는 IDE 를 모른다. */
@@ -255,6 +307,8 @@ class MagiToolWindow : ToolWindowFactory {
                     // 옛 대화의 것이라 여기 남으면 화면과 컨트롤이 서로 다른 대화를 믿는다 — 끊고
                     // 새 공표를 따라 다시 붙는다. close 가 ByUs 로 접히므로 재접속은 직접 건다.
                     if (e.type == "session.moved") {
+                        // 고정 탭은 안 움직인다 — 이 탭의 존재 이유가 「그 대화를 계속 보기」다.
+                        if (pinned != null) return
                         // 낡음 가드(리뷰 실측): 이 사실은 재생마다 온다. 공표된 현재가 지금 따르는
                         // 대화와 같으면 움직일 일이 없다 — 없으면 끊고-붙기 무한 루프다(`to` 비교로는
                         // 못 막는다: 낡은 사실의 to 는 영원히 현재와 다르다).
@@ -296,7 +350,9 @@ class MagiToolWindow : ToolWindowFactory {
                     authors.forget()
                     shaper.clear()
                     SwingUtilities.invokeLater { problems.text = "" }
-                    mood(Look.warn, "↻", why)
+                    // ↻ 는 「다시 붙는 중」의 글리프다 — 여기는 붙어 **있는** 채 커서만 거절된
+                    // 자리라, 영구 ↻ 는 거짓이 된다(리뷰). 붙음 글리프에 경고색+사유로.
+                    mood(Look.warn, "●", why)
                     redrawLog()
                 }
                 /**
@@ -486,7 +542,9 @@ class MagiToolWindow : ToolWindowFactory {
                 Attach.NoSession -> lost("데몬이 아직 없다")
                 is Attach.Failed -> lost("데몬에 말을 못 걸었다: ${a.why}")
             }
-            offerHand()
+            // 손은 프로젝트당 하나 — 탭마다 세우면 루프백 포트가 탭 수만큼 열리고, 붙이기는
+            // 고정 이름 충돌("jetbrains is already attached")로 탭마다 거절 공지가 선다(리뷰).
+            if (pinned == null) offerHand()
         }
 
         /**
@@ -509,7 +567,10 @@ class MagiToolWindow : ToolWindowFactory {
         override fun dispose() {
             // 먼저 세운다. 아래에서 스트림을 닫으면 `ended` 가 도는데, 그때 이미 서 있어야 안 되살아난다.
             closing.set(true)
-            MagiWindows.remove(project)
+            // 주 판만 거둔다(리뷰 F1·F2): 등록과 손은 주 판의 것이라, 고정 탭의 dispose 가
+            // 이것들을 만지면 탭 하나 닫는 행위가 상태 표시줄·계획판·액션 전부와 **주 판의
+            // 손**을 부순다 — 데몬에 붙어 있는 mcp 이름은 하나뿐이다.
+            if (pinned == null) MagiWindows.remove(project)
             debounce.stop()
             runCatching { following?.close() }
             following = null
@@ -517,7 +578,7 @@ class MagiToolWindow : ToolWindowFactory {
             hand = null
             runCatching { server.close() }
             // 떼는 것은 best-effort 다. 사유를 화면에 안 싣는다 — 그 화면이 지금 사라지는 중이다.
-            runCatching { workspace.onDaemon({ }, { it.detachHand() }) }
+            if (pinned == null) runCatching { workspace.onDaemon({ }, { it.detachHand() }) }
         }
 
         /**
@@ -578,7 +639,8 @@ class MagiToolWindow : ToolWindowFactory {
             // 잠그지 않으면 동시 follow 둘이 각자 스트림을 열고 진 쪽이 안 닫힌 채 같은 sink 에
             // 계속 먹인다 — clear 와 재생이 뒤섞여 행이 두 벌 선다.
             val sock = socket() ?: return Attach.NoWorkspace
-            val sid = runCatching { Published.of(sock)?.session }.getOrNull() ?: return Attach.NoSession
+            val sid = pinned
+                ?: (runCatching { Published.of(sock)?.session }.getOrNull() ?: return Attach.NoSession)
             following?.let { runCatching { it.close() } }
             // 던진 것을 **그대로** 싣는다. `getOrNull` 로 버리고 여기서 문장을 지으면 「데몬이
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
@@ -913,7 +975,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         /** 데몬에 한 번 붙어 무언가 하고 끊는다. 배선은 [Workspace] 가 갖는다 — 창 둘이 같이 쓴다. */
         private fun onDaemon(work: (Companion) -> Unit) =
-            workspace.onDaemon({ say(Level.Unreachable(it)) }, work)
+            workspace.onDaemon(pinned, { say(Level.Unreachable(it)) }, work)
 
         fun refresh() = onDaemon { redraw(it) }
 
@@ -973,6 +1035,30 @@ class MagiToolWindow : ToolWindowFactory {
             if (text.isEmpty()) return
             val carry = synchronized(refs) { refs.toList() }
             onDaemon { comp ->
+                // 고정 탭의 게이트(계약의 절반): 한 워크스페이스의 동시 턴은 아무것도 조정하지
+                // 않는다 — 다른 대화의 턴이 도는 중이면 조용한 건너뛰기 대신 **묻는다**. 파일
+                // 충돌은 사용자가 이름 댄 고통이다(docs/UI.ko.md §4.2b).
+                run {
+                    // 양방향 게이트(리뷰): 고정 탭의 턴이 도는 동안 주 판에서 보내도 동시 턴이다.
+                    // 「내 데몬」은 이름이 아니라 **소켓**으로 고른다 — roster 는 머신 문이라 첫
+                    // live 행이 옆 프로젝트의 데몬일 수 있다(오탐과 미탐이 동시에).
+                    val sockStr = socket()?.toString()
+                    val target = pinned ?: comp.facts().session
+                    val mine = comp.roster().roster
+                        ?.firstOrNull { it.live && !it.sighting && it.socket == sockStr }
+                    if (mine?.state == "working" && mine.session != target) {
+                        var go = false
+                        SwingUtilities.invokeAndWait {
+                            go = com.intellij.openapi.ui.Messages.showYesNoDialog(
+                                project,
+                                "다른 대화(${mine.session?.takeLast(6)})의 턴이 도는 중이다.\n" +
+                                    "동시 턴은 파일 조작을 조정하지 않는다 — 그래도 이 대화에 보낼까?",
+                                "동시 턴 경고", "보낸다", "만다", null,
+                            ) == com.intellij.openapi.ui.Messages.YES
+                        }
+                        if (!go) return@onDaemon
+                    }
+                }
                 val r = comp.say(text, carry)
                 if (r.ok) {
                     clearNotice()
@@ -1084,7 +1170,16 @@ class MagiToolWindow : ToolWindowFactory {
          * (`SourceTextTest`). 라벨 시절의 수준 색은 여기서 끝났다: 제목은 IDE 의 글자라 색을
          * 못 받는데, 색은 원래 글자를 대신하지 않는 보조였으니 잃는 것은 보조뿐이다.
          */
-        private fun say(l: Level) = title(l.text)
+        private fun say(l: Level) {
+            if (pinned != null) {
+                // 고정 탭의 title 은 허공이다 — 제목표시줄은 주 판의 것. 사람이 할 일이 생기는
+                // 못-닿음만 점으로 승격한다(§0.5-7: 무통보 무동작 금지). 나머지 수준은 점과
+                // 프롬프트 판이 이미 말한다.
+                if (l is Level.Unreachable) mood(Look.error, "✕", l.text)
+                return
+            }
+            title(l.text)
+        }
     }
 }
 
