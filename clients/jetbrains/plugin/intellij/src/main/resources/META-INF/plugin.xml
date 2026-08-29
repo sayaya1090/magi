@@ -63,9 +63,42 @@
         -->
         <projectConfigurable parentId="tools" id="magi.settings" displayName="magi"
                              instance="dev.sayaya.magi.ide.ui.MagiConfigurable"/>
+
+        <!-- Failure balloons for the in-place entry points (commit draft, console ask): a failure
+             must never be written into the field it was meant to fill. -->
+        <notificationGroup id="magi" displayType="BALLOON"/>
+
+        <!-- Alt+Enter: the neighbours' inline-prompt seat, in our shape — attach the selection
+             as a reference and start the question in the composer; the hands and the diff stay
+             with the companion and its approval prompt. -->
+        <intentionAction>
+            <language/>
+            <className>dev.sayaya.magi.ide.ui.AskAboutCodeIntention</className>
+            <category>magi</category>
+        </intentionAction>
     </extensions>
 
     <actions>
+        <!--
+            Entry points where the work already lives (the neighbours' pattern, SURVEY §1):
+            the commit box gets a draft button riding the SAME git-msg door the web console's
+            commit card calls (the box text is NOT sent — that wire field is a one-shot rules
+            override that would silently displace the house template), and Run-console output —
+            where stack traces live — gets an ask action sending the selection as a fenced
+            prompt. (Terminal popups are a separate group, not yet registered — say "console",
+            not "terminal".)
+        -->
+        <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction"
+                text="magi: 커밋 메시지 초안"
+                description="스테이지된 변경에서 하우스 스타일로 커밋 메시지를 지어 칸에 앉힌다 — 누른 뒤 친 글이 있으면 덮지 않는다">
+            <add-to-group group-id="Vcs.MessageActionGroup" anchor="last"/>
+        </action>
+        <action id="magi.askConsole" class="dev.sayaya.magi.ide.ui.AskConsoleAction"
+                text="magi: 이 출력 물어보기"
+                description="선택한 콘솔 출력을 컴패니언에게 보내 설명과 고칠 길을 묻는다">
+            <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>
+            <add-to-group group-id="ConsoleEditorPopupMenu" anchor="last"/>
+        </action>
         <!--
             In the editor's context menu rather than a toolbar button: it acts on the file you are
             looking at, and that is where the IDE puts things that act on the file you are looking

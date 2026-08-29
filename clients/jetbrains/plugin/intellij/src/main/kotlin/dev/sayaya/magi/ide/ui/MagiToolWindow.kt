@@ -340,6 +340,18 @@ class MagiToolWindow : ToolWindowFactory {
             isVisible = false
         }
 
+        /**
+         * 입력창에 물음의 시작을 앉힌다 — Alt+Enter 인텐션이 부른다. **비어 있을 때만**: 사람이
+         * 치던 글 위에 얹으면 그 글이 사라진 것처럼 보인다(사라지는 입력 없음). 커서는 끝으로.
+         */
+        fun prefill(text: String) = SwingUtilities.invokeLater {
+            if (input.text.isBlank()) {
+                input.text = text
+                input.caretPosition = input.text.length
+            }
+            input.requestFocusInWindow()
+        }
+
         /** 첨부 하나를 세운다 — 에디터·프로젝트 뷰 액션이 부른다. 같은 참조는 두 번 안 선다. */
         fun attach(ref: FileRef) = SwingUtilities.invokeLater {
             if (refs.contains(ref)) return@invokeLater

@@ -152,6 +152,19 @@ class CompanionTest {
     }
 
     @Test
+    fun `커밋 초안은 빈손으로 청한다 — text 는 템플릿을 밀어내는 규칙 자리다`() {
+        val fake = FakeDaemon(listOf("""{"ok":true,"out":"fix: 셰이퍼의 접기 키"}"""))
+        fake.start()
+        val r = DaemonClient.connect(fake.path).use { Companion(it, "s_1").draftCommit() }
+        fake.close()
+        // 리뷰가 잡은 오독의 재발 방지: text 를 실으면 하우스 템플릿이 조용히 빠진 초안이 온다.
+        assertTrue(fake.seen[0].contains(""""method":"git-msg""""))
+        assertFalse(fake.seen[0].contains(""""text""""), "칸의 글은 힌트가 아니다 — 안 싣는다")
+        assertFalse(fake.seen[0].contains(""""session""""), "데몬이 안 읽는 세션은 안 싣는다")
+        assertEquals("fix: 셰이퍼의 접기 키", r.out, "초안은 out 으로 — 화면이 커밋 칸에 앉힌다")
+    }
+
+    @Test
     fun `행동의 동사들도 어휘 그대로 나간다`() {
         val ok = """{"ok":true}"""
         val fake = FakeDaemon(listOf(ok, ok))

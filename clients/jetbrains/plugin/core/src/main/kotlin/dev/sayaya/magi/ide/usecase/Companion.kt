@@ -83,6 +83,19 @@ class Companion(
     /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
     fun sessions(): Response = client.exchange(Request(method = "sessions"))
 
+    /**
+     * 커밋 메시지 초안 — 스테이지된 변경에서, 워크스페이스의 하우스 스타일 템플릿을 얹어서
+     * (`internal/adapter/daemon/daemon.go` 의 `answerGitMsg` → `DraftCommit`). 답은 `out` 에
+     * 실리고, 빈 답은 실패가 아니라 「스테이지가 없다」일 수 있다(`git.go` 가 명시한 갈래).
+     *
+     * **text 를 안 싣는다** — 그 자리는 힌트가 아니라 **일회용 규칙 오버라이드**다: 비어 있지
+     * 않으면 저장된 `[templates] commit` 을 밀어내고 "이 프로젝트의 규칙"으로 주입된다
+     * (`internal/app/git.go` — 웹 커밋 카드의 규칙 입력이 쓰는 그 자리). 칸의 글을 실었다가
+     * 트레일러 규칙이 조용히 빠지는 초안을 만들었다(리뷰 실측). session 도 안 싣는다 — 데몬이
+     * 안 읽는다(현재 세션 기준으로 짓는다).
+     */
+    fun draftCommit(): Response = client.exchange(Request(method = "git-msg"))
+
     /** 예약들. 고장 먼저 그다음 임박순 — 차례는 데몬이 정했다. */
     fun cron(): Response = client.exchange(Request(method = "cron"))
 
