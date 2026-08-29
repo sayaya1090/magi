@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -236,7 +237,7 @@ func setKeyLocked(path, section, key, value string, quote bool) error {
 }
 
 func writeLines(path string, lines []string) error {
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	return atomicfile.Write(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
 // AppendListItem appends value to the single-line string array `key = [...]` in
