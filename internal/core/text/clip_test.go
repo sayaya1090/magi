@@ -115,3 +115,39 @@ func TestHeadTailLeavesWhatFitsAlone(t *testing.T) {
 		t.Errorf("a short result came back as %q", got)
 	}
 }
+
+// Cut keeps the front, CutTail keeps the back, and the callers that want the back want it because
+// that is where their information is — a completion prompt's prefix ends at the cursor, and the
+// file's opening lines are the part it can afford to lose. A tail that came back a head would be a
+// plausible-looking answer to the wrong question, and nothing about its shape would say so.
+func TestTheTailIsTheEndOfTheStringAndStillWholeCharacters(t *testing.T) {
+	const s = "한국어 텍스트" // 19 bytes: three per syllable, one for the space
+	for n := 0; n <= len(s)+2; n++ {
+		got := text.CutTail(s, n)
+		if n <= len(s) && len(got) > n {
+			t.Errorf("CutTail(%d) returned %d bytes", n, len(got))
+		}
+		if !isValidUTF8(got) {
+			t.Errorf("CutTail(%d) = %q, which is not valid UTF-8", n, got)
+		}
+		if !strings.HasSuffix(s, got) {
+			t.Errorf("CutTail(%d) = %q, which is not a suffix", n, got)
+		}
+	}
+	// A budget that lands inside a character gives back the characters that fit whole, not the
+	// budget: four bytes is one syllable and a fragment, and the fragment is what goes.
+	if got := text.CutTail(s, 4); got != "트" {
+		t.Errorf("CutTail(4) = %q, want %q", got, "트")
+	}
+	// And a budget too small for even one character is empty rather than a broken glyph — the walk
+	// forward has to be able to consume the whole of what it was handed.
+	if got := text.CutTail(s, 2); got != "" {
+		t.Errorf("CutTail(2) = %q, want the empty string", got)
+	}
+	if got := text.CutTail("hello", 0); got != "" {
+		t.Errorf("CutTail(0) = %q", got)
+	}
+	if got := text.CutTail("hello", -1); got != "" {
+		t.Errorf("CutTail(-1) = %q", got)
+	}
+}
