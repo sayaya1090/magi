@@ -238,7 +238,10 @@ contracts this page already states.
    own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
    and `mcp-detach`s on the way out.
 
-A refusal always carries its reason in the `err` string — no door fails in silence. One caution for the stream doors (watch, transcript): **do not half-close the write side** — a one-shot client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero frames. Keeping the write half open while you read is half the stream contract.
+A refusal always carries its reason in the `err` string — no door fails in silence. One caution
+for the stream doors (watch, transcript): **do not half-close the write side** — a one-shot
+client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero
+frames. Keeping the write half open while you read is half the stream contract.
 
 ## 3. The web screen map — what is the screen of what
 
