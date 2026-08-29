@@ -1931,7 +1931,7 @@ name a federated console.
 | `/meet-say` (POST) · `/meet-hand` (POST) | say something in the room, or send one participant its task |
 | `/meet-close` (POST) · `/meet-open` (POST) | end it, or put it back in session with a reason |
 | `/console` | what this console is: its config dir, its host, its embedding model |
-| `/push` (POST) | subscribe this browser to notifications, when the console was started with keys for them |
+| `/push` (POST) | subscribe this browser to notifications, when the console was started with keys for them. Replacing an existing subscription is gated like deleting one: an endpoint is a credential, and only its owner (or a console with no people configured) may overwrite it |
 
 **Vocabulary.** One magi bound to one workspace is a **companion**. A person supervising several of
 them is not each companion's operator but its supervisor — the reasoning, and what that means for
