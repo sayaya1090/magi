@@ -170,10 +170,13 @@ state. The structural cure (worktree isolation / file leases) sits on the candid
 **Attachments are a field (★implemented).** submit/steer carry `refs[]` (path, lines?) — the
 IDE's selection, the composer's paperclip. The excerpt is the CORE's rendering: resolved inside
 the workspace (the same jail every read keeps — an outside path renders its refusal in place),
-sliced 1-indexed and inclusive the way every editor counts, capped per ref and in total, and
-persisted with the prompt event — the transcript shows exactly what the agent was shown, and a
+sliced 1-indexed and inclusive the way every editor counts, capped per ref (16KB) and in total (64KB — headers counted, the crossing ref
+clipped AT the line, and the overflow folded to one "+N more attachment(s) not shown" closing
+line), and persisted with the prompt event — the transcript shows exactly what the agent was shown, and a
 replay shows it again. No attachment vanishes: a ref that cannot be served says why where its
-excerpt would have been. A malformed line range falls back to the whole file — the person pointed
+excerpt would have been. An observer plugin's user-message notification carries **the
+person's words only** — the rendered attachment block is excluded: workspace bytes reach a
+plugin through a file grant, never through a notification side channel. A malformed line range falls back to the whole file — the person pointed
 at the file, and losing it over a typo drops the half that mattered.
 
 **Deferred, and the candidate ledger.** Outside-workspace content-root read-only is **deferred**
