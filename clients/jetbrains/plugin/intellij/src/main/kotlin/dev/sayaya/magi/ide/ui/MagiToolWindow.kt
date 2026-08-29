@@ -740,12 +740,25 @@ class MagiToolWindow : ToolWindowFactory {
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {
                 dirty.set(false)
+                // 바닥 고정은 **바닥에 있던 사람에게만**. 무조건 고정이던 동안, 턴이 도는 중에
+                // 위로 스크롤해 과거를 읽으면 새 이벤트마다 바닥으로 낚아채였다(라이브 실측 —
+                // 지나간 편집을 찾아 올라가는 손이 매번 튕겼다). 떠나 있던 사람의 자리는
+                // 그대로 두고, 꼬리를 따르던 사람만 계속 따르게 한다.
+                val bar = scroll.verticalScrollBar
+                val atBottom = bar.value + bar.visibleAmount >= bar.maximum - 48
                 column.removeAll()
                 shaper.list().forEach { column.add(rowPanel(it)) }
                 column.revalidate()
                 column.repaint()
-                SwingUtilities.invokeLater {
+                if (atBottom) SwingUtilities.invokeLater {
                     scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                    // 줄바꿈 판의 2-패스 레이아웃이 pin 직후 높이를 더 키우면, 한 번의 미착지로
+                    // 꼬리 추적이 영구 이탈한다(리뷰 F4 — 종전 무조건 고정은 다음 이벤트가
+                    // 자가 치유했었다). 다음 프레임에 한 번 더 주장한다. 슬랙 48px 은 한 줄
+                    // 행 하나 미만이라 "바닥에 있던 사람"만 문다.
+                    SwingUtilities.invokeLater {
+                        scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                    }
                 }
             }
         }
@@ -1232,6 +1245,10 @@ class MagiToolWindow : ToolWindowFactory {
                         // 클라이언트가 어기는 자리였다. attach 가 중복을 막으므로 removeAll 은 안전.
                         synchronized(refs) { refs.removeAll(carry) }
                         drawChips()
+                        // 보낸 사람은 바닥으로 — 위에서 과거를 읽다 보냈어도 자기 메시지가
+                        // 그려질 자리를 본다. 무조건 바닥 고정이 이를 우연히 보장하던 것을
+                        // 조건부로 바꾸며 열린 구멍(리뷰 F3: 이 diff 가 처음 연 회귀).
+                        scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
                     }
                 } else report("안 갔다: ${r.error ?: "사유 없음"}")
             }

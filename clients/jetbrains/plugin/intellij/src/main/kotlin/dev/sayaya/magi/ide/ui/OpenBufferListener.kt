@@ -95,7 +95,12 @@ class OpenBufferListener : FileEditorManagerListener {
      */
     private fun listen(manager: FileEditorManager, file: VirtualFile) {
         if (file in heard) return
-        val doc = FileDocumentManager.getInstance().getDocument(file) ?: return
+        // getDocument 자체가 read-action 을 요구한다 — 실측 SEVERE 의 하위 프레임이
+        // FileDocumentManagerBase.getDocument 였다(리뷰 F1 확정): textOf 만이 아니라
+        // 이 맨몸 호출도 같은 병이다.
+        val doc = com.intellij.openapi.application.runReadActionBlocking {
+            FileDocumentManager.getInstance().getDocument(file)
+        } ?: return
         val editor = manager.getSelectedEditor(file) ?: return
         heard.add(file)
         val project = manager.project
@@ -111,7 +116,15 @@ class OpenBufferListener : FileEditorManagerListener {
     }
 
     private fun textOf(file: VirtualFile): String? =
-        FileDocumentManager.getInstance().getDocument(file)?.text
+        // 디바운스 타이머는 EDT 에서 울리는데, 2026.1 스레딩 규칙은 EDT 라도 read-action 없이
+        // 모델(Document)을 못 읽게 한다 — 샌드박스 라이브에서 이 줄이 SEVERE(ThreadingAssertions,
+        // Plugin to blame: magi)로 잡혔다. runReadActionBlocking(명시적 **비취소** read)을
+        // 골랐다: 600ms 에 한 번 Document.text 복사 한 번이라 취소 기계가 낄 이유가 없고,
+        // deprecation 이 첫 대안으로 미는 ReadAction.nonBlocking 은 비동기라 이 함수의 동기
+        // 반환 계약을 깬다(리뷰 F2 — 함수명을 잘못 적은 주석이 그 "개선"을 부를 뻔했다).
+        com.intellij.openapi.application.runReadActionBlocking {
+            FileDocumentManager.getInstance().getDocument(file)?.text
+        }
 
     private fun send(project: Project, path: String, text: String?) {
         val base = project.basePath ?: return
