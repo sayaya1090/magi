@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -155,9 +154,10 @@ func (f *fleetFixture) get() []fleet.Agent {
 	return out
 }
 
-// /fleet is the dashboard's whole data source, and it must survive the round trip: the derivation
-// is tested in internal/adapter/fleet, so what is left to check here is that the handler serves it
-// as JSON the page can read, marking the daemon this viewer belongs to.
+// /fleet is the LIGHT list now (direction 2026-08-29): gossip-grade rows, not one log read.
+// A live companion shows the state it published, a dead one is Stopped — whether its last turn
+// was left open is the detail screen's to say — and no row carries a task or a plan, because a
+// light row must not make claims only a log could establish.
 func TestTheFleetEndpointServesWhatThePageReads(t *testing.T) {
 	f := newFleetFixture(t)
 	wd := shortTempDir(t)
@@ -179,14 +179,14 @@ func TestTheFleetEndpointServesWhatThePageReads(t *testing.T) {
 			other = a
 		}
 	}
-	if got.State != fleet.Working || !got.Here || got.Steps != 3 {
-		t.Errorf("the local working agent came back as %+v", got)
+	if !got.Live || !got.Here {
+		t.Errorf("the local live agent came back as %+v", got)
 	}
-	if !strings.Contains(got.Task, "make the tests pass") {
-		t.Errorf("the card does not say what the turn was: %q", got.Task)
+	if got.Task != "" || got.Steps != 0 {
+		t.Errorf("a light row must not carry log-derived claims: %+v", got)
 	}
-	if other.State != fleet.Abandoned || other.Here {
-		t.Errorf("the dead agent came back as %+v", other)
+	if other.State != fleet.Stopped || other.Live || other.Here {
+		t.Errorf("the dead agent is Stopped in the light list — the rest is the detail's: %+v", other)
 	}
 }
 
@@ -221,9 +221,10 @@ func TestTargetAcceptsAnyListedDaemonAndNothingElse(t *testing.T) {
 	}
 }
 
-// The row says how far through its own plan a companion is. "working" says it is alive; "3/7" says
-// whether it is getting anywhere, which is what somebody looking twice in ten minutes wants.
-func TestARowCountsTheAgentsOwnPlan(t *testing.T) {
+// The plan LEFT the list row with the light direction: counting it means reading the log, and
+// the list no longer does. The row must say nothing rather than 0/0-as-if-counted — and the
+// detail screen, which attaches, is where the plan lives now.
+func TestARowCarriesNoPlanInTheLightList(t *testing.T) {
 	f := newFleetFixture(t)
 	wd := shortTempDir(t)
 	f.daemonAt(wd, "api", true)
@@ -238,15 +239,7 @@ func TestARowCountsTheAgentsOwnPlan(t *testing.T) {
 	if len(list) != 1 {
 		t.Fatalf("expected one companion, got %+v", list)
 	}
-	a := list[0]
-	if a.PlanDone != 1 || a.PlanTotal != 3 {
-		t.Errorf("the plan counted as %d/%d", a.PlanDone, a.PlanTotal)
-	}
-
-	// The whole plan is recorded each time, so the last record wins outright — a merge would
-	// resurrect an item the agent deliberately dropped.
-	f.todos("api", []session.Todo{{Content: "one", Status: "completed"}})
-	if a := f.get()[0]; a.PlanDone != 1 || a.PlanTotal != 1 {
-		t.Errorf("after the agent dropped two items the row says %d/%d", a.PlanDone, a.PlanTotal)
+	if a := list[0]; a.PlanDone != 0 || a.PlanTotal != 0 || a.Task != "" {
+		t.Errorf("the light row read a log it must not: %+v", a)
 	}
 }

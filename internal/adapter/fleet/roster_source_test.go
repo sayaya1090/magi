@@ -23,8 +23,11 @@ func TestRosterRowsMapLosslessly(t *testing.T) {
 		in.Team != "core" || !in.Hub || in.State != "waiting" || in.Waiting != 2 || !in.Handling {
 		t.Fatalf("the record did not survive the trip through the door: %+v", in)
 	}
+	// Live IS copied — the light list draws it as-answered — and stays safe on the full path
+	// because Probe resets it before dialing. The mapping input above says nothing about Live,
+	// so it reads false here; the copy itself is pinned by the integration test's live row.
 	if in.Live {
-		t.Fatal("liveness must come from Probe's own dial, never from the snapshot")
+		t.Fatal("this fixture's row did not claim liveness")
 	}
 
 	now := time.Now()

@@ -45,11 +45,8 @@ func (s *server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	local, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// Resolution needs names, sockets and a liveness gate — all light-row facts.
+	local := fleet.ListLight(s.cfgDir, s.here)
 	all := s.federated(r.Context(), local)
 	found := fleet.Resolve(all, to)
 	switch len(found) {

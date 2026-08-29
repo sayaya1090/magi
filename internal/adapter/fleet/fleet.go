@@ -1160,11 +1160,12 @@ func rosterSources(configDir string, now time.Time) ([]daemon.Info, []cluster.Me
 	return nil, nil, false
 }
 
-// rosterInfo rebuilds the published record a local roster row was made from. Live and the
-// dial-only facts are deliberately NOT taken from the row: Probe re-asks, because liveness is
-// the one thing a snapshot cannot say (daemon.Probe).
+// rosterInfo rebuilds the published record a local roster row was made from — Live included,
+// because the light list draws it as-answered. The full path is unaffected: Probe RESETS Live
+// and re-dials, so a stale snapshot can never stand in for the dial where the dial happens.
 func rosterInfo(r daemon.RosterRow) daemon.Info {
 	return daemon.Info{
+		Live:   r.Live,
 		Socket: r.Socket, Workdir: r.Workdir, Session: r.Session,
 		Name: r.Name, Role: r.Role, Team: r.Team, Hub: r.Hub, Can: r.Can, Does: r.Does,
 		Waiting: r.Waiting, Handling: r.Handling, PID: r.PID, Started: r.Started,
@@ -1197,4 +1198,54 @@ func localMembers(found []daemon.Info, now time.Time) []cluster.Member {
 		})
 	}
 	return out
+}
+
+// ListLight is the fleet as gossip tells it: rows without a single log read, for the listing a
+// person scans before choosing where to look. Set as direction 2026-08-29: the list draws from
+// the roster (state, the waiting badge, who is where), and everything heavier — the ask's own
+// words, the transcript, the plan — waits until a detail screen ATTACHES to that one companion.
+//
+// The rows come off the roster door when any local companion answers, and off the records
+// directly when none does (a machine of corpses still deserves its list). Either way, what a
+// full row derives from a log is absent here and stays absent: a light row that guessed at a
+// task would be a claim nothing established.
+func ListLight(configDir, here string) []Agent {
+	now := time.Now()
+	locals, members, viaRoster := rosterSources(configDir, now)
+	if !viaRoster {
+		locals, _ = daemon.List(configDir)
+		members = daemon.Elsewhere(configDir, now)
+	}
+	out := make([]Agent, 0, len(locals)+len(members))
+	for _, in := range locals {
+		a := lightRow(in)
+		a.Here = here != "" && in.Socket == here
+		out = append(out, a)
+	}
+	out = append(out, elsewhereRows(members, configDir, now, out)...)
+	electHubs(out, append(localMembers(locals, now), members...), now)
+	return out
+}
+
+// lightRow is one local companion without its log: the record and the dial, and an honest state
+// built from only those. Dead is Stopped — whether a turn was left open lives in the log, and the
+// light list does not read logs; the detail screen says the rest.
+func lightRow(in daemon.Info) Agent {
+	a := Agent{
+		Socket: in.Socket, Workdir: in.Workdir, Name: nameOf(in),
+		Session: in.Session, PID: in.PID, Role: in.Role, Team: in.Team, Hub: in.Hub,
+		Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
+		Version: in.Version, Does: in.Does, Can: in.Can,
+		Waiting: in.Waiting, Handling: in.Handling, Live: in.Live,
+		Idle: -1,
+	}
+	switch {
+	case in.Live && in.State != "":
+		a.State = stateHeard(in.State) // the vocabulary the daemon wrote: waiting / working / idle
+	case in.Live:
+		a.State = Idle // alive and saying nothing more — the minimum claim
+	default:
+		a.State = Stopped
+	}
+	return a
 }

@@ -3,6 +3,8 @@ package fleet
 import (
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
 // Roster is for the message when an address matched nobody: who there IS, or the honest empty.
@@ -32,5 +34,28 @@ func TestWordFromCarriesTheMarkAndTheWayBack(t *testing.T) {
 	}
 	if !strings.Contains(got, "mcp__design__ask") {
 		t.Fatalf("the way to answer rides the label, got %q", got)
+	}
+}
+
+// lightRow builds a row from the record and the dial alone: the daemon's own state vocabulary
+// when it wrote one, the minimum claim when it did not, and Stopped for the dead — whether a turn
+// was left open lives in the log, which the light list never reads.
+func daemonInfo(state string, live bool) daemon.Info {
+	return daemon.Info{Socket: "/s/a", Workdir: "/w/a", Session: "s_a", State: state, Live: live}
+}
+
+func TestLightRowClaimsOnlyWhatItRead(t *testing.T) {
+	live := lightRow(daemonInfo("waiting", true))
+	if live.State != Waiting || !live.Live {
+		t.Fatalf("the daemon said waiting: %+v", live)
+	}
+	if quiet := lightRow(daemonInfo("", true)); quiet.State != Idle {
+		t.Fatalf("alive and saying nothing is the minimum claim, got %v", quiet.State)
+	}
+	if dead := lightRow(daemonInfo("working", false)); dead.State != Stopped {
+		t.Fatalf("dead is Stopped in the light list — the log is not read here, got %v", dead.State)
+	}
+	if live.Task != "" || live.PlanTotal != 0 {
+		t.Fatal("a light row must not carry claims only a log could establish")
 	}
 }

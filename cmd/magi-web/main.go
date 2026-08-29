@@ -1226,11 +1226,13 @@ func (s *server) rosterNow(r *http.Request) ([]fleet.Agent, error) {
 	}
 	s.rosterAt.mu.Unlock()
 
-	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
+	// Light on purpose (direction 2026-08-29): the LIST is gossip — roster rows, no log reads.
+	// The ask's own words, the task, the plan: those attach with the detail screen.
+	list := fleet.ListLight(s.cfgDir, s.here)
 	s.rosterAt.mu.Lock()
-	s.rosterAt.list, s.rosterAt.err, s.rosterAt.when, s.rosterAt.done = list, err, time.Now(), true
+	s.rosterAt.list, s.rosterAt.err, s.rosterAt.when, s.rosterAt.done = list, nil, time.Now(), true
 	s.rosterAt.mu.Unlock()
-	return list, err
+	return list, nil
 }
 
 // rosterEvery is the floor under how often this machine's own records are walked.
@@ -1260,7 +1262,7 @@ func (s *server) rosterFor(r *http.Request, shared bool) []fleet.Agent {
 	if shared {
 		list, err = s.rosterNow(r)
 	} else {
-		list, err = fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
+		list = fleet.ListLight(s.cfgDir, s.here)
 	}
 	if err != nil {
 		return nil

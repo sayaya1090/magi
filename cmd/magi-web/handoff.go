@@ -48,9 +48,6 @@ func (s *server) handoffs(w http.ResponseWriter, r *http.Request) {
 
 // published is this console's own companions, as the fleet sees them.
 func (s *server) published(r *http.Request) []fleet.Agent {
-	list, err := fleet.ListCached(r.Context(), s.reader, s.cfgDir, s.here, &s.fleetCache)
-	if err != nil {
-		return nil
-	}
-	return list
+	// Light rows: StateOf reads a session id and a state, and both ride the roster.
+	return fleet.ListLight(s.cfgDir, s.here)
 }
