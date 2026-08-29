@@ -1,10 +1,30 @@
 // 얇은 뷰. **결정을 안 한다** — 유스케이스를 부르고 결과를 그린다.
+//
+// 그 말이 한동안 거짓이었다. 돌연변이 32개 중 30개가 살아남았고, 살아남은 줄은 DOM 을 쓰는
+// 코드 안에 박힌 **결정**이었다. 그래서 결정을 전부 `screen.js` 로 옮겼다 — 여기 남은 것은
+// 만들고·붙이고·대입하는 일뿐이고, 이 파일에 `if` 가 늘면 그건 다시 못 재는 자리가 늘었다는
+// 뜻이다.
+//
+// **남은 것 11개.** 옮기고 나서 다시 재니 이 파일에 아직 11개가 산다. 둘로 갈린다.
+// 하나 — 순수 함수가 준 답으로 **갈래를 고르는 줄**(`kind === 'lost'`, `shape === 'tool'`).
+// 고르는 근거는 `screen.js` 에서 재지만 고른 뒤 무엇을 만드는지는 DOM 이라, 갈래를 잘못
+// 골라도 스위트는 조용하다. 둘 — **아무도 안 부르는 메서드의 대입**(`note`/`clearNote`/
+// `where` 의 `hidden`). 결정이 없는 줄이라 옮길 것이 없다. 둘 다 **가짜 DOM 을 세워야**
+// 재지고, 목업에 그런 것이 없다는 게 지금의 사실이다 — 모르는 채로 두는 것과 알고 두는
+// 것은 다르므로 여기 적는다.
 import { foldAdvice, adviceNote } from '../domain/AdviceBoard.js';
-import { targetLabel, SlideNumbers } from '../domain/Advice.js';
+import { SlideNumbers } from '../domain/Advice.js';
 import { logShapeOf, sendNote } from '../usecase/SendTurn.js';
 import { quoteNote } from '../usecase/QuoteSelection.js';
 import { askSig } from '../usecase/WatchPrompt.js';
-import { DECISIONS, WIDTH_NOTE, clearedNote, askArgs } from '../domain/Pending.js';
+import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
+// 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
+import {
+  isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
+  unknownLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
+  bodyText, adviceBoard, adviceTargetText, pretty,
+} from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -44,7 +64,7 @@ export class View {
     $('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());
     $('#send').addEventListener('click', () => this.guard(() => this.onSend(), '못 보냈습니다'));
     $('#input').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (isSendKey(e)) {
         this.guard(() => this.onSend(), '못 보냈습니다');
       }
     });
@@ -77,7 +97,7 @@ export class View {
     // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다. 무엇이 서명에
     // 들고 무엇이 일부러 빠지는지는 `askSig` 가 안다 — 화면 밖이라야 잰다.
     const sig = askSig(v);
-    if (sig === this.askSig) {
+    if (askAction(sig, this.askSig) === 'refresh') {
       // **줄 하나는 이 문 밖이다.** 서명에 없는 것이 하나 있다 — 뒤에 쌓인 물음의 수다. 같은
       // 물음을 보는 동안에도 뒤가 늘면 「모두 2개」가 3개가 되고, 서명이 그대로라 여기서
       // 돌아가면 그 줄은 **영영 안 고쳐진다**(없다가 생기는 경우엔 아예 안 뜬다). 서명에 넣어
@@ -90,9 +110,10 @@ export class View {
     // **먼저 만들고 나중에 갈아 끼운다.** 만들다 터지면 직전 화면이 그대로 서 있고 다음 폴이
     // 다시 시도한다. 표시를 먼저 남기면 한 번 터진 물음은 **영영 안 그려지고**, 데몬은 바로
     // 그 물음에 막혀 있으므로 빈 칸 하나가 사람을 가둔다(§5.7). `null`은 쓸 말이 없다는 뜻이다.
-    const el = !v.reachable ? this.lostEl(v.lostNote)
-      : !v.pending ? this.lastAskEl(v.clearedBy)
-      : v.pending.known ? this.askEl(v) : this.unknownAskEl(v);
+    const kind = askKind(v);
+    const el = kind === 'lost' ? this.lostEl(v.lostNote)
+      : kind === 'last' ? this.lastAskEl(v.clearedBy)
+      : kind === 'known' ? this.askEl(v) : this.unknownAskEl(v);
 
     const box = $('#ask');
     box.replaceChildren();
@@ -103,8 +124,9 @@ export class View {
 
   /** 자리 하나에 문장 하나. 두 곳이 같은 말을 짓지 않게 한 자리에 둔다. */
   fillPlace(pl, placement) {
-    pl.textContent = placement ? `${placement} — 이걸 답하면 다음 물음이 옵니다.` : '';
-    pl.hidden = !placement;
+    const line = placeLine(placement);
+    pl.textContent = line.text;
+    pl.hidden = line.hidden;
   }
 
   /** 판을 안 다시 세우고 그 줄만 고친다 — 글자만 만지므로 적던 답과 포커스가 안 다친다. */
@@ -121,8 +143,9 @@ export class View {
    */
   renderDoing(doing, fresh) {
     const el = $('#doing');
-    el.textContent = !doing ? '' : fresh ? doing : `마지막으로 읽었을 때: ${doing}`;
-    el.hidden = !doing;
+    const line = doingLine(doing, fresh);
+    el.textContent = line.text;
+    el.hidden = line.hidden;
   }
 
   lostEl(text) {
@@ -139,11 +162,11 @@ export class View {
   lastAskEl(clearedBy) {
     // 글은 `clearedNote` 가 짓는다 — 화면 밖이라야 잰다. `null` 은 **할 말이 없다**는 뜻이고
     // 그때만 이 줄이 안 선다. 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다.
-    const text = clearedNote(clearedBy);
-    if (text === null) return null;
+    const shape = lastAskShape(clearedBy);
+    if (!shape.show) return null;
     const el = document.createElement('p');
     el.className = 'ask-last';
-    el.textContent = text;
+    el.textContent = shape.text;
     return el;
   }
 
@@ -164,12 +187,12 @@ export class View {
     const box = document.createElement('div');
     box.className = 'ask-box';
     const h = document.createElement('h2');
-    h.textContent = p.isPermission ? '권한을 묻고 있습니다' : '묻고 있습니다';
+    h.textContent = askHead(p);
     box.append(h);
 
     const what = document.createElement('p');
     what.className = 'ask-what';
-    what.textContent = p.what || '(무엇인지 안 실렸습니다)';
+    what.textContent = whatText(p);
     box.append(what);
 
     // 정해진 것은 **도구 이름이 아니라 인자다.** "permission: bash"는 아무도 못 답한다.
@@ -184,7 +207,7 @@ export class View {
     } else if (slot) {
       const pre = document.createElement('pre');
       pre.className = 'ask-args';
-      pre.textContent = typeof slot.args === 'string' ? slot.args : this.pretty(slot.args);
+      pre.textContent = argsText(slot);
       box.append(pre);
     }
     if (p.reason) {
@@ -234,7 +257,7 @@ export class View {
     row.className = 'ask-picks';
     for (const d of DECISIONS) {
       const b = document.createElement('button');
-      b.className = d.width === 'call' ? 'ghost' : 'ghost wide';
+      b.className = decisionClass(d);
       b.textContent = d.label;   // 문구가 **폭을 말한다**(§5.7).
       b.disabled = v.answered;
       b.addEventListener('click', () => this.send(() => this.watchPrompt.answer(d.value)));
@@ -313,12 +336,9 @@ export class View {
     try {
       await fn();
     } catch (e) {
-      this.note(`${what}: ${e?.message ?? String(e)}`, { sticky: true });
+      const n = failNote(what, e);
+      this.note(n.text, { sticky: n.sticky });
     }
-  }
-
-  pretty(v) {
-    try { return JSON.stringify(v, null, 2); } catch { return String(v); }
   }
 
   /**
@@ -331,19 +351,9 @@ export class View {
   renderCaps() {
     const el = $('#caps');
     if (!el) return;
-    const c = (typeof this.deck.capabilities === 'function')
-      ? this.deck.capabilities()
-      : { measured: false, note: '어댑터가 안 답한다', sets: [] };
-    if (!c.measured) {
-      el.dataset.measured = 'no';
-      el.textContent = `요구 집합: ${c.note || '어댑터가 사유를 안 실었다'}`;
-    } else {
-      el.dataset.measured = 'yes';
-      // ok 가 null 인 것은 "아니오"가 아니라 **물어보다 던졌다**이므로 `?` 로 갈라 둔다.
-      el.textContent = '요구 집합: ' + c.sets
-        .map((s) => `${s.name} ${s.version} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '?'}`)
-        .join(' · ');
-    }
+    const c = capsOf(this.deck);
+    el.dataset.measured = c.measured ? 'yes' : 'no';
+    el.textContent = capsText(c);
     console.log('[magi] ' + el.textContent);
   }
 
@@ -403,17 +413,16 @@ export class View {
    */
   renderStream(v) {
     const el = $('#stream');
-    const parts = [];
-    if (v.refusal) parts.push(`서버가 이 창의 커서를 안 받았습니다: ${v.refusal}`);
-    if (!v.live) parts.push('대화 스트림이 끊겼습니다 — 새 말이 안 옵니다.');
-    el.textContent = parts.join(' · ');
-    el.hidden = parts.length === 0;
+    const line = streamLine(v);
+    el.textContent = line.text;
+    el.hidden = line.hidden;
   }
 
   renderUnknown(note) {
     const el = $('#unknown');
-    el.textContent = note ?? '';
-    el.hidden = !note;
+    const line = unknownLine(note);
+    el.textContent = line.text;
+    el.hidden = line.hidden;
   }
 
   /** 냈는데 아직 로그에 안 뜬 것. **나가는 문을 같이 준다** — 없으면 잠금이 사람을 가둔다. */
@@ -449,12 +458,13 @@ export class View {
    *
    * 이 판이 무엇인지는 여기 안 쓴다 — `where` 가 다른 자리에 쓴다.
    */
-  note(text, { sticky = false } = {}) {
+  note(text, opts) {
     const el = $('#note');
     el.textContent = text;
     el.hidden = false;
     clearTimeout(this._noteTimer);
-    if (!sticky) this._noteTimer = setTimeout(() => { el.hidden = true; }, 4000);
+    const life = noteLife(opts);
+    if (life !== null) this._noteTimer = setTimeout(() => { el.hidden = true; }, life);
   }
 
   /** 서 있던 사유를 물린다. 누름이 시작될 때 `guard` 가 부른다. */
@@ -504,11 +514,10 @@ export class View {
     body.className = 'quote-body';
     // 「글이 없다」와 「글을 못 읽었다」는 다른 문장이다 — 뒤엣것을 앞엣것으로 적으면 사람도
     // 모델도 빈 상자를 고치러 간다.
-    body.textContent = q.text ? `"${q.preview()}"`
-      : (q.textUnavailable ? '(글을 못 읽었습니다)' : '(글 없음)');
+    body.textContent = quoteBody(q);
     const meta = document.createElement('div');
     meta.className = 'quote-meta';
-    meta.textContent = [q.type, q.sizeLabel].filter(Boolean).join(' · ');
+    meta.textContent = quoteMeta(q);
     el.append(head, body, meta);
     if (removable) {
       const x = document.createElement('button');
@@ -545,36 +554,35 @@ export class View {
     // 종류를 **접두사와 함께** 적는다. 그냥 `turn ${r.kind}` 로 적으면 끝난 턴이
     // `class="turn turn"` 이 되고, `.turn.turn` 은 CSS 에서 그냥 `.turn` 이라
     // 그 한 줄에 준 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
-    el.className = `turn kind-${r.kind}`;
-    const head = headOf(r);
+    el.className = rowClass(r);
+    const head = rowHead(r);
     if (head) {
       const h = document.createElement('div');
       h.className = 'turn-head';
-      h.textContent = r.kind === 'tool' ? `⚙ ${r.tool ?? '(이름 없음)'}` : head;
+      h.textContent = head;
       el.append(h);
     }
-    if (r.kind === 'tool') {
+    const shape = rowShape(r);
+    if (shape === 'tool') {
       // **인자를 적는다.** 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
       const pre = document.createElement('pre');
       pre.className = 'turn-args';
-      pre.textContent = r.args == null ? '(인자 없음)' : clip(this.pretty(r.args), 300);
+      pre.textContent = argsCell(r);
       el.append(pre);
       return el;
     }
-    if (r.kind === 'turn') {
+    if (shape === 'turn') {
       // 끝난 턴. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`).
       el.classList.toggle('unverified', r.unverified);
       const p = document.createElement('p');
-      p.textContent = r.unverified
-        ? `검증되지 않은 끝${r.reason ? ` — ${r.reason}` : ''}`
-        : '— 턴 끝 —';
+      p.textContent = endText(r);
       el.append(p);
       return el;
     }
     const p = document.createElement('p');
     // 사용자 줄에는 인용이 **글로 접혀** 들어 있다(`promptOf`). 예쁘게 걷어 내지 않는다 —
     // 모델이 받은 것이 이것이고, 걷어 내면 화면이 모델보다 덜 아는 것을 감추게 된다.
-    p.textContent = r.text || '(글 없음)';
+    p.textContent = bodyText(r);
     el.append(p);
     return el;
   }
@@ -605,10 +613,11 @@ export class View {
   renderAdvice() {
     const box = $('#advice');
     box.replaceChildren();
-    $('#advice-wrap').hidden = this.advices.length === 0 && this.adviceNote === '';
+    const board = adviceBoard(this.advices, this.adviceNote);
+    $('#advice-wrap').hidden = board.wrapHidden;
     const note = $('#advice-strays');
-    note.textContent = this.adviceNote;
-    note.hidden = this.adviceNote === '';
+    note.textContent = board.noteText;
+    note.hidden = board.noteHidden;
     for (const a of this.advices) {
       const el = document.createElement('button');
       el.className = 'advice';
@@ -623,9 +632,7 @@ export class View {
       // 말 안 했다"와 "이 창이 고장났다"가 같은 화면이 된다.
       const where = document.createElement('div');
       where.className = 'advice-target';
-      where.textContent = a.pointable
-        ? targetLabel(a, this.slideNos.map, this.slideNos.answered(a.slideId))
-        : a.unpointableReason;
+      where.textContent = adviceTargetText(a, this.slideNos.map, this.slideNos.answered(a.slideId));
       el.append(where);
       // **누를 때만 선택을 옮긴다**(§6.1) — 자동으로는 절대 안 한다.
       //
@@ -643,24 +650,3 @@ export class View {
     }
   }
 }
-
-/**
- * 이 줄에 붙일 머리. 없으면 머리 없이 글만 — 사용자와 모델의 말이 그렇다.
- *
- * `note` 만 줄을 들여다본다. 「사람이 아닌 배우가 넣었다」는 **배우를 밝혔을 때만** 할 수 있는
- * 말이고, 안 밝힌 줄에 그렇게 적으면 모르는 것을 아는 것처럼 적는 것이다(`Row.attributed`).
- */
-export function headOf(r) {
-  if (r.kind !== 'note') return ROW_HEAD[r.kind];
-  return r.attributed ? ROW_HEAD.note : '⟳ 누가 넣었는지 안 밝힌 줄';
-}
-
-/** 종류별 줄머리. */
-const ROW_HEAD = {
-  think: '혼잣말 (사용자에게 한 말이 아님)',
-  note: '⟳ 사람이 아닌 배우가 넣은 줄',
-  tool: '⚙',
-  error: '오류',
-};
-
-function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
