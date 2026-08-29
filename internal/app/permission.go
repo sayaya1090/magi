@@ -123,6 +123,19 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	} else if a.Permission() == "deny" {
 		return false
 	}
+	// The diff a yes would apply, for the prompts whose arguments already say (edit-class calls).
+	// Computed ONCE, here, and carried everywhere the prompt travels — a viewer that computed its
+	// own could show a change the tool will not make. For a write the file is still on disk, so
+	// the diff is taken against its REAL content (writeApprovalDiff) instead of showing the whole
+	// content as additions; computed before the lock because it reads a file and sessionInfo
+	// locks for itself. The always-granted fast path below wastes this one bounded read — rare,
+	// and cheaper than file IO under a.mu.
+	diff := change.EditDiff(tc.Name, string(tc.Args))
+	if tc.Name == "write" && a.cfg.Interactive {
+		if d, ok := a.writeApprovalDiffFor(ctx, sid, tc.Args); ok {
+			diff = d
+		}
+	}
 	// "ask" (and "auto" for non-edit tools): honor a prior "always" grant.
 	a.mu.Lock()
 	if st, ok := a.stateIf(sid); ok && st.grants[tc.Name] && !handed {
@@ -146,10 +159,6 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 		a.stateLocked(sid).perms = map[string]chan string{}
 	}
 	a.stateLocked(sid).perms[tc.CallID] = ch
-	// The diff a yes would apply, for the prompts whose arguments already say (edit-class calls).
-	// Computed ONCE, here, and carried everywhere the prompt travels — a viewer that computed its
-	// own could show a change the tool will not make.
-	diff := change.EditDiff(tc.Name, string(tc.Args))
 	a.noteAskingLocked(sid, tc.CallID, Ask{ID: tc.CallID, Kind: "permission", What: tc.Name, Args: tc.Args, Reason: reason, Diff: diff, Since: time.Now()})
 	a.mu.Unlock()
 
