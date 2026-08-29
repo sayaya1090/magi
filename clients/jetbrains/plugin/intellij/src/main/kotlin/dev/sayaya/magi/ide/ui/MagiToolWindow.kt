@@ -21,6 +21,7 @@ import dev.sayaya.magi.ide.transport.HandServer
 import dev.sayaya.magi.ide.transport.Published
 import dev.sayaya.magi.ide.usecase.Companion
 import dev.sayaya.magi.ide.usecase.Markup
+import dev.sayaya.magi.ide.model.FileRef
 import dev.sayaya.magi.ide.model.LogEvent
 import dev.sayaya.magi.ide.usecase.Assist
 import dev.sayaya.magi.ide.usecase.End
@@ -310,6 +311,38 @@ class MagiToolWindow : ToolWindowFactory {
         /** 지금 그려져 있는 물음의 id — diff 판의 펼침이 리드로우를 살아남는 열쇠다. */
         private var promptShown: String? = null
 
+        /**
+         * 보낼 첨부들 — 본문이 아니라 **참조**다(경로+줄범위). 발췌는 코어가 렌더·영속하므로
+         * (docs/CLIENTS §2) 여기는 이름표 칩만 세운다. [say] 가 싣고 비운다.
+         */
+        private val refs = java.util.Collections.synchronizedList(mutableListOf<FileRef>())
+        private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
+            isOpaque = false
+            isVisible = false
+        }
+
+        /** 첨부 하나를 세운다 — 에디터·프로젝트 뷰 액션이 부른다. 같은 참조는 두 번 안 선다. */
+        fun attach(ref: FileRef) = SwingUtilities.invokeLater {
+            if (refs.contains(ref)) return@invokeLater
+            refs.add(ref)
+            drawChips()
+        }
+
+        private fun drawChips() {
+            chips.removeAll()
+            val snap = synchronized(refs) { refs.toList() }
+            chips.isVisible = snap.isNotEmpty()
+            snap.forEach { ref ->
+                val label = ref.path.substringAfterLast('/') + (ref.lines?.let { ":$it" } ?: "")
+                chips.add(JButton("$label ✕").apply {
+                    margin = java.awt.Insets(0, 6, 0, 6)
+                    toolTipText = ref.path
+                    addActionListener { refs.remove(ref); drawChips() }
+                })
+            }
+            chips.revalidate(); chips.repaint()
+        }
+
         private val diffScroll = JBScrollPane(diffPane).apply {
             isVisible = false
             border = JBUI.Borders.empty()
@@ -341,7 +374,11 @@ class MagiToolWindow : ToolWindowFactory {
                 add(acts, BorderLayout.EAST)
             }
             val bottom = JBPanel<JBPanel<*>>(BorderLayout())
-            bottom.add(Look.rule(), BorderLayout.NORTH)
+            bottom.add(JBPanel<JBPanel<*>>(BorderLayout()).apply {
+                isOpaque = false
+                add(Look.rule(), BorderLayout.NORTH)
+                add(chips, BorderLayout.CENTER) // 첨부 칩 — 없으면 숨어 띠가 안 생긴다
+            }, BorderLayout.NORTH)
             bottom.add(writing, BorderLayout.CENTER)
             bottom.add(JBPanel<JBPanel<*>>().apply {
                 layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -903,11 +940,20 @@ class MagiToolWindow : ToolWindowFactory {
         private fun say() {
             val text = input.text.trim()
             if (text.isEmpty()) return
+            val carry = synchronized(refs) { refs.toList() }
             onDaemon { comp ->
-                val r = comp.say(text)
+                val r = comp.say(text, carry)
                 if (r.ok) {
                     clearNotice()
-                    SwingUtilities.invokeLater { input.text = ""; dropSuggestion() }
+                    SwingUtilities.invokeLater {
+                        input.text = ""
+                        dropSuggestion()
+                        // 보낸 것만 지운다(리뷰 실측): 왕복이 도는 동안 사람이 더 세운 칩을
+                        // 전량 clear 가 소리 없이 지웠다 — 코어가 지키는 "사라지는 첨부 없음"을
+                        // 클라이언트가 어기는 자리였다. attach 가 중복을 막으므로 removeAll 은 안전.
+                        synchronized(refs) { refs.removeAll(carry) }
+                        drawChips()
+                    }
                 } else report("안 갔다: ${r.error ?: "사유 없음"}")
             }
         }

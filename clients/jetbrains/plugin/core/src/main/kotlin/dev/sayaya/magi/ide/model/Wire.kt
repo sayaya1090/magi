@@ -59,6 +59,21 @@ data class Request(
      * 대화가 바뀌면 0 으로 되돌리고, 거절은 데몬이 이벤트보다 먼저 말한다.
      */
     val since: Long? = null,
+    /**
+     * submit/steer 에 싣는 첨부 — `internal/core/command/command.go` 의 `FileRef`. 코어가
+     * 발췌를 렌더해 프롬프트와 함께 영속하므로(전사·재생·웹이 같은 것을 봄) 와이어는 이름과
+     * 범위만 나른다. 캡(ref 16KB·전체 64KB)·워크스페이스 감옥은 코어의 계약이고, 줄범위는
+     * **파싱 불가**만 파일 전체로 낙하한다 — 범위가 파일 밖이면 그 사유가 발췌 자리에 선다
+     * (`internal/app/refs.go` — "사라지는 첨부 없음"의 그 갈래다).
+     */
+    val refs: List<FileRef>? = null,
+)
+
+/** 첨부 하나. [lines] 는 "12-40" 또는 "12"(1-기준 포함, 에디터 셈법), 빈 값=파일 전체. */
+@Serializable
+data class FileRef(
+    val path: String,
+    val lines: String? = null,
 )
 
 @Serializable

@@ -1,5 +1,6 @@
 package dev.sayaya.magi.ide.usecase
 
+import dev.sayaya.magi.ide.model.FileRef
 import dev.sayaya.magi.ide.model.Request
 import dev.sayaya.magi.ide.model.Response
 import dev.sayaya.magi.ide.model.Waiting
@@ -23,9 +24,12 @@ class Companion(
      * 지금 무엇을 하는지 물어서 정한다. 화면이 기억한 상태로 고르면, 그 사이 다른 뷰어가
      * 인터럽트했거나 턴이 끝났을 때 조용히 틀린 메서드를 부른다.
      */
-    fun say(text: String): Response {
+    fun say(text: String, refs: List<FileRef> = emptyList()): Response {
         val method = if (turnIsOpen()) "steer" else "submit"
-        return client.exchange(Request(method = method, session = session, text = text))
+        return client.exchange(Request(
+            method = method, session = session, text = text,
+            refs = refs.takeIf { it.isNotEmpty() },
+        ))
     }
 
     /** 지금 사람을 기다리고 있으면 그 프롬프트, 아니면 null. */

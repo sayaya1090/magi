@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.model.Ask
+import dev.sayaya.magi.ide.model.FileRef
 import dev.sayaya.magi.ide.transport.DaemonClient
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -135,6 +136,19 @@ class CompanionTest {
         fake.close()
         assertTrue(fake.seen[0].contains(""""method":"cron""""))
         assertTrue(fake.seen[1].contains(""""method":"job-kill"""") && fake.seen[1].contains(""""name":"b9""""))
+    }
+
+    @Test
+    fun `첨부는 이름과 범위만 나른다 — 발췌는 코어의 몫`() {
+        val fake = FakeDaemon(listOf("""{"ok":true,"doing":""}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            Companion(c, "s_1").say("이 부분 봐줘", listOf(FileRef("src/a.kt", "12-40"), FileRef("README.md")))
+        }
+        fake.close()
+        val sent = fake.seen[1]
+        assertTrue(sent.contains(""""refs":[{"path":"src/a.kt","lines":"12-40"},{"path":"README.md"}]"""),
+            "본문 복사가 아니라 참조다 — 코어가 렌더·영속하고 캡·감옥도 코어의 계약: $sent")
     }
 
     @Test
