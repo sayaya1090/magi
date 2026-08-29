@@ -835,6 +835,45 @@ class MagiToolWindow : ToolWindowFactory {
             hook(p)
         }
 
+        /** 물음 id → 이미 연 가상 파일. 클릭마다 새 인스턴스면 같은 이름의 탭이 쌓인다(리뷰). */
+        private val diffTabs = java.util.concurrent.ConcurrentHashMap<String, com.intellij.testFramework.LightVirtualFile>()
+
+        /** 승인의 변화를 IDE 답게 연다 — 나란히(원문 두 면) 또는 패치 파일(코어 diff 원문). */
+        private fun openApprovalDiff(w: Waiting) {
+            val o = w.args as? kotlinx.serialization.json.JsonObject
+            fun str(k: String) = (o?.get(k) as? kotlinx.serialization.json.JsonPrimitive)
+                ?.takeIf { it.isString }?.content
+            val old = str("old")
+            val new = str("new")
+            val path = str("path") ?: "변경"
+            // 안전을 콜사이트가 아니라 여기에도 둔다(리뷰): 나란히-보기는 「인자가 전체 진실」인
+            // 편집(일반 치환)에만 참이다 — 앵커(at)나 replaceAll 이 실렸으면, 지금은 diff 게이트가
+            // 막아 도달 불가지만, 버튼이 이사하는 날 replaceAll 이 단일 치환으로 그려지는 거짓이
+            // 바로 그 금지된 왜곡이다.
+            val anchored = !str("at").isNullOrEmpty() ||
+                (o?.get("replaceAll") as? kotlinx.serialization.json.JsonPrimitive)?.content == "true"
+            if (old != null && new != null && !anchored) {
+                val f = com.intellij.diff.DiffContentFactory.getInstance()
+                com.intellij.diff.DiffManager.getInstance().showDiff(
+                    project,
+                    com.intellij.diff.requests.SimpleDiffRequest(
+                        "magi 승인 — $path",
+                        f.create(project, old), f.create(project, new),
+                        // 이 창은 물음 순간의 스냅샷이다 — 답이 끝난 뒤에도 "지금"을 주장하면
+                        // 거짓이 된다(비대칭-통지의 그 원칙).
+                        "물음 시점", "제안",
+                    ),
+                )
+                return
+            }
+            val vf = diffTabs.computeIfAbsent(w.id) {
+                com.intellij.testFramework.LightVirtualFile(
+                    "magi-승인-${path.substringAfterLast('/')}-${w.id.takeLast(6)}.diff", w.diff.orEmpty(),
+                ).apply { isWritable = false }
+            }
+            com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(vf, true)
+        }
+
         /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */
         private fun clock(at: String?): String = at?.let {
             runCatching {
@@ -1195,12 +1234,21 @@ class MagiToolWindow : ToolWindowFactory {
                 }
                 // 편집 계열(치환·write)엔 변화 그 자체가 실려 온다 — 누르기 전에 펼쳐 본다.
                 // diff 가 빈 승인(앵커 편집 등)은 위의 args 뷰가 그대로 선다.
-                if (!w.diff.isNullOrBlank()) buttons.add(JButton("± 변경 보기").apply {
-                    addActionListener {
-                        diffScroll.isVisible = !diffScroll.isVisible
-                        head.revalidate(); head.repaint()
-                    }
-                })
+                if (!w.diff.isNullOrBlank()) {
+                    buttons.add(JButton("± 변경 보기").apply {
+                        addActionListener {
+                            diffScroll.isVisible = !diffScroll.isVisible
+                            head.revalidate(); head.repaint()
+                        }
+                    })
+                    // 흉내가 아니라 한 단 위로(사용자 지시): 치환 편집이면 인자에 실려 온
+                    // old/new **원문 그대로** IDE 의 진짜 나란히-보기를 연다 — 두 면이 코어가
+                    // 받은 원문이라 「뷰어 재계산 금지」 계약이 그대로 선다. old/new 가 없으면
+                    // (write 등) 코어의 unified diff 를 .diff 가상 파일로 — 패치 하이라이트.
+                    buttons.add(JButton("diff 뷰어로").apply {
+                        addActionListener { openApprovalDiff(w) }
+                    })
+                }
             }
             buttons.revalidate(); buttons.repaint()
         }
