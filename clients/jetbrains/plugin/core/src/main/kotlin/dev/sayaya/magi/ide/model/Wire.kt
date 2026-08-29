@@ -54,8 +54,9 @@ data class Request(
      * 거절 통보(`Response.why`) 없이 대화를 통째로 다시 보낸다 — 화면 두 벌이 아무 소리 없이
      * 생긴다. 커서를 들려면 **사실만 세어야 한다**(`seq > 0`).
      *
-     * 지금 이 클라이언트는 커서를 안 보낸다(창이 열릴 때마다 전량 — 설계 문서 §8 의 미결). 위
-     * 문단은 그 미결을 푸는 사람에게 남기는 것이다.
+     * 이 클라이언트는 이제 커서를 보낸다(`MagiToolWindow` 의 lastSeq — 사실의 seq 만 센다).
+     * 컴팩션이 seq 를 보존하므로 커서는 믿어도 된다는 것이 계약으로 명문화됐다(docs/CLIENTS §2);
+     * 대화가 바뀌면 0 으로 되돌리고, 거절은 데몬이 이벤트보다 먼저 말한다.
      */
     val since: Long? = null,
 )
@@ -85,6 +86,24 @@ data class Response(
     val jobs: Jobs? = null,
     /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`daemon.go` 의 `SessionRow`), 최근 활동 순. */
     val sessions: List<SessionRow>? = null,
+    /** 예약들 — `cron` 문의 답(`daemon.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
+    val cron: List<CronRow>? = null,
+    /** `job-kill`·`mcp-detach` 의 「있었는지」 — 두 번 누른 ✕ 는 거짓이 아니라 이미-없음이다. */
+    val removed: Boolean = false,
+)
+
+/**
+ * 예약 하나. [problem] 이 실린 행이 이 판이 **표시해야 하는** 행이다 — 영영 못 도는 사유는
+ * 다른 어떤 화면도 다시 언급하지 않는다(코어 `CronRow` 의 계약 그대로).
+ */
+@Serializable
+data class CronRow(
+    val name: String = "",
+    val schedule: String? = null,
+    val enabled: Boolean = false,
+    /** RFC3339. 비어 있으면 영영 안 돈다 — 꺼졌거나 [problem] 이 사유다. */
+    val next: String? = null,
+    val problem: String? = null,
 )
 
 /**
@@ -194,6 +213,11 @@ data class Waiting(
     val args: JsonElement? = null,
     val reason: String? = null,
     val options: List<String>? = null,
+    /**
+     * 편집 계열 승인에 실리는 변화 그 자체(unified diff). **뷰어가 재계산하지 않는다** — 앱이
+     * 한 번 계산해 싣는 것이 계약이다(`change.EditDiff`). 그 외 호출에선 빈 값.
+     */
+    val diff: String? = null,
     val index: Int = 0,
     val total: Int = 0,
     val since: String? = null,

@@ -45,6 +45,10 @@ class PlanToolWindow : ToolWindowFactory {
             layout = BoxLayout(this, BoxLayout.Y_AXIS)
             border = JBUI.Borders.empty(0, 12)
         }
+        val cronPane = JBPanel<JBPanel<*>>().apply {
+            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+            border = JBUI.Borders.empty(0, 12)
+        }
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         val talk = JComboBox<String>()
         val model = JComboBox<String>()
@@ -101,10 +105,8 @@ class PlanToolWindow : ToolWindowFactory {
             add(work)
             add(Look.gutter("플릿"))
             add(fleet)
-            add(JBLabel("예약(크론)은 읽는 문이 서면 여기 온다.").apply {
-                foreground = Look.faint
-                border = JBUI.Borders.empty(2, 12)
-            })
+            add(Look.gutter("예약"))
+            add(cronPane)
             add(Look.gutter("계기"))
             add(ctx)
             add(Look.gutter("컨트롤"))
@@ -177,6 +179,7 @@ class PlanToolWindow : ToolWindowFactory {
             val jr = comp.jobs()
             val j = jr.jobs
             val r = comp.roster()
+            val cr = comp.cron()
             SwingUtilities.invokeLater {
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
@@ -201,7 +204,22 @@ class PlanToolWindow : ToolWindowFactory {
                     })
                 }
                 bgRunning.forEach { b ->
-                    work.add(JBLabel("⚙ ${b.command?.take(60) ?: b.id}").apply { foreground = Look.faint })
+                    // 도는 잡 옆의 ✕ — job-kill 문. removed=false 는 이미-없음이라 조용히 지나간다.
+                    work.add(JBPanel<JBPanel<*>>(BorderLayout(6, 0)).apply {
+                        isOpaque = false
+                        add(JBLabel("⚙ ${b.command?.take(56) ?: b.id}").apply { foreground = Look.faint },
+                            BorderLayout.CENTER)
+                        add(JButton("✕").apply {
+                            margin = java.awt.Insets(0, 4, 0, 4)
+                            toolTipText = "이 잡을 세운다"
+                            addActionListener {
+                                workspace.onDaemon({ tell("못 갔다: $it") }) { c2 ->
+                                    val kr = c2.killJob(b.id)
+                                    if (!kr.ok) tell("안 갔다: ${kr.error ?: "사유 없음"}")
+                                }
+                            }
+                        }, BorderLayout.EAST)
+                    })
                 }
                 kids.forEach { c ->
                     work.add(JBLabel("⛐ ${c.task?.take(60) ?: c.id}").apply { foreground = Look.faint })
@@ -217,6 +235,31 @@ class PlanToolWindow : ToolWindowFactory {
                     else -> rows.sortedBy { it.sighting }.forEach { row -> fleet.add(fleetRow(row)) }
                 }
                 work.revalidate(); work.repaint(); fleet.revalidate(); fleet.repaint()
+                cronPane.removeAll()
+                // 모름≠없음의 갈림은 cron 필드가 아니라 ok 다(리뷰 실측): 빈 목록은 omitempty 로
+                // 통째 생략돼 null 로 오므로, null 을 「문 없음」으로 읽으면 예약 없는 보통 데몬이
+                // 영영 버전 스큐 문구를 뒤집어쓴다. 문이 없으면 ok=false + error 가 온다.
+                val crons = if (cr.ok) cr.cron.orEmpty() else null
+                when {
+                    crons == null -> cronPane.add(JBLabel("이 데몬엔 cron 문이 없다" +
+                        (cr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
+                        foreground = Look.faint
+                    })
+                    crons.isEmpty() -> cronPane.add(JBLabel("예약이 없다").apply { foreground = Look.faint })
+                    else -> crons.forEach { j ->
+                        // 고장 행이 이 판이 표시해야 하는 행이다 — 다른 어떤 화면도 다시 언급 안 한다.
+                        val line = when {
+                            !j.problem.isNullOrBlank() -> "✗ ${j.name} — ${j.problem}"
+                            !j.enabled -> "○ ${j.name} — 꺼짐"
+                            else -> "◷ ${j.name}  ${j.next?.replace("T", " ")?.take(16) ?: ""}"
+                        }
+                        cronPane.add(JBLabel(line).apply {
+                            foreground = if (!j.problem.isNullOrBlank()) Look.error else Look.faint
+                            border = JBUI.Borders.empty(1, 0)
+                        })
+                    }
+                }
+                cronPane.revalidate(); cronPane.repaint()
             }
         }
 

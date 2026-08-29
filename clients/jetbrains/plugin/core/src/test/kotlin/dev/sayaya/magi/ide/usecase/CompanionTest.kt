@@ -3,6 +3,7 @@ package dev.sayaya.magi.ide.usecase
 import dev.sayaya.magi.ide.model.Ask
 import dev.sayaya.magi.ide.transport.DaemonClient
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -115,6 +116,25 @@ class CompanionTest {
         fake.close()
         assertTrue(fake.seen[0].contains(""""method":"sessions""""))
         assertTrue(fake.seen[1].contains(""""method":"session-new""""))
+    }
+
+    @Test
+    fun `예약과 잡 죽이기 — 고장 행과 이미-없음이 어휘에 있다`() {
+        val fake = FakeDaemon(listOf(
+            """{"ok":true,"cron":[{"name":"broken","problem":"bad schedule"},{"name":"nightly","schedule":"0 3 * * *","enabled":true,"next":"2026-08-30T03:00:00Z"}]}""",
+            """{"ok":true,"removed":false}""",
+        ))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            val rows = comp.cron().cron ?: error("cron 이 없다")
+            assertEquals("bad schedule", rows[0].problem, "고장 행이 먼저다 — 다른 화면은 다시 언급 안 한다")
+            assertNull(rows[0].next, "영영 안 도는 행의 next 는 비어 있다")
+            assertFalse(comp.killJob("b9").removed, "두 번 누른 ✕ 는 이미-없음이지 실패가 아니다")
+        }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"cron""""))
+        assertTrue(fake.seen[1].contains(""""method":"job-kill"""") && fake.seen[1].contains(""""name":"b9""""))
     }
 
     @Test

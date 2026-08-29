@@ -79,6 +79,13 @@ class Companion(
     /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
     fun sessions(): Response = client.exchange(Request(method = "sessions"))
 
+    /** 예약들. 고장 먼저 그다음 임박순 — 차례는 데몬이 정했다. */
+    fun cron(): Response = client.exchange(Request(method = "cron"))
+
+    /** 도는 백그라운드 하나를 세운다. removed=false 는 실패가 아니라 이미-없음이다. */
+    fun killJob(id: String): Response =
+        client.exchange(Request(method = "job-kill", name = id))
+
     /**
      * 다른 대화로 옮긴다. 워크스페이스에 없는 id 는 데몬이 거부한다 — **id 를 지어내지 않는다**,
      * 새 대화는 [newSession] 이 정식 동사다.

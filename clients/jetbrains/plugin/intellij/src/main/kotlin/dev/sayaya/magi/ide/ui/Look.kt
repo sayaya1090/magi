@@ -215,6 +215,17 @@ internal object Look {
         border = JBUI.Borders.empty(2, 14, 0, 0)
     }
 
+    /** 펼친 도구 행의 본문 — 인자·출력 원문. 옮겨 적을 것이라 고정폭이다(§3.3). */
+    fun code(text: String): JComponent = javax.swing.JTextArea(text).apply {
+        isEditable = false
+        isOpaque = false
+        lineWrap = true
+        wrapStyleWord = true
+        font = mono().deriveFont(JBFont.small().size.toFloat())
+        foreground = muted
+        border = JBUI.Borders.empty(2, 14, 0, 0)
+    }
+
     /** 이름표를 이고 있는 구역. 전사와 문제 판이 각자 무엇인지 말하게 한다. */
     fun titled(name: String, content: JComponent): JBPanel<JBPanel<*>> =
         JBPanel<JBPanel<*>>(BorderLayout()).apply {

@@ -139,6 +139,36 @@ class MagiToolWindow : ToolWindowFactory {
         private val followLock = Any()
 
         /**
+         * 연결의 점. "— 전사에 붙었다" 같은 문장 행이 대화 사이에 끼는 대신(사용자 실측: 읽기를
+         * 끊는다) 색 하나로 선다 — 웹이 그렇게 한다. 사유는 툴팁에.
+         */
+        private val link = JBLabel("●").apply { foreground = Look.muted; toolTipText = "아직 안 붙었다" }
+        private fun mood(colour: Color, why: String) = SwingUtilities.invokeLater {
+            link.foreground = colour
+            link.toolTipText = why
+        }
+
+        /**
+         * 동사의 **실패만** 적는 한 줄. 성공은 안 적는다 — 보낸 말이 행으로 서는 것 자체가
+         * 증거다(같은 사용자 결정). 다음 성공이 지운다.
+         */
+        private val notice = JBLabel(" ").apply {
+            foreground = Look.error
+            border = JBUI.Borders.empty(2, 12, 0, 12)
+        }
+
+        /**
+         * 마지막으로 받은 사실의 seq — 재접속의 커서다. 컴팩션이 seq 를 보존하므로 커서는 믿어도
+         * 된다(docs/CLIENTS 명문화). 대화가 바뀌면 0 으로 — 옛 커서를 새 대화로 들고 가면 앞을
+         * 못 본다. 거절은 데몬이 이벤트보다 먼저 말한다([Transcript.Sink.note]).
+         */
+        @Volatile private var lastSeq = 0L
+
+        /** 펼쳐 둔 행들. 행 판은 리드로우마다 다시 서므로 상태는 밖에 산다. */
+        private val opened = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+        private fun foldKey(r: Row) = "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
+
+        /**
          * 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다.
          *
          * **`init` 보다 위에 선다.** 코틀린은 선언 순서대로 초기화하고, `init` 의 못-붙음 보고가
@@ -182,41 +212,27 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private val sink = object : Transcript.Sink {
                 /**
-                 * 붙었다고 말한다. **[ended] 가 말을 하므로 이쪽도 해야 한다.**
+                 * 붙었다. [ended] 가 말을 하므로 이쪽도 한다 — 다만 문장 행이 아니라 **점**이다
+                 * (혼잣말이 대화 사이에 끼는 것이 읽기를 끊는다는 사용자 실측).
                  *
-                 * 없을 때 이랬다: 데몬이 재시작하면 새 세션의 전사가 비어 있어 프레임이 하나도 안
-                 * 오고, 판을 비우는 것이 첫 프레임에 걸려 있으므로 화면의 마지막 말이
-                 * 「전사가 끊겼다」로 **다시 붙은 뒤에도** 서 있었다. 사람은 살아 있는 창을 죽은 줄
-                 * 알고 안 쓰고, 안 쓰면 프레임도 안 생겨서 그 화면이 스스로를 붙든다.
-                 *
-                 * **판도 여기서 비운다.** 이 창은 커서를 안 보내므로 다시 붙을 때마다 재생이 통째로
-                 * 다시 온다 — 안 비우면 대화가 두 벌 쌓이고 손댐 장부도 같이 부푼다. 예전에는 그
-                 * 비움이 **첫 프레임**에 걸려 있었다(플래그 하나로). 붙자마자 비우면 붙기에 실패한
-                 * 시도가 사람이 읽던 전사를 지운다는 것이 사유였는데, 이 자리는 애초에 **못 붙으면
-                 * 안 온다** — 그 사유가 여기서는 이미 지켜진다(`TranscriptTest` 의
-                 * 「연결을 못 열면 붙었다고 하지 않는다」).
-                 *
-                 * 프레임에 걸어 두면 남는 것이 셋이었다. **(1)** 프레임이 안 오는 전사 — 즉 위에
-                 * 적은 바로 그 기본 경로 — 에서는 비울 기회가 영영 없어 **지난 세션의 대화가 그대로
-                 * 서 있었다.** 위의 고침이 말만 고치고 판은 안 고쳤던 것이다. **(2)** 이 줄 자신이
-                 * 나중에 지워졌다. **(3)** 붙은 뒤 [offerHand] 가 전사에 적는 손의 결과가 뒤늦게 온
-                 * 첫 프레임에 같이 지워졌다 — 재생이 다시 실어다 주지 않는 말이라 그대로 없어진다.
-                 *
-                 * 순서는 스트림이 보장한다. `Transcript.follow` 는 연결이 열린 뒤 **워커를 띄우기
-                 * 전에** 이 줄을 부르므로(같은 시험의 「붙었다는 말은 첫 프레임보다 먼저 정확히 한 번
-                 * 온다」), 여기서 큐에 넣은 비움이 어떤 프레임보다 먼저 EDT 에 닿는다. 장부는 EDT 를
-                 * 안 거치고 여기서 바로 비운다 — 미루면 워커의 `feed` 가 먼저 돌아서 방금 비운 것이
-                 * 그것을 지운다.
+                 * 비움은 여기 없다. 커서([lastSeq])가 서면서 재생이 증분이 됐고, 「전량이
+                 * 온다(=비워야 한다)」를 아는 것은 since==null 을 판정하는 [follow] 뿐이다 —
+                 * 여기서 비우면 증분 재접속이 이미 그린 대화를 지운다(`SourceTextTest` 가
+                 * began 의 비움을 금지로 붙든다).
                  */
                 override fun began() {
+                    // 비움은 여기가 아니라 [follow] 다 — 커서가 있으면 재생이 증분이라 비울 것이
+                    // 없고, 그 판정(since==null)을 아는 것은 follow 뿐이다. 문장 행 대신 점.
                     everBegan = true
-                    authors.forget()
-                    shaper.clear() // 커서를 안 보내므로 재생이 통째로 다시 온다 — 여기서 비워야 두 벌이 안 쌓인다
-                    SwingUtilities.invokeLater { problems.text = "" }
-                    append("— 전사에 붙었다.")
+                    mood(Look.success, "전사에 붙어 있다")
                 }
 
                 override fun frame(e: LogEvent) {
+                    // 죽어 가는 스트림의 마지막 프레임 가드(리뷰): close 의 stopped 는 다음
+                    // 콜백에서야 검사되므로, 갈아탄 직후 옛 세션 프레임 하나가 착지할 수 있다 —
+                    // 갓 비운 판에 옛 행이 서고 lastSeq 가 옛 seq 로 오염되면 다음 재접속이
+                    // 그 사이를 조용히 건너뛴다.
+                    if (e.session.isNotBlank() && e.session != followedSid) return
                     // 대화가 옮겨 갔다(우측 판의 갈아타기·새 대화, 혹은 다른 화면에서). 이 스트림은
                     // 옛 대화의 것이라 여기 남으면 화면과 컨트롤이 서로 다른 대화를 믿는다 — 끊고
                     // 새 공표를 따라 다시 붙는다. close 가 ByUs 로 접히므로 재접속은 직접 건다.
@@ -225,6 +241,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 대화와 같으면 움직일 일이 없다 — 없으면 끊고-붙기 무한 루프다(`to` 비교로는
                         // 못 막는다: 낡은 사실의 to 는 영원히 현재와 다르다).
                         ApplicationManager.getApplication().executeOnPooledThread {
+                            if (closing.get()) return@executeOnPooledThread // 닫힌 창을 되살리지 않는다
                             val now = socket()?.let { p -> runCatching { Published.of(p)?.session }.getOrNull() }
                             if (now != null && now != followedSid && follow() != Attach.Ok) reattach()
                         }
@@ -235,6 +252,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
                     if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
+                    if (e.seq > lastSeq) lastSeq = e.seq // 사실만 커서가 된다(전이는 seq==0)
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
                     // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
                     authors.feed(e)
@@ -254,8 +272,14 @@ class MagiToolWindow : ToolWindowFactory {
                 // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
                 // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
                 override fun note(why: String) {
-                    shaper.clear() // 커서를 못 믿겠다는 통보 — 이미 그린 것을 지우라는 뜻이다
-                    append("— $why")
+                    // 커서를 못 믿겠다는 통보 — 이벤트보다 먼저 오는 것이 계약이라, 이미 그린 것을
+                    // 지우고 전량 재생을 새로 받는 자세로 돌아간다.
+                    lastSeq = 0
+                    authors.forget()
+                    shaper.clear()
+                    SwingUtilities.invokeLater { problems.text = "" }
+                    mood(Look.warn, why)
+                    redrawLog()
                 }
                 /**
                  * **누가 끝냈는지로 갈린다.** 사람이 닫았으면 그걸로 끝이고, 데몬이 닫았거나
@@ -264,9 +288,9 @@ class MagiToolWindow : ToolWindowFactory {
                  * 단추가 같이 죽는다.**
                  */
                 override fun ended(end: End) = when (end) {
-                    End.ByUs -> append("— 전사를 끊었다.")
-                    End.ByDaemon -> { append("— 전사가 끝났다(데몬이 닫았다). 다시 붙어 본다."); reattach() }
-                    is End.Broken -> { append("— 전사가 끊겼다: ${end.why}. 다시 붙어 본다."); reattach() }
+                    End.ByUs -> mood(Look.muted, "전사를 끊었다")
+                    End.ByDaemon -> { mood(Look.warn, "전사가 끝났다(데몬이 닫았다) — 다시 붙는 중"); reattach() }
+                    is End.Broken -> { mood(Look.error, "전사가 끊겼다: ${end.why} — 다시 붙는 중"); reattach() }
                 }
             }
 
@@ -274,9 +298,32 @@ class MagiToolWindow : ToolWindowFactory {
          *  여백으로 남아 탭과 전사 사이에 죽은 띠를 만들었다(사용자 실측). */
         private lateinit var head: JBPanel<JBPanel<*>>
 
+        /**
+         * 승인이 실어 온 변화 그 자체(unified diff — 치환·write 만, 앵커 편집은 부재라 args 뷰가
+         * 그대로 선다). 뷰어는 재계산하지 않는다 — 계약이다(docs/CLIENTS).
+         */
+        private val diffPane = javax.swing.JTextArea().apply {
+            isEditable = false
+            font = Look.mono()
+            border = JBUI.Borders.empty(4, 12)
+        }
+        /** 지금 그려져 있는 물음의 id — diff 판의 펼침이 리드로우를 살아남는 열쇠다. */
+        private var promptShown: String? = null
+
+        private val diffScroll = JBScrollPane(diffPane).apply {
+            isVisible = false
+            border = JBUI.Borders.empty()
+            preferredSize = java.awt.Dimension(0, 180)
+        }
+
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
-            top.add(prompt, BorderLayout.CENTER)
+            top.add(JBPanel<JBPanel<*>>().apply {
+                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                isOpaque = false
+                add(prompt)
+                add(diffScroll)
+            }, BorderLayout.CENTER)
             top.add(buttons, BorderLayout.SOUTH)
             // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
             // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
@@ -287,7 +334,7 @@ class MagiToolWindow : ToolWindowFactory {
             }
 
             val send = JButton("보내기").apply { addActionListener { say() } }
-            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(send) }
+            val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(send) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 border = JBUI.Borders.empty(8, 12, 0, 8)
                 add(JBScrollPane(input), BorderLayout.CENTER)
@@ -296,7 +343,12 @@ class MagiToolWindow : ToolWindowFactory {
             val bottom = JBPanel<JBPanel<*>>(BorderLayout())
             bottom.add(Look.rule(), BorderLayout.NORTH)
             bottom.add(writing, BorderLayout.CENTER)
-            bottom.add(hint, BorderLayout.SOUTH)
+            bottom.add(JBPanel<JBPanel<*>>().apply {
+                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                isOpaque = false
+                add(notice)
+                add(hint)
+            }, BorderLayout.SOUTH)
 
             // 치는 동안 제안을 묻는다. 매 글자마다가 아니라 멈추면 — 모델 호출이라 값이 있다.
             //
@@ -413,19 +465,18 @@ class MagiToolWindow : ToolWindowFactory {
             hand = server
             onDaemon { comp ->
                 val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
-                report(when {
-                    r.ok -> "손을 붙였다: " + (r.tools?.joinToString(", ") ?: "도구 목록을 안 줬다")
-                    else -> "손을 못 붙였다 — " + (r.error ?: "사유 없음")
-                })
+                // 성공은 침묵 — 손이 붙었는지는 링크 점 툴팁이 안다. 거절은 그대로 보인다(§7 다섯째).
+                if (r.ok) {
+                    clearNotice()
+                    mood(Look.success, "전사에 붙어 있다 · 손: " + (r.tools?.joinToString(", ") ?: "붙음"))
+                } else report("손을 못 붙였다 — " + (r.error ?: "사유 없음"))
             }
         }
 
         /**
-         * 전사에 붙는다. 붙는 순간부터 **재생 먼저, 그다음 라이브**다 — 데몬이 그 계약을 지키고
-         * 이쪽은 온 차례대로 그린다.
-         *
-         * 커서를 안 준다. 창이 열릴 때마다 전량을 받는 것이 지금의 답이다 — IDE 가 사는 동안
-         * 이어 받는 것은 §8 의 미결이고, 옛 커서를 새 대화로 들고 가면 그 대화의 앞을 못 본다.
+         * 전사에 붙는다. 재생 먼저 그다음 라이브 — 그리고 이제 **커서를 준다**: 마지막 사실의
+         * seq([lastSeq])를 since 로 실어 증분만 받는다. 컴팩션이 seq 를 보존하므로 커서는 믿어도
+         * 된다(docs/CLIENTS §2). 대화가 바뀌면 0 으로, 거절은 [Transcript.Sink.note] 가 먼저 온다.
          */
         /**
          * 전사에 붙는 시도의 결과. **불리언이 아니다.**
@@ -464,11 +515,24 @@ class MagiToolWindow : ToolWindowFactory {
             // 던진 것을 **그대로** 싣는다. `getOrNull` 로 버리고 여기서 문장을 지으면 「데몬이
             // 이렇게 말했다」 자리에 내가 만든 낱말이 앉는다 — 접어 두던 때와 같은 거짓이고,
             // 사유가 하나뿐이라 더 그럴듯해서 더 나쁘다.
+            if (sid != followedSid) lastSeq = 0 // 옛 커서를 새 대화로 들고 가면 앞을 못 본다
+            val since = lastSeq.takeIf { it > 0 }
+            if (since == null) {
+                // 전량 재생이 온다 — 두 벌이 안 쌓이게 비우고 받는다. 커서가 서면 증분이라 비울
+                // 것이 없고, 이 갈림을 아는 자리는 여기뿐이다(비움이 began 에 있던 사유는 그때의
+                // 「커서를 안 보낸다」였다).
+                authors.forget()
+                shaper.clear()
+                SwingUtilities.invokeLater { problems.text = "" }
+            }
+            // 스트림보다 **먼저** 적는다 — 워커의 첫 프레임이 대입보다 빨리 오면 위의 세션
+            // 가드가 제 프레임을 남의 것으로 버린다. 실패해도 남는 값은 다음 시도의 lastSeq
+            // 리셋 판정을 안 바꾼다(같은 sid 재시도).
+            followedSid = sid
             val started = runCatching {
-                Transcript({ DaemonClient.connect(sock) }, sid).follow(sink)
+                Transcript({ DaemonClient.connect(sock) }, sid).follow(sink, since)
             }.getOrElse { return Attach.Failed(it.message ?: it.toString()) }
             following = started
-            followedSid = sid
             return Attach.Ok
         }
 
@@ -477,7 +541,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 같은 줄을 무한히 쌓으면 사람이 읽던 전사가 밀려난다([reattach] 의 규칙).
          */
         private fun lost(why: String) {
-            append("— 전사에 못 붙었다: $why. 다시 붙어 본다.")
+            mood(Look.error, "전사에 못 붙었다: $why — 다시 붙는 중")
             reattach()
         }
 
@@ -552,10 +616,19 @@ class MagiToolWindow : ToolWindowFactory {
                     p.add(Look.rowHead(name, hue, marks, clock(r.at)), BorderLayout.NORTH)
                     p.add(Look.prose(r.text), BorderLayout.CENTER)
                 }
-                Who.Thinking -> p.add(
-                    Look.aside("(생각) " + r.text.lineSequence().firstOrNull().orEmpty()),
-                    BorderLayout.CENTER,
-                )
+                // 생각은 기본 접힘 — 웹이 그렇다. 클릭이 펴고, 펼침은 리드로우를 살아남는다([opened]).
+                Who.Thinking -> {
+                    val long = r.text.contains('\n') || r.text.length > 120
+                    val open = foldKey(r) in opened
+                    if (open) {
+                        p.add(Look.aside("(생각) ⌃"), BorderLayout.NORTH)
+                        p.add(Look.prose(r.text), BorderLayout.CENTER)
+                    } else {
+                        val head = r.text.lineSequence().firstOrNull().orEmpty().take(120)
+                        p.add(Look.aside("(생각) $head" + if (long) "  ⌄" else ""), BorderLayout.CENTER)
+                    }
+                    if (long) foldable(p, r)
+                }
                 Who.Tool -> {
                     val (glyph, hue) = when {
                         r.ok == null -> "…" to Look.faint
@@ -563,11 +636,25 @@ class MagiToolWindow : ToolWindowFactory {
                         r.ok == true -> "✓" to Look.success
                         else -> "✗" to Look.error
                     }
-                    p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue, oneLine(r.args.orEmpty(), 100), clock(r.at)),
+                    val open = foldKey(r) in opened
+                    p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue,
+                        if (open) "⌃" else oneLine(r.args.orEmpty(), 100) + "  ⌄", clock(r.at)),
                         BorderLayout.NORTH)
-                    // 실패가 말한 것의 첫 줄. 전문과 파일:줄 앵커는 문제 탭의 몫이다.
-                    r.out?.let { p.add(Look.aside("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
-                        BorderLayout.CENTER) }
+                    if (open) {
+                        // 펼침: 인자 원문과 결과 원문 — 옮겨 적을 것이라 고정폭이다.
+                        val body = JBPanel<JBPanel<*>>().apply {
+                            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                            isOpaque = false
+                            r.args?.let { add(Look.code(it)) }
+                            r.out?.let { add(Look.aside(it, Look.error)) }
+                        }
+                        p.add(body, BorderLayout.CENTER)
+                    } else {
+                        // 접힘: 실패의 첫 줄만. 전문과 파일:줄 앵커는 문제 탭의 몫이다.
+                        r.out?.let { p.add(Look.aside("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
+                            BorderLayout.CENTER) }
+                    }
+                    foldable(p, r)
                 }
                 Who.Council -> {
                     val name = r.member ?: "합의"
@@ -590,6 +677,30 @@ class MagiToolWindow : ToolWindowFactory {
                 Who.Info -> p.add(Look.aside(r.text), BorderLayout.CENTER)
             }
             return p
+        }
+
+        /**
+         * 접었다 폈다 — 클릭 하나. 판은 리드로우마다 새로 서므로 상태는 [opened] 가 든다.
+         *
+         * **자식까지 같은 리스너를 단다**(리뷰 실측): 본문이 JTextArea 라 그 위 클릭은 텍스트
+         * 컴포넌트가 소비하고 판까지 안 올라온다 — 스윙은 버블링이 없다. 접힌 생각 행의 보이는
+         * 전부가 그 텍스트였으니, 안 달면 글자를 눌러도 안 펴진다. 드래그 선택은 mouseClicked
+         * 가 안 울리므로(누른 자리=뗀 자리일 때만) 복사와 안 싸운다.
+         */
+        private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
+            val flip = object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    val k = foldKey(r)
+                    if (!opened.remove(k)) opened.add(k)
+                    redrawLog()
+                }
+            }
+            fun hook(c: java.awt.Component) {
+                c.addMouseListener(flip)
+                c.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                if (c is java.awt.Container) c.components.forEach { hook(it) }
+            }
+            hook(p)
         }
 
         /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */
@@ -638,15 +749,6 @@ class MagiToolWindow : ToolWindowFactory {
             problems.caretPosition = problems.document.length
         }
 
-        /**
-         * 창이 하는 말. **판에 직접 쓰지 않고 셰이퍼에 넣는다** — 전사가 통째 다시 그리기라
-         * ([redrawLog]), 흐름 밖에 쓴 줄은 다음 프레임에 지워진다. 같은 흐름에 서면 "전사는
-         * 덧붙이기만 하므로 덮일 자리가 없다"([report] 의 계약)가 그대로 산다.
-         */
-        private fun append(line: String) {
-            shaper.info(line)
-            redrawLog()
-        }
 
         /**
          * 판에 글자 한 토막을 얹는다. **여기가 색이 붙는 유일한 자리다.**
@@ -670,24 +772,13 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 내가 방금 한 것이 어떻게 됐는지 알린다. **윗줄 라벨이 아니라 전사로 나간다.**
-         *
-         * 보고와 수준은 다른 말이다. "안 갔다: 사유"는 한 번 일어난 사건이고 "컴패니언이 붙어
-         * 있다"는 지금 계속 참인 상태다. 둘을 같은 자리에 쓰면 뒤엣것이 앞엣것을 지우는데,
-         * **뒤엣것이 이겨도 앞엣것이 거짓이 되지 않는다** — 그냥 사유가 사라진다. 실제로 그랬다:
-         * [interrupt] 와 [say] 가 세운 거절은 전사에 `movesPrompt` 프레임이 하나만 들어와도
-         * [refresh] 가 돌면서 "컴패니언이 붙어 있다"로 덮였다.
-         *
-         * 순서로는 못 막는다. 그 프레임이 언제 올지는 저쪽이 정하고, 사람이 라벨을 언제 볼지는
-         * 아무도 안 정한다. 그래서 이기는 쪽을 고르는 대신 **자리를 갈랐다** — 사건은 여기로,
-         * 수준은 [redraw] 가 라벨로. 전사는 덧붙이기만 하므로 덮일 자리가 아예 없고, 사유가 그
-         * 사건이 난 자리 옆에 남는다. [Transcript.Sink.ended] 가 처음부터 그러고 있었다.
-         *
-         * 앞머리 `—` 는 그 줄들과 같은 표시다: 전사가 아니라 **창이 하는 말**.
-         *
-         * 되돌아오지 않게 `SourceTextTest` 가 라벨에 쓰는 자리 수를 붙들고 있다.
+         * 동사의 **실패만** 알린다 — 입력줄 위의 붉은 한 줄([notice]). 성공은 안 적는다: 보낸
+         * 말이 전사 행으로 서는 것 자체가 증거고, "— 보냈다" 류 혼잣말이 대화 사이에 끼는 것이
+         * 읽기를 끊었다(사용자 실측). 다음 성공([clearNotice])이 지운다 — 사건 라벨이 사건을
+         * 덮는 무늬는 남지만, 여기 서는 것은 실패뿐이라 성공이 실패를 지우는 방향만 있다.
          */
-        private fun report(text: String) = append("— $text")
+        private fun report(text: String) = SwingUtilities.invokeLater { notice.text = text }
+        private fun clearNotice() = SwingUtilities.invokeLater { notice.text = " " }
 
         /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */
         private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
@@ -748,7 +839,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) =
                     onDaemon { comp ->
                         val r = act(comp)
-                        report(if (r.ok) "$label — 보냈다." else "$label — 안 갔다: ${r.error ?: "사유 없음"}")
+                        if (r.ok) clearNotice() else report("$label — 안 갔다: ${r.error ?: "사유 없음"}")
                     }
             }
 
@@ -806,7 +897,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun interrupt() = onDaemon { comp ->
             val r = comp.interrupt()
-            report(if (r.ok) "세우라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
+            if (r.ok) clearNotice() else report("세우기 — 안 갔다: ${r.error ?: "사유 없음"}")
         }
 
         private fun say() {
@@ -814,8 +905,10 @@ class MagiToolWindow : ToolWindowFactory {
             if (text.isEmpty()) return
             onDaemon { comp ->
                 val r = comp.say(text)
-                report(if (r.ok) "보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
-                if (r.ok) SwingUtilities.invokeLater { input.text = ""; dropSuggestion() }
+                if (r.ok) {
+                    clearNotice()
+                    SwingUtilities.invokeLater { input.text = ""; dropSuggestion() }
+                } else report("안 갔다: ${r.error ?: "사유 없음"}")
             }
         }
 
@@ -829,6 +922,14 @@ class MagiToolWindow : ToolWindowFactory {
         private fun drawPrompt(w: Waiting?) {
             buttons.removeAll()
             head.isVisible = w != null // 없는 물음의 자리를 비워 두지 않는다 — 죽은 띠가 된다
+            diffPane.text = w?.diff.orEmpty()
+            // 같은 물음이 다시 그려질 땐(movesPrompt 는 남의 답에도 울린다) 사람이 열어 둔 diff
+            // 판을 접지 않는다 — 펼침을 리드로우에서 살리는 이 유닛의 규칙 그대로. 물음이 바뀌면
+            // 접는다: 남의 diff 를 지금 것인 양 두는 쪽이 더 나쁘다.
+            if (w?.id != promptShown) {
+                diffScroll.isVisible = false
+                promptShown = w?.id
+            }
             // 물음이 서 있는 동안은 그 자리에 막대를 하나 세운다. 콘솔이 답 없는 물음에 긋는 것과
             // 같은 선이고(`.row.pending .txt`), 터미널도 같은 자리에 긋는다. 색으로만 말하지
             // 않는다 — 글자는 그대로 있고 막대는 **어디를 보라**는 표시다.
@@ -862,6 +963,14 @@ class MagiToolWindow : ToolWindowFactory {
                     // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
                     is Ask.Undrawable -> Unit
                 }
+                // 편집 계열(치환·write)엔 변화 그 자체가 실려 온다 — 누르기 전에 펼쳐 본다.
+                // diff 가 빈 승인(앵커 편집 등)은 위의 args 뷰가 그대로 선다.
+                if (!w.diff.isNullOrBlank()) buttons.add(JButton("± 변경 보기").apply {
+                    addActionListener {
+                        diffScroll.isVisible = !diffScroll.isVisible
+                        head.revalidate(); head.repaint()
+                    }
+                })
             }
             buttons.revalidate(); buttons.repaint()
         }
@@ -883,7 +992,9 @@ class MagiToolWindow : ToolWindowFactory {
                 addActionListener {
                     onDaemon { c ->
                         val r = act(c)
-                        if (!r.ok) report("안 갔다: ${r.error ?: "사유 없음"}")
+                        // 성공이 지운다 — say 하나에만 걸면 만료 프롬프트의 "안 갔다"가 다음
+                        // 성공 뒤에도 지금 것처럼 서 있는다(이 유닛이 없애려던 그 무늬).
+                        if (r.ok) clearNotice() else report("안 갔다: ${r.error ?: "사유 없음"}")
                         redraw(c)
                     }
                 }

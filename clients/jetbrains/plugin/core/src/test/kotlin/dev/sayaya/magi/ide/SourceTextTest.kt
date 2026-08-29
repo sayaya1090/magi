@@ -129,14 +129,18 @@ class SourceTextTest {
             val b = src.indexOf(to, a).also { assertTrue(it >= 0, "`$from` 뒤에 `$to` 가 없다") }
             src.substring(a, b)
         }
-        // 비움의 실체는 이제 판 글자가 아니라 **셰이퍼**다: 판은 셰이퍼의 재생(`redrawLog`)이
-        // 통째로 다시 그리므로, 셰이퍼를 비우는 것이 곧 판을 비우는 것이다. 재는 글자만 바뀌었고
-        // 계약 — 비움은 붙었다는 말에, 프레임에는 절대 — 은 그대로다.
-        assertTrue(body("override fun began()", "override fun frame(").contains("shaper.clear()"),
-            "붙었다는 말에 셰이퍼를 비우는 것이 없다. 프레임에 걸면 프레임이 안 오는 전사를 못 비운다")
+        // 비움의 자리가 한 번 더 옮겨 갔다: began → follow. 커서(since)가 서면서 재생이 증분이
+        // 됐고, 「전량이 온다(=비워야 한다)」를 아는 것은 since==null 판정을 내리는 follow 뿐이다.
+        // 계약의 불변부는 그대로다 — **프레임은 절대 비우지 않는다**(프레임이 안 오는 전사 —
+        // 데몬 재시작 뒤의 보통 경로 — 를 영영 못 비운다), 그리고 비움과 전량-수신은 한 판정에서
+        // 나온다(갈라지면 두 벌이 쌓이거나 증분이 지워진다).
+        assertTrue(body("private fun follow()", "private fun lost(").contains("shaper.clear()"),
+            "전량 재생을 여는 자리(follow, since==null)가 셰이퍼를 안 비운다 — 대화가 두 벌 쌓인다")
         assertTrue(!body("override fun frame(", "override fun note(").contains("shaper.clear()"),
-            "프레임이 셰이퍼를 비운다. 그러면 프레임이 하나도 안 오는 전사 — 데몬 재시작 뒤의 보통 경로 " +
-                "— 에서 지난 대화가 그대로 서 있는다. 비움은 `began` 에 건다")
+            "프레임이 셰이퍼를 비운다. 그러면 프레임이 하나도 안 오는 전사에서 지난 대화가 그대로 " +
+                "서 있는다. 비움은 전량-수신을 판정하는 follow 에 건다")
+        assertTrue(!body("override fun began()", "override fun frame(").contains("shaper.clear()"),
+            "began 이 다시 비운다 — 커서로 이어 받는 증분 재접속에서 이미 그린 대화를 지운다")
     }
 
     @Test

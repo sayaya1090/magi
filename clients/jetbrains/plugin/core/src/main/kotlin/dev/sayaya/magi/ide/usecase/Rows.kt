@@ -103,12 +103,6 @@ class Rows {
 
     fun list(): List<Row> = synchronized(rows) { rows.toList() }
 
-    /**
-     * 창이 하는 말(`— …`). **전사와 같은 흐름에 선다** — 행 목록 밖에 직접 그리면 통째 다시
-     * 그리기가 그 줄을 지운다. Info 행은 재배치 대상이 아니라 덧붙인 자리에 남는다.
-     */
-    fun info(text: String): Unit = synchronized(rows) { rows.add(Row(Who.Info, text)) }
-
     /** 스트림이 다시 시작했다(재접속 전량 재생, 세션 이동). 처음부터 다시 짓는다. */
     fun clear(): Unit = synchronized(rows) {
         rows.clear()
