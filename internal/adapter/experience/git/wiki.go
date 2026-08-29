@@ -267,6 +267,8 @@ func (s *Store) WikiTouch(titles []string) {
 	if len(titles) == 0 {
 		return
 	}
+	s.usageMu.Lock()
+	defer s.usageMu.Unlock()
 	u := s.readWikiUsage()
 	today := time.Now().UTC().Format("2006-01-02")
 	changed := false
@@ -293,6 +295,16 @@ func (s *Store) WikiTouch(titles []string) {
 	}
 	if !changed {
 		return
+	}
+	// Merge-on-write: another PROCESS (the team tier is one directory shared by every daemon on
+	// the machine) — or another ad-hoc Store instance — may have recorded touches between our
+	// read and this write, and a whole-file replace would forget them. Atomic write prevents torn
+	// files, not lost updates; re-reading here and keeping the newer day per slug narrows the
+	// loss window from the whole function to the moment between this read and the rename.
+	for slug, day := range s.readWikiUsage() {
+		if day > u[slug] {
+			u[slug] = day
+		}
 	}
 	// Sorted, because this file is inside a directory the store git-commits wholesale: random map
 	// order rewrote every line on every touch and turned the team history into noise. The door

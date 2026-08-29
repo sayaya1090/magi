@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/atomicfile"
@@ -40,6 +41,10 @@ type Same interface {
 type Store struct {
 	dir  string
 	same Same
+	// usageMu serializes THIS instance's read-modify-write of wiki/.usage. Instances are
+	// sometimes ad hoc (New per call), so the cross-process and cross-instance halves are
+	// covered by WikiTouch's merge-on-write, not by this lock.
+	usageMu sync.Mutex
 }
 
 // New returns a store rooted at dir.

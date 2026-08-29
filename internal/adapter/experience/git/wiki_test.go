@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/port"
@@ -380,5 +381,58 @@ func TestRefreshSurvivesALegacyCasedCacheFile(t *testing.T) {
 	}
 	if !strings.Contains(string(b), "sidecar refreshes tokens") {
 		t.Errorf("the surviving cache file must carry the winner, got:\n%s", b)
+	}
+}
+
+// Concurrent touches keep each other's records. The ledger was an unlocked read-modify-write:
+// two goroutines (or two daemons on the shared team tier) each read, each rewrote the whole
+// file, and the last writer erased the other's day — an actively-used page could retire from
+// the index because an unrelated touch forgot it.
+func TestConcurrentTouchesLoseNothing(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	pages := []string{"alpha", "beta", "gamma", "delta"}
+	for _, p := range pages {
+		wikiWriteT(t, s, p, "body of "+p, "seed", "tester")
+	}
+	var wg sync.WaitGroup
+	for _, p := range pages {
+		wg.Add(1)
+		go func(title string) {
+			defer wg.Done()
+			s.WikiTouch([]string{title})
+		}(p)
+	}
+	wg.Wait()
+	raw, err := os.ReadFile(filepath.Join(dir, "wiki", ".usage"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range pages {
+		if !strings.Contains(string(raw), wikiSlug(p)) {
+			t.Fatalf("a concurrent touch of %q was lost; ledger:\n%s", p, raw)
+		}
+	}
+}
+
+// The write merges what landed on disk since the read — the cross-process half, simulated by
+// editing the ledger between a store's read and its write (a second daemon's touch).
+func TestTouchMergesWhatAnotherProcessWrote(t *testing.T) {
+	dir := t.TempDir()
+	s := New(dir)
+	for _, p := range []string{"mine", "theirs"} {
+		wikiWriteT(t, s, p, "body", "seed", "tester")
+	}
+	// Another process's record, already on disk before our touch runs.
+	other := wikiSlug("theirs") + "\t2026-08-01\n"
+	if err := os.WriteFile(filepath.Join(dir, "wiki", ".usage"), []byte(other), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.WikiTouch([]string{"mine"})
+	raw, _ := os.ReadFile(filepath.Join(dir, "wiki", ".usage"))
+	for _, want := range []string{wikiSlug("mine"), wikiSlug("theirs")} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("the ledger forgot %q:\n%s", want, raw)
+		}
 	}
 }

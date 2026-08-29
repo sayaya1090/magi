@@ -282,6 +282,11 @@ func expSyncWithPeer(ctx context.Context, configDir, host string, peer identity.
 		}
 		answer, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			// A proxy's 502 page fed to the JSON parser came back as "malformed exp-sync
+			// answer" — the status is the diagnosis, so it leads, with a bounded snippet.
+			return got, fmt.Errorf("exp-sync: %s answered http %d: %.200s", peer.Addr, resp.StatusCode, strings.TrimSpace(string(answer)))
+		}
 		var reply expSyncReply
 		if json.Unmarshal(answer, &reply) != nil || !reply.OK {
 			return got, fmt.Errorf("%s", orWordCLI(reply.Err, "malformed exp-sync answer"))

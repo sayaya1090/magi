@@ -120,3 +120,16 @@ func TestMayTouchSubOneRuleBothVerbs(t *testing.T) {
 		}
 	}
 }
+
+// A cross-machine label is prose, not a name; the scope check gets the name back.
+func TestCompanionOfLabelCutsTheMachineSuffix(t *testing.T) {
+	for in, want := range map[string]string{
+		"api on deskB": "api",
+		"api":          "api",
+		" on deskB":    " on deskB", // a label that BEGINS with the mark is not a name plus suffix
+	} {
+		if got := companionOfLabel(in); got != want {
+			t.Errorf("companionOfLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

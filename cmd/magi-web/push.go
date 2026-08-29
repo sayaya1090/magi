@@ -401,6 +401,18 @@ func justSettled(list []fleet.Agent, was map[string]fleet.State) []fleet.Agent {
 //
 // The notification names the ASKER, not the receiver. "buttons finished" is a fact about a
 // companion; "design's question came back" is the thing the reader is waiting on.
+// companionOfLabel cuts a fleet display label back to the companion's own name: a handoff dispatched
+// across machines is labelled "api on deskB", a string no policy scope entry can ever match —
+// the scope vocabulary is names and peer/name, never prose — so a scoped subscriber silently
+// never heard that a remote asker's answer came. Display keeps the full label; only the
+// permission question uses the bare name.
+func companionOfLabel(label string) string {
+	if i := strings.Index(label, " on "); i > 0 {
+		return label[:i]
+	}
+	return label
+}
+
 func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 	list, err := fleet.Handoffs(ctx, s.reader, s.cfgDir, "", &s.fleetCache)
 	if err != nil {
@@ -441,7 +453,7 @@ func (s *server) notifyAnswers(ctx context.Context, settled []fleet.Agent) {
 		// Both names, because the payload carries both: the title is the asker and the body is the
 		// receiver and what it said. Somebody scoped to one of the pair would be told the other
 		// exists, and told what it answered.
-		if subs := p.mayHear(s.policy, "", h.From, h.To); len(subs) > 0 {
+		if subs := p.mayHear(s.policy, "", companionOfLabel(h.From), companionOfLabel(h.To)); len(subs) > 0 {
 			s.send(body, subs)
 		}
 	}
