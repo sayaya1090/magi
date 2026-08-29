@@ -105,6 +105,9 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	if snap := a.worldDiffFor(sid, s.Workdir, lastUserPromptTS(evs)); snap != "" {
 		actions = snap + "\n\n" + actions
 	}
+	if pre := preexistingDirtBanner(a.preexistingDirtOf(sid)); pre != "" {
+		actions = pre + "\n\n" + actions
+	}
 	if jobs := a.liveJobsNow(a.jobsStartedBy(ctx, sid)); jobs != "" {
 		actions = jobs + "\n\n" + actions
 	}

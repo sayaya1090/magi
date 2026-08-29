@@ -105,6 +105,11 @@ type sessionState struct {
 	foldedInterject  []string              // waiting messages folded into the turn now running (paired at finish)
 	pendingInterject []pendingInterjection // interjections queued to run as their own turn
 	turnControl      turnControl           // pending mid-turn routing / finish signal
+	// preexistingDirt is the worktree's already-modified paths as the turn began — captured so
+	// the council can be told which changes were NOT this turn's doing. Without it, members
+	// anchored on a `git status` echo and ordered a pre-turn edit reverted as a violation
+	// (live-QA Q2: an uncommitted README the turn never touched, destroyed on a 3:0 continue).
+	preexistingDirt []string
 	// councilRejects counts this turn's rejected completion declarations, and councilNoProgress
 	// the CONSECUTIVE rejections with no file mutation between them (councilRejectEpoch is the
 	// guard epoch at the last one). They power the rejection cap — see noteCouncilRejection.

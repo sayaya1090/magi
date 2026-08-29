@@ -229,6 +229,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// the lock — it is a filesystem walk, and holding the app mutex across one would stall every
 	// other session.
 	worldBase := indexWorkspace(s.Workdir)
+	preDirt := preexistingDirtPaths(a.GitFacts(ctx, s.Workdir))
 	a.mu.Lock()
 	st := a.stateLocked(sid)
 	st.turnStart = runStart // what a check means by "before the step ran"
@@ -236,6 +237,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// user message is not written yet. See prompt_frozen.go.
 	st.turnSys, st.turnSysSet = "", false
 	st.worldBase = worldBase
+	st.preexistingDirt = preDirt
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
