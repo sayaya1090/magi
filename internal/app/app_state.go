@@ -405,6 +405,11 @@ func (a *App) resetForNewTopLevel(sid session.SessionID) {
 	st.ragQ, st.ragText = "", "" // retrieval caches are turn-scoped even when the prompt text repeats
 	st.liveTurnTask = ""
 	st.councilRejects, st.councilNoProgress, st.councilRejectEpoch = 0, 0, 0 // a new turn gets a fresh gate
+	// A finish (or routing) signal a tool left in the DYING turn must not greet the next one:
+	// the interrupt path returns from the step head before any drain runs, and a stale finish
+	// here made the new turn's first gate adopt it — every tool call dropped as "already
+	// declared" before the task did anything.
+	st.turnControl = turnControl{}
 	a.mu.Unlock()
 }
 

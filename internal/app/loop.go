@@ -240,7 +240,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}
 	lastText := ""
 	guard := newRunGuard(a.touchesFile)
-	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); zeroed field-wise on reground
+	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); lives for the whole turn — reground resets only the guard's stall arm (see reground)
 	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
 	// The turn's scratch directory: captured command output, and the TMPDIR every command runs
 	// under. Created HERE because the turn is its lifetime — a child inherits the pointer at spawn

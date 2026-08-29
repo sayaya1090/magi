@@ -12,21 +12,41 @@ import (
 	"github.com/sayaya1090/magi/internal/core/text"
 )
 
-// councilReadingsThisTurn counts the councils that convened on this turn. They are the ones the
-// agent called for itself, on its own questions — a completion declaration is the only thing that
-// convenes the gate, and by the time this is asked there has not been one.
+// councilReadingsThisTurn counts the councils that convened on THIS turn — the events after the
+// last persisted turn.finished. It used to scan the whole session, so every earlier turn's
+// councils were counted into this turn's banner; and its old premise ("by the time this is asked
+// there has not been one [declaration]") was false — a REJECTED declaration convenes the gate and
+// leaves declared=false, so the count can include those readings too. The banner's wording
+// carries that distinction (undeclaredReason), not this count.
 func (a *App) councilReadingsThisTurn(ctx context.Context, sid session.SessionID) int {
 	evs, err := a.store.Read(ctx, sid, 0)
 	if err != nil {
 		return 0
 	}
+	scoped := a.taskEvents(sid, evs)
+	start := 0
+	for i, e := range scoped {
+		if e.Type == event.TypeTurnFinished {
+			start = i + 1
+		}
+	}
 	n := 0
-	for _, e := range a.taskEvents(sid, evs) {
+	for _, e := range scoped[start:] {
 		if e.Type == event.TypeCouncilConvened {
 			n++
 		}
 	}
 	return n
+}
+
+// councilRejectsOf reads this turn's rejected-declaration count (reset with the turn).
+func (a *App) councilRejectsOf(sid session.SessionID) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if st, ok := a.stateIf(sid); ok {
+		return st.councilRejects
+	}
+	return 0
 }
 
 // undeclaredReason is the banner a turn lands under when the agent never declared it finished.
@@ -41,8 +61,19 @@ func (a *App) councilReadingsThisTurn(ctx context.Context, sid session.SessionID
 // A banner that asserts something the events refute is the failure this project has already paid
 // for once; the count is carried so the reader can go find those readings rather than be told they
 // do not exist.
-func undeclaredReason(readings int) string {
+func undeclaredReason(readings, rejected int) string {
 	base := "the agent never declared the task finished, so no council was asked to accept the work"
+	if rejected > 0 {
+		// A declaration DID happen — it was rejected and never accepted afterwards. "Never
+		// declared" here would be the same events-refute-the-banner failure this comment
+		// already records once.
+		when := "once"
+		if rejected > 1 {
+			when = fmt.Sprintf("%d times", rejected)
+		}
+		base = "the agent declared the task finished and the council rejected it " + when +
+			", with no accepted declaration afterwards"
+	}
 	switch {
 	case readings == 1:
 		base += " (one council did read it, on a question the agent asked — that judges the question, not whether the work is done)"
@@ -273,7 +304,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	// work lands as it stands, with the reason recorded: the turn ends undeclared, which is a
 	// different thing from ending declared and is written down as such.
 	if ts.declareAsks >= declareAskCap {
-		ts.unverifiedReason = undeclaredReason(a.councilReadingsThisTurn(ctx, tc.s.ID))
+		ts.unverifiedReason = undeclaredReason(a.councilReadingsThisTurn(ctx, tc.s.ID), a.councilRejectsOf(tc.s.ID))
 		return 0, false
 	}
 	ts.declareAsks++
@@ -357,6 +388,12 @@ func (a *App) finishDeclared(ts *turnState, sid session.SessionID) bool {
 				ts.declared = true
 				if tc.unverifiedReason != "" {
 					ts.unverifiedReason = tc.unverifiedReason
+				} else {
+					// An ACCEPTANCE. A reason still sitting in ts is a cap's, left by a
+					// declaration that was since reopened and re-judged — the acceptance
+					// supersedes it, or a turn the council just accepted lands as
+					// turn.finished{Unverified:true} under the stale rejection's words.
+					ts.unverifiedReason = ""
 				}
 			}
 			tc.finish, tc.unverifiedReason = false, ""
@@ -493,6 +530,10 @@ func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
 		case c.Name == "hand_off" && ts.reasks < maxReasks:
 			ts.reasks++
 			ts.declared = false
+			// Reopened: whatever reason a cap left belongs to the declaration this just
+			// abandoned. The next landing carries its own — kept, a later ACCEPTED finish
+			// still wore the old cap's UNVERIFIED banner.
+			ts.unverifiedReason = ""
 			reopened = ts.reasks
 			kept = append(kept, c)
 		default:
@@ -538,7 +579,8 @@ func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState) (
 	ts.dropped = nil
 	var b strings.Builder
 	fmt.Fprintf(&b, "You called %s, and this turn had already declared itself finished — so it "+
-		"was not run. Once the council has accepted, a turn does no more work on the task. The "+
+		"was not run. Once a finish is decided — the council accepting, or the ask cap landing it — a "+
+		"turn does no more work on the task. The "+
 		"call is in the transcript with no result, which is what a call that never happened looks "+
 		"like; nothing crossed and nobody was asked.\n\n", strings.Join(quoted(names), ", "))
 	b.WriteString("If the work is NOT finished after all, say that plainly now — it is the only " +

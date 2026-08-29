@@ -26,7 +26,7 @@ func TestUndeclaredReasonDoesNotDenyCouncilsThatRead(t *testing.T) {
 		{"several", 3, []string{"3 councils did read it"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := undeclaredReason(tc.readings)
+			got := undeclaredReason(tc.readings, 0)
 			for _, want := range tc.wants {
 				if !strings.Contains(got, want) {
 					t.Errorf("reason should contain %q, got: %s", want, got)
