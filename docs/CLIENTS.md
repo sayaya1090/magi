@@ -120,7 +120,14 @@ B's conversation would flatten per-companion access and freshness into A's. Rows
 machines draw as visible-but-not-commandable (until the client holds that machine's keys) — the
 same stance the web console takes toward peers.
 
-**The web uses this door too (★implemented).** The web console's fleet listing now consumes the
+**The list is gossip; the detail attaches (set 2026-08-29, ★implemented).** The fleet *list* is
+light — roster rows as answered, zero log reads. A live row says the state vocabulary its daemon
+published; a dead row says only `stopped` (whether a turn was left open is the log's fact, which
+a list must not claim); and the task line, plan progress, the ask's own words and answer-in-list
+all belong to **the moment a detail screen attaches** to that one companion. The waiting badge
+and its count survive through the state vocabulary.
+
+**The web uses this door too (★implemented — the list is fully light).** The web console's fleet listing now consumes the
 roster door **as its first source** — it asks whichever live local companion answers, rebuilds
 measurement rows into records and sighting rows into members, and draws the same screen. What
 stays direct is exactly what the door cannot carry: the **fallback** (a machine whose companions
@@ -130,6 +137,14 @@ are what no snapshot can say, so they are re-asked every time), **direct log rea
 search, dead-session transcripts), and **command** (the boundary above — each companion's own
 door). What this door replicated is the stance the web already took toward other **machines**:
 not attached, drawn from sightings, not commandable.
+
+**The session picker's two verbs (★implemented).** The bottom dock must switch conversations
+and open fresh ones, so the control socket carries `sessions` (this workspace's conversations —
+id, first-prompt title, model, labels, timestamps, newest activity first) and `session-new`
+(open a fresh conversation AND move onto it — one verb). Open-turn is deliberately absent:
+answering it reads every log whole, and the one conversation it could matter for is the current
+one, whose id the roster row already carries. `resume` refuses an id that is not already this
+workspace's — a client never invents one; it reads what `session-new` answers.
 
 ### Companion to companion, machine to machine
 
