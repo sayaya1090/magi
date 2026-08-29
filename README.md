@@ -505,7 +505,7 @@ flowchart TD
 cmd/magi            entrypoint (wiring)
 cmd/magi-web        the console — a read-mostly web view over the same daemons
 internal/core       domain — depends on no adapter (including the pure council)
-internal/port       ports (interfaces) — LLM, Store, Council, PluginHost …
+internal/port       ports (interfaces) — LLM, Store, Council, ToolServers …
 internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
                     daemon (the engine over a socket) · fleet (what every magi is doing)
 plugins/examples    example Lua plugins

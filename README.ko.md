@@ -503,7 +503,7 @@ flowchart TD
 cmd/magi            진입점 (와이어링)
 cmd/magi-web        콘솔 — 같은 데몬들 위의 읽기 위주 웹 뷰
 internal/core       도메인 — 어떤 어댑터에도 의존하지 않습니다 (순수 카운슬 포함)
-internal/port       포트(인터페이스) — LLM, Store, Council, PluginHost …
+internal/port       포트(인터페이스) — LLM, Store, Council, ToolServers …
 internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
                     daemon (소켓 위의 엔진) · fleet (모든 magi가 무엇을 하는지)
 plugins/examples    예제 Lua 플러그인
