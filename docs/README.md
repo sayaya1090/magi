@@ -21,6 +21,7 @@ for its rationale.
 | [ARCHITECTURE](ARCHITECTURE.md) · [한국어](ARCHITECTURE.ko.md) | **The as-built reference** for developing on magi: hexagonal layering, the agent loop, the finish gate, guardrails, tools, extension points. Where the design documents disagree with this file, this file wins. |
 | [DIAGRAMS](DIAGRAMS.md) · [한국어](DIAGRAMS.ko.md) | The visual companion to ARCHITECTURE — one axis from the process boundary (L0) down to the class diagrams (L5–L9), all mermaid. |
 | [UI](UI.md) · [한국어](UI.ko.md) | The two surfaces — the web console (`cmd/magi-web`) and the terminal UI (`internal/adapter/tui`): what is on each screen, the design rules they keep, and why. |
+| [CLIENTS](CLIENTS.md) · [한국어](CLIENTS.ko.md) | **Where you meet magi.** Clients, companions, agents and the web screens — seat by seat: the terminal, the browser console, the JetBrains plugin, the PowerPoint add-in. |
 | [EXTENDING](EXTENDING.md) · [한국어](EXTENDING.ko.md) | The practical procedure for attaching **external tools (MCP)** and **team-shared memory/skills** (the experience store) to magi. |
 
 ## Design & history
