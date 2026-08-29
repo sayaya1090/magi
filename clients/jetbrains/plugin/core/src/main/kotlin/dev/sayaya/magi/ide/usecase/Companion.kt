@@ -80,6 +80,31 @@ class Companion(
     /** 작업 — 도는 백그라운드, 자식, 그리고 다음에 돌 대기열(사람 말 먼저, 그다음 건넨 일). */
     fun jobs(): Response = client.exchange(Request(method = "jobs", session = session))
 
+    /**
+     * 워크스페이스 파일 찾기 — `@` 멘션의 목록. 읽기 전용 넷 중 `glob` 을 `tool` 문으로 돌린다
+     * (`internal/app/query.go` 의 `ReadOnlyTool` — 워크스페이스 감옥·denyFloor 전부 코어 규칙).
+     *
+     * `out` 은 줄바꿈 목록이 **아니라 JSON 배열 한 줄**이다(리뷰 실측: glob 의 okJSON 을
+     * toolText 가 원문으로 통과 — 웹 정본도 배열로 파싱한다, `cmd/magi-web/files.go`). 첫 판은
+     * 줄바꿈이라 적었고 시험이 그 허구를 축복했다 — 그린은 맞음의 증명이 아니다. 경로는
+     * 워크스페이스-상대·슬래시. 파싱 실패·거절은 빈 목록.
+     */
+    fun globFiles(pattern: String): List<String> {
+        val r = client.exchange(Request(
+            method = "tool", name = "glob",
+            args = kotlinx.serialization.json.buildJsonObject {
+                put("pattern", kotlinx.serialization.json.JsonPrimitive(pattern))
+            },
+        ))
+        if (!r.ok) return emptyList()
+        return runCatching {
+            dev.sayaya.magi.ide.model.Wire.json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(kotlinx.serialization.serializer<String>()),
+                r.out ?: "[]",
+            )
+        }.getOrDefault(emptyList())
+    }
+
     /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
     fun sessions(): Response = client.exchange(Request(method = "sessions"))
 

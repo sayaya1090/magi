@@ -184,6 +184,19 @@ class CompanionTest {
     }
 
     @Test
+    fun `at 멘션의 파일 찾기는 읽기 전용 glob 을 tool 문으로 돌린다`() {
+        val fake = FakeDaemon(listOf("""{"ok":true,"out":"[\"src/a.kt\",\"docs/b.md\"]"}"""))
+        fake.start()
+        val files = DaemonClient.connect(fake.path).use { Companion(it, "s_1").globFiles("**/*shaper*") }
+        fake.close()
+        assertTrue(fake.seen[0].contains(""""method":"tool"""") && fake.seen[0].contains(""""name":"glob"""") &&
+            fake.seen[0].contains(""""pattern":"**/*shaper*""""),
+            "감옥과 denyFloor 는 코어의 것 — 와이어는 툴 이름과 패턴만: ${fake.seen[0]}")
+        // 실데몬의 모양 그대로: JSON 배열 한 줄(줄바꿈 목록으로 적은 첫 판을 페이크가 축복했었다).
+        assertEquals(listOf("src/a.kt", "docs/b.md"), files)
+    }
+
+    @Test
     fun `행동의 동사들도 어휘 그대로 나간다`() {
         val ok = """{"ok":true}"""
         val fake = FakeDaemon(listOf(ok, ok))

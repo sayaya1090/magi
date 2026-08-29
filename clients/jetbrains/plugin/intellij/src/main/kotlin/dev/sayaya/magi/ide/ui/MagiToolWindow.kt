@@ -488,6 +488,8 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun changedUpdate(e: javax.swing.event.DocumentEvent) {}
                 private fun retract() {
                     dropSuggestion(); debounce.restart()
+                    // `@` 멘션(SURVEY 채택 ③): 마지막 낱말이 @이름 꼴이면 디바운스가 제안 대신
+                    // 파일 찾기로 간다 — 목록은 데몬의 읽기 전용 glob(감옥은 코어 규칙).
                     // 치는 만큼 자란다(1..5줄). 고정 3줄은 빈 대화에서 벽이었고, 무한정 자라면
                     // 입력이 전사를 밀어낸다.
                     val want = input.text.count { ch -> ch == '\n' }.plus(1).coerceIn(1, 5)
@@ -913,7 +915,72 @@ class MagiToolWindow : ToolWindowFactory {
         /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */
         private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
 
+        /** 입력 꼬리의 @토큰 — "@셰이" 의 "셰이". 없으면 null. 공백이 끊는다. */
+        private fun atToken(): String? {
+            val t = input.text
+            val at = t.lastIndexOf('@')
+            if (at < 0) return null
+            // 낱말 시작의 @ 만이다 — 아니면 "user@host" 를 치는 내내 팝업이 뜬다(리뷰).
+            if (at > 0 && !t[at - 1].isWhitespace()) return null
+            val tail = t.substring(at + 1)
+            if (tail.any { it.isWhitespace() } || tail.length < 2) return null
+            return tail
+        }
+
+        /** ESC 로 닫은 토큰 — 같은 토큰으로는 다시 안 띄운다(디바운스가 타이핑마다 도니까). */
+        @Volatile private var dismissedToken: String? = null
+
+        private fun askFiles(token: String) {
+            if (token == dismissedToken) return
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val sock2 = socket() ?: return@executeOnPooledThread
+                // 토큰의 글롭 메타문자를 이스케이프한다(웹 globQuote 와 같은 넷) — 안 하면
+                // "@page[1" 이 패턴 오류로 조용히 무반응이다.
+                val safe = buildString {
+                    token.forEach { c ->
+                        if (c in "*?[]\\") append('\\')
+                        append(c)
+                    }
+                }
+                val files = runCatching {
+                    // 세션은 안 실린다 — tool 문은 워크스페이스의 것, workdir 는 데몬이 박는다.
+                    DaemonClient.connect(sock2).use { Companion(it, "").globFiles("**/*$safe*") }
+                }.getOrDefault(emptyList())
+                val cut = files.take(20)
+                SwingUtilities.invokeLater {
+                    if (atToken() != token) return@invokeLater // 그새 더 쳤다 — 낡은 목록 금지
+                    if (cut.isEmpty()) return@invokeLater
+                    com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                        .createPopupChooserBuilder(cut)
+                        // 컷은 알파벳순 앞 20(glob 이 정렬한다) — 잘렸으면 제목이 말한다.
+                        .setTitle("@$token — 파일 첨부" +
+                            if (files.size > cut.size) " (앞 ${cut.size} — 더 좁혀라)" else "")
+                        .setItemChosenCallback { picked ->
+                            dismissedToken = null
+                            // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
+                            val t = input.text
+                            val at = t.lastIndexOf('@')
+                            if (at >= 0) input.text = t.substring(0, at)
+                            attach(FileRef(picked))
+                            input.requestFocusInWindow()
+                        }
+                        .createPopup()
+                        .apply {
+                            addListener(object : com.intellij.openapi.ui.popup.JBPopupListener {
+                                override fun onClosed(e: com.intellij.openapi.ui.popup.LightweightWindowEvent) {
+                                    // 고르지 않고 닫혔으면(ESC) 같은 토큰의 재팝업을 막는다 —
+                                    // 다음 글자가 토큰을 바꾸면 자연히 풀린다.
+                                    if (!e.isOk) dismissedToken = token
+                                }
+                            })
+                            showUnderneathOf(input)
+                        }
+                }
+            }
+        }
+
         private fun askSuggestion() {
+            atToken()?.let { askFiles(it); return }
             val prefix = input.text
             val a = assist() ?: return
             ApplicationManager.getApplication().executeOnPooledThread {
