@@ -224,6 +224,14 @@ carrying a decision and a rationale is somebody's answer, `silent` absent. (It w
 panel verdict for a while, and three screens drew spoken verdicts as silence; the flag is the
 contract, not a hint.)
 
+**`part.delta` is a draft of a line, not a line.** Deltas are transient (seq 0, never replayed)
+and carry the message id the finished part will land under, so a client draws them by REWRITING
+the draft row for that message id — never by appending a row per delta — and the `part.appended`
+fact then replaces the draft in place. A client that drops deltas is correct but not live (the
+answer appears all at once when it finishes); one that appends them leaves a stack of fragments a
+reconnecting viewer will never see, because a replay contains only the facts. All three clients
+had to work this out separately, so it is written here.
+
 So an abstain comes in two kinds and a client can tell them apart: a **spoken abstain** (`abstain`
 without `silent`) is a member who read the work and declined to judge it — draw the decision mark
 and their words; an **unanswered** one (`abstain` with `silent`) is a member who never answered —
