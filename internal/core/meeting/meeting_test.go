@@ -249,3 +249,124 @@ func TestTheRoomWaitsUntilEverybodyIsReady(t *testing.T) {
 		t.Errorf("the one that failed reads as %+v", m.Speakers[1])
 	}
 }
+
+// A person can put a finished room back into session, and it has to be a room that can actually
+// speak when they do.
+//
+// A meeting ends when everybody passes, which is the right rule and is also what happens while
+// somebody steps away for two minutes: the room talks among itself, agrees it is done, and stops.
+// Reopening it means undoing every one of the things that stopped it — a reopen that cleared only
+// Closed would give back a room in which two passes in a row have already silenced everybody, and
+// Next would answer "nobody" to a person who just said keep going.
+func TestReopeningUndoesEverythingThatEndedTheMeeting(t *testing.T) {
+	m := opened(New("the rollout", []Speaker{
+		{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"},
+	}, 3))
+	// api passes twice and is skipped from the third round on; ops keeps talking until the
+	// backstop stops the room. So this ends Spent, with a participant already silenced.
+	for {
+		s, ok := m.Next()
+		if !ok {
+			break
+		}
+		m.Say(Utterance{Who: s.Name, Pass: s.Name == "api", Text: "still on it"})
+	}
+	if !m.Closed || !m.Spent {
+		t.Fatalf("the room ended closed=%v spent=%v, which is not what this test reopens", m.Closed, m.Spent)
+	}
+	ceiling := m.MaxRounds
+
+	m.Reopen("you", "  no — nobody answered what happens to the old rows  ")
+
+	if m.Closed {
+		t.Error("a reopened meeting is still closed")
+	}
+	if m.Spent {
+		t.Error("the backstop ended it and the reopened room still says so")
+	}
+	if m.MaxRounds <= ceiling {
+		t.Errorf("the ceiling stayed at %d, so the backstop is standing on the door", m.MaxRounds)
+	}
+	// The point of all of it: the participant the old room had silenced can be asked again.
+	var asked []string
+	for i := 0; i < 2; i++ {
+		s, ok := m.Next()
+		if !ok {
+			break
+		}
+		asked = append(asked, s.Name)
+		m.Say(Utterance{Who: s.Name, Text: "the old rows get backfilled"})
+	}
+	if !contains(asked, "api") {
+		t.Errorf("the room came back with api still silenced by passes it made before it closed; asked %v", asked)
+	}
+	// And the transcript says why it came back, attributed to the person who said so — trimmed,
+	// because what was typed carries the whitespace of a text box and the record should not.
+	var reason Utterance
+	for _, u := range m.Said {
+		if u.Who == "you" {
+			reason = u
+		}
+	}
+	if reason.Text != "no — nobody answered what happens to the old rows" {
+		t.Errorf("the reason is recorded as %q", reason.Text)
+	}
+	if !m.Named["you"] {
+		t.Error("the person asked the room a question and is not in the round to hear the answer")
+	}
+}
+
+func contains(ss []string, want string) bool {
+	for _, s := range ss {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}
+
+// Reopening with nothing to add says nothing: a blank line in the transcript attributed to the
+// person is a contribution they did not make, and the next speaker reads the transcript.
+func TestAReopenWithNoReasonPutsNothingInTheRecord(t *testing.T) {
+	m := opened(New("the rollout", []Speaker{{Name: "api", Socket: "/s/a"}}, 3))
+	m.Take("you")
+	m.Close()
+	// Ending the meeting takes the floor back with it: a closed room whose floor is still held by
+	// whoever was mid-sentence reopens into a round that waits on a turn nobody is taking.
+	if !m.Closed || m.Holder != "" {
+		t.Fatalf("Close left the meeting closed=%v with the floor at %q", m.Closed, m.Holder)
+	}
+	said := len(m.Said)
+
+	m.Take("you") // and the person is mid-sentence again when they reopen it
+	m.Reopen("you", "   ")
+
+	if m.Closed {
+		t.Error("a reopened meeting is still closed")
+	}
+	if m.Holder != "" {
+		t.Errorf("the floor is still with %q, so the next round waits on them", m.Holder)
+	}
+	if len(m.Said) != said {
+		t.Errorf("a reopen with no reason put %q in the transcript", m.Said[len(m.Said)-1].Text)
+	}
+}
+
+// Yield is a person stopping typing, and it is not a turn: the floor goes back and nothing is said.
+func TestGivingTheFloorBackSaysNothing(t *testing.T) {
+	m := opened(New("naming", []Speaker{{Name: "design", Socket: "/s/d"}}, 3))
+	m.Take("you")
+	said := len(m.Said)
+
+	m.Yield()
+
+	if m.Holder != "" {
+		t.Errorf("the floor is still with %q", m.Holder)
+	}
+	if len(m.Said) != said {
+		t.Errorf("yielding put %q in the transcript", m.Said[len(m.Said)-1].Text)
+	}
+	if s, ok := m.Next(); !ok || s.Name != "design" {
+		t.Errorf("after the person let go, the floor went to %v (%v)", s.Name, ok)
+	}
+}
