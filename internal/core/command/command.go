@@ -30,6 +30,19 @@ type SubmitPrompt struct {
 	SessionID session.SessionID `json:"sessionId"`
 	Parts     []session.Part    `json:"parts"`
 	Actor     event.Actor       `json:"actor"`
+	// Refs are files (or line ranges of files) the person attached to this prompt — the IDE's
+	// selection, the composer's paperclip. Structured rather than a path:lines convention inside
+	// the text, so the words stay the person's words and the excerpt is the CORE's rendering:
+	// resolved inside the workspace, sliced, capped, and persisted with the prompt so the
+	// transcript shows what the agent was actually shown.
+	Refs []FileRef `json:"refs,omitempty"`
+}
+
+// FileRef names a file, and optionally the lines of it, attached to a prompt.
+type FileRef struct {
+	Path string `json:"path"`
+	// Lines is "12-40" or "12"; empty means the whole file (up to the cap).
+	Lines string `json:"lines,omitempty"`
 }
 
 // Interrupt cancels the in-progress turn for a session.

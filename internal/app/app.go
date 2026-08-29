@@ -265,6 +265,7 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 	// previous turn's plan/criteria don't leak into the new one (see
 	// resetForNewTopLevel). The agent repopulates the plan via todowrite if
 	// the new task warrants one.
+	a.appendRefs(ctx, &c)
 	a.resetForNewTopLevel(c.SessionID)
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
@@ -278,6 +279,7 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 // each step) instead of the user having to wait for the turn to finish. If no
 // turn is running, it behaves like Submit and starts one.
 func (a *App) Steer(ctx context.Context, c command.SubmitPrompt) error {
+	a.appendRefs(ctx, &c)
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}

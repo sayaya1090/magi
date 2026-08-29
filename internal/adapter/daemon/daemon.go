@@ -533,6 +533,10 @@ type Request struct {
 	// told. It rides with the console's own changes — an edit, a git command — and turns the note
 	// they leave in the log from a record into a steer.
 	Ask bool `json:"ask,omitempty"`
+	// Refs are the files a submit/steer attaches (command.FileRef): the IDE's selection, the
+	// composer's paperclip. The core renders and persists the excerpts; the wire carries only
+	// names and ranges.
+	Refs []command.FileRef `json:"refs,omitempty"`
 	// Since is the transcript method's cursor: send what came AFTER this seq. Zero — which is what
 	// an absent field decodes to — and any negative both mean everything, because that is what the
 	// store already means by them (its filterFrom only cuts when fromSeq > 0, and seqs start at 1)
@@ -2156,9 +2160,9 @@ func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	actor := event.Actor{Kind: event.ActorUser, ID: "attach"}
 	switch r.Method {
 	case "submit":
-		return eng.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor})
+		return eng.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs})
 	case "steer":
-		return eng.Steer(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor})
+		return eng.Steer(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs})
 	case "interrupt":
 		return eng.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	case "permission":
@@ -2843,11 +2847,11 @@ func (c *Client) exchange(r Request) (Response, error) {
 }
 
 func (c *Client) Submit(_ context.Context, cmd command.SubmitPrompt) error {
-	return c.call(Request{Method: "submit", Session: string(cmd.SessionID), Text: textOf(cmd.Parts)})
+	return c.call(Request{Method: "submit", Session: string(cmd.SessionID), Text: textOf(cmd.Parts), Refs: cmd.Refs})
 }
 
 func (c *Client) Steer(_ context.Context, cmd command.SubmitPrompt) error {
-	return c.call(Request{Method: "steer", Session: string(cmd.SessionID), Text: textOf(cmd.Parts)})
+	return c.call(Request{Method: "steer", Session: string(cmd.SessionID), Text: textOf(cmd.Parts), Refs: cmd.Refs})
 }
 
 func (c *Client) Interrupt(_ context.Context, cmd command.Interrupt) error {
