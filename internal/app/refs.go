@@ -73,29 +73,36 @@ func renderRef(workdir string, r command.FileRef, total *int) string {
 	}
 	head += "\n"
 	*total += len(head)
+	// Every return path counts ITSELF via said(). The first budget fix counted headers and
+	// bodies and left the refusal branches free — the same leak one branch over, and the review
+	// measured it: twenty thousand refs to a missing file rendered a megabyte under a 64KB
+	// budget, because each refusal line cost the budget ten bytes of header and nothing else.
+	said := func(body string) string {
+		*total += len(body)
+		return head + body
+	}
 	remaining := refsCap - *total
 	if remaining <= 0 {
-		return head + "(not shown — the attachments before this one already fill the budget)\n"
+		return said("(not shown — the attachments before this one already fill the budget)\n")
 	}
 	abs, err := insideWorkdir(workdir, r.Path)
 	if err != nil {
 		// The workspace is the trust boundary, for attachments exactly as for reads.
-		return head + "(not shown — " + err.Error() + ")\n"
+		return said("(not shown — " + err.Error() + ")\n")
 	}
 	raw, rerr := os.ReadFile(abs)
 	if rerr != nil {
-		return head + "(not shown — " + rerr.Error() + ")\n"
+		return said("(not shown — " + rerr.Error() + ")\n")
 	}
 	text := sliceLines(string(raw), r.Lines)
-	cap := refCap
-	if remaining < cap {
-		cap = remaining // the ref that crosses the line is clipped AT the line, not waved through
+	limit := refCap
+	if remaining < limit {
+		limit = remaining // the ref that crosses the line is clipped AT the line, not waved through
 	}
-	if len(text) > cap {
-		text = text[:cap] + "\n… (the rest of this attachment is not shown)"
+	if len(text) > limit {
+		text = text[:limit] + "\n… (the rest of this attachment is not shown)"
 	}
-	*total += len(text)
-	return head + text + "\n"
+	return said(text + "\n")
 }
 
 // sliceLines cuts "12-40" (or "12") out of content, 1-indexed and inclusive, the way every editor

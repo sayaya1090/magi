@@ -125,6 +125,18 @@ func TestRefsBudgetCountsHeadersAndClipsAtTheLine(t *testing.T) {
 	if !strings.Contains(block, "more attachment(s) not shown") {
 		t.Fatal("past the line, the rest fold to one closing line")
 	}
+
+	// And the refusal branch pays for itself too: refs to a MISSING file render an error line
+	// each, and the first fix left those free — measured at a megabyte under the same budget.
+	absent := make([]command.FileRef, 0, 20000)
+	for i := 0; i < 20000; i++ {
+		absent = append(absent, command.FileRef{Path: "no-such-file.txt"})
+	}
+	acmd := command.SubmitPrompt{SessionID: sid, Refs: absent}
+	a.appendRefs(ctx, &acmd)
+	if got := len(acmd.Parts[0].Text); got > refsCap+refCap+512 {
+		t.Fatalf("refusals must pay for themselves: %d bytes rendered", got)
+	}
 }
 
 // The builtin path is trimmed at the source, so a padded path cannot split one file across two
