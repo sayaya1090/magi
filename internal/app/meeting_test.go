@@ -2,6 +2,7 @@ package app
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -80,26 +81,30 @@ func TestAParticipantIsGivenTheWholeDiscussion(t *testing.T) {
 // "Please do not change anything" is advice, and this tree has watched advice evaporate under
 // pressure. What makes a meeting safe to hold while three companions have work in progress is that
 // the sessions it opens cannot write.
-func TestAMeetingTurnIsSpawnedReadOnly(t *testing.T) {
+//
+// Asked of EVERY place in this file that hands a participant a tool list, rather than of one named
+// function. The earlier version of this test named MeetingTurn — which by then nothing called, the
+// daemon having moved to MeetingPrepare plus MeetingSayIn — so the safety property everybody read
+// off this test was being proven against a function that never ran.
+func TestEveryMeetingToolListIsTheFourThatLook(t *testing.T) {
 	src, err := os.ReadFile("meeting.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(src)
-	i := strings.Index(body, "func (a *App) MeetingTurn")
-	if i < 0 {
-		t.Fatal("MeetingTurn is gone")
+	sites := fieldValues(body, "Tools")
+	if len(sites) < 2 {
+		t.Fatalf("meeting.go hands out a tool list %d time(s); the participant is prepared and then "+
+			"spoken with, so there are at least two", len(sites))
 	}
-	spec := body[i:]
-	if j := strings.Index(spec, "\n}"); j > 0 {
-		spec = spec[:j]
+	for _, got := range sites {
+		if got != "meetingLook" {
+			t.Errorf("a participant is given %s rather than meetingLook", got)
+		}
 	}
-	if !strings.Contains(spec, "Tools:    meetingLook") {
-		t.Error("the meeting turn is not spawned with the four tools that only look")
-	}
-	for _, forbidden := range []string{`"bash"`, `"write"`, `"edit"`, `"multiedit"`} {
-		if strings.Contains(spec, forbidden) {
-			t.Errorf("a meeting turn may reach %s", forbidden)
+	for _, forbidden := range []string{`"bash"`, `"write"`, `"edit"`, `"multiedit"`, `"apply_patch"`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("meeting.go names %s", forbidden)
 		}
 	}
 }
@@ -226,8 +231,8 @@ func TestTheMeetingAllowlistIsFourToolsThatOnlyLook(t *testing.T) {
 	}
 }
 
-// The system prompt had two copies: MeetingPrepare called meetingSystem and MeetingTurn pasted the
-// same sentences inline. Editing the helper would have changed the preparation turn and left every
+// The system prompt had two copies: one turn called meetingSystem and another pasted the same
+// sentences inline. Editing the helper would have changed the preparation turn and left every
 // SPEAKING turn on the old text, with nothing failing.
 func TestBothMeetingTurnsShareOneSystemPrompt(t *testing.T) {
 	src, err := os.ReadFile("meeting.go")
@@ -238,7 +243,27 @@ func TestBothMeetingTurnsShareOneSystemPrompt(t *testing.T) {
 	if n := strings.Count(body, "You are \" + who + \", taking part in a meeting"); n != 1 {
 		t.Errorf("the meeting system prompt is written out %d times; it belongs in meetingSystem alone", n)
 	}
-	if n := strings.Count(body, "System:   meetingSystem(who)"); n != 2 {
-		t.Errorf("%d of the two spawn sites take their system prompt from meetingSystem", n)
+	sites := fieldValues(body, "System")
+	if len(sites) < 2 {
+		t.Fatalf("meeting.go sets a system prompt %d time(s); preparing and speaking are both "+
+			"turns and both need one", len(sites))
 	}
+	for _, got := range sites {
+		if got != "meetingSystem(who)" {
+			t.Errorf("a turn takes its system prompt from %s rather than meetingSystem", got)
+		}
+	}
+}
+
+// fieldValues is what each `name:` field in src is assigned, whatever gofmt aligned it to. Written
+// out rather than matched as a literal because the two sites are formatted differently — one in a
+// struct of its own and one on a shared line — and a test that pinned the spacing would go quiet
+// the first time a field was added above it.
+func fieldValues(src, name string) []string {
+	re := regexp.MustCompile(`\b` + name + `:\s*([^,\n]+)`)
+	var out []string
+	for _, m := range re.FindAllStringSubmatch(src, -1) {
+		out = append(out, strings.TrimSpace(m[1]))
+	}
+	return out
 }

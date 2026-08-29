@@ -12,13 +12,21 @@ import (
 )
 
 // meetingLook is the allowlist a meeting participant is spawned with, and it is the whole of
-// "a meeting decides; it does not do". The header below says the read-only rule is kept by the
-// allowlist and not by asking the model nicely — so the allowlist has to be ONE list. It was
-// written out at all three spawn sites, where a fourth tool added to one of them would have given
-// a participant the ability to write while every comment in this file still said it could not.
+// "a meeting decides; it does not do". Three companions editing three workspaces while the plan is
+// still being argued about is the failure that separation exists to prevent, so a participant gets
+// the four tools that look and nothing else — not by being asked nicely in the prompt, which this
+// tree has watched evaporate under pressure, but by the list it is given.
+//
+// So the allowlist has to be ONE list. It was written out at all three spawn sites, where a fourth
+// tool added to one of them would have given a participant the ability to write while every
+// comment in this file still said it could not.
 var meetingLook = []string{"read", "glob", "grep", "list"}
 
-// One companion's turn in a meeting: read what has been said, and add to it or pass.
+// meetingSteps bounds one contribution. A participant that needs more than a few looks at its own
+// files to say what it thinks is a participant writing the work rather than discussing it.
+const meetingSteps = 8
+
+// MeetingPrepare gives a participant its own session for this meeting and a chance to get ready.
 //
 // # Why a session of its own
 //
@@ -26,43 +34,6 @@ var meetingLook = []string{"read", "glob", "grep", "list"}
 // can attend because everybody is busy is a meeting that never happens. A child session has its
 // own context and its own log, so taking part costs the working session nothing and leaves its
 // plan, its history and its unfinished turn exactly as they were.
-//
-// # Why read-only, enforced here
-//
-// A meeting decides; it does not do. Three companions editing three workspaces while the plan is
-// still being argued about is the failure this separation exists to prevent, so the child gets the
-// four tools that look and nothing else — not by asking it nicely in the prompt, which this tree
-// has watched evaporate under pressure, but by the allowlist it is spawned with.
-//
-// # What comes back
-//
-// What it said, or a pass. A pass is a first-class answer: a companion whose workspace has nothing
-// to do with the question should say so in one line and cost one turn, and a prompt that demanded
-// a contribution would get "I agree with what design said" instead — which is the sentence that
-// makes people stop reading meeting records.
-func (a *App) MeetingTurn(ctx context.Context, sid session.SessionID, who, topic, transcript string,
-	closing bool) (meeting.Utterance, error) {
-	s := a.sessionInfo(ctx, sid)
-	ask := meetingPrompt(who, topic, transcript, closing)
-	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.Origin}, port.SpawnSpec{
-		ToolName: "meeting",
-		System:   meetingSystem(who),
-		Prompt:   ask,
-		// The four that look. Not advice in the prompt — the allowlist is what makes it true.
-		Tools:    meetingLook,
-		MaxSteps: meetingSteps,
-	}, nil)
-	if err != nil {
-		return meeting.Utterance{}, err
-	}
-	return readUtterance(who, res.Text), nil
-}
-
-// meetingSteps bounds one contribution. A participant that needs more than a few looks at its own
-// files to say what it thinks is a participant writing the work rather than discussing it.
-const meetingSteps = 8
-
-// MeetingPrepare gives a participant its own session for this meeting and a chance to get ready.
 //
 // # One session per participant, not one per turn
 //
@@ -132,6 +103,13 @@ func readyNote(said string) string {
 //
 // The same session as its preparation and its earlier turns, so what it read to get ready is still
 // there. Nothing is spawned: this is one more prompt in a conversation already going.
+//
+// # What comes back
+//
+// What it said, or a pass. A pass is a first-class answer: a companion whose workspace has nothing
+// to do with the question should say so in one line and cost one turn, and a prompt that demanded
+// a contribution would get "I agree with what design said" instead — which is the sentence that
+// makes people stop reading meeting records.
 func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, topic, transcript string,
 	closing bool) (meeting.Utterance, error) {
 	if strings.TrimSpace(string(child)) == "" {
