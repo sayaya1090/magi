@@ -157,6 +157,16 @@ words come back as the answer) and hold meetings (participants get the four look
 Between machines there is one TLS door, trusted by ssh key, carrying narrowed queries and the
 set-union replication of team knowledge (exp-sync).
 
+**submit/steer target the session they name (★pinned).** Sent to a session that is not the
+published "current" one — **a turn opens there**. Serialization is per-session only (a second
+send to the same session is absorbed by the running turn's re-read). An invented id is refused
+at the store's own gate (sessions are minted by `session-new`). The warning is half the
+contract: **concurrent turns in one workspace are coordinated by nothing** — two file-editing
+agents standing in one tree — which is why even cron skips its own firings behind a Running
+gate ("skipped, X is still going in this workspace"). A client opening input on every tab
+should hold the same gate, steering the person off a mid-turn workspace from roster/status
+state. The structural cure (worktree isolation / file leases) sits on the candidate ledger.
+
 **Attachments are a field (★implemented).** submit/steer carry `refs[]` (path, lines?) — the
 IDE's selection, the composer's paperclip. The excerpt is the CORE's rendering: resolved inside
 the workspace (the same jail every read keeps — an outside path renders its refusal in place),
