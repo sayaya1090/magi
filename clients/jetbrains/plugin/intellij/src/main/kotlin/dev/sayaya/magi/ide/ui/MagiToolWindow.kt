@@ -74,9 +74,12 @@ class MagiToolWindow : ToolWindowFactory {
         MagiWindows.put(project, view)
         // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
         Disposer.register(toolWindow.disposable, view)
-        toolWindow.contentManager.addContent(
-            ContentFactory.getInstance().createContent(view.root, null, false)
-        )
+        // 두 판은 좌우가 아니라 **탭**이다. 분할이던 동안 문제 판이 거의 빈 채로 폭의 35%를
+        // 먹었고(사용자 실측), 한 창에 이름 다른 글 두 벌을 두는 IDE 의 어휘가 탭이다 — Run 창이
+        // 프로세스마다 탭이지 분할이 아니다(§0-5).
+        val make = ContentFactory.getInstance()
+        toolWindow.contentManager.addContent(make.createContent(view.root, "대화", false))
+        toolWindow.contentManager.addContent(make.createContent(view.problemsView, "문제", false))
         view.refresh()
     }
 
@@ -101,7 +104,11 @@ class MagiToolWindow : ToolWindowFactory {
          * 전사. **연결을 단독으로 소유한다** — 스트림은 락스텝이 아니라 연결을 통째로 넘겨받으므로
          * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
          */
-        private val log = Look.pane()
+        private val column = Look.column()
+        private val scroll = JBScrollPane(column).apply {
+            border = JBUI.Borders.empty()
+            horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+        }
 
         /** 전사 셰이퍼. 이벤트는 워커 스레드에서 먹고, 그리는 것은 EDT 가 스냅샷으로 한다. */
         private val shaper = Rows()
@@ -121,6 +128,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 사라진다. §5-4 가 요구하는 것이 정확히 그 두 가지라 따로 세운다.
          */
         private val problems = Look.pane()
+        val problemsView: JBScrollPane by lazy { JBScrollPane(problems).apply { border = JBUI.Borders.empty() } }
 
         /**
          * 어느 턴이 무엇을 건드렸나. 전사에서 같이 쌓는다 — 두 번째 스트림을 열지 않는다.
@@ -276,15 +284,9 @@ class MagiToolWindow : ToolWindowFactory {
             })
 
             root.add(head, BorderLayout.NORTH)
-            // 두 판이 각자 무엇인지 말한다. 이름이 없으면 오른쪽 판은 「전사가 왜 두 개지」로
-            // 읽히고, 실제로 그 둘은 출처가 다르다 — 왼쪽은 데몬이 보낸 것 전부, 오른쪽은 그중
-            // 사람이 손대야 하는 것만이다.
-            val split = javax.swing.JSplitPane(
-                javax.swing.JSplitPane.HORIZONTAL_SPLIT,
-                Look.titled("전사", JBScrollPane(log).apply { border = JBUI.Borders.empty() }),
-                Look.titled("문제", JBScrollPane(problems).apply { border = JBUI.Borders.empty() }),
-            ).apply { resizeWeight = 0.65; border = JBUI.Borders.empty(); dividerSize = 1 }
-            root.add(split, BorderLayout.CENTER)
+            // 대화만 이 판이다. 문제는 출처가 다른 글이라(왼쪽은 전부, 저쪽은 사람이 손댈 것만)
+            // 같은 창의 **다른 탭**으로 간다 — 이름은 탭이 단다.
+            root.add(scroll, BorderLayout.CENTER)
             root.add(bottom, BorderLayout.SOUTH)
             // 못 붙으면 **말하고 다시 붙어 본다.** 바로 아래 [offerHand] 는 못 세운 것을
             // 그대로 말하는데 이 줄은 안 했다 — 같은 init 의 두 줄이 실패를 다르게 다뤘다.
@@ -455,72 +457,94 @@ class MagiToolWindow : ToolWindowFactory {
         /**
          * 전사를 통째로 다시 그린다. **덧붙이기가 아니라 재생이다** — 셰이퍼의 변이에 재배치가
          * 있어서(재부상, 인라인 답) 붙이기만 하는 판은 순서를 잃는다. 지우는 사건은 없으므로
-         * (docs/TRANSCRIPT.ko.md §4) 이 재생은 언제나 같은 것을 더 그릴 뿐, 사람이 읽던 것을
-         * 다른 것으로 바꾸지 않는다.
+         * (docs/TRANSCRIPT.ko.md §4) 이 재생은 언제나 같은 것을 더 그릴 뿐이다.
+         *
+         * 행이 글자가 아니라 **컴포넌트**인 이유: 텍스트 판 하나에 다 밀어 넣던 동안 전사가
+         * 여백 없는 로그 덤프로 읽혔다(사용자 실측). 행마다 판을 주면 사이 여백·대기 막대·접힌
+         * 인자 펼치기가 전부 스윙의 보통 물건이 된다.
          */
         private fun redrawLog() {
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {
                 dirty.set(false)
-                log.text = ""
-                shaper.list().forEach { renderRow(it) }
-                log.caretPosition = log.document.length
+                column.removeAll()
+                shaper.list().forEach { column.add(rowPanel(it)) }
+                column.revalidate()
+                column.repaint()
+                SwingUtilities.invokeLater {
+                    scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
+                }
             }
         }
 
         /**
-         * 행 하나를 붓질한다. **무엇을 적을지는 셰이퍼가 정했고 여기는 색과 자리만 안다** —
-         * 반대로 하면 행 규칙이 판 수만큼 생긴다(그 규칙이 `docs/TRANSCRIPT.ko.md` §0 이다).
+         * 행 하나를 붓질한다. **무엇을 적을지는 셰이퍼가 정했고 여기는 자리와 색만 안다** —
+         * 반대로 하면 행 규칙이 판 수만큼 생긴다(`docs/TRANSCRIPT.ko.md` §0).
          */
-        private fun renderRow(r: Row) {
+        private fun renderRow(r: Row): JBPanel<JBPanel<*>> = rowPanel(r)
+
+        private fun rowPanel(r: Row): JBPanel<JBPanel<*>> {
+            val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
+            p.border = if (r.pending) Look.pendingRow() else Look.row()
             when (r.who) {
-                Who.User -> {
-                    push(log, "사람", Look.primary, bold = true)
-                    if (r.queued) push(log, "  ⌛ 대기", Look.faint)
-                    if (r.abandoned) push(log, "  ✕ 버려짐", Look.muted)
-                    if (r.pending) push(log, "  … 처리 중", Look.faint, italic = true)
-                    push(log, "\n${r.text}\n", Look.body)
-                }
-                Who.Agent -> {
-                    push(log, "magi\n", Look.accent, bold = true)
-                    push(log, r.text + "\n", Look.body)
-                }
-                // 생각은 접는 대신 첫 줄만 — JTextPane 에 접이가 없고, 전문은 로그에 있다.
-                Who.Thinking -> push(log, "(생각) ${r.text.lineSequence().firstOrNull().orEmpty()}\n",
-                    Look.faint, italic = true)
-                Who.Tool -> {
-                    push(log, "· ", Look.muted)
-                    push(log, r.tool.orEmpty(), Look.body)
-                    when {
-                        r.ok == null -> push(log, " …", Look.faint)
-                        r.note -> push(log, " ✓ 읽을 것 있음", Look.warn)
-                        r.ok == true -> push(log, " ✓", Look.success)
-                        else -> push(log, " ✗", Look.error)
+                Who.User, Who.Agent -> {
+                    val marks = buildList {
+                        if (r.queued) add("⌛ 대기" to Look.faint)
+                        if (r.abandoned) add("✕ 버려짐" to Look.muted)
+                        if (r.pending) add("… 처리 중" to Look.faint)
                     }
-                    r.args?.let { push(log, "  ${oneLine(it, 120)}", Look.muted) }
-                    // 실패가 말한 것의 첫 줄. 전문과 파일:줄 앵커는 문제 판의 몫이다.
-                    r.out?.let { push(log, "\n  ↳ ${it.lineSequence().firstOrNull().orEmpty()}", Look.error) }
-                    push(log, "\n", null)
+                    val name = if (r.who == Who.User) "사람" else "magi"
+                    val hue = if (r.who == Who.User) Look.primary else Look.accent
+                    p.add(Look.rowHead(name, hue, marks, clock(r.at)), BorderLayout.NORTH)
+                    p.add(Look.prose(r.text), BorderLayout.CENTER)
+                }
+                Who.Thinking -> p.add(
+                    Look.aside("(생각) " + r.text.lineSequence().firstOrNull().orEmpty()),
+                    BorderLayout.CENTER,
+                )
+                Who.Tool -> {
+                    val (glyph, hue) = when {
+                        r.ok == null -> "…" to Look.faint
+                        r.note -> "✓ 읽을 것 있음" to Look.warn
+                        r.ok == true -> "✓" to Look.success
+                        else -> "✗" to Look.error
+                    }
+                    p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue, oneLine(r.args.orEmpty(), 100), clock(r.at)),
+                        BorderLayout.NORTH)
+                    // 실패가 말한 것의 첫 줄. 전문과 파일:줄 앵커는 문제 탭의 몫이다.
+                    r.out?.let { p.add(Look.aside("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
+                        BorderLayout.CENTER) }
                 }
                 Who.Council -> {
-                    push(log, "⚖ ", Look.faint)
                     val name = r.member ?: "합의"
-                    push(log, name, Look.seat(name) ?: Look.body, bold = true)
-                    r.decision?.let {
-                        push(log, "  $it", when (it) {
-                            "done" -> Look.success
-                            "continue" -> Look.warn
-                            else -> Look.faint
-                        })
+                    val marks = buildList {
+                        r.decision?.let {
+                            add(it to when (it) { "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint })
+                        }
                     }
-                    if (r.text.isNotBlank()) push(log, " — ${r.text}", Look.body)
-                    r.keep?.takeIf { it.isNotBlank() }?.let { push(log, "\n  keep: $it", Look.faint) }
-                    r.why?.takeIf { it.isNotBlank() }?.let { push(log, "\n  $it", Look.faint) }
-                    push(log, "\n", null)
+                    p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, clock(r.at)),
+                        BorderLayout.NORTH)
+                    val body = JBPanel<JBPanel<*>>().apply {
+                        layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                        isOpaque = false
+                        if (r.text.isNotBlank()) add(Look.prose(r.text))
+                        r.keep?.takeIf { it.isNotBlank() }?.let { add(Look.aside("keep: $it")) }
+                        r.why?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
+                    }
+                    p.add(body, BorderLayout.CENTER)
                 }
-                Who.Info -> push(log, r.text + "\n", Look.faint, italic = true)
+                Who.Info -> p.add(Look.aside(r.text), BorderLayout.CENTER)
             }
+            return p
         }
+
+        /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */
+        private fun clock(at: String?): String = at?.let {
+            runCatching {
+                java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())
+                    .toLocalTime().withNano(0).toString()
+            }.getOrNull()
+        }.orEmpty()
 
         /** 한 줄로 줄인다. 인자가 길면 전사가 그 인자만으로 화면을 다 먹는다. */
         private fun oneLine(s: String, max: Int): String {

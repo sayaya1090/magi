@@ -8,7 +8,9 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.usecase.Palette
+import com.intellij.openapi.ui.VerticalFlowLayout
 import java.awt.BorderLayout
+import java.awt.Rectangle
 import java.awt.Color
 import java.awt.Dimension
 import java.awt.Font
@@ -126,6 +128,81 @@ internal object Look {
         preferredSize = Dimension(1, 1)
         maximumSize = Dimension(Int.MAX_VALUE, 1)
         minimumSize = Dimension(1, 1)
+    }
+
+    // ── 전사 행의 붓들. 무엇을 적을지는 셰이퍼가 정하고(`MagiToolWindow.renderRow`), 여기는
+    // 행 하나가 어떻게 서는지만 안다 — 텍스트 판 하나에 다 밀어 넣던 동안 전사가 여백 없는
+    // 로그 덤프로 읽혔다(사용자 실측). 색·글꼴 규칙은 위 것들을 그대로 쓴다.
+
+    /** 행들이 쌓이는 열. 뷰포트 폭을 따라가야 본문이 접힌다 — 전사에 가로 스크롤은 없다. */
+    fun column(): JBPanel<JBPanel<*>> =
+        object : JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false)),
+            javax.swing.Scrollable {
+            override fun getPreferredScrollableViewportSize(): Dimension = preferredSize
+            override fun getScrollableUnitIncrement(v: Rectangle, o: Int, d: Int) = 16
+            override fun getScrollableBlockIncrement(v: Rectangle, o: Int, d: Int) = v.height
+            override fun getScrollableTracksViewportWidth() = true
+            override fun getScrollableTracksViewportHeight() = false
+        }
+
+    /** 행 하나의 여백. 사이가 없으면 대화가 로그로 읽힌다. */
+    fun row(): javax.swing.border.Border = JBUI.Borders.empty(6, 12)
+
+    /** 답을 기다리는 행 — [pending] 의 왼쪽 막대를 행 판에 두른 것. */
+    fun pendingRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
+        BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10, 6, 12),
+    )
+
+    /** 말 행의 머리 — 누가, 표시들, 오른끝에 시각. */
+    fun rowHead(name: String, hue: Color, marks: List<Pair<String, Color>>, time: String): JComponent =
+        JBPanel<JBPanel<*>>().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
+            isOpaque = false
+            add(JBLabel(name).apply { font = JBFont.small().asBold(); foreground = hue })
+            for ((t, c) in marks) {
+                add(javax.swing.Box.createHorizontalStrut(8))
+                add(JBLabel(t).apply { font = JBFont.small(); foreground = c })
+            }
+            add(javax.swing.Box.createHorizontalGlue())
+            if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
+        }
+
+    /** 도구 행의 머리 — `· 이름 ✓  인자…`. 인자는 뒤로 물러난 한 줄이다. */
+    fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String): JComponent =
+        JBPanel<JBPanel<*>>().apply {
+            layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
+            isOpaque = false
+            add(JBLabel("· $name").apply { font = mono(); foreground = body })
+            add(javax.swing.Box.createHorizontalStrut(6))
+            add(JBLabel(glyph).apply { font = JBFont.small(); foreground = hue })
+            if (args.isNotEmpty()) {
+                add(javax.swing.Box.createHorizontalStrut(10))
+                add(JBLabel(args).apply { font = JBFont.small(); foreground = muted })
+            }
+            add(javax.swing.Box.createHorizontalGlue())
+            if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
+        }
+
+    /** 본문. 접히고(줄 단위), 고르지 않고, 편집기 글꼴을 쓴다(§3.3). */
+    fun prose(text: String): JComponent = javax.swing.JTextArea(text).apply {
+        isEditable = false
+        isOpaque = false
+        lineWrap = true
+        wrapStyleWord = true
+        font = mono()
+        foreground = body
+        border = JBUI.Borders.emptyTop(2)
+    }
+
+    /** 곁말 — 생각의 첫 줄, keep, 실패의 첫 줄, 창이 하는 말. 앞에 안 나선다. */
+    fun aside(text: String, hue: Color = faint): JComponent = javax.swing.JTextArea(text).apply {
+        isEditable = false
+        isOpaque = false
+        lineWrap = true
+        wrapStyleWord = true
+        font = mono().deriveFont(Font.ITALIC, JBFont.small().size.toFloat())
+        foreground = hue
+        border = JBUI.Borders.emptyTop(1)
     }
 
     /** 이름표를 이고 있는 구역. 전사와 문제 판이 각자 무엇인지 말하게 한다. */

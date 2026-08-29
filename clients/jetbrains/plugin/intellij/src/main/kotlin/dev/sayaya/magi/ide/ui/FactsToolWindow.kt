@@ -108,10 +108,10 @@ class FactsToolWindow : ToolWindowFactory {
             // 말이 네 번 있으면 읽는 사람은 그것을 안 읽는다 — 그러면 「왜 비었나」를 적은 뜻이
             // 없어진다. 이름은 그대로 넷 다 선다(위 주석의 사유).
             column.add(section("아직 안 오는 것"))
-            column.add(card(*listOf("계획", "건넨 일", "예약·크론", "받은 지시")
+            column.add(card(*listOf("플릿", "계획", "건넨 일", "예약·크론", "받은 지시")
                 .flatMap { listOf(it, JBLabel("아직 안 온다").apply { foreground = Look.faint }) }
                 .toTypedArray()))
-            column.add(JBLabel("데몬에 읽기 문이 생기면 온다(설계 문서 §3).").apply {
+            column.add(JBLabel("데몬에 읽기 문이 생기면 온다. 플릿은 roster 문이 계약됐다(docs/CLIENTS.md §2) — 서면 첫째로 온다.").apply {
                 foreground = Look.faint
                 border = JBUI.Borders.empty(2, 12, 8, 12)
             })
