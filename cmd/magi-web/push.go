@@ -169,6 +169,18 @@ func (p *pushState) load() {
 	}
 }
 
+// mayTouchSub decides whether a caller may replace or remove a stored subscription — ONE rule
+// for both verbs, because the review found them drifting apart the day the second one landed.
+// An empty owner is nobody's claim: a row subscribed before the console had people hears nothing
+// anyway (mayHear treats no-name as no-scope), and its documented cure is "re-subscribing from
+// the page fixes it in one tap" — a guard that held the empty owner locked that door for good.
+func mayTouchSub(owner string, held bool, who string, configured bool) bool {
+	if !configured || !held || owner == "" {
+		return true
+	}
+	return owner == who
+}
+
 // saveLocked writes the store. Callers hold p.mu. Every field comes from the maps, so a save
 // triggered by ONE endpoint's change cannot rewrite what the others said about themselves.
 func (p *pushState) saveLocked() {
@@ -236,7 +248,7 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 			// Only your own. An endpoint is a credential and not a secret anybody guards — it is in
 			// a browser, a log, a support ticket — and without this, knowing one was enough to
 			// switch off somebody else's notifications from an account that may only read.
-			if who := s.whoFrom(r); s.policy.Configured() && p.who[sub.Endpoint] != who {
+			if owner, held := p.who[sub.Endpoint]; !mayTouchSub(owner, held, s.whoFrom(r), s.policy.Configured()) {
 				p.mu.Unlock()
 				http.Error(w, "that subscription is not yours to remove", http.StatusForbidden)
 				return
@@ -246,15 +258,13 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 			delete(p.agent, sub.Endpoint)
 			delete(p.addedAt, sub.Endpoint)
 		} else {
-			// (4) Overwrite is gated like delete: an endpoint is a credential, not a secret, and
+			// Overwrite is gated like delete: an endpoint is a credential, not a secret, and
 			// without this anyone with read access could re-register somebody else's subscription
 			// under their own name — killing the owner's notifications silently.
-			if who := s.whoFrom(r); s.policy.Configured() {
-				if owner, held := p.who[sub.Endpoint]; held && owner != who {
-					p.mu.Unlock()
-					http.Error(w, "that subscription is not yours to replace", http.StatusForbidden)
-					return
-				}
+			if owner, held := p.who[sub.Endpoint]; !mayTouchSub(owner, held, s.whoFrom(r), s.policy.Configured()) {
+				p.mu.Unlock()
+				http.Error(w, "that subscription is not yours to replace", http.StatusForbidden)
+				return
 			}
 			p.subs[sub.Endpoint] = sub
 			// Recorded on every subscribe, not only the first: the same browser re-subscribes when

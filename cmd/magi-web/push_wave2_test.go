@@ -95,3 +95,26 @@ func TestPeerFleetServesStaleWhileOneFetches(t *testing.T) {
 		t.Fatalf("first fetch in flight: one empty frame, got %v", got)
 	}
 }
+
+// One rule for replace and remove, with the empty owner carved out: a row subscribed before the
+// console had people hears nothing and its documented cure is re-subscribing — a guard that held
+// the empty owner locked that door for good (the review's lockout finding).
+func TestMayTouchSubOneRuleBothVerbs(t *testing.T) {
+	for _, c := range []struct {
+		owner string
+		held  bool
+		who   string
+		conf  bool
+		want  bool
+	}{
+		{"alice", true, "alice", true, true}, // your own
+		{"alice", true, "bob", true, false},  // somebody else's
+		{"", true, "bob", true, true},        // legacy empty owner: re-subscribe must work
+		{"", false, "bob", true, true},       // unheld endpoint: nothing to protect
+		{"alice", true, "bob", false, true},  // no people configured: no scopes to defend
+	} {
+		if got := mayTouchSub(c.owner, c.held, c.who, c.conf); got != c.want {
+			t.Errorf("mayTouchSub(%q,%v,%q,%v) = %v, want %v", c.owner, c.held, c.who, c.conf, got, c.want)
+		}
+	}
+}

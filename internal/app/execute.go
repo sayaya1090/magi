@@ -129,7 +129,9 @@ func readOnlyPaths(cfg Config) []string {
 // gatePreHooks runs PreToolUse hooks, which can block execution (e.g. protect paths).
 // Returns true to stop.
 func (a *App) gatePreHooks(ctx context.Context, s session.Session, actor event.Actor, tc *session.ToolCall, toolMsgID string) bool {
-	if block := a.runPreToolHooks(ctx, s.Workdir, tc.Name, strings.TrimSpace(pathArg(tc.Args)) /* trimmed like every other consumer — the pre-hook must not be the one place a padded path survives */); block != "" {
+	// Trimmed like every other consumer of this path: the pre-hook must not be the one place
+	// a padded path survives (post-hook and the guard already see it trimmed).
+	if block := a.runPreToolHooks(ctx, s.Workdir, tc.Name, strings.TrimSpace(pathArg(tc.Args))); block != "" {
 		a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID, "blocked by hook: "+block, true)
 		return true
 	}

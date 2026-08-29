@@ -199,6 +199,13 @@ func (s *server) peerFleet(ctx context.Context) []fleet.Agent {
 	}
 	s.peerAt.fetching = true
 	s.peerAt.mu.Unlock()
+	// The reset rides a defer so no future early return can leave every viewer on stale forever
+	// — the flag's whole risk, named by review before anybody wrote that return.
+	defer func() {
+		s.peerAt.mu.Lock()
+		s.peerAt.fetching = false
+		s.peerAt.mu.Unlock()
+	}()
 
 	var out []fleet.Agent
 	for _, r := range fanOut(ctx, s.peers, s.fleetOf) {
@@ -209,7 +216,7 @@ func (s *server) peerFleet(ctx context.Context) []fleet.Agent {
 		out = append(out, r.List...)
 	}
 	s.peerAt.mu.Lock()
-	s.peerAt.list, s.peerAt.when, s.peerAt.done, s.peerAt.fetching = out, time.Now(), true, false
+	s.peerAt.list, s.peerAt.when, s.peerAt.done = out, time.Now(), true
 	s.peerAt.mu.Unlock()
 	return out
 }

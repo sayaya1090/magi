@@ -67,9 +67,18 @@ func (a *App) appendRefs(ctx context.Context, c *command.SubmitPrompt) {
 // hands out free lines is a budget many small refs walk straight past (hunted: hundreds of
 // one-line refs, each header uncounted, and the 64KB the cap exists to hold was gone).
 func renderRef(workdir string, r command.FileRef, total *int) string {
-	head := "\n## " + r.Path
-	if r.Lines != "" {
-		head += " (lines " + r.Lines + ")"
+	// The header's halves come off the wire, and an unclipped one was the last free ride: a
+	// megabyte "path" rendered a megabyte header once, before any body counted.
+	name, lines := r.Path, r.Lines
+	if len(name) > 300 {
+		name = name[:300] + "…"
+	}
+	if len(lines) > 40 {
+		lines = lines[:40] + "…"
+	}
+	head := "\n## " + name
+	if lines != "" {
+		head += " (lines " + lines + ")"
 	}
 	head += "\n"
 	*total += len(head)
@@ -81,18 +90,28 @@ func renderRef(workdir string, r command.FileRef, total *int) string {
 		*total += len(body)
 		return head + body
 	}
+	// A refusal is a sentence, and it echoes wire input (an error string carries the path it
+	// failed on — the ORIGINAL path, which the rendered name's clip never touched). Bound like
+	// one — and only refusals: the first cut of this bound sat inside said() and truncated every
+	// 16KB excerpt to 512 bytes, which the in-place test caught before the commit did.
+	refused := func(msg string) string {
+		if len(msg) > 512 {
+			msg = msg[:512] + "…\n"
+		}
+		return said(msg)
+	}
 	remaining := refsCap - *total
 	if remaining <= 0 {
-		return said("(not shown — the attachments before this one already fill the budget)\n")
+		return refused("(not shown — the attachments before this one already fill the budget)\n")
 	}
 	abs, err := insideWorkdir(workdir, r.Path)
 	if err != nil {
 		// The workspace is the trust boundary, for attachments exactly as for reads.
-		return said("(not shown — " + err.Error() + ")\n")
+		return refused("(not shown — " + err.Error() + ")\n")
 	}
 	raw, rerr := os.ReadFile(abs)
 	if rerr != nil {
-		return said("(not shown — " + rerr.Error() + ")\n")
+		return refused("(not shown — " + rerr.Error() + ")\n")
 	}
 	text := sliceLines(string(raw), r.Lines)
 	limit := refCap

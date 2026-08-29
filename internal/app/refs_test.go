@@ -197,3 +197,13 @@ func TestObserverHearsWordsNotAttachments(t *testing.T) {
 		t.Fatal("excluding the observer must not exclude the agent")
 	}
 }
+
+// The header itself is clipped: a megabyte "path" off the wire must not render a megabyte header
+// under the budget (the review's last free ride).
+func TestRefHeaderIsClipped(t *testing.T) {
+	total := 0
+	out := renderRef(t.TempDir(), command.FileRef{Path: strings.Repeat("p", 1<<20)}, &total)
+	if len(out) > 2048 {
+		t.Fatalf("a wire-supplied path rendered %d bytes of header", len(out))
+	}
+}

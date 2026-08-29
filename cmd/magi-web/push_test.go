@@ -215,18 +215,20 @@ func TestTheNotificationCarriesTheQuestionAndDeadSubscriptionsAreDropped(t *test
 // idle — and because the answer stays readable for as long as the receiver stays idle, "there is
 // an answer" would repeat it every three seconds forever.
 func TestWorkComingBackIsAnnouncedOnceOnTheEdge(t *testing.T) {
-	was := map[string]fleet.State{}
+	// Through pushEdges — the one function the production loop uses — so this test can never
+	// again be green in an order the loop does not run (which is exactly how the settle edge
+	// shipped dead and stayed green).
+	p := &pushState{was: map[string]fleet.State{}}
 	at := func(states ...fleet.State) []string {
 		list := make([]fleet.Agent, len(states))
 		for i, st := range states {
 			list[i] = fleet.Agent{Socket: string(rune('a' + i)), Name: string(rune('a' + i)), State: st}
 		}
 		var names []string
-		for _, a := range justSettled(list, was) {
+		_, settled := pushEdges(p, list)
+		for _, a := range settled {
 			names = append(names, a.Name)
 		}
-		// The caller updates the map through newlyWaiting, after reading the edge.
-		newlyWaiting(was, list)
 		return names
 	}
 	if got := at("working", "idle"); got != nil {

@@ -39,10 +39,14 @@ func (a *App) bear(ctx context.Context, sid session.SessionID) error {
 	if st.born == nil {
 		// Somebody else is mid-bear (or the session is long born). Waiting here is what keeps a
 		// second event from overtaking the created append inside the store.
+		// On waking the waiter RE-ENTERS rather than assuming the birth landed: a failed append
+		// puts born back, and a waiter returning nil in that window races the retry exactly the
+		// way this function exists to prevent (review's finding on the first cut).
 		wait := st.bornWait
 		a.mu.Unlock()
 		if wait != nil {
 			<-wait
+			return a.bear(ctx, sid)
 		}
 		return nil
 	}
