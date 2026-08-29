@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
@@ -136,6 +137,15 @@ func (o *omniEngine) ScheduledHere() []app.ScheduledJobInfo {
 		{Name: "cursed", Schedule: "not-a-cron", Problem: "unparseable schedule"},
 		{Name: "off", Schedule: "@weekly"}, // disabled: no problem, no next — it never runs
 	}
+}
+
+func (o *omniEngine) Subscribe(ctx context.Context, sid session.SessionID, fromSeq int64) (<-chan event.Event, func(), error) {
+	ch := make(chan event.Event)
+	close(ch)
+	return ch, func() {}, nil
+}
+func (o *omniEngine) NewSince(context.Context, session.SessionID, int64) (int64, bool, error) {
+	return 0, false, nil
 }
 
 func (o *omniEngine) About() string   { return "a companion" }

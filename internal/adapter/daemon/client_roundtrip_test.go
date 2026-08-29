@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"github.com/sayaya1090/magi/internal/core/event"
 	"net"
 	"os"
 	"path/filepath"
@@ -178,5 +180,37 @@ func TestOverSpeaksOverAForeignConnection(t *testing.T) {
 	defer c.Close()
 	if about, err := c.About(); err != nil || about != "a companion" {
 		t.Fatalf("a dumb byte pipe is a full client: (%q, %v)", about, err)
+	}
+}
+
+// An invented conversation id gets a refusal in words from the transcript door — it used to get
+// infinite silence, indistinguishable from an empty session, because the store answers unknown
+// with emptiness. The engine's own listing (unborn current included) is what tells them apart.
+func TestTranscriptRefusesAnInventedConversation(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-tr.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	go func() { _ = d.Serve(context.Background(), &omniEngine{}) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	err = c.Transcript("s_invented", 0, nil, func(event.Event) bool { return true })
+	var refused Refused
+	if !errors.As(err, &refused) || !strings.Contains(err.Error(), "sessions") {
+		t.Fatalf("an invented id is refused in the door's words, got %v", err)
+	}
+	// A LISTED conversation still streams (and a clean end is not an error).
+	if err := c.Transcript("s_new", 0, nil, func(event.Event) bool { return true }); err != nil {
+		t.Fatalf("a listed conversation streams: %v", err)
 	}
 }

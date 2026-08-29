@@ -49,6 +49,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1170,6 +1171,20 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop
 				continue
 			}
 			sid := session.SessionID(req.Session)
+			// An invented id used to stream infinite silence — the store answers an unknown
+			// session with emptiness, not an error, because "no events yet" is also what the
+			// CURRENT conversation looks like before its first words (born-lazy). The one party
+			// that can tell those apart is the engine's own listing, which includes the unborn
+			// current on top; a daemon without that door keeps the old behaviour.
+			if k, ok := eng.(ConversationKeeper); ok {
+				metas, kerr := k.SessionsHere(ctx)
+				if kerr == nil && !slices.ContainsFunc(metas, func(m session.SessionMeta) bool { return m.ID == sid }) {
+					if enc.Encode(Response{Err: fmt.Sprintf("no conversation %q in this workspace — `sessions` lists them", sid)}) != nil {
+						return
+					}
+					continue
+				}
+			}
 			since, note := answerable(ctx, tr, sid, req.Since)
 			// The peer hanging up is the only thing that ends a transcript nothing is happening
 			// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
@@ -2173,15 +2188,26 @@ func dispatch(ctx context.Context, eng Engine, r Request) error {
 	return dispatchNow(ctx, eng, r)
 }
 
+// conversationErr translates the store's private vocabulary into the door's: a client that sent
+// a prompt to an id nobody minted was told "jsonl: unknown session … (first append must include
+// session.created)" — implementation circumstances, with no next move in them. The refusal now
+// names the two verbs that ARE the next move, and keeps the cause for whoever debugs.
+func conversationErr(sid session.SessionID, err error) error {
+	if err == nil || !strings.Contains(err.Error(), "unknown session") {
+		return err
+	}
+	return fmt.Errorf("no conversation %q in this workspace — `sessions` lists them, `session-new` opens one (%v)", sid, err)
+}
+
 func dispatchNow(ctx context.Context, eng Engine, r Request) error {
 	sid := session.SessionID(r.Session)
 	parts := []session.Part{{Kind: session.PartText, Text: r.Text}}
 	actor := event.Actor{Kind: event.ActorUser, ID: "attach"}
 	switch r.Method {
 	case "submit":
-		return eng.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs})
+		return conversationErr(sid, eng.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs}))
 	case "steer":
-		return eng.Steer(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs})
+		return conversationErr(sid, eng.Steer(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs}))
 	case "interrupt":
 		return eng.Interrupt(ctx, command.Interrupt{SessionID: sid})
 	case "permission":
