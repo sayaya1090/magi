@@ -272,9 +272,21 @@ func List(ctx context.Context, r Reader, configDir, here string) ([]Agent, error
 
 // ListCached is List with somewhere to keep the part that does not change between polls.
 func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Cache) ([]Agent, error) {
-	found, err := daemon.List(configDir)
-	if err != nil {
-		return nil, err
+	now := time.Now()
+	// The roster door first (a 2026-08-29 direction): the same discovery contract every other
+	// client consumes, asked of whichever local companion answers. What stays direct is exactly
+	// what the door cannot carry — the per-row dial for live facts (Probe below), the logs, and
+	// the fallback when nothing on this machine is alive to ask.
+	found, members, viaRoster := rosterSources(configDir, now)
+	if viaRoster {
+		found = daemon.Probe(found)
+		sort.Slice(found, func(i, j int) bool { return found[i].Started > found[j].Started })
+	} else {
+		var err error
+		found, err = daemon.List(configDir)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// One ListSessions per distinct workspace, not per daemon: several daemons in one tree is a
 	// normal thing to do, and re-reading the directory for each of them is the same answer again.
@@ -333,20 +345,23 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 		}
 		out = append(out, a)
 	}
-	now := time.Now()
-	out = append(out, elsewhere(configDir, now, out)...)
-	electHubs(out, daemon.Known(configDir, now), now)
+	if viaRoster {
+		out = append(out, elsewhereRows(members, configDir, now, out)...)
+		electHubs(out, append(localMembers(found, now), members...), now)
+	} else {
+		out = append(out, elsewhereRows(daemon.Elsewhere(configDir, now), configDir, now, out)...)
+		electHubs(out, daemon.Known(configDir, now), now)
+	}
 	return out, nil
 }
 
-// elsewhere turns the companions on other machines into rows.
+// elsewhereRows turns the companions on other machines into rows.
 //
 // Everything a local row gets from a log or a dial is absent here and stays absent: no task, no
 // step count, no plan, no last thing said. All of those live on their machine. Inventing any of
 // them — "idle", "0 steps" — would put a claim on the screen that nothing established, and the
 // reader has no way to tell it from a claim that was.
-func elsewhere(configDir string, now time.Time, seen []Agent) []Agent {
-	ms := daemon.Elsewhere(configDir, now)
+func elsewhereRows(ms []cluster.Member, configDir string, now time.Time, seen []Agent) []Agent {
 	out := make([]Agent, 0, len(ms))
 	for _, m := range ms {
 		if amongst(seen, m) {
@@ -1112,4 +1127,74 @@ func stateHeard(s string) State {
 	default:
 		return Remote
 	}
+}
+
+// rosterSources takes the listing's records off the roster door of whichever local companion
+// answers first, split back into the two halves the door keeps tellable-apart.
+//
+// The fallback is the point, not an apology: a machine whose companions are all stopped has no
+// door to ask and still deserves its fleet (the records and logs outlive the processes), and a
+// daemon from before the door answers with a refusal this treats the same as silence. Either way
+// the caller falls back to reading the directory itself — the path this console always took.
+func rosterSources(configDir string, now time.Time) ([]daemon.Info, []cluster.Member, bool) {
+	socks, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock"))
+	if err != nil {
+		return nil, nil, false
+	}
+	for _, s := range socks {
+		rows, rerr := daemon.ProbeRoster(s)
+		if rerr != nil {
+			continue // dead, wedged, or a build without the door — the next socket may answer
+		}
+		var locals []daemon.Info
+		var ms []cluster.Member
+		for _, row := range rows {
+			if row.Sighting {
+				ms = append(ms, rosterMember(row, now))
+			} else {
+				locals = append(locals, rosterInfo(row))
+			}
+		}
+		return locals, ms, true
+	}
+	return nil, nil, false
+}
+
+// rosterInfo rebuilds the published record a local roster row was made from. Live and the
+// dial-only facts are deliberately NOT taken from the row: Probe re-asks, because liveness is
+// the one thing a snapshot cannot say (daemon.Probe).
+func rosterInfo(r daemon.RosterRow) daemon.Info {
+	return daemon.Info{
+		Socket: r.Socket, Workdir: r.Workdir, Session: r.Session,
+		Name: r.Name, Role: r.Role, Team: r.Team, Hub: r.Hub, Can: r.Can, Does: r.Does,
+		Waiting: r.Waiting, Handling: r.Handling, PID: r.PID, Started: r.Started,
+		Host: r.Host, Addr: r.Addr, Account: r.Account, State: r.State, Version: r.Version,
+	}
+}
+
+// rosterMember rebuilds the sighting a roster row carried, with Seen recovered from its age so
+// Fresh and the hub election read it exactly as they would have read the file.
+func rosterMember(r daemon.RosterRow, now time.Time) cluster.Member {
+	return cluster.Member{
+		Host: r.Host, Socket: r.Socket, Name: r.Name, Role: r.Role,
+		Team: r.Team, Hub: r.Hub, Workdir: r.Workdir, Account: r.Account, State: r.State,
+		Can: r.Can, Does: r.Does, Waiting: r.Waiting, Handling: r.Handling,
+		Version: r.Version, By: r.By,
+		Seen: now.Add(-time.Duration(r.AgeSeconds) * time.Second),
+	}
+}
+
+// localMembers is the election's view of this machine's rows on the roster path — the same shape
+// daemon.Known feeds it on the fallback path, seen just now.
+func localMembers(found []daemon.Info, now time.Time) []cluster.Member {
+	out := make([]cluster.Member, 0, len(found))
+	for _, in := range found {
+		out = append(out, cluster.Member{
+			Host: in.Host, Socket: in.Socket, Name: in.Name, Role: in.Role,
+			Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Account: in.Account,
+			State: in.State, Version: in.Version, Can: in.Can, Does: in.Does,
+			Waiting: in.Waiting, Handling: in.Handling, Seen: now,
+		})
+	}
+	return out
 }

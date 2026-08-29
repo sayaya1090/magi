@@ -35,8 +35,18 @@ type RosterRow struct {
 	Account string `json:"account,omitempty"`
 	// State is the vocabulary Info.State pins: "waiting" on a person, "working" on a turn, or
 	// "idle". A badge that distinguishes "somebody is needed" from "busy" hangs on the first one.
-	State    string   `json:"state,omitempty"`
-	Version  string   `json:"version,omitempty"`
+	State   string `json:"state,omitempty"`
+	Version string `json:"version,omitempty"`
+	// PID, Addr and Started are record facts a local row carries so a consumer that used to read
+	// the record itself (the web console) loses nothing by coming through the door instead.
+	// Absent on sightings — they never travel the gossip wire.
+	PID     int    `json:"pid,omitempty"`
+	Addr    string `json:"addr,omitempty"`
+	Started string `json:"started,omitempty"`
+	// By is the public key of the machine a SIGHTING is signed by, so a consumer can grade its
+	// trust the same way it would reading the sighting file itself. Local rows carry none — this
+	// machine does not vouch to itself.
+	By       string   `json:"by,omitempty"`
 	Can      int      `json:"can,omitempty"`
 	Does     []string `json:"does,omitempty"`
 	Waiting  int      `json:"waiting,omitempty"`
@@ -69,6 +79,7 @@ func buildRoster(home string, now time.Time) []RosterRow {
 				Team: in.Team, Hub: in.Hub, Workdir: in.Workdir, Account: in.Account,
 				State: in.State, Version: in.Version, Can: in.Can, Does: in.Does,
 				Waiting: in.Waiting, Handling: in.Handling,
+				PID: in.PID, Addr: in.Addr, Started: in.Started,
 				Session: in.Session, Live: in.Live,
 			})
 		}
@@ -82,7 +93,7 @@ func buildRoster(home string, now time.Time) []RosterRow {
 			Host: m.Host, Socket: m.Socket, Name: m.Name, Role: m.Role,
 			Team: m.Team, Hub: m.Hub, Workdir: m.Workdir, Account: m.Account,
 			State: m.State, Version: m.Version, Can: m.Can, Does: m.Does,
-			Waiting: m.Waiting, Handling: m.Handling,
+			Waiting: m.Waiting, Handling: m.Handling, By: m.By,
 			Sighting: true, AgeSeconds: age,
 		})
 	}
@@ -103,6 +114,18 @@ func answerRoster(home string) Response {
 		rows = []RosterRow{} // an empty fleet is an answer; JSON null is a shrug
 	}
 	return Response{OK: true, Roster: rows}
+}
+
+// ProbeRoster asks the daemon at path for its roster, with the same bounded patience a liveness
+// probe has. For a consumer walking candidate sockets (the web console's fleet path): a wedged
+// daemon must cost one probeTimeout, not hang the listing.
+func ProbeRoster(path string) ([]RosterRow, error) {
+	cl, err := dialProbe(path, probeTimeout, probeTimeout)
+	if err != nil {
+		return nil, err
+	}
+	defer cl.Close()
+	return cl.Roster()
 }
 
 // homeOf is the machine half's location, derived from the daemon's own socket path: records and

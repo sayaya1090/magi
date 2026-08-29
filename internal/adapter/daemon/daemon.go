@@ -3085,10 +3085,6 @@ func List(configDir string) ([]Info, error) {
 		return nil, fmt.Errorf("daemon: listing: %w", err)
 	}
 	out := make([]Info, len(socks))
-	// Probed in parallel. Serially, a listing costs the SUM of every daemon's latency and one
-	// wedged process delays every entry after it — and the reason to run a listing is usually that
-	// something is wrong. In parallel it costs the slowest one, which probeTimeout bounds.
-	var wg sync.WaitGroup
 	for i, s := range socks {
 		in, err := Published(s)
 		if err != nil {
@@ -3097,6 +3093,24 @@ func List(configDir string) ([]Info, error) {
 		}
 		in.Socket = s
 		out[i] = in
+	}
+	out = Probe(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Started > out[j].Started })
+	return out, nil
+}
+
+// Probe fills in the half of each Info only a dial can answer: liveness, and what the daemon is
+// blocked on or doing right now. Split out of List so a listing whose RECORDS came another way —
+// the web console's fleet path reads them off the roster door — pays the same dial and reads the
+// same truth, instead of trusting a snapshot for the one thing snapshots cannot say.
+func Probe(out []Info) []Info {
+	// Probed in parallel. Serially, a listing costs the SUM of every daemon's latency and one
+	// wedged process delays every entry after it — and the reason to run a listing is usually that
+	// something is wrong. In parallel it costs the slowest one, which probeTimeout bounds.
+	var wg sync.WaitGroup
+	for i := range out {
+		s, sid := out[i].Socket, out[i].Session
+		out[i].Live, out[i].Asking, out[i].Doing = false, nil, ""
 		wg.Add(1)
 		go func(i int, s string, sid string) {
 			defer wg.Done()
@@ -3120,9 +3134,8 @@ func List(configDir string) ([]Info, error) {
 			// accept. That is a version skew, not a fault: it is alive, and everything else about
 			// it is still true. A TIMEOUT lands here too, and means the same thing for the entry:
 			// alive, and not saying.
-		}(i, s, in.Session)
+		}(i, s, sid)
 	}
 	wg.Wait()
-	sort.Slice(out, func(i, j int) bool { return out[i].Started > out[j].Started })
-	return out, nil
+	return out
 }
