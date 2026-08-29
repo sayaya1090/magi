@@ -376,18 +376,6 @@ class MagiToolWindow : ToolWindowFactory {
         private lateinit var head: JBPanel<JBPanel<*>>
 
         /**
-         * 승인이 실어 온 변화 그 자체(unified diff — 치환·write 만, 앵커 편집은 부재라 args 뷰가
-         * 그대로 선다). 뷰어는 재계산하지 않는다 — 계약이다(docs/CLIENTS).
-         */
-        private val diffPane = javax.swing.JTextArea().apply {
-            isEditable = false
-            font = Look.mono()
-            border = JBUI.Borders.empty(4, 12)
-        }
-        /** 지금 그려져 있는 물음의 id — diff 판의 펼침이 리드로우를 살아남는 열쇠다. */
-        private var promptShown: String? = null
-
-        /**
          * 보낼 첨부들 — 본문이 아니라 **참조**다(경로+줄범위). 발췌는 코어가 렌더·영속하므로
          * (docs/CLIENTS §2) 여기는 이름표 칩만 세운다. [say] 가 싣고 비운다.
          */
@@ -431,20 +419,9 @@ class MagiToolWindow : ToolWindowFactory {
             chips.revalidate(); chips.repaint()
         }
 
-        private val diffScroll = JBScrollPane(diffPane).apply {
-            isVisible = false
-            border = JBUI.Borders.empty()
-            preferredSize = java.awt.Dimension(0, 180)
-        }
-
         init {
             val top = JBPanel<JBPanel<*>>(BorderLayout())
-            top.add(JBPanel<JBPanel<*>>().apply {
-                layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
-                isOpaque = false
-                add(prompt)
-                add(diffScroll)
-            }, BorderLayout.CENTER)
+            top.add(prompt, BorderLayout.CENTER) // diff 판이 빠지며 한 장짜리가 된 래퍼는 접었다(리뷰)
             top.add(buttons, BorderLayout.SOUTH)
             // 윗단과 전사를 실선으로 가른다. **지금 상태**와 **지나간 것**은 다른 종류의 글이라
             // 눈이 한 번은 걸려야 한다(§3.1a 의 도랑이 하는 일을 좁은 판에서 선 하나가 한다).
@@ -941,8 +918,13 @@ class MagiToolWindow : ToolWindowFactory {
                 return
             }
             val vf = diffTabs.computeIfAbsent(w.id) {
+                // 파일 타입을 plain text 로 못박는다(라이브 실측): 이름이 .diff 면 IntelliJ 의
+                // 패치 에디터가 잡는데, 코어의 write 승인 diff 는 헤더(---/+++/@@) 없는 헝크라
+                // "Invalid patch file" 판이 선다 — 원문 diff 를 그대로 보여 주는 것이 계약이고
+                // (재계산 금지), 항상 읽히는 쪽이 색입힘보다 먼저다.
                 com.intellij.testFramework.LightVirtualFile(
-                    "magi-승인-${path.substringAfterLast('/')}-${w.id.takeLast(6)}.diff", w.diff.orEmpty(),
+                    "magi-승인-${path.substringAfterLast('/')}-${w.id.takeLast(6)}.diff",
+                    com.intellij.openapi.fileTypes.PlainTextFileType.INSTANCE, w.diff.orEmpty(),
                 ).apply { isWritable = false }
             }
             com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).openFile(vf, true)
@@ -1265,14 +1247,6 @@ class MagiToolWindow : ToolWindowFactory {
         private fun drawPrompt(w: Waiting?) {
             buttons.removeAll()
             head.isVisible = w != null // 없는 물음의 자리를 비워 두지 않는다 — 죽은 띠가 된다
-            diffPane.text = w?.diff.orEmpty()
-            // 같은 물음이 다시 그려질 땐(movesPrompt 는 남의 답에도 울린다) 사람이 열어 둔 diff
-            // 판을 접지 않는다 — 펼침을 리드로우에서 살리는 이 유닛의 규칙 그대로. 물음이 바뀌면
-            // 접는다: 남의 diff 를 지금 것인 양 두는 쪽이 더 나쁘다.
-            if (w?.id != promptShown) {
-                diffScroll.isVisible = false
-                promptShown = w?.id
-            }
             // 물음이 서 있는 동안은 그 자리에 막대를 하나 세운다. 콘솔이 답 없는 물음에 긋는 것과
             // 같은 선이고(`.row.pending .txt`), 터미널도 같은 자리에 긋는다. 색으로만 말하지
             // 않는다 — 글자는 그대로 있고 막대는 **어디를 보라**는 표시다.
@@ -1306,20 +1280,13 @@ class MagiToolWindow : ToolWindowFactory {
                     // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
                     is Ask.Undrawable -> Unit
                 }
-                // 편집 계열(치환·write)엔 변화 그 자체가 실려 온다 — 누르기 전에 펼쳐 본다.
-                // diff 가 빈 승인(앵커 편집 등)은 위의 args 뷰가 그대로 선다.
+                // 변화 그 자체가 실려 온 승인(코어 계약상 치환·write — 앵커·replaceAll·multiedit 는 부재)은
+                // 단추 하나로 **IDE 편집창**에서 본다: 치환 편집이면 인자의 old/new 원문
+                // 나란히-보기, 그 밖은 코어의 diff 원문 탭. 독 안에 diff 를 구겨 넣던 인라인
+                // 판(± 변경 보기)은 사용자 실측으로 걷었다 — "왜 플러그인 안에서 조이노? 그
+                // 쪼끄만데서 다 보이겠나". diff 가 안 실린 승인은 위의 args 뷰가 그대로 선다.
                 if (!w.diff.isNullOrBlank()) {
-                    buttons.add(JButton("± 변경 보기").apply {
-                        addActionListener {
-                            diffScroll.isVisible = !diffScroll.isVisible
-                            head.revalidate(); head.repaint()
-                        }
-                    })
-                    // 흉내가 아니라 한 단 위로(사용자 지시): 치환 편집이면 인자에 실려 온
-                    // old/new **원문 그대로** IDE 의 진짜 나란히-보기를 연다 — 두 면이 코어가
-                    // 받은 원문이라 「뷰어 재계산 금지」 계약이 그대로 선다. old/new 가 없으면
-                    // (write 등) 코어의 unified diff 를 .diff 가상 파일로 — 패치 하이라이트.
-                    buttons.add(JButton("diff 뷰어로").apply {
+                    buttons.add(JButton("변경 보기").apply {
                         addActionListener { openApprovalDiff(w) }
                     })
                 }
