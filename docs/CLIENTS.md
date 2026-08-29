@@ -146,8 +146,9 @@ answering it reads every log whole, and the one conversation it could matter for
 one, whose id the roster row already carries. `resume` refuses an id that is not already this
 workspace's — a client never invents one; it reads what `session-new` answers. `job-kill` is the row's ✕ — Removed answers "was there one", so a second press reads already-gone, never failure. And `cron` is
 the read half of standing work (reload-cron is the write): broken jobs first — the never-runnable
-row is the one no other screen will mention again — then soonest, each row carrying its next
-instant (RFC3339) or an empty next with the `problem` that explains it.
+row is the one no other screen will mention again — then the runnable soonest-first, and **the
+switched-off last** (a row with no problem and no next must not lead the schedule). Each row
+carries its next instant (RFC3339) or an empty next with the `problem` that explains it.
 
 ### Companion to companion, machine to machine
 
@@ -170,11 +171,15 @@ at the file, and losing it over a typo drops the half that mattered.
 same-workspace contention (worktree isolation / file leases — the cheap half, a duplicate-workdir
 warning badge, is the plugin's, from roster material it already has).
 
-**An edit approval carries its diff (★implemented).** The permission prompt for an edit-class
-call carries **the diff a yes would apply** — computed once in the app (the same derivation the
-web's folding diff draws) and riding everywhere the prompt travels: the transient event, the
-status door, the rebuilt prompt a socket viewer replays. A viewer never recomputes it: two
-renderings of one edit is how an approval screen comes to show something the tool will not do.
+**An edit approval carries its diff (★implemented — only what it can say truthfully).** The
+permission prompt carries **the diff a yes would apply** — computed once in the app and riding
+everywhere the prompt travels: the transient event, the status door, the rebuilt prompt a socket
+viewer replays. A viewer never recomputes it — which makes the SCOPE part of the contract: a
+diff rides only for **old/new substitutions and write**; an anchored edit ({at,to} — the removed
+lines are not in the arguments), replaceAll (a diff of one lies about the count) and multiedit
+answer with **absence** and fall back to the arguments view, because a faked preview on an
+approval screen is the worst of the options. Byte-capped at 64KB, and a cut diff says it was
+cut.
 
 **The transcript cursor can be trusted.** seq survives compaction (the snapshot inherits upToSeq
 and later events keep their numbers) — a reconnecting client sends its last seq as `since` and
