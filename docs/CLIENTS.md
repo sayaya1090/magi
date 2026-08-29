@@ -219,7 +219,7 @@ contracts this page already states.
    on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
    `cron` and `jobs`.
 4. **Action**: steering, interrupting, answering, files and git are methods on that companion's
-   own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
+   own socket; an application that offers tools registers itself with `mcp-attach` (URL only) A name whose holder died without detaching (the process was killed) does not stay occupied: the next attach probes the holder and takes over a dead one, while a live holder still refuses the second claimant.
    and `mcp-detach`s on the way out.
 
 A refusal always carries its reason in the `err` string — no door fails in silence. One caution for the stream doors (watch, transcript): **do not half-close the write side** — a one-shot client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero frames. Keeping the write half open while you read is half the stream contract.
