@@ -204,6 +204,14 @@ and later events keep their numbers) — a reconnecting client sends its last se
 receives only the increment, and when the daemon refuses a cursor the restart callback says
 "throw yours away" before the first event.
 
+**The fact/transient split is a storage contract.** A fact type is guaranteed a seq > 0 in the
+log — jsonl assigns from 1 — and the live bus sits outside that guarantee: a daemon may ride a
+live-only signal at seq 0 even under a fact's type name (a council verdict previewed before the
+debate revises it; the turn-finished that closes a drained interjection). A consumer that treats
+the stream as the log must therefore **drop seq == 0 events of fact types**: everything they
+announce arrives again as the real fact, with its number — and the seq-0 copy may differ from the
+fact that lands (a preview is a vote before revision, not an echo of the result).
+
 ### The path a new client walks
 
 A client consuming these doors for the first time needs four steps — all of them ordering of
