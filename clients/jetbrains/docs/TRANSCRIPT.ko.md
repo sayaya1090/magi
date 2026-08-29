@@ -99,7 +99,7 @@ data class Row(
 | `compaction` | **Info 행** — `↯ context compacted ~전→후 tok`. **지우지 않는다** (§4) | TUI 의 한 줄 + `reconstructWhole` 의 교훈 |
 | `turn.finished` | 행 없음 — 턴 닫힘(§5), usage 는 상태 표시줄 몫 | |
 | `error` | **Info 행** — `recovered` 면 그렇게 말한다. 회복된 에러는 끝이 아니다 | 코어의 「recovered ≠ ending」 |
-| `council.verdict` | **Council 행 추가** — member·decision·rationale·keep·cite. 본문은 **rationale 이 있으면 항상 rationale**(코어는 silent 일 때도 사유 문장을 거기 싣는다); "답이 없었다"는 rationale 이 빈 silent 에만 — 플래그만 보고 실려 온 말을 버리던 판이 라이브에서 잡혔다 | 자리색 셋 밖은 색 없음(`Look.seat`) |
+| `council.verdict` | **Council 행 추가** — member·decision·rationale·keep·cite. 본문은 **rationale 이 있으면 항상 rationale**(코어는 silent 일 때도 사유 문장을 거기 싣는다); "답이 없었다"는 rationale 이 빈 silent 에만 — 플래그만 보고 실려 온 말을 버리던 판이 라이브에서 잡혔다. **말한 기권**(`abstain`, silent 아님 — 일은 봤는데 판정을 안 한 멤버)과 **무응답**(`silent`)은 다른 행이다: 앞은 판정 마크만, 뒤는 「⋯ 답 없음」이 함께 선다(골든이 못박는다) | 자리색 셋 밖은 색 없음(`Look.seat`) |
 | `council.decided` | **Council 행 추가** — 라운드 결과·tally·note, continue 면 feedback 줄들 | `CouncilDecidedData` 의 `FeedbackLines` 가 양 화면 공용으로 산다 |
 | `council.convened` | 행 없음 — 라운드 고유 정보가 없다 | TUI 가 같은 사유로 지웠다 |
 | `todos.changed` `labels.changed` `model.changed` `session.moved` `context.usage` `tool.progress` `workflow.phase` `result.elided` `user.label.changed` `session.created` | 행 없음 — 전사가 아니라 다른 자리의 사실 | |

@@ -202,6 +202,26 @@ class RowsTest {
     }
 
     @Test
+    fun `말한 기권과 무응답은 다른 행이다`() {
+        // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**
+        // (abstain, silent 아님)이고, 아무도 안 준 평결만 silent 다. 화면도 갈라야
+        // 「일을 보고 판정을 안 한 것」과 「대답이 없던 것」이 안 섞인다.
+        val r = Rows()
+        r.feed(ev("council.verdict",
+            """{"round":1,"member":"Melchior","decision":"abstain","rationale":"판정을 말하지 않았다"}"""))
+        val spoken = r.list().last()
+        assertEquals("abstain", spoken.decision)
+        assertFalse(spoken.silent, "말한 기권은 무응답이 아니다")
+        assertEquals("판정을 말하지 않았다", spoken.text)
+
+        r.feed(ev("council.verdict",
+            """{"round":1,"member":"Casper","decision":"abstain","silent":true,"rationale":"the council did not answer within 90s"}"""))
+        val quiet = r.list().last()
+        assertTrue(quiet.silent, "아무도 안 준 평결은 무응답으로 남는다")
+        assertEquals("the council did not answer within 90s", quiet.text, "사유는 그대로 싣는다")
+    }
+
+    @Test
     fun `나란히-보기 판정은 결손 쪽으로 접는다 — FlexBool 모양까지`() {
         fun args(extra: String = "") =
             """{"path":"src/a.kt","old":"x","new":"y"$extra}"""
