@@ -1730,7 +1730,7 @@ The rail on the left has two destinations, and a companion's page lives inside t
 
 | Destination | What it holds |
 |---|---|
-| **Companions** | every daemon this console can see: state, what it is doing, host and IP, how long it has been idle, how far through its plan (`3/7`), and what it is carrying for other companions. Tiles at the top filter by state and carry the count of who is waiting on a person. A row opens that companion |
+| **Companions** | every daemon this console can see, as gossip tells it: state, host and IP, what it carries for other companions, and how fresh the sighting is. The list reads no logs (set 2026-08-29) — the task line, plan progress and the ask's own words appear when a row is opened and the detail attaches. Tiles at the top filter by state and carry the count of who is waiting on a person |
 | **Shared** | the experience store and the MCP servers, together, in the order they happen: what has been said often enough to become a rule, then the rules, then what the companions can reach. Each experience row says what it reaches ("every companion" / "the frontend team" / "only api"), what the agent was doing when it learned it, and the body — and a wrong one can be forgotten. MCP servers can be added, changed or removed; the change is written to that companion's config and attaches when its daemon next starts |
 | **Board** | work as cards, a column per companion, and a day you can move. The column is who did it rather than a state, because there is no such thing as the state a companion was in last Tuesday. Cards are grouped by the `label` the agent gave the work |
 

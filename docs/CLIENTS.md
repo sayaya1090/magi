@@ -138,13 +138,16 @@ search, dead-session transcripts), and **command** (the boundary above — each 
 door). What this door replicated is the stance the web already took toward other **machines**:
 not attached, drawn from sightings, not commandable.
 
-**The session picker's two verbs (★implemented).** The bottom dock must switch conversations
+**The session picker's two verbs, and the dock's one (★implemented).** The bottom dock must switch conversations
 and open fresh ones, so the control socket carries `sessions` (this workspace's conversations —
 id, first-prompt title, model, labels, timestamps, newest activity first) and `session-new`
 (open a fresh conversation AND move onto it — one verb). Open-turn is deliberately absent:
 answering it reads every log whole, and the one conversation it could matter for is the current
 one, whose id the roster row already carries. `resume` refuses an id that is not already this
-workspace's — a client never invents one; it reads what `session-new` answers.
+workspace's — a client never invents one; it reads what `session-new` answers. And `cron` is
+the read half of standing work (reload-cron is the write): broken jobs first — the never-runnable
+row is the one no other screen will mention again — then soonest, each row carrying its next
+instant (RFC3339) or an empty next with the `problem` that explains it.
 
 ### Companion to companion, machine to machine
 
