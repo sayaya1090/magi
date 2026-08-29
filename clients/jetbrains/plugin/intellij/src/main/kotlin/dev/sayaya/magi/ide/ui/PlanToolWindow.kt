@@ -36,26 +36,27 @@ class PlanToolWindow : ToolWindowFactory {
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val workspace = Workspace(project)
-        val plan = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(8, 12)
+        // 세로로 쌓는 판 — **정렬을 컨테이너가 강제한다.** BoxLayout Y축은 자식을 alignmentX
+        // 로 눕히는데 기본이 0.5(가운데)라, 판보다 좁은 자식(JBLabel 은 max=pref 라 안
+        // 늘어난다)이 가운데로 밀려 왼쪽에 유령 마진이 선다(사용자 실측: "대기작업부터
+        // 컨트롤까지 좌측에 이상한 마진"). 정렬 스윕을 재구축 자리마다 한 줄씩 두는 판은
+        // 다음 구역이 또 빠뜨린다(리뷰 실측: controls 만 쓸었고 계획 판에 같은 기전이
+        // 남아 있었다) — 자식이 언제 서든 add 가 정렬을 세우면 빠뜨릴 자리가 없다.
+        fun stack(top: Int, side: Int): JBPanel<JBPanel<*>> = object : JBPanel<JBPanel<*>>() {
+            init {
+                layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                if (side > 0 || top > 0) border = JBUI.Borders.empty(top, side)
+            }
+            override fun addImpl(comp: java.awt.Component, constraints: Any?, index: Int) {
+                (comp as? javax.swing.JComponent)?.alignmentX = 0f
+                super.addImpl(comp, constraints, index)
+            }
         }
-        val work = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(0, 12)
-        }
-        val fleet = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(0, 12)
-        }
-        val cronPane = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(0, 12)
-        }
-        val askedPane = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
-            border = JBUI.Borders.empty(0, 12)
-        }
+        val plan = stack(8, 12)
+        val work = stack(0, 12)
+        val fleet = stack(0, 12)
+        val cronPane = stack(0, 12)
+        val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         val talk = JComboBox<String>()
         val model = JComboBox<String>()
@@ -138,8 +139,7 @@ class PlanToolWindow : ToolWindowFactory {
             }
         }
 
-        val controls = JBPanel<JBPanel<*>>().apply {
-            layout = BoxLayout(this, BoxLayout.Y_AXIS)
+        val controls = stack(0, 0).apply {
             add(stale)
             add(Look.gutter("대기·작업"))
             add(work)
