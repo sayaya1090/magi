@@ -2686,6 +2686,29 @@ type daemonEngine struct {
 	republish func(session.SessionID) error
 }
 
+// SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the
+// bottom dock's picker. The store's own listing, unreshaped.
+func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, error) {
+	return d.App.ListSessions(ctx, d.workdir)
+}
+
+// NewSession opens a fresh conversation and moves this companion onto it — create, then the same
+// move Resume performs, so the record, the mark in the old log and the mid-turn refusal are one
+// code path. The model falls to the config default inside CreateSession.
+func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error) {
+	sid, err := d.App.CreateSession(ctx, command.CreateSession{
+		Workdir: d.workdir,
+		Actor:   event.Actor{Kind: event.ActorUser, ID: "attach"},
+	})
+	if err != nil {
+		return "", err
+	}
+	if err := d.Resume(ctx, sid); err != nil {
+		return "", err
+	}
+	return sid, nil
+}
+
 // Resume satisfies daemon.SessionMover: continue a different conversation of this companion's own.
 //
 // Three refusals before anything changes, and each is a way the move would be a lie:

@@ -421,6 +421,20 @@ type SessionMover interface {
 	Resume(ctx context.Context, sid session.SessionID) error
 }
 
+// ConversationKeeper is the engine half of the bottom dock's session switcher: list this
+// workspace's conversations, and open a fresh one. Local socket only, like the transcript —
+// the clients this exists for (the IDE plugin first) hold a socket and nothing else.
+type ConversationKeeper interface {
+	// SessionsHere lists this workspace's conversations, newest activity first.
+	SessionsHere(ctx context.Context) ([]session.SessionMeta, error)
+	// NewSession opens a fresh conversation AND moves the companion onto it — one verb, because
+	// the caller that wants a new conversation wants to be in it, and a created-but-not-current
+	// session is a row nobody asked for. The contract resume deliberately does not offer:
+	// resume refuses an id that is not already a conversation of this workspace, so a client
+	// must never invent an id — it calls this and reads the one that comes back.
+	NewSession(ctx context.Context) (session.SessionID, error)
+}
+
 // CronController is the part of an engine that holds scheduled work.
 //
 // Optional and asserted at dispatch, like Controller, and separate from it for the reason Controller
@@ -592,6 +606,8 @@ type Response struct {
 	// (measurements, with a session id to subscribe to) and other machines' (signed sightings,
 	// with their age). Empty list = an empty fleet; the field absent = some other method.
 	Roster []RosterRow `json:"roster,omitempty"`
+	// Sessions answers the `sessions` method: this workspace's conversations, newest first.
+	Sessions []SessionRow `json:"sessions,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -1232,32 +1248,87 @@ func answerable(ctx context.Context, tr Transcriber, sid session.SessionID, sinc
 // stops the daemon, and watch and transcript each give the connection over to a stream and never
 // return to the loop.
 var answers = map[string]func(context.Context, Engine, Request) Response{
-	"status":     answerStatus,
-	"models":     answerModels,
-	"tools":      answerTools,
-	"jobs":       answerJobs,
-	"about":      answerAbout,
-	"hand":       answerHand,
-	"hand-state": answerHand,
-	"tool":       answerTool,
-	"edit-file":  answerEditFile,
-	"git":        answerGit,
-	"file-do":    answerFileDo,
-	"git-diff":   answerGitDiff,
-	"git-do":     answerGitDo,
-	"meet-join":  answerMeetJoin,
-	"meet":       answerMeet,
-	"git-pr":     answerGitPR,
-	"pr-facts":   answerPRFacts,
-	"pr-msg":     answerPRFacts,
-	"git-msg":    answerGitMsg,
-	"look-over":  answerLookOver,
-	"complete":   answerComplete,
-	"open-file":  answerOpenFile,
-	"suggest":    answerSuggest,
-	"shell":      answerShell,
-	"mcp-attach": answerMCPAttach,
-	"mcp-detach": answerMCPDetach,
+	"status":      answerStatus,
+	"models":      answerModels,
+	"tools":       answerTools,
+	"jobs":        answerJobs,
+	"about":       answerAbout,
+	"hand":        answerHand,
+	"hand-state":  answerHand,
+	"tool":        answerTool,
+	"edit-file":   answerEditFile,
+	"git":         answerGit,
+	"file-do":     answerFileDo,
+	"git-diff":    answerGitDiff,
+	"git-do":      answerGitDo,
+	"meet-join":   answerMeetJoin,
+	"meet":        answerMeet,
+	"git-pr":      answerGitPR,
+	"pr-facts":    answerPRFacts,
+	"pr-msg":      answerPRFacts,
+	"git-msg":     answerGitMsg,
+	"look-over":   answerLookOver,
+	"complete":    answerComplete,
+	"open-file":   answerOpenFile,
+	"suggest":     answerSuggest,
+	"shell":       answerShell,
+	"mcp-attach":  answerMCPAttach,
+	"mcp-detach":  answerMCPDetach,
+	"sessions":    answerSessions,
+	"session-new": answerSessionNew,
+}
+
+// SessionRow is one conversation as the sessions door reports it: what a picker needs and no
+// more. The title is the first prompt's first line, which is what the store already derives.
+type SessionRow struct {
+	ID           string   `json:"id"`
+	Title        string   `json:"title,omitempty"`
+	Model        string   `json:"model,omitempty"`
+	Labels       []string `json:"labels,omitempty"`
+	Created      string   `json:"created,omitempty"`
+	LastActivity string   `json:"lastActivity,omitempty"`
+}
+
+// answerSessions lists this workspace's conversations, newest activity first. Whether a turn is
+// OPEN in one is deliberately not here: answering it costs reading every log whole, and the one
+// conversation it could matter for is the current one — which the caller already has from the
+// roster row and can ask status about.
+func answerSessions(ctx context.Context, eng Engine, req Request) Response {
+	k, ok := eng.(ConversationKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot list its conversations"}
+	}
+	metas, err := k.SessionsHere(ctx)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	sort.SliceStable(metas, func(i, j int) bool { return metas[i].LastActivity.After(metas[j].LastActivity) })
+	rows := make([]SessionRow, 0, len(metas))
+	for _, m := range metas {
+		r := SessionRow{ID: string(m.ID), Title: m.Title, Model: m.Model, Labels: m.Labels}
+		if !m.Created.IsZero() {
+			r.Created = m.Created.UTC().Format(time.RFC3339)
+		}
+		if !m.LastActivity.IsZero() {
+			r.LastActivity = m.LastActivity.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, r)
+	}
+	return Response{OK: true, Sessions: rows}
+}
+
+// answerSessionNew opens a fresh conversation and answers with its id — see ConversationKeeper
+// for why creating and moving are one verb.
+func answerSessionNew(ctx context.Context, eng Engine, req Request) Response {
+	k, ok := eng.(ConversationKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot open a new conversation"}
+	}
+	sid, err := k.NewSession(ctx)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Session: string(sid)}
 }
 
 // answerMCPAttach opens the runtime door: attach an HTTP MCP server to this companion.
@@ -2317,6 +2388,26 @@ func (c *Client) Roster() ([]RosterRow, error) {
 		return nil, err
 	}
 	return resp.Roster, nil
+}
+
+// Sessions lists the companion's conversations, newest activity first — the bottom dock's
+// session picker reads this.
+func (c *Client) Sessions() ([]SessionRow, error) {
+	resp, err := c.exchange(Request{Method: "sessions"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Sessions, nil
+}
+
+// NewSession opens a fresh conversation on the companion and moves it there, answering with the
+// new id. The one way to get a new conversation: resume refuses invented ids on purpose.
+func (c *Client) NewSession() (string, error) {
+	resp, err := c.exchange(Request{Method: "session-new"})
+	if err != nil {
+		return "", err
+	}
+	return resp.Session, nil
 }
 
 func (c *Client) Status(sid string) (Status, error) {

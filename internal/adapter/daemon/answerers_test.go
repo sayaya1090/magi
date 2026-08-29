@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // omniEngine answers every optional door, recording what crossed so a test can check the wire's
@@ -110,6 +112,19 @@ func (o *omniEngine) RunShellHere(_ context.Context, cmd string) (string, int, e
 	o.note("sh:" + cmd)
 	return "out", 3, nil
 }
+func (o *omniEngine) SessionsHere(_ context.Context) ([]session.SessionMeta, error) {
+	older := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 8, 29, 0, 0, 0, 0, time.UTC)
+	return []session.SessionMeta{
+		{ID: "s_old", Title: "the first ask", LastActivity: older},
+		{ID: "s_new", Title: "the newest ask", Model: "m1", LastActivity: newer},
+	}, nil
+}
+func (o *omniEngine) NewSession(_ context.Context) (session.SessionID, error) {
+	o.note("new-session")
+	return "s_fresh", nil
+}
+
 func (o *omniEngine) About() string   { return "a companion" }
 func (o *omniEngine) Version() string { return "v-test" }
 
@@ -125,6 +140,7 @@ func TestAnswerersRefuseInWords(t *testing.T) {
 		"git-pr": answerGitPR, "pr-facts": answerPRFacts, "git-msg": answerGitMsg,
 		"look-over": answerLookOver, "complete": answerComplete, "open-file": answerOpenFile,
 		"suggest": answerSuggest, "shell": answerShell, "about": answerAbout,
+		"sessions": answerSessions, "session-new": answerSessionNew,
 	} {
 		resp := fn(ctx, bare, Request{Method: method, Name: "x", Text: "y"})
 		if resp.OK || resp.Err == "" {
@@ -228,5 +244,17 @@ func TestAnswerersMapBothDirections(t *testing.T) {
 	if r := answerAbout(ctx, o, Request{}); r.Out != "a companion" || r.Version != "v-test" ||
 		r.Proto != ProtoVersion {
 		t.Fatalf("about is the negotiation: text, version, proto, caps — got %+v", r)
+	}
+
+	// The session picker's two verbs: newest activity first, and a new conversation answers with
+	// the id the caller must use — never invent.
+	if r := answerSessions(ctx, o, Request{}); !r.OK || len(r.Sessions) != 2 ||
+		r.Sessions[0].ID != "s_new" || r.Sessions[0].Model != "m1" ||
+		r.Sessions[1].Title != "the first ask" {
+		t.Fatalf("sessions: %+v", r.Sessions)
+	}
+	if r := answerSessionNew(ctx, o, Request{}); !r.OK || r.Session != "s_fresh" ||
+		o.calls[len(o.calls)-1] != "new-session" {
+		t.Fatalf("session-new: %+v", r)
 	}
 }
