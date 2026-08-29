@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -83,5 +84,50 @@ func TestUndeclaredReasonNamesARejectedDeclaration(t *testing.T) {
 	}
 	if s := undeclaredReason(0, 3); !strings.Contains(s, "3 times") {
 		t.Errorf("repeat rejections must be counted: %q", s)
+	}
+}
+
+// Stop stops. The restart-after-press gate asked a different question than the press's own
+// sweep: the sweep holds prompts that were OPEN at the press, while the gate listed every
+// non-abandoned user prompt — answered ones included — so any session past its first turn always
+// had one the sweep lacked, "fresh" was always true, and every interrupt restarted the run.
+func TestAPressedStopDoesNotRestartOnAnAlreadyAnsweredPrompt(t *testing.T) {
+	mk := func(seq int64, typ event.Type, kind event.ActorKind, data any) event.Event {
+		b, _ := json.Marshal(data)
+		return event.Event{Seq: seq, Type: typ, Actor: event.Actor{Kind: kind}, Data: b}
+	}
+	evs := []event.Event{
+		mk(1, event.TypePromptSubmitted, event.ActorUser, event.PromptSubmittedData{MessageID: "u1"}),
+		mk(2, event.TypePartAppended, event.ActorAgent, event.PartAppendedData{MessageID: "a1",
+			Role: session.RoleAssistant, Part: session.Part{Kind: session.PartText, Text: "answered"}}),
+		mk(3, event.TypePromptSubmitted, event.ActorUser, event.PromptSubmittedData{MessageID: "u2"}),
+	}
+	// The press: u2 is open, u1 was answered long ago.
+	pressed := map[string]bool{}
+	for _, id := range unansweredUserPromptIDs(evs) {
+		pressed[id] = true
+	}
+	if !pressed["u2"] || pressed["u1"] {
+		t.Fatalf("the sweep must hold exactly the open prompt, got %v", pressed)
+	}
+	fresh := false
+	for _, id := range unansweredUserPromptIDs(evs) {
+		if !pressed[id] {
+			fresh = true
+		}
+	}
+	if fresh {
+		t.Fatal("nothing was said after the press, yet the run would restart")
+	}
+	// And a request that DOES arrive after the press still runs.
+	evs = append(evs, mk(4, event.TypePromptSubmitted, event.ActorUser, event.PromptSubmittedData{MessageID: "u3"}))
+	fresh = false
+	for _, id := range unansweredUserPromptIDs(evs) {
+		if !pressed[id] {
+			fresh = true
+		}
+	}
+	if !fresh {
+		t.Fatal("a request made after the press must still run")
 	}
 }

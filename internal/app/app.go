@@ -756,8 +756,16 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			if evs, rerr := a.store.Read(bctx, sid, 0); rerr == nil {
 				// Anything the person said after the press: it cannot be part of what the press
 				// cleared, and the turn that would have read it is the one they stopped.
+				// The SAME question the sweep asked, or the comparison is meaningless: the
+				// sweep holds the prompts that were OPEN at the press, while this used to list
+				// every non-abandoned user prompt — answered ones included. In any session
+				// with earlier answered requests (which is every session past its first turn)
+				// one of them was always absent from the sweep, so "fresh" was always true and
+				// every stop restarted the run. Measured on a live companion (2026-08-29):
+				// two interrupts, and both times a turn.finished was followed seconds later by
+				// new tool calls and a new approval prompt — stop that could not stop.
 				fresh := false
-				for _, id := range userPromptIDsNotAbandoned(evs) {
+				for _, id := range unansweredUserPromptIDs(evs) {
 					if !pressed[id] {
 						fresh = true
 						break
