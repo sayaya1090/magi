@@ -90,6 +90,32 @@ split); the add-in **chooses which companion to attach to**, and with no daemon 
 one in the deck's own directory; and judgement rides numbers and text by default, **pixels as the
 last resort** (there is no guarantee the attached model reads images).
 
+### The fleet through one socket — the `roster` door (design direction, set 2026-08-29)
+
+The direction is set: the companion management the web console offers must be possible **without
+the web**, from a client holding one socket (the IDE plugin is the first consumer). Lay the facts
+out and only one piece is missing:
+
+- **Command already works.** Interrupt, answer, steer, files, git are all methods on each
+  companion's *own* socket — any client that knows a sibling's socket path can call it directly.
+- **The answer already lives in the daemon.** This machine is the publish directory (exact, live);
+  other machines are signed gossip sightings (one-hour decay) — and the daemon always reads the
+  two halves **together** (`Known`).
+- **What is missing is one door.** The control socket has no method that answers "who is out
+  there".
+
+So the contract is one `roster` method: the request is `{"method":"roster"}`, the reply is rows in
+the gossip member shape (host, socket, name, role, team/hub, workdir, state, version,
+capabilities, waiting — and **which half each row came from**: this machine's own measurement, or
+a sighting somebody signed, with its age). Advertised in `about`'s caps as `roster`, so a client
+can know before calling.
+
+The boundary follows the same reasoning that kept the transcript off the fleet door: **gossip
+carries discovery; conversation and command go through that companion's own door.** A relaying
+B's conversation would flatten per-companion access and freshness into A's. Rows from other
+machines draw as visible-but-not-commandable (until the client holds that machine's keys) — the
+same stance the web console takes toward peers.
+
 ### Companion to companion, machine to machine
 
 On one machine, companions hand work to each other (hand_off — the first finished turn's last
