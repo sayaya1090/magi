@@ -137,6 +137,11 @@ def documents():
     # 빨개지지 않는다. 그리고 켜자마자 값이 났다: 이쪽이 그쪽 절 제목 하나를 기억으로 지어냈고
     # (실제는 "5.4 죽으면 다시") 검사기가 그것을 잡았다.
     out = [os.path.join(ROOT, "clients/powerpoint/DESIGN.md"), os.path.join(HERE, "README.md")]
+    # docs/ 의 설계 문서도 같은 검사망에 든다. README 와 같은 성질의 손가락(Go·Kotlin 심볼
+    # 인용)을 갖고, 같은 이유로 썩는다. 목록을 손으로 유지하는 대신 디렉토리를 걷는다.
+    docs = os.path.join(HERE, "docs")
+    if os.path.isdir(docs):
+        out += [os.path.join(docs, n) for n in sorted(os.listdir(docs)) if n.endswith(".md")]
     for base, dirs, names in os.walk(os.path.join(HERE, "plugin")):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         out += [os.path.join(base, n) for n in sorted(names) if n.endswith(".kt")]
