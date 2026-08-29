@@ -38,7 +38,16 @@ repositories {
 dependencies {
     // 한 방향이다. core 는 이쪽을 모른다.
     implementation(project(":core"))
-    intellijPlatform { intellijIdea(libs.versions.idea.get()) }
+    intellijPlatform {
+        intellijIdea(libs.versions.idea.get())
+        // 답의 마크다운을 **하단 판 안에서** IDE 엔진으로 그린다(머메이드 포함) — 우리가 붓을
+        // 새로 만드는 대신 IDE 것을 얹는다(§0-5 역-불변식). 없는 IDE 도 있으므로 코드는
+        // Throwable 로 감싸고 부분집합 렌더로 떨어진다.
+        bundledPlugin("org.intellij.plugins.markdown")
+        // 고친 파일의 **편집 화면 안에** 변경 막대를 세운다(SimpleLocalLineStatusTracker) —
+        // diff 를 우리가 그리는 대신 IDE 것이 서게 한다. 이 클래스는 vcs.impl 모듈에 있다.
+        bundledModule("intellij.platform.vcs.impl")
+    }
 }
 
 intellijPlatform {

@@ -9,6 +9,17 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <!--
+        답의 마크다운을 하단 판 안에서 IDE 엔진으로 그린다(머메이드 포함). **선택 의존이
+        필요하다**: 컴파일 의존만 두고 이 줄을 빼 두었더니 런타임에 그 플러그인 클래스가 우리
+        플러그인의 클래스로더에 없어 렌더가 조용히 부분집합으로 떨어졌다(샌드박스 실측 —
+        사용자가 "렌더러가 있다면 샵이 출력될 리가 없는데"로 잡았다). 선택인 이유는 마크다운
+        플러그인이 없는 IDE 도 있어서고, 그때는 가벼운 렌더가 그대로 선다.
+    -->
+    <depends optional="true" config-file="magi-markdown.xml">org.intellij.plugins.markdown</depends>
+    <!-- 고친 파일의 편집 화면에 변경 막대를 세운다(SimpleLocalLineStatusTracker, vcs.impl).
+         마크다운과 같은 사유로 선언한다 — 컴파일 의존만으로는 런타임 클래스로더에 안 보인다. -->
+    <depends optional="true" config-file="magi-vcs.xml">com.intellij.modules.vcs</depends>
 
     <!--
         Two windows, and the split is the layout the design doc settles in §5 "어디에 놓나".

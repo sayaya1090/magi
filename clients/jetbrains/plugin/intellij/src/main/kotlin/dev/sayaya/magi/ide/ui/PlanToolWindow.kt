@@ -54,6 +54,7 @@ class PlanToolWindow : ToolWindowFactory {
         }
         val plan = stack(8, 12)
         val work = stack(0, 12)
+        val changes = stack(0, 12)
         val fleet = stack(0, 12)
         val cronPane = stack(0, 12)
         val askedPane = stack(0, 12)
@@ -143,6 +144,8 @@ class PlanToolWindow : ToolWindowFactory {
             add(stale)
             add(Look.gutter("대기·작업"))
             add(work)
+            add(Look.gutter("변경"))
+            add(changes)
             add(Look.gutter("플릿"))
             add(fleet)
             add(Look.gutter("건넨 일"))
@@ -177,6 +180,34 @@ class PlanToolWindow : ToolWindowFactory {
 
         // 스트림이 준 것(계획·컨텍스트·모델)을 그린다 — 데몬 왕복 없음.
         fun refresh() = SwingUtilities.invokeLater {
+            // 「변경」 — 이 대화에서 컴패니언이 만진 파일들(사용자 요구: 파일별 diff 리뷰).
+            // 목록은 셰이퍼의 변경 대장, diff 는 IDE 의 VCS 가 그린다 — 클릭이 문이다.
+            changes.removeAll()
+            val touched = MagiWindows.of(project)?.touchedFiles()
+            if (touched == null) {
+                // 모름과 없음을 가른다 — 옆의 「계획」이 같은 자리에서 그렇게 한다.
+                changes.add(Look.aside("아직 모른다 — 대화 창이 전사에 붙으면 온다"))
+            } else if (touched.isEmpty()) {
+                changes.add(Look.aside("이 대화의 변이 없음"))
+            } else touched.forEach { rel ->
+                changes.add(JBLabel(rel).apply {
+                    border = JBUI.Borders.empty(1, 2)
+                    cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                    toolTipText = "이 파일을 열고 편집 화면에 변경 막대를 세운다 — 막대를 누르면 IDE 인라인 diff"
+                    addMouseListener(object : java.awt.event.MouseAdapter() {
+                        override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                            // diff 는 우리가 안 그린다: 파일을 열고 IDE 라인 트래커를 세우면
+                            // 거터 막대와 인라인 diff 팝업(되돌리기 포함)이 IDE 것으로 선다
+                            // (사용자 교정: 「편집 인터페이스에 바로 그릴 수 있잖아」).
+                            // 실패는 show() 안에서 말한다 — 여기 폴백은 풀드 스레드
+                            // 안의 예외를 못 봐 죽은 코드였다(리뷰 F11).
+                            EditMarkers.show(project, rel)
+                        }
+                    })
+                })
+            }
+            changes.revalidate(); changes.repaint()
+
             plan.removeAll()
             val v = MagiWindows.of(project)
             val steps = v?.plan()

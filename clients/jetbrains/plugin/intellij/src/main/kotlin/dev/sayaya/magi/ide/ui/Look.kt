@@ -4,6 +4,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.editor.colors.EditorFontType
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBLabel
+import dev.sayaya.magi.ide.usecase.Markup
 import com.intellij.ui.components.JBPanel
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
@@ -226,6 +227,24 @@ internal object Look {
         font = JBFont.small().deriveFont(Font.ITALIC)
         foreground = hue
         border = JBUI.Borders.empty(2, 14, 0, 0)
+    }
+
+    /**
+     * 모델 답의 리치 본문 — 마크다운 **원문**을 받아 [Markup.markdown] 이 편 것을 IDE
+     * 글꼴로 그린다. 편 HTML 을 받지 않고 원문을 받는 이유가 있다: 라벨에 남의 글자를 잇는
+     * 자리는 거르는 함수를 거쳐야 하고(소스 글자 시험이 이 규칙을 잰다), 거르기를 콜사이트로
+     * 올리면 새 콜사이트가 생기는 날 그물 밖으로 샌다. 원문은 사실로 남고 이것은 붓이다 —
+     * 제대로 된 렌더(머메이드까지)는 행의 「md ↗」 가 IDE 마크다운 에디터로 연다.
+     */
+    fun rich(md: String): JComponent = javax.swing.JEditorPane(
+        "text/html", "<html><body>" + Markup.markdown(md) + "</body></html>",
+    ).apply {
+        isEditable = false
+        isOpaque = false
+        putClientProperty(javax.swing.JEditorPane.HONOR_DISPLAY_PROPERTIES, true)
+        font = JBFont.regular()
+        foreground = body
+        border = JBUI.Borders.empty(3, 14, 0, 0)
     }
 
     /**

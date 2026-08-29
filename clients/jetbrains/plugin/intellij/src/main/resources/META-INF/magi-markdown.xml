@@ -1,0 +1,7 @@
+<idea-plugin>
+    <!--
+        선택 의존의 짝 파일. 확장은 없다 — 이 파일이 있는 이유는 **클래스로더**다: 이것이
+        붙어야 org.intellij.plugins.markdown 의 클래스가 우리 코드에서 보이고, 없으면
+        RichAnswer 가 NoClassDefFoundError 를 삼켜 조용히 부분집합 렌더로 떨어진다.
+    -->
+</idea-plugin>

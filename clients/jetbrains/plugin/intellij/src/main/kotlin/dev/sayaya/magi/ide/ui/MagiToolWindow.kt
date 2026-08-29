@@ -153,6 +153,10 @@ class MagiToolWindow : ToolWindowFactory {
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
         private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
         private val hint = JBLabel(" ").apply {
+            // 빈 줄이 자리를 먹지 않는다(사용자 실측: "채팅 섹션 아래 여백이 넓은데") —
+            // 알림·힌트는 있을 때만 선다. 나타날 때 판이 한 줄 자라는 것은 감수한다:
+            // 상시 죽은 띠보다 낫다.
+            isVisible = false
             foreground = Look.faint
             border = JBUI.Borders.empty(2, 12, 6, 12)
         }
@@ -223,6 +227,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 증거다(같은 사용자 결정). 다음 성공이 지운다.
          */
         private val notice = JBLabel(" ").apply {
+            isVisible = false // 사유는 hint 쪽 주석 — 빈 줄이 자리를 먹지 않는다
             foreground = Look.error
             border = JBUI.Borders.empty(2, 12, 0, 12)
         }
@@ -545,6 +550,13 @@ class MagiToolWindow : ToolWindowFactory {
          * 주소를 잠깐 들고 있을 뿐이고, 그건 다음 `mcp-attach` 가 정리한다.
          */
         override fun dispose() {
+            // 마크다운 브라우저와 편집 화면 막대는 **주 판**의 것이다 — 고정 탭이 닫힐 때
+            // 놓아 버리면 살아 있는 주 판의 것을 죽인다(리뷰 F5, hand/등록과 같은 함정).
+            if (pinned == null) {
+                RichAnswer.forget()
+                runCatching { EditMarkers.release() }
+            }
+
             // 먼저 세운다. 아래에서 스트림을 닫으면 `ended` 가 도는데, 그때 이미 서 있어야 안 되살아난다.
             closing.set(true)
             // 주 판만 거둔다(리뷰 F1·F2): 등록과 손은 주 판의 것이라, 고정 탭의 dispose 가
@@ -736,10 +748,34 @@ class MagiToolWindow : ToolWindowFactory {
             }
         }
 
+        /**
+         * 이 대화에서 컴패니언이 만진 파일들 — 우측 판 「변경」 구역의 원천.
+         * **전사에 안 붙었으면 null**(모름)이다: 빈 목록으로 답하면 「없다」를 지어낸다.
+         */
+        fun touchedFiles(): List<String>? =
+            if (everBegan) shaper.touchedThisTurn() else null
+
+        /**
+         * 렌더 패널의 열쇠. `msgId` 는 non-null 이라 엘비스가 죽은 가드였고(컴파일러가 이미
+         * 울었다), 빈 문자열이 오는 이벤트들이 **한 열쇠를 공유해** 한 브라우저가 남의 답을
+         * 그릴 자리였다(리뷰 F4).
+         */
+        private fun richKey(r: Row): String =
+            r.msgId.takeIf { it.isNotBlank() } ?: r.at.orEmpty()
+
         private fun redrawLog() {
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {
                 dirty.set(false)
+                // 무거운 렌더는 **최근 답 몇 장**에만. 리스트 앞에서부터 캡을 먹으면 방금 온
+                // 답이 부분집합으로 떨어진다(실측) — 살릴 열쇠를 먼저 정하고 행을 짓는다.
+                val rows0 = shaper.list()
+                // 고정 탭은 무거운 렌더를 안 세운다: 상태가 전역이라 두 판이 서로의 브라우저를
+                // 갈아엎는다(리뷰 F5 — 같은 함정을 hand/등록에서 이미 한 번 겪었다).
+                if (pinned == null) RichAnswer.keepOnly(
+                    rows0.filter { it.who == Who.Agent && RichAnswer.needsRich(it.text) }
+                        .takeLast(RichAnswer.KEEP).map { richKey(it) },
+                )
                 // 바닥 고정은 **바닥에 있던 사람에게만**. 무조건 고정이던 동안, 턴이 도는 중에
                 // 위로 스크롤해 과거를 읽으면 새 이벤트마다 바닥으로 낚아채였다(라이브 실측 —
                 // 지나간 편집을 찾아 올라가는 손이 매번 튕겼다). 떠나 있던 사람의 자리는
@@ -783,7 +819,18 @@ class MagiToolWindow : ToolWindowFactory {
                     val name = if (r.who == Who.User) "사람" else "magi"
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
                     p.add(Look.rowHead(name, hue, marks, clock(r.at)), BorderLayout.NORTH)
-                    p.add(Look.prose(r.text), BorderLayout.CENTER)
+                    if (r.who == Who.Agent) {
+                        // 답은 마크다운으로 온다 — **누르지 않아도** 그려진다(사용자 교정:
+                        // 「일일이 눌러야 하면 불편해서 쓰겠나」). 펜스·표·링크처럼 부분집합
+                        // 렌더가 틀리게 그리는 답만 IDE 마크다운 엔진(머메이드 포함)으로,
+                        // 나머지는 가벼운 부분집합 렌더로 — 브라우저 하나가 프로세스 하나다.
+                        val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
+                            RichAnswer.panel(project, r.text, richKey(r), this@View)
+                        } else null
+                        p.add(rich ?: Look.rich(r.text), BorderLayout.CENTER)
+                    } else {
+                        p.add(Look.prose(r.text), BorderLayout.CENTER)
+                    }
                 }
                 // 생각은 기본 접힘 — 웹이 그렇다. 클릭이 펴고, 펼침은 리드로우를 살아남는다([opened]).
                 Who.Thinking -> {
@@ -848,6 +895,9 @@ class MagiToolWindow : ToolWindowFactory {
                         r.decision?.let {
                             add(it to when (it) { "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint })
                         }
+                        // 본문은 실려 온 말(rationale)이고, 「아무도 안 줬다」는 사실은 마크로
+                        // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.
+                        if (r.silent) add("⋯ 답 없음" to Look.faint)
                     }
                     p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, clock(r.at)),
                         BorderLayout.NORTH)
@@ -1017,8 +1067,16 @@ class MagiToolWindow : ToolWindowFactory {
          * 읽기를 끊었다(사용자 실측). 다음 성공([clearNotice])이 지운다 — 사건 라벨이 사건을
          * 덮는 무늬는 남지만, 여기 서는 것은 실패뿐이라 성공이 실패를 지우는 방향만 있다.
          */
-        private fun report(text: String) = SwingUtilities.invokeLater { notice.text = text }
-        private fun clearNotice() = SwingUtilities.invokeLater { notice.text = " " }
+        private fun report(text: String) = SwingUtilities.invokeLater {
+            notice.text = text
+            notice.isVisible = true
+            notice.parent?.revalidate()
+        }
+        private fun clearNotice() = SwingUtilities.invokeLater {
+            notice.text = " "
+            notice.isVisible = false
+            notice.parent?.revalidate()
+        }
 
         /** 거들기는 연결을 따로 판다 — 모델 호출이 락스텝 연결을 물면 그동안 다른 교환이 선다. */
         private fun assist() = socket()?.let { s -> Assist({ DaemonClient.connect(s) }) }
@@ -1100,6 +1158,8 @@ class MagiToolWindow : ToolWindowFactory {
                     // 보이는 것과 **Tab 이 붙이는 것**이 같아야 한다. 여긴 모델이 지은 글자라
                     // 코드가 섞여 오고, 안 거르면 `<T>` 같은 조각이 태그로 먹혀 사라진다 —
                     // 사람은 짧아진 제안을 보고 Tab 을 누르고, 입력창에는 안 보이던 것이 들어간다.
+                    hint.isVisible = suggestion != null
+                    hint.parent?.revalidate()
                     hint.text = suggestion?.let { "<html><i>제안: ${Markup.text(it)} &nbsp;<b>Tab</b></i></html>" } ?: " "
                 }
             }
@@ -1115,6 +1175,8 @@ class MagiToolWindow : ToolWindowFactory {
         private fun dropSuggestion() {
             suggestion = null
             hint.text = " "
+            hint.isVisible = false
+            hint.parent?.revalidate()
         }
 
         private fun socket() = workspace.socket()

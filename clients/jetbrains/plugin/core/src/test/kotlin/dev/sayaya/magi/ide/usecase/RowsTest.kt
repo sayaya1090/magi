@@ -184,6 +184,24 @@ class RowsTest {
     }
 
     @Test
+    fun `카운슬 평결은 실려 온 말을 버리지 않는다`() {
+        val r = Rows()
+        fun verdict(extra: String) = ev(
+            "council.verdict",
+            """{"round":1,"member":"Melchior","lens":"correctness","decision":"done"$extra}""",
+        )
+        // silent 인데 rationale 이 실려 왔다(라이브 실측 모양) — 말이 이긴다.
+        r.feed(verdict(""","silent":true,"rationale":"작업이 요구를 충족한다""""))
+        assertEquals("작업이 요구를 충족한다", r.list().last().text)
+        // silent 이고 정말 빈 평결 — 그때만 낙하 문구다.
+        r.feed(verdict(""","silent":true"""))
+        assertEquals("답이 없었다", r.list().last().text)
+        // silent 아니고 rationale 도 없으면 빈 본문(지어내지 않는다).
+        r.feed(verdict(""))
+        assertEquals("", r.list().last().text)
+    }
+
+    @Test
     fun `나란히-보기 판정은 결손 쪽으로 접는다 — FlexBool 모양까지`() {
         fun args(extra: String = "") =
             """{"path":"src/a.kt","old":"x","new":"y"$extra}"""

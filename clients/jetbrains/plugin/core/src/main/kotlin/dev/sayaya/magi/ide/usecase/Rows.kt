@@ -53,6 +53,8 @@ data class Row(
     val why: String? = null,
     val keep: String? = null,
     val cite: String? = null,
+    /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
+    val silent: Boolean = false,
     /** 셰이퍼 내부 짝맞춤 열쇠. 화면은 안 읽는다. */
     val msgId: String = "",
     val callId: String = "",
@@ -113,8 +115,9 @@ class Rows {
         context = null
         model = null
         // 디스크 대장도 처음부터 — 세션을 갈아타면 옛 대화의 변이가 새 대화의 첫 드레인에
-        // 실려 나가면 안 된다(리뷰 F2: clear 계약 위반).
+        // 실려 나가면 안 된다(리뷰 F2: clear 계약 위반). 변경 목록도 같은 사유.
         touched.clear()
+        everTouched.clear()
         unknownDisk = false
         broadPending = false
     }
@@ -211,6 +214,7 @@ class Rows {
     class Disk(val paths: List<String>, val broad: Boolean)
 
     private val touched = mutableListOf<String>()
+    private val everTouched = linkedSetOf<String>() // 이 대화에서 만진 파일 — 드레인에 안 비워진다
     private var unknownDisk = false // 경로를 모르는 변이(bash)가 이 턴에 있었다
     private var broadPending = false // …그리고 턴이 끝났다 — 한 번 훑을 때다
 
@@ -241,6 +245,13 @@ class Rows {
         d
     }
 
+    /**
+     * 이 대화에서 컴패니언이 만진 파일들(성공한 edit·write·multiedit, 경로 기준 중복 제거) —
+     * 파일별 diff 리뷰의 목록이다. diff 자체는 IDE 의 VCS 가 그린다(작업트리 대 HEAD):
+     * 우리가 재계산하는 것이 아니라 IDE 가 이미 잘 그리는 것에 문만 단다.
+     */
+    fun touchedThisTurn(): List<String> = synchronized(rows) { everTouched.toList() }
+
     private fun noteDisk(tool: String?, args: String?) {
         when (tool) {
             "edit", "write", "multiedit" -> {
@@ -250,7 +261,7 @@ class Rows {
                 val path = (o?.get("path") as? kotlinx.serialization.json.JsonPrimitive)
                     ?.takeIf { it.isString }?.content
                 // 경로를 못 읽으면 안전 방향은 「모른다」다 — 안 깨우는 것이 아니라 훑는 쪽.
-                if (path.isNullOrBlank()) unknownDisk = true else touched += path
+                if (path.isNullOrBlank()) unknownDisk = true else { touched += path; everTouched += path }
             }
             // bash_output/bash_kill 도 접는다: &-detach 된 백그라운드 프로세스는 툴 결과
             // **이후**에도 쓴다 — 이어지는 턴이 폴링만 하면 신호가 영영 안 선다(리뷰 F6a).
@@ -357,7 +368,14 @@ class Rows {
         val silent = d["silent"]?.jsonPrimitive?.content == "true"
         rows += Row(
             Who.Council,
-            if (silent) "답이 없었다" else d["rationale"]?.jsonPrimitive?.content.orEmpty(),
+            // 실려 온 말은 버리지 않는다(라이브 실측: 사용자가 "왜 다 '답이 없었다'야?" —
+            // silent:true 인데 rationale 이 온전한 평결이 왔고, 셰이퍼가 말을 버리고 낙하
+            // 문구만 그렸다). 코어 정의상 silent 는 "아무도 안 준 평결"이고 그때도 코어가
+            // 사유 문장을 rationale 에 싣는다(llm/council.go) — 그러니 rationale 이 있으면
+            // 그것이 항상 옳은 본문이고, 낙하 문구는 정말 빈 때만이다. 플래그를 잘못 세우는
+            // 생산자가 있어도(데몬 결함 후보로 접수) 이 렌더는 거짓말을 안 한다.
+            d["rationale"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                ?: if (silent) "답이 없었다" else "",
             at = e.ts,
             member = d["member"]?.jsonPrimitive?.content,
             round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
@@ -365,6 +383,7 @@ class Rows {
             lens = d["lens"]?.jsonPrimitive?.content,
             keep = d["keep"]?.jsonPrimitive?.content,
             cite = d["cite"]?.jsonPrimitive?.content,
+            silent = silent,
         )
         return true
     }
