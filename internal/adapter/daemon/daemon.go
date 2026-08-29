@@ -1179,10 +1179,19 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop
 			if k, ok := eng.(ConversationKeeper); ok {
 				metas, kerr := k.SessionsHere(ctx)
 				if kerr == nil && !slices.ContainsFunc(metas, func(m session.SessionMeta) bool { return m.ID == sid }) {
-					if enc.Encode(Response{Err: fmt.Sprintf("no conversation %q in this workspace — `sessions` lists them", sid)}) != nil {
-						return
+					// Off the listing is not yet "not there": the listing is TOP-LEVEL only, and
+					// this same socket advertises child session ids (jobs), whose transcripts are
+					// on disk and readable. So the store is asked second — a session with any
+					// events is real, whoever its parent is — and only an id that is neither
+					// listed nor ever written to is refused. An unborn CHILD (spawned, no events
+					// yet) would land here too; today a spawn's first act is appending, so the
+					// window is the same one the born-lazy current already accepts.
+					if _, known, nerr := tr.NewSince(ctx, sid, 0); nerr == nil && !known {
+						if enc.Encode(Response{Err: fmt.Sprintf("no conversation %q in this workspace — `sessions` lists them", sid)}) != nil {
+							return
+						}
+						continue
 					}
-					continue
 				}
 			}
 			since, note := answerable(ctx, tr, sid, req.Since)

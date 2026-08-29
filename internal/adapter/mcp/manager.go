@@ -148,7 +148,7 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 			m.mu.Unlock()
 			break
 		}
-		heldClient, heldName := held.client, held.name
+		heldClient, heldDoor, heldName := held.client, held.viaDoor, held.name
 		m.mu.Unlock()
 		// A held name is not always a live holder. The lifetime net waits on the client's Done,
 		// which an HTTP transport never closes on its own — nothing there observes the far side —
@@ -160,7 +160,12 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		// probe's own deadline all mean somebody is home, so two LIVE holders still cannot share
 		// a name. One attempt: the retry after a removal is a fresh claim, and whoever raced in
 		// behind the removal is a live claimant this attach must not eat.
-		if attempt == 0 && heldClient != nil {
+		// Only a holder the door itself attached: Detach's law ("the door removes only what it
+		// attached") holds for the probe too, or a dead CONFIG-declared server's name is evicted
+		// and re-claimed door-owned — and a later mcp-detach then removes what the operator
+		// declared, gone until restart. A dead config holder keeps its name; it is the
+		// operator's to take back.
+		if attempt == 0 && heldDoor && heldClient != nil {
 			pctx, pcancel := context.WithTimeout(ctx, mcpProbeTimeout)
 			alive := heldClient.Reachable(pctx)
 			pcancel()

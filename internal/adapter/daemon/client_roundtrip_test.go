@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 	"net"
 	"os"
 	"path/filepath"
@@ -212,5 +213,40 @@ func TestTranscriptRefusesAnInventedConversation(t *testing.T) {
 	// A LISTED conversation still streams (and a clean end is not an error).
 	if err := c.Transcript("s_new", 0, nil, func(event.Event) bool { return true }); err != nil {
 		t.Fatalf("a listed conversation streams: %v", err)
+	}
+}
+
+// childAwareEngine mimics production: the listing is top-level only, but the store knows a child
+// session the moment it has events. The transcript door must serve that id, not refuse it — the
+// same socket advertises it through jobs.
+type childAwareEngine struct{ omniEngine }
+
+func (e *childAwareEngine) NewSince(_ context.Context, sid session.SessionID, _ int64) (int64, bool, error) {
+	if sid == "s_child" {
+		return 3, true, nil // on disk, three events — a subagent's log
+	}
+	return 0, false, nil
+}
+
+func TestTranscriptServesAChildSessionTheListingOmits(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-ch.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	go func() { _ = d.Serve(context.Background(), &childAwareEngine{}) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if err := c.Transcript("s_child", 0, nil, func(event.Event) bool { return true }); err != nil {
+		t.Fatalf("a child session with events on disk must stream, not be refused: %v", err)
 	}
 }

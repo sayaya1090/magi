@@ -517,3 +517,21 @@ func TestADeadHandsNameIsTakenOverByTheNextAttach(t *testing.T) {
 		t.Error("the new hand's tools are not in the registry")
 	}
 }
+
+// The probe's law is Detach's law: the door may take over only what the door attached. A dead
+// CONFIG-declared holder keeps its name — evicting it would let a later mcp-detach remove what
+// the operator declared, gone until restart.
+func TestADeadConfigServersNameIsNotTakenByTheDoor(t *testing.T) {
+	cfg := mcpHTTP(t, "declared")
+	m := NewManager(&namesSink{})
+	defer m.Close()
+	if err := m.AddHTTP(context.Background(), "ppt", cfg.URL, nil); err != nil {
+		t.Fatalf("config add: %v", err)
+	}
+	cfg.Close() // the declared server dies without anything detaching it
+	claimant := mcpHTTP(t, "new")
+	defer claimant.Close()
+	if _, err := m.Attach(context.Background(), "ppt", claimant.URL, nil); err == nil || !strings.Contains(err.Error(), "already attached") {
+		t.Fatalf("the door took a config server's name: %v", err)
+	}
+}
