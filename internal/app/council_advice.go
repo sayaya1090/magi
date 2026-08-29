@@ -295,7 +295,12 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// The loop reads this at its next step and ends the turn. Signalled rather than returned
 		// because the tool result must still reach the transcript: the agent's last word should be
 		// its own, not a truncated call.
-		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish = true })
+		// The acceptance clears the reason as it sets the finish: a cap's words are about the
+		// declaration this supersedes. Cleared HERE, at the producer, because three drains read
+		// this struct (applyToolControl at the head of every step, finishDeclared,
+		// takeTurnControl) and a fix in one of them is dead code the moment another drains
+		// first — which is what happened to the first attempt.
+		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish, tc.unverifiedReason = true, "" })
 		return "The council accepts that the task is finished. Your turn ends here — write your final " +
 			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil

@@ -417,7 +417,10 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	// abstained also answers, so a real abstain could be overwritten by an unrelated verdict that
 	// happened to share the lens. One test, used by both fallback passes.
 	unfilled := func(i int) bool {
-		return out[i].Rationale == panelUnanswered
+		// Silent is the precise form of this question: set on every placeholder, cleared the
+		// moment somebody's verdict lands. The sentence was spoofable — a member whose own
+		// rationale opened with it had their vote overwritten by an unrelated one.
+		return out[i].Silent
 	}
 	take := func(i int, j int) {
 		v := vs[j]

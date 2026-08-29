@@ -1,7 +1,9 @@
 package app
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -12,11 +14,36 @@ func preexistingDirtPaths(st GitState, err error) []string {
 	if err != nil {
 		return nil
 	}
+	// Modified paths first, untracked after: the banner's list is capped, and a tree full of
+	// untracked scratch would otherwise push the changes that actually matter past the cut. Git
+	// happens to emit them in this order already; ordering them here makes it a property of this
+	// function rather than of git's output.
 	out := make([]string, 0, len(st.Changes))
 	for _, c := range st.Changes {
-		out = append(out, c.Path)
+		if c.Kind != "untracked" {
+			out = append(out, c.Path)
+		}
+	}
+	for _, c := range st.Changes {
+		if c.Kind == "untracked" {
+			out = append(out, c.Path)
+		}
 	}
 	return out
+}
+
+// gitProbeBound matches the console's own bound on the same command.
+const gitProbeBound = 10 * time.Second
+
+// dirtyBeforeTurn is the turn-start probe. Bounded, because this runs on the hottest path there
+// is, before anything is drawn: a status over a tree with a hundred thousand untracked files (or
+// one waiting on index.lock, or a network mount) is a walk, not an answer, and an unbounded one
+// wedges the turn indistinguishably from a stuck model. The console pane bounds its own call for
+// exactly this reason.
+func (a *App) dirtyBeforeTurn(ctx context.Context, workdir string) []string {
+	pctx, cancel := context.WithTimeout(ctx, gitProbeBound)
+	defer cancel()
+	return preexistingDirtPaths(a.GitFacts(pctx, workdir))
 }
 
 // preexistingDirtBanner renders the disclaimer the council reads beside the turn's evidence.

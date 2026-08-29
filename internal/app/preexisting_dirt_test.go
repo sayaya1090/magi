@@ -34,3 +34,18 @@ func TestPreexistingDirtPathsSwallowsNonCheckouts(t *testing.T) {
 		t.Fatalf("want both paths, got %v", got)
 	}
 }
+
+// The banner's capped list keeps the modified paths: a tree full of untracked scratch would
+// otherwise push what actually matters past the cut.
+func TestModifiedPathsComeBeforeUntracked(t *testing.T) {
+	st := GitState{Changes: []GitChange{
+		{Path: "scratch1.txt", Kind: "untracked"},
+		{Path: "README.md", Kind: "unstaged"},
+		{Path: "scratch2.txt", Kind: "untracked"},
+		{Path: "main.go", Kind: "staged"},
+	}}
+	got := preexistingDirtPaths(st, nil)
+	if len(got) != 4 || got[0] != "README.md" || got[1] != "main.go" {
+		t.Fatalf("modified paths must lead, got %v", got)
+	}
+}

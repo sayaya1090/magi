@@ -541,3 +541,24 @@ func TestThePanelRetryAsksForThePanelShape(t *testing.T) {
 		t.Errorf("the single-member reminder must be unchanged:\n%s", solo)
 	}
 }
+
+// A member whose own rationale opens with the placeholder sentence still keeps their vote: the
+// "has anybody landed here" test is the Silent flag, not a string somebody's model can echo.
+func TestAMemberEchoingThePlaceholderKeepsTheirVote(t *testing.T) {
+	p := &panelProvider{reply: func(int) string {
+		return `{"verdicts":[{"member":"Melchior","lens":"correctness","decision":"done","rationale":"` +
+			panelUnanswered + ` — or so it looked, but I did read it"},` +
+			`{"member":"nobody-by-that-name","lens":"unknown","decision":"continue","rationale":"an unrelated verdict"}]}`
+	}}
+	c := &Council{model: "m", resolve: func(string) port.LLMProvider { return p }}
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{
+		Task: "ship it", Actions: "wrote hello.txt", Members: council.DefaultMembers()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range d.Verdicts {
+		if v.Member == "Melchior" && v.Decision != council.Done {
+			t.Fatalf("Melchior's own done was overwritten with %q (%q)", v.Decision, v.Rationale)
+		}
+	}
+}

@@ -233,7 +233,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// for a consumer that does not exist is a git status per turn nobody reads.
 	var preDirt []string
 	if a.cfg.Council != nil {
-		preDirt = preexistingDirtPaths(a.GitFacts(ctx, s.Workdir))
+		preDirt = a.dirtyBeforeTurn(ctx, s.Workdir)
 	}
 	a.mu.Lock()
 	st := a.stateLocked(sid)

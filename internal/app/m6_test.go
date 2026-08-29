@@ -216,3 +216,29 @@ func TestCompactionBoundarySnapsToAMessageSeam(t *testing.T) {
 		t.Fatalf("raising folds the message whole, got %d", got)
 	}
 }
+
+// A fold that reclaims nothing is not a fold. The snapped boundary can land on the previous
+// compaction's own boundary — and truncateAt then drops that compaction event too, so the
+// summariser re-reads the same raw history, the new snapshot keeps exactly what the old one kept,
+// and the context comes back larger by one summary. compactNow saying "true" there made the
+// overflow retry do it again, three times, each with a summariser call over the whole log.
+func TestAFoldThatReclaimsNothingIsRefused(t *testing.T) {
+	mk := func(seq int64, typ event.Type, data any) event.Event {
+		b, _ := json.Marshal(data)
+		return event.Event{Seq: seq, Type: typ, Data: b}
+	}
+	evs := []event.Event{
+		mk(1, event.TypePromptSubmitted, event.PromptSubmittedData{MessageID: "u1"}),
+		mk(2, event.TypeCompaction, event.CompactionData{Summary: "S1", ReplacesUpToSeq: 10}),
+	}
+	if got := lastCompactionBoundary(evs); got != 10 {
+		t.Fatalf("the floor a new fold must beat is 10, got %d", got)
+	}
+	evs = append(evs, mk(3, event.TypeCompaction, event.CompactionData{Summary: "S2", ReplacesUpToSeq: 4}))
+	if got := lastCompactionBoundary(evs); got != 10 {
+		t.Fatalf("the HIGHEST boundary is the floor, got %d", got)
+	}
+	if got := lastCompactionBoundary(nil); got != 0 {
+		t.Fatalf("a log with no fold has no floor, got %d", got)
+	}
+}

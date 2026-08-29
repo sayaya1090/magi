@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1062,11 +1063,42 @@ func canonicalArgs(raw json.RawMessage) string {
 	if err := dec.Decode(&v); err != nil {
 		return string(raw)
 	}
+	// Decode stops at the first value where Unmarshal refused trailing bytes — keep refusing, or
+	// two different payloads share one canonical form.
+	if dec.More() {
+		return string(raw)
+	}
+	v = canonNumbers(v)
 	b, err := json.Marshal(v) // Go marshals map keys in sorted order
 	if err != nil {
 		return string(raw)
 	}
 	return string(b)
+}
+
+// canonNumbers folds every integral json.Number to its integer spelling, so 540 and 540.0 — which
+// a model sends interchangeably, as tool_outcome already records — stay ONE fingerprint, while
+// integers past 2^53 keep the identity float64 was collapsing.
+func canonNumbers(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, e := range t {
+			t[k] = canonNumbers(e)
+		}
+		return t
+	case []any:
+		for i, e := range t {
+			t[i] = canonNumbers(e)
+		}
+		return t
+	case json.Number:
+		if f, err := t.Float64(); err == nil && f == math.Trunc(f) && math.Abs(f) < 1<<53 {
+			return json.Number(strconv.FormatInt(int64(f), 10))
+		}
+		return t
+	default:
+		return v
+	}
 }
 
 // guardArgs canonicalizes a call's args for the loop-guard fingerprint. It is

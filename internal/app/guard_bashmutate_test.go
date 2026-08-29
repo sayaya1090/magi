@@ -143,3 +143,22 @@ func TestCanonicalArgsKeepsBigIntegersApart(t *testing.T) {
 		t.Fatalf("two different calls share one canonical form: %q", a)
 	}
 }
+
+// 540 and 540.0 are one call, not two. Fixing the 2^53 collapse with json.Number also stopped
+// numerically equal literals from collapsing — which a model alternates freely, so the repeat
+// count was being laundered by a spelling.
+func TestCanonicalArgsFoldsEqualNumberSpellings(t *testing.T) {
+	if a, b := canonicalArgs([]byte(`{"offset":540}`)), canonicalArgs([]byte(`{"offset":540.0}`)); a != b {
+		t.Errorf("540 and 540.0 fingerprint differently: %q vs %q", a, b)
+	}
+	if a, b := canonicalArgs([]byte(`{"n":100}`)), canonicalArgs([]byte(`{"n":1e2}`)); a != b {
+		t.Errorf("100 and 1e2 fingerprint differently: %q vs %q", a, b)
+	}
+	if a, b := canonicalArgs([]byte(`{"n":9007199254740993}`)), canonicalArgs([]byte(`{"n":9007199254740992}`)); a == b {
+		t.Errorf("two different big integers still share one canonical form: %q", a)
+	}
+	// Trailing bytes are still a refusal, not a silently accepted prefix.
+	if got := canonicalArgs([]byte(`{"a":1} {"b":2}`)); got != `{"a":1} {"b":2}` {
+		t.Errorf("a payload with trailing bytes must not canonicalise to its prefix, got %q", got)
+	}
+}

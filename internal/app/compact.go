@@ -180,6 +180,15 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 			return false
 		}
 	}
+	// A fold must actually fold. The snap can land on (or below) the previous compaction's own
+	// boundary, and then truncateAt drops that compaction event too: the summariser is handed the
+	// same raw pre-fold history again, the new snapshot keeps exactly what the old one kept, and
+	// the context comes back LARGER by one summary. compactNow returning true then reads as a
+	// successful compaction, so the overflow retry does it again — three rounds, three summariser
+	// calls over the whole history, nothing reclaimed.
+	if snapped <= lastCompactionBoundary(evs) {
+		return false
+	}
 	boundary = snapped
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
@@ -361,9 +370,10 @@ func shardPath(workdir string, args json.RawMessage) string {
 // message's last part, repeating until no message is split. Used only when lowering reached
 // zero — it folds MORE than asked, never less than whole messages.
 func raiseToMessageSeam(evs []event.Event, boundary int64) int64 {
+	spans := messageSpans(evs)
 	for {
 		moved := false
-		for _, sp := range messageSpans(evs) {
+		for _, sp := range spans {
 			if sp.first <= boundary && boundary < sp.last {
 				boundary = sp.last
 				moved = true
@@ -392,6 +402,22 @@ func snapToMessageSeam(evs []event.Event, boundary int64) int64 {
 			return boundary
 		}
 	}
+}
+
+// lastCompactionBoundary is the seq the newest compaction already replaced up to — the floor a
+// new fold has to beat to reclaim anything at all.
+func lastCompactionBoundary(evs []event.Event) int64 {
+	var last int64
+	for _, e := range evs {
+		if e.Type != event.TypeCompaction {
+			continue
+		}
+		var d event.CompactionData
+		if json.Unmarshal(e.Data, &d) == nil && d.ReplacesUpToSeq > last {
+			last = d.ReplacesUpToSeq
+		}
+	}
+	return last
 }
 
 // span is one message's first and last part seq; messageSpans indexes them for the seam walks.
