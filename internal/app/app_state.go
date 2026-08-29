@@ -170,6 +170,11 @@ type sessionState struct {
 	// "your newest request runs next" over the top of the request it had just discarded.
 	// Nil means no cancel is in flight; empty-but-non-nil means a cancel with nothing to clear.
 	cancelSweep map[string]bool
+	// bornWait is closed when the in-flight session.created append (bear) finishes. A second
+	// event racing the first through bornStore used to find born already nil, sail past, and win
+	// the store's lock — landing before created and failing "first append must include
+	// session.created" for a perfectly legitimate append.
+	bornWait chan struct{}
 	// liveTurnTask is the task the loop is CURRENTLY answering, kept where the council tool can read
 	// it. The council recomputes the task from the transcript, and a redirect interjection masks its
 	// own prompt from that view — so after a redirect the council judged against the ABANDONED

@@ -32,13 +32,33 @@ func (a *App) appendFact(ctx context.Context, sid session.SessionID, typ event.T
 func (a *App) bear(ctx context.Context, sid session.SessionID) error {
 	a.mu.Lock()
 	st, ok := a.stateIf(sid)
-	if !ok || st.born == nil {
+	if !ok {
 		a.mu.Unlock()
+		return nil
+	}
+	if st.born == nil {
+		// Somebody else is mid-bear (or the session is long born). Waiting here is what keeps a
+		// second event from overtaking the created append inside the store.
+		wait := st.bornWait
+		a.mu.Unlock()
+		if wait != nil {
+			<-wait
+		}
 		return nil
 	}
 	born := st.born
 	st.born = nil
+	flight := make(chan struct{})
+	st.bornWait = flight
 	a.mu.Unlock()
+	defer func() {
+		a.mu.Lock()
+		if st, ok := a.stateIf(sid); ok && st.bornWait == flight {
+			st.bornWait = nil
+		}
+		a.mu.Unlock()
+		close(flight)
+	}()
 
 	ev := event.Event{SessionID: sid, Type: event.TypeSessionCreated, Actor: born.actor,
 		TS: born.at, Data: born.data}

@@ -16,6 +16,7 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/store/jsonl"
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/bus"
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -401,3 +402,40 @@ func TestDraftPRWithoutAPlatformSaysSo(t *testing.T) {
 }
 
 var _ port.LLMProvider = surfRedirectedLLM{} // the fake must stay a provider
+
+// Two events racing to be a session's first: the loser used to sail past a cleared born, win the
+// store's lock, and fail "first append must include session.created" — a legitimate append lost
+// to a window. bear holds a flight now, and the second event waits it out.
+func TestConcurrentFirstAppendsBothLand(t *testing.T) {
+	a := newTestApp(t)
+	ctx := context.Background()
+	for i := 0; i < 60; i++ {
+		sid, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(),
+			Actor: event.Actor{Kind: event.ActorUser, ID: "cli"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		errs := make(chan error, 2)
+		go func() {
+			d, _ := json.Marshal(event.LabelsChangedData{Labels: []string{"a"}})
+			errs <- a.appendFact(ctx, sid, event.TypeLabelsChanged, surfAgent(), d)
+		}()
+		go func() {
+			d, _ := json.Marshal(event.LabelsChangedData{Labels: []string{"b"}})
+			errs <- a.appendFact(ctx, sid, event.TypeLabelsChanged, surfAgent(), d)
+		}()
+		if e1, e2 := <-errs, <-errs; e1 != nil || e2 != nil {
+			t.Fatalf("round %d: a legitimate append lost the birth race: %v / %v", i, e1, e2)
+		}
+		evs, _ := a.store.Read(ctx, sid, 0)
+		created := 0
+		for _, e := range evs {
+			if e.Type == event.TypeSessionCreated {
+				created++
+			}
+		}
+		if created != 1 || len(evs) != 3 {
+			t.Fatalf("round %d: one birth, then both events: created=%d total=%d", i, created, len(evs))
+		}
+	}
+}

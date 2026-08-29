@@ -70,6 +70,13 @@ type pushState struct {
 	// What each companion was doing when it was last looked at, so the watcher can notice a change
 	// rather than re-announce the same block every few seconds.
 	was map[string]fleet.State
+	// agent and addedAt preserve what storedSub carries per endpoint: the browser's own
+	// description and when it subscribed. They lived only in the write path before, so any later
+	// save — a Gone cleanup above all — rewrote Added to now and wiped Agent, which is the field
+	// a person uses to tell which one is the phone.
+	agent   map[string]string
+	addedAt map[string]string
+
 	// Which handoffs have already been reported as answered, by asker+receiver+request. A handoff's
 	// answer is the last thing the receiver said while idle, so it stays readable for as long as
 	// the receiver stays idle — announcing on "there is an answer" would repeat it every tick.
@@ -123,13 +130,15 @@ func newPush(cfgDir string) (*pushState, error) {
 	}
 
 	p := &pushState{
-		http: &http.Client{Timeout: 5 * time.Minute, Transport: &http.Transport{DialContext: safePushDialer()}},
-		keys: keys,
-		file: filepath.Join(cfgDir, "push-subscriptions.json"),
-		subs: map[string]webpush.Subscription{},
-		who:  map[string]string{},
-		was:  map[string]fleet.State{},
-		told: map[string]bool{},
+		http:    &http.Client{Timeout: 5 * time.Minute, Transport: &http.Transport{DialContext: safePushDialer()}},
+		keys:    keys,
+		file:    filepath.Join(cfgDir, "push-subscriptions.json"),
+		subs:    map[string]webpush.Subscription{},
+		who:     map[string]string{},
+		agent:   map[string]string{},
+		addedAt: map[string]string{},
+		was:     map[string]fleet.State{},
+		told:    map[string]bool{},
 	}
 	p.load()
 	return p, nil
@@ -155,15 +164,22 @@ func (p *pushState) load() {
 	for _, s := range list {
 		p.subs[s.Endpoint] = s.Subscription
 		p.who[s.Endpoint] = s.Who
+		p.agent[s.Endpoint] = s.Agent
+		p.addedAt[s.Endpoint] = s.Added
 	}
 }
 
-// saveLocked writes the store. Callers hold p.mu.
-func (p *pushState) saveLocked(agents map[string]string) {
+// saveLocked writes the store. Callers hold p.mu. Every field comes from the maps, so a save
+// triggered by ONE endpoint's change cannot rewrite what the others said about themselves.
+func (p *pushState) saveLocked() {
 	list := make([]storedSub, 0, len(p.subs))
 	for _, s := range p.subs {
-		list = append(list, storedSub{Subscription: s, Added: time.Now().UTC().Format(time.RFC3339),
-			Agent: agents[s.Endpoint], Who: p.who[s.Endpoint]})
+		added := p.addedAt[s.Endpoint]
+		if added == "" {
+			added = time.Now().UTC().Format(time.RFC3339)
+		}
+		list = append(list, storedSub{Subscription: s, Added: added,
+			Agent: p.agent[s.Endpoint], Who: p.who[s.Endpoint]})
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].Endpoint < list[j].Endpoint })
 	b, err := json.MarshalIndent(list, "", "  ")
@@ -227,14 +243,28 @@ func (s *server) push(w http.ResponseWriter, r *http.Request) {
 			}
 			delete(p.subs, sub.Endpoint)
 			delete(p.who, sub.Endpoint)
+			delete(p.agent, sub.Endpoint)
+			delete(p.addedAt, sub.Endpoint)
 		} else {
+			// (4) Overwrite is gated like delete: an endpoint is a credential, not a secret, and
+			// without this anyone with read access could re-register somebody else's subscription
+			// under their own name — killing the owner's notifications silently.
+			if who := s.whoFrom(r); s.policy.Configured() {
+				if owner, held := p.who[sub.Endpoint]; held && owner != who {
+					p.mu.Unlock()
+					http.Error(w, "that subscription is not yours to replace", http.StatusForbidden)
+					return
+				}
+			}
 			p.subs[sub.Endpoint] = sub
 			// Recorded on every subscribe, not only the first: the same browser re-subscribes when
 			// its endpoint rotates, and a stale name there would be a scope that outlived the
 			// person it was granted to.
 			p.who[sub.Endpoint] = s.whoFrom(r)
+			p.agent[sub.Endpoint] = text.Clip(r.UserAgent(), 120)
+			p.addedAt[sub.Endpoint] = time.Now().UTC().Format(time.RFC3339)
 		}
-		p.saveLocked(map[string]string{sub.Endpoint: text.Clip(r.UserAgent(), 120)})
+		p.saveLocked()
 		p.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	default:
@@ -274,15 +304,14 @@ func (s *server) watch(ctx context.Context, every time.Duration) {
 		}
 		p := s.pushes
 		p.mu.Lock()
-		news := newlyWaiting(p.was, list)
-		// A companion that has just stopped working is the moment a handoff it was given can have an
-		// answer: there is no reply channel, and the answer IS the last thing it said once it goes
-		// quiet. Checked only on that edge, because reading it means replaying transcripts — the
-		// cost /handoffs exists as its own endpoint to keep off the fleet poll.
-		settled := justSettled(list, p.was)
+		news, settled := pushEdges(p, list)
 		any := len(p.subs) > 0
 		p.mu.Unlock()
 		if first {
+			// And the answers already given are primed as told: the settle edge works after a
+			// restart now, and without this one replay every handoff answered last week would
+			// buzz again the first time its receiver went idle.
+			s.primeTold(ctx)
 			first = false
 			continue
 		}
@@ -295,6 +324,40 @@ func (s *server) watch(ctx context.Context, every time.Duration) {
 			s.notifyAnswers(ctx, settled)
 		}
 	}
+}
+
+// primeTold marks every already-answered handoff as told, without notifying. Run once on the
+// watcher's first pass: told is memory-only, and a restarted console otherwise re-announces the
+// whole history the first time each receiver settles.
+func (s *server) primeTold(ctx context.Context) {
+	list, err := fleet.Handoffs(ctx, s.reader, s.cfgDir, "", &s.fleetCache)
+	if err != nil {
+		return
+	}
+	p := s.pushes
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, h := range list {
+		if h.Answer != "" {
+			p.told[h.From+"\x00"+h.To+"\x00"+h.Request] = true
+		}
+	}
+}
+
+// pushEdges reads both edges off one tick, in the one order that works: settled FIRST, because
+// newlyWaiting updates `was` in place and a settle read after it compares every companion against
+// itself. The production loop had them reversed from the day the feature landed — its unit test
+// called the two functions in the right order, so the test was green while the notification had
+// never fired once. One function now, shared by the loop and the test, so the order cannot fork
+// again. Caller holds p.mu.
+func pushEdges(p *pushState, list []fleet.Agent) (news, settled []fleet.Agent) {
+	// A companion that has just stopped working is the moment a handoff it was given can have an
+	// answer: there is no reply channel, and the answer IS the last thing it said once it goes
+	// quiet. Checked only on that edge, because reading it means replaying transcripts — the
+	// cost /handoffs exists as its own endpoint to keep off the fleet poll.
+	settled = justSettled(list, p.was)
+	news = newlyWaiting(p.was, list)
+	return news, settled
 }
 
 // justSettled names the companions that were working or waiting a moment ago and are now idle.
@@ -451,7 +514,10 @@ func (s *server) send(body []byte, subs []webpush.Subscription) {
 		case err == webpush.Gone:
 			s.pushes.mu.Lock()
 			delete(s.pushes.subs, sub.Endpoint)
-			s.pushes.saveLocked(nil)
+			delete(s.pushes.who, sub.Endpoint)
+			delete(s.pushes.agent, sub.Endpoint)
+			delete(s.pushes.addedAt, sub.Endpoint)
+			s.pushes.saveLocked()
 			s.pushes.mu.Unlock()
 		default:
 			log.Printf("push: %v", err)

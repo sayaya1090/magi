@@ -464,6 +464,8 @@ type server struct {
 		when time.Time
 		list []fleet.Agent
 		done bool
+
+		fetching bool
 	}
 
 	// Notifications, or nil when the key could not be read. Nil is a working console without them

@@ -183,11 +183,21 @@ func (s *server) peerFleet(ctx context.Context) []fleet.Agent {
 		return nil
 	}
 	s.peerAt.mu.Lock()
-	if time.Since(s.peerAt.when) < peerEvery && s.peerAt.done {
-		list := s.peerAt.list
+	fresh := time.Since(s.peerAt.when) < peerEvery && s.peerAt.done
+	if fresh || s.peerAt.fetching {
+		// Fresh, or somebody is already out asking: serve what we have. One fetcher at a time is
+		// what makes "a hundred viewers cost what one costs" true in the stale window too — the
+		// check-then-fetch used to drop the lock, so every tick that landed while a slow peer
+		// took its four seconds launched a fan-out of its own, and a dead peer stalled every
+		// live transcript frame behind the synchronous refresh.
+		list, done := s.peerAt.list, s.peerAt.done
 		s.peerAt.mu.Unlock()
-		return list
+		if fresh || done {
+			return list
+		}
+		return nil // very first fetch still in flight: one empty frame beats a four-second stall
 	}
+	s.peerAt.fetching = true
 	s.peerAt.mu.Unlock()
 
 	var out []fleet.Agent
@@ -199,7 +209,7 @@ func (s *server) peerFleet(ctx context.Context) []fleet.Agent {
 		out = append(out, r.List...)
 	}
 	s.peerAt.mu.Lock()
-	s.peerAt.list, s.peerAt.when, s.peerAt.done = out, time.Now(), true
+	s.peerAt.list, s.peerAt.when, s.peerAt.done, s.peerAt.fetching = out, time.Now(), true, false
 	s.peerAt.mu.Unlock()
 	return out
 }
