@@ -69,7 +69,7 @@ class CompanionTest {
     @Test
     fun `플릿은 행으로 온다 — 목격담과 실측이 갈린 채`() {
         val fake = FakeDaemon(listOf(
-            """{"ok":true,"roster":[{"socket":"/a.sock","name":"mel","role":"lead","state":"waiting","workdir":"/w","session":"s_7","live":true},{"socket":"/b.sock","name":"cas","state":"idle","sighting":true,"ageSeconds":42}]}""",
+            """{"ok":true,"roster":[{"socket":"/a.sock","name":"mel","role":"lead","state":"waiting","workdir":"/w","session":"s_7","live":true,"pid":314,"started":"2026-08-29T03:00:00Z"},{"socket":"/b.sock","name":"cas","state":"idle","sighting":true,"ageSeconds":42,"by":"pk_abc"}]}""",
         ))
         fake.start()
         val r = DaemonClient.connect(fake.path).use { Companion(it, "s_1").roster() }
@@ -79,6 +79,8 @@ class CompanionTest {
         assertEquals("waiting", rows[0].state)
         assertEquals("s_7", rows[0].session, "이 머신의 행은 지금 대화를 싣는다 — transcript 로 한 왕복에 붙는 열쇠")
         assertTrue(rows[1].sighting && rows[1].ageSeconds == 42L, "목격담은 나이와 함께 흐리게 그릴 갈래다")
+        assertEquals(314, rows[0].pid, "실측 행의 기록 사실이 문을 거쳐도 손실 없이 온다")
+        assertEquals("pk_abc", rows[1].by, "목격담의 서명 주인 — 신뢰 등급의 열쇠")
         assertNull(rows[1].session, "목격담엔 세션이 없다 — 머신 밖 구독은 불가")
     }
 

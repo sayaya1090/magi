@@ -100,6 +100,12 @@ data class RosterRow(
     val account: String? = null,
     val state: String? = null,
     val version: String? = null,
+    /** 실측 행의 기록 사실 셋 — 웹이 publish 기록에서 직접 읽던 것이라 문 경유에도 손실 0. */
+    val pid: Int = 0,
+    val addr: String? = null,
+    val started: String? = null,
+    /** 목격담에 서명한 머신의 공개키. 신뢰 등급은 소비자의 몫이다. */
+    val by: String? = null,
     val can: Int = 0,
     val does: List<String>? = null,
     val waiting: Int = 0,
