@@ -170,7 +170,8 @@ unborn 세션 상태의 데몬 수명 내 완만한 누적 · notifyAnswers의 p
 재조립 전부에 같은 값이 탑니다. 뷰어는 절대 재계산하지 않습니다. 그래서 범위도 계약입니다:
 diff가 실리는 것은 **old/new 치환과 write**뿐이고, 앵커 편집({at,to} — 지워질 줄이 인자에 없음)·
 replaceAll(한 번의 diff가 개수를 속임)·multiedit은 **부재**로 답해 인자 뷰로 낙하합니다 — 못
-만드는 diff를 지어내는 화면이 최악이므로. 바이트 캡 64KB(잘리면 잘렸다고 말함). write의 diff는 물어보는 시점의 **파일 실제 내용 대비**입니다 — 한
+만드는 diff를 지어내는 화면이 최악이므로. 바이트 캡 64KB(잘리면 잘렸다고 말함). write의
+diff는 물어보는 시점의 **파일 실제 내용 대비**입니다 — 한
 줄 추가는 한 줄 추가로 읽히고, 아직 없는 파일만 전량 추가로 보입니다(그게 그 파일의 진실이라).
 
 **transcript 커서는 믿어도 됩니다.** seq는 컴팩션을 살아 넘습니다(스냅샷이 upToSeq를 물려받고
@@ -193,7 +194,11 @@ seq == 0 이벤트를 버려야** 합니다: 그들이 알리는 것은 전부 �
 1. **발견**: 설정 디렉토리의 `daemon-*.sock` 글롭, 또는 아무 산 컴패니언의 `roster` 문.
    워크스페이스를 아는 클라이언트(IDE)는 소켓 이름을 유도하고(WorkspaceKey — 골든이 지킴),
    없으면 띄웁니다.
-2. **악수**: `about` — 응답의 `caps`는 이 데몬이 답하는 문의 명단입니다: `handshake`·`roster`는 항상 있고(빌드 수준), 나머지는 엔진-게이트라 없을 수 있습니다(`transcript`·`sessions`·`session-new`·`cron`·`job-kill`·`tool-servers`). 모든 빌드가 말하는 기본 동사들(submit·steer·status…)은 광고에 없고, unknown-method 거절문이 이 데몬이 받는 전부를 알려 줍니다. 없는 문을 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
+2. **악수**: `about` — 응답의 `caps`는 이 데몬이 답하는 문의 명단입니다: `handshake`·`roster`는
+   항상 있고(빌드 수준), 나머지는 엔진-게이트라 없을 수 있습니다(`transcript`·`sessions`·
+   `session-new`·`cron`·`job-kill`·`tool-servers`). 모든 빌드가 말하는 기본 동사들(submit·
+   steer·status…)은 광고에 없고, unknown-method 거절문이 이 데몬이 받는 전부를 알려 줍니다.
+   없는 문을 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
 3. **구독**: 대화는 `transcript`(리플레이+라이브, 커서 거부 시 restart 콜백), 목록 폴은
    `roster`, 피커는 `sessions`, 계기판은 `cron`·`jobs`.
 4. **행동**: 조종(스티어·인터럽트·답)·파일·git은 그 컴패니언 자기 소켓의 메서드로, 도구를

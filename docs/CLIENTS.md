@@ -78,7 +78,10 @@ daemon, spawns one if absent, attaches if present. Being a JVM it cannot open th
 **third viewer** receives the conversation through the transcript door; the **hand** points the
 other way — the plugin hosts an MCP server of its own and registers it with `mcp-attach`, and the
 agent then reads and edits open buffers through `mcp__ide__*` tools. Nothing is written to config
-by attaching, and a closing IDE detaches what it brought. A name whose holder died without detaching (the process was killed) does not stay occupied: the next attach probes the holder and takes over a dead one, while a live holder still refuses the second claimant. The socket-name rule and the tool-name
+by attaching, and a closing IDE detaches what it brought. A name whose holder died without
+detaching (the process was killed) does not stay occupied: the next attach probes the holder and
+takes over a dead one, while a live holder still refuses the second claimant. The socket-name
+rule and the tool-name
 rule are held on **both sides (Go and Kotlin) by the same golden files**, so a one-character drift
 cannot read as "there is no daemon here".
 
@@ -222,7 +225,12 @@ contracts this page already states.
 1. **Discovery**: glob `daemon-*.sock` in the config directory, or ask any live companion's
    `roster` door. A client that knows its workspace (the IDE) derives the socket name
    (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
-2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake` and `roster` are always there (build-level), the rest are engine-gated and may be absent (`transcript`, `sessions`, `session-new`, `cron`, `job-kill`, `tool-servers`). The base verbs every build speaks (submit, steer, status, …) are not advertised; the unknown-method refusal names everything this daemon accepts. Read the advertisement and call; never call an absent door and read the refusal.
+2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake`
+   and `roster` are always there (build-level), the rest are engine-gated and may be absent
+   (`transcript`, `sessions`, `session-new`, `cron`, `job-kill`, `tool-servers`). The base verbs
+   every build speaks (submit, steer, status, …) are not advertised; the unknown-method refusal
+   names everything this daemon accepts. Read the advertisement and call; never call an absent
+   door and read the refusal.
 3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
    on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
    `cron` and `jobs`.
