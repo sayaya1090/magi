@@ -276,7 +276,8 @@ contracts this page already states.
    (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
 2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake`
    and `roster` are always there (build-level), the rest are engine-gated and may be absent
-   (`transcript`, `sessions`, `session-new`, `cron`, `job-kill`, `tool-servers`). The base verbs
+   (`transcript`, `sessions`, `session-new`, `cron`, `job-kill`, `tool-servers`,
+   `settings`). The base verbs
    every build speaks (submit, steer, status, …) are not advertised; the unknown-method refusal
    names everything this daemon accepts. Read the advertisement and call; never call an absent
    door and read the refusal.

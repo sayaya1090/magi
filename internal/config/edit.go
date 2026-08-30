@@ -135,6 +135,27 @@ func setKey(path, section, key, value string, quote bool) error {
 	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value, quote) })
 }
 
+// StripControl removes the control bytes that a %q-rendered TOML value cannot survive: \a and \v
+// become escapes BurntSushi refuses, so a pasted template with one in it writes a config.toml that
+// will not re-parse — and a broken GLOBAL file stops magi starting for every workspace on the
+// machine. Tabs and newlines are kept: they are legal in a quoted string and a template wants them.
+//
+// It lives HERE, beside the writer it protects, because the console had it and the socket door
+// (written later, for the same four keys, into the same files) did not — the same absence in two
+// spellings is how this file already lost BareName once.
+func StripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\t' || r == '\n':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		default:
+			return r
+		}
+	}, s)
+}
+
 func setKeyLocked(path, section, key, value string, quote bool) error {
 	b, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {

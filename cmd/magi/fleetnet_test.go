@@ -106,7 +106,11 @@ func TestTheTLSDoorRefusesTheSameMethods(t *testing.T) {
 		// The lifecycle verbs, by name: update swaps this machine's binary and restart/shutdown end
 		// the process, and the update design's same-machine scope rests on none of them crossing a
 		// door. Asserted here so adding one to the allowlist is a decision, not a drive-by.
-		"update", "restart", "shutdown"} {
+		"update", "restart", "shutdown",
+		// The settings door, for the same reason: config-set changes what this machine's
+		// companions run, and config-get discloses the absolute paths of the files it reads.
+		// A key on another machine may ask this one for work, not reconfigure it.
+		"config-set", "config-get", "profiles"} {
 		if doorAllows(m) {
 			t.Errorf("%s is carried", m)
 		}

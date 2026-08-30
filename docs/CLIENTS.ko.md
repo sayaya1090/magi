@@ -241,7 +241,7 @@ seq == 0 이벤트를 버려야** 합니다: 그들이 알리는 것은 전부 �
    없으면 띄웁니다.
 2. **악수**: `about` — 응답의 `caps`는 이 데몬이 답하는 문의 명단입니다: `handshake`·`roster`는
    항상 있고(빌드 수준), 나머지는 엔진-게이트라 없을 수 있습니다(`transcript`·`sessions`·
-   `session-new`·`cron`·`job-kill`·`tool-servers`). 모든 빌드가 말하는 기본 동사들(submit·
+   `session-new`·`cron`·`job-kill`·`tool-servers`·`settings`). 모든 빌드가 말하는 기본 동사들(submit·
    steer·status…)은 광고에 없고, unknown-method 거절문이 이 데몬이 받는 전부를 알려 줍니다.
    없는 문을 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
 3. **구독**: 대화는 `transcript`(리플레이+라이브, 커서 거부 시 restart 콜백), 목록 폴은

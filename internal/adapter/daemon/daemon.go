@@ -422,9 +422,6 @@ type SessionMover interface {
 	Resume(ctx context.Context, sid session.SessionID) error
 }
 
-// ConversationKeeper is the engine half of the bottom dock's session switcher: list this
-// workspace's conversations, and open a fresh one. Local socket only, like the transcript —
-// the clients this exists for (the IDE plugin first) hold a socket and nothing else.
 // ConfigItem is one editable setting as it stands.
 //
 // The value is the EFFECTIVE one — what the engine will actually use — and Source says which
@@ -445,6 +442,11 @@ type ConfigItem struct {
 	Applies string `json:"applies,omitempty"`
 	// Doc is the one line a screen can put under the field.
 	Doc string `json:"doc,omitempty"`
+	// Unreadable names a config layer that would not parse, with the reason. A file with a typo
+	// in it and a file that says nothing are the same absence to a reader who is only shown
+	// values — and this is the door whose promise is that a screen redraws from what the daemon
+	// actually read. A read that cannot say "your global file is broken" is the third silence.
+	Unreadable string `json:"unreadable,omitempty"`
 }
 
 // ProfileChoice is one assignable backend and the layer that defines it.
@@ -474,6 +476,9 @@ type ConfigKeeper interface {
 	ProfilesHere(ctx context.Context) ([]ProfileChoice, error)
 }
 
+// ConversationKeeper is the engine half of the bottom dock's session switcher: list this
+// workspace's conversations, and open a fresh one. Local socket only, like the transcript —
+// the clients this exists for (the IDE plugin first) hold a socket and nothing else.
 type ConversationKeeper interface {
 	// SessionsHere lists this workspace's conversations, newest activity first.
 	SessionsHere(ctx context.Context) ([]session.SessionMeta, error)
@@ -2636,8 +2641,6 @@ func (c *Client) Roster() ([]RosterRow, error) {
 	return resp.Roster, nil
 }
 
-// Sessions lists the companion's conversations, newest activity first — the bottom dock's
-// session picker reads this.
 // Settings reads the editable settings: each key with its effective value, where that value came
 // from, and when a change to it takes effect.
 func (c *Client) Settings() ([]ConfigItem, error) {
@@ -2670,6 +2673,8 @@ func (c *Client) Profiles() ([]ProfileChoice, error) {
 	return resp.Profiles, nil
 }
 
+// Sessions lists the companion's conversations, newest activity first — the bottom dock's
+// session picker reads this.
 func (c *Client) Sessions() ([]SessionRow, error) {
 	resp, err := c.exchange(Request{Method: "sessions"})
 	if err != nil {

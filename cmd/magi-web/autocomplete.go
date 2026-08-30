@@ -157,18 +157,9 @@ func (s *server) autocompleteWrite(w http.ResponseWriter, r *http.Request) {
 // pasted template would write a config.toml that fails to re-parse — bricking the daemon's next start
 // and this console's own reads. Tab and newline are kept (a template is often multi-line); a stray CR
 // is dropped so CRLF pastes normalise to LF. Everything else below space, and DEL, is removed.
-func stripControl(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r == '\t' || r == '\n':
-			return r
-		case r < 0x20 || r == 0x7f:
-			return -1
-		default:
-			return r
-		}
-	}, s)
-}
+// stripControl is config.StripControl — the one gate, kept beside the writer it protects after
+// the socket door was written without it. This alias keeps the console on the shared spelling.
+func stripControl(s string) string { return config.StripControl(s) }
 
 // bareName is config.BareName — the one gate for a name that becomes a TOML table header. The rule
 // moved beside SetKey (the function it protects) after per-writer copies kept drifting; this alias

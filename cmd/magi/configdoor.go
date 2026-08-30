@@ -107,6 +107,12 @@ func (d daemonEngine) resolve(k settingKey) daemon.ConfigItem {
 		}
 		cfg, err := config.Load(t.dir)
 		if err != nil {
+			// Said, not skipped. A file with a typo in it and a file that says nothing look the
+			// same to a reader shown only values, and this is the door whose whole promise is
+			// that the screen sees what the daemon read. Kept going, because the layers below it
+			// still hold values the engine would use if this one were fixed.
+			item.Unreadable = strings.TrimSpace(item.Unreadable + " " +
+				fmt.Sprintf("%s (%s) will not parse: %v;", filepath.Join(t.dir, "config.toml"), t.tier, err))
 			continue
 		}
 		if v := strings.TrimSpace(k.get(cfg)); v != "" {
@@ -115,7 +121,9 @@ func (d daemonEngine) resolve(k settingKey) daemon.ConfigItem {
 		}
 	}
 	if k.env != "" {
-		if v := strings.TrimSpace(os.Getenv(k.env)); v != "" {
+		// Tested the way the engine tests it (env(): a non-empty string wins), so a value of one
+		// space is reported as what will actually be used rather than trimmed away here.
+		if v := os.Getenv(k.env); v != "" {
 			// Said as the effective value with its source, because a companion embedding with
 			// something the file does not name is exactly the case a screen has to be able to
 			// explain. The file half is left in Tier/File, which is still where a write goes.
@@ -175,11 +183,35 @@ func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (d
 			"this workspace's config.toml is not trusted, so %s set there would be ignored — "+
 				"trust it (`magi --trust`) or set this one at the global or companion layer", k.key)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// 0700 for the account's own directories and 0755 for the workspace's: .magi sits in a
+	// checked-out repository beside the files everybody on the project reads, and every other
+	// creator of it (config.SetKey's own MkdirAll) makes it 0755.
+	mode := os.FileMode(0o700)
+	if tier == "project" {
+		mode = 0o755
+	}
+	if err := os.MkdirAll(dir, mode); err != nil {
 		return daemon.ConfigItem{}, err
 	}
-	if err := config.SetKey(filepath.Join(dir, "config.toml"), k.section, k.name, strings.TrimSpace(value)); err != nil {
+	before, _ := os.ReadFile(filepath.Join(dir, "config.toml"))
+	path := filepath.Join(dir, "config.toml")
+	// The bytes a %q-rendered TOML value cannot survive are dropped at the one gate that knows
+	// them (config.StripControl), which the console's writer for these same four keys has always
+	// had and this door was written without.
+	if err := config.SetKey(path, k.section, k.name, config.StripControl(strings.TrimSpace(value))); err != nil {
 		return daemon.ConfigItem{}, err
+	}
+	// Read the FILE back, not the value: a write that leaves a config.toml which will not parse
+	// is a daemon that does not start next time — for every workspace on this machine when the
+	// file is the global one. Put back what was there and say so, rather than answering with the
+	// empty reading a broken file gives.
+	if _, lerr := config.Load(dir); lerr != nil {
+		if before == nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, before, 0o600)
+		}
+		return daemon.ConfigItem{}, fmt.Errorf("%s would no longer parse with that value (%v) — nothing was changed", path, lerr)
 	}
 	item := d.resolve(k)
 	if item.Source == "env" && strings.TrimSpace(value) != "" {
