@@ -127,12 +127,17 @@ func TestAWorkspaceIsReusableAfterACrash(t *testing.T) {
 		t.Fatal(err)
 	}
 	lock.Close() // the holder is gone, so the kernel has already dropped its lock
-	ln.Close()   // ...but the socket file stays behind, as it does after a kill
-	if _, serr := os.Stat(sock); serr != nil {
-		// Go's listener removes the socket on Close, so recreate the leftover by hand.
-		if f, cerr := os.Create(sock); cerr == nil {
-			f.Close()
-		}
+	// Go's listener unlinks on Close, so the leftover is made deliberately: SetUnlinkOnClose(false)
+	// leaves the SOCKET behind, which is what a kill leaves. It used to be recreated with
+	// os.Create — a plain file, which is not what a crash leaves and not something magi has ever
+	// written at this path; the daemon has since learned to refuse a non-socket rather than delete
+	// it, and that fixture would have been testing the refusal instead of the reuse.
+	if u, ok := ln.(*net.UnixListener); ok {
+		u.SetUnlinkOnClose(false)
+	}
+	ln.Close()
+	if fi, serr := os.Lstat(sock); serr != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the fixture did not leave a socket behind: %v", serr)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -194,9 +194,19 @@ func TestTheSocketIsOwnerOnly(t *testing.T) {
 // refusing to start over a path nobody is listening on would need a manual delete every crash.
 func TestAStaleSocketDoesNotBlockAStart(t *testing.T) {
 	path := filepath.Join(shortDir(t), "d.sock")
-	if err := os.WriteFile(path, []byte("leftover"), 0o600); err != nil {
+	// A leftover SOCKET, which is what a crash leaves — bind() makes a socket inode and magi has
+	// never written a plain file here. The fixture used to write bytes, which the daemon now
+	// refuses to delete (it did not make it), so this would have measured the refusal.
+	addr, err := net.ResolveUnixAddr("unix", path)
+	if err != nil {
 		t.Fatal(err)
 	}
+	ln, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.SetUnlinkOnClose(false)
+	ln.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go Serve(ctx, &fakeEngine{}, path)

@@ -873,12 +873,29 @@ func Listen(path string) (*Daemon, error) {
 		// is what an upgrade looks like from here.
 		return nil, fmt.Errorf("daemon: another magi is already listening on %s", path)
 	}
-	// Nobody answered, so the file is a leftover.
+	// Nobody answered — which says nothing about WHAT is there.
 	//
-	// This Remove is only safe BECAUSE the dial above proved nothing is listening. A unix socket
-	// is an ordinary directory entry: removing a LIVE one succeeds, silently orphans the running
-	// daemon's listener, and leaves two engines writing one store while every client reaches only
-	// the newer. The probe is what stands between here and that, so the two lines stay together.
+	// The dial proves only that nothing is listening; a plain file fails to dial too (ECONNREFUSED
+	// on Linux, ENOTSOCK on macOS — the same platform split Dial's own branch records). Reading
+	// that failure as "the file is a leftover socket" is the inference this package just removed
+	// from the reading side, and here it ends in an irreversible delete rather than a wrong
+	// sentence. magi never creates a plain file at this path: bind() makes a socket inode and a
+	// crash leaves a socket, so anything else here is by definition not ours. Owning the
+	// directory means our own leavings are ours to clear, not that somebody else's file is.
+	//
+	// Lstat, not Stat, because the delete targets the ENTRY: a symlink pointing at a live socket
+	// elsewhere reads as a socket through Stat, and removing it would take somebody's link away
+	// on the strength of what it points at. A link is not something magi made either.
+	if fi, lerr := os.Lstat(path); lerr == nil && fi.Mode()&os.ModeSocket == 0 {
+		release()
+		return nil, fmt.Errorf("daemon: %s is not a socket — something else holds that name (%s); "+
+			"move it aside and start again", path, fi.Mode().Type())
+	}
+	// Now it is a leftover socket, and this Remove is safe BECAUSE the dial above proved nothing
+	// is listening. A unix socket is an ordinary directory entry: removing a LIVE one succeeds,
+	// silently orphans the running daemon's listener, and leaves two engines writing one store
+	// while every client reaches only the newer. The probe is what stands between here and that,
+	// so the two lines stay together.
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		release()
 		return nil, fmt.Errorf("daemon: a stale socket is at %s and could not be removed: %w", path, err)

@@ -401,3 +401,69 @@ func TestAPlainFileAtASocketPathIsNotADeadDaemon(t *testing.T) {
 		t.Errorf("a dead daemon must read as one: %v", derr)
 	}
 }
+
+// Starting a daemon does not delete what it did not make.
+//
+// The dial that precedes the remove proves nothing is LISTENING, not that the file is a leftover
+// socket — a plain file fails to dial the same way. magi never writes a plain file at this path
+// (bind makes a socket inode; a crash leaves a socket), so anything else there is somebody else's,
+// and the cost is asymmetric: refusing is a sentence, removing is not recoverable.
+func TestListenDoesNotDeleteWhatItDidNotMake(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+
+	plain := filepath.Join(home, "daemon-a.sock")
+	if err := os.WriteFile(plain, []byte("somebody's file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if d, lerr := Listen(plain); lerr == nil {
+		d.Stop()
+		t.Fatal("a daemon bound over a plain file")
+	} else if !strings.Contains(lerr.Error(), "not a socket") {
+		t.Errorf("the refusal must say what is in the way: %v", lerr)
+	}
+	if b, rerr := os.ReadFile(plain); rerr != nil || string(b) != "somebody's file" {
+		t.Fatalf("the file was destroyed: %v %q", rerr, b)
+	}
+
+	// A symlink is judged as a LINK, not as what it points at: removing it on the strength of a
+	// live socket at the other end would take somebody's link away.
+	live := filepath.Join(home, "real.sock")
+	d, err := Listen(live)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Stop()
+	link := filepath.Join(home, "daemon-b.sock")
+	if err := os.Symlink(live, link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if d2, lerr := Listen(link); lerr == nil {
+		d2.Stop()
+		t.Fatal("a daemon bound over a symlink")
+	}
+	if _, lerr := os.Lstat(link); lerr != nil {
+		t.Fatalf("the symlink was removed: %v", lerr)
+	}
+
+	// And a genuine leftover socket is still cleared, which is what the remove is for.
+	stale := filepath.Join(home, "daemon-c.sock")
+	addr, err := net.ResolveUnixAddr("unix", stale)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetUnlinkOnClose(false)
+	l.Close()
+	d3, err := Listen(stale)
+	if err != nil {
+		t.Fatalf("a leftover socket must not stop a daemon starting: %v", err)
+	}
+	d3.Stop()
+}
