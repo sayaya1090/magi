@@ -784,6 +784,23 @@ anything the run created, which `runGuard` tracks as it goes and matches by cont
 a directory covers the files made inside it. A glob with no separator and no leading `..` is
 expanded by the shell in the workspace's own directory and cannot land outside it either.
 
+**A workspace with no history gets one (`app/trash.go`).** That whole classification rests on
+git: inside a checkout a delete undoes from the object store, which is why gating every build
+directory would be noise. Where there is no repository at or above the workspace the premise is
+simply false, and the same command is what the gate exists to stop while looking like the harmless
+case. So instead of asking about every build directory in such a tree, the tree is given what it
+was missing. A delete's in-tree target is MOVED to `.magi/trash/<stamp>/` before the command runs —
+a rename within one filesystem, which is one directory entry whether the target is a file or forty
+thousand of them, and the reason the trash lives inside the workspace rather than beside the
+config. An edit's previous contents are held by a HARD LINK, the same economy for the other way a
+file is lost: the writing tools replace a file atomically, so the old contents keep living in
+their own inode and a second name for it costs no disk. Once per file per turn — what a person
+wants back is the state the turn began in — and never for what the run itself created, which has
+no before-the-turn to keep. Both are said in the tool result, because a rescue the model cannot
+see is one it cannot undo. The sweep runs when a turn lands and is deliberately one turn behind
+itself: the moment somebody wants a file back is just after the turn that removed it, so the two
+newest batches stay and anything past a week goes.
+
 What it asks is a plain yes/no about one command, so it does not convene a panel: `port.Council`'s
 `Advise` is one question, one reader, prose back, carrying the task and the question and nothing
 else. The turn's evidence block is deliberately withheld — the question is about SCOPE, and handing
