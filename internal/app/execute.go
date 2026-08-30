@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -293,6 +294,39 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
+	// Past the gates, and about to run. A recursive delete in a workspace with no history behind
+	// it gets its target moved aside first — the way back that a repository would have been — and
+	// the note rides the result, because a rescue the model cannot see is a rescue it cannot undo.
+	rescued := ""
+	if confinedEdit(tc.Name) && !recoverableTree(s.Workdir) {
+		// The same way back, for the other way a file is lost. An edit replaces the contents and
+		// there is no object store to read the old ones out of, so they are held by a second name
+		// before the write — and the model is told where, because a rescue it cannot see is one
+		// it cannot undo.
+		a.mu.Lock()
+		turn := a.stateLocked(sid).turnStart
+		a.mu.Unlock()
+		if turn.IsZero() {
+			turn = time.Now()
+		}
+		if where, kept, _ := keepBeforeEditing(s.Workdir, strings.TrimSpace(pathArg(tc.Args)), turn); kept {
+			rescued = "\n\n[this workspace has no git history, so the contents this file had before " +
+				"the turn are held at " + where + " — move it back to undo the edits made to it here.]"
+		}
+	}
+	if tc.Name == "bash" {
+		var ba struct {
+			Command string `json:"command"`
+		}
+		if json.Unmarshal(tc.Args, &ba) == nil && ba.Command != "" {
+			var mine func(string) bool
+			if guard != nil {
+				mine = guard.didCreate
+			}
+			rescued = a.rescueBeforeDeleting(s.Workdir, ba.Command, mine)
+		}
+	}
+
 	hooks := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
@@ -511,6 +545,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// Ran under a name the model does not use. Silence here would be a side effect it cannot see:
 	// the call worked, so nothing in the result would say the name was wrong, and the next call
 	// spells it wrong again. Naming it is the whole reason this is an alias and not a rename.
+	if rescued != "" {
+		res.Content = appendToContent(res.Content, rescued)
+	}
 	if aliasedFrom != "" {
 		res.Content = appendToContent(res.Content, "\n\n[note: there is no `"+aliasedFrom+
 			"` tool here — this ran `"+tc.Name+"`, which is the exact registered name. Use that one.]")

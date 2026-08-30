@@ -470,6 +470,13 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				// plan whose first step never ran — the event right after a turn.finished that
 				// says unverified, contradicting it.
 				finished = ts.unverifiedReason == ""
+				// What the turn took out of the way is swept when the NEXT turn lands, never this
+				// one: the moment somebody is most likely to want a file back is just after the
+				// turn that removed it, which is exactly when a sweep here would take it. See
+				// sweepTrash — it keeps the two newest batches and drops the rest.
+				if depth == 0 {
+					sweepTrash(s.Workdir)
+				}
 				return lastText, nil
 			}
 		}
