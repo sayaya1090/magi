@@ -45,7 +45,17 @@ class SocketReachTest {
         val sock = tempDir().resolve("s.sock")
         assertUsable(sock)
         ServerSocketChannel.open(StandardProtocolFamily.UNIX).use { it.bind(UnixDomainSocketAddress.of(sock)) }
+        // **픽스처가 진짜인지 픽스처가 말하게 한다.** 「죽은 데몬이 남긴 것」을 흉내 낼 때
+        // 보통 파일을 놓으면 시험 이름과 재는 것이 갈린다 — 크래시는 보통 파일을 안 남긴다
+        // (bind 가 만드는 것도 크래시가 남기는 것도 소켓 아이노드다). 그렇게 흉내 낸 시험은
+        // 「죽은 소켓」이 아니라 「보통 파일」을 재게 되고, 그러면 판정이 그 둘을 가르는 순간
+        // 시험이 **결함 쪽을 지킨다**(코어 쪽 자매 시험 둘이 실제로 그 모양이었다).
+        // 여기 JVM 은 닫을 때 소켓 파일을 안 지우지만, 그건 이 시험이 기대는 성질이라 잰다.
         assertTrue(Files.exists(sock), "닫은 뒤 소켓 파일이 없어졌다 — 이 시험의 전제가 깨졌다")
+        assertTrue(
+            Files.readAttributes(sock, java.nio.file.attribute.BasicFileAttributes::class.java).isOther,
+            "남은 것이 소켓이 아니다 — 「죽은 데몬」이 아니라 딴것을 재고 있다",
+        )
         assertEquals(Reach.Refused, DaemonClient.reach(sock))
     }
 
