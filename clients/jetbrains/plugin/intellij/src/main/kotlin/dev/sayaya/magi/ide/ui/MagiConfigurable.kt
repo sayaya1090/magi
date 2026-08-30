@@ -46,7 +46,16 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private val sessionL = JBLabel(" ").apply { font = Look.mono() }
     private val outside = JBLabel(" ").apply { foreground = Look.warn }
     private val permission = JComboBox(arrayOf("ask", "auto", "allow", "deny"))
-    private val model = JComboBox<String>().apply { isEditable = true }
+    /**
+     * 타이핑 중 훑어보기 — **이 화면의 취향**이라 데몬이 아니라 프로젝트 로컬에 산다(웹도
+     * 브라우저-로컬로 둔다). §5.1 의 「값은 데몬에」는 컴패니언의 설정 이야기다.
+     */
+    private val lookTyping = javax.swing.JCheckBox(
+        MagiBundle.msg("set.look.box"),
+    )
+    private val autoComplete = javax.swing.JCheckBox(MagiBundle.msg("set.complete.box"))
+    private val composerSuggest = javax.swing.JCheckBox(MagiBundle.msg("set.suggest.box"))
+    private val model = JComboBox<String>().apply { isEditable = true; Look.narrow(this, 24) }
     private val backend = JBTextField()
     private val said = JBLabel(" ").apply { foreground = Look.faint }
 
@@ -81,20 +90,25 @@ class MagiConfigurable(private val project: Project) : Configurable {
             })
             y++
         }
-        head("지금")
-        row("하는 일", doing)
-        row("승인", perm)
-        row("대화", sessionL)
+        head(MagiBundle.msg("set.now"))
+        row(MagiBundle.msg("set.doing"), doing)
+        row(MagiBundle.msg("set.permission"), perm)
+        row(MagiBundle.msg("set.session"), sessionL)
         row(" ", outside)
-        head("설정")
-        row("승인 모드", permission)
-        note("코어의 낱말 그대로 — ask 매번 묻기 · auto 는 magi 자신의 파일 수정만 자동(명령·네트워크는 묻는다) · allow 전부 통과 · deny 전부 거부. 어느 모드든 사람이 답하면 그 답이 이긴다.")
-        row("모델", model)
-        note("목록은 데몬이 주고, 「지금 무엇인지는 데몬이 말하지 않는다」 — 고르면 바뀐다.")
-        row("백엔드", backend)
-        note("프로필 이름을 적으면 use-backend 로 간다. 목록을 주는 문은 아직 없다.")
-        row("예약·크론", JBLabel("읽는 문이 없다 — 워크스페이스의 config.toml 이 원천이다."))
-        row("서브에이전트 · 컨텍스트 창", JBLabel("쓰기 문이 없다 — 문이 생기면 칸이 된다."))
+        head(MagiBundle.msg("set.settings"))
+        row(MagiBundle.msg("set.mode"), permission)
+        note(MagiBundle.msg("set.mode.why"))
+        row(MagiBundle.msg("set.look"), lookTyping)
+        note(MagiBundle.msg("set.look.why"))
+        row(MagiBundle.msg("set.complete"), autoComplete)
+        row(MagiBundle.msg("set.suggest"), composerSuggest)
+        note(MagiBundle.msg("set.local.why"))
+        row(MagiBundle.msg("set.model"), model)
+        note(MagiBundle.msg("set.model.why"))
+        row(MagiBundle.msg("set.backend"), backend)
+        note(MagiBundle.msg("set.backend.why"))
+        row(MagiBundle.msg("set.cron"), JBLabel(MagiBundle.msg("set.cron.none")))
+        row(MagiBundle.msg("set.more"), JBLabel(MagiBundle.msg("set.more.none")))
         // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
         // (사용자가 세운 빈도 기준, docs/UI.ko.md §4.2).
         p.add(said, GridBagConstraints().apply {
@@ -107,7 +121,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
     override fun isModified(): Boolean =
         (permission.selectedItem as? String) != read ||
             (model.selectedItem as? String).orEmpty().isNotBlank() ||
-            backend.text.isNotBlank()
+            backend.text.isNotBlank() ||
+            // 새 칸을 여기 안 적으면 **OK 가 조용히 아무것도 안 한다** — 플랫폼은 이 술어가
+            // false 면 apply 를 부르지 않는다(라이브 실측: 체크는 켜졌는데 기능이 안 켜졌다).
+            lookTyping.isSelected != LocalPrefs.look(project) ||
+            autoComplete.isSelected != LocalPrefs.complete(project) ||
+            composerSuggest.isSelected != LocalPrefs.suggest(project)
 
     /**
      * 쓴다 — 그리고 **다시 읽는다.** 쓴 값이 아니라 읽은 값을 화면에 남겨야, 데몬이 거절했거나
@@ -117,26 +136,29 @@ class MagiConfigurable(private val project: Project) : Configurable {
         val mode = permission.selectedItem as? String
         val pick = (model.selectedItem as? String).orEmpty().trim()
         val prof = backend.text.trim()
-        workspace.onDaemon({ tell("못 갔다: $it") }) { comp ->
+        workspace.onDaemon({ tell(MagiBundle.msg("set.failed", it)) }) { comp ->
             val gripes = mutableListOf<String>()
             if (mode != null && mode != read) comp.setPermission(mode).also {
-                if (!it.ok) gripes += "승인: ${it.error ?: "사유 없음"}"
+                if (!it.ok) gripes += "승인: ${it.error ?: MagiBundle.msg("set.noreason")}"
             }
             if (pick.isNotBlank()) comp.setModel(pick).also {
-                if (!it.ok) gripes += "모델: ${it.error ?: "사유 없음"}"
+                if (!it.ok) gripes += "모델: ${it.error ?: MagiBundle.msg("set.noreason")}"
             }
             if (prof.isNotBlank()) comp.useBackend(prof).also {
-                if (!it.ok) gripes += "백엔드: ${it.error ?: "사유 없음"}"
+                if (!it.ok) gripes += "백엔드: ${it.error ?: MagiBundle.msg("set.noreason")}"
             }
             pull(comp)
-            tell(if (gripes.isEmpty()) "적용했다." else gripes.joinToString(" · "))
+            LookWhileTyping.setEnabled(project, lookTyping.isSelected)
+            LocalPrefs.setComplete(project, autoComplete.isSelected)
+            LocalPrefs.setSuggest(project, composerSuggest.isSelected)
+            tell(if (gripes.isEmpty()) MagiBundle.msg("set.applied") else gripes.joinToString(" · "))
             SwingUtilities.invokeLater { model.selectedItem = ""; backend.text = "" }
         }
     }
 
     override fun reset() {
         sayOutside() // 데몬을 안 기다리는 줄이 먼저다 — 못 붙는 워크스페이스에서도 이 경고는 선다
-        workspace.onDaemon({ tell("데몬에 못 닿는다: $it") }) { comp -> pull(comp); tell(" ") }
+        workspace.onDaemon({ tell(MagiBundle.msg("set.unreachable", it)) }) { comp -> pull(comp); tell(" ") }
     }
 
     /**
@@ -162,7 +184,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 is Activity.Doing -> a.what
                 Activity.Unsaid -> "도는 것 없음"
             }
-            perm.text = f.permission ?: "데몬이 안 말했다"
+            perm.text = f.permission ?: MagiBundle.msg("set.notsaid")
+            lookTyping.isSelected = LocalPrefs.look(project)
+            autoComplete.isSelected = LocalPrefs.complete(project)
+            composerSuggest.isSelected = LocalPrefs.suggest(project)
             sessionL.text = f.session
         }
         val m = comp.models()

@@ -143,6 +143,30 @@ internal object Look {
     // 행 하나가 어떻게 서는지만 안다 — 텍스트 판 하나에 다 밀어 넣던 동안 전사가 여백 없는
     // 로그 덤프로 읽혔다(사용자 실측). 색·글꼴 규칙은 위 것들을 그대로 쓴다.
 
+    /**
+     * 드롭다운의 폭을 **항목에서 떼어낸다.**
+     *
+     * 스윙 콤보는 선호 폭을 가장 긴 항목에서 뽑는다. 대화 제목처럼 긴 값이 들어오면 그 한
+     * 줄이 판 전체를 벌리고, 우측 독이 쓸데없이 넓어진다(사용자 실측: "걔 때문에 패널 폭이
+     * 넓어진다"). 그래서 견본 값을 하나 박아 폭을 고정하고, 긴 값은 잘라 그리되 **툴팁에
+     * 원문을 준다** — 줄여 보이는 것과 감추는 것은 다르다.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T> narrow(combo: javax.swing.JComboBox<T>, chars: Int = 18) {
+        combo.prototypeDisplayValue = "M".repeat(chars) as T
+        val base = combo.renderer
+        combo.renderer = javax.swing.ListCellRenderer<Any?> { list, value, index, sel, focus ->
+            val c = (base as javax.swing.ListCellRenderer<Any?>)
+                .getListCellRendererComponent(list, value, index, sel, focus)
+            val full = value?.toString().orEmpty()
+            if (c is javax.swing.JLabel) {
+                c.toolTipText = full.ifBlank { null }
+                if (full.length > chars + 2) c.text = full.take(chars) + "…"
+            }
+            c
+        }
+    }
+
     /** 행들이 쌓이는 열. 뷰포트 폭을 따라가야 본문이 접힌다 — 전사에 가로 스크롤은 없다. */
     fun column(): JBPanel<JBPanel<*>> =
         object : JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false)),

@@ -79,7 +79,7 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             // 정확히 그 모양으로 숨어 있었다(사유는 Workspace.onDaemon 의 주석).
             LOG.info("magi: 상태를 못 읽었다 — $it")
             val n = unreachable()
-            say("magi: 데몬 없음" + if (n > 0) " · 못 만지는 루트 $n" else "")
+            say(MagiBundle.msg("status.nodaemon") + if (n > 0) " · " + MagiBundle.msg("status.outside", n) else "")
         }) { comp -> say(label(comp.facts())) }
 
         /**
@@ -95,13 +95,13 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         private fun label(f: Companion.Facts): String {
             val what = when (Activity.of(f)) {
                 // 표시줄은 폭이 없어 무엇을 도는지는 안 적는다 — 그건 우측 판이 그린다.
-                is Activity.Doing -> "도는 중"
-                Activity.Waiting -> "기다리는 중"
+                is Activity.Doing -> MagiBundle.msg("status.doing")
+                Activity.Waiting -> MagiBundle.msg("status.waiting")
                 // 아는 것만 말한다: 답을 받았으니 닿긴 닿았고, 그 이상은 데몬이 안 말했다.
-                Activity.Unsaid -> "붙어 있음"
+                Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
             val n = unreachable()
-            val jail = if (n > 0) " · 못 만지는 루트 $n" else ""
+            val jail = if (n > 0) " · " + MagiBundle.msg("status.outside", n) else ""
             return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + turn() + jail
         }
 

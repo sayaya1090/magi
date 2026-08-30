@@ -50,18 +50,23 @@ class LookOverAction : AnAction() {
         }
     }
 
-    private fun show(project: Project, body: String) = SwingUtilities.invokeLater {
-        val tw = ToolWindowManager.getInstance(project).getToolWindow("magi") ?: return@invokeLater
-        val area = JBTextArea(body).apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
-        val cm = tw.contentManager
-        cm.findContent(TAB)?.let { cm.removeContent(it, true) }
-        val content = ContentFactory.getInstance().createContent(JBScrollPane(area), TAB, false)
-        cm.addContent(content)
-        cm.setSelectedContent(content)
-        tw.activate(null)
-    }
+    companion object {
+        /**
+         * 훑어본 글이 서는 자리 — 하단 독의 둘째 탭. 우클릭 액션과 **타이핑 중 훑어보기**가
+         * 같은 자리를 쓴다(한 규칙, 한 벌): 같은 종류의 글이 두 자리에 서면 사람이 어디를
+         * 봐야 하는지 배워야 한다.
+         */
+        fun show(project: Project, body: String) = SwingUtilities.invokeLater {
+            val tw = ToolWindowManager.getInstance(project).getToolWindow("magi") ?: return@invokeLater
+            val area = JBTextArea(body).apply { isEditable = false; lineWrap = true; wrapStyleWord = true }
+            val cm = tw.contentManager
+            cm.findContent(TAB)?.let { cm.removeContent(it, true) }
+            val content = ContentFactory.getInstance().createContent(JBScrollPane(area), TAB, false)
+            cm.addContent(content)
+            cm.setSelectedContent(content)
+            tw.activate(null)
+        }
 
-    private companion object {
         const val TAB = "훑어본 것"
     }
 }

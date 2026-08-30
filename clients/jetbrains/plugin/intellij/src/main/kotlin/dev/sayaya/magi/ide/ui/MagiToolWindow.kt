@@ -1200,7 +1200,8 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         private fun askSuggestion() {
-            atToken()?.let { askFiles(it); return }
+            atToken()?.let { askFiles(it); return } // @멘션은 제안 스위치와 무관하다(파일 찾기다)
+            if (!LocalPrefs.suggest(project)) return
             val prefix = input.text
             val a = assist() ?: return
             ApplicationManager.getApplication().executeOnPooledThread {

@@ -1,6 +1,6 @@
 # clients/jetbrains/ — JetBrains IDE 플러그인 (IDE 안의 코딩 에이전트)
 
-[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [화면 설계](docs/UI.ko.md) · [형제: 문서 에이전트](../powerpoint/DESIGN.md)
+[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [형제: 문서 에이전트](../powerpoint/DESIGN.md)
 
 > **이 클라이언트의 현행 레퍼런스.** 코드와 어긋나면 코드가 이기고, 어긋난 것을 발견하면 여기를
 > 고친다. magi 본체의 계약을 서술하는 자리에서는 `docs/ARCHITECTURE.md` 가 이긴다 — 여기 적힌

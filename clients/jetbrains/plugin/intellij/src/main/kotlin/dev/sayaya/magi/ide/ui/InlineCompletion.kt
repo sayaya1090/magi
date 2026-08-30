@@ -67,7 +67,11 @@ class MagiInlineCompletion : InlineCompletionProvider {
                 request.file.virtualFile?.path ?: request.file.name,
             )
         }
-        val sock = Workspace(request.editor.project ?: return empty()).socket() ?: return empty()
+        val project = request.editor.project ?: return empty()
+        // 이 화면의 취향이 먼저다 — 웹이 브라우저-로컬 스위치로 같은 일을 한다. 끄면 문을
+        // 아예 안 두드린다(데몬 쪽 `[autocomplete]` 는 그것대로 여전히 이긴다).
+        if (!LocalPrefs.complete(project)) return empty()
+        val sock = Workspace(project).socket() ?: return empty()
         // 소켓은 블로킹이라 IO 로 보낸다. 이 호출은 모델 호출이라 초 단위이고, 그동안 EDT 를
         // 잡고 있으면 타이핑이 선다.
         val text = withContext(Dispatchers.IO) {

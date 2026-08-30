@@ -9,6 +9,13 @@
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+
+    <!--
+        화면 글자는 **IDE 가 정한 언어**를 따른다(사용자 지시): 기본은 영어이고, 한국어
+        언어팩이 깔린 IDE 는 `MagiBundle_ko` 를 본다. 액션의 text/description 은 여기 안 적고
+        번들의 `action.<id>.text` / `.description` 에서 온다 — 두 벌로 적으면 갈라진다.
+    -->
+    <resource-bundle>messages.MagiBundle</resource-bundle>
     <!--
         답의 마크다운을 하단 판 안에서 IDE 엔진으로 그린다(머메이드 포함). **선택 의존이
         필요하다**: 컴파일 의존만 두고 이 줄을 빼 두었더니 런타임에 그 플러그인 클래스가 우리
@@ -83,6 +90,13 @@
              must never be written into the field it was meant to fill. -->
         <notificationGroup id="magi" displayType="BALLOON"/>
 
+        <!-- 타이핑 중 훑어보기가 할 말이 있을 때만 서는 띠 — IDE 가 원래 이런 말을 세우는
+             자리다. 할 말이 없으면 아무것도 안 선다(침묵이 이 기능의 절반). -->
+        <editorNotificationProvider implementation="dev.sayaya.magi.ide.ui.LookBanner"/>
+        <!-- 손을 멈추면 버퍼를 훑는 귀 — 프로젝트가 열릴 때 문서 멀티캐스터에 붙는다(이미
+             열려 있던 파일도 들린다). 기본이 꺼짐이라 켜기 전까지 호출이 없다. -->
+        <postStartupActivity implementation="dev.sayaya.magi.ide.ui.LookStartup"/>
+
         <!-- Alt+Enter: the neighbours' inline-prompt seat, in our shape — attach the selection
              as a reference and start the question in the composer; the hands and the diff stay
              with the companion and its approval prompt. -->
@@ -104,14 +118,10 @@
             (Terminal.OutputContextMenu, Terminal.ReworkedTerminalContextMenu), found in the
             terminal plugin's own plugin.xml rather than guessed.
         -->
-        <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction"
-                text="magi: 커밋 메시지 초안"
-                description="스테이지된 변경에서 하우스 스타일로 커밋 메시지를 지어 칸에 앉힌다 — 누른 뒤 친 글이 있으면 덮지 않는다">
+        <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction">
             <add-to-group group-id="Vcs.MessageActionGroup" anchor="last"/>
         </action>
-        <action id="magi.askConsole" class="dev.sayaya.magi.ide.ui.AskConsoleAction"
-                text="magi: 이 출력 물어보기"
-                description="선택한 콘솔 출력을 컴패니언에게 보내 설명과 고칠 길을 묻는다">
+        <action id="magi.askConsole" class="dev.sayaya.magi.ide.ui.AskConsoleAction">
             <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>
             <add-to-group group-id="ConsoleEditorPopupMenu" anchor="last"/>
             <!-- 터미널 그룹은 그 플러그인의 것이라 여기 두지 않는다(magi-terminal.xml) —
@@ -123,9 +133,7 @@
             at. No keyboard shortcut is claimed — every free chord in this IDE belongs to somebody's
             muscle memory, and a plugin taking one is a plugin picking a fight.
         -->
-        <action id="magi.lookOver" class="dev.sayaya.magi.ide.ui.LookOverAction"
-                text="magi: 이 파일 훑어보기"
-                description="열어 둔 버퍼를 컴패니언에게 보내 훑어보게 한다 (저장 안 한 내용 그대로)">
+        <action id="magi.lookOver" class="dev.sayaya.magi.ide.ui.LookOverAction">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
         <!--
@@ -139,15 +147,22 @@
             the wrong text as "what the agent saw".
             One action, two menus: the editor attaches the selection, the project view the files.
         -->
-        <action id="magi.attach" class="dev.sayaya.magi.ide.ui.AttachToChatAction"
-                text="magi: 대화에 첨부"
-                description="선택영역(경로:줄범위) 또는 파일을 다음 메시지의 참조로 세운다">
+        <action id="magi.attach" class="dev.sayaya.magi.ide.ui.AttachToChatAction">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
-        <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction"
-                text="magi: 이 줄을 쓴 턴"
-                description="이 줄을 어느 턴이 썼고 그 턴은 무엇을 하라는 요청이었나 — 못 짚으면 못 짚는다고 말한다">
+        <!--
+            지금 훑어보기 — **메인 툴바 오른쪽**이다(사용자 교정: 처음엔 선택해야만 뜨는
+            플로팅 막대에 뒀는데, 파일을 보다 부르는 단추가 글자를 먼저 선택해야 나타나는
+            것은 앞뒤가 바뀐 자리였다). 오른쪽 끝은 IDE 가 어시스턴트류 아이콘을 두는 자리라
+            늘 보이고, 지금 편집기가 없으면 스스로 숨는다. 우클릭 메뉴에도 남긴다 — 그쪽은
+            파일을 보며 손이 이미 가 있는 자리다.
+        -->
+        <action id="magi.lookNow" class="dev.sayaya.magi.ide.ui.LookNowAction">
+            <add-to-group group-id="MainToolbarRight" anchor="first"/>
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
         </action>
     </actions>
