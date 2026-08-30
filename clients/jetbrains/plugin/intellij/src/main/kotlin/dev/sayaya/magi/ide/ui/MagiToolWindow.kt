@@ -969,6 +969,31 @@ class MagiToolWindow : ToolWindowFactory {
                 if (c is java.awt.Container) c.components.forEach { hook(it) }
             }
             hook(p)
+            // **키보드로도 닿는다.** 접기가 마우스 전용이던 것은 설계 문서가 잔여로 적어 둔
+            // 자리다 — 글리프와 커서 두 지표는 있었지만 손이 마우스를 못 쓰면 펼 길이 없었다.
+            // 행에 포커스를 주고 Space·Enter 로 뒤집는다: 탭 순회로 행을 지나가며, 포커스가
+            // 선 행은 테두리로 보인다(어디 있는지 안 보이는 포커스는 없는 것과 같다).
+            p.isFocusable = true
+            p.addKeyListener(object : java.awt.event.KeyAdapter() {
+                override fun keyPressed(e: java.awt.event.KeyEvent) {
+                    if (e.keyCode != java.awt.event.KeyEvent.VK_SPACE &&
+                        e.keyCode != java.awt.event.KeyEvent.VK_ENTER
+                    ) return
+                    e.consume()
+                    val k = foldKey(r)
+                    if (!opened.remove(k)) opened.add(k)
+                    redrawLog()
+                }
+            })
+            val plain = p.border
+            p.addFocusListener(object : java.awt.event.FocusAdapter() {
+                override fun focusGained(e: java.awt.event.FocusEvent) {
+                    p.border = javax.swing.BorderFactory.createCompoundBorder(
+                        javax.swing.BorderFactory.createLineBorder(Look.primary, 1), plain,
+                    )
+                }
+                override fun focusLost(e: java.awt.event.FocusEvent) { p.border = plain }
+            })
         }
 
         /**
