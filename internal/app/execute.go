@@ -309,7 +309,11 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		if turn.IsZero() {
 			turn = time.Now()
 		}
-		if where, kept, _ := keepBeforeEditing(s.Workdir, strings.TrimSpace(pathArg(tc.Args)), turn); kept {
+		var mineNow func(string) bool
+		if guard != nil {
+			mineNow = guard.didCreate
+		}
+		if where, kept, _ := keepBeforeEditing(s.Workdir, strings.TrimSpace(pathArg(tc.Args)), turn, mineNow); kept {
 			rescued = "\n\n[this workspace has no git history, so the contents this file had before " +
 				"the turn are held at " + where + " — move it back to undo the edits made to it here.]"
 		}

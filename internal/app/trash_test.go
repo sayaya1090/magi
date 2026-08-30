@@ -117,7 +117,7 @@ func TestAnEditKeepsWhatItReplaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	turn := time.Now()
-	where, kept, err := keepBeforeEditing(wd, "note.md", turn)
+	where, kept, err := keepBeforeEditing(wd, "note.md", turn, nil)
 	if err != nil || !kept {
 		t.Fatalf("the previous contents were not kept: %v %v", kept, err)
 	}
@@ -136,7 +136,7 @@ func TestAnEditKeepsWhatItReplaces(t *testing.T) {
 		t.Errorf("what the edit replaced is gone: %q", b)
 	}
 	// Once per file per turn: a second edit in the same turn keeps the FIRST state.
-	if _, again, _ := keepBeforeEditing(wd, "note.md", turn); again {
+	if _, again, _ := keepBeforeEditing(wd, "note.md", turn, nil); again {
 		t.Error("a second edit in one turn overwrote the state the turn started from")
 	}
 }
@@ -165,5 +165,23 @@ func TestTheSweepKeepsTheNewestBatches(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(trash, n)); err != nil {
 			t.Errorf("%s was swept; the two newest are the way back that must survive", n)
 		}
+	}
+}
+
+// A file this turn made has no "before the turn" to keep, and neither the delete nor the edit
+// path pretends otherwise: what the run created is the run's own output.
+func TestWhatThisTurnMadeIsNotHeldOnTo(t *testing.T) {
+	wd := t.TempDir()
+	f := filepath.Join(wd, "fresh.txt")
+	if err := os.WriteFile(f, []byte("made here"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mine := func(p string) bool { return strings.HasSuffix(p, "fresh.txt") }
+	if _, kept, _ := keepBeforeEditing(wd, "fresh.txt", time.Now(), mine); kept {
+		t.Error("the first draft of a file this turn created was kept as if it predated the turn")
+	}
+	// And without that knowledge it IS kept, so the exemption is what decided it.
+	if _, kept, _ := keepBeforeEditing(wd, "fresh.txt", time.Now(), nil); !kept {
+		t.Error("a file nobody claims was left unheld")
 	}
 }

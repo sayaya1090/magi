@@ -111,7 +111,7 @@ func moveToTrash(workdir, target string) (where string, moved bool, err error) {
 // Once per file per turn. Ten edits to one file in a turn are one thing a person wants back — the
 // state it was in before the turn started — and keying the batch on the turn makes "the first
 // touch wins" fall out of the link already existing.
-func keepBeforeEditing(workdir, path string, turn time.Time) (where string, kept bool, err error) {
+func keepBeforeEditing(workdir, path string, turn time.Time, mine func(string) bool) (where string, kept bool, err error) {
 	if strings.TrimSpace(path) == "" {
 		return "", false, nil
 	}
@@ -142,6 +142,12 @@ func keepBeforeEditing(workdir, path string, turn time.Time) (where string, kept
 	}
 	rel, rerr := filepath.Rel(root, real)
 	if rerr != nil || strings.HasPrefix(rel, "..") {
+		return "", false, nil
+	}
+	// What this turn made needs no way back to before the turn: there was no before. The delete
+	// path has always read it this way (the gate's `mine`), and an edit to a file the turn itself
+	// created is the same fact — holding its first draft would keep a state nobody had.
+	if mine != nil && (mine(real) || mine(abs)) {
 		return "", false, nil
 	}
 	dst := filepath.Join(trash, turn.UTC().Format("20060102-150405.000"), "edits", rel)
