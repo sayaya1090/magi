@@ -20,12 +20,21 @@ class AskConsoleAction : AnAction() {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
+    /**
+     * 이 인스턴스가 등록된 **자리의 id** — 같은 클래스가 Run 콘솔과 터미널 두 자리에 서고,
+     * 자리마다 id 가 다르면 글자도 다르다(SDK Action System: 자리마다 고유 id). XML 등록은
+     * 자리마다 인스턴스를 따로 만드므로 이 값은 인스턴스당 하나다.
+     */
+    private val myId: String by lazy {
+        com.intellij.openapi.actionSystem.ActionManager.getInstance().getId(this) ?: "magi.askConsole"
+    }
+
     override fun update(e: AnActionEvent) {
         // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
         // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
         // 정하므로, 한 규칙으로 통일한다.
-        e.presentation.text = MagiBundle.msg("action.magi.askConsole.text")
-        e.presentation.description = MagiBundle.msg("action.magi.askConsole.description")
+        e.presentation.text = MagiBundle.msg("action.$myId.text")
+        e.presentation.description = MagiBundle.msg("action.$myId.description")
         val sel = e.getData(CommonDataKeys.EDITOR)?.selectionModel?.selectedText
         e.presentation.isEnabledAndVisible = e.project != null && !sel.isNullOrBlank()
     }
@@ -35,15 +44,25 @@ class AskConsoleAction : AnAction() {
         val raw = e.getData(CommonDataKeys.EDITOR)?.selectionModel?.selectedText ?: return
         // 콘솔 선택은 수 MB 도 된다 — 데몬 스캐너 줄 한도에 끊기면 사유가 "연결 끊김"으로
         // 부정확해진다. 자르고 잘랐다고 말한다.
-        val sel = if (raw.length > 65_536) raw.take(65_536) + "\n…(선택이 길어 잘라 보냄)" else raw
-        val ask = "이 출력이 무슨 뜻인지, 고쳐야 하면 어떻게 고칠지 설명해줘:\n```\n$sel\n```"
+        // **번들에 안 둔다.** 이 두 글자는 어디에도 안 그려진다 — 전부 `say()` 의 페이로드,
+        // 즉 모델에게 가는 지시다. 번들은 「화면 글자」로 광고된 파일이라, 거기 두면 번역을
+        // 다듬는 손이 모델 지시를 바꾼다(모르는 부수효과 — 리뷰 R4). 잘림 표식도 마찬가지다:
+        // 그건 사람이 아니라 모델이 「뒤가 더 있다」로 읽는 신호다.
+        val sel = if (raw.length > 65_536) raw.take(65_536) + "\n" + CUT else raw
+        val ask = "$ASK:\n```\n$sel\n```"
         // 컴포저에 서 있는 첨부 칩은 여기 안 실린다(say 의 refs 기본값 빈 목록) — 칩은 "다음
         // 수동 전송"의 상태이고, 이 질문이 그것을 소리 없이 소비하면 모르는 부수효과다.
-        Workspace(project).onDaemon({ why -> tell(project, "안 갔다 — $why") }) { comp ->
+        Workspace(project).onDaemon({ why -> tell(project, MagiBundle.msg("common.notsent", why)) }) { comp ->
             val r = comp.say(ask)
-            if (!r.ok) tell(project, "안 갔다 — ${r.error ?: "사유 없음"}")
+            if (!r.ok) tell(project, MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
         }
         ToolWindowManager.getInstance(project).getToolWindow("magi")?.show()
+    }
+
+    private companion object {
+        /** 전선으로 나가는 글자 — 화면이 아니다(위 주석). 번들로 옮기지 말 것. */
+        const val ASK = "이 출력이 무슨 뜻인지, 고쳐야 하면 어떻게 고칠지 설명해줘"
+        const val CUT = "…(선택이 길어 잘라 보냄)"
     }
 
     private fun tell(project: com.intellij.openapi.project.Project, text: String) =

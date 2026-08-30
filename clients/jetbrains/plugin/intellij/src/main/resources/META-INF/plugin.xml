@@ -47,11 +47,24 @@
         tool window.
     -->
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="magi" anchor="bottom" factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
+        <!--
+            `canCloseContents` 는 **기본이 false** 이고, 그때 content 의 `isCloseable = true` 는
+            조용히 무시된다(SDK Tool Windows, "Closing Tabs"). 그래서 사람이 연 세션 탭이
+            영영 안 닫혔고, 탭에 걸어 둔 Disposer 가 안 돌아 그 탭의 스트림이 창이 죽을
+            때까지 살았다 — 새는 것은 화면이 아니라 소켓이었다(가이드라인 검토 G4).
+
+            스트라이프 글자와 아이콘: id 를 안 덮으면 버튼에 `magi.plan` 이라는 **식별자**가
+            그대로 뜬다. 글자는 `toolwindow.stripe.<id>` 키에서, 아이콘은 여기서 — 도구창
+            아이콘은 IDE 가장자리에 서므로 회색 단색이다(Icons, Tool window).
+        -->
+        <toolWindow id="magi" anchor="bottom" canCloseContents="true"
+                    icon="/icons/magiToolWindow.svg"
+                    factoryClass="dev.sayaya.magi.ide.ui.MagiToolWindow"/>
         <!-- The right dock's tenant is the PLAN (user decision, 2026-08-29): the one fact worth
              standing room — a plan that scrolls away is a plan you have to go find. Fed from the
              transcript stream's todos.changed facts; no new door. -->
-        <toolWindow id="magi.plan" anchor="right" factoryClass="dev.sayaya.magi.ide.ui.PlanToolWindow"/>
+        <toolWindow id="magi.plan" anchor="right" icon="/icons/magiToolWindow.svg"
+                    factoryClass="dev.sayaya.magi.ide.ui.PlanToolWindow"/>
         <!--
             No right-dock facts window any more (user decision, 2026-08-29): the always-on level
             lives on the status bar, and the detailed facts + fleet fold into Settings > Tools >
@@ -66,7 +79,9 @@
             With only the two windows, "the companion is working" and "nobody opened the panel"
             look the same.
         -->
-        <statusBarWidgetFactory id="magi.status" order="first"
+        <!-- 자리는 **잡지 않는다**: `order="first"` 는 플랫폼 위젯 전부보다 우리를 앞에
+             놓는데, 그건 서드파티가 가져갈 자리가 아니다(가이드라인 검토 G14). -->
+        <statusBarWidgetFactory id="magi.status"
                                 implementation="dev.sayaya.magi.ide.ui.MagiStatusBarFactory"/>
 
         <!--

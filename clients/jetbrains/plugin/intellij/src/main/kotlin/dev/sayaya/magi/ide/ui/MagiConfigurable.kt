@@ -172,7 +172,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private fun sayOutside() {
         val out = workspace.rootsOutsideWorkspace()
         if (out.isEmpty()) return say(outside, " ")
-        say(outside, "<html>못 만지는 컨텐트 루트 ${out.size}개 — 워크스페이스는 프로젝트 디렉토리 하나다:<br/>" +
+        // 같은 사실을 상태 표시줄과 **같은 낱말로** 적는다 — 한 판정을 두 화면이 한 벌씩
+        // 적어 두면 안 재지는 쪽이 갈라진다(리뷰 R9).
+        say(outside, "<html>" + Markup.text(MagiBundle.msg("status.outside", out.size)) + " — " +
+            Markup.text(MagiBundle.msg("set.outside.what")) + "<br/>" +
             out.joinToString("<br/>") { Markup.text(it) } + "</html>")
     }
 
@@ -184,9 +187,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
         val f = comp.facts()
         SwingUtilities.invokeLater {
             doing.text = when (val a = Activity.of(f)) {
-                Activity.Waiting -> "사람을 기다리는 중"
+                // 상태 표시줄과 **같은 열쇠**를 쓴다. 여기는 「도는 것 없음」이라 적고 있었는데
+                // 그 갈래는 「안 도는 중」이 아니라 **데몬이 안 말한 것**이다 — 옆 화면이 이미
+                // 고친 오독을 이쪽만 들고 있었다(리뷰 R9).
+                Activity.Waiting -> MagiBundle.msg("status.waiting")
                 is Activity.Doing -> a.what
-                Activity.Unsaid -> "도는 것 없음"
+                Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
             perm.text = f.permission ?: MagiBundle.msg("set.notsaid")
             lookTyping.isSelected = LocalPrefs.look(project)

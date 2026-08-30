@@ -18,8 +18,8 @@ import dev.sayaya.magi.ide.model.FileRef
  */
 class AskAboutCodeIntention : IntentionAction {
 
-    override fun getText() = "magi에게 이 코드 물어보기"
-    override fun getFamilyName() = "magi"
+    override fun getText() = MagiBundle.msg("intention.magi.text")
+    override fun getFamilyName() = MagiBundle.msg("intention.magi.family")
     override fun startInWriteAction() = false
 
     /** 창 유무는 안 본다 — 툴윈도는 게으르고(plugin.xml 의 실측), 안 뜨는 항목은 배울 수도
@@ -59,6 +59,7 @@ class AskAboutCodeIntention : IntentionAction {
             view.attach(FileRef(path, if (from == to) "$from" else "$from-$to"))
         }
         // activate 의 콜백에서 채운다 — show 의 비동기 완료 전에 포커스를 청하면 안 앉는다(리뷰).
-        window?.activate({ view.prefill("이 코드에 대해: ") }, true) ?: view.prefill("이 코드에 대해: ")
+        val start = MagiBundle.msg("chat.prefill.code")
+        window?.activate({ view.prefill(start) }, true) ?: view.prefill(start)
     }
 }

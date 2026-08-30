@@ -90,6 +90,12 @@ class PlanToolWindow : ToolWindowFactory {
             @Volatile var line: String? = null
             /** 더 안 물어본다: done/over, 또는 저쪽이 접수증을 모른다(재시작·만료 — Handed 계약). */
             @Volatile var over = false
+            /**
+             * 답을 받고 끝났나. **색이 이 사실에 달렸다** — 전에는 그려진 글자에 번역된
+             * 「답: 」이 들었는지로 판정했고, 그 판정은 그 키에 자리표시자가 생기는 순간
+             * 조용히 거짓이 된다. 사실은 글자에서 되읽지 않고 사실로 들고 다닌다.
+             */
+            @Volatile var answered = false
         }
         val asked = java.util.Collections.synchronizedList(mutableListOf<Asked>())
         // 국소함수는 전방 참조가 안 된다 — 단추 리스너(위)가 목록 새로고침(아래)을 불러야
@@ -187,7 +193,7 @@ class PlanToolWindow : ToolWindowFactory {
             val touched = MagiWindows.of(project)?.touchedFiles()
             if (touched == null) {
                 // 모름과 없음을 가른다 — 옆의 「계획」이 같은 자리에서 그렇게 한다.
-                changes.add(Look.aside(MagiBundle.msg("plan.plan.wait")))
+                changes.add(Look.aside(MagiBundle.msg("plan.changes.wait")))
             } else if (touched.isEmpty()) {
                 changes.add(Look.aside(MagiBundle.msg("plan.changes.none")))
             } else touched.forEach { rel ->
@@ -407,7 +413,7 @@ class PlanToolWindow : ToolWindowFactory {
                     model.toolTipText = when {
                         !mr.ok -> MagiBundle.msg("plan.models.nodoor") +
                             (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
-                        mr.why != null -> MagiBundle.msg("plan.models.failed") + mr.why!!.lineSequence().first().take(80)
+                        mr.why != null -> MagiBundle.msg("plan.models.failed", mr.why!!.lineSequence().first().take(80))
                         else -> MagiBundle.msg("plan.models.empty")
                     }
                 }
@@ -428,6 +434,8 @@ class PlanToolWindow : ToolWindowFactory {
         fun paintAskedNow() = SwingUtilities.invokeLater {
             askedPane.removeAll()
             val snap = synchronized(asked) { asked.toList() }
+            // 빈 구역도 말을 한다 — 옆 구역들이 전부 그렇게 한다(빈 상태 규칙).
+            if (snap.isEmpty()) askedPane.add(Look.aside(MagiBundle.msg("plan.requests.none")))
             snap.forEach { a ->
                 askedPane.add(JBLabel("→ ${a.who}: ${a.ask.lineSequence().first().take(48)} — …").apply {
                     foreground = Look.faint
@@ -454,21 +462,22 @@ class PlanToolWindow : ToolWindowFactory {
                     !r.ok -> {
                         // 거절은 「대기를 끝내라」다(Taker.Handed 계약: 재시작·만료) — 연결
                         // 실패와 접으면 죽은 접수증을 영영 폴한다(리뷰 F4).
-                        a.over = true; a.line = MagiBundle.msg("plan.done") + (r.error ?: MagiBundle.msg("plan.requests.norecord"))
+                        a.over = true; a.line = MagiBundle.msg("plan.done", r.error ?: MagiBundle.msg("plan.requests.norecord"))
                     }
                     h == null -> a.line = MagiBundle.msg("plan.empty.answer")
-                    h.over -> { a.over = true; a.line = MagiBundle.msg("plan.done") + (h.news ?: MagiBundle.msg("common.noreason")) }
-                    h.done -> { a.over = true; a.line = MagiBundle.msg("plan.requests.answer") + (h.answer?.lineSequence()?.firstOrNull() ?: "") }
+                    h.over -> { a.over = true; a.line = MagiBundle.msg("plan.done", h.news ?: MagiBundle.msg("common.noreason")) }
+                    h.done -> { a.over = true; a.answered = true; a.line = MagiBundle.msg("plan.requests.answer", h.answer?.lineSequence()?.firstOrNull() ?: "") }
                     else -> a.line = MagiBundle.msg("plan.requests.working")
                 }
             }
             SwingUtilities.invokeLater {
                 if (my != pollSeq.get()) return@invokeLater // 늦은 완료가 새 그림을 덮지 않게(F6)
                 askedPane.removeAll()
+                if (snap.isEmpty()) askedPane.add(Look.aside(MagiBundle.msg("plan.requests.none")))
                 snap.forEach { a ->
                     val t = "→ ${a.who}: ${a.ask.lineSequence().first().take(40)} — ${a.line ?: "…"}"
                     askedPane.add(JBLabel(t).apply {
-                        foreground = if (a.over && MagiBundle.msg("plan.requests.answer") !in (a.line ?: "")) Look.warn else Look.faint
+                        foreground = if (a.over && !a.answered) Look.warn else Look.faint
                         border = JBUI.Borders.empty(1, 0)
                     })
                 }
@@ -479,7 +488,7 @@ class PlanToolWindow : ToolWindowFactory {
             val name = row.name?.takeIf { it.isNotBlank() } ?: row.socket.substringAfterLast('/')
             val q = com.intellij.openapi.ui.Messages.showInputDialog(
                 project, MagiBundle.msg("plan.ask.body"),
-                MagiBundle.msg("plan.companions"), null,
+                MagiBundle.msg("plan.ask.title", name), null,
             )
             if (!q.isNullOrBlank()) {
                 val looking = com.intellij.openapi.ui.Messages.showYesNoDialog(

@@ -1,10 +1,15 @@
 <idea-plugin>
-    <actions>
+    <!--
+        액션 글자는 여기 안 적는다 — 메인 디스크립터와 같은 규칙이다(SDK Action System:
+        "the `text` and `description` attributes are not declared in plugin.xml"). 여기 박아
+        뒀더니 영어 IDE 에서 터미널 우클릭 항목 하나만 한국어로 떴다(가이드라인 검토 G1).
+        선택 디스크립터가 메인의 `<resource-bundle>` 을 물려받는지는 원문이 말해 주지 않으므로,
+        같은 문서가 문서화한 `<actions resource-bundle=…>` 로 못박는다.
+    -->
+    <actions resource-bundle="messages.MagiBundle">
         <!-- 새 터미널 엔진의 두 팝업. 그룹 id 는 번들 terminal 플러그인의 plugin.xml 에서
              찾은 것이지 짐작이 아니다. -->
-        <action id="magi.askTerminal" class="dev.sayaya.magi.ide.ui.AskConsoleAction"
-                text="magi: 이 출력 물어보기"
-                description="선택한 터미널 출력을 컴패니언에게 보내 설명과 고칠 길을 묻는다">
+        <action id="magi.askTerminal" class="dev.sayaya.magi.ide.ui.AskConsoleAction">
             <add-to-group group-id="Terminal.OutputContextMenu" anchor="last"/>
             <add-to-group group-id="Terminal.ReworkedTerminalContextMenu" anchor="last"/>
         </action>

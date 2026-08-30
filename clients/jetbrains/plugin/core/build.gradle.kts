@@ -38,12 +38,23 @@ tasks.test {
     // gradle 은 딴 모듈의 .kt 가 바뀌어도 이 작업을 UP-TO-DATE 로 건너뛰고, 그러면 검사는
     // 초록인데 **돈 적이 없다.** 실제로 그 상태를 한 번 만들어 봤다: 창 코드에 결함을 도로
     // 넣었는데 통과했다. 그래서 읽는 것을 그대로 입력으로 적는다.
+    //
+    // 소스만으로는 모자란다. `ManualTest` 는 **디스크립터(.xml)와 번들(.properties)** 을 읽고,
+    // 그 둘이 바뀌어도 이 작업은 UP-TO-DATE 였다 — 실측: 터미널 디스크립터에 `text="boom"` 을
+    // 도로 박고 돌렸는데 `:core:test UP-TO-DATE` 로 초록이었다(2026-08-31). 재는 것을 전부
+    // 적지 않으면 가드는 「돌아서 통과」가 아니라 「안 돌아서 초록」이 된다.
     inputs.files(
         fileTree(rootProject.projectDir) {
-            include("**/src/**/*.kt")
+            include("**/src/**/*.kt", "**/src/**/*.xml", "**/src/**/*.properties")
             exclude("**/build/**")
+            exclude("**/.intellijPlatform/**")
         }
     ).withPropertyName("scannedSources").withPathSensitivity(PathSensitivity.RELATIVE)
+
+    // 매뉴얼도 같은 사유다 — `ManualTest` 가 읽는 쪽이고, 기능을 접었는데 매뉴얼만 남은 것도
+    // 이 시험이 잡는 사건이다. gradle 트리 밖이라 위 `fileTree` 에는 안 걸린다.
+    inputs.files(rootProject.projectDir.resolve("../docs"))
+        .withPropertyName("manualDocs").withPathSensitivity(PathSensitivity.RELATIVE)
 
     // `PaletteTest` 도 클래스가 아니라 **딴 트리의 파일**을 읽는다 — 색의 원본인
     // `internal/adapter/tui/styles.go`. 위와 같은 함정이고 한 단 더 나쁘다: 그 파일은 이

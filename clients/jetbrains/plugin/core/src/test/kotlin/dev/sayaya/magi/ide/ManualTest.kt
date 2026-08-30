@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -35,20 +36,64 @@ class ManualTest {
 
         // 액션 이름은 이제 plugin.xml 이 아니라 **번들**에 산다(IDE 언어팩을 따르려고 옮겼다).
         // 그래서 가드도 그리로 따라간다 — 규칙이 사는 곳이 바뀌면 재는 곳도 바뀐다.
-        val ids = Regex("""<action id="([^"]+)"""").findAll(xml).map { it.groupValues[1] }.toList()
-        assertTrue(ids.size >= 5, "plugin.xml 에서 액션이 ${ids.size}개뿐이다 — 유도가 깨졌다")
+        // **선택 디스크립터도 센다.** 액션 하나가 저 파일들에 살면서 이 가드 밖에 있었고,
+        // 그래서 「글자는 번들에서 온다」는 규칙만 조용히 초록이었다 — 그 액션은 글자를 XML 에
+        // 박고 있었다(가이드라인 검토 G1). 훑는 곳이 규칙이 사는 곳보다 좁으면 가드는 반쯤 죽는다.
+        val meta = File(root, "intellij/src/main/resources/META-INF")
+        val descriptors = meta.walkTopDown().filter { it.isFile && it.extension == "xml" }.sortedBy { it.name }.toList()
+        assertTrue(descriptors.size >= 2, "META-INF 에 디스크립터가 ${descriptors.size}개뿐이다 — 유도가 깨졌다")
+        // 글자를 실을 수 있는 **요소 전부**와 속성 **둘 다**를 잰다. 처음엔 `<action … text=`
+        // 하나만 봤는데, 잡아 낸 그 파일은 `description=` 도 같이 박고 있었다 — 반쪽만 재는
+        // 가드는 되박는 손을 절반 확률로 통과시킨다(리뷰 R8). `override-text` 는 SDK 가
+        // 「자리별 글자」에 쓰라고 문서화한 요소라 다음에 제일 먼저 닿을 자리다.
+        val hardcoded = Regex("""<(action|group|separator|override-text)\b[^>]*\s(text|description)\s*=\s*["']""")
+        for (d in descriptors) assertFalse(
+            hardcoded.containsMatchIn(d.readText()),
+            "${d.name} 이 액션 글자를 직접 적는다 — 글자는 번들에서 온다(SDK Action System)",
+        )
+        val all = descriptors.joinToString("\n") { it.readText() }
+        val ids = Regex("""<action id="([^"]+)"""").findAll(all).map { it.groupValues[1] }.toList()
+        assertTrue(ids.size >= 5, "디스크립터에서 액션이 ${ids.size}개뿐이다 — 유도가 깨졌다")
         for (id in ids) {
             val key = "action.$id.text"
             assertTrue(key in en, "영어 번들에 「$key」 가 없다 — 언어팩 없는 IDE 가 빈 글자를 본다")
             assertTrue(key in ko, "한국어 번들에 「$key」 가 없다 — 번역이 빠졌다")
+            // 설명도 같이 잰다: 글자만 옮기고 설명을 XML 에 두고 오면 그 액션의 툴팁만 안 따른다.
+            val desc = "action.$id.description"
+            assertTrue(desc in en, "영어 번들에 「$desc」 가 없다 — 툴팁이 빈다")
+            assertTrue(desc in ko, "한국어 번들에 「$desc」 가 없다 — 번역이 빠졌다")
             val name = ko.getValue(key)
             assertTrue(
                 name in manual,
                 "매뉴얼에 액션 「$name」 이 없다 — 광고된 기능은 전부 매뉴얼에 적는다(사용자 지시)",
             )
         }
+        // 스트라이프 버튼 글자 — 없으면 도구창 **id 가 그대로** 사람 앞에 뜬다(오른쪽 독에
+        // `magi.plan` 이 떠 있었다). 창을 새로 만들 때마다 같은 일이 나므로 유도해서 잰다.
+        val windows = Regex("""<toolWindow id="([^"]+)"""").findAll(xml).map { it.groupValues[1] }.toList()
+        assertTrue(windows.size >= 2, "plugin.xml 에서 도구창이 ${windows.size}개뿐이다 — 유도가 깨졌다")
+        for (id in windows) {
+            val key = "toolwindow.stripe.$id"
+            assertTrue(key in en, "영어 번들에 「$key」 가 없다 — 스트라이프에 id 「$id」 가 그대로 뜬다")
+            assertTrue(key in ko, "한국어 번들에 「$key」 가 없다 — 번역이 빠졌다")
+        }
+
         // 두 번들의 열쇠 집합이 같아야 한다: 한쪽에만 있는 열쇠는 그 언어에서 빈 글자다.
         assertEquals(en.keys, ko.keys, "번들 두 벌의 열쇠가 갈렸다 — 갈린 쪽 언어가 글자를 잃는다")
+
+        // 모든 값은 MessageFormat 을 지난다(`MagiBundle.msg`). 그래서 두 가지를 잰다:
+        //  ① 홑따옴표는 반드시 짝으로 — 하나만 적으면 그 뒤의 `{0}` 이 글자로 굳는다. 전에는
+        //     「인자를 안 받는 값이면 괜찮다」였고, 그 면제는 누가 그 값에 자리표시자를 하나
+        //     넣는 순간 사라진다(한 줄 편집 거리의 함정 — 리뷰 R10).
+        //  ② 패턴 자체가 깨지지 않는다 — 짝 안 맞는 중괄호는 화면이 아니라 예외로 나온다.
+        for ((lang, rows) in listOf("en" to en, "ko" to ko)) for ((k, v) in rows) {
+            assertFalse(
+                "'" in v.replace("''", ""),
+                "[$lang] 「$k」 의 홑따옴표가 짝이 아니다 — MessageFormat 이 뒤의 자리표시자를 먹는다: $v",
+            )
+            val ok = runCatching { java.text.MessageFormat(v).format(arrayOf("1", "2", "3")) }.isSuccess
+            assertTrue(ok, "[$lang] 「$k」 가 MessageFormat 패턴으로 안 선다: $v")
+        }
 
         val stories = mapOf(
             "toolWindow id=\"magi\"" to "하단 독",

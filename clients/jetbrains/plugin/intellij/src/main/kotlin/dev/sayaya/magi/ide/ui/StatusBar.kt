@@ -46,8 +46,22 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         override fun getPresentation() = this
         override fun getAlignment() = java.awt.Component.CENTER_ALIGNMENT
         override fun getText() = text
-        override fun getTooltipText() = "magi — 이 워크스페이스의 컴패니언"
-        override fun getClickConsumer(): Consumer<MouseEvent>? = null
+        /**
+         * 툴팁이 **위젯 글자에 안 들어간 것**을 마저 말한다 — 상태 표시줄은 눈꼬리 한 줄이고
+         * 그 폭을 옆 위젯들이 나눠 쓴다. 그래서 워크스페이스 밖 폴더 경고는 글자가 아니라
+         * 여기 산다(가이드라인 검토 G14).
+         */
+        override fun getTooltipText(): String {
+            val n = unreachable()
+            return MagiBundle.msg("status.tip") +
+                (if (n > 0) " · " + MagiBundle.msg("status.outside", n) else "")
+        }
+
+        /** 눌리는 위젯이다 — 자세한 것이 있는 자리로 데려간다(안 그러면 막다른 글자다). */
+        override fun getClickConsumer() = Consumer<MouseEvent> {
+            com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                .getToolWindow("magi")?.activate(null)
+        }
 
         /**
          * 컴패니언이 못 만지는 컨텐트 루트가 몇 개인가. 데몬이 아니라 IDE 가 아는 사실이라 붙기
@@ -62,8 +76,16 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
          * 안 뜨고, 사람이 루트를 고쳐도 경고가 안 사라진다 — 시킨 대로 했는데 문장이 안 변한다.
          * 게으른 자리에서 경고를 옮겨 온 이유가 그대로 여기에도 적용된다: **경고가 필요해지는
          * 순간에 만들어진 사람이 제일 못 본다.** 매 틱 그리는 줄이니 매 틱 센다.
+         *
+         * **세는 것은 풀 스레드에서만 한다.** 모듈 × 컨텐트 루트를 전부 돌며 경로를 정규화하는
+         * 일이라, 툴팁 경로(EDT)에서 부르면 큰 저장소에서 3초마다 EDT 를 문다 — 「매 틱 센다」의
+         * 근거는 폴이 풀 스레드에 있다는 전제 위에 쓴 것인데, 자리를 옮기면서 그 전제가 같이
+         * 안 옮겨졌다(리뷰 R7). 그래서 폴이 세어 [outside] 에 담고, 그리는 쪽은 읽기만 한다.
          */
-        private fun unreachable() = workspace.rootsOutsideWorkspace().size
+        private fun unreachable() = outside
+
+        /** 마지막으로 센 「밖의 루트」 수 — 쓰는 쪽은 폴(풀 스레드), 읽는 쪽은 EDT. */
+        @Volatile private var outside: Int = 0
 
         override fun install(statusBar: StatusBar) {
             bar = statusBar
@@ -74,13 +96,18 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
         override fun dispose() = timer.stop()
 
         private fun poll() = workspace.onDaemon({
+            outside = workspace.rootsOutsideWorkspace().size
             // 실패만 남긴다. 매 3초 성공을 찍으면 로그가 이것만으로 찬다. 그리고 이 한 줄이 없으면
             // 화면에는 "데몬 없음" 넉 자뿐이라 사람이 원인을 볼 길이 없다 — 이 위젯의 결함 하나가
             // 정확히 그 모양으로 숨어 있었다(사유는 Workspace.onDaemon 의 주석).
             LOG.info("magi: 상태를 못 읽었다 — $it")
-            val n = unreachable()
-            say(MagiBundle.msg("status.nodaemon") + if (n > 0) " · " + MagiBundle.msg("status.outside", n) else "")
-        }) { comp -> say(label(comp.facts())) }
+            // 접두는 **코드 한 곳에서만** 붙인다 — 넷 중 하나만 값 안에 품고 있어서 같은 자리의
+            // 규칙이 두 벌이었다(G15). 밖의 폴더 수는 툴팁의 몫이다.
+            say("magi: " + MagiBundle.msg("status.nodaemon"))
+        }) { comp ->
+            outside = workspace.rootsOutsideWorkspace().size
+            say(label(comp.facts()))
+        }
 
         /**
          * 모름을 없음으로 그리지 않는다. 데몬이 `permission` 을 안 실어 보내면 모드를 안 적는다 —
@@ -100,9 +127,8 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                 // 아는 것만 말한다: 답을 받았으니 닿긴 닿았고, 그 이상은 데몬이 안 말했다.
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
-            val n = unreachable()
-            val jail = if (n > 0) " · " + MagiBundle.msg("status.outside", n) else ""
-            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + turn() + jail
+            // 밖에 있는 폴더 수는 **툴팁으로 내렸다**(G14) — 글자는 짧을수록 이 자리에 맞다.
+            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + turn()
         }
 
         /**

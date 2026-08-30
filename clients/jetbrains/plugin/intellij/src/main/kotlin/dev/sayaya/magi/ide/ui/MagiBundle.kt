@@ -52,6 +52,10 @@ object MagiBundle {
     fun msg(@PropertyKey(resourceBundle = PATH) key: String, vararg params: Any): String {
         val raw = runCatching { bundle?.getString(key) }.getOrNull()
             ?: return delegate.getMessage(key, *params) // 못 찾으면 플랫폼 경로가 답하게 둔다
-        return if (params.isEmpty()) raw else java.text.MessageFormat.format(raw, *params)
+        // **인자 유무로 갈리지 않는다.** 갈라 두면 값 안의 홑따옴표가 「인자를 받는 값이냐」에
+        // 따라 뜻을 바꾸고, 그 규칙은 파일 어디에도 안 적힌다 — 누가 기존 값에 `{0}` 을 하나
+        // 넣는 순간 옆에 있던 `magi's` 의 따옴표가 그 자리표시자를 조용히 먹는다(리뷰 R10).
+        // 한 규칙으로 못박는다: 값은 언제나 MessageFormat 을 지나고, 따옴표는 두 번 적는다.
+        return java.text.MessageFormat.format(raw, *params)
     }
 }

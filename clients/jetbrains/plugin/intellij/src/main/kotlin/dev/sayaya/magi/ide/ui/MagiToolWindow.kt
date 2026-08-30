@@ -91,7 +91,7 @@ class MagiToolWindow : ToolWindowFactory {
                         val sr = comp.sessions()
                         val rows = if (sr.ok) sr.sessions.orEmpty() else null
                         if (rows == null) {
-                            balloon("이 데몬엔 sessions 문이 없다" +
+                            balloon(MagiBundle.msg("chat.sessions.nodoor") +
                                 (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""))
                             return@onDaemon
                         }
@@ -133,8 +133,18 @@ class MagiToolWindow : ToolWindowFactory {
         // 먹었고(사용자 실측), 한 창에 이름 다른 글 두 벌을 두는 IDE 의 어휘가 탭이다 — Run 창이
         // 프로세스마다 탭이지 분할이 아니다(§0-5).
         val make = ContentFactory.getInstance()
-        toolWindow.contentManager.addContent(make.createContent(view.root, MagiBundle.msg("chat.tab.chat"), false))
-        toolWindow.contentManager.addContent(make.createContent(view.problemsView, MagiBundle.msg("chat.tab.problems"), false))
+        // **못 닫게 못박는다.** content 의 `isCloseable` 기본값은 true 이고, 창의
+        // `canCloseContents="true"` 는 그 게이트를 **창 전체**에 연다 — 세션 탭 하나가 아니다.
+        // 이 둘이 닫히면 `createToolWindowContent` 는 창당 한 번뿐이라 되돌릴 길이 없고,
+        // 뷰는 content 가 아니라 창의 disposable 에 걸려 있어 **화면만 사라지고 스트림은 산다**
+        // (리뷰 R1 — 고치려던 누수와 같은 모양의 새 누수였다).
+        toolWindow.contentManager.addContent(
+            make.createContent(view.root, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false },
+        )
+        toolWindow.contentManager.addContent(
+            make.createContent(view.problemsView, MagiBundle.msg("chat.tab.problems"), false)
+                .apply { isCloseable = false },
+        )
         view.refresh()
     }
 
@@ -207,19 +217,26 @@ class MagiToolWindow : ToolWindowFactory {
         // 정확히 이 자리를 잡았었다): 색 + 글리프. ● 붙음 · ↻ 다시 붙는 중 · ✕ 끊김 · ◌ 끊었다.
         // 그리고 스트림의 수준과 손(hand)의 수준은 **딴 사실**이라 딴 필드에 산다 — 한 칸에
         // 실으면 다음 스트림 이벤트가 손 정보를 지운다(결함 모양 「한 변수가 두 사실」).
-        @Volatile private var linkColour: Color = Look.muted
-        @Volatile private var linkGlyph: String = "◌"
-        @Volatile private var streamWhy: String = MagiBundle.msg("chat.link.none")
+        /**
+         * 붙음의 상태 — 색·글리프·사유가 **한 값**이다. 셋을 따로 들고 있던 동안, 쓰는 쪽이
+         * 스트림 싱크 하나뿐이라 우연히 안 찢겼다. 다시 붙기 루프가 풀 스레드에서 같은 셋을
+         * 쓰기 시작하자 대입 셋 사이에 남의 사건이 낄 자리가 생겼고, 그러면 EDT 가 「초록 ●」
+         * 에 「연결이 끊겼습니다」를 붙여 그린다(리뷰 R6). 한 사실은 한 자리에 둔다.
+         */
+        private data class Mood(val colour: Color, val glyph: String, val why: String)
+
+        @Volatile private var mood: Mood = Mood(Look.muted, "◌", MagiBundle.msg("chat.link.none"))
         @Volatile private var handWhy: String? = null
         private fun mood(colour: Color, glyph: String, why: String) {
-            linkColour = colour; linkGlyph = glyph; streamWhy = why
+            mood = Mood(colour, glyph, why)
             paintLink()
         }
         private fun handSaid(t: String?) { handWhy = t; paintLink() }
         private fun paintLink() = SwingUtilities.invokeLater {
-            link.text = linkGlyph
-            link.foreground = linkColour
-            link.toolTipText = streamWhy + (handWhy?.let { " · $it" } ?: "")
+            val m = mood // 한 번만 읽는다 — 세 줄이 서로 다른 상태를 그리지 않게
+            link.text = m.glyph
+            link.foreground = m.colour
+            link.toolTipText = m.why + (handWhy?.let { " · $it" } ?: "")
         }
 
         /**
@@ -379,8 +396,8 @@ class MagiToolWindow : ToolWindowFactory {
                     End.ByUs -> mood(Look.muted, "◌", MagiBundle.msg("chat.link.closed"))
                     // 손의 소식도 여기서 거둔다(리뷰): 손은 저 데몬에 붙었던 것이라 스트림이 죽으면
                     // 그 사실도 죽는다 — 안 거두면 새 데몬이 모르는 "손: …"을 툴팁이 영구 주장한다.
-                    End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", "전사가 끝났다(데몬이 닫았다) — 다시 붙는 중"); reattach() }
-                    is End.Broken -> { handSaid(null); mood(Look.error, "✕", "전사가 끊겼다: ${end.why} — 다시 붙는 중"); reattach() }
+                    End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", MagiBundle.msg("chat.link.lost")); reattach() }
+                    is End.Broken -> { handSaid(null); mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", end.why)); reattach() }
                 }
             }
 
@@ -425,7 +442,9 @@ class MagiToolWindow : ToolWindowFactory {
                 val label = ref.path.substringAfterLast('/') + (ref.lines?.let { ":$it" } ?: "")
                 chips.add(JButton("$label ✕").apply {
                     margin = java.awt.Insets(0, 6, 0, 6)
-                    toolTipText = ref.path
+                    // 경로와 **언제 나가는지** 둘 다 — 칩은 「지금 보낸 것」이 아니라 「다음
+                    // 메시지에 실릴 것」이라, 그 사실이 어디에도 안 적혀 있었다.
+                    toolTipText = ref.path + " — " + MagiBundle.msg("chat.attach.tip")
                     addActionListener { refs.remove(ref); drawChips() }
                 })
             }
@@ -671,7 +690,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 같은 줄을 무한히 쌓으면 사람이 읽던 전사가 밀려난다([reattach] 의 규칙).
          */
         private fun lost(why: String) {
-            mood(Look.error, "✕", "전사에 못 붙었다: $why — 다시 붙는 중")
+            mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", why))
             reattach()
         }
 
@@ -694,6 +713,9 @@ class MagiToolWindow : ToolWindowFactory {
                     while (!closing.get()) {
                         try { Thread.sleep(wait) } catch (e: InterruptedException) { return@executeOnPooledThread }
                         if (closing.get()) return@executeOnPooledThread
+                        // 시도하는 중이라고 말한다. 백오프가 30초까지 벌어지므로, 이 말이
+                        // 없으면 마지막 실패 사유가 30초 동안 「지금 상태」인 척 서 있는다.
+                        mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"))
                         if (follow() == Attach.Ok) return@executeOnPooledThread refresh()
                         wait = (wait * 2).coerceAtMost(30_000L)
                     }
@@ -866,11 +888,11 @@ class MagiToolWindow : ToolWindowFactory {
                     val long = r.text.contains('\n') || r.text.length > 120
                     val open = foldKey(r) in opened
                     if (open) {
-                        p.add(Look.aside("(생각) ⌃"), BorderLayout.NORTH)
+                        p.add(Look.aside(MagiBundle.msg("chat.think") + " ⌃"), BorderLayout.NORTH)
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     } else {
                         val head = r.text.lineSequence().firstOrNull().orEmpty().take(120)
-                        p.add(Look.aside("(생각) $head" + if (long) "  ⌄" else ""), BorderLayout.CENTER)
+                        p.add(Look.aside(MagiBundle.msg("chat.think") + " $head" + if (long) "  ⌄" else ""), BorderLayout.CENTER)
                     }
                     if (long) foldable(p, r)
                 }
@@ -1173,8 +1195,8 @@ class MagiToolWindow : ToolWindowFactory {
                     com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
                         .createPopupChooserBuilder(cut)
                         // 컷은 알파벳순 앞 20(glob 이 정렬한다) — 잘렸으면 제목이 말한다.
-                        .setTitle("@$token — 파일 첨부" +
-                            if (files.size > cut.size) " (앞 ${cut.size} — 더 좁혀라)" else "")
+                        .setTitle(MagiBundle.msg("chat.mention.title", token) +
+                            if (files.size > cut.size) MagiBundle.msg("chat.mention.more", cut.size) else "")
                         .setItemChosenCallback { picked ->
                             dismissedToken = null
                             // 토큰을 걷고 칩을 세운다 — 본문이 아니라 참조가 실린다(§4.2c).
@@ -1215,7 +1237,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 사람은 짧아진 제안을 보고 Tab 을 누르고, 입력창에는 안 보이던 것이 들어간다.
                     hint.isVisible = suggestion != null
                     hint.parent?.revalidate()
-                    hint.text = suggestion?.let { "<html><i>제안: ${Markup.text(it)} &nbsp;<b>Tab</b></i></html>" } ?: " "
+                    hint.text = suggestion?.let { MagiBundle.msg("chat.suggest", Markup.text(it)) } ?: " "
                 }
             }
         }
@@ -1261,7 +1283,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) =
                     onDaemon { comp ->
                         val r = act(comp)
-                        if (r.ok) clearNotice() else report("$label — 안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
+                        if (r.ok) clearNotice() else report(MagiBundle.msg("chat.notsent", label, r.error ?: MagiBundle.msg("common.noreason")))
                     }
             }
 
@@ -1319,7 +1341,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun interrupt() = onDaemon { comp ->
             val r = comp.interrupt()
-            if (r.ok) clearNotice() else report("세우기 — 안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
+            if (r.ok) clearNotice() else report(MagiBundle.msg("chat.notsent", MagiBundle.msg("chat.stop"), r.error ?: MagiBundle.msg("common.noreason")))
         }
 
         private fun say() {
@@ -1343,8 +1365,7 @@ class MagiToolWindow : ToolWindowFactory {
                         SwingUtilities.invokeAndWait {
                             go = com.intellij.openapi.ui.Messages.showYesNoDialog(
                                 project,
-                                "다른 대화(${mine.session?.takeLast(6)})의 턴이 도는 중이다.\n" +
-                                    "동시 턴은 파일 조작을 조정하지 않는다 — 그래도 이 대화에 보낼까?",
+                                MagiBundle.msg("chat.busy.body", mine.session?.takeLast(6) ?: ""),
                                 MagiBundle.msg("chat.busy.title"), MagiBundle.msg("chat.busy.yes"), MagiBundle.msg("chat.busy.no"), null,
                             ) == com.intellij.openapi.ui.Messages.YES
                         }
@@ -1367,7 +1388,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 조건부로 바꾸며 열린 구멍(리뷰 F3: 이 diff 가 처음 연 회귀).
                         scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
                     }
-                } else report("안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
+                } else report(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
 
@@ -1400,8 +1421,7 @@ class MagiToolWindow : ToolWindowFactory {
                     ).joinToString("<br/>")
                     // 못 받은 것을 못 받았다고 적는다. 이 줄이 없으면 사람은 아는 것(도구 이름)만
                     // 보고 누르고, 창이 무엇을 덜 받았는지는 영영 안 나온다.
-                    Subject.Unstated -> "<i>이 물음에 정해지는 것이 안 실려 왔다 — " +
-                        "무엇을 허가하는지 이 창은 모른다.</i>"
+                    Subject.Unstated -> "<i>" + Markup.text(MagiBundle.msg("chat.perm.unknown")) + "</i>"
                 }
                 prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$why</html>"
                 when (ask) {
@@ -1447,7 +1467,7 @@ class MagiToolWindow : ToolWindowFactory {
                         val r = act(c)
                         // 성공이 지운다 — say 하나에만 걸면 만료 프롬프트의 "안 갔다"가 다음
                         // 성공 뒤에도 지금 것처럼 서 있는다(이 유닛이 없애려던 그 무늬).
-                        if (r.ok) clearNotice() else report("안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
+                        if (r.ok) clearNotice() else report(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
                         redraw(c)
                     }
                 }

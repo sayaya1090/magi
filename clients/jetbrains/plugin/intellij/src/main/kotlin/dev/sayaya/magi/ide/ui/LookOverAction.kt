@@ -44,14 +44,14 @@ class LookOverAction : AnAction() {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
         val text = editor.document.text
-        val sock = Workspace(project).socket() ?: return show(project, "이 프로젝트에는 경로가 없어 워크스페이스를 정할 수 없다.")
+        val sock = Workspace(project).socket() ?: return show(project, MagiBundle.msg("chat.noworkspace"))
 
-        show(project, "훑어보는 중… (${file.name})")
+        show(project, MagiBundle.msg("chat.look.looking", file.name))
         ApplicationManager.getApplication().executeOnPooledThread {
             val said = runCatching { Assist({ DaemonClient.connect(sock) }).lookOver(file.path, text) }
-                .getOrElse { "못 물었다: ${it.message}" }
+                .getOrElse { MagiBundle.msg("chat.unreachable", it.message ?: MagiBundle.msg("common.noreason")) }
             // 빈 답과 못 물은 것을 가른다. 모델이 할 말이 없는 것과 데몬에 못 닿은 것은 다른 사건이다.
-            show(project, said?.takeIf { it.isNotBlank() } ?: "컴패니언이 이 파일에 대해 할 말이 없다고 했다.")
+            show(project, said?.takeIf { it.isNotBlank() } ?: MagiBundle.msg("chat.look.nothing"))
         }
     }
 
@@ -72,6 +72,10 @@ class LookOverAction : AnAction() {
             tw.activate(null)
         }
 
-        const val TAB = "훑어본 것"
+        /**
+         * 탭 이름 — **번들에서 온다.** 여기 박아 두면 영어 IDE 의 하단 독에 한국어 탭 하나가
+         * 선다(가이드라인 검토 G5). `const` 를 뗀 것은 그 사유다: 값이 로케일에 달렸다.
+         */
+        val TAB: String get() = MagiBundle.msg("chat.look.tab")
     }
 }

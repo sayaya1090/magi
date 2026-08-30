@@ -74,7 +74,7 @@ internal class Workspace(private val project: Project) {
      * 붙는다) — 실제로 `onDaemon({}) { … }` 호출 전부가 깨졌다.
      */
     fun onDaemon(at: String?, trouble: (String) -> Unit, work: (Companion) -> Unit) {
-        val sock = socket() ?: return trouble("이 프로젝트에는 경로가 없어 워크스페이스를 정할 수 없다.")
+        val sock = socket() ?: return trouble(MagiBundle.msg("chat.noworkspace"))
         ApplicationManager.getApplication().executeOnPooledThread {
             SocketPath.tooLong(sock)?.let { return@executeOnPooledThread trouble(it) }
             try {
@@ -88,7 +88,7 @@ internal class Workspace(private val project: Project) {
                 // 문장**으로 읽는다. 그래서 정상일 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 —
                 // 메시지가 정확히 거꾸로였다. 실측: 폴 46회 전부 trouble 과 ok 가 같은 밀리초에.
                 if (sid.isNullOrBlank()) {
-                    trouble("데몬이 어느 대화에 있는지 공표하지 않았다 — 붙을 자리를 넘겨짚지 않는다.")
+                    trouble(MagiBundle.msg("chat.nosession"))
                     return@executeOnPooledThread
                 }
                 DaemonClient.connect(sock).use { work(Companion(it, at ?: sid)) }
@@ -98,10 +98,10 @@ internal class Workspace(private val project: Project) {
                     // `else` 를 안 쓴다. 판정이 하나 늘면 여기서 컴파일이 서는 것이, 새 갈래가
                     // 옛 문장 뒤에 조용히 숨는 것보다 싸다.
                     when (v) {
-                        is DaemonLifecycle.Verdict.Left -> "데몬이 없다 — 아직 안 켰거나 질서 있게 나갔다."
-                        is DaemonLifecycle.Verdict.Killed -> "소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다."
-                        is DaemonLifecycle.Verdict.Alive -> "붙었다가 끊겼다: ${e.message}"
-                        is DaemonLifecycle.Verdict.Unknown -> "데몬이 살았는지 물어볼 수가 없었다: ${v.why}"
+                        is DaemonLifecycle.Verdict.Left -> MagiBundle.msg("chat.daemon.left")
+                        is DaemonLifecycle.Verdict.Killed -> MagiBundle.msg("chat.daemon.killed")
+                        is DaemonLifecycle.Verdict.Alive -> MagiBundle.msg("chat.daemon.dropped", e.message ?: MagiBundle.msg("common.noreason"))
+                        is DaemonLifecycle.Verdict.Unknown -> MagiBundle.msg("chat.daemon.unknown", v.why)
                     }
                 )
             }
