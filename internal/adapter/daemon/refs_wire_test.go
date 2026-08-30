@@ -42,7 +42,10 @@ func TestRefsCrossTheWireWhole(t *testing.T) {
 
 type unknownSessionEngine struct{ fakeEngine }
 
-func (unknownSessionEngine) Submit(context.Context, command.SubmitPrompt) error {
+// Pointer receiver, because fakeEngine holds a mutex: a value receiver copies it, which `go vet`
+// refuses — and `go test` does not run that check, so this compiled and passed here while CI went
+// red for a day.
+func (*unknownSessionEngine) Submit(context.Context, command.SubmitPrompt) error {
 	return errors.New(`jsonl: unknown session "s_x" (first append must include session.created)`)
 }
 
