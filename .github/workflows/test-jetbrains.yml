@@ -1,6 +1,6 @@
 # The JetBrains plugin's own test lane. clients/jetbrains/ releases on its own clock
 # (jetbrains-v* → release-jetbrains.yml) and tests on it too, the same arrangement web/ has:
-# a plugin-only change runs this and not the Go CI (ci.yml ignores clients/**), and a core
+# a plugin-only change runs this and not the Go CI (ci.yml ignores the client directories, the console server excepted), and a core
 # change does not spend minutes downloading an IDE it did not touch.
 #
 # Two modules, and they cost very differently. core/ is plain Kotlin — no IntelliJ SDK, seconds.

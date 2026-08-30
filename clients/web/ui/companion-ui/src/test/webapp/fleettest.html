@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>fleet list test</title>
+    <link rel="stylesheet" href="css/console.css">
+    <!-- RxJS를 먼저, 그 다음 이 화면 — 스토어가 전역 `rxjs` 위에 산다(dev.sayaya.rx 바인딩).
+         모듈 스크립트는 미뤄지고 GWT 부트스트랩은 미뤄지지 않아서, 나란히 적으면 순서가 뒤집힌다. -->
+    <script type="module">
+      import './js/material.js';
+      import * as rxjs from './js/rxjs.js';
+      window.rxjs = rxjs;
+      const boot = document.createElement('script');
+      boot.src = 'companiontest/companiontest.nocache.js';
+      document.head.append(boot);
+    </script>
+</head>
+<body></body>
+</html>

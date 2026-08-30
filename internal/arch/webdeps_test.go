@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The console (cmd/magi-web) releases on its own clock — a web-v* tag ships it alone, on a
+// The console (clients/web/server) releases on its own clock — a web-v* tag ships it alone, on a
 // lifecycle separate from the core's v* releases. That separation only stays real while the
 // console's reach into this module stays deliberate: every package it pulls in is core code a
 // web release silently re-ships, and the day the surface should shrink to a wire-and-files
@@ -30,7 +30,7 @@ var consoleSurface = map[string]bool{
 	"internal/atomicfile":             true,
 	// 콘솔이 내놓는 파일들 — 콘솔의 주기로 나가는 것이 맞다: 매니페스트도 워커도 아이콘
 	// 스프라이트도 전부 "이 콘솔이 무엇으로 보이는가"에 대한 것이다. 데모의 목은 이 목록에서
-	// 빠졌다: 이제 답하는 것이 Go 문자열이 아니라 콘솔과 같이 컴파일되는 모듈(web/ui/demo-ui)
+	// 빠졌다: 이제 답하는 것이 Go 문자열이 아니라 콘솔과 같이 컴파일되는 모듈(clients/web/ui/demo-ui)
 	// 이고, 그러니 코어가 실어 나를 것이 아니다.
 	"internal/webassets":    true,
 	"internal/config":       true,
@@ -72,9 +72,9 @@ func TestTheConsolesDependencySurfaceIsFrozen(t *testing.T) {
 	}
 
 	// Transitive closure from the console package.
-	const root = "cmd/magi-web"
+	const root = "clients/web/server"
 	if len(pkgImports[root]) == 0 {
-		t.Fatal("cmd/magi-web imports nothing from the module — the walk is broken, so this asserts nothing")
+		t.Fatal("clients/web/server imports nothing from the module — the walk is broken, so this asserts nothing")
 	}
 	reached := map[string]bool{}
 	queue := []string{root}
@@ -92,14 +92,14 @@ func TestTheConsolesDependencySurfaceIsFrozen(t *testing.T) {
 
 	for _, dep := range sortedSet(reached) {
 		if !consoleSurface[dep] {
-			t.Errorf("cmd/magi-web now (transitively) depends on %s — a web release re-ships that "+
+			t.Errorf("clients/web/server now (transitively) depends on %s — a web release re-ships that "+
 				"package on the console's own lifecycle. If that is the right call, add it to "+
 				"consoleSurface and say why in the commit.", dep)
 		}
 	}
 	for _, dep := range sortedSet(consoleSurface) {
 		if !reached[dep] {
-			t.Errorf("cmd/magi-web no longer depends on %s — drop it from consoleSurface so the "+
+			t.Errorf("clients/web/server no longer depends on %s — drop it from consoleSurface so the "+
 				"frozen surface stays the measured one.", dep)
 		}
 	}

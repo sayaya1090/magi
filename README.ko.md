@@ -393,7 +393,7 @@ make build        # CGO_ENABLED=0, 버전 주입 → ./magi
 make web          # 브라우저 콘솔 → ./magi-web
 # 또는 직접:
 CGO_ENABLED=0 go build -o magi     ./cmd/magi
-CGO_ENABLED=0 go build -o magi-web ./cmd/magi-web
+CGO_ENABLED=0 go build -o magi-web ./clients/web/server
 ```
 
 순수 Go에 CGo가 없어서 결과물은 정적 바이너리 하나입니다. `magi`가 에이전트(TUI와 데몬)이고,
@@ -479,7 +479,7 @@ magi는 포트와 어댑터 구조입니다. 코어 도메인은 UI도, LLM도, 
 flowchart TD
     subgraph adapters [어댑터 — 갈아끼울 수 있는 것]
         TUI[tui/bubbletea]
-        WEB[cmd/magi-web]
+        WEB[clients/web/server]
         LLM[llm/openai]
         LUA[plugin/lua · mcp]
         DMN[daemon · fleet]
@@ -501,7 +501,7 @@ flowchart TD
 
 ```
 cmd/magi            진입점 (와이어링)
-cmd/magi-web        콘솔 — 같은 데몬들 위의 읽기 위주 웹 뷰
+clients/web/server        콘솔 — 같은 데몬들 위의 읽기 위주 웹 뷰
 internal/core       도메인 — 어떤 어댑터에도 의존하지 않습니다 (순수 카운슬 포함)
 internal/port       포트(인터페이스) — LLM, Store, Council, ToolServers …
 internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·

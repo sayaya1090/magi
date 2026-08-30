@@ -248,7 +248,7 @@ func (a *App) LookOver(ctx context.Context, sid session.SessionID, path, text st
 	// the region around the caret, not the whole file, and numbers it so a finding anchors to an
 	// actual line rather than the model's count. The reply keeps that shape — `<line><TAB><clause>`,
 	// one per finding — so the console can draw each remark against the line it is about instead of
-	// a paragraph over the top of the file. See LookOver's caller (cmd/magi-web) and app_state's
+	// a paragraph over the top of the file. See LookOver's caller (clients/web/server) and app_state's
 	// lookLang for the language cache.
 	sys := "A person is editing " + path + " and has not saved it. The lines below are the region " +
 		"around where they are working; each is prefixed with its line number and a tab. Report " +

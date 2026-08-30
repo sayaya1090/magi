@@ -3,16 +3,22 @@ name: CI
 on:
   push:
     branches: [main]
-    # The new console (web/) and the editor clients (clients/) test on their own clocks —
-    # test-web.yml, test-jetbrains.yml — the way they release on their own clocks. A push that
-    # only touches one of them has nothing here to prove.
+    # The console's UI and the editor clients test on their own clocks — test-web.yml,
+    # test-jetbrains.yml — the way they release on their own clocks. A push that only touches one
+    # of them has nothing here to prove.
+    #
+    # Listed one by one rather than as "clients/**", because the console's SERVER lives under
+    # clients/ now (clients/web/server) and it is Go: this is the workflow that builds, vets and
+    # tests Go, and a blanket ignore would have quietly taken it out of that.
     paths-ignore:
-      - "web/**"
-      - "clients/**"
+      - "clients/jetbrains/**"
+      - "clients/powerpoint/**"
+      - "clients/web/ui/**"
   pull_request:
     paths-ignore:
-      - "web/**"
-      - "clients/**"
+      - "clients/jetbrains/**"
+      - "clients/powerpoint/**"
+      - "clients/web/ui/**"
 
 permissions:
   contents: write # the coverage-badge step pushes a JSON to the 'badges' branch

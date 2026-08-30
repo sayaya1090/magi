@@ -64,7 +64,7 @@ answers) over the socket. `magi -p` is a one-shot headless run.
 
 ### The web console — the machine's supervisor seat
 
-`cmd/magi-web` is a BFF: it serves the compiled `web/ui` screens (§3) and gathers **every**
+`clients/web/server` is a BFF: it serves the compiled `clients/web/ui` screens (§3) and gathers **every**
 companion's socket and log on this machine, plus the narrowed fleet door of peer machines, into
 one view. It binds loopback and has no login of its own (wrap it the way your organisation does —
 SECURITY §4); per-person reach is narrowed by grants on the access screen. A remote machine cannot

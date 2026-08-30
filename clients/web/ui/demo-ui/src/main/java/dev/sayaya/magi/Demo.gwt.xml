@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 데모 전용 — 이 모듈은 화면이 아니다. 정적 데모에서만 실려, 콘솔의 회선 이음매에 답을
+     걸어 둔다(프록시). 운영 콘솔은 이 파일을 내려받지 않는다. -->
+<module rename-to="demo">
+    <inherits name="com.google.gwt.user.User"/>
+    <inherits name="org.jboss.elemento.Core"/>
+    <inherits name="dev.sayaya.Rx"/>
+    <inherits name="dev.sayaya.magi.ConsoleBridge"/>
+    <entry-point class="dev.sayaya.magi.demo.DemoApplication"/>
+    <source path="demo"/>
+</module>

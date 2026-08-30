@@ -20,16 +20,16 @@ build:
 # working BFF whose `/` says which build it is; that is the supported state, not a failure, and
 # depending on a JDK here would put gradle in the path of everyone who never opens a browser.
 web:
-	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi-web ./cmd/magi-web
+	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o magi-web ./clients/web/server
 
 # The console, compiled and put where go:embed can reach it. Needs a JDK and gradle; CI runs this
 # before it builds a release. `make console web` gives a binary with the screens inside it.
 #
 # For developing the screens themselves, skip it: `gradlew assembleConsole` then
-# `magi-web -console web/ui/build/console` serves the directory and re-reads it on every request.
+# `magi-web -console clients/web/ui/build/console` serves the directory and re-reads it on every request.
 console:
-	cd web/ui && ./gradlew assembleConsole
-	cp -R web/ui/build/console/. cmd/magi-web/console/
+	cd clients/web/ui && ./gradlew assembleConsole
+	cp -R clients/web/ui/build/console/. clients/web/server/console/
 
 test:
 	go test ./... -skip E2E
@@ -73,4 +73,4 @@ clean:
 	rm -f magi
 	rm -rf dist
 	# 조립된 콘솔은 산출물이다 — 자리지기 README만 남기고 지운다.
-	find cmd/magi-web/console -mindepth 1 ! -name README.md -delete
+	find clients/web/server/console -mindepth 1 ! -name README.md -delete

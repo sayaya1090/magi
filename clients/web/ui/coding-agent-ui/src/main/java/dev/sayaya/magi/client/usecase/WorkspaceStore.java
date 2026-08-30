@@ -1,0 +1,353 @@
+package dev.sayaya.magi.client.usecase;
+
+import dev.sayaya.magi.bridge.CompanionContext;
+import dev.sayaya.magi.client.domain.Tree;
+import jsinterop.base.Js;
+import jsinterop.base.JsPropertyMap;
+
+import javax.inject.Inject;
+import javax.inject.Singleton;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.function.Consumer;
+
+/**
+ * 워크스페이스의 저장소 — 읽은 디렉토리, 열린 가지, git, 그리고 열어 둔 파일.
+ *
+ * 걸음은 한 번에 하나다(운영 loadTree.busy): 화면에 도착하는 것과 뒤따르는 첫 프레임이
+ * 같은 디렉토리를 두 번 걷던 일이 실측된 적 있다. 가지를 펼치는 것은 그 디렉토리 하나를
+ * 더 읽는 일이지 트리를 다시 읽는 일이 아니다.
+ */
+@Singleton
+public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
+    private final WorkspaceSource source;
+    private final Set<String> open = new LinkedHashSet<>();
+    private JsPropertyMap<Object> dirs = Js.uncheckedCast(JsPropertyMap.of());
+    private Object git = null;
+    private boolean walked = false;
+    private boolean walking = false;
+    private CompanionContext ctx = null;
+    /**
+     * 열어 둔 파일들 — <b>여럿</b>이다. 하나만 들면 두 파일을 견주는 일(고친 것과 그것을 부르는
+     * 곳)이 화면을 오가는 일이 되고, 운영 콘솔은 그 둘을 탭으로 나란히 세운다.
+     * 순서는 연 순서다(LinkedHashMap): 탭 줄이 그 순서로 선다. 값이 null이면 아직 읽는 중.
+     */
+    private final java.util.LinkedHashMap<String, String> opened = new java.util.LinkedHashMap<>();
+
+    @Inject
+    public WorkspaceStore(WorkspaceSource source) { this.source = source; }
+
+    public void aim(CompanionContext c) {
+        boolean moved = ctx == null || c == null || !c.socket.equals(ctx.socket);
+        ctx = c;
+        if (!moved) return;
+        // 다른 워크스페이스다 — 읽은 것도 열어 둔 것도 이 컴패니언의 것이 아니다.
+        dirs = Js.uncheckedCast(JsPropertyMap.of());
+        open.clear();
+        git = null;
+        walked = false;
+        opened.clear();
+        told();
+        walk();
+    }
+
+    /**
+     * 한 걸음 — 열린 가지들만 읽고, git은 그 곁에서 따로 온다(둘은 다른 물음이다).
+     *
+     * 판이 닫혀 있으면 걷지 않는다: 아무도 열어 본 적 없는 판은 한 번도 요청을 쓰지 않는다
+     * (운영 규칙). 열리는 순간 그 자리가 말해 주고, 그때 첫 걸음을 뗀다.
+     */
+    public void walk() {
+        if (ctx == null || walking) return;
+        if (!dev.sayaya.magi.bridge.PaneSharing.isOpen("left")) return;
+        walking = true;
+        List<String> want = Tree.wanted(open);
+        source.dirs(ctx, want, got -> {
+            walking = false;
+            walked = true;
+            if (got != null) {
+                JsPropertyMap<Object> map = Js.uncheckedCast(Js.asPropertyMap(got).get("dirs"));
+                if (map != null) map.forEach(k -> dirs.set(k, map.get(k)));
+            }
+            told();
+        });
+        source.git(ctx, g -> { git = g; told(); });
+    }
+
+    /** 가지를 펼치거나 접는다 — 펼치면 그 디렉토리 하나를 더 읽는다. */
+    public void toggle(String path) {
+        if (open.contains(path)) { open.remove(path); told(); return; }
+        open.add(path);
+        told();
+        walk();
+    }
+
+    public boolean isOpen(String path) { return open.contains(path); }
+
+    public Object rowsAt(String path) { return dirs.get(path); }
+
+    public boolean walked() { return walked; }
+
+    public Object git() { return git; }
+
+    /**
+     * 깃 판이 그리는 것들만 — 그 답이 그대로면 흐르지 않는다.
+     *
+     * 이 스토어는 한 상자에 여러 답을 들고 있어서(트리·열린 파일·깃) "달라졌다" 한 번에 판이
+     * 전부 다시 섰다. 파일 하나를 누르면 깃 카드가 깜빡인 이유가 그것이다 — 깃은 아무 일도
+     * 없었는데. 그래서 조각을 잘라 내려보낸다: 판은 제 조각만 듣는다.
+     */
+    public dev.sayaya.rx.Observable<String> gitFacts() {
+        return stream().map(n -> git == null ? "" : elemental2.core.Global.JSON.stringify(git))
+                .distinctUntilChanged();
+    }
+
+    /** 트리 판이 그리는 것들만 — 읽은 디렉토리·열린 가지·열어 둔 파일과 그 본문. */
+    public dev.sayaya.rx.Observable<String> treeFacts() {
+        return stream().map(n -> treeSig()).distinctUntilChanged();
+    }
+
+    private String treeSig() {
+        StringBuilder b = new StringBuilder();
+        // 이 판이 그리는 것 <b>전부</b>가 여기 들어와야 한다 — 하나 빠지면 그 사실이 바뀌어도
+        // 판이 다시 서지 않는다(실측: 찾기 상태를 빠뜨려 결과가 영영 그려지지 않았다).
+        b.append(walked).append('|').append(walking).append('|').append(String.join(",", open));
+        b.append('|').append(query).append('|').append(finding());
+        b.append('|').append(hits == null ? "" : elemental2.core.Global.JSON.stringify(hits));
+        b.append('|').append(ctx == null ? "" : ctx.socket);
+        b.append('|').append(elemental2.core.Global.JSON.stringify(dirs));
+        for (java.util.Map.Entry<String, String> e : opened.entrySet()) {
+            b.append('|').append(e.getKey()).append('=').append(e.getValue() == null ? -1 : e.getValue().length());
+        }
+        return b.toString();
+    }
+
+    /** 열려 있는 파일들, 연 순서대로. */
+    public List<String> openPaths() { return new ArrayList<>(opened.keySet()); }
+
+    /** 그 파일의 본문 — 아직 읽는 중이면 null, 열려 있지 않아도 null. */
+    public String textOf(String path) { return opened.get(path); }
+
+    public boolean isFileOpen(String path) { return opened.containsKey(path); }
+
+    /**
+     * 파일을 연다. 이미 열려 있으면 다시 읽지 않는다 — 같은 탭을 두 번 누르는 것은 그 탭으로
+     * 가겠다는 뜻이지 디스크를 다시 읽겠다는 뜻이 아니다(다시 읽는 문은 판의 머리에 있다).
+     */
+    public void openFile(String path) {
+        if (ctx == null) return;
+        boolean isNew = !opened.containsKey(path);
+        if (isNew) opened.put(path, null);
+        // 이미 열려 있던 파일이면 <b>그 탭으로 간다</b> — 누른 사람이 원한 것은 새 탭이 아니라
+        // 그 파일이고, 아무 일도 일어나지 않으면 눌리지 않은 것처럼 읽힌다(실측).
+        dev.sayaya.magi.bridge.CardSharing.ask(path);
+        told();
+        if (!isNew && opened.get(path) != null) return;   // 이미 읽어 둔 본문을 다시 묻지 않는다
+        source.file(ctx, path, got -> {
+            if (!opened.containsKey(path)) return;   // 늦게 온 답이 닫힌 파일을 되살리지 않게
+            opened.put(path, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
+            told();
+        });
+    }
+
+    /**
+     * 저장 — 무엇을 보낼지(패치냐 본문이냐)는 순수 규칙이 정한다(Code.unifiedDiff).
+     * 성공하면 다시 걷는다: 저장은 파일을 만들기도 해서, 트리는 이 순간 낡았다.
+     */
+    public void save(String path, String opened, String now, Consumer<String> why) {
+        if (ctx == null) return;
+        String patch = dev.sayaya.magi.client.domain.Code.unifiedDiff(opened, now, path);
+        source.save(ctx, path, patch, now, w -> {
+            if (w == null || w.isEmpty()) { walked = false; walk(); }
+            why.accept(w);
+        });
+    }
+
+    /**
+     * 한 파일의 차이를 연다 — 파일과 <b>같은 자리</b>(탭 줄)에 서고, 신원은 "±경로#어느것"이다:
+     * 같은 파일의 본문과 차이는 서로 다른 카드이고, 둘을 함께 열어 두는 일이 잦다.
+     */
+    public void openDiff(String path, String which) {
+        if (ctx == null) return;
+        String key = diffKey(path, which);
+        if (!opened.containsKey(key)) opened.put(key, null);
+        told();
+        source.diff(ctx, path, which, got -> {
+            if (!opened.containsKey(key)) return;
+            opened.put(key, got == null ? "" : String.valueOf(Js.asPropertyMap(got).get("text")));
+            told();
+        });
+    }
+
+    /** 캐럿 자리의 이어쓰기 — 답이 늦게 오면 그 사이 캐럿이 어디로 갔는지는 화면이 판단한다. */
+    public void complete(String path, String prefix, String suffix, Consumer<String> text) {
+        if (ctx == null) { text.accept(""); return; }
+        source.complete(ctx, path, prefix, suffix, text);
+    }
+
+    /** 캐럿 둘레를 읽어 달라는 청 — 보낼 자리를 고르는 것은 화면의 몫이다(진짜 줄 번호로). */
+    public void look(String path, String numbered, WorkspaceSource.Said notes) {
+        // 어느 컴패니언인지 모르는 것은 거절이 아니다 — 아무도 말하지 않았으므로 사유가 없다.
+        if (ctx == null) { notes.call(false, ""); return; }
+        source.look(ctx, path, numbered, notes);
+    }
+
+    /** 열어 둔 파일과 그 버퍼를 컴패니언에게 알린다 — 빈 본문은 그 사본을 지운다. */
+    public void openFileHint(String path, String text) {
+        if (ctx != null) source.openFileHint(ctx, path, text);
+    }
+
+    /** 커밋 작업대 — 파일과 같은 자리(탭)에 서는 카드다. 신원은 하나뿐이라 두 번 열리지 않는다. */
+    public static final String COMMIT = "commit:";
+
+    public void openCommit() {
+        if (ctx == null) return;
+        if (!opened.containsKey(COMMIT)) opened.put(COMMIT, "");
+        told();
+    }
+
+    /** 한 번 읽어 보는 차이 — 카드로 열지 않고 그 자리에서 그린다(작업대의 그 상자). */
+    public void diffOf(String path, String which, Consumer<Object> got) {
+        if (ctx == null) { got.accept(null); return; }
+        source.diff(ctx, path, which, got);
+    }
+
+    /** 요청 작업대 — 커밋 작업대와 같은 자리에 서는 다른 카드다. */
+    public static final String PR = "pr:";
+
+    public void openPullRequestBench() {
+        if (ctx == null) return;
+        if (!opened.containsKey(PR)) opened.put(PR, "");
+        told();
+    }
+
+    public void pullRequest(Consumer<Object> got) {
+        if (ctx == null) { got.accept(null); return; }
+        source.pullRequest(ctx, got);
+    }
+
+    public void draftPullRequest(String rules, WorkspaceSource.Said said) {
+        if (ctx == null) { said.call(false, ""); return; }
+        source.draftPullRequest(ctx, rules, said);
+    }
+
+    public void openPullRequest(String title, String body, WorkspaceSource.Said urlOrWhy) {
+        if (ctx == null) { urlOrWhy.call(false, ""); return; }
+        source.openPullRequest(ctx, title, body, urlOrWhy);
+    }
+
+    public void draftCommitMessage(String rules, WorkspaceSource.Said said) {
+        if (ctx == null) { said.call(false, ""); return; }
+        source.draftCommitMessage(ctx, rules, said);
+    }
+
+    public static String diffKey(String path, String which) {
+        return "\u00B1" + path + "#" + (which == null ? "" : which);
+    }
+
+    public static boolean isDiff(String key) { return key.startsWith("\u00B1"); }
+
+    public static String diffPath(String key) {
+        int hash = key.lastIndexOf('#');
+        return key.substring(1, hash < 0 ? key.length() : hash);
+    }
+
+    public static String diffWhich(String key) {
+        int hash = key.lastIndexOf('#');
+        return hash < 0 ? "" : key.substring(hash + 1);
+    }
+
+    /** 하나를 닫는다 — 나머지는 그대로 열려 있다. */
+    public void closeFile(String path) { if (opened.remove(path) != null || path == null) told(); }
+
+    /** 전부 닫는다 — 다른 컴패니언으로 옮겨 갈 때(그 파일들은 이 워크스페이스의 것이었다). */
+    public void closeAllFiles() { if (!opened.isEmpty()) { opened.clear(); told(); } }
+
+    // ── 찾기 ─────────────────────────────────────────────────────────────────
+    // 찾는 동안 판이 보이는 것은 결과다 — 다시 걷는 일(파일을 열거나 무언가를 바꿨을 때)이
+    // 그것을 트리로 되돌리면, 두 번째 결과를 누르려던 사람은 그 자리에 없는 것을 누른다
+    // (운영에서 "두 번째 파일이 안 열린다"로 보고된 그 결함).
+    private String query = "";
+    private String where = "name";   // name | text
+    private Object hits = null;
+    private int findSeq = 0;
+
+    /** 어느 작업공간인가 — 셸이 컨텍스트에 실어 보낸 것(여기서 명단을 다시 묻지 않는다). */
+    public String workdir() { return ctx == null || ctx.workdir == null ? "" : ctx.workdir; }
+
+    public String query() { return query; }
+    public String where() { return where; }
+    public Object hits() { return hits; }
+    public boolean finding() { return !query.trim().isEmpty(); }
+
+    public void where(String in) {
+        where = in;
+        if (finding()) find();
+        else told();
+    }
+
+    public void query(String q) {
+        query = q == null ? "" : q;
+        if (!finding()) { hits = null; told(); return; }
+        find();
+    }
+
+    /**
+     * 이름으로만 찾는다 — 이 판의 찾기 상태는 건드리지 않는다.
+     *
+     * 묻는 사람이 다르기 때문이다(팔레트): 여기서 query/hits를 쓰면 ⌘K에 두 글자 친 것이
+     * 왼쪽 기둥의 트리를 결과 목록으로 바꿔 놓는다. 답이 없으면 null이 답이다.
+     */
+    public void findNames(String q, Consumer<Object> gotOrNull) {
+        if (ctx == null) { gotOrNull.accept(null); return; }
+        source.find(ctx, "name", q, gotOrNull);
+    }
+
+    private void find() {
+        if (ctx == null) return;
+        final int mine = ++findSeq;
+        source.find(ctx, where, query, got -> {
+            if (mine != findSeq) return;   // 뒤에 떠난 물음이 이미 오는 중이다
+            hits = got;
+            told();
+        });
+    }
+
+    // ── 쓰기 ─────────────────────────────────────────────────────────────────
+    // 무엇이 됐는지는 버튼이 아니라 다시 읽은 것이 말한다(운영 gitRun의 그 규칙):
+    // 이 콘솔이 바꾼 디렉토리는 낡은 게 아니라 틀린 것이므로, 읽은 것을 버리고 다시 걷는다.
+    private String lastWhy = "";
+
+    public String lastWhy() { return lastWhy; }
+
+    public void fileDo(String what, String path, String to) {
+        if (ctx == null) return;
+        source.fileDo(ctx, what, path, to, why -> {
+            lastWhy = why == null ? "" : why;
+            if (lastWhy.isEmpty()) {
+                dirs = Js.uncheckedCast(JsPropertyMap.of());
+                // 지운 파일은 열어 둘 수 없다 — 나머지 탭은 그대로 남는다.
+                if ("delete".equals(what)) opened.remove(path);
+                walk();
+            }
+            told();
+        });
+    }
+
+    public void gitDo(String what, String path, String message) {
+        if (ctx == null) return;
+        source.gitDo(ctx, what, path, message, why -> {
+            lastWhy = why == null ? "" : why;
+            if (lastWhy.isEmpty()) {
+                // 브랜치가 바뀌면 파일도 바뀐다 — 트리도 다시 걷는다.
+                dirs = Js.uncheckedCast(JsPropertyMap.of());
+                walk();
+            }
+            told();
+        });
+    }
+
+
+}

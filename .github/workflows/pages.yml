@@ -16,7 +16,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'cmd/magi-web/**'
+      - 'clients/web/server/**'
       - '.github/workflows/pages.yml'
   # A hand-run, for a branch that is not main yet.
   workflow_dispatch:
@@ -38,7 +38,7 @@ permissions:
 jobs:
   # 같은 커밋이 web/도 건드렸으면 이 레인은 비켜선다.
   #
-  # 두 레인이 같은 사이트를 짓는다: 이쪽은 cmd/magi-web의 변화에, test-web은 web/의 변화에.
+  # 두 레인이 같은 사이트를 짓는다: 이쪽은 clients/web/server의 변화에, test-web은 web/의 변화에.
   # 한 커밋이 둘 다 건드리면 둘이 함께 떠서 같은 8분을 두 번 쓰고, pages 동시성 그룹이 하나를
   # 취소한다 — 남는 것은 옳지만 취소된 줄이 실패처럼 보이고 컴퓨트는 이미 쓰였다. 그래서
   # 여기서 먼저 묻는다: 저쪽이 어차피 배포하는가.
@@ -106,7 +106,7 @@ jobs:
       # tested where it is written — gwt-test and Playwright specs, in test-web.yml — and this lane
       # only fires when web/ did not move, so those results already stand for this commit.
       - name: test the console
-        run: go test ./cmd/magi-web/ -count=1
+        run: go test ./clients/web/server/ -count=1
 
       # The site is one artifact and deploy-pages replaces it whole, so every lane that
       # publishes must build everything — the shared recipe (icons, the console's demo, the

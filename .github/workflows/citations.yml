@@ -2,7 +2,7 @@
 #
 # 자기 레인인 이유는 트리거가 다른 어느 레인과도 안 맞아서다. 인용이 썩는 계기는 셋인데 —
 # Go 쪽 rename, 이 문서들의 편집, 형제 문서의 편집 — 기존 둘 중 어느 것도 셋을 다 못 본다.
-# ci.yml 은 paths-ignore 에 clients/** 가 있어 클라이언트 문서 편집을 못 보고,
+# ci.yml 은 클라이언트 디렉토리들을 paths-ignore 에 두어(콘솔 서버만 예외) 클라이언트 문서 편집을 못 보고,
 # test-jetbrains.yml 은 paths 가 clients/jetbrains/** 라 형제 문서 편집을 못 본다.
 # 실제로 `clients/powerpoint/DESIGN.md` 만 바뀌면 **아무 레인도 안 돌았다.**
 #
@@ -11,7 +11,7 @@
 # 갈린다.
 #
 # paths 는 짐작이 아니라 실측이다. 인용 쪽은 검사 대상 문서가 실제로 짚는 것을 세서 정했고
-# (internal 29 · cmd 9 · docs 5 · clients 4 · web/ui/README.md 1 · SECURITY.md 1 — 앞의 둘은
+# (internal 29 · cmd 9 · docs 5 · clients 4 · clients/web/ui/README.md 1 · SECURITY.md 1 — 앞의 둘은
 # `**/*.go` 가 덮는다), 도표 쪽은 추적되는 마크다운 전체가 대상이라 `**/*.md` 다. 인용처가 늘면
 # 여기도 늘린다 — 빠지면 그 인용이 검사에서 조용히 빠지는 게 아니라 **레인이 안 도는** 것이라
 # 총계가 그대로 0 이 된다.

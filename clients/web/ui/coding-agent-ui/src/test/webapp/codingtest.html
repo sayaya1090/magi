@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>coding agent test</title>
+    <link rel="stylesheet" href="css/console.css">
+    <link rel="stylesheet" href="css/coding.css">
+    <!-- RxJS를 먼저, 그 다음 이 화면 — 스토어가 전역 `rxjs` 위에 산다(dev.sayaya.rx 바인딩).
+         모듈 스크립트는 미뤄지고 GWT 부트스트랩은 미뤄지지 않아서, 나란히 적으면 순서가 뒤집힌다. -->
+    <script type="module">
+      import './js/material.js';
+      import * as rxjs from './js/rxjs.js';
+      const marked = await import('./js/marked.js');
+      window.mdlex = marked.lexer;
+      window.rxjs = rxjs;
+      // 셸이 서 있을 자리 둘 — 이 페이지가 셸 없이 뜨기 때문에 여기서 대신 선다.
+      // 명단: 컴포저가 "이 컴패니언이 지금 어느 대화에 있나"를 묻는 곳이 이것뿐이다.
+      const roster = [];
+      // live는 명단이 <b>따로</b> 싣는 사실이다(명단에 있다 ≠ 답한다). 답이 끊긴 화면과
+      // 돌아온 화면은 여기서만 갈릴 수 있어서, 셋째 조각으로 받는다(안 주면 산 것).
+      const fleet = (state, session, live) => {
+        const list = [{socket: '/tmp/a1.sock', peer: '', name: 'alpha',
+                       state: state, live: live === undefined ? true : live,
+                       session: session}];
+        roster.forEach(cb => cb(list));
+      };
+      window.__magi_roster_subscribe = cb => { roster.push(cb); fleet('idle', 's_now'); };
+      window.__magi_roster_refresh = () => {};
+      window.__magi_test_fleet = fleet;
+      // 주소: 층위를 접는 문. 셸이라면 주소를 고쳐 컨텍스트를 다시 흘린다 — 가짜도 그렇게 한다.
+      window.__magi_go_past = v => window.__magi_test_past(v);
+      // 자식 층위의 문도 같은 자리에 — 청한 값을 적어 둔다. 화면이 <b>무엇을</b> 청했는지는
+      // 화면 안에서는 보이지 않는다(GoSharing.sub는 문이 없으면 조용하다). 스펙에서 문을
+      // 걸어 두는 대신 여기 두는 까닭: page.evaluate에 함수로 끝나는 식을 주면 플레이라이트가
+      // 그것을 곧바로 호출한다 — 문을 거는 그 한 줄이 인자 없이 문을 열어 층위를 접었다.
+      window.__magi_go_sub = v => {
+        window.__magi_test_went_sub = String(v);
+        window.__magi_test_sub(v);
+      };
+      const boot = document.createElement('script');
+      boot.src = 'codingtest/codingtest.nocache.js';
+      document.head.append(boot);
+    </script>
+</head>
+<body></body>
+</html>

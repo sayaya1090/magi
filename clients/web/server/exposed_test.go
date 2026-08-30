@@ -1,0 +1,281 @@
+package main
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"strings"
+	"testing"
+)
+
+// A console more people than the operator can reach stops being a way to run commands on the
+// machine.
+//
+// Both of these run something the CALLER chose, outside the permission policy an agent's own tool
+// calls go through: /shell directly, and /mcp by writing a command line a daemon spawns at
+// startup. Behind an authenticating proxy the caller is no longer necessarily the person who owns
+// the machine, and the second one is easy to miss precisely because it looks like a settings form.
+func TestASharedConsoleRefusesToRunThingsChosenByTheCaller(t *testing.T) {
+	for _, c := range []struct {
+		what  string
+		path  string
+		form  url.Values
+		route func(*server) http.HandlerFunc
+	}{
+		{"a shell command", "/shell", url.Values{"cmd": {"whoami"}},
+			func(s *server) http.HandlerFunc { return s.shell }},
+		{"an MCP server", "/mcp", url.Values{"name": {"pwned"}, "command": {"/bin/sh"}},
+			func(s *server) http.HandlerFunc { return s.mcp }},
+	} {
+		open := &server{}
+		shared := &server{exposed: true}
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, c.path, strings.NewReader(c.form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		c.route(shared)(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s: a shared console answered %d, not a refusal", c.what, w.Code)
+		}
+		// The person on the other end has to be able to tell a policy from a fault, and to find
+		// the switch. Without the flag's name the next move is to go looking for a bug.
+		if !strings.Contains(w.Body.String(), "-exposed") {
+			t.Errorf("%s: the refusal does not say what turned it off: %q", c.what, w.Body.String())
+		}
+
+		// And the ordinary console is untouched: refused for want of a companion to act on, which
+		// is a 404 or a 502 from further in, but never the shared-console 403.
+		w2 := httptest.NewRecorder()
+		r2 := httptest.NewRequest(http.MethodPost, c.path, strings.NewReader(c.form.Encode()))
+		r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		c.route(open)(w2, r2)
+		if w2.Code == http.StatusForbidden && strings.Contains(w2.Body.String(), "-exposed") {
+			t.Errorf("%s: an ordinary console refused it as if it were shared", c.what)
+		}
+	}
+}
+
+// Reading is not writing. A shared console that hid what the daemons already run would invite
+// somebody to add a second copy of a server that is right there.
+func TestASharedConsoleStillShowsWhatIsRunning(t *testing.T) {
+	s := &server{exposed: true, cfgDir: t.TempDir()}
+	w := httptest.NewRecorder()
+	s.mcp(w, httptest.NewRequest(http.MethodGet, "/mcp", nil))
+	if w.Code == http.StatusForbidden {
+		t.Fatalf("the list was refused on a shared console: %s", w.Body.String())
+	}
+}
+
+// A shared console shows other machines and does not act on them.
+//
+// It used to refuse to start at all with -exposed and -peer together, because a crossing to a peer
+// carries no identity: on a shared console anybody admitted here could act as the operator over
+// there, with nothing in that console's record to say who did. True, and the ban also removed the
+// arrangement people want — one console, several machines, several people looking — to prevent a
+// class of request that can be refused on its own.
+//
+// So the rule moved from startup to the crossing, and narrowed to what is actually unsafe: with
+// ONE operator the person who could have sent it is the person whose tunnel it goes down, and the
+// far console's record naming the operator is true.
+func TestASharedConsoleShowsAPeerAndDoesNotActOnIt(t *testing.T) {
+	peers := []peer{{Name: "mini", Base: "http://127.0.0.1:7778"}}
+	// No combination is refused at startup any more.
+	for _, exposed := range []bool{true, false} {
+		if err := exposedAllows(exposed, peers); err != nil {
+			t.Errorf("exposed=%v with a peer was refused at startup: %v", exposed, err)
+		}
+	}
+
+	shared := withPolicy(t, `
+[people."kim@corp.com"]
+role = "operator"
+`)
+	p := peer{Name: "mini", Base: "http://127.0.0.1:7778"}
+	post := httptest.NewRequest(http.MethodPost, "/interrupt?p=mini&d=/s/a.sock", nil)
+	post.Header.Set("X-Forwarded-User", "kim@corp.com")
+	w := httptest.NewRecorder()
+	shared.proxy(w, post, p, "/s/a.sock")
+	if w.Code != http.StatusForbidden {
+		t.Errorf("a shared console forwarded an action to another machine (%d)", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), p.Base) {
+		t.Errorf("the refusal does not say where it CAN be done: %s", w.Body.String())
+	}
+
+	// And the same console still shows what is over there: looking is what a federated view is for.
+	far := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("the far console was sent a %s", r.Method)
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer far.Close()
+	p = peer{Name: "mini", Base: far.URL}
+	shared.http = far.Client()
+	get := httptest.NewRequest(http.MethodGet, "/fleet?p=mini", nil)
+	get.Header.Set("X-Forwarded-User", "kim@corp.com")
+	w = httptest.NewRecorder()
+	shared.proxy(w, get, p, "")
+	if w.Code == http.StatusForbidden {
+		t.Errorf("a shared console refused to READ a peer: %s", w.Body.String())
+	}
+}
+
+// Every route that changes something on the machine itself is either behind the shared-console
+// refusal or is deliberately not — and the deliberate ones are listed here, so adding a route that
+// spawns a process is a decision somebody makes on purpose rather than a default.
+//
+// The list is the point. Without it this check would be "some routes refuse", which is true of any
+// number of them, including one.
+func TestTheSharedRefusalCoversTheRoutesThatSpawnProcesses(t *testing.T) {
+	shared := &server{exposed: true}
+	// What is refused, by the path a caller uses.
+	mustRefuse := map[string]http.HandlerFunc{"/shell": shared.shell, "/mcp": shared.mcp,
+		"/profiles": shared.profilesList, "/autocomplete": shared.autocomplete, "/update": shared.update}
+	for path, h := range mustRefuse {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, path, nil)
+		h(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s does not refuse on a shared console (%d)", path, w.Code)
+		}
+	}
+	// And what is deliberately NOT refused, with the reason: these reach the machine only through
+	// the agent, which applies the permission policy the operator configured. They fail here for
+	// want of a companion to act on — a 404 or a 502 from further in — and what this asserts is
+	// that none of them fails with the shared-console refusal. Somebody adding it to one of these
+	// turns a usable shared console into a read-only page, and would do it while making something
+	// else safer.
+	for path, h := range map[string]http.HandlerFunc{
+		"/submit": shared.submit, "/answer": shared.answer, "/permission": shared.permission,
+		"/cron": shared.cron, "/skills": shared.skills, "/dispatch": shared.dispatch,
+	} {
+		w := httptest.NewRecorder()
+		h(w, httptest.NewRequest(http.MethodPost, path, nil))
+		if w.Code == http.StatusForbidden && strings.Contains(w.Body.String(), "-exposed") {
+			t.Errorf("%s is refused on a shared console, which leaves the page unable to do the "+
+				"thing it is for; if that is intended, move it into the list above", path)
+		}
+	}
+}
+
+// A shared console will not start without a certificate.
+//
+// The operator chose authentication in magi rather than a proxy in front, and that decision brings
+// this one with it: whatever identifies a person crosses this connection, and in plaintext it is
+// on the wire. Loopback does not save it — the port is reached through something forwarding to it.
+func TestASharedConsoleWillNotStartInPlaintext(t *testing.T) {
+	if err := exposedHasTLS(true, "", ""); err == nil {
+		t.Error("a shared console started with nothing to encrypt it")
+	} else if !strings.Contains(err.Error(), "-tls-cert") {
+		t.Errorf("the refusal does not say what to add: %v", err)
+	}
+	if err := exposedHasTLS(true, "cert.pem", ""); err == nil {
+		t.Error("a certificate with no key was accepted")
+	}
+	if err := exposedHasTLS(true, "cert.pem", "key.pem"); err != nil {
+		t.Errorf("a shared console with both was refused: %v", err)
+	}
+	// The ordinary console keeps working with neither: one operator on their own machine, over a
+	// tunnel they made, gains nothing from a certificate they would have to invent.
+	if err := exposedHasTLS(false, "", ""); err != nil {
+		t.Errorf("an unshared console was made to produce a certificate: %v", err)
+	}
+	// But half a pair is a mistake either way — it would serve plaintext while somebody believed
+	// otherwise.
+	if err := exposedHasTLS(false, "cert.pem", ""); err == nil {
+		t.Error("half a certificate pair was accepted on an unshared console")
+	}
+}
+
+// A permission file nothing can apply is not a state to start in.
+//
+// The policy answers "what may this person do" and the person is whoever the header names. Without
+// the flag there is no name, an unnamed caller is refused by design, and the console comes up
+// announcing how many people it has while turning down every request — including the ones an
+// operator would use to fix it.
+func TestAPolicyWithNobodyToNameRefusesToStart(t *testing.T) {
+	if err := policyCanName(true, ""); err == nil {
+		t.Error("a console with people and no -user-header started; nothing on it would work")
+	}
+	if err := policyCanName(true, "X-Forwarded-User"); err != nil {
+		t.Errorf("a console with people and a header was refused: %v", err)
+	}
+	// And the ordinary console, which has no policy and needs no gateway, is untouched.
+	if err := policyCanName(false, ""); err != nil {
+		t.Errorf("a single-operator console was refused: %v", err)
+	}
+}
+
+// A console with people on it is shared, whether or not the flag says so.
+//
+// -exposed turns off the two routes that make this machine run something the caller chose: a shell
+// command, and an MCP server's command line. The flag is not the only way to have more than one
+// person on a console — it binds loopback either way, and a gateway on the same machine in front
+// of it is an ordinary way to run this. That console has an auth.toml and no flag, and both routes
+// were open to anybody the gateway let in.
+func TestAPolicyMakesAConsoleSharedEvenWithoutTheFlag(t *testing.T) {
+	withPeople := withPolicy(t, `
+[people."kim@corp.com"]
+role = "operator"
+`)
+	if !withPeople.shared() {
+		t.Error("a console with people on it did not consider itself shared")
+	}
+	for name, h := range map[string]http.HandlerFunc{
+		"/shell": withPeople.shell, "/mcp": withPeople.mcp,
+		"/profiles": withPeople.profilesList, "/autocomplete": withPeople.autocomplete,
+		"/update": withPeople.update,
+	} {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodPost, name, nil)
+		r.Header.Set("X-Forwarded-User", "kim@corp.com")
+		h(w, r)
+		if w.Code != http.StatusForbidden {
+			t.Errorf("%s answered %d on a console with people on it: %s", name, w.Code, w.Body.String())
+		}
+	}
+	// And the ordinary console — one operator, no gateway — keeps both.
+	alone := withPolicy(t, "")
+	if alone.shared() {
+		t.Error("a single-operator console called itself shared; that would take away its own shell")
+	}
+}
+
+// A request no route can accept does not cross the network to be refused.
+//
+// The console's handlers open with the same few guards, and the ORDER they were written in had
+// drifted: eleven ran `s.forwarded(...) || postOnly(...)`, so a GET on a POST-only route that
+// belonged to another machine was proxied there, refused by the identical binary at the other end,
+// and the 405 came back over the link. The other twelve refused it here. Both answer 405; only one
+// of them sends a malformed request — to /shell, /permission, /interrupt among others — to another
+// machine first.
+//
+// So postOnly comes first everywhere. || short-circuits, which is the whole of the mechanism.
+//
+// refuseWhenShared stays ahead of both where it appears: a console more people than the operator
+// can reach must refuse a config write ITSELF, and forwarding first would send it on.
+func TestAWrongMethodIsRefusedBeforeItIsForwarded(t *testing.T) {
+	for _, name := range []string{"main.go", "autocomplete.go", "compact.go", "cron.go", "mcp.go",
+		"profiles.go", "access.go", "files.go", "dispatch.go", "push.go", "skills.go", "meet.go",
+		"peer.go", "handoff.go", "wiki.go", "inspect.go", "context.go", "history.go", "search.go",
+		"gate.go", "audit.go", "console.go", "plan.go", "reportfmt.go", "subagent.go", "update.go"} {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			continue // not every console file is a handler file
+		}
+		src := string(b)
+		if strings.Contains(src, "s.forwarded(w, r, s.proxy) || postOnly(w, r)") {
+			t.Errorf("%s forwards before checking the method, so a request that cannot be "+
+				"accepted anywhere is sent to another machine to be refused", name)
+		}
+		// And the shared-console refusal keeps its place at the front.
+		for _, bad := range []string{"s.forwarded(w, r, s.proxy) || s.refuseWhenShared",
+			"postOnly(w, r) || s.refuseWhenShared"} {
+			if strings.Contains(src, bad) {
+				t.Errorf("%s refuses a shared console AFTER deciding to forward: %s", name, bad)
+			}
+		}
+	}
+}

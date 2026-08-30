@@ -1,0 +1,90 @@
+package dev.sayaya.magi.client.usecase;
+
+import dev.sayaya.magi.bridge.CompanionContext;
+
+import java.util.List;
+import java.util.function.Consumer;
+
+/**
+ * 워크스페이스가 세상에 대는 포트 — 새 엔드포인트는 없다: 운영 콘솔이 쓰던 그 셋이다.
+ * 디렉토리는 한 번에 여러 개를 청한다(운영 fetchDirs): 열린 가지를 하나씩 물으면 걸음마다
+ * 왕복이 붙는다.
+ */
+public interface WorkspaceSource {
+    /**
+     * 답이 왔는가와 그 글 — <b>거절의 사유도 글이다</b>. 성공한 본문만 받으면 부르는 쪽이
+     * 침묵(할 말 없음)과 거절(사유가 있다)과 불통(아무도 말하지 않았다)을 가릴 수 없고,
+     * 사람이 누른 단추가 조용히 아무것도 안 하게 된다.
+     */
+    interface Said { void call(boolean ok, String text); }
+
+    /** 디렉토리들의 내용 — 답은 {dirs:{경로:[{name,isDir}]}} 그대로다. */
+    void dirs(CompanionContext ctx, List<String> paths, Consumer<Object> gotOrNull);
+
+    /** 이 워크스페이스의 git — 저장소가 아니면 repo:false로 온다(그것도 답이다). */
+    void git(CompanionContext ctx, Consumer<Object> gotOrNull);
+
+    /** 파일 하나의 본문 — {path,text}. */
+    void file(CompanionContext ctx, String path, Consumer<Object> gotOrNull);
+
+    /**
+     * 파일 본문을 쓴다(/save) — 패치를 만들 수 있으면 패치로, 아니면 본문으로.
+     *
+     * 패치가 기본인 이유는 크기가 아니라 <b>거절할 수 있다</b>는 것이다: 열어 둔 사이 컴패니언이
+     * 그 파일을 고쳤으면 문맥이 안 맞아 git이 그렇다고 말하고, 남의 일을 지웠을 저장이 문장
+     * 하나가 된다. 통째로 보내면 마지막에 쓴 사람이 이긴다.
+     */
+    void save(CompanionContext ctx, String path, String patch, String text, Consumer<String> why);
+
+    /**
+     * 파일에 하는 일(/file-do): new-file · new-dir · rename · delete.
+     * why는 거부 사유이고 성공은 빈 문자열이다 — 무엇이 됐는지는 다시 걸어 확인한다.
+     */
+    void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why);
+
+    /**
+     * 찾기(/find) — 이름으로(in=name) 또는 내용으로(in=text). 답은 {hits:[…],more:n}.
+     * 에이전트가 일하는 워크스페이스를 뒤지는 일이라 이 타입의 것이다.
+     */
+    void find(CompanionContext ctx, String in, String q, Consumer<Object> gotOrNull);
+
+    /**
+     * 캐럿 자리의 이어쓰기(/complete) — 앞과 뒤를 함께 보낸다(사람은 줄 끝에서만 쓰지 않는다).
+     * 답은 이어붙일 글 그대로이고, 없으면 빈 문자열이다.
+     */
+    void complete(CompanionContext ctx, String path, String prefix, String suffix, Consumer<String> text);
+
+    /**
+     * 캐럿 둘레를 읽어 달라는 청(/look) — 보내는 것은 <b>그 둘레뿐</b>이고 진짜 줄 번호를 달아
+     * 보낸다: 4만 줄짜리 파일을 멈출 때마다 보내지 않고, 모델이 없는 줄을 가리키지도 않는다.
+     * 답은 `줄번호⇥한 마디` 들이고, 할 말이 없으면 침묵이 답이다.
+     */
+    void look(CompanionContext ctx, String path, String numbered, Said notes);
+
+    /**
+     * 열어 둔 파일과 아직 디스크에 없는 그 내용(/open-file) — 컴패니언의 다음 턴이 그 편집에
+     * 대해 답할 수 있게 한다. 빈 본문은 그 사본을 <b>지운다</b>(계약의 나머지 반).
+     */
+    void openFileHint(CompanionContext ctx, String path, String text);
+
+    /**
+     * 한 파일의 차이(/diff) — which는 무엇에 대한 차이인가: ""(아직 안 실은 것) · staged · untracked.
+     * 답은 {text}이고, 빈 본문은 "다른 데가 없다"는 <b>답</b>이다(못 읽은 것과 다르다).
+     */
+    void diff(CompanionContext ctx, String path, String which, Consumer<Object> gotOrNull);
+
+    /** 이 가지에서 보낼 수 있는 요청의 재료(/pr) — 어느 base로, 무엇을 싣고, 차이는 무엇인지. */
+    void pullRequest(CompanionContext ctx, Consumer<Object> gotOrNull);
+
+    /** 그 요청의 초안을 청한다(/pr-msg) — 첫 줄이 제목, 나머지가 본문(커밋과 같은 모양). */
+    void draftPullRequest(CompanionContext ctx, String rules, Said said);
+
+    /** 요청을 실제로 낸다(/git-pr) — 답은 그 주소이거나, 못 낸 사유다. */
+    void openPullRequest(CompanionContext ctx, String title, String body, Said urlOrWhy);
+
+    /** 실린 것으로 커밋 메시지 초안을 청한다(/git-msg) — 규칙은 사람이 준 것(빈 값이면 기본). */
+    void draftCommitMessage(CompanionContext ctx, String rules, Said said);
+
+    /** git에 하는 일(/git-do): stage · unstage · discard · commit · switch · new-branch · pull · push. */
+    void gitDo(CompanionContext ctx, String what, String path, String message, Consumer<String> why);
+}

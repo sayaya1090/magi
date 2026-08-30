@@ -9,7 +9,7 @@
 > [`MANUAL.md`](MANUAL.md); where they disagree, those win. This is kept as the record of what was
 > decided and on what grounds.
 
-> The daemon, the fleet view and the web console (`cmd/magi-web`) are not in here at all — they
+> The daemon, the fleet view and the web console (`clients/web/server`) are not in here at all — they
 > were built after this document stopped being maintained. See [`ARCHITECTURE.md`](ARCHITECTURE.md)
 > §11 and [`MANUAL.md`](MANUAL.md) §12.
 

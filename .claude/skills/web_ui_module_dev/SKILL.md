@@ -1,12 +1,12 @@
 ---
 name: web_ui_module_dev
-description: "새 콘솔(web/ui, handbook식 GWT 멀티모듈)에서 화면·컴패니언 타입 UI 모듈을 만들고 검증할 때 — 창 브리지 계약(렌더·명단·전사·이동), 셸의 스트림 단독 소유, 타입 카탈로그, gwt-test 하네스와 밟아본 함정들"
+description: "새 콘솔(clients/web/ui, handbook식 GWT 멀티모듈)에서 화면·컴패니언 타입 UI 모듈을 만들고 검증할 때 — 창 브리지 계약(렌더·명단·전사·이동), 셸의 스트림 단독 소유, 타입 카탈로그, gwt-test 하네스와 밟아본 함정들"
 ---
 
 # web_ui_module_dev
 
-이 스킬은 **`web/ui`(스트랭글러 신규 콘솔)에 화면 모듈을 추가·수정하거나 컴패니언 타입
-전용 UI를 만들 때** 적용합니다. 정본 문서는 `web/ui/README.md`, 좌표는 `web/README.md`.
+이 스킬은 **`clients/web/ui`(스트랭글러 신규 콘솔)에 화면 모듈을 추가·수정하거나 컴패니언 타입
+전용 UI를 만들 때** 적용합니다. 정본 문서는 `clients/web/ui/README.md`, 좌표는 `web/README.md`.
 
 ## 구조 (2026-08-27 빌드·테스트 40개로 검증된 사실)
 
@@ -47,11 +47,11 @@ description: "새 콘솔(web/ui, handbook식 GWT 멀티모듈)에서 화면·컴
 - md-* 컴포넌트의 리액티브 필드는 attribute가 아니라 **property**로 넣는다.
 - 셸 없이 뜬 화면에서 브리지 호출은 조용한 무시다 — 폴백 분기(hosted())를 잊으면
   테스트 페이지가 통째로 침묵한다.
-- i18n 키는 기존 콘솔과 같은 팩(`cmd/magi-web/i18n/language.{en,ko}.json`)에 **양쪽**
+- i18n 키는 기존 콘솔과 같은 팩(`clients/web/server/i18n/language.{en,ko}.json`)에 **양쪽**
   추가 — 키 폴백 덕에 테스트 페이지는 키 문자열 자체를 검사한다.
 
 ## 검증
-cd web/ui && ./gradlew build && ./gradlew assembleConsole   # 테스트 전부 + 서빙 루트
+cd clients/web/ui && ./gradlew build && ./gradlew assembleConsole   # 테스트 전부 + 서빙 루트
 
 ## 레일의 두 기둥 (2026-08-27 정정 반영)
 

@@ -5,7 +5,7 @@
 > **Current reference.** The two surfaces — what is on each screen, the design rules they keep, and why.
 
 Both surfaces: what is on them, the design rules, and why. §1–5 are the **web console**
-(served by `cmd/magi-web`, compiled from `web/ui`); §6 is the **terminal UI**
+(served by `clients/web/server`, compiled from `clients/web/ui`); §6 is the **terminal UI**
 (`internal/adapter/tui`).
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
@@ -13,23 +13,23 @@ How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Inter
 > **Look at it:** <https://sayaya1090.github.io/magi/> — the real page, answered by a mock in the
 > browser. Every action there reports what it would have sent rather than pretending it happened,
 > and every reading is a fixture: it shows the screens, not a working server. Published by
-> `.github/workflows/pages.yml` on a change under `cmd/magi-web/` and by `test-web.yml` on a change
+> `.github/workflows/pages.yml` on a change under `clients/web/server/` and by `test-web.yml` on a change
 > under `web/` — whichever lane fires builds the whole site, and only after its tests pass. A push
 > publishes only from main; a hand-run publishes from whatever
 > branch it was asked for, if the github-pages environment allows that branch (Settings →
 > Environments → github-pages → Deployment branches).
 
 > **As-built, with one caveat about the front end.** The console described below was one file for
-> most of its life — `cmd/magi-web/page.go`, a Go string holding the HTML, CSS and JS — and the
+> most of its life — `clients/web/server/page.go`, a Go string holding the HTML, CSS and JS — and the
 > rules in §1–5 were written against it and pinned by tests that ran its real JavaScript under node.
-> That console was replaced on 2026-08-29 by the GWT modules in `web/ui`, which were built to be
+> That console was replaced on 2026-08-29 by the GWT modules in `clients/web/ui`, which were built to be
 > equivalent to it screen by screen and measured against it before it was deleted.
 >
 > The **rules** below still hold: they are what the modules were ported to keep, and the ones a test
-> can state are still stated by one — the palette and contrast guards in `cmd/magi-web/*_test.go`
-> now read `web/ui/console.css`. The **file references** in §1–5 (`page.html`, `page.js`, the node
-> DOM harness) are historical: what to touch today is a module under `web/ui`, and the map from
-> screen to module is in [`../web/ui/README.md`](../web/ui/README.md). The cutover itself — what was
+> can state are still stated by one — the palette and contrast guards in `clients/web/server/*_test.go`
+> now read `clients/web/ui/console.css`. The **file references** in §1–5 (`page.html`, `page.js`, the node
+> DOM harness) are historical: what to touch today is a module under `clients/web/ui`, and the map from
+> screen to module is in [`../clients/web/ui/README.md`](../clients/web/ui/README.md). The cutover itself — what was
 > compared against what, and what was still open when it happened — is recorded in
 > [`../web/README.md`](../web/README.md).
 >
@@ -441,12 +441,12 @@ licence permits using it in something you deploy and not republishing it as file
 So the repository holds the NAMES and the art arrives at build time:
 
 ```sh
-MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web    # from a kit download
-MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./cmd/magi-web   # in CI
+MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./clients/web/server    # from a kit download
+MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./clients/web/server   # in CI
 ```
 
 Both layouts are `svgs/<style>/<name>.svg`, which is why there is one reader. `gen_icons.go` walks
-every `*.java` under `web/ui/*/src/main/java` for `#i-<style>-<icon>` — **the screens are the
+every `*.java` under `clients/web/ui/*/src/main/java` for `#i-<style>-<icon>` — **the screens are the
 manifest**, because a list kept beside them is the second place to edit and the place an icon goes
 missing — and writes `internal/webassets/sprite_gen.go`, which is git-ignored and sets the sprite in
 an init. Test sources are deliberately outside the walk: a name that appears only in a test is a
@@ -480,7 +480,7 @@ then publishes the fallback, which is what a contributor's build looks like and 
 Every control on the page is Material Web's: `md-filled-button`,
 `md-filled-tonal-button`, `md-text-button`, `md-outlined-text-field`, `md-outlined-select` /
 `md-select-option`, `md-filter-chip` in an `md-chip-set`, `md-outlined-card`, and `md-tabs` /
-`md-primary-tab`. They are vendored and served from the binary — see `cmd/magi-web/vendor/README.md`
+`md-primary-tab`. They are vendored and served from the binary — see `clients/web/server/vendor/README.md`
 for the build, which runs once and is committed.
 
 The rule that came out of doing it: **a rule on a component's host cannot reach its label**, which
@@ -527,7 +527,7 @@ a user's turn set like a pull quote — display face, rule down the left.
 
 ### 3.2 Language
 
-Labels come from a pack per locale — `cmd/magi-web/i18n/language.{en,ko}.json`, flat dot-keyed —
+Labels come from a pack per locale — `clients/web/server/i18n/language.{en,ko}.json`, flat dot-keyed —
 chosen by `localStorage['lang']`, then the browser, falling back to English. The convention is
 borrowed wholesale from the handbook project rather than invented.
 
@@ -757,12 +757,12 @@ phone for months.
 
 > **What verifies the console today** — the screens are compiled Java, so they are tested where they
 > are written: `gradlew :<module>:test` runs each module's gwt-test and Playwright specs against a
-> real browser, one runner per module, in `test-web.yml`. On the Go side, `cmd/magi-web`'s tests read
-> `web/ui` directly: one walks every path the screens ask for and holds the demo mock to it, and the
-> palette and contrast guards read `web/ui/console.css`. The section below is the harness that came
+> real browser, one runner per module, in `test-web.yml`. On the Go side, `clients/web/server`'s tests read
+> `clients/web/ui` directly: one walks every path the screens ask for and holds the demo mock to it, and the
+> palette and contrast guards read `clients/web/ui/console.css`. The section below is the harness that came
 > before, kept because its seven corrections are the reason several of the rules above exist.
 
-The page was a Go string, so no Go test could execute it. `cmd/magi-web/testdata/dom.mjs` was a
+The page was a Go string, so no Go test could execute it. `clients/web/server/testdata/dom.mjs` was a
 **fake DOM** — createElement, textContent, className, classList, append, replaceChildren, a listener
 registry, about that much — and the tests ran the page's real JavaScript against it under node.
 Anything the fake could not express was a sign the page was doing more than it should, which is why

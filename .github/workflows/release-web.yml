@@ -10,9 +10,9 @@
 # because a deployed page is "use"; a downloadable binary on a public release is closer to
 # redistribution, which the licence does not permit. The fallback glyphs are a working build.
 #
-# The console itself, on the other hand, IS baked in — and it has to be put there first. web/ui
+# The console itself, on the other hand, IS baked in — and it has to be put there first. clients/web/ui
 # compiles with GWT, which needs a JDK and gradle, so the assembled tree is not in the repository
-# (cmd/magi-web/console/ holds a README and nothing else). A release built without the assembly
+# (clients/web/server/console/ holds a README and nothing else). A release built without the assembly
 # step below would succeed and ship six binaries whose `/` says "this build has no console" — a
 # working BFF and a useless download. That is why the gradle step comes before the builds and not
 # after, and why it is not conditional on anything.
@@ -25,7 +25,7 @@ on:
 
 permissions:
   contents: write # gh release create uploads the assets
-  packages: read # web/ui's dependencies come from GitHub Packages (same owner)
+  packages: read # clients/web/ui's dependencies come from GitHub Packages (same owner)
 
 jobs:
   release:
@@ -51,13 +51,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          (cd web/ui && ./gradlew assembleConsole)
-          cp -R web/ui/build/console/. cmd/magi-web/console/
-          test -f cmd/magi-web/console/console.html   # 비어 있는 채로 여섯 벌을 굽지 않게
-      # The same gate Pages uses. These read web/ui directly — the paths the screens ask for, the
+          (cd clients/web/ui && ./gradlew assembleConsole)
+          cp -R clients/web/ui/build/console/. clients/web/server/console/
+          test -f clients/web/server/console/console.html   # 비어 있는 채로 여섯 벌을 굽지 않게
+      # The same gate Pages uses. These read clients/web/ui directly — the paths the screens ask for, the
       # stylesheet they share — so they fail on a console that drifted from the server serving it.
       - name: Test the console before shipping it
-        run: go test ./cmd/magi-web/ -count=1
+        run: go test ./clients/web/server/ -count=1
       - name: Build all targets
         run: |
           set -euo pipefail
@@ -75,7 +75,7 @@ jobs:
               stage="dist-web/magi-web_${os}_${arch}"
               mkdir -p "$stage"
               CGO_ENABLED=0 GOOS=$os GOARCH=$arch \
-                go build -trimpath -ldflags "$LDFLAGS" -o "$stage/$bin" ./cmd/magi-web
+                go build -trimpath -ldflags "$LDFLAGS" -o "$stage/$bin" ./clients/web/server
               cp LICENSE NOTICE THIRD_PARTY_LICENSES README.md "$stage/"
               if [ "$os" = windows ]; then
                 (cd dist-web && zip -qr "magi-web_${os}_${arch}.zip" "magi-web_${os}_${arch}")

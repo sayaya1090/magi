@@ -4,29 +4,29 @@
 
 > **현행 참조.** 두 표면 — 각 화면의 구성, 지키는 디자인 규칙, 그리고 왜인가.
 
-두 표면의 구성·디자인 규칙·판단 근거. §1–5가 **웹 콘솔**(`cmd/magi-web`이 내주고 `web/ui`에서
+두 표면의 구성·디자인 규칙·판단 근거. §1–5가 **웹 콘솔**(`clients/web/server`이 내주고 `clients/web/ui`에서
 컴파일된다), §6이 **터미널 UI**(`internal/adapter/tui`). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
 (§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11.
 
 > **직접 보기:** <https://sayaya1090.github.io/magi/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
 > 액션은 "무엇을 보냈을지"만 말하고 실제로 한 척하지 않으며, 읽히는 값은 전부 픽스처다 — 화면을
-> 보여줄 뿐 서버가 도는 게 아니다. `cmd/magi-web/` 아래가 바뀌면 `.github/workflows/pages.yml`이,
+> 보여줄 뿐 서버가 도는 게 아니다. `clients/web/server/` 아래가 바뀌면 `.github/workflows/pages.yml`이,
 > `web/` 아래가 바뀌면 `test-web.yml`이 배포한다 — 어느 쪽이 뜨든 사이트 전체를 짓고, 제 테스트가
 > 통과한 뒤에만 배포한다. 푸시는 main에서만 게시하고, 손으로 돌리면 그 브랜치에서
 > 게시한다 — github-pages 환경이 그 브랜치를 허용한 경우에 한해서(Settings → Environments →
 > github-pages → Deployment branches).
 
 > 이 문서는 **as-built**이되, 프론트엔드에 한 가지 단서가 붙는다. 아래가 적고 있는 콘솔은
-> 오랫동안 한 파일이었다 — `cmd/magi-web/page.go`, HTML+CSS+JS를 담은 Go 문자열. §1–5는 그것을
+> 오랫동안 한 파일이었다 — `clients/web/server/page.go`, HTML+CSS+JS를 담은 Go 문자열. §1–5는 그것을
 > 보고 쓰였고, node로 진짜 JS를 돌리는 테스트가 규칙을 고정하고 있었다. 그 콘솔은 2026-08-29에
-> `web/ui`의 GWT 모듈들로 **대체됐다.** 모듈들은 화면 단위로 그것과 동등하게 지어졌고, 지워지기
+> `clients/web/ui`의 GWT 모듈들로 **대체됐다.** 모듈들은 화면 단위로 그것과 동등하게 지어졌고, 지워지기
 > 전에 그것과 맞대어 재어졌다.
 >
 > 아래의 **규칙**은 그대로 유효하다. 이식이 지키기로 한 것이 바로 그 규칙들이고, 테스트로 말할 수
-> 있는 것은 지금도 테스트가 말한다 — 팔레트·명도대비 가드(`cmd/magi-web/*_test.go`)는 이제
-> `web/ui/console.css`를 읽는다. §1–5의 **파일 이름**(`page.html`·`page.js`·node DOM 하네스)은
-> 사료다. 오늘 손댈 것은 `web/ui` 아래의 모듈이고, 화면↔모듈 대응은
-> [`../web/ui/README.md`](../web/ui/README.md)에 있다. 컷오버 자체 — 무엇과 무엇을 맞대어 재었고
+> 있는 것은 지금도 테스트가 말한다 — 팔레트·명도대비 가드(`clients/web/server/*_test.go`)는 이제
+> `clients/web/ui/console.css`를 읽는다. §1–5의 **파일 이름**(`page.html`·`page.js`·node DOM 하네스)은
+> 사료다. 오늘 손댈 것은 `clients/web/ui` 아래의 모듈이고, 화면↔모듈 대응은
+> [`../clients/web/ui/README.md`](../clients/web/ui/README.md)에 있다. 컷오버 자체 — 무엇과 무엇을 맞대어 재었고
 > 그때 무엇이 열린 채였는지 — 는 [`../web/README.md`](../web/README.md)의 기록이다.
 >
 > TUI는 `internal/adapter/tui`이고, 렌더링·마우스·폭 계산에 각각의 테스트가 있다. §6은 바뀐 것이
@@ -389,12 +389,12 @@ Light, 채워짐·토글 상태용 Sharp Solid, 브랜드 둘)** 이고 **이 �
 그래서 저장소는 **이름만** 갖고, 그림은 빌드 시점에 온다:
 
 ```sh
-MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./cmd/magi-web    # 킷 다운로드에서
-MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./cmd/magi-web   # CI에서
+MAGI_FA_DIR=~/Downloads/kit-…-web go generate ./clients/web/server    # 킷 다운로드에서
+MAGI_FA_DIR=node_modules/@fortawesome/fontawesome-pro go generate ./clients/web/server   # CI에서
 ```
 
 둘 다 `svgs/<style>/<name>.svg` 레이아웃이라 리더가 하나다. `gen_icons.go`가
-`web/ui/*/src/main/java` 아래의 모든 `*.java`를 훑어 `#i-<style>-<icon>`을 긁는다 — **화면들이 곧
+`clients/web/ui/*/src/main/java` 아래의 모든 `*.java`를 훑어 `#i-<style>-<icon>`을 긁는다 — **화면들이 곧
 매니페스트다.** 옆에 목록을 따로 두면 그게 두 번째로 고쳐야 할 곳이 되고, 아이콘이 사라지는
 자리가 된다. 결과는 gitignore된 `internal/webassets/sprite_gen.go`이고, init에서 스프라이트를
 채운다. 테스트 소스는 일부러 훑는 범위 밖이다 — 테스트에만 나오는 이름은 아무도 보지 않는
@@ -422,7 +422,7 @@ Pages도 같은 방식으로 굽는다. 저장소 시크릿의 `FONTAWESOME_NPM_
 화면의 모든 컨트롤이 Material Web의 것이다: `md-filled-button`, `md-filled-tonal-button`,
 `md-text-button`, `md-outlined-text-field`, `md-outlined-select` / `md-select-option`,
 `md-chip-set` 안의 `md-filter-chip`, `md-outlined-card`, `md-tabs` / `md-primary-tab`. 벤더링해서
-바이너리에서 서빙한다 — 빌드 방법은 `cmd/magi-web/vendor/README.md`에 있고, 한 번 돌려 커밋한다.
+바이너리에서 서빙한다 — 빌드 방법은 `clients/web/server/vendor/README.md`에 있고, 한 번 돌려 커밋한다.
 
 **옮기면서 얻은 규칙: 호스트에 건 규칙은 컴포넌트의 라벨에 닿지 않는다.** 라벨은 섀도 루트 안에 있다.
 글꼴·색·크기는 컴포넌트 자신의 토큰(`--md-text-button-label-text-*`)으로 말하고, 경계를 넘는 것은
@@ -463,7 +463,7 @@ nervDark/nervLight)에서 **글자 그대로** 가져온다. 두 표면이 같�
 
 ### 3.2 언어
 
-라벨은 로케일별 팩에서 온다 — `cmd/magi-web/i18n/language.{en,ko}.json`, 평평한 점-표기 키.
+라벨은 로케일별 팩에서 온다 — `clients/web/server/i18n/language.{en,ko}.json`, 평평한 점-표기 키.
 `localStorage['lang']` → 브라우저 순으로 고르고 영어로 폴백한다. 규약은 handbook 프로젝트에서
 그대로 가져왔다.
 
@@ -667,12 +667,12 @@ heading 역할이 있어 스크린리더가 그룹 단위로 탐색할 수 있�
 
 > **지금 콘솔을 검증하는 것** — 화면들은 컴파일되는 자바라, 쓰여 있는 자리에서 시험한다:
 > `gradlew :<모듈>:test`가 모듈마다 gwt-test와 Playwright 스펙을 진짜 브라우저로 돌리고,
-> `test-web.yml`이 모듈당 러너 하나씩 띄운다. Go 쪽에서는 `cmd/magi-web`의 테스트가 `web/ui`를
+> `test-web.yml`이 모듈당 러너 하나씩 띄운다. Go 쪽에서는 `clients/web/server`의 테스트가 `clients/web/ui`를
 > 직접 읽는다 — 하나는 화면들이 부르는 모든 경로를 훑어 데모 목이 그것을 답하는지 보고,
-> 팔레트·명도대비 가드는 `web/ui/console.css`를 읽는다. 아래는 그 앞에 있던 하네스다. 위 규칙
+> 팔레트·명도대비 가드는 `clients/web/ui/console.css`를 읽는다. 아래는 그 앞에 있던 하네스다. 위 규칙
 > 여럿이 존재하는 이유가 그 일곱 번의 교정이라서 남긴다.
 
-페이지는 Go 문자열이라 Go 테스트가 실행할 수 없었다. 그래서 `cmd/magi-web/testdata/dom.mjs`에
+페이지는 Go 문자열이라 Go 테스트가 실행할 수 없었다. 그래서 `clients/web/server/testdata/dom.mjs`에
 **가짜 DOM**(createElement/textContent/className/classList/append/replaceChildren, 리스너 레지스트리
 정도)을 두고, 테스트가 node로 페이지의 진짜 JS를 돌렸다. 이 가짜가 표현하지 못하는 것을 페이지가
 하려 들면 그건 페이지가 과하다는 신호였다(jsdom을 쓰지 않은 이유).

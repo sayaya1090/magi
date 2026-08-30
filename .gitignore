@@ -37,7 +37,7 @@ cover.out
 # 세션 작업 노트 — 저장소 이력에 남기지 않는다
 scratchpad/overnight_log.md
 
-# The binaries this repo builds. A `go build ./cmd/magi-web` in the repo root drops one here, and
+# The binaries this repo builds. A `go build ./clients/web/server` in the repo root drops one here, and
 # one of them had been committed — 11MB of macOS arm64 that no other machine can run, rebuilt into
 # a dirty tree by anybody who ran that command.
 /magi
@@ -54,23 +54,23 @@ scratchpad/overnight_log.md
 # ignored above, in a table. Machine output, not source.
 /SESSION_SUMMARY.md
 
-# Font Awesome Pro icons, baked in at build time by cmd/magi-web/gen_icons.go.
+# Font Awesome Pro icons, baked in at build time by clients/web/server/gen_icons.go.
 # The licence permits using them in what you deploy and not republishing them as files.
 # 아이콘 스프라이트는 빌드가 굽는다 — Font Awesome Pro는 빌드한 사람에게 라이선스가 있고,
 # 파일로 다시 배포하지 않는다(gen_icons.go의 그 이유). 자리는 두 콘솔의 공용 자리다.
 internal/webassets/sprite_gen.go
 
-cmd/magi-web/node_modules/
+clients/web/server/node_modules/
 # 도표 검사기의 의존(mermaid + jsdom). package-lock.json 은 추적한다 — CI 가 `npm ci` 로 그것을
 # 읽어야 매 런이 같은 파서를 쓴다. 파서가 판마다 다르면 "통과했다"가 어제와 다른 말이 된다.
 tools/mermaidcheck/node_modules/
-cmd/magi-web/.npmrc
-cmd/magi-web/package-lock.json
+clients/web/server/.npmrc
+clients/web/server/package-lock.json
 bench/harbor/state/
-web/ui/gradle.properties
+clients/web/ui/gradle.properties
 
 # 조립된 콘솔 — CI가 gradle로 만들어 이 자리에 놓으면 go:embed가 바이너리에 싣는다.
 # 산출물이라 저장소에 두지 않는다(README.md 하나만 남아 디렉토리를 지킨다: Go는 빈
-# 디렉토리를 임베드하지 못한다). cmd/magi-web/console/README.md 참고.
-cmd/magi-web/console/*
-!cmd/magi-web/console/README.md
+# 디렉토리를 임베드하지 못한다). clients/web/server/console/README.md 참고.
+clients/web/server/console/*
+!clients/web/server/console/README.md

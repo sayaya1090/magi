@@ -15,7 +15,7 @@
 ## 3. 주요 패키지·디렉터리 구조
 ```
 cmd/magi/                 # 진입점: 플래그 파싱, DI, 헤드리스 옵션, -daemon/-attach/-agents
-cmd/magi-web/             # 콘솔: 이 머신(과 피어)의 모든 데몬을 보는 읽기 위주 웹 화면
+clients/web/server/             # 콘솔: 이 머신(과 피어)의 모든 데몬을 보는 읽기 위주 웹 화면
 internal/
   core/                  # 도메인 모델 (session, event, command, artifact, tool, model, plugin, agent, bus)
   port/                  # 포트 인터페이스 (LLMProvider, Store, Tool, ToolEnv, FileTool, ToolServers, Platform, ExperienceStore)
@@ -70,7 +70,7 @@ plugins/examples/        # Lua 플러그인 예시
 ## 6.5 터미널 하나를 넘어서
 - `magi -daemon`은 UI 없이 엔진만 돌리고 워크스페이스별 소켓에서 대기한다(이름은 실제 경로에서
   나오고 flock으로 유일). `-attach`가 TUI를 붙이고, `-agents`가 머신 전체를 나열한다.
-- `cmd/magi-web`은 같은 스토어 위에 **LLM도 툴도 없는** App을 만들어 읽기만 하고, 실행을 바꾸는
+- `clients/web/server`은 같은 스토어 위에 **LLM도 툴도 없는** App을 만들어 읽기만 하고, 실행을 바꾸는
   것은 전부 소켓으로 데몬에 보낸다. 상태는 기록이 아니라 로그에서 **유도**한다.
 - `-peer name=url`로 다른 콘솔을 합친다. 새 프로토콜 없음 — 콘솔이 콘솔을 읽는다.
 - 자세히: `ARCHITECTURE.ko.md` §11, `MANUAL.ko.md` §12,

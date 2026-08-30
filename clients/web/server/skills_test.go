@@ -1,0 +1,316 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	expgit "github.com/sayaya1090/magi/internal/adapter/experience/git"
+	"github.com/sayaya1090/magi/internal/port"
+)
+
+func (f *fleetFixture) learn(t *testing.T, dir, name, desc string) {
+	t.Helper()
+	if err := expgit.New(dir).Propose(context.Background(), port.Contribution{
+		Skills: []port.Skill{{Name: name, Description: desc, Body: desc + " — the long version"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fleetFixture) inventory(t *testing.T) []storedSkill {
+	t.Helper()
+	w := httptest.NewRecorder()
+	f.srv.skills(w, httptest.NewRequest(http.MethodGet, "/skills", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("/skills answered %d: %s", w.Code, w.Body.String())
+	}
+	var out []storedSkill
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatalf("unreadable: %v", err)
+	}
+	return out
+}
+
+// The tier boundary is the whole of context hygiene, and it is only as good as somebody's ability
+// to see it. A rule sitting in the global tier reaches every prompt on every project, and after the
+// day it was written nothing else in the system would ever mention it again.
+func TestTheSkillsViewSaysWhichTierEachIsIn(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "api", true)
+	f.session("api", wd, "x", 1, false)
+
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "commit-style", "commit messages carry the issue number")
+	f.learn(t, filepath.Join(wd, ".magi", "experience"), "auth-service", "the auth service uses X")
+
+	list := f.inventory(t)
+	if len(list) != 2 {
+		t.Fatalf("the inventory has %d entries: %+v", len(list), list)
+	}
+	// The crossing tier first: it is the one with reach, and the one worth reviewing.
+	if list[0].Tier != "global" || !strings.Contains(list[0].Description, "issue number") {
+		t.Errorf("the first entry is %+v", list[0])
+	}
+	if list[1].Tier != "project" || list[1].Companion != filepath.Base(wd) {
+		t.Errorf("the project entry does not say whose it is: %+v", list[1])
+	}
+	// The header a governance decision is made on: how settled it is, and when it was last seen.
+	if list[0].Observed < 1 || list[0].LastSeen == "" {
+		t.Errorf("the entry carries no history: %+v", list[0])
+	}
+}
+
+// A promoted rule that turned out to be wrong has to be removable. A store that only grows is one
+// people stop promoting into, because the cost of a mistake is permanent.
+func TestAWrongRuleCanBeForgotten(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.daemonAt(wd, "api", true)
+	f.session("api", wd, "x", 1, false)
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "bad-idea", "always force push")
+	f.learn(t, filepath.Join(wd, ".magi", "experience"), "local-thing", "this repo builds with make")
+
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget", url.Values{
+		"name": {"skill-bad-idea"}, "tier": {"global"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a global rule replied %d: %s", w.Code, w.Body.String())
+	}
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget?d="+url.QueryEscape(sock), url.Values{
+		"name": {"skill-local-thing"}, "tier": {"project"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a project rule replied %d: %s", w.Code, w.Body.String())
+	}
+	if list := f.inventory(t); len(list) != 0 {
+		t.Errorf("after forgetting both, the inventory still has %+v", list)
+	}
+
+	// A name that is not there says so rather than reporting success on a deletion that did not
+	// happen — a supervisor who saw "done" and finds the rule still firing next week stops trusting
+	// the button.
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget", url.Values{
+		"name": {"skill-never-existed"}, "tier": {"global"}}); w.Code != http.StatusNotFound {
+		t.Errorf("forgetting nothing replied %d, want 404", w.Code)
+	}
+	// And a GET deletes nothing.
+	if w := get(t, f.srv.forgetSkill, "/forget?name=x&tier=global"); w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET /forget replied %d, want 405", w.Code)
+	}
+}
+
+// A name from the page names an ENTRY, never a path. The store matches it against what it holds, so
+// asking for something outside the tier reaches nothing.
+func TestForgettingCannotReachOutsideTheTier(t *testing.T) {
+	f := newFleetFixture(t)
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "keeper", "worth keeping")
+	for _, bad := range []string{"../../../etc/passwd", "../skills/skill-keeper", "skill-keeper.md"} {
+		if w := post(t, f.srv, f.srv.forgetSkill, "/forget", url.Values{
+			"name": {bad}, "tier": {"global"}}); w.Code != http.StatusNotFound {
+			t.Errorf("%q replied %d, want 404", bad, w.Code)
+		}
+	}
+	if list := f.inventory(t); len(list) != 1 {
+		t.Errorf("something was removed by a path-shaped name: %+v", list)
+	}
+}
+
+// A companion that published no workspace contributes no rules.
+//
+// The empty path is not harmless here: joined, it becomes ".magi/experience" RELATIVE to whatever
+// directory the console was started in, so a record with a missing field would have the console
+// listing its own working directory's rules under a companion named "." — and the forget button
+// beside them would delete them.
+func TestACompanionWithNoWorkspaceContributesNothing(t *testing.T) {
+	f := newFleetFixture(t)
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "keeper", "worth keeping")
+	f.daemonAt("", "nowhere", true)
+
+	// The rules that WOULD be picked up, sitting where a relative join would land.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(shortTempDir(t))
+	defer func() { _ = os.Chdir(cwd) }()
+	f.learn(t, filepath.Join(".magi", "experience"), "somebody-elses", "should not be listed")
+
+	list := f.inventory(t)
+	if len(list) != 1 || list[0].Tier != "global" {
+		t.Fatalf("the console listed rules from a path it was never given: %+v", list)
+	}
+}
+
+// A supervisor watching three machines is governing three global tiers.
+//
+// The fleet page already merges every console; a skills page that showed only this one would say
+// "one rule" about a store that holds four, and the tier a rule crosses would be the one thing on
+// the page that quietly meant something narrower than it said.
+func TestTheSkillsViewMergesEveryConsole(t *testing.T) {
+	var seen []string
+	remote := fakeSkillsPeer(t, []storedSkill{
+		{SkillInfo: expgit.SkillInfo{Name: "skill-far", Description: "written over there"}, Tier: "global"},
+		{SkillInfo: expgit.SkillInfo{Name: "skill-theirs", Description: "their project"}, Tier: "project",
+			Companion: "fuzzer", Socket: "/there/a.sock"},
+	}, &seen)
+	f := federatedServer(t, peer{Name: "laptop", Base: remote.URL})
+	f.learn(t, filepath.Join(f.cfgDir, "experience"), "mine", "written here")
+
+	list := f.inventory(t)
+	if len(list) != 3 {
+		t.Fatalf("the merged inventory has %d entries: %+v", len(list), list)
+	}
+	// This console's own first: it is the tier this person can reason about without a tunnel.
+	if list[0].Peer != "" || !strings.Contains(list[0].Description, "written here") {
+		t.Errorf("the first entry is %+v", list[0])
+	}
+	for _, e := range list[1:] {
+		if e.Peer != "laptop" {
+			t.Errorf("a remote entry is not stamped with the console it came from: %+v", e)
+		}
+	}
+
+	// Forgetting one of theirs happens THERE. A global rule has no socket, so the peer name alone
+	// has to carry the routing — the case that does not exist anywhere else in this console.
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget?p=laptop", url.Values{
+		"name": {"skill-far"}, "tier": {"global"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a remote global rule replied %d: %s", w.Code, w.Body.String())
+	}
+	if len(seen) != 1 || !strings.Contains(seen[0], "name=skill-far") || !strings.Contains(seen[0], "tier=global") {
+		t.Fatalf("the other console was asked %q", seen)
+	}
+	// And nothing of this console's was touched on the way.
+	if list := f.inventory(t); len(list) != 3 {
+		t.Errorf("after a remote delete the local tier holds %+v", list)
+	}
+}
+
+func fakeSkillsPeer(t *testing.T, list []storedSkill, record *[]string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/skills", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(list)
+	})
+	mux.HandleFunc("/forget", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		*record = append(*record, r.Method+" "+r.URL.Path+" "+r.PostForm.Encode())
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// A store view that showed half a store would have a person governing the half that happens to be
+// legible. Memories are retrieved into prompts exactly as rules are; before this, nothing outside
+// the retrieval could see one.
+func TestBothHalvesOfTheStoreAreGoverned(t *testing.T) {
+	f := newFleetFixture(t)
+	dir := filepath.Join(f.cfgDir, "experience")
+	f.learn(t, dir, "commit-style", "commit messages carry the issue number")
+	if err := expgit.New(dir).Propose(context.Background(), port.Contribution{
+		Memories: []port.Memory{{Text: "the staging database is restored from prod every Monday",
+			Tags: []string{"ops"}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	list := f.inventory(t)
+	var fact storedSkill
+	kinds := map[string]int{}
+	for _, e := range list {
+		kinds[e.Kind]++
+		if e.Kind == "memory" {
+			fact = e
+		}
+	}
+	if kinds["skill"] != 1 || kinds["memory"] != 1 {
+		t.Fatalf("the inventory is %+v", list)
+	}
+	// The fact reads as the fact, with the tag line Propose wrote lifted off it rather than
+	// printed as the first thing a person sees.
+	if !strings.HasPrefix(fact.Description, "the staging database") {
+		t.Errorf("the fact reads as %q", fact.Description)
+	}
+	if len(fact.Tags) != 1 || fact.Tags[0] != "ops" {
+		t.Errorf("the tags came back as %v", fact.Tags)
+	}
+	// Tags are not groups: a skill's groups decide who sees it, a memory's tags decide nothing,
+	// and printing them in the same place would say a fact was narrowed when it was not.
+	if len(fact.Groups) != 0 {
+		t.Errorf("a memory's tags were reported as visibility groups: %+v", fact)
+	}
+
+	// And it can be forgotten, by the same button, through the same handler.
+	if w := post(t, f.srv, f.srv.forgetSkill, "/forget", url.Values{
+		"name": {fact.Name}, "tier": {"global"}}); w.Code != http.StatusNoContent {
+		t.Fatalf("forgetting a fact replied %d: %s", w.Code, w.Body.String())
+	}
+	if list := f.inventory(t); len(list) != 1 || list[0].Kind != "skill" {
+		t.Errorf("after forgetting the fact the store holds %+v", list)
+	}
+}
+
+// A person writing something down lands in the tier they chose, and says it was a person.
+//
+// The store had one writer until now — an agent calling remember mid-turn — so nothing here had
+// ever been asked to route a write by tier, and the source line is the only thing that separates
+// "somebody decided this" from "an agent inferred it from one afternoon".
+func TestWritingSomethingDownLandsInTheChosenTier(t *testing.T) {
+	dir := t.TempDir()
+	s := &server{cfgDir: dir}
+
+	write := func(v url.Values) int {
+		r := httptest.NewRequest(http.MethodPost, "/remember", strings.NewReader(v.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		s.remember(w, r)
+		return w.Code
+	}
+	if code := write(url.Values{"text": {"the staging box is rebuilt on Mondays"}, "tier": {"global"}}); code != http.StatusNoContent {
+		t.Fatalf("writing globally answered %d", code)
+	}
+	if code := write(url.Values{"text": {"spacing comes from the scale"}, "tier": {"team"}, "team": {"frontend"}}); code != http.StatusNoContent {
+		t.Fatalf("writing to a team answered %d", code)
+	}
+	// Each in its own directory, which is the whole of what the tier means.
+	for _, c := range []struct{ dir, want string }{
+		{filepath.Join(dir, "experience", "memories"), "Mondays"},
+		{filepath.Join(dir, "teams", "frontend", "experience", "memories"), "spacing"},
+	} {
+		found := false
+		entries, err := os.ReadDir(c.dir)
+		if err != nil {
+			t.Errorf("nothing was written to %s: %v", c.dir, err)
+			continue
+		}
+		for _, e := range entries {
+			b, _ := os.ReadFile(filepath.Join(c.dir, e.Name()))
+			if strings.Contains(string(b), c.want) {
+				found = true
+				// It says a person wrote it. Without that, a rule somebody typed is
+				// indistinguishable from one an agent inferred, and they are worth different
+				// amounts of trust.
+				if !strings.Contains(string(b), "console") {
+					t.Errorf("%s does not say where it came from:\n%s", e.Name(), b)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%q did not reach %s", c.want, c.dir)
+		}
+	}
+
+	// Nothing to write is refused rather than filed as an empty note, and a team name that is a
+	// path is refused rather than sanitised — a store written outside the config directory is a
+	// store nobody can find again.
+	if code := write(url.Values{"text": {"   "}, "tier": {"global"}}); code != http.StatusBadRequest {
+		t.Errorf("an empty note answered %d", code)
+	}
+	if code := write(url.Values{"text": {"x"}, "tier": {"team"}, "team": {"../../etc"}}); code != http.StatusBadRequest {
+		t.Errorf("a team name that is a path answered %d", code)
+	}
+}

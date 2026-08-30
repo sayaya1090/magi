@@ -194,9 +194,9 @@ inside.
 ```
 cmd/magi/                 entrypoint: flag parsing, DI wiring, -p headless, TUI launch,
                           -daemon (engine with no UI) / -attach (a UI onto one) / -agents
-cmd/magi-web/             the console: a read-mostly web view of every daemon on the machine,
+clients/web/server/             the console: a read-mostly web view of every daemon on the machine,
                           and of other consoles' (peer.go). The front end is compiled from
-                          web/ui and assembled into console/ by CI; a build without it is a
+                          clients/web/ui and assembled into console/ by CI; a build without it is a
                           working BFF whose / says so
 internal/
   core/                     domain — no outward deps
@@ -914,7 +914,7 @@ Flags (`cmd/magi/main.go`), each with a `MAGI_*` env equivalent:
 `-update`, `-version`, `-doctor`, `-time-budget`, and the three that outlive one terminal:
 `-daemon`, `-attach`, `-agents`, `-join` (§11). API key via `MAGI_API_KEY` (or `OPENAI_API_KEY`).
 
-`cmd/magi-web` has its own small set — `-addr`, `-config-dir`, `-workdir`, `-peer name=url`
+`clients/web/server` has its own small set — `-addr`, `-config-dir`, `-workdir`, `-peer name=url`
 (repeatable), `-version`, and `-emit-demo <dir>` (write the page as a static site answered by a
 mock, for the Pages workflow) — and no config file: a console's peers are an operator's decision, and
 reading them from a file magi itself writes would make them reachable by anything that can write
@@ -1095,8 +1095,8 @@ forgotten — no deregistration step exists because no registration step does.
   page: addressing a companion by typing its name, from a list where it is already one click away,
   was a second and harder way to do what the list does.
 - **The binary carries what the page loads.** The typeface, the vendored RxJS bundle
-  (`cmd/magi-web/vendor`, built once from a pinned version with its hash written down) and the
-  language packs (`cmd/magi-web/i18n`) are embedded and served from this process. Nothing is
+  (`clients/web/server/vendor`, built once from a pinned version with its hash written down) and the
+  language packs (`clients/web/server/i18n`) are embedded and served from this process. Nothing is
   fetched from a CDN: a page that reached out would depend on somebody else's machine being up and
   would tell it when you look at your agents. A test walks every path the page references and
   requires the static demo to carry each one — added after a deploy went out blank because the
@@ -1108,7 +1108,7 @@ forgotten — no deregistration step exists because no registration step does.
   is how other screens find out, through the log they are already reading. The record is written
   temp-and-rename under one lock, because its readers poll it and two goroutines write it (the
   queue depth, and this).
-- **What a person may do is one table and one wrapper** (`cmd/magi-web/gate.go`). Every GET needs
+- **What a person may do is one table and one wrapper** (`clients/web/server/gate.go`). Every GET needs
   `read`; a write needs the capability the table names; a route in neither that table nor the
   read/public sets is refused, and a test walks the handler list so the decision is made when a
   route is written rather than when somebody is surprised by it. The policy itself is

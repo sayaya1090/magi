@@ -105,7 +105,7 @@ func TestTallyWordsSeparatesDecliningFromNotAnswering(t *testing.T) {
 	if got := tallyWords(council.Breakdown{Done: 1, Voters: 1, Abstain: 2, Silent: 1}); got != "1 done, 0 continue of 1 (1 abstained) (1 no answer)" {
 		t.Errorf("one of each, and both said: %q", got)
 	}
-	// The literal cmd/magi-web/council_silent_test.go hand-writes. It was faithful; nothing kept it so.
+	// The literal clients/web/server/council_silent_test.go hand-writes. It was faithful; nothing kept it so.
 	if got := tallyWords(council.Breakdown{Abstain: 3, Silent: 3}); got != "0 done, 0 continue of 0 (3 no answer)" {
 		t.Errorf("the console test's literal no longer matches what produces it: %q", got)
 	}

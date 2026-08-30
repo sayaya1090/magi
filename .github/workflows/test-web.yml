@@ -1,5 +1,5 @@
 # The new console's own test lane. web/ releases on its own clock (web-v* → release-web.yml)
-# and tests on it too: a web-only change runs this and not the Go CI (ci.yml ignores web/**),
+# and tests on it too: a web-only change runs this and not the Go CI (ci.yml ignores the console UI),
 # and a core change does not spend minutes compiling GWT it did not touch.
 #
 # The Playwright browser specs are real browser tests — chromium is installed with system deps
@@ -11,11 +11,11 @@ on:
   push:
     branches: [main]
     paths:
-      - "web/**"
+      - "clients/web/**"
       - ".github/workflows/test-web.yml"
   pull_request:
     paths:
-      - "web/**"
+      - "clients/web/**"
       - ".github/workflows/test-web.yml"
 
 permissions:
@@ -61,16 +61,16 @@ jobs:
              || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
             base=""     # 첫 푸시나 얕은 이력 — 무엇이 바뀌었는지 알 수 없으면 전부 돈다
           fi
-          all=$(ls -d web/ui/*-ui 2>/dev/null | xargs -n1 basename | sort)
+          all=$(ls -d clients/web/ui/*-ui 2>/dev/null | xargs -n1 basename | sort)
           if [ -z "$base" ]; then
             changed="$all"
           else
-            diff=$(git diff --name-only "$base" HEAD -- web/ui .github/workflows/test-web.yml)
+            diff=$(git diff --name-only "$base" HEAD -- clients/web/ui .github/workflows/test-web.yml)
             # 공용 자리가 움직였으면 그것을 쓰는 모든 화면이 대상이다.
-            if echo "$diff" | grep -qE '^web/ui/(console-bridge|ui-components)/|^web/ui/(build|settings)\.gradle\.kts|^web/ui/gradle|^\.github/workflows/test-web\.yml'; then
+            if echo "$diff" | grep -qE '^clients/web/ui/(console-bridge|ui-components)/|^clients/web/ui/(build|settings)\.gradle\.kts|^clients/web/ui/gradle|^\.github/workflows/test-web\.yml'; then
               changed="$all"
             else
-              changed=$(echo "$diff" | sed -n 's|^web/ui/\([a-z-]*-ui\)/.*|\1|p' | sort -u)
+              changed=$(echo "$diff" | sed -n 's|^clients/web/ui/\([a-z-]*-ui\)/.*|\1|p' | sort -u)
             fi
           fi
           [ -n "$changed" ] || changed="$all"   # 웹 밖의 변경으로 불려 왔으면 전부 확인한다
@@ -96,7 +96,7 @@ jobs:
         env:
           GITHUB_USERNAME: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: web/ui
+        working-directory: clients/web/ui
         run: ./gradlew :${{ matrix.module }}:test
 
   # 그리고 콘솔 한 벌이 실제로 서는지 — 여기서 처음 합쳐진다. 바뀌지 않은 모듈은 gradle의
@@ -115,7 +115,7 @@ jobs:
         env:
           GITHUB_USERNAME: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: web/ui
+        working-directory: clients/web/ui
         # 데모의 목도 함께 — 사이트 잡이 그것을 페이지 곁에 싣는다(운영 자산에는 없다).
         run: ./gradlew assembleConsole assembleDemoMock
       # 조립된 콘솔을 사이트 잡에 넘긴다 — 같은 커밋을 두 번 컴파일하지 않게(GWT는 이 레인의
@@ -125,24 +125,24 @@ jobs:
         with:
           name: console-root
           path: |
-            web/ui/build/console
-            web/ui/build/demo-mock
+            clients/web/ui/build/console
+            clients/web/ui/build/demo-mock
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
       # 그리고 그 콘솔을 실제로 내줄 서버가 그것과 맞는지 — 이 레인이 여기서 닫는 경계다.
-      # ci.yml은 web/** 변경을 무시하는데, cmd/magi-web의 시험은 이제 web/ui를 직접 읽는다
+      # ci.yml은 콘솔 UI 변경을 무시하는데, clients/web/server의 시험은 이제 web/ui를 직접 읽는다
       # (화면들이 묻는 경로, 함께 쓰는 스타일시트). 그러니 web/만 바뀐 커밋에서 그 시험을
       # 돌리는 자리는 여기뿐이고, 여기서 안 돌리면 아무 데서도 안 돈다.
       - name: Vet and test the server that serves it
         run: |
           set -euo pipefail
-          cp -R web/ui/build/console/. cmd/magi-web/console/
-          gofmt -l cmd/magi-web | tee /dev/stderr | test -z "$(cat)"
-          go vet ./cmd/magi-web
-          go build ./cmd/magi-web
-          go test ./cmd/magi-web/ -count=1
+          cp -R clients/web/ui/build/console/. clients/web/server/console/
+          gofmt -l clients/web/server | tee /dev/stderr | test -z "$(cat)"
+          go vet ./clients/web/server
+          go build ./clients/web/server
+          go test ./clients/web/server/ -count=1
 
   # main에 실리면 Pages로 콘솔 데모가 나간다 — 사이트 루트에, 한 벌만.
   # deploy-pages는 사이트를 통째로 갈아끼우므로, 이 레인도 전체 사이트를 짓는다 —
@@ -175,7 +175,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: console-root
-          path: web/ui/build
+          path: clients/web/ui/build
         continue-on-error: true
       - uses: actions/setup-go@v7
         with:

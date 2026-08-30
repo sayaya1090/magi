@@ -19,7 +19,7 @@
 |---|---|
 | [ARCHITECTURE](ARCHITECTURE.ko.md) · [English](ARCHITECTURE.md) | magi 개발을 위한 **as-built 참조**: 헥사고날 계층, 에이전트 루프, 종료 게이트, 가드레일, 툴, 확장점. 설계 문서와 어긋나면 이 문서가 이긴다. |
 | [DIAGRAMS](DIAGRAMS.ko.md) · [English](DIAGRAMS.md) | ARCHITECTURE의 시각적 짝 — 프로세스 경계(L0)에서 클래스 다이어그램(L5–L9)까지 한 축, 전부 mermaid. |
-| [UI](UI.ko.md) · [English](UI.md) | 두 표면 — 웹 콘솔(`cmd/magi-web`)과 터미널 UI(`internal/adapter/tui`): 각 화면에 무엇이 있고, 어떤 디자인 규칙을 지키며, 왜인가. |
+| [UI](UI.ko.md) · [English](UI.md) | 두 표면 — 웹 콘솔(`clients/web/server`)과 터미널 UI(`internal/adapter/tui`): 각 화면에 무엇이 있고, 어떤 디자인 규칙을 지키며, 왜인가. |
 | [CLIENTS](CLIENTS.ko.md) · [English](CLIENTS.md) | **어디서 magi를 만나든.** 클라이언트·컴패니언·에이전트·웹 화면의 관계 — 터미널, 브라우저 콘솔, JetBrains 플러그인, PowerPoint 애드인, 자리별로. |
 | [EXTENDING](EXTENDING.ko.md) · [English](EXTENDING.md) | **외부 툴(MCP)**과 **팀 공유 기억/스킬**(경험 스토어)을 magi에 붙이는 실전 절차. |
 

@@ -30,10 +30,10 @@ func TestGitStatusIsReadAsWhatAPersonActsOn(t *testing.T) {
 		"# branch.head engine-ui-split",
 		"# branch.upstream origin/engine-ui-split",
 		"# branch.ab +2 -1",
-		"1 .M N... 100644 100644 100644 aaa bbb cmd/magi-web/page.js",
+		"1 .M N... 100644 100644 100644 aaa bbb clients/web/server/page.js",
 		"1 M. N... 100644 100644 100644 aaa bbb internal/app/git.go",
 		"1 MM N... 100644 100644 100644 aaa bbb docs/UI.md",
-		"2 R. N... 100644 100644 100644 aaa bbb R100 cmd/magi-web/access.go\tcmd/magi-web/people.go",
+		"2 R. N... 100644 100644 100644 aaa bbb R100 clients/web/server/access.go\tclients/web/server/people.go",
 		"u UU N... 100644 100644 100644 100644 aaa bbb ccc internal/core/cluster/cluster.go",
 		"? scratchpad/notes.md",
 	}, "\n"))
@@ -45,10 +45,10 @@ func TestGitStatusIsReadAsWhatAPersonActsOn(t *testing.T) {
 		t.Errorf("ahead/behind is %d/%d", got.Ahead, got.Behind)
 	}
 	want := map[string]string{
-		"cmd/magi-web/page.js":             "unstaged",
+		"clients/web/server/page.js":             "unstaged",
 		"internal/app/git.go":              "staged",
 		"docs/UI.md":                       "both",
-		"cmd/magi-web/access.go":           "staged",
+		"clients/web/server/access.go":           "staged",
 		"internal/core/cluster/cluster.go": "conflict",
 		"scratchpad/notes.md":              "untracked",
 	}

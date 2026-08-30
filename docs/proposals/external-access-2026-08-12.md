@@ -65,7 +65,7 @@ and any one missing makes the rest theatre:
 
 None of these depends on the choice and none weakens the current posture.
 
-- **An audit record of state-changing requests** (`cmd/magi-web/audit.go`). One JSON line per
+- **An audit record of state-changing requests** (`clients/web/server/audit.go`). One JSON line per
   non-GET request appended to `console-audit.jsonl` beside the session store: time, method, path,
   the companion it named, origin, and status. Wrapped OUTSIDE the cross-site guard, so a refusal —
   the line somebody would actually want — is recorded even though no handler runs.
@@ -87,7 +87,7 @@ None of these depends on the choice and none weakens the current posture.
   same-site guard exists because a page on another origin once wrote one. Reading the MCP list
   stays. `/dispatch` and `/cron` stay: they reach the machine through the agent and its permission
   policy, and refusing them leaves a console that cannot be used for the thing it is for.
-- **A test that the bind guard cannot be bypassed** (`cmd/magi-web/bind_test.go`). Binding moved
+- **A test that the bind guard cannot be bypassed** (`clients/web/server/bind_test.go`). Binding moved
   into `listenLoopback` so one place opens a port and it is the place that checks; the test pins
   the refusal, that the socket is released rather than held, and that the message still tells the
   operator how to reach the console from elsewhere. A second test counts the port-openers in the

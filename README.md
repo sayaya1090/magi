@@ -395,7 +395,7 @@ make build        # CGO_ENABLED=0, version injected → ./magi
 make web          # the browser console → ./magi-web
 # or directly:
 CGO_ENABLED=0 go build -o magi     ./cmd/magi
-CGO_ENABLED=0 go build -o magi-web ./cmd/magi-web
+CGO_ENABLED=0 go build -o magi-web ./clients/web/server
 ```
 
 Pure Go, no CGo, so each is a self-contained static binary. `magi` is the agent — the TUI and the
@@ -481,7 +481,7 @@ dependency direction always points inward.
 flowchart TD
     subgraph adapters [adapters — replaceable]
         TUI[tui/bubbletea]
-        WEB[cmd/magi-web]
+        WEB[clients/web/server]
         LLM[llm/openai]
         LUA[plugin/lua · mcp]
         DMN[daemon · fleet]
@@ -503,7 +503,7 @@ flowchart TD
 
 ```
 cmd/magi            entrypoint (wiring)
-cmd/magi-web        the console — a read-mostly web view over the same daemons
+clients/web/server        the console — a read-mostly web view over the same daemons
 internal/core       domain — depends on no adapter (including the pure council)
 internal/port       ports (interfaces) — LLM, Store, Council, ToolServers …
 internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
