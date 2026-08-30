@@ -309,3 +309,83 @@ func TestSetKeyClearLeavesComment(t *testing.T) {
 		t.Fatalf("template comment should be preserved:\n%s", got)
 	}
 }
+
+// Every byte a person can paste into a template either survives the write or is dropped — none of
+// them leaves a file the next start cannot read. \a and \v are the two that %q renders as escapes
+// TOML refuses, and a broken GLOBAL config.toml stops magi starting for every workspace here.
+func TestNoPastedByteCanBreakTheFile(t *testing.T) {
+	for b := 0; b < 256; b++ {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.toml")
+		value := "feat: " + string(rune(b)) + " x"
+		if err := SetKey(path, "templates", "commit", StripControl(value)); err != nil {
+			t.Fatalf("byte %#x: %v", b, err)
+		}
+		if _, err := Load(dir); err != nil {
+			t.Fatalf("byte %#x left a file that will not parse: %v", b, err)
+		}
+	}
+}
+
+// A checked write puts the file back when the result would not load, and says which of the two
+// failures it was: a value that breaks the file, or a file that was already broken.
+func TestACheckedWriteRestoresAndTellsThemApart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	sound := "embed_model = \"before\"\n"
+	if err := os.WriteFile(path, []byte(sound), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loads := func() error { _, err := Load(dir); return err }
+	// A value that would break it: refused, and the file is exactly as it was.
+	if err := SetKeyChecked(path, "", "embed_model", "a\avalue", loads); err == nil {
+		t.Fatal("a value that breaks the file was accepted")
+	} else if !strings.Contains(err.Error(), "put back") {
+		t.Errorf("the refusal must say the file was restored: %v", err)
+	}
+	if b, _ := os.ReadFile(path); string(b) != sound {
+		t.Fatalf("the file was left as %q", b)
+	}
+	// A file that was already broken: named as that, not blamed on this value.
+	if err := os.WriteFile(path, []byte("embed_model = \"x\nnot toml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := SetKeyChecked(path, "", "embed_model", "fine", loads)
+	if err == nil {
+		t.Fatal("a write into an unparseable file was accepted")
+	}
+	if !strings.Contains(err.Error(), "as it stands") {
+		t.Errorf("the refusal must name the file's own state: %v", err)
+	}
+	// A restore puts the mode back too, not just the bytes: a config.toml somebody tightened is
+	// not made world-readable by a write that was refused. (A SUCCESSFUL write normalises the
+	// mode, which is SetKey's own long-standing behaviour and not this wrapper's to change.)
+	if err := os.WriteFile(path, []byte(sound), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// WriteFile keeps an existing file's mode, so the tightening has to be said outright — the
+	// same trap the restore path itself had.
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetKeyChecked(path, "", "embed_model", "b\avalue", loads); err == nil {
+		t.Fatal("a value that breaks the file was accepted")
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("the restore left the file %v", fi.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(path); string(b) != sound {
+		t.Fatalf("the restore left %q", b)
+	}
+	// And a good write still lands.
+	if err := SetKeyChecked(path, "", "embed_model", "after", loads); err != nil {
+		t.Fatal(err)
+	}
+	if c, lerr := Load(dir); lerr != nil || c.EmbedModel != "after" {
+		t.Fatalf("the good write did not land: %+v %v", c, lerr)
+	}
+}

@@ -193,25 +193,17 @@ func (d daemonEngine) ConfigSet(ctx context.Context, key, value, tier string) (d
 	if err := os.MkdirAll(dir, mode); err != nil {
 		return daemon.ConfigItem{}, err
 	}
-	before, _ := os.ReadFile(filepath.Join(dir, "config.toml"))
-	path := filepath.Join(dir, "config.toml")
+
 	// The bytes a %q-rendered TOML value cannot survive are dropped at the one gate that knows
 	// them (config.StripControl), which the console's writer for these same four keys has always
-	// had and this door was written without.
-	if err := config.SetKey(path, k.section, k.name, config.StripControl(strings.TrimSpace(value))); err != nil {
+	// had and this door was written without. And the write is CHECKED: the file it lands in has
+	// to still parse afterwards, verified inside the same lock the write takes so a restore
+	// cannot hand a concurrent writer's line back to what it replaced.
+	err := config.SetKeyChecked(filepath.Join(dir, "config.toml"), k.section, k.name,
+		config.StripControl(strings.TrimSpace(value)),
+		func() error { _, lerr := config.Load(dir); return lerr })
+	if err != nil {
 		return daemon.ConfigItem{}, err
-	}
-	// Read the FILE back, not the value: a write that leaves a config.toml which will not parse
-	// is a daemon that does not start next time — for every workspace on this machine when the
-	// file is the global one. Put back what was there and say so, rather than answering with the
-	// empty reading a broken file gives.
-	if _, lerr := config.Load(dir); lerr != nil {
-		if before == nil {
-			os.Remove(path)
-		} else {
-			os.WriteFile(path, before, 0o600)
-		}
-		return daemon.ConfigItem{}, fmt.Errorf("%s would no longer parse with that value (%v) — nothing was changed", path, lerr)
 	}
 	item := d.resolve(k)
 	if item.Source == "env" && strings.TrimSpace(value) != "" {

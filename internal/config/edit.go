@@ -135,6 +135,59 @@ func setKey(path, section, key, value string, quote bool) error {
 	return withFileLock(path, func() error { return setKeyLocked(path, section, key, value, quote) })
 }
 
+// SetKeyChecked is SetKey plus the question a writer of THIS file has to ask: does it still parse?
+//
+// A config.toml that will not load stops magi starting — for every workspace on the machine when
+// it is the global one — so a door that writes here has to be able to put the file back. Doing
+// that around SetKey is not enough: the read, the write and the restore have to be one act, or a
+// restore hands a concurrent writer's line back to what it replaced. `parses` is the caller's own
+// reading of the file (config.Load of its directory), asked twice: once before, so a file that was
+// ALREADY broken is reported as that rather than blamed on this value, and once after.
+func SetKeyChecked(path, section, key, value string, parses func() error) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	setKeyMu.Lock()
+	defer setKeyMu.Unlock()
+	return withFileLock(path, func() error {
+		before, rerr := os.ReadFile(path)
+		existed := rerr == nil
+		mode := os.FileMode(0o644)
+		if fi, serr := os.Stat(path); serr == nil {
+			mode = fi.Mode().Perm()
+		}
+		if existed {
+			if err := parses(); err != nil {
+				return fmt.Errorf("%s does not parse as it stands (%v) — fix the file first; writing into it would only add a second thing to find", path, err)
+			}
+		}
+		if err := setKeyLocked(path, section, key, value, true); err != nil {
+			return err
+		}
+		err := parses()
+		if err == nil {
+			return nil
+		}
+		// Putting it back is the point, so a failure to put it back is not a detail to swallow:
+		// the caller is about to be told the file is unchanged, and that sentence has to be true.
+		if !existed {
+			if rmErr := os.Remove(path); rmErr != nil {
+				return fmt.Errorf("%s would not have parsed with that value (%v) and could not be removed either (%w)", path, err, rmErr)
+			}
+			return fmt.Errorf("%s would not have parsed with that value (%v) — nothing was written", path, err)
+		}
+		if wErr := os.WriteFile(path, before, mode); wErr != nil {
+			return fmt.Errorf("%s would no longer parse with that value (%v) and the previous contents could not be restored (%w)", path, err, wErr)
+		}
+		// WriteFile keeps an EXISTING file's mode, and the write above may have normalised it —
+		// so a file somebody had tightened is not left readable by everybody after a refusal.
+		if cErr := os.Chmod(path, mode); cErr != nil {
+			return fmt.Errorf("%s was put back but its permissions could not be (%w)", path, cErr)
+		}
+		return fmt.Errorf("%s would no longer parse with that value (%v) — it was put back unchanged", path, err)
+	})
+}
+
 // StripControl removes the control bytes that a %q-rendered TOML value cannot survive: \a and \v
 // become escapes BurntSushi refuses, so a pasted template with one in it writes a config.toml that
 // will not re-parse — and a broken GLOBAL file stops magi starting for every workspace on the
