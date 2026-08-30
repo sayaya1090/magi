@@ -45,10 +45,10 @@ func TestGitStatusIsReadAsWhatAPersonActsOn(t *testing.T) {
 		t.Errorf("ahead/behind is %d/%d", got.Ahead, got.Behind)
 	}
 	want := map[string]string{
-		"clients/web/server/page.js":             "unstaged",
+		"clients/web/server/page.js":       "unstaged",
 		"internal/app/git.go":              "staged",
 		"docs/UI.md":                       "both",
-		"clients/web/server/access.go":           "staged",
+		"clients/web/server/access.go":     "staged",
 		"internal/core/cluster/cluster.go": "conflict",
 		"scratchpad/notes.md":              "untracked",
 	}

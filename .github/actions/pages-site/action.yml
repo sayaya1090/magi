@@ -34,11 +34,11 @@ runs:
           (cd web/ui && ./gradlew assembleDemoMock -q)
         fi
     # -console은 조립본을 디스크에서 읽으라는 뜻이다. 임베드된 사본을 쓰지 않는 이유는
-    # 하나뿐: 그러려면 먼저 cmd/magi-web/console/ 로 복사하고 `go build`를 해야 하는데,
+    # 하나뿐: 그러려면 먼저 clients/web/server/console/ 로 복사하고 `go build`를 해야 하는데,
     # 여기서 필요한 것은 바이너리가 아니라 그 바이너리가 그릴 정적 사본이다.
     - name: emit the console's demo at the site root
       shell: bash
-      run: go run ./cmd/magi-web -console web/ui/build/console -emit-demo ./_site
+      run: go run ./clients/web/server -console web/ui/build/console -emit-demo ./_site
     - name: carry the benchmark report onto the site
       shell: bash
       run: |

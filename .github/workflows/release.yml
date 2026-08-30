@@ -25,3 +25,9 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # WHICH tag this release is for, said rather than derived. goreleaser asks git for the
+          # current tag, and git names whichever tag it finds on the commit — this repository puts
+          # more than one there (a core release and a console release can land on the same commit),
+          # so the core's own run picked up "web-v0.2.0" and stopped at "invalid semantic version".
+          # github.ref_name is the tag that triggered THIS run, which is the thing being released.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
