@@ -2497,7 +2497,18 @@ func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) 
 		// operation on non-socket" on macOS, so the same absence was ErrGone on one and not on the
 		// other — and a caller that asked the honest question got the honest answer on one CI and
 		// not the other.
-		if _, serr := os.Stat(path); serr == nil {
+		if fi, serr := os.Stat(path); serr == nil {
+			// WHAT is at that path, not merely that something is. The sentence below decides
+			// what a screen says and, in the clients that restart on it, what happens next — and
+			// "the daemon died" about a path no daemon has ever listened on sends somebody
+			// looking for a crash that did not happen. The file's TYPE answers it without asking
+			// the kernel for its opinion: the errnos differ by platform (a plain file is ENOTSOCK
+			// on macOS and ECONNREFUSED on Linux, which is the same trap this branch already
+			// records one paragraph up), and a mode bit does not.
+			if fi.Mode()&os.ModeSocket == 0 {
+				return nil, notSocket("%s is not a socket — something else is at the path a "+
+					"companion's socket would take, so no daemon has ever listened there", path)
+			}
 			return nil, gone("a socket is at %s but nothing is listening — the daemon died; "+
 				"start one with `magi --daemon`", path)
 		}
@@ -2516,6 +2527,27 @@ func dial(path string, connectTimeout, deadline time.Duration) (*Client, error) 
 // connecting to a leftover file gives ENOTSOCK and falls through this branch, and failed on Linux,
 // where it gives ECONNREFUSED and lands here. That is a difference no caller should have to know.
 func gone(format string, a ...any) error { return goneErr{msg: fmt.Sprintf(format, a...)} }
+
+// ErrNotASocket is "there is something at that path and it was never a companion's door".
+//
+// Its own sentinel, wrapping ErrGone so every caller that only wants "cannot be reached" keeps
+// working: the two are the same unreachability and different facts. A dead daemon is a thing to
+// restart; a plain file where a socket belongs is a thing to look at, and a client that restarts
+// on the first would otherwise do it forever on the second.
+var ErrNotASocket = errors.New("that path is not a companion's socket")
+
+func notSocket(format string, a ...any) error {
+	return notSocketErr{msg: fmt.Sprintf(format, a...)}
+}
+
+type notSocketErr struct{ msg string }
+
+func (e notSocketErr) Error() string { return e.msg }
+
+// Is answers both questions truthfully: this is not a socket, AND nothing is reachable there.
+func (e notSocketErr) Is(target error) bool {
+	return target == ErrNotASocket || target == ErrGone
+}
 
 type goneErr struct{ msg string }
 

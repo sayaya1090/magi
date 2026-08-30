@@ -352,3 +352,52 @@ func TestADaemonWithoutTheSettingsDoorSaysSo(t *testing.T) {
 		t.Error("the door was advertised by a daemon that does not have it")
 	}
 }
+
+// A plain file where a socket belongs is not a daemon that died. The dial's errno cannot tell
+// them apart — a leftover file is ENOTSOCK on macOS and ECONNREFUSED on Linux — so the answer
+// comes from the file's TYPE, which no kernel has an opinion about.
+func TestAPlainFileAtASocketPathIsNotADeadDaemon(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	path := filepath.Join(home, "daemon-x.sock")
+	if err := os.WriteFile(path, []byte("not a socket"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Dial(path)
+	if err == nil {
+		t.Fatal("dialling a plain file succeeded")
+	}
+	if !errors.Is(err, ErrNotASocket) {
+		t.Errorf("a plain file must be said as itself, got %v", err)
+	}
+	if !errors.Is(err, ErrGone) {
+		t.Errorf("it is still unreachable, and a caller asking only that must keep working: %v", err)
+	}
+	if strings.Contains(err.Error(), "died") {
+		t.Errorf("a path no daemon ever listened on must not report a crash: %v", err)
+	}
+	// And a socket FILE nobody is listening on still reads as a daemon that died. Built by hand
+	// so the file outlives its listener: Go unlinks a unix socket on close unless told not to.
+	sock := filepath.Join(home, "daemon-y.sock")
+	addr, err := net.ResolveUnixAddr("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.SetUnlinkOnClose(false)
+	l.Close()
+	if fi, serr := os.Stat(sock); serr != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the fixture did not leave a socket file: %v", serr)
+	}
+	if _, derr := Dial(sock); derr == nil {
+		t.Fatal("a socket with no listener answered")
+	} else if errors.Is(derr, ErrNotASocket) || !errors.Is(derr, ErrGone) {
+		t.Errorf("a dead daemon must read as one: %v", derr)
+	}
+}
