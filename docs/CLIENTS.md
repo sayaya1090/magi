@@ -189,6 +189,17 @@ transcript stream is not re-checked after a repolicy · unborn session state acc
 over a daemon's lifetime · notifyAnswers checks peer as "" — revisit the day handoffs go
 remote.) Outside-workspace content-root read-only is **deferred**
 (a 2026-08-29 user decision — the workspace stays the trust boundary). On the ledger:
+**one door for the settings, not a door per setting** — the places that decide which model runs
+are `model`, `[llm.profiles.*]`, `[autocomplete] code_profile`/`composer_profile`, `embed_model`,
+the `[subagents.*]` profiles and `[templates]`, and exactly two of them have a socket method
+(`set-model`, `use-backend`). The console reaches the rest by editing config.toml itself
+(autocomplete.go), which a client holding only a socket cannot do, so the IDE writes "not
+editable here, and this is the key" where a field belongs. The shape proposed (magi-9f,
+2026-08-30): `config-get` answering each editable key with its value, the tier it came from and
+the file it lives in — the console's autocomplete reply already returns `File` for that reason;
+`config-set` taking one `{key, value}` written key-at-a-time with the comments kept (config.SetKey)
+and saying when it takes effect; `profiles` listing what may be assigned and from which tier
+(profileChoices). Whitelisted keys — arbitrary TOML writing would be a hole, not a door. Also:
 **a person's image has no door at all** — the submit method carries `text` and nothing else
 (daemon.Request has no image field, and the dispatch builds one text part), so an image arrives
 only as a TOOL RESULT today; a client cannot close this gap alone, and calling it "the UI was
