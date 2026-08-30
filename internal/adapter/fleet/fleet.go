@@ -72,6 +72,18 @@ type cacheEntry struct {
 	open   app.UnfinishedTurn
 	isOpen bool
 	plan   []session.Todo
+	// hands is what this conversation says about handed-over work, derived from the SAME
+	// transcript read `said` comes from. Kept here because Handoffs used to reconstruct every
+	// session's transcript on every call — measured at one full rebuild per session per call,
+	// while every other derivation on this path was cache-fed — and lastSaid then read the same
+	// transcript a second time. One read now serves both, and neither repeats while the log
+	// stands still.
+	hands []handedOver
+	// touched is when this entry was last useful, so the table can forget sessions nobody asks
+	// about any more (see Cache.prune). A console that runs for weeks otherwise keeps an entry —
+	// with its last line and its todo list — for every session it has ever seen, including ones
+	// deleted from disk.
+	touched time.Time
 }
 
 // seen returns what was cached for a session and the sequence it was built at.
@@ -89,12 +101,36 @@ func (c *Cache) put(sid session.SessionID, e cacheEntry) {
 	if c == nil {
 		return
 	}
+	e.touched = time.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entry == nil {
 		c.entry = map[session.SessionID]cacheEntry{}
 	}
 	c.entry[sid] = e
+	c.pruneLocked()
+}
+
+// cacheKeep is how long an unasked-about session stays in the table, and cacheCap is when the
+// table starts asking. Both are generous: the cost of forgetting one is a single re-derivation.
+const (
+	cacheKeep = 30 * time.Minute
+	cacheCap  = 512
+)
+
+// pruneLocked forgets entries nothing has asked about for a while. Only past the cap, so an
+// ordinary console never pays for the scan; without it the table grows with every session this
+// process has ever seen and never shrinks. Caller holds c.mu.
+func (c *Cache) pruneLocked() {
+	if len(c.entry) <= cacheCap {
+		return
+	}
+	cut := time.Now().Add(-cacheKeep)
+	for sid, e := range c.entry {
+		if e.touched.Before(cut) {
+			delete(c.entry, sid)
+		}
+	}
 }
 
 // State is what an agent is doing, as far as anyone outside its process can tell.
@@ -760,11 +796,48 @@ func fromLog(ctx context.Context, r Reader, cache *Cache, sid session.SessionID)
 }
 
 func rebuild(ctx context.Context, r Reader, cache *Cache, sid session.SessionID, seq int64) (app.UnfinishedTurn, bool, string, []session.Todo) {
+	e := derive(ctx, r, sid)
+	e.seq = seq
+	cache.put(sid, e)
+	return e.open, e.isOpen, e.said, e.plan
+}
+
+// derive reads a conversation ONCE and answers everything this package asks of it. The transcript
+// reconstruction is the expensive part (measured in milliseconds on a long session), and it used
+// to happen twice per session per listing — once for the last line, once for the handed-over work.
+func derive(ctx context.Context, r Reader, sid session.SessionID) cacheEntry {
 	open, isOpen := r.UnfinishedTurnOf(ctx, sid)
-	said := lastSaid(ctx, r, sid)
 	plan, _ := r.PlanOf(ctx, sid) // a plan that cannot be read is no plan, not a reason to drop the row
-	cache.put(sid, cacheEntry{seq: seq, said: said, open: open, isOpen: isOpen, plan: plan})
-	return open, isOpen, said, plan
+	e := cacheEntry{open: open, isOpen: isOpen, plan: plan}
+	msgs, _, err := r.SessionState(ctx, sid)
+	if err != nil {
+		return e
+	}
+	e.said = lastSaidIn(msgs)
+	e.hands = handoffsIn(msgs)
+	return e
+}
+
+// handsOf is derive's handed-over half, cache-fed like every other derivation on this path.
+func handsOf(ctx context.Context, r Reader, cache *Cache, sid session.SessionID) []handedOver {
+	if e, ok := cache.seen(sid); ok {
+		if seq, changed, err := r.NewSince(ctx, sid, e.seq); err == nil && !changed {
+			return e.hands
+		} else if err == nil {
+			rebuild(ctx, r, cache, sid, seq)
+			if e2, ok2 := cache.seen(sid); ok2 {
+				return e2.hands
+			}
+		}
+	}
+	if seq, _, err := r.NewSince(ctx, sid, 0); err == nil {
+		rebuild(ctx, r, cache, sid, seq)
+		if e, ok := cache.seen(sid); ok {
+			return e.hands
+		}
+	}
+	// No sequence means no key: derive without caching an answer that cannot be invalidated.
+	return derive(ctx, r, sid).hands
 }
 
 // lastSaid is the final piece of text in a session — what an idle agent left behind.
@@ -773,6 +846,11 @@ func lastSaid(ctx context.Context, r Reader, sid session.SessionID) string {
 	if err != nil {
 		return ""
 	}
+	return lastSaidIn(msgs)
+}
+
+// lastSaidIn is lastSaid over an ALREADY-read transcript, so one read can answer two questions.
+func lastSaidIn(msgs []session.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		for j := len(msgs[i].Parts) - 1; j >= 0; j-- {
 			if p := msgs[i].Parts[j]; p.Kind == session.PartText && p.Text != "" {
@@ -891,9 +969,9 @@ func Handoffs(ctx context.Context, r Reader, configDir, from string, cache *Cach
 	out := []Handoff{}
 	for _, a := range agents {
 		for _, sid := range handoffSessions(ctx, r, a) {
-			msgs, _, merr := r.SessionState(ctx, sid)
-			if merr != nil {
-				continue // one unreadable log is not a reason to answer nothing
+			hands := handsOf(ctx, r, cache, sid)
+			if len(hands) == 0 {
+				continue // nothing was handed over in this conversation
 			}
 			// Whether THIS conversation has a turn open, not whether the companion does. They are
 			// different questions and the answer hangs on it: a companion working on something a
@@ -909,7 +987,14 @@ func Handoffs(ctx context.Context, r Reader, configDir, from string, cache *Cach
 			case !a.Live:
 				state = Stopped
 			}
-			for _, h := range handoffsIn(msgs, from) {
+			for _, h := range hands {
+				// Filtered HERE rather than while reading, so the answers and the "which one is
+				// still running" flag are decided against the whole conversation: with an asker's
+				// name applied first, another asker's request in between was invisible and its
+				// answer landed on the wrong row.
+				if from != "" && !strings.EqualFold(h.From, from) {
+					continue
+				}
 				h.To, h.Socket, h.State = a.Name, a.Socket, state
 				// The answer only when the work is over. A line taken mid-turn is whatever it
 				// happened to be saying, which reads as a conclusion and is not one — and only
@@ -980,14 +1065,14 @@ type handedOver struct {
 // The answer to a request is the last thing the companion said before the NEXT request arrived,
 // which is what makes a re-ask readable: two questions in one conversation used to share whatever
 // the companion happened to have said most recently.
-func handoffsIn(msgs []session.Message, from string) []handedOver {
+func handoffsIn(msgs []session.Message) []handedOver {
 	var out []handedOver
 	for _, m := range msgs {
 		switch m.Role {
 		case session.RoleUser:
 			for _, p := range m.Parts {
 				who, req, ok := parseHandoff(p.Text)
-				if !ok || (from != "" && !strings.EqualFold(who, from)) {
+				if !ok {
 					continue
 				}
 				out = append(out, handedOver{Handoff: Handoff{From: who, Request: Clip(req, 400)}})

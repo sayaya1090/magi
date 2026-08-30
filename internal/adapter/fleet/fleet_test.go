@@ -1302,3 +1302,58 @@ func TestWhatARemoteCompanionWasDoingArrivesWithTheSighting(t *testing.T) {
 		}
 	}
 }
+
+// A handoff ledger refresh must not re-read a log that has not changed.
+//
+// Handoffs reconstructed every conversation's transcript on every call — one full rebuild per
+// session per refresh, while every other derivation on the same path was cache-fed — and the last
+// line was read from that same transcript a second time. Measured before this: 82 rebuilds for 40
+// sessions on the first call and 41 on every call after.
+func TestTheHandoffLedgerIsNotReDerivedEveryRefresh(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	f.daemonAt(wd, "worker", true)
+	for _, name := range []string{"one", "two", "three"} {
+		f.handed("side-"+name, wd, "asker", "please do "+name, "did "+name)
+	}
+	r := &countingReader{Reader: f.reader}
+	var cache fleet.Cache
+	first, err := fleet.Handoffs(context.Background(), r, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first) != 3 {
+		t.Fatalf("the ledger read %d rows, want 3", len(first))
+	}
+	after := r.rebuilds
+	if after == 0 {
+		t.Fatal("the first call derived nothing — this test is measuring nothing")
+	}
+	if after > 4 {
+		t.Errorf("the first call reconstructed %d transcripts for 4 sessions — one read each is the point", after)
+	}
+	again, err := fleet.Handoffs(context.Background(), r, f.cfgDir, "", &cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != len(first) {
+		t.Fatalf("the second call answered %d rows, the first %d", len(again), len(first))
+	}
+	if r.rebuilds != after {
+		t.Errorf("a refresh over unchanged logs reconstructed %d more transcripts", r.rebuilds-after)
+	}
+}
+
+// The table forgets sessions nothing asks about, so a console that runs for weeks does not keep an
+// entry — with its last line and its todo list — for every session it has ever seen.
+func TestTheFleetCacheForgetsWhatNobodyAsksAbout(t *testing.T) {
+	var c fleet.Cache
+	if got := fleet.CacheSizeForTest(&c); got != 0 {
+		t.Fatalf("a fresh cache holds %d", got)
+	}
+	fleet.FillCacheForTest(&c, 600, true) // stale
+	fleet.FillCacheForTest(&c, 10, false) // fresh, and past the cap: the prune runs
+	if got := fleet.CacheSizeForTest(&c); got > 600 {
+		t.Errorf("the table kept %d entries; the stale ones should be gone", got)
+	}
+}
