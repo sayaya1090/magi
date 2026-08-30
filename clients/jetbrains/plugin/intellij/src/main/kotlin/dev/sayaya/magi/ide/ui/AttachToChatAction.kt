@@ -17,7 +17,7 @@ import dev.sayaya.magi.ide.model.FileRef
  *
  * 에디터에 선택이 있으면 `경로:시작-끝`, 없으면 파일 전체. 프로젝트 뷰에선 고른 파일들 전부.
  */
-class AttachToChatAction : AnAction() {
+class AttachToChatAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -27,7 +27,7 @@ class AttachToChatAction : AnAction() {
         // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
         // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
         // 정하므로, 한 규칙으로 통일한다.
-        e.presentation.text = MagiBundle.msg("action.magi.attach.text")
+        e.presentation.text = MagiEditorMenu.item(e, "action.magi.attach.text")
         e.presentation.description = MagiBundle.msg("action.magi.attach.description")
         val editorReady = e.getData(CommonDataKeys.EDITOR) != null &&
             e.getData(CommonDataKeys.VIRTUAL_FILE) != null

@@ -613,6 +613,96 @@ class SourceTextTest {
      * 하필 거기 앉은 이름들(`subject`·`why`)이 데몬에서 온 남의 글자를 싣는 권한 창의 값이라,
      * 강제가 제일 약한 칸이 값이 제일 비싼 줄에 앉아 있었다.
      */
+    /**
+     * **dispose 는 클래스를 처음 로드하는 자리가 되면 안 된다.**
+     *
+     * 이 자리는 IDE 가 나갈 때도 돌고, 그때 우리 플러그인 클래스로더는 이미 닫혀 있을 수
+     * 있다 — 이 세션에서 한 번도 안 건드린 클래스는 그 순간 못 불려 온다. 라이브에서 그대로
+     * 났다(`NoClassDefFoundError: …/RichAnswer` at `MagiToolWindow$View.dispose`): 리치 답을
+     * 한 번도 안 그린 창을 닫았고, **터진 dispose 가 그 아래 정리를 통째로 걸렀다** — 스트림도
+     * 손도 안 거둬졌다. 못 거두는 것보다 나쁜 것은 못 거두면서 나머지까지 데려가는 것이다.
+     *
+     * 그 자리 바로 옆줄은 이미 `runCatching` 이었다. **같은 부재를 옆에서 다르게 적어 두면
+     * 안 감싼 쪽이 터진다** — 그래서 「기억해서 감싼다」가 아니라 여기서 잰다.
+     *
+     * 재는 것은 `Xxx.yyy(` 한 모양이다 — dispose 본문에서 대문자로 시작하는 이름의 멤버를
+     * 부르면 감싸져 있어야 한다. 필드·지역변수 호출은 소문자라 안 걸리고, `runCatching { … }`
+     * 안이면 통과다(줄 텍스트가 아니라 **범위**로 판정하므로 여러 줄로 감싸도 된다).
+     *
+     * **이 초록이 「dispose 는 안전하다」는 뜻은 아니다.** 클래스를 로드시키는 다른 모양은 이
+     * 그물을 지난다: 생성자 호출 `Xxx()`, `Xxx.Companion.y()`(점 뒤가 대문자), 상수·프로퍼티
+     * 읽기 `Xxx.LOG`, 다른 파일의 최상위 함수(`FooKt` 로드). 넓히기 쉬운 그물이 아니라
+     * **실제로 났던 모양**을 막는 그물이라 이렇게 두고, 못 잡는 것을 여기 적어 둔다 — 다음
+     * 사람이 이 시험의 초록을 그 이상으로 읽지 않게.
+     */
+    @Test
+    fun `창을 거두는 자리는 클래스를 처음 로드하지 않는다`() {
+        // **식 본문도 센다.** 처음엔 `override fun dispose() {` 만 찾았는데, 이 모듈의 dispose
+        // 셋 중 둘이 `= Unit` / `= timer.stop()` 이라 가드 밖이었다 — 라이브 사고 재발을 막으라고
+        // 세운 가드가 3분의 1만 보고 있었다(리뷰 R2). 같은 결함을 같은 커밋 안에서 되풀이했다.
+        val head = Regex("""override fun dispose\(\)\s*(\{|=)""")
+        val call = Regex("""(?<![.\w])[A-Z][A-Za-z0-9_]*\.[a-z][A-Za-z0-9_]*\s*\(""")
+        val mine = sources.filter { "${File.separator}intellij${File.separator}" in it.path }
+        // 몇 개를 봐야 하는지는 **소스가 말하게** 한다. `> 0` 으로 두면 하나만 봐도 초록이라,
+        // 방금 그 함정을 이 시험 자신이 못 잡는다.
+        val declared = mine.sumOf { f -> Regex("""override fun dispose\(\)""").findAll(f.readText()).count() }
+        var looked = 0
+        val bad = mutableListOf<String>()
+        for (f in mine) {
+            val text = f.readText()
+            var m = head.find(text)
+            while (m != null) {
+                looked++
+                val block = text[m.range.last] == '{'
+                // 블록이면 중괄호를 세어 끝을 찾고, 식이면 그 줄 하나가 본문이다.
+                var i = m.range.last + 1
+                if (block) {
+                    var depth = 1
+                    while (i < text.length && depth > 0) {
+                        when (text[i]) { '{' -> depth++; '}' -> depth-- }
+                        i++
+                    }
+                } else {
+                    i = text.indexOf('\n', i).let { if (it < 0) text.length else it }
+                }
+                val bodyText = text.substring(m.range.last + 1, i)
+                // **감쌌는지는 줄이 아니라 자리로 판정한다.** 줄 텍스트에 `runCatching` 이 있는지만
+                // 보면 여러 줄로 감싼 코드를 위반으로 신고한다 — 맞는 코드를 빨갛게 만드는 가드다
+                // (리뷰 R3). 그래서 `runCatching { … }` 의 범위를 먼저 구해 둔다.
+                val safe = mutableListOf<IntRange>()
+                for (g in Regex("""runCatching\s*\{""").findAll(bodyText)) {
+                    var d = 1
+                    var j = g.range.last + 1
+                    while (j < bodyText.length && d > 0) {
+                        when (bodyText[j]) { '{' -> d++; '}' -> d-- }
+                        j++
+                    }
+                    safe += g.range.first until j
+                }
+                for (c in call.findAll(bodyText)) {
+                    if (safe.any { c.range.first in it }) continue
+                    val line = bodyText.substring(0, c.range.first).substringAfterLast('\n') +
+                        bodyText.substring(c.range.first).substringBefore('\n')
+                    if (line.trimStart().startsWith("//")) continue
+                    bad += "${f.name}: ${line.trim()}"
+                }
+                m = head.find(text, i)
+            }
+        }
+        assertTrue(looked > 0, "dispose 를 하나도 못 찾았다 — 이 시험이 아무것도 안 보고 있다")
+        assertEquals(
+            declared, looked,
+            "소스에 dispose 가 $declared 개인데 $looked 개만 봤다 — 훑는 모양이 규칙이 사는 " +
+                "모양보다 좁다(식 본문 `= expr` 을 놓치던 그 함정)",
+        )
+        assertTrue(
+            bad.isEmpty(),
+            "창을 거두는 자리에서 감싸지 않은 클래스 호출:\n  " + bad.joinToString("\n  ") +
+                "\nIDE 가 나가는 중이면 그 클래스는 못 불려 오고, 터진 dispose 는 그 아래 정리를 " +
+                "통째로 거른다. `runCatching { … }` 으로 감쌀 것.",
+        )
+    }
+
     @Test
     fun `라벨 예외의 근거는 그 파일에 남아 있어야 한다`() {
         val bad = staleAnchors(safeInLabels) { f -> sources.firstOrNull { it.name == f }?.readText() }

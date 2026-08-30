@@ -128,7 +128,7 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
             // 밖에 있는 폴더 수는 **툴팁으로 내렸다**(G14) — 글자는 짧을수록 이 자리에 맞다.
-            return "magi: $what" + (f.permission?.let { " · $it" } ?: "") + turn()
+            return "magi: $what" + (f.permission?.let { " · " + Perms.label(it) } ?: "") + turn()
         }
 
         /**

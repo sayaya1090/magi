@@ -33,6 +33,15 @@ import javax.swing.Timer
  * 순간)은 옛 사실 판이 실측으로 산 그대로다.
  */
 class PlanToolWindow : ToolWindowFactory {
+    /**
+     * 이 프로젝트에 이 창이 해당하나 — 규약이 요구하는 판정이다(UI Guidelines · Tool window:
+     * "don't display the button when the window doesn't apply to the project setup").
+     *
+     * **얕게 본다.** 「데몬이 살아 있나」로 재면 데몬을 나중에 켜는 보통 흐름에서 버튼이
+     * 영영 안 서고, 그러면 켜러 갈 자리도 없다. 워크스페이스가 될 수 있는 자리인가(=경로가
+     * 있나)까지만 묻는다 — 웰컴 화면이나 경로 없는 임시 프로젝트에서만 안 선다.
+     */
+    override fun shouldBeAvailable(project: Project) = project.basePath != null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val workspace = Workspace(project)
@@ -540,7 +549,6 @@ class PlanToolWindow : ToolWindowFactory {
         )
     }
 
-
     /** 토큰 수를 사람 눈금으로. 정수 나눗셈의 "0k" 를 안 만든다(1k 미만은 그대로). */
     private fun k(n: Int): String = if (n >= 1000) "${n / 1000}k" else "$n"
 
@@ -557,9 +565,9 @@ class PlanToolWindow : ToolWindowFactory {
             "idle" -> ""
             else -> r.state?.let { " — $it" }.orEmpty()
         }
-        val load = if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting ?: 0) else ""
+        val load = if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else ""
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
-        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds ?: 0) else ""
+        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds) else ""
         val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
         return JBLabel(name + role + state + load + where + share + seen).apply {
             foreground = when {

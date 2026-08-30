@@ -167,6 +167,28 @@ internal object Look {
         }
     }
 
+    /**
+     * 설명문 라벨 — **폭을 요구하지 않는다.**
+     *
+     * [narrow] 가 드롭다운에서 막은 것과 같은 기전이 라벨에서 무방비였다: 스윙 라벨의 선호
+     * 폭은 글자 전체를 한 줄로 편 길이라, 긴 설명 한 줄이 설정 판을 통째로 벌린다. 폭 상한을
+     * 박는 대신(그건 이 집에서 반려된 손이다) **접히게** 만든다 — 그러면 폭을 정하는 것이
+     * 글자가 아니라 판이 된다.
+     */
+    fun note(text: String, hue: Color = faint): JBLabel = JBLabel().apply {
+        foreground = hue
+        setCopyable(true)
+        setAllowAutoWrapping(true)
+        // **글자는 맨 마지막에.** 접힘을 정하는 것은 플래그가 아니라 `white-space` 한 줄이고,
+        // 그 스타일시트는 `setCopyable`·`setText`·`setFont`·`setForeground` 에서만 다시 써진다 —
+        // `setAllowAutoWrapping` 은 필드 대입뿐이다. 생성자로 글자를 먼저 주면 `nowrap` 이 그대로
+        // 남고, copyable 라벨은 최소폭을 안쪽 에디터페인에 위임하므로 **최소폭이 선호폭과 같아진다**:
+        // 50px 이던 바닥이 1080px 이 되어 판이 그 아래로 못 좁혀진다(리뷰 R1 실측 — 넓어지려는
+        // 증상을 없애러 갔다가 못 좁히게 못박은 셈이었다). 플랫폼의 `ComponentPanelBuilder` 도
+        // `setCopyable → setAllowAutoWrapping → setText` 순서다.
+        setText(text)
+    }
+
     /** 행들이 쌓이는 열. 뷰포트 폭을 따라가야 본문이 접힌다 — 전사에 가로 스크롤은 없다. */
     fun column(): JBPanel<JBPanel<*>> =
         object : JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false)),

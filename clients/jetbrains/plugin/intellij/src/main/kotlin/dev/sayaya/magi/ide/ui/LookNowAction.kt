@@ -14,7 +14,7 @@ import com.intellij.ui.AnimatedIcon
  * 도는 동안 아이콘이 **스피너로 바뀐다** — 「눌렀는데 아무 일도 안 난다」와 「도는 중」이
  * 화면에서 같아 보이면 안 된다(사용자가 "동작중일 때 스피너 전환"으로 짚은 자리).
  */
-class LookNowAction : AnAction() {
+class LookNowAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -26,12 +26,22 @@ class LookNowAction : AnAction() {
         val base = project?.basePath
         val mine = project != null && file != null &&
             base != null && file.path.startsWith(base + "/")
-        e.presentation.isEnabledAndVisible = mine
-        if (!mine) return
-        val busy = LookWhileTyping.isRunning(project!!, file!!)
-        e.presentation.icon = if (busy) AnimatedIcon.Default.INSTANCE else AllIcons.Actions.Preview
-        e.presentation.text = if (busy) MagiBundle.msg("look.busy") else MagiBundle.msg("action.magi.lookNow.text")
+        // **툴바에서는 사라지지 않는다.** 못 쓸 때 숨으면 옆 아이콘들이 그때마다 밀리고,
+        // 메인 툴바는 사람이 직접 배치하는 자리라 배치가 프로젝트 상태에 따라 움직이면 근육
+        // 기억이 안 선다(가이드라인 G12). 회색으로 서 있으면 설명이 툴팁으로 남아 「왜 못
+        // 누르나」에 답할 자리도 생긴다. 우클릭 메뉴는 반대다 — 못 쓸 항목이 남의 메뉴
+        // 바닥에 회색으로 쌓이면 그것대로 소음이라, 거기서는 그대로 숨는다.
+        e.presentation.isVisible = e.isFromActionToolbar || mine
+        e.presentation.isEnabled = mine
+        e.presentation.icon = AllIcons.Actions.Preview
         e.presentation.description = MagiBundle.msg("action.magi.lookNow.description")
+        e.presentation.text = MagiEditorMenu.item(e, "action.magi.lookNow.text")
+        if (!mine) return
+        val busy = LookWhileTyping.isRunning(project, file)
+        if (busy) {
+            e.presentation.icon = AnimatedIcon.Default.INSTANCE
+            e.presentation.text = MagiBundle.msg("look.busy")
+        }
     }
 
     /** 지금 편집기에 열려 있는 파일 — 툴바에서 부를 때의 대상. */

@@ -59,6 +59,15 @@ import javax.swing.text.StyleConstants
  * 소켓 입출력은 전부 풀 스레드에서 돈다. EDT 에서 소켓을 잡으면 데몬이 느린 동안 IDE 가 선다.
  */
 class MagiToolWindow : ToolWindowFactory {
+    /**
+     * 이 프로젝트에 이 창이 해당하나 — 규약이 요구하는 판정이다(UI Guidelines · Tool window:
+     * "don't display the button when the window doesn't apply to the project setup").
+     *
+     * **얕게 본다.** 「데몬이 살아 있나」로 재면 데몬을 나중에 켜는 보통 흐름에서 버튼이
+     * 영영 안 서고, 그러면 켜러 갈 자리도 없다. 워크스페이스가 될 수 있는 자리인가(=경로가
+     * 있나)까지만 묻는다 — 웰컴 화면이나 경로 없는 임시 프로젝트에서만 안 선다.
+     */
+    override fun shouldBeAvailable(project: Project) = project.basePath != null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
@@ -579,8 +588,20 @@ class MagiToolWindow : ToolWindowFactory {
         override fun dispose() {
             // 마크다운 브라우저와 편집 화면 막대는 **주 판**의 것이다 — 고정 탭이 닫힐 때
             // 놓아 버리면 살아 있는 주 판의 것을 죽인다(리뷰 F5, hand/등록과 같은 함정).
+            //
+            // **dispose 는 클래스를 처음 로드하는 자리가 되면 안 된다.** 이 자리는 IDE 가
+            // 나갈 때도 돌고, 그때 우리 플러그인 클래스로더는 이미 닫혀 있을 수 있다 — 이
+            // 세션에서 한 번도 안 쓴 클래스는 그 순간 못 불려 온다. 라이브에서 그대로 났다:
+            //   SEVERE ObjectTree — NoClassDefFoundError: …/RichAnswer
+            //     at MagiToolWindow$View.dispose
+            // 리치 답을 한 번도 안 그린 창(=`RichAnswer` 를 한 번도 안 건드린 창)을 닫으면
+            // 거기서 터졌고, 터진 dispose 는 **그 아래 정리를 통째로 걸렀다** — 스트림도 손도
+            // 안 거둬진다. 못 거두는 것보다 나쁜 것은 못 거두면서 나머지까지 데려가는 것이다.
+            //
+            // `EditMarkers` 쪽만 감싸 있었다. 같은 부재를 옆에서 다르게 적어 두면 안 감싼
+            // 쪽이 터진다 — 두 줄을 같은 모양으로 맞춘다.
             if (pinned == null) {
-                RichAnswer.forget()
+                runCatching { RichAnswer.forget() }
                 runCatching { EditMarkers.release() }
             }
 
@@ -589,7 +610,7 @@ class MagiToolWindow : ToolWindowFactory {
             // 주 판만 거둔다(리뷰 F1·F2): 등록과 손은 주 판의 것이라, 고정 탭의 dispose 가
             // 이것들을 만지면 탭 하나 닫는 행위가 상태 표시줄·계획판·액션 전부와 **주 판의
             // 손**을 부순다 — 데몬에 붙어 있는 mcp 이름은 하나뿐이다.
-            if (pinned == null) MagiWindows.remove(project)
+            if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
             runCatching { following?.close() }
             following = null
@@ -1114,7 +1135,6 @@ class MagiToolWindow : ToolWindowFactory {
             push(problems, "\n    ${d.why}\n", Look.faint)
             problems.caretPosition = problems.document.length
         }
-
 
         /**
          * 판에 글자 한 토막을 얹는다. **여기가 색이 붙는 유일한 자리다.**

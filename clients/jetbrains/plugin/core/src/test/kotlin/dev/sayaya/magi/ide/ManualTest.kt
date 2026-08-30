@@ -51,6 +51,13 @@ class ManualTest {
             hardcoded.containsMatchIn(d.readText()),
             "${d.name} 이 액션 글자를 직접 적는다 — 글자는 번들에서 온다(SDK Action System)",
         )
+        // 확장점의 표시 이름도 같은 규칙이다. 액션 계열만 재던 동안 `projectConfigurable
+        // displayName=` 을 되박아도 가드는 초록이었고, 그 셋이 하필 이 규칙으로 옮긴 자리였다
+        // (리뷰 R8). 표시 이름을 받는 확장점은 전부 `bundle`+`key` 를 받는다.
+        for (d in descriptors) assertFalse(
+            Regex("""\sdisplayName\s*=\s*["']""").containsMatchIn(d.readText()),
+            "${d.name} 이 확장점 표시 이름을 직접 적는다 — `bundle`+`key` 로 번들에서 가져올 것",
+        )
         val all = descriptors.joinToString("\n") { it.readText() }
         val ids = Regex("""<action id="([^"]+)"""").findAll(all).map { it.groupValues[1] }.toList()
         assertTrue(ids.size >= 5, "디스크립터에서 액션이 ${ids.size}개뿐이다 — 유도가 깨졌다")

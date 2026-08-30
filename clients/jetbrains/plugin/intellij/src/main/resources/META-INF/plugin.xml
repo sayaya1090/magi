@@ -98,12 +98,14 @@
             title bar, and anything without a daemon door drawn read-only with the reason.
             Values live in the daemon, never in a PersistentStateComponent (§5.1).
         -->
-        <projectConfigurable parentId="tools" id="magi.settings" displayName="magi"
+        <projectConfigurable parentId="tools" id="magi.settings"
+                             bundle="messages.MagiBundle" key="configurable.magi"
                              instance="dev.sayaya.magi.ide.ui.MagiConfigurable"/>
 
         <!-- Failure balloons for the in-place entry points (commit draft, console ask): a failure
              must never be written into the field it was meant to fill. -->
-        <notificationGroup id="magi" displayType="BALLOON"/>
+        <notificationGroup id="magi" displayType="BALLOON"
+                           bundle="messages.MagiBundle" key="notification.group.magi"/>
 
         <!-- 타이핑 중 훑어보기가 할 말이 있을 때만 서는 띠 — IDE 가 원래 이런 말을 세우는
              자리다. 할 말이 없으면 아무것도 안 선다(침묵이 이 기능의 절반). -->
@@ -118,7 +120,8 @@
         <intentionAction>
             <language/>
             <className>dev.sayaya.magi.ide.ui.AskAboutCodeIntention</className>
-            <category>magi</category>
+            <bundleName>messages.MagiBundle</bundleName>
+            <categoryKey>intention.category.magi</categoryKey>
         </intentionAction>
     </extensions>
 
@@ -143,43 +146,41 @@
                  터미널을 끈 IDE 에서 「그룹 없음」 에러가 난다(리뷰 F9). -->
         </action>
         <!--
-            In the editor's context menu rather than a toolbar button: it acts on the file you are
-            looking at, and that is where the IDE puts things that act on the file you are looking
-            at. No keyboard shortcut is claimed — every free chord in this IDE belongs to somebody's
-            muscle memory, and a plugin taking one is a plugin picking a fight.
+            편집기 우클릭 메뉴에는 **하위 메뉴 하나**로 붙는다. 넷을 평평하게 깔던 동안
+            남의 메뉴 바닥이 우리 것으로 넷 줄 늘었고, 항목마다 `magi: ` 접두를 달아야 했다
+            (가이드라인 검토 G10). 이웃들도 하위 메뉴 하나다.
+            그룹 글자는 여기 안 적는다 — 액션과 같은 사유로 MagiEditorMenu.update 가 못박는다.
         -->
-        <action id="magi.lookOver" class="dev.sayaya.magi.ide.ui.LookOverAction">
+        <group id="magi.editorMenu" popup="true" class="dev.sayaya.magi.ide.ui.MagiEditorMenu">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-        </action>
+            <!--
+                파일을 보며 손이 이미 가 있는 자리. 단축키는 어느 것도 선점하지 않는다 —
+                이 IDE 의 빈 화음은 전부 누군가의 근육 기억이고, 플러그인이 하나 가져가는 것은
+                플러그인이 싸움을 거는 것이다.
+            -->
+            <action id="magi.lookOver" class="dev.sayaya.magi.ide.ui.LookOverAction"/>
+            <!--
+                **참조**로 붙인다(경로:줄범위), 붙여넣은 글자가 아니라: 발췌는 보낼 때 코어가
+                **디스크에서** 렌더·영속한다(docs/CLIENTS §2) — 그래서 이 액션은 붙이며
+                저장한다. 버퍼와 디스크가 갈리면 "에이전트가 본 것"으로 틀린 글자가 남는다.
+            -->
+            <action id="magi.attach" class="dev.sayaya.magi.ide.ui.AttachToChatAction"/>
+            <action id="magi.lookNow" class="dev.sayaya.magi.ide.ui.LookNowAction"/>
+            <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction"/>
+        </group>
         <!--
-            Same place as look-over, and for the same reason: it acts on the line you are looking at.
-            No shortcut claimed — every free chord belongs to somebody's muscle memory.
+            같은 액션의 **다른 자리들**. 프로젝트 뷰의 첨부는 파일을 고르는 자리이고(줄이 없다),
+            툴바의 「지금 검토」는 늘 보이는 자리다 — 자리마다 글자가 다르다는 것은 규약이고,
+            그 갈래는 각 액션의 update 가 e.place 로 판정한다.
         -->
-        <!--
-            Attach as REFERENCE (path:lines), not as pasted text: the excerpt is rendered and
-            persisted by the core at send time (docs/CLIENTS §2) — from DISK, which is why the
-            action saves the document as it attaches; the buffer/disk gap was measured to persist
-            the wrong text as "what the agent saw".
-            One action, two menus: the editor attaches the selection, the project view the files.
-        -->
-        <action id="magi.attach" class="dev.sayaya.magi.ide.ui.AttachToChatAction">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        <group id="magi.otherPlaces">
+            <reference ref="magi.attach"/>
             <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
-        </action>
-        <!--
-            지금 훑어보기 — **메인 툴바 오른쪽**이다(사용자 교정: 처음엔 선택해야만 뜨는
-            플로팅 막대에 뒀는데, 파일을 보다 부르는 단추가 글자를 먼저 선택해야 나타나는
-            것은 앞뒤가 바뀐 자리였다). 오른쪽 끝은 IDE 가 어시스턴트류 아이콘을 두는 자리라
-            늘 보이고, 지금 편집기가 없으면 스스로 숨는다. 우클릭 메뉴에도 남긴다 — 그쪽은
-            파일을 보며 손이 이미 가 있는 자리다.
-        -->
-        <action id="magi.lookNow" class="dev.sayaya.magi.ide.ui.LookNowAction">
+        </group>
+        <group id="magi.toolbarPlaces">
+            <reference ref="magi.lookNow"/>
             <add-to-group group-id="MainToolbarRight" anchor="first"/>
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-        </action>
-        <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction">
-            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
-        </action>
+        </group>
     </actions>
 
     <projectListeners>

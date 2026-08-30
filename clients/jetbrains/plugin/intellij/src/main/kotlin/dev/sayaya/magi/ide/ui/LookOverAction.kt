@@ -24,7 +24,7 @@ import javax.swing.SwingUtilities
  * 결과는 하단 독의 **둘째 탭**으로 간다. 풍선 알림에 넣지 않는 이유는 이것이 여러 문단짜리 글이고,
  * 읽는 중에 사라지면 다시 부르는 수밖에 없어서다.
  */
-class LookOverAction : AnAction() {
+class LookOverAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
@@ -33,7 +33,7 @@ class LookOverAction : AnAction() {
         // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
         // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
         // 정하므로, 한 규칙으로 통일한다.
-        e.presentation.text = MagiBundle.msg("action.magi.lookOver.text")
+        e.presentation.text = MagiEditorMenu.item(e, "action.magi.lookOver.text")
         e.presentation.description = MagiBundle.msg("action.magi.lookOver.description")
         e.presentation.isEnabledAndVisible =
             e.project != null && e.getData(CommonDataKeys.EDITOR) != null && e.getData(CommonDataKeys.VIRTUAL_FILE) != null

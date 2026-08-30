@@ -45,7 +45,16 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private val perm = JBLabel(" ")
     private val sessionL = JBLabel(" ").apply { font = Look.mono() }
     private val outside = JBLabel(" ").apply { foreground = Look.warn }
-    private val permission = JComboBox(arrayOf("ask", "auto", "allow", "deny"))
+    /**
+     * 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — [apply] 가 데몬에 보내는 값이
+     * 프로토콜의 것이어야 하므로, 화면을 위해 모델을 바꾸면 그게 그대로 전선에 나간다.
+     */
+    private val permission = JComboBox(Perms.TOKENS.toTypedArray()).apply {
+        // 플랫폼 렌더러를 쓴다 — 순수 스윙 라벨은 IDE 리스트의 선택색·여백을 안 따른다.
+        renderer = com.intellij.ui.SimpleListCellRenderer.create<String> { label, value, _ ->
+            label.text = Perms.label(value)
+        }
+    }
     /**
      * 타이핑 중 훑어보기 — **이 화면의 취향**이라 데몬이 아니라 프로젝트 로컬에 산다(웹도
      * 브라우저-로컬로 둔다). §5.1 의 「값은 데몬에」는 컴패니언의 설정 이야기다.
@@ -62,7 +71,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
     /** 마지막으로 데몬에서 읽은 값. [isModified] 는 화면과 이것을 견준다 — IDE 저장분이 아니다. */
     private var read: String? = null
 
-    override fun getDisplayName() = "magi"
+    // 이름의 원천은 **번들 하나**다 — plugin.xml 의 `key=` 와 여기가 같은 열쇠를 본다.
+    // 두 벌로 적어 두면 한쪽만 고치는 날이 온다.
+    override fun getDisplayName() = MagiBundle.msg("configurable.magi")
 
     override fun createComponent(): JComponent {
         val p = JBPanel<JBPanel<*>>(GridBagLayout()).apply { border = JBUI.Borders.empty(8, 12) }
@@ -84,9 +95,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
             })
             y++
         }
+        // 설명문은 **접히는 라벨**이다. 한 줄로 펴는 라벨은 제 글자 길이만큼 폭을 요구하고,
+        // 그 요구가 설정 판 전체를 벌린다 — 드롭다운에서 이미 겪은 그 기전이다(가이드라인 G9).
         fun note(text: String) {
-            p.add(JBLabel("<html><i>${Markup.text(text)}</i></html>").apply { foreground = Look.faint }, GridBagConstraints().apply {
-                gridx = 1; gridy = y; anchor = GridBagConstraints.LINE_START; insets = Insets(0, 0, 8, 0)
+            p.add(Look.note("<html><i>${Markup.text(text)}</i></html>"), GridBagConstraints().apply {
+                gridx = 1; gridy = y; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL
+                anchor = GridBagConstraints.LINE_START; insets = Insets(0, 0, 8, 0)
             })
             y++
         }
@@ -110,9 +124,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
         // 문이 없는 것은 **없다고 적는다** — 웹에는 있는데 여기 없는 칸을 사람이 찾다 지친다.
         // 항목을 하나씩 나열하지 않는다: 모델을 정하는 자리가 여럿이고(사용자 지적), 새 키가
         // 늘 때마다 이 화면이 조각조각 늘어난다. 한 줄로 「어디에 있고 왜 여기선 못 고치는지」.
-        row(MagiBundle.msg("set.byfile"), JBLabel(MagiBundle.msg("set.byfile.what")))
-        row(MagiBundle.msg("set.cron"), JBLabel(MagiBundle.msg("set.cron.none")))
-        row(MagiBundle.msg("set.more"), JBLabel(MagiBundle.msg("set.more.none")))
+        row(MagiBundle.msg("set.byfile"), Look.note(MagiBundle.msg("set.byfile.what"), Look.body))
+        row(MagiBundle.msg("set.cron"), Look.note(MagiBundle.msg("set.cron.none"), Look.body))
+        row(MagiBundle.msg("set.more"), Look.note(MagiBundle.msg("set.more.none"), Look.body))
         // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
         // (사용자가 세운 빈도 기준, docs/UI.ko.md §4.2).
         p.add(said, GridBagConstraints().apply {
@@ -194,7 +208,15 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 is Activity.Doing -> a.what
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
-            perm.text = f.permission ?: MagiBundle.msg("set.notsaid")
+            perm.text = Perms.label(f.permission)
+            // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히
+            // 거부하고 첫 항목(`ask`)으로 되돌린다 — 그러면 사람이 아무것도 안 만졌는데
+            // `isModified` 가 참이 되고 OK 가 `set-permission ask` 를 보낸다(리뷰 R6).
+            // `Perms` 가 「모르는 것은 날것으로」라고 적어 두었으니, 설 자리를 만들어 준다.
+            f.permission?.takeIf { it !in Perms.TOKENS }?.let { unknown ->
+                val model = permission.model as javax.swing.DefaultComboBoxModel<String>
+                if (model.getIndexOf(unknown) < 0) model.addElement(unknown)
+            }
             lookTyping.isSelected = LocalPrefs.look(project)
             autoComplete.isSelected = LocalPrefs.complete(project)
             composerSuggest.isSelected = LocalPrefs.suggest(project)
