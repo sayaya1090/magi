@@ -107,6 +107,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
         note(MagiBundle.msg("set.model.why"))
         row(MagiBundle.msg("set.backend"), backend)
         note(MagiBundle.msg("set.backend.why"))
+        // 문이 없는 것은 **없다고 적는다** — 웹에는 있는데 여기 없는 칸을 사람이 찾다 지친다.
+        // 항목을 하나씩 나열하지 않는다: 모델을 정하는 자리가 여럿이고(사용자 지적), 새 키가
+        // 늘 때마다 이 화면이 조각조각 늘어난다. 한 줄로 「어디에 있고 왜 여기선 못 고치는지」.
+        row(MagiBundle.msg("set.byfile"), JBLabel(MagiBundle.msg("set.byfile.what")))
         row(MagiBundle.msg("set.cron"), JBLabel(MagiBundle.msg("set.cron.none")))
         row(MagiBundle.msg("set.more"), JBLabel(MagiBundle.msg("set.more.none")))
         // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
