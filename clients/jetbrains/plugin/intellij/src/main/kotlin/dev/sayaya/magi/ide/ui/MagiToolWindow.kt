@@ -31,6 +31,7 @@ import dev.sayaya.magi.ide.usecase.Hand
 import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Row
+import dev.sayaya.magi.ide.usecase.RowText
 import dev.sayaya.magi.ide.usecase.Rows
 import dev.sayaya.magi.ide.usecase.Who
 import dev.sayaya.magi.ide.usecase.Transcript
@@ -267,7 +268,6 @@ class MagiToolWindow : ToolWindowFactory {
 
         /** 펼쳐 둔 행들. 행 판은 리드로우마다 다시 서므로 상태는 밖에 산다. */
         private val opened = java.util.Collections.synchronizedSet(mutableSetOf<String>())
-        private fun foldKey(r: Row) = "${r.msgId}:${r.who}:${r.callId}:${r.text.hashCode()}"
 
         /**
          * 그릴 일이 밀려 있는가. 워커가 프레임 백 개를 밀어도 EDT 에는 스냅샷 한 번이다.
@@ -811,8 +811,6 @@ class MagiToolWindow : ToolWindowFactory {
          * 울었다), 빈 문자열이 오는 이벤트들이 **한 열쇠를 공유해** 한 브라우저가 남의 답을
          * 그릴 자리였다(리뷰 F4).
          */
-        private fun richKey(r: Row): String =
-            r.msgId.takeIf { it.isNotBlank() } ?: r.at.orEmpty()
 
         /**
          * 흐르는 동안의 다시 그리기 — 120ms 에 한 번으로 묶되 **꼬리를 남긴다.** 그냥 버리면
@@ -844,7 +842,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 갈아엎는다(리뷰 F5 — 같은 함정을 hand/등록에서 이미 한 번 겪었다).
                 if (pinned == null) RichAnswer.keepOnly(
                     rows0.filter { it.who == Who.Agent && RichAnswer.needsRich(it.text) }
-                        .takeLast(RichAnswer.KEEP).map { richKey(it) },
+                        .takeLast(RichAnswer.KEEP).map { RowText.richKey(it) },
                 )
                 // 바닥 고정은 **바닥에 있던 사람에게만**. 무조건 고정이던 동안, 턴이 도는 중에
                 // 위로 스크롤해 과거를 읽으면 새 이벤트마다 바닥으로 낚아채였다(라이브 실측 —
@@ -888,14 +886,14 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                     val name = if (r.who == Who.User) MagiBundle.msg("chat.who.you") else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
-                    p.add(Look.rowHead(name, hue, marks, clock(r.at)), BorderLayout.NORTH)
+                    p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at)), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
                         // 답은 마크다운으로 온다 — **누르지 않아도** 그려진다(사용자 교정:
                         // 「일일이 눌러야 하면 불편해서 쓰겠나」). 펜스·표·링크처럼 부분집합
                         // 렌더가 틀리게 그리는 답만 IDE 마크다운 엔진(머메이드 포함)으로,
                         // 나머지는 가벼운 부분집합 렌더로 — 브라우저 하나가 프로세스 하나다.
                         val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
-                            RichAnswer.panel(project, r.text, richKey(r), this@View)
+                            RichAnswer.panel(project, r.text, RowText.richKey(r), this@View)
                         } else null
                         // 흐르는 중인 줄은 그렇게 보인다 — 반쪽 답이 다 쓰인 답과 똑같이
                         // 생기면 사람이 잘린 글을 완성된 글로 읽는다(리뷰 F11).
@@ -907,7 +905,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 생각은 기본 접힘 — 웹이 그렇다. 클릭이 펴고, 펼침은 리드로우를 살아남는다([opened]).
                 Who.Thinking -> {
                     val long = r.text.contains('\n') || r.text.length > 120
-                    val open = foldKey(r) in opened
+                    val open = RowText.foldKey(r) in opened
                     if (open) {
                         p.add(Look.aside(MagiBundle.msg("chat.think") + " ⌃"), BorderLayout.NORTH)
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
@@ -924,9 +922,9 @@ class MagiToolWindow : ToolWindowFactory {
                         r.ok == true -> "✓" to Look.success
                         else -> "✗" to Look.error
                     }
-                    val open = foldKey(r) in opened
+                    val open = RowText.foldKey(r) in opened
                     p.add(Look.toolHead(r.tool.orEmpty(), glyph, hue,
-                        if (open) "⌃" else oneLine(r.args.orEmpty(), 100) + "  ⌄", clock(r.at)),
+                        if (open) "⌃" else RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄", RowText.clock(r.at)),
                         BorderLayout.NORTH)
                     if (open) {
                         // 펼침: 인자 원문과 결과 원문 — 옮겨 적을 것이라 고정폭이다.
@@ -937,7 +935,7 @@ class MagiToolWindow : ToolWindowFactory {
                             r.out?.let { add(Look.code(it, Look.error)) }
                             // 지나간 편집도 같은 규칙으로 나란히-보기 — 인자의 old/new 원문 두 면,
                             // 앵커·replaceAll 은 제외(승인 diff 와 같은 「인자가 전체 진실」 집합).
-                            toolDiffSides(r)?.let { (path2, old2, new2) ->
+                            RowText.diffSides(r)?.let { (path2, old2, new2) ->
                                 add(JButton(MagiBundle.msg("chat.diff.view")).apply {
                                     addActionListener {
                                         val f = com.intellij.diff.DiffContentFactory.getInstance()
@@ -971,7 +969,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.
                         if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
-                    p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, clock(r.at)),
+                    p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at)),
                         BorderLayout.NORTH)
                     val body = JBPanel<JBPanel<*>>().apply {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
@@ -998,7 +996,7 @@ class MagiToolWindow : ToolWindowFactory {
         private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
             val flip = object : java.awt.event.MouseAdapter() {
                 override fun mouseClicked(e: java.awt.event.MouseEvent) {
-                    val k = foldKey(r)
+                    val k = RowText.foldKey(r)
                     if (!opened.remove(k)) opened.add(k)
                     redrawLog()
                 }
@@ -1023,7 +1021,7 @@ class MagiToolWindow : ToolWindowFactory {
                         e.keyCode != java.awt.event.KeyEvent.VK_ENTER
                     ) return
                     e.consume()
-                    val k = foldKey(r)
+                    val k = RowText.foldKey(r)
                     if (!opened.remove(k)) opened.add(k)
                     redrawLog()
                 }
@@ -1044,10 +1042,6 @@ class MagiToolWindow : ToolWindowFactory {
          * 위임한다. 여기 남는 것 하나: **적용된 행만**(ok==true) — ✗ 행에 「이전/이후」를 세우면
          * 일어나지 않은 이후를 주장한다(승인 제목을 "물음 시점/제안"으로 바꾼 그 사유).
          */
-        private fun toolDiffSides(r: Row): Triple<String, String, String>? {
-            if (r.ok != true) return null
-            return Rows.EditSides.of(r.tool, r.args)
-        }
 
         /** 물음 id → 이미 연 가상 파일. 클릭마다 새 인스턴스면 같은 이름의 탭이 쌓인다(리뷰). */
         private val diffTabs = java.util.concurrent.ConcurrentHashMap<String, com.intellij.testFramework.LightVirtualFile>()
@@ -1091,18 +1085,7 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /** 이벤트 ts 를 이 자리의 시각으로. 못 읽으면 빈칸 — 지어내지 않는다. */
-        private fun clock(at: String?): String = at?.let {
-            runCatching {
-                java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())
-                    .toLocalTime().withNano(0).toString()
-            }.getOrNull()
-        }.orEmpty()
 
-        /** 한 줄로 줄인다. 인자가 길면 전사가 그 인자만으로 화면을 다 먹는다. */
-        private fun oneLine(s: String, max: Int): String {
-            val one = s.lineSequence().joinToString(" ")
-            return if (one.length <= max) one else one.take(max) + "…"
-        }
 
         /**
          * 한 건을 적는다. **언제·어느 호출인지가 같이 간다** — 낡은 문제 목록은 없느니만 못하다는

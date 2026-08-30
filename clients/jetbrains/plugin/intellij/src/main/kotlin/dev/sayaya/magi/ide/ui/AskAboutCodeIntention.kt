@@ -43,21 +43,9 @@ class AskAboutCodeIntention : IntentionAction {
             window?.show() // 창이 서면 다음 Alt+Enter 가 통한다 — 허공에 참조를 쌓지 않는다
             return
         }
-        com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveDocument(editor.document)
-        val doc = editor.document
-        val sels = editor.caretModel.allCarets.filter { it.hasSelection() }
-        if (sels.isEmpty()) {
-            // 선택이 없으면 캐럿이 선 줄들 — 이웃과 같은 규칙: 캐럿마다 하나(attach 가 중복을 막는다).
-            editor.caretModel.allCarets.forEach { c ->
-                view.attach(FileRef(path, "${doc.getLineNumber(c.offset) + 1}"))
-            }
-        } else sels.forEach { c ->
-            val from = doc.getLineNumber(c.selectionStart) + 1
-            val endOff = (c.selectionEnd - 1).coerceAtLeast(c.selectionStart)
-            val to = doc.getLineNumber(endOff) + 1
-            // 한 줄이면 "5" — 이웃 액션과 같은 표기라야 같은 줄의 칩이 중복으로 안 선다.
-            view.attach(FileRef(path, if (from == to) "$from" else "$from-$to"))
-        }
+        // 고른 것이 없으면 **캐럿이 선 줄**이다 — 「이 코드」가 가리키는 것은 지금 그 줄이지
+        // 파일 전체가 아니다(우클릭 쪽은 반대로 고른다 — [Attach.WhenBare] 가 그 갈림을 적는다).
+        Attach.refs(editor, path, Attach.WhenBare.CaretLines).forEach(view::attach)
         // activate 의 콜백에서 채운다 — show 의 비동기 완료 전에 포커스를 청하면 안 앉는다(리뷰).
         val start = MagiBundle.msg("chat.prefill.code")
         window?.activate({ view.prefill(start) }, true) ?: view.prefill(start)

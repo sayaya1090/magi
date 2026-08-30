@@ -42,14 +42,7 @@ internal class AttachIntention : MagiIntention() {
         val path = file?.virtualFile?.path ?: return
         val view = MagiWindows.of(project)
             ?: return run { ToolWindowManager.getInstance(project).getToolWindow("magi")?.show() }
-        // 발췌는 코어가 **디스크에서** 읽는다 — 붙이기 전에 저장한다(그 교훈은 이웃이 이미 샀다).
-        FileDocumentManager.getInstance().saveDocument(editor.document)
-        val doc = editor.document
-        editor.caretModel.allCarets.filter { it.hasSelection() }.forEach { c ->
-            val from = doc.getLineNumber(c.selectionStart) + 1
-            val to = doc.getLineNumber((c.selectionEnd - 1).coerceAtLeast(c.selectionStart)) + 1
-            view.attach(FileRef(path, if (from == to) "$from" else "$from-$to"))
-        }
+        Attach.refs(editor, path, Attach.WhenBare.Nothing).forEach(view::attach)
         ToolWindowManager.getInstance(project).getToolWindow("magi")?.show()
     }
 }

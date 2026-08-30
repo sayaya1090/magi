@@ -42,22 +42,9 @@ class AttachToChatAction : AnAction(), com.intellij.openapi.project.DumbAware {
         val out = mutableListOf<FileRef>()
         if (editor != null) {
             val path = e.getData(CommonDataKeys.VIRTUAL_FILE)?.path ?: return
-            // 발췌는 코어가 **디스크**에서 읽는다(`internal/app/refs.go` 의 `renderRef`). 버퍼로
-            // 센 줄번호가 저장 안 한 디스크와 갈리면 다른 텍스트가 "에이전트가 본 것"으로
-            // 영속된다(리뷰 실측) — 붙이는 순간 저장해 그 창을 닫는다.
-            com.intellij.openapi.fileEditor.FileDocumentManager.getInstance().saveDocument(editor.document)
-            val doc = editor.document
-            // 캐럿마다 하나 — 멀티캐럿 선택의 나머지가 소리 없이 빠지면 "사라지는 첨부 없음"이
-            // 클라이언트에서 깨진다. 줄은 에디터 셈법(1-기준 포함), 계약의 낱말 그대로(FileRef.Lines).
-            val sels = editor.caretModel.allCarets.filter { it.hasSelection() }
-            if (sels.isEmpty()) out += FileRef(path)
-            else sels.forEach { c ->
-                val from = doc.getLineNumber(c.selectionStart) + 1
-                // 선택 끝이 줄머리에 걸치면 그 줄은 실제로 안 골라진 것이다.
-                val endOff = (c.selectionEnd - 1).coerceAtLeast(c.selectionStart)
-                val to = doc.getLineNumber(endOff) + 1
-                out += FileRef(path, if (from == to) "$from" else "$from-$to")
-            }
+            // 뜨는 규칙은 한 자리에 있다([Attach]) — 저장·멀티캐럿·줄 표기가 세 곳에 흩어져
+            // 있었고, 그중 하나만 고치는 날이 오게 두지 않는다.
+            out += Attach.refs(editor, path, Attach.WhenBare.WholeFile)
         } else {
             e.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.forEach { vf -> out += FileRef(vf.path) }
         }
