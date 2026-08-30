@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -20,6 +21,36 @@ import (
 // admitting two different keys on a one-use invitation. The TLS server handles joins concurrently
 // (a goroutine per request), so this race is reachable; the mutex makes "one use" hold.
 var redeemMu sync.Mutex
+
+// withTokenLock serializes the invitations file across PROCESSES, which redeemMu cannot: the
+// mutex lives in one process, and the two writers are usually two — `magi --invite` mints from a
+// terminal while the daemon serves joins. Measured before this existed: a mint landing between
+// Redeem's read and its rewrite was erased, 4 times in 60 races, and the invitation it printed
+// could never be used (the token is not recoverable, and the caller is told only "that invitation
+// is not open"). Same shape as the config writer's lock, for the same reason.
+func withTokenLock(configDir string, fn func() error) error {
+	lock := filepath.Join(configDir, TokenFile+".lock")
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		f, err := os.OpenFile(lock, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			defer os.Remove(lock)
+			return fn()
+		}
+		if !os.IsExist(err) {
+			return fn() // the lock cannot be made for an unrelated reason: do the work anyway
+		}
+		if time.Now().After(deadline) {
+			if fi, e := os.Stat(lock); e == nil && time.Since(fi.ModTime()) > 15*time.Second {
+				os.Remove(lock) // a writer that crashed holding it
+				continue
+			}
+			return fn()
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 // TokenFile holds the invitations this machine has open.
 //
@@ -61,15 +92,21 @@ func Mint(configDir, label string) (string, error) {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return "", err
 	}
-	f, err := os.OpenFile(filepath.Join(configDir, TokenFile),
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
 	line := fmt.Sprintf("%s %s %d\n", hashToken(token), orWord(label, "unnamed"),
 		time.Now().Add(tokenLife).Unix())
-	if _, err := f.WriteString(line); err != nil {
+	// Under the same lock a redeem takes, or the append lands inside a rewrite and is lost.
+	redeemMu.Lock()
+	defer redeemMu.Unlock()
+	if err := withTokenLock(configDir, func() error {
+		f, ferr := os.OpenFile(filepath.Join(configDir, TokenFile),
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if ferr != nil {
+			return ferr
+		}
+		defer f.Close()
+		_, werr := f.WriteString(line)
+		return werr
+	}); err != nil {
 		return "", err
 	}
 	return token, nil
@@ -79,9 +116,21 @@ func Mint(configDir, label string) (string, error) {
 //
 // One use. An invitation that stayed valid after being taken would be a password with a
 // fifteen-minute life rather than an introduction, and the difference matters on a shared terminal.
-func Redeem(configDir, token string) (label string, ok bool) {
+func Redeem(configDir, token string) (label string, ok bool, err error) {
 	redeemMu.Lock()
 	defer redeemMu.Unlock()
+	lerr := withTokenLock(configDir, func() error {
+		label, ok, err = redeemLocked(configDir, token)
+		return nil
+	})
+	if lerr != nil && err == nil {
+		err = lerr
+	}
+	return label, ok, err
+}
+
+// redeemLocked is Redeem's body, with the file held.
+func redeemLocked(configDir, token string) (label string, ok bool, err error) {
 	want := hashToken(token)
 	lines := tokenLines(configDir)
 	var kept []string
@@ -99,12 +148,15 @@ func Redeem(configDir, token string) (label string, ok bool) {
 		}
 	}
 	if !ok {
-		return "", false
+		return "", false, nil
 	}
-	if err := writeTokens(configDir, kept); err != nil {
-		return "", false
+	// A write that fails is not "your invitation is not open". Reported as itself so the operator
+	// sees a full disk or a read-only config directory; the CALLER still says one sentence for
+	// every refusal, so the door stays as quiet an oracle as it was.
+	if werr := writeTokens(configDir, kept); werr != nil {
+		return "", false, fmt.Errorf("the invitation could not be spent: %w", werr)
 	}
-	return label, true
+	return label, true, nil
 }
 
 // Inviting reports whether any invitation is still open, which is the only time an unadmitted
@@ -162,5 +214,7 @@ func writeTokens(configDir string, lines []string) error {
 		}
 		return nil
 	}
-	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	// Atomic, because a crash mid-write leaves a truncated file — and this file IS the window an
+	// unadmitted party may knock at, so half of it is not a state anything should ever read.
+	return atomicfile.Write(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }

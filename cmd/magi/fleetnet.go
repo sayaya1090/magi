@@ -242,7 +242,12 @@ func fleetJoinHandle(w http.ResponseWriter, r *http.Request, configDir string, i
 		answerFleet(w, daemon.Response{Err: "a join needs an invitation"})
 		return
 	}
-	label, ok := identity.Redeem(configDir, ask.Token)
+	label, ok, rerr := identity.Redeem(configDir, ask.Token)
+	if rerr != nil {
+		// Said HERE and not to the caller: a disk that could not spend a valid invitation is the
+		// operator's problem, and telling the caller would say which of the three refusals it was.
+		log.Printf("magi: an invitation could not be spent: %v", rerr)
+	}
 	if !ok {
 		// One sentence for wrong, spent and expired alike: which of the three it was is not the
 		// caller's business, and saying would turn this into an oracle.

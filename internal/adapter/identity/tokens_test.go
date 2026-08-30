@@ -26,7 +26,7 @@ func TestAnInvitationSurvivesExactlyOneOfManyConcurrentRedeems(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, ok := Redeem(dir, tok); ok {
+			if _, ok, _ := Redeem(dir, tok); ok {
 				success.Add(1)
 			}
 		}()
@@ -59,10 +59,10 @@ func TestAnInvitationIsSpentOnce(t *testing.T) {
 	if strings.Contains(string(raw), tok) {
 		t.Error("the invitation itself is written down")
 	}
-	if label, ok := Redeem(dir, tok); !ok || label != "lee" {
+	if label, ok, _ := Redeem(dir, tok); !ok || label != "lee" {
 		t.Fatalf("redeem: %q %v", label, ok)
 	}
-	if _, ok := Redeem(dir, tok); ok {
+	if _, ok, _ := Redeem(dir, tok); ok {
 		t.Error("the same invitation was taken twice")
 	}
 	if Inviting(dir) {
@@ -73,7 +73,7 @@ func TestAnInvitationIsSpentOnce(t *testing.T) {
 // A stale invitation is not one, and neither is a wrong secret.
 func TestAnExpiredOrWrongInvitationIsRefused(t *testing.T) {
 	dir := t.TempDir()
-	if _, ok := Redeem(dir, "nothing-was-minted"); ok {
+	if _, ok, _ := Redeem(dir, "nothing-was-minted"); ok {
 		t.Error("a token nobody minted was accepted")
 	}
 	if err := os.WriteFile(filepath.Join(dir, TokenFile),
@@ -83,7 +83,53 @@ func TestAnExpiredOrWrongInvitationIsRefused(t *testing.T) {
 	if Inviting(dir) {
 		t.Error("an expired invitation holds the window open")
 	}
-	if _, ok := Redeem(dir, "old"); ok {
+	if _, ok, _ := Redeem(dir, "old"); ok {
 		t.Error("an expired invitation was taken")
+	}
+}
+
+// An invitation minted while somebody else is joining survives. Redeem rewrites the whole file;
+// Mint appends to it — and the mint used to sit outside the lock the redeem takes, so a token a
+// person had just been handed could be erased before they could use it (measured: 4 in 60).
+func TestAnInvitationMintedDuringAJoinIsNotLost(t *testing.T) {
+	for i := 0; i < 40; i++ {
+		dir := t.TempDir()
+		old, err := Mint(dir, "first")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var wg sync.WaitGroup
+		var fresh string
+		var merr error
+		wg.Add(2)
+		go func() { defer wg.Done(); Redeem(dir, old) }()
+		go func() { defer wg.Done(); fresh, merr = Mint(dir, "second") }()
+		wg.Wait()
+		if merr != nil {
+			t.Fatal(merr)
+		}
+		if _, ok, _ := Redeem(dir, fresh); !ok {
+			t.Fatalf("round %d: an invitation minted during a join was lost", i)
+		}
+	}
+}
+
+// A file that cannot be written says so, instead of reporting the invitation as never open.
+func TestAnUnspendableInvitationReportsWhy(t *testing.T) {
+	dir := t.TempDir()
+	tok, err := Mint(dir, "lee")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cerr := os.Chmod(dir, 0o500); cerr != nil { // readable, not writable
+		t.Skip("cannot make the directory read-only here")
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	label, ok, rerr := Redeem(dir, tok)
+	if ok || label != "" {
+		t.Fatalf("a token that could not be spent must not admit anybody: %q %v", label, ok)
+	}
+	if rerr == nil {
+		t.Fatal("the write failure was reported as an ordinary refusal")
 	}
 }

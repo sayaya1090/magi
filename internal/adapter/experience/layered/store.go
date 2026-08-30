@@ -9,6 +9,7 @@ package layered
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -213,7 +214,9 @@ func (s *Store) Propose(ctx context.Context, c port.Contribution) error {
 			return t.Propose(ctx, c)
 		}
 	}
-	return nil // no tier configured: silently drop rather than error
+	// Nowhere to put it is not "saved". Answered as a failure so the caller — the tool that told
+	// the model its note was written down — says what actually happened.
+	return fmt.Errorf("nothing was recorded: this workspace has no experience store configured")
 }
 
 // WikiSearch implements port.WikiStore across the tiers, each page tagged with its tier — under
