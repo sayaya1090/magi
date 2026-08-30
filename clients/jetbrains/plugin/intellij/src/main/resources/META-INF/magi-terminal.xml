@@ -1,0 +1,12 @@
+<idea-plugin>
+    <actions>
+        <!-- 새 터미널 엔진의 두 팝업. 그룹 id 는 번들 terminal 플러그인의 plugin.xml 에서
+             찾은 것이지 짐작이 아니다. -->
+        <action id="magi.askTerminal" class="dev.sayaya.magi.ide.ui.AskConsoleAction"
+                text="magi: 이 출력 물어보기"
+                description="선택한 터미널 출력을 컴패니언에게 보내 설명과 고칠 길을 묻는다">
+            <add-to-group group-id="Terminal.OutputContextMenu" anchor="last"/>
+            <add-to-group group-id="Terminal.ReworkedTerminalContextMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

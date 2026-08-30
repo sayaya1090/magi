@@ -328,7 +328,15 @@ class MagiToolWindow : ToolWindowFactory {
                     // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
                     // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
                     // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
-                    if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
+                    // 조각(part.delta)은 **행을 새로 쌓지 않고** 같은 줄을 고쳐 쓴다 —
+                    // 셰이퍼가 초안 행으로 받고, 사실이 오면 그 자리에서 사실로 덮인다.
+                    // echoesFact 는 여전히 「조각은 사실의 메아리」라 말하지만, 그 말은
+                    // **새 줄을 주지 말라**는 뜻이지 그리지 말라는 뜻이 아니다(§8 타자기).
+                    // 그리는 삯은 다르다: 토큰마다 판을 다시 지으면 무거우니 초안 갱신은
+                    // 120ms 로 묶는다.
+                    if (e.type == "part.delta") {
+                        if (shaper.feed(e)) redrawSoon()
+                    } else if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
                     refreshDisk() // 컴패니언이 고친 디스크를 IDE 가 다시 보게(사유는 Rows.drainDisk)
                     if (e.seq > lastSeq) lastSeq = e.seq // 사실만 커서가 된다(전이는 seq==0)
                     // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
@@ -763,6 +771,25 @@ class MagiToolWindow : ToolWindowFactory {
         private fun richKey(r: Row): String =
             r.msgId.takeIf { it.isNotBlank() } ?: r.at.orEmpty()
 
+        /**
+         * 흐르는 동안의 다시 그리기 — 120ms 에 한 번으로 묶되 **꼬리를 남긴다.** 그냥 버리면
+         * 마지막 120ms 어치 글자는 다음 사실이 「바뀐 것 없음」을 돌려주는 턴에서 영영 안 뜬다
+         * (리뷰 F5). 시계는 nanoTime — 벽시계는 뒤로 밀릴 수 있고 그러면 타자기가 언다.
+         */
+        private val nextDraw = java.util.concurrent.atomic.AtomicLong(0)
+        private val tail = javax.swing.Timer(130) { redrawLog() }.apply { isRepeats = false }
+
+        private fun redrawSoon() {
+            val now = System.nanoTime()
+            val due = nextDraw.get()
+            if (now < due) { SwingUtilities.invokeLater { tail.restart() }; return }
+            if (!nextDraw.compareAndSet(due, now + 120_000_000L)) {
+                SwingUtilities.invokeLater { tail.restart() }
+                return
+            }
+            redrawLog()
+        }
+
         private fun redrawLog() {
             if (!dirty.compareAndSet(false, true)) return
             SwingUtilities.invokeLater {
@@ -827,7 +854,9 @@ class MagiToolWindow : ToolWindowFactory {
                         val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
                             RichAnswer.panel(project, r.text, richKey(r), this@View)
                         } else null
-                        p.add(rich ?: Look.rich(r.text), BorderLayout.CENTER)
+                        // 흐르는 중인 줄은 그렇게 보인다 — 반쪽 답이 다 쓰인 답과 똑같이
+                        // 생기면 사람이 잘린 글을 완성된 글로 읽는다(리뷰 F11).
+                        p.add(rich ?: Look.rich(r.text + if (r.draft) " ▌" else ""), BorderLayout.CENTER)
                     } else {
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     }

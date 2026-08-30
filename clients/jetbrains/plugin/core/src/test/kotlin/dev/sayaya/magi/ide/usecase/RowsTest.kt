@@ -69,18 +69,6 @@ class RowsTest {
     }
 
     @Test
-    fun `조각에는 행이 없다 — 같은 말이 사실로 뒤따른다`() {
-        val r = Rows()
-        // 거르는 것은 부르는 쪽의 일이지만(Transcript.echoesFact), 셰이퍼 자신도 delta 타입에
-        // 행을 만들지 않는다 — 두 겹이 다 뚫려야 새는 구조가 아니게.
-        r.feed(ev("part.delta", """{"messageId":"a1","part":{"kind":"text","text":"안"}}"""))
-        r.feed(ev("part.delta", """{"messageId":"a1","part":{"kind":"text","text":"안녕"}}"""))
-        assertEquals(0, r.list().size)
-        r.feed(answer("안녕"))
-        assertEquals(1, r.list().size)
-    }
-
-    @Test
     fun `재부상·인라인 답·버림은 행을 늘리지 않는다 — 옮기거나 표시한다`() {
         val r = Rows()
         r.feed(user("먼저 물은 것", "m1"))
@@ -199,6 +187,37 @@ class RowsTest {
         // silent 아니고 rationale 도 없으면 빈 본문(지어내지 않는다).
         r.feed(verdict(""))
         assertEquals("", r.list().last().text)
+    }
+
+    @Test
+    fun `조각은 같은 줄을 고쳐 쓰고 사실이 그 자리를 대신한다`() {
+        val r = Rows()
+        fun piece(t: String, kind: String = "text") = ev(
+            "part.delta", """{"messageId":"m1","kind":"$kind","text":"$t"}""",
+        )
+        r.feed(piece("안"))
+        r.feed(piece("녕"))
+        assertEquals(1, r.list().size, "조각은 줄을 쌓지 않는다")
+        assertEquals("안녕", r.list().last().text)
+        assertTrue(r.list().last().draft, "흐르는 중인 줄은 초안이다")
+        // 사실이 오면 그 자리를 대신한다 — 흐르는 동안 본 사람만 답을 두 벌 보면 안 된다.
+        r.feed(ev("part.appended",
+            """{"messageId":"m1","part":{"kind":"text","text":"안녕하세요"}}"""))
+        val rows = r.list()
+        assertEquals(1, rows.size, "초안이 사실로 덮인다")
+        assertEquals("안녕하세요", rows.last().text)
+        assertFalse(rows.last().draft)
+    }
+
+    @Test
+    fun `사실이 안 오는 턴의 초안은 턴이 끝날 때 쓸린다`() {
+        val r = Rows()
+        r.feed(ev("part.delta", """{"messageId":"m9","kind":"text","text":"반쪽"}"""))
+        assertEquals(1, r.list().size)
+        // 코어가 사실을 안 쓰고 턴을 닫는 길이 여럿이다 — 그때 반쪽 답이 남으면 붙어 있던
+        // 창과 다시 붙은 창이 갈린다(이 기능이 막으려던 바로 그것).
+        r.feed(ev("turn.finished", "{}"))
+        assertTrue(r.list().none { it.draft }, "고아 초안은 턴 끝에 쓸린다")
     }
 
     @Test

@@ -55,6 +55,11 @@ data class Row(
     val cite: String? = null,
     /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
     val silent: Boolean = false,
+    /**
+     * 아직 흐르는 중인 조각들로 지은 행. 사실(`part.appended`)이 오면 그 자리에서 사실로
+     * 덮인다 — 조각은 **새 줄이 아니라 같은 줄의 고쳐 쓰기**다(TRANSCRIPT §8 의 타자기).
+     */
+    val draft: Boolean = false,
     /** 셰이퍼 내부 짝맞춤 열쇠. 화면은 안 읽는다. */
     val msgId: String = "",
     val callId: String = "",
@@ -125,21 +130,27 @@ class Rows {
     /**
      * 이벤트 하나를 행으로 편다. 돌려주는 값은 **목록이 바뀌었는가** — 화면이 다시 그릴지 여부다.
      *
-     * `part.delta` 를 거르는 것은 여기가 아니라 부르는 쪽이다([Transcript.echoesFact] 를 쓴다) —
+     * `part.delta` 는 **여기서 초안 행으로 받는다**(§8 타자기). 부르는 쪽은 그리는 삯만 묶는다 —
      * 스트림 소유권과 같은 자리에 두어야 "누가 거르나"가 한 곳에 남는다.
      */
     fun feed(e: LogEvent): Boolean = synchronized(rows) {
         when (e.type) {
             "prompt.submitted" -> prompt(e)
+            "part.delta" -> delta(e)
             "part.appended" -> part(e)
             "interjection.deferred" -> mark(str(e, "messageId")) { it.copy(queued = true) }
             "interjection.answered" -> answered(e)
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)
             "turn.finished" -> {
+                // **턴이 끝나면 고아 초안을 쓴다.** 코어에는 조각만 흘리고 사실을 안 쓰는 길이
+                // 여럿이다(스핀 가드가 버린 응답, 본문으로 온 툴콜, 중단·프로바이더 에러,
+                // 실패한 인터젝션 미니턴 — 리뷰가 다섯을 짚었다). 안 쓸면 붙어 있던 창에만
+                // 남는 반쪽 답이 서고, 그것이 이 기능이 막으려던 갈림 그 자체다.
+                sweptDraft = rows.removeAll { it.draft }
                 // 경로를 모르는 변이가 이 턴에 있었으면, 이제 한 번 훑을 때다([drainDisk]).
                 if (unknownDisk) { broadPending = true; unknownDisk = false }
-                finished()
+                finished() || sweptDraft
             }
             "session.created" -> {
                 model = e.data?.jsonObject?.get("model")?.jsonObject?.get("model")?.jsonPrimitive?.content
@@ -169,7 +180,11 @@ class Rows {
                 }
                 false // 전사 행은 아니다 — 계획 판이 따로 읽는다
             }
-            "error" -> error(e)
+            "error" -> {
+                // 에러로 끝나는 턴은 turn.finished 가 안 올 수 있다 — 여기서도 쓴다.
+                val swept = rows.removeAll { it.draft }
+                error(e) || swept
+            }
             "council.verdict" -> verdict(e)
             "council.decided" -> decided(e)
             // 나머지는 전사가 아니라 다른 자리의 사실이다 — 표가 그렇게 정한다.
@@ -213,6 +228,7 @@ class Rows {
     /** [drainDisk] 의 답 — 다시 볼 파일들과, 워크스페이스를 통째 훑으라는 신호. */
     class Disk(val paths: List<String>, val broad: Boolean)
 
+    private var sweptDraft = false
     private val touched = mutableListOf<String>()
     private val everTouched = linkedSetOf<String>() // 이 대화에서 만진 파일 — 드레인에 안 비워진다
     private var unknownDisk = false // 경로를 모르는 변이(bash)가 이 턴에 있었다
@@ -269,12 +285,38 @@ class Rows {
         }
     }
 
+    /**
+     * 흐르는 조각 하나. **행을 새로 쌓지 않는다** — 같은 messageId 의 초안 행을 고쳐 쓴다.
+     * 조각은 전이라 재생에 안 실리므로, 붙어 있던 창과 다시 붙은 창이 갈리지 않으려면
+     * 사실이 왔을 때 초안이 **그 자리에서** 사실로 바뀌어야 한다([part] 가 그렇게 한다).
+     *
+     * 생각(reasoning)도 같은 대접이다: 흐르는 동안 보이고, 사실이 오면 접힌 행이 된다.
+     */
+    private fun delta(e: LogEvent): Boolean {
+        val d = e.data?.jsonObject ?: return false
+        val piece = d["text"]?.jsonPrimitive?.content ?: return false
+        if (piece.isEmpty()) return false
+        val id = d["messageId"]?.jsonPrimitive?.content.orEmpty()
+        val who = when (d["kind"]?.jsonPrimitive?.content) {
+            "reasoning" -> Who.Thinking
+            "text", null -> Who.Agent
+            else -> return false // 도구 조각 등은 초안 행을 안 만든다 — 그 행은 호출이 짓는다
+        }
+        val i = rows.indexOfLast { it.draft && it.msgId == id && it.who == who }
+        if (i < 0) rows += Row(who, piece, at = e.ts, msgId = id, draft = true)
+        else rows[i] = rows[i].copy(text = rows[i].text + piece)
+        return true
+    }
+
     private fun part(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         val part = d["part"]?.jsonObject ?: return false
         val msg = d["messageId"]?.jsonPrimitive?.content.orEmpty()
         when (part["kind"]?.jsonPrimitive?.content) {
             "text" -> {
+                // 초안이 서 있으면 **그 자리에서** 사실로 덮는다 — 조각과 사실이 같은 말이라,
+                // 새 줄로 쌓으면 흐르는 동안 본 사람만 답을 두 벌 본다.
+                dropDraft(msg, Who.Agent)
                 rows += Row(Who.Agent, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg)
                 // 인라인로 답한 물음은 제 턴으로 재부상하지 않는다 — 그 물음 행을 이 답 위로
                 // 끌어와 [물음 → 답] 짝으로 읽히게 한다(터미널의 `moveUserBlockBefore` 그대로).
@@ -285,7 +327,10 @@ class Rows {
                 }
                 settle()
             }
-            "reasoning" -> rows += Row(Who.Thinking, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg)
+            "reasoning" -> {
+                dropDraft(msg, Who.Thinking)
+                rows += Row(Who.Thinking, part["text"]?.jsonPrimitive?.content.orEmpty(), at = e.ts, msgId = msg)
+            }
             "tool-call" -> {
                 val c = part["toolCall"]?.jsonObject ?: return false
                 rows += Row(
@@ -319,6 +364,12 @@ class Rows {
         return true
     }
 
+    /** 이 messageId 의 초안 행을 걷는다 — 사실이 그 자리를 대신한다. */
+    private fun dropDraft(msg: String, who: Who) {
+        val i = rows.indexOfLast { it.draft && it.msgId == msg && it.who == who }
+        if (i >= 0) rows.removeAt(i)
+    }
+
     private fun answered(e: LogEvent): Boolean {
         // 에이전트가 "내 답이 이 대기 메시지를 이미 다뤘다"고 말했다. 물음을 마지막 답 위로
         // 옮기고 — **이미 제자리여도 대기 표시는 거둔다.** 자리에 있는 것과 아직 기다리는 것은
@@ -326,7 +377,7 @@ class Rows {
         val id = str(e, "messageId") ?: return false
         val q = rows.indexOfLast { it.who == Who.User && it.msgId == id }
         if (q < 0) return false
-        val a = rows.indexOfLast { it.who == Who.Agent }
+        val a = rows.indexOfLast { it.who == Who.Agent && !it.draft }
         if (a > q) {
             val r = rows.removeAt(q).copy(queued = false)
             rows.add(a - 1, r) // removeAt(q) 가 답을 한 칸 당겼다(a-1) — 그 자리에 끼우면 물음이 답 바로 위다
@@ -416,7 +467,9 @@ class Rows {
      */
     private fun settle(): Boolean {
         val last = rows.indexOfLast { it.who == Who.User }
-        val answered = rows.indexOfLast { it.who == Who.Agent } > last
+        // 초안은 답이 아니다 — 흐르는 중인 줄로 대기 표시를 걷으면, 사실이 영영 안 오는
+        // 턴에서 「답이 왔다」가 거짓으로 남는다(리뷰 F2).
+        val answered = rows.indexOfLast { it.who == Who.Agent && !it.draft } > last
         var changed = false
         rows.forEachIndexed { i, r ->
             if (r.who != Who.User) return@forEachIndexed

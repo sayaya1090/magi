@@ -20,6 +20,10 @@
     <!-- 고친 파일의 편집 화면에 변경 막대를 세운다(SimpleLocalLineStatusTracker, vcs.impl).
          마크다운과 같은 사유로 선언한다 — 컴파일 의존만으로는 런타임 클래스로더에 안 보인다. -->
     <depends optional="true" config-file="magi-vcs.xml">com.intellij.modules.vcs</depends>
+    <!-- 터미널 출력에도 「이 출력 물어보기」를 건다 — 스택트레이스는 Run 콘솔만큼이나
+         터미널에 뜬다. **새 터미널 엔진**의 팝업만이다: 클래식 엔진은 팝업을 코드로 지어
+         등록할 그룹이 없고, 그때 이 액션은 회색이 아니라 아예 안 보인다(정직한 미표시). -->
+    <depends optional="true" config-file="magi-terminal.xml">org.jetbrains.plugins.terminal</depends>
 
     <!--
         Two windows, and the split is the layout the design doc settles in §5 "어디에 놓나".
@@ -96,8 +100,9 @@
             commit card calls (the box text is NOT sent — that wire field is a one-shot rules
             override that would silently displace the house template), and Run-console output —
             where stack traces live — gets an ask action sending the selection as a fenced
-            prompt. (Terminal popups are a separate group, not yet registered — say "console",
-            not "terminal".)
+            prompt. Terminal output rides the same action: its context menus are separate groups
+            (Terminal.OutputContextMenu, Terminal.ReworkedTerminalContextMenu), found in the
+            terminal plugin's own plugin.xml rather than guessed.
         -->
         <action id="magi.draftCommit" class="dev.sayaya.magi.ide.ui.DraftCommitAction"
                 text="magi: 커밋 메시지 초안"
@@ -109,6 +114,8 @@
                 description="선택한 콘솔 출력을 컴패니언에게 보내 설명과 고칠 길을 묻는다">
             <add-to-group group-id="ConsoleView.PopupMenu" anchor="last"/>
             <add-to-group group-id="ConsoleEditorPopupMenu" anchor="last"/>
+            <!-- 터미널 그룹은 그 플러그인의 것이라 여기 두지 않는다(magi-terminal.xml) —
+                 터미널을 끈 IDE 에서 「그룹 없음」 에러가 난다(리뷰 F9). -->
         </action>
         <!--
             In the editor's context menu rather than a toolbar button: it acts on the file you are
