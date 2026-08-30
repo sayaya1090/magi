@@ -62,6 +62,14 @@ class SocketReachTest {
         Files.writeString(sock, "나는 소켓이 아니다")
         val r = DaemonClient.reach(sock)
         assertInstanceOf(Reach.CouldNotAsk::class.java, r, "보통 파일을 죽은 데몬으로 읽었다: $r")
+        // **맞는 답이 맞는 근거로 맞아야 한다.** 이 갈래가 예전엔 errno 로 왔고, 그 errno 는
+        // 커널마다 다르다 — macOS 는 `ENOTSOCK`, 리눅스는 `ECONNREFUSED`(=죽은 데몬과 같은
+        // 말). 그래서 이 자리는 macOS 에서만 초록이었고 CI(우분투)에서 하루 넘게 빨갰다.
+        // 갈래만 재면 그 회귀가 이 기계에서 또 안 보인다: **어느 길로 왔는지**를 잰다.
+        assertTrue(
+            "not a socket" in (r as Reach.CouldNotAsk).why,
+            "갈래는 맞는데 근거가 파일 종류가 아니다(errno 로 왔다) — 리눅스에서 다시 갈린다: ${r.why}",
+        )
     }
 
     @Test

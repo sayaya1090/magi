@@ -15,6 +15,7 @@ import java.nio.channels.Channels
 import java.nio.channels.SocketChannel
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
@@ -151,6 +152,22 @@ class DaemonClient private constructor(
         fun reach(socket: Path): Reach {
             // 확실히 없는 것만 없다고 한다. `exists` 가 아니라 `notExists` 인 이유는 [Reach.Absent].
             if (Files.notExists(socket)) return Reach.Absent
+            // **소켓인지 먼저 본다.** 갈래를 errno 로만 가르면 커널마다 답이 갈린다: 소켓이
+            // 아닌 보통 파일에 붙어 보면 macOS 는 `ENOTSOCK`(→ CouldNotAsk)인데 리눅스는
+            // `ECONNREFUSED` 를, 즉 **죽은 데몬과 똑같은 말**을 준다. 그래서 이 판정이
+            // macOS 에서만 맞았고, CI(우분투)에서 하루 넘게 빨갛게 서 있었다.
+            //
+            // 무는 것은 시험만이 아니다. 리눅스에서 소켓 자리에 엉뚱한 파일이 있으면 화면이
+            // 「소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다」고 말한다. 데몬이었던
+            // 적이 없는 파일에 대해 죽었다고 말하는 것이고, 그 판정에는 재기동이 달려 있다.
+            //
+            // 파일 **종류**는 커널을 안 탄다. 소켓·FIFO·장치는 `isOther` 이고, 보통 파일과
+            // 디렉토리는 아니다 — 확실히 소켓이 아닌 것만 여기서 거른다. 못 보면(권한) 판단을
+            // 안 하고 아래로 보낸다: 모르는 것을 아는 척하지 않는다.
+            val surelyNotSocket = runCatching {
+                !Files.readAttributes(socket, BasicFileAttributes::class.java).isOther
+            }.getOrDefault(false)
+            if (surelyNotSocket) return Reach.CouldNotAsk("not a socket: $socket")
             return try {
                 connect(socket).use { Reach.Listening }
             } catch (e: ConnectException) {

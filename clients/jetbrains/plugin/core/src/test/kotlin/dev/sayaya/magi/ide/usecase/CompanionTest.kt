@@ -98,7 +98,7 @@ class CompanionTest {
         val q = r.jobs?.queued ?: error("queued 가 없다")
         assertEquals(listOf("person", "handover"), q.map { it.kind }, "차례가 계약이다 — 사람 말 먼저")
         assertEquals("mel", q[1].from, "건넨 일은 누가 청했는지가 같이 온다")
-        assertTrue(r.jobs?.background?.single()?.running == true)
+        assertTrue(r.jobs.background?.single()?.running == true)
     }
 
     @Test

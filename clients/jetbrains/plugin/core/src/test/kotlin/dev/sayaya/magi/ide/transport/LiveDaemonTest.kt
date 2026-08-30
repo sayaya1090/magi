@@ -40,7 +40,7 @@ class LiveDaemonTest {
             val about = c.exchange(Request(method = "about"))
             assertTrue(about.ok, "about 이 ok 를 안 줬다: ${about.error}")
             // 협상은 about 으로 한다. 없는 메서드를 불러 에러를 읽는 방식으로 알아내지 않는다.
-            assertTrue(about.proto != null && about.proto!! >= 1, "proto 가 없다")
+            assertTrue(about.proto != null && about.proto >= 1, "proto 가 없다")
             assertTrue(about.caps != null, "caps 가 없다")
 
             val models = c.exchange(Request(method = "models"))
@@ -52,7 +52,7 @@ class LiveDaemonTest {
             val rec = Published.of(sock)
             val wd = rec?.workdir
             if (!wd.isNullOrBlank() && !rec.socket.isNullOrBlank()) {
-                val computed = SocketPath.of(java.nio.file.Paths.get(rec.socket!!).parent, Paths.get(wd))
+                val computed = SocketPath.of(java.nio.file.Paths.get(rec.socket).parent, Paths.get(wd))
                 assertEquals(rec.socket, computed.toString(),
                     "Go 가 지은 소켓 이름과 JVM 이 계산한 것이 다르다 — 이식이 갈렸다")
             }

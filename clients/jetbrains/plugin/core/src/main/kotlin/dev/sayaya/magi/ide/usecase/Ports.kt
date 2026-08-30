@@ -44,18 +44,29 @@ interface Daemon : Closeable {
  * **왜 `Boolean` 이 아닌가.** 예전엔 `alive(): Boolean` 이었고 붙어 보다 난 예외를 **전부**
  * false 로 접었다. 접힌 것을 [DaemonLifecycle] 이 "파일은 있는데 안 듣는다 = 죽임을 당했다"로
  * 폈다 — 못 물어본 것을 데몬에 대한 **긍정 진술**로 바꾼 셈이고, 그 판정에는 재기동이 달려 있다.
- * 갈래는 넷 다 실측이다(macOS, JDK 유닉스 소켓):
+ * **errno 만으로는 못 가른다.** 처음엔 예외 종류로만 갈랐고, 그 표는 한 커널(macOS)에서만
+ * 잰 것이었다. 같은 프로그램으로 두 커널에서 다시 쟀다(JDK 21 — macOS / Linux 컨테이너):
  *
- * | 만난 것 | 예외 | 갈래 |
- * |---|---|---|
- * | 듣고 있음 | 없음 | [Listening] |
- * | 죽은 데몬, 소켓 파일 남음 | `ConnectException: Connection refused` | [Refused] |
- * | 없는 경로 | `SocketException: No such file or directory` | [Absent] |
- * | 소켓이 아닌 보통 파일 | `SocketException: … non-socket` | [CouldNotAsk] |
- * | 볼 수 없는 디렉토리 | `BindException: Permission denied` | [CouldNotAsk] |
+ * | 만난 것 | 종류(`isOther`) | macOS 예외 | Linux 예외 | 갈래 |
+ * |---|---|---|---|---|
+ * | 듣고 있음 | 소켓 ✓ | 없음 | 없음 | [Listening] |
+ * | 죽은 데몬, 소켓 파일 남음 | 소켓 ✓ | `ConnectException` | `ConnectException` | [Refused] |
+ * | 없는 경로 | — | (`notExists` 가 먼저 잡는다) | (같음) | [Absent] |
+ * | 소켓이 아닌 보통 파일 | 소켓 ✗ | `SocketException: … non-socket` | **`ConnectException`** | [CouldNotAsk] |
+ * | 볼 수 없는 디렉토리 안 | 못 봄 | `BindException: Permission denied` | `BindException: Permission denied` | [CouldNotAsk] |
+ * | 〃 (root — 디렉토리를 통과한다) | 소켓 ✗ | — | **`ConnectException`** | [CouldNotAsk] |
  *
- * 즉 **진짜 "아무도 안 듣는다"는 `ConnectException` 하나뿐**이고 나머지는 데몬에 대해 아무것도
- * 안 말한다. 갈래를 나누는 기준은 늘 같다: **받는 쪽이 할 일이 다르면 갈래다.**
+ * 굵은 두 칸이 이 설계의 사유다. **리눅스는 소켓이 아닌 것에 붙어 볼 때 죽은 데몬과 똑같은
+ * 말을 한다.** errno 로만 가르면 「데몬이었던 적이 없는 파일」이 「죽었다」가 되고, 그 판정에는
+ * 재기동이 달려 있다 — 화면은 「소켓은 있는데 아무도 안 듣는다」고 거짓말한다. CI(우분투)가
+ * 하루 넘게 그 시험으로 빨갰고, 이 기계(macOS)에서는 계속 초록이었다.
+ *
+ * 그래서 붙기 **전에** 파일 종류를 본다. 종류는 커널을 안 탄다 — 확실히 소켓이 아닌 것
+ * (`isOther == false`: 보통 파일·디렉토리)은 거기서 [CouldNotAsk] 로 낸다. 못 보면(권한)
+ * 판단하지 않고 붙어 보는 쪽으로 넘긴다: 모르는 것을 아는 척하지 않는다.
+ *
+ * 즉 **진짜 "아무도 안 듣는다"는 「소켓인데 `ConnectException`」 하나뿐**이고 나머지는 데몬에
+ * 대해 아무것도 안 말한다. 갈래를 나누는 기준은 늘 같다: **받는 쪽이 할 일이 다르면 갈래다.**
  */
 sealed interface Reach {
 
