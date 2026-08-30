@@ -31,7 +31,7 @@ import kotlin.concurrent.withLock
  * 넘겨받기 때문이다(daemon.go 의 `serveConn`). 스트림이 필요하면 [openStream] 으로 **다른 연결**을 판다.
  *
  * 느린 모델 호출을 이 연결로 보내지 말 것. 콘솔과 TUI 가 같은 이유로 일회용 연결을 따로
- * 판다(cmd/magi-web 의 `server.alone`, cmd/magi 의 `attached.sock`).
+ * 판다(`clients/web/server/main.go` 의 `server.alone`, `cmd/magi/attach.go` 의 `attached.sock`).
  */
 class DaemonClient private constructor(
     private val channel: SocketChannel,
