@@ -1310,7 +1310,7 @@ func run() int {
 			}
 		}()
 		serveErr := serving.Serve(dctx, daemonEngine{
-			App: a, workdir: wd, handover: taking,
+			App: a, workdir: wd, handover: taking, configDir: plat.ConfigDir(),
 			republish: func(to session.SessionID) error { return daemon.Moved(sockPath, to) },
 			card: func() mcpserve.Card {
 				return mcpserve.Card{
@@ -2684,6 +2684,10 @@ type daemonEngine struct {
 	// as anything outside this process is concerned. A function rather than the socket path,
 	// because this type is otherwise about the workspace and not about where its door is.
 	republish func(session.SessionID) error
+	// configDir is this account's config directory — the global layer, and the root the companion
+	// layer hangs off. Held because the settings door has to name the files a value came from and
+	// a write goes to, and those are not derivable from the workspace alone.
+	configDir string
 }
 
 // SessionsHere satisfies daemon.ConversationKeeper: this workspace's conversations, for the

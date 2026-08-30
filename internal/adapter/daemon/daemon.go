@@ -425,6 +425,55 @@ type SessionMover interface {
 // ConversationKeeper is the engine half of the bottom dock's session switcher: list this
 // workspace's conversations, and open a fresh one. Local socket only, like the transcript —
 // the clients this exists for (the IDE plugin first) hold a socket and nothing else.
+// ConfigItem is one editable setting as it stands.
+//
+// The value is the EFFECTIVE one — what the engine will actually use — and Source says which
+// layer won it, because a reader that is shown only the file's contents cannot explain a
+// companion that is embedding with something the file does not name (an environment variable
+// beats both files for some keys). Tier and File are where a write goes by default: the layer
+// this value came from, and the path a person can open and read for themselves.
+type ConfigItem struct {
+	Key   string `json:"key"`
+	Value string `json:"value,omitempty"`
+	// Source is "env", "project", "global", or "" when nothing sets it.
+	Source string `json:"source,omitempty"`
+	Tier   string `json:"tier,omitempty"`
+	File   string `json:"file,omitempty"`
+	// Applies is "now" or "next start" — a property of the KEY, not one sentence for all of them:
+	// this daemon re-reads some settings per turn and others once at boot, and a screen that says
+	// "restart to apply" about a live one teaches people to restart for nothing.
+	Applies string `json:"applies,omitempty"`
+	// Doc is the one line a screen can put under the field.
+	Doc string `json:"doc,omitempty"`
+}
+
+// ProfileChoice is one assignable backend and the layer that defines it.
+type ProfileChoice struct {
+	Name string `json:"name"`
+	Tier string `json:"tier"`
+}
+
+// ConfigKeeper is the settings door: read what is editable, change one key, and list what the
+// profile-shaped keys may point at.
+//
+// One door for the settings rather than a door per setting. Seven places decide which model runs
+// (the default model, the llm profiles, the two autocomplete profiles, the embedding model, the
+// subagent profiles, the templates) and exactly two of them had a method — so every client
+// without a config file to edit was stuck writing "not editable here" where a field belongs, and
+// each new setting meant the same conversation again.
+//
+// The keys are a WHITELIST, held by the engine. Arbitrary TOML writing down a socket is a hole,
+// not a door: the config file also holds the permission posture and the hooks that run.
+type ConfigKeeper interface {
+	// ConfigHere lists every editable key with its effective value.
+	ConfigHere(ctx context.Context) ([]ConfigItem, error)
+	// ConfigSet writes one key and answers with the key as it now stands. An empty value clears
+	// it. tier picks the file; empty means the layer the value came from, else the workspace.
+	ConfigSet(ctx context.Context, key, value, tier string) (ConfigItem, error)
+	// ProfilesHere lists the [llm.profiles.*] a profile-shaped key may name.
+	ProfilesHere(ctx context.Context) ([]ProfileChoice, error)
+}
+
 type ConversationKeeper interface {
 	// SessionsHere lists this workspace's conversations, newest activity first.
 	SessionsHere(ctx context.Context) ([]session.SessionMeta, error)
@@ -505,7 +554,13 @@ type Request struct {
 	// the same string rather than translated into booleans here — a second vocabulary for one
 	// decision is a place for the two to drift.
 	Decision string `json:"decision,omitempty"`
-	Answer   string `json:"answer,omitempty"`
+	// Tier says WHICH config file a settings write lands in — "project" (this workspace's
+	// .magi/config.toml) or "global" (the account's). Its own field rather than a second meaning
+	// for Name because it is a second argument, not a second spelling of the first: a client that
+	// read a value out of the global file and wrote it back without saying so would silently mint
+	// a project override of a setting the person meant to change everywhere.
+	Tier   string `json:"tier,omitempty"`
+	Answer string `json:"answer,omitempty"`
 	// Name and N carry the control methods' one argument each: a model id, a permission policy, a
 	// number of turns to rewind, the label above a handed-over request, the receipt for one.
 	// Named generically because the alternative is a field per method and a wire format that grows
@@ -630,6 +685,11 @@ type Response struct {
 	Roster []RosterRow `json:"roster,omitempty"`
 	// Sessions answers the `sessions` method: this workspace's conversations, newest first.
 	Sessions []SessionRow `json:"sessions,omitempty"`
+	// Config answers config-get and config-set: what a settings key is, where the value came
+	// from, and when a change to it takes effect.
+	Config []ConfigItem `json:"config,omitempty"`
+	// Profiles answers the method of that name: the backends a settings field may point at.
+	Profiles []ProfileChoice `json:"profiles,omitempty"`
 	// Cron answers the `cron` method: the standing schedule, broken first, then soonest first.
 	Cron []CronRow `json:"cron,omitempty"`
 }
@@ -1326,6 +1386,9 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"open-file":   answerOpenFile,
 	"suggest":     answerSuggest,
 	"shell":       answerShell,
+	"config-get":  answerConfigGet,
+	"config-set":  answerConfigSet,
+	"profiles":    answerProfiles,
 	"mcp-attach":  answerMCPAttach,
 	"mcp-detach":  answerMCPDetach,
 	"sessions":    answerSessions,
@@ -1442,6 +1505,46 @@ func answerSessionNew(ctx context.Context, eng Engine, req Request) Response {
 		return Response{Err: err.Error()}
 	}
 	return Response{OK: true, Session: string(sid)}
+}
+
+// answerConfigGet reads the editable settings.
+func answerConfigGet(ctx context.Context, eng Engine, _ Request) Response {
+	k, ok := eng.(ConfigKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot read out its settings"}
+	}
+	items, err := k.ConfigHere(ctx)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Config: items}
+}
+
+// answerConfigSet changes one setting and answers with the key as it now stands — so a screen
+// redraws from the daemon's own reading rather than from what it hoped the write did.
+func answerConfigSet(ctx context.Context, eng Engine, req Request) Response {
+	k, ok := eng.(ConfigKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot change its settings"}
+	}
+	item, err := k.ConfigSet(ctx, req.Name, req.Text, req.Tier)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Config: []ConfigItem{item}}
+}
+
+// answerProfiles lists what a profile-shaped setting may point at.
+func answerProfiles(ctx context.Context, eng Engine, _ Request) Response {
+	k, ok := eng.(ConfigKeeper)
+	if !ok {
+		return Response{Err: "this daemon cannot list its backends"}
+	}
+	list, err := k.ProfilesHere(ctx)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Profiles: list}
 }
 
 // answerMCPAttach opens the runtime door: attach an HTTP MCP server to this companion.
@@ -1949,6 +2052,12 @@ func capsOf(eng Engine) []string {
 	// direction, which is quieter: the code ran ahead of the advertisement, and nothing failed.
 	if _, ok := eng.(ToolServerHost); ok {
 		caps = append(caps, "tool-servers")
+	}
+	// "settings": this daemon will read and change the whitelisted config keys. Advertised for
+	// the same reason as the doors above — a client draws a settings screen, and "there is no
+	// door" and "the door refused" are different screens.
+	if _, ok := eng.(ConfigKeeper); ok {
+		caps = append(caps, "settings")
 	}
 	// "transcript": this daemon will read a conversation out down the socket. Asked of the engine
 	// for the reason above, and advertised for the reason above: the clients this door exists for
@@ -2529,6 +2638,38 @@ func (c *Client) Roster() ([]RosterRow, error) {
 
 // Sessions lists the companion's conversations, newest activity first — the bottom dock's
 // session picker reads this.
+// Settings reads the editable settings: each key with its effective value, where that value came
+// from, and when a change to it takes effect.
+func (c *Client) Settings() ([]ConfigItem, error) {
+	resp, err := c.exchange(Request{Method: "config-get"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Config, nil
+}
+
+// SetSetting changes one key and answers with the key as it now stands. An empty value clears it;
+// an empty tier writes it back where the value was read from.
+func (c *Client) SetSetting(key, value, tier string) (ConfigItem, error) {
+	resp, err := c.exchange(Request{Method: "config-set", Name: key, Text: value, Tier: tier})
+	if err != nil {
+		return ConfigItem{}, err
+	}
+	if len(resp.Config) == 0 {
+		return ConfigItem{}, fmt.Errorf("the daemon changed %q and said nothing about it", key)
+	}
+	return resp.Config[0], nil
+}
+
+// Profiles lists the backends a profile-shaped setting may point at.
+func (c *Client) Profiles() ([]ProfileChoice, error) {
+	resp, err := c.exchange(Request{Method: "profiles"})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Profiles, nil
+}
+
 func (c *Client) Sessions() ([]SessionRow, error) {
 	resp, err := c.exchange(Request{Method: "sessions"})
 	if err != nil {

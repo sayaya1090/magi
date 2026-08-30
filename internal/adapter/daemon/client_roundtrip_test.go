@@ -250,3 +250,105 @@ func TestTranscriptServesAChildSessionTheListingOmits(t *testing.T) {
 		t.Fatalf("a child session with events on disk must stream, not be refused: %v", err)
 	}
 }
+
+// settingsEngine answers the settings door and nothing else it does not have to.
+type settingsEngine struct {
+	omniEngine
+	items []ConfigItem
+	set   []string
+}
+
+func (e *settingsEngine) ConfigHere(context.Context) ([]ConfigItem, error) { return e.items, nil }
+func (e *settingsEngine) ConfigSet(_ context.Context, key, value, tier string) (ConfigItem, error) {
+	e.set = append(e.set, key+"="+value+"@"+tier)
+	return ConfigItem{Key: key, Value: value, Tier: tier, Source: tier, Applies: "next start"}, nil
+}
+func (e *settingsEngine) ProfilesHere(context.Context) ([]ProfileChoice, error) {
+	return []ProfileChoice{{Name: "fast", Tier: "global"}}, nil
+}
+
+// The settings cross the socket: a client reads what is editable, changes one key and is told what
+// it now is, and the door advertises itself so a screen knows whether to draw the fields at all.
+func TestTheSettingsDoorCrossesTheSocket(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-set.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	eng := &settingsEngine{items: []ConfigItem{{Key: "embed_model", Value: "nomic", Source: "global",
+		Tier: "global", File: "/x/config.toml", Applies: "next start"}}}
+	go func() { _ = d.Serve(context.Background(), eng) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	got, err := c.Settings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Key != "embed_model" || got[0].Source != "global" || got[0].Applies != "next start" {
+		t.Fatalf("the reading arrived as %+v", got)
+	}
+	item, err := c.SetSetting("autocomplete.code_profile", "fast", "project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if item.Value != "fast" || item.Tier != "project" {
+		t.Fatalf("the write answered %+v", item)
+	}
+	if len(eng.set) != 1 || eng.set[0] != "autocomplete.code_profile=fast@project" {
+		t.Fatalf("the engine was asked for %v", eng.set)
+	}
+	profiles, err := c.Profiles()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].Name != "fast" || profiles[0].Tier != "global" {
+		t.Fatalf("the picker arrived as %+v", profiles)
+	}
+	if _, err := c.Hello(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.PeerSupports("settings") {
+		t.Error("a daemon that answers the settings door does not advertise it")
+	}
+}
+
+// A daemon whose engine has no settings door refuses in words rather than by silence, and does not
+// advertise a screen's fields into existence.
+func TestADaemonWithoutTheSettingsDoorSaysSo(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-nos.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	go func() { _ = d.Serve(context.Background(), &omniEngine{}) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if _, err := c.Settings(); err == nil {
+		t.Error("a daemon with no settings door answered as if it had one")
+	}
+	if _, err := c.Hello(); err != nil {
+		t.Fatal(err)
+	}
+	if c.PeerSupports("settings") {
+		t.Error("the door was advertised by a daemon that does not have it")
+	}
+}
