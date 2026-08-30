@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,11 +74,33 @@ func TestLightRowUnknownWordIsTheMinimumClaim(t *testing.T) {
 // ListLight itself: a machine of corpses still deserves its list (the fallback path), and an
 // unreadable directory answers an error — never an empty fleet asserted by nobody.
 func TestListLightFallbackAndHonestError(t *testing.T) {
-	home := t.TempDir()
-	if err := os.WriteFile(filepath.Join(home, "daemon-dead.sock"), nil, 0o600); err != nil {
-		t.Fatal(err)
+	// A short home, because a unix socket path has a hard length limit (~104 bytes on macOS) and
+	// the default temp name spends most of it. (The package's own shortTempDir lives in the
+	// external test package and cannot be reached from here.)
+	home, herr := os.MkdirTemp("/tmp", "flt")
+	if herr != nil {
+		t.Fatal(herr)
 	}
-	if _, err := daemon.Publish(filepath.Join(home, "daemon-dead.sock"), "/w/dead", "s_d", daemon.Identity{Name: "dead"}); err != nil {
+	t.Cleanup(func() { os.RemoveAll(home) })
+	// A corpse is a SOCKET nobody is listening on — bind() makes a socket inode and a crash
+	// leaves one. This wrote an empty plain file, which magi never creates at that path and
+	// which the daemon now refuses to touch rather than tidy away: the fixture would have been
+	// standing in for something that does not happen. Go unlinks on close unless told not to.
+	deadPath := filepath.Join(home, "daemon-dead.sock")
+	addr, aerr := net.ResolveUnixAddr("unix", deadPath)
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	ln, lerr := net.ListenUnix("unix", addr)
+	if lerr != nil {
+		t.Fatal(lerr)
+	}
+	ln.SetUnlinkOnClose(false)
+	ln.Close()
+	if fi, serr := os.Lstat(deadPath); serr != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the fixture did not leave a socket behind: %v", serr)
+	}
+	if _, err := daemon.Publish(deadPath, "/w/dead", "s_d", daemon.Identity{Name: "dead"}); err != nil {
 		t.Fatal(err)
 	}
 	rows, err := ListLight(home, "")
