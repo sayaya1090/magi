@@ -2,7 +2,7 @@
 
 [↑ clients/jetbrains](../README.md)
 
-> **무엇을 정하는 문서인가.** magi 의 화면은 지금 셋이다 — 웹 콘솔(`cmd/magi-web`), 터미널
+> **무엇을 정하는 문서인가.** magi 의 화면은 지금 셋이다 — 웹 콘솔(`clients/web/server`), 터미널
 > (`internal/adapter/tui`), 그리고 이 플러그인. 이 문서는 **이 플러그인이** 그 대화를 IDE 의 어느
 > 자리에 어떻게 그리는가를 정한다. 구현 전에 쓴다 — §1 은 실측한 현재이고, §3 부터가 결정이다.
 >
@@ -70,11 +70,11 @@
 
 ### 1.2 웹 콘솔 — 행이 데이터로 오는 유일한 화면
 
-> ⚠ `cmd/magi-web` 은 없어질 예정이다(새 콘솔은 `web/ui`). 그래서 아래 실측의 값은 코드의
+> ⚠ `clients/web/server` 은 없어질 예정이다(새 콘솔은 `clients/web/ui`). 그래서 아래 실측의 값은 코드의
 > 위치가 아니라 **어휘**다 — 집은 헐려도 `line` 의 필드 목록과 그 주석이 실측으로 산 규칙들은
 > 이 문서가 물려받아(§2.1) 계약으로 남는다.
 
-`cmd/magi-web/main.go` 의 `events` 가 SSE 한 연결에 세 종류를 흘린다: **전사 행 전체 배열**,
+`clients/web/server/main.go` 의 `events` 가 SSE 한 연결에 세 종류를 흘린다: **전사 행 전체 배열**,
 `turn` 프레임(`{open, forSec}` — 턴이 열렸나, 몇 초째인가), 명단 프레임. 행은 브라우저가 아니라
 **서버가 짓는다** — `renderMessages` 가 세션 로그를 재구성한 `[]session.Message` 를 `[]line`
 으로 편다. `line` 은 순수 데이터다:
@@ -119,10 +119,10 @@
 | | 입력 | 짓는 자리 | 결과물 |
 |---|---|---|---|
 | TUI | `event.Event` (증분) | `applyEvent`→`blocks`→`renderBlock` | 칠해진 고정폭 문자열 |
-| 웹 | `[]session.Message` (전량 재구성) | `cmd/magi-web/main.go` `renderMessages` — 집째 헐릴 예정 | `[]line` — **데이터** |
+| 웹 | `[]session.Message` (전량 재구성) | `clients/web/server/main.go` `renderMessages` — 집째 헐릴 예정 | `[]line` — **데이터** |
 | IDE | `LogEvent` (증분) | 없음 | `#seq type (actor)` |
 
-이 문서의 첫 판은 「웹의 셰이퍼를 코어로 옮기고 데몬에 행 문을 하나 낸다」였다. `cmd/magi-web`
+이 문서의 첫 판은 「웹의 셰이퍼를 코어로 옮기고 데몬에 행 문을 하나 낸다」였다. `clients/web/server`
 이 없어질 예정이라는 사실이 서면서 **행 짓기는 클라이언트가 각자 구현한다**로 정해졌다
 (2026-08-29). 데몬이 책임지는 것은 날 이벤트 문(`transcript`)까지고, 그 위는 화면의 일이다.
 
@@ -168,7 +168,7 @@
 
 ### 2.2 다른 두 화면도 각자 짓는다
 
-TUI 는 격자 제약이 진짜라 접을 수 없고, 새 콘솔(`web/ui`)도 자기 것을 갖는다. 붙드는 것은
+TUI 는 격자 제약이 진짜라 접을 수 없고, 새 콘솔(`clients/web/ui`)도 자기 것을 갖는다. 붙드는 것은
 공유 코드가 아니라 **문서화된 계약 + 클라이언트마다의 골든**이다(§6-2·§6-3).
 
 ---

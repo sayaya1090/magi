@@ -10,7 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 전사 셰이퍼 — 이벤트 스트림을 사람이 읽는 행으로.
  *
  * 무엇을 행으로 만들고 무엇을 안 만드는지는 `docs/TRANSCRIPT.ko.md` §3 의 표가 정하고, 여기는
- * 그 표의 구현이다. 어휘는 웹 콘솔의 `cmd/magi-web/main.go` 의 `line` 에서 옮겼다 — 필드로
+ * 그 표의 구현이다. 어휘는 웹 콘솔의 `clients/web/server/main.go` 의 `line` 에서 옮겼다 — 필드로
  * 나르고, 렌더된 문장에서 도로 파내지 않는다. 문장은 화면의 붓이다.
  *
  * **여기가 왜 usecase 인가.** 페이로드를 파는 것은 이 층의 일이다 — [Problems.of] 가 선례고,

@@ -6,7 +6,7 @@ package dev.sayaya.magi.ide.usecase
  *
  * 한 물건을 두 색으로 그리면 사람이 그 물건을 두 번 배운다. 터미널·웹·IDE 가 같은 컴패니언을
  * 그리므로 색이 갈리면 안 되고, 웹은 그것을 이미 시험으로 붙들고 있다
- * (`cmd/magi-web/palette_test.go`). 이쪽도 같은 문을 세운다 — [PaletteTest] 가 원본을 읽어
+ * (`clients/web/server/palette_test.go`). 이쪽도 같은 문을 세운다 — [PaletteTest] 가 원본을 읽어
  * 아래 값과 대조하고, 하나라도 어긋나면 운다. **옮겨 적었다는 말이 문서의 문장이면 언젠가
  * 거짓이 되고, 거짓이 된 순간에 아무도 안 운다.**
  *

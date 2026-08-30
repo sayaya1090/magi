@@ -6,7 +6,7 @@
 > 정했다. 이 문서는 그 셰이퍼 하나를 구현 수준으로 정한다 — 입력 스트림의 실측, 행 모델의 어휘,
 > 이벤트→행 매핑, 그리고 골든이 무엇을 붙드는가. 아래 매핑의 근거는 전부 두 원본의 실측이다:
 > 터미널(`internal/adapter/tui/model_event.go` 의 `onPartAppended` 와 그 이웃)과 웹의 셰이퍼
-> (`cmd/magi-web/main.go` 의 `renderMessages`).
+> (`clients/web/server/main.go` 의 `renderMessages`).
 
 ---
 

@@ -18,7 +18,7 @@
   4. 맨몸 파일 이름이 저장소에서 하나로 풀리는가 (`.js`/`.mjs` 는 예외 — `BARE` 주석)
 
 세 번째가 한 줄이어야 하는 이유는 grep 이 줄 단위이기 때문이다. 네 번째가 있는 이유는 이 검사기
-자신이 한 번 속아서다 — `search.go` 는 `cmd/magi-web` 과 `internal/app` 에 하나씩 있고, 검사기가
+자신이 한 번 속아서다 — `search.go` 는 `clients/web/server` 과 `internal/app` 에 하나씩 있고, 검사기가
 엉뚱한 쪽을 열어 멀쩡한 인용을 썩었다고 보고했다. 사람도 같은 것에 속는다.
 
 "못 찾은 것 0" 이 "전부 확인했다"는 뜻이 되도록, **검사에서 빠진 짝은 마지막에 나열한다.** 인용
@@ -88,7 +88,7 @@ def resolve(name):
         p = os.path.join(ROOT, name)
         if os.path.isfile(p):
             return p, None
-        # 접미 일치도 허용한다: `cmd/magi-web/mcp.go` 처럼 저장소 루트 기준이 아닌 인용.
+        # 접미 일치도 허용한다: `clients/web/server/mcp.go` 처럼 저장소 루트 기준이 아닌 인용.
         hits = [c for c in INDEX.get(os.path.basename(name), []) if c.endswith(name)]
         if len(hits) == 1:
             return hits[0], None

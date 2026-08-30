@@ -38,7 +38,7 @@ IDEA SDK 에 대고 하는데, 그것이 상위집합이라 그런 것이지 IDE
 IU-261 · IU-262 · **PY-261 세 곳 전부 Compatible.**
 
 플러그인은 두 가지를 겸한다. 하나는 magi의 **세 번째 뷰어**다 — 앞의 둘인 `magi --attach`의 TUI와
-`cmd/magi-web`의 브라우저 콘솔과 같은 계약을 쓴다(로그를 읽고 소켓으로 쓴다). 다른 하나는 **손**이다.
+`clients/web/server`의 브라우저 콘솔과 같은 계약을 쓴다(로그를 읽고 소켓으로 쓴다). 다른 하나는 **손**이다.
 에이전트가 요청하면 IDE에 내용을 띄우고, 열린 버퍼를 고친다. 뷰어 쪽은 §3이, 손 쪽은 §5가 다룬다.
 
 정본은 여전히 돌아가는 데몬이다. 플러그인이 계산한 값과 데몬이 말한 값이 다르면 데몬이 맞다.
@@ -163,8 +163,8 @@ clients/jetbrains/
 **와이어 DTO 를 도메인 엔티티로 옮기지는 않는다.** 클린 아키텍처의 통상 처방이지만 여기서 그러면
 데몬 계약의 **두 번째 표현**이 생긴다. 이 저장소가 이미 겪은 결함이다 — 같은 규칙을 두 곳에 적었더니
 `sanitize` 가 갈렸고 문서가 코드와 갈렸다. 이 플러그인에는 "턴이란 무엇인가"에 대한 독자적 규칙이
-없다. **데몬의 어휘가 곧 도메인이다.** 경계는 `ArchitectureTest` 가 얼려 둔다. `web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
-같은 규칙은 아니다(`web/ui/README.md` 의 "클린 아키텍처 규칙") — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
+없다. **데몬의 어휘가 곧 도메인이다.** 경계는 `ArchitectureTest` 가 얼려 둔다. `clients/web/ui` 의 `interfaces → usecase → domain` 과 방향은 같지만
+같은 규칙은 아니다(`clients/web/ui/README.md` 의 "클린 아키텍처 규칙") — 거기 `domain` 에는 순수 규칙이 살고, 여기 `model` 은
 와이어 DTO뿐이라 순수 층이 없다. 방향만 빌린다.
 
 ---
@@ -520,7 +520,7 @@ JVM에는 `app.App`이 없다. 그래서 이 문서가 답해야 하는 질문�
 
 **한 메서드가 아니다.** `magi-web`이 스토어에서 직접 파생하는 것은 `ContextStateOf`·`PlanOf`·
 `LoopMap`·`SessionDiff`·`ChildSessions`·`SessionState`·`UnfinishedTurnOf`·`CouncilMarks`·
-`CouncilEvidenceOf`·`ListSessions`·`RankSessions`로 열한 개 남짓이다(`cmd/magi-web` 의 `server.context`,
+`CouncilEvidenceOf`·`ListSessions`·`RankSessions`로 열한 개 남짓이다(`clients/web/server` 의 `server.context`,
 `server.plan`, `server.loop`, `server.subagents`, `server.history`, `server.search`). 플러그인이 첫판에
 필요한 것은 전사와 카운슬 정도이고 나머지는 화면이 생길 때 따라간다.
 
@@ -541,7 +541,7 @@ JVM에는 `app.App`이 없다. 그래서 이 문서가 답해야 하는 질문�
 겸할 수 없다.
 
 **행은 이 클라이언트가 짓는다.** 처음에는 얕게 갔다 — 이벤트를 줄로 바꾸는 파생을 콘솔의
-`line` 과 공유하려고 화면이 `seq`·타입·행위자만 적었다. 그 계획은 `cmd/magi-web` 이 헐릴
+`line` 과 공유하려고 화면이 `seq`·타입·행위자만 적었다. 그 계획은 `clients/web/server` 이 헐릴
 예정이라는 사실에 뒤집혔다(2026-08-29): 데몬의 책임은 날 이벤트까지고, 셰이퍼는 클라이언트가
 각자 갖되 **어휘를 계약으로** 공유한다. 이 플러그인의 셰이퍼는 usecase 의 `Rows.kt` 이고,
 행 모델·이벤트→행 표·골든은 `docs/TRANSCRIPT.ko.md` 가 정한다.
@@ -562,13 +562,13 @@ which ends at 0 — that cursor was counted…"`. 빈 로그에서 아무것도 
 였고 문이 생긴 뒤로도 그대로였다. 헤딩만 훑는 사람에게 그 제목은 없는 것을 있다고 말하는 것과 같은
 크기의 거짓말이다.
 
-플러그인에 가장 먼저 필요했던 것이 전사다. 그 모양은 이미 정의돼 있었다. `cmd/magi-web/main.go` 의 `line` 구조체가 가진
+플러그인에 가장 먼저 필요했던 것이 전사다. 그 모양은 이미 정의돼 있었다. `clients/web/server/main.go` 의 `line` 구조체가 가진
 `line`이 `who, text, tool, args, note, ok, out, pending, round, decision, member, at, diff,
 abandoned, by`를 갖는다. `ok`가 포인터라서 "아직 안 끝난 호출"과 "실패한 호출"이 구분된다.
 
 당시 결론은 **새 렌더러를 만들지 않는다** — 렌더 함수를 공유 자리로 옮기고 콘솔과 플러그인이
 같은 행을 받는 것 — 이었고, 문(`transcript`)은 그 절반이다. 나머지 절반은 뒤집혔다: 옮기려던
-집(`cmd/magi-web`)이 헐리게 되어 **행 짓기는 클라이언트 각자**가 됐다(위 「전사 — 문이 생겼다」).
+집(`clients/web/server`)이 헐리게 되어 **행 짓기는 클라이언트 각자**가 됐다(위 「전사 — 문이 생겼다」).
 공유되는 것은 코드가 아니라 어휘다.
 
 ### 스트리밍
@@ -591,8 +591,8 @@ abandoned, by`를 갖는다. `ok`가 포인터라서 "아직 안 끝난 호출"�
 영속 이벤트를 리플레이한 뒤 라이브로 잇는다), 콘솔도 첫 패스를 `lastSeq = -1`로 열어 백로그를 통째로
 받는다. 새 `transcript` 메서드가 지켜야 할 계약이 그것이다.
 
-폴링 간격은 콘솔이 실측한 값을 따른다. 전사는 400ms(`cmd/magi-web/main.go` 의 `server.events`), 명단은
-700ms(`cmd/magi-web/main.go` 의 `server.fleetStream`). 데몬이 미는 쪽이 되면 그 값은 데몬 안으로 들어가고 플러그인은 안
+폴링 간격은 콘솔이 실측한 값을 따른다. 전사는 400ms(`clients/web/server/main.go` 의 `server.events`), 명단은
+700ms(`clients/web/server/main.go` 의 `server.fleetStream`). 데몬이 미는 쪽이 되면 그 값은 데몬 안으로 들어가고 플러그인은 안
 갖는다.
 
 **창 하나에 스트림 하나.** 콘솔이 브라우저 연결 6개 한도에서 배운 규칙이다. IDE에는 그 한도가 없지만
@@ -724,7 +724,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 
 **권한 논증.** 어떤 MCP 서버를 돌릴지는 오퍼레이터가 정한다는 규칙이 세 자리에 일관되게 있다 —
 위의 `denyConfigSections`, `register_mcp` 의 capability 가 설치 시점 부여라는 것, 공유 콘솔의 `/mcp`
-쓰기 거부(`cmd/magi-web/mcp.go` 의 `server.mcpWrite`). 소켓은 0600 이라(`daemon.go` 의 `Listen`) 호출자가 곧 머신 주인이므로
+쓰기 거부(`clients/web/server/mcp.go` 의 `server.mcpWrite`). 소켓은 0600 이라(`daemon.go` 의 `Listen`) 호출자가 곧 머신 주인이므로
 이 문은 공유 안 된 콘솔과 같은 자리다. 한 칸 더 있다 — 콘솔이 거부하는 대상은 주석이
 *"a command line this machine will spawn"* 이라고 규정하는데, `mcp-attach` 가 받는 것은 URL이라
 **스폰이 없다.** 그래서 같은 등급이 아니라 한 칸 약하다.
@@ -843,7 +843,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 | 사실 — 컨텍스트·압축 | `ContextStateOf` | 새 문 |
 | 계획 | `PlanOf` | 새 문 |
 | 예약 | `jobs` → `daemon.go` 의 `Jobs` 의 `Queued` | **된다** |
-| 크론 | 콘솔은 **config** 에서 읽는다(`cmd/magi-web/cron.go` 의 `jobsFor`) | 데몬 문이 아니다 |
+| 크론 | 콘솔은 **config** 에서 읽는다(`clients/web/server/cron.go` 의 `jobsFor`) | 데몬 문이 아니다 |
 | 건넨 일 | `fleet.Handoffs` — 받은 쪽 전사들을 재생한다 | 새 문 |
 | 받은 지시 | 로그 파생 | 새 문 |
 | 하단 독 — 전사 | `transcript` | 새 문(§8) |
@@ -870,7 +870,7 @@ PID 나 창 번호를 넣으면 그 룰이 재시작마다 무효가 된다. 유
 
 **옮겨 적었다는 말은 적어 두면 언젠가 거짓이 되고, 거짓이 되는 순간에 아무도 안 운다.** 콘솔이
 "verbatim" 이라고 문서에 적어 둔 동안 그것을 지키는 것은 아무것도 없었고,
-`cmd/magi-web/palette_test.go` 의 `TestTheWebTakesItsColoursFromHere` 가 그 문장을 검사로 바꿨다.
+`clients/web/server/palette_test.go` 의 `TestTheWebTakesItsColoursFromHere` 가 그 문장을 검사로 바꿨다.
 이쪽도 같은 모양이다 — `PaletteTest.kt` 가 원본을 읽어, 팔레트가 `roles` 로 이름 대는 역할마다 값을
 맞댄다. **한 방향이다**: 여기 있는데 원본에 없거나 다르면 IDE 가 색을 지어낸 것이라 실패고,
 원본에만 있는 것(diff 배경, 문법 색)은 IDE 의 일이 아니라 통과다.
@@ -1037,7 +1037,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 
 **연결을 따로 판다.** 넷 다 모델 호출이라 초 단위로 걸리고, 락스텝 연결 하나를 물면 그동안 그
 연결의 다른 교환이 전부 선다. 콘솔이 같은 이유로 풀링된 연결 대신 `alone()` 을 쓴다
-(`cmd/magi-web/files.go` 의 완성 라우트들). 그래서 `Assist` 는 열려 있는 클라이언트가 아니라
+(`clients/web/server/files.go` 의 완성 라우트들). 그래서 `Assist` 는 열려 있는 클라이언트가 아니라
 **여는 방법**을 받는다.
 
 **대기 표시는 불리언이 아니라 센다.** 손으로 부른 요청과 디바운스가 부른 요청이 같은 표시를
@@ -1090,7 +1090,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   (`daemon.go` 의 `resume` 분기). 플러그인이 기억한 세션 id는 그 순간 낡는다. 따라갈지 붙박을지를 정해야 하고,
   이 문서는 **따라간다**로 둔다. 데몬이 지금 무슨 대화를 하는지가 정본이기 때문이다.
 - **느린 모델 호출이 연결을 물고 있는 것.** 콘솔은 이 때문에 풀링된 연결과 별도로 일회용 연결을
-  판다(`cmd/magi-web/main.go` 의 `server.alone`, `cmd/magi/attach.go` 의 `attached.sock`). 커밋 메시지 초안 같은 호출은 전사
+  판다(`clients/web/server/main.go` 의 `server.alone`, `cmd/magi/attach.go` 의 `attached.sock`). 커밋 메시지 초안 같은 호출은 전사
   스트림과 같은 연결을 쓰면 안 된다.
 - **워크스페이스 설정은 신뢰 경계다.** 클론해 온 저장소의 `.magi/config.toml`은 조일 수만 있고
   `.magi/plugins/`는 `magi --trust` 전에는 안 돈다(SECURITY.md §2). 플러그인이 IDE의 "신뢰된
@@ -1294,8 +1294,8 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
 `web-v*` 로 따로 가는 것과 같은 사유다. 버전은 **태그에서만** 온다 — `plugin.xml` 에 `<version>`
 을 두지 않는다. 한 숫자를 두 곳에서 말하면 한 곳을 잊는다.
 - **파생 대조.** 같은 세션에 대해 플러그인이 그린 전사와 콘솔이 그린 전사를 행 단위로 비교한다.
-  `web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
-  필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`web/ui/README.md` 의 "클린 아키텍처 규칙").
+  `clients/web/ui`가 `scratchpad/cssdiff*.mjs`로 두 콘솔을 수치 비교한 것과 같은 목적이고, 같은 이유로
+  필요하다. 눈으로는 비슷해 보였다는 사고가 거기서 네 건 잡혔다(`clients/web/ui/README.md` 의 "클린 아키텍처 규칙").
 
 ---
 
@@ -1471,7 +1471,7 @@ allow 룰로 보여주기 도구만 통과시키는 것이 지금 있는 답이�
   **왜인지 말해 주는 자리가 없다.**
 
   **닫는 것:** 지금은 못 읽는다. `status` 가 그 사실을 안 싣고, 콘솔은 소켓이 아니라 **config 를 직접**
-  읽는다(`cmd/magi-web/autocomplete.go`) — 같은 머신이라 그럴 수 있는 것이다. 플러그인이 같은 짓을
+  읽는다(`clients/web/server/autocomplete.go`) — 같은 머신이라 그럴 수 있는 것이다. 플러그인이 같은 짓을
   하면 **두 번째 표현**이 생기고, 프로젝트 오버라이드 병합까지 흉내내야 한다. 그래서 답은 `status`
   에 필드 하나이고 코어 결정이다. 전사 문만큼 크지 않아 그 요구서에 곁들일 만하다.
 

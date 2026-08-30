@@ -1080,7 +1080,7 @@ compact · set-model · set-permission · use-backend · reload-cron · hand 이
 `denyConfigSections`의 `mcp`는 grant가 있어도 못 만진다. `magi.register_mcp`는 예외처럼 보이지만
 `mcp` capability를 요구하고 **그 capability는 오퍼레이터가 그 플러그인을 설치하면서 준 것**이라
 여전히 설치 시점 결정이다. 콘솔의 `/mcp` 쓰기는 공유 상태에서 거부되고, 사유 문자열이
-`"changing which MCP servers this machine runs"`다(`cmd/magi-web/mcp.go`의 `refuseWhenShared`) —
+`"changing which MCP servers this machine runs"`다(`clients/web/server/mcp.go`의 `refuseWhenShared`) —
 목록 **읽기**는 열려 있고 바꾸기만 닫힌다.
 
 세 자리가 전부 "이 결정은 머신 주인의 것"으로 수렴한다. 그런데 **데몬 소켓은 0600이고 호출자가 곧

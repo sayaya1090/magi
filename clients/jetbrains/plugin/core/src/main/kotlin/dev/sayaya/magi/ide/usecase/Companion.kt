@@ -105,7 +105,7 @@ class Companion(
      * (`internal/app/query.go` 의 `ReadOnlyTool` — 워크스페이스 감옥·denyFloor 전부 코어 규칙).
      *
      * `out` 은 줄바꿈 목록이 **아니라 JSON 배열 한 줄**이다(리뷰 실측: glob 의 okJSON 을
-     * toolText 가 원문으로 통과 — 웹 정본도 배열로 파싱한다, `cmd/magi-web/files.go`). 첫 판은
+     * toolText 가 원문으로 통과 — 웹 정본도 배열로 파싱한다, `clients/web/server/files.go`). 첫 판은
      * 줄바꿈이라 적었고 시험이 그 허구를 축복했다 — 그린은 맞음의 증명이 아니다. 경로는
      * 워크스페이스-상대·슬래시. 파싱 실패·거절은 빈 목록.
      */

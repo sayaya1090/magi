@@ -12,7 +12,7 @@ import java.util.concurrent.atomic.AtomicInteger
  *
  * **연결을 따로 판다.** 이것들은 모델 호출이라 초 단위로 걸리는데, 락스텝 연결 하나를 물고
  * 있으면 그동안 그 연결의 다른 교환이 전부 선다. 콘솔이 같은 이유로 풀링된 연결 대신
- * `alone()` 을 쓴다(`cmd/magi-web/files.go` 의 완성 라우트들). 그래서 여기는 열려 있는
+ * `alone()` 을 쓴다(`clients/web/server/files.go` 의 완성 라우트들). 그래서 여기는 열려 있는
  * 클라이언트가 아니라 **여는 방법**을 받는다.
  */
 class Assist(
