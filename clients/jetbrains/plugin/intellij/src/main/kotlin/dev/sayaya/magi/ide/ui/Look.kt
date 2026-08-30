@@ -175,19 +175,24 @@ internal object Look {
      * 박는 대신(그건 이 집에서 반려된 손이다) **접히게** 만든다 — 그러면 폭을 정하는 것이
      * 글자가 아니라 판이 된다.
      */
-    fun note(text: String, hue: Color = faint): JBLabel = JBLabel().apply {
-        foreground = hue
-        setCopyable(true)
-        setAllowAutoWrapping(true)
-        // **글자는 맨 마지막에.** 접힘을 정하는 것은 플래그가 아니라 `white-space` 한 줄이고,
-        // 그 스타일시트는 `setCopyable`·`setText`·`setFont`·`setForeground` 에서만 다시 써진다 —
-        // `setAllowAutoWrapping` 은 필드 대입뿐이다. 생성자로 글자를 먼저 주면 `nowrap` 이 그대로
-        // 남고, copyable 라벨은 최소폭을 안쪽 에디터페인에 위임하므로 **최소폭이 선호폭과 같아진다**:
-        // 50px 이던 바닥이 1080px 이 되어 판이 그 아래로 못 좁혀진다(리뷰 R1 실측 — 넓어지려는
-        // 증상을 없애러 갔다가 못 좁히게 못박은 셈이었다). 플랫폼의 `ComponentPanelBuilder` 도
-        // `setCopyable → setAllowAutoWrapping → setText` 순서다.
-        setText(text)
-    }
+    fun note(text: String, hue: Color = faint): JComponent =
+        javax.swing.JTextArea(text).apply {
+            isEditable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            // **폭을 여기서 정한다.** 접히게만 만들었더니 판이 좁혀질 수는 있는데 처음 열릴 때의
+            // 폭은 그대로 글자 길이였다 — 사용자 실측: "가로로 쭉 늘어남". 접힘은 판이 이미
+            // 좁아졌을 때만 발동하니, 접히는 것과 좁게 서는 것은 다른 일이다.
+            //
+            // 스윙 라벨의 HTML 접힘 대신 텍스트 영역을 쓴다: `columns` 가 선호 폭을 **글자 수로**
+            // 못박고 높이는 줄 수로 자란다 — [narrow] 가 콤보에 쓰는 그 손이고, 이 집이 이미
+            // 받아들인 규칙이다("견본 값으로 폭 고정"). 덤으로 마크업이 아예 없으니 남의 글자가
+            // 태그로 먹힐 자리도 사라진다.
+            columns = 46
+            font = JBFont.small().deriveFont(Font.ITALIC)
+            foreground = hue
+        }
 
     /** 행들이 쌓이는 열. 뷰포트 폭을 따라가야 본문이 접힌다 — 전사에 가로 스크롤은 없다. */
     fun column(): JBPanel<JBPanel<*>> =

@@ -117,9 +117,33 @@
         <!-- Alt+Enter: the neighbours' inline-prompt seat, in our shape — attach the selection
              as a reference and start the question in the composer; the hands and the diff stay
              with the companion and its approval prompt. -->
+        <!--
+            Alt+Enter 에 서는 넷. 우클릭 메뉴와 **둘 다**인 이유는 사람이 다르게 오기 때문이다 —
+            우클릭은 마우스가 이미 가 있을 때, Alt+Enter 는 손이 자판에 있을 때. 다만 넷이 늘
+            같이 서지는 않는다: 각자 할 일이 있을 때만 선다(Intentions.kt 의 사유) — Alt+Enter 는
+            남들도 채우는 순위 목록이라, 우클릭에서 방금 없앤 소음을 여기 다시 만들지 않는다.
+        -->
         <intentionAction>
             <language/>
             <className>dev.sayaya.magi.ide.ui.AskAboutCodeIntention</className>
+            <bundleName>messages.MagiBundle</bundleName>
+            <categoryKey>intention.category.magi</categoryKey>
+        </intentionAction>
+        <intentionAction>
+            <language/>
+            <className>dev.sayaya.magi.ide.ui.AttachIntention</className>
+            <bundleName>messages.MagiBundle</bundleName>
+            <categoryKey>intention.category.magi</categoryKey>
+        </intentionAction>
+        <intentionAction>
+            <language/>
+            <className>dev.sayaya.magi.ide.ui.ReviewIntention</className>
+            <bundleName>messages.MagiBundle</bundleName>
+            <categoryKey>intention.category.magi</categoryKey>
+        </intentionAction>
+        <intentionAction>
+            <language/>
+            <className>dev.sayaya.magi.ide.ui.WroteThisIntention</className>
             <bundleName>messages.MagiBundle</bundleName>
             <categoryKey>intention.category.magi</categoryKey>
         </intentionAction>

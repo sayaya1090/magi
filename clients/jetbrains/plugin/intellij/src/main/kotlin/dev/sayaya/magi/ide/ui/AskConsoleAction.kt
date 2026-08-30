@@ -35,13 +35,33 @@ class AskConsoleAction : AnAction() {
         // 정하므로, 한 규칙으로 통일한다.
         e.presentation.text = MagiBundle.msg("action.$myId.text")
         e.presentation.description = MagiBundle.msg("action.$myId.description")
-        val sel = e.getData(CommonDataKeys.EDITOR)?.selectionModel?.selectedText
+        val sel = selection(e)
         e.presentation.isEnabledAndVisible = e.project != null && !sel.isNullOrBlank()
     }
 
+    /**
+     * 선택된 출력. **터미널은 제 에디터를 `CommonDataKeys.EDITOR` 로 안 내놓는다** — 제 키를
+     * 쓰고, 없을 때만 그리로 떨어진다(2026.1 `TerminalDataContextUtils` 바이트코드 실측).
+     * 그래서 이 액션이 터미널에서 **한 번도 안 보였다**: 그룹 등록은 맞았고 집는 손이 틀렸다.
+     * 사용자가 「선택하고도 안 보임」으로 잡았다.
+     *
+     * 터미널 쪽 손은 **없을 때만** 부른다 — 콘솔에서는 첫 줄이 답하므로, 터미널을 끈 IDE 에서는
+     * 저 클래스를 로드할 일이 아예 없다. 그래도 감싼다: 없는 플러그인의 클래스를 부르는 것은
+     * 예외가 아니라 `NoClassDefFoundError` 이고, 그것이 `update` 를 타고 나가면 남의 메뉴가
+     * 통째로 깨진다.
+     */
+    private fun selection(e: AnActionEvent): String? =
+        e.getData(CommonDataKeys.EDITOR)?.selectionModel?.selectedText ?: terminalSelection(e)
+
+    private fun terminalSelection(e: AnActionEvent): String? = runCatching {
+        with(org.jetbrains.plugins.terminal.block.util.TerminalDataContextUtils) {
+            e.terminalEditor?.selectionModel?.selectedText
+        }
+    }.getOrNull()
+
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val raw = e.getData(CommonDataKeys.EDITOR)?.selectionModel?.selectedText ?: return
+        val raw = selection(e) ?: return
         // 콘솔 선택은 수 MB 도 된다 — 데몬 스캐너 줄 한도에 끊기면 사유가 "연결 끊김"으로
         // 부정확해진다. 자르고 잘랐다고 말한다.
         // **번들에 안 둔다.** 이 두 글자는 어디에도 안 그려진다 — 전부 `say()` 의 페이로드,

@@ -94,7 +94,7 @@ class MagiToolWindow : ToolWindowFactory {
                         .getInstance().getNotificationGroup("magi")
                         .createNotification(t, com.intellij.notification.NotificationType.WARNING)
                         .notify(project)
-                    Workspace(project).onDaemon({ balloon(MagiBundle.msg("chat.sessions.failed", it)) }) { comp ->
+                    Workspace(project).onDaemonWithoutChat({ balloon(MagiBundle.msg("chat.sessions.failed", it)) }) { comp ->
                         // 침묵 금지(§0.5-7): 문이 없거나 목록이 비면 그 사실이 풍선으로 선다 —
                         // 눌렀는데 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다.
                         val sr = comp.sessions()
@@ -102,9 +102,9 @@ class MagiToolWindow : ToolWindowFactory {
                         if (rows == null) {
                             balloon(MagiBundle.msg("chat.sessions.nodoor") +
                                 (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""))
-                            return@onDaemon
+                            return@onDaemonWithoutChat
                         }
-                        if (rows.isEmpty()) { balloon(MagiBundle.msg("chat.sessions.none")); return@onDaemon }
+                        if (rows.isEmpty()) { balloon(MagiBundle.msg("chat.sessions.none")); return@onDaemonWithoutChat }
                         SwingUtilities.invokeLater {
                             // 라벨-역찾기(indexOf)는 같은 라벨 둘에서 오결합한다 — 행을 든 채 고른다.
                             class Pick(val row: SessionRow) {

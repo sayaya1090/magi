@@ -98,7 +98,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
         // 설명문은 **접히는 라벨**이다. 한 줄로 펴는 라벨은 제 글자 길이만큼 폭을 요구하고,
         // 그 요구가 설정 판 전체를 벌린다 — 드롭다운에서 이미 겪은 그 기전이다(가이드라인 G9).
         fun note(text: String) {
-            p.add(Look.note("<html><i>${Markup.text(text)}</i></html>"), GridBagConstraints().apply {
+            p.add(Look.note(text), GridBagConstraints().apply {
                 gridx = 1; gridy = y; weightx = 1.0; fill = GridBagConstraints.HORIZONTAL
                 anchor = GridBagConstraints.LINE_START; insets = Insets(0, 0, 8, 0)
             })

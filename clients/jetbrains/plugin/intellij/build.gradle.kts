@@ -47,6 +47,12 @@ dependencies {
         // 고친 파일의 **편집 화면 안에** 변경 막대를 세운다(SimpleLocalLineStatusTracker) —
         // diff 를 우리가 그리는 대신 IDE 것이 서게 한다. 이 클래스는 vcs.impl 모듈에 있다.
         bundledModule("intellij.platform.vcs.impl")
+        // 터미널 출력에서 「이 출력 설명」을 걸려면 그 판의 **에디터를 얻어야** 한다. 터미널은
+        // 제 에디터를 `CommonDataKeys.EDITOR` 로 안 내놓는다(제 키를 쓰고, 없을 때만 그리로
+        // 떨어진다 — 2026.1 `TerminalDataContextUtils` 바이트코드 실측). 그래서 우리 액션이
+        // 늘 안 보였다: 그룹 등록은 맞았고 **집는 손이 틀렸다.** 이 의존은 그 손을 컴파일에
+        // 걸기 위한 것이고, 런타임 결합은 그대로 선택이다(magi-terminal.xml).
+        bundledPlugin("org.jetbrains.plugins.terminal")
     }
 }
 

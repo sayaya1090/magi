@@ -130,8 +130,10 @@ class PlanToolWindow : ToolWindowFactory {
             if (painting) return@addActionListener
             val label = talk.selectedItem as? String ?: return@addActionListener
             val id = talkIds[label] ?: return@addActionListener
-            workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
-                if (comp.facts().session == id) return@onDaemon // 이미 그 대화다
+            workspace.onDaemonWithoutChat({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
+                // 「이미 그 대화다」는 지금 대화를 알 때만 답이 있다. 모르면 그냥 갈아탄다 —
+                // 모르는 것을 아는 척하지 않는다(대화가 없으면 「이미」도 없다).
+                if (comp.facts().session == id) return@onDaemonWithoutChat
                 val r = comp.resume(id)
                 // 갈아타기의 나머지 절반은 대화 창이 한다 — session.moved 를 보고 새 대화에 붙는다.
                 tell(if (r.ok) MagiBundle.msg("plan.session.moved", id.takeLast(6)) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
@@ -139,7 +141,7 @@ class PlanToolWindow : ToolWindowFactory {
         }
         val fresh = JButton(MagiBundle.msg("plan.new")).apply {
             addActionListener {
-                workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
+                workspace.onDaemonWithoutChat({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                     val r = comp.newSession()
                     // 턴이 도는 중이면 데몬이 거부한다 — 인터럽트 먼저라는 계약을 그대로 보인다.
                     tell(if (r.ok) MagiBundle.msg("plan.session.new", r.session?.takeLast(6) ?: "") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
@@ -382,7 +384,7 @@ class PlanToolWindow : ToolWindowFactory {
         }
 
         // 대화 목록은 매 틱이 아니라 펴는 순간과 동사 뒤에만 — 스토어 훑기를 3초마다 시키지 않는다.
-        fun loadTalks() = workspace.onDaemon({}) { comp ->
+        fun loadTalks() = workspace.onDaemonWithoutChat({}) { comp ->
             val sr = comp.sessions()
             // 모름≠없음의 갈림은 ok 다 — 빈 목록은 omitempty 로 통째 생략돼 null 로 온다
             // (cron 이 판 그 함정의 sessions 판). 문이 없을 때만 ok=false 다.
@@ -394,7 +396,7 @@ class PlanToolWindow : ToolWindowFactory {
                     talk.toolTipText = MagiBundle.msg("plan.models.nodoor") +
                         (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
                 }
-                return@onDaemon
+                return@onDaemonWithoutChat
             }
             val now = comp.facts().session
             SwingUtilities.invokeLater {

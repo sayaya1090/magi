@@ -69,29 +69,54 @@ internal class Workspace(private val project: Project) {
     fun onDaemon(trouble: (String) -> Unit, work: (Companion) -> Unit) = onDaemon(null, trouble, work)
 
     /**
+     * **대화를 안 고르고** 붙는다 — 목록·새 대화·갈아타기처럼 대화가 없어도 되는 일들.
+     *
+     * 이 자리가 없어서 「대화 탭 열기」가 정작 필요한 순간에 안 됐다(사용자 실측): 데몬이 아직
+     * 대화를 공표하지 않았으면 [onDaemon] 이 붙기도 전에 거절했고, 화면에는 **목록을 청했는데
+     * 대화 얘기**가 떴다 — "Could not get the chat list — magi has not said which chat it is in".
+     * 목록은 「어느 대화인지 모를 때」 부르는 문이다. 그것을 「어느 대화인지 알아야」 열게 두면
+     * 필요한 순간에만 잠긴다.
+     *
+     * 여기서 나온 컴패니언은 **대화 문을 못 쓴다** — `Companion.send` 가 사유를 실어 거절한다.
+     */
+    fun onDaemonWithoutChat(trouble: (String) -> Unit, work: (Companion) -> Unit) =
+        connect(null, needChat = false, trouble, work)
+
+    /**
      * [at] 를 주면 공표된 현재 대신 **그 대화**에 붙는다 — 고정 탭의 문이다. 기본형과 오버로드로
      * 가른 이유: 꼬리의 기본값 인자는 트레일링 람다를 빼앗는다(람다는 **마지막** 파라미터에만
      * 붙는다) — 실제로 `onDaemon({}) { … }` 호출 전부가 깨졌다.
      */
-    fun onDaemon(at: String?, trouble: (String) -> Unit, work: (Companion) -> Unit) {
+    fun onDaemon(at: String?, trouble: (String) -> Unit, work: (Companion) -> Unit) =
+        connect(at, needChat = true, trouble, work)
+
+    private fun connect(
+        at: String?,
+        needChat: Boolean,
+        trouble: (String) -> Unit,
+        work: (Companion) -> Unit,
+    ) {
         val sock = socket() ?: return trouble(MagiBundle.msg("chat.noworkspace"))
         ApplicationManager.getApplication().executeOnPooledThread {
             SocketPath.tooLong(sock)?.let { return@executeOnPooledThread trouble(it) }
             try {
-                // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로 고르면
-                // 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
-                // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는
-                // 자리를 모를 때의 규칙이지, 이름 댄 자리를 막는 규칙이 아니다(리뷰).
-                val sid = at ?: Published.of(sock)?.session
-                // 중괄호가 장식이 아니다. 이 줄이 한때 `if (…) return@executeOnPooledThread` 로
-                // 끝나고 `trouble(…)` 이 다음 줄에 더 들여쓴 채 있었는데, 코틀린은 그것을 **별개
-                // 문장**으로 읽는다. 그래서 정상일 때마다 "데몬 없음"을 말한 다음 이어서 성공했다 —
-                // 메시지가 정확히 거꾸로였다. 실측: 폴 46회 전부 trouble 과 ok 가 같은 밀리초에.
-                if (sid.isNullOrBlank()) {
-                    trouble(MagiBundle.msg("chat.nosession"))
-                    return@executeOnPooledThread
+                // **붙어 보고 나서 진단한다.** 전에는 공표 파일이 없으면 붙기도 전에
+                // 「어느 대화인지 안 알려 줬다」로 끝냈는데, 데몬이 아예 안 돌 때도 공표 파일은
+                // 없다 — 그래서 꺼져 있는 데몬이 늘 대화 공표 탓으로 보고됐다. 아래 catch 가
+                // 「안 켰다 / 죽었다 / 끊겼다」를 가려 주는데, 그 자리에 닿지를 못했다.
+                // 확인하기 전에 원인을 대지 않는다.
+                DaemonClient.connect(sock).use { client ->
+                    // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로
+                    // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
+                    // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는
+                    // 자리를 모를 때의 규칙이지, 이름 댄 자리를 막는 규칙이 아니다(리뷰).
+                    val sid = at ?: Published.of(sock)?.session
+                    if (needChat && sid.isNullOrBlank()) {
+                        trouble(MagiBundle.msg("chat.nosession"))
+                        return@use
+                    }
+                    work(Companion(client, sid.orEmpty()))
                 }
-                DaemonClient.connect(sock).use { work(Companion(it, at ?: sid)) }
             } catch (e: Exception) {
                 val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
                 trouble(

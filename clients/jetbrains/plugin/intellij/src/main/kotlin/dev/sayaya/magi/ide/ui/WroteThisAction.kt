@@ -36,36 +36,36 @@ class WroteThisAction : AnAction(), com.intellij.openapi.project.DumbAware {
         val project = e.project ?: return
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val file = e.getData(CommonDataKeys.VIRTUAL_FILE) ?: return
-        val line = editor.caretModel.logicalPosition.line + 1 // 사람이 세는 방식으로
+        say(e, report(project, file.path, editor.caretModel.logicalPosition.line + 1))
+    }
 
-        val view = MagiWindows.of(project)
-        if (view == null) {
-            say(e, "magi 창이 아직 안 열렸다 — 전사를 안 받고 있으니 답할 자료가 없다.")
-            return
-        }
-        val a = view.authors
-        val pinned = a.wrote(file.path, line)
-        if (pinned != null) {
-            val why = pinned.asked?.let { "\n요청: " + it } ?: "\n그 턴의 요청은 이 창이 받은 범위 밖이라 모른다."
-            say(e, "이 줄(" + line + ")은 #" + pinned.seq + " 의 " + pinned.tool + " 이 썼다." + why)
-            return
-        }
-        val all = a.of(file.path)
-        if (all.isEmpty()) {
-            say(e, "이 창이 받은 전사 안에서는 이 파일을 건드린 턴이 없다.\n(창이 열린 뒤의 것만 안다 — 그전은 모른다.)")
-            return
-        }
-        // 여기가 이 액션의 요점이다. 줄을 못 짚는다고 아무 말도 안 하는 것이 아니라, 아는 만큼을
-        // 내놓고 **모르는 자리를 이름 붙여 말한다.**
-        say(e, buildString {
-            append("이 줄은 못 짚는다 — 뒤에 온 편집이 줄을 밀어냈다.\n")
-            append("이 파일을 건드린 턴 " + all.size + "개:\n")
-            all.takeLast(6).forEach { t ->
-                append("  #" + t.seq + " " + t.tool)
-                t.lines?.let { append(" (" + it.first + "-" + it.last + " 당시)") }
-                append("  " + (t.asked?.take(70) ?: "요청 모름") + "\n")
+    companion object {
+        /**
+         * 「이 줄을 누가 썼나」에 답할 글. **아는 만큼을 내놓고 모르는 자리를 이름 붙여 말한다** —
+         * 줄을 못 짚는다고 아무 말도 안 하는 것이 이 액션이 없애려던 그 침묵이다.
+         *
+         * 액션과 인텐션(Alt+Enter)이 같은 글을 쓴다. 두 벌로 적으면 한쪽만 고치는 날이 온다.
+         */
+        fun report(project: com.intellij.openapi.project.Project, path: String, line: Int): String {
+            val view = MagiWindows.of(project) ?: return MagiBundle.msg("chat.wrote.nowindow")
+            val a = view.authors
+            a.wrote(path, line)?.let { pinned ->
+                val why = pinned.asked?.let { MagiBundle.msg("chat.wrote.asked", it) }
+                    ?: MagiBundle.msg("chat.wrote.noask")
+                return MagiBundle.msg("chat.wrote.pinned", line, pinned.seq, pinned.tool.orEmpty()) + why
             }
-        })
+            val all = a.of(path)
+            if (all.isEmpty()) return MagiBundle.msg("chat.wrote.untouched")
+            return buildString {
+                append(MagiBundle.msg("chat.wrote.moved")).append('\n')
+                append(MagiBundle.msg("chat.wrote.turns", all.size)).append('\n')
+                all.takeLast(6).forEach { t ->
+                    append("  #").append(t.seq).append(' ').append(t.tool)
+                    t.lines?.let { append(" (").append(it.first).append('-').append(it.last).append(')') }
+                    append("  ").append(t.asked?.take(70) ?: MagiBundle.msg("chat.wrote.unknownask")).append('\n')
+                }
+            }
+        }
     }
 
     private fun say(e: AnActionEvent, text: String) {
