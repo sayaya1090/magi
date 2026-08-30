@@ -15,6 +15,30 @@ import (
 
 // publishFake writes a daemon's record and optionally puts something behind the socket. serve nil
 // leaves a record with no listener at all — which is what a SIGKILL leaves behind.
+// leaveStaleSocket puts at path what a killed daemon leaves: a SOCKET nobody is listening on.
+//
+// Not a plain file, which is what these fixtures used to write with "the file SIGKILL leaves
+// behind" beside it. bind() makes a socket inode and a kill leaves it there, and magi has never
+// written a plain file at a socket path — so a fixture that writes one is standing in for
+// something that does not happen, and the daemon now refuses to touch it rather than tidy it
+// away. Go unlinks a unix socket on close unless told not to, which is why this is not two lines.
+func leaveStaleSocket(t *testing.T, path string) {
+	t.Helper()
+	addr, err := net.ResolveUnixAddr("unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.ListenUnix("unix", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln.SetUnlinkOnClose(false)
+	ln.Close()
+	if fi, serr := os.Lstat(path); serr != nil || fi.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("the fixture did not leave a socket at %s: %v", path, serr)
+	}
+}
+
 func publishFake(t *testing.T, dir, name, sid string, serve func(net.Listener)) string {
 	t.Helper()
 	sock := filepath.Join(dir, "daemon-"+name+".sock")
@@ -126,9 +150,7 @@ func TestListIsQuickWhenNobodyIsHome(t *testing.T) {
 	dir := shortDir(t)
 	for i := 0; i < 8; i++ {
 		sock := publishFake(t, dir, fmt.Sprintf("dead%d", i), fmt.Sprintf("s_%d", i), nil)
-		if err := os.WriteFile(sock, nil, 0o600); err != nil { // the file SIGKILL leaves behind
-			t.Fatal(err)
-		}
+		leaveStaleSocket(t, sock) // what SIGKILL actually leaves
 	}
 	start := time.Now()
 	list, err := List(dir)

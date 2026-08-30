@@ -43,11 +43,9 @@ func TestADeadCompanionIsNotGossiped(t *testing.T) {
 	}
 	t.Cleanup(unpubLive)
 
-	// And one that is what a kill leaves behind: a file with nobody listening.
+	// And one that is what a kill leaves behind: a socket with nobody listening.
 	deadSock := filepath.Join(cfg, "daemon-dead.sock")
-	if err := os.WriteFile(deadSock, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	leaveStaleSocket(t, deadSock)
 	unpubDead, err := Publish(deadSock, "/w/dead", "s_dead", Identity{Name: "ghost"})
 	if err != nil {
 		t.Fatal(err)
