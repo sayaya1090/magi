@@ -108,8 +108,11 @@ class AssistTest {
         f.close()
         assertTrue(f.seen.isEmpty())
         // 데몬이 없는 자리를 열게 해도 예외가 새지 않는다 — 타이핑 중에 뜨는 에러 상자는 도움이 아니다.
-        val dead = Assist({ DaemonClient.connect(java.nio.file.Paths.get("/nope/none.sock")) })
-        assertNull(dead.suggest("무엇"))
-        assertEquals(0, dead.inFlight, "실패해도 대기 카운트가 남으면 스피너가 안 꺼진다")
+        // 이름이 재는 것과 같아야 한다: 이 자리는 **없는 경로**(나간 것)이지 죽은 데몬이 아니다.
+        // 그 둘은 이 저장소가 방금 갈라 놓은 갈래이고, 한쪽 이름을 다른 쪽에 붙여 두면 다음
+        // 사람이 이 시험을 「죽은 데몬도 조용하다」의 근거로 읽는다.
+        val gone = Assist({ DaemonClient.connect(java.nio.file.Paths.get("/nope/none.sock")) })
+        assertNull(gone.suggest("무엇"))
+        assertEquals(0, gone.inFlight, "실패해도 대기 카운트가 남으면 스피너가 안 꺼진다")
     }
 }
