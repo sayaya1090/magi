@@ -189,6 +189,12 @@ transcript stream is not re-checked after a repolicy · unborn session state acc
 over a daemon's lifetime · notifyAnswers checks peer as "" — revisit the day handoffs go
 remote.) Outside-workspace content-root read-only is **deferred**
 (a 2026-08-29 user decision — the workspace stays the trust boundary). On the ledger:
+**a person's image has no door at all** — the submit method carries `text` and nothing else
+(daemon.Request has no image field, and the dispatch builds one text part), so an image arrives
+only as a TOOL RESULT today; a client cannot close this gap alone, and calling it "the UI was
+never built" sent one reader looking for a wire that is not there. The shape it wants is refs':
+paths the core resolves under the workspace jail with a byte cap, so the log carries a reference
+rather than the bytes and a replay still finds the picture. Also on the ledger:
 same-workspace contention (worktree isolation / file leases — the cheap half, a duplicate-workdir
 warning badge, is the plugin's, from roster material it already has).
 
