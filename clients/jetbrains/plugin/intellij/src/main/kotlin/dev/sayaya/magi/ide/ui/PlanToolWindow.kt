@@ -67,7 +67,7 @@ class PlanToolWindow : ToolWindowFactory {
         val said = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         // 낡음을 지금인 양 두지 않는다(결함 모양 #10 「낡았는데 자신만만」): 폴이 실패하면 판을
         // 지우는 대신 — 마지막 값은 여전히 값이다 — 그 사실을 말로 세운다.
-        val stale = JBLabel("데몬에 못 닿는다 — 아래는 마지막으로 읽힌 값이다").apply {
+        val stale = JBLabel(MagiBundle.msg("plan.stale")).apply {
             foreground = Look.warn
             border = JBUI.Borders.empty(2, 12)
             isVisible = false
@@ -106,56 +106,56 @@ class PlanToolWindow : ToolWindowFactory {
         model.addActionListener {
             if (painting) return@addActionListener
             val pick = model.selectedItem as? String ?: return@addActionListener
-            workspace.onDaemon({ tell("못 갔다: $it") }) { comp ->
+            workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                 val r = comp.setModel(pick)
-                tell(if (r.ok) "모델을 바꿨다: $pick" else "안 갔다: ${r.error ?: "사유 없음"}")
+                tell(if (r.ok) MagiBundle.msg("plan.model.changed", pick) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
         talk.addActionListener {
             if (painting) return@addActionListener
             val label = talk.selectedItem as? String ?: return@addActionListener
             val id = talkIds[label] ?: return@addActionListener
-            workspace.onDaemon({ tell("못 갔다: $it") }) { comp ->
+            workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                 if (comp.facts().session == id) return@onDaemon // 이미 그 대화다
                 val r = comp.resume(id)
                 // 갈아타기의 나머지 절반은 대화 창이 한다 — session.moved 를 보고 새 대화에 붙는다.
-                tell(if (r.ok) "옮겼다 → ${id.takeLast(6)}" else "안 갔다: ${r.error ?: "사유 없음"}")
+                tell(if (r.ok) MagiBundle.msg("plan.session.moved", id.takeLast(6)) else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
-        val fresh = JButton("새 대화").apply {
+        val fresh = JButton(MagiBundle.msg("plan.new")).apply {
             addActionListener {
-                workspace.onDaemon({ tell("못 갔다: $it") }) { comp ->
+                workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                     val r = comp.newSession()
                     // 턴이 도는 중이면 데몬이 거부한다 — 인터럽트 먼저라는 계약을 그대로 보인다.
-                    tell(if (r.ok) "새 대화: ${r.session?.takeLast(6) ?: ""}" else "안 갔다: ${r.error ?: "사유 없음"}")
+                    tell(if (r.ok) MagiBundle.msg("plan.session.new", r.session?.takeLast(6) ?: "") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
                     if (r.ok) refreshTalks() // 동사 뒤엔 목록이 낡았다 — 새 대화가 콤보에 서야 한다
                 }
             }
         }
-        val compact = JButton("대화 요약해 접기").apply {
+        val compact = JButton(MagiBundle.msg("plan.compact")).apply {
             addActionListener {
-                workspace.onDaemon({ tell("못 갔다: $it") }) { comp ->
+                workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { comp ->
                     val r = comp.compact()
-                    tell(if (r.ok) "접으라고 보냈다." else "안 갔다: ${r.error ?: "사유 없음"}")
+                    tell(if (r.ok) MagiBundle.msg("plan.compact.sent") else MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
                 }
             }
         }
 
         val controls = stack(0, 0).apply {
             add(stale)
-            add(Look.gutter("대기·작업"))
+            add(Look.gutter(MagiBundle.msg("plan.tasks")))
             add(work)
-            add(Look.gutter("변경"))
+            add(Look.gutter(MagiBundle.msg("plan.changes")))
             add(changes)
-            add(Look.gutter("플릿"))
+            add(Look.gutter(MagiBundle.msg("plan.companions")))
             add(fleet)
-            add(Look.gutter("건넨 일"))
+            add(Look.gutter(MagiBundle.msg("plan.requests")))
             add(askedPane)
-            add(Look.gutter("예약"))
+            add(Look.gutter(MagiBundle.msg("plan.schedule")))
             add(cronPane)
-            add(Look.gutter("계기"))
+            add(Look.gutter(MagiBundle.msg("plan.usage")))
             add(ctx)
-            add(Look.gutter("컨트롤"))
+            add(Look.gutter(MagiBundle.msg("plan.controls")))
             add(JBPanel<JBPanel<*>>(BorderLayout(8, 0)).apply {
                 border = JBUI.Borders.empty(2, 12)
                 add(talk, BorderLayout.CENTER)
@@ -187,14 +187,14 @@ class PlanToolWindow : ToolWindowFactory {
             val touched = MagiWindows.of(project)?.touchedFiles()
             if (touched == null) {
                 // 모름과 없음을 가른다 — 옆의 「계획」이 같은 자리에서 그렇게 한다.
-                changes.add(Look.aside("아직 모른다 — 대화 창이 전사에 붙으면 온다"))
+                changes.add(Look.aside(MagiBundle.msg("plan.plan.wait")))
             } else if (touched.isEmpty()) {
-                changes.add(Look.aside("이 대화의 변이 없음"))
+                changes.add(Look.aside(MagiBundle.msg("plan.changes.none")))
             } else touched.forEach { rel ->
                 changes.add(JBLabel(rel).apply {
                     border = JBUI.Borders.empty(1, 2)
                     cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
-                    toolTipText = "이 파일을 열고 편집 화면에 변경 막대를 세운다 — 막대를 누르면 IDE 인라인 diff"
+                    toolTipText = MagiBundle.msg("plan.changes.tip")
                     addMouseListener(object : java.awt.event.MouseAdapter() {
                         override fun mouseClicked(e: java.awt.event.MouseEvent) {
                             // diff 는 우리가 안 그린다: 파일을 열고 IDE 라인 트래커를 세우면
@@ -213,15 +213,15 @@ class PlanToolWindow : ToolWindowFactory {
             val v = MagiWindows.of(project)
             val steps = v?.plan()
             when {
-                steps == null -> plan.add(JBLabel("아직 모른다 — 대화 창이 전사에 붙으면 온다").apply {
+                steps == null -> plan.add(JBLabel(MagiBundle.msg("plan.plan.wait")).apply {
                     foreground = Look.faint
                 })
-                steps.isEmpty() -> plan.add(JBLabel("컴패니언이 계획을 안 세웠다").apply {
+                steps.isEmpty() -> plan.add(JBLabel(MagiBundle.msg("plan.plan.none")).apply {
                     foreground = Look.faint
                 })
                 else -> {
                     val done = steps.count { it.status == "completed" }
-                    plan.add(Look.gutter("계획  $done/${steps.size}"))
+                    plan.add(Look.gutter(MagiBundle.msg("plan.plan.count", done, steps.size)))
                     steps.forEach { t ->
                         val glyph = when (t.status) {
                             "completed" -> "✓"
@@ -236,8 +236,8 @@ class PlanToolWindow : ToolWindowFactory {
                 }
             }
             ctx.text = v?.contextNow()?.let {
-                "컨텍스트 ${"%.0f".format(it.percent)}%  (${k(it.tokens)}/${k(it.window)})"
-            } ?: "컨텍스트 — 아직 모른다(턴이 돌면 온다)"
+                MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
+            } ?: MagiBundle.msg("plan.usage.none")
             v?.modelNow()?.let { now ->
                 painting = true
                 if ((0 until model.itemCount).none { model.getItemAt(it) == now }) model.addItem(now)
@@ -264,19 +264,19 @@ class PlanToolWindow : ToolWindowFactory {
                 val bgRunning = j?.background.orEmpty().filter { it.running }
                 val kids = j?.children.orEmpty().filter { it.running }
                 // 모름과 없음을 가른다(§0-3, 리뷰 실측): 문 없는 옛 데몬은 jobs 가 아예 안 온다 —
-                // 그것을 "기다리는 것 없음"으로 그리면 화면이 모르는 것을 아는 척한다. 현행 데몬은
+                // 그것을 MagiBundle.msg("plan.tasks.none")으로 그리면 화면이 모르는 것을 아는 척한다. 현행 데몬은
                 // 빈 목록이라도 Jobs 를 실어 보낸다(answerJobs) — null 은 정확히 버전 스큐다.
                 if (j == null) {
-                    work.add(JBLabel("이 데몬엔 jobs 문이 없다" +
+                    work.add(JBLabel(MagiBundle.msg("plan.tasks.nodoor") +
                         (jr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
                 } else if (queued.isEmpty() && bgRunning.isEmpty() && kids.isEmpty()) {
-                    work.add(JBLabel("기다리는 것 없음").apply { foreground = Look.faint })
+                    work.add(JBLabel(MagiBundle.msg("plan.tasks.none")).apply { foreground = Look.faint })
                 }
                 queued.forEach { q ->
                     // 사람 말 먼저, 그다음 건넨 일 — 차례는 데몬이 정했고 여기는 그대로 그린다.
-                    val head = if (q.kind == "handover") "↤ ${q.from ?: "누군가"}: " else "· "
+                    val head = if (q.kind == "handover") "↤ ${q.from ?: MagiBundle.msg("plan.someone")}: " else "· "
                     work.add(JBLabel(head + (q.text?.lineSequence()?.firstOrNull() ?: "")).apply {
                         foreground = if (q.kind == "handover") Look.accent else Look.body
                     })
@@ -289,11 +289,11 @@ class PlanToolWindow : ToolWindowFactory {
                             BorderLayout.CENTER)
                         add(JButton("✕").apply {
                             margin = java.awt.Insets(0, 4, 0, 4)
-                            toolTipText = "이 잡을 세운다"
+                            toolTipText = MagiBundle.msg("plan.kill.tip")
                             addActionListener {
-                                workspace.onDaemon({ tell("못 갔다: $it") }) { c2 ->
+                                workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { c2 ->
                                     val kr = c2.killJob(b.id)
-                                    if (!kr.ok) tell("안 갔다: ${kr.error ?: "사유 없음"}")
+                                    if (!kr.ok) tell(MagiBundle.msg("common.notsent", kr.error ?: MagiBundle.msg("common.noreason")))
                                 }
                             }
                         }, BorderLayout.EAST)
@@ -305,11 +305,11 @@ class PlanToolWindow : ToolWindowFactory {
                 fleet.removeAll()
                 val rows = r.roster
                 when {
-                    rows == null -> fleet.add(JBLabel("이 데몬엔 roster 문이 없다" +
+                    rows == null -> fleet.add(JBLabel(MagiBundle.msg("plan.companions.nodoor") +
                         (r.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                    rows.isEmpty() -> fleet.add(JBLabel("이름 댈 컴패니언이 없다").apply { foreground = Look.faint })
+                    rows.isEmpty() -> fleet.add(JBLabel(MagiBundle.msg("plan.companions.none")).apply { foreground = Look.faint })
                     else -> {
                         // 동거 경고의 재료: 같은 workdir 에 둘 이상이 살면 그 사실이 행에 선다 —
                         // 동시 작업의 파일 충돌은 사용자가 이름 댄 고통이다.
@@ -342,16 +342,16 @@ class PlanToolWindow : ToolWindowFactory {
                 // 영영 버전 스큐 문구를 뒤집어쓴다. 문이 없으면 ok=false + error 가 온다.
                 val crons = if (cr.ok) cr.cron.orEmpty() else null
                 when {
-                    crons == null -> cronPane.add(JBLabel("이 데몬엔 cron 문이 없다" +
+                    crons == null -> cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.nodoor") +
                         (cr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                    crons.isEmpty() -> cronPane.add(JBLabel("예약이 없다").apply { foreground = Look.faint })
+                    crons.isEmpty() -> cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.none")).apply { foreground = Look.faint })
                     else -> crons.forEach { j ->
                         // 고장 행이 이 판이 표시해야 하는 행이다 — 다른 어떤 화면도 다시 언급 안 한다.
                         val line = when {
                             !j.problem.isNullOrBlank() -> "✗ ${j.name} — ${j.problem}"
-                            !j.enabled -> "○ ${j.name} — 꺼짐"
+                            !j.enabled -> MagiBundle.msg("plan.schedule.off", j.name)
                             else -> "◷ ${j.name}  ${j.next?.replace("T", " ")?.take(16) ?: ""}"
                         }
                         cronPane.add(JBLabel(line).apply {
@@ -376,7 +376,7 @@ class PlanToolWindow : ToolWindowFactory {
                 // 눌리게 그려놓고 아무 일도 안 나는 콤보를 두지 않는다(M3: 불가능한 동작은 비활성).
                 SwingUtilities.invokeLater {
                     talk.isEnabled = false
-                    talk.toolTipText = "이 데몬엔 sessions 문이 없다" +
+                    talk.toolTipText = MagiBundle.msg("plan.models.nodoor") +
                         (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
                 }
                 return@onDaemon
@@ -387,7 +387,7 @@ class PlanToolWindow : ToolWindowFactory {
                 talk.toolTipText = null
                 painting = true
                 talkIds = list.associate { row ->
-                    val label = (row.title?.take(40)?.ifBlank { null } ?: "(제목 없음)") + "  ·" + row.id.takeLast(6)
+                    val label = (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("plan.untitled")) + "  ·" + row.id.takeLast(6)
                     label to row.id
                 }
                 talk.removeAllItems()
@@ -405,10 +405,10 @@ class PlanToolWindow : ToolWindowFactory {
                 SwingUtilities.invokeLater {
                     model.isEnabled = false
                     model.toolTipText = when {
-                        !mr.ok -> "이 데몬엔 models 문이 없다" +
+                        !mr.ok -> MagiBundle.msg("plan.models.nodoor") +
                             (mr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")
-                        mr.why != null -> "모델 목록을 못 받았다 — " + mr.why!!.lineSequence().first().take(80)
-                        else -> "백엔드가 모델을 하나도 안 줬다"
+                        mr.why != null -> MagiBundle.msg("plan.models.failed") + mr.why!!.lineSequence().first().take(80)
+                        else -> MagiBundle.msg("plan.models.empty")
                     }
                 }
                 return@onDaemon
@@ -450,16 +450,16 @@ class PlanToolWindow : ToolWindowFactory {
                 }.getOrNull()
                 val h = r?.handover
                 when {
-                    r == null -> a.line = "…(연결을 못 했다)"
+                    r == null -> a.line = MagiBundle.msg("plan.empty.link")
                     !r.ok -> {
                         // 거절은 「대기를 끝내라」다(Taker.Handed 계약: 재시작·만료) — 연결
                         // 실패와 접으면 죽은 접수증을 영영 폴한다(리뷰 F4).
-                        a.over = true; a.line = "끝(안 온다): " + (r.error ?: "접수증을 모른다")
+                        a.over = true; a.line = MagiBundle.msg("plan.done") + (r.error ?: MagiBundle.msg("plan.requests.norecord"))
                     }
-                    h == null -> a.line = "…(답이 비었다)"
-                    h.over -> { a.over = true; a.line = "끝(안 온다): " + (h.news ?: "사유 없음") }
-                    h.done -> { a.over = true; a.line = "답: " + (h.answer?.lineSequence()?.firstOrNull() ?: "") }
-                    else -> a.line = "도는 중"
+                    h == null -> a.line = MagiBundle.msg("plan.empty.answer")
+                    h.over -> { a.over = true; a.line = MagiBundle.msg("plan.done") + (h.news ?: MagiBundle.msg("common.noreason")) }
+                    h.done -> { a.over = true; a.line = MagiBundle.msg("plan.requests.answer") + (h.answer?.lineSequence()?.firstOrNull() ?: "") }
+                    else -> a.line = MagiBundle.msg("plan.requests.working")
                 }
             }
             SwingUtilities.invokeLater {
@@ -468,7 +468,7 @@ class PlanToolWindow : ToolWindowFactory {
                 snap.forEach { a ->
                     val t = "→ ${a.who}: ${a.ask.lineSequence().first().take(40)} — ${a.line ?: "…"}"
                     askedPane.add(JBLabel(t).apply {
-                        foreground = if (a.over && "답:" !in (a.line ?: "")) Look.warn else Look.faint
+                        foreground = if (a.over && MagiBundle.msg("plan.requests.answer") !in (a.line ?: "")) Look.warn else Look.faint
                         border = JBUI.Borders.empty(1, 0)
                     })
                 }
@@ -478,13 +478,13 @@ class PlanToolWindow : ToolWindowFactory {
         askOf = { row ->
             val name = row.name?.takeIf { it.isNotBlank() } ?: row.socket.substringAfterLast('/')
             val q = com.intellij.openapi.ui.Messages.showInputDialog(
-                project, "「$name」에게 — 질문은 읽기 전용으로 돌고, 부탁은 그쪽 턴을 연다.",
-                "컴패니언에게", null,
+                project, MagiBundle.msg("plan.ask.body"),
+                MagiBundle.msg("plan.companions"), null,
             )
             if (!q.isNullOrBlank()) {
                 val looking = com.intellij.openapi.ui.Messages.showYesNoDialog(
-                    project, "질문(읽기 전용)으로 보낼까? 아니오 = 일로 건넨다.",
-                    "종류", "질문", "부탁", null,
+                    project, MagiBundle.msg("plan.ask.body"),
+                    MagiBundle.msg("plan.ask.kind"), MagiBundle.msg("plan.ask.question"), MagiBundle.msg("plan.ask.request"), null,
                 ) == com.intellij.openapi.ui.Messages.YES
                 ApplicationManager.getApplication().executeOnPooledThread {
                     val r = runCatching {
@@ -499,12 +499,12 @@ class PlanToolWindow : ToolWindowFactory {
                                 text = q, looking = looking,
                             ))
                         }
-                    }.getOrElse { e -> tell("못 건넸다 — ${e.message}"); return@executeOnPooledThread }
+                    }.getOrElse { e -> tell(MagiBundle.msg("plan.ask.failed", e.message ?: MagiBundle.msg("common.noreason"))); return@executeOnPooledThread }
                     if (r.ok && !r.out.isNullOrBlank()) {
                         asked.add(Asked(row.socket, name, r.out!!, q))
-                        tell("건넸다 → $name (접수증 ${r.out!!.takeLast(6)})")
+                        tell(MagiBundle.msg("plan.ask.sent", name, r.out!!.takeLast(6)))
                         paintAskedNow()
-                    } else tell("거절됐다 — ${r.error ?: "사유 없음"}") // mid-turn 등 — 거절도 답이다
+                    } else tell(MagiBundle.msg("plan.ask.refused", r.error ?: MagiBundle.msg("common.noreason"))) // mid-turn 등 — 거절도 답이다
                 }
             }
         }
@@ -543,15 +543,15 @@ class PlanToolWindow : ToolWindowFactory {
         val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
         val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
         val state = when (r.state) {
-            "waiting" -> " — 사람을 기다린다"
-            "working" -> " — 도는 중"
+            "waiting" -> MagiBundle.msg("plan.companions.waiting")
+            "working" -> MagiBundle.msg("plan.companions.working")
             "idle" -> ""
             else -> r.state?.let { " — $it" }.orEmpty()
         }
-        val load = if (r.waiting > 0) "  · 대기 ${r.waiting}" else ""
+        val load = if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting ?: 0) else ""
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
-        val seen = if (r.sighting) "  · ${r.ageSeconds}s 전 목격" else ""
-        val share = if (crowded) "  · ⚠동거" else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
+        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds ?: 0) else ""
+        val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
         return JBLabel(name + role + state + load + where + share + seen).apply {
             foreground = when {
                 r.sighting -> Look.muted

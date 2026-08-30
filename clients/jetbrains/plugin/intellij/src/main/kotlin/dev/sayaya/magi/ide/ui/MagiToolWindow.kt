@@ -71,13 +71,13 @@ class MagiToolWindow : ToolWindowFactory {
         // 세우기는 제목줄로 — 도는 턴을 세우는 손은 늘 보이되 앞자리를 안 먹는다(TUI 의 esc 와
         // 같은 급). 보내기 옆에 쌍둥이로 서 있던 동안 매 턴의 동사처럼 읽혔다(사용자 실측).
         toolWindow.setTitleActions(listOf(object : com.intellij.openapi.actionSystem.AnAction(
-            "세우기", "도는 턴을 세운다", com.intellij.icons.AllIcons.Actions.Suspend) {
+            MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 MagiWindows.of(project)?.interruptFromTitle()
             }
         }))
         toolWindow.setAdditionalGearActions(com.intellij.openapi.actionSystem.DefaultActionGroup(
-            object : com.intellij.openapi.actionSystem.AnAction("대화 탭 열기…") {
+            object : com.intellij.openapi.actionSystem.AnAction(MagiBundle.msg("chat.menu.tabs")) {
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                     // 목록은 sessions 문(최근 활동 순 — 차례는 데몬 것), 고르면 고정 탭이 선다.
                     // 탭 전환은 보기다 — resume 을 부르지 않는다(§4.2b).
@@ -85,7 +85,7 @@ class MagiToolWindow : ToolWindowFactory {
                         .getInstance().getNotificationGroup("magi")
                         .createNotification(t, com.intellij.notification.NotificationType.WARNING)
                         .notify(project)
-                    Workspace(project).onDaemon({ balloon("대화 목록을 못 받았다 — $it") }) { comp ->
+                    Workspace(project).onDaemon({ balloon(MagiBundle.msg("chat.sessions.failed", it)) }) { comp ->
                         // 침묵 금지(§0.5-7): 문이 없거나 목록이 비면 그 사실이 풍선으로 선다 —
                         // 눌렀는데 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다.
                         val sr = comp.sessions()
@@ -95,16 +95,16 @@ class MagiToolWindow : ToolWindowFactory {
                                 (sr.error?.let { " — " + it.lineSequence().first().take(80) } ?: ""))
                             return@onDaemon
                         }
-                        if (rows.isEmpty()) { balloon("열 대화가 없다"); return@onDaemon }
+                        if (rows.isEmpty()) { balloon(MagiBundle.msg("chat.sessions.none")); return@onDaemon }
                         SwingUtilities.invokeLater {
                             // 라벨-역찾기(indexOf)는 같은 라벨 둘에서 오결합한다 — 행을 든 채 고른다.
                             class Pick(val row: SessionRow) {
                                 override fun toString() =
-                                    (row.title?.take(40)?.ifBlank { null } ?: "(제목 없음)") + "  ·" + row.id.takeLast(6)
+                                    (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("chat.untitled")) + "  ·" + row.id.takeLast(6)
                             }
                             com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
                                 .createPopupChooserBuilder(rows.map { Pick(it) })
-                                .setTitle("어느 대화를 탭으로?")
+                                .setTitle(MagiBundle.msg("chat.pick.title"))
                                 .setItemChosenCallback { picked ->
                                     val sid = picked.row.id
                                     val tab = View(project, pinned = sid)
@@ -123,8 +123,8 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                 }
             },
-            view.verb("대화 요약해 접기 (compact)") { it.compact() },
-            view.verb("마지막 턴 되감기 (rewind)") { it.rewind(1) },
+            view.verb(MagiBundle.msg("chat.menu.compact")) { it.compact() },
+            view.verb(MagiBundle.msg("chat.menu.rewind")) { it.rewind(1) },
         ))
         MagiWindows.put(project, view)
         // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
@@ -133,8 +133,8 @@ class MagiToolWindow : ToolWindowFactory {
         // 먹었고(사용자 실측), 한 창에 이름 다른 글 두 벌을 두는 IDE 의 어휘가 탭이다 — Run 창이
         // 프로세스마다 탭이지 분할이 아니다(§0-5).
         val make = ContentFactory.getInstance()
-        toolWindow.contentManager.addContent(make.createContent(view.root, "대화", false))
-        toolWindow.contentManager.addContent(make.createContent(view.problemsView, "문제", false))
+        toolWindow.contentManager.addContent(make.createContent(view.root, MagiBundle.msg("chat.tab.chat"), false))
+        toolWindow.contentManager.addContent(make.createContent(view.problemsView, MagiBundle.msg("chat.tab.problems"), false))
         view.refresh()
     }
 
@@ -201,7 +201,7 @@ class MagiToolWindow : ToolWindowFactory {
          */
         // 초기값도 두-지표 규칙 안에 있다(리뷰: ●-muted 는 붙음-success 와 색만 달랐다) — 안
         // 붙은 상태의 글리프는 ◌ 다.
-        private val link = JBLabel("◌").apply { foreground = Look.muted; toolTipText = "아직 안 붙었다" }
+        private val link = JBLabel("◌").apply { foreground = Look.muted; toolTipText = MagiBundle.msg("chat.link.none") }
 
         // 상태는 **두 지표**로 말한다(M3 상호작용 규칙 — 웹 감사가 "연결 점 세 상태가 색만"으로
         // 정확히 이 자리를 잡았었다): 색 + 글리프. ● 붙음 · ↻ 다시 붙는 중 · ✕ 끊김 · ◌ 끊었다.
@@ -209,7 +209,7 @@ class MagiToolWindow : ToolWindowFactory {
         // 실으면 다음 스트림 이벤트가 손 정보를 지운다(결함 모양 「한 변수가 두 사실」).
         @Volatile private var linkColour: Color = Look.muted
         @Volatile private var linkGlyph: String = "◌"
-        @Volatile private var streamWhy: String = "아직 안 붙었다"
+        @Volatile private var streamWhy: String = MagiBundle.msg("chat.link.none")
         @Volatile private var handWhy: String? = null
         private fun mood(colour: Color, glyph: String, why: String) {
             linkColour = colour; linkGlyph = glyph; streamWhy = why
@@ -299,7 +299,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 비움은 여기가 아니라 [follow] 다 — 커서가 있으면 재생이 증분이라 비울 것이
                     // 없고, 그 판정(since==null)을 아는 것은 follow 뿐이다. 문장 행 대신 점.
                     everBegan = true
-                    mood(Look.success, "●", "전사에 붙어 있다")
+                    mood(Look.success, "●", MagiBundle.msg("chat.link.connected"))
                 }
 
                 override fun frame(e: LogEvent) {
@@ -376,7 +376,7 @@ class MagiToolWindow : ToolWindowFactory {
                  * 단추가 같이 죽는다.**
                  */
                 override fun ended(end: End) = when (end) {
-                    End.ByUs -> mood(Look.muted, "◌", "전사를 끊었다")
+                    End.ByUs -> mood(Look.muted, "◌", MagiBundle.msg("chat.link.closed"))
                     // 손의 소식도 여기서 거둔다(리뷰): 손은 저 데몬에 붙었던 것이라 스트림이 죽으면
                     // 그 사실도 죽는다 — 안 거두면 새 데몬이 모르는 "손: …"을 툴팁이 영구 주장한다.
                     End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", "전사가 끝났다(데몬이 닫았다) — 다시 붙는 중"); reattach() }
@@ -444,7 +444,7 @@ class MagiToolWindow : ToolWindowFactory {
                 isVisible = false // 물음이 올 때 [drawPrompt] 가 편다
             }
 
-            val send = JButton("보내기").apply { addActionListener { say() } }
+            val send = JButton(MagiBundle.msg("chat.send")).apply { addActionListener { say() } }
             val acts = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.RIGHT, 8, 8)).apply { add(link); add(send) }
             val writing = JBPanel<JBPanel<*>>(BorderLayout()).apply {
                 border = JBUI.Borders.empty(8, 12, 0, 8)
@@ -531,9 +531,9 @@ class MagiToolWindow : ToolWindowFactory {
             // 사유가 옛 문장 뒤에 조용히 숨는다.
             when (val a = follow()) {
                 Attach.Ok -> {}
-                Attach.NoWorkspace -> lost("이 프로젝트에 붙일 자리가 없다(작업공간 경로를 못 찾았다)")
-                Attach.NoSession -> lost("데몬이 아직 없다")
-                is Attach.Failed -> lost("데몬에 말을 못 걸었다: ${a.why}")
+                Attach.NoWorkspace -> lost(MagiBundle.msg("chat.noworkspace"))
+                Attach.NoSession -> lost(MagiBundle.msg("chat.nodaemon"))
+                is Attach.Failed -> lost(MagiBundle.msg("chat.unreachable", a.why))
             }
             // 손은 프로젝트당 하나 — 탭마다 세우면 루프백 포트가 탭 수만큼 열리고, 붙이기는
             // 고정 이름 충돌("jetbrains is already attached")로 탭마다 거절 공지가 선다(리뷰).
@@ -598,7 +598,7 @@ class MagiToolWindow : ToolWindowFactory {
                 if (r.ok) {
                     clearNotice()
                     handSaid("손: " + (r.tools?.joinToString(", ") ?: "붙음"))
-                } else report("손을 못 붙였다 — " + (r.error ?: "사유 없음"))
+                } else report("손을 못 붙였다 — " + (r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
 
@@ -839,11 +839,11 @@ class MagiToolWindow : ToolWindowFactory {
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {
-                        if (r.queued) add("⌛ 대기" to Look.faint)
-                        if (r.abandoned) add("✕ 버려짐" to Look.muted)
-                        if (r.pending) add("… 처리 중" to Look.faint)
+                        if (r.queued) add(MagiBundle.msg("chat.mark.queued") to Look.faint)
+                        if (r.abandoned) add(MagiBundle.msg("chat.mark.dropped") to Look.muted)
+                        if (r.pending) add(MagiBundle.msg("chat.mark.working") to Look.faint)
                     }
-                    val name = if (r.who == Who.User) "사람" else "magi"
+                    val name = if (r.who == Who.User) MagiBundle.msg("chat.who.you") else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
                     p.add(Look.rowHead(name, hue, marks, clock(r.at)), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
@@ -877,7 +877,7 @@ class MagiToolWindow : ToolWindowFactory {
                 Who.Tool -> {
                     val (glyph, hue) = when {
                         r.ok == null -> "…" to Look.faint
-                        r.note -> "✓ 읽을 것 있음" to Look.warn
+                        r.note -> MagiBundle.msg("chat.mark.readme") to Look.warn
                         r.ok == true -> "✓" to Look.success
                         else -> "✗" to Look.error
                     }
@@ -895,15 +895,15 @@ class MagiToolWindow : ToolWindowFactory {
                             // 지나간 편집도 같은 규칙으로 나란히-보기 — 인자의 old/new 원문 두 면,
                             // 앵커·replaceAll 은 제외(승인 diff 와 같은 「인자가 전체 진실」 집합).
                             toolDiffSides(r)?.let { (path2, old2, new2) ->
-                                add(JButton("diff 뷰어로").apply {
+                                add(JButton(MagiBundle.msg("chat.diff.view")).apply {
                                     addActionListener {
                                         val f = com.intellij.diff.DiffContentFactory.getInstance()
                                         com.intellij.diff.DiffManager.getInstance().showDiff(
                                             project,
                                             com.intellij.diff.requests.SimpleDiffRequest(
-                                                "magi 편집 — $path2",
+                                                MagiBundle.msg("chat.diff.title.edit", path2),
                                                 f.create(project, old2), f.create(project, new2),
-                                                "이전", "이후",
+                                                MagiBundle.msg("chat.diff.before"), MagiBundle.msg("chat.diff.after"),
                                             ),
                                         )
                                     }
@@ -919,14 +919,14 @@ class MagiToolWindow : ToolWindowFactory {
                     foldable(p, r)
                 }
                 Who.Council -> {
-                    val name = r.member ?: "합의"
+                    val name = r.member ?: MagiBundle.msg("chat.who.council")
                     val marks = buildList {
                         r.decision?.let {
                             add(it to when (it) { "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint })
                         }
                         // 본문은 실려 온 말(rationale)이고, 「아무도 안 줬다」는 사실은 마크로
                         // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.
-                        if (r.silent) add("⋯ 답 없음" to Look.faint)
+                        if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
                     p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, clock(r.at)),
                         BorderLayout.NORTH)
@@ -1025,11 +1025,11 @@ class MagiToolWindow : ToolWindowFactory {
                 com.intellij.diff.DiffManager.getInstance().showDiff(
                     project,
                     com.intellij.diff.requests.SimpleDiffRequest(
-                        "magi 승인 — ${sides.first}",
+                        MagiBundle.msg("chat.diff.title.ok", sides.first),
                         f.create(project, sides.second), f.create(project, sides.third),
                         // 이 창은 물음 순간의 스냅샷이다 — 답이 끝난 뒤에도 "지금"을 주장하면
                         // 거짓이 된다(비대칭-통지의 그 원칙).
-                        "물음 시점", "제안",
+                        MagiBundle.msg("chat.diff.asked"), MagiBundle.msg("chat.diff.proposed"),
                     ),
                 )
                 return
@@ -1261,7 +1261,7 @@ class MagiToolWindow : ToolWindowFactory {
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) =
                     onDaemon { comp ->
                         val r = act(comp)
-                        if (r.ok) clearNotice() else report("$label — 안 갔다: ${r.error ?: "사유 없음"}")
+                        if (r.ok) clearNotice() else report("$label — 안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
                     }
             }
 
@@ -1319,7 +1319,7 @@ class MagiToolWindow : ToolWindowFactory {
 
         private fun interrupt() = onDaemon { comp ->
             val r = comp.interrupt()
-            if (r.ok) clearNotice() else report("세우기 — 안 갔다: ${r.error ?: "사유 없음"}")
+            if (r.ok) clearNotice() else report("세우기 — 안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
         }
 
         private fun say() {
@@ -1345,7 +1345,7 @@ class MagiToolWindow : ToolWindowFactory {
                                 project,
                                 "다른 대화(${mine.session?.takeLast(6)})의 턴이 도는 중이다.\n" +
                                     "동시 턴은 파일 조작을 조정하지 않는다 — 그래도 이 대화에 보낼까?",
-                                "동시 턴 경고", "보낸다", "만다", null,
+                                MagiBundle.msg("chat.busy.title"), MagiBundle.msg("chat.busy.yes"), MagiBundle.msg("chat.busy.no"), null,
                             ) == com.intellij.openapi.ui.Messages.YES
                         }
                         if (!go) return@onDaemon
@@ -1367,7 +1367,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 조건부로 바꾸며 열린 구멍(리뷰 F3: 이 diff 가 처음 연 회귀).
                         scroll.verticalScrollBar.value = scroll.verticalScrollBar.maximum
                     }
-                } else report("안 갔다: ${r.error ?: "사유 없음"}")
+                } else report("안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
             }
         }
 
@@ -1406,9 +1406,9 @@ class MagiToolWindow : ToolWindowFactory {
                 prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$why</html>"
                 when (ask) {
                     is Ask.Permission -> {
-                        add("허용") { it.allow(w.id) }
-                        add("거부") { it.deny(w.id) }
-                        add("항상") { it.always(w.id) }
+                        add(MagiBundle.msg("chat.perm.allow")) { it.allow(w.id) }
+                        add(MagiBundle.msg("chat.perm.deny")) { it.deny(w.id) }
+                        add(MagiBundle.msg("chat.perm.always")) { it.always(w.id) }
                     }
                     is Ask.Choose -> ask.options.forEach { opt -> add(opt) { it.answer(w.id, opt) } }
                     // 사유는 위 문구에 실었다. 단추는 안 만든다 — 지어낸 단추는 틀린 답을 보낸다.
@@ -1420,7 +1420,7 @@ class MagiToolWindow : ToolWindowFactory {
                 // 판(± 변경 보기)은 사용자 실측으로 걷었다 — "왜 플러그인 안에서 조이노? 그
                 // 쪼끄만데서 다 보이겠나". diff 가 안 실린 승인은 위의 args 뷰가 그대로 선다.
                 if (!w.diff.isNullOrBlank()) {
-                    buttons.add(JButton("변경 보기").apply {
+                    buttons.add(JButton(MagiBundle.msg("chat.change.view")).apply {
                         addActionListener { openApprovalDiff(w) }
                     })
                 }
@@ -1437,7 +1437,7 @@ class MagiToolWindow : ToolWindowFactory {
          * `say()` 는 처음부터 "안 갔다"를 보고했다. 한 창이 한 동사는 보고하고 나머지 넷은 삼켰다.
          *
          * 이게 지금 더 중요한 이유. 코어의 거절 문구가 **없음의 사유를 못 가른다** — 종류가 어긋난
-         * 답도 "이미 답했거나 만료됐다"로 온다(`app.go` 의 `RespondQuestion`). 그 문장을 고치는 일이
+         * 답도 MagiBundle.msg("chat.gone")로 온다(`app.go` 의 `RespondQuestion`). 그 문장을 고치는 일이
          * 논의 중인데, 받는 쪽이 버리고 있으면 고쳐 봐야 아무 데도 안 닿는다.
          */
         private fun add(label: String, act: (Companion) -> Response) {
@@ -1447,7 +1447,7 @@ class MagiToolWindow : ToolWindowFactory {
                         val r = act(c)
                         // 성공이 지운다 — say 하나에만 걸면 만료 프롬프트의 "안 갔다"가 다음
                         // 성공 뒤에도 지금 것처럼 서 있는다(이 유닛이 없애려던 그 무늬).
-                        if (r.ok) clearNotice() else report("안 갔다: ${r.error ?: "사유 없음"}")
+                        if (r.ok) clearNotice() else report("안 갔다: ${r.error ?: MagiBundle.msg("common.noreason")}")
                         redraw(c)
                     }
                 }

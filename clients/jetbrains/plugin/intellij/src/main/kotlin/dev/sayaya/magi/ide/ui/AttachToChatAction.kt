@@ -24,6 +24,11 @@ class AttachToChatAction : AnAction() {
     /** 켜짐과 실행이 같은 조건을 본다 — 눌러서 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다
      *  ([LookOverAction] 의 그 규칙; diff 뷰어·콘솔처럼 파일 없는 에디터에서 걸렸다). */
     override fun update(e: AnActionEvent) {
+        // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
+        // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
+        // 정하므로, 한 규칙으로 통일한다.
+        e.presentation.text = MagiBundle.msg("action.magi.attach.text")
+        e.presentation.description = MagiBundle.msg("action.magi.attach.description")
         val editorReady = e.getData(CommonDataKeys.EDITOR) != null &&
             e.getData(CommonDataKeys.VIRTUAL_FILE) != null
         e.presentation.isEnabledAndVisible = e.project != null &&

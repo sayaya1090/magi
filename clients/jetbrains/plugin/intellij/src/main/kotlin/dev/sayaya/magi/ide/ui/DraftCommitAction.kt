@@ -25,6 +25,11 @@ class DraftCommitAction : AnAction() {
 
     /** 켜짐과 실행이 같은 증거를 본다 — 커밋 칸이 있어야 앉힐 곳이 있다. */
     override fun update(e: AnActionEvent) {
+        // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
+        // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
+        // 정하므로, 한 규칙으로 통일한다.
+        e.presentation.text = MagiBundle.msg("action.magi.draftCommit.text")
+        e.presentation.description = MagiBundle.msg("action.magi.draftCommit.description")
         e.presentation.isEnabledAndVisible =
             e.project != null && e.getData(VcsDataKeys.COMMIT_MESSAGE_CONTROL) != null
     }
