@@ -189,7 +189,17 @@ transcript stream is not re-checked after a repolicy · unborn session state acc
 over a daemon's lifetime · notifyAnswers checks peer as "" — revisit the day handoffs go
 remote.) Outside-workspace content-root read-only is **deferred**
 (a 2026-08-29 user decision — the workspace stays the trust boundary). On the ledger:
-**one door for the settings, not a door per setting** — the places that decide which model runs
+**the settings have one door (★shipped)** — `config-get` answers each whitelisted key with the
+value the engine will actually use, the layer that won it (env / companion / project / global),
+the file a write lands in, and when a change takes effect (a property of the KEY: this daemon
+reads some settings per turn and others once at boot). `config-set` writes one key with the
+comments kept and answers with the key READ BACK, and an empty tier writes it where the value
+came from, so changing an account-wide setting does not mint a workspace override of it.
+`profiles` lists what a profile-shaped key may point at, with the layer that defines each. Two
+refusals rather than two silences: a key outside the whitelist (the same file holds the
+permission posture and the hooks that run), and a key an untrusted workspace file cannot set —
+refused with the trust command named instead of written where the engine would ignore it. Still
+on the ledger: the places that decide which model runs
 are `model`, `[llm.profiles.*]`, `[autocomplete] code_profile`/`composer_profile`, `embed_model`,
 the `[subagents.*]` profiles and `[templates]`, and exactly two of them have a socket method
 (`set-model`, `use-backend`). The console reaches the rest by editing config.toml itself
