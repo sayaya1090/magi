@@ -19,12 +19,14 @@ private const val PATH = "messages.MagiBundle"
  * 번들은 `_ko` 를 안 실어서 그 함정에 안 걸린다. 그래서 `getNoFallbackControl` 을 쓴다 —
  * **이 기전은 `BundleFallbackTest` 가 잰다**(두 컨트롤의 차이로).
  *
- * ⚠ 아래 [locale] 의 언어팩 갈래는 **그 결함의 원인이 아니었다.** 한동안 원인을 「언어팩이
- * 없으면 IDE 로케일이 JVM 기본으로 샌다」로 적어 두었는데, 라이브 로그가 그것을 뒤집었다:
- * `magi: UI language = en (language pack: 3)` — 팩이 셋 있는 기계에서 IDE 로케일은 정확히
- * `en` 이었다. 즉 이 기계에서 그 갈래는 늘 `getLocale()` 쪽으로만 간다. 팩이 0개인 경우는
- * 아직 아무도 안 봤으므로 갈래를 지우지는 않되, **근거 없이 「실측」이라 적어 두지도 않는다.**
- * 로그 한 줄이 두 입력(고른 언어·팩 수)을 다 적으므로 다음 사람은 어느 갈래가 돌았는지 안다.
+ * **언어팩 갈래는 걷어냈다.** 한동안 원인을 「언어팩이 없으면 IDE 로케일이 JVM 기본으로
+ * 샌다」로 적고 `DynamicBundle.LanguageBundleEP` 로 갈래를 냈는데, 둘이 겹쳐 무너졌다:
+ *  - 라이브 로그가 전제를 뒤집었다 — `magi: UI language = en (language pack: 3)`. 팩이 셋
+ *    있는 기계에서 IDE 로케일은 정확히 `en` 이었다. 그 갈래는 여기서 한 번도 안 탔다.
+ *  - 그 EP 는 **내부 API** 라 `verifyPlugin` 이 릴리스 레인에서 막는다(실측: INTERNAL_API_USAGES).
+ *
+ * 근거가 없는 갈래를 내부 API 를 써 가며 세워 둘 이유가 없다. 지금은 IDE 가 정한 로케일을
+ * 그대로 쓰고, 새는 자리는 [bundle] 의 폴백 차단이 막는다 — 그쪽은 시험이 있다.
  *
  * 상속이 아니라 위임인 이유는 JetBrains 권장(플랫폼 규약 대조표 §2).
  */
@@ -32,20 +34,17 @@ object MagiBundle {
 
     private val delegate = DynamicBundle(MagiBundle::class.java, PATH)
 
-    /** 언어팩이 깔려 있으면 그 로케일, 아니면 영어. JVM 기본은 근거가 아니다. */
-    private fun locale(): Locale {
-        val pack = runCatching { DynamicBundle.LanguageBundleEP.EP_NAME.extensionList.isNotEmpty() }
-            .getOrDefault(false)
-        return if (pack) DynamicBundle.getLocale() else Locale.ENGLISH
-    }
+    /** IDE 가 정한 로케일. 못 물으면 영어 — 모를 때 JVM 기본으로 떨어지는 것이 이 결함이었다. */
+    private fun locale(): Locale =
+        runCatching { DynamicBundle.getLocale() }.getOrDefault(Locale.ENGLISH)
 
     private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(MagiBundle::class.java)
 
     private val bundle: ResourceBundle? by lazy {
         // 어느 언어로 그리는지 한 번 적어 둔다 — 「왜 한글이지?」를 화면만 보고는 못 가른다
         // (언어팩 때문인지 JVM 기본이 샌 것인지). 사용자가 그 질문을 실제로 했다.
-        LOG.info("magi: UI language = " + locale().language + " (language pack: " +
-            runCatching { DynamicBundle.LanguageBundleEP.EP_NAME.extensionList.size }.getOrDefault(-1) + ")")
+        LOG.info("magi: UI language = " + locale().toLanguageTag() +
+            " (IDE locale; JVM default is " + Locale.getDefault().toLanguageTag() + ")")
         runCatching {
             ResourceBundle.getBundle(
                 PATH, locale(), MagiBundle::class.java.classLoader,

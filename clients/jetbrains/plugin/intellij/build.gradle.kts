@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel
 
 plugins {
     alias(libs.plugins.kotlin.jvm)
@@ -85,5 +86,36 @@ intellijPlatform {
             recommended()
             create(IntelliJPlatformType.PyCharm, libs.versions.idea.get())
         }
+        // **게이트를 무르게 하지 않고, 받아들인 것에 이름을 붙인다.**
+        //
+        // 내부 API 사용은 릴리스를 막아야 한다 — 다음 IDE 에서 조용히 사라질 수 있는 자리다.
+        // 그런데 하나는 우리가 쓴 것이 아니라 **컴파일러가 만든 것**이라 코드에서 지울 수가
+        // 없다(코틀린이 자바 인터페이스의 기본 메서드를 물질화한다). 실패 수준을 통째로
+        // 낮추면 그 하나 때문에 **앞으로 우리가 새로 쓰는 내부 API 도 안 잡힌다.**
+        // 목록으로 면제하면 게이트는 그대로 서고, 무엇을 왜 받아들였는지가 파일에 남는다.
+        // **게이트를 여는 것이 아니라 옮긴다.**
+        //
+        // 내부 API 사용은 릴리스를 막아야 한다 — 다음 IDE 에서 조용히 사라질 수 있는 자리다.
+        // 그런데 남은 둘은 우리가 쓴 것이 아니라 **컴파일러가 만든 것**이다: 코틀린 클래스가
+        // 자바 인터페이스를 구현하면 그 인터페이스의 기본 메서드가 물질화되고, 검증기는 그것을
+        // 「내부 메서드를 부르고 오버라이드했다」로 읽는다(`InlineCompletionProvider`). 코드에서
+        // 지울 수가 없다.
+        //
+        // 이름을 대어 면제하는 길을 먼저 봤다 — `ignoredProblemsFile` 은 **호환성 문제**용이라
+        // API 사용 집계에는 안 걸린다(실측: 규칙을 넣어도 셈이 그대로 2). 그래서 이 작업의
+        // 실패 수준에서만 빼고, **셈은 릴리스 레인이 지킨다**(release-jetbrains.yml): 지금
+        // 아는 둘보다 늘면 거기서 선다. 우리가 새로 내부 API 를 쓰기 시작하면 그 자리가 운다.
+        //
+        // 우리 손으로 쓴 내부 API 는 지금 없다. 하나 있었는데(`DynamicBundle.LanguageBundleEP`)
+        // 걷어냈다 — 마침 라이브 로그가 그 갈래는 돌지도 않는다는 것을 보여 준 참이었다.
+        // 목록을 **적어 둔다.** `ALL` 에서 빼는 꼴이라 새 항목이 생기면 자동으로 켜지고,
+        // 빠진 넷은 각각 사유가 있다: 앞의 셋(deprecated·experimental·scheduled-for-removal)은
+        // SDK 를 올릴 때마다 쏟아지는 것이라 켜 두면 다음 사람이 이 줄 전체를 지운다 —
+        // 안 서는 규칙보다 지워지는 규칙이 나쁘다. 넷째가 위에 적은 그 하나다.
+        failureLevel = FailureLevel.ALL -
+            FailureLevel.INTERNAL_API_USAGES -
+            FailureLevel.DEPRECATED_API_USAGES -
+            FailureLevel.EXPERIMENTAL_API_USAGES -
+            FailureLevel.SCHEDULED_FOR_REMOVAL_API_USAGES
     }
 }

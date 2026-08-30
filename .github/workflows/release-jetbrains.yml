@@ -51,6 +51,44 @@ jobs:
         working-directory: clients/jetbrains/plugin
         run: ./gradlew :intellij:verifyPlugin --no-daemon
 
+      # 내부 API 사용은 **셈으로** 지킨다. 그 항목은 `verifyPlugin` 의 실패 수준에서 뺐는데,
+      # 남은 둘이 우리가 쓴 것이 아니라 코틀린이 자바 인터페이스의 기본 메서드를 물질화하면서
+      # 생긴 것이라 코드에서 지울 수가 없기 때문이다(사유는 intellij/build.gradle.kts).
+      #
+      # 그래서 게이트를 여는 대신 **여기로 옮긴다**: 지금 아는 둘보다 늘면 선다. 우리가 새로
+      # 내부 API 를 쓰기 시작하면 이 자리가 운다. 판정문을 읽는 것이지 보고서를 뒤지지 않는다 —
+      # 그 한 줄이 검증기가 스스로 세어 적는 수다.
+      - name: no new internal API
+        working-directory: clients/jetbrains/plugin
+        run: |
+          known=2
+          worst=0
+          shopt -s nullglob
+          files=(intellij/build/reports/pluginVerifier/*/plugins/*/*/verification-verdict.txt)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "판정문을 못 찾았다 — 이 검사가 아무것도 안 보고 있다" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            ide=$(echo "$f" | cut -d/ -f5)
+            # `grep -oE` 로 뽑는다. `sed` 의 `\?` 는 GNU 에서만 도는데, 그러면 이 검사가
+            # 리눅스에서는 재고 맥에서는 **0 을 읽고 통과**한다 — 오늘 이 저장소가 커널 차이로
+            # 같은 모양을 한 번 겪었다. 못 읽으면 통과가 아니라 실패다.
+            n=$(grep -oE '[0-9]+ usages? of internal API' "$f" | grep -oE '^[0-9]+' || true)
+            if [ -z "$n" ]; then
+              echo "$ide: 판정문에서 내부 API 셈을 못 읽었다 — 형식이 바뀌었을 수 있다" >&2
+              cat "$f" >&2
+              exit 1
+            fi
+            echo "$ide: internal=$n"
+            [ "$n" -gt "$worst" ] && worst=$n
+          done
+          if [ "$worst" -gt "$known" ]; then
+            echo "내부 API 사용이 $known 개에서 $worst 개로 늘었다." >&2
+            echo "우리가 새로 쓴 것이면 걷어낼 것. 컴파일러가 만든 것이면 known 을 올리고 사유를 적을 것." >&2
+            exit 1
+          fi
+
       - name: build
         working-directory: clients/jetbrains/plugin
         run: |
