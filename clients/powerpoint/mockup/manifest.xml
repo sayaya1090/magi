@@ -20,6 +20,12 @@
   3) <Action> 에 <TaskpaneId> 를 **안 적는다.** 긴 수명 런타임 아래에서는 작업창이 하나여야
      한다(부록 A). 아래 Control 에 그 이유를 다시 적어 뒀다.
 
+  4) 주소가 `https://127.0.0.1:3000` 이다 — `localhost` 가 아니다(§5.5 ⚠). 오리진은 문자열로
+     견줘지므로 페이지를 한 이름으로 내주고 전송이 다른 이름을 부르면 **자기 오리진이 아니게
+     되어** 혼합 콘텐츠와 LNA 가 그대로 돌아온다. 그래서 매니페스트·바인드 주소·인증서 SAN·
+     전송 URL 넷이 **같은 문자열**이어야 하고, 그것을 헬퍼의 `TestTheFourNamesAreOneString`
+     이 매 빌드에서 견준다. 처음엔 이 파일만 `localhost` 였고 그 시험이 여덟 자리를 짚었다.
+
   ⚠ 이 파일은 **한 번도 PowerPoint 에 붙여 본 적이 없다.** 이 머신에 PowerPoint 가 없다.
 -->
 <OfficeApp
@@ -35,12 +41,12 @@
   <DefaultLocale>ko-KR</DefaultLocale>
   <DisplayName DefaultValue="magi (목업)" />
   <Description DefaultValue="채팅창·인용·안내의 목업. 모델에는 아직 안 붙는다." />
-  <IconUrl DefaultValue="https://localhost:3000/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://localhost:3000/assets/icon-80.png" />
+  <IconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-80.png" />
   <SupportUrl DefaultValue="https://github.com/sayaya1090/magi" />
 
   <AppDomains>
-    <AppDomain>https://localhost:3000</AppDomain>
+    <AppDomain>https://127.0.0.1:3000</AppDomain>
   </AppDomains>
 
   <Hosts>
@@ -48,7 +54,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:3000/taskpane.html" />
+    <SourceLocation DefaultValue="https://127.0.0.1:3000/taskpane.html" />
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -115,12 +121,12 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://localhost:3000/assets/icon-16.png" />
-        <bt:Image id="Icon.32" DefaultValue="https://localhost:3000/assets/icon-32.png" />
-        <bt:Image id="Icon.80" DefaultValue="https://localhost:3000/assets/icon-80.png" />
+        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3000/assets/icon-16.png" />
+        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3000/assets/icon-32.png" />
+        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3000/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3000/taskpane.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://127.0.0.1:3000/taskpane.html" />
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/sayaya1090/magi" />
       </bt:Urls>
       <bt:ShortStrings>
