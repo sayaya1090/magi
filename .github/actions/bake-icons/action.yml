@@ -36,4 +36,6 @@ runs:
         # `*.java`를 훑어 `#i-<style>-<icon>`을 모은다 — 화면이 곧 매니페스트다). 굽히지
         # 않았으면 여기서 멈춘다: 아이콘 없는 사이트는 조용히 나가는 것보다 실패하는 편이 낫다.
         # ⚠ 이 스텝은 clients/web/server에서 돈다(working-directory) — 저장소 뿌리 기준이 아니다.
-        test -f ../../internal/webassets/sprite_gen.go
+        # 그래서 뿌리는 ../../../다. 콘솔이 clients/ 밑으로 옮겨오며 한 단계 깊어졌고, 이 줄만
+        # 옛 깊이로 남아 clients/internal/…을 보다가 죽었다 — 스프라이트는 멀쩡히 구워진 채로.
+        test -f ../../../internal/webassets/sprite_gen.go
