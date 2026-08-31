@@ -14,3 +14,15 @@ func listenOwnerOnly(path string) (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// secureSocket does nothing on Windows, and the nothing is the point.
+//
+// There is no mode to confirm: an AF_UNIX socket here inherits the containing directory's ACL, and
+// the config directory is the account's own. Asking anyway is not free — a chmod on the socket
+// answers "The file cannot be accessed by the system" and, when that error was fatal, `magi
+// --daemon` could not start on Windows at all. The failure named a permission bit; the cause was
+// the platform.
+//
+// So the confinement Windows actually gets is the directory's, and this says that rather than
+// pretending a mode was set.
+func secureSocket(string) error { return nil }
