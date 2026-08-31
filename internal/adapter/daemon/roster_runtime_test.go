@@ -23,9 +23,10 @@ type runtimeEngine struct{ controllingEngine }
 func (*runtimeEngine) ModelOf(session.SessionID) string { return "qwen3-coder" }
 
 func TestRosterRowCarriesTheRuntimeFacts(t *testing.T) {
-	// Not t.TempDir(): a unix socket path caps near 100 bytes on darwin and the test tempdir is
-	// most of that on its own.
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	// shortRoot, not t.TempDir(): a unix socket path caps near 100 bytes on darwin and the test
+	// tempdir is most of that on its own — and a hard-coded /tmp is what kept this whole package
+	// from running on Windows at all.
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
