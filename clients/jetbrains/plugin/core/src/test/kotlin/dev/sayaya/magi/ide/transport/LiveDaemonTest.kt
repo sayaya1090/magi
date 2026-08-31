@@ -21,16 +21,8 @@ import java.nio.file.Paths
  */
 class LiveDaemonTest {
 
-    private fun socket(): java.nio.file.Path? {
-        System.getenv("MAGI_IDE_PROBE_SOCK")?.takeIf { it.isNotBlank() }?.let { return Paths.get(it) }
-        // 뿌리는 세지 말고 찾는다. 칸수로 세던 판본이 있었는데 디렉토리가 ide/plugin 에서
-        // clients/jetbrains/plugin 으로 옮겨진 날 조용히 다른 곳을 가리켰다. 표지를 찾으면
-        // 다음 이동에서도 안 깨진다.
-        var d: java.nio.file.Path? = Paths.get("").toAbsolutePath()
-        while (d != null && !Files.exists(d.resolve("go.mod"))) d = d.parent
-        val repo = d ?: return null
-        return SocketPath.of(SocketPath.configDir(), repo)
-    }
+    /** 데몬을 찾는 일은 [dev.sayaya.magi.ide.live.Probe] 하나가 한다 — 두 벌이면 갈라진다. */
+    private fun socket(): java.nio.file.Path? = dev.sayaya.magi.ide.live.Probe.socket()
 
     @Test
     fun `한 줄에 객체 하나로 주고받고, 핸드셰이크를 읽는다`() {
