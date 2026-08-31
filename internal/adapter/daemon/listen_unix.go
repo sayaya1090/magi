@@ -5,6 +5,7 @@ package daemon
 import (
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"syscall"
 )
@@ -36,3 +37,10 @@ func listenOwnerOnly(path string) (net.Listener, error) {
 	}
 	return ln, nil
 }
+
+// secureSocket confirms the mode the umask flip above already set.
+//
+// Belt and braces: listenOwnerOnly creates it at 0600, and this costs one syscall to be sure. It is
+// separate from that function because the platform without a mode has nothing to confirm — see the
+// Windows half.
+func secureSocket(path string) error { return os.Chmod(path, 0o600) }

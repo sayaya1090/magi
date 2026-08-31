@@ -921,9 +921,15 @@ func Listen(path string) (*Daemon, error) {
 		release()
 		return nil, err
 	}
-	// Belt and braces, and the whole story on Windows, where there is no umask to set: a mode that
-	// is already right costs one syscall to confirm.
-	if err := os.Chmod(path, 0o600); err != nil {
+	// Belt and braces where the OS has a mode to confirm, and nothing where it does not — the
+	// difference is behind the same seam that opened the socket (secureSocket).
+	//
+	// This used to be an unconditional os.Chmod, and the comment beside it called Windows "the
+	// whole story" there. Windows answers a chmod on an AF_UNIX socket with "The file cannot be
+	// accessed by the system", so the line it was said to be for is the one it broke: `magi
+	// --daemon` could not start on Windows at all, and the error named a permission bit rather
+	// than the platform.
+	if err := secureSocket(path); err != nil {
 		ln.Close()
 		release()
 		return nil, fmt.Errorf("daemon: %w", err)
