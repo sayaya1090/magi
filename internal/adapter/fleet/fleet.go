@@ -1255,6 +1255,10 @@ func rosterInfo(r daemon.RosterRow) daemon.Info {
 		Name: r.Name, Role: r.Role, Team: r.Team, Hub: r.Hub, Can: r.Can, Does: r.Does,
 		Waiting: r.Waiting, Handling: r.Handling, PID: r.PID, Started: r.Started,
 		Host: r.Host, Addr: r.Addr, Account: r.Account, State: r.State, Version: r.Version,
+		// The runtime facts the roster row carries. Without these the light listing built from the
+		// roster door was a row with no approval mode, no backend and no model — which is what a
+		// console draws when it says nothing about them.
+		Permission: r.Permission, Backend: r.Backend, Model: r.Model, User: r.User,
 	}
 }
 

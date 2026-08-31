@@ -55,6 +55,15 @@ type RosterRow struct {
 	// to open its transcript without a second round trip. Local rows only: a sighting does not
 	// carry it, and a client could not subscribe across machines anyway.
 	Session string `json:"session,omitempty"`
+	// What the listing's own probe asked and got. These exist only in the running process — the
+	// approval mode it is on, the backend its requests go to, the model the conversation is on —
+	// and List already has them in hand when it builds this row. Dropping them here made a console
+	// that reads the roster door (which is every console: the light listing prefers it) draw those
+	// fields empty and then offer to change values it could not show.
+	Permission string `json:"permission,omitempty"`
+	Backend    string `json:"backend,omitempty"`
+	Model      string `json:"model,omitempty"`
+	User       string `json:"user,omitempty"`
 	// Live reports that a dial just proved somebody is listening. Local rows only; a sighting's
 	// liveness is exactly what nobody here can check, which is what Sighting is for.
 	Live bool `json:"live,omitempty"`
@@ -81,6 +90,7 @@ func buildRoster(home string, now time.Time) []RosterRow {
 				Waiting: in.Waiting, Handling: in.Handling,
 				PID: in.PID, Addr: in.Addr, Started: in.Started,
 				Session: in.Session, Live: in.Live,
+				Permission: in.Permission, Backend: in.Backend, Model: in.Model, User: in.User,
 			})
 		}
 	}
