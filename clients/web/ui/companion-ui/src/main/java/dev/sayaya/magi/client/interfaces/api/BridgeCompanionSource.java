@@ -82,7 +82,7 @@ public class BridgeCompanionSource implements CompanionSource {
 
     @Override
     public void providers(Consumer<Object> cb) {
-        Console.fetchList("/providers", cb::accept);
+        Console.providers(cb::accept);
     }
 
     @Override

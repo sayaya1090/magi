@@ -38,6 +38,30 @@ public final class Console {
         return new elemental2.dom.EventSource(path);
     }
 
+    // 이 콘솔이 볼 수 있는 백엔드들. 컴패니언과 무관한 <b>콘솔 하나의 사실</b>이라 한 번만 묻고,
+    // 묻는 중이면 같이 기다린다 — 두 모듈(컴패니언 상세와 설정)이 각자 물었고, 상세는 명단이
+    // 흐를 때마다 다시 그려지므로 같은 목록을 한 화면에서 여러 번 물어 오던 자리다.
+    //
+    // 잊지 않는다: 이 목록은 사람이 설정을 고쳐야 바뀌고, 그때는 화면을 다시 여는 것이 그
+    // 사람의 다음 동작이다. 살면서 바뀌는 값을 이 자리에 두면 안 된다.
+    private static Object providersMemo = null;
+    private static boolean providersAsking = false;
+    private static final java.util.List<ListHandler> providersWaiting = new java.util.ArrayList<>();
+
+    public static void providers(ListHandler h) {
+        if (providersMemo != null) { h.take(providersMemo); return; }
+        providersWaiting.add(h);
+        if (providersAsking) return;
+        providersAsking = true;
+        fetchList("/providers", got -> {
+            providersAsking = false;
+            if (got != null) providersMemo = got;
+            java.util.List<ListHandler> waiting = new java.util.ArrayList<>(providersWaiting);
+            providersWaiting.clear();
+            for (ListHandler w : waiting) w.take(got);
+        });
+    }
+
     public static void fetchList(String path, ListHandler h) {
         raw(path, null)
                 .then(r -> {

@@ -117,3 +117,22 @@ func TestListLightFallbackAndHonestError(t *testing.T) {
 		t.Skip("this filesystem lets us read an unreadable directory (root?)")
 	}
 }
+
+// The light list carries what the probe already asked for.
+//
+// daemon.List dials every companion to learn whether it is alive and what it is doing, and the
+// same answer holds the approval mode, the backend and the model. Dropping them here made a
+// console reading this list draw those fields empty — and then offer to change a value it could
+// not show. Nothing extra is fetched to fix it; the answer was already in hand.
+func TestTheLightRowCarriesWhatTheProbeAlreadyAsked(t *testing.T) {
+	in := daemonInfo("idle", true)
+	in.Permission = "auto"
+	in.Backend = "http://localhost:11434/v1"
+	in.Model = "qwen3-coder"
+	in.User = "sayaya"
+	got := lightRow(in)
+	if got.Permission != "auto" || got.Backend != "http://localhost:11434/v1" ||
+		got.Model != "qwen3-coder" || got.User != "sayaya" {
+		t.Fatalf("the row dropped what the probe fetched: %+v", got)
+	}
+}

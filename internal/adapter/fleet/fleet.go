@@ -1328,6 +1328,11 @@ func lightRow(in daemon.Info) Agent {
 		Host: in.Host, Addr: in.Addr, Instance: instanceOf(in.Account, in.Host), Trust: TrustOwn,
 		Version: in.Version, Does: in.Does, Can: in.Can,
 		Waiting: in.Waiting, Handling: in.Handling, Live: in.Live,
+		// What the probe already asked for. daemon.List dials every companion to learn whether it
+		// is alive and what it is doing, and the same answer carries the approval mode, the
+		// backend and the model — dropping them here made a console on the light list draw those
+		// fields empty and offer to change values it could not show.
+		Permission: in.Permission, Backend: in.Backend, User: in.User, Model: in.Model,
 		Idle: -1,
 	}
 	switch {

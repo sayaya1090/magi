@@ -452,6 +452,9 @@ public class DetailElement {
                     if (why != null && !why.isEmpty()) return;
                     modelWant = "";
                     modelBlank = true;
+                    // 이 데몬이 답할 이름이 달라졌다 — 이전 백엔드의 목록을 캐시에 둔 채로
+                    // 두면 갈아탄 뒤에도 옛 카탈로그가 고르개에 선다.
+                    store.forgetModels();
                     // 다음 폴은 3초 뒤다 — 그때까지 이전 백엔드의 모델을 이 백엔드의 것인 양
                     // 세워 두지 않는다.
                     Js.asPropertyMap(modelSel).set("value", "");

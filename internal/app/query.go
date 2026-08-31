@@ -107,6 +107,15 @@ func (a *App) NewSince(ctx context.Context, sid session.SessionID, seq int64) (l
 	return evs[len(evs)-1].Seq, true, nil
 }
 
+// ModelOf answers which model a conversation is on, for daemon.ModelNamer.
+//
+// From the session's own record, which sessionInfo keeps and rebuilds from the log when this
+// process has not seen the session before — the same answer the model select repaints from, so a
+// switch that landed reads back as landed.
+func (a *App) ModelOf(sid session.SessionID) string {
+	return a.sessionInfo(context.Background(), sid).Model.Model
+}
+
 // SessionState returns a resumed session's reconstructed messages and the
 // highest seq seen (so a UI can subscribe for only newer events).
 func (a *App) SessionState(ctx context.Context, sid session.SessionID) ([]session.Message, int64, error) {

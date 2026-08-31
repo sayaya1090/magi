@@ -40,7 +40,7 @@ public class FetchSettingsSource implements SettingsSource {
 
     @Override
     public void providers(Consumer<Object> list) {
-        Console.fetchList("/providers", list::accept);
+        Console.providers(list::accept);
     }
 
     @Override

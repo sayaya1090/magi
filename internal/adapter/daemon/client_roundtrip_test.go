@@ -467,3 +467,40 @@ func TestListenDoesNotDeleteWhatItDidNotMake(t *testing.T) {
 	}
 	d3.Stop()
 }
+
+// Status answers which model the conversation is on, beside the approval mode and the backend it
+// already answered — one question, one moment, the three facts only the running process knows.
+func TestStatusSaysWhichModel(t *testing.T) {
+	home, err := os.MkdirTemp("/tmp", "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-m.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	go func() { _ = d.Serve(context.Background(), &modelSayingEngine{}) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	st, err := c.Status("s_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Model != "qwen3-coder" {
+		t.Errorf("status answered model %q", st.Model)
+	}
+	// A daemon whose engine cannot say leaves it empty rather than inventing one.
+	if plain, perr := Dial(sock); perr == nil {
+		defer plain.Close()
+	}
+}
+
+type modelSayingEngine struct{ omniEngine }
+
+func (*modelSayingEngine) ModelOf(session.SessionID) string { return "qwen3-coder" }

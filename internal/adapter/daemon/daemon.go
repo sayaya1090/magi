@@ -222,6 +222,17 @@ type UserNamer interface {
 	UserLabel(sid session.SessionID) string
 }
 
+// ModelNamer answers which model a conversation is on right now.
+//
+// Beside Permission and Backend in the status answer, because it is the same kind of fact and the
+// same reader wants all three: a screen that offers to change the model has to show what it is
+// changing from. It rode nothing before — the fleet listing filled it by opening the workspace's
+// session metadata, which the LIGHT listing refuses to do, so a console reading the light list
+// drew an empty model field and could not say what the companion was on.
+type ModelNamer interface {
+	ModelOf(sid session.SessionID) string
+}
+
 // Controller is the part of an engine that CHANGES HOW IT RUNS, rather than what it is doing now.
 //
 // Optional, and asserted for at dispatch: an engine that does not implement it refuses these and
@@ -633,6 +644,9 @@ type Response struct {
 	// Backend is the base URL its requests go to now — a runtime fact for the same reason
 	// Permission is one, and read by the console to say which provider is in use.
 	Backend string `json:"backend,omitempty"`
+	// Model is the model this conversation is on, on the status answer for the reason Permission
+	// is there: it changes at runtime, and a viewer that offers to change it must show what from.
+	Model string `json:"model,omitempty"`
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
@@ -1626,6 +1640,9 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 	if n, ok := eng.(UserNamer); ok {
 		resp.User = n.UserLabel(session.SessionID(req.Session))
 	}
+	if m, ok := eng.(ModelNamer); ok {
+		resp.Model = m.ModelOf(session.SessionID(req.Session))
+	}
 	return resp
 }
 
@@ -2613,6 +2630,9 @@ type Status struct {
 	Backend string
 	// User is what it calls the person, when a plugin has renamed them.
 	User string
+	// Model is the model the conversation is on now — the same kind of runtime fact as the two
+	// above, and the one a model select has to show before it offers to change it.
+	Model string
 }
 
 // Jobs asks what is running beside the turn. An empty answer and no error is the ordinary case:
@@ -2767,7 +2787,7 @@ func (c *Client) Status(sid string) (Status, error) {
 		return Status{}, err
 	}
 	return Status{Asking: resp.Waiting, Doing: resp.Doing, Permission: resp.Permission,
-		Backend: resp.Backend, User: resp.User}, nil
+		Backend: resp.Backend, User: resp.User, Model: resp.Model}, nil
 }
 
 // Rewind, Compact, SetModel and SetPermission change how the daemon runs, which is why they cross:
@@ -3277,6 +3297,10 @@ type Info struct {
 	// User is what this companion calls the person, when a plugin has renamed them. Not in the
 	// file, for the same reason: a plugin can set it on any turn.
 	User string `json:"-"`
+	// Model is the model it is on now, here for the same reason and read from the same probe: the
+	// listing already asks each companion how it is doing, and this rides that answer rather than
+	// costing a second question or a walk through the workspace's session metadata.
+	Model string `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.
@@ -3570,7 +3594,7 @@ func Probe(out []Info) []Info {
 			if st, serr := cl.Status(sid); serr == nil {
 				out[i].Asking, out[i].Doing = st.Asking, st.Doing
 				out[i].Permission, out[i].User = st.Permission, st.User
-				out[i].Backend = st.Backend
+				out[i].Backend, out[i].Model = st.Backend, st.Model
 			}
 			// A daemon too old to know the method answers with an error naming what it does
 			// accept. That is a version skew, not a fault: it is alive, and everything else about

@@ -151,8 +151,11 @@ public class CompanionStore implements CompanionSource.Listener {
     // 그리는 것은 늘 <b>데몬이 말한 것</b>이다: 여기서는 청하고, 다음 명단 프레임이 답을 그린다.
     // 그래서 거부된 바꿈은 눈에 띄게 되돌아온다(운영이 이 세 컨트롤에 세운 규칙).
 
-    private Object modelNames = null;
-    private String modelsFor = null;
+    // 컴패니언마다 하나씩 기억한다. 마지막 하나만 들고 있으면 A→B→A로 오갈 때마다 A의 목록을
+    // 다시 물어야 했고, 명단이 흐를 때마다 상세가 다시 그려지므로 그 왕복이 화면 하나에서
+    // 여러 번 났다. 목록은 그 데몬의 사실이고 자주 바뀌지 않는다.
+    private final java.util.Map<String, Object> modelNamesBySocket = new java.util.HashMap<>();
+    private final java.util.Set<String> modelsAsking = new java.util.HashSet<>();
 
     /** 이 컴패니언이 닿는 모델 이름들 — 화면당 한 번만 묻는다(컴패니언이 바뀌면 다시). */
     // ── 오른쪽 판이 읽는 나머지 ─────────────────────────────────────────────
@@ -182,9 +185,21 @@ public class CompanionStore implements CompanionSource.Listener {
 
     public void models(Consumer<Object> cb) {
         if (ctx == null) { cb.accept(null); return; }
-        if (modelNames != null && ctx.socket.equals(modelsFor)) { cb.accept(modelNames); return; }
-        modelsFor = ctx.socket;
-        source.models(ctx, got -> { modelNames = got; cb.accept(got); });
+        final String who = ctx.socket;
+        if (modelNamesBySocket.containsKey(who)) { cb.accept(modelNamesBySocket.get(who)); return; }
+        // 같은 컴패니언에 대해 두 번 묻지 않는다: 답이 오기 전에 다시 그려지면 두 번째 요청이
+        // 나가고, 그 답이 첫 답을 덮어쓰며 고르개가 다시 세워졌다.
+        if (!modelsAsking.add(who)) { cb.accept(modelNamesBySocket.get(who)); return; }
+        source.models(ctx, got -> {
+            modelsAsking.remove(who);
+            modelNamesBySocket.put(who, got);
+            cb.accept(got);
+        });
+    }
+
+    /** 이 컴패니언의 모델 목록을 잊는다 — 백엔드를 갈아탄 뒤 그 데몬이 답할 이름이 달라진다. */
+    public void forgetModels() {
+        if (ctx != null) modelNamesBySocket.remove(ctx.socket);
     }
 
     private Object providerList = null;
@@ -192,8 +207,24 @@ public class CompanionStore implements CompanionSource.Listener {
     /** 이 콘솔이 볼 수 있는 백엔드들 — 화면당 한 번 묻는다(콘솔의 사실이라 컴패니언과 무관). */
     public void providers(Consumer<Object> cb) {
         if (providerList != null) { cb.accept(providerList); return; }
-        source.providers(got -> { providerList = got; cb.accept(got); });
+        if (!providersAsking) {
+            providersAsking = true;
+            source.providers(got -> {
+                providersAsking = false;
+                providerList = got;
+                for (Consumer<Object> w : providersWaiting) w.accept(got);
+                providersWaiting.clear();
+                cb.accept(got);
+            });
+            return;
+        }
+        // 이미 묻고 있으면 답을 같이 받는다. 화면이 여러 번 그려지는 동안 같은 목록을 여러 번
+        // 물어 오던 자리다 — 콘솔 하나의 사실이라 한 번이면 된다.
+        providersWaiting.add(cb);
     }
+
+    private boolean providersAsking = false;
+    private final java.util.List<Consumer<Object>> providersWaiting = new java.util.ArrayList<>();
 
     /** 이 컴패니언을 그 백엔드로 — 주소를 보낸다. */
     public void useProvider(String base, Consumer<String> why) {
