@@ -44,6 +44,19 @@ func TestADetachedDaemonOutlivesItsStarter(t *testing.T) {
 	}
 	t.Cleanup(func() { os.RemoveAll(ws) })
 
+	// This test starts a process that is BUILT to outlive the thing that started it, which is
+	// exactly how a suite ends up leaving daemons behind. So the sweep is registered before
+	// anything is started and does not depend on the test getting far enough to learn a pid: it
+	// asks the records under this temp config dir who is there, and stops them.
+	t.Cleanup(func() {
+		rows, _ := daemon.List(cfg)
+		for _, r := range rows {
+			if r.PID != 0 {
+				_ = syscall.Kill(r.PID, syscall.SIGTERM)
+			}
+		}
+	})
+
 	exe := filepath.Join(cfg, "magi")
 	if out, berr := exec.Command("go", "build", "-o", exe, "github.com/sayaya1090/magi/cmd/magi").CombinedOutput(); berr != nil {
 		t.Fatalf("could not build magi: %v\n%s", berr, out)
@@ -59,7 +72,6 @@ func TestADetachedDaemonOutlivesItsStarter(t *testing.T) {
 	// The starter has EXITED — this is the moment the ordinary child would already be dead.
 	sock := daemon.SocketPath(cfg, ws)
 	pid := daemonPID(t, sock)
-	t.Cleanup(func() { _ = syscall.Kill(pid, syscall.SIGTERM) })
 
 	if !strings.Contains(string(out), sock) {
 		t.Errorf("the starter should name the socket it brought up, said: %s", out)
