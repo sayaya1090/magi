@@ -148,7 +148,7 @@ func findByBase(workdir, requested string) []string {
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case ".git", "node_modules", "vendor", "dist", "build", ".idea", ".cache":
+			case ".magi", ".git", "node_modules", "vendor", "dist", "build", ".idea", ".cache":
 				return fs.SkipDir
 			}
 			return nil

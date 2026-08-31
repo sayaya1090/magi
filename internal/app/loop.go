@@ -228,6 +228,14 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// is the difference against this, so a file the turn DELETES is visible at all. Taken outside
 	// the lock — it is a filesystem walk, and holding the app mutex across one would stall every
 	// other session.
+	// What earlier turns held on to is swept HERE, at the start of the next turn, and not when a
+	// turn lands. The moment somebody is most likely to want a file back is just after the turn
+	// that replaced it — exactly when a sweep at that turn's end would take it — and a sweep at
+	// the end also never runs for the turns most likely to have made a mess, the ones that end by
+	// error or cancellation rather than by landing.
+	if depth == 0 {
+		sweepTrash(s.Workdir)
+	}
 	worldBase := indexWorkspace(s.Workdir)
 	// Only when a council can convene: the disclaimer has exactly one reader, and a probe run
 	// for a consumer that does not exist is a git status per turn nobody reads.
@@ -470,13 +478,6 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				// plan whose first step never ran — the event right after a turn.finished that
 				// says unverified, contradicting it.
 				finished = ts.unverifiedReason == ""
-				// What the turn took out of the way is swept when the NEXT turn lands, never this
-				// one: the moment somebody is most likely to want a file back is just after the
-				// turn that removed it, which is exactly when a sweep here would take it. See
-				// sweepTrash — it keeps the two newest batches and drops the rest.
-				if depth == 0 {
-					sweepTrash(s.Workdir)
-				}
 				return lastText, nil
 			}
 		}

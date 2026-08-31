@@ -789,16 +789,17 @@ git: inside a checkout a delete undoes from the object store, which is why gatin
 directory would be noise. Where there is no repository at or above the workspace the premise is
 simply false, and the same command is what the gate exists to stop while looking like the harmless
 case. So instead of asking about every build directory in such a tree, the tree is given what it
-was missing. A delete's in-tree target is MOVED to `.magi/trash/<stamp>/` before the command runs —
-a rename within one filesystem, which is one directory entry whether the target is a file or forty
-thousand of them, and the reason the trash lives inside the workspace rather than beside the
-config. An edit's previous contents are held by a HARD LINK, the same economy for the other way a
-file is lost: the writing tools replace a file atomically, so the old contents keep living in
+was missing. A delete is ASKED about — the in-tree exemption is
+lifted, so the same council question that guards a delete reaching outside the tree guards this
+one. Asked rather than acted on: a regex over command TEXT cannot know what a shell will delete
+(`echo "rm -rf build" > clean.sh` matches it, a quoted path splits on its space, a symlink names
+something else entirely), which a question survives and anything touching files does not. An
+edit's previous contents ARE held, by a hard link, because there the target is the tool's own
+declared argument and not a guess: the writing tools replace a file atomically, so the old contents keep living in
 their own inode and a second name for it costs no disk. Once per file per turn — what a person
 wants back is the state the turn began in — and never for what the run itself created, which has
 no before-the-turn to keep. Both are said in the tool result, because a rescue the model cannot
-see is one it cannot undo. The sweep runs when a turn lands and is deliberately one turn behind
-itself: the moment somebody wants a file back is just after the turn that removed it, so the two
+see is one it cannot undo. The sweep runs at the START of the next turn, which is what "one turn behind" actually takes: the moment somebody wants a file back is just after the turn that removed it, so the two
 newest batches stay and anything past a week goes.
 
 What it asks is a plain yes/no about one command, so it does not convene a panel: `port.Council`'s

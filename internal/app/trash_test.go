@@ -35,79 +35,6 @@ func TestRecoverableTreeFindsTheRepositoryAbove(t *testing.T) {
 	}
 }
 
-// The rescue is a MOVE: the target leaves the path the command is about to remove, and is still
-// there afterwards under a name the note gives out.
-func TestARescuedDeleteIsMovedNotCopied(t *testing.T) {
-	wd := t.TempDir()
-	victim := filepath.Join(wd, "data")
-	if err := os.MkdirAll(victim, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(victim, "x.txt"), []byte("keep me"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	a := &App{}
-	note := a.rescueBeforeDeleting(wd, "rm -rf data", nil)
-	if note == "" {
-		t.Fatal("a delete with no history behind it was left to destroy the tree")
-	}
-	if _, err := os.Stat(victim); err == nil {
-		t.Error("the target is still where the command will look for it — this was a copy, not a move")
-	}
-	for _, want := range []string{"no git history", trashDirName, "move it back"} {
-		if !strings.Contains(note, want) {
-			t.Errorf("the note must carry %q so the model can undo it:\n%s", want, note)
-		}
-	}
-	// And the bytes survived under the new name.
-	var found string
-	filepath.Walk(filepath.Join(wd, trashDirName), func(p string, fi os.FileInfo, err error) error {
-		if err == nil && fi.Mode().IsRegular() && filepath.Base(p) == "x.txt" {
-			found = p
-		}
-		return nil
-	})
-	if found == "" {
-		t.Fatal("the rescued tree is not in the trash")
-	}
-	if b, _ := os.ReadFile(found); string(b) != "keep me" {
-		t.Errorf("the rescued file reads %q", b)
-	}
-}
-
-// With a repository behind the tree, nothing is moved: the delete already has a way back and this
-// would be work for nothing.
-func TestARepositoryNeedsNoRescue(t *testing.T) {
-	wd := t.TempDir()
-	if err := os.Mkdir(filepath.Join(wd, ".git"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(wd, "build"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	a := &App{}
-	if note := a.rescueBeforeDeleting(wd, "rm -rf build", nil); note != "" {
-		t.Fatalf("a checkout was given a second way back: %s", note)
-	}
-	if _, err := os.Stat(filepath.Join(wd, "build")); err != nil {
-		t.Error("the target was moved out from under a command that could undo itself")
-	}
-}
-
-// What the run itself made, and what lives in the scratch area, are the run's own output — the
-// gate has always treated them that way and so does this.
-func TestTheRunsOwnOutputIsNotRescued(t *testing.T) {
-	wd := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(wd, "out"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	a := &App{}
-	mine := func(p string) bool { return strings.HasSuffix(p, "out") }
-	if note := a.rescueBeforeDeleting(wd, "rm -rf out", mine); note != "" {
-		t.Fatalf("the run's own output was rescued from the run: %s", note)
-	}
-}
-
 // An edit's way back is a hard link: the old contents survive because the write replaces the file
 // atomically, and holding a second name for that inode costs no disk at all.
 func TestAnEditKeepsWhatItReplaces(t *testing.T) {
@@ -161,6 +88,15 @@ func TestTheSweepKeepsTheNewestBatches(t *testing.T) {
 	if got := sweepTrash(wd); got != 2 {
 		t.Fatalf("the sweep took %d batches, want the two oldest", got)
 	}
+	// Age is what sends a batch away; the two newest are kept whatever their age, and a batch
+	// still inside the retention window stays even when it is neither.
+	fresh := filepath.Join(trash, "20260105-000000.000")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := sweepTrash(wd); got != 0 {
+		t.Fatalf("the sweep took %d recent batches; only age sends one away", got)
+	}
 	for _, n := range names[2:] {
 		if _, err := os.Stat(filepath.Join(trash, n)); err != nil {
 			t.Errorf("%s was swept; the two newest are the way back that must survive", n)
@@ -183,5 +119,57 @@ func TestWhatThisTurnMadeIsNotHeldOnTo(t *testing.T) {
 	// And without that knowledge it IS kept, so the exemption is what decided it.
 	if _, kept, _ := keepBeforeEditing(wd, "fresh.txt", time.Now(), nil); !kept {
 		t.Error("a file nobody claims was left unheld")
+	}
+}
+
+// With no history behind the tree, an in-tree recursive delete is ASKED about rather than acted
+// on. A regex over command text cannot know what a shell will delete — `echo "rm -rf build" >
+// clean.sh` matches it — which a question survives and anything touching files does not.
+func TestATreeWithNoHistoryIsAskedAboutItsDeletes(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	why, yes := needsCouncilBeforeRunning(wd, "rm -rf data", nil)
+	if !yes {
+		t.Fatal("a delete with nothing to restore it from was let through")
+	}
+	if !strings.Contains(why, "no git history") {
+		t.Errorf("the reason must say what is missing: %q", why)
+	}
+	// Nothing was moved: the question is the whole of it.
+	if _, err := os.Stat(filepath.Join(wd, "data")); err != nil {
+		t.Error("asking about a delete must not itself touch the tree")
+	}
+	// A checkout keeps the old behaviour — the delete undoes from the object store.
+	if err := os.Mkdir(filepath.Join(wd, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf data", nil); yes {
+		t.Error("a checkout was gated on a delete it can undo by itself")
+	}
+}
+
+// The run's own output and the scratch area stay exempt even with no history: the gate has always
+// read them as the run's own, and gating them would fire on every build directory.
+func TestTheRunsOwnOutputIsStillNotGated(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(wd, "out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mine := func(p string) bool { return strings.HasSuffix(p, "out") }
+	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf out", mine); yes {
+		t.Error("the run was asked about deleting what it had just made")
+	}
+}
+
+// "Cannot tell" is not "no history": a workspace this process cannot even see must not have a
+// question put in front of every command it runs.
+func TestAnUnseeableWorkspaceAddsNoFriction(t *testing.T) {
+	if !recoverableTree("/no/such/place/anywhere") {
+		t.Error("a workspace that cannot be stat'd was treated as one with nothing to restore from")
+	}
+	if why, yes := needsCouncilBeforeRunning("/no/such/place/anywhere", "rm -rf data", nil); yes {
+		t.Errorf("a command in an unseeable workspace was gated: %q", why)
 	}
 }

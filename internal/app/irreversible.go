@@ -86,7 +86,24 @@ func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why
 				continue // still a flag
 			}
 			if !outsideWorkspace(workdir, target) {
-				continue
+				// In-tree is exempt because git undoes it. Where nothing does — no repository at
+				// or above the workspace — the exemption's whole reason is absent, and the same
+				// command is what this gate exists to stop while looking like the harmless case.
+				//
+				// Asked rather than acted on. A regex over command TEXT cannot know what a shell
+				// will delete: `echo "rm -rf build" > clean.sh` matches, so does a heredoc, and a
+				// quoted path splits on its space. That is survivable for a QUESTION — a wrong
+				// guess costs a turn — and it is not survivable for anything that touches files,
+				// which is what an earlier version of this did and had to be taken back out.
+				// isScratchPath is not asked here, and that is the point of the branch: it
+				// exempts the temp area because a path OUT THERE is the run's own rather than
+				// somebody else's, which is a question about targets outside the tree. A
+				// workspace that happens to live under /tmp is still the workspace, and the only
+				// exemption that means anything for a file inside it is that the run made it.
+				if recoverableTree(workdir) || (mine != nil && mine(absTarget(workdir, target))) {
+					continue
+				}
+				return "rm -rf " + target + " (this workspace has no git history to restore it from)", true
 			}
 			// Outside the tree is where the gate's premise lives -- "somebody else's, and magi
 			// has nothing to restore it from". Two kinds of path are outside and are still
@@ -244,68 +261,6 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 		return true
 	}
 	return false
-}
-
-// rescueBeforeDeleting takes what an in-tree recursive delete is about to remove OUT of the way,
-// in a workspace that has no history to restore it from, and answers the note the caller owes the
-// model. Empty means there was nothing to do.
-//
-// Only where the gate's premise fails. With a repository behind the tree, `rm -rf build/` undoes
-// from the object store and this would be work for nothing; without one, the same command is the
-// thing the gate exists to stop while looking exactly like the harmless case. Rather than ask
-// about every build directory in such a tree, the tree is given what it was missing.
-func (a *App) rescueBeforeDeleting(workdir, cmd string, mine func(string) bool) string {
-	if strings.TrimSpace(workdir) == "" || recoverableTree(workdir) {
-		return ""
-	}
-	var saved, failed []string
-	for _, m := range rmRecursive.FindAllStringSubmatch(cmd, -1) {
-		for _, target := range strings.Fields(m[1]) {
-			if strings.HasPrefix(target, "-") {
-				continue
-			}
-			// Outside the tree is the council's business, not this one's: what is out there
-			// belongs to somebody else and moving it would be a second act nobody asked for.
-			//
-			// isScratchPath is deliberately NOT asked here. It exempts the temp area because a
-			// path out there is the run's own rather than somebody else's — a question about
-			// targets OUTSIDE the tree, which these are not. A workspace that happens to live
-			// under /tmp is still the workspace, and its files are still the ones this exists
-			// to keep.
-			if outsideWorkspace(workdir, target) {
-				continue
-			}
-			// What this run itself made needs no rescue — it is the run's own output, and the
-			// gate has always treated it that way.
-			if mine != nil && mine(absTarget(workdir, target)) {
-				continue
-			}
-			where, moved, err := moveToTrash(workdir, target)
-			switch {
-			case err != nil:
-				failed = append(failed, target)
-			case moved:
-				saved = append(saved, target+" → "+where)
-			}
-		}
-	}
-	if len(saved) == 0 && len(failed) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString("\n\n[this workspace has no git history to restore a delete from, so what the " +
-		"command was about to remove was MOVED rather than left to be destroyed")
-	if len(saved) > 0 {
-		b.WriteString(":\n  " + strings.Join(saved, "\n  ") +
-			"\nThe command then found nothing to remove, which is why it succeeded. To undo this, " +
-			"move it back. To finish the delete, remove it from " + trashDirName + ".")
-	}
-	if len(failed) > 0 {
-		b.WriteString("\nCould not be moved (so the command removed them for real): " +
-			strings.Join(failed, ", "))
-	}
-	b.WriteString("]")
-	return b.String()
 }
 
 // councilSaysNo reads a refusal out of the council's prose.

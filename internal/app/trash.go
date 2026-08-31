@@ -41,6 +41,14 @@ const trashRetention = 7 * 24 * time.Hour
 // same thing here.
 func recoverableTree(workdir string) bool {
 	dir := filepath.Clean(workdir)
+	// A workspace this process cannot see is not a workspace this process can say anything about.
+	// The answer here decides whether to ADD friction, so "cannot tell" has to mean "do not add
+	// it": a path that is not there has nothing to delete, and a directory that cannot be stat'd
+	// would otherwise put a council question in front of every command in a run that was going to
+	// fail on its own.
+	if _, err := os.Stat(dir); err != nil {
+		return true
+	}
 	for {
 		if _, err := os.Lstat(filepath.Join(dir, ".git")); err == nil {
 			return true
@@ -62,42 +70,6 @@ func realDir(workdir string) string {
 		return r
 	}
 	return c
-}
-
-// moveToTrash takes target out of the way and answers where it went, for the caller to say out
-// loud. An absent target is not an error: `rm -rf` on one succeeds too, and the command is about
-// to run either way.
-func moveToTrash(workdir, target string) (where string, moved bool, err error) {
-	abs := absTarget(workdir, target)
-	if _, serr := os.Lstat(abs); serr != nil {
-		return "", false, nil // nothing there to keep
-	}
-	// Never the workspace itself, and never the trash: one would move the tree inside itself, the
-	// other would bury a previous rescue under the next one.
-	root := realDir(workdir)
-	if r, rerr := filepath.EvalSymlinks(abs); rerr == nil {
-		abs = r
-	}
-	trash := filepath.Join(root, trashDirName)
-	if abs == root || abs == trash || strings.HasPrefix(abs, trash+string(filepath.Separator)) {
-		return "", false, nil
-	}
-	stamp := filepath.Join(trash, time.Now().UTC().Format("20060102-150405.000"))
-	if err := os.MkdirAll(stamp, 0o755); err != nil {
-		return "", false, err
-	}
-	dst := filepath.Join(stamp, filepath.Base(abs))
-	if err := os.Rename(abs, dst); err != nil {
-		// A rename that fails leaves the target where it was, which is the safe end: the caller
-		// gates instead of running.
-		os.Remove(stamp)
-		return "", false, err
-	}
-	rel, rerr := filepath.Rel(root, dst)
-	if rerr != nil {
-		rel = dst
-	}
-	return rel, true, nil
 }
 
 // keepBeforeEditing holds on to a file's current contents before a tool replaces them, in a
@@ -194,16 +166,19 @@ func sweepTrash(workdir string) int {
 		return 0
 	}
 	sort.Strings(names) // the stamp is the name, so this is oldest-first
-	newest := names[len(names)-1]
+	keep := map[string]bool{names[len(names)-1]: true}
+	if len(names) > 1 {
+		keep[names[len(names)-2]] = true
+	}
 	cut := time.Now().Add(-trashRetention)
 	swept := 0
 	for _, n := range names {
-		if n == newest {
-			continue // the last turn's way back, kept for the turn that follows it
+		if keep[n] {
+			continue // the last two turns' way back, kept whatever their age
 		}
 		p := filepath.Join(trash, n)
-		if fi, serr := os.Stat(p); serr == nil && fi.ModTime().After(cut) && n == names[len(names)-2] {
-			continue // and the one before it, so a two-step mistake is still recoverable
+		if fi, serr := os.Stat(p); serr == nil && fi.ModTime().After(cut) {
+			continue // still inside the retention window
 		}
 		if os.RemoveAll(p) == nil {
 			swept++
