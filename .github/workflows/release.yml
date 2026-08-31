@@ -6,7 +6,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write # goreleaser creates the GitHub release and uploads assets
+  contents: write # goreleaser creates the release, and the step below writes the 'badges' branch
 
 jobs:
   goreleaser:
@@ -31,3 +31,45 @@ jobs:
           # so the core's own run picked up "web-v0.2.0" and stopped at "invalid semantic version".
           # github.ref_name is the tag that triggered THIS run, which is the thing being released.
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+
+      # Say which version the CORE is on, at an address that does not move.
+      #
+      # GitHub's "latest release" is the newest by DATE across every train this repository runs —
+      # v* for the core, web-v* for the console, jetbrains-v* for the plugin — so a client asking
+      # for /releases/latest/download/<core asset> gets a 404 whenever another train released more
+      # recently. Measured 2026-08-31: latest was web-v0.2.0, the core tarball 404'd there, and
+      # checksums.txt answered 200 — the console's checksums, which is the dangerous half, because
+      # a client that trusted it would check core files against another train's sums.
+      #
+      # A client can work around it by listing releases and picking the highest v* itself, which
+      # costs an unauthenticated API call, a JSON parse, and a second copy of the rule for which
+      # train is which. One line at a fixed address costs none of that, and a mirror can serve it
+      # as a static file. The tag is written as it is (v-prefixed), because that is what a
+      # download URL needs; readers that want the bare number strip it.
+      - name: publish the core version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME}"
+          tmp=$(mktemp -d)
+          cd "$tmp"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Onto the branch, never over it: the coverage badge lives here too, and each writer
+          # owns one file.
+          git fetch -q --depth 1 origin badges && git checkout -q -B badges FETCH_HEAD || git checkout -q -B badges
+          printf '%s\n' "$ver" > core-latest.txt
+          git add core-latest.txt
+          git commit -q -m "core-latest: $ver" || exit 0
+          for try in 1 2 3; do
+            git push -q origin badges && exit 0
+            git fetch -q --depth 1 origin badges || break
+            git checkout -q -B badges FETCH_HEAD
+            printf '%s\n' "$ver" > core-latest.txt
+            git add core-latest.txt
+            git commit -q -m "core-latest: $ver" || exit 0
+          done
+          exit 1

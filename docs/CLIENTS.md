@@ -251,6 +251,16 @@ carrying a decision and a rationale is somebody's answer, `silent` absent. (It w
 panel verdict for a while, and three screens drew spoken verdicts as silence; the flag is the
 contract, not a hint.)
 
+**The core's version has an address that does not move.** A client that installs the engine for
+somebody — the IDE plugin does — cannot ask GitHub for "the latest release": this repository runs
+three release trains (`v*` core, `web-v*` console, `jetbrains-v*` plugin) and GitHub's latest is
+the newest by date across all of them, so the core tarball 404s there whenever another train
+released more recently, while `checksums.txt` answers 200 with another train's sums. The core
+train writes its tag to `core-latest.txt` on the `badges` branch instead — one line, `v0.29.0`,
+raw at
+`https://raw.githubusercontent.com/<owner>/<repo>/badges/core-latest.txt`, and a mirror can serve
+it as a static file. Readers that want the bare number strip the leading `v`.
+
 **`part.delta` is a draft of a line, not a line.** Deltas are transient (seq 0, never replayed)
 and carry the message id the finished part will land under, so a client draws them by REWRITING
 the draft row for that message id — never by appending a row per delta — and the `part.appended`

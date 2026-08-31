@@ -130,12 +130,27 @@ jobs:
           color=e05d44
           awk "BEGIN{exit !($pct>=80)}" && color=4c1 || awk "BEGIN{exit !($pct>=60)}" && color=dfb317
           tmp=$(mktemp -d)
-          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > "$tmp/coverage.json"
           cd "$tmp"
           git init -q
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # Onto what is there, not over it. This used to build an orphan branch holding one file
+          # and force-push it, which was fine while coverage.json was the only thing on badges —
+          # and the moment the release train started publishing core-latest.txt beside it, every
+          # push from main would have deleted that file until the next release put it back.
+          git fetch -q --depth 1 origin badges && git checkout -q -B badges FETCH_HEAD || git checkout -q -B badges
+          printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > coverage.json
           git add coverage.json
-          git commit -q -m "coverage: ${pct}%"
-          git branch -M badges
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
+          git commit -q -m "coverage: ${pct}%" || exit 0
+          for try in 1 2 3; do
+            git push -q origin badges && exit 0
+            # Somebody else wrote to the branch between the fetch and the push — take theirs and
+            # put ours back on top, which is safe because each writer owns one file.
+            git fetch -q --depth 1 origin badges || break
+            git checkout -q -B badges FETCH_HEAD
+            printf '{"schemaVersion":1,"label":"coverage","message":"%s%%","color":"%s"}\n' "$pct" "$color" > coverage.json
+            git add coverage.json
+            git commit -q -m "coverage: ${pct}%" || exit 0
+          done
+          exit 1
