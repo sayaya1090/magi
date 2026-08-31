@@ -44,3 +44,7 @@ func listenOwnerOnly(path string) (net.Listener, error) {
 // separate from that function because the platform without a mode has nothing to confirm — see the
 // Windows half.
 func secureSocket(path string) error { return os.Chmod(path, 0o600) }
+
+// removeSocket deletes a socket file nothing is listening on. Ordinary on unix; the Windows half
+// has to open the reparse point to do the same thing.
+func removeSocket(path string) error { return os.Remove(path) }

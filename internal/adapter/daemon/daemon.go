@@ -910,7 +910,7 @@ func Listen(path string) (*Daemon, error) {
 	// silently orphans the running daemon's listener, and leaves two engines writing one store
 	// while every client reaches only the newer. The probe is what stands between here and that,
 	// so the two lines stay together.
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+	if err := removeSocket(path); err != nil && !os.IsNotExist(err) {
 		release()
 		return nil, fmt.Errorf("daemon: a stale socket is at %s and could not be removed: %w", path, err)
 	}
@@ -945,7 +945,7 @@ func Listen(path string) (*Daemon, error) {
 // at something else before it can start.
 func (d *Daemon) Close() error {
 	err := d.ln.Close()
-	os.Remove(d.path)
+	removeSocket(d.path)
 	d.release()
 	return err
 }
@@ -955,7 +955,7 @@ func (d *Daemon) Close() error {
 func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 	defer func() {
 		d.ln.Close()
-		os.Remove(d.path)
+		removeSocket(d.path)
 		d.release()
 	}()
 	if d.stop == nil {

@@ -106,7 +106,7 @@ func TestProbeRosterOverTheSocket(t *testing.T) {
 	// Not t.TempDir(): on darwin a unix socket path caps near 100 bytes and the test tempdir
 	// alone is longer. The short-lived short path is the documented workaround (MANUAL, and the
 	// same trap the live-fleet recipe names).
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}

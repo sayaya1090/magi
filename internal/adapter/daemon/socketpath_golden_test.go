@@ -119,6 +119,13 @@ func buildSymlinkTree(t *testing.T, root string, layout []string) {
 			target = strings.ReplaceAll(strings.TrimSpace(target), "$ROOT", root)
 			at := filepath.Join(root, filepath.FromSlash(strings.TrimSpace(name)))
 			if err := os.Symlink(filepath.FromSlash(target), at); err != nil {
+				// 윈도우는 심링크를 만드는 데 권한이 필요하다(개발자 모드나 SeCreateSymbolicLink).
+				// **없는 권한을 실패로 세지 않는다** — 이 골든이 재는 것은 이름을 짓는 규칙이지
+				// 이 계정이 심링크를 만들 수 있는가가 아니다. 다만 **건너뛴다고 말한다**:
+				// 조용히 지나가면 「골든이 맞았다」와 「골든을 못 재 봤다」가 같은 초록이 된다.
+				if runtime.GOOS == "windows" {
+					t.Skipf("이 계정은 윈도우에서 심링크를 못 만든다(%v) — 이 골든은 여기서 안 재진다", err)
+				}
 				t.Fatal(err)
 			}
 		default:

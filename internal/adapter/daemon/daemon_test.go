@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -72,7 +73,7 @@ func (f *fakeEngine) RespondQuestion(_ context.Context, c command.RespondQuestio
 // path length rather than on anything they mean to check.
 func shortDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "magid")
+	d, err := os.MkdirTemp(shortRoot(), "magid")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,6 +174,11 @@ func TestTheEnginesReasonComesBack(t *testing.T) {
 // The socket is owner-only. Anything that can write to it can make this engine act, in this
 // workspace, with this workspace's permissions.
 func TestTheSocketIsOwnerOnly(t *testing.T) {
+	// 윈도우에는 확인할 모드가 없다 — AF_UNIX 소켓이 담는 디렉토리의 ACL 을 물려받고, `secureSocket`
+	// 의 윈도우 반쪽이 그 사실을 적어 뒀다. 여기서 0600 을 요구하면 이 시험은 없는 보장을 재게 된다.
+	if runtime.GOOS == "windows" {
+		t.Skip("윈도우에는 소켓 모드가 없다 — 가두는 것은 설정 디렉토리의 ACL 이다(listen_windows.go)")
+	}
 	path := filepath.Join(shortDir(t), "d.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	go Serve(ctx, &fakeEngine{}, path)
@@ -300,7 +306,13 @@ func TestEachWorkspaceGetsItsOwnSocket(t *testing.T) {
 // directory, two hashes, and the attach says "no daemon here" while one is running. Found by
 // running it.
 func TestOneDirectoryHasOneSocketHoweverYouReachedIt(t *testing.T) {
-	real, err := os.MkdirTemp("/tmp", "magiws")
+	// 이 시험의 전제가 유닉스 것이다 — `/tmp` 가 `/private/tmp` 의 심링크라는 사실 위에 서 있고,
+	// 아래에서 `logical` 을 `/tmp/…` 로 직접 짓는다. 윈도우에는 그 자리가 없어서 여기서 비교하는
+	// 둘은 **정말로 다른 디렉토리**다. 없는 세상을 재지 않는다.
+	if runtime.GOOS == "windows" {
+		t.Skip("이 시험의 전제(/tmp 심링크)가 윈도우에 없다")
+	}
+	real, err := os.MkdirTemp(shortRoot(), "magiws")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,4 +704,18 @@ func TestTheModelListCrossesAndAFailureSaysWhy(t *testing.T) {
 	if err != nil || len(names) != 0 {
 		t.Errorf("an engine that cannot list models answered %v, %v", names, err)
 	}
+}
+
+// shortRoot is where a test puts a socket it means to connect to.
+//
+// "/tmp" on unix, because t.TempDir() on macOS is about ninety bytes before the file name and a
+// sockaddr_un holds about a hundred — the tests would fail on the path length rather than on
+// anything they mean to check. On Windows there is no /tmp at all, and every test in this package
+// that reached for one FAILED THERE for that reason alone: the package was effectively unrun on the
+// platform whose socket handling turned out to be different (see listen_windows.go).
+func shortRoot() string {
+	if runtime.GOOS == "windows" {
+		return "" // os.TempDir(): C:\Users\<user>\AppData\Local\Temp — short enough
+	}
+	return "/tmp"
 }
