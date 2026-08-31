@@ -23,6 +23,13 @@ class ModelChoicesTest {
         assertEquals(Arrays.asList("a", "b", "c"), got);
     }
 
+    @Test void aNameIsOfferedOnce() {
+        // 백엔드가 같은 이름을 두 번 답하면 고르개에 같은 줄이 둘 선다 — 사람은 그 둘이 다른
+        // 것이라고 읽는다. 이름이 계약이 된 김에 그 자리도 막는다.
+        assertEquals(Arrays.asList("a", "b"), ModelChoices.offer(Arrays.asList("a", "b", "a"), "b"));
+        assertEquals(Arrays.asList("x", "a"), ModelChoices.offer(Arrays.asList("a", "a"), "x"));
+    }
+
     @Test void nothingAnsweredStillOffersWhatItIsOn() {
         assertEquals(List.of("only"), ModelChoices.offer(List.of(), "only"));
         assertEquals(List.of(), ModelChoices.offer(List.of(), ""));

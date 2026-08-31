@@ -30,7 +30,10 @@ public final class ModelChoices {
             for (String n : answered) {
                 if (n == null || n.isEmpty()) continue;
                 if (n.equals(now)) has = true;
-                out.add(n);
+                // 같은 이름을 두 번 내놓지 않는다. 목록은 백엔드가 답한 것이고, 그것이 한 이름을
+                // 두 번 말하지 않으리라는 보장은 어디에도 없다 — 고르개에 같은 줄이 둘이면 사람은
+                // 그 둘이 다른 것이라고 읽는다.
+                if (!out.contains(n)) out.add(n);
             }
         }
         if (now != null && !now.isEmpty() && !has) out.add(0, now);
