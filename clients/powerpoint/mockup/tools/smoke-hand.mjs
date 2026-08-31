@@ -248,5 +248,46 @@ class FakeEventSource {
   ok('끊김을 에러로 위장하지 않는다', tr.subscribe.length === 3, String(tr.subscribe.length));
 }
 
+
+// ── 빈 문자열은 값이 아니다 ───────────────────────────────────────────────────
+//
+// 손이 문서를 **빈 문자열**로 돌려줄 때 `??` 는 그것을 값으로 치고 그대로 싣는다. 그러면 헬퍼가
+// 라우팅할 키가 없어 답이 404 로 떨어지고 **모델은 45초를 기다린 뒤 타임아웃을 받는다** —
+// 조작은 내려갔고, 수행됐고, 답만 길을 잃는다. PowerPoint 에 처음 붙인 날 실제로 그 모양이 났다
+// (2026-09-01). 그래서 이 자리는 `||` 이고, 그 사실을 시험이 문다.
+{
+  const stream = new ScriptedStream();
+  stream.document = 'doc-real-7';
+  const api = new SpyApi();
+  const hand = deck();
+  hand.document = '';           // 손이 아직 자기 키를 모르는 상태
+  const serve = new ServeHand({ stream, api, hand });
+  serve.start();
+
+  stream.push('call', { id: 'r9', op: 'list_slides', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  ok('빈 문서 키는 스트림이 준 키로 대체된다',
+    api.replies[0]?.document === 'doc-real-7', String(api.replies[0]?.document));
+}
+
+{
+  // 그리고 `hello` 가 오면 **손이 자기 키를 갖는다** — 그래야 결과가 「실제로 손댄 문서」를
+  // 스스로 실을 수 있다(§6).
+  const stream = new ScriptedStream();
+  stream.document = null;
+  const api = new SpyApi();
+  const hand = deck();
+  hand.document = '';
+  const serve = new ServeHand({ stream, api, hand });
+  serve.start();
+  stream.push('hello', { document: 'doc-hello-3', label: 'q3.pptx' });
+  ok('hello 가 손에게 문서 키를 준다', hand.document === 'doc-hello-3', hand.document);
+
+  stream.push('call', { id: 'r10', op: 'list_slides', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  ok('그 뒤의 답은 그 키를 싣는다', api.replies[0]?.document === 'doc-hello-3',
+    String(api.replies[0]?.document));
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

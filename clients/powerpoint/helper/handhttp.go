@@ -148,7 +148,16 @@ func (h *HandHTTP) Reply(w http.ResponseWriter, r *http.Request) {
 	}
 	conn := h.Hub.conn(document)
 	if conn == nil {
-		http.Error(w, fmt.Sprintf("no attached deck called %q", document), http.StatusNotFound)
+		// **무엇이 붙어 있는지 같이 적는다.** 그냥 「없다」로 답하면 애드인이 다음에 무엇을
+		// 보내야 하는지 모르고, 사람이 보는 것은 45초 뒤의 타임아웃뿐이다 — 실제로 처음
+		// PowerPoint 에 붙인 날 애드인이 빈 문서 키를 실어 보내 이 자리가 조용히 삼켰다.
+		open := make([]string, 0, 4)
+		for _, d := range h.Hub.Documents() {
+			open = append(open, d["document"])
+		}
+		http.Error(w, fmt.Sprintf(
+			"no attached deck called %q — this reply cannot be routed and the caller is still waiting. Attached: %s",
+			document, joinOr(open, "none")), http.StatusNotFound)
 		return
 	}
 	// **기다리는 사람이 없는 답은 버린다.** 늦게 온 답이 다음 호출의 답으로 소비되면, 모델은
