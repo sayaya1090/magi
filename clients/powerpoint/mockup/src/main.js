@@ -9,6 +9,13 @@ import { pickDeck, pickNote, lateNote, lateFailNote } from './adapter/pickDeck.j
 import { FakeChat } from './adapter/FakeChat.js';
 import { FakeStatus } from './adapter/FakeStatus.js';
 import { FakeTranscript } from './adapter/FakeTranscript.js';
+import { HelperApi } from './adapter/helperApi.js';
+import { HelperStream } from './adapter/HelperStream.js';
+import { HelperChat, HelperStatus, HelperTranscript } from './adapter/HelperPorts.js';
+import { FakeHand } from './adapter/FakeHand.js';
+import { OfficeHand } from './adapter/OfficeHand.js';
+import { ServeHand } from './usecase/ServeHand.js';
+import { mountPick } from './ui/pick.js';
 import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
 import { mountFakeCanvas } from './ui/fakeCanvas.js';
@@ -30,12 +37,22 @@ const SESSION = 'sess-mock';
 async function boot() {
   const { deck, why, host, late, error, office } = await pickDeck();
   const composer = new Composer();
+
+  // **헬퍼가 페이지를 내줬으면 진짜로 돈다.** 토큰이 페이지에 박혀 오는 것이 그 표시이고
+  // (§5.5·§12 #7), 없으면 가짜다 — **조용히 진짜인 척하지 않는 것**이 이 갈래의 요점이다.
+  const boot = (typeof window !== 'undefined' && window.MAGI) ? window.MAGI : null;
+  const real = Boolean(boot?.token);
+
+  const api = real ? new HelperApi({ token: boot.token }) : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
-  const status = new FakeStatus();
+  const helperStream = real
+    ? new HelperStream({ token: boot.token, presentation: boot.presentation ?? '', label: boot.label ?? '' }).open()
+    : null;
+  const status = real ? new HelperStatus(api) : new FakeStatus();
   const watchPrompt = new WatchPrompt(status);
   // **연결이 둘이다**(§5.7). 내는 것과 받는 것이 다른 연결이고, 서로의 생사 증거가 아니다.
-  const stream = new FakeTranscript();
-  const chat = new FakeChat(stream, { sessionId: SESSION });
+  const stream = real ? new HelperTranscript(helperStream) : new FakeTranscript();
+  const chat = real ? new HelperChat(api) : new FakeChat(stream, { sessionId: SESSION });
   const readTranscript = new ReadTranscript(stream);
 
   const view = new View({
@@ -49,6 +66,41 @@ async function boot() {
   });
   view.mount();
   readTranscript.attach(SESSION);
+
+  if (real) {
+    // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
+    // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
+    // 「붙었는데 아무 일도 안 일어난다」를 사람이 가려낼 수 있다.
+    const hand = deck instanceof FakeDeck
+      ? new FakeHand(structuredClone(fixture))
+      : new OfficeHand({});
+    new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
+
+    const pick = mountPick(document.querySelector('#pick'), {
+      onChoose: async (companion) => {
+        try {
+          const out = await api.choose(companion.socket, companion.session);
+          pick.hide();
+          // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
+          view.where(`${companion.name || companion.socket} 에 붙였습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
+            (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
+        } catch (e) {
+          // **끝내 못 붙으면 말한다**(§5.3). 조용하면 화면이 「할 일 없음」처럼 보인다.
+          pick.note(`못 붙였습니다: ${e?.message ?? e}`);
+        }
+      },
+      onRefresh: () => { void showCompanions(); },
+    });
+    const showCompanions = async () => {
+      try {
+        pick.render(await api.companions());
+      } catch (e) {
+        pick.render({ companions: [] });
+        pick.note(`컴패니언을 못 훑었습니다: ${e?.message ?? e}`);
+      }
+    };
+    await showCompanions();
+  }
 
   // 첫 폴을 기다렸다가 돌린다 — 겹쳐 돌면 같은 물음에 답이 두 번 갈 자리가 생긴다.
   //
