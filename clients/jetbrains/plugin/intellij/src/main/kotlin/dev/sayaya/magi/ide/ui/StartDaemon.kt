@@ -59,6 +59,9 @@ internal object StartDaemon {
     /** 뜨는 데 걸리는 시간의 상한. 실측 7초(진짜 설정, 첫 기동) — 넉넉히 잡는다. */
     private const val STARTING_WINDOW = 30_000L
 
+    /** 갱신 재시작이 같은 경로에 다시 서는 데 주는 말미. 그 창은 짧다(exec 한 번). */
+    private const val RESTART_GRACE = 5_000L
+
     /**
      * 지금 띄워도 되나. **시험 안에서는 안 된다.**
      *
@@ -89,6 +92,17 @@ internal object StartDaemon {
                 // 사정으로 못 물어본 것을 영구 포기로 바꾸지 않는다(리뷰 R6).
                 is Reach.CouldNotAsk -> LOG.info("magi: 데몬을 물어볼 수 없어 안 띄운다 — ${r.why}")
                 is Reach.Absent, is Reach.Refused -> {
+                    // **잠깐 기다렸다 다시 본다.** 코어의 자동 업데이트는 유휴에 스스로
+                    // 재시작하는데, 유닉스에서는 `syscall.Exec` 라 소켓이 잠깐 사라졌다 **같은
+                    // 경로에** 다시 선다(프로세스는 한 번도 안 죽는다). 그 창을 죽음으로 읽으면
+                    // 갱신할 때마다 헛기동을 한 번씩 한다. 여기 온 것은 어차피 데몬이 없을
+                    // 때뿐이라 몇 초 기다리는 값이 싸다.
+                    Thread.sleep(RESTART_GRACE)
+                    if (DaemonClient.reach(sock) is Reach.Listening) {
+                        LOG.info("magi: 잠깐 사이에 다시 섰다 — 갱신 재시작으로 보인다")
+                        budget[base]?.ok()
+                        return@executeOnPooledThread
+                    }
                     // 「해 봤다」는 **실제로 띄우기로 정한 자리**에서만 찍는다. 앞에서 찍으면
                     // 못 물어봤든 사람이 미뤘든 네트워크가 끊겼든 그 IDE 내내 기능이 죽고,
                     // 되살릴 다른 경로가 없다(백오프 재접속은 붙기만 하지 띄우지 않는다).
@@ -149,46 +163,69 @@ internal object StartDaemon {
     }
 
     private fun start(project: Project, bin: Path, base: String, sock: Path) {
-        // 로그는 소켓 옆에 둔다 — 「왜 안 떴나」를 물을 때 사람이 소켓부터 찾기 때문이다.
+        // 자식이 남기는 말이 서는 자리. 데몬 **자신의** 출력은 코어가 `<소켓>.log` 로 보내므로
+        // 여기 담기는 것은 띄우는 명령의 말이다(성공 한 줄, 또는 왜 못 섰는지).
         val log = java.io.File(sock.toString() + ".ide.log")
-        val started = runCatching {
-            ProcessBuilder(bin.toString(), "-daemon")
+        starting[sock.toString()] = System.currentTimeMillis()
+        val detached = run(bin, base, log, detach = true)
+        val outcome = when {
+            detached == null -> null // 못 띄웠다 — run 이 이미 말했다
+            detached == 0 -> 0
+            // **옛 코어에는 그 플래그가 없다.** 플러그인이 받아오는 것은 릴리스이고, `--detach`
+            // 보다 앞선 판이 얼마든지 깔려 있을 수 있다. 그때 Go 의 flag 는 2 로 끝나며
+            // "not defined" 를 적는다 — 그 한 경우만 옛 방식으로 되돌린다(그때 데몬은 IDE 와
+            // 함께 죽는다. 매뉴얼이 그 갈림을 적는다).
+            tail(log).contains("not defined") -> {
+                LOG.info("magi: 이 코어에는 --detach 가 없다 — 옛 방식으로 띄운다(IDE 와 함께 죽는다)")
+                run(bin, base, log, detach = false)
+            }
+            else -> detached
+        }
+        if (outcome == 0) {
+            LOG.info("magi: 데몬이 섰다 — $bin (로그 $log)")
+            return
+        }
+        starting.remove(sock.toString())
+        val tail = tail(log)
+        // **경합은 소식이 아니다.** 창을 둘 열거나 사람이 터미널에서 켜는 것과 겹치면 기동이
+        // 거절되는데, 그건 사람이 할 일이 없는 일이다.
+        if (RACE.containsMatchIn(tail)) {
+            LOG.info("magi: 다른 magi 가 이미 이 워크스페이스를 쥐고 있다 — 그대로 둔다")
+            return
+        }
+        if (outcome != null) tell(project, MagiBundle.msg("core.start.died", outcome.toString(), tail))
+    }
+
+    /**
+     * 한 번 띄운다. **끝날 때까지 기다린다** — `--detach` 는 소켓이 답할 때 돌아오므로
+     * exit 0 은 「띄웠다」가 아니라 **「서 있다」**다. 그래서 3초 짐작이 필요 없어졌고,
+     * 먼저 죽으면 그 사유가 자식의 마지막 말로 온다.
+     *
+     * 못 띄운 것(바이너리가 없다 등)과 띄웠는데 실패한 것은 다른 사건이라 갈라 돌려준다:
+     * null 은 앞엣것이고, 그때는 여기서 말한다.
+     */
+    private fun run(bin: Path, base: String, log: java.io.File, detach: Boolean): Int? {
+        val argv = mutableListOf(bin.toString(), "--daemon")
+        if (detach) argv += "--detach"
+        val p = runCatching {
+            ProcessBuilder(argv)
                 .directory(java.io.File(base))
-                .apply {
-                    // **사람의 셸이 아는 환경을 그대로 준다**([Shell]). 전에는 IDE 의 얇은 환경에
-                    // `MAGI_CONFIG_DIR` 만 우리 계산으로 덮었는데, 그건 어긋남을 고치는 것이
-                    // 아니라 어긋난 쪽으로 못박는 것이었다 — 셸에서 그 값을 쓰는 사람의 엔진이
-                    // 빈 설정 디렉토리에서 뜨고, 키도 안 물려받았다(리뷰 R2). 소켓을 계산하는
-                    // 쪽도 같은 근거를 본다(`Workspace.socket`).
-                    environment().putAll(Shell.env())
-                }
-                .redirectInput(ProcessBuilder.Redirect.INHERIT)
+                .apply { environment().putAll(Shell.env()) }
                 .redirectErrorStream(true)
                 .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
                 .start()
         }.getOrElse { e ->
             LOG.warn("magi: 데몬을 못 띄웠다", e)
-            tell(project, MagiBundle.msg("core.start.failed", e.message ?: MagiBundle.msg("common.noreason")))
-            return
+            return null
         }
-        starting[sock.toString()] = System.currentTimeMillis()
-        LOG.info("magi: 데몬을 띄웠다 — $bin -daemon (pid ${started.pid()}, 로그 $log)")
-        // 성공은 침묵이다. 붙었는지는 상태 표시줄과 링크 점이 말하고, 그 둘이 이미 그 일을 한다.
-        // 다만 **곧바로 죽으면** 그건 사람이 알아야 한다 — 조용한 실패는 「띄웠다」로 보인다.
-        ApplicationManager.getApplication().executeOnPooledThread {
-            if (!started.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)) return@executeOnPooledThread
-            val tail = runCatching { Files.readAllLines(log.toPath()).takeLast(3).joinToString(" / ") }
-                .getOrDefault("")
-            // **경합은 소식이 아니다.** 창을 둘 열거나 사람이 터미널에서 켜는 것과 겹치면 데몬이
-            // 곧바로 1 로 끝나는데(`daemon.Listen` 의 선점), 그건 사람이 할 일이 없는 일이다.
-            // 전에는 이 자리가 그 경우에 경고를 띄웠다 — 주석은 안 띄운다고 적어 두고서(리뷰 R3).
-            if (RACE.containsMatchIn(tail)) {
-                LOG.info("magi: 다른 magi 가 이미 이 워크스페이스를 쥐고 있다 — 그대로 둔다")
-                return@executeOnPooledThread
-            }
-            tell(project, MagiBundle.msg("core.start.died", started.exitValue().toString(), tail))
-        }
+        // 넉넉히 기다린다: 진짜 설정의 첫 기동이 실측 7초였다. 안 끝나면 죽이지 않는다 —
+        // 서는 중일 수 있고, 서면 상태 표시줄이 알아챈다.
+        return if (p.waitFor(90, java.util.concurrent.TimeUnit.SECONDS)) p.exitValue() else null
     }
+
+    private fun tail(log: java.io.File): String = runCatching {
+        Files.readAllLines(log.toPath()).takeLast(3).joinToString(" / ")
+    }.getOrDefault("")
 
     /** 데몬이 「이미 누가 쥐고 있다」로 끝난 것. 문구는 `daemon.Listen` 과 `claim_unix.go` 의 것. */
     private val RACE = Regex("already (listening|starting or running)")
