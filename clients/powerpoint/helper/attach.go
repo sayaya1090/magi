@@ -21,15 +21,15 @@ const candidateTimeout = 2 * time.Second
 
 // Companion 은 고르는 화면의 한 줄.
 type Companion struct {
-	Socket   string `json:"socket"`
-	Workdir  string `json:"workdir"`
-	Name     string `json:"name,omitempty"`
-	Role     string `json:"role,omitempty"`
-	Team     string `json:"team,omitempty"`
-	Session  string `json:"session,omitempty"`
-	Live     bool   `json:"live"`
-	Doing    string `json:"doing,omitempty"`
-	Asking   bool   `json:"asking,omitempty"`
+	Socket  string `json:"socket"`
+	Workdir string `json:"workdir"`
+	Name    string `json:"name,omitempty"`
+	Role    string `json:"role,omitempty"`
+	Team    string `json:"team,omitempty"`
+	Session string `json:"session,omitempty"`
+	Live    bool   `json:"live"`
+	Doing   string `json:"doing,omitempty"`
+	Asking  bool   `json:"asking,omitempty"`
 	// Permission·Backend·Model 은 **명단을 그리는 그 호출에 이미 실려 온다**(§5.0.5 ⚠) —
 	// 왕복이 하나 더 드는 일이 아니다. 화면에 그대로 적는 이유는 §12 #2 다: 「이 덱 본문이 이
 	// 머신을 떠나는가」를 우리가 주소 모양으로 단정하면, 틀렸을 때 대가를 치르는 쪽이 우리가 아니다.

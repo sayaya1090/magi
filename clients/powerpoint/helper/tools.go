@@ -86,7 +86,9 @@ var slideProps = []property{
 	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given."},
 }
 
-func withSlide(rest ...property) []property { return append(append([]property{}, slideProps...), rest...) }
+func withSlide(rest ...property) []property {
+	return append(append([]property{}, slideProps...), rest...)
+}
 
 // catalogue 는 §6 의 목록 그대로다. 순서는 읽기 → 쓰기 → 되돌리기 → 안내.
 func catalogue() []tool {
@@ -112,8 +114,8 @@ func catalogue() []tool {
 			ReadOnly: true,
 		},
 		{
-			Name:     "find_shapes",
-			Desc:     "Shapes across the whole deck matching a filter — the way into a bulk change (\"every shape whose font is X\"). Returns identity and the matched values, not full slide detail." + declare,
+			Name: "find_shapes",
+			Desc: "Shapes across the whole deck matching a filter — the way into a bulk change (\"every shape whose font is X\"). Returns identity and the matched values, not full slide detail." + declare,
 			Props: withSlide(
 				property{Name: "text", Type: "string", Desc: "Substring to look for in shape text (case-insensitive)."},
 				property{Name: "name", Type: "string", Desc: "Substring to look for in the shape's name."},
@@ -131,8 +133,8 @@ func catalogue() []tool {
 			ReadOnly: true,
 		},
 		{
-			Name:     "export_slide_ooxml",
-			Desc:     "The slide's own OOXML, narrowed to a part — for what the object model stays silent about (chart data, speaker notes, animation). Reading it does not make it writable: this host cannot edit those in place." + declare,
+			Name: "export_slide_ooxml",
+			Desc: "The slide's own OOXML, narrowed to a part — for what the object model stays silent about (chart data, speaker notes, animation). Reading it does not make it writable: this host cannot edit those in place." + declare,
 			Props: withSlide(
 				property{Name: "part", Type: "string", Desc: "Which part to return: slide (default), notes, chart, or list to see what the slide contains."},
 				property{Name: "shape_id", Type: "string", Desc: "Narrow a chart or picture part to one shape."},

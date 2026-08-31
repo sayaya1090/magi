@@ -23,13 +23,13 @@ type testEngine struct {
 	mu sync.Mutex
 }
 
-func (e *testEngine) Submit(context.Context, command.SubmitPrompt) error            { return nil }
-func (e *testEngine) Steer(context.Context, command.SubmitPrompt) error             { return nil }
-func (e *testEngine) Interrupt(context.Context, command.Interrupt) error            { return nil }
+func (e *testEngine) Submit(context.Context, command.SubmitPrompt) error                 { return nil }
+func (e *testEngine) Steer(context.Context, command.SubmitPrompt) error                  { return nil }
+func (e *testEngine) Interrupt(context.Context, command.Interrupt) error                 { return nil }
 func (e *testEngine) RespondPermission(context.Context, command.RespondPermission) error { return nil }
-func (e *testEngine) RespondQuestion(context.Context, command.RespondQuestion) error { return nil }
-func (e *testEngine) Waiting(session.SessionID) (app.Ask, bool)                     { return app.Ask{}, false }
-func (e *testEngine) Doing(session.SessionID) (string, bool)                        { return "", false }
+func (e *testEngine) RespondQuestion(context.Context, command.RespondQuestion) error     { return nil }
+func (e *testEngine) Waiting(session.SessionID) (app.Ask, bool)                          { return app.Ask{}, false }
+func (e *testEngine) Doing(session.SessionID) (string, bool)                             { return "", false }
 
 // About 이 없으면 `about` 자체가 거절당하고(`answerAbout`: "this daemon cannot describe its
 // companion"), 그러면 이 시험들은 cap 을 재는 대신 핸드셰이크 실패만 재게 된다. 실물 데몬은
