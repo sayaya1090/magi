@@ -23,7 +23,11 @@ import java.nio.file.Paths
 internal class Workspace(private val project: Project) {
 
     /** 이 프로젝트의 소켓. 심링크를 푸는 자리는 SocketPath 안이다(§2). */
-    fun socket() = project.basePath?.let { SocketPath.of(SocketPath.configDir(), Paths.get(it)) }
+    /**
+     * 이 워크스페이스의 소켓. 설정 디렉토리는 **사람의 셸이 아는 값**으로 정한다([Shell]) —
+     * IDE 의 environ 으로 정하면 셸에서 `MAGI_CONFIG_DIR` 을 쓰는 사람의 데몬을 영영 못 찾는다.
+     */
+    fun socket() = project.basePath?.let { SocketPath.of(Shell.configDir(), Paths.get(it)) }
 
     /**
      * 컴패니언이 **못 만지는** 컨텐트 루트들. 없으면 빈 목록.

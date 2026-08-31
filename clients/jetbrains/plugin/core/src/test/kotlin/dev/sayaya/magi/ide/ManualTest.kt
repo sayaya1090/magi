@@ -93,6 +93,13 @@ class ManualTest {
         //     「인자를 안 받는 값이면 괜찮다」였고, 그 면제는 누가 그 값에 자리표시자를 하나
         //     넣는 순간 사라진다(한 줄 편집 거리의 함정 — 리뷰 R10).
         //  ② 패턴 자체가 깨지지 않는다 — 짝 안 맞는 중괄호는 화면이 아니라 예외로 나온다.
+        // 값이 **빈 채로** 실리는 것을 막는다. 여러 줄 문구를 쓰려다 실제 줄바꿈을 파일에 적으면
+        // 자바 프로퍼티는 그 줄에서 값을 끊고, 다음 줄은 **값 없는 열쇠**가 된다 — 화면에는 문장의
+        // 앞 토막만 뜨고 파일은 겉보기에 멀쩡하다(실측: `core.get.body` 가 그 모양으로 깨졌다).
+        // 여러 줄은 `\n` 두 글자로 적는다.
+        for ((lang, rows) in listOf("en" to en, "ko" to ko)) for ((k, v) in rows) {
+            assertTrue(v.isNotBlank(), "[$lang] 「$k」 의 값이 비었다 — 값 안에 진짜 줄바꿈을 적으면 이렇게 끊긴다")
+        }
         for ((lang, rows) in listOf("en" to en, "ko" to ko)) for ((k, v) in rows) {
             assertFalse(
                 "'" in v.replace("''", ""),

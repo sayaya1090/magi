@@ -635,6 +635,35 @@ class SourceTextTest {
      * **실제로 났던 모양**을 막는 그물이라 이렇게 두고, 못 잡는 것을 여기 적어 둔다 — 다음
      * 사람이 이 시험의 초록을 그 이상으로 읽지 않게.
      */
+    /**
+     * **설정 디렉토리를 정하는 자리는 하나다.**
+     *
+     * `SocketPath.configDir()` 를 인자 없이 부르면 IDE 프로세스의 environ 을 본다. 그런데
+     * Dock·Toolbox 로 띄운 IDE 에는 사람의 셸 설정이 하나도 없어서, 셸에서 `MAGI_CONFIG_DIR`
+     * 을 쓰는 기계에서는 그 답이 틀린다 — 창은 A 소켓을 보고 열린 버퍼는 B 소켓으로 가고,
+     * 띄운 데몬은 빈 설정 디렉토리에서 뜬다. 실제로 두 자리가 그 모양이었다.
+     *
+     * 그래서 `intellij` 에서는 [Shell] 만 그 함수를 부른다. 두 벌이 되면 안 재지는 쪽이 갈린다.
+     */
+    @Test
+    fun `설정 디렉토리를 정하는 자리는 하나다`() {
+        val mine = sources.filter { "${File.separator}intellij${File.separator}" in it.path }
+        fun calls(f: File, withEnv: Boolean) = f.readText().lineSequence().any {
+            val bare = it.substringBefore("//")
+            "SocketPath.configDir(" in bare && ("env" in bare) == withEnv
+        }
+        // 재는 것이 실제로 있는지부터. 이 줄이 없으면 아래 「없다」는 규칙이 지켜져서가 아니라
+        // **볼 것이 없어서** 초록이 될 수 있다.
+        assertEquals(
+            listOf("Shell.kt"), mine.filter { calls(it, withEnv = true) }.map { it.name }.sorted(),
+            "환경을 넘겨 설정 디렉토리를 정하는 자리가 Shell 이 아니다 — 이 시험이 볼 것을 잃었다",
+        )
+        assertEquals(
+            emptyList<String>(), mine.filter { calls(it, withEnv = false) }.map { it.name }.sorted(),
+            "IDE 환경으로 설정 디렉토리를 정하는 자리가 생겼다 — 사람의 셸이 아는 값은 Shell 이 안다",
+        )
+    }
+
     @Test
     fun `창을 거두는 자리는 클래스를 처음 로드하지 않는다`() {
         // **식 본문도 센다.** 처음엔 `override fun dispose() {` 만 찾았는데, 이 모듈의 dispose

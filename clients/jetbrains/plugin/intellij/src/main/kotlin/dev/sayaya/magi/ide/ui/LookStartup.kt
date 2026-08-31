@@ -20,6 +20,8 @@ internal class LookStartup : ProjectActivity {
             LookWhileTyping.Ears(project), LookWhileTyping.scope(project),
         )
         stripes(project)
+        // 워크스페이스가 정해졌으니 데몬도 있어야 한다 — 없으면 띄운다(스위치가 켜져 있을 때).
+        StartDaemon.ifAbsent(project)
     }
 
     /**

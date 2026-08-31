@@ -64,6 +64,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
     )
     private val autoComplete = javax.swing.JCheckBox(MagiBundle.msg("set.complete.box"))
     private val composerSuggest = javax.swing.JCheckBox(MagiBundle.msg("set.suggest.box"))
+    private val autostart = javax.swing.JCheckBox(MagiBundle.msg("set.autostart.box"))
     private val model = JComboBox<String>().apply { isEditable = true; Look.narrow(this, 24) }
     private val backend = JBTextField()
     private val said = JBLabel(" ").apply { foreground = Look.faint }
@@ -116,6 +117,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
         note(MagiBundle.msg("set.look.why"))
         row(MagiBundle.msg("set.complete"), autoComplete)
         row(MagiBundle.msg("set.suggest"), composerSuggest)
+        row(MagiBundle.msg("set.autostart"), autostart)
         note(MagiBundle.msg("set.local.why"))
         row(MagiBundle.msg("set.model"), model)
         note(MagiBundle.msg("set.model.why"))
@@ -144,7 +146,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
             // false 면 apply 를 부르지 않는다(라이브 실측: 체크는 켜졌는데 기능이 안 켜졌다).
             lookTyping.isSelected != LocalPrefs.look(project) ||
             autoComplete.isSelected != LocalPrefs.complete(project) ||
-            composerSuggest.isSelected != LocalPrefs.suggest(project)
+            composerSuggest.isSelected != LocalPrefs.suggest(project) ||
+            autostart.isSelected != LocalPrefs.autostart(project)
 
     /**
      * 쓴다 — 그리고 **다시 읽는다.** 쓴 값이 아니라 읽은 값을 화면에 남겨야, 데몬이 거절했거나
@@ -169,6 +172,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
             LookWhileTyping.setEnabled(project, lookTyping.isSelected)
             LocalPrefs.setComplete(project, autoComplete.isSelected)
             LocalPrefs.setSuggest(project, composerSuggest.isSelected)
+            LocalPrefs.setAutostart(project, autostart.isSelected)
             tell(if (gripes.isEmpty()) MagiBundle.msg("set.applied") else gripes.joinToString(" · "))
             SwingUtilities.invokeLater { model.selectedItem = ""; backend.text = "" }
         }
@@ -220,6 +224,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
             lookTyping.isSelected = LocalPrefs.look(project)
             autoComplete.isSelected = LocalPrefs.complete(project)
             composerSuggest.isSelected = LocalPrefs.suggest(project)
+            autostart.isSelected = LocalPrefs.autostart(project)
             sessionL.text = f.session
         }
         val m = comp.models()

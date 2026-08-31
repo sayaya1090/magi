@@ -127,9 +127,12 @@ class OpenBufferListener : FileEditorManagerListener {
         }
 
     private fun send(project: Project, path: String, text: String?) {
-        val base = project.basePath ?: return
         val body = text ?: return
-        val sock = SocketPath.of(SocketPath.configDir(), Paths.get(base))
+        // 소켓을 **여기서 따로 계산하지 않는다.** 설정 디렉토리를 IDE 의 environ 으로 정하고
+        // 있었는데, 창 쪽은 사람의 셸이 아는 값을 쓴다 — 셸에서 `MAGI_CONFIG_DIR` 을 쓰는
+        // 기계에서는 열린 버퍼가 **다른 소켓**으로 갔다. 한 규칙을 두 곳이 한 벌씩 적어 두면
+        // 안 재지는 쪽이 갈린다(이 저장소가 여러 번 겪은 그것).
+        val sock = Workspace(project).socket() ?: return
         val mine = gen.incrementAndGet()
         standing = if (body.isEmpty()) null else path
         ApplicationManager.getApplication().executeOnPooledThread {

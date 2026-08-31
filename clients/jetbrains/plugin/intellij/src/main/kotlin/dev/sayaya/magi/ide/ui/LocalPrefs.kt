@@ -21,13 +21,22 @@ internal object LocalPrefs {
     private const val COMPLETE = "magi.autocomplete"
     private const val SUGGEST = "magi.suggest"
 
+    /**
+     * 데몬이 없으면 프로젝트를 열 때 띄운다. **기본 켜짐**(사용자 결정: 워크스페이스가 이미
+     * 정해졌는데 데몬이 없으면 켜 주는 것이 맞다). 끄면 예전처럼 사람이 켤 때까지 기다린다 —
+     * 프로젝트를 여럿 여는 사람에게 데몬이 여럿 뜨는 것이 부담이면 그 자리가 여기다.
+     */
+    private const val AUTOSTART = "magi.autostart"
+
     private fun p(project: Project) = PropertiesComponent.getInstance(project)
 
     fun look(project: Project): Boolean = p(project).getBoolean(LOOK, false)
     fun complete(project: Project): Boolean = p(project).getBoolean(COMPLETE, true)
     fun suggest(project: Project): Boolean = p(project).getBoolean(SUGGEST, true)
+    fun autostart(project: Project): Boolean = p(project).getBoolean(AUTOSTART, true)
 
     fun setComplete(project: Project, on: Boolean) = p(project).setValue(COMPLETE, on, true)
     fun setSuggest(project: Project, on: Boolean) = p(project).setValue(SUGGEST, on, true)
     fun setLook(project: Project, on: Boolean) = p(project).setValue(LOOK, on, false)
+    fun setAutostart(project: Project, on: Boolean) = p(project).setValue(AUTOSTART, on, true)
 }
