@@ -15,6 +15,19 @@ class CoreRelease(private val conf: Map<String, String>) {
     val version: String get() = conf["core.version"].orEmpty()
 
     /**
+     * 인증서 검증을 끄고 받는가. **기본은 꺼짐**이고, 켜는 자리는 설정 파일이다.
+     *
+     * 사내 미러가 사설 CA 로 서 있으면 검증이 막는다 — 실제로 흔한 사정이라 길을 둔다. 다만
+     * **무엇을 잃는지 분명히 한다**: 체크섬을 같은 채널로 받아 오므로, 중간에 있는 쪽은 파일과
+     * 체크섬을 **둘 다** 바꿀 수 있다. 그러면 sha256 검증은 「전송이 깨지지 않았다」까지만
+     * 말하고 「낸 것이 맞다」는 못 말한다. 그래서 이 값이 켜지면 동의 대화가 그 사실을 적는다.
+     *
+     * 평문 http 는 여기서도 안 받는다(`fill` 이 https 만 통과시킨다) — 사설 CA 는 사정이지만
+     * 평문은 사정이 아니다.
+     */
+    val insecure: Boolean get() = conf["core.insecure"]?.trim()?.lowercase() in setOf("true", "yes", "1", "on")
+
+    /**
      * 설정이 다 실렸나. **안 실린 것과 「이 기계에 판이 없는 것」은 다른 사실이다** — 가르지
      * 않으면 리소스를 못 읽었을 때 사용자가 자기 기계 탓이라고 듣는다(리뷰 R8).
      */

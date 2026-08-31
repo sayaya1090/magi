@@ -81,6 +81,24 @@ class CoreReleaseTest {
     }
 
     @Test
+    fun `배포되는 설정은 인증서 검증을 켠 채로 나간다`() {
+        // 기본이 꺼짐이어야 한다. 사설 CA 는 사정이지만, 그 사정은 **그 기계에서 켜는 것**이지
+        // 모두에게 배포되는 값이 아니다.
+        assertEquals(false, CoreRelease(shipped).insecure, "배포 설정이 인증서 검증을 끄고 나간다")
+    }
+
+    @Test
+    fun `켜는 말과 안 켜는 말을 가른다`() {
+        for (on in listOf("true", "TRUE", " yes ", "1", "on")) {
+            assertTrue(CoreRelease(mapOf("core.insecure" to on)).insecure, "「$on」 을 못 읽었다")
+        }
+        for (off in listOf("false", "no", "0", "", "아무거나")) {
+            assertEquals(false, CoreRelease(mapOf("core.insecure" to off)).insecure, "「$off」 를 켬으로 읽었다")
+        }
+        assertEquals(false, CoreRelease(emptyMap()).insecure, "값이 없으면 꺼짐이다")
+    }
+
+    @Test
     fun `체크섬 표는 두 칸짜리 줄만 받는다`() {
         val t = CoreRelease.checksums(
             """

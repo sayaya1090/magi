@@ -78,7 +78,8 @@ internal object StartDaemon {
         ApplicationManager.getApplication().invokeLater({
             val yes = Messages.showYesNoDialog(
                 project,
-                MagiBundle.msg("core.get.body", CoreBinary.release.version, host),
+                MagiBundle.msg("core.get.body", CoreBinary.release.version, host) +
+                    if (CoreBinary.release.insecure) "\n\n" + MagiBundle.msg("core.get.insecure") else "",
                 MagiBundle.msg("core.get.title"),
                 MagiBundle.msg("core.get.yes"), MagiBundle.msg("core.get.no"), null,
             ) == Messages.YES

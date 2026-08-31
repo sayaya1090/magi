@@ -87,7 +87,7 @@ internal object CoreBinary {
         try {
         val archive = tmp.resolve(asset)
         indicator.text = MagiBundle.msg("core.get.downloading", release.version)
-        com.intellij.util.io.HttpRequests.request(url).saveToFile(archive.toFile(), indicator)
+        request(url).saveToFile(archive.toFile(), indicator)
 
         val got = sha256(archive)
         // **다르면 안 쓴다.** 「받긴 받았다」와 「낸 것을 받았다」는 다른 사실이고, 실행할
@@ -114,8 +114,32 @@ internal object CoreBinary {
         }
     }
 
-    private fun read(url: String): String =
-        com.intellij.util.io.HttpRequests.request(url).readString()
+    private fun read(url: String): String = request(url).readString()
+
+    /**
+     * 이 두 주소에만 쓰는 요청. `core.insecure` 가 켜져 있으면 **여기서만** 인증서와 호스트
+     * 이름을 안 따진다 — IDE 전체의 SSL 설정은 안 건드린다. 켤 때마다 로그에 남긴다: 조용히
+     * 느슨해지는 것이 이 자리에서 제일 나쁜 모양이다.
+     */
+    private fun request(url: String): com.intellij.util.io.RequestBuilder {
+        val r = com.intellij.util.io.HttpRequests.request(url)
+        if (!release.insecure) return r
+        LOG.warn("magi: core.insecure=true — 인증서 검증 없이 받는다($url)")
+        return r.hostNameVerifier { _, _ -> true }.tuner { c ->
+            (c as? javax.net.ssl.HttpsURLConnection)?.sslSocketFactory = lenient()
+        }
+    }
+
+    /** 아무 인증서나 받는 소켓 팩토리. 이 클래스의 두 요청 밖으로 새지 않는다. */
+    private fun lenient(): javax.net.ssl.SSLSocketFactory {
+        val trustAll = arrayOf<javax.net.ssl.TrustManager>(object : javax.net.ssl.X509TrustManager {
+            override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) = Unit
+            override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) = Unit
+            override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+        })
+        return javax.net.ssl.SSLContext.getInstance("TLS")
+            .apply { init(null, trustAll, java.security.SecureRandom()) }.socketFactory
+    }
 
     private fun sha256(p: Path): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
