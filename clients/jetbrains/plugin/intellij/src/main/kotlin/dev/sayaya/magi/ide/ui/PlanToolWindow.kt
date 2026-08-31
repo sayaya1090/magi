@@ -69,8 +69,8 @@ class PlanToolWindow : ToolWindowFactory {
         val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         // 폭을 항목에서 뗀다 — 긴 대화 제목 하나가 판을 벌리지 않게(Look.narrow 주석).
-        val talk = JComboBox<String>().also { Look.narrow(it) }
-        val model = JComboBox<String>().also { Look.narrow(it, 16) }
+        val talk = Look.narrowCombo<String>()
+        val model = Look.narrowCombo<String>(16)
         // 사건 라벨 하나 — 뒤 사건이 앞 사건을 덮는 그 무늬인 것을 알고 둔다(리뷰 지적). 수준이
         // 안 섞여 원판(사유가 수준에 지워짐)보다 약하고, 유닛2의 상태점 재편에서 자리째 재론한다.
         val said = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }

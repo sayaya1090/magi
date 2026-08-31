@@ -49,7 +49,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
      * 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — [apply] 가 데몬에 보내는 값이
      * 프로토콜의 것이어야 하므로, 화면을 위해 모델을 바꾸면 그게 그대로 전선에 나간다.
      */
-    private val permission = JComboBox(Perms.TOKENS.toTypedArray()).apply {
+    private val permission = Look.narrowCombo<String>(12, prototype = false).apply {
+        Perms.TOKENS.forEach(::addItem)
         // 플랫폼 렌더러를 쓴다 — 순수 스윙 라벨은 IDE 리스트의 선택색·여백을 안 따른다.
         renderer = com.intellij.ui.SimpleListCellRenderer.create<String> { label, value, _ ->
             label.text = Perms.label(value)
@@ -65,7 +66,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private val autoComplete = javax.swing.JCheckBox(MagiBundle.msg("set.complete.box"))
     private val composerSuggest = javax.swing.JCheckBox(MagiBundle.msg("set.suggest.box"))
     private val autostart = javax.swing.JCheckBox(MagiBundle.msg("set.autostart.box"))
-    private val model = JComboBox<String>().apply { isEditable = true; Look.narrow(this, 24) }
+    private val model = Look.narrowCombo<String>(24).apply { isEditable = true }
     private val backend = JBTextField()
     private val said = JBLabel(" ").apply { foreground = Look.faint }
 

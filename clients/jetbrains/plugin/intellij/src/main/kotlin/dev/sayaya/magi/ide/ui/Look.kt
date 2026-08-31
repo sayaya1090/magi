@@ -151,6 +151,37 @@ internal object Look {
      * 넓어진다"). 그래서 견본 값을 하나 박아 폭을 고정하고, 긴 값은 잘라 그리되 **툴팁에
      * 원문을 준다** — 줄여 보이는 것과 감추는 것은 다르다.
      */
+    /**
+     * **폭을 요구하지 않는 콤보를 만든다.**
+     *
+     * [narrow] 만으로는 모자랐다. 프로토타입은 콤보가 **그리는** 폭을 정하지만, 판이 못 좁혀지게
+     * 막는 것은 **최소 폭**이고 그쪽은 안 잡힌다. 실측(2026-09-01, 긴 모델 이름 하나를 넣고
+     * 최소 폭을 다시 잼):
+     *
+     * - 편집 불가·프로토타입 없음(권한): **95 → 451**
+     * - 편집 가능·프로토타입 있음(모델): **300 → 428** — 프로토타입이 있는데도 커진다.
+     *   편집 가능한 콤보의 최소 폭은 항목이 아니라 **편집칸**에서 나온다.
+     *
+     * 그래서 사람이 본 것이 「한번 커진 드롭다운은 다시 작아지지 않는다」였다. `fill=HORIZONTAL`
+     * 이라 넓어지는 것은 늘 되지만, 되돌아올 바닥이 같이 올라가 있었다.
+     *
+     * 상한은 글자 수로 정하고 **폰트에서 매번 다시 잰다** — 값을 한 번 박아 두면 테마나 IDE
+     * 글꼴이 바뀐 날 그 상한만 옛 글꼴로 남는다.
+     *
+     * [prototype] 은 **평소에도** 그 폭을 요구할지다. 항목이 으레 긴 것(모델 이름, 대화 제목)은
+     * 켠다 — 그래야 목록이 늦게 도착해도 판이 안 흔들린다. 항목이 짧고 **드물게만** 긴 것(권한
+     * 토큰: 아는 넷은 다 짧고, 데몬이 모르는 값을 줄 때만 길어진다)은 끈다. 켜면 쉬는 폭까지
+     * 프로토타입만큼 벌어져서, 상한을 씌우려다 도리어 넓히게 된다(실측: 95 → 164).
+     */
+    fun <T> narrowCombo(chars: Int = 18, prototype: Boolean = true): javax.swing.JComboBox<T> =
+        object : javax.swing.JComboBox<T>() {
+            override fun getMinimumSize(): Dimension {
+                val d = super.getMinimumSize()
+                val cap = getFontMetrics(font).charWidth('M') * chars + JBUI.scale(32)
+                return Dimension(minOf(d.width, cap), d.height)
+            }
+        }.also { if (prototype) narrow(it, chars) }
+
     @Suppress("UNCHECKED_CAST")
     fun <T> narrow(combo: javax.swing.JComboBox<T>, chars: Int = 18) {
         combo.prototypeDisplayValue = "M".repeat(chars) as T

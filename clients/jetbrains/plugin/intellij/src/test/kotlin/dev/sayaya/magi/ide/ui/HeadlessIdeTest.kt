@@ -122,6 +122,41 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertTrue("선호 폭이 ${pref}px 다 — 처음 열릴 때 판을 그만큼 벌린다", pref < 700)
     }
 
+    /**
+     * **드롭다운도 판을 안 벌린다 — 긴 항목이 온 뒤에도.**
+     *
+     * 사람이 잡았다(2026-09-01): 「한번 커진 드롭다운은 다시 작아지지 않는다. 드롭다운 빼고는
+     * 크기가 줄어드는 거 확인」. 라벨 쪽은 이미 최소 폭을 쟀는데(`설명문 라벨은 판을 안 벌린다`)
+     * 콤보는 안 쟀다. 그 사이에 결함이 살아 있었다 — 프로토타입은 **그리는** 폭만 정하고, 판이
+     * 못 좁혀지게 막는 **최소 폭**은 안 잡는다. 실측:
+     *
+     * - 권한(편집 불가·프로토타입 없음): 95 → **451**
+     * - 모델(편집 가능·프로토타입 있음): 300 → **428** — 프로토타입이 있어도 커졌다. 편집 가능한
+     *   콤보의 최소 폭은 항목이 아니라 편집칸에서 나오기 때문이다.
+     *
+     * 그래서 재는 것은 선호 폭이 아니라 **긴 항목이 도착한 뒤의 최소 폭**이다. 견본이 상한보다
+     * 훨씬 길어야 이 시험이 무언가를 재므로 그것도 같이 확인한다.
+     */
+    fun `test 드롭다운은 긴 항목이 와도 판을 안 벌린다`() {
+        val c = MagiConfigurable(project)
+        val panel = c.createComponent()!!
+        val combos = ArrayList<javax.swing.JComboBox<*>>()
+        fun walk(x: java.awt.Component) {
+            if (x is javax.swing.JComboBox<*>) combos += x
+            if (x is java.awt.Container) x.components.forEach(::walk)
+        }
+        walk(panel)
+        assertEquals("이 화면의 콤보는 둘이다 — 늘거나 줄면 이 시험을 고쳐야 한다", 2, combos.size)
+        val long = "qwen3-coder-next:latest-a-very-long-model-identifier-here"
+        assertTrue("견본이 짧아 아무것도 안 잰다: ${long.length}자", long.length > 40)
+        for ((i, cb) in combos.withIndex()) {
+            @Suppress("UNCHECKED_CAST")
+            (cb.model as javax.swing.DefaultComboBoxModel<Any>).addElement(long)
+            val w = cb.minimumSize.width
+            assertTrue("콤보 #$i 의 최소 폭이 ${w}px 다 — 긴 항목이 판의 바닥을 올렸다", w < 340)
+        }
+    }
+
     /** 도구창 아이콘이 실제로 로드된다. 없으면 스트라이프가 빈 자리로 선다. */
     fun `test 도구창 아이콘이 있다`() {
         val i = com.intellij.openapi.util.IconLoader.findIcon("/icons/magiToolWindow.svg", javaClass)
@@ -157,8 +192,45 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertTrue(boxes.getValue(MagiBundle.msg("set.complete.box")))
         assertTrue(boxes.getValue(MagiBundle.msg("set.suggest.box")))
         assertFalse(boxes.getValue(MagiBundle.msg("set.look.box")))
-        // 그리고 아무것도 안 만졌으니 OK 가 할 일이 없어야 한다 — 참이면 열자마자 값이 뒤집힌다.
+        // 그리고 아무것도 안 만졌으니 할 일이 없어야 한다 — 참이면 열자마자 값이 뒤집힌다.
+        // 화면에서 이 값을 말하는 단추는 **Apply** 다. `OK` 는 IntelliJ 의 설정 대화상자에서 늘
+        // 활성이라(누르면 닫는 단추다) 아무것도 안 가린다 — 사람이 눈으로 볼 때 OK 를 보면
+        // 결함이 있어도 통과로 읽는다(2026-09-01, 내가 점검표에 OK 라고 적어 실제로 겪었다).
         assertFalse("연 것만으로 바뀐 것이 있다고 한다", c.isModified)
+    }
+
+    /**
+     * **스위치를 바꾸면 「바뀐 것」으로 친다 — 넷 다.**
+     *
+     * 사람이 잡았다(2026-09-01): 「Start magi automatically 는 값을 바꿔도 Apply 가 활성화되지
+     * 않는다」. 앞 시험은 **안 만졌을 때 false** 만 쟀다. 그 한쪽만 재면 `isModified` 가 **늘
+     * false** 인 것과 구분이 안 간다 — 그리고 늘 false 면 플랫폼은 `apply` 를 아예 안 부르므로
+     * 사람이 바꾼 값이 조용히 버려진다. 앞 결함(화면이 거짓을 보임)의 정확히 반대쪽이다.
+     *
+     * 넷을 하나씩 따로 뒤집는다. 묶어서 한 번에 뒤집으면 **하나만 배선돼 있어도 통과**한다.
+     */
+    fun `test 스위치를 바꾸면 바뀐 것으로 친다`() {
+        val c = MagiConfigurable(project)
+        c.createComponent()
+        for (key in listOf("set.look.box", "set.complete.box", "set.suggest.box", "set.autostart.box")) {
+            c.reset()
+            assertFalse("연 것만으로 바뀜이 됐다 — 이 시험이 아무것도 못 잰다", c.isModified)
+            val box = box(c, MagiBundle.msg(key))
+            box.isSelected = !box.isSelected
+            assertTrue("$key 를 뒤집었는데 바뀐 것이 없다고 한다 — Apply 가 안 살고 값이 버려진다", c.isModified)
+        }
+    }
+
+    /** 화면에 실제로 선 그 체크박스를 글자로 집는다 — 필드가 아니라 **판에 붙은 것**을. */
+    private fun box(c: com.intellij.openapi.options.Configurable, text: String): javax.swing.JCheckBox {
+        val found = ArrayList<javax.swing.JCheckBox>()
+        fun walk(comp: java.awt.Component) {
+            if (comp is javax.swing.JCheckBox && comp.text == text) found += comp
+            if (comp is java.awt.Container) comp.components.forEach(::walk)
+        }
+        c.createComponent()?.let(::walk)
+        assertEquals("체크박스 「$text」 를 판에서 못 찾았거나 여럿이다", 1, found.size)
+        return found[0]
     }
 
     /**
