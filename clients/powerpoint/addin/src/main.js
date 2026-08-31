@@ -65,7 +65,12 @@ async function boot() {
     readTranscript,
   });
   view.mount();
-  readTranscript.attach(SESSION);
+  // **대화 이름을 우리가 짓지 않는다.** 이름을 가진 쪽은 컴패니언이고(`.sock.session`),
+  // `ReadTranscript` 는 남의 대화 이벤트를 신원으로 걸러 낸다 — 여기서 지어낸 이름에 붙이면
+  // **진짜 이벤트가 전부 그 그물에 걸린다.** 실물에서 그 화면을 봤다(2026-09-01): 모델은 덱의
+  // 제목을 실제로 고쳤는데 창은 「보냈습니다」에 멈춘 채였고, 메아리가 안 오니 사람이 적은
+  // 글도 안 지워졌다. 진짜 갈래는 아래에서 컴패니언이 든 이름에 붙는다.
+  if (!real) readTranscript.attach(SESSION);
   // 대화가 끊기거나 다시 붙으면 브랜드 줄도 같이 움직인다. **한 사건에 한 자리**라
   // 여기서 걸어 두고, 뷰는 자기가 받은 값만 그린다.
   const drawn = readTranscript.onChange;
@@ -83,6 +88,9 @@ async function boot() {
     }
     view.brand({ companion: bound, streamLive: readTranscript?.view?.live !== false, hands });
   };
+  // 부팅 직후 한 번. **비워 두면 「아직 안 골랐다」와 「골랐는데 화면이 안 그렸다」가 같은
+  // 빈칸이 된다** — 가짜 갈래에서는 이 한 줄이 「가짜 덱」이라고 적는 자리다.
+  void refreshBrand();
 
   if (real) {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
@@ -93,13 +101,26 @@ async function boot() {
       : new OfficeHand({});
     new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
 
+    /**
+     * 이 대화에 창을 붙인다. **고르기 전에 부른다** — `choose` 가 문을 여는 순간 헬퍼가 로그를
+     * 처음부터 흘려보내는데, 그때 창이 다른 이름에 붙어 있으면 그 replay 를 통째로 버린다.
+     *
+     * 「붙었다」고 적는 것은 여기가 아니다(그건 `choose` 가 성공한 뒤다). 여기서 하는 것은
+     * **어느 이름의 이벤트를 우리 것으로 셀지**를 정하는 것뿐이라, 실패해도 거짓말이 안 된다.
+     */
+    const listenTo = (session) => {
+      if (session && readTranscript.sessionId !== session) readTranscript.attach(session);
+    };
+    const nameOf = (c) => c?.name || baseNameOf(c?.workdir) || c?.socket || '';
+
     const pick = mountPick(document.querySelector('#pick'), {
       onChoose: async (companion) => {
         try {
+          listenTo(companion.session);
           const out = await api.choose(companion.socket, companion.session);
           pick.hide();
           // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
-          const name = companion.name || baseNameOf(companion.workdir) || companion.socket;
+          const name = nameOf(companion);
           view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
             (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
           bound = name;
@@ -115,7 +136,20 @@ async function boot() {
     });
     const showCompanions = async () => {
       try {
-        pick.render(await api.companions());
+        const list = await api.companions();
+        pick.render(list);
+        // **헬퍼가 이미 붙어 있을 수 있다.** PowerPoint 는 작업창을 껐다 켤 때마다 이 창을
+        // 새로 만드는데 헬퍼는 그대로 살아 있으므로, 「아무 데도 안 붙었다」로 시작하면 붙어
+        // 있는 것을 안 붙었다고 적는다. 그때 물려받을 것은 **이름 둘**이다 — 대화 이름(그래야
+        // 이벤트를 우리 것으로 센다)과 컴패니언 이름(그래야 브랜드 줄이 사실을 적는다).
+        const sock = list?.bound?.socket;
+        if (sock) {
+          listenTo(list?.bound?.session);
+          bound = nameOf((list.companions ?? [])
+            .map((e) => e.companion).find((c) => c?.socket === sock)) || baseNameOf(sock);
+          view.setBound(true);
+          await refreshBrand();
+        }
       } catch (e) {
         pick.render({ companions: [] });
         pick.note(`컴패니언을 못 훑었습니다: ${e?.message ?? e}`);

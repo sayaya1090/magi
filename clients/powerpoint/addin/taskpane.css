@@ -424,7 +424,13 @@ button:disabled { cursor: default; opacity: .5; }
   화면 밖으로 밀렸고, 실물에서 「보내기」가 잘린 화면이 그대로 떴다. 그래서 세로를 셋으로
   나눈다 — 제목은 위에 고정, 컴포저와 브랜드는 아래에 고정, **가운데만 흐른다.**
 */
-.scroll {
+/*
+  **선택자가 id 를 지나야 한다.** 위의 `#pane > *` 이 세로 리듬을 주려고 `flex: none` 을 거는데
+  그쪽은 id 를 물어 (1,0,0) 이고 클래스 하나는 (0,1,0) 이라 진다 — 그래서 이 영역이 높이 0 으로
+  접혔고, 화면에서는 **요구 집합과 컴패니언 카드가 통째로 사라진 것**으로 보였다. 실물에서 그
+  화면을 보고 고쳤다(2026-09-01).
+*/
+#pane > .scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column;
 }

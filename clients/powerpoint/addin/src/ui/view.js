@@ -583,14 +583,17 @@ export class View {
   renderRows(rows) {
     // 스크롤을 **가운데 영역이 갖는다.** 대화 칸이 자기 스크롤을 갖던 시절의 코드라, 자리를
     // 옮긴 뒤에도 같은 계산이 서게 상자를 골라 쓴다 — 없으면 예전처럼 대화 칸이다.
-    const box = $('#scroll') ?? $('#turns');
-    // 스크롤은 **가운데 영역**이 갖는다. 대화 칸이 자기 스크롤을 갖던 때의 코드가 여기라,
-    // 자리를 옮긴 뒤에도 같은 계산이 서게 상자를 골라서 쓴다.
-    const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+    // **자리가 둘이다 — 재는 상자와 담는 상자.** 스크롤은 가운데 영역이 갖고(`#scroll`), 줄이
+    // 들어가는 것은 대화 칸이다(`#turns`). 한 변수로 뭉쳤더니 `replaceChildren` 이 **스크롤
+    // 영역을 통째로 비웠고**, 화면에서는 요구 집합도 컴패니언 카드도 사라진 것으로 보였다
+    // (실물에서 그 화면을 보고 갈랐다, 2026-09-01).
+    const box = $('#turns');
+    const scroller = $('#scroll') ?? box;
+    const atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
     box.replaceChildren();
     for (const r of rows) box.append(this.rowEl(r));
     // 위로 올려 읽는 중이면 **안 끌어내린다.** 도구가 줄줄이 도는 턴에서 읽던 자리를 뺏는다.
-    if (atEnd) box.scrollTop = box.scrollHeight;
+    if (atEnd) scroller.scrollTop = scroller.scrollHeight;
   }
 
   rowEl(r) {

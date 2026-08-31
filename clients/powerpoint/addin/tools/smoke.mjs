@@ -2482,5 +2482,54 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('bound 를 안 실으면 예전 그대로', askKind({ reachable: false }) === 'lost');
 }
 
+// ── 대화 이름은 우리가 짓지 않는다 ────────────────────────────────────────────
+//
+// 실물에서 본 것이 근거다(2026-09-01): 모델이 `mcp__ppt__` 로 덱의 제목을 **실제로** 고쳤는데
+// 작업창은 「보냈습니다 — 로그에 뜨기를 기다립니다」에 멈춘 채였고, 사람이 적은 글도 그대로
+// 남아 있었다(메아리가 안 오니 `SendTurn.settle` 이 영영 안 푼다). 창이 지어낸 이름에 붙어
+// 있었고, 진짜 이벤트는 `sessionId` 가 달라 **신원 그물에 전부 걸렸다.**
+//
+// 그 그물은 옳다 — 남의 대화를 조용히 섞지 않는 것이 규칙이다. 틀린 쪽은 **이름을 지어낸
+// 호출자**였다. 그래서 여기서 무는 것도 둘이다: 그물이 실제로 거른다는 것과, **조립 자리가
+// 이름을 안 짓는다**는 것. 뒤엣것은 앞엣것이 못 잡는다 — 유스케이스는 시키는 대로 했고,
+// 틀린 것은 시킨 쪽이었다.
+{
+  const foreign = { seq: 1, sessionId: '남의-대화', type: 'prompt.submitted', data: { text: '남의 글' } };
+  const mine = { seq: 1, sessionId: 's_real', type: 'prompt.submitted', data: { text: '내 글' } };
+  const port = new FakeTranscript({ s_real: [] });
+  const read = new ReadTranscript(port);
+  read.attach('s_real');
+  port.push(foreign);
+  ok('남의 대화 이벤트는 안 섞인다', read.view.rows.length === 0,
+    read.view.rows.map((r) => r.text).join('|'));
+  port.push(mine);
+  ok('이 대화 이벤트는 선다',
+    read.view.rows.some((r) => r.text === '내 글'), `${read.view.rows.length}줄`);
+
+  // **틀린 이름에 붙으면 진짜가 통째로 사라진다** — 위 화면을 그대로 재현한다.
+  const port2 = new FakeTranscript({ 'sess-mock': [] });
+  const read2 = new ReadTranscript(port2);
+  read2.attach('sess-mock');
+  port2.push(mine);
+  ok('지어낸 이름에 붙으면 진짜 대화가 안 보인다', read2.view.rows.length === 0);
+  // 그 화면에서 사람 글이 왜 안 지워지는지까지 같이 적는다 — 메아리를 셀 줄이 0 이다.
+  ok('그 화면에서는 메아리를 셀 줄이 없다', logShapeOf(read2.view).userRows === 0);
+
+  // 조립 자리의 규칙: **`attach` 에 지어낸 이름을 넘기는 줄은 가짜 갈래 안에만 있다.**
+  const wiring = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => /readTranscript\.attach\(/.test(l) && !l.startsWith('//') && !l.startsWith('*'));
+  ok('조립 자리가 대화에 붙는 줄이 있다', wiring.length > 0);
+  ok('지어낸 이름은 가짜 갈래에서만 쓴다',
+    everyOf(wiring, (l) => !/\bSESSION\b/.test(l) || /!real/.test(l)), wiring.join(' / '));
+  // 진짜 갈래는 컴패니언이 든 이름에 붙는다 — `.sock.session` 이 그 이름의 출처다.
+  const wiringSrc = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  ok('진짜 갈래는 컴패니언이 든 이름에 붙는다',
+    /listenTo\(companion\.session\)/.test(wiringSrc)
+      && /listenTo\(list\?\.bound\?\.session\)/.test(wiringSrc));
+}
+
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);
