@@ -66,6 +66,22 @@ async function boot() {
   });
   view.mount();
   readTranscript.attach(SESSION);
+  // 대화가 끊기거나 다시 붙으면 브랜드 줄도 같이 움직인다. **한 사건에 한 자리**라
+  // 여기서 걸어 두고, 뷰는 자기가 받은 값만 그린다.
+  const drawn = readTranscript.onChange;
+  readTranscript.onChange = () => { drawn?.(); void refreshBrand(); };
+
+  // 브랜드 줄이 늘 말하는 것 셋: 어디에 붙었나 · 대화가 살아 있나 · 손이 몇인가.
+  // **가짜 갈래에서도 사실을 적는다** — 「가짜 덱」이라고 적히지 않으면 그 화면은 진짜인 척한다.
+  let bound = real ? null : '가짜 덱';
+  const baseNameOf = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).pop() ?? '';
+  const refreshBrand = async () => {
+    let hands;
+    if (real) {
+      try { hands = (await api.documents())?.documents?.length; } catch { hands = undefined; }
+    }
+    view.brand({ companion: bound, streamLive: readTranscript?.view?.live !== false, hands });
+  };
 
   if (real) {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
@@ -82,8 +98,11 @@ async function boot() {
           const out = await api.choose(companion.socket, companion.session);
           pick.hide();
           // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
-          view.where(`${companion.name || companion.socket} 에 붙였습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
+          const name = companion.name || baseNameOf(companion.workdir) || companion.socket;
+          view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
             (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
+          bound = name;
+          await refreshBrand();
         } catch (e) {
           // **끝내 못 붙으면 말한다**(§5.3). 조용하면 화면이 「할 일 없음」처럼 보인다.
           pick.note(`못 붙였습니다: ${e?.message ?? e}`);

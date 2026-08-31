@@ -1,0 +1,416 @@
+/*
+  작업창의 생김새.
+
+  # 어느 언어를 따르나 — Fluent 2 다, Material 이 아니다
+
+  이 저장소의 콘솔은 Material 3 를 따른다(`docs/UI.md` §3). **이 창은 안 따른다.** 여기는
+  PowerPoint 안에 도킹된 판이고, 옆에 Office 의 리본이 붙어 있다. 한 화면 안에서 두 언어가
+  부딪히면 사용자는 그것을 「우리 창이 잘못 그려졌다」로 읽는다. 그래서 마이크로소프트의 애드인
+  디자인 지침(Fluent 2)의 값들을 쓴다 — 타입 램프, 8의 배수 간격, 32px 컨트롤 높이, 중립 램프.
+
+  # 값을 토큰으로 두는 이유
+
+  첫 판에는 여백이 `6px 9px`, `7px 9px`, `10px 11px` 처럼 자리마다 달랐고, 새로 붙인 판
+  (`#pick`)에는 **아예 없었다.** 실물에서 그게 「패딩도 없고 단추가 서로 붙어 있다」로 나타났다.
+  자리마다 손으로 고르면 다음 판에서 또 갈리므로, 고르는 자리를 여기 하나로 모은다.
+*/
+
+:root {
+  /* 간격 — 4의 배수. 이 파일에 이 밖의 여백 값은 없다. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+
+  /* 모서리 */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  /* 타입 램프(Fluent 2) — 크기와 줄높이가 짝이다. 크기만 바꾸면 줄이 붙는다. */
+  --t-caption: 12px/16px;
+  --t-body: 14px/20px;
+  --t-body-strong: 14px/20px;
+  --t-subtitle: 16px/22px;
+  --t-title: 20px/28px;
+
+  /* 중립 램프 */
+  --bg: #ffffff;
+  --bg-sub: #faf9f8;    /* 카드·인용의 바닥 */
+  --bg-sunken: #f3f2f1; /* 창 밖(목업)의 바닥 */
+  --fg: #242424;
+  --fg-2: #424242;      /* 본문 다음 등급 */
+  --muted: #616161;     /* 곁말. 이보다 흐린 회색은 안 쓴다 — 안 읽힌다 */
+  --line: #e0e0e0;
+  --line-strong: #c7c7c7;
+
+  /* 뜻이 있는 색 */
+  --accent: #b7472a;    /* PowerPoint 의 붉은 계열 */
+  --accent-fg: #ffffff;
+  --accent-weak: #fdf6f4;
+  --sel: #0f6cbd;       /* 포커스·선택 */
+  --warn-bg: #fff4ce;
+  --warn-fg: #6b4d00;
+  --warn-line: #e6c66a;
+  --ok: #0f7b0f;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .08), 0 0 2px rgba(0, 0, 0, .06);
+  --shadow-2: 0 4px 8px rgba(0, 0, 0, .10), 0 0 2px rgba(0, 0, 0, .06);
+}
+
+/*
+  어두운 테마. Office 의 테마를 직접 물어보는 길이 이 판에는 없으므로 OS 의 것을 따른다 —
+  틀릴 때가 있지만, **틀린 색보다 나쁜 것은 흰 판이 어두운 Office 안에서 혼자 타는 것**이다.
+*/
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f;
+    --bg-sub: #292929;
+    --bg-sunken: #141414;
+    --fg: #f5f5f5;
+    --fg-2: #e0e0e0;
+    --muted: #adadad;
+    --line: #3d3d3d;
+    --line-strong: #575757;
+    --accent: #e06c4f;
+    --accent-fg: #1f1f1f;
+    --accent-weak: #2d211e;
+    --sel: #62abf5;
+    --warn-bg: #3b2f00;
+    --warn-fg: #ffd966;
+    --warn-line: #6b5600;
+    --ok: #6ccb5f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  display: flex;
+  height: 100vh;
+  font: var(--t-body) "Segoe UI", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 애드인 안에서는 작업창 하나뿐이다. 목업일 때만 왼쪽에 가짜 캔버스가 생긴다. */
+#fake { display: none; }
+body.standalone { background: var(--bg-sunken); }
+body.standalone #fake { display: block; flex: 1; min-width: 0; padding: var(--s5); }
+body.standalone #pane {
+  width: 360px; flex: none; border-left: 1px solid var(--line); background: var(--bg);
+}
+
+#pane { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+
+/* 세로 리듬을 한 자리에서 준다. 판마다 마진을 손으로 적으면 그 자리만 또 갈린다. */
+#pane > * { flex: none; }
+#pane > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+
+/*
+  제목 줄. **오른쪽에 44px 을 비워 둔다** — 거기 Office 의 personality 메뉴가 뜬다(Windows
+  12×32, Mac 은 34×32 에 오른쪽 8px·위 6px 여백). 그 자리에 우리 컨트롤을 두면 겹쳐서 못 누른다.
+  MS 지침이 「navigational/commanding 요소가 그 메뉴에 가릴 수 있다」고 적은 그 자리다.
+*/
+header {
+  display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s3) 44px var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
+  margin-top: 0;
+}
+header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent); }
+/* 어댑터 이름은 제목 **아래**로 흐른다. 오른쪽 끝에 붙이면 위 여백을 다 쓰고도 메뉴에 닿는다. */
+.adapter { font: var(--t-caption); color: var(--muted); flex-basis: 100%; }
+
+/*
+  호스트가 자기 입으로 말한 요구 집합. 잰 것과 안 잰 것을 **색으로 가른다** — 회색은
+  「아직 모른다」고 화면이 말하는 것이지 「괜찮다」가 아니다.
+*/
+.caps {
+  font: var(--t-caption); color: var(--muted);
+  padding: var(--s2) var(--s4);
+  background: var(--bg-sub); border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+  margin-top: 0;
+}
+.caps[data-measured="yes"] { color: var(--fg-2); }
+
+/* ── 컴패니언 고르기 ─────────────────────────────────────────── */
+
+.pick { padding: 0 var(--s4); }
+.pick h2 { font: var(--t-subtitle); font-weight: 600; margin: 0 0 var(--s2); }
+.pick-bound, .pick-empty, .pick-note {
+  font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2);
+}
+.pick-empty {
+  padding: var(--s3); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md); background: var(--bg-sub);
+}
+.pick-note { color: var(--accent); }
+
+/* 한 줄이 카드다. 이름 → 곁말 → 사유 → 단추 순서로 읽히게 세로로 쌓는다. */
+.pick-row {
+  display: flex; flex-direction: column; gap: var(--s1);
+  padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); box-shadow: var(--shadow-1);
+  margin-bottom: var(--s2);
+}
+.pick-row strong { font: var(--t-body); font-weight: 600; }
+.pick-detail { font: var(--t-caption); color: var(--muted); }
+/* 못 고르는 이유는 **흐리게 두지 않는다** — 이 칸의 내용이 그 문장이다. */
+.pick-why { font: var(--t-caption); color: var(--fg-2); }
+.pick-row button { align-self: flex-start; margin-top: var(--s1); }
+.pick-row.pick-off { background: var(--bg-sub); border-style: dashed; box-shadow: none; }
+.pick > button { margin-top: var(--s1); }
+
+/* ── 대화 ───────────────────────────────────────────────────── */
+
+.turns {
+  flex: 1 1 auto; overflow-y: auto;
+  padding: var(--s3) var(--s4);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+.turn { margin: 0; }
+.turn p { margin: 0; white-space: pre-wrap; }
+.turn-head { font: var(--t-caption); color: var(--muted); margin-bottom: var(--s1); }
+
+.turn.kind-user p {
+  background: var(--accent-weak); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: var(--s2) var(--s3);
+}
+.turn.kind-model p { padding: 0; }
+.turn.kind-think { border-left: 2px solid var(--line); padding-left: var(--s2); }
+.turn.kind-think p, .turn.kind-note p { color: var(--muted); font: var(--t-caption); }
+.turn.kind-tool {
+  background: var(--bg-sub); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: var(--s2) var(--s3);
+}
+.turn.kind-tool .turn-head { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.turn-args {
+  margin: var(--s1) 0 0;
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; color: var(--muted);
+}
+.turn.kind-error p { color: var(--accent); }
+
+/* 턴의 끝은 **줄이 아니라 자국이다.** 얇게 긋고 가운데 한 마디만 남긴다. */
+.turn.kind-turn p {
+  font: var(--t-caption); color: var(--muted); text-align: center;
+  border-top: 1px solid var(--line); padding-top: var(--s2);
+}
+/* 검증 못 한 착지를 보통 끝처럼 그리면 「고쳤다」와 「고쳤다는데 아무도 못 봤다」가
+   화면에서 똑같이 생긴다(`TurnFinishedData.Unverified`). */
+.turn.kind-turn.unverified p {
+  color: var(--warn-fg); background: var(--warn-bg); border-top-color: var(--warn-line);
+  border-radius: var(--r-md); padding: var(--s2) var(--s3); text-align: left;
+}
+
+/* ── 인용 ───────────────────────────────────────────────────── */
+
+.quote {
+  position: relative;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: var(--bg-sub); border-radius: var(--r-md);
+  padding: var(--s2) var(--s6) var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+}
+.quote-head { font: var(--t-caption); color: var(--muted); }
+.quote-body { font: var(--t-body); }
+.quote-meta { font: var(--t-caption); color: var(--muted); }
+.quote-x {
+  position: absolute; top: var(--s1); right: var(--s1);
+  width: 24px; height: 24px; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.quote-x:hover { background: var(--line); color: var(--fg); }
+
+/* ── 창이 사람에게 하는 말들 ─────────────────────────────────── */
+
+/* 판 자체에 대한 사실(창이 사는 동안 참) — 아래 `.note`(이번 한 번의 일)와 **다르게 생겨야**
+   한다. 같은 노랑이면 나란히 떴을 때 어느 쪽이 방금 누른 결과인지 못 가린다. */
+.where, .note, .stream, .sent, .doing, .unknown-note { margin-left: var(--s4); margin-right: var(--s4); }
+.where {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--bg-sub); color: var(--fg-2);
+  border-left: 3px solid var(--line-strong); font: var(--t-caption);
+}
+.note, .stream {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-fg);
+  border: 1px solid var(--warn-line); font: var(--t-caption);
+}
+.unknown-note { color: var(--muted); font: var(--t-caption); }
+.sent {
+  display: flex; align-items: center; gap: var(--s2);
+  color: var(--muted); font: var(--t-caption);
+}
+.sent button { margin-left: auto; }
+.doing { color: var(--muted); font: var(--t-caption); }
+
+/* ── 안내(포스트잇) ─────────────────────────────────────────── */
+
+.advice-wrap { border-top: 1px solid var(--line); padding: var(--s3) var(--s4); }
+.advice-wrap h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s1); }
+.advice-note { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.advice-strays {
+  font: var(--t-caption); margin: 0 0 var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); background: var(--warn-bg); color: var(--warn-fg);
+  border: 1px solid var(--warn-line);
+}
+.advice {
+  display: block; width: 100%; text-align: left; margin-bottom: var(--s2);
+  padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); color: var(--fg); cursor: pointer;
+  font: var(--t-body); box-shadow: var(--shadow-1);
+}
+.advice:hover:not(:disabled) { border-color: var(--sel); box-shadow: var(--shadow-2); }
+.advice:disabled { color: var(--muted); background: var(--bg-sub); cursor: default; box-shadow: none; }
+.advice-target { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+
+/* ── 데몬이 막혀서 묻는 자리 ─────────────────────────────────── */
+
+.ask { margin: 0 var(--s4); }
+/* 대화 흐름 안에 섞이면 안 된다. 이건 읽는 것이 아니라 **막고 있는 것**이다. */
+.ask-box {
+  padding: var(--s3); border: 1px solid var(--accent);
+  border-radius: var(--r-lg); background: var(--accent-weak);
+  box-shadow: var(--shadow-1);
+}
+/* 답할 줄 모르는 종류. 눈에 띄되 「누르라」로 안 읽히게 강조를 뺀다. */
+.ask-box.unknown { border-color: var(--line); background: var(--bg-sub); }
+.ask-box h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s2); color: var(--accent); }
+.ask-box.unknown h2 { color: var(--muted); }
+.ask-unknown { font: var(--t-caption); margin: 0; white-space: pre-wrap; }
+.ask-what { font: var(--t-body); margin: 0 0 var(--s1); white-space: pre-wrap; }
+.ask-reason { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.ask-args {
+  margin: 0 0 var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); background: var(--bg); border: 1px solid var(--line);
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto;
+}
+/* 인자가 안 실렸다는 말. **흐리게 두지 않는다** — 지금 누르려는 것에 대한 경고다. */
+.ask-args-missing { margin: 0 0 var(--s2); font: var(--t-caption); color: var(--accent); white-space: pre-wrap; }
+.ask-report { margin: 0 0 var(--s2); }
+.ask-report dt { font: var(--t-caption); color: var(--muted); }
+.ask-report dd { margin: 0 0 var(--s1); font: var(--t-caption); white-space: pre-wrap; }
+.ask-place { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.ask-picks { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.ask-note { font: var(--t-caption); color: var(--muted); margin: var(--s2) 0 0; }
+.ask-text { display: flex; gap: var(--s2); margin-top: var(--s2); }
+.ask-text input {
+  flex: 1; min-width: 0; font: var(--t-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: var(--s2) var(--s3);
+}
+.ask-lost {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-line);
+  font: var(--t-caption);
+}
+.ask-last { font: var(--t-caption); color: var(--muted); }
+
+/* ── 컴포저 ─────────────────────────────────────────────────── */
+
+.composer {
+  border-top: 1px solid var(--line);
+  padding: var(--s3) var(--s4) var(--s4);
+  background: var(--bg);
+}
+.pending:not(:empty) { margin-bottom: var(--s2); }
+/* 기다리는 동안은 인용을 못 뺀다 — 이미 나간 글에 접혀 나갔다. */
+.pending.locked { opacity: .55; }
+textarea {
+  width: 100%; resize: vertical; min-height: 64px;
+  font: var(--t-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+}
+textarea::placeholder { color: var(--muted); }
+.buttons { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); }
+
+/* ── 컨트롤 ─────────────────────────────────────────────────── */
+
+button {
+  font: var(--t-body); font-weight: 600;
+  min-height: 32px; padding: 0 var(--s3);
+  border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer;
+}
+button:disabled { cursor: default; opacity: .5; }
+.ghost {
+  background: var(--bg); border-color: var(--line-strong); color: var(--fg);
+}
+.ghost:hover:not(:disabled) { background: var(--bg-sub); border-color: var(--sel); }
+.ghost:active:not(:disabled) { background: var(--line); }
+.primary {
+  margin-left: auto; background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+}
+.primary:hover:not(:disabled) { filter: brightness(1.06); }
+.primary:active:not(:disabled) { filter: brightness(.94); }
+/* 포커스는 **끄지 않는다.** 이 창은 키보드로도 돌아야 하고, 링을 지우면 어디에 있는지가
+   화면에서 사라진다. */
+:where(button, textarea, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--sel); outline-offset: 2px;
+}
+
+/* ── 목업의 가짜 캔버스 ─────────────────────────────────────── */
+
+.strip { display: flex; gap: var(--s2); margin-bottom: var(--s3); }
+.thumb {
+  width: 36px; height: 27px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); font: var(--t-caption);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+.thumb.on { border-color: var(--sel); color: var(--sel); }
+.canvas {
+  position: relative; aspect-ratio: 16 / 9; background: #fff;
+  border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-2);
+}
+.shape {
+  position: absolute; border: 1px dashed var(--line-strong); border-radius: var(--r-sm);
+  padding: var(--s1) var(--s2); overflow: hidden; cursor: pointer;
+  font: var(--t-body); color: #333;
+}
+.shape:hover { border-color: var(--sel); }
+.shape.sel { border: 2px solid var(--sel); border-style: solid; }
+.hint { color: var(--muted); font: var(--t-caption); }
+.fake-prompts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2);
+  margin-top: var(--s4); font: var(--t-caption); color: var(--muted);
+}
+.fake-prompts button { min-height: 28px; font: var(--t-caption); font-weight: 600; }
+
+/* ── 접히는 요구 집합 ───────────────────────────────────────── */
+
+.caps summary {
+  cursor: pointer; list-style: none;
+  padding: var(--s2) var(--s4);
+  font: var(--t-caption); color: var(--muted);
+}
+.caps summary::-webkit-details-marker { display: none; }
+.caps summary::before { content: "▸ "; }
+.caps[open] summary::before { content: "▾ "; }
+.caps[data-measured="yes"] summary { color: var(--fg-2); }
+.caps-detail {
+  padding: 0 var(--s4) var(--s2);
+  font: var(--t-caption); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 브랜드 줄 ─────────────────────────────────────────────── */
+/* MS 지침이 작업창 **아래**에 두라고 적은 자리. 위에 두면 세로 391px 에서 대화가 그만큼 준다. */
+
+.brand {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--line); background: var(--bg-sub);
+  font: var(--t-caption); color: var(--muted);
+  margin-top: 0;
+}
+.brand-name { font-weight: 600; color: var(--accent); }
+.brand-state { margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

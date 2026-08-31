@@ -21,6 +21,11 @@
   <section id="fake"></section>
 
   <section id="pane">
+    <!--
+      제목에 애드인 이름을 넣고 회사 이름은 안 붙인다(MS 애드인 디자인 지침의 「Do」).
+      **오른쪽 위는 비워 둔다** — 거기 personality 메뉴가 뜬다(Windows 12×32, Mac 34×32,
+      8px 안쪽으로 뜬다). 그 자리에 컨트롤을 두면 사용자가 우리 것을 못 누른다.
+    -->
     <header>
       <strong>magi</strong>
       <span id="adapter" class="adapter"></span>
@@ -34,7 +39,15 @@
     -->
     <div id="where" class="where" hidden></div>
 
-    <div id="caps" class="caps"></div>
+    <!--
+      호스트가 자기 입으로 말한 요구 집합. **접어 둔다** — PowerPoint 의 작업창은 1366×768 에서
+      348×391 이라 세로가 귀하고(MS 지침의 크기 표), 이 줄은 뭔가 안 될 때만 읽는 값이다.
+      요약 한 칸은 늘 보이므로 「안 쟀다」가 숨지는 않는다.
+    -->
+    <details id="caps" class="caps">
+      <summary id="caps-summary"></summary>
+      <div id="caps-detail" class="caps-detail"></div>
+    </details>
 
     <!--
       **붙을 곳은 애드인이 고른다**(DESIGN.md §5.0). 켜진 컴패니언 중에서 사람이 하나를 고르고,
@@ -91,6 +104,16 @@
         <button id="send" class="primary">보내기</button>
       </div>
     </div>
+
+    <!--
+      브랜드 줄. MS 지침이 작업창 아래에 두라고 적은 자리다(Outlook 만 예외). 여기서는 그
+      자리를 **상태 한 줄**과 같이 쓴다 — 어느 컴패니언에 붙어 있는지가 늘 보여야 하고,
+      그것을 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
+    -->
+    <footer class="brand">
+      <span class="brand-name">magi</span>
+      <span id="brand-state" class="brand-state"></span>
+    </footer>
   </section>
 
   <script type="module" src="src/main.js"></script>

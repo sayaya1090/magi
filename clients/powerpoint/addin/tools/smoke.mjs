@@ -30,6 +30,7 @@ import {
   isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
+  capsSummary, brandState,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -1584,7 +1585,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const text = readFileSync(f, 'utf8');
     puts += (text.match(/\.textContent\b/g) ?? []).length;
     text.split('\n').forEach((line, i) => {
-      if (SINKS.test(line)) sunk.push(`${f.pathname.split('/mockup/')[1]}:${i + 1}`);
+      if (SINKS.test(line)) sunk.push(`${f.pathname.split('/addin/')[1]}:${i + 1}`);
     });
   }
   ok('훑을 파일을 실제로 찾았다', files.length > 1, `${files.length} 파일`);
@@ -2430,6 +2431,36 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     clip('12345', 10) === '12345' && clip('1234567890', 5).length === 5
       && clip('1234567890', 5).endsWith('…'),
     clip('1234567890', 5));
+}
+
+
+// ── 접힌 판이 접힌 채로 거짓말하지 않는가 ────────────────────────────────────
+//
+// 작업창은 PowerPoint 에서 348×391 이라(MS 애드인 디자인 지침의 크기 표) 세로가 귀하고, 요구
+// 집합 여섯 줄은 뭔가 안 될 때만 읽는 값이라 접어 뒀다. 접는 순간 규칙이 하나 생긴다:
+// **요약이 사실을 말해야 한다.** 「다 좋다」로 접어 두면 아무도 펴지 않고, 안 쟀다는 사실이
+// 화면에서 사라진다.
+{
+  const all = { measured: true, sets: [{ ok: true }, { ok: true }] };
+  const some = { measured: true, sets: [{ ok: true }, { ok: false }, { ok: null }] };
+  ok('안 쟀으면 요약이 안 쟀다고 적는다',
+    capsSummary({ measured: false, sets: [] }).includes('못 쟀'),
+    capsSummary({ measured: false, sets: [] }));
+  ok('다 되면 수를 적는다', capsSummary(all).includes('2개'), capsSummary(all));
+  ok('빠진 것이 있으면 접힌 줄이 그것을 적는다',
+    capsSummary(some).includes('1개 없음') && capsSummary(some).includes('1개 모름'),
+    capsSummary(some));
+}
+
+// 브랜드 줄(MS 지침이 작업창 아래에 두라고 적은 자리)은 **늘 사실을 적는다.**
+{
+  ok('안 골랐으면 안 골랐다고 적는다',
+    brandState({ companion: null, streamLive: false }) === '컴패니언 미선택');
+  ok('붙었으면 어디에·대화가 살아 있는지·손이 몇인지',
+    brandState({ companion: 'deck2', streamLive: true, hands: 2 }) === 'deck2 · 대화 연결됨 · 덱 2',
+    brandState({ companion: 'deck2', streamLive: true, hands: 2 }));
+  ok('대화가 끊기면 그렇게 적는다',
+    brandState({ companion: 'deck2', streamLive: false }).includes('대화 끊김'));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

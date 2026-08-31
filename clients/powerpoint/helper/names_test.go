@@ -12,7 +12,7 @@ import (
 
 // addinDir 은 애드인 소스가 사는 곳. 한 자리에 모아 두는 이유는 아래 시험들이 전부 그 트리를
 // 훑기 때문이고, 옮기는 날 고칠 곳이 하나이기 때문이다.
-const addinDir = "../mockup"
+const addinDir = "../addin"
 
 // 이름 넷이 같은 문자열인가(DESIGN.md §5.5 ⚠, §9 마지막 항목).
 //

@@ -2189,14 +2189,14 @@ call id가 맞아서 데몬이 받아 버린다」고 적었는데, 세어 보�
 참이다. 그래서 SIGKILL로 죽은 데몬이 영영 일하는 중으로 선다. 지우는 것도 답이 아니다: 마지막으로
 뭘 하다 놓쳤는지는 사람에게 필요한 정보이고, 그건 지난 일이라 여전히 참이다. **값과 그 값이 아직
 유효한지를 같이 실어야** 읽는 쪽이 시제를 고를 수 있다 — 미리 지우면 그 선택이 사라진다(목업은
-`clients/powerpoint/mockup/src/usecase/WatchPrompt.js`의 `doingFresh`로 싣고, 화면이 거짓이면
+`clients/powerpoint/addin/src/usecase/WatchPrompt.js`의 `doingFresh`로 싣고, 화면이 거짓이면
 「마지막으로 읽었을 때」로 적는다). 넷째와 같은 자리인데 넷째는 **낡은 부재**가 남은 것이었고
 이건 **낡은 현재형**이 남은 것이다.
 
 **여섯째는 수명이 다른 두 말이 한 칸을 같이 쓴 것이다.** 창의 쪽지 자리는 하나였고 두 종류가
-거기 들어갔다 — 「방금 누른 것이 어떻게 됐다」(`clients/powerpoint/mockup/src/ui/view.js`의
+거기 들어갔다 — 「방금 누른 것이 어떻게 됐다」(`clients/powerpoint/addin/src/ui/view.js`의
 `guard`와 `onQuote`가 쓴다)와 「이 창은 PowerPoint 안이 아니다」
-(`clients/powerpoint/mockup/src/main.js`의 `pickNote`가 부팅 때 쓴다). 앞엣것은 이번 한 번의
+(`clients/powerpoint/addin/src/main.js`의 `pickNote`가 부팅 때 쓴다). 앞엣것은 이번 한 번의
 일이고 뒤엣것은 창이 사는 동안 계속 참이다. 한 칸이면 **어느 수명을 골라도 다른 쪽이 틀린다.**
 안 지우면 「잠시 뒤 다시 눌러 주세요」가 성공한 재시도 뒤에도 서 있고 — 그 문장은 **자기가 부른
 행동에** 의해 거짓이 된다 — 지우면 첫 누름이 판 사실을 없애서 그 뒤로 사람은 자기가 PowerPoint
@@ -2216,15 +2216,15 @@ call id가 맞아서 데몬이 받아 버린다」고 적었는데, 세어 보�
 했을 때 그 문장이 참이 되는가」인데, 이 물음이 필요한 것은 문장이 **어딘가에 적혀 있을**
 때뿐이다. 조건에서 매번 다시 유도되는 문장은 조건이 없어지면 같이 없어지므로 물어볼 것이
 없다. 목업을 이 물음으로 쓸어 봤더니 사람에게 말하는 자리가 아홉인데 일곱은 유도된 것이었다
-— `clients/powerpoint/mockup/src/ui/view.js`의 `renderDoing`·`renderStream`·`renderUnknown`
+— `clients/powerpoint/addin/src/ui/view.js`의 `renderDoing`·`renderStream`·`renderUnknown`
 ·`renderSent`·`renderAdviceFrom`, 그리고
-`clients/powerpoint/mockup/src/usecase/WatchPrompt.js`의 `lostNote`·`unknownKindNote`. 전부
+`clients/powerpoint/addin/src/usecase/WatchPrompt.js`의 `lostNote`·`unknownKindNote`. 전부
 넘겨받은 값의 순수 함수라 값이 없으면 숨는다. 적어 두는 자리는 둘뿐이었고, 틀린 것은 그 둘
 중 하나였다.
 
 **나머지 하나가 안 틀린 이유도 우연이 아니다.** `#where`가 시키는 것은 전부 「새로고침」이라
 시킨 대로 하면 판이 통째로 다시 선다 — 문장이 제 조건과 함께 죽는다. 그리고 새로고침이
-소용없는 갈래에서는 `clients/powerpoint/mockup/src/adapter/pickDeck.js`의 `lateNote`가
+소용없는 갈래에서는 `clients/powerpoint/addin/src/adapter/pickDeck.js`의 `lateNote`가
 시키는 대신 **「새로고침해도 같은 자리입니다」**라고 적는다. 못 고칠 것을 시키지 않는 것이
 같은 규칙의 다른 쪽 면이다.
 
@@ -2408,7 +2408,7 @@ call id**로 간다.
 **그 요약은 로그에 안 앉는다. 그래서 다시 붙은 창에는 그 구간이 아예 없다.** 계약은
 `payload.go`의 `ToolProgressData`가 적어 두었다 — 임시고 버려도 되며 **영속되지 않고**,
 UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지운다.**
-`clients/powerpoint/mockup/src/domain/Cursor.js`의 `advanced`가 이미 아는 `seq == 0`의 실제
+`clients/powerpoint/addin/src/domain/Cursor.js`의 `advanced`가 이미 아는 `seq == 0`의 실제
 값이 이것이다: 커서로 되받을 수 없다. 그러니 이 줄은 **기록이 아니라 지금
 상태**로 그린다. 대화 줄로 그리면 결과가 온 뒤에도 남고, 새로 붙은 창에는 그 줄이 없어서 **두 창이
 서로 다른 과거를 갖는다.** 작업창이 덱 전환·새로고침마다 다시 뜨는 우리에게 이건 예외가 아니라
@@ -2453,7 +2453,7 @@ UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지�
 침묵을 「덱이 안 변했다」로 읽지 않는다** — 그 유보는 그대로 둔다.
 
 **일곱째는 「무엇을 허가하는지」가 화면에 없던 것이고, 이건 창 하나의 결함이 아니었다.**
-`clients/powerpoint/mockup/src/ui/view.js`의 `askEl`은 인자 칸을 `if (p.args != null)`로 지었다.
+`clients/powerpoint/addin/src/ui/view.js`의 `askEl`은 인자 칸을 `if (p.args != null)`로 지었다.
 안 걸리면 칸이 **통째로 없어서** 화면에 남는 것은 「권한을 묻고 있습니다 · bash」와 허용·거절
 단추뿐이다. **무엇을 허가하는지 모르는 채로 누른다.** 그 세 줄 위에 「정해진 것은 도구 이름이
 아니라 인자다 — "permission: bash"는 아무도 못 답한다」가 이미 적혀 있었다.
@@ -2495,7 +2495,7 @@ UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지�
 
 **이 작업창은 오늘 그 자리가 없는데, 없는 이유가 규칙이 아니라 습관이었다.** 넣는 자리 쉰아홉이
 전부 `textContent`고 마크업을 읽는 길은 0인데, 첫 하나가 들어오는 날 아무 데서도 소리가 안 난다.
-그래서 습관을 문으로 바꿨다 — `clients/powerpoint/mockup/tools/smoke.mjs`가 매 런마다 `src/`와
+그래서 습관을 문으로 바꿨다 — `clients/powerpoint/addin/tools/smoke.mjs`가 매 런마다 `src/`와
 `taskpane.html`을 훑어 그 길이 하나도 없다는 것을 다시 잰다(오늘 두 `<script>`는 둘 다 `src=`지만,
 인라인 블록이 하나 생기면 그건 `src/` 밖이라 안 걸린다). **진짜 애드인에 대한 요구로 옮긴다:
 채팅창이 글을 넣는 길은 마크업을 못 읽는 길 하나여야 하고, 그건 기억할 것이 아니라 재는 것이다.**
@@ -2605,8 +2605,8 @@ UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지�
   없습니다」는 거짓말에 가깝다 — 사용자는 잡고 있었다. 그래서 인용이 빈손으로 끝나는 자리는
   사유를 갈라 적는다.
 
-**이 절은 목업으로 만져 볼 수 있다 — `mockup/`.** 채팅창·인용·안내가 도는 애드인이고,
-`node clients/powerpoint/mockup/tools/serve.mjs` 로 브라우저에서 바로 열린다. 다만 **거기서
+**이 절은 목업으로 만져 볼 수 있다 — `addin/`.** 채팅창·인용·안내가 도는 애드인이고,
+`node clients/powerpoint/addin/tools/serve.mjs` 로 브라우저에서 바로 열린다. 다만 **거기서
 도는 것은 가짜 덱**이다. 이 문서를 쓰는 머신에 PowerPoint가 없어서 Office 어댑터는 한 번도
 실행된 적이 없고, 목업의 README가 그 경계를 표로 갈라 둔다. 그러니까 목업이 답하는 것은
 "화면이 이렇게 생겼다"까지고, **S13·S14는 여전히 안 잰 채로 남는다** — 다만 S14를 잴 계기판은
@@ -3493,7 +3493,7 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
    §3.4 B의 조건이 가정에서 **실제 사례**를 하나 얻었다(2021은 「못 받친다」가 아니라 「안 선다」).
    그리고 LTSC 작업이 본선의 구멍을 하나 찾아 줬다 — §2.1의 후보가 셋이 아니라 넷이었다.
 
-   **재는 도구는 생겼다** — `mockup/` 을 사이드로드하면 작업창이
+   **재는 도구는 생겼다** — `addin/` 을 사이드로드하면 작업창이
    `PowerPointApi` 1.2·1.5·1.6·1.7·1.8과 `SharedRuntime` 1.1을 호스트에 직접
    묻고(`isSetSupported`) 답을 화면과 콘솔에 한 줄로 남긴다.
    ~~1.5에서 끊긴 화면 하나가 이 항목의 답이다.~~

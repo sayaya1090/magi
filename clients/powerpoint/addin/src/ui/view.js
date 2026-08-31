@@ -21,7 +21,7 @@ import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
   isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
-  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty,
 } from './screen.js';
@@ -57,6 +57,9 @@ export class View {
   mount() {
     $('#adapter').textContent = this.deck.label;
     this.renderCaps();
+    // 브랜드 줄은 **처음부터 사실을 말한다.** 비워 두면 「아직 안 골랐다」와 「골랐는데 화면이
+    // 안 그렸다」가 같은 빈칸이 된다.
+    this.brand({ companion: null, streamLive: false });
     $('#quote').addEventListener('click',
       () => this.guard(() => this.onQuote(), '인용을 못 붙였습니다'));
     // **누르기 전 읽기**(S14 의 대조군). 호버는 포커스를 안 옮기므로 여기서 읽은 선택이
@@ -353,8 +356,27 @@ export class View {
     if (!el) return;
     const c = capsOf(this.deck);
     el.dataset.measured = c.measured ? 'yes' : 'no';
-    el.textContent = capsText(c);
-    console.log('[magi] ' + el.textContent);
+    const full = capsText(c);
+    // 접히는 판이라 자리가 둘이다. **요약도 사실을 말한다** — 「다 좋다」로 접어 두면 접힌
+    // 채로 거짓말을 하게 되므로, 안 쟀거나 빠진 것이 있으면 요약이 그것을 적는다.
+    const summary = $('#caps-summary');
+    const detail = $('#caps-detail');
+    if (summary && detail) {
+      summary.textContent = capsSummary(c);
+      detail.textContent = full;
+    } else {
+      el.textContent = full;
+    }
+    console.log('[magi] ' + full);
+  }
+
+  /**
+   * 브랜드 줄의 상태 한 마디. **붙은 곳과 손이 늘 보이는 자리**이고, 그것이 아래에 있는 이유는
+   * 세로 391px 짜리 판에서 대화가 제일 넓어야 하기 때문이다(MS 지침의 크기 표).
+   */
+  brand(state) {
+    const el = $('#brand-state');
+    if (el) el.textContent = brandState(state);
   }
 
   async onQuote() {

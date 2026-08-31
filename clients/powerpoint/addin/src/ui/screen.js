@@ -110,6 +110,36 @@ export function capsOf(deck) {
     : { measured: false, note: '어댑터가 안 답한다', sets: [] };
 }
 
+/**
+ * 접힌 채로 늘 보이는 한 칸.
+ *
+ * 작업창은 PowerPoint 에서 348×391 이라(MS 지침의 크기 표) 세로가 귀하고, 요구 집합 여섯 줄은
+ * 뭔가 안 될 때만 읽는 값이다. 그래서 접되 **요약은 사실을 말한다** — 안 쟀으면 안 쟀다고
+ * 하고, 하나라도 ✗ 면 그 수를 적는다. 「다 좋다」로 접어 두면 그 창은 접힌 채로 거짓말을 한다.
+ */
+export function capsSummary(c) {
+  if (!c.measured) return '요구 집합: 못 쟀습니다';
+  const no = c.sets.filter((s) => s.ok === false).length;
+  const unknown = c.sets.filter((s) => s.ok !== true && s.ok !== false).length;
+  if (no === 0 && unknown === 0) return `요구 집합 ${c.sets.length}개 모두 지원`;
+  const bits = [];
+  if (no > 0) bits.push(`${no}개 없음`);
+  if (unknown > 0) bits.push(`${unknown}개 모름`);
+  return `요구 집합: ${bits.join(' · ')}`;
+}
+
+/**
+ * 브랜드 줄에 같이 서는 상태 한 마디. **붙은 곳과 손을 한 줄에** 적는다 — 둘 다 「지금 이
+ * 창이 무엇에 닿아 있나」이고, 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
+ */
+export function brandState({ companion, streamLive, hands }) {
+  if (!companion) return '컴패니언 미선택';
+  const bits = [companion];
+  bits.push(streamLive ? '대화 연결됨' : '대화 끊김');
+  if (typeof hands === 'number') bits.push(hands === 1 ? '덱 1' : `덱 ${hands}`);
+  return bits.join(' · ');
+}
+
 /** 그 값을 한 줄로. `ok` 가 `null` 인 것은 "아니오"가 아니라 **물어보다 던졌다**라 `?` 로 가른다. */
 export function capsText(c) {
   if (!c.measured) return `요구 집합: ${c.note || '어댑터가 사유를 안 실었다'}`;

@@ -14,7 +14,7 @@
 
 ```sh
 go build -o magi-ppt ./clients/powerpoint/helper
-./magi-ppt                       # 기본값: 127.0.0.1:3000, 애드인은 clients/powerpoint/mockup
+./magi-ppt                       # 기본값: 127.0.0.1:3000, 애드인은 clients/powerpoint/addin
 ./magi-ppt -allow-rules          # config.toml 에 붙여 넣을 허용 규칙을 찍는다(§6)
 ./magi-ppt -cert-hint            # 인증서를 신뢰 저장소에 넣는 법
 ```

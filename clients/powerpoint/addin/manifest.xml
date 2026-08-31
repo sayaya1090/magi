@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  목업 애드인의 매니페스트.
+  magi 애드인의 매니페스트.
 
   세 가지를 일부러 그렇게 뒀다.
 
@@ -26,7 +26,7 @@
      전송 URL 넷이 **같은 문자열**이어야 하고, 그것을 헬퍼의 `TestTheFourNamesAreOneString`
      이 매 빌드에서 견준다. 처음엔 이 파일만 `localhost` 였고 그 시험이 여덟 자리를 짚었다.
 
-  ⚠ 이 파일은 **한 번도 PowerPoint 에 붙여 본 적이 없다.** 이 머신에 PowerPoint 가 없다.
+  ✅ 2026-09-01 에 M365 PowerPoint(16.0.20228)에 실제로 사이드로드해서 붙였다. 그때 4)가 났다.
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -39,8 +39,8 @@
   <Version>0.1.0.0</Version>
   <ProviderName>magi</ProviderName>
   <DefaultLocale>ko-KR</DefaultLocale>
-  <DisplayName DefaultValue="magi (목업)" />
-  <Description DefaultValue="채팅창·인용·안내의 목업. 모델에는 아직 안 붙는다." />
+  <DisplayName DefaultValue="magi" />
+  <Description DefaultValue="열려 있는 덱을 읽고, 말로 시킨 편집을 수행하고, 무엇을 바꿨는지 말합니다." />
   <IconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-80.png" />
   <SupportUrl DefaultValue="https://github.com/sayaya1090/magi" />
@@ -138,7 +138,7 @@
       <bt:ShortStrings>
         <bt:String id="Group.Label" DefaultValue="magi" />
         <bt:String id="Button.Label" DefaultValue="magi 창" />
-        <bt:String id="GetStarted.Title" DefaultValue="magi 목업이 설치됐습니다" />
+        <bt:String id="GetStarted.Title" DefaultValue="magi 가 설치됐습니다" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Button.Tooltip" DefaultValue="채팅창을 엽니다. 도형을 잡고 「선택 인용」을 누르면 인용부호로 담깁니다." />

@@ -73,6 +73,26 @@ func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 			return nil, argError{fmt.Sprintf("%s: slide is a 1-based position, so it starts at 1 (got %v)", t.Name, s)}
 		}
 	}
+
+	// **세는 칸이 0 이면 거절한다.** 모델은 `count: 0` 을 「제한 없음」으로 쓰는데, 그것을 그대로
+	// 받으면 「0 장을 달라」가 되어 **빈 목록과 total: 2 가 한 답에 같이 실린다.** 실측이다
+	// (2026-09-01, 첫 라이브 턴): 모델은 그 답을 「덱을 못 읽었다」로 읽고 아무것도 안 고쳤다.
+	//
+	// 조용히 「전부」로 바꿔 주는 길도 있는데 안 고른다 — 그러면 다음에도 0 을 보내고, 이 도구가
+	// 아닌 다른 도구에서 같은 낱말이 다른 뜻이 된다. **묻지 않은 질문에 답을 주지 않는 것**이
+	// 이 층의 규칙이다(§4.3).
+	for _, key := range []string{"count", "limit", "from", "rows", "columns"} {
+		v, ok := args[key]
+		if !ok {
+			continue
+		}
+		n, err := asInt(v)
+		if err != nil || n < 1 {
+			return nil, argError{fmt.Sprintf(
+				"%s: %q starts at 1 (got %v). Omit it rather than passing 0 — 0 would mean \"none\", and this call did not run",
+				t.Name, key, v)}
+		}
+	}
 	return args, nil
 }
 
