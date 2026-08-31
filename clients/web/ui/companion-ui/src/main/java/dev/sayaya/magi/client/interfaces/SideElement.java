@@ -51,18 +51,35 @@ public class SideElement {
         empty.className = "empty";
         side.append(plan, strip, handoffs, queued, cron, empty);
         store.onPlan(this::paint);
-        // 명단이 흐를 때마다 다시 묻는다 — 이 셋은 로그에 없어서 흐름에 실려 오지 않는다.
+        // 명단이 흐르는 것과 이 셋을 다시 묻는 것은 다른 일이다.
+        //
+        // 여기서 매 프레임 refresh()를 불렀다. 명단은 초당 여러 번 흐르고 이 판은 세 가지를
+        // 물으므로(잡·인계·크론), 상세를 열어 두기만 해도 요청이 수십 번 나갔다(실측: 상세에
+        // 들어가면 잡과 크론이 22번). 그리기는 답이 같으면 건너뛰지만 <b>묻는 것</b>은 이미
+        // 나간 뒤라, 그 절약은 화면만 구하고 회선은 못 구했다.
+        //
+        // 명단이 이 셋에 주는 것은 하나뿐이다 — 인계 카드가 "그 이름에 갈 수 있나"를 묻는
+        // reachable(). 그래서 명단 프레임은 그 값만 갱신하고, 그것이 실제로 <b>달라졌을 때만</b>
+        // 다시 묻는다. 컨텍스트가 바뀌면 물론 다시 묻는다: 다른 컴패니언의 답이다.
         store.onRoster(list -> {
             rosterList = list;
+            String now = reachSig();
+            if (now.equals(lastReach)) return;
+            lastReach = now;
             refresh();
         });
-        store.onContext(c -> refresh());
+        store.onContext(c -> { lastReach = ""; refresh(); });
+        // 이 셋은 로그에 없어서 흐름에 실려 오지 않는다 — 그래서 느린 시계로 따로 묻는다.
+        // 명단 프레임(초당 여러 번)이 아니라 이 주기가 「얼마나 최신인가」를 정한다.
+        DomGlobal.setInterval(e -> refresh(), 5000);
     }
 
     public HTMLElement element() { return side; }
 
     /** 로그 밖의 사실들을 다시 읽는다 — 답이 같으면 다시 그리지 않는다(열린 메뉴·스크롤 보호). */
     private Object rosterList = null;
+    // 명단이 이 판에 주는 유일한 입력의 지난 값 — 이것이 그대로면 다시 물을 이유가 없다.
+    private String lastReach = "";
 
     private void refresh() {
         if (store.context() == null) {
@@ -191,6 +208,24 @@ public class SideElement {
 
     /** 건네받은 쪽으로 가는 길 — 명단에 그 이름이 있을 때만 링크가 된다. */
     /** 이 손길들이 가리키는 이름 중 <b>지금 명단에 있는</b> 것들 — 링크가 되느냐가 여기서 갈린다. */
+    /**
+     * 명단이 이 판에 주는 전부: 이름 → 소켓. 인계 카드가 "그 이름에 갈 수 있나"를 그것으로
+     * 답한다(reachable). 상태·걸음·쉰 시간은 이 판이 그리는 것이 아니므로, 그것들이 흐른다고
+     * 잡·인계·크론을 다시 물을 이유가 없다.
+     */
+    private String reachSig() {
+        JsArrayLike<Object> all = Js.uncheckedCast(rosterList);
+        if (all == null) return "";
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < all.getLength(); i++) {
+            FleetAgent one = Js.uncheckedCast(all.getAt(i));
+            if (one == null) continue;
+            b.append(one.name == null ? "" : one.name).append('>')
+                    .append(one.socket == null ? "" : one.socket).append('|');
+        }
+        return b.toString();
+    }
+
     private String reachable(Object list) {
         if (list == null) return "";
         StringBuilder b = new StringBuilder();
