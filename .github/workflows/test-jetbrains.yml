@@ -59,7 +59,9 @@ jobs:
           python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
           import glob, xml.etree.ElementTree as ET
           print("## JetBrains plugin")
-          for f in sorted(glob.glob("core/build/test-results/test/*.xml")):
+          xs = glob.glob("core/build/test-results/test/*.xml")
+          xs += glob.glob("intellij/build/test-results/test/*.xml")
+          for f in sorted(xs):
               r = ET.parse(f).getroot()
               print(f"- `{r.get('name').split('.')[-1]}` — {r.get('tests')} tests, "
                     f"{r.get('failures')} failed, {r.get('skipped')} skipped")

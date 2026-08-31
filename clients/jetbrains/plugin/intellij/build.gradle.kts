@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel
 
 plugins {
@@ -54,7 +55,17 @@ dependencies {
         // 늘 안 보였다: 그룹 등록은 맞았고 **집는 손이 틀렸다.** 이 의존은 그 손을 컴파일에
         // 걸기 위한 것이고, 런타임 결합은 그대로 선택이다(magi-terminal.xml).
         bundledPlugin("org.jetbrains.plugins.terminal")
+
+        // **헤드리스 IDE 를 시험에 세운다.** 이 모듈엔 시험 소스셋이 아예 없었고, 그래서 여기
+        // 사는 규칙들은 「화면을 눈으로 봐야만」 확인됐다 — 오늘만 두 번 우회했다(순수 로직을
+        // core 로 옮겨서야 잴 수 있었다). 이 프레임워크는 창 없이 진짜 `Project`·`Editor`·
+        // 액션 시스템을 프로세스 안에 세운다.
+        testFramework(TestFrameworkType.Platform)
     }
+    // **JUnit 4 다.** `BasePlatformTestCase` 는 `junit.framework.TestCase` 계보라 JUnit 5 만으로는
+    // 상위 타입을 못 찾는다. `core` 는 JUnit 5 를 쓰지만 이 모듈은 플랫폼 픽스처를 따른다 —
+    // 프레임워크를 우리 취향으로 통일하려다 픽스처와 싸우는 것이 이 자리의 흔한 실수다.
+    testImplementation("junit:junit:4.13.2")
 }
 
 intellijPlatform {
