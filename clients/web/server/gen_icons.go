@@ -99,7 +99,9 @@ func main() {
 	// nobody sees and is not baked.
 	want := map[string]bool{}
 	ref := regexp.MustCompile(`#i-(sl|ss|b)-([a-z0-9-]+)`)
-	uiRoot := filepath.Join("..", "..", "web", "ui")
+	// Relative to THIS directory, which `go generate` runs in: the console's server sits at
+	// clients/web/server, so its UI is one level up and the repository root is three.
+	uiRoot := filepath.Join("..", "ui")
 	mainJava := filepath.Join("src", "main", "java")
 	err := filepath.WalkDir(uiRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -186,7 +188,7 @@ func main() {
 	if err != nil {
 		die(fmt.Errorf("the generated file does not parse: %w", err))
 	}
-	if err := os.WriteFile(filepath.Join("..", "..", "internal", "webassets", "sprite_gen.go"), pretty, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join("..", "..", "..", "internal", "webassets", "sprite_gen.go"), pretty, 0o644); err != nil {
 		die(err)
 	}
 	fmt.Fprintf(os.Stderr, "gen_icons: %d icons baked from %s\n", len(names), root)
