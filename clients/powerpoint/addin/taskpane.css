@@ -164,7 +164,10 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
 .pick-detail { font: var(--t-caption); color: var(--muted); }
 /* 못 고르는 이유는 **흐리게 두지 않는다** — 이 칸의 내용이 그 문장이다. */
 .pick-why { font: var(--t-caption); color: var(--fg-2); }
-.pick-row button { align-self: flex-start; margin-top: var(--s1); }
+/* 카드 안의 단추는 **왼쪽에서 시작한다.** `.primary` 가 컴포저에서 오른쪽으로 밀리려고
+   `margin-left:auto` 를 갖고 있는데, 그 규칙이 여기까지 따라와 단추가 카드 오른쪽 끝에
+   붙었다 — 한 클래스가 두 자리에서 다른 뜻을 가지면 나중 자리가 진다. */
+.pick-row button { align-self: flex-start; margin-top: var(--s1); margin-left: 0; }
 .pick-row.pick-off { background: var(--bg-sub); border-style: dashed; box-shadow: none; }
 .pick > button { margin-top: var(--s1); }
 
@@ -414,3 +417,19 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .brand-name { font-weight: 600; color: var(--accent); }
 .brand-state { margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 흐르는 가운데, 고정된 위아래 ────────────────────────────── */
+/*
+  작업창은 PowerPoint 에서 348×391 이다(MS 지침의 크기 표). 판이 하나 늘 때마다 컴포저가
+  화면 밖으로 밀렸고, 실물에서 「보내기」가 잘린 화면이 그대로 떴다. 그래서 세로를 셋으로
+  나눈다 — 제목은 위에 고정, 컴포저와 브랜드는 아래에 고정, **가운데만 흐른다.**
+*/
+.scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.scroll > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+/* 대화는 스크롤 영역 **안에서** 자란다 — 자기가 또 스크롤을 갖지 않는다. 두 겹이면 어느
+   쪽이 움직일지 사람이 못 고른다. */
+.turns { flex: 0 0 auto; overflow: visible; }
+.composer, .brand { flex: none; }

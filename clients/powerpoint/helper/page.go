@@ -41,6 +41,13 @@ func (p *Pages) Handler() http.Handler {
 		if !loopbackOnly(w, r) {
 			return
 		}
+		// **아무것도 캐시하지 않는다.** 페이지만 no-store 로 두고 스크립트와 스타일을 캐시에
+		// 맡겼더니, 실물에서 **낡은 JS 와 새 CSS 가 한 화면에 섞여** 떴다 — 새 요약 칸은 비고
+		// 카드에는 패딩이 없는, 어느 쪽 코드도 만든 적 없는 화면이었다. 웹뷰의 캐시는 우리가
+		// 못 보는 자리라, 거기서 섞인 것을 화면만 보고 되짚는 데 값이 크게 든다.
+		//
+		// 캐시로 아낄 것이 없기도 하다 — 루프백이고, 파일은 한 줌이며, 창은 하루에 몇 번 뜬다.
+		w.Header().Set("Cache-Control", "no-store, must-revalidate")
 		clean := r.URL.Path
 		if clean == "" || clean == "/" {
 			// 애드인의 진입점은 하나다. `/` 로 들어온 사람을 404 로 보내지 않는다.

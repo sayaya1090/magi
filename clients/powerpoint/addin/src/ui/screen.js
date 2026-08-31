@@ -27,6 +27,10 @@ export function askAction(sig, prevSig) {
 
 /** 어떤 물음 판인가. 넷은 서로 다른 화면이고, **모르는 종류에는 단추가 없다**(§5.7). */
 export function askKind(v) {
+  // **아직 아무 컴패니언에도 안 붙었으면 「못 닿는다」가 아니다.** 붙기 전의 창에 그 배너를
+  // 띄우면 고르라는 화면 위에 「데몬에 안 닿습니다」가 겹쳐 뜨고, 사람은 고르기 전에 이미
+  // 고장 난 줄 안다 — 실물에서 그 화면을 보고 고쳤다(2026-09-01).
+  if (v.bound === false) return 'none';
   if (!v.reachable) return 'lost';
   if (!v.pending) return 'last';
   return v.pending.known ? 'known' : 'unknown';
@@ -153,6 +157,8 @@ export function capsText(c) {
  * 에러로 안 주므로, 이 줄이 없으면 사람은 안 오는 답을 영원히 기다린다.
  */
 export function streamLine(v) {
+  // 아직 안 붙었으면 스트림에 대해 할 말이 없다 — 「끊겼다」는 붙어 있던 것에 대한 말이다.
+  if (v.bound === false) return { text: '', hidden: true };
   const parts = [];
   if (v.refusal) parts.push(`서버가 이 창의 커서를 안 받았습니다: ${v.refusal}`);
   if (!v.live) parts.push('대화 스트림이 끊겼습니다 — 새 말이 안 옵니다.');

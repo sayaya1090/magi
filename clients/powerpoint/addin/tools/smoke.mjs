@@ -2463,5 +2463,24 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     brandState({ companion: 'deck2', streamLive: false }).includes('대화 끊김'));
 }
 
+
+// ── 붙기 전의 창은 「고장 났다」고 말하지 않는다 ──────────────────────────────
+//
+// 실물에서 본 화면이 근거다(2026-09-01): 컴패니언을 고르라는 카드 위에 「데몬에 안 닿습니다」와
+// 「대화 스트림이 끊겼습니다」가 노란 배너 둘로 겹쳐 떴다. 둘 다 **붙어 있던 것에 대한 말**인데
+// 아직 아무 데도 안 붙었으니 참이 아니고, 사람은 고르기도 전에 고장 난 줄 안다.
+{
+  const notBound = { bound: false, reachable: false, pending: null, live: false };
+  ok('안 붙었으면 물음 칸이 아무것도 안 그린다', askKind(notBound) === 'none', askKind(notBound));
+  ok('안 붙었으면 스트림 줄이 숨는다', streamLine(notBound).hidden === true);
+  // 붙은 뒤에는 **같은 값이 말을 한다** — 조용해지는 것은 붙기 전뿐이다.
+  const bound = { bound: true, reachable: false, pending: null, live: false };
+  ok('붙은 뒤 못 닿으면 그때는 말한다', askKind(bound) === 'lost');
+  ok('붙은 뒤 스트림이 죽으면 그때는 말한다',
+    streamLine(bound).hidden === false && streamLine(bound).text.includes('끊겼'));
+  // bound 를 안 실어 보내는 옛 호출자도 그대로 돈다 — 없으면 예전처럼 군다.
+  ok('bound 를 안 실으면 예전 그대로', askKind({ reachable: false }) === 'lost');
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

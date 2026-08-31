@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>magi — PowerPoint 목업</title>
+  <title>magi</title>
   <link rel="stylesheet" href="taskpane.css" />
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <!--
@@ -39,6 +39,13 @@
     -->
     <div id="where" class="where" hidden></div>
 
+    <!--
+      **여기부터 컴포저 앞까지가 스크롤 영역이다.** 작업창은 PowerPoint 에서 348×391 이라(MS
+      지침의 크기 표) 세로가 귀하고, 판이 하나 늘 때마다 컴포저가 화면 밖으로 밀렸다 — 실물에서
+      「보내기」가 잘린 화면을 보고 넣었다(2026-09-01). 위(제목)와 아래(컴포저·브랜드)는 고정이고
+      가운데만 흐른다.
+    -->
+    <div id="scroll" class="scroll">
     <!--
       호스트가 자기 입으로 말한 요구 집합. **접어 둔다** — PowerPoint 의 작업창은 1366×768 에서
       348×391 이라 세로가 귀하고(MS 지침의 크기 표), 이 줄은 뭔가 안 될 때만 읽는 값이다.
@@ -94,6 +101,8 @@
       없으면 §6의 안전 규칙이 사람을 가둔다: 데몬은 답을 기다리고, 사람은 물음을 못 본다.
     -->
     <section id="ask" class="ask" hidden></section>
+
+    </div><!-- /#scroll -->
 
     <div class="composer">
       <div id="pending" class="pending"></div>

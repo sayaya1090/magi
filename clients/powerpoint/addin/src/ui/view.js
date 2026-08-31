@@ -52,6 +52,19 @@ export class View {
      * 적던 글이 지워진다 — `WatchPrompt`가 값에서 하는 일을 화면에서도 한 번 더 한다.
      */
     this.askSig = null;
+    /**
+     * 컴패니언에 붙었는가. **붙기 전의 창에 「스트림이 끊겼다」·「데몬에 안 닿는다」를 띄우지
+     * 않기 위한 값**이다 — 고르라는 화면 위에 그 배너가 겹쳐 뜨면 사람은 고르기 전에 이미
+     * 고장 난 줄 안다(실물에서 그 화면을 보고 넣었다, 2026-09-01).
+     */
+    this.bound = false;
+  }
+
+  /** 붙었다/떨어졌다를 창에 알린다. 위 두 배너의 조건이 이 값 하나다. */
+  setBound(b) {
+    this.bound = Boolean(b);
+    this.renderAsk();
+    if (this.readTranscript) this.onLog();
   }
 
   mount() {
@@ -94,7 +107,9 @@ export class View {
    */
   renderAsk() {
     if (!this.watchPrompt) return;
-    const v = this.watchPrompt.view;
+    // **붙기 전에는 「못 닿는다」가 아니다**(`askKind`). 그 사실을 뷰가 값에 실어 준다 —
+    // 판정은 화면 밖에서 하고, 여기서는 넘기기만 한다.
+    const v = { ...this.watchPrompt.view, bound: this.bound };
     this.renderDoing(v.doing, v.doingFresh);
 
     // 같은 것을 다시 그리지 않는다. 적던 글과 포커스가 이 한 줄에 달려 있다. 무엇이 서명에
@@ -114,9 +129,12 @@ export class View {
     // 다시 시도한다. 표시를 먼저 남기면 한 번 터진 물음은 **영영 안 그려지고**, 데몬은 바로
     // 그 물음에 막혀 있으므로 빈 칸 하나가 사람을 가둔다(§5.7). `null`은 쓸 말이 없다는 뜻이다.
     const kind = askKind(v);
-    const el = kind === 'lost' ? this.lostEl(v.lostNote)
-      : kind === 'last' ? this.lastAskEl(v.clearedBy)
-      : kind === 'known' ? this.askEl(v) : this.unknownAskEl(v);
+    // `none` 은 **아직 아무 데도 안 붙었다**는 뜻이라 이 칸에 그릴 것이 없다. `null` 은 칸을
+    // 접는다 — 「물음이 없다」와 「붙기 전이다」를 같은 빈칸으로 두는 것이 맞는 유일한 자리다.
+    const el = kind === 'none' ? null
+      : kind === 'lost' ? this.lostEl(v.lostNote)
+        : kind === 'last' ? this.lastAskEl(v.clearedBy)
+          : kind === 'known' ? this.askEl(v) : this.unknownAskEl(v);
 
     const box = $('#ask');
     box.replaceChildren();
@@ -435,7 +453,7 @@ export class View {
    */
   renderStream(v) {
     const el = $('#stream');
-    const line = streamLine(v);
+    const line = streamLine({ ...v, bound: this.bound });
     el.textContent = line.text;
     el.hidden = line.hidden;
   }
@@ -563,7 +581,11 @@ export class View {
    * (§5.7). 매번 통째로 다시 그리는데, 여기엔 사람이 적던 것이 없어서 그래도 된다.
    */
   renderRows(rows) {
-    const box = $('#turns');
+    // 스크롤을 **가운데 영역이 갖는다.** 대화 칸이 자기 스크롤을 갖던 시절의 코드라, 자리를
+    // 옮긴 뒤에도 같은 계산이 서게 상자를 골라 쓴다 — 없으면 예전처럼 대화 칸이다.
+    const box = $('#scroll') ?? $('#turns');
+    // 스크롤은 **가운데 영역**이 갖는다. 대화 칸이 자기 스크롤을 갖던 때의 코드가 여기라,
+    // 자리를 옮긴 뒤에도 같은 계산이 서게 상자를 골라서 쓴다.
     const atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
     box.replaceChildren();
     for (const r of rows) box.append(this.rowEl(r));

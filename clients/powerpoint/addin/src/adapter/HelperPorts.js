@@ -77,13 +77,18 @@ export class HelperTranscript extends TranscriptPort {
 
   get label() { return '헬퍼가 나르는 대화'; }
 
-  subscribe(_sessionId, _since, { onRestart, onEvent, onEnd }) {
+  subscribe(_sessionId, _since, { onRestart, onEvent, onEnd, onLive }) {
     const offs = [
       this.stream.on('restart', (d) => onRestart?.(d?.why ?? '커서가 거절됐습니다')),
       this.stream.on('event', (ev) => onEvent?.(ev)),
-      // 살아 있다는 소식은 화면이 「끊겼다」를 무를 때 쓴다. **비대칭 통지는 거짓말
-      // 생성기다** — 목업이 그 결함을 실제로 겪었다(README).
-      this.stream.on('stream', (d) => { if (d?.live === false) onEnd?.(); }),
+      // **양쪽을 다 알린다.** 죽음만 알리면 화면은 한 번 끊긴 뒤로 영영 끊긴 채이고, 이 창은
+      // 스트림을 먼저 열고 컴패니언을 나중에 고르므로 **정상 흐름이 죽은 채로 시작한다.**
+      // 실물에서 그 화면을 봤다(2026-09-01): 헬퍼는 `live:true` 를 보내는데 창은 「끊겼습니다」
+      // 를 띄우고 있었다. **비대칭 통지는 거짓말 생성기다.**
+      this.stream.on('stream', (d) => {
+        if (d?.live === false) onEnd?.();
+        else if (d?.live === true) onLive?.();
+      }),
     ];
     return () => { for (const off of offs) off(); };
   }

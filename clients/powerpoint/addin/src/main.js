@@ -74,6 +74,7 @@ async function boot() {
   // 브랜드 줄이 늘 말하는 것 셋: 어디에 붙었나 · 대화가 살아 있나 · 손이 몇인가.
   // **가짜 갈래에서도 사실을 적는다** — 「가짜 덱」이라고 적히지 않으면 그 화면은 진짜인 척한다.
   let bound = real ? null : '가짜 덱';
+  if (!real) view.setBound(true);
   const baseNameOf = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).pop() ?? '';
   const refreshBrand = async () => {
     let hands;
@@ -102,6 +103,8 @@ async function boot() {
           view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
             (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
           bound = name;
+          // 이제부터는 스트림·데몬에 대한 말이 뜻을 갖는다(§5.7). 그 전에는 안 띄운다.
+          view.setBound(true);
           await refreshBrand();
         } catch (e) {
           // **끝내 못 붙으면 말한다**(§5.3). 조용하면 화면이 「할 일 없음」처럼 보인다.

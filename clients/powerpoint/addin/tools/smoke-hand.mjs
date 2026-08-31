@@ -289,5 +289,25 @@ class FakeEventSource {
     String(api.replies[0]?.document));
 }
 
+
+// ── 되살아난 것도 사건이다 ───────────────────────────────────────────────────
+//
+// 이 창은 스트림을 먼저 열고 컴패니언을 나중에 고른다. 그래서 **정상 흐름이 죽은 스트림으로
+// 시작한다** — 죽음만 값에 실으면 화면은 붙은 뒤에도 「대화 스트림이 끊겼습니다」를 띄운 채다.
+// 실물에서 그 화면을 봤다(2026-09-01): 헬퍼는 live:true 를 보내고 있었다.
+{
+  const stream = new ScriptedStream();
+  const seen = [];
+  const tr = new HelperTranscript(stream);
+  tr.subscribe("s1", -1, {
+    onEvent: () => {}, onRestart: () => {},
+    onEnd: () => seen.push("end"),
+    onLive: () => seen.push("live"),
+  });
+  stream.push("stream", { live: false });
+  stream.push("stream", { live: true });
+  ok("끊김과 되살아남을 둘 다 알린다", seen.join(" ") === "end live", seen.join(" "));
+}
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

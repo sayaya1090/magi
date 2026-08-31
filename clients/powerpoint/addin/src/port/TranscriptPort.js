@@ -11,6 +11,9 @@
  *    seq 는 1부터라, **0 도 -1 도 "전부"**다.
  * 2. **서버가 커서를 거절하면 이벤트보다 먼저 사유 프레임 하나가 온다** (`answerable`).
  *    이벤트가 없고 사유만 실린 진짜 프레임이다. `onRestart` 로 올린다.
+ * 3b. **되살아난 것도 사건이다.** 끊김만 알리면 화면은 한 번 끊긴 뒤로 영영 끊긴 채다 —
+ *    이 창은 스트림을 먼저 열고 컴패니언을 나중에 고르므로 **정상 흐름이 죽은 채로 시작한다.**
+ *    그래서  가 있다(선택). 비대칭 통지는 거짓말 생성기다.
  * 3. **깨끗한 끝은 에러가 아니다.** 문이 그렇게 적어 뒀다. 그래서 `onEnd` 는 에러 인자를 안 받고
  *    **끊겼다는 사실만** 알린다 — 사유 없는 종료를 에러로 위장하지 않는다.
  * 4. **이건 별도 연결이다.** `transcript` 는 `watch` 처럼 연결을 통째로 가져가고, 클라이언트
@@ -23,7 +26,8 @@ export class TranscriptPort {
    *
    * @param {string} sessionId
    * @param {number} since  0 이하는 전부
-   * @param {{onRestart:(why:string)=>void, onEvent:(ev:object)=>void, onEnd:()=>void}} handlers
+   * @param {{onRestart:(why:string)=>void, onEvent:(ev:object)=>void, onEnd:()=>void,
+ *          onLive?:()=>void}} handlers
    * @returns {() => void}
    */
   subscribe(_sessionId, _since, _handlers) { throw new Error('not implemented'); }
