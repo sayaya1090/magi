@@ -52,9 +52,58 @@ class CoreRelease(private val conf: Map<String, String>) {
      */
     val tracksLatest: Boolean get() = conf["core.track"]?.trim()?.lowercase() == "latest"
 
+    /**
+     * **코어가 스스로 내보내는 판 번호**가 있으면 그 주소. 글자 한 줄이면 된다(`v0.29.0` 또는
+     * `0.29.0`).
+     *
+     * 이쪽이 릴리스 API 보다 낫다: 호출 한도가 없고, JSON 을 안 파싱하고, 무엇보다 **열차를
+     * 고를 필요가 없다** — 이 저장소는 릴리스가 셋(`v*`·`web-v*`·`jetbrains-v*`)이라 GitHub 의
+     * 「최신」이 코어가 아닐 수 있고 실제로 그랬다. 코어가 자기 판을 적어 내보내면 그 문제가
+     * 애초에 안 생긴다. 미러도 정적 파일 하나만 두면 된다.
+     *
+     * 사설 저장소면 이 주소도 자격 증명을 탄다 — 그건 [tokenEnv] 가 맡는다.
+     */
+    fun latestUrl(): String? = conf["core.latest"]?.takeIf { it.startsWith("https://") }
+
+    /** 그 한 줄에서 판 번호. 앞의 `v` 와 주변 공백을 참는다 — 남이 쓰는 파일이다. */
+    fun readLatest(body: String): String? = body.lineSequence()
+        .map { it.trim().removePrefix("v") }
+        .firstOrNull { it.isNotBlank() && it.first().isDigit() }
+
     fun releasesUrl(): String? = conf["core.releases"]?.takeIf { it.startsWith("https://") }
 
     fun tagPattern(): String = conf["core.tag"]?.takeIf { it.isNotBlank() } ?: TAG
+
+    /**
+     * 토큰이 **어느 환경변수에 있는지**. 값이 아니라 이름이다 — 비밀은 저장소에도 설정 파일에도
+     * 안 적는다. 사설 저장소나 사내 미러가 자격 증명을 요구할 때 쓴다.
+     */
+    fun tokenEnv(): String? = conf["core.auth.env"]?.trim()?.takeIf { it.isNotBlank() }
+
+    /** 토큰을 어떤 머리로 실어 보내나. GitHub 은 `Bearer`, 어떤 미러는 `token` 을 쓴다. */
+    fun tokenScheme(): String = conf["core.auth.scheme"]?.trim()?.takeIf { it.isNotBlank() } ?: "Bearer"
+
+    /**
+     * 릴리스 목록에서 **그 자산의 API 주소**. 사설 저장소는 브라우저 주소로 못 받는다 —
+     * 자산마다 있는 API 주소에 토큰과 `Accept: application/octet-stream` 을 실어야 한다.
+     * 공개 저장소에서도 같은 주소가 듣는다(CDN 으로 넘겨준다), 그래서 갈래를 안 만든다.
+     *
+     * 목록 JSON 은 이미 최신 판을 고르려고 받아 온 것이다. 자산 주소를 여기서 같이 뽑으면
+     * 왕복이 안 는다.
+     */
+    fun assetUrlFrom(releasesJson: String, tag: String, assetName: String): String? {
+        // 태그 블록을 먼저 자른다 — 다른 판의 같은 이름 자산을 집으면 옛 판을 받는다.
+        val at = releasesJson.indexOf("\"$tag\"")
+        if (at < 0) return null
+        val next = TAG_NAME.find(releasesJson, at + tag.length)?.range?.first ?: releasesJson.length
+        val block = releasesJson.substring(at, next)
+        val i = block.indexOf("\"$assetName\"")
+        if (i < 0) return null
+        // 그 이름 **앞쪽**에서 가장 가까운 `"url"` 이 그 자산의 것이다(GitHub 은 url 을 name 보다
+        // 먼저 적는다). 뒤에서 찾으면 다음 자산의 주소를 집는다.
+        val urls = API_URL.findAll(block.substring(0, i)).toList()
+        return urls.lastOrNull()?.groupValues?.get(1)
+    }
 
     /**
      * 릴리스 목록에서 **이 열차의 최신 판**을 고른다.
@@ -157,6 +206,7 @@ class CoreRelease(private val conf: Map<String, String>) {
     companion object {
 
         private val TAG_NAME = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
+        private val API_URL = Regex("\"url\"\\s*:\\s*\"(https://[^\"]+/releases/assets/[0-9]+)\"")
 
         /** 기본 갈래 — 코어의 `v0.29.0` 꼴. 잡은 것 하나가 판 번호다. */
         private const val TAG = "^v(\\d+(?:\\.\\d+)*)$"

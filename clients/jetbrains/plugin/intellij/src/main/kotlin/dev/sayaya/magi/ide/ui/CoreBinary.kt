@@ -74,24 +74,45 @@ internal object CoreBinary {
      * 설정에 적힌 판으로 떨어진다 — 처음 설치가 네트워크 사정으로 막히는 것보다 낫다.
      * 목록을 못 물어본 것과 최신이 그 판인 것을 로그가 가른다.
      */
-    fun resolve(): CoreRelease {
+    /** 고른 판과, 그 판의 자산을 받을 주소(사설 저장소면 API 것, 아니면 null). */
+    class Pick(val release: CoreRelease, val assetUrl: String?)
+
+    fun resolve(): Pick {
         val r = release
-        if (!r.tracksLatest) return r
-        val url = r.releasesUrl() ?: return r
-        val picked = runCatching { r.pickLatest(read(url)) }.getOrElse { e ->
-            LOG.info("magi: 최신 판을 못 물어봤다 — ${r.version} 으로 간다 (${e.message})"); null
-        } ?: return r
+        // **코어가 자기 판을 내보내면 그것이 먼저다.** 글자 한 줄이라 호출 한도도, 열차 고르기도
+        // 없다. 그 자리가 없을 때만 릴리스 목록으로 간다.
+        if (r.tracksLatest) r.latestUrl()?.let { u ->
+            runCatching { r.readLatest(read(u)) }.getOrNull()?.let { v ->
+                if (v != r.version) LOG.info("magi: 코어가 알린 최신은 $v (설정의 바닥은 ${r.version})")
+                return Pick(r.at(v), null)
+            }
+            LOG.info("magi: 코어의 판 알림을 못 읽었다 — 릴리스 목록으로 간다")
+        }
+        val url = r.releasesUrl()
+        if (!r.tracksLatest && url == null) return Pick(r, null)
+        val json = runCatching { read(url ?: return Pick(r, null)) }.getOrElse { e ->
+            LOG.info("magi: 릴리스 목록을 못 물어봤다 — ${r.version} 으로 간다 (${e.message})")
+            return Pick(r, null)
+        }
+        val picked = (if (r.tracksLatest) r.pickLatest(json) else null) ?: r.version
         if (picked != r.version) LOG.info("magi: 최신 코어는 $picked (설정의 바닥은 ${r.version})")
-        return r.at(picked)
+        val at = r.at(picked)
+        // **사설 저장소면 브라우저 주소로 못 받는다.** 자산의 API 주소를 같은 목록에서 뽑는다 —
+        // 공개 저장소에서도 그 주소가 듣기 때문에 갈래를 안 만든다.
+        val asset = at.asset(System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty())
+        val direct = asset?.let { at.assetUrlFrom(json, "v$picked", it) }
+        return Pick(at, direct)
     }
 
     /** 받아서 캐시에 놓는다. 성공하면 그 경로, 실패하면 **사유**를 던진다(조용한 실패 금지). */
-    fun download(indicator: ProgressIndicator, release: CoreRelease = this.release): Path {
+    fun download(indicator: ProgressIndicator, pick: Pick = Pick(this.release, null)): Path {
+        val release = pick.release
         if (!release.configured) error(MagiBundle.msg("core.get.nourl"))
         val osName = System.getProperty("os.name").orEmpty()
         val asset = release.asset(osName, System.getProperty("os.arch").orEmpty())
             ?: error(MagiBundle.msg("core.get.noasset", osName, System.getProperty("os.arch").orEmpty()))
-        val url = release.url(asset) ?: error(MagiBundle.msg("core.get.nourl"))
+        // API 자산 주소가 있으면 그쪽이다(사설 저장소는 그것만 듣는다). 없으면 설정의 주소.
+        val url = pick.assetUrl ?: release.url(asset) ?: error(MagiBundle.msg("core.get.nourl"))
         val sumsUrl = release.checksumsUrl() ?: error(MagiBundle.msg("core.get.nourl"))
 
         // **확인할 수 있을 때만 확인한다.** 인증서 검증을 끈 채 체크섬을 받아 오면 그 표도
@@ -112,7 +133,7 @@ internal object CoreBinary {
         try {
         val archive = tmp.resolve(asset)
         indicator.text = MagiBundle.msg("core.get.downloading", release.version)
-        request(url).saveToFile(archive.toFile(), indicator)
+        request(url, octet = pick.assetUrl != null).saveToFile(archive.toFile(), indicator)
 
         // **다르면 안 쓴다.** 「받긴 받았다」와 「낸 것을 받았다」는 다른 사실이고, 실행할
         // 파일에서 그 둘을 같이 다루면 안 된다.
@@ -147,13 +168,33 @@ internal object CoreBinary {
      * 이름을 안 따진다 — IDE 전체의 SSL 설정은 안 건드린다. 켤 때마다 로그에 남긴다: 조용히
      * 느슨해지는 것이 이 자리에서 제일 나쁜 모양이다.
      */
-    private fun request(url: String): com.intellij.util.io.RequestBuilder {
-        val r = com.intellij.util.io.HttpRequests.request(url)
-        if (!release.insecure) return r
-        LOG.warn("magi: core.insecure=true — 인증서 검증 없이 받는다($url)")
-        return r.hostNameVerifier { _, _ -> true }.tuner { c ->
-            (c as? javax.net.ssl.HttpsURLConnection)?.sslSocketFactory = lenient()
+    /**
+     * 자격 증명. **값이 아니라 이름을 설정에 둔다**(`core.auth.env`) — 토큰이 저장소나 설정
+     * 파일에 남으면 그 파일을 공유하는 순간 새어 나간다. 값은 사람의 셸 환경에서 온다([Shell]),
+     * 그래서 `gh auth` 나 `.zshrc` 에 이미 있는 것을 그대로 쓴다.
+     */
+    private fun token(): String? = release.tokenEnv()?.let { Shell.env()[it] }?.takeIf { it.isNotBlank() }
+
+    /**
+     * 이 클래스의 요청 한 자리. 셋을 여기서 얹는다 — 자격 증명, 사설 저장소용 `Accept`,
+     * 그리고 `core.insecure` 일 때의 느슨한 TLS.
+     *
+     * **`tuner` 는 한 벌뿐이다.** 두 번 부르면 앞엣것이 지워져서, 처음엔 `Accept` 가
+     * `Authorization` 을 조용히 밀어냈다. 한 람다에 모아 둔다.
+     */
+    private fun request(url: String, octet: Boolean = false): com.intellij.util.io.RequestBuilder {
+        val t = token()
+        if (t != null) LOG.info("magi: 자격 증명을 실어 보낸다(${release.tokenEnv()})") // 값은 안 적는다
+        val ssl = if (release.insecure) lenient() else null
+        if (ssl != null) LOG.warn("magi: core.insecure=true — 인증서 검증 없이 받는다($url)")
+        var r = com.intellij.util.io.HttpRequests.request(url).tuner { c ->
+            if (t != null) c.setRequestProperty("Authorization", release.tokenScheme() + " " + t)
+            // 사설 저장소의 자산은 이 머리가 있어야 **파일**이 온다 — 없으면 JSON 이 온다.
+            if (octet) c.setRequestProperty("Accept", "application/octet-stream")
+            if (ssl != null) (c as? javax.net.ssl.HttpsURLConnection)?.sslSocketFactory = ssl
         }
+        if (ssl != null) r = r.hostNameVerifier { _, _ -> true }
+        return r
     }
 
     /** 아무 인증서나 받는 소켓 팩토리. 이 클래스의 두 요청 밖으로 새지 않는다. */

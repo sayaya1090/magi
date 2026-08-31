@@ -107,6 +107,17 @@ class CoreReleaseTest {
     }
 
     @Test
+    fun `코어가 내보낸 한 줄을 참을성 있게 읽는다`() {
+        val r = CoreRelease(shipped)
+        // 남이 쓰는 파일이다 — 앞의 v, 뒤의 개행, 주석 줄을 참는다.
+        assertEquals("0.29.0", r.readLatest("v0.29.0\n"))
+        assertEquals("0.29.0", r.readLatest("  0.29.0  "))
+        assertEquals("0.30.1", r.readLatest("# 코어 최신\nv0.30.1\n"))
+        assertNull(r.readLatest(""))
+        assertNull(r.readLatest("아직 없음"))
+    }
+
+    @Test
     fun `최신을 고를 때 남의 열차를 안 탄다`() {
         // 실측한 함정 그대로다: 날짜상 최신은 `web-v0.2.0` 이었고, 코어 자산은 그 태그에 없다.
         val json = """

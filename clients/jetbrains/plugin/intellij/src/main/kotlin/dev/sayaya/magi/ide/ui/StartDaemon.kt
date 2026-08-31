@@ -69,7 +69,8 @@ internal object StartDaemon {
         // **받을 판을 여기서 정한다.** 핀은 바닥일 뿐이다 — 먼저 옛 판을 받아 놓고 데몬이
         // 스스로 갱신하기를 기다리는 것은, 처음 쓰는 사람에게 두 번 기다리라는 말이다.
         // 이 자리는 이미 풀 스레드라 목록 한 번 물어보는 것이 화면을 안 막는다.
-        val rel = CoreBinary.resolve()
+        val pick = CoreBinary.resolve()
+        val rel = pick.release
         val asset = rel.asset(
             System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty(),
         )
@@ -93,7 +94,7 @@ internal object StartDaemon {
             }
             object : Task.Backgroundable(project, MagiBundle.msg("core.get.title"), true) {
                 override fun run(indicator: ProgressIndicator) {
-                    val bin = runCatching { CoreBinary.download(indicator, rel) }.getOrElse { e ->
+                    val bin = runCatching { CoreBinary.download(indicator, pick) }.getOrElse { e ->
                         // 취소는 실패가 아니다. 플랫폼 계약상 이 예외는 삼키면 안 되고, 삼키면
                         // 사람이 누른 「취소」가 에러 풍선으로 돌아온다(리뷰 R4).
                         if (e is com.intellij.openapi.progress.ProcessCanceledException) throw e
