@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -79,28 +80,32 @@ func TestTheSweepKeepsTheNewestBatches(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	old := time.Now().Add(-8 * 24 * time.Hour)
-	for _, n := range names[:2] {
-		if err := os.Chtimes(filepath.Join(trash, n), old, old); err != nil {
+	// All four are FRESH, so age cannot be what decides: only the count bound can send any of
+	// them away, and only the keep-two rule can save the last two. Aged fixtures made this test
+	// pass with the rule deleted outright.
+	for i := 0; i < trashBatches; i++ {
+		if err := os.MkdirAll(filepath.Join(trash, fmt.Sprintf("20260201-0000%02d.000", i)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if got := sweepTrash(wd); got != 2 {
-		t.Fatalf("the sweep took %d batches, want the two oldest", got)
+	total := 4 + trashBatches
+	if got := sweepTrash(wd); got != total-trashBatches {
+		t.Fatalf("the sweep took %d of %d fresh batches, want the count bound to take %d",
+			got, total, total-trashBatches)
 	}
-	// Age is what sends a batch away; the two newest are kept whatever their age, and a batch
-	// still inside the retention window stays even when it is neither.
-	fresh := filepath.Join(trash, "20260105-000000.000")
-	if err := os.MkdirAll(fresh, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if got := sweepTrash(wd); got != 0 {
-		t.Fatalf("the sweep took %d recent batches; only age sends one away", got)
-	}
-	for _, n := range names[2:] {
-		if _, err := os.Stat(filepath.Join(trash, n)); err != nil {
-			t.Errorf("%s was swept; the two newest are the way back that must survive", n)
+	// The two newest survive a sweep even when everything is old enough to go.
+	rest, _ := os.ReadDir(trash)
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	for _, e := range rest {
+		p := filepath.Join(trash, e.Name())
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
 		}
+	}
+	sweepTrash(wd)
+	left, _ := os.ReadDir(trash)
+	if len(left) != 2 {
+		t.Fatalf("%d batches survived an all-old sweep; the two newest are the rule", len(left))
 	}
 }
 
@@ -189,5 +194,89 @@ func TestTheQuestionSkipsWhatIsNotThereAndAsksAboutGlobs(t *testing.T) {
 	}
 	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf build", nil); !yes {
 		t.Error("a directory that IS there, with nothing to restore it from, must be asked about")
+	}
+}
+
+// The exemption a build can satisfy: what the workspace held when magi arrived is the only thing
+// in it nobody here can make again. A directory this session produced is not that, however many
+// turns ago it appeared — which the turn-scoped record could not say, because the turn that ran
+// `make` is over by the time `rm -rf build` arrives.
+func TestWhatThisSessionBuiltIsNotAskedAbout(t *testing.T) {
+	wd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(wd, "main.c"), []byte("int main(){}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	arrival := indexWorkspace(wd)
+	// The build lands after arrival, in some earlier turn — no runGuard remembers it now.
+	if err := os.MkdirAll(filepath.Join(wd, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "build", "app"), []byte("bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, yes := needsCouncilBeforeRunningSince(wd, "rm -rf build", nil, arrival); yes {
+		t.Error("cleaning what this session built was gated — every rebuild would pay for it")
+	}
+	// What the person brought is still asked about.
+	if _, yes := needsCouncilBeforeRunningSince(wd, "rm -rf main.c", nil, arrival); !yes {
+		t.Error("a file that was here on arrival was let through")
+	}
+	// And a directory that HOLDS one of theirs is theirs, whatever else it has gained since.
+	if err := os.MkdirAll(filepath.Join(wd, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "src", "theirs.c"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	arrival2 := indexWorkspace(wd)
+	if err := os.WriteFile(filepath.Join(wd, "src", "generated.c"), []byte("y"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, yes := needsCouncilBeforeRunningSince(wd, "rm -rf src", nil, arrival2); !yes {
+		t.Error("a tree holding what the person brought was treated as this session's own")
+	}
+}
+
+// What the shell can rewrite is larger than what globs: a brace expansion and a quoted path both
+// name something Lstat cannot find, and reading that as "not there" fails OPEN.
+func TestWhatTheShellRewritesIsTreatedAsPresent(t *testing.T) {
+	wd := t.TempDir()
+	for _, d := range []string{"build", "dist", "my dir"} {
+		if err := os.MkdirAll(filepath.Join(wd, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, cmd := range []string{"rm -rf {build,dist}", `rm -rf "my dir"`, "rm -rf *", `rm -rf \build`} {
+		if _, yes := needsCouncilBeforeRunning(wd, cmd, nil); !yes {
+			t.Errorf("%q deletes and was not asked about", cmd)
+		}
+	}
+}
+
+// A checkout reached through a symlink is still a checkout: walking the symlinked path upward
+// never meets the repository, and calling it historyless would gate its deletes and write rescue
+// links into a tracked tree.
+func TestASymlinkedWorkspaceFindsItsRepository(t *testing.T) {
+	real := t.TempDir()
+	if err := os.Mkdir(filepath.Join(real, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(real, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(sub, link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if !recoverableTree(link) {
+		t.Error("a checkout reached through a symlink was read as having no history")
+	}
+}
+
+// An empty workspace is not the process's own directory.
+func TestAnEmptyWorkspaceIsNotTheDaemonsDirectory(t *testing.T) {
+	if _, kept, _ := keepBeforeEditing("", "note.md", time.Now(), nil); kept {
+		t.Error("a session with no workdir planted its rescues wherever the daemon was started")
 	}
 }

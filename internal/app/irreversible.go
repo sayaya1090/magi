@@ -70,6 +70,15 @@ var rmRecursive = regexp.MustCompile(`\brm\s+(?:-[a-zA-Z]*\s+)*-[a-zA-Z]*[rf][a-
 // workdir is the tree the run owns. A path inside it is recoverable from git or from the run's own
 // record; a path outside it is somebody else's, and magi has nothing to restore it from.
 func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why string, yes bool) {
+	return needsCouncilBeforeRunningSince(workdir, cmd, mine, nil)
+}
+
+// needsCouncilBeforeRunningSince is the same question with the workspace as magi first saw it.
+// arrival names the files that were here before this session touched anything — the only ones in
+// the tree that nobody here can remake — so a build directory this run produced is not one of
+// them however many turns ago it appeared. A nil arrival is "cannot say", and then only the
+// turn's own record answers.
+func needsCouncilBeforeRunningSince(workdir, cmd string, mine func(string) bool, arrival fileIndex) (why string, yes bool) {
 	c := strings.TrimSpace(cmd)
 	if c == "" {
 		return "", false
@@ -103,6 +112,13 @@ func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why
 				if recoverableTree(workdir) || (mine != nil && mine(absTarget(workdir, target))) {
 					continue
 				}
+				// Nothing that was here when magi arrived is under this path, so there is nothing
+				// here that this session cannot make again. That is the question the turn-scoped
+				// record could not answer: `make` writes build/ in one turn and `rm -rf build`
+				// comes in the next, by which time the turn that made it is over.
+				if arrival != nil && !arrivalHolds(workdir, target, arrival) {
+					continue
+				}
 				// Nothing there is nothing to lose. `rm -rf build` in a tree that has no build
 				// is the ordinary shape of a cleanup step, and asking about it spends a council
 				// call and a turn to protect a path that does not exist.
@@ -111,7 +127,14 @@ func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why
 				// cannot, so `rm -rf *` reads as a literal `*` that is never there. That is the
 				// command with the most to lose in a tree with no history, so an unexpandable
 				// target is treated as present rather than absent.
-				if !strings.ContainsAny(target, "*?[") {
+				// The set is "can the shell rewrite this token", which is larger than the set of
+				// glob characters: a brace expansion, a backslash escape, a tilde and a dollar
+				// all arrive here as text that names something else after expansion, and a
+				// quoted path arrives split. Lstat cannot find any of them, and reading that as
+				// "not there" is the failure that fails OPEN — measured on `rm -rf {build,dist}`
+				// and `rm -rf "my dir"`, both of which delete and neither of which was asked
+				// about.
+				if !strings.ContainsAny(target, "*?[{}\\~$`\"'") {
 					if _, err := os.Lstat(absTarget(workdir, target)); err != nil {
 						continue
 					}
@@ -208,6 +231,32 @@ func outsideWorkspace(workdir, target string) bool {
 	return err != nil || rel == ".." || strings.HasPrefix(rel, "../")
 }
 
+// arrivalHolds reports whether anything the workspace held on arrival lives at or under target.
+//
+// At OR UNDER, because a delete takes a tree: `rm -rf src` is about every file below src, and a
+// directory that held one of the person's files on arrival is not this run's to remove even if
+// everything else in it was generated since.
+func arrivalHolds(workdir, target string, arrival fileIndex) bool {
+	// Both sides unresolved, because that is what the index is keyed by: indexWorkspace walks the
+	// workdir it was handed and stores paths relative to THAT, so resolving one side here made
+	// every target look like it was outside the tree — and "outside" reads as "holds something",
+	// which gated everything.
+	abs := absTarget(workdir, target)
+	rel, err := filepath.Rel(filepath.Clean(workdir), abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+		return true // cannot place it; the safe reading is that it holds something
+	}
+	if rel == "." {
+		return len(arrival) > 0
+	}
+	for p := range arrival {
+		if p == rel || strings.HasPrefix(p, rel+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 // gateIrreversible asks the council before a command that cannot be undone, and only where no
 // person will be asked. Returns true to stop the call.
 //
@@ -233,7 +282,10 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 	if guard != nil {
 		mine = guard.didCreate
 	}
-	what, yes := needsCouncilBeforeRunning(s.Workdir, ba.Command, mine)
+	a.mu.Lock()
+	arrival := a.stateLocked(s.ID).arrival
+	a.mu.Unlock()
+	what, yes := needsCouncilBeforeRunningSince(s.Workdir, ba.Command, mine, arrival)
 	if !yes {
 		return false
 	}

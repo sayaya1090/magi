@@ -100,7 +100,14 @@ type sessionState struct {
 	// the snapshot's own walk would look at. The finish snapshot is the difference against it,
 	// which is the only way a DELETED file — or a write that preserved its mtime — shows up at
 	// all. Replaced each turn; nil until one starts.
-	worldBase        fileIndex
+	worldBase fileIndex
+	// arrival is the workspace as magi FIRST saw it in this session: path → size, taken on the
+	// first turn and never replaced. What it holds is the only thing in the tree nobody here can
+	// remake — everything that appeared afterwards is this run's own output, whether magi's tools
+	// made it or a compiler did. The turn-scoped record cannot answer that: a build made in one
+	// turn and cleaned in the next is somebody else's work by the second turn's reckoning, which
+	// put a council question in front of every rebuild.
+	arrival          fileIndex
 	observedEvents   int                   // event high-water mark of the last turn_finished observation (stale-answer guard)
 	foldedInterject  []string              // waiting messages folded into the turn now running (paired at finish)
 	pendingInterject []pendingInterjection // interjections queued to run as their own turn

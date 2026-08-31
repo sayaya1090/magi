@@ -11,28 +11,38 @@ import (
 
 // A way back for a workspace that has no history.
 //
-// The irreversible gate's premise is written down in irreversible.go: inside a git workspace almost
-// nothing is irreversible, so a recursive delete of a path the tree contains is ordinary and
-// gating it would fire constantly and get the gate turned off. That premise is entirely git's. A
-// workspace with no repository behind it has no object store to restore from, and the same
-// `rm -rf` there is exactly what the gate exists to stop — while looking, to the code, like the
-// harmless case.
+// The irreversible gate's premise is written down in irreversible.go: inside a git workspace
+// almost nothing is irreversible, so a recursive delete of a path the tree contains is ordinary
+// and gating it would fire constantly. That premise is entirely git's, and a workspace with no
+// repository behind it has no object store to restore from.
 //
-// Rather than ask about every build directory in such a tree, the tree is given the thing it was
-// missing: the target is MOVED to a trash beside it before the command runs. A move, not a copy,
-// because a rename within one filesystem is one directory entry and costs nothing whether the
-// target is a file or forty thousand of them — which is why the trash lives INSIDE the workspace,
-// the one place a rename is guaranteed not to cross a device.
+// The two halves of the answer are deliberately different, and the difference is what a target
+// IS. A delete's target is a token in a shell command, and no regex can know what the shell will
+// do with it — an earlier version of this file moved files on that guess and moved the wrong ones
+// (a quoted path split on its space, a symlink named a tree outside the workspace, a command that
+// only MENTIONED rm matched). So a delete is asked about instead: the gate lifts its in-tree
+// exemption, and a wrong guess costs a turn rather than data.
 //
-// It is announced, never silent. This repository's rule is that magi does not do things the model
-// cannot see: the tool result says what moved and where, and the `rm` that follows finds nothing
-// and succeeds, which is what `-f` means.
+// An edit's target is not a guess. It is the writing tool's own declared `path`, so this file can
+// act on it: the previous contents are held by a HARD LINK before the write, which costs one
+// directory entry and no disk at all because magi's writers replace a file atomically and the old
+// contents keep living in their own inode. Once per file per turn, never for what the run itself
+// created, and always said in the tool result — a rescue the model cannot see is one it cannot
+// undo.
 
-// trashDirName is where a workspace keeps what was taken out of it.
+// trashDirName is where a workspace keeps the contents its edits replaced.
 const trashDirName = ".magi/trash"
 
-// trashRetention bounds what the sweep keeps when it cannot tell turns apart.
-const trashRetention = 7 * 24 * time.Hour
+// trashRetention and trashBatches bound what a workspace keeps: how old, and how many.
+//
+// The count is the one that binds. A batch is made per turn that edits something, and each holds
+// hard links to inodes nothing else refers to any more — so age alone let a two-hundred-turn run
+// keep two hundred dead copies of the same file, which is not "costs no disk" but a version
+// history nobody asked for on a disk the bench already runs out of.
+const (
+	trashRetention = 7 * 24 * time.Hour
+	trashBatches   = 8
+)
 
 // recoverableTree reports whether this workspace has history to restore a delete from — a .git
 // anywhere at or above it, since a directory inside a checkout is covered by that checkout.
@@ -40,7 +50,14 @@ const trashRetention = 7 * 24 * time.Hour
 // The entry is stat'd rather than opened: a worktree's .git is a FILE, and both forms mean the
 // same thing here.
 func recoverableTree(workdir string) bool {
-	dir := filepath.Clean(workdir)
+	if strings.TrimSpace(workdir) == "" {
+		return true // no workspace named; this mechanism has nothing to say about it
+	}
+	// Resolved, for the reason keepBeforeEditing resolves: a workspace reached through a symlink
+	// walks its own path upward and never meets the repository it actually lives in, so a real
+	// checkout reads as historyless — gating its deletes and writing rescue links into a tracked
+	// tree.
+	dir := realDir(workdir)
 	// A workspace this process cannot see is not a workspace this process can say anything about.
 	// The answer here decides whether to ADD friction, so "cannot tell" has to mean "do not add
 	// it": a path that is not there has nothing to delete, and a directory that cannot be stat'd
@@ -84,7 +101,10 @@ func realDir(workdir string) string {
 // state it was in before the turn started — and keying the batch on the turn makes "the first
 // touch wins" fall out of the link already existing.
 func keepBeforeEditing(workdir, path string, turn time.Time, mine func(string) bool) (where string, kept bool, err error) {
-	if strings.TrimSpace(path) == "" {
+	// An empty workspace is not the process's own directory. realDir("") answers ".", which is
+	// wherever the daemon was started, and a session created without a workdir would plant its
+	// rescues there.
+	if strings.TrimSpace(path) == "" || strings.TrimSpace(workdir) == "" {
 		return "", false, nil
 	}
 	abs := absTarget(workdir, path)
@@ -104,13 +124,12 @@ func keepBeforeEditing(workdir, path string, turn time.Time, mine func(string) b
 	}
 	// The RESOLVED file, because an atomic write follows a symlink and replaces what it points
 	// at: linking the link would hold on to the wrong thing.
+	// abs was resolved above, so this is the real file: one stat answers both "is it there" and
+	// "is it something a link can hold".
 	real := abs
-	if _, serr := os.Lstat(real); serr != nil {
-		return "", false, nil // it does not exist yet — a new file has no previous contents
-	}
 	fi, serr := os.Lstat(real)
 	if serr != nil || !fi.Mode().IsRegular() {
-		return "", false, nil
+		return "", false, nil // absent, or not a plain file — a new file has no previous contents
 	}
 	rel, rerr := filepath.Rel(root, real)
 	if rerr != nil || strings.HasPrefix(rel, "..") {
@@ -142,14 +161,17 @@ func keepBeforeEditing(workdir, path string, turn time.Time, mine func(string) b
 	return dst, kept, nil
 }
 
-// sweepTrash clears what a workspace no longer needs to keep, and answers how many entries it
-// took. Called when a turn lands.
+// sweepTrash clears what a workspace no longer needs to keep, and answers how many batches it
+// took. Called at the START of a turn.
 //
-// The newest batch is KEPT, whatever its age. The moment a person is most likely to want something
-// back is just after the turn that removed it — which is exactly when a sweep that ran at the end
-// of the turn would have taken it. So the sweep is always one turn behind itself: this turn's
-// rescues survive into the next one, and older ones go. Anything past the retention goes
-// regardless, so a workspace nobody returns to does not keep growing.
+// The two newest batches are KEPT, whatever their age. The moment a person is most likely to want
+// something back is just after the turn that replaced it — which is exactly when a sweep at the
+// end of that turn would have taken it — so this runs at the start of the next one instead, which
+// also means it runs for the turns that end by error rather than by landing.
+//
+// Two bounds past that, and the COUNT is the one that binds: a batch per editing turn, each
+// holding links to inodes nothing else refers to any more, is a version history that age alone
+// would let grow for a week.
 func sweepTrash(workdir string) int {
 	trash := filepath.Join(filepath.Clean(workdir), trashDirName)
 	entries, err := os.ReadDir(trash)
@@ -171,14 +193,18 @@ func sweepTrash(workdir string) int {
 		keep[names[len(names)-2]] = true
 	}
 	cut := time.Now().Add(-trashRetention)
+	// Everything past the newest trashBatches goes whatever its age; within that, age decides.
+	overCount := len(names) - trashBatches
 	swept := 0
-	for _, n := range names {
+	for i, n := range names {
 		if keep[n] {
 			continue // the last two turns' way back, kept whatever their age
 		}
 		p := filepath.Join(trash, n)
-		if fi, serr := os.Stat(p); serr == nil && fi.ModTime().After(cut) {
-			continue // still inside the retention window
+		if i >= overCount {
+			if fi, serr := os.Stat(p); serr == nil && fi.ModTime().After(cut) {
+				continue // inside both bounds
+			}
 		}
 		if os.RemoveAll(p) == nil {
 			swept++

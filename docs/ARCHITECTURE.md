@@ -784,12 +784,11 @@ anything the run created, which `runGuard` tracks as it goes and matches by cont
 a directory covers the files made inside it. A glob with no separator and no leading `..` is
 expanded by the shell in the workspace's own directory and cannot land outside it either.
 
-**A workspace with no history gets one (`app/trash.go`).** That whole classification rests on
+**A workspace with no history is treated as one (`app/trash.go`).** That whole classification rests on
 git: inside a checkout a delete undoes from the object store, which is why gating every build
 directory would be noise. Where there is no repository at or above the workspace the premise is
 simply false, and the same command is what the gate exists to stop while looking like the harmless
-case. So instead of asking about every build directory in such a tree, the tree is given what it
-was missing. A delete is ASKED about — the in-tree exemption is
+case. The two halves of the answer differ, and the difference is what a target IS. A delete is ASKED about — the in-tree exemption is
 lifted, so the same council question that guards a delete reaching outside the tree guards this
 one. Asked rather than acted on: a regex over command TEXT cannot know what a shell will delete
 (`echo "rm -rf build" > clean.sh` matches it, a quoted path splits on its space, a symlink names
@@ -798,8 +797,13 @@ edit's previous contents ARE held, by a hard link, because there the target is t
 declared argument and not a guess: the writing tools replace a file atomically, so the old contents keep living in
 their own inode and a second name for it costs no disk. Once per file per turn — what a person
 wants back is the state the turn began in — and never for what the run itself created, which has
-no before-the-turn to keep. Both are said in the tool result, because a rescue the model cannot
-see is one it cannot undo. The sweep runs at the START of the next turn, which is what "one turn behind" actually takes: the moment somebody wants a file back is just after the turn that removed it, so the two
+no before-the-turn to keep. The edit is said in the tool result, because a rescue the model cannot see is one it cannot
+undo; the delete is a question, and the answer to it is the tool result. What the workspace held
+when magi arrived is the exemption that matters: a build directory this session produced is not
+something nobody here can make again, so cleaning it is not asked about, while a path that was
+there on arrival is. A target that does not exist is not asked about either, and one the shell
+would rewrite — a glob, a brace expansion, a quoted path — is treated as present, since those are
+exactly the ones this code cannot resolve and the ones with the most to lose. The sweep runs at the START of the next turn, which is what "one turn behind" actually takes: the moment somebody wants a file back is just after the turn that removed it, so the two
 newest batches stay and anything past a week goes.
 
 What it asks is a plain yes/no about one command, so it does not convene a panel: `port.Council`'s

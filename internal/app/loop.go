@@ -250,6 +250,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	// user message is not written yet. See prompt_frozen.go.
 	st.turnSys, st.turnSysSet = "", false
 	st.worldBase = worldBase
+	if st.arrival == nil {
+		st.arrival = worldBase // the first turn's reading, kept for the life of the session
+	}
 	st.preexistingDirt = preDirt
 	a.mu.Unlock()
 	agentActor := event.Actor{Kind: event.ActorAgent, ID: orDefault(agent.Name, "default")}

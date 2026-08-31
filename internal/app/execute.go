@@ -294,33 +294,6 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// steers the agent they are talking to. The tool has already validated
 	// action ∈ {queue,redirect,append}; this records the signal for the loop to drain and apply
 	// at its next step.
-	// Past the gates, and about to run. An edit in a workspace with no history behind it holds on
-	// to what it is about to replace, and the note rides the result, because a rescue the model
-	// cannot see is a rescue it cannot undo.
-	rescued := ""
-	if confinedEdit(tc.Name) && !recoverableTree(s.Workdir) {
-		// The same way back, for the other way a file is lost. An edit replaces the contents and
-		// there is no object store to read the old ones out of, so they are held by a second name
-		// before the write — and the model is told where, because a rescue it cannot see is one
-		// it cannot undo.
-		a.mu.Lock()
-		turn := a.stateLocked(sid).turnStart
-		a.mu.Unlock()
-		if turn.IsZero() {
-			turn = time.Now()
-		}
-		var mineNow func(string) bool
-		if guard != nil {
-			mineNow = guard.didCreate
-		}
-		if where, kept, _ := keepBeforeEditing(s.Workdir, strings.TrimSpace(pathArg(tc.Args)), turn, mineNow); kept {
-			rescued = "\n\n[this workspace has no git history, so what this file held before this " +
-				"turn's first edit is kept at " + where + " — copy it back to undo the edits made " +
-				"here. It is a second name for the same storage, so a command that rewrites the " +
-				"file IN PLACE (sed -i, >>, truncate) changes it too; magi's own edits replace the " +
-				"file and leave it intact.]"
-		}
-	}
 	hooks := a.spawnFnFor(depth, s, actor, tc.CallID, tc.Name)
 	var expectFn func(port.Elsewhere) error
 	var routeInterjectionFn func(action, reason, requestID string) error
@@ -471,6 +444,36 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	if a.sandboxOverridden(sid) {
 		isolatedTemp = scratch.tmpDir()
 	}
+	// About to run for real — past the gates AND past the refusals for an unknown tool or a
+	// misspelled argument. Held here rather than earlier because the note rides the RESULT, and
+	// those refusals return before there is one: a call refused for a camelCase key left a link
+	// on disk and said nothing, and the corrected retry then found the file already held and said
+	// nothing either. A rescue the model cannot see is a rescue it cannot undo.
+	rescued := ""
+	if confinedEdit(tc.Name) && !recoverableTree(s.Workdir) {
+		// The same way back, for the other way a file is lost. An edit replaces the contents and
+		// there is no object store to read the old ones out of, so they are held by a second name
+		// before the write — and the model is told where, because a rescue it cannot see is one
+		// it cannot undo.
+		a.mu.Lock()
+		turn := a.stateLocked(sid).turnStart
+		a.mu.Unlock()
+		if turn.IsZero() {
+			turn = time.Now()
+		}
+		var mineNow func(string) bool
+		if guard != nil {
+			mineNow = guard.didCreate
+		}
+		if where, kept, _ := keepBeforeEditing(s.Workdir, strings.TrimSpace(pathArg(tc.Args)), turn, mineNow); kept {
+			rescued = "\n\n[this workspace has no git history, so what this file held before this " +
+				"turn's first edit is kept at " + where + " — copy it back to undo the edits made " +
+				"here. It is a second name for the same storage, so a command that rewrites the " +
+				"file IN PLACE (sed -i, >>, truncate) changes it too; magi's own edits replace the " +
+				"file and leave it intact.]"
+		}
+	}
+
 	res, err := tool.Execute(ctx, tc.Args, port.ToolEnv{
 		SessionID:    sid,
 		Workdir:      workdir,
