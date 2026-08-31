@@ -157,6 +157,48 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         }
     }
 
+    /**
+     * **데몬이 준 긴 글이 판의 바닥을 올리지 않는다.**
+     *
+     * 사람이 잡았다(2026-09-01): 「설정창 크기 안 줄어드는 건 여전해」. 먼저 콤보를 고쳤는데
+     * **그건 둘째 바닥이었다.** 진짜는 값을 적는 라벨이다 — 스윙 라벨의 최소 폭은 글자를 한 줄로
+     * 편 길이라, 데몬이 준 404 한 줄이 앉는 순간 판 전체가 못 좁혀진다. 실측:
+     *
+     * - 쉴 때 **616px**
+     * - 에러가 앉은 뒤 **2295px** (그 라벨 하나가 1256px)
+     *
+     * 그래서 이 시험은 **정적인 화면을 안 잰다.** 데몬이 글을 앉히는 칸에만 긴 글을 먹인다 —
+     * 그 칸들은 [Look.DYN] 으로 표가 붙어 있다. 처음엔 「빈 라벨 전부」에 먹였는데 정적인 이름
+     * 칸까지 물들어, 고친 뒤에도 숫자가 안 내려가는 것처럼 보였다(1003px 만큼). **계측이 제
+     * 부작용을 같이 재고 있으면 고쳤는지 아닌지를 못 가른다.**
+     */
+    fun `test 데몬이 준 긴 글이 판을 안 벌린다`() {
+        val c = MagiConfigurable(project)
+        val panel = c.createComponent()!!
+        val all = ArrayList<java.awt.Component>()
+        fun walk(x: java.awt.Component) {
+            all += x
+            if (x is java.awt.Container) x.components.forEach(::walk)
+        }
+        walk(panel)
+        val rest = panel.minimumSize.width
+        val dyn = all.filterIsInstance<javax.swing.JComponent>()
+            .filter { it.getClientProperty(Look.DYN) == true }
+        assertTrue("표가 붙은 칸이 없다 — 이 시험이 아무것도 안 잰다", dyn.size >= 4)
+        val err = "llm: not found \u2014 check -model and -base-url (model or endpoint missing) " +
+            "(status 404): {\"error\":{\"message\":\"model 'opus' not found\"}}"
+        for (x in dyn) when (x) {
+            is javax.swing.text.JTextComponent -> x.text = err
+            is javax.swing.JLabel -> x.text = err
+        }
+        for (x in dyn) assertTrue(
+            "칸 하나가 ${x.minimumSize.width}px 를 요구한다 — 판이 그 아래로 못 좁혀진다",
+            x.minimumSize.width < 520,
+        )
+        val after = panel.minimumSize.width
+        assertTrue("긴 글이 판의 바닥을 $rest → $after 로 올렸다", after < rest + 120)
+    }
+
     /** 도구창 아이콘이 실제로 로드된다. 없으면 스트라이프가 빈 자리로 선다. */
     fun `test 도구창 아이콘이 있다`() {
         val i = com.intellij.openapi.util.IconLoader.findIcon("/icons/magiToolWindow.svg", javaClass)

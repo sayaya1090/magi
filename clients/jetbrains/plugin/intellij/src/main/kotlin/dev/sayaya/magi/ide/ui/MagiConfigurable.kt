@@ -9,7 +9,6 @@ import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.usecase.Activity
 import dev.sayaya.magi.ide.usecase.Companion
-import dev.sayaya.magi.ide.usecase.Markup
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
 import java.awt.Insets
@@ -41,10 +40,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
     // ── 「지금」 장 — 우측 독(magi.facts)에 살던 사실들. 사용자 결정(2026-08-29)으로 이
     // 화면 안에 접혔다: 상시 감시는 상태 표시줄이 하고 있고, 자세히 보는 판은 열 때 읽으면
     // 된다 — 설정 화면은 열림이 곧 reset() 이라 「펴는 순간 다시 묻기」가 구조로 공짜다.
-    private val doing = JBLabel(" ")
-    private val perm = JBLabel(" ")
-    private val sessionL = JBLabel(" ").apply { font = Look.mono() }
-    private val outside = JBLabel(" ").apply { foreground = Look.warn }
+    private val doing = Look.wide()
+    private val perm = Look.wide()
+    private val sessionL = Look.wide().apply { font = Look.mono() }
+    private val outside = Look.flow(Look.warn)
     /**
      * 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — [apply] 가 데몬에 보내는 값이
      * 프로토콜의 것이어야 하므로, 화면을 위해 모델을 바꾸면 그게 그대로 전선에 나간다.
@@ -60,15 +59,13 @@ class MagiConfigurable(private val project: Project) : Configurable {
      * 타이핑 중 훑어보기 — **이 화면의 취향**이라 데몬이 아니라 프로젝트 로컬에 산다(웹도
      * 브라우저-로컬로 둔다). §5.1 의 「값은 데몬에」는 컴패니언의 설정 이야기다.
      */
-    private val lookTyping = javax.swing.JCheckBox(
-        MagiBundle.msg("set.look.box"),
-    )
-    private val autoComplete = javax.swing.JCheckBox(MagiBundle.msg("set.complete.box"))
-    private val composerSuggest = javax.swing.JCheckBox(MagiBundle.msg("set.suggest.box"))
-    private val autostart = javax.swing.JCheckBox(MagiBundle.msg("set.autostart.box"))
+    private val lookTyping = Look.check(MagiBundle.msg("set.look.box"))
+    private val autoComplete = Look.check(MagiBundle.msg("set.complete.box"))
+    private val composerSuggest = Look.check(MagiBundle.msg("set.suggest.box"))
+    private val autostart = Look.check(MagiBundle.msg("set.autostart.box"))
     private val model = Look.narrowCombo<String>(24).apply { isEditable = true }
     private val backend = JBTextField()
-    private val said = JBLabel(" ").apply { foreground = Look.faint }
+    private val said = Look.flow()
 
     /** 마지막으로 데몬에서 읽은 값. [isModified] 는 화면과 이것을 견준다 — IDE 저장분이 아니다. */
     private var read: String? = null
@@ -215,12 +212,13 @@ class MagiConfigurable(private val project: Project) : Configurable {
         if (out.isEmpty()) return say(outside, " ")
         // 같은 사실을 상태 표시줄과 **같은 낱말로** 적는다 — 한 판정을 두 화면이 한 벌씩
         // 적어 두면 안 재지는 쪽이 갈라진다(리뷰 R9).
-        say(outside, "<html>" + Markup.text(MagiBundle.msg("status.outside", out.size)) + " — " +
-            Markup.text(MagiBundle.msg("set.outside.what")) + "<br/>" +
-            out.joinToString("<br/>") { Markup.text(it) } + "</html>")
+        // 접히는 칸이라 HTML 이 아니라 **날 글자**다 — 텍스트영역은 태그를 안 그리고 그대로 적는다.
+        say(outside, MagiBundle.msg("status.outside", out.size) + " — " +
+            MagiBundle.msg("set.outside.what") + "\n" + out.joinToString("\n"))
     }
 
-    private fun say(label: JBLabel, text: String) = SwingUtilities.invokeLater { label.text = text }
+    private fun say(label: javax.swing.text.JTextComponent, text: String) =
+        SwingUtilities.invokeLater { label.text = text }
 
 
     /** 데몬이 아는 것을 화면으로. 모델 목록이 늦거나 없어도 나머지는 선다. */

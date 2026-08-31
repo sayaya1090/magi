@@ -151,6 +151,81 @@ internal object Look {
      * 넓어진다"). 그래서 견본 값을 하나 박아 폭을 고정하고, 긴 값은 잘라 그리되 **툴팁에
      * 원문을 준다** — 줄여 보이는 것과 감추는 것은 다르다.
      */
+    /** 글자 수를 픽셀 상한으로 — 폰트에서 **매번 다시 잰다**(테마·글꼴이 바뀌면 같이 바뀐다). */
+    private fun cap(c: java.awt.Component, chars: Int) =
+        c.getFontMetrics(c.font).charWidth('M') * chars + JBUI.scale(8)
+
+    /**
+     * **폭을 요구하지 않는 라벨.**
+     *
+     * [note] 가 설명문에서 막은 것과 같은 기전이 **값을 적는 라벨**에서 무방비였다. 스윙 라벨의
+     * 최소 폭은 글자 전체를 한 줄로 편 길이라, 긴 값 하나가 판 전체의 바닥을 올린다 — 그리고
+     * 그 바닥은 창을 다시 좁힐 때까지 안 내려간다.
+     *
+     * 실측(2026-09-01, 설정 판): 쉴 때 **616px**. 여기에 데몬이 준 에러 한 줄이 앉으니
+     * **2295px** 가 됐다(그 라벨 하나가 1256px). 사람이 「설정창 크기가 안 줄어든다」로 잡은
+     * 그 자리다. 콤보를 먼저 고쳤는데 그건 둘째 바닥이었다.
+     *
+     * [note] 처럼 접지 않고 **자르는** 이유는 이것이 값이기 때문이다 — 상태 한 줄이 세 줄로
+     * 늘면 아래가 다 밀린다. 스윙이 잘린 라벨에 「…」를 붙여 주므로, 잘렸다는 것은 보인다.
+     * 그리고 **원문은 툴팁으로 준다** — 줄여 보이는 것과 감추는 것은 다르다([narrow] 와 같은 손).
+     */
+    fun wide(chars: Int = 36): JBLabel = object : JBLabel(" ") {
+        override fun getMinimumSize(): Dimension {
+            val d = super.getMinimumSize()
+            return Dimension(minOf(d.width, cap(this, chars)), d.height)
+        }
+        override fun setText(text: String?) {
+            super.setText(text)
+            // HTML 도 그대로 준다 — 툴팁은 HTML 을 그린다.
+            toolTipText = text?.takeIf { it.isNotBlank() && it != " " }
+        }
+    }.apply { putClientProperty(DYN, true) }
+
+    /**
+     * 「데몬이 글을 앉히는 칸」 표. 시험이 이 표만 보고 긴 글을 먹인다 — 판을 훑어 **빈 라벨
+     * 전부**에 먹이면 정적인 자리(빈 이름 칸)까지 물들어 재는 값이 1003px 만큼 부풀었다.
+     * 계측이 자기 부작용을 재고 있으면 고친 뒤에도 숫자가 안 내려간다.
+     */
+    const val DYN = "magi.dynamicText"
+
+    /**
+     * **접히는 메시지 칸** — [wide] 의 짝.
+     *
+     * 둘 다 폭을 안 요구하지만 **자르는 것과 접는 것**은 다른 자리에 쓴다. 값(무엇을 하는 중,
+     * 권한, 대화 id)은 자른다 — 한 줄이 세 줄로 늘면 아래가 다 밀린다. 메시지(에러, 워크스페이스
+     * 밖 경로 목록)는 접는다 — 자르면 정작 읽어야 할 사유가 「…」 뒤로 숨는다. 404 한 줄을
+     * 36자로 자르면 남는 것은 `llm: not found — check -model and -ba…` 뿐이다.
+     *
+     * 접어도 되는 이유는 이 둘이 **아래를 안 미는 자리**라서다: 사유는 판의 맨 끝이고, 밖 경로는
+     * 원래도 여러 줄이었다.
+     */
+    fun flow(hue: Color = faint): javax.swing.JTextArea =
+        javax.swing.JTextArea().apply {
+            isEditable = false
+            isOpaque = false
+            lineWrap = true
+            wrapStyleWord = true
+            border = null
+            foreground = hue
+            font = JBUI.Fonts.label()
+            // 최소 폭을 글자에서 떼어 낸다 — 접히는 칸이라도 한 줄 폭을 요구하면 소용없다.
+            minimumSize = Dimension(JBUI.scale(80), 0)
+            putClientProperty(DYN, true)
+        }
+
+    /**
+     * **폭을 요구하지 않는 체크박스.** 라벨과 같은 기전이고, 이 집의 체크박스는 글자가 길다
+     * (「Start the magi engine for this project when it is not running」). 실측: 407px.
+     */
+    fun check(text: String, chars: Int = 44): javax.swing.JCheckBox =
+        object : javax.swing.JCheckBox(text) {
+            override fun getMinimumSize(): Dimension {
+                val d = super.getMinimumSize()
+                return Dimension(minOf(d.width, cap(this, chars)), d.height)
+            }
+        }.apply { toolTipText = text }
+
     /**
      * **폭을 요구하지 않는 콤보를 만든다.**
      *
