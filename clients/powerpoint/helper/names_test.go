@@ -113,3 +113,40 @@ func TestTheServerNameIsNotABuiltinToolName(t *testing.T) {
 	}
 	t.Logf("내장 도구 %d 개와 견줬다", len(tools))
 }
+
+// 매니페스트의 자식 순서가 스키마를 지키는가.
+//
+// `VersionOverridesV1_0` 의 순서는 Description? → **Requirements?** → Hosts → Resources 다.
+// 한동안 이 트리의 매니페스트는 `<Requirements>` 를 `<Hosts>` **뒤에** 두고 있었고, 스키마를
+// 어긴 매니페스트를 Office 는 **통째로 버린다** — 그때 증상은 「리본 단추가 없다」가 아니라
+// **「애드인이 아예 없다」**이고, 어디에도 사유가 안 뜬다. 사이드로드해 보고서야 보이는 자리라
+// 시험이 없으면 다음 사람이 같은 하루를 다시 쓴다.
+func TestTheManifestKeepsTheSchemaOrder(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join(addinDir, "manifest.xml"))
+	if err != nil {
+		t.Fatalf("매니페스트를 못 읽었다: %v", err)
+	}
+	// **주석을 먼저 걷어낸다.** 이 매니페스트의 주석은 자기가 지키는 규칙을 설명하느라 요소
+	// 이름을 그대로 적는데, 그러면 스캐너가 산문을 마크업으로 센다 — 처음 이 시험을 돌렸을 때
+	// 실제로 그랬다(순서는 맞는데 빨갛게 떴다). 자기 바늘에 걸리는 스캐너를 예외로 빼는 대신
+	// 보는 것을 좁힌다.
+	text := xmlComment.ReplaceAllString(string(body), "")
+	vo := strings.Index(text, "<VersionOverrides")
+	if vo < 0 {
+		t.Fatal("VersionOverrides 가 없다 — 볼 것이 없었다")
+	}
+	req := strings.Index(text[vo:], "<Requirements>")
+	hosts := strings.Index(text[vo:], "<Hosts>")
+	res := strings.Index(text[vo:], "<Resources>")
+	if req < 0 || hosts < 0 || res < 0 {
+		t.Fatalf("VersionOverrides 안에서 셋 중 하나를 못 찾았다: req=%d hosts=%d res=%d", req, hosts, res)
+	}
+	if !(req < hosts && hosts < res) {
+		t.Errorf("VersionOverrides 의 순서가 Requirements → Hosts → Resources 가 아니다 "+
+			"(req=%d hosts=%d res=%d). Office 는 이 매니페스트를 통째로 버리고 아무 말도 안 한다",
+			req, hosts, res)
+	}
+}
+
+// xmlComment 는 `<!-- … -->` 하나. `(?s)` 로 줄바꿈을 넘긴다.
+var xmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)

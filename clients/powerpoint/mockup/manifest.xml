@@ -60,6 +60,18 @@
   <Permissions>ReadWriteDocument</Permissions>
 
   <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <!--
+      **자리가 계약이다.** 이 절의 자식 순서는 스키마가 정한다: Description? → Requirements? →
+      Hosts → Resources. 한동안 이것이 <Hosts> **뒤에** 있었다 — 스키마를 어긴 매니페스트를
+      Office 는 통째로 버리고, 그때 증상은 「리본 단추가 없다」가 아니라 **「애드인이 아예
+      없다」**이며 아무 데도 사유가 안 뜬다. 사이드로드해 보고서야 볼 수 있는 자리다.
+    -->
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.1">
+        <bt:Set Name="SharedRuntime" MinVersion="1.1" />
+      </bt:Sets>
+    </Requirements>
+
     <Hosts>
       <Host xsi:type="Presentation">
 
@@ -112,12 +124,6 @@
         </DesktopFormFactor>
       </Host>
     </Hosts>
-
-    <Requirements>
-      <bt:Sets DefaultMinVersion="1.1">
-        <bt:Set Name="SharedRuntime" MinVersion="1.1" />
-      </bt:Sets>
-    </Requirements>
 
     <Resources>
       <bt:Images>
