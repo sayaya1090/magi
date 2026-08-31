@@ -1,0 +1,12 @@
+{
+  "name": "magi-console-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Browser tests for the console, driven against real magi daemons and a real magi-web.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

@@ -144,11 +144,58 @@ jobs:
           go build ./clients/web/server
           go test ./clients/web/server/ -count=1
 
+  # 그리고 사람이 하는 일 — 브라우저를 열고, 눌러 보고, 회선을 센다. 이 레인에서 이것만이
+  # 답할 수 있는 질문이 있다: 열어 둔 화면이 몇 번 묻는가. 카드마다 「답이 같으면 다시 그리지
+  # 않는다」가 있어 스물두 번 묻는 화면도 <b>조용했다</b> — 그리기만 보는 시험은 못 본다.
+  #
+  # 상대는 진짜 데몬 둘과 진짜 magi-web이다(clients/web/e2e/serve.mjs가 세운다). 정적 데모를
+  # 상대로 재면 규칙을 걷어내도 초록이 나온다(실측). 데몬은 턴을 돌리지 않으므로 모델도 열쇠도
+  # 필요 없다 — 이 화면들이 묻는 것은 전부 그 프로세스가 제 상태에서 답하는 것이다.
+  browser:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: take the assembled console from the earlier step
+        uses: actions/download-artifact@v4
+        with:
+          name: console-root
+          path: clients/web/ui/build
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: clients/web/e2e/package-lock.json
+      - name: install the browser
+        working-directory: clients/web/e2e
+        run: |
+          set -euo pipefail
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: press the console
+        working-directory: clients/web/e2e
+        run: npx playwright test
+      # 넘어졌을 때 무엇을 눌렀는지 남긴다 — 그리고 하네스의 로그도(조용히 죽은 데몬은
+      # "컴패니언이 없다"로 보이고, 그것은 시험이 잴 수 있는 실패가 아니다).
+      - name: keep what it saw
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-trace
+          path: |
+            clients/web/e2e/test-results
+            clients/web/e2e/playwright-report
+          if-no-files-found: ignore
+
   # main에 실리면 Pages로 콘솔 데모가 나간다 — 사이트 루트에, 한 벌만.
   # deploy-pages는 사이트를 통째로 갈아끼우므로, 이 레인도 전체 사이트를 짓는다 —
   # 조리법은 pages.yml과 같은 composite 하나다.
   site:
-    needs: [test, icons]
+    needs: [test, icons, browser]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

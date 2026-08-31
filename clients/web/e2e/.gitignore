@@ -1,0 +1,5 @@
+node_modules/
+test-results/
+playwright-report/
+# 하네스가 매 런마다 제 임시 자리를 적는 곳 — 그 런에서만 뜻이 있다.
+.harness.json
