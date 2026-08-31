@@ -8,26 +8,41 @@ import { test, expect, open, openDetail } from './fixtures.mjs';
  * 있어 화면은 조용했다 — 그래서 그리기만 보는 시험은 이것을 영원히 못 본다. 이 파일이 있는
  * 이유가 그것이다.
  */
+async function daemonSays(page, socket, field) {
+  return await page.evaluate(async ([sock, f]) => {
+    const rows = await (await fetch('/fleet')).json();
+    return (rows.find(r => r.socket === sock) || {})[f];
+  }, [socket, field]);
+}
+
 test('열어 둔 상세는 잡·크론·인계를 제 시계로만 다시 묻는다', async ({ page, asked }) => {
   const socket = await openDetail(page);
   asked.forget();
-  // 명단을 실제로 흔든다. 한가한 컴패니언 하나짜리 기계에서는 행이 거의 안 바뀌어서 「명단마다
+  // 명단을 실제로 흔든다. 한가한 기계에서는 행이 거의 안 바뀌어서 「명단마다
   // 다시 묻기」와 「제 시계로 묻기」가 같은 수를 낸다 — 규칙을 걷어내도 초록이 나오는 자리다
   // (실측). 승인 모드는 명단 행이 나르는 값이라, 이것을 바꾸면 행이 바뀌고 화면이 다시 그려진다.
-  const churn = (async () => {
-    for (let i = 0; i < 10; i++) {
-      await page.request.post('/permission?d=' + encodeURIComponent(socket), {
-        form: { mode: i % 2 === 0 ? 'auto' : 'ask' },
-      }).catch(() => {});
-      await page.waitForTimeout(1_000);
-    }
-  })();
-  await page.waitForTimeout(12_000);
-  await churn;
-  const n = asked.counts();
+  // 흔들고 나면 되돌린다. 이 데몬은 런 하나를 통째로 살고, 여기서 뒤집은 모드는 뒤따르는 모든
+  // 시험이 물려받는다 — 그리고 CI의 재시도는 그 망가진 값을 「원래 값」으로 읽는다.
+  const was = await daemonSays(page, socket, 'permission');
+  const set = (mode) => page.request.post('/permission?d=' + encodeURIComponent(socket), { form: { mode } })
+    .catch(() => {});
+  let n;
+  try {
+    const churn = (async () => {
+      for (let i = 0; i < 10; i++) {
+        await set(i % 2 === 0 ? 'auto' : 'ask');
+        await page.waitForTimeout(1_000);
+      }
+    })();
+    await page.waitForTimeout(12_000);
+    await churn;
+    n = asked.counts();
+  } finally {
+    if (was) await set(was);
+  }
   // 옆 판의 제 시계는 5초다. 12초면 두세 번이고, 명단이 흔들려도 그 수는 안 는다.
   //
-  // ⚠ 이 시험이 지금 무엇을 가르는지: 한가한 컴패니언 하나짜리 하네스에서는 「명단마다 다시
+  // ⚠ 이 시험이 지금 무엇을 가르는지: 한가한 하네스에서는 「명단마다 다시
   // 묻기」와 「제 시계로 묻기」가 같은 수를 낸다 — 규칙을 걷어내고 재 봤고 셋씩으로 같았다.
   // 그러니 이 줄은 회귀의 상한을 지키는 것이지, 그 회귀를 재현해 잡는 것이 아니다. 재현하려면
   // 실제로 도는 컴패니언들이 필요하다(사용자가 본 스물두 번은 그런 기계에서 났다). 옆의

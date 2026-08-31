@@ -33,16 +33,21 @@ test('승인 모드를 바꾸면 데몬이 그 모드로 답한다', async ({ pa
   const next = options.find(v => v && v !== before);
   expect(next, `another mode to switch to among ${options.join(',')}`).toBeTruthy();
 
-  await choose(page, socket, next);
-  await expect.poll(() => daemonSays(page, socket, 'permission'), {
-    message: 'the running daemon must be on the mode that was chosen',
-    timeout: 10_000,
-  }).toBe(next);
-
-  // 되돌릴 때 판을 새로 여는 이유: 고르고 나면 이 판은 데몬의 새 답으로 다시 그려지고, 그 사이
-  // 열어 둔 메뉴는 화면에 없는 옛 판의 것이 된다(눌러도 아무 일이 없다 — 실측). 한 번 고르고
-  // 새로 여는 것이 사람이 하는 일과도 같다.
-  await choose(page, socket, before);                          // 다음 시험의 세계를 흐리지 않는다
+  // 되돌리기는 finally에 둔다. 이 시험은 <b>살아 있는 데몬</b>을 실제로 바꾸고, 그 데몬은 런
+  // 하나를 통째로 산다 — 가운데서 넘어져 되돌리지 못하면 뒤따르는 모든 시험이(그리고 CI의 재시도
+  // 한 번이) 바뀐 세계를 물려받는다. 재시도는 더 나쁘다: 그때의 `before`는 망가진 상태를 읽는다.
+  try {
+    await choose(page, socket, next);
+    await expect.poll(() => daemonSays(page, socket, 'permission'), {
+      message: 'the running daemon must be on the mode that was chosen',
+      timeout: 10_000,
+    }).toBe(next);
+  } finally {
+    // 되돌릴 때 판을 새로 여는 이유: 고르고 나면 이 판은 데몬의 새 답으로 다시 그려지고, 그 사이
+    // 열어 둔 메뉴는 화면에 없는 옛 판의 것이 된다(눌러도 아무 일이 없다 — 실측). 한 번 고르고
+    // 새로 여는 것이 사람이 하는 일과도 같다.
+    await choose(page, socket, before);
+  }
   await expect.poll(() => daemonSays(page, socket, 'permission'), { timeout: 10_000 }).toBe(before);
 });
 
