@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/adapter/platform"
 	"github.com/sayaya1090/magi/internal/version"
 )
@@ -279,7 +280,26 @@ func (a *API) status(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// **붙어 있던 컴패니언이 다시 뜬 경우가 「닿는다」와 같아 보이면 안 된다.** 소켓 경로는
+	// 워크스페이스에서 유도되므로 데몬이 죽었다 다시 떠도 그대로고, dial 도 성공한다 — 그런데
+	// 우리 MCP 등록은 죽은 프로세스와 같이 사라졌고, 이 창이 붙들고 있는 대화 이름도 남의
+	// 생애의 것이다. 실물에서 그 화면을 봤다(2026-09-01): 창은 「대화 연결됨」이라고 적었고,
+	// 모델에게는 덱 도구가 하나도 없었다.
+	if socket, _, _ := a.Bridge.Bound(); socket != "" {
+		st["stale"] = !a.Attachments.HasLive(socket, publishedLife(socket))
+	}
 	writeJSON(w, st)
+}
+
+// publishedLife 는 그 소켓에 지금 서 있는 데몬 프로세스의 신원. 기록을 못 읽으면 빈 글이고,
+// `HasLive` 는 그때 옛 답을 그대로 준다 — 모르는 것을 「떨어졌다」로 적지 않는다.
+func publishedLife(socket string) string {
+	in, err := daemon.Published(socket)
+	if err != nil {
+		return ""
+	}
+	in.Socket = socket
+	return lifeOf(in)
 }
 
 func (a *API) permission(w http.ResponseWriter, r *http.Request) {

@@ -27,7 +27,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fixture } from '../src/ui/deckFixture.js';
 import {
   headOf, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
-  isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
@@ -2735,6 +2735,94 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const bare = foldAdvice(t3.drawnRows).items[0];
   ok('어딘지 안 실린 안내는 안 눌리고 사유가 붙는다',
     bare?.pointable === false && Boolean(bare?.unpointableReason), bare?.unpointableReason ?? '');
+}
+
+
+// ── 막힌 물음은 화면 안으로 끌어온다 ─────────────────────────────────────────
+//
+// 실물에서 본 것이 근거다(2026-09-01): `--permission ask` 로 띄운 데몬이 `bash` 권한을 물었고
+// 판은 정확히 그렸는데, **그 칸이 접힌 자리 밖이라 안 보였다.** 마우스 휠을 굴려야 나왔다.
+// §5.7 이 이름 대어 피하려는 「아무도 안 보는 곳에서 대기」가 화면 안에서 그대로 재현된 것이다.
+{
+  ok('새로 선 권한 물음은 끌어온다', askReveal('known', 'rebuild') === true);
+  ok('그릴 줄 모르는 물음도 끌어온다 — 데몬은 똑같이 막혀 있다',
+    askReveal('unknown', 'rebuild') === true);
+  // **같은 물음을 매초 끌어오지 않는다.** 폴은 1초마다 도는데 그때마다 끌어오면 위로 올려
+  // 읽던 것이 매초 도로 내려간다.
+  ok('같은 물음은 다시 안 끌어온다', askReveal('known', 'refresh') === false);
+  // 사람이 답할 것이 없는 칸은 읽던 자리를 안 뺏는다.
+  ok('못 닿는다는 말은 안 끌어온다', askReveal('lost', 'rebuild') === false);
+  ok('직전 물음이 내려간 것도 안 끌어온다', askReveal('last', 'rebuild') === false);
+  ok('붙기 전에는 끌어올 것이 없다', askReveal('none', 'rebuild') === false);
+}
+
+// ── 320px 판에서 긴 토막이 판 밖으로 나가지 않는다 ───────────────────────────
+//
+// 실물에서 스크롤 영역에 **가로 막대**가 섰다(2026-09-01). 브라우저에서 판 너비를 305px 로
+// 줄여 재현했다: `#scroll` 의 scrollWidth 294 · clientWidth 289, 넘긴 것은 혼잣말 줄의 `<p>`
+// 였다 — `white-space: pre-wrap` 은 빈칸에서만 접히므로 `mcp__ppt__set_text --slide-id` 같은
+// 한 덩어리가 판보다 길면 그대로 나간다.
+//
+// CSS 는 여기서 못 돌린다. 그래서 **규칙이 그 파일에 서 있는지**를 글자로 문다 — 이 저장소가
+// 매니페스트 순서와 오리진에 쓰는 것과 같은 종류의 가드다.
+{
+  const css = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+  const rule = /\.turn p \{([^}]*)\}/.exec(css)?.[1] ?? '';
+  ok('말 줄 규칙을 찾았다', rule !== '', rule);
+  ok('긴 토막을 끊는 규칙이 말 줄에 서 있다',
+    /overflow-wrap:\s*anywhere|word-break:\s*break-(all|word)/.test(rule), rule.trim());
+}
+
+
+// ── 붙어 있던 컴패니언이 다시 뜨면 그렇게 말한다 ─────────────────────────────
+//
+// 실물에서 본 것이 근거다(2026-09-01): 데몬을 껐다 켰더니 작업창은 「deck2 · 대화 연결됨」을
+// 그대로 적고 있었고, 모델에게는 덱 도구가 **하나도** 없었다. 소켓 경로는 워크스페이스에서
+// 유도되므로 다시 떠도 같고 dial 도 성공한다 — 그래서 「닿는다」는 참이고 「붙어 있다」는
+// 거짓인 상태가 화면에서 구분되지 않았다. 사람은 셸로 우회하려는 모델을 지켜보고 있었다.
+{
+  // 헬퍼가 판정해서 실어 준다(같은 소켓, 다른 프로세스). 이 층이 하는 일은 **그 사실이
+  // 바뀌는 순간에 한 번 종을 치는 것**이다 — 매 폴마다 치면 화면이 매초 다시 세워진다.
+  const scripted = (...answers) => ({
+    async status() { return answers.shift() ?? answers.at(-1); },
+    async answerPermission() {}, async answerQuestion() {},
+  });
+  // ** 라고 이름 짓지 않는다.** 처음엔 그랬고, 이 블록의 단언이 **한 줄도 안 돌았다** —
+  // 지역 이름이 스위트의 단언 함수를 가려서 전부 조용히 삼켜졌고 화면은 초록이었다. 이 파일이
+  // 맨 위에 적어 둔 「0개를 본 것과 0개가 틀린 것을 안 가른다」가 제 안에서 한 번 더 났다.
+  const st = (extra = {}) => ({ reachable: true, pending: null, doing: '', ...extra });
+
+  {
+    const w = new WatchPrompt(scripted(st(), st({ stale: true }), st({ stale: true })));
+    let rings = 0;
+    w.onChange = () => { rings += 1; };
+    await w.poll();
+    const quiet = rings;
+    await w.poll();
+    ok('다시 뜬 것을 값에 싣는다', w.view.stale === true);
+    ok('그 사실이 바뀌면 종을 친다', rings === quiet + 1, `${quiet} → ${rings}`);
+    await w.poll();
+    ok('같은 사실에 매 폴마다 치지는 않는다', rings === quiet + 1, String(rings));
+  }
+
+  // 안 실린 것은 **거짓이지 참이 아니다** — 옛 헬퍼가 이 칸을 안 실어 보내도 창이 멀쩡해야 한다.
+  {
+    const w = new WatchPrompt(scripted(st()));
+    await w.poll();
+    ok('안 실린 칸은 「다시 떴다」가 아니다', w.view.stale === false);
+  }
+
+  // 조립 자리의 규칙: **몰래 다시 붙이지 않는다.** 다시 붙이는 것은 「이 컴패니언에 맡긴다」를
+  // 다시 말하는 일이고, 그 말은 사람이 한다(§5.0). 그래서 그 신호가 부르는 것은 `choose` 가
+  // 아니라 고르는 판이어야 한다.
+  {
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const body = /const companionRestarted = \(\) => \{([\s\S]*?)\n    \};/.exec(src)?.[1] ?? '';
+    ok('다시 뜬 경우를 다루는 자리가 있다', body !== '');
+    ok('그 자리는 고르는 판을 도로 세운다', /showCompanions\(\)/.test(body), body.trim().slice(0, 60));
+    ok('그 자리가 몰래 다시 붙이지는 않는다', !/api\.choose/.test(body));
+    ok('그 자리는 「붙어 있다」를 내린다', /setBound\(false\)/.test(body));
+  }
 }
 
 

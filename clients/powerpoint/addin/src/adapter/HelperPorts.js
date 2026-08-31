@@ -31,6 +31,9 @@ export class HelperStatus extends StatusPort {
       doing: st?.doing ?? '',
       why: st?.why ?? '',
       streamLive: st?.streamLive === true,
+      // **붙어 있던 컴패니언이 다시 뜬 것과 「닿는다」를 안 뭉갠다.** 소켓 경로는 그대로라
+      // dial 은 성공하는데, 우리 등록도 이 창이 든 대화 이름도 남의 생애의 것이다.
+      stale: st?.stale === true,
       pending: st?.asking ? pendingOf(st.asking) : null,
     };
   }

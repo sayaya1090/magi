@@ -179,7 +179,14 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
   display: flex; flex-direction: column; gap: var(--s3);
 }
 .turn { margin: 0; }
-.turn p { margin: 0; white-space: pre-wrap; }
+/*
+  **긴 토막을 강제로 끊는다.** `pre-wrap` 은 빈칸에서만 접히므로, 모델이 쓴
+  `mcp__ppt__set_text --slide-id` 같은 한 덩어리가 판보다 길면 그 줄이 판 밖으로 나가고
+  스크롤 영역에 **가로 막대**가 선다 — 320px 짜리 작업창에서 글이 오른쪽으로 잘린다.
+  실물에서 그 화면을 봤다(2026-09-01). 브라우저에서 판 너비를 305px 로 줄여 재현했다:
+  `#scroll` 의 scrollWidth 294 · clientWidth 289, 넘긴 것은 혼잣말 줄의 <p> 였다.
+*/
+.turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .turn-head { font: var(--t-caption); color: var(--muted); margin-bottom: var(--s1); }
 
 .turn.kind-user p {

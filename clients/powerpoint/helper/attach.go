@@ -94,7 +94,7 @@ func (a *Attachments) Fleet(configDir string) ([]Companion, error) {
 			Socket: in.Socket, Workdir: in.Workdir, Name: in.Name, Role: in.Role,
 			Team: in.Team, Session: in.Session, Live: in.Live, Doing: in.Doing,
 			Asking: in.Asking != nil, Permission: in.Permission, Backend: in.Backend,
-			Model: in.Model, Attached: a.Has(in.Socket),
+			Model: in.Model, Attached: a.HasLive(in.Socket, lifeOf(in)),
 		}
 		if !in.Live {
 			// 안 사는 것에 핸드셰이크를 걸면 후보 수만큼 타임아웃을 산다. 프로브가 이미 답했다.
@@ -140,22 +140,40 @@ func ask(socket string) (toolServers, transcript bool, err error) {
 // `document` 다. 이 규칙이 없으면 둘째 창이 열리는 것만으로 첫째 창이 쓰던 등록이 떨어진다.
 type Attachments struct {
 	mu   sync.Mutex
-	held map[string][]string // socket → 등록된 도구 이름
+	held map[string]attachment // socket → 우리가 붙여 둔 것
 }
 
-func NewAttachments() *Attachments { return &Attachments{held: map[string][]string{}} }
+// attachment 는 등록 하나. **소켓 경로만으로는 못 센다** — 데몬이 죽었다 같은 경로로 다시 뜨면
+// 우리 등록은 그 프로세스와 같이 사라지는데 경로는 그대로다. 실물에서 그 화면을 봤다
+// (2026-09-01): 데몬을 `--permission ask` 로 다시 띄웠더니 카드가 「이미 붙어 있음」이라고
+// 적었고, 모델에게는 덱 도구가 하나도 없었다. 사람은 셸로 우회하려는 모델을 보고 있었다.
+type attachment struct {
+	tools []string
+	// life 는 그 데몬 **프로세스**의 신원(pid@시작시각). 다르면 남의 생애이고, 우리 등록은
+	// 거기 없다 — 「이미 붙어 있다」가 아니라 「다시 붙여야 한다」다.
+	life string
+}
 
-func (a *Attachments) Has(socket string) bool {
+func NewAttachments() *Attachments { return &Attachments{held: map[string]attachment{}} }
+
+// lifeOf 는 데몬 프로세스 하나의 신원. **세션 id 가 아니다** — 세션은 `/new` 로도 바뀌는데
+// MCP 등록은 그때 안 죽는다. 죽는 것은 프로세스가 바뀔 때다.
+func lifeOf(in daemon.Info) string { return fmt.Sprintf("%d@%s", in.PID, in.Started) }
+
+// HasLive 는 **이 생애의** 데몬에 우리가 이미 붙어 있는가.
+func (a *Attachments) HasLive(socket, life string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	_, ok := a.held[socket]
-	return ok
+	h, ok := a.held[socket]
+	// life 를 못 읽었으면(기록이 없는 소켓) 옛 답을 그대로 준다 — 모르는 것을 「떨어졌다」로
+	// 적으면 멀쩡한 등록을 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
+	return ok && (life == "" || h.life == life)
 }
 
 func (a *Attachments) Tools(socket string) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]string(nil), a.held[socket]...)
+	return append([]string(nil), a.held[socket].tools...)
 }
 
 func (a *Attachments) Sockets() []string {
@@ -176,7 +194,15 @@ func (a *Attachments) Sockets() []string {
 // 고정이라(§5.0.6) 잡힌 등록이 남아 있으면 **반드시** 부딪힌다 — 다른 이름으로 피해 갈 여지가
 // 설계상 없다. 깨끗한 상태의 detach 는 실패가 아니라 `Removed=false` 다(§5.0.4).
 func (a *Attachments) Attach(socket, url, token string) ([]string, error) {
-	if a.Has(socket) {
+	// **어느 생애의 데몬인가**를 먼저 읽는다. 기록을 못 읽으면 빈 글이고, 그때는 옛 규칙대로
+	// 「소켓이 같으면 같은 데몬」으로 군다 — 모르는 것을 「죽었다」로 적으면 멀쩡한 등록을
+	// 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
+	life := ""
+	if in, err := daemon.Published(socket); err == nil {
+		in.Socket = socket
+		life = lifeOf(in)
+	}
+	if a.HasLive(socket, life) {
 		// 이미 우리가 붙여 뒀다. **다시 안 붙인다** — 같은 이름으로 다시 붙이면 첫 등록이
 		// 떨어지고, 그 창 동안 그 컴패니언의 호출은 도구가 없어서 실패한다.
 		return a.Tools(socket), nil
@@ -210,7 +236,7 @@ func (a *Attachments) Attach(socket, url, token string) ([]string, error) {
 		return nil, fmt.Errorf("도구를 못 붙였습니다: %w", err)
 	}
 	a.mu.Lock()
-	a.held[socket] = append([]string(nil), tools...)
+	a.held[socket] = attachment{tools: append([]string(nil), tools...), life: life}
 	a.mu.Unlock()
 	return tools, nil
 }

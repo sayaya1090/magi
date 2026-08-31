@@ -299,8 +299,67 @@ func TestAFailedAttachSaysSo(t *testing.T) {
 	if !strings.Contains(err.Error(), "이미 잡혀 있다") {
 		t.Errorf("데몬이 준 사유가 안 실렸다: %v", err)
 	}
-	if a.Has(sock) {
+	if a.HasLive(sock, "") {
 		t.Error("실패한 등록을 붙은 것으로 세고 있다")
+	}
+}
+
+// 데몬이 죽었다 **같은 경로로** 다시 뜨면, 우리 등록은 그 프로세스와 같이 사라진다.
+//
+// 실물에서 그 화면을 봤다(2026-09-01): `--permission ask` 로 데몬을 다시 띄웠더니 고르는
+// 카드가 「이미 붙어 있음」이라고 적었고, 그 컴패니언에게는 덱 도구가 하나도 없었다. 사람은
+// 셸로 우회하려는 모델을 지켜보고 있었고, 화면에는 그 사실이 어디에도 없었다.
+//
+// 소켓 경로는 워크스페이스에서 유도되므로 **다시 떠도 같다.** 달라지는 것은 프로세스라, 세는
+// 것도 프로세스여야 한다(`pid@started`).
+func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
+	dir := shortDir(t)
+	eng := &doorEngine{tools: []string{"mcp__ppt__list_slides"}}
+	sock, stop := startDaemon(t, dir, "life", eng)
+	defer stop()
+
+	a := NewAttachments()
+	if _, err := a.Attach(sock, MCPURL(DefaultPort), ""); err != nil {
+		t.Fatalf("첫 등록이 실패했다: %v", err)
+	}
+	in, err := daemon.Published(sock)
+	if err != nil {
+		t.Fatalf("기록을 못 읽었다: %v", err)
+	}
+	in.Socket = sock
+	if !a.HasLive(sock, lifeOf(in)) {
+		t.Fatal("방금 붙였는데 안 붙은 것으로 센다")
+	}
+
+	// 같은 소켓, 다른 생애. **재는 것은 데몬을 정말 다시 띄우는 일이 아니라 무엇을 신원으로
+	// 세는가**라, 기록 하나를 바꿔 묻는 것으로 충분하다.
+	next := in
+	next.PID = in.PID + 1
+	if a.HasLive(sock, lifeOf(next)) {
+		t.Error("다시 뜬 데몬을 여전히 붙어 있는 것으로 센다")
+	}
+	// 시작 시각만 달라도 남의 생애다 — pid 는 돌아온다.
+	later := in
+	later.Started = "2099-01-01T00:00:00Z"
+	if a.HasLive(sock, lifeOf(later)) {
+		t.Error("pid 만 보고 세고 있다 — pid 는 재사용된다")
+	}
+
+	// **그리고 다시 붙일 수 있어야 한다.** 「이미 붙어 있다」로 일찍 돌아서면 사람이 다시
+	// 골라도 아무 일이 안 일어나고, 그 창은 도구 없는 컴패니언을 도구 있는 것처럼 그린다.
+	a.mu.Lock()
+	a.held[sock] = attachment{tools: []string{"옛것"}, life: "죽은-생애"}
+	a.mu.Unlock()
+	_, detachedBefore := eng.seen()
+	tools, err := a.Attach(sock, MCPURL(DefaultPort), "")
+	if err != nil {
+		t.Fatalf("다시 못 붙였다: %v", err)
+	}
+	if len(tools) != 1 || tools[0] != "mcp__ppt__list_slides" {
+		t.Errorf("다시 붙였는데 옛 도구 목록을 돌려줬다: %v", tools)
+	}
+	if _, detachedAfter := eng.seen(); len(detachedAfter) <= len(detachedBefore) {
+		t.Error("다시 붙이면서 detach 를 안 걸었다 — 순서는 언제나 detach → attach 다")
 	}
 }
 

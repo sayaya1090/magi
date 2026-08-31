@@ -44,6 +44,11 @@ export class WatchPrompt {
      * **아무 잘못도 안 한 사람에게 오류로 뜬다**는 것이다. 그러니 아예 안 보낸다.
      */
     this.sentFor = null;
+    /**
+     * 붙어 있던 컴패니언이 **다시 떴는가.** 헬퍼가 판정해서 실어 준다(같은 소켓, 다른
+     * 프로세스). 여기서 세는 것은 그 사실이 **바뀌는 순간**이라, 조립 자리가 한 번만 반응한다.
+     */
+    this.stale = false;
   }
 
   /** 폴 한 번. 시험이 손으로 돌린다 — 여기서 재는 것은 시간이 아니라 상태 전이다. */
@@ -56,6 +61,8 @@ export class WatchPrompt {
       s = { reachable: false, pending: null, doing: '' };
     }
     const wasReachable = this.reachable;
+    const wasStale = this.stale;
+    this.stale = s.stale === true;
     this.reachable = s.reachable !== false;
     if (this.reachable) this.saidLost = false;
 
@@ -69,6 +76,10 @@ export class WatchPrompt {
       if (firstTime) this.onChange();
       return this.view;
     }
+
+    // 컴패니언이 다시 뜬 것도 **바꿔 그려야 할 사실**이다. 아래 어느 분기도 안 타는 조용한
+    // 데몬에서 바로 이 일이 일어나므로, 여기서 안 치면 아무도 모른다.
+    if (this.stale !== wasStale) this.onChange();
 
     // 문이 다시 열린 것 자체가 바꿔 그려야 할 사실이다. 조용한 데몬에 다시 붙으면 아래
     // 어느 분기도 안 타는데(물음도 없고 하는 일도 그대로), 그러면 「안 닿습니다」가 **닿는
@@ -168,6 +179,13 @@ export class WatchPrompt {
         ? null
         : '데몬에 안 닿습니다 — 이 화면이 보여 주는 것은 마지막으로 읽은 것입니다',
       doing: this.doing,
+      /**
+       * 붙어 있던 컴패니언이 **다시 떴다.** 닿기는 닿는데 우리 등록은 죽은 프로세스와 같이
+       * 사라졌고, 이 창이 든 대화 이름도 남의 생애의 것이다 — 조립 자리가 이걸 보고 고르는
+       * 판을 다시 세운다. 실물에서 이 값이 없던 화면을 봤다(2026-09-01): 창은 「대화
+       * 연결됨」이라고 적었고 모델에게는 덱 도구가 하나도 없었다.
+       */
+      stale: this.stale,
       /**
        * 그 「…하는 중」을 **지금** 읽었는가. 거짓이면 못 닿는 동안 들고 있는 마지막 읽기라,
        * 화면은 현재형으로 적으면 안 된다. 값과 그 값이 아직 유효한지를 같이 실어야 버릴지

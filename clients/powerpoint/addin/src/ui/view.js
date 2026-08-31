@@ -20,7 +20,7 @@ import { askSig } from '../usecase/WatchPrompt.js';
 import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
-  isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
@@ -140,6 +140,13 @@ export class View {
     box.replaceChildren();
     if (el) box.append(el);
     box.hidden = el == null;
+    // **막힌 물음은 화면 안으로 끌어온다.** 이 칸은 대화 아래에 서므로 대화가 길면 접힌 자리
+    // 밖이고, 그러면 데몬은 답을 기다리고 사람은 물음을 못 본다(§5.7). 실물에서 그 화면을
+    // 봤다(2026-09-01) — 권한 물음이 떴는데 휠을 굴려야 나왔다. 무엇을 끌어올지는
+    // `askReveal` 이 정한다(화면 밖이라야 잰다).
+    if (el && askReveal(kind, askAction(sig, this.askSig))) {
+      box.scrollIntoView({ block: 'nearest' });
+    }
     this.askSig = sig;
   }
 

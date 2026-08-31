@@ -124,6 +124,7 @@ async function boot() {
           view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
             (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
           bound = name;
+          saidStale = false;   // 다시 골랐으니 그 말은 끝났다
           // 이제부터는 스트림·데몬에 대한 말이 뜻을 갖는다(§5.7). 그 전에는 안 띄운다.
           view.setBound(true);
           await refreshBrand();
@@ -134,6 +135,25 @@ async function boot() {
       },
       onRefresh: () => { void showCompanions(); },
     });
+    /**
+     * 붙어 있던 컴패니언이 **다시 떴다.** 소켓 경로는 워크스페이스에서 유도되므로 그대로고
+     * dial 도 성공하지만, 우리 MCP 등록은 죽은 프로세스와 같이 사라졌고 이 창이 든 대화
+     * 이름도 남의 생애의 것이다. 실물에서 그 화면을 봤다(2026-09-01): 창은 「대화 연결됨」
+     * 이라고 적었고, 모델에게는 덱 도구가 하나도 없어서 셸로 우회하려 들었다.
+     *
+     * **고르는 판을 도로 세운다.** 몰래 다시 붙이지 않는다 — 다시 붙이는 것은 「이 컴패니언에
+     * 맡긴다」를 다시 말하는 일이고, 그 말은 사람이 한다(§5.0).
+     */
+    let saidStale = false;
+    const companionRestarted = () => {
+      if (saidStale) return;
+      saidStale = true;
+      bound = null;
+      view.setBound(false);
+      view.where('붙어 있던 컴패니언이 다시 떴습니다 — 덱 도구가 떨어졌으니 다시 골라 주세요.');
+      void showCompanions();
+    };
+
     const showCompanions = async () => {
       try {
         const list = await api.companions();
@@ -142,7 +162,9 @@ async function boot() {
         // 새로 만드는데 헬퍼는 그대로 살아 있으므로, 「아무 데도 안 붙었다」로 시작하면 붙어
         // 있는 것을 안 붙었다고 적는다. 그때 물려받을 것은 **이름 둘**이다 — 대화 이름(그래야
         // 이벤트를 우리 것으로 센다)과 컴패니언 이름(그래야 브랜드 줄이 사실을 적는다).
-        const sock = list?.bound?.socket;
+        // **다시 뜬 뒤에는 물려받지 않는다.** 헬퍼의 Bridge 는 여전히 그 소켓에 묶여 있어서
+        // 여기서 물려받으면 방금 적은 「다시 골라 주세요」를 스스로 덮는다.
+        const sock = saidStale ? '' : list?.bound?.socket;
         if (sock) {
           listenTo(list?.bound?.session);
           bound = nameOf((list.companions ?? [])
@@ -156,6 +178,14 @@ async function boot() {
       }
     };
     await showCompanions();
+
+    // **컴패니언이 다시 뜬 것을 폴이 알려 준다.** 화면이 이미 그리는 것 뒤에 한 줄 더 건다 —
+    // `readTranscript.onChange` 를 감싼 것과 같은 자리, 같은 이유다(한 사건에 한 자리).
+    const drewAsk = watchPrompt.onChange;
+    watchPrompt.onChange = () => {
+      drewAsk?.();
+      if (watchPrompt.view.stale) companionRestarted();
+    };
   }
 
   // 첫 폴을 기다렸다가 돌린다 — 겹쳐 돌면 같은 물음에 답이 두 번 갈 자리가 생긴다.
