@@ -99,6 +99,14 @@ class CoreReleaseTest {
     }
 
     @Test
+    fun `확인은 인증서 검증의 뒷면이다`() {
+        // 둘이 갈리면 「인증서는 안 따지는데 체크섬은 확인한다」는 어중간한 상태가 생긴다 —
+        // 그건 보장처럼 보이기만 하는 자리다.
+        assertTrue(CoreRelease(shipped).verifies, "배포 설정이 확인을 끄고 나간다")
+        assertEquals(false, CoreRelease(mapOf("core.insecure" to "true")).verifies)
+    }
+
+    @Test
     fun `체크섬 표는 두 칸짜리 줄만 받는다`() {
         val t = CoreRelease.checksums(
             """

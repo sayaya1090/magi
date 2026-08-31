@@ -78,21 +78,31 @@ internal object CoreBinary {
         val url = release.url(asset) ?: error(MagiBundle.msg("core.get.nourl"))
         val sumsUrl = release.checksumsUrl() ?: error(MagiBundle.msg("core.get.nourl"))
 
-        indicator.text = MagiBundle.msg("core.get.asking")
-        val sums = CoreRelease.checksums(read(sumsUrl))
-        val want = sums[asset] ?: error(MagiBundle.msg("core.get.nosum", asset))
+        // **확인할 수 있을 때만 확인한다.** 인증서 검증을 끈 채 체크섬을 받아 오면 그 표도
+        // 같은 연결로 오므로, 중간에 있는 쪽이 파일과 표를 둘 다 바꿀 수 있다. 그 상태에서
+        // 「체크섬 확인함」이 로그에 남으면 사람은 무결성이 보장됐다고 읽는다 — 약한 검사는
+        // 없는 검사보다 나쁘다(사용자 결정). 그래서 그때는 표를 아예 안 받는다. 깨진 아카이브는
+        // 어차피 푸는 단계에서 터진다.
+        val want = if (!release.verifies) {
+            LOG.warn("magi: core.insecure=true — 체크섬을 확인하지 않고 받는다")
+            null
+        } else {
+            indicator.text = MagiBundle.msg("core.get.asking")
+            if (!release.sameOrigin(asset)) error(MagiBundle.msg("core.get.mixed"))
+            CoreRelease.checksums(read(sumsUrl))[asset] ?: error(MagiBundle.msg("core.get.nosum", asset))
+        }
 
-        if (!release.sameOrigin(asset)) error(MagiBundle.msg("core.get.mixed"))
         val tmp = Files.createTempDirectory("magi-core")
         try {
         val archive = tmp.resolve(asset)
         indicator.text = MagiBundle.msg("core.get.downloading", release.version)
         request(url).saveToFile(archive.toFile(), indicator)
 
-        val got = sha256(archive)
         // **다르면 안 쓴다.** 「받긴 받았다」와 「낸 것을 받았다」는 다른 사실이고, 실행할
         // 파일에서 그 둘을 같이 다루면 안 된다.
-        if (!got.equals(want, ignoreCase = true)) error(MagiBundle.msg("core.get.badsum", asset))
+        if (want != null && !sha256(archive).equals(want, ignoreCase = true)) {
+            error(MagiBundle.msg("core.get.badsum", asset))
+        }
 
         indicator.text = MagiBundle.msg("core.get.unpacking")
         val out = tmp.resolve("out")
