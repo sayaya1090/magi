@@ -66,10 +66,14 @@ internal object StartDaemon {
         // 한 번 미룬 사람에게 프로젝트마다·재시작마다 모달을 들이밀지 않는다(리뷰 R11).
         // 이 기억은 앱 수준이다 — 거절은 이 프로젝트가 아니라 그 사람의 뜻이다.
         if (com.intellij.ide.util.PropertiesComponent.getInstance().getBoolean(DECLINED, false)) return
-        val asset = CoreBinary.release.asset(
+        // **받을 판을 여기서 정한다.** 핀은 바닥일 뿐이다 — 먼저 옛 판을 받아 놓고 데몬이
+        // 스스로 갱신하기를 기다리는 것은, 처음 쓰는 사람에게 두 번 기다리라는 말이다.
+        // 이 자리는 이미 풀 스레드라 목록 한 번 물어보는 것이 화면을 안 막는다.
+        val rel = CoreBinary.resolve()
+        val asset = rel.asset(
             System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty(),
         )
-        val host = asset?.let { CoreBinary.release.host(it) } ?: return run {
+        val host = asset?.let { rel.host(it) } ?: return run {
             LOG.info("magi: 이 기계에 맞는 코어 자산이 없거나 받을 주소가 없다 — 안 묻는다")
         }
         // **묻는다.** 네트워크에서 실행 파일을 받아 돌리는 일을 조용히 하지 않는다. 그리고
@@ -78,8 +82,8 @@ internal object StartDaemon {
         ApplicationManager.getApplication().invokeLater({
             val yes = Messages.showYesNoDialog(
                 project,
-                MagiBundle.msg("core.get.body", CoreBinary.release.version, host) +
-                    if (CoreBinary.release.insecure) "\n\n" + MagiBundle.msg("core.get.insecure") else "",
+                MagiBundle.msg("core.get.body", rel.version, host) +
+                    if (rel.insecure) "\n\n" + MagiBundle.msg("core.get.insecure") else "",
                 MagiBundle.msg("core.get.title"),
                 MagiBundle.msg("core.get.yes"), MagiBundle.msg("core.get.no"), null,
             ) == Messages.YES
@@ -89,7 +93,7 @@ internal object StartDaemon {
             }
             object : Task.Backgroundable(project, MagiBundle.msg("core.get.title"), true) {
                 override fun run(indicator: ProgressIndicator) {
-                    val bin = runCatching { CoreBinary.download(indicator) }.getOrElse { e ->
+                    val bin = runCatching { CoreBinary.download(indicator, rel) }.getOrElse { e ->
                         // 취소는 실패가 아니다. 플랫폼 계약상 이 예외는 삼키면 안 되고, 삼키면
                         // 사람이 누른 「취소」가 에러 풍선으로 돌아온다(리뷰 R4).
                         if (e is com.intellij.openapi.progress.ProcessCanceledException) throw e

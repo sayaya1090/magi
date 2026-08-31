@@ -35,8 +35,8 @@ internal object CoreBinary {
     }
 
     /** 전에 받아 둔 것이 사는 자리. magi 자신의 설정 디렉토리 아래라 사람이 찾을 수 있다. */
-    fun cached(): Path = Shell.configDir()
-        .resolve("bin").resolve(release.version)
+    fun cached(version: String = release.version): Path = Shell.configDir()
+        .resolve("bin").resolve(version)
         .resolve(release.binaryName(System.getProperty("os.name").orEmpty()))
 
     /**
@@ -69,8 +69,24 @@ internal object CoreBinary {
             .firstOrNull { Files.isExecutable(it) }
     }
 
+    /**
+     * 지금 받을 판. `track=latest` 면 릴리스 목록을 물어 이 열차의 최신을 고르고, 못 물어보면
+     * 설정에 적힌 판으로 떨어진다 — 처음 설치가 네트워크 사정으로 막히는 것보다 낫다.
+     * 목록을 못 물어본 것과 최신이 그 판인 것을 로그가 가른다.
+     */
+    fun resolve(): CoreRelease {
+        val r = release
+        if (!r.tracksLatest) return r
+        val url = r.releasesUrl() ?: return r
+        val picked = runCatching { r.pickLatest(read(url)) }.getOrElse { e ->
+            LOG.info("magi: 최신 판을 못 물어봤다 — ${r.version} 으로 간다 (${e.message})"); null
+        } ?: return r
+        if (picked != r.version) LOG.info("magi: 최신 코어는 $picked (설정의 바닥은 ${r.version})")
+        return r.at(picked)
+    }
+
     /** 받아서 캐시에 놓는다. 성공하면 그 경로, 실패하면 **사유**를 던진다(조용한 실패 금지). */
-    fun download(indicator: ProgressIndicator): Path {
+    fun download(indicator: ProgressIndicator, release: CoreRelease = this.release): Path {
         if (!release.configured) error(MagiBundle.msg("core.get.nourl"))
         val osName = System.getProperty("os.name").orEmpty()
         val asset = release.asset(osName, System.getProperty("os.arch").orEmpty())
@@ -112,7 +128,7 @@ internal object CoreBinary {
         val name = release.binaryName(osName)
         val bin = Files.walk(out).use { s -> s.filter { it.fileName?.toString() == name }.findFirst() }
             .orElseThrow { IllegalStateException(MagiBundle.msg("core.get.nobinary", name)) }
-        val dest = cached()
+        val dest = cached(release.version)
         Files.createDirectories(dest.parent)
         Files.move(bin, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
         runCatching { dest.toFile().setExecutable(true, false) }

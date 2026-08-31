@@ -46,6 +46,49 @@ class CoreRelease(private val conf: Map<String, String>) {
             .all { conf[it]?.isNotBlank() == true }
 
     /**
+     * 최신을 찾아 나서나. `core.track=latest` 면 받기 직전에 릴리스 목록을 물어 더 새 판이
+     * 있는지 본다. 못 물어보면(오프라인·호출 한도) [version] 으로 떨어진다 — 처음 설치가
+     * 네트워크 사정으로 통째로 막히는 것보다 낫다.
+     */
+    val tracksLatest: Boolean get() = conf["core.track"]?.trim()?.lowercase() == "latest"
+
+    fun releasesUrl(): String? = conf["core.releases"]?.takeIf { it.startsWith("https://") }
+
+    fun tagPattern(): String = conf["core.tag"]?.takeIf { it.isNotBlank() } ?: TAG
+
+    /**
+     * 릴리스 목록에서 **이 열차의 최신 판**을 고른다.
+     *
+     * 「최신」을 GitHub 에 맡길 수 없다는 것이 실측이다: 이 저장소는 열차가 셋이라
+     * (`v*` 코어 · `web-v*` · `jetbrains-v*`) `/releases/latest` 가 **날짜상 최신**을 가리키고,
+     * 2026-08-31 에 그것은 `web-v0.2.0` 이었다 — 코어 자산을 그 태그에서 찾으면 404 다.
+     * 그래서 갈래를 정규식으로 고르고, 그중 판 번호로 가장 큰 것을 쓴다. 목록의 **순서에
+     * 기대지 않는다**: GitHub 은 새것부터 주지만 미러가 그러리라는 보장이 없다.
+     */
+    fun pickLatest(releasesJson: String, pattern: String = tagPattern()): String? {
+        val re = runCatching { Regex(pattern) }.getOrNull() ?: return null
+        return TAG_NAME.findAll(releasesJson)
+            .map { it.groupValues[1] }
+            .mapNotNull { t -> re.find(t)?.groupValues?.getOrNull(1) }
+            .toList()
+            .maxWithOrNull(::compareVersions)
+    }
+
+    /** [pickLatest] 가 고른 판으로 갈아탄 사본. 나머지 설정은 그대로. */
+    fun at(newVersion: String): CoreRelease = CoreRelease(conf + ("core.version" to newVersion))
+
+    /** 숫자 마디로 견준다 — 문자열로 견주면 `0.9` 가 `0.10` 을 이긴다. */
+    private fun compareVersions(a: String, b: String): Int {
+        val x = a.split('.').map { it.toIntOrNull() ?: 0 }
+        val y = b.split('.').map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(x.size, y.size)) {
+            val d = x.getOrElse(i) { 0 }.compareTo(y.getOrElse(i) { 0 })
+            if (d != 0) return d
+        }
+        return 0
+    }
+
+    /**
      * 이 기계가 받을 자산 이름. 모르는 조합이면 **null** — 지어낸 이름으로 404 를 받아
      * 「네트워크 오류」라고 말하느니, 「이 기계에 맞는 판이 없다」고 말하는 편이 낫다.
      */
@@ -112,6 +155,11 @@ class CoreRelease(private val conf: Map<String, String>) {
     }
 
     companion object {
+
+        private val TAG_NAME = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
+
+        /** 기본 갈래 — 코어의 `v0.29.0` 꼴. 잡은 것 하나가 판 번호다. */
+        private const val TAG = "^v(\\d+(?:\\.\\d+)*)$"
         /**
          * `checksums.txt` 한 장에서 이름 → sha256. **받은 것이 낸 것인지 확인할 유일한 근거**라,
          * 형식이 어긋나면 조용히 빈 표를 주지 않고 그 줄을 버린다(빈 표는 검증을 건너뛰는 것과

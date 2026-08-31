@@ -107,6 +107,43 @@ class CoreReleaseTest {
     }
 
     @Test
+    fun `최신을 고를 때 남의 열차를 안 탄다`() {
+        // 실측한 함정 그대로다: 날짜상 최신은 `web-v0.2.0` 이었고, 코어 자산은 그 태그에 없다.
+        val json = """
+            [{"tag_name":"web-v0.2.0"},{"tag_name":"jetbrains-v0.1.0"},
+             {"tag_name":"v0.29.0"},{"tag_name":"v0.28.0"}]
+        """.trimIndent()
+        assertEquals("0.29.0", CoreRelease(shipped).pickLatest(json))
+    }
+
+    @Test
+    fun `판 번호는 숫자로 견준다`() {
+        // 문자열로 견주면 `0.9` 가 `0.10` 을 이긴다 — 열 번째 판이 나오는 날 조용히 옛것을 받는다.
+        val json = """[{"tag_name":"v0.9.0"},{"tag_name":"v0.10.0"}]"""
+        assertEquals("0.10.0", CoreRelease(shipped).pickLatest(json))
+    }
+
+    @Test
+    fun `목록 순서에 안 기댄다`() {
+        val json = """[{"tag_name":"v0.28.0"},{"tag_name":"v0.29.0"},{"tag_name":"v0.27.0"}]"""
+        assertEquals("0.29.0", CoreRelease(shipped).pickLatest(json))
+    }
+
+    @Test
+    fun `고를 것이 없으면 null 이고 그때는 바닥으로 간다`() {
+        assertNull(CoreRelease(shipped).pickLatest("""[{"tag_name":"web-v0.2.0"}]"""))
+        assertNull(CoreRelease(shipped).pickLatest("쓰레기"))
+    }
+
+    @Test
+    fun `배포되는 설정은 최신을 따라간다`() {
+        val r = CoreRelease(shipped)
+        assertTrue(r.tracksLatest, "핀만 보면 처음 쓰는 사람이 옛 판을 받는다")
+        assertTrue(r.releasesUrl()?.startsWith("https://") == true, "최신을 물어볼 자리가 없다")
+        assertEquals("0.29.0", r.at("0.29.0").version)
+    }
+
+    @Test
     fun `체크섬 표는 두 칸짜리 줄만 받는다`() {
         val t = CoreRelease.checksums(
             """
