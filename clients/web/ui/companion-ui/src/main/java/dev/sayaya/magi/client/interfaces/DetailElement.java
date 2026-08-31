@@ -408,13 +408,16 @@ public class DetailElement {
         // 목록은 그 <b>데몬</b>이 답한 것이다 — 콘솔의 설정에서 뽑으면 그 컴패니언이 닿지도 못하는
         // 모델을 내놓는다. 답이 비면(너무 낡은 데몬, 죽은 백엔드) 지금 것 하나만 세운다.
         store.models(names -> {
-            java.util.List<String[]> opts = new java.util.ArrayList<>();
+            java.util.List<String> answered = new java.util.ArrayList<>();
             JsArrayLike<Object> all = Js.uncheckedCast(names);
-            for (int i = 0; all != null && i < all.getLength(); i++) {
-                String n = String.valueOf(all.getAt(i));
+            for (int i = 0; all != null && i < all.getLength(); i++) answered.add(String.valueOf(all.getAt(i)));
+            // 무엇을 내놓을지는 화면 밖의 규칙이다(ModelChoices) — 돌고 있는 모델은 언제나 고를
+            // 수 있어야 한다. 그러지 않으면 이 칸은 빈 칸이 되고, 사람은 제 컴패니언이 무엇으로
+            // 돌고 있는지 모른 채 그것을 바꾸라는 말을 듣는다.
+            java.util.List<String[]> opts = new java.util.ArrayList<>();
+            for (String n : dev.sayaya.magi.client.domain.ModelChoices.offer(answered, now)) {
                 opts.add(new String[]{n, null});
             }
-            if (opts.isEmpty() && !now.isEmpty()) opts.add(new String[]{now, null});
             options(modelSel, opts.toArray(new String[0][]));
             pick(modelSel, now);
         });
