@@ -139,7 +139,11 @@ class MagiConfigurable(private val project: Project) : Configurable {
     }
 
     override fun isModified(): Boolean =
-        (permission.selectedItem as? String) != read ||
+        // **못 읽었으면 견줄 것이 없다.** `read` 는 데몬이 답해야 채워지는데, 데몬이 없으면
+        // 콤보는 첫 항목(`ask`)에 서 있고 `read` 는 null 이라 이 줄이 늘 참이었다 — 화면을 연
+        // 것만으로 「바뀜」이 되고, OK 를 누르면 아무도 고르지 않은 `ask` 가 데몬으로 나간다.
+        // 모르는 것을 「사람이 고른 것」으로 다루면 안 된다(헤드리스 시험이 잡았다).
+        (read != null && (permission.selectedItem as? String) != read) ||
             (model.selectedItem as? String).orEmpty().isNotBlank() ||
             backend.text.isNotBlank() ||
             // 새 칸을 여기 안 적으면 **OK 가 조용히 아무것도 안 한다** — 플랫폼은 이 술어가
@@ -159,7 +163,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
         val prof = backend.text.trim()
         workspace.onDaemon({ tell(MagiBundle.msg("set.failed", it)) }) { comp ->
             val gripes = mutableListOf<String>()
-            if (mode != null && mode != read) comp.setPermission(mode).also {
+            if (mode != null && read != null && mode != read) comp.setPermission(mode).also {
                 if (!it.ok) gripes += "승인: ${it.error ?: MagiBundle.msg("set.noreason")}"
             }
             if (pick.isNotBlank()) comp.setModel(pick).also {
@@ -180,7 +184,25 @@ class MagiConfigurable(private val project: Project) : Configurable {
 
     override fun reset() {
         sayOutside() // 데몬을 안 기다리는 줄이 먼저다 — 못 붙는 워크스페이스에서도 이 경고는 선다
+        local() // 이 화면의 스위치도 데몬을 안 기다린다 — 아래 사유
         workspace.onDaemon({ tell(MagiBundle.msg("set.unreachable", it)) }) { comp -> pull(comp); tell(" ") }
+    }
+
+    /**
+     * **IDE 로컬 스위치는 데몬을 안 기다린다.**
+     *
+     * 이 넷은 `PropertiesComponent` 에 사는 이 화면의 취향이라 데몬과 아무 상관이 없다. 그런데
+     * 세우는 자리가 [pull] 안에 있었다 — 그건 **데몬이 답할 때만** 도는 콜백이다. 데몬이 없으면
+     * 넷 다 `JCheckBox` 의 생성 기본값인 **꺼짐**으로 서고, 사람은 저장된 값과 다른 화면을 본다
+     * (사용자 실측 2026-09-01: 「자동 실행」이 기본 켜짐인데 빈 칸으로 떴다). 더 나쁜 것은 그
+     * 상태에서 OK 를 누르면 [isModified] 가 참이 되어 **꺼짐이 저장된다** — 화면이 거짓을 보인
+     * 것으로 끝나지 않고 그 거짓이 값이 된다.
+     */
+    private fun local() {
+        lookTyping.isSelected = LocalPrefs.look(project)
+        autoComplete.isSelected = LocalPrefs.complete(project)
+        composerSuggest.isSelected = LocalPrefs.suggest(project)
+        autostart.isSelected = LocalPrefs.autostart(project)
     }
 
     /**
@@ -221,10 +243,6 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 val model = permission.model as javax.swing.DefaultComboBoxModel<String>
                 if (model.getIndexOf(unknown) < 0) model.addElement(unknown)
             }
-            lookTyping.isSelected = LocalPrefs.look(project)
-            autoComplete.isSelected = LocalPrefs.complete(project)
-            composerSuggest.isSelected = LocalPrefs.suggest(project)
-            autostart.isSelected = LocalPrefs.autostart(project)
             sessionL.text = f.session
         }
         val m = comp.models()

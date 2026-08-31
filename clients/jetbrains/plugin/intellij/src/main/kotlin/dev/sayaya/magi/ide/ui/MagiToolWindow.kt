@@ -75,7 +75,6 @@ class MagiToolWindow : ToolWindowFactory {
         // 수준이 서는 자리. 라벨이었을 때는 거의 안 변하는 큰 한 줄이 전사 위 판 하나를 먹었다
         // (사용자 실측: "왜 이렇게 커? 변하는 데이터도 없네") — 창이 무엇인지 말하는 자리는
         // 제목표시줄이고, 항상 보여야 하는 쪽은 상태 표시줄이 이미 한다(docs/UI.ko.md §3.1).
-        view.title = { t -> SwingUtilities.invokeLater { toolWindow.setTitle(t) } }
         // 행동의 동사들은 기어 메뉴로(설정 화면은 남는 상태의 자리다 — docs/UI.ko.md §5). 결과는
         // 전사로 보고된다: 사건은 라벨이 아니라 전사라는 그 규칙이 여기도 그대로다.
         // 세우기는 제목줄로 — 도는 턴을 세우는 손은 늘 보이되 앞자리를 안 먹는다(TUI 의 esc 와
@@ -1484,14 +1483,9 @@ class MagiToolWindow : ToolWindowFactory {
          * 못 받는데, 색은 원래 글자를 대신하지 않는 보조였으니 잃는 것은 보조뿐이다.
          */
         private fun say(l: Level) {
-            if (pinned != null) {
-                // 고정 탭의 title 은 허공이다 — 제목표시줄은 주 판의 것. 사람이 할 일이 생기는
-                // 못-닿음만 점으로 승격한다(§0.5-7: 무통보 무동작 금지). 나머지 수준은 점과
-                // 프롬프트 판이 이미 말한다.
-                if (l is Level.Unreachable) mood(Look.error, "✕", l.text)
-                return
-            }
-            title(l.text)
+            // 사람이 할 일이 생기는 못-닿음만 점으로 올린다(§0.5-7: 무통보 무동작 금지).
+            // 나머지 수준은 상태 표시줄과 링크 점이 이미 말한다.
+            if (l is Level.Unreachable) mood(Look.error, "✕", l.why)
         }
     }
 }

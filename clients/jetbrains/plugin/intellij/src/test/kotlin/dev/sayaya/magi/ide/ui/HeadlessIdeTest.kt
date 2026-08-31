@@ -135,4 +135,40 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertTrue(LocalPrefs.suggest(project))
         assertFalse("훑어보기는 기본 꺼짐이다", LocalPrefs.look(project))
     }
+
+    /**
+     * **저장된 값이 화면에 선다 — 데몬이 없어도.**
+     *
+     * 앞의 시험은 `LocalPrefs` 를 재고 화면을 안 쟀다. 그 사이에 결함이 있었다: 네 스위치를
+     * 세우는 자리가 데몬 콜백 안이라, 데몬이 없으면 전부 `JCheckBox` 기본값인 **꺼짐**으로 섰다
+     * (사용자 실측 2026-09-01). 값은 켜짐인데 화면은 꺼짐이었고, 그 상태로 OK 를 누르면 그
+     * 거짓이 저장까지 된다. **가게 아니라 진열장을 재야 잡힌다.**
+     *
+     * 이 픽스처에는 데몬이 없다 — 그래서 이 시험은 정확히 그 상황이다.
+     */
+    fun `test 데몬이 없어도 저장된 스위치가 화면에 선다`() {
+        val c = MagiConfigurable(project)
+        c.createComponent()
+        c.reset()
+        val boxes = boxes(c)
+        assertEquals("체크박스 넷을 못 찾았다: ${boxes.keys}", 4, boxes.size)
+        // 기본값 그대로 — 셋은 켜짐, 훑어보기만 꺼짐.
+        assertTrue("자동 실행이 화면에서 꺼져 있다", boxes.getValue(MagiBundle.msg("set.autostart.box")))
+        assertTrue(boxes.getValue(MagiBundle.msg("set.complete.box")))
+        assertTrue(boxes.getValue(MagiBundle.msg("set.suggest.box")))
+        assertFalse(boxes.getValue(MagiBundle.msg("set.look.box")))
+        // 그리고 아무것도 안 만졌으니 OK 가 할 일이 없어야 한다 — 참이면 열자마자 값이 뒤집힌다.
+        assertFalse("연 것만으로 바뀐 것이 있다고 한다", c.isModified)
+    }
+
+    /** 화면에 실제로 선 체크박스들: 글자 → 켜짐 여부. */
+    private fun boxes(c: com.intellij.openapi.options.Configurable): Map<String, Boolean> {
+        val out = LinkedHashMap<String, Boolean>()
+        fun walk(comp: java.awt.Component) {
+            if (comp is javax.swing.JCheckBox) out[comp.text] = comp.isSelected
+            if (comp is java.awt.Container) comp.components.forEach(::walk)
+        }
+        c.createComponent()?.let(::walk)
+        return out
+    }
 }

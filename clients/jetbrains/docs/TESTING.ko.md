@@ -8,7 +8,7 @@
 > 그 착각으로 하루 넘게 CI 가 빨간 줄 몰랐고, 같은 날 `:core:test` 가 입력 선언 누락으로 통째로
 > 안 돌던 것도 찾았다.
 
-**마지막 실측: 2026-08-31 — 205개, 실패 0, 건너뜀 6**(라이브 데몬 1, 모델 적합성 5 — 둘 다
+**마지막 실측: 2026-08-31 — 207개, 실패 0, 건너뜀 6**(라이브 데몬 1, 모델 적합성 5 — 둘 다
 청해야 도는 것들이다). 이 줄은 커밋마다 갱신한다. 「초록이었다」는 기억이 아니라 날짜와 수로
 남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
 
@@ -17,9 +17,9 @@
 | 층 | 어디 | 언제 도나 | 무엇을 아나 |
 |---|---|---|---|
 | 1. 단위 | `plugin/core/src/test` | push 마다 | 셰이퍼·전송·파서의 규칙 |
-| 2. 소스 글자 | `SourceTextTest` (15) | push 마다 | 컴파일러가 안 잡는 규칙 |
+| 2. 소스 글자 | `SourceTextTest` (16) | push 마다 | 컴파일러가 안 잡는 규칙 |
 | 3. 유도 가드 | `ManualTest`·`ArchitectureTest`·`PaletteTest` | push 마다 | 광고면과 문서·구조가 갈렸나 |
-| 4. 헤드리스 IDE | `plugin/intellij/src/test` (4) | push 마다 | 진짜 IDE 안에서 우리 것이 서나 |
+| 4. 헤드리스 IDE | `plugin/intellij/src/test` (10) | push 마다 | 진짜 IDE 안에서 우리 것이 서나 |
 | 5. 라이브 | `live/`·`LiveDaemonTest` (6) | 청해야 | 진짜 데몬·진짜 모델과 맞나 |
 
 릴리스 태그(`jetbrains-v*`)를 밀면 여기에 **여섯째**가 붙는다 — `verifyPlugin` 이 세 IDE
@@ -172,7 +172,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 
 | 클래스 | 무엇을 재나 |
 |---|---|
-| `SourceTextTest` | 컴파일러가 안 잡는 규칙 15가지 |
+| `SourceTextTest` | 컴파일러가 안 잡는 규칙 16가지 |
 | `ManualTest` | 광고면·번들·매뉴얼·이 문서가 갈렸나 |
 | `BundleFallbackTest` | 영어를 청했는데 한국어가 오던 기전 |
 | `AskTest`·`SubjectTest` | 승인 물음의 모양 |
@@ -188,7 +188,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 
 | 클래스 | 무엇을 재나 |
 |---|---|
-| `HeadlessIdeTest` | 아홉. 액션 다섯의 등록 · 첨부 인텐션이 서는 조건(고른 것 없을 때/있을 때 **둘 다**) · 언어팩 없을 때의 글자 · 우클릭이 하위 메뉴 하나인가 · 그 안에서만 `magi: ` 접두를 벗기는가(툴바·Find Action 에서는 그대로) · 설명문 라벨이 판을 안 벌리는가(**최소 폭**을 잰다) · 도구창 아이콘이 로드되는가 · 이 화면 스위치 넷의 기본값 |
+| `HeadlessIdeTest` | 열. 액션 다섯의 등록 · 첨부 인텐션이 서는 조건(고른 것 없을 때/있을 때 **둘 다**) · 언어팩 없을 때의 글자 · 우클릭이 하위 메뉴 하나인가 · 그 안에서만 `magi: ` 접두를 벗기는가(툴바·Find Action 에서는 그대로) · 설명문 라벨이 판을 안 벌리는가(**최소 폭**을 잰다) · 도구창 아이콘이 로드되는가 · 이 화면 스위치 넷의 기본값 · **데몬이 없어도 저장된 스위치가 화면에 서는가**(그리고 연 것만으로 「바뀜」이 되지 않는가) |
 
 ## 여기서 안 재는 것
 

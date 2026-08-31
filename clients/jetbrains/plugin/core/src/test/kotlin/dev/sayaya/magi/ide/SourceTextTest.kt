@@ -91,22 +91,53 @@ class SourceTextTest {
             .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
             .replace(Regex("""//[^\n]*"""), "")
 
-        // 자리가 라벨에서 **제목표시줄**로 갔다(수준은 창이 무엇인지 말하는 자리로 — 그 판은
-        // 거의 안 변하는 큰 한 줄로 전사 위를 먹고 있었다). 재는 것은 같다: 수준이 지나는 손이
-        // `title` 하나이고, 그 손을 부르는 자리가 [Level] 만 받는 문 안 하나뿐인가.
+        // **자리가 또 옮겨졌고, 이번엔 없어졌다.** 수준은 라벨 → 제목표시줄로 갔다가, 이제
+        // 어느 쪽에도 안 쓴다. 도구창 제목은 창이 무엇인지 말하는 자리이지 상태를 흘리는 자리가
+        // 아니었고, 거기 쓰는 동안 사람이 본 것은 이랬다: 영어 IDE 의 탭에 「컴패니언이 붙어
+        // 있다」가 뜨고, 그 탭을 드래그하니 **둘째 탭 제목까지** 같은 글자로 바뀌었다
+        // (실측 2026-09-01). 같은 사실은 상태 표시줄이 늘 말하고 있었다 — 셋째 자리였다.
+        //
+        // 그래서 재는 것이 뒤집혔다: 「수준을 쓰는 문이 하나인가」가 아니라 **「수준이 글자가
+        // 되는 자리가 없는가」**다. `Level` 은 이제 `text` 를 안 들고(그 글자는 `core` 에 살아
+        // 영영 번역이 안 됐다), 남은 것은 사람이 할 일이 생기는 못-닿음 하나뿐이다.
         val door = "private fun say(l: Level)"
-        val writes = Regex("""\btitle\(""").findAll(code).count()
-        assertTrue(writes == 1 && door in code && "title(" in code.substringAfter(door),
-            "제목에 글자를 넣는 자리가 $writes 이고 문은 `$door`" +
-                (if (door in code) "" else " — 그 문이 없다") + ". 하나여야 하고 그 안이어야 한다. " +
-                "문이 늘거나 `Level` 이 아닌 것을 받게 되면 「수준만 쓴다」를 지키는 것이 다시 " +
-                "주석뿐이 된다")
+        assertTrue(door in code, "수준을 받는 문 `$door` 이 없다 — 규칙이 붙들 자리가 사라졌다")
+        assertEquals(
+            0, Regex("""\btitle\(""").findAll(code).count(),
+            "수준이 다시 도구창 제목으로 간다. 그 자리는 창의 이름이지 상태가 아니고, 상태는 " +
+                "상태 표시줄이 이미 말한다 — 셋째 자리를 만들면 탭 제목이 그 글자로 덮인다",
+        )
 
         // `.state` 는 예외다 — 와이어 필드(RosterRow.state)의 이름이라 점 뒤에 정당하게 선다.
         // 이 그물이 잡는 것은 점 없는 식별자, 즉 옛 라벨 `state` 의 부활이다.
         assertTrue("say(title" !in code && Regex("""(?<![.\w])state\b""").findAll(code).count() == 0,
             "수준의 옛 자리(state 라벨)가 돌아왔거나 문이 글자를 받게 됐다. 사건은 `report()` 로 " +
-                "전사에, 수준은 `say(Level)` 로 제목에 — 자리를 가른 사유가 둘의 KDoc 에 있다")
+                "전사에, 수준은 `say(Level)` 로 — 자리를 가른 사유가 둘의 KDoc 에 있다")
+    }
+
+    /**
+     * **`core` 는 화면 글자를 안 든다.**
+     *
+     * `Level` 이 갈래마다 `text` 를 들고 있었다. 그 파일은 `core` 에 사는데 `core` 는 번들에
+     * 못 닿으므로 그 글자는 **영영 한국어**였고, 영어 IDE 에 「컴패니언이 붙어 있다」가 떴다
+     * (실측 2026-09-01). i18n 훑기가 `intellij` 만 봤기 때문에 못 잡은 자리다 — 훑는 곳이
+     * 규칙이 사는 곳보다 좁으면 가드는 반쯤 죽는다.
+     *
+     * 재는 것은 **화면에 그대로 서는 글자를 내주는 멤버**다: `val text` / `fun text()`.
+     * `core` 의 다른 한국어(사유 문장 등)는 부르는 쪽이 번들을 거쳐 쓰거나 로그로 가므로 여기서
+     * 안 잡는다 — 넓히면 잡는 것보다 참는 것이 늘어난다.
+     */
+    @Test
+    fun `수준 갈래는 화면 글자를 안 든다`() {
+        val f = sources.first { it.name == "Level.kt" }
+        val code = f.readText()
+            .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+            .replace(Regex("""//[^\n]*"""), "")
+        assertFalse(
+            Regex("""\b(val|fun)\s+text\b""").containsMatchIn(code),
+            "Level 이 화면 글자를 다시 들었다. 이 파일은 core 라 번들에 못 닿는다 — 그 글자는 " +
+                "어느 IDE 에서든 한국어로 뜬다. 그리는 것은 번들에 닿는 쪽이 한다",
+        )
     }
 
     @Test
