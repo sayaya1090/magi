@@ -22,8 +22,8 @@ import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 import {
   isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
-  unknownLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
-  bodyText, adviceBoard, adviceTargetText, pretty,
+  unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
+  bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -442,7 +442,7 @@ export class View {
     }
     this.renderStream(v);
     this.renderRows(v.rows);
-    this.renderUnknown(v.unknownNote);
+    this.renderUnknown(v.unknownNote, v.skippedNote);
     this.renderAdviceFrom(v.rows);
     this.renderSent();
   }
@@ -458,11 +458,27 @@ export class View {
     el.hidden = line.hidden;
   }
 
-  renderUnknown(note) {
+  /**
+   * 못 그리는 것과 **안 그리기로 한 것**을 같은 칸에, 다른 줄로 적는다. 한 문장으로 합치면
+   * 「이 창을 고쳐야 한다」와 「이대로가 맞다」가 같은 말이 되고, 그런 줄은 곧 안 읽힌다.
+   */
+  renderUnknown(note, skipped) {
     const el = $('#unknown');
-    const line = unknownLine(note);
-    el.textContent = line.text;
-    el.hidden = line.hidden;
+    el.replaceChildren();
+    const un = unknownLine(note);
+    const sk = skippedLine(skipped);
+    if (!un.hidden) {
+      const d = document.createElement('div');
+      d.textContent = un.text;
+      el.append(d);
+    }
+    if (!sk.hidden) {
+      const d = document.createElement('div');
+      d.className = 'skipped';
+      d.textContent = sk.text;
+      el.append(d);
+    }
+    el.hidden = un.hidden && sk.hidden;
   }
 
   /** 냈는데 아직 로그에 안 뜬 것. **나가는 문을 같이 준다** — 없으면 잠금이 사람을 가둔다. */
@@ -612,10 +628,56 @@ export class View {
     const shape = rowShape(r);
     if (shape === 'tool') {
       // **인자를 적는다.** 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
-      const pre = document.createElement('pre');
-      pre.className = 'turn-args';
-      pre.textContent = argsCell(r);
-      el.append(pre);
+      if (r.kind === 'tool') {
+        const pre = document.createElement('pre');
+        pre.className = 'turn-args';
+        pre.textContent = argsCell(r);
+        el.append(pre);
+      }
+      // 허락과 답은 **같은 줄에** 붙는다(`Transcript.append` 가 `callId` 로 접었다). 따로
+      // 세우면 도구가 줄줄이 도는 턴에서 「무엇을 불렀나」와 「어떻게 됐나」의 짝이 안 맞는다.
+      const perm = permissionText(r);
+      if (perm) {
+        const p = document.createElement('div');
+        p.className = 'turn-perm';
+        p.textContent = perm;
+        el.append(p);
+      }
+      const res = resultCell(r);
+      if (res) {
+        // **`isError` 하나로 ✗ 를 찍지 않는다** — `advisory` 는 「했는데 읽을 것이 붙었다」다
+        // (`ToolResult.Advisory`). 이 제품에서 그 오독은 「슬라이드가 안 바뀌었다」로 읽힌다.
+        el.classList.toggle('failed', res.failed);
+        el.classList.toggle('advisory', res.advisory);
+        const h = document.createElement('div');
+        h.className = 'turn-result-head';
+        h.textContent = `${res.mark} ${res.head}`;
+        el.append(h);
+        if (res.text) {
+          const pre = document.createElement('pre');
+          pre.className = 'turn-result';
+          pre.textContent = res.text;
+          el.append(pre);
+        }
+      } else if (r.kind === 'tool') {
+        // 답이 아직 안 왔다. **비워 두는 것이 사실이다** — 「됐습니다」를 미리 적으면 실패한
+        // 호출이 성공으로 보이는 구간이 생긴다.
+        const h = document.createElement('div');
+        h.className = 'turn-result-head pending';
+        h.textContent = '⋯ 답을 기다립니다';
+        el.append(h);
+      }
+      return el;
+    }
+    if (shape === 'council') {
+      // 종료 게이트. **머리만으로 뜻이 서는 줄이 있다**(소집·결론) — 없는 몸통을 「(글 없음)」
+      // 으로 채우면 화면이 빈 칸을 결함처럼 보이게 한다.
+      const body = councilBody(r);
+      if (body) {
+        const p = document.createElement('p');
+        p.textContent = body;
+        el.append(p);
+      }
       return el;
     }
     if (shape === 'turn') {

@@ -165,6 +165,11 @@ export function streamLine(v) {
   return { text: parts.join(' · '), hidden: parts.length === 0 };
 }
 
+/** 일부러 안 그린 것. 못 그리는 것과 **다른 줄**이라 문장도 따로 만든다. */
+export function skippedLine(note) {
+  return { text: note ?? '', hidden: !note };
+}
+
 /** 로그가 못 읽은 것. 없으면 칸이 안 선다. */
 export function unknownLine(note) {
   return { text: note ?? '', hidden: !note };
@@ -210,6 +215,11 @@ const ROW_HEAD = {
   note: '⟳ 사람이 아닌 배우가 넣은 줄',
   tool: '⚙',
   error: '오류',
+  // 짝이 되는 호출 줄을 못 찾은 것들. 보통은 호출 줄에 접히므로(`Transcript.append`) 이
+  // 머리가 보인다는 것은 **이 창이 로그 중간부터 읽기 시작했다**는 뜻이고, 그건 사실이라
+  // 적는다 — 「왜 답만 덩그러니 있나」를 사람이 이 줄로 안다.
+  result: '⚙ 앞을 못 본 호출의 답',
+  permission: '⚙ 앞을 못 본 호출의 권한 결정',
 };
 
 /**
@@ -217,6 +227,7 @@ const ROW_HEAD = {
  * 슬라이드를 고쳤는지 모른다. 이름이 안 실린 것도 그 사실을 적는다.
  */
 export function rowHead(r) {
+  if (r.kind === 'council') return councilHead(r);
   const head = headOf(r);
   if (!head) return '';
   return r.kind === 'tool' ? `⚙ ${r.tool ?? '(이름 없음)'}` : head;
@@ -224,9 +235,103 @@ export function rowHead(r) {
 
 /** 줄을 어떤 모양으로 그리는가. 다 말풍선으로 그리면 도구 호출이 사람 말이 된다(§5.7). */
 export function rowShape(r) {
-  if (r.kind === 'tool') return 'tool';
+  if (r.kind === 'tool' || r.kind === 'result' || r.kind === 'permission') return 'tool';
   if (r.kind === 'turn') return 'turn';
+  if (r.kind === 'council') return 'council';
   return 'text';
+}
+
+/**
+ * 도구 줄에 붙는 **결과 칸**. 아직 답이 안 왔으면 `null` 이고, 그것도 사실이다 — 호출만 있고
+ * 답이 없는 줄은 「도는 중」이라는 뜻이라, 없는 답을 지어내는 것보다 비워 두는 편이 맞다.
+ *
+ * **`isError` 하나로 ✗ 를 찍지 않는다.** 코어의 `ToolResult.Advisory` 주석이 그 사고를 적어
+ * 뒀다: 한 일은 했는데 읽을 것이 붙은 호출도 `IsError` 를 세우고, 그래서 창 둘이 **성공한
+ * 쓰기를 실패로 그렸다.** 이 제품에서 그 오독은 사람에게 「슬라이드가 안 바뀌었다」로 읽히고,
+ * 사람은 이미 바뀐 것을 다시 시킨다.
+ */
+export function resultCell(r) {
+  const res = r.result;
+  if (!res) return null;
+  if (res.advisory) {
+    return { mark: '⚠', head: '됐습니다 — 읽을 것이 붙었습니다', text: resultText(res),
+      failed: false, advisory: true };
+  }
+  if (res.isError) {
+    return { mark: '✗', head: '실패했습니다', text: resultText(res), failed: true, advisory: false };
+  }
+  return { mark: '✓', head: '됐습니다', text: resultText(res), failed: false, advisory: false };
+}
+
+/** 답의 몸통. 글일 때도 객체일 때도 있어서(`json.RawMessage`) 편 뒤에 자른다. */
+function resultText(res) {
+  const c = res.content;
+  const s = typeof c === 'string' ? c : (c == null ? '' : pretty(c));
+  // 그림은 **참조로만** 온다(`ImageRef`). 이 창은 아직 못 여는데, 몇 장인지도 안 적으면
+  // 「도구가 아무것도 안 냈다」와 「낸 것을 우리가 못 그린다」가 같은 화면이 된다.
+  const img = res.images > 0 ? `\n(그림 ${res.images}장은 이 창이 아직 안 그립니다)` : '';
+  return clip(s.trim(), 400) + img;
+}
+
+/** 허락 한 줄. 이 제품에서 이 답은 **덱을 고치게 뒀는가**다. */
+export function permissionText(r) {
+  if (!r.permission) return '';
+  const word = { allow: '이번 한 번 허용', always: '앞으로도 허용', deny: '거절' }[r.permission];
+  // 모르는 결정을 아는 척 옮기지 않는다 — 글자 그대로 적는다.
+  return word ? `권한: ${word}` : `권한: ${r.permission}`;
+}
+
+/** 표결의 말. 코어의 이름(`done|continue|abstain`)을 사람 말로. */
+function decisionWord(d) {
+  return { done: '끝났다', continue: '더 하라', abstain: '기권' }[d] ?? (d || '(안 실림)');
+}
+
+/**
+ * 표결 수. **다시 세지 않는다** — 규칙(과반·만장일치·가중치)을 이 창이 한 벌 더 가지면,
+ * 둘이 어긋나는 날 화면이 로그와 다른 결론을 적는다.
+ */
+export function tallyText(t) {
+  if (!t) return '';
+  const bits = [];
+  for (const [k, label] of [['done', '끝났다'], ['continue', '더 하라'], ['abstain', '기권']]) {
+    if (typeof t[k] === 'number') bits.push(`${label} ${t[k]}`);
+  }
+  return bits.length ? ` — ${bits.join(' · ')}` : '';
+}
+
+/**
+ * 종료 게이트의 줄머리.
+ *
+ * **이 줄이 없으면 사람은 모델이 왜 같은 일을 또 하는지 모른다.** 게이트가 「다 했다」를
+ * 거절하면 턴이 계속 도는데, 화면에는 도구 호출만 줄줄이 서고 그 사유는 로그에만 남는다 —
+ * 실물에서 본 화면이다(2026-09-01).
+ */
+export function councilHead(r) {
+  // **줄을 받는다** — 이 파일의 다른 줄 함수들과 같은 모양이라야 부르는 쪽이 헷갈리지 않는다.
+  const c = r?.council;
+  if (!c) return '⚖';
+  if (c.stage === 'convened') {
+    const who = c.members.length ? c.members.join(' · ') : '(구성원 안 실림)';
+    return `⚖ ${c.round}회차 판정 — ${who}${c.rule ? ` (${c.rule})` : ''}`;
+  }
+  if (c.stage === 'verdict') {
+    const who = c.member || '(누군지 안 실림)';
+    const lens = c.lens ? ` (${c.lens})` : '';
+    // **말 없는 표를 「기권했다」로 적지 않는다**(`CouncilVerdictData.Silent`) — 백엔드가
+    // 죽었거나 답을 못 읽은 것이라, 판단해서 기권한 것과 다른 사실이다.
+    return c.silent ? `⚖ ${who}${lens}: 답이 없었습니다`
+      : `⚖ ${who}${lens}: ${decisionWord(c.decision)}`;
+  }
+  return `⚖ ${c.round}회차 결론: ${decisionWord(c.decision)}${tallyText(c.tally)}`;
+}
+
+/** 게이트가 덧붙인 말. 없으면 빈 글 — 머리만으로 뜻이 서는 줄이 있다. */
+export function councilBody(r) {
+  const c = r?.council;
+  if (!c) return '';
+  if (c.stage === 'verdict') return c.rationale ?? '';
+  if (c.stage === 'decided') return [c.note, c.feedback].filter(Boolean).join('\n');
+  return '';
 }
 
 /** 도구 줄의 인자 칸. **인자를 적는다** — 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다. */

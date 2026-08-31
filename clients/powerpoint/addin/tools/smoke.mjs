@@ -30,7 +30,7 @@ import {
   isSendKey, askAction, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
-  capsSummary, brandState,
+  capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -294,10 +294,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('거절당한 커서는 버려진다', read2.cursor.seq === 1);
 
   // 모르는 종류를 안 버린다. 버리면 화면이 "아무 일도 없었다"처럼 보인다.
+  //
+  // **예로 든 종류가 바뀌었다.** 여기 서 있던 것은 `council.verdict` 였는데 이제 그리므로
+  // (실물에서 「그릴 줄 모른다」고 적힌 27건을 보고 넣었다), 아직 진짜로 안 그리는 것으로
+  // 바꿨다. 예를 그리게 되면 그 시험은 **규칙이 아니라 예를 지키는 것**이 된다.
   const port3 = new FakeTranscript({ A: [] });
   const read3 = new ReadTranscript(port3);
   read3.attach('A');
-  port3.push({ seq: 1, sessionId: 'A', type: 'council.verdict', data: {} });
+  port3.push({ seq: 1, sessionId: 'A', type: 'workflow.phase', data: {} });
   port3.push({ seq: 2, sessionId: 'A', type: 'todos.changed', data: {} });
   // `!== null` 은 화면이 쓰는 물음이 아니다 — `renderUnknown` 은 `el.hidden = !note` 로
   // 읽으므로 `undefined` 면 조용히 감춘다. 뷰 모델이 이 칸을 통째로 안 실어도 이 줄이
@@ -305,7 +309,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('모르는 종류는 안 그려도 안 사라진다', read3.view.rows.length === 0
     && Boolean(read3.view.unknownNote), read3.view.unknownNote ?? '(말이 없다)');
   ok('안 그린 것이 몇 건인지 그 말에 든다',
-    /council\.verdict/.test(read3.view.unknownNote ?? '')
+    /workflow\.phase/.test(read3.view.unknownNote ?? '')
     && /todos\.changed/.test(read3.view.unknownNote ?? ''), read3.view.unknownNote);
   ok('모르는 것도 커서는 민다', read3.cursor.seq === 2);
 
@@ -315,7 +319,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // (`textOf` 의 `kind === 'unknown'` 줄). 그 인자를 떨어뜨려도 스위트가 안 죽었다.
   {
     const t = new Transcript();
-    t.append({ seq: 1, type: 'council.verdict', data: { text: '카운슬이 아니라고 했다' } });
+    t.append({ seq: 1, type: 'workflow.phase', data: { text: '워크플로가 뭐라고 했다' } });
     ok('모르는 종류도 줄은 선다', t.rows.length === 1 && t.rows[0].kind === 'unknown',
       `${t.rows.length} / ${t.rows[0]?.kind}`);
     ok('모르는 종류의 알맹이는 글로 안 옮겨진다', t.rows[0].text === '', t.rows[0].text);
@@ -470,9 +474,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // 못 그리는 조각. 「part.appended 3건」은 무엇을 못 그렸는지 안 알려 준다.
   const t5 = new Transcript();
-  t5.append(app('m5', { kind: 'tool-result', toolResult: { callId: 'c1' } }));
+  t5.append(app('m5', { kind: 'image', image: { path: 'a.png' } }));
   ok('못 그린 조각은 조각 이름까지 적는다',
-    /part\.appended \(tool-result\)/.test(t5.unknownNote ?? ''), t5.unknownNote ?? '(없음)');
+    /part\.appended \(image\)/.test(t5.unknownNote ?? ''), t5.unknownNote ?? '(없음)');
 }
 
 // ── 권한 물음(§5.7). 스트림에 안 오는 것이라 따로 돈다.
@@ -2528,6 +2532,154 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('진짜 갈래는 컴패니언이 든 이름에 붙는다',
     /listenTo\(companion\.session\)/.test(wiringSrc)
       && /listenTo\(list\?\.bound\?\.session\)/.test(wiringSrc));
+}
+
+
+// ── 호출의 답·허락·판정을 그린다 ─────────────────────────────────────────────
+//
+// 실물에서 이 창은 자기 입으로 못 그린다고 적고 있었다(2026-09-01): 「이 창이 아직 그릴 줄
+// 모르는 이벤트 27건 — context.usage, council.*, part.appended (tool-result),
+// permission.decided」. 그중 셋은 이 제품에서 **대화보다 중요한 것**이다 — 도구가 슬라이드를
+// 고쳤는지, 그걸 허락했는지, 게이트가 왜 턴을 안 놔주는지.
+{
+  const call = (callId, name, args) => ({
+    seq: 1, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm1', part: { kind: 'tool-call', toolCall: { callId, name, args } } },
+  });
+  const result = (callId, content, extra = {}) => ({
+    seq: 2, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm2', part: { kind: 'tool-result', toolResult: { callId, content, ...extra } } },
+  });
+
+  // 답은 **호출한 줄에 접힌다.** 따로 세우면 도구가 줄줄이 도는 턴에서 짝이 안 맞는다.
+  {
+    const t = new Transcript();
+    t.append(call('c1', 'mcp__ppt__set_text', { slide: 1 }));
+    t.append(result('c1', '슬라이드 1 · 도형 2 글 교체'));
+    ok('답은 새 줄을 안 세우고 호출 줄에 붙는다', t.drawnRows.length === 1,
+      `${t.drawnRows.length}줄`);
+    ok('붙은 답이 그 호출의 것이다', t.drawnRows[0].result?.callId === 'c1');
+    ok('그릴 줄 모른다고 안 적는다', t.unknownNote === null, String(t.unknownNote));
+  }
+
+  // **한 턴에 같은 도구가 여러 번 도는 것이 이 제품의 보통이다**(도형마다 한 번). 이름으로
+  // 짝을 지으면 세 번째 호출의 답이 첫 번째 줄에 붙는다.
+  {
+    const t = new Transcript();
+    t.append(call('c1', 'mcp__ppt__set_text', { slide: 1 }));
+    t.append(call('c2', 'mcp__ppt__set_text', { slide: 2 }));
+    t.append(result('c2', '슬라이드 2'));
+    ok('답은 자기 호출에만 붙는다',
+      t.drawnRows[0].result === null && t.drawnRows[1].result?.callId === 'c2');
+  }
+
+  // 짝을 못 찾은 답은 **버리지 않는다** — 로그 중간부터 읽기 시작했다는 사실이다.
+  {
+    const t = new Transcript();
+    t.append(result('없는-호출', '뭔가 됐다'));
+    ok('짝 없는 답도 줄이 선다', t.drawnRows.length === 1 && t.drawnRows[0].kind === 'result');
+    ok('짝 없는 답은 그렇게 적는다', rowHead(t.drawnRows[0]).includes('앞을 못 본'),
+      rowHead(t.drawnRows[0]));
+  }
+
+  // **`isError` 하나로 ✗ 를 찍지 않는다.** 코어가 `Advisory` 를 따로 둔 이유가 그 필드
+  // 주석에 적혀 있다 — 한 일은 했는데 읽을 것이 붙은 호출도 `IsError` 를 세우고, 그래서 창
+  // 둘이 성공한 쓰기를 실패로 그렸다.
+  {
+    const one = (extra) => {
+      const t = new Transcript();
+      t.append(call('c1', 'mcp__ppt__set_text', {}));
+      t.append(result('c1', '했음', extra));
+      return resultCell(t.drawnRows[0]);
+    };
+    ok('된 것은 됐다고', one({}).mark === '✓' && one({}).failed === false);
+    ok('못 한 것은 못 했다고', one({ isError: true }).mark === '✗'
+      && one({ isError: true }).failed === true);
+    ok('했는데 읽을 것이 붙은 것은 실패가 아니다',
+      one({ isError: true, advisory: true }).failed === false
+        && one({ isError: true, advisory: true }).mark === '⚠',
+      one({ isError: true, advisory: true }).mark);
+  }
+
+  // 아직 답이 안 온 호출. **「됐습니다」를 미리 적지 않는다.**
+  {
+    const t = new Transcript();
+    t.append(call('c1', 'mcp__ppt__set_text', {}));
+    ok('답이 안 온 호출에는 결과 칸이 없다', resultCell(t.drawnRows[0]) === null);
+  }
+
+  // 그림은 참조로만 온다(`ImageRef`). 못 그리면 **몇 장인지는 적는다.**
+  {
+    const t = new Transcript();
+    t.append(call('c1', 'mcp__ppt__render_slide', {}));
+    t.append(result('c1', '', { images: [{ path: 'a.png', mime: 'image/png' }] }));
+    ok('못 그리는 그림도 몇 장인지는 적는다',
+      resultCell(t.drawnRows[0]).text.includes('1장'), resultCell(t.drawnRows[0]).text);
+  }
+
+  // 허락도 같은 줄에 붙는다. 이 제품에서 그 답은 **덱을 고치게 뒀는가**다.
+  {
+    const t = new Transcript();
+    t.append(call('c1', 'mcp__ppt__set_text', {}));
+    t.append({ seq: 3, sessionId: 'A', type: 'permission.decided', data: { callId: 'c1', decision: 'allow' } });
+    ok('허락은 호출 줄에 붙는다', t.drawnRows.length === 1 && t.drawnRows[0].permission === 'allow');
+    ok('허락을 사람 말로 적는다', permissionText(t.drawnRows[0]).includes('허용'),
+      permissionText(t.drawnRows[0]));
+    // 모르는 결정을 아는 척 옮기지 않는다 — 글자 그대로 적는다.
+    ok('모르는 결정도 뭔가는 적는다',
+      permissionText({ permission: 'quarantine' }).includes('quarantine'));
+    ok('결정이 없으면 줄이 없다', permissionText({ permission: null }) === '');
+  }
+
+  // 종료 게이트. **이 줄이 없으면 사람은 모델이 왜 같은 일을 또 하는지 모른다.**
+  {
+    const t = new Transcript();
+    t.append({ seq: 1, sessionId: 'A', type: 'council.convened',
+      data: { round: 1, members: ['Melchior', 'Balthasar', 'Casper'], rule: 'majority' } });
+    t.append({ seq: 2, sessionId: 'A', type: 'council.verdict',
+      data: { round: 1, member: 'Melchior', lens: 'correctness', decision: 'continue', rationale: '증거가 없다' } });
+    t.append({ seq: 3, sessionId: 'A', type: 'council.decided',
+      data: { round: 1, decision: 'continue', tally: { done: 0, continue: 3, abstain: 0 },
+        feedback: 'council 선언이 없다' } });
+    const [conv, verd, dec] = t.drawnRows;
+    ok('판정 셋이 다 줄이 된다', t.drawnRows.length === 3 && conv.kind === 'council');
+    ok('소집은 누가 판정하는지 적는다',
+      rowHead(conv).includes('Melchior') && rowHead(conv).includes('majority'), rowHead(conv));
+    ok('한 표는 누가·무엇으로·어떻게 인지 적는다',
+      rowHead(verd).includes('Melchior') && rowHead(verd).includes('correctness')
+        && rowHead(verd).includes('더 하라'), rowHead(verd));
+    ok('그 표의 사유가 몸통에 온다', councilBody(verd) === '증거가 없다');
+    ok('결론은 표 수까지 적는다',
+      rowHead(dec).includes('더 하라 3') && rowHead(dec).includes('끝났다 0'), rowHead(dec));
+    ok('결론의 사유가 몸통에 온다', councilBody(dec).includes('council 선언이 없다'));
+    ok('판정은 대화와 다른 모양이다', rowShape(conv) === 'council');
+
+    // **말 없는 표를 「기권했다」로 적지 않는다**(`CouncilVerdictData.Silent`) — 백엔드가
+    // 죽었거나 답을 못 읽은 것이라, 판단해서 기권한 것과 다른 사실이다.
+    const t2 = new Transcript();
+    t2.append({ seq: 1, sessionId: 'A', type: 'council.verdict',
+      data: { round: 1, member: 'Casper', decision: 'abstain', silent: true } });
+    ok('말 없는 표는 기권이라고 안 적는다',
+      rowHead(t2.drawnRows[0]).includes('답이 없었'), rowHead(t2.drawnRows[0]));
+  }
+
+  // 안 그리기로 정한 것. **모르는 것과 다른 칸**이라 문장도 따로다.
+  {
+    const t = new Transcript();
+    t.append({ seq: 0, sessionId: 'A', type: 'context.usage', data: { tokens: 1 } });
+    t.append({ seq: 0, sessionId: 'A', type: 'council.deliberating', data: { member: 'Casper' } });
+    t.append({ seq: 4, sessionId: 'A', type: '알 수 없는 종류', data: {} });
+    ok('안 그리기로 한 것은 줄을 안 세운다', t.drawnRows.length === 0, `${t.drawnRows.length}줄`);
+    ok('그래도 몇 건인지는 적는다',
+      t.skippedNote.includes('2건') && t.skippedNote.includes('context.usage'), t.skippedNote);
+    ok('모르는 것은 여전히 따로 센다',
+      t.unknownNote.includes('1건') && !t.unknownNote.includes('context.usage'), t.unknownNote);
+    ok('두 줄은 서로 다른 문장이다', skippedLine(t.skippedNote).text !== unknownLine(t.unknownNote).text);
+    // 대화가 바뀌거나 서버가 커서를 물리면 **두 계수기를 같이** 비운다 — 하나만 비우면
+    // 지운 화면에 옛 수가 남는다.
+    t.restart('다시');
+    ok('다시 그릴 때 두 셈이 같이 비워진다', t.skippedNote === null && t.unknownNote === null);
+  }
 }
 
 

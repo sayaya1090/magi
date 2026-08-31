@@ -37,7 +37,31 @@ const DRAWN = new Map([
   ['prompt.submitted', 'user'],
   ['turn.finished', 'turn'],
   ['error', 'error'],
+  // **카운슬은 이 제품에서 특히 그려야 한다.** 종료 게이트가 「다 했다」를 거절하면 턴이 계속
+  // 도는데, 그 사유가 화면에 없으면 사람은 **모델이 왜 같은 일을 또 하는지** 모른다. 실물에서
+  // 그 화면을 봤다(2026-09-01): 제목은 이미 바뀌었는데 창에는 도구 호출만 줄줄이 섰고, 세
+  // 번의 거절과 그 사유는 로그에만 있었다.
+  ['council.convened', 'council'],
+  ['council.verdict', 'council'],
+  ['council.decided', 'council'],
+  // 무엇을 허락했는가. 이 제품에서 그 답은 **덱을 고칠 권한을 줬는가**라, 감사 줄이 아니라
+  // 사람이 읽는 줄이다. 짝이 되는 호출 줄에 접힌다(아래 `append`).
+  ['permission.decided', 'permission'],
 ]);
+
+/**
+ * **안 그리기로 정한 것.** 모르는 것과 다르다 — 모르는 것은 아래 `unknownNote` 가 세어서
+ * 「이 창을 고쳐야 한다」고 적고, 이것들은 고칠 것이 없다.
+ *
+ * `context.usage` 는 토큰 계량기라 턴마다 수십 건 오고, 이 판(348×391)에서 그 수는 대화를
+ * 밀어낸다. `council.deliberating` 은 「지금 묻는 중」이라는 **살아 있는 패널용** 신호인데
+ * (payload 주석이 그렇게 적어 뒀다) 곧 뒤따라 오는 `council.verdict` 가 같은 사실을 오래 가는
+ * 형태로 말한다 — 둘 다 그리면 같은 말이 두 번 선다.
+ *
+ * 그래도 **몇 건인지는 적는다.** 조용히 버리는 것과 안 그리기로 한 것은 화면에서 같아 보이면
+ * 안 된다(이 파일이 맨 위에 못 박은 것).
+ */
+const IGNORED = new Set(['context.usage', 'council.deliberating']);
 
 /**
  * 조각의 종류로 무엇으로 그릴지 정한다. **`part.appended` 를 조각 종류 안 보고 그리면 안 된다.**
@@ -55,13 +79,16 @@ const PART_DRAWN = new Map([
   ['text', 'model'],
   ['reasoning', 'think'],
   ['tool-call', 'tool'],
+  // 호출의 답. **호출한 줄에 접힌다**(아래 `append`) — 따로 세우면 「무엇을 불렀나」와
+  // 「어떻게 됐나」가 화면에서 떨어지고, 도구가 줄줄이 도는 턴에서 짝이 안 맞는다.
+  ['tool-result', 'result'],
 ]);
 
 /** 같은 `messageId` 로 이어 붙는 줄. 도구 호출은 **한 줄에 하나**라 여기 없다. */
 const FOLDED = new Set(['model', 'think']);
 
 export class Row {
-  constructor({ seq, kind, text, actor, messageId, call, finish }) {
+  constructor({ seq, kind, text, actor, messageId, call, finish, result, permission, council }) {
     this.seq = seq ?? 0;
     this.kind = kind;       // user | model | think | tool | note | turn | error | unknown
     // **`type` 과 `ts` 는 안 싣는다.** 로그의 이름 그대로와 시각을 각각 실어 뒀지만, 이
@@ -86,6 +113,19 @@ export class Row {
     this.unverified = finish?.unverified === true;
     this.reason = finish?.reason ?? '';
     /**
+     * 이 호출이 **어떻게 됐는가.** 도구 줄에 접혀 들어온다.
+     *
+     * `isError` 하나로 ✗ 를 찍으면 안 된다 — 코어가 `Advisory` 를 따로 둔 이유가 그 필드
+     * 주석에 적혀 있다: 한 일은 했는데 읽을 것이 붙은 호출도 `IsError` 를 세우고, 그래서 두
+     * 창이 **성공한 쓰기를 실패로 그린 적이 있다.** 이 제품에서 그 오독은 「슬라이드가 안
+     * 바뀌었다」로 읽힌다.
+     */
+    this.result = result ?? null;
+    /** 이 호출을 허락했는가(`allow|deny|always`). 이 제품에서는 「덱을 고치게 뒀는가」다. */
+    this.permission = permission ?? null;
+    /** 종료 게이트가 한 말. `kind === 'council'` 일 때만 있다. */
+    this.council = council ?? null;
+    /**
      * 완성본이 한 번이라도 앉았는가. **덮어쓸지 이어 붙일지가 여기 달렸다** — 델타로 쌓던 줄에
      * 오는 첫 완성본은 같은 말의 되풀이라 덮어쓰고, 그 뒤에 오는 완성본은 **다음 조각**이라
      * 이어 붙인다. 로그를 처음부터 다시 읽을 때는 델타가 아예 없어서 전부 뒤엣것이 된다.
@@ -107,6 +147,8 @@ export class Transcript {
     this.rows = [];
     /** 그릴 줄 몰라 남겨 둔 종류와 그 수. 화면 아래 한 줄로 정직하게 적는다. */
     this.unknownCounts = new Map();
+    /** **안 그리기로 정한** 종류와 그 수(`IGNORED`). 모르는 것과 한 칸에 섞지 않는다. */
+    this.skippedCounts = new Map();
     /** 스트림이 살아 있다고 **믿는가**. 끊김은 에러로 안 오므로 이 값은 밖에서 꺼 준다. */
     this.live = false;
     /** 서버가 커서를 거절하며 한 말. 있으면 화면이 그대로 보여 준다. */
@@ -117,6 +159,7 @@ export class Transcript {
   restart(why) {
     this.rows = [];
     this.unknownCounts = new Map();
+    this.skippedCounts = new Map();
     this.refusal = why ?? null;
     return this;
   }
@@ -125,6 +168,7 @@ export class Transcript {
   switchTo() {
     this.rows = [];
     this.unknownCounts = new Map();
+    this.skippedCounts = new Map();
     this.refusal = null;
     return this;
   }
@@ -138,7 +182,29 @@ export class Transcript {
       const label = partKind ? `${type} (${partKind})` : type;
       this.unknownCounts.set(label, (this.unknownCounts.get(label) ?? 0) + 1);
     }
+    // 안 그리기로 정한 것. **세기는 센다** — 조용히 버리는 것과 같아 보이면 안 된다.
+    if (kind === 'skip') {
+      this.skippedCounts.set(type, (this.skippedCounts.get(type) ?? 0) + 1);
+      return null;
+    }
     const messageId = ev?.data?.messageId ?? null;
+
+    // 호출의 답과 그 허락은 **호출한 줄에 접힌다.** 짝은 `callId` 로 짓는다 — 한 턴에 같은
+    // 도구가 여러 번 도는 것이 이 제품의 보통이라(도형마다 한 번), 이름으로 지으면 세 번째
+    // 호출의 답이 첫 번째 줄에 붙는다. **뒤에서부터** 찾는 것도 같은 이유다.
+    if (kind === 'result' || kind === 'permission') {
+      const id = kind === 'result' ? toolResultOf(ev)?.callId : callIdOf(ev);
+      const at = lastIndex(this.rows, (r) => r.kind === 'tool' && r.callId && r.callId === id);
+      if (at >= 0) {
+        const row = this.rows[at];
+        if (kind === 'result') row.result = toolResultOf(ev);
+        else row.permission = decisionOf(ev);
+        if (ev?.seq > 0 && ev.seq > row.seq) row.seq = ev.seq;
+        return row;
+      }
+      // 짝을 못 찾았다. **버리지 않는다** — 호출 없이 답만 있는 화면이 사실이고, 그 사실은
+      // 이 창이 로그 중간부터 읽기 시작했다는 뜻이라 사람이 알아야 한다.
+    }
 
     // 델타와 완성본은 같은 말이다. 같은 messageId 의 **같은 종류** 줄이 있으면 거기 접는다.
     if (FOLDED.has(kind) && messageId) {
@@ -160,6 +226,9 @@ export class Transcript {
     const row = new Row({
       seq: ev?.seq, kind, actor: ev?.actor, messageId,
       text: textOf(ev, kind), call: toolCallOf(ev), finish: finishOf(ev, type),
+      result: kind === 'result' ? toolResultOf(ev) : null,
+      permission: kind === 'permission' ? decisionOf(ev) : null,
+      council: kind === 'council' ? councilOf(ev, type) : null,
     });
     row.settled = type === 'part.appended';
     this.rows.push(row);
@@ -178,6 +247,17 @@ export class Transcript {
     const kinds = [...this.unknownCounts.keys()].sort().join(', ');
     return `이 창이 아직 그릴 줄 모르는 이벤트 ${n}건을 받았습니다 — ${kinds}`;
   }
+
+  /**
+   * 안 그리기로 정한 것의 셈. **`unknownNote` 와 다른 칸이다** — 한 줄로 합치면 「고칠 것이
+   * 있다」와 「이대로가 맞다」가 같은 문장이 되고, 그 줄은 곧 아무도 안 읽는다.
+   */
+  get skippedNote() {
+    if (this.skippedCounts.size === 0) return null;
+    const n = [...this.skippedCounts.values()].reduce((a, b) => a + b, 0);
+    const kinds = [...this.skippedCounts.keys()].sort().join(', ');
+    return `일부러 안 그린 이벤트 ${n}건 — ${kinds}`;
+  }
 }
 
 /**
@@ -185,6 +265,7 @@ export class Transcript {
  */
 function kindOf(type, actor, partKind) {
   if (partKind !== null) return PART_DRAWN.get(partKind) ?? 'unknown';
+  if (IGNORED.has(type)) return 'skip';
   const base = DRAWN.get(type);
   if (!base) return 'unknown';
   // 정책·플래너·카운슬이 밀어 넣은 줄은 사람이 한 말이 아니다. 버리지도 않는다.
@@ -227,6 +308,66 @@ function toolCallOf(ev) {
     args: c.args ?? null };
 }
 
+/**
+ * 호출의 답. **`isError` 와 `advisory` 를 둘 다 싣는다** — 하나로 접으면 「했는데 읽을 것이
+ * 붙었다」가 「못 했다」로 그려진다(`session.ToolResult.Advisory` 의 주석이 그 사고를 적어 뒀다:
+ * 파일은 디스크에 있었고 모델은 끝난 일로 다뤘는데 창 둘이 ✗ 를 찍었다).
+ *
+ * `content` 는 `json.RawMessage` 라 **프레임 안에 JSON 그대로** 온다. 글일 때도 있고 객체일
+ * 때도 있어서, 여기서 모양을 정하지 않고 화면이 펴게 그대로 나른다.
+ */
+function toolResultOf(ev) {
+  const r = ev?.data?.part?.toolResult;
+  if (!r) return null;
+  return {
+    callId: typeof r.callId === 'string' ? r.callId : null,
+    content: r.content ?? null,
+    isError: r.isError === true,
+    advisory: r.advisory === true,
+    images: Array.isArray(r.images) ? r.images.length : 0,
+  };
+}
+
+/** 허락 이벤트가 가리키는 호출. */
+function callIdOf(ev) {
+  const id = ev?.data?.callId;
+  return typeof id === 'string' && id !== '' ? id : null;
+}
+
+/** 무엇으로 결정했는가(`allow|deny|always`). 모르면 빈 글이지 짐작이 아니다. */
+function decisionOf(ev) {
+  const d = ev?.data?.decision;
+  return typeof d === 'string' ? d : '';
+}
+
+/**
+ * 종료 게이트가 한 말. **셋을 한 모양으로 싣는다** — 화면이 종류마다 다른 칸을 뒤지게 하면
+ * 새 종류가 늘 때 조용히 빈 줄이 선다.
+ *
+ * 표결 수(`tally`)는 코어의 `council.Breakdown` 을 그대로 나른다. 다시 세지 않는다 — 여기서
+ * 세면 규칙(과반·만장일치·가중치)을 이 창이 한 벌 더 갖게 되고, 둘이 어긋나는 날 화면이
+ * **로그와 다른 결론**을 적는다.
+ */
+function councilOf(ev, type) {
+  const d = ev?.data ?? {};
+  return {
+    stage: type.slice('council.'.length),   // convened | verdict | decided
+    round: Number(d.round ?? 0),
+    members: Array.isArray(d.members) ? d.members : [],
+    rule: typeof d.rule === 'string' ? d.rule : '',
+    member: typeof d.member === 'string' ? d.member : '',
+    lens: typeof d.lens === 'string' ? d.lens : '',
+    decision: typeof d.decision === 'string' ? d.decision : '',
+    rationale: typeof d.rationale === 'string' ? d.rationale : '',
+    // **말 없는 표를 「기권했다」로 적지 않는다**(`CouncilVerdictData.Silent`) — 백엔드가
+    // 죽었거나 답을 못 읽은 것이라, 판단한 기권과 다른 사실이다.
+    silent: d.silent === true,
+    note: typeof d.note === 'string' ? d.note : '',
+    feedback: typeof d.feedback === 'string' ? d.feedback : '',
+    tally: d.tally ?? null,
+  };
+}
+
 /** 끝난 턴이 스스로 붙인 딱지. 다른 종류에는 없다. */
 function finishOf(ev, type) {
   if (type !== 'turn.finished') return null;
@@ -256,4 +397,15 @@ function textOf(ev, kind) {
 function partText(p) {
   if (typeof p === 'string') return p;
   return typeof p?.text === 'string' ? p.text : '';
+}
+
+/**
+ * 뒤에서부터 찾는다. `Array.prototype.findLastIndex` 를 안 쓰는 것은 이 창이 도는 WebView2 의
+ * 나이를 우리가 못 고르기 때문이다 — 없는 메서드 하나가 **작업창 전체를 흰 화면으로** 만든다.
+ */
+function lastIndex(rows, pred) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (pred(rows[i])) return i;
+  }
+  return -1;
 }

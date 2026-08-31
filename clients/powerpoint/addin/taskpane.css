@@ -213,6 +213,41 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
   border-radius: var(--r-md); padding: var(--s2) var(--s3); text-align: left;
 }
 
+/*
+  호출의 **답**. 호출 줄 안에 붙는다 — `Transcript.append` 가 `callId` 로 접어 뒀다.
+
+  성패는 글자로 먼저 말하고(`✓ 됐습니다` / `✗ 실패했습니다`) 색은 거들기만 한다. 색만으로
+  가르면 색을 못 보는 사람에게는 성공과 실패가 같은 줄이 된다(MS 애드인 접근성 지침).
+*/
+.turn-result-head {
+  margin-top: var(--s2); font: var(--t-caption); color: var(--ok);
+}
+.turn-result-head.pending { color: var(--muted); }
+.turn.kind-tool.failed { border-color: var(--warn-line); }
+.turn.kind-tool.failed .turn-result-head { color: var(--accent); }
+.turn.kind-tool.advisory { border-color: var(--warn-line); }
+.turn.kind-tool.advisory .turn-result-head { color: var(--warn-fg); }
+.turn-result {
+  margin: var(--s1) 0 0;
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-word; color: var(--fg-2);
+}
+/* 무엇을 허락했는가. 이 제품에서 그 답은 **덱을 고치게 뒀는가**라 눈에 띄어야 한다. */
+.turn-perm { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+
+/*
+  종료 게이트(카운슬). **대화가 아니라 판정이라** 말풍선과 다르게 생겨야 한다 — 왼쪽에 선을
+  긋고 글씨를 낮춘다. 이 줄이 없던 동안 사람은 모델이 왜 같은 일을 또 하는지 몰랐다.
+*/
+.turn.kind-council {
+  border-left: 2px solid var(--accent); padding-left: var(--s2);
+}
+.turn.kind-council .turn-head { color: var(--fg-2); }
+.turn.kind-council p { font: var(--t-caption); color: var(--muted); }
+
+/* 안 그리기로 한 것의 셈. 못 그리는 것보다 **한 단 낮게** 적는다 — 고칠 것이 없는 사실이다. */
+.unknown-note .skipped { color: var(--muted); opacity: .75; margin-top: var(--s1); }
+
 /* ── 인용 ───────────────────────────────────────────────────── */
 
 .quote {
