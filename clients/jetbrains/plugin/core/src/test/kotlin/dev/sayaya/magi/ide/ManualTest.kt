@@ -85,6 +85,23 @@ class ManualTest {
             assertTrue(key in ko, "한국어 번들에 「$key」 가 없다 — 번역이 빠졌다")
         }
 
+        // **시험 문서가 시험을 다 이름 댄다.** 기능을 더하며 시험을 붙였는데 문서가 그대로면,
+        // 「무엇을 재고 있나」를 묻는 사람은 없는 층을 있다고 읽거나 있는 층을 모른다. 목록을
+        // 두 벌 적는 대신 **파일에서 유도**해 대조한다 — 사람의 기억이 아니라 이 줄이 요구한다.
+        val testing = read(File(root.parentFile, "docs/TESTING.ko.md"))
+        val classes = root.walkTopDown()
+            .filter { it.isFile && it.name.endsWith("Test.kt") && "${File.separator}build${File.separator}" !in it.path }
+            .map { it.name.removeSuffix(".kt") }
+            .toList()
+        assertTrue(classes.size >= 20, "시험 파일이 ${classes.size}개뿐이다 — 유도가 깨졌다")
+        val missing = classes.filterNot { "`$it`" in testing }.sorted()
+        assertTrue(
+            missing.isEmpty(),
+            "docs/TESTING.ko.md 가 이름 대지 않은 시험: ${missing.joinToString(", ")}\n" +
+                "새 시험을 붙였으면 그 문서의 명단에도 한 줄 적을 것 — 무엇을 재는지가 코드에만 " +
+                "있으면 그것을 읽는 사람은 소스를 다 훑어야 안다.",
+        )
+
         // 두 번들의 열쇠 집합이 같아야 한다: 한쪽에만 있는 열쇠는 그 언어에서 빈 글자다.
         assertEquals(en.keys, ko.keys, "번들 두 벌의 열쇠가 갈렸다 — 갈린 쪽 언어가 글자를 잃는다")
 

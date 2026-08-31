@@ -61,4 +61,78 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         val t = MagiBundle.msg("action.magi.lookNow.text")
         assertEquals("magi: Review Now", t)
     }
+
+    // ── 사람이 눈으로 보던 것들 ──────────────────────────────────────────────
+    //
+    // 아래는 전부 **라이브 점검표에 있던 항목**이다. 사람이 IDE 를 띄워 확인하던 것을 여기로
+    // 옮긴다 — 눈으로 본 것은 다음 판에서 다시 봐야 하지만, 여기 적힌 것은 매 push 마다 돈다.
+
+    /**
+     * 우클릭 항목 넷이 **하위 메뉴 하나**에 접혀 있다. 남의 메뉴 바닥에 우리 것을 넷 줄 까는
+     * 것은 그 메뉴를 쓰는 사람의 비용이다.
+     */
+    fun `test 편집기 우클릭은 하위 메뉴 하나다`() {
+        val am = com.intellij.openapi.actionSystem.ActionManager.getInstance()
+        val g = am.getAction("magi.editorMenu")
+        assertNotNull("magi.editorMenu 그룹이 없다", g)
+        assertTrue("하위 메뉴가 아니다", (g as com.intellij.openapi.actionSystem.ActionGroup).isPopup)
+        val ids = am.getActionIdList("magi.").filter { am.getAction(it) != null }
+        for (id in listOf("magi.lookOver", "magi.attach", "magi.lookNow", "magi.wroteThis")) {
+            assertTrue("$id 가 없다: $ids", id in ids)
+        }
+    }
+
+    /**
+     * 그 메뉴 안에서는 `magi: ` 접두를 벗긴다 — 메뉴 이름이 이미 그 말을 했다. 밖에서는 그대로다:
+     * Find Action 과 Keymap 은 메뉴 밖이라 접두가 없으면 어느 플러그인 것인지 알 수 없다.
+     */
+    fun `test 하위 메뉴 안에서만 접두를 벗긴다`() {
+        val key = "action.magi.lookOver.text"
+        val full = MagiBundle.msg(key)
+        assertTrue("번들 값에 접두가 없다: $full", full.startsWith("magi: "))
+        assertEquals(full.removePrefix("magi: "), item(com.intellij.openapi.actionSystem.ActionPlaces.EDITOR_POPUP, key))
+        assertEquals(full, item(com.intellij.openapi.actionSystem.ActionPlaces.MAIN_TOOLBAR, key))
+        assertEquals(full, item("GoToAction", key)) // Find Action
+    }
+
+    private fun item(place: String, key: String): String {
+        val e = com.intellij.testFramework.TestActionEvent.createTestEvent(
+            com.intellij.openapi.actionSystem.impl.SimpleDataContext.getProjectContext(project),
+        )
+        // place 를 바꿔 같은 사건을 다시 만든다 — 자리별 글자를 정하는 것이 place 이므로.
+        val ev = com.intellij.openapi.actionSystem.AnActionEvent.createEvent(
+            e.dataContext, com.intellij.openapi.actionSystem.Presentation(), place,
+            com.intellij.openapi.actionSystem.ActionUiKind.NONE, null,
+        )
+        return MagiEditorMenu.item(ev, key)
+    }
+
+    /**
+     * **설정 설명문이 판을 가로로 안 벌린다.** 사람이 「가로로 쭉 늘어남」으로 잡은 자리다.
+     * 접히는 것과 좁게 서는 것은 다른 일이라, 재는 것은 선호 폭이 아니라 **최소 폭**이다 —
+     * 최소 폭이 글자 길이만큼이면 판은 그 아래로 못 좁혀진다.
+     */
+    fun `test 설명문 라벨은 판을 안 벌린다`() {
+        val long = MagiBundle.msg("set.byfile.what")
+        assertTrue("견본 문구가 짧아 이 시험이 아무것도 안 잰다: ${long.length}자", long.length > 120)
+        val c = Look.note(long)
+        val min = c.minimumSize.width
+        val pref = c.preferredSize.width
+        assertTrue("설명문의 최소 폭이 ${min}px 다 — 판이 그 아래로 못 좁혀진다", min < 400)
+        assertTrue("선호 폭이 ${pref}px 다 — 처음 열릴 때 판을 그만큼 벌린다", pref < 700)
+    }
+
+    /** 도구창 아이콘이 실제로 로드된다. 없으면 스트라이프가 빈 자리로 선다. */
+    fun `test 도구창 아이콘이 있다`() {
+        val i = com.intellij.openapi.util.IconLoader.findIcon("/icons/magiToolWindow.svg", javaClass)
+        assertNotNull("도구창 아이콘을 못 찾는다", i)
+    }
+
+    /** 자동 실행은 기본이 켜짐이고, 나머지 셋의 기본값은 웹과 같다. */
+    fun `test 이 화면의 스위치 기본값`() {
+        assertTrue("자동 실행이 꺼져 있다", LocalPrefs.autostart(project))
+        assertTrue(LocalPrefs.complete(project))
+        assertTrue(LocalPrefs.suggest(project))
+        assertFalse("훑어보기는 기본 꺼짐이다", LocalPrefs.look(project))
+    }
 }
