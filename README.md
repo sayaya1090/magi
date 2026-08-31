@@ -504,7 +504,9 @@ flowchart TD
 
 ```
 cmd/magi            entrypoint (wiring)
-clients/web/server        the console — a read-mostly web view over the same daemons
+clients/web/server  the console's server — a read-mostly web view over the same daemons
+clients/web/ui      the console itself: GWT modules, one per screen, assembled into one page
+clients/web/e2e     the assembled console pressed in a browser against real daemons
 internal/core       domain — depends on no adapter (including the pure council)
 internal/port       ports (interfaces) — LLM, Store, Council, ToolServers …
 internal/adapter    adapters — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·

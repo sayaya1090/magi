@@ -502,7 +502,9 @@ flowchart TD
 
 ```
 cmd/magi            진입점 (와이어링)
-clients/web/server        콘솔 — 같은 데몬들 위의 읽기 위주 웹 뷰
+clients/web/server  콘솔의 서버 — 같은 데몬들 위의 읽기 위주 웹 뷰
+clients/web/ui      콘솔 자신: 화면마다 하나씩인 GWT 모듈, 한 페이지로 조립됩니다
+clients/web/e2e     조립된 콘솔을 진짜 데몬 앞에서 브라우저로 눌러 보는 시험
 internal/core       도메인 — 어떤 어댑터에도 의존하지 않습니다 (순수 카운슬 포함)
 internal/port       포트(인터페이스) — LLM, Store, Council, ToolServers …
 internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
