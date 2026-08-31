@@ -109,12 +109,12 @@ screens.entries.forEachIndexed { i, (name, both) ->
         // 번들 셋은 아직 clients/web/server/vendor에 산다 — 콘솔을 서빙하는 바이너리가 그것을
         // /vendor/로 내주기 때문이고, 시험 페이지도 같은 파일을 물어야 같은 것을 시험한다.
         val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
-            from("${rootDir}/../../clients/web/server/vendor/material.js") { into("js") }
+            from("${rootDir}/../server/vendor/material.js") { into("js") }
             // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
-            from("${rootDir}/../../clients/web/server/vendor/rxjs.js") { into("js") }
+            from("${rootDir}/../server/vendor/rxjs.js") { into("js") }
             // 마크다운 렉서 — 전사가 그리는 것을 테스트 페이지에서도 그리려면 같은 번들이어야
             // 한다. 스텁을 두면 스텁을 시험하게 된다.
-            from("${rootDir}/../../clients/web/server/vendor/marked.js") { into("js") }
+            from("${rootDir}/../server/vendor/marked.js") { into("js") }
             from("${rootDir}/console.css") { into("css") }
             val own = file("src/main/webapp")
             if (own.isDirectory) from(own) { include("*.css"); into("css") }

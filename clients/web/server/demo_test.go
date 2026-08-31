@@ -21,7 +21,10 @@ import (
 func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
 	asked := map[string]string{} // 경로 → 그 길을 부르는 모듈
 	answers := map[string]bool{} // 목이 답하는 경로
-	root := filepath.Join("..", "..", "web", "ui")
+	// The UI beside this server. It read "../../web/ui" after the console moved under clients/,
+	// which still resolved — clients/web/server/../../web/ui IS clients/web/ui — so it was right
+	// for a reason that stops being true the moment either half of the tree moves again.
+	root := filepath.Join("..", "ui")
 	// 부르는 모양을 하나라도 빠뜨리면 이 검사는 통과하면서 아무것도 안 본다. postText와
 	// postSaid가 빠져 있던 동안 /suggest·/complete·/git-msg·/git-pr·/pr-msg 다섯이 이 눈
 	// 밖에 있었고, 그 중 /suggest는 공개 데모에서 501이었다(실측). 그러니 이름을 열거하지

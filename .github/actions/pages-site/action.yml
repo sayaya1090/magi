@@ -23,22 +23,22 @@ runs:
         set -euo pipefail
         # 이미 조립된 콘솔이 앞 단계에서 넘어왔으면 다시 짓지 않는다 — 같은 산출물을 두 번
         # 컴파일하는 일이고, GWT 컴파일은 이 레인에서 가장 비싼 한 걸음이다.
-        if [ -f web/ui/build/console/console.html ]; then
+        if [ -f clients/web/ui/build/console/console.html ]; then
           echo "앞 단계가 조립한 콘솔을 그대로 쓴다"
         else
-          (cd web/ui && ./gradlew assembleConsole -q)
+          (cd clients/web/ui && ./gradlew assembleConsole -q)
         fi
         # 데모의 목은 콘솔 자산에 없다(운영 번들에 데모를 싣지 않는다는 규칙) — 데모를 낼
         # 때만 따로 조립한다. 앞 단계가 넘겨 준 것에도 이것은 들어 있지 않다.
-        if [ ! -f web/ui/build/demo-mock/demo/demo.nocache.js ]; then
-          (cd web/ui && ./gradlew assembleDemoMock -q)
+        if [ ! -f clients/web/ui/build/demo-mock/demo/demo.nocache.js ]; then
+          (cd clients/web/ui && ./gradlew assembleDemoMock -q)
         fi
     # -console은 조립본을 디스크에서 읽으라는 뜻이다. 임베드된 사본을 쓰지 않는 이유는
     # 하나뿐: 그러려면 먼저 clients/web/server/console/ 로 복사하고 `go build`를 해야 하는데,
     # 여기서 필요한 것은 바이너리가 아니라 그 바이너리가 그릴 정적 사본이다.
     - name: emit the console's demo at the site root
       shell: bash
-      run: go run ./clients/web/server -console web/ui/build/console -emit-demo ./_site
+      run: go run ./clients/web/server -console clients/web/ui/build/console -emit-demo ./_site
     - name: carry the benchmark report onto the site
       shell: bash
       run: |
