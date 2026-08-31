@@ -1,6 +1,12 @@
 {
-  "total": 123,
+  "total": 131,
   "files": {
+    "clients/powerpoint/helper/attach.go": 1,
+    "clients/powerpoint/helper/claim.go": 1,
+    "clients/powerpoint/helper/handhttp.go": 2,
+    "clients/powerpoint/helper/main.go": 1,
+    "clients/powerpoint/helper/mcp.go": 1,
+    "clients/powerpoint/helper/page.go": 2,
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 2,
     "cmd/magi/relay.go": 1,
