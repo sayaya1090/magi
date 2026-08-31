@@ -103,6 +103,19 @@ func needsCouncilBeforeRunning(workdir, cmd string, mine func(string) bool) (why
 				if recoverableTree(workdir) || (mine != nil && mine(absTarget(workdir, target))) {
 					continue
 				}
+				// Nothing there is nothing to lose. `rm -rf build` in a tree that has no build
+				// is the ordinary shape of a cleanup step, and asking about it spends a council
+				// call and a turn to protect a path that does not exist.
+				//
+				// A glob is the exception, and the important one: the shell expands it and this
+				// cannot, so `rm -rf *` reads as a literal `*` that is never there. That is the
+				// command with the most to lose in a tree with no history, so an unexpandable
+				// target is treated as present rather than absent.
+				if !strings.ContainsAny(target, "*?[") {
+					if _, err := os.Lstat(absTarget(workdir, target)); err != nil {
+						continue
+					}
+				}
 				return "rm -rf " + target + " (this workspace has no git history to restore it from)", true
 			}
 			// Outside the tree is where the gate's premise lives -- "somebody else's, and magi

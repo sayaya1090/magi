@@ -173,3 +173,21 @@ func TestAnUnseeableWorkspaceAddsNoFriction(t *testing.T) {
 		t.Errorf("a command in an unseeable workspace was gated: %q", why)
 	}
 }
+
+// The question is asked about what is actually there — and about a glob, which is the one target
+// this cannot resolve and the one with the most to lose in a tree with no history.
+func TestTheQuestionSkipsWhatIsNotThereAndAsksAboutGlobs(t *testing.T) {
+	wd := t.TempDir()
+	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf build", nil); yes {
+		t.Error("a cleanup of a directory that does not exist was gated")
+	}
+	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf *", nil); !yes {
+		t.Error("`rm -rf *` in a tree with no history is the one to ask about, and it was let through")
+	}
+	if err := os.MkdirAll(filepath.Join(wd, "build"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, yes := needsCouncilBeforeRunning(wd, "rm -rf build", nil); !yes {
+		t.Error("a directory that IS there, with nothing to restore it from, must be asked about")
+	}
+}
