@@ -17,7 +17,7 @@ import (
 // Client's spelling of each method and serveConn's reading of it from drifting apart — the same
 // reason the socket name and the tool-name rule have goldens.
 func TestClientWrappersRoundTrip(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestClientWrappersRoundTrip(t *testing.T) {
 // Over is the byte-pipe constructor — the --relay path, where the connection was made by
 // something else (ssh, a test, a pipe) and the client only speaks over it.
 func TestOverSpeaksOverAForeignConnection(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestOverSpeaksOverAForeignConnection(t *testing.T) {
 // infinite silence, indistinguishable from an empty session, because the store answers unknown
 // with emptiness. The engine's own listing (unborn current included) is what tells them apart.
 func TestTranscriptRefusesAnInventedConversation(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func (e *childAwareEngine) NewSince(_ context.Context, sid session.SessionID, _ 
 }
 
 func TestTranscriptServesAChildSessionTheListingOmits(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +270,7 @@ func (e *settingsEngine) ProfilesHere(context.Context) ([]ProfileChoice, error) 
 // The settings cross the socket: a client reads what is editable, changes one key and is told what
 // it now is, and the door advertises itself so a screen knows whether to draw the fields at all.
 func TestTheSettingsDoorCrossesTheSocket(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestTheSettingsDoorCrossesTheSocket(t *testing.T) {
 // A daemon whose engine has no settings door refuses in words rather than by silence, and does not
 // advertise a screen's fields into existence.
 func TestADaemonWithoutTheSettingsDoorSaysSo(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestADaemonWithoutTheSettingsDoorSaysSo(t *testing.T) {
 // them apart — a leftover file is ENOTSOCK on macOS and ECONNREFUSED on Linux — so the answer
 // comes from the file's TYPE, which no kernel has an opinion about.
 func TestAPlainFileAtASocketPathIsNotADeadDaemon(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestAPlainFileAtASocketPathIsNotADeadDaemon(t *testing.T) {
 // (bind makes a socket inode; a crash leaves a socket), so anything else there is somebody else's,
 // and the cost is asymmetric: refusing is a sentence, removing is not recoverable.
 func TestListenDoesNotDeleteWhatItDidNotMake(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +471,7 @@ func TestListenDoesNotDeleteWhatItDidNotMake(t *testing.T) {
 // Status answers which model the conversation is on, beside the approval mode and the backend it
 // already answered — one question, one moment, the three facts only the running process knows.
 func TestStatusSaysWhichModel(t *testing.T) {
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
 	if err != nil {
 		t.Fatal(err)
 	}

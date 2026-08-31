@@ -3,6 +3,7 @@ package daemon
 import (
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -13,7 +14,7 @@ import (
 // identity-less member (no name, team, version) that overwrote peers' good rows for a whole gossip
 // cycle and could re-elect a team's hub. The local List still shows it; the fleet does not hear it.
 func TestMineDoesNotGossipARecordlessStartingDaemon(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "magimine")
+	dir, err := os.MkdirTemp(shortRoot(), "magimine")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,9 @@ func TestMineDoesNotGossipARecordlessStartingDaemon(t *testing.T) {
 	good := publishFake(t, dir, "good", "s_1", acceptSilently)
 	waitForSocket(t, good)
 	// One mid-startup: a live listener and NO record (nothing published yet).
-	bare := dir + "/daemon-bare.sock"
+	// `filepath.Join` 이지 문자열 이어붙이기가 아니다 — 윈도우에서 `List` 는 `` 로 된 경로를
+	// 돌려주는데 여기서 `/` 로 지으면 같은 파일이 다른 문자열이 되어 아래 비교가 통째로 헛돈다.
+	bare := filepath.Join(dir, "daemon-bare.sock")
 	ln, err := net.Listen("unix", bare)
 	if err != nil {
 		t.Fatal(err)

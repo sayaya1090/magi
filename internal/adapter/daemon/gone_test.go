@@ -16,7 +16,7 @@ import (
 // on Linux (ECONNREFUSED, replaced by a sentence). Green locally, red in CI, for a difference no
 // caller should have to know about.
 func TestADialThatFindsNothingIsErrGone(t *testing.T) {
-	dir, err := os.MkdirTemp("/tmp", "magigone")
+	dir, err := os.MkdirTemp(shortRoot(), "magigone")
 	if err != nil {
 		t.Fatal(err)
 	}

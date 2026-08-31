@@ -15,7 +15,7 @@ import (
 // and putting it into other machines' lists gives them a companion that takes an hour to expire and
 // that nobody further away is in a position to correct.
 func TestADeadCompanionIsNotGossiped(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magiclu")
+	cfg, err := os.MkdirTemp(shortRoot(), "magiclu")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestADeadCompanionIsNotGossiped(t *testing.T) {
 // cannot see a remote workspace's skills — so the same companion would be worth seven to itself and
 // nothing to anybody else, and a hub election would come out differently depending on who ran it.
 func TestTheCapabilityCountTravelsOnTheRecord(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magiclu2")
+	cfg, err := os.MkdirTemp(shortRoot(), "magiclu2")
 	if err != nil {
 		t.Fatal(err)
 	}
