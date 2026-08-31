@@ -48,6 +48,20 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#detail .foldbar .sum").textContent() shouldContain "/Users/you/work/app"
                 page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "7"
             }
+            // 이 목이 내는 어긋남이 바로 그 결함의 모양이다: 데몬은 gpt-oss:120b 위에 있다고
+            // 답하고, 그 백엔드의 목록은 fast-model·deep-model이다. 고르개가 「답한 것만」
+            // 내놓으면 켤 값이 없어 이 칸은 <b>빈 칸</b>이 되고, 사람은 제 컴패니언이 무엇으로
+            // 돌고 있는지 모른 채 그것을 바꾸라는 말을 듣는다(실측: 클라우드 모델 위의 데몬).
+            Then("모델 칸은 돌고 있는 것을 보여 준다 — 그 이름이 백엔드의 목록에 없어도") {
+                val pick = "#detail .f[data-k=\"field.provider_model\"] " +
+                    "md-outlined-select[data-aria-label=\"field.model\"]"
+                val model = page.locator(pick)
+                page.waitForCondition { model.count() == 1 }
+                page.waitForCondition { (page.evaluate("document.querySelector('$pick').value")) == "gpt-oss:120b" }
+                // 답한 것들도 여전히 고를 수 있다 — 지금 것을 세우느라 목록을 덮지 않는다.
+                model.locator("md-select-option[value=\"fast-model\"]").count() shouldBe 1
+                model.locator("md-select-option[value=\"deep-model\"]").count() shouldBe 1
+            }
             // 「마지막 활동」은 이 판에서 <b>가만히 있을 때</b> 보는 값이다 — 그래서 명단
             // 프레임에 매달아 두면 정확히 볼 이유가 있는 동안 얼어붙는다(서버는 쉰 시간만
             // 달라진 프레임을 보내지 않는다). 이 줄은 창의 시계로 늙는다.
