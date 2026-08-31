@@ -41,6 +41,8 @@ scratchpad/overnight_log.md
 # one of them had been committed — 11MB of macOS arm64 that no other machine can run, rebuilt into
 # a dirty tree by anybody who ran that command.
 /magi
+/magi-ppt
+/magi-ppt.exe
 /magi-web
 
 # The agent's own runtime state. .magi/experience is what a companion has learned ON THIS MACHINE —
