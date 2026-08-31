@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.Messages
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Reach
+import dev.sayaya.magi.ide.usecase.Restarts
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -35,17 +36,55 @@ internal object StartDaemon {
 
     private val LOG = Logger.getInstance(StartDaemon::class.java)
 
-    /** 프로젝트당 한 번. 백오프 재접속이 따로 도므로 여기서 되풀이할 이유가 없다. */
-    private val tried = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+    /**
+     * 프로젝트마다 되살리기 예산. **한 번만 시도하던 것을 고친 자리다** — 그 한 번이 실패하거나
+     * 떴다가 나중에 죽으면 되살릴 길이 없었다(백오프 재접속은 붙기만 하지 띄우지 않는다).
+     * 라이브에서 데몬이 2분 반 만에 나갔고, 그 뒤 10분 동안 아무도 다시 띄우지 않았다.
+     */
+    private val budget = java.util.Collections.synchronizedMap(mutableMapOf<String, Restarts>())
+
+    /** 방금 띄운 워크스페이스들 — 화면이 「띄우는 중」이라고 말할 수 있게. */
+    private val starting = java.util.Collections.synchronizedMap(mutableMapOf<String, Long>())
+
+    /**
+     * 이 워크스페이스를 방금 띄웠고 아직 안 붙었나. 상태 표시줄이 이것을 물어 「실행되지 않음」
+     * 대신 「시작하는 중」을 그린다 — **띄워 놓고 화면이 아무 말도 안 하면**, 사람은 아무 일도
+     * 안 일어났다고 읽는다(라이브 실측: 7초 동안 「실행되지 않음」이었다).
+     */
+    fun startingNow(sock: java.nio.file.Path): Boolean {
+        val at = starting[sock.toString()] ?: return false
+        return System.currentTimeMillis() - at < STARTING_WINDOW
+    }
+
+    /** 뜨는 데 걸리는 시간의 상한. 실측 7초(진짜 설정, 첫 기동) — 넉넉히 잡는다. */
+    private const val STARTING_WINDOW = 30_000L
+
+    /**
+     * 지금 띄워도 되나. **시험 안에서는 안 된다.**
+     *
+     * 헤드리스 시험은 프로젝트를 만들고 열므로 이 활동이 그대로 돈다 — 그래서 `:intellij:test`
+     * 를 돌릴 때마다 임시 워크스페이스마다 **진짜 데몬이 하나씩 떴다**(실측: 설정 디렉토리에
+     * `daemon-unitTest_…` 로그가 열 개 넘게 쌓였다). CI 에서도 돈다. 시험이 남의 기계에
+     * 프로세스를 남기는 것은 시험이 아니다.
+     *
+     * 판정을 함수로 뺀 이유: 가드를 코드에 묻어 두면 그 가드가 도는지를 잴 자리가 없다.
+     */
+    fun enabled(project: Project): Boolean =
+        !ApplicationManager.getApplication().isUnitTestMode && LocalPrefs.autostart(project)
 
     fun ifAbsent(project: Project) {
-        if (!LocalPrefs.autostart(project)) return
+        if (!enabled(project)) return
         val base = project.basePath ?: return
         val sock = Workspace(project).socket() ?: return
         ApplicationManager.getApplication().executeOnPooledThread {
             if (project.isDisposed) return@executeOnPooledThread
             when (val r = DaemonClient.reach(sock)) {
-                is Reach.Listening -> Unit // 이미 있다
+                is Reach.Listening -> {
+                    // 붙었으면 예산을 되돌린다 — 오래 도는 IDE 에서 「예전에 실패함」이 영구
+                    // 금지가 되면 안 된다.
+                    budget[base]?.ok()
+                    starting.remove(sock.toString())
+                }
                 // **모름은 없음이 아니다.** 여기서 「해 봤다」를 안 찍는 것도 그래서다 — 일시적
                 // 사정으로 못 물어본 것을 영구 포기로 바꾸지 않는다(리뷰 R6).
                 is Reach.CouldNotAsk -> LOG.info("magi: 데몬을 물어볼 수 없어 안 띄운다 — ${r.why}")
@@ -53,8 +92,9 @@ internal object StartDaemon {
                     // 「해 봤다」는 **실제로 띄우기로 정한 자리**에서만 찍는다. 앞에서 찍으면
                     // 못 물어봤든 사람이 미뤘든 네트워크가 끊겼든 그 IDE 내내 기능이 죽고,
                     // 되살릴 다른 경로가 없다(백오프 재접속은 붙기만 하지 띄우지 않는다).
-                    if (!tried.add(base)) return@executeOnPooledThread
-                    com.intellij.openapi.util.Disposer.register(project) { tried.remove(base) }
+                    val b = budget.getOrPut(base) { Restarts() }
+                    if (!b.take(System.currentTimeMillis())) return@executeOnPooledThread
+                    com.intellij.openapi.util.Disposer.register(project) { budget.remove(base); starting.remove(sock.toString()) }
                     ensureBinaryThenStart(project, base, sock)
                 }
             }
@@ -131,6 +171,7 @@ internal object StartDaemon {
             tell(project, MagiBundle.msg("core.start.failed", e.message ?: MagiBundle.msg("common.noreason")))
             return
         }
+        starting[sock.toString()] = System.currentTimeMillis()
         LOG.info("magi: 데몬을 띄웠다 — $bin -daemon (pid ${started.pid()}, 로그 $log)")
         // 성공은 침묵이다. 붙었는지는 상태 표시줄과 링크 점이 말하고, 그 둘이 이미 그 일을 한다.
         // 다만 **곧바로 죽으면** 그건 사람이 알아야 한다 — 조용한 실패는 「띄웠다」로 보인다.

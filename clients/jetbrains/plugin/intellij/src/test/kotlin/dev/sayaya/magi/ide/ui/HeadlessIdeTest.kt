@@ -161,6 +161,19 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertFalse("연 것만으로 바뀐 것이 있다고 한다", c.isModified)
     }
 
+    /**
+     * **시험은 데몬을 안 띄운다.**
+     *
+     * 이 픽스처는 프로젝트를 만들고 열므로 시동 활동이 그대로 돈다. 막기 전까지 `:intellij:test`
+     * 한 번에 임시 워크스페이스마다 **진짜 데몬이 하나씩** 떴다(설정 디렉토리에 `daemon-unitTest_…`
+     * 로그가 쌓인 것으로 드러났다). 스위치는 켜져 있는데도 안 띄우는 것이 맞는 모양이라, 둘을
+     * **같이** 잰다 — 스위치만 보면 「꺼져 있어서 안 떴다」와 구분이 안 간다.
+     */
+    fun `test 시험 안에서는 데몬을 안 띄운다`() {
+        assertTrue("스위치가 꺼져 있어 이 시험이 아무것도 안 잰다", LocalPrefs.autostart(project))
+        assertFalse("시험 안에서 데몬을 띄우려 한다", StartDaemon.enabled(project))
+    }
+
     /** 화면에 실제로 선 체크박스들: 글자 → 켜짐 여부. */
     private fun boxes(c: com.intellij.openapi.options.Configurable): Map<String, Boolean> {
         val out = LinkedHashMap<String, Boolean>()

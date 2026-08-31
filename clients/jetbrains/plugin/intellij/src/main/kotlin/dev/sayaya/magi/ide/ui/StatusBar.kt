@@ -101,6 +101,12 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             // 화면에는 "데몬 없음" 넉 자뿐이라 사람이 원인을 볼 길이 없다 — 이 위젯의 결함 하나가
             // 정확히 그 모양으로 숨어 있었다(사유는 Workspace.onDaemon 의 주석).
             LOG.info("magi: 상태를 못 읽었다 — $it")
+            // **띄운 직후엔 그렇게 말한다.** 데몬이 서는 데 몇 초가 걸리고(실측 7초, 진짜 설정의
+            // 첫 기동), 그동안 「실행되지 않음」만 서 있으면 사람은 아무 일도 안 일어났다고 읽는다
+            // — 실제로 그렇게 읽혔다(2026-09-01). 우리가 방금 뭘 했는지는 우리가 말해야 한다.
+            workspace.socket()?.let { sock ->
+                if (StartDaemon.startingNow(sock)) return@onDaemon say("magi: " + MagiBundle.msg("status.starting"))
+            }
             // 접두는 **코드 한 곳에서만** 붙인다 — 넷 중 하나만 값 안에 품고 있어서 같은 자리의
             // 규칙이 두 벌이었다(G15). 밖의 폴더 수는 툴팁의 몫이다.
             say("magi: " + MagiBundle.msg("status.nodaemon"))
