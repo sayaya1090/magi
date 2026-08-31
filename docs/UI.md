@@ -759,8 +759,21 @@ phone for months.
 > are written: `gradlew :<module>:test` runs each module's gwt-test and Playwright specs against a
 > real browser, one runner per module, in `test-web.yml`. On the Go side, `clients/web/server`'s tests read
 > `clients/web/ui` directly: one walks every path the screens ask for and holds the demo mock to it, and the
-> palette and contrast guards read `clients/web/ui/console.css`. The section below is the harness that came
+> palette and contrast guards read `clients/web/ui/console.css`.
+>
+> Beside those, `clients/web/e2e` presses the assembled console in a browser against **two real
+> daemons and a real magi-web**. It exists for the questions a mock cannot be asked: the mock
+> answers in front of `fetch`, so it cannot say how many times the wire was used (a detail screen
+> once asked `/jobs` and `/cron` twenty-two times and, because every card checks "same answer,
+> don't redraw", the screen was silent); it ends inside itself, so it cannot say whether a control
+> reached the running process; its values are its own, so it cannot say what the daemon actually
+> sent. And each co-test stands ITS module's page, so none of them stands the assembled console,
+> where a module that works alone can still fail to draw. Screen behaviour belongs in the module
+> co-tests, which are closer and deterministic — the e2e README says which question goes where.
+> The section below is the harness that came
 > before, kept because its seven corrections are the reason several of the rules above exist.
+> **The files it names are gone** (`clients/web/server/page.go` went with the console cutover, and
+> `testdata/dom.mjs` with it) — it is read as history, not as a place to look.
 
 The page was a Go string, so no Go test could execute it. `clients/web/server/testdata/dom.mjs` was a
 **fake DOM** — createElement, textContent, className, classList, append, replaceChildren, a listener

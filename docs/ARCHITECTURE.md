@@ -267,6 +267,11 @@ internal/
                             the process holding the run can say), UserNamer. A daemon that does
                             not implement one answers empty rather than erroring, and every
                             caller has to read that as "not known from here" and not as "none".
+                            What differs by platform — securing the socket and removing a stale
+                            one — sits behind one seam (listen_unix.go / listen_windows.go),
+                            because the two are not the same operation everywhere: a chmod on an
+                            AF_UNIX socket is refused on Windows, and the file a dead daemon
+                            leaves there is a reparse point that ordinary deletion cannot clear.
     fleet/                  what every magi on this machine is doing, derived from the logs and
                             a short parallel probe of each socket — ONE derivation, because the
                             console and `--agents` both ask it

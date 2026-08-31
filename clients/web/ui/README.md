@@ -141,6 +141,9 @@ mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나�
 5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
    html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
    18093, board 18094, map 18095, access 18096, 다음은 18097.
+   **화면 동작은 여기서 잰다** — 목을 상대로, 결정적으로, 화면 옆에서. `clients/web/e2e`는
+   목에게 못 묻는 것만 맡는다(회선을 몇 번 썼나, 누른 것이 데몬에 닿았나, 데몬이 실제로 실은
+   값인가, 합쳐 놓은 한 벌에서 이 화면이 서나).
 6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
    화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
 7. `../README.md` 대조표의 그 행을 갱신한다.

@@ -114,7 +114,15 @@ waiting — and **which half each row came from**: this machine's own measuremen
 Two things are pinned: **the state vocabulary is exactly `waiting` (on a person), `working`,
 `idle`** — waiting-on-a-person is its own value (a badge hangs on it); and **this machine's rows
 carry `session`** (the conversation's id) so a client reaches the transcript door in one round
-trip — sightings do not, since nothing can subscribe across machines anyway. Advertised in
+trip — sightings do not, since nothing can subscribe across machines anyway.
+
+A local row also carries the facts that exist **only in the running process** — `permission`
+(the approval mode it is on right now), `backend` (where its requests go), `model` (what this
+conversation is on) and `user`. They are not in the published file and no client can derive them;
+the listing already has them in hand because it probed. Dropping them cost a console exactly what
+you would expect: it drew those fields empty and then offered a control to change a value it had
+never shown. Sightings carry none of them — another machine's approval mode is not a fact this
+one measured. Advertised in
 `about`'s caps as `roster`, so a client can know before calling.
 
 The boundary follows the same reasoning that kept the transcript off the fleet door: **gossip
