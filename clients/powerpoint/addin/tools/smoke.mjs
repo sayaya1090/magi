@@ -2683,5 +2683,60 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 }
 
 
+// ── 안내는 도구가 **광고한 철자**로 읽는다 ───────────────────────────────────
+//
+// 실물에서 본 것이 근거다(2026-09-01): 모델이 `mcp__ppt__advise` 로 슬라이드와 도형을 정확히
+// 짚어 안내 둘을 보냈는데, 작업창의 포스트잇은 **하나도 못 눌렸다.** 스키마는 `slide_id` ·
+// `shape_ids` 라고 광고하는데 접는 쪽은 `slideId` · `shapeIds` 만 봤기 때문이다. 화면은
+// 「어디를 가리키는지 안 실렸습니다」라고 적었고, 그건 **모델을 탓하는 거짓말**이었다.
+//
+// 그래서 이 시험은 철자를 손으로 안 적는다 — **도구 표에서 뽑는다.** 손으로 적으면 이 파일도
+// 두 벌 중 하나가 되어, 스키마가 바뀌는 날 같이 안 바뀐다.
+{
+  const toolsGo = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  // `[{message, why, slide_id, shape_ids}]` — `advise` 의 `items` 설명문이 광고하는 그것.
+  // **`advise` 의 것만 본다.** 파일 안에 같은 모양이 하나 더 있고(`set_table_cells` 의
+  // `[{row, column, text}]`), 처음 걸리는 것을 집으면 이 시험은 남의 스키마를 지킨다.
+  const adviseBlock = toolsGo.slice(toolsGo.indexOf('Name: "advise"'));
+  const advertised = /\[\{([a-z_, ]+)\}\]/.exec(adviseBlock)?.[1]?.split(',').map((s) => s.trim()) ?? [];
+  ok('도구 표에서 안내 항목의 철자를 뽑았다',
+    advertised.includes('message') && advertised.length >= 4, advertised.join('|'));
+
+  // 광고된 철자 그대로 항목을 지어 먹인다. 무엇이 어느 칸인지는 이름이 말한다.
+  const say = (k) => (k === 'message' ? '제목이 깁니다' : k === 'why' ? '읽는 사람이 놓칩니다'
+    : k.endsWith('_ids') || k.endsWith('Ids') ? ['2'] : '256#1776505032');
+  const item = {};
+  for (const k of advertised) item[k] = say(k);
+
+  const t = new Transcript();
+  t.append({ seq: 1, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm1', part: { kind: 'tool-call',
+      toolCall: { callId: 'c1', name: 'mcp__ppt__advise', args: { items: [item] } } } } });
+  const folded = foldAdvice(t.drawnRows);
+  ok('광고된 철자로 부른 안내가 한 장 선다', folded.items.length === 1, `${folded.items.length}장`);
+  ok('광고된 철자로 부른 안내는 **눌린다**',
+    folded.items[0]?.pointable === true, folded.items[0]?.unpointableReason ?? '');
+  ok('그 안내가 짚은 슬라이드와 도형이 실려 온다',
+    folded.items[0]?.slideId === '256#1776505032' && folded.items[0]?.shapeIds.length === 1);
+
+  // 낙타등도 계속 받는다 — 목업의 픽스처가 그 철자를 쓰고, 둘을 받는 값이 0 이다.
+  const t2 = new Transcript();
+  t2.append({ seq: 1, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm1', part: { kind: 'tool-call', toolCall: { callId: 'c2',
+      name: 'mcp__ppt__advise',
+      args: { items: [{ message: '옛 철자', slideId: 's1', shapeIds: ['3'] }] } } } } });
+  ok('낙타등 철자도 눌린다', foldAdvice(t2.drawnRows).items[0]?.pointable === true);
+
+  // **안 실린 것은 여전히 안 실린 것이다** — 둘 다 없으면 그렇게 적는다.
+  const t3 = new Transcript();
+  t3.append({ seq: 1, sessionId: 'A', type: 'part.appended',
+    data: { messageId: 'm1', part: { kind: 'tool-call', toolCall: { callId: 'c3',
+      name: 'mcp__ppt__advise', args: { items: [{ message: '어딘지 안 적음' }] } } } } });
+  const bare = foldAdvice(t3.drawnRows).items[0];
+  ok('어딘지 안 실린 안내는 안 눌리고 사유가 붙는다',
+    bare?.pointable === false && Boolean(bare?.unpointableReason), bare?.unpointableReason ?? '');
+}
+
+
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);

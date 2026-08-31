@@ -52,12 +52,18 @@ export function foldAdvice(rows, { server = 'ppt' } = {}) {
       // 놓쳤는지 알 길을 안 준다. 대신 몇 장을 못 붙였는지 센다.
       const message = typeof it?.message === 'string' ? it.message.trim() : '';
       if (!message) { dropped += 1; return; }
+      // **도구가 광고한 철자로 읽는다.** 스키마는 `slide_id`·`shape_ids` 라고 적어 놓고
+      // 여기서는 `slideId`·`shapeIds` 만 봤다 — 모델은 광고된 대로 부르므로 **모든 안내가
+      // 「어디를 가리키는지 안 실렸습니다」로 떴다.** 실물에서 그 화면을 봤다(2026-09-01):
+      // 모델은 슬라이드와 도형을 정확히 짚어 보냈는데 포스트잇은 하나도 못 눌렸다.
+      // 낙타등도 계속 받는다 — 목업의 픽스처가 그 철자를 쓰고, 둘을 받는 값이 0 이다.
+      const slideId = str(it.slide_id) ?? str(it.slideId);
+      const shapeIds = arr(it.shape_ids) ?? arr(it.shapeIds) ?? [];
       items.push(new Advice({
         id: `${r.callId ?? r.seq}#${i}`,
         message,
-        slideId: typeof it.slideId === 'string' ? it.slideId : null,
-        shapeIds: Array.isArray(it.shapeIds)
-          ? it.shapeIds.filter((x) => typeof x === 'string') : [],
+        slideId,
+        shapeIds,
       }));
     });
   }
@@ -109,3 +115,9 @@ function itemsOf(args) {
   if (typeof args.message === 'string') return [args];
   return null;
 }
+
+/** 글이면 그대로, 아니면 `null`. **없는 것과 다른 종류가 온 것을 같게 다룬다** — 둘 다 못 쓴다. */
+function str(v) { return typeof v === 'string' && v !== '' ? v : null; }
+
+/** 배열이면 글자만 걸러서, 아니면 `null`. 빈 배열은 **빈 배열이다** — 못 읽은 게 아니다. */
+function arr(v) { return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : null; }
