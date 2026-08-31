@@ -65,10 +65,17 @@ class CoreRelease(private val conf: Map<String, String>) {
      */
     fun latestUrl(): String? = conf["core.latest"]?.takeIf { it.startsWith("https://") }
 
-    /** 그 한 줄에서 판 번호. 앞의 `v` 와 주변 공백을 참는다 — 남이 쓰는 파일이다. */
+    /**
+     * 그 한 줄에서 판 번호. 앞의 `v` 와 주변 공백, `#` 주석 줄을 참는다 — 남이 쓰는 파일이다.
+     *
+     * **판 번호처럼 생긴 것만 받는다.** 처음엔 「숫자로 시작하는 줄」이었는데, 그 주소를 눌러
+     * 보니 아직 파일이 없어 본문이 `404: Not Found` 였다 — **그것이 통과한다.** 던지는 경로가
+     * 하나 있긴 하지만(비-2xx 면 요청이 예외를 낸다), 프록시가 200 에 오류 쪽을 실어 주는 배치는
+     * 흔하다. 느슨한 검사는 그때 판 번호를 `404` 로 만든다.
+     */
     fun readLatest(body: String): String? = body.lineSequence()
         .map { it.trim().removePrefix("v") }
-        .firstOrNull { it.isNotBlank() && it.first().isDigit() }
+        .firstOrNull { VERSION.matches(it) }
 
     fun releasesUrl(): String? = conf["core.releases"]?.takeIf { it.startsWith("https://") }
 
@@ -210,6 +217,9 @@ class CoreRelease(private val conf: Map<String, String>) {
 
         /** 기본 갈래 — 코어의 `v0.29.0` 꼴. 잡은 것 하나가 판 번호다. */
         private const val TAG = "^v(\\d+(?:\\.\\d+)*)$"
+
+        /** 판 번호의 모양. 이것만 받는다 — 「숫자로 시작한다」는 오류 본문도 통과시킨다. */
+        private val VERSION = Regex("^\\d+(?:\\.\\d+)*$")
         /**
          * `checksums.txt` 한 장에서 이름 → sha256. **받은 것이 낸 것인지 확인할 유일한 근거**라,
          * 형식이 어긋나면 조용히 빈 표를 주지 않고 그 줄을 버린다(빈 표는 검증을 건너뛰는 것과

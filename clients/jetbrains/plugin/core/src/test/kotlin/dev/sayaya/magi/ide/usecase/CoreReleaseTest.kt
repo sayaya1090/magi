@@ -115,6 +115,12 @@ class CoreReleaseTest {
         assertEquals("0.30.1", r.readLatest("# 코어 최신\nv0.30.1\n"))
         assertNull(r.readLatest(""))
         assertNull(r.readLatest("아직 없음"))
+        // **실측한 본문이다.** 그 주소를 눌러 보니 파일이 아직 없어 이것이 왔다. 「숫자로
+        // 시작하는 줄」이라는 규칙은 이것을 판 번호로 읽는다 — 프록시가 200 에 오류 쪽을 실어
+        // 주는 배치에서 그대로 새어 든다.
+        assertNull(r.readLatest("404: Not Found"), "오류 본문을 판 번호로 읽었다")
+        assertNull(r.readLatest("<!DOCTYPE html>\n<html>404</html>"))
+        assertNull(r.readLatest("0.29.0-rc1"), "판 번호 모양이 아닌 것은 안 받는다")
     }
 
     @Test
