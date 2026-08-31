@@ -260,6 +260,7 @@ no port of its own and holds no credential of its own.
 
 ```sh
 ./magi --daemon      # the engine, no UI — keeps working while nothing is watching
+./magi --daemon --detach   # the same, in a session of its own: it outlives this command
 ./magi --attach      # attach a terminal UI to this workspace's daemon
 ./magi --agents      # every magi on this machine, and what each is doing
 ./magi-web           # the same in a browser at 127.0.0.1:7777

@@ -310,6 +310,7 @@ func run() int {
 		listModels  = flag.Bool("list-models", false, "list the backend's available models and exit")
 		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
 		daemonMode  = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
+		detachMode  = flag.Bool("detach", false, "with --daemon: start it in a session of its own, so it outlives this command, and return once it is listening")
 		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
 		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
@@ -384,6 +385,13 @@ func run() int {
 	// unconfined posture instead of the intended safe/standard/yolo bundle.
 	if msg := validateEnumFlags(*output, *permission, *profile, *theme); msg != "" {
 		fmt.Fprintln(os.Stderr, "magi: "+msg)
+		return 2
+	}
+	// --detach is a way to start the daemon, not a mode of its own. Alone it would spawn an
+	// interactive magi with nowhere to type and then wait for a socket that is never bound, so it
+	// says what it needs instead of failing thirty seconds later on a timeout.
+	if *detachMode && !*daemonMode {
+		fmt.Fprintln(os.Stderr, "magi: --detach starts a daemon — use it with --daemon")
 		return 2
 	}
 
@@ -1085,6 +1093,13 @@ func run() int {
 	// its way out, leaving a daemon that was running and that no viewer could find. It also left a
 	// session in the store for a process that never ran a turn. Losing now costs one syscall and
 	// says who has the workspace.
+	// Asked to detach: this process starts the successor and reports whether it came up, and never
+	// binds anything itself. Before the claim below on purpose — two processes must not race for
+	// one workspace when only one of them is going to serve it.
+	if *detachMode {
+		return startDetached(sockPath, os.Args[1:], dialSocket, os.Stderr)
+	}
+
 	var bound *daemon.Daemon
 	if *daemonMode {
 		var berr error

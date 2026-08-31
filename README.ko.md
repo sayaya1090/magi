@@ -258,6 +258,7 @@ flowchart LR
 
 ```sh
 ./magi --daemon      # UI 없는 엔진. 아무도 안 보고 있어도 계속 일합니다
+./magi --daemon --detach   # 같은 것을, 제 세션에서. 이 명령이 끝나도 살아 있습니다
 ./magi --attach      # 이 워크스페이스의 데몬에 터미널 UI를 붙입니다
 ./magi --agents      # 이 머신의 모든 magi와 각자 하는 일
 ./magi-web           # 같은 것을 브라우저에서, 127.0.0.1:7777

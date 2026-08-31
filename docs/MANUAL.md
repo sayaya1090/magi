@@ -368,10 +368,21 @@ and close when you don't.
 
 ```sh
 ./magi --daemon        # run the engine with no UI; it keeps working while nothing is watching
+./magi --daemon --detach   # the same, in a session of its own — it outlives this command
 ./magi --attach        # attach a terminal UI to the daemon running in THIS directory
 ./magi --agents        # every magi daemon on this machine, and what each is doing
 ./magi --stop          # stop the daemon holding THIS workspace (and its scheduled work with it)
 ```
+
+`--daemon` serves in the FOREGROUND: it is a service you run, and Ctrl-C stops it. `--detach` is for
+a program that wants a companion running in a workspace and then wants to go away. A child started
+the ordinary way stays in its parent's process group on unix and inside its job object on Windows,
+and dies with it — so an editor that starts a daemon takes the daemon with it when it closes, and
+the caller cannot fix that from outside (a JVM can pass neither creation flags nor `setsid`, and
+macOS has no `setsid(1)` to fall back on). Only the process being started can put itself out of
+reach, so it does when asked: a new session on unix, and `DETACHED_PROCESS` plus a breakaway from
+the job on Windows. The command returns once the socket ANSWERS — not once something was launched —
+and if the daemon died first it says so with the daemon's own last words, from `<socket>.log`.
 
 A daemon is also what makes a companion addressable: only a resident one can be handed work, keep a
 schedule, or be seen by another machine. The rest of that surface (`--join-cluster`, `--members`, `--relay`, `--mcp`) is §13.
