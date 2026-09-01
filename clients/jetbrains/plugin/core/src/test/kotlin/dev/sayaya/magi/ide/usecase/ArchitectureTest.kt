@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -56,6 +57,51 @@ class ArchitectureTest {
             offenders,
             "규칙 층이 전송을 import 했다. 필요한 것이 있으면 Ports.kt 의 Daemons 에 질문을 " +
                 "하나 더 내고 transport 가 답하게 할 것 — 예외를 하나 두면 곧 둘이 된다.",
+        )
+    }
+
+    /**
+     * **디스크에 있는 소스가 전부 git 에 실려 있다.**
+     *
+     * 2026-09-01 에 실제로 난 결함이고, 값이 컸다: 새 파일 셋이 한 번도 커밋 안 된 채로 `main`
+     * 이 **컴파일 안 되는 상태**로 며칠 서 있었다. `Copying.kt` 는 바로 앞 커밋이 부르게 해 놓고
+     * 정작 클래스를 안 실은 것이었다.
+     *
+     * 원인은 커밋하는 손이다. 이 저장소는 공유 체크아웃이라 `git add .` 를 금하고 `git commit
+     * -F - -- <경로>` 로 경로를 대는데, 그 방식은 **추적 안 되는 새 파일을 경로 안에 있어도
+     * 안 싣는다.**
+     *
+     * 그리고 이 결함은 **로컬에서 영영 안 보인다.** 파일이 내 디스크에 있으니 내 빌드는 돈다.
+     * CI 는 추적되는 것만 체크아웃한다 — 재는 기계와 사람이 다른 나무를 보고 있었다. 그래서
+     * 이 가드는 「빌드가 되나」가 아니라 **「내가 보는 것과 git 이 보는 것이 같나」**를 묻는다.
+     *
+     * git 이 없으면 **실패한다.** 건너뛰면 이 가드가 있으나 마나인 자리로 조용히 돌아간다 —
+     * 이 저장소가 세 번 겪은 「초록인데 안 재고 있다」의 그 모양이다.
+     */
+    @Test
+    fun `소스가 전부 git 에 실려 있다`() {
+        val root = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .firstOrNull { File(it, ".git").exists() }
+        assertNotNull(root, "저장소 뿌리를 못 찾았다 — 이 가드가 아무것도 안 잰다")
+        val repo = root!!
+        val p = ProcessBuilder("git", "ls-files", "-z", "--", "clients/jetbrains/plugin")
+            .directory(repo).redirectErrorStream(true).start()
+        val out = p.inputStream.readBytes().toString(Charsets.UTF_8)
+        assertEquals(0, p.waitFor(), "git ls-files 가 안 돌았다: $out")
+        val tracked = out.split('\u0000').filter { it.isNotBlank() }.toSet()
+        assertTrue(tracked.size > 50, "추적 목록이 ${tracked.size}개다 — 얕은 체크아웃이면 이 가드가 위양성이다")
+        val plugin = File(repo, "clients/jetbrains/plugin")
+        val onDisk = plugin.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filterNot { f -> generateSequence(f) { it.parentFile }.any { it.name == "build" || it.name == ".intellijPlatform" } }
+            .map { it.relativeTo(repo).path }
+            .toList()
+        assertTrue(onDisk.size > 50, "디스크에서 찾은 소스가 ${onDisk.size}개다 — 이 가드가 아무것도 안 잰다")
+        assertEquals(
+            emptyList<String>(),
+            onDisk.filterNot { it in tracked }.sorted(),
+            "이 파일들이 git 에 안 실려 있다. 내 빌드는 돌지만 CI 는 이것 없이 빌드한다 — " +
+                "`git add <파일>` 을 먼저 하고 커밋할 것(경로만 대는 커밋은 새 파일을 안 싣는다).",
         )
     }
 
