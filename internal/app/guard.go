@@ -159,6 +159,15 @@ type runGuard struct {
 	// went L→M→L→M→L over five more writes in silence while the byte-identical branch beside it
 	// spoke every time, so the weaker signal repeated and the stronger one did not.
 	regressCount map[string]int
+	// rewriteNoted records, per file, the version count at which the circling note last spoke, so
+	// the cadence is "how far since the last time" rather than a modulo on a number that does not
+	// advance by one. contentHist can gain TWO entries in a call — the fold of an externally
+	// changed `before`, then the new content — so a count tested with `% every == 0` can step over
+	// its window and never land in it again. magi's own gofmt hook rewrites a .go file's bytes
+	// after every successful write, which makes that fold fire on EVERY call: measured, 14 calls
+	// across 27 states produced no note at all. A guard silenced exactly in the case it exists for
+	// is worse than no guard, because the silence reads as an all-clear.
+	rewriteNoted map[string]int
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -182,7 +191,7 @@ func newRunGuard(touches func(name string, args json.RawMessage) (fileTouch, boo
 		seen:    map[string]int{},
 		lastMut: map[string]string{}, changed: map[string]*fileChange{},
 		readSpans: map[string][]lineSpan{},
-		recalled:  map[string]bool{}, contentHist: map[string][]uint64{},
+		recalled:  map[string]bool{}, contentHist: map[string][]uint64{}, rewriteNoted: map[string]int{},
 		regressCount: map[string]int{},
 	}
 }
@@ -314,7 +323,16 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 		// So it states it, and no more: the count is a fact, and whether to keep going is the
 		// agent's call. regressed stays false — this is not a revert, and withholding progress
 		// credit for real new content would be a lie in the other direction.
-		if n := len(g.contentHist[path]) - 1; n >= rewriteNoteAt && (n-rewriteNoteAt)%rewriteNoteEvery == 0 {
+		// DISTINCT versions, not history entries. contentHist gains an entry per recorded state
+		// including repeats, so a turn that reverted twice would be told it had written eleven
+		// different contents when it had written ten — and the swing note beside this one already
+		// counts the honest way, with distinctStates. Two notes about one history disagreeing
+		// about its size is how a reader learns to trust neither. Minus the pre-turn baseline,
+		// because that is what the file arrived as, not something this turn wrote.
+		n := distinctStates(g.contentHist[path]) - 1
+		// Since the last time this spoke, not a modulo — see rewriteNoted.
+		if n >= rewriteNoteAt && n-g.rewriteNoted[path] >= rewriteNoteEvery {
+			g.rewriteNoted[path] = n
 			return fmt.Sprintf("note: this file has taken %d different contents this turn. If each "+
 				"rewrite is meant to be the one that settles it, that is not what is happening — "+
 				"the next thing to change is probably not this file.", n), false
