@@ -530,37 +530,77 @@ export class OfficeHand extends HandPort {
       await context.sync();
 
       const all = slide.shapes.items ?? [];
-      const want = Array.isArray(args.shape_ids) && args.shape_ids.length
-        ? all.filter((sh) => args.shape_ids.includes(sh.id))
-        : all;
+      let want = all;
+      if (Array.isArray(args.shape_ids) && args.shape_ids.length) {
+        const here = new Map(all.map((sh) => [String(sh.id), sh]));
+        // **못 찾은 id 는 조용히 빼지 않는다.** 도형 id 는 **한 장 안에서만** 유일하다(§부록 A):
+        // 모델이 7번 장을 읽고 받은 id 를 3번 장에 그대로 쓰면, 걸러 내기만 하는 코드는 3번 장의
+        // **엉뚱한 도형**을 잡아 옮기고 「됐습니다」라고 답한다. 하나라도 못 찾으면 아무것도 안
+        // 옮기고 어느 것을 못 찾았는지 말한다 — 이 장의 것이 아닌 id 를 받았다는 신호다.
+        const missing = args.shape_ids.filter((id) => !here.has(String(id)));
+        if (missing.length) {
+          throw new Error(`이 장에 없는 도형 id 입니다: ${missing.join(', ')} — `
+            + '도형 id 는 한 장 안에서만 유일하니 다른 장에서 읽은 id 일 수 있습니다. '
+            + `이 장의 도형: ${all.map((sh) => sh.id).join(', ') || '없음'}`);
+        }
+        want = args.shape_ids.map((id) => here.get(String(id)));
+      }
       if (want.length < 2) {
         // **하나로는 줄을 못 세운다.** 「됐습니다」로 답하면 사람은 뭔가 바뀐 줄 안다.
         throw new Error(`줄 세울 도형이 ${want.length}개뿐입니다 — 둘 이상 골라 주세요`
-          + (args.shape_ids ? ` (이 장의 도형: ${all.map((s) => s.id).join(', ')})` : ''));
+          + ` (이 장의 도형: ${all.map((sh) => sh.id).join(', ') || '없음'})`);
       }
 
-      const box = want.map((sh) => ({
+      const before = want.map((sh) => ({
         sh,
         left: Number(sh.left ?? 0),
         top: Number(sh.top ?? 0),
         width: Number(sh.width ?? 0),
         height: Number(sh.height ?? 0),
       }));
-      const moves = placeShapes(box, how);
+      // 못 하는 경우는 `placeShapes` 가 **사유를 들고 던진다**(셋 미만, 자리 모자람). 여기서
+      // 삼키면 「이미 그렇게 서 있습니다」가 되고, 그게 이 저장소가 최악이라고 적은 실패다.
+      const moves = placeShapes(before, how);
       if (moves.length === 0) {
-        return this.#envelope({ slide_id: slide.id, moved: 0, how },
+        return this.#envelope({ slide_id: slide.id, moved: 0, how, of: want.length },
           [`도형 ${want.length}개가 이미 그렇게 서 있어 옮긴 것이 없습니다`]);
       }
-      for (const m of moves) {
-        if (m.left !== undefined) m.sh.left = m.left;
-        if (m.top !== undefined) m.sh.top = m.top;
+      try {
+        for (const m of moves) {
+          if (m.left !== undefined) m.sh.left = m.left;
+          if (m.top !== undefined) m.sh.top = m.top;
+        }
+        await context.sync();
+      } finally {
+        // **묶음은 원자적이지 않다**(§9). 호스트가 중간에서 거절하면 앞의 것들은 이미 옮겨진
+        // 뒤다. 그때 개정을 안 올리면 이어지는 `render_slide` 가 「안 바뀌었습니다」로 거절해서
+        // (§6.10), 모델은 반쯤 흐트러진 장을 안 바뀐 것으로 알게 된다. 실패했더라도 **덱은
+        // 건드려진 것**이므로 개정은 올린다.
+        this.#mutated();
       }
+
+      // **옮겼다고 세지 말고 옮겨진 것을 센다.** 호스트가 값을 자르거나 되돌릴 수 있고
+      // (레이아웃이 잡아 두는 자리표시자가 그렇다), 그러면 「3개를 옮겼습니다」는 우리 계획일
+      // 뿐 화면이 아니다. `move_shape` 도 같은 이유로 써 놓고 다시 읽는다.
+      slide.shapes.load('items/id,items/left,items/top');
       await context.sync();
-      this.#mutated();
+      const now = new Map((slide.shapes.items ?? []).map((sh) => [String(sh.id), sh]));
+      const near = (a, b) => Math.abs(Number(a) - Number(b)) < 0.5;
+      const landed = before.filter((b) => {
+        const sh = now.get(String(b.sh.id));
+        if (!sh) return false;
+        return !near(sh.left, b.left) || !near(sh.top, b.top);
+      });
+      const lines = [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${landed.length}개를 `
+        + `${ALIGN_KO[how]} — 기준은 슬라이드가 아니라 고른 도형들 자신입니다`];
+      if (landed.length < moves.length) {
+        // 계획과 화면이 다르면 **그 차이를 적는다.** 안 적으면 모델은 다 된 줄 알고 넘어간다.
+        lines.push(`${moves.length}개를 옮기려 했는데 ${landed.length}개만 움직였습니다 — `
+          + '레이아웃이 자리를 잡아 두는 자리표시자이거나 잠긴 도형일 수 있습니다');
+      }
       return this.#envelope(
-        { slide_id: slide.id, moved: moves.length, how, of: want.length },
-        [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 ${ALIGN_KO[how]} — `
-          + '기준은 슬라이드가 아니라 고른 도형들 자신입니다']);
+        { slide_id: slide.id, moved: landed.length, planned: moves.length, how, of: want.length },
+        lines);
     });
   }
 
@@ -1594,20 +1634,44 @@ export function placeShapes(box, how) {
     const mid = (lo + hi) / 2;
     for (const b of box) push(b, undefined, mid - b.height / 2);
   } else if (how === 'distribute_h' || how === 'distribute_v') {
-    // 양 끝은 **그대로 둔다** — 사람이 잡아 둔 경계를 우리가 옮기면 그건 정렬이 아니라
-    // 재배치다. 사이의 것들만 고르게 벌린다.
+    // **차지한 폭은 그대로 두고 사이만 고르게 벌린다.** 사람이 잡아 둔 왼쪽 끝과 오른쪽 끝을
+    // 우리가 옮기면 그건 정렬이 아니라 재배치다.
     const horiz = how === 'distribute_h';
     const at = (b) => (horiz ? b.left : b.top);
     const size = (b) => (horiz ? b.width : b.height);
+    const 쪽 = horiz ? '가로' : '세로';
     const sorted = [...box].sort((a, b) => at(a) - at(b));
-    if (sorted.length < 3) return out;   // 둘은 이미 「고르게」다
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    const span = (at(last) + size(last)) - at(first);
+
+    // **둘로는 못 한다, 그리고 그것은 「이미 고르다」가 아니다.** 앞 판본은 빈 배열을 돌려줬고
+    // 부르는 쪽이 그걸 「이미 그렇게 서 있습니다」로 적었다 — 사람은 아무 일도 안 일어난 화면을
+    // 보면서 다 됐다는 말을 듣는다. 바로 앞 커밋이 `apply_style` 에서 고친 그 실패다(§2.3).
+    if (sorted.length < 3) {
+      throw new Error(`${쪽} 간격을 고르게 하려면 도형이 셋 이상이어야 합니다 — `
+        + `둘 사이에는 틈이 하나뿐이라 벌릴 것이 없습니다(지금 ${sorted.length}개)`);
+    }
+
+    // 끝은 **바깥 모서리**로 잡는다. 「맨 앞에 있는 것」과 「제일 멀리까지 뻗은 것」은 다른
+    // 도형일 수 있다 — 넓은 배너가 가운데 있으면 그렇다. 앞 판본은 맨 뒤 도형의 뒷모서리를
+    // 폭으로 삼았고, 그래서 폭이 실제보다 짧게 잡혀 `gap` 이 음수가 되고 사이 도형들이
+    // **거꾸로 쌓였다** — 그러고도 「고르게 했습니다」라고 답했다. 리뷰가 계산으로 짚었고
+    // (2026-09-02) 실측으로 재현했다: [60,w120] [200,w500] [650,w120] 에서 가운데가 200 → 165
+    // 로 왼쪽으로 밀려 양옆과 15pt 씩 겹쳤다.
+    const head = at(sorted[0]);
+    const tail = Math.max(...sorted.map((b) => at(b) + size(b)));
+    const span = tail - head;
     const used = sorted.reduce((n, b) => n + size(b), 0);
     const gap = (span - used) / (sorted.length - 1);
-    let cursor = at(first) + size(first);
-    for (let i = 1; i < sorted.length - 1; i++) {
+
+    // **안 들어가면 겹쳐 놓지 말고 말한다.** 음수 틈은 「고르게」가 아니라 「자리가 모자란다」다.
+    if (gap < 0) {
+      throw new Error(`고른 도형들의 ${쪽} 길이를 합치면 지금 차지한 폭보다 큽니다 — `
+        + '겹치지 않게 고르게 벌릴 수가 없습니다. 도형을 줄이거나 양 끝을 더 벌려 주세요');
+    }
+
+    // 첫 도형만 제자리다. 마지막까지 순서대로 놓으면 폭이 `span` 그대로라 **끝 모서리가
+    // 저절로 tail 에 맞는다** — 뒷끝을 가진 것이 가운데 도형이었을 때도 차지한 폭이 안 변한다.
+    let cursor = head + size(sorted[0]);
+    for (let i = 1; i < sorted.length; i++) {
       const want = cursor + gap;
       push(sorted[i], horiz ? want : undefined, horiz ? undefined : want);
       cursor = want + size(sorted[i]);

@@ -87,6 +87,26 @@ class StubShape extends Loaded {
   getTable() { return this.table ?? (this.table = new StubTable(this.raw, this.pending, this.log)); }
 }
 
+// 자리와 크기는 **써 넣으면 픽스처에 남아야 한다.**
+//
+// 앞 판본은 `reveal` 이 `view.left = raw.left` 로 값을 복사해 두기만 했고, 손이 `sh.left = 300`
+// 을 하면 그 값은 view 에만 붙었다가 사라졌다. 그래서 **쓰기를 통째로 빠뜨려도 모든 단언이
+// 초록**이었다 — 리뷰가 실행으로 짚었다(2026-09-02). 계산만 재고 쓰기를 안 재면, 이 파일은
+// 「셈이 맞다」까지만 말하면서 「도형이 움직인다」를 말하는 척한다.
+//
+// 값이 같을 때는 안 적는다 — `reveal` 의 복사가 매번 로그를 더럽히면 로그가 못 쓰게 된다.
+for (const field of ['left', 'top', 'width', 'height']) {
+  Object.defineProperty(StubShape.prototype, field, {
+    get() { return this.raw[field]; },
+    set(v) {
+      if (this.raw[field] === v) return;
+      this.log.push(`${field}:${this.raw.id}:${v}`);
+      this.raw[field] = v;
+    },
+    configurable: true,
+  });
+}
+
 class StubTextRange extends Loaded {
   constructor(raw, pending, log) {
     super(raw, pending);
@@ -1778,8 +1798,78 @@ async function makeZip(files) {
     ok('사이 간격이 고르게 된다', got[1].left === 250, JSON.stringify(got));
   }
   {
-    // 둘은 이미 「고르게」다 — 옮길 것이 없다.
-    ok('둘뿐이면 간격을 안 건드린다', run([at(0, 0), at(300, 0)], 'distribute_h').length === 0);
+    // **둘로는 못 한다, 그리고 그것은 「이미 고르다」가 아니다.**
+    //
+    // 앞 판본은 여기서 빈 배열을 돌려줬고, 이 단언은 그것을 「안 건드린다」로 붙박았다. 부르는
+    // 쪽은 빈 배열을 「이미 그렇게 서 있습니다」로 적었으므로, 사람은 아무 일도 안 일어난 화면을
+    // 보면서 다 됐다는 말을 들었다 — 리뷰가 짚었다(2026-09-02). 시험이 거짓말을 지키고 있었던
+    // 셈이라, 단언을 뒤집는 것이 이 고침의 절반이다.
+    let why = null;
+    try { run([at(0, 0), at(300, 0)], 'distribute_h'); } catch (e) { why = e.message; }
+    ok('둘로는 간격을 못 고르게 한다고 말한다', why?.includes('셋 이상'), why);
+    ok('그 사유가 「이미 고르다」가 아니다', why != null && !why.includes('이미'), why);
+  }
+
+  // ── 넓은 도형이 가운데 있을 때 ─────────────────────────────────────────────
+  //
+  // 여기가 이 도구에서 제일 조용히 틀렸던 자리다. 「맨 앞에 있는 것」과 「제일 멀리까지 뻗은
+  // 것」은 다른 도형일 수 있는데, 앞 판본은 맨 뒤 도형의 뒷모서리를 폭으로 삼았다. 그래서 폭이
+  // 짧게 잡히고 틈이 음수가 되어 사이 도형들이 **거꾸로 쌓였고**, 그러고도 「고르게 했습니다」로
+  // 답했다. 리뷰가 계산으로 짚고 실행으로 재현했다(2026-09-02).
+  {
+    // 들어가는 경우 — 뒷끝을 가진 것이 가운데여도 **차지한 폭이 안 변한다.**
+    const boxes = [at(0, 0, 100), at(200, 0, 800), at(900, 0, 50)];
+    const got = after(boxes, 'distribute_h');
+    const right = got.map((g, i) => g.left + boxes[i].width);
+    ok('차지한 폭이 그대로다', got[0].left === 0 && Math.max(...right) === 1000,
+      JSON.stringify(got));
+    // 폭 1000 에 도형이 950 을 쓰므로 틈은 (1000-950)/2 = 25.
+    ok('뒷끝이 가운데 도형이어도 틈이 고르다',
+      got[1].left === 125 && got[2].left === 950, JSON.stringify(got));
+    ok('겹치지 않는다',
+      got[0].left + 100 <= got[1].left && got[1].left + 800 <= got[2].left, JSON.stringify(got));
+  }
+  {
+    // 안 들어가는 경우 — **겹쳐 놓지 말고 말한다.** 실물에서 재현했던 그 값이다.
+    let why = null;
+    try { run([at(60, 0, 120), at(200, 0, 500), at(650, 0, 120)], 'distribute_h'); }
+    catch (e) { why = e.message; }
+    ok('자리가 모자라면 겹쳐 놓지 않고 말한다', why?.includes('겹치지 않게'), why);
+  }
+  {
+    // 앞 판본이 실제로 무엇을 했는지 못 박아 둔다 — 이 값이 다시 나오면 되돌아간 것이다.
+    const moves = (() => { try { return run([at(60, 0, 120), at(200, 0, 500), at(650, 0, 120)], 'distribute_h'); }
+      catch { return null; } })();
+    ok('가운데를 왼쪽으로 밀어 겹치게 놓지 않는다', moves === null, JSON.stringify(moves));
+  }
+
+  // ── 안 재던 갈래들 ─────────────────────────────────────────────────────────
+  //
+  // 여덟 중 다섯만 재고 있었다. `middle` 은 실물로 확인한 갈래인데 시험이 없었다 — 증거가 있는
+  // 것이 회귀에는 제일 무방비였던 셈이다.
+  {
+    const got = after([at(0, 40, 100, 50), at(0, 10, 100, 80), at(0, 90, 100, 20)], 'bottom');
+    // 아래 끝은 90+20=110 과 40+50=90 과 10+80=90 중 110.
+    ok('아래쪽은 가장 아래 끝에 맞춘다',
+      got[0].top === 60 && got[1].top === 30 && got[2].top === 90, JSON.stringify(got));
+  }
+  {
+    const got = after([at(0, 0, 100, 100), at(0, 0, 100, 50)], 'middle');
+    // 차지한 높이는 0~100, 가운데는 50. 100 짜리는 0, 50 짜리는 25.
+    ok('세로 가운데는 차지한 높이의 한가운데다',
+      got[0].top === 0 && got[1].top === 25, JSON.stringify(got));
+  }
+  {
+    const got = after([at(0, 0, 100, 50), at(0, 150, 100, 50), at(0, 500, 100, 50)], 'distribute_v');
+    ok('세로 간격도 고르게 된다',
+      got[0].top === 0 && got[1].top === 250 && got[2].top === 500, JSON.stringify(got));
+  }
+  {
+    // 폭이 다를 때 — **가운데를 고르게가 아니라 틈을 고르게** 한다. 폭이 같으면 두 셈이 같은
+    // 답을 내므로, 폭이 다른 경우가 없으면 어느 쪽인지 시험이 말해 주지 않는다.
+    const got = after([at(0, 0, 20), at(300, 0, 400), at(900, 0, 20)], 'distribute_h');
+    // 폭 920 에 도형이 440 을 쓰므로 틈은 240. 가운데는 0+20+240 = 260.
+    ok('틈을 고르게 한다(가운데를 고르게가 아니라)', got[1].left === 260, JSON.stringify(got));
   }
 
   // **이미 그 자리인 것은 안 옮긴다.** 옮겼다고 세면 「N개를 옮겼습니다」가 아무 뜻이 없어진다.
@@ -1829,6 +1919,133 @@ async function makeZip(files) {
       { id: 'b', name: 'ㄴ', left: 90, top: 60, width: 100, height: 50 },
     ] }] }).run('align_shapes', { slide: 1, how: 'left' });
     ok('가짜 손도 같은 수를 옮긴다', fake.result.moved === 1, JSON.stringify(fake.result));
+
+    // **봉투의 칸도 같아야 한다.** 창은 두 손을 구별하지 않고 그리므로, 한쪽에만 있는 칸은
+    // 브라우저에서 보이던 것이 실물에서 사라지는 자리가 된다.
+    ok('두 손의 봉투 칸이 같다',
+      JSON.stringify(Object.keys(out.result).sort())
+        === JSON.stringify(Object.keys(fake.result).sort()),
+      `${Object.keys(out.result).sort()} vs ${Object.keys(fake.result).sort()}`);
+  }
+
+  // ── 쓰기가 실제로 나가는가 ─────────────────────────────────────────────────
+  //
+  // 여기가 이 묶음의 눈이 멀어 있던 자리다. 스텁이 `left` 쓰기를 view 에만 받고 픽스처에
+  // 안 남겼으므로, **쓰기를 통째로 빼도 위 단언이 전부 초록**이었다. 스텁을 고쳤으니 이제
+  // 「셈이 맞다」가 아니라 「도형이 움직였다」를 잰다. 리뷰가 실행으로 짚었다(2026-09-02).
+  {
+    const deck = {
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 50, top: 0, width: 100, height: 50, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 90, top: 60, width: 100, height: 50, altTextDescription: null },
+          { id: 'c', name: 'ㄷ', type: 'GeometricShape', text: '', left: 70, top: 120, width: 100, height: 50, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    };
+    const log = [];
+    const moved = await new OfficeHand({ run: stubRunner(deck, log), supports: () => true, document: 'd' })
+      .run('align_shapes', { slide: 1, how: 'left' });
+    ok('픽스처의 자리가 실제로 바뀐다',
+      deck.slides[0].shapes.every((sh) => sh.left === 50),
+      JSON.stringify(deck.slides[0].shapes.map((sh) => sh.left)));
+    ok('쓴 것이 로그에 남는다', log.filter((l) => l.startsWith('left:')).length === 2,
+      JSON.stringify(log.filter((l) => l.startsWith('left:'))));
+    ok('이미 그 자리인 것은 안 쓴다', !log.includes('left:a:50'), JSON.stringify(log));
+    // **센 것이 화면이지 계획이 아니다** — 써 넣고 다시 읽어서 센다.
+    ok('옮겨진 수를 다시 읽어 센다', moved.result.moved === 2 && moved.result.planned === 2,
+      JSON.stringify(moved.result));
+  }
+
+  // ── 이 장에 없는 도형 id ───────────────────────────────────────────────────
+  //
+  // 도형 id 는 **한 장 안에서만** 유일하다. 7번 장을 읽고 받은 id 를 3번 장에 그대로 쓰면,
+  // 걸러 내기만 하는 코드는 3번 장의 **엉뚱한 도형**을 잡아 옮기고 「됐습니다」라고 답한다.
+  // 이 저장소가 이미 한 번 당한 종류다.
+  {
+    const fixture = {
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 50, top: 0, width: 100, height: 50, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 90, top: 60, width: 100, height: 50, altTextDescription: null },
+          { id: 'c', name: 'ㄷ', type: 'GeometricShape', text: '', left: 70, top: 120, width: 100, height: 50, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    };
+    let why = null;
+    try {
+      await new OfficeHand({ run: stubRunner(fixture, []), supports: () => true, document: 'd' })
+        .run('align_shapes', { slide: 1, how: 'left', shape_ids: ['a', 'b', '없는-것'] });
+    } catch (e) { why = e.message; }
+    ok('못 찾은 id 가 있으면 거절한다', why?.includes('없는-것'), why);
+    ok('왜 그럴 수 있는지까지 말한다', why?.includes('한 장 안에서만'), why);
+    ok('거절했으면 아무것도 안 옮긴다',
+      fixture.slides[0].shapes.map((sh) => sh.left).join(',') === '50,90,70',
+      JSON.stringify(fixture.slides[0].shapes.map((sh) => sh.left)));
+
+    // 가짜 손도 같은 엄격함이어야 한다 — 여기가 관대하면 브라우저에서 통과한 호출이 실물에서
+    // 엉뚱한 도형을 옮긴다.
+    const twoShapes = () => ({ slides: [{ id: 's1', layout: 'L', shapes: [
+      { id: 'a', name: 'ㄱ', left: 0, top: 0, width: 10, height: 10 },
+      { id: 'b', name: 'ㄴ', left: 5, top: 0, width: 10, height: 10 },
+    ] }] });
+    let fwhy = null;
+    try {
+      await new FakeHand(twoShapes())
+        .run('align_shapes', { slide: 1, how: 'left', shape_ids: ['a', '없는-것'] });
+    } catch (e) { fwhy = e.message; }
+    ok('가짜 손도 없는 id 를 거절한다', fwhy?.includes('없는-것'), fwhy);
+
+    // 하나만 고르는 거절에는 **양쪽 다** 이 장의 도형 id 를 싣는다 — 매뉴얼이 그렇게 약속한다.
+    let one = null;
+    try {
+      await new FakeHand(twoShapes())
+        .run('align_shapes', { slide: 1, how: 'left', shape_ids: ['a'] });
+    } catch (e) { one = e.message; }
+    ok('가짜 손의 거절도 이 장의 도형을 알려 준다', one?.includes('이 장의 도형'), one);
+  }
+
+  // ── 묶음이 중간에 죽어도 개정은 올린다 ─────────────────────────────────────
+  //
+  // 묶음은 원자적이지 않다. 호스트가 중간에서 거절하면 앞의 것들은 **이미 옮겨진** 뒤다. 그때
+  // 개정을 안 올리면 이어지는 `render_slide` 가 「안 바뀌었습니다」로 거절하고(§6.10), 모델은
+  // 반쯤 흐트러진 장을 안 바뀐 것으로 안다 — 사람은 망가진 화면을 보는데 모델은 아무 일도
+  // 없었다고 우긴다.
+  {
+    const deck = {
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 50, top: 0, width: 100, height: 50, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 90, top: 60, width: 100, height: 50, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    };
+    // **쓰기 다음 sync 에서** 죽인다. 몇 번째냐로 겨누면 왕복 수가 바뀔 때마다 이 시험이
+    // 엉뚱한 곳을 재게 된다 — 자리가 이미 하나 나갔는가로 겨눈다. 쓰기 전에 죽었으면 개정을
+    // 안 올리는 것이 맞고, 그건 다른 이야기다.
+    const trail = [];
+    const dying = new OfficeHand({
+      run: (fn) => stubRunner(deck, trail)(async (context) => {
+        const real = context.sync.bind(context);
+        context.sync = async () => {
+          if (trail.some((l) => l.startsWith('left:'))) throw new Error('GeneralException');
+          return real();
+        };
+        return fn(context);
+      }),
+      supports: () => true, document: 'd',
+    });
+    const was = dying.count;
+    let boom = null;
+    try { await dying.run('align_shapes', { slide: 1, how: 'left' }); } catch (e) { boom = e.message; }
+    ok('죽으면 죽었다고 한다', boom != null, String(boom));
+    ok('그래도 개정은 올라간다 — 덱은 건드려졌다', dying.count > was, `${was} → ${dying.count}`);
   }
 }
 

@@ -251,10 +251,10 @@ func catalogue() []tool {
 		},
 		{
 			Name: "align_shapes",
-			Desc: "Line shapes up or space them evenly — \"centre these\", \"even out the gaps\". Without it the coordinates have to be worked out by hand and moved one shape at a time, and an arithmetic slip shows up as a crooked slide. The reference is the shapes you picked, not the slide: this host cannot read the slide size (pageSetup is 1.10), and the result says so.",
+			Desc: "Line shapes up or space them evenly — \"centre these\", \"even out the gaps\". Without it the coordinates have to be worked out by hand and moved one shape at a time, and an arithmetic slip shows up as a crooked slide. The reference is the shapes you picked, not the slide: this host cannot read the slide size (pageSetup is 1.10), and the result says so. Needs at least 2 shapes (3 for the two distribute modes). Refuses rather than guessing: an unknown shape id, or shapes too long to space without overlapping, comes back as a sentence, not a half-done slide.",
 			Props: withSlide(
-				property{Name: "how", Type: "string", Desc: "left, right, center (horizontal), top, bottom, middle (vertical), distribute_h, distribute_v. Distributing keeps the outermost two where they are and evens the gaps between the rest."},
-				property{Name: "shape_ids", Type: "array", Items: "string", Desc: "Which shapes. Omit for every shape on the slide."},
+				property{Name: "how", Type: "string", Desc: "One of exactly these eight: left, right, center (horizontal), top, bottom, middle (vertical), distribute_h, distribute_v. Distributing keeps the outer edges of the whole group where they are and evens the gaps between the shapes; it needs 3 or more, because with 2 there is only one gap and it is already even. Alignment uses each shape's unrotated box, so a rotated shape lines up by that box rather than by what the eye sees."},
+				property{Name: "shape_ids", Type: "array", Items: "string", Desc: "Which shapes, from read_slide or find_shapes on THIS slide. Shape ids are unique only within one slide, so ids read from another slide are refused by name rather than silently matched here. Omitting this takes every shape on the slide INCLUDING the title and any other placeholders, which is rarely what \"line these up\" means — prefer naming the shapes."},
 			),
 			Required: []string{"how"},
 		},

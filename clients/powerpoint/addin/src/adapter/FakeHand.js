@@ -331,11 +331,23 @@ export class FakeHand extends HandPort {
             + [...ALIGNMENTS].join(', '));
         }
         const slide = this.#slide(args);
-        const want = Array.isArray(args.shape_ids) && args.shape_ids.length
-          ? slide.shapes.filter((sh) => args.shape_ids.includes(sh.id))
-          : slide.shapes;
+        const all = slide.shapes;
+        let want = all;
+        if (Array.isArray(args.shape_ids) && args.shape_ids.length) {
+          // **진짜 손과 같은 엄격함.** 못 찾은 id 를 조용히 빼면 브라우저에서 통과한 호출이
+          // 실물에서 엉뚱한 도형을 옮긴다 — 도형 id 는 한 장 안에서만 유일하다.
+          const here = new Map(all.map((sh) => [String(sh.id), sh]));
+          const missing = args.shape_ids.filter((id) => !here.has(String(id)));
+          if (missing.length) {
+            throw new Error(`이 장에 없는 도형 id 입니다: ${missing.join(', ')} — `
+              + '도형 id 는 한 장 안에서만 유일하니 다른 장에서 읽은 id 일 수 있습니다. '
+              + `이 장의 도형: ${all.map((sh) => sh.id).join(', ') || '없음'}`);
+          }
+          want = args.shape_ids.map((id) => here.get(String(id)));
+        }
         if (want.length < 2) {
-          throw new Error(`줄 세울 도형이 ${want.length}개뿐입니다 — 둘 이상 골라 주세요`);
+          throw new Error(`줄 세울 도형이 ${want.length}개뿐입니다 — 둘 이상 골라 주세요`
+            + ` (이 장의 도형: ${all.map((sh) => sh.id).join(', ') || '없음'})`);
         }
         const box = want.map((sh) => ({
           sh,
@@ -344,7 +356,7 @@ export class FakeHand extends HandPort {
         }));
         const moves = placeShapes(box, how);
         if (moves.length === 0) {
-          return this.#envelope({ slide_id: slide.id, moved: 0, how, of: want.length },
+          return this.#envelope({ slide_id: slide.id, moved: 0, planned: 0, how, of: want.length },
             [`도형 ${want.length}개가 이미 그렇게 서 있어 옮긴 것이 없습니다`]);
         }
         for (const m of moves) {
@@ -352,7 +364,9 @@ export class FakeHand extends HandPort {
           if (m.top !== undefined) m.sh.top = m.top;
         }
         this.#mutated();
-        return this.#envelope({ slide_id: slide.id, moved: moves.length, how, of: want.length },
+        // 봉투의 칸도 같은 모양이어야 한다 — 창은 두 손을 구별하지 않고 그린다.
+        return this.#envelope(
+          { slide_id: slide.id, moved: moves.length, planned: moves.length, how, of: want.length },
           [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 옮겼습니다 — `
             + '기준은 슬라이드가 아니라 고른 도형들 자신입니다']);
       }
