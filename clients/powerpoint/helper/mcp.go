@@ -278,6 +278,17 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeStatus 는 **실패도 JSON 으로** 낸다.
+//
+// `http.Error` 는 본문을 평문으로 흘리므로, 받는 쪽은 사유 한 줄 말고는 아무것도 못 읽는다.
+// 여기서 실패에 실어야 하는 것은 사유만이 아니라 **자리**다 — 소켓·워크스페이스·로그 경로가
+// 사람이 다음에 할 일 그 자체이고, 평문으로 흘리면 화면이 그걸 링크로도 못 만든다.
+func writeStatus(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
 func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, msg string) {
 	if len(id) == 0 {
 		id = json.RawMessage("null")

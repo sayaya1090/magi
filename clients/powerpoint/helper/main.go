@@ -109,7 +109,12 @@ func run(args []string, log io.Writer) int {
 	mux.HandleFunc(handStreamPath, handHTTP.Stream)
 	mux.HandleFunc(handReplyPath, handHTTP.Reply)
 
-	api := &API{Bridge: bridge, Attachments: attachments, Hub: hub, Token: token, ConfigDir: dir, Port: *port}
+	api := &API{
+		Bridge: bridge, Attachments: attachments, Hub: hub,
+		Token: token, ConfigDir: dir, Port: *port,
+		Own:  &OwnCompanion{ConfigDir: dir},
+		Work: NewOwnWork(),
+	}
 	api.Route(mux)
 
 	pages := &Pages{Root: root, Token: token, Boot: map[string]any{
@@ -120,6 +125,19 @@ func run(args []string, log io.Writer) int {
 
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
+
+	// **컴패니언을 미리 마련해 둔다.**
+	//
+	// 실측(2026-09-02): 이 머신에서 데몬 냉시동이 **165초**다. 그걸 작업창을 연 뒤에 시작하면
+	// 사람은 3분을 「준비 중」 화면 앞에서 보낸다 — PC 를 잘 다루지 못하는 사람에게 그건 고장과
+	// 구별이 안 된다. 헬퍼는 애드인을 깐 사람의 머신에서 도는 것이므로, 여기서 시작하면 판을
+	// 열 무렵에는 대개 이미 서 있다.
+	//
+	// **기동을 안 붙잡는다.** 뒤에서 돌고, 실패해도 헬퍼는 그대로 선다 — 명단으로 가는 길이
+	// 남아 있고, 사유는 판이 `/api/own` 으로 물으면 그대로 나온다.
+	if _, mine := api.Work.Begin(); mine {
+		go api.makeOwn()
+	}
 
 	fmt.Fprintf(log, "magi-ppt %s\n애드인: %s\nMCP: %s\n애드인 소스: %s\n",
 		version.Version, PageURL(*port), MCPURL(*port), root)
@@ -167,9 +185,35 @@ type API struct {
 	Token       string
 	ConfigDir   string
 	Port        int
+	// Own 은 **파워포인트 몫의 컴패니언**. 명단에서 남의 워크스페이스를 골라 빌리는 대신 이것을
+	// 마련한다(own.go) — 메일에서 받은 덱을 더블클릭한 사람에게는 명단이 늘 비어 있다.
+	Own *OwnCompanion
+	// ReadFleet·Bolt 는 명단을 읽고 도구를 붙이는 길. **시험만 이 자리를 채운다** — 기본값은 바로
+	// 아래 둘이다. 주입 자리가 없으면 이 핸들러의 실패 갈래는 실물 소켓 없이는 못 재고, 못 재는
+	// 갈래는 안 만든 것과 같다(TESTING §1).
+	ReadFleet func(configDir string) ([]Companion, error)
+	Bolt      func(socket, url, token string) ([]string, error)
+	// Work 는 그 마련하는 일의 상태. **한 번에 하나만 돈다**(ownstate.go).
+	Work *OwnWork
+}
+
+// fleetOf·boltOf 는 주입이 없을 때의 진짜 길.
+func (a *API) fleetOf(configDir string) ([]Companion, error) {
+	if a.ReadFleet != nil {
+		return a.ReadFleet(configDir)
+	}
+	return a.Attachments.Fleet(configDir)
+}
+
+func (a *API) boltOf(socket, url, token string) ([]string, error) {
+	if a.Bolt != nil {
+		return a.Bolt(socket, url, token)
+	}
+	return a.Attachments.Attach(socket, url, token)
 }
 
 func (a *API) Route(mux *http.ServeMux) {
+	mux.HandleFunc("/api/own", a.guard(a.own))
 	mux.HandleFunc("/api/companions", a.guard(a.companions))
 	mux.HandleFunc("/api/choose", a.guard(a.choose))
 	mux.HandleFunc("/api/submit", a.guard(a.submit))
@@ -221,6 +265,95 @@ func (a *API) companions(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+// own 은 **파워포인트 몫의 컴패니언에 붙는다** — 고르는 화면을 거치지 않는다.
+//
+// 앞 판본은 이 머신의 데몬을 명단으로 보여 주고 사람에게 고르게 했다. 그 화면이 성립하려면 이미
+// 데몬이 떠 있어야 하는데, 메일에서 받은 `.pptx` 를 더블클릭한 사람에게는 **늘 비어 있다.**
+// 명단은 안 없앤다 — 저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶은 경우가 실제로
+// 있어서, `/api/companions` 는 「고급」으로 남는다.
+//
+// **답이 즉시 온다.** 데몬 냉시동은 오래 걸리고(실물에서 120초 요청이 끊겼다, 2026-09-02) 그동안
+// 판이 멎어 있으면 사람은 그것을 고장으로 읽는다 — 무엇을 기다리는지도, 다시 눌러야 하는지도
+// 모른다. 그래서 이 자리는 **지금 상태를 답하고** 일은 뒤로 보낸다. 판은 다시 물어 진행을 본다.
+//
+// 실패를 **한 문장으로 뭉치지 않는다.** 「magi 를 못 찾았다」와 「띄웠는데 안 선다」와 「떴는데
+// 도구를 못 받는 빌드다」는 사람이 할 일이 각각 다르고, 답에 자리(소켓·워크스페이스·로그)를 실어
+// 두는 것이 유일하게 행동으로 옮길 수 있는 말이다.
+func (a *API) own(w http.ResponseWriter, _ *http.Request) {
+	if a.Own == nil || a.Work == nil {
+		http.Error(w, "이 헬퍼는 자기 컴패니언을 마련하도록 세워지지 않았습니다", http.StatusNotImplemented)
+		return
+	}
+	now, mine := a.Work.Begin()
+	if !mine {
+		// 이미 돌고 있거나 이미 다 됐다. **새로 시작하지 않는다** — 덱을 둘 열면 이 자리가 둘에서
+		// 두드려지는데, 각자 띄우면 둘이 한 워크스페이스를 두고 다툰다.
+		writeJSON(w, now)
+		return
+	}
+	go a.makeOwn()
+	writeJSON(w, now)
+}
+
+// makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**
+func (a *API) makeOwn() {
+	st, err := a.Own.Ensure()
+	if err != nil {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Why: err.Error(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	// 세션 id 와 「도구를 받을 수 있는가」는 **명단이 이미 답하는 것**이다. 여기서 따로 물으면
+	// 같은 것을 두 식으로 재게 되고, 두 식은 언젠가 갈린다.
+	fleet, err := a.fleetOf(a.ConfigDir)
+	if err != nil {
+		a.Work.Done(OwnReport{Phase: OwnFailed, Why: err.Error(), Socket: st.Socket, Log: st.Log})
+		return
+	}
+	var mine *Companion
+	for i := range fleet {
+		if fleet[i].Socket == st.Socket {
+			mine = &fleet[i]
+			break
+		}
+	}
+	if mine == nil {
+		// 방금 섰다고 확인한 것이 명단에 없다 — 유도식이 갈렸다는 뜻이라 조용히 넘기면 안 된다.
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started,
+			Why:    "컴패니언이 " + st.Socket + " 에 섰는데 명단에서 그 자리를 못 찾았습니다",
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	if !mine.Chooseable() {
+		// **고를 수 없는 이유를 그대로 전한다**(§5.0.5). 「안 됩니다」만으로는 할 일이 없다.
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started, Why: mine.Why(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port), a.Token)
+	if err != nil {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	out := OwnReport{
+		Phase: OwnReady, Started: st.Started, Tools: tools,
+		Socket: mine.Socket, Session: mine.Session, Workdir: st.Workdir, Log: st.Log,
+	}
+	if err := a.Bridge.Bind(mine.Socket, mine.Session); err != nil {
+		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).
+		out.Chat = err.Error()
+	}
+	a.Work.Done(out)
+}
 func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Socket  string `json:"socket"`

@@ -177,7 +177,70 @@ async function boot() {
         pick.note(`컴패니언을 못 훑었습니다: ${e?.message ?? e}`);
       }
     };
+    /**
+     * **자기 컴패니언에 알아서 붙는다** — 고르는 화면을 안 거치는 길.
+     *
+     * 명단 화면은 이미 데몬이 떠 있는 사람에게만 뜻이 있다. 메일에서 받은 `.pptx` 를 더블클릭한
+     * 사람에게는 **늘 비어 있고**, 「컴패니언을 고르세요」는 그 사람 머릿속에 대응하는 개념이
+     * 없는 말이다. 이 도구의 목표가 PC 를 잘 다루지 못하는 사람이면 첫 화면이 막다른 길이었다.
+     *
+     * 그래서 열면 헬퍼가 파워포인트 몫의 컴패니언을 마련한다(`/api/own`). **명단은 안 없앤다** —
+     * 저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶은 경우가 실제로 있고, 자동으로
+     * 못 마련했을 때 사람이 갈 곳도 거기다.
+     *
+     * **기다리는 동안 말을 한다.** 데몬 냉시동은 오래 걸릴 수 있는데, 아무 말 없는 화면은
+     * 고장으로 읽힌다 — 무엇을 기다리는지도, 다시 눌러야 하는지도 모른다.
+     */
+    const attachOwn = async () => {
+      const began = Date.now();
+      const said = () => {
+        const secs = Math.round((Date.now() - began) / 1000);
+        // **얼마나 걸리는지 말한다.** 실측(2026-09-02) 냉시동이 165초다 — 「준비 중」만 적어
+        // 두면 사람은 3분을 고장 앞에 앉아 있는 것과 구별하지 못한다.
+        view.where(`magi 를 준비하는 중입니다 — ${secs}초째.`
+          + (secs > 20 ? ' 처음 한 번은 2~3분 걸립니다.' : ''));
+      };
+      let r;
+      try {
+        r = await api.own();
+      } catch (e) {
+        // 이 헬퍼가 그 자리를 안 가진 판본일 수 있다. **없는 길을 고장으로 적지 않는다** —
+        // 명단이 그대로 있으므로 사람이 할 수 있는 일이 남아 있다.
+        pick.note(`자동으로 준비하지 못했습니다: ${e?.message ?? e}. 아래에서 골라 주세요.`);
+        return false;
+      }
+      // 냉시동을 실측했다(2026-09-02). 5분을 천장으로 두되 **끝나면 바로 나간다.**
+      const until = began + 5 * 60 * 1000;
+      while (r?.phase === 'working' && Date.now() < until) {
+        said();
+        await new Promise((go) => setTimeout(go, 1500));
+        try { r = await api.own(); } catch { /* 잠깐 못 물어본 것은 실패가 아니다 */ }
+      }
+      if (r?.phase !== 'ready') {
+        // **왜 못 했는지와 어디를 볼지**를 같이 준다. 「안 됩니다」만으로는 할 일이 없다.
+        const why = r?.why || (r?.phase === 'working' ? '아직 안 떴습니다(5분 넘음)' : '알 수 없음');
+        pick.note(`자동으로 준비하지 못했습니다: ${why}`);
+        if (r?.log) pick.note(`자세한 사유는 여기 있습니다: ${r.log}`);
+        view.where('자동으로 준비하지 못했습니다 — 아래에서 컴패니언을 골라 주세요.');
+        return false;
+      }
+      listenTo(r.session);
+      pick.hide();
+      // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
+      bound = baseNameOf(r.workdir) || 'PowerPoint';
+      saidStale = false;
+      view.where(`준비됐습니다 — 도구 ${r.tools?.length ?? 0} 개.`
+        + (r.started ? ' (magi 를 방금 띄웠습니다)' : '')
+        + (r.chat ? ` 다만 채팅은 아직입니다: ${r.chat}` : ''));
+      view.setBound(true);
+      await refreshBrand();
+      return true;
+    };
+
     await showCompanions();
+    // 이미 붙어 있으면(작업창을 껐다 켠 경우) 그것을 흔들지 않는다 — 다시 붙이는 것은 첫 등록을
+    // 떨어뜨리는 일이다(§5.0.1).
+    if (!bound) await attachOwn();
 
     // **컴패니언이 다시 뜬 것을 폴이 알려 준다.** 화면이 이미 그리는 것 뒤에 한 줄 더 건다 —
     // `readTranscript.onChange` 를 감싼 것과 같은 자리, 같은 이유다(한 사건에 한 자리).

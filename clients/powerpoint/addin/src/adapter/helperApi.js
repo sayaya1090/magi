@@ -39,6 +39,15 @@ export class HelperApi {
   documents() { return this.#send('/api/documents', { method: 'GET' }); }
   status() { return this.#send('/api/status', { method: 'GET' }); }
 
+  /**
+   * **파워포인트 몫의 컴패니언**을 마련해 달라고 한다 — 고르는 화면을 안 거치는 길.
+   *
+   * 답은 **즉시** 온다. 데몬 냉시동은 오래 걸리는데 그걸 요청 안에서 기다리면 판이 멎고,
+   * 멎은 화면은 사람에게 고장으로 읽힌다. 그래서 이 자리는 지금 상태(phase)를 주고 일은 뒤에서
+   * 돈다 — 다시 불러 진행을 본다. 두 번 불러도 데몬이 둘 뜨지 않는다.
+   */
+  own() { return this.#send('/api/own', { body: {} }); }
+
   choose(socket, session) { return this.#send('/api/choose', { body: { socket, session } }); }
   submit(text) { return this.#send('/api/submit', { body: { text } }); }
   steer(text) { return this.#send('/api/steer', { body: { text } }); }
