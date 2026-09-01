@@ -2865,6 +2865,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // **명단은 안 없앤다.** 저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶은 경우가
   // 실제로 있고, 자동으로 못 마련했을 때 사람이 갈 곳도 거기다.
   ok('고르는 길이 남아 있다', /api\.choose\(/.test(src) && /mountPick\(/.test(src));
+
+  // **붙어 있으면 고르는 화면을 접는다.** 실물에서 봤다(2026-09-02): 브랜드 줄은 「대화
+  // 연결됨」인데 위쪽에는 「어느 컴패니언에 붙일까요」가 떠 있었다 — 다 된 화면이 아직 뭔가
+  // 해야 한다고 말하는 꼴이다. 고르고 붙은 길은 접는데 **물려받은 길만** 안 접고 있었다.
+  {
+    const inherit = /const sock = saidStale[\s\S]*?\n        \}/.exec(src)?.[0] ?? '';
+    ok('물려받는 자리가 있다', inherit !== '');
+    ok('물려받아도 고르는 화면을 접는다', /pick\.hide\(\)/.test(inherit), inherit.slice(0, 80));
+    ok('물려받으면 「붙어 있다」를 올린다', /setBound\(true\)/.test(inherit));
+  }
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

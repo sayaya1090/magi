@@ -169,6 +169,14 @@ async function boot() {
           listenTo(list?.bound?.session);
           bound = nameOf((list.companions ?? [])
             .map((e) => e.companion).find((c) => c?.socket === sock)) || baseNameOf(sock);
+          // **붙어 있으면 고르는 화면을 접는다.**
+          //
+          // 헬퍼가 미리 붙여 뒀거나(§4.2) 작업창을 껐다 켰으면 여기로 물려받는데, 앞 판본은
+          // 상태만 물려받고 명단을 그대로 뒀다. 실물에서 그 화면을 봤다(2026-09-02): 아래쪽
+          // 브랜드 줄은 「대화 연결됨」인데 위쪽에는 「어느 컴패니언에 붙일까요」가 떠 있었고,
+          // 그건 다 된 화면이 **아직 뭔가 해야 한다**고 말하는 것이다. 고르고 붙은 길은
+          // (`onChoose`) 접는데 물려받은 길만 안 접고 있었다.
+          pick.hide();
           view.setBound(true);
           await refreshBrand();
         }
