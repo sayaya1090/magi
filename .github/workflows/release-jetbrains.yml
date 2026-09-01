@@ -108,3 +108,71 @@ jobs:
             --title "magi for JetBrains ${GITHUB_REF_NAME#jetbrains-v}" \
             --generate-notes \
             magi-jetbrains-*.zip
+
+      # 사람이 zip 을 손으로 다시 깔지 않게 하는 자리.
+      #
+      # 이 플러그인은 마켓플레이스에 없다. 그래서 릴리스만 올리면 **IDE 가 새 판이 났다는 것을
+      # 알 방법이 없다** — 쓰는 사람은 어딘가에서 소식을 듣고 zip 을 받아 다시 깔아야 한다.
+      # 커스텀 플러그인 저장소는 그 구멍을 IDE 네이티브로 메운다: 사람이 URL 을 **한 번** 등록하면
+      # 그다음부터 갱신을 확인하고 권하는 것은 IDE 다. 우리가 타이머를 돌리지 않는다.
+      #
+      # since/until 을 손으로 안 적는다. **방금 빌드된 zip 안의 plugin.xml 에서 읽는다** — 여기에
+      # 옮겨 적으면 호환 범위가 두 곳에 살고, 한 곳만 고친 날 IDE 는 「호환 안 됨」으로 갱신을
+      # 조용히 감춘다. 갈릴 수 있는 것은 갈리지 않게 한 곳에서 가져온다.
+      - name: 갱신 채널 — updatePlugins.xml
+        working-directory: clients/jetbrains/plugin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#jetbrains-v}"
+          zip="magi-jetbrains-$version.zip"
+          # 두 겹이다. `plugin.xml` 은 zip 최상위가 아니라 `intellij/lib/intellij-*.jar` **안**에
+          # 있다 — 한 겹만 파면 grep 이 빈손이고, 그러면 아래 빈-값 가드가 잡는다. 여기서
+          # 손으로 돌려 보고서야 알았다(2026-09-01): 워크플로에서 처음 돌려 보면 태그를 하나
+          # 태우고서야 안다.
+          tmp=$(mktemp -d)
+          jar=$(unzip -Z1 "$zip" | grep -m1 -E 'lib/intellij-[^/]*\.jar$')
+          unzip -p "$zip" "$jar" > "$tmp/p.jar"
+          xml=$(unzip -p "$tmp/p.jar" META-INF/plugin.xml)
+          id=$(printf '%s' "$xml" | tr -d '\n' | sed -n 's|.*<id>\([^<]*\)</id>.*|\1|p')
+          since=$(printf '%s' "$xml" | grep -o 'since-build="[^"]*"' | head -1 | cut -d'"' -f2)
+          untilb=$(printf '%s' "$xml" | grep -o 'until-build="[^"]*"' | head -1 | cut -d'"' -f2)
+          # 빈 값으로 XML 을 쓰면 IDE 는 그 항목을 조용히 무시한다 — 갱신이 안 뜨는데 이유가
+          # 어디에도 안 남는다. 여기서 죽는 것이 낫다.
+          [ -n "$id" ] && [ -n "$since" ] || { echo "plugin.xml 에서 id/since-build 를 못 읽었다"; exit 1; }
+          url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${zip}"
+          write() {
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<plugins>'
+              printf '  <plugin id="%s" url="%s" version="%s">\n' "$id" "$url" "$version"
+              if [ -n "$untilb" ]; then
+                printf '    <idea-version since-build="%s" until-build="%s"/>\n' "$since" "$untilb"
+              else
+                printf '    <idea-version since-build="%s"/>\n' "$since"
+              fi
+              echo '  </plugin>'
+              echo '</plugins>'
+            } > updatePlugins.xml
+          }
+          cd "$(mktemp -d)"
+          git init -q .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # 있는 것 위에 얹는다. 이 브랜치엔 커버리지 배지와 core-latest.txt 가 이미 산다 —
+          # 고아 브랜치를 새로 만들어 강제 푸시하면 남의 파일을 지운다(ci.yml 이 겪고 적어 둔 것).
+          git fetch -q --depth 1 origin badges && git checkout -q -B badges FETCH_HEAD || git checkout -q -B badges
+          write
+          git add updatePlugins.xml
+          git commit -q -m "jetbrains: $version" || exit 0
+          for try in 1 2 3; do
+            git push -q origin badges && exit 0
+            git fetch -q --depth 1 origin badges || break
+            git checkout -q -B badges FETCH_HEAD
+            write
+            git add updatePlugins.xml
+            git commit -q -m "jetbrains: $version" || exit 0
+          done
+          echo "badges 브랜치에 못 올렸다 — 릴리스는 났지만 갱신 채널이 옛 판을 가리킨다"; exit 1
