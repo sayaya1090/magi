@@ -64,7 +64,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private val composerSuggest = Look.check(MagiBundle.msg("set.suggest.box"))
     private val autostart = Look.check(MagiBundle.msg("set.autostart.box"))
     private val model = Look.narrowCombo<String>(24).apply { isEditable = true }
-    private val backend = JBTextField()
+    private val backend = Look.narrowField()
     private val said = Look.flow()
 
     /** 마지막으로 데몬에서 읽은 값. [isModified] 는 화면과 이것을 견준다 — IDE 저장분이 아니다. */

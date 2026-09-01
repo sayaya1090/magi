@@ -275,10 +275,34 @@ internal object Look {
         object : javax.swing.JComboBox<T>() {
             override fun getMinimumSize(): Dimension {
                 val d = super.getMinimumSize()
-                val cap = getFontMetrics(font).charWidth('M') * chars + JBUI.scale(32)
-                return Dimension(minOf(d.width, cap), d.height)
+                return Dimension(minOf(d.width, FLOOR), d.height)
             }
         }.also { if (prototype) narrow(it, chars) }
+
+    /**
+     * **평소 폭과 최소 폭은 다른 값이다.**
+     *
+     * 처음 고칠 때 둘 다 [narrowCombo] 의 `chars` 로 잡았다. 그래서 24자짜리 모델 칸은 296px
+     * **아래로 영영 안 내려갔다** — 사용자가 바로 잡았다(2026-09-01): 「창은 좁혀지는데
+     * 텍스트필드와 드롭다운이 안 작아진다」. 상한을 씌운다면서 바닥을 같이 올린 것이다.
+     *
+     * `chars` 는 「이만큼이면 편하다」이고 이 값은 「여기까지는 줄어들 수 있다」다. 칸이
+     * 90px 이면 글자는 몇 자 안 보이지만, 그때 사람은 **판을 좁히는 중**이지 그 칸을 읽는
+     * 중이 아니다. 읽을 때 넓어지는 것은 `fill=HORIZONTAL` 이 해 준다.
+     */
+    private val FLOOR: Int get() = JBUI.scale(90)
+
+    /**
+     * 같은 이유로 입력칸도. `JTextField` 의 최소 폭은 columns 이 0 이면 **든 글자 전체**라,
+     * 긴 값을 한 번 받으면 그만큼이 판의 바닥이 된다.
+     */
+    fun narrowField(): com.intellij.ui.components.JBTextField =
+        object : com.intellij.ui.components.JBTextField() {
+            override fun getMinimumSize(): Dimension {
+                val d = super.getMinimumSize()
+                return Dimension(minOf(d.width, FLOOR), d.height)
+            }
+        }
 
     @Suppress("UNCHECKED_CAST")
     fun <T> narrow(combo: javax.swing.JComboBox<T>, chars: Int = 18) {
