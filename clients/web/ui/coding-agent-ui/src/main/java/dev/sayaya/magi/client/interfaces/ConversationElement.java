@@ -445,22 +445,50 @@ public class ConversationElement {
         answerMode();
         form.addEventListener("submit", evt -> {
             evt.preventDefault();
-            String v = value().trim();
-            if (v.isEmpty()) return;
-            // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
-            String to = Moves.to(pastNow, aimed == null ? null : aimed.session);
-            if (!to.isEmpty()) {
-                if (Moves.blocked(to, aimed == null ? null : aimed.state)) return;
-                moveAndSend(to, v);
-                return;
-            }
-            // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
-            value("");
-            store.submit(v, why -> {
-                if (why != null && !why.isEmpty() && value().trim().isEmpty()) value(v);
-            });
+            send();
+        });
+        // **엔터로 보낸다.** 이 칸은 `type="textarea"` 라서 폼이 저 혼자 제출되지 않는다 —
+        // 엔터가 폼을 보내는 것은 한 줄짜리 <input> 의 성질이고, textarea 에서 엔터는 개행이다.
+        // 그래서 보내기 버튼만이 유일한 보내는 손이었고, 사람은 질문을 치고 엔터를 눌러 칸에
+        // 줄만 늘렸다(라이브 보고, 2026-09-02).
+        //
+        // 같은 규칙이 이 트리에 이미 세 벌 적혀 있다(AnswerBox·CardListElement·PaletteElement).
+        // 여기만 없었다 — 규칙을 여러 곳에 적으면 안 적힌 곳이 갈라진다.
+        //
+        // ⇧↩ 는 개행으로 남긴다: rows=1 이어도 여러 줄을 쓸 수 있어야 하고, 그것이 이 칸이
+        // input 이 아니라 textarea 인 이유다. 조합 중 엔터는 손대지 않는다 — 한국어·일본어
+        // 입력기가 음절을 맺는 키가 같은 키라, 가드가 없으면 글자를 맺는 순간 말이 나간다.
+        field.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if (!"Enter".equals(k.key) || k.shiftKey || composing(k)) return;
+            evt.preventDefault();
+            send();
         });
         return form;
+    }
+
+    /**
+     * 보낸다 — 폼 제출과 엔터가 같이 쓰는 한 벌.
+     *
+     * 두 손이 각자 적으면 한쪽만 고쳐지는 날이 온다(이동 확인이나 되돌리기 중 하나가 빠진 채로).
+     */
+    private void send() {
+        String v = value().trim();
+        if (v.isEmpty()) return;
+        // 보낸 말 아래에 남은 제안은 방금 친 것에 대한 것이 아니다.
+        clearSuggest();
+        // 컴패니언이 있지 않은 대화라면, 보내기 전에 물어야 할 것이 하나 있다.
+        String to = Moves.to(pastNow, aimed == null ? null : aimed.session);
+        if (!to.isEmpty()) {
+            if (Moves.blocked(to, aimed == null ? null : aimed.state)) return;
+            moveAndSend(to, v);
+            return;
+        }
+        // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
+        value("");
+        store.submit(v, why -> {
+            if (why != null && !why.isEmpty() && value().trim().isEmpty()) value(v);
+        });
     }
 
     /** 지금 보는 컴패니언의 이름 — 스토어가 잘라 준 그 행의 것(없으면 빈 문자열). */
