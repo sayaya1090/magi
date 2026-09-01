@@ -325,6 +325,49 @@ func contains(ss []string, want string) bool {
 	return false
 }
 
+// The other way a meeting ends, and the one the test above never reopened.
+//
+// That test drives the room to the BACKSTOP, so the last round has somebody still talking in it.
+// The ordinary ending is the opposite: everybody passes, and that is what closes the room. Those
+// passes stay in the round they were said in, and Next skips anyone who already spoke this round
+// — so a reopen that leaves Round where it was hands back a room in which every participant has
+// already had their turn, finds nobody to ask, and closes again before a word is said. The person
+// typing the follow-up cannot break the tie either: allPassedThisRound skips the person on
+// purpose, because a room is not kept open by the convener alone.
+//
+// Live, this read as "reopening just makes new tasks and ends": the driver got no speaker, went
+// straight to the closing round, and wrote conclusions nobody had discussed. The meeting that
+// found it had been reopened four times (MaxRounds 5 → 80) and never left round 8.
+func TestReopeningARoomThatEndedByPassingLetsSomebodySpeak(t *testing.T) {
+	m := opened(New("the rollout", []Speaker{
+		{Name: "api", Socket: "/s/a"}, {Name: "ops", Socket: "/s/o"}, {Name: "you"},
+	}, 5))
+	for {
+		s, ok := m.Next()
+		if !ok {
+			break
+		}
+		m.Say(Utterance{Who: s.Name, Pass: true})
+	}
+	if !m.Closed || m.Spent {
+		t.Fatalf("this test needs the all-passed ending, got closed=%v spent=%v", m.Closed, m.Spent)
+	}
+	was := m.Round
+
+	m.Reopen("you", "no — what happens to the old rows?")
+
+	if m.Round <= was {
+		t.Errorf("the reopened room is still sitting on round %d, the one everybody passed in", m.Round)
+	}
+	who, ok := m.Next()
+	if !ok {
+		t.Fatalf("nobody may speak in a room a person just reopened (round=%d closed=%v)", m.Round, m.Closed)
+	}
+	if who.Person() {
+		t.Errorf("the floor went to the person, who is never asked; got %q", who.Name)
+	}
+}
+
 // Reopening with nothing to add says nothing: a blank line in the transcript attributed to the
 // person is a contribution they did not make, and the next speaker reads the transcript.
 func TestAReopenWithNoReasonPutsNothingInTheRecord(t *testing.T) {

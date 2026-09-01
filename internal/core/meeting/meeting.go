@@ -291,8 +291,16 @@ func (m *Meeting) Close() { m.Closed = true; m.Holder = "" }
 //     and everybody who is here has just passed — leaving those in place would reopen a room in
 //     which nobody may speak.
 //   - The ceiling moves up by as much as it was, so the backstop is not standing on the door.
+//   - The round advances, because the round that ended the meeting is the round everybody passed
+//     in, and that record outlives the counters. Clearing Passes was only half of the sentence
+//     above: Next skips anyone who already spoke THIS round, so a reopened room sitting on the
+//     all-passed round finds nobody to ask and allPassedThisRound closes it again on the spot —
+//     no utterance, straight to the closing round that writes the tasks. Measured live: a
+//     meeting reopened four times (MaxRounds 5 → 80) never got past round 8, and the person's
+//     follow-up could not save it because allPassedThisRound skips the person by design.
 //   - The reason travels as a contribution from the person, because that is what it is: the
-//     transcript has to say why the room came back or the next round is answering nothing.
+//     transcript has to say why the room came back or the next round is answering nothing. It
+//     lands in the NEW round, so the transcript reads as the question and then the answers.
 func (m *Meeting) Reopen(who, why string) {
 	m.Closed, m.Spent = false, false
 	m.Holder = ""
@@ -300,6 +308,7 @@ func (m *Meeting) Reopen(who, why string) {
 		m.Speakers[i].Passes = 0
 	}
 	m.MaxRounds += m.MaxRounds
+	m.Round++
 	if strings.TrimSpace(why) != "" {
 		m.Say(Utterance{Who: who, Text: strings.TrimSpace(why)})
 		m.Named[who] = true
