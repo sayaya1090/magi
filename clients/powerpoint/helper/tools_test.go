@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -182,5 +184,111 @@ func TestSetTableCellsAdvertisesNoFormatting(t *testing.T) {
 				t.Errorf("set_table_cells 가 %q 를 받는다 — 이미 있는 표의 그것은 1.9 라 이 바닥에서 못 한다", p.Name)
 			}
 		}
+	}
+}
+
+// 손이 하는 일을 스키마가 **말해야** 한다 — 안 하면 그 능력은 없는 것과 같다.
+//
+// 실물에서 본 왕복이 근거다(2026-09-01). 사람이 「3행 5열 테이블 만들어 줘」라고 했고, 모델은
+// **어느 슬라이드인지 되물었다.** `add_table` 은 `rows`·`columns` 만 필수라 그냥 부를 수 있었고,
+// 손은 슬라이드를 생략하면 보고 있는 장으로 떨어지게 진작부터 돼 있었다(`OfficeHand.#slide`).
+// 모델이 읽는 것은 스키마뿐인데 거기 그 말이 없었다 — 사람 눈에는 요청이 씹힌 것으로 보였다.
+//
+// 같은 규율의 거울이 옆에 있다: `SetTableCellsAdvertisesNoFormatting` 은 **없는 능력을 광고하지
+// 말라**고 하고, 이 시험은 **있는 능력을 광고하라**고 한다.
+func TestOmittingTheSlideMeansTheOneInFront(t *testing.T) {
+	// 문서 칸이 이미 그 말을 한다 — 슬라이드 칸이 따라야 하는 본이다.
+	if !strings.Contains(documentProp.Desc, "Omit") {
+		t.Fatalf("이 시험의 본인 document 칸이 생략을 안 적는다: %q", documentProp.Desc)
+	}
+	for _, p := range slideProps {
+		if !strings.Contains(p.Desc, "Omit") ||
+			!strings.Contains(strings.ToLower(p.Desc), "looking at") {
+			t.Errorf("%s 칸이 생략했을 때의 뜻을 안 적는다: %q", p.Name, p.Desc)
+		}
+	}
+
+	// **그 말이 슬라이드를 받는 도구 전부에 실려 나가는지**까지 본다. 한 자리에 적어 두고
+	// `withSlide` 로 나르는 구조라 지금은 자동이지만, 그 구조가 깨지면 여기서 운다.
+	seen := 0
+	for _, tl := range catalogue() {
+		for _, p := range tl.Props {
+			if p.Name != "slide" {
+				continue
+			}
+			seen++
+			if !strings.Contains(p.Desc, "Omit") {
+				t.Errorf("%s 의 slide 칸에 그 말이 안 실렸다", tl.Name)
+			}
+		}
+	}
+	// **훑을 것을 실제로 찾았는가**(§9 「초록을 읽는 법」). 0 개를 본 것과 0 개가 틀린 것은 다르다.
+	if seen == 0 {
+		t.Fatal("슬라이드를 받는 도구를 하나도 못 찾았다 — 이 시험은 아무것도 안 쟀다")
+	}
+}
+
+// 매뉴얼에 붙여 넣으라고 적어 둔 허용 규칙은 **코드가 만드는 그것과 같아야 한다.**
+//
+// 규칙은 도구 표에서 유도된다(`AllowRulesTOML`). 매뉴얼은 그것을 사람이 복사해 갈 수 있게
+// 옮겨 적어 둔 두 번째 벌이고, 두 벌은 갈린다 — 도구를 하나 더하면 코드 쪽만 자란다.
+//
+// 갈렸을 때의 증상이 특히 나쁘다: 새 읽기 도구만 매번 권한을 묻는다. 그건 「규칙을 안 넣었다」와
+// 화면에서 구분이 안 가고(DESIGN.md §6 이 그렇게 적어 뒀다), 사람은 자기가 붙여 넣은 규칙이
+// 안 먹는다고 읽는다.
+func TestTheManualQuotesTheRulesWeGenerate(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "docs", "MANUAL.ko.md"))
+	if err != nil {
+		t.Fatalf("매뉴얼을 못 읽었다: %v", err)
+	}
+	man := string(raw)
+
+	// 매뉴얼 안의 `allow = [ … ]` 한 덩어리.
+	start := strings.Index(man, "allow = [")
+	if start < 0 {
+		t.Fatal("매뉴얼에 허용 규칙 블록이 없다 — 있는 줄 알고 이 시험이 서 있었다")
+	}
+	end := strings.Index(man[start:], "]")
+	if end < 0 {
+		t.Fatal("허용 규칙 블록이 안 닫혔다")
+	}
+	quoted := man[start : start+end+1]
+
+	// 코드가 만드는 것에서 같은 덩어리를 뽑는다.
+	gen := AllowRulesTOML()
+	gs := strings.Index(gen, "allow = [")
+	ge := strings.Index(gen[gs:], "]")
+	generated := gen[gs : gs+ge+1]
+
+	if quoted != generated {
+		t.Errorf("매뉴얼의 허용 규칙이 코드가 만드는 것과 다르다.\n매뉴얼:\n%s\n코드:\n%s", quoted, generated)
+	}
+
+	// **훑을 것을 실제로 찾았는가**(§9 「초록을 읽는 법」). 규칙이 0 개면 위 비교는 빈 것끼리
+	// 견주고도 초록이다.
+	if n := strings.Count(generated, "mcp__ppt__"); n == 0 {
+		t.Fatal("규칙이 하나도 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+}
+
+// 그리고 매뉴얼은 **도구를 하나도 빠뜨리면 안 된다.** 사람이 「무엇을 시킬 수 있나」를 여기서
+// 읽는데, 표에 없는 도구는 그 사람에게 없는 기능이다.
+func TestTheManualNamesEveryTool(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "docs", "MANUAL.ko.md"))
+	if err != nil {
+		t.Fatalf("매뉴얼을 못 읽었다: %v", err)
+	}
+	man := string(raw)
+	missing := []string{}
+	for _, tl := range catalogue() {
+		if !strings.Contains(man, "`"+tl.Name+"`") {
+			missing = append(missing, tl.Name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("매뉴얼이 안 적은 도구: %s", strings.Join(missing, ", "))
+	}
+	if len(catalogue()) == 0 {
+		t.Fatal("도구가 하나도 없다 — 이 시험은 아무것도 안 쟀다")
 	}
 }

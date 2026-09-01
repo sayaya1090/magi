@@ -81,9 +81,14 @@ type tool struct {
 // 모델은 **번호로** 말한다(CAPABILITIES.md §10.4 — 사람도 모델도 "3번 슬라이드"라고 하지
 // id=257 이라고 하지 않는다). 다만 그 번호는 슬라이드 하나만 넣어도 뒤가 전부 밀리는 값이라,
 // 읽은 결과에 실려 온 `slide_id` 를 그대로 되쓰는 쪽이 정확하다. 둘 다 받고, 있으면 id 가 이긴다.
+// **생략했을 때의 뜻을 두 칸이 다 적는다.** 손은 진작부터 「사람이 보고 있는 장」으로 떨어지는데
+// (`OfficeHand.#slide`, `officehand.mjs` 가 그것을 잰다) 스키마가 그 말을 안 했다 — 모델이 읽는
+// 것은 스키마뿐이라, 사람이 "3행 5열 테이블 만들어 줘"라고 했을 때 **모델은 어느 슬라이드인지
+// 되물었다.** 실물에서 그 왕복을 봤다(2026-09-01): 도구는 그냥 됐을 텐데 화면에는 되묻는 말만
+// 섰고, 사람 눈에는 요청이 씹힌 것으로 보였다. 있는 능력을 안 광고하면 없는 것과 같다.
 var slideProps = []property{
-	{Name: "slide", Type: "integer", Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one."},
-	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given."},
+	{Name: "slide", Type: "integer", Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one. Omit both this and slide_id for the slide the person is looking at now — do not ask which slide when they did not name one."},
+	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given. Omit both this and slide for the slide the person is looking at now."},
 }
 
 func withSlide(rest ...property) []property {
@@ -127,9 +132,12 @@ func catalogue() []tool {
 			ReadOnly: true,
 		},
 		{
-			Name:     "render_slide",
-			Desc:     "A PNG of one slide as PowerPoint draws it. Expensive, and the council never sees pictures — call it only for a defect that numbers cannot show (overflow, overlap, contrast), not as a routine check." + declare,
-			Props:    withSlide(),
+			Name: "render_slide",
+			Desc: "A PNG of one slide as PowerPoint draws it. **The most expensive tool here** — one picture costs what thousands of characters cost, and only a vision model can see it at all. Call it for a defect that numbers cannot show (text overflowing its box, shapes overlapping, contrast), never as a routine check: read_slide answers what is on the slide, in words, for nothing. Rendering a slide that has not changed since you last rendered it is refused, because you already have that picture." + declare,
+			Props: withSlide(
+				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 1024). Smaller is cheaper; 1024 is enough to see overflow and overlap."},
+				property{Name: "force", Type: "boolean", Desc: "Render again even though nothing changed since the last render of this slide. Only when the person asked to look again."},
+			),
 			ReadOnly: true,
 		},
 		{
@@ -140,6 +148,60 @@ func catalogue() []tool {
 				property{Name: "shape_id", Type: "string", Desc: "Narrow a chart or picture part to one shape."},
 			),
 			ReadOnly: true,
+		},
+
+		{
+			Name:     "list_layouts",
+			Desc:     "The layouts this deck offers, by master, with the placeholder roles each one carries. Read this before add_slide: layout names come from the deck's theme, so a guessed name is refused." + declare,
+			Props:    []property{},
+			ReadOnly: true,
+		},
+		{
+			Name:     "describe_style",
+			Desc:     "What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was measured over. Answers \"what style is this deck?\", and it is also exactly what a new slide will inherit — so read it when someone asks why a new slide came out looking the way it did." + declare,
+			Props:    []property{},
+			ReadOnly: true,
+		},
+
+		{
+			Name: "add_slide",
+			Desc: "Add a slide — and, in the same call, put it where it belongs and fill its title and body. Filling a layout's placeholders is not the same as dropping text boxes at coordinates: placeholders follow the theme, so they stay right when the design changes. Prefer this over add_shape for the words that carry a slide. A new slide also picks up whatever font and size the rest of the deck consistently uses, so it does not arrive looking like a stranger.",
+			Props: []property{
+				{Name: "layout", Type: "string", Desc: "Layout name from list_layouts. Omit for the deck's default layout."},
+				{Name: "at", Type: "integer", Desc: "1-based position for the new slide. Omit to put it at the end."},
+				{Name: "title", Type: "string", Desc: "Text for the title placeholder, if the layout has one."},
+				{Name: "body", Type: "string", Desc: "Text for the body/subtitle placeholder. Use \\n between bullet lines."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck it is joining (default true): if the existing slides consistently use a font, size or colour that is not the theme default, the new slide gets it too. Set false to leave the new slide on the plain theme."},
+			},
+		},
+		{
+			Name: "add_slides",
+			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
+			Props: []property{
+				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each bullet on its own line in body."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide."},
+			},
+			Required: []string{"slides"},
+		},
+		{
+			Name:  "delete_slide",
+			Desc:  "Remove one slide. Every slide after it shifts down one, and the result says so. Snapshot first if the person might want it back — nothing else brings it back.",
+			Props: withSlide(),
+		},
+		{
+			Name: "apply_style",
+			Desc: "Restyle titles or bodies across many slides in one call — \"make every title blue\". Shapes are picked by placeholder role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
+			Props: []property{
+				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color}. Only the fields you give are touched."},
+				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields."},
+				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
+				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
+			},
+		},
+		{
+			Name:  "duplicate_slide",
+			Desc:  "Copy one slide, formatting and all, and put the copy right after it. The way to build a deck that looks consistent: make one slide well, duplicate it, then change the words.",
+			Props: withSlide(),
 		},
 
 		{
@@ -177,9 +239,9 @@ func catalogue() []tool {
 		},
 		{
 			Name: "add_shape",
-			Desc: "Add a shape to a slide — a text box or a geometric shape — at a position given in points.",
+			Desc: "Add a shape to a slide — a text box or a geometric shape — at a position given in points. Shapes carry text: pass text and it goes inside the shape, which is how labelled boxes, arrows and callouts get made. Slide coordinates are points from the top left, and a 16:9 deck is 960x540.",
 			Props: withSlide(
-				property{Name: "kind", Type: "string", Desc: "textbox (default), rectangle, ellipse, line or roundRectangle."},
+				property{Name: "kind", Type: "string", Desc: "textbox (default) or a geometric shape: rectangle, roundRectangle, ellipse, line, triangle, rightTriangle, diamond, parallelogram, trapezoid, pentagon, hexagon, octagon, star5 (and star4/6/8/10/12), heart, sun, moon, cloud, smileyFace, lightningBolt, rightArrow, leftArrow, upArrow, downArrow, leftRightArrow, bentArrow, curvedRightArrow, chevron, homePlate, wedgeRectCallout, wedgeRoundRectCallout, wedgeEllipseCallout, cloudCallout, flowChartProcess, flowChartDecision, flowChartTerminator, flowChartDocument, flowChartInputOutput, can, cube, donut, plaque, bevel, frame, arc, pie, chord, teardrop, mathPlus, mathMinus, mathMultiply, mathEqual, noSmoking. An unknown name is refused with the full list rather than guessed at."},
 				property{Name: "text", Type: "string", Desc: "Text to put in it."},
 				property{Name: "left", Type: "number", Desc: "Left edge in points."},
 				property{Name: "top", Type: "number", Desc: "Top edge in points."},
@@ -213,7 +275,7 @@ func catalogue() []tool {
 		},
 		{
 			Name: "add_table",
-			Desc: "Add a table, with its values and formatting given at creation. This host can create a formatted table but cannot restyle an existing one, so put the formatting you want in this call.",
+			Desc: "Add a NEW table. If the slide already has one and the person is asking to change it, this is the wrong tool: write cells with set_table_cells, or rebuild it in place with replace_table. Adding a second table on top of the first is what it looks like to them, and they will say nothing happened. Values and formatting are given at creation because an existing table cannot be restyled.",
 			Props: withSlide(
 				property{Name: "rows", Type: "integer", Desc: "Number of rows."},
 				property{Name: "columns", Type: "integer", Desc: "Number of columns."},
@@ -223,14 +285,33 @@ func catalogue() []tool {
 				property{Name: "width", Type: "number", Desc: "Width in points."},
 				property{Name: "height", Type: "number", Desc: "Height in points."},
 				property{Name: "header_bold", Type: "boolean", Desc: "Make the first row bold at creation."},
+				property{Name: "borders", Type: "string", Desc: "Grid line colour as #RRGGBB. Leave it out: with no formatting arguments at all the table takes the deck theme's own table style, which looks better than anything we would draw. Asking for font or size drops that theme style, and then lines get drawn so the table stays visible at all. Pass \"none\" only when the person asked for a table with no lines."},
 				property{Name: "font", Type: "string", Desc: "Font family for every cell."},
 				property{Name: "size", Type: "number", Desc: "Font size in points for every cell."},
 			),
 			Required: []string{"rows", "columns"},
 		},
 		{
+			Name: "replace_table",
+			Desc: "Rebuild an existing table in place: the old one is removed and a new one is created at the same position and size, with the rows, columns, values and formatting you give. This is how a table gets more columns, a different font, or a different shape — an existing table cannot be restyled, and adding a second one beside it is not what was asked for. Omit shape_id when the slide has exactly one table.",
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The table to replace. Omit when the slide has exactly one table; with several, this is required."},
+				property{Name: "rows", Type: "integer", Desc: "Rows in the new table. Defaults to the old table's."},
+				property{Name: "columns", Type: "integer", Desc: "Columns in the new table. Defaults to the old table's."},
+				property{Name: "values", Type: "array", Items: "array", Desc: "Row-major cell text. Omit to carry the old table's text over as far as it fits."},
+				property{Name: "left", Type: "number", Desc: "Left edge in points. Defaults to where the old table was."},
+				property{Name: "top", Type: "number", Desc: "Top edge in points. Defaults to where the old table was."},
+				property{Name: "width", Type: "number", Desc: "Width in points. Defaults to the old table's."},
+				property{Name: "height", Type: "number", Desc: "Height in points. Defaults to the old table's."},
+				property{Name: "header_bold", Type: "boolean", Desc: "Make the first row bold."},
+				property{Name: "font", Type: "string", Desc: "Font family for every cell."},
+				property{Name: "size", Type: "number", Desc: "Font size in points for every cell."},
+				property{Name: "borders", Type: "string", Desc: "Grid line colour as #RRGGBB, or \"none\". Same rule as add_table."},
+			),
+		},
+		{
 			Name: "set_table_cells",
-			Desc: "Write text into cells of an existing table. Text only — this host cannot change an existing table's borders, fills, fonts, merges or row and column counts, so do not ask for them here.",
+			Desc: "Write text into cells of an existing table — the first thing to reach for when someone wants a table changed. Text only: an existing table's borders, fills, fonts, merges and row and column counts cannot be changed, so use replace_table for those.",
 			Props: withSlide(
 				property{Name: "shape_id", Type: "string", Desc: "The table shape."},
 				property{Name: "cells", Type: "array", Items: "object", Desc: "Cells to write: [{row, column, text}], row and column 0-based."},

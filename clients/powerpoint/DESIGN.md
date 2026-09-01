@@ -2664,10 +2664,24 @@ magi가 집계 도구 넷을 지우면서 세운 기준("호출 0회면 도구�
 | `render_slide` | PNG 렌더(§2.2). **모델이 눈으로 볼 때만** — 비싸므로 매 스텝이 아니다 |
 | `export_slide_ooxml` | OOXML 원문(§2.3). 객체 모델이 침묵하는 것(차트 데이터 등)을 볼 때 |
 | `find_shapes` | 덱 전체에서 조건에 맞는 도형. "폰트가 X인 것 전부" 같은 일괄 작업의 입구 |
+| `list_layouts` | 이 덱의 테마가 가진 레이아웃과 각 레이아웃의 자리표시자 역할. **장을 만들기 전에 읽는 자리다**(아래 「짓기」) |
 
 **쓰기** — `set_text` · `format_shape` · `move_shape` · `add_shape` · `delete_shape` ·
 `apply_layout` · `reorder_slide` · `set_hyperlink` · **`add_table`** · **`set_table_cells`**.
 전부 객체 모델에 1:1 대응한다.
+
+**짓기 — `add_slide` · `delete_slide` · `duplicate_slide`(2026-09-02 에 늘었다).** 앞 판본의
+도구 열아홉은 **이미 있는 장만 고칠 수 있었다.** 사람이 PowerPoint 를 열고 말을 걸 때 하는
+부탁은 그 모양이 아니다 — 「발표자료 만들어 줘」에는 아무 경로가 없었고, 사람이 손으로 장을
+만들어 주기 전에는 에이전트가 할 수 있는 일이 없었다.
+
+`add_slide` 는 **만들기·자리·제목·본문을 한 호출에 담는다.** 넷으로 나누면 중간에 실패했을 때
+제목 없는 빈 장이 덱에 남고, 그 상태는 아무도 원한 적이 없다. 채우는 것은 좌표 위의 텍스트
+상자가 아니라 **레이아웃의 자리표시자**다 — 그쪽이 테마를 따르므로 나중에 디자인이 바뀌어도
+같이 바뀐다(CAPABILITIES.md §4). 넣을 자리가 없으면 **못 넣었다고 결과에 적는다.**
+
+`delete_slide` 만 **생략을 안 받는다.** 다른 도구는 어느 장인지 안 말하면 보고 있는 장으로
+가는데, 이건 스냅샷 없이 못 되돌리므로 그 편의의 대가를 사람이 치른다.
 
 표 도구 둘의 경계가 §2.3이 갈라 놓은 그 경계다. `add_table`은 `addTable`의 옵션을 그대로 받아
 값과 서식을 **만들면서** 넣고, `set_table_cells`는 `TableCell.text`만 쓴다 — **서식 인자를 안
@@ -3627,6 +3641,24 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
 ## 부록 A. 확인한 API 사실과 출처
 
 2026-08-28에 Microsoft Learn에서 직접 확인했다. 그날 이후의 변경은 이 문서가 모른다.
+
+### 실물에서 잰 것 — 2026-09-02, Windows 11 · Microsoft 365 PowerPoint
+
+문서만 보고 적어 두면 「봤다」와 「됐다」가 같은 줄에 앉는다. 아래는 **이 판에서 실제로 불러
+본** 것이고, 답이 무엇이었는지까지 적는다.
+
+| 무엇 | 잰 것 |
+|---|---|
+| `slides.add(options)` | `AddSlideOptions` 는 `{layoutId, slideMasterId}` 이고, **새 장은 언제나 맨 뒤에 붙는다.** 자리를 지정하는 인자는 없다 — 그래서 `add_slide` 는 붙인 뒤 `moveTo` 로 옮긴다 |
+| `SlideLayout.shapes` | 있다. 레이아웃의 자리표시자를 **레이아웃에서** 읽을 수 있고, `list_layouts` 가 그것으로 「무엇을 채울 수 있는 장인가」를 답한다 |
+| 이 덱의 레이아웃 이름 | 테마가 정한다. 기본 Office 테마에서 열하나가 왔다(제목 슬라이드 · 제목 및 내용 · 구역 머리글 · 콘텐츠 2개 · 비교 · 제목만 · …) — **모델이 이름을 지어내면 못 맞힌다**는 것이 이 줄의 뜻이다 |
+| 레이아웃의 자리표시자 역할 | `Title` · `Body` · `Date` · `Footer` · `SlideNumber`. 「제목만」 레이아웃에도 `Body` 가 있다 |
+| `Shape.type` 의 대소문자 | 실물은 **`Placeholder`**(대문자 시작)로 답한다. 열거 문서의 표기(`placeholder`)와 다르므로 비교는 대소문자를 무시해야 한다 |
+| ⚠ **`placeholderFormat` 을 자리표시자가 아닌 도형에 걸면** | 호스트가 `GeneralException` 을 던지고 **그 묶음 전체가 죽는다.** 표·그림·텍스트 상자가 하나라도 있는 장은 그래서 통째로 못 읽혔다(2026-09-02 에 잡아 고쳤다 — 종류를 먼저 보고 자리표시자에만 묻는다) |
+| `insertSlidesFromBase64` + `targetSlideId` | 그 장 **바로 뒤**에 넣는다. `formatting` 을 안 넘기면 원본 서식이 유지된다 — `duplicate_slide` 와 `restore_slide` 가 그래서 안 넘긴다 |
+| `slide.moveTo(i)` | 0 부터다. 사람이 말하는 번호에서 1 을 뺀다 |
+
+
 
 **요구사항 집합과 플랫폼** — [PowerPoint JavaScript API requirement sets](https://learn.microsoft.com/en-us/javascript/api/requirement-sets/powerpoint/powerpoint-api-requirement-sets)
 
