@@ -8,9 +8,10 @@
 > 그 착각으로 하루 넘게 CI 가 빨간 줄 몰랐고, 같은 날 `:core:test` 가 입력 선언 누락으로 통째로
 > 안 돌던 것도 찾았다.
 
-**마지막 실측: 2026-09-01 — 221개, 실패 0, 건너뜀 6**(라이브 데몬 1, 모델 적합성 5 — 둘 다
-청해야 도는 것들이다). 이 줄은 커밋마다 갱신한다. 「초록이었다」는 기억이 아니라 날짜와 수로
-남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
+**마지막 실측: 2026-09-02 — 221개, 실패 0, 건너뜀 5**(모델 적합성 5 — 청해야 도는 것들이다).
+`LiveDaemonTest` 는 이번엔 건너뛰지 않고 **돌았다** — 잴 때 이 기계에 데몬이 떠 있었기 때문이다.
+건너뜀이 5 와 6 을 오가는 것은 그 하나 때문이지 깨진 것이 아니다. 이 줄은 커밋마다 갱신한다.
+「초록이었다」는 기억이 아니라 날짜와 수로 남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
 
 ## 층 다섯
 
@@ -247,6 +248,34 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 - **받아온 코어 바이너리의 실행.** 받는 규칙(`CoreReleaseTest` 6)은 재지만, 실제로 내려받아
   돌려 보는 자리는 없다. 2026-08-31 에 사람이 손으로 한 번 확인했다(체크섬 일치, macOS 검역
   딱지 안 붙음, `--version` 응답).
+
+- **갱신 채널이 실제로 갱신을 권하는가.** 릴리스 레인이 `updatePlugins.xml` 을 쓰는 것은
+  워크플로가 지키지만, IDE 가 그것을 읽고 **이미 깔린 판**을 두고 새 판을 권하는 자리는 사람이
+  본다. 2026-09-02 에 처음 끝까지 쟀다. 빈 설정 샌드박스(`.intellijPlatform/sandbox3`,
+  IU-261.22158.277, 플러그인 자리를 비워 소스 판이 안 실리게 했다)에 저장소 URL 만 등록해
+  0.2.1 을 설치하고, 그 뒤 `jetbrains-v0.2.2` 를 냈다.
+
+  ```
+  03:18:00 PluginDownloader - downloading plugin magi-jetbrains-0.2.2(dev.sayaya.magi.ide)
+           version 0.2.2 from …/releases/download/jetbrains-v0.2.2/magi-jetbrains-0.2.2.zip
+  03:25:28 AppStarter - Loaded custom plugins: magi (0.2.2)
+  ```
+
+  체인이 한 칸도 안 빠지고 돌았다: 태그 → 릴리스 → XML → IDE 자체 확인 → 내려받기 →
+  `system/plugins` 에 대기 → 재시작에 적용(`config/plugins` 의 0.2.1 이 지워지고 0.2.2 가 섰다).
+
+  **단추 자리를 틀리게 안내했다.** `Check for Updates` 는 Plugins 의 ⚙ 메뉴가 아니라
+  Settings ▸ Appearance & Behavior ▸ System Settings ▸ Updates 안의 단추다 — 열쇠가
+  `updates.settings.check.now.button` 이고 `ActionsBundle` 에는 없다. 메뉴 위치를 기억으로
+  대지 말고 번들에서 뽑을 것.
+
+  **이 샌드박스가 못 재는 것 하나.** 네이티브 런처를 못 쓴다. Gradle 플러그인이 `Info.plist`
+  를 패치해 서명이 깨지고(`codesign -v` → `invalid Info.plist`) macOS 가 런처를 `exit 137` 로
+  죽인다. 그래서 `product-info.json` 의 `launch` 레코드로 JVM 을 직접 불렀는데, 그 대가로
+  **IDE 의 자기 재시작이 안 돈다** — `Restarter` 가 같은 런처를 부르고 안 올라온다. 여기서는
+  손으로 다시 띄워 적용을 확인했다. 그러니 「재시작 단추가 실제로 돌아오는가」는 **정상 설치에서
+  따로 봐야 한다.**
+
 
 ### 넷째 물음 — 재는 기계와 내가 같은 나무를 보고 있나
 
