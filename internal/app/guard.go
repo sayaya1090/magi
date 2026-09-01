@@ -302,7 +302,24 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	}
 	g.contentHist[path] = append(hist, h)
 	if !regressed {
-		return "", false // forward progress
+		// Forward progress — every one of these is content the file has not held before, and that
+		// is the point: no revert check can see this shape. But a file that takes a NEW content
+		// forty times in one turn is not being written, it is being circled, and nothing here was
+		// counting that. Observed live (qwen3-coder-next, a 5-7-5 haiku): 42 writes to one path
+		// across twenty-five minutes, every one a different text, the model saying "I apologize for
+		// the prolonged iteration" five times word for word, and the run only ended because a
+		// person killed it. The council was right and said "continue" each round; what was missing
+		// was anyone stating the shape of the last forty minutes.
+		//
+		// So it states it, and no more: the count is a fact, and whether to keep going is the
+		// agent's call. regressed stays false — this is not a revert, and withholding progress
+		// credit for real new content would be a lie in the other direction.
+		if n := len(g.contentHist[path]) - 1; n >= rewriteNoteAt && (n-rewriteNoteAt)%rewriteNoteEvery == 0 {
+			return fmt.Sprintf("note: this file has taken %d different contents this turn. If each "+
+				"rewrite is meant to be the one that settles it, that is not what is happening — "+
+				"the next thing to change is probably not this file.", n), false
+		}
+		return "", false
 	}
 	// A revert is churn, so report regressed=true on EVERY swing (the caller withholds progress
 	// credit each time), and say so every time as well. The first note reads as an aside a
@@ -324,6 +341,17 @@ func (g *runGuard) noteEdit(path, before, after string) (warn string, regressed 
 	return "note: this edit restored a content state this file already had earlier this turn — " +
 		"if reverting your own earlier change was intentional, ignore this.", true
 }
+
+// rewriteNoteAt / rewriteNoteEvery bound when a file that keeps taking NEW content is remarked on.
+//
+// Eight because iterating on a file a few times is ordinary work — a draft, a fix, a fix to the
+// fix — and a guard that speaks at three would be noise in every honest turn. Then every fourth,
+// because the first note is an aside the agent may have a good answer to, and the fourteenth is a
+// description of a turn that has stopped going anywhere.
+const (
+	rewriteNoteAt    = 8
+	rewriteNoteEvery = 4
+)
 
 // distinctStates counts how many different content states a file has held this turn, so a swing
 // report can say how wide the cycle is rather than only that one happened. The pre-turn baseline
