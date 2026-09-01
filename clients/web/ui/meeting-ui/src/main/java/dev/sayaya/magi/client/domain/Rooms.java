@@ -28,6 +28,40 @@ public final class Rooms {
         return "meet.round";
     }
 
+    /**
+     * 지금 누가 일하고 있는가 — 「작업 중」 판이 누구 것을 그릴지.
+     *
+     * 방이 열리기 전과 후가 다르다. 열리기 전(준비)에는 <b>전원이 병렬로</b> 자기 워크스페이스를
+     * 읽는다(MANUAL §12.5: "준비는 병렬이라 대기는 합이 아니라 가장 느린 하나") — 그러니 아직
+     * 준비가 안 된 사람 전부가 일하는 중이다. 열린 뒤에는 바닥을 쥔 하나뿐이다: 그것이 회의를
+     * 회의로 만드는 규칙이고, 그때 여럿을 그리면 아무도 안 쥔 것처럼 읽힌다.
+     *
+     * 끝난 방은 아무도 아니다. 사람은 세지 않는다 — 사람에게는 읽을 방이 없다.
+     *
+     * @param names   참가자 이름(로스터 순서)
+     * @param person  각자가 사람인가
+     * @param ready   각자가 준비를 마쳤는가(사람은 늘 참)
+     * @param holder  바닥을 쥔 이름, 아무도 아니면 빈 문자열
+     */
+    public static String[] workingNow(String[] names, boolean[] person, boolean[] ready,
+                                      String holder, boolean opened, boolean closed) {
+        if (names == null || closed) return new String[0];
+        if (opened) {
+            if (holder == null || holder.isEmpty()) return new String[0];
+            for (int i = 0; i < names.length; i++) {
+                // 바닥을 쥔 것이 사람이면 그릴 방이 없다 — 사람이 타이핑하는 동안 방은 조용하다.
+                if (holder.equals(names[i])) return person[i] ? new String[0] : new String[]{names[i]};
+            }
+            return new String[0];
+        }
+        int n = 0;
+        for (int i = 0; i < names.length; i++) if (!person[i] && !ready[i]) n++;
+        String[] out = new String[n];
+        int k = 0;
+        for (int i = 0; i < names.length; i++) if (!person[i] && !ready[i]) out[k++] = names[i];
+        return out;
+    }
+
     /** 말한 이의 색자리 — 사람은 세지 않는다(사람의 말은 색이 아니라 자리로 갈린다). */
     public static String tint(int index) { return "sp" + (index % 6); }
 

@@ -26,6 +26,18 @@ public class FakeRosterSource implements RosterSource {
         l.link(true);
     }
 
+    /** 회의 조준 — 걸리면 방 프레임 한 벌이 흐른다(가짜는 그 한 벌이면 족하다). */
+    @Override
+    public void meet(String id) {
+        JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);
+        win.set("__magi_test_meet", id == null ? "" : id);
+        if (listener != null && id != null) {
+            listener.room(elemental2.core.Global.JSON.parse(
+                    "{\"who\":\"alpha\",\"rows\":[{\"who\":\"tool\",\"tool\":\"read\"," +
+                    "\"args\":\"docs/SERVING.md\"}]}"));
+        }
+    }
+
     @Override
     public void aim(String socket, String peer) {
         JsPropertyMap<Object> win = Js.asPropertyMap(DomGlobal.window);

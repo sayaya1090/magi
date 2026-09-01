@@ -45,6 +45,8 @@ public class MeetingElement {
     private HTMLElement topicField = null;
     private HTMLElement sayField = null;
     private String drawnShape = "";
+    /** 지금 서 있는 「작업 중」 판 — 프레임이 올 때 회의 본문 대신 이것만 갈아 끼운다. */
+    private HTMLElement nowBox = null;
     // 거절의 사유는 <b>이 화면이</b> 쥔다 — 어느 상자에서 눌렀는지, 그때 어느 방이었는지까지.
     private String refusal = "";
     private String refusalAt = "";
@@ -57,6 +59,9 @@ public class MeetingElement {
         root.id = "meet";
         frame.replaceChildren(root);
         aim();
+        // 떠날 때 푼 조준을 다시 건다 — aim()은 같은 방이면 일찍 반환하므로 이 줄이 없으면
+        // 두 번째 방문부터 「지금 하는 것」이 영영 조용하다.
+        store.rejoin();
         if (wired) { store.read(); return; }
         wired = true;
         // 말이 바뀌면 이 판도 다시 칠한다 — 언어를 간 사람이 화면을 옮겨 다니며 옛말을
@@ -68,7 +73,20 @@ public class MeetingElement {
         // 주소가 방을 바꾸면 그리로 — 셸이 흘리는 주소를 듣는다(뒤로가기도 이 길로 온다).
         DomGlobal.window.addEventListener("popstate", evt -> aim());
         // 두 초마다: 회의는 남이 말해서 바뀐다 — 이 화면만 스트림 밖이라 폴이 그 자리를 대신한다.
-        DomGlobal.setInterval(args -> { if (mounted()) store.read(); }, 2000);
+        // 화면을 떠나면 회선의 조준도 푼다. 셸의 라우터는 pushState로도 옮기므로 popstate만
+        // 믿으면 아무도 안 보는 회의의 방 프레임이 계속 흐른다 — 떠난 것을 아는 가장 싼 자리가
+        // 이 틱이다(이미 돌고 있고, 마운트 여부를 이미 묻고 있다).
+        DomGlobal.setInterval(args -> {
+            if (mounted()) store.read();
+            else store.leave();
+        }, 2000);
+        // 「지금 하는 것」은 폴이 아니라 셸의 회선으로 온다 — 회의 본문과 같은 한 줄에 실려
+        // 오는 것이 서버 계약이고(main.go의 roomFrames), 여기 폴을 하나 더 다는 것은 같은
+        // 것을 두 번 묻는 일이다. 프레임이 판을 바꿨을 때만 다시 그린다: store.drawn()을
+        // 거치지 않으므로 회의 본문은 헐리지 않는다.
+        dev.sayaya.magi.bridge.RoomSharing.subscribe(f -> {
+            if (mounted() && store.live(f)) paintNow();
+        });
         store.read();
     }
 
@@ -297,6 +315,8 @@ public class MeetingElement {
             headBox.append(cell("meettrouble", tr("meet.trouble", "why", str(m, "trouble"))));
         }
         headBox.append(roster(m, speakers));
+        nowBox = nowPanel(m, speakers);
+        headBox.append(nowBox);
         box.append(headBox);
         box.append(said(m, speakers));
         sayField = null;
@@ -403,6 +423,86 @@ public class MeetingElement {
         }
         if (said == null || said.getLength() == 0) box.append(cell("meetwait", tr("meet.waiting")));
         return box;
+    }
+
+    /**
+     * 지금 하고 있는 것 — 주제 아래에, 접지 않고, 계속 흐른다.
+     *
+     * 발언 줄에 붙는 {@link #workingBox}와 반대 방향이다: 저쪽은 <b>지나간</b> 한 마디가 어떻게
+     * 나왔는지를 눌러서 펴는 것이고, 이쪽은 <b>아직 오지 않은</b> 한 마디가 지금 어디까지 왔는지다.
+     * 회의의 대부분은 아무 줄도 늘지 않는 시간이라, 이 판이 없으면 느린 모델과 죽은 화면이
+     * 화면에서 같은 모양이다.
+     *
+     * 누구 것을 그리는지는 {@link Rooms#workingNow}가 정한다 — 준비 중에는 전원, 열린 방에서는
+     * 바닥을 쥔 하나. 그 규칙은 브라우저 없이 재진다.
+     */
+    private HTMLElement nowPanel(JsPropertyMap<Object> m, List<JsPropertyMap<Object>> speakers) {
+        HTMLElement box = cell("meetnow", null);
+        int n = speakers.size();
+        String[] names = new String[n];
+        boolean[] person = new boolean[n], ready = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            JsPropertyMap<Object> sp = speakers.get(i);
+            names[i] = str(sp, "name");
+            person[i] = bool(sp, "person");
+            ready[i] = bool(sp, "ready");
+        }
+        String[] busy = Rooms.workingNow(names, person, ready, str(m, "holder"),
+                bool(m, "opened"), bool(m, "closed"));
+        if (busy.length == 0) {
+            box.setAttribute("hidden", "");
+            return box;
+        }
+        Map<String, String> tints = tints(m);
+        for (String who : busy) box.append(nowOne(who, orElse(tints.get(who), "sp0")));
+        return box;
+    }
+
+    /** 한 사람의 판. 아직 아무것도 안 했으면 그렇게 적는다 — 빈 상자는 고장처럼 읽힌다. */
+    private HTMLElement nowOne(String who, String tint) {
+        HTMLElement one = cell("meetnowone " + tint, null);
+        one.append(cell("meetnowwho", tr("meet.doing_now", "who", who)));
+        HTMLElement rows = cell("meetnowrows", null);
+        rows.setAttribute("data-who", who);
+        JsArrayLike<Object> list = Js.uncheckedCast(store.liveOf(who));
+        int drawn = 0;
+        for (int i = 0; list != null && i < list.getLength(); i++) {
+            JsPropertyMap<Object> r = Js.uncheckedCast(list.getAt(i));
+            // 결론은 회의 줄에 선다 — workingBox와 같은 규칙이다. 회의가 던진 질문(user)도
+            // 뺀다: 그것은 주제 바로 위에 이미 적혀 있다.
+            String role = str(r, "who");
+            if ("assistant".equals(role) || "user".equals(role)) continue;
+            HTMLElement line = cell("row " + role, null);
+            line.append(cell("who", role));
+            line.append(cell("txt", oneLine(r)));
+            rows.append(line);
+            drawn++;
+        }
+        if (drawn == 0) rows.append(cell("dnote", tr("meet.thinking")));
+        one.append(rows);
+        return one;
+    }
+
+    /**
+     * 프레임이 왔다 — 회의 본문은 그대로 두고 이 판만 갈아 끼운다.
+     *
+     * 판을 store.drawn()에 태우지 않는 이유가 여기 있다: 그 흐름은 방 전체를 다시 짓고, 그러면
+     * 사람이 쓰던 칸과 열어 둔 접기가 프레임마다 날아간다. 아직 판이 서지 않았으면(방을 그리기
+     * 전) 아무것도 하지 않는다 — 다음 render가 버퍼에서 그린다.
+     */
+    private void paintNow() {
+        if (nowBox == null || !nowBox.isConnected) return;
+        JsPropertyMap<Object> m = Js.uncheckedCast(store.one());
+        if (m == null) return;
+        HTMLElement fresh = nowPanel(m, speakers(m));
+        nowBox.replaceWith(fresh);
+        nowBox = fresh;
+        // 새 줄은 아래에 붙는다 — 따라가지 않으면 판이 자란 만큼 사람이 뒤처진다.
+        elemental2.dom.NodeList<elemental2.dom.Element> rows = fresh.querySelectorAll(".meetnowrows");
+        for (int i = 0; i < rows.length; i++) {
+            HTMLElement one = Js.uncheckedCast(rows.getAt(i));
+            one.scrollTop = one.scrollHeight;
+        }
     }
 
     /**

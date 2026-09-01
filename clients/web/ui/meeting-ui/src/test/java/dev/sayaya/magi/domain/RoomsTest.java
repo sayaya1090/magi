@@ -57,4 +57,40 @@ class RoomsTest {
         assertEquals("sp5", Rooms.tint(5));
         assertEquals("sp0", Rooms.tint(6));
     }
+
+    // 「지금 하는 것」 판이 누구 것을 그리는가. 준비와 회의 중은 다른 답이다: 준비는 전원이
+    // 병렬이고, 열린 방은 바닥을 쥔 하나뿐이다.
+    private static final String[] NAMES = {"alpha", "beta", "you"};
+    private static final boolean[] PERSON = {false, false, true};
+
+    @Test
+    void everybodyStillGettingReadyIsWorking() {
+        String[] now = Rooms.workingNow(NAMES, PERSON, new boolean[]{false, true, true},
+                "", false, false);
+        assertArrayEquals(new String[]{"alpha"}, now);
+        assertArrayEquals(new String[]{"alpha", "beta"},
+                Rooms.workingNow(NAMES, PERSON, new boolean[]{false, false, true}, "", false, false));
+    }
+
+    @Test
+    void anOpenedRoomHasOneWorker() {
+        assertArrayEquals(new String[]{"beta"},
+                Rooms.workingNow(NAMES, PERSON, new boolean[]{true, true, true}, "beta", true, false));
+        // 아무도 안 쥔 그 틈(턴 사이)에는 그릴 것이 없다.
+        assertArrayEquals(new String[0],
+                Rooms.workingNow(NAMES, PERSON, new boolean[]{true, true, true}, "", true, false));
+    }
+
+    @Test
+    void thePersonHasNoRoomToShow() {
+        // 사람이 타이핑하는 동안 방은 조용하다 — 사람에게는 읽을 방이 없다.
+        assertArrayEquals(new String[0],
+                Rooms.workingNow(NAMES, PERSON, new boolean[]{true, true, true}, "you", true, false));
+    }
+
+    @Test
+    void aFinishedMeetingIsNobodyWorking() {
+        assertArrayEquals(new String[0],
+                Rooms.workingNow(NAMES, PERSON, new boolean[]{true, true, true}, "beta", true, true));
+    }
 }

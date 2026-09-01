@@ -3857,6 +3857,29 @@
   .meetnowrows { display:grid; gap:var(--magi-sys-space-100); max-height:16rem; overflow-y:auto; }
   /* What the participant read and thought before it spoke, behind a control. Quiet: it is the
      working, not the answer. */
+  /* 「지금 하는 것」 — 주제 아래, 접히지 않고 계속 흐른다.
+     머리판은 sticky다: 여기 자라는 것을 그냥 두면 전사가 화면 밖으로 밀린다. 그래서 자체
+     스크롤 상자로 두고 바닥에 붙여 따라간다(터미널의 tail과 같은 약속) — 아무것도 버리지
+     않으면서 전사도 계속 보인다. 화면이 낮을수록 더 줄인다: 여기가 화면의 절반을 먹으면
+     회의가 안 보인다. */
+  .meetnow { display:grid; gap:var(--magi-sys-space-100); }
+  .meetnowone {
+    display:grid; gap:var(--magi-sys-space-050);
+    border-left:2px solid var(--spoke, var(--magi-ref-outlineVariant));
+    padding-left:var(--magi-sys-space-150);
+  }
+  .meetnowone.sp0 { --spoke:var(--magi-ref-primary); }
+  .meetnowone.sp1 { --spoke:var(--magi-ref-accent); }
+  .meetnowone.sp2 { --spoke:var(--magi-ref-warn); }
+  .meetnowone.sp3 { --spoke:var(--magi-ref-success); }
+  .meetnowone.sp4 { --spoke:var(--magi-ref-error); }
+  .meetnowone.sp5 { --spoke:var(--magi-ref-muted); }
+  .meetnowwho { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size); }
+  .meetnowrows {
+    display:grid; gap:var(--magi-sys-space-050);
+    max-height:min(9rem, 22vh); overflow-y:auto; overscroll-behavior:contain;
+  }
+  @media (prefers-reduced-motion:no-preference) { .meetnowrows { scroll-behavior:smooth; } }
   .meetwork { grid-column:2; }
   .meetworkrows { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
   .meettext { white-space:pre-wrap; overflow-wrap:anywhere; }

@@ -84,6 +84,10 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
         one = null;
         gone = false;
         saying = "";
+        // 방을 옮기면 발자국도 두고 간다 — 지난 회의의 「지금 하는 것」이 새 화면에 비치면
+        // 그것은 지금이 아니다.
+        forgetLive();
+        dev.sayaya.magi.bridge.RoomSharing.aim(want);
         told();
         read();
     }
@@ -169,6 +173,62 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
     public void rowsOf(String socket, String inRoom, Consumer<Object> cb) {
         source.roomRows(socket, inRoom, cb);
     }
+
+    /**
+     * 「지금 하는 것」 판이 그리는 것 — 참가자 이름 → 그 방의 현재 전량.
+     *
+     * <b>sig()에 넣지 않는다.</b> 화면은 그 시그니처가 바뀔 때 방을 통째로 다시 짓는데(그 가드가
+     * 2초 폴의 churn을 막는 자리다), 여기 넣으면 방 프레임이 올 때마다 회의가 헐린다 — 열어 둔
+     * 접기가 닫히고, 스크롤이 튀고, 사람이 쓰던 칸이 흔들린다. 그래서 이 버퍼는 흐름 밖에 서고
+     * 판만 제 손으로 다시 그린다.
+     *
+     * 프레임은 델타가 아니라 그 사람의 전량이다(서버가 연결마다 seen을 새로 센다) — 그래서
+     * 이어 붙이지 않고 갈아 끼운다.
+     */
+    private final java.util.LinkedHashMap<String, Object> live = new java.util.LinkedHashMap<>();
+
+    /** 방 프레임 하나를 받는다. 그 사람의 판이 달라졌으면 참. */
+    public boolean live(Object frame) {
+        if (frame == null) return false;
+        jsinterop.base.JsPropertyMap<Object> f = jsinterop.base.Js.asPropertyMap(frame);
+        Object who = f.get("who");
+        if (who == null) return false;
+        String key = String.valueOf(who);
+        Object rows = f.get("rows");
+        Object had = live.get(key);
+        String before = had == null ? "" : elemental2.core.Global.JSON.stringify(had);
+        String after = rows == null ? "" : elemental2.core.Global.JSON.stringify(rows);
+        if (before.equals(after)) return false;
+        live.put(key, rows);
+        return true;
+    }
+
+    /**
+     * 이 화면을 떠났다 — 회선의 조준을 푼다.
+     *
+     * 방(room)은 그대로 둔다: 돌아왔을 때 같은 회의를 다시 그려야 하고, 조준은 마운트가
+     * 다시 건다. 여기서 푸는 것은 <b>남의 자원</b>이다 — 아무도 안 보는 회의의 방을 데몬이
+     * 계속 읽고 있을 이유가 없다.
+     */
+    public void leave() {
+        if (room == null) return;
+        dev.sayaya.magi.bridge.RoomSharing.aim(null);
+    }
+
+    /**
+     * 돌아왔다 — 같은 방이어도 조준을 다시 건다.
+     *
+     * aim()은 방이 그대로면 일찍 반환하는데(그 가드가 폴의 churn을 막는다), 떠날 때 조준을
+     * 풀어 두었으므로 그 길로 돌아오면 아무도 다시 걸어 주지 않는다. 셸 쪽이 같은 값이면
+     * 무시하므로 무조건 걸어도 회선은 안 흔들린다.
+     */
+    public void rejoin() { dev.sayaya.magi.bridge.RoomSharing.aim(room); }
+
+    /** 그 사람이 지금까지 한 일, 아직 아무것도 없으면 null. */
+    public Object liveOf(String who) { return who == null ? null : live.get(who); }
+
+    /** 방을 옮기면 발자국도 두고 간다 — 지난 회의의 것이 새 화면에 비치면 안 된다. */
+    public void forgetLive() { live.clear(); }
 
     private static String idOf(Object m) {
         if (m == null) return "";

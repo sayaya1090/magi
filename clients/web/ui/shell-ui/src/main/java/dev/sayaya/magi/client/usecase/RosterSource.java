@@ -20,6 +20,14 @@ public interface RosterSource {
 
         /** 조준된 세션에 턴이 열려 있는가 — 진행 바의 사실. forSec은 열린 지 몇 초. */
         void turn(boolean open, double forSec);
+
+        /**
+         * 조준된 회의에서 참가자 하나가 방금 한 일(`{who, rows}`) — 변한 것만 온다.
+         *
+         * 명단·전사와 달리 null을 안 흘린다: 이 프레임의 부재는 "못 읽었다"가 아니라
+         * "아직 아무 일도 없었다"이고, 그 둘을 같은 null로 받으면 화면이 구분할 수 없다.
+         */
+        void room(Object frame);
     }
 
     /** 스트림 구독. 재접속은 구현의 몫. */
@@ -33,6 +41,14 @@ public interface RosterSource {
 
     /** 조준을 바꾼다 — null이면 명단 전용(카탈로그 화면). 회선 재개설은 구현의 몫. */
     void aim(String socket, String peer);
+
+    /**
+     * 어느 회의의 방들을 같은 회선에 얹을 것인가 — null이면 안 얹는다.
+     *
+     * 컴패니언 조준과 나란한 또 하나의 조준이고 서로 독립이다: 회의 화면에는 조준된
+     * 컴패니언이 없으므로, 이쪽만 걸린 회선이 성립해야 한다.
+     */
+    void meet(String meetingIdOrNull);
 
     /** 한 번 읽기 요청 — 답은 Listener.roster로 돌아온다. */
     void refresh();

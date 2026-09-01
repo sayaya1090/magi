@@ -775,3 +775,140 @@ func TestTwoPressesConveneOneMeeting(t *testing.T) {
 		t.Errorf("a meeting with a different roster folded into the first one (%v)", err)
 	}
 }
+
+// The room frames — what a participant is doing WHILE it is doing it.
+//
+// The screen's own answer for "who is speaking" is the floor, and that arrives with the meet
+// frame. What it cannot say is what that companion is reading and running in the minutes before
+// it says anything, and a meeting is mostly those minutes: MANUAL §12.5 promises the console
+// merges each participant's room into this one stream, and this is the frame that carries it.
+//
+// It went untested and unwired for its whole life. The shell never put ?m= on the stream, so the
+// server side below — which was written, gated and ready — was never once reached, and the screen
+// that would have drawn it was never built. This test is what says the wire is live.
+func TestTheStreamCarriesWhatTheSpeakerIsDoing(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow, design.started = make(chan struct{}), make(chan struct{}, 1)
+	defer close(design.slow)
+	who.Set("topic", "who owns the retry budget")
+	v := convene(t, f, who)
+	until(t, "the first speaker to be asked", func() bool {
+		select {
+		case <-design.started:
+			return true
+		default:
+			return false
+		}
+	})
+
+	body := streamFor(t, f, "/events?m="+url.QueryEscape(v.ID), "")
+	if !strings.Contains(body, "event: room") {
+		t.Fatalf("a stream aimed at a meeting carried no room frame:\n%s", body)
+	}
+	// The frame says WHOSE work it is — one panel per participant is the whole point during the
+	// preparation round, when everybody is reading at once and nobody holds the floor yet.
+	if !strings.Contains(body, `"who":"design"`) && !strings.Contains(body, `"who":"api"`) {
+		t.Errorf("the room frame names nobody:\n%s", body)
+	}
+}
+
+// And it is the meeting's own gate that decides who may watch it work.
+//
+// The rows come from a companion's private session. Reading them through the meeting must not be
+// a way around the rule that reading the meeting itself obeys — otherwise the cheapest way to
+// watch a companion you may not see is to be in a room with it.
+func TestTheRoomFramesObeyTheMeetingsOwnGate(t *testing.T) {
+	f, design, _, who := room(t)
+	design.slow, design.started = make(chan struct{}), make(chan struct{}, 1)
+	defer close(design.slow)
+	who.Set("topic", "who owns the retry budget")
+	v := convene(t, f, who)
+	until(t, "the first speaker to be asked", func() bool {
+		select {
+		case <-design.started:
+			return true
+		default:
+			return false
+		}
+	})
+
+	// Narrowed to one of the two companions in that meeting — mayWatch wants all of them.
+	f.srv.userHeader = "X-Forwarded-User"
+	if err := os.WriteFile(filepath.Join(f.cfgDir, config.AuthFile), []byte(`
+[people."kim"]
+role = "operator"
+companions = ["design"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := config.LoadAuth(f.cfgDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy = p
+
+	body := streamFor(t, f, "/events?m="+url.QueryEscape(v.ID), "kim")
+	if strings.Contains(body, "event: room") {
+		t.Errorf("a reader who may not open the meeting was sent its rooms:\n%s", body)
+	}
+}
+
+// streamFor runs the SSE handler until it has had a moment to write, then hands back what it
+// wrote. The loop only ends when the request context does, so the cancel is what stops it.
+func streamFor(t *testing.T, f *fleetFixture, path, as string) string {
+	t.Helper()
+	ctx, stop := context.WithCancel(context.Background())
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	r := httptest.NewRequest(http.MethodGet, path, nil).WithContext(ctx)
+	if as != "" {
+		r.Header.Set("X-Forwarded-User", as)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.srv.events(w, r)
+	}()
+	// The fleet frame is not the meeting's to gate, so it arrives either way — which makes it the
+	// signal that the loop ran. Waiting on the room frame instead would make the gate test wait
+	// for something that is never coming and call the timeout a pass.
+	until(t, "the stream to write its first frame", func() bool { return w.wrote() })
+	stop()
+	<-done
+	return w.text()
+}
+
+// flushRecorder is a recorder the streaming handler will accept (it needs a Flusher) and that can
+// be read from another goroutine while the handler is still writing to it.
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	mu      sync.Mutex
+	buf     strings.Builder
+	flushes int
+}
+
+func (f *flushRecorder) Write(b []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.buf.Write(b)
+}
+
+// Flush is the loop telling us it has finished a pass — the only signal a refused stream gives,
+// since it writes nothing. Counting it is what lets the gate test wait for "it ran and said no"
+// rather than for output that is never coming.
+func (f *flushRecorder) Flush() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.flushes++
+}
+
+func (f *flushRecorder) wrote() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.buf.Len() > 0
+}
+
+func (f *flushRecorder) text() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.buf.String()
+}

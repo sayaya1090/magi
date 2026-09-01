@@ -3,6 +3,7 @@ package dev.sayaya.magi.client.usecase;
 import dev.sayaya.magi.bridge.CompanionContext;
 import dev.sayaya.magi.bridge.CompanionSharing;
 import dev.sayaya.magi.bridge.FleetAgent;
+import dev.sayaya.magi.bridge.RoomSharing;
 import dev.sayaya.magi.bridge.RosterSharing;
 import dev.sayaya.magi.bridge.TranscriptSharing;
 import dev.sayaya.magi.client.domain.CompanionType;
@@ -44,6 +45,12 @@ public class RosterStore implements RosterSource.Listener {
     private String aimedPast = null;
     private CompanionContext ctx = null;
     private Object lastRows = null;
+    private final List<RoomSharing.FrameFn> roomObs = new ArrayList<>();
+    // 방 프레임은 참가자별 <b>현재 전량</b>이다(서버가 연결마다 seen을 새로 세므로 첫 프레임이
+    // 그때까지의 전부다). 그래서 이어 붙이지 않고 갈아 끼우고, 늦게 붙은 화면에는 사람별로
+    // 마지막 것을 재생한다 — 회의는 몇 분짜리라 화면이 그 중간에 뜨는 것이 정상이다.
+    private final java.util.LinkedHashMap<String, Object> lastRoom = new java.util.LinkedHashMap<>();
+    private String aimedMeeting = null;
     private boolean turnOpen = false;
     private double turnFor = 0;
 
@@ -62,6 +69,9 @@ public class RosterStore implements RosterSource.Listener {
         TranscriptSharing.host(
                 cb -> { rowsObs.add(cb); cb.call(lastRows); },
                 cb -> { turnObs.add(cb); cb.call(turnOpen, turnFor); });
+        RoomSharing.host(
+                cb -> { roomObs.add(cb); for (Object f : lastRoom.values()) cb.call(f); },
+                this::meet);
         source.start(this);
         source.refresh();
     }
@@ -109,6 +119,27 @@ public class RosterStore implements RosterSource.Listener {
         for (TranscriptSharing.TurnFn o : turnObs) o.call(false, 0);
         pushContext();
         source.aim(socket, peer);
+    }
+
+    /**
+     * 어느 회의의 방들을 회선에 얹을 것인가 — 회의 화면이 브리지로 걸어 준다.
+     *
+     * 컴패니언 조준(aim)과 나란하되 독립이다: 회의 화면에는 조준된 컴패니언이 없다. 조준이
+     * 바뀌면 들고 있던 방들을 버린다 — 지난 회의의 발자국이 새 회의 화면에 비치면 안 된다.
+     */
+    public void meet(String idOrNull) {
+        if (eq(aimedMeeting, idOrNull)) return;
+        aimedMeeting = idOrNull;
+        lastRoom.clear();
+        source.meet(idOrNull);
+    }
+
+    @Override
+    public void room(Object frame) {
+        if (frame == null) return;
+        Object who = jsinterop.base.Js.asPropertyMap(frame).get("who");
+        if (who != null) lastRoom.put(String.valueOf(who), frame);
+        for (RoomSharing.FrameFn o : roomObs) o.call(frame);
     }
 
     /** 명단이 대는 타입 선언을 카탈로그로 푼다 — 행이 아직 없으면 기본(코딩 에이전트). */
