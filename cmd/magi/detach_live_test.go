@@ -1,7 +1,12 @@
 // 이 파일은 유닉스에서만 컴파일된다. 안의 물음(어느 세션에 있나, 그 프로세스가 살아 있나)이
-// syscall.Kill·Getsid 로만 물을 수 있는 것이라, 런타임 skip 으로는 늦다 — 윈도우에서는 시험이
+// Kill·Getsid 로만 물을 수 있는 것이라, 런타임 skip 으로는 늦다 — 윈도우에서는 시험이
 // 건너뛰는 것이 아니라 **빌드가 깨진다**(`GOOS=windows go vet` 이 잡았다). 윈도우의 떼어내기는
 // 잡 오브젝트 모양이고, 그것을 재는 자리는 그 플랫폼에 따로 있어야 한다.
+//
+// 세션을 묻는 것은 x/sys/unix 로 묻는다. `syscall.Getsid` 는 **darwin 에는 있고 linux 에는
+// 없다** — 그래서 이 파일은 맥에서 멀쩡히 컴파일되고 CI(우분투)에서만 `go vet` 이 죽었다.
+// 위 문단이 윈도우는 꼼꼼히 따졌는데 유닉스 안에서 갈리는 것은 못 봤다. 이 저장소가 이미
+// 한 번 겪은 갈래다(같은 물음에 리눅스와 맥이 다른 답을 준 errno 건).
 //go:build !windows
 
 package main
@@ -13,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 	"testing"
 	"time"
 
@@ -81,11 +88,11 @@ func TestADetachedDaemonOutlivesItsStarter(t *testing.T) {
 		t.Fatalf("the daemon did not outlive the command that started it: %v", err)
 	}
 	// And out of its starter's world: its own session, so a signal to that group cannot reach it.
-	sid, serr2 := syscall.Getsid(pid)
+	sid, serr2 := unix.Getsid(pid)
 	if serr2 != nil {
 		t.Fatalf("could not read the daemon's session: %v", serr2)
 	}
-	if mine, _ := syscall.Getsid(os.Getpid()); sid == mine {
+	if mine, _ := unix.Getsid(os.Getpid()); sid == mine {
 		t.Errorf("the daemon is still in this test's session (%d) — a group signal would take it", sid)
 	}
 	if sid != pid {
