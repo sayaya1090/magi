@@ -590,6 +590,55 @@ func (a *App) applyToolControl(ctx context.Context, tc turnCtx, ts *turnState, e
 	return turnTask, handledUserPrompts
 }
 
+// highestSeq is the last event a slice carries — the high-water mark of what a step has seen.
+func highestSeq(evs []event.Event) int64 {
+	var max int64
+	for _, e := range evs {
+		if e.Seq > max {
+			max = e.Seq
+		}
+	}
+	return max
+}
+
+// rereadWithoutUnscannedSteers re-reads the log for a step that has already had its interjection
+// scan, and leaves behind anything the person typed since.
+//
+// A step masks a mid-turn steer by first ENQUEUEING it: the top-of-loop scan puts it in
+// pendingInterject, and liveEvents drops exactly what is in that queue. So the mask only covers
+// prompts the scan actually saw. A step then re-reads the log twice more — once to pick up the
+// arrival notes it just appended, once after compaction — and both of those reads can bring back
+// a steer that landed in between. Never scanned, so never queued; never queued, so never masked;
+// and the request goes out carrying BOTH the task the turn is on and the message the person typed
+// into the middle of it, with nothing to say they are not one request.
+//
+// That is a model asked to answer two things at once, told nothing about the difference — and
+// answering both, or answering the same thing twice for two readings of one prompt, is what that
+// looks like from outside. Reported as the agent repeating itself, which is the honest description
+// of the symptom.
+//
+// The rule this restores is simple and was always the intent: a step answers the world as of its
+// own scan. A steer that arrives after it belongs to the NEXT step's scan, which will queue it,
+// mask it, and give it its own turn — the finish boundary catches even the last one
+// (enqueueLateInterjections). Nothing is dropped here; it is deferred to the reader that owns it.
+//
+// Only user prompts are held back. Everything else the re-read brings — the arrival notes, a
+// compaction's rewritten history, tool results — is the step's own business and must land.
+func (a *App) rereadWithoutUnscannedSteers(ctx context.Context, sid session.SessionID, scanned int64) []event.Event {
+	fresh, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return nil
+	}
+	out := make([]event.Event, 0, len(fresh))
+	for _, e := range fresh {
+		if e.Seq > scanned && e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
 // seedTurnTask snapshots the turn's task at step 0 and returns it with the baseline user-
 // prompt count. turnTask is the prompt that SEEDED this turn — the first genuine user prompt
 // not already answered by a previous turn — NOT merely the latest. User prompts that piled up
@@ -674,6 +723,9 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	// Emitted before the messages are rebuilt so it lands in this step's request rather than the
 	// next one, and it goes in as a system-actor prompt — the ⟳ note pattern, which the model
 	// reads and a person can see, and which never counts as an unanswered user turn.
+	// What this step's interjection scan has already seen. Every re-read below is filtered
+	// against it — see rereadWithoutUnscannedSteers.
+	scanned := highestSeq(evs)
 	arrivals := make([]string, 0, 4)
 	for _, line := range a.skillArrivals(sid, s.Workdir) {
 		arrivals = append(arrivals,
@@ -692,7 +744,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		})
 		if err := a.appendFact(ctx, sid, event.TypePromptSubmitted,
 			event.Actor{Kind: event.ActorSystem, ID: "arrivals"}, pd); err == nil {
-			evs, _ = a.store.Read(ctx, sid, 0)
+			evs = a.rereadWithoutUnscannedSteers(ctx, sid, scanned)
 		}
 	}
 	sys := a.stepSystemFor(sid, agent, s.Workdir, a.liveEvents(sid, evs))
@@ -731,7 +783,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		// What a recall re-hydrated may have just been shed again, so "already recalled this topic
 		// this turn — use what was returned earlier" would point at content that is no longer here.
 		tc.guard.forgetRecalledTopics()
-		evs, _ = a.store.Read(ctx, sid, 0)
+		evs = a.rereadWithoutUnscannedSteers(ctx, sid, scanned)
 		raw = reconstruct(evs) // refresh after compaction
 		vol = withNote(a.volatileContext(ctx, s, agent, evs, raw, step, tc.maxSteps, time.Since(tc.runStart)))
 	}
