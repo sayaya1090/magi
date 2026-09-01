@@ -210,9 +210,9 @@ func catalogue() []tool {
 		},
 		{
 			Name: "add_shape",
-			Desc: "Add a shape to a slide — a text box or a geometric shape — at a position given in points.",
+			Desc: "Add a shape to a slide — a text box or a geometric shape — at a position given in points. Shapes carry text: pass text and it goes inside the shape, which is how labelled boxes, arrows and callouts get made. Slide coordinates are points from the top left, and a 16:9 deck is 960x540.",
 			Props: withSlide(
-				property{Name: "kind", Type: "string", Desc: "textbox (default), rectangle, ellipse, line or roundRectangle."},
+				property{Name: "kind", Type: "string", Desc: "textbox (default) or a geometric shape: rectangle, roundRectangle, ellipse, line, triangle, rightTriangle, diamond, parallelogram, trapezoid, pentagon, hexagon, octagon, star5 (and star4/6/8/10/12), heart, sun, moon, cloud, smileyFace, lightningBolt, rightArrow, leftArrow, upArrow, downArrow, leftRightArrow, bentArrow, curvedRightArrow, chevron, homePlate, wedgeRectCallout, wedgeRoundRectCallout, wedgeEllipseCallout, cloudCallout, flowChartProcess, flowChartDecision, flowChartTerminator, flowChartDocument, flowChartInputOutput, can, cube, donut, plaque, bevel, frame, arc, pie, chord, teardrop, mathPlus, mathMinus, mathMultiply, mathEqual, noSmoking. An unknown name is refused with the full list rather than guessed at."},
 				property{Name: "text", Type: "string", Desc: "Text to put in it."},
 				property{Name: "left", Type: "number", Desc: "Left edge in points."},
 				property{Name: "top", Type: "number", Desc: "Top edge in points."},
@@ -246,7 +246,7 @@ func catalogue() []tool {
 		},
 		{
 			Name: "add_table",
-			Desc: "Add a table, with its values and formatting given at creation. This host can create a formatted table but cannot restyle an existing one, so put the formatting you want in this call.",
+			Desc: "Add a NEW table. If the slide already has one and the person is asking to change it, this is the wrong tool: write cells with set_table_cells, or rebuild it in place with replace_table. Adding a second table on top of the first is what it looks like to them, and they will say nothing happened. Values and formatting are given at creation because an existing table cannot be restyled.",
 			Props: withSlide(
 				property{Name: "rows", Type: "integer", Desc: "Number of rows."},
 				property{Name: "columns", Type: "integer", Desc: "Number of columns."},
@@ -256,14 +256,33 @@ func catalogue() []tool {
 				property{Name: "width", Type: "number", Desc: "Width in points."},
 				property{Name: "height", Type: "number", Desc: "Height in points."},
 				property{Name: "header_bold", Type: "boolean", Desc: "Make the first row bold at creation."},
+				property{Name: "borders", Type: "string", Desc: "Grid line colour as #RRGGBB. Leave it out: with no formatting arguments at all the table takes the deck theme's own table style, which looks better than anything we would draw. Asking for font or size drops that theme style, and then lines get drawn so the table stays visible at all. Pass \"none\" only when the person asked for a table with no lines."},
 				property{Name: "font", Type: "string", Desc: "Font family for every cell."},
 				property{Name: "size", Type: "number", Desc: "Font size in points for every cell."},
 			),
 			Required: []string{"rows", "columns"},
 		},
 		{
+			Name: "replace_table",
+			Desc: "Rebuild an existing table in place: the old one is removed and a new one is created at the same position and size, with the rows, columns, values and formatting you give. This is how a table gets more columns, a different font, or a different shape — an existing table cannot be restyled, and adding a second one beside it is not what was asked for. Omit shape_id when the slide has exactly one table.",
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The table to replace. Omit when the slide has exactly one table; with several, this is required."},
+				property{Name: "rows", Type: "integer", Desc: "Rows in the new table. Defaults to the old table's."},
+				property{Name: "columns", Type: "integer", Desc: "Columns in the new table. Defaults to the old table's."},
+				property{Name: "values", Type: "array", Items: "array", Desc: "Row-major cell text. Omit to carry the old table's text over as far as it fits."},
+				property{Name: "left", Type: "number", Desc: "Left edge in points. Defaults to where the old table was."},
+				property{Name: "top", Type: "number", Desc: "Top edge in points. Defaults to where the old table was."},
+				property{Name: "width", Type: "number", Desc: "Width in points. Defaults to the old table's."},
+				property{Name: "height", Type: "number", Desc: "Height in points. Defaults to the old table's."},
+				property{Name: "header_bold", Type: "boolean", Desc: "Make the first row bold."},
+				property{Name: "font", Type: "string", Desc: "Font family for every cell."},
+				property{Name: "size", Type: "number", Desc: "Font size in points for every cell."},
+				property{Name: "borders", Type: "string", Desc: "Grid line colour as #RRGGBB, or \"none\". Same rule as add_table."},
+			),
+		},
+		{
 			Name: "set_table_cells",
-			Desc: "Write text into cells of an existing table. Text only — this host cannot change an existing table's borders, fills, fonts, merges or row and column counts, so do not ask for them here.",
+			Desc: "Write text into cells of an existing table — the first thing to reach for when someone wants a table changed. Text only: an existing table's borders, fills, fonts, merges and row and column counts cannot be changed, so use replace_table for those.",
 			Props: withSlide(
 				property{Name: "shape_id", Type: "string", Desc: "The table shape."},
 				property{Name: "cells", Type: "array", Items: "object", Desc: "Cells to write: [{row, column, text}], row and column 0-based."},

@@ -105,6 +105,13 @@ class StubFont extends Loaded {
 
 class StubTable {
   constructor(raw, pending, log) { this.raw = raw; this.pending = pending; this.log = log; }
+  // 크기는 물어야 안다 — 실물의 `Table` 도 `load` 를 거친다. 이게 없으면 제자리 교체가
+  // 옛 표의 크기를 `null` 로 읽고, 그 값으로 새 표를 짓는다.
+  load(spec) { this.pending.push([this, spec]); return this; }
+  reveal() {
+    this.rowCount = this.raw.cells?.length ?? 0;
+    this.columnCount = this.raw.cells?.[0]?.length ?? 0;
+  }
   getCellOrNullObject(r, c) {
     const cell = { isNullObject: !(this.raw.cells?.[r]?.[c] !== undefined), text: this.raw.cells?.[r]?.[c] };
     const view = new Loaded(cell, this.pending);
@@ -239,6 +246,10 @@ function makeShapes(slide, pending, log) {
     log.push(`addTextBox:${text}:${opts.left},${opts.top}`);
     const raw = { id: 'sh-new', name: 'TextBox', type: 'TextBox', text };
     return new StubShape(raw, pending, log);
+  };
+  coll.addGeometricShape = (geo, opts) => {
+    log.push(`addGeometricShape:${geo}:${opts.left},${opts.top}`);
+    return new StubShape({ id: 'sh-geo', name: geo, type: 'GeometricShape', text: '' }, pending, log);
   };
   coll.addTable = (r, c, opts) => {
     log.push(`addTable:${r}x${c}:${JSON.stringify(opts.uniformCellProperties ?? null)}:${opts.specificCellProperties ? 'specific' : 'none'}`);
@@ -770,6 +781,188 @@ async function makeZip(files) {
     ok('레이아웃에서 만든 장도 제목이 들어간다',
       out2.result.filled.join(',') === 'title', JSON.stringify(out2.result));
   }
+}
+
+// ── 표를 고쳐 달랬더니 하나 더 만들던 것 ─────────────────────────────────────
+//
+// 사용자 신고다(2026-09-02): 표를 만들게 하고, 만들어진 걸 보고 **고쳐 달라고 했더니 기존 것을
+// 놔두고 새로 넣었다.** 원인이 둘이었다.
+//
+// 하나 — **고칠 길이 없었다.** 있는 표의 서식·행열은 1.9 라 이 바닥에 없고, 우리가 준 것은
+// 「글만 쓰는」 `set_table_cells` 뿐이었다. 「열 하나 더」에는 쓸 도구가 없었다.
+// 둘 — **스키마가 그렇게 가르쳤다.** `add_table` 의 설명이 "이 호스트는 있는 표를 못 고치니
+// 서식은 만들 때 주라"고 적혀 있었고, 모델은 그것을 「고치려면 새로 만들라」로 읽었다.
+//
+// 그래서 길을 하나 주고(`replace_table`), 설명을 고치고, **이미 표가 있는 장에 표를 더할 때는
+// 결과가 그 사실을 말한다.**
+{
+  const deck = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: '제목 및 내용' },
+      shapes: [
+        { id: 'ph1', name: '제목 1', type: 'Placeholder', text: '분기', placeholderFormat: { type: 'title' }, left: 10, top: 10, width: 300, height: 50 },
+        { id: 'tb1', name: '표 2', type: 'Table', text: '', left: 40, top: 120, width: 500, height: 160,
+          cells: [['항목', '1월'], ['매출', '10']] },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: '제목 및 내용', placeholders: ['title', 'body'] }] }],
+  });
+  const hand = (mm, log) => new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'doc-1' });
+
+  // **더할 때 경고한다.** 막지는 않는다 — 표를 둘 두는 장도 있다. 대신 다음 수를 이름 대어 준다.
+  {
+    const out = await hand(deck(), []).run('add_table', { slide: 1, rows: 2, columns: 2 });
+    ok('이미 있던 표의 수를 결과가 싣는다', out.result.tables_before === 1, String(out.result.tables_before));
+    ok('사람이 읽는 줄에 「이미 있다」가 선다',
+      out.changed[0].includes('이미 표가 1개') && out.changed[0].includes('replace_table'), out.changed[0]);
+  }
+  {
+    const bare = deck();
+    bare.slides[0].shapes = bare.slides[0].shapes.filter((s) => s.type !== 'Table');
+    const out = await hand(bare, []).run('add_table', { slide: 1, rows: 2, columns: 2 });
+    ok('표가 없던 장에는 경고를 안 붙인다', !out.changed[0].includes('⚠'), out.changed[0]);
+  }
+
+  // **제자리에서 다시 짓는다.** 자리·크기는 옛 표의 것을 물려받고, 글도 되도록 옮겨 온다.
+  {
+    const mm = deck(); const log = [];
+    const out = await hand(mm, log).run('replace_table', { slide: 1, columns: 3 });
+    const add = log.find((l) => l.startsWith('addTable:'));
+    ok('행은 그대로, 열만 늘어난다', out.result.rows === 2 && out.result.columns === 3,
+      JSON.stringify(out.result));
+    ok('옛 표를 지운다', log.includes('delete:tb1'), log.join(' / '));
+    ok('새 표를 만든다', Boolean(add), log.join(' / '));
+    ok('옛 표의 크기를 결과가 같이 적는다',
+      out.result.was.rows === 2 && out.result.was.columns === 2, JSON.stringify(out.result.was));
+    ok('id 가 바뀐다는 것을 사람이 읽는 줄이 적는다',
+      out.changed[0].includes('옛 id 는 이제 없습니다'), out.changed[0]);
+  }
+
+  // 표가 여럿이면 **안 고른다** — 골라 주면 엉뚱한 표가 사라지고 그건 못 되돌린다.
+  {
+    const mm = deck();
+    mm.slides[0].shapes.push({ id: 'tb2', name: '표 3', type: 'Table', text: '', left: 40, top: 320, width: 300, height: 100, cells: [['x']] });
+    let why = null;
+    try { await hand(mm, []).run('replace_table', { slide: 1 }); } catch (e) { why = e.message; }
+    ok('표가 여럿이면 어느 것인지 묻는다',
+      why?.includes('tb1') && why?.includes('tb2'), why);
+  }
+  {
+    const mm = deck();
+    mm.slides[0].shapes = mm.slides[0].shapes.filter((s) => s.type !== 'Table');
+    let why = null;
+    try { await hand(mm, []).run('replace_table', { slide: 1 }); } catch (e) { why = e.message; }
+    ok('표가 없으면 add_table 을 가리킨다', why?.includes('add_table'), why);
+  }
+
+  // 스키마가 **가르치는 말**도 시험한다 — 이 결함의 절반이 설명문이었다.
+  {
+    const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const desc = (name) => {
+      const at = go.indexOf(`Name: "${name}"`);
+      return at < 0 ? '' : go.slice(at, go.indexOf('\n', go.indexOf('Desc:', at)));
+    };
+    ok('add_table 이 「고치려면 다른 도구」라고 말한다',
+      /replace_table/.test(desc('add_table')) && /set_table_cells/.test(desc('add_table')),
+      desc('add_table').slice(0, 80));
+    ok('set_table_cells 가 먼저 잡을 도구라고 말한다',
+      /first thing to reach for/i.test(desc('set_table_cells')), desc('set_table_cells').slice(0, 80));
+    ok('replace_table 이 「하나 더 만드는 게 아니다」라고 말한다',
+      /not what was asked/i.test(desc('replace_table')), desc('replace_table').slice(0, 80));
+  }
+}
+
+// ── 말로 부르는 도형 이름 ────────────────────────────────────────────────────
+//
+// 넷만 알던 자리다(사각형·둥근사각형·타원·선). API 한계가 아니라 처음에 좁게 잡은 것이었고,
+// 사람이 「화살표 그려 줘」라고 하면 손이 모른다고 답했다. 사용자가 「테이블 말고 뭘 그릴 수
+// 있냐」고 물어 넓혔다(2026-09-02).
+{
+  const hand = (log) => new OfficeHand({ run: stubRunner(model(), log), supports: () => true, document: 'doc-1' });
+  const geoOf = async (kind) => {
+    const log = [];
+    // 모르는 이름은 던진다 — 여기서는 「못 알아봤다」로 접어 목록에 담는다.
+    try { await hand(log).run('add_shape', { slide: 1, kind, text: 'ㄱ' }); } catch { return undefined; }
+    return log.find((l) => l.startsWith('addGeometricShape:'))?.split(':')[1];
+  };
+  ok('영문 표준명을 그대로 받는다', await geoOf('rightArrow') === 'rightArrow');
+  // **한국어로도 받는다.** 한국어 대화 중에 모델이 한국어 이름을 넘기는 것이 자연스럽고,
+  // 거기서 거절하면 왕복이 한 번 는다.
+  ok('한국어 이름도 받는다', await geoOf('삼각형') === 'triangle');
+  ok('별은 star5 로 간다', await geoOf('별') === 'star5');
+  ok('말풍선도 안다', await geoOf('말풍선') === 'wedgeRectCallout');
+  ok('순서도 판단 기호도 안다', await geoOf('판단') === 'flowChartDecision');
+  // 띄어쓰기·대소문자·밑줄은 같은 것으로 본다 — 모델이 어느 쪽으로 쓸지 우리가 못 정한다.
+  ok('모양이 조금 다른 표기도 같은 것으로 본다',
+    await geoOf('round rectangle') === 'roundRectangle'
+      && await geoOf('ROUND_RECTANGLE') === 'roundRectangle');
+  ok('글상자는 여전히 기본이다', await geoOf('textbox') === undefined);
+
+  // **모르는 이름은 지어내지 않고, 아는 것을 알려 준다.**
+  let why = null;
+  try { await hand([]).run('add_shape', { slide: 1, kind: '우주선' }); } catch (e) { why = e.message; }
+  ok('모르는 도형은 거절하고 목록을 준다',
+    why?.includes('우주선') && why?.includes('rightArrow') && why?.includes('triangle'),
+    why?.slice(0, 80));
+
+  // 스키마가 광고하는 이름은 **손이 다 알아야 한다** — 광고와 실행이 어긋나면 모델은 광고된
+  // 이름을 부르고 거절당한다.
+  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  // 스키마의 `kind` 설명문에서 **쉼표로 나열된 이름들만** 뽑는다. 산문까지 긁으면 영어 낱말이
+  // 도형 이름으로 세어져, 이 시험이 자기가 만든 헛것을 잡으려 든다.
+  const at = go.indexOf(String.fromCharCode(34) + 'kind' + String.fromCharCode(34));
+  const desc = at < 0 ? '' : go.slice(at, go.indexOf(String.fromCharCode(10), at));
+  const listed = /geometric shape: ([^.]+)./.exec(desc)?.[1] ?? '';
+  const advertised = listed.split(',').map((w) => w.trim())
+    .filter((w) => /^[a-zA-Z][A-Za-z0-9]+$/.test(w));
+  const unknown = [];
+  for (const w of advertised) {
+    const got = await geoOf(w);
+    if (!got) unknown.push(w);
+  }
+  ok('광고한 도형 이름을 뽑았다', advertised.length > 20, advertised.length + '개');
+  ok('광고한 도형을 손이 전부 안다', unknown.length === 0, unknown.join(', '));
+}
+// ── 「이 장에 뭐라고 쓰여 있나」에 답할 수 있는가 ─────────────────────────────
+//
+// 사용자가 물었다(2026-09-02): 「슬라이드를 모델이 이해할 수 있는 수준은 되나? 어떤 내용의
+// 슬라이드인지」. 재 보니 **아니었다.** 표가 하나 있는 장을 읽었더니 도형 종류와 자리만 오고
+// **제목까지 포함해 글이 전부 빈 문자열**이었다 — 글틀 없는 도형에 글을 물어 묶음이 죽고,
+// `catch` 가 그것을 「글 없음」으로 삼켰기 때문이다. 모델은 그 장의 내용을 하나도 모르는 채
+// 답을 지어야 했다.
+{
+  const mixed = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: '제목 및 내용' },
+      shapes: [
+        { id: 'ph1', name: '제목 1', type: 'Placeholder', text: '3분기 실적', placeholderFormat: { type: 'title' }, left: 10, top: 10, width: 300, height: 50, altTextDescription: null },
+        { id: 'sh2', name: '화살표', type: 'GeometricShape', text: '흐름', left: 10, top: 80, width: 100, height: 40, altTextDescription: null },
+        { id: 'tb1', name: '표 3', type: 'Table', text: '', left: 40, top: 140, width: 400, height: 120, altTextDescription: null,
+          cells: [['항목', '1월'], ['매출', '10']] },
+        { id: 'im4', name: '그림 4', type: 'Image', text: '', left: 500, top: 140, width: 120, height: 120, altTextDescription: '로고' },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: '제목 및 내용', placeholders: ['title'] }] }],
+  });
+
+  const out = await new OfficeHand({ run: stubRunner(mixed(), []), supports: () => true, document: 'doc-1' })
+    .run('read_slide', { slide: 1 });
+  const by = Object.fromEntries(out.result.shapes.map((s) => [s.shape_id, s]));
+
+  // **글이 온다.** 이게 안 되면 모델은 장의 내용을 모른다.
+  ok('표가 있어도 제목 글이 온다', by.ph1.text === '3분기 실적', JSON.stringify(by.ph1.text));
+  ok('도형 안의 글도 온다', by.sh2.text === '흐름', JSON.stringify(by.sh2.text));
+  ok('글이 통째로 날아가지 않았다', out.result.text_unavailable !== true);
+
+  // **표는 격자로 온다.** 「표가 하나 있다」까지만 알면 「이 표 고쳐 줘」에 쓸 것이 없다.
+  ok('표의 칸이 격자로 실린다',
+    by.tb1.rows === 2 && by.tb1.columns === 2
+      && by.tb1.cells[0][0] === '항목' && by.tb1.cells[1][1] === '10',
+    JSON.stringify(by.tb1.cells));
+  // 표가 아닌 도형에는 격자 칸 자체를 안 만든다 — 빈 격자는 「빈 표」로 읽힌다.
+  ok('표가 아닌 것에는 격자를 안 붙인다', by.ph1.cells === undefined && by.im4.cells === undefined);
+  // 그림은 대체 텍스트가 유일한 단서다.
+  ok('그림은 대체 텍스트로 말한다', by.im4.alt === '로고', String(by.im4.alt));
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).

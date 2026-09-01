@@ -47,7 +47,7 @@ export class OfficeHand extends HandPort {
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
-      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide'];
+      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide', 'replace_table'];
   }
 
   #envelope(result, changed = []) {
@@ -135,6 +135,7 @@ export class OfficeHand extends HandPort {
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
       case 'add_table': return this.#addTable(args);
+      case 'replace_table': return this.#replaceTable(args);
       case 'set_table_cells': return this.#setCells(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
@@ -191,7 +192,13 @@ export class OfficeHand extends HandPort {
 
       // 글은 **두 번째 왕복**에서. 도형에 `textFrame` 이 없을 수 있어 통째로 실패할 수 있고,
       // 그때는 글을 포기하고 **신원은 살린다** — 다만 포기했다는 사실을 실어 보낸다.
+      // ⚠ **글틀이 없는 도형에 글을 물으면 묶음 전체가 죽는다** — 그러면 `catch` 가 모든 글을
+      // 빈 글로 만들고, 화면은 「글이 없는 슬라이드」를 그린다. 실물에서 그 답을 봤다
+      // (2026-09-02): 표가 하나 있는 장을 읽었더니 **제목까지 포함해 글이 전부 빈 문자열**로
+      // 왔다. 모델은 그 장에 뭐라고 쓰여 있는지 하나도 모르는 채로 답을 지어야 했다.
+      // 같은 함정의 세 번째 발현이라(placeholderFormat · find_shapes), 답도 같다.
       const frames = shapes.items.map((s) => {
+        if (TEXTLESS.has(String(s.type ?? '').toLowerCase())) return null;
         const tf = s.textFrame;
         tf.textRange.load('text');
         return tf;
@@ -200,10 +207,20 @@ export class OfficeHand extends HandPort {
       let textUnavailable = false;
       try {
         await context.sync();
-        texts = frames.map((tf) => tf.textRange.text ?? '');
+        texts = shapes.items.map((s, i) => (frames[i] ? (frames[i].textRange.text ?? '') : ''));
       } catch {
         texts = shapes.items.map(() => '');
         textUnavailable = true;
+      }
+
+      // 표는 **도형 하나가 아니라 격자**다. 칸의 글을 안 실으면 모델은 「여기 표가 하나 있다」
+      // 까지만 알고 **무슨 내용인지는 모른다** — 「이 표 고쳐 줘」에 쓸 것이 하나도 없다.
+      // 실물에서 그 화면을 봤다(2026-09-02): 방금 만든 표를 다시 읽었더니 종류와 크기만 왔다.
+      const grids = new Map();
+      for (const sh of shapes.items) {
+        if (String(sh.type ?? '').toLowerCase() !== 'table') continue;
+        const got = await this.#readTableText(context, sh);
+        if (got.values?.length) grids.set(sh.id, got);
       }
 
       return this.#envelope({
@@ -219,6 +236,10 @@ export class OfficeHand extends HandPort {
           alt: s.altTextDescription ?? null,
           left: s.left, top: s.top, width: s.width, height: s.height,
           text: texts[i],
+          // 표면 격자를 그대로. **없으면 칸을 안 만든다** — 빈 격자는 「빈 표」로 읽힌다.
+          ...(grids.has(s.id)
+            ? { rows: grids.get(s.id).rows, columns: grids.get(s.id).columns, cells: grids.get(s.id).values }
+            : {}),
         })),
         // **없는 것이 아니라 못 읽는 것이다**(CAPABILITIES.md §10.5). 모델에게 노트가 *없다*고
         // 말하면 노트가 없는 덱이라고 믿고, 필요할 때 다른 길을 안 쓴다.
@@ -253,13 +274,34 @@ export class OfficeHand extends HandPort {
       }
       // 글로 거르려면 한 왕복이 더 든다. **거르는 조건이 없으면 안 든다** — 100 장 덱에서 이
       // 차이가 S6 이 재는 수다.
+      //
+      // ⚠ **글틀이 없는 도형에 글을 물으면 묶음 전체가 죽는다.** 표·그림·차트가 그렇고, 실물에서
+      // 이 도구가 통째로 `InvalidArgument` 로 떨어졌다(2026-09-02 전수 점검). `read_slide` 의
+      // `placeholderFormat` 과 같은 함정이고, 답도 같다 — **물을 수 있는 것에만 묻고, 그래도
+      // 터지면 신원은 살린다.**
       const kept = [];
       for (const h of hits) {
-        const shape = context.presentation.slides.getItem(h.slide_id).shapes.getItem(h.shape_id);
-        shape.textFrame.textRange.load('text');
-        kept.push({ hit: h, shape });
+        if (!TEXTLESS.has(String(h.type ?? '').toLowerCase())) {
+          const shape = context.presentation.slides.getItem(h.slide_id).shapes.getItem(h.shape_id);
+          shape.textFrame.textRange.load('text');
+          kept.push({ hit: h, shape });
+        }
       }
-      await context.sync();
+      let read = true;
+      try {
+        await context.sync();
+      } catch {
+        read = false;
+      }
+      if (!read) {
+        // **글을 못 읽었으면 「글로 걸렀다」고 하지 않는다.** 못 거른 목록을 거른 것처럼 주면
+        // 모델이 「그런 글은 없다」로 읽는다.
+        return this.#envelope({
+          shapes: hits.slice(0, Number(args.limit ?? 50)),
+          text_unavailable: true,
+          note: '이 호스트가 도형의 글을 안 내줘서 text 로 못 걸렀습니다 — 아래는 거르기 전 목록입니다',
+        });
+      }
       const out = [];
       for (const { hit, shape } of kept) {
         const text = shape.textFrame?.textRange?.text ?? '';
@@ -656,7 +698,29 @@ export class OfficeHand extends HandPort {
     });
   }
 
-  #applyLayout(args) {
+  /**
+   * 레이아웃을 갈아 끼운다.
+   *
+   * ⚠ **어느 모양으로 부르는지는 호스트가 정한다.** id 문자열을 넘겼더니 실물이
+   * `InvalidArgument` 로 떨어졌다(2026-09-02 전수 점검). 문서로는 둘 다 그럴듯해서 **두 번
+   * 시도한다** — 한 묶음이 실패하면 그 context 는 못 쓰므로, 두 번째는 새 묶음이다. 둘 다
+   * 실패하면 **둘의 사유를 다 싣는다**: 「안 됐다」만으로는 다음에 뭘 고칠지 모른다.
+   */
+  async #applyLayout(args) {
+    const tries = [];
+    for (const how of ['object', 'id']) {
+      try {
+        return await this.#applyLayoutOnce(args, how);
+      } catch (e) {
+        tries.push(`${how}: ${e?.message ?? e}`);
+        // 이름이 아예 없는 경우는 **다시 시도할 값이 없다** — 바로 올린다.
+        if (String(e?.message ?? '').includes('레이아웃이 없습니다')) throw e;
+      }
+    }
+    throw new Error(`레이아웃을 못 갈아 끼웠습니다 — ${tries.join(' / ')}`);
+  }
+
+  #applyLayoutOnce(args, how) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const masters = context.presentation.slideMasters;
@@ -676,7 +740,7 @@ export class OfficeHand extends HandPort {
         const names = masters.items.flatMap((m) => m.layouts.items.map((l) => l.name));
         throw new Error(`${args.layout} 이라는 레이아웃이 없습니다 — 이 덱에는: ${names.join(', ')}`);
       }
-      slide.applyLayout(found.id);
+      slide.applyLayout(how === 'id' ? found.id : found);
       await context.sync();
       this.#mutated();
       return this.#envelope({ slide_id: slide.id, layout: args.layout },
@@ -717,33 +781,173 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * 표 만들기 옵션을 짓는다. `add_table` 과 `replace_table` 이 **같은 규칙**을 써야 한다 —
+   * 갈라 두면 한쪽만 고쳐지고, 그 차이는 「고쳐 달랬더니 다르게 생긴 표가 나왔다」로 나온다.
+   */
+  #tableOptions(args, rows, columns, rect) {
+    const options = {
+      left: Number(args.left ?? rect?.left ?? 100),
+      top: Number(args.top ?? rect?.top ?? 100),
+      width: Number(args.width ?? rect?.width ?? 400),
+      height: Number(args.height ?? rect?.height ?? 200),
+    };
+    if (args.values !== undefined) options.values = args.values;
+    const uniform = {};
+    if (args.font !== undefined) uniform.font = { ...(uniform.font ?? {}), name: args.font };
+    if (args.size !== undefined) uniform.font = { ...(uniform.font ?? {}), size: Number(args.size) };
+    // ⚠⚠ **칸 서식을 주는 순간 테마의 표 스타일이 사라진다.** 2026-09-02 에 실물에서 잰
+    // 것이다: `uniformCellProperties` 를 아예 안 주면 PowerPoint 가 테마의 표 스타일을 입혀
+    // 머리띠가 있는 **보기 좋은 표**가 서고, 글꼴 하나라도 주면 채움도 테두리도 없는 맨몸이
+    // 선다(COM 으로 보면 네 변이 전부 `Visible=0`). 값이 안 든 맨몸 표는 화면에서
+    // **아무것도 아니다** — 사람은 「표 만들어 줘」라고 하고 빈 슬라이드를 본다.
+    //
+    // 규칙 둘: 아무 서식도 안 청했으면 **아무것도 안 준다**(테마가 그린다). 서식을 청해서
+    // 테마가 날아가면 **선을 우리가 그린다**(안 그리면 안 보인다).
+    const wantsFormat = Object.keys(uniform).length > 0;
+    const line = args.borders === undefined ? null : String(args.borders);
+    const drawLines = line !== null ? line.toLowerCase() !== 'none' : wantsFormat;
+    if (drawLines) {
+      const color = line && line.toLowerCase() !== 'none' ? line : '#808080';
+      const edge = { color, weight: 1, dashStyle: 'solid' };
+      uniform.borders = { top: edge, bottom: edge, left: edge, right: edge };
+    }
+    if (Object.keys(uniform).length > 0) options.uniformCellProperties = uniform;
+    if (args.header_bold) {
+      options.specificCellProperties = Array.from({ length: rows }, (_, r) => (
+        Array.from({ length: columns }, () => (r === 0 ? { font: { bold: true } } : {}))));
+    }
+    return options;
+  }
+
+  /**
+   * 이 장에 이미 있는 표들. **경고 한 줄을 짓기 위해서** 센다 — 사람이 「표 고쳐 줘」라고 한
+   * 것을 모델이 `add_table` 로 받으면 표가 둘이 되고, 사람 눈에는 「안 고쳐졌다」로 보인다.
+   * 실제로 그렇게 신고가 들어왔다(2026-09-02).
+   */
+  async #tablesOn(context, slide) {
+    slide.shapes.load('items/id,items/name,items/type,items/left,items/top,items/width,items/height');
+    await context.sync();
+    return slide.shapes.items.filter((s) => String(s.type ?? '').toLowerCase() === 'table');
+  }
+
   #addTable(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const rows = Number(args.rows);
       const columns = Number(args.columns);
-      const options = {
-        left: Number(args.left ?? 100), top: Number(args.top ?? 100),
-        width: Number(args.width ?? 400), height: Number(args.height ?? 200),
-      };
-      if (args.values !== undefined) options.values = args.values;
-      // **서식은 만들 때 준다** — 만든 뒤에 고치는 것은 1.9 라 이 바닥에 없다(§2.3).
-      const uniform = {};
-      if (args.font !== undefined) uniform.font = { ...(uniform.font ?? {}), name: args.font };
-      if (args.size !== undefined) uniform.font = { ...(uniform.font ?? {}), size: Number(args.size) };
-      if (Object.keys(uniform).length > 0) options.uniformCellProperties = uniform;
-      if (args.header_bold) {
-        options.specificCellProperties = Array.from({ length: rows }, (_, r) => (
-          Array.from({ length: columns }, () => (r === 0 ? { font: { bold: true } } : {}))));
-      }
+      // **이 장에 이미 표가 있으면 그 사실을 결과가 말한다.** 사람이 「표 고쳐 줘」라고 한 것을
+      // 모델이 이 도구로 받으면 표가 둘이 되고, 사람 눈에는 「안 고쳐졌다」로 보인다 — 실제로
+      // 그렇게 신고가 들어왔다(2026-09-02). 막지는 않는다(표를 둘 두는 장도 있다). 대신
+      // **다음 수를 이름 대어 알려 준다.**
+      const already = await this.#tablesOn(context, slide);
+      const options = this.#tableOptions(args, rows, columns, null);
       const shape = slide.shapes.addTable(rows, columns, options);
       shape.load('id');
       await context.sync();
       this.#mutated();
-      return this.#envelope({ slide_id: slide.id, shape_id: shape.id, rows, columns },
-        [`슬라이드 ${slide.id}: ${rows}×${columns} 표 ${shape.id} 추가` +
-          `${args.header_bold ? ' (헤더 굵게)' : ''}`]);
+      const warn = already.length
+        ? ` · ⚠ 이 장에는 이미 표가 ${already.length}개 있습니다(${already.map((t) => t.id).join(', ')}) — `
+          + '고치려던 것이면 그 표를 replace_table 로 바꾸거나 set_table_cells 로 글만 채우세요'
+        : '';
+      return this.#envelope(
+        { slide_id: slide.id, shape_id: shape.id, rows, columns, tables_before: already.length },
+        [`슬라이드 ${slide.id}: ${rows}×${columns} 표 ${shape.id} 추가`
+          + `${args.header_bold ? ' (헤더 굵게)' : ''}` + warn]);
     });
+  }
+
+  /**
+   * 있는 표를 **제자리에서** 다시 짓는다. 지우고 같은 자리에 새로 만든다.
+   *
+   * 이 도구가 없어서 생긴 일이 이것이다: 사람이 표를 만들게 하고 그것을 고쳐 달라고 했는데,
+   * 모델에게는 고칠 길이 없어서(있는 표의 서식·행열은 1.9 라 이 바닥에 없다) **표를 하나 더
+   * 만들었다.** 사람은 「기존 거 놔두고 새로 넣어 버렸다」고 신고했다(2026-09-02). 못 하는 것을
+   * 광고하지 않는 것과, 할 수 있는 길을 **하나는 주는 것**은 다른 일이다.
+   *
+   * 값을 안 주면 **옛 표의 글을 옮겨 온다** — 「열 하나 더」에서 사람이 기대하는 것이 그것이다.
+   */
+  #replaceTable(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const tables = await this.#tablesOn(context, slide);
+      if (tables.length === 0) {
+        throw new Error(`슬라이드 ${slide.id} 에는 표가 없습니다 — 새로 만들려면 add_table 을 쓰세요`);
+      }
+      let old = tables[0];
+      if (args.shape_id) {
+        old = tables.find((t) => t.id === args.shape_id) ?? null;
+        if (!old) {
+          throw new Error(`도형 ${args.shape_id} 는 이 장의 표가 아닙니다 — 이 장의 표: `
+            + tables.map((t) => t.id).join(', '));
+        }
+      } else if (tables.length > 1) {
+        // **여럿이면 안 고른다.** 골라 주면 엉뚱한 표가 사라지고, 그건 못 되돌린다.
+        throw new Error(`이 장에는 표가 ${tables.length}개 있습니다 — 어느 것인지 shape_id 로 말해 주세요: `
+          + tables.map((t) => t.id).join(', '));
+      }
+
+      // 옛 표의 자리·크기·글을 읽어 둔다. **글까지 읽는 것이 이 도구의 값이다** — 「열 하나 더」에
+      // 사람이 기대하는 것은 빈 표가 아니라 쓰던 표다.
+      const rect = { left: old.left, top: old.top, width: old.width, height: old.height };
+      const kept = await this.#readTableText(context, old);
+      const rows = Number(args.rows ?? kept.rows ?? 1);
+      const columns = Number(args.columns ?? kept.columns ?? 1);
+      const values = args.values !== undefined ? args.values : regrid(kept.values, rows, columns);
+
+      const options = this.#tableOptions({ ...args, values }, rows, columns, rect);
+      const oldId = old.id;
+      old.delete();
+      const made = slide.shapes.addTable(rows, columns, options);
+      made.load('id');
+      await context.sync();
+      this.#mutated();
+      return this.#envelope(
+        {
+          slide_id: slide.id, shape_id: made.id, replaced: oldId, rows, columns,
+          was: { rows: kept.rows, columns: kept.columns },
+        },
+        [`슬라이드 ${slide.id}: 표 ${oldId}(${kept.rows}×${kept.columns}) 를 지우고 `
+          + `같은 자리에 ${rows}×${columns} 표 ${made.id} 를 놓았습니다 — 옛 id 는 이제 없습니다`]);
+    });
+  }
+
+  /**
+   * 표의 글을 격자로 읽는다. **못 읽으면 빈 격자를 주고 그렇게 적는다** — 지어낸 글로 표를
+   * 다시 지으면 사람이 쓰던 것이 조용히 바뀐다.
+   */
+  async #readTableText(context, shape) {
+    let table;
+    try {
+      table = shape.getTable();
+      table.load('rowCount,columnCount');
+      await context.sync();
+    } catch {
+      return { rows: null, columns: null, values: [] };
+    }
+    const rows = Number(table.rowCount ?? 0);
+    const columns = Number(table.columnCount ?? 0);
+    if (!rows || !columns) return { rows: rows || null, columns: columns || null, values: [] };
+    const cells = [];
+    for (let r = 0; r < rows; r++) {
+      const line = [];
+      for (let c = 0; c < columns; c++) {
+        const cell = table.getCellOrNullObject(r, c);
+        cell.load('isNullObject,text');
+        line.push(cell);
+      }
+      cells.push(line);
+    }
+    try {
+      await context.sync();
+    } catch {
+      return { rows, columns, values: [] };
+    }
+    return {
+      rows,
+      columns,
+      values: cells.map((line) => line.map((cell) => (cell.isNullObject ? '' : (cell.text ?? '')))),
+    };
   }
 
   #setCells(args) {
@@ -823,6 +1027,24 @@ export class OfficeHand extends HandPort {
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
 /**
+ * 글틀이 없는 도형 종류. 여기에 글을 물으면 **묶음 전체가 죽는다**(2026-09-02 실물).
+ * 좁게 잡는다 — 넓게 잡으면 글이 있는 도형을 조용히 건너뛰고, 그건 「없다」로 보고된다.
+ */
+const TEXTLESS = new Set(['table', 'image', 'picture', 'chart', 'group', 'media', 'ole',
+  'smartart', 'model3d', 'ink', 'diagram', 'contentapp']);
+
+/**
+ * 옛 표의 글을 새 크기의 격자에 맞춘다. **넘치는 것은 버리고 모자라는 것은 빈 칸이다** —
+ * 「열 하나 더」에 사람이 기대하는 것이 그것이고, 줄이는 쪽에서 글이 사라지는 것은 사실이라
+ * 결과가 크기 둘을 다 적는다.
+ */
+function regrid(values, rows, columns) {
+  if (!Array.isArray(values) || values.length === 0) return undefined;
+  return Array.from({ length: rows }, (_, r) =>
+    Array.from({ length: columns }, (_, c) => String(values[r]?.[c] ?? '')));
+}
+
+/**
  * 결과 문장에 남의 글을 실을 때 길이를 자른다. **자른 표시까지가 길이다** — 자르고도 길면
  * 자른 뜻이 없다. 덱의 본문이 그대로 흐르는 자리라, 한 문장이 결과 줄 전체를 밀어내면
  * 「무엇이 됐는지」가 화면 밖으로 나간다.
@@ -832,15 +1054,104 @@ function clipText(s, n = 60) {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 
+/**
+ * 도형 이름을 Office 의 열거로. **모르는 것은 던진다** — 지어내면 엉뚱한 도형이 선다.
+ *
+ * 넷만 알던 자리다(사각형·둥근사각형·타원·선). API 한계가 아니라 처음에 좁게 잡은 것이었고,
+ * 사람이 「화살표 그려 줘」라고 하면 손이 모른다고 답했다. `addGeometricShape` 는 백여 가지를
+ * 받으므로, **사람이 말로 부르는 것**을 위주로 넓힌다 — 한국어 이름도 같이 받는다. 모델이
+ * 한국어 대화 중에 한국어 이름을 그대로 넘기는 것이 자연스럽고, 그때 거절하면 왕복이 는다.
+ */
 function geometryOf(kind) {
-  const map = {
-    rectangle: 'rectangle', ellipse: 'ellipse', line: 'line',
-    roundRectangle: 'roundRectangle', roundrectangle: 'roundRectangle',
-  };
-  const got = map[kind];
-  if (!got) throw new Error(`${kind} 는 이 손이 아는 도형이 아닙니다 — textbox·rectangle·ellipse·line·roundRectangle`);
+  const raw = String(kind ?? '').trim();
+  const key = raw.toLowerCase().replace(/[\s_-]/g, '');
+  // 이름표에 있는 별명이거나, **Office 의 표준명 그대로**거나. 뒤엣것을 안 받으면 스키마가
+  // 광고한 이름을 손이 거절하는 자리가 생긴다 — `flowChartInputOutput` 이 실제로 그랬다
+  // (별명은 `flowchartdata` 였다). 광고와 실행이 어긋나면 모델은 광고된 이름을 부르고 튕긴다.
+  const got = GEOMETRY.get(key) ?? CANON.get(key);
+  if (!got) {
+    // **있는 이름을 알려 준다** — 「모른다」만으로는 다음에 무엇을 부를지 모른다.
+    throw new Error(`${raw} 는 이 손이 아는 도형이 아닙니다 — 아는 것: ` + geometryNames().join(', '));
+  }
   return got;
 }
+
+/** 표준명 자체로 찾는 길. 소문자로 눌러 둔다. */
+const CANON = new Map();
+
+/** 사람에게 보여 줄 이름들(영문 표준명만, 중복 없이). */
+function geometryNames() {
+  return [...new Set(GEOMETRY.values())].sort();
+}
+
+/**
+ * 이름표. 왼쪽이 사람·모델이 부르는 말, 오른쪽이 Office 의 `GeometricShapeType`.
+ * 한 도형에 여러 이름이 붙는다 — 「별」과 `star5` 와 `star` 는 같은 것을 가리킨다.
+ */
+const GEOMETRY = new Map(Object.entries({
+  // 기본
+  rectangle: 'rectangle', 사각형: 'rectangle', 네모: 'rectangle',
+  roundrectangle: 'roundRectangle', 둥근사각형: 'roundRectangle', 라운드사각형: 'roundRectangle',
+  ellipse: 'ellipse', oval: 'ellipse', circle: 'ellipse', 원: 'ellipse', 타원: 'ellipse',
+  line: 'line', 선: 'line', 직선: 'line',
+  triangle: 'triangle', 삼각형: 'triangle',
+  righttriangle: 'rightTriangle', 직각삼각형: 'rightTriangle',
+  diamond: 'diamond', 마름모: 'diamond',
+  parallelogram: 'parallelogram', 평행사변형: 'parallelogram',
+  trapezoid: 'trapezoid', 사다리꼴: 'trapezoid',
+  pentagon: 'pentagon', 오각형: 'pentagon',
+  hexagon: 'hexagon', 육각형: 'hexagon',
+  heptagon: 'heptagon', 칠각형: 'heptagon',
+  octagon: 'octagon', 팔각형: 'octagon',
+  // 눈에 띄는 것들
+  star4: 'star4', star5: 'star5', star: 'star5', 별: 'star5', 별5: 'star5',
+  star6: 'star6', star8: 'star8', star10: 'star10', star12: 'star12',
+  heart: 'heart', 하트: 'heart',
+  sun: 'sun', 해: 'sun',
+  moon: 'moon', 달: 'moon',
+  cloud: 'cloud', 구름: 'cloud',
+  smileyface: 'smileyFace', 스마일: 'smileyFace',
+  lightningbolt: 'lightningBolt', 번개: 'lightningBolt',
+  // 화살표 — 흐름을 그리는 데 제일 자주 쓴다
+  rightarrow: 'rightArrow', 오른쪽화살표: 'rightArrow', 화살표: 'rightArrow', arrow: 'rightArrow',
+  leftarrow: 'leftArrow', 왼쪽화살표: 'leftArrow',
+  uparrow: 'upArrow', 위화살표: 'upArrow',
+  downarrow: 'downArrow', 아래화살표: 'downArrow',
+  leftrightarrow: 'leftRightArrow', 양쪽화살표: 'leftRightArrow',
+  updownarrow: 'upDownArrow',
+  bentarrow: 'bentArrow', 꺾인화살표: 'bentArrow',
+  curvedrightarrow: 'curvedRightArrow', 곡선화살표: 'curvedRightArrow',
+  chevron: 'chevron', 갈매기: 'chevron',
+  homeplate: 'homePlate', 오각화살표: 'homePlate',
+  // 말풍선
+  wedgerectcallout: 'wedgeRectCallout', 말풍선: 'wedgeRectCallout',
+  wedgeroundrectcallout: 'wedgeRoundRectCallout', 둥근말풍선: 'wedgeRoundRectCallout',
+  wedgeellipsecallout: 'wedgeEllipseCallout', 타원말풍선: 'wedgeEllipseCallout',
+  cloudcallout: 'cloudCallout', 구름말풍선: 'cloudCallout',
+  // 순서도에 쓰는 것들
+  flowchartprocess: 'flowChartProcess', 처리: 'flowChartProcess',
+  flowchartdecision: 'flowChartDecision', 판단: 'flowChartDecision',
+  flowchartterminator: 'flowChartTerminator', 시작끝: 'flowChartTerminator',
+  flowchartdocument: 'flowChartDocument', 문서: 'flowChartDocument',
+  flowchartdata: 'flowChartInputOutput', 입출력: 'flowChartInputOutput',
+  // 기타 자주 쓰는 것
+  can: 'can', 원기둥: 'can', cube: 'cube', 정육면체: 'cube',
+  donut: 'donut', 도넛: 'donut',
+  plaque: 'plaque', bevel: 'bevel',
+  frame: 'frame', 액자: 'frame',
+  plus: 'mathPlus', 더하기: 'mathPlus',
+  minus: 'mathMinus', 빼기: 'mathMinus',
+  multiply: 'mathMultiply', 곱하기: 'mathMultiply',
+  equal: 'mathEqual', 등호: 'mathEqual',
+  noSmoking: 'noSmoking', 금지: 'noSmoking',
+  blockarc: 'blockArc', arc: 'arc', 호: 'arc',
+  chord: 'chord', pie: 'pie', 부채꼴: 'pie',
+  teardrop: 'teardrop', 물방울: 'teardrop',
+}));
+
+for (const v of GEOMETRY.values()) CANON.set(v.toLowerCase(), v);
+
+
 
 /**
  * 조각 이름을 고른다. 슬라이드 하나짜리 `.pptx` 에서 `slide` 는 `ppt/slides/slide1.xml` 이고

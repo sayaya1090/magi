@@ -32,7 +32,7 @@ export class FakeHand extends HandPort {
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
-      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide'];
+      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide', 'replace_table'];
   }
 
   /**
@@ -239,6 +239,44 @@ export class FakeHand extends HandPort {
         this.#mutated();
         return this.#envelope({ slide_id: slide.id, shape_id: shape.id, rows, columns },
           [`슬라이드 ${slide.id}: ${rows}행 ${columns}열 표 ${shape.id} 추가`]);
+      }
+      case 'replace_table': {
+        // 진짜 손과 같은 계약이라야 이 화면에서 배운 것이 실물에서도 맞다.
+        const slide = this.#slide(args);
+        const tables = slide.shapes.filter((sh) => Array.isArray(sh.cells));
+        if (tables.length === 0) {
+          throw new Error(`슬라이드 ${slide.id} 에는 표가 없습니다 — 새로 만들려면 add_table 을 쓰세요`);
+        }
+        let old = tables[0];
+        if (args.shape_id) {
+          old = tables.find((t) => t.id === args.shape_id);
+          if (!old) {
+            throw new Error(`도형 ${args.shape_id} 는 이 장의 표가 아닙니다 — 이 장의 표: `
+              + tables.map((t) => t.id).join(', '));
+          }
+        } else if (tables.length > 1) {
+          // **여럿이면 안 고른다** — 골라 주면 엉뚱한 표가 사라지고 그건 못 되돌린다.
+          throw new Error(`이 장에는 표가 ${tables.length}개 있습니다 — 어느 것인지 shape_id 로 말해 주세요: `
+            + tables.map((t) => t.id).join(', '));
+        }
+        const rows = Number(args.rows ?? old.rows);
+        const columns = Number(args.columns ?? old.columns);
+        const kept = old.cells ?? [];
+        const cells = Array.from({ length: rows }, (_, r) =>
+          Array.from({ length: columns }, (_, c) =>
+            String(args.values?.[r]?.[c] ?? kept[r]?.[c] ?? '')));
+        const made = {
+          id: `tb-${this.nextId++}`, name: '표', type: 'Table', text: '',
+          width: Number(args.width ?? old.width), height: Number(args.height ?? old.height),
+          rows, columns, cells,
+        };
+        slide.shapes.splice(slide.shapes.indexOf(old), 1, made);
+        this.#mutated();
+        return this.#envelope(
+          { slide_id: slide.id, shape_id: made.id, replaced: old.id, rows, columns,
+            was: { rows: old.rows, columns: old.columns } },
+          [`슬라이드 ${slide.id}: 표 ${old.id}(${old.rows}×${old.columns}) 를 지우고 `
+            + `같은 자리에 ${rows}×${columns} 표 ${made.id} 를 놓았습니다 — 옛 id 는 이제 없습니다`]);
       }
       case 'set_table_cells': {
         const slide = this.#slide(args);
