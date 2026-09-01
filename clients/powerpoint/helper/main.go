@@ -193,6 +193,8 @@ type API struct {
 	// 갈래는 안 만든 것과 같다(TESTING §1).
 	ReadFleet func(configDir string) ([]Companion, error)
 	Bolt      func(socket, url, token string) ([]string, error)
+	// Ours 는 「아까 붙여 둔 것이 지금도 그대로인가」. 기본값은 stillOurs 다.
+	Ours func(socket string) bool
 	// Work 는 그 마련하는 일의 상태. **한 번에 하나만 돈다**(ownstate.go).
 	Work *OwnWork
 }
@@ -284,6 +286,16 @@ func (a *API) own(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "이 헬퍼는 자기 컴패니언을 마련하도록 세워지지 않았습니다", http.StatusNotImplemented)
 		return
 	}
+	// **`Ready` 를 든 채로 굳지 않는다.**
+	//
+	// `Begin` 은 이미 `Ready` 면 새 일을 안 시작한다 — 붙은 것을 다시 붙이면 첫 등록이 떨어지기
+	// 때문이다(§5.0.1). 그런데 그 사이에 데몬이 죽으면 그 빗장이 **다시 마련하는 길까지** 막는다.
+	// 그러면 작업창은 「대화 연결됨」인데 덱 도구는 하나도 없고, 돌아갈 길도 없다 — 이 저장소가
+	// 최악이라고 적은 「멀쩡하다고 적힌 고장」이다. 리뷰가 짚었다(2026-09-02): `Forget` 은 그
+	// 빗장을 푸는 유일한 손인데 **부르는 자리가 시험 말고는 없었다.**
+	if held := a.Work.Now(); held.Phase == OwnReady && !a.oursOf(held.Socket) {
+		a.Work.Forget()
+	}
 	now, mine := a.Work.Begin()
 	if !mine {
 		// 이미 돌고 있거나 이미 다 됐다. **새로 시작하지 않는다** — 덱을 둘 열면 이 자리가 둘에서
@@ -295,8 +307,52 @@ func (a *API) own(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, now)
 }
 
+// stillOurs 는 아까 붙여 둔 것이 **지금도 그대로인가.**
+//
+// 둘을 같이 본다. 소켓이 답해도 그건 **다른 생애의** 데몬일 수 있고(같은 경로에 다시 뜬다),
+// 그 생애에는 우리 등록이 없다. 반대로 등록 기록만 보면 죽은 데몬을 살아 있다고 읽는다.
+//
+// 못 읽은 것은 「떨어졌다」로 안 적는다 — `publishedLife` 가 빈 글을 주면 `HasLive` 가 옛 답을
+// 그대로 주고, 그 관대함을 여기서 뒤집으면 멀쩡한 등록을 다시 붙이러 가서 첫 등록을 떨어뜨린다.
+func (a *API) oursOf(socket string) bool {
+	if a.Ours != nil {
+		return a.Ours(socket)
+	}
+	return a.stillOurs(socket)
+}
+
+func (a *API) stillOurs(socket string) bool {
+	if socket == "" {
+		return false
+	}
+	if !a.Attachments.HasLive(socket, publishedLife(socket)) {
+		return false
+	}
+	if a.Own != nil && a.Own.Alive != nil {
+		return a.Own.Alive(socket)
+	}
+	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
+	if err != nil {
+		return false
+	}
+	_ = cl.Close()
+	return true
+}
+
 // makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**
 func (a *API) makeOwn() {
+	// **깃발은 반드시 내려간다.** `doing` 을 내리는 것은 `Done` 하나뿐이라, 이 아래에서 패닉이
+	// 나면 그 깃발이 영영 참으로 남고 헬퍼가 사는 내내 모든 작업창이 「준비하는 중」을 본다.
+	// 헬퍼는 **판이 아니라 사람의 파워포인트 옆에서** 도는 프로세스이므로 조용히 죽어도 안 된다.
+	defer func() {
+		if r := recover(); r != nil {
+			a.Work.Done(OwnReport{
+				Phase: OwnFailed,
+				Why: fmt.Sprintf("컴패니언을 마련하다 내부 오류가 났습니다: %v — "+
+					"아래에서 컴패니언을 골라 주세요", r),
+			})
+		}
+	}()
 	st, err := a.Own.Ensure()
 	if err != nil {
 		a.Work.Done(OwnReport{
@@ -309,7 +365,13 @@ func (a *API) makeOwn() {
 	// 같은 것을 두 식으로 재게 되고, 두 식은 언젠가 갈린다.
 	fleet, err := a.fleetOf(a.ConfigDir)
 	if err != nil {
-		a.Work.Done(OwnReport{Phase: OwnFailed, Why: err.Error(), Socket: st.Socket, Log: st.Log})
+		// **방금 띄운 것을 안 띄운 것으로 적지 않는다.** 다른 실패 갈래는 전부 `Started` 와
+		// 워크스페이스를 싣는데 여기만 빠뜨리고 있었다 — 그러면 사람이 유일하게 할 수 있는 일
+		// (「지금 <워크스페이스> 에 데몬이 하나 돌고 있다」)이 답에서 사라진다.
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
 		return
 	}
 	var mine *Companion
@@ -320,10 +382,14 @@ func (a *API) makeOwn() {
 		}
 	}
 	if mine == nil {
-		// 방금 섰다고 확인한 것이 명단에 없다 — 유도식이 갈렸다는 뜻이라 조용히 넘기면 안 된다.
+		// 방금 섰다고 확인한 것이 명단에 없다. **사유를 하나로 단정하지 않는다** — 소켓 유도식이
+		// 갈렸을 수도 있고, 그 사이 데몬이 죽어 소켓을 치웠을 수도 있다. 둘은 할 일이 다르고,
+		// 우리는 여기서 어느 쪽인지 모른다.
 		a.Work.Done(OwnReport{
 			Phase: OwnFailed, Started: st.Started,
-			Why:    "컴패니언이 " + st.Socket + " 에 섰는데 명단에서 그 자리를 못 찾았습니다",
+			Why: "컴패니언이 " + st.Socket + " 에 섰는데 명단에 그 자리가 없습니다 — " +
+				"그 사이 데몬이 내려갔거나, 헬퍼와 데몬이 서로 다른 자리를 보고 있습니다. " +
+				"데몬이 남긴 말: " + st.Log,
 			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
 		})
 		return
@@ -341,6 +407,18 @@ func (a *API) makeOwn() {
 		a.Work.Done(OwnReport{
 			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
 			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	if len(tools) == 0 {
+		// **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1). 이름이 하나도 없으면 붙은 것이
+		// 아니고, 그때 `ready` 로 답하면 작업창은 「준비됐습니다 — 도구 0 개」를 적는다. 그
+		// 문장이 이 저장소가 최악이라고 적은 그 모양이다.
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started,
+			Why: "붙이기는 했는데 덱 도구가 하나도 안 실렸습니다 — 이 컴패니언은 도구 서버를 " +
+				"받지 못하는 빌드일 수 있습니다. 데몬이 남긴 말: " + st.Log,
+			Socket: mine.Socket, Workdir: st.Workdir, Log: st.Log,
 		})
 		return
 	}

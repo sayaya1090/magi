@@ -47,6 +47,10 @@ func ownFixture(t *testing.T, tweak func(*API, *ownRig)) *ownRig {
 				Live: true, ToolServers: &yes, Transcript: &yes,
 			}}, nil
 		},
+		// 진짜 부착은 Attachments 에 기록을 남기지만 이 픽스처는 Bolt 를 가로채므로 남는 것이
+		// 없다. 「우리 것이 그대로인가」를 여기서 참으로 두고, 아니라고 답하는 갈래는 그 시험이
+		// 따로 채운다.
+		Ours: func(string) bool { return true },
 		Bolt: func(socket, _, _ string) ([]string, error) {
 			rig.mu.Lock()
 			rig.attached = append(rig.attached, socket)
@@ -271,7 +275,7 @@ func TestOwnRefusesWhenItsOwnSocketIsNotInTheFleet(t *testing.T) {
 		}
 	})
 	rig.poke(t)
-	if got := rig.settle(t); got.Phase != OwnFailed || !strings.Contains(got.Why, "명단에서") {
+	if got := rig.settle(t); got.Phase != OwnFailed || !strings.Contains(got.Why, "명단에 그 자리가 없습니다") {
 		t.Fatalf("무슨 일인지 안 적는다: %+v", got)
 	}
 }
@@ -318,6 +322,161 @@ func TestARetryDoesNotShowTheOldFailure(t *testing.T) {
 	}
 	if got := rig.settle(t); got.Phase != OwnReady {
 		t.Fatalf("이번엔 돼야 하는데: %+v", got)
+	}
+}
+
+// **안 돌아오는 일에 사람이 갇히지 않는다.**
+//
+// `doing` 을 내리는 것은 `Done` 하나뿐이라, 일이 어딘가에서 안 돌아오면 그 깃발이 영영 참으로
+// 남는다. 그러면 헬퍼가 사는 내내 **모든 작업창이** 「준비하는 중」을 보고, 파워포인트를 다시
+// 켜도 헬퍼는 그대로라 안 낫는다. 리뷰가 짚은 블로커다(2026-09-02).
+func TestAJobThatNeverReturnsDoesNotTrapEveryonePane(t *testing.T) {
+	stuck := make(chan struct{})
+	defer close(stuck)
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.Own.Alive = func(string) bool { <-stuck; return true } // 영영 안 돌아온다
+	})
+	if got := rig.poke(t); got.Phase != OwnWorking {
+		t.Fatalf("첫 두드림이 일하는 중이 아니다: %+v", got)
+	}
+	// 시계를 앞으로 돌린다 — 실물에서 3분을 기다리는 시험은 아무도 안 돌린다.
+	rig.api.Work.now = func() time.Time { return time.Now().Add(stuckAfter + time.Second) }
+
+	// 이번엔 되는 손으로 갈아 끼우고 다시 두드린다.
+	rig.api.Own.Alive = func(string) bool { return true }
+	rig.poke(t)
+	if got := rig.settle(t); got.Phase != OwnReady {
+		t.Fatalf("걸린 일을 넘겨받지 못했다 — 사람이 갇힌다: %+v", got)
+	}
+}
+
+// 걸리지 **않은** 일은 넘겨받지 않는다 — 그러면 데몬이 둘 뜬다.
+func TestAJobStillRunningIsNotTakenOver(t *testing.T) {
+	release := make(chan struct{})
+	rig := ownFixture(t, func(a *API, r *ownRig) {
+		up := false
+		a.Own.Alive = func(string) bool { return up }
+		a.Own.Spawn = func(string, string, []string) error {
+			r.mu.Lock()
+			r.spawned++
+			r.mu.Unlock()
+			<-release
+			up = true
+			return nil
+		}
+	})
+	rig.poke(t)
+	for i := 0; i < 5; i++ {
+		if got := rig.poke(t); got.Phase != OwnWorking {
+			t.Fatalf("돌고 있는 일을 다른 답으로 덮었다: %+v", got)
+		}
+	}
+	close(release)
+	rig.settle(t)
+	rig.mu.Lock()
+	defer rig.mu.Unlock()
+	if rig.spawned != 1 {
+		t.Fatalf("데몬을 %d 번 띄웠다", rig.spawned)
+	}
+}
+
+// **`Ready` 가 굳지 않는다.**
+//
+// `Begin` 은 이미 `Ready` 면 새 일을 안 시작한다. 그런데 그 사이 데몬이 죽으면 그 빗장이 다시
+// 마련하는 길까지 막아, 작업창은 「대화 연결됨」인데 덱 도구는 하나도 없고 돌아갈 길도 없다.
+func TestADeadCompanionIsProvisionedAgain(t *testing.T) {
+	ours := true
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.Ours = func(string) bool { return ours }
+	})
+	rig.poke(t)
+	if got := rig.settle(t); got.Phase != OwnReady {
+		t.Fatalf("먼저 붙어야 한다: %+v", got)
+	}
+	// 그대로면 다시 안 붙는다 — 재부착은 첫 등록을 떨어뜨린다.
+	rig.poke(t)
+	if len(rig.attached) != 1 {
+		t.Fatalf("멀쩡한데 다시 붙었다: %v", rig.attached)
+	}
+	// 죽으면 다시 마련한다.
+	ours = false
+	rig.poke(t)
+	rig.settle(t)
+	if len(rig.attached) != 2 {
+		t.Fatalf("죽었는데 다시 안 붙었다 — 도구 없는 「연결됨」에 갇힌다: %v", rig.attached)
+	}
+}
+
+// **패닉이 나도 깃발은 내려간다.** 안 내려가면 헬퍼가 사는 내내 모두가 「준비하는 중」이다.
+func TestAPanicWhileProvisioningDoesNotTrapThePane(t *testing.T) {
+	boom := true
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.Own.Alive = func(string) bool {
+			if boom {
+				panic("내부 오류")
+			}
+			return true
+		}
+	})
+	rig.poke(t)
+	got := rig.settle(t)
+	if got.Phase != OwnFailed {
+		t.Fatalf("패닉이 났는데 실패로 안 적는다: %+v", got)
+	}
+	if !strings.Contains(got.Why, "골라 주세요") {
+		t.Fatalf("갈 곳을 안 알려 준다: %v", got.Why)
+	}
+	// 그리고 다시 해 볼 수 있어야 한다.
+	boom = false
+	rig.poke(t)
+	if got := rig.settle(t); got.Phase != OwnReady {
+		t.Fatalf("패닉 뒤에 다시 못 한다: %+v", got)
+	}
+}
+
+// **도구가 하나도 안 붙었으면 「준비됐습니다」가 아니다.**
+//
+// 붙었다는 증거는 ack 가 아니라 도구 이름이다(§5.0.1). 이름이 없는데 `ready` 로 답하면 작업창은
+// 「준비됐습니다 — 도구 0 개」를 적고, 그 문장이 이 저장소가 최악이라고 적은 그 모양이다.
+func TestNoToolsIsNotReady(t *testing.T) {
+	rig := ownFixture(t, func(a *API, r *ownRig) {
+		a.Bolt = func(socket, _, _ string) ([]string, error) {
+			r.mu.Lock()
+			r.attached = append(r.attached, socket)
+			r.mu.Unlock()
+			return nil, nil
+		}
+	})
+	rig.poke(t)
+	got := rig.settle(t)
+	if got.Phase != OwnFailed {
+		t.Fatalf("도구 0개인데 준비됐다고 한다: %+v", got)
+	}
+	if !strings.Contains(got.Why, "도구가 하나도") {
+		t.Fatalf("무슨 일인지 안 적는다: %v", got.Why)
+	}
+}
+
+// 띄운 뒤에 명단을 못 읽어도 **방금 띄운 사실과 자리는 싣는다.**
+//
+// 그 둘이 사람이 유일하게 할 수 있는 일이다: 지금 그 워크스페이스에 데몬이 하나 돌고 있다.
+func TestAFleetFailureAfterASpawnStillSaysWhatItStarted(t *testing.T) {
+	up := false
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.Own.Alive = func(string) bool { return up }
+		a.Own.Spawn = func(string, string, []string) error { up = true; return nil }
+		a.ReadFleet = func(string) ([]Companion, error) { return nil, errors.New("명단을 못 훑었습니다") }
+	})
+	rig.poke(t)
+	got := rig.settle(t)
+	if got.Phase != OwnFailed {
+		t.Fatalf("실패여야 한다: %+v", got)
+	}
+	if !got.Started {
+		t.Fatal("방금 띄워 놓고 안 띄웠다고 적는다 — 사람은 도는 데몬이 있는 줄 모른다")
+	}
+	if got.Workdir == "" {
+		t.Fatalf("어디에 띄웠는지 안 알려 준다: %+v", got)
 	}
 }
 

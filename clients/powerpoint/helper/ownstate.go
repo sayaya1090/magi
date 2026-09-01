@@ -2,6 +2,7 @@ package main
 
 import (
 	"sync"
+	"time"
 )
 
 // 컴패니언을 마련하는 일은 **기다려 주는 일이 아니다.**
@@ -54,15 +55,40 @@ type OwnReport struct {
 	Chat string `json:"chat,omitempty"`
 }
 
+// stuckAfter 는 **일이 걸린 것으로 치는** 시간이다.
+//
+// `doing` 은 두 번 띄우는 것을 막는 깃발인데, 그 깃발을 내리는 것은 `Done` 하나뿐이었다. 일이
+// 어딘가에서 안 돌아오면 깃발이 영영 참으로 남고, 그러면 **헬퍼가 사는 내내 모든 작업창이**
+// 「준비하는 중」을 본다 — 파워포인트를 다시 켜도 헬퍼는 그대로라 안 낫는다. 리뷰가 그 자리를
+// 짚었다(2026-09-02).
+//
+// 왕복은 이제 전부 묶여 있으므로(`aliveTimeout`·`candidateTimeout`) 여기 닿을 일은 없어야 한다.
+// 그래도 둔다 — **없어야 하는 일이 일어났을 때 사람이 갇히지 않는 것**이 이 상수가 하는 일이고,
+// 여기서 아끼면 대가를 치르는 쪽이 우리가 아니다.
+const stuckAfter = 3 * time.Minute
+
 // OwnWork 는 그 일을 들고 있는 자리. **한 번에 하나만 돈다.**
 type OwnWork struct {
 	mu     sync.Mutex
 	report OwnReport
 	// doing 은 지금 누가 일하고 있는가. 이 깃발이 두 번 띄우는 것을 막는다.
 	doing bool
+	// began 은 그 일이 시작한 때. 걸린 일을 알아보는 유일한 근거다.
+	began time.Time
+	// now 는 시계. **시험만 이 자리를 채운다** — 못 재는 갈래는 안 만든 것과 같다.
+	now func() time.Time
 }
 
-func NewOwnWork() *OwnWork { return &OwnWork{report: OwnReport{Phase: OwnIdle}} }
+func NewOwnWork() *OwnWork {
+	return &OwnWork{report: OwnReport{Phase: OwnIdle}, now: time.Now}
+}
+
+func (o *OwnWork) clock() time.Time {
+	if o.now != nil {
+		return o.now()
+	}
+	return time.Now()
+}
 
 // Now 는 지금 상태를 뜬다.
 func (o *OwnWork) Now() OwnReport {
@@ -79,13 +105,18 @@ func (o *OwnWork) Begin() (now OwnReport, mine bool) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	if o.doing {
-		return o.report, false
-	}
-	// **이미 다 됐으면 다시 안 한다.** 붙은 것을 다시 붙이면 첫 등록이 떨어진다(§5.0.1).
-	if o.report.Phase == OwnReady {
+		// **걸린 일은 넘겨받는다.** 앞의 일이 안 돌아온 채로 시간이 지났으면 그 깃발은 더 이상
+		// 「누가 하고 있다」가 아니라 「아무도 안 하고 있는데 아무도 못 한다」다. 사람이 거기
+		// 갇히게 두지 않는다.
+		if !o.began.IsZero() && o.clock().Sub(o.began) < stuckAfter {
+			return o.report, false
+		}
+	} else if o.report.Phase == OwnReady {
+		// **이미 다 됐으면 다시 안 한다.** 붙은 것을 다시 붙이면 첫 등록이 떨어진다(§5.0.1).
 		return o.report, false
 	}
 	o.doing = true
+	o.began = o.clock()
 	// 앞 실패의 사유를 들고 있으면 안 된다 — 다시 해 보는 중인데 옛 사유가 화면에 남는다.
 	o.report = OwnReport{Phase: OwnWorking}
 	return o.report, true

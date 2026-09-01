@@ -407,12 +407,6 @@ func run() int {
 		})
 	}
 
-	// Resolve the color theme. "auto" detects the terminal background; explicit
-	// dark/light override unreliable detection.
-	isDark := resolveTheme(*theme, *daemonMode, func() bool {
-		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	})
-
 	if *showVersion {
 		fmt.Println(version.String())
 		return 0
@@ -430,6 +424,18 @@ func run() int {
 	// permission defaults, the startup update check, the TTY-only boot hooks. Without this it fell
 	// through to the interactive branch and died on /dev/tty, which is how it was found.
 	headless := pSet || *daemonMode
+
+	// Resolve the color theme, AFTER the mode is known and only when a person is looking.
+	//
+	// "auto" is a conversation with a terminal emulator, so it is only ever right when there is one
+	// on both ends. This used to sit above, before `headless` existed, which is how a daemon ended
+	// up asking — and why the first fix, which keyed on `*daemonMode` alone, was still too narrow:
+	// `--version`, `--doctor` and `-p` all resolved the theme too, and all of them are things a
+	// launcher runs.
+	drawsTUI := !headless && term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
+	isDark := resolveTheme(*theme, drawsTUI, func() bool {
+		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	})
 
 	// Permission defaults differ by mode: headless acts autonomously, the
 	// interactive TUI asks before dangerous tools.
@@ -1999,36 +2005,41 @@ func sortedKeys[V any](m map[string]V) []string {
 // resolvePrompt returns the headless prompt text. The literal "-" means "read the
 // whole prompt from stdin" (so `echo ... | magi -p -` works); any other value is
 // used verbatim.
-// resolveTheme decides light or dark, and NEVER asks a terminal that cannot answer.
+// resolveTheme decides light or dark, and NEVER asks something that cannot answer.
 //
-// "auto" asks the terminal for its background colour: a query is written to stdout and the reply
-// is read back from stdin. That is a conversation with a person's terminal emulator, and a daemon
-// is not in one. Started by a launcher — a service manager, an IDE plugin, the PowerPoint helper —
-// it has a console handle nobody is driving, so the query goes out and the answer never comes, and
-// the process sits there before it has bound its socket.
+// "auto" asks the terminal for its background colour: a query goes out on stdout and the reply
+// comes back on stdin. That is a conversation with a person's terminal emulator. A process a
+// launcher started — a service manager, an IDE plugin, the PowerPoint helper — has no such
+// partner, and on Windows it does not simply fail: lipgloss sees redirected stdio and opens
+// CONIN$/CONOUT$ explicitly (charm.land/lipgloss/v2 query.go), putting the query on a console
+// handle nobody is driving. The query goes out and the answer never comes.
 //
 // Measured on Windows (2026-09-02): with the default -theme auto, "magi --daemon" took 165s in one
 // run and 659s in another to create its socket, at 0.1s of CPU — it was waiting, not working. With
 // -theme dark, or with stdin at NUL, the same start bound in 1s. The caller saw a daemon that did
 // not come up; nothing anywhere said it was waiting on a terminal.
 //
-// So the daemon does not ask. Its answer is also worth nothing: it renders no UI, and the theme
-// only ever styles a TUI that this process will never draw. An explicit -theme is still honoured,
-// because "I said dark" is an instruction, not a detection.
-func resolveTheme(theme string, daemon bool, ask func() bool) bool {
+// drawsTUI is the honest predicate, and it is narrower than "is this a daemon". The first fix here
+// keyed on --daemon alone and left every other launcher-run command hanging: --version (which the
+// JetBrains plugin runs as its health check after a download), --doctor, and -p. What matters is
+// not the mode name but whether this process is going to draw a TUI to a terminal that is really
+// there — nothing else has any use for the answer.
+//
+// An explicit -theme is still honoured everywhere, because "I said dark" is an instruction, not a
+// detection.
+func resolveTheme(theme string, drawsTUI bool, ask func() bool) bool {
 	switch theme {
 	case "light":
 		return false
 	case "dark":
 		return true
 	}
-	if daemon {
+	if !drawsTUI {
 		// Dark is the same default the switch above started from; what matters is not asking.
 		return true
 	}
 	return ask()
 }
-
 func resolvePrompt(flagVal string, stdin io.Reader) (string, error) {
 	if flagVal != "-" {
 		return flagVal, nil

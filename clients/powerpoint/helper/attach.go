@@ -121,7 +121,12 @@ func (a *Attachments) Fleet(configDir string) ([]Companion, error) {
 // **`Hello` 가 에러면 「못 물어봤다」이고, 성공했는데 cap 이 없으면 「못 받는 빌드」다**(§5.0.5).
 // `PeerSupports` 하나로 물으면 그 둘이 같은 거짓이 된다.
 func ask(socket string) (toolServers, transcript bool, err error) {
-	cl, err := daemon.Dial(socket)
+	// **묶인 왕복이어야 한다.** 위 `candidateTimeout` 은 「후보 하나에게 묻는 데 드는 시간의
+	// 천장」이라고 적혀 있었는데, 그 상수는 선언만 되고 **아무 데서도 안 쓰이고 있었다**
+	// (2026-09-02 리뷰). `daemon.Dial` 은 연결에도 읽기에도 시한이 없어서, 임자가 사라진 소켓
+	// 파일 하나가 명단 전체를 영영 붙잡을 수 있었다 — 그리고 이 머신에서는 %APPDATA% 아래
+	// AF_UNIX 가 정확히 그렇게 군다. 주석이 약속한 천장을 이제 진짜로 건다.
+	cl, err := daemon.DialWithin(socket, candidateTimeout, candidateTimeout)
 	if err != nil {
 		return false, false, err
 	}

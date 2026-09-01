@@ -119,6 +119,7 @@ async function boot() {
           listenTo(companion.session);
           const out = await api.choose(companion.socket, companion.session);
           pick.hide();
+          offerRepick(true);
           // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
           const name = nameOf(companion);
           view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
@@ -154,10 +155,21 @@ async function boot() {
       void showCompanions();
     };
 
-    const showCompanions = async () => {
+    /**
+     * 명단을 읽는다. **`show` 일 때만 그린다.**
+     *
+     * 앞 판본은 늘 그렸고, 그래서 컴패니언을 마련하는 동안 **「켜져 있는 컴패니언이 하나도
+     * 없습니다 — 덱이 있는 폴더에서 `magi --daemon` 을 띄운 뒤 새로고침하세요」**가 화면에
+     * 떠 있었다. 그건 이 판이 없애려던 바로 그 화면이고, PC 를 잘 다루지 못하는 사람에게
+     * 터미널 명령을 시키는 문장이다. 게다가 그 사이 명단의 단추가 눌리면 사람이 고른 컴패니언이
+     * 잠시 뒤 끝난 `makeOwn` 에게 **말없이 덮인다.**
+     *
+     * 그래서 그리는 것은 **자동으로 못 마련했을 때뿐**이다.
+     */
+    const showCompanions = async (show = true) => {
       try {
         const list = await api.companions();
-        pick.render(list);
+        if (show) { pick.render(list); offerRepick(false); }
         // **헬퍼가 이미 붙어 있을 수 있다.** PowerPoint 는 작업창을 껐다 켤 때마다 이 창을
         // 새로 만드는데 헬퍼는 그대로 살아 있으므로, 「아무 데도 안 붙었다」로 시작하면 붙어
         // 있는 것을 안 붙었다고 적는다. 그때 물려받을 것은 **이름 둘**이다 — 대화 이름(그래야
@@ -177,12 +189,16 @@ async function boot() {
           // 그건 다 된 화면이 **아직 뭔가 해야 한다**고 말하는 것이다. 고르고 붙은 길은
           // (`onChoose`) 접는데 물려받은 길만 안 접고 있었다.
           pick.hide();
+          offerRepick(true);
           view.setBound(true);
           await refreshBrand();
         }
       } catch (e) {
-        pick.render({ companions: [] });
-        pick.note(`컴패니언을 못 훑었습니다: ${e?.message ?? e}`);
+        // 못 훑은 것도 **그릴 때만** 적는다 — 준비 중에는 이 화면 자체가 안 나와야 한다.
+        if (show) {
+          pick.render({ companions: [] });
+          pick.note(`컴패니언을 못 훑었습니다: ${e?.message ?? e}`);
+        }
       }
     };
     /**
@@ -199,8 +215,13 @@ async function boot() {
      * **기다리는 동안 말을 한다.** 데몬 냉시동은 오래 걸릴 수 있는데, 아무 말 없는 화면은
      * 고장으로 읽힌다 — 무엇을 기다리는지도, 다시 눌러야 하는지도 모른다.
      */
+    // 못 마련한 사유는 **명단을 세운 뒤에** 적는다 — `pick.render` 가 자식을 갈아 끼우므로,
+    // 먼저 적으면 지워진다.
+    let failedWhy = '';
+    let failedLog = '';
     const attachOwn = async () => {
       const began = Date.now();
+      let askFailed = '';
       const said = () => {
         const secs = Math.round((Date.now() - began) / 1000);
         // **몇 초째인지 말한다.** 실측(2026-09-02) 대개 6초면 끝나지만, 느린 머신에서는 더
@@ -214,7 +235,7 @@ async function boot() {
       } catch (e) {
         // 이 헬퍼가 그 자리를 안 가진 판본일 수 있다. **없는 길을 고장으로 적지 않는다** —
         // 명단이 그대로 있으므로 사람이 할 수 있는 일이 남아 있다.
-        pick.note(`자동으로 준비하지 못했습니다: ${e?.message ?? e}. 아래에서 골라 주세요.`);
+        failedWhy = `${e?.message ?? e}`;
         return false;
       }
       // 냉시동을 실측했다(2026-09-02). 5분을 천장으로 두되 **끝나면 바로 나간다.**
@@ -222,18 +243,26 @@ async function boot() {
       while (r?.phase === 'working' && Date.now() < until) {
         said();
         await new Promise((go) => setTimeout(go, 1500));
-        try { r = await api.own(); } catch { /* 잠깐 못 물어본 것은 실패가 아니다 */ }
+        // 잠깐 못 물어본 것은 실패가 아니다 — 다만 **무엇이 실패했는지는 들고 있는다.**
+        try { r = await api.own(); askFailed = ''; }
+        catch (e) { askFailed = String(e?.message ?? e); }
       }
       if (r?.phase !== 'ready') {
         // **왜 못 했는지와 어디를 볼지**를 같이 준다. 「안 됩니다」만으로는 할 일이 없다.
-        const why = r?.why || (r?.phase === 'working' ? '아직 안 떴습니다(5분 넘음)' : '알 수 없음');
-        pick.note(`자동으로 준비하지 못했습니다: ${why}`);
-        if (r?.log) pick.note(`자세한 사유는 여기 있습니다: ${r.log}`);
+        // **못 물어본 것과 데몬이 안 뜬 것을 가른다.** 앞 판본은 물어보다 실패해도 마지막에 받은
+        // `working` 을 그대로 들고 있어서, 헬퍼가 5분 내내 안 답해도 「데몬이 아직 안 떴습니다」로
+        // 적었다 — 데몬 이야기를 하는데 사실은 헬퍼 이야기였다.
+        const why = r?.why
+          || (askFailed ? `magi 헬퍼가 답하지 않습니다(${askFailed})` : null)
+          || (r?.phase === 'working' ? '아직 안 떴습니다(5분 넘음)' : '알 수 없음');
+        failedWhy = why;
+        failedLog = r?.log ?? '';
         view.where('자동으로 준비하지 못했습니다 — 아래에서 컴패니언을 골라 주세요.');
         return false;
       }
       listenTo(r.session);
       pick.hide();
+      offerRepick(true);
       // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
       bound = baseNameOf(r.workdir) || 'PowerPoint';
       saidStale = false;
@@ -245,10 +274,35 @@ async function boot() {
       return true;
     };
 
-    await showCompanions();
-    // 이미 붙어 있으면(작업창을 껐다 켠 경우) 그것을 흔들지 않는다 — 다시 붙이는 것은 첫 등록을
-    // 떨어뜨리는 일이다(§5.0.1).
-    if (!bound) await attachOwn();
+    /**
+     * 붙은 뒤 **명단으로 돌아가는 길.**
+     *
+     * 명단을 남겨 둔 이유는 「저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶다」가
+     * 실제로 있어서인데, 붙고 나면 `pick.hide()` 뒤로 그것을 다시 세울 방법이 화면 어디에도
+     * 없었다 — **길이 코드에만 있고 화면에는 없었다.** 리뷰가 짚었다(2026-09-02).
+     *
+     * 붙기 전에는 안 보인다. 그때는 명단 자체가 떠 있고, 같은 것을 두 자리에서 권하면 화면이
+     * 무엇을 하라는 것인지 흐려진다.
+     */
+    const advanced = document.querySelector('#advanced');
+    document.querySelector('#repick')?.addEventListener('click', () => {
+      void showCompanions(true);
+    });
+    const offerRepick = (on) => { if (advanced) advanced.hidden = !on; };
+
+    // **명단은 안 그리고** 읽기만 한다 — 이미 붙어 있는지만 보면 된다.
+    await showCompanions(false);
+    // 이미 붙어 있으면(헬퍼가 미리 붙였거나 작업창을 껐다 켠 경우) 그것을 흔들지 않는다 —
+    // 다시 붙이는 것은 첫 등록을 떨어뜨리는 일이다(§5.0.1).
+    if (!bound) {
+      // **못 마련했을 때에만 명단을 세운다.** 그 화면은 터미널 명령을 시키는 문장을 품고 있어서,
+      // 자동으로 될 수 있는 사람에게는 보여 주면 안 된다.
+      if (!await attachOwn()) {
+        await showCompanions(true);
+        if (failedWhy) pick.note(`자동으로 준비하지 못했습니다: ${failedWhy}`);
+        if (failedLog) pick.note(`자세한 사유는 여기 있습니다: ${failedLog}`);
+      }
+    }
 
     // **컴패니언이 다시 뜬 것을 폴이 알려 준다.** 화면이 이미 그리는 것 뒤에 한 줄 더 건다 —
     // `readTranscript.onChange` 를 감싼 것과 같은 자리, 같은 이유다(한 사건에 한 자리).

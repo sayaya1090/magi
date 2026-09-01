@@ -26,6 +26,60 @@ func TestTheDeckSocketIsDerivedTheSameWayTheDaemonDoes(t *testing.T) {
 	}
 }
 
+// 소켓 이름은 **폴더가 생긴 뒤에** 지어야 데몬의 것과 같다.
+//
+// `daemon.WorkspaceKey` 는 `filepath.EvalSymlinks` 로 경로를 푼 뒤 해시하는데, 그 함수는 **없는
+// 경로에서 실패한다** — 실패하면 안 푼 철자를 그대로 해시한다. 그래서 첫 실행에서 폴더를 만들기
+// 전에 이름을 지으면, 자기 cwd(이미 있는 폴더)를 기준으로 짓는 데몬과 다른 자리를 보게 된다.
+//
+// 증상이 고약하다: 데몬은 멀쩡히 뜨고 `--detach` 는 자기 소켓에 성공했다고 답하는데 우리는
+// 「띄웠는데 답하지 않습니다」를 적고, 다시 해 볼 때마다 하나를 더 띄우며 30초씩 태운다.
+//
+// **앞 시험은 이걸 못 잡았다** — 같은 없는 경로에 같은 유도를 두 번 부르고 견줬을 뿐이라, 둘 다
+// 똑같이 틀려도 통과한다. 여기서는 `Ensure` 가 실제로 고른 자리를, 폴더가 생긴 뒤의 정답과
+// 견준다.
+func TestTheSocketNameIsChosenAfterTheFolderExists(t *testing.T) {
+	cfg := t.TempDir()
+	own := &OwnCompanion{
+		ConfigDir: cfg,
+		Binary:    "magi",
+		Alive:     func(string) bool { return true },
+		Spawn:     func(string, string, []string) error { return nil },
+	}
+	st, err := own.Ensure()
+	if err != nil {
+		t.Fatalf("서 있는데 실패했다: %v", err)
+	}
+	// 폴더가 생긴 지금 다시 유도하면 그것이 **데몬이 볼 자리**다.
+	want := daemon.SocketPath(cfg, DeckSpace(cfg))
+	if st.Socket != want {
+		t.Fatalf("헬퍼와 데몬이 다른 자리를 본다:\n  헬퍼가 고른 곳: %s\n  데몬이 볼 곳:  %s",
+			st.Socket, want)
+	}
+	if _, err := os.Stat(DeckSpace(cfg)); err != nil {
+		t.Fatalf("폴더를 안 만들었다: %v", err)
+	}
+}
+
+// 폴더를 못 만들면 **그 자리를 이름 대어** 말한다. 소켓 이름은 아직 지을 수 없으므로 안 지어낸다.
+func TestAnUnmakeableFolderIsNamed(t *testing.T) {
+	// 파일을 폴더 자리에 놓아 MkdirAll 을 막는다.
+	cfg := t.TempDir()
+	if err := os.WriteFile(DeckSpace(cfg), []byte("나는 폴더가 아니다"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := (&OwnCompanion{ConfigDir: cfg, Binary: "magi"}).Ensure()
+	if err == nil {
+		t.Fatal("폴더를 못 만드는데 성공으로 답했다")
+	}
+	if !strings.Contains(err.Error(), DeckSpace(cfg)) {
+		t.Fatalf("어느 자리인지 안 알려 준다: %v", err)
+	}
+	if st.Socket != "" {
+		t.Fatalf("폴더도 없는데 소켓 이름을 지어냈다: %s", st.Socket)
+	}
+}
+
 // 이미 서 있으면 **아무것도 안 한다.**
 //
 // 둘째 창이 열리는 것만으로 데몬이 하나 더 뜨면, 그 둘이 한 워크스페이스를 두고 다툰다.
@@ -99,6 +153,47 @@ func TestAMissingCompanionIsStartedWithOurConfigDir(t *testing.T) {
 	// 워크스페이스는 **띄우기 전에** 있어야 한다.
 	if st, err := os.Stat(DeckSpace(cfg)); err != nil || !st.IsDir() {
 		t.Fatalf("워크스페이스를 안 만들었다: %v", err)
+	}
+}
+
+// 개발자 셸의 설정이 **덱을 고치는 컴패니언의 성질이 되지 않는다.**
+//
+// 헬퍼는 로그인할 때 뜨거나 개발자의 셸에서 뜬다. 그 셸에 `MAGI_PROFILE=yolo` 가 켜져 있다고
+// 해서 슬라이드에 손대는 에이전트가 그 자세를 물려받을 이유는 없다 — 사람은 파워포인트를
+// 열었을 뿐이고, 자기 셸 설정이 그렇게 쓰인다는 것을 알 길이 없다.
+func TestTheShellsPostureIsNotInheritedByTheDeckCompanion(t *testing.T) {
+	from := []string{
+		"PATH=/usr/bin",
+		"MAGI_PROFILE=yolo",
+		"MAGI_PERMISSION=allow",
+		"MAGI_FLEET_LISTEN=0.0.0.0:9999",
+		"MAGI_CONFIG_DIR=/somewhere/else",
+	}
+	got := deckEnv("/my/config", from)
+	joined := strings.Join(got, "\n")
+	for _, bad := range []string{"MAGI_PROFILE", "MAGI_PERMISSION", "MAGI_FLEET_LISTEN"} {
+		if strings.Contains(joined, bad) {
+			t.Fatalf("%s 를 물려줬다 — 셸의 설정이 덱 에이전트의 권한이 된다:\n%s", bad, joined)
+		}
+	}
+	// 상관없는 것은 그대로 둔다 — 걷어 내는 것이 목적이 아니라 이 셋이 문제다.
+	if !strings.Contains(joined, "PATH=/usr/bin") {
+		t.Fatalf("상관없는 환경까지 걷어 냈다:\n%s", joined)
+	}
+	// 설정 디렉토리는 **우리 것이 이긴다.** os/exec 는 마지막 것을 쓴다.
+	if got[len(got)-1] != "MAGI_CONFIG_DIR=/my/config" {
+		t.Fatalf("설정 디렉토리가 안 덮였다: %v", got)
+	}
+}
+
+// `MAGI_FLEET_LISTEN` 은 등급이 다르다 — 그게 있으면 magi 는 **데몬이 되기 전에 돌아간다.**
+// 소켓은 영영 안 생기고 --detach 는 30초를 태운 뒤 실패하는데, 그 사유는 아무 데도 안 적힌다.
+func TestTheFleetDoorEnvIsAlwaysRemoved(t *testing.T) {
+	got := deckEnv("/c", []string{"MAGI_FLEET_LISTEN=:9999"})
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "MAGI_FLEET_LISTEN") {
+			t.Fatalf("남아 있다: %v", got)
+		}
 	}
 }
 

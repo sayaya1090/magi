@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
@@ -40,6 +41,12 @@ import (
 // 덱이 저장돼 있어 경로를 아는 경우는, 그 경로를 **워크스페이스 뿌리로 삼는 대신 세션에 사실로
 // 실어** 보내는 것이 맞다 — 셸의 cwd 로 만드는 것보다 사정거리가 훨씬 좁고, 바탕화면에서 연 덱이
 // 바탕화면 전체를 워크스페이스로 만드는 일도 없다.
+
+// aliveTimeout 은 「거기 서 있는가」 한 번에 드는 시간의 천장이다.
+//
+// 넉넉하되 유한하다. 이 물음은 **사람이 기다리는 동안** 도는 것이라, 답이 안 오는 것과 「없다」는
+// 사람에게 같은 뜻이다 — 다만 우리 쪽에서 그것을 「없다」로 적어 줘야 다음 걸음을 뗀다.
+const aliveTimeout = 3 * time.Second
 
 // deckSpaceName 은 그 폴더의 이름. 설정 디렉토리 **안**에 둔다 — 사람의 문서 트리에 폴더를 만들지
 // 않고, 소켓 이름(`daemon-powerpoint-…`)이 `ls` 에서 읽히는 값이 된다.
@@ -151,13 +158,33 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 		return OwnState{}, errNoConfigDir
 	}
 	space := DeckSpace(o.ConfigDir)
+
+	// **폴더를 먼저 만든다 — 소켓 이름을 짓기 전에.**
+	//
+	// `daemon.WorkspaceKey` 는 경로의 심볼릭 링크를 푼 뒤 해시하는데, `filepath.EvalSymlinks` 는
+	// **없는 경로에서는 실패한다.** 실패하면 안 푼 철자를 그대로 해시하므로, 폴더가 생기기 전에
+	// 지은 이름과 생긴 뒤에 지은 이름이 다를 수 있다 — 그리고 데몬은 자기 cwd(이미 있는 폴더)를
+	// 기준으로 짓는다. 이 머신에서 재 봤다(2026-09-02): 없을 때는 `GetFileAttributesEx ...` 로
+	// 실패하고, 생긴 뒤에는 대소문자까지 정규화된다.
+	//
+	// 어긋나면 증상이 고약하다. 데몬은 멀쩡히 뜨고 `--detach` 는 **자기** 소켓에 성공했다고 답하는데,
+	// 우리는 「띄웠는데 답하지 않습니다」를 적는다. 그리고 다시 해 볼 때마다 또 하나를 띄우고
+	// 30초 `detachWait` 를 태운다. 리뷰가 짚었다.
+	if err := os.MkdirAll(space, 0o755); err != nil {
+		return OwnState{Workdir: space}, fmt.Errorf("덱 작업 폴더 %s 를 못 만들었습니다: %w", space, err)
+	}
+
 	socket := DeckSocket(o.ConfigDir)
 	st := OwnState{Socket: socket, Workdir: space, Log: socket + ".log"}
 
 	alive := o.Alive
 	if alive == nil {
 		alive = func(s string) bool {
-			cl, err := daemon.Dial(s)
+			// **묶인 왕복이어야 한다.** `daemon.Dial` 은 연결에도 읽기에도 시한이 없다. 임자가
+			// 사라진 소켓 파일에 connect 가 매달리면 이 함수가 안 돌아오고, 그러면 `OwnWork` 의
+			// `doing` 이 영영 참으로 남아 **모든 작업창이 헬퍼가 살아 있는 내내 「준비하는 중」**을
+			// 본다. 리뷰가 짚었고(2026-09-02), 이 머신의 %APPDATA% AF_UNIX 가 바로 그 상태를 만든다.
+			cl, err := daemon.DialWithin(s, aliveTimeout, aliveTimeout)
 			if err != nil {
 				return false
 			}
@@ -169,12 +196,6 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 		return st, nil
 	}
 
-	// 워크스페이스가 없으면 만든다. **데몬을 띄우기 전에** — 없는 디렉토리에서 시작한 데몬은
-	// 「그 자리에 없다」로 죽는데, 그 사유가 로그에만 남는다.
-	if err := os.MkdirAll(space, 0o755); err != nil {
-		return st, fmt.Errorf("덱 작업 폴더 %s 를 못 만들었습니다: %w", space, err)
-	}
-
 	bin, err := o.FindMagi()
 	if err != nil {
 		return st, err
@@ -184,11 +205,7 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 	if spawn == nil {
 		spawn = runDetached
 	}
-	// **설정 디렉토리를 물려준다.** 안 물려주면 데몬은 자기 기본값(Windows 는 `%APPDATA%\magi`)을
-	// 보고, 우리는 여기를 본다 — 데몬은 떴는데 우리 눈에는 안 보이는 상태가 된다. 실물에서 정확히
-	// 그 화면을 봤다(2026-09-02): 소켓은 만들어졌는데 우리 쪽 소켓 경로에는 아무것도 없었고, 게다가
-	// 이 머신에서는 `%APPDATA%` 아래 AF_UNIX 가 연결을 못 받는다(TESTING §5.1).
-	env := append(os.Environ(), "MAGI_CONFIG_DIR="+o.ConfigDir)
+	env := deckEnv(o.ConfigDir, os.Environ())
 	if err := spawn(bin, space, env); err != nil {
 		return st, fmt.Errorf("파워포인트 몫의 컴패니언을 못 띄웠습니다: %w (데몬이 남긴 말: %s)", err, st.Log)
 	}
@@ -200,6 +217,50 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 	}
 	st.Started = true
 	return st, nil
+}
+
+// scrubbed 는 **물려주면 안 되는** 환경 변수들.
+//
+// 헬퍼는 사람이 로그인할 때 뜨거나 개발자의 셸에서 뜬다. 그 셸에 무엇이 켜져 있든 **덱을 고치는
+// 컴패니언의 성질이 될 이유는 없다** — 사람은 파워포인트를 열었을 뿐이고, 그 순간 자기 셸의
+// 설정이 슬라이드에 손대는 에이전트의 권한이 된다는 것을 알 길이 없다. 리뷰가 짚었다(2026-09-02).
+//
+// `MAGI_FLEET_LISTEN` 은 등급이 더 나쁘다. 그 값이 있으면 `magi` 는 플릿 문 갈래로 빠져 **데몬이
+// 되기 전에 돌아간다** — 소켓은 영영 안 생기고, `--detach` 는 30초를 태운 뒤 실패하고, 우리는
+// 「못 띄웠습니다」를 적는데 그 사유는 아무 데도 안 적혀 있다.
+var scrubbed = []string{
+	"MAGI_FLEET_LISTEN",
+	"MAGI_PROFILE",
+	"MAGI_PERMISSION",
+}
+
+// deckEnv 는 덱 컴패니언에게 줄 환경. 설정 디렉토리를 물려주고, 위 셋은 걷어 낸다.
+//
+// **설정 디렉토리는 반드시 물려준다.** 안 물려주면 데몬은 자기 기본값(Windows 는
+// `%APPDATA%\magi`)을 보고 우리는 여기를 본다 — 데몬은 떴는데 우리 눈에는 안 보이는 상태가
+// 된다. 실물에서 정확히 그 화면을 봤다(2026-09-02): 소켓은 만들어졌는데 우리 쪽 경로에는
+// 아무것도 없었고, 게다가 이 머신에서는 `%APPDATA%` 아래 AF_UNIX 가 연결을 못 받는다.
+func deckEnv(configDir string, from []string) []string {
+	out := make([]string, 0, len(from)+1)
+	for _, kv := range from {
+		name := kv
+		if i := strings.IndexByte(kv, '='); i >= 0 {
+			name = kv[:i]
+		}
+		drop := false
+		for _, bad := range scrubbed {
+			if name == bad {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	// 뒤에 붙인 것이 이긴다(os/exec 는 마지막 것을 쓴다). 앞의 것도 안 남기고 지우고 싶지만,
+	// 지우면 우리가 못 본 다른 철자(대소문자)가 살아남을 수 있어 **덮는 쪽이 확실하다.**
+	return append(out, "MAGI_CONFIG_DIR="+configDir)
 }
 
 // runDetached 는 `magi --daemon --detach` 를 부른다.

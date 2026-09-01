@@ -2848,9 +2848,17 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('기다림에 천장이 있다', /until/.test(body) && /Date\.now\(\) < until/.test(body));
 
   // **실패를 조용히 넘기지 않고, 갈 곳을 준다.** 명단이 그 갈 곳이다.
-  ok('못 했으면 사유를 적는다', /pick\.note\(/.test(body));
-  ok('못 했으면 로그 자리를 알려 준다', /r\.log/.test(body));
+  // **못 했으면 사유와 갈 곳을 남긴다.** 적는 것은 명단을 세운 뒤다 — `pick.render` 가 자식을
+  // 갈아 끼우므로 먼저 적으면 지워진다.
+  ok('못 했으면 사유를 들고 나온다', /failedWhy = /.test(body), body.slice(0, 60));
+  ok('못 했으면 로그 자리도 들고 나온다', /failedLog = r\?\.log/.test(body));
   ok('못 했으면 명단으로 보낸다', /골라 주세요/.test(body));
+
+  // **못 물어본 것과 데몬이 안 뜬 것을 가른다.** 앞 판본은 물어보다 실패해도 마지막에 받은
+  // `working` 을 들고 있어서, 헬퍼가 5분 내내 안 답해도 「데몬이 아직 안 떴습니다」로 적었다 —
+  // 데몬 이야기를 하는데 사실은 헬퍼 이야기였다.
+  ok('물어보다 실패한 것을 따로 센다', /askFailed = String\(/.test(body), body.slice(0, 60));
+  ok('그 사유를 사람 말로 적는다', /헬퍼가 답하지 않습니다/.test(body));
 
   // **됐을 때만 「붙었다」를 올린다.** 이 순서가 뒤집히면 도구가 하나도 없는 채로 화면이
   // 멀쩡하다고 적는다 — 이 저장소가 여러 번 만난 그 모양이다.
@@ -2860,10 +2868,41 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // **이미 붙어 있으면 흔들지 않는다.** 작업창을 껐다 켜면 이 창은 새로 나지만 헬퍼는 살아
   // 있다. 그때 다시 붙이면 첫 등록이 떨어진다(§5.0.1).
-  ok('이미 붙어 있으면 다시 안 마련한다', /if \(!bound\) await attachOwn\(\)/.test(src));
+  ok('이미 붙어 있으면 다시 안 마련한다', /if \(!bound\) \{/.test(src));
 
-  // **명단은 안 없앤다.** 저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶은 경우가
-  // 실제로 있고, 자동으로 못 마련했을 때 사람이 갈 곳도 거기다.
+  // ── 준비하는 동안 명단이 뜨면 안 된다 ─────────────────────────────────────
+  //
+  // 실물에서 봤어야 했는데 못 본 자리다(리뷰가 계산으로 짚었다, 2026-09-02). 명단의 빈 화면에는
+  // 「덱이 있는 폴더에서 `magi --daemon` 을 띄운 뒤 새로고침하세요」가 적혀 있다 — 이 판이
+  // 없애려던 바로 그 문장이고, PC 를 잘 다루지 못하는 사람에게 터미널 명령을 시키는 말이다.
+  // 게다가 그 사이 명단의 단추가 눌리면 사람이 고른 컴패니언이 잠시 뒤 끝난 마련하기에게
+  // **말없이 덮인다.**
+  {
+    ok('명단을 그릴지 말지 고를 수 있다', /const showCompanions = async \(show = true\)/.test(src));
+    ok('그릴 때만 그린다', /if \(show\) \{ pick\.render\(list\)/.test(src));
+    ok('부팅은 안 그리고 읽기만 한다', /await showCompanions\(false\)/.test(src));
+    ok('명단은 자동으로 못 마련했을 때만 선다',
+      /if \(!await attachOwn\(\)\) \{\s*\n\s*await showCompanions\(true\)/.test(src),
+      src.slice(src.indexOf('if (!await attachOwn'), src.indexOf('if (!await attachOwn') + 80));
+    // 못 훑은 경우도 마찬가지 — 준비 중에는 이 화면 자체가 안 나와야 한다.
+    const failPath = /\} catch \(e\) \{[\s\S]*?컴패니언을 못 훑었습니다[\s\S]*?\n      \}/.exec(src)?.[0] ?? '';
+    ok('못 훑은 것도 그릴 때만 적는다', /if \(show\) \{/.test(failPath), failPath.slice(0, 60));
+  }
+
+  // ── 붙은 뒤에도 명단으로 돌아갈 길이 있다 ────────────────────────────────
+  //
+  // 명단을 남겨 둔 이유(저장소의 에이전트에게 덱을 맡기기)가 붙고 나면 **화면에서 사라졌다** —
+  // `pick.hide()` 뒤로 그것을 다시 세울 방법이 어디에도 없었다. 길이 코드에만 있고 화면에는
+  // 없으면 없는 것이다.
+  {
+    const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+    ok('돌아갈 자리가 마크업에 있다', /id="repick"/.test(html));
+    ok('붙기 전에는 안 보인다', /id="advanced"[^>]*hidden/.test(html), html.slice(html.indexOf('id="advanced"'), html.indexOf('id="advanced"') + 60));
+    ok('누르면 명단이 선다', /#repick[\s\S]{0,120}showCompanions\(true\)/.test(src));
+    ok('붙고 나면 그 줄이 뜬다', /pick\.hide\(\);\s*\n\s*offerRepick\(true\)/.test(src));
+    ok('명단이 떠 있는 동안에는 안 뜬다', /pick\.render\(list\); offerRepick\(false\)/.test(src));
+  }
+
   ok('고르는 길이 남아 있다', /api\.choose\(/.test(src) && /mountPick\(/.test(src));
 
   // **붙어 있으면 고르는 화면을 접는다.** 실물에서 봤다(2026-09-02): 브랜드 줄은 「대화

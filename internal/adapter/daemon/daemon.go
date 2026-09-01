@@ -2503,6 +2503,21 @@ func (p PeerInfo) Supports(capability string) bool {
 // Dial connects to a daemon, or says plainly that none is there.
 func Dial(path string) (*Client, error) { return dial(path, 0, 0) }
 
+// DialWithin is Dial with both bounds set, for a caller that cannot afford to wait forever.
+//
+// Dial has no timeouts on purpose: an attached view is meant to sit on its daemon. Every OTHER
+// caller — anything that asks a question and has a person waiting on the answer — needs the
+// bounds dialProbe documents below, and until now the only way to get them was to be inside this
+// package. The PowerPoint helper was outside it, called Dial, and hung: a socket file whose owner
+// is gone in a way that leaves connect hanging is exactly the state that helper exists to survive,
+// and on Windows under %APPDATA% it is a state that happens.
+//
+// Both bounds, both different failures. connectTimeout is nobody accepting; deadline is a daemon
+// that accepted and then never answered.
+func DialWithin(path string, connectTimeout, deadline time.Duration) (*Client, error) {
+	return dialProbe(path, connectTimeout, deadline)
+}
+
 // dialProbe connects for a single bounded question. Both bounds matter and they are different
 // failures: connectTimeout is a socket file whose owner is gone in a way that leaves connect
 // hanging, and deadline is a daemon that accepted and then never answered. A listing that can be
