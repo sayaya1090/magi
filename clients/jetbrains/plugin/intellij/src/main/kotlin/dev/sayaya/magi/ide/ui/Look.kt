@@ -194,9 +194,10 @@ internal object Look {
      * 그리고 **원문은 툴팁으로 준다** — 줄여 보이는 것과 감추는 것은 다르다([narrow] 와 같은 손).
      */
     fun wide(chars: Int = 36): JBLabel = object : JBLabel(" ") {
+        @Suppress("UNUSED_PARAMETER")
         override fun getMinimumSize(): Dimension {
             val d = super.getMinimumSize()
-            return Dimension(minOf(d.width, cap(this, chars)), d.height)
+            return Dimension(minOf(d.width, FLOOR), d.height)
         }
         override fun setText(text: String?) {
             super.setText(text)
@@ -245,7 +246,7 @@ internal object Look {
         object : javax.swing.JCheckBox(text) {
             override fun getMinimumSize(): Dimension {
                 val d = super.getMinimumSize()
-                return Dimension(minOf(d.width, cap(this, chars)), d.height)
+                return Dimension(minOf(d.width, FLOOR), d.height)
             }
         }.apply { toolTipText = text }
 
@@ -330,6 +331,7 @@ internal object Look {
      */
     fun note(text: String, hue: Color = faint): JComponent =
         javax.swing.JTextArea(text).apply {
+            minimumSize = Dimension(FLOOR, 0)
             isEditable = false
             isOpaque = false
             lineWrap = true

@@ -85,7 +85,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
             y++
         }
         fun row(name: String, c: JComponent) {
-            p.add(JBLabel(name).apply { foreground = Look.faint }, GridBagConstraints().apply {
+            // 이름 칸도 폭을 요구하지 않는다 — 칸을 다 줄여 놔도 이름이 안 줄면 판이 안 좁혀진다.
+            p.add(Look.wide().apply { text = name; foreground = Look.faint }, GridBagConstraints().apply {
                 gridx = 0; gridy = y; anchor = GridBagConstraints.LINE_START; insets = Insets(4, 0, 4, 12)
             })
             p.add(c, GridBagConstraints().apply {
