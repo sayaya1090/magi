@@ -87,6 +87,8 @@ New-ItemProperty -Path "HKCU:\Software\Microsoft\Office\16.0\WEF\Developer" `
 PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가 기능**에 `magi` 가 선다. 누르면
 작업창이 열린다.
 
+![홈 → 추가 기능 → 개발자 추가 기능 에 선 magi](img/00-ribbon.png)
+
 > ⚠ **매니페스트가 조용히 버려지는 자리가 하나 있다.** `VersionOverrides` 안에서
 > `<Requirements>` 는 `<Hosts>` **앞**에 와야 한다. 순서가 뒤면 Office 는 애드인을 **아무 말
 > 없이** 목록에서 뺀다 — 오류도, 로그도 없다. 이 저장소는 그 하루를 실제로 겪었고,
