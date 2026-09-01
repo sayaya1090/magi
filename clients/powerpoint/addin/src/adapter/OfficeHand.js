@@ -47,7 +47,7 @@ export class OfficeHand extends HandPort {
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
-      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide', 'replace_table'];
+      'list_layouts', 'add_slide', 'add_slides', 'delete_slide', 'duplicate_slide', 'replace_table'];
   }
 
   #envelope(result, changed = []) {
@@ -129,6 +129,7 @@ export class OfficeHand extends HandPort {
       case 'delete_shape': return this.#deleteShape(args);
       case 'list_layouts': return this.#listLayouts();
       case 'add_slide': return this.#addSlide(args);
+      case 'add_slides': return this.#addSlides(args);
       case 'delete_slide': return this.#deleteSlide(args);
       case 'duplicate_slide': return this.#duplicateSlide(args);
       case 'apply_layout': return this.#applyLayout(args);
@@ -226,7 +227,9 @@ export class OfficeHand extends HandPort {
       for (const sh of shapes.items) {
         if (String(sh.type ?? '').toLowerCase() !== 'table') continue;
         const got = await this.#readTableText(context, sh);
-        if (got.values?.length) grids.set(sh.id, got);
+        // **못 읽은 표와 빈 표를 안 뭉갠다.** 칸이 안 실려 오면 「빈 표」로 읽히는데, 그건
+        // 사람이 채워 둔 표를 지우러 가는 길이다.
+        grids.set(sh.id, got.values?.length ? got : { unreadable: true });
       }
 
       return this.#envelope({
@@ -241,13 +244,18 @@ export class OfficeHand extends HandPort {
           placeholder: roles.get(s.id) ?? null,
           alt: s.altTextDescription ?? null,
           left: s.left, top: s.top, width: s.width, height: s.height,
-          text: texts[i],
+          // **못 읽었으면 칸 자체를 안 만든다.** `''` 를 실으면 「제목이 비어 있다」로 읽히고,
+          // 모델은 빈 제목을 채우러 간다 — 못 읽은 것과 없는 것은 다르다. `find_shapes` 는
+          // 이미 그렇게 하고 있었고, 여기만 안 하고 있었다(리뷰가 짚었다, 2026-09-02).
+          ...(textUnavailable ? {} : { text: texts[i] }),
           // 서식. **못 읽었으면 칸 자체를 안 만든다** — `null` 로 채우면 「글꼴이 없다」로
           // 읽히고, 모르는 것과 없는 것은 다르다.
           ...(fonts[i] ? { font: fonts[i] } : {}),
           // 표면 격자를 그대로. **없으면 칸을 안 만든다** — 빈 격자는 「빈 표」로 읽힌다.
           ...(grids.has(s.id)
-            ? { rows: grids.get(s.id).rows, columns: grids.get(s.id).columns, cells: grids.get(s.id).values }
+            ? (grids.get(s.id).unreadable
+              ? { cells_unavailable: true }
+              : { rows: grids.get(s.id).rows, columns: grids.get(s.id).columns, cells: grids.get(s.id).values })
             : {}),
         })),
         // **없는 것이 아니라 못 읽는 것이다**(CAPABILITIES.md §10.5). 모델에게 노트가 *없다*고
@@ -315,6 +323,19 @@ export class OfficeHand extends HandPort {
       for (const { hit, shape } of kept) {
         const text = shape.textFrame?.textRange?.text ?? '';
         if (text.toLowerCase().includes(wantText)) out.push({ ...hit, text });
+      }
+      // **표 안의 글도 찾는다.** 표는 글틀이 없어 위 왕복에서 빠지는데, `read_slide` 는 표의
+      // 칸을 읽어 준다 — 한 도구는 「여기 있다」고 하고 다른 도구는 「그런 글 없다」고 하면,
+      // 모델의 다음 수는 그 글을 **새로 만드는 것**이다(리뷰가 짚었다, 2026-09-02).
+      for (const h of hits) {
+        if (String(h.type ?? '').toLowerCase() !== 'table') continue;
+        const shape = context.presentation.slides.getItem(h.slide_id).shapes.getItem(h.shape_id);
+        const grid = await this.#readTableText(context, shape);
+        const at = [];
+        (grid.values ?? []).forEach((line, r) => line.forEach((cell, c) => {
+          if (String(cell ?? '').toLowerCase().includes(wantText)) at.push({ row: r, column: c, text: cell });
+        }));
+        if (at.length) out.push({ ...h, cells: at });
       }
       return this.#envelope({ shapes: out.slice(0, Number(args.limit ?? 50)) });
     });
@@ -604,6 +625,82 @@ export class OfficeHand extends HandPort {
   }
 
   /**
+   * 개요를 통째로 받아 **장 여럿을 한 호출에** 만든다.
+   *
+   * `add_slide` 를 N 번 부르는 것과 결과는 같은데, 사람이 겪는 것이 다르다: `--permission ask`
+   * 에서는 호출마다 권한 창이 뜨므로 네 장짜리 개요에 **네 번을 눌러야** 한다. PC 를 잘 다루지
+   * 못하는 사람에게 그 네 번이 곧 장벽이다. 한 번 물어보고 한 번에 짓는다.
+   *
+   * **중간에 실패해도 앞의 장은 남는다.** 그걸 숨기지 않는다 — 무엇이 섰고 무엇이 안 섰는지
+   * 결과가 이름 대어 적고, 실패한 것의 사유도 같이 싣는다. 조용히 롤백하면 사람이 만든 줄
+   * 아는 장이 사라지고, 조용히 성공이라고 하면 없는 장을 있다고 듣는다.
+   */
+  #addSlides(args) {
+    return this.runner(async (context) => {
+      const plan = Array.isArray(args.slides) ? args.slides : [];
+      if (plan.length === 0) {
+        throw new Error('만들 장이 하나도 안 왔습니다 — slides 에 [{layout, title, body}] 를 주세요');
+      }
+      const masters = context.presentation.slideMasters;
+      masters.load('items/id,items/name,items/layouts/items/id,items/layouts/items/name');
+      const slides = context.presentation.slides;
+      slides.load('items/id');
+      await context.sync();
+
+      // 이름을 **먼저 다 확인한다.** 절반 만들고 나서 「그런 레이아웃 없다」로 떨어지면,
+      // 사람은 반쪽 덱과 오류를 같이 받는다.
+      const byName = new Map();
+      for (const m of masters.items) {
+        for (const l of m.layouts.items) byName.set(l.name, { layout: l, master: m });
+      }
+      const wanted = [...new Set(plan.map((x) => x.layout).filter(Boolean))];
+      const missing = wanted.filter((n) => !byName.has(n));
+      if (missing.length) {
+        throw new Error(`${missing.join(', ')} 이라는 레이아웃이 없습니다 — 이 덱에는: `
+          + [...byName.keys()].join(', '));
+      }
+
+      const before = new Set(slides.items.map((s) => s.id));
+      for (const want of plan) {
+        const hit = want.layout ? byName.get(want.layout) : null;
+        slides.add(hit ? { layoutId: hit.layout.id, slideMasterId: hit.master.id } : {});
+      }
+      await context.sync();
+      this.#mutated();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      // 새로 생긴 것들을 **자리 순서대로** 집는다. `add` 는 늘 뒤에 붙으므로 그 순서가
+      // 개요의 순서다.
+      const made = slides.items.filter((s) => !before.has(s.id))
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+      if (made.length !== plan.length) {
+        throw new Error(`장 ${plan.length}개를 청했는데 ${made.length}개만 생겼습니다 — `
+          + '목차를 다시 읽어 확인하세요');
+      }
+
+      const rows = [];
+      for (let i = 0; i < made.length; i++) {
+        const { filled, unfilled } = await this.#fillPlaceholders(context, made[i], plan[i]);
+        rows.push({
+          slide: (made[i].index ?? 0) + 1,
+          slide_id: made[i].id,
+          layout: plan[i].layout ?? null,
+          filled: filled.map((f) => f.role),
+          unfilled: unfilled.map((u) => u.role),
+        });
+      }
+      const missed = rows.filter((r) => r.unfilled.length);
+      return this.#envelope({ slides: rows, made: rows.length },
+        [`장 ${rows.length}개를 만들었습니다 — `
+          + rows.map((r) => `${r.slide}"${plan[r.slide - rows[0].slide]?.title ?? ''}"`).join(' · ')]
+          .concat(missed.length
+            ? [`⚠ 넣을 자리가 없어 못 채운 것: `
+              + missed.map((r) => `${r.slide}번의 ${r.unfilled.join(',')}`).join(' · ')]
+            : []));
+    });
+  }
+  /**
    * 새 장의 자리표시자를 채운다. **좌표로 텍스트 상자를 놓는 것과 결과가 다르다** — 자리표시자는
    * 테마를 따르고, 나중에 사람이 디자인을 바꾸면 같이 바뀐다(CAPABILITIES.md §4).
    *
@@ -813,11 +910,16 @@ export class OfficeHand extends HandPort {
     //
     // 규칙 둘: 아무 서식도 안 청했으면 **아무것도 안 준다**(테마가 그린다). 서식을 청해서
     // 테마가 날아가면 **선을 우리가 그린다**(안 그리면 안 보인다).
-    const wantsFormat = Object.keys(uniform).length > 0;
+    // **테마가 날아가는 조건은 「칸 서식을 하나라도 줬는가」다** — 그리고 머리행만 굵게 하는
+    // 것도 칸 서식이다(`specificCellProperties`). 처음엔 `uniform` 만 세어서, 「첫 줄 굵게」
+    // 하나만 청한 표가 다시 투명해졌다(리뷰가 짚었다, 2026-09-02). 제일 흔한 부탁이 바로
+    // 그것이라, 이 결함이 가장 자주 나는 자리였다.
+    const wantsFormat = Object.keys(uniform).length > 0 || Boolean(args.header_bold);
     const line = args.borders === undefined ? null : String(args.borders);
-    const drawLines = line !== null ? line.toLowerCase() !== 'none' : wantsFormat;
+    const noLines = line !== null && line.toLowerCase() === 'none';
+    const drawLines = noLines ? false : (line !== null || wantsFormat);
     if (drawLines) {
-      const color = line && line.toLowerCase() !== 'none' ? line : '#808080';
+      const color = line ?? '#808080';
       const edge = { color, weight: 1, dashStyle: 'solid' };
       uniform.borders = { top: edge, bottom: edge, left: edge, right: edge };
     }
@@ -826,6 +928,14 @@ export class OfficeHand extends HandPort {
       options.specificCellProperties = Array.from({ length: rows }, (_, r) => (
         Array.from({ length: columns }, () => (r === 0 ? { font: { bold: true } } : {}))));
     }
+    // 부르는 쪽이 사람에게 무엇을 말해야 하는지. **선 없는 표를 청했는데 테마도 날아가면 그
+    // 표는 화면에서 안 보인다** — 그건 사람이 청한 것이 아니라 우리가 만든 결과다.
+    options.__note = noLines && wantsFormat
+      ? '선을 안 그리라고 하셔서 안 그렸는데, 칸 서식을 같이 주면 테마의 표 스타일도 벗겨져 '
+        + '이 표는 화면에서 거의 안 보입니다 — 서식을 빼거나 borders 에 색을 주세요'
+      : (noLines
+        ? '선을 안 그렸습니다 — 테마의 표 스타일이 그리는 선은 남아 있을 수 있습니다'
+        : null);
     return options;
   }
 
@@ -851,18 +961,21 @@ export class OfficeHand extends HandPort {
       // **다음 수를 이름 대어 알려 준다.**
       const already = await this.#tablesOn(context, slide);
       const options = this.#tableOptions(args, rows, columns, null);
+      // 우리끼리 쓰는 쪽지는 호스트에 안 넘긴다 — 모르는 칸을 주면 거절당한다.
+      const note = options.__note; delete options.__note;
       const shape = slide.shapes.addTable(rows, columns, options);
       shape.load('id');
       await context.sync();
       this.#mutated();
-      const warn = already.length
+      const warn = (note ? ` · ⚠ ${note}` : '') + (already.length ? '' : '');
+      const dup = already.length
         ? ` · ⚠ 이 장에는 이미 표가 ${already.length}개 있습니다(${already.map((t) => t.id).join(', ')}) — `
           + '고치려던 것이면 그 표를 replace_table 로 바꾸거나 set_table_cells 로 글만 채우세요'
         : '';
       return this.#envelope(
         { slide_id: slide.id, shape_id: shape.id, rows, columns, tables_before: already.length },
         [`슬라이드 ${slide.id}: ${rows}×${columns} 표 ${shape.id} 추가`
-          + `${args.header_bold ? ' (헤더 굵게)' : ''}` + warn]);
+          + `${args.header_bold ? ' (헤더 굵게)' : ''}` + dup + warn]);
     });
   }
 
@@ -900,24 +1013,48 @@ export class OfficeHand extends HandPort {
       // 사람이 기대하는 것은 빈 표가 아니라 쓰던 표다.
       const rect = { left: old.left, top: old.top, width: old.width, height: old.height };
       const kept = await this.#readTableText(context, old);
-      const rows = Number(args.rows ?? kept.rows ?? 1);
-      const columns = Number(args.columns ?? kept.columns ?? 1);
-      const values = args.values !== undefined ? args.values : regrid(kept.values, rows, columns);
+      // **기본값을 안 준다.** 「모르면 1」 은 2×3 표를 빈 1×1 로 바꾸고도 성공이라고 답하는
+      // 길이다 — 모르면 아래에서 거절한다.
+      const rows = Number(args.rows ?? kept.rows);
+      const columns = Number(args.columns ?? kept.columns);
+      // 주어진 값도 **격자에 맞춘다.** 3×3 을 청하며 2×2 를 주면 호스트가 그 자리에서 죽는다.
+      const values = args.values !== undefined
+        ? regrid(args.values, rows, columns)
+        : regrid(kept.values, rows, columns);
+
+      // **크기를 못 읽었으면 다시 짓지 않는다.** 옛 표가 몇 칸이었는지 모르는 채로 기본값을
+      // 쓰면 2×3 이 1×1 이 되고, 그 문장은 성공으로 나간다 — 사람의 표가 사라지는 자리다.
+      if (!Number.isFinite(rows) || rows < 1 || !Number.isFinite(columns) || columns < 1) {
+        throw new Error('새 표의 행·열 수를 못 정했습니다 — 옛 표의 크기를 못 읽었으니 '
+          + 'rows 와 columns 를 직접 주세요. 옛 표는 그대로 뒀습니다');
+      }
 
       const options = this.#tableOptions({ ...args, values }, rows, columns, rect);
+      delete options.__note;   // 호스트에 안 넘긴다
       const oldId = old.id;
-      old.delete();
+      // **새것을 먼저 세우고, 선 것을 확인한 뒤에 옛것을 지운다.** 반대로 하면 새로 짓다
+      // 실패했을 때 사람의 표만 없어지고 남는 것이 없다 — Office.js 의 묶음은 트랜잭션이
+      // 아니라서 앞 명령은 이미 먹은 채로 뒤가 죽는다. 이 순서면 최악이 **표 둘이 겹쳐 보이는
+      // 것**이고, 그건 눈에 보이고 사람이 고칠 수 있다. 리뷰가 짚었다(2026-09-02).
       const made = slide.shapes.addTable(rows, columns, options);
       made.load('id');
       await context.sync();
       this.#mutated();
+      old.delete();
+      await context.sync();
       return this.#envelope(
         {
           slide_id: slide.id, shape_id: made.id, replaced: oldId, rows, columns,
           was: { rows: kept.rows, columns: kept.columns },
+          // **옛 글을 옮겨 왔는가.** 못 읽었으면 새 표는 비어 있는데, 그 사실을 안 적으면
+          // 「고쳤습니다」가 「내용이 사라졌습니다」를 덮는다.
+          text_carried: args.values !== undefined ? 'given' : (values ? 'kept' : 'lost'),
         },
-        [`슬라이드 ${slide.id}: 표 ${oldId}(${kept.rows}×${kept.columns}) 를 지우고 `
-          + `같은 자리에 ${rows}×${columns} 표 ${made.id} 를 놓았습니다 — 옛 id 는 이제 없습니다`]);
+        [`슬라이드 ${slide.id}: 표 ${oldId}(${kept.rows ?? '?'}×${kept.columns ?? '?'}) 를 `
+          + `같은 자리에 ${rows}×${columns} 표 ${made.id} 로 바꿨습니다 — 옛 id 는 이제 없습니다`
+          + (args.values === undefined && !values
+            ? ' · ⚠ 옛 표의 글을 못 읽어 빈 표로 섰습니다'
+            : '')]);
     });
   }
 
@@ -937,10 +1074,15 @@ export class OfficeHand extends HandPort {
     const rows = Number(table.rowCount ?? 0);
     const columns = Number(table.columnCount ?? 0);
     if (!rows || !columns) return { rows: rows || null, columns: columns || null, values: [] };
+    // **천장을 둔다.** 40×10 표 하나가 칸 400 개, 로드 800 개다 — 「이 장에 뭐가 있나」를 묻는
+    // 도구가 그 값을 치르면 안 된다. 자른 것은 **자른 사실을 실어** 보낸다.
+    const maxR = Math.min(rows, 50);
+    const maxC = Math.min(columns, 20);
+    const clipped = maxR < rows || maxC < columns;
     const cells = [];
-    for (let r = 0; r < rows; r++) {
+    for (let r = 0; r < maxR; r++) {
       const line = [];
-      for (let c = 0; c < columns; c++) {
+      for (let c = 0; c < maxC; c++) {
         const cell = table.getCellOrNullObject(r, c);
         cell.load('isNullObject,text');
         line.push(cell);
@@ -955,6 +1097,7 @@ export class OfficeHand extends HandPort {
     return {
       rows,
       columns,
+      clipped,
       values: cells.map((line) => line.map((cell) => (cell.isNullObject ? '' : (cell.text ?? '')))),
     };
   }

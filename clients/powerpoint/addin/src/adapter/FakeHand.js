@@ -355,6 +355,46 @@ export class FakeHand extends HandPort {
             + (filled.length ? ` · ${filled.join(' · ')} 채움` : '')
             + (unfilled.length ? ` · ⚠ ${unfilled.join(' · ')} 자리가 없어 안 넣었습니다` : '')]);
       }
+      case 'add_slides': {
+        // 진짜 손과 같은 계약 — 이름을 **먼저 다 확인하고**, 중간에 실패해도 앞의 장은 남는다.
+        const plan = Array.isArray(args.slides) ? args.slides : [];
+        if (plan.length === 0) {
+          throw new Error('만들 장이 하나도 안 왔습니다 — slides 에 [{layout, title, body}] 를 주세요');
+        }
+        const missing = [...new Set(plan.map((x) => x.layout).filter(Boolean))]
+          .filter((n) => !FakeHand.LAYOUTS.some((l) => l.layout === n));
+        if (missing.length) {
+          throw new Error(`${missing.join(', ')} 이라는 레이아웃이 없습니다 — 이 덱에는: `
+            + FakeHand.LAYOUTS.map((l) => l.layout).join(', '));
+        }
+        const rows = [];
+        for (const want of plan) {
+          const layout = want.layout
+            ? FakeHand.LAYOUTS.find((l) => l.layout === want.layout)
+            : FakeHand.LAYOUTS[0];
+          const filled = [];
+          const shapes = layout.placeholders.map((role, i) => {
+            const text = role === 'title' ? String(want.title ?? '') : String(want.body ?? '');
+            if (text) filled.push(role);
+            return { id: `ph-${this.nextId++}-${i}`, name: role, type: 'TextBox', text,
+              width: 360, height: role === 'title' ? 60 : 120 };
+          });
+          const unfilled = [];
+          if (want.title && !filled.includes('title')) unfilled.push('title');
+          if (want.body && !filled.includes('body')) unfilled.push('body');
+          const slide = { id: `sl-new-${this.nextId++}`, layout: layout.layout, shapes };
+          this.model.slides.push(slide);
+          rows.push({ slide: this.model.slides.length, slide_id: slide.id,
+            layout: want.layout ?? null, filled, unfilled });
+        }
+        this.#mutated();
+        const missed = rows.filter((r) => r.unfilled.length);
+        return this.#envelope({ slides: rows, made: rows.length },
+          [`장 ${rows.length}개를 만들었습니다`].concat(missed.length
+            ? [`⚠ 넣을 자리가 없어 못 채운 것: `
+              + missed.map((r) => `${r.slide}번의 ${r.unfilled.join(',')}`).join(' · ')]
+            : []));
+      }
       case 'delete_slide': {
         // 진짜 손과 같은 규칙 — 지우기는 보고 있는 장으로 넘겨짚지 않는다.
         if (args.slide === undefined && !args.slide_id) {

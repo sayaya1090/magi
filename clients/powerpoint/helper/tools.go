@@ -165,6 +165,14 @@ func catalogue() []tool {
 			},
 		},
 		{
+			Name: "add_slides",
+			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
+			Props: []property{
+				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each bullet on its own line in body."},
+			},
+			Required: []string{"slides"},
+		},
+		{
 			Name:  "delete_slide",
 			Desc:  "Remove one slide. Every slide after it shifts down one, and the result says so. Snapshot first if the person might want it back — nothing else brings it back.",
 			Props: withSlide(),
