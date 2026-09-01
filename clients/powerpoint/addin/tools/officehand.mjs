@@ -8,7 +8,9 @@
 // stub 이 `load` 를 강제하는 이유가 그것이다. 값을 그냥 노출하면 **`load` 를 빠뜨린 코드가
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
+import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart } from '../src/adapter/OfficeHand.js';
+import { FakeHand } from '../src/adapter/FakeHand.js';
 import { zipEntries, zipRead } from '../src/adapter/zip.js';
 
 let failed = 0;
@@ -38,8 +40,15 @@ function reveal(target, path) {
   const [head, ...rest] = path.split('/');
   if (head === 'items') {
     for (const item of target.raw.items ?? []) {
-      const child = target.itemsView.find((v) => v.raw === item);
-      if (child) reveal(child, rest.join('/'));
+      // 같은 `run` 안에서 컬렉션이 자랄 수 있다(`slides.add`·`insertSlidesFromBase64`).
+      // 처음에 만든 view 만 보면 **새로 생긴 장이 영영 안 보이고**, 그 장을 찾는 우리 코드가
+      // 「만들었는데 못 찾았습니다」로 떨어진다 — 호스트가 아니라 스텁이 만든 실패다.
+      let child = target.itemsView.find((v) => v.raw === item);
+      if (!child) {
+        child = target.makeView ? target.makeView(item) : new Loaded(item, target.pending);
+        target.itemsView.push(child);
+      }
+      reveal(child, rest.join('/'));
     }
     target.items = target.itemsView;
     return;
@@ -105,19 +114,52 @@ class StubTable {
 function stubRunner(model, log = []) {
   return async (fn) => {
     const pending = [];
-    const slidesView = model.slides.map((s) => {
+    const slideView = (s) => {
       const view = new Loaded(s, pending);
       view.itemsView = null;
       view.shapes = makeShapes(s, pending, log);
       view.getImageAsBase64 = () => ({ value: 'PNGBASE64' });
       view.exportAsBase64 = () => ({ value: model.exported ?? 'PPTXBASE64' });
       view.applyLayout = (id) => log.push(`layout:${s.id}:${id}`);
-      view.moveTo = (i) => log.push(`moveTo:${s.id}:${i}`);
-      view.delete = () => log.push(`slide-delete:${s.id}`);
+      view.moveTo = (i) => { log.push(`moveTo:${s.id}:${i}`); move(s, i); };
+      view.delete = () => { log.push(`slide-delete:${s.id}`); drop(s); };
       return view;
-    });
+    };
+    // 장이 실제로 옮겨지고 지워져야 그다음 `load` 가 사실을 말한다. 로그만 남기면 「옮겼다」와
+    // 「옮겼다고 적기만 했다」가 스텁 안에서 같아진다.
+    const renumber = () => model.slides.forEach((s, i) => { s.index = i; });
+    const move = (s, i) => {
+      const at = model.slides.indexOf(s);
+      if (at < 0) return;
+      model.slides.splice(at, 1);
+      model.slides.splice(Math.max(0, Math.min(i, model.slides.length)), 0, s);
+      renumber();
+    };
+    const drop = (s) => {
+      const at = model.slides.indexOf(s);
+      if (at >= 0) model.slides.splice(at, 1);
+      renumber();
+    };
+    const slidesView = model.slides.map(slideView);
     const slides = new Loaded({ items: model.slides }, pending);
     slides.itemsView = slidesView;
+    slides.makeView = slideView;
+    slides.add = (options) => {
+      log.push(`slides.add:${options?.layoutId ?? ''}:${options?.slideMasterId ?? ''}`);
+      const layout = (model.masters ?? [])
+        .flatMap((m) => m.layouts).find((l) => l.id === options?.layoutId);
+      model.slides.push({
+        id: `sl-new${model.slides.length}`,
+        index: model.slides.length,
+        layout: { name: layout?.name ?? '기본' },
+        // 새 장은 레이아웃의 자리표시자를 물려받는다 — 그게 `add_slide` 가 채우는 자리다.
+        shapes: (layout?.placeholders ?? ['title', 'body']).map((t, i) => ({
+          id: `ph${model.slides.length}-${i}`, name: t, type: 'Placeholder', text: '',
+          placeholderFormat: { type: t },
+        })),
+      });
+      renumber();
+    };
     slides.getItem = (id) => slidesView.find((v) => v.raw.id === id)
       ?? (() => { throw new Error(`no slide ${id}`); })();
     slides.getItemAt = (i) => slidesView[i] ?? (() => { throw new Error(`no slide at ${i}`); })();
@@ -126,7 +168,15 @@ function stubRunner(model, log = []) {
     masters.itemsView = (model.masters ?? []).map((m) => {
       const v = new Loaded(m, pending);
       v.layouts = new Loaded({ items: m.layouts }, pending);
-      v.layouts.itemsView = m.layouts.map((l) => new Loaded(l, pending));
+      v.layouts.itemsView = m.layouts.map((l) => {
+        const lv = new Loaded(l, pending);
+        const holders = (l.placeholders ?? []).map((t, i) => ({
+          id: `${l.id}-ph${i}`, name: t, placeholderFormat: { type: t },
+        }));
+        lv.shapes = new Loaded({ items: holders }, pending);
+        lv.shapes.itemsView = holders.map((h) => new Loaded(h, pending));
+        return lv;
+      });
       return v;
     });
 
@@ -140,7 +190,19 @@ function stubRunner(model, log = []) {
             slidesView.find((v) => v.raw === s) ?? new Loaded(s, pending));
           return sel;
         },
-        insertSlidesFromBase64: (b64, options) => log.push(`insert:${b64.slice(0, 6)}:${options?.targetSlideId}:${options?.formatting ?? ''}`),
+        insertSlidesFromBase64: (b64, options) => {
+          log.push(`insert:${b64.slice(0, 6)}:${options?.targetSlideId}:${options?.formatting ?? ''}`);
+          const at = model.slides.findIndex((s) => s.id === options?.targetSlideId);
+          const src = at >= 0 ? model.slides[at] : null;
+          const copy = {
+            id: `sl-copy${model.slides.length}`,
+            index: 0,
+            layout: { name: src?.layout?.name ?? '기본' },
+            shapes: (src?.shapes ?? []).map((sh) => ({ ...sh, id: `${sh.id}-copy` })),
+          };
+          model.slides.splice(at < 0 ? model.slides.length : at + 1, 0, copy);
+          renumber();
+        },
       },
       sync: async () => {
         while (pending.length) {
@@ -395,6 +457,258 @@ async function makeZip(files) {
   try { pickPart(entries, 'chart'); } catch (e) { why = e.message; }
   // **없으면 무엇이 들어 있는지 말한다** — 「없다」만으로는 다음에 무엇을 물어야 할지 모른다.
   ok('없는 조각은 있는 것을 알려 준다', why?.includes('ppt/slides/slide1.xml'), why);
+}
+
+// ── 장을 만들고 지우고 복제한다 ──────────────────────────────────────────────
+//
+// **이것이 없으면 「발표자료 만들어 줘」가 통째로 불가능하다.** 도구 19 개로는 이미 있는 장만
+// 고칠 수 있었고, 사람이 새 장을 손으로 만들어 주기 전에는 에이전트가 할 수 있는 일이 없었다.
+{
+  const withLayouts = () => {
+    const m = model();
+    m.masters = [{
+      id: 'm1', name: '기본',
+      layouts: [
+        { id: 'l1', name: '제목 및 내용', placeholders: ['title', 'body'] },
+        { id: 'l2', name: '제목만', placeholders: ['title'] },
+        { id: 'l3', name: '빈 화면', placeholders: [] },
+      ],
+    }];
+    return m;
+  };
+  const hand = (mm, log) => new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'doc-1' });
+
+  // 레이아웃 이름은 **덱의 테마가 정한다.** 목록 없이 만들게 하면 모델은 흔한 이름을 지어내고,
+  // 없는 이름은 거절당한다 — 왕복이 한 번 는다.
+  {
+    const out = await hand(withLayouts(), []).run('list_layouts', {});
+    const layouts = out.result.masters[0].layouts;
+    ok('레이아웃 목록이 이름을 싣는다',
+      layouts.map((l) => l.layout).join('|') === '제목 및 내용|제목만|빈 화면',
+      layouts.map((l) => l.layout).join('|'));
+    ok('무엇을 채울 수 있는 장인지도 싣는다',
+      layouts[0].placeholders.join(',') === 'title,body', JSON.stringify(layouts[0].placeholders));
+    // **자리표시자가 없는 레이아웃**과 못 읽은 것은 다르다 — 빈 배열은 「없다」다.
+    ok('빈 레이아웃은 빈 배열이지 null 이 아니다', Array.isArray(layouts[2].placeholders)
+      && layouts[2].placeholders.length === 0);
+    ok('레이아웃 목록은 덱을 안 고친다', out.count === 0, String(out.count));
+  }
+
+  // 만들기 — 레이아웃·자리·제목·본문이 **한 호출**이다. 넷으로 나누면 중간에 실패했을 때
+  // 제목 없는 빈 장이 덱에 남고, 그 상태는 아무도 원한 적이 없다.
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('add_slide',
+      { layout: '제목 및 내용', at: 2, title: '3분기 실적', body: '전년 대비 12% 성장' });
+    ok('레이아웃을 이름으로 찾아 id 로 만든다',
+      log.some((l) => l.startsWith('slides.add:l1:m1')), log.join(' / '));
+    ok('사람이 말한 자리는 0-based 로 옮겨 부른다',
+      log.some((l) => l.endsWith(':1') && l.startsWith('moveTo:')), log.join(' / '));
+    ok('제목과 본문이 자리표시자에 들어간다',
+      out.result.filled.join(',') === 'title,body', JSON.stringify(out.result.filled));
+    ok('새 장의 id 와 사람 번호를 돌려준다',
+      typeof out.result.slide_id === 'string' && out.result.slide === 2,
+      `${out.result.slide_id} / ${out.result.slide}`);
+    ok('무엇을 만들었는지 한 줄로 적는다',
+      out.changed[0].includes('만들었습니다') && out.changed[0].includes('제목 및 내용'),
+      out.changed[0]);
+    ok('덱을 고친 것으로 센다', out.count === 1, String(out.count));
+  }
+
+  // **없는 자리를 지어내지 않는다.** 제목만 있는 레이아웃에 본문을 주면 제목만 들어가고,
+  // 결과가 무엇이 들어갔는지 말한다 — 조용히 텍스트 상자를 놓으면 테마 밖의 글이 하나 생긴다.
+  {
+    const out = await hand(withLayouts(), []).run('add_slide',
+      { layout: '제목만', title: '표지', body: '이 장에는 본문 자리가 없다' });
+    ok('없는 자리표시자는 안 채우고 안 지어낸다',
+      out.result.filled.join(',') === 'title', JSON.stringify(out.result.filled));
+    ok('못 넣은 것은 이름을 대고 넘어간다',
+      out.result.unfilled.join(',') === 'body', JSON.stringify(out.result.unfilled));
+  }
+
+  // 이름을 틀리면 **비슷한 것으로 갈음하지 않는다.** 있는 이름을 다 적어 주면 다음 호출에서 맞다.
+  {
+    let why = null;
+    try { await hand(withLayouts(), []).run('add_slide', { layout: '없는 레이아웃' }); }
+    catch (e) { why = e.message; }
+    ok('없는 레이아웃은 거절하고 있는 것을 알려 준다',
+      why?.includes('제목 및 내용') && why?.includes('빈 화면'), why);
+  }
+
+  // 레이아웃을 안 주면 덱의 기본으로 만든다 — **되묻지 않는다.**
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('add_slide', {});
+    ok('레이아웃 없이도 장이 선다', typeof out.result.slide_id === 'string');
+    ok('그때는 레이아웃 id 를 안 넘긴다',
+      log.some((l) => l === 'slides.add::'), log.join(' / '));
+  }
+
+  // 지우기 — **뒤 번호가 전부 밀린다**는 것을 결과가 말해야 한다. 그 말이 없으면 모델은 지우기
+  // 전에 읽어 둔 번호로 다음 호출을 건다.
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('delete_slide', { slide: 1 });
+    ok('그 장을 지운다', log.includes('slide-delete:s1'), log.join(' / '));
+    ok('지운 자리와 id 를 돌려준다', out.result.deleted === 's1' && out.result.was === 1,
+      JSON.stringify(out.result));
+    ok('번호가 밀린다는 것을 적는다',
+      out.changed[0].includes('당겨졌습니다') && out.changed[0].includes('못 되돌'),
+      out.changed[0]);
+  }
+
+  // 복제 — **서식을 원본 그대로** 가져온다. `formatting` 을 넘기면 복제본이 테마를 새로 입고
+  // 나오고, 그건 「똑같은 장 하나 더」가 아니다(`restore_slide` 가 같은 이유로 같은 선택을 한다).
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('duplicate_slide', { slide: 1 });
+    const insert = log.find((l) => l.startsWith('insert:'));
+    ok('원본을 내보내 그 뒤에 넣는다', insert?.includes(':s1:'), insert);
+    ok('서식 옵션을 안 넘긴다 — 기본이 원본 유지다', insert?.endsWith(':'), insert);
+    ok('복제본은 새 id 를 단다',
+      typeof out.result.slide_id === 'string' && out.result.slide_id !== 's1',
+      String(out.result.slide_id));
+    ok('복제본이 원본 바로 뒤에 선다', out.result.slide === 2, String(out.result.slide));
+    ok('id 가 달라졌다는 것을 적는다', out.changed[0].includes('원본과 다릅니다'), out.changed[0]);
+  }
+
+  // 넷 다 손이 안다고 **광고**해야 헬퍼가 부를 수 있다.
+  {
+    const ops = new OfficeHand({}).ops();
+    for (const op of ['list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide']) {
+      ok(`손이 ${op} 을 광고한다`, ops.includes(op));
+    }
+  }
+}
+
+// ── 광고한 도구는 손이 다 알아야 한다 ────────────────────────────────────────
+//
+// 도구 표는 Go(`helper/tools.go`)에 있고 그것을 수행하는 손은 여기(JS)에 있다. **두 벌이다.**
+// 어긋나면 증상은 런타임의 「이 손은 X 을 모릅니다」 하나뿐이고, 그건 사람이 그 도구를 실제로
+// 시켜 봐야 나온다 — 새 도구를 더하는 날이 정확히 그 날이다.
+//
+// 그래서 목록을 손으로 두 번 적지 않고 **원천에서 유도해 견준다.**
+{
+  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const body = go.slice(go.indexOf('return []tool{'));
+  const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]);
+  const known = new OfficeHand({}).ops();
+
+  ok('도구 표에서 이름을 뽑았다', advertised.length >= 20, `${advertised.length}개`);
+  const missing = advertised.filter((n) => !known.includes(n));
+  ok('광고한 도구를 손이 전부 안다', missing.length === 0, missing.join(', '));
+  // 거울도 본다: 손만 알고 아무도 안 부르는 것은 **죽은 코드**다.
+  const orphan = known.filter((n) => !advertised.includes(n));
+  ok('손이 아는 것 중 안 광고된 것은 없다', orphan.length === 0, orphan.join(', '));
+
+  // **목록을 견주는 것으로는 부족하다.** `ops()` 는 손이 손으로 적은 배열이라, 스위치에 없는
+  // 이름도 얼마든지 들어 있을 수 있다 — 실제로 가짜 손이 여섯을 그렇게 광고하고 있었고
+  // (format_shape·apply_layout·reorder_slide·set_hyperlink·add_table·set_table_cells),
+  // 목록만 견주던 이 시험은 그동안 초록이었다(2026-09-02 리뷰가 짚었다). 그래서 **불러 본다.**
+  //
+  // 인자는 안 준다. 그래서 대부분 다른 사유로 실패하는데, 그게 맞다 — 여기서 무는 것은
+  // 「일이 됐는가」가 아니라 **「그 이름을 아는가」**뿐이다. 모르는 이름의 사유는 하나뿐이다.
+  const probe = async (hand, who) => {
+    const deaf = [];
+    for (const name of advertised) {
+      try {
+        await hand.run(name, {});
+      } catch (e) {
+        if (/이 손은 .* 을 모릅니다/.test(e?.message ?? '')) deaf.push(name);
+      }
+    }
+    ok(`${who}이 광고한 도구를 하나도 안 흘린다`, deaf.length === 0, deaf.join(', '));
+  };
+  await probe(new FakeHand(model()), '가짜 손');
+  await probe(new OfficeHand({ run: stubRunner(model(), []), supports: () => true }), '진짜 손');
+}
+
+// ── 리뷰가 짚은 갈래들(2026-09-02) ───────────────────────────────────────────
+//
+// 넷 다 **성공으로 보이는 실패**이거나 그 이웃이다. 이 저장소가 제일 피하려는 모양이라
+// 하나씩 못 박는다.
+{
+  const withLayouts = () => {
+    const m = model();
+    m.masters = [{
+      id: 'm1', name: '기본',
+      layouts: [
+        { id: 'l1', name: '제목 및 내용', placeholders: ['title', 'body'] },
+        { id: 'l2', name: '제목만', placeholders: ['title'] },
+        { id: 'l3', name: '빈 화면', placeholders: [] },
+      ],
+    }];
+    return m;
+  };
+  const hand = (mm, log) => new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'doc-1' });
+
+  // **못 넣은 글을 조용히 버리지 않는다.** 자리표시자가 없는 레이아웃에 제목을 주면 글은
+  // 아무 데도 안 들어가는데, 결과가 성공이기만 하면 사람은 제목을 부탁하고 빈 장을 받는다.
+  {
+    const out = await hand(withLayouts(), []).run('add_slide',
+      { layout: '빈 화면', title: '3분기 실적', body: '요약' });
+    ok('못 넣은 글의 이름을 결과가 댄다',
+      out.result.unfilled.join(',') === 'title,body', JSON.stringify(out.result.unfilled));
+    ok('사람이 읽는 줄에도 그 사실이 선다',
+      out.changed[0].includes('⚠') && out.changed[0].includes('안 넣었습니다'), out.changed[0]);
+    ok('그래도 장은 만들어졌다고 적는다', out.changed[0].includes('만들었습니다'), out.changed[0]);
+  }
+  {
+    const out = await hand(withLayouts(), []).run('add_slide',
+      { layout: '제목만', title: '표지', body: '이 장에는 본문 자리가 없다' });
+    ok('반만 들어간 것도 반만 들어갔다고 적는다',
+      out.result.filled.join(',') === 'title' && out.result.unfilled.join(',') === 'body',
+      JSON.stringify(out.result));
+  }
+
+  // **덱 길이 밖의 자리는 잘라 준다.** 안 자르면 장을 만든 뒤에 던져서, 사람은 오류와 함께
+  // 빈 장 하나를 얻는다 — 「한 호출에 담는다」던 약속이 거기서 깨진다.
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('add_slide', { layout: '제목만', at: 99, title: '끝장' });
+    ok('덱 밖의 자리는 마지막으로 자른다', out.result.slide === mm.slides.length,
+      `${out.result.slide} / ${mm.slides.length}`);
+    ok('그래도 장은 선다', typeof out.result.slide_id === 'string');
+  }
+
+  // **지우기는 넘겨짚지 않는다.** 다른 도구는 생략하면 보고 있는 장으로 가는 편이 편하지만,
+  // 이건 스냅샷 없이 못 되돌린다.
+  {
+    let why = null;
+    try { await hand(withLayouts(), []).run('delete_slide', {}); } catch (e) { why = e.message; }
+    ok('어느 장인지 안 말하면 안 지운다', why?.includes('정확히 말해'), why);
+    const mm = withLayouts();
+    ok('안 지웠으므로 장 수도 그대로다', mm.slides.length === 2, String(mm.slides.length));
+  }
+
+  // id 로도 짚을 수 있어야 한다 — 번호는 장을 하나 넣고 빼면 전부 밀리므로, 읽어 둔 id 를
+  // 되쓰는 쪽이 정확하다(`slideProps` 가 모델에게 그렇게 권한다).
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('delete_slide', { slide_id: 's2' });
+    ok('id 로 지운다', out.result.deleted === 's2' && log.includes('slide-delete:s2'), log.join(' / '));
+  }
+  {
+    const mm = withLayouts(); const log = [];
+    const out = await hand(mm, log).run('duplicate_slide', { slide_id: 's2' });
+    ok('id 로 복제한다', out.result.from === 's2', JSON.stringify(out.result));
+  }
+
+  // **복제본을 못 찾으면 던진다.** 자리를 짐작해 답하면 사람은 없는 장을 있다고 듣는다.
+  {
+    const mm = withLayouts(); const log = [];
+    const h = new OfficeHand({
+      // 넣기가 아무 일도 안 하는 호스트. 실물에서 `targetSlideId` 가 낡았을 때의 모양이다.
+      run: (fn) => stubRunner(mm, log)(async (context) => {
+        context.presentation.insertSlidesFromBase64 = () => log.push('insert:noop');
+        return fn(context);
+      }),
+      supports: () => true,
+    });
+    let why = null;
+    try { await h.run('duplicate_slide', { slide: 1 }); } catch (e) { why = e.message; }
+    ok('복제본을 못 찾으면 성공이라고 안 한다', why?.includes('못 찾았습니다'), why);
+  }
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).

@@ -81,9 +81,14 @@ type tool struct {
 // 모델은 **번호로** 말한다(CAPABILITIES.md §10.4 — 사람도 모델도 "3번 슬라이드"라고 하지
 // id=257 이라고 하지 않는다). 다만 그 번호는 슬라이드 하나만 넣어도 뒤가 전부 밀리는 값이라,
 // 읽은 결과에 실려 온 `slide_id` 를 그대로 되쓰는 쪽이 정확하다. 둘 다 받고, 있으면 id 가 이긴다.
+// **생략했을 때의 뜻을 두 칸이 다 적는다.** 손은 진작부터 「사람이 보고 있는 장」으로 떨어지는데
+// (`OfficeHand.#slide`, `officehand.mjs` 가 그것을 잰다) 스키마가 그 말을 안 했다 — 모델이 읽는
+// 것은 스키마뿐이라, 사람이 "3행 5열 테이블 만들어 줘"라고 했을 때 **모델은 어느 슬라이드인지
+// 되물었다.** 실물에서 그 왕복을 봤다(2026-09-01): 도구는 그냥 됐을 텐데 화면에는 되묻는 말만
+// 섰고, 사람 눈에는 요청이 씹힌 것으로 보였다. 있는 능력을 안 광고하면 없는 것과 같다.
 var slideProps = []property{
-	{Name: "slide", Type: "integer", Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one."},
-	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given."},
+	{Name: "slide", Type: "integer", Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one. Omit both this and slide_id for the slide the person is looking at now — do not ask which slide when they did not name one."},
+	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given. Omit both this and slide for the slide the person is looking at now."},
 }
 
 func withSlide(rest ...property) []property {
@@ -140,6 +145,34 @@ func catalogue() []tool {
 				property{Name: "shape_id", Type: "string", Desc: "Narrow a chart or picture part to one shape."},
 			),
 			ReadOnly: true,
+		},
+
+		{
+			Name:     "list_layouts",
+			Desc:     "The layouts this deck offers, by master, with the placeholder roles each one carries. Read this before add_slide: layout names come from the deck's theme, so a guessed name is refused." + declare,
+			Props:    []property{},
+			ReadOnly: true,
+		},
+
+		{
+			Name: "add_slide",
+			Desc: "Add a slide — and, in the same call, put it where it belongs and fill its title and body. Filling a layout's placeholders is not the same as dropping text boxes at coordinates: placeholders follow the theme, so they stay right when the design changes. Prefer this over add_shape for the words that carry a slide.",
+			Props: []property{
+				{Name: "layout", Type: "string", Desc: "Layout name from list_layouts. Omit for the deck's default layout."},
+				{Name: "at", Type: "integer", Desc: "1-based position for the new slide. Omit to put it at the end."},
+				{Name: "title", Type: "string", Desc: "Text for the title placeholder, if the layout has one."},
+				{Name: "body", Type: "string", Desc: "Text for the body/subtitle placeholder. Use \\n between bullet lines."},
+			},
+		},
+		{
+			Name:  "delete_slide",
+			Desc:  "Remove one slide. Every slide after it shifts down one, and the result says so. Snapshot first if the person might want it back — nothing else brings it back.",
+			Props: withSlide(),
+		},
+		{
+			Name:  "duplicate_slide",
+			Desc:  "Copy one slide, formatting and all, and put the copy right after it. The way to build a deck that looks consistent: make one slide well, duplicate it, then change the words.",
+			Props: withSlide(),
 		},
 
 		{

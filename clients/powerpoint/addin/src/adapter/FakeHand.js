@@ -31,8 +31,19 @@ export class FakeHand extends HandPort {
     return ['list_slides', 'read_slide', 'find_shapes', 'render_slide', 'export_slide_ooxml',
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
-      'snapshot_slide', 'restore_slide', 'advise', 'clear_advice'];
+      'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
+      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide'];
   }
+
+  /**
+   * 가짜 덱이 가진 레이아웃. **테마가 없으므로 지어낸 것이고, 그렇게 적는다** — 진짜 덱의
+   * 레이아웃 이름은 그 덱의 테마가 정한다(`OfficeHand.#listLayouts`).
+   */
+  static LAYOUTS = [
+    { layout: '제목 및 내용', layout_id: 'fake-l1', placeholders: ['title', 'body'] },
+    { layout: '제목만', layout_id: 'fake-l2', placeholders: ['title'] },
+    { layout: '빈 화면', layout_id: 'fake-l3', placeholders: [] },
+  ];
 
   /** 위치(1부터) 또는 id 로 슬라이드를 집는다. **못 찾으면 던진다.** */
   #slide(args) {
@@ -161,6 +172,95 @@ export class FakeHand extends HandPort {
         return this.#envelope({ slide_id: slide.id, shape_id: shape.id },
           [`슬라이드 ${slide.id}: 도형 ${shape.id} 추가("${shape.text}")`]);
       }
+      // 아래 여섯은 **광고만 되고 없던 것들**이다(2026-09-02, 리뷰가 짚었다). 브라우저 갈래는
+      // 도구를 눌러 보라고 있는 화면인데, 눌리는 도구의 3 분의 1 이 「이 손은 X 을 모릅니다」만
+      // 내놓고 있었다 — 없는 것을 광고하는 것과 같은 결함이고, 방향만 반대다.
+      case 'format_shape': {
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        const changed = [];
+        for (const [k, label] of [['font', '글꼴'], ['size', '크기'], ['bold', '굵게'],
+          ['italic', '기울임'], ['color', '글자색'], ['fill', '채움'], ['align', '정렬']]) {
+          if (args[k] === undefined) continue;
+          shape[k] = args[k];
+          changed.push(`${label} → ${args[k]}`);
+        }
+        if (changed.length === 0) {
+          throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — font·size·bold·italic·color·fill·align 중 하나는 주세요');
+        }
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id },
+          [`슬라이드 ${slide.id} · 도형 ${shape.id}: ${changed.join(' / ')}`]);
+      }
+      case 'apply_layout': {
+        const slide = this.#slide(args);
+        const layout = FakeHand.LAYOUTS.find((l) => l.layout === args.layout);
+        if (!layout) {
+          throw new Error(`${args.layout} 이라는 레이아웃이 없습니다 — 이 덱에는: `
+            + FakeHand.LAYOUTS.map((l) => l.layout).join(', '));
+        }
+        const before = slide.layout ?? '제목 및 내용';
+        slide.layout = layout.layout;
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, layout: slide.layout },
+          [`슬라이드 ${slide.id}: 레이아웃 ${before} → ${slide.layout}`]);
+      }
+      case 'reorder_slide': {
+        const slide = this.#slide(args);
+        const from = this.model.slides.indexOf(slide) + 1;
+        const to = Math.min(Math.max(1, Number(args.to)), this.model.slides.length);
+        this.model.slides.splice(from - 1, 1);
+        this.model.slides.splice(to - 1, 0, slide);
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, from, to },
+          [`슬라이드 ${slide.id}: ${from} 번 → ${to} 번 — 이 뒤의 번호는 전부 달라졌습니다`]);
+      }
+      case 'set_hyperlink': {
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        const before = shape.url ?? null;
+        shape.url = args.url ? String(args.url) : null;
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, url: shape.url },
+          [`슬라이드 ${slide.id} · 도형 ${shape.id}: 링크 ${before ?? '없음'} → ${shape.url ?? '없음'}`]);
+      }
+      case 'add_table': {
+        const slide = this.#slide(args);
+        const rows = Number(args.rows);
+        const columns = Number(args.columns);
+        const cells = Array.from({ length: rows }, (_, r) =>
+          Array.from({ length: columns }, (_, c) => String(args.values?.[r]?.[c] ?? '')));
+        const shape = {
+          id: `tb-${this.nextId++}`, name: '표', type: 'Table', text: '',
+          width: Number(args.width ?? 360), height: Number(args.height ?? 120),
+          rows, columns, cells,
+        };
+        slide.shapes.push(shape);
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, rows, columns },
+          [`슬라이드 ${slide.id}: ${rows}행 ${columns}열 표 ${shape.id} 추가`]);
+      }
+      case 'set_table_cells': {
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        if (!shape.cells) throw new Error(`도형 ${shape.id} 는 표가 아닙니다`);
+        const wrote = [];
+        for (const cell of args.cells ?? []) {
+          const r = Number(cell.row);
+          const c = Number(cell.column);
+          // **없는 칸은 만들지 않는다** — 표 바깥에 글을 쓴 것처럼 답하면 사람은 안 보이는
+          // 글을 찾아 헤맨다. 진짜 손도 같은 자리에서 `isNullObject` 를 보고 거절한다.
+          if (!shape.cells[r] || shape.cells[r][c] === undefined) {
+            throw new Error(`표 ${shape.id} 에 ${r}행 ${c}열 칸이 없습니다 — `
+              + `${shape.rows}행 ${shape.columns}열 표입니다`);
+          }
+          shape.cells[r][c] = String(cell.text ?? '');
+          wrote.push(`(${r},${c})`);
+        }
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, wrote: wrote.length },
+          [`슬라이드 ${slide.id} · 표 ${shape.id}: ${wrote.join(' ')} 칸을 채웠습니다`]);
+      }
       case 'snapshot_slide': {
         const slide = this.#slide(args);
         const id = `snap-${this.nextId++}`;
@@ -179,6 +279,69 @@ export class FakeHand extends HandPort {
         this.#mutated();
         return this.#envelope({ slide_id: restored.id, replaced: kept.id },
           [`슬라이드 ${kept.id} 를 스냅샷 ${args.snapshot} 으로 되돌렸습니다 — 새 id 는 ${restored.id} 입니다`]);
+      }
+      case 'list_layouts':
+        return this.#envelope({
+          masters: [{ master: '가짜 마스터', master_id: 'fake-m1', layouts: FakeHand.LAYOUTS }],
+        });
+      case 'add_slide': {
+        const layout = args.layout ? FakeHand.LAYOUTS.find((l) => l.layout === args.layout) : FakeHand.LAYOUTS[0];
+        if (!layout) {
+          // **비슷한 것으로 갈음하지 않는다** — 있는 이름을 다 적어 주면 다음 호출에서 맞다.
+          throw new Error(`${args.layout} 이라는 레이아웃이 없습니다 — 이 덱에는: `
+            + FakeHand.LAYOUTS.map((l) => l.layout).join(', '));
+        }
+        const filled = [];
+        const shapes = layout.placeholders.map((role, i) => {
+          const text = role === 'title' ? String(args.title ?? '') : String(args.body ?? '');
+          if (text) filled.push(role);
+          return {
+            id: `ph-${this.nextId++}-${i}`, name: role, type: 'TextBox', text,
+            width: 360, height: role === 'title' ? 60 : 120,
+          };
+        });
+        // **못 넣은 글의 이름을 댄다** — 진짜 손과 같은 계약이라야 이 화면에서 배운 것이
+        // 실물에서도 맞다(`OfficeHand.#fillPlaceholders`).
+        const unfilled = [];
+        if (args.title && !filled.includes('title')) unfilled.push('title');
+        if (args.body && !filled.includes('body')) unfilled.push('body');
+        const slide = { id: `sl-new-${this.nextId++}`, layout: layout.layout, shapes };
+        const at = args.at === undefined
+          ? this.model.slides.length
+          : Math.max(0, Math.min(Number(args.at) - 1, this.model.slides.length));
+        this.model.slides.splice(at, 0, slide);
+        this.#mutated();
+        return this.#envelope(
+          { slide_id: slide.id, slide: at + 1, layout: layout.layout, filled, unfilled },
+          [`슬라이드 ${at + 1}(id ${slide.id}) 를 만들었습니다 — 레이아웃 ${layout.layout}`
+            + (filled.length ? ` · ${filled.join(' · ')} 채움` : '')
+            + (unfilled.length ? ` · ⚠ ${unfilled.join(' · ')} 자리가 없어 안 넣었습니다` : '')]);
+      }
+      case 'delete_slide': {
+        // 진짜 손과 같은 규칙 — 지우기는 보고 있는 장으로 넘겨짚지 않는다.
+        if (args.slide === undefined && !args.slide_id) {
+          throw new Error('어느 장을 지울지 slide 나 slide_id 로 정확히 말해 주세요 — '
+            + '지우기는 스냅샷 없이 못 되돌리므로 보고 있는 장으로 넘겨짚지 않습니다');
+        }
+        const slide = this.#slide(args);
+        const at = this.model.slides.indexOf(slide) + 1;
+        this.model.slides.splice(at - 1, 1);
+        this.#mutated();
+        return this.#envelope({ deleted: slide.id, was: at },
+          [`슬라이드 ${at}(id ${slide.id}) 를 지웠습니다 — 스냅샷 없이는 못 되돌리고, `
+            + `${at} 번 뒤의 번호는 전부 하나씩 당겨졌습니다`]);
+      }
+      case 'duplicate_slide': {
+        const slide = this.#slide(args);
+        const from = this.model.slides.indexOf(slide) + 1;
+        const copy = JSON.parse(JSON.stringify(slide));
+        copy.id = `${slide.id}-c${this.nextId++}`;
+        copy.shapes = copy.shapes.map((s) => ({ ...s, id: `${s.id}-c${this.nextId++}` }));
+        this.model.slides.splice(from, 0, copy);
+        this.#mutated();
+        return this.#envelope({ slide_id: copy.id, slide: from + 1, from: slide.id },
+          [`슬라이드 ${from} 을 복제해 ${from + 1} 번에 넣었습니다 — `
+            + `복제본의 id 는 ${copy.id} 이고 원본과 다릅니다`]);
       }
       case 'advise':
       case 'clear_advice':

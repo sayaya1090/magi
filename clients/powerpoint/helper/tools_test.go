@@ -184,3 +184,44 @@ func TestSetTableCellsAdvertisesNoFormatting(t *testing.T) {
 		}
 	}
 }
+
+// 손이 하는 일을 스키마가 **말해야** 한다 — 안 하면 그 능력은 없는 것과 같다.
+//
+// 실물에서 본 왕복이 근거다(2026-09-01). 사람이 「3행 5열 테이블 만들어 줘」라고 했고, 모델은
+// **어느 슬라이드인지 되물었다.** `add_table` 은 `rows`·`columns` 만 필수라 그냥 부를 수 있었고,
+// 손은 슬라이드를 생략하면 보고 있는 장으로 떨어지게 진작부터 돼 있었다(`OfficeHand.#slide`).
+// 모델이 읽는 것은 스키마뿐인데 거기 그 말이 없었다 — 사람 눈에는 요청이 씹힌 것으로 보였다.
+//
+// 같은 규율의 거울이 옆에 있다: `SetTableCellsAdvertisesNoFormatting` 은 **없는 능력을 광고하지
+// 말라**고 하고, 이 시험은 **있는 능력을 광고하라**고 한다.
+func TestOmittingTheSlideMeansTheOneInFront(t *testing.T) {
+	// 문서 칸이 이미 그 말을 한다 — 슬라이드 칸이 따라야 하는 본이다.
+	if !strings.Contains(documentProp.Desc, "Omit") {
+		t.Fatalf("이 시험의 본인 document 칸이 생략을 안 적는다: %q", documentProp.Desc)
+	}
+	for _, p := range slideProps {
+		if !strings.Contains(p.Desc, "Omit") ||
+			!strings.Contains(strings.ToLower(p.Desc), "looking at") {
+			t.Errorf("%s 칸이 생략했을 때의 뜻을 안 적는다: %q", p.Name, p.Desc)
+		}
+	}
+
+	// **그 말이 슬라이드를 받는 도구 전부에 실려 나가는지**까지 본다. 한 자리에 적어 두고
+	// `withSlide` 로 나르는 구조라 지금은 자동이지만, 그 구조가 깨지면 여기서 운다.
+	seen := 0
+	for _, tl := range catalogue() {
+		for _, p := range tl.Props {
+			if p.Name != "slide" {
+				continue
+			}
+			seen++
+			if !strings.Contains(p.Desc, "Omit") {
+				t.Errorf("%s 의 slide 칸에 그 말이 안 실렸다", tl.Name)
+			}
+		}
+	}
+	// **훑을 것을 실제로 찾았는가**(§9 「초록을 읽는 법」). 0 개를 본 것과 0 개가 틀린 것은 다르다.
+	if seen == 0 {
+		t.Fatal("슬라이드를 받는 도구를 하나도 못 찾았다 — 이 시험은 아무것도 안 쟀다")
+	}
+}

@@ -4,10 +4,11 @@ import { fromBase64, zipEntries, zipRead } from './zip.js';
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
  *
- * ⚠ **이 머신에는 PowerPoint 가 없다.** 그래서 아래의 어느 줄도 진짜 호스트에서 돌려 본 적이
- * 없다. 시험은 `PowerPoint.run` 을 흉내 낸 stub 위에서 도는데, 거기서 무는 것은 **우리가 고른
- * 가지**(요구 집합을 먼저 묻는가 · 없는 것을 지어내지 않는가 · 쓰기가 바뀐 값을 싣는가)뿐이고
- * 호스트가 실제로 어떻게 답하는지는 **여전히 안 잰 것**이다. 안 돌려 본 것을 "된다"고 세지 않는다.
+ * ⚠ **시험은 여전히 호스트를 안 잰다.** 2026-09-01 에 이 손이 실물 PowerPoint 에 붙어 덱을
+ * 고쳤지만(그날 결함 열둘이 나왔다 — `docs/TESTING.ko.md` §5.1), `tools/officehand.mjs` 가
+ * 도는 자리는 `PowerPoint.run` 을 흉내 낸 stub 위다. 거기서 무는 것은 **우리가 고른
+ * 가지**(요구 집합을 먼저 묻는가 · 없는 것을 지어내지 않는가 · 쓰기가 바뀐 값을 싣는가)뿐이고,
+ * 호스트가 실제로 어떻게 답하는지는 사람이 점검표로 잰다. 안 돌려 본 것을 "된다"고 세지 않는다.
  *
  * # 바닥이 1.8 이고, 그 위의 것은 도구로 안 낸다
  *
@@ -45,7 +46,8 @@ export class OfficeHand extends HandPort {
     return ['list_slides', 'read_slide', 'find_shapes', 'render_slide', 'export_slide_ooxml',
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
-      'snapshot_slide', 'restore_slide', 'advise', 'clear_advice'];
+      'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
+      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide'];
   }
 
   #envelope(result, changed = []) {
@@ -98,6 +100,10 @@ export class OfficeHand extends HandPort {
       case 'move_shape': return this.#move(args);
       case 'add_shape': return this.#addShape(args);
       case 'delete_shape': return this.#deleteShape(args);
+      case 'list_layouts': return this.#listLayouts();
+      case 'add_slide': return this.#addSlide(args);
+      case 'delete_slide': return this.#deleteSlide(args);
+      case 'duplicate_slide': return this.#duplicateSlide(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -377,6 +383,241 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * 이 덱이 가진 레이아웃 전부. **장을 만들기 전에 읽는 자리다.**
+   *
+   * 레이아웃 이름은 덱마다 다르다(테마가 정한다). 목록 없이 만들게 하면 모델은 「제목 및 내용」
+   * 같은 흔한 이름을 지어내고, 없는 이름은 `add_slide` 가 거절한다 — 왕복이 한 번 는다.
+   * 자리표시자 역할까지 같이 싣는 이유도 같다: **무엇을 채울 수 있는 장인지**를 알아야
+   * 「제목만 있는 장」과 「제목+본문 장」을 고를 수 있다.
+   */
+  #listLayouts() {
+    return this.runner(async (context) => {
+      const masters = context.presentation.slideMasters;
+      masters.load('items/id,items/name,items/layouts/items/id,items/layouts/items/name');
+      await context.sync();
+      // 자리표시자는 레이아웃마다 한 번 더 물어야 안다. 왕복은 **하나에 몰아** 건다.
+      const holders = [];
+      for (const m of masters.items) {
+        for (const l of m.layouts.items) {
+          l.shapes.load('items/name,items/placeholderFormat/type');
+          holders.push({ master: m, layout: l });
+        }
+      }
+      await context.sync();
+      return this.#envelope({
+        masters: masters.items.map((m) => ({
+          master: m.name,
+          master_id: m.id,
+          layouts: m.layouts.items.map((l) => ({
+            layout: l.name,
+            layout_id: l.id,
+            // 이 레이아웃이 무엇을 채울 자리를 갖고 있나. **빈 배열은 「없다」다** — 못 읽는
+            // 경우는 여기 안 온다(`load` 가 실패하면 위 `sync` 가 통째로 던진다). 한동안
+            // `null` 갈래를 적어 뒀는데 도달할 수 없는 줄이었고, 도달 못 하는 갈래는 있으나
+            // 마나가 아니라 **읽는 사람에게 있는 척하는 구분**이다.
+            placeholders: (l.shapes?.items ?? []).map((s) => s.placeholderFormat?.type).filter(Boolean),
+          })),
+        })),
+      });
+    });
+  }
+
+  /**
+   * 장을 새로 만든다. **이것이 없으면 「발표자료 만들어 줘」가 통째로 불가능하다.**
+   *
+   * 셋을 한 호출에 담는다 — 만들고, 자리를 옮기고, 자리표시자를 채운다. 셋으로 나누면 모델이
+   * 왕복을 셋 쓰고, 그 사이에 실패하면 **제목 없는 빈 장**이 덱에 남는다. 사람이 보는 것은
+   * 「장이 하나 늘었는데 비어 있다」이고, 그 상태는 아무도 원한 적이 없다.
+   *
+   * `slides.add` 는 **늘 맨 뒤에** 붙인다. 사람이 「2번 뒤에」라고 하면 붙인 뒤 옮긴다.
+   * (이 사실은 2026-09-02 에 실물에서 재서 DESIGN.md 부록 A 에 적었다 — 그전에는 문서만 보고
+   * 있었고, 이 파일이 부록 A 를 근거로 댔지만 거기 그 줄이 없었다.)
+   */
+  #addSlide(args) {
+    return this.runner(async (context) => {
+      const slides = context.presentation.slides;
+      const options = {};
+      let layoutName = null;
+      if (args.layout) {
+        const masters = context.presentation.slideMasters;
+        masters.load('items/id,items/name,items/layouts/items/id,items/layouts/items/name');
+        await context.sync();
+        let found = null;
+        for (const m of masters.items) {
+          for (const l of m.layouts.items) {
+            if (l.name === args.layout) { found = { layout: l, master: m }; break; }
+          }
+          if (found) break;
+        }
+        if (!found) {
+          // **비슷한 것으로 갈음하지 않는다**(`apply_layout` 과 같은 규칙). 이름을 다 적어 주면
+          // 모델이 다음 호출에서 맞힌다.
+          const names = masters.items.flatMap((m) => m.layouts.items.map((l) => l.name));
+          throw new Error(`${args.layout} 이라는 레이아웃이 없습니다 — 이 덱에는: ${names.join(', ')}`);
+        }
+        options.layoutId = found.layout.id;
+        options.slideMasterId = found.master.id;
+        layoutName = found.layout.name;
+      }
+      slides.load('items/id');
+      await context.sync();
+      const before = slides.items.map((s) => s.id);
+
+      slides.add(options);
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      // **새로 생긴 장을 id 로 찾는다.** 「맨 뒤가 새것」이라고 세면, 같은 순간에 남이 장을
+      // 하나 지운 판에서 엉뚱한 장을 고른다.
+      const found = slides.items.find((s) => !before.includes(s.id));
+      if (!found) throw new Error('장을 만들었는데 덱에서 그 장을 못 찾았습니다');
+      const newId = found.id;
+      // **여기서부터 덱은 이미 바뀌었다.** 아래에서 터져도 장은 남으므로, 개정 셈을 먼저
+      // 올린다 — 나중에 올리면 「바뀐 덱」을 「안 바뀌었다」로 보고하는 창이 생긴다(§5.6).
+      this.#mutated();
+
+      const notes = [];
+      if (args.at !== undefined) {
+        // **덱 길이로 자른다.** 안 자르면 `add_slide{at:99}` 가 장을 만든 **뒤에** 던지고,
+        // 사람은 오류와 함께 빈 장 하나를 얻는다.
+        const to = Math.min(Math.max(1, Number(args.at)), slides.items.length);
+        found.moveTo(to - 1);   // `moveTo` 는 0 부터다(CAPABILITIES.md §10.4)
+        await context.sync();
+        notes.push(`${to} 번 자리로`);
+      }
+      // **옮긴 뒤에는 id 로 다시 집는다.** 컬렉션에서 꺼낸 항목이 자리로 매인 것인지 id 로
+      // 매인 것인지 우리가 못 정하는데, 자리로 매여 있으면 옮긴 다음의 모든 조작이 **그
+      // 자리에 새로 온 남의 장**으로 간다 — 제목이 엉뚱한 장에 들어가고 성공으로 보고된다.
+      const made = context.presentation.slides.getItem(newId);
+      made.load('id,index');
+      await context.sync();
+
+      const { filled, unfilled } = await this.#fillPlaceholders(context, made, args);
+      const at = (made.index ?? 0) + 1;
+      // **못 넣은 글을 조용히 버리지 않는다.** 레이아웃에 그 자리가 없으면 글은 아무 데도 안
+      // 들어가는데, 결과가 성공이면 사람은 「제목 있는 장」을 요청하고 빈 장을 받는다 — 이
+      // 저장소가 제일 피하려는 실패다(§2.3). 무엇이 안 들어갔는지 이름을 대야 모델이 다른
+      // 레이아웃으로 다시 걸 수 있다.
+      const missed = unfilled.length
+        ? ` · ⚠ ${unfilled.map((u) => `${u.role} 자리가 없어 "${clipText(u.text)}" 는 안 넣었습니다`).join(' · ')}`
+        : '';
+      return this.#envelope(
+        {
+          slide_id: newId, slide: at, layout: layoutName,
+          filled: filled.map((f) => f.role),
+          unfilled: unfilled.map((u) => u.role),
+        },
+        [`슬라이드 ${at}(id ${newId}) 를 만들었습니다` +
+          (layoutName ? ` — 레이아웃 ${layoutName}` : '') +
+          (notes.length ? ` · ${notes.join(' · ')}` : '') +
+          (filled.length ? ` · ${filled.map((f) => `${f.role}="${clipText(f.text)}"`).join(' · ')}` : '') +
+          missed]);
+    });
+  }
+
+  /**
+   * 새 장의 자리표시자를 채운다. **좌표로 텍스트 상자를 놓는 것과 결과가 다르다** — 자리표시자는
+   * 테마를 따르고, 나중에 사람이 디자인을 바꾸면 같이 바뀐다(CAPABILITIES.md §4).
+   *
+   * 역할 이름은 호스트가 정한다(`title`·`centerTitle`·`body`·`subtitle`…). 그래서 **정확히
+   * 일치**를 안 묻고 무리로 묻는다 — 레이아웃마다 제목의 역할 이름이 다르기 때문이다.
+   */
+  async #fillPlaceholders(context, slide, args) {
+    const wants = [
+      { role: 'title', text: args.title, match: (t) => /title/i.test(t) && !/sub/i.test(t) },
+      { role: 'body', text: args.body, match: (t) => /body|content|subtitle|text/i.test(t) },
+    ].filter((w) => typeof w.text === 'string' && w.text !== '');
+    if (wants.length === 0) return { filled: [], unfilled: [] };
+
+    slide.shapes.load('items/id,items/name,items/placeholderFormat/type');
+    await context.sync();
+    const taken = new Set();
+    const filled = [];
+    const unfilled = [];
+    for (const w of wants) {
+      const hit = slide.shapes.items.find((s) => {
+        const t = String(s.placeholderFormat?.type ?? '');
+        return t !== '' && !taken.has(s.id) && w.match(t);
+      });
+      // **없는 자리를 지어내지 않고, 못 넣었다는 사실을 돌려준다.** 조용히 넘기면 부르는 쪽이
+      // 성공으로 보고하고, 사람은 제목을 부탁한 자리에서 빈 장을 본다.
+      if (!hit) { unfilled.push({ role: w.role, text: w.text }); continue; }
+      taken.add(hit.id);
+      hit.textFrame.textRange.text = w.text;
+      filled.push({ role: w.role, text: w.text, shape_id: hit.id });
+    }
+    await context.sync();
+    return { filled, unfilled };
+  }
+
+  /**
+   * 장 하나를 지운다. **뒤 번호가 전부 밀린다**는 것을 결과가 말한다 — 그 말이 없으면 모델은
+   * 지우기 전에 읽어 둔 번호로 다음 호출을 건다.
+   */
+  #deleteSlide(args) {
+    return this.runner(async (context) => {
+      // **지우는 것만은 「보고 있는 장」으로 안 떨어진다.** 다른 도구는 생략하면 앞에 있는
+      // 장으로 가는 편이 편하지만(되돌릴 수 있으니까), 이건 스냅샷 없이는 못 되돌린다.
+      // 사람이 어느 장인지 안 말했는데 골라 주면, 그 편의의 대가를 사람이 치른다.
+      if (args.slide === undefined && !args.slide_id) {
+        throw new Error('어느 장을 지울지 slide 나 slide_id 로 정확히 말해 주세요 — '
+          + '지우기는 스냅샷 없이 못 되돌리므로 보고 있는 장으로 넘겨짚지 않습니다');
+      }
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      await context.sync();
+      const at = (slide.index ?? 0) + 1;
+      const id = slide.id;
+      slide.delete();
+      await context.sync();
+      this.#mutated();
+      return this.#envelope({ deleted: id, was: at },
+        [`슬라이드 ${at}(id ${id}) 를 지웠습니다 — 스냅샷 없이는 못 되돌리고, ` +
+          `${at} 번 뒤의 번호는 전부 하나씩 당겨졌습니다`]);
+    });
+  }
+
+  /**
+   * 장 하나를 그대로 하나 더. **서식을 원본 그대로 가져온다** — `formatting` 을 안 넘기는 것이
+   * 계약이고(기본값이 KeepSourceFormatting), Learn 예제의 `useDestinationTheme` 을 베끼면
+   * 복제본이 테마를 새로 입고 나온다. `restore_slide` 가 같은 이유로 같은 선택을 한다.
+   */
+  #duplicateSlide(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      const packed = slide.exportAsBase64();
+      await context.sync();
+      const from = (slide.index ?? 0) + 1;
+
+      const slides = context.presentation.slides;
+      slides.load('items/id');
+      await context.sync();
+      const before = slides.items.map((s) => s.id);
+
+      // `targetSlideId` 는 **그 장 바로 뒤**에 넣는다(부록 A).
+      context.presentation.insertSlidesFromBase64(packed.value, { targetSlideId: slide.id });
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      const made = slides.items.find((s) => !before.includes(s.id));
+      // **못 찾았으면 던진다.** 자리를 짐작해 「2 번에 넣었습니다」라고 답하면, 사람은 없는
+      // 장을 있다고 듣는다 — `add_slide` 는 같은 자리에서 이미 던지고, 던지는 쪽이 맞다.
+      if (!made) {
+        throw new Error(`슬라이드 ${from} 을 복제했는데 덱에서 복제본을 못 찾았습니다 — `
+          + '넣기가 안 먹었을 수 있으니 목차를 다시 읽어 확인하세요');
+      }
+      this.#mutated();
+      const at = (made.index ?? 0) + 1;
+      return this.#envelope({ slide_id: made.id, slide: at, from: slide.id },
+        [`슬라이드 ${from} 을 복제해 ${at} 번에 넣었습니다 — ` +
+          `복제본의 id 는 ${made.id} 이고 원본과 다릅니다`]);
+    });
+  }
+
   #applyLayout(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
@@ -543,6 +784,16 @@ export class OfficeHand extends HandPort {
 }
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
+/**
+ * 결과 문장에 남의 글을 실을 때 길이를 자른다. **자른 표시까지가 길이다** — 자르고도 길면
+ * 자른 뜻이 없다. 덱의 본문이 그대로 흐르는 자리라, 한 문장이 결과 줄 전체를 밀어내면
+ * 「무엇이 됐는지」가 화면 밖으로 나간다.
+ */
+function clipText(s, n = 60) {
+  const t = String(s ?? '');
+  return t.length > n ? `${t.slice(0, n - 1)}…` : t;
+}
+
 function geometryOf(kind) {
   const map = {
     rectangle: 'rectangle', ellipse: 'ellipse', line: 'line',
