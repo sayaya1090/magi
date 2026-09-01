@@ -131,13 +131,24 @@ jobs:
           # 있다 — 한 겹만 파면 grep 이 빈손이고, 그러면 아래 빈-값 가드가 잡는다. 여기서
           # 손으로 돌려 보고서야 알았다(2026-09-01): 워크플로에서 처음 돌려 보면 태그를 하나
           # 태우고서야 안다.
+          #
+          # 파이프에서 **첫 줄만 집는 손을 안 쓴다.** `grep -m1` 도 `head -1` 도 첫 줄을 얻는
+          # 순간 파이프를 닫고, 그러면 앞의 `unzip`·`grep` 이 SIGPIPE 로 죽는다. 위의
+          # `set -o pipefail` 이 그것을 파이프라인 실패로 치고 `set -e` 가 스크립트를 끝낸다 —
+          # 출력 한 줄 없이 27ms 만에. 실제로 jetbrains-v0.2.0 이 그렇게 죽었다. 손으로 돌려
+          # 볼 때는 pipefail 없이 돌려서 안 보였다.
+          #
+          # 그래서 전부 받아 놓고 셸 안에서 첫 줄을 뗀다. 파이프가 안 닫히니 SIGPIPE 가 없다.
           tmp=$(mktemp -d)
-          jar=$(unzip -Z1 "$zip" | grep -m1 -E 'lib/intellij-[^/]*\.jar$')
+          first() { printf '%s' "${1%%$'\n'*}"; }
+          jars=$(unzip -Z1 "$zip" | grep -E 'lib/intellij-[^/]*\.jar$' || true)
+          jar=$(first "$jars")
+          [ -n "$jar" ] || { echo "zip 안에서 플러그인 jar 를 못 찾았다"; unzip -Z1 "$zip" | head -20; exit 1; }
           unzip -p "$zip" "$jar" > "$tmp/p.jar"
           xml=$(unzip -p "$tmp/p.jar" META-INF/plugin.xml)
           id=$(printf '%s' "$xml" | tr -d '\n' | sed -n 's|.*<id>\([^<]*\)</id>.*|\1|p')
-          since=$(printf '%s' "$xml" | grep -o 'since-build="[^"]*"' | head -1 | cut -d'"' -f2)
-          untilb=$(printf '%s' "$xml" | grep -o 'until-build="[^"]*"' | head -1 | cut -d'"' -f2)
+          since=$(first "$(printf '%s' "$xml" | grep -o 'since-build="[^"]*"' | cut -d'"' -f2 || true)")
+          untilb=$(first "$(printf '%s' "$xml" | grep -o 'until-build="[^"]*"' | cut -d'"' -f2 || true)")
           # 빈 값으로 XML 을 쓰면 IDE 는 그 항목을 조용히 무시한다 — 갱신이 안 뜨는데 이유가
           # 어디에도 안 남는다. 여기서 죽는 것이 낫다.
           [ -n "$id" ] && [ -n "$since" ] || { echo "plugin.xml 에서 id/since-build 를 못 읽었다"; exit 1; }
