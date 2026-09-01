@@ -1,4 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
+// 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
+import { geometryOf } from './OfficeHand.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -103,6 +105,11 @@ export class FakeHand extends HandPort {
             shape_id: s.id, name: s.name, type: s.type, text: s.text,
             left: s.width == null ? null : 0, top: null,
             width: s.width, height: s.height,
+            // 표는 **격자로** 실린다(진짜 손과 같은 계약). 이게 없으면 이 화면은 「표가 하나
+            // 있다」까지만 가르치고, 실물은 내용까지 준다 — 배운 것이 틀리게 된다.
+            ...(Array.isArray(s.cells)
+              ? { rows: s.rows ?? s.cells.length, columns: s.columns ?? (s.cells[0]?.length ?? 0), cells: s.cells }
+              : {}),
           })),
           // **못 읽는 것을 없는 것으로 적지 않는다**(CAPABILITIES.md §10.5).
           unreadable: ['notes', 'animation', 'chart-data'],
@@ -162,8 +169,12 @@ export class FakeHand extends HandPort {
       }
       case 'add_shape': {
         const slide = this.#slide(args);
+        // **모르는 도형 이름은 여기서도 거절한다.** 이 화면이 아무 이름이나 받으면 사람은
+        // 「`우주선` 도 되는구나」를 배우고, 실물에서 거절당한다.
+        const kind = String(args.kind ?? 'textbox');
+        if (kind.toLowerCase() !== 'textbox') geometryOf(kind);
         const shape = {
-          id: `sh-new-${this.nextId++}`, name: args.kind ?? 'textbox',
+          id: `sh-new-${this.nextId++}`, name: kind,
           type: 'TextBox', text: String(args.text ?? ''),
           width: Number(args.width ?? 200), height: Number(args.height ?? 60),
         };
@@ -228,6 +239,9 @@ export class FakeHand extends HandPort {
         const slide = this.#slide(args);
         const rows = Number(args.rows);
         const columns = Number(args.columns);
+        // **이미 표가 있으면 말한다**(진짜 손과 같은 계약) — 「고쳐 줘」를 「더해 줘」로 받으면
+        // 표가 둘이 되고, 사람 눈에는 아무 일도 안 일어난 것으로 보인다.
+        const already = slide.shapes.filter((sh) => Array.isArray(sh.cells));
         const cells = Array.from({ length: rows }, (_, r) =>
           Array.from({ length: columns }, (_, c) => String(args.values?.[r]?.[c] ?? '')));
         const shape = {
@@ -237,8 +251,13 @@ export class FakeHand extends HandPort {
         };
         slide.shapes.push(shape);
         this.#mutated();
-        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, rows, columns },
-          [`슬라이드 ${slide.id}: ${rows}행 ${columns}열 표 ${shape.id} 추가`]);
+        return this.#envelope(
+          { slide_id: slide.id, shape_id: shape.id, rows, columns, tables_before: already.length },
+          [`슬라이드 ${slide.id}: ${rows}행 ${columns}열 표 ${shape.id} 추가`
+            + (already.length
+              ? ` · ⚠ 이 장에는 이미 표가 ${already.length}개 있습니다(${already.map((t) => t.id).join(', ')}) — `
+                + '고치려던 것이면 그 표를 replace_table 로 바꾸거나 set_table_cells 로 글만 채우세요'
+              : '')]);
       }
       case 'replace_table': {
         // 진짜 손과 같은 계약이라야 이 화면에서 배운 것이 실물에서도 맞다.
@@ -267,6 +286,8 @@ export class FakeHand extends HandPort {
             String(args.values?.[r]?.[c] ?? kept[r]?.[c] ?? '')));
         const made = {
           id: `tb-${this.nextId++}`, name: '표', type: 'Table', text: '',
+          // 자리도 물려받는다 — **제자리 교체**라는 이름이 그 뜻이다(진짜 손과 같은 계약).
+          left: Number(args.left ?? old.left ?? 0), top: Number(args.top ?? old.top ?? 0),
           width: Number(args.width ?? old.width), height: Number(args.height ?? old.height),
           rows, columns, cells,
         };
@@ -350,11 +371,18 @@ export class FakeHand extends HandPort {
         this.model.slides.splice(at, 0, slide);
         this.#mutated();
         return this.#envelope(
-          { slide_id: slide.id, slide: at + 1, layout: layout.layout, filled, unfilled },
+          // `styled` 는 **빈 배열이 계약**이다 — 가짜 덱에는 따라갈 버릇이 없다. 칸을 아예
+          // 안 만들면 이 화면은 그 계약 자체를 안 가르친다.
+          { slide_id: slide.id, slide: at + 1, layout: layout.layout, filled, unfilled, styled: [] },
           [`슬라이드 ${at + 1}(id ${slide.id}) 를 만들었습니다 — 레이아웃 ${layout.layout}`
             + (filled.length ? ` · ${filled.join(' · ')} 채움` : '')
             + (unfilled.length ? ` · ⚠ ${unfilled.join(' · ')} 자리가 없어 안 넣었습니다` : '')]);
       }
+      case 'describe_style':
+        // 가짜 덱에는 **따라갈 버릇이 없다.** 그렇게 적는다 — 지어낸 스타일을 주면 이 화면이
+        // 실물과 다른 것을 가르친다.
+        return this.#envelope({ title: null, body: null, seen: 0,
+          note: '가짜 덱이라 잴 스타일이 없습니다 — PowerPoint 에 붙어야 나옵니다' });
       case 'add_slides': {
         // 진짜 손과 같은 계약 — 이름을 **먼저 다 확인하고**, 중간에 실패해도 앞의 장은 남는다.
         const plan = Array.isArray(args.slides) ? args.slides : [];
@@ -385,7 +413,7 @@ export class FakeHand extends HandPort {
           const slide = { id: `sl-new-${this.nextId++}`, layout: layout.layout, shapes };
           this.model.slides.push(slide);
           rows.push({ slide: this.model.slides.length, slide_id: slide.id,
-            layout: want.layout ?? null, filled, unfilled });
+            layout: want.layout ?? null, filled, unfilled, styled: [] });
         }
         this.#mutated();
         const missed = rows.filter((r) => r.unfilled.length);

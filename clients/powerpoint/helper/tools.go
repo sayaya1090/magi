@@ -153,15 +153,22 @@ func catalogue() []tool {
 			Props:    []property{},
 			ReadOnly: true,
 		},
+		{
+			Name:     "describe_style",
+			Desc:     "What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was measured over. Answers \"what style is this deck?\", and it is also exactly what a new slide will inherit — so read it when someone asks why a new slide came out looking the way it did." + declare,
+			Props:    []property{},
+			ReadOnly: true,
+		},
 
 		{
 			Name: "add_slide",
-			Desc: "Add a slide — and, in the same call, put it where it belongs and fill its title and body. Filling a layout's placeholders is not the same as dropping text boxes at coordinates: placeholders follow the theme, so they stay right when the design changes. Prefer this over add_shape for the words that carry a slide.",
+			Desc: "Add a slide — and, in the same call, put it where it belongs and fill its title and body. Filling a layout's placeholders is not the same as dropping text boxes at coordinates: placeholders follow the theme, so they stay right when the design changes. Prefer this over add_shape for the words that carry a slide. A new slide also picks up whatever font and size the rest of the deck consistently uses, so it does not arrive looking like a stranger.",
 			Props: []property{
 				{Name: "layout", Type: "string", Desc: "Layout name from list_layouts. Omit for the deck's default layout."},
 				{Name: "at", Type: "integer", Desc: "1-based position for the new slide. Omit to put it at the end."},
 				{Name: "title", Type: "string", Desc: "Text for the title placeholder, if the layout has one."},
 				{Name: "body", Type: "string", Desc: "Text for the body/subtitle placeholder. Use \\n between bullet lines."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck it is joining (default true): if the existing slides consistently use a font, size or colour that is not the theme default, the new slide gets it too. Set false to leave the new slide on the plain theme."},
 			},
 		},
 		{
@@ -169,6 +176,7 @@ func catalogue() []tool {
 			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
 			Props: []property{
 				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each bullet on its own line in body."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide."},
 			},
 			Required: []string{"slides"},
 		},

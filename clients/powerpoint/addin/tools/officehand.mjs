@@ -172,6 +172,9 @@ function stubRunner(model, log = []) {
         shapes: (layout?.placeholders ?? ['title', 'body']).map((t, i) => ({
           id: `ph${model.slides.length}-${i}`, name: t, type: 'Placeholder', text: '',
           placeholderFormat: { type: t },
+          // 새 장의 자리표시자는 **테마의 값을 들고 나온다** — 실물이 그렇다. 이게 없으면
+          // 「이미 같은 값이면 안 건드린다」를 잴 수가 없다.
+          font: { ...(model.themeFont ?? {}) },
         })),
       });
       renumber();
@@ -1254,6 +1257,178 @@ async function makeZip(files) {
     .run('find_shapes', { text: '분기' });
   ok('도형 글과 표 글을 같이 찾는다', out2.result.shapes.length === 2,
     JSON.stringify(out2.result.shapes.map((s) => s.shape_id)));
+}
+
+// ── 새 장은 이 덱에 맞춰 입는다 ──────────────────────────────────────────────
+//
+// 사용자 요청이다(2026-09-02): 「새로운 페이지를 만들 때, 기존 스타일 참고해서 맞춰서 만들어
+// 주면 좋잖아」. 레이아웃 자리표시자를 쓰므로 **테마 기본**은 저절로 따라오는데, 사람이 손으로
+// 바꿔 둔 것은 안 따라온다 — 그러면 새 장만 혼자 다르게 생긴다.
+//
+// **일관될 때만 따른다**는 것이 이 묶음의 핵심이다. 제각각인 덱에서 아무 값이나 골라 박으면
+// 덱이 더 어지러워지고, 그건 아무도 청한 적이 없다.
+{
+  const deckWith = (fonts) => ({
+    slides: fonts.map((f, i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [{
+        id: `ph${i}`, name: '제목', type: 'Placeholder', text: `장 ${i + 1}`,
+        placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+        altTextDescription: null, font: f,
+      }],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+  });
+  const run = async (mm, args) => {
+    const log = [];
+    const out = await new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'd' })
+      .run('add_slide', { layout: 'L', title: '새 장', ...args });
+    return { out, log };
+  };
+
+  // 기존 장들이 **한목소리로** 40pt 를 쓰면 새 장도 40pt 다.
+  {
+    const mm = deckWith([{ name: '맑은 고딕', size: 40 }, { name: '맑은 고딕', size: 40 }, { name: '맑은 고딕', size: 40 }]);
+    const { out } = await run(mm, {});
+    ok('일관된 스타일을 새 장이 물려받는다', out.result.styled.length > 0, JSON.stringify(out.result.styled));
+    ok('무엇을 따랐는지 사람이 읽는 줄에 적는다',
+      out.changed[0].includes('이 덱 스타일에 맞춤') && out.changed[0].includes('40pt'), out.changed[0]);
+  }
+
+  // **제각각이면 아무것도 안 한다.** 지배적 스타일이 없는데 하나를 고르면 덱이 더 어지러워진다.
+  {
+    const mm = deckWith([{ size: 40 }, { size: 28 }, { size: 33 }]);
+    const { out } = await run(mm, {});
+    ok('제각각인 덱에서는 안 맞춘다', out.result.styled.length === 0, JSON.stringify(out.result.styled));
+    ok('그때는 맞췄다고 안 적는다', !out.changed[0].includes('맞춤'), out.changed[0]);
+  }
+
+  // 장이 하나뿐이면 「버릇」이라고 부를 것이 없다.
+  {
+    const mm = deckWith([{ size: 40 }]);
+    const { out } = await run(mm, {});
+    ok('한 장으로는 버릇을 안 정한다', out.result.styled.length === 0, JSON.stringify(out.result.styled));
+  }
+
+  // 끄고 싶으면 끌 수 있다.
+  {
+    const mm = deckWith([{ size: 40 }, { size: 40 }, { size: 40 }]);
+    const { out } = await run(mm, { match_style: false });
+    ok('match_style: false 면 안 맞춘다', out.result.styled.length === 0, JSON.stringify(out.result.styled));
+  }
+
+  // **이미 같은 값이면 안 건드린다.** 테마 기본과 같은 값을 명시적 서식으로 박으면, 나중에
+  // 사람이 테마를 바꿔도 그 장만 안 따라간다 — 자리표시자를 쓰는 이유를 스스로 깎는 짓이다.
+  {
+    const mm = deckWith([{ size: 44 }, { size: 44 }, { size: 44 }]);
+    mm.themeFont = { size: 44 };   // 새 장도 테마 기본 44pt 를 들고 나온다
+    const { out, log } = await run(mm, {});
+    const wrote = log.filter((l) => l.startsWith('font:'));
+    ok('덱이 테마 그대로면 아무 서식도 안 박는다',
+      out.result.styled.length === 0 && wrote.length === 0,
+      `${JSON.stringify(out.result.styled)} / ${wrote.join(',')}`);
+  }
+
+  // 여러 장을 한 번에 만들 때도 같은 규칙 — 그리고 덱의 버릇은 **한 번만** 읽는다.
+  {
+    const mm = deckWith([{ size: 40 }, { size: 40 }, { size: 40 }]);
+    const out = await new OfficeHand({ run: stubRunner(mm, []), supports: () => true, document: 'd' })
+      .run('add_slides', { slides: [{ layout: 'L', title: 'ㄱ' }, { layout: 'L', title: 'ㄴ' }] });
+    ok('여러 장도 같이 맞춘다',
+      out.result.slides.every((r) => r.styled.length > 0), JSON.stringify(out.result.slides.map((r) => r.styled)));
+    ok('사람이 읽는 줄에도 한 번 적는다', out.changed[0].includes('맞춤'), out.changed[0]);
+  }
+}
+
+// ── 두 손이 같은 것을 가르치는가 ─────────────────────────────────────────────
+//
+// 브라우저 갈래는 「도구를 눌러 보라」고 있는 화면이다. 거기서 배운 것이 실물에서 틀리면 그
+// 화면은 없느니만 못하다 — 리뷰가 짚은 어긋남 다섯을 여기서 못 박는다(2026-09-02).
+{
+  const fakeDeck = () => ({
+    slides: [{
+      id: 's1', layout: '제목 및 내용',
+      shapes: [
+        { id: 'ph1', name: '제목', type: 'TextBox', text: '분기', width: 300, height: 50 },
+        { id: 'tb1', name: '표', type: 'Table', text: '', left: 20, top: 40, width: 300, height: 100,
+          rows: 2, columns: 2, cells: [['가', '나'], ['1', '2']] },
+      ],
+    }],
+  });
+
+  // 표의 격자 — 이 커밋의 머리 기사인데 가짜 손에만 없었다.
+  {
+    const out = await new FakeHand(fakeDeck()).run('read_slide', { slide: 1 });
+    const tb = out.result.shapes.find((s) => s.shape_id === 'tb1');
+    ok('가짜 손도 표를 격자로 읽는다',
+      tb?.rows === 2 && tb?.cells?.[1]?.[1] === '2', JSON.stringify(tb?.cells));
+    const ph = out.result.shapes.find((s) => s.shape_id === 'ph1');
+    ok('표가 아닌 것에는 격자를 안 붙인다', ph?.cells === undefined);
+  }
+
+  // 이미 있는 표 경고.
+  {
+    const out = await new FakeHand(fakeDeck()).run('add_table', { slide: 1, rows: 2, columns: 2 });
+    ok('가짜 손도 이미 있는 표를 센다', out.result.tables_before === 1, String(out.result.tables_before));
+    ok('가짜 손도 다음 수를 알려 준다', out.changed[0].includes('replace_table'), out.changed[0]);
+  }
+
+  // 모르는 도형 이름.
+  {
+    let why = null;
+    try { await new FakeHand(fakeDeck()).run('add_shape', { slide: 1, kind: '우주선' }); }
+    catch (e) { why = e.message; }
+    ok('가짜 손도 모르는 도형을 거절한다', why?.includes('아는 도형이 아닙니다'), why);
+    const out = await new FakeHand(fakeDeck()).run('add_shape', { slide: 1, kind: '별' });
+    ok('가짜 손도 한국어 이름을 받는다', Boolean(out.result.shape_id), JSON.stringify(out.result));
+  }
+
+  // 제자리 교체는 자리를 물려받는다.
+  {
+    const out = await new FakeHand(fakeDeck()).run('replace_table', { slide: 1, columns: 3 });
+    ok('가짜 손도 제자리에서 바꾼다',
+      out.result.was.columns === 2 && out.result.columns === 3, JSON.stringify(out.result));
+  }
+
+  // `styled` 는 빈 배열이 계약이다 — 칸이 아예 없으면 그 계약을 안 가르친다.
+  {
+    const out = await new FakeHand(fakeDeck()).run('add_slide', { title: 'ㄱ' });
+    ok('가짜 손도 styled 칸을 싣는다', Array.isArray(out.result.styled), JSON.stringify(out.result.styled));
+  }
+}
+
+// ── 도형 id 는 슬라이드 안에서만 유일하다 ────────────────────────────────────
+//
+// 실물에서 잡았다(2026-09-02). 32pt 로 통일된 덱이 60pt 로 읽혔다 — 여러 장의 도형을
+// `Map<shape.id>` 에 담았는데 **id 가 장마다 겹쳐서**(PowerPoint 는 "2", "3" 같은 짧은 번호를
+// 준다) 뒤 장이 앞 장을 덮었고, 결국 마지막 장의 값 하나만 남았다.
+{
+  // 세 장이 **같은 도형 id** 를 쓴다 — 실물이 그렇다.
+  const clashing = () => ({
+    slides: [0, 1, 2].map((i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [{
+        id: '2', name: '제목', type: 'Placeholder', text: `장 ${i + 1}`,
+        placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+        altTextDescription: null, font: { size: i === 2 ? 60 : 32, name: '맑은 고딕' },
+      }],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+    themeFont: { size: 60, name: '맑은 고딕' },
+  });
+
+  const out = await new OfficeHand({ run: stubRunner(clashing(), []), supports: () => true, document: 'd' })
+    .run('describe_style', {});
+  // 32pt 가 셋 중 둘이므로 지배적이다. id 로 담았다면 마지막 장의 60pt 만 남아 이 줄이 깨진다.
+  ok('id 가 겹쳐도 장마다 따로 센다', out.result.title?.size === 32, JSON.stringify(out.result.title));
+  ok('몇 개를 보고 정했는지 적는다', out.result.seen === 3, String(out.result.seen));
+
+  // 그리고 그 스타일을 새 장이 물려받는다.
+  const mm = clashing();
+  const made = await new OfficeHand({ run: stubRunner(mm, []), supports: () => true, document: 'd' })
+    .run('add_slide', { layout: 'L', title: '새 장' });
+  ok('겹치는 id 덱에서도 스타일을 물려받는다',
+    made.result.styled.some((w) => w.includes('32pt')), JSON.stringify(made.result.styled));
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
