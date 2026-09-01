@@ -447,9 +447,12 @@ func (a *App) settleAnsweredClaims(ctx context.Context, sid session.SessionID) [
 	}
 	evs, _ := a.store.Read(ctx, sid, 0)
 	var kept []pendingInterjection
-	var settled []string
+	var settled, revoked []string
 	for _, p := range q {
 		if p.AnsweredAtSeq == 0 || !saidSomethingAfter(evs, p.AnsweredAtSeq) {
+			if p.AnsweredAtSeq != 0 {
+				revoked = append(revoked, p.MsgID)
+			}
 			p.AnsweredAtSeq = 0 // an unbacked claim is just a queued interjection again
 			kept = append(kept, p)
 			continue
@@ -464,6 +467,21 @@ func (a *App) settleAnsweredClaims(ctx context.Context, sid session.SessionID) [
 	// way out of the queue does.
 	for _, id := range settled {
 		a.recordDeferral(ctx, sid, id, true)
+	}
+	// A revoked claim has to be taken back OUT LOUD, and it never was.
+	//
+	// Claiming an answer emits interjection.answered, and every screen reads that as the end of the
+	// message's wait: the terminal drops the waiting glyph and unpins the bubble from the tail. When
+	// the boundary then finds nothing was said and puts the entry back in the queue, that happens
+	// entirely inside this process — so the bubble stays unpinned and unmarked while the message is,
+	// once again, waiting on somebody. The person is told the opposite of what is true, by the same
+	// mechanism that exists to stop exactly that.
+	//
+	// Said as a fresh deferral, because that is what it is: this message is queued as an
+	// interjection again. It is the same fact the queue emits the first time round, so every reader
+	// that already understands a deferral understands this one.
+	for _, id := range revoked {
+		a.recordDeferral(ctx, sid, id, false)
 	}
 	return kept
 }

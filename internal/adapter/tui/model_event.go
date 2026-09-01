@@ -311,6 +311,30 @@ func (m *Model) applyEvent(e event.Event) {
 			}
 		}
 
+	case event.TypeInterjectionDeferred:
+		// This message is waiting for the turn to end. Ordinarily the screen knew that already —
+		// the submit path marks the bubble the moment the key is pressed — and this event says
+		// nothing new. The case that matters is the SECOND time it arrives for the same message:
+		// the agent claimed it had answered (which took the glyph off and unpinned the bubble) and
+		// the finish boundary then found nothing had been said and put the message back in the
+		// queue. Without this the screen keeps the claim's version of events, and the one thing it
+		// is telling the person about their message is false in the direction that loses it.
+		//
+		// A resolved deferral is bookkeeping for a reload, not news about a bubble: it marks a
+		// message that has ALREADY left the queue by a route this view has its own signal for.
+		var d event.InterjectionDeferredData
+		if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" && !d.Resolved {
+			for i := range m.blocks {
+				if m.blocks[i].kind == blockUser && m.blocks[i].reqID == d.MessageID &&
+					!m.blocks[i].queued && !m.blocks[i].abandoned {
+					m.blocks[i].queued = true
+					if i < len(m.cache) {
+						m.cache = m.cache[:i] // re-render it WITH the waiting glyph
+					}
+				}
+			}
+		}
+
 	case event.TypeCouncilConvened:
 		// A council round opened: record it as a transcript milestone and arm the
 		// header chip. (D14 — the consensus termination gate.)

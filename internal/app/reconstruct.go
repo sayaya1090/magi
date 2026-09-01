@@ -230,9 +230,13 @@ func filterDeferredEvents(evs []event.Event, deferred map[string]bool) []event.E
 // in-memory queue was lost to a process kill before it could drain. Callers keep these
 // masked from the live turn context so a stranded interjection is not mixed into the next
 // request. Returns nil when nothing is abandoned.
+// These events are a TIMELINE, and the last word about a message is the true one. Two sets read
+// without regard to order could not express a message that was queued, claimed answered, and then
+// queued AGAIN when the boundary found nothing had been said — the claim would win forever because
+// it was recorded in the other set, and a reload would mask a request still waiting on somebody.
+// One map, written in order: the deferral says waiting, everything else says done.
 func abandonedDeferrals(evs []event.Event) map[string]bool {
-	deferred := map[string]bool{}
-	resolved := map[string]bool{}
+	waiting := map[string]bool{}
 	for _, e := range evs {
 		switch e.Type {
 		case event.TypeInterjectionDeferred:
@@ -240,15 +244,11 @@ func abandonedDeferrals(evs []event.Event) map[string]bool {
 			if json.Unmarshal(e.Data, &d) != nil || d.MessageID == "" {
 				continue
 			}
-			if d.Resolved {
-				resolved[d.MessageID] = true
-			} else {
-				deferred[d.MessageID] = true
-			}
+			waiting[d.MessageID] = !d.Resolved
 		case event.TypePromptSubmitted:
 			var d event.PromptSubmittedData
 			if json.Unmarshal(e.Data, &d) == nil && d.ResurfacedFrom != "" {
-				resolved[d.ResurfacedFrom] = true
+				waiting[d.ResurfacedFrom] = false
 			}
 		case event.TypeInterjectionAnswered:
 			// The model answered it inline. The ledger's Resolved:true is written later, at the
@@ -257,19 +257,26 @@ func abandonedDeferrals(evs []event.Event) map[string]bool {
 			// interjection as abandoned — silently dropping a request the model had addressed. The
 			// display layer (answeredInline) already treats this event as resolution; reconstruct
 			// now agrees.
+			//
+			// Not the last word, though: the boundary can find that nothing was said after the
+			// claim and put the entry back, which arrives as a fresh deferral AFTER this. Written
+			// in order, that reversal wins — which is the whole reason this reads as a timeline.
 			var d event.InterjectionAnsweredData
 			if json.Unmarshal(e.Data, &d) == nil && d.MessageID != "" {
-				resolved[d.MessageID] = true
+				waiting[d.MessageID] = false
 			}
 		}
 	}
-	for id := range resolved {
-		delete(deferred, id)
+	out := map[string]bool{}
+	for id, still := range waiting {
+		if still {
+			out[id] = true
+		}
 	}
-	if len(deferred) == 0 {
+	if len(out) == 0 {
 		return nil
 	}
-	return deferred
+	return out
 }
 
 // dropResurfacedOrigins removes the ORIGINAL prompt event of any queued interjection
