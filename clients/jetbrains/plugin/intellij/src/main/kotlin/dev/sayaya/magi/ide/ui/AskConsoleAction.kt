@@ -69,7 +69,7 @@ class AskConsoleAction : AnAction() {
         // 다듬는 손이 모델 지시를 바꾼다(모르는 부수효과 — 리뷰 R4). 잘림 표식도 마찬가지다:
         // 그건 사람이 아니라 모델이 「뒤가 더 있다」로 읽는 신호다.
         val sel = if (raw.length > 65_536) raw.take(65_536) + "\n" + CUT else raw
-        val ask = "$ASK:\n```\n$sel\n```"
+        val ask = ask(MagiBundle.locale()) + "\n```\n" + sel + "\n```"
         // 컴포저에 서 있는 첨부 칩은 여기 안 실린다(say 의 refs 기본값 빈 목록) — 칩은 "다음
         // 수동 전송"의 상태이고, 이 질문이 그것을 소리 없이 소비하면 모르는 부수효과다.
         Workspace(project).onDaemon({ why -> tell(project, MagiBundle.msg("common.notsent", why)) }) { comp ->
@@ -79,10 +79,29 @@ class AskConsoleAction : AnAction() {
         ToolWindowManager.getInstance(project).getToolWindow("magi")?.show()
     }
 
-    private companion object {
+    internal companion object {
         /** 전선으로 나가는 글자 — 화면이 아니다(위 주석). 번들로 옮기지 말 것. */
-        const val ASK = "이 출력이 무슨 뜻인지, 고쳐야 하면 어떻게 고칠지 설명해줘"
-        const val CUT = "…(선택이 길어 잘라 보냄)"
+        const val ASK = "Explain what this output means, and how to fix it if it needs fixing."
+        const val CUT = "…(the selection was long, so it was cut here)"
+
+        /**
+         * **답할 언어는 IDE 를 따른다.**
+         *
+         * 이 지시는 오래 한국어 한 줄이었다. 그래서 영문 IDE 에서도 답이 한국어로 왔다 —
+         * 사람이 잡았다(2026-09-01): 「답이 나온다. 그런데 한글인 게 찜찜하다」. 화면 글자는
+         * 언어팩을 따르는데 **모델에게 가는 지시만 안 따르고 있었다.**
+         *
+         * 지시 자체는 영어로 둔다. 모델은 영어 지시를 가장 잘 알아듣고, 이 문장은 사람이 볼
+         * 것이 아니다. 대신 **답할 언어만** 붙인다 — 그것이 사람이 읽을 부분이라서다.
+         * 영어면 아무것도 안 붙인다: 안 붙여도 영어로 오는데 한 줄을 더 보내면 그만큼이
+         * 매번 실린다.
+         *
+         * 언어 이름은 영어로 적는다(`Locale.ENGLISH` 기준). 모델에게 「한국어로 답해」라고
+         * 한국어로 말하면, 그 말을 못 읽는 모델에게는 지시가 아니라 잡음이다.
+         */
+        fun ask(where: java.util.Locale): String =
+            if (where.language == java.util.Locale.ENGLISH.language) ASK
+            else ASK + "\nAnswer in " + where.getDisplayLanguage(java.util.Locale.ENGLISH) + "."
     }
 
     private fun tell(project: com.intellij.openapi.project.Project, text: String) =

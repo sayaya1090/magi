@@ -35,7 +35,8 @@ object MagiBundle {
     private val delegate = DynamicBundle(MagiBundle::class.java, PATH)
 
     /** IDE 가 정한 로케일. 못 물으면 영어 — 모를 때 JVM 기본으로 떨어지는 것이 이 결함이었다. */
-    private fun locale(): Locale =
+    /** 이 IDE 가 그리는 언어. 화면 글자만이 아니라 **모델에게 답할 언어를 말할 때**도 쓴다. */
+    fun locale(): Locale =
         runCatching { DynamicBundle.getLocale() }.getOrDefault(Locale.ENGLISH)
 
     private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(MagiBundle::class.java)

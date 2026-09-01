@@ -199,6 +199,24 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertTrue("긴 글이 판의 바닥을 $rest → $after 로 올렸다", after < rest + 120)
     }
 
+    /**
+     * **모델에게 가는 지시도 IDE 언어를 따른다.**
+     *
+     * 이 지시는 오래 한국어 한 줄이었다. 화면 글자는 언어팩을 따르는데 **모델에게 가는 지시만**
+     * 안 따라서, 영문 IDE 에서도 답이 한국어로 왔다(사람 실측 2026-09-01). 번들 시험은 이걸
+     * 못 잡는다 — 그 문장은 번들에 없다(일부러 그렇다: 번역을 다듬는 손이 모델 지시를 바꾸면
+     * 안 된다). 그래서 여기서 따로 잰다.
+     */
+    fun `test 콘솔 질문은 답할 언어를 IDE 에서 가져온다`() {
+        val en = AskConsoleAction.ask(java.util.Locale.ENGLISH)
+        assertFalse("영문 IDE 의 지시에 한글이 섞였다: $en", en.any { it in '\uac00'..'\ud7a3' })
+        assertFalse("영어인데 답할 언어를 덧붙였다 — 매번 한 줄이 더 실린다", en.contains("Answer in"))
+        val ko = AskConsoleAction.ask(java.util.Locale.KOREAN)
+        assertTrue("한국어 IDE 인데 답할 언어를 안 말한다: $ko", ko.contains("Answer in Korean"))
+        // 지시 자체는 어느 쪽이든 영어다 — 모델이 가장 잘 알아듣고, 사람이 볼 문장이 아니다.
+        assertTrue("지시 본문이 갈렸다: $ko", ko.startsWith(AskConsoleAction.ASK))
+    }
+
     /** 도구창 아이콘이 실제로 로드된다. 없으면 스트라이프가 빈 자리로 선다. */
     fun `test 도구창 아이콘이 있다`() {
         val i = com.intellij.openapi.util.IconLoader.findIcon("/icons/magiToolWindow.svg", javaClass)
