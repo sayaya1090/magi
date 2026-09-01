@@ -20,6 +20,13 @@ import com.intellij.openapi.wm.ToolWindowManager
  */
 class WroteThisAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
+    // 메뉴에 넷이 나란히 서는데 하나만 아이콘이 있으면 나머지 셋이 빈칸처럼 보인다(사용자
+    // 실측 2026-09-01). 이 줄을 누가 썼나 — 내력. 이 액션이 실제로 묻는 것이 그것이다.
+    //
+    // XML 이 아니라 여기서 준다. `icon="AllIcons.X.Y"` 는 이름이 틀려도 런타임 경고 한 줄이고,
+    // 그 경고를 보는 사람은 없다 — 아이콘이 안 뜨는 것으로만 드러난다. 코드면 컴파일이 잡는다.
+    init { templatePresentation.icon = com.intellij.icons.AllIcons.Vcs.History }
+
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
 
     override fun update(e: AnActionEvent) {

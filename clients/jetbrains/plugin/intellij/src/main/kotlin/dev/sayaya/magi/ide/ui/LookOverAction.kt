@@ -26,6 +26,13 @@ import javax.swing.SwingUtilities
  */
 class LookOverAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
+    // 메뉴에 넷이 나란히 서는데 하나만 아이콘이 있으면 나머지 셋이 빈칸처럼 보인다(사용자
+    // 실측 2026-09-01). 훑어본다 — 눈. 옆의 「지금 훑어보기」가 미리보기 아이콘을 쓰므로 겹치지 않는다.
+    //
+    // XML 이 아니라 여기서 준다. `icon="AllIcons.X.Y"` 는 이름이 틀려도 런타임 경고 한 줄이고,
+    // 그 경고를 보는 사람은 없다 — 아이콘이 안 뜨는 것으로만 드러난다. 코드면 컴파일이 잡는다.
+    init { templatePresentation.icon = com.intellij.icons.AllIcons.General.InspectionsEye }
+
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
     /** 편집기와 파일이 있을 때만 보인다. 눌러서 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다. */
