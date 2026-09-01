@@ -23,8 +23,21 @@ export class HelperStream {
    * @param {{token:string, presentation?:string, label?:string,
    *          EventSourceImpl?:Function, origin?:string}} opts
    */
-  constructor({ token, presentation = '', label = '', EventSourceImpl, origin } = {}) {
+  constructor({
+    token, presentation = '', label = '', EventSourceImpl, origin,
+    fetchImpl, reload, wait,
+  } = {}) {
     this.token = token;
+    // 되살리기에 쓰는 셋. **시험이 채워 넣을 수 있어야** 이 갈래를 잴 수 있고, 못 재는 갈래는
+    // 안 만든 것과 같다.
+    this.fetchImpl = fetchImpl ?? (typeof fetch === 'undefined' ? null : fetch.bind(globalThis));
+    this.reload = reload
+      ?? (typeof location === 'undefined' ? null : () => location.reload());
+    this.wait = wait ?? ((ms) => new Promise((go) => setTimeout(go, ms)));
+    /** 연이어 몇 번 헛걸음했는가. 물러서는 간격이 이 수로 자란다. */
+    this.misses = 0;
+    /** 되살리는 중인가. 두 번 겹쳐 돌면 연결이 둘 생긴다. */
+    this.healing = false;
     this.presentation = presentation;
     this.label = label;
     // 주소는 **적지 않는다** — 페이지가 헬퍼에서 왔으므로 헬퍼의 주소가 곧 자기 오리진이다
@@ -68,8 +81,81 @@ export class HelperStream {
         this.#emit(kind, data);
       });
     }
-    src.onerror = () => this.#emit('stream', { live: false, why: '스트림이 끊겼습니다' });
+    // **프로미스를 돌려준다.** 브라우저는 무시하지만 시험은 이것으로 기다린다 — 못 기다리면
+    // 이 갈래는 잴 수가 없고, 못 재는 갈래는 안 만든 것과 같다.
+    src.onerror = () => this.#heal(src);
     return this;
+  }
+
+  /**
+   * 끊긴 연결을 되살린다. **왜 끊겼는지 물어보고 나서** 움직인다.
+   *
+   * 앞 판본은 「스트림이 끊겼습니다」 한 줄을 올리고 끝이었다. 그래서 헬퍼를 다시 띄우면
+   * 판은 위쪽에 「붙었습니다 — 도구 28개」를 적어 둔 채 손이 죽어 있었고, 모델이 부르는 도구는
+   * 전부 「연결된 작업창이 없습니다」로 떨어졌다. 살리는 길이 **파워포인트를 통째로 껐다 켜는
+   * 것뿐**이었다 — 실물에서 그 화면을 봤다(2026-09-02). PC 를 잘 다루지 못하는 사람에게는
+   * 고칠 방법이 없는 고장이다.
+   *
+   * 되살릴 수 없는 갈래가 하나 있다. **토큰은 헬퍼가 뜰 때마다 새로 난다.** 헬퍼가 다시
+   * 뜨면 이 페이지가 들고 있는 토큰은 영영 거부되고, `EventSource` 는 200 이 아닌 답을 받으면
+   * 규격대로 **재연결을 포기한다**. 아무리 다시 붙어도 안 된다 — 새 토큰을 실은 페이지를
+   * 다시 받아 오는 수밖에 없다. 그래서 세 갈래를 가른다:
+   *
+   * - **토큰이 낡음**(401) → 페이지를 다시 불러온다. 사용자가 할 일이 없다.
+   * - **헬퍼는 멀쩡, 연결만 끊김** → 그냥 다시 붙는다.
+   * - **헬퍼가 안 뜸** → 물러서며 다시 묻고, **그 사이 사람에게는 사실대로 적는다.**
+   */
+  async #heal(dead) {
+    if (this.healing || this.source !== dead) return;
+    this.healing = true;
+    try {
+      const why = await this.#why();
+      if (why === 'stale') {
+        // 다시 불러오기 전에 한 번 적는다 — 화면이 깜빡이는 이유를 사람이 알아야 한다.
+        this.#emit('stream', { live: false, why: '헬퍼가 다시 떴습니다 — 창을 새로 불러옵니다', reason: why });
+        this.reload?.();
+        return;
+      }
+      if (why === 'down') {
+        this.misses += 1;
+        this.#emit('stream', {
+          live: false, reason: why,
+          why: 'magi 헬퍼가 응답하지 않습니다 — 다시 붙어 보는 중입니다',
+        });
+        // 물러서되 천장을 둔다. 무한정 늘리면 헬퍼가 돌아와도 한참 뒤에야 붙는다.
+        await this.wait(Math.min(1000 * 2 ** (this.misses - 1), 15000));
+      } else {
+        this.misses = 0;
+      }
+      if (this.source !== dead) return;   // 그 사이 누가 닫았거나 다시 열었다
+      dead.close?.();
+      this.source = null;
+      this.open();
+      this.#emit('stream', { live: true, why: '다시 붙었습니다', reason: 'back' });
+    } finally {
+      this.healing = false;
+    }
+  }
+
+  /**
+   * 왜 끊겼는가 — `stale` · `down` · `dropped`.
+   *
+   * 토큰을 들려 보내 **헬퍼 자신에게 묻는다.** 401 은 「너는 지난 기동의 손님이다」이고,
+   * 그것만이 다시 붙어서 안 풀리는 갈래다. 못 물어봤으면 `down` 이지 `stale` 이 아니다 —
+   * 모르는 것을 「낡았다」로 적으면 헬퍼가 잠깐 바쁜 사이에 창을 다시 불러오고, 사람이 쓰던
+   * 글이 날아간다.
+   */
+  async #why() {
+    if (!this.fetchImpl) return 'dropped';
+    try {
+      const r = await this.fetchImpl(`${this.origin}/api/status`, {
+        headers: { Authorization: `Bearer ${this.token ?? ''}` },
+      });
+      if (r?.status === 401 || r?.status === 403) return 'stale';
+      return 'dropped';
+    } catch {
+      return 'down';
+    }
   }
 
   close() {

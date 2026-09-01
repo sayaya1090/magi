@@ -209,7 +209,13 @@ function spyFetch(answers = {}) {
 
 /** `EventSource` 를 흉내 낸다. 프레임은 시험이 민다. */
 class FakeEventSource {
-  constructor(url) { this.url = url; this.listeners = new Map(); FakeEventSource.last = this; }
+  constructor(url) {
+    this.url = url;
+    this.listeners = new Map();
+    FakeEventSource.last = this;
+    // 몇 번 열렸는가. 「한 번만 되살린다」는 이 수로만 잴 수 있다.
+    FakeEventSource.opened = (FakeEventSource.opened ?? 0) + 1;
+  }
   addEventListener(kind, fn) {
     if (!this.listeners.has(kind)) this.listeners.set(kind, new Set());
     this.listeners.get(kind).add(fn);
@@ -307,6 +313,104 @@ class FakeEventSource {
   stream.push("stream", { live: false });
   stream.push("stream", { live: true });
   ok("끊김과 되살아남을 둘 다 알린다", seen.join(" ") === "end live", seen.join(" "));
+}
+
+// ── 끊긴 스트림을 스스로 되살린다 ───────────────────────────────────────────
+//
+// 실물에서 본 고장이다(2026-09-02): 헬퍼를 다시 띄웠더니 판은 위쪽에 「붙었습니다 — 도구
+// 28개」를 적어 둔 채 손이 죽어 있었고, 모델이 부르는 도구는 전부 「연결된 작업창이 없습니다」로
+// 떨어졌다. 살리는 길이 **파워포인트를 통째로 껐다 켜는 것뿐**이었다 — PC 를 잘 다루지 못하는
+// 사람에게는 고칠 방법이 없는 고장이고, 화면은 멀쩡하다고 적혀 있으니 신고할 말조차 없다.
+//
+// 핵심은 **되살릴 수 없는 갈래가 하나 있다**는 것이다. 토큰은 헬퍼가 뜰 때마다 새로 나므로,
+// 헬퍼가 다시 뜨면 이 페이지의 토큰은 영영 거부된다. 다시 붙어도 안 되고, 새 토큰을 실은
+// 페이지를 받아 오는 수밖에 없다. 그래서 **왜 끊겼는지 묻고 나서** 움직인다.
+{
+  const openStream = ({ answer, reload, waits }) => {
+    const s = new HelperStream({
+      token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource,
+      fetchImpl: answer,
+      reload,
+      wait: async (ms) => { waits.push(ms); },
+    }).open();
+    return s;
+  };
+
+  // ① 토큰이 낡음 — 헬퍼가 다시 뜬 경우. **다시 붙지 말고 페이지를 새로 받는다.**
+  {
+    const waits = []; let reloaded = 0; const said = [];
+    const s = openStream({
+      answer: async () => ({ status: 401 }),
+      reload: () => { reloaded += 1; }, waits,
+    });
+    s.on('stream', (d) => said.push(d));
+    const first = FakeEventSource.last;
+    await first.onerror();
+    ok('낡은 토큰이면 창을 다시 불러온다', reloaded === 1, String(reloaded));
+    ok('다시 붙어 보지는 않는다 — 붙어도 안 되는 갈래다',
+      FakeEventSource.last === first, 'reopened');
+    ok('왜 깜빡이는지 사람에게 적는다',
+      said.some((d) => d.reason === 'stale' && d.why.includes('헬퍼가 다시 떴습니다')),
+      JSON.stringify(said));
+  }
+
+  // ② 헬퍼는 멀쩡하고 연결만 끊김 — **그냥 다시 붙는다.** 사람이 할 일이 없다.
+  {
+    const waits = []; let reloaded = 0; const said = [];
+    const s = openStream({
+      answer: async () => ({ status: 200 }),
+      reload: () => { reloaded += 1; }, waits,
+    });
+    s.on('stream', (d) => said.push(d));
+    const first = FakeEventSource.last;
+    await first.onerror();
+    ok('연결만 끊겼으면 다시 붙는다', FakeEventSource.last !== first, 'not reopened');
+    ok('그때는 창을 다시 안 불러온다 — 쓰던 글이 날아간다', reloaded === 0, String(reloaded));
+    ok('죽은 연결은 닫는다', first.closed === true, String(first.closed));
+    ok('다시 붙었다고 알린다', said.some((d) => d.live === true), JSON.stringify(said));
+    ok('멀쩡한 경우는 안 기다린다', waits.length === 0, JSON.stringify(waits));
+  }
+
+  // ③ 헬퍼가 안 뜸 — **모르는 것을 「낡았다」로 적지 않는다.**
+  //
+  // 이 가름이 이 묶음의 요점이다. 못 물어본 것을 낡은 것으로 치면, 헬퍼가 잠깐 바쁜 사이에
+  // 창을 다시 불러오고 사람이 적던 글이 날아간다 — 고치려던 것보다 나쁜 고장이다.
+  {
+    const waits = []; let reloaded = 0; const said = [];
+    const s = openStream({
+      answer: async () => { throw new Error('ECONNREFUSED'); },
+      reload: () => { reloaded += 1; }, waits,
+    });
+    s.on('stream', (d) => said.push(d));
+    const first = FakeEventSource.last;
+    await first.onerror();
+    ok('못 물어본 것을 낡은 토큰으로 치지 않는다', reloaded === 0, String(reloaded));
+    ok('헬퍼가 안 뜬 것을 사실대로 적는다',
+      said.some((d) => d.reason === 'down' && d.why.includes('응답하지 않습니다')),
+      JSON.stringify(said));
+    ok('물러서서 다시 붙는다', waits[0] === 1000 && FakeEventSource.last !== first,
+      JSON.stringify(waits));
+
+    // 헛걸음이 이어지면 간격이 자라되 **천장이 있다** — 무한정 늘리면 헬퍼가 돌아와도
+    // 한참 뒤에야 붙는다.
+    for (let i = 0; i < 8; i += 1) await FakeEventSource.last.onerror();
+    ok('물러서는 간격이 자란다', waits[1] === 2000 && waits[2] === 4000, JSON.stringify(waits));
+    ok('간격에 천장이 있다', Math.max(...waits) === 15000, JSON.stringify(waits));
+  }
+
+  // ④ 겹쳐 돌지 않는다 — 두 번 겹치면 연결이 둘 생기고, 그러면 도구 호출이 두 번 온다.
+  {
+    const waits = []; const s = openStream({
+      answer: async () => { await new Promise((go) => setTimeout(go, 5)); return { status: 200 }; },
+      reload: () => {}, waits,
+    });
+    const first = FakeEventSource.last;
+    // 센 값은 시험 전체에 걸쳐 쌓이므로 **여기서부터** 센다.
+    const base = FakeEventSource.opened;
+    await Promise.all([first.onerror(), first.onerror(), first.onerror()]);
+    ok('한 번만 되살린다', FakeEventSource.opened === base + 1,
+      String(FakeEventSource.opened - base));
+  }
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
