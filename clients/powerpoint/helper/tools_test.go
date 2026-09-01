@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -223,5 +225,70 @@ func TestOmittingTheSlideMeansTheOneInFront(t *testing.T) {
 	// **훑을 것을 실제로 찾았는가**(§9 「초록을 읽는 법」). 0 개를 본 것과 0 개가 틀린 것은 다르다.
 	if seen == 0 {
 		t.Fatal("슬라이드를 받는 도구를 하나도 못 찾았다 — 이 시험은 아무것도 안 쟀다")
+	}
+}
+
+// 매뉴얼에 붙여 넣으라고 적어 둔 허용 규칙은 **코드가 만드는 그것과 같아야 한다.**
+//
+// 규칙은 도구 표에서 유도된다(`AllowRulesTOML`). 매뉴얼은 그것을 사람이 복사해 갈 수 있게
+// 옮겨 적어 둔 두 번째 벌이고, 두 벌은 갈린다 — 도구를 하나 더하면 코드 쪽만 자란다.
+//
+// 갈렸을 때의 증상이 특히 나쁘다: 새 읽기 도구만 매번 권한을 묻는다. 그건 「규칙을 안 넣었다」와
+// 화면에서 구분이 안 가고(DESIGN.md §6 이 그렇게 적어 뒀다), 사람은 자기가 붙여 넣은 규칙이
+// 안 먹는다고 읽는다.
+func TestTheManualQuotesTheRulesWeGenerate(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "docs", "MANUAL.ko.md"))
+	if err != nil {
+		t.Fatalf("매뉴얼을 못 읽었다: %v", err)
+	}
+	man := string(raw)
+
+	// 매뉴얼 안의 `allow = [ … ]` 한 덩어리.
+	start := strings.Index(man, "allow = [")
+	if start < 0 {
+		t.Fatal("매뉴얼에 허용 규칙 블록이 없다 — 있는 줄 알고 이 시험이 서 있었다")
+	}
+	end := strings.Index(man[start:], "]")
+	if end < 0 {
+		t.Fatal("허용 규칙 블록이 안 닫혔다")
+	}
+	quoted := man[start : start+end+1]
+
+	// 코드가 만드는 것에서 같은 덩어리를 뽑는다.
+	gen := AllowRulesTOML()
+	gs := strings.Index(gen, "allow = [")
+	ge := strings.Index(gen[gs:], "]")
+	generated := gen[gs : gs+ge+1]
+
+	if quoted != generated {
+		t.Errorf("매뉴얼의 허용 규칙이 코드가 만드는 것과 다르다.\n매뉴얼:\n%s\n코드:\n%s", quoted, generated)
+	}
+
+	// **훑을 것을 실제로 찾았는가**(§9 「초록을 읽는 법」). 규칙이 0 개면 위 비교는 빈 것끼리
+	// 견주고도 초록이다.
+	if n := strings.Count(generated, "mcp__ppt__"); n == 0 {
+		t.Fatal("규칙이 하나도 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+}
+
+// 그리고 매뉴얼은 **도구를 하나도 빠뜨리면 안 된다.** 사람이 「무엇을 시킬 수 있나」를 여기서
+// 읽는데, 표에 없는 도구는 그 사람에게 없는 기능이다.
+func TestTheManualNamesEveryTool(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "docs", "MANUAL.ko.md"))
+	if err != nil {
+		t.Fatalf("매뉴얼을 못 읽었다: %v", err)
+	}
+	man := string(raw)
+	missing := []string{}
+	for _, tl := range catalogue() {
+		if !strings.Contains(man, "`"+tl.Name+"`") {
+			missing = append(missing, tl.Name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("매뉴얼이 안 적은 도구: %s", strings.Join(missing, ", "))
+	}
+	if len(catalogue()) == 0 {
+		t.Fatal("도구가 하나도 없다 — 이 시험은 아무것도 안 쟀다")
 	}
 }
