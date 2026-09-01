@@ -383,6 +383,36 @@ export class FakeHand extends HandPort {
         // 실물과 다른 것을 가르친다.
         return this.#envelope({ title: null, body: null, seen: 0,
           note: '가짜 덱이라 잴 스타일이 없습니다 — PowerPoint 에 붙어야 나옵니다' });
+      case 'apply_style': {
+        // 가짜 덱에도 자리표시자 흉내가 있으므로 **같은 계약으로** 돈다 — 다만 이름으로 고른다.
+        if (!args.title && !args.body) {
+          throw new Error('무엇을 바꿀지가 안 왔습니다 — title 이나 body 에 {font, size, bold, italic, color} 중 하나는 주세요');
+        }
+        const want = Array.isArray(args.slides) && args.slides.length
+          ? this.model.slides.filter((s, i) => args.slides.includes(i + 1))
+          : this.model.slides;
+        let touched = 0;
+        const lines = [];
+        for (const sl of want) {
+          const worn = [];
+          for (const sh of sl.shapes) {
+            const role = /제목|title/i.test(String(sh.name ?? '')) ? 'title'
+              : (/본문|body|subtitle/i.test(String(sh.name ?? '')) ? 'body' : null);
+            const spec = role === 'title' ? args.title : (role === 'body' ? args.body : null);
+            if (!spec) continue;
+            for (const [k, v] of Object.entries(spec)) sh[k] = v;
+            worn.push(role);
+          }
+          if (worn.length) { touched += 1; lines.push(`슬라이드 ${sl.id}: ${worn.join(' · ')}`); }
+        }
+        if (touched === 0) {
+          return this.#envelope({ looked: want.length, changed: 0 },
+            [`장 ${want.length}개를 봤는데 바꿀 자리표시자가 없었습니다`]);
+        }
+        this.#mutated();
+        return this.#envelope({ looked: want.length, changed: touched },
+          [`장 ${want.length}개 중 ${touched}개를 바꿨습니다`].concat(lines.slice(0, 12)));
+      }
       case 'add_slides': {
         // 진짜 손과 같은 계약 — 이름을 **먼저 다 확인하고**, 중간에 실패해도 앞의 장은 남는다.
         const plan = Array.isArray(args.slides) ? args.slides : [];

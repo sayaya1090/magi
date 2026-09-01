@@ -186,6 +186,16 @@ func catalogue() []tool {
 			Props: withSlide(),
 		},
 		{
+			Name: "apply_style",
+			Desc: "Restyle titles or bodies across many slides in one call — \"make every title blue\". Shapes are picked by placeholder role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
+			Props: []property{
+				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color}. Only the fields you give are touched."},
+				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields."},
+				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
+				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
+			},
+		},
+		{
 			Name:  "duplicate_slide",
 			Desc:  "Copy one slide, formatting and all, and put the copy right after it. The way to build a deck that looks consistent: make one slide well, duplicate it, then change the words.",
 			Props: withSlide(),

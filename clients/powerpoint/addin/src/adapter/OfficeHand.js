@@ -47,8 +47,8 @@ export class OfficeHand extends HandPort {
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
-      'list_layouts', 'describe_style', 'add_slide', 'add_slides', 'delete_slide', 'duplicate_slide',
-      'replace_table'];
+      'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
+      'duplicate_slide', 'replace_table'];
   }
 
   #envelope(result, changed = []) {
@@ -135,6 +135,7 @@ export class OfficeHand extends HandPort {
       case 'delete_shape': return this.#deleteShape(args);
       case 'list_layouts': return this.#listLayouts();
       case 'describe_style': return this.#describeStyle();
+      case 'apply_style': return this.#applyStyle(args);
       case 'add_slide': return this.#addSlide(args);
       case 'add_slides': return this.#addSlides(args);
       case 'delete_slide': return this.#deleteSlide(args);
@@ -642,6 +643,54 @@ export class OfficeHand extends HandPort {
           (filled.length ? ` · ${filled.map((f) => `${f.role}="${clipText(f.text)}"`).join(' · ')}` : '') +
           (worn.length ? ` · 이 덱 스타일에 맞춤(${worn.join(' · ')})` : '') +
           missed]);
+    });
+  }
+
+  /**
+   * 여러 장의 **같은 역할**에 서식을 한 번에 입힌다. 「제목 전부 파랗게」가 이 도구다.
+   *
+   * 없으면 도형마다 `format_shape` 를 불러야 하고, 스무 장 덱이면 왕복 스무 번에 권한 창
+   * 스무 번이다 — PC 를 잘 다루지 못하는 사람에게 그건 못 하는 일과 같다.
+   *
+   * **역할로 고른다**(제목·본문). 좌표나 이름으로 고르면 덱마다 다르게 걸리는데, 자리표시자
+   * 역할은 테마가 정한 이름이라 어느 덱에서나 같은 뜻이다.
+   */
+  #applyStyle(args) {
+    return this.runner(async (context) => {
+      const wantTitle = pickFont(args.title);
+      const wantBody = pickFont(args.body);
+      if (!wantTitle && !wantBody) {
+        throw new Error('무엇을 바꿀지가 안 왔습니다 — title 이나 body 에 '
+          + '{font, size, bold, italic, color} 중 하나는 주세요');
+      }
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+      const all = slides.items;
+      const want = pickSlides(all, args);
+      if (want.length === 0) {
+        throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${all.length} 장입니다`);
+      }
+
+      const changed = [];
+      let touched = 0;
+      for (const sl of want) {
+        const worn = await this.#wearStyle(context, sl, { title: wantTitle, body: wantBody });
+        if (worn.length) {
+          touched += 1;
+          changed.push(`슬라이드 ${(sl.index ?? 0) + 1}: ${worn.join(' · ')}`);
+        }
+      }
+      if (touched === 0) {
+        // **안 바꿨으면 바꿨다고 말하지 않는다.** 이미 그 값이면 할 일이 없는 것이고,
+        // 그건 실패가 아니라 사실이다.
+        return this.#envelope(
+          { looked: want.length, changed: 0 },
+          [`장 ${want.length}개를 봤는데 이미 다 그 서식이라 바꾼 것이 없습니다`]);
+      }
+      this.#mutated();
+      return this.#envelope({ looked: want.length, changed: touched },
+        [`장 ${want.length}개 중 ${touched}개를 바꿨습니다`].concat(changed.slice(0, 12)));
     });
   }
 
@@ -1330,6 +1379,37 @@ export class OfficeHand extends HandPort {
 }
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
+/**
+ * 사람이 준 서식에서 **실제로 준 칸만** 뽑는다. 안 준 칸을 `undefined` 로 넘기면 그 자리가
+ * 덮여 버릴 수 있고, 그건 아무도 청한 적이 없는 변경이다.
+ */
+function pickFont(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+  const out = {};
+  if (spec.font !== undefined) out.name = String(spec.font);
+  if (spec.name !== undefined) out.name = String(spec.name);
+  if (spec.size !== undefined) out.size = Number(spec.size);
+  if (spec.bold !== undefined) out.bold = Boolean(spec.bold);
+  if (spec.italic !== undefined) out.italic = Boolean(spec.italic);
+  if (spec.color !== undefined) out.color = String(spec.color);
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * 어느 장에 걸 것인가. **생략하면 전부**다 — 「제목 전부 파랗게」가 이 도구의 첫 쓰임이고,
+ * 거기서 장을 하나하나 대게 하면 도구가 있으나 마나다.
+ */
+function pickSlides(all, args) {
+  if (Array.isArray(args.slide_ids) && args.slide_ids.length) {
+    return all.filter((s) => args.slide_ids.includes(s.id));
+  }
+  if (Array.isArray(args.slides) && args.slides.length) {
+    const want = new Set(args.slides.map((n) => Number(n)));
+    return all.filter((s) => want.has((s.index ?? 0) + 1));
+  }
+  return all;
+}
+
 /**
  * 값이 **일관될 때만** 그 값을 준다. 최빈값이 절반을 넘고 둘 이상일 때만 — 제각각인 덱에서
  * 아무 값이나 골라 박으면 새 장만 또 다르게 생긴다.

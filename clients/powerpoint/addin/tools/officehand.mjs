@@ -1431,6 +1431,65 @@ async function makeZip(files) {
     made.result.styled.some((w) => w.includes('32pt')), JSON.stringify(made.result.styled));
 }
 
+// ── 「제목 전부 파랗게」 ─────────────────────────────────────────────────────
+//
+// 없으면 도형마다 `format_shape` 를 불러야 하고, 스무 장 덱이면 왕복 스무 번에 권한 창 스무
+// 번이다 — PC 를 잘 다루지 못하는 사람에게 그건 **못 하는 일과 같다.**
+{
+  const deck = () => ({
+    slides: [0, 1, 2].map((i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [
+        { id: '2', name: '제목', type: 'Placeholder', text: `제목 ${i + 1}`,
+          placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+          altTextDescription: null, font: { size: 32, color: '#000000' } },
+        { id: '3', name: '본문', type: 'Placeholder', text: '본문',
+          placeholderFormat: { type: 'body' }, left: 0, top: 20, width: 10, height: 10,
+          altTextDescription: null, font: { size: 20, color: '#000000' } },
+      ],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title', 'body'] }] }],
+  });
+  const hand = (mm, log) => new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'd' });
+
+  {
+    const log = [];
+    const out = await hand(deck(), log).run('apply_style', { title: { color: '#0000FF' } });
+    ok('덱 전체의 제목을 한 번에 바꾼다', out.result.changed === 3, JSON.stringify(out.result));
+    ok('무엇을 바꿨는지 장마다 적는다',
+      out.changed.length >= 4 && out.changed[1].includes('#0000FF'), out.changed.slice(0, 2).join(' | '));
+    // **본문은 안 건드린다** — 청하지 않은 것을 바꾸면 그건 아무도 부탁한 적 없는 변경이다.
+    const wrote = log.filter((l) => l.startsWith('font:'));
+    ok('청하지 않은 역할은 안 건드린다', out.result.changed === 3, wrote.join(','));
+  }
+
+  // 장을 고를 수 있다.
+  {
+    const out = await hand(deck(), []).run('apply_style', { slides: [2], title: { size: 40 } });
+    ok('고른 장만 바꾼다', out.result.looked === 1 && out.result.changed === 1, JSON.stringify(out.result));
+  }
+
+  // **이미 그 값이면 바꿨다고 말하지 않는다.**
+  {
+    const out = await hand(deck(), []).run('apply_style', { title: { size: 32 } });
+    ok('이미 같은 값이면 안 바꿨다고 적는다',
+      out.result.changed === 0 && out.changed[0].includes('바꾼 것이 없습니다'), out.changed[0]);
+  }
+
+  // 무엇을 바꿀지 안 주면 거절 — 「아무것도 안 했는데 성공」을 안 만든다.
+  {
+    let why = null;
+    try { await hand(deck(), []).run('apply_style', {}); } catch (e) { why = e.message; }
+    ok('바꿀 것을 안 주면 거절한다', why?.includes('무엇을 바꿀지'), why);
+  }
+  {
+    let why = null;
+    try { await hand(deck(), []).run('apply_style', { slides: [99], title: { size: 40 } }); }
+    catch (e) { why = e.message; }
+    ok('없는 장만 고르면 그렇게 말한다', why?.includes('고른 장이 하나도 없습니다'), why);
+  }
+}
+
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
 console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리 가지를 잰 것이고, ' +
   '호스트가 실제로 어떻게 답하는지는 S1·S13·S14 가 열려 있는 채다.');
