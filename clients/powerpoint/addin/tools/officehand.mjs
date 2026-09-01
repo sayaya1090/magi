@@ -965,6 +965,43 @@ async function makeZip(files) {
   ok('그림은 대체 텍스트로 말한다', by.im4.alt === '로고', String(by.im4.alt));
 }
 
+// ── 「이 제목 몇 pt 야?」 ─────────────────────────────────────────────────────
+//
+// 바꾸는 것은 되는데(`format_shape`) **지금 값을 읽는 길이 없었다.** 모델은 자기가 방금 바꾼
+// 값도 확인 못 했고, 「좀 키워 줘」 같은 상대적인 부탁에 기준이 없었다. 글을 읽는 그 왕복에서
+// 같이 읽으면 되는 자리라 왕복도 안 는다.
+{
+  const styled = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: '제목 및 내용' },
+      shapes: [
+        { id: 'ph1', name: '제목 1', type: 'Placeholder', text: '분기 실적',
+          placeholderFormat: { type: 'title' }, left: 10, top: 10, width: 300, height: 50,
+          altTextDescription: null, font: { name: '맑은 고딕', size: 40, bold: true, italic: false, color: '#242424' } },
+        { id: 'sh2', name: '메모', type: 'GeometricShape', text: '초안', left: 10, top: 80,
+          width: 100, height: 40, altTextDescription: null, font: { size: 12 } },
+        { id: 'tb3', name: '표', type: 'Table', text: '', left: 10, top: 140, width: 200, height: 80,
+          altTextDescription: null, cells: [['a']] },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: '제목 및 내용', placeholders: ['title'] }] }],
+  });
+
+  const out = await new OfficeHand({ run: stubRunner(styled(), []), supports: () => true, document: 'doc-1' })
+    .run('read_slide', { slide: 1 });
+  const by = Object.fromEntries(out.result.shapes.map((s) => [s.shape_id, s]));
+  ok('제목의 글꼴과 크기가 온다',
+    by.ph1.font?.name === '맑은 고딕' && by.ph1.font?.size === 40, JSON.stringify(by.ph1.font));
+  ok('굵게·색도 같이 온다',
+    by.ph1.font?.bold === true && by.ph1.font?.color === '#242424', JSON.stringify(by.ph1.font));
+  // **호스트가 안 준 칸은 안 싣는다** — `null` 로 채우면 「글꼴이 없다」로 읽히고, 한 상자에
+  // 서식이 섞였을 때 호스트가 실제로 그렇게 답한다.
+  ok('안 온 칸은 아예 없다',
+    by.sh2.font?.size === 12 && by.sh2.font?.name === undefined, JSON.stringify(by.sh2.font));
+  // 글틀이 없는 도형에는 글꼴 칸 자체가 없다.
+  ok('표에는 글꼴 칸이 안 붙는다', by.tb3.font === undefined, JSON.stringify(by.tb3.font));
+}
+
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
 console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리 가지를 잰 것이고, ' +
   '호스트가 실제로 어떻게 답하는지는 S1·S13·S14 가 열려 있는 채다.');

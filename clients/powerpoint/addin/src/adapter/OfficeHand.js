@@ -201,13 +201,19 @@ export class OfficeHand extends HandPort {
         if (TEXTLESS.has(String(s.type ?? '').toLowerCase())) return null;
         const tf = s.textFrame;
         tf.textRange.load('text');
+        // 서식 값도 **같은 왕복에서** 읽는다. 「이 제목 몇 pt 야?」에 답할 수 있어야 「좀 키워
+        // 줘」가 되는데, 여태 바꾸는 것만 되고 지금 값을 읽는 길이 없었다 — 모델은 자기가 방금
+        // 바꾼 값도 확인 못 했다. 왕복이 안 느는 자리라 안 읽을 이유가 없었다.
+        tf.textRange.font.load('name,size,bold,italic,color');
         return tf;
       });
       let texts;
+      let fonts = shapes.items.map(() => null);
       let textUnavailable = false;
       try {
         await context.sync();
         texts = shapes.items.map((s, i) => (frames[i] ? (frames[i].textRange.text ?? '') : ''));
+        fonts = shapes.items.map((s, i) => (frames[i] ? fontOf(frames[i].textRange.font) : null));
       } catch {
         texts = shapes.items.map(() => '');
         textUnavailable = true;
@@ -236,6 +242,9 @@ export class OfficeHand extends HandPort {
           alt: s.altTextDescription ?? null,
           left: s.left, top: s.top, width: s.width, height: s.height,
           text: texts[i],
+          // 서식. **못 읽었으면 칸 자체를 안 만든다** — `null` 로 채우면 「글꼴이 없다」로
+          // 읽히고, 모르는 것과 없는 것은 다르다.
+          ...(fonts[i] ? { font: fonts[i] } : {}),
           // 표면 격자를 그대로. **없으면 칸을 안 만든다** — 빈 격자는 「빈 표」로 읽힌다.
           ...(grids.has(s.id)
             ? { rows: grids.get(s.id).rows, columns: grids.get(s.id).columns, cells: grids.get(s.id).values }
@@ -1026,6 +1035,19 @@ export class OfficeHand extends HandPort {
 }
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
+/**
+ * 글꼴 값을 사람이 읽는 모양으로. **빈 칸은 안 싣는다** — 호스트가 안 준 값을 `null` 로
+ * 채우면 「없다」로 읽히고, 섞인 서식(한 상자 안에 크기가 여럿)일 때 호스트가 그렇게 답한다.
+ */
+function fontOf(font) {
+  if (!font) return null;
+  const out = {};
+  for (const k of ['name', 'size', 'bold', 'italic', 'color']) {
+    if (font[k] !== undefined && font[k] !== null) out[k] = font[k];
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 /**
  * 글틀이 없는 도형 종류. 여기에 글을 물으면 **묶음 전체가 죽는다**(2026-09-02 실물).
  * 좁게 잡는다 — 넓게 잡으면 글이 있는 도형을 조용히 건너뛰고, 그건 「없다」로 보고된다.
