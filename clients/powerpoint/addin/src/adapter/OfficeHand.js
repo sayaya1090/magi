@@ -38,6 +38,11 @@ export class OfficeHand extends HandPort {
     this.count = 0;
     this.snapshots = new Map();
     this.nextSnap = 1;
+    /**
+     * 어느 장을 **어느 개정에서** 떴는가. 안 바뀐 장을 다시 뜨는 것을 막는 자리다 — 그림은
+     * 이 저장소에서 제일 비싼 것이고, 같은 그림을 두 번 보내는 것은 그냥 낭비다.
+     */
+    this.renders = new Map();
   }
 
   get label() { return this.labelText || 'PowerPoint (Office.js)'; }
@@ -349,11 +354,50 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * 슬라이드를 그림으로. **이 저장소에서 제일 비싼 도구다.**
+   *
+   * 그림 한 장은 글 수천 자 값이고, 그것을 매 확인마다 부르면 대화창이 그림으로 가득 찬다 —
+   * 사용자가 그 걱정을 이름 대어 말했다(2026-09-02). 그래서 셋을 건다.
+   *
+   * **하나 — 크기를 줄여 보낸다.** 슬라이드를 원본 해상도로 뜨면 쓸데없이 크다. 기본 1024px
+   * 폭이면 넘침·겹침·대비처럼 이 도구를 부르는 이유는 다 보인다.
+   *
+   * **둘 — 안 바뀐 장을 다시 안 뜬다.** 개정 쌍(epoch·count)이 그대로면 **그림도 그대로**이고,
+   * 모델은 이미 그 그림을 대화에 갖고 있다. 다시 뜨는 것은 같은 토큰을 두 번 쓰는 일이라
+   * 거절하고 그렇게 말한다 — 정말 필요하면 `force`.
+   *
+   * **셋 — 값을 결과에 적는다.** 얼마짜리였는지 모르면 아끼는 판단을 할 수가 없다.
+   */
   #render(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
-      const image = slide.getImageAsBase64();
+      slide.load('id');
       await context.sync();
+
+      const seenAt = this.renders.get(slide.id);
+      const now = `${this.epoch}:${this.count}`;
+      if (seenAt === now && !args.force) {
+        // **거절이지만 실패가 아니다.** 무엇을 하라는 것인지까지 적는다.
+        throw new Error(`슬라이드 ${slide.id} 는 아까 뜬 뒤로 안 바뀌었습니다 — `
+          + '그때 받은 그림이 지금 그림입니다. 그림은 이 도구 중 제일 비싸니 다시 안 뜹니다. '
+          + '정말 다시 봐야 하면 force: true 를 주세요');
+      }
+
+      // 폭만 준다 — 비율은 호스트가 지킨다. 0 이나 음수는 「제한 없음」이 아니라 실수다.
+      const width = Math.max(160, Math.min(Number(args.max_width ?? 1024), 4096));
+      let image;
+      try {
+        image = slide.getImageAsBase64({ width });
+        await context.sync();
+      } catch {
+        // 크기 옵션을 안 받는 호스트가 있을 수 있다. **그림을 포기하지 말고 원본으로 간다** —
+        // 다만 그 사실을 결과가 적는다.
+        image = slide.getImageAsBase64();
+        await context.sync();
+      }
+      const bytes = String(image.value ?? '').length;
+      this.renders.set(slide.id, now);
       // 헬퍼가 이 둘을 보고 **그림 블록**으로 실어 보낸다(§4.4 ①). 개정 3 에 따라 이 경로는
       // 아껴 쓴다 — 붙을 모델이 멀티모달이라는 보장이 없고, **카운슬은 어느 경우에도 그림을
       // 못 본다**(§7).
@@ -361,6 +405,10 @@ export class OfficeHand extends HandPort {
         slide_id: slide.id,
         image_base64: image.value,
         image_mime: 'image/png',
+        // 값을 눈에 보이게 적는다. base64 는 원본의 4/3 이라 그 셈으로 되돌린다.
+        image_bytes: Math.round(bytes * 3 / 4),
+        max_width: width,
+        note: '그림은 이 도구 중 제일 비쌉니다 — 숫자로 읽히는 것은 read_slide 로 보세요',
       });
     });
   }
@@ -619,7 +667,8 @@ export class OfficeHand extends HandPort {
       // 따라오지만, 사람이 손으로 바꿔 둔 것은 안 따라온다 — 그러면 새 장만 혼자 다르게
       // 생기고, 사용자는 그것을 「스타일이 안 맞는다」고 말한다(2026-09-02 요청).
       // 끄려면 `match_style: false`.
-      const worn = style ? await this.#wearStyle(context, made, style) : [];
+      const styleGot = style ? await this.#wearStyle(context, made, style) : null;
+      const worn = styleGot?.worn ?? [];
       const at = (made.index ?? 0) + 1;
       // **못 넣은 글을 조용히 버리지 않는다.** 레이아웃에 그 자리가 없으면 글은 아무 데도 안
       // 들어가는데, 결과가 성공이면 사람은 「제목 있는 장」을 요청하고 빈 장을 받는다 — 이
@@ -634,14 +683,17 @@ export class OfficeHand extends HandPort {
           filled: filled.map((f) => f.role),
           unfilled: unfilled.map((u) => u.role),
           // 이 덱의 버릇을 따랐는가. 빈 배열은 **따를 것이 없었다**는 뜻이다(덱이 제각각이거나
-          // 테마 그대로거나) — 「안 맞췄다」가 아니다.
+          // 테마 그대로거나) — 「안 맞췄다」가 아니다. 못 읽어서 못 맞춘 것은 아래 칸이 가른다.
           styled: worn,
+          // 못 맞춘 사유가 둘이다 — 이 장의 서식을 못 읽었거나, 덱의 버릇을 못 읽었거나.
+          style_unread: (styleGot ? !styleGot.read : false) || style?.read === false,
         },
         [`슬라이드 ${at}(id ${newId}) 를 만들었습니다` +
           (layoutName ? ` — 레이아웃 ${layoutName}` : '') +
           (notes.length ? ` · ${notes.join(' · ')}` : '') +
           (filled.length ? ` · ${filled.map((f) => `${f.role}="${clipText(f.text)}"`).join(' · ')}` : '') +
           (worn.length ? ` · 이 덱 스타일에 맞춤(${worn.join(' · ')})` : '') +
+          (styleGot && !styleGot.read ? ' · ⚠ 이 장의 서식을 못 읽어 덱 스타일에 못 맞췄습니다' : '') +
           missed]);
     });
   }
@@ -672,25 +724,38 @@ export class OfficeHand extends HandPort {
         throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${all.length} 장입니다`);
       }
 
+      // **한 장이라도 쓰기 시작하면 덱은 이미 바뀐다.** 개정 셈을 먼저 올린다 — 중간에
+      // 터졌을 때 「안 바뀌었다」로 보고되면, 이미 고쳐진 장들이 아무 기록 없이 남는다
+      // (`add_slide` 가 같은 규칙을 적어 뒀다).
+      this.#mutated();
       const changed = [];
       let touched = 0;
+      let unread = 0;
+      let noTarget = 0;
+      let done = 0;
       for (const sl of want) {
-        const worn = await this.#wearStyle(context, sl, { title: wantTitle, body: wantBody });
-        if (worn.length) {
-          touched += 1;
-          changed.push(`슬라이드 ${(sl.index ?? 0) + 1}: ${worn.join(' · ')}`);
-        }
+        const got = await this.#wearStyle(context, sl, { title: wantTitle, body: wantBody });
+        done += 1;
+        if (!got.read) { unread += 1; continue; }
+        if (got.targets === 0) { noTarget += 1; continue; }
+        if (got.worn.length === 0) continue;   // 이미 그 값이다
+        touched += 1;
+        changed.push(`슬라이드 ${(sl.index ?? 0) + 1}: ${got.worn.join(' · ')}`);
       }
-      if (touched === 0) {
-        // **안 바꿨으면 바꿨다고 말하지 않는다.** 이미 그 값이면 할 일이 없는 것이고,
-        // 그건 실패가 아니라 사실이다.
-        return this.#envelope(
-          { looked: want.length, changed: 0 },
-          [`장 ${want.length}개를 봤는데 이미 다 그 서식이라 바꾼 것이 없습니다`]);
-      }
-      this.#mutated();
-      return this.#envelope({ looked: want.length, changed: touched },
-        [`장 ${want.length}개 중 ${touched}개를 바꿨습니다`].concat(changed.slice(0, 12)));
+      // **넷을 한 문장으로 뭉치지 않는다.** 「바꾼 것이 없습니다」 하나로 답하면, 못 읽어서
+      // 못 바꾼 것도 「이미 그 서식입니다」로 나간다 — 사람은 파랗지 않은 제목을 보며 파랗다는
+      // 말을 듣는다(리뷰가 짚은 블로커, 2026-09-02).
+      const why = [];
+      if (unread) why.push(`${unread}개는 지금 서식을 못 읽어 **안 건드렸습니다**`);
+      if (noTarget) why.push(`${noTarget}개에는 제목·본문 자리표시자가 없습니다`);
+      const already = want.length - touched - unread - noTarget;
+      if (already) why.push(`${already}개는 이미 그 서식입니다`);
+      const head = touched
+        ? `장 ${want.length}개 중 ${touched}개를 바꿨습니다`
+        : `장 ${want.length}개를 봤는데 바꾼 것이 없습니다`;
+      return this.#envelope(
+        { looked: want.length, changed: touched, unread, no_target: noTarget, already },
+        [head + (why.length ? ` — ${why.join(' · ')}` : '')].concat(changed.slice(0, 12)));
     });
   }
 
@@ -707,9 +772,14 @@ export class OfficeHand extends HandPort {
         // **몇 개를 보고 정했는지 같이 적는다**(§9 「초록을 읽는 법」) — 0 개를 보고 「버릇이
         // 없다」고 하는 것과, 스무 개를 보고 그렇게 말하는 것은 다른 말이다.
         seen: style.seen,
-        note: (style.title || style.body)
-          ? '새 장은 이 값을 따라갑니다(match_style: false 로 끌 수 있습니다)'
-          : '이 덱에는 따라갈 만한 일관된 버릇이 없습니다 — 새 장은 테마 기본으로 섭니다',
+        // **못 읽은 것을 「버릇이 없다」로 적지 않는다.** 앞엣것은 다시 물으면 될 수도 있고,
+        // 뒤엣것은 이 덱의 사실이다.
+        read: style.read !== false,
+        note: style.read === false
+          ? '이 덱의 서식을 못 읽었습니다 — 버릇이 없는 것이 아니라 모르는 것입니다'
+          : ((style.title || style.body)
+            ? '새 장은 이 값을 따라갑니다(match_style: false 로 끌 수 있습니다)'
+            : '이 덱에는 따라갈 만한 일관된 버릇이 없습니다 — 새 장은 테마 기본으로 섭니다'),
       });
     });
   }
@@ -732,7 +802,7 @@ export class OfficeHand extends HandPort {
     await context.sync();
     // 큰 덱에서 전부 훑으면 왕복이 커진다. **앞 열두 장이면 그 덱의 버릇을 알기에 넉넉하다.**
     const look = slides.items.slice(0, 12);
-    if (look.length === 0) return { title: null, body: null, seen: 0 };
+    if (look.length === 0) return { title: null, body: null, seen: 0, read: true };
     for (const sl of look) sl.shapes.load('items/id,items/type');
     await context.sync();
 
@@ -742,24 +812,37 @@ export class OfficeHand extends HandPort {
         if (String(sh.type ?? '').toLowerCase() === 'placeholder') holders.push(sh);
       }
     }
-    if (holders.length === 0) return { title: null, body: null, seen: 0 };
+    if (holders.length === 0) return { title: null, body: null, seen: 0, read: true };
     const roles = await this.#placeholderRoles(context, holders);
+    // ⚠ **글꼴을 물을 것만 고른다.** 자리표시자에는 날짜·바닥글·쪽번호·그림 자리도 있고, 글틀이
+    // 없는 것에 글꼴을 물으면 묶음이 통째로 죽는다 — 그러면 `catch` 가 「이 덱에는 버릇이
+    // 없다」로 답하고, 통일된 덱이 제각각으로 보고된다(리뷰가 짚었다, 2026-09-02).
+    const wanted = holders.filter((sh) => {
+      const role = String(roles.get(sh) ?? '').toLowerCase();
+      return (/title/.test(role) && !/sub/.test(role))
+        || /body|content|subtitle|text/.test(role);
+    });
     const fonts = new Map();
-    for (const sh of holders) {
+    for (const sh of wanted) {
       // `italic` 까지 읽는다 — `fontOf` 가 그 칸을 보므로, 안 읽으면 항목마다 있고 없고가
       // 갈려 최빈값이 안 잡힌다.
-      sh.textFrame.textRange.font.load('name,size,bold,italic,color');
+      try {
+        sh.textFrame.textRange.font.load('name,size,bold,italic,color');
+      } catch {
+        continue;   // 못 묻는 도형은 표에서 빠질 뿐이다
+      }
       fonts.set(sh, sh.textFrame.textRange.font);   // **객체가 키다**(id 는 장마다 겹친다)
     }
     try {
       await context.sync();
     } catch {
-      // 서식을 못 읽으면 **맞출 것이 없다.** 지어내지 않는다.
-      return { title: null, body: null, seen: 0 };
+      // 서식을 못 읽으면 맞출 것이 없다 — 지어내지 않는다. **다만 「제각각이라 버릇이 없다」와
+      // 「못 읽어서 모른다」는 다른 사실이라**, 그 차이를 값에 싣는다.
+      return { title: null, body: null, seen: 0, read: false };
     }
 
     const buckets = { title: [], body: [] };
-    for (const sh of holders) {
+    for (const sh of wanted) {
       const role = String(roles.get(sh) ?? '').toLowerCase();
       const where = /title/.test(role) && !/sub/.test(role) ? 'title'
         : (/body|content|subtitle|text/.test(role) ? 'body' : null);
@@ -771,6 +854,7 @@ export class OfficeHand extends HandPort {
       title: dominant(buckets.title),
       body: dominant(buckets.body),
       seen: buckets.title.length + buckets.body.length,
+      read: true,
     };
   }
 
@@ -779,10 +863,14 @@ export class OfficeHand extends HandPort {
    * 「맞췄습니다」가 아무 뜻도 없는 말이 된다.
    */
   async #wearStyle(context, slide, style) {
-    if (!style || (!style.title && !style.body)) return [];
+    if (!style || (!style.title && !style.body)) return { worn: [], read: true, targets: 0 };
     slide.shapes.load('items/id,items/type');
     await context.sync();
     const roles = await this.#placeholderRoles(context, slide.shapes.items ?? []);
+    const holders = (slide.shapes.items ?? [])
+      .filter((sh) => String(sh.type ?? '').toLowerCase() === 'placeholder');
+    // 자리표시자는 있는데 **역할을 하나도 못 읽었으면** 그건 「대상이 없다」가 아니라 「모른다」다.
+    if (holders.length > 0 && roles.size === 0) return { worn: [], read: false, targets: 0 };
     // **이미 같은 값이면 안 건드린다.** 테마 기본과 같은 값을 명시적 서식으로 박으면 나중에
     // 사람이 테마를 바꿔도 그 장만 안 따라간다 — 자리표시자를 쓰는 이유를 스스로 깎는 짓이다.
     // 그래서 지금 값을 먼저 읽고 **다른 칸만** 쓴다.
@@ -793,15 +881,20 @@ export class OfficeHand extends HandPort {
         : (/body|content|subtitle|text/.test(role) ? style.body : null);
       if (!want) continue;
       const font = sh.textFrame.textRange.font;
-      font.load('name,size,bold,italic,color');
+      // 로드 자체가 그 자리에서 던지는 판이 있다(글틀 없는 자리표시자). **한 도형 때문에
+      // 나머지를 포기하지 않는다** — 못 묻는 것은 대상에서 빼고 그 수를 센다.
+      try { font.load('name,size,bold,italic,color'); } catch { continue; }
       targets.push({ role, want, font });
     }
-    if (targets.length === 0) return [];
+    if (targets.length === 0) return { worn: [], read: true, targets: 0 };
     try {
       await context.sync();
     } catch {
       // 지금 값을 못 읽으면 **덮어쓰지 않는다** — 무엇을 바꾸는지 모르는 채로 쓰는 것이다.
-      return [];
+      // **그리고 그 사실을 돌려준다.** 빈 배열 하나로 「바꿀 게 없었다」와 「못 읽었다」를 같이
+      // 답하면, 부르는 쪽이 낙관적으로 읽어 「이미 다 그 서식입니다」라고 말한다 — 사람은
+      // 아무것도 안 바뀐 화면을 보며 그 말을 듣는다(리뷰가 짚은 블로커, 2026-09-02).
+      return { worn: [], read: false, targets: targets.length };
     }
 
     const worn = [];
@@ -809,14 +902,16 @@ export class OfficeHand extends HandPort {
       const now = fontOf(font) ?? {};
       const diff = {};
       for (const [k, v] of Object.entries(want)) {
-        if (now[k] !== v) diff[k] = v;
+        // **같은 값을 같은 글자로 견준다**(색의 대소문자). 안 그러면 같은 서식을 매번 다시 쓰고,
+        // 「N개를 바꿨습니다」가 매 호출 되풀이된다.
+        if (normal(k, now[k]) !== normal(k, v)) diff[k] = v;
       }
       if (Object.keys(diff).length === 0) continue;
       for (const [k, v] of Object.entries(diff)) font[k] = v;
       worn.push(`${role}: ${describeFont(diff)}`);
     }
     if (worn.length) await context.sync();
-    return worn;
+    return { worn, read: true, targets: targets.length };
   }
   /**
    * 개요를 통째로 받아 **장 여럿을 한 호출에** 만든다.
@@ -879,7 +974,8 @@ export class OfficeHand extends HandPort {
       const rows = [];
       for (let i = 0; i < made.length; i++) {
         const { filled, unfilled } = await this.#fillPlaceholders(context, made[i], plan[i]);
-        const worn = style ? await this.#wearStyle(context, made[i], style) : [];
+        const got = style ? await this.#wearStyle(context, made[i], style) : null;
+        const worn = got?.worn ?? [];
         rows.push({
           slide: (made[i].index ?? 0) + 1,
           slide_id: made[i].id,
@@ -887,14 +983,22 @@ export class OfficeHand extends HandPort {
           filled: filled.map((f) => f.role),
           unfilled: unfilled.map((u) => u.role),
           styled: worn,
+          style_unread: (got ? !got.read : false) || style?.read === false,
         });
       }
       const missed = rows.filter((r) => r.unfilled.length);
-      const wornAny = rows.find((r) => r.styled.length)?.styled ?? [];
+      // **첫 줄로 전체를 대변하지 않는다.** 1번만 맞고 나머지가 안 맞았는데 「맞춤」이라고
+      // 적으면 그건 아홉 장에 대한 거짓말이다(리뷰가 짚었다, 2026-09-02).
+      const wornRows = rows.filter((r) => r.styled.length);
+      const unreadRows = rows.filter((r) => r.style_unread);
+      const wornAny = wornRows.length === rows.length && wornRows.length
+        ? wornRows[0].styled : [];
       return this.#envelope({ slides: rows, made: rows.length, styled: wornAny },
         [`장 ${rows.length}개를 만들었습니다 — `
           + rows.map((r) => `${r.slide}"${plan[r.slide - rows[0].slide]?.title ?? ''}"`).join(' · ')
-          + (wornAny.length ? ` · 이 덱 스타일에 맞춤(${wornAny.join(' · ')})` : '')]
+          + (wornAny.length ? ` · 전부 이 덱 스타일에 맞춤(${wornAny.join(' · ')})` : '')
+          + (!wornAny.length && wornRows.length ? ` · ${wornRows.length}/${rows.length} 장만 덱 스타일에 맞춤` : '')
+          + (unreadRows.length ? ` · ⚠ ${unreadRows.length}장은 서식을 못 읽어 못 맞췄습니다` : '')]
           .concat(missed.length
             ? [`⚠ 넣을 자리가 없어 못 채운 것: `
               + missed.map((r) => `${r.slide}번의 ${r.unfilled.join(',')}`).join(' · ')]
@@ -1416,17 +1520,35 @@ function pickSlides(all, args) {
  */
 function dominant(list) {
   if (!Array.isArray(list) || list.length < 2) return null;
-  const tally = new Map();
-  for (const f of list) {
-    const key = JSON.stringify(f);
-    tally.set(key, (tally.get(key) ?? 0) + 1);
+  const out = {};
+  for (const key of ['name', 'size', 'bold', 'italic', 'color']) {
+    const tally = new Map();
+    let seen = 0;
+    for (const f of list) {
+      const v = normal(key, f?.[key]);
+      if (v === undefined) continue;   // 이 도형에서는 그 칸을 못 읽었다 — 표에서 빠질 뿐이다
+      seen += 1;
+      tally.set(v, (tally.get(v) ?? 0) + 1);
+    }
+    let best;
+    let n = 0;
+    for (const [v, count] of tally) {
+      if (count > n) { best = v; n = count; }
+    }
+    if (n >= 2 && n * 2 > seen) out[key] = best;
   }
-  let best = null;
-  let n = 0;
-  for (const [key, count] of tally) {
-    if (count > n) { best = key; n = count; }
-  }
-  return n >= 2 && n * 2 > list.length ? JSON.parse(best) : null;
+  return Object.keys(out).length ? out : null;
+}
+
+/**
+ * 같은 값을 같은 글자로. **색의 대소문자가 그 자리에서 갈린다** — `#1F4E79` 와 `#1f4e79` 를
+ * 다른 값으로 세면 통일된 덱이 「제각각」이 되고, 비교할 때는 매번 「다르다」가 되어 같은 서식을
+ * 계속 다시 쓴다.
+ */
+function normal(key, v) {
+  if (v === undefined || v === null) return undefined;
+  if (key === 'color') return String(v).toLowerCase();
+  return v;
 }
 
 /** 스타일 한 줄을 사람 말로. 결과가 무엇을 따랐는지 적을 때 쓴다. */

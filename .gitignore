@@ -43,6 +43,8 @@ scratchpad/overnight_log.md
 /magi
 /magi-ppt
 /magi-ppt.exe
+# 빌드 중 밀려난 옛 바이너리. `go build` 가 쓰던 파일을 못 지우면 `~` 를 붙여 남긴다.
+/magi-ppt.exe~
 # `go build ./...` 를 helper/ 안에서 돌리면 패키지 이름으로 바이너리가 떨어진다.
 # 14MB 짜리가 한 번 커밋에 섞여 들어갔다(2026-09-02) — 이름을 여기 적어 다시 안 겪는다.
 /clients/powerpoint/helper/helper.exe

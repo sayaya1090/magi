@@ -223,6 +223,9 @@ function stubRunner(model, log = []) {
           renumber();
         },
       },
+      // 시험이 묶음을 죽일 수 있게 대기열을 드러낸다. **실물에는 없는 문**이지만, 실물이
+      // 죽는 자리를 흉내 내려면 여기 말고는 걸 데가 없다.
+      __pending: pending,
       sync: async () => {
         while (pending.length) {
           const [target, path] = pending.shift();
@@ -618,6 +621,9 @@ async function makeZip(files) {
   const body = go.slice(go.indexOf('return []tool{'));
   const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]);
   const known = new OfficeHand({}).ops();
+  // **두 손을 다 본다.** 여태 진짜 손만 봤고, 그래서 가짜 손의 `ops()` 가 세 개를 빠뜨린 채
+  // 초록이었다(리뷰가 짚었다, 2026-09-02) — 가드가 절반만 보면 나머지 절반은 안 지켜진다.
+  const fakeOps = new FakeHand({ slides: [] }).ops();
 
   ok('도구 표에서 이름을 뽑았다', advertised.length >= 20, `${advertised.length}개`);
   const missing = advertised.filter((n) => !known.includes(n));
@@ -625,6 +631,10 @@ async function makeZip(files) {
   // 거울도 본다: 손만 알고 아무도 안 부르는 것은 **죽은 코드**다.
   const orphan = known.filter((n) => !advertised.includes(n));
   ok('손이 아는 것 중 안 광고된 것은 없다', orphan.length === 0, orphan.join(', '));
+  const fakeMissing = advertised.filter((n) => !fakeOps.includes(n));
+  ok('가짜 손의 목록에도 광고된 것이 다 있다', fakeMissing.length === 0, fakeMissing.join(', '));
+  const fakeOrphan = fakeOps.filter((n) => !advertised.includes(n));
+  ok('가짜 손이 아는 것 중 안 광고된 것은 없다', fakeOrphan.length === 0, fakeOrphan.join(', '));
 
   // **목록을 견주는 것으로는 부족하다.** `ops()` 는 손이 손으로 적은 배열이라, 스위치에 없는
   // 이름도 얼마든지 들어 있을 수 있다 — 실제로 가짜 손이 여섯을 그렇게 광고하고 있었고
@@ -1487,6 +1497,232 @@ async function makeZip(files) {
     try { await hand(deck(), []).run('apply_style', { slides: [99], title: { size: 40 } }); }
     catch (e) { why = e.message; }
     ok('없는 장만 고르면 그렇게 말한다', why?.includes('고른 장이 하나도 없습니다'), why);
+  }
+}
+
+// ── 못 읽어서 못 바꾼 것을 「이미 그렇다」로 적지 않는다 ─────────────────────
+//
+// 리뷰가 짚은 블로커다(2026-09-02). `#wearStyle` 이 「바꿀 게 없었다」와 「지금 값을 못 읽었다」를
+// 똑같이 빈 배열로 답했고, 부르는 쪽이 낙관적으로 읽었다 — 사람이 「제목 전부 파랗게」라고 하고
+// **아무것도 안 파래진 화면**을 보면서 「이미 다 그 서식입니다」를 듣는 자리다.
+//
+// **이 묶음은 실패 갈래만 잰다.** 리뷰의 지적대로 여태 실패 갈래를 미는 시험이 하나도 없었다.
+{
+  // 서식 읽기를 죽이는 덱. 스텁의 `__throw__` 를 글꼴 로드에 물린다.
+  const deck = (killFont) => ({
+    slides: [0, 1].map((i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [{
+        id: '2', name: '제목', type: 'Placeholder', text: `제목 ${i + 1}`,
+        placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+        altTextDescription: null, font: { size: 32 }, killFont,
+      }],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+  });
+  // 글꼴 로드가 묶음을 죽이는 손. 실물의 글틀 없는 자리표시자가 그렇게 군다.
+  const blindHand = (mm) => new OfficeHand({
+    run: (fn) => stubRunner(mm, [])(async (context) => {
+      const slides = context.presentation.slides;
+      for (const sv of slides.itemsView ?? []) {
+        for (const shv of sv.shapes?.itemsView ?? []) {
+          const orig = shv.textFrame.textRange.font;
+          shv.textFrame.textRange.font = Object.assign(Object.create(Object.getPrototypeOf(orig) ?? Object.prototype), orig, {
+            // 실물은 **묶음에서** 죽는다 — 로드 부를 때가 아니라. 스텁도 그렇게 군다.
+            load: () => { context.__pending.push(['__throw__', 'PropertyNotLoaded']); },
+          });
+        }
+      }
+      return fn(context);
+    }),
+    supports: () => true, document: 'd',
+  });
+
+  {
+    const out = await blindHand(deck(true)).run('apply_style', { title: { color: '#0000FF' } });
+    ok('못 읽은 장을 「이미 그 서식」으로 안 센다',
+      out.result.unread === 2 && out.result.already === 0, JSON.stringify(out.result));
+    ok('사람이 읽는 줄이 「못 읽었다」고 적는다',
+      out.changed[0].includes('못 읽어') && !out.changed[0].includes('이미 다'), out.changed[0]);
+  }
+
+  // 자리표시자가 아예 없는 장 — 이것도 「이미 그 서식」이 아니다.
+  {
+    const bare = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    };
+    const out = await new OfficeHand({ run: stubRunner(bare, []), supports: () => true, document: 'd' })
+      .run('apply_style', { title: { size: 40 } });
+    ok('바꿀 자리가 없는 장을 그렇게 적는다',
+      out.result.no_target === 1 && out.result.already === 0, JSON.stringify(out.result));
+    ok('그 사유가 사람이 읽는 줄에 온다',
+      out.changed[0].includes('자리표시자가 없습니다'), out.changed[0]);
+  }
+
+  // 진짜로 이미 그 값인 경우 — 이때만 「이미 그 서식」이다.
+  {
+    const same = {
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: '2', name: '제목', type: 'Placeholder', text: 'ㄱ',
+          placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+          altTextDescription: null, font: { size: 40 } }],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+    };
+    const out = await new OfficeHand({ run: stubRunner(same, []), supports: () => true, document: 'd' })
+      .run('apply_style', { title: { size: 40 } });
+    ok('진짜로 같을 때만 「이미 그 서식」이라고 적는다',
+      out.result.already === 1 && out.result.unread === 0 && out.result.no_target === 0,
+      JSON.stringify(out.result));
+  }
+
+  // 새 장을 만들 때도 「못 맞췄다」와 「맞출 것이 없었다」를 가른다.
+  {
+    const out = await blindHand(deck(true)).run('add_slide', { layout: 'L', title: 'ㄱ' });
+    ok('못 맞췄으면 그 사실을 싣는다', out.result.style_unread === true, JSON.stringify(out.result));
+  }
+}
+
+// ── 같은 값을 같은 값으로 센다 ───────────────────────────────────────────────
+//
+// 리뷰의 (b) 지적이다. `fontOf` 는 못 읽은 칸을 빼고 `dominant` 는 통째로 JSON 비교를 했으므로,
+// **한 도형에서만 색을 못 읽으면** 같은 32pt 가 두 무리로 갈려 「버릇이 없다」가 됐다.
+{
+  // 색을 못 읽는 도형이 섞인 덱. 실물에서 서식이 섞여 있으면 호스트가 그 칸을 안 준다.
+  const mixed = () => ({
+    slides: [0, 1, 2].map((i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [{
+        id: '2', name: '제목', type: 'Placeholder', text: `ㄱ${i}`,
+        placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+        altTextDescription: null,
+        // 셋 다 32pt 인데 색은 하나만 안 온다.
+        font: i === 1 ? { size: 32, name: '맑은 고딕' } : { size: 32, name: '맑은 고딕', color: '#B7472A' },
+      }],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+  });
+  const out = await new OfficeHand({ run: stubRunner(mixed(), []), supports: () => true, document: 'd' })
+    .run('describe_style', {});
+  ok('한 칸이 비어도 나머지 칸의 버릇은 잡는다',
+    out.result.title?.size === 32 && out.result.title?.name === '맑은 고딕',
+    JSON.stringify(out.result.title));
+  ok('둘이 같은 색이면 색도 잡는다', out.result.title?.color === '#b7472a',
+    JSON.stringify(out.result.title));
+
+  // 색의 대소문자를 다른 값으로 세지 않는다 — 그러면 통일된 덱이 제각각이 되고, 비교할 때마다
+  // 「다르다」가 되어 같은 서식을 매번 다시 쓴다.
+  const cased = () => ({
+    slides: [0, 1].map((i) => ({
+      id: `s${i + 1}`, index: i, layout: { name: 'L' },
+      shapes: [{
+        id: '2', name: '제목', type: 'Placeholder', text: 'ㄱ',
+        placeholderFormat: { type: 'title' }, left: 0, top: 0, width: 10, height: 10,
+        altTextDescription: null, font: { color: i === 0 ? '#1F4E79' : '#1f4e79' },
+      }],
+    })),
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title'] }] }],
+  });
+  const out2 = await new OfficeHand({ run: stubRunner(cased(), []), supports: () => true, document: 'd' })
+    .run('describe_style', {});
+  ok('색의 대소문자는 같은 값이다', out2.result.title?.color === '#1f4e79',
+    JSON.stringify(out2.result.title));
+  const out3 = await new OfficeHand({ run: stubRunner(cased(), []), supports: () => true, document: 'd' })
+    .run('apply_style', { title: { color: '#1F4E79' } });
+  ok('이미 그 색이면 대소문자가 달라도 안 바꾼다',
+    out3.result.changed === 0 && out3.result.already === 2, JSON.stringify(out3.result));
+}
+
+// ── 가짜 손이 진짜 손보다 관대하면 안 된다 ──────────────────────────────────
+{
+  const fake = () => new FakeHand({
+    slides: [{ id: 's1', layout: 'L', shapes: [
+      { id: '2', name: '제목', type: 'TextBox', text: 'ㄱ', size: 32 },
+    ] }],
+  });
+  let why = null;
+  try { await fake().run('apply_style', { title: {} }); } catch (e) { why = e.message; }
+  ok('빈 서식은 가짜 손도 거절한다', why?.includes('무엇을 바꿀지'), why);
+
+  why = null;
+  try { await fake().run('apply_style', { title: { colour: 'red' } }); } catch (e) { why = e.message; }
+  ok('모르는 칸만 준 것도 거절한다', why?.includes('무엇을 바꿀지'), why);
+
+  const out = await fake().run('apply_style', { title: { size: 32 } });
+  ok('가짜 손도 이미 같으면 안 바꾼다', out.result.changed === 0 && out.result.already === 1,
+    JSON.stringify(out.result));
+
+  const h = fake();
+  const out2 = await h.run('apply_style', { slide_ids: ['없는-장'], title: { size: 40 } })
+    .then(() => null).catch((e) => e.message);
+  ok('가짜 손도 없는 장을 고르면 거절한다', out2?.includes('고른 장이 하나도'), String(out2));
+}
+
+// ── 그림은 제일 비싸다 ───────────────────────────────────────────────────────
+//
+// 사용자가 이름 대어 걱정했다(2026-09-02): 「비전 모델에 한해 화면 이미지를 받는 기능은 좋되,
+// 너무 남발하진 않도록 — 토큰 엄청 쓰니까」. 배관은 이미 맞았다(헬퍼가 진짜 이미지 블록으로
+// 보낸다). 없던 것은 **아끼는 장치**다.
+{
+  const deck = () => ({
+    slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+  });
+  const hand = (mm, log) => new OfficeHand({ run: stubRunner(mm, log), supports: () => true, document: 'd' });
+
+  {
+    const h = hand(deck(), []);
+    const out = await h.run('render_slide', { slide: 1 });
+    ok('그림을 base64 로 싣는다', typeof out.result.image_base64 === 'string');
+    ok('무슨 그림인지 밝힌다', out.result.image_mime === 'image/png');
+    // **값을 적는다** — 얼마짜리였는지 모르면 아끼는 판단을 할 수가 없다.
+    ok('얼마짜리였는지 적는다', typeof out.result.image_bytes === 'number' && out.result.image_bytes > 0,
+      String(out.result.image_bytes));
+    ok('기본 폭이 1024 다', out.result.max_width === 1024, String(out.result.max_width));
+
+    // **안 바뀐 장을 다시 안 뜬다.** 모델은 이미 그 그림을 대화에 갖고 있다.
+    let why = null;
+    try { await h.run('render_slide', { slide: 1 }); } catch (e) { why = e.message; }
+    ok('안 바뀐 장은 다시 안 뜬다', why?.includes('안 바뀌었습니다'), why);
+    ok('그때 무엇을 하라는지도 적는다', why?.includes('force'), why);
+
+    // 정말 필요하면 다시 뜬다.
+    const again = await h.run('render_slide', { slide: 1, force: true });
+    ok('force 면 다시 뜬다', typeof again.result.image_base64 === 'string');
+  }
+
+  // 덱이 바뀌면 다시 뜬다 — 그때는 그림이 진짜로 달라졌다.
+  {
+    const mm = deck();
+    const h = hand(mm, []);
+    await h.run('render_slide', { slide: 1 });
+    await h.run('add_shape', { slide: 1, kind: 'textbox', text: 'ㄱ' });
+    const out = await h.run('render_slide', { slide: 1 });
+    ok('덱이 바뀌면 다시 뜬다', typeof out.result.image_base64 === 'string');
+  }
+
+  // 폭은 사람이 정할 수 있고, 말도 안 되는 값은 잘린다.
+  {
+    const out = await hand(deck(), []).run('render_slide', { slide: 1, max_width: 400 });
+    ok('폭을 줄여 뜰 수 있다', out.result.max_width === 400, String(out.result.max_width));
+    const tiny = await hand(deck(), []).run('render_slide', { slide: 1, max_width: 1 });
+    ok('너무 작은 폭은 바닥으로 올린다', tiny.result.max_width === 160, String(tiny.result.max_width));
+    const huge = await hand(deck(), []).run('render_slide', { slide: 1, max_width: 99999 });
+    ok('너무 큰 폭은 천장으로 내린다', huge.result.max_width === 4096, String(huge.result.max_width));
+  }
+
+  // 스키마가 **값을 말해야** 모델이 아낀다 — 설명문이 그 장치의 절반이다.
+  {
+    const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    // 이름 뒤 공백은 gofmt 가 정렬하며 바뀐다 — **그 공백에 기대면 시험이 서식에 매인다.**
+    const at = go.indexOf(String.fromCharCode(34) + 'render_slide' + String.fromCharCode(34));
+    const desc = go.slice(at, go.indexOf('Props', at));
+    ok('제일 비싸다고 적혀 있다', /most expensive/i.test(desc), desc.slice(0, 60));
+    ok('비전 모델만 본다고 적혀 있다', /vision model/i.test(desc));
+    ok('대신 무엇을 쓰라고 적혀 있다', /read_slide/.test(desc));
+    ok('안 바뀐 장은 거절된다고 적혀 있다', /refused/.test(desc));
   }
 }
 

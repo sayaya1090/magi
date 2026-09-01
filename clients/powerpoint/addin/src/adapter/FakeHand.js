@@ -34,7 +34,8 @@ export class FakeHand extends HandPort {
       'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
-      'list_layouts', 'add_slide', 'delete_slide', 'duplicate_slide', 'replace_table'];
+      'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
+      'duplicate_slide', 'replace_table'];
   }
 
   /**
@@ -384,34 +385,58 @@ export class FakeHand extends HandPort {
         return this.#envelope({ title: null, body: null, seen: 0,
           note: '가짜 덱이라 잴 스타일이 없습니다 — PowerPoint 에 붙어야 나옵니다' });
       case 'apply_style': {
-        // 가짜 덱에도 자리표시자 흉내가 있으므로 **같은 계약으로** 돈다 — 다만 이름으로 고른다.
-        if (!args.title && !args.body) {
-          throw new Error('무엇을 바꿀지가 안 왔습니다 — title 이나 body 에 {font, size, bold, italic, color} 중 하나는 주세요');
+        // **진짜 손과 같은 계약이라야 이 화면에서 배운 것이 실물에서도 맞다.** 리뷰가 짚은
+        // 어긋남 넷을 여기서 맞춘다(2026-09-02): 빈 서식을 성공으로 답하던 것, 모르는 칸을
+        // 받아 주던 것, `slide_ids` 를 무시하던 것, 「다른 것만 바꾼다」를 안 지키던 것.
+        const wantTitle = fakePickFont(args.title);
+        const wantBody = fakePickFont(args.body);
+        if (!wantTitle && !wantBody) {
+          throw new Error('무엇을 바꿀지가 안 왔습니다 — title 이나 body 에 '
+            + '{font, size, bold, italic, color} 중 하나는 주세요');
         }
-        const want = Array.isArray(args.slides) && args.slides.length
-          ? this.model.slides.filter((s, i) => args.slides.includes(i + 1))
-          : this.model.slides;
-        let touched = 0;
+        const all = this.model.slides;
+        const want = Array.isArray(args.slide_ids) && args.slide_ids.length
+          ? all.filter((sl) => args.slide_ids.includes(sl.id))
+          : (Array.isArray(args.slides) && args.slides.length
+            ? all.filter((sl, i) => args.slides.includes(i + 1))
+            : all);
+        if (want.length === 0) {
+          throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${all.length} 장입니다`);
+        }
+        this.#mutated();
         const lines = [];
+        let touched = 0;
+        let noTarget = 0;
         for (const sl of want) {
           const worn = [];
+          let targets = 0;
           for (const sh of sl.shapes) {
             const role = /제목|title/i.test(String(sh.name ?? '')) ? 'title'
               : (/본문|body|subtitle/i.test(String(sh.name ?? '')) ? 'body' : null);
-            const spec = role === 'title' ? args.title : (role === 'body' ? args.body : null);
+            const spec = role === 'title' ? wantTitle : (role === 'body' ? wantBody : null);
             if (!spec) continue;
-            for (const [k, v] of Object.entries(spec)) sh[k] = v;
+            targets += 1;
+            const diff = {};
+            for (const [k, v] of Object.entries(spec)) {
+              if (sh[k] !== v) diff[k] = v;
+            }
+            if (Object.keys(diff).length === 0) continue;   // **이미 그 값이면 안 건드린다**
+            for (const [k, v] of Object.entries(diff)) sh[k] = v;
             worn.push(role);
           }
+          if (targets === 0) noTarget += 1;
           if (worn.length) { touched += 1; lines.push(`슬라이드 ${sl.id}: ${worn.join(' · ')}`); }
         }
-        if (touched === 0) {
-          return this.#envelope({ looked: want.length, changed: 0 },
-            [`장 ${want.length}개를 봤는데 바꿀 자리표시자가 없었습니다`]);
-        }
-        this.#mutated();
-        return this.#envelope({ looked: want.length, changed: touched },
-          [`장 ${want.length}개 중 ${touched}개를 바꿨습니다`].concat(lines.slice(0, 12)));
+        const already = want.length - touched - noTarget;
+        const why = [];
+        if (noTarget) why.push(`${noTarget}개에는 제목·본문 자리표시자가 없습니다`);
+        if (already) why.push(`${already}개는 이미 그 서식입니다`);
+        const head = touched
+          ? `장 ${want.length}개 중 ${touched}개를 바꿨습니다`
+          : `장 ${want.length}개를 봤는데 바꾼 것이 없습니다`;
+        return this.#envelope(
+          { looked: want.length, changed: touched, unread: 0, no_target: noTarget, already },
+          [head + (why.length ? ` — ${why.join(' · ')}` : '')].concat(lines.slice(0, 12)));
       }
       case 'add_slides': {
         // 진짜 손과 같은 계약 — 이름을 **먼저 다 확인하고**, 중간에 실패해도 앞의 장은 남는다.
@@ -490,4 +515,21 @@ export class FakeHand extends HandPort {
         throw new Error(`이 손은 ${op} 을 모릅니다`);
     }
   }
+}
+
+/**
+ * 사람이 준 서식에서 **실제로 준 칸만** 뽑는다. `OfficeHand` 의 `pickFont` 와 같은 규칙이라야
+ * 이 화면에서 배운 것이 실물에서도 맞다 — 빈 객체 `{}` 나 오타 난 칸(`colour`)을 여기서
+ * 받아 주면, 사람은 그게 되는 줄 알고 실물에서 거절당한다.
+ */
+function fakePickFont(spec) {
+  if (!spec || typeof spec !== 'object') return null;
+  const out = {};
+  if (spec.font !== undefined) out.name = String(spec.font);
+  if (spec.name !== undefined) out.name = String(spec.name);
+  if (spec.size !== undefined) out.size = Number(spec.size);
+  if (spec.bold !== undefined) out.bold = Boolean(spec.bold);
+  if (spec.italic !== undefined) out.italic = Boolean(spec.italic);
+  if (spec.color !== undefined) out.color = String(spec.color);
+  return Object.keys(out).length ? out : null;
 }

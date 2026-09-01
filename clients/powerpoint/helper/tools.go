@@ -132,9 +132,12 @@ func catalogue() []tool {
 			ReadOnly: true,
 		},
 		{
-			Name:     "render_slide",
-			Desc:     "A PNG of one slide as PowerPoint draws it. Expensive, and the council never sees pictures — call it only for a defect that numbers cannot show (overflow, overlap, contrast), not as a routine check." + declare,
-			Props:    withSlide(),
+			Name: "render_slide",
+			Desc: "A PNG of one slide as PowerPoint draws it. **The most expensive tool here** — one picture costs what thousands of characters cost, and only a vision model can see it at all. Call it for a defect that numbers cannot show (text overflowing its box, shapes overlapping, contrast), never as a routine check: read_slide answers what is on the slide, in words, for nothing. Rendering a slide that has not changed since you last rendered it is refused, because you already have that picture." + declare,
+			Props: withSlide(
+				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 1024). Smaller is cheaper; 1024 is enough to see overflow and overlap."},
+				property{Name: "force", Type: "boolean", Desc: "Render again even though nothing changed since the last render of this slide. Only when the person asked to look again."},
+			),
 			ReadOnly: true,
 		},
 		{
