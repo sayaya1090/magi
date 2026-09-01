@@ -8,14 +8,14 @@
 > 보인다 — 이 레인은 그 착각을 오래 안고 있었다. 헬퍼가 전부 초록인 채로 **PowerPoint 에 한 번도
 > 안 붙어 본 날들**이 있었고, 붙인 첫날 5층에서만 결함 열둘이 나왔고, 에이전트가 장을 만들 수 있게 된 이튿날 여섯이 더 나왔다(§5.1).
 
-**마지막 실측: 2026-09-02**
+**마지막 실측: 2026-09-02 (도구 27개)**
 
 | 층 | 수 | 결과 |
 |---|---|---|
-| 1·2·3. Go (`helper/`) | 65 | 통과 (3.2s) |
-| 4. JS 순수층 (`addin/tools/`) | 618 | 통과 (smoke 502 · officehand 80 · hand 36) |
+| 1·2·3. Go (`helper/`) | 65 | 통과 (2.8s) |
+| 4. JS 순수층 (`addin/tools/`) | 702 | 통과 (smoke 502 · officehand 164 · hand 36) |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 통과 |
-| 5. 실물 PowerPoint | **도구 24개 전수 28항목** | 통과 28 · 실패 0 (§5.4 의 sweep 스크립트) |
+| 5. 실물 PowerPoint | **도구 27개 전수 34항목** | 통과 34 · 실패 0 (§5.4) |
 
 「초록이었다」는 기억이 아니라 **날짜와 수**로 남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
 
@@ -71,10 +71,10 @@
 | 애드인은 오리진을 **안 적는다** | `addin/` 전체를 훑는다 | `TheAddinDoesNotWriteTheOriginDown` |
 | 매니페스트 스키마 순서 | XML 주석을 걷어 내고 `<Requirements>` 가 `<Hosts>` 앞인지 | `TheManifestKeepsTheSchemaOrder` |
 | 허용 규칙은 「덱을 고치는가」로 갈린다 | 도구 표에서 규칙을 **만들어** 대조 | `AllowRulesCoverExactlyWhatDoesNotChangeTheDeck` |
-| 스키마가 인자 검사를 켜 둔다 | 도구 23개의 `properties`·`required`·`additionalProperties` | `EverySchemaKeepsTheArgumentCheckOn` |
+| 스키마가 인자 검사를 켜 둔다 | 도구 27개의 `properties`·`required`·`additionalProperties` | `EverySchemaKeepsTheArgumentCheckOn` |
 | 도구 이름은 sanitize 를 견딘다 | magi 의 이름 규칙에 태워 본다 | `ToolNamesSurviveSanitizing`·`TheServerNameSanitizesToItself` |
 | 서버 이름이 **내장 도구 이름과 안 겹친다** | 코어의 내장 목록과 대조 | `TheServerNameIsNotABuiltinToolName` |
-| 읽기 도구도 **끝났다고 선언하는 법**을 설명에 싣는다 | 23개 설명문 | `ReadToolsSayHowToDeclareFinished` |
+| 읽기 도구도 **끝났다고 선언하는 법**을 설명에 싣는다 | 27개 설명문 | `ReadToolsSayHowToDeclareFinished` |
 | **매뉴얼이 코드가 만든 허용 규칙을 그대로 옮겼는가** | `AllowRulesTOML()` 과 매뉴얼의 `allow = […]` 덩어리를 글자로 견준다 | `TheManualQuotesTheRulesWeGenerate` |
 | **매뉴얼이 도구를 하나도 안 빠뜨렸는가** | 도구 표를 훑어 매뉴얼에서 이름을 찾는다 — 표에 없는 도구는 사람에게 없는 기능이다 | `TheManualNamesEveryTool` |
 | 생략했을 때의 뜻을 스키마가 적는가 | `slideProps` 와 도구 표 | `OmittingTheSlideMeansTheOneInFront` |
@@ -138,7 +138,7 @@
 | 막힌 물음은 **화면 안으로 끌어온다** | 대화 아래에 선 칸은 접힌 자리 밖이다. 답할 것이 없는 칸(못 닿음·직전 물음)은 안 끌어온다 — 읽던 자리를 뺏을 이유가 없다 |
 | 컴패니언이 **다시 뜬 것**은 「닿는다」와 다르다 | 그 사실이 바뀌는 순간에만 종을 치고, 조립 자리는 몰래 다시 안 붙인다 — 다시 붙이는 것은 사람이 하는 말이다 |
 
-`tools/officehand.mjs` (80) 는 `PowerPoint.run` 을 흉내 낸 stub 위에서 **우리가 고른 가지**를
+`tools/officehand.mjs` (164) 는 `PowerPoint.run` 을 흉내 낸 stub 위에서 **우리가 고른 가지**를
 잰다 — 1.8 이 없으면 index 를 안 묻는가, 빈 선택은 왕복 한 번인가, 글을 잃어도 신원은 사는가.
 **그건 호스트가 아니다.** 호스트가 실제로 어떻게 답하는지는 5층의 일이다.
 
@@ -257,6 +257,32 @@ $fly = $win.FindFirst($T::Descendants,
 
 > ⚠ PowerShell 5.1 은 BOM 없는 UTF-8 파일을 ANSI 로 읽는다. 한글이 든 `.ps1` 을 다른 도구로
 > 쓰면 **파서 오류**가 난다 — BOM 을 붙여야 한다.
+
+
+### 5.4 전수 점검 — 도구를 하나씩 실물에 대고 불러 본다
+
+`clients/powerpoint/tools/sweep.ps1` 이 **광고된 도구 전부**를 순서대로 부른다. 층 1~4 는 「우리가 정한 것을
+지키는가」를 재고, 이 스크립트는 **호스트가 실제로 어떻게 답하는가**를 잰다.
+
+```powershell
+& C:\Users\velve\Workspace\ppt-test\sweep.ps1
+```
+
+준비(장 하나 만들기) → 읽기 → 도형 → 표 → 스타일 → 안내 → 장 다루기 순으로 돌고, 마지막에
+**통과와 실패의 수**를 찍는다. 판정은 `Write-Host` 로 콘솔에 보낸다 — 파이프로 흘리면
+`| Out-Null` 이 결과까지 삼켜서 「몇 개 실패」만 남고 **무엇이 실패했는지**가 사라진다(그렇게
+한 번 겪었다).
+
+**이 점검이 잡은 것들.** 층 1~4 가 전부 초록인 상태에서 돌렸고, 매번 뭔가 나왔다:
+
+| 언제 | 무엇 |
+|---|---|
+| 2026-09-02 1차 | `find_shapes` 가 표·그림이 있는 덱에서 통째로 `InvalidArgument` · `apply_layout` 이 레이아웃 id 를 거절당함 |
+| 2026-09-02 2차 | 스타일 도구 셋을 얹고 34항목 전수 통과 |
+
+**되돌리기가 마지막인 것은 일부러다.** 스크립트 끝의 `restore_slide` 가 앞에서 그린 것을 전부
+되돌린다 — 스냅샷이 실제로 도는지를 재는 자리이면서, 점검이 덱에 쓰레기를 안 남기는 자리다.
+그래서 **눈으로 볼 것은 따로 그려야 한다**(§5.2 의 14~16번).
 
 ---
 
