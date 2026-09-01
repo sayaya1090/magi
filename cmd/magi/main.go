@@ -409,15 +409,9 @@ func run() int {
 
 	// Resolve the color theme. "auto" detects the terminal background; explicit
 	// dark/light override unreliable detection.
-	isDark := true
-	switch *theme {
-	case "light":
-		isDark = false
-	case "dark":
-		isDark = true
-	default:
-		isDark = lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
-	}
+	isDark := resolveTheme(*theme, *daemonMode, func() bool {
+		return lipgloss.HasDarkBackground(os.Stdin, os.Stdout)
+	})
 
 	if *showVersion {
 		fmt.Println(version.String())
@@ -2005,6 +1999,36 @@ func sortedKeys[V any](m map[string]V) []string {
 // resolvePrompt returns the headless prompt text. The literal "-" means "read the
 // whole prompt from stdin" (so `echo ... | magi -p -` works); any other value is
 // used verbatim.
+// resolveTheme decides light or dark, and NEVER asks a terminal that cannot answer.
+//
+// "auto" asks the terminal for its background colour: a query is written to stdout and the reply
+// is read back from stdin. That is a conversation with a person's terminal emulator, and a daemon
+// is not in one. Started by a launcher — a service manager, an IDE plugin, the PowerPoint helper —
+// it has a console handle nobody is driving, so the query goes out and the answer never comes, and
+// the process sits there before it has bound its socket.
+//
+// Measured on Windows (2026-09-02): with the default -theme auto, "magi --daemon" took 165s in one
+// run and 659s in another to create its socket, at 0.1s of CPU — it was waiting, not working. With
+// -theme dark, or with stdin at NUL, the same start bound in 1s. The caller saw a daemon that did
+// not come up; nothing anywhere said it was waiting on a terminal.
+//
+// So the daemon does not ask. Its answer is also worth nothing: it renders no UI, and the theme
+// only ever styles a TUI that this process will never draw. An explicit -theme is still honoured,
+// because "I said dark" is an instruction, not a detection.
+func resolveTheme(theme string, daemon bool, ask func() bool) bool {
+	switch theme {
+	case "light":
+		return false
+	case "dark":
+		return true
+	}
+	if daemon {
+		// Dark is the same default the switch above started from; what matters is not asking.
+		return true
+	}
+	return ask()
+}
+
 func resolvePrompt(flagVal string, stdin io.Reader) (string, error) {
 	if flagVal != "-" {
 		return flagVal, nil
