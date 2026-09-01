@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes } from '../src/adapter/OfficeHand.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 import { zipEntries, zipRead } from '../src/adapter/zip.js';
 
@@ -1723,6 +1723,112 @@ async function makeZip(files) {
     ok('비전 모델만 본다고 적혀 있다', /vision model/i.test(desc));
     ok('대신 무엇을 쓰라고 적혀 있다', /read_slide/.test(desc));
     ok('안 바뀐 장은 거절된다고 적혀 있다', /refused/.test(desc));
+  }
+}
+
+// ── 줄 세우기와 간격 ─────────────────────────────────────────────────────────
+//
+// 「가운데 맞춰 줘」·「간격 똑같이」는 PC 를 잘 다루지 못하는 사람이 제일 자주 하는 부탁인데,
+// 이 도구가 없으면 모델이 좌표를 손으로 셈해 `move_shape` 를 도형 수만큼 부른다 — 셈이 틀리면
+// 사람은 「비뚤어졌다」를 보고, 맞아도 왕복과 권한 창이 도형 수만큼 든다.
+//
+// **셈은 순수 함수가 한다**(`placeShapes`). Office 를 모르므로 값으로 잴 수 있고, 두 손이
+// 같은 함수를 쓰므로 브라우저에서 맞춰 본 배치가 실물에서도 같다.
+{
+  const at = (x, y, w = 100, h = 50) => ({ left: x, top: y, width: w, height: h });
+  const run = (boxes, how) => placeShapes(boxes.map((b, i) => ({ sh: { id: `s${i}` }, ...b })), how);
+  const after = (boxes, how) => {
+    const moves = run(boxes, how);
+    return boxes.map((b, i) => {
+      const m = moves.find((x) => x.sh.id === `s${i}`);
+      return { left: m?.left ?? b.left, top: m?.top ?? b.top };
+    });
+  };
+
+  // 왼쪽 맞춤 — 기준은 **그중 가장 왼쪽**이다. 슬라이드 크기를 1.8 에서 못 읽으므로
+  // 슬라이드 기준으로는 셈할 수가 없고, 그 사실을 결과가 적는다.
+  {
+    const got = after([at(50, 0), at(120, 60), at(80, 120)], 'left');
+    ok('왼쪽은 가장 왼쪽에 맞춘다', got.every((g) => g.left === 50), JSON.stringify(got));
+  }
+  {
+    const got = after([at(50, 0, 100), at(120, 60, 60), at(80, 120, 80)], 'right');
+    // 오른쪽 끝은 120+60=180 과 50+100=150 과 80+80=160 중 180.
+    ok('오른쪽은 가장 오른쪽 끝에 맞춘다',
+      got[0].left === 80 && got[1].left === 120 && got[2].left === 100, JSON.stringify(got));
+  }
+  {
+    const got = after([at(0, 0, 100), at(0, 60, 50)], 'center');
+    // 차지한 폭은 0~100, 가운데는 50. 100 짜리는 0, 50 짜리는 25.
+    ok('가로 가운데는 차지한 폭의 한가운데다',
+      got[0].left === 0 && got[1].left === 25, JSON.stringify(got));
+  }
+  {
+    const got = after([at(0, 40), at(0, 10), at(0, 90)], 'top');
+    ok('위쪽은 가장 위에 맞춘다', got.every((g) => g.top === 10), JSON.stringify(got));
+  }
+
+  // 간격 고르게 — **양 끝은 안 건드린다.** 사람이 잡아 둔 경계를 우리가 옮기면 그건 정렬이
+  // 아니라 재배치다.
+  {
+    const boxes = [at(0, 0, 100), at(150, 0, 100), at(500, 0, 100)];
+    const got = after(boxes, 'distribute_h');
+    ok('양 끝은 그대로 둔다', got[0].left === 0 && got[2].left === 500, JSON.stringify(got));
+    // 폭 600 중 도형이 300 을 쓰므로 틈은 (600-300)/2 = 150. 가운데 것은 0+100+150 = 250.
+    ok('사이 간격이 고르게 된다', got[1].left === 250, JSON.stringify(got));
+  }
+  {
+    // 둘은 이미 「고르게」다 — 옮길 것이 없다.
+    ok('둘뿐이면 간격을 안 건드린다', run([at(0, 0), at(300, 0)], 'distribute_h').length === 0);
+  }
+
+  // **이미 그 자리인 것은 안 옮긴다.** 옮겼다고 세면 「N개를 옮겼습니다」가 아무 뜻이 없어진다.
+  {
+    ok('이미 줄 서 있으면 아무것도 안 옮긴다',
+      run([at(50, 0), at(50, 60), at(50, 120)], 'left').length === 0);
+    ok('한 개만 어긋나 있으면 그것만 옮긴다',
+      run([at(50, 0), at(90, 60), at(50, 120)], 'left').length === 1);
+  }
+
+  // 손을 통해서도 같은 답이 나온다.
+  {
+    const deck = () => ({
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 50, top: 0, width: 100, height: 50, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 90, top: 60, width: 100, height: 50, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    });
+    const out = await new OfficeHand({ run: stubRunner(deck(), []), supports: () => true, document: 'd' })
+      .run('align_shapes', { slide: 1, how: 'left' });
+    ok('손을 통해도 줄이 선다', out.result.moved === 1 && out.result.of === 2, JSON.stringify(out.result));
+    ok('기준이 슬라이드가 아니라고 적는다',
+      out.changed[0].includes('슬라이드가 아니라'), out.changed[0]);
+
+    // 하나로는 줄을 못 세운다 — 「됐습니다」로 답하면 사람은 뭔가 바뀐 줄 안다.
+    let why = null;
+    try {
+      await new OfficeHand({ run: stubRunner(deck(), []), supports: () => true })
+        .run('align_shapes', { slide: 1, how: 'left', shape_ids: ['a'] });
+    } catch (e) { why = e.message; }
+    ok('하나만 고르면 거절한다', why?.includes('둘 이상'), why);
+
+    why = null;
+    try {
+      await new OfficeHand({ run: stubRunner(deck(), []), supports: () => true })
+        .run('align_shapes', { slide: 1, how: '대각선' });
+    } catch (e) { why = e.message; }
+    ok('모르는 정렬은 아는 것을 알려 준다', why?.includes('distribute_h'), why);
+
+    // 가짜 손도 같은 답 — 셈이 한 곳에 있으니 당연해야 하고, 그 당연함을 여기서 못 박는다.
+    const fake = await new FakeHand({ slides: [{ id: 's1', layout: 'L', shapes: [
+      { id: 'a', name: 'ㄱ', left: 50, top: 0, width: 100, height: 50 },
+      { id: 'b', name: 'ㄴ', left: 90, top: 60, width: 100, height: 50 },
+    ] }] }).run('align_shapes', { slide: 1, how: 'left' });
+    ok('가짜 손도 같은 수를 옮긴다', fake.result.moved === 1, JSON.stringify(fake.result));
   }
 }
 

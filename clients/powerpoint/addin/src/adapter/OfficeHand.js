@@ -49,7 +49,7 @@ export class OfficeHand extends HandPort {
 
   ops() {
     return ['list_slides', 'read_slide', 'find_shapes', 'render_slide', 'export_slide_ooxml',
-      'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
+      'set_text', 'format_shape', 'move_shape', 'align_shapes', 'add_shape', 'delete_shape', 'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
@@ -136,6 +136,7 @@ export class OfficeHand extends HandPort {
       case 'set_text': return this.#setText(args);
       case 'format_shape': return this.#format(args);
       case 'move_shape': return this.#move(args);
+      case 'align_shapes': return this.#align(args);
       case 'add_shape': return this.#addShape(args);
       case 'delete_shape': return this.#deleteShape(args);
       case 'list_layouts': return this.#listLayouts();
@@ -503,6 +504,63 @@ export class OfficeHand extends HandPort {
         [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: ` +
           `(${before.left}, ${before.top}) ${before.width}×${before.height}pt → ` +
           `(${shape.left}, ${shape.top}) ${shape.width}×${shape.height}pt`]);
+    });
+  }
+
+  /**
+   * 도형 여럿을 줄 세우거나 간격을 고른다.
+   *
+   * 이것이 없으면 모델이 좌표를 손으로 셈해서 `move_shape` 를 도형 수만큼 부른다 — 셈이
+   * 틀리면 사람은 「비뚤어졌다」를 보고, 맞아도 왕복과 권한 창이 도형 수만큼 든다. 「가운데
+   * 맞춰 줘」·「간격 똑같이」는 PC 를 잘 다루지 못하는 사람이 제일 자주 하는 부탁이다.
+   *
+   * **셈은 우리가 한다.** 슬라이드 크기를 1.8 에서 못 읽으므로(`pageSetup` 은 1.10),
+   * 기준은 **고른 도형들 자신**이다 — 「왼쪽 맞춤」은 그중 가장 왼쪽에, 「가운데」는 그들이
+   * 차지한 폭의 한가운데에. 슬라이드 기준이 아니라는 것을 결과가 적는다.
+   */
+  #align(args) {
+    return this.runner(async (context) => {
+      const how = String(args.how ?? '').toLowerCase().replace(/[\s-]/g, '_');
+      if (!ALIGNMENTS.has(how)) {
+        throw new Error(`${args.how} 는 이 손이 아는 정렬이 아닙니다 — 아는 것: `
+          + [...ALIGNMENTS].join(', '));
+      }
+      const slide = await this.#slide(context, args);
+      slide.shapes.load('items/id,items/name,items/left,items/top,items/width,items/height');
+      await context.sync();
+
+      const all = slide.shapes.items ?? [];
+      const want = Array.isArray(args.shape_ids) && args.shape_ids.length
+        ? all.filter((sh) => args.shape_ids.includes(sh.id))
+        : all;
+      if (want.length < 2) {
+        // **하나로는 줄을 못 세운다.** 「됐습니다」로 답하면 사람은 뭔가 바뀐 줄 안다.
+        throw new Error(`줄 세울 도형이 ${want.length}개뿐입니다 — 둘 이상 골라 주세요`
+          + (args.shape_ids ? ` (이 장의 도형: ${all.map((s) => s.id).join(', ')})` : ''));
+      }
+
+      const box = want.map((sh) => ({
+        sh,
+        left: Number(sh.left ?? 0),
+        top: Number(sh.top ?? 0),
+        width: Number(sh.width ?? 0),
+        height: Number(sh.height ?? 0),
+      }));
+      const moves = placeShapes(box, how);
+      if (moves.length === 0) {
+        return this.#envelope({ slide_id: slide.id, moved: 0, how },
+          [`도형 ${want.length}개가 이미 그렇게 서 있어 옮긴 것이 없습니다`]);
+      }
+      for (const m of moves) {
+        if (m.left !== undefined) m.sh.left = m.left;
+        if (m.top !== undefined) m.sh.top = m.top;
+      }
+      await context.sync();
+      this.#mutated();
+      return this.#envelope(
+        { slide_id: slide.id, moved: moves.length, how, of: want.length },
+        [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 ${ALIGN_KO[how]} — `
+          + '기준은 슬라이드가 아니라 고른 도형들 자신입니다']);
     });
   }
 
@@ -1483,6 +1541,81 @@ export class OfficeHand extends HandPort {
 }
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
+/** 아는 정렬. 모르는 이름은 **지어내지 않고** 이 목록을 알려 준다. */
+export const ALIGNMENTS = new Set(['left', 'right', 'center', 'top', 'bottom', 'middle',
+  'distribute_h', 'distribute_v']);
+
+/** 결과 문장에 쓰는 사람 말. */
+const ALIGN_KO = {
+  left: '왼쪽으로 맞췄습니다', right: '오른쪽으로 맞췄습니다', center: '가로 가운데로 맞췄습니다',
+  top: '위로 맞췄습니다', bottom: '아래로 맞췄습니다', middle: '세로 가운데로 맞췄습니다',
+  distribute_h: '가로 간격을 고르게 했습니다', distribute_v: '세로 간격을 고르게 했습니다',
+};
+
+/**
+ * 어디로 옮길지 **순수하게** 셈한다. Office 를 모르므로 시험이 값으로 잰다 — 이 저장소가
+ * 화면의 결정을 `screen.js` 로 내린 것과 같은 이유다.
+ *
+ * **이미 그 자리인 것은 안 옮긴다.** 옮겼다고 세면 「N개를 옮겼습니다」가 아무 뜻이 없어진다.
+ *
+ * @param {Array<{left:number,top:number,width:number,height:number}>} box
+ * @returns 옮길 것만
+ */
+export function placeShapes(box, how) {
+  const near = (a, b) => Math.abs(a - b) < 0.5;   // pt 는 소수로 온다
+  const out = [];
+  const push = (item, left, top) => {
+    const moveL = left !== undefined && !near(item.left, left);
+    const moveT = top !== undefined && !near(item.top, top);
+    if (!moveL && !moveT) return;
+    out.push({ sh: item.sh, ...(moveL ? { left } : {}), ...(moveT ? { top } : {}) });
+  };
+
+  if (how === 'left') {
+    const x = Math.min(...box.map((b) => b.left));
+    for (const b of box) push(b, x, undefined);
+  } else if (how === 'right') {
+    const x = Math.max(...box.map((b) => b.left + b.width));
+    for (const b of box) push(b, x - b.width, undefined);
+  } else if (how === 'center') {
+    const lo = Math.min(...box.map((b) => b.left));
+    const hi = Math.max(...box.map((b) => b.left + b.width));
+    const mid = (lo + hi) / 2;
+    for (const b of box) push(b, mid - b.width / 2, undefined);
+  } else if (how === 'top') {
+    const y = Math.min(...box.map((b) => b.top));
+    for (const b of box) push(b, undefined, y);
+  } else if (how === 'bottom') {
+    const y = Math.max(...box.map((b) => b.top + b.height));
+    for (const b of box) push(b, undefined, y - b.height);
+  } else if (how === 'middle') {
+    const lo = Math.min(...box.map((b) => b.top));
+    const hi = Math.max(...box.map((b) => b.top + b.height));
+    const mid = (lo + hi) / 2;
+    for (const b of box) push(b, undefined, mid - b.height / 2);
+  } else if (how === 'distribute_h' || how === 'distribute_v') {
+    // 양 끝은 **그대로 둔다** — 사람이 잡아 둔 경계를 우리가 옮기면 그건 정렬이 아니라
+    // 재배치다. 사이의 것들만 고르게 벌린다.
+    const horiz = how === 'distribute_h';
+    const at = (b) => (horiz ? b.left : b.top);
+    const size = (b) => (horiz ? b.width : b.height);
+    const sorted = [...box].sort((a, b) => at(a) - at(b));
+    if (sorted.length < 3) return out;   // 둘은 이미 「고르게」다
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    const span = (at(last) + size(last)) - at(first);
+    const used = sorted.reduce((n, b) => n + size(b), 0);
+    const gap = (span - used) / (sorted.length - 1);
+    let cursor = at(first) + size(first);
+    for (let i = 1; i < sorted.length - 1; i++) {
+      const want = cursor + gap;
+      push(sorted[i], horiz ? want : undefined, horiz ? undefined : want);
+      cursor = want + size(sorted[i]);
+    }
+  }
+  return out;
+}
+
 /**
  * 사람이 준 서식에서 **실제로 준 칸만** 뽑는다. 안 준 칸을 `undefined` 로 넘기면 그 자리가
  * 덮여 버릴 수 있고, 그건 아무도 청한 적이 없는 변경이다.

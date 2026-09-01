@@ -250,6 +250,15 @@ func catalogue() []tool {
 			),
 		},
 		{
+			Name: "align_shapes",
+			Desc: "Line shapes up or space them evenly — \"centre these\", \"even out the gaps\". Without it the coordinates have to be worked out by hand and moved one shape at a time, and an arithmetic slip shows up as a crooked slide. The reference is the shapes you picked, not the slide: this host cannot read the slide size (pageSetup is 1.10), and the result says so.",
+			Props: withSlide(
+				property{Name: "how", Type: "string", Desc: "left, right, center (horizontal), top, bottom, middle (vertical), distribute_h, distribute_v. Distributing keeps the outermost two where they are and evens the gaps between the rest."},
+				property{Name: "shape_ids", Type: "array", Items: "string", Desc: "Which shapes. Omit for every shape on the slide."},
+			),
+			Required: []string{"how"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

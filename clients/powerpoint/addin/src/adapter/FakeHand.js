@@ -1,6 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
-import { geometryOf } from './OfficeHand.js';
+import { geometryOf, placeShapes, ALIGNMENTS } from './OfficeHand.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -31,7 +31,8 @@ export class FakeHand extends HandPort {
 
   ops() {
     return ['list_slides', 'read_slide', 'find_shapes', 'render_slide', 'export_slide_ooxml',
-      'set_text', 'format_shape', 'move_shape', 'add_shape', 'delete_shape', 'apply_layout',
+      'set_text', 'format_shape', 'move_shape', 'align_shapes', 'add_shape', 'delete_shape',
+      'apply_layout',
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
@@ -320,6 +321,40 @@ export class FakeHand extends HandPort {
         this.#mutated();
         return this.#envelope({ slide_id: slide.id, shape_id: shape.id, wrote: wrote.length },
           [`슬라이드 ${slide.id} · 표 ${shape.id}: ${wrote.join(' ')} 칸을 채웠습니다`]);
+      }
+      case 'align_shapes': {
+        // 셈은 **진짜 손과 같은 순수 함수**(`placeShapes`)가 한다 — 두 곳에서 따로 셈하면
+        // 브라우저에서 맞춰 본 배치가 실물에서 다르게 선다.
+        const how = String(args.how ?? '').toLowerCase().replace(/[\s-]/g, '_');
+        if (!ALIGNMENTS.has(how)) {
+          throw new Error(`${args.how} 는 이 손이 아는 정렬이 아닙니다 — 아는 것: `
+            + [...ALIGNMENTS].join(', '));
+        }
+        const slide = this.#slide(args);
+        const want = Array.isArray(args.shape_ids) && args.shape_ids.length
+          ? slide.shapes.filter((sh) => args.shape_ids.includes(sh.id))
+          : slide.shapes;
+        if (want.length < 2) {
+          throw new Error(`줄 세울 도형이 ${want.length}개뿐입니다 — 둘 이상 골라 주세요`);
+        }
+        const box = want.map((sh) => ({
+          sh,
+          left: Number(sh.left ?? 0), top: Number(sh.top ?? 0),
+          width: Number(sh.width ?? 0), height: Number(sh.height ?? 0),
+        }));
+        const moves = placeShapes(box, how);
+        if (moves.length === 0) {
+          return this.#envelope({ slide_id: slide.id, moved: 0, how, of: want.length },
+            [`도형 ${want.length}개가 이미 그렇게 서 있어 옮긴 것이 없습니다`]);
+        }
+        for (const m of moves) {
+          if (m.left !== undefined) m.sh.left = m.left;
+          if (m.top !== undefined) m.sh.top = m.top;
+        }
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, moved: moves.length, how, of: want.length },
+          [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 옮겼습니다 — `
+            + '기준은 슬라이드가 아니라 고른 도형들 자신입니다']);
       }
       case 'snapshot_slide': {
         const slide = this.#slide(args);
