@@ -287,8 +287,13 @@ func (a *App) PersonWaiting() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	for _, st := range a.states {
-		if st != nil && len(st.pendingInterject) > 0 {
-			return true
+		if st == nil {
+			continue
+		}
+		for _, it := range st.pendingInterject {
+			if !it.beingAnswered() {
+				return true
+			}
 		}
 	}
 	return false
@@ -305,6 +310,14 @@ type Parked struct {
 // The count alone was already published beside the socket for handed-over work; this is the other
 // half, and it is the half that outranks it. A screen that shows one and not the other says a
 // companion has nothing waiting while the thing you typed sits in a queue.
+//
+// A message the agent has claimed it is answering is not waiting. It stays in the queue on purpose
+// — a claim is not an answer, and the finish boundary checks it — but that is bookkeeping about a
+// promise, and this reader answers a question about the person: is there something of mine nobody
+// has got to. The two readers of this queue had drifted: takeInterjectNotes went quiet on the claim
+// while this one kept counting, so the terminal's panel said "Waiting 1" (and stayed open for it)
+// through the whole of the reply that answered it. If the claim does not hold up, settleAnsweredClaims
+// puts the entry back and it counts again — which is exactly when it is true again.
 func (a *App) ParkedWork() []Parked {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -314,6 +327,9 @@ func (a *App) ParkedWork() []Parked {
 			continue
 		}
 		for _, it := range st.pendingInterject {
+			if it.beingAnswered() {
+				continue
+			}
 			out = append(out, Parked{Session: sid, Text: it.Text})
 		}
 	}
@@ -523,6 +539,9 @@ func (a *App) reviewWaitingAtTurnStart(ctx context.Context, tc turnCtx, turnTask
 			// Answered where it waited; its reply already carries InReplyTo naming it. Its note
 			// goes with it — takeInterjectNotes prunes any whose id has left the deferred set.
 			a.consumeInterjectByID(ctx, tc.s.ID, p.MsgID)
+			// And say so on the record. Leaving the queue is invisible from outside this process;
+			// without this the bubble keeps its waiting glyph, pinned under its own answer.
+			a.sayAnsweredInline(ctx, tc.s.ID, p.MsgID)
 		case startFold:
 			// Folded into the task starting now. consumeInterjectByID inside applyInterjectRoute
 			// takes it off the queue, and noteFolded records it so the finish path can say on
@@ -549,6 +568,27 @@ func (a *App) markBoundarySeen(sid session.SessionID) {
 	for i := range st.pendingInterject {
 		st.pendingInterject[i].BoundarySeen = true
 	}
+}
+
+// sayAnsweredInline puts on the record that a waiting message was answered where it waited.
+//
+// The queue is in-memory app state and no client can see it. A client learns that a bubble stopped
+// waiting from ONE thing — this event — and until it arrives the bubble keeps its waiting glyph and
+// its hoisted place at the tail, under the very reply that answered it. Reported from the terminal
+// exactly that way: the model had recognised the message and was writing the answer to it, and the
+// screen went on showing it as untouched.
+//
+// It is a function because the paths that answer inline are not one. Two of them said it (a route
+// claiming "answered", a message folded into the turn) and two did not (the triage at a turn's
+// start, and the triage in the finish-boundary drain) — and nothing in the shape of the code made
+// the omission visible: each site had a line that recorded the fact for something (the ledger, the
+// queue) and none of them recorded it for the screen.
+func (a *App) sayAnsweredInline(ctx context.Context, sid session.SessionID, msgID string) {
+	if msgID == "" {
+		return
+	}
+	d, _ := json.Marshal(event.InterjectionAnsweredData{MessageID: msgID})
+	a.appendFact(ctx, sid, event.TypeInterjectionAnswered, event.Actor{Kind: event.ActorSystem, ID: "interject"}, d)
 }
 
 // noteFolded records that a waiting message was folded into the turn now starting, so the finish

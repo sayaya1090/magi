@@ -312,6 +312,11 @@ type pendingInterjection struct {
 	AnsweredAtSeq int64
 }
 
+// beingAnswered reports that the agent has claimed this entry and the claim has not yet been
+// settled. It is still queued, and it is no longer waiting on anybody — the two are different
+// questions, and the readers that ask the second one must not answer the first by accident.
+func (p pendingInterjection) beingAnswered() bool { return p.AnsweredAtSeq != 0 }
+
 // turnControl is a mid-turn control signal a tool records for the running loop to
 // drain at its next step. The loop owns turnTask/councilTurn/guard (stack-local),
 // so a tool cannot mutate them directly; it leaves this signal instead and the loop

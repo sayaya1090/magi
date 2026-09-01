@@ -617,6 +617,11 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 						// Answered inline, its reply already persisted and tagged InReplyTo. Ledger
 						// it resolved (F5) so a reload does not read the entry as still waiting.
 						a.recordDeferral(bctx, sid, q[i].MsgID, true)
+						// The ledger is for the NEXT process. The screen in front of the person now
+						// learns it from the transcript or not at all — and without this line it
+						// did not, so the bubble stayed hoisted to the tail with its waiting glyph
+						// while the answer to it was already on screen above.
+						a.sayAnsweredInline(bctx, sid, q[i].MsgID)
 					}
 
 					if work != nil {
