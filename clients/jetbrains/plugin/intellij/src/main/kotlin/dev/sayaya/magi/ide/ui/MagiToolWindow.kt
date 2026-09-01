@@ -188,6 +188,12 @@ class MagiToolWindow : ToolWindowFactory {
          * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
          */
         private val column = Look.column()
+
+        /** 전사를 옮겨 적는 손 — 말풍선 하나씩, 그리고 끌어서 여러 개(`Copying`). */
+        private val copying = Copying().also { c ->
+            c.rows { shaper.list() }
+            c.popup(column) { shaper.list() }
+        }
         private val scroll = JBScrollPane(column).apply {
             border = JBUI.Borders.empty()
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
@@ -850,7 +856,14 @@ class MagiToolWindow : ToolWindowFactory {
                 val bar = scroll.verticalScrollBar
                 val atBottom = bar.value + bar.visibleAmount >= bar.maximum - 48
                 column.removeAll()
-                shaper.list().forEach { column.add(rowPanel(it)) }
+                // 다시 그릴 때마다 선택의 손도 새 패널을 잡는다 — 지나간 패널을 들고 있으면
+                // 안 보이는 것을 칠한다. 고른 것 자체는 행 열쇠로 들고 있어 살아남는다.
+                copying.beginBuild()
+                shaper.list().forEach { r ->
+                    val panel = rowPanel(r)
+                    copying.install(panel, r) { shaper.list() }
+                    column.add(panel)
+                }
                 column.revalidate()
                 column.repaint()
                 if (atBottom) SwingUtilities.invokeLater {
@@ -876,6 +889,10 @@ class MagiToolWindow : ToolWindowFactory {
             val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
             p.border = if (r.pending) Look.pendingRow() else Look.row()
             p.isOpaque = false
+            // 말풍선 하나를 그대로 옮겨 적는 단추(사용자 요청: 「TUI 처럼 한 개 단위로」).
+            // 화면이 색으로 말하던 것 — 누구 말인지, 툴이 됐는지 — 은 `RowText.plain` 이 글자로
+            // 옮긴다. 안 그러면 붙여넣은 쪽은 무슨 일이 있었는지 모르는 전사를 받는다.
+            p.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) }, BorderLayout.EAST)
             when (r.who) {
                 Who.User, Who.Agent -> {
                     val marks = buildList {

@@ -151,6 +151,29 @@ internal object Look {
      * 넓어진다"). 그래서 견본 값을 하나 박아 폭을 고정하고, 긴 값은 잘라 그리되 **툴팁에
      * 원문을 준다** — 줄여 보이는 것과 감추는 것은 다르다.
      */
+    /**
+     * 말풍선 하나를 옮겨 적는 단추. **늘 보인다** — 마우스를 얹어야 나타나는 단추는 있는 줄을
+     * 모르면 영영 안 쓰인다(이 집이 스트라이프 아이콘에서 이미 겪었다). 대신 흐리게 둬서
+     * 글을 읽는 눈을 안 뺏는다.
+     */
+    fun copyButton(tip: String, onClick: () -> Unit): JComponent =
+        JBLabel(com.intellij.icons.AllIcons.Actions.Copy).apply {
+            toolTipText = tip
+            border = JBUI.Borders.empty(2, 6, 0, 0)
+            alignmentY = 0f
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) = onClick()
+            })
+        }
+
+    /**
+     * 고른 칸의 바탕. **플랫폼 목록의 선택색을 그대로 쓴다** — 우리가 색을 하나 더 정하면
+     * 테마를 바꾼 날 이 칸만 남의 색으로 남는다. 포커스 없는 쪽(false)을 쓰는 이유는 전사에서
+     * 고른 것은 「지금 키보드가 있는 자리」가 아니라 **표시**라서다.
+     */
+    val selection: Color get() = com.intellij.util.ui.UIUtil.getListSelectionBackground(false)
+
     /** 글자 수를 픽셀 상한으로 — 폰트에서 **매번 다시 잰다**(테마·글꼴이 바뀌면 같이 바뀐다). */
     private fun cap(c: java.awt.Component, chars: Int) =
         c.getFontMetrics(c.font).charWidth('M') * chars + JBUI.scale(8)

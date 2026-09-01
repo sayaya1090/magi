@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -17,7 +18,64 @@ class RowTextTest {
         tool: String? = null, args: String? = null,
     ) = Row(who = who, text = text, msgId = msgId, callId = callId, at = at, ok = ok, tool = tool, args = args)
 
+    // ── 옮겨 적기 ────────────────────────────────────────────────────────────
+    //
+    // 화면은 색·아이콘·접힘으로 사실을 말한다. 글자로 나갈 때 그것들이 사라지면 붙여넣은 쪽은
+    // **무슨 일이 있었는지 모르는 전사**를 받는다. 아래는 그 사실들이 글자에 남는지를 잰다.
+
     @Test
+    fun `실패한 툴은 글자에서도 실패로 보인다`() {
+        val bad = RowText.plain(
+            Row(who = Who.Tool, text = "", tool = "bash", ok = false, out = "exit 1"),
+        )
+        assertTrue("failed" in bad, "실패가 안 보인다: $bad")
+        assertTrue("bash" in bad, "툴 이름이 없다: $bad")
+        assertTrue("exit 1" in bad, "답한 것이 빠졌다: $bad")
+        // 반대쪽도 같이 — 한쪽만 재면 「늘 failed 라고 적는다」와 구분이 안 간다.
+        val good = RowText.plain(Row(who = Who.Tool, text = "", tool = "bash", ok = true))
+        assertTrue("(ok)" in good, "성공이 실패로 보인다: $good")
+        assertFalse("failed" in good, "성공인데 failed 라고 적는다: $good")
+        // 아직 안 끝난 호출은 셋째 갈래다 — 실패가 아니다.
+        val running = RowText.plain(Row(who = Who.Tool, text = "", tool = "bash", ok = null))
+        assertTrue("running" in running, "도는 중이 실패로 보인다: $running")
+    }
+
+    @Test
+    fun `누가 말했는지가 글자에 남는다`() {
+        assertTrue(RowText.plain(Row(who = Who.User, text = "고쳐줘")).startsWith("You"))
+        assertTrue(RowText.plain(Row(who = Who.Agent, text = "고쳤다")).startsWith("magi"))
+        // 생각은 화면에서 접혀 있지만 글자로는 편다 — 접힘은 보는 사람의 편의지 사실이 아니다.
+        val think = RowText.plain(Row(who = Who.Thinking, text = "무엇을 먼저 볼까"))
+        assertTrue(think.startsWith("thinking"), "생각이라는 것이 안 보인다: $think")
+        assertTrue("무엇을 먼저 볼까" in think, "접혀서 본문이 빠졌다: $think")
+    }
+
+    @Test
+    fun `물은 것과 답한 것을 둘 다 적는다`() {
+        val t = RowText.plain(
+            Row(who = Who.Tool, text = "", tool = "read", args = "path=a.kt", out = "no such file", ok = false),
+        )
+        assertTrue("a.kt" in t, "물은 것이 빠졌다: $t")
+        assertTrue("no such file" in t, "답한 것이 빠졌다: $t")
+    }
+
+    @Test
+    fun `흐르는 중인 답에 커서 글리프를 안 붙인다`() {
+        // 화면에서는 반쪽 답이 반쪽으로 보여야 하지만, 글자로 나간 뒤엔 그 글리프가 답의
+        // 일부처럼 읽힌다. 커서를 붙이는 것은 붓의 일이지 이 함수의 일이 아니다.
+        val t = RowText.plain(Row(who = Who.Agent, text = "절반쯤 쓴", draft = true))
+        assertFalse("\u258c" in t, "커서 글리프가 글자에 섞였다: $t")
+    }
+
+    @Test
+    fun `여러 행은 빈 줄로 갈린다`() {
+        val t = RowText.plain(
+            listOf(Row(who = Who.User, text = "물음"), Row(who = Who.Agent, text = "답")),
+        )
+        assertTrue("\n\n" in t, "행 사이가 안 갈렸다: $t")
+        assertTrue(t.indexOf("물음") < t.indexOf("답"))
+    }
+
     fun `못 읽는 시각은 빈 글자다 — 지어내지 않는다`() {
         assertEquals("", RowText.clock(null))
         assertEquals("", RowText.clock(""))

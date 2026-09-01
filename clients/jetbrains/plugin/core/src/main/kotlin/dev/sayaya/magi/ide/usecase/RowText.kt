@@ -22,6 +22,61 @@ object RowText {
         }.getOrNull()
     }.orEmpty()
 
+    /**
+     * **행 하나를 옮겨 적을 글자로.** 클립보드로 나가는 것은 화면이 아니라 이것이다.
+     *
+     * 화면은 색·아이콘·접힘으로 사실을 말한다. 글자로 나갈 때 그 사실들이 통째로 사라지면
+     * 붙여넣은 쪽은 **무슨 일이 있었는지 모르는 전사**를 받는다 — 실패한 툴 호출이 성공한
+     * 것과 똑같이 생기고, 접혀 있던 생각은 아예 없던 일이 된다. 그래서 색이 말하던 것을
+     * 글자가 말하게 한다: 누가 말했는지, 툴이 됐는지 안 됐는지, 이것이 생각인지.
+     *
+     * **접힘은 안 본다.** 화면에서 접혀 있어도 옮겨 적을 때는 편다 — 접힘은 보는 사람의
+     * 편의지 사실이 아니고, 붙여넣기는 대개 「남에게 보여 주려고」 하는 일이다.
+     *
+     * 아직 흐르는 중인 행([Row.draft])은 커서 글리프를 안 붙인다. 화면에서는 반쪽 답이
+     * 그렇게 보여야 하지만, 글자로 나간 뒤엔 그 `▌` 가 답의 일부처럼 읽힌다.
+     */
+    fun plain(r: Row): String {
+        val head = when (r.who) {
+            Who.User -> "You"
+            Who.Agent -> "magi"
+            Who.Thinking -> "thinking"
+            Who.Tool -> buildString {
+                append("tool ").append(r.tool.orEmpty())
+                append(
+                    when {
+                        r.ok == null -> " (running)"
+                        r.note -> " (ok, read this)"
+                        r.ok == true -> " (ok)"
+                        else -> " (failed)"
+                    },
+                )
+            }
+            Who.Council -> buildString {
+                append("council")
+                r.member?.takeIf { it.isNotBlank() }?.let { append(" ").append(it) }
+                if (r.round > 0) append(" r").append(r.round)
+                r.decision?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
+            }
+            Who.Info -> "info"
+        }
+        val body = buildList {
+            if (r.text.isNotBlank()) add(r.text)
+            // 물은 것과 답한 것은 다른 사실이라 둘 다 적는다 — 화면의 규칙과 같다.
+            r.args?.takeIf { it.isNotBlank() }?.let { add(it) }
+            r.out?.takeIf { it.isNotBlank() }?.let { add(it) }
+            r.why?.takeIf { it.isNotBlank() }?.let { add(it) }
+            r.keep?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }
+        return (listOf(head) + body).joinToString("\n")
+    }
+
+    /**
+     * 여러 행을 하나로. 빈 줄로 가른다 — 행 사이가 안 갈리면 붙여넣은 쪽에서 어디까지가 한
+     * 사람의 말인지 못 읽는다.
+     */
+    fun plain(rows: List<Row>): String = rows.joinToString("\n\n") { plain(it) }
+
     /** 한 줄로 줄인다. 인자가 길면 전사가 그 인자만으로 화면을 다 먹는다. */
     fun oneLine(s: String, max: Int): String {
         val one = s.lineSequence().joinToString(" ")
