@@ -88,6 +88,33 @@ export class OfficeHand extends HandPort {
     return first;
   }
 
+  /**
+   * 도형들의 **자리표시자 역할**을 따로 읽어 온다. 자리표시자가 아닌 도형에 `placeholderFormat`
+   * 을 걸면 호스트가 `GeneralException` 을 던지고 **그 묶음이 통째로** 죽으므로, 종류를 먼저
+   * 보고 자리표시자인 것만 두 번째 왕복에서 묻는다.
+   *
+   * 그래도 던지면 **역할만 포기하고 나머지는 살린다** — 슬라이드를 통째로 못 읽는 것보다
+   * 「이 도형의 역할은 모른다」가 훨씬 덜 나쁘다. 어느 쪽인지는 값이 말한다(`null`).
+   *
+   * @returns {Promise<Map<string,string>>} shape id → 역할
+   */
+  async #placeholderRoles(context, items) {
+    // 종류 이름의 대소문자는 호스트가 정한다(실물은 `Placeholder`, 열거 문서는 `placeholder`).
+    // 한쪽만 보면 다른 판에서 역할이 통째로 비고, 그건 조용한 실패다.
+    const holders = items.filter((s) => String(s.type ?? '').toLowerCase() === 'placeholder');
+    // 칸 자체가 없는 판(오래된 호스트·흉내 낸 객체)에서는 **물을 것이 없다.** 물을 수 없는
+    // 것을 물어 터지는 것보다 「역할은 모른다」로 두는 편이 낫다.
+    const askable = holders.filter((s) => typeof s.placeholderFormat?.load === 'function');
+    if (askable.length === 0) return new Map();
+    for (const s of askable) s.placeholderFormat.load('type');
+    try {
+      await context.sync();
+    } catch {
+      return new Map();
+    }
+    return new Map(askable.map((s) => [s.id, s.placeholderFormat?.type ?? null]));
+  }
+
   async run(op, args = {}) {
     switch (op) {
       case 'list_slides': return this.#listSlides(args);
@@ -150,10 +177,17 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const shapes = slide.shapes;
+      // ⚠ **`placeholderFormat` 을 여기서 같이 안 읽는다.** 자리표시자가 아닌 도형(표·그림·
+      // 텍스트 상자)에 그 칸을 걸면 호스트가 `GeneralException` 을 던지고 **묶음 전체가**
+      // 죽는다 — 그러면 도형이 하나라도 자리표시자가 아닌 슬라이드는 통째로 못 읽는다.
+      // 실물에서 그 화면을 봤다(2026-09-02): 방금 만든 표가 있는 장에서 `read_slide` 가
+      // GeneralException 으로 떨어졌고, 그건 「이 장에 뭐가 있나」를 묻는 유일한 도구다.
       shapes.load('items/id,items/name,items/type,items/left,items/top,items/width,items/height,' +
-        'items/placeholderFormat/type,items/altTextDescription');
+        'items/altTextDescription');
       slide.load('id,index,layout/name');
       await context.sync();
+
+      const roles = await this.#placeholderRoles(context, shapes.items);
 
       // 글은 **두 번째 왕복**에서. 도형에 `textFrame` 이 없을 수 있어 통째로 실패할 수 있고,
       // 그때는 글을 포기하고 **신원은 살린다** — 다만 포기했다는 사실을 실어 보낸다.
@@ -181,7 +215,7 @@ export class OfficeHand extends HandPort {
           shape_id: s.id,
           name: s.name,
           type: s.type,
-          placeholder: s.placeholderFormat?.type ?? null,
+          placeholder: roles.get(s.id) ?? null,
           alt: s.altTextDescription ?? null,
           left: s.left, top: s.top, width: s.width, height: s.height,
           text: texts[i],
@@ -397,14 +431,15 @@ export class OfficeHand extends HandPort {
       masters.load('items/id,items/name,items/layouts/items/id,items/layouts/items/name');
       await context.sync();
       // 자리표시자는 레이아웃마다 한 번 더 물어야 안다. 왕복은 **하나에 몰아** 건다.
-      const holders = [];
+      // 레이아웃의 도형도 **자리표시자만 있는 것이 아니다** — 로고 그림 하나가 얹혀 있으면
+      // `placeholderFormat` 을 건 묶음이 통째로 죽는다(`#placeholderRoles` 의 주석). 종류를
+      // 먼저 보고, 역할은 그다음 왕복에서 자리표시자에만 묻는다.
       for (const m of masters.items) {
-        for (const l of m.layouts.items) {
-          l.shapes.load('items/name,items/placeholderFormat/type');
-          holders.push({ master: m, layout: l });
-        }
+        for (const l of m.layouts.items) l.shapes.load('items/id,items/name,items/type');
       }
       await context.sync();
+      const flat = masters.items.flatMap((m) => m.layouts.items.flatMap((l) => l.shapes?.items ?? []));
+      const roles = await this.#placeholderRoles(context, flat);
       return this.#envelope({
         masters: masters.items.map((m) => ({
           master: m.name,
@@ -416,7 +451,7 @@ export class OfficeHand extends HandPort {
             // 경우는 여기 안 온다(`load` 가 실패하면 위 `sync` 가 통째로 던진다). 한동안
             // `null` 갈래를 적어 뒀는데 도달할 수 없는 줄이었고, 도달 못 하는 갈래는 있으나
             // 마나가 아니라 **읽는 사람에게 있는 척하는 구분**이다.
-            placeholders: (l.shapes?.items ?? []).map((s) => s.placeholderFormat?.type).filter(Boolean),
+            placeholders: (l.shapes?.items ?? []).map((s) => roles.get(s.id)).filter(Boolean),
           })),
         })),
       });
@@ -531,14 +566,17 @@ export class OfficeHand extends HandPort {
     ].filter((w) => typeof w.text === 'string' && w.text !== '');
     if (wants.length === 0) return { filled: [], unfilled: [] };
 
-    slide.shapes.load('items/id,items/name,items/placeholderFormat/type');
+    // 역할은 **따로** 읽는다(`#placeholderRoles`) — 새 장이라도 레이아웃이 그림 하나를 얹어
+    // 두면 그 도형에서 묶음이 죽고, 제목도 본문도 안 들어간 채 성공으로 보고된다.
+    slide.shapes.load('items/id,items/name,items/type');
     await context.sync();
+    const roles = await this.#placeholderRoles(context, slide.shapes.items);
     const taken = new Set();
     const filled = [];
     const unfilled = [];
     for (const w of wants) {
       const hit = slide.shapes.items.find((s) => {
-        const t = String(s.placeholderFormat?.type ?? '');
+        const t = String(roles.get(s.id) ?? '');
         return t !== '' && !taken.has(s.id) && w.match(t);
       });
       // **없는 자리를 지어내지 않고, 못 넣었다는 사실을 돌려준다.** 조용히 넘기면 부르는 쪽이

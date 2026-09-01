@@ -72,6 +72,15 @@ class StubShape extends Loaded {
     this.log = log;
     this.textFrame = { textRange: new StubTextRange(raw, pending, log) };
     this.fill = { setSolidColor: (c) => log.push(`fill:${c}`), clear: () => log.push('fill:clear') };
+    // **자리표시자가 아닌 도형에 이 칸을 걸면 호스트가 묶음 전체를 죽인다.** 실물에서 잰 것이라
+    // (2026-09-02: 표가 있는 장에서 `read_slide` 가 GeneralException) 스텁도 그렇게 군다 —
+    // 안 그러면 이 시험은 우리가 안 겪을 세상만 잰다.
+    this.placeholderFormat = new Loaded(raw.placeholderFormat ?? {}, pending);
+    this.placeholderFormat.load = (spec) => {
+      if (String(raw.type ?? '').toLowerCase() !== 'placeholder') pending.push(['__throw__', 'GeneralException']);
+      else pending.push([this.placeholderFormat, spec]);
+      return this.placeholderFormat;
+    };
   }
   delete() { this.log.push(`delete:${this.raw.id}`); }
   setHyperlink(v) { this.log.push(`link:${v?.address ?? 'none'}`); }
@@ -171,10 +180,10 @@ function stubRunner(model, log = []) {
       v.layouts.itemsView = m.layouts.map((l) => {
         const lv = new Loaded(l, pending);
         const holders = (l.placeholders ?? []).map((t, i) => ({
-          id: `${l.id}-ph${i}`, name: t, placeholderFormat: { type: t },
+          id: `${l.id}-ph${i}`, name: t, type: 'Placeholder', placeholderFormat: { type: t },
         }));
         lv.shapes = new Loaded({ items: holders }, pending);
-        lv.shapes.itemsView = holders.map((h) => new Loaded(h, pending));
+        lv.shapes.itemsView = holders.map((h) => new StubShape(h, pending, log));
         return lv;
       });
       return v;
@@ -207,6 +216,8 @@ function stubRunner(model, log = []) {
       sync: async () => {
         while (pending.length) {
           const [target, path] = pending.shift();
+          // 호스트가 묶음을 죽이는 자리. **남은 요청도 같이 버린다** — 실물의 배치가 그렇다.
+          if (target === '__throw__') { pending.length = 0; throw new Error(path); }
           if (target instanceof StubTextRange) { target.shown = target.raw.text; continue; }
           if (target.reveal) { target.reveal(); continue; }
           reveal(target, path);
@@ -240,7 +251,7 @@ const model = () => ({
   slides: [
     {
       id: 's1', index: 0, layout: { name: '제목 및 내용' },
-      shapes: [{ id: 'sh1', name: '제목 1', type: 'TextBox', text: '전분기 요약', left: 10, top: 20, width: 300, height: 60, placeholderFormat: { type: 'title' }, altTextDescription: null }],
+      shapes: [{ id: 'sh1', name: '제목 1', type: 'Placeholder', text: '전분기 요약', left: 10, top: 20, width: 300, height: 60, placeholderFormat: { type: 'title' }, altTextDescription: null }],
     },
     { id: 's2', index: 1, layout: { name: '빈 화면' }, shapes: [] },
   ],
@@ -708,6 +719,56 @@ async function makeZip(files) {
     let why = null;
     try { await h.run('duplicate_slide', { slide: 1 }); } catch (e) { why = e.message; }
     ok('복제본을 못 찾으면 성공이라고 안 한다', why?.includes('못 찾았습니다'), why);
+  }
+}
+
+// ── 표가 한 장에 있으면 그 장을 통째로 못 읽던 것 ────────────────────────────
+//
+// 실물에서 잡았다(2026-09-02). 에이전트가 방금 만든 표가 있는 장에서 `read_slide` 가
+// `GeneralException` 으로 떨어졌다 — **「이 장에 뭐가 있나」를 묻는 유일한 도구**가, 표나 그림이
+// 하나라도 있는 장에서는 아무 답도 못 하고 있었다. 즉 거의 모든 진짜 슬라이드에서.
+//
+// 원인은 한 줄이었다: 도형 목록을 읽을 때 `placeholderFormat/type` 을 같이 걸었는데, 자리표시자가
+// **아닌** 도형에 그 칸을 걸면 호스트가 묶음 전체를 죽인다. 스텁도 이제 그렇게 군다(`StubShape`).
+{
+  const mixed = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: '제목 및 내용' },
+      shapes: [
+        { id: 'sh1', name: '제목 1', type: 'Placeholder', text: '3분기', left: 10, top: 20, width: 300, height: 60, placeholderFormat: { type: 'title' }, altTextDescription: null },
+        // 자리표시자가 아닌 것 셋 — 표·그림·글상자. 실제 덱에 흔한 조합이다.
+        { id: 'sh2', name: '표 2', type: 'Table', text: '', left: 10, top: 100, width: 300, height: 120, altTextDescription: null },
+        { id: 'sh3', name: '그림 3', type: 'Image', text: '', left: 10, top: 240, width: 100, height: 100, altTextDescription: '로고' },
+        { id: 'sh4', name: '글상자 4', type: 'TextBox', text: '각주', left: 10, top: 350, width: 200, height: 30, altTextDescription: null },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: '제목 및 내용', placeholders: ['title', 'body'] }] }],
+  });
+
+  const out = await new OfficeHand({ run: stubRunner(mixed(), []), supports: () => true, document: 'doc-1' })
+    .run('read_slide', { slide: 1 });
+  ok('표·그림이 섞인 장도 읽힌다', out.result.shapes.length === 4, `${out.result.shapes.length}개`);
+  ok('자리표시자의 역할은 그대로 온다',
+    out.result.shapes[0].placeholder === 'title', String(out.result.shapes[0].placeholder));
+  // **자리표시자가 아닌 것은 `null` 이다** — 「역할이 없다」가 사실이고, 지어낸 역할보다 낫다.
+  ok('자리표시자가 아닌 것은 역할이 없다고 적는다',
+    out.result.shapes.slice(1).every((s) => s.placeholder === null),
+    JSON.stringify(out.result.shapes.map((s) => s.placeholder)));
+  ok('나머지 값은 다 살아 온다',
+    out.result.shapes[1].name === '표 2' && out.result.shapes[2].alt === '로고'
+      && out.result.shapes[3].text === '각주',
+    JSON.stringify(out.result.shapes.map((s) => s.name)));
+
+  // 같은 함정이 **새 장을 채울 때**도 있었다. 레이아웃이 로고 그림을 얹어 두면 그 도형에서
+  // 묶음이 죽고, 제목도 본문도 안 들어간 채 성공으로 보고된다.
+  {
+    const mm = mixed();
+    mm.masters[0].layouts = [{ id: 'l1', name: '표지', placeholders: ['title'] }];
+    const log = [];
+    const out2 = await new OfficeHand({ run: stubRunner(mm, log), supports: () => true })
+      .run('add_slide', { layout: '표지', title: '표지 제목' });
+    ok('레이아웃에서 만든 장도 제목이 들어간다',
+      out2.result.filled.join(',') === 'title', JSON.stringify(out2.result));
   }
 }
 
