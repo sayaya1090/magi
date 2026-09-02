@@ -321,6 +321,31 @@ func catalogue() []tool {
 			Required: []string{"text"},
 		},
 		{
+			Name: "read_tags",
+			Desc: "Notes you left on a slide or shape earlier, stored INSIDE the deck. This is your memory " +
+				"between conversations: shape ids are bare numbers and a slide read tells you nothing about " +
+				"which box you made or why, so a few turns later you cannot tell your own work from the " +
+				"person's. Read these before rearranging a slide you may have built. Omit shape_id to get the " +
+				"slide's own notes plus every shape on it that carries any." + declare,
+			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "Read one shape's notes instead of the whole slide."}),
+			Required: []string{},
+			ReadOnly: true,
+		},
+		{
+			Name: "set_tag",
+			Desc: "Leave a note on a slide or shape that stays in the FILE. Invisible to anyone looking at " +
+				"the deck — it is not speaker notes and never shows on screen, in presenter view or in print. " +
+				"Use it for what you will want to know later and cannot recover: that you created this shape, " +
+				"what the person asked for when you did, which of several boxes is the one they called \"the " +
+				"summary\". Keep values short. Omit value to delete the note." + declare,
+			Props: withSlide(
+				property{Name: "key", Type: "string", Desc: "Name of the note. PowerPoint stores keys upper-cased, and the answer gives them back as stored."},
+				property{Name: "value", Type: "string", Desc: "What to remember. Omit to delete this note."},
+				property{Name: "shape_id", Type: "string", Desc: "Put it on one shape instead of the slide."},
+			),
+			Required: []string{"key"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

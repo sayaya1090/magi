@@ -62,7 +62,7 @@ export class OfficeHand extends HandPort {
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
-      'set_notes', 'read_notes'];
+      'set_notes', 'read_notes', 'set_tag', 'read_tags'];
   }
 
   #envelope(result, changed = []) {
@@ -159,6 +159,8 @@ export class OfficeHand extends HandPort {
       case 'add_image': return this.#addImage(args);
       case 'set_notes': return this.#setNotes(args);
       case 'read_notes': return this.#readNotes(args);
+      case 'set_tag': return this.#setTag(args);
+      case 'read_tags': return this.#readTags(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -1657,6 +1659,96 @@ export class OfficeHand extends HandPort {
         lines: text === '' ? 0 : text.split(/\r?\n/).length,
       }, [`슬라이드 ${wasAt + 1} 의 발표자 노트를 ${made ? '새로 적었습니다' : '고쳤습니다'} — `
         + `이 장은 다시 지어졌으므로 **id 가 ${got.slide.id} 에서 ${fresh.id} 로 바뀌었습니다**`]);
+    });
+  }
+
+  /**
+   * **덱 안에 남는 메모** — 슬라이드나 도형에 붙이는 키/값.
+   *
+   * # 무엇에 쓰나
+   *
+   * 지금 에이전트는 몇 턴만 지나면 **어느 상자를 자기가 만들었고 왜 만들었는지 모른다.** 「아까
+   * 그 표」가 어느 것인지도 모른다 — 도형 id 는 숫자일 뿐이고 슬라이드를 다시 읽어도 그 숫자가
+   * 무엇이었는지는 안 적혀 있다.
+   *
+   * 태그가 그 기억을 **덱 안에** 둔다. 대화가 바뀌어도, 파일을 닫았다 열어도 남는다 — 대화는
+   * 세션의 것이고 태그는 **덱의 것**이다.
+   *
+   * # 왜 노트가 아닌가
+   *
+   * 노트는 **발표자 화면에 뜨고 유인물에 인쇄된다.** 에이전트의 메모를 거기 적으면 그 사람이
+   * 실제로 발표할 때 그 문장이 뜬다. 태그는 파일에만 있고 화면 어디에도 안 나온다.
+   *
+   * # 값을 지어내지 않는다
+   *
+   * PowerPoint 는 키를 **대문자로 바꿔** 저장한다(문서에 그렇게 적혀 있고 실물에서도 그렇다).
+   * 우리가 소문자로 준 키를 소문자로 되돌려 주면 사람은 그 키로 다시 못 찾는다 — **저장된
+   * 그대로** 준다.
+   */
+  #setTag(args) {
+    return this.runner(async (context) => {
+      const key = String(args.key ?? '').trim();
+      if (!key) throw new Error('어느 이름으로 붙일지 key 를 주세요');
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      await context.sync();
+
+      const on = args.shape_id
+        ? slide.shapes.getItem(String(args.shape_id))
+        : slide;
+      const gone = args.value === null || args.value === undefined;
+      if (gone) {
+        // **비우는 것이 지우는 것이다.** 빈 값을 남겨 두면 「없음」과 「빈 글」이 두 상태가 되는데
+        // 사람에게는 같은 뜻이고 우리에게만 다르다.
+        on.tags.delete(key);
+      } else {
+        on.tags.add(key, String(args.value));
+      }
+      await context.sync();
+      this.#mutated();
+      const where = args.shape_id ? `도형 ${args.shape_id}` : `슬라이드 ${slide.id}`;
+      return this.#envelope({
+        slide: (slide.index ?? 0) + 1, slide_id: slide.id,
+        shape_id: args.shape_id ?? null, key, removed: gone,
+      }, [`${where} 에 메모를 ${gone ? '지웠습니다' : '붙였습니다'} — ${key}`]);
+    });
+  }
+
+  /**
+   * 붙어 있는 메모를 읽는다.
+   *
+   * 도형을 안 짚으면 **슬라이드의 것과 그 장 모든 도형의 것**을 같이 준다 — 「이 장에 내가 뭘
+   * 적어 뒀더라」가 이 도구를 부르는 이유이고, 도형마다 따로 물으면 왕복이 도형 수만큼 든다.
+   */
+  #readTags(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      slide.tags.load('items/key,items/value');
+      const one = args.shape_id ? slide.shapes.getItem(String(args.shape_id)) : null;
+      if (one) one.tags.load('items/key,items/value');
+      let shapes = null;
+      if (!one) {
+        shapes = slide.shapes;
+        shapes.load('items/id,items/name,items/tags/items/key,items/tags/items/value');
+      }
+      await context.sync();
+
+      const pairs = (coll) => (coll?.items ?? []).map((t) => ({ key: t.key, value: t.value }));
+      if (one) {
+        return this.#envelope({
+          slide: (slide.index ?? 0) + 1, slide_id: slide.id,
+          shape_id: String(args.shape_id), tags: pairs(one.tags),
+        });
+      }
+      const onShapes = (shapes?.items ?? [])
+        .map((sh) => ({ shape_id: sh.id, name: sh.name, tags: pairs(sh.tags) }))
+        .filter((row) => row.tags.length > 0);
+      return this.#envelope({
+        slide: (slide.index ?? 0) + 1, slide_id: slide.id,
+        tags: pairs(slide.tags),
+        shapes: onShapes,
+      });
     });
   }
 

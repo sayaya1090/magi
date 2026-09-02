@@ -68,6 +68,36 @@ function reveal(target, path) {
   reveal(target[head], rest.join('/'));
 }
 
+// 덱 안에 남는 메모. **키를 대문자로 바꿔 저장하는 것까지** 흉내 낸다 — 실물이 그렇고,
+// 소문자로 되돌려 주는 스텁 위에서는 「돌려받은 키로 다시 찾을 수 있다」가 여기서만 참이 된다.
+function makeTags(raw, pending, log, who) {
+  const rows = [];
+  const coll = new Loaded({ items: rows }, pending);
+  coll.itemsView = [];
+  const refresh = () => {
+    rows.length = 0;
+    coll.itemsView.length = 0;
+    for (const [key, value] of Object.entries(raw.tags ?? {})) {
+      const row = { key, value };
+      rows.push(row);
+      coll.itemsView.push(new Loaded(row, pending));
+    }
+  };
+  refresh();
+  coll.add = (k, v) => {
+    raw.tags = raw.tags ?? {};
+    raw.tags[String(k).toUpperCase()] = String(v);
+    log.push(`tag+:${who}:${String(k).toUpperCase()}=${v}`);
+    refresh();
+  };
+  coll.delete = (k) => {
+    log.push(`tag-:${who}:${String(k).toUpperCase()}`);
+    if (raw.tags) delete raw.tags[String(k).toUpperCase()];
+    refresh();
+  };
+  return coll;
+}
+
 class StubShape extends Loaded {
   constructor(raw, pending, log) {
     super(raw, pending);
@@ -77,6 +107,7 @@ class StubShape extends Loaded {
     // **자리표시자가 아닌 도형에 이 칸을 걸면 호스트가 묶음 전체를 죽인다.** 실물에서 잰 것이라
     // (2026-09-02: 표가 있는 장에서 `read_slide` 가 GeneralException) 스텁도 그렇게 군다 —
     // 안 그러면 이 시험은 우리가 안 겪을 세상만 잰다.
+    this.tags = makeTags(raw, pending, log, raw.id);
     this.placeholderFormat = new Loaded(raw.placeholderFormat ?? {}, pending);
     this.placeholderFormat.load = (spec) => {
       if (String(raw.type ?? '').toLowerCase() !== 'placeholder') pending.push(['__throw__', 'GeneralException']);
@@ -156,6 +187,7 @@ function stubRunner(model, log = []) {
       const view = new Loaded(s, pending);
       view.itemsView = null;
       view.shapes = makeShapes(s, pending, log);
+      view.tags = makeTags(s, pending, log, s.id);
       view.getImageAsBase64 = () => ({ value: 'PNGBASE64' });
       view.exportAsBase64 = () => ({ value: model.exported ?? 'PPTXBASE64' });
       view.applyLayout = (id) => log.push(`layout:${s.id}:${id}`);
@@ -1806,6 +1838,124 @@ async function makeZip(files) {
     ok('비전 모델만 본다고 적혀 있다', /vision model/i.test(desc));
     ok('대신 무엇을 쓰라고 적혀 있다', /read_slide/.test(desc));
     ok('안 바뀐 장은 거절된다고 적혀 있다', /refused/.test(desc));
+  }
+}
+
+// ── 덱 안에 남는 메모 ────────────────────────────────────────────────────────
+//
+// 대화는 세션의 것이고 태그는 **덱의 것**이다. 몇 턴만 지나면 에이전트는 어느 상자를 자기가
+// 만들었는지 모르고, 다음 대화에서는 아예 모른다 — 도형 id 는 숫자일 뿐이라 슬라이드를 다시
+// 읽어도 안 적혀 있다. 이 메모가 그 기억을 파일 안에 둔다.
+//
+// **실물에서 먼저 쟀다**(2026-09-03): 붙고, 저장·종료·재열기를 넘어 남고, `ppt/tags/tag1.xml`
+// 로 파일 안에 실제로 들어간다. 아래는 그 성질을 우리 가지에 고정한다.
+{
+  const deck = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: 'L' },
+      shapes: [
+        { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 0, top: 0, width: 10, height: 10, altTextDescription: null },
+        { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 0, top: 0, width: 10, height: 10, altTextDescription: null },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+  });
+  const handOn = (model, log = []) => [
+    new OfficeHand({ run: stubRunner(model, log), supports: () => true, document: 'd' }), log];
+
+  // 붙인 것이 **픽스처에 남는다.** 로그만 남기면 「붙였다」와 「붙였다고 적기만 했다」가 같아진다.
+  {
+    const model = deck();
+    const [hand] = handOn(model);
+    const was = hand.count;
+    const out = await hand.run('set_tag', { slide: 1, key: 'magi.why', value: '요약 상자를 부탁받음' });
+    ok('장에 붙인 메모가 덱에 남는다', model.slides[0].tags?.['MAGI.WHY'] === '요약 상자를 부탁받음',
+      JSON.stringify(model.slides[0].tags ?? null));
+    ok('키는 실물처럼 대문자로 저장된다', !('magi.why' in (model.slides[0].tags ?? {})));
+    ok('메모도 덱을 건드린 것으로 센다', hand.count > was, `${was} → ${hand.count}`);
+    ok('지운 것이 아니라고 적는다', out.result.removed === false);
+  }
+
+  // 도형에 붙이면 **그 도형에** 남는다 — 장에 붙는 것과 섞이면 「이 상자는 내가 만들었다」가
+  // 장 전체에 대한 말이 되어 버린다.
+  {
+    const model = deck();
+    const [hand] = handOn(model);
+    await hand.run('set_tag', { slide: 1, shape_id: 'b', key: 'made', value: '이 턴' });
+    ok('도형에 붙인 메모는 그 도형의 것이다', model.slides[0].shapes[1].tags?.MADE === '이 턴');
+    ok('옆 도형에는 안 묻는다', model.slides[0].shapes[0].tags === undefined);
+    ok('장에도 안 묻는다', model.slides[0].tags === undefined);
+  }
+
+  // **비우는 것이 지우는 것이다.** 빈 값을 남기면 「없음」과 「빈 글」이 두 상태가 되는데
+  // 사람에게는 같은 뜻이고 우리에게만 다르다.
+  {
+    const model = deck();
+    const [hand] = handOn(model);
+    await hand.run('set_tag', { slide: 1, key: 'k', value: 'v' });
+    const out = await hand.run('set_tag', { slide: 1, key: 'k' });
+    ok('값을 안 주면 지운다', !('K' in (model.slides[0].tags ?? {})),
+      JSON.stringify(model.slides[0].tags ?? null));
+    ok('지웠다고 적는다', out.result.removed === true);
+  }
+
+  // 이름 없이 붙일 수는 없다. **거절은 무엇을 달라는지 말한다.**
+  {
+    const [hand] = handOn(deck());
+    const why = await threw(() => hand.run('set_tag', { slide: 1, value: 'v' }));
+    ok('이름 없는 메모는 거절한다', why?.includes('key'), String(why));
+  }
+
+  // 읽기: 도형을 안 짚으면 **장의 것과 메모가 붙은 도형들**을 같이 준다. 「이 장에 내가 뭘
+  // 적어 뒀더라」가 이 도구를 부르는 이유이고, 도형마다 따로 물으면 왕복이 도형 수만큼 든다.
+  {
+    const model = deck();
+    const [hand] = handOn(model);
+    await hand.run('set_tag', { slide: 1, key: 'why', value: '부탁' });
+    await hand.run('set_tag', { slide: 1, shape_id: 'a', key: 'made', value: '이 턴' });
+    const out = await hand.run('read_tags', { slide: 1 });
+    ok('장의 메모를 준다', out.result.tags?.[0]?.key === 'WHY' && out.result.tags[0].value === '부탁',
+      JSON.stringify(out.result.tags));
+    ok('메모가 붙은 도형만 싣는다', out.result.shapes?.length === 1 && out.result.shapes[0].shape_id === 'a',
+      JSON.stringify(out.result.shapes));
+    ok('그 도형의 이름도 같이 준다 — 숫자만으로는 어느 상자인지 모른다',
+      out.result.shapes[0].name === 'ㄱ');
+
+    const one = await hand.run('read_tags', { slide: 1, shape_id: 'a' });
+    ok('도형을 짚으면 그 도형 것만 준다', one.result.tags?.[0]?.key === 'MADE' && !one.result.shapes,
+      JSON.stringify(one.result));
+  }
+
+  // 아무것도 안 붙은 장을 읽는 것은 **실패가 아니다.** 빈 목록이다.
+  {
+    const [hand] = handOn(deck());
+    const out = await hand.run('read_tags', { slide: 1 });
+    ok('빈 장은 빈 목록으로 답한다', Array.isArray(out.result.tags) && out.result.tags.length === 0
+      && out.result.shapes.length === 0, JSON.stringify(out.result));
+  }
+
+  // 읽기는 **덱을 안 건드린다** — 건드린 것으로 세면 `render_slide` 가 안 바뀐 장을 다시 그린다.
+  {
+    const [hand] = handOn(deck());
+    const was = hand.count;
+    await hand.run('read_tags', { slide: 1 });
+    ok('읽기는 개정을 안 올린다', hand.count === was, `${was} → ${hand.count}`);
+  }
+
+  // 두 손이 **같은 것을 가르쳐야** 브라우저에서 배운 키가 실물에서 맞는다.
+  {
+    const fake = new FakeHand({
+      slides: [{ id: 'f1', index: 0, layout: { name: 'L' }, shapes: [{ id: 'x', name: 'ㄱ', type: 'GeometricShape', text: '' }] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    });
+    const put = await fake.run('set_tag', { slide: 1, key: 'magi.why', value: '부탁' });
+    ok('가짜 손도 키를 대문자로 저장한다', put.result.key === 'MAGI.WHY', put.result.key);
+    const got = await fake.run('read_tags', { slide: 1 });
+    ok('가짜 손도 붙인 것을 돌려준다', got.result.tags?.[0]?.key === 'MAGI.WHY',
+      JSON.stringify(got.result.tags));
+    await fake.run('set_tag', { slide: 1, key: 'magi.why' });
+    const gone = await fake.run('read_tags', { slide: 1 });
+    ok('가짜 손도 값을 안 주면 지운다', gone.result.tags.length === 0, JSON.stringify(gone.result.tags));
   }
 }
 

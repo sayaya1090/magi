@@ -38,7 +38,7 @@ export class FakeHand extends HandPort {
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
-      'set_notes', 'read_notes'];
+      'set_notes', 'read_notes', 'set_tag', 'read_tags'];
   }
 
   /**
@@ -462,6 +462,43 @@ export class FakeHand extends HandPort {
           lines: slide.notes === '' ? 0 : slide.notes.split(/\r?\n/).length,
         }, [`슬라이드 ${this.model.slides.indexOf(slide) + 1} 의 발표자 노트를 `
           + `${made ? '새로 적었습니다' : '고쳤습니다'} — id 가 ${was} 에서 ${slide.id} 로 바뀌었습니다`]);
+      }
+
+      case 'set_tag': {
+        const slide = this.#slide(args);
+        const key = String(args.key ?? '').trim();
+        if (!key) throw new Error('어느 이름으로 붙일지 key 를 주세요');
+        const on = args.shape_id ? this.#shape(slide, args.shape_id) : slide;
+        on.tags = on.tags ?? {};
+        const gone = args.value === null || args.value === undefined;
+        // **실물처럼 대문자로 저장한다** — 소문자로 되돌려 주면 이 화면에서 배운 키가
+        // 실물에서 안 맞는다.
+        const stored = key.toUpperCase();
+        if (gone) delete on.tags[stored];
+        else on.tags[stored] = String(args.value);
+        this.#mutated();
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+          shape_id: args.shape_id ?? null, key: stored, removed: gone,
+        }, [`메모를 ${gone ? '지웠습니다' : '붙였습니다'} — ${stored}`]);
+      }
+      case 'read_tags': {
+        const slide = this.#slide(args);
+        const pairs = (o) => Object.entries(o ?? {}).map(([key, value]) => ({ key, value }));
+        if (args.shape_id) {
+          const sh = this.#shape(slide, args.shape_id);
+          return this.#envelope({
+            slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+            shape_id: String(args.shape_id), tags: pairs(sh.tags),
+          });
+        }
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+          tags: pairs(slide.tags),
+          shapes: slide.shapes
+            .map((sh) => ({ shape_id: sh.id, name: sh.name, tags: pairs(sh.tags) }))
+            .filter((r) => r.tags.length > 0),
+        });
       }
 
       case 'snapshot_slide': {
