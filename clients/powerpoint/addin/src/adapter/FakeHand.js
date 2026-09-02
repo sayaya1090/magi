@@ -111,6 +111,9 @@ export class FakeHand extends HandPort {
         return this.#envelope({
           slide: this.model.slides.indexOf(slide) + 1,
           slide_id: slide.id,
+          // 가짜 덱은 늘 첫 장을 보고 있다고 친다 — 실물과 같은 칸을 내야 이 화면에서 배운 것이
+          // 실물에서도 맞는다.
+          current: this.model.slides.indexOf(slide) === 0,
           layout: slide.layout ?? '제목 및 내용',
           shapes: slide.shapes.map((s) => ({
             shape_id: s.id, name: s.name, type: s.type, text: s.text,

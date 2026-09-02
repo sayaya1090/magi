@@ -1989,6 +1989,51 @@ async function makeZip(files) {
       `${Object.keys(out.result).sort()} vs ${Object.keys(fake.result).sort()}`);
   }
 
+  // ── 읽은 장이 「보고 있는 장」인지도 적는다 ───────────────────────────────
+  //
+  // 실물 로그에서 봤다(2026-09-02): 모델이 한 부탁을 처리하면서 17번 → 15번 → 17번 장을
+  // 오갔고, 이미 그 자리인 도형을 (60,255) → (60,255) 로 또 옮겼다. 사람은 한 장을 보고
+  // 있었는데 모델에게는 **자기가 지금 어느 장을 만지는지 알 길이 없었다.**
+  //
+  // 목차에도 표시를 넣었지만(list_slides) 목차를 안 부르고 바로 읽는 길이 있고, 이 도구가
+  // 방향을 잡는 자리다. 같은 묶음에 실으므로 왕복은 안 는다.
+  {
+    const deck = () => ({
+      slides: [0, 1].map((i) => ({
+        id: `s${i + 1}`, index: i, layout: { name: 'L' },
+        shapes: [{ id: '2', name: 'ㄱ', type: 'GeometricShape', text: 'ㄱ', left: 0, top: 0, width: 10, height: 10, altTextDescription: null }],
+      })),
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    });
+
+    const looking = deck();
+    looking.selected = [looking.slides[1]];
+    const hand = () => new OfficeHand({ run: stubRunner(looking, []), supports: () => true, document: 'd' });
+
+    const here = await hand().run('read_slide', { slide: 2 });
+    ok('보고 있는 장을 읽으면 그렇다고 적는다', here.result.current === true,
+      JSON.stringify(here.result.current));
+
+    const there = await hand().run('read_slide', { slide: 1 });
+    ok('다른 장을 읽으면 아니라고 적는다', there.result.current === false,
+      JSON.stringify(there.result.current));
+
+    // **모르면 안 싣는다.** 거짓으로 「맞다」고 적으면 모델은 엉뚱한 장을 고치면서 맞게 하고
+    // 있다고 믿는다.
+    const blind = deck();
+    blind.selected = [];
+    const out = await new OfficeHand({ run: stubRunner(blind, []), supports: () => true, document: 'd' })
+      .run('read_slide', { slide: 1 });
+    ok('고른 것이 없으면 그 칸이 없다', out.result.current === undefined,
+      JSON.stringify(out.result.current));
+
+    // 가짜 손도 같은 칸을 낸다.
+    const fake = await new FakeHand({ slides: [
+      { id: 'a', layout: 'L', shapes: [] }, { id: 'b', layout: 'L', shapes: [] },
+    ] }).run('read_slide', { slide: 2 });
+    ok('가짜 손도 그 칸을 낸다', fake.result.current === false, JSON.stringify(fake.result.current));
+  }
+
   // ── 맞췄더니 포개졌으면 그렇게 적는다 ─────────────────────────────────────
   //
   // 실물에서 봤다(2026-09-02). 가로로 늘어선 상자 셋에 사람이 「줄 맞춰 줘」라고 했고 모델이

@@ -222,6 +222,13 @@ export class OfficeHand extends HandPort {
   #readSlide(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
+      // **이 장이 사람이 보고 있는 장인가.** 같은 묶음에 실으므로 왕복이 안 는다.
+      //
+      // 실물에서 봤다(2026-09-02): 모델이 한 부탁을 처리하면서 17번 → 15번 → 17번 장을 오갔다.
+      // 사람은 한 장을 보고 있었는데, 모델에게는 자기가 지금 어느 장을 만지는지 알 길이 없었다.
+      // 목차에 표시를 넣었지만 목차를 안 부르는 길이 있고, 이 도구가 방향을 잡는 자리다.
+      const picked = context.presentation.getSelectedSlides();
+      picked.load('items/id');
       const shapes = slide.shapes;
       // ⚠ **`placeholderFormat` 을 여기서 같이 안 읽는다.** 자리표시자가 아닌 도형(표·그림·
       // 텍스트 상자)에 그 칸을 걸면 호스트가 `GeneralException` 을 던지고 **묶음 전체가**
@@ -279,6 +286,11 @@ export class OfficeHand extends HandPort {
       return this.#envelope({
         slide: (slide.index ?? 0) + 1,
         slide_id: slide.id,
+        // 사람이 지금 보고 있는 장인가. **모르면 안 싣는다** — 거짓으로 「맞다」고 적으면 모델은
+        // 엉뚱한 장을 고치면서 맞게 하고 있다고 믿는다.
+        ...((picked.items ?? []).length
+          ? { current: (picked.items ?? []).some((v) => String(v.id) === String(slide.id)) }
+          : {}),
         layout: slide.layout?.name ?? null,
         text_unavailable: textUnavailable,
         shapes: shapes.items.map((s, i) => ({

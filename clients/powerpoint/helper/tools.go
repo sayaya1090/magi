@@ -227,7 +227,7 @@ func catalogue() []tool {
 		},
 		{
 			Name: "move_shape",
-			Desc: "Move or resize one shape. Units are points, the same units read_slide reports.",
+			Desc: "Move or resize ONE shape. Units are points, the same units read_slide reports. To line SEVERAL shapes up or space them out, call align_shapes instead of moving them one at a time: it works from their real positions, asks once rather than once per shape, moves only what has to move, and says so when the result made them overlap. Moving shapes one by one to line them up is how a row ends up crooked — the coordinates have to be guessed, and a guess a few points off looks like a bug to the person watching.",
 			Props: withSlide(
 				property{Name: "shape_id", Type: "string", Desc: "The shape to move."},
 				property{Name: "left", Type: "number", Desc: "New left edge in points."},
