@@ -163,6 +163,23 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
 }
 .linky:hover, .linky:focus-visible { color: var(--accent); text-decoration: underline; }
 
+/* 늘 지킬 것 — 접혀 있는 판. 세로가 귀하므로(§3) 열었을 때만 자리를 쓴다. */
+.rules { padding: 0 var(--s4) var(--s3); }
+.rules h2 { font: var(--t-subtitle); font-weight: 600; margin: 0 0 var(--s1); }
+.rules-why { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.rules-text {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font: var(--t-body); color: var(--fg);
+  background: var(--bg-sub); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s2);
+}
+.rules-row { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s2); }
+.rules-save {
+  font: var(--t-body); color: var(--accent-fg); background: var(--accent);
+  border: 0; border-radius: var(--r-md); padding: var(--s1) var(--s3); cursor: pointer;
+}
+.rules-note { font: var(--t-caption); color: var(--muted); margin: var(--s2) 0 0; }
+
 /* 한 줄이 카드다. 이름 → 곁말 → 사유 → 단추 순서로 읽히게 세로로 쌓는다. */
 .pick-row {
   display: flex; flex-direction: column; gap: var(--s1);

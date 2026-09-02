@@ -2889,6 +2889,39 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('못 훑은 것도 그릴 때만 적는다', /if \(show\) \{/.test(failPath), failPath.slice(0, 60));
   }
 
+  // ── 늘 지킬 것 ────────────────────────────────────────────────────────────
+  //
+  // 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」. 이런 것은 부탁이 아니라 **취향이고**
+  // **규칙**이라, 대화마다 다시 말하게 하면 사람이 지친다 — 그리고 지치면 안 말하게 되고,
+  // 안 말하면 결과가 매번 조금씩 다르다.
+  //
+  // Claude for PowerPoint 의 「Instructions」와 같은 자리다(2026-09-02 비교). 우리는 그 글을
+  // 컴패니언 워크스페이스의 AGENTS.md 로 보내고, magi 가 그것을 매 턴 시스템 프롬프트에 넣는다.
+  {
+    const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+    ok('늘 지킬 것 단추가 있다', /id="rules"/.test(html));
+    ok('적는 자리가 있다', /id="rules-text"/.test(html));
+    ok('처음에는 접혀 있다', /id="rules-panel"[^>]*hidden/.test(html),
+      html.slice(html.indexOf('id="rules-panel"'), html.indexOf('id="rules-panel"') + 60));
+    // **어디에 걸리는지 화면이 적는다.** 파워포인트에만 걸린다는 것을 모르면, 사람은 이 글이
+    // 자기 저장소 에이전트까지 바꾸는 줄 안다.
+    ok('매번 함께 간다고 적는다', /매번/.test(html) && /파워포인트에서만/.test(html));
+
+    const open = /#rules'\)\?\.addEventListener[\s\S]*?\n    \}\);/.exec(src)?.[0] ?? '';
+    ok('열면 지금 적힌 것을 읽어 온다', /api\.rules\(\)/.test(open), open.slice(0, 60));
+    ok('적혀 있던 것을 그대로 보여 준다', /rulesText\.value = got\?\.text/.test(open));
+
+    // **못 읽었으면 빈 칸을 보여 주지 않는다.** 빈 칸은 「아무것도 안 적혀 있다」는 거짓말이고,
+    // 그 위에 저장을 누르면 적어 둔 규칙이 날아간다 — 이 저장소가 최악이라고 적은 그 모양이다.
+    ok('못 읽었으면 저장을 막는다', /rulesText\.disabled = true/.test(open), open.slice(-200));
+    ok('막은 이유를 적는다', /덮어쓰게 되므로/.test(open));
+
+    const save = /#rules-save'\)\?\.addEventListener[\s\S]*?\n    \}\);/.exec(src)?.[0] ?? '';
+    ok('저장하는 자리가 있다', /api\.setRules\(/.test(save), save.slice(0, 60));
+    // **언제부터 듣는지 적는다.** 「저장했습니다」만 적으면 사람은 지금 도는 턴에도 걸리는 줄 안다.
+    ok('헬퍼가 준 안내를 그대로 적는다', /out\?\.note/.test(save));
+  }
+
   // ── 새 대화로 빠져나갈 길이 있다 ──────────────────────────────────────────
   //
   // 파워포인트 컴패니언은 워크스페이스가 하나라 대화도 하나이고, 그 하나가 **영원히 쌓인다.**

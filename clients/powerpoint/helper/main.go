@@ -219,6 +219,7 @@ func (a *API) boltOf(socket, url, token string) ([]string, error) {
 func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/own", a.guard(a.own))
 	mux.HandleFunc("/api/fresh", a.guard(a.fresh))
+	mux.HandleFunc("/api/instructions", a.guard(a.instructions))
 	mux.HandleFunc("/api/companions", a.guard(a.companions))
 	mux.HandleFunc("/api/choose", a.guard(a.choose))
 	mux.HandleFunc("/api/submit", a.guard(a.submit))
@@ -414,6 +415,42 @@ func (a *API) stillOurs(socket string) bool {
 	}
 	_ = cl.Close()
 	return true
+}
+
+// instructions 는 **한 번 적어 두면 매번 지켜지는 말**을 읽고 쓴다(instructions.go).
+//
+// GET 은 지금 적혀 있는 것, POST 는 새로 적는 것. 빈 글을 보내면 지운다.
+//
+// **덱마다가 아니라 파워포인트 전체에 걸린다.** 파일이 컴패니언의 워크스페이스에 있고 그
+// 워크스페이스가 파워포인트 몫이기 때문이다 — 엑셀이나 저장소 컴패니언은 이 글을 안 본다.
+func (a *API) instructions(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		text, err := ReadInstructions(a.ConfigDir)
+		if err != nil {
+			writeStatus(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"text": text, "path": instructionsFile(a.ConfigDir)})
+		return
+	}
+	var in struct {
+		Text string `json:"text"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	text, err := WriteInstructions(a.ConfigDir, in.Text)
+	if err != nil {
+		writeStatus(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		return
+	}
+	// **언제부터 듣는지 말한다.** 「저장했습니다」만 적으면 사람은 방금 그 말이 지금 도는 턴에도
+	// 걸리는 줄 안다. 다음 부탁부터다.
+	note := "적어 뒀습니다 — 다음 부탁부터 이 말이 매번 함께 갑니다."
+	if text == "" {
+		note = "지웠습니다 — 다음 부탁부터는 이 말이 안 갑니다."
+	}
+	writeJSON(w, map[string]any{"text": text, "path": instructionsFile(a.ConfigDir), "note": note})
 }
 
 // fresh 는 **새 대화를 연다** — 「얘가 이상해요」의 탈출구.

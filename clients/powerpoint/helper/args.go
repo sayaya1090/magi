@@ -33,6 +33,26 @@ func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 		}
 	}
 
+	// **안 준 것과 `null` 은 같은 뜻이다.**
+	//
+	// JSON 을 짓는 모델은 선택 인자를 생략하는 대신 `null` 로 채우는 일이 잦다 — 스키마의 칸을
+	// 하나씩 훑으며 값을 넣기 때문이다. 그리고 `document: null` 은 `document` 를 안 준 것과
+	// **뜻이 정확히 같다**: 어느 쪽이든 「붙어 있는 그 판」이다.
+	//
+	// 앞 판본은 그것을 型 오류로 되받았다. 실물에서 그 화면을 봤다(2026-09-02): 사람이 「4분기
+	// 계획이라는 제목으로 새 장 하나 만들어 줘」라고 했고 모델은 전부 옳게 했는데 —
+	// `add_slide{document:null, layout:null, at:null, title:"[4분기 계획]"}` — 호출이
+	// `"document" must be a string (got null)` 로 튕겼고, 장은 안 생겼다. 사람은 아무 일도 안
+	// 일어난 화면을 봤다.
+	//
+	// **필수 칸의 `null` 은 그대로 거절한다.** 아래 필수 검사가 「없음」으로 읽고 이름을 대어
+	// 말한다 — 그쪽은 진짜로 빠뜨린 것이고, 지어내 주면 안 되는 자리다.
+	for k, v := range args {
+		if v == nil {
+			delete(args, k)
+		}
+	}
+
 	known := map[string]property{documentProp.Name: documentProp}
 	for _, p := range t.Props {
 		known[p.Name] = p

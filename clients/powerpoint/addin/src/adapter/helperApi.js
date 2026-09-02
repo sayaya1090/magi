@@ -55,6 +55,12 @@ export class HelperApi {
    */
   fresh() { return this.#send('/api/fresh', { body: {} }); }
 
+  /** 늘 지킬 것을 읽는다. 아직 아무것도 안 적은 것은 **실패가 아니다.** */
+  rules() { return this.#send('/api/instructions', { method: 'GET' }); }
+
+  /** 늘 지킬 것을 적는다. 빈 글이면 지운다. */
+  setRules(text) { return this.#send('/api/instructions', { body: { text } }); }
+
   choose(socket, session) { return this.#send('/api/choose', { body: { socket, session } }); }
   submit(text) { return this.#send('/api/submit', { body: { text } }); }
   steer(text) { return this.#send('/api/steer', { body: { text } }); }

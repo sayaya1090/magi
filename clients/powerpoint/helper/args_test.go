@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,62 @@ func TestDocumentIsReadOffTheArguments(t *testing.T) {
 	}
 	if got := documentOf(map[string]any{}); got != "" {
 		t.Errorf("생략은 빈 문자열이어야 한다(활성 문서), got %q", got)
+	}
+}
+
+// **안 준 것과 `null` 은 같은 뜻이다.**
+//
+// JSON 을 짓는 모델은 선택 인자를 생략하는 대신 null 로 채우는 일이 잦다 — 스키마의 칸을 하나씩
+// 훑으며 값을 넣기 때문이다. 실물에서 그 화면을 봤다(2026-09-02): 사람이 「4분기 계획이라는
+// 제목으로 새 장 하나 만들어 줘」라고 했고 모델은 전부 옳게 했는데(늘 지킬 것까지 지켜
+// title 을 "[4분기 계획]" 으로 지었다) 호출이 「"document" must be a string (got null)」로
+// 튕겼다. 장은 안 생겼고 사람은 아무 일도 안 일어난 화면을 봤다.
+func TestANullOptionalMeansItWasNotGiven(t *testing.T) {
+	tl := tool{
+		Name: "add_slide",
+		Props: []property{
+			{Name: "layout", Type: "string"},
+			{Name: "title", Type: "string"},
+			{Name: "at", Type: "integer"},
+			{Name: "match_style", Type: "boolean"},
+		},
+	}
+	args, err := validateArgs(tl, json.RawMessage(
+		`{"document":null,"layout":null,"at":null,"match_style":true,"title":"[4분기 계획]"}`))
+	if err != nil {
+		t.Fatalf("null 을 型 오류로 되받았다 — 모델은 다 옳게 했는데 아무 일도 안 일어난다: %v", err)
+	}
+	for _, gone := range []string{"document", "layout", "at"} {
+		if _, ok := args[gone]; ok {
+			t.Fatalf("null 인 %q 를 값으로 넘겼다 — 손이 그것을 진짜 값으로 읽는다: %v", gone, args)
+		}
+	}
+	if args["title"] != "[4분기 계획]" || args["match_style"] != true {
+		t.Fatalf("진짜로 준 값까지 지웠다: %v", args)
+	}
+}
+
+// **필수 칸의 null 은 그대로 거절한다.** 그쪽은 진짜로 빠뜨린 것이고, 지어내 주면 안 된다.
+func TestANullRequiredIsStillMissing(t *testing.T) {
+	tl := tool{
+		Name:     "set_text",
+		Props:    []property{{Name: "shape_id", Type: "string"}, {Name: "text", Type: "string"}},
+		Required: []string{"shape_id", "text"},
+	}
+	_, err := validateArgs(tl, json.RawMessage(`{"shape_id":"2","text":null}`))
+	if err == nil {
+		t.Fatal("필수 칸이 null 인데 받아 줬다")
+	}
+	if !strings.Contains(err.Error(), "text") {
+		t.Fatalf("어느 칸이 빠졌는지 안 알려 준다: %v", err)
+	}
+}
+
+// 값이 있는 칸은 여전히 型을 본다 — null 을 봐준다고 아무 값이나 받는 것은 아니다.
+func TestARealTypeMismatchIsStillRefused(t *testing.T) {
+	tl := tool{Name: "add_slide", Props: []property{{Name: "at", Type: "integer"}}}
+	_, err := validateArgs(tl, json.RawMessage(`{"at":"세 번째"}`))
+	if err == nil {
+		t.Fatal("정수 자리에 글을 받아 줬다")
 	}
 }

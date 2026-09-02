@@ -71,8 +71,28 @@
     -->
     <div id="advanced" class="advanced" hidden>
       <button type="button" id="fresh" class="linky">새 대화 시작</button>
+      <button type="button" id="rules" class="linky">늘 지킬 것</button>
       <button type="button" id="repick" class="linky">다른 컴패니언에 붙이기</button>
     </div>
+
+    <!--
+      **한 번 적어 두면 매번 지켜지는 말.** 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」 —
+      이런 것은 부탁이 아니라 취향이고 규칙이라, 대화마다 다시 말하게 하면 사람이 지친다.
+      그리고 지치면 안 말하게 되고, 안 말하면 결과가 매번 조금씩 다르다.
+
+      접혀 있다. 대개의 사람은 이 판을 안 열어도 되고, 여는 사람은 찾아서 연다.
+    -->
+    <section id="rules-panel" class="rules" hidden>
+      <h2>늘 지킬 것</h2>
+      <p class="rules-why">여기 적어 두면 <strong>매번</strong> 함께 갑니다. 파워포인트에서만 걸립니다.</p>
+      <textarea id="rules-text" class="rules-text" rows="6"
+        placeholder="예) 불릿은 한 줄로. 강조는 #1F4E79 로. 표는 머리글을 굵게."></textarea>
+      <div class="rules-row">
+        <button type="button" id="rules-save" class="rules-save">저장</button>
+        <button type="button" id="rules-close" class="linky">닫기</button>
+      </div>
+      <p id="rules-note" class="rules-note" hidden></p>
+    </section>
 
     <!-- 스트림 자체에 대한 말. 대화가 조용한 것과 스트림이 죽은 것은 화면에서 똑같이 생겼다. -->
     <div id="stream" class="stream" hidden></div>

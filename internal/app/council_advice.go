@@ -230,6 +230,9 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		// The same durable instructions the agent was given. A gate that cannot see them reads
+		// obedience as deviation — see DeliberationRequest.Standing.
+		Standing:     a.projectMemory(s.Workdir),
 		Declared:     complete,
 		NoChanges:    strings.TrimSpace(changes) == "",
 		Members:      members,

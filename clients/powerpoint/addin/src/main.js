@@ -294,6 +294,61 @@ async function boot() {
     });
 
     /**
+     * **늘 지킬 것** — 한 번 적어 두면 매번 지켜지는 말.
+     *
+     * 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」. 이런 것은 부탁이 아니라 **취향이고**
+     * **규칙**이라, 대화마다 다시 말하게 하면 사람이 지친다. 그리고 지치면 안 말하게 되고,
+     * 안 말하면 결과가 매번 조금씩 다르다 — 발표 자료에서 그건 눈에 띈다.
+     *
+     * 적어 둔 글은 컴패니언 워크스페이스의 `AGENTS.md` 로 가고, magi 가 그것을 **매 턴**
+     * 시스템 프롬프트에 넣는다. 우리가 매번 실어 보내는 것이 아니다.
+     */
+    const rulesPanel = document.querySelector('#rules-panel');
+    const rulesText = document.querySelector('#rules-text');
+    const rulesNote = document.querySelector('#rules-note');
+    const sayRules = (msg) => {
+      if (!rulesNote) return;
+      rulesNote.textContent = msg ?? '';
+      rulesNote.hidden = !msg;
+    };
+    document.querySelector('#rules')?.addEventListener('click', () => {
+      void (async () => {
+        if (!rulesPanel) return;
+        if (!rulesPanel.hidden) { rulesPanel.hidden = true; return; }
+        rulesPanel.hidden = false;
+        sayRules('');
+        try {
+          const got = await api.rules();
+          // **적혀 있던 것을 그대로 보여 준다.** 빈 칸으로 열면 사람은 자기가 적어 둔 것이
+          // 사라진 줄 알고, 저장을 누르면 진짜로 사라진다.
+          if (rulesText) rulesText.value = got?.text ?? '';
+          if (got?.path) sayRules(`이 파일에 있습니다: ${got.path}`);
+        } catch (e) {
+          // 못 읽었으면 **빈 칸을 보여 주지 않는다** — 빈 칸은 「아무것도 안 적혀 있다」는
+          // 거짓말이고, 그 위에 저장을 누르면 적어 둔 것이 날아간다.
+          if (rulesText) rulesText.disabled = true;
+          sayRules(`지금 읽지 못했습니다: ${e?.message ?? e}. 저장하면 덮어쓰게 되므로 막아 뒀습니다.`);
+        }
+      })();
+    });
+    document.querySelector('#rules-close')?.addEventListener('click', () => {
+      if (rulesPanel) rulesPanel.hidden = true;
+    });
+    document.querySelector('#rules-save')?.addEventListener('click', () => {
+      void (async () => {
+        try {
+          const out = await api.setRules(rulesText?.value ?? '');
+          if (rulesText) rulesText.value = out?.text ?? '';
+          // **언제부터 듣는지 적는다.** 「저장했습니다」만 적으면 사람은 지금 도는 턴에도
+          // 걸리는 줄 안다.
+          sayRules(out?.note ?? '적어 뒀습니다.');
+        } catch (e) {
+          sayRules(`저장하지 못했습니다: ${e?.message ?? e}`);
+        }
+      })();
+    });
+
+    /**
      * **새 대화.** 채팅을 쓰는 사람은 누구나 아는 그 단추다.
      *
      * 파워포인트 컴패니언은 워크스페이스가 하나라 대화도 하나이고, 그 하나가 영원히 쌓인다.

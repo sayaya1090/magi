@@ -79,7 +79,7 @@ type App struct {
 	meetingRounds atomic.Int64
 
 	memMu         sync.Mutex
-	memCache      map[string]string       // workdir -> durable AGENTS.md memory
+	memCache      map[string]memoryOf     // workdir -> durable AGENTS.md memory, with the file state it was read from
 	skillCache    map[string][]port.Skill // workdir -> loaded skills
 	skillCacheSig map[string]string       // workdir -> source-dir mtime signature (invalidates skillCache)
 
