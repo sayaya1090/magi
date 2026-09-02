@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
+import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 
@@ -1988,6 +1989,120 @@ async function makeZip(files) {
       JSON.stringify(Object.keys(out.result).sort())
         === JSON.stringify(Object.keys(fake.result).sort()),
       `${Object.keys(out.result).sort()} vs ${Object.keys(fake.result).sort()}`);
+  }
+
+  // ── 차트 부품을 지을 줄 안다 ──────────────────────────────────────────────
+  //
+  // 사각형을 여러 개 그려도 막대그래프처럼 보이게 만들 수는 있다. 그런데 그건 **덫**이다 —
+  // 나중에 숫자 하나를 고치려는 사람이 사각형을 손으로 끌어야 하고, 그때야 그게 차트가
+  // 아니었다는 것을 안다. 이 저장소가 제일 싫어하는 모양(그럴듯한데 아닌 것)이라, 할 거면
+  // 진짜를 넣는다.
+  //
+  // 여기 있는 것은 전부 **Office 없이 값으로 잴 수 있는** 부분이다. 호스트가 이 XML 을 실제로
+  // 어떻게 읽는지는 5층이 잰다.
+  {
+    const spec = {
+      kind: '막대', title: '분기 매출',
+      categories: ['1분기', '2분기', '3분기'],
+      series: [{ name: '매출', values: [10, 20, 15] }],
+    };
+    const xml = chartPart(spec);
+
+    ok('차트 부품이 XML 선언으로 시작한다', xml.startsWith('<?xml'), xml.slice(0, 20));
+    ok('막대 차트다', xml.includes('<c:barChart>') && xml.includes('<c:barDir val="col"/>'));
+    ok('제목이 들어간다', xml.includes('<a:t>분기 매출</a:t>'));
+
+    // **값이 캐시로 박힌다.** 품은 시트가 없으므로 이것이 유일한 자료다 — 빠지면 빈 차트가 뜬다.
+    ok('항목이 캐시에 다 들어간다',
+      ['1분기', '2분기', '3분기'].every((c) => xml.includes('<c:v>' + c + '</c:v>')));
+    ok('값이 캐시에 다 들어간다',
+      ['10', '20', '15'].every((v) => xml.includes('<c:v>' + v + '</c:v>')));
+    ok('항목 수를 적는다', xml.includes('<c:ptCount val="3"/>'));
+
+    // 축이 있어야 막대가 선다. 원 차트에는 없어야 한다.
+    ok('막대에는 축이 있다', xml.includes('<c:catAx>') && xml.includes('<c:valAx>'));
+    const pie = chartPart({ ...spec, kind: '원', series: [{ name: '몫', values: [1, 2, 3] }] });
+    ok('원에는 축이 없다', !pie.includes('<c:catAx>') && !pie.includes('<c:axId'));
+    ok('원에는 범례가 붙는다', pie.includes('<c:legend>'));
+
+    // 계열이 하나면 범례가 군더더기다 — 세 값짜리 막대에 「매출」 한 줄만 뜬다.
+    ok('계열 하나짜리 막대에는 범례를 안 붙인다', !xml.includes('<c:legend>'));
+    const two = chartPart({ ...spec, series: [
+      { name: '매출', values: [1, 2, 3] }, { name: '비용', values: [4, 5, 6] }] });
+    ok('둘부터는 범례를 붙인다', two.includes('<c:legend>'));
+    ok('두 계열이 다른 열을 가리킨다',
+      two.includes('$B$2:$B$4') && two.includes('$C$2:$C$4'),
+      'C 열을 안 가리킨다');
+
+    // **수가 안 맞으면 지어내지 않는다.** 모자란 자리를 0 으로 채우면 그래프에 없는 골이
+    // 생기고, 사람은 그것을 자료로 읽는다.
+    let why = null;
+    try { chartPart({ ...spec, series: [{ name: '매출', values: [1, 2] }] }); }
+    catch (e) { why = e.message; }
+    ok('값 수가 항목 수와 다르면 거절한다', why?.includes('수가 같아야'), why);
+    ok('어느 계열인지 이름을 댄다', why?.includes('매출'), why);
+
+    why = null;
+    try { chartPart({ ...spec, categories: [] }); } catch (e) { why = e.message; }
+    ok('항목이 없으면 거절한다', why?.includes('categories'), why);
+
+    why = null;
+    try { chartPart({ ...spec, kind: '원',
+      series: [{ name: 'a', values: [1, 2, 3] }, { name: 'b', values: [1, 2, 3] }] }); }
+    catch (e) { why = e.message; }
+    ok('원 차트에 계열 여럿은 거절한다', why?.includes('하나만'), why);
+
+    // 모르는 이름은 **갈음하지 않고** 아는 것을 알려 준다.
+    why = null;
+    try { chartKind('물방울'); } catch (e) { why = e.message; }
+    ok('모르는 차트는 아는 것을 알려 준다',
+      why?.includes('세로 막대') && why?.includes('꺾은선'), why);
+
+    ok('한국어 이름이 통한다', chartKind('꺾은선').tag === 'lineChart');
+    ok('영어 이름도 통한다', chartKind('LINE').tag === 'lineChart');
+    ok('가로막대는 방향이 다르다', chartKind('가로막대').dir === 'bar');
+
+    // XML 에 넣으면 안 되는 글자는 다듬는다 — 안 다듬으면 파일이 통째로 안 열린다.
+    ok('꺾쇠와 앰퍼샌드를 다듬는다', xmlText('a<b>&c') === 'a&lt;b&gt;&amp;c', xmlText('a<b>&c'));
+    const risky = chartPart({ ...spec, title: '매출 & <이익>' });
+    ok('제목의 특수문자도 다듬는다', risky.includes('매출 &amp; &lt;이익&gt;'), 'title');
+
+    // 틀은 pt 를 EMU 로 바꾼다 — 1pt = 12700 EMU.
+    const frame = chartFrame({ id: 5, name: '차트 1', relId: 'rId9',
+      left: 100, top: 50, width: 400, height: 300 });
+    ok('틀이 EMU 로 자리를 적는다',
+      frame.includes('x="1270000"') && frame.includes('cx="5080000"'), frame.slice(0, 200));
+    ok('틀이 차트 관계를 가리킨다', frame.includes('r:id="rId9"'));
+
+    // 끼우는 셋 — 관계·콘텐츠 형식·도형 나무.
+    const rels = '<?xml version="1.0"?><Relationships xmlns="x">'
+      + '<Relationship Id="rId1" Type="t" Target="a"/></Relationships>';
+    const withRel = withRelationship(rels, 'rId9', '../charts/chart1.xml');
+    ok('관계가 끼워진다',
+      withRel.includes('Id="rId9"') && withRel.includes('../charts/chart1.xml'));
+    ok('있던 관계는 그대로다', withRel.includes('Id="rId1"'));
+    ok('두 번 넣지 않는다',
+      withRelationship(withRel, 'rId9', '../charts/chart1.xml') === withRel);
+
+    const ct = '<?xml version="1.0"?><Types xmlns="x">'
+      + '<Default Extension="xml" ContentType="a"/></Types>';
+    const withCt = withContentType(ct, '/ppt/charts/chart1.xml');
+    ok('콘텐츠 형식이 끼워진다',
+      withCt.includes('/ppt/charts/chart1.xml') && withCt.includes('chart+xml'));
+    ok('콘텐츠 형식도 두 번 안 넣는다',
+      withContentType(withCt, '/ppt/charts/chart1.xml') === withCt);
+
+    const slide = '<p:sld><p:cSld><p:spTree><p:sp>있던 도형</p:sp></p:spTree></p:cSld></p:sld>';
+    const withIt = withFrame(slide, '<p:graphicFrame/>');
+    ok('틀이 도형 나무 안에 들어간다',
+      withIt.indexOf('<p:graphicFrame/>') < withIt.indexOf('</p:spTree>'), withIt);
+    // **있던 도형을 안 지운다.** 「차트를 넣어 달랬더니 있던 것이 사라졌다」가 되면 안 된다.
+    ok('있던 도형이 그대로다', withIt.includes('<p:sp>있던 도형</p:sp>'));
+
+    // 모양이 예상과 다르면 **조용히 넘어가지 않는다** — 안 열리는 파일이 나온다.
+    why = null;
+    try { withFrame('<p:sld/>', '<p:graphicFrame/>'); } catch (e) { why = e.message; }
+    ok('도형 나무가 없으면 말한다', why?.includes('p:spTree'), why);
   }
 
   // ── zip 을 쓸 줄 안다 ─────────────────────────────────────────────────────

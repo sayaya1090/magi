@@ -259,6 +259,26 @@ func catalogue() []tool {
 			Required: []string{"how"},
 		},
 		{
+			Name: "add_chart",
+			Desc: "Put a NATIVE PowerPoint chart on a new slide — a real chart object the person can restyle, " +
+				"not a picture and not a pile of rectangles. Give it the categories and the numbers; it wears this " +
+				"deck's theme because it is built from one of its slides. It lands on a NEW slide and touches " +
+				"nothing that was already there. One thing it cannot do: the chart carries its numbers inside " +
+				"itself rather than in the little spreadsheet PowerPoint usually attaches, so \"Edit Data\" will not " +
+				"open — say so when you report it, and call this tool again to change a number." + declare,
+			Props: withSlide(
+				property{Name: "kind", Type: "string", Desc: "bar/column (vertical bars), hbar (horizontal), line, pie — Korean names work too (막대·가로막대·꺾은선·원). Default bar. An unknown name is refused with the list, never swapped for something close."},
+				property{Name: "title", Type: "string", Desc: "Chart title. Omit for none."},
+				property{Name: "categories", Type: "array", Items: "string", Desc: "The labels along the category axis (\"1분기\", \"2분기\", …). Required."},
+				property{Name: "series", Type: "array", Items: "object", Desc: "One entry per line/bar set: {name, values}. values must have exactly as many numbers as there are categories — a mismatch is refused rather than padded, because a padded zero reads as real data. A pie takes exactly one series."},
+				property{Name: "left", Type: "number", Desc: "Position in points (default 60)."},
+				property{Name: "top", Type: "number", Desc: "Position in points (default 90)."},
+				property{Name: "width", Type: "number", Desc: "Size in points (default 840)."},
+				property{Name: "height", Type: "number", Desc: "Size in points (default 400)."},
+			),
+			Required: []string{"categories", "series"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

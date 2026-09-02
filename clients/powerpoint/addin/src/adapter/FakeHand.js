@@ -1,6 +1,7 @@
 import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
 import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
+import { chartPart, chartKind } from './chartxml.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -36,7 +37,7 @@ export class FakeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table'];
+      'duplicate_slide', 'replace_table', 'add_chart'];
   }
 
   /**
@@ -396,6 +397,28 @@ export class FakeHand extends HandPort {
           },
           lines);
       }
+      case 'add_chart': {
+        // **값 검사는 진짜 손과 같은 함수가 한다** — 두 곳에서 따로 재면 브라우저에서 통과한
+        // 것이 실물에서 거절당한다.
+        const kind = chartKind(args.kind ?? 'bar');
+        chartPart({
+          kind: args.kind ?? 'bar', title: args.title,
+          categories: args.categories, series: args.series,
+        });
+        const slide = {
+          id: `sl-chart${this.nextId++}`, layout: '차트',
+          shapes: [{ id: 'chart-1', name: args.title ?? '차트', type: 'Chart', text: '' }],
+        };
+        this.model.slides.push(slide);
+        this.#mutated();
+        return this.#envelope({
+          slide: this.model.slides.length, slide_id: slide.id, chart: kind.ko,
+          categories: args.categories.length, series: args.series.length,
+          data_sheet: false,
+        }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
+          + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)']);
+      }
+
       case 'snapshot_slide': {
         const slide = this.#slide(args);
         const id = `snap-${this.nextId++}`;

@@ -1,5 +1,9 @@
 import { HandPort } from '../port/HandPort.js';
-import { fromBase64, zipEntries, zipRead } from './zip.js';
+import { fromBase64, zipEntries, zipRead, zipReadBytes } from './zip.js';
+import { zipStore, toBase64 } from './zipwrite.js';
+import {
+  chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame,
+} from './chartxml.js';
 
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
@@ -53,7 +57,7 @@ export class OfficeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table'];
+      'duplicate_slide', 'replace_table', 'add_chart'];
   }
 
   #envelope(result, changed = []) {
@@ -146,6 +150,7 @@ export class OfficeHand extends HandPort {
       case 'add_slides': return this.#addSlides(args);
       case 'delete_slide': return this.#deleteSlide(args);
       case 'duplicate_slide': return this.#duplicateSlide(args);
+      case 'add_chart': return this.#addChart(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -1253,6 +1258,125 @@ export class OfficeHand extends HandPort {
    * 계약이고(기본값이 KeepSourceFormatting), Learn 예제의 `useDestinationTheme` 을 베끼면
    * 복제본이 테마를 새로 입고 나온다. `restore_slide` 가 같은 이유로 같은 선택을 한다.
    */
+  /**
+   * **네이티브 차트를 새 장에 넣는다.**
+   *
+   * # 왜 새 장인가
+   *
+   * 1.8 의 객체 모델에는 차트를 놓는 문이 없다. 있는 문은 **슬라이드를 통째로 넣는 것**뿐이라
+   * (`insertSlidesFromBase64`), 있는 장에 끼워 넣으려면 그 장을 지우고 다시 지어야 한다 —
+   * `replace_table` 이 그렇게 하고, 그래서 그 도구는 **id 가 바뀐다**고 적는다.
+   *
+   * 차트는 그럴 이유가 없다. 새 장에 놓으면 **아무것도 안 부순다.** 사람이 그 차트를 다른 장에
+   * 옮기고 싶으면 PowerPoint 에서 잘라 붙이면 되고, 그건 잘 하는 일이다.
+   *
+   * # 어떻게 짓는가
+   *
+   * 이 덱의 장 하나를 떠서(`exportAsBase64`) **뼈대로 쓴다.** 그 안에 테마·마스터·레이아웃이
+   * 다 들어 있으므로 우리가 지을 필요가 없고, 무엇보다 **이 덱의 테마**를 그대로 입는다.
+   * 거기서 도형만 걷어 내고 차트 틀을 놓는다.
+   *
+   * # 데이터 시트는 없다
+   *
+   * PowerPoint 의 차트는 보통 `.xlsx` 를 품고 다니고 「데이터 편집」이 그것을 연다. 우리는 값을
+   * 차트 안에 캐시로 박으므로 그 시트가 없다 — 차트는 제대로 그려지고 서식도 다 만질 수 있지만
+   * 「데이터 편집」은 안 열린다. **그 사실을 결과가 적는다.** 안 적으면 사람은 눌러 보고 나서야
+   * 알게 되고, 그때는 이미 그 차트로 자료를 다 만든 뒤다.
+   */
+  #addChart(args) {
+    return this.runner(async (context) => {
+      // 값부터 본다 — **덱을 건드리기 전에 거절할 수 있으면 거절한다.**
+      const kind = chartKind(args.kind ?? 'bar');
+      const xml = chartPart({
+        kind: args.kind ?? 'bar',
+        title: args.title,
+        categories: args.categories,
+        series: args.series,
+      });
+
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      const packed = slide.exportAsBase64();
+      await context.sync();
+
+      const raw = fromBase64(packed.value);
+      const { entries } = zipEntries(raw);
+      const files = [];
+      let slideName = '';
+      let relsName = '';
+      let typesName = '';
+      for (const e of entries) {
+        if (/^ppt\/slides\/slide\d+\.xml$/.test(e.name)) slideName = e.name;
+        else if (/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(e.name)) relsName = e.name;
+        else if (e.name === '[Content_Types].xml') typesName = e.name;
+        files.push({ name: e.name, data: await zipReadBytes(raw, e.name) });
+      }
+      // **못 찾으면 지어내지 않는다.** 모양이 예상과 다른 덱에 손대면 안 열리는 파일이 나온다.
+      for (const [what, name] of [['슬라이드', slideName], ['관계', relsName], ['콘텐츠 형식', typesName]]) {
+        if (!name) {
+          throw new Error(`뜬 슬라이드 꾸러미에서 ${what} 파일을 못 찾았습니다 — 이 덱의 모양이 예상과 달라 차트를 못 넣습니다`);
+        }
+      }
+
+      const dec = new TextDecoder();
+      const at = (name) => files.find((f) => f.name === name);
+      // 뼈대만 쓴다: 있던 도형은 걷어 내고 차트만 놓는다. 자리표시자까지 그대로 두면 「제목을
+      // 입력하십시오」가 차트 옆에 남는다.
+      let slideXml = dec.decode(at(slideName).data)
+        .replace(/<p:sp>[\s\S]*?<\/p:sp>/g, '')
+        .replace(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g, '')
+        .replace(/<p:pic>[\s\S]*?<\/p:pic>/g, '');
+
+      const relId = 'rIdChart1';
+      const frame = chartFrame({
+        id: 2, name: args.title ? String(args.title) : '차트', relId,
+        left: Number(args.left ?? 60), top: Number(args.top ?? 90),
+        width: Number(args.width ?? 840), height: Number(args.height ?? 400),
+      });
+      slideXml = withFrame(slideXml, frame);
+
+      const enc = new TextEncoder();
+      at(slideName).data = enc.encode(slideXml);
+      at(relsName).data = enc.encode(
+        withRelationship(dec.decode(at(relsName).data), relId, '../charts/chart1.xml'));
+      at(typesName).data = enc.encode(
+        withContentType(dec.decode(at(typesName).data), '/ppt/charts/chart1.xml'));
+      files.push({ name: 'ppt/charts/chart1.xml', data: enc.encode(xml) });
+
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+      const before = slides.items.map((s) => s.id);
+
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(files)),
+        { targetSlideId: slide.id });
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      const made = slides.items.find((s) => !before.includes(s.id));
+      this.#mutated();
+      if (!made) {
+        // **자리를 짐작해 「넣었습니다」라고 답하지 않는다.** `duplicate_slide` 도 같은 자리에서
+        // 던지고, 던지는 쪽이 맞다.
+        throw new Error('차트를 넣었는데 덱에서 새 장을 못 찾았습니다 — '
+          + '넣기가 안 먹었을 수 있으니 목차를 다시 읽어 확인하세요');
+      }
+      return this.#envelope({
+        slide: (made.index ?? 0) + 1,
+        slide_id: made.id,
+        chart: kind.ko,
+        categories: args.categories.length,
+        series: args.series.length,
+        // **못 하는 것을 미리 적는다.** 눌러 보고 나서 알면 늦다.
+        data_sheet: false,
+      }, [`슬라이드 ${(made.index ?? 0) + 1}(id ${made.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
+        + `항목 ${args.categories.length}개 · 계열 ${args.series.length}개. `
+        + '값은 차트 안에 들어 있어 서식은 다 만질 수 있지만, '
+        + '**「데이터 편집」은 안 열립니다**(품은 표가 없습니다) — 숫자를 고치려면 이 도구로 다시 만드세요.']);
+    });
+  }
+
   #duplicateSlide(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
