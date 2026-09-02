@@ -1083,6 +1083,43 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.locator("#log .row").nth(0).getAttribute("data-mark") shouldBe "m0"
             }
         }
+        When("전사가 창보다 훨씬 길어지면 — 400행") {
+            // 전사는 끝없이 자란다. 전부를 DOM에 두면 새 행 하나가 붙을 때마다 브라우저가 그
+            // 전부를 다시 레이아웃하고, 긴 세션에서 화면이 굳는 이유가 그것이다. 그래서 끝의
+            // 일부만 두고 그 앞은 높이만 차지하는 상자로 대신한다.
+            val many = (1..400).joinToString(",") { """{"who":"assistant","text":"row $it"}""" }
+            page.evaluate("""window.__magi_test_transcript('[$many]')""")
+            page.waitForCondition { page.locator("#log .row").count() < 400 }
+            Then("페이지에 서는 행은 창만큼이다 — 400이 아니라 200 부근") {
+                val n = page.locator("#log .row").count()
+                withClue("DOM 행 수 $n — 창(150)+여유(50)를 넘으면 잘라내기가 안 돈 것이다") {
+                    (n <= 200) shouldBe true
+                }
+                withClue("DOM 행 수 $n — 너무 적으면 읽을 것이 없다") { (n >= 100) shouldBe true }
+            }
+            Then("없는 행을 대신하는 상자가 서고, 높이를 가진다") {
+                // 이 높이가 스크롤바를 정직하게 만드는 유일한 것이다. 없으면 400행짜리 대화가
+                // 한 화면짜리라고 주장하는 스크롤바를 달고 선다.
+                page.locator("#log .above").count() shouldBe 1
+                val h = page.evaluate("document.querySelector('#log .above').getBoundingClientRect().height")
+                withClue("상자 높이 $h") { ((h as Number).toDouble() > 0) shouldBe true }
+            }
+            Then("맨 끝 행이 서 있다 — 창은 전사의 끝을 보여 준다") {
+                page.locator("#log .row").last().textContent() shouldContain "row 400"
+            }
+            Then("행 재사용이 창 안에서도 살아 있다") {
+                // 창을 넣다가 재사용을 깨면 지금은 아무도 안 운다 — 그래서 여기서 잰다.
+                page.evaluate("document.querySelectorAll('#log .row').forEach((n,i)=>{n.dataset.wmark='w'+i})")
+                val grown = (1..401).joinToString(",") { """{"who":"assistant","text":"row $it"}""" }
+                page.evaluate("""window.__magi_test_transcript('[$grown]')""")
+                page.waitForCondition { page.locator("#log .row").last().textContent().contains("row 401") }
+                val marked = page.evaluate(
+                    "Array.from(document.querySelectorAll('#log .row')).filter(n=>n.dataset.wmark).length")
+                withClue("표가 남은 노드 $marked — 0이면 창이 움직일 때마다 전부 다시 짓는 것이다") {
+                    ((marked as Number).toInt() > 0) shouldBe true
+                }
+            }
+        }
         When("컴패니언이 답하기를 멈추면") {
             // 명단에 있다는 것과 답한다는 것은 다른 사실이다(AgentStates.answering).
             page.evaluate("window.__magi_test_fleet('idle', 's_now', false)")

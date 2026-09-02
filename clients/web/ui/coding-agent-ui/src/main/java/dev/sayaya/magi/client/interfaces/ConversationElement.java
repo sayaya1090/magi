@@ -10,6 +10,7 @@ import dev.sayaya.magi.bridge.Prefs;
 import dev.sayaya.magi.bridge.Stylesheet;
 import dev.sayaya.magi.client.domain.Moves;
 import dev.sayaya.magi.client.domain.Rows;
+import dev.sayaya.magi.client.domain.Window;
 import dev.sayaya.magi.client.usecase.CompanionStore;
 import elemental2.core.JsDate;
 import elemental2.dom.DomGlobal;
@@ -38,7 +39,7 @@ import static dev.sayaya.magi.bridge.Labels.tr;
  *
  * 한때 잔여로 적혀 있던 다섯은 다 착지했고 재 두었다(CodingScreenTest): 마크다운(같은 렉서를
  * 물고 노드로 조립 — href 검사·raw HTML은 글자), 툴 행 펼침(요약=마크+이름+인자+답 첫 줄,
- * 속=물은 것·답한 것, 실패는 열려 도착), 행 재사용 윈도우잉(위치별 {@code drawn}/{@code sigs} —
+ * 속=물은 것·답한 것, 실패는 열려 도착), 행 재사용(위치별 {@code drawn}/{@code sigs} —
  * 같은 말이면 그 노드를 그대로 둔다), 워크스페이스 판(WorkspaceElement), 접히는 사실판(그것은
  * 여기가 아니라 부모 companion-ui의 DetailElement 몫이다 — 이 파일에 적혀 있던 것이 잘못이다).
  *
@@ -75,6 +76,8 @@ public class ConversationElement {
         // 기준 상자가 되는 순간 기둥 폭짜리가 된다. 그건 창의 것이고, 켜는 사실(turn 프레임)도
         // 이미 셸에 와 있다(shell-ui TurnbarElement).
         log.id = "log";
+        spacer.className = "above";
+        spacer.setAttribute("aria-hidden", "true");
         past.id = "agentdetail";
         past.setAttribute("hidden", "");
         // 가운데 기둥에 놓는 것: 전사와, 그것을 대신하는 지난 일 층위. 사실판은 부모의 것이고
@@ -99,6 +102,9 @@ public class ConversationElement {
         // 컴포저가 말하는 것도 달라져야 한다.
         store.aimed().subscribe(row -> { aimed = row; reach(); });
         store.onRows(this::paintRows);
+        // 창 위에 닿는 것이 더 달라는 말이다 — 두 상자 모두에, passive 로.
+        DomGlobal.window.addEventListener("scroll", evt -> reachedUp(), passive());
+        log.addEventListener("scroll", evt -> reachedUp(), passive());
         store.onPast(this::paintPast);
         store.onSub(this::paintSub);
     }
@@ -772,11 +778,41 @@ public class ConversationElement {
         }
     }
 
-    /** 지금 서 있는 행들과 그 말 — 자리로 견주기 위한 것(운영의 shownRows). */
+    /**
+     * 지금 서 있는 행들과 그 말 — 자리로 견주기 위한 것(운영의 shownRows).
+     *
+     * <b>창 상대 인덱스다.</b> 0번은 전사의 첫 행이 아니라 {@link #winFrom}번 행이다. 절대
+     * 인덱스로 두면 창이 움직이는 순간 두 리스트가 전사와 어긋나고, 어긋난 채로도 화면은
+     * 그럴듯하게 그려진다 — 그래서 이 한 줄이 이 파일에서 제일 조심할 자리다.
+     */
     private final java.util.List<HTMLElement> drawn = new java.util.ArrayList<>();
     private final java.util.List<String> sigs = new java.util.ArrayList<>();
 
-    private void forgetDrawn() { drawn.clear(); sigs.clear(); }
+    /** 페이지에 있는 가장 오래된 행의 <b>절대</b> 인덱스. 그 앞은 spacer가 대신한다. */
+    private int winFrom = 0;
+    /** winFrom 앞 전부의 높이(px). spacer가 이만큼 자리를 차지해 스크롤바를 정직하게 만든다. */
+    private double above = 0;
+    /** 창이 들 의향 — CAP에서 시작해 REACH만큼씩 자라고, 같은 대화에서는 줄지 않는다. */
+    private int keepRows = Window.CAP;
+    /** 내보낸 행의 실측 높이를 절대 인덱스로 기억한다 — 되찾을 때 넣은 만큼 정확히 뺀다. */
+    private final java.util.Map<Integer, Double> droppedH = new java.util.HashMap<>();
+    /**
+     * 없는 것을 대신하는 상자. 높이가 스크롤바를 정직하게 만드는 유일한 것이고, 스크롤바를
+     * 긴 대화의 가운데로 끌고 간 사람이 착지하는 자리이기도 하다.
+     */
+    private final HTMLElement spacer = el("div");
+
+    private void forgetDrawn() {
+        drawn.clear();
+        sigs.clear();
+        // 창도 같이 잊는다. 안 그러면 다음 컴패니언이 남의 spacer 높이를 물려받아, 짧은 대화가
+        // 긴 대화인 척하는 스크롤바를 달고 선다.
+        winFrom = 0;
+        above = 0;
+        keepRows = Window.CAP;
+        droppedH.clear();
+        spacer.remove();
+    }
 
     /**
      * 마지막으로 받은 행 — 답이 끊긴 동안에도 쥐고 있는다. 흘려보내면 돌아왔을 때
@@ -808,15 +844,44 @@ public class ConversationElement {
         if (sig.equals(lastSig)) return;
         lastSig = sig;
         boolean stick = atBottom();
+        int total = rows.getLength();
+        // 창이 이번 프레임에 어디서 시작하는가. 셈은 domain/Window가 한다.
+        int target = Window.nextFrom(total, winFrom, keepRows);
+        // 나가는 행: 높이를 <b>지금</b> 재서 기억하고 위쪽 상자에 더한다. 그린 적 없는 행은
+        // 잴 것이 없으므로 가정 높이로 센다(긴 전사의 첫 프레임이 그 경우다).
+        for (int i = winFrom; i < target; i++) {
+            int at = i - winFrom;
+            HTMLElement n = at < drawn.size() ? drawn.get(at) : null;
+            double h = n != null && n.offsetHeight > 0 ? n.offsetHeight
+                     : droppedH.getOrDefault(i, (double) Window.GUESS);
+            droppedH.put(i, h);
+            above += h;
+        }
+        // 되찾는 행: 넣은 만큼 빼야 하는데, 기록값으로 빼면 어긋난다. 되돌아온 행은 아래에서
+        // 페이지에 들어간 뒤 <b>실측</b>으로 뺀다(실측: 기록값이면 한 번에 2,500px, 실측이면 ~600px).
+        int recovered = Math.max(0, winFrom - target);
+        if (target != winFrom) {
+            // 창이 움직이면 창 상대 인덱스가 통째로 어긋난다 — 재사용 목록을 버리고 다시 짓는다.
+            // 드물다(청크로만 움직인다), 그리고 어긋난 채로 그리는 것보다 싸다.
+            for (HTMLElement n : drawn) n.remove();
+            drawn.clear();
+            sigs.clear();
+            winFrom = target;
+        }
+        HTMLElement box = Js.uncheckedCast(scroller());
+        double wasAt = box == null ? 0 : box.scrollTop, wasTall = box == null ? 0 : box.scrollHeight;
         // 자리로 견주어 <b>달라진 행만</b> 짓는다(운영 draw()의 그 규칙).
         //
         // 전사는 한 턴씩 자라고, 통째로 다시 그리면 자란 것 하나 때문에 이미 읽고 있던 행이
         // 전부 새 노드가 된다 — 펼쳐 둔 툴 결과가 접히고, 고르던 글자가 풀리고, 브라우저는
         // 매 프레임 화면 전체를 다시 칠한다(실측: 10초에 49번, 그중 새 행은 여섯).
-        for (int i = 0; i < rows.getLength(); i++) {
+        int firstChanged = -1;
+        for (int i = winFrom; i < total; i++) {
+            int at = i - winFrom;
             JsPropertyMap<Object> row = Js.uncheckedCast(rows.getAt(i));
-            HTMLElement had = i < drawn.size() ? drawn.get(i) : null;
-            if (had != null && want[i].equals(sigs.get(i))) continue;   // 같은 말이면 그대로 둔다
+            HTMLElement had = at < drawn.size() ? drawn.get(at) : null;
+            if (had != null && want[i].equals(sigs.get(at))) continue;   // 같은 말이면 그대로 둔다
+            if (firstChanged < 0) firstChanged = at;
             HTMLElement made = rowNode(row);
             if (had == null) {
                 log.append(made);
@@ -824,16 +889,65 @@ public class ConversationElement {
                 sigs.add(want[i]);
             } else {
                 had.replaceWith(made);
-                drawn.set(i, made);
-                sigs.set(i, want[i]);
+                drawn.set(at, made);
+                sigs.set(at, want[i]);
             }
         }
         // 남은 것은 이제 없는 행이다(전사가 짧아지는 자리: 컴패니언을 옮기거나 접었을 때).
-        for (int i = drawn.size() - 1; i >= rows.getLength(); i--) {
-            drawn.remove(i).remove();
-            sigs.remove(i);
+        for (int at = drawn.size() - 1; at >= total - winFrom; at--) {
+            drawn.remove(at).remove();
+            sigs.remove(at);
         }
+        // 되돌아온 행의 실제 높이만큼 위쪽 상자를 줄인다 — 페이지에 들어간 뒤라야 잴 수 있다.
+        for (int k = 0; k < recovered && k < drawn.size(); k++) {
+            HTMLElement n = drawn.get(k);
+            double h = n.offsetHeight > 0 ? n.offsetHeight
+                     : droppedH.getOrDefault(winFrom + k, (double) Window.GUESS);
+            above = Math.max(0, above - h);
+        }
+        // 상자 높이는 <b>다시 재기 전에</b> 정한다. 나중에 정하면 되돌아온 행이 이미 문서를
+        // 키웠는데 상자는 옛 자리를 주장하고 있어, 그 유령 성장만큼 독자가 밀린다.
+        if (above > 0) spacer.style.setProperty("height", above + "px");
+        else spacer.style.removeProperty("height");
+        if (above > 0 && spacer.parentNode != log) log.insertBefore(spacer, log.firstChild);
+        else if (above <= 0) spacer.remove();
+        // 위에서 높이가 바뀌면 그 아래 전부가 움직인다 — 읽던 사람이 다른 자리에 가 있게 된다.
         if (stick) toBottom();
+        else if (box != null && firstChanged == 0 && box.scrollHeight != wasTall) {
+            box.scrollTop = wasAt + (box.scrollHeight - wasTall);
+        }
+    }
+
+    /**
+     * 스크롤 리스너는 passive 다 — 이 손은 스크롤을 막지 않는다.
+     *
+     * 안 적으면 브라우저는 preventDefault를 부를지 모른다고 보고 스크롤을 이 콜백 뒤로 미룬다.
+     * 손가락으로 미는 화면에서 그것은 곧바로 끊김으로 보인다.
+     */
+    private static elemental2.dom.AddEventListenerOptions passive() {
+        elemental2.dom.AddEventListenerOptions o = elemental2.dom.AddEventListenerOptions.create();
+        o.setPassive(true);
+        return o;
+    }
+
+    /**
+     * 독자가 창 위에 닿았다 — 그것이 더 달라는 말이다.
+     *
+     * 단추가 아니라 스크롤로 받는다: 위에 있는 것은 검색 결과의 다음 장이 아니라 <b>같은 대화</b>이고,
+     * 그 한가운데에 "이전" 단추를 두면 아무도 묻지 않은 기전을 설명하는 가구가 된다. 여백을 화면
+     * 한 장 반으로 두어 빈 상자보다 행이 먼저 도착한다.
+     *
+     * 두 상자 모두에 건다 — 한 번에 하나만 스크롤하고, 요소 안의 스크롤은 window에 안 닿는다.
+     */
+    private void reachedUp() {
+        if (above <= 0 || spacer.parentNode == null || !Window.canReach(winFrom)) return;
+        Element s = scroller();
+        double margin = s == null ? 0 : clientHeight(s) * 1.5;
+        if (spacer.getBoundingClientRect().bottom > -margin) {
+            keepRows = Window.reach(keepRows);
+            lastSig = null;        // 같은 전사라도 다시 그려야 한다 — 창이 넓어졌다
+            paintRows(heldRows);
+        }
     }
 
     private HTMLElement rowNode(JsPropertyMap<Object> r) {
