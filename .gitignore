@@ -1,4 +1,12 @@
 /magi
+/magi-ppt
+
+# Windows 빌드 산출물. **한 번 히스토리에 들어갔다**(2026-09-02, e0ee4157 의
+# clients/powerpoint/helper/helper.exe) — `go build` 가 만든 32MB 짜리를 `git add -A` 가
+# 쓸어 담았고, 나중에 지웠지만 히스토리는 남아 메인에서 탐지됐다. 이름을 하나씩 적어 두면
+# 다음 산출물이 또 빠져나가므로 확장자로 막는다 — 이 저장소에 추적되는 .exe 는 없다.
+*.exe
+*.exe~
 /dist/
 *.test
 .DS_Store
