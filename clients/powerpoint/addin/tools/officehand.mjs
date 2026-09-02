@@ -10,8 +10,9 @@
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
+import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
+import { zipEntries, zipRead, zipReadBytes } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
-import { zipEntries, zipRead } from '../src/adapter/zip.js';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -1987,6 +1988,60 @@ async function makeZip(files) {
       JSON.stringify(Object.keys(out.result).sort())
         === JSON.stringify(Object.keys(fake.result).sort()),
       `${Object.keys(out.result).sort()} vs ${Object.keys(fake.result).sort()}`);
+  }
+
+  // ── zip 을 쓸 줄 안다 ─────────────────────────────────────────────────────
+  //
+  // 이 애드인은 이미 슬라이드를 **넣을** 수 있다(`insertSlidesFromBase64`). 다만 지금까지 넣은
+  // 것은 덱에서 뜬 것뿐이었다 — 우리가 **지은** 것을 넣으려면 zip 을 쓸 줄 알아야 한다.
+  //
+  // 그게 열리면 1.8 의 객체 모델이 못 하는 것들(네이티브 차트가 대표다)이 「불가능」이 아니라
+  // 「OOXML 을 지어 넣으면 되는 것」이 된다. 매뉴얼에 「1.8 에서 불가능」이라고 적어 뒀던 것을
+  // 실물이 뒤집었다(2026-09-02): 슬라이드를 떠서 **풀었다 우리 손으로 다시 묶어** 넣었더니
+  // PowerPoint 가 그대로 받았고, 테마 색·글꼴·불릿·좌표가 원본과 같았다.
+  {
+    // CRC-32 를 알려진 값으로 검산한다. 틀리면 PowerPoint 는 「복구할 수 없는 파일」이라고
+    // 말하고, 그 말은 사람에게 자기 덱이 망가진 것처럼 들린다.
+    ok('crc32 가 알려진 값과 맞는다',
+      crc32(new TextEncoder().encode('123456789')) === 0xCBF43926,
+      crc32(new TextEncoder().encode('123456789')).toString(16));
+
+    // 우리가 쓴 것을 **우리 읽개가** 읽는다 — 두 쪽이 같은 규격을 보는지부터.
+    const zip = zipStore([
+      { name: '[Content_Types].xml', data: '<Types/>' },
+      { name: 'ppt/slides/slide1.xml', data: '<p:sld>안녕</p:sld>' },
+    ]);
+    const { entries } = zipEntries(zip);
+    ok('항목 수가 맞는다', entries.length === 2, String(entries.length));
+    ok('경로가 그대로다', entries.map((e) => e.name).join('|') === '[Content_Types].xml|ppt/slides/slide1.xml',
+      entries.map((e) => e.name).join('|'));
+    ok('글이 그대로 돌아온다', (await zipRead(zip, 'ppt/slides/slide1.xml')) === '<p:sld>안녕</p:sld>');
+
+    // **바이트로도 돌아온다.** `.pptx` 에는 XML 만 있는 것이 아니라 그림·글꼴이 섞이고,
+    // 그것을 글로 옮겼다 되돌리면 안 살아난다.
+    const blob = new Uint8Array([0, 1, 2, 250, 251, 255, 0]);
+    const withBlob = zipStore([{ name: 'ppt/media/image1.png', data: blob }]);
+    const back = await zipReadBytes(withBlob, 'ppt/media/image1.png');
+    ok('이진 부품이 바이트 그대로 살아난다',
+      back.length === blob.length && back.every((b, i) => b === blob[i]),
+      JSON.stringify([...back]));
+
+    // **같은 입력이 같은 바이트를 낸다.** 시각을 넣으면 그 하나 때문에 매번 달라지고, 그러면
+    // 값을 잴 수가 없다.
+    const twice = zipStore([{ name: 'a.xml', data: '<a/>' }]);
+    const thrice = zipStore([{ name: 'a.xml', data: '<a/>' }]);
+    ok('같은 입력이 같은 바이트를 낸다',
+      twice.length === thrice.length && twice.every((b, i) => b === thrice[i]));
+
+    // 빈 zip 도 규격에 맞아야 한다 — 항목이 없다고 깨진 파일을 내면 안 된다.
+    ok('빈 zip 도 읽힌다', zipEntries(zipStore([])).entries.length === 0);
+
+    // base64 는 **큰 것도** 낸다. `String.fromCharCode(...bytes)` 로 짜면 인자가 수십만 개인
+    // 호출이 되어 터진다 — 슬라이드 하나가 수백 KB 다.
+    const big = zipStore([{ name: 'big.bin', data: new Uint8Array(300000).fill(65) }]);
+    const b64 = toBase64(big);
+    ok('큰 것도 base64 로 낸다', typeof b64 === 'string' && b64.length > 300000, String(b64.length));
+    ok('base64 가 zip 머리로 시작한다', b64.startsWith('UEsDB'), b64.slice(0, 8));
   }
 
   // ── 덱의 글이 도구에게 말을 걸 때 ─────────────────────────────────────────

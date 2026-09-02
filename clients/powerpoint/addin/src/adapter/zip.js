@@ -59,6 +59,34 @@ export function zipEntries(bytes) {
  * `DecompressionStream` 을 쓴다 — 브라우저와 Node 둘 다 갖고 있고, **의존성을 하나도 안 늘린다.**
  * 없는 환경이면 그렇게 말한다(조용히 빈 문자열을 주면 「빈 슬라이드」로 읽힌다).
  */
+/**
+ * 항목 하나를 **바이트로** 풀어 준다.
+ *
+ * `zipRead` 는 글로 준다 — 슬라이드 XML 을 읽는 것이 그 함수의 일이기 때문이다. 그런데 zip 을
+ * **다시 묶으려면** 바이트가 필요하다: `.pptx` 에는 XML 만 있는 것이 아니라 그림·글꼴 같은
+ * 이진 부품이 섞이고, 그것을 글로 옮겼다 되돌리면 살아나지 않는다.
+ */
+export async function zipReadBytes(bytes, name) {
+  const { entries } = zipEntries(bytes);
+  const found = entries.find((e) => e.name === name);
+  if (!found) {
+    throw new Error(`이 zip 에 ${name} 이 없습니다`);
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const nameLen = view.getUint16(found.local + 26, true);
+  const extraLen = view.getUint16(found.local + 28, true);
+  const start = found.local + 30 + nameLen + extraLen;
+  const raw = bytes.subarray(start, start + found.csize);
+
+  if (found.method === 0) return raw;
+  if (found.method !== 8) throw new Error(`${name} 은 이 읽개가 모르는 압축(${found.method})입니다`);
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('이 환경에는 DecompressionStream 이 없어 zip 을 못 풉니다');
+  }
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
 export async function zipRead(bytes, name) {
   const { entries } = zipEntries(bytes);
   const found = entries.find((e) => e.name === name);
