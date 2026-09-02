@@ -107,7 +107,20 @@ jobs:
           # 거짓말이 된다 — 「내가 받는 이 판이 무엇을 바꾸나」가 이 글의 질문이다.
           prev=$(git tag --list 'jetbrains-v*' --sort=-v:refname | grep -vFx "$GITHUB_REF_NAME" | head -1)
           echo "이전 판: ${prev:-없음}"
-          subjects=$(git log --format=%s "${prev:+$prev..}$GITHUB_REF_NAME" -- clients/jetbrains)
+          # 경로는 **저장소 뿌리 기준**으로 짚는다(`:/`). git 의 pathspec 은 기본이 현재
+          # 디렉토리 기준인데 이 스텝은 `clients/jetbrains/plugin` 에서 돌아서, 그냥
+          # `clients/jetbrains` 라고 적으면 `clients/jetbrains/plugin/clients/jetbrains` 를
+          # 짚고 **아무것도 안 걸린다**. 0.2.3 이 그렇게 나갔다: 커밋 셋이 플러그인을 고쳤는데
+          # 노트는 「바뀌지 않았습니다」라고 적혀 나갔다. 손으로 확인할 때 저장소 뿌리에서
+          # 돌려 봤기 때문에 통과했다 — 재는 자리가 도는 자리와 다르면 그 검증은 거짓이다.
+          subjects=$(git log --format=%s "${prev:+$prev..}$GITHUB_REF_NAME" -- :/clients/jetbrains)
+          # 그리고 그 경로가 **무엇이든 짚기는 하는지** 잰다. 위의 셈이 0 이면 두 가지 뜻이
+          # 될 수 있다 — 이 판에 플러그인 변경이 정말 없었거나, 경로 지정이 깨졌거나. 그 둘을
+          # 안 가르면 깨진 쪽이 「바뀌지 않았습니다」라는 **거짓말**로 조용히 나간다.
+          [ "$(git rev-list --count HEAD -- :/clients/jetbrains)" -gt 0 ] || {
+            echo "경로 지정이 이력에서 아무것도 안 짚는다 — 노트 유도가 깨졌다"
+            exit 1
+          }
           if [ -n "$subjects" ]; then
             # & 를 먼저 바꾼다 — 나중에 하면 방금 만든 &lt; 의 & 를 다시 문다.
             notes="<ul>$(printf '%s\n' "$subjects" \
