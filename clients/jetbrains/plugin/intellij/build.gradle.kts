@@ -75,6 +75,20 @@ intellijPlatform {
             sinceBuild = "261"
             untilBuild = provider { null }
         }
+
+        // **무엇이 바뀌었나.** 이 플러그인은 마켓플레이스에 없고 갱신은 커스텀 저장소로 온다
+        // (release-jetbrains.yml 의 updatePlugins.xml). 그 길로 오는 갱신 알림과 플러그인 목록의
+        // 「What's New」가 읽는 것이 이 자리인데, 비워 두면 IDE 는 **아무 말도 없이** 새 판을
+        // 권한다 — 쓰는 사람이 볼 수 있는 것은 숫자 하나뿐이다. 비교 대상 둘(Claude Code,
+        // Continue) 은 둘 다 이걸 채운다.
+        //
+        // 글을 여기 적지 않는다. 릴리스 레인이 **커밋에서 유도해** 넘긴다:
+        // 이전 jetbrains-v 태그 이후 `clients/jetbrains` 를 건드린 커밋의 제목들이다. 파일로
+        // 두면 판 낼 때마다 사람이 적어야 하고, 안 적은 판은 오늘과 같은 빈칸이 된다 — 잊을 수
+        // 있는 것은 잊힌다. 커밋은 어차피 적는다.
+        //
+        // 손으로 만든 빌드는 비운다(dev 판에는 「이전 태그 이후」가 뜻이 없다).
+        changeNotes = providers.gradleProperty("changeNotes").orElse("")
     }
 
     // 이 플러그인이 IDEA 전용이 아니라는 것을 **재서** 안다.
