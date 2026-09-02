@@ -1,4 +1,4 @@
-﻿# 도구 전수 점검 — 실물 PowerPoint 에 대고 24개를 하나씩 불러 본다.
+﻿# 도구 전수 점검 — 실물 PowerPoint 에 대고 28개를 하나씩 불러 본다.
 #
 # 층 1~4 는 「우리가 정한 것을 지키는가」를 재고, 이 파일은 **호스트가 실제로 어떻게 답하는가**를
 # 잰다(docs/TESTING.ko.md §5). 결과는 판정만이 아니라 **무엇을 몇 개 봤는지**를 같이 적는다.
@@ -74,6 +74,44 @@ Try1 "set_text" "set_text" @{ slide_id = $sid; shape_id = $box; text = "글자 �
 Try1 "format_shape" "format_shape" @{ slide_id = $sid; shape_id = $box; size = 20; bold = $true; color = "#B7472A" } | Out-Null
 Try1 "move_shape" "move_shape" @{ slide_id = $sid; shape_id = $box; left = 40; top = 380; width = 240; height = 50 } | Out-Null
 Try1 "set_hyperlink" "set_hyperlink" @{ slide_id = $sid; shape_id = $box; url = "https://example.com" } | Out-Null
+
+# ── 줄 세우기 ───────────────────────────────────────────────────────────────
+# 셋을 비뚤게 놓고 맞춘 뒤 **COM 으로 읽어** 정말 섰는지 본다. 도구가 「맞췄습니다」라고
+# 답하는 것과 화면이 그런 것은 다른 이야기이고, 이 파일은 후자를 재는 자리다.
+"== 줄 세우기"
+$ids = @()
+foreach ($sp in @(@(60,470,90), @(200,500,120), @(400,455,60))) {
+  $r = Call "add_shape" @{ slide_id = $sid; kind = "rectangle"; left = $sp[0]; top = $sp[1]; width = $sp[2]; height = 30 }
+  $ids += (JsonOf $r).shape_id
+}
+Try1 "align_shapes (위 맞춤)" "align_shapes" @{ slide_id = $sid; how = "top"; shape_ids = $ids } | Out-Null
+Try1 "align_shapes (하나만 고르면 거절)" "align_shapes" @{ slide_id = $sid; how = "left"; shape_ids = @($ids[0]) } -ExpectError | Out-Null
+Try1 "align_shapes (없는 도형 id 는 거절)" "align_shapes" @{ slide_id = $sid; how = "left"; shape_ids = @($ids[0], "없는-것") } -ExpectError | Out-Null
+Try1 "align_shapes (모르는 정렬은 거절)" "align_shapes" @{ slide_id = $sid; how = "대각선"; shape_ids = $ids } -ExpectError | Out-Null
+Try1 "align_shapes (간격 고르게)" "align_shapes" @{ slide_id = $sid; how = "distribute_h"; shape_ids = $ids } | Out-Null
+# **화면을 읽는다.** 세 상자의 top 이 같고 사이 틈이 같아야 한다.
+try {
+  $ppt = [Runtime.InteropServices.Marshal]::GetActiveObject("PowerPoint.Application")
+  $slide = $ppt.ActivePresentation.Slides | Where-Object { $_.SlideID -ne $null } | ForEach-Object { $_ }
+  $target = $null
+  foreach ($sl in $ppt.ActivePresentation.Slides) {
+    foreach ($sh in $sl.Shapes) { if ($sh.HasTextFrame -and $sh.TextFrame.HasText -and $sh.TextFrame.TextRange.Text -eq "도구 전수 점검") { $target = $sl } }
+  }
+  if ($target) {
+    $band = @()
+    foreach ($sh in $target.Shapes) { if ($sh.Top -gt 440 -and $sh.Top -lt 520 -and $sh.Height -lt 40) { $band += [pscustomobject]@{ L=[int]$sh.Left; R=[int]($sh.Left+$sh.Width); T=[int]$sh.Top } } }
+    $band = $band | Sort-Object L
+    if ($band.Count -ge 3) {
+      $tops = ($band | ForEach-Object { $_.T } | Sort-Object -Unique)
+      if ($tops.Count -eq 1) { $script:pass++; Write-Host "  ok   화면에서도 위가 맞았다 — top=$($tops[0])" }
+      else { $script:fail++; Write-Host "  FAIL 화면에서는 안 맞았다 — top=$($tops -join ',')" }
+      $gaps = @(); for ($i = 1; $i -lt $band.Count; $i++) { $gaps += ($band[$i].L - $band[$i-1].R) }
+      $spread = ($gaps | Measure-Object -Maximum -Minimum)
+      if (($spread.Maximum - $spread.Minimum) -le 1) { $script:pass++; Write-Host "  ok   화면에서도 틈이 고르다 — $($gaps -join ', ')" }
+      else { $script:fail++; Write-Host "  FAIL 화면에서는 틈이 제각각 — $($gaps -join ', ')" }
+    } else { Write-Host "  ..   상자를 못 찾아 화면 확인은 건너뜀 ($($band.Count)개)" }
+  } else { Write-Host "  ..   장을 못 찾아 화면 확인은 건너뜀" }
+} catch { Write-Host "  ..   COM 을 못 잡아 화면 확인은 건너뜀: $($_.Exception.Message)" }
 
 # ── 표 ──────────────────────────────────────────────────────────────────────
 "== 표"

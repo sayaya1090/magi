@@ -21,6 +21,10 @@ type ownRig struct {
 
 func ownFixture(t *testing.T, tweak func(*API, *ownRig)) *ownRig {
 	t.Helper()
+	// 기다리는 시간을 0 으로 — 이 묶음이 재는 것은 **몇 번 다시 보는가**이지 몇 밀리초냐가 아니다.
+	was := chatWait
+	chatWait = 0
+	t.Cleanup(func() { chatWait = was })
 	cfg := t.TempDir()
 	rig := &ownRig{}
 	yes := true
@@ -477,6 +481,85 @@ func TestAFleetFailureAfterASpawnStillSaysWhatItStarted(t *testing.T) {
 	}
 	if got.Workdir == "" {
 		t.Fatalf("어디에 띄웠는지 안 알려 준다: %+v", got)
+	}
+}
+
+// **대화 이름이 아직 없으면 한 번 더 물어본다.**
+//
+// 실물에서 본 것이다(2026-09-02). 데몬은 소켓에 선 다음에 자기 기록을 쓰므로, 그 틈에 명단을
+// 읽으면 세션 칸이 비어 있다. 앞 판본은 그 순간의 답을 그대로 `Ready` 로 굳혔고 — 도구 28개는
+// 멀쩡히 붙어 있는데 사람이 말을 걸면 「아직 대화가 없습니다」가 돌아왔다. 작업창에는
+// 「준비됐습니다」라고 적혀 있었고, 되돌릴 길은 헬퍼를 죽이는 것뿐이었다.
+func TestAChatNameThatArrivesLateIsStillPickedUp(t *testing.T) {
+	reads := 0
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		cfg := a.ConfigDir
+		yes := true
+		a.ReadFleet = func(string) ([]Companion, error) {
+			reads++
+			// 처음 세 번은 기록에 세션이 아직 없다.
+			sid := ""
+			if reads > 3 {
+				sid = "s_late"
+			}
+			return []Companion{{
+				Socket: DeckSocket(cfg), Workdir: DeckSpace(cfg), Session: sid,
+				Live: true, ToolServers: &yes, Transcript: &yes,
+			}}, nil
+		}
+	})
+	rig.poke(t)
+	got := rig.settle(t)
+	if got.Phase != OwnReady {
+		t.Fatalf("붙어야 한다: %+v", got)
+	}
+	if got.Session != "s_late" {
+		t.Fatalf("늦게 온 대화 이름을 못 잡았다 — 사람이 말을 걸면 「대화가 없습니다」다: %+v", got)
+	}
+	if got.Chat != "" {
+		t.Fatalf("대화가 열렸는데 못 열었다고 적는다: %q", got.Chat)
+	}
+	if len(rig.attached) != 1 {
+		t.Fatalf("다시 보느라 도구를 여러 번 붙였다: %v", rig.attached)
+	}
+}
+
+// 끝내 안 생겨도 **굳지 않는다** — 다음 물음에 다시 잡는다.
+//
+// 「이 빌드는 전사를 못 준다」와 「아직 안 생겼다」는 다른 말인데, 앞 판본은 둘을 같은 자리에
+// 적고 영영 그대로 뒀다.
+func TestAChatThatAppearsAfterReadyIsPickedUpOnTheNextPoke(t *testing.T) {
+	sid := ""
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		cfg := a.ConfigDir
+		yes := true
+		a.ReadFleet = func(string) ([]Companion, error) {
+			return []Companion{{
+				Socket: DeckSocket(cfg), Workdir: DeckSpace(cfg), Session: sid,
+				Live: true, ToolServers: &yes, Transcript: &yes,
+			}}, nil
+		}
+	})
+	rig.poke(t)
+	got := rig.settle(t)
+	if got.Phase != OwnReady {
+		t.Fatalf("도구는 붙어야 한다: %+v", got)
+	}
+	if got.Chat == "" {
+		t.Fatal("대화를 못 열었는데 그 사실을 안 적는다")
+	}
+	// 이제 데몬이 기록을 마저 썼다.
+	sid = "s_now"
+	after := rig.poke(t)
+	if after.Session != "s_now" {
+		t.Fatalf("생긴 대화를 안 잡는다 — 사람은 영영 말을 못 건다: %+v", after)
+	}
+	if after.Chat != "" {
+		t.Fatalf("열렸는데 못 열었다고 적는다: %q", after.Chat)
+	}
+	// **도구를 다시 붙이지는 않는다** — 재부착은 첫 등록을 떨어뜨린다(§5.0.1).
+	if len(rig.attached) != 1 {
+		t.Fatalf("대화를 고치면서 도구를 다시 붙였다: %v", rig.attached)
 	}
 }
 

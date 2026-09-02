@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes, pilesUp } from '../src/adapter/OfficeHand.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 import { zipEntries, zipRead } from '../src/adapter/zip.js';
 
@@ -322,6 +322,67 @@ const model = () => ({
 }
 
 {
+  // ── 목차가 「지금 보고 있는 장」을 적는다 ──────────────────────────────────
+  //
+  // 실물에서 본 고장이다(2026-09-02). 사람이 15번 장을 보면서 「이 장에 있는 상자들 좀 줄
+  // 맞춰 줘」라고 했는데, 모델은 어느 장인지 몰라 **「슬라이드 1」부터 「슬라이드 15」까지 단추
+  // 열다섯 개**를 내밀고 되물었다. PC 를 잘 다루지 못하는 사람에게 그건 답할 수 없는 질문이다.
+  //
+  // 스키마에는 이미 「생략하면 보고 있는 장」이라고 적혀 있었다. **모델에게는 산문보다 데이터가**
+  // **세다** — 지시를 믿으라고 하는 대신 답을 목차에 실어 보여 준다.
+  {
+    const deck = () => ({
+      slides: [0, 1, 2].map((i) => ({
+        id: `s${i + 1}`, index: i, layout: { name: 'L' }, shapes: [],
+      })),
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    });
+
+    // 3번 장을 보고 있다.
+    const looking = deck();
+    looking.selected = [looking.slides[2]];
+    const out = await new OfficeHand({ run: stubRunner(looking, []), supports: () => true, document: 'd' })
+      .run('list_slides', {});
+    ok('목차가 보고 있는 장을 번호로 적는다', out.result.current === 3, JSON.stringify(out.result.current));
+    ok('id 로도 적는다', out.result.current_slide_id === 's3', JSON.stringify(out.result.current_slide_id));
+    const marked = out.result.slides.filter((r) => r.current);
+    ok('그 줄에도 표시가 붙는다', marked.length === 1 && marked[0].slide === 3,
+      JSON.stringify(marked));
+    ok('다른 줄에는 안 붙는다', out.result.slides.filter((r) => r.current).length === 1);
+
+    // **고른 것이 없으면 지어내지 않는다.** 1번으로 채우면 사람이 보고 있지도 않은 장이 고쳐진다.
+    const blind = deck();
+    blind.selected = [];
+    const out2 = await new OfficeHand({ run: stubRunner(blind, []), supports: () => true, document: 'd' })
+      .run('list_slides', {});
+    ok('고른 것이 없으면 그 칸을 안 싣는다', out2.result.current === undefined,
+      JSON.stringify(out2.result.current));
+    ok('줄에도 표시가 없다', out2.result.slides.every((r) => !r.current));
+
+    // 여러 장을 고를 수도 있다 — 그때는 하나로 뭉개지 않는다.
+    const many = deck();
+    many.selected = [many.slides[0], many.slides[2]];
+    const out3 = await new OfficeHand({ run: stubRunner(many, []), supports: () => true, document: 'd' })
+      .run('list_slides', {});
+    ok('여러 장을 고르면 여럿으로 적는다',
+      Array.isArray(out3.result.current) && out3.result.current.join(',') === '1,3',
+      JSON.stringify(out3.result.current));
+
+    // 페이지를 넘겨도(from/count) 표시는 그 페이지 안에서만 붙는다 — 없는 줄에 붙일 수는 없다.
+    const paged = deck();
+    paged.selected = [paged.slides[2]];
+    const out4 = await new OfficeHand({ run: stubRunner(paged, []), supports: () => true, document: 'd' })
+      .run('list_slides', { from: 1, count: 2 });
+    ok('페이지 밖이어도 위쪽 칸은 사실대로 적는다', out4.result.current === 3, JSON.stringify(out4.result));
+    ok('그 페이지 줄에는 표시가 없다', out4.result.slides.every((r) => !r.current));
+
+    // 가짜 손도 같은 칸을 낸다 — 창은 두 손을 구별하지 않고 그린다.
+    const fake = await new FakeHand({ slides: [
+      { id: 'a', layout: 'L', shapes: [] }, { id: 'b', layout: 'L', shapes: [] },
+    ] }).run('list_slides', {});
+    ok('가짜 손도 보고 있는 장을 적는다', fake.result.current === 1 && fake.result.current_slide_id === 'a',
+      JSON.stringify(fake.result));
+  }
   // 생략하면 **사람이 보고 있는 장**이다(부록 A — `getSelectedSlides` 의 첫 항목).
   const m = model();
   m.selected = [m.slides[1]];
@@ -1926,6 +1987,76 @@ async function makeZip(files) {
       JSON.stringify(Object.keys(out.result).sort())
         === JSON.stringify(Object.keys(fake.result).sort()),
       `${Object.keys(out.result).sort()} vs ${Object.keys(fake.result).sort()}`);
+  }
+
+  // ── 맞췄더니 포개졌으면 그렇게 적는다 ─────────────────────────────────────
+  //
+  // 실물에서 봤다(2026-09-02). 가로로 늘어선 상자 셋에 사람이 「줄 맞춰 줘」라고 했고 모델이
+  // `left` 를 골랐는데, 세로 자리가 제각각이라 셋이 **한 줄로 포개졌다.** 시킨 대로 했고
+  // 「3개를 왼쪽으로 맞췄습니다」도 참인데, 화면은 하기 전보다 나빠져 있었다.
+  //
+  // **거절하지는 않는다** — 세로로 늘어선 목록을 왼쪽으로 맞추는 것은 늘 옳고, 코드가 그 둘을
+  // 구별할 수 없다. 대신 일어난 일을 적는다.
+  {
+    const deck = () => ({
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 70, top: 240, width: 120, height: 55, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 230, top: 285, width: 120, height: 55, altTextDescription: null },
+          { id: 'c', name: 'ㄷ', type: 'GeometricShape', text: '', left: 400, top: 255, width: 120, height: 55, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    });
+
+    // 가로로 늘어선 것을 왼쪽으로 맞추면 포개진다.
+    const out = await new OfficeHand({ run: stubRunner(deck(), []), supports: () => true, document: 'd' })
+      .run('align_shapes', { slide: 1, how: 'left' });
+    ok('포개졌으면 그 사실을 적는다', out.changed.some((l) => l.includes('겹칩니다')),
+      JSON.stringify(out.changed));
+    ok('반대 축을 권한다', out.changed.some((l) => l.includes('top')), JSON.stringify(out.changed));
+    ok('그래도 하기는 한다 — 거절이 아니다', out.result.moved > 0, JSON.stringify(out.result));
+
+    // 같은 도형을 세로 축으로 맞추면 안 포개진다 — 그때는 아무 말도 안 붙는다.
+    const out2 = await new OfficeHand({ run: stubRunner(deck(), []), supports: () => true, document: 'd' })
+      .run('align_shapes', { slide: 1, how: 'top' });
+    ok('안 포개졌으면 안 적는다', !out2.changed.some((l) => l.includes('겹칩니다')),
+      JSON.stringify(out2.changed));
+
+    // 원래 겹쳐 있던 것을 맞춘 경우는 **늘어난 것이 아니다.**
+    const already = {
+      slides: [{
+        id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [
+          { id: 'a', name: 'ㄱ', type: 'GeometricShape', text: '', left: 10, top: 10, width: 100, height: 100, altTextDescription: null },
+          { id: 'b', name: 'ㄴ', type: 'GeometricShape', text: '', left: 20, top: 20, width: 100, height: 100, altTextDescription: null },
+        ],
+      }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: [] }] }],
+    };
+    const out3 = await new OfficeHand({ run: stubRunner(already, []), supports: () => true, document: 'd' })
+      .run('align_shapes', { slide: 1, how: 'left' });
+    ok('원래 겹쳐 있던 것은 새 겹침이 아니다', !out3.changed.some((l) => l.includes('겹칩니다')),
+      JSON.stringify(out3.changed));
+
+    // 순수 함수로도 잰다 — 맞닿은 것은 겹침이 아니다.
+    {
+      const box = [
+        { sh: { id: 'a' }, left: 0, top: 0, width: 100, height: 50 },
+        { sh: { id: 'b' }, left: 100, top: 0, width: 100, height: 50 },
+      ];
+      ok('맞닿은 것은 겹친 것이 아니다', pilesUp(box, []).after === 0, JSON.stringify(pilesUp(box, [])));
+    }
+
+    // 가짜 손도 같은 말을 한다.
+    const fake = await new FakeHand({ slides: [{ id: 's1', layout: 'L', shapes: [
+      { id: 'a', name: 'ㄱ', left: 70, top: 240, width: 120, height: 55 },
+      { id: 'b', name: 'ㄴ', left: 230, top: 285, width: 120, height: 55 },
+      { id: 'c', name: 'ㄷ', left: 400, top: 255, width: 120, height: 55 },
+    ] }] }).run('align_shapes', { slide: 1, how: 'left' });
+    ok('가짜 손도 포개짐을 적는다', fake.changed.some((l) => l.includes('겹칩니다')),
+      JSON.stringify(fake.changed));
   }
 
   // ── 쓰기가 실제로 나가는가 ─────────────────────────────────────────────────

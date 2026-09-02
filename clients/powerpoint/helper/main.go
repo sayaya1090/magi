@@ -296,6 +296,9 @@ func (a *API) own(w http.ResponseWriter, _ *http.Request) {
 	if held := a.Work.Now(); held.Phase == OwnReady && !a.oursOf(held.Socket) {
 		a.Work.Forget()
 	}
+	// **뒤늦게 생긴 대화를 잡는다.** 도구는 붙었는데 대화만 비어 있는 상태로 굳으면, 사람이 말을
+	// 걸었을 때 「아직 대화가 없습니다」가 돌아오고 되돌릴 길이 없다.
+	a.rebindChat()
 	now, mine := a.Work.Begin()
 	if !mine {
 		// 이미 돌고 있거나 이미 다 됐다. **새로 시작하지 않는다** — 덱을 둘 열면 이 자리가 둘에서
@@ -305,6 +308,77 @@ func (a *API) own(w http.ResponseWriter, _ *http.Request) {
 	}
 	go a.makeOwn()
 	writeJSON(w, now)
+}
+
+// chatWait·chatTries 는 **대화가 생기기를 기다리는** 만큼이다.
+//
+// 데몬은 소켓에 선 다음에 자기 기록을 쓴다. 그 사이에 명단을 읽으면 세션 칸이 비어 있고,
+// `Bridge.Bind(socket, "")` 는 「이 컴패니언은 아직 대화가 없습니다」로 거절한다.
+var (
+	chatWait  = 400 * time.Millisecond
+	chatTries = 8
+)
+
+// waitForFleet 은 명단을 읽되, **우리 컴패니언의 대화 이름이 아직 없으면 잠깐 더 기다린다.**
+//
+// 실물에서 본 것이다(2026-09-02). 방금 띄운 데몬은 소켓에 선 뒤 자기 기록을 쓰므로, 그 틈에
+// 읽으면 세션 칸이 비어 있다. 앞 판본은 그 순간의 답을 그대로 `Ready` 로 굳혔고 — 도구 28개는
+// 멀쩡히 붙어 있는데 **사람이 말을 걸면 「아직 대화가 없습니다」**가 돌아왔다. 작업창은
+// 「준비됐습니다」라고 적혀 있고, 되돌릴 길은 헬퍼를 죽이는 것뿐이었다.
+//
+// **일시적인 상태를 영구 등급으로 적지 않는다.** 도구는 붙었는데 대화만 못 여는 갈래는 진짜로
+// 있고(그 빌드가 전사를 안 내주는 경우) 그때는 등급을 갈라 적는 것이 맞다(§5.0.5). 다만 「아직」과
+// 「못」은 다른 말이고, 여기서 그 둘을 가르는 것은 **한 번 더 물어보는 일**뿐이다.
+func (a *API) waitForFleet(socket string) ([]Companion, error) {
+	var last []Companion
+	for i := 0; i < chatTries; i++ {
+		fleet, err := a.fleetOf(a.ConfigDir)
+		if err != nil {
+			return nil, err
+		}
+		last = fleet
+		for _, c := range fleet {
+			if c.Socket == socket && c.Session != "" {
+				return fleet, nil
+			}
+		}
+		if i < chatTries-1 {
+			time.Sleep(chatWait)
+		}
+	}
+	// 끝내 안 생겼으면 **마지막 답을 그대로 준다** — 지어내지 않는다. 부르는 쪽이 그 사실을
+	// `Chat` 칸에 적고, 아래 `rebindChat` 이 나중에라도 생기면 잡는다.
+	return last, nil
+}
+
+// rebindChat 은 **나중에 생긴 대화를 뒤늦게라도 잡는다.**
+//
+// `Ready` 인데 대화 이름이 비어 있으면, 그건 「이 컴패니언은 대화를 못 준다」가 아니라 「우리가
+// 너무 일찍 물었다」일 수 있다. 작업창은 이 자리를 계속 두드리므로, 그 물음마다 한 번 더 본다.
+//
+// **도구를 다시 붙이지는 않는다.** 재부착은 첫 등록을 떨어뜨린다(§5.0.1) — 여기서 고치려는 것은
+// 대화뿐이고, 도구는 이미 멀쩡히 붙어 있다.
+func (a *API) rebindChat() {
+	held := a.Work.Now()
+	if held.Phase != OwnReady || held.Session != "" || held.Socket == "" {
+		return
+	}
+	fleet, err := a.fleetOf(a.ConfigDir)
+	if err != nil {
+		return
+	}
+	for _, c := range fleet {
+		if c.Socket != held.Socket || c.Session == "" {
+			continue
+		}
+		if err := a.Bridge.Bind(c.Socket, c.Session); err != nil {
+			return
+		}
+		held.Session = c.Session
+		held.Chat = ""
+		a.Work.Done(held)
+		return
+	}
 }
 
 // stillOurs 는 아까 붙여 둔 것이 **지금도 그대로인가.**
@@ -363,7 +437,7 @@ func (a *API) makeOwn() {
 	}
 	// 세션 id 와 「도구를 받을 수 있는가」는 **명단이 이미 답하는 것**이다. 여기서 따로 물으면
 	// 같은 것을 두 식으로 재게 되고, 두 식은 언젠가 갈린다.
-	fleet, err := a.fleetOf(a.ConfigDir)
+	fleet, err := a.waitForFleet(st.Socket)
 	if err != nil {
 		// **방금 띄운 것을 안 띄운 것으로 적지 않는다.** 다른 실패 갈래는 전부 `Started` 와
 		// 워크스페이스를 싣는데 여기만 빠뜨리고 있었다 — 그러면 사람이 유일하게 할 수 있는 일

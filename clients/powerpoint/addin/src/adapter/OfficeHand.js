@@ -164,10 +164,27 @@ export class OfficeHand extends HandPort {
     }
   }
 
+  /**
+   * 덱의 목차. **지금 보고 있는 장을 표시한다.**
+   *
+   * 그 한 칸이 이 도구에서 제일 값진 것이다. 사람은 「이 장에 상자들 줄 맞춰 줘」라고 말하는데,
+   * 목차에 그 표시가 없으면 모델은 15장을 늘어놓고 **「어느 슬라이드인가요」를 되묻는다** —
+   * 실물에서 그 화면을 봤다(2026-09-02): 사람은 15번 장을 보면서 「이 장」이라고 했는데
+   * 「슬라이드 1」부터 「슬라이드 15」까지 단추 열다섯 개를 받았다. PC 를 잘 다루지 못하는
+   * 사람에게 그건 답할 수 없는 질문이다.
+   *
+   * 스키마에는 이미 「생략하면 보고 있는 장」이라고 적혀 있었다. **모델에게는 산문보다 데이터가**
+   * **세다** — 지시를 믿으라고 하는 대신 답을 보여 준다.
+   *
+   * 고른 것이 없으면 그 칸을 **안 싣는다.** 없는 것을 1번으로 지어내면, 사람이 보고 있지도 않은
+   * 장이 고쳐진다.
+   */
   #listSlides(args) {
     return this.runner(async (context) => {
       const slides = context.presentation.slides;
       slides.load('items/id,items/index,items/layout/name');
+      const picked = context.presentation.getSelectedSlides();
+      picked.load('items/id');
       await context.sync();
       const from = Math.max(1, Number(args.from ?? 1));
       const count = args.count === undefined ? slides.items.length : Number(args.count);
@@ -176,14 +193,27 @@ export class OfficeHand extends HandPort {
       // 그대로 S6 의 수가 된다(§9).
       const counts = want.map((s) => s.shapes.getCount());
       await context.sync();
+      // 고른 장의 id 들. 대개 하나지만 여러 장을 고를 수도 있다.
+      const here = new Set((picked.items ?? []).map((s) => String(s.id)));
+      const currentIds = [...here];
+      const currentNos = (slides.items ?? [])
+        .map((s, i) => (here.has(String(s.id)) ? (typeof s.index === 'number' ? s.index : i) + 1 : 0))
+        .filter((n) => n > 0);
       return this.#envelope({
         total: slides.items.length,
+        // **지금 보고 있는 장.** 도구에서 slide·slide_id 를 둘 다 생략하면 이 장이 대상이다.
+        ...(currentNos.length
+          ? { current: currentNos.length === 1 ? currentNos[0] : currentNos,
+              current_slide_id: currentIds.length === 1 ? currentIds[0] : currentIds }
+          : {}),
         slides: want.map((s, i) => ({
           // `index` 는 0 부터다(부록 A). 사람에게 보이는 번호는 +1 이고, 그 +1 을 여기서 한다.
           slide: (typeof s.index === 'number' ? s.index : from - 1 + i) + 1,
           slide_id: s.id,
           layout: s.layout?.name ?? null,
           shapes: counts[i].value,
+          // 줄마다도 적는다 — 목차만 훑는 모델이 위쪽 칸을 놓쳐도 여기서 본다.
+          ...(here.has(String(s.id)) ? { current: true } : {}),
         })),
       });
     });
@@ -593,6 +623,13 @@ export class OfficeHand extends HandPort {
       });
       const lines = [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${landed.length}개를 `
         + `${ALIGN_KO[how]} — 기준은 슬라이드가 아니라 고른 도형들 자신입니다`];
+      // **하기 전보다 나빠졌으면 말한다.** 시킨 대로 했고 문장도 참인데 화면은 포개져 있는,
+      // 이 저장소가 제일 싫어하는 모양이 바로 여기다.
+      const piled = pilesUp(before, moves);
+      if (piled.after > piled.before && OTHER_AXIS[how]) {
+        lines.push(`다만 이제 도형끼리 겹칩니다(겹친 쌍 ${piled.before} → ${piled.after}) — `
+          + `${OTHER_AXIS[how]} 로 맞추려던 것이었을 수 있습니다`);
+      }
       if (landed.length < moves.length) {
         // 계획과 화면이 다르면 **그 차이를 적는다.** 안 적으면 모델은 다 된 줄 알고 넘어간다.
         lines.push(`${moves.length}개를 옮기려 했는데 ${landed.length}개만 움직였습니다 — `
@@ -1601,6 +1638,46 @@ const ALIGN_KO = {
  * @param {Array<{left:number,top:number,width:number,height:number}>} box
  * @returns 옮길 것만
  */
+/**
+ * 맞추고 나면 **서로 겹치는가.** 맞추기 전과 견줘 늘어난 쌍의 수를 돌려준다.
+ *
+ * 왜 이걸 세는가: 실물에서 봤다(2026-09-02). 가로로 늘어선 상자 셋에 사람이 「줄 맞춰 줘」라고
+ * 했고 모델이 `left` 를 골랐는데, 세로 자리가 제각각이라 셋이 **한 줄로 포개졌다.** 시킨 대로
+ * 했고 결과 문장도 참인데, 화면은 하기 전보다 나빠졌다.
+ *
+ * **거절하지는 않는다** — 세로로 늘어선 목록을 왼쪽으로 맞추는 것은 늘 옳고, 그 둘을 코드가
+ * 구별할 방법이 없다. 대신 **일어난 일을 적는다.** 사람은 그 한 줄로 「아, 그게 아니었지」를
+ * 알고, 모델은 다음번에 다른 축을 고른다.
+ */
+export function pilesUp(box, moves) {
+  const at = new Map(moves.map((m) => [m.sh, m]));
+  const after = box.map((b) => {
+    const m = at.get(b.sh);
+    return { ...b, left: m?.left ?? b.left, top: m?.top ?? b.top };
+  });
+  // 두 상자가 가로로도 세로로도 겹치면 겹친 것이다. 맞닿은 것(<= 0)은 겹침이 아니다.
+  const hits = (list) => {
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i];
+        const b = list[j];
+        const wide = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
+        const tall = Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
+        if (wide > 0.5 && tall > 0.5) n += 1;
+      }
+    }
+    return n;
+  };
+  return { before: hits(box), after: hits(after) };
+}
+
+/** 세로로 맞추는 것들 — 겹쳤을 때 권할 반대 축을 고르는 데 쓴다. */
+const OTHER_AXIS = {
+  left: 'top 이나 middle', right: 'top 이나 middle', center: 'top 이나 middle',
+  top: 'left 나 center', bottom: 'left 나 center', middle: 'left 나 center',
+};
+
 export function placeShapes(box, how) {
   const near = (a, b) => Math.abs(a - b) < 0.5;   // pt 는 소수로 온다
   const out = [];

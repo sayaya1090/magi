@@ -1,6 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
-import { geometryOf, placeShapes, ALIGNMENTS } from './OfficeHand.js';
+import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -95,7 +95,16 @@ export class FakeHand extends HandPort {
           slide: from + i, slide_id: s.id, layout: s.layout ?? '제목 및 내용',
           shapes: s.shapes.length,
         }));
-        return this.#envelope({ slides, total: this.model.slides.length });
+        // **가짜 덱에도 「보고 있는 장」이 있다.** 없으면 이 화면은 「목차에 그 표시가 없다」를
+        // 가르치고, 실물은 있다 — 배운 것이 틀리게 된다. 가짜는 늘 첫 장을 보고 있다고 친다.
+        const cur = this.model.slides[0];
+        for (const row of slides) {
+          if (cur && row.slide_id === cur.id) row.current = true;
+        }
+        return this.#envelope({
+          slides, total: this.model.slides.length,
+          ...(cur ? { current: 1, current_slide_id: cur.id } : {}),
+        });
       }
       case 'read_slide': {
         const slide = this.#slide(args);
@@ -365,10 +374,16 @@ export class FakeHand extends HandPort {
         }
         this.#mutated();
         // 봉투의 칸도 같은 모양이어야 한다 — 창은 두 손을 구별하지 않고 그린다.
+        const lines = [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 옮겼습니다 — `
+          + '기준은 슬라이드가 아니라 고른 도형들 자신입니다'];
+        // **진짜 손과 같은 경고.** 여기가 조용하면 브라우저에서 배운 것이 실물에서 다르다.
+        const piled = pilesUp(box, moves);
+        if (piled.after > piled.before) {
+          lines.push(`다만 이제 도형끼리 겹칩니다(겹친 쌍 ${piled.before} → ${piled.after})`);
+        }
         return this.#envelope(
           { slide_id: slide.id, moved: moves.length, planned: moves.length, how, of: want.length },
-          [`슬라이드 ${slide.id}: 도형 ${want.length}개 중 ${moves.length}개를 옮겼습니다 — `
-            + '기준은 슬라이드가 아니라 고른 도형들 자신입니다']);
+          lines);
       }
       case 'snapshot_slide': {
         const slide = this.#slide(args);
