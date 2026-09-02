@@ -175,6 +175,39 @@ export function chartFrame({ id, name, relId, left, top, width, height }) {
     + `</a:graphicData></a:graphic></p:graphicFrame>`;
 }
 
+/**
+ * 아직 안 쓰인 차트 부품 이름.
+ *
+ * 뼈대로 뜬 장에 **이미 차트가 있을 수 있다.** 실물에서 그 화면을 봤다(2026-09-02): 차트를
+ * 하나 넣고 나면 그 장이 「보고 있는 장」이 되고, 다음 차트가 그 장을 뼈대로 뜨는데 —
+ * 꾸러미에 이미 `chart1.xml` 이 있으므로 같은 이름을 하나 더 넣으면 **zip 에 같은 이름이 둘**
+ * 생긴다. PowerPoint 는 그것을 `InvalidArgument` 로 되받는다.
+ *
+ * 「첫 차트는 되는데 둘째부터 안 된다」는 사람이 원인을 짚을 수 없는 종류의 고장이다.
+ */
+export function freeChartName(names) {
+  const used = new Set(names);
+  for (let i = 1; i < 1000; i += 1) {
+    const name = `ppt/charts/chart${i}.xml`;
+    if (!used.has(name)) return { part: name, target: `../charts/chart${i}.xml`, at: `/${name}` };
+  }
+  throw new Error('이 장에 차트가 너무 많아 새 이름을 못 지었습니다');
+}
+
+/**
+ * 아직 안 쓰인 관계 id.
+ *
+ * 같은 이유다 — 뼈대에 이미 `rId3` 이 있는데 우리도 `rId3` 을 쓰면 관계가 하나로 뭉개진다.
+ * 고정된 이름(`rIdChart1`)은 두 번째 차트에서 그대로 부딪힌다.
+ */
+export function freeRelId(relsXml) {
+  for (let i = 1; i < 1000; i += 1) {
+    const id = `rId${i}`;
+    if (!relsXml.includes(`Id="${id}"`)) return id;
+  }
+  throw new Error('이 장에 관계가 너무 많아 새 id 를 못 지었습니다');
+}
+
 /** 관계 하나를 관계 파일에 끼운다. **이미 있으면 안 넣는다.** */
 export function withRelationship(xml, relId, target) {
   if (xml.includes(`Id="${relId}"`)) return xml;

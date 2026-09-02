@@ -3,6 +3,7 @@ import { fromBase64, zipEntries, zipRead, zipReadBytes } from './zip.js';
 import { zipStore, toBase64 } from './zipwrite.js';
 import {
   chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame,
+  freeChartName, freeRelId,
 } from './chartxml.js';
 
 /**
@@ -1327,7 +1328,10 @@ export class OfficeHand extends HandPort {
         .replace(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g, '')
         .replace(/<p:pic>[\s\S]*?<\/p:pic>/g, '');
 
-      const relId = 'rIdChart1';
+      // **이름이 겹치면 안 된다.** 뼈대로 뜬 장에 이미 차트가 있을 수 있고, 그때 같은 이름을
+      // 하나 더 넣으면 zip 에 같은 이름이 둘 생겨 PowerPoint 가 통째로 거절한다.
+      const spot = freeChartName(files.map((f) => f.name));
+      const relId = freeRelId(dec.decode(at(relsName).data));
       const frame = chartFrame({
         id: 2, name: args.title ? String(args.title) : '차트', relId,
         left: Number(args.left ?? 60), top: Number(args.top ?? 90),
@@ -1338,10 +1342,10 @@ export class OfficeHand extends HandPort {
       const enc = new TextEncoder();
       at(slideName).data = enc.encode(slideXml);
       at(relsName).data = enc.encode(
-        withRelationship(dec.decode(at(relsName).data), relId, '../charts/chart1.xml'));
+        withRelationship(dec.decode(at(relsName).data), relId, spot.target));
       at(typesName).data = enc.encode(
-        withContentType(dec.decode(at(typesName).data), '/ppt/charts/chart1.xml'));
-      files.push({ name: 'ppt/charts/chart1.xml', data: enc.encode(xml) });
+        withContentType(dec.decode(at(typesName).data), spot.at));
+      files.push({ name: spot.part, data: enc.encode(xml) });
 
       const slides = context.presentation.slides;
       slides.load('items/id,items/index');

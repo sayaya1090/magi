@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
-import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText } from '../src/adapter/chartxml.js';
+import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 
@@ -2103,6 +2103,35 @@ async function makeZip(files) {
     why = null;
     try { withFrame('<p:sld/>', '<p:graphicFrame/>'); } catch (e) { why = e.message; }
     ok('도형 나무가 없으면 말한다', why?.includes('p:spTree'), why);
+
+    // ── 이름이 겹치면 안 된다 ───────────────────────────────────────────────
+    //
+    // 뼈대로 뜬 장에 **이미 차트가 있을 수 있다.** 실물에서 그 화면을 봤다(2026-09-02):
+    // 차트를 하나 넣고 나면 그 장이 「보고 있는 장」이 되고, 다음 차트가 그 장을 뼈대로 뜨는데
+    // — 꾸러미에 이미 chart1.xml 이 있으므로 같은 이름을 하나 더 넣으면 zip 에 같은 이름이 둘
+    // 생기고 PowerPoint 가 InvalidArgument 로 통째로 거절한다.
+    //
+    // 「첫 차트는 되는데 둘째부터 안 된다」는 사람이 원인을 짚을 수 없는 종류의 고장이다.
+    ok('빈 꾸러미면 첫 이름을 쓴다',
+      freeChartName([]).part === 'ppt/charts/chart1.xml', freeChartName([]).part);
+    ok('이미 있으면 다음 이름을 쓴다',
+      freeChartName(['ppt/charts/chart1.xml']).part === 'ppt/charts/chart2.xml',
+      freeChartName(['ppt/charts/chart1.xml']).part);
+    ok('여럿 있어도 빈 자리를 찾는다',
+      freeChartName(['ppt/charts/chart1.xml', 'ppt/charts/chart3.xml']).part
+        === 'ppt/charts/chart2.xml');
+    {
+      const spot = freeChartName(['ppt/charts/chart1.xml']);
+      ok('관계가 가리킬 상대 경로도 같이 준다', spot.target === '../charts/chart2.xml', spot.target);
+      ok('콘텐츠 형식이 쓸 절대 경로도 같이 준다', spot.at === '/ppt/charts/chart2.xml', spot.at);
+    }
+
+    // 관계 id 도 같은 이유로 겹치면 안 된다 — 고정된 이름은 두 번째 차트에서 부딪힌다.
+    ok('빈 관계면 rId1', freeRelId('<Relationships></Relationships>') === 'rId1');
+    ok('있는 것은 피한다',
+      freeRelId('<Relationships><Relationship Id="rId1"/><Relationship Id="rId2"/></Relationships>')
+        === 'rId3');
+
   }
 
   // ── zip 을 쓸 줄 안다 ─────────────────────────────────────────────────────
