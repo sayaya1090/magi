@@ -563,6 +563,118 @@ func TestAChatThatAppearsAfterReadyIsPickedUpOnTheNextPoke(t *testing.T) {
 	}
 }
 
+// ── 새 대화 ─────────────────────────────────────────────────────────────────
+//
+// 파워포인트 컴패니언은 워크스페이스가 하나라 대화도 하나이고, 그 하나가 **영원히 쌓인다.**
+// 실물에서 봤다(2026-09-02): 한 번 헤맨 대화가 그 다음 부탁까지 끌고 가서, 사람이 19번 장을
+// 보고 있는데 모델이 8번 장에 정렬을 걸고 6~17번을 헤맸다.
+//
+// 채팅을 쓰는 사람은 누구나 「새 대화」를 안다. PC 를 잘 다루지 못하는 사람에게는 **그것이
+// 유일하게 아는 복구 수단**이다.
+func freshRig(t *testing.T, tweak func(*API)) *ownRig {
+	t.Helper()
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.Fresh = func(string) (string, error) { return "s_fresh", nil }
+		if tweak != nil {
+			tweak(a)
+		}
+	})
+	rig.poke(t)
+	rig.settle(t)
+	return rig
+}
+
+func (r *ownRig) askFresh(t *testing.T) (int, map[string]any) {
+	t.Helper()
+	w := httptest.NewRecorder()
+	r.api.fresh(w, httptest.NewRequest(http.MethodPost, "/api/fresh", nil))
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("답이 JSON 이 아니다(%d): %s", w.Code, w.Body.String())
+	}
+	return w.Code, body
+}
+
+func TestANewConversationMovesTheWindowToIt(t *testing.T) {
+	rig := freshRig(t, nil)
+	code, body := rig.askFresh(t)
+	if code != http.StatusOK {
+		t.Fatalf("새 대화가 실패했다(%d): %v", code, body)
+	}
+	if body["session"] != "s_fresh" {
+		t.Fatalf("새 대화 이름을 안 준다: %v", body)
+	}
+	// **창도 그 이름으로 옮겨 앉아야 한다.** 안 그러면 새 대화의 이벤트가 전부 남의 것으로
+	// 걸러져서, 사람은 「새 대화」를 눌렀는데 아무 말도 안 보이는 화면을 본다.
+	_, sid, _ := rig.api.Bridge.Bound()
+	if sid != "s_fresh" {
+		t.Fatalf("창이 옛 대화에 그대로 앉아 있다: %q", sid)
+	}
+	// 마련해 둔 기록도 새 이름이어야 한다 — 안 그러면 다음 물음이 옛 이름을 도로 물린다.
+	if got := rig.api.Work.Now(); got.Session != "s_fresh" {
+		t.Fatalf("기록이 옛 이름을 들고 있다: %+v", got)
+	}
+}
+
+// **덱은 안 건드린다.** 「새 대화」가 슬라이드를 지우는 것으로 읽히면 아무도 못 누른다.
+func TestANewConversationSaysTheDeckIsUntouched(t *testing.T) {
+	rig := freshRig(t, nil)
+	_, body := rig.askFresh(t)
+	note, _ := body["note"].(string)
+	if !strings.Contains(note, "슬라이드는 그대로") {
+		t.Fatalf("덱이 무사하다는 말을 안 한다: %q", note)
+	}
+	// 도형·장에 손대는 길이 이 핸들러에 없다는 것은 Bolt 호출 수로 잰다.
+	if len(rig.attached) != 1 {
+		t.Fatalf("새 대화가 도구를 다시 붙였다: %v", rig.attached)
+	}
+}
+
+// 안 붙어 있으면 **열 자리가 없다고 말한다** — 조용히 성공으로 답하지 않는다.
+func TestANewConversationNeedsSomethingToOpenItOn(t *testing.T) {
+	api := &API{Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir(), Work: NewOwnWork()}
+	w := httptest.NewRecorder()
+	api.fresh(w, httptest.NewRequest(http.MethodPost, "/api/fresh", nil))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("붙지도 않았는데 %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// 데몬이 거절하면 **그 사유를 그대로** 전한다.
+func TestANewConversationCarriesWhyItFailed(t *testing.T) {
+	rig := freshRig(t, func(a *API) {
+		a.Fresh = func(string) (string, error) { return "", errors.New("이 빌드는 새 대화를 못 엽니다") }
+	})
+	code, body := rig.askFresh(t)
+	if code != http.StatusBadGateway {
+		t.Fatalf("실패인데 %d: %v", code, body)
+	}
+	if why, _ := body["error"].(string); !strings.Contains(why, "못 엽니다") {
+		t.Fatalf("사유를 그대로 안 전한다: %v", body["error"])
+	}
+	// 실패했으면 **옛 대화를 놓지 않는다** — 놓으면 사람은 쓰던 대화까지 잃는다.
+	if _, sid, _ := rig.api.Bridge.Bound(); sid != "s_deck" {
+		t.Fatalf("실패했는데 옛 대화를 놓았다: %q", sid)
+	}
+}
+
+// 이 자리도 **토큰과 루프백을 지난다.**
+func TestFreshIsBehindTheSameGuard(t *testing.T) {
+	api := &API{
+		Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir(),
+		Token: "s3cret", Own: &OwnCompanion{ConfigDir: t.TempDir()}, Work: NewOwnWork(),
+	}
+	mux := http.NewServeMux()
+	api.Route(mux)
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodPost, "/api/fresh", nil)
+	r.RemoteAddr = "127.0.0.1:5555"
+	mux.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("토큰 없이 지나갔다: %d %s", w.Code, w.Body.String())
+	}
+}
+
 // 자기 컴패니언을 마련하도록 안 세운 헬퍼는 **그렇다고 말한다.**
 func TestOwnSaysSoWhenTheHelperHasNoOwnCompanion(t *testing.T) {
 	api := &API{Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir()}

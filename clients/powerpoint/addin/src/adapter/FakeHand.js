@@ -385,7 +385,15 @@ export class FakeHand extends HandPort {
           lines.push(`다만 이제 도형끼리 겹칩니다(겹친 쌍 ${piled.before} → ${piled.after})`);
         }
         return this.#envelope(
-          { slide_id: slide.id, moved: moves.length, planned: moves.length, how, of: want.length },
+          {
+            slide_id: slide.id, moved: moves.length, planned: moves.length, how, of: want.length,
+            // **진짜 손과 같은 칸.** 어디에 섰는지 없으면 모델이 확인하는 대신 다시 옮긴다.
+            shapes: want.map((sh) => ({
+              shape_id: sh.id,
+              left: Number(sh.left ?? 0), top: Number(sh.top ?? 0),
+              width: Number(sh.width ?? 0), height: Number(sh.height ?? 0),
+            })),
+          },
           lines);
       }
       case 'snapshot_slide': {

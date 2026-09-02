@@ -648,7 +648,21 @@ export class OfficeHand extends HandPort {
           + '레이아웃이 자리를 잡아 두는 자리표시자이거나 잠긴 도형일 수 있습니다');
       }
       return this.#envelope(
-        { slide_id: slide.id, moved: landed.length, planned: moves.length, how, of: want.length },
+        {
+          slide_id: slide.id, moved: landed.length, planned: moves.length, how, of: want.length,
+          // **어디에 섰는지 적는다.** 실물 로그에서 봤다(2026-09-02): 맞추고 나서 모델이 같은
+          // 도형을 move_shape 로 두 번 더 옮겼다 — 결과에 최종 좌표가 없어서 스스로 확인할
+          // 방법이 없었고, 확인하는 대신 다시 한 것이다. 이미 다시 읽고 있으므로 공짜다.
+          shapes: before.map((b2) => {
+            const sh = now.get(String(b2.sh.id));
+            return {
+              shape_id: b2.sh.id,
+              left: Number(sh?.left ?? b2.left),
+              top: Number(sh?.top ?? b2.top),
+              width: b2.width, height: b2.height,
+            };
+          }),
+        },
         lines);
     });
   }

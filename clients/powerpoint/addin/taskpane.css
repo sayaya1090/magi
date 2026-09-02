@@ -153,7 +153,7 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
 .pick-note { color: var(--accent); }
 
 /* 고급 한 줄. **눈에 안 띄어야 한다** — 대개의 사람은 이 줄을 안 봐도 된다. */
-.advanced { padding: 0 var(--s4) var(--s2); }
+.advanced { padding: 0 var(--s4) var(--s2); display: flex; gap: var(--s3); }
 /* **밑줄은 가리킬 때만.** 첫 화면에서 이 줄이 눈에 띄면, 아무것도 안 해도 되는 사람이
    「저걸 눌러야 하나」를 하게 된다 — 이 줄은 찾는 사람만 찾으면 된다. */
 .linky {

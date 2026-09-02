@@ -292,6 +292,36 @@ async function boot() {
     document.querySelector('#repick')?.addEventListener('click', () => {
       void showCompanions(true);
     });
+
+    /**
+     * **새 대화.** 채팅을 쓰는 사람은 누구나 아는 그 단추다.
+     *
+     * 파워포인트 컴패니언은 워크스페이스가 하나라 대화도 하나이고, 그 하나가 영원히 쌓인다.
+     * 실물에서 봤다(2026-09-02): 한 번 헤맨 대화가 다음 부탁까지 끌고 가서, 사람이 19번 장을
+     * 보고 있는데 모델이 8번 장에 정렬을 걸고 6~17번을 헤맸다. PC 를 잘 다루지 못하는 사람에게
+     * 「새 대화」는 **유일하게 아는 복구 수단**이고, 그게 없으면 이상해진 판 앞에서 할 수 있는
+     * 일이 없다.
+     *
+     * **덱은 안 건드린다는 것을 먼저 말한다.** 이 단추가 슬라이드를 지우는 것으로 읽히면
+     * 아무도 못 누르고, 그러면 있으나 마나다.
+     */
+    document.querySelector('#fresh')?.addEventListener('click', () => {
+      void (async () => {
+        view.where('새 대화를 여는 중입니다 — 슬라이드는 그대로입니다.');
+        try {
+          const out = await api.fresh();
+          // **창을 새 이름으로 옮겨 앉힌다.** 안 그러면 새 대화의 이벤트가 전부 남의 것으로
+          // 걸러져서, 눌렀는데 아무 말도 안 보이는 화면이 된다(§5.7).
+          listenTo(out?.session);
+          view.where(out?.note || '새 대화를 열었습니다 — 슬라이드는 그대로입니다.');
+          await refreshBrand();
+        } catch (e) {
+          // 못 열었으면 **쓰던 대화는 그대로다.** 그 사실까지 적는다 — 안 적으면 사람은
+          // 자기 대화가 어떻게 됐는지 모른다.
+          view.where(`새 대화를 못 열었습니다: ${e?.message ?? e}. 쓰던 대화는 그대로입니다.`);
+        }
+      })();
+    });
     const offerRepick = (on) => { if (advanced) advanced.hidden = !on; };
 
     // **명단은 안 그리고** 읽기만 한다 — 이미 붙어 있는지만 보면 된다.

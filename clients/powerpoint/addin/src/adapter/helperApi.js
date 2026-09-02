@@ -48,6 +48,13 @@ export class HelperApi {
    */
   own() { return this.#send('/api/own', { body: {} }); }
 
+  /**
+   * **새 대화를 연다** — 「얘가 이상해요」의 탈출구.
+   *
+   * 대화 하나가 영원히 쌓이면 앞의 혼란이 뒤를 오염시킨다. 덱은 안 건드린다.
+   */
+  fresh() { return this.#send('/api/fresh', { body: {} }); }
+
   choose(socket, session) { return this.#send('/api/choose', { body: { socket, session } }); }
   submit(text) { return this.#send('/api/submit', { body: { text } }); }
   steer(text) { return this.#send('/api/steer', { body: { text } }); }

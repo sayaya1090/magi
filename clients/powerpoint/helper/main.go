@@ -195,6 +195,8 @@ type API struct {
 	Bolt      func(socket, url, token string) ([]string, error)
 	// Ours 는 「아까 붙여 둔 것이 지금도 그대로인가」. 기본값은 stillOurs 다.
 	Ours func(socket string) bool
+	// Fresh 는 새 대화를 여는 길. 기본값은 데몬에 묻는 것이다.
+	Fresh func(socket string) (string, error)
 	// Work 는 그 마련하는 일의 상태. **한 번에 하나만 돈다**(ownstate.go).
 	Work *OwnWork
 }
@@ -216,6 +218,7 @@ func (a *API) boltOf(socket, url, token string) ([]string, error) {
 
 func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/own", a.guard(a.own))
+	mux.HandleFunc("/api/fresh", a.guard(a.fresh))
 	mux.HandleFunc("/api/companions", a.guard(a.companions))
 	mux.HandleFunc("/api/choose", a.guard(a.choose))
 	mux.HandleFunc("/api/submit", a.guard(a.submit))
@@ -411,6 +414,58 @@ func (a *API) stillOurs(socket string) bool {
 	}
 	_ = cl.Close()
 	return true
+}
+
+// fresh 는 **새 대화를 연다** — 「얘가 이상해요」의 탈출구.
+//
+// 파워포인트 컴패니언은 워크스페이스가 하나라 대화도 하나이고, 그 하나가 **영원히 쌓인다.**
+// 실물에서 봤다(2026-09-02): 한 번 헤맨 대화가 그 다음 부탁까지 끌고 가서, 사람이 19번 장을
+// 보고 있는데 모델이 8번 장에 정렬을 걸고 6~17번을 헤맸다. 앞 문맥이 뒤를 오염시킨 것이다.
+//
+// 채팅을 쓰는 사람은 누구나 「새 대화」를 안다. **PC 를 잘 다루지 못하는 사람에게는 그것이
+// 유일하게 아는 복구 수단**이고, 그 단추가 없으면 이상해진 판 앞에서 할 수 있는 일이 없다.
+//
+// **덱은 안 건드린다.** 지우는 것은 대화뿐이고, 슬라이드는 그대로다 — 답이 그렇게 적는다.
+func (a *API) fresh(w http.ResponseWriter, _ *http.Request) {
+	socket, _, _ := a.Bridge.Bound()
+	if socket == "" {
+		writeStatus(w, http.StatusConflict, map[string]any{
+			"error": "아직 아무 컴패니언에도 안 붙어 있어서 새 대화를 열 자리가 없습니다",
+		})
+		return
+	}
+	sid, err := a.freshOn(socket)
+	if err != nil {
+		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "socket": socket})
+		return
+	}
+	// **대화를 바꾸면 창도 그 이름으로 옮겨 앉아야 한다.** 안 그러면 새 대화의 이벤트가 전부
+	// 남의 것으로 걸러진다 — 실물에서 그 화면을 봤던 자리다(§5.7).
+	out := map[string]any{"session": sid, "socket": socket,
+		"note": "새 대화를 열었습니다. 슬라이드는 그대로입니다 — 지운 것은 대화뿐입니다."}
+	if err := a.Bridge.Bind(socket, sid); err != nil {
+		out["chat"] = err.Error()
+	}
+	// 마련해 둔 기록도 새 이름으로 고친다. 안 고치면 다음 `/api/own` 이 옛 이름을 도로 물린다.
+	if held := a.Work.Now(); held.Phase == OwnReady && held.Socket == socket {
+		held.Session = sid
+		held.Chat = ""
+		a.Work.Done(held)
+	}
+	writeJSON(w, out)
+}
+
+// freshOn 은 그 데몬에 새 대화를 청한다. **시험만 이 자리를 채운다.**
+func (a *API) freshOn(socket string) (string, error) {
+	if a.Fresh != nil {
+		return a.Fresh(socket)
+	}
+	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
+	if err != nil {
+		return "", err
+	}
+	defer cl.Close()
+	return cl.NewSession()
 }
 
 // makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**
