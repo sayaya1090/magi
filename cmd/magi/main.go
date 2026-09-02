@@ -1034,6 +1034,27 @@ func run() int {
 		}, argv)
 	}
 
+	// Asked to detach: start the successor, say whether it came up, and get out — before anything
+	// here loads that BINDS.
+	//
+	// This stood ninety lines further down, below the plugin host, and its comment said this
+	// process "never binds anything itself". That was true of the daemon socket and false of the
+	// plugins: a plugin that serves — the three CLI backends all do — had already taken its port by
+	// the time this ran. The successor then found the port held, fell back to an automatic one, and
+	// the address it recorded for the console's provider picker named a port belonging to THIS
+	// process, which was on its way out.
+	//
+	// The plugin has a guard for a stale record and the guard cannot see this: it asks whether the
+	// recorded address answers, and at that instant the predecessor is still draining, so it
+	// answers. A corpse that is still warm passes a liveness probe.
+	//
+	// Measured 2026-09-02 with the claudecode shim pinned to 58411: with --detach it listened on
+	// 58116 and recorded 58411; without it, both were 58411. The fix is not a better probe — it is
+	// that a process which is about to hand off should never have opened the port.
+	if *detachMode {
+		return startDetached(daemon.SocketPath(plat.ConfigDir(), wd), os.Args[1:], dialSocket, os.Stderr)
+	}
+
 	// Plugin host. sid is created just below (CreateSession) and the host needs it now, so it is
 	// passed by pointer — see startPluginHost.
 	var sid session.SessionID
@@ -1093,13 +1114,6 @@ func run() int {
 	// its way out, leaving a daemon that was running and that no viewer could find. It also left a
 	// session in the store for a process that never ran a turn. Losing now costs one syscall and
 	// says who has the workspace.
-	// Asked to detach: this process starts the successor and reports whether it came up, and never
-	// binds anything itself. Before the claim below on purpose — two processes must not race for
-	// one workspace when only one of them is going to serve it.
-	if *detachMode {
-		return startDetached(sockPath, os.Args[1:], dialSocket, os.Stderr)
-	}
-
 	var bound *daemon.Daemon
 	if *daemonMode {
 		var berr error
