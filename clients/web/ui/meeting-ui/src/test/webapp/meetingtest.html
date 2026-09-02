@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>meeting test</title>
     <link rel="stylesheet" href="css/console.css">
+    <!-- 셸이 없는 하네스라 「지금 하는 것」 판에 먹일 것이 없다. 그 판은 회의와 같은 회선에
+         실려 오는 방 프레임(`{who, rows}`)을 셸의 창 브리지로 받는데, 여기엔 셸이 없어서
+         구독이 조용히 빈손으로 돌아간다 — 즉 시험이 그 판을 한 번도 못 재고 있었다.
+         브리지 쪽만 흉내 내고 프레임은 스펙이 밀어 넣는다(window.__magi_test_now).
+         GWT 부트스트랩보다 **먼저** 걸어야 화면이 구독할 때 문이 이미 서 있다. -->
+    <script>
+      (function () {
+        var subs = [];
+        window.__magi_room_subscribe = function (cb) { subs.push(cb); };
+        window.__magi_room_aim = function (id) { window.__magi_test_aimed = id === undefined ? null : id; };
+        window.__magi_test_now = function (json) {
+          var f = JSON.parse(json);
+          for (var i = 0; i < subs.length; i++) subs[i](f);
+        };
+      })();
+    </script>
     <!-- RxJS를 먼저, 그 다음 이 화면 — 스토어가 전역 `rxjs` 위에 산다(dev.sayaya.rx 바인딩).
          모듈 스크립트는 미뤄지고 GWT 부트스트랩은 미뤄지지 않아서, 나란히 적으면 순서가 뒤집힌다. -->
     <script type="module">

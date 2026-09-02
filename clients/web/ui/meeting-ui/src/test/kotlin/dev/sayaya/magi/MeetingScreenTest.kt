@@ -165,6 +165,66 @@ internal class MeetingScreenTest : GwtTestSpec({
             }
 
         }
+        When("발언권을 쥔 쪽이 지금 무엇을 하고 있으면") {
+            // 이 판이 있는 이유는 하나다 — **느린 모델과 죽은 화면을 구분하는 것**. 회의는
+            // 남을 기다리는 시간이 대부분이라, 그 사이 화면이 조용하면 사람은 고장으로 읽는다.
+            page.evaluate("window.__magi_test_room('held')")
+            Then("그 사람의 판이 서고, 아이콘이 실제로 돈다") {
+                page.waitForSelector("#meet .meetnow .meetnowone")
+                page.locator("#meet .meetnow .meetnowone").count() shouldBe 1
+                // 아이콘이 **있다**로는 모자란다: 옛 콘솔이 이 자리에서 실측으로 잡은 결함이
+                // 정확히 「글리프는 섰는데 animationName이 none」이었다. 멈춘 스피너는
+                // 멈춘 글자와 화면에서 같은 말이라, 판을 세운 이유가 그대로 사라진다.
+                page.evaluate(
+                    "getComputedStyle(document.querySelector('#meet .meetnowwho svg')).animationName")
+                    .shouldBe("spin")
+            }
+            Then("아직 아무것도 안 했으면 그렇게 적는다 — 빈 상자는 고장처럼 읽힌다") {
+                page.locator("#meet .meetnowrows .dnote").textContent() shouldBe "meet.thinking"
+            }
+            Then("흘러온 줄이 그 사람의 판에 선다") {
+                page.evaluate("window.__magi_test_now(JSON.stringify(" +
+                    "{who:'alpha',rows:[{who:'tool',text:'grep -n queue store.go'}]}))")
+                page.waitForSelector("#meet .meetnowrows .row")
+                page.locator("#meet .meetnowrows .row .txt").textContent().shouldContain("grep -n queue")
+            }
+            Then("길어지면 꼬리 여섯 줄만 그리고, 위가 잘렸다고 말한다") {
+                // 자르는 것은 DOM뿐이다(버퍼는 전량을 든다). 상한이 없으면 준비 구간에 판이
+                // 셋 동시에 서면서 참가자들의 추론이 화면 전체가 된다.
+                page.evaluate("window.__magi_test_now(JSON.stringify({who:'alpha'," +
+                    "rows:Array.from({length:20},function(_,i){return {who:'tool',text:'step '+(i+1)}})}))")
+                page.waitForCondition { page.locator("#meet .meetnowrows .row").count() == 6 }
+                page.locator("#meet .meetnowone.clipped").count() shouldBe 1
+                page.locator("#meet .meetnowrows .row .txt").last().textContent().shouldContain("step 20")
+            }
+            Then("새 줄이 오면 상자가 따라간다 — 가장 새 줄이 접힌 아래 남지 않는다") {
+                // 이 판은 자체 스크롤 상자다(화면의 절반을 먹지 않게). 따라가지 않으면 여섯
+                // 줄 중 **가장 오래된** 것만 보이고 방금 온 줄은 영영 아래에 남는다.
+                // 실측으로 잡힌 자리다: paintNow는 바닥으로 미는 코드를 늘 갖고 있었는데
+                // console.css의 scroll-behavior:smooth가 갓 끼워 넣은 상자의 scrollTop을
+                // 조용히 삼켜(900ms 뒤에도 0) 그 코드가 한 번도 듣지 않았다.
+                val lastVisible = page.evaluate(
+                    "(function(){var b=document.querySelector('#meet .meetnowrows');" +
+                    "var p=b.getBoundingClientRect(),v=null;" +
+                    "b.querySelectorAll('.row').forEach(function(r){" +
+                    "if(r.getBoundingClientRect().bottom<=p.bottom+1) v=r;});" +
+                    "return v?v.querySelector('.txt').textContent:'';})()")
+                (lastVisible as String).shouldContain("step 20")
+            }
+            Then("결론과 회의가 던진 질문은 이 판에 안 선다 — 회의 줄에 이미 있으므로") {
+                page.evaluate("window.__magi_test_now(JSON.stringify({who:'alpha',rows:[" +
+                    "{who:'user',text:'which store for the queue?'}," +
+                    "{who:'tool',text:'sed -n 1,40p store.go'}," +
+                    "{who:'assistant',text:'postgres, for the ordering'}]}))")
+                page.waitForCondition { page.locator("#meet .meetnowrows .row").count() == 1 }
+                page.locator("#meet .meetnowone.clipped").count() shouldBe 0
+                page.locator("#meet .meetnowrows .row .txt").textContent().shouldContain("sed -n")
+            }
+            Then("바닥을 놓으면 판도 걷힌다 — 아무도 일하고 있지 않으므로") {
+                page.evaluate("window.__magi_test_room('open')")
+                page.waitForCondition { page.locator("#meet .meetnow .meetnowone").count() == 0 }
+            }
+        }
         When("마무리하면") {
             page.locator("#meet .meetsay md-text-button").last().click()
             Then("결론이 서고, 누구에게 무엇이 남았는지 말한다") {

@@ -3878,17 +3878,29 @@
     display:flex; align-items:center; gap:var(--magi-sys-space-050);
     color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size);
   }
+  /* 크기와 획을 여기서 정한다. 그림은 24 뷰박스에 1.7 획으로 그려지므로, 글자 크기를 그대로
+     물려받으면(12px) 실선이 0.85px가 되어 도는 것이 아니라 흐린 자국으로 읽힌다 — 실측:
+     화면에서 이 자리가 비어 보였다. 판이 있는 이유가 「살아 있다」를 보이는 것이니 그건
+     아이콘이 없는 것과 같다. */
+  .meetnowwho .sic { width:14px; height:14px; }
+  .meetnowwho .sic path { stroke-width:2.2; }
   /* 위가 잘렸으면 그렇게 말한다. 표식이 없으면 사람은 그 줄이 시작인 줄 안다 — 실제로는
      그 위에 더 있고, 올려 보면 나온다. */
   .meetnowone.clipped .meetnowrows { border-top:1px dashed var(--magi-ref-outlineVariant); }
-  .meetnowone.clipped .meetnowrows::before {
-    content:"⋮"; color:var(--magi-ref-faint); text-align:center; line-height:1;
+  /* 표식은 상자 <b>밖</b>에 둔다. 안에 두면 상자가 바닥에 붙는 순간 같이 밀려 올라가,
+     "위가 잘렸다"는 말이 정작 잘린 상태에서만 안 보인다. */
+  .meetnowone.clipped .meetnowwho::after {
+    content:"⋮"; margin-left:auto; color:var(--magi-ref-faint); line-height:1;
   }
   .meetnowrows {
     display:grid; gap:var(--magi-sys-space-050);
     max-height:min(9rem, 22vh); overflow-y:auto; overscroll-behavior:contain;
   }
-  @media (prefers-reduced-motion:no-preference) { .meetnowrows { scroll-behavior:smooth; } }
+  /* **부드러운 스크롤을 여기 두지 마라.** 이 상자는 새 줄이 올 때마다 코드가 바닥으로
+     민다(MeetingElement.paintNow). scroll-behavior:smooth이면 갓 끼워 넣은 상자에 준
+     scrollTop이 조용히 무시되고 — 실측: 900ms 뒤에도 0, auto로 바꾸면 즉시 255 — 여섯
+     줄 중 가장 오래된 것만 보인 채 새 줄은 영영 접힌 아래에 남는다. 코드는 멀쩡했고
+     스타일 한 줄이 그것을 죽이고 있었다. MeetingScreenTest가 이제 그 자리를 잰다. */
   .meetwork { grid-column:2; }
   .meetworkrows { display:grid; gap:var(--magi-sys-space-100); margin-top:var(--magi-sys-space-100); }
   .meettext { white-space:pre-wrap; overflow-wrap:anywhere; }

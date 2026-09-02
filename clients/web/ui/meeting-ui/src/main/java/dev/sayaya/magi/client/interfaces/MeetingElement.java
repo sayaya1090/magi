@@ -524,6 +524,14 @@ public class MeetingElement {
         elemental2.dom.NodeList<elemental2.dom.Element> rows = fresh.querySelectorAll(".meetnowrows");
         for (int i = 0; i < rows.length; i++) {
             HTMLElement one = Js.uncheckedCast(rows.getAt(i));
+            // **미는 자리에서 부드러운 스크롤을 끈다.** 이 줄이 없으면 스타일시트가 이 코드를
+            // 조용히 이긴다: scroll-behavior:smooth인 상자에 갓 끼워 넣은 직후 scrollTop을
+            // 주면 아무 일도 일어나지 않고(실측: 900ms 뒤에도 0, auto면 즉시 255), 여섯 줄 중
+            // 가장 오래된 것만 보인 채 방금 온 줄은 영영 접힌 아래에 남는다. 스타일 한 줄로
+            // 되살아나는 결함이라 CSS에서 지우는 것만으로는 모자라고 — 브라우저 시험도 이걸
+            // 못 잡는다(하네스가 reduced-motion을 강제해 그 자리에서 늘 auto다). 그래서
+            // 재는 대신 못 쓰게 막는다: 인라인이 스타일시트를 이긴다.
+            one.style.setProperty("scroll-behavior", "auto");
             one.scrollTop = one.scrollHeight;
         }
     }

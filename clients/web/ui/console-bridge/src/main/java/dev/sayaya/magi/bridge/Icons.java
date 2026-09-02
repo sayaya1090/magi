@@ -209,6 +209,12 @@ public final class Icons {
         switch (ref == null ? "" : ref) {
             case "#i-sl-magnifying-glass": return "M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13M20 20l-4.6-4.6";
             case "#i-sl-arrows-rotate": return "M20 12a8 8 0 1 1-2.4-5.7M20 4.5V9h-4.5";
+            // 도는 표. 이 표에 없으면 그림은 <b>스프라이트에서만</b> 오는데, 스프라이트는
+            // 라이선스 아트가 빌드 때 있을 때만 구워진다(clients/web/server/gen_icons.go) —
+            // 없으면 shape()가 null을 돌려주고 자리에 아무것도 안 선다. 그것을 실측으로 잡은
+            // 자리가 회의의 「지금 하는 것」 판이다: 판이 있는 이유가 "느린 모델과 죽은 화면을
+            // 구분한다"인데, 아트 없는 빌드에서는 그 구분이 통째로 사라지고 있었다.
+            case "#i-sl-spinner-third": return "M20 12A8 8 0 1 1 12 4";
             case "#i-sl-sliders": return "M4 7h9M17 7h3M4 12h3M11 12h9M4 17h9M17 17h3M13 4.5v5M7 9.5v5M13 14.5v5";
             case "#i-sl-xmark": return "M6.5 6.5l11 11M17.5 6.5l-11 11";
             case "#i-sl-chevron-left": return "M14.5 5.5L8 12l6.5 6.5";

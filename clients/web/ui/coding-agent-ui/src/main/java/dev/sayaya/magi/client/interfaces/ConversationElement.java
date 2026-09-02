@@ -845,6 +845,11 @@ public class ConversationElement {
         lastSig = sig;
         boolean stick = atBottom();
         int total = rows.getLength();
+        // **어떤 변형보다 먼저 잰다.** 앵커는 "변형 전에 어디였나"를 알아야 성립하는데, 아래는
+        // 행을 빼고 넣고 위쪽 상자의 높이를 고친다 — 그 뒤에 읽은 scrollHeight는 이미 새 값이라
+        // 뺄셈이 늘 0이 되고, 보정은 조용히 아무 일도 안 하게 된다. 옛 콘솔이 이 순서를 지켰다.
+        HTMLElement box = Js.uncheckedCast(scroller());
+        double wasAt = box == null ? 0 : box.scrollTop, wasTall = box == null ? 0 : box.scrollHeight;
         // 창이 이번 프레임에 어디서 시작하는가. 셈은 domain/Window가 한다.
         int target = Window.nextFrom(total, winFrom, keepRows);
         // 나가는 행: 높이를 <b>지금</b> 재서 기억하고 위쪽 상자에 더한다. 그린 적 없는 행은
@@ -868,8 +873,6 @@ public class ConversationElement {
             sigs.clear();
             winFrom = target;
         }
-        HTMLElement box = Js.uncheckedCast(scroller());
-        double wasAt = box == null ? 0 : box.scrollTop, wasTall = box == null ? 0 : box.scrollHeight;
         // 자리로 견주어 <b>달라진 행만</b> 짓는다(운영 draw()의 그 규칙).
         //
         // 전사는 한 턴씩 자라고, 통째로 다시 그리면 자란 것 하나 때문에 이미 읽고 있던 행이
