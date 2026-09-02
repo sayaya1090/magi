@@ -1,11 +1,39 @@
-<idea-plugin>
+<!--
+    `url` 은 플러그인 목록에서 **갈 곳**이 된다. 없으면 이 플러그인의 페이지에는 이름과 설명만
+    남고, 무엇인지 더 알아볼 길이 화면 어디에도 없다 — 비교해 본 같은 종류의 플러그인 둘은
+    (Claude Code, Continue) 둘 다 이 자리를 채운다.
+-->
+<idea-plugin url="https://github.com/sayaya1090/magi/tree/main/clients/jetbrains">
     <id>dev.sayaya.magi.ide</id>
     <name>magi</name>
-    <vendor email="codemate.team@gmail.com">sayaya</vendor>
+    <vendor email="codemate.team@gmail.com" url="https://github.com/sayaya1090/magi">sayaya</vendor>
 
+    <!--
+        플러그인 페이지의 본문. 여기서 사람은 「깔 것인가」를 정하므로, 무엇을 하는지가 문장
+        하나로 끝나면 안 된다 — 예전엔 두 문장이었고 그 안에 기능 이름이 하나도 없었다.
+        적는 것은 **plugin.xml 이 이미 광고하는 것들**이다(액션·도구창·인텐션·상태 위젯);
+        여기서 새 약속을 하면 매뉴얼·번들과 갈리고, 그 갈림은 ManualTest 밖이라 조용하다.
+    -->
     <description><![CDATA[
-        Runs a magi companion for the open project: it starts the workspace's daemon or attaches to
-        the one already there, shows the turn as it happens, and answers the prompts it raises.
+        <p>Runs a magi companion for the open project: it starts the workspace's daemon or attaches
+        to the one already there, shows the turn as it happens, and answers the prompts it raises.</p>
+        <ul>
+          <li><b>The turn, as it happens</b> &mdash; the conversation docks at the bottom beside Run
+          and Terminal; what the companion is planning goes to a pane on the right.</li>
+          <li><b>Ask about what you are reading</b> &mdash; a selection, a whole file, or output in
+          the Run console or the terminal, answered where you were reading it.</li>
+          <li><b>Review</b> &mdash; review the file you are editing, unsaved changes included; what
+          it finds arrives as editor banners rather than a wall of text.</li>
+          <li><b>Commit messages</b> &mdash; drafted from the staged changes. Text you typed
+          yourself is kept.</li>
+          <li><b>Who wrote this line</b> &mdash; trace a line back to the magi task that wrote it,
+          or be told plainly that it cannot tell.</li>
+          <li><b>Approvals in the IDE</b> &mdash; the permission a companion asks for is answered
+          here, not in a terminal in another window.</li>
+        </ul>
+        <p>The plugin does not talk to a model itself. It speaks to the magi daemon over a unix
+        socket in the workspace, and that daemon is where the model, the tools and the permissions
+        live. There is nothing to install separately: the plugin fetches the core binary it needs.</p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

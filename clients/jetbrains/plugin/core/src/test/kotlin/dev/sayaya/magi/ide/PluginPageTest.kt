@@ -6,17 +6,17 @@ import org.junit.jupiter.api.Test
 import java.io.File
 
 /**
- * 플러그인의 표 — 있는가, 규격인가, 그리고 **콘솔과 같은 마크인가**.
+ * 플러그인 페이지 — 사람이 「깔 것인가」를 정하는 자리.
  *
- * 이 그림은 플러그인 목록·마켓플레이스·업데이트 알림에 뜬다. 없으면 IDE 가 이름의 첫 글자로
- * 회색 판을 그리고, 그건 고장이 아니라 「아직 아무도 안 만든 것」처럼 읽힌다 — 조용히 빠져도
- * 아무 시험도 울지 않는 자리라 여기서 잰다.
+ * 표·설명·갈 곳 셋 다 **빠져도 아무것도 안 터진다.** 플러그인은 그대로 돌고, 목록에서만
+ * 초라해진다 — 그래서 조용히 빠진 채로 오래 간다. 실제로 이 플러그인은 표가 없는 채로 여기까지
+ * 왔고, 설명은 두 문장이라 기능 이름이 하나도 없었다. 눈이 커밋마다 보지 않는 자리라 여기서 잰다.
  *
  * 색을 여기 적지 않는다. 같은 마크의 원천은 콘솔의 파비콘(internal/webassets/assets.go 의
  * Icon)이고, 두 벌로 적으면 한쪽만 바뀌어 두 화면의 표가 갈린다. 그 파일을 읽어 대조한다:
  * 못 찾으면 건너뛰는 게 아니라 **실패**한다 — 안 재는 가드는 없는 가드보다 나쁘다.
  */
-class PluginIconTest {
+class PluginPageTest {
 
     private val plugin = File(System.getProperty("user.dir")).parentFile // plugin/
 
@@ -86,5 +86,39 @@ class PluginIconTest {
                 assertTrue(cy - r >= 2 && cy + r <= 38, "$name 의 원이 세로로 자리를 넘는다: $cy ± $r")
             }
         }
+    }
+
+    @Test
+    fun `페이지에 갈 곳이 있다 — 목록에서 여기 말고는 알아볼 데가 없다`() {
+        val xml = File(plugin, "intellij/src/main/resources/META-INF/plugin.xml").readText()
+        val head = Regex("""<idea-plugin\b[^>]*>""").find(xml)?.value
+            ?: throw AssertionError("<idea-plugin> 을 못 찾았다")
+        assertTrue(head.contains("url="), "<idea-plugin> 에 url 이 없다 — 플러그인 페이지에서 나갈 길이 없다")
+        val vendor = Regex("""<vendor\b[^>]*>""").find(xml)?.value
+            ?: throw AssertionError("<vendor> 를 못 찾았다")
+        assertTrue(vendor.contains("url="), "<vendor> 에 url 이 없다")
+    }
+
+    /**
+     * 설명이 **무엇을 하는지 말하는가.**
+     *
+     * 문장 수나 글자 수로 재지 않는다 — 그건 길게 쓰면 통과하는 검사고, 길기만 한 설명은
+     * 짧은 설명과 똑같이 쓸모없다. 대신 이 플러그인이 **광고하는 액션의 수**를 세어, 설명이
+     * 그중 몇 가지를 실제로 이름 대는지 본다. 기능을 붙이면서 설명을 안 고치면 이 비율이
+     * 떨어진다.
+     */
+    @Test
+    fun `설명이 광고하는 기능을 이름 댄다`() {
+        val xml = File(plugin, "intellij/src/main/resources/META-INF/plugin.xml").readText()
+        val body = Regex("""<description><!\[CDATA\[(.*?)]]></description>""", RegexOption.DOT_MATCHES_ALL)
+            .find(xml)?.groupValues?.get(1)
+            ?: throw AssertionError("<description> 을 못 찾았다")
+        // 이 플러그인이 실제로 하는 일의 이름들 — 번들의 액션 글자에서 고른 낱말이다.
+        val topics = listOf("review", "commit", "terminal", "approv", "wrote")
+        val named = topics.count { body.contains(it, ignoreCase = true) }
+        assertTrue(named >= 4,
+            "설명이 광고하는 기능 중 $named 가지만 이름 댄다 (${topics.size} 중). " +
+                    "플러그인 페이지는 사람이 「깔 것인가」를 정하는 자리다")
+        assertTrue(body.contains("<li>"), "설명이 줄글 한 덩어리다 — 목록으로 나눈 것과 읽는 값이 다르다")
     }
 }
