@@ -3,7 +3,7 @@ import { fromBase64, zipEntries, zipRead, zipReadBytes } from './zip.js';
 import { zipStore, toBase64 } from './zipwrite.js';
 import {
   chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame,
-  freeChartName, freeRelId,
+  freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox,
 } from './chartxml.js';
 
 /**
@@ -58,7 +58,7 @@ export class OfficeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table', 'add_chart'];
+      'duplicate_slide', 'replace_table', 'add_chart', 'add_image'];
   }
 
   #envelope(result, changed = []) {
@@ -152,6 +152,7 @@ export class OfficeHand extends HandPort {
       case 'delete_slide': return this.#deleteSlide(args);
       case 'duplicate_slide': return this.#duplicateSlide(args);
       case 'add_chart': return this.#addChart(args);
+      case 'add_image': return this.#addImage(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -1378,6 +1379,138 @@ export class OfficeHand extends HandPort {
         + `항목 ${args.categories.length}개 · 계열 ${args.series.length}개. `
         + '값은 차트 안에 들어 있어 서식은 다 만질 수 있지만, '
         + '**「데이터 편집」은 안 열립니다**(품은 표가 없습니다) — 숫자를 고치려면 이 도구로 다시 만드세요.']);
+    });
+  }
+
+  /**
+   * **그림을 새 장에 넣는다.**
+   *
+   * # 왜 OOXML 인가
+   *
+   * `ShapeCollection.addPicture` 는 존재하지만 **BETA(preview only)** 다 — 1.8 에도 1.10 에도
+   * 없다(Microsoft 문서, 2026-09-03 확인). 미리보기 API 에 기대면 어느 날 사람의 PowerPoint 에서
+   * 조용히 사라지고, 그때 우리는 「되던 것이 안 된다」를 설명할 말이 없다.
+   *
+   * 그래서 차트와 같은 길로 간다: 장을 떠서 뼈대로 쓰고, 그림 부품을 넣고, 다시 묶어 넣는다.
+   *
+   * # 바이트는 어디서 오나
+   *
+   * **헬퍼가 읽어서 실어 보낸다**(`helper/image.go`). 애드인은 브라우저 안이라 디스크를 못 읽고,
+   * 모델이 base64 를 인자로 실으면 1MB 짜리 사진이 대화를 채운다. 모델의 문맥에 들어가는 것은
+   * 경로 한 줄뿐이고, 헬퍼가 **내용을 보고 그림이 아니면 거절한다.**
+   */
+  #addImage(args) {
+    return this.runner(async (context) => {
+      const b64 = String(args.image_base64 ?? '');
+      if (!b64) {
+        // 손이 혼자 못 하는 일이다 — 헬퍼가 채워 주지 않으면 여기서 멈춘다.
+        throw new Error('그림 바이트가 안 왔습니다 — 헬퍼가 파일을 읽어 실어 보내야 합니다');
+      }
+      const ext = String(args.image_ext ?? 'png');
+      const mime = String(args.image_mime ?? 'image/png');
+
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      const packed = slide.exportAsBase64();
+      await context.sync();
+
+      const raw = fromBase64(packed.value);
+      const { entries } = zipEntries(raw);
+      const files = [];
+      let slideName = '';
+      let relsName = '';
+      let typesName = '';
+      for (const e of entries) {
+        if (/^ppt\/slides\/slide\d+\.xml$/.test(e.name)) slideName = e.name;
+        else if (/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/.test(e.name)) relsName = e.name;
+        else if (e.name === '[Content_Types].xml') typesName = e.name;
+        files.push({ name: e.name, data: await zipReadBytes(raw, e.name) });
+      }
+      for (const [what, name] of [['슬라이드', slideName], ['관계', relsName], ['콘텐츠 형식', typesName]]) {
+        if (!name) {
+          throw new Error(`뜬 슬라이드 꾸러미에서 ${what} 파일을 못 찾았습니다 — `
+            + '이 덱의 모양이 예상과 달라 그림을 못 넣습니다');
+        }
+      }
+
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      const at = (name) => files.find((f) => f.name === name);
+      let slideXml = dec.decode(at(slideName).data)
+        .replace(/<p:sp>[\s\S]*?<\/p:sp>/g, '')
+        .replace(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g, '')
+        .replace(/<p:pic>[\s\S]*?<\/p:pic>/g, '');
+
+      const spot = freeImageName(files.map((f) => f.name), ext);
+      const relId = freeRelId(dec.decode(at(relsName).data));
+
+      // **비율을 지킨다.** 사람이 크기를 안 말하면 상자 안에 원래 비율로 넣는다 — 상자를 그대로
+      // 쓰면 세로 사진이 가로로 늘어나고, 그건 화면에서 바로 보인다.
+      const box = {
+        w: Number(args.width ?? 640),
+        h: Number(args.height ?? 420),
+      };
+      const said = args.width !== undefined && args.height !== undefined;
+      const fit = said
+        ? { width: box.w, height: box.h, kept: false }
+        : fitBox(Number(args.image_width ?? 0), Number(args.image_height ?? 0), box.w, box.h);
+
+      slideXml = withFrame(slideXml, picFrame({
+        id: 2,
+        name: args.name ? String(args.name) : '그림',
+        // 대체 텍스트는 **비워 두지 않는다.** 사람이 안 주면 파일 이름이라도 넣는다 —
+        // 빈 것보다 낫고, 나중에 고치기도 쉽다.
+        descr: args.alt ? String(args.alt) : String(args.path ?? '').split(/[\\/]/).pop() ?? '',
+        relId,
+        left: Number(args.left ?? 60), top: Number(args.top ?? 90),
+        width: fit.width, height: fit.height,
+      }));
+
+      at(slideName).data = enc.encode(slideXml);
+      at(relsName).data = enc.encode(
+        withRelationship(dec.decode(at(relsName).data), relId, spot.target, 'image'));
+      at(typesName).data = enc.encode(
+        withDefaultType(dec.decode(at(typesName).data), ext, mime));
+      files.push({ name: spot.part, data: fromBase64(b64) });
+
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+      const before = slides.items.map((s) => s.id);
+
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(files)),
+        { targetSlideId: slide.id });
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      const made = slides.items.find((s) => !before.includes(s.id));
+      this.#mutated();
+      if (!made) {
+        throw new Error('그림을 넣었는데 덱에서 새 장을 못 찾았습니다 — '
+          + '넣기가 안 먹었을 수 있으니 목차를 다시 읽어 확인하세요');
+      }
+
+      const lines = [`슬라이드 ${(made.index ?? 0) + 1}(id ${made.id}) 에 그림을 넣었습니다 — `
+        + `${String(args.path ?? '').split(/[\\/]/).pop()} (${ext}, `
+        + `${Math.round(Number(args.image_bytes ?? 0) / 1024)}KB)`];
+      // **비율을 못 지켰으면 말한다.** 사람이 크기를 짚어 준 경우와, 원래 크기를 못 읽은 경우는
+      // 다른 이야기이고 둘 다 화면에 나타난다.
+      if (!said && !fit.kept) {
+        lines.push('원래 크기를 못 읽어 비율을 못 맞췄습니다 — 찌그러져 보이면 크기를 짚어 주세요');
+      }
+      return this.#envelope({
+        slide: (made.index ?? 0) + 1,
+        slide_id: made.id,
+        // **어느 파일을 읽었는지 싣는다.** 모델이 경로를 말하고 우리가 읽었으므로, 사람이
+        // 무엇이 들어갔는지 볼 수 있어야 한다.
+        path: args.path ?? null,
+        format: ext,
+        bytes: Number(args.image_bytes ?? 0),
+        natural: { width: Number(args.image_width ?? 0), height: Number(args.image_height ?? 0) },
+        placed: { width: Math.round(fit.width), height: Math.round(fit.height) },
+        aspect_kept: said ? false : fit.kept,
+      }, lines);
     });
   }
 

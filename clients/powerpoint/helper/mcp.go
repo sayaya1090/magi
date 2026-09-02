@@ -184,6 +184,29 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 			"so nothing could be read or changed. Ask the person to open the magi pane in PowerPoint, then try again.")
 	}
 
+	// **그림은 여기서 읽어 실어 보낸다.**
+	//
+	// 애드인은 브라우저 안이라 디스크를 못 읽고, 모델은 사진을 지어낼 수 없다. 남은 길은 모델이
+	// base64 를 인자로 싣는 것인데 — 1MB 짜리 사진이 1.3MB 의 글이 되어 **매 걸음 다시 실려
+	// 간다.** 그래서 모델은 경로만 말하고, 사람의 머신에서 도는 이 프로세스가 읽는다.
+	//
+	// 읽는 쪽이 **내용을 보고 그림이 아니면 거절한다**(image.go) — 남이 준 덱에 숨은 글이 모델을
+	// 꾀어 엉뚱한 파일을 가리키게 할 수 있고, 그러면 그 내용이 슬라이드에 박혀 사람이 그것을
+	// 그대로 남에게 보낸다.
+	if name == "add_image" {
+		img, ierr := ReadImage(fmt.Sprint(args["path"]))
+		if ierr != nil {
+			return errorResult(ierr.Error())
+		}
+		// 판에게 줄 것만 채운다. `path` 는 그대로 두어 결과가 어느 파일이었는지 적을 수 있게 한다.
+		args["image_base64"] = img.Base64
+		args["image_ext"] = img.Ext
+		args["image_mime"] = img.Mime
+		args["image_width"] = img.Width
+		args["image_height"] = img.Height
+		args["path"] = img.Path
+		args["image_bytes"] = img.Bytes
+	}
 	res, err := s.Hand.Call(r.Context(), documentOf(args), name, args)
 	if err != nil {
 		return errorResult(err.Error())

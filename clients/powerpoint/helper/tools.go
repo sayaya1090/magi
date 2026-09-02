@@ -279,6 +279,25 @@ func catalogue() []tool {
 			Required: []string{"categories", "series"},
 		},
 		{
+			Name: "add_image",
+			Desc: "Put a picture from the person's own computer on a new slide. Give the FILE PATH — never " +
+				"base64: the helper reads the file itself, so the bytes never travel through this conversation. " +
+				"The file is checked by its CONTENT, not its name, and anything that is not a real PNG/JPEG/GIF/BMP " +
+				"is refused — so a text file renamed to .png cannot end up embedded in a slide somebody then " +
+				"shares. It lands on a NEW slide and touches nothing that was already there. Ask the person for " +
+				"the path if you do not have one; do not guess at filenames." + declare,
+			Props: withSlide(
+				property{Name: "path", Type: "string", Desc: "Where the picture is on this machine, e.g. C:\\Users\\me\\Pictures\\logo.png. Required."},
+				property{Name: "alt", Type: "string", Desc: "Alt text for screen readers. Strongly worth setting: if you omit it the file name is used, which is better than nothing but rarely describes the picture."},
+				property{Name: "name", Type: "string", Desc: "Shape name in the deck. Defaults to 그림."},
+				property{Name: "left", Type: "number", Desc: "Position in points (default 60)."},
+				property{Name: "top", Type: "number", Desc: "Position in points (default 90)."},
+				property{Name: "width", Type: "number", Desc: "Size in points. Omit BOTH width and height and the picture is fitted into a default box at its own aspect ratio — that is usually what you want. Giving both stretches it to exactly that size."},
+				property{Name: "height", Type: "number", Desc: "Size in points. See width."},
+			),
+			Required: []string{"path"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

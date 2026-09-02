@@ -37,7 +37,7 @@ export class FakeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table', 'add_chart'];
+      'duplicate_slide', 'replace_table', 'add_chart', 'add_image'];
   }
 
   /**
@@ -417,6 +417,24 @@ export class FakeHand extends HandPort {
           data_sheet: false,
         }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
           + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)']);
+      }
+
+      case 'add_image': {
+        // 가짜 손에는 헬퍼가 없다 — **바이트가 안 오면 그렇다고 말한다.** 조용히 빈 그림을
+        // 넣으면 이 화면에서 배운 것이 실물에서 틀린다.
+        if (!args.image_base64) {
+          throw new Error('그림 바이트가 안 왔습니다 — 헬퍼가 파일을 읽어 실어 보내야 합니다');
+        }
+        const slide = {
+          id: `sl-img${this.nextId++}`, layout: '그림',
+          shapes: [{ id: 'pic-1', name: args.name ?? '그림', type: 'Picture', text: '' }],
+        };
+        this.model.slides.push(slide);
+        this.#mutated();
+        return this.#envelope({
+          slide: this.model.slides.length, slide_id: slide.id,
+          path: args.path ?? null, format: args.image_ext ?? 'png',
+        }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 그림을 넣었습니다`]);
       }
 
       case 'snapshot_slide': {

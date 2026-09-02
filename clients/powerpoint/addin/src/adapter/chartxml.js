@@ -209,10 +209,11 @@ export function freeRelId(relsXml) {
 }
 
 /** 관계 하나를 관계 파일에 끼운다. **이미 있으면 안 넣는다.** */
-export function withRelationship(xml, relId, target) {
+export function withRelationship(xml, relId, target, kind = 'chart') {
   if (xml.includes(`Id="${relId}"`)) return xml;
+  // 종류가 관계의 뜻이다 — `chart` 와 `image` 는 같은 자리에 다른 이름으로 붙는다.
   const rel = `<Relationship Id="${relId}"`
-    + ` Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart"`
+    + ` Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${kind}"`
     + ` Target="${target}"/>`;
   if (!xml.includes('</Relationships>')) {
     throw new Error('관계 파일의 모양이 예상과 다릅니다 — </Relationships> 를 못 찾았습니다');
@@ -221,16 +222,78 @@ export function withRelationship(xml, relId, target) {
 }
 
 /** 콘텐츠 형식에 차트를 등록한다. 없으면 PowerPoint 가 그 부품을 아예 안 읽는다. */
-export function withContentType(xml, partName) {
+export function withContentType(xml, partName,
+  mime = 'application/vnd.openxmlformats-officedocument.drawingml.chart+xml') {
   if (xml.includes(`PartName="${partName}"`)) return xml;
-  const over = `<Override PartName="${partName}"`
-    + ` ContentType="application/vnd.openxmlformats-officedocument.drawingml.chart+xml"/>`;
+  const over = `<Override PartName="${partName}" ContentType="${mime}"/>`;
   if (!xml.includes('</Types>')) {
     throw new Error('[Content_Types].xml 의 모양이 예상과 다릅니다 — </Types> 를 못 찾았습니다');
   }
   return xml.replace('</Types>', `${over}</Types>`);
 }
 
+/**
+ * 확장자 기본값을 등록한다 — 그림은 이쪽이 맞다.
+ *
+ * `.pptx` 는 부품마다 형식을 적을 수도 있고(`Override`) 확장자로 한꺼번에 적을 수도 있다
+ * (`Default`). 그림은 여러 장이 같은 확장자를 쓰므로 후자가 자연스럽고, 무엇보다 **이미 등록된**
+ * **확장자면 아무것도 안 해야** 한다 — 두 번 적으면 파일이 안 열린다.
+ */
+export function withDefaultType(xml, ext, mime) {
+  if (new RegExp(`<Default[^>]*Extension="${ext}"`, 'i').test(xml)) return xml;
+  if (!xml.includes('<Types')) {
+    throw new Error('[Content_Types].xml 의 모양이 예상과 다릅니다 — <Types> 를 못 찾았습니다');
+  }
+  const end = xml.indexOf('>', xml.indexOf('<Types')) + 1;
+  return xml.slice(0, end) + `<Default Extension="${ext}" ContentType="${mime}"/>` + xml.slice(end);
+}
+
+/**
+ * 아직 안 쓰인 그림 부품 이름.
+ *
+ * 차트와 같은 이유다 — 뼈대로 뜬 장에 이미 그림이 있을 수 있고, 같은 이름을 하나 더 넣으면
+ * zip 에 같은 이름이 둘 생겨 PowerPoint 가 통째로 거절한다. 차트에서 실물로 겪었다(2026-09-02).
+ */
+export function freeImageName(names, ext) {
+  const used = new Set(names);
+  for (let i = 1; i < 1000; i += 1) {
+    const name = `ppt/media/image${i}.${ext}`;
+    if (!used.has(name)) return { part: name, target: `../media/image${i}.${ext}` };
+  }
+  throw new Error('이 장에 그림이 너무 많아 새 이름을 못 지었습니다');
+}
+
+/**
+ * 슬라이드에 놓을 **그림**(`p:pic`).
+ *
+ * `descr` 은 대체 텍스트다. **비워 두지 않는다** — 화면 낭독기를 쓰는 사람에게 빈 대체 텍스트는
+ * 「그림이 있는데 무엇인지 모른다」이고, 발표 자료에서 그건 흔한 결함이다.
+ */
+export function picFrame({ id, name, descr, relId, left, top, width, height }) {
+  const emu = (v) => Math.round(Number(v) * 12700);
+  return `<p:pic><p:nvPicPr>`
+    + `<p:cNvPr id="${id}" name="${xmlText(name)}" descr="${xmlText(descr ?? '')}"/>`
+    + `<p:cNvPicPr><a:picLocks noChangeAspect="1"/></p:cNvPicPr><p:nvPr/>`
+    + `</p:nvPicPr>`
+    + `<p:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`
+    + ` r:embed="${relId}"/><a:stretch><a:fillRect/></a:stretch></p:blipFill>`
+    + `<p:spPr><a:xfrm><a:off x="${emu(left)}" y="${emu(top)}"/>`
+    + `<a:ext cx="${emu(width)}" cy="${emu(height)}"/></a:xfrm>`
+    + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr></p:pic>`;
+}
+
+/**
+ * 원래 비율을 지키면서 주어진 상자 안에 넣을 크기.
+ *
+ * 사람이 크기를 안 말하면 우리가 정해야 하는데, **비율을 모르면 정사각형에 우겨넣게 되고**
+ * 그건 화면에서 바로 보인다. 원래 크기를 못 읽었으면(0) 상자를 그대로 쓰고, **그 사실을**
+ * `kept` 로 알린다 — 부르는 쪽이 그것을 사람에게 적을 수 있어야 한다.
+ */
+export function fitBox(natW, natH, boxW, boxH) {
+  if (!(natW > 0) || !(natH > 0)) return { width: boxW, height: boxH, kept: false };
+  const k = Math.min(boxW / natW, boxH / natH);
+  return { width: natW * k, height: natH * k, kept: true };
+}
 /**
  * 슬라이드의 도형 나무에 틀을 끼운다.
  *

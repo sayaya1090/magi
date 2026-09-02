@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
-import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId } from '../src/adapter/chartxml.js';
+import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 
@@ -2132,6 +2132,93 @@ async function makeZip(files) {
       freeRelId('<Relationships><Relationship Id="rId1"/><Relationship Id="rId2"/></Relationships>')
         === 'rId3');
 
+  }
+
+  // ── 그림 조각을 지을 줄 안다 ──────────────────────────────────────────────
+  //
+  // `ShapeCollection.addPicture` 는 존재하지만 **BETA(preview only)** 다 — 1.8 에도 1.10 에도
+  // 없다(Microsoft 문서, 2026-09-03 확인). 미리보기 API 에 기대면 어느 날 사람의 PowerPoint 에서
+  // 조용히 사라지고, 그때 우리는 「되던 것이 안 된다」를 설명할 말이 없다. 그래서 차트와 같은
+  // 길로 간다.
+  {
+    // **비율.** 사람이 크기를 안 말하면 상자 안에 원래 비율로 넣는다 — 상자를 그대로 쓰면
+    // 세로 사진이 가로로 늘어나고, 그건 화면에서 바로 보인다.
+    {
+      const fit = fitBox(800, 600, 640, 420);
+      ok('상자 안에 비율대로 들어간다',
+        Math.round(fit.width) === 560 && Math.round(fit.height) === 420 && fit.kept,
+        JSON.stringify(fit));
+    }
+    {
+      const tall = fitBox(600, 900, 640, 420);
+      ok('세로 사진은 높이에 맞춘다',
+        Math.round(tall.height) === 420 && Math.round(tall.width) === 280,
+        JSON.stringify(tall));
+    }
+    // **모르면 지어내지 않는다.** 원래 크기를 못 읽었으면 상자를 그대로 쓰고 그 사실을 알린다.
+    {
+      const blind = fitBox(0, 0, 640, 420);
+      ok('원래 크기를 모르면 상자를 그대로 쓴다',
+        blind.width === 640 && blind.height === 420, JSON.stringify(blind));
+      ok('그리고 비율을 못 지켰다고 알린다', blind.kept === false);
+    }
+
+    // 그림 틀 — EMU 로 자리를 적고, 관계를 가리키고, 비율 잠금을 건다.
+    {
+      const pic = picFrame({ id: 3, name: '로고', descr: '회사 로고', relId: 'rId7',
+        left: 100, top: 50, width: 400, height: 300 });
+      ok('그림 틀이 EMU 로 자리를 적는다',
+        pic.includes('x="1270000"') && pic.includes('cx="5080000"'), pic.slice(0, 160));
+      ok('그림 틀이 관계를 가리킨다', pic.includes('r:embed="rId7"'));
+      // **대체 텍스트를 비워 두지 않는다.** 화면 낭독기에 빈 것은 「무엇인지 모른다」다.
+      ok('대체 텍스트가 들어간다', pic.includes('descr="회사 로고"'));
+      // 비율 잠금이 있어야 사람이 모서리를 끌 때 안 찌그러진다.
+      ok('비율 잠금을 건다', pic.includes('noChangeAspect="1"'));
+      // 특수문자는 다듬는다 — 안 다듬으면 파일이 통째로 안 열린다.
+      const risky = picFrame({ id: 3, name: 'a<b>', descr: 'x&y', relId: 'r',
+        left: 0, top: 0, width: 1, height: 1 });
+      ok('이름과 대체 텍스트의 특수문자를 다듬는다',
+        risky.includes('a&lt;b&gt;') && risky.includes('x&amp;y'));
+    }
+
+    // 이름이 겹치면 안 된다 — 차트에서 실물로 겪은 그 결함이다.
+    ok('빈 꾸러미면 첫 그림 이름',
+      freeImageName([], 'png').part === 'ppt/media/image1.png');
+    ok('이미 있으면 다음 이름',
+      freeImageName(['ppt/media/image1.png'], 'png').part === 'ppt/media/image2.png');
+    ok('확장자가 이름에 들어간다',
+      freeImageName([], 'jpeg').part.endsWith('.jpeg'));
+
+    // 확장자 기본값 — **두 번 적으면 파일이 안 열린다.**
+    {
+      const ct = '<?xml version="1.0"?><Types xmlns="x"><Default Extension="rels" ContentType="r"/></Types>';
+      const one = withDefaultType(ct, 'png', 'image/png');
+      ok('확장자 기본값이 끼워진다', one.includes('Extension="png"') && one.includes('image/png'));
+      ok('있던 것은 그대로다', one.includes('Extension="rels"'));
+      ok('두 번 안 넣는다', withDefaultType(one, 'png', 'image/png') === one);
+      let why = null;
+      try { withDefaultType('<nope/>', 'png', 'image/png'); } catch (e) { why = e.message; }
+      ok('모양이 다르면 말한다', why?.includes('Types'), why);
+    }
+
+    // 관계는 종류가 다르다 — 차트와 그림이 같은 자리에 다른 이름으로 붙는다.
+    {
+      const rels = '<Relationships></Relationships>';
+      const img = withRelationship(rels, 'rId1', '../media/image1.png', 'image');
+      ok('그림 관계는 image 로 붙는다', img.includes('/relationships/image'), img);
+      const cht = withRelationship(rels, 'rId1', '../charts/chart1.xml');
+      ok('안 주면 차트로 붙는다(옛 부르는 자리)', cht.includes('/relationships/chart'));
+    }
+
+    // 손을 통해서 — **바이트가 안 오면 조용히 넘어가지 않는다.**
+    {
+      let why = null;
+      try {
+        await new FakeHand({ slides: [{ id: 's1', layout: 'L', shapes: [] }] })
+          .run('add_image', { path: 'C:/x/y.png' });
+      } catch (e) { why = e.message; }
+      ok('바이트 없이 부르면 거절한다', why?.includes('바이트가 안 왔습니다'), why);
+    }
   }
 
   // ── zip 을 쓸 줄 안다 ─────────────────────────────────────────────────────
