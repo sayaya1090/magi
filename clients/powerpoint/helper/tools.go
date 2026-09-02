@@ -346,6 +346,45 @@ func catalogue() []tool {
 			Required: []string{"key"},
 		},
 		{
+			Name: "read_animation",
+			Desc: "What already animates on one slide, and in what order. read_slide cannot see this. " +
+				"Read it before animate_slide on a deck you did not build: that tool REPLACES, and anything " +
+				"here that \"all_known\": false refers to cannot be put back once you write. Entrance effects " +
+				"this host can rebuild come back with a name; anything else (exit, emphasis, motion paths, " +
+				"effects this host does not know) comes back as a bare preset number, because naming it " +
+				"would suggest you can recreate it." + declare,
+			Props:    withSlide(),
+			Required: []string{},
+			ReadOnly: true,
+		},
+		{
+			Name: "animate_slide",
+			Desc: "Make things appear one at a time on a slide — what people mean by \"애니메이션 넣어 줘\" " +
+				"and \"한 줄씩 나타나게\". Doing it by hand in PowerPoint is fiddly enough that people often " +
+				"give up. ONLY entrance effects: appear, fade, wipe, zoom. No exit, emphasis or motion " +
+				"paths — this host measured those four against real PowerPoint and will not invent the rest. " +
+				"This REPLACES every effect on the slide (an empty steps array clears them), so read_animation " +
+				"first unless you mean to discard what is there. Because animation cannot be reached through " +
+				"the object model the slide is rebuilt to carry it: the slide KEEPS ITS POSITION but GETS A " +
+				"NEW ID, which the answer gives you." + declare,
+			Props: withSlide(
+				property{
+					Name: "steps", Type: "array", Items: "object",
+					Desc: "In the order things should happen. Each step is an object: " +
+						"shape_id (required, a shape id from read_slide); " +
+						"effect (\"appear\" | \"fade\" | \"wipe\" | \"zoom\", default fade); " +
+						"start (\"on_click\" = a click of its own | \"with_previous\" = same click as the " +
+						"step before | \"after_previous\" = starts by itself when the step before ends; " +
+						"default on_click); " +
+						"duration_ms (default 500); " +
+						"paragraphs: \"each\" brings that text box in ONE LINE PER CLICK instead of all at " +
+						"once — this is what \"한 줄씩\" means. " +
+						"Pass an empty array to remove all animation from the slide.",
+				},
+			),
+			Required: []string{"steps"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

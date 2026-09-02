@@ -2,6 +2,7 @@ import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
 import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
 import { chartPart, chartKind, fitBox } from './chartxml.js';
+import { effectSpec, EFFECT_NAMES, START_KINDS, clickGroups } from './animxml.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -38,7 +39,8 @@ export class FakeHand extends HandPort {
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
-      'set_notes', 'read_notes', 'set_tag', 'read_tags'];
+      'set_notes', 'read_notes', 'set_tag', 'read_tags',
+      'animate_slide', 'read_animation'];
   }
 
   /**
@@ -541,6 +543,69 @@ export class FakeHand extends HandPort {
             .map((sh) => ({ shape_id: sh.id, name: sh.name, tags: pairs(sh.tags) }))
             .filter((r) => r.tags.length > 0),
         });
+      }
+
+      case 'read_animation': {
+        const slide = this.#slide(args);
+        const steps = slide.animation ?? [];
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+          has_animation: steps.length > 0,
+          steps,
+          all_known: steps.every((st) => st.kind === 'entr' && st.effect),
+          effects_known: EFFECT_NAMES,
+        });
+      }
+      case 'animate_slide': {
+        const slide = this.#slide(args);
+        const asked = Array.isArray(args.steps) ? args.steps : [];
+        const was = (slide.animation ?? []).length;
+        const steps = [];
+        for (const one of asked) {
+          // **없는 도형을 겨눈 효과는 파일에 들어가고 PowerPoint 가 조용히 무시한다** —
+          // 사람은 아무 일도 안 일어나는 것을 보고 우리는 「걸었습니다」를 답한다. 진짜 손이
+          // 거절하므로 여기서도 거절한다.
+          const sh = this.#shape(slide, one.shape_id);
+          const spec = effectSpec(one.effect ?? 'fade');
+          const start = String(one.start ?? 'on_click');
+          if (!START_KINDS.includes(start)) {
+            throw new Error(`${start} 는 아는 시작이 아닙니다 — 아는 것: ${START_KINDS.join(', ')}`);
+          }
+          const rows = one.paragraphs === 'each'
+            ? String(sh.text ?? '').split(/\r?\n/).length
+            : 1;
+          if (one.paragraphs === 'each' && !String(sh.text ?? '')) {
+            throw new Error(`도형 ${one.shape_id} 에는 문단이 없습니다 — 글 상자가 아니면 `
+              + 'paragraphs 를 빼고 도형 전체에 거세요');
+          }
+          for (let i = 0; i < rows; i += 1) {
+            steps.push({
+              effect: spec.id, preset_id: spec.presetID, kind: 'entr',
+              start: rows > 1 && i > 0 ? 'on_click' : start,
+              shape_id: String(one.shape_id),
+              paragraph: one.paragraphs === 'each' ? i : null,
+            });
+          }
+        }
+        slide.animation = steps;
+        // 실물은 장을 다시 지으므로 **id 가 바뀐다.** 가짜도 그렇게 해야 이 화면에서 배운
+        // 것이 실물에서 맞는다.
+        const wasId = slide.id;
+        slide.id = `${wasId}-a${this.nextId++}`;
+        this.#mutated();
+        const clicks = clickGroups(steps).length;
+        const at = this.model.slides.indexOf(slide) + 1;
+        const lines = [steps.length === 0
+          ? `슬라이드 ${at} 의 애니메이션을 전부 지웠습니다`
+            + (was ? ` (${was}개)` : ' (원래 없었습니다)')
+          : `슬라이드 ${at} 에 효과 ${steps.length}개를 걸었습니다 — `
+            + `클릭 ${clicks}번으로 다 돕니다`
+            + (was ? `. 있던 ${was}개는 지웠습니다` : '')];
+        lines.push(`이 장은 다시 지어졌으므로 **id 가 ${wasId} 에서 ${slide.id} 로 바뀌었습니다**`);
+        return this.#envelope({
+          slide: at, slide_id: slide.id, was: wasId,
+          steps: steps.length, clicks, removed: was,
+        }, lines);
       }
 
       case 'snapshot_slide': {

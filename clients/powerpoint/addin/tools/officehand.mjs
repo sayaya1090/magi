@@ -9,11 +9,12 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
+import { timingXml, readTiming, withTiming, paragraphCount, clickGroups, effectSpec } from '../src/adapter/animxml.js';
 
 let failed = 0;
 const ok = (name, cond, detail = '') => {
@@ -2208,6 +2209,193 @@ async function makeZip(files) {
     await fake.run('set_tag', { slide: 1, key: 'magi.why' });
     const gone = await fake.run('read_tags', { slide: 1 });
     ok('가짜 손도 값을 안 주면 지운다', gone.result.tags.length === 0, JSON.stringify(gone.result.tags));
+  }
+}
+
+// ── 줄바꿈이 문단이 되는가 ───────────────────────────────────────────────────
+//
+// PowerPoint 의 Office.js 는 `\n` 을 **소프트 줄바꿈**으로, `\r` 을 **문단 나누기**로 받는다
+// (2026-09-03 실측). 보이는 것은 똑같아서 — 글머리 자리표시자에서는 소프트 줄바꿈에도 글머리
+// 기호가 붙고, 내보낸 PNG 가 바이트까지 같았다 — 이 차이는 오랫동안 안 보였다.
+//
+// 그런데 문단이 아니면 **문단 단위로 할 수 있는 일이 전부 막힌다.** 「한 줄씩 나타나게」가
+// 안 되는 것으로 처음 드러났다.
+{
+  ok('줄바꿈은 문단이 된다', asParagraphs('가\n나') === '가\r나');
+  ok('CRLF 도 문단 하나다 — 둘로 세면 빈 문단이 생긴다', asParagraphs('가\r\n나') === '가\r나');
+  ok('이미 CR 인 것은 안 건드린다', asParagraphs('가\r나') === '가\r나');
+  ok('빈 글은 빈 글이다', asParagraphs(null) === '' && asParagraphs(undefined) === '');
+
+  // 손이 실제로 그 모양으로 쓰는가 — 도우미만 재면 「셈은 맞다」까지만 말하게 된다.
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: 'a', name: 'ㄱ', type: 'TextBox', text: '', altTextDescription: null }] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    const log = [];
+    const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true, document: 'd' });
+    await hand.run('set_text', { slide: 1, shape_id: 'a', text: '첫\n둘\n셋' });
+    ok('set_text 가 문단으로 쓴다', deck.slides[0].shapes[0].text === '첫\r둘\r셋',
+      JSON.stringify(deck.slides[0].shapes[0].text));
+  }
+}
+
+// ── 하나씩 나타나게 — 애니메이션 ────────────────────────────────────────────
+//
+// 「한 줄씩 나타나게 해 줘」는 PC 를 잘 다루지 못하는 사람이 자주 포기하는 자리다(애니메이션
+// 창을 열고 순서를 끌어 옮겨야 한다).
+//
+// **이 파일의 XML 은 PowerPoint 가 직접 쓴 것을 읽어서 왔다**(2026-09-03). 아래는 그 모양을
+// 우리 가지에 고정한다 — 셈은 순수 함수가 하므로 Office 없이 값으로 잴 수 있다.
+{
+  const S = (spid, effect, start, paragraph) => ({
+    spid, spec: effectSpec(effect), start, duration: 500, paragraph: paragraph ?? null,
+  });
+
+  // 클릭 묶음: 「이전과 함께」만 앞에 얹히고 나머지는 새 묶음을 연다.
+  {
+    const g = clickGroups([S(2, 'fade', 'on_click'), S(3, 'fade', 'with_previous'),
+      S(4, 'fade', 'after_previous'), S(5, 'fade', 'on_click')]);
+    ok('묶음이 셋이다', g.length === 3, g.map((x) => x.steps.length).join('+'));
+    ok('이전과 함께는 앞 묶음에 얹힌다', g[0].steps.length === 2);
+
+    // **첫 걸음은 얹힐 데가 없다.** 「이전과 함께」로 시작하면 아무 클릭에도 안 걸려
+    // 영영 안 나타난다 — 사람은 도형이 사라졌다고 본다.
+    const first = clickGroups([S(2, 'fade', 'with_previous'), S(3, 'fade', 'with_previous')]);
+    ok('첫 걸음은 제 묶음을 연다', first.length === 1 && first[0].start === 'on_click',
+      JSON.stringify(first.map((x) => x.start)));
+  }
+
+  // 지은 것을 도로 읽으면 같은 것이 나온다.
+  {
+    const steps = [S(2, 'fade', 'on_click'), S(3, 'appear', 'with_previous'),
+      S(4, 'wipe', 'after_previous'), S(5, 'zoom', 'on_click')];
+    const back = readTiming(`<p:sld>${timingXml(steps)}</p:sld>`);
+    ok('지은 것을 도로 읽는다', back.steps.length === 4, String(back.steps.length));
+    ok('효과 이름이 돌아온다', back.steps.map((x) => x.effect).join(',') === 'fade,appear,wipe,zoom',
+      back.steps.map((x) => x.effect).join(','));
+    ok('시작도 돌아온다',
+      back.steps.map((x) => x.start).join(',') === 'on_click,with_previous,after_previous,on_click',
+      back.steps.map((x) => x.start).join(','));
+    ok('겨눈 도형이 돌아온다', back.steps.map((x) => x.shape_id).join(',') === '2,3,4,5');
+  }
+
+  // **모르는 번호를 이름으로 지어내지 않는다.** 이름을 붙여 주면 모델은 그것을 우리가 다시
+  // 걸 수 있는 것으로 알고, 덮어쓰고 나서 사라진 것을 모른다.
+  {
+    const alien = '<p:timing><p:tnLst><p:cTn id="5" presetID="333" presetClass="exit"'
+      + ' fill="hold" nodeType="clickEffect"><p:tgtEl><p:spTgt spid="7"/></p:tgtEl>'
+      + '</p:cTn></p:tnLst></p:timing>';
+    const back = readTiming(alien);
+    ok('모르는 효과는 이름이 없다', back.steps[0]?.effect === null, JSON.stringify(back.steps[0]));
+    ok('번호는 그대로 준다', back.steps[0]?.preset_id === 333);
+    ok('나가기라고 적는다', back.steps[0]?.kind === 'exit');
+  }
+
+  // 갈아 끼우기: 옛것을 걷고 새것을 `</p:sld>` 앞에 둔다.
+  {
+    const had = `<p:sld><p:cSld/>${timingXml([S(2, 'fade', 'on_click')])}</p:sld>`;
+    const now = withTiming(had, timingXml([S(3, 'zoom', 'on_click')]));
+    ok('옛것은 없다', !now.includes('spid="2"'), now.slice(0, 120));
+    ok('새것이 있다', now.includes('spid="3"'));
+    ok('타이밍이 하나뿐이다', (now.match(/<p:timing>/g) ?? []).length === 1);
+    ok('장 끝 앞에 놓인다', now.endsWith('</p:timing></p:sld>'), now.slice(-40));
+
+    // **빈 걸음은 지우기다.** 빈 `<p:timing>` 을 남기면 PowerPoint 가 그것을 애니메이션이
+    // 있는 장으로 읽는다.
+    const gone = withTiming(had, timingXml([]));
+    ok('빈 걸음은 타이밍을 통째로 걷는다', !gone.includes('p:timing'), gone);
+    ok('자기 닫는 타이밍도 걷는다', !withTiming('<p:sld><p:timing/></p:sld>', '').includes('p:timing'));
+  }
+
+  // 문단 세기: **빈 줄도 센다.** `pRg` 의 번호가 빈 줄을 안 건너뛰므로, 안 세면 번호가 밀려
+  // 엉뚱한 줄이 나타난다.
+  {
+    const xml = '<p:cNvPr id="2" name="ㄱ"/><a:p><a:r><a:t>첫</a:t></a:r></a:p>'
+      + '<a:p/><a:p><a:r><a:t>셋</a:t></a:r></a:p>'
+      + '<p:cNvPr id="3" name="ㄴ"/><a:p><a:r><a:t>딴 상자</a:t></a:r></a:p>';
+    ok('빈 줄도 센다', paragraphCount(xml, 2) === 3, String(paragraphCount(xml, 2)));
+    ok('옆 도형의 줄은 안 센다', paragraphCount(xml, 3) === 1, String(paragraphCount(xml, 3)));
+    ok('없는 도형은 0', paragraphCount(xml, 9) === 0);
+  }
+
+  // 「이전 다음」의 기다림은 **앞 묶음이 도는 시간**이다.
+  {
+    const x = timingXml([{ ...S(2, 'fade', 'on_click'), duration: 800 },
+      S(3, 'fade', 'after_previous')]);
+    ok('기다림이 앞 효과의 길이다', x.includes('<p:cond delay="800"/>'),
+      (x.match(/<p:cond delay="[^"]*"\/>/g) ?? []).join(' '));
+  }
+
+  // 문단별은 **문단마다 겨눈다.**
+  {
+    const x = timingXml([S(2, 'fade', 'on_click', 0), S(2, 'fade', 'on_click', 1)]);
+    ok('문단 번호를 겨눈다', x.includes('<p:pRg st="0" end="0"/>') && x.includes('<p:pRg st="1" end="1"/>'));
+    ok('문단별은 build=p 로 적는다', x.includes('build="p"'), (x.match(/<p:bldP[^>]*>/g) ?? []).join(' '));
+    const whole = timingXml([S(2, 'fade', 'on_click')]);
+    ok('도형 전체는 animBg 로 적는다', whole.includes('animBg="1"'));
+  }
+
+  // 모르는 효과·시작은 **아는 것을 알려 주고 던진다.**
+  {
+    let why = null;
+    try { effectSpec('폭발'); } catch (e) { why = e.message; }
+    ok('모르는 효과는 아는 것을 알려 준다', why?.includes('appear') && why?.includes('나가기'), String(why));
+  }
+
+  // 진짜 손: 없는 도형을 겨눈 효과는 **파일에 들어가고 PowerPoint 가 조용히 무시한다** —
+  // 사람은 아무 일도 안 일어나는 것을 보고 우리는 「걸었습니다」를 답한다. 거절한다.
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] },
+        { id: 's2', index: 1, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    deck.exported = fakePackage({
+      spTree: '<p:sp><p:nvSpPr><p:cNvPr id="2" name="제목"/></p:nvSpPr>'
+        + '<p:txBody><a:p><a:r><a:t>첫</a:t></a:r></a:p><a:p><a:r><a:t>둘</a:t></a:r></a:p></p:txBody></p:sp>',
+    });
+    const log = [];
+    const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true, document: 'd' });
+    const why = await threw(() => hand.run('animate_slide', {
+      slide: 1, steps: [{ shape_id: '99', effect: 'fade' }],
+    }));
+    ok('없는 도형을 겨누면 거절한다', why?.includes('99') && why?.includes('이 장의 도형'), String(why));
+
+    const out = await hand.run('animate_slide', {
+      slide: 1, steps: [{ shape_id: '2', effect: 'fade', paragraphs: 'each' }],
+    });
+    ok('문단 수만큼 걸음이 생긴다', out.result.steps === 2, JSON.stringify(out.result));
+    ok('한 줄에 한 클릭이다', out.result.clicks === 2, String(out.result.clicks));
+    ok('id 가 바뀐 것을 말한다', out.changed.some((c) => c.includes('id 가')), JSON.stringify(out.changed));
+    ok('옛 장을 지운다', log.some((l) => l === 'slide-delete:s1'), log.filter((l) => l.startsWith('slide-delete')).join(' '));
+    const pack = await insertedPackage(log);
+    const slideXml = textOf(pack.get('ppt/slides/slide1.xml'));
+    ok('타이밍이 정말 들어간다', /<p:timing>/.test(slideXml), slideXml.slice(-200));
+    ok('두 문단을 겨눈다', /<p:pRg st="0"/.test(slideXml) && /<p:pRg st="1"/.test(slideXml));
+  }
+
+  // 두 손이 같은 것을 가르치는가.
+  {
+    const fake = new FakeHand({
+      slides: [{ id: 'f1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: 'x', name: 'ㄱ', type: 'TextBox', text: '첫\n둘\n셋' }] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    });
+    const out = await fake.run('animate_slide', {
+      slide: 1, steps: [{ shape_id: 'x', effect: 'fade', paragraphs: 'each' }],
+    });
+    ok('가짜 손도 문단 수만큼 건다', out.result.steps === 3, JSON.stringify(out.result));
+    ok('가짜 손도 id 를 바꾼다', out.result.slide_id !== 'f1', out.result.slide_id);
+    const read = await fake.run('read_animation', { slide: 1 });
+    ok('가짜 손도 건 것을 돌려준다', read.result.steps.length === 3 && read.result.all_known === true,
+      JSON.stringify(read.result.steps?.[0]));
+    const cleared = await fake.run('animate_slide', { slide: 1, steps: [] });
+    ok('가짜 손도 빈 걸음은 지우기다', cleared.result.steps === 0 && cleared.result.removed === 3,
+      JSON.stringify(cleared.result));
+    const none = await fake.run('read_animation', { slide: 1 });
+    ok('지운 뒤에는 없다고 한다', none.result.has_animation === false);
   }
 }
 

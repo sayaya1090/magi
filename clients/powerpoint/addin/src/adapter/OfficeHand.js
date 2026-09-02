@@ -9,6 +9,9 @@ import {
 import {
   notesPart, notesRels, withNotesText, notesTextOf, freeNotesName,
 } from './notesxml.js';
+import {
+  timingXml, withTiming, readTiming, paragraphCount, effectSpec, EFFECT_NAMES, START_KINDS,
+} from './animxml.js';
 
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
@@ -63,7 +66,8 @@ export class OfficeHand extends HandPort {
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
-      'set_notes', 'read_notes', 'set_tag', 'read_tags'];
+      'set_notes', 'read_notes', 'set_tag', 'read_tags',
+      'animate_slide', 'read_animation'];
   }
 
   #envelope(result, changed = []) {
@@ -162,6 +166,8 @@ export class OfficeHand extends HandPort {
       case 'read_notes': return this.#readNotes(args);
       case 'set_tag': return this.#setTag(args);
       case 'read_tags': return this.#readTags(args);
+      case 'animate_slide': return this.#animateSlide(args);
+      case 'read_animation': return this.#readAnimation(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -523,7 +529,7 @@ export class OfficeHand extends HandPort {
       shape.textFrame.textRange.load('text');
       await context.sync();
       const before = shape.textFrame.textRange.text ?? '';
-      shape.textFrame.textRange.text = String(args.text ?? '');
+      shape.textFrame.textRange.text = asParagraphs(args.text);
       await context.sync();
       this.#mutated();
       return this.#envelope(
@@ -715,12 +721,12 @@ export class OfficeHand extends HandPort {
       };
       const kind = String(args.kind ?? 'textbox');
       const shape = kind === 'textbox'
-        ? slide.shapes.addTextBox(String(args.text ?? ''), options)
+        ? slide.shapes.addTextBox(asParagraphs(args.text), options)
         : slide.shapes.addGeometricShape(geometryOf(kind), options);
       shape.load('id');
       await context.sync();
       if (kind !== 'textbox' && args.text) {
-        shape.textFrame.textRange.text = String(args.text);
+        shape.textFrame.textRange.text = asParagraphs(args.text);
         await context.sync();
       }
       this.#mutated();
@@ -1236,7 +1242,7 @@ export class OfficeHand extends HandPort {
       // 성공으로 보고하고, 사람은 제목을 부탁한 자리에서 빈 장을 본다.
       if (!hit) { unfilled.push({ role: w.role, text: w.text }); continue; }
       taken.add(hit.id);
-      hit.textFrame.textRange.text = w.text;
+      hit.textFrame.textRange.text = asParagraphs(w.text);
       filled.push({ role: w.role, text: w.text, shape_id: hit.id });
     }
     await context.sync();
@@ -1832,6 +1838,147 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * **애니메이션을 건다.**
+   *
+   * 객체 모델에는 문이 없다. 노트와 같은 길로 간다 — 장을 떠서 `<p:timing>` 을 갈아 끼우고
+   * 다시 넣는다. 그래서 **살아남는 장은 새 id 를 단다.**
+   *
+   * # 덮어쓴다
+   *
+   * 이어 붙이지 않는다. 「이 장 애니메이션 다시 해 줘」가 부탁의 거의 전부이고, 이어 붙이면
+   * 사람이 안 지운 옛 효과가 새것 앞에 남아 **첫 클릭에 아무 일도 안 일어난 것처럼** 보인다.
+   * 결과가 몇 개를 지우고 몇 개를 걸었는지 적는다.
+   *
+   * # 문단별
+   *
+   * 「한 줄씩 나타나게」가 이 도구를 부르는 가장 흔한 이유다. `paragraphs: 'each'` 면 그
+   * 도형의 문단 수를 세어 문단마다 걸음을 하나씩 만든다 — 빈 문단도 센다. `pRg` 의 번호가
+   * 빈 줄을 건너뛰지 않기 때문에, 안 세면 **엉뚱한 줄이 나타난다.**
+   */
+  #animateSlide(args) {
+    return this.runner(async (context) => {
+      const asked = Array.isArray(args.steps) ? args.steps : [];
+      const got = await this.#unpack(context, args);
+      if (!got.slideName) {
+        throw new Error('뜬 슬라이드 꾸러미에서 슬라이드 파일을 못 찾았습니다 — '
+          + '이 덱의 모양이 예상과 달라 애니메이션을 못 겁니다');
+      }
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      const at = (name) => got.files.find((f) => f.name === name);
+      const slideXml = dec.decode(at(got.slideName).data);
+      const was = readTiming(slideXml);
+
+      // **이 장에 있는 도형만 건다.** 없는 도형을 겨눈 타이밍은 파일에 들어가고, PowerPoint 는
+      // 그것을 조용히 무시한다 — 사람은 「아무 일도 안 일어난다」를 보고 우리는 「걸었습니다」를
+      // 답한다. 이 파일에서 제일 싫어하는 모양이다.
+      const here = [...slideXml.matchAll(/<p:cNvPr[^>]*\sid="(\d+)"[^>]*name="([^"]*)"/g)]
+        .map((m) => ({ id: m[1], name: m[2] }))
+        .filter((sh) => sh.id !== '1');
+
+      const steps = [];
+      for (const one of asked) {
+        const spid = String(one.shape_id ?? '');
+        if (!here.some((sh) => sh.id === spid)) {
+          const shown = here.map((sh) => sh.id + '(' + sh.name + ')').join(', ') || '없음';
+          throw new Error(`이 장에 없는 도형 id 입니다 — '${one.shape_id}' `
+            + `(이 장의 도형: ${shown})`);
+        }
+        const spec = effectSpec(one.effect ?? 'fade');
+        const start = String(one.start ?? 'on_click');
+        if (!START_KINDS.includes(start)) {
+          throw new Error(`${start} 는 아는 시작이 아닙니다 — 아는 것: ${START_KINDS.join(', ')}`);
+        }
+        const duration = Math.max(1, Math.round(Number(one.duration_ms ?? 500)));
+        if (one.paragraphs === 'each') {
+          const n = paragraphCount(slideXml, spid);
+          if (n === 0) {
+            throw new Error(`도형 ${spid} 에는 문단이 없습니다 — 글 상자가 아니면 `
+              + 'paragraphs 를 빼고 도형 전체에 거세요');
+          }
+          for (let i = 0; i < n; i += 1) {
+            // 첫 줄은 그 사람이 정한 시작으로, 나머지는 **한 줄에 한 번 클릭**이다 — 그게
+            // 「한 줄씩」의 뜻이다. 다 같이 나오게 하려면 with_previous 로 따로 부르면 된다.
+            steps.push({ spid, spec, start: i === 0 ? start : 'on_click', duration, paragraph: i });
+          }
+        } else {
+          steps.push({ spid, spec, start, duration, paragraph: null });
+        }
+      }
+
+      at(got.slideName).data = enc.encode(withTiming(slideXml, timingXml(steps)));
+
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+      const before = slides.items.map((sl) => sl.id);
+      const wasAt = got.slide.index ?? 0;
+
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(got.files)),
+        { targetSlideId: got.slide.id });
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      const fresh = slides.items.find((sl) => !before.includes(sl.id));
+      // **새 장을 못 찾으면 옛 장을 안 지운다.** 지우고 나서 못 찾으면 그 장은 사라진 것이다.
+      if (!fresh) {
+        this.#mutated();
+        throw new Error('애니메이션을 건 장을 덱에서 못 찾았습니다 — 옛 장은 그대로 두었습니다. '
+          + '목차를 다시 읽어 확인하세요');
+      }
+      got.slide.delete();
+      await context.sync();
+      this.#mutated();
+
+      const clicks = new Set(steps.map((_, i) => i)).size === 0 ? 0
+        : steps.filter((st, i) => i === 0 || st.start !== 'with_previous').length;
+      const lines = [steps.length === 0
+        ? `슬라이드 ${wasAt + 1} 의 애니메이션을 전부 지웠습니다`
+          + (was.steps.length ? ` (${was.steps.length}개)` : ' (원래 없었습니다)')
+        : `슬라이드 ${wasAt + 1} 에 효과 ${steps.length}개를 걸었습니다 — `
+          + `클릭 ${clicks}번으로 다 돕니다`
+          + (was.steps.length ? `. 있던 ${was.steps.length}개는 지웠습니다` : '')];
+      lines.push(`이 장은 다시 지어졌으므로 **id 가 ${got.slide.id} 에서 ${fresh.id} 로 `
+        + '바뀌었습니다**');
+      return this.#envelope({
+        slide: wasAt + 1,
+        slide_id: fresh.id,
+        was: got.slide.id,
+        steps: steps.length,
+        clicks,
+        removed: was.steps.length,
+      }, lines);
+    });
+  }
+
+  /**
+   * 걸려 있는 애니메이션을 읽는다.
+   *
+   * `read_slide` 는 이걸 못 본다 — 노트와 같다. 그리고 **우리가 안 만든 것도 여기로 들어온다**
+   * (사람이 손으로 건 나가기 효과 같은 것). 아는 번호는 이름으로, 모르는 번호는 번호 그대로
+   * 준다 — 이름을 지어내면 모델은 그것을 우리가 다시 걸 수 있는 것으로 안다.
+   */
+  #readAnimation(args) {
+    return this.runner(async (context) => {
+      const got = await this.#unpack(context, args);
+      const xml = new TextDecoder().decode(
+        got.files.find((f) => f.name === got.slideName).data);
+      const read = readTiming(xml);
+      const mine = read.steps.filter((st) => st.kind === 'entr' && st.effect);
+      return this.#envelope({
+        slide: (got.slide.index ?? 0) + 1, slide_id: got.slide.id,
+        has_animation: read.has && read.steps.length > 0,
+        steps: read.steps,
+        // **다시 걸 수 있는가**를 따로 적는다. 모르는 효과가 섞여 있으면 `animate_slide` 로
+        // 그대로 되살릴 수 없고, 덮어쓰면 그것이 사라진다.
+        all_known: read.steps.length === mine.length,
+        effects_known: EFFECT_NAMES,
+      });
+    });
+  }
+
   #duplicateSlide(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
@@ -2184,7 +2331,7 @@ export class OfficeHand extends HandPort {
           throw new Error(`표에 (${want.row}, ${want.column}) 셀이 없습니다 — 아무것도 안 썼습니다`);
         }
         changed.push(`(${want.row}, ${want.column}): "${cell.text ?? ''}" → "${want.text ?? ''}"`);
-        cell.text = String(want.text ?? '');
+        cell.text = asParagraphs(want.text);
       }
       await context.sync();
       this.#mutated();
@@ -2237,6 +2384,25 @@ export class OfficeHand extends HandPort {
           `새 id 는 ${newId ?? '못 읽었습니다'} 이고, 옛 id 를 가리키던 것은 전부 낡았습니다`]);
     });
   }
+}
+
+/**
+ * 줄을 **진짜 문단으로** 만든다.
+ *
+ * PowerPoint 의 Office.js 는 `\n` 을 **소프트 줄바꿈**으로, `\r` 을 **문단 나누기**로 받는다
+ * (2026-09-03 실측: 같은 글을 둘로 써 보고 COM 으로 문단 수를 셌다 — 1 과 3).
+ *
+ * 보이는 것은 똑같다. 글머리 목록 자리표시자에서는 소프트 줄바꿈에도 글머리 기호가 붙어서,
+ * 내보낸 PNG 가 **바이트까지 같았다.** 그래서 이 차이는 오랫동안 안 보였다.
+ *
+ * 그런데 문단이 아니면 **문단 단위로 할 수 있는 일이 전부 막힌다** — 「한 줄씩 나타나게」
+ * (§6.19)가 그렇고, 줄마다 다른 들여쓰기도 그렇다. 모델은 자연스럽게 `\n` 을 쓰므로,
+ * 우리가 받아서 바꾼다.
+ *
+ * 이미 `\r` 인 것은 안 건드린다 — `\r\n` 을 둘로 세면 빈 문단이 생긴다.
+ */
+export function asParagraphs(text) {
+  return String(text ?? '').replace(/\r\n|\n/g, '\r');
 }
 
 /** 도형 종류 이름을 Office 의 열거로. 모르는 것은 **던진다** — 지어내면 엉뚱한 도형이 선다. */
