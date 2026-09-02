@@ -788,4 +788,24 @@ class SourceTextTest {
 
     private fun buffer(): String = sources.first { it.name == "OpenBufferListener.kt" }.readText()
 
+    @Test
+    fun `높이를 묻는 것은 시계 말고 로드가 끝난 사실에도 걸린다`() {
+        // 답판의 높이는 브라우저만 안다. 스윙에서 물어보려면 JS 를 실어 보내야 하는데, 그 물음이
+        // **문서가 실리기 전에** 나가면 CEF 는 프레임이 없다고 그냥 버린다 — 예외도 없고 콜백도
+        // 없다. 물음이 시계에만 걸려 있으면(350ms·1400ms) 시작 경합에서 두 번 다 허공에 나가고,
+        // 그때 감사 한 줄이 찍히고 **끝난다**: 다시 묻는 데가 없어서 그 판은 짐작 높이로 영영 선다.
+        //
+        // 실측(2026-09-03, 샌드박스 로그): 시작 직후 한 초에 세 판이 그 길로 갔다. 다음 런은
+        // 0건이었다 — 안 날 때가 더 많은 경합이라, 눈으로 보는 것으로는 안 지켜진다.
+        //
+        // 고침은 타이머를 하나 더 두는 것이 아니다(같은 경주를 한 번 더 하는 것뿐이다). 로드가
+        // 끝났다는 **사실**에 거는 것이고, 이 시험은 그 배선이 남아 있는지만 본다.
+        val f = sources.firstOrNull { it.name == "RichAnswer.kt" }
+        assertTrue(f != null, "RichAnswer.kt 를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val text = f!!.readText()
+        assertTrue("onLoadEnd" in text,
+            "RichAnswer 가 로드 끝에 높이를 다시 안 묻는다 — 시작 경합에서 놓친 판은 회복되지 않는다")
+        assertTrue("addLoadHandler" in text,
+            "로드 핸들러를 안 건다 — onLoadEnd 를 적어 놔도 아무도 부르지 않는다")
+    }
 }

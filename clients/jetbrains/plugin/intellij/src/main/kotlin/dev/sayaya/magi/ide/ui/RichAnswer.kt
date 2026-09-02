@@ -205,6 +205,19 @@ internal object RichAnswer {
         val audit = javax.swing.Timer(2500) {
             if (!answered) LOG.info("magi: 렌더 높이를 못 쟀다 — 짐작으로 선다(JS 질의 무응답)")
         }.apply { isRepeats = false }
+        // **문서가 다 실린 뒤에도 한 번 묻는다.** 위의 둘은 시계에 걸려 있어서, 브라우저가 아직
+        // 문서를 안 들었으면 두 번 다 허공에 나간다(CEF 는 프레임이 없으면 그냥 버린다). 그러면
+        // 감사가 한 줄 적고 **끝이다** — 다시 묻는 데가 없어서 그 판은 짐작 높이로 영영 선다.
+        //
+        // 실측(2026-09-03, 샌드박스): 시작 직후 한 초에 세 판이 그 길로 갔다. 시작 경합이라
+        // 안 날 때가 더 많지만(다음 런은 0건), 한 번 나면 회복이 없다는 것이 이 자리의 결함이다.
+        // 타이머를 하나 더 두면 같은 경주를 한 번 더 하는 것뿐이다 — 로드가 끝났다는 **사실**에
+        // 건다. 이미 답을 받았으면 아무 일도 안 한다.
+        browser.jbCefClient.addLoadHandler(object : org.cef.handler.CefLoadHandlerAdapter() {
+            override fun onLoadEnd(b: org.cef.browser.CefBrowser?, f: org.cef.browser.CefFrame?, code: Int) {
+                if (!answered) ask()
+            }
+        }, browser.cefBrowser)
         return { soon.restart(); later.restart(); audit.restart() }
     }
 
