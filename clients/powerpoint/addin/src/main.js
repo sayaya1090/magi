@@ -191,6 +191,10 @@ async function boot() {
           pick.hide();
           offerRepick(true);
           view.setBound(true);
+          // **물려받았을 때도 한 줄 적는다.** 앞 판본은 여기서 아무 말도 안 했고, 헬퍼가 미리
+          // 붙여 둔 첫 화면은 **빈 판**이었다 — 아래 브랜드 줄에 증거가 있긴 하지만, 처음 여는
+          // 사람이 거기부터 보지는 않는다.
+          view.where(`${bound} 에 붙어 있습니다 — 바로 시키시면 됩니다.`);
           await refreshBrand();
         }
       } catch (e) {
