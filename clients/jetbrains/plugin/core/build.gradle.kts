@@ -45,7 +45,10 @@ tasks.test {
     // 적지 않으면 가드는 「돌아서 통과」가 아니라 「안 돌아서 초록」이 된다.
     inputs.files(
         fileTree(rootProject.projectDir) {
-            include("**/src/**/*.kt", "**/src/**/*.xml", "**/src/**/*.properties")
+            // `.svg` 도 센다 — `PluginIconTest` 가 읽는 것이 그 확장자다. 안 적어 뒀더니
+            // 고리 색을 바꿔 넣고 돌렸는데 `UP-TO-DATE` 로 초록이었다(실측 2026-09-03).
+            // 이 목록에서 빠진 확장자는 「가드가 있다」와 「가드가 돈다」를 갈라 놓는다.
+            include("**/src/**/*.kt", "**/src/**/*.xml", "**/src/**/*.properties", "**/src/**/*.svg")
             exclude("**/build/**")
             exclude("**/.intellijPlatform/**")
         }
@@ -70,6 +73,13 @@ tasks.test {
     val palette = rootProject.projectDir.resolve("../../../internal/adapter/tui/styles.go").canonicalFile
     inputs.files(palette).withPropertyName("paletteOrigin").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.palette.origin", palette.absolutePath)
+
+    // 같은 사유, 같은 트리 밖 — `PluginIconTest` 가 대조하는 콘솔의 파비콘 원천이다. 플러그인의
+    // 표와 웹의 표는 **같은 마크**여야 하고, 안 적어 두면 원천의 색을 바꿔도 이 작업은
+    // UP-TO-DATE 라 두 표가 조용히 갈린다.
+    val consoleMark = rootProject.projectDir.resolve("../../../internal/webassets/assets.go").canonicalFile
+    inputs.files(consoleMark).withPropertyName("consoleMarkOrigin").withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("magi.console.mark", consoleMark.absolutePath)
 }
 
 // **이 검사를 「한 번 실패시켜」 확인할 때, 볼 것은 초록이 아니라 `> Task :core:test` 가

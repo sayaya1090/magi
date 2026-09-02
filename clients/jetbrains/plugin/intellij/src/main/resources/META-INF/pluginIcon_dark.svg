@@ -1,0 +1,15 @@
+<!-- 플러그인의 표 — 웹 콘솔의 파비콘과 **같은 마크**다(세 카운슬러와 그들을 두른 고리).
+     원천은 internal/webassets/assets.go 의 Icon 이고, 색 세 개는 거기서 그대로 가져왔다.
+     PluginIconTest 가 그 파일을 읽어 대조하므로 한쪽만 바뀌면 빨갛다.
+
+     자리는 40×40 이 규격이다(SDK, Plugin Icon). 192 뷰박스의 마크를 0.36배로 줄이고 가운데
+     맞췄다 — 가장자리 3px 은 비운다: 플러그인 목록은 이 그림을 제 배경 위에 그대로 얹는다.
+
+     밝은 것과 다른 곳은 고리의 투명도 하나뿐이다(.55 → .75). 어두운 바탕에서 .55 는 거의
+     사라져 원 셋이 이유 없이 흩어진 것처럼 보인다 — 고리가 그 셋을 하나로 묶는 선이다. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40">
+  <circle cx="20" cy="11.9" r="7.6" fill="#FFB454"/>
+  <circle cx="10.6" cy="28.1" r="7.6" fill="#5CD8E6"/>
+  <circle cx="29.4" cy="28.1" r="7.6" fill="#FF8A8A"/>
+  <circle cx="20" cy="21.6" r="15.6" fill="none" stroke="#FF7A1A" stroke-width="1.45" opacity=".75"/>
+</svg>
