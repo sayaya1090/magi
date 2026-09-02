@@ -84,8 +84,10 @@ const deck = () => new FakeHand(structuredClone(fixture));
   // 가짜는 **픽셀을 지어내지 않는다.** 없는 증거를 있는 척하는 것이 이 제품이 제일 피하는 것이다.
   const why = await threw(() => hand.run('render_slide', { slide: 1 }));
   ok('가짜 손은 렌더를 못 한다고 말한다', why?.includes('PowerPoint'), why);
-  const unknown = await threw(() => hand.run('set_notes', {}));
-  ok('모르는 조작은 던진다', unknown?.includes('set_notes'), unknown);
+  // **이름은 진짜 도구와 겹치면 안 된다.** 겹치면 그 도구가 생기는 날 이 시험이 조용히
+  // 다른 것을 재게 된다 — set_notes 로 적어 뒀다가 실제로 그 도구가 생겨 한 번 겪었다.
+  const unknown = await threw(() => hand.run('폴더_열기', {}));
+  ok('모르는 조작은 던진다', unknown?.includes('폴더_열기'), unknown);
 }
 
 {

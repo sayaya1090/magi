@@ -37,7 +37,8 @@ export class FakeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table', 'add_chart', 'add_image'];
+      'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
+      'set_notes', 'read_notes'];
   }
 
   /**
@@ -435,6 +436,32 @@ export class FakeHand extends HandPort {
           slide: this.model.slides.length, slide_id: slide.id,
           path: args.path ?? null, format: args.image_ext ?? 'png',
         }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 그림을 넣었습니다`]);
+      }
+
+      case 'read_notes': {
+        const slide = this.#slide(args);
+        // **「빈 노트」와 「노트 없음」을 가른다** — 진짜 손과 같은 계약이다.
+        const has = typeof slide.notes === 'string';
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+          has_notes: has, notes: has ? slide.notes : null,
+        });
+      }
+      case 'set_notes': {
+        const slide = this.#slide(args);
+        const made = typeof slide.notes !== 'string';
+        slide.notes = String(args.text ?? '');
+        // 실물은 장을 다시 지으므로 **id 가 바뀐다.** 가짜도 그렇게 해야 이 화면에서 배운 것이
+        // 실물에서 맞는다 — 안 바꾸면 「id 는 그대로」를 배우고 실물에서 틀린다.
+        const was = slide.id;
+        slide.id = `${was}-n${this.nextId++}`;
+        this.#mutated();
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id, was,
+          created: made,
+          lines: slide.notes === '' ? 0 : slide.notes.split(/\r?\n/).length,
+        }, [`슬라이드 ${this.model.slides.indexOf(slide) + 1} 의 발표자 노트를 `
+          + `${made ? '새로 적었습니다' : '고쳤습니다'} — id 가 ${was} 에서 ${slide.id} 로 바뀌었습니다`]);
       }
 
       case 'snapshot_slide': {

@@ -298,6 +298,29 @@ func catalogue() []tool {
 			Required: []string{"path"},
 		},
 		{
+			Name: "read_notes",
+			Desc: "The speaker notes on one slide. read_slide cannot see these — notes live outside the " +
+				"object model — so this is the only way to know what a slide already says off-screen. It costs " +
+				"a round trip more than read_slide (the whole slide is exported), so ask for it when notes are " +
+				"the point, not on every read. \"has_notes\": false means the slide has none; an empty string " +
+				"means it has a notes page with nothing written on it. Those are different." + declare,
+			Props:    withSlide(),
+			Required: []string{},
+			ReadOnly: true,
+		},
+		{
+			Name: "set_notes",
+			Desc: "Write the speaker notes on one slide, replacing whatever was there. Newlines become " +
+				"paragraphs. Read them first with read_notes unless you mean to discard what is there — this " +
+				"REPLACES, it does not append. Because notes cannot be reached through the object model the " +
+				"slide is rebuilt to carry them, so the slide KEEPS ITS POSITION but GETS A NEW ID: anything " +
+				"you address by slide id afterwards must use the new one, which the answer gives you." + declare,
+			Props: withSlide(
+				property{Name: "text", Type: "string", Desc: "The notes. Empty string clears them. Newlines become paragraphs."},
+			),
+			Required: []string{"text"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

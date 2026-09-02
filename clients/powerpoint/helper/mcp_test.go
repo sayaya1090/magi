@@ -188,7 +188,7 @@ func TestRefusalsComeBackAsToolErrorsNotProtocolErrors(t *testing.T) {
 	srv := &MCPServer{Hand: hand}
 	req := httptest.NewRequest("POST", "/mcp", nil)
 
-	unknown := srv.call(req, "set_notes", json.RawMessage(`{}`))
+	unknown := srv.call(req, "폴더_열기", json.RawMessage(`{}`))
 	if unknown["isError"] != true || !strings.Contains(firstText(t, unknown), "no such tool") {
 		t.Errorf("모르는 도구의 답: %v", unknown)
 	}

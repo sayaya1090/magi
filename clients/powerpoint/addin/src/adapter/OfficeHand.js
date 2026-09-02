@@ -5,6 +5,9 @@ import {
   chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame,
   freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox,
 } from './chartxml.js';
+import {
+  notesPart, notesRels, withNotesText, notesTextOf, freeNotesName,
+} from './notesxml.js';
 
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
@@ -58,7 +61,8 @@ export class OfficeHand extends HandPort {
       'reorder_slide', 'set_hyperlink', 'add_table', 'set_table_cells',
       'snapshot_slide', 'restore_slide', 'advise', 'clear_advice',
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
-      'duplicate_slide', 'replace_table', 'add_chart', 'add_image'];
+      'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
+      'set_notes', 'read_notes'];
   }
 
   #envelope(result, changed = []) {
@@ -153,6 +157,8 @@ export class OfficeHand extends HandPort {
       case 'duplicate_slide': return this.#duplicateSlide(args);
       case 'add_chart': return this.#addChart(args);
       case 'add_image': return this.#addImage(args);
+      case 'set_notes': return this.#setNotes(args);
+      case 'read_notes': return this.#readNotes(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -1511,6 +1517,146 @@ export class OfficeHand extends HandPort {
         placed: { width: Math.round(fit.width), height: Math.round(fit.height) },
         aspect_kept: said ? false : fit.kept,
       }, lines);
+    });
+  }
+
+  /**
+   * 뜬 꾸러미를 조각 목록으로. 노트 셋이 같은 일을 하므로 한 자리에 둔다.
+   */
+  async #unpack(context, args) {
+    const slide = await this.#slide(context, args);
+    slide.load('id,index');
+    const packed = slide.exportAsBase64();
+    await context.sync();
+    const raw = fromBase64(packed.value);
+    const { entries } = zipEntries(raw);
+    const files = [];
+    for (const e of entries) {
+      files.push({ name: e.name, data: await zipReadBytes(raw, e.name) });
+    }
+    const find = (re) => files.find((f) => re.test(f.name))?.name ?? '';
+    return {
+      slide,
+      files,
+      slideName: find(/^ppt\/slides\/slide\d+\.xml$/),
+      relsName: find(/^ppt\/slides\/_rels\/slide\d+\.xml\.rels$/),
+      typesName: '[Content_Types].xml',
+      notesName: find(/^ppt\/notesSlides\/notesSlide\d+\.xml$/),
+      masterName: (find(/^ppt\/notesMasters\/notesMaster\d+\.xml$/).split('/').pop()) || '',
+    };
+  }
+
+  /**
+   * **발표자 노트를 읽는다.**
+   *
+   * 객체 모델에는 문이 없다 — 그래서 이 저장소는 오랫동안 노트를 「못 읽는 것」에 적어 뒀다.
+   * 그 말은 절반만 맞았다: 객체 모델로는 못 읽지만, **뜬 꾸러미에는 들어 있다**(2026-09-03
+   * 실측). 있는 것을 「없다」로 적는 것이 이 저장소가 제일 싫어하는 일이다.
+   *
+   * 왕복 하나가 더 든다(장을 통째로 뜬다). 그래서 `read_slide` 에 얹지 않고 따로 둔다 —
+   * 노트를 안 보는 부탁이 훨씬 많고, 그 부탁들이 이 값을 치를 이유가 없다.
+   */
+  #readNotes(args) {
+    return this.runner(async (context) => {
+      const got = await this.#unpack(context, args);
+      if (!got.notesName) {
+        // **「빈 노트」와 「노트가 없다」는 다른 말이다.** 빈 글을 주면 모델은 노트를 지웠다고
+        // 읽거나, 이미 뭔가 적혀 있는데 못 읽은 것으로 읽는다.
+        return this.#envelope({
+          slide: (got.slide.index ?? 0) + 1, slide_id: got.slide.id,
+          has_notes: false, notes: null,
+        });
+      }
+      const xml = new TextDecoder().decode(
+        got.files.find((f) => f.name === got.notesName).data);
+      const text = notesTextOf(xml);
+      return this.#envelope({
+        slide: (got.slide.index ?? 0) + 1, slide_id: got.slide.id,
+        has_notes: true, notes: text,
+      });
+    });
+  }
+
+  /**
+   * **발표자 노트를 쓴다.**
+   *
+   * 장을 떠서 노트 조각을 넣거나 갈아 끼우고, 다시 묶어 **그 자리에** 넣는다 — 그리고 옛 장을
+   * 지운다. `replace_table` 과 같은 모양이고, 같은 대가를 치른다: **살아남는 장은 새 id 를**
+   * **단다.** 결과가 그렇게 적는다.
+   *
+   * 노트가 이미 있으면 조각을 새로 짓지 않고 **본문만 갈아 끼운다** — PowerPoint 가 만든 것에는
+   * 우리가 모르는 서식이 붙어 있을 수 있고, 통째로 갈아 치우면 그것이 조용히 사라진다.
+   */
+  #setNotes(args) {
+    return this.runner(async (context) => {
+      const text = String(args.text ?? '');
+      const got = await this.#unpack(context, args);
+      for (const [what, name] of [['슬라이드', got.slideName], ['관계', got.relsName]]) {
+        if (!name) {
+          throw new Error(`뜬 슬라이드 꾸러미에서 ${what} 파일을 못 찾았습니다 — `
+            + '이 덱의 모양이 예상과 달라 노트를 못 씁니다');
+        }
+      }
+      const dec = new TextDecoder();
+      const enc = new TextEncoder();
+      const at = (name) => got.files.find((f) => f.name === name);
+
+      let made = false;
+      if (got.notesName) {
+        at(got.notesName).data = enc.encode(
+          withNotesText(dec.decode(at(got.notesName).data), text));
+      } else {
+        // 노트가 없던 장이다. **마스터가 있어야 지을 수 있다** — 없으면 지어내지 않고 말한다.
+        if (!got.masterName) {
+          throw new Error('이 덱에는 슬라이드 노트 마스터가 없어 노트를 새로 못 만듭니다 — '
+            + 'PowerPoint 에서 이 장에 노트를 한 줄 적어 두면 그 뒤로는 고칠 수 있습니다');
+        }
+        const spot = freeNotesName(got.files.map((f) => f.name));
+        const relId = freeRelId(dec.decode(at(got.relsName).data));
+        got.files.push({ name: spot.part, data: enc.encode(notesPart(text)) });
+        got.files.push({
+          name: spot.rels,
+          data: enc.encode(notesRels(got.slideName.split('/').pop(), got.masterName)),
+        });
+        at(got.relsName).data = enc.encode(withRelationship(
+          dec.decode(at(got.relsName).data), relId, spot.target, 'notesSlide'));
+        at(got.typesName).data = enc.encode(withContentType(
+          dec.decode(at(got.typesName).data), spot.at,
+          'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml'));
+        made = true;
+      }
+
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+      const before = slides.items.map((s) => s.id);
+      const wasAt = got.slide.index ?? 0;
+
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(got.files)),
+        { targetSlideId: got.slide.id });
+      await context.sync();
+
+      slides.load('items/id,items/index');
+      await context.sync();
+      const fresh = slides.items.find((s) => !before.includes(s.id));
+      // **새 장을 못 찾으면 옛 장을 안 지운다.** 지우고 나서 못 찾으면 그 장은 사라진 것이다.
+      if (!fresh) {
+        this.#mutated();
+        throw new Error('노트를 넣은 장을 덱에서 못 찾았습니다 — 옛 장은 그대로 두었습니다. '
+          + '목차를 다시 읽어 확인하세요');
+      }
+      got.slide.delete();
+      await context.sync();
+      this.#mutated();
+
+      return this.#envelope({
+        slide: wasAt + 1,
+        slide_id: fresh.id,
+        was: got.slide.id,
+        created: made,
+        lines: text === '' ? 0 : text.split(/\r?\n/).length,
+      }, [`슬라이드 ${wasAt + 1} 의 발표자 노트를 ${made ? '새로 적었습니다' : '고쳤습니다'} — `
+        + `이 장은 다시 지어졌으므로 **id 가 ${got.slide.id} 에서 ${fresh.id} 로 바뀌었습니다**`]);
     });
   }
 
