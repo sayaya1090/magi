@@ -24,6 +24,7 @@ import {
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
+  fixBoard,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -41,6 +42,12 @@ export class View {
     this.readTranscript = readTranscript ?? null;
     this.advices = [];
     this.adviceNote = '';
+    /**
+     * 덱에 저장된 제안. **손이 있어야 읽을 수 있다** — 없으면 이 층은 아예 안 뜬다(빈 목록을
+     * 그리면 「제안이 없다」와 「못 읽었다」가 같은 화면이 된다).
+     */
+    this.hand = null;
+    this.fixes = [];
     /**
      * 덱이 준 번호표와 **그게 몇 번째 물음의 답인가**. 「못 얻었다(`map === null`)」와 「아직
      * 안 물어봤다」를 안 뭉치는 것이 첫 이유고(뭉치려면 `slideNumbers` 가 빈 Map 을 줬어도
@@ -724,6 +731,110 @@ export class View {
         // 던진 것도 **답이다** — "못 준다"는 답. 삼키면 목록이 영영 「확인 중」으로 남는다.
         .catch(() => { if (this.slideNos.answer(token, null)) this.renderAdvice(); });
     }
+  }
+
+  /** 손을 나중에 받는다 — 손은 덱이 정해진 뒤에 서고, 화면은 그보다 먼저 뜬다. */
+  useHand(hand) {
+    this.hand = hand;
+    void this.loadFixes();
+  }
+
+  /**
+   * 덱에서 제안을 읽어 다시 그린다.
+   *
+   * **조용히 실패하지 않는다.** 못 읽으면 그 사실을 쪽지로 적는다 — 안 적으면 사람은
+   * 제안이 없는 덱이라고 읽는다.
+   */
+  async loadFixes() {
+    if (!this.hand) return;
+    try {
+      const out = await this.hand.run('read_suggestions', {});
+      this.fixes = out?.result?.suggestions ?? [];
+    } catch (e) {
+      this.fixes = [];
+      this.note(`덱의 제안을 못 읽었습니다 — ${e?.message ?? e}`);
+    }
+    this.renderFixes();
+  }
+
+  renderFixes() {
+    const box = $('#fixes');
+    if (!box) return;
+    box.replaceChildren();
+    const board = fixBoard(this.fixes);
+    $('#fix-wrap').hidden = board.wrapHidden;
+    $('#fix-head').textContent = board.headText;
+    for (const c of board.cards) {
+      const el = document.createElement('div');
+      el.className = 'fix';
+      // **덱에서 온 글이다.** `textContent` 로만 넣는다 — 남이 준 덱의 제안이 이 창에
+      // 표시를 그리게 두면 안 된다.
+      const what = document.createElement('div');
+      what.className = 'fix-what';
+      what.textContent = c.what;
+      el.append(what);
+      const why = document.createElement('div');
+      why.className = 'fix-why';
+      why.textContent = c.whyText;
+      why.hidden = c.whyHidden;
+      el.append(why);
+      const where = document.createElement('div');
+      where.className = 'fix-where';
+      where.textContent = c.whereText;
+      el.append(where);
+      // 무엇이 일어나는지. **제안의 글이 아니라 제안의 손에서 왔다.**
+      const does = document.createElement('div');
+      does.className = 'fix-does';
+      does.textContent = c.doesText;
+      el.append(does);
+
+      const buttons = document.createElement('div');
+      buttons.className = 'fix-buttons';
+      const apply = document.createElement('button');
+      apply.className = 'fix-apply';
+      apply.textContent = c.applyText;
+      apply.disabled = !c.canApply;
+      apply.addEventListener('click', () => this.guard(
+        () => this.applyFix(c.key), '제안을 적용하지 못했습니다'));
+      const drop = document.createElement('button');
+      drop.textContent = '무시';
+      drop.addEventListener('click', () => this.guard(
+        () => this.dropFix(c.key), '제안을 떼지 못했습니다'));
+      buttons.append(apply, drop);
+      el.append(buttons);
+      box.append(el);
+    }
+  }
+
+  /**
+   * 「적용」. **고치고 나서 뗀다** — 먼저 떼면 고치기가 실패했을 때 제안까지 잃는다.
+   *
+   * 고치는 손이 장을 다시 짓는 것이면(`set_notes`) **장 id 가 바뀐다.** 그래서 뗄 때는
+   * 옛 id 가 아니라 **방금 받은 id** 로 뗀다.
+   */
+  async applyFix(key) {
+    const row = this.fixes.find((f) => f.key === key);
+    if (!row || !row.fix) { this.note('그 제안을 못 찾았습니다'); return; }
+    const args = { slide_id: row.slide_id, ...(row.fix.args ?? {}) };
+    if (row.shape_id && args.shape_id == null) args.shape_id = row.shape_id;
+    const done = await this.hand.run(row.fix.tool, args);
+    const slideId = done?.result?.slide_id ?? row.slide_id;
+    await this.hand.run('drop_suggestion', {
+      slide_id: slideId, shape_id: row.shape_id ?? undefined, key,
+    });
+    this.note((done?.changed ?? []).join(' ') || '적용했습니다');
+    await this.loadFixes();
+  }
+
+  /** 「무시」. 덱은 안 고치고 제안만 뗀다. */
+  async dropFix(key) {
+    const row = this.fixes.find((f) => f.key === key);
+    if (!row) { this.note('그 제안을 못 찾았습니다'); return; }
+    await this.hand.run('drop_suggestion', {
+      slide_id: row.slide_id, shape_id: row.shape_id ?? undefined, key,
+    });
+    this.note('제안을 뗐습니다 — 덱은 안 고쳤습니다');
+    await this.loadFixes();
   }
 
   renderAdvice() {

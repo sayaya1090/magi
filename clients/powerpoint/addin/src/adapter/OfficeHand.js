@@ -10,8 +10,12 @@ import {
   notesPart, notesRels, withNotesText, notesTextOf, freeNotesName,
 } from './notesxml.js';
 import {
-  timingXml, withTiming, readTiming, paragraphCount, effectSpec, EFFECT_NAMES, START_KINDS,
+  timingXml, withTiming, readTiming, paragraphCount, shapeBody, clickGroups,
+  effectSpec, EFFECT_NAMES, START_KINDS,
 } from './animxml.js';
+import {
+  FIXABLE, fixLabel, freeFixKey, encodeFix, isFixKey, suggestionsOf,
+} from '../domain/Suggestion.js';
 
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
@@ -67,7 +71,8 @@ export class OfficeHand extends HandPort {
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
-      'animate_slide', 'read_animation'];
+      'animate_slide', 'read_animation',
+      'suggest', 'read_suggestions', 'drop_suggestion'];
   }
 
   #envelope(result, changed = []) {
@@ -168,6 +173,9 @@ export class OfficeHand extends HandPort {
       case 'read_tags': return this.#readTags(args);
       case 'animate_slide': return this.#animateSlide(args);
       case 'read_animation': return this.#readAnimation(args);
+      case 'suggest': return this.#suggest(args);
+      case 'read_suggestions': return this.#readSuggestions(args);
+      case 'drop_suggestion': return this.#dropSuggestion(args);
       case 'apply_layout': return this.#applyLayout(args);
       case 'reorder_slide': return this.#reorder(args);
       case 'set_hyperlink': return this.#hyperlink(args);
@@ -1858,7 +1866,15 @@ export class OfficeHand extends HandPort {
    */
   #animateSlide(args) {
     return this.runner(async (context) => {
-      const asked = Array.isArray(args.steps) ? args.steps : [];
+      // **빈 목록만이 지우기다.** 앞 판본은 배열이 아닌 것을 전부 「전부 지우기」로 읽어서,
+      // `animate_slide({slide:1})` 처럼 걸음을 빠뜨린 부름 하나가 그 장의 애니메이션을 통째로
+      // 지우고 「전부 지웠습니다」라고 답했다(리뷰, 2026-09-03). 오타 하나가 그렇게 되면 안 된다.
+      // `set_table_cells` 도 같은 이유로 빈 목록을 던진다.
+      if (!Array.isArray(args.steps)) {
+        throw new Error('어떤 걸음을 걸지 steps 를 배열로 주세요 — '
+          + '애니메이션을 지우려면 빈 배열([])을 주세요');
+      }
+      const asked = args.steps;
       const got = await this.#unpack(context, args);
       if (!got.slideName) {
         throw new Error('뜬 슬라이드 꾸러미에서 슬라이드 파일을 못 찾았습니다 — '
@@ -1894,8 +1910,17 @@ export class OfficeHand extends HandPort {
         if (one.paragraphs === 'each') {
           const n = paragraphCount(slideXml, spid);
           if (n === 0) {
-            throw new Error(`도형 ${spid} 에는 문단이 없습니다 — 글 상자가 아니면 `
-              + 'paragraphs 를 빼고 도형 전체에 거세요');
+            // **무엇이라서 안 되는지 말한다.** 표와 묶음은 문단으로 못 나눈다(표는
+            // `<p:bldGraphic>` 이 따로 있고 우리는 그것을 안 잰 채다). 「문단이 없습니다」로만
+            // 답하면 사람은 글이 없는 줄 안다.
+            const box = shapeBody(slideXml, spid);
+            const why = { 'p:graphicFrame': '표나 차트라서', 'p:grpSp': '묶음이라서', 'p:pic': '그림이라서', 'p:cxnSp': '선이라서' }[box.kind];
+            if (why) {
+              throw new Error(`도형 ${spid} 은 ${why} 한 줄씩 나오게 못 합니다 — `
+                + 'paragraphs 를 빼고 도형 전체에 거세요');
+            }
+            throw new Error(`도형 ${spid} 에는 글이 없습니다 — `
+              + '빈 상자는 한 줄씩 나오게 할 것이 없습니다');
           }
           for (let i = 0; i < n; i += 1) {
             // 첫 줄은 그 사람이 정한 시작으로, 나머지는 **한 줄에 한 번 클릭**이다 — 그게
@@ -1932,8 +1957,31 @@ export class OfficeHand extends HandPort {
       await context.sync();
       this.#mutated();
 
-      const clicks = new Set(steps.map((_, i) => i)).size === 0 ? 0
-        : steps.filter((st, i) => i === 0 || st.start !== 'with_previous').length;
+      // **쓴 것을 되읽는다.**
+      //
+      // 애니메이션은 화면에 안 보인다. 넣기가 먹었는지 사람이 눈으로 확인할 방법이 없고,
+      // PowerPoint 는 자리가 틀린 `<p:timing>` 을 **거절도 않고 조용히 버린다** — 실물에서
+      // 그 화면을 봤다(2026-09-03): 우리는 「효과 1개를 걸었습니다」라고 답했고 파일에는
+      // 아무것도 없었다. 안 한 일을 했다고 적는 것이 이 저장소가 제일 싫어하는 모양이라,
+      // 왕복 하나를 더 치르고 **답을 사실로** 만든다.
+      const check = fresh.exportAsBase64();
+      await context.sync();
+      const raw = fromBase64(check.value);
+      const { entries } = zipEntries(raw);
+      const name = entries.map((e) => e.name).find((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n));
+      const landed = name
+        ? readTiming(new TextDecoder().decode(await zipReadBytes(raw, name))).steps.length
+        : 0;
+      if (landed !== steps.length) {
+        throw new Error(`애니메이션을 ${steps.length}개 넣었는데 되읽으니 ${landed}개입니다 — `
+          + 'PowerPoint 가 받아들이지 않았습니다. 이 장은 다시 지어졌으므로 '
+          + `id 가 ${fresh.id} 입니다`);
+      }
+
+      // **누를 횟수다.** 「이전 다음」은 저절로 도는 것이라 누름이 아닌데, 앞 판본은 그것도
+      // 셌다 — 셋을 한 번에 이어 돌리라고 시켜 놓고 「클릭 3번으로 다 돕니다」라고 답했다
+      // (리뷰, 2026-09-03). 그 셈이 틀리면 모델이 사람에게 그대로 옮긴다.
+      const clicks = clickGroups(steps).filter((g) => g.start === 'on_click').length;
       const lines = [steps.length === 0
         ? `슬라이드 ${wasAt + 1} 의 애니메이션을 전부 지웠습니다`
           + (was.steps.length ? ` (${was.steps.length}개)` : ' (원래 없었습니다)')
@@ -1966,16 +2014,176 @@ export class OfficeHand extends HandPort {
       const xml = new TextDecoder().decode(
         got.files.find((f) => f.name === got.slideName).data);
       const read = readTiming(xml);
-      const mine = read.steps.filter((st) => st.kind === 'entr' && st.effect);
+      // **다시 걸 수 있는 것**은 아는 효과이면서 아는 시작인 것뿐이다. 시작을 모르면 순서를
+      // 되살릴 수 없다.
+      const mine = read.steps.filter((st) => st.kind === 'entr' && st.effect
+        && START_KINDS.includes(st.start));
       return this.#envelope({
         slide: (got.slide.index ?? 0) + 1, slide_id: got.slide.id,
-        has_animation: read.has && read.steps.length > 0,
+        has_animation: read.steps.length > 0 || read.unparsed > 0,
         steps: read.steps,
+        // **못 읽은 효과가 있으면 그 수를 적는다.** 0 이 아니면 우리가 못 보는 것이 그 장에
+        // 있다는 뜻이고, 덮어쓰면 그것이 사라진다.
+        unreadable: read.unparsed,
         // **다시 걸 수 있는가**를 따로 적는다. 모르는 효과가 섞여 있으면 `animate_slide` 로
         // 그대로 되살릴 수 없고, 덮어쓰면 그것이 사라진다.
-        all_known: read.steps.length === mine.length,
+        all_known: read.unparsed === 0 && read.steps.length === mine.length,
         effects_known: EFFECT_NAMES,
       });
+    });
+  }
+
+  /**
+   * **수정 제안을 덱에 붙인다.**
+   *
+   * 워드의 주석과 같은 쓰임이다: 문서에 붙어 있고, 나중에 열어도 있고, 받아들이면 고쳐지면서
+   * 없어진다. 작업창이 카드로 그리고 「적용」이 그 손을 부른다.
+   *
+   * # 손을 좁게 연다
+   *
+   * `Suggestion.FIXABLE` 에 없는 도구는 **여기서 거절한다.** 덱 하나를 통째로 바꾸거나 장을
+   * 지우는 일이 누름 한 번에 일어나면 안 된다 — 사람이 카드를 꼼꼼히 읽는다는 전제로는
+   * 아무것도 못 막는다.
+   *
+   * # 카드에 적을 말이 안 만들어지면 안 붙인다
+   *
+   * 카드의 「무엇을 합니다」는 제안의 글이 아니라 **손에서** 뽑는다. 그 말이 안 만들어지는
+   * 제안은 눌러도 무엇이 일어날지 사람이 못 보는 제안이라, 붙이는 자리에서 막는다.
+   */
+  #suggest(args) {
+    return this.runner(async (context) => {
+      const what = String(args.what ?? '').trim();
+      if (!what) throw new Error('무엇을 고치자는 말이 없습니다 — what 을 주세요');
+      const fix = args.fix && args.fix.tool ? args.fix : null;
+      if (fix) {
+        if (!FIXABLE.has(String(fix.tool))) {
+          throw new Error(`제안으로 누를 수 있는 손이 아닙니다 — '${fix.tool}'. `
+            + `누를 수 있는 것: ${[...FIXABLE.keys()].join(', ')}`);
+        }
+        const said = fixLabel(fix);
+        if (!said.can) {
+          throw new Error(`이 제안은 카드에 적을 말이 안 만들어집니다 — ${said.text}. `
+            + '인자를 다시 보세요');
+        }
+      }
+      const slide = await this.#slide(context, args);
+      slide.load('id,index');
+      slide.tags.load('items/key');
+      const all = slide.shapes;
+      all.load('items/id,items/name,items/tags/items/key');
+      await context.sync();
+
+      const on = args.shape_id
+        ? (all.items ?? []).find((sh) => String(sh.id) === String(args.shape_id))
+        : slide;
+      if (!on) {
+        throw new Error(`이 장에 없는 도형 id 입니다 — '${args.shape_id}' `
+          + `(이 장의 도형: ${(all.items ?? []).map((sh) => sh.id).join(', ') || '없음'})`);
+      }
+      // **이 장에 이미 있는 이름을 피한다.** 도형 것과 장 것을 같이 본다 — 사람에게는
+      // 「이 장의 제안」 하나이므로 이름이 겹치면 어느 것을 지웠는지 알 수 없게 된다.
+      const taken = [
+        ...(slide.tags?.items ?? []).map((t) => t.key),
+        ...(all.items ?? []).flatMap((sh) => (sh.tags?.items ?? []).map((t) => t.key)),
+      ];
+      const key = freeFixKey(taken);
+      on.tags.add(key, encodeFix({ what, why: args.why, fix }));
+      await context.sync();
+      this.#mutated();
+
+      // 같은 프록시를 다시 `load` 하면 낡은 값이 온다(§6.18 실측). 새로 잡아 읽는다.
+      const fresh = context.presentation.slides.getItem(slide.id);
+      const freshOn = args.shape_id ? fresh.shapes.getItem(String(args.shape_id)) : fresh;
+      freshOn.tags.load('items/key,items/value');
+      await context.sync();
+      const stored = (freshOn.tags?.items ?? [])
+        .map((t) => t.key)
+        .find((k) => String(k).toUpperCase() === key.toUpperCase()) ?? null;
+      if (!stored) {
+        throw new Error('제안을 붙였는데 되읽으니 없습니다 — 이 덱이 메모를 못 받는 모양입니다');
+      }
+      const where = args.shape_id ? `도형 ${args.shape_id}` : `슬라이드 ${(slide.index ?? 0) + 1}`;
+      return this.#envelope({
+        slide: (slide.index ?? 0) + 1, slide_id: slide.id,
+        shape_id: args.shape_id ?? null,
+        suggestion: stored,
+        fixable: fix != null,
+      }, [`${where} 에 제안을 붙였습니다 — ${what}`
+        + (fix ? `. 작업창에서 「적용」을 누르면 ${fixLabel(fix).text}` : '')
+        + '. **이건 아직 안 고친 것입니다** — 사람이 누르기 전까지 덱은 그대로입니다.']);
+    });
+  }
+
+  /**
+   * 붙어 있는 제안을 읽는다.
+   *
+   * 장을 안 짚으면 **덱 전체**를 본다 — 사람이 작업창에서 보는 것이 그것이고, 「어디에 뭐가
+   * 남았지」가 이 도구를 부르는 이유다. 장 수만큼 왕복하지 않는다: 모든 장의 요청을 쌓아
+   * **한 번에** 보낸다.
+   */
+  #readSuggestions(args) {
+    return this.runner(async (context) => {
+      const wantsOne = args.slide != null || args.slide_id != null;
+      const slides = context.presentation.slides;
+      slides.load('items/id,items/index');
+      await context.sync();
+
+      const want = wantsOne
+        ? [await this.#slide(context, args)]
+        : slides.items;
+      const asked = [];
+      for (const sl of want) {
+        sl.load('id,index');
+        sl.tags.load('items/key,items/value');
+        const shapes = sl.shapes;
+        shapes.load('items/id,items/name,items/tags/items/key,items/tags/items/value');
+        asked.push({ sl, shapes });
+      }
+      await context.sync();
+
+      const rows = [];
+      for (const { sl, shapes } of asked) {
+        rows.push(...suggestionsOf({
+          slide: (sl.index ?? 0) + 1,
+          slide_id: sl.id,
+          tags: (sl.tags?.items ?? []).map((t) => ({ key: t.key, value: t.value })),
+          shapes: (shapes.items ?? []).map((sh) => ({
+            shape_id: sh.id,
+            tags: (sh.tags?.items ?? []).map((t) => ({ key: t.key, value: t.value })),
+          })),
+        }));
+      }
+      return this.#envelope({
+        scope: wantsOne ? (rows[0]?.slide ?? null) : null,
+        count: rows.length,
+        // **카드에 적힐 말을 같이 싣는다.** 모델이 제안의 글을 믿고 「제목을 키웁니다」라고
+        // 옮기면, 손이 다른 일을 하는 제안일 때 사람은 카드와 다른 말을 듣는다.
+        suggestions: rows.map((r) => ({
+          key: r.key, slide: r.slide, slide_id: r.slideId, shape_id: r.shapeId,
+          what: r.what, why: r.why, fix: r.fix,
+          does: fixLabel(r.fix).text,
+          appliable: fixLabel(r.fix).can,
+          broken: r.broken,
+        })),
+      });
+    });
+  }
+
+  /**
+   * 제안 하나를 뗀다.
+   *
+   * **제안이 아닌 메모는 안 뗀다** — 이 도구로 태그를 지울 수 있으면, 제안을 정리하려던
+   * 부탁이 에이전트의 기억(§6.18)을 지우는 일이 된다.
+   */
+  #dropSuggestion(args) {
+    const key = String(args.key ?? '').trim();
+    if (!isFixKey(key)) {
+      return Promise.reject(new Error(`제안의 이름이 아닙니다 — '${key}'. `
+        + '제안은 read_suggestions 가 주는 key 로 뗍니다'));
+    }
+    return this.run('set_tag', {
+      slide: args.slide, slide_id: args.slide_id, document: args.document,
+      shape_id: args.shape_id, key,
     });
   }
 
@@ -2107,7 +2315,18 @@ export class OfficeHand extends HandPort {
       width: Number(args.width ?? rect?.width ?? 400),
       height: Number(args.height ?? rect?.height ?? 200),
     };
-    if (args.values !== undefined) options.values = args.values;
+    // **칸 안의 줄바꿈도 문단이어야 한다.** `set_table_cells` 는 진작 그렇게 쓰는데
+    // (`asParagraphs`) 표를 만드는 이 길만 `\n` 을 그대로 넘겼다 — 같은 표의 같은 칸이 어느
+    // 도구로 쓰였느냐에 따라 다른 모양이 됐고, `replace_table` 이 옛 글을 옮겨 담을 때 그
+    // 차이가 조용히 굳었다(리뷰, 2026-09-03).
+    //
+    // 표 칸에서도 `\r` 이 문단을 만드는 것은 **실물에서 쟀다**(2026-09-03: `가\r나\r다` 를
+    // 넣은 칸의 XML 에 `<a:p>` 가 셋, `<a:br/>` 이 0).
+    if (args.values !== undefined) {
+      options.values = args.values.map((row) => (Array.isArray(row)
+        ? row.map((cell) => (typeof cell === 'string' ? asParagraphs(cell) : cell))
+        : row));
+    }
     const uniform = {};
     if (args.font !== undefined) uniform.font = { ...(uniform.font ?? {}), name: args.font };
     if (args.size !== undefined) uniform.font = { ...(uniform.font ?? {}), size: Number(args.size) };

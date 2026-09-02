@@ -14,6 +14,8 @@ import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
+import { fixLabel, encodeFix, decodeFix, suggestionsOf, isFixKey, FIX_PREFIX, FIXABLE } from '../src/domain/Suggestion.js';
+import { fixBoard } from '../src/ui/screen.js';
 import { timingXml, readTiming, withTiming, paragraphCount, clickGroups, effectSpec } from '../src/adapter/animxml.js';
 
 let failed = 0;
@@ -190,7 +192,9 @@ function stubRunner(model, log = []) {
       view.shapes = makeShapes(s, pending, log);
       view.tags = makeTags(s, pending, log, s.id);
       view.getImageAsBase64 = () => ({ value: 'PNGBASE64' });
-      view.exportAsBase64 = () => ({ value: model.exported ?? 'PPTXBASE64' });
+      // **넣은 것을 도로 뜬다.** 앞 판본은 어느 장을 떠도 처음 픽스처를 줬다 — 그래서
+      // 「넣고 나서 되읽어 확인한다」를 재려고 하면 늘 원본이 나왔다.
+      view.exportAsBase64 = () => ({ value: s.exported ?? model.exported ?? 'PPTXBASE64' });
       view.applyLayout = (id) => log.push(`layout:${s.id}:${id}`);
       view.moveTo = (i) => { log.push(`moveTo:${s.id}:${i}`); move(s, i); };
       view.delete = () => { log.push(`slide-delete:${s.id}`); drop(s); };
@@ -276,6 +280,7 @@ function stubRunner(model, log = []) {
             layout: { name: src?.layout?.name ?? '기본' },
             shapes: (src?.shapes ?? []).map((sh) => ({ ...sh, id: `${sh.id}-copy` })),
           };
+          copy.exported = b64;
           model.slides.splice(at < 0 ? model.slides.length : at + 1, 0, copy);
           renumber();
         },
@@ -316,6 +321,8 @@ function makeShapes(slide, pending, log) {
   };
   coll.addTable = (r, c, opts) => {
     log.push(`addTable:${r}x${c}:${JSON.stringify(opts.uniformCellProperties ?? null)}:${opts.specificCellProperties ? 'specific' : 'none'}`);
+    // 값도 남긴다. **안 남기면 「칸에 무엇을 썼는가」를 재는 시험이 아무것도 안 문다.**
+    log.push(`addTable-values:${JSON.stringify(opts.values ?? null)}`);
     return new StubShape({ id: 'sh-table' }, pending, log);
   };
   return coll;
@@ -349,6 +356,7 @@ function fakePackage(opts = {}) {
       name: 'ppt/slides/slide1.xml',
       data: enc.encode('<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a">'
         + `<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/></p:nvGrpSpPr>${spTree}</p:spTree></p:cSld>`
+        + (opts.timing ?? '')
         + '</p:sld>'),
     },
     {
@@ -2062,6 +2070,141 @@ async function makeZip(files) {
   }
 }
 
+// ── 수정 제안 — 워드의 주석 자리 ────────────────────────────────────────────
+//
+// 덱 안에 남고, 작업창에 카드로 뜨고, 「적용」을 누르면 고쳐지면서 없어진다.
+//
+// **이 묶음에서 제일 중요한 것은 보안 성질 하나다:** 카드의 「무엇을 합니다」는 제안이
+// 스스로 적어 둔 글이 아니라 **제안이 달고 있는 손**에서 나온다. 남이 준 덱의 제안은 제
+// 글에 아무 말이나 적어 둘 수 있기 때문이다(§6.13).
+{
+  // **글과 손이 어긋나면 손이 이긴다.**
+  {
+    const lie = { tool: 'delete_shape', args: { shape_id: '7' } };
+    const said = fixLabel(lie);
+    ok('카드의 말은 손에서 나온다', said.text.includes('지웁니다') && said.text.includes('7'), said.text);
+    ok('그 손은 누를 수 있다', said.can === true);
+  }
+
+  // 우리가 모르는 손은 **이름을 그대로 적고 못 누르게 한다.** 지어내면 사람은 그것을
+  // 우리가 아는 일로 읽는다.
+  {
+    const alien = fixLabel({ tool: 'delete_slide', args: { slide: 1 } });
+    ok('모르는 손은 못 누른다', alien.can === false);
+    ok('그 이름을 그대로 적는다', alien.text.includes('delete_slide'), alien.text);
+    const none = fixLabel(null);
+    ok('손이 없으면 없다고 적는다', none.can === false && none.text.includes('안 달렸'), none.text);
+  }
+
+  // **카드에 적히는 말에는 마크다운이 없다.** 카드는 `textContent` 로만 글을 넣는다(남이 준
+  // 덱의 제안이 이 창에 표시를 그리게 두면 안 되니까). 그래서 `**덮어씁니다**` 라고 적으면
+  // 사람은 별표를 글자 그대로 본다 — 목업에서 그 화면을 봤다(2026-09-03).
+  {
+    const said = [...FIXABLE.keys()].map((tool) => fixLabel({
+      tool, args: { shape_id: '2', text: 'ㄱ', how: 'left', url: 'https://x', size: 20 },
+    }).text);
+    ok('카드의 말에 별표가 없다', said.every((t) => !t.includes('**')), said.find((t) => t.includes('**')) ?? '');
+    ok('그래도 다 말은 된다', said.every((t) => t.length > 5), JSON.stringify(said));
+  }
+
+  // 태그 값 왕복. **읽을 수 있게 담는다** — 사람이 파일을 열어 봐도 알아야 한다.
+  {
+    const v = encodeFix({ what: '제목이 두 줄로 넘칩니다', why: '글자가 커서', fix: { tool: 'set_text', args: { shape_id: '2', text: '3분기' } } });
+    ok('사람이 읽을 수 있는 모양이다', v.includes('제목이 두 줄로'), v.slice(0, 60));
+    const back = decodeFix('MAGI.FIX.A1', v, { slide: 3, slideId: 's3', shapeId: '2' });
+    ok('글이 돌아온다', back.what === '제목이 두 줄로 넘칩니다');
+    ok('까닭도 돌아온다', back.why === '글자가 커서');
+    ok('손이 돌아온다', back.fix.tool === 'set_text' && back.fix.args.text === '3분기');
+    ok('어디 붙었는지 실린다', back.slide === 3 && back.shapeId === '2');
+  }
+
+  // **못 읽는 것을 못 읽었다고 말한다.** 던지면 그 장의 제안이 통째로 안 보이고, 사람은
+  // 그 태그를 지울 길도 잃는다.
+  {
+    const bad = decodeFix('MAGI.FIX.B', '{망가진');
+    ok('망가진 제안도 한 줄로 나온다', bad.broken === true && bad.what.includes('읽을 수 없는'), bad.what);
+    const empty = decodeFix('MAGI.FIX.C', '{"what":"   "}');
+    ok('빈 말도 망가진 것으로 센다', empty.broken === true);
+  }
+
+  // 한 판에서 **장 것과 도형 것을 같이** 낸다 — 사람에게는 「이 장의 제안」 하나다.
+  {
+    const rows = suggestionsOf({
+      slide: 2, slide_id: 's2',
+      tags: [{ key: 'MAGI.FIX.A', value: encodeFix({ what: '장에 붙은 것' }) },
+        { key: 'MAGI.WHY', value: '이건 기억이지 제안이 아니다' }],
+      shapes: [{ shape_id: 'x', tags: [{ key: 'MAGI.FIX.B', value: encodeFix({ what: '도형에 붙은 것' }) }] },
+        { shape_id: 'y', tags: [{ key: 'MAGI.MADE', value: '기억' }] }],
+    });
+    ok('둘 다 나온다', rows.length === 2, JSON.stringify(rows.map((r) => r.what)));
+    ok('기억은 제안이 아니다', !rows.some((r) => r.what === '기억'));
+    ok('도형 것은 도형을 안다', rows[1].shapeId === 'x');
+  }
+
+  // 화면 판. **못 누르는 이유가 카드에 온다.**
+  {
+    const board = fixBoard([
+      { key: 'k1', what: '줄이자', why: '', slide: 2, shape_id: '3', does: '글을 바꿉니다', appliable: true },
+      { key: 'k2', what: '뭔가', why: '까닭', slide: null, shape_id: null, does: '고칠 손이 안 달렸습니다', appliable: false },
+    ]);
+    ok('둘이면 둘이라고 적는다', board.headText === '제안 2건', board.headText);
+    ok('가리킬 곳을 글로 적는다', board.cards[0].whereText === '슬라이드 2 · 도형 3', board.cards[0].whereText);
+    ok('장이 없으면 없다고 적는다', board.cards[1].whereText.includes('안 실렸'), board.cards[1].whereText);
+    ok('못 누르는 것은 버튼 글이 다르다', board.cards[1].applyText === '적용 불가');
+    ok('빈 까닭은 숨긴다', board.cards[0].whyHidden === true && board.cards[1].whyHidden === false);
+    ok('하나도 없으면 층이 없다', fixBoard([]).wrapHidden === true);
+  }
+
+  // 두 손: **붙이고·읽고·떼는 것이 같아야** 한다.
+  {
+    const deck = () => ({
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: 'a', name: 'ㄱ', type: 'TextBox', text: '긴 제목', left: 0, top: 0, width: 10, height: 10, altTextDescription: null }] },
+      { id: 's2', index: 1, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    });
+    const both = [
+      ['진짜 손', (m) => new OfficeHand({ run: stubRunner(m, []), supports: () => true, document: 'd' })],
+      ['가짜 손', (m) => new FakeHand(m)],
+    ];
+    for (const [who, make] of both) {
+      const model = deck();
+      const hand = make(model);
+      const put = await hand.run('suggest', {
+        slide: 1, shape_id: 'a', what: '제목을 줄이면 한 줄에 들어갑니다', why: '두 줄이면 아래 상자를 밉니다',
+        fix: { tool: 'set_text', args: { shape_id: 'a', text: '요약' } },
+      });
+      ok(`${who}: 제안이 붙는다`, put.result.suggestion?.startsWith(FIX_PREFIX), String(put.result.suggestion));
+      ok(`${who}: 아직 안 고친 것이라고 말한다`,
+        put.changed.some((c) => c.includes('아직 안 고친')), JSON.stringify(put.changed));
+      ok(`${who}: 글은 그대로다 — 제안은 덱을 안 고친다`, model.slides[0].shapes[0].text === '긴 제목',
+        String(model.slides[0].shapes[0].text));
+
+      const got = await hand.run('read_suggestions', {});
+      ok(`${who}: 덱 전체에서 읽힌다`, got.result.count === 1, JSON.stringify(got.result));
+      const one = got.result.suggestions[0];
+      ok(`${who}: 무엇을 하는지 손에서 뽑는다`, one.does.includes('글을') && one.does.includes('요약'), one.does);
+      ok(`${who}: 누를 수 있다고 적는다`, one.appliable === true);
+      ok(`${who}: 어디 붙었는지 안다`, one.slide === 1 && one.shape_id === 'a', JSON.stringify(one));
+
+      // **누를 수 없는 손은 붙는 자리에서 막는다.**
+      const why = await threw(() => hand.run('suggest', {
+        slide: 1, what: '전부 갈아엎기', fix: { tool: 'delete_slide', args: { slide: 1 } },
+      }));
+      ok(`${who}: 위험한 손은 거절한다`, why?.includes('delete_slide') && why?.includes('누를 수 있는 것'), String(why));
+
+      // **기억은 못 지운다.** 제안을 정리하려던 부탁이 §6.18 의 기억을 지우면 안 된다.
+      const nope = await threw(() => hand.run('drop_suggestion', { slide: 1, key: 'MAGI.WHY' }));
+      ok(`${who}: 제안이 아닌 이름은 거절한다`, nope?.includes('제안의 이름이 아닙니다'), String(nope));
+
+      const off = await hand.run('drop_suggestion', { slide: 1, shape_id: 'a', key: one.key });
+      ok(`${who}: 뗀다`, off.result.removed === true, JSON.stringify(off.result));
+      const after = await hand.run('read_suggestions', {});
+      ok(`${who}: 뗀 뒤에는 없다`, after.result.count === 0, JSON.stringify(after.result));
+    }
+  }
+}
+
 // ── 덱 안에 남는 메모 ────────────────────────────────────────────────────────
 //
 // 대화는 세션의 것이고 태그는 **덱의 것**이다. 몇 턴만 지나면 에이전트는 어느 상자를 자기가
@@ -2309,15 +2452,92 @@ async function makeZip(files) {
     ok('자기 닫는 타이밍도 걷는다', !withTiming('<p:sld><p:timing/></p:sld>', '').includes('p:timing'));
   }
 
-  // 문단 세기: **빈 줄도 센다.** `pRg` 의 번호가 빈 줄을 안 건너뛰므로, 안 세면 번호가 밀려
-  // 엉뚱한 줄이 나타난다.
+  // 문단 세기. **픽스처가 진짜 모양이어야 한다** — 앞 판본은 `<p:sp>` 도 `<p:txBody>` 도 없는
+  // 맨 `<a:p>` 줄이라, 표·묶음·빈 상자처럼 실제로 깨지는 모양을 하나도 안 지났다(리뷰,
+  // 2026-09-03).
   {
-    const xml = '<p:cNvPr id="2" name="ㄱ"/><a:p><a:r><a:t>첫</a:t></a:r></a:p>'
-      + '<a:p/><a:p><a:r><a:t>셋</a:t></a:r></a:p>'
-      + '<p:cNvPr id="3" name="ㄴ"/><a:p><a:r><a:t>딴 상자</a:t></a:r></a:p>';
-    ok('빈 줄도 센다', paragraphCount(xml, 2) === 3, String(paragraphCount(xml, 2)));
-    ok('옆 도형의 줄은 안 센다', paragraphCount(xml, 3) === 1, String(paragraphCount(xml, 3)));
-    ok('없는 도형은 0', paragraphCount(xml, 9) === 0);
+    const sp = (id, ...paras) => `<p:sp><p:nvSpPr><p:cNvPr id="${id}" name="상자${id}"/>`
+      + '</p:nvSpPr><p:txBody><a:bodyPr/>' + paras.join('') + '</p:txBody></p:sp>';
+    const para = (t) => (t === null ? '<a:p/>' : `<a:p><a:r><a:t>${t}</a:t></a:r></a:p>`);
+
+    const two = sp(2, para('첫'), para(null), para('셋')) + sp(3, para('딴 상자'));
+    // **빈 줄도 센다** — `pRg` 번호가 빈 줄을 안 건너뛰므로, 안 세면 엉뚱한 줄이 나타난다.
+    ok('빈 줄도 센다', paragraphCount(two, 2) === 3, String(paragraphCount(two, 2)));
+    ok('옆 도형의 줄은 안 센다', paragraphCount(two, 3) === 1, String(paragraphCount(two, 3)));
+    ok('없는 도형은 0', paragraphCount(two, 9) === 0);
+
+    // **글이 없는 상자는 문단이 없는 것이다.** 빈 도형에도 `<a:p/>` 가 하나 있어서, 안 가르면
+    // 아무것도 안 나타나는 걸음을 걸고 「걸었습니다」라고 답한다.
+    ok('빈 상자는 0', paragraphCount(sp(4, para(null)), 4) === 0);
+
+    // **표는 문단으로 안 센다.** `p:graphicFrame` 은 `cNvPr` 이 하나라, 앞 판본의 창에는
+    // 모든 칸의 문단이 들어왔다 — 2×2 표에 걸음 넷을 걸고 넷이라고 답했다.
+    const table = '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="표"/>'
+      + '</p:nvGraphicFramePr><a:graphic><a:graphicData><a:tbl>'
+      + '<a:tr><a:tc><a:txBody>' + para('ㄱ') + '</a:txBody></a:tc>'
+      + '<a:tc><a:txBody>' + para('ㄴ') + '</a:txBody></a:tc></a:tr>'
+      + '</a:tbl></a:graphicData></a:graphic></p:graphicFrame>';
+    ok('표는 문단으로 안 센다', paragraphCount(table, 5) === 0, String(paragraphCount(table, 5)));
+
+    // **묶음도 아니다.** 앞 판본은 제 `cNvPr` 뒤에 곧바로 자식의 `cNvPr` 이 와서 0 이었는데,
+    // 그건 우연히 맞은 답이었다 — 이제는 종류를 보고 0 이다.
+    const group = '<p:grpSp><p:nvGrpSpPr><p:cNvPr id="6" name="묶음"/></p:nvGrpSpPr>'
+      + sp(7, para('안에 든 글')) + '</p:grpSp>';
+    ok('묶음도 문단으로 안 센다', paragraphCount(group, 6) === 0, String(paragraphCount(group, 6)));
+    ok('묶음 안의 글 상자는 센다', paragraphCount(group, 7) === 1, String(paragraphCount(group, 7)));
+  }
+
+  // **애니메이션이 있는데 없다고 말하지 않는다.**
+  //
+  // 앞 판본의 정규식은 속성 차례를 그대로 박아 뒀다. 줄바꿈이 하나 끼거나 `nodeType` 이
+  // 없거나 차례가 다르면 **하나도** 못 읽고 「없음」이라고 답했고, 이어진 `animate_slide` 가
+  // 그것을 지우면서 「지운 것 0개」라고 적었다(리뷰, 2026-09-03). PowerPoint 말고 다른 것이
+  // 만든 덱은 얼마든지 다른 차례로 적는다.
+  {
+    const eff = (attrs) => `<p:timing><p:tnLst><p:par><p:cTn ${attrs}>`
+      + '<p:childTnLst><p:set><p:cBhvr><p:cTn id="6" dur="1"/>'
+      + '<p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cBhvr></p:set>'
+      + '<p:animEffect transition="in" filter="fade"><p:cBhvr><p:cTn id="7" dur="800"/>'
+      + '<p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cBhvr></p:animEffect>'
+      + '</p:childTnLst></p:cTn></p:par></p:tnLst></p:timing>';
+    const shapes = [
+      ['우리가 쓰는 차례', 'id="5" presetID="10" presetClass="entr" fill="hold" nodeType="clickEffect"'],
+      ['줄바꿈이 낀 것', 'id="5" presetID="10"\n  presetClass="entr" nodeType="clickEffect"'],
+      ['차례가 다른 것', 'id="5" presetClass="entr" presetID="10" nodeType="clickEffect"'],
+      ['nodeType 이 없는 것', 'id="5" presetID="10" presetClass="entr"'],
+      ['presetID 가 없는 것', 'id="5" presetClass="entr" nodeType="clickEffect"'],
+    ];
+    for (const [what, attrs] of shapes) {
+      const read = readTiming(eff(attrs));
+      ok(`${what}: 효과를 읽는다`, read.steps.length === 1, JSON.stringify(read));
+      ok(`${what}: 못 읽은 것을 안 남긴다`, read.unparsed === 0);
+    }
+    ok('길이도 준다 — 안 주면 되먹였을 때 전부 500 으로 초기화된다',
+      readTiming(eff(shapes[0][1])).steps[0].duration_ms === 800,
+      String(readTiming(eff(shapes[0][1])).steps[0].duration_ms));
+    ok('presetID 가 없으면 없다고 한다', readTiming(eff(shapes[4][1])).steps[0].preset_id === null);
+
+    // **애니메이션이 없는 장에도 PowerPoint 는 빈 타이밍을 적는다.** 그것을 「있다」로 세면
+    // 멀쩡한 장마다 경고가 뜬다.
+    const bare = '<p:timing><p:tnLst><p:par><p:cTn id="1" dur="indefinite" nodeType="tmRoot"/>'
+      + '</p:par></p:tnLst></p:timing>';
+    ok('빈 타이밍에는 걸음이 없다', readTiming(bare).steps.length === 0 && readTiming(bare).unparsed === 0);
+
+    // **조건부 껍데기의 대체본을 두 번 세지 않는다.**
+    const dup = '<p:timing><mc:AlternateContent><mc:Choice>'
+      + '<p:cTn id="5" presetID="10" presetClass="entr" nodeType="clickEffect">'
+      + '<p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cTn></mc:Choice><mc:Fallback>'
+      + '<p:cTn id="5" presetID="10" presetClass="entr" nodeType="clickEffect">'
+      + '<p:tgtEl><p:spTgt spid="4"/></p:tgtEl></p:cTn></mc:Fallback></mc:AlternateContent></p:timing>';
+    ok('대체본을 두 번 안 센다', readTiming(dup).steps.length === 1, String(readTiming(dup).steps.length));
+  }
+
+  // 끼우는 자리: **`extLst` 앞**이다. 규격의 차례가 그렇고, 거기 M365 주석의 되짚기가 산다.
+  {
+    const had = '<p:sld><p:cSld/><p:transition/><p:extLst><p:ext uri="{X}"/></p:extLst></p:sld>';
+    const now = withTiming(had, timingXml([S(2, 'fade', 'on_click')]));
+    ok('타이밍은 extLst 앞에 온다', now.indexOf('<p:timing>') < now.indexOf('<p:extLst>'), now);
+    ok('전환은 그대로 앞에 있다', now.indexOf('<p:transition') < now.indexOf('<p:timing>'));
   }
 
   // 「이전 다음」의 기다림은 **앞 묶음이 도는 시간**이다.
@@ -2376,11 +2596,122 @@ async function makeZip(files) {
     ok('두 문단을 겨눈다', /<p:pRg st="0"/.test(slideXml) && /<p:pRg st="1"/.test(slideXml));
   }
 
+  // 표 칸도 문단으로 쓴다. **실물에서 쟀다**(2026-09-03: 칸 하나에 `<a:p>` 셋, `<a:br/>` 0).
+  // `set_table_cells` 만 그렇고 `add_table` 은 아니면, 같은 표의 같은 칸이 어느 도구로
+  // 쓰였느냐에 따라 다른 모양이 된다.
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    const log = [];
+    const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true, document: 'd' });
+    await hand.run('add_table', { slide: 1, rows: 1, columns: 1, values: [['가\n나']] });
+    const line = log.find((l) => l.startsWith('addTable-values:'));
+    ok('표를 만들 때도 문단으로 쓴다', line === 'addTable-values:[["가\\r나"]]', String(line));
+  }
+
+  // 가짜 손도 **숫자로 온 id 를 받고**, 없는 id 에는 이 장의 도형을 알려 준다.
+  {
+    const fake = new FakeHand({
+      slides: [{ id: 'f1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: '2', name: 'ㄱ', type: 'TextBox', text: 'ㄱ' }] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    });
+    const model = fake.model;
+    await fake.run('set_text', { slide: 1, shape_id: 2, text: '고침' });
+    ok('가짜 손도 숫자 id 를 받는다', model.slides[0].shapes[0].text === '고침',
+      String(model.slides[0].shapes[0].text));
+    const why = await threw(() => fake.run('set_text', { slide: 1, shape_id: '9', text: 'x' }));
+    ok('가짜 손의 거절도 이 장의 도형을 알려 준다', why?.includes('이 장의 도형'), String(why));
+  }
+
+  // **걸음을 안 주면 지우지 않는다.** 오타 하나가 그 장의 애니메이션을 통째로 지우고
+  // 「전부 지웠습니다」라고 답하면 안 된다(리뷰, 2026-09-03).
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    deck.exported = fakePackage({});
+    const hand = new OfficeHand({ run: stubRunner(deck, []), supports: () => true, document: 'd' });
+    for (const [what, args] of [
+      ['빠뜨린 것', { slide: 1 }],
+      ['배열이 아닌 것', { slide: 1, steps: { shape_id: '2' } }],
+      ['null 인 것', { slide: 1, steps: null }],
+    ]) {
+      const why = await threw(() => hand.run('animate_slide', args));
+      ok(`${what}: 지우지 않고 거절한다`, why?.includes('빈 배열'), String(why));
+    }
+    const cleared = await hand.run('animate_slide', { slide: 1, steps: [] });
+    ok('빈 배열은 지우기다', cleared.result.steps === 0, JSON.stringify(cleared.result));
+  }
+
+  // **누를 횟수를 맞게 센다.** 「이전 다음」은 저절로 도는 것이라 누름이 아니다 — 셋을 이어
+  // 돌리라고 시켜 놓고 「클릭 3번」이라고 답하면, 모델이 그 말을 사람에게 그대로 옮긴다.
+  {
+    const g = clickGroups([S(2, 'fade', 'on_click'), S(3, 'fade', 'after_previous'),
+      S(4, 'fade', 'after_previous')]);
+    ok('묶음은 셋이지만', g.length === 3);
+    ok('누르는 것은 하나다', g.filter((x) => x.start === 'on_click').length === 1,
+      g.map((x) => x.start).join(','));
+  }
+
+  // **표와 묶음은 무엇이라서 안 되는지 말한다.** 「문단이 없습니다」로만 답하면 사람은 글이
+  // 없는 줄 안다.
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    deck.exported = fakePackage({
+      spTree: '<p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="5" name="표"/>'
+        + '</p:nvGraphicFramePr><a:graphic><a:graphicData><a:tbl><a:tr><a:tc><a:txBody>'
+        + '<a:p><a:r><a:t>ㄱ</a:t></a:r></a:p></a:txBody></a:tc></a:tr></a:tbl>'
+        + '</a:graphicData></a:graphic></p:graphicFrame>'
+        + '<p:sp><p:nvSpPr><p:cNvPr id="6" name="빈 상자"/></p:nvSpPr>'
+        + '<p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp>',
+    });
+    const hand = new OfficeHand({ run: stubRunner(deck, []), supports: () => true, document: 'd' });
+    const table = await threw(() => hand.run('animate_slide', {
+      slide: 1, steps: [{ shape_id: '5', paragraphs: 'each' }],
+    }));
+    ok('표는 표라서 안 된다고 말한다', table?.includes('표나 차트'), String(table));
+    const empty = await threw(() => hand.run('animate_slide', {
+      slide: 1, steps: [{ shape_id: '6', paragraphs: 'each' }],
+    }));
+    ok('빈 상자는 글이 없다고 말한다', empty?.includes('글이 없습니다'), String(empty));
+  }
+
+  // **있는데 없다고 말하지 않는다.** 우리가 못 읽는 효과가 섞여 있으면 그 수를 적고,
+  // 「전부 아는 것」이라고 하지 않는다.
+  {
+    const deck = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    // 나가기 효과 하나. 우리가 만든 적 없는 모양이다.
+    deck.exported = fakePackage({
+      spTree: '<p:sp><p:nvSpPr><p:cNvPr id="2" name="ㄱ"/></p:nvSpPr></p:sp>',
+      timing: '<p:timing><p:tnLst><p:cTn id="5" presetID="10" presetClass="exit"'
+        + ' nodeType="clickEffect"><p:tgtEl><p:spTgt spid="2"/></p:tgtEl></p:cTn>'
+        + '</p:tnLst></p:timing>',
+    });
+    const hand = new OfficeHand({ run: stubRunner(deck, []), supports: () => true, document: 'd' });
+    const read = await hand.run('read_animation', { slide: 1 });
+    ok('있으면 있다고 한다', read.result.has_animation === true, JSON.stringify(read.result));
+    ok('나가기는 다시 못 건다고 한다', read.result.all_known === false);
+    ok('나가기라고 적는다', read.result.steps[0].kind === 'exit');
+  }
+
   // 두 손이 같은 것을 가르치는가.
   {
     const fake = new FakeHand({
       slides: [{ id: 'f1', index: 0, layout: { name: 'L' },
-        shapes: [{ id: 'x', name: 'ㄱ', type: 'TextBox', text: '첫\n둘\n셋' }] }],
+        // **실물이 쓰는 모양을 먹인다.** 진짜 손은 이제 문단을 \r 로 쓴다(asParagraphs).
+        // \n 을 먹이면 이 시험은 초록인 채로 「두 손이 같은 수를 센다」를 안 재게 된다 —
+        // 실제로 가짜 손은 \r 를 못 갈라 셋 대신 하나를 셌다(리뷰, 2026-09-03).
+        shapes: [{ id: 'x', name: 'ㄱ', type: 'TextBox', text: '첫\r둘\r셋' }] }],
       masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
     });
     const out = await fake.run('animate_slide', {

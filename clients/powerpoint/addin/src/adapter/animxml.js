@@ -20,6 +20,8 @@
  * 나머지는 각각 다른 XML 을 요구한다 — **안 재 본 모양을 지어 넣느니 없다고 말한다.**
  */
 
+import { removeElements, endOfElement } from './chartxml.js';
+
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
@@ -176,8 +178,22 @@ export function withTiming(slideXml, timing) {
     .replace(/<p:timing>[\s\S]*?<\/p:timing>/, '')
     .replace(/<p:timing\s*\/>/, '');
   if (!timing) return cleaned;
-  const at = cleaned.lastIndexOf('</p:sld>');
-  if (at < 0) throw new Error('슬라이드 XML 이 </p:sld> 로 안 끝납니다 — 애니메이션을 못 넣습니다');
+  // **`extLst` 앞이다.** 규격의 차례는 cSld → clrMapOvr → transition → timing → **extLst** 이고,
+  // `</p:sld>` 바로 앞에 두면 그 마지막 칸을 넘어선다. 장에 `<p:extLst>` 가 있는 덱에서만
+  // 어긋나는데, 거기 사는 것이 하필 M365 주석의 되짚기(`p188:commentRel`)다 — 주석 단 장에
+  // 애니메이션을 걸면 다음에 열 때 「복구」 대화창이 뜬다(리뷰가 짚었다, 2026-09-03).
+  const end = cleaned.lastIndexOf('</p:sld>');
+  if (end < 0) throw new Error('슬라이드 XML 이 </p:sld> 로 안 끝납니다 — 애니메이션을 못 넣습니다');
+  // **장의 `extLst` 만 본다.** `<p:extLst>` 는 `<p:cSld>` 안에도 있다(PowerPoint 가 거기에
+  // `p14:creationId` 를 적는다). 아무거나 먼저 만난 것 앞에 끼우면 타이밍이 `cSld` 안으로
+  // 들어가고, PowerPoint 는 **거절도 않고 조용히 버린다** — 실물에서 그 화면을 봤다
+  // (2026-09-03): 「효과 1개를 걸었습니다」라고 답했는데 파일에는 타이밍이 없었다.
+  // `<p:cSld/>` 로 닫힌 것도 있다 — 닫는 태그 글자로 찾으면 그런 장에서 못 찾고, 못 찾으면
+  // 장의 `extLst` 를 통째로 놓친다. 짝을 맞춰 세는 쪽으로 끝을 잡는다.
+  const open = cleaned.indexOf('<p:cSld');
+  const body = open >= 0 ? endOfElement(cleaned, open, 'p:cSld') : -1;
+  const ext = body > 0 ? cleaned.indexOf('<p:extLst>', body) : -1;
+  const at = ext >= 0 && ext < end ? ext : end;
   return cleaned.slice(0, at) + timing + cleaned.slice(at);
 }
 
@@ -189,16 +205,47 @@ export function withTiming(slideXml, timing) {
  * 엉뚱한 줄이 나타난다.
  */
 export function paragraphCount(slideXml, spid) {
-  const xml = String(slideXml);
-  const head = xml.indexOf(`<p:cNvPr id="${spid}"`);
-  if (head < 0) return 0;
-  const nextAt = xml.indexOf('<p:cNvPr id=', head + 1);
-  const window = xml.slice(head, nextAt < 0 ? xml.length : nextAt);
-  // **빈 문단은 `<a:p/>` 로 쓰인다.** 여는 태그만 찾으면 그것을 놓치고, 놓치면 번호가 밀려
-  // 엉뚱한 줄이 나타난다 — 시험이 이걸 잡았다(2026-09-03).
-  return (window.match(/<a:p(?=[\s/>])/g) ?? []).length;
+  const box = shapeBody(slideXml, spid);
+  if (!box.kind || box.kind !== 'p:sp') return 0;
+  // **글 상자의 몸통 안만 센다.** 앞 판본은 이 도형의 `cNvPr` 부터 다음 `cNvPr` 까지를 창으로
+  // 삼았는데, 표(`p:graphicFrame`)는 `cNvPr` 이 하나라 모든 칸의 문단이 그 창에 들어왔고
+  // (2×2 표에 걸음 넷을 걸고 「넷을 걸었습니다」라고 답했다), 묶음(`p:grpSp`)은 제 `cNvPr` 뒤에
+  // 곧바로 자식들의 `cNvPr` 이 와서 글이 가득해도 0 이었다(리뷰, 2026-09-03).
+  const body = box.xml.match(/<p:txBody>[\s\S]*<\/p:txBody>/);
+  if (!body) return 0;
+  const all = (body[0].match(/<a:p(?=[\s/>])/g) ?? []).length;
+  // **글이 한 자도 없으면 문단이 없는 것으로 센다.** 빈 도형에도 `<a:p/>` 하나가 있어서, 안
+  // 가르면 아무것도 안 나타나는 걸음을 하나 걸고 「걸었습니다」라고 답한다.
+  const words = (body[0].match(/<a:t>([^<]*)<\/a:t>/g) ?? []).join('').replace(/<[^>]*>/g, '').trim();
+  return words ? all : 0;
 }
 
+/**
+ * 그 도형의 **원소 하나**를 통째로 떠 온다. 종류(`p:sp`·`p:graphicFrame`·`p:grpSp`·`p:pic`)도
+ * 같이 준다 — 무엇이냐에 따라 할 수 있는 일이 다르고, **모르면 지어내지 않는다.**
+ */
+export function shapeBody(slideXml, spid) {
+  const xml = String(slideXml);
+  const kinds = ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp', 'p:cxnSp'];
+  // **뒤로 훑어 찾지 않는다.** `lastIndexOf('<p:sp')` 는 `<p:spTree>` 를 잡는다 — 이름이
+  // 접두사로 겹치는 태그가 있어서, 자리로만 찾으면 엉뚱한 원소를 뜬다.
+  const tag = new RegExp(`<(${kinds.join('|')})(?=[\\s/>])`, 'g');
+  const mark = `<p:cNvPr id="${spid}"`;
+  let best = null;
+  let m = tag.exec(xml);
+  while (m !== null) {
+    const kind = m[1];
+    const end = endOfElement(xml, m.index, kind);
+    if (end > 0) {
+      const body = xml.slice(m.index, end);
+      // **제일 안쪽 것이 그 도형이다.** 묶음도 자식의 이름표를 품으므로, 안 가르면 묶음 안의
+      // 글 상자가 묶음으로 읽힌다.
+      if (body.includes(mark) && (!best || body.length < best.xml.length)) best = { kind, xml: body };
+    }
+    m = tag.exec(xml);
+  }
+  return best ?? { kind: null, xml: '' };
+}
 /**
  * 걸려 있는 것을 읽는다.
  *
@@ -207,23 +254,50 @@ export function paragraphCount(slideXml, spid) {
  */
 export function readTiming(slideXml) {
   const block = String(slideXml).match(/<p:timing>[\s\S]*?<\/p:timing>/);
-  if (!block) return { has: false, steps: [] };
+  // 애니메이션이 없는 장에도 PowerPoint 는 빈 `<p:timing>`(tmRoot 하나)을 적어 둔다. 그래서
+  // **덩이가 있다는 것만으로는 애니메이션이 있다고 못 말한다.**
+  if (!block) return { has: false, steps: [], unparsed: 0 };
+  // **조건부 껍데기의 대체본을 먼저 걷는다.** 같은 효과가 `mc:Choice` 와 `mc:Fallback` 에
+  // 둘 다 실려 오면 두 번 세어져, 사람이 보는 것의 두 배를 모델에게 말하게 된다.
+  const xml = removeElements(block[0], 'mc:Fallback');
+
   const steps = [];
-  const re = /<p:cTn id="\d+" presetID="(\d+)" presetClass="(\w+)"[^>]*nodeType="(\w+)"[^>]*>([\s\S]*?)<p:tgtEl>([\s\S]*?)<\/p:tgtEl>/g;
-  let m = re.exec(block[0]);
+  // **속성 차례에 안 매인다.** 앞 판본은 `id → presetID → presetClass → … → nodeType` 순서를
+  // 그대로 정규식에 박아서, 줄바꿈이 하나만 끼어도·`nodeType` 이 없어도·차례가 달라도 **하나도**
+  // 못 읽었다. 그러고는 「애니메이션 없음」이라고 답했고, 이어진 `animate_slide` 가 그것을
+  // 지우면서 「지운 것 0개」라고 적었다(리뷰, 2026-09-03). PowerPoint 말고 다른 것이 만든 덱은
+  // 얼마든지 다른 차례로 적는다.
+  const open = /<p:cTn\b((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  let m = open.exec(xml);
+  let seen = 0;
   while (m !== null) {
-    const [, preset, cls, node, , tgt] = m;
-    const para = tgt.match(/<p:pRg st="(\d+)"/)?.[1];
-    steps.push({
-      effect: effectOfPreset(preset),
-      preset_id: Number(preset),
-      // `entr` 만 우리가 만든다. 다른 것이 보이면 **다른 것이라고 말한다.**
-      kind: cls,
-      start: { clickEffect: 'on_click', withEffect: 'with_previous', afterEffect: 'after_previous' }[node] ?? node,
-      shape_id: tgt.match(/spid="([^"]+)"/)?.[1] ?? null,
-      paragraph: para == null ? null : Number(para),
-    });
-    m = re.exec(block[0]);
+    const attrs = m[1];
+    // 효과 마디는 `presetClass` 를 든 것이다. 묶음 마디(`fill="hold"`)와 뿌리는 안 든다.
+    const cls = attrs.match(/presetClass="([^"]*)"/)?.[1];
+    if (cls) {
+      seen += 1;
+      const end = endOfElement(xml, m.index, 'p:cTn');
+      const body = end > 0 ? xml.slice(m.index, end) : '';
+      const tgt = body.match(/<p:tgtEl>([\s\S]*?)<\/p:tgtEl>/)?.[1] ?? '';
+      const node = attrs.match(/nodeType="([^"]*)"/)?.[1] ?? null;
+      const preset = attrs.match(/presetID="(\d+)"/)?.[1] ?? null;
+      const para = tgt.match(/<p:pRg st="(\d+)"/)?.[1];
+      // **길이도 준다.** 안 주면 `read_animation` 의 답을 그대로 `animate_slide` 에 되먹였을 때
+      // 모든 효과가 기본 500ms 로 초기화된다 — 읽고 다시 걸라고 시켜 놓고 값을 안 주는 셈이다.
+      const durs = [...body.matchAll(/\sdur="(\d+)"/g)].map((d) => Number(d[1])).filter((n) => n > 1);
+      steps.push({
+        effect: effectOfPreset(preset),
+        preset_id: preset == null ? null : Number(preset),
+        // `entr` 만 우리가 만든다. 다른 것이 보이면 **다른 것이라고 말한다.**
+        kind: cls,
+        start: { clickEffect: 'on_click', withEffect: 'with_previous', afterEffect: 'after_previous' }[node]
+          ?? node ?? null,
+        duration_ms: durs.length ? Math.max(...durs) : null,
+        shape_id: tgt.match(/spid="([^"]+)"/)?.[1] ?? null,
+        paragraph: para == null ? null : Number(para),
+      });
+    }
+    m = open.exec(xml);
   }
-  return { has: true, steps };
+  return { has: true, steps, unparsed: Math.max(0, seen - steps.length) };
 }

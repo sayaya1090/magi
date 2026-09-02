@@ -3,6 +3,9 @@ import { HandPort } from '../port/HandPort.js';
 import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
 import { chartPart, chartKind, fitBox } from './chartxml.js';
 import { effectSpec, EFFECT_NAMES, START_KINDS, clickGroups } from './animxml.js';
+import {
+  FIXABLE, fixLabel, freeFixKey, encodeFix, isFixKey, suggestionsOf,
+} from '../domain/Suggestion.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -40,7 +43,8 @@ export class FakeHand extends HandPort {
       'list_layouts', 'describe_style', 'apply_style', 'add_slide', 'add_slides', 'delete_slide',
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
-      'animate_slide', 'read_animation'];
+      'animate_slide', 'read_animation',
+      'suggest', 'read_suggestions', 'drop_suggestion'];
   }
 
   /**
@@ -73,10 +77,17 @@ export class FakeHand extends HandPort {
   }
 
   #shape(slide, id) {
-    const shape = slide.shapes.find((s) => s.id === id);
+    // **숫자로 온 id 도 받는다.** 실물의 도형 id 는 `"2"`·`"3"` 같은 숫자 문자열이라 모델이
+    // 따옴표를 빠뜨리기 쉽고, 진짜 손은 `String(id)` 로 받는다. 여기만 `===` 로 걸러서,
+    // 브라우저에서만 거절당하는 부름이 있었다(리뷰, 2026-09-03).
+    const shape = slide.shapes.find((s) => String(s.id) === String(id));
     if (!shape) {
       // **비슷한 것을 찾아 대신 고치지 않는다**(§5.8·§6.1). 틀린 채로 그럴듯한 것이 제일 나쁘다.
-      throw new Error(`도형 ${id} 는 슬라이드 ${slide.id} 에 없습니다`);
+      //
+      // 다만 **이 장에 뭐가 있는지는 알려 준다** — 진짜 손이 그렇게 거절하고, 그 목록이 없으면
+      // 모델은 자기가 뭘 잘못 짚었는지 모른 채 같은 id 로 다시 부른다.
+      throw new Error(`이 장에 없는 도형 id 입니다 — '${id}' `
+        + `(이 장의 도형: ${slide.shapes.map((sh) => sh.id).join(', ') || '없음'})`);
     }
     return shape;
   }
@@ -558,7 +569,12 @@ export class FakeHand extends HandPort {
       }
       case 'animate_slide': {
         const slide = this.#slide(args);
-        const asked = Array.isArray(args.steps) ? args.steps : [];
+        // **빈 목록만이 지우기다** — 진짜 손과 같은 계약이다.
+        if (!Array.isArray(args.steps)) {
+          throw new Error('어떤 걸음을 걸지 steps 를 배열로 주세요 — '
+            + '애니메이션을 지우려면 빈 배열([])을 주세요');
+        }
+        const asked = args.steps;
         const was = (slide.animation ?? []).length;
         const steps = [];
         for (const one of asked) {
@@ -571,8 +587,11 @@ export class FakeHand extends HandPort {
           if (!START_KINDS.includes(start)) {
             throw new Error(`${start} 는 아는 시작이 아닙니다 — 아는 것: ${START_KINDS.join(', ')}`);
           }
+          // **\r 로도 갈린다.** 진짜 손은 이제 문단을 \r 로 쓰는데(asParagraphs) 여기는
+          // `/\r?\n/` 이라 홀로 선 \r 이 안 갈렸다 — 같은 글에 실물은 걸음 셋, 이 화면은 하나였다
+          // (리뷰, 2026-09-03).
           const rows = one.paragraphs === 'each'
-            ? String(sh.text ?? '').split(/\r?\n/).length
+            ? String(sh.text ?? '').split(/\r\n|[\r\n]/).length
             : 1;
           if (one.paragraphs === 'each' && !String(sh.text ?? '')) {
             throw new Error(`도형 ${one.shape_id} 에는 문단이 없습니다 — 글 상자가 아니면 `
@@ -593,7 +612,7 @@ export class FakeHand extends HandPort {
         const wasId = slide.id;
         slide.id = `${wasId}-a${this.nextId++}`;
         this.#mutated();
-        const clicks = clickGroups(steps).length;
+        const clicks = clickGroups(steps).filter((g) => g.start === 'on_click').length;
         const at = this.model.slides.indexOf(slide) + 1;
         const lines = [steps.length === 0
           ? `슬라이드 ${at} 의 애니메이션을 전부 지웠습니다`
@@ -606,6 +625,72 @@ export class FakeHand extends HandPort {
           slide: at, slide_id: slide.id, was: wasId,
           steps: steps.length, clicks, removed: was,
         }, lines);
+      }
+
+      case 'suggest': {
+        const what = String(args.what ?? '').trim();
+        if (!what) throw new Error('무엇을 고치자는 말이 없습니다 — what 을 주세요');
+        const fix = args.fix && args.fix.tool ? args.fix : null;
+        // **거절은 두 손이 같아야 한다** — 브라우저에서 통과한 것이 실물에서 거절당하면
+        // 이 화면에서 배운 것이 거짓이 된다.
+        if (fix && !FIXABLE.has(String(fix.tool))) {
+          throw new Error(`제안으로 누를 수 있는 손이 아닙니다 — '${fix.tool}'. `
+            + `누를 수 있는 것: ${[...FIXABLE.keys()].join(', ')}`);
+        }
+        if (fix && !fixLabel(fix).can) {
+          throw new Error(`이 제안은 카드에 적을 말이 안 만들어집니다 — ${fixLabel(fix).text}. `
+            + '인자를 다시 보세요');
+        }
+        const slide = this.#slide(args);
+        const on = args.shape_id ? this.#shape(slide, args.shape_id) : slide;
+        on.tags = on.tags ?? {};
+        const taken = [
+          ...Object.keys(slide.tags ?? {}),
+          ...slide.shapes.flatMap((sh) => Object.keys(sh.tags ?? {})),
+        ];
+        const key = freeFixKey(taken);
+        on.tags[key] = encodeFix({ what, why: args.why, fix });
+        this.#mutated();
+        const where = args.shape_id ? `도형 ${args.shape_id}`
+          : `슬라이드 ${this.model.slides.indexOf(slide) + 1}`;
+        return this.#envelope({
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
+          shape_id: args.shape_id ?? null, suggestion: key, fixable: fix != null,
+        }, [`${where} 에 제안을 붙였습니다 — ${what}`
+          + (fix ? `. 작업창에서 「적용」을 누르면 ${fixLabel(fix).text}` : '')
+          + '. **이건 아직 안 고친 것입니다** — 사람이 누르기 전까지 덱은 그대로입니다.']);
+      }
+      case 'read_suggestions': {
+        const wantsOne = args.slide != null || args.slide_id != null;
+        const want = wantsOne ? [this.#slide(args)] : this.model.slides;
+        const pairs = (o) => Object.entries(o ?? {}).map(([key, value]) => ({ key, value }));
+        const rows = want.flatMap((sl) => suggestionsOf({
+          slide: this.model.slides.indexOf(sl) + 1,
+          slide_id: sl.id,
+          tags: pairs(sl.tags),
+          shapes: sl.shapes.map((sh) => ({ shape_id: sh.id, tags: pairs(sh.tags) })),
+        }));
+        return this.#envelope({
+          scope: wantsOne ? (rows[0]?.slide ?? null) : null,
+          count: rows.length,
+          suggestions: rows.map((r) => ({
+            key: r.key, slide: r.slide, slide_id: r.slideId, shape_id: r.shapeId,
+            what: r.what, why: r.why, fix: r.fix,
+            does: fixLabel(r.fix).text,
+            appliable: fixLabel(r.fix).can,
+            broken: r.broken,
+          })),
+        });
+      }
+      case 'drop_suggestion': {
+        const key = String(args.key ?? '').trim();
+        if (!isFixKey(key)) {
+          throw new Error(`제안의 이름이 아닙니다 — '${key}'. `
+            + '제안은 read_suggestions 가 주는 key 로 뗍니다');
+        }
+        return this.run('set_tag', {
+          slide: args.slide, slide_id: args.slide_id, shape_id: args.shape_id, key,
+        });
       }
 
       case 'snapshot_slide': {

@@ -509,3 +509,30 @@ button:disabled { cursor: default; opacity: .5; }
    쪽이 움직일지 사람이 못 고른다. */
 .turns { flex: 0 0 auto; overflow: visible; }
 .composer, .brand { flex: none; }
+
+/* ── 제안(덱에 저장된 주석) ──────────────────────────────────── */
+
+.fix-wrap { border-top: 1px solid var(--line); padding: var(--s3) var(--s4); }
+.fix-wrap h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s1); }
+.fix {
+  margin-bottom: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); font: var(--t-body); box-shadow: var(--shadow-1);
+}
+.fix-what { font-weight: 600; }
+.fix-why, .fix-where { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+/* **무엇을 합니다**가 카드에서 제일 또렷해야 한다 — 사람이 믿을 수 있는 유일한 줄이다. */
+.fix-does {
+  margin-top: var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm); background: var(--bg-sub);
+  font: var(--t-caption); color: var(--fg);
+}
+.fix-buttons { margin-top: var(--s2); display: flex; gap: var(--s2); }
+.fix-buttons button {
+  padding: var(--s2) var(--s3); border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  font: var(--t-body); cursor: pointer;
+}
+.fix-buttons button:hover:not(:disabled) { border-color: var(--sel); }
+.fix-buttons button:disabled { color: var(--muted); background: var(--bg-sub); cursor: default; }
+.fix-apply:not(:disabled) { border-color: var(--sel); font-weight: 600; }

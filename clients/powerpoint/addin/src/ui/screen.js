@@ -400,3 +400,37 @@ export function pretty(v) {
 
 /** 너무 길면 자른다. 자른 표시(`…`)까지가 `n` 이다 — 자르고도 `n` 을 넘으면 자른 뜻이 없다. */
 export function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+
+/**
+ * 제안 판. **이 파일의 다른 것들과 같은 규칙**이다 — 갈래를 여기서 정하고 뷰는 그리기만 한다.
+ *
+ * 카드가 말하는 것 셋을 가른다:
+ *
+ * 1. **제안의 글** — 덱에서 온 것이다. 남이 준 덱이면 남이 쓴 글이고, 우리 도구에게 말을
+ *    거는 글일 수도 있다(§6.13). 그대로 보여 주되 **그것이 무엇을 하는지의 근거로는 안 쓴다.**
+ * 2. **무엇을 합니다** — `fix` 에서 뽑은 말이다. 이게 사람이 믿을 수 있는 유일한 줄이다.
+ * 3. **누를 수 있나** — 손이 없거나 우리가 모르는 손이면 카드는 읽히기만 한다.
+ */
+export function fixBoard(rows) {
+  const list = rows ?? [];
+  return {
+    wrapHidden: list.length === 0,
+    headText: list.length === 1 ? '제안 1건' : `제안 ${list.length}건`,
+    cards: list.map((r) => ({
+      key: r.key,
+      what: r.what,
+      whyText: r.why || '',
+      whyHidden: !r.why,
+      whereText: [
+        r.slide != null ? `슬라이드 ${r.slide}` : '어느 장인지 안 실렸습니다',
+        r.shape_id ? `도형 ${r.shape_id}` : null,
+      ].filter(Boolean).join(' · '),
+      doesText: r.does,
+      // **못 누르는 이유가 그 자리에 온다.** 회색 버튼만 두면 「손이 안 달렸다」와 「이 창이
+      // 고장났다」가 같은 화면이 된다.
+      canApply: Boolean(r.appliable),
+      applyText: r.appliable ? '적용' : '적용 불가',
+      broken: Boolean(r.broken),
+    })),
+  };
+}

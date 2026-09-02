@@ -385,6 +385,59 @@ func catalogue() []tool {
 			Required: []string{"steps"},
 		},
 		{
+			Name: "read_suggestions",
+			Desc: "Fix-suggestions sitting in this deck, from you or from an earlier conversation. They " +
+				"live in the FILE, so they survive the deck being closed and reopened, and they show as " +
+				"cards in the task pane with an Apply button. Omit the slide to see the whole deck — that " +
+				"is one round trip, not one per slide. Read this before offering advice on a deck you did " +
+				"not just build: someone may already have suggested the same thing. \"does\" is what " +
+				"pressing Apply would ACTUALLY do, derived from the fix and not from the suggestion's own " +
+				"words — trust that field over \"what\" if they disagree, and say so." + declare,
+			Props: []property{
+				{Name: "slide", Type: "integer", Desc: "1-based position. Omit for the whole deck."},
+				{Name: "slide_id", Type: "string", Desc: "Exact slide id. Wins over slide."},
+			},
+			Required: []string{},
+			ReadOnly: true,
+		},
+		{
+			Name: "suggest",
+			Desc: "Attach a fix-suggestion to a slide or shape, the way a person leaves a comment in Word. " +
+				"It is written INTO THE DECK, so it is still there in the next conversation and after the " +
+				"file is closed and reopened, and the person sees it as a card in the task pane. THIS DOES " +
+				"NOT CHANGE THE DECK: it is what you would say, not work you did — never report a " +
+				"suggestion as a change made. Give a fix and the card gets an Apply button that performs it " +
+				"and removes the suggestion; leave the fix out and the card is only readable. Use this " +
+				"instead of just editing when the person should decide, and instead of advise when it " +
+				"should still be there tomorrow." + declare,
+			Props: withSlide(
+				property{Name: "what", Type: "string", Desc: "The suggestion, in the person's language. One sentence."},
+				property{Name: "why", Type: "string", Desc: "Why it would be better. Optional but it is what makes a suggestion worth reading."},
+				property{Name: "shape_id", Type: "string", Desc: "Attach it to one shape instead of the slide."},
+				property{
+					Name: "fix", Type: "object",
+					Desc: "{tool, args} — the call Apply should make. Only these tools can be attached: " +
+						"set_text, format_shape, move_shape, align_shapes, delete_shape, set_notes, " +
+						"set_hyperlink. Anything that rewrites the whole deck or removes a slide is refused, " +
+						"because one click must not do that. args are exactly that tool's arguments, minus " +
+						"the slide (the suggestion already knows its slide).",
+				},
+			),
+			Required: []string{"what"},
+		},
+		{
+			Name: "drop_suggestion",
+			Desc: "Take one suggestion off, without doing what it asked. The person pressing Apply in the " +
+				"pane already removes it; use this when the suggestion no longer applies, or when the " +
+				"person tells you to drop it. Refuses any key that is not a suggestion, so it cannot be " +
+				"used to erase the notes you left yourself with set_tag." + declare,
+			Props: withSlide(
+				property{Name: "key", Type: "string", Desc: "The suggestion's key, from read_suggestions."},
+				property{Name: "shape_id", Type: "string", Desc: "Given if the suggestion sits on a shape — read_suggestions says."},
+			),
+			Required: []string{"key"},
+		},
+		{
 			Name:     "delete_shape",
 			Desc:     "Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way back.",
 			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to delete."}),

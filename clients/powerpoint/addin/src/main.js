@@ -65,6 +65,19 @@ async function boot() {
     readTranscript,
   });
   view.mount();
+  // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
+  // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
+  // 「붙었는데 아무 일도 안 일어난다」를 사람이 가려낼 수 있다.
+  //
+  // **진짜 갈래 밖에 세운다.** 앞 판본은 헬퍼에 붙는 자리에서 만들었는데, 그러면 **목업
+  // 화면에는 손이 없다** — 제안 카드(§6.20)가 브라우저에서 영영 안 뜨고, 이 저장소가 화면을
+  // 눈으로 재는 유일한 자리가 그 기능만 못 재게 된다.
+  const hand = deck instanceof FakeDeck
+    ? new FakeHand(structuredClone(fixture))
+    : new OfficeHand({});
+  // **화면도 손을 쓴다.** 덱에 저장된 제안을 읽고, 「적용」이 그 손을 부른다 — 헬퍼를 거치지
+  // 않는다. 사람이 누른 것은 모델의 턴이 아니고, 모델의 로그에 남을 일도 아니다.
+  view.useHand(hand);
   // **대화 이름을 우리가 짓지 않는다.** 이름을 가진 쪽은 컴패니언이고(`.sock.session`),
   // `ReadTranscript` 는 남의 대화 이벤트를 신원으로 걸러 낸다 — 여기서 지어낸 이름에 붙이면
   // **진짜 이벤트가 전부 그 그물에 걸린다.** 실물에서 그 화면을 봤다(2026-09-01): 모델은 덱의
@@ -74,7 +87,7 @@ async function boot() {
   // 대화가 끊기거나 다시 붙으면 브랜드 줄도 같이 움직인다. **한 사건에 한 자리**라
   // 여기서 걸어 두고, 뷰는 자기가 받은 값만 그린다.
   const drawn = readTranscript.onChange;
-  readTranscript.onChange = () => { drawn?.(); void refreshBrand(); };
+  readTranscript.onChange = () => { drawn?.(); void refreshBrand(); void view.loadFixes(); };
 
   // 브랜드 줄이 늘 말하는 것 셋: 어디에 붙었나 · 대화가 살아 있나 · 손이 몇인가.
   // **가짜 갈래에서도 사실을 적는다** — 「가짜 덱」이라고 적히지 않으면 그 화면은 진짜인 척한다.
@@ -96,9 +109,6 @@ async function boot() {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
     // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
     // 「붙었는데 아무 일도 안 일어난다」를 사람이 가려낼 수 있다.
-    const hand = deck instanceof FakeDeck
-      ? new FakeHand(structuredClone(fixture))
-      : new OfficeHand({});
     new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
 
     /**
