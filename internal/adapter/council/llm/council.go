@@ -788,21 +788,6 @@ func evidence(req port.DeliberationRequest) string {
 		b.WriteString("\n\n")
 	}
 	section("Task (the goal)", req.Task)
-	// The operator's standing instructions, and what they mean for a vote.
-	//
-	// Placed right after the task because it is read WITH the task: the request is what was asked
-	// this time, these are the rules that were already in force. A member that sees only the
-	// former scores obedience to the latter as a defect — observed live (2026-09-02), and the
-	// agent then undid the rule to satisfy the vote.
-	if strings.TrimSpace(req.Standing) != "" {
-		section("The operator's standing instructions (already in force before this request)",
-			strings.TrimSpace(req.Standing)+"\n\n"+
-				"These are rules the operator wrote once and expects on every turn. Work that follows "+
-				"them is CORRECT even where it departs from the literal wording of the task above — "+
-				"that departure is the rule doing its job, not the agent ignoring the request. Judge a "+
-				"conflict between the two in favour of the standing instruction, and never require the "+
-				"agent to undo one to satisfy you.")
-	}
 	if req.Declared {
 		// Said as a fact, not as an instruction to approve: the declaration is what convened
 		// this round, and a member who cannot see it can only infer it from the report's

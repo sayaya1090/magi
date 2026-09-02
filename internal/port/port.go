@@ -202,23 +202,9 @@ type DeliberationRequest struct {
 	// diff. It excludes the model's own narration (that is the Report/claim); admitting
 	// narration as evidence is how a defeatist agent talks its way to a false "done".
 	Actions string
-	Changes string // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
-	// Standing is the operator's durable instructions (AGENTS.md) — the same text the agent was
-	// given in its system prompt.
-	//
-	// Without it the council judges work against the LITERAL wording of the request and nothing
-	// else, so obeying a standing rule reads as departing from what was asked. Observed live
-	// (2026-09-02): the operator's rule was "slide titles must be wrapped in brackets", the person
-	// asked for a slide called 내년 목표, the agent correctly created "[내년 목표]", the council
-	// rejected the turn, and the agent then EDITED THE BRACKETS BACK OUT to satisfy it. A standing
-	// instruction that is followed and then reverted is worse than one that is ignored: the person
-	// sees the rule work sometimes, and cannot tell when.
-	//
-	// The gate has to judge against the same rules the agent was handed. Optional — most requests
-	// carry none.
-	Standing string
-	Members  []council.Member // who votes (defaults to the MAGI when empty)
-	Rule     council.Rule     // how votes are tallied (defaults to majority)
+	Changes string           // this turn's file edits, reconstructed from the agent's write/edit tools (optional)
+	Members []council.Member // who votes (defaults to the MAGI when empty)
+	Rule    council.Rule     // how votes are tallied (defaults to majority)
 	// DefaultModel is used for members that don't pin their own Model (typically
 	// the session's current model, so the council follows model switches).
 	DefaultModel string
