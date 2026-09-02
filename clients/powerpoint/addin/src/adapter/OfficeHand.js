@@ -4,6 +4,7 @@ import { zipStore, toBase64 } from './zipwrite.js';
 import {
   chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame,
   freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox,
+  bareSpTree, freeShapeId, withoutNotes,
 } from './chartxml.js';
 import {
   notesPart, notesRels, withNotesText, notesTextOf, freeNotesName,
@@ -344,7 +345,13 @@ export class OfficeHand extends HandPort {
         })),
         // **없는 것이 아니라 못 읽는 것이다**(CAPABILITIES.md §10.5). 모델에게 노트가 *없다*고
         // 말하면 노트가 없는 덱이라고 믿고, 필요할 때 다른 길을 안 쓴다.
-        unreadable: ['notes', 'animation', 'transition', 'chart-data'],
+        //
+        // 그런데 이 목록이 오랫동안 **그 「다른 길」이 생긴 뒤에도 노트를 여기 두고 있었다.**
+        // 못 읽는 것과 여기서 안 실리는 것은 다른 말인데 한 칸에 섞여 있었고, 그래서 모델은
+        // `read_notes` 가 있는데도 노트를 못 읽는 것으로 알았다(리뷰가 짚었다, 2026-09-03).
+        // 이제 둘을 가른다: **문이 없는 것**과 **문이 다른 데 있는 것**.
+        unreadable: ['animation', 'transition', 'chart-data'],
+        elsewhere: { notes: 'read_notes', tags: 'read_tags' },
         // **지우지도 가리지도 않는다** — 글은 위에 그대로 실려 있다. 여기 붙는 것은 표시뿐이다.
         // 프롬프트 인젝션을 다루는 발표 자료라면 그 글은 정상적인 내용이고, 우리가 그것을 공격으로
         // 단정하면 그 사람은 자기 덱을 못 읽게 된다.
@@ -1332,19 +1339,21 @@ export class OfficeHand extends HandPort {
       const at = (name) => files.find((f) => f.name === name);
       // 뼈대만 쓴다: 있던 도형은 걷어 내고 차트만 놓는다. 자리표시자까지 그대로 두면 「제목을
       // 입력하십시오」가 차트 옆에 남는다.
-      let slideXml = dec.decode(at(slideName).data)
-        .replace(/<p:sp>[\s\S]*?<\/p:sp>/g, '')
-        .replace(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g, '')
-        .replace(/<p:pic>[\s\S]*?<\/p:pic>/g, '');
+      let slideXml = bareSpTree(dec.decode(at(slideName).data));
 
       // **이름이 겹치면 안 된다.** 뼈대로 뜬 장에 이미 차트가 있을 수 있고, 그때 같은 이름을
       // 하나 더 넣으면 zip 에 같은 이름이 둘 생겨 PowerPoint 가 통째로 거절한다.
       const spot = freeChartName(files.map((f) => f.name));
       const relId = freeRelId(dec.decode(at(relsName).data));
       const frame = chartFrame({
-        id: 2, name: args.title ? String(args.title) : '차트', relId,
+        id: freeShapeId(slideXml),
+        name: args.title ? String(args.title) : '차트', relId,
         left: Number(args.left ?? 60), top: Number(args.top ?? 90),
-        width: Number(args.width ?? 840), height: Number(args.height ?? 400),
+        // **4:3 덱에서 넘치지 않는 크기가 기본이다.** 이 호스트는 장 크기를 못 읽는다
+        // (`pageSetup` 은 1.10). 앞 기본값 840 은 16:9(960pt)에는 맞고 4:3(720pt)에서는
+        // 오른쪽 180pt 가 화면 밖으로 나갔는데, 우리는 그걸 모른 채 「넣었습니다」라고
+        // 답했다(리뷰, 2026-09-03). 둘 다에 드는 크기를 고른다.
+        width: Number(args.width ?? 600), height: Number(args.height ?? 380),
       });
       slideXml = withFrame(slideXml, frame);
 
@@ -1355,13 +1364,17 @@ export class OfficeHand extends HandPort {
       at(typesName).data = enc.encode(
         withContentType(dec.decode(at(typesName).data), spot.at));
       files.push({ name: spot.part, data: enc.encode(xml) });
+      // **남의 노트를 물려주지 않는다.** 뼈대는 장을 통째로 뜬 것이라 그 장의 발표자
+      // 노트도 들어 있다. 새 차트 장이 그걸 그대로 달고 나오면, 부탁하지 않은 글이
+      // 발표자 화면에 뜬다.
+      const shipped = withoutNotes(files, relsName, typesName);
 
       const slides = context.presentation.slides;
       slides.load('items/id,items/index');
       await context.sync();
       const before = slides.items.map((s) => s.id);
 
-      context.presentation.insertSlidesFromBase64(toBase64(zipStore(files)),
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(shipped)),
         { targetSlideId: slide.id });
       await context.sync();
 
@@ -1386,7 +1399,11 @@ export class OfficeHand extends HandPort {
       }, [`슬라이드 ${(made.index ?? 0) + 1}(id ${made.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
         + `항목 ${args.categories.length}개 · 계열 ${args.series.length}개. `
         + '값은 차트 안에 들어 있어 서식은 다 만질 수 있지만, '
-        + '**「데이터 편집」은 안 열립니다**(품은 표가 없습니다) — 숫자를 고치려면 이 도구로 다시 만드세요.']);
+        + '**「데이터 편집」은 안 열립니다**(품은 표가 없습니다) — 숫자를 고치려면 이 도구로 다시 만드세요.',
+      // **번호가 밀렸다고 말한다.** `delete_slide` 는 이 말을 하는데 넣는 쪽은 안 했다.
+      // 목차를 들고 있던 모델은 그 뒤로 한 칸씩 틀린 자리에 글을 쓴다(리뷰, 2026-09-03).
+      `이 장 뒤에 끼워 넣었으므로 ${(made.index ?? 0) + 1} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
+        + '들고 있던 목차가 있으면 다시 읽으세요.']);
     });
   }
 
@@ -1444,10 +1461,7 @@ export class OfficeHand extends HandPort {
       const dec = new TextDecoder();
       const enc = new TextEncoder();
       const at = (name) => files.find((f) => f.name === name);
-      let slideXml = dec.decode(at(slideName).data)
-        .replace(/<p:sp>[\s\S]*?<\/p:sp>/g, '')
-        .replace(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g, '')
-        .replace(/<p:pic>[\s\S]*?<\/p:pic>/g, '');
+      let slideXml = bareSpTree(dec.decode(at(slideName).data));
 
       const spot = freeImageName(files.map((f) => f.name), ext);
       const relId = freeRelId(dec.decode(at(relsName).data));
@@ -1464,7 +1478,7 @@ export class OfficeHand extends HandPort {
         : fitBox(Number(args.image_width ?? 0), Number(args.image_height ?? 0), box.w, box.h);
 
       slideXml = withFrame(slideXml, picFrame({
-        id: 2,
+        id: freeShapeId(slideXml),
         name: args.name ? String(args.name) : '그림',
         // 대체 텍스트는 **비워 두지 않는다.** 사람이 안 주면 파일 이름이라도 넣는다 —
         // 빈 것보다 낫고, 나중에 고치기도 쉽다.
@@ -1480,13 +1494,17 @@ export class OfficeHand extends HandPort {
       at(typesName).data = enc.encode(
         withDefaultType(dec.decode(at(typesName).data), ext, mime));
       files.push({ name: spot.part, data: fromBase64(b64) });
+      // **남의 노트를 물려주지 않는다.** 뼈대는 장을 통째로 뜬 것이라 그 장의 발표자
+      // 노트도 들어 있다. 새 그림 장이 그걸 그대로 달고 나오면, 부탁하지 않은 글이
+      // 발표자 화면에 뜬다.
+      const shipped = withoutNotes(files, relsName, typesName);
 
       const slides = context.presentation.slides;
       slides.load('items/id,items/index');
       await context.sync();
       const before = slides.items.map((s) => s.id);
 
-      context.presentation.insertSlidesFromBase64(toBase64(zipStore(files)),
+      context.presentation.insertSlidesFromBase64(toBase64(zipStore(shipped)),
         { targetSlideId: slide.id });
       await context.sync();
 
@@ -1507,6 +1525,8 @@ export class OfficeHand extends HandPort {
       if (!said && !fit.kept) {
         lines.push('원래 크기를 못 읽어 비율을 못 맞췄습니다 — 찌그러져 보이면 크기를 짚어 주세요');
       }
+      lines.push(`이 장 뒤에 끼워 넣었으므로 ${(made.index ?? 0) + 1} 번 뒤의 번호는 전부 `
+        + '하나씩 밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.');
       return this.#envelope({
         slide: (made.index ?? 0) + 1,
         slide_id: made.id,
@@ -1593,7 +1613,11 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const text = String(args.text ?? '');
       const got = await this.#unpack(context, args);
-      for (const [what, name] of [['슬라이드', got.slideName], ['관계', got.relsName]]) {
+      // 콘텐츠 형식 조각까지 본다. 노트를 **새로 만드는** 갈래가 이 조각을 고치는데,
+      // 없으면 `TypeError: Cannot read properties of undefined` 가 나간다 — 이 근처가 애써
+      // 사람 말로 거절하는 자리인데 거기만 기계 말이 새어 나갔다(리뷰, 2026-09-03).
+      for (const [what, name] of [['슬라이드', got.slideName], ['관계', got.relsName],
+        ['콘텐츠 형식', got.typesName && got.files.some((f) => f.name === got.typesName) ? got.typesName : '']]) {
         if (!name) {
           throw new Error(`뜬 슬라이드 꾸러미에서 ${what} 파일을 못 찾았습니다 — `
             + '이 덱의 모양이 예상과 달라 노트를 못 씁니다');
@@ -1691,11 +1715,29 @@ export class OfficeHand extends HandPort {
       if (!key) throw new Error('어느 이름으로 붙일지 key 를 주세요');
       const slide = await this.#slide(context, args);
       slide.load('id,index');
+      slide.tags.load('items/key,items/value');
+      // **쓰기 전에 무엇이 있었는지 본다.** 같은 왕복에 얹으므로 값이 안 든다. 이게 없으면
+      // 「없던 것을 지웠습니다」를 말하게 되는데, 그걸 들은 모델은 그 메모가 있었다고 믿고
+      // 다음 턴에 그 이름으로 다시 안 찾는다.
+      //
+      // 도형 목록도 같이 뜬다. `getItem` 으로 곧장 잡으면 없는 id 일 때 호스트의 날것
+      // `ItemNotFound` 가 그대로 나가는데, 이 파일의 다른 곳은 전부 「이 장의 도형: …」을
+      // 알려 준다(리뷰, 2026-09-03). 같은 왕복이라 값이 더 들지 않는다.
+      const all = slide.shapes;
+      all.load('items/id,items/name,items/tags/items/key,items/tags/items/value');
       await context.sync();
 
       const on = args.shape_id
-        ? slide.shapes.getItem(String(args.shape_id))
+        ? (all.items ?? []).find((sh) => String(sh.id) === String(args.shape_id))
         : slide;
+      if (!on) {
+        throw new Error(`이 장에 없는 도형 id 입니다 — '${args.shape_id}' `
+          + `(이 장의 도형: ${(all.items ?? []).map((sh) => sh.id).join(', ') || '없음'})`);
+      }
+      const had = (on.tags?.items ?? [])
+        .map((t) => t.key)
+        .find((k) => String(k).toLowerCase() === key.toLowerCase()) ?? null;
+
       const gone = args.value === null || args.value === undefined;
       if (gone) {
         // **비우는 것이 지우는 것이다.** 빈 값을 남겨 두면 「없음」과 「빈 글」이 두 상태가 되는데
@@ -1704,13 +1746,48 @@ export class OfficeHand extends HandPort {
       } else {
         on.tags.add(key, String(args.value));
       }
+      // **쓴 것을 되읽는다.** 앞 판본은 우리가 보낸 키를 그대로 답에 실었는데, PowerPoint 는
+      // 키를 대문자로 바꿔 저장하므로 답이 덱에 없는 키를 가리켰다 — 다음 대화의 `read_tags`
+      // 는 `MAGI.WHY` 를 주는데 기억에는 `magi.why` 를 적었다고 남는다. 기억하려고 만든
+      // 도구가 기억을 틀리게 남기는 셈이다(리뷰가 짚었다, 2026-09-03).
+      //
+      // 대문자로 바꿔서 답하는 것으로는 부족하다 — 그건 **호스트가 무엇을 했는지 우리가
+      // 추측하는** 것이다. 되읽으면 추측이 아니다.
       await context.sync();
       this.#mutated();
+
+      // **같은 프록시를 다시 `load` 하면 낡은 값이 온다.** 실물에서 잰 것이다(2026-09-03):
+      // 쓰기는 덱까지 갔는데 되읽기가 쓰기 전 목록을 줘서, 방금 붙인 메모를 「없다」고 읽고
+      // 「이 덱이 메모를 못 받는 모양입니다」로 거절했다 — 시험은 전부 초록이었다. 스텁에는
+      // 그 캐시가 없으니 브라우저 쪽 가지로는 영영 안 잡히는 결함이고, 실물에 붙여 보고서야
+      // 나왔다. 장을 **새로 잡아** 읽으면 맞다. 왕복 하나 값이고, 그 값으로 답이 사실이 된다.
+      const fresh = context.presentation.slides.getItem(slide.id);
+      const freshOn = args.shape_id ? fresh.shapes.getItem(String(args.shape_id)) : fresh;
+      freshOn.tags.load('items/key,items/value');
+      await context.sync();
+
+      const rows = (freshOn.tags?.items ?? []).map((t) => t.key);
+      const stored = rows.find((k) => String(k).toLowerCase() === key.toLowerCase()) ?? null;
       const where = args.shape_id ? `도형 ${args.shape_id}` : `슬라이드 ${slide.id}`;
+      // 지우기는 **있던 것이 정말 사라졌을 때만** 지웠다고 한다. 붙이기는 **정말 있을 때만**
+      // 붙였다고 한다.
+      const removed = gone && had != null && stored == null;
+      if (!gone && stored == null) {
+        throw new Error(`메모를 붙였는데 되읽으니 없습니다 — ${where} 의 '${key}'. `
+          + '이 덱이 메모를 못 받는 모양입니다');
+      }
+      const renamed = !gone && stored !== key;
       return this.#envelope({
         slide: (slide.index ?? 0) + 1, slide_id: slide.id,
-        shape_id: args.shape_id ?? null, key, removed: gone,
-      }, [`${where} 에 메모를 ${gone ? '지웠습니다' : '붙였습니다'} — ${key}`]);
+        shape_id: args.shape_id ?? null,
+        // **덱에 있는 이름**이다. 지운 경우에는 되읽을 것이 없으니 부탁받은 이름을 준다.
+        key: stored ?? key,
+        asked: key,
+        removed,
+      }, [`${where} 에 메모를 ${removed || gone ? '지웠습니다' : '붙였습니다'} — ${stored ?? key}`
+        + (renamed ? ` (PowerPoint 가 '${key}' 를 '${stored}' 로 바꿔 저장했습니다 — `
+          + '다음에 찾을 때는 이 이름으로 찾으세요)' : '')
+        + (gone && !removed ? ' — 그런 이름의 메모가 원래 없었습니다' : '')]);
     });
   }
 
@@ -1725,17 +1802,20 @@ export class OfficeHand extends HandPort {
       const slide = await this.#slide(context, args);
       slide.load('id,index');
       slide.tags.load('items/key,items/value');
-      const one = args.shape_id ? slide.shapes.getItem(String(args.shape_id)) : null;
-      if (one) one.tags.load('items/key,items/value');
-      let shapes = null;
-      if (!one) {
-        shapes = slide.shapes;
-        shapes.load('items/id,items/name,items/tags/items/key,items/tags/items/value');
-      }
+      // 도형을 짚었든 아니든 **목록은 뜬다.** 짚은 경우에도 그래야 없는 id 를 이 파일의 다른
+      // 곳과 같은 말로 거절할 수 있다 — 날것 `ItemNotFound` 를 받은 모델은 자기가 뭘 잘못
+      // 짚었는지 모른 채 같은 id 로 다시 부른다.
+      const shapes = slide.shapes;
+      shapes.load('items/id,items/name,items/tags/items/key,items/tags/items/value');
       await context.sync();
 
       const pairs = (coll) => (coll?.items ?? []).map((t) => ({ key: t.key, value: t.value }));
-      if (one) {
+      if (args.shape_id) {
+        const one = (shapes.items ?? []).find((sh) => String(sh.id) === String(args.shape_id));
+        if (!one) {
+          throw new Error(`이 장에 없는 도형 id 입니다 — '${args.shape_id}' `
+            + `(이 장의 도형: ${(shapes.items ?? []).map((sh) => sh.id).join(', ') || '없음'})`);
+        }
         return this.#envelope({
           slide: (slide.index ?? 0) + 1, slide_id: slide.id,
           shape_id: String(args.shape_id), tags: pairs(one.tags),

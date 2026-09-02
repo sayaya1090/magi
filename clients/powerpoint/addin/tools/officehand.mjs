@@ -11,8 +11,8 @@
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
-import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox } from '../src/adapter/chartxml.js';
-import { zipEntries, zipRead, zipReadBytes } from '../src/adapter/zip.js';
+import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
+import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
 
 let failed = 0;
@@ -265,6 +265,8 @@ function stubRunner(model, log = []) {
         },
         insertSlidesFromBase64: (b64, options) => {
           log.push(`insert:${b64.slice(0, 6)}:${options?.targetSlideId}:${options?.formatting ?? ''}`);
+          // 통째로도 남긴다. 앞 여섯 글자만으로는 **무엇을 넣었는지** 못 잰다.
+          log.push(`insert-b64:${b64}`);
           const at = model.slides.findIndex((s) => s.id === options?.targetSlideId);
           const src = at >= 0 ? model.slides[at] : null;
           const copy = {
@@ -318,6 +320,74 @@ function makeShapes(slide, pending, log) {
   return coll;
 }
 
+// **뜬 꾸러미를 진짜 zip 으로 준다.**
+//
+// 여기 오기 전까지 스텁의 `exportAsBase64` 는 'PPTXBASE64' 라는 글자를 줬다. 그래서
+// `add_chart`·`add_image`·`set_notes`·`read_notes` 는 **넷 다 네 줄째에서 죽었고, 어떤
+// 시험도 그 아래를 지난 적이 없다** — 파일에서 제일 위험한 네 메서드가 유일하게 안 재는
+// 넷이었다(리뷰, 2026-09-03).
+//
+// 더 나빴던 것은 그게 **덮여 보였다**는 점이다. 도구를 전부 `{}` 로 불러 보는 검사가
+// 「모른다」만 실패로 셌으므로, `add_chart` 가 `chartPart` 에서 죽는 것은 통과로 셌다.
+// `#addChart` 의 본문을 통째로 `throw` 로 바꿔도 초록이었다.
+function fakePackage(opts = {}) {
+  const enc = new TextEncoder();
+  const spTree = opts.spTree ?? '<p:sp><p:nvSpPr><p:cNvPr id="2" name="제목"/></p:nvSpPr></p:sp>';
+  const files = [
+    {
+      name: '[Content_Types].xml',
+      data: enc.encode('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        + '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        + '<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>'
+        + (opts.notes
+          ? '<Override PartName="/ppt/notesSlides/notesSlide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>'
+          : '')
+        + '</Types>'),
+    },
+    {
+      name: 'ppt/slides/slide1.xml',
+      data: enc.encode('<?xml version="1.0"?><p:sld xmlns:p="p" xmlns:a="a">'
+        + `<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/></p:nvGrpSpPr>${spTree}</p:spTree></p:cSld>`
+        + '</p:sld>'),
+    },
+    {
+      name: 'ppt/slides/_rels/slide1.xml.rels',
+      data: enc.encode('<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>'
+        + (opts.notes
+          ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide1.xml"/>'
+          : '')
+        + '</Relationships>'),
+    },
+  ];
+  if (opts.master !== false) {
+    files.push({ name: 'ppt/notesMasters/notesMaster1.xml', data: enc.encode('<p:notesMaster/>') });
+  }
+  if (opts.notes) {
+    files.push({
+      name: 'ppt/notesSlides/notesSlide1.xml',
+      data: enc.encode('<?xml version="1.0"?><p:notes xmlns:p="p" xmlns:a="a"><p:cSld><p:spTree>'
+        + '<p:sp><p:nvSpPr><p:nvPr><p:ph type="body"/></p:nvPr></p:nvSpPr>'
+        + `<p:txBody><a:bodyPr/><a:p><a:r><a:t>${opts.notes}</a:t></a:r></a:p></p:txBody>`
+        + '</p:sp></p:spTree></p:cSld></p:notes>'),
+    });
+    files.push({ name: 'ppt/notesSlides/_rels/notesSlide1.xml.rels', data: enc.encode('<Relationships/>') });
+  }
+  return toBase64(zipStore(files));
+}
+
+/** 넣기로 들어간 꾸러미를 도로 풀어 본다 — **넣었다고만 하고 안 재면 시험이 아니다.** */
+async function insertedPackage(log) {
+  const line = [...log].reverse().find((l) => l.startsWith('insert-b64:'));
+  if (!line) return null;
+  const raw = fromBase64(line.slice('insert-b64:'.length));
+  const { entries } = zipEntries(raw);
+  const out = new Map();
+  for (const e of entries) out.set(e.name, await zipReadBytes(raw, e.name));
+  return out;
+}
+const textOf = (bytes) => new TextDecoder().decode(bytes);
+
 const model = () => ({
   slides: [
     {
@@ -351,8 +421,15 @@ const model = () => ({
     shape.left === 10 && shape.width === 300, JSON.stringify([shape.left, shape.width]));
   ok('자리표시자 역할이 온다', shape.placeholder === 'title', String(shape.placeholder));
   ok('글이 온다', shape.text === '전분기 요약', shape.text);
-  ok('못 읽는 것을 이름으로 적는다', out.result.unreadable.includes('notes'),
+  // **이 시험은 한동안 거짓말을 지켰다.** `read_notes` 가 생긴 뒤에도 「notes 가 못 읽는
+  // 것에 들어 있다」를 초록으로 지켰고, 그래서 모델은 있는 문을 안 썼다(리뷰, 2026-09-03).
+  // 이름은 그대로 두되 재는 것을 고친다: **문이 없는 것**과 **문이 다른 데 있는 것**은 다르다.
+  ok('못 읽는 것을 이름으로 적는다', out.result.unreadable.includes('animation'),
     JSON.stringify(out.result.unreadable));
+  ok('문이 있는 것을 못 읽는 것에 안 적는다', !out.result.unreadable.includes('notes'),
+    JSON.stringify(out.result.unreadable));
+  ok('그 문이 어디인지 알려 준다', out.result.elsewhere?.notes === 'read_notes',
+    JSON.stringify(out.result.elsewhere));
 }
 
 {
@@ -1841,6 +1918,149 @@ async function makeZip(files) {
   }
 }
 
+// ── OOXML 로 가는 넷을 **끝까지 돌린다** ─────────────────────────────────────
+//
+// 차트·그림·노트는 장을 떠서 zip 을 고쳐 다시 넣는다. 이 파일에서 제일 위험한 길인데
+// **한 번도 안 돌아 본 길**이기도 했다 — 스텁이 zip 이 아닌 글자를 줬기 때문이다.
+// 이제 진짜 꾸러미를 주고, 넣기로 들어간 꾸러미를 도로 풀어서 잰다.
+{
+  const deckWith = (opts) => {
+    const m = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] },
+        { id: 's2', index: 1, layout: { name: 'L' }, shapes: [] },
+        { id: 's3', index: 2, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    m.exported = fakePackage(opts);
+    return m;
+  };
+  const handOn = (m, log = []) => [
+    new OfficeHand({ run: stubRunner(m, log), supports: () => true, document: 'd' }), log];
+
+  // 차트가 **정말 만들어지는가** — 부품이 꾸러미에 들어가고, 관계와 형식이 같이 붙는가.
+  {
+    const [hand, log] = handOn(deckWith({}));
+    const out = await hand.run('add_chart', {
+      slide: 2, kind: 'bar', title: '분기', categories: ['1분기', '2분기'],
+      series: [{ name: '매출', values: [10, 20] }],
+    });
+    const pack = await insertedPackage(log);
+    ok('차트 부품이 꾸러미에 들어간다', [...pack.keys()].some((n) => /^ppt\/charts\/chart\d+\.xml$/.test(n)),
+      [...pack.keys()].join(' '));
+    const rels = textOf(pack.get('ppt/slides/_rels/slide1.xml.rels'));
+    ok('차트로 가는 관계가 붙는다', /relationships\/chart/.test(rels), rels.slice(0, 200));
+    const types = textOf(pack.get('[Content_Types].xml'));
+    ok('차트의 콘텐츠 형식이 붙는다', /charts\/chart\d+\.xml/.test(types));
+    const slideXml = textOf(pack.get('ppt/slides/slide1.xml'));
+    ok('차트 틀이 장에 놓인다', /<p:graphicFrame>/.test(slideXml));
+    ok('있던 도형은 걷힌다 — 「제목을 입력하십시오」가 차트 옆에 안 남는다',
+      !/<p:sp[\s>]/.test(slideXml), slideXml.slice(0, 240));
+    ok('짚은 장 바로 뒤에 놓았다고 답한다', out.result.slide === 3, String(out.result.slide));
+    ok('뒤 번호가 밀렸다고 말한다', out.changed.some((c) => c.includes('밀렸습니다')),
+      JSON.stringify(out.changed));
+  }
+
+  // **남의 노트를 물려주지 않는다.** 뼈대는 장을 통째로 뜬 것이라 노트가 딸려 온다.
+  {
+    const [hand, log] = handOn(deckWith({ notes: '이건 2장 발표 노트다' }));
+    await hand.run('add_chart', {
+      slide: 2, kind: 'bar', categories: ['ㄱ'], series: [{ name: 'ㄴ', values: [1] }],
+    });
+    const pack = await insertedPackage(log);
+    ok('차트 장은 남의 노트를 안 달고 나온다',
+      ![...pack.keys()].some((n) => n.startsWith('ppt/notesSlides/')), [...pack.keys()].join(' '));
+    ok('매달린 관계도 안 남는다', !/notesSlide/.test(textOf(pack.get('ppt/slides/_rels/slide1.xml.rels'))));
+    ok('콘텐츠 형식에도 안 남는다', !/notesSlides/.test(textOf(pack.get('[Content_Types].xml'))));
+  }
+
+  // 뼈대가 **선·묶음·조건부까지** 걷는가. 정규식 셋으로는 이것들이 남았다.
+  {
+    const messy = '<p:sp useBgFill="1"><p:nvSpPr><p:cNvPr id="4" name="배경"/></p:nvSpPr></p:sp>'
+      + '<p:cxnSp><p:nvCxnSpPr><p:cNvPr id="5" name="화살표"/></p:nvCxnSpPr></p:cxnSp>'
+      + '<p:grpSp><p:cNvPr id="6"/><p:sp><p:cNvPr id="7"/></p:sp></p:grpSp>';
+    const [hand, log] = handOn(deckWith({ spTree: messy }));
+    await hand.run('add_image', {
+      slide: 1, path: 'C:/a/b.png', image_base64: toBase64(new Uint8Array([1, 2, 3])),
+      image_ext: 'png', image_mime: 'image/png', image_width: 200, image_height: 100, image_bytes: 3,
+    });
+    const pack = await insertedPackage(log);
+    const slideXml = textOf(pack.get('ppt/slides/slide1.xml'));
+    for (const [what, re] of [['배경 도형', /<p:sp[\s>]/], ['화살표', /<p:cxnSp/], ['빈 묶음', /<p:grpSp/]]) {
+      ok(`뼈대가 ${what} 을 걷는다`, !re.test(slideXml), slideXml.slice(0, 300));
+    }
+    ok('그림 조각이 들어간다', [...pack.keys()].some((n) => /^ppt\/media\/image\d+\.png$/.test(n)),
+      [...pack.keys()].join(' '));
+    ok('그림 틀이 놓인다', /<p:pic>/.test(slideXml));
+  }
+
+  // **비율을 지킨다** — 가로 사진을 세로 상자에 넣어도 안 늘어난다.
+  {
+    const [hand] = handOn(deckWith({}));
+    const out = await hand.run('add_image', {
+      slide: 1, path: 'C:/a/wide.png', image_base64: toBase64(new Uint8Array([1])),
+      image_ext: 'png', image_mime: 'image/png', image_width: 1000, image_height: 250, image_bytes: 1,
+    });
+    ok('비율을 지켰다고 적는다', out.result.aspect_kept === true, JSON.stringify(out.result.placed));
+    ok('놓인 크기가 원래 비율이다',
+      Math.abs(out.result.placed.width / out.result.placed.height - 4) < 0.05,
+      JSON.stringify(out.result.placed));
+  }
+
+  // 노트: 없던 장에 **새로 짓고**, 옛 장을 지우고, id 가 바뀐 것을 말한다.
+  {
+    const [hand, log] = handOn(deckWith({}));
+    const out = await hand.run('set_notes', { slide: 2, text: '여기서\n두 줄' });
+    const pack = await insertedPackage(log);
+    ok('노트 조각을 새로 짓는다', [...pack.keys()].some((n) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n)),
+      [...pack.keys()].join(' '));
+    ok('새로 지었다고 적는다', out.result.created === true);
+    ok('줄 수를 센다', out.result.lines === 2, String(out.result.lines));
+    ok('옛 장을 지운다', log.some((l) => l === 'slide-delete:s2'), log.filter((l) => l.startsWith('slide-delete')).join(' '));
+    ok('id 가 바뀐 것을 말한다', out.changed.some((c) => c.includes('id 가') && c.includes('s2')),
+      JSON.stringify(out.changed));
+  }
+
+  // 이미 있는 노트는 **본문만 갈아 끼운다** — 조각을 새로 지으면 서식이 조용히 사라진다.
+  {
+    const [hand, log] = handOn(deckWith({ notes: '옛 노트' }));
+    const out = await hand.run('set_notes', { slide: 2, text: '새 노트' });
+    const pack = await insertedPackage(log);
+    const notes = [...pack.keys()].filter((n) => /^ppt\/notesSlides\/notesSlide\d+\.xml$/.test(n));
+    ok('노트 조각이 하나로 남는다 — 새로 짓지 않았다', notes.length === 1, notes.join(' '));
+    ok('새로 지은 것이 아니라고 적는다', out.result.created === false);
+    const body = textOf(pack.get(notes[0]));
+    ok('본문이 바뀐다', body.includes('새 노트') && !body.includes('옛 노트'), body.slice(0, 200));
+  }
+
+  // 읽기: **빈 노트와 노트 없음은 다른 말이다.**
+  {
+    const [none] = handOn(deckWith({}));
+    const a = await none.run('read_notes', { slide: 2 });
+    ok('노트가 없으면 없다고 한다', a.result.has_notes === false && a.result.notes === null,
+      JSON.stringify(a.result));
+    const [some] = handOn(deckWith({ notes: '적힌 것' }));
+    const b = await some.run('read_notes', { slide: 2 });
+    ok('있으면 글을 준다', b.result.has_notes === true && b.result.notes === '적힌 것',
+      JSON.stringify(b.result));
+  }
+
+  // **노트 마스터가 없으면 지어내지 않는다** — 덱의 모양을 우리가 정하는 일이다.
+  {
+    const [hand] = handOn(deckWith({ master: false }));
+    const why = await threw(() => hand.run('set_notes', { slide: 2, text: 'ㄱ' }));
+    ok('마스터가 없으면 사람 말로 거절한다', why?.includes('노트 마스터'), String(why));
+  }
+
+  // 26 계열을 넘어도 주소가 안 망가진다.
+  ok('스물여섯 번째 계열의 열 이름', colName(26) === 'AA' && colName(1) === 'B', colName(26));
+  {
+    const many = Array.from({ length: 27 }, (_, i) => ({ name: `계열${i}`, values: [1] }));
+    const xml = chartPart({ kind: 'bar', categories: ['ㄱ'], series: many });
+    ok('스물여섯을 넘겨도 주소가 성하다', !/\$[[\\\]]\$/.test(xml),
+      (xml.match(/Sheet1!\$[^$]*\$1/g) ?? []).slice(-2).join(' '));
+  }
+}
+
 // ── 덱 안에 남는 메모 ────────────────────────────────────────────────────────
 //
 // 대화는 세션의 것이고 태그는 **덱의 것**이다. 몇 턴만 지나면 에이전트는 어느 상자를 자기가
@@ -1874,6 +2094,24 @@ async function makeZip(files) {
     ok('키는 실물처럼 대문자로 저장된다', !('magi.why' in (model.slides[0].tags ?? {})));
     ok('메모도 덱을 건드린 것으로 센다', hand.count > was, `${was} → ${hand.count}`);
     ok('지운 것이 아니라고 적는다', out.result.removed === false);
+    // **답의 키는 덱에 있는 키다.** 앞 판본은 우리가 보낸 소문자를 그대로 실었고, 그래서
+    // 다음 대화가 read_tags 로 받는 이름과 기억에 적힌 이름이 달랐다 — 기억하려고 만든
+    // 도구가 기억을 틀리게 남겼다(리뷰, 2026-09-03). 이 단언이 그때 없었다.
+    ok('답의 키는 저장된 이름이다', out.result.key === 'MAGI.WHY', String(out.result.key));
+    ok('부탁받은 이름도 같이 남긴다', out.result.asked === 'magi.why', String(out.result.asked));
+    ok('바뀐 이름을 사람 말로도 알려 준다',
+      out.changed.some((c) => c.includes('MAGI.WHY') && c.includes('바꿔 저장')),
+      JSON.stringify(out.changed));
+  }
+
+  // **없던 것을 지웠다고 하지 않는다.** 「지웠습니다」를 받으면 모델은 그 메모가 있었다고 믿고,
+  // 다음 턴에 그 이름으로 다시 안 찾는다.
+  {
+    const [hand] = handOn(deck());
+    const out = await hand.run('set_tag', { slide: 1, key: '없던-것' });
+    ok('없는 메모는 지운 것이 아니다', out.result.removed === false, JSON.stringify(out.result));
+    ok('원래 없었다고 말한다', out.changed.some((c) => c.includes('원래 없었습니다')),
+      JSON.stringify(out.changed));
   }
 
   // 도형에 붙이면 **그 도형에** 남는다 — 장에 붙는 것과 섞이면 「이 상자는 내가 만들었다」가
@@ -1897,6 +2135,20 @@ async function makeZip(files) {
     ok('값을 안 주면 지운다', !('K' in (model.slides[0].tags ?? {})),
       JSON.stringify(model.slides[0].tags ?? null));
     ok('지웠다고 적는다', out.result.removed === true);
+  }
+
+  // 없는 도형을 짚으면 **이 파일의 다른 곳과 같은 말로** 거절한다. 날것 `ItemNotFound` 를
+  // 받은 모델은 자기가 뭘 잘못 짚었는지 모른 채 같은 id 로 다시 부른다.
+  {
+    const [hand] = handOn(deck());
+    for (const [what, args] of [
+      ['붙이기', { slide: 1, shape_id: '없는-것', key: 'k', value: 'v' }],
+      ['읽기', { slide: 1, shape_id: '없는-것' }],
+    ]) {
+      const why = await threw(() => hand.run(what === '붙이기' ? 'set_tag' : 'read_tags', args));
+      ok(`${what}: 없는 도형 id 를 사람 말로 거절한다`,
+        why?.includes('없는-것') && why?.includes('이 장의 도형'), String(why));
+    }
   }
 
   // 이름 없이 붙일 수는 없다. **거절은 무엇을 달라는지 말한다.**

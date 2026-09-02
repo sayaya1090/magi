@@ -1,7 +1,7 @@
 import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
 import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
-import { chartPart, chartKind } from './chartxml.js';
+import { chartPart, chartKind, fitBox } from './chartxml.js';
 
 /**
  * PowerPoint 없이 도는 손. 픽스처를 실제로 고친다.
@@ -127,8 +127,10 @@ export class FakeHand extends HandPort {
               ? { rows: s.rows ?? s.cells.length, columns: s.columns ?? (s.cells[0]?.length ?? 0), cells: s.cells }
               : {}),
           })),
-          // **못 읽는 것을 없는 것으로 적지 않는다**(CAPABILITIES.md §10.5).
-          unreadable: ['notes', 'animation', 'chart-data'],
+          // **못 읽는 것을 없는 것으로 적지 않는다**(CAPABILITIES.md §10.5). 그리고 **문이
+          // 다른 데 있는 것을 문이 없는 것으로 적지 않는다** — 노트는 `read_notes` 로 읽는다.
+          unreadable: ['animation', 'transition', 'chart-data'],
+          elsewhere: { notes: 'read_notes', tags: 'read_tags' },
         });
       }
       case 'find_shapes': {
@@ -406,18 +408,30 @@ export class FakeHand extends HandPort {
           kind: args.kind ?? 'bar', title: args.title,
           categories: args.categories, series: args.series,
         });
+        // **어느 장 뒤인지 진짜 손과 같아야 한다.** 앞 판본은 덱 끝에 밀어 넣고 그 번호를
+        // 답했는데, 실물은 짚은 장 **바로 뒤**에 끼운다. 10장 덱에서 3장을 보며 차트를
+        // 부탁하면 브라우저는 「11번」, 실물은 「4번」이라고 답하고 뒤 일곱 장의 번호가
+        // 밀린다 — 이 화면에서 배운 자리가 실물에서 틀린다(리뷰, 2026-09-03).
+        //
+        // `slide`·`slide_id` 를 아예 안 보던 것도 같은 문제였다. 없는 id 를 줘도 브라우저는
+        // 성공했고 실물은 ItemNotFound 를 던졌다.
+        const at = this.#slide(args);
+        const where = this.model.slides.indexOf(at);
         const slide = {
-          id: `sl-chart${this.nextId++}`, layout: '차트',
+          id: `sl-chart${this.nextId++}`, index: where + 1, layout: '차트',
           shapes: [{ id: 'chart-1', name: args.title ?? '차트', type: 'Chart', text: '' }],
         };
-        this.model.slides.push(slide);
+        this.model.slides.splice(where + 1, 0, slide);
+        this.model.slides.forEach((sl, i) => { sl.index = i; });
         this.#mutated();
         return this.#envelope({
-          slide: this.model.slides.length, slide_id: slide.id, chart: kind.ko,
+          slide: where + 2, slide_id: slide.id, chart: kind.ko,
           categories: args.categories.length, series: args.series.length,
           data_sheet: false,
-        }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
-          + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)']);
+        }, [`슬라이드 ${where + 2}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
+          + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)',
+        `이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
+          + '들고 있던 목차가 있으면 다시 읽으세요.']);
       }
 
       case 'add_image': {
@@ -426,16 +440,37 @@ export class FakeHand extends HandPort {
         if (!args.image_base64) {
           throw new Error('그림 바이트가 안 왔습니다 — 헬퍼가 파일을 읽어 실어 보내야 합니다');
         }
+        const at = this.#slide(args);
+        const where = this.model.slides.indexOf(at);
         const slide = {
-          id: `sl-img${this.nextId++}`, layout: '그림',
+          id: `sl-img${this.nextId++}`, index: where + 1, layout: '그림',
           shapes: [{ id: 'pic-1', name: args.name ?? '그림', type: 'Picture', text: '' }],
         };
-        this.model.slides.push(slide);
+        this.model.slides.splice(where + 1, 0, slide);
+        this.model.slides.forEach((sl, i) => { sl.index = i; });
         this.#mutated();
+        // **비율 이야기를 여기서도 한다.** 진짜 손은 `aspect_kept` 로 「이 사진은 늘어났다」를
+        // 말하는데 가짜 손이 그 칸을 안 주면, 이 화면에서 배운 모델은 그 칸을 볼 이유를
+        // 배우지 못한다 — 늘어난 사진을 늘어나지 않은 것으로 안다.
+        const said = args.width !== undefined && args.height !== undefined;
+        const fit = said
+          ? { width: Number(args.width), height: Number(args.height), kept: false }
+          : fitBox(Number(args.image_width ?? 0), Number(args.image_height ?? 0),
+            Number(args.width ?? 640), Number(args.height ?? 420));
+        const lines = [`슬라이드 ${where + 2}(id ${slide.id}) 에 그림을 넣었습니다`];
+        if (!said && !fit.kept) {
+          lines.push('원래 크기를 못 읽어 비율을 못 맞췄습니다 — 찌그러져 보이면 크기를 짚어 주세요');
+        }
+        lines.push(`이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 `
+          + '밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.');
         return this.#envelope({
-          slide: this.model.slides.length, slide_id: slide.id,
+          slide: where + 2, slide_id: slide.id,
           path: args.path ?? null, format: args.image_ext ?? 'png',
-        }, [`슬라이드 ${this.model.slides.length}(id ${slide.id}) 에 그림을 넣었습니다`]);
+          bytes: Number(args.image_bytes ?? 0),
+          natural: { width: Number(args.image_width ?? 0), height: Number(args.image_height ?? 0) },
+          placed: { width: Math.round(fit.width), height: Math.round(fit.height) },
+          aspect_kept: said ? false : fit.kept,
+        }, lines);
       }
 
       case 'read_notes': {
@@ -474,13 +509,20 @@ export class FakeHand extends HandPort {
         // **실물처럼 대문자로 저장한다** — 소문자로 되돌려 주면 이 화면에서 배운 키가
         // 실물에서 안 맞는다.
         const stored = key.toUpperCase();
+        const had = stored in on.tags;
         if (gone) delete on.tags[stored];
         else on.tags[stored] = String(args.value);
         this.#mutated();
+        // **없던 것을 지웠다고 하지 않는다** — 진짜 손이 되읽어서 확인하는 그 계약이다.
+        const removed = gone && had;
+        const renamed = !gone && stored !== key;
         return this.#envelope({
           slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
-          shape_id: args.shape_id ?? null, key: stored, removed: gone,
-        }, [`메모를 ${gone ? '지웠습니다' : '붙였습니다'} — ${stored}`]);
+          shape_id: args.shape_id ?? null, key: stored, asked: key, removed,
+        }, [`메모를 ${gone ? '지웠습니다' : '붙였습니다'} — ${stored}`
+          + (renamed ? ` (PowerPoint 가 '${key}' 를 '${stored}' 로 바꿔 저장했습니다 — `
+            + '다음에 찾을 때는 이 이름으로 찾으세요)' : '')
+          + (gone && !removed ? ' — 그런 이름의 메모가 원래 없었습니다' : '')]);
       }
       case 'read_tags': {
         const slide = this.#slide(args);

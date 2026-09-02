@@ -47,7 +47,9 @@ const deck = () => new FakeHand(structuredClone(fixture));
   ok('못 찾는 위치는 던지고 몇 장인지 말한다',
     (await threw(() => hand.run('read_slide', { slide: 99 })))?.includes('2 장'));
   ok('못 읽는 것을 없는 것으로 안 적는다',
-    first.result.unreadable.includes('notes'), JSON.stringify(first.result.unreadable));
+    first.result.unreadable.includes('animation')
+    && !first.result.unreadable.includes('notes')
+    && first.result.elsewhere?.notes === 'read_notes', JSON.stringify(first.result.unreadable));
 }
 
 {
@@ -151,7 +153,7 @@ class SpyApi {
     stream, api: new SpyApi({ fail: true }), hand: deck(), onNote: (s) => notes.push(s),
   });
   serve.start();
-  stream.push('call', { id: 'r1', op: 'set_notes', args: {} });
+  stream.push('call', { id: 'r1', op: '노트_열기', args: {} });
   await new Promise((r) => setTimeout(r, 0));
   ok('실패를 알리지도 못하면 그것까지 말한다',
     notes.length === 2 && notes[1].includes('알리지도'), notes.join(' / '));

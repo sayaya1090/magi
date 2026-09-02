@@ -71,6 +71,21 @@ function pt(i, v) {
 }
 
 /**
+ * 엑셀 열 이름. `String.fromCharCode(66 + i)` 는 25 계열까지만 맞고, 그 뒤로는 `[`·`\\`·`]`
+ * 가 나와 `Sheet1!$[$2` 같은 주소를 뱉었다 — 거절도 아니고 조용히 망가진 조각이다
+ * (리뷰, 2026-09-03).
+ */
+export function colName(i) {
+  let n = i;
+  let out = '';
+  for (;;) {
+    out = String.fromCharCode(65 + (n % 26)) + out;
+    n = Math.floor(n / 26) - 1;
+    if (n < 0) return out;
+  }
+}
+
+/**
  * 계열 하나.
  *
  * `c:f` 는 값이 원래 있던 자리를 가리키는 주소다. 품은 시트가 없어도 **주소는 있어야** 한다 —
@@ -78,7 +93,7 @@ function pt(i, v) {
  * 이게 캐시만 든 차트의 정상적인 모양이다.
  */
 function series(i, name, cats, vals, kind) {
-  const col = String.fromCharCode(66 + i);   // B, C, D…
+  const col = colName(i + 1);   // B, C, D… Z, AA, AB…
   const n = cats.length;
   const catRef = `<c:cat><c:strRef><c:f>Sheet1!$A$2:$A$${n + 1}</c:f>`
     + `<c:strCache><c:ptCount val="${n}"/>${cats.map((c, k) => pt(k, c)).join('')}</c:strCache>`
@@ -306,4 +321,107 @@ export function withFrame(slideXml, frameXml) {
     throw new Error('슬라이드 XML 의 모양이 예상과 다릅니다 — </p:spTree> 를 못 찾았습니다');
   }
   return slideXml.slice(0, at) + frameXml + slideXml.slice(at);
+}
+
+/**
+ * 태그 하나가 **어디서 끝나는가**. 같은 이름이 안에 또 있어도 짝을 맞춰 센다.
+ *
+ * 정규식 `<p:sp>[\s\S]*?</p:sp>` 로는 못 한다: 게으른 별표는 **첫 번째** 닫는 태그에서
+ * 멈추므로 `<p:grpSp>` 안에 든 `<p:sp>` 를 만나면 바깥 것을 반만 지운다.
+ */
+export function endOfElement(xml, at, name) {
+  const tag = /<\/?([A-Za-z0-9:_.-]+)((?:"[^"]*"|'[^']*'|[^>"'])*)>/g;
+  tag.lastIndex = at;
+  let depth = 0;
+  let m;
+  while ((m = tag.exec(xml)) !== null) {
+    const [full, tname, rest] = m;
+    if (tname !== name) continue;
+    if (full.startsWith('</')) {
+      depth -= 1;
+      if (depth <= 0) return tag.lastIndex;
+    } else if (rest.trimEnd().endsWith('/')) {
+      if (depth === 0) return tag.lastIndex;
+    } else {
+      depth += 1;
+    }
+  }
+  return -1;
+}
+
+/** 그 이름의 원소를 **통째로** 걷어 낸다. 열린 태그에 속성이 있어도 잡는다. */
+export function removeElements(xml, name) {
+  const open = new RegExp('<' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=[\\s/>])', 'g');
+  let out = '';
+  let i = 0;
+  for (;;) {
+    open.lastIndex = i;
+    const m = open.exec(xml);
+    if (!m) return out + xml.slice(i);
+    const end = endOfElement(xml, m.index, name);
+    if (end < 0) return out + xml.slice(i);
+    out += xml.slice(i, m.index);
+    i = end;
+  }
+}
+
+/**
+ * **뼈대만 남긴다** — 배경과 레이아웃은 두고, 놓여 있던 것은 전부 걷는다.
+ *
+ * 앞 판본은 `<p:sp>`·`<p:pic>`·`<p:graphicFrame>` 세 정규식이었고, 그래서 이런 것들이
+ * 차트 옆에 남았다(리뷰가 짚었다, 2026-09-03):
+ *
+ * - `<p:cxnSp>` — 화살표·선. 사람이 그린 화살표가 차트 장에 따라온다.
+ * - `<p:sp useBgFill="1">` — 여는 태그가 `<p:sp>` 가 아니라서 안 잡혔다.
+ * - `<p:grpSp>` — 안의 도형만 지워지고 빈 묶음 틀이 남았다.
+ * - `<mc:AlternateContent>` — 속이 비워진 껍데기가 남아 파일이 「복구」 대화창을 부를 수 있었다.
+ */
+export function bareSpTree(slideXml) {
+  let out = String(slideXml);
+  for (const name of ['p:sp', 'p:pic', 'p:graphicFrame', 'p:cxnSp', 'p:grpSp', 'mc:AlternateContent']) {
+    out = removeElements(out, name);
+  }
+  return out;
+}
+
+/**
+ * 이 XML 에서 **안 쓰이는 도형 번호**.
+ *
+ * 앞 판본은 `id: 2` 를 박아 뒀다. 뼈대에 살아남은 것이 하나도 없을 때는 맞지만, 살아남는
+ * 것이 있으면(위의 `bareSpTree` 가 생기기 전에는 흔했다) 한 장에 같은 번호가 둘 생긴다 —
+ * `freeChartName`·`freeRelId` 를 만든 그 이유가 여기만 빠져 있었다.
+ */
+export function freeShapeId(xml) {
+  let top = 1;
+  for (const m of String(xml).matchAll(/<p:cNvPr[^>]*\sid="(\d+)"/g)) {
+    top = Math.max(top, Number(m[1]));
+  }
+  return top + 1;
+}
+
+/**
+ * 노트를 **안 딸려 보낸다.**
+ *
+ * 뼈대는 장을 통째로 뜬 꾸러미라서 그 장의 발표자 노트도 들어 있다. 그대로 두면 차트 장·그림
+ * 장이 남의 노트를 그대로 물려받고, 우리는 그 말을 안 한다 — 발표자 화면에 뜨는 글이 부탁하지
+ * 않았는데 생기는 셈이다(리뷰, 2026-09-03).
+ *
+ * 조각과 관계와 콘텐츠 형식을 **같이** 걷는다. 하나만 걷으면 매달린 관계가 남아 파일이 안 열린다.
+ */
+export function withoutNotes(files, relsName, typesName) {
+  const dec = new TextDecoder();
+  const enc = new TextEncoder();
+  const kept = files.filter((f) => !/^ppt\/notesSlides\//.test(f.name));
+  if (kept.length === files.length) return files;
+  const at = (name) => kept.find((f) => f.name === name);
+  if (at(relsName)) {
+    at(relsName).data = enc.encode(dec.decode(at(relsName).data)
+      .replace(/<Relationship\b[^>]*\/notesSlide"[^>]*\/>/g, '')
+      .replace(/<Relationship\b(?=[^>]*notesSlide)[^>]*\/>/g, ''));
+  }
+  if (at(typesName)) {
+    at(typesName).data = enc.encode(dec.decode(at(typesName).data)
+      .replace(/<Override\b[^>]*PartName="\/ppt\/notesSlides\/[^"]*"[^>]*\/>/g, ''));
+  }
+  return kept;
 }
