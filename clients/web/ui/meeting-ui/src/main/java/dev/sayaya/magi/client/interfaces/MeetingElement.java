@@ -461,27 +461,50 @@ public class MeetingElement {
     /** 한 사람의 판. 아직 아무것도 안 했으면 그렇게 적는다 — 빈 상자는 고장처럼 읽힌다. */
     private HTMLElement nowOne(String who, String tint) {
         HTMLElement one = cell("meetnowone " + tint, null);
-        one.append(cell("meetnowwho", tr("meet.doing_now", "who", who)));
+        // **도는 아이콘이 이 판의 요점이다.** 판이 있는 이유는 "느린 모델과 죽은 화면을 구분한다"
+        // 인데, 글자만 서 있으면 그 둘이 화면에서 다시 같아진다 — 「작업 중」이라는 문장은 멈춰
+        // 있어도 똑같이 읽힌다. 옛 콘솔이 이 자리에서 정확히 그 결함을 실측으로 잡았다(스피너로
+        // 그린 글리프의 animationName이 "none"이었다): 아이콘은 있었고 `spin`을 안 넘기고 있었다.
+        HTMLElement head = cell("meetnowwho", null);
+        head.append(Icons.shape("#i-sl-spinner-third", "mk spin"),
+                DomGlobal.document.createTextNode(" " + tr("meet.doing_now", "who", who)));
+        one.append(head);
         HTMLElement rows = cell("meetnowrows", null);
         rows.setAttribute("data-who", who);
+        // 그리는 것은 **꼬리 몇 줄**이다. 버퍼는 전량을 들고 있고(스트림이 준 그대로) 자르는 것은
+        // DOM뿐이다 — 무엇을 하는지 볼 만큼은 되고, 참가자 셋의 추론이 화면 전체가 되지는 않는다.
+        // 준비 구간에는 판이 셋 동시에 서므로 이 상한이 없으면 그 상황이 정확히 만들어진다.
         JsArrayLike<Object> list = Js.uncheckedCast(store.liveOf(who));
-        int drawn = 0;
+        List<JsPropertyMap<Object>> keep = new java.util.ArrayList<>();
         for (int i = 0; list != null && i < list.getLength(); i++) {
             JsPropertyMap<Object> r = Js.uncheckedCast(list.getAt(i));
             // 결론은 회의 줄에 선다 — workingBox와 같은 규칙이다. 회의가 던진 질문(user)도
             // 뺀다: 그것은 주제 바로 위에 이미 적혀 있다.
             String role = str(r, "who");
             if ("assistant".equals(role) || "user".equals(role)) continue;
-            HTMLElement line = cell("row " + role, null);
-            line.append(cell("who", role));
+            keep.add(r);
+        }
+        int from = Math.max(0, keep.size() - LIVE_TAIL);
+        // 위가 잘렸다는 것을 말한다 — 안 적으면 사람은 그것이 시작인 줄 안다.
+        if (from > 0) one.classList.add("clipped");
+        for (JsPropertyMap<Object> r : keep.subList(from, keep.size())) {
+            HTMLElement line = cell("row " + str(r, "who"), null);
+            line.append(cell("who", str(r, "who")));
             line.append(cell("txt", oneLine(r)));
             rows.append(line);
-            drawn++;
         }
-        if (drawn == 0) rows.append(cell("dnote", tr("meet.thinking")));
+        if (keep.isEmpty()) rows.append(cell("dnote", tr("meet.thinking")));
         one.append(rows);
         return one;
     }
+
+    /**
+     * 「작업 중」 판이 한 번에 그리는 줄 수.
+     *
+     * 버퍼를 자르는 것이 아니라 DOM만 자른다 — 스트림이 준 것은 다 들고 있고, 회의가 끝난 뒤
+     * 그 참가자가 무엇을 했는지는 발언 줄 아래의 접기(workingBox)가 전량으로 보여 준다.
+     */
+    private static final int LIVE_TAIL = 6;
 
     /**
      * 프레임이 왔다 — 회의 본문은 그대로 두고 이 판만 갈아 끼운다.
