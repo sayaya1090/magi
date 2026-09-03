@@ -93,7 +93,8 @@ public class FakeCompanionSource implements CompanionSource {
                     if (rosterCb == null) return;
                     rosterCb.accept(Global.JSON.parse(
                             "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"idle\"," +
-                            "\"live\":true,\"steps\":0,\"idle\":90,\"role\":\"keeps the build green\"," +
+                            "\"live\":true,\"steps\":0,\"idle\":90,\"planDone\":2,\"planTotal\":3," +
+                            "\"role\":\"keeps the build green\"," +
                             "\"team\":\"core\",\"host\":\"devbox\",\"version\":\"v0.28.0\",\"trust\":\"own\"," +
                             "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\"," +
                             "\"permission\":\"ask\",\"model\":\"gpt-oss:120b\"}]"));
@@ -106,7 +107,8 @@ public class FakeCompanionSource implements CompanionSource {
                     if (rosterCb == null) return;
                     rosterCb.accept(Global.JSON.parse(
                             "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
-                            "\"live\":true,\"steps\":0,\"idle\":0,\"role\":\"keeps the build green\"," +
+                            "\"live\":true,\"steps\":0,\"idle\":0,\"planDone\":1,\"planTotal\":3," +
+                            "\"role\":\"keeps the build green\"," +
                             "\"team\":\"core\",\"host\":\"devbox\",\"version\":\"v0.28.0\",\"trust\":\"own\"," +
                             "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\"," +
                             "\"permission\":\"ask\",\"model\":\"gpt-oss:120b\"}]"));
@@ -205,11 +207,19 @@ public class FakeCompanionSource implements CompanionSource {
 
     @Override
     public void plan(CompanionContext ctx, Consumer<Object> cb) {
+        planAsks++;
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_plan_asks", (double) planAsks);
+        // 두 번째부터는 <b>글자만</b> 다른 계획으로 답한다. 상태를 바꾸면 개수를 세는 다른
+        // 시험이 깨지고, 그 시험이 재는 것은 이것과 무관하다 — 목이 두 가지를 한꺼번에 바꾸면
+        // 어느 쪽을 잰 것인지 알 수 없다.
+        String third = planAsks == 1 ? "write it down" : "write it down (again)";
         cb.accept(Global.JSON.parse(
                 "[{\"content\":\"read the failing test\",\"status\":\"completed\"}," +
                 "{\"content\":\"fix the retry window\",\"status\":\"in_progress\"}," +
-                "{\"content\":\"write it down\",\"status\":\"pending\"}]"));
+                "{\"content\":\"" + third + "\",\"status\":\"pending\"}]"));
     }
+
+    private int planAsks = 0;
 
     /** 이 문이 몇 번 열렸나 — 컨텍스트는 자라는 값이라 「다시 물었나」가 계약이다. */
     private int contextAsks = 0;

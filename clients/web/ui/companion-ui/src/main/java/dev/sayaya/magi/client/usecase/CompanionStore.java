@@ -313,9 +313,34 @@ public class CompanionStore implements CompanionSource.Listener {
             askContextInfo();
         }
         wasTurning = turning;
+        refetchThePlanWhenItMoves(a);
     }
 
     private boolean wasTurning = false;
+
+    /**
+     * 계획이 <b>움직이면</b> 항목을 다시 묻는다.
+     *
+     * <p>명단 행은 진행률(planDone/planTotal)을 매 프레임 실어 나르는데, 항목 목록은 컴패니언을
+     * 바꿀 때만 물었다. 그래서 막대는 움직이고 그 밑의 체크는 안 바뀐다 — 같은 판이 같은 계획에
+     * 대해 두 가지를 말하는 것이고, 사람은 어느 쪽을 믿을지 배울 방법이 없다.
+     *
+     * <p>진행률이 곧 트리거다: 그 수가 달라졌다는 것은 계획이 달라졌다는 뜻이고, 안 달라졌으면
+     * 다시 물을 이유가 없다. 컨텍스트와 달리 턴 <b>중에</b> 보는 값이라 턴 끝을 기다리지 않는다.
+     */
+    private void refetchThePlanWhenItMoves(FleetAgent a) {
+        int done = a == null ? -1 : a.planDone;
+        int total = a == null ? -1 : a.planTotal;
+        if (done != planDoneSeen || total != planTotalSeen) {
+            planDoneSeen = done;
+            planTotalSeen = total;
+            planFor = null;
+            askPlan();
+        }
+    }
+
+    private int planDoneSeen = -1;
+    private int planTotalSeen = -1;
 
     private void askContextInfo() {
         if (ctx == null) return;

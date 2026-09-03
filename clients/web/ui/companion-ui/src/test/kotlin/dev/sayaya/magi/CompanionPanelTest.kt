@@ -355,6 +355,32 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("계획이 한 칸 나가면") {
+            Then("항목을 다시 묻는다 — 막대만 움직이고 체크가 그대로면 판이 두 말을 한다") {
+                openSide(page)
+                // 명단 행은 진행률을 매 프레임 실어 나르는데, 항목 목록은 컴패니언을 바꿀 때만
+                // 물었다. 그래서 막대는 움직이고 그 밑의 체크는 안 바뀐다.
+                page.evaluate("window.__magi_test_thinking()")     // planDone 1/3
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                val before = page.evaluate("window.__magi_test_plan_asks || 0") as Int
+                page.evaluate("window.__magi_test_idle_no_steps()") // planDone 2/3
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_plan_asks || 0") as Int) > before
+                }
+                // 다시 물은 목록이 실제로 그려진다 — 묻기만 하고 안 그리면 사람 눈엔 같다.
+                page.waitForCondition {
+                    page.locator("#side #plan").textContent().contains("(again)")
+                }
+            }
+            Then("진행률이 그대로면 묻지 않는다") {
+                val before = page.evaluate("window.__magi_test_plan_asks || 0") as Int
+                repeat(3) {
+                    page.evaluate("window.__magi_test_idle_no_steps()")
+                    page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("idle") }
+                }
+                (page.evaluate("window.__magi_test_plan_asks || 0") as Int) shouldBe before
+            }
+        }
         When("턴이 끝나면") {
             Then("컨텍스트를 다시 묻는다 — 이 판이 보러 온 그 수가 자란 값이다") {
                 openSide(page)
