@@ -77,6 +77,18 @@ tasks.test {
     // 같은 사유, 같은 트리 밖 — `PluginIconTest` 가 대조하는 콘솔의 파비콘 원천이다. 플러그인의
     // 표와 웹의 표는 **같은 마크**여야 하고, 안 적어 두면 원천의 색을 바꿔도 이 작업은
     // UP-TO-DATE 라 두 표가 조용히 갈린다.
+    // `WireConformanceTest` 가 대조하는 **데몬의 소스**. 같은 사유이고 여기선 값이 더 크다 —
+    // 필드 이름은 손으로 옮겨 적고, `ignoreUnknownKeys` 때문에 어긋나도 예외가 아니라 기본값이
+    // 되어 화면이 조용히 「없다」고 말한다. 원천이 바뀐 것을 이 작업이 모르면 대조는 영영 초록이다.
+    val wireOrigins = listOf(
+        "internal/adapter/daemon/daemon.go",
+        "internal/adapter/daemon/roster.go",
+        "internal/core/command/command.go",
+        "internal/core/event/event.go",
+    ).map { rootProject.projectDir.resolve("../../../$it").canonicalFile }
+    inputs.files(wireOrigins).withPropertyName("wireOrigins").withPathSensitivity(PathSensitivity.RELATIVE)
+    systemProperty("magi.wire.origins", wireOrigins.joinToString(File.pathSeparator) { it.absolutePath })
+
     val consoleMark = rootProject.projectDir.resolve("../../../internal/webassets/assets.go").canonicalFile
     inputs.files(consoleMark).withPropertyName("consoleMarkOrigin").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.console.mark", consoleMark.absolutePath)

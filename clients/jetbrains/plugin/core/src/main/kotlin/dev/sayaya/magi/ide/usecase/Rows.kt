@@ -221,7 +221,7 @@ class Rows {
         if (e.actor?.kind == "system") {
             // 플래너·카운슬 노트. 안 그리면 이 화면이 헤드리스보다 덜 보여 준다(터미널의 실측).
             // 첫 줄만 — 전문은 로그에 있고, 노트가 대화를 밀어내면 안 된다.
-            val who = e.actor.id ?: e.actor.name ?: "system"
+            val who = e.actor.id ?: "system"
             rows += Row(Who.Info, "⟳ $who note: ${text.lineSequence().firstOrNull().orEmpty()}", at = e.ts)
             return true
         }

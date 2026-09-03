@@ -445,9 +445,16 @@ data class LogEvent(
     val data: JsonElement? = null,
 )
 
-/** 행위자. 와이어의 이름은 `id` 다(코어 `event.go` 의 `Actor`) — `name` 은 안 실려 온다. */
+/**
+ * 행위자. 코어 `event.go` 의 `Actor` 가 그대로 실려 오고, 그것이 보내는 것은 **`kind` 와 `id`
+ * 둘뿐**이다 — `id` 가 사람의 id 이거나 에이전트의 이름이다.
+ *
+ * `name` 칸이 여기 있었다. 안 실려 오는 줄 알면서 뒀고(주석에 그렇게 적혀 있었다), 쓰는 자리는
+ * `id ?: name` 이라 영영 안 밟히는 폴백이었다. 읽히지 않는 칸은 무해하지 않다 — 다음 사람이
+ * 순서를 뒤집어 `name ?: id` 로 적으면 그 줄은 조용히 영영 기본값이 된다.
+ */
 @Serializable
-data class Actor(val kind: String = "", val name: String? = null, val id: String? = null)
+data class Actor(val kind: String = "", val id: String? = null)
 
 /**
  * 고칠 수 있는 설정 키 하나 — 데몬이 **열거해 준다.**
