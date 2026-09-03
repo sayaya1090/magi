@@ -122,6 +122,8 @@ data class Response(
     val cron: List<CronRow>? = null,
     /** 고칠 수 있는 설정 키들 — `config-get`/`config-set` 의 답(`daemon.go` 의 `ConfigItem`). */
     val config: List<ConfigItem>? = null,
+    /** 프로파일 후보들 — `profiles` 문의 답. 프로파일 모양 키의 콤보를 채운다. */
+    val profiles: List<ProfileChoice>? = null,
     /** `job-kill`·`mcp-detach` 의 「있었는지」 — 두 번 누른 ✕ 는 거짓이 아니라 이미-없음이다. */
     val removed: Boolean = false,
 )
@@ -434,6 +436,21 @@ data class ConfigItem(
     /** now | next start. 키마다 다르다 — 한 문장으로 뭉치면 절반이 거짓말이 된다. */
     val applies: String? = null,
     val doc: String? = null,
+    /**
+     * 이 키의 값이 `[llm.profiles.*]` 를 가리켜야 하는가 — 그러면 화면은 **자유 입력 대신 목록**을
+     * 준다(고를 것은 `profiles` 문이 준다).
+     *
+     * 문이 실어 보낸다. 클라이언트가 「어느 키가 프로파일인가」를 알고 있으면 그 목록이 클라이언트
+     * 수만큼 생긴다 — 웹 콘솔이 이미 하드코딩으로 한 벌 들고 있고, 이 화면이 두 벌째가 될 뻔했다.
+     */
+    val profile: Boolean = false,
     /** 못 읽은 설정 층과 그 사유. 오타 난 파일과 아무 말 없는 파일은 값만 보면 같은 부재다. */
     val unreadable: String? = null,
+)
+
+/** 고를 수 있는 백엔드 하나와 그것이 정의된 층. */
+@Serializable
+data class ProfileChoice(
+    val name: String = "",
+    val tier: String? = null,
 )

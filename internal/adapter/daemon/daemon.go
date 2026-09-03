@@ -453,6 +453,14 @@ type ConfigItem struct {
 	Applies string `json:"applies,omitempty"`
 	// Doc is the one line a screen can put under the field.
 	Doc string `json:"doc,omitempty"`
+	// Profile marks a key whose value must name an [llm.profiles.*], so a screen offers the ones
+	// that exist instead of a text box.
+	//
+	// Carried rather than left to the client to know. Every client that hardcodes which keys are
+	// profile-shaped is a copy of a list that lives here — the web console has one today, and the
+	// IDE would have grown a second the moment it drew these fields. The set the value may take
+	// comes from the `profiles` method; this says which fields should ask for it.
+	Profile bool `json:"profile,omitempty"`
 	// Unreadable names a config layer that would not parse, with the reason. A file with a typo
 	// in it and a file that says nothing are the same absence to a reader who is only shown
 	// values — and this is the door whose promise is that a screen redraws from what the daemon

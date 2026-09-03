@@ -591,3 +591,25 @@ func TestEveryAdvertisedCapabilityHasSomethingBehindIt(t *testing.T) {
 		}
 	}
 }
+
+// A profile-shaped key says so, so a screen can offer the profiles that exist.
+//
+// Without it every client keeps its own list of which keys take a profile — the web console has
+// one, hardcoded, and the IDE would have grown a second the moment it drew these fields. The
+// values come from `profiles`; this flag is what says which fields should ask for them.
+func TestConfigItemsSayWhichKeysTakeAProfile(t *testing.T) {
+	eng := &settingsEngine{items: []ConfigItem{
+		{Key: "embed_model", Value: "e5"},
+		{Key: "autocomplete.code_profile", Value: "fast", Profile: true},
+	}}
+	resp := answerConfigGet(context.Background(), eng, Request{})
+	if !resp.OK || len(resp.Config) != 2 {
+		t.Fatalf("both keys are answered, got %+v", resp)
+	}
+	if resp.Config[0].Profile {
+		t.Error("a plain key is not profile-shaped")
+	}
+	if !resp.Config[1].Profile {
+		t.Error("a profile-shaped key must say so, or the screen draws a text box for it")
+	}
+}

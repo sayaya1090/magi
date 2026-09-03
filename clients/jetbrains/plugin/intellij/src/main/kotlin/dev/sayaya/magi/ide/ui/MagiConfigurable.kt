@@ -80,7 +80,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
      * 뒤에도 남아 **거짓이 됐다**(실측: 그 줄이 이름 대는 키 셋을 문이 이미 연다).
      */
     private var byDoor: List<ConfigItem> = emptyList()
-    private val doorFields = LinkedHashMap<String, javax.swing.JTextField>()
+    private var choices: List<String> = emptyList()
+    private val doorFields = LinkedHashMap<String, javax.swing.text.JTextComponent>()
     private val doorPane = javax.swing.JPanel(GridBagLayout())
 
     // 이름의 원천은 **번들 하나**다 — plugin.xml 의 `key=` 와 여기가 같은 열쇠를 본다.
@@ -206,10 +207,23 @@ class MagiConfigurable(private val project: Project) : Configurable {
             item.unreadable?.takeIf { it.isNotBlank() }?.let {
                 line(Look.note(it, Look.error), 0, 2, Insets(4, 0, 0, 0)); dy++
             }
-            val f = javax.swing.JTextField(item.value.orEmpty(), 24)
+            // 프로파일 모양 키에는 **목록**을 준다. 문이 그 사실을 실어 보내므로 이 화면은
+            // 어느 키가 그런지 알 필요가 없다 — 알면 그 목록이 클라이언트마다 한 벌씩 생긴다.
+            val f: javax.swing.text.JTextComponent = if (item.profile) {
+                val combo = JComboBox<String>().apply {
+                    isEditable = true
+                    addItem("")
+                    choices.forEach(::addItem)
+                    selectedItem = item.value.orEmpty()
+                }
+                // 편집 가능한 콤보의 편집칸이 값을 든다 — 읽는 자리를 하나로 맞춘다.
+                combo.editor.editorComponent as javax.swing.text.JTextComponent
+            } else {
+                javax.swing.JTextField(item.value.orEmpty(), 24)
+            }
             doorFields[item.key] = f
             line(javax.swing.JLabel(item.key), 0, 1, Insets(4, 0, 4, 12))
-            line(f, 1, 1, Insets(4, 0, 4, 0))
+            line((f.parent as? JComboBox<*>) ?: f, 1, 1, Insets(4, 0, 4, 0))
             dy++
             val why = listOfNotNull(
                 item.doc?.takeIf { it.isNotBlank() },
@@ -302,8 +316,13 @@ class MagiConfigurable(private val project: Project) : Configurable {
         // 문이 없으면 빈 목록이고, 그때 이 판은 아무것도 안 그린다 — 「없는 칸을 찾다 지친다」는
         // 걱정의 답은 없는 문을 있는 척하지 않는 것이지, 있는 문을 없다고 적는 것이 아니었다.
         val cfg = comp.configGet().let { if (it.ok) it.config.orEmpty() else emptyList() }
+        // 프로파일 후보는 프로파일 모양 키가 하나라도 있을 때만 묻는다 — 없으면 공연한 왕복이다.
+        val picks = if (cfg.any { it.profile }) {
+            comp.profiles().let { r -> if (r.ok) r.profiles.orEmpty().map { it.name } else emptyList() }
+        } else emptyList()
         SwingUtilities.invokeLater {
             byDoor = cfg
+            choices = picks
             paintDoor()
             doing.text = when (val a = Activity.of(f)) {
                 // 상태 표시줄과 **같은 열쇠**를 쓴다. 여기는 「도는 것 없음」이라 적고 있었는데

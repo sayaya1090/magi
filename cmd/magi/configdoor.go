@@ -99,7 +99,7 @@ func (d daemonEngine) configTiers() []struct{ tier, dir string } {
 // among the files the last one merged wins. An untrusted workspace file is skipped for the keys
 // the stranger-merge drops, because a value the engine will not use is not the effective value.
 func (d daemonEngine) resolve(k settingKey) daemon.ConfigItem {
-	item := daemon.ConfigItem{Key: k.key, Applies: k.applies, Doc: k.doc}
+	item := daemon.ConfigItem{Key: k.key, Applies: k.applies, Doc: k.doc, Profile: k.profile}
 	trusted := config.Trusted(d.configDir, d.workdir)
 	for _, t := range d.configTiers() {
 		if k.stranger && t.tier == "project" && !trusted {

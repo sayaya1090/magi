@@ -128,6 +128,9 @@ class Companion(
     /** 고칠 수 있는 설정 키들과 지금 값 — 데몬이 열거한다. */
     fun configGet(): Response = send(Request(method = "config-get"))
 
+    /** 프로파일 모양 키가 가리킬 수 있는 것들 — 콤보를 채운다. */
+    fun profiles(): Response = send(Request(method = "profiles"))
+
     /**
      * 설정 키 하나를 쓴다. [tier] 는 어느 층에 쓸지 — 비우면 데몬이 정한다.
      *
