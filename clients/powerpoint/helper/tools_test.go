@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -290,5 +291,55 @@ func TestTheManualNamesEveryTool(t *testing.T) {
 	}
 	if len(catalogue()) == 0 {
 		t.Fatal("도구가 하나도 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+}
+
+// TestTheDocsCountTheToolsWeAdvertise 는 **수가 두 벌 적힌 것**을 막는다.
+//
+// 실제로 갈렸다(2026-09-04 실측): 카탈로그는 서른아홉인데 매뉴얼 §6.1 만 그 값을 알고 있었고,
+// 점검표는 열아홉, 층 표는 스물일곱을 적고 있었다. 이름은 `TestTheManualNamesEveryTool` 이
+// 이미 물고 있었는데 **수는 아무도 안 물었다** — 도구를 더할 때 이름은 적게 되지만 수는 다른
+// 자리에 있어서 같이 안 자란다.
+//
+// 무는 자리를 **현재 주장에만** 건다. 실물 기록(§5.1 의 「도구 28개」처럼 그날 화면이 적은 말)은
+// 그날 참이었으므로 고칠 것이 아니다. 그래서 정규식으로 훑지 않고 **정확한 문자열**을 센다.
+func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
+	n := len(catalogue())
+	read := 0
+	for _, tl := range catalogue() {
+		if tl.ReadOnly {
+			read++
+		}
+	}
+	if n == 0 {
+		t.Fatal("도구가 하나도 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+	want := map[string][]string{
+		filepath.Join("..", "docs", "MANUAL.ko.md"): {
+			fmt.Sprintf("### 6.1 도구 %d개", n),
+			fmt.Sprintf("**읽는 것 (%d) — 안 물어보고 도는 무리**", read),
+			fmt.Sprintf("**덱을 고치는 것 (%d) — 권한을 묻는 무리**", n-read),
+			fmt.Sprintf("MCP 서버: 도구 %d개를 데몬에 붙인다", n),
+			fmt.Sprintf("deck2 에 붙었습니다 — 도구 %d 개.", n),
+		},
+		filepath.Join("..", "docs", "TESTING.ko.md"): {
+			fmt.Sprintf("에 붙었습니다 — 도구 %d 개.", n),
+		},
+	}
+	for path, lines := range want {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s 를 못 읽었다: %v", path, err)
+		}
+		doc := string(raw)
+		for _, line := range lines {
+			if !strings.Contains(doc, line) {
+				t.Errorf("%s 에 없다: %q\n"+
+					"카탈로그는 도구 %d개(읽기 %d · 쓰기 %d)다. 수를 적은 자리를 다 고쳐라 — "+
+					"`grep -n '도구 [0-9]' clients/powerpoint/docs/*.md` 로 찾는다. "+
+					"§5.1 의 실물 기록은 그날 참이었으므로 안 고친다.",
+					path, line, n, read, n-read)
+			}
+		}
 	}
 }

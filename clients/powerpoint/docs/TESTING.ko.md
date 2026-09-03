@@ -8,16 +8,22 @@
 > 보인다 — 이 레인은 그 착각을 오래 안고 있었다. 헬퍼가 전부 초록인 채로 **PowerPoint 에 한 번도
 > 안 붙어 본 날들**이 있었고, 붙인 첫날 5층에서만 결함 열둘이 나왔고, 이튿날 열아홉이 더 나왔다(§5.1).
 
-**마지막 실측: 2026-09-02 (도구 27개)**
+**마지막 실측**
 
-| 층 | 수 | 결과 |
-|---|---|---|
-| 1·2·3. Go (`helper/`) | 65 | 통과 (2.8s) |
-| 4. JS 순수층 (`addin/tools/`) | 702 | 통과 (smoke 502 · officehand 164 · hand 36) |
-| 코어 이식성 (`internal/adapter/daemon`) | 2 | 통과 |
-| 5. 실물 PowerPoint | **도구 27개 전수 34항목** | 통과 34 · 실패 0 (§5.4) |
+| 층 | 수 | 언제 | 결과 |
+|---|---|---|---|
+| 1·2·3. Go (`helper/`) | 124 | 2026-09-04 | 통과 (0.7s) |
+| 4. JS 순수층 (`addin/tools/`) | 1,145 | 2026-09-04 | 통과 (smoke 548 · officehand 547 · hand 50) |
+| 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
+| 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
 
 「초록이었다」는 기억이 아니라 **날짜와 수**로 남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
+
+⚠ **5층만 날짜가 뒤졌고, 그 사이 카탈로그가 27개에서 39개로 늘었다.** 열둘이 전수 스윕에 한 번도
+안 들어갔다 — `add_chart` · `add_image` · `align_shapes` · `animate_slide` · `drop_suggestion` ·
+`read_animation` · `read_notes` · `read_suggestions` · `read_tags` · `set_notes` · `set_tag` ·
+`suggest`. 그중 여럿은 §5.1.1~5.1.3 에서 **하나씩** 실물에서 쟀다. 그건 스윕이 아니다 — 두 말을
+한 줄에 적으면 「전수 통과」의 범위가 27개였다는 사실이 사라진다.
 
 ---
 
@@ -71,12 +77,13 @@
 | 애드인은 오리진을 **안 적는다** | `addin/` 전체를 훑는다 | `TheAddinDoesNotWriteTheOriginDown` |
 | 매니페스트 스키마 순서 | XML 주석을 걷어 내고 `<Requirements>` 가 `<Hosts>` 앞인지 | `TheManifestKeepsTheSchemaOrder` |
 | 허용 규칙은 「덱을 고치는가」로 갈린다 | 도구 표에서 규칙을 **만들어** 대조 | `AllowRulesCoverExactlyWhatDoesNotChangeTheDeck` |
-| 스키마가 인자 검사를 켜 둔다 | 도구 27개의 `properties`·`required`·`additionalProperties` | `EverySchemaKeepsTheArgumentCheckOn` |
+| 스키마가 인자 검사를 켜 둔다 | **카탈로그 전부**의 `properties`·`required`·`additionalProperties` — 수를 안 적는 것이 일부러다(도구가 늘면 같이 자란다) | `EverySchemaKeepsTheArgumentCheckOn` |
 | 도구 이름은 sanitize 를 견딘다 | magi 의 이름 규칙에 태워 본다 | `ToolNamesSurviveSanitizing`·`TheServerNameSanitizesToItself` |
 | 서버 이름이 **내장 도구 이름과 안 겹친다** | 코어의 내장 목록과 대조 | `TheServerNameIsNotABuiltinToolName` |
 | 읽기 도구도 **끝났다고 선언하는 법**을 설명에 싣는다 | 27개 설명문 | `ReadToolsSayHowToDeclareFinished` |
 | **매뉴얼이 코드가 만든 허용 규칙을 그대로 옮겼는가** | `AllowRulesTOML()` 과 매뉴얼의 `allow = […]` 덩어리를 글자로 견준다 | `TheManualQuotesTheRulesWeGenerate` |
 | **매뉴얼이 도구를 하나도 안 빠뜨렸는가** | 도구 표를 훑어 매뉴얼에서 이름을 찾는다 — 표에 없는 도구는 사람에게 없는 기능이다 | `TheManualNamesEveryTool` |
+| **문서가 적은 도구 수가 카탈로그와 같은가** | `len(catalogue())` 와 읽기/쓰기 갈래 수를 문서의 **정확한 문자열** 여섯 자리와 견준다. 정규식으로 안 훑는 것이 일부러다 — §5.1 의 실물 기록(「도구 28개」)은 그날 참이라 고칠 것이 아니다 | `TheDocsCountTheToolsWeAdvertise` — 처음 돌렸을 때 27·19·39 세 값이 갈려 있었다 |
 | 생략했을 때의 뜻을 스키마가 적는가 | `slideProps` 와 도구 표 | `OmittingTheSlideMeansTheOneInFront` |
 | 광고하지 않은 능력을 광고하지 않는다 | `set_table_cells` 는 서식을 안 건드린다 | `SetTableCellsAdvertisesNoFormatting` |
 
@@ -428,7 +435,7 @@ bash   powershell -File create_report_fixed.ps1
 **붙기**
 4. 데몬을 안 띄운 채 열면 「켜져 있는 컴패니언이 하나도 없습니다」와 **띄우는 법**이 뜬다.
 5. 데몬을 띄우고 「다시 훑기」 → 카드에 **권한 모드와 백엔드 주소**가 그대로 적힌다.
-6. 「여기에 붙이기」 → `… 에 붙었습니다 — 도구 19 개.`
+6. 「여기에 붙이기」 → `… 에 붙었습니다 — 도구 39 개.`
 7. 브랜드 줄이 `<이름> · 대화 연결됨 · 덱 1` 로 바뀐다.
 8. 작업창을 껐다 켜면 **다시 안 골라도** 붙어 있는 것으로 뜬다.
 
