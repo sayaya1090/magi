@@ -336,6 +336,24 @@ public class MeetingElement {
         sayRefusal();
     }
 
+    /** 보낸다 — 단추와 엔터가 같이 쓰는 한 벌. 두 손이 각자 적으면 한쪽만 고쳐지는 날이 온다. */
+    private void say(HTMLElement f) {
+        String text = value(f).trim();
+        if (text.isEmpty()) return;
+        store.say(text, why -> note("say", why));
+        value(f, "");
+    }
+
+    /**
+     * 지금 IME 가 글자를 조합하는 중인가.
+     *
+     * 조합 중의 엔터는 후보를 확정하는 키다. 가로채면 한글·일본어·중국어를 쓰는 사람이 글자를
+     * 고르지 못하고 반쯤 쓴 말이 방으로 나간다.
+     */
+    private static native boolean composing(elemental2.dom.KeyboardEvent e) /*-{
+        return !!(e.isComposing || e.keyCode === 229);
+    }-*/;
+
     /**
      * 회의록 판 — 방이 지금까지 적어 둔 것.
      *
@@ -357,7 +375,11 @@ public class MeetingElement {
             for (int i = 0; i < is.size(); i++) {
                 String line = is.get(i);
                 boolean fresh = !drawnMinutes.isEmpty() && !was.contains(line);
-                body.append(cell("meetminutesline" + (fresh ? " fresh" : ""), line));
+                // 줄 단위로 그리되 글자는 마크다운으로. 문서를 통째로 렌더하면 「무엇이 바뀌었나」를
+                // 줄에 걸 수 없고, 날것으로 두면 `## Decided` 와 `- ` 가 그대로 찍힌다 — 회의록은
+                // 개조식이라 그 두 기호가 거의 모든 줄에 있다.
+                body.append(dev.sayaya.magi.bridge.Markdown.into(
+                        cell("meetminutesline" + (fresh ? " fresh" : ""), null), line));
             }
         }
         drawnMinutes = now;
@@ -670,11 +692,18 @@ public class MeetingElement {
         HTMLElement send = el("md-filled-button");
         send.append(Icons.shape("#i-sl-paper-plane-top", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.send")));
-        send.addEventListener("click", evt -> {
-            String text = value(f).trim();
-            if (text.isEmpty()) return;
-            store.say(text, why -> note("say", why));
-            value(f, "");
+        send.addEventListener("click", evt -> say(f));
+        // 엔터로 보낸다. 이 상자만 안 그랬다 — 발언권을 잡고 한 줄 치고 엔터를 누르면 줄만
+        // 늘었고, 사람은 자기가 보낸 줄 알고 기다렸다(라이브에서 사용자가 잡았다). 회의는
+        // 남이 말하는 사이에 끼어드는 자리라 한 번의 손짓이 늦으면 화제가 지나간다.
+        //
+        // Shift+Enter 는 줄바꿈으로 남고, IME 조합 중의 엔터는 한글·일본어·중국어를 확정하는
+        // 키라 여기서 가로채면 글자를 못 고른다.
+        f.addEventListener("keydown", evt -> {
+            elemental2.dom.KeyboardEvent k = Js.uncheckedCast(evt);
+            if (!"Enter".equals(k.key) || k.shiftKey || composing(k)) return;
+            evt.preventDefault();
+            say(f);
         });
         HTMLElement leave = el("md-text-button");
         leave.append(Icons.shape("#i-sl-chevron-left", "mk"),

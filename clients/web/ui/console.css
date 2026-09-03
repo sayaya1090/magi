@@ -244,6 +244,12 @@
     /* 4 · 8 · 12 · 16 · 28 · full. Every radius on this page is one of these; the page used to be
        2px everywhere, which is not a value the scale has. The scale has no 24 — it steps 20 then 28,
        and this page said 24 until it was measured against the token table. */
+    /* 앱바 아래에 붙는 것들이 읽는 값 — 회의 머리·표 머리·탭띠. 여기 있는 것은 **첫 프레임의
+       폴백**이고, 진짜 값은 셸이 바를 재서 :root 에 덮어쓴다(MastheadElement.measureBar).
+       상수로 두면 바가 접히는 순간 거짓이 된다: 이 바는 자식이 아홉에 flex-wrap:wrap 이라
+       좁은 창에서 두 줄이 되고, 그때 64 는 실제보다 작아 붙은 것이 바 뒤로 들어간다.
+       :root 인 이유는 상속이다 — 이걸 읽는 것들은 header 밖에 있다. */
+    --magi-comp-appbar-h:64px;
     --magi-sys-shape-xs:4px; --magi-sys-shape-s:8px; --magi-sys-shape-m:12px; --magi-sys-shape-l:16px; --magi-sys-shape-xl:28px;
     --magi-sys-shape-full:9999px;
 
@@ -3697,25 +3703,42 @@
   #meet { display:block; max-width:var(--magi-sys-page); }
   /* 대화와 회의록이 나란히. 왼쪽이 남는 폭을 갖고, 회의록은 읽을 만한 폭에서 멈춘다 —
      문서가 화면 반을 차지하면 대화가 못 읽을 만큼 좁아진다. */
-  .meetpair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,26rem); gap:var(--magi-sys-space-300); align-items:start; }
+  .meetpair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,26rem); gap:var(--magi-sys-space-400); align-items:start; }
   /* 좁으면 아래로. 「상시 표시」는 옆이 아니라 **항상 있다**는 뜻이고, 한 칸에서 옆은 없다. */
   @media (max-width:60rem) { .meetpair { grid-template-columns:minmax(0,1fr); } }
-  .meetminutes { position:sticky; top:var(--magi-sys-space-200); }
+  /* 판은 카드다 — 이 콘솔의 다른 판(#cron·컴패니언 사실판)이 md-outlined-card 인 것과 같이,
+     대화 옆에 서는 별개의 표면이라 표면 롤 위에 선다. 처음엔 맨 div 였고, 그러면 M3 의 층이
+     색이 아니라 아무것도 아닌 것이 된다. */
+  .meetminutes {
+    /* 붙는 자리는 뷰포트 꼭대기가 아니라 **앱바 아래**다. 뷰포트 기준으로 잡았더니 스크롤하면
+       제목이 상단 바 밑으로 밀려 들어갔다(라이브에서 사용자가 잡았다). 이 콘솔엔 이미 그 규약이
+       있다 — 표 머리(.thead)가 같은 변수로 같은 일을 한다. */
+    position:sticky; top:calc(var(--magi-comp-appbar-h, 64px) + var(--magi-sys-space-200));
+    background:var(--magi-ref-surface); border:1px solid var(--magi-ref-outlineVariant);
+    border-radius:var(--magi-sys-shape-m); padding:var(--magi-sys-space-200);
+  }
   .meetminutesbody {
-    display:grid; gap:2px; font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    display:grid; gap:var(--magi-sys-space-050); font:var(--magi-sys-body-s) var(--magi-ref-display);
     max-height:70vh; overflow:auto; overflow-wrap:anywhere;
   }
-  .meetminutesline { padding:1px 0; }
+  .meetminutesline { padding:var(--magi-sys-space-050) 0; }
   .meetminuteswait { color:var(--magi-ref-muted); }
   /* 바뀐 줄만. 배경만 잠깐 물들고 자리는 안 움직인다 — 레이아웃에 거는 전환은 사람이 읽던
-     자리를 밀어내고, 이 트리는 스크롤 애니메이션에서 이미 한 번 그것으로 데었다. */
+     자리를 밀어내고, 이 트리는 스크롤 애니메이션에서 이미 한 번 그것으로 데었다.
+     색은 **짝으로** 간다: 컨테이너를 깔면 그 위 글자는 on- 롤이어야 하고, 처음엔 배경만 바꿔
+     대비를 컨테이너에 맡겼다(다크에서 #4A2E0B 위에 본문색). */
   @keyframes meetfresh {
-    from { background:var(--magi-ref-primaryContainer); }
+    from { background:var(--magi-ref-primaryContainer); color:var(--magi-ref-on-primary-container); }
     to   { background:transparent; }
   }
-  .meetminutesline.fresh { animation:meetfresh 1.8s ease-out 1; border-radius:3px; }
+  .meetminutesline.fresh {
+    animation:meetfresh 1.8s ease-out 1; border-radius:var(--magi-sys-shape-xs);
+  }
   @media (prefers-reduced-motion:reduce) {
-    .meetminutesline.fresh { animation:none; background:var(--magi-ref-primaryContainer); border-radius:3px; }
+    .meetminutesline.fresh {
+      animation:none; border-radius:var(--magi-sys-shape-xs);
+      background:var(--magi-ref-primaryContainer); color:var(--magi-ref-on-primary-container);
+    }
   }
   .meetbox { display:grid; gap:var(--magi-sys-space-200); }
   /* Capped to the house prose measure like .accsay: uncapped these helper sentences ran 132–163ch
@@ -3795,7 +3818,10 @@
      companions is several screens, and both are things a reader needs at every point of it.
      Its own ground, or the lines would show through as they pass behind. */
   .meethead {
-    position:sticky; top:0; z-index:2;
+    /* 앱바 **아래**에 붙는다. 좁은 화면에만 이 오프셋이 걸려 있었고(아래 52.4em 블록), 넓은
+       화면에서는 top:0 이라 이 머리가 바 뒤로 들어갔다 — 주석이 "측정했다"고 적어 둔 바로 그
+       결함이 한쪽 폭에서만 고쳐져 있었던 것이다. 폭에 따라 달라질 이유가 없으므로 여기서 정한다. */
+    position:sticky; top:var(--magi-comp-appbar-h, 0px); z-index:2;
     display:grid; gap:var(--magi-sys-space-150);
     padding-bottom:var(--magi-sys-space-150);
     background:var(--magi-ref-bg);
@@ -4019,12 +4045,6 @@
        laid out differently from the turns around it — measured, an 8.4px dead column and 24px off
        the width of that turn's words alone. */
     .meetwork { grid-column:1; }
-    /* The topic sticks under the app bar, not behind it.
-       Both were stuck at top:0 and the bar wins on z-index, so the one thing this head exists to
-       keep on screen — what the meeting is about — sat inside the bar for the whole length of the
-       transcript. Measured: the h3 at y 0–53 under a 65px bar, and a hit test at its centre
-       returning a masthead control. */
-    .meethead { top:var(--magi-comp-appbar-h, 0px); }
   }
 
   /* ── the board: a column per companion, a card per piece of work ────────── */

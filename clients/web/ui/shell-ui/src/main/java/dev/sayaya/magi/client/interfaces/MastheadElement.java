@@ -217,9 +217,40 @@ public class MastheadElement {
                 + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
                 + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
         header.append(mark, whereami, crumbs, state, note, say, chrome, palBtn, gear);
+        measureBar();
         // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
         Icons.dress(header);
     }
+
+    /**
+     * 앱바가 지금 <b>실제로</b> 몇 픽셀인지를 `--magi-comp-appbar-h` 로 내놓는다.
+     *
+     * 이 변수는 바 아래에 붙어야 하는 것들이 읽는다 — 회의 머리, 표 머리, 탭띠. 값이 상수였던
+     * 동안 두 번 틀렸다: 폰 폭 블록에만 선언돼 있어 그 위 폭에서는 아예 없었고(폴백 0 → 붙어야
+     * 할 것이 바 뒤로 들어갔다), 상수 64px 으로 고쳐 놓으니 이번엔 <b>바가 두 줄이 될 때</b>
+     * 틀렸다 — 이 바는 자식이 아홉에 flex-wrap:wrap 이라 좁으면 접힌다.
+     *
+     * 그래서 재서 말한다. 상수는 바가 접히는 순간 거짓이 되고, 거짓이 되는 자리가 정확히 사람이
+     * 화면을 좁혔을 때다.
+     */
+    private void measureBar() {
+        Runnable put = () -> {
+            double h = header.getBoundingClientRect().height;
+            if (h > 0) {
+                DomGlobal.document.documentElement.style.setProperty(
+                        "--magi-comp-appbar-h", ((int) Math.round(h)) + "px");
+            }
+        };
+        put.run();
+        observe(header, () -> put.run());
+    }
+
+    /** 요소의 크기가 바뀔 때마다 부른다. ResizeObserver 가 없으면 창 크기 변화로 갈음한다. */
+    private static native void observe(HTMLElement el, Runnable then) /*-{
+        var fire = function () { then.@java.lang.Runnable::run()(); };
+        if ($wnd.ResizeObserver) { new $wnd.ResizeObserver(fire).observe(el); }
+        else { $wnd.addEventListener('resize', fire); }
+    }-*/;
 
     // 점이 말하는 사실은 둘이고, 그래서 <b>따로</b> 둔다. 회선이 서 있는가는 이 콘솔과 그것을
     // 내주는 서버 사이의 일이고, 곁에 선 컴패니언이 아직 답하는가는 그 서버 <b>너머</b>의 일이다
