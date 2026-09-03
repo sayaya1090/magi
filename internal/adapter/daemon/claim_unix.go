@@ -33,7 +33,7 @@ func claimPath(path string) (func(), error) {
 	}
 	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		f.Close()
-		return nil, fmt.Errorf("daemon: another magi is starting or running on %s", path)
+		return nil, fmt.Errorf("daemon: %s", heldBy(path))
 	}
 	// Closing the file releases the lock; nothing else needs to happen.
 	return func() { f.Close() }, nil

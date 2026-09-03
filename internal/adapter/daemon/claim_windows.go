@@ -22,7 +22,7 @@ func claimPath(path string) (func(), error) {
 		windows.LOCKFILE_EXCLUSIVE_LOCK|windows.LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &ov)
 	if err != nil {
 		f.Close()
-		return nil, fmt.Errorf("daemon: another magi is starting or running on %s", path)
+		return nil, fmt.Errorf("daemon: %s", heldBy(path))
 	}
 	return func() { f.Close() }, nil
 }
