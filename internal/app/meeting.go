@@ -218,7 +218,7 @@ const minutesTemplate = `# <the question>
 - (nothing yet)
 
 ## Action items
-- <owner>: <what> — <by when, if said> [not started]
+- (nothing yet)
 
 ## Questions for the room
 - (nothing yet)`
@@ -267,9 +267,18 @@ func minutesPrompt(who, topic, minutes, said string, room []meeting.Seat) string
 		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it, and " +
 		"say WHY in the same line — the reason is what a reader six weeks from now needs and the " +
 		"only person who has it is the one who just said it.\n" +
-		"- Attribute. Every line under \"Decided\" and \"Still open\" ends with the name of whoever " +
-		"it came from, in brackets: `(" + who + ")`. Minutes nobody can trace back are a summary, " +
-		"and a reader who disagrees with a line has nowhere to take it.\n" +
+		"- Attribute. Every line you write under \"Decided\" and \"Still open\" ends with the name " +
+		"of whoever it came from, in brackets: `(" + who + ")`. Minutes nobody can trace back are " +
+		"a summary, and a reader who disagrees with a line has nowhere to take it. A section that " +
+		"is still `- (nothing yet)` gets no name — nobody said it.\n" +
+		// The form used to show the shape here (`- <owner>: <what> — <by when> [not started]`) and
+		// a live run read that as an explanation rather than a slot: four decisions, two of them
+		// plainly work somebody had taken on, and Action items came back with the placeholder
+		// untouched. The other sections say `- (nothing yet)`; this one now says it too, and the
+		// shape is described here where the other rules are.
+		"- An action item is one line: `- <name>: <what> — <by when, if it was said> [not started]`. " +
+		"If somebody took work on in their own words, it belongs here as well as in \"Decided\" — " +
+		"a decision says what the room agreed, an action item says who does it next.\n" +
 		"- \"In the room\" is given to you filled in. Carry it through exactly; do not add or " +
 		"remove a name.\n" +
 		"- Under \"Action items\", write only what somebody took on in their own words, and your " +

@@ -481,3 +481,27 @@ func TestDecisionsCarryTheirSourceAndTheirReason(t *testing.T) {
 		t.Error("nothing asks for attribution, so the record becomes a summary")
 	}
 }
+
+// The form's empty sections all look the same, and none of them look like an example.
+//
+// "Action items" used to show its shape inline — `- <owner>: <what> — <by when> [not started]` —
+// and a live meeting read that as an explanation rather than a slot to fill: four decisions came
+// back, two of them plainly work somebody had taken on, and the section still held the
+// placeholder. Every other section said `- (nothing yet)` and got filled. The shape belongs with
+// the rules, where the writer is being told what to do rather than being shown a specimen.
+func TestNoSectionOfTheFormLooksLikeAnExample(t *testing.T) {
+	p := minutesPrompt("alpha", "which store", "", "alpha said a thing", nil)
+	form := p[strings.Index(p, "# <the question>"):]
+	form = form[:strings.Index(form, "WHAT alpha JUST SAID")]
+	if strings.Contains(form, "<owner>") || strings.Contains(form, "<what>") {
+		t.Errorf("the form still shows a specimen row, which reads as an explanation:\n%s", form)
+	}
+	// And the shape is stated where the rules are.
+	if !strings.Contains(p, "An action item is one line") {
+		t.Error("the form stopped showing the shape and nothing else says it")
+	}
+	// A placeholder is nobody's word, so it carries no attribution.
+	if !strings.Contains(p, "gets no name — nobody said it") {
+		t.Error("nothing stops the writer attributing `- (nothing yet)` to the speaker")
+	}
+}
