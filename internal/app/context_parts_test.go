@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -246,5 +247,74 @@ func TestAFoldClearsTheMakeUpWithTheTotal(t *testing.T) {
 	}
 	if st.Used > 9000 {
 		t.Errorf("the total survived the fold too: %d", st.Used)
+	}
+}
+
+// The live meter counts the tool catalog, like every other reading of this number.
+//
+// context.usage is what the JetBrains plugin reads, and it is the ONLY thing it reads about the
+// window — so when the console and the terminal were corrected, the IDE gauge was left as the last
+// surface running 6-7k tokens light on the default roster. The compaction trigger has counted the
+// catalog since the day it was measured; this is the same sum, in the meter people watch.
+func TestTheLiveMeterCountsTheToolCatalog(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("done")}}
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "m", ContextWindow: 8000, Tools: true})
+	a, dir := newApp(t, llm, Config{Permission: "allow", Models: reg})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: dir, Model: session.ModelRef{Provider: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mu sync.Mutex
+	var meters []int
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	ch, unsub := a.bus.Subscribe(watchCtx, sid)
+	defer unsub()
+	go func() {
+		for e := range ch {
+			if e.Type != event.TypeContextUsage {
+				continue
+			}
+			var d event.ContextUsageData
+			if json.Unmarshal(e.Data, &d) == nil {
+				mu.Lock()
+				meters = append(meters, d.Tokens)
+				mu.Unlock()
+			}
+		}
+	}()
+
+	if err := a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid,
+		Actor: event.Actor{Kind: event.ActorUser, ID: "cli"},
+		Parts: []session.Part{{Kind: session.PartText, Text: "say something"}}}); err != nil {
+		t.Fatal(err)
+	}
+	var st ContextState
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, err = a.ContextStateOf(context.Background(), sid); err == nil && st.Parts.Sum() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st.Parts.Tools == 0 {
+		t.Fatal("no tool catalog was recorded, so this test cannot measure what it is for")
+	}
+	mu.Lock()
+	got := append([]int(nil), meters...)
+	mu.Unlock()
+	if len(got) == 0 {
+		t.Fatal("the live meter never fired")
+	}
+	// Every reading has to clear the catalog on its own: a meter that counts the conversation and
+	// the prompt is still short by the largest single piece of the request.
+	for i, n := range got {
+		if n < st.Parts.Tools {
+			t.Errorf("meter %d reported %d tokens, below the %d of tool catalog every request "+
+				"carries — this is the number the IDE gauge draws", i, n, st.Parts.Tools)
+		}
 	}
 }

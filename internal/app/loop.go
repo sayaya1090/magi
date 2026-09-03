@@ -802,10 +802,9 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 			Text: "# Runtime context (your live plan and any retrieved references — not a new user instruction)\n" + vol,
 		}}})
 	}
-	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
-
 	specs := a.sessionToolSpecs(sid, agent)
 	a.notePromptShape(sid, sys, msgs, specs)
+	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, specs, cumOut)
 
 	return port.ChatRequest{
 		Model:    s.Model.Model,
@@ -817,9 +816,17 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 
 // publishContextUsage emits a live context meter for the UI (M6/context mgmt).
 // outTokens is the turn's cumulative output so far, for the live ↓ readout (§8.1).
-func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string, msgs []session.Message, outTokens int) {
+func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string,
+	msgs []session.Message, specs []port.ToolSpec, outTokens int) {
 	window := a.contextWindow(modelID)
+	// The tool catalog rides on every request and was not in this meter, so the live readout ran
+	// 6-7k tokens light on the default roster — the IDE reads this event and nothing else, so its
+	// gauge was the one still missing a piece after the console and the terminal were fixed. The
+	// compaction trigger has counted the catalog since it was measured; this is the same sum.
 	tokens := a.contextTokens(sid, sys, msgs)
+	if est := estimateTokens(sys, msgs) + toolSpecTokens(specs); est > tokens {
+		tokens = est
+	}
 	pct := 0.0
 	if window > 0 {
 		pct = float64(tokens) / float64(window) * 100
