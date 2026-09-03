@@ -51,6 +51,13 @@ type Daemon struct {
 	// so the process re-execs once Serve has drained and returned and the socket and claim are
 	// released — the same drain as a shutdown, a different ending. Read after Serve returns.
 	restart atomic.Bool
+	// asked records that the shutdown came in over the SOCKET rather than from a signal. Both end
+	// Serve down the same path and both are a clean `return nil`, which is right — neither is an
+	// error — but they are entirely different events to whoever is reading the log afterwards: one
+	// is "somebody stopped this companion", the other is "something killed the process". Measured:
+	// a daemon that died three times in one session left three startup lines and no ending at all,
+	// so the last thing its log said was that it was serving.
+	asked atomic.Bool
 	// conns are the connections currently being served. Stop closes them as well as the listener:
 	// closing a listener does not touch what has already been accepted, and Serve waits for its
 	// handlers — so a client that asked to shut down and then sat there holding the connection open
@@ -162,7 +169,12 @@ func (d *Daemon) Serve(ctx context.Context, eng Engine) error {
 	go func() {
 		select {
 		case <-ctx.Done():
+			// A signal, or the caller's context going away. Nobody asked over the socket.
 		case <-d.stop:
+			// Somebody asked, through the socket. Recorded HERE and not inside Stop, because the
+			// signal path calls Stop as well — setting it there would report every death as a
+			// polite request, which is the more comforting of the two and the wrong one.
+			d.asked.Store(true)
 		}
 		// Both endings close the OPEN CONNECTIONS as well as the listener, and that is the whole
 		// of it: Ctrl-C used to close only the listener, and then wg.Wait below waited for every
@@ -472,3 +484,22 @@ var acceptedMethods = sync.OnceValue(func() string {
 	sort.Strings(out)
 	return strings.Join(out, ", ")
 })
+
+// Ending says how Serve finished, for the line the daemon prints on its way out.
+//
+// Both endings are a clean return and neither is an error, so the return value cannot carry this —
+// and without it the log of a daemon that stopped is identical to the log of one still running.
+// Read after Serve returns.
+func (d *Daemon) Ending() string {
+	switch {
+	case d.restart.Load():
+		return "restarting onto the binary on disk"
+	case d.asked.Load():
+		return "asked to stop over the socket"
+	default:
+		// Everything else arrives as a cancelled context: a signal this process was sent, or the
+		// caller giving up on it. From in here they are the same event, and saying so is more use
+		// than guessing which.
+		return "interrupted — a signal, or whoever started it went away"
+	}
+}

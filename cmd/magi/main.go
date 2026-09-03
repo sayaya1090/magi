@@ -1355,6 +1355,14 @@ func run() int {
 			fmt.Fprintln(os.Stderr, "magi:", serveErr)
 			return 1
 		}
+		// Say that it stopped, and why.
+		//
+		// A clean shutdown is not an error, so nothing here printed anything — and the log of a
+		// daemon that has died is then identical to the log of one still serving. Measured while
+		// chasing exactly that: a daemon that stopped three times in one session left three
+		// startup lines and no ending, so the last thing its file said was that it was listening.
+		// Whoever reads it next is reading a sentence that stopped being true hours ago.
+		fmt.Fprintf(os.Stderr, "magi: daemon on %s stopped — %s\n", sockPath, serving.Ending())
 		// Relaunch onto the new binary rather than exit, when a client asked the daemon to restart
 		// (a self-update). main() does the re-exec after this function returns, so the deferred
 		// unpublish/socket release above run first — see restartOnExit. The CURRENT conversation
