@@ -153,7 +153,12 @@ func run(args []string, log io.Writer) int {
 	bridge.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	// A graceful shutdown that runs out of time is worth a line: it means a request was still in
+	// flight when the deadline passed, and whoever restarts this helper is entitled to know that
+	// rather than to guess from a port that is briefly still held.
+	if err := srv.Shutdown(ctx); err != nil {
+		fmt.Fprintln(log, "정리 중에 시한이 지났습니다 —", err)
+	}
 	return 0
 }
 
@@ -409,12 +414,7 @@ func (a *API) stillOurs(socket string) bool {
 	if a.Own != nil && a.Own.Alive != nil {
 		return a.Own.Alive(socket)
 	}
-	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
-	if err != nil {
-		return false
-	}
-	_ = cl.Close()
-	return true
+	return probeAlive(socket)
 }
 
 // instructions 는 **한 번 적어 두면 매번 지켜지는 말**을 읽고 쓴다(instructions.go).

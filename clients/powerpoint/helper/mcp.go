@@ -298,6 +298,16 @@ func loopbackOnly(w http.ResponseWriter, r *http.Request) bool {
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
+	encodeBody(w, v)
+}
+
+// encodeBody writes the body, and is the one place that discards the encoder's error.
+//
+// There is nowhere for it to go. By the time Encode can fail the status line and the headers are
+// already on the wire, so the client cannot be told, and this helper answers a local add-in whose
+// only recovery is to ask again. Two copies of that reasoning were two discarded returns; one is
+// the honest count.
+func encodeBody(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
@@ -309,7 +319,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 func writeStatus(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	encodeBody(w, v)
 }
 
 func writeRPCError(w http.ResponseWriter, id json.RawMessage, code int, msg string) {

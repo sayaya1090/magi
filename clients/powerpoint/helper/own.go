@@ -179,18 +179,7 @@ func (o *OwnCompanion) Ensure() (OwnState, error) {
 
 	alive := o.Alive
 	if alive == nil {
-		alive = func(s string) bool {
-			// **묶인 왕복이어야 한다.** `daemon.Dial` 은 연결에도 읽기에도 시한이 없다. 임자가
-			// 사라진 소켓 파일에 connect 가 매달리면 이 함수가 안 돌아오고, 그러면 `OwnWork` 의
-			// `doing` 이 영영 참으로 남아 **모든 작업창이 헬퍼가 살아 있는 내내 「준비하는 중」**을
-			// 본다. 리뷰가 짚었고(2026-09-02), 이 머신의 %APPDATA% AF_UNIX 가 바로 그 상태를 만든다.
-			cl, err := daemon.DialWithin(s, aliveTimeout, aliveTimeout)
-			if err != nil {
-				return false
-			}
-			_ = cl.Close()
-			return true
-		}
+		alive = probeAlive
 	}
 	if alive(socket) {
 		return st, nil
@@ -289,3 +278,25 @@ func runDetached(bin, workdir string, env []string) error {
 // errNoConfigDir 는 설정 디렉토리 없이 부른 경우. 있을 수 없지만, 있으면 조용히 빈 경로에 폴더를
 // 만드는 것보다 낫다.
 var errNoConfigDir = errors.New("설정 디렉토리를 모르는 채로는 컴패니언을 마련할 수 없습니다")
+
+// probeAlive is the one liveness probe: connect, and if that works the daemon is there.
+//
+// **A bounded round trip.** `daemon.Dial` has no deadline on the connect or the read, so a connect
+// that hangs on a socket file whose owner is gone never returns — and then `OwnWork`'s `doing`
+// stays true forever and every task pane shows "getting ready" for as long as the helper lives.
+// A review found it (2026-09-02); this machine's %APPDATA% AF_UNIX makes exactly that state.
+//
+// One copy, because there were two: this closure and `main.go`'s fallback were the same six lines,
+// and two probes are two places for the timeout to be forgotten in.
+//
+// The close is best-effort on purpose and the only discarded return left here: the question was
+// "can it be reached", connecting answered it, and what the close says afterwards cannot change
+// that answer or reach anybody who would act on it.
+func probeAlive(socket string) bool {
+	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
+	if err != nil {
+		return false
+	}
+	_ = cl.Close()
+	return true
+}
