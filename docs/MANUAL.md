@@ -33,7 +33,8 @@ turn has finished in front of you. Everything after that is depth you can come b
 | [12. The console](#12-the-console-magi-web) | the browser view over your running agents |
 | [13. Companions & clusters](#13-companions-teams-and-clusters) | naming an agent, handing work over, and crossing machines |
 | [14. Unattended work](#14-unattended-work-schedule-cron) | schedules and cron |
-| [15. Status & scope](#15-status--scope) | what is finished, and what is deliberately absent |
+| [15. Where things live](#15-where-things-live-and-which-one-wins) | the paths for settings, memory, skills and plugins — and which one wins |
+| [16. Status & scope](#16-status--scope) | what is finished, and what is deliberately absent |
 
 ### The words that are ours
 
@@ -2446,7 +2447,111 @@ flowchart TD
 The agent can see and change its own schedule with the `schedule` tool, the TUI has `/cron`, and
 the console shows the same jobs on a companion's page (§12.3).
 
-## 15. Status & scope
+## 15. Where things live, and which one wins
+
+Five kinds of file — settings, permissions, memory, skills, plugins — and each has a global place
+and a project place. What differs is what happens when both exist, and it is not the same rule for
+all five. That is worth reading once rather than discovering.
+
+**The two roots.**
+
+| | Default | Override |
+|---|---|---|
+| config root | `~/.config/magi` (macOS: `~/Library/Application Support/magi`, Windows: `%AppData%\magi`) | `MAGI_CONFIG_DIR` |
+| data root | `~/.cache/magi` (macOS: `~/Library/Caches/magi`, Windows: `%LocalAppData%\magi`) | `MAGI_DATA_DIR` |
+
+Both overrides replace the path outright rather than adding to it, which is what lets two magi
+instances on one machine keep separate trees. Without them they share one `config.toml`, and a
+plugin that persists a runtime choice has one instance's write land in the other's file.
+
+The config root holds settings and everything a person edits. The data root holds what the program
+writes: the session log, MCP images. The socket path is derived from the config root too, and on
+a long `MAGI_CONFIG_DIR` can push the socket path past what a unix address holds — magi refuses at
+100 bytes, below the OS limit of 104 on macOS and 108 on Linux, and says so with the length it got.
+
+**Settings — `config.toml`, project overlays global, and a project may only tighten.**
+
+```
+<config>/config.toml          the machine's
+<workspace>/.magi/config.toml the project's, committable
+```
+
+Lists accumulate (hooks, allow/deny, domains, council signals) and string maps merge (routing, MCP,
+headers, plugins, theme). Scalars override only where the project sets them. Flags and environment
+variables beat both.
+
+The asymmetry is the part to know: **the posture keys clamp in one direction only.** A project may
+ask to approve more than the machine does and may not ask to approve less; it may confine itself to
+a tighter sandbox and may not leave a looser one. A clone you have not vouched for gets less still
+— everything that RUNS (hooks, MCP servers) is dropped, and magi says out loud what it dropped
+rather than applying it quietly. Vouching is a line in `<config>/trusted-workspaces`, compared after
+symlink resolution so `/tmp` and `/private/tmp` are one directory and not two.
+
+`.magi/config.toml` is also on the guardrail deny list: the agent cannot write the file that decides
+what the agent may do.
+
+**Permissions — `<config>/auth.toml`, one place only.** Who may do what on the console has no project
+tier by design: a repository that could grant its readers a role would be a repository that grants
+itself one.
+
+**Memory — three of them, and they are different things.**
+
+*Instructions* are read from files a person writes, joined in this order, all of them, every turn:
+
+```
+<config>/AGENTS.md            this machine's standing instructions
+<workspace>/AGENTS.md         the project's, the conventional place
+<workspace>/.magi/AGENTS.md   the project's, out of the way
+```
+
+Nothing overrides anything here — later files are appended, not preferred. Re-read when any of them
+changes size or mtime, so adding one to a workspace takes effect on the next turn rather than the
+next start.
+
+*Learned experience* is what the agent writes with `remember`, in three tiers:
+
+```
+<workspace>/.magi/experience              project — git-trackable with the repo
+<config>/teams/<team>/experience          team — every companion declaring that team shares it
+<config>/experience                       machine  (config.toml `experience_dir` moves it)
+```
+
+Retrieval reads all three. Writing picks by scope, and an unstated scope lands in the project tier —
+except a wiki page, whose unstated tier is the **team**, because a page is written to be read by
+somebody else. A scope naming a tier that does not exist (a `team` scope on a companion with no
+team) falls to the next one down rather than failing.
+
+**Skills — global wins, which is the opposite of settings.**
+
+```
+<config>/skills/*.md                  flat files
+<workspace>/.magi/skills/*.md         flat files
+<workspace>/.claude/skills/<slug>/SKILL.md   the skill-creator layout, read as-is
+```
+
+Read in that order, and **the first one to claim a name keeps it** — so a machine-level skill shades
+a project skill of the same name, not the other way round. Deliberate: a skill is a capability the
+operator granted, and a cloned repository should not be able to replace one by choosing its filename.
+
+A flat skill's description comes from its frontmatter, or its first line when it has none. That
+description travels: into the model's prompt, into `about`, and across the network into what other
+machines believe this companion can do.
+
+**Plugins — named, never found.**
+
+```
+<config>/plugins/           always
+<workspace>/.magi/plugins/  only in a vouched-for workspace
+<any path>                  with -plugins, which names it outright
+```
+
+Same gate as the config beside it, and deliberately one decision per directory rather than one per
+kind of thing a directory can carry: somebody who trusts a repository enough to run its hooks is not
+making a different judgement about its Lua. A plugin is code holding the workspace's permissions, so
+a clone that could drop one in and have it load would be a clone that runs on your machine because
+you opened it.
+
+## 16. Status & scope
 
 The **loop-engineering track is shipped**, not planned — it is the signature of the tool and is described throughout this manual: the **council** the agent declares completion to (Melchior · Balthasar · Casper, §3 · §6), the **Loop map** (`/loop`), the live deliberation panel, **rewind/fork/session-diff** (`/rewind` · `/fork` · `/loopdiff`, §4), and **re-hydratable compaction** (§4). Likewise already implemented: the **OS sandbox** (`--profile`/`sandbox`, §3), **post-edit LSP diagnostics** (§5), **web search** (`websearch`), and **prompt caching** (`cache_control`, on by default with automatic fallback). The feature/milestone spec with test examples lives in [`SPEC.md`](SPEC.md); the internals in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
