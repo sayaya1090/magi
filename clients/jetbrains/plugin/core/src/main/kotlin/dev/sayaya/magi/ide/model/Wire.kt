@@ -90,6 +90,16 @@ data class Response(
     val out: String? = null,
     val exit: Int? = null,
     val permission: String? = null,
+    /**
+     * 지금 요청이 나가는 곳(base URL)과 이 대화가 올라탄 모델 — `status` 의 답이다.
+     *
+     * 둘 다 **런타임 사실**이라 승인 모드와 같은 자리에 산다: 도는 중에 바뀌고, 그것을 바꿔
+     * 주겠다는 화면은 **무엇에서 바꾸는지**를 보여야 한다(코어 주석 그대로). 와이어에 이 두
+     * 필드가 없어서 `encoding/json` 이 조용히 버렸고, 그 결과 설정 화면이 「데몬은 지금 모델을
+     * 말해 주지 않는다」고 적은 채 칸을 비워 두고 있었다 — 말해 주고 있었다.
+     */
+    val backend: String? = null,
+    val model: String? = null,
     val user: String? = null,
     val tools: List<String>? = null,
     val models: List<String>? = null,

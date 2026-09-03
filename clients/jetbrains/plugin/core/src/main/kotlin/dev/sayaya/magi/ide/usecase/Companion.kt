@@ -252,6 +252,8 @@ class Companion(
             permission = it.permission?.takeIf { p -> p.isNotBlank() },
             session = it.session?.takeIf { x -> x.isNotBlank() } ?: session,
             waiting = it.waiting,
+            model = it.model?.takeIf { m -> m.isNotBlank() },
+            backend = it.backend?.takeIf { b -> b.isNotBlank() },
         )
     }
 
@@ -266,6 +268,10 @@ class Companion(
         val permission: String?,
         val session: String,
         val waiting: Waiting?,
+        /** 이 대화가 올라탄 모델, 데몬이 말했으면. 모름은 null 이고 빈 문자열이 아니다. */
+        val model: String?,
+        /** 요청이 나가는 곳(base URL), 데몬이 말했으면. */
+        val backend: String?,
     )
 
     /**

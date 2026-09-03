@@ -30,9 +30,11 @@ import javax.swing.SwingUtilities
  * 생기면 그때 칸이 된다. 자동완성도 여기 안 산다: 스위치는 magi 의 `[autocomplete]` 하나이고
  * **플러그인이 두 번째 스위치를 만들지 않는다**(`MagiInlineCompletion` 의 KDoc 이 그 규칙이다).
  *
- * **모름을 지금 값인 양 그리지 않는다.** 데몬은 지금 승인 모드는 말해 주지만(`status`) 지금
- * 모델은 말해 주지 않는다 — `models` 는 고를 수 있는 목록이지 현재가 아니다(`Companion.facts` 의
- * 같은 사유). 그래서 모델 칸은 「바꾸기 전까지 무엇인지 모른다」를 그대로 적는다.
+ * **모름을 지금 값인 양 그리지 않는다.** 그리고 **아는 것을 모른다고 적지도 않는다** — 이 주석은
+ * 오래 「데몬은 지금 모델을 말해 주지 않는다」고 단언했고, `status` 가 모델과 백엔드를 싣게 된
+ * 뒤에도 남아 거짓이 됐다(플러그인 와이어에 그 필드가 없어 조용히 버려지고 있었다). 지금은 둘 다
+ * 「지금」 장에 서고, 데몬이 안 말했을 때만 그렇게 적는다. `models` 가 고를 목록이지 현재가
+ * 아니라는 것은 그대로다 — 현재는 `status` 가 답한다.
  */
 class MagiConfigurable(private val project: Project) : Configurable {
 
@@ -44,6 +46,15 @@ class MagiConfigurable(private val project: Project) : Configurable {
     private val doing = Look.wide()
     private val perm = Look.wide()
     private val sessionL = Look.wide().apply { font = Look.mono() }
+    /**
+     * 지금 무엇에 올라타 있나 — 모델과 요청이 나가는 곳.
+     *
+     * 이 화면은 오래 「데몬이 지금 모델을 말해 주지 않는다」고 적어 두고 칸을 비웠다. 말해 주고
+     * 있었다: `status` 가 둘 다 싣는데 플러그인 와이어에 그 필드가 없어 조용히 버려졌다. 바꿔
+     * 주겠다는 화면은 **무엇에서 바꾸는지**를 보여야 한다.
+     */
+    private val modelNow = Look.wide()
+    private val backendNow = Look.wide()
     private val outside = Look.flow(Look.warn)
     /**
      * 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — [apply] 가 데몬에 보내는 값이
@@ -122,6 +133,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(MagiBundle.msg("set.doing"), doing)
         row(MagiBundle.msg("set.permission"), perm)
         row(MagiBundle.msg("set.session"), sessionL)
+        row(MagiBundle.msg("set.model.now"), modelNow)
+        row(MagiBundle.msg("set.backend.now"), backendNow)
         row(" ", outside)
         head(MagiBundle.msg("set.settings"))
         row(MagiBundle.msg("set.mode"), permission)
@@ -333,6 +346,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 Activity.Unsaid -> MagiBundle.msg("status.attached")
             }
             perm.text = Perms.label(f.permission)
+            // 모름은 모름으로 — 빈 칸은 「없음」으로 읽힌다.
+            modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
+            backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
             // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히
             // 거부하고 첫 항목(`ask`)으로 되돌린다 — 그러면 사람이 아무것도 안 만졌는데
             // `isModified` 가 참이 되고 OK 가 `set-permission ask` 를 보낸다(리뷰 R6).

@@ -15,7 +15,8 @@ import org.junit.jupiter.api.Test
 class ActivityTest {
 
     private fun facts(doing: String? = null, waiting: Waiting? = null) =
-        Companion.Facts(doing = doing, permission = null, session = "s1", waiting = waiting)
+        Companion.Facts(doing = doing, permission = null, session = "s1", waiting = waiting,
+            model = null, backend = null)
 
     private val asked = Waiting(id = "c1", kind = "permission", what = "bash")
 
