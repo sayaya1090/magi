@@ -902,6 +902,7 @@ public class DetailElement {
             bar2.append(fill);
             f.append(bar2);
         }
+        makeup(f, Js.uncheckedCast(c.get("parts")), estimated);
         // 레버는 읽기 곁에 — 지금, 턴 사이에 접고 싶은 사람의 것(운영 규칙).
         HTMLElement fold = el("md-text-button");
         fold.className = "fold";
@@ -977,6 +978,60 @@ public class DetailElement {
         double t = JsDate.parse(ts == null ? "" : ts);
         if (Double.isNaN(t)) return "";
         return new JsDate(t - new JsDate(t).getTimezoneOffset() * 60000d).toISOString().substring(11, 16);
+    }
+
+    /** 컨텍스트를 이루는 다섯 조각. 순서는 요청에 실리는 순서 — 고정된 앞머리부터 자라는 꼬리까지. */
+    private static final String[][] MAKEUP = {
+            {"system", "context.part.system"},
+            {"tools", "context.part.tools"},
+            {"talk", "context.part.talk"},
+            {"calls", "context.part.calls"},
+            {"results", "context.part.results"},
+    };
+
+    /**
+     * 창이 무엇으로 찼는지 — 색 띠 하나와 그 밑의 종류별 크기.
+     *
+     * <p>총량만 보여 주면 사람은 대화를 줄이러 간다. 이 하네스에서 대화는 대개 작은 쪽이고, 매 요청에
+     * 실려 가는 도구 목록이 6~7k 토큰으로 가장 크다. 그래서 이 띠의 값은 장식이 아니라 "무엇을 줄여야
+     * 하는가"의 답이다.
+     *
+     * <p>기록이 없으면 아무것도 안 그린다. 다섯 개 0은 측정이 아니라 <b>모름</b>이고, 창을 모를 때 바를
+     * 안 그리는 위 규칙과 같은 이유다.
+     */
+    private void makeup(HTMLElement f, JsPropertyMap<Object> parts, boolean estimated) {
+        if (parts == null) return;
+        double sum = 0;
+        for (String[] kind : MAKEUP) sum += num(parts, kind[0]);
+        if (sum <= 0) return;
+
+        HTMLElement bar = cell("mix", null);
+        HTMLElement legend = cell("mixkeys", null);
+        for (String[] kind : MAKEUP) {
+            double n = num(parts, kind[0]);
+            if (n <= 0) continue;
+            HTMLElement seg = el("i");
+            seg.className = "p-" + kind[0];
+            seg.style.width = elemental2.dom.CSSProperties.WidthUnionType.of((n * 100 / sum) + "%");
+            // 얇은 조각도 무슨 색인지 알아볼 수 있어야 한다 — 툴팁은 마우스를 가진 사람만의 것이라
+            // 값은 밑의 범례에 글자로도 적는다.
+            seg.setAttribute("title", tr(kind[1]) + " · " + fmt(n));
+            bar.append(seg);
+
+            HTMLElement key = cell("mixkey p-" + kind[0], null);
+            key.append(cell("dot", null), cell("n", tr(kind[1])), cell("t", fmt(n)));
+            legend.append(key);
+        }
+        // 위의 총량이 백엔드가 <b>센</b> 값일 때, 이 다섯은 여전히 chars/4 추정이다. 그래서 둘은
+        // 안 맞고, 안 맞는 두 숫자를 한 화면에 나란히 두면서 아무 말도 안 하는 것이 거짓말이다.
+        // 총량이 이미 "추정"이라고 말하고 있으면 여기서 또 말하지 않는다 — 같은 말 두 번이다.
+        if (!estimated) {
+            HTMLElement note = el("small");
+            note.className = "mixnote";
+            note.textContent = tr("context.parts_estimated");
+            legend.append(note);
+        }
+        f.append(bar, legend);
     }
 
     private static String str(JsPropertyMap<Object> m, String k) {

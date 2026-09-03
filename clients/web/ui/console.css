@@ -2608,6 +2608,47 @@
   #detail .f .bar { height:2px; background:var(--magi-ref-outlineVariant); margin-top:var(--magi-sys-space-50); }
   #detail .f .bar i { display:block; height:100%; background:var(--magi-ref-primary); }
   #detail .f .bar.tight i { background:var(--magi-ref-warn); }
+  /* 창이 무엇으로 찼는가. 총량 바(위)는 "얼마나", 이 띠는 "무엇으로" — 다른 질문이라 다른 줄이다.
+     다섯 색은 전부 이 콘솔의 기존 팔레트 값이고, 이름만 이 화면에서의 뜻이다(새 롤이 아니라 별칭:
+     팔레트의 원본은 styles.go이고 TUI에는 이 화면의 대응물이 없다). */
+  #detail .f .mix {
+    display:flex; height:8px; margin-top:var(--magi-sys-space-100);
+    border-radius:var(--magi-sys-shape-full); overflow:hidden;
+    background:var(--magi-ref-outlineVariant);
+  }
+  #detail .f .mix i { display:block; height:100%; }
+  /* 인접 조각이 같은 색 계열로 이어지면 경계가 사라진다 — 배경색 한 줄로 가른다. */
+  #detail .f .mix i + i { box-shadow:inset 1px 0 0 var(--magi-ref-surface); }
+  #detail .f .mixkeys {
+    display:flex; flex-wrap:wrap; gap:0 var(--magi-sys-space-200);
+    margin-top:var(--magi-sys-space-100);
+  }
+  #detail .f .mixkey { display:flex; align-items:center; gap:var(--magi-sys-space-50); }
+  #detail .f .mixkey .dot { width:8px; height:8px; border-radius:var(--magi-sys-shape-full); flex:none; }
+  #detail .f .mixkey .n, #detail .f .mixkey .t {
+    font-size:var(--md-sys-typescale-label-small-size);
+    line-height:var(--md-sys-typescale-label-small-line-height);
+    color:var(--magi-ref-muted);
+  }
+  #detail .f .mixkey .t { color:var(--magi-ref-fg); font-variant-numeric:tabular-nums; }
+  #detail .f .mixnote {
+    flex-basis:100%; color:var(--magi-ref-muted);
+    font-size:var(--md-sys-typescale-label-small-size);
+  }
+  #detail .f .p-system i, #detail .f .mix i.p-system { background:var(--magi-ref-outline); }
+  #detail .f .p-tools i, #detail .f .mix i.p-tools { background:var(--magi-ref-secondary); }
+  #detail .f .p-talk i, #detail .f .mix i.p-talk { background:var(--magi-ref-primary); }
+  #detail .f .p-calls i, #detail .f .mix i.p-calls { background:var(--magi-ref-accent); }
+  #detail .f .p-results i, #detail .f .mix i.p-results { background:var(--magi-ref-casper); }
+  #detail .f .mixkey.p-system .dot { background:var(--magi-ref-outline); }
+  #detail .f .mixkey.p-tools .dot { background:var(--magi-ref-secondary); }
+  #detail .f .mixkey.p-talk .dot { background:var(--magi-ref-primary); }
+  #detail .f .mixkey.p-calls .dot { background:var(--magi-ref-accent); }
+  #detail .f .mixkey.p-results .dot { background:var(--magi-ref-casper); }
+  @media (prefers-reduced-motion: no-preference) {
+    #detail .f .mix i { transition:width var(--magi-sys-dur-medium2) var(--magi-sys-ease-standard); }
+  }
+
   #detail .f .v small { color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-small-size); }
   /* Disabled is the component's own fade now, not a rule here. The contrast check reads this
      stylesheet and cannot see into a shadow root, so that opacity is not covered — which is the
@@ -3737,10 +3778,10 @@
     border-radius:var(--magi-sys-shape-m); padding:var(--magi-sys-space-200);
   }
   .meetminutesbody {
-    display:grid; gap:var(--magi-sys-space-050); font:var(--magi-sys-body-s) var(--magi-ref-display);
+    display:grid; gap:var(--magi-sys-space-50); font:var(--magi-sys-body-s) var(--magi-ref-display);
     max-height:70vh; overflow:auto; overflow-wrap:anywhere;
   }
-  .meetminutesline { padding:var(--magi-sys-space-050) 0; }
+  .meetminutesline { padding:var(--magi-sys-space-50) 0; }
   .meetminuteswait { color:var(--magi-ref-muted); }
   /* 바뀐 줄만. 배경만 잠깐 물들고 자리는 안 움직인다 — 레이아웃에 거는 전환은 사람이 읽던
      자리를 밀어내고, 이 트리는 스크롤 애니메이션에서 이미 한 번 그것으로 데었다.
@@ -3932,7 +3973,7 @@
      회의가 안 보인다. */
   .meetnow { display:grid; gap:var(--magi-sys-space-100); }
   .meetnowone {
-    display:grid; gap:var(--magi-sys-space-050);
+    display:grid; gap:var(--magi-sys-space-50);
     border-left:2px solid var(--spoke, var(--magi-ref-outlineVariant));
     padding-left:var(--magi-sys-space-150);
   }
@@ -3944,7 +3985,7 @@
   .meetnowone.sp5 { --spoke:var(--magi-ref-muted); }
   /* 아이콘과 글자가 한 줄에 선다 — 도는 아이콘이 이 판의 유일한 「살아 있다」 신호다. */
   .meetnowwho {
-    display:flex; align-items:center; gap:var(--magi-sys-space-050);
+    display:flex; align-items:center; gap:var(--magi-sys-space-50);
     color:var(--magi-ref-muted); font-size:var(--md-sys-typescale-label-medium-size);
   }
   /* 크기와 획을 여기서 정한다. 그림은 24 뷰박스에 1.7 획으로 그려지므로, 글자 크기를 그대로
@@ -3959,10 +4000,10 @@
   /* 표식은 상자 <b>밖</b>에 둔다. 안에 두면 상자가 바닥에 붙는 순간 같이 밀려 올라가,
      "위가 잘렸다"는 말이 정작 잘린 상태에서만 안 보인다. */
   .meetnowone.clipped .meetnowwho::after {
-    content:"⋮"; margin-left:auto; color:var(--magi-ref-faint); line-height:1;
+    content:"⋮"; margin-left:auto; color:var(--magi-ref-muted); line-height:1;
   }
   .meetnowrows {
-    display:grid; gap:var(--magi-sys-space-050);
+    display:grid; gap:var(--magi-sys-space-50);
     max-height:min(9rem, 22vh); overflow-y:auto; overscroll-behavior:contain;
   }
   /* **부드러운 스크롤을 여기 두지 마라.** 이 상자는 새 줄이 올 때마다 코드가 바닥으로

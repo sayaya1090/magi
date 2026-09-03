@@ -179,6 +179,30 @@ type TurnFinishedData struct {
 	// normally-verified finish (the common case).
 	Unverified bool   `json:"unverified,omitempty"`
 	Reason     string `json:"reason,omitempty"`
+	// Prompt is what the request this turn ended on was MADE OF. Usage says what the turn cost;
+	// this says what the cost was spent on, and only the process that assembled the request can
+	// answer it — the system prompt and the tool catalog are built per session and never written
+	// to the log, so a reader replaying events can measure the conversation and nothing else.
+	// Recorded once per turn rather than per step because it is stable within a turn by
+	// construction (the prompt is frozen at turn start so the backend's prefix cache holds).
+	Prompt *PromptShape `json:"prompt,omitempty"`
+}
+
+// PromptShape is the estimated make-up of one request, in tokens.
+//
+// Estimates throughout — chars/4, the same arithmetic the compactor sizes with — because no
+// backend reports a breakdown. They are honest as proportions; they will not sum to the provider's
+// measured prompt count, and a reader must not present them as if they did.
+//
+// Why it is worth recording at all: on the default roster the tool catalog alone measured 6-7k
+// tokens, which is larger than most conversations ever get. A screen showing only a total invites
+// somebody watching a full window to go trim the conversation, which is usually the small half.
+type PromptShape struct {
+	System  int `json:"system,omitempty"`  // identity, workdir, memory, skills
+	Tools   int `json:"tools,omitempty"`   // the tool catalog: names, descriptions, schemas
+	Talk    int `json:"talk,omitempty"`    // what the person and the companion said
+	Calls   int `json:"calls,omitempty"`   // tool calls: names and arguments
+	Results int `json:"results,omitempty"` // what the tools answered
 }
 
 // TodosChangedData — TypeTodosChanged. The session plan after a change, so the

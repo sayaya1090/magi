@@ -93,6 +93,10 @@ type sessionState struct {
 	// The frozen prefix pieces — see prompt_frozen.go for why these are the only doors.
 	turnSys    string
 	turnSysSet bool
+	// What the last assembled request was made of. Only this process can measure it — the system
+	// prompt and the tool catalog are built here and never written to the log — so it is kept here
+	// and recorded on the turn.finished fact, where every other surface can read it back.
+	shape event.PromptShape
 	// Keyed by the agent's identity: a workflow runs several agents through ONE session, each
 	// with its own allowlist, and each holds its own catalog for as long as it runs. Freezing per
 	// session flattened them into whoever came first — measured as verify losing bash.

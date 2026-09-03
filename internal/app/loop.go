@@ -532,6 +532,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	if depth == 0 && !a.cfg.Workflow {
 		d, _ := json.Marshal(event.TurnFinishedData{
 			Usage:      turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost),
+			Prompt:     shapeOf(a, sid),
 			Unverified: true,
 			Reason: fmt.Sprintf("the turn spent the %d-step runaway backstop without finishing — "+
 				"the work stands as it was left", maxSteps),
@@ -803,11 +804,14 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 	}
 	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, cumOut)
 
+	specs := a.sessionToolSpecs(sid, agent)
+	a.notePromptShape(sid, sys, msgs, specs)
+
 	return port.ChatRequest{
 		Model:    s.Model.Model,
 		System:   sys,
 		Messages: msgs,
-		Tools:    a.sessionToolSpecs(sid, agent),
+		Tools:    specs,
 	}, evs
 }
 

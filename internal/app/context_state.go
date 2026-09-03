@@ -61,7 +61,52 @@ type ContextState struct {
 	// in the log and can be pulled back with recall_context. They are what "the detail is not
 	// lost" means concretely, and naming them is the difference between that claim and a promise.
 	Topics []string `json:"topics,omitempty"`
+
+	// Parts is what the window is filled WITH. Used answers how full; this answers with what, and
+	// the two answer different questions about the same companion. A screen that shows only a
+	// total invites the wrong move: somebody looking at a nearly-full bar reaches for the
+	// conversation, and on this harness the conversation is routinely the small half.
+	Parts ContextParts `json:"parts,omitzero"`
 }
+
+// ContextParts breaks the context into the pieces a person can actually act on.
+//
+// # These are estimates even when Used is measured
+//
+// Used prefers the provider's own prompt count. Nothing reports a BREAKDOWN, so these are the
+// chars/4 estimate the compactor sizes with, and they will not sum to a measured Used. They are
+// honest as proportions and dishonest as totals, which is why the screen draws them as a share of
+// their own sum and says the reading is an estimate.
+//
+// # Zero means "not known", not "empty"
+//
+// System and Tools come from what the session has FROZEN. A session that has not run a step has
+// frozen neither, so both are 0 — and that is different from a companion whose system prompt is
+// genuinely empty, which does not happen. Callers must not draw a 0 here as a measurement.
+//
+// It is a conversion of event.PromptShape rather than an alias so this package's wire shape can
+// change without editing a fact already written to thousands of logs. The conversion is checked by
+// the compiler, so a field added to one and not the other stops the build rather than going out as
+// a silent zero.
+type ContextParts struct {
+	// System is the assembled system prompt: identity, workdir, memory, skills.
+	System int `json:"system,omitempty"`
+	// Tools is the tool catalog that rides on every single request — names, descriptions and
+	// JSON schemas. Measured at ~6-7k tokens on the default roster, which is more than most
+	// conversations ever reach, and the reason this breakdown is worth drawing at all.
+	Tools int `json:"tools,omitempty"`
+	// Talk is what the person and the companion actually said to each other.
+	Talk int `json:"talk,omitempty"`
+	// Calls is the tool calls: names and arguments.
+	Calls int `json:"calls,omitempty"`
+	// Results is what the tools answered — file contents, command output. The part that grows
+	// without anybody deciding it should.
+	Results int `json:"results,omitempty"`
+}
+
+// Sum is what the parts add up to, which is the denominator for their shares. It is not Used: Used
+// may be the provider's real count and these are always the estimate.
+func (p ContextParts) Sum() int { return p.System + p.Tools + p.Talk + p.Calls + p.Results }
 
 // ContextStateOf reads one session's context situation.
 func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (ContextState, error) {
@@ -105,6 +150,14 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			var d event.TurnFinishedData
 			if json.Unmarshal(e.Data, &d) != nil {
 				continue
+			}
+			// From the process that ASSEMBLED the request. A reader replaying the log can measure
+			// the conversation and nothing else: the system prompt and the tool catalog are built
+			// per session and never written down. Absent on turns recorded before this was, and on
+			// the empty finishes a cancel writes — those leave the previous shape standing, which
+			// is the last thing this companion actually held.
+			if d.Prompt != nil {
+				out.Parts = ContextParts(*d.Prompt)
 			}
 			// The provider's own count, from the most recent turn that reported one. A zero is
 			// not a measurement — several backends omit usage — so it does not displace an

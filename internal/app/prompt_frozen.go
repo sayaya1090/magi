@@ -97,3 +97,54 @@ func (a *App) sessionToolSpecs(sid session.SessionID, agent AgentSpec) []port.To
 	a.mu.Unlock()
 	return specs
 }
+
+// notePromptShape records what the request just assembled was made of, so the turn's finish can
+// carry it. Measured here because here is the only place that holds all five pieces at once: the
+// system prompt and the tool catalog exist only in this process's memory, and a reader replaying
+// the log can measure the conversation and nothing else.
+func (a *App) notePromptShape(sid session.SessionID, sys string, msgs []session.Message, specs []port.ToolSpec) {
+	sh := event.PromptShape{System: len(sys) / 4, Tools: toolSpecTokens(specs)}
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartText {
+				sh.Talk += len(p.Text)
+			}
+			if p.ToolCall != nil {
+				sh.Calls += len(p.ToolCall.Name) + len(p.ToolCall.Args)
+			}
+			if p.ToolResult != nil {
+				sh.Results += len(p.ToolResult.Content)
+			}
+		}
+	}
+	// Each kind is summed in characters first and divided once, so each number is that kind's own
+	// best estimate. The five will not add up to estimateTokens exactly — five roundings instead of
+	// one, at most three characters lost per kind — and that is the right trade: the screen labels
+	// each piece, so each piece has to be right about itself. The total beside them comes from the
+	// provider's own count anyway, which these were never going to match.
+	sh.Talk, sh.Calls, sh.Results = sh.Talk/4, sh.Calls/4, sh.Results/4
+	a.mu.Lock()
+	a.stateLocked(sid).shape = sh
+	a.mu.Unlock()
+}
+
+// promptShape answers the last recorded make-up, and whether there is one. A session that has not
+// assembled a request has no shape, and a zeroed one would read as "this companion is holding
+// nothing" — which is never true of a request that was actually sent.
+func (a *App) promptShape(sid session.SessionID) (event.PromptShape, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	sh := a.stateLocked(sid).shape
+	return sh, sh != event.PromptShape{}
+}
+
+// shapeOf is what a turn.finished carries, or nil when this process assembled no request for the
+// session — a turn that failed before its first call has no shape, and writing a zeroed one would
+// tell every screen the companion is holding nothing.
+func shapeOf(a *App, sid session.SessionID) *event.PromptShape {
+	sh, ok := a.promptShape(sid)
+	if !ok {
+		return nil
+	}
+	return &sh
+}
