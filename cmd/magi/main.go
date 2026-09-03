@@ -2772,6 +2772,13 @@ func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, 
 	return metas, nil
 }
 
+// ChildrenOf satisfies daemon.ChildLister: the subagent conversations this session spawned, as
+// the log holds them. The store's own listing, unreshaped — a child records its parent when it is
+// created, so this is a fact rather than a register somebody has to keep in step.
+func (d daemonEngine) ChildrenOf(ctx context.Context, parent string) ([]session.SessionMeta, error) {
+	return d.App.ChildSessions(ctx, d.workdir, parent)
+}
+
 // NewSession opens a fresh conversation and moves this companion onto it — create, then the same
 // move Resume performs, so the record, the mark in the old log and the mid-turn refusal are one
 // code path. The model falls to the config default inside CreateSession.

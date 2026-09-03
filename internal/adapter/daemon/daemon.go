@@ -487,6 +487,25 @@ type ConfigKeeper interface {
 	ProfilesHere(ctx context.Context) ([]ProfileChoice, error)
 }
 
+// ChildLister is the engine half of the `children` door: the subagent conversations a session
+// spawned, read out of the log.
+//
+// Separate from ConversationKeeper because it answers a different question, and separate from
+// JobRunner for a sharper reason: that one keeps a live register of children running now, which
+// a session log cannot know ("a session log does not know it is over"), and this one knows the
+// past, which the register cannot ("gone when the daemon restarts"). Neither is the other's
+// cache. A client that wants both asks both, and the shapes say which is which.
+//
+// Local socket only, like sessions and transcript — the clients this exists for hold a socket
+// and nothing else. The web console reads the same fact from its own store because it has the
+// files; a plugin in a JVM has no store, and re-deriving "what is a child session" in a second
+// language would be a second place that decides it.
+type ChildLister interface {
+	// ChildrenOf lists the subagent sessions spawned by parent, newest activity first. An id
+	// with no children answers an empty list, not an error — "none" is a real answer here.
+	ChildrenOf(ctx context.Context, parent string) ([]session.SessionMeta, error)
+}
+
 // ConversationKeeper is the engine half of the bottom dock's session switcher: list this
 // workspace's conversations, and open a fresh one. Local socket only, like the transcript —
 // the clients this exists for (the IDE plugin first) hold a socket and nothing else.
@@ -711,6 +730,15 @@ type Response struct {
 	Profiles []ProfileChoice `json:"profiles,omitempty"`
 	// Cron answers the `cron` method: the standing schedule, broken first, then soonest first.
 	Cron []CronRow `json:"cron,omitempty"`
+	// Children answers the `children` method: the subagent conversations a session spawned, as
+	// the LOG holds them — newest first.
+	//
+	// Not the same list as `jobs.children`, and the difference is the reason this door exists.
+	// That one is a live register: what is running now and what just ended, in memory, bounded,
+	// gone when the daemon restarts. This one is a fact of the log, so it answers for a child
+	// that finished last week and for a companion that has since been restarted — which is
+	// exactly when somebody asks what a subagent actually did.
+	Children []SessionRow `json:"children,omitempty"`
 }
 
 // Waiting is a prompt the daemon is blocked on, as it travels.
@@ -1434,6 +1462,7 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"mcp-attach":  answerMCPAttach,
 	"mcp-detach":  answerMCPDetach,
 	"sessions":    answerSessions,
+	"children":    answerChildren,
 	"session-new": answerSessionNew,
 	"cron":        answerCron,
 	"job-kill":    answerJobKill,
@@ -1499,8 +1528,13 @@ func answerCron(ctx context.Context, eng Engine, req Request) Response {
 // SessionRow is one conversation as the sessions door reports it: what a picker needs and no
 // more. The title is the first prompt's first line, which is what the store already derives.
 type SessionRow struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title,omitempty"`
+	ID    string `json:"id"`
+	Title string `json:"title,omitempty"`
+	// Agent is the subagent role, set only on child sessions — the tool that spawned it names
+	// it ("meeting", a delegate's role). Empty on the top-level conversations `sessions` lists,
+	// which is why one shape serves both doors: a row is a conversation, and this says whether
+	// something else asked for it.
+	Agent        string   `json:"agent,omitempty"`
 	Model        string   `json:"model,omitempty"`
 	Labels       []string `json:"labels,omitempty"`
 	Created      string   `json:"created,omitempty"`
@@ -1533,6 +1567,48 @@ func answerSessions(ctx context.Context, eng Engine, req Request) Response {
 		rows = append(rows, r)
 	}
 	return Response{OK: true, Sessions: rows}
+}
+
+// answerChildren lists the subagent conversations a session spawned, newest activity first.
+//
+// The parent is REQUIRED and refused when empty. A "current conversation" default was the
+// obvious convenience and the wrong one: the current is a per-caller fact (each client holds
+// its own idea of where it is), so a door that silently substituted it would answer a
+// different question depending on who asked — and the caller that most wants this door is
+// looking at a session that is NOT the current one (a finished child, an old meeting).
+//
+// An unknown id answers an empty list rather than an error, deliberately: a parent that spawned
+// nothing and an id that never existed look the same in the log, and inventing a distinction
+// here would mean scanning to prove absence. `sessions` is where an id is checked.
+func answerChildren(ctx context.Context, eng Engine, req Request) Response {
+	l, ok := eng.(ChildLister)
+	if !ok {
+		return Response{Err: "this daemon cannot list a conversation's subagents"}
+	}
+	parent := strings.TrimSpace(req.Session)
+	if parent == "" {
+		return Response{Err: "children needs the session whose subagents you want — `sessions` lists them"}
+	}
+	metas, err := l.ChildrenOf(ctx, parent)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	sort.SliceStable(metas, func(i, j int) bool { return metas[i].LastActivity.After(metas[j].LastActivity) })
+	rows := make([]SessionRow, 0, len(metas))
+	for _, m := range metas {
+		r := SessionRow{ID: string(m.ID), Title: m.Title, Agent: m.Agent, Model: m.Model, Labels: m.Labels}
+		if !m.Created.IsZero() {
+			r.Created = m.Created.UTC().Format(time.RFC3339)
+		}
+		if !m.LastActivity.IsZero() {
+			r.LastActivity = m.LastActivity.UTC().Format(time.RFC3339)
+		}
+		rows = append(rows, r)
+	}
+	// OK with an empty list, not an absent field with OK: a client must be able to tell "this
+	// daemon answered, and there are none" from "this build has no such door" — which is what
+	// the capability handshake is for, and what an omitted field would quietly undo.
+	return Response{OK: true, Children: rows}
 }
 
 // answerSessionNew opens a fresh conversation and answers with its id — see ConversationKeeper
@@ -2117,6 +2193,12 @@ func capsOf(eng Engine) []string {
 	// calling and reading prose back.
 	if _, ok := eng.(ConversationKeeper); ok {
 		caps = append(caps, "sessions", "session-new")
+	}
+	// "children": advertised for the same reason as the doors above, and with one of its own —
+	// a screen that draws a subagent's work must know whether "no children" means none were
+	// spawned or this build cannot say. Calling and reading prose back cannot tell those apart.
+	if _, ok := eng.(ChildLister); ok {
+		caps = append(caps, "children")
 	}
 	if _, ok := eng.(CronTeller); ok {
 		caps = append(caps, "cron")
@@ -2771,6 +2853,16 @@ func (c *Client) Sessions() ([]SessionRow, error) {
 		return nil, err
 	}
 	return resp.Sessions, nil
+}
+
+// Children lists the subagent conversations a session spawned, newest activity first — what the
+// live `jobs` register cannot answer once a child has ended or the daemon has restarted.
+func (c *Client) Children(sid string) ([]SessionRow, error) {
+	resp, err := c.exchange(Request{Method: "children", Session: sid})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Children, nil
 }
 
 // NewSession opens a fresh conversation on the companion and moves it there, answering with the

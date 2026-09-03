@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -307,5 +308,100 @@ func TestAnswerersMapBothDirections(t *testing.T) {
 		r.Cron[1].Name != "tick" || r.Cron[1].Next == "" ||
 		r.Cron[2].Name != "off" || r.Cron[2].Next != "" {
 		t.Fatalf("cron: broken first, the runnable next, the switched-off last: %+v", r.Cron)
+	}
+}
+
+// --- the `children` door ---------------------------------------------------
+
+// childEngine answers ChildLister and records the parent it was asked about, so the test can
+// check that the wire's `session` reached the engine as the PARENT rather than as anything else.
+type childEngine struct {
+	fakeEngine
+	asked string
+	kids  []session.SessionMeta
+	err   error
+}
+
+func (c *childEngine) ChildrenOf(_ context.Context, parent string) ([]session.SessionMeta, error) {
+	c.asked = parent
+	return c.kids, c.err
+}
+
+// A build without the engine half says so, rather than answering an empty list.
+//
+// The difference is the whole reason the capability handshake exists: a screen drawing "what did
+// this subagent do" must be able to tell "none were spawned" from "this daemon cannot say", and
+// an empty list for both makes the second one invisible.
+func TestChildrenRefusesWithAReasonWhenTheEngineCannot(t *testing.T) {
+	resp := answerChildren(context.Background(), &fakeEngine{}, Request{Session: "s_1"})
+	if resp.OK || resp.Err == "" {
+		t.Fatalf("a daemon without the door refuses with a reason, got %+v", resp)
+	}
+	if resp.Children != nil {
+		t.Fatalf("a refusal carries no rows, got %+v", resp.Children)
+	}
+}
+
+// The parent is required. A "current conversation" default would answer a different question
+// depending on who asked — and the caller that most wants this door is looking at a session that
+// is not the current one.
+func TestChildrenRefusesAnEmptyParent(t *testing.T) {
+	eng := &childEngine{}
+	resp := answerChildren(context.Background(), eng, Request{Session: "  "})
+	if resp.OK || !strings.Contains(resp.Err, "session") {
+		t.Fatalf("an empty parent is refused with a reason naming what is missing, got %+v", resp)
+	}
+	if eng.asked != "" {
+		t.Fatalf("a refused request never reaches the engine, it asked about %q", eng.asked)
+	}
+}
+
+// The rows carry what a screen needs to tell one child from another, newest activity first.
+func TestChildrenAnswersRowsNewestFirst(t *testing.T) {
+	old := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
+	eng := &childEngine{kids: []session.SessionMeta{
+		{ID: "s_old", Agent: "coder", Title: "fix the parser", Created: old, LastActivity: old},
+		{ID: "s_new", Agent: "meeting", Title: "which store", Created: old, LastActivity: recent},
+	}}
+	resp := answerChildren(context.Background(), eng, Request{Session: "s_parent"})
+	if !resp.OK || len(resp.Children) != 2 {
+		t.Fatalf("two children answered, got %+v", resp)
+	}
+	if eng.asked != "s_parent" {
+		t.Fatalf("the wire's session is the PARENT, engine was asked about %q", eng.asked)
+	}
+	if resp.Children[0].ID != "s_new" {
+		t.Fatalf("newest activity first, got %q", resp.Children[0].ID)
+	}
+	// The role is the one fact that tells a meeting room from a delegate.
+	if resp.Children[0].Agent != "meeting" || resp.Children[1].Agent != "coder" {
+		t.Fatalf("the subagent role travels, got %q and %q", resp.Children[0].Agent, resp.Children[1].Agent)
+	}
+	if resp.Children[0].LastActivity != recent.Format(time.RFC3339) {
+		t.Fatalf("timestamps are RFC3339, got %q", resp.Children[0].LastActivity)
+	}
+}
+
+// No children is an ANSWER: OK with an empty list, never an omitted field with OK.
+func TestChildrenAnswersNoneAsAnEmptyList(t *testing.T) {
+	resp := answerChildren(context.Background(), &childEngine{}, Request{Session: "s_parent"})
+	if !resp.OK {
+		t.Fatalf("a parent with no children is not a failure, got %+v", resp)
+	}
+	if resp.Children == nil || len(resp.Children) != 0 {
+		t.Fatalf("none is an empty list, not a missing field, got %+v", resp.Children)
+	}
+}
+
+// Advertised only when the engine can answer — the handshake is how a client knows which screen
+// to draw before it calls anything (door principle: advertise, then call).
+func TestChildrenIsAdvertisedOnlyWhenTheEngineCanAnswer(t *testing.T) {
+	if caps := capsOf(&fakeEngine{}); slices.Contains(caps, "children") {
+		t.Fatalf("a build that cannot answer must not advertise the door: %v", caps)
+	}
+	caps := capsOf(&childEngine{})
+	if !slices.Contains(caps, "children") {
+		t.Fatalf("an engine that answers ChildLister advertises `children`, got %v", caps)
 	}
 }

@@ -161,6 +161,21 @@ row is the one no other screen will mention again — then the runnable soonest-
 switched-off last** (a row with no problem and no next must not lead the schedule). Each row
 carries its next instant (RFC3339) or an empty next with the `problem` that explains it.
 
+**A subagent's own conversation (`children`, ★implemented).** A child runs in a session of its
+own — its parent's log holds the tool call that started it and nothing of what it did — so a
+screen that wants to show a subagent's work needs the child's id, and then that child's
+transcript. Two doors already carried half of this: `jobs` reports the children running now and
+the ones that just ended (a live register, in memory, bounded, gone on restart), and `transcript`
+accepts a child id as readily as a top-level one. What was missing is the past: `children` lists
+the subagent conversations a session spawned as the LOG holds them, so it answers for a child
+that finished last week and for a companion that has since restarted — which is when somebody
+asks what a subagent actually did. The parent is required and an empty one is refused: "the
+current conversation" is a per-caller fact, and a door that substituted it would answer a
+different question depending on who asked. No children is an empty list with OK, never an
+omitted field — "none were spawned" and "this build cannot say" are different screens, which is
+what the capability handshake is for. Meetings ride the same door: a participant holds its
+meeting in a child session, so what your companion said in a room is that child's transcript.
+
 ### Companion to companion, machine to machine
 
 On one machine, companions hand work to each other (hand_off — the first finished turn's last
