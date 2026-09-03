@@ -355,6 +355,30 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("턴은 도는데 아직 도구를 한 번도 안 불렀으면") {
+            Then("스텝은 0 이라고 말한다 — 대시가 아니라") {
+                openSide(page)
+                page.evaluate("window.__magi_test_thinking()")
+                // 요약줄로 기다린다: field.status 는 큐가 있을 때만 그려지고, 이 목에는 없다.
+                page.waitForCondition {
+                    page.locator("#detail .foldbar").textContent().contains("working")
+                }
+                // 명단은 <b>열린 턴이 있을 때만</b> 이 수를 채운다. 그래서 쉬는 컴패니언의 0 은
+                // "셀 것이 없다"이고 대시가 맞지만, 도는 턴의 0 은 "아직 아무 도구도 안 불렀다"
+                // 이고 그건 사람이 바로 알고 싶은 것이다 — 라이브 실측: 43초째 도는 컴패니언이
+                // 툴 0회였고, 화면은 그 소식을 「모른다」와 같은 글자로 그리고 있었다.
+                page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "0"
+            }
+            Then("쉬는 컴패니언의 0 은 여전히 대시다 — 그 0 은 셀 것이 없다는 뜻이다") {
+                // 같은 0 을 두 상태에서 견준다. 정지 목(스텝 7)으로 재면 7과 대시를 비교하게 되고
+                // 「언제나 숫자로 그리기」 변이가 통과한다 — 실제로 통과했다.
+                page.evaluate("window.__magi_test_idle_no_steps()")
+                page.waitForCondition {
+                    page.locator("#detail .foldbar").textContent().contains("idle")
+                }
+                page.locator("#detail .f[data-k=\"field.steps\"] .v").textContent() shouldBe "—"
+            }
+        }
         When("오른쪽 기둥의 내용이 창보다 길어지면") {
             Then("카드는 자기 내용을 자르지 않는다 — 자르는 것은 기둥 하나뿐이다") {
                 openSide(page)

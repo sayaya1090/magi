@@ -191,7 +191,15 @@ public class DetailElement {
         if (!load.isEmpty()) {
             put(field("field.status", stateWord(a.state) + " · " + load, "state " + a.state));
         }
-        put(field("field.steps", a.steps > 0 ? String.valueOf(a.steps) : "—", null));
+        // 0 은 상태에 따라 뜻이 갈린다. 명단은 <b>열린 턴이 있을 때만</b> 이 수를 채우므로,
+        // 쉬는 컴패니언의 0 은 "셀 것이 없다"이고 대시가 맞다. 그런데 도는 턴의 0 은 "아직 아무
+        // 도구도 안 불렀다"이고, 그건 바로 사람이 알고 싶은 것이다 — 43초째 도는 컴패니언이
+        // 툴을 한 번도 안 불렀다면 모델이 생각 중이라는 뜻이고, 크래시해도 잃을 것이 없다는
+        // 뜻이다(이 필드의 주석이 "what a crash would cost"라 적은 그것). 대시로 그리면 그
+        // 소식이 「모른다」와 같은 글자가 된다.
+        boolean turning = "working".equals(a.state) || "waiting".equals(a.state)
+                || "abandoned".equals(a.state);
+        put(field("field.steps", turning || a.steps > 0 ? String.valueOf(a.steps) : "—", null));
         // 이 줄은 <b>이 창의 시계로</b> 늙는다. 프레임은 쉰 시간을 초로 싣고, 서버는 그 초가
         // 달라졌다는 이유만으로는 프레임을 보내지 않는다 — 그래서 여기 적힌 초를 낱말로
         // 바꿔 두기만 하면 「마지막 활동」은 처음 본 그 순간의 뜻으로 굳는다(Ages).

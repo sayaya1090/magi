@@ -75,6 +75,45 @@ public class FakeCompanionSource implements CompanionSource {
     public interface AskFn { void call(String kind, String optionsJson); }
 
     /**
+     * 도는 턴인데 <b>아직 도구를 한 번도 안 부른</b> 상태. window.__magi_test_thinking().
+     *
+     * <p>명단은 열린 턴이 있을 때만 스텝을 채우므로, 이 0 은 "셀 것이 없다"가 아니라 "아직 아무
+     * 것도 안 불렀다"다 — 라이브에서 43초째 이 상태였다.
+     */
+    /**
+     * 쉬는 컴패니언의 <b>0</b>. window.__magi_test_idle_no_steps().
+     *
+     * <p>정지 문의 목은 스텝이 7이라, "쉴 때는 대시"를 그 목으로 재면 7과 대시를 견주게 되고
+     * 「언제나 숫자로 그리기」 같은 변이가 통과한다 — 실제로 통과했다. 갈라야 하는 두 값은
+     * 같은 0 이다.
+     */
+    private void openIdleNoStepsDoor() {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_idle_no_steps",
+                (StopFn) () -> {
+                    if (rosterCb == null) return;
+                    rosterCb.accept(Global.JSON.parse(
+                            "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"idle\"," +
+                            "\"live\":true,\"steps\":0,\"idle\":90,\"role\":\"keeps the build green\"," +
+                            "\"team\":\"core\",\"host\":\"devbox\",\"version\":\"v0.28.0\",\"trust\":\"own\"," +
+                            "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\"," +
+                            "\"permission\":\"ask\",\"model\":\"gpt-oss:120b\"}]"));
+                });
+    }
+
+    private void openThinkingDoor() {
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_thinking",
+                (StopFn) () -> {
+                    if (rosterCb == null) return;
+                    rosterCb.accept(Global.JSON.parse(
+                            "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
+                            "\"live\":true,\"steps\":0,\"idle\":0,\"role\":\"keeps the build green\"," +
+                            "\"team\":\"core\",\"host\":\"devbox\",\"version\":\"v0.28.0\",\"trust\":\"own\"," +
+                            "\"workdir\":\"/Users/you/work/app\",\"session\":\"s_demo1\"," +
+                            "\"permission\":\"ask\",\"model\":\"gpt-oss:120b\"}]"));
+                });
+    }
+
+    /**
      * 같은 문의 다른 쪽 — window.__magi_test_stopped()를 부르면 이 컴패니언이 답하기를
      * 멈춘 채로 명단이 다시 흐른다. 행은 <b>남는다</b>: 소켓 파일은 데몬보다 오래 살아서,
      * 명단이 실어 나르는 것은 "없다"가 아니라 "답하지 않는다"다.
@@ -130,6 +169,8 @@ public class FakeCompanionSource implements CompanionSource {
         rosterCb = cb;
         openAskDoor();
         openStopDoor();
+        openThinkingDoor();
+        openIdleNoStepsDoor();
         openLongAskDoor();
         cb.accept(Global.JSON.parse(
                 "[{\"socket\":\"/tmp/a1.sock\",\"name\":\"alpha\",\"state\":\"working\"," +
