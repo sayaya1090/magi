@@ -9,18 +9,26 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/meeting"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // child writes a session that names another as its parent — what a spawned subagent's log is.
 func (f *fleetFixture) child(sid, workdir, parent, role, task string) {
+	f.childFrom(sid, workdir, parent, role, task, "")
+}
+
+// childFrom is child plus WHO opened it. The origin is what tells a meeting's sessions from a
+// companion's own work, and both halves of a meeting turn carry one.
+func (f *fleetFixture) childFrom(sid, workdir, parent, role, task, origin string) {
 	f.t.Helper()
 	ev := func(t event.Type, d any) event.Event {
 		b, err := json.Marshal(d)
 		if err != nil {
 			f.t.Fatal(err)
 		}
-		return event.Event{Type: t, Data: b, TS: time.Now()}
+		return event.Event{Type: t, Data: b, TS: time.Now(),
+			Actor: event.Actor{Kind: event.ActorUser, ID: origin}}
 	}
 	evs := []event.Event{
 		ev(event.TypeSessionCreated, event.SessionCreatedData{Workdir: workdir, Parent: parent, Agent: role}),
@@ -79,5 +87,35 @@ func TestATranscriptIsOnlyReadForASessionThisWorkspaceOwns(t *testing.T) {
 	}
 	if w := get(t, f.srv.transcript, "/transcript?d="+url.QueryEscape(sock)); w.Code != 400 {
 		t.Errorf("naming no session answered %d, want 400", w.Code)
+	}
+}
+
+// Neither half of a meeting turn is listed among a companion's subagents.
+//
+// The speaking session has been hidden since meetings existed: an hour of meeting turns would bury
+// the companion's own work, and the meeting screen holds those turns anyway. The minutes session is
+// the second half of the same turn and belongs behind the same filter — it arrived later, with its
+// own origin so the screens can tell it apart, and a filter that named only the first would have
+// started showing something that had always been hidden.
+func TestNeitherHalfOfAMeetingTurnIsASubagent(t *testing.T) {
+	f := newFleetFixture(t)
+	sock := f.daemonAt("/w/design", "s_parent", true)
+	f.session("s_parent", "/w/design", "the turn", 0, true)
+	f.child("s_kid", "/w/design", "s_parent", "scout", "go and look")
+	f.childFrom("s_room", "/w/design", "s_parent", "spawn", "a meeting turn", meeting.Origin)
+	f.childFrom("s_note", "/w/design", "s_parent", "spawn", "the minutes", meeting.MinutesOrigin)
+
+	w := get(t, f.srv.subagents, "/subagents?d="+url.QueryEscape(sock))
+	if w.Code != 200 {
+		t.Fatalf("/subagents answered %d: %s", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "s_kid") {
+		t.Errorf("ordinary subagents stopped being listed: %s", body)
+	}
+	for _, hidden := range []string{"s_room", "s_note"} {
+		if strings.Contains(body, hidden) {
+			t.Errorf("%s is a meeting session and is listed as this companion's own work: %s", hidden, body)
+		}
 	}
 }

@@ -84,7 +84,7 @@ func (o *omniEngine) MeetingJoin(_ context.Context, meeting, topic string, room 
 	o.note("join:" + meeting + ":" + topic)
 	return "ready-note", "s_room", nil
 }
-func (o *omniEngine) MeetingTurn(_ context.Context, meeting, topic, transcript string, closing bool) (Contribution, error) {
+func (o *omniEngine) MeetingTurn(_ context.Context, meeting, topic, transcript, minutes string, closing bool) (Contribution, error) {
 	o.note("turn:" + meeting)
 	o.flags[0] = closing
 	return Contribution{Said: "", Pass: true, Room: "s_room2"}, nil

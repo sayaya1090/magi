@@ -1,11 +1,15 @@
 package app
 
 import (
-	"github.com/sayaya1090/magi/internal/core/meeting"
+	"context"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/core/command"
+	"github.com/sayaya1090/magi/internal/core/meeting"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // A pass is an answer, and it has to be told from a contribution that mentions passing.
@@ -49,7 +53,7 @@ func TestAPassIsToldFromSomebodySpeakingAboutPassing(t *testing.T) {
 // three has thrown away its one advantage — that each speaker read what came before.
 func TestAParticipantIsGivenTheWholeDiscussion(t *testing.T) {
 	said := "design: the empty state needs a token name\napi passed: not mine\n"
-	p := meetingPrompt("ops", "what to do about the empty state", said, false)
+	p := meetingPrompt("ops", "what to do about the empty state", said, "", false)
 	if !strings.Contains(p, said) {
 		t.Errorf("the transcript was not passed through:\n%s", p)
 	}
@@ -67,12 +71,12 @@ func TestAParticipantIsGivenTheWholeDiscussion(t *testing.T) {
 		t.Errorf("the participant is not told that passing is what ends the meeting:\n%s", p)
 	}
 	// And the closing question is a different question: what will YOU do.
-	c := meetingPrompt("ops", "what to do about the empty state", said, true)
+	c := meetingPrompt("ops", "what to do about the empty state", said, "", true)
 	if !strings.Contains(c, "what YOU will do") {
 		t.Errorf("the closing prompt does not ask for work:\n%s", c)
 	}
 	// The first speaker is told they are first rather than shown an empty heading.
-	if f := meetingPrompt("design", "x", "", false); !strings.Contains(f, "You are first") {
+	if f := meetingPrompt("design", "x", "", "", false); !strings.Contains(f, "You are first") {
 		t.Errorf("the first speaker was given an empty transcript:\n%s", f)
 	}
 }
@@ -249,10 +253,22 @@ func TestBothMeetingTurnsShareOneSystemPrompt(t *testing.T) {
 		t.Fatalf("meeting.go sets a system prompt %d time(s); preparing and speaking are both "+
 			"turns and both need one", len(sites))
 	}
+	// Two helpers now, and the difference is the point: a participant argues, a secretary writes
+	// down what was argued. What must not come back is a THIRD — an inline paste of either, which
+	// is the shape this test was written for.
 	for _, got := range sites {
-		if got != "meetingSystem(who)" {
-			t.Errorf("a turn takes its system prompt from %s rather than meetingSystem", got)
+		if got != "meetingSystem(who)" && got != "minutesSystem(who)" {
+			t.Errorf("a turn takes its system prompt from %s rather than one of the two helpers", got)
 		}
+	}
+	if n := strings.Count(body, "keeping the minutes of a meeting"); n != 1 {
+		t.Errorf("the minutes system prompt is written out %d times; it belongs in minutesSystem alone", n)
+	}
+	// And the secretary is not the participant. If these ever became one string the minutes turn
+	// would inherit "read your own files when you need to check something", which is the one thing
+	// a session with no tools cannot do — and it would start reporting what it could not have read.
+	if minutesSystem("x") == meetingSystem("x") {
+		t.Error("the secretary and the participant share a system prompt; they are different jobs")
 	}
 }
 
@@ -336,5 +352,81 @@ func TestThePrepareBriefNamesTheRoomAndWhatEachOneIsFor(t *testing.T) {
 func TestAnEmptyRoomLeavesNoHeading(t *testing.T) {
 	if p := preparePrompt("alpha", "q", "", nil); strings.Contains(p, "WHO ELSE IS IN THE ROOM") {
 		t.Errorf("an empty roster still drew its heading:\n%s", p)
+	}
+}
+
+// The minutes are written in a session of their own.
+//
+// This is the whole of design C and the one part of it that cannot be seen from the outside: both
+// arrangements produce a revised document, so if the write-up quietly moved into the speaking
+// session nothing would fail — and every participant would then be reading its own edit history
+// while deciding what to say.
+func TestTheMinutesAreWrittenSomewhereElse(t *testing.T) {
+	llm := &fakeLLM{}
+	a, room := meetingApp(t, llm)
+	ctx := context.Background()
+	note, err := a.CreateSession(ctx, command.CreateSession{Workdir: t.TempDir(),
+		Model: session.ModelRef{Provider: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const doc = "## Decided\n- (nothing yet)"
+	if _, err := a.MeetingSayIn(ctx, room, "api", "the topic", "", doc, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.MeetingWriteUp(ctx, note, "api", "the topic", doc, "api said a thing"); err != nil {
+		t.Fatal(err)
+	}
+	saw := func(sid session.SessionID, what string) bool {
+		evs, err := a.store.Read(ctx, sid, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range evs {
+			if strings.Contains(string(e.Data), what) {
+				return true
+			}
+		}
+		return false
+	}
+	if !saw(room, "THE MINUTES SO FAR") {
+		t.Error("the speaker was not shown the minutes — it will agree again to what is already agreed")
+	}
+	if saw(room, "Give back the whole minutes") {
+		t.Error("the write-up ran in the SPEAKING session: its drafts now sit in the context the " +
+			"participant decides in, which is what two sessions exist to prevent")
+	}
+	if !saw(note, "Give back the whole minutes") {
+		t.Error("the write-up did not reach the minutes session")
+	}
+}
+
+// The first speaker is handed a form; everybody after is handed the document.
+//
+// Given as a filled-in skeleton rather than described in prose because a description produces a
+// different shape from each model, and the second speaker then has to guess where its own edit
+// belongs. And once there IS a document, handing the form again would invite a rewrite from
+// scratch — which is the same failure as summarising: the record shrinks instead of growing.
+func TestTheFirstSpeakerGetsAFormAndTheRestGetTheDocument(t *testing.T) {
+	first := minutesPrompt("api", "which store", "", "api said a thing")
+	for _, want := range []string{"## Decided", "## Still open", "## Action items", "## Questions for the room"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the form is missing %q — the sections are what everybody after navigates by:\n%s", want, first)
+		}
+	}
+	later := minutesPrompt("design", "which store", "## Decided\n- use the queue", "design agreed")
+	if strings.Contains(later, "THE MINUTES ARE EMPTY") {
+		t.Errorf("a document already exists and the form was handed out again:\n%s", later)
+	}
+	if !strings.Contains(later, "- use the queue") {
+		t.Errorf("the document did not reach the writer:\n%s", later)
+	}
+	// The two rules the record depends on. Without the first it shrinks every round; without the
+	// second somebody wakes up owning work they never accepted.
+	if !strings.Contains(later, "UNCHANGED") {
+		t.Error("nothing tells the writer to carry unchanged lines through, so the minutes will shrink")
+	}
+	if !strings.Contains(later, "did not accept it") {
+		t.Error("nothing stops the writer assigning work to a name that never took it on")
 	}
 }

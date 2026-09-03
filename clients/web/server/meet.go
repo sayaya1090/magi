@@ -561,6 +561,9 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 		}
 		next, ok := run.m.Next()
 		topic, transcript := run.m.Topic, run.m.Transcript()
+		// Only the current version travels. Every draft it went through lives in the speaker's own
+		// minutes session, which is the point of that session existing.
+		minutes := run.m.Minutes
 		sock := run.sockets[next.Name]
 		if ok {
 			// The floor is TAKEN for the length of the turn, not handed over at the end of it.
@@ -574,7 +577,7 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 			run.collect(ctx, s, topic)
 			return
 		}
-		c, err := s.speakTo(ctx, sock, run.id, topic, transcript, false)
+		c, err := s.speakTo(ctx, sock, run.id, topic, transcript, minutes, false)
 		run.mu.Lock()
 		if err != nil {
 			run.trouble = next.Name + ": " + err.Error()
@@ -582,6 +585,9 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 		} else {
 			run.m.Say(meeting.Utterance{Who: next.Name, Text: c.Said, Pass: c.Pass})
 			run.roomOf(next.Name, c.Room)
+			// An empty revision leaves the document alone: an older daemon does not keep minutes,
+			// and a minutes turn that failed must not erase what the others agreed.
+			run.m.Wrote(next.Name, c.Minutes)
 		}
 		// Recording an utterance moves the floor on, which is right for the speaker and wrong for
 		// somebody who started typing while that speaker was still composing: their hold would be
@@ -599,18 +605,22 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 	run.mu.Lock()
 	run.collecting = true
 	transcript := run.m.Transcript()
+	// The closing round reads the minutes too: what a participant commits to should be consistent
+	// with the document everybody has been editing, not with its own memory of the discussion.
+	minutes := run.m.Minutes
 	who := append([]meeting.Speaker(nil), run.m.Speakers...)
 	run.mu.Unlock()
 	for _, sp := range who {
 		if sp.Person() {
 			continue
 		}
-		c, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, true)
+		c, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, minutes, true)
 		said, passed := c.Said, c.Pass
 		run.mu.Lock()
 		if c.Room != "" {
 			run.roomOf(sp.Name, c.Room)
 		}
+		run.m.Wrote(sp.Name, c.Minutes)
 		switch {
 		case err != nil:
 			run.trouble = sp.Name + ": " + err.Error()
@@ -727,7 +737,8 @@ func (s *server) joinMeeting(ctx context.Context, socket, id, topic string, room
 // Its own connection, dialled and dropped: a meeting turn is minutes of model time and the pooled
 // client serialises everything sent to that daemon, so holding it would stall every dashboard poll
 // for that companion behind a sentence somebody is composing.
-func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript string, closing bool) (
+func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript, minutes string,
+	closing bool) (
 	daemon.Contribution, error) {
 	if strings.TrimSpace(socket) == "" {
 		return daemon.Contribution{}, errNoDoor
@@ -743,7 +754,7 @@ func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript stri
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, err := cl.Meet(id, topic, transcript, closing)
+		said, err := cl.Meet(id, topic, transcript, minutes, closing)
 		done <- answer{said, err}
 	}()
 	// Bounded, a little above the daemon's own limit on a contribution. The companion stops itself

@@ -37,7 +37,7 @@ func TestAParticipantWithNoSessionIsNotAskedToSpeak(t *testing.T) {
 	a, _ := meetingApp(t, llm)
 
 	for _, child := range []session.SessionID{"", "   ", "\n\t"} {
-		u, err := a.MeetingSayIn(context.Background(), child, "api", "the topic", "", false)
+		u, err := a.MeetingSayIn(context.Background(), child, "api", "the topic", "", "", false)
 		if err == nil {
 			t.Errorf("MeetingSayIn(%q) answered %+v instead of saying the participant has no session", child, u)
 			continue
@@ -68,7 +68,7 @@ func TestWhatAParticipantSaysComesBackAsItsContribution(t *testing.T) {
 	a, sid := meetingApp(t, llm)
 
 	u, err := a.MeetingSayIn(context.Background(), sid, "api",
-		"should the toolchain move", "design: it would cost a day", false)
+		"should the toolchain move", "design: it would cost a day", "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestAMeetingRoundIsVisibleWhileItIsBeingComposed(t *testing.T) {
 	if a.MeetingActive() {
 		t.Fatal("a companion that is in no meeting reports a round in flight")
 	}
-	if _, err := a.MeetingSayIn(context.Background(), sid, "api", "the topic", "", true); err != nil {
+	if _, err := a.MeetingSayIn(context.Background(), sid, "api", "the topic", "", "", true); err != nil {
 		t.Fatal(err)
 	}
 	if !llm.duringT {

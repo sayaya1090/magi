@@ -20,6 +20,7 @@ type roomEngine struct {
 	joined []string
 	rooms  [][]Seat // the roster each join arrived with
 	turns  []string // the meeting id each turn arrived with
+	docs   []string // the minutes each turn arrived with
 }
 
 func (e *roomEngine) MeetingJoin(ctx context.Context, meeting, topic string, room []Seat) (string, string, error) {
@@ -30,12 +31,14 @@ func (e *roomEngine) MeetingJoin(ctx context.Context, meeting, topic string, roo
 	return "ready: " + topic, "s_" + meeting, nil
 }
 
-func (e *roomEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
+func (e *roomEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (
 	Contribution, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.turns = append(e.turns, meeting)
-	return Contribution{Said: "said something", Room: "s_" + meeting}, nil
+	e.docs = append(e.docs, minutes)
+	return Contribution{Said: "said something", Room: "s_" + meeting,
+		Minutes: minutes + "\n- and one more line"}, nil
 }
 
 func TestAMeetingTurnCarriesWhichMeetingItIs(t *testing.T) {
@@ -58,7 +61,7 @@ func TestAMeetingTurnCarriesWhichMeetingItIs(t *testing.T) {
 		t.Errorf("joining came back with the room %q", room)
 	}
 	for _, id := range []string{"m-1", "m-1", "m-2"} {
-		c, err := cl.Meet(id, "topic", "so far", false)
+		c, err := cl.Meet(id, "topic", "so far", "", false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,5 +114,34 @@ func TestTheRoomCrossesTheSocketOnJoin(t *testing.T) {
 	// role looks identical to a human, and the prompt would call it one.
 	if !got[0][1].Person {
 		t.Errorf("the person in the room arrived as a companion: %+v", got[0][1])
+	}
+}
+
+// The minutes cross the socket in BOTH directions.
+//
+// Both halves matter and they fail differently. Outbound missing: every speaker writes the document
+// from scratch every round, and the meeting ends with four unrelated records. Inbound missing: the
+// convener keeps handing out the same empty document forever, and nothing ever gets written down.
+// Neither shows up as an error — encoding/json drops what it does not declare and answers normally,
+// which this repository has already paid for once.
+func TestTheMinutesCrossTheSocketBothWays(t *testing.T) {
+	eng := &roomEngine{}
+	sock, _ := serveOn(t, eng)
+	cl := dialWhenUp(t, sock)
+	defer cl.Close()
+
+	const doc = "## Decided\n- use the queue"
+	got, err := cl.Meet("m-1", "which store", "design: use the queue", doc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng.mu.Lock()
+	arrived := append([]string(nil), eng.docs...)
+	eng.mu.Unlock()
+	if len(arrived) != 1 || arrived[0] != doc {
+		t.Errorf("the minutes did not reach the participant: %q", arrived)
+	}
+	if got.Minutes != doc+"\n- and one more line" {
+		t.Errorf("the revision did not come back: %q", got.Minutes)
 	}
 }

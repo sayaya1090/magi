@@ -111,8 +111,8 @@ func readyNote(said string) string {
 // to do with the question should say so in one line and cost one turn, and a prompt that demanded
 // a contribution would get "I agree with what design said" instead — which is the sentence that
 // makes people stop reading meeting records.
-func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, topic, transcript string,
-	closing bool) (meeting.Utterance, error) {
+func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, topic, transcript,
+	minutes string, closing bool) (meeting.Utterance, error) {
 	if strings.TrimSpace(string(child)) == "" {
 		return meeting.Utterance{}, fmt.Errorf("this participant has no session in the meeting")
 	}
@@ -122,7 +122,7 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 	defer a.meetingRounds.Add(-1)
 	s := a.sessionInfo(ctx, child)
 	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: meeting.Origin},
-		meetingPrompt(who, topic, transcript, closing)); err != nil {
+		meetingPrompt(who, topic, transcript, minutes, closing)); err != nil {
 		return meeting.Utterance{}, err
 	}
 	agent := AgentSpec{Name: spawnAgentName, System: meetingSystem(who),
@@ -132,6 +132,118 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 		return meeting.Utterance{}, err
 	}
 	return readUtterance(who, text), nil
+}
+
+// MeetingWriteUp is the second half of a turn: the speaker rewrites the minutes with what it just
+// said in them.
+//
+// # Why a session of its own
+//
+// The drafts have to accumulate somewhere — a document edited five times is five versions — and the
+// one place they must not is the session where the participant DECIDES. A companion that reads the
+// sentence it deleted two rounds ago is arguing with its own edit history instead of with the room.
+//
+// The alternative was cutting the old minutes out of each speaking request, which would move the
+// prefix and cost the KV cache everything after it. This repository has already paid that bill:
+// re-issuing a session for each round of deliberation was the single largest cost in a benchmark,
+// and removing it cut writes per call by 62% with no loss of accuracy. So both sessions stay
+// append-only, and the accumulation goes where it does no harm.
+//
+// This session gets NO tools. It reads nothing and runs nothing: everything it needs is in the
+// prompt, and a secretary that could go and look would start reporting things nobody said.
+func (a *App) MeetingWriteUp(ctx context.Context, child session.SessionID, who, topic, minutes,
+	said string) (string, error) {
+	if strings.TrimSpace(string(child)) == "" {
+		return "", fmt.Errorf("this participant has no minutes session")
+	}
+	a.meetingRounds.Add(1)
+	defer a.meetingRounds.Add(-1)
+	s := a.sessionInfo(ctx, child)
+	if err := a.appendPromptText(ctx, child,
+		event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},
+		minutesPrompt(who, topic, minutes, said)); err != nil {
+		return "", err
+	}
+	agent := AgentSpec{Name: spawnAgentName, System: minutesSystem(who), Model: s.Model}
+	out, err := a.runLoop(ctx, s, agent, 1, 1, true)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// MeetingWriteRoom opens the session the minutes are kept in, once per meeting per participant.
+func (a *App) MeetingWriteRoom(ctx context.Context, sid session.SessionID, who, topic string) (
+	session.SessionID, error) {
+	s := a.sessionInfo(ctx, sid)
+	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},
+		port.SpawnSpec{
+			ToolName: "minutes",
+			System:   minutesSystem(who),
+			Prompt:   "You are keeping the minutes for a meeting about: " + strings.TrimSpace(topic) +
+				"\n\nNothing to do yet. The first revision arrives next.",
+			MaxSteps: 1,
+		}, nil)
+	if err != nil {
+		return session.SessionID(res.SessionID), err
+	}
+	if res.Err != "" {
+		return session.SessionID(res.SessionID), fmt.Errorf("%s", res.Err)
+	}
+	return session.SessionID(res.SessionID), nil
+}
+
+func minutesSystem(who string) string {
+	return "You are " + who + ", keeping the minutes of a meeting between companions. You write " +
+		"down what the room has settled, what it has not, and who is doing what. You are not in " +
+		"the discussion: you do not add opinions, and you do not decide anything that was not said."
+}
+
+// minutesTemplate is what the first speaker is handed: the skeleton of an ordinary work meeting's
+// record, with every section present and empty.
+//
+// Given as a form rather than described in prose because a description produces a different shape
+// from each model, and the second speaker then has to guess where its own edit belongs. A form
+// filled in is a form everybody after can find their way around.
+const minutesTemplate = `# <the question>
+
+## Decided
+- (nothing yet)
+
+## Still open
+- (nothing yet)
+
+## Action items
+- <name>: <what> — <by when, if said>
+
+## Questions for the room
+- (nothing yet)`
+
+// minutesPrompt is the secretary's turn: here is the document, here is what was just said, give it
+// back revised.
+func minutesPrompt(who, topic, minutes, said string) string {
+	var b strings.Builder
+	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
+	if m := strings.TrimSpace(minutes); m != "" {
+		b.WriteString("THE MINUTES AS THEY STAND\n" + m + "\n\n")
+	} else {
+		// Nobody has written anything yet: this speaker is the first, and it gets the form.
+		b.WriteString("THE MINUTES ARE EMPTY. Start them from this form, keeping every heading:\n" +
+			minutesTemplate + "\n\n")
+	}
+	b.WriteString("WHAT " + who + " JUST SAID\n" + strings.TrimSpace(said) + "\n\n")
+	b.WriteString("WHAT TO DO NOW\n" +
+		"Give back the whole minutes, revised. Rules:\n" +
+		"- Bullets only. One item per line, no paragraphs.\n" +
+		"- Carry every section and every line you are not changing through UNCHANGED. Do not " +
+		"summarise them: minutes that shrink each round end the meeting with nothing in them.\n" +
+		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it.\n" +
+		"- Under \"Action items\", write only what somebody took on in their own words, and your " +
+		"own. Never assign work to a name that did not accept it — that is a promise they do not " +
+		"know they made.\n" +
+		"- Answer with the document and nothing else. No preamble, no explanation of what you " +
+		"changed.\n")
+	return b.String()
 }
 
 // readUtterance turns what came back into a contribution or a pass.
@@ -300,9 +412,15 @@ func (a *App) MeetingActive() bool { return a.meetingRounds.Load() > 0 }
 // The transcript is whole rather than summarised. A meeting where the fourth speaker reads a
 // précis of the first three is a meeting whose one advantage — that each speaker read what came
 // before — has been thrown away.
-func meetingPrompt(who, topic, transcript string, closing bool) string {
+func meetingPrompt(who, topic, transcript, minutes string, closing bool) string {
 	var b strings.Builder
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
+	// The document BEFORE what has been said, because it is the shorter and the more settled of
+	// the two: a speaker that reads what is already agreed does not spend its turn agreeing again.
+	// Only the current version travels — the drafts it went through live in the other session.
+	if m := strings.TrimSpace(minutes); m != "" {
+		b.WriteString("THE MINUTES SO FAR — what the room has already written down\n" + m + "\n\n")
+	}
 	if strings.TrimSpace(transcript) == "" {
 		b.WriteString("Nobody has spoken yet. You are first.\n\n")
 	} else {

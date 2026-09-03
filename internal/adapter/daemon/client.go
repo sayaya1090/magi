@@ -583,18 +583,18 @@ func (c *Client) Join(meeting, topic string, room []Seat) (ready, roomID string,
 	return resp.Out, resp.Session, nil
 }
 
-func (c *Client) Meet(meeting, topic, transcript string, closing bool) (Contribution, error) {
+func (c *Client) Meet(meeting, topic, transcript, minutes string, closing bool) (Contribution, error) {
 	which := ""
 	if closing {
 		which = "closing"
 	}
 	resp, err := c.exchange(Request{Method: "meet", Meeting: meeting, Name: topic, Text: transcript,
-		Decision: which})
+		Minutes: minutes, Decision: which})
 	if err != nil {
 		return Contribution{}, err
 	}
 	return Contribution{Said: resp.Out, Pass: resp.Exit != nil && *resp.Exit == 1,
-		Room: resp.Session}, nil
+		Room: resp.Session, Minutes: resp.Minutes}, nil
 }
 
 // passFlag carries "this was a pass" in the one field a Response has for a small number. Named

@@ -340,7 +340,7 @@ type Speaker interface {
 	// workspace and history and answers with what it brings. The session it makes is the one every
 	// turn of this meeting then happens in.
 	MeetingJoin(ctx context.Context, meeting, topic string, room []Seat) (ready, roomID string, err error)
-	MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (Contribution, error)
+	MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (Contribution, error)
 }
 
 // Seat is one participant of a meeting, as the companion that convened it knows them.
@@ -588,6 +588,13 @@ type Request struct {
 	// the prompt omits a section. That is why this is a field rather than a capability: there is
 	// no screen to draw or withhold on the answer, and nothing to tell an old build apart from.
 	Room []Seat `json:"room,omitempty"`
+	// Minutes is the meeting's document as it stands, carried on meet so the speaker reads what has
+	// already been agreed before adding to it. What comes back on Contribution is its revision.
+	//
+	// The whole text each way. It is written in bullets and stays small; a diff would save little
+	// and cost the one thing that matters here — a patch that does not apply corrupts the record
+	// without saying so.
+	Minutes string `json:"minutes,omitempty"`
 	// Schedule and Enabled are the cron edit doors' own two fields. Enabled is a pointer because
 	// the switch is three-valued on the wire: absent must mean "leave it alone", or an edit that
 	// only changes the words would silently switch a job back on.
@@ -631,6 +638,11 @@ type Request struct {
 type Response struct {
 	OK  bool   `json:"ok"`
 	Err string `json:"error,omitempty"`
+	// Minutes is the meeting document as the speaker just revised it, on a meet reply. Its own
+	// field rather than folded into Out, which carries what was SAID: a screen draws those two in
+	// different places, and one field meaning "the sentence, or the document, depending" is a wire
+	// that has to be read twice to be understood.
+	Minutes string `json:"minutes,omitempty"`
 	// Waiting answers the status method: absent when the engine is not blocked on anybody.
 	Waiting *Waiting `json:"waiting,omitempty"`
 	// Doing answers the same method with the opposite news: the latest progress note from a tool
@@ -972,6 +984,10 @@ type Contribution struct {
 	Said string
 	Pass bool
 	Room string
+	// Minutes is the meeting's document as this speaker rewrote it, whole. Empty when this daemon
+	// does not keep minutes (an older build, or a turn whose minutes pass failed) — which the
+	// convener reads as "leave the document alone", never as "erase it".
+	Minutes string
 }
 
 // completeArgs is the cursor-sides payload for a "complete" request.

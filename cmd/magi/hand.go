@@ -113,6 +113,10 @@ type handover struct {
 	// sake, found again by a label they send. It is what stops every contribution being a fresh
 	// child: fifteen of them for three companions over five rounds, each starting cold.
 	rooms *sideSessions
+	// minutes is the OTHER session each participant keeps for a meeting: the one that only rewrites
+	// the document. Kept apart from rooms so the drafts never reach the session where the
+	// participant decides what to say.
+	minutes *sideSessions
 	// queued is work taken and not started. See queue.go.
 	queued *waiting
 	// receipts is what this daemon has taken, and the only way to ask about any of it. nil is

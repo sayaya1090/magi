@@ -91,7 +91,10 @@ func (s *server) subagents(w http.ResponseWriter, r *http.Request) {
 		//
 		// Origin is the actor that opened the session and the meeting spawn sets it to "meeting",
 		// so nothing new has to be recorded to tell them apart.
-		if m.Origin == meeting.Origin {
+		// Both halves of a meeting turn, not just the speaking one. A participant keeps a second
+		// session for the minutes, and it is here for the same reason the first is not: a
+		// companion's own work must not be buried under an hour of meeting bookkeeping.
+		if m.Origin == meeting.Origin || m.Origin == meeting.MinutesOrigin {
 			continue
 		}
 		out = append(out, subagentRow{

@@ -705,7 +705,7 @@ func answerMeet(ctx context.Context, eng Engine, req Request) Response {
 	sp, ok := eng.(Speaker)
 	if !ok {
 		resp = Response{Err: "this daemon cannot take part in a meeting"}
-	} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text,
+	} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text, req.Minutes,
 		req.Decision == "closing"); merr != nil {
 		resp = Response{Err: merr.Error()}
 	} else {
@@ -716,7 +716,8 @@ func answerMeet(ctx context.Context, eng Engine, req Request) Response {
 		// mid-meeting prepares again in a NEW session, and a viewer holding the old id
 		// would show an empty working rather than the one that produced the sentence in
 		// front of it.
-		resp = Response{OK: true, Out: c.Said, Exit: passFlag(c.Pass), Session: c.Room}
+		resp = Response{OK: true, Out: c.Said, Exit: passFlag(c.Pass), Session: c.Room,
+			Minutes: c.Minutes}
 	}
 	return resp
 }

@@ -43,6 +43,15 @@ import (
 // that must not bury a companion's own work under an hour of meeting turns key off it.
 const Origin = "meeting"
 
+// MinutesOrigin is the actor id the MINUTES turn is spawned under — the second session each
+// participant keeps for a meeting, the one that only ever rewrites the document.
+//
+// Its own mark rather than sharing Origin, because two screens read this to decide what to draw:
+// the console hides meeting children from a companion's subagent list (an hour of meeting turns
+// would bury its own work), and the IDE plugin lists them. Sharing one mark would give the plugin
+// two identical rows per meeting, one of which nobody could name.
+const MinutesOrigin = "minutes"
+
 // Speaker is one participant: a companion, or the person running the meeting.
 type Speaker struct {
 	// Name is what everybody calls them, and what an utterance is attributed to.
@@ -165,6 +174,15 @@ type Meeting struct {
 	// Named is anybody called on by name since the last time they spoke: it puts a skipped speaker
 	// back in the round, which is what happens when a person says "@ops, what about the rollout".
 	Named map[string]bool
+	// Minutes is the document the participants keep between them: what has been decided, what is
+	// still open, and who is doing what. Each speaker rewrites it after saying their piece, so by
+	// the time the room closes it has been through everybody's hands — which is what makes it an
+	// agreement rather than a summary somebody wrote afterwards.
+	//
+	// Whole text, not a diff. It is written in bullets and stays small, a screen can find what
+	// changed by comparing it with the copy it drew last, and a patch that does not apply corrupts
+	// the record silently.
+	Minutes string
 	// Opened is false while the participants are still getting ready. The floor does not move and
 	// nothing is asked until it is true — see Ready on each speaker.
 	Opened bool
@@ -308,6 +326,19 @@ func (m *Meeting) Say(u Utterance) {
 			m.Named[name] = true
 		}
 	}
+}
+
+// Wrote replaces the minutes with the version this speaker just revised.
+//
+// Deliberately separate from Say: a contribution and a document edit are two turns in two sessions
+// (see App.MeetingSayIn), and folding them into one transition would let a speaker whose minutes
+// turn failed still be recorded as having updated them. An empty revision is ignored rather than
+// stored — a model that answered nothing must not erase what the others agreed.
+func (m *Meeting) Wrote(who, minutes string) {
+	if strings.TrimSpace(minutes) == "" || !m.has(who) {
+		return
+	}
+	m.Minutes = minutes
 }
 
 // Close ends the meeting, which is the convener saying it is time to write down who does what.

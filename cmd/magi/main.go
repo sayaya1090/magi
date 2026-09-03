@@ -46,7 +46,7 @@ import (
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/event"
-	"github.com/sayaya1090/magi/internal/core/meeting"
+	meetinglib "github.com/sayaya1090/magi/internal/core/meeting"
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/envflag"
@@ -1291,6 +1291,7 @@ func run() int {
 		// directory would be a way to run commands anywhere on this machine from a page.
 		taking := handover{work: a, at: newWhere(sid), workdir: wd, configDir: plat.ConfigDir(),
 			receipts: daemon.NewReceipts(), mine: newSideSessions(), rooms: newSideSessions(),
+			minutes: newSideSessions(),
 			// What it is carrying goes into this companion's own published record, which is where
 			// every roster reads it from — including one on another machine, a gossip round later.
 			queued: newWaiting(func(n int, handling bool) {
@@ -2988,10 +2989,10 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 // seatsOf turns what came over the socket into what the room's own vocabulary calls it. Two
 // structs of the same shape on purpose: the wire type belongs to the protocol and the core type to
 // the meeting, and collapsing them would make a change to either one a change to both.
-func seatsOf(room []daemon.Seat) []meeting.Seat {
-	out := make([]meeting.Seat, 0, len(room))
+func seatsOf(room []daemon.Seat) []meetinglib.Seat {
+	out := make([]meetinglib.Seat, 0, len(room))
 	for _, s := range room {
-		out = append(out, meeting.Seat{Name: s.Name, Role: s.Role, Does: s.Does, Person: s.Person})
+		out = append(out, meetinglib.Seat{Name: s.Name, Role: s.Role, Does: s.Does, Person: s.Person})
 	}
 	return out
 }
@@ -3055,8 +3056,39 @@ func (h handover) forget(meeting string) {
 	delete(h.rooms.by, meeting)
 }
 
-func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
-	daemon.Contribution, error) {
+// The same three, for the session the minutes are kept in. A second register rather than a second
+// field on the first: they are keyed the same and live the same length, and the reason they are not
+// one entry with two ids is that either can be missing on its own — a daemon that restarted has
+// neither, and one whose minutes turn failed still has a room worth speaking in.
+func (h handover) rememberMinutes(meeting string, child session.SessionID) {
+	if h.minutes == nil || strings.TrimSpace(meeting) == "" {
+		return
+	}
+	h.minutes.mu.Lock()
+	defer h.minutes.mu.Unlock()
+	h.minutes.by[meeting] = child
+}
+
+func (h handover) minutesFor(meeting string) session.SessionID {
+	if h.minutes == nil {
+		return ""
+	}
+	h.minutes.mu.Lock()
+	defer h.minutes.mu.Unlock()
+	return h.minutes.by[meeting]
+}
+
+func (h handover) forgetMinutes(meeting string) {
+	if h.minutes == nil {
+		return
+	}
+	h.minutes.mu.Lock()
+	defer h.minutes.mu.Unlock()
+	delete(h.minutes.by, meeting)
+}
+
+func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string,
+	closing bool) (daemon.Contribution, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	who := nameOr(d.card().Name, d.workdir)
@@ -3075,10 +3107,17 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 		child = got
 		d.handover.remember(meeting, child)
 	}
-	u, err := d.App.MeetingSayIn(rctx, child, who, topic, transcript, closing)
+	u, err := d.App.MeetingSayIn(rctx, child, who, topic, transcript, minutes, closing)
 	if err != nil {
 		return daemon.Contribution{}, err
 	}
+	// Then the same speaker writes up what it just said, in its OTHER session. A pass is written up
+	// too: "ops passed, this is not its area" is a line the room wants in the record.
+	//
+	// A minutes turn that fails does not fail the contribution. What was said is the meeting; the
+	// document is how the meeting is remembered, and losing the record of one turn is worth far
+	// less than losing the turn. The convener reads an empty revision as "leave it alone".
+	revised := writeUp(rctx, d, meeting, who, topic, minutes, u)
 	if closing {
 		// The room is ending for this participant. Its session was ephemeral — spun up only to take
 		// part in the discussion — so it is dropped from the subagent strip now rather than left to
@@ -3089,11 +3128,46 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 		d.App.ForgetSubagent(child)
 		d.App.ForgetSessionState(child)
 		d.handover.forget(meeting)
+		if note := d.handover.minutesFor(meeting); note != "" {
+			d.App.ForgetSubagent(note)
+			d.App.ForgetSessionState(note)
+			d.handover.forgetMinutes(meeting)
+		}
 	}
 	// Which room, every time — not only on the join. The branch above is a daemon that restarted
 	// mid-meeting: it is in a new conversation now, and a viewer still holding the old id would
 	// draw an empty working beside a sentence that plainly took some.
-	return daemon.Contribution{Said: u.Text, Pass: u.Pass, Room: string(child)}, nil
+	return daemon.Contribution{Said: u.Text, Pass: u.Pass, Room: string(child), Minutes: revised}, nil
+}
+
+// writeUp is the minutes half of a turn, and it never fails the turn.
+//
+// Opened lazily: a daemon that restarted mid-meeting has no minutes session, and the first turn
+// after that makes one. The document itself lives with the convener, so a fresh secretary picks up
+// from the text that arrived rather than from what it remembers — which is nothing.
+func writeUp(ctx context.Context, d daemonEngine, meeting, who, topic, minutes string,
+	u meetinglib.Utterance) string {
+	note := d.handover.minutesFor(meeting)
+	if note == "" {
+		got, err := d.App.MeetingWriteRoom(ctx, d.handover.at.now(), who, topic)
+		if err != nil {
+			return ""
+		}
+		note = got
+		d.handover.rememberMinutes(meeting, note)
+	}
+	said := u.Text
+	if u.Pass {
+		said = who + " passed."
+		if strings.TrimSpace(u.Text) != "" {
+			said += " " + u.Text
+		}
+	}
+	revised, err := d.App.MeetingWriteUp(ctx, note, who, topic, minutes, said)
+	if err != nil {
+		return ""
+	}
+	return revised
 }
 
 // LookOver is the model reading over somebody's shoulder — see app.LookOver. Bounded harder than

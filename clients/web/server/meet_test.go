@@ -49,7 +49,7 @@ func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string, room []
 	return "ready", "s_room_" + meeting, nil
 }
 
-func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (
+func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (
 	daemon.Contribution, error) {
 	if t.started != nil {
 		select {
