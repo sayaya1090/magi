@@ -169,7 +169,18 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 		}
 	}
 	if out.Used == 0 {
-		out.Used, out.Estimated = estimateTokens("", msgs), true
+		// The estimate is the whole request, not the transcript.
+		//
+		// It used to be estimateTokens("", msgs) — an empty system prompt, so the two pieces that
+		// dominate a real request were left out of the number every screen shows. Measured on one
+		// companion after a single exchange: it reported ~4 tokens where the request carried 8,107.
+		// The recorded make-up has all five pieces, so when there is one it IS the estimate; before
+		// the first finish there is nothing to read and the transcript is still the best guess.
+		if sum := out.Parts.Sum(); sum > 0 {
+			out.Used, out.Estimated = sum, true
+		} else {
+			out.Used, out.Estimated = estimateTokens("", msgs), true
+		}
 	}
 	return out, nil
 }

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,5 +141,66 @@ func TestTheRecordedShapeAndTheReportedPartsMatch(t *testing.T) {
 	p := ContextParts(event.PromptShape{System: 1, Tools: 2, Talk: 3, Calls: 4, Results: 5})
 	if p.Sum() != 15 {
 		t.Errorf("the parts sum to %d, so the conversion dropped a field", p.Sum())
+	}
+}
+
+// The terminal and the console answer the context question from one derivation.
+//
+// They did not. ContextView worked the numbers out itself and passed an EMPTY system prompt to the
+// estimator, so `/context` reported the conversation and called it the context — the same defect
+// the console had, surviving in the surface nobody looked at when the console was fixed. Two
+// derivations of one fact is the arrangement where exactly one of them gets repaired.
+func TestTheTerminalAndTheConsoleReadOneContext(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("done")}}
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "m", ContextWindow: 8000, Tools: true})
+	a, dir := newApp(t, llm, Config{Permission: "allow", Models: reg})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: dir, Model: session.ModelRef{Provider: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid,
+		Actor: event.Actor{Kind: event.ActorUser, ID: "cli"},
+		Parts: []session.Part{{Kind: session.PartText, Text: "say something"}}}); err != nil {
+		t.Fatal(err)
+	}
+	var st ContextState
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, err = a.ContextStateOf(context.Background(), sid); err == nil && st.Parts.Sum() > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st.Parts.Sum() == 0 {
+		t.Fatal("nothing was recorded for the turn")
+	}
+
+	view, err := a.ContextView(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same total, spelled the way the terminal spells it — and that total is the whole
+	// request, not the transcript. Both halves matter: the estimate used to be the conversation
+	// alone, so a terminal that "agreed" with the console agreed on a number that was wrong in
+	// both places.
+	if want := commas(st.Used); !strings.Contains(view, want) {
+		t.Errorf("the terminal reports a different total from the console (%s): %s", want, view)
+	}
+	// The number has to be at least the two pieces the transcript cannot supply. Comparing it
+	// against the conversation instead passes on an estimate that counts talk, calls and results
+	// and still leaves out the prompt and the catalog — measured: that version of this assertion
+	// let exactly that mutation through.
+	if floor := st.Parts.System + st.Parts.Tools; st.Used < floor {
+		t.Errorf("the reading is %d, below the %d of system prompt and tool catalog it is sitting "+
+			"on — the estimate is still the transcript alone", st.Used, floor)
+	}
+	// And it says what that total is made of, naming the two pieces the log cannot supply.
+	for _, want := range []string{commas(st.Parts.System), commas(st.Parts.Tools), "system", "tools"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("the terminal's reading does not mention %q — a person reading it there still "+
+				"cannot see that most of the window is the prompt and the catalog: %s", want, view)
+		}
 	}
 }

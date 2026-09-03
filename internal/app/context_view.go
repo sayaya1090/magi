@@ -17,40 +17,55 @@ import (
 // engineering pain #6). "used" is the last turn's real prompt tokens when known,
 // else a ~4-chars/token estimate.
 func (a *App) ContextView(ctx context.Context, sid session.SessionID) (string, error) {
+	// From ContextStateOf, which is the console's reading too.
+	//
+	// This function used to work the numbers out itself, and the two answers drifted the moment one
+	// was fixed: `contextTokens(sid, "", msgs)` passes an EMPTY system prompt, so the terminal was
+	// reporting the conversation and calling it the context — measured at 2,404 tokens of system
+	// prompt and 5,703 of tool catalog left out of a reading of 8,750. Two surfaces answering one
+	// question from two derivations is the arrangement that guarantees exactly one of them gets
+	// fixed.
+	st, err := a.ContextStateOf(ctx, sid)
+	if err != nil {
+		return "", err
+	}
+	// Still needed here and not in the state: the seq the last compaction replaced up to, which is
+	// a debugging handle for a person reading a log beside this, and no screen shows it.
 	evs, err := a.store.Read(ctx, sid, 0)
 	if err != nil {
 		return "", err
 	}
-	msgs := reconstruct(evs)
-	s := a.sessionInfo(ctx, sid)
-	window := a.contextWindow(s.Model.Model)
-	used := a.contextTokens(sid, "", msgs)
-
-	var compactions int
 	var lastReplaces int64
-	var before, after int
 	for _, e := range evs {
 		if e.Type == event.TypeCompaction {
 			var d event.CompactionData
 			if json.Unmarshal(e.Data, &d) == nil {
-				compactions++
-				lastReplaces, before, after = d.ReplacesUpToSeq, d.TokensBefore, d.TokensAfter
+				lastReplaces = d.ReplacesUpToSeq
 			}
 		}
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "Context window — %s\n", orDash(s.Model.Model))
-	if window > 0 {
-		pct := used * 100 / window
-		fmt.Fprintf(&b, "  used ~%s / %s tokens (%d%%)\n", commas(used), commas(window), pct)
+	fmt.Fprintf(&b, "Context window — %s\n", orDash(st.Model))
+	if st.Window > 0 {
+		pct := st.Used * 100 / st.Window
+		fmt.Fprintf(&b, "  used ~%s / %s tokens (%d%%)\n", commas(st.Used), commas(st.Window), pct)
 	} else {
-		fmt.Fprintf(&b, "  used ~%s tokens (window unknown)\n", commas(used))
+		fmt.Fprintf(&b, "  used ~%s tokens (window unknown)\n", commas(st.Used))
 	}
-	fmt.Fprintf(&b, "  messages: %d\n", len(msgs))
-	if compactions > 0 {
+	// What it is made of, when this session has recorded it. The two biggest pieces — the system
+	// prompt and the tool catalog — are not in the log at all, so a session that has not finished a
+	// turn under a build that records them says nothing here rather than implying five zeros.
+	if sum := st.Parts.Sum(); sum > 0 {
+		fmt.Fprintf(&b, "  of that: %s system · %s tools · %s talk · %s calls · %s results%s\n",
+			commas(st.Parts.System), commas(st.Parts.Tools), commas(st.Parts.Talk),
+			commas(st.Parts.Calls), commas(st.Parts.Results),
+			map[bool]string{true: "", false: " (estimated)"}[st.Estimated])
+	}
+	fmt.Fprintf(&b, "  messages: %d\n", st.Messages)
+	if st.Compactions > 0 {
 		fmt.Fprintf(&b, "  compactions: %d (last replaced ≤ seq %d, %s→%s tok)\n",
-			compactions, lastReplaces, commas(before), commas(after))
+			st.Compactions, lastReplaces, commas(st.LastBefore), commas(st.LastAfter))
 	} else {
 		b.WriteString("  compactions: none\n")
 	}
