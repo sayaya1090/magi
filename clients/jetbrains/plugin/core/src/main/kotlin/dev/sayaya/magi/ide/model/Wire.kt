@@ -40,6 +40,8 @@ data class Request(
     /** 예약 편집의 두 필드. [enabled] 는 **세 갈래**다 — 없음은 「스위치는 그대로」다. */
     val schedule: String? = null,
     val enabled: Boolean? = null,
+    /** 설정 쓰기가 어느 층에 쓸지 — 비우면 데몬이 정한다(project 우선). */
+    val tier: String? = null,
     val n: Int? = null,
     val args: JsonElement? = null,
     val ask: Boolean? = null,
@@ -118,6 +120,8 @@ data class Response(
     val handover: Handover? = null,
     /** 예약들 — `cron` 문의 답(`daemon.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
     val cron: List<CronRow>? = null,
+    /** 고칠 수 있는 설정 키들 — `config-get`/`config-set` 의 답(`daemon.go` 의 `ConfigItem`). */
+    val config: List<ConfigItem>? = null,
     /** `job-kill`·`mcp-detach` 의 「있었는지」 — 두 번 누른 ✕ 는 거짓이 아니라 이미-없음이다. */
     val removed: Boolean = false,
 )
@@ -410,3 +414,26 @@ data class LogEvent(
 /** 행위자. 와이어의 이름은 `id` 다(코어 `event.go` 의 `Actor`) — `name` 은 안 실려 온다. */
 @Serializable
 data class Actor(val kind: String = "", val name: String? = null, val id: String? = null)
+
+/**
+ * 고칠 수 있는 설정 키 하나 — 데몬이 **열거해 준다.**
+ *
+ * 화면이 키를 손으로 나열하지 않는 것이 이 자리의 규칙이다(모델을 정하는 자리가 여럿이고, 새
+ * 키가 늘 때마다 화면이 조각조각 늘어난다). 문이 열거하므로 그 규칙이 지켜지면서도 칸은
+ * 자동으로 는다 — [doc] 한 줄이 그 칸 밑에 서고, [applies] 는 「지금」과 「다음 기동」을 가른다
+ * (다시 켜라고 말할 필요 없는 키에 그렇게 말하면 사람이 헛되이 껐다 켠다).
+ */
+@Serializable
+data class ConfigItem(
+    val key: String = "",
+    val value: String? = null,
+    /** env | project | global | 빈 값(아무도 안 정함) — 지금 값이 **어디서 왔나**. */
+    val source: String? = null,
+    val tier: String? = null,
+    val file: String? = null,
+    /** now | next start. 키마다 다르다 — 한 문장으로 뭉치면 절반이 거짓말이 된다. */
+    val applies: String? = null,
+    val doc: String? = null,
+    /** 못 읽은 설정 층과 그 사유. 오타 난 파일과 아무 말 없는 파일은 값만 보면 같은 부재다. */
+    val unreadable: String? = null,
+)

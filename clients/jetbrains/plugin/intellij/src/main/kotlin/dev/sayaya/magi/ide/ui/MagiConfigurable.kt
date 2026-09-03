@@ -8,6 +8,7 @@ import com.intellij.ui.components.JBPanel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.JBUI
 import dev.sayaya.magi.ide.usecase.Activity
+import dev.sayaya.magi.ide.model.ConfigItem
 import dev.sayaya.magi.ide.usecase.Companion
 import java.awt.GridBagConstraints
 import java.awt.GridBagLayout
@@ -70,6 +71,18 @@ class MagiConfigurable(private val project: Project) : Configurable {
     /** 마지막으로 데몬에서 읽은 값. [isModified] 는 화면과 이것을 견준다 — IDE 저장분이 아니다. */
     private var read: String? = null
 
+    /**
+     * 데몬이 **열거해 준** 설정 키들과, 그것을 그리는 칸.
+     *
+     * 화면이 키를 손으로 나열하지 않는다는 이 자리의 규칙은 그대로다 — 오히려 더 잘 지켜진다.
+     * 문(`config-get`)이 열거하므로, 새 키가 늘면 이 화면은 **고치지 않아도** 그 칸이 선다.
+     * 예전엔 그 규칙을 지키느라 「데몬에 문이 없다」는 한 줄로 대신했는데, 그 문장이 문이 생긴
+     * 뒤에도 남아 **거짓이 됐다**(실측: 그 줄이 이름 대는 키 셋을 문이 이미 연다).
+     */
+    private var byDoor: List<ConfigItem> = emptyList()
+    private val doorFields = LinkedHashMap<String, javax.swing.JTextField>()
+    private val doorPane = javax.swing.JPanel(GridBagLayout())
+
     // 이름의 원천은 **번들 하나**다 — plugin.xml 의 `key=` 와 여기가 같은 열쇠를 본다.
     // 두 벌로 적어 두면 한쪽만 고치는 날이 온다.
     override fun getDisplayName() = MagiBundle.msg("configurable.magi")
@@ -122,10 +135,18 @@ class MagiConfigurable(private val project: Project) : Configurable {
         note(MagiBundle.msg("set.model.why"))
         row(MagiBundle.msg("set.backend"), backend)
         note(MagiBundle.msg("set.backend.why"))
-        // 문이 없는 것은 **없다고 적는다** — 웹에는 있는데 여기 없는 칸을 사람이 찾다 지친다.
-        // 항목을 하나씩 나열하지 않는다: 모델을 정하는 자리가 여럿이고(사용자 지적), 새 키가
-        // 늘 때마다 이 화면이 조각조각 늘어난다. 한 줄로 「어디에 있고 왜 여기선 못 고치는지」.
-        row(MagiBundle.msg("set.byfile"), Look.note(MagiBundle.msg("set.byfile.what"), Look.body))
+        // 데몬이 **열거한** 키들이 여기 선다. 손으로 나열하지 않는다는 규칙은 그대로고(모델을
+        // 정하는 자리가 여럿이라 조각조각 늘어난다는 그 사유), 열거를 문에 맡겨서 지킨다 —
+        // 새 키가 늘면 이 화면은 고치지 않아도 칸이 는다.
+        //
+        // 예전에는 그 규칙을 「데몬에 나머지 문이 없다」는 한 줄로 대신했는데, 문이 생긴 뒤에도
+        // 그 줄이 남아 거짓이 됐다. 화면이 시스템에 대해 단언하면 그 단언은 늙는다.
+        p.add(doorPane, GridBagConstraints().apply {
+            gridx = 0; gridy = y++; gridwidth = 2
+            anchor = GridBagConstraints.LINE_START
+            fill = GridBagConstraints.HORIZONTAL
+            weightx = 1.0
+        })
         row(MagiBundle.msg("set.cron"), Look.note(MagiBundle.msg("set.cron.none"), Look.body))
         row(MagiBundle.msg("set.more"), Look.note(MagiBundle.msg("set.more.none"), Look.body))
         // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
@@ -147,6 +168,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
             backend.text.isNotBlank() ||
             // 새 칸을 여기 안 적으면 **OK 가 조용히 아무것도 안 한다** — 플랫폼은 이 술어가
             // false 면 apply 를 부르지 않는다(라이브 실측: 체크는 켜졌는데 기능이 안 켜졌다).
+            // 문이 준 칸도 여기 든다 — 이 술어가 false 면 플랫폼은 apply 를 부르지도 않는다.
+            // 이 파일이 이미 그 값을 치렀다(체크는 켜졌는데 기능이 안 켜졌다).
+            byDoor.any { doorFields[it.key]?.text?.trim() != it.value.orEmpty().trim() } ||
             lookTyping.isSelected != LocalPrefs.look(project) ||
             autoComplete.isSelected != LocalPrefs.complete(project) ||
             composerSuggest.isSelected != LocalPrefs.suggest(project) ||
@@ -156,6 +180,47 @@ class MagiConfigurable(private val project: Project) : Configurable {
      * 쓴다 — 그리고 **다시 읽는다.** 쓴 값이 아니라 읽은 값을 화면에 남겨야, 데몬이 거절했거나
      * 다르게 알아들은 것이 그대로 보인다. 소켓은 EDT 밖에서.
      */
+    /**
+     * 문이 준 키들로 판을 다시 짓는다.
+     *
+     * **못 읽은 층은 값보다 먼저 말한다.** 오타가 든 설정 파일과 아무 말 없는 파일은 값만 보면
+     * 같은 부재다 — 문이 `unreadable` 로 그 차이를 실어 보내므로, 그것을 안 그리면 이 화면은
+     * 「비어 있음」이라고 거짓말을 한다.
+     *
+     * 「언제 듣나」는 **키마다** 적는다. 한 문장으로 뭉쳐 「다시 켜세요」라고 하면, 지금 듣는 키를
+     * 위해 사람이 헛되이 껐다 켠다.
+     */
+    private fun paintDoor() {
+        doorPane.removeAll()
+        doorFields.clear()
+        var dy = 0
+        fun line(c: java.awt.Component, x: Int, w: Int, ins: Insets) {
+            doorPane.add(c, GridBagConstraints().apply {
+                gridx = x; gridy = dy; gridwidth = w
+                anchor = GridBagConstraints.LINE_START
+                if (x == 1) { weightx = 1.0; fill = GridBagConstraints.HORIZONTAL }
+                insets = ins
+            })
+        }
+        for (item in byDoor) {
+            item.unreadable?.takeIf { it.isNotBlank() }?.let {
+                line(Look.note(it, Look.error), 0, 2, Insets(4, 0, 0, 0)); dy++
+            }
+            val f = javax.swing.JTextField(item.value.orEmpty(), 24)
+            doorFields[item.key] = f
+            line(javax.swing.JLabel(item.key), 0, 1, Insets(4, 0, 4, 12))
+            line(f, 1, 1, Insets(4, 0, 4, 0))
+            dy++
+            val why = listOfNotNull(
+                item.doc?.takeIf { it.isNotBlank() },
+                item.applies?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.applies", it) },
+                item.source?.takeIf { it.isNotBlank() }?.let { MagiBundle.msg("set.from", it) },
+            ).joinToString(" · ")
+            if (why.isNotBlank()) { line(Look.note(why, Look.body), 1, 1, Insets(0, 0, 6, 0)); dy++ }
+        }
+        doorPane.revalidate(); doorPane.repaint()
+    }
+
     override fun apply() {
         val mode = permission.selectedItem as? String
         val pick = (model.selectedItem as? String).orEmpty().trim()
@@ -170,6 +235,15 @@ class MagiConfigurable(private val project: Project) : Configurable {
             }
             if (prof.isNotBlank()) comp.useBackend(prof).also {
                 if (!it.ok) gripes += "백엔드: ${it.error ?: MagiBundle.msg("set.noreason")}"
+            }
+            // 문이 준 키는 **바뀐 것만** 쓴다. 전부 쓰면 안 건드린 키가 그 층에 새로 박혀,
+            // 원래 상위 층에서 오던 값이 조용히 고정된다(`source` 가 말하던 그 사실이 사라진다).
+            for (item in byDoor) {
+                val now = doorFields[item.key]?.text?.trim() ?: continue
+                if (now == item.value.orEmpty().trim()) continue
+                comp.configSet(item.key, now).also {
+                    if (!it.ok) gripes += "${item.key}: ${it.error ?: MagiBundle.msg("set.noreason")}"
+                }
             }
             pull(comp)
             LookWhileTyping.setEnabled(project, lookTyping.isSelected)
@@ -225,7 +299,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
     /** 데몬이 아는 것을 화면으로. 모델 목록이 늦거나 없어도 나머지는 선다. */
     private fun pull(comp: Companion) {
         val f = comp.facts()
+        // 문이 없으면 빈 목록이고, 그때 이 판은 아무것도 안 그린다 — 「없는 칸을 찾다 지친다」는
+        // 걱정의 답은 없는 문을 있는 척하지 않는 것이지, 있는 문을 없다고 적는 것이 아니었다.
+        val cfg = comp.configGet().let { if (it.ok) it.config.orEmpty() else emptyList() }
         SwingUtilities.invokeLater {
+            byDoor = cfg
+            paintDoor()
             doing.text = when (val a = Activity.of(f)) {
                 // 상태 표시줄과 **같은 열쇠**를 쓴다. 여기는 「도는 것 없음」이라 적고 있었는데
                 // 그 갈래는 「안 도는 중」이 아니라 **데몬이 안 말한 것**이다 — 옆 화면이 이미

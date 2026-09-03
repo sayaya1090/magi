@@ -113,7 +113,10 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      * 최소 폭이 글자 길이만큼이면 판은 그 아래로 못 좁혀진다.
      */
     fun `test 설명문 라벨은 판을 안 벌린다`() {
-        val long = MagiBundle.msg("set.byfile.what")
+        // 견본은 「이 트리에서 가장 긴 설명문」이면 된다. 예전 견본(`set.byfile.what`)은
+        // 설정 화면이 문을 안 쓰던 시절의 문장이라 사라졌다 — 그 문장이 「데몬에 문이 없다」고
+        // 단언하고 있었고, 문이 생긴 뒤 거짓이 됐다.
+        val long = MagiBundle.msg("plan.schedule.hint")
         assertTrue("견본 문구가 짧아 이 시험이 아무것도 안 잰다: ${long.length}자", long.length > 120)
         val c = Look.note(long)
         val min = c.minimumSize.width

@@ -125,6 +125,17 @@ class Companion(
         }.getOrDefault(emptyList())
     }
 
+    /** 고칠 수 있는 설정 키들과 지금 값 — 데몬이 열거한다. */
+    fun configGet(): Response = send(Request(method = "config-get"))
+
+    /**
+     * 설정 키 하나를 쓴다. [tier] 는 어느 층에 쓸지 — 비우면 데몬이 정한다.
+     *
+     * 빈 [value] 는 **지우기**다(그 층에서 그 키를 뺀다) — 「빈 문자열로 설정」이 아니다.
+     */
+    fun configSet(key: String, value: String, tier: String = ""): Response =
+        send(Request(method = "config-set", name = key, text = value, tier = tier))
+
     /**
      * 이 데몬이 무엇을 할 수 있는가 — 핸드셰이크의 `caps`.
      *
