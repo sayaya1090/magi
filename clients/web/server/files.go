@@ -234,12 +234,15 @@ func (s *server) git(w http.ResponseWriter, r *http.Request) {
 	}); derr != nil {
 		// A daemon too old to answer, or one whose workspace is not a checkout, is not an error
 		// page: the pane shows nothing rather than a failure about a section nobody asked for.
-		writeJSON(w, "git", app.GitState{})
+		writeJSON(w, "git", app.NoGitState())
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if strings.TrimSpace(out) == "" {
-		out = "{}"
+		// The same empty answer as the fallback above, marshalled — not "{}", which leaves the
+		// change list null for anybody who reads this without the console's coercions.
+		b, _ := json.Marshal(app.NoGitState())
+		out = string(b)
 	}
 	if _, werr := w.Write([]byte(out)); werr != nil {
 		log.Printf("magi-web: writing the git state: %v", werr)

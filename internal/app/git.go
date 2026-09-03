@@ -86,7 +86,11 @@ func (a *App) GitFacts(ctx context.Context, workdir string) (GitState, error) {
 		// Not a checkout, no git on the machine, or a repository this account may not read. All
 		// three are "there is nothing to show here", and none of them is a reason to fail the
 		// screen that asked.
-		return GitState{}, nil
+		//
+		// The change list is empty rather than nil. `repo:false` is what says there is nothing
+		// here; a `null` beside it says something different in the same breath — a reader cannot
+		// tell it from "not asked yet" — and the two disagreeing is worse than either.
+		return NoGitState(), nil
 	}
 	st := parseGitStatus(string(res.Stdout))
 	// The branches, in a second call because git says nothing about them in a status. Sorted by
@@ -823,3 +827,13 @@ func (a *App) GitDiffOf(ctx context.Context, workdir, path string, staged, untra
 // diffCap bounds what travels. A diff of a lock file or a vendored bundle is a megabyte of lines
 // nobody reads, and it would arrive at a pane that shows a few hundred.
 const diffCap = 512 << 10
+
+// NoGitState is the answer for a workspace with no repository behind it: `repo:false`, and an
+// EMPTY change list rather than a nil one.
+//
+// One function because there were three places that built this — the not-a-checkout return here,
+// the console's fallback for a daemon that cannot answer, and a literal "{}" for an empty body —
+// and two of them wrote `null` for the changes. `repo:false` is what says there is nothing here;
+// a null beside it says something different in the same breath, because a reader cannot tell it
+// from "not asked yet".
+func NoGitState() GitState { return GitState{Changes: []GitChange{}} }

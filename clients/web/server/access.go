@@ -108,6 +108,13 @@ func (s *server) access(w http.ResponseWriter, r *http.Request) {
 		Instance:   instanceRow{Who: instanceOf(user, host), ConfigDir: s.cfgDir},
 		Configured: p.Configured(),
 		Named:      s.userHeader != "",
+		// Empty lists, not nil. A console where nobody has been invited is the ordinary state of a
+		// fresh install, and `encoding/json` writes a nil slice as `null` — which a reader cannot
+		// tell from "we have not been told yet". The screens here happen to coerce; a client
+		// written against the documented shape does not get that for free.
+		People: []personRow{},
+		Groups: []personRow{},
+		Roles:  []roleRow{},
 	}
 	for who, person := range p.People {
 		out.People = append(out.People, personRow{
