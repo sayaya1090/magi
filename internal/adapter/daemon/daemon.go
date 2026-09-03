@@ -49,6 +49,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -1149,7 +1150,7 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop
 		// The methods that ANSWER: one function each, and the lockstep write is here rather than
 		// repeated at the end of every one of them.
 		if answer, ok := answers[req.Method]; ok {
-			if enc.Encode(answer(ctx, eng, req)) != nil {
+			if enc.Encode(answer.run(ctx, eng, req)) != nil {
 				return // the peer is gone
 			}
 			continue
@@ -1447,43 +1448,137 @@ func answerable(ctx context.Context, tr Transcriber, sid session.SessionID, sinc
 // The three that are NOT here are the three that do more than answer: shutdown replies and then
 // stops the daemon, and watch and transcript each give the connection over to a stream and never
 // return to the loop.
-var answers = map[string]func(context.Context, Engine, Request) Response{
-	"status":      answerStatus,
-	"models":      answerModels,
-	"tools":       answerTools,
-	"jobs":        answerJobs,
-	"about":       answerAbout,
-	"hand":        answerHand,
-	"hand-state":  answerHand,
-	"tool":        answerTool,
-	"edit-file":   answerEditFile,
-	"git":         answerGit,
-	"file-do":     answerFileDo,
-	"git-diff":    answerGitDiff,
-	"git-do":      answerGitDo,
-	"meet-join":   answerMeetJoin,
-	"meet":        answerMeet,
-	"git-pr":      answerGitPR,
-	"pr-facts":    answerPRFacts,
-	"pr-msg":      answerPRFacts,
-	"git-msg":     answerGitMsg,
-	"look-over":   answerLookOver,
-	"complete":    answerComplete,
-	"open-file":   answerOpenFile,
-	"suggest":     answerSuggest,
-	"shell":       answerShell,
-	"config-get":  answerConfigGet,
-	"config-set":  answerConfigSet,
-	"profiles":    answerProfiles,
-	"mcp-attach":  answerMCPAttach,
-	"mcp-detach":  answerMCPDetach,
-	"sessions":    answerSessions,
-	"children":    answerChildren,
-	"session-new": answerSessionNew,
-	"cron":        answerCron,
-	"cron-set":    answerCronEdit,
-	"cron-remove": answerCronEdit,
-	"job-kill":    answerJobKill,
+// door is one method this daemon answers, and everything a caller has to know about it.
+//
+// It is one struct because these three facts were three places: the name→function table, the
+// `eng.(Reviewer)` assertion inside the function, and capsOf. Adding `children` meant editing all
+// three, and capsOf's own comment already names what happens when one is forgotten — "the code ran
+// ahead of the advertisement, and nothing failed". capsOf is now derived from this table, so that
+// particular silence is not available any more.
+//
+// The gate itself stays in the function body. Moving it here and asserting bare inside would make
+// every body safe only BECAUSE dispatch ran first — tests call these directly, and a panic inside a
+// daemon takes the connection with it. What is here instead is the DECLARATION, and a guard calls
+// each door with an engine that implements nothing to check that the declaration is true.
+type door struct {
+	run func(context.Context, Engine, Request) Response
+	// needs is a nil pointer to the interface this door requires — (*Reviewer)(nil) — or nil for a
+	// door that answers either way with less in it (jobs, models, tools, status): those return an
+	// OK with empty fields rather than a refusal, which is a different contract and not a missing
+	// gate.
+	//
+	// A pointer because that is the only way to carry an interface TYPE as a value, and the type
+	// is the point: a guard reads it back and compares it with the assertion the body actually
+	// makes. Written as a predicate instead, a gate naming the wrong interface would agree with
+	// the body on every engine that implements neither — which is every test engine there is, so
+	// nothing would have failed.
+	needs any
+	// why is what run answers when needs is false. Held here so the table reads as the index of
+	// every refusal this daemon can give, and checked against the real answer by a guard.
+	why string
+	// cap is the capability name that advertises this door in `about`. Empty means the door is
+	// deliberately unadvertised, and noCap has to say why.
+	cap string
+}
+
+// Reasons a gated door carries no capability. The handshake exists for decisions a client makes
+// BEFORE anybody presses anything — whether to draw a panel at all — and a name in `caps` is what
+// lets it tell an old build from a refusing engine. A door that answers a press is different: the
+// refusal arrives at a moment that already has somewhere to show it.
+//
+// So this is not a backlog. A name here is a decision, and the reason is the value.
+const (
+	onPress     = "answers a press: no screen is drawn or withheld on it, and the refusal lands on the control that asked"
+	isTheAnswer = "this IS the handshake — advertising it inside its own reply says nothing"
+)
+
+// noCap names every gated door that is not advertised, and why. A guard fails if a door is in
+// neither this map nor carrying a cap, so the next door cannot be silently forgotten the way the
+// twenty here were.
+var noCap = map[string]string{
+	"about":      isTheAnswer,
+	"hand":       onPress,
+	"hand-state": onPress,
+	"tool":       onPress,
+	"edit-file":  onPress,
+	"file-do":    onPress,
+	"git":        onPress,
+	"git-diff":   onPress,
+	"git-do":     onPress,
+	"git-msg":    onPress,
+	"git-pr":     onPress,
+	"pr-facts":   onPress,
+	"pr-msg":     onPress,
+	"look-over":  onPress,
+	"complete":   onPress,
+	"open-file":  onPress,
+	"suggest":    onPress,
+	"shell":      onPress,
+	"meet":       onPress,
+	"meet-join":  onPress,
+}
+
+// Filled in init rather than at declaration: capsOf reads this table, answerAbout calls capsOf,
+// and the table names answerAbout — a cycle the compiler refuses at package level even though
+// nothing runs until a request arrives. Breaking it here rather than by giving capsOf its own copy
+// of the list, which is the duplicate this change exists to delete.
+// can reports whether this engine satisfies the door's declared gate.
+func (d door) can(e Engine) bool {
+	if d.needs == nil {
+		return true
+	}
+	// capsOf(nil) is a real call — it answers what a build speaks before any engine is in hand —
+	// and a nil interface has no type to ask. It implements nothing, which is the honest answer.
+	t := reflect.TypeOf(e)
+	return t != nil && t.Implements(reflect.TypeOf(d.needs).Elem())
+}
+
+var answers map[string]door
+
+func init() {
+	answers = map[string]door{
+		// Four that answer either way, with less in them when the engine cannot fill the fields. Not
+		// an oversight: a screen drawing a status line wants the line, not a refusal it has to hide.
+		"status": {run: answerStatus},
+		"models": {run: answerModels},
+		"tools":  {run: answerTools},
+		"jobs":   {run: answerJobs},
+
+		"about":      {run: answerAbout, needs: (*Describer)(nil), why: "this daemon cannot describe its companion"},
+		"hand":       {run: answerHand, needs: (*Taker)(nil), why: "this daemon cannot be handed work"},
+		"hand-state": {run: answerHand, needs: (*Taker)(nil), why: "this daemon cannot be handed work"},
+		"tool":       {run: answerTool, needs: (*ToolReader)(nil), why: "this daemon cannot read its workspace"},
+		"edit-file":  {run: answerEditFile, needs: (*ToolWriter)(nil), why: "this daemon cannot be asked to edit its workspace"},
+		"file-do":    {run: answerFileDo, needs: (*FileKeeper)(nil), why: "this daemon cannot make or remove files"},
+		"git":        {run: answerGit, needs: (*GitTeller)(nil), why: "this daemon cannot say what git makes of its workspace"},
+		"git-diff":   {run: answerGitDiff, needs: (*GitTeller)(nil), why: "this daemon cannot show a diff"},
+		"git-do":     {run: answerGitDo, needs: (*GitDoer)(nil), why: "this daemon cannot run git commands"},
+		"meet-join":  {run: answerMeetJoin, needs: (*Speaker)(nil), why: "this daemon cannot take part in a meeting"},
+		"meet":       {run: answerMeet, needs: (*Speaker)(nil), why: "this daemon cannot take part in a meeting"},
+		"git-pr":     {run: answerGitPR, needs: (*Reviewer)(nil), why: "this daemon cannot open a pull request"},
+		"pr-facts":   {run: answerPRFacts, needs: (*Reviewer)(nil), why: "this daemon cannot answer about pull requests"},
+		"pr-msg":     {run: answerPRFacts, needs: (*Reviewer)(nil), why: "this daemon cannot answer about pull requests"},
+		"git-msg":    {run: answerGitMsg, needs: (*Reviewer)(nil), why: "this daemon cannot draft a commit message"},
+		"look-over":  {run: answerLookOver, needs: (*Reviewer)(nil), why: "this daemon cannot look over a file"},
+		"complete":   {run: answerComplete, needs: (*Reviewer)(nil), why: "this daemon cannot complete code"},
+		"open-file":  {run: answerOpenFile, needs: (*Reviewer)(nil), why: "this daemon cannot track an open file"},
+		"suggest":    {run: answerSuggest, needs: (*Reviewer)(nil), why: "this daemon cannot suggest a prompt"},
+		"shell":      {run: answerShell, needs: (*ShellRunner)(nil), why: "this daemon cannot run commands"},
+
+		// Advertised. Each of these decides whether a screen exists, which is what the handshake is for.
+		"config-get":  {run: answerConfigGet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot read out its settings", cap: "settings"},
+		"config-set":  {run: answerConfigSet, needs: (*ConfigKeeper)(nil), why: "this daemon cannot change its settings", cap: "settings"},
+		"profiles":    {run: answerProfiles, needs: (*ConfigKeeper)(nil), why: "this daemon cannot list its backends", cap: "settings"},
+		"mcp-attach":  {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
+		"mcp-detach":  {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
+		"sessions":    {run: answerSessions, needs: (*ConversationKeeper)(nil), why: "this daemon cannot list its conversations", cap: "sessions"},
+		"session-new": {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
+		"children":    {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
+		"cron":        {run: answerCron, needs: (*CronTeller)(nil), why: "this daemon cannot read its schedule", cap: "cron"},
+		"cron-set":    {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-set"},
+		"cron-remove": {run: answerCronEdit, needs: (*CronEditor)(nil), why: "this daemon cannot change its schedule", cap: "cron-remove"},
+		"job-kill":    {run: answerJobKill, needs: (*JobKiller)(nil), why: "this daemon cannot stop background commands", cap: "job-kill"},
+	}
 }
 
 // answerJobKill stops one background command. Removed answers whether the id named a job — a ✕
@@ -2280,64 +2375,35 @@ func Caps() []string { return capsOf(nil) }
 // behind it.
 func capsOf(eng Engine) []string {
 	// "handshake" marks a build that answers this versioned about at all.
-	caps := []string{"handshake"}
-	// "roster": this daemon answers who is out there (roster.go). Build-level, unlike the two
+	//
+	// "roster": this daemon answers who is out there (roster.go). Build-level, unlike everything
 	// below: the answer is read from the listener's home directory, not from an engine interface,
-	// so any daemon from this build speaks it.
-	caps = append(caps, "roster")
-	// "tool-servers": this daemon accepts mcp-attach / mcp-detach. Asked of the engine because an
-	// application that IS a tool server (an editor plugin, a slide add-in) draws a list of
-	// companions and decides which ones it can attach to BEFORE attaching — so what it needs from
-	// this answer is "this daemon will take it", not "this build contains the code".
-	//
-	// It is advertised at all because the door landed dispatched and unadvertised, leaving a client
-	// nothing to ask: it would have to call the method and read the refusal back, and prose is not
-	// a contract — the two refusals differ in wording today (one lists the accepted methods, the
-	// other says this daemon cannot attach tool servers) and one of them has already been reworded
-	// once in this repository.
-	//
-	// This repository has a name for advertising that runs ahead of the code. This was the other
-	// direction, which is quieter: the code ran ahead of the advertisement, and nothing failed.
-	if _, ok := eng.(ToolServerHost); ok {
-		caps = append(caps, "tool-servers")
-	}
-	// "settings": this daemon will read and change the whitelisted config keys. Advertised for
-	// the same reason as the doors above — a client draws a settings screen, and "there is no
-	// door" and "the door refused" are different screens.
-	if _, ok := eng.(ConfigKeeper); ok {
-		caps = append(caps, "settings")
-	}
-	// "transcript": this daemon will read a conversation out down the socket. Asked of the engine
-	// for the reason above, and advertised for the reason above: the clients this door exists for
-	// are the ones with no log reader, and the only alternative to an answer here is calling the
-	// method and reading a sentence back — which cannot tell a build that does not know the method
-	// from an engine that will not do it.
+	// so any daemon from this build speaks it. It is not in the door table for the same reason —
+	// that table's shape is (ctx, Engine, Request).
+	caps := []string{"handshake", "roster"}
+	// "transcript": this daemon will read a conversation out down the socket. Not in the table
+	// either: it turns the connection into a stream, so it is dispatched before the table is
+	// consulted. Advertised for the reason every name below is — the clients this door exists for
+	// have no log reader, and calling the method and reading a sentence back cannot tell a build
+	// that does not know it from an engine that will not do it.
 	if _, ok := eng.(Transcriber); ok {
 		caps = append(caps, "transcript")
 	}
-	// The dock's verbs, engine-gated like the two above and advertised for the same reason: an
-	// IDE deciding whether to draw a picker cannot tell an old build from a refusing engine by
-	// calling and reading prose back.
-	if _, ok := eng.(ConversationKeeper); ok {
-		caps = append(caps, "sessions", "session-new")
+	// The rest is read off the door table rather than written here a second time. That second copy
+	// is what this function's own history is about: a door would land dispatched and unadvertised,
+	// nothing would fail, and a client gated on the capability would never draw and never say why.
+	// A name can still be wrong now, but it can no longer be MISSING.
+	seen := map[string]bool{}
+	for _, d := range answers {
+		if d.cap == "" || seen[d.cap] || !d.can(eng) {
+			continue
+		}
+		seen[d.cap] = true
+		caps = append(caps, d.cap)
 	}
-	// "children": advertised for the same reason as the doors above, and with one of its own —
-	// a screen that draws a subagent's work must know whether "no children" means none were
-	// spawned or this build cannot say. Calling and reading prose back cannot tell those apart.
-	if _, ok := eng.(ChildLister); ok {
-		caps = append(caps, "children")
-	}
-	if _, ok := eng.(CronTeller); ok {
-		caps = append(caps, "cron")
-	}
-	// The write half is advertised separately: a build can answer what is scheduled and refuse to
-	// change it, and a screen deciding whether to draw an editor must be able to tell.
-	if _, ok := eng.(CronEditor); ok {
-		caps = append(caps, "cron-set", "cron-remove")
-	}
-	if _, ok := eng.(JobKiller); ok {
-		caps = append(caps, "job-kill")
-	}
+	// Sorted from here down so the advertisement does not depend on map order — a client diffing
+	// two daemons' caps, or a golden holding one, would otherwise see churn that means nothing.
+	sort.Strings(caps[2:])
 	return caps
 }
 

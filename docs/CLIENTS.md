@@ -331,11 +331,18 @@ contracts this page already states.
    (WorkspaceKey — held by goldens) and spawns a daemon when none answers.
 2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake`
    and `roster` are always there (build-level), the rest are engine-gated and may be absent
-   (`transcript`, `sessions`, `session-new`, `cron`, `job-kill`, `tool-servers`,
-   `settings`). The base verbs
-   every build speaks (submit, steer, status, …) are not advertised; the unknown-method refusal
-   names everything this daemon accepts. Read the advertisement and call; never call an absent
+   (`transcript`, `sessions`, `session-new`, `children`, `cron`, `cron-set`, `cron-remove`,
+   `job-kill`, `tool-servers`, `settings`). Read the advertisement and call; never call an absent
    door and read the refusal.
+
+   The list is short on purpose, and shorter than the list of gated doors. A capability is for a
+   decision made **before anybody presses anything** — whether to draw a panel at all — because
+   that is the decision a refusal cannot help with: at that moment there is no control to show it
+   on, and prose cannot tell an old build from an engine that will not do it. A door that answers
+   a press (`git-pr`, `shell`, `complete`, `look-over`, …) is gated too, and refuses in its own
+   words, and is deliberately not advertised: the refusal lands on the button that asked. Which
+   doors are in which group is written in the daemon's door table, one line each, and a guard
+   fails if a new door is in neither.
 3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
    on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
    `cron` and `jobs`.

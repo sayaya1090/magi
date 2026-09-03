@@ -3,6 +3,10 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"reflect"
+	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -611,5 +615,119 @@ func TestConfigItemsSayWhichKeysTakeAProfile(t *testing.T) {
 	}
 	if !resp.Config[1].Profile {
 		t.Error("a profile-shaped key must say so, or the screen draws a text box for it")
+	}
+}
+
+// ── The door table's declarations, checked against what the doors actually do ──────────────────
+//
+// answers now carries three facts per door that used to live apart: the interface it needs, the
+// refusal it gives without it, and the capability that advertises it. capsOf is derived from the
+// third, which is what makes the old failure impossible — a door can no longer land dispatched and
+// unadvertised. The first two are still written by hand next to a body that asserts the interface
+// itself, so they are checked here rather than trusted.
+
+// bareEngine implements nothing beyond Engine. Every gated door must refuse it, in its own words.
+type bareEngine struct{ Engine }
+
+func TestEveryDeclaredGateGivesItsDeclaredRefusal(t *testing.T) {
+	for name, d := range answers {
+		if d.needs == nil {
+			if d.why != "" {
+				t.Errorf("%q declares a refusal but no gate — nothing can ever produce it", name)
+			}
+			continue
+		}
+		if d.why == "" {
+			t.Errorf("%q is gated and says nothing when it refuses", name)
+			continue
+		}
+		if d.can(bareEngine{}) {
+			t.Errorf("%q accepts an engine that implements nothing — its gate names a type "+
+				"everything satisfies, so it gates nothing", name)
+			continue
+		}
+		got := d.run(context.Background(), bareEngine{}, Request{Method: name})
+		if got.Err != d.why {
+			t.Errorf("%q refuses with %q, but the table says %q — one of them is what a client reads",
+				name, got.Err, d.why)
+		}
+	}
+}
+
+// And the gate names the interface the body actually asserts.
+//
+// The check above cannot see this. A door declaring the wrong interface still refuses an engine
+// that implements nothing, so it agrees — and every test engine in this package implements either
+// all of these or none, so running the doors against them agrees too. That was measured: this guard
+// was first written that way and a deliberate swap of Reviewer for GitTeller went straight through.
+//
+// So it reads the source. The declaration is a type by design, which makes the two comparable: what
+// the table says the door needs, against the `eng.(X)` the body performs.
+func TestEveryDeclaredGateNamesTheInterfaceTheBodyAsserts(t *testing.T) {
+	src, err := os.ReadFile("daemon.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := regexp.MustCompile(`(?s)\nfunc (answer\w+)\(ctx context\.Context, eng Engine, (?:req|_) Request\) Response \{\n(.*?)\n\}\n`)
+	asserts := map[string]string{}
+	for _, m := range body.FindAllStringSubmatch(string(src), -1) {
+		if a := regexp.MustCompile(`eng\.\((\w+)\)`).FindStringSubmatch(m[2]); a != nil {
+			asserts[m[1]] = a[1]
+		}
+	}
+	if len(asserts) < 20 {
+		t.Fatalf("only %d door bodies were read out of daemon.go — this guard is looking at the "+
+			"wrong shape and would pass no matter what the table said", len(asserts))
+	}
+	fnName := func(f any) string {
+		full := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
+		return full[strings.LastIndex(full, ".")+1:]
+	}
+	for name, d := range answers {
+		fn := fnName(d.run)
+		asserted, hasAssert := asserts[fn]
+		if d.needs == nil {
+			// A door with no gate may still assert an interface — that is the "answers with less"
+			// shape, where a missing interface leaves fields empty instead of refusing.
+			continue
+		}
+		declared := reflect.TypeOf(d.needs).Elem().Name()
+		switch {
+		case !hasAssert:
+			t.Errorf("%q declares it needs %s, but %s asserts no interface at all", name, declared, fn)
+		case asserted != declared:
+			t.Errorf("%q declares it needs %s, but %s asserts %s — a client reading the "+
+				"advertisement is being told about a different door", name, declared, fn, asserted)
+		}
+	}
+}
+
+// Every gated door is either advertised or says why not. This is the direction that was open: the
+// reverse guard below has been checking that an advertised capability has a door since the day one
+// was advertised without one, but twenty-two doors were gated and unadvertised with nothing saying
+// whether that was a decision or an omission.
+func TestEveryDoorIsAdvertisedOrSaysWhyNot(t *testing.T) {
+	for name, d := range answers {
+		reason, excused := noCap[name]
+		switch {
+		case d.needs == nil && (d.cap != "" || excused):
+			t.Errorf("%q has no gate, so there is nothing for a client to know before calling — "+
+				"it should carry neither a capability nor an excuse", name)
+		case d.needs == nil:
+		case d.cap != "" && excused:
+			t.Errorf("%q is advertised as %q AND excused from advertising", name, d.cap)
+		case d.cap != "":
+		case !excused:
+			t.Errorf("%q is gated and unadvertised, and nothing says whether that was decided — "+
+				"a client cannot tell an old build from an engine that will not do it", name)
+		case strings.TrimSpace(reason) == "":
+			t.Errorf("%q is excused with an empty reason", name)
+		}
+	}
+	// And an excuse does not outlive what it excused.
+	for name := range noCap {
+		if _, ok := answers[name]; !ok {
+			t.Errorf("noCap names %q, which is not a door any more", name)
+		}
 	}
 }
