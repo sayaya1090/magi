@@ -321,6 +321,25 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.waitForSelector("#sidecol #side:not([hidden])")
                 page.locator("#filecol > .cfill[hidden]").count() shouldBe 1
             }
+            Then("탭 안의 판은 자기 안에서 스크롤하지 않는다 — 페이지가 스크롤한다") {
+                // 탭 하나가 곧 화면이므로, 그 안에 또 스크롤 상자를 두면 손가락이 어느 것을 미는지
+                // 알 수 없다. 이 파일의 회의 화면 규칙이 같은 말을 한다: "페이지가 스크롤하고, 이건
+                // 자란다". 사실판은 그 처리를 못 받고 있었다 — 가운데 기둥에서 전사와 높이를 다투던
+                // 시절의 `overflow:auto` 를 폰까지 들고 왔기 때문이다.
+                page.locator("#ptab-facts").click()
+                page.waitForSelector("#detail:not([hidden])")
+                val cut = page.evaluate(
+                    "(() => { const d = document.querySelector('#detail');" +
+                        " const tall = document.createElement('div');" +
+                        " tall.style.height = '3000px'; d.appendChild(tall);" +
+                        " const inner = d.scrollHeight > d.clientHeight + 1;" +
+                        " const ov = getComputedStyle(d).overflowY;" +
+                        " tall.remove();" +
+                        " return inner ? ('scrolls inside itself, overflow-y ' + ov) : 'ok'; })()"
+                )
+                cut shouldBe "ok"
+                page.locator("#ptab-talk").click()
+            }
             Then("가로 스크롤은 없다") {
                 (page.evaluate("document.scrollingElement.scrollWidth <= window.innerWidth + 1") as Boolean) shouldBe true
             }
