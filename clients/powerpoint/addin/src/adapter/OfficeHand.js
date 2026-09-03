@@ -145,7 +145,39 @@ export class OfficeHand extends HandPort {
     return new Map(askable.map((s) => [s, s.placeholderFormat?.type ?? null]));
   }
 
+  /**
+   * 조작 하나. **줄을 세운다 — Office 는 겹치는 `PowerPoint.run` 을 거절한다.**
+   *
+   * 실물에서 그 화면을 봤다(2026-09-03): 아홉 장을 만드는 `add_slides` 뒤로 **2분 넘게** 모든
+   * 호출이 「이전 호출이 완료될 때까지 기다립니다」로 거절됐고, 모델은 열다섯 번 넘게 같은
+   * 호출을 다시 던지며 턴을 태웠다.
+   *
+   * 손을 부르는 곳이 **둘**이라 그렇다: 헬퍼가 흘려보내는 모델의 조작(`ServeHand` 는 받는
+   * 족족 `void this.#run(req)` 로 던진다)과, 작업창이 스스로 부르는 것(제안 카드 읽기).
+   * 헬퍼는 자기 연결 안에서만 줄을 세우므로 이 둘 사이는 아무도 안 세운다.
+   *
+   * **여기서 세운다.** 문이 하나뿐인 자원은 그 문 앞에서 줄을 세우는 것이 맞고, 그러면 부르는
+   * 쪽이 몇이든 상관없어진다.
+   *
+   * 안에서 자기를 다시 부르는 갈래가 있으므로(`drop_suggestion` → `set_tag`) **재진입은
+   * 그냥 통과시킨다** — 안 그러면 자기 자신을 기다리다 멎는다.
+   */
   async run(op, args = {}) {
+    if (this.#inside) return this.#dispatch(op, args);
+    const mine = (this.#queue ?? Promise.resolve()).then(async () => {
+      this.#inside = true;
+      try { return await this.#dispatch(op, args); } finally { this.#inside = false; }
+    });
+    // **앞사람이 넘어져도 뒷사람은 선다.** 거절도 줄에서는 그냥 「끝난 것」이다.
+    this.#queue = mine.then(() => {}, () => {});
+    return mine;
+  }
+
+  #queue = Promise.resolve();
+
+  #inside = false;
+
+  #dispatch(op, args = {}) {
     switch (op) {
       case 'list_slides': return this.#listSlides(args);
       case 'read_slide': return this.#readSlide(args);
@@ -1240,6 +1272,28 @@ export class OfficeHand extends HandPort {
           style_unread: (got ? !got.read : false) || style?.read === false,
         });
       }
+      // **앞에 남아 있는 빈 장을 말해 준다.**
+      //
+      // 새 프레젠테이션은 빈 장 하나로 열린다. 거기에 발표자료를 지으면 **그 빈 장이 표지
+      // 앞에 그대로 남고**, 사람이 보는 첫 화면이 백지가 된다. 실물에서 그 화면을 봤다
+      // (2026-09-03: 아홉 장짜리 덱의 1번이 빈 장이었다).
+      //
+      // 지우지는 않는다 — 사람 것을 우리가 판단해서 지우는 일이다. **있다는 사실만 적는다.**
+      // 그것만으로 모델이 `delete_slide` 를 부를 수 있고, 안 적으면 볼 방법이 없다.
+      const emptyBefore = [];
+      for (const s2 of slides.items) {
+        if ((s2.index ?? 0) >= (made[0].index ?? 0)) continue;
+        if (before.has(s2.id)) emptyBefore.push(s2);
+      }
+      const stillBlank = [];
+      if (emptyBefore.length) {
+        for (const s2 of emptyBefore) s2.shapes.load('items/id');
+        await context.sync();
+        for (const s2 of emptyBefore) {
+          if ((s2.shapes.items ?? []).length === 0) stillBlank.push((s2.index ?? 0) + 1);
+        }
+      }
+
       const missed = rows.filter((r) => r.unfilled.length);
       // **첫 줄로 전체를 대변하지 않는다.** 1번만 맞고 나머지가 안 맞았는데 「맞춤」이라고
       // 적으면 그건 아홉 장에 대한 거짓말이다(리뷰가 짚었다, 2026-09-02).
@@ -1256,6 +1310,11 @@ export class OfficeHand extends HandPort {
           .concat(missed.length
             ? [`⚠ 넣을 자리가 없어 못 채운 것: `
               + missed.map((r) => `${r.slide}번의 ${r.unfilled.join(',')}`).join(' · ')]
+            : [])
+          .concat(stillBlank.length
+            ? [`이 덱의 ${stillBlank.join('·')}번 장은 **비어 있고 새 장들보다 앞에** 있습니다 — `
+              + '새 프레젠테이션이 열릴 때 있던 장입니다. 그대로 두면 사람이 보는 첫 화면이 '
+              + '백지입니다. 필요 없으면 delete_slide 로 지우세요.']
             : []));
     });
   }

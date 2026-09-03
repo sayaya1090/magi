@@ -256,6 +256,28 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('받은 만큼 커서가 선다', read.cursor.seq === 2 && read.cursor.sessionId === 'A');
   ok('다시 붙으면 그 자리부터', read.attach('A') === 2);
 
+  // **대화가 옮겨 가면 따라간다.**
+  //
+  // 「새 대화 시작」은 세션을 새로 만들고 `session.moved` 하나를 남긴다. 앞 판본은 그것을
+  // 모르는 이벤트로 흘려보냈고, 그 뒤로 오는 것은 전부 다른 sessionId 라 걸름망에 걸려
+  // 사라졌다 — 창은 「대화 스트림이 끊겼습니다」를 띄운 채 영영 아무것도 안 그렸다.
+  // 실물에서 그 화면을 봤다(2026-09-03): 모델은 그동안 슬라이드 일곱 장을 만들고 있었는데
+  // 사람은 빈 창을 보고 있었다.
+  {
+    const moved = { seq: 3, sessionId: 'A', type: 'session.moved', data: { to: 'B' } };
+    const port2 = new FakeTranscript({
+      A: [ev(1, 'prompt.submitted', '앞 대화'), moved],
+      B: [{ seq: 1, sessionId: 'B', type: 'part.appended', data: { text: '옮겨 온 뒤의 말' } }],
+    });
+    const follow = new ReadTranscript(port2);
+    follow.attach('A');
+    ok('옮겨 간 대화를 따라간다', follow.sessionId === 'B', String(follow.sessionId));
+    ok('옮겨 온 뒤의 말이 화면에 선다',
+      follow.view.rows.some((r) => r.text === '옮겨 온 뒤의 말'),
+      JSON.stringify(follow.view.rows.map((r) => r.text)));
+    ok('앞 대화는 안 남는다', !follow.view.rows.some((r) => r.text === '앞 대화'));
+  }
+
   // 대화가 바뀌면 커서를 버린다. **서버가 못 잡아 주는 자리**라 우리가 메운다.
   ok('대화가 바뀌면 커서를 버린다', read.attach('B') === -1);
   // **`every` 는 빈 것에 참이다.** 지운 쪽만 물면 「앞엣것을 지웠다」와 「아무것도 안 그렸다」가

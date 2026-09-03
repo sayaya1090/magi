@@ -87,7 +87,15 @@ async function boot() {
   // 대화가 끊기거나 다시 붙으면 브랜드 줄도 같이 움직인다. **한 사건에 한 자리**라
   // 여기서 걸어 두고, 뷰는 자기가 받은 값만 그린다.
   const drawn = readTranscript.onChange;
-  readTranscript.onChange = () => { drawn?.(); void refreshBrand(); void view.loadFixes(); };
+  // **매 프레임마다 덱을 읽지 않는다.** `onChange` 는 글자 한 조각마다 뛴다(한 턴에 수천 번).
+  // 거기서 제안을 다시 읽으면 작업창이 PowerPoint 를 쉬지 않고 두드리고, 그 사이로 모델의
+  // 조작이 끼어들 자리가 없어진다. **조용해진 뒤 한 번**만 읽는다.
+  let fixTimer = null;
+  const laterFixes = () => {
+    clearTimeout(fixTimer);
+    fixTimer = setTimeout(() => { void view.loadFixes(); }, 2000);
+  };
+  readTranscript.onChange = () => { drawn?.(); void refreshBrand(); laterFixes(); };
 
   // 브랜드 줄이 늘 말하는 것 셋: 어디에 붙었나 · 대화가 살아 있나 · 손이 몇인가.
   // **가짜 갈래에서도 사실을 적는다** — 「가짜 덱」이라고 적히지 않으면 그 화면은 진짜인 척한다.

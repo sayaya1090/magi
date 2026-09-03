@@ -2397,6 +2397,90 @@ async function makeZip(files) {
   }
 }
 
+// ── 손 앞에 줄을 세운다 ──────────────────────────────────────────────────────
+//
+// Office 는 겹치는 `PowerPoint.run` 을 거절한다. 실물에서 그 화면을 봤다(2026-09-03):
+// 아홉 장을 만드는 `add_slides` 뒤로 **2분 넘게** 모든 호출이 「이전 호출이 완료될 때까지
+// 기다립니다」로 거절됐고, 모델은 열다섯 번 넘게 같은 호출을 다시 던지며 턴을 태웠다.
+//
+// 손을 부르는 곳이 둘이라 그렇다 — 헬퍼가 흘려보내는 모델의 조작과, 작업창이 스스로 부르는
+// 것. 헬퍼는 자기 연결 안에서만 줄을 세우므로 이 둘 사이는 아무도 안 세운다.
+{
+  const deck = {
+    slides: [{ id: 's1', index: 0, layout: { name: 'L' },
+      shapes: [{ id: 'a', name: 'ㄱ', type: 'TextBox', text: '글', left: 0, top: 0, width: 10, height: 10, altTextDescription: null }] }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+  };
+
+  // **겹치면 안 된다.** 러너에 들어와 있는 동안 또 들어오면 그 수를 센다.
+  let inside = 0;
+  let most = 0;
+  const log = [];
+  const slow = stubRunner(deck, log);
+  const hand = new OfficeHand({
+    run: async (fn) => {
+      inside += 1;
+      most = Math.max(most, inside);
+      try {
+        await new Promise((r) => { setTimeout(r, 5); });
+        return await slow(fn);
+      } finally { inside -= 1; }
+    },
+    supports: () => true, document: 'd',
+  });
+
+  await Promise.all([
+    hand.run('list_slides', {}),
+    hand.run('read_slide', { slide: 1 }),
+    hand.run('list_slides', {}),
+    hand.run('read_slide', { slide: 1 }),
+  ]);
+  ok('한 번에 하나만 들어간다', most === 1, `가장 많을 때 ${most}개`);
+
+  // **앞사람이 넘어져도 뒷사람은 선다.**
+  const bad = hand.run('read_slide', { slide: 99 }).then(() => null, (e) => e.message);
+  const good = hand.run('list_slides', {});
+  ok('앞이 거절돼도 뒤가 돈다', (await good).result.slides.length === 1, JSON.stringify(await bad));
+
+  // **자기를 다시 부르는 갈래는 멎지 않는다**(drop_suggestion → set_tag).
+  await hand.run('set_tag', { slide: 1, key: 'magi.fix.x', value: JSON.stringify({ what: 'ㄱ' }) });
+  const off = await hand.run('drop_suggestion', { slide: 1, key: 'MAGI.FIX.X' });
+  ok('안에서 자기를 불러도 안 멎는다', off.result.removed === true, JSON.stringify(off.result));
+}
+
+// ── 표지 앞에 남는 백지 ──────────────────────────────────────────────────────
+//
+// 새 프레젠테이션은 **빈 장 하나로 열린다.** 거기에 발표자료를 지으면 그 빈 장이 표지 앞에
+// 그대로 남고, 사람이 보는 첫 화면이 백지가 된다 — 실물에서 그 화면을 봤다(2026-09-03:
+// 아홉 장짜리 덱의 1번이 빈 장이었고, 모델은 마지막에야 알아채고 지우다 말았다).
+//
+// **지우지는 않는다** — 사람 것을 우리 판단으로 지우는 일이다. 있다는 사실만 적는다.
+{
+  const deck = (firstShapes) => ({
+    slides: [{ id: 's1', index: 0, layout: { name: '빈 화면' }, shapes: firstShapes }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title', 'body'] }] }],
+  });
+
+  {
+    const model = deck([]);
+    const hand = new OfficeHand({ run: stubRunner(model, []), supports: () => true, document: 'd' });
+    const out = await hand.run('add_slides', { slides: [{ layout: 'L', title: '표지' }] });
+    ok('앞의 빈 장을 말해 준다', out.changed.some((c) => c.includes('비어 있고')),
+      JSON.stringify(out.changed));
+    ok('몇 번인지 적는다', out.changed.some((c) => c.includes('1번 장')), JSON.stringify(out.changed));
+    ok('지우지는 않는다 — 그건 사람 것이다', model.slides.length === 2, String(model.slides.length));
+  }
+
+  // **빈 장이 아니면 아무 말도 안 한다.** 사람이 쓰던 장을 「비었다」고 하면 그게 거짓말이다.
+  {
+    const model = deck([{ id: 'a', name: 'ㄱ', type: 'TextBox', text: '쓰던 글', altTextDescription: null }]);
+    const hand = new OfficeHand({ run: stubRunner(model, []), supports: () => true, document: 'd' });
+    const out = await hand.run('add_slides', { slides: [{ layout: 'L', title: '표지' }] });
+    ok('안 빈 장은 말 안 한다', !out.changed.some((c) => c.includes('비어 있고')),
+      JSON.stringify(out.changed));
+  }
+}
+
 // ── 제목을 바꾸는 데 두 걸음이 들지 않는다 ───────────────────────────────────
 //
 // 「이 장 제목을 이렇게 바꿔」가 흔한 부탁인데, 앞 판본은 도형 id 를 반드시 요구했다.

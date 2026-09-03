@@ -50,6 +50,22 @@ export class ReadTranscript {
         this.onChange();
       },
       onEvent: (ev) => {
+        // **대화가 옮겨 갔으면 따라간다.**
+        //
+        // 「새 대화 시작」은 세션을 새로 만들고 `session.moved` 하나를 남긴다. 앞 판본은 그
+        // 이벤트를 모르는 것으로 흘려보냈고, 그 뒤로 오는 것은 전부 **다른 sessionId** 라
+        // 바로 아래 걸름망에 걸려 사라졌다 — 창은 「대화 스트림이 끊겼습니다」를 띄운 채
+        // 영영 아무것도 안 그렸다. 실물에서 그 화면을 봤다(2026-09-03): 모델은 그동안
+        // 슬라이드 일곱 장을 만들고 있었는데 사람은 빈 창을 보고 있었다.
+        //
+        // 「이 창이 아직 그릴 줄 모르는 이벤트」라고 적어 두는 것으로는 부족했다. 모르는
+        // 이벤트가 **뒤따르는 모든 것을 못 보게 만드는** 종류일 수 있고, 이게 그랬다.
+        const moved = ev?.type === 'session.moved' ? String(ev?.data?.to ?? '') : '';
+        if (moved && moved !== this.sessionId) {
+          this.attach(moved);
+          this.onChange();
+          return;
+        }
         // 남의 대화 이벤트가 이 연결로 올 리는 없지만, 왔다면 그건 화면 문제가 아니라
         // 신원 문제다. 조용히 섞지 않는다.
         if (ev?.sessionId && ev.sessionId !== this.sessionId) return;

@@ -171,7 +171,7 @@ func catalogue() []tool {
 			Name: "add_slide",
 			Desc: "Add a slide — and, in the same call, put it where it belongs and fill its title and body. Filling a layout's placeholders is not the same as dropping text boxes at coordinates: placeholders follow the theme, so they stay right when the design changes. Prefer this over add_shape for the words that carry a slide. A new slide also picks up whatever font and size the rest of the deck consistently uses, so it does not arrive looking like a stranger.",
 			Props: []property{
-				{Name: "layout", Type: "string", Desc: "Layout name from list_layouts. Omit for the deck's default layout."},
+				{Name: "layout", Type: "string", Desc: "Layout name from list_layouts, EXACTLY as that deck spells it. Layout names come from the deck theme and are usually in the person's own language — a Korean deck has 제목 슬라이드, not Title Slide — so guessing the English name fails. Omit it for the deck default, or call list_layouts once and reuse the names."},
 				{Name: "at", Type: "integer", Desc: "1-based position for the new slide. Omit to put it at the end."},
 				{Name: "title", Type: "string", Desc: "Text for the title placeholder, if the layout has one."},
 				{Name: "body", Type: "string", Desc: "Text for the body/subtitle placeholder. Use \\n between bullet lines."},
