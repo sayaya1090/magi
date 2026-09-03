@@ -3088,7 +3088,7 @@ func (h handover) forgetMinutes(meeting string) {
 }
 
 func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string,
-	closing bool) (daemon.Contribution, error) {
+	room []daemon.Seat, closing bool) (daemon.Contribution, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	who := nameOr(d.card().Name, d.workdir)
@@ -3117,7 +3117,7 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 	// A minutes turn that fails does not fail the contribution. What was said is the meeting; the
 	// document is how the meeting is remembered, and losing the record of one turn is worth far
 	// less than losing the turn. The convener reads an empty revision as "leave it alone".
-	revised := writeUp(rctx, d, meeting, who, topic, minutes, u)
+	revised := writeUp(rctx, d, meeting, who, topic, minutes, u, seatsOf(room))
 	if closing {
 		// The room is ending for this participant. Its session was ephemeral — spun up only to take
 		// part in the discussion — so it is dropped from the subagent strip now rather than left to
@@ -3146,7 +3146,7 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 // after that makes one. The document itself lives with the convener, so a fresh secretary picks up
 // from the text that arrived rather than from what it remembers — which is nothing.
 func writeUp(ctx context.Context, d daemonEngine, meeting, who, topic, minutes string,
-	u meetinglib.Utterance) string {
+	u meetinglib.Utterance, room []meetinglib.Seat) string {
 	// A pass does not touch the document. By definition it added nothing, so the write-up can only
 	// spend a model call and damage the record — and it did: measured across five live meetings,
 	// eight of the nine revisions that came back SHORTER than the document they were handed were
@@ -3175,7 +3175,7 @@ func writeUp(ctx context.Context, d daemonEngine, meeting, who, topic, minutes s
 			said += " " + u.Text
 		}
 	}
-	revised, err := d.App.MeetingWriteUp(ctx, note, who, topic, minutes, said)
+	revised, err := d.App.MeetingWriteUp(ctx, note, who, topic, minutes, said, room)
 	if err != nil {
 		return ""
 	}

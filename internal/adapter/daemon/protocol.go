@@ -340,7 +340,8 @@ type Speaker interface {
 	// workspace and history and answers with what it brings. The session it makes is the one every
 	// turn of this meeting then happens in.
 	MeetingJoin(ctx context.Context, meeting, topic string, room []Seat) (ready, roomID string, err error)
-	MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (Contribution, error)
+	MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, room []Seat,
+		closing bool) (Contribution, error)
 }
 
 // Seat is one participant of a meeting, as the companion that convened it knows them.
@@ -579,9 +580,12 @@ type Request struct {
 	// five rounds put fifteen of them on the strip, each one starting cold and knowing nothing of
 	// what this participant had already said.
 	Meeting string `json:"meeting,omitempty"`
-	// Room is who else is in this meeting and what each of them is for. Carried on meet-join, and
-	// on nothing else: a participant reads it once while getting ready, and every round after that
-	// happens in the same session, so the roster it learned is still in its context.
+	// Room is who is in this meeting and what each of them is for.
+	//
+	// On meet-join it is what a participant reads while getting ready. On meet it is what the
+	// MINUTES need: the record says who was in the room, and that is a fact the convener holds —
+	// a model asked to remember it from its preparation turn would eventually write down a room
+	// that is not the one it is in.
 	//
 	// Safe for an older daemon to drop. encoding/json ignores a field it does not declare, and a
 	// participant that never learns the roster prepares exactly as it did before this existed —

@@ -568,6 +568,8 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 		// Only the current version travels. Every draft it went through lives in the speaker's own
 		// minutes session, which is the point of that session existing.
 		minutes := run.m.Minutes
+		// 회의록이 참석자를 적으려면 명단이 매 턴 가야 한다 — 받아적는 자리는 준비 턴을 안 봤다.
+		room := meeting.Seats(run.m.Speakers)
 		sock := run.sockets[next.Name]
 		if ok {
 			// The floor is TAKEN for the length of the turn, not handed over at the end of it.
@@ -581,7 +583,7 @@ func (run *meetingRun) drive(ctx context.Context, s *server) {
 			run.collect(ctx, s, topic)
 			return
 		}
-		c, err := s.speakTo(ctx, sock, run.id, topic, transcript, minutes, false)
+		c, err := s.speakTo(ctx, sock, run.id, topic, transcript, minutes, room, false)
 		run.mu.Lock()
 		if err != nil {
 			run.trouble = next.Name + ": " + err.Error()
@@ -618,7 +620,8 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 		if sp.Person() {
 			continue
 		}
-		c, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, minutes, true)
+		c, err := s.speakTo(ctx, run.sockets[sp.Name], run.id, topic, transcript, minutes,
+			meeting.Seats(who), true)
 		said, passed := c.Said, c.Pass
 		run.mu.Lock()
 		if c.Room != "" {
@@ -742,7 +745,7 @@ func (s *server) joinMeeting(ctx context.Context, socket, id, topic string, room
 // client serialises everything sent to that daemon, so holding it would stall every dashboard poll
 // for that companion behind a sentence somebody is composing.
 func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript, minutes string,
-	closing bool) (
+	room []meeting.Seat, closing bool) (
 	daemon.Contribution, error) {
 	if strings.TrimSpace(socket) == "" {
 		return daemon.Contribution{}, errNoDoor
@@ -758,7 +761,7 @@ func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript, min
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, err := cl.Meet(id, topic, transcript, minutes, closing)
+		said, err := cl.Meet(id, topic, transcript, minutes, wireSeats(room), closing)
 		done <- answer{said, err}
 	}()
 	// Bounded, a little above the daemon's own limit on a contribution. The companion stops itself

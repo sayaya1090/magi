@@ -153,7 +153,7 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 // This session gets NO tools. It reads nothing and runs nothing: everything it needs is in the
 // prompt, and a secretary that could go and look would start reporting things nobody said.
 func (a *App) MeetingWriteUp(ctx context.Context, child session.SessionID, who, topic, minutes,
-	said string) (string, error) {
+	said string, room []meeting.Seat) (string, error) {
 	if strings.TrimSpace(string(child)) == "" {
 		return "", fmt.Errorf("this participant has no minutes session")
 	}
@@ -162,7 +162,7 @@ func (a *App) MeetingWriteUp(ctx context.Context, child session.SessionID, who, 
 	s := a.sessionInfo(ctx, child)
 	if err := a.appendPromptText(ctx, child,
 		event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},
-		minutesPrompt(who, topic, minutes, said)); err != nil {
+		minutesPrompt(who, topic, minutes, said, room)); err != nil {
 		return "", err
 	}
 	agent := AgentSpec{Name: spawnAgentName, System: minutesSystem(who), Model: s.Model}
@@ -208,6 +208,9 @@ func minutesSystem(who string) string {
 // filled in is a form everybody after can find their way around.
 const minutesTemplate = `# <the question>
 
+## In the room
+%s
+
 ## Decided
 - (nothing yet)
 
@@ -215,14 +218,37 @@ const minutesTemplate = `# <the question>
 - (nothing yet)
 
 ## Action items
-- <name>: <what> — <by when, if said>
+- <owner>: <what> — <by when, if said> [not started]
 
 ## Questions for the room
 - (nothing yet)`
 
+// roomLines is the attendance block, written by magi rather than by the model.
+//
+// The convener knows who is in the room; the writer would be remembering it from a preparation turn
+// several rounds ago. A record that names the wrong people is worse than one that names none, and
+// this is the ordinary rule in this tree — the model is not asked for what magi already holds.
+func roomLines(room []meeting.Seat) string {
+	if len(room) == 0 {
+		return "- (not recorded)"
+	}
+	var b strings.Builder
+	for _, s := range room {
+		b.WriteString("- " + s.Name)
+		switch {
+		case s.Person:
+			b.WriteString(" — called this meeting")
+		case s.Role != "":
+			b.WriteString(" (" + s.Role + ")")
+		}
+		b.WriteString("\n")
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // minutesPrompt is the secretary's turn: here is the document, here is what was just said, give it
 // back revised.
-func minutesPrompt(who, topic, minutes, said string) string {
+func minutesPrompt(who, topic, minutes, said string, room []meeting.Seat) string {
 	var b strings.Builder
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
 	if m := strings.TrimSpace(minutes); m != "" {
@@ -230,7 +256,7 @@ func minutesPrompt(who, topic, minutes, said string) string {
 	} else {
 		// Nobody has written anything yet: this speaker is the first, and it gets the form.
 		b.WriteString("THE MINUTES ARE EMPTY. Start them from this form, keeping every heading:\n" +
-			minutesTemplate + "\n\n")
+			fmt.Sprintf(minutesTemplate, roomLines(room)) + "\n\n")
 	}
 	b.WriteString("WHAT " + who + " JUST SAID\n" + strings.TrimSpace(said) + "\n\n")
 	b.WriteString("WHAT TO DO NOW\n" +
@@ -238,7 +264,14 @@ func minutesPrompt(who, topic, minutes, said string) string {
 		"- Bullets only. One item per line, no paragraphs.\n" +
 		"- Carry every section and every line you are not changing through UNCHANGED. Do not " +
 		"summarise them: minutes that shrink each round end the meeting with nothing in them.\n" +
-		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it.\n" +
+		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it, and " +
+		"say WHY in the same line — the reason is what a reader six weeks from now needs and the " +
+		"only person who has it is the one who just said it.\n" +
+		"- Attribute. Every line under \"Decided\" and \"Still open\" ends with the name of whoever " +
+		"it came from, in brackets: `(" + who + ")`. Minutes nobody can trace back are a summary, " +
+		"and a reader who disagrees with a line has nowhere to take it.\n" +
+		"- \"In the room\" is given to you filled in. Carry it through exactly; do not add or " +
+		"remove a name.\n" +
 		"- Under \"Action items\", write only what somebody took on in their own words, and your " +
 		"own. Never assign work to a name that did not accept it — that is a promise they do not " +
 		"know they made.\n" +

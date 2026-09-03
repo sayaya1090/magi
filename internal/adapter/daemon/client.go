@@ -583,13 +583,13 @@ func (c *Client) Join(meeting, topic string, room []Seat) (ready, roomID string,
 	return resp.Out, resp.Session, nil
 }
 
-func (c *Client) Meet(meeting, topic, transcript, minutes string, closing bool) (Contribution, error) {
+func (c *Client) Meet(meeting, topic, transcript, minutes string, room []Seat, closing bool) (Contribution, error) {
 	which := ""
 	if closing {
 		which = "closing"
 	}
 	resp, err := c.exchange(Request{Method: "meet", Meeting: meeting, Name: topic, Text: transcript,
-		Minutes: minutes, Decision: which})
+		Minutes: minutes, Room: room, Decision: which})
 	if err != nil {
 		return Contribution{}, err
 	}

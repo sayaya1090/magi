@@ -705,7 +705,7 @@ func answerMeet(ctx context.Context, eng Engine, req Request) Response {
 	sp, ok := eng.(Speaker)
 	if !ok {
 		resp = Response{Err: "this daemon cannot take part in a meeting"}
-	} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text, req.Minutes,
+	} else if c, merr := sp.MeetingTurn(ctx, req.Meeting, req.Name, req.Text, req.Minutes, req.Room,
 		req.Decision == "closing"); merr != nil {
 		resp = Response{Err: merr.Error()}
 	} else {

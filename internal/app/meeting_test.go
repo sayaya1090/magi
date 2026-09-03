@@ -374,7 +374,7 @@ func TestTheMinutesAreWrittenSomewhereElse(t *testing.T) {
 	if _, err := a.MeetingSayIn(ctx, room, "api", "the topic", "", doc, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.MeetingWriteUp(ctx, note, "api", "the topic", doc, "api said a thing"); err != nil {
+	if _, err := a.MeetingWriteUp(ctx, note, "api", "the topic", doc, "api said a thing", nil); err != nil {
 		t.Fatal(err)
 	}
 	saw := func(sid session.SessionID, what string) bool {
@@ -408,13 +408,13 @@ func TestTheMinutesAreWrittenSomewhereElse(t *testing.T) {
 // belongs. And once there IS a document, handing the form again would invite a rewrite from
 // scratch — which is the same failure as summarising: the record shrinks instead of growing.
 func TestTheFirstSpeakerGetsAFormAndTheRestGetTheDocument(t *testing.T) {
-	first := minutesPrompt("api", "which store", "", "api said a thing")
+	first := minutesPrompt("api", "which store", "", "api said a thing", nil)
 	for _, want := range []string{"## Decided", "## Still open", "## Action items", "## Questions for the room"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("the form is missing %q — the sections are what everybody after navigates by:\n%s", want, first)
 		}
 	}
-	later := minutesPrompt("design", "which store", "## Decided\n- use the queue", "design agreed")
+	later := minutesPrompt("design", "which store", "## Decided\n- use the queue", "design agreed", nil)
 	if strings.Contains(later, "THE MINUTES ARE EMPTY") {
 		t.Errorf("a document already exists and the form was handed out again:\n%s", later)
 	}
@@ -430,4 +430,54 @@ func TestTheFirstSpeakerGetsAFormAndTheRestGetTheDocument(t *testing.T) {
 		t.Error("nothing stops the writer assigning work to a name that never took it on")
 	}
 
+}
+
+// The minutes record who was in the room, and magi fills that in rather than asking for it.
+//
+// The writer is in a session that never saw the roster — it gets a topic, a document and one
+// utterance. Asked to remember who was present, it would eventually write down a room that is not
+// the one it is in, and a record naming the wrong people is worse than one naming none. This is the
+// ordinary rule here: the model is not asked for what magi already holds.
+func TestTheMinutesRecordWhoWasInTheRoom(t *testing.T) {
+	room := []meeting.Seat{
+		{Name: "alpha", Role: "the queue"},
+		{Name: "beta", Role: "the public API"},
+		{Name: "kim", Person: true},
+	}
+	first := minutesPrompt("alpha", "which store", "", "alpha said a thing", room)
+	if !strings.Contains(first, "## In the room") {
+		t.Errorf("the form has no attendance section:\n%s", first)
+	}
+	for _, want := range []string{"- alpha (the queue)", "- beta (the public API)", "- kim — called this meeting"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the attendance block is missing %q:\n%s", want, first)
+		}
+	}
+	// Given filled in, and the writer is told not to touch it — the one thing it must not invent.
+	if !strings.Contains(first, "do not add or\nremove a name") && !strings.Contains(first, "do not add or remove a name") {
+		t.Error("nothing stops the writer editing the attendance it was handed")
+	}
+	// An empty roster says so rather than leaving a heading with nothing under it.
+	if bare := minutesPrompt("alpha", "q", "", "said", nil); !strings.Contains(bare, "(not recorded)") {
+		t.Errorf("an unknown room drew an empty heading:\n%s", bare)
+	}
+}
+
+// Lines carry where they came from, and a decision carries why.
+//
+// Minutes nobody can trace back are a summary: a reader who disagrees with a line has nowhere to
+// take it, and six weeks later the reason a thing was decided is the part nobody can reconstruct.
+// Both come from the standard shape of a work meeting's record — attendance, decisions with
+// rationale, action items with a named owner — rather than from anything invented here.
+func TestDecisionsCarryTheirSourceAndTheirReason(t *testing.T) {
+	p := minutesPrompt("beta", "which store", "## Decided\n- something (alpha)", "beta said a thing", nil)
+	if !strings.Contains(p, "(beta)") {
+		t.Errorf("the attribution rule does not name the speaker whose turn this is:\n%s", p)
+	}
+	if !strings.Contains(p, "say WHY") {
+		t.Error("a decision can be recorded without the reason it was reached")
+	}
+	if !strings.Contains(p, "Attribute") {
+		t.Error("nothing asks for attribution, so the record becomes a summary")
+	}
 }

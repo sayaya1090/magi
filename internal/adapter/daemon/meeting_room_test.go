@@ -31,7 +31,7 @@ func (e *roomEngine) MeetingJoin(ctx context.Context, meeting, topic string, roo
 	return "ready: " + topic, "s_" + meeting, nil
 }
 
-func (e *roomEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (
+func (e *roomEngine) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, room []Seat, closing bool) (
 	Contribution, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -61,7 +61,7 @@ func TestAMeetingTurnCarriesWhichMeetingItIs(t *testing.T) {
 		t.Errorf("joining came back with the room %q", room)
 	}
 	for _, id := range []string{"m-1", "m-1", "m-2"} {
-		c, err := cl.Meet(id, "topic", "so far", "", false)
+		c, err := cl.Meet(id, "topic", "so far", "", nil, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -131,7 +131,7 @@ func TestTheMinutesCrossTheSocketBothWays(t *testing.T) {
 	defer cl.Close()
 
 	const doc = "## Decided\n- use the queue"
-	got, err := cl.Meet("m-1", "which store", "design: use the queue", doc, false)
+	got, err := cl.Meet("m-1", "which store", "design: use the queue", doc, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

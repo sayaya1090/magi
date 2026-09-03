@@ -55,7 +55,7 @@ func TestAMeetingTurnKeepsTheSpeakingAndMinutesSessionsApart(t *testing.T) {
 
 	// No model here: the turn will fail at generation, and that is fine — what is being checked is
 	// which sessions the daemon OPENED for this meeting, not what came back from either.
-	_, _ = d.MeetingTurn(ctx, "m-1", "which store", "", "", false)
+	_, _ = d.MeetingTurn(ctx, "m-1", "which store", "", "", nil, false)
 
 	room, note := d.handover.roomFor("m-1"), d.handover.minutesFor("m-1")
 	switch {
@@ -147,7 +147,7 @@ func TestAPassDoesNotTouchTheMinutes(t *testing.T) {
 		handover: handover{at: newWhere(parent), rooms: newSideSessions(), minutes: newSideSessions()}}
 
 	const doc = "## Decided\n- the room agreed something"
-	got, err := d.MeetingTurn(ctx, "m-1", "which store", "", doc, false)
+	got, err := d.MeetingTurn(ctx, "m-1", "which store", "", doc, nil, false)
 	if err != nil {
 		t.Fatal(err)
 	}

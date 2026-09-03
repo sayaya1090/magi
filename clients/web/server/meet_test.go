@@ -49,7 +49,7 @@ func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string, room []
 	return "ready", "s_room_" + meeting, nil
 }
 
-func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, closing bool) (
+func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript, minutes string, room []daemon.Seat, closing bool) (
 	daemon.Contribution, error) {
 	if t.started != nil {
 		select {
@@ -70,11 +70,11 @@ func (t *talker) MeetingTurn(ctx context.Context, meeting, topic, transcript, mi
 		t.closes++
 	}
 	t.mu.Unlock()
-	room := "s_room_" + meeting
+	sid := "s_room_" + meeting
 	if closing {
-		return daemon.Contribution{Said: "I will " + t.say, Room: room}, nil
+		return daemon.Contribution{Said: "I will " + t.say, Room: sid}, nil
 	}
-	return daemon.Contribution{Said: t.say, Pass: t.pass, Room: room}, nil
+	return daemon.Contribution{Said: t.say, Pass: t.pass, Room: sid}, nil
 }
 
 func (t *talker) heard() []string {
