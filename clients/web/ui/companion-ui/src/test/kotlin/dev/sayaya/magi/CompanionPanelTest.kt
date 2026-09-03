@@ -355,6 +355,38 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("턴이 끝나면") {
+            Then("컨텍스트를 다시 묻는다 — 이 판이 보러 온 그 수가 자란 값이다") {
+                openSide(page)
+                val before = page.evaluate("window.__magi_test_context_asks || 0")
+                // 도는 중 → 쉬는 중. 이 전이가 사람이 이 수를 보고 판단하는 시점이다.
+                page.evaluate("window.__magi_test_thinking()")
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                page.evaluate("window.__magi_test_idle_no_steps()")
+                page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("idle") }
+                // 컴패니언을 바꿀 때만 묻던 자리다. 컨텍스트는 자라는 값이고, 실측에서 서버가
+                // 49,589 토큰을 답하는 동안 화면은 페이지를 열 때의 「~0 tokens」를 계속 보였다.
+                page.waitForCondition {
+                    (page.evaluate("window.__magi_test_context_asks || 0") as Int) >
+                        (before as Int)
+                }
+                // 다시 물은 값이 실제로 그려진다 — 묻기만 하고 안 그리면 사람 눈엔 같다.
+                page.waitForCondition {
+                    page.locator("#detail .f[data-k=\"field.context\"] .v").textContent().contains("91,500")
+                }
+            }
+            Then("도는 동안에는 묻지 않는다 — 그 답은 로그를 통째로 다시 재생하는 값이다") {
+                // 명단은 몇 초마다 흐른다. 프레임마다 물으면 그때마다 세션 로그 전량 재생이고,
+                // 그래서 이 답은 명단의 한 칸이 아니라 제 문을 갖고 있다. 사람이 이 수를 보고
+                // 판단하는 시점은 턴 사이다.
+                val before = page.evaluate("window.__magi_test_context_asks || 0") as Int
+                repeat(3) {
+                    page.evaluate("window.__magi_test_thinking()")
+                    page.waitForCondition { page.locator("#detail .foldbar").textContent().contains("working") }
+                }
+                (page.evaluate("window.__magi_test_context_asks || 0") as Int) shouldBe before
+            }
+        }
         When("턴은 도는데 아직 도구를 한 번도 안 불렀으면") {
             Then("스텝은 0 이라고 말한다 — 대시가 아니라") {
                 openSide(page)

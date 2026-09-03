@@ -96,7 +96,11 @@ public class CompanionStore implements CompanionSource.Listener {
      * 전부를 내려보내고, 받는 판이 제 손으로 "내 것이 바뀌었나"를 따지고 있었다.
      */
     public Observable<FleetAgent> aimed() {
-        return rosterOf.map(list -> rowOf(list))
+        return rosterOf.map(list -> {
+                    FleetAgent row = rowOf(list);
+                    refetchWhenATurnEnds(row);
+                    return row;
+                })
                 .distinctUntilChanged((java.util.function.BiFunction<FleetAgent, FleetAgent, Boolean>)
                         CompanionStore::same);
     }
@@ -290,6 +294,28 @@ public class CompanionStore implements CompanionSource.Listener {
             planOf.next(list);
         });
     }
+
+    /**
+     * 턴이 끝나면 컨텍스트를 다시 묻는다.
+     *
+     * <p>이 판은 컴패니언을 <b>바꿀 때만</b> 물었다. 그런데 컨텍스트는 자라는 값이고, 이 화면에서
+     * 사람이 보러 오는 것이 바로 그 값이다 — 실측: 서버가 49,589 토큰을 답하는 동안 화면은
+     * 페이지를 열 때의 「~0 tokens」를 계속 보이고 있었고, 구성 띠는 아예 서지 않았다.
+     *
+     * <p>매 프레임마다 묻지는 않는다. 이 답은 세션 로그를 처음부터 다시 재생하는 값이고(그래서
+     * 명단의 한 칸이 아니라 제 문이다), 사람이 이 수를 보고 판단하는 시점은 턴 <b>사이</b>다 —
+     * 압축 단추가 「턴 사이에 접고 싶은 사람의 것」인 것과 같은 이유다.
+     */
+    private void refetchWhenATurnEnds(FleetAgent a) {
+        boolean turning = a != null && ("working".equals(a.state) || "waiting".equals(a.state));
+        if (wasTurning && !turning) {
+            ctxFor = null;
+            askContextInfo();
+        }
+        wasTurning = turning;
+    }
+
+    private boolean wasTurning = false;
 
     private void askContextInfo() {
         if (ctx == null) return;

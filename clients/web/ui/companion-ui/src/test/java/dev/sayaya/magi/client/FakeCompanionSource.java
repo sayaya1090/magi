@@ -211,11 +211,20 @@ public class FakeCompanionSource implements CompanionSource {
                 "{\"content\":\"write it down\",\"status\":\"pending\"}]"));
     }
 
+    /** 이 문이 몇 번 열렸나 — 컨텍스트는 자라는 값이라 「다시 물었나」가 계약이다. */
+    private int contextAsks = 0;
+
     @Override
     public void context(CompanionContext ctx, Consumer<Object> cb) {
+        contextAsks++;
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_context_asks", (double) contextAsks);
+        // 두 번째부터는 값이 자란 것으로 답한다: 다시 묻고도 같은 수를 그리면 사람 눈에는 안 물은
+        // 것과 같다.
+        int used = contextAsks == 1 ? 82000 : 91500;
         cb.accept(Global.JSON.parse(
-                "{\"used\":82000,\"window\":100000,\"messages\":41,\"estimated\":false," +
+                "{\"used\":" + used + ",\"window\":100000,\"messages\":41,\"estimated\":false," +
                 "\"cacheReported\":true,\"cached\":41000,\"model\":\"gpt-oss:120b\"," +
+                "\"parts\":{\"system\":2404,\"tools\":5703,\"talk\":286,\"calls\":59,\"results\":426}," +
                 "\"compactions\":2,\"shed\":31000,\"lastBefore\":40000,\"lastAfter\":9000," +
                 "\"lastAt\":\"2026-08-27T04:31:00\"}"));
     }
