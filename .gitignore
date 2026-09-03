@@ -61,6 +61,10 @@ scratchpad/overnight_log.md
 # 확장자가 없어서 위의 어떤 규칙에도 안 걸렸고, 19MB 가 커밋에 섞였다(2026-09-03, 세 번째).
 # 이름을 적는 방식이 세 번 샜으므로 모양으로도 막는다: internal/repo/tracked_test.go.
 /clients/web/server/server
+# 같은 것이 뿌리에도 떨어진다 — `go build ./clients/web/server` 를 저장소 뿌리에서 돌리면
+# 패키지 이름으로 여기 난다(2026-09-03, 네 번째). 이름을 적는 방식이 또 샜다: 가드는 커밋된
+# 것만 잡고 이건 미추적이라 안 걸렸다.
+/server
 
 # The agent's own runtime state. .magi/experience is what a companion has learned ON THIS MACHINE —
 # memories and skills it wrote itself. Four of them were swept in by a bulk add; they are working
