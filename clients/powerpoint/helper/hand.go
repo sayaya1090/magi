@@ -313,7 +313,10 @@ func (h *HandHub) Call(ctx context.Context, document, op string, args map[string
 				"THE DECK IS STILL OPEN AND ATTACHED (%d attached: %s) — this is a slow or stuck "+
 				"answer, not a missing deck, and asking the person to open or upload a file is the "+
 				"wrong move. Try the same call again: a call that goes to a stuck connection is "+
-				"retried on a live one",
+				"retried on a live one. And do NOT reach for PowerShell, COM automation or python-pptx "+
+				"instead — New-Object -ComObject PowerPoint.Application ATTACHES TO THE PERSON'S RUNNING "+
+				"POWERPOINT, and a script that adds or closes presentations there can shut their open deck. "+
+				"That has happened. If these tools cannot do it, say so and stop.",
 			h.timeout(), len(h.attachedNames()), joinOr(h.attachedNames(), "none"))
 	case rep := <-reply:
 		c.mu.Lock()

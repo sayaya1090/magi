@@ -164,7 +164,20 @@ export class OfficeHand extends HandPort {
    */
   async run(op, args = {}) {
     if (this.#inside) return this.#dispatch(op, args);
+    const joined = Date.now();
     const mine = (this.#queue ?? Promise.resolve()).then(async () => {
+      // **아무도 안 기다리는 일은 안 한다.**
+      //
+      // 헬퍼는 45초에서 기다리기를 그만둔다. 줄에서 그만큼을 이미 기다린 호출은 답할 곳이
+      // 없는데, 그래도 돌리면 그 시간만큼 **뒤엣것도 같이 늦어진다** — 느린 호출 하나가
+      // 줄 전체를 45초씩 죽이는 사슬이 된다. 실물에서 그 사슬을 봤다(2026-09-03:
+      // `add_slide` 하나가 늦자 뒤따르던 `list_slides`·`read_slide` 가 줄줄이 죽었다).
+      //
+      // 버리는 것이 아니라 **빨리 거절한다** — 모델이 곧바로 다시 부를 수 있다.
+      if (Date.now() - joined > OfficeHand.staleAfter) {
+        throw new Error('앞 조작이 오래 걸려 이 호출은 차례를 기다리다 시간이 다 됐습니다 — '
+          + '덱은 그대로입니다. 같은 호출을 다시 하세요');
+      }
       this.#inside = true;
       try { return await this.#dispatch(op, args); } finally { this.#inside = false; }
     });
@@ -190,6 +203,12 @@ export class OfficeHand extends HandPort {
    * 그 호출의 답을 기다리는 사람이 아무도 없다.
    */
   static stuckAfter = 50000;
+
+  /**
+   * 줄에서 이만큼 기다린 호출은 **돌리지 않고 거절한다.** 헬퍼가 기다리기를 그만두는 45초보다
+   * 조금 앞이라, 답할 곳이 아직 있는 것만 돌게 된다.
+   */
+  static staleAfter = 40000;
 
   #queue = Promise.resolve();
 
@@ -611,11 +630,12 @@ export class OfficeHand extends HandPort {
         const holders = (all.items ?? []).filter((sh) => String(sh.type ?? '').toLowerCase() === 'placeholder');
         for (const sh of holders) sh.placeholderFormat.load('type');
         await context.sync();
-        const hit = holders.filter((sh) => String(sh.placeholderFormat.type ?? '').toLowerCase().includes(want));
+        const hit = holders.filter((sh) => isSlot(sh.placeholderFormat.type, want));
         if (hit.length === 0) {
           const kinds = holders.map((sh) => sh.placeholderFormat.type).filter(Boolean);
           throw new Error(`이 장에 '${want}' 자리가 없습니다 — `
-            + `이 장의 자리: ${kinds.join(', ') || '없음'}`);
+            + `이 장의 자리: ${kinds.join(', ') || '없음'}`
+            + ` (아는 이름: ${[...SLOTS.keys()].join(' · ')})`);
         }
         if (hit.length > 1) {
           throw new Error(`이 장에 '${want}' 자리가 ${hit.length}개 있습니다 — `
@@ -2792,6 +2812,27 @@ export function withoutBulletMarks(text) {
     .split(/\r\n|[\r\n]/)
     .map((line) => line.replace(/^\s*[-*•·]\s+/, ''))
     .join('\r');
+}
+
+/**
+ * 자리 이름 하나가 어떤 역할들을 뜻하나.
+ *
+ * **부분 문자열로 재면 안 된다.** 앞 판본은 `type.includes('title')` 이었는데 `subTitle` 도
+ * 그 글자를 품는다 — 표지에서 `placeholder:"title"` 을 부르면 「'title' 자리가 2개 있습니다」로
+ * 거절당했고, 모델은 세 번 되풀이했다(실물, 2026-09-03).
+ */
+export const SLOTS = new Map([
+  ['title', ['title', 'centertitle']],
+  ['body', ['body']],
+  ['subtitle', ['subtitle']],
+]);
+
+/** 이 역할이 그 자리 이름에 드는가. **모르는 이름은 그대로 견준다** — 지어내지 않는다. */
+export function isSlot(role, want) {
+  const r = String(role ?? '').toLowerCase();
+  const w = String(want ?? '').toLowerCase();
+  const group = SLOTS.get(w);
+  return group ? group.includes(r) : r === w;
 }
 
 export function asParagraphs(text) {

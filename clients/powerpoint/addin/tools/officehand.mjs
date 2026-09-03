@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
@@ -2615,6 +2615,14 @@ async function makeZip(files) {
       String(model.slides[0].shapes[0].text));
     ok('어느 도형을 고쳤는지 답한다', out.result.shape_id === 't', String(out.result.shape_id));
     ok('옆 상자는 안 건드린다', model.slides[0].shapes[2].text === '딴것');
+
+    // **부분 문자열로 재면 안 된다.** `subTitle` 도 「title」이라는 글자를 품는다 — 표지에서
+    // `placeholder:"title"` 을 부르면 「'title' 자리가 2개 있습니다」로 거절당했고, 모델은
+    // 세 번 되풀이했다(실물, 2026-09-03).
+    ok('subtitle 은 title 이 아니다', !isSlot('subTitle', 'title'));
+    ok('centerTitle 은 title 이다', isSlot('centerTitle', 'title'));
+    ok('subtitle 은 subtitle 이다', isSlot('subTitle', 'subtitle'));
+    ok('body 는 body 만', isSlot('body', 'body') && !isSlot('body', 'title'));
 
     const none = await threw(() => hand.run('set_text', { slide: 1, placeholder: 'footer', text: 'x' }));
     ok('없는 자리는 거절하고 있는 것을 알려 준다',

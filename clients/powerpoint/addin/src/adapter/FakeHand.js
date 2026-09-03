@@ -1,6 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
 // 도형 이름표는 **한 벌만** 둔다 — 두 손이 다른 이름을 알면 브라우저에서 배운 것이 실물에서 틀린다.
-import { geometryOf, placeShapes, pilesUp, ALIGNMENTS } from './OfficeHand.js';
+import { geometryOf, placeShapes, pilesUp, ALIGNMENTS, isSlot, SLOTS } from './OfficeHand.js';
 import { chartPart, chartKind, fitBox } from './chartxml.js';
 import { effectSpec, EFFECT_NAMES, START_KINDS, clickGroups } from './animxml.js';
 import {
@@ -103,10 +103,11 @@ export class FakeHand extends HandPort {
         + '또는 placeholder 로 자리를 짚으세요(title · body · subtitle)');
     }
     const holders = slide.shapes.filter((sh) => sh.placeholder);
-    const hit = holders.filter((sh) => String(sh.placeholder).toLowerCase().includes(name));
+    const hit = holders.filter((sh) => isSlot(sh.placeholder, name));
     if (hit.length === 0) {
       throw new Error(`이 장에 '${name}' 자리가 없습니다 — `
-        + `이 장의 자리: ${holders.map((sh) => sh.placeholder).join(', ') || '없음'}`);
+        + `이 장의 자리: ${holders.map((sh) => sh.placeholder).join(', ') || '없음'}`
+        + ` (아는 이름: ${[...SLOTS.keys()].join(' · ')})`);
     }
     if (hit.length > 1) {
       throw new Error(`이 장에 '${name}' 자리가 ${hit.length}개 있습니다 — `
