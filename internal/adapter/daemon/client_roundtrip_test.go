@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/sayaya1090/magi/internal/app"
-	"github.com/sayaya1090/magi/internal/core/event"
-	"github.com/sayaya1090/magi/internal/core/session"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/app"
+	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/session"
 )
 
 // One served daemon, one dialled client, every wrapper crossed once: the test that keeps the

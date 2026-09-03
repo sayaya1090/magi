@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -664,9 +665,23 @@ func TestEveryDeclaredGateGivesItsDeclaredRefusal(t *testing.T) {
 // So it reads the source. The declaration is a type by design, which makes the two comparable: what
 // the table says the door needs, against the `eng.(X)` the body performs.
 func TestEveryDeclaredGateNamesTheInterfaceTheBodyAsserts(t *testing.T) {
-	src, err := os.ReadFile("daemon.go")
+	// Every non-test source in the package, not one named file. It used to name daemon.go, and
+	// when that file was split the guard could not find it — loudly, which is the point: it fails
+	// rather than passing over an empty read. Reading the package makes the next split a non-event.
+	names, err := filepath.Glob("*.go")
 	if err != nil {
 		t.Fatal(err)
+	}
+	var src []byte
+	for _, n := range names {
+		if strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		b, rerr := os.ReadFile(n)
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		src = append(src, b...)
 	}
 	body := regexp.MustCompile(`(?s)\nfunc (answer\w+)\(ctx context\.Context, eng Engine, (?:req|_) Request\) Response \{\n(.*?)\n\}\n`)
 	asserts := map[string]string{}
@@ -676,7 +691,7 @@ func TestEveryDeclaredGateNamesTheInterfaceTheBodyAsserts(t *testing.T) {
 		}
 	}
 	if len(asserts) < 20 {
-		t.Fatalf("only %d door bodies were read out of daemon.go — this guard is looking at the "+
+		t.Fatalf("only %d door bodies were read out of the package — this guard is looking at the "+
 			"wrong shape and would pass no matter what the table said", len(asserts))
 	}
 	fnName := func(f any) string {
