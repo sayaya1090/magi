@@ -2394,6 +2394,11 @@ enabled  = true               # optional; absent means on
   not produce a storm.
 - **It does not overlap itself.** A firing whose previous run has not finished is skipped, with the
   reason recorded.
+- **It does not wait for a person.** "ask" means somebody decides, and at three in the morning
+  nobody does — so a scheduled firing bounds its permission prompts and resolves them by policy,
+  recording that it did. Under `ask` that means the tool is refused and the job says so. Without
+  the bound one job held the workspace's only turn slot and every later firing was skipped behind
+  it, with nothing on any screen saying why.
 - **Local time**, with the daylight-saving consequence that implies: an hour that repeats can fire
   twice and an hour that is skipped does not fire. It is written down rather than pretended away.
 - The config is re-read every tick, so editing the file takes effect without a restart.

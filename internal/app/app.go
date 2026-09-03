@@ -267,11 +267,27 @@ func (a *App) Submit(ctx context.Context, c command.SubmitPrompt) error {
 	// the new task warrants one.
 	a.appendRefs(ctx, &c)
 	a.resetForNewTopLevel(c.SessionID)
+	// Who asked decides whether anybody is waiting for an answer. A scheduled firing carries a
+	// cron actor id, and that is the whole of "unattended" today — read here, at the one place a
+	// top-level turn begins, rather than guessed at later from the session's contents.
+	a.mu.Lock()
+	a.stateLocked(c.SessionID).unattended = isUnattended(c.Actor)
+	a.mu.Unlock()
 	if err := a.appendPrompt(ctx, c); err != nil {
 		return err
 	}
 	a.startRun(ctx, c.SessionID)
 	return nil
+}
+
+// isUnattended reports whether a prompt came from something rather than somebody.
+//
+// One predicate, so the answer does not depend on which caller is asking. Today that is a cron
+// firing; anything else that runs work without a person in front of it belongs here too, and the
+// place to add it is this function rather than each waiting site.
+func isUnattended(actor event.Actor) bool {
+	_, isCron := CronOriginName(actor.ID)
+	return isCron
 }
 
 // Steer injects a user message into a session that is already running, so the

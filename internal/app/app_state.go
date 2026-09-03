@@ -33,7 +33,15 @@ type bornFact struct {
 type sessionState struct {
 	// Whole-session lifetime.
 	cancel context.CancelFunc // in-flight run's cancel (Interrupt); nil = not running
-	meta   session.Session    // session metadata cache
+	// unattended marks a turn nobody is watching — a scheduled firing, today.
+	//
+	// It exists because "ask" means "a person decides", and at three in the morning there is no
+	// person. Without it the first tool that needs approval waits forever, and since the overlap
+	// gate is about the WORKSPACE, every later firing is skipped behind the one that is stuck
+	// ("skipped, X is still going in this workspace") — one job wedges the whole schedule, and
+	// nothing on any screen says why.
+	unattended bool
+	meta       session.Session // session metadata cache
 	// born is the session.created fact, held until the session has something in it.
 	//
 	// A conversation nobody has spoken in is not a conversation, and writing it to disk the moment

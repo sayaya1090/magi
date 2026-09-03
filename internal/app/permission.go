@@ -49,7 +49,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 			Report: grounds, Index: q.Index, Total: q.Total})
 		a.publishTransient(sid, event.TypeQuestionRequested, event.Actor{Kind: event.ActorSystem, ID: "loop"}, qd)
 		var expired <-chan time.Time
-		if bound := a.answerBound(); bound > 0 {
+		if bound := a.answerBound(sid); bound > 0 {
 			t := time.NewTimer(bound)
 			defer t.Stop()
 			expired = t.C
@@ -60,7 +60,7 @@ func (a *App) askUserFn(ctx context.Context, s session.Session, depth int, tc *s
 		case <-expired:
 			// The tool degrades to "decide for yourself", which is what it does anywhere there is
 			// no human — but the agent is TOLD, so it does not treat silence as an answer.
-			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.answerBound())
+			return "", fmt.Errorf("nobody answered within %s; no UI is attached — decide for yourself and say which way you went", a.answerBound(sid))
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
@@ -176,7 +176,7 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 	// only armed when one is configured, so the terminal's prompt still waits as long as the person
 	// in front of it needs.
 	var expired <-chan time.Time
-	if bound := a.answerBound(); bound > 0 {
+	if bound := a.answerBound(sid); bound > 0 {
 		t := time.NewTimer(bound)
 		defer t.Stop()
 		expired = t.C
@@ -242,11 +242,42 @@ func (a *App) requestPermission(ctx context.Context, sid session.SessionID, acto
 //     asked for "allow" on a question they never asked to be asked is the wrong way to be careful.
 //     It resolves the way the mode says — allow — and is written down as a default rather than a
 //     decision.
-func (a *App) answerBound() time.Duration {
+func (a *App) answerBound(sid session.SessionID) time.Duration {
+	// **An unattended turn is bounded whatever the mode says.** "ask" means a person decides, and
+	// a job firing at three in the morning has no person — the wait would not end. It is not only
+	// that one turn: the overlap gate is about the WORKSPACE, so every later firing is skipped
+	// behind the stuck one and the schedule dies with nothing on any screen saying why.
+	//
+	// The bound is the configured one when there is one, and a default when there is not, because
+	// zero here does not mean "no limit is wanted" — it means nobody set one, and for a turn with
+	// no audience that is the same as forever.
+	if a.isUnattendedSession(sid) {
+		if a.cfg.AnswerWait > 0 {
+			return a.cfg.AnswerWait
+		}
+		return unattendedAnswerWait
+	}
 	if a.cfg.AnswerWait > 0 && a.Permission() != "ask" {
 		return a.cfg.AnswerWait
 	}
 	return 0
+}
+
+// unattendedAnswerWait bounds a turn nobody is watching.
+//
+// Long enough that a person who happens to be at a console when a job fires can still answer, and
+// short enough that a schedule is not held for the rest of the night by one prompt. What happens
+// at the end is not a guess: the wait resolves by policy and records that it did, so a job under
+// "ask" is refused the tool and says so rather than being quietly allowed.
+const unattendedAnswerWait = 2 * time.Minute
+
+// isUnattendedSession reports whether the turn in this session was started by something rather
+// than somebody. Set once where a top-level turn begins (App.Submit).
+func (a *App) isUnattendedSession(sid session.SessionID) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	return ok && st.unattended
 }
 
 // noteUnanswered records a prompt that timed out with no answer.
@@ -260,7 +291,7 @@ func (a *App) noteUnanswered(ctx context.Context, sid session.SessionID, tc *ses
 	_ = a.appendPromptText(context.WithoutCancel(ctx), sid,
 		event.Actor{Kind: event.ActorSystem, ID: "permission"}, fmt.Sprintf(
 			"no UI answered the permission prompt for %s within %s — %s by the %q policy",
-			tc.Name, a.answerBound(), verdict, a.Permission()))
+			tc.Name, a.answerBound(sid), verdict, a.Permission()))
 }
 
 // notePersistOutcome carries out the "project" choice and — whenever it did NOT happen — says so.

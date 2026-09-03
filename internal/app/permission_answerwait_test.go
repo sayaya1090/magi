@@ -234,15 +234,17 @@ func TestASecondAnswerIsToldItWasTooLate(t *testing.T) {
 // way would hang on a prompt it had been told to give up on.
 func TestTheWaitFollowsTheModeAsItStandsNow(t *testing.T) {
 	a := New(nil, nil, nil, nil, nil, Config{AnswerWait: 3 * time.Minute, Permission: "auto"})
-	if got := a.answerBound(); got != 3*time.Minute {
+	// A session nobody has spoken in: attended, so the mode decides on its own.
+	const sid = session.SessionID("s_attended")
+	if got := a.answerBound(sid); got != 3*time.Minute {
 		t.Errorf("auto on a daemon is unbounded: %v", got)
 	}
 	a.SetPermission("ask")
-	if got := a.answerBound(); got != 0 {
+	if got := a.answerBound(sid); got != 0 {
 		t.Errorf("switched to ask, a prompt is still answered by a timer after %v", got)
 	}
 	a.SetPermission("auto")
-	if got := a.answerBound(); got != 3*time.Minute {
+	if got := a.answerBound(sid); got != 3*time.Minute {
 		t.Errorf("switched back to auto, the bound did not come back: %v", got)
 	}
 
@@ -250,13 +252,13 @@ func TestTheWaitFollowsTheModeAsItStandsNow(t *testing.T) {
 	// guardrail can force one over the top of it, and hanging a companion whose operator asked for
 	// "allow" on a question they never asked to be asked is the wrong way to be careful.
 	a.SetPermission("allow")
-	if got := a.answerBound(); got != 3*time.Minute {
+	if got := a.answerBound(sid); got != 3*time.Minute {
 		t.Errorf("a policy-forced prompt under allow would hang: %v", got)
 	}
 
 	// A terminal has nobody elsewhere, so no mode is bounded there.
 	term := New(nil, nil, nil, nil, nil, Config{Permission: "auto"})
-	if got := term.answerBound(); got != 0 {
+	if got := term.answerBound(sid); got != 0 {
 		t.Errorf("a terminal bounded its own prompt after %v", got)
 	}
 }
