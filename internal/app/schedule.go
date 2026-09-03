@@ -98,6 +98,32 @@ func badJobName(name string) string {
 	return ""
 }
 
+// PickJobKind resolves what an edit means by KIND: a job either asks a prompt or runs a command,
+// and never both.
+//
+// It lives out here because two writers ask the same question. The daemon asks it below; the
+// console asks it when there is no daemon to ask and it has to write the config file itself. When
+// the rule was written twice, the second copy was the one that went stale.
+//
+// An empty field means "leave that part alone" — but only for the kind the job already is.
+// Filling in the other one from the existing job would turn an edit that set a command into a job
+// that both asks and runs, which is exactly the shape the exclusivity rule refuses.
+//
+// Returns the resolved prompt and command, and a reason when neither answer is usable.
+func PickJobKind(prompt, command string, was config.CronJob) (string, string, string) {
+	p, runs := strings.TrimSpace(prompt), strings.TrimSpace(command)
+	if p == "" && runs == "" {
+		p, runs = was.Prompt, was.Command
+	}
+	switch {
+	case p != "" && runs != "":
+		return "", "", "a job either asks or runs — give a prompt or a command, not both"
+	case p == "" && runs == "":
+		return "", "", "a job needs a prompt to ask, or a command to run"
+	}
+	return p, runs, ""
+}
+
 func (a *App) setScheduled(workdir string, c port.ScheduleChange) (string, error) {
 	name := strings.TrimSpace(c.Name)
 	if why := badJobName(name); why != "" {
@@ -121,18 +147,9 @@ func (a *App) setScheduled(workdir string, c port.ScheduleChange) (string, error
 		return fmt.Sprintf("%q parses but never comes round, so nothing would ever run.", schedule), nil
 	}
 
-	prompt, runs := strings.TrimSpace(c.Prompt), strings.TrimSpace(c.Command)
-	// An empty field means "leave that part alone" — but only for the KIND this job already is.
-	// Filling in the other one from the existing job would turn an edit that set a command into a
-	// job that both asks and runs, which is the thing the exclusivity rule refuses.
-	if prompt == "" && runs == "" {
-		prompt, runs = existing.Prompt, existing.Command
-	}
-	switch {
-	case prompt != "" && runs != "":
-		return "a job either asks or runs — give a prompt or a command, not both", nil
-	case prompt == "" && runs == "":
-		return "a job needs a prompt to ask, or a command to run", nil
+	prompt, runs, why := PickJobKind(c.Prompt, c.Command, existing)
+	if why != "" {
+		return why, nil
 	}
 	bound := strings.TrimSpace(c.Timeout)
 	if bound == "" {

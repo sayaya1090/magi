@@ -2,10 +2,13 @@ package main
 
 import (
 	"context"
+	"github.com/sayaya1090/magi/internal/config"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -136,4 +139,103 @@ func TestTheConsoleAsksTheDaemonToWriteTheSchedule(t *testing.T) {
 	if !last.Remove || last.Name != "nightly" {
 		t.Fatalf("the removal crossed as %+v", last)
 	}
+}
+
+// A scheduled COMMAND is the one kind of job this console can write that runs outside the tool
+// permission gate — writing it is the approval. Three things have to hold, and each of them was
+// wrong before the daemon learned command jobs: the console can write one at all, switching a job
+// from one kind to the other clears the key it is no longer using, and `prompt` alone does not buy
+// it. The last one matters most: a role written as "may give the companion work" would otherwise
+// be a role that can run anything on that machine every morning at nine.
+func TestAScheduledCommandIsWrittenAndNeedsMoreThanPrompt(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	// A dead daemon: a published record with nothing behind it. That is the case this path exists
+	// for — the console composes the file itself because there is no owner running to ask.
+	q := "/cron?d=" + url.QueryEscape(f.daemonAt(wd, "api", false))
+	f.session("api", wd, "x", 1, false)
+	path := filepath.Join(wd, ".magi", "config.toml")
+	read := func() map[string]config.CronJob {
+		t.Helper()
+		c, err := config.Load(filepath.Dir(path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.Cron
+	}
+
+	// No daemon here on purpose: this is the path that exists for when one is down, and it is the
+	// path that writes the file, so it is where a stale opposite key would survive.
+	w := post(t, f.srv, f.srv.cron, q, url.Values{
+		"name": {"build"}, "schedule": {"@daily"}, "command": {"make all"}, "timeout": {"20m"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("writing a command job: %d %s", w.Code, w.Body.String())
+	}
+	if j := read()["build"]; j.Command != "make all" || j.Timeout != "20m" || j.Prompt != "" {
+		t.Fatalf("the command job as written: %+v", j)
+	}
+
+	// Switch it to the other kind. Both keys are written every time for this reason — leaving the
+	// command behind would make a job that asks AND runs, the one shape the daemon refuses to arm.
+	w = post(t, f.srv, f.srv.cron, q, url.Values{
+		"name": {"build"}, "prompt": {"summarise last night"}})
+	if w.Code != http.StatusOK {
+		t.Fatalf("switching kinds: %d %s", w.Code, w.Body.String())
+	}
+	if j := read()["build"]; j.Command != "" || j.Prompt != "summarise last night" {
+		t.Fatalf("switching to a prompt left the command behind: %+v", j)
+	}
+
+	// Both at once is refused rather than ordered — there is no stated answer for which goes first.
+	w = post(t, f.srv, f.srv.cron, q, url.Values{
+		"name": {"build"}, "prompt": {"ask"}, "command": {"run"}})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("a job that both asks and runs: %d %s", w.Code, w.Body.String())
+	}
+
+	// And the capability. This role may give the companion work; it may not run a shell.
+	authDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(authDir, config.AuthFile), []byte(`
+[roles.tasker]
+can = ["read", "prompt"]
+
+[people."kim@corp.com"]
+role = "tasker"
+
+[people."boss@corp.com"]
+role = "operator"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, err := config.LoadAuth(authDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.srv.policy, f.srv.userHeader = p, "X-Forwarded-User"
+	for _, c := range []struct {
+		who  string
+		want int
+	}{{"kim@corp.com", http.StatusForbidden}, {"boss@corp.com", http.StatusOK}} {
+		w := postAs(t, f.srv.cron, q, c.who, url.Values{
+			"name": {"sweep"}, "schedule": {"@daily"}, "command": {"make clean"}})
+		if w.Code != c.want {
+			t.Errorf("%s writing a scheduled command: %d, want %d (%s)", c.who, w.Code, c.want, w.Body.String())
+		}
+	}
+	// The same person may still schedule a prompt — the refusal is about the shell, not the clock.
+	if w := postAs(t, f.srv.cron, q, "kim@corp.com", url.Values{
+		"name": {"ask"}, "schedule": {"@daily"}, "prompt": {"how did last night go"}}); w.Code != http.StatusOK {
+		t.Errorf("a prompt job was refused to someone who may prompt: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// postAs is post with a signed-in person — the console reads who from a header its front door set.
+func postAs(t *testing.T, h http.HandlerFunc, path, who string, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Set("X-Forwarded-User", who)
+	w := httptest.NewRecorder()
+	h(w, r)
+	return w
 }

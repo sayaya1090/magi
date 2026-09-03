@@ -287,7 +287,11 @@ public class SideElement {
             else if (!on) state = tr("cron.off");
             else if (!str(j, "next").isEmpty()) state = tr("cron.next") + " " + str(j, "next");
             else state = tr("cron.never");
-            row.append(cell("jnext", state), cell("jask", str(j, "prompt")));
+            // 묻는 잡이면 묻는 말, 도는 잡이면 도는 명령. 명령 쪽만 `$` 로 시작해 한눈에 갈린다 —
+            // 안 그러면 커맨드 잡은 이 판에서 「무엇을 하는지」 칸이 통째로 빈 채로 선다.
+            String cmd = str(j, "command");
+            row.append(cell("jnext", state),
+                    cell(cmd.isEmpty() ? "jask" : "jask jrun", cmd.isEmpty() ? str(j, "prompt") : "$ " + cmd));
             row.append(cell("jfile", str(j, "file")
                     + (Js.isTruthy(j.get("global")) ? " \u00B7 " + tr("cron.machine") : "")));
             cron.append(row);

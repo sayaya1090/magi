@@ -2399,6 +2399,10 @@ timeout  = "20m"              # optional; ten minutes by default, and never zero
   run under a profile that asks about every command. That reasoning holds only because the agent
   cannot write one: the `schedule` tool refuses the field and says so, so a command is here
   because a person put it here or sent it through the control socket.
+- **Writing one from the console needs `shell`, not just `prompt`.** A role written as "may set the
+  model, may give the companion work" would otherwise be a role that runs anything on that machine
+  every morning at nine, because a scheduled command is the one thing the console can write that
+  skips the permission gate. So the route asks for both, and refuses with which one is missing.
 - **A command run is a session like any other.** The command, its output and its exit are written
   into it, so it is listed, read and traced exactly like a prompt run — and a run that failed at
   four in the morning is the reason somebody opens that session.

@@ -46,7 +46,13 @@ type cronJob struct {
 	Name     string `json:"name"`
 	Schedule string `json:"schedule"`
 	Prompt   string `json:"prompt"`
-	Enabled  bool   `json:"enabled"`
+	// Command is what it runs instead of asking, when it is that kind of job. Without this the
+	// page draws a row with an empty "what it does" for every command job — the job is there, it
+	// fires, and the only screen that lists it says nothing about it.
+	Command string `json:"command,omitempty"`
+	// Timeout bounds one run of Command, as written ("20m"). Empty means the daemon's default.
+	Timeout string `json:"timeout,omitempty"`
+	Enabled bool   `json:"enabled"`
 	// Next is when it runs next, as an instant the page formats, and empty when it never will.
 	Next string `json:"next,omitempty"`
 	// Problem says why it can never run. A job in this state is the one a list MUST mark: it is
@@ -87,6 +93,7 @@ func (s *server) cron(w http.ResponseWriter, r *http.Request) {
 		_, fromProject := project[j.Name]
 		row := cronJob{
 			Name: j.Name, Schedule: j.Schedule, Prompt: j.Prompt, Enabled: j.Enabled,
+			Command: j.Command, Timeout: j.Timeout,
 			Problem: j.Problem, File: projectFile, Global: !fromProject,
 		}
 		if !fromProject {
@@ -178,28 +185,37 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	schedule := strings.TrimSpace(r.FormValue("schedule"))
-	prompt := strings.TrimSpace(r.FormValue("prompt"))
 	// An empty field means "leave that part alone", which is what makes switching a job off a
 	// one-field post rather than a form that has to restate everything.
-	existing := app.DescribeJobs(config.MergeCron(s.jobsFor(in.Workdir)))
-	for _, j := range existing {
-		if j.Name != name {
-			continue
-		}
-		if schedule == "" {
-			schedule = j.Schedule
-		}
-		if prompt == "" {
-			prompt = j.Prompt
-		}
+	global, project := s.jobsFor(in.Workdir)
+	was := config.MergeCron(global, project)[name]
+	if schedule == "" {
+		schedule = was.Schedule
 	}
 	if schedule == "" {
 		http.Error(w, "a job needs a schedule, like \"0 9 * * 1-5\" or \"@daily\"", http.StatusBadRequest)
 		return
 	}
-	if prompt == "" {
-		http.Error(w, "a job needs a prompt — the thing to ask when it runs", http.StatusBadRequest)
+	prompt, command, why := app.PickJobKind(r.FormValue("prompt"), r.FormValue("command"), was)
+	if why != "" {
+		http.Error(w, why, http.StatusBadRequest)
 		return
+	}
+	bound := strings.TrimSpace(r.FormValue("timeout"))
+	if bound == "" {
+		bound = was.Timeout
+	}
+	// A command job runs a shell command unattended, and writing it here IS the approval — it
+	// does not go through the tool permission gate the way a prompt job's commands do. So it is
+	// not something `prompt` should be able to buy: a role allowed to give the companion work
+	// would otherwise be a role allowed to run anything on that machine every morning at nine.
+	if command != "" {
+		if who := s.whoFrom(r); !s.policy.Allows(who, auth.Shell, nameOfSocket(r.URL.Query().Get("d")), "") {
+			http.Error(w, refusal(who, auth.Shell)+
+				" — a scheduled command runs unattended, so writing one here is the approval",
+				http.StatusForbidden)
+			return
+		}
 	}
 	// Checked here rather than left for the daemon to reject at its next start. A schedule that
 	// cannot run is worth refusing while the person who typed it is still looking at it.
@@ -215,7 +231,8 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 		on = &b
 	}
 	if done, msg, err := s.cronThroughDoor(r, daemon.CronEdit{
-		Name: name, Schedule: schedule, Prompt: prompt, Enabled: on}); done {
+		Name: name, Schedule: schedule, Prompt: prompt, Command: command, Timeout: bound,
+		Enabled: on}); done {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -227,9 +244,14 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if err := config.SetKey(path, section, "prompt", prompt); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Both keys are written every time, one of them empty. Leaving the old one alone would make a
+	// job that asks AND runs the moment somebody switches an existing job to the other kind — the
+	// one shape the daemon refuses to arm, written by the path that exists for when it is down.
+	for _, kv := range [][2]string{{"prompt", prompt}, {"command", command}, {"timeout", bound}} {
+		if err := config.SetKey(path, section, kv[0], kv[1]); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 	}
 	if v := r.FormValue("enabled"); v != "" {
 		if err := config.SetRawKey(path, section, "enabled", fmt.Sprintf("%t", v == "true")); err != nil {

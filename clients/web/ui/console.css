@@ -3678,6 +3678,8 @@
   #cron .jnext, #cron .jask, #cron .jfile { grid-column:1 / -1; }
   #cron .jnext { font:var(--magi-sys-body-s) var(--magi-ref-display); color:var(--magi-ref-muted); }
   #cron .jask { color:var(--magi-ref-fg); margin-top:var(--magi-sys-space-50); }
+  /* 도는 잡은 명령이라 고정폭으로 — 프롬프트와 같은 글꼴로 그리면 `$` 하나만 다른 문장이 된다. */
+  #cron .jrun { font:var(--magi-sys-body-s) var(--magi-ref-mono); overflow-wrap:anywhere; }
   #cron .jfile {
     font:var(--magi-sys-body-s) var(--magi-ref-mono); color:var(--magi-ref-muted);
     margin-top:var(--magi-sys-space-50); overflow-wrap:anywhere;
