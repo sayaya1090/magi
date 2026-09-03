@@ -505,3 +505,32 @@ func TestNoSectionOfTheFormLooksLikeAnExample(t *testing.T) {
 		t.Error("nothing stops the writer attributing `- (nothing yet)` to the speaker")
 	}
 }
+
+// The minutes are handed to a speaker as material, not as a pattern to copy.
+//
+// Measured across 127 live contributions: six came back shaped like the document — two of them a
+// whole minutes file, four opening with `UNCHANGED`, which is a word that exists only in the
+// minutes rules. The document sat directly under the question, unfenced, full of `## Decided`
+// headings, and a model writes in the format nearest to it.
+//
+// Three things move it out of the way: it comes after the transcript rather than before it, it is
+// fenced, and it says outright that somebody else writes it.
+func TestTheSpeakerIsGivenTheMinutesAsMaterialNotAsAForm(t *testing.T) {
+	const doc = "## Decided\n- use the queue (alpha)"
+	p := meetingPrompt("beta", "which store", "alpha: use the queue", doc, false)
+	if !strings.Contains(p, "```\n"+doc+"\n```") {
+		t.Errorf("the document is not fenced, so it reads as part of the instructions:\n%s", p)
+	}
+	if !strings.Contains(p, "Do not reply with a document") {
+		t.Error("nothing tells the speaker its turn is a contribution rather than a record")
+	}
+	// After what was said, before how to answer.
+	said, mins, how := strings.Index(p, "WHAT HAS BEEN SAID"), strings.Index(p, "THE MINUTES SO FAR"), strings.Index(p, "HOW TO ANSWER")
+	if !(said < mins && mins < how) {
+		t.Errorf("the order is transcript → minutes → how to answer, got %d/%d/%d", said, mins, how)
+	}
+	// The closing round needs it MOST — that is where somebody says what they will do.
+	if c := meetingPrompt("beta", "which store", "alpha: use the queue", doc, true); !strings.Contains(c, doc) {
+		t.Errorf("the closing turn cannot see what the room settled:\n%s", c)
+	}
+}

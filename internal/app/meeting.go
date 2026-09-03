@@ -458,21 +458,31 @@ func (a *App) MeetingActive() bool { return a.meetingRounds.Load() > 0 }
 func meetingPrompt(who, topic, transcript, minutes string, closing bool) string {
 	var b strings.Builder
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
-	// The document BEFORE what has been said, because it is the shorter and the more settled of
-	// the two: a speaker that reads what is already agreed does not spend its turn agreeing again.
-	// Only the current version travels — the drafts it went through live in the other session.
-	if m := strings.TrimSpace(minutes); m != "" {
-		b.WriteString("THE MINUTES SO FAR — what the room has already written down\n" + m + "\n\n")
-	}
 	if strings.TrimSpace(transcript) == "" {
 		b.WriteString("Nobody has spoken yet. You are first.\n\n")
 	} else {
 		b.WriteString("WHAT HAS BEEN SAID\n" + strings.TrimSpace(transcript) + "\n\n")
 	}
+	// The document goes BELOW the transcript and above HOW TO ANSWER, and it is fenced.
+	//
+	// It used to sit right under the question, unfenced. Measured across 127 contributions: six
+	// came back shaped like the document itself — two of them a whole minutes file, four opening
+	// with `UNCHANGED`, a word that exists only in the minutes rules. A model writes in the format
+	// nearest to it, and an unfenced document full of `## Decided` headings was the nearest thing.
+	//
+	// Fenced and labelled as somebody else's writing, it reads as material rather than as a
+	// pattern to match.
+	if m := strings.TrimSpace(minutes); m != "" {
+		b.WriteString("THE MINUTES SO FAR — the room's record, written by the participants. It is " +
+			"here so you do not agree again to what is already agreed. **Do not reply with a " +
+			"document**: somebody else writes this, and your turn is a contribution.\n" +
+			"```\n" + m + "\n```\n\n")
+	}
 	if closing {
 		b.WriteString("HOW TO ANSWER\n" +
 			"The discussion is over. Say what YOU will do about this, in one or two lines, as work " +
-			"you would start in your own workspace. If there is nothing for you to do, answer with " +
+			"you would start in your own workspace. The minutes above say what the room settled — " +
+			"take your part of it rather than restating the whole. If there is nothing for you to do, answer with " +
 			"exactly PASS — that is a normal outcome and not a failure to contribute.\n")
 		return b.String()
 	}
