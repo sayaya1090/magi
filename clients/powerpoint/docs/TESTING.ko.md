@@ -12,10 +12,13 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 124 | 2026-09-04 | 통과 (0.7s) |
-| 4. JS 순수층 (`addin/tools/`) | 1,145 | 2026-09-04 | 통과 (smoke 548 · officehand 547 · hand 50) |
+| 1·2·3. Go (`helper/`) | 134 | 2026-09-04 | 통과 |
+| 4. JS 순수층 (`addin/tools/`) | 1,185 | 2026-09-04 | 통과 (smoke 588 · officehand 547 · hand 50) |
+| 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
+| 6. 실물 + 사람 말 (Windows) | — | 2026-09-03 | §5.1.4 |
+| 6. 실물 + 사람 말 (**Mac**) | — | **2026-09-04** | §5.1.5 |
 
 「초록이었다」는 기억이 아니라 **날짜와 수**로 남아야, 다음 사람이 무엇을 근거로 믿는지 안다.
 
@@ -83,6 +86,12 @@
 | 읽기 도구도 **끝났다고 선언하는 법**을 설명에 싣는다 | 27개 설명문 | `ReadToolsSayHowToDeclareFinished` |
 | **매뉴얼이 코드가 만든 허용 규칙을 그대로 옮겼는가** | `AllowRulesTOML()` 과 매뉴얼의 `allow = […]` 덩어리를 글자로 견준다 | `TheManualQuotesTheRulesWeGenerate` |
 | **매뉴얼이 도구를 하나도 안 빠뜨렸는가** | 도구 표를 훑어 매뉴얼에서 이름을 찾는다 — 표에 없는 도구는 사람에게 없는 기능이다 | `TheManualNamesEveryTool` |
+| **우리가 띄우는 컴패니언이 묻는가** | `daemonArgs()` 에 `--permission ask` 가 있는가 — 인자는 `Spawn` 이음매로 안 날라서 함수로 뺐다 | `TheCompanionWeStartAsksBeforeItChangesTheDeck` |
+| **답은 stdout · 진단은 stderr** | `-version`·`-allow-rules`·`-cert-hint` 를 실제로 돌려 두 갈래를 본다 | `AnswersGoToStdoutAndDiagnosticsToStderr` |
+| **그림이 글에 안 남는다** | `render_slide` 결과의 글 블록에 base64 가 없는가 | `ThePictureGoesOnceNotTwice` |
+| **빈 배열은 인자 없음** | `[]`·`null`·`{}` 는 통과, 값이 든 배열은 거절 | `AnEmptyArrayIsAnEmptyCall` |
+| **가이드: 끄는 것은 지우는 것이 아니다** | 추가·끄기·켜기·삭제와 이름 검사 | `DisablingIsNotDeleting` · `AGuideNameCannotBecomeAPath` |
+| **가이드 설명은 모델이 받는 그것** | 프런트매터 → 없으면 첫 줄, magi 로더와 같은 규칙 | `TheDescriptionIsTheOneTheModelSees` |
 | **문서가 적은 도구 수가 카탈로그와 같은가** | `len(catalogue())` 와 읽기/쓰기 갈래 수를 문서의 **정확한 문자열** 여섯 자리와 견준다. 정규식으로 안 훑는 것이 일부러다 — §5.1 의 실물 기록(「도구 28개」)은 그날 참이라 고칠 것이 아니다 | `TheDocsCountTheToolsWeAdvertise` — 처음 돌렸을 때 27·19·39 세 값이 갈려 있었다 |
 | 생략했을 때의 뜻을 스키마가 적는가 | `slideProps` 와 도구 표 | `OmittingTheSlideMeansTheOneInFront` |
 | 광고하지 않은 능력을 광고하지 않는다 | `set_table_cells` 는 서식을 안 건드린다 | `SetTableCellsAdvertisesNoFormatting` |
@@ -143,6 +152,12 @@
 | 빈 선택과 **포커스가 가져간 선택**을 가른다 | 누르기 **전** 읽기가 있어야 갈린다 |
 | 안내는 도구가 **광고한 철자**로 읽는다 | 철자를 `helper/tools.go` 에서 뽑아 먹인다 — 손으로 적으면 이 시험도 두 벌 중 하나가 된다 |
 | 막힌 물음은 **화면 안으로 끌어온다** | 대화 아래에 선 칸은 접힌 자리 밖이다. 답할 것이 없는 칸(못 닿음·직전 물음)은 안 끌어온다 — 읽던 자리를 뺏을 이유가 없다 |
+| 계획은 **쌓지 않고 갈아 끼운다** | 계약이 매번 전량이다. 대화 줄로도, 「모르는 종류」로도 안 센다 |
+| 계획은 **다 끝나면 사라진다** | 접힌 판도 한 줄을 먹고, 그 줄은 이미 지난 일이다 |
+| 인자는 대화 줄에서 **한 줄** | `document` 는 빼고, 배열·객체는 크기만. **권한 물음은 그대로 다 편다** |
+| 어댑터 이름은 **예상 밖일 때만** | 가짜 덱·모르는 어댑터는 반드시 적는다 |
+| 아이콘 단추의 **툴팁은 동작**을 적는다 | 아이콘 이름이 아니라(M3). 켜짐은 색 하나로 말하지 않는다 |
+| **`hidden` 이 `display` 를 이긴다** | 한 줄로 못 박혔는지를 CSS 글자로 문다 |
 | 컴패니언이 **다시 뜬 것**은 「닿는다」와 다르다 | 그 사실이 바뀌는 순간에만 종을 치고, 조립 자리는 몰래 다시 안 붙인다 — 다시 붙이는 것은 사람이 하는 말이다 |
 
 `tools/officehand.mjs` (164) 는 `PowerPoint.run` 을 흉내 낸 stub 위에서 **우리가 고른 가지**를
@@ -424,6 +439,32 @@ bash   powershell -File create_report_fixed.ps1
 것을 바꾼 셈이고, 그 사실이 결함 하나를 드러내기도 했다(답 못 하는 연결이 덱으로 세어지는 것).
 
 ---
+
+### 5.1.5 2026-09-04 — Mac 에서 처음, 그리고 **화면이 초록인 채로 틀려 있던 자리**
+
+**이 애드인이 macOS 에서 처음 돌았다**(16.112.3 · Claude `sonnet` via `magi-shim`). 요구 집합
+여섯이 다 ✓ 로 나와 S1 의 남은 절반이 닫혔고, 실물 덱이 바뀌는 것을 AppleScript 로 대조했다.
+
+그날 나온 것 여덟인데, **자동 시험이 하나도 못 잡던 것**이다.
+
+| 무엇이었나 | 어떻게 나왔나 | 지금 무는 자리 |
+|---|---|---|
+| 헬퍼가 안 뜬다 — 6일 묵은 목업 서버가 3000 을 쥐고 있었다 | 띄워 봐서 | 고칠 것 없음. **설계대로 멈췄다**(§5.5.1) |
+| **우리가 띄운 컴패니언이 `allow`** — `DESIGN.md` §5.0 은 `ask` 라고 못 박아 뒀다 | `/api/companions` 를 읽어서 | `TestTheCompanionWeStartAsksBeforeItChangesTheDeck`. 인자는 `Spawn` 이음매로 안 날라서 **어느 층도 못 보던 자리**였다 |
+| `-allow-rules > config.toml` 이 **빈 파일**을 만든다 | 두 번 겪고 | `TestAnswersGoToStdoutAndDiagnosticsToStderr` |
+| 첫 호출 `list_slides []` 가 ✗ | 대화 첫 줄에서 | `TestAnEmptyArrayIsAnEmptyCall` + 코어 `TestEmptyArgumentsFoldToAnObject` |
+| **`render_slide` 가 그림을 두 번 보냈다** — 본문 55,392자 + 이미지 블록 | 세션 로그의 결과 크기를 재서 | `TestThePictureGoesOnceNotTwice`. `delete` 가 `MarshalIndent` **뒤에** 있어 아무 일도 안 했다 |
+| 옳게 고친 턴이 UNVERIFIED 착지 | 카운슬 판정을 읽어서 | 고치지 않았다 — 이 컴패니언은 카운슬을 껐다(사람이 화면을 보고 있다) |
+| **`hidden` 을 CSS 가 이겼다** — 판을 열자마자 안 누른 편집기가 같이 열렸다 | **브라우저에서 눈으로** | `smoke`: `[hidden]{display:none!important}` 가 파일에 서 있는지를 글자로 문다 |
+| 모델의 자기 검사표가 **자기에게 유리한 쪽으로** 두 칸 틀렸다 | 표를 받고 같은 값을 `read_slide` 로 다시 재서 | 고칠 코드 없음 — **표를 받으면 실측으로 되재는 것**이 그 답이다 |
+
+**마지막 줄이 이 회차의 값이다.** 모델에게 「가이드 §7 을 한 칸씩 대조해 표로 보고하라」고 시켰고
+표는 대체로 맞았는데, 두 칸이 틀렸다: 자리표시자의 좌표를 「가이드 좌표 준수 ✅」로 적었고(그 자리는
+「해당없음」이다), 본문과 출처가 **좌표상 30.4pt 겹치는 것**을 「렌더를 보니 실겹침 없음」으로
+넘겼다. 뒤엣것은 **오늘의 글 길이에 기댄 판정**이라 한 줄만 늘면 거짓이 된다.
+
+`hidden` 건은 결이 또 다르다 — 자바스크립트는 옳게 `hidden = true` 를 세우고 있었고 **화면만 안
+듣고 있었다.** 이 레인이 `.turn.turn` 에서 한 번 겪은 그 모양이고, 층 1~4 는 구조적으로 못 본다.
 
 ### 5.2 점검표 — 판을 낼 때 손으로 돈다
 
