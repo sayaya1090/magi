@@ -1867,9 +1867,19 @@ console does and no longer, because the record that outlives it is each particip
 
 **The room keeps minutes, and everybody writes them.** Each speaker reads the document before
 saying anything — so it does not agree again to what is already agreed — and rewrites it after,
-with what it just said in it. The first speaker is handed a form (decided / still open / action
-items / questions for the room) rather than a description of one, because a description produces a
-different shape from each model and the second speaker then has to guess where its edit belongs.
+with what it just said in it. The first speaker is handed a form rather than a description of one,
+because a description produces a different shape from each model and the second speaker then has to
+guess where its edit belongs — who was in the room, what was decided, what is still open, action
+items, and questions for the room.
+
+The shape is the ordinary one for a work meeting's record, and each part is there for a reason that
+has been paid for. **Attendance is filled in by magi**, not asked for: the participant writing the
+minutes sits in a session that never saw the roster, and a record naming the wrong people is worse
+than one naming none. **Every line says where it came from**, because minutes nobody can trace back
+are a summary and a reader who disagrees with a line has nowhere to take it. **A decision says why**
+— that is the part nobody can reconstruct six weeks later, and the only person who has it is the one
+who just made it. **An action item names one owner** and never a name that did not accept the work
+in their own words.
 By the time the room closes, the minutes have been through everybody's hands: that is what makes
 them an agreement rather than a summary written afterwards. The screen draws them beside the
 discussion, always, and highlights the lines that changed.
