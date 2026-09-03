@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/meeting"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -245,17 +246,17 @@ func (s *server) meetStart(w http.ResponseWriter, r *http.Request) {
 		if sock == "" {
 			continue
 		}
-		name := s.companionName(r, sock)
-		if name == "" {
+		seat, ok := s.companionSeat(r, sock)
+		if !ok || seat.Name == "" {
 			http.Error(w, "this console has no companion you may convene at "+sock,
 				http.StatusBadRequest)
 			return
 		}
-		if _, twice := sockets[name]; twice {
+		if _, twice := sockets[seat.Name]; twice {
 			continue
 		}
-		speakers = append(speakers, meeting.Speaker{Name: name, Socket: sock})
-		sockets[name] = sock
+		speakers = append(speakers, seat)
+		sockets[seat.Name] = sock
 	}
 	// And a ceiling on the room. Every participant is a model turn per round, so a request naming
 	// forty companions is forty turns a lap — and a discussion nobody can read is not the thing
@@ -640,6 +641,10 @@ func (run *meetingRun) collect(ctx context.Context, s *server, topic string) {
 func (run *meetingRun) getReady(ctx context.Context, s *server) {
 	run.mu.Lock()
 	id, topic := run.id, run.m.Topic
+	// The roster goes with every invitation, the whole room including the person. Read once here
+	// rather than per participant: it is the same list for all of them, and it is the answer to
+	// the question the preparation prompt asks them ("what do you know that the others do not").
+	room := meeting.Seats(run.m.Speakers)
 	type who struct{ name, sock string }
 	var going []who
 	for _, sp := range run.m.Speakers {
@@ -655,14 +660,14 @@ func (run *meetingRun) getReady(ctx context.Context, s *server) {
 		wg.Add(1)
 		go func(w who) {
 			defer wg.Done()
-			brief, room, err := s.joinMeeting(ctx, w.sock, id, topic)
+			brief, opened, err := s.joinMeeting(ctx, w.sock, id, topic, room)
 			run.mu.Lock()
 			defer run.mu.Unlock()
 			if err != nil {
 				run.m.Prepared(w.name, "", err.Error())
 				return
 			}
-			run.roomOf(w.name, room)
+			run.roomOf(w.name, opened)
 			run.m.Prepared(w.name, brief, "")
 		}(w)
 	}
@@ -672,10 +677,21 @@ func (run *meetingRun) getReady(ctx context.Context, s *server) {
 	run.mu.Unlock()
 }
 
+// wireSeats is the room in the protocol's vocabulary. Two structs of the same shape by design: one
+// belongs to the meeting and one to the socket, and a single type shared between them would make a
+// change to either a change to both.
+func wireSeats(room []meeting.Seat) []daemon.Seat {
+	out := make([]daemon.Seat, 0, len(room))
+	for _, sp := range room {
+		out = append(out, daemon.Seat{Name: sp.Name, Role: sp.Role, Does: sp.Does, Person: sp.Person})
+	}
+	return out
+}
+
 // joinMeeting is one companion getting ready, on a connection of its own for the same reason
 // speakTo uses one: this is minutes of model time and the pooled client serialises everything else
 // sent to that daemon behind it.
-func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (ready, room string, err error) {
+func (s *server) joinMeeting(ctx context.Context, socket, id, topic string, room []meeting.Seat) (ready, opened string, err error) {
 	if strings.TrimSpace(socket) == "" {
 		return "", "", errNoDoor
 	}
@@ -691,8 +707,8 @@ func (s *server) joinMeeting(ctx context.Context, socket, id, topic string) (rea
 	}
 	done := make(chan answer, 1)
 	go func() {
-		said, room, err := cl.Join(id, topic)
-		done <- answer{said, room, err}
+		said, opened, err := cl.Join(id, topic, wireSeats(room))
+		done <- answer{said, opened, err}
 	}()
 	late := time.NewTimer(6 * time.Minute)
 	defer late.Stop()
@@ -750,16 +766,28 @@ func (s *server) speakTo(ctx context.Context, socket, id, topic, transcript stri
 // none there, or when this person may not see it. Both are the same answer on purpose: a caller
 // who learns that a socket exists but is out of their scope has learned the thing the scope hides.
 func (s *server) companionName(r *http.Request, socket string) string {
+	seat, _ := s.companionSeat(r, socket)
+	return seat.Name
+}
+
+// companionSeat is companionName plus what that companion is FOR — the role it publishes and what
+// it advertises being able to do.
+//
+// The listing already carries all three; this resolution used to take the name and drop the rest on
+// the floor, and then the meeting could not tell its participants who else was in the room. Nothing
+// new is fetched: fleet.Abilities renders the same sample-and-count the fleet screens draw.
+func (s *server) companionSeat(r *http.Request, socket string) (meeting.Speaker, bool) {
 	for _, a := range s.published(r) {
 		if a.Socket != socket || a.Elsewhere {
 			continue
 		}
 		if !s.seen(r, a.Name, a.Peer) {
-			return ""
+			return meeting.Speaker{}, false
 		}
-		return a.Name
+		return meeting.Speaker{Name: a.Name, Socket: socket,
+			Role: a.Role, Does: fleet.Abilities(a)}, true
 	}
-	return ""
+	return meeting.Speaker{}, false
 }
 
 // personHere is what to call the reader in a transcript: the name a gateway gave, or "you" on the

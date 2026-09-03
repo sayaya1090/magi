@@ -1,6 +1,7 @@
 package app
 
 import (
+	"github.com/sayaya1090/magi/internal/core/meeting"
 	"os"
 	"regexp"
 	"strings"
@@ -279,7 +280,7 @@ func fieldValues(src, name string) []string {
 // The rule is not "never mention the audience" — it is "say who it actually is". So this asserts
 // both halves: the false claim is gone, and the true one is present.
 func TestThePreparationPromptDoesNotClaimNobodyIsListening(t *testing.T) {
-	p := preparePrompt("alpha", "which store for the queue", "README.md")
+	p := preparePrompt("alpha", "which store for the queue", "README.md", nil)
 	if strings.Contains(p, "nobody will hear this turn") {
 		t.Error("the prompt tells the participant nobody hears this, then shows what it answers " +
 			"to the person who called the meeting — a model that believes it thinks out loud")
@@ -291,5 +292,49 @@ func TestThePreparationPromptDoesNotClaimNobodyIsListening(t *testing.T) {
 	if !strings.Contains(p, "not a round") {
 		t.Error("what IS true — the room does not answer this turn — is what keeps the " +
 			"participant from opening the discussion here")
+	}
+}
+
+// A participant getting ready is told who else is in the room and what each of them is for.
+//
+// Without it the last line of that prompt asks for "what you know that the others do not" while
+// declining to say who the others are, and every participant answers about its own workspace and
+// nothing else — the meeting's shape gets decided during the first round instead of before it.
+func TestThePrepareBriefNamesTheRoomAndWhatEachOneIsFor(t *testing.T) {
+	room := []meeting.Seat{
+		{Name: "alpha", Role: "the wire", Does: "socket, roster"},
+		{Name: "beta", Role: "storage", Does: "sqlite, migrations (+3)"},
+		{Name: "gamma"},
+		{Name: "kim", Person: true},
+	}
+	p := preparePrompt("alpha", "which store for the queue", "README.md", room)
+
+	if !strings.Contains(p, "You are alpha.") {
+		t.Error("the participant is not told its own name — it was passed one and the prompt dropped it")
+	}
+	for _, want := range []string{"beta", "storage", "sqlite, migrations (+3)", "gamma"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("the roster does not carry %q:\n%s", want, p)
+		}
+	}
+	// A companion that published neither a role nor abilities is still named. Nothing is invented
+	// for it: a made-up description is worse than none, because the reader plans around it.
+	if strings.Contains(p, "gamma (") || strings.Contains(p, "gamma —") {
+		t.Errorf("something was invented for a companion that published nothing:\n%s", p)
+	}
+	if !strings.Contains(p, "kim — the person who called this meeting") {
+		t.Errorf("the person in the room is not named as one:\n%s", p)
+	}
+	// And it is not told about itself. That is what this whole turn is for.
+	if strings.Contains(p, "alpha (the wire)") {
+		t.Errorf("the participant is listed among the others it is being asked to differ from:\n%s", p)
+	}
+}
+
+// An empty roster leaves no heading behind. A section title with nothing under it reads as "nobody
+// else is here", which is a different meeting from "nobody told me".
+func TestAnEmptyRoomLeavesNoHeading(t *testing.T) {
+	if p := preparePrompt("alpha", "q", "", nil); strings.Contains(p, "WHO ELSE IS IN THE ROOM") {
+		t.Errorf("an empty roster still drew its heading:\n%s", p)
 	}
 }

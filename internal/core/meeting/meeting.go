@@ -50,6 +50,15 @@ type Speaker struct {
 	// Socket is the companion's door. Empty for the person, which is also how the two are told
 	// apart everywhere below — a person has no socket and no turn to spend.
 	Socket string
+	// Role is what this companion is for, as it publishes it, and Does is what it advertises being
+	// able to do — already rendered as the sample-and-count `fleet.abilities` produces, not a raw
+	// list. Both empty for the person, and for a companion that declared neither.
+	//
+	// Held here because the room is what knows who is in it. A participant getting ready is asked
+	// what it brings "that the others do not", and until this it was asked that without being told
+	// who the others were.
+	Role string
+	Does string
 	// Passes counts CONSECUTIVE passes. Two in a row and this speaker is not asked again until
 	// somebody names them: the largest waste in a meeting is a turn spent on a companion that has
 	// already said twice that this is not its business.
@@ -69,6 +78,32 @@ type Speaker struct {
 
 // Person reports whether this speaker is the human in the room.
 func (s Speaker) Person() bool { return s.Socket == "" }
+
+// Seat is one participant as the OTHERS are told about them: a name, what they are for, and what
+// they advertise being able to do.
+//
+// Speaker is what the room keeps; this is what leaves it. They are different things — Speaker holds
+// a socket, a pass count and a readiness flag, none of which is any of the other participants'
+// business — and a wire type that carried all of that would be telling every companion how often
+// its neighbour had passed.
+type Seat struct {
+	Name string
+	Role string
+	Does string
+	// Person marks the human who called the meeting. A field rather than an inference from an
+	// empty Role: a companion that declared no role looks identical, and calling it a person in
+	// the prompt would be a lie the reader plans around.
+	Person bool
+}
+
+// Seats is the roster to hand participants, taken from who is actually in the room.
+func Seats(speakers []Speaker) []Seat {
+	out := make([]Seat, 0, len(speakers))
+	for _, s := range speakers {
+		out = append(out, Seat{Name: s.Name, Role: s.Role, Does: s.Does, Person: s.Person()})
+	}
+	return out
+}
 
 // Utterance is one thing said, or one deliberate silence.
 type Utterance struct {

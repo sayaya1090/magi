@@ -575,8 +575,8 @@ func (c *Client) Git() (string, error) {
 // question — what this participant will DO about it — which is what a meeting is for.
 // Join is this companion getting ready for a meeting: it reads its own workspace and answers with
 // what it brings. The session it opens is the one its turns then happen in.
-func (c *Client) Join(meeting, topic string) (ready, room string, err error) {
-	resp, err := c.exchange(Request{Method: "meet-join", Meeting: meeting, Name: topic})
+func (c *Client) Join(meeting, topic string, room []Seat) (ready, roomID string, err error) {
+	resp, err := c.exchange(Request{Method: "meet-join", Meeting: meeting, Name: topic, Room: room})
 	if err != nil {
 		return "", "", err
 	}

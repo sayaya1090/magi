@@ -40,7 +40,7 @@ type talker struct {
 // Joining is what the real one does before the room opens: it prepares in a session it keeps.
 // The fake records that it was asked, so a test can tell a meeting that gathered everybody from
 // one that started talking to strangers.
-func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string) (string, string, error) {
+func (t *talker) MeetingJoin(ctx context.Context, meeting, topic string, room []daemon.Seat) (string, string, error) {
 	t.mu.Lock()
 	t.joined = append(t.joined, meeting)
 	t.mu.Unlock()
@@ -911,4 +911,36 @@ func (f *flushRecorder) text() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.buf.String()
+}
+
+// Convening a meeting fills each seat with what that companion is FOR, not just its name.
+//
+// The resolution loop had all three all along — the fleet listing carries role and abilities — and
+// took the name and dropped the rest, so a meeting could not tell its participants who else was in
+// the room. Checked against real published records rather than a stub, because the fill reads the
+// same listing the fleet screens do and a stub would let the two drift.
+func TestConveningCarriesWhatEachCompanionIsFor(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := filepath.Join(f.cfgDir, "daemon-api.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unpublish, err := daemon.Publish(sock, wd, "s1", daemon.Identity{
+		Name: "api", Role: "the wire", Can: 4, Does: []string{"socket", "roster"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unpublish)
+
+	seat, ok := f.srv.companionSeat(httptest.NewRequest(http.MethodGet, "/", nil), sock)
+	if !ok {
+		t.Fatal("the published companion did not resolve")
+	}
+	if seat.Name != "api" || seat.Role != "the wire" {
+		t.Errorf("the seat lost what the companion published: %+v", seat)
+	}
+	if !strings.Contains(seat.Does, "socket") || !strings.Contains(seat.Does, "(+2)") {
+		t.Errorf("abilities did not arrive rendered (sample and count): %q", seat.Does)
+	}
 }

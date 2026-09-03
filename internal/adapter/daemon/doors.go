@@ -692,7 +692,7 @@ func answerMeetJoin(ctx context.Context, eng Engine, req Request) Response {
 	sp, ok := eng.(Speaker)
 	if !ok {
 		resp = Response{Err: "this daemon cannot take part in a meeting"}
-	} else if ready, room, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name); jerr != nil {
+	} else if ready, room, jerr := sp.MeetingJoin(ctx, req.Meeting, req.Name, req.Room); jerr != nil {
 		resp = Response{Err: jerr.Error()}
 	} else {
 		resp = Response{OK: true, Out: ready, Session: room}

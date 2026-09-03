@@ -34,7 +34,7 @@ func TestMeetingPrepareSurfacesAModelFailure(t *testing.T) {
 	a := New(store, refuseLLM{}, builtin.Default(), bus.New(), nil, Config{Permission: "allow", Models: reg})
 	sid, _ := a.CreateSession(context.Background(), command.CreateSession{Workdir: t.TempDir(), Model: session.ModelRef{Provider: "openai", Model: "m"}})
 
-	_, ready, err := a.MeetingPrepare(context.Background(), sid, "beta", "should we bump the toolchain")
+	_, ready, err := a.MeetingPrepare(context.Background(), sid, "beta", "should we bump the toolchain", nil)
 	if err == nil {
 		t.Fatalf("a prepare turn that failed at the model returned nil error and readiness %q — the room would open as if it prepared", ready)
 	}

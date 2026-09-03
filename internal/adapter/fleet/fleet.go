@@ -584,6 +584,8 @@ func load(a Agent) int {
 
 // Carrying is what a companion has in hand and behind it, in the words an asker needs.
 //
+// Abilities names what this companion advertises being able to do.
+//
 // Exported because the shell listing says the same thing, and two spellings of one fact is how a
 // person comes to think they are two facts.
 //
@@ -631,7 +633,7 @@ func RosterLines(list []Agent, here string) string {
 		if a.Role != "" {
 			line += " — " + Clip(a.Role, 100)
 		}
-		if can := abilities(a); can != "" {
+		if can := Abilities(a); can != "" {
 			line += " · can: " + can
 		}
 		// Shown, never sorted on. A list in load order is a recommendation, and choosing who does
@@ -672,7 +674,10 @@ func Addressable(list []Agent, here string) []Agent {
 //
 // The count is shown when it is larger than the sample, so "+4" says the list is not the whole
 // answer rather than quietly implying it is.
-func abilities(a Agent) string {
+// Exported because the meeting convener renders the same line: a roster handed to participants says
+// what each companion is for, and that is this string. Copied instead, the two would drift and the
+// screen and the prompt would disagree about what a companion can do.
+func Abilities(a Agent) string {
 	if len(a.Does) == 0 {
 		return ""
 	}

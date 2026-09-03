@@ -80,7 +80,7 @@ func (o *omniEngine) GitDo(_ context.Context, what, path, message string, ask bo
 	o.ask = ask
 	return "done", nil
 }
-func (o *omniEngine) MeetingJoin(_ context.Context, meeting, topic string) (string, string, error) {
+func (o *omniEngine) MeetingJoin(_ context.Context, meeting, topic string, room []Seat) (string, string, error) {
 	o.note("join:" + meeting + ":" + topic)
 	return "ready-note", "s_room", nil
 }

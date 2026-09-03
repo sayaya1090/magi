@@ -57,13 +57,14 @@ const meetingSteps = 8
 // over in the prompt: a companion that could run git could run anything, and the meeting's whole
 // separation is that it decides and does not do. What it cannot get this way it can still read
 // out of its own files.
-func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, topic string) (
+func (a *App) MeetingPrepare(ctx context.Context, sid session.SessionID, who, topic string,
+	room []meeting.Seat) (
 	session.SessionID, string, error) {
 	s := a.sessionInfo(ctx, sid)
 	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.Origin}, port.SpawnSpec{
 		ToolName: "meeting",
 		System:   meetingSystem(who),
-		Prompt:   preparePrompt(who, topic, a.workNow(ctx, s.Workdir)),
+		Prompt:   preparePrompt(who, topic, a.workNow(ctx, s.Workdir), room),
 		Tools:    meetingLook,
 		// More than a turn gets, because this is the turn that does the reading.
 		MaxSteps: meetingPrepSteps,
@@ -216,8 +217,42 @@ func (a *App) workNow(ctx context.Context, workdir string) string {
 	return strings.TrimSpace(b.String())
 }
 
+// roomNote is the roster a participant reads while getting ready: everybody else, and what each of
+// them is for.
+//
+// Without it the last line of the prompt asks for "what you know that the others do not" while
+// declining to say who the others are, and every participant writes about its own workspace and
+// nothing else. What it should let somebody write is "the api one will have the wire; I will take
+// the storage" — the meeting's shape decided before the first round instead of during it.
+//
+// Nothing is invented for a seat that published neither a role nor a list of abilities. A name on
+// its own is still worth knowing, and a made-up description of a companion is worse than no
+// description: the reader would plan around it.
+func roomNote(me string, room []meeting.Seat) string {
+	var b strings.Builder
+	for _, s := range room {
+		if s.Name == me {
+			continue // it already knows what it brings; that is what this turn is for
+		}
+		switch {
+		case s.Person:
+			b.WriteString("  " + s.Name + " — the person who called this meeting\n")
+			continue
+		case s.Role != "" && s.Does != "":
+			b.WriteString("  " + s.Name + " (" + s.Role + ") — can: " + s.Does + "\n")
+		case s.Role != "":
+			b.WriteString("  " + s.Name + " (" + s.Role + ")\n")
+		case s.Does != "":
+			b.WriteString("  " + s.Name + " — can: " + s.Does + "\n")
+		default:
+			b.WriteString("  " + s.Name + "\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // preparePrompt is the homework: read your own state, then say what you bring.
-func preparePrompt(who, topic, work string) string {
+func preparePrompt(who, topic, work string, room []meeting.Seat) string {
 	var b strings.Builder
 	// **Do not tell it nobody will hear this.** That sentence used to be here, two paragraphs
 	// above "for the person who called the meeting" — the prompt contradicted itself, and a
@@ -232,7 +267,13 @@ func preparePrompt(who, topic, work string) string {
 	b.WriteString("A meeting is being called and you are in it. It has not started yet — this is " +
 		"your time to get ready. The room will not hear this turn: it is not a round, and nobody " +
 		"will answer it. What you write at the end is read by the person who called the meeting.\n\n")
+	if n := strings.TrimSpace(who); n != "" {
+		b.WriteString("You are " + n + ".\n\n")
+	}
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
+	if seats := roomNote(who, room); seats != "" {
+		b.WriteString("WHO ELSE IS IN THE ROOM\n" + seats + "\n\n")
+	}
 	if work != "" {
 		b.WriteString("YOUR WORKSPACE RIGHT NOW, read for you\n" + work + "\n\n")
 	}

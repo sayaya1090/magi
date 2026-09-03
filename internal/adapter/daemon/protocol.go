@@ -339,8 +339,27 @@ type Speaker interface {
 	// MeetingJoin is the participant getting ready, before the room opens: it reads its own
 	// workspace and history and answers with what it brings. The session it makes is the one every
 	// turn of this meeting then happens in.
-	MeetingJoin(ctx context.Context, meeting, topic string) (ready, room string, err error)
+	MeetingJoin(ctx context.Context, meeting, topic string, room []Seat) (ready, roomID string, err error)
 	MeetingTurn(ctx context.Context, meeting, topic, transcript string, closing bool) (Contribution, error)
+}
+
+// Seat is one participant of a meeting, as the companion that convened it knows them.
+//
+// Name is what utterances are attributed to. Role is what that companion publishes itself as being
+// for, and Does is what it advertises being able to do — the sample-and-count string that
+// fleet.abilities renders, not a list, because what the reader needs is "roughly what is this one
+// good for" and the full list is a wall.
+//
+// A person has a name and neither of the others: they are in the room, and there is nothing they
+// advertise. Told apart by Role and Does both being empty is NOT safe — a companion that declared
+// neither looks the same — so the prompt says which one is the person by position, not by shape.
+type Seat struct {
+	Name string `json:"name"`
+	Role string `json:"role,omitempty"`
+	Does string `json:"does,omitempty"`
+	// Person marks the human who called the meeting. A field rather than an inference for the
+	// reason above: absence of a role is not evidence of being a person.
+	Person bool `json:"person,omitempty"`
 }
 
 // ShellRunner is an engine that can run a command where IT is, rather than where the caller is.
@@ -560,6 +579,15 @@ type Request struct {
 	// five rounds put fifteen of them on the strip, each one starting cold and knowing nothing of
 	// what this participant had already said.
 	Meeting string `json:"meeting,omitempty"`
+	// Room is who else is in this meeting and what each of them is for. Carried on meet-join, and
+	// on nothing else: a participant reads it once while getting ready, and every round after that
+	// happens in the same session, so the roster it learned is still in its context.
+	//
+	// Safe for an older daemon to drop. encoding/json ignores a field it does not declare, and a
+	// participant that never learns the roster prepares exactly as it did before this existed —
+	// the prompt omits a section. That is why this is a field rather than a capability: there is
+	// no screen to draw or withhold on the answer, and nothing to tell an old build apart from.
+	Room []Seat `json:"room,omitempty"`
 	// Schedule and Enabled are the cron edit doors' own two fields. Enabled is a pointer because
 	// the switch is three-valued on the wire: absent must mean "leave it alone", or an edit that
 	// only changes the words would silently switch a job back on.

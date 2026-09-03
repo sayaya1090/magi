@@ -46,6 +46,7 @@ import (
 	corecouncil "github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/core/event"
+	"github.com/sayaya1090/magi/internal/core/meeting"
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/envflag"
@@ -2984,6 +2985,17 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 	return json.Marshal(st)
 }
 
+// seatsOf turns what came over the socket into what the room's own vocabulary calls it. Two
+// structs of the same shape on purpose: the wire type belongs to the protocol and the core type to
+// the meeting, and collapsing them would make a change to either one a change to both.
+func seatsOf(room []daemon.Seat) []meeting.Seat {
+	out := make([]meeting.Seat, 0, len(room))
+	for _, s := range room {
+		out = append(out, meeting.Seat{Name: s.Name, Role: s.Role, Does: s.Does, Person: s.Person})
+	}
+	return out
+}
+
 // MeetingTurn is this companion taking part in a meeting — see app.MeetingTurn for why it happens
 // in a session of its own with read-only tools.
 //
@@ -2994,15 +3006,15 @@ func (d daemonEngine) Git(ctx context.Context) (json.RawMessage, error) {
 // One session per meeting, not per turn. Every contribution used to be its own child — fifteen of
 // them for three companions over five rounds, each starting cold — which is most of why a meeting
 // with three agents crawls and why a participant could contradict itself two turns later.
-func (d daemonEngine) MeetingJoin(ctx context.Context, meeting, topic string) (string, string, error) {
+func (d daemonEngine) MeetingJoin(ctx context.Context, meet, topic string, room []daemon.Seat) (string, string, error) {
 	rctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	child, ready, err := d.App.MeetingPrepare(rctx, d.handover.at.now(),
-		nameOr(d.card().Name, d.workdir), topic)
+		nameOr(d.card().Name, d.workdir), topic, seatsOf(room))
 	if err != nil {
 		return "", "", err
 	}
-	d.handover.remember(meeting, child)
+	d.handover.remember(meet, child)
 	// The room travels back with the answer. What this participant reads and thinks on its way to
 	// a sentence happens in there, and a console holding the meeting cannot learn that id any
 	// other way: the conversation is opened here, in this process.
@@ -3053,7 +3065,10 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 		// Nobody joined, or this daemon has restarted since. Prepare now rather than answer a
 		// question this participant has not read its own workspace about — one slow turn is
 		// better than a contribution made up out of nothing.
-		got, _, err := d.App.MeetingPrepare(rctx, d.handover.at.now(), who, topic)
+		// No roster here: a round request does not carry one, and this path only runs when the join
+		// was lost (a restart). Preparing without it is what every participant did before the
+		// roster existed, which is worse than not preparing at all but better than not answering.
+		got, _, err := d.App.MeetingPrepare(rctx, d.handover.at.now(), who, topic, nil)
 		if err != nil {
 			return daemon.Contribution{}, err
 		}
