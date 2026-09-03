@@ -104,15 +104,26 @@ internal class MeetingScreenTest : GwtTestSpec({
                 page.locator("#meet .meetworkrows .row.assistant").count() shouldBe 0
             }
         }
-        When("한 마디를 쓰면") {
-            page.locator("#meet .meetsay #meetSay textarea").fill("sqlite is enough")
-            Then("쓰는 동안 바닥을 쥔다 — 그래야 그 사이 아무도 끼어들지 않는다") {
+        When("한 마디를 쓰려면") {
+            Then("먼저 발언권을 잡아야 한다 — 상자는 그때까지 잠겨 있다") {
+                // 예전에는 첫 글자가 바닥을 잡았다. 그러면 읽다가 끼어들기로 마음먹고 손을
+                // 올리는 사이에 라운드가 넘어간다 — 라이브 실측: 개입이 회의가 닫힌 뒤 22초에
+                // 도착해 아무도 답하지 않았다. 잡는 것을 글자보다 앞으로 옮긴다.
+                page.locator("#meet .meetsay #meetSay[disabled]").count() shouldBe 1
+                page.locator("#meet .meetsay .meetfloor").count() shouldBe 1
+            }
+            Then("잡으면 방이 조용해지고, 손은 바로 상자에 있다") {
+                page.locator("#meet .meetsay .meetfloor").click()
                 page.waitForCondition {
                     (page.evaluate("window.__magi_test_said") as String?)?.endsWith("|true") == true
                 }
                 page.evaluate("window.__magi_test_said") shouldBe "m1|||true"
+                // 잡는 것과 쓰는 것 사이에 클릭이 하나 더 있으면 이 단추는 지연을 줄이는 대신
+                // 늘린다 — 잡자마자 상자가 열리고 포커스가 가야 한다.
+                page.waitForCondition { page.locator("#meet .meetsay #meetSay[disabled]").count() == 0 }
             }
             Then("보내면 그 방으로 간다") {
+                page.locator("#meet .meetsay #meetSay textarea").fill("sqlite is enough")
                 page.locator("#meet .meetsay md-filled-button").click()
                 page.waitForCondition {
                     (page.evaluate("window.__magi_test_said") as String).contains("sqlite")

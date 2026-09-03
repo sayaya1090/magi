@@ -579,21 +579,47 @@ public class MeetingElement {
         return box;
     }
 
-    /** 한 마디 — 쓰는 동안 바닥을 쥔다(그래야 그 사이 아무도 끼어들지 않는다). */
+    /**
+     * 한 마디 — <b>발언권을 먼저 잡아야</b> 쓸 수 있다.
+     *
+     * 예전에는 첫 글자가 바닥을 잡았다. 그러면 읽다가 「끼어들어야겠다」 하고 손을 올리는 사이에
+     * 라운드가 넘어간다 — 실측: 개입이 회의가 닫힌 뒤 22초에 도착해 아무도 답하지 않았다. 잡는
+     * 것을 <b>글자보다 앞으로</b> 옮기면 침묵이 작문 전에 시작되고, 잡은 사실이 남들 화면에도
+     * 먼저 선다. 잘못 눌린 키 하나가 방을 얼리던 위험(서버가 90초 타임아웃으로 막던 그것)도
+     * 같이 사라진다 — 이제 얼리는 것은 키가 아니라 사람의 결정이다.
+     */
     private HTMLElement sayBox(JsPropertyMap<Object> m) {
         HTMLElement box = cell("meetsay", null);
+        String holder0 = str(m, "holder");
+        boolean mine = !holder0.isEmpty() && named(speakers(m), holder0) == null;
         HTMLElement f = el("md-outlined-text-field");
         f.id = "meetSay";
-        f.setAttribute("label", tr("meet.say"));
+        f.setAttribute("label", tr(mine ? "meet.say" : "meet.say_locked"));
         f.setAttribute("type", "textarea");
         f.setAttribute("rows", "2");
+        if (!mine) f.setAttribute("disabled", "");
         value(f, store.saying());
         sayField = f;
         f.addEventListener("input", evt -> {
             store.saying(value(f));
-            store.hold(!value(f).trim().isEmpty());
+            // 쥔 바닥의 시계를 다시 감는다 — 오래 쓰는 사람이 서버의 90초에 잘리지 않게.
+            store.keepHold();
         });
-        f.addEventListener("blur", evt -> { if (value(f).trim().isEmpty()) store.hold(false); });
+        HTMLElement floor = el(mine ? "md-text-button" : "md-filled-tonal-button");
+        floor.className = "meetfloor";
+        floor.append(Icons.shape(mine ? "#i-sl-xmark" : "#i-sl-play", "mk"),
+                DomGlobal.document.createTextNode(" " + tr(mine ? "meet.floor_drop" : "meet.floor_take")));
+        Tips.on(floor, tr(mine ? "meet.floor_drop_why" : "meet.floor_take_why"));
+        floor.addEventListener("click", evt -> {
+            if (mine) {
+                store.hold(false);
+            } else {
+                store.hold(true);
+                // 잡자마자 손이 상자에 있어야 한다 — 잡는 것과 쓰는 것 사이에 클릭이 하나 더
+                // 있으면 이 단추가 지연을 줄이는 대신 늘린다.
+                DomGlobal.setTimeout(a -> { f.removeAttribute("disabled"); f.focus(); }, 0);
+            }
+        });
         HTMLElement send = el("md-filled-button");
         send.append(Icons.shape("#i-sl-paper-plane-top", "mk"),
                 DomGlobal.document.createTextNode(" " + tr("meet.send")));
@@ -614,7 +640,7 @@ public class MeetingElement {
         // 사유는 <b>이 상자</b>에 선다 — 끝내기 단추가 여기 있고, 바로 위의 보내기가 거절당할
         // 때 쓰는 자리와 같다. 방 목록 화면의 `.meetnote`는 남의 판이다.
         stop.addEventListener("click", evt -> whileItRuns(stop, () -> store.close(why -> note("say", why))));
-        box.append(f, send, leave, stop);
+        box.append(floor, f, send, leave, stop);
         return box;
     }
 

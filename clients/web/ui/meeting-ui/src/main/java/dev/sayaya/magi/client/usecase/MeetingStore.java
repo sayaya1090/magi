@@ -124,14 +124,33 @@ public class MeetingStore extends dev.sayaya.magi.bridge.Told {
         });
     }
 
-    /** 바닥 잡기 — 쓰는 동안엔 아무도 끼어들지 않는다. 같은 값을 다시 보내지 않는다. */
+    /** 바닥 잡기 — 쥐고 있는 동안엔 아무도 끼어들지 않는다. 같은 값을 다시 보내지 않는다. */
     private boolean holding = false;
+    /** 마지막으로 바닥을 주장한 시각(ms) — 서버의 시계를 다시 감기 위해 든다. */
+    private double heldAt = 0;
 
     public void hold(boolean on) {
         if (holding == on || room == null) return;
         holding = on;
+        heldAt = now();
         source.say(room, null, null, on, why -> { });
     }
+
+    /**
+     * 쥐고 있는 바닥의 시계를 다시 감는다 — <b>작문 중에 밑에서 잠기지 않게</b>.
+     *
+     * 서버는 말 없이 잡고만 있는 바닥을 90초 뒤 놓는다(닫힌 탭이 방을 영영 얼리지 않게 하는
+     * 안전장치다). 그런데 발언권을 먼저 잡고 나서 쓰는 방식에서는 <b>오래 생각하는 사람</b>이
+     * 정확히 그 모양이 된다 — 2분을 고민하면 쓰던 상자가 잠긴다. 그래서 글자가 들어올 때마다
+     * 시계를 다시 감되, 매 키 입력마다 보내지는 않는다(그건 방을 향한 잡음이다).
+     */
+    public void keepHold() {
+        if (!holding || room == null || now() - heldAt < 40_000) return;
+        heldAt = now();
+        source.say(room, null, null, true, why -> { });
+    }
+
+    private static double now() { return elemental2.dom.DomGlobal.performance.now(); }
 
     public void call(String who) { source.say(room, null, who, false, why -> read()); }
 
