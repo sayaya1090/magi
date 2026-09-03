@@ -154,11 +154,16 @@ data class SessionRow(
     val id: String = "",
     val title: String? = null,
     /**
-     * 서브에이전트 역할 — 자식 세션에만 있다. 그것을 띄운 툴이 이름을 준다("meeting", 델리게이트의
-     * 역할). 최상위 대화에는 비어 있고, 그래서 한 모양이 두 문을 다 섬긴다: 행은 대화이고 이
-     * 필드가 「누가 시켰나」를 말한다 — 회의 방과 델리게이트를 가르는 유일한 사실이다.
+     * 자식 세션이라는 표시 — 모든 자식이 **같은 낱말**("spawn")을 기록한다(코어의 `spawnAgentName`
+     * 은 상수다). 그러니 이 필드는 「무언가가 이 대화를 시켰다」까지만 말하고 그 이상은 못 한다.
+     * 라이브 회의로 실측했다: 회의 방이 `agent="spawn"` 으로 돌아왔다.
      */
     val agent: String? = null,
+    /**
+     * **누가 열었나** — 자식들을 가르는 것은 이쪽이다. 회의 방이면 "meeting", 아니면 띄운 쪽의
+     * 액터. 웹 콘솔은 이 문이 생기기 전부터 이 필드로 회의를 걸러 왔다.
+     */
+    val origin: String? = null,
     val model: String? = null,
     val labels: List<String>? = null,
     val created: String? = null,

@@ -333,9 +333,11 @@ class PlanToolWindow : ToolWindowFactory {
                     work.add(kidRow(project, "⛐ " + (c.task?.take(60) ?: c.id), c.id))
                 }
                 past.filter { it.id !in running }.take(pastKids).forEach { c ->
-                    // 역할이 있으면 그것이 이름이다 — 회의 방과 델리게이트를 가르는 유일한 사실.
+                    // **누가 열었나**(origin)가 자식을 가른다 — 회의 방이면 "meeting". `agent` 는
+                    // 모든 자식이 같은 낱말("spawn")이라 아무것도 안 가른다: 실측으로 잡았다
+                    // (판에 `spawn · A meeting is being called…` 두 줄이 나란히 섰다).
                     val what = c.title?.take(52)?.ifBlank { null } ?: c.id.takeLast(6)
-                    val who = c.agent?.ifBlank { null }?.let { "$it · " } ?: ""
+                    val who = c.origin?.ifBlank { null }?.let { "$it · " } ?: ""
                     work.add(kidRow(project, "⛒ $who$what", c.id))
                 }
                 fleet.removeAll()
