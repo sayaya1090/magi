@@ -50,7 +50,6 @@ import (
 	osuser "os/user"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1138,250 +1137,30 @@ func serveConn(ctx context.Context, eng Engine, conn net.Conn, home string, stop
 			}
 			continue
 		}
-		// roster is answered here rather than from the answers map: that map's shape is
-		// (ctx, Engine, Request), and who is out there is a fact about the MACHINE — the home
-		// directory the listener sits in — which no Engine method answers. See roster.go.
-		if req.Method == "roster" {
-			if enc.Encode(answerRoster(home)) != nil {
+		// Three tables, in this order. A method is in exactly one of them (a guard says so), so the
+		// order is not a precedence — it is just the cheapest lookup first.
+		//
+		// This was a chain of `if req.Method == "…"` down a 265-line function, with a comment at
+		// each one saying why it was there. Those reasons now live in the tables' own `why`, where
+		// a reader looking for "where does my new method go" finds them by looking at the table
+		// instead of by reading the loop.
+		if d, ok := answers[req.Method]; ok {
+			// The lockstep write is here rather than repeated at the end of all thirty-four.
+			if enc.Encode(d.run(ctx, eng, req)) != nil {
 				return // the peer is gone
 			}
 			continue
 		}
-		// The methods that ANSWER: one function each, and the lockstep write is here rather than
-		// repeated at the end of every one of them.
-		if answer, ok := answers[req.Method]; ok {
-			if enc.Encode(answer.run(ctx, eng, req)) != nil {
-				return // the peer is gone
-			}
-			continue
-		}
-		// status is answered here rather than in dispatch: it is the only method with a payload,
-		// and giving dispatch a return value for the sake of one caller would make every write
-		// site pretend to produce something.
-		var resp Response
-		// shutdown is answered here, like status, and the reply goes out BEFORE the stop.
-		//
-		// Not because the reply would otherwise be lost — closing a listener does not touch
-		// connections already accepted, and Serve waits for in-flight handlers before it returns,
-		// so the write is safe either way. It is the order that is honest: OK means "accepted",
-		// and answering after unwinding had begun would be claiming rather more than that.
-		//
-		// The stop itself must NOT be deferred to the end of this function. Deferring it waits for
-		// the peer to hang up, so a client that asked to shut down and then kept its connection
-		// open would leave the daemon running — which is precisely the state this call exists to
-		// get out of.
-		if req.Method == "shutdown" {
-			if stop == nil {
-				resp = Response{Err: "this daemon cannot be stopped remotely"}
-				if enc.Encode(resp) != nil {
-					return
-				}
-				continue
-			}
-			wrote := enc.Encode(Response{OK: true}) == nil
-			stop()
-			if !wrote {
+		if st, ok := streams[req.Method]; ok {
+			if st.run(ctx, eng, req, wire{enc: enc, sc: sc, home: home, stop: stop, restart: restart}) == done {
 				return
 			}
 			continue
 		}
-		// restart is shutdown with a successor: the same drain, then the process re-execs onto the
-		// binary now on disk instead of exiting. Answered before the drain for the same honesty as
-		// shutdown — OK means "accepted, and I am on my way down to come back up". The relaunch itself
-		// happens in the daemon loop after Serve returns and the socket and claim are released.
-		if req.Method == "restart" {
-			if restart == nil {
-				resp = Response{Err: "this daemon cannot be restarted remotely"}
-				if enc.Encode(resp) != nil {
-					return
-				}
-				continue
-			}
-			wrote := enc.Encode(Response{OK: true}) == nil
-			restart()
-			if !wrote {
-				return
-			}
-			continue
-		}
-		// update runs a self-update and, if it committed a new build, restarts onto it — B1 wiring
-		// B5 (Commit, with rollback) to B2 (restart). Answered inline because it does I/O (a download)
-		// and the caller waits for the outcome. Not on the fleet-door allowlist, so the narrowed
-		// remote entry cannot carry it; what remains is the local socket and anything the operator
-		// has deliberately piped to it (--relay over their own ssh) — the same boundary shutdown has.
-		//
-		// The restart here is IMMEDIATE, unlike the auto loop's idle-gated one, and that asymmetry is
-		// chosen: this is an operator pressing a button and watching, and holding their reply hostage
-		// to an idle moment that may be minutes away would read as a hang. A restart mid-turn costs
-		// the in-flight step; the log keeps the rest and the session resumes.
-		if req.Method == "update" {
-			u, ok := eng.(Updater)
-			if !ok {
-				if enc.Encode(Response{Err: "this daemon cannot update itself"}) != nil {
-					return
-				}
-				continue
-			}
-			res, uerr := u.Update(ctx)
-			if uerr != nil {
-				if enc.Encode(Response{Err: uerr.Error()}) != nil {
-					return
-				}
-				continue
-			}
-			if res.Updated && restart != nil {
-				// "or on the next start": Restart refuses when a stop is already draining (stop wins),
-				// and this reply has already gone out by then — so it must not promise more than the
-				// binary being on disk guarantees.
-				wrote := enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To +
-					" — restarting (or on the next start, if this daemon is already stopping)"}) == nil
-				restart()
-				if !wrote {
-					return
-				}
-				continue
-			}
-			msg := res.Message
-			switch {
-			case res.Updated:
-				// Updated but nobody wired a restarter (an embedder without one): saying "up to
-				// date" would hide that the binary on disk changed and this process did not.
-				msg = "updated " + res.From + " → " + res.To + ", but this daemon cannot restart " +
-					"itself — restart it by hand to run the new build"
-			case msg == "":
-				msg = "already up to date"
-			}
-			if enc.Encode(Response{OK: true, Out: msg}) != nil {
-				return
-			}
-			continue
-		}
-		// watch turns this connection into a stream, which no other method does.
-		//
-		// One request, then a frame every time something changes, then the end. The daemon writes
-		// without being asked again — which is the whole point: the answer to handed-over work
-		// arrives when it arrives, and the alternative was the asking side spawning a process
-		// across a network every three seconds for up to two hours to find out.
-		//
-		// It does not disturb the lockstep every other caller relies on, because a watcher gives
-		// this connection over to it and sends nothing else down it. A UI's connection, which
-		// interleaves calls under one mutex, never sees an unsolicited frame.
-		if req.Method == "watch" {
-			taker, ok := eng.(Taker)
-			if !ok {
-				// Refused before the connection is given over to anything, so it is still an
-				// ordinary exchange and stays open like any other refusal.
-				if enc.Encode(Response{Err: "this daemon cannot be handed work"}) != nil {
-					return
-				}
-				continue
-			}
-			// The peer hanging up is the only thing that ends a watch nothing is happening in.
-			// Read for it in the background: without this, a stream whose link died holds a
-			// goroutine until the daemon stops, because there is nothing to write and therefore
-			// nothing to fail. Anything actually read is discarded — a watcher has said its piece.
-			wctx, hungUp := context.WithCancel(ctx)
-			go func() {
-				for sc.Scan() { //nolint:revive // draining, not reading
-				}
-				hungUp()
-			}()
-			werr := taker.Watch(wctx, req.Name, func(h Handover) error {
-				return enc.Encode(Response{OK: true, Handover: &h})
-			})
-			hungUp()
-			if werr != nil {
-				// Said the way every other refusal is said, and the only discarded write in this
-				// file. It is discarded because this connection ends on the next line whatever
-				// happens: a write that fails means the peer left before hearing why, which is
-				// where it was going anyway. Checking it would be a check with one outcome.
-				_ = enc.Encode(Response{Err: werr.Error()})
-			}
-			return // this connection was a stream; it ends with it
-		}
-		// transcript is the second method that turns a connection into a stream, and it is framed
-		// like watch on purpose: one request line, then the connection is given over, then it ends
-		// when the peer hangs up. Two streaming styles in one protocol would be two things to get
-		// right in every client that speaks it.
-		//
-		// It carries a conversation — everything already in the log, then everything that happens
-		// next — for the clients that have no way to read the log themselves. See Transcriber for
-		// why a READ is on this socket at all.
-		if req.Method == "transcript" {
-			tr, ok := eng.(Transcriber)
-			if !ok {
-				// Refused before the connection is given over, so it is still an ordinary exchange
-				// and this connection stays open, like every other refusal in this loop.
-				if enc.Encode(Response{Err: "this daemon cannot read out a transcript"}) != nil {
-					return
-				}
-				continue
-			}
-			sid := session.SessionID(req.Session)
-			// An invented id used to stream infinite silence — the store answers an unknown
-			// session with emptiness, not an error, because "no events yet" is also what the
-			// CURRENT conversation looks like before its first words (born-lazy). The one party
-			// that can tell those apart is the engine's own listing, which includes the unborn
-			// current on top; a daemon without that door keeps the old behaviour.
-			if k, ok := eng.(ConversationKeeper); ok {
-				metas, kerr := k.SessionsHere(ctx)
-				if kerr == nil && !slices.ContainsFunc(metas, func(m session.SessionMeta) bool { return m.ID == sid }) {
-					// Off the listing is not yet "not there": the listing is TOP-LEVEL only, and
-					// this same socket advertises child session ids (jobs), whose transcripts are
-					// on disk and readable. So the store is asked second — a session with any
-					// events is real, whoever its parent is — and only an id that is neither
-					// listed nor ever written to is refused. An unborn CHILD (spawned, no events
-					// yet) would land here too; today a spawn's first act is appending, so the
-					// window is the same one the born-lazy current already accepts.
-					// And a store that COULD NOT answer (nerr != nil) serves rather than
-					// refuses — a real child must not be refused over a transient read
-					// failure, at the accepted price that an invented id under the same
-					// failure streams the old silence.
-					if _, known, nerr := tr.NewSince(ctx, sid, 0); nerr == nil && !known {
-						if enc.Encode(Response{Err: fmt.Sprintf("no conversation %q in this workspace — `sessions` lists them", sid)}) != nil {
-							return
-						}
-						continue
-					}
-				}
-			}
-			since, note := answerable(ctx, tr, sid, req.Since)
-			// The peer hanging up is the only thing that ends a transcript nothing is happening
-			// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
-			// holds a goroutine until the daemon stops, because there is nothing to write and so
-			// nothing to fail. Anything actually read is discarded — a reader has said its piece.
-			rctx, hungUp := context.WithCancel(ctx)
-			go func() {
-				for sc.Scan() { //nolint:revive // draining, not reading
-				}
-				hungUp()
-			}()
-			evs, unsubscribe, serr := tr.Subscribe(rctx, sid, since)
-			if serr != nil {
-				hungUp()
-				_ = enc.Encode(Response{Err: serr.Error()})
-				return
-			}
-			// Said BEFORE the first event, because it changes what the events that follow mean: a
-			// client that asked for a tail and is being sent a whole conversation has to know, or
-			// it appends the beginning of the session to the end of what it is showing.
-			if note != "" && enc.Encode(Response{OK: true, Why: note}) != nil {
-				hungUp()
-				unsubscribe()
-				return
-			}
-			for e := range evs {
-				frame := e
-				if enc.Encode(Response{OK: true, Event: &frame}) != nil {
-					break // the peer is gone
-				}
-			}
-			hungUp()
-			unsubscribe()
-			return // this connection was a stream; it ends with it
-		}
+		// The acts: they DO something and answer only whether it worked, so the Response is built
+		// here from the error rather than by each of them.
 		err := dispatch(ctx, eng, req)
-		resp = Response{OK: err == nil}
+		resp := Response{OK: err == nil}
 		if err != nil {
 			resp.Err = err.Error()
 		}
@@ -2650,63 +2429,159 @@ func conversationErr(sid session.SessionID, err error) error {
 	return fmt.Errorf("no conversation %q in this workspace — `sessions` lists them, `session-new` opens one (%v)", sid, err)
 }
 
-func dispatchNow(ctx context.Context, eng Engine, r Request) error {
-	sid := session.SessionID(r.Session)
-	parts := []session.Part{{Kind: session.PartText, Text: r.Text}}
-	actor := event.Actor{Kind: event.ActorUser, ID: "attach"}
-	switch r.Method {
-	case "submit":
-		return conversationErr(sid, eng.Submit(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs}))
-	case "steer":
-		return conversationErr(sid, eng.Steer(ctx, command.SubmitPrompt{SessionID: sid, Parts: parts, Actor: actor, Refs: r.Refs}))
-	case "interrupt":
-		return eng.Interrupt(ctx, command.Interrupt{SessionID: sid})
-	case "permission":
-		return eng.RespondPermission(ctx, command.RespondPermission{
-			SessionID: sid, CallID: r.CallID, Decision: r.Decision, Actor: actor})
-	case "answer":
-		return eng.RespondQuestion(ctx, command.RespondQuestion{
-			SessionID: sid, CallID: r.CallID, Answer: r.Answer})
+// act is a method that DOES something and answers only whether it worked — no payload, so it
+// cannot live in the `answers` table beside the doors that return one.
+//
+// A table for the same reason that one is: this was two switch statements and a hand-written list
+// of their names in acceptedMethods, and the list is what went stale. Now the names exist once.
+type act struct {
+	run func(context.Context, Engine, Request, session.SessionID) error
+	// needs is a nil pointer to the interface this act requires — the same shape as door.needs, so
+	// the same guard reads it, and for the same reason: written as a predicate, a gate naming the
+	// wrong interface agrees with the body on every engine that implements neither.
+	needs any
+	// why is what run answers when needs is false, checked against the real answer by a guard.
+	why string
+}
+
+var acts map[string]act
+
+// Filled in init for the reason `answers` is: acceptedMethods reads these tables, dispatchNow's
+// refusal calls acceptedMethods, and the table names dispatchNow's functions.
+func init() {
+	// The conversation verbs. Every engine has them (they are on Engine itself), so no gate.
+	say := func(steer bool) func(context.Context, Engine, Request, session.SessionID) error {
+		return func(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+			p := command.SubmitPrompt{
+				SessionID: sid,
+				Parts:     []session.Part{{Kind: session.PartText, Text: r.Text}},
+				Actor:     event.Actor{Kind: event.ActorUser, ID: "attach"},
+				Refs:      r.Refs,
+			}
+			if steer {
+				return conversationErr(sid, eng.Steer(ctx, p))
+			}
+			return conversationErr(sid, eng.Submit(ctx, p))
+		}
+	}
+	// The five that change how the engine behaves. Five ENTRIES rather than one that fans out:
+	// a table that knows four fewer names would need the hand-written list back to name them.
+	//
 	// Named apart from "permission", which ANSWERS a prompt. One word for "decide this call" and
 	// "change the policy for every call" would be a wire that means two things.
-	case "rewind", "compact", "set-model", "set-permission", "use-backend":
-		return control(ctx, eng, r, sid)
-	case "resume":
-		m, ok := eng.(SessionMover)
-		if !ok {
-			return fmt.Errorf("this companion cannot be moved to another conversation")
+	ctl := func(do func(context.Context, Controller, Request, session.SessionID) error) act {
+		return act{
+			needs: (*Controller)(nil),
+			why:   "this daemon cannot be controlled remotely",
+			run: func(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+				c, ok := eng.(Controller)
+				if !ok {
+					return fmt.Errorf("this daemon cannot be controlled remotely")
+				}
+				return do(ctx, c, r, sid)
+			},
 		}
-		return m.Resume(ctx, sid)
-	case "reload-cron":
+	}
+	acts = map[string]act{
+		"submit": {run: say(false)},
+		"steer":  {run: say(true)},
+		"interrupt": {run: func(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+			return eng.Interrupt(ctx, command.Interrupt{SessionID: sid})
+		}},
+		"permission": {run: func(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+			return eng.RespondPermission(ctx, command.RespondPermission{
+				SessionID: sid, CallID: r.CallID, Decision: r.Decision,
+				Actor: event.Actor{Kind: event.ActorUser, ID: "attach"}})
+		}},
+		"answer": {run: func(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
+			return eng.RespondQuestion(ctx, command.RespondQuestion{
+				SessionID: sid, CallID: r.CallID, Answer: r.Answer})
+		}},
+
+		"rewind": ctl(func(ctx context.Context, c Controller, r Request, sid session.SessionID) error {
+			_, err := c.Rewind(ctx, sid, r.N)
+			return err
+		}),
+		"compact": ctl(func(ctx context.Context, c Controller, r Request, sid session.SessionID) error {
+			return c.Compact(ctx, command.Compact{SessionID: sid})
+		}),
+		"set-model": ctl(func(_ context.Context, c Controller, r Request, sid session.SessionID) error {
+			c.SetModel(sid, r.Name)
+			return nil
+		}),
+		"use-backend": ctl(func(_ context.Context, c Controller, r Request, sid session.SessionID) error {
+			return c.UseBackend(sid, r.Name)
+		}),
+		"set-permission": ctl(func(_ context.Context, c Controller, r Request, _ session.SessionID) error {
+			c.SetPermission(r.Name)
+			return nil
+		}),
+
+		"resume": {
+			needs: (*SessionMover)(nil),
+			why:   "this companion cannot be moved to another conversation",
+			run: func(ctx context.Context, eng Engine, _ Request, sid session.SessionID) error {
+				m, ok := eng.(SessionMover)
+				if !ok {
+					return fmt.Errorf("this companion cannot be moved to another conversation")
+				}
+				return m.Resume(ctx, sid)
+			},
+		},
 		// Its own optional interface rather than another method on Controller. Controller is what
 		// every fake in every package must satisfy, and this file already says that a control
 		// surface which grows is not a reason to touch four test doubles.
-		c, ok := eng.(CronController)
-		if !ok {
-			return fmt.Errorf("this daemon holds no scheduled work")
-		}
-		c.ReloadCron()
-		return nil
+		"reload-cron": {
+			needs: (*CronController)(nil),
+			why:   "this daemon holds no scheduled work",
+			run: func(_ context.Context, eng Engine, _ Request, _ session.SessionID) error {
+				c, ok := eng.(CronController)
+				if !ok {
+					return fmt.Errorf("this daemon holds no scheduled work")
+				}
+				c.ReloadCron()
+				return nil
+			},
+		},
+	}
+}
+
+// can reports whether this engine satisfies the act's declared gate.
+func (a act) can(e Engine) bool {
+	if a.needs == nil {
+		return true
+	}
+	t := reflect.TypeOf(e)
+	return t != nil && t.Implements(reflect.TypeOf(a.needs).Elem())
+}
+
+func dispatchNow(ctx context.Context, eng Engine, r Request) error {
+	if a, ok := acts[r.Method]; ok {
+		return a.run(ctx, eng, r, session.SessionID(r.Session))
 	}
 	// Name what IS accepted. A client told only "unknown" cannot tell a typo from a version skew,
 	// and the two want different reactions.
 	return fmt.Errorf("unknown method %q — this daemon accepts: %s", r.Method, acceptedMethods())
 }
 
-// acceptedMethods is every method serveConn answers, derived from the tables that actually answer
-// them rather than kept as a sentence. The sentence drifted: it listed the roster as of the day it
-// was written, and the answers map had since grown a dozen methods (tool, edit-file, git, the
-// meeting verbs, the draft verbs) the refusal then denied existed — a typo-correcting message that
-// itself needed correcting.
+// acceptedMethods is every method serveConn answers, derived from the three tables that answer
+// them rather than kept as a sentence.
+//
+// The sentence drifted once already: it listed the roster as of the day it was written, and the
+// answers map had since grown a dozen methods (tool, edit-file, git, the meeting verbs, the draft
+// verbs) the refusal then denied existed — a typo-correcting message that itself needed correcting.
+// Half of it stayed a sentence after that fix: eighteen names, hand-written, for the methods that
+// were not in a table because there was no table for them. There is now, so this is derived whole,
+// and a guard counts what it returns against what the tables hold.
 var acceptedMethods = sync.OnceValue(func() string {
-	names := map[string]bool{
-		// The methods dispatch and serveConn handle outside the answers map.
-		"submit": true, "steer": true, "interrupt": true, "permission": true, "answer": true,
-		"rewind": true, "compact": true, "set-model": true, "set-permission": true, "use-backend": true,
-		"resume": true, "reload-cron": true, "watch": true, "shutdown": true, "restart": true,
-		"update": true, "transcript": true, "roster": true,
-	}
+	names := map[string]bool{}
 	for m := range answers {
+		names[m] = true
+	}
+	for m := range acts {
+		names[m] = true
+	}
+	for m := range streams {
 		names[m] = true
 	}
 	out := make([]string, 0, len(names))
@@ -2716,30 +2591,6 @@ var acceptedMethods = sync.OnceValue(func() string {
 	sort.Strings(out)
 	return strings.Join(out, ", ")
 })
-
-// control runs one of the calls that change how the engine behaves.
-func control(ctx context.Context, eng Engine, r Request, sid session.SessionID) error {
-	c, ok := eng.(Controller)
-	if !ok {
-		return fmt.Errorf("this daemon cannot be controlled remotely (%s)", r.Method)
-	}
-	switch r.Method {
-	case "rewind":
-		_, err := c.Rewind(ctx, sid, r.N)
-		return err
-	case "compact":
-		return c.Compact(ctx, command.Compact{SessionID: sid})
-	case "set-model":
-		c.SetModel(sid, r.Name)
-		return nil
-	case "use-backend":
-		return c.UseBackend(sid, r.Name)
-	case "set-permission":
-		c.SetPermission(r.Name)
-		return nil
-	}
-	return fmt.Errorf("unknown control %q", r.Method)
-}
 
 // Client talks to a daemon. One connection, one request at a time: these are user actions, and the
 // serialisation is what keeps a steer from overtaking the submit it belongs to.

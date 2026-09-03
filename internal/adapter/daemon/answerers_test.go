@@ -731,3 +731,148 @@ func TestEveryDoorIsAdvertisedOrSaysWhyNot(t *testing.T) {
 		}
 	}
 }
+
+// ── The three tables ──────────────────────────────────────────────────────────────────────────
+//
+// serveConn consults `answers`, `streams` and `acts`, in that order. Two of those tables are new:
+// the methods in them used to be a chain of `if req.Method == "…"` and two switch statements, and
+// their names were ALSO written by hand into acceptedMethods — the refusal that tells a client
+// what this daemon accepts. That hand-written list is the thing that went stale once already, by
+// its own comment's account.
+
+// tableNames is every method name the three tables answer.
+func tableNames() map[string]int {
+	n := map[string]int{}
+	for m := range answers {
+		n[m]++
+	}
+	for m := range streams {
+		n[m]++
+	}
+	for m := range acts {
+		n[m]++
+	}
+	return n
+}
+
+// A name belongs to one table. Two would make dispatch ORDER the contract rather than the tables:
+// which one answers would depend on the sequence of lookups in serveConn, and moving a method
+// between tables would silently change behaviour instead of failing here.
+func TestNoMethodIsInTwoTables(t *testing.T) {
+	for m, n := range tableNames() {
+		if n > 1 {
+			t.Errorf("%q is in %d tables — which one answers is then a matter of lookup order", m, n)
+		}
+	}
+}
+
+// The refusal names everything, counted rather than listed.
+//
+// Counted on purpose: an expected list of names here would be a fourth copy of the roster, and a
+// copy is what this change exists to delete. The count catches a table dropped from the derivation,
+// which is the failure that actually happened — eighteen names lived outside it.
+func TestTheRefusalNamesEveryTable(t *testing.T) {
+	said := strings.Split(acceptedMethods(), ", ")
+	if len(said) != len(tableNames()) {
+		t.Fatalf("the refusal names %d methods and the tables hold %d — a table is missing from "+
+			"the derivation, and a client is being told a method it can call does not exist",
+			len(said), len(tableNames()))
+	}
+	// And it is really derived: a name added to a table appears without anything else being edited.
+	// Cheaper to prove than to trust, since acceptedMethods caches with sync.OnceValue.
+	for _, m := range said {
+		if tableNames()[m] == 0 {
+			t.Errorf("the refusal names %q, which no table answers", m)
+		}
+	}
+}
+
+// The acts declare their gate the way the doors do, and the guard is the same one: called with an
+// engine that implements nothing, an act that declares a gate must give its own stated reason.
+func TestEveryActGateGivesItsDeclaredRefusal(t *testing.T) {
+	for name, a := range acts {
+		if a.needs == nil {
+			if a.why != "" {
+				t.Errorf("%q declares a refusal but no gate — nothing can produce it", name)
+			}
+			continue
+		}
+		if a.why == "" {
+			t.Errorf("%q is gated and says nothing when it refuses", name)
+			continue
+		}
+		if a.can(bareEngine{}) {
+			t.Errorf("%q accepts an engine implementing nothing — its gate names a type everything "+
+				"satisfies, so it gates nothing", name)
+			continue
+		}
+		err := a.run(context.Background(), bareEngine{}, Request{Method: name}, "s")
+		if err == nil || err.Error() != a.why {
+			t.Errorf("%q refuses with %v, but the table says %q", name, err, a.why)
+		}
+	}
+}
+
+// And the gate names the interface the body actually asserts.
+//
+// The check above cannot see this, for the reason the doors' equivalent could not: an engine that
+// implements NOTHING fails every gate, so a wrong interface agrees with the body. It was measured —
+// swapping resume's SessionMover for JobKiller went straight through.
+//
+// The doors' guard reads the source, because their bodies are named top-level functions. These are
+// closures in init, so instead this stands up one engine PER GATED INTERFACE: an act declaring the
+// wrong one then disagrees with its own body on the engine that implements only the right one.
+func TestEveryActGateNamesTheInterfaceItsBodyAsserts(t *testing.T) {
+	engines := map[string]Engine{
+		"controller": &controllingEngine{},
+		"mover":      moverEngine{},
+		"cron":       cronReloadEngine{},
+		"bare":       bareEngine{},
+	}
+	gated := 0
+	for name, a := range acts {
+		if a.needs == nil {
+			continue
+		}
+		gated++
+		for en, eng := range engines {
+			refused := func() bool {
+				err := a.run(context.Background(), eng, Request{Method: name}, "s")
+				return err != nil && err.Error() == a.why
+			}()
+			if !a.can(eng) != refused {
+				t.Errorf("%q on %s: the table says it %s, the body %s — the declared gate is not "+
+					"the interface the body asserts", name, en,
+					map[bool]string{true: "cannot run", false: "can run"}[!a.can(eng)],
+					map[bool]string{true: "refused", false: "did not refuse"}[refused])
+			}
+		}
+	}
+	if gated < 3 {
+		t.Fatalf("only %d acts declare a gate — this guard is looking at the wrong table", gated)
+	}
+}
+
+// An engine that can be MOVED to another conversation and nothing else, so a gate naming any other
+// interface disagrees with resume's body on it.
+type moverEngine struct{ Engine }
+
+func (moverEngine) Resume(context.Context, session.SessionID) error { return nil }
+
+// An engine that holds scheduled work and nothing else, for the same reason.
+type cronReloadEngine struct{ Engine }
+
+func (cronReloadEngine) ReloadCron() {}
+
+// Every stream says why it is not an ordinary door. An entry with no reason is one nobody decided
+// to put there, and an undecided entry is how this table grows back into the chain it replaced.
+func TestEveryStreamSaysWhyItIsNotADoor(t *testing.T) {
+	for name, s := range streams {
+		if strings.TrimSpace(s.why) == "" {
+			t.Errorf("%q is answered outside the doors and nothing says why", name)
+		}
+		if s.run == nil {
+			t.Errorf("%q is in the table with nothing behind it", name)
+		}
+	}
+}
