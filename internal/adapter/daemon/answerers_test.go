@@ -410,3 +410,141 @@ func TestChildrenIsAdvertisedOnlyWhenTheEngineCanAnswer(t *testing.T) {
 		t.Fatalf("an engine that answers ChildLister advertises `children`, got %v", caps)
 	}
 }
+
+// --- the cron edit doors ---------------------------------------------------
+
+// cronEditEngine holds a schedule in memory: EditCron mutates it, ScheduledHere reads it back. The
+// two together are what lets the door tell a refusal from a success by the FACT rather than by
+// reading the engine's prose.
+type cronEditEngine struct {
+	fakeEngine
+	jobs   []app.ScheduledJobInfo
+	refuse string // when set, EditCron changes nothing and says this
+}
+
+func (e *cronEditEngine) ScheduledHere() []app.ScheduledJobInfo { return e.jobs }
+
+func (e *cronEditEngine) EditCron(c CronEdit) (string, error) {
+	if e.refuse != "" {
+		return e.refuse, nil
+	}
+	if c.Remove {
+		out := e.jobs[:0]
+		for _, j := range e.jobs {
+			if j.Name != c.Name {
+				out = append(out, j)
+			}
+		}
+		e.jobs = out
+		return "removed " + c.Name, nil
+	}
+	e.jobs = append(e.jobs, app.ScheduledJobInfo{Name: c.Name, Schedule: c.Schedule,
+		Prompt: c.Prompt, Enabled: true})
+	return "set " + c.Name, nil
+}
+
+// The listing carries what a job ASKS. Without it a screen can say a job exists and when it runs
+// next, and cannot say what it does — so "edit this job" has nowhere to start.
+func TestCronCarriesThePromptAJobAsks(t *testing.T) {
+	eng := &cronEditEngine{jobs: []app.ScheduledJobInfo{
+		{Name: "nightly", Schedule: "0 3 * * *", Prompt: "read yesterday's commits", Enabled: true},
+	}}
+	resp := answerCron(context.Background(), eng, Request{})
+	if !resp.OK || len(resp.Cron) != 1 {
+		t.Fatalf("one job listed, got %+v", resp)
+	}
+	if resp.Cron[0].Prompt != "read yesterday's commits" {
+		t.Fatalf("the words a job asks travel, got %q", resp.Cron[0].Prompt)
+	}
+}
+
+func TestCronEditRefusesWhenTheEngineCannotWrite(t *testing.T) {
+	resp := answerCronEdit(context.Background(), &fakeEngine{}, Request{Method: "cron-set", Name: "x"})
+	if resp.OK || resp.Err == "" {
+		t.Fatalf("a build that cannot change its schedule says so, got %+v", resp)
+	}
+}
+
+// A job is named, and the name is how it is found again — an unnamed edit is refused before the
+// engine is asked.
+func TestCronEditRefusesAnUnnamedJob(t *testing.T) {
+	eng := &cronEditEngine{}
+	resp := answerCronEdit(context.Background(), eng, Request{Method: "cron-set", Name: "  "})
+	if resp.OK || resp.Err == "" {
+		t.Fatalf("an unnamed job is refused, got %+v", resp)
+	}
+	if len(eng.jobs) != 0 {
+		t.Fatal("a refused request never reached the engine")
+	}
+}
+
+// Writing answers with the WHOLE new listing: the caller that just edited is about to redraw, and
+// a second round trip is a second chance for two answers to disagree about one job.
+func TestCronSetAnswersWithTheNewListing(t *testing.T) {
+	eng := &cronEditEngine{}
+	resp := answerCronEdit(context.Background(), eng,
+		Request{Method: "cron-set", Name: "nightly", Schedule: "0 3 * * *", Text: "read the commits"})
+	if !resp.OK {
+		t.Fatalf("the write succeeded, got %+v", resp)
+	}
+	if len(resp.Cron) != 1 || resp.Cron[0].Name != "nightly" || resp.Cron[0].Prompt != "read the commits" {
+		t.Fatalf("the answer is the new listing, got %+v", resp.Cron)
+	}
+}
+
+// **A refusal is told from a success by the fact, not by the prose.** The engine reports both as a
+// message with a nil error (its words are written for an agent), so the door checks whether the
+// world changed — and hands the message back as the reason when it did not.
+func TestCronEditReadsARefusalFromTheListingRatherThanTheWords(t *testing.T) {
+	eng := &cronEditEngine{refuse: "that schedule will not do: bad field"}
+	resp := answerCronEdit(context.Background(), eng,
+		Request{Method: "cron-set", Name: "nightly", Schedule: "not a crontab", Text: "x"})
+	if resp.OK {
+		t.Fatalf("nothing was written, so this is not a success: %+v", resp)
+	}
+	if resp.Err != "that schedule will not do: bad field" {
+		t.Fatalf("the engine's reason is handed back verbatim, got %q", resp.Err)
+	}
+}
+
+func TestCronRemoveIsRefusedWhenTheJobSurvives(t *testing.T) {
+	eng := &cronEditEngine{
+		jobs:   []app.ScheduledJobInfo{{Name: "nightly", Schedule: "0 3 * * *"}},
+		refuse: "no job called nightly",
+	}
+	resp := answerCronEdit(context.Background(), eng, Request{Method: "cron-remove", Name: "nightly"})
+	if resp.OK {
+		t.Fatalf("the job is still listed, so the remove did not happen: %+v", resp)
+	}
+	// And the happy path: with the engine willing, the row is gone and the answer says so.
+	eng.refuse = ""
+	resp = answerCronEdit(context.Background(), eng, Request{Method: "cron-remove", Name: "nightly"})
+	if !resp.OK || len(resp.Cron) != 0 {
+		t.Fatalf("the removed job leaves the listing, got %+v", resp)
+	}
+}
+
+// Advertised only when the engine can write — a screen deciding whether to draw an editor cannot
+// tell an old build from a refusing one by calling and reading prose back.
+func TestTheCronWriteDoorsAreAdvertisedSeparately(t *testing.T) {
+	readOnly := capsOf(&omniEngine{})
+	if slices.Contains(readOnly, "cron-set") {
+		t.Fatalf("a build that only reads its schedule must not advertise the write doors: %v", readOnly)
+	}
+	caps := capsOf(&cronEditEngine{})
+	for _, want := range []string{"cron-set", "cron-remove"} {
+		if !slices.Contains(caps, want) {
+			t.Fatalf("an engine that writes advertises %q, got %v", want, caps)
+		}
+	}
+}
+
+// Both write doors are serialised: read-decide-write against one config file is the shape this
+// gate exists for, and two editors landing together would each write the file they read.
+func TestTheCronWriteDoorsAreSerialised(t *testing.T) {
+	for _, m := range []string{"cron-set", "cron-remove"} {
+		if !serialControls[m] {
+			t.Fatalf("%q writes a file it just read and is not behind the gate", m)
+		}
+	}
+}

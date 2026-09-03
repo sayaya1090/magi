@@ -609,7 +609,12 @@ type Request struct {
 	// five rounds put fifteen of them on the strip, each one starting cold and knowing nothing of
 	// what this participant had already said.
 	Meeting string `json:"meeting,omitempty"`
-	N       int    `json:"n,omitempty"`
+	// Schedule and Enabled are the cron edit doors' own two fields. Enabled is a pointer because
+	// the switch is three-valued on the wire: absent must mean "leave it alone", or an edit that
+	// only changes the words would silently switch a job back on.
+	Schedule string `json:"schedule,omitempty"`
+	Enabled  *bool  `json:"enabled,omitempty"`
+	N        int    `json:"n,omitempty"`
 	// URL and Headers are the attach door's arguments: which HTTP MCP server, and what to send
 	// with every request to it. There is deliberately no command field — this door's safety
 	// argument is that it spawns nothing, and an argument kept in the signature cannot be lost to
@@ -1465,6 +1470,8 @@ var answers = map[string]func(context.Context, Engine, Request) Response{
 	"children":    answerChildren,
 	"session-new": answerSessionNew,
 	"cron":        answerCron,
+	"cron-set":    answerCronEdit,
+	"cron-remove": answerCronEdit,
 	"job-kill":    answerJobKill,
 }
 
@@ -1491,6 +1498,30 @@ type CronRow struct {
 	// Problem is why this job can NEVER run, in words. A row carrying one is the row a dock must
 	// mark: nothing else on any screen will mention it again.
 	Problem string `json:"problem,omitempty"`
+	// Prompt is what the job ASKS when it comes round.
+	//
+	// It was dropped here while the engine was already handing it over (ScheduledHere answers
+	// app.ScheduledJobInfo, which carries it), and dropping it is what made an editing screen
+	// impossible: a client could show that a job exists and when it next runs, and could not show
+	// what it would do — so "edit this job" had nowhere to start and every writer had to keep its
+	// own copy of the words.
+	Prompt string `json:"prompt,omitempty"`
+}
+
+// CronEdit is one change to the standing schedule, as the wire carries it.
+//
+// A shape of this package's own rather than port.ScheduleChange: the wire's vocabulary is this
+// package's business, and an engine converts at its edge like it does for every other door.
+type CronEdit struct {
+	Name     string
+	Schedule string
+	Prompt   string
+	// Enabled is three-valued on purpose: nil leaves the switch alone, which is what an edit that
+	// only changes the words must do.
+	Enabled *bool
+	// Remove deletes the job instead of writing it. One shape for both verbs because they are one
+	// read-decide-write against one file, and the gate that serialises them is one gate.
+	Remove bool
 }
 
 // answerCron reads the standing schedule out: broken jobs first (they are the ones nobody else
@@ -1516,13 +1547,83 @@ func answerCron(ctx context.Context, eng Engine, req Request) Response {
 	})
 	rows := make([]CronRow, 0, len(jobs))
 	for _, j := range jobs {
-		r := CronRow{Name: j.Name, Schedule: j.Schedule, Enabled: j.Enabled, Problem: j.Problem}
-		if !j.Next.IsZero() {
-			r.Next = j.Next.UTC().Format(time.RFC3339)
-		}
-		rows = append(rows, r)
+		rows = append(rows, cronRowOf(j))
 	}
 	return Response{OK: true, Cron: rows}
+}
+
+// cronRowOf renders one job for the wire. One place, because the edit doors answer with the new
+// listing and a second renderer is a second chance for the two answers to disagree about the same
+// job — which is exactly what a screen redrawing after its own edit would show.
+func cronRowOf(j app.ScheduledJobInfo) CronRow {
+	r := CronRow{Name: j.Name, Schedule: j.Schedule, Enabled: j.Enabled,
+		Problem: j.Problem, Prompt: j.Prompt}
+	if !j.Next.IsZero() {
+		r.Next = j.Next.UTC().Format(time.RFC3339)
+	}
+	return r
+}
+
+// CronEditor is the engine half of the write doors: add, change or delete one standing job.
+//
+// Separate from CronTeller for the reason the read/write split has everywhere here — a build can
+// answer what is scheduled without accepting changes to it — and separate from CronController
+// (reload) because that one exists for an editor that wrote the FILE ITSELF and now has to tell
+// the daemon. This door is the alternative to that: the client says what it wants and the daemon,
+// which already owns the schema and the three config layers, writes it. A client that composes
+// TOML is a client that has to know where a workspace's file lives, how a name becomes a table
+// header, and which layer wins — and every client that learns it is one more place that can be
+// wrong about it.
+type CronEditor interface {
+	// EditCron applies one change and answers what the engine said about it. A refusal comes back
+	// as prose with a nil error (a schedule that will not parse is not a failure of this call);
+	// err is for a change that could not be written at all.
+	EditCron(c CronEdit) (string, error)
+}
+
+// answerCronEdit writes one job and answers with the WHOLE new listing.
+//
+// The listing rather than an ok, because the caller that just edited is about to redraw and a
+// second round trip is a second chance for the two answers to disagree. It is also how this
+// handler tells a refusal from a success without reading prose: the engine reports both as a
+// message with a nil error (its words are written for an agent), so what settles it is the fact —
+// is the job there now, or gone. A message that did not change the world is a refusal, and it is
+// handed back verbatim because it says why.
+func answerCronEdit(ctx context.Context, eng Engine, req Request) Response {
+	ed, ok := eng.(CronEditor)
+	if !ok {
+		return Response{Err: "this daemon cannot change its schedule"}
+	}
+	teller, ok := eng.(CronTeller)
+	if !ok {
+		// Without the listing this door cannot tell a refusal from a success, and answering
+		// "probably fine" is the one thing a write door must never do.
+		return Response{Err: "this daemon can change its schedule but cannot read it back"}
+	}
+	remove := req.Method == "cron-remove"
+	c := CronEdit{Name: strings.TrimSpace(req.Name), Schedule: strings.TrimSpace(req.Schedule),
+		Prompt: req.Text, Enabled: req.Enabled, Remove: remove}
+	if c.Name == "" {
+		return Response{Err: "which job — a job is named, and the name is how it is found again"}
+	}
+	msg, err := ed.EditCron(c)
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	rows := make([]CronRow, 0)
+	there := false
+	for _, j := range teller.ScheduledHere() {
+		rows = append(rows, cronRowOf(j))
+		if j.Name == c.Name {
+			there = true
+		}
+	}
+	if there == remove {
+		// Asked to write and it is not there, or asked to remove and it still is: the engine
+		// refused, and its message is the reason.
+		return Response{Err: strings.TrimSpace(msg)}
+	}
+	return Response{OK: true, Out: strings.TrimSpace(msg), Cron: rows}
 }
 
 // SessionRow is one conversation as the sessions door reports it: what a picker needs and no
@@ -2209,6 +2310,11 @@ func capsOf(eng Engine) []string {
 	if _, ok := eng.(CronTeller); ok {
 		caps = append(caps, "cron")
 	}
+	// The write half is advertised separately: a build can answer what is scheduled and refuse to
+	// change it, and a screen deciding whether to draw an editor must be able to tell.
+	if _, ok := eng.(CronEditor); ok {
+		caps = append(caps, "cron-set", "cron-remove")
+	}
 	if _, ok := eng.(JobKiller); ok {
 		caps = append(caps, "job-kill")
 	}
@@ -2433,6 +2539,10 @@ var controlMu sync.Mutex
 var serialControls = map[string]bool{
 	"resume": true, "rewind": true, "set-model": true, "set-permission": true, "reload-cron": true,
 	"use-backend": true,
+	// Read-decide-write against one config file — the shape this gate exists for. Two editors
+	// landing together would each write the file they read, and the loser's job vanishes with
+	// both callers told it worked.
+	"cron-set": true, "cron-remove": true,
 }
 
 func dispatch(ctx context.Context, eng Engine, r Request) error {
@@ -2859,6 +2969,28 @@ func (c *Client) Sessions() ([]SessionRow, error) {
 		return nil, err
 	}
 	return resp.Sessions, nil
+}
+
+// SetCron writes one standing job — adding it, or changing the one with that name.
+func (c *Client) SetCron(name, schedule, prompt string, enabled *bool) ([]CronRow, string, error) {
+	return c.editCron(Request{Method: "cron-set", Name: name, Schedule: schedule,
+		Text: prompt, Enabled: enabled})
+}
+
+// RemoveCron deletes one standing job.
+func (c *Client) RemoveCron(name string) ([]CronRow, string, error) {
+	return c.editCron(Request{Method: "cron-remove", Name: name})
+}
+
+func (c *Client) editCron(r Request) ([]CronRow, string, error) {
+	resp, err := c.exchange(r)
+	if err != nil {
+		return nil, "", err
+	}
+	if !resp.OK {
+		return nil, "", errors.New(resp.Err)
+	}
+	return resp.Cron, resp.Out, nil
 }
 
 // Children lists the subagent conversations a session spawned, newest activity first — what the

@@ -2772,6 +2772,22 @@ func (d daemonEngine) SessionsHere(ctx context.Context) ([]session.SessionMeta, 
 	return metas, nil
 }
 
+// EditCron satisfies daemon.CronEditor: one change to this workspace's standing schedule.
+//
+// The same App call the agent's own `schedule` tool makes, so a job written from a screen and a
+// job written by the companion land in the same file by the same rules — the name check, the
+// crontab parse, the layer the job belongs to. A second writer here would be a second set of those
+// rules, and the one that disagreed would be found by somebody whose job stopped running.
+func (d daemonEngine) EditCron(c daemon.CronEdit) (string, error) {
+	action := "set"
+	if c.Remove {
+		action = "remove"
+	}
+	return d.App.EditSchedule(d.workdir, port.ScheduleChange{
+		Action: action, Name: c.Name, Schedule: c.Schedule, Prompt: c.Prompt, Enabled: c.Enabled,
+	})
+}
+
 // ChildrenOf satisfies daemon.ChildLister: the subagent conversations this session spawned, as
 // the log holds them. The store's own listing, unreshaped — a child records its parent when it is
 // created, so this is a fact rather than a register somebody has to keep in step.

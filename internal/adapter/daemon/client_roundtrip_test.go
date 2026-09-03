@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/sayaya1090/magi/internal/app"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"net"
@@ -566,5 +567,84 @@ func TestTheChildrenDoorCrossesTheSocket(t *testing.T) {
 	}
 	if !slices.Contains(hi.Caps, "children") {
 		t.Fatalf("the door advertises itself in the handshake, caps were %v", hi.Caps)
+	}
+}
+
+// wireCronEngine answers both cron halves over a real connection.
+type wireCronEngine struct {
+	omniEngine
+	jobs []app.ScheduledJobInfo
+	got  CronEdit
+}
+
+func (e *wireCronEngine) ScheduledHere() []app.ScheduledJobInfo { return e.jobs }
+func (e *wireCronEngine) EditCron(c CronEdit) (string, error) {
+	e.got = c
+	e.jobs = append(e.jobs, app.ScheduledJobInfo{Name: c.Name, Schedule: c.Schedule,
+		Prompt: c.Prompt, Enabled: c.Enabled == nil || *c.Enabled})
+	return "set " + c.Name, nil
+}
+
+// The cron edit door crosses the socket whole. Two fields are new here and both are the kind that
+// survives a struct and dies on the wire: `schedule`, and `enabled` as a POINTER — a bool that
+// arrived as false when it was meant to be absent would switch a job off on an edit that only
+// changed its words.
+func TestTheCronEditDoorCrossesTheSocket(t *testing.T) {
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-cron.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	eng := &wireCronEngine{}
+	go func() { _ = d.Serve(context.Background(), eng) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	rows, msg, err := c.SetCron("nightly", "0 3 * * *", "read yesterday's commits", nil)
+	if err != nil {
+		t.Fatalf("cron-set over the socket: %v", err)
+	}
+	if eng.got.Name != "nightly" || eng.got.Schedule != "0 3 * * *" ||
+		eng.got.Prompt != "read yesterday's commits" {
+		t.Fatalf("the edit crossed as %+v", eng.got)
+	}
+	if eng.got.Enabled != nil {
+		t.Fatal("an omitted switch must stay omitted — a false here silently switches jobs off")
+	}
+	if eng.got.Remove {
+		t.Fatal("cron-set is not a removal")
+	}
+	if len(rows) != 1 || rows[0].Prompt != "read yesterday's commits" {
+		t.Fatalf("the answer is the new listing, with the words, got %+v", rows)
+	}
+	if msg == "" {
+		t.Fatal("what the engine said comes back too — it is the only place a nuance can live")
+	}
+	// The switch, when it IS meant.
+	off := false
+	if _, _, err := c.SetCron("nightly", "", "", &off); err != nil {
+		t.Fatal(err)
+	}
+	if eng.got.Enabled == nil || *eng.got.Enabled {
+		t.Fatalf("an explicit false crossed as %v", eng.got.Enabled)
+	}
+	// And the handshake says both doors are there.
+	hi, err := c.Hello()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"cron-set", "cron-remove"} {
+		if !slices.Contains(hi.Caps, want) {
+			t.Fatalf("%q is advertised in the handshake, caps were %v", want, hi.Caps)
+		}
 	}
 }

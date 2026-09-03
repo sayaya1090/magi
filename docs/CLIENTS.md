@@ -179,6 +179,25 @@ The row carries `origin` — who opened the conversation — and that is what te
 another ("meeting" for a room). `agent` is NOT the discriminator: every child records the same
 word, measured against a live meeting where a room came back as `agent="spawn"`.
 
+**Standing work, editable from a client (`cron`, `cron-set`, `cron-remove`, ★implemented).** The
+read door now carries the `prompt` a job asks. It was dropped while the engine was already handing
+it over, and dropping it is what made an editing screen impossible: a client could say a job exists
+and when it next runs, and not what it would do. The write doors take one change each and answer
+with the WHOLE new listing — the caller that just edited is about to redraw, and a second round
+trip is a second chance for two answers to disagree about one job. They also tell a refusal from a
+success by the FACT rather than the prose: the engine reports both as a message with no error (its
+words are written for an agent), so the door checks whether the job is there now, and hands the
+message back as the reason when nothing changed. A name is refused rather than sanitised — it
+becomes a TOML table header, and one quietly rewritten is a job its owner cannot find again. Both
+are serialised with the other read-decide-write controls: two editors landing together would each
+write the file they read. `enabled` is a POINTER on the wire, because absent must mean "leave the
+switch alone" or an edit that only changed the words would switch a job back on. What this
+replaces is a client composing `config.toml` itself, which means knowing where a workspace's file
+lives, how a name becomes a header, and which of the three layers wins — every client that learns
+that is one more place that can be wrong about it. Authorisation stays where the users are: a
+console with roles asks its own question (a scheduled job is a prompt with a clock on it) before
+it calls.
+
 ### Companion to companion, machine to machine
 
 On one machine, companions hand work to each other (hand_off — the first finished turn's last
