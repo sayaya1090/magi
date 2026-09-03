@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
@@ -2478,6 +2478,44 @@ async function makeZip(files) {
   await hand.run('set_tag', { slide: 1, key: 'magi.fix.x', value: JSON.stringify({ what: 'ㄱ' }) });
   const off = await hand.run('drop_suggestion', { slide: 1, key: 'MAGI.FIX.X' });
   ok('안에서 자기를 불러도 안 멎는다', off.result.removed === true, JSON.stringify(off.result));
+}
+
+// ── 글머리 기호가 두 번 찍히던 것 ───────────────────────────────────────────
+//
+// 자리표시자는 제 글머리 기호를 스스로 붙인다. 거기에 `- 항목` 을 써 넣으면 화면에
+// **`• - 항목`** 이 뜬다 — 실물에서 그 화면을 봤다(2026-09-03: 한 장의 다섯 줄이 전부
+// 그랬다). 모델은 마크다운 습관으로 `-` 를 찍는데, 그 자리에서 그건 글이 아니라 표시다.
+{
+  ok('줄머리 표시를 뗀다', withoutBulletMarks('- 가\n* 나\n• 다') === '가\r나\r다',
+    JSON.stringify(withoutBulletMarks('- 가\n* 나\n• 다')));
+  ok('가운데의 빼기는 안 건드린다', withoutBulletMarks('가 - 나') === '가 - 나');
+  ok('붙여 쓴 것은 표시가 아니다', withoutBulletMarks('-가') === '-가');
+  ok('숫자 목록은 안 건드린다 — 사람이 매긴 번호다', withoutBulletMarks('1. 가') === '1. 가');
+
+  // 손이 실제로 그렇게 쓰는가 — 도우미만 재면 「셈은 맞다」까지만 말하게 된다.
+  {
+    const model = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' }, shapes: [] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L', placeholders: ['title', 'body'] }] }],
+    };
+    const hand = new OfficeHand({ run: stubRunner(model, []), supports: () => true, document: 'd' });
+    await hand.run('add_slides', { slides: [{ layout: 'L', title: '제목', body: '- 가\n- 나' }] });
+    const body = model.slides[1].shapes.find((sh) => sh.placeholderFormat?.type === 'body');
+    ok('새 장의 본문에 표시가 안 남는다', body.text === '가\r나', JSON.stringify(body?.text));
+  }
+
+  // **사람이 놓은 글상자는 안 건드린다** — 거기서는 `- ` 가 진짜 글일 수 있다.
+  {
+    const model = {
+      slides: [{ id: 's1', index: 0, layout: { name: 'L' },
+        shapes: [{ id: 'x', name: '상자', type: 'TextBox', text: '', altTextDescription: null }] }],
+      masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+    };
+    const hand = new OfficeHand({ run: stubRunner(model, []), supports: () => true, document: 'd' });
+    await hand.run('set_text', { slide: 1, shape_id: 'x', text: '- 이건 진짜 빼기' });
+    ok('글상자의 - 는 그대로 둔다', model.slides[0].shapes[0].text === '- 이건 진짜 빼기',
+      JSON.stringify(model.slides[0].shapes[0].text));
+  }
 }
 
 // ── 표지 앞에 남는 백지 ──────────────────────────────────────────────────────

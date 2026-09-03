@@ -627,7 +627,13 @@ export class OfficeHand extends HandPort {
       shape.textFrame.textRange.load('text');
       await context.sync();
       const before = shape.textFrame.textRange.text ?? '';
-      shape.textFrame.textRange.text = asParagraphs(args.text);
+      // **자리를 이름으로 짚었으면 그 상자는 자리표시자다** — 제 글머리 기호를 스스로 붙이므로
+      // 사람이 찍은 `- ` 를 뗀다. `shape_id` 로 짚은 것은 사람이 놓은 글상자일 수 있고,
+      // 거기서는 `- ` 가 진짜 글일 수 있어 안 뗀다.
+      const asked = args.shape_id == null || String(args.shape_id) === '';
+      shape.textFrame.textRange.text = asked
+        ? withoutBulletMarks(asParagraphs(args.text))
+        : asParagraphs(args.text);
       await context.sync();
       this.#mutated();
       return this.#envelope(
@@ -1367,7 +1373,7 @@ export class OfficeHand extends HandPort {
       // 성공으로 보고하고, 사람은 제목을 부탁한 자리에서 빈 장을 본다.
       if (!hit) { unfilled.push({ role: w.role, text: w.text }); continue; }
       taken.add(hit.id);
-      hit.textFrame.textRange.text = asParagraphs(w.text);
+      hit.textFrame.textRange.text = withoutBulletMarks(asParagraphs(w.text));
       filled.push({ role: w.role, text: w.text, shape_id: hit.id });
     }
     await context.sync();
@@ -2735,6 +2741,23 @@ export class OfficeHand extends HandPort {
  *
  * 이미 `\r` 인 것은 안 건드린다 — `\r\n` 을 둘로 세면 빈 문단이 생긴다.
  */
+/**
+ * 줄머리에 사람이 찍은 **글머리 표시를 뗀다.**
+ *
+ * 자리표시자는 제 글머리 기호를 스스로 붙인다. 거기에 `- 항목` 을 써 넣으면 화면에
+ * **`• - 항목`** 이 뜬다 — 실물에서 그 화면을 봤다(2026-09-03: 다섯 줄이 전부 그랬다).
+ * 모델은 마크다운 습관으로 `-` 를 찍는데, 그 자리에서 그건 글이 아니라 표시다.
+ *
+ * **자리표시자에 쓸 때만 뗀다.** 사람이 놓은 글상자에서는 `- ` 가 진짜 글일 수 있고, 그때
+ * 떼면 우리가 사람의 글을 고치는 것이 된다.
+ */
+export function withoutBulletMarks(text) {
+  return String(text ?? '')
+    .split(/\r\n|[\r\n]/)
+    .map((line) => line.replace(/^\s*[-*•·]\s+/, ''))
+    .join('\r');
+}
+
 export function asParagraphs(text) {
   return String(text ?? '').replace(/\r\n|\n/g, '\r');
 }

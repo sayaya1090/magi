@@ -61,7 +61,16 @@ const DRAWN = new Map([
  * 그래도 **몇 건인지는 적는다.** 조용히 버리는 것과 안 그리기로 한 것은 화면에서 같아 보이면
  * 안 된다(이 파일이 맨 위에 못 박은 것).
  */
-const IGNORED = new Set(['context.usage', 'council.deliberating']);
+const IGNORED = new Set([
+  'context.usage', 'council.deliberating',
+  // **대화의 생김과 옮김은 그릴 것이 아니다.** 앞 판본은 이 둘을 「그릴 줄 모르는 이벤트」로
+  // 세어서, 새 대화를 시작할 때마다 화면 아래에 「이 창이 아직 그릴 줄 모르는 이벤트 1건을
+  // 받았습니다 — session.moved」가 떴다. 그건 고칠 것이 있다는 뜻의 줄인데 여기서는 고칠
+  // 것이 없다 — 옮김은 `ReadTranscript` 가 따라가서 이미 **처리한** 것이고, 생김은 그
+  // 대화의 첫 줄일 뿐이다. 그런 줄이 늘 떠 있으면 사람은 그 자리를 안 읽게 되고, 진짜
+  // 모르는 것이 왔을 때 그 줄이 아무 일도 못 한다.
+  'session.created', 'session.moved',
+]);
 
 /**
  * 조각의 종류로 무엇으로 그릴지 정한다. **`part.appended` 를 조각 종류 안 보고 그리면 안 된다.**
