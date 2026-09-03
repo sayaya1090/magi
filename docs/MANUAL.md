@@ -1865,6 +1865,27 @@ in. The console has nothing to say, which is what makes it the right chair. It d
 goroutine of its own, so closing the tab does not end the meeting; the room lives as long as the
 console does and no longer, because the record that outlives it is each participant's own log.
 
+**The room keeps minutes, and everybody writes them.** Each speaker reads the document before
+saying anything — so it does not agree again to what is already agreed — and rewrites it after,
+with what it just said in it. The first speaker is handed a form (decided / still open / action
+items / questions for the room) rather than a description of one, because a description produces a
+different shape from each model and the second speaker then has to guess where its edit belongs.
+By the time the room closes, the minutes have been through everybody's hands: that is what makes
+them an agreement rather than a summary written afterwards. The screen draws them beside the
+discussion, always, and highlights the lines that changed.
+
+Two rules carry the record and both are in the prompt. Unchanged lines are carried through
+verbatim — minutes that summarise shrink every round and the meeting ends with nothing in them —
+and nobody is written down as owning work they did not take on in their own words, because that is
+a promise they do not know they made.
+
+Each participant keeps **two** sessions for a meeting: the one it speaks in and the one it writes
+the minutes in. The drafts have to accumulate somewhere and the one place they must not is the
+session where the participant decides — a companion reading the sentence it deleted two rounds ago
+is arguing with its own edit history instead of with the room. Cutting the old minutes out of each
+request instead would move the prefix and lose the prompt cache for everything after it. Both
+sessions stay append-only; the accumulation goes where it does no harm.
+
 **Nobody speaks until everybody has read their own workspace.** Convening sends each participant
 away to prepare — in a conversation of its own, with read-only tools and its git state handed to it
 as prose — and the room opens when they are all back. A participant that could not get ready (no

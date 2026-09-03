@@ -346,6 +346,13 @@ contracts this page already states.
 3. **Subscription**: the conversation via `transcript` (replay + live, with the restart callback
    on a refused cursor), the list via `roster` polls, the picker via `sessions`, the dock via
    `cron` and `jobs`.
+   A meeting's turn carries the room's minutes both ways: `minutes` on the request is the
+   document as it stands, and `minutes` on the reply is that speaker's revision of it, whole. A
+   daemon that does not keep minutes drops both and the meeting still runs — the document simply
+   does not grow. A participant keeps two sessions for a meeting, and they are stamped with
+   different origins (`meeting`, `minutes`) so a client listing a companion's children can tell
+   them apart, or leave both out.
+
 4. **Action**: steering, interrupting, answering, files and git are methods on that companion's
    own socket; an application that offers tools registers itself with `mcp-attach` (URL only)
    and `mcp-detach`s on the way out.
