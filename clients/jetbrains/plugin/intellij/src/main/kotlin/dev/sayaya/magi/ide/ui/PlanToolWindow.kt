@@ -344,7 +344,10 @@ class PlanToolWindow : ToolWindowFactory {
                     // 모든 자식이 같은 낱말("spawn")이라 아무것도 안 가른다: 실측으로 잡았다
                     // (판에 `spawn · A meeting is being called…` 두 줄이 나란히 섰다).
                     val what = c.title?.take(52)?.ifBlank { null } ?: c.id.takeLast(6)
-                    val who = c.origin?.ifBlank { null }?.let { "$it · " } ?: ""
+                    // 아는 origin 은 사람 말로 옮긴다. 회의는 자식을 **둘** 연다 — 말하는 자리와
+                    // 받아적는 자리 — 그래서 이 줄이 「meeting」과 「minutes」를 그대로 찍으면
+                    // 회의마다 두 줄이 서고 둘 다 와이어 낱말이라, 사람이 무엇이 무엇인지 모른다.
+                    val who = c.origin?.ifBlank { null }?.let { Look.originWord(it) + " · " } ?: ""
                     work.add(kidRow(project, "⛒ $who$what", c.id))
                 }
                 fleet.removeAll()

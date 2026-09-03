@@ -353,5 +353,29 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         c.createComponent()
         c.reset()
         assertFalse("데몬이 없는데 문 칸이 바뀜을 만든다 — 아무도 안 고른 값이 저장된다", c.isModified)
+    
+}
+
+    /**
+     * 회의는 자식을 **둘** 연다 — 말하는 자리와 받아적는 자리 — 그리고 이 판이 둘 다 그린다.
+     *
+     * 둘이 갈리는 것은 `origin` 하나뿐이라, 판이 그것을 사람 말로 옮기지 않으면 회의마다 같은
+     * 모양 두 줄이 서고 어느 쪽이 무엇인지 누를 때까지 모른다.
+     *
+     * 「와이어 낱말 그대로가 아니다」는 여기서 못 잰다: 영어판의 값이 실제로 meeting·minutes 라
+     * 옮겨도 안 옮겨도 같은 글자다(처음 이렇게 썼다가 빨갛게 섰다). 그래서 재는 것은 셋이다 —
+     * 둘이 갈리는가, 모르는 것을 안 건드리는가, 그리고 열쇠가 정말 있는가.
+     */
+    fun testKnownOriginsAreSaidInWords() {
+        val meeting = Look.originWord("meeting")
+        val minutes = Look.originWord("minutes")
+        assertTrue("회의 방과 회의록이 같은 말로 선다 — 두 줄을 못 가른다", meeting != minutes)
+        // 모르는 것은 지어내지 않는다. 없는 열쇠를 MagiBundle 에 물으면 열쇠 자체가 찍히므로,
+        // 그 경로로 새면 판에 `plan.kid.scout` 같은 것이 선다.
+        assertEquals("모르는 origin 을 손대면 안 된다", "scout", Look.originWord("scout"))
+        for (w in listOf(meeting, minutes)) {
+            assertTrue("열쇠가 없어 열쇠 이름이 그대로 찍힌다: $w", !w.startsWith("plan."))
+        }
     }
+
 }

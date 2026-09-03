@@ -38,6 +38,19 @@ internal object Look {
 
     private fun of(ink: Palette.Ink) = JBColor(Color.decode(ink.light), Color.decode(ink.dark))
 
+    /**
+     * 자식을 연 이(origin)를 사람 말로. 모르는 낱말은 **그대로 둔다** — 와이어의 말이라도
+     * 없는 것보다는 낫고, 지어낸 이름은 사람을 엉뚱한 자리로 보낸다.
+     *
+     * 아는 것은 회의가 여는 둘뿐이다: 말하는 자리와 받아적는 자리. 그 둘을 안 가르면 회의마다
+     * 판에 같은 모양 두 줄이 서고, 어느 쪽이 무엇인지 누를 때까지 알 수 없다.
+     */
+    fun originWord(origin: String): String = when (origin) {
+        "meeting" -> MagiBundle.msg("plan.kid.meeting")
+        "minutes" -> MagiBundle.msg("plan.kid.minutes")
+        else -> origin
+    }
+
     /** 답을 기다리는 것. 지금 사람이 손대야 하는 자리에만 쓴다. */
     val primary = of(Palette.primary)
 

@@ -180,8 +180,12 @@ func (a *App) MeetingWriteRoom(ctx context.Context, sid session.SessionID, who, 
 		port.SpawnSpec{
 			ToolName: "minutes",
 			System:   minutesSystem(who),
-			Prompt:   "You are keeping the minutes for a meeting about: " + strings.TrimSpace(topic) +
-				"\n\nNothing to do yet. The first revision arrives next.",
+			// The topic FIRST: a session's title is its first line, and the screens that list
+			// children show that title. Led with the instruction, every minutes session on every
+			// screen read "You are keeping the minutes for a meeting about…" and the one thing a
+			// reader wanted — which meeting — was off the end of the row.
+			Prompt: strings.TrimSpace(topic) + "\n\nYou are keeping the minutes for this meeting. " +
+				"Nothing to do yet: the first revision arrives next.",
 			MaxSteps: 1,
 		}, nil)
 	if err != nil {
