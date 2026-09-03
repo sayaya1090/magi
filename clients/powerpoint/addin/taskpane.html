@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>magi</title>
+  <title>MAGI</title>
   <link rel="stylesheet" href="taskpane.css" />
   <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
   <!--
@@ -27,7 +27,7 @@
       8px 안쪽으로 뜬다). 그 자리에 컨트롤을 두면 사용자가 우리 것을 못 누른다.
     -->
     <header>
-      <strong>magi</strong>
+      <strong>MAGI</strong>
       <span id="adapter" class="adapter"></span>
     </header>
 
@@ -38,6 +38,17 @@
       수명이 다르다: 이건 창이 사는 동안 계속 참이고, 저건 이번 한 번의 일이다.
     -->
     <div id="where" class="where" hidden></div>
+
+    <!--
+      **첫 말이 나오기 전까지만 참인 말.** 「붙었으니 시키면 된다」는 대화가 하나라도 서는 순간
+      증명되고, 그때부터는 348×391 짜리 판에서 한 줄을 그냥 먹는다.
+
+      `#where` 와 자리를 나누는 이유는 위 칸이 적어 둔 그 이유와 **같다** — 수명이 다른 두 말이
+      한 칸을 같이 쓰면 어느 수명을 골라도 다른 쪽이 틀린다. 위 칸은 창이 사는 동안 참이라
+      지우는 문이 없어야 하고(그래서 없다), 이 칸은 조건이 사라지면 같이 사라져야 한다.
+      그래서 여기 적히는 값은 **매 로그 변화마다 다시 유도된다**(`view.renderReady`).
+    -->
+    <div id="ready" class="where" hidden></div>
 
     <!--
       **여기부터 컴포저 앞까지가 스크롤 영역이다.** 작업창은 PowerPoint 에서 348×391 이라(MS
@@ -72,6 +83,7 @@
     <div id="advanced" class="advanced" hidden>
       <button type="button" id="fresh" class="linky">새 대화 시작</button>
       <button type="button" id="rules" class="linky">늘 지킬 것</button>
+      <button type="button" id="guides" class="linky">가이드</button>
       <button type="button" id="repick" class="linky">다른 컴패니언에 붙이기</button>
     </div>
 
@@ -95,6 +107,42 @@
       </div>
       <p id="rules-note" class="rules-note" hidden></p>
     </section>
+
+    <!--
+      **가이드 — 여러 벌의, 이름 붙은, 껐다 켤 수 있는 규칙.**
+
+      「늘 지킬 것」과 자리를 나눈 이유는 **수명이 아니라 실리는 방식**이다. 저건 매 턴 프롬프트에
+      통째로 들어가서 반드시 지켜지는 대신 짧아야 하고 한 벌뿐이다. 이건 모델이 **필요할 때
+      불러 읽는다** — 길어도 되고 여러 벌이어도 되는 대신, **모델이 안 부르면 안 지켜진다.**
+
+      그 차이를 화면이 적어야 한다. 안 적으면 사람은 적어 둔 것이 늘 도는 줄 알고, 안 지켜진
+      날에 그것이 규칙 탓인지 모델 탓인지 가릴 수가 없다.
+    -->
+    <section id="guides-panel" class="rules" hidden>
+      <h2>가이드</h2>
+      <p class="rules-why">모델이 <strong>필요할 때 불러 읽는</strong> 규칙입니다 — 여러 벌을 두고
+        껐다 켤 수 있습니다.<br>
+        <strong>늘 지켜져야 하는 것은 「늘 지킬 것」에 적으세요.</strong> 여기 있는 것은 모델이
+        안 부르면 안 읽습니다.</p>
+      <div id="guides-list" class="guides-list"></div>
+      <div class="rules-row">
+        <button type="button" id="guides-new" class="rules-save">새 가이드</button>
+        <button type="button" id="guides-close" class="linky">닫기</button>
+      </div>
+
+      <!-- 고치는 자리. 이름은 새로 만들 때만 받는다 — 이름이 곧 파일 이름이라 바꾸면 딴 것이 된다. -->
+      <div id="guides-edit" class="guides-edit" hidden>
+        <input type="text" id="guide-name" class="guide-name" placeholder="이름 (예: design-guide)">
+        <textarea id="guide-body" class="rules-text" rows="8"
+          placeholder="---&#10;description: 한 줄 설명 — 모델이 이걸 보고 부를지 정합니다&#10;---&#10;&#10;# 본문"></textarea>
+        <div class="rules-row">
+          <button type="button" id="guide-save" class="rules-save">저장</button>
+          <button type="button" id="guide-cancel" class="linky">취소</button>
+        </div>
+      </div>
+      <p id="guides-note" class="rules-note" hidden></p>
+    </section>
+
 
     <!-- 스트림 자체에 대한 말. 대화가 조용한 것과 스트림이 죽은 것은 화면에서 똑같이 생겼다. -->
     <div id="stream" class="stream" hidden></div>
@@ -150,6 +198,22 @@
 
     </div><!-- /#scroll -->
 
+    <!--
+      **계획은 고정이다.** 대화에 섞어 두면 글이 쌓일 때마다 위로 밀려나서, 정작 「지금 어디까지
+      왔나」를 볼 수 없다 — 이 제품의 턴은 길고(도형마다 한 호출) 그 사이 화면에 서는 것은 도구
+      이름뿐이라 그 물음이 가장 자주 나온다.
+
+      **끝나면 사라진다.** 다 된 계획은 자리만 먹는다. 접는 것으로는 모자란다 — 접힌 판도 348×391
+      에서는 한 줄을 계속 차지하고, 그 줄은 이미 지난 일이다.
+
+      목록 자체는 접어 둔다. 늘 보이는 것은 **진척과 지금 하는 것 한 줄**이고, 그 둘이 이 판이
+      답해야 하는 전부다.
+    -->
+    <details id="plan" class="plan" hidden>
+      <summary id="plan-summary"></summary>
+      <div id="plan-list" class="plan-list"></div>
+    </details>
+
     <div class="composer">
       <div id="pending" class="pending"></div>
       <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
@@ -166,7 +230,7 @@
       그것을 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
     -->
     <footer class="brand">
-      <span class="brand-name">magi</span>
+      <span class="brand-name">MAGI</span>
       <span id="brand-state" class="brand-state"></span>
     </footer>
   </section>

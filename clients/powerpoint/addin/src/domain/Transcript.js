@@ -61,6 +61,18 @@ const DRAWN = new Map([
  * 그래도 **몇 건인지는 적는다.** 조용히 버리는 것과 안 그리기로 한 것은 화면에서 같아 보이면
  * 안 된다(이 파일이 맨 위에 못 박은 것).
  */
+/**
+ * **판으로 그리는 것.** 대화 줄도 아니고 안 그리기로 한 것도 아니다 — 자리가 다른 것이다.
+ *
+ * `todos.changed` 가 그렇다. 계약이 「바뀔 때마다 **계획 전량**」이라(`payload.go` 의
+ * `TodosChangedData`) 줄로 쌓으면 같은 계획이 턴마다 여덟 번 선다 — 실물에서 한 턴에
+ * `todowrite` 가 여덟 번 오는 것을 봤다. 그래서 **마지막 것으로 갈아 끼운다.**
+ *
+ * `unknown` 으로도 `skip` 으로도 세지 않는다. 앞엣것은 「이 창을 고쳐야 한다」는 뜻이고
+ * 뒤엣것은 「고칠 것이 없다」는 뜻인데, 이건 **고쳐서 그리기로 한 것**이다.
+ */
+const PANEL = new Set(['todos.changed']);
+
 const IGNORED = new Set([
   'context.usage', 'council.deliberating',
   // **대화의 생김과 옮김은 그릴 것이 아니다.** 앞 판본은 이 둘을 「그릴 줄 모르는 이벤트」로
@@ -162,11 +174,19 @@ export class Transcript {
     this.live = false;
     /** 서버가 커서를 거절하며 한 말. 있으면 화면이 그대로 보여 준다. */
     this.refusal = null;
+    /**
+     * 지금 계획. **마지막 스냅숏 하나**다(`PANEL`).
+     *
+     * 빈 배열은 「계획이 없다」이지 「모른다」가 아니다 — `todos.changed` 는 로그에 자리를
+     * 가지므로(전이가 아니다) 다시 붙어 되풀이를 받으면 그대로 되살아난다.
+     */
+    this.todos = [];
   }
 
   /** 서버가 「전부 다시 보낸다」고 했다. **가진 것을 버린다** — 안 버리면 앞뒤가 이어 붙는다. */
   restart(why) {
     this.rows = [];
+    this.todos = [];
     this.unknownCounts = new Map();
     this.skippedCounts = new Map();
     this.refusal = why ?? null;
@@ -176,6 +196,8 @@ export class Transcript {
   /** 대화 자체가 바뀌었다. 거절과 달리 사유가 서버 말이 아니라 우리 판단이다. */
   switchTo() {
     this.rows = [];
+    // 계획은 그 대화의 것이다 — 안 비우면 새 대화에 남의 계획이 서 있다.
+    this.todos = [];
     this.unknownCounts = new Map();
     this.skippedCounts = new Map();
     this.refusal = null;
@@ -184,6 +206,13 @@ export class Transcript {
 
   append(ev) {
     const type = String(ev?.type ?? '');
+    if (PANEL.has(type)) {
+      // **쌓지 않고 갈아 끼운다.** 계약이 매번 전량이므로 마지막 것이 곧 지금 계획이다.
+      // 배열이 아니면 안 건드린다 — 모양이 달라졌을 때 빈 계획으로 덮으면 있던 것이 사라진다.
+      const got = ev?.data?.todos;
+      if (Array.isArray(got)) this.todos = got;
+      return null;
+    }
     const partKind = partKindOf(ev, type);
     const kind = kindOf(type, ev?.actor, partKind);
     if (kind === 'unknown') {

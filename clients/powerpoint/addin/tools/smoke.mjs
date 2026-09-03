@@ -31,6 +31,7 @@ import {
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
+  adapterText, readyText, guideBoard, planBoard, argsLine,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -317,14 +318,18 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // 모르는 종류를 안 버린다. 버리면 화면이 "아무 일도 없었다"처럼 보인다.
   //
-  // **예로 든 종류가 바뀌었다.** 여기 서 있던 것은 `council.verdict` 였는데 이제 그리므로
-  // (실물에서 「그릴 줄 모른다」고 적힌 27건을 보고 넣었다), 아직 진짜로 안 그리는 것으로
-  // 바꿨다. 예를 그리게 되면 그 시험은 **규칙이 아니라 예를 지키는 것**이 된다.
+  // **예로 든 종류가 또 바뀌었다 — 두 번째다.** 처음엔 `council.verdict` 였고 그것을 그리게
+  // 되면서 `todos.changed` 로 갈았는데, 이제 그것도 판으로 그린다. 예를 그리게 되면 그 시험은
+  // **규칙이 아니라 예를 지키는 것**이 되므로 아직 진짜로 안 그리는 것으로 다시 갈았다.
+  //
+  // 두 번 겪었으니 적어 둔다: 이 시험이 무는 것은 「이 종류를 못 그린다」가 아니라 **「못 그린
+  // 것을 세어서 말한다」**이고, 그래서 예는 **언젠가 반드시 낡는다.** 낡을 때 이 자리가 빨개지는
+  // 것이 정상이고, 고치는 법은 예를 갈아 끼우는 것이지 시험을 지우는 것이 아니다.
   const port3 = new FakeTranscript({ A: [] });
   const read3 = new ReadTranscript(port3);
   read3.attach('A');
   port3.push({ seq: 1, sessionId: 'A', type: 'workflow.phase', data: {} });
-  port3.push({ seq: 2, sessionId: 'A', type: 'todos.changed', data: {} });
+  port3.push({ seq: 2, sessionId: 'A', type: 'labels.changed', data: {} });
   // `!== null` 은 화면이 쓰는 물음이 아니다 — `renderUnknown` 은 `el.hidden = !note` 로
   // 읽으므로 `undefined` 면 조용히 감춘다. 뷰 모델이 이 칸을 통째로 안 실어도 이 줄이
   // `!== null` 이던 동안은 초록이었다(필드 드롭 계측). **거절 사유와 같은 어긋남이다.**
@@ -332,7 +337,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     && Boolean(read3.view.unknownNote), read3.view.unknownNote ?? '(말이 없다)');
   ok('안 그린 것이 몇 건인지 그 말에 든다',
     /workflow\.phase/.test(read3.view.unknownNote ?? '')
-    && /todos\.changed/.test(read3.view.unknownNote ?? ''), read3.view.unknownNote);
+    && /labels\.changed/.test(read3.view.unknownNote ?? ''), read3.view.unknownNote);
   ok('모르는 것도 커서는 민다', read3.cursor.seq === 2);
 
   // 위 두 사건은 `data` 가 비어 있어서 **못 그린 것과 안 실은 것이 같게 생긴다.** 알맹이를
@@ -2793,6 +2798,21 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('말 줄 규칙을 찾았다', rule !== '', rule);
   ok('긴 토막을 끊는 규칙이 말 줄에 서 있다',
     /overflow-wrap:\s*anywhere|word-break:\s*break-(all|word)/.test(rule), rule.trim());
+
+  // **`hidden` 이 언제나 이겨야 한다.** 속성은 UA 의 `display:none` 으로만 서 있어서, 저자
+  // 규칙이 `display:` 를 적는 순간 진다. 실물에서 그렇게 새어 나왔다(2026-09-04): 가이드
+  // 편집 칸에 `display:flex` 를 줬더니 판을 열자마자 **안 누른 편집기가 같이 열려** 있었다.
+  // 자바스크립트는 `hidden = true` 를 옳게 세우고 있었고 화면만 안 듣고 있었다.
+  //
+  // 자리마다 예외를 다는 대신 한 줄로 못 박았는지를 묻는다 — 자리마다면 다음에 `display` 를
+  // 적는 사람이 그 예외를 안 단다.
+  ok('hidden 이 display 를 이긴다',
+    /\[hidden\]\s*\{[^}]*display:\s*none\s*!important/.test(css));
+
+  // 그리고 **그 규칙이 실제로 이길 자리에 있는지**도 센다: `display` 를 적는 규칙이 이 파일에
+  // 여럿이라(오늘 스물여섯) 한 줄이 없으면 그중 어느 것이든 다음 결함이 된다.
+  ok('display 를 적는 규칙이 실제로 여럿이다', (css.match(/display:/g) ?? []).length > 5,
+    String((css.match(/display:/g) ?? []).length));
 }
 
 
@@ -2997,6 +3017,117 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('물려받아도 고르는 화면을 접는다', /pick\.hide\(\)/.test(inherit), inherit.slice(0, 80));
     ok('물려받으면 「붙어 있다」를 올린다', /setBound\(true\)/.test(inherit));
   }
+}
+
+// ── 예상 밖일 때만 적는다 ────────────────────────────────────────────────────────
+//
+// 작업창은 348×391 이라 한 줄이 비싸다. 그런데 **줄일 수 있는 줄과 없는 줄이 갈린다**: 사람이
+// 이미 보고 있는 것을 되풀이하는 줄은 지워도 되고, 사람이 달리 알 길이 없는 줄은 못 지운다.
+{
+  ok('진짜 호스트면 어댑터 이름을 안 적는다',
+    adapterText({ label: 'PowerPoint (Office.js)', isHost: true }) === '');
+  ok('가짜 덱은 반드시 적는다',
+    adapterText({ label: '가짜 덱 (PowerPoint 없이)', isHost: false }) === '가짜 덱 (PowerPoint 없이)');
+  // 모르는 어댑터를 진짜로 읽으면 그 화면은 조용히 진짜인 척한다.
+  ok('모르는 어댑터도 적는다', adapterText({}) === 'unknown');
+  ok('어댑터가 없어도 안 터진다', adapterText(null) === 'unknown');
+
+  ok('안 붙었으면 「시키면 된다」를 안 적는다', readyText(null, 0) === '');
+  ok('붙었고 대화가 비면 적는다', readyText('deck2', 0).includes('바로 시키시면'));
+  // 첫 줄이 서는 순간 그 문장은 증명된 것이라 자리만 먹는다.
+  ok('대화가 서면 사라진다', readyText('deck2', 1) === '');
+}
+
+// ── 가이드 판 ────────────────────────────────────────────────────────────────────
+{
+  const g = guideBoard({ guides: [
+    { name: 'design-guide', description: '사내 표준', enabled: true, chars: 1200 },
+    { name: 'deck-design', description: '', enabled: false, chars: 4000 },
+  ] });
+  ok('켜진 수를 센다', g.headText === '가이드 2벌 · 켜짐 1', g.headText);
+  // 꺼 둔 것이 사라지면 다시 켤 길이 없다.
+  ok('꺼 둔 것도 목록에 남는다', g.rows.length === 2 && g.rows[1].enabled === false);
+  ok('꺼짐/켜짐을 글로 적는다', g.rows[0].toggleText === '켜짐' && g.rows[1].toggleText === '꺼짐');
+  // **아이콘 단추의 툴팁은 동작을 적는다 — 아이콘 이름이 아니라**(M3 icon-buttons).
+  ok('툴팁이 동작을 적는다', g.rows[0].toggleTip.includes('끕니다') && g.rows[1].toggleTip.includes('켭니다'),
+    g.rows[0].toggleTip);
+  ok('지우기는 되돌릴 수 없다고 적는다', g.rows[0].deleteTip.includes('되돌릴 수 없습니다'));
+  // 켜짐/꺼짐을 **색 하나로 말하지 않는다** — 글리프가 갈린다.
+  ok('상태를 글리프로도 가른다', g.rows[0].toggleIcon === '◉' && g.rows[1].toggleIcon === '○');
+  // 설명은 모델이 부를지 정하는 글이라, 비어 있다는 것 자체가 고칠 거리다.
+  ok('설명이 없으면 없다고 적는다', g.rows[1].descMissing && g.rows[1].descText.includes('설명이 없습니다'));
+
+  ok('하나도 없으면 그렇게 적는다', guideBoard({ guides: [] }).headText === '아직 가이드가 없습니다');
+  // 「아직 없다」와 「못 읽었다」는 다른 말이다.
+  const bad = guideBoard({ error: '권한이 없습니다' });
+  ok('못 읽은 것은 사유와 함께', bad.failed && bad.note === '권한이 없습니다');
+  // 적어 두고 다 꺼 놓으면 모델은 아무것도 안 읽는다 — 흔한 상태라 화면이 말해야 한다.
+  const allOff = guideBoard({ guides: [{ name: 'a', description: 'x', enabled: false, chars: 1 }] });
+  ok('전부 꺼진 것을 말한다', allOff.note.includes('아무것도 안 읽습니다'));
+}
+
+// ── 계획 판 ──────────────────────────────────────────────────────────────────────
+{
+  const b1 = planBoard([
+    { content: '레이아웃 확인', status: 'completed' },
+    { content: '자료 조사', status: 'in_progress' },
+    { content: '장 만들기', status: 'pending' },
+  ]);
+  ok('머리에 진척을 적는다', b1.headText === '계획 1/3', b1.headText);
+  // 목록을 접어 둬도 이 한 줄은 남아야 「멈춘 것」과 「도는 중」이 갈린다.
+  ok('지금 하는 것을 머리에 적는다', b1.doneText === '자료 조사', b1.doneText);
+  ok('상태를 부호로 가른다', b1.rows.map((r) => r.mark).join('') === '✓▸·', b1.rows.map(r=>r.mark).join(''));
+  ok('pending 은 아는 상태다', b1.rows[2].known === true);
+
+  // 계획이 없으면 판이 아예 안 선다 — 빈 판은 「계획을 못 읽었다」처럼 보인다.
+  ok('없으면 안 그린다', planBoard([]).hidden === true && planBoard(undefined).hidden === true);
+
+  // **다 끝나면 사라진다.** 접는 것으로는 모자란다 — 접힌 판도 이 크기에서 한 줄을 계속 먹는다.
+  ok('다 끝나면 사라진다', planBoard([{ content: 'A', status: 'completed' }]).hidden === true);
+  // 취소도 끝이다 — 「할 일이 남았는가」에 답하는 판이다.
+  ok('취소도 끝으로 센다', planBoard([{ content: 'A', status: 'cancelled' }]).hidden === true);
+  // 하나라도 남아 있으면 **끝까지 서 있어야 한다.**
+  ok('하나 남으면 계속 선다',
+    planBoard([{ content: 'A', status: 'completed' }, { content: 'B', status: 'pending' }]).hidden === false);
+
+  // **모르는 상태를 완료로 읽지 않는다** — 지어내면 다 된 것처럼 보인다.
+  const odd = planBoard([{ content: 'A', status: 'blocked' }]);
+  ok('모르는 상태는 완료가 아니다', odd.rows[0].mark === '·' && odd.rows[0].known === false);
+  ok('모르는 상태는 완료로 안 세어진다', odd.headText === '계획 0/1', odd.headText);
+}
+
+// 계획은 **쌓지 않고 갈아 끼운다** — 계약이 매번 전량이다.
+{
+  const port = new FakeTranscript({ A: [] });
+  const read = new ReadTranscript(port);
+  read.attach('A');
+  port.push({ seq: 1, sessionId: 'A', type: 'todos.changed', data: { todos: [{ content: 'A', status: 'pending' }] } });
+  port.push({ seq: 2, sessionId: 'A', type: 'todos.changed', data: { todos: [{ content: 'A', status: 'completed' }, { content: 'B', status: 'pending' }] } });
+  ok('마지막 계획만 남는다', read.view.todos.length === 2 && read.view.todos[0].status === 'completed');
+  // 판으로 그리는 것은 **대화 줄이 아니다.**
+  ok('계획은 대화 줄로 안 선다', read.view.rows.length === 0);
+  // 그리고 「그릴 줄 모르는 것」으로도 세면 안 된다 — 그건 고칠 것이 있다는 뜻의 줄이다.
+  ok('모르는 것으로 안 센다', !read.view.unknownNote);
+  // 모양이 달라진 것으로 있던 계획을 덮지 않는다.
+  port.push({ seq: 3, sessionId: 'A', type: 'todos.changed', data: {} });
+  ok('빈 모양은 계획을 안 지운다', read.view.todos.length === 2);
+}
+
+// ── 대화 줄의 인자는 한 줄이다 ───────────────────────────────────────────────────
+{
+  const line = argsLine({ document: 'doc-1', slide: 3, placeholder: 'title', text: '3분기 매출이 12% 늘었다' });
+  // `document` 는 모든 호출에 실리고 늘 같아서 한 줄의 절반을 먹고 아무것도 안 가른다.
+  ok('document 는 빼고 적는다', !line.includes('doc-1'), line);
+  ok('무엇을 만졌는지는 남는다', line.includes('slide=3') && line.includes('placeholder=title'), line);
+  ok('한 줄이다', !line.includes('\n') && line.length <= 90, String(line.length));
+  // 배열·객체는 **펴지 않고 크기만** — 「무엇을 만졌나」에 답하는 줄이지 재현하는 줄이 아니다.
+  const t = argsLine({ rows: 6, columns: 3, values: [1, 2, 3], options: { a: 1 } });
+  ok('배열은 크기만', t.includes('values[3]'), t);
+  ok('객체는 안 편다', t.includes('options{…}'), t);
+  // 없으면 빈 줄 — 없는 칸을 「(인자 없음)」으로 채우면 그 줄이 자리를 먹는다.
+  ok('없으면 안 적는다', argsLine(null) === '' && argsLine({}) === '');
+  // 그리고 **권한 물음은 그대로 다 편다** — 누르기 전에 무엇을 허락하는지 알아야 하는 자리다.
+  ok('물음은 인자를 다 편다', argsText({ args: { slide: 3, text: 'x' } }).includes('"slide": 3'));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

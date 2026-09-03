@@ -14,6 +14,9 @@ import { DeckPort } from '../port/DeckPort.js';
 export class OfficeDeck extends DeckPort {
   get label() { return 'PowerPoint (Office.js)'; }
 
+  /** 이건 그 호스트 자신이다 — 그래서 화면이 이름을 안 적는다(`DeckPort.isHost`). */
+  get isHost() { return true; }
+
   /**
    * 호스트에게 요구 집합을 **직접 묻는다.** `isSetSupported` 는 동기고 `PowerPoint.run` 밖에서
    * 돈다 — 덱을 안 건드리므로 이 계측이 사용자의 선택을 흔들 일이 없다.

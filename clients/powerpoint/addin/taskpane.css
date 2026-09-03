@@ -109,6 +109,18 @@ body.standalone #pane {
 
 /* 세로 리듬을 한 자리에서 준다. 판마다 마진을 손으로 적으면 그 자리만 또 갈린다. */
 #pane > * { flex: none; }
+/*
+  **`hidden` 이 언제나 이긴다.**
+
+  `hidden` 은 UA 스타일시트의 `display:none` 으로만 서 있어서, 저자 규칙이 `display:` 를 적는
+  순간 진다. 실제로 그렇게 새어 나왔다(2026-09-04): 가이드 편집 칸에 `display:flex` 를 줬더니
+  판을 열자마자 **안 누른 편집기가 같이 열려** 있었다. 자바스크립트는 `hidden = true` 를 옳게
+  세우고 있었고, 화면만 안 듣고 있었다 — 이 저장소가 `.turn.turn` 에서 한 번 겪은 그 모양이다.
+
+  한 줄로 못 박는다. 이 뒤로 어떤 규칙이 `display` 를 적어도 `hidden` 이 이긴다.
+*/
+[hidden] { display: none !important; }
+
 #pane > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
 
 /*
@@ -536,3 +548,55 @@ button:disabled { cursor: default; opacity: .5; }
 .fix-buttons button:hover:not(:disabled) { border-color: var(--sel); }
 .fix-buttons button:disabled { color: var(--muted); background: var(--bg-sub); cursor: default; }
 .fix-apply:not(:disabled) { border-color: var(--sel); font-weight: 600; }
+
+/* 가이드 판. 「늘 지킬 것」과 같은 상자를 쓰되, 줄마다 켜짐/꺼짐이 한눈에 갈려야 한다. */
+.guides-list { display: flex; flex-direction: column; gap: var(--s2); }
+.guide-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto;
+  gap: var(--s1) var(--s2);
+  align-items: center;
+  padding: var(--s2);
+  background: var(--bg-sub);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+/* 꺼진 것은 **흐리게 하되 사라지지 않는다** — 사라지면 다시 켤 길이 없다. */
+.guide-off { opacity: 0.55; }
+.guide-desc { grid-column: 1 / -1; font: var(--t-caption); color: var(--muted); }
+/* 설명이 없는 것은 그냥 회색 한 줄이 아니라 **고칠 거리**다 — 모델이 그 글을 보고 부를지 정한다. */
+.guide-desc-missing { font-style: italic; }
+.guide-size { font: var(--t-caption); color: var(--muted); }
+.guides-edit { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
+.guide-name { padding: var(--s1) var(--s2); font: var(--t-body); border: 1px solid var(--line); border-radius: var(--r-sm); }
+
+/* 계획 판. 상태는 색이 아니라 **부호**로 가른다 — 색만 쓰면 못 가리는 사람이 있다. */
+.plan-list { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s2); }
+.plan-row { display: grid; grid-template-columns: 16px 1fr; gap: var(--s2); font: var(--t-caption); }
+.plan-mark { color: var(--muted); text-align: center; }
+.plan-completed { color: var(--muted); text-decoration: line-through; }
+.plan-in_progress { font-weight: 600; }
+/* 모르는 상태는 **완료로 안 보이게** 둔다 — 지어내면 다 된 것처럼 읽힌다. */
+.plan-unknown { font-style: italic; }
+
+/* 계획 판은 **고정**이다 — 컴포저 바로 위. 대화가 쌓여도 안 밀린다. */
+.plan {
+  flex: 0 0 auto;
+  padding: var(--s2) var(--s4);
+  background: var(--bg-sub);
+  border-top: 1px solid var(--line);
+}
+.plan > summary { font: var(--t-caption); color: var(--fg-2); cursor: pointer; }
+.plan-list { max-height: 96px; overflow-y: auto; }
+
+/* 아이콘 단추. **최소 크기를 지킨다** — 24px 는 마우스로도 작다. */
+.icon-btn {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid transparent; border-radius: var(--r-sm);
+  color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.icon-btn:hover { background: var(--bg-sunken); color: var(--fg); }
+/* 켜짐은 **색 하나로 말하지 않는다** — 글리프(◉/○)와 굵기 둘이다(M3). */
+.icon-on { color: var(--fg); font-weight: 700; }
+.icon-danger:hover { color: #B3261E; }

@@ -358,6 +358,43 @@ export function argsCell(r) {
   return r.args == null ? '(인자 없음)' : clip(pretty(r.args), 300);
 }
 
+/**
+ * 대화 줄에 서는 **한 줄짜리** 인자. 펴 놓은 JSON 이 아니다.
+ *
+ * # 왜 줄였나
+ *
+ * 작업창은 348×391 이고, 이 제품의 한 턴은 도구 호출이 수십 번이다(도형마다 한 번). 인자를
+ * 펴면 `set_text` 하나가 예닐곱 줄을 먹고, 그 줄들이 대화를 통째로 밀어낸다. 그리고 **무엇이
+ * 바뀌었는지는 결과가 이미 한국어로 적는다** — 결과의 `changed` 가 「슬라이드 3 · 도형 5: … →
+ * …」로 온다. 인자를 펴 두는 것은 같은 말을 기계 모양으로 한 번 더 하는 것이다.
+ *
+ * # 줄이지 않는 자리
+ *
+ * **권한 물음은 그대로 다 편다**(`argsText`). 거기서는 결과가 아직 없고, 사람이 **누르기 전에**
+ * 무엇을 허락하는지 알아야 하는 유일한 순간이다. 이 저장소가 그 자리에서 두 번 틀렸다 —
+ * 「permission: bash」만 놓고 단추를 내민 화면이 두 클라이언트에 다 있었다.
+ *
+ * # 모양
+ *
+ * `key=value` 를 ` · ` 로 잇는다. 값이 길면 자르고, 배열·객체는 **펴지 않고 크기만** 적는다 —
+ * 「무엇을 만졌나」에 답하는 줄이지 「무엇을 보냈나」를 재현하는 줄이 아니다.
+ *
+ * `document` 는 뺀다. 모든 호출에 실리고 늘 같아서, 있으면 한 줄의 절반을 먹고 아무것도 안 가른다.
+ */
+export function argsLine(args) {
+  if (args == null) return '';
+  if (typeof args === 'string') return clip(args, 80);
+  if (typeof args !== 'object') return clip(String(args), 80);
+  const bits = [];
+  for (const [k, v] of Object.entries(args)) {
+    if (k === 'document' || v == null) continue;
+    if (Array.isArray(v)) bits.push(`${k}[${v.length}]`);
+    else if (typeof v === 'object') bits.push(`${k}{…}`);
+    else bits.push(`${k}=${clip(String(v), 24)}`);
+  }
+  return clip(bits.join(' · '), 90);
+}
+
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
 export function endText(r) {
   return r.unverified
@@ -431,6 +468,125 @@ export function fixBoard(rows) {
       canApply: Boolean(r.appliable),
       applyText: r.appliable ? '적용' : '적용 불가',
       broken: Boolean(r.broken),
+    })),
+  };
+}
+
+/**
+ * 헤더의 어댑터 이름. **예상 밖일 때만 적는다.**
+ *
+ * PowerPoint 안에서 「PowerPoint (Office.js)」는 사람이 이미 보고 있는 것을 한 줄 더 적는
+ * 것이고, 작업창은 348×391 이라 그 한 줄이 비싸다. 가짜 덱과 모르는 어댑터는 **반드시**
+ * 적힌다 — 조용히 진짜인 척하지 않는 것이 그 갈래의 요점이다.
+ *
+ * @param {{label?:string, isHost?:boolean}} deck
+ */
+export function adapterText(deck) {
+  if (deck?.isHost) return '';
+  return deck?.label || 'unknown';
+}
+
+/**
+ * 「붙었으니 시키면 된다」가 아직 참인가.
+ *
+ * 대화가 하나라도 서면 그 문장은 **증명된 것**이라 자리만 먹는다. 값으로 재는 이유는 이 판이
+ * 계속 세는 것과 같다 — 적어 두면 조건이 사라져도 문장이 남고, 유도하면 같이 사라진다.
+ *
+ * @param {string|null} bound 붙은 컴패니언 이름. 없으면 아직 안 붙은 것이다.
+ * @param {number} rowCount 대화에 선 줄 수.
+ */
+export function readyText(bound, rowCount) {
+  if (!bound || rowCount > 0) return '';
+  return `${bound} 에 붙어 있습니다 — 바로 시키시면 됩니다.`;
+}
+
+/**
+ * 가이드 판. **결정은 여기서 하고 뷰는 그리기만 한다**(§4 — 뷰에 심은 돌연변이 32개 중 30개가
+ * 살아남은 뒤로 이 레인이 지키는 규칙).
+ *
+ * 세 가지를 값으로 정한다.
+ *
+ * 하나 — **꺼 둔 것도 목록에 남는다.** 빼면 다시 켤 길이 없고, 사라진 것과 지워진 것이 화면에서
+ * 같아진다.
+ *
+ * 둘 — **설명이 없으면 없다고 적는다.** 빈 줄로 두면 「설명이 없는 가이드」와 「설명을 못 읽은
+ * 가이드」가 같은 회색 한 줄이 된다. 그리고 그 설명은 **모델이 부를지 말지를 정하는 글**이라,
+ * 비어 있다는 사실 자체가 사람이 고쳐야 할 것이다.
+ *
+ * 셋 — **하나도 없을 때 빈 판을 보이지 않는다.** 「아직 없다」와 「못 읽었다」는 다른 말이고,
+ * 뒤엣것은 사유가 있어야 한다.
+ *
+ * @param {{guides?:Array, error?:string}} state
+ */
+export function guideBoard(state) {
+  if (state?.error) {
+    return { failed: true, headText: '가이드를 못 읽었습니다', note: state.error, rows: [] };
+  }
+  const list = state?.guides ?? [];
+  const on = list.filter((g) => g.enabled).length;
+  return {
+    failed: false,
+    headText: list.length === 0
+      ? '아직 가이드가 없습니다'
+      : `가이드 ${list.length}벌 · 켜짐 ${on}`,
+    // 하나도 안 켜져 있으면 그 사실을 적는다 — 적어 두고 다 꺼 놓은 것은 흔한 상태이고,
+    // 그때 모델은 아무것도 안 읽는다.
+    note: list.length > 0 && on === 0 ? '전부 꺼져 있어 모델이 아무것도 안 읽습니다.' : '',
+    rows: list.map((g) => ({
+      name: g.name,
+      descText: g.description ? g.description : '설명이 없습니다 — 모델이 이걸 보고 부를지 정합니다',
+      descMissing: !g.description,
+      enabled: Boolean(g.enabled),
+      toggleText: g.enabled ? '켜짐' : '꺼짐',
+      // 아이콘 단추 셋. **툴팁은 동작을 적는다 — 아이콘 이름이 아니라**(M3 icon-buttons:
+      // "a tooltip describing its action, rather than the name of the icon itself").
+      // 그리고 켜짐/꺼짐은 **두 속성**으로 말한다: 글리프(◉/○)와 굵기. 색 하나로만 가르면
+      // 못 가리는 사람이 있다 — 같은 문서의 "at least two properties, rather than just color".
+      toggleIcon: g.enabled ? '◉' : '○',
+      toggleTip: g.enabled ? `${g.name} 를 끕니다 — 글은 그대로 둡니다` : `${g.name} 를 켭니다`,
+      editTip: `${g.name} 를 고칩니다`,
+      deleteTip: `${g.name} 를 지웁니다 — 되돌릴 수 없습니다`,
+      sizeText: typeof g.chars === 'number' ? `${g.chars}자` : '',
+    })),
+  };
+}
+
+/**
+ * 계획 판. **모델이 스스로 세운 할 일 목록**(`todowrite` → `todos.changed`).
+ *
+ * 왜 그리는가: 이 제품의 턴은 길고(도형마다 한 호출), 그 사이 화면에 서는 것은 도구 이름뿐이라
+ * 사람은 **어디까지 왔는지**를 못 본다. 계획은 모델이 이미 세워 두고 있고, 우리는 안 그리고
+ * 있었을 뿐이다 — 화면 아래에 「그릴 줄 모르는 이벤트 … todos.changed」로 세어지고 있었다.
+ *
+ * 쌓지 않는다. 계약이 매번 전량이라 마지막 것이 곧 지금이다.
+ *
+ * **다 끝나면 사라진다.** 접는 것으로는 모자란다 — 접힌 판도 이 크기(348×391)에서는 한 줄을
+ * 계속 차지하고, 그 줄은 이미 지난 일이다. 그래서 이 판의 수명은 **계획이 도는 동안**이다.
+ *
+ * 취소도 끝이다. 「할 일이 남았는가」에 답하는 판이지 「무엇을 했는가」를 적는 판이 아니다 —
+ * 지난 일은 대화 줄에 이미 있다.
+ */
+export function planBoard(todos) {
+  const list = Array.isArray(todos) ? todos : [];
+  if (list.length === 0) return { hidden: true, headText: '', doneText: '', rows: [] };
+  const mark = { pending: '·', in_progress: '▸', completed: '✓', cancelled: '✗' };
+  const done = list.filter((t) => t.status === 'completed' || t.status === 'cancelled').length;
+  const now = list.find((t) => t.status === 'in_progress');
+  const allDone = done === list.length;
+  // 다 끝났으면 안 그린다. 「계획 7/7」은 사람이 할 일이 없는 줄이다.
+  if (allDone) return { hidden: true, headText: '', doneText: '', rows: [] };
+  return {
+    hidden: false,
+    headText: `계획 ${done}/${list.length}`,
+    // **지금 하는 것을 머리에 적는다.** 목록을 접어 둬도 이 한 줄은 남아야 「멈춘 것」과
+    // 「도는 중」이 갈린다.
+    doneText: now ? now.content : '다음 항목을 아직 안 골랐습니다',
+    rows: list.map((t) => ({
+      text: t.content ?? '',
+      // 모르는 상태를 **완료로 읽지 않는다** — 지어내면 다 된 것처럼 보인다.
+      mark: mark[t.status] ?? '·',
+      state: t.status ?? 'unknown',
+      known: Object.prototype.hasOwnProperty.call(mark, t.status),
     })),
   };
 }

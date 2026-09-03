@@ -18,6 +18,7 @@ import { ServeHand } from './usecase/ServeHand.js';
 import { mountPick } from './ui/pick.js';
 import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
+import { guideBoard } from './ui/screen.js';
 import { mountFakeCanvas } from './ui/fakeCanvas.js';
 import { mountFakePrompts } from './ui/fakePrompts.js';
 import { fixture } from './ui/deckFixture.js';
@@ -212,7 +213,9 @@ async function boot() {
           // **물려받았을 때도 한 줄 적는다.** 앞 판본은 여기서 아무 말도 안 했고, 헬퍼가 미리
           // 붙여 둔 첫 화면은 **빈 판**이었다 — 아래 브랜드 줄에 증거가 있긴 하지만, 처음 여는
           // 사람이 거기부터 보지는 않는다.
-          view.where(`${bound} 에 붙어 있습니다 — 바로 시키시면 됩니다.`);
+          // **이 말은 첫 줄이 서는 순간 증명된다.** 그래서 `where`(창이 사는 동안 참인 칸)가
+          // 아니라 `ready` 로 간다 — 조건이 사라지면 문장도 같이 사라져야 한다.
+          view.ready(bound);
           await refreshBrand();
         }
       } catch (e) {
@@ -363,6 +366,141 @@ async function boot() {
         } catch (e) {
           sayRules(`저장하지 못했습니다: ${e?.message ?? e}`);
         }
+      })();
+    });
+
+    /**
+     * **가이드 판.** 여러 벌의, 이름 붙은, 껐다 켤 수 있는 규칙(§가이드).
+     *
+     * 위 「늘 지킬 것」과 문이 갈린 이유는 **실리는 방식**이다: 저건 매 턴 통째로 실려 반드시
+     * 지켜지고, 이건 모델이 필요할 때 불러 읽는다 — 안 부르면 안 지켜진다. 화면이 그 말을
+     * 적어 두는 이유가 이것이고, 여기서는 **못 한 것을 못 했다고 적는 것**이 그 짝이다.
+     */
+    const gPanel = document.querySelector('#guides-panel');
+    const gList = document.querySelector('#guides-list');
+    const gEdit = document.querySelector('#guides-edit');
+    const gName = document.querySelector('#guide-name');
+    const gBody = document.querySelector('#guide-body');
+    const gNote = document.querySelector('#guides-note');
+    let editing = null; // 고치는 중인 이름. null 이면 새로 만드는 중이다.
+    const sayGuides = (msg) => {
+      if (!gNote) return;
+      gNote.textContent = msg ?? '';
+      gNote.hidden = !msg;
+    };
+    const drawGuides = async () => {
+      if (!gList) return;
+      let board;
+      try {
+        const got = await api.guides();
+        board = guideBoard({ guides: got?.guides ?? [] });
+      } catch (e) {
+        // **못 읽은 것과 아직 없는 것을 가른다.** 빈 목록을 그리면 사람은 자기가 적어 둔 것이
+        // 사라진 줄 안다.
+        board = guideBoard({ error: e?.message ?? String(e) });
+      }
+      gList.replaceChildren();
+      const head = document.createElement('p');
+      head.className = 'rules-why';
+      head.textContent = board.headText;
+      gList.append(head);
+      if (board.note) sayGuides(board.note);
+      for (const row of board.rows) {
+        const el = document.createElement('div');
+        el.className = 'guide-row' + (row.enabled ? '' : ' guide-off');
+        const nm = document.createElement('strong');
+        nm.textContent = row.name;
+        const desc = document.createElement('div');
+        desc.className = 'guide-desc' + (row.descMissing ? ' guide-desc-missing' : '');
+        desc.textContent = row.descText;
+        const size = document.createElement('span');
+        size.className = 'guide-size';
+        size.textContent = row.sizeText;
+        // **아이콘 단추.** 글자 셋이 한 줄에 서면 348px 에서 이름이 잘린다. 다만 아이콘만
+        // 두는 대가가 있어서 셋을 같이 단다: 툴팁(동작을 적는다) · `aria-label`(낭독기) ·
+        // 그리고 켜짐은 글리프와 굵기 **두 속성**으로 말한다(M3).
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'icon-btn' + (row.enabled ? ' icon-on' : '');
+        toggle.textContent = row.toggleIcon;
+        toggle.title = row.toggleTip;
+        toggle.setAttribute('aria-label', row.toggleTip);
+        toggle.setAttribute('aria-pressed', row.enabled ? 'true' : 'false');
+        toggle.addEventListener('click', () => void (async () => {
+          try {
+            await api.guide(row.enabled ? 'disable' : 'enable', row.name);
+            // **끄는 것은 지우는 것이 아니다** — 글은 그대로 두고 자리만 옮긴다.
+            sayGuides(row.enabled ? `${row.name} 를 껐습니다 — 글은 그대로입니다.` : `${row.name} 를 켰습니다.`);
+          } catch (e) { sayGuides(`바꾸지 못했습니다: ${e?.message ?? e}`); }
+          await drawGuides();
+        })());
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'icon-btn';
+        edit.textContent = '✎';
+        edit.title = row.editTip;
+        edit.setAttribute('aria-label', row.editTip);
+        edit.addEventListener('click', () => void (async () => {
+          try {
+            const got = await api.guide('read', row.name);
+            editing = row.name;
+            if (gName) { gName.value = row.name; gName.disabled = true; }
+            if (gBody) gBody.value = got?.body ?? '';
+            if (gEdit) gEdit.hidden = false;
+            sayGuides('');
+          } catch (e) { sayGuides(`읽지 못했습니다: ${e?.message ?? e}`); }
+        })());
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'icon-btn icon-danger';
+        del.textContent = '✕';
+        del.title = row.deleteTip;
+        del.setAttribute('aria-label', row.deleteTip);
+        del.addEventListener('click', () => void (async () => {
+          // **한 번 더 묻는다.** 되돌릴 곳이 없는 일이고, 끄는 것이 바로 옆에 있다.
+          if (!globalThis.confirm?.(`${row.name} 를 지웁니다. 되돌릴 수 없습니다 — 잠시 안 쓸 것이면 「꺼짐」으로 두세요.`)) return;
+          try {
+            await api.guide('delete', row.name);
+            sayGuides(`${row.name} 를 지웠습니다.`);
+          } catch (e) { sayGuides(`지우지 못했습니다: ${e?.message ?? e}`); }
+          await drawGuides();
+        })());
+        el.append(nm, size, toggle, edit, del, desc);
+        gList.append(el);
+      }
+    };
+    document.querySelector('#guides')?.addEventListener('click', () => {
+      if (!gPanel) return;
+      if (!gPanel.hidden) { gPanel.hidden = true; return; }
+      gPanel.hidden = false;
+      if (gEdit) gEdit.hidden = true;
+      sayGuides('');
+      void drawGuides();
+    });
+    document.querySelector('#guides-close')?.addEventListener('click', () => {
+      if (gPanel) gPanel.hidden = true;
+    });
+    document.querySelector('#guides-new')?.addEventListener('click', () => {
+      editing = null;
+      if (gName) { gName.value = ''; gName.disabled = false; }
+      if (gBody) gBody.value = '---\ndescription: \n---\n\n';
+      if (gEdit) gEdit.hidden = false;
+      sayGuides('');
+    });
+    document.querySelector('#guide-cancel')?.addEventListener('click', () => {
+      if (gEdit) gEdit.hidden = true;
+    });
+    document.querySelector('#guide-save')?.addEventListener('click', () => {
+      void (async () => {
+        try {
+          const out = await api.guide('save', editing ?? (gName?.value ?? ''), gBody?.value ?? '');
+          if (gEdit) gEdit.hidden = true;
+          // **켜져 있는지를 같이 적는다** — 꺼진 것을 고쳐도 켜지지 않으므로, 안 적으면
+          // 사람은 저장했으니 도는 줄 안다.
+          sayGuides(out?.enabled ? `${out.name} 를 저장했습니다 — 켜져 있습니다.`
+            : `${out?.name} 를 저장했습니다 — 꺼져 있어 지금은 안 읽힙니다.`);
+          await drawGuides();
+        } catch (e) { sayGuides(`저장하지 못했습니다: ${e?.message ?? e}`); }
       })();
     });
 

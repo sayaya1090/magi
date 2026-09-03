@@ -61,6 +61,14 @@ export class HelperApi {
   /** 늘 지킬 것을 적는다. 빈 글이면 지운다. */
   setRules(text) { return this.#send('/api/instructions', { body: { text } }); }
 
+  /**
+   * 가이드 — 여러 벌의, 껐다 켤 수 있는 규칙.
+   *
+   * `rules` 와 문이 갈린 이유는 실리는 방식이 달라서다: 저건 매 턴 통째로, 이건 모델이 부를 때만.
+   */
+  guides() { return this.#send('/api/guides', { method: 'GET' }); }
+  guide(op, name, body) { return this.#send('/api/guide', { body: { op, name, body } }); }
+
   choose(socket, session) { return this.#send('/api/choose', { body: { socket, session } }); }
   submit(text) { return this.#send('/api/submit', { body: { text } }); }
   steer(text) { return this.#send('/api/steer', { body: { text } }); }

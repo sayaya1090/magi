@@ -24,7 +24,7 @@ import {
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
-  fixBoard,
+  fixBoard, adapterText, readyText, planBoard, argsLine,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -75,7 +75,10 @@ export class View {
   }
 
   mount() {
-    $('#adapter').textContent = this.deck.label;
+    // **예상 밖일 때만 적는다**(`adapterText`). 진짜 호스트면 빈 칸이라 판 한 줄이 는다.
+    const adapter = $('#adapter');
+    adapter.textContent = adapterText(this.deck);
+    adapter.hidden = adapterText(this.deck) === '';
     this.renderCaps();
     // 브랜드 줄은 **처음부터 사실을 말한다.** 비워 두면 「아직 안 골랐다」와 「골랐는데 화면이
     // 안 그렸다」가 같은 빈칸이 된다.
@@ -487,6 +490,8 @@ export class View {
     }
     this.renderStream(v);
     this.renderRows(v.rows);
+    this.renderPlan(v.todos);
+    this.renderReady(v.rows.length);
     this.renderUnknown(v.unknownNote, v.skippedNote);
     this.renderAdviceFrom(v.rows);
     this.renderSent();
@@ -592,6 +597,54 @@ export class View {
     el.hidden = false;
   }
 
+  /**
+   * 붙은 컴패니언 이름을 쥔다. **그리는 것은 `renderReady` 가 매 로그 변화마다 다시 한다** —
+   * 여기서 그려 두면 조건(대화가 비었는가)이 바뀌어도 문장이 남는다.
+   */
+  ready(bound) {
+    this.boundName = bound || null;
+    this.renderReady(this.readTranscript ? this.readTranscript.view.rows.length : 0);
+  }
+
+  /**
+   * 계획 판. 결정은 `planBoard` 가 하고 여기서는 그리기만 한다.
+   *
+   * **접힘을 우리가 안 건드린다.** 매 로그 변화마다 열고 닫으면 사람이 펴 둔 목록이 글자 한
+   * 조각마다 닫힌다 — `onChange` 는 토큰마다 뛴다. 여는 것도 접는 것도 사람이 한다.
+   */
+  renderPlan(todos) {
+    const el = $('#plan');
+    if (!el) return;
+    const b = planBoard(todos);
+    el.hidden = b.hidden;
+    if (b.hidden) return;
+    const sum = $('#plan-summary');
+    if (sum) sum.textContent = `${b.headText} · ${b.doneText}`;
+    const list = $('#plan-list');
+    if (!list) return;
+    list.replaceChildren();
+    for (const r of b.rows) {
+      const row = document.createElement('div');
+      row.className = `plan-row plan-${r.known ? r.state : 'unknown'}`;
+      const m = document.createElement('span');
+      m.className = 'plan-mark';
+      m.textContent = r.mark;
+      const t = document.createElement('span');
+      t.textContent = r.text;
+      row.append(m, t);
+      list.append(row);
+    }
+  }
+
+  /** 「바로 시키시면 됩니다」는 첫 줄이 서는 순간 증명된다 — 그때 사라진다. */
+  renderReady(rowCount) {
+    const el = $('#ready');
+    if (!el) return;
+    const text = readyText(this.boundName, rowCount);
+    el.textContent = text;
+    el.hidden = text === '';
+  }
+
   renderPending() {
     const box = $('#pending');
     box.replaceChildren();
@@ -672,12 +725,17 @@ export class View {
     }
     const shape = rowShape(r);
     if (shape === 'tool') {
-      // **인자를 적는다.** 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
+      // **무엇을 만졌는지 한 줄로 적는다**(`argsLine`). 「set_text 를 불렀다」만으로는 모르고,
+      // 인자를 펴면 호출 하나가 예닐곱 줄을 먹는다 — 무엇이 바뀌었는지는 아래 결과가 한국어로
+      // 적는다. 다 펴는 자리는 권한 물음 하나뿐이다(§5.7).
       if (r.kind === 'tool') {
-        const pre = document.createElement('pre');
-        pre.className = 'turn-args';
-        pre.textContent = argsCell(r);
-        el.append(pre);
+        const line = argsLine(r.args);
+        if (line) {
+          const d = document.createElement('div');
+          d.className = 'turn-argline';
+          d.textContent = line;
+          el.append(d);
+        }
       }
       // 허락과 답은 **같은 줄에** 붙는다(`Transcript.append` 가 `callId` 로 접었다). 따로
       // 세우면 도구가 줄줄이 도는 턴에서 「무엇을 불렀나」와 「어떻게 됐나」의 짝이 안 맞는다.
