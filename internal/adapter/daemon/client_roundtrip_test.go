@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -504,3 +505,65 @@ func TestStatusSaysWhichModel(t *testing.T) {
 type modelSayingEngine struct{ omniEngine }
 
 func (*modelSayingEngine) ModelOf(session.SessionID) string { return "qwen3-coder" }
+
+// kidEngine answers the children door over a real connection.
+type kidEngine struct {
+	omniEngine
+	asked string
+}
+
+func (e *kidEngine) ChildrenOf(_ context.Context, parent string) ([]session.SessionMeta, error) {
+	e.asked = parent
+	return []session.SessionMeta{
+		{ID: "s_room", Agent: "meeting", Title: "which store for the queue"},
+	}, nil
+}
+
+// The children door crosses the socket, and the round trip is what the wrappers exist for: the
+// client's spelling of the method, the server's reading of `session` as the PARENT, and the row
+// coming back with its role intact. A field that survives a struct but not the wire is the shape
+// of defect this file was written for.
+func TestTheChildrenDoorCrossesTheSocket(t *testing.T) {
+	home, err := os.MkdirTemp(shortRoot(), "mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(home) })
+	sock := filepath.Join(home, "daemon-kid.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(d.Stop)
+	eng := &kidEngine{}
+	go func() { _ = d.Serve(context.Background(), eng) }()
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	kids, err := c.Children("s_parent")
+	if err != nil {
+		t.Fatalf("children over the socket: %v", err)
+	}
+	if eng.asked != "s_parent" {
+		t.Fatalf("the wire's session reaches the engine as the parent, got %q", eng.asked)
+	}
+	if len(kids) != 1 || kids[0].ID != "s_room" {
+		t.Fatalf("the row crosses whole, got %+v", kids)
+	}
+	// The role is the field this door added to SessionRow; a wire that dropped it would still
+	// pass every assertion above and leave a screen unable to tell a meeting from a delegate.
+	if kids[0].Agent != "meeting" {
+		t.Fatalf("the subagent role crossed as %q", kids[0].Agent)
+	}
+	// And the handshake says the door is there, so a client knows before it calls.
+	hi, err := c.Hello()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(hi.Caps, "children") {
+		t.Fatalf("the door advertises itself in the handshake, caps were %v", hi.Caps)
+	}
+}
