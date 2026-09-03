@@ -18,6 +18,12 @@
         「mdash;」가 그대로 찍혔다(실측 2026-09-03, 샌드박스 IDE) — 이 자리를 그리는 쪽이
         `&` 를 먼저 이스케이프해서 엔티티가 안 풀린다. CDATA 안이라 XML 파서도 안 건드리고,
         어떤 시험도 안 울고, 눈으로 봐야만 드러난다. 글자를 그대로 쓴다.
+
+        **갈 곳도 본문에 둔다.** 위의 `url` 속성만으로는 이 화면에 링크가 안 선다 — 로컬에
+        설치된 플러그인의 설정 ▸ 플러그인 화면은 이름·벤더·판만 그리고 「Additional Info」탭은
+        회색이다(실측 2026-09-03, 샌드박스에서 눌러 봤다). 그 속성이 쓸모없다는 뜻은 아니고
+        마켓플레이스 쪽이 읽는 자리인데, **이 플러그인은 거기 없다.** 사람이 실제로 볼 수 있는
+        링크는 설명 본문의 것뿐이다.
     -->
     <description><![CDATA[
         <p>Runs a magi companion for the open project: it starts the workspace's daemon or attaches
@@ -39,6 +45,7 @@
         <p>The plugin does not talk to a model itself. It speaks to the magi daemon over a unix
         socket in the workspace, and that daemon is where the model, the tools and the permissions
         live. There is nothing to install separately: the plugin fetches the core binary it needs.</p>
+        <p><a href="https://github.com/sayaya1090/magi/tree/main/clients/jetbrains">Documentation and source</a></p>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>

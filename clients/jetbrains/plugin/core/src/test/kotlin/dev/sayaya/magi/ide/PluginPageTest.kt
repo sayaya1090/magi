@@ -88,15 +88,28 @@ class PluginPageTest {
         }
     }
 
+    /**
+     * 갈 곳 — 속성 **둘 다**, 그리고 **본문에도**.
+     *
+     * 속성만으로는 화면에 링크가 안 선다. 로컬에 설치된 플러그인의 설정 ▸ 플러그인 화면은
+     * 이름·벤더·판만 그리고 「Additional Info」 탭은 회색이다(실측 2026-09-03, 샌드박스에서
+     * 눌러 봤다) — `url` 은 마켓플레이스 쪽이 읽는 자리인데 이 플러그인은 거기 없다.
+     * 그래서 사람이 실제로 누를 수 있는 링크는 설명 본문의 것뿐이고, 셋을 같이 잰다.
+     */
     @Test
-    fun `페이지에 갈 곳이 있다 — 목록에서 여기 말고는 알아볼 데가 없다`() {
+    fun `페이지에 갈 곳이 있다 — 속성만으로는 화면에 안 선다`() {
         val xml = File(plugin, "intellij/src/main/resources/META-INF/plugin.xml").readText()
         val head = Regex("""<idea-plugin\b[^>]*>""").find(xml)?.value
             ?: throw AssertionError("<idea-plugin> 을 못 찾았다")
-        assertTrue(head.contains("url="), "<idea-plugin> 에 url 이 없다 — 플러그인 페이지에서 나갈 길이 없다")
+        assertTrue(head.contains("url="), "<idea-plugin> 에 url 이 없다")
         val vendor = Regex("""<vendor\b[^>]*>""").find(xml)?.value
             ?: throw AssertionError("<vendor> 를 못 찾았다")
         assertTrue(vendor.contains("url="), "<vendor> 에 url 이 없다")
+        val body = Regex("""<description><!\[CDATA\[(.*?)]]></description>""", RegexOption.DOT_MATCHES_ALL)
+            .find(xml)?.groupValues?.get(1)
+            ?: throw AssertionError("<description> 을 못 찾았다")
+        assertTrue(Regex("""<a\s+href="https?://""").containsMatchIn(body),
+            "설명 본문에 링크가 없다 — 이 화면에서 사람이 누를 수 있는 갈 곳은 그것뿐이다")
     }
 
     /**
