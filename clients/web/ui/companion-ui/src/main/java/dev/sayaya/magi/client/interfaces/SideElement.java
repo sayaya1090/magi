@@ -307,18 +307,20 @@ public class SideElement {
 
     public void onChanged(Changed c) { this.changed = c; }
 
+    /**
+     * 카드가 하나도 없을 때 이 기둥은 <b>아무 말도 하지 않는다.</b>
+     *
+     * 여기엔 "지금 진행 중인 것이 없습니다"가 서 있었고, 그 까닭은 적혀 있는 그대로였다 — 빈
+     * 기둥은 "아직 안 왔다"로 읽힌다. 그 까닭이 없어졌다: 사실판이 이 기둥으로 옮겨 오면서
+     * 기둥은 이제 비지 않는다. 바로 위에 이 컴패니언의 상태·모델·워크스페이스가 서 있고, 그
+     * 아래가 조용한 것은 "안 왔다"가 아니라 "없다"로 읽힌다.
+     *
+     * 그 말의 둘째 줄("다음에 할 일은 대화에서 시작됩니다")은 이제 대화창이 한다 — 아무 말도
+     * 오간 적 없는 전사에 그 자리에서 적힌다. 행동을 권하는 말은 행동이 일어나는 자리에서 한 번.
+     */
     private void sayEmpty() {
-        boolean any = false;
-        for (HTMLElement card : new HTMLElement[]{plan, strip, handoffs, queued, cron}) {
-            if (!card.hasAttribute("hidden")) any = true;
-        }
-        if (any) {
-            empty.setAttribute("hidden", "");
-            empty.replaceChildren();
-        } else {
-            empty.innerHTML = tr("going_on.none") + "<br>" + tr("going_on.none_how");
-            empty.removeAttribute("hidden");
-        }
+        empty.setAttribute("hidden", "");
+        empty.replaceChildren();
         changed.call();
     }
 

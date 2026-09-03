@@ -30,11 +30,28 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 여는 것은 상단의 그 토글이다 — 기둥은 닫힌 채로 오고, 전사가 창을 다 갖는다.
                 page.locator("#sideToggle").count() shouldBe 1
             }
-            Then("기둥 둘은 닫힌 채로 온다 — 처음 온 사람에게 이 화면은 대화다") {
-                page.waitForSelector("body[files=shut][side=shut]")
+            Then("왼쪽은 닫힌 채로, 오른쪽은 열린 채로 온다") {
+                // 왼쪽은 파일 트리 — 처음 온 사람에게 이 화면은 대화이고 트리는 찾아가는 것이다.
+                // 오른쪽은 사실판이 옮겨 온 뒤로 "이 컴패니언이 무엇인가"를 답하는 자리가 됐고,
+                // 그것은 열자마자 있어야 하는 답이다.
+                page.waitForSelector("body[files=shut][side=open]")
                 // 닫힘은 폭 0이다: 대화가 창을 다 갖는다(운영 규칙 그대로).
                 (page.evaluate("getComputedStyle(document.getElementById('agentview'))" +
                     ".gridTemplateColumns.split(' ')[0]")) shouldBe "0px"
+                // 칸이 0인 것과 그 안의 것이 <b>0을 지키는 것</b>은 다른 사실이다. 사실판이 이
+                // 기둥으로 옮겨 온 날 그것을 배웠다: 닫힘 규칙이 `#side` 하나만 이름 대고 있어서,
+                // minmax(14rem,…) 격자인 사실판이 0짜리 칸에서 제 최소 폭을 주장하며 밖으로
+                // 넘쳤고 — 전사 위를 덮어 화면이 통째로 사라진 것처럼 보였다. 칸을 재는 것만으로는
+                // 안 잡힌다. 칸 안의 것이 실제로 얼마나 넓은지를 잰다.
+                // 칸이 0인 것과 그 안의 것이 <b>0을 지키는 것</b>은 다른 사실이다. 사실판이 이
+                // 기둥으로 옮겨 온 날 그것을 배웠다: 닫힘 규칙이 `#side` 하나만 이름 대고 있어서,
+                // minmax(14rem,…) 격자인 사실판이 0짜리 칸에서 제 최소 폭을 주장하며 밖으로
+                // 넘쳤고 — 전사 위를 덮어 화면이 통째로 사라진 것처럼 보였다. 칸을 재는 것만으로는
+                // 안 잡힌다. 여기서는 <b>왼쪽</b> 기둥이 그 검사를 진다(오른쪽은 이제 열려 온다).
+                (page.evaluate(
+                    "(() => Array.from(document.querySelectorAll('#filecol > *'))" +
+                        ".every(e => e.getBoundingClientRect().width <= 1))()"
+                ) as Boolean) shouldBe true
             }
             Then("도크가 서고, 비어 있는 동안은 바닥을 한 뼘도 먹지 않는다") {
                 val where = page.locator("#dock").count().toString() + "/" +
@@ -87,8 +104,20 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 손잡이 자체는 이 창을 어떻게 배치할지에 대한 것이라서.
                 page.locator("#masthead #chrome #sideToggle").count() shouldBe 1
                 page.locator("#masthead #chrome #filesToggle").count() shouldBe 1
-                // 닫힌 동안 오른쪽 기둥은 폭이 0이고, 그 속의 계획은 화면에 없다.
-                page.locator("#side #plan").isVisible() shouldBe false
+                // 이 기둥은 이제 열려서 온다 — 그러니 닫아 보고 나서 다시 연다. 재는 것은
+                // 「닫힌 기둥의 속은 화면에 없다」이고, 그 사실은 기본값이 무엇이든 참이어야 한다.
+                page.locator("#sideToggle").click()
+                page.waitForSelector("body[side=shut]")
+                // 닫힘은 <b>기다려야</b> 참이 된다: visibility 는 움직임이 끝난 뒤에 걷히도록
+                // 지연이 걸려 있다(그래야 사라지는 동안 내용이 보인다). 누른 직후를 재면 아직 보인다.
+                page.waitForCondition { !page.locator("#side #plan").isVisible() }
+                // 그리고 그 안의 것들이 자리도 안 차지한다 — 칸이 0이라 남은 폭은 밖으로 넘친다.
+                page.waitForCondition {
+                    (page.evaluate(
+                        "(() => Array.from(document.querySelectorAll('#sidecol > *'))" +
+                            ".every(e => e.getBoundingClientRect().width <= 1))()"
+                    ) as Boolean)
+                }
                 openSide(page)
                 page.waitForCondition {
                     (page.evaluate("document.getElementById('sidecol').getBoundingClientRect().width")

@@ -180,9 +180,18 @@ public class Arrangement {
         dressHandle("side", "open".equals(DomGlobal.document.body.getAttribute("side")));
     }
 
-    /** 기본은 닫힘 — 처음 온 사람에게 이 페이지는 대화다. */
+    /**
+     * 기억이 없을 때의 기본값 — 왼쪽은 닫힘, <b>오른쪽은 열림</b>.
+     *
+     * 왼쪽은 파일 트리다: 처음 온 사람에게 이 페이지는 대화이고, 트리는 찾아가는 것이다.
+     * 오른쪽은 그렇지 않게 됐다 — 사실판이 이리로 옮겨 오면서 이 기둥은 "이 컴패니언이 무엇인가"를
+     * 답하는 자리가 됐고, 그것은 화면을 열자마자 있어야 하는 답이다. 닫힌 채로 두면 사람이
+     * 손잡이를 찾아 눌러야 상태·모델·워크스페이스를 볼 수 있다.
+     */
     private boolean remembered(String key) {
-        return "open".equals(stored("magi." + key));
+        String was = stored("magi." + key);
+        if (was == null || was.isEmpty()) return "side".equals(key);
+        return "open".equals(was);
     }
 
     // 사적 창에서는 localStorage 접근 자체가 던진다 — 기억이 없으면 기본값으로 산다.

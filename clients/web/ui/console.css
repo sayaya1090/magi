@@ -2566,8 +2566,17 @@
        pixel it saves on another column, so narrowing this one from 25.6dp to 24dp fitted a
        fourth column, took 119px off each cell and wrapped the long fields it was drawn to keep
        whole. Snapping to the scale is not the same as snapping to the nearest value. */
-    display:grid; grid-template-columns:repeat(auto-fit, minmax(14rem, auto)); gap:var(--magi-sys-space-200) var(--magi-sys-space-400);
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem, 1fr)); gap:var(--magi-sys-space-150) var(--magi-sys-space-300);
   }
+  /* 이 판은 이제 22rem 짜리 기둥에 산다. 14rem 최소폭은 <b>가운데 열</b>의 수였다 — 남는 폭을
+     전부 열로 쓰는 auto-fit 에서 긴 문자열이 잘리지 않게 잡은 값이고, 그 자리에서는 세 열
+     네 열이 섰다. 22rem 에서 그 값은 열을 하나로 만들고, 그러면 짧은 읽을거리(스텝 · 상태 ·
+     마지막 활동)가 한 줄씩 차지해 판이 세로로 길어진다.
+     9rem 은 그 짧은 것 둘이 나란히 서는 폭이고, 긴 것은 아래 .wide 가 줄을 통째로 갖는다. */
+  #sidecol #detail .f.wide { grid-column:1 / -1; }
+  /* 값이 줄바꿈해도 이름 아래에 머문다 — 좁은 칸에서 긴 값이 옆 칸을 밀지 않게. */
+  #sidecol #detail .f { min-width:0; }
+  #sidecol #detail .f .v { overflow-wrap:anywhere; }
   #detail .f { display:flex; flex-direction:column; gap:var(--magi-sys-space-50); }
   /* The long fields take TWO columns, not the whole row. A session id and a workspace path are
      strings nobody reads in a 14rem column — the id wraps mid-hash, the path ellipses at the part
@@ -3049,9 +3058,19 @@
        space it occupied closed. Hidden at the END, so nothing inside it is tabbable once it is
        gone — visibility is delayed by the length of the movement, and comes back instantly. */
     #sidecol { overflow:hidden; }
-    #side { transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard), visibility 0s; }
-    body[side="shut"] #side {
+    /* 사실판도 이 기둥의 것이다. 이 두 규칙이 `#side` 만 이름 대던 동안, 닫힌 기둥(격자 칸 0)
+       안에서 사실판이 제 최소 폭(격자가 minmax(14rem, …))을 주장해 칸 밖으로 넘쳤고 — 전사
+       위를 덮어 화면이 통째로 사라진 것처럼 보였다. 칸을 0으로 만드는 쪽과 그 안의 것을
+       걷는 쪽이 <b>같은 목록</b>을 봐야 한다. */
+    #side, #sidecol > #detail {
+      transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard), visibility 0s;
+    }
+    body[side="shut"] #side, body[side="shut"] #sidecol > #detail {
       opacity:0; visibility:hidden;
+      /* 자리도 내놓는다. visibility 는 <b>안 보이게</b>만 하고 폭은 그대로 두는데, 이 기둥은
+         칸이 0이라 남은 폭이 밖으로 넘친다 — 전사 위를 덮는다. #side 는 제 폭이 칸을 따라
+         줄어드는 상자라 이 규칙만으로 충분했고, 격자인 사실판은 아니었다. */
+      width:0; min-width:0; padding:0; border-width:0; overflow:hidden;
       transition:opacity var(--magi-sys-dur-short4) var(--magi-sys-ease-standard),
                  visibility 0s var(--magi-sys-dur-medium2);
     }

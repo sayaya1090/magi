@@ -831,6 +831,27 @@ public class ConversationElement {
             return;
         }
         JsArrayLike<Object> rows = Js.uncheckedCast(rowsOrNull);
+        // 아직 아무 말도 오간 적 없는 대화 — 빈 자리가 아니라 <b>시작하는 자리</b>라고 적는다.
+        // "모른다"(위의 null)와 다른 사실이다: 저쪽은 아직 못 물어본 것이고 이쪽은 물어봤는데
+        // 없는 것이다. 빈 화면으로 두면 둘이 같아 보이고, 사람은 로딩이 멈춘 줄 안다.
+        if (rows.getLength() == 0) {
+            lastSig = null;
+            forgetDrawn();
+            HTMLElement fresh = el("div");
+            fresh.className = "empty";
+            fresh.append(DomGlobal.document.createTextNode(tr("talk.fresh")),
+                    el("br"), DomGlobal.document.createTextNode(tr("talk.fresh_how")));
+            log.replaceChildren(fresh);
+            return;
+        }
+        // 그 말을 <b>걷는다</b>. 아래의 그리기는 행을 이어 붙이고 재사용할 뿐 다른 자식을 지우지
+        // 않으므로, 첫 행이 와도 안내문이 그 위에 남는다("멈춘 컴패니언" 쪽은 살아난 자리에서
+        // 명시적으로 판을 비워서 이 문제가 없었다).
+        if (log.querySelector(".empty") != null) {
+            lastSig = null;
+            forgetDrawn();
+            log.replaceChildren();
+        }
         // 자리마다의 말을 <b>다</b> 이어 견준다. 길이와 마지막 행만 보면 가운데가 달라진
         // 프레임이 통째로 버려진다: 툴 하나가 뒤에 다른 행이 붙은 다음에 끝나는 자리가
         // 그렇고(길이도 같고 마지막 말도 같다), 그 행은 영영 "도는 중"으로 서 있는다.

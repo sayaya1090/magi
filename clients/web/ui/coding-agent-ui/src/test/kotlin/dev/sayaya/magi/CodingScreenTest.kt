@@ -1149,4 +1149,24 @@ internal class CodingScreenTest : GwtTestSpec({
             }
         }
     }
+
+    Given("아직 아무 말도 오간 적 없는 대화") {
+        When("전사가 비어서 오면") {
+            page.evaluate("""window.__magi_test_transcript('[]')""")
+            Then("빈 자리가 아니라 시작하는 자리라고 적는다") {
+                // "모른다"와 "없다"는 다른 사실이다. 아직 못 물어본 것은 빈 화면이 맞고, 물어봤는데
+                // 없는 것은 시작하라는 말이 서야 한다 — 둘을 같은 빈 화면으로 두면 사람은 로딩이
+                // 멈춘 줄 안다.
+                page.waitForSelector("#log .empty")
+                page.locator("#log .empty").textContent() shouldContain "talk.fresh"
+                // 그리고 컴포저는 그대로 있다 — 적으라고 해 놓고 적을 자리가 없으면 안 된다.
+                page.locator("#dock .composer #t").count() shouldBe 1
+            }
+            Then("행이 오면 그 말은 걷힌다") {
+                page.evaluate("""window.__magi_test_transcript('[{"who":"user","text":"첫 마디"}]')""")
+                page.waitForCondition { page.locator("#log .empty").count() == 0 }
+                page.locator("#log .row").count() shouldBe 1
+            }
+        }
+    }
 })
