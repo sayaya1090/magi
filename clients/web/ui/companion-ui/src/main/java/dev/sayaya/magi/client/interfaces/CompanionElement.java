@@ -51,7 +51,8 @@ public class CompanionElement {
     // 카드 자리는 <b>카드</b>다 — md-outlined-card. 운영의 그 요소이고, 안쪽 여백(16px)도 판의
     // 테두리도 그 태그에 걸린 규칙에서 온다: div로 세우면 본문이 테두리에 붙는다(실측 16px 차).
     private final HTMLElement cardArea = el("md-outlined-card");
-    private String cardShows = "facts";
+    /** 지금 서 있는 카드의 id. 빈 값이면 아무것도 안 열려 있다(옛날엔 "facts"가 그 자리였다). */
+    private String cardShows = "";
     private boolean wired = false;
     private String childLoaded = null;
     private String panel = "talk";
@@ -82,8 +83,12 @@ public class CompanionElement {
         cardTabs.setAttribute("hidden", "");
         cardArea.id = "fileview";
         cardArea.setAttribute("hidden", "");
-        stream.append(cardTabs, detail.element(), cardArea, centreFill);
-        sidecol.append(side.element());
+        stream.append(cardTabs, cardArea, centreFill);
+        // 사실판은 우측 기둥에 산다 — 이 컴패니언이 <b>무엇인가</b>는 곁눈질하는 것이고, M3 가
+        // 그 자리라고 부르는 side sheet 가 이 콘솔에서는 이 기둥이다. 가운데에 있던 동안 그 판은
+        // auto-fit 격자라 남는 폭을 전부 열로 썼고, 카드가 하나도 없는 화면(대부분의 화면)에서는
+        // 전사 위에 통째로 누웠다. 폰에서는 이 기둥이 곧 탭이라 자리가 하나로 정해진다.
+        sidecol.append(detail.element(), side.element());
         stage.append(filecol, stream, sidecol);
         tabs.id = "ptabs";
         tabs.setAttribute("hidden", "");
@@ -192,7 +197,7 @@ public class CompanionElement {
             cardArea.setAttribute("hidden", "");
             cardArea.replaceChildren();
             show(detail.element(), store.context() != null && detail.hasFacts());
-            cardShows = "facts";
+            cardShows = "";
             // 줄이 비면 <b>본 것도 없다</b>. 이 갈래가 아래의 장부 손질을 건너뛰는 바람에 방금
             // 닫은 카드가 "이미 본 것"으로 남았고, 그러면 그것을 다시 열어도 새로 열린 것으로
             // 세어지지 않았다(실측: 도구를 닫고 다시 누르면 사실판). 빈 자리를 무엇이 이어받았는지는
@@ -211,7 +216,8 @@ public class CompanionElement {
         }
         cardTabs.replaceChildren();
         cardTabs.removeAttribute("hidden");
-        cardTabs.append(cardTab(tr("field.facts"), "facts", null));
+        // 사실 탭은 없다. 이 줄은 <b>연 것</b>의 줄이다 — 파일·차이·커밋·도구·루프·보고. 사실은
+        // 아무도 열지 않았고 닫을 수도 없으므로 이 줄의 것이 아니고, 이제 우측 기둥에 산다.
         // 누가 <b>이것을 보여 달라</b>고 말했으면 그것이 먼저다. 트리에서 이미 열어 둔 파일을
         // 다시 누르는 것이 그 말이다 — 새 카드가 아니니 아래의 "방금 열린 것" 규칙에 걸리지
         // 않고, 그래서 눌러도 아무 일이 없었다(실측: 세 번째 클릭에도 옆 파일이 서 있었다).
@@ -220,7 +226,7 @@ public class CompanionElement {
         // 그리기에 요청으로 돌아오지 않는다. 지우는 것도 여기가 아니라 그 보고가 한다 —
         // 부탁한 파일의 카드는 본문이 와야 서는데, 읽자마자 비우면 그 전에 증발한다.
         String asked = CardSharing.asked();
-        boolean known = "facts".equals(cardShows);
+        boolean known = false;
         // 방금 열린 것으로 간다 — 파일을 눌렀는데 화면이 그대로면 아무 일도 안 일어난 것처럼
         // 읽힌다(운영: openFiles에 밀어 넣고 그 탭을 고른다). 이미 열려 있던 것을 다시 눌러
         // 다시 그려지는 경우는 새것이 아니므로 보던 자리를 뺏지 않는다.
@@ -314,10 +320,17 @@ public class CompanionElement {
         return t;
     }
 
-    /** 폰의 탭 — 대화 · 정보 · 파일. 이름은 운영의 그 말이다(팩 키도 같다). */
+    /**
+     * 폰의 탭 — 대화 · 작업공간 · 진행 · 정보. 이름은 운영의 그 말이다(팩 키도 같다).
+     *
+     * 정보가 <b>마지막</b>이다. 둘째 자리에 있던 동안 그것은 대화 바로 옆이었고, 사람이 옆으로
+     * 넘기다 가장 먼저 닿는 것이 이 컴패니언의 호스트와 빌드 번호였다 — 읽으러 온 것은 대화이고
+     * 그 다음에 보는 것은 무엇을 하고 있나(진행)와 어느 파일인가(작업공간)다. 열다섯 줄짜리
+     * 사실판은 필요할 때 찾아가는 자리이지 지나가다 걸리는 자리가 아니다.
+     */
     private void buildTabs() {
-        for (String[] t : new String[][]{{"talk", "panel.talk"}, {"facts", "panel.facts"},
-                {"files", "panel.files"}, {"plan", "panel.plan"}}) {
+        for (String[] t : new String[][]{{"talk", "panel.talk"}, {"files", "panel.files"},
+                {"plan", "panel.plan"}, {"facts", "panel.facts"}}) {
             HTMLElement tab = el("md-primary-tab");
             tab.id = "ptab-" + t[0];
             tab.textContent = tr(t[1]);
@@ -353,8 +366,10 @@ public class CompanionElement {
             dev.sayaya.magi.bridge.ChromeSharing.remeasure();
             // 넓어졌다: 여는 것은 다시 손잡이의 몫이다 — 기억해 둔 그 상태로 돌려 말한다.
             arrange.sayPanes();
-            show(detail.element(), companion && detail.hasFacts() && "facts".equals(cardShows));
-            show(cardArea, companion && !"facts".equals(cardShows));
+            // 사실판은 이제 카드 줄과 무관하다 — 그 줄에는 <b>연 것</b>만 선다.
+            show(detail.element(), companion && detail.hasFacts());
+            show(side.element(), true);
+            show(cardArea, companion && cardShows != null && !cardShows.isEmpty());
             // 한 겹 들어간 화면이 서면 전사는 물러난다(운영의 그 층위).
             show(centreFill, !deepCard);
             show(filecol, true);
@@ -376,7 +391,8 @@ public class CompanionElement {
         dev.sayaya.magi.bridge.PaneSharing.opened("side", "plan".equals(panel));
         boolean cardHere = "files".equals(panel) && cardInsteadOfTree();
         standAlone(cardHere);
-        show(stream, "talk".equals(panel) || "facts".equals(panel) || cardHere);
+        show(stream, "talk".equals(panel) || cardHere);
+        // 정보와 진행은 같은 기둥의 두 판이다 — 탭이 어느 쪽을 보일지 고른다.
         show(detail.element(), "facts".equals(panel) && detail.hasFacts());
         show(centreFill, "talk".equals(panel) && !deepCard);
         show(cardTabs, cardHere);
@@ -386,6 +402,7 @@ public class CompanionElement {
         show(leftFill, "files".equals(panel) && !cardHere);
         show(filecol, true);
         show(side.element(), "plan".equals(panel));
+        // 기둥은 둘 중 하나를 보일 때 선다.
         show(sidecol, true);
         elemental2.dom.NodeList<elemental2.dom.Element> all = tabs.querySelectorAll("md-primary-tab");
         for (int i = 0; i < all.getLength(); i++) {
@@ -394,9 +411,14 @@ public class CompanionElement {
         }
     }
 
-    /** 탭의 차례 — 방향을 정하는 데만 쓴다(운영의 그 순서: 대화·정보·작업공간·진행). */
+    /**
+     * 탭의 차례 — 옆으로 들어오는 방향을 정하는 데만 쓴다.
+     *
+     * buildTabs 가 그리는 순서와 <b>같아야 한다</b>. 갈리면 왼쪽 탭을 눌렀는데 판이 오른쪽에서
+     * 들어온다: 사람이 움직인 방향과 화면이 움직인 방향이 반대가 된다.
+     */
     private static int order(String name) {
-        String[] all = {"talk", "facts", "files", "plan"};
+        String[] all = {"talk", "files", "plan", "facts"};
         for (int i = 0; i < all.length; i++) if (all[i].equals(name)) return i;
         return 0;
     }
@@ -404,7 +426,7 @@ public class CompanionElement {
     /** 그 탭이 보이는 판 — 움직이는 것은 판이지 무대가 아니다. */
     private HTMLElement panelBox(String name) {
         if ("talk".equals(name)) return centreFill.firstElementChild == null ? stream : stream;
-        if ("facts".equals(name)) return detail.element();
+        if ("facts".equals(name)) return sidecol;
         if ("files".equals(name)) return filecol;
         return sidecol;
     }

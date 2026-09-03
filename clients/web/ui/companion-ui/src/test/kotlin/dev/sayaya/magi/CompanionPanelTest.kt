@@ -18,11 +18,17 @@ internal class CompanionPanelTest : GwtTestSpec({
                 // 이름이 계약인 이유: 창 높이 앵커·기둥 접기·도크 여백이 전부 console.css에
                 // 이 이름들로 적혀 있다. 새 이름을 쓰면 그 규칙이 통째로 비켜간다(실측: 1024px
                 // 창에서 대화가 224px, 전사는 4천 픽셀로 자라 잘림).
-                page.waitForSelector("#agentview #stream #detail:not([hidden])")
+                page.waitForSelector("#agentview #sidecol #detail")
                 page.locator("#agentview #filecol").count() shouldBe 1
                 page.locator("#agentview #sidecol #side").count() shouldBe 1
-                // 사실판은 가운데 기둥 안에 선다 — 무대 위가 아니라(운영의 그 자리).
-                page.locator("#stream > #detail").count() shouldBe 1
+                // 사실판은 <b>우측 기둥</b>에 선다. 가운데에 있던 동안 그 판은 auto-fit 격자라
+                // 남는 폭을 전부 열로 썼고, 카드가 하나도 없는 화면 — 대부분의 화면 — 에서는
+                // 전사 위에 통째로 누웠다. 이 컴패니언이 무엇인가는 곁눈질하는 것이고, M3 가
+                // 그 자리라 부르는 side sheet 가 이 콘솔에서는 이 기둥이다.
+                page.locator("#sidecol > #detail").count() shouldBe 1
+                page.locator("#stream > #detail").count() shouldBe 0
+                // 여는 것은 상단의 그 토글이다 — 기둥은 닫힌 채로 오고, 전사가 창을 다 갖는다.
+                page.locator("#sideToggle").count() shouldBe 1
             }
             Then("기둥 둘은 닫힌 채로 온다 — 처음 온 사람에게 이 화면은 대화다") {
                 page.waitForSelector("body[files=shut][side=shut]")
@@ -83,8 +89,7 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#masthead #chrome #filesToggle").count() shouldBe 1
                 // 닫힌 동안 오른쪽 기둥은 폭이 0이고, 그 속의 계획은 화면에 없다.
                 page.locator("#side #plan").isVisible() shouldBe false
-                page.locator("#sideToggle").click()
-                page.waitForSelector("body[side=open]")
+                openSide(page)
                 page.waitForCondition {
                     (page.evaluate("document.getElementById('sidecol').getBoundingClientRect().width")
                         as Number).toInt() > 100
@@ -137,6 +142,8 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#detail .f[data-k=\"field.version\"] md-text-button")
                     .textContent() shouldContain "action.update"
                 // 아직 아무 일도 없었으니 할 말도 없다.
+                // 사실판은 우측 기둥에 산다 — 그 안의 무엇을 누르려면 기둥부터 연다.
+                openSide(page)
                 page.locator("#detail .f[data-k=\"field.version\"] .updsay[hidden]").count() shouldBe 1
             }
             Then("눌렀는데 아무 말도 없으면 — 회선이 끊긴 것이다 — 버튼은 그 자리에 남는다") {
@@ -242,6 +249,11 @@ internal class CompanionPanelTest : GwtTestSpec({
             Then("탭 넷이 서고 한 번에 하나만 보인다 — 기본은 대화다(운영의 그 넷)") {
                 page.waitForSelector("#ptabs:not([hidden])")
                 page.locator("#ptabs md-primary-tab").count() shouldBe 4
+                // 순서: 대화 · 작업공간 · 진행 · 정보. 정보가 마지막인 것이 이 줄의 요점이다 —
+                // 둘째 자리에 있던 동안, 대화에서 옆으로 한 번 넘기면 닿는 것이 호스트와 빌드
+                // 번호였다. 읽으러 온 것은 대화이고 그 다음은 무엇을 하고 있나와 어느 파일인가다.
+                page.locator("#ptabs md-primary-tab").allTextContents()
+                    .shouldBe(listOf("panel.talk", "panel.files", "panel.plan", "panel.facts"))
                 (page.evaluate("document.body.getAttribute('panel')")) shouldBe "talk"
                 page.locator("#stream .cfill:not([hidden])").count() shouldBe 1
                 page.locator("#detail[hidden]").count() shouldBe 1
@@ -354,6 +366,10 @@ internal class CompanionPanelTest : GwtTestSpec({
         When("가서 보는 것 — 도구") {
             // 이 셋은 전사의 행이 아니라 카드다: 누가 물어서 나온 답이지 일어난 일의 기록이
             // 아니다(운영의 그 판단). 그래서 재는 것도 "전사 자리에 카드가 섰는가"다.
+            // 문 셋은 사실판 안에 있고 그 판은 우측 기둥에 산다 — 누르려면 기둥을 먼저 연다.
+            // 그것이 이 화면의 계약이다: 처음 온 사람에게 이 화면은 대화이고, 이 컴패니언이
+            // 무엇인가는 물어봐야 나온다.
+            openSide(page)
             page.locator("#detail .f[data-k=\"field.what_it_has\"] .bgroup button.deeper").count() shouldBe 3
             Then("문 셋은 한 줄에 머문다 — 넘치면 옆 칸 위에 그려진다, 겹치지 않은 채로") {
                 // 운영이 실측으로 되밟은 자리다: 아이콘까지 283px인 줄이 238px 트랙에 들어가며
@@ -369,7 +385,10 @@ internal class CompanionPanelTest : GwtTestSpec({
             Then("카드가 서고 줄에 제 탭이 생긴다 — 사실판은 물러난다") {
                 page.waitForSelector("#fileview .dinsp#insp\\.tools")
                 page.locator("#cardtabs md-secondary-tab[data-card=\"insp.tools\"]").count() shouldBe 1
-                page.locator("#detail").isVisible() shouldBe false
+                // 사실판은 물러나지 않는다 — 이제 다른 기둥이라 자리를 다투지 않는다. 예전에는
+                // 둘이 가운데를 나눠 써서 카드가 서면 사실판이 숨어야 했고, 그래서 도구를 열면
+                // 이 컴패니언이 무엇인지가 화면에서 사라졌다.
+                page.locator("#detail").isVisible() shouldBe true
             }
             Then("데몬이 말한 것만 적는다 — 이 콘솔의 목록이 아니라") {
                 page.locator("#fileview .dinsp .dlog .f .k").count() shouldBe 3
@@ -502,7 +521,10 @@ internal class CompanionPanelTest : GwtTestSpec({
             page.waitForSelector("#fileview .dinsp#insp\\.tools")
             Then("서 있던 것은 방금 연 카드다 — 이 장면이 재는 것은 <b>바뀌는가</b>다") {
                 page.evaluate("window.__magi_cards_showing") shouldBe "insp.tools"
-                page.locator("#detail").isVisible() shouldBe false
+                // 사실판은 물러나지 않는다 — 이제 다른 기둥이라 자리를 다투지 않는다. 예전에는
+                // 둘이 가운데를 나눠 써서 카드가 서면 사실판이 숨어야 했고, 그래서 도구를 열면
+                // 이 컴패니언이 무엇인지가 화면에서 사라졌다.
+                page.locator("#detail").isVisible() shouldBe true
             }
             Then("청한 것이 선다 — 카드 줄은 그대로인데") {
                 page.evaluate("(() => { window.__magi_cards_ask = 'facts';" +
@@ -521,3 +543,16 @@ internal class CompanionPanelTest : GwtTestSpec({
         }
     }
 })
+
+/**
+ * 우측 기둥을 <b>열려 있게</b> 한다.
+ *
+ * 누르지 않고 상태를 본다: `#sideToggle` 은 토글이라 두 블록이 각자 누르면 뒤엣것이 닫는다 —
+ * 실제로 그랬다(도구 넷이 한꺼번에 빨개졌다). 시험이 원하는 것은 "눌렀다"가 아니라 "열려 있다"다.
+ */
+private fun openSide(page: com.microsoft.playwright.Page) {
+    if (page.locator("body[side=open]").count() == 0) {
+        page.locator("#sideToggle").click()
+        page.waitForSelector("body[side=open]")
+    }
+}
