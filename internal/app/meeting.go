@@ -239,16 +239,9 @@ func minutesPrompt(who, topic, minutes, said string) string {
 		"- Carry every section and every line you are not changing through UNCHANGED. Do not " +
 		"summarise them: minutes that shrink each round end the meeting with nothing in them.\n" +
 		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it.\n" +
-		// Both halves, because only the prohibition was here and the record lost commitments to it.
-		// Measured over 31 revisions of ten live meetings: nothing ever shrank, and once a speaker
-		// said "I will add an X-Retry-Limit header to api.md" and got back a document identical to
-		// the one it was given. Told only what it must NOT write, a model handed a document it was
-		// asked to carry through unchanged returns it unchanged.
-		"- If " + who + " took work on in this turn, \"Action items\" MUST gain a line for it. A " +
-		"turn where somebody said what they would do and the document came back unchanged has " +
-		"lost the one thing that turn produced.\n" +
-		"- Never assign work to a name that did not accept it in their own words — that is a " +
-		"promise they do not know they made.\n" +
+		"- Under \"Action items\", write only what somebody took on in their own words, and your " +
+		"own. Never assign work to a name that did not accept it — that is a promise they do not " +
+		"know they made.\n" +
 		"- Answer with the document and nothing else. No preamble, no explanation of what you " +
 		"changed.\n")
 	return b.String()
