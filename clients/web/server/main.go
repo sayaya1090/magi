@@ -626,12 +626,31 @@ func (s *server) roomFrames(r *http.Request, id string) func(io.Writer, http.Flu
 
 // fleetKey is the roster with the ticking parts left out: what changed, rather than what moved.
 func fleetKey(list []fleet.Agent) string {
+	// **The whole row, minus the parts that tick.** It used to name ten fields and claim they were
+	// "everything a row is drawn from" — and the screen had since learned to draw version, team and
+	// hub, none of which were in it. A companion whose team changed and nothing else kept its old
+	// team on screen until something unrelated moved, and nothing said why.
+	//
+	// Enumerating is the thing that ages: a field added to fleet.Agent and drawn by a screen has to
+	// be remembered here too, by somebody who has no reason to look. Marshalling the row means the
+	// key gains the field the moment the row does.
+	//
+	// Idle stays out because it is the one field that moves on its own — seconds since the last
+	// event — so leaving it in would push a redraw every tick and the stream would stop meaning
+	// "something happened".
 	var b strings.Builder
 	for _, a := range list {
-		// Everything a row is drawn from except Idle — and Idle is the only field on it that
-		// changes without anything happening.
-		fmt.Fprintf(&b, "%s\x1f%s\x1f%s\x1f%v\x1f%s\x1f%s\x1f%s\x1f%d\x1f%v\x1f%s\x1e",
-			a.Name, a.Peer, a.Socket, a.Live, a.State, a.Task, a.Session, a.Steps, a.Elsewhere, a.Asking)
+		a.Idle = 0
+		raw, err := json.Marshal(a)
+		if err != nil {
+			// A row that will not marshal is a row this cannot compare. Say so in the key rather
+			// than silently treating every such tick as "unchanged" — a screen frozen on an error
+			// nobody can see is worse than one that redraws too often.
+			fmt.Fprintf(&b, "!%s\x1e", a.Socket)
+			continue
+		}
+		b.Write(raw)
+		b.WriteByte(0x1e)
 	}
 	return b.String()
 }

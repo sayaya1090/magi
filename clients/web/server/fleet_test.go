@@ -243,3 +243,36 @@ func TestARowCarriesNoPlanInTheLightList(t *testing.T) {
 		t.Errorf("the light row read a log it must not: %+v", a)
 	}
 }
+
+// The change key covers the whole row, so a field the screen learns to draw is compared without
+// anybody remembering to add it here.
+//
+// It used to name ten fields and claim they were "everything a row is drawn from". The screen had
+// since learned version, team and hub — a companion whose team changed and nothing else kept the
+// old one until something unrelated moved, and nothing said why. The enumeration is the part that
+// ages; this pins that it is gone.
+func TestTheFleetKeyNoticesAFieldNobodyRememberedToList(t *testing.T) {
+	base := []fleet.Agent{{Socket: "/s/a", Name: "alpha", State: "idle"}}
+	// Fields the old key left out, each on its own: any one of them changing must change the key.
+	for _, c := range []struct {
+		what string
+		make func(fleet.Agent) fleet.Agent
+	}{
+		{"version", func(a fleet.Agent) fleet.Agent { a.Version = "0.34.0"; return a }},
+		{"team", func(a fleet.Agent) fleet.Agent { a.Team = "core"; return a }},
+		{"hub", func(a fleet.Agent) fleet.Agent { a.Hub = true; return a }},
+		{"role", func(a fleet.Agent) fleet.Agent { a.Role = "keeps the build green"; return a }},
+	} {
+		moved := []fleet.Agent{c.make(base[0])}
+		if fleetKey(base) == fleetKey(moved) {
+			t.Errorf("%s changed and the key did not — the screen keeps the old value", c.what)
+		}
+	}
+	// And the one field that moves on its own still does not push a redraw: a key that changed
+	// every tick would stop meaning "something happened".
+	ticked := []fleet.Agent{base[0]}
+	ticked[0].Idle = 41
+	if fleetKey(base) != fleetKey(ticked) {
+		t.Error("idle ticked and the key changed — every second would redraw the fleet")
+	}
+}
