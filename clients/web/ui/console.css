@@ -353,7 +353,6 @@
        has room to spare — the reader ends up with two panes squeezing a column in the middle and
        wide empty margins either side of the whole thing. A companion's page is allowed the wider
        bound, and the transcript inside it keeps its own measure regardless. */
-    --magi-sys-page-wide: 230ch;
   }
 
   * { box-sizing:border-box; }
@@ -1193,20 +1192,20 @@
     padding:var(--magi-sys-space-300) var(--magi-sys-space-500) calc(var(--dock, var(--magi-sys-space-1600)) + var(--magi-sys-space-400));
     max-width:var(--magi-sys-page); margin-inline:auto;
   }
-  /* The panes get the room the margins were holding. Only on a companion's page and only where
-     there is room for both — below that the panes are not beside the conversation anyway. */
-  @media (min-width:100em) {
-    body[at="agent"] main { max-width:var(--magi-sys-page-wide); }
-    /* The masthead widens with what is under it. It kept the page's own cap while the conversation
-       took the wider one, so on a 2488px monitor the header ran 568..2001 over a page running
-       315..2254 — a narrow hat on a wide head, and the border under it stopped a quarter of the
-       way in from each side. */
-    body[at="agent"] header { max-width:var(--magi-sys-page-wide); }
-    /* The dock's contents are measured with main, at the same breakpoint: the two are one column,
-       and a column that widens at the top and not at the bottom is the thing this pair of rules
-       exists to prevent. */
-    body[at="agent"] #dock .bay { max-width:var(--magi-sys-page-wide); }
-  }
+  /* A companion's page takes the window. No cap.
+     A reading cap is for a column of prose, and this page is not one — it is three panes, so every
+     pixel the cap holds back is width the file tree and the facts panel do not get. It had one
+     (230ch), and on a 2490px screen that left 220px empty down each side while the facts panel was
+     wrapping its values at 303px. Widening the cap is the same mistake one number later: the right
+     width for these panes is whatever the window is.
+     The masthead, the dock and the composer come with it, all four or none. They are one column,
+     and a column that widens at the top and not at the bottom is what the rules this replaces
+     existed to prevent — measured before they did: header 568..2001 over a page 315..2254, and a
+     composer sitting 235px right of the text it answers. */
+  body[at="agent"] main,
+  body[at="agent"] header,
+  body[at="agent"] #dock .bay,
+  body[at="agent"] #prompt .inner { max-width:none; }
 
 
   /* ── what I had to say ───────────────────────────────────────────────────── */

@@ -336,6 +336,37 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("창이 아주 넓어지면") {
+            // 2560은 이 판이 실제로 도는 화면이고, 여기서 캡이 드러난다. 캡은 230ch(≈1939px)
+            // 였으므로 1400 에서는 아무 일도 없고 — 그래서 이 시험은 그 위에서 잰다.
+            page.setViewportSize(2560, 900)
+            Then("페이지가 창을 다 쓴다 — 읽기 캡은 산문 한 칸의 것이고 이 화면은 판이 셋이다") {
+                page.waitForCondition { page.locator("#sidecol:not([hidden])").count() == 1 }
+                val slack = page.evaluate(
+                    "(() => { const m = document.querySelector('main');" +
+                        " if (!m) return 'no main';" +
+                        " const b = m.getBoundingClientRect();" +
+                        // 왼쪽 레일 밖의 남는 폭. 캡이 서 있으면 오른쪽에 그만큼이 통째로 빈다.
+                        " return Math.round(window.innerWidth - b.right); })()"
+                )
+                // 24px 은 페이지의 제 여백이다. 그보다 크게 남으면 캡이 잡고 있는 것이다 —
+                // 2490px 화면에서 220px 이 그렇게 비어 있었고, 그동안 사실판은 값을 303px 에서
+                // 줄바꿈하고 있었다.
+                (slack as Int <= 24) shouldBe true
+            }
+            Then("모자와 발도 같이 넓어진다 — 하나만 넓어지면 그것이 어긋남이다") {
+                val same = page.evaluate(
+                    "(() => { const m = document.querySelector('main').getBoundingClientRect();" +
+                        " const bad = ['header', '#dock .bay'].filter(sel => {" +
+                        "   const e = document.querySelector(sel); if (!e) return false;" +
+                        "   const b = e.getBoundingClientRect();" +
+                        "   return Math.abs(b.left - m.left) > 1 || Math.abs(b.right - m.right) > 1; });" +
+                        " return bad.length ? bad.join(', ') : 'ok'; })()"
+                )
+                same shouldBe "ok"
+            }
+            page.setViewportSize(1400, 900)
+        }
         When("이 컴패니언이 답하기를 멈추면(명단에 남은 채 live=false)") {
             page.evaluate("window.__magi_test_stopped()")
             Then("사실판은 그대로 선다 — 멈춘 순간이 바로 이것들을 읽고 싶은 때다") {
