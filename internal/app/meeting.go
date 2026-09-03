@@ -219,8 +219,19 @@ func (a *App) workNow(ctx context.Context, workdir string) string {
 // preparePrompt is the homework: read your own state, then say what you bring.
 func preparePrompt(who, topic, work string) string {
 	var b strings.Builder
+	// **Do not tell it nobody will hear this.** That sentence used to be here, two paragraphs
+	// above "for the person who called the meeting" — the prompt contradicted itself, and a
+	// participant that believed the first half thought out loud before answering. Measured
+	// (2026-09-03, live meeting): the note on the screen opened with the model's own plan for
+	// its answer and ended with the instruction echoed back at itself ("Two or three lines in
+	// Korean.") before the Korean began.
+	//
+	// What is true is narrower and worth saying exactly: the ROOM does not hear this turn — it
+	// is not a round, nobody answers it — and the person who called the meeting reads what comes
+	// back. A model told the truth about its audience writes for that audience.
 	b.WriteString("A meeting is being called and you are in it. It has not started yet — this is " +
-		"your time to get ready, and nobody will hear this turn.\n\n")
+		"your time to get ready. The room will not hear this turn: it is not a round, and nobody " +
+		"will answer it. What you write at the end is read by the person who called the meeting.\n\n")
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
 	if work != "" {
 		b.WriteString("YOUR WORKSPACE RIGHT NOW, read for you\n" + work + "\n\n")

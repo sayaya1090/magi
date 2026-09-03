@@ -267,3 +267,29 @@ func fieldValues(src, name string) []string {
 	}
 	return out
 }
+
+// The preparation prompt must not tell a participant that nobody hears this turn.
+//
+// It used to, two paragraphs above "for the person who called the meeting" — the prompt
+// contradicted itself, and a model that believed the first half wrote its private reasoning into
+// the answer. Measured in a live meeting: the note that reached the screen opened with the model's
+// plan for its own answer and ended with the instruction echoed back at itself ("Two or three
+// lines in Korean.") immediately before the Korean began, with no separator.
+//
+// The rule is not "never mention the audience" — it is "say who it actually is". So this asserts
+// both halves: the false claim is gone, and the true one is present.
+func TestThePreparationPromptDoesNotClaimNobodyIsListening(t *testing.T) {
+	p := preparePrompt("alpha", "which store for the queue", "README.md")
+	if strings.Contains(p, "nobody will hear this turn") {
+		t.Error("the prompt tells the participant nobody hears this, then shows what it answers " +
+			"to the person who called the meeting — a model that believes it thinks out loud")
+	}
+	if !strings.Contains(p, "read by the person who called the meeting") {
+		t.Error("the prompt must name the reader: an audience left unsaid is guessed at")
+	}
+	// And the narrower truth it replaced the lie with: no round, no answer.
+	if !strings.Contains(p, "not a round") {
+		t.Error("what IS true — the room does not answer this turn — is what keeps the " +
+			"participant from opening the discussion here")
+	}
+}
