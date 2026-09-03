@@ -2384,7 +2384,24 @@ table so they can be edited by name:
 schedule = "0 3 * * *"        # five fields, local time; or @hourly @daily @weekly @monthly
 prompt   = "Read yesterday's commits and report anything that looks like a regression risk."
 enabled  = true               # optional; absent means on
+
+[cron.nightly-test]
+schedule = "0 4 * * *"
+command  = "make test"        # runs instead of asking — no model is called
+timeout  = "20m"              # optional; ten minutes by default, and never zero
 ```
+
+- **A job either asks or runs.** `prompt` and `command` are exclusive, and a job with both is
+  refused rather than ordered: there is no stated answer for which goes first, or whether the
+  second happens when the first fails.
+- **A command is not asked for.** It does not go through the tool permission gate — writing it in
+  this file IS the approval, the same way an `allow` rule is, which is what lets a nightly build
+  run under a profile that asks about every command. That reasoning holds only because the agent
+  cannot write one: the `schedule` tool refuses the field and says so, so a command is here
+  because a person put it here or sent it through the control socket.
+- **A command run is a session like any other.** The command, its output and its exit are written
+  into it, so it is listed, read and traced exactly like a prompt run — and a run that failed at
+  four in the morning is the reason somebody opens that session.
 
 - **Daemon only.** An interactive `magi` never schedules anything — otherwise every open terminal
   in a repo would fire the same job.

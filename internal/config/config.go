@@ -367,6 +367,27 @@ type CronJob struct {
 	Schedule string `toml:"schedule"`
 	// Prompt is what the companion is asked, verbatim, in a session of its own.
 	Prompt string `toml:"prompt"`
+	// Command is a shell command run on the schedule instead of asking the companion anything.
+	//
+	// Exclusive with Prompt, and refused rather than ordered when both are set: a job that both
+	// asks and runs has no stated answer for which goes first, or whether the second happens when
+	// the first fails, and inventing one here would be a contract nobody wrote down.
+	//
+	// **Writing it is the approval.** A command in this file is the operator saying it may run
+	// unattended, the same way an `allow` rule is — so it does not go through the tool permission
+	// gate, which under the recommended profile asks about every command and would mean a nightly
+	// build never runs. That only holds while the agent cannot write one: the `schedule` tool
+	// refuses this field, so a command exists because a person put it here or sent it through the
+	// control socket, never because a model decided to.
+	Command string `toml:"command"`
+	// Timeout bounds one run of Command ("10m", "45s"). Absent means cronCommandTimeout.
+	//
+	// Per job because the shell door's thirty seconds is right for a console and wrong for a
+	// nightly build, and one number for both would be wrong for one of them. Zero is not "no
+	// limit": a scheduled command with no bound holds the workspace's only turn slot, and every
+	// later firing is skipped behind it — the same shape that made an unattended permission
+	// prompt wait forever.
+	Timeout string `toml:"timeout"`
 	// Enabled defaults to true when the key is absent, which is why it is a pointer: a job written
 	// into the file is meant to run, and a plain bool would make every hand-written job start
 	// switched off. Off is something a person says explicitly.

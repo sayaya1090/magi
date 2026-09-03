@@ -98,6 +98,19 @@ func (a *App) appendPromptText(ctx context.Context, sid session.SessionID, actor
 	return a.appendFact(ctx, sid, event.TypePromptSubmitted, actor, pd)
 }
 
+// AppendCronRun writes what a scheduled COMMAND did into its session.
+//
+// A prompt job's session fills itself — the turn writes the prompt, the steps and the answer. A
+// command job calls no model, so nothing would be written at all unless this did it, and a firing
+// that left no trace is indistinguishable from one that never happened.
+//
+// Written as a prompt fact rather than a new event type: every reader this tree has already draws
+// prompts (the transcript door, the console, the plugin, `magi --resume`), and a shape nobody
+// renders is a record only a grep can find.
+func (a *App) AppendCronRun(ctx context.Context, sid session.SessionID, actor event.Actor, text string) error {
+	return a.appendPromptText(ctx, sid, actor, text)
+}
+
 // publishTransient publishes a bus-only event (not persisted). No-op when the App
 // was built without a bus (minimal test construction) — a transient event has no
 // meaning with no subscribers.

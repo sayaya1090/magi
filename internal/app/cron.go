@@ -42,6 +42,14 @@ import (
 // SessionMeta.Origin — because a second log of when something happened is a second log that can
 // disagree with the first.
 
+// cronCommandTimeout bounds one run of a scheduled command when the job names no bound of its own.
+//
+// The shell door's thirty seconds is right for a console — somebody is looking at it and there is
+// no key to press to give up — and wrong for the thing this mode exists for, which is the nightly
+// build. Ten minutes is long enough for that and short enough that a wedged command does not hold
+// the workspace until morning; a job that needs longer says so.
+const cronCommandTimeout = 10 * time.Minute
+
 // cronActor is who a scheduled prompt comes from.
 //
 // The kind is ActorUser and not ActorSystem, which looks wrong for something no person typed and is
@@ -67,6 +75,10 @@ type scheduledJob struct {
 	Name     string
 	Schedule cron.Schedule
 	Prompt   string
+	// Command runs instead of asking, and Timeout bounds one run of it. Both empty for a prompt
+	// job; Prompt empty for a command job. The two are never both set — armJobs refuses that.
+	Command string
+	Timeout time.Duration
 	// Due is the next fire. Zero means never again — a schedule like "the 30th of February", which
 	// parses cleanly and matches no instant.
 	Due time.Time
@@ -146,9 +158,33 @@ func (s *cronScheduler) reload() {
 		// will never fire: an unparseable schedule and a schedule of "never" look identical from
 		// outside, and whoever mistyped one needs to hear about it rather than wonder in a week.
 		// Reported once per distinct complaint — this runs every minute.
-		if strings.TrimSpace(j.Prompt) == "" {
-			s.complain(name, "has no prompt — nothing to ask, so it is not scheduled")
+		asks, runs := strings.TrimSpace(j.Prompt), strings.TrimSpace(j.Command)
+		if asks == "" && runs == "" {
+			s.complain(name, "has neither a prompt nor a command — nothing to do, so it is not scheduled")
 			continue
+		}
+		if asks != "" && runs != "" {
+			// Refused rather than ordered. A job that both asks and runs has no stated answer for
+			// which goes first, or whether the second happens when the first fails — and a rule
+			// invented here would be a contract nobody wrote down.
+			s.complain(name, "has both a prompt and a command — one or the other, not both")
+			continue
+		}
+		bound := cronCommandTimeout
+		if runs != "" && strings.TrimSpace(j.Timeout) != "" {
+			d, terr := time.ParseDuration(strings.TrimSpace(j.Timeout))
+			switch {
+			case terr != nil:
+				s.complain(name, fmt.Sprintf("timeout %q is not a duration (try \"10m\") — not scheduled", j.Timeout))
+				continue
+			case d <= 0:
+				// Zero is not "no limit": an unbounded command holds the workspace's only turn
+				// slot and every later firing is skipped behind it.
+				s.complain(name, "timeout must be more than zero — a command with no bound holds the workspace")
+				continue
+			default:
+				bound = d
+			}
 		}
 		sch, err := cron.Parse(j.Schedule)
 		if err != nil {
@@ -157,7 +193,8 @@ func (s *cronScheduler) reload() {
 		}
 		live[name] = true
 		if p, ok := prev[name]; ok && p.Schedule.String() == sch.String() && !p.Due.IsZero() {
-			p.Prompt = j.Prompt // the words may have been edited; when it runs has not changed
+			// The words (or the command, or its bound) may have been edited; when it runs has not.
+			p.Prompt, p.Command, p.Timeout = j.Prompt, j.Command, bound
 			armed = append(armed, p)
 			continue
 		}
@@ -166,7 +203,8 @@ func (s *cronScheduler) reload() {
 			s.complain(name, fmt.Sprintf("%q never comes round — not scheduled", j.Schedule))
 			continue
 		}
-		armed = append(armed, scheduledJob{Name: name, Schedule: sch, Prompt: j.Prompt, Due: due})
+		armed = append(armed, scheduledJob{Name: name, Schedule: sch, Prompt: j.Prompt,
+			Command: j.Command, Timeout: bound, Due: due})
 	}
 	s.jobs = armed
 	// Forget complaints about jobs that are no longer here, so fixing one and breaking it again
@@ -230,7 +268,12 @@ func (s *cronScheduler) tickOnce(ctx context.Context) {
 	}
 }
 
-// fire opens a session for one run of a job and asks it the job's prompt, verbatim.
+// fire opens a session for one run of a job — and then either asks the companion the job's prompt,
+// verbatim, or runs its command and writes down what happened.
+//
+// Both make a session, which is the record: SessionMeta.Origin already says which job it was, so a
+// command run is listed, read and traced exactly like a prompt run and nothing new has to be kept.
+// A command run never calls the model, which is the whole of why the mode exists.
 func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.SessionID, error) {
 	actor := cronActor(j.Name)
 	// Model left zero on purpose: CreateSession fills in whatever this companion is configured to
@@ -242,6 +285,9 @@ func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.Sessi
 	if err != nil {
 		return "", fmt.Errorf("could not open a session: %w", err)
 	}
+	if strings.TrimSpace(j.Command) != "" {
+		return sid, s.run(ctx, sid, actor, j)
+	}
 	err = s.app.Submit(ctx, command.SubmitPrompt{
 		SessionID: sid,
 		Parts:     []session.Part{{Kind: session.PartText, Text: j.Prompt}},
@@ -251,6 +297,36 @@ func (s *cronScheduler) fire(ctx context.Context, j scheduledJob) (session.Sessi
 		return sid, fmt.Errorf("session %s opened but the prompt did not land: %w", sid, err)
 	}
 	return sid, nil
+}
+
+// run carries out a command job and writes the command, its output and its exit into the session.
+//
+// Written down whichever way it went. A command that failed at 3am is the reason somebody opens
+// this session in the morning, and a run that left no trace would be indistinguishable from one
+// that never fired — the thing the schedule's own "skipped, with the reason recorded" rule exists
+// to prevent one level up.
+func (s *cronScheduler) run(ctx context.Context, sid session.SessionID, actor event.Actor, j scheduledJob) error {
+	rctx, cancel := context.WithTimeout(ctx, j.Timeout)
+	defer cancel()
+	out, code, err := s.app.RunShell(rctx, s.workdir, j.Command)
+	var b strings.Builder
+	fmt.Fprintf(&b, "$ %s\n", j.Command)
+	if err != nil {
+		fmt.Fprintf(&b, "\n%v", err)
+		if rctx.Err() != nil {
+			// The bound, not the command, ended this — said plainly, because "it produced nothing"
+			// and "it was cut off" lead to different next steps.
+			fmt.Fprintf(&b, " (stopped after %s)", j.Timeout)
+		}
+	} else {
+		fmt.Fprintf(&b, "\nexit %d\n\n%s", code, out)
+	}
+	// WithoutCancel: the bound above may be the very thing that just fired, and the record of what
+	// happened is worth more than the context it happened under.
+	if aerr := s.app.AppendCronRun(context.WithoutCancel(ctx), sid, actor, b.String()); aerr != nil {
+		return fmt.Errorf("session %s ran the command but the record did not land: %w", sid, aerr)
+	}
+	return err
 }
 
 // Running names a session with a turn in flight, if there is one.

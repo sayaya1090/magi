@@ -2784,7 +2784,8 @@ func (d daemonEngine) EditCron(c daemon.CronEdit) (string, error) {
 		action = "remove"
 	}
 	return d.App.EditSchedule(d.workdir, port.ScheduleChange{
-		Action: action, Name: c.Name, Schedule: c.Schedule, Prompt: c.Prompt, Enabled: c.Enabled,
+		Action: action, Name: c.Name, Schedule: c.Schedule, Prompt: c.Prompt,
+		Command: c.Command, Timeout: c.Timeout, Enabled: c.Enabled,
 	})
 }
 

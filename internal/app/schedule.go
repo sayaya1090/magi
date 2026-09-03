@@ -121,12 +121,33 @@ func (a *App) setScheduled(workdir string, c port.ScheduleChange) (string, error
 		return fmt.Sprintf("%q parses but never comes round, so nothing would ever run.", schedule), nil
 	}
 
-	prompt := strings.TrimSpace(c.Prompt)
-	if prompt == "" {
-		prompt = existing.Prompt
+	prompt, runs := strings.TrimSpace(c.Prompt), strings.TrimSpace(c.Command)
+	// An empty field means "leave that part alone" — but only for the KIND this job already is.
+	// Filling in the other one from the existing job would turn an edit that set a command into a
+	// job that both asks and runs, which is the thing the exclusivity rule refuses.
+	if prompt == "" && runs == "" {
+		prompt, runs = existing.Prompt, existing.Command
 	}
-	if prompt == "" {
-		return "a job needs a prompt — the thing to ask when it runs", nil
+	switch {
+	case prompt != "" && runs != "":
+		return "a job either asks or runs — give a prompt or a command, not both", nil
+	case prompt == "" && runs == "":
+		return "a job needs a prompt to ask, or a command to run", nil
+	}
+	bound := strings.TrimSpace(c.Timeout)
+	if bound == "" {
+		bound = existing.Timeout
+	}
+	if runs != "" && bound != "" {
+		d, terr := time.ParseDuration(bound)
+		switch {
+		case terr != nil:
+			return fmt.Sprintf("%q is not a length of time — try \"10m\" or \"45s\"", bound), nil
+		case d <= 0:
+			// Zero is not "no limit": an unbounded command holds the workspace's only turn slot
+			// and every later firing is skipped behind it.
+			return "a command's timeout has to be more than zero", nil
+		}
 	}
 
 	path := a.scheduleFile(workdir)
@@ -137,8 +158,19 @@ func (a *App) setScheduled(workdir string, c port.ScheduleChange) (string, error
 	if err := config.SetKey(path, section, "schedule", schedule); err != nil {
 		return "", err
 	}
+	// The kind is written by writing one key and CLEARING the other. Left behind, the old key
+	// would sit in the file beside the new one and the job would be refused at its next arming as
+	// one that both asks and runs — an edit that switched the kind would break the job silently.
 	if err := config.SetKey(path, section, "prompt", prompt); err != nil {
 		return "", err
+	}
+	if err := config.SetKey(path, section, "command", runs); err != nil {
+		return "", err
+	}
+	if runs != "" || bound == "" {
+		if err := config.SetKey(path, section, "timeout", bound); err != nil {
+			return "", err
+		}
 	}
 	// Only written when explicitly said. Absent means on, and writing "enabled = true" on every
 	// edit would fill the file with a line that says what the default already says.
@@ -153,8 +185,12 @@ func (a *App) setScheduled(workdir string, c port.ScheduleChange) (string, error
 	if had {
 		verb = "Changed"
 	}
-	out := fmt.Sprintf("%s %q: %s, next at %s. Written to %s.",
-		verb, name, schedule, next.Format("2006-01-02 15:04 MST"), path)
+	what := "asks"
+	if runs != "" {
+		what = "runs a command"
+	}
+	out := fmt.Sprintf("%s %q: %s, %s, next at %s. Written to %s.",
+		verb, name, schedule, what, next.Format("2006-01-02 15:04 MST"), path)
 	if c.Enabled != nil && !*c.Enabled {
 		out += " It is switched off, so it will not run until that is changed."
 	}
@@ -193,7 +229,10 @@ type ScheduledJobInfo struct {
 	Name     string
 	Schedule string
 	Prompt   string
-	Enabled  bool
+	// Command and Timeout describe a job that runs instead of asking. Exclusive with Prompt.
+	Command string
+	Timeout string
+	Enabled bool
 	// Next is when it runs next. Zero when it never will — because it is switched off, or because
 	// Problem says why.
 	Next time.Time
@@ -224,7 +263,8 @@ func DescribeJobs(jobs map[string]config.CronJob) []ScheduledJobInfo {
 	out := make([]ScheduledJobInfo, 0, len(names))
 	for _, n := range names {
 		j := jobs[n]
-		info := ScheduledJobInfo{Name: n, Schedule: j.Schedule, Prompt: j.Prompt, Enabled: j.On()}
+		info := ScheduledJobInfo{Name: n, Schedule: j.Schedule, Prompt: j.Prompt,
+			Command: j.Command, Timeout: j.Timeout, Enabled: j.On()}
 		sch, err := cron.Parse(j.Schedule)
 		switch {
 		case err != nil:

@@ -622,7 +622,10 @@ type Request struct {
 	// only changes the words would silently switch a job back on.
 	Schedule string `json:"schedule,omitempty"`
 	Enabled  *bool  `json:"enabled,omitempty"`
-	N        int    `json:"n,omitempty"`
+	// Command and Timeout are the cron edit doors' fields for a job that runs instead of asking.
+	Command string `json:"command,omitempty"`
+	Timeout string `json:"timeout,omitempty"`
+	N       int    `json:"n,omitempty"`
 	// URL and Headers are the attach door's arguments: which HTTP MCP server, and what to send
 	// with every request to it. There is deliberately no command field — this door's safety
 	// argument is that it spawns nothing, and an argument kept in the signature cannot be lost to
@@ -1506,6 +1509,11 @@ type CronRow struct {
 	// Problem is why this job can NEVER run, in words. A row carrying one is the row a dock must
 	// mark: nothing else on any screen will mention it again.
 	Problem string `json:"problem,omitempty"`
+	// Command is what the job RUNS when it comes round, for a job that runs instead of asking.
+	// Exclusive with Prompt — a row carries one or the other.
+	Command string `json:"command,omitempty"`
+	// Timeout bounds one run of Command, as written ("10m"). Empty means the default.
+	Timeout string `json:"timeout,omitempty"`
 	// Prompt is what the job ASKS when it comes round.
 	//
 	// It was dropped here while the engine was already handing it over (ScheduledHere answers
@@ -1524,6 +1532,9 @@ type CronEdit struct {
 	Name     string
 	Schedule string
 	Prompt   string
+	// Command and Timeout describe a job that runs instead of asking. Exclusive with Prompt.
+	Command string
+	Timeout string
 	// Enabled is three-valued on purpose: nil leaves the switch alone, which is what an edit that
 	// only changes the words must do.
 	Enabled *bool
@@ -1565,7 +1576,7 @@ func answerCron(ctx context.Context, eng Engine, req Request) Response {
 // job — which is exactly what a screen redrawing after its own edit would show.
 func cronRowOf(j app.ScheduledJobInfo) CronRow {
 	r := CronRow{Name: j.Name, Schedule: j.Schedule, Enabled: j.Enabled,
-		Problem: j.Problem, Prompt: j.Prompt}
+		Problem: j.Problem, Prompt: j.Prompt, Command: j.Command, Timeout: j.Timeout}
 	if !j.Next.IsZero() {
 		r.Next = j.Next.UTC().Format(time.RFC3339)
 	}
@@ -1610,7 +1621,8 @@ func answerCronEdit(ctx context.Context, eng Engine, req Request) Response {
 	}
 	remove := req.Method == "cron-remove"
 	c := CronEdit{Name: strings.TrimSpace(req.Name), Schedule: strings.TrimSpace(req.Schedule),
-		Prompt: req.Text, Enabled: req.Enabled, Remove: remove}
+		Prompt: req.Text, Command: strings.TrimSpace(req.Command),
+		Timeout: strings.TrimSpace(req.Timeout), Enabled: req.Enabled, Remove: remove}
 	if c.Name == "" {
 		return Response{Err: "which job — a job is named, and the name is how it is found again"}
 	}

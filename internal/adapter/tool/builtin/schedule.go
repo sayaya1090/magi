@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -20,6 +21,12 @@ type scheduleArgs struct {
 	Schedule string `json:"schedule"`
 	Prompt   string `json:"prompt"`
 	Enabled  *bool  `json:"enabled"`
+	// Command is read only to REFUSE it — see the check in Run.
+	//
+	// Declared rather than dropped because encoding/json discards a field nobody named, and a
+	// request that asked for something and got a normal answer is worse than one that was told no:
+	// the model would believe it had scheduled a command that was never written.
+	Command string `json:"command"`
 }
 
 func (Schedule) Name() string { return "schedule" }
@@ -54,6 +61,22 @@ func (Schedule) Execute(ctx context.Context, raw json.RawMessage, env port.ToolE
 	var a scheduleArgs
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return errResult("", "invalid arguments: "+err.Error()), nil
+	}
+	// **A scheduled command is not yours to write.**
+	//
+	// A `command` job runs unattended without going through the tool permission gate — writing it
+	// into the config file IS the approval, the same way an `allow` rule is. That only holds while
+	// the thing being approved was put there by a person: if this tool could write one, a model
+	// could grant itself an unattended shell, every night, on a schedule nobody read.
+	//
+	// Refused with the reason and the other road, rather than dropped: a request that asked for
+	// something and got a normal answer would leave the model believing it had scheduled a command
+	// that was never written.
+	if strings.TrimSpace(a.Command) != "" {
+		return errResult("", "a scheduled command is not something this tool may write — it would "+
+			"run unattended with no approval step, so it has to come from a person: put it in the "+
+			"workspace's .magi/config.toml, or set it from the console or the IDE. A scheduled "+
+			"prompt is what this tool writes."), nil
 	}
 	out, err := env.Schedule(port.ScheduleChange{
 		Action: a.Action, Name: a.Name, Schedule: a.Schedule, Prompt: a.Prompt, Enabled: a.Enabled,

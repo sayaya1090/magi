@@ -328,7 +328,14 @@ type ScheduleChange struct {
 	Name     string
 	Schedule string
 	Prompt   string
-	Enabled  *bool
+	// Command and Timeout describe a job that RUNS instead of asking. Exclusive with Prompt.
+	//
+	// Not reachable from the agent's `schedule` tool, which refuses the field: a command job runs
+	// unattended without a permission step because writing it down is the approval, and that only
+	// holds while a person is the one who wrote it.
+	Command string
+	Timeout string
+	Enabled *bool
 }
 
 // ChildStep is one tool call a child made: what it ran, with what arguments, and whether it worked.
