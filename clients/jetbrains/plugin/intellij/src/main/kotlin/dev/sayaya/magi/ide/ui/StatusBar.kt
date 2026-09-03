@@ -156,7 +156,11 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
                     bits += "턴 " + if (s >= 60) "${s / 60}m${s % 60}s" else "${s}s"
                 }
             }
-            v.councilRound()?.let { bits += "⚖ r$it" }
+            v.councilRound()?.let { r ->
+                // 「지금 누구에게 묻는 중」이 붙으면 멈춘 것과 기다리는 것이 갈린다 — 심의는
+                // 멤버마다 모델을 한 번씩 부르므로 그 침묵이 수십 초다.
+                bits += "⚖ r$r" + (v.councilAsking()?.let { " · $it" } ?: "")
+            }
             return bits.joinToString("") { " · $it" }
         }
 

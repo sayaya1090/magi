@@ -221,6 +221,44 @@ class RowsTest {
     }
 
     @Test
+    fun `라운드가 열린 것도 행이다 — 첫 평결까지 조용하지 않게`() {
+        // 심의는 멤버마다 모델을 한 번씩 부른다. 판이 열린 것을 안 그리면 화면은 첫 평결이
+        // 올 때까지 수십 초 조용하고, 사람은 멈춘 줄로 읽는다. 코어는 그 사실을 내고 있었고
+        // (`council.convened`), 이 셰이퍼가 버리고 있었다.
+        val r = Rows()
+        r.feed(ev("council.convened",
+            """{"round":2,"members":["Melchior","Balthasar","Casper"],"rule":"any veto continues",""" +
+                """"task":"add the idempotency key","report":"done, tests pass"}"""))
+        val opened = r.list().last()
+        assertEquals(Who.Council, opened.who)
+        assertTrue(opened.opened, "평결과 갈리는 표가 행에 남는다")
+        assertEquals(2, opened.round)
+        assertEquals("Melchior, Balthasar, Casper", opened.text, "누가 앉았는지가 본문이다")
+        assertEquals("any veto continues", opened.lens)
+        assertEquals(2, r.councilRound, "라운드는 세션의 사실로도 선다")
+        // 멤버가 **무엇을 보고** 판단했는지 — 코어가 실어 보낸 순서대로.
+        assertTrue(opened.evidence!!.startsWith("task: add the idempotency key"),
+            "증거는 코어가 준 차례를 지킨다: ${opened.evidence}")
+        assertTrue(opened.evidence!!.contains("report: done, tests pass"))
+    }
+
+    @Test
+    fun `심의 중은 행이 아니라 세션의 사실이다`() {
+        // 라운드마다 멤버 수만큼 오는 순간의 사실이라(코어도 영속을 안 한다) 전사에 쌓으면
+        // 판정보다 시끄러워진다. 표시줄이 읽을 자리에만 남기고 행은 안 만든다.
+        val r = Rows()
+        r.feed(ev("council.convened", """{"round":1,"members":["Melchior"]}"""))
+        val before = r.list().size
+        r.feed(ev("council.deliberating", """{"round":1,"member":"Melchior","state":"asking"}"""))
+        assertEquals(before, r.list().size, "심의 중은 행을 만들지 않는다")
+        assertEquals("Melchior", r.councilAsking)
+
+        // 답이 오면 「묻는 중」은 걷힌다 — 답이 온 뒤에도 서 있으면 화면이 거짓말을 한다.
+        r.feed(ev("council.verdict", """{"round":1,"member":"Melchior","decision":"done","rationale":"ok"}"""))
+        assertNull(r.councilAsking, "평결이 온 멤버는 더 이상 묻는 중이 아니다")
+    }
+
+    @Test
     fun `말한 기권과 무응답은 다른 행이다`() {
         // 코어가 둘을 갈라 보낸다(5755dc74): 판정을 안 말한 멤버는 **말한 기권**
         // (abstain, silent 아님)이고, 아무도 안 준 평결만 silent 다. 화면도 갈라야

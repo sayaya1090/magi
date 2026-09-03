@@ -55,6 +55,10 @@ data class Row(
     val cite: String? = null,
     /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
     val silent: Boolean = false,
+    /** 이 행이 **라운드가 열렸다**는 것인가(평결이 아니라). */
+    val opened: Boolean = false,
+    /** 멤버들이 본 것 — 접어 둔다. 「어떻게 투표했나」 옆의 「무엇을 보고」다. */
+    val evidence: String? = null,
     /**
      * 아직 흐르는 중인 조각들로 지은 행. 사실(`part.appended`)이 오면 그 자리에서 사실로
      * 덮인다 — 조각은 **새 줄이 아니라 같은 줄의 고쳐 쓰기**다(TRANSCRIPT §8 의 타자기).
@@ -85,6 +89,14 @@ class Rows {
      * `⚖ council rN` 칩이 아는 것과 같은 사실이다. 행이 아니라 세션의 사실이라 따로 든다.
      */
     @Volatile var councilRound: Int? = null
+
+    /**
+     * 지금 누구에게 묻고 있는가 — `council.deliberating` 이 말하는 것.
+     *
+     * 행이 아니라 세션의 사실이라 따로 든다(라운드와 같은 이유). 평결이 오면 그 멤버는 답한
+     * 것이므로 비운다: 「묻는 중」이 답이 온 뒤에도 서 있으면 화면이 거짓말을 한다.
+     */
+    @Volatile var councilAsking: String? = null
         private set
 
     /**
@@ -116,6 +128,7 @@ class Rows {
         openPrompt = null
         openedAt = null
         councilRound = null
+        councilAsking = null
         todos = emptyList()
         context = null
         model = null
@@ -185,6 +198,11 @@ class Rows {
                 val swept = rows.removeAll { it.draft }
                 error(e) || swept
             }
+            "council.convened" -> convened(e)
+            // 심의 중은 **행이 아니다.** 라운드마다 멤버 수만큼 오는 순간의 사실이라 전사에
+            // 쌓으면 판정보다 시끄러워진다 — 코어도 이것만 transient 로 낸다(영속 안 됨).
+            // 세션의 사실로 들고, 표시줄이 읽는다.
+            "council.deliberating" -> deliberating(e)
             "council.verdict" -> verdict(e)
             "council.decided" -> decided(e)
             // 나머지는 전사가 아니라 다른 자리의 사실이다 — 표가 그렇게 정한다.
@@ -413,10 +431,57 @@ class Rows {
         return true
     }
 
+    /**
+     * 라운드가 열렸다 — 누가 앉았고 무엇으로 가르는가.
+     *
+     * 이 행이 없으면 화면은 **첫 평결이 올 때까지 조용하다.** 심의는 멤버마다 모델을 한 번씩
+     * 부르므로 그 침묵이 수십 초다. 판이 열린 것을 안 말하면 사람은 멈춘 줄로 읽는다 —
+     * 오늘 회의 판에서 고친 것과 같은 결함이고, 여기서는 아예 안 그리고 있었다.
+     *
+     * 멤버들이 **무엇을 보고** 판단했는지도 이 이벤트가 나른다(과제·계약·보고·도구가 한
+     * 일·변경). 코어 주석이 그 용도를 이름 대어 적어 뒀고("so a UI can show what each member
+     * judged, not just how they voted"), 웹은 그것을 라운드별 판으로 그린다. 여기서는 접어
+     * 둔다 — 전사는 흐르는 화면이라 증거가 펼쳐진 채 서면 대화를 덮는다.
+     */
+    private fun convened(e: LogEvent): Boolean {
+        val d = e.data?.jsonObject ?: return false
+        val round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+        if (round > 0) councilRound = round
+        val members = (d["members"] as? kotlinx.serialization.json.JsonArray)
+            ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
+            .orEmpty()
+        // 증거는 코어가 실어 보낸 순서대로 잇는다 — 여기서 고르면 「멤버가 본 것」이 아니라
+        // 「우리가 보여 주기로 한 것」이 된다.
+        val seen = listOf("task", "plan", "report", "actions", "changes")
+            .mapNotNull { k -> d[k]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let { "$k: $it" } }
+            .joinToString("\n\n")
+        rows += Row(
+            Who.Council,
+            members.joinToString(", "),
+            at = e.ts,
+            round = round,
+            lens = d["rule"]?.jsonPrimitive?.content,
+            evidence = seen.ifBlank { null },
+            opened = true,
+        )
+        return true
+    }
+
+    /** 한 멤버에게 묻는 중. 행을 만들지 않는다 — 세션의 사실만 갱신한다. */
+    private fun deliberating(e: LogEvent): Boolean {
+        val d = e.data?.jsonObject ?: return false
+        d["round"]?.jsonPrimitive?.content?.toIntOrNull()?.let { councilRound = it }
+        councilAsking = d["member"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+        // 행이 안 바뀌었으므로 false — 다시 그릴 이유가 없다(표시줄은 제 폴로 읽는다).
+        return false
+    }
+
     private fun verdict(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         councilRound = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: councilRound
         val silent = d["silent"]?.jsonPrimitive?.content == "true"
+        // 답이 왔으면 그 멤버는 더 이상 「묻는 중」이 아니다.
+        if (councilAsking == d["member"]?.jsonPrimitive?.content) councilAsking = null
         rows += Row(
             Who.Council,
             // 실려 온 말은 버리지 않는다(라이브 실측: 사용자가 "왜 다 '답이 없었다'야?" —
@@ -442,6 +507,7 @@ class Rows {
     private fun decided(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         councilRound = null // 합의가 라운드를 닫는다
+        councilAsking = null
         rows += Row(
             Who.Council,
             d["note"]?.jsonPrimitive?.content.orEmpty(),

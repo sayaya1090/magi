@@ -966,7 +966,28 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                     foldable(p, r)
                 }
-                Who.Council -> {
+                Who.Council -> if (r.opened) {
+                    // 라운드가 열렸다. 평결과 **다른 모양**으로 그린다 — 같은 모양이면 판이
+                    // 열린 것과 한 멤버가 답한 것이 화면에서 같은 말이 된다.
+                    val has = !r.evidence.isNullOrBlank()
+                    val open = has && RowText.foldKey(r) in opened
+                    val head = MagiBundle.msg("chat.council.round", r.round)
+                    p.add(Look.rowHead("⚖ $head", Look.body,
+                        if (has) listOf((if (open) "⌃" else MagiBundle.msg("chat.council.saw") + "  ⌄") to Look.faint)
+                        else emptyList(),
+                        RowText.clock(r.at)), BorderLayout.NORTH)
+                    val body = JBPanel<JBPanel<*>>().apply {
+                        layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
+                        isOpaque = false
+                        if (r.text.isNotBlank()) add(Look.prose(r.text))
+                        r.lens?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
+                        // 증거는 **접어 둔다.** 전사는 흐르는 화면이고, 펼쳐진 증거 한 라운드가
+                        // 대화를 덮는다. 옮겨 적을 것이라 고정폭이다(툴 행의 그 규칙 그대로).
+                        if (open) add(Look.code(r.evidence.orEmpty()))
+                    }
+                    p.add(body, BorderLayout.CENTER)
+                    if (has) foldable(p, r)
+                } else {
                     val name = r.member ?: MagiBundle.msg("chat.who.council")
                     val marks = buildList {
                         r.decision?.let {
@@ -1275,6 +1296,9 @@ class MagiToolWindow : ToolWindowFactory {
          */
         fun turnOpenedAt(): String? = if (shaper.open) shaper.openedAt else null
         fun councilRound(): Int? = shaper.councilRound
+
+        /** 지금 누구에게 묻는 중인가 — 라운드 옆에 서면 「멈춘 것」과 「기다리는 것」이 갈린다. */
+        fun councilAsking(): String? = shaper.councilAsking
 
         /**
          * 계획 판이 묻는다. null = **모른다**(전사에 한 번도 못 붙었다), 빈 목록 = 계획이 없다 —
