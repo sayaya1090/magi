@@ -412,6 +412,14 @@ stateDiagram-v2
 - **Detaching is not stopping.** Closing an attached UI leaves the run going, its background
   commands alive and its language servers up — those belong to the process that started them. Ctrl-C
   in the daemon itself is what stops it: it cancels, lets the run unwind, and drops the socket.
+- **A daemon says why it stopped.** Beside the startup line there is now an ending one:
+  `magi: daemon on <socket> stopped — asked to stop over the socket`, or
+  `… stopped — interrupted — a signal, or whoever started it went away`. Those send a reader to
+  completely different places — one is somebody stopping this companion, the other is something
+  killing the process. A clean shutdown is not an error, so for a while nothing was printed at all,
+  and the log of a dead daemon was byte-identical to the log of a live one (measured: three deaths
+  in one session, three startup lines, no ending). A self-update relaunch says `restarting onto the
+  binary on disk` — a companion that is coming back is not one that went away.
 - **Several viewers, one run.** More than one `--attach` can watch the same daemon.
 - `--agents` prints one line per daemon: state, what it is doing, how long it has been idle, and
   whether it is waiting for an answer. It dials each socket in parallel with a short deadline, so a

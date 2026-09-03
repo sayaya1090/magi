@@ -267,7 +267,7 @@ flowchart LR
 
 <div align="center">
 <a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock">
-  <img src="docs/img/console-companion-detail.png" alt="컴패니언 한 대의 페이지 — 왼쪽에 상태·모델·워크스페이스, 가운데에 실제 종료 코드가 보이는 실패한 go test 전사, 승인 대기 중인 권한 프롬프트" width="860">
+  <img src="docs/img/console-companion-detail.png" alt="컴패니언 한 대의 페이지 — 가운데에 실시간 전사, 오른쪽 기둥에 상태·모델·워크스페이스와 계획과 지금 돌고 있는 것" width="860">
 </a>
 
 <sub>컴패니언 하나: 진짜 종료 코드가 보이는 실시간 전사와, 승인을 기다리는 위험한 명령.</sub>

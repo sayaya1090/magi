@@ -92,7 +92,7 @@ doing. The order is the order the eye should travel: **waiting on a person → w
 ### 2.2 One companion (`/?d=<socket>`)
 
 <div align="center">
-<img src="img/console-companion-detail.png" alt="One companion: the transcript in the middle with a tool call and its real exit code, a permission prompt held for approval, and the facts pane on the right" width="880">
+<img src="img/console-companion-detail.png" alt="One companion: the transcript in the middle, and the right column carrying the facts, the plan and what is running now" width="880">
 </div>
 
 And the same screen with the workspace pane open — the two panes the section below is about, beside
@@ -109,8 +109,23 @@ at 900px it was the same — this was never a phone problem.
 
 | | ≥840px | below |
 |---|---|---|
-| layout | two columns: the conversation, and the facts beside it | two panels, **대화 / 상태** |
+| layout | three columns: the workspace on the left, the conversation in the middle, the facts and what is in flight on the right | tabs, **talk / files / plan / facts** |
+| how it opens | left shut, right **open** | on the conversation |
 | what stays put | the side column is sticky — a plan that scrolls away is one you re-find | — |
+
+The right column opens because what is in it changed. While the facts panel sat in the middle it
+was an auto-fit grid, so it took every spare pixel as another column — and on a screen with no
+cards, which is most screens, it lay across the whole transcript. What a companion IS gets read out
+of the corner of an eye, and the place Material calls a side sheet is this column. The left one is
+a file tree and still arrives shut: to somebody opening this page the screen is the conversation,
+and the tree is something you go to.
+
+**This screen has no reading cap.** Others do — settings, experience and MCP are 170ch. A cap is
+for a column of prose and this screen is three panes, so every pixel it holds back is width the
+file tree and the facts panel do not get. It had one (230ch), and on a 2490px screen that left
+220px empty down each side while the facts panel inside it was wrapping values at 303px. The
+masthead and the dock lose it together: the four are one column, and a column that widens at the
+top and not at the bottom is the defect (measured: header 568..2001 over a page 315..2254).
 
 Which panel you were on is **not in the URL**. The destination is the companion; which half of it
 you were reading is a scroll position, and putting it in the address bar would make a link somebody
@@ -126,9 +141,9 @@ moment the page can no longer know (stream error, stream closed, leaving the scr
 `aria-hidden` because the row already says "working on this" in words — announcing one state twice
 makes the transcript worse to listen to.
 
-The facts card **folds**, at every width, remembered across companions. It answers "what am I
-looking at" once and is then 547px of masthead between a reader and the conversation; folded it is
-58px with the state and the workspace still on its summary line.
+The facts card **folds**, at every width, remembered across companions. Folded, the state and the
+workspace stay on its summary line. With nothing remembered the right column stands open, and
+somebody who shut it keeps it shut.
 
 Header fields, in the order the questions come — the grid packs in DOM order, so the list of them
 IS the layout:
@@ -167,6 +182,20 @@ The context line is the point of this screen:
   on them is worth different amounts.
 - No bar when the window is unknown. An empty track reads as "nearly empty", which is the opposite
   of "we do not know".
+- Under it, **what the window is filled with**: a five-colour band and, beneath it in small type,
+  the size of each — system prompt · tool catalog · conversation · tool calls · tool results. The
+  total says how full and the band says with what, and those are different questions. Show only a
+  total and somebody watching a full window goes to trim the conversation, which on this harness is
+  routinely the small half. Measured on qwen3.8:27b-mlx after one exchange: system 2,404, tools
+  5,703, talk 4 — 8,107 of the 8,750 was there before anybody spoke.
+- The five are measured by the process that **assembled the request**. A reader replaying the log
+  can count the conversation and nothing else: the system prompt and the tool catalog are built per
+  session and never written down. So they ride on the `turn.finished` fact, and a session without
+  one — recorded before this existed, or not yet run — gets **no band at all**. Five zeros is not a
+  measurement, it is "not known", the same rule as the missing window above.
+- When the total is a real count, the band is labelled **"make-up estimated"**. The five are still
+  chars/4 arithmetic, so they will not sum to it — and putting two numbers that disagree side by
+  side while saying nothing is the lie.
 - `2 folds · 31,000 tokens shed · last 40,000→9,000 at 04:31Z`. A compaction is the one moment a
   companion silently stops knowing something, and how many there have been decides whether its
   earlier reasoning can be assumed still there.
@@ -190,7 +219,15 @@ how far in (`8s into the turn` corrects the instruction; `20m in` corrects the w
 would have helped). Derived, not recorded: a user prompt arriving while a turn is open *is* a steer,
 so a screen written today answers for last month's logs.
 
-Below that: the live transcript (SSE) and the composer.
+The plan, the handed-off work and the interjections all stand in the **right column** now; the
+middle is the live transcript (SSE) and the composer, top to bottom.
+
+**A conversation nobody has spoken in says so** — "nothing has been said here yet; type below to
+start". Without that line a new companion's first screen was a blank panel, and a blank panel reads
+the same as "we have not asked yet". The wiring had the same hole: a session with no events was
+never sent a transcript frame at all, and the frames it did send carried `null` (a nil slice). A
+first frame always goes out now, and an empty transcript goes out as `[]`, so the page can tell
+empty from unknown.
 
 **When it is blocked on a question, the composer becomes the answer field.** Both drawn, the page
 had two text fields stacked — the upper one answering the question, the lower one addressing work to

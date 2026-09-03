@@ -269,7 +269,7 @@ no port of its own and holds no credential of its own.
 
 <div align="center">
 <a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock">
-  <img src="docs/img/console-companion-detail.png" alt="One companion's page: its status, model and workspace on the left, a live transcript in the middle showing a failing go test with its real exit code, and a permission prompt held for approval" width="860">
+  <img src="docs/img/console-companion-detail.png" alt="One companion's page: a live transcript in the middle, and the right column carrying its status, model and workspace, the plan, and what is running now" width="860">
 </a>
 
 <sub>One companion: the live transcript with true exit codes, and a dangerous command waiting for your approval.</sub>

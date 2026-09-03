@@ -543,6 +543,12 @@ Step by step:
    in `world_snapshot.go`) — which commands it granted, how they really ended, which paths they
    wrote, and which background commands are still alive. A screen-driven agent re-reads its
    terminal before every decision; this is the same refresh over the store magi actually keeps.
+   What that assembly is made of gets recorded, in tokens, on the turn's `turn.finished` fact
+   (`event.PromptShape`): system prompt, tool catalog, conversation, tool calls, tool results.
+   Only this process can measure it — the system prompt and the catalog are built per session and
+   never written to the log — so without the fact, a reader replaying events can count the
+   conversation and nothing else, and calls that the context. Measured on one companion after a
+   single exchange: 2,404 system, 5,703 catalog, 4 conversation.
 2. **Stream** one model response: text (`part.delta`), reasoning, tool calls; persist the
    assistant message. Two recoveries belong to getting it — a context too large to send, and a
    backend that goes silent (`generate_step.go`).
