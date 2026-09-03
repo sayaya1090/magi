@@ -358,7 +358,14 @@ class SourceTextTest {
         assertTrue(root != null, "저장소 뿌리(`go.mod`)를 못 찾았다 — 이 시험이 말하는 것은 " +
             "「지킨다」가 아니라 「못 봤다」이다")
 
-        val go = File(root, "internal/adapter/daemon/daemon.go").readText()
+        // **파일이 아니라 패키지를 읽는다.** 한때 `daemon.go` 를 이름으로 읽었는데, 그 파일이
+        // 여섯으로 갈리자(2026-09-03) 이 시험이 `FileNotFoundException` 으로 죽었다 — 릴리스
+        // 파이프라인에서. 상수는 패키지 안에서 옮겨 다니고, 이 시험이 지키는 것은 그 상수이지
+        // 그것이 지금 어느 파일에 있는지가 아니다.
+        val pkg = File(root, "internal/adapter/daemon")
+        assertTrue(pkg.isDirectory, "코어의 daemon 패키지를 못 찾았다: $pkg")
+        val go = pkg.listFiles { f: File -> f.name.endsWith(".go") && !f.name.endsWith("_test.go") }
+            .orEmpty().joinToString("\n") { it.readText() }
         val theirs = Regex("""maxSocketPath\s*=\s*(\d+)""").find(go)
         assertTrue(theirs != null, "코어의 `maxSocketPath` 가 없어졌다. 옮겨 간 것이면 이 시험도 " +
             "같이 옮겨라 — 못 찾은 것을 통과로 읽지 않는다")

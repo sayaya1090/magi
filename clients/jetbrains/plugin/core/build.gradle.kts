@@ -81,8 +81,10 @@ tasks.test {
     // 필드 이름은 손으로 옮겨 적고, `ignoreUnknownKeys` 때문에 어긋나도 예외가 아니라 기본값이
     // 되어 화면이 조용히 「없다」고 말한다. 원천이 바뀐 것을 이 작업이 모르면 대조는 영영 초록이다.
     val wireOrigins = listOf(
-        "internal/adapter/daemon/daemon.go",
-        "internal/adapter/daemon/roster.go",
+        // 파일이 아니라 **패키지**를 댄다. 이름을 대면 늙는다 — daemon.go 를 적어 뒀다가 그 파일이
+        // 여섯으로 갈린 날 릴리스가 빨갛게 섰다(2026-09-03). `inputs.files` 는 없는 파일을 참으므로
+        // 빌드는 조용했고, 운 것은 CI 의 시험이었다.
+        "internal/adapter/daemon",
         "internal/core/command/command.go",
         "internal/core/event/event.go",
     ).map { rootProject.projectDir.resolve("../../../$it").canonicalFile }
