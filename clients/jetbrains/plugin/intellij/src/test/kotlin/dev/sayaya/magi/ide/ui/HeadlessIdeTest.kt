@@ -319,4 +319,39 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         c.createComponent()?.let(::walk)
         return out
     }
+
+    /**
+     * **이 화면은 데몬에 없는 것을 있다고도, 있는 것을 없다고도 말하지 않는다.**
+     *
+     * 예전에 여기 「the daemon has no door for the rest yet」는 줄이 있었고, `settings` 문이
+     * 생긴 뒤 거짓이 됐다 — 그 줄이 이름 대는 키 셋을 그 문이 이미 열고 있었다. 문장에는 타입이
+     * 없어서 어떤 시험도 안 울었다. 그래서 그 문장이 돌아오는 것을 여기서 막는다.
+     *
+     * 지운 것을 재는 시험이라 약해 보이지만, 이 부류가 하루에 넷 나왔다: 화면이 시스템에 대해
+     * 단언하면 그 단언은 늙는다.
+     */
+    fun `test 설정 화면이 문의 부재를 단언하지 않는다`() {
+        // 번들을 **파일로** 읽는다. MagiBundle.msg 는 없는 열쇠에 로거 에러를 내고 열쇠를
+        // 그대로 돌려주므로, 그것으로 「없음」을 재면 시험이 에러 한 줄을 남기며 통과한다.
+        val props = java.util.Properties()
+        MagiBundle::class.java.getResourceAsStream("/messages/MagiBundle.properties")!!
+            .use { props.load(java.io.InputStreamReader(it, Charsets.UTF_8)) }
+        assertNull("문이 생기고도 남아 거짓이 된 문장이 돌아왔다: " + props.getProperty("set.byfile.what"),
+            props.getProperty("set.byfile.what"))
+    }
+
+    /**
+     * **데몬이 없으면 문이 준 칸도 없고, 따라서 바뀐 것도 없다.**
+     *
+     * `isModified` 에 문 칸 비교를 더했다. 그 줄이 데몬 없는 화면에서 참이 되면 **연 것만으로
+     * 바뀜**이 되고, OK 를 누르면 아무도 고르지 않은 값이 데몬으로 나간다 — 이 파일이 이미
+     * 겪고 적어 둔 결함이고(모름을 사람이 고른 것으로 다루지 않는다), 새 줄이 그것을 되살릴 수
+     * 있는 자리다.
+     */
+    fun `test 데몬이 없으면 문 칸이 화면을 바뀜으로 만들지 않는다`() {
+        val c = MagiConfigurable(project)
+        c.createComponent()
+        c.reset()
+        assertFalse("데몬이 없는데 문 칸이 바뀜을 만든다 — 아무도 안 고른 값이 저장된다", c.isModified)
+    }
 }
