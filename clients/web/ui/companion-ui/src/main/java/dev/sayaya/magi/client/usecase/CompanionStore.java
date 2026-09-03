@@ -307,7 +307,10 @@ public class CompanionStore implements CompanionSource.Listener {
      * 압축 단추가 「턴 사이에 접고 싶은 사람의 것」인 것과 같은 이유다.
      */
     private void refetchWhenATurnEnds(FleetAgent a) {
-        boolean turning = a != null && ("working".equals(a.state) || "waiting".equals(a.state));
+        // 브리지의 그 술어다. 여기서 다시 적었더니 `abandoned` 가 빠져 두 정의가 갈렸다 —
+        // 같은 커밋 안에서 벌어진 일이고, 그 갈라짐이 이 파일이 막으려는 바로 그것이다.
+        // abandoned 는 턴이 열린 채 데몬이 죽은 것이라, 다시 물어도 답할 상대가 없다.
+        boolean turning = dev.sayaya.magi.bridge.AgentStates.turning(a);
         if (wasTurning && !turning) {
             ctxFor = null;
             askContextInfo();

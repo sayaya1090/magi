@@ -69,8 +69,12 @@ public class FakeWorkspaceSource implements WorkspaceSource {
         // 무엇으로 보냈는지가 스펙의 관심사다 — 패치면 패치, 아니면 본문.
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_save",
                 path + "|" + (patch == null || patch.isEmpty() ? "text:" + text : "patch:" + patch));
+        savedOnce = true;
         why.accept("");
     }
+
+    /** 한 번이라도 저장이 있었나 — 그 뒤의 읽기는 디스크가 답한다. */
+    private boolean savedOnce = false;
 
     @Override
     public void fileDo(CompanionContext ctx, String what, String path, String to, Consumer<String> why) {
@@ -179,8 +183,12 @@ public class FakeWorkspaceSource implements WorkspaceSource {
     @Override
     public void file(CompanionContext ctx, String path, Consumer<Object> cb) {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_opened", path);
-        // 에이전트의 read 툴이 내는 그 모양(번호⇥본문) — 화면이 기둥을 가르는지 재려면 그래야 한다.
+        // 저장 뒤 다시 읽으면 <b>디스크가</b> 답한다 — 저장한 글자 그대로가 아니라. 훅이
+        // 포맷했거나 도구가 마지막 개행을 붙였을 수 있고, 화면이 보여야 하는 것은 그쪽이다.
+        // 이 목이 두 번째부터 다르게 답하는 이유가 그것이다: 같은 본문을 답하면 「다시 읽었나」
+        // 를 아무도 잴 수 없다.
+        String tail = savedOnce ? "3\\tfunc main() {} // go — formatted on save\\n" : "3\\tfunc main() {} // go\\n";
         cb.accept(Global.JSON.parse("{\"path\":\"" + path
-                + "\",\"text\":\"1\\tpackage main\\n2\\t\\n3\\tfunc main() {} // go\\n\"}"));
+                + "\",\"text\":\"1\\tpackage main\\n2\\t\\n" + tail + "\"}"));
     }
 }

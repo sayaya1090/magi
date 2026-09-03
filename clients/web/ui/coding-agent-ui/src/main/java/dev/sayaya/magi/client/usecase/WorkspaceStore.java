@@ -160,7 +160,16 @@ public class WorkspaceStore extends dev.sayaya.magi.bridge.Told {
         if (ctx == null) return;
         String patch = dev.sayaya.magi.client.domain.Code.unifiedDiff(opened, now, path);
         source.save(ctx, path, patch, now, w -> {
-            if (w == null || w.isEmpty()) { walked = false; walk(); }
+            if (w == null || w.isEmpty()) {
+                walked = false;
+                walk();
+                // 이 파일의 사본은 방금 낡았다. openFile 은 이미 읽어 둔 본문이 있으면 바로
+                // 돌아오므로(같은 파일을 다시 누른 사람에게 다시 묻지 않으려는 규칙), 저장한
+                // 쪽이 비워 주지 않으면 「저장하고 디스크를 다시 읽어 보여 준다」가 캐시에 막혀
+                // 일어나지 않는다 — 그리고 화면은 편집 상자를 그대로 세워 둔다. 실측: 저장이
+                // 디스크까지 갔는데도 단추가 「저장/취소」인 채였고, 6초를 더 기다려도 같았다.
+                this.opened.put(path, null);
+            }
             why.accept(w);
         });
     }

@@ -626,6 +626,16 @@ internal class CodingScreenTest : GwtTestSpec({
                 page.waitForSelector("#fileview .filebody .filecode")
                 page.locator("#fileview .fileedit").count() shouldBe 0
             }
+            Then("보이는 것은 <b>다시 읽은</b> 것이다 — 저장한 글자가 아니라") {
+                // 저장은 디스크를 바꾸고, 디스크가 저장한 글자와 다를 수 있다: 포맷 훅이 돌았거나
+                // 도구가 마지막 개행을 붙였거나. 그래서 이 자리의 규칙은 "다시 읽어 보여 준다"인데,
+                // openFile 은 이미 읽어 둔 본문이 있으면 바로 돌아온다(같은 파일을 다시 누른
+                // 사람에게 다시 묻지 않으려는 규칙) — 저장한 쪽이 그 사본을 비워 주지 않으면
+                // 화면은 제가 보낸 글자를 디스크라고 부른다.
+                page.waitForCondition {
+                    page.locator("#fileview .filebody .filecode").textContent().contains("formatted on save")
+                }
+            }
         }
         // 이 편집기의 도움 둘 — 멈출 때마다 <b>스스로</b> 도는가는 이 브라우저의 취향이고(설정
         // 화면이 적는 낱말을 편집기가 읽는다), 사람이 한 번 청하는 것은 취향과 무관하게 열려 있다.
