@@ -515,7 +515,7 @@ type kidEngine struct {
 func (e *kidEngine) ChildrenOf(_ context.Context, parent string) ([]session.SessionMeta, error) {
 	e.asked = parent
 	return []session.SessionMeta{
-		{ID: "s_room", Agent: "meeting", Title: "which store for the queue"},
+		{ID: "s_room", Agent: "spawn", Origin: "meeting", Title: "which store for the queue"},
 	}, nil
 }
 
@@ -553,10 +553,11 @@ func TestTheChildrenDoorCrossesTheSocket(t *testing.T) {
 	if len(kids) != 1 || kids[0].ID != "s_room" {
 		t.Fatalf("the row crosses whole, got %+v", kids)
 	}
-	// The role is the field this door added to SessionRow; a wire that dropped it would still
-	// pass every assertion above and leave a screen unable to tell a meeting from a delegate.
-	if kids[0].Agent != "meeting" {
-		t.Fatalf("the subagent role crossed as %q", kids[0].Agent)
+	// Origin is the field a screen reads to tell a meeting room from a delegate; a wire that
+	// dropped it would still pass every assertion above and leave that screen unable to say
+	// which is which. (Agent is "spawn" for every child — measured against a live meeting.)
+	if kids[0].Origin != "meeting" || kids[0].Agent != "spawn" {
+		t.Fatalf("origin/agent crossed as %q/%q", kids[0].Origin, kids[0].Agent)
 	}
 	// And the handshake says the door is there, so a client knows before it calls.
 	hi, err := c.Hello()

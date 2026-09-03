@@ -96,10 +96,11 @@ func TestChildrenOfFindsSpawnedChildrenOnTheRealEngine(t *testing.T) {
 	if kids[0].ID != child {
 		t.Fatalf("wrong child: %q, want %q", kids[0].ID, child)
 	}
-	// The role travels. Without it a screen can list a meeting room and a delegate and say
-	// nothing about which is which — the one fact that distinguishes them.
+	// The child mark travels. It says "something else asked for this conversation" and no more —
+	// every child records the same word, so WHICH kind of child it is comes from Origin instead
+	// (measured against a live meeting: the room came back as agent="spawn").
 	if kids[0].Agent != "meeting" {
-		t.Fatalf("the subagent role is what tells a meeting room from a delegate, got %q", kids[0].Agent)
+		t.Fatalf("what the creator recorded travels unreshaped, got %q", kids[0].Agent)
 	}
 	// And the child is NOT in the top-level listing — the two doors answer different questions.
 	metas, err := d.SessionsHere(ctx)

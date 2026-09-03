@@ -1530,11 +1530,16 @@ func answerCron(ctx context.Context, eng Engine, req Request) Response {
 type SessionRow struct {
 	ID    string `json:"id"`
 	Title string `json:"title,omitempty"`
-	// Agent is the subagent role, set only on child sessions — the tool that spawned it names
-	// it ("meeting", a delegate's role). Empty on the top-level conversations `sessions` lists,
-	// which is why one shape serves both doors: a row is a conversation, and this says whether
-	// something else asked for it.
-	Agent        string   `json:"agent,omitempty"`
+	// Agent marks a CHILD session — every child records the same word ("spawn"), so this says
+	// "something else asked for this conversation" and nothing more. It is deliberately not the
+	// discriminator: a live run proved the point (a meeting room came back as agent="spawn"),
+	// and `spawnAgentName` is a constant in internal/app/spawn.go.
+	Agent string `json:"agent,omitempty"`
+	// Origin is WHO opened it, and this is what tells one child from another — "meeting" for a
+	// room a participant holds, the spawning tool's actor otherwise. The web console already
+	// keyed on it before this door existed ("nothing new has to be recorded to tell them apart"),
+	// which is the strongest argument for carrying it rather than inventing a second field.
+	Origin       string   `json:"origin,omitempty"`
 	Model        string   `json:"model,omitempty"`
 	Labels       []string `json:"labels,omitempty"`
 	Created      string   `json:"created,omitempty"`
@@ -1596,7 +1601,8 @@ func answerChildren(ctx context.Context, eng Engine, req Request) Response {
 	sort.SliceStable(metas, func(i, j int) bool { return metas[i].LastActivity.After(metas[j].LastActivity) })
 	rows := make([]SessionRow, 0, len(metas))
 	for _, m := range metas {
-		r := SessionRow{ID: string(m.ID), Title: m.Title, Agent: m.Agent, Model: m.Model, Labels: m.Labels}
+		r := SessionRow{ID: string(m.ID), Title: m.Title, Agent: m.Agent, Origin: m.Origin,
+			Model: m.Model, Labels: m.Labels}
 		if !m.Created.IsZero() {
 			r.Created = m.Created.UTC().Format(time.RFC3339)
 		}

@@ -175,6 +175,9 @@ different question depending on who asked. No children is an empty list with OK,
 omitted field — "none were spawned" and "this build cannot say" are different screens, which is
 what the capability handshake is for. Meetings ride the same door: a participant holds its
 meeting in a child session, so what your companion said in a room is that child's transcript.
+The row carries `origin` — who opened the conversation — and that is what tells one child from
+another ("meeting" for a room). `agent` is NOT the discriminator: every child records the same
+word, measured against a live meeting where a room came back as `agent="spawn"`.
 
 ### Companion to companion, machine to machine
 

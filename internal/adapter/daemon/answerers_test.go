@@ -361,8 +361,8 @@ func TestChildrenAnswersRowsNewestFirst(t *testing.T) {
 	old := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	recent := time.Date(2026, 9, 3, 10, 0, 0, 0, time.UTC)
 	eng := &childEngine{kids: []session.SessionMeta{
-		{ID: "s_old", Agent: "coder", Title: "fix the parser", Created: old, LastActivity: old},
-		{ID: "s_new", Agent: "meeting", Title: "which store", Created: old, LastActivity: recent},
+		{ID: "s_old", Agent: "spawn", Origin: "coder", Title: "fix the parser", Created: old, LastActivity: old},
+		{ID: "s_new", Agent: "spawn", Origin: "meeting", Title: "which store", Created: old, LastActivity: recent},
 	}}
 	resp := answerChildren(context.Background(), eng, Request{Session: "s_parent"})
 	if !resp.OK || len(resp.Children) != 2 {
@@ -374,9 +374,14 @@ func TestChildrenAnswersRowsNewestFirst(t *testing.T) {
 	if resp.Children[0].ID != "s_new" {
 		t.Fatalf("newest activity first, got %q", resp.Children[0].ID)
 	}
-	// The role is the one fact that tells a meeting room from a delegate.
-	if resp.Children[0].Agent != "meeting" || resp.Children[1].Agent != "coder" {
-		t.Fatalf("the subagent role travels, got %q and %q", resp.Children[0].Agent, resp.Children[1].Agent)
+	// **Origin** is what tells a meeting room from a delegate — measured against a live meeting,
+	// where the room came back as agent="spawn" like every other child (spawnAgentName is a
+	// constant). Agent says only "something else asked for this"; who asked is here.
+	if resp.Children[0].Origin != "meeting" || resp.Children[1].Origin != "coder" {
+		t.Fatalf("origin travels, got %q and %q", resp.Children[0].Origin, resp.Children[1].Origin)
+	}
+	if resp.Children[0].Agent != "spawn" {
+		t.Fatalf("the child mark travels too, got %q", resp.Children[0].Agent)
 	}
 	if resp.Children[0].LastActivity != recent.Format(time.RFC3339) {
 		t.Fatalf("timestamps are RFC3339, got %q", resp.Children[0].LastActivity)
