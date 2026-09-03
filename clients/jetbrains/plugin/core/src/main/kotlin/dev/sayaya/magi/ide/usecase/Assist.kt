@@ -43,7 +43,7 @@ class Assist(
             val r = c.exchange(Request(method = "complete", name = path, args = args))
             // 왜 빈손인지를 **기억한다.** 매 타건마다 말하면 잡음이라 설정 화면이 읽는다 —
             // 고치는 자리가 거기이기 때문이다(라우팅 키가 같은 화면에 서 있다).
-            lastEmpty = if (r.out.isNullOrEmpty()) r.reason?.takeIf { it.isNotBlank() } else null
+            note(r.error, if (r.out.isNullOrEmpty()) r.reason else null)
             r.out
         }
     }
@@ -63,12 +63,45 @@ class Assist(
         @JvmStatic
         var lastEmpty: String? = null
             internal set
+
+        /**
+         * 마지막 거들기 왕복이 **거부**당한 사유, 있으면 — 문이 제 말로 말한 문장 그대로.
+         *
+         * [lastEmpty] 와 갈라 둔다: 저쪽은 이 화면이 아는 코드(`off`·`unrouted`…)라 번역된
+         * 문장으로 그리고, 이쪽은 데몬의 산문이라 **그대로** 그린다. 한 칸에 섞으면 번역 열쇠를
+         * 못 찾은 문장이 `set.complete.why.this daemon cannot…` 으로 찍힌다.
+         */
+        @Volatile
+        @JvmStatic
+        var lastRefused: String? = null
+            internal set
+    }
+
+    /**
+     * 이번 왕복이 왜 빈손인지를 한 자리에 적는다.
+     *
+     * **거부와 「할 말 없음」은 다른 칸으로 온다.** 문이 못 하겠다고 할 때는 `err` 이고
+     * (`this daemon cannot complete code`), 완성기가 그냥 아무 말도 안 했을 때는 `OK` 에
+     * `reason` 이다. 여기가 `reason` 만 읽던 동안 설정 화면은 **거부를 영영 못 그렸다** —
+     * 「자동완성이 왜 죽었나」의 답이 아무도 안 읽는 칸에 들어 있었다.
+     *
+     * 네 문이 전부 같은 인터페이스([Reviewer])에 걸리므로 자리도 하나다: 하나가 거부하면
+     * 넷 다 거부한다. 성공한 왕복은 지운다 — 잘 되는 동안 남아 있는 사유는 늙는다.
+     */
+    private fun note(err: String?, why: String?) {
+        val bad = err?.takeIf { it.isNotBlank() }
+        lastRefused = bad
+        lastEmpty = if (bad == null) why?.takeIf { it.isNotBlank() } else null
     }
 
     /** 컴포저 제안. 사람이 치던 지시를 어떻게 끝낼지. */
     fun suggest(prefix: String): String? {
         if (prefix.isBlank()) return null
-        return call { c -> c.exchange(Request(method = "suggest", text = prefix)).out }
+        return call { c ->
+            val r = c.exchange(Request(method = "suggest", text = prefix))
+            note(r.error, null)
+            r.out
+        }
     }
 
     /**
@@ -77,7 +110,13 @@ class Assist(
      */
     fun lookOver(path: String, text: String): String? {
         if (text.isBlank()) return null
-        return call { c -> c.exchange(Request(method = "look-over", name = path, text = text)).out }
+        return call { c ->
+            val r = c.exchange(Request(method = "look-over", name = path, text = text))
+            note(r.error, null)
+            // 거부는 **답으로 돌려준다.** 이 문은 사람이 눌러서 열리고, 누른 자리에 판이 있다 —
+            // 삼키면 그 판이 「할 말이 없다」고 적고, 데몬은 왜 못 하는지 말했는데 아무도 안 읽는다.
+            r.out?.takeIf { it.isNotBlank() } ?: r.error?.takeIf { it.isNotBlank() }
+        }
     }
 
     /**
@@ -86,7 +125,11 @@ class Assist(
      * 에이전트가 낡은 내용을 추론한다.
      */
     fun setOpenFile(path: String, text: String): Boolean =
-        call { c -> if (c.exchange(Request(method = "open-file", name = path, text = text)).ok) "y" else null } != null
+        call { c ->
+            val r = c.exchange(Request(method = "open-file", name = path, text = text))
+            note(r.error, null)
+            if (r.ok) "y" else null
+        } != null
 
     private fun <T> call(work: (Daemon) -> T?): T? {
         if (!enabled()) return null

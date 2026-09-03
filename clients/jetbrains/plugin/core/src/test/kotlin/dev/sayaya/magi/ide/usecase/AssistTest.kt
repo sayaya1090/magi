@@ -115,4 +115,62 @@ class AssistTest {
         assertNull(gone.suggest("무엇"))
         assertEquals(0, gone.inFlight, "실패해도 대기 카운트가 남으면 스피너가 안 꺼진다")
     }
+    /**
+     * **거부는 「할 말 없음」이 아니다.**
+     *
+     * 문이 못 하겠다고 할 때는 `err` 로 오고, 완성기가 그냥 아무 말도 안 했을 때는 `ok` 에
+     * `reason` 으로 온다. [Assist] 가 `reason` 만 읽던 동안 설정 화면은 거부를 영영 못 그렸다 —
+     * 「자동완성이 왜 죽었나」의 답이 왕복에 실려 왔는데 아무도 안 읽는 칸에 있었다.
+     */
+    @Test
+    fun `문이 거부하면 그 사유가 남는다`() {
+        Assist.lastRefused = null
+        Assist.lastEmpty = "off"
+        val f = Fake(listOf("""{"error":"this daemon cannot complete code"}"""))
+        f.start()
+        val out = Assist({ DaemonClient.connect(f.path) }).completeCode("A.kt", "fun x(", "")
+        assertNull(out, "거부에 글자가 딸려 올 리 없다")
+        assertEquals("this daemon cannot complete code", Assist.lastRefused,
+            "문이 왜 못 하는지 말했는데 화면이 읽을 자리에 안 남았다")
+        assertNull(Assist.lastEmpty, "거부는 「할 말 없음」 칸을 비운다 — 두 사유가 같이 서면 화면이 둘 다 말한다")
+    }
+
+    @Test
+    fun `잘 된 왕복은 앞의 거부를 지운다`() {
+        Assist.lastRefused = "this daemon cannot complete code"
+        val f = Fake(listOf("""{"ok":true,"out":"1)"}"""))
+        f.start()
+        Assist({ DaemonClient.connect(f.path) }).completeCode("A.kt", "fun x(", "")
+        assertNull(Assist.lastRefused, "잘 되는 동안 남아 있는 사유는 늙는다")
+    }
+
+    /**
+     * 훑어보기는 **누른 자리에 판이 있다.** 그래서 거부를 삼키면 그 판이 「할 말이 없다」고 적고,
+     * 그건 데몬이 한 말과 다른 말이다. 답으로 돌려줘야 부른 쪽이 그릴 수 있다.
+     */
+    @Test
+    fun `훑어보기의 거부는 답으로 돌아온다`() {
+        Assist.lastRefused = null
+        val f = Fake(listOf("""{"error":"this daemon cannot look over a file"}"""))
+        f.start()
+        val said = Assist({ DaemonClient.connect(f.path) }).lookOver("A.kt", "package x")
+        assertEquals("this daemon cannot look over a file", said,
+            "거부를 삼키면 판이 「할 말이 없다」고 적는다 — 데몬은 왜 못 하는지 말했다")
+    }
+
+    /** 타이핑 중에 도는 셋도 사유는 남긴다 — 그 자리에서 안 그릴 뿐이다. */
+    @Test
+    fun `조용한 문들도 거부 사유를 남긴다`() {
+        for (call in listOf<Pair<String, (Assist) -> Any?>>(
+            "suggest" to { a -> a.suggest("고쳐 줘") },
+            "open-file" to { a -> a.setOpenFile("A.kt", "package x") },
+        )) {
+            Assist.lastRefused = null
+            val f = Fake(listOf("""{"error":"this daemon cannot ${call.first}"}"""))
+            f.start()
+            call.second(Assist({ DaemonClient.connect(f.path) }))
+            assertEquals("this daemon cannot ${call.first}", Assist.lastRefused,
+                "${call.first} 이 거부당했는데 아무 데도 안 남았다")
+        }
+    }
 }

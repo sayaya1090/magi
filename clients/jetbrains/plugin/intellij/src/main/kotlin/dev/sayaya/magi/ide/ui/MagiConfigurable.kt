@@ -352,9 +352,12 @@ class MagiConfigurable(private val project: Project) : Configurable {
             }
             perm.text = Perms.label(f.permission)
             // 모름은 모름으로 — 빈 칸은 「없음」으로 읽힌다.
-            completeWhy.text = dev.sayaya.magi.ide.usecase.Assist.lastEmpty?.let {
-                MagiBundle.msg("set.complete.why." + it, it)
-            }.orEmpty()
+            // 거부가 먼저다. 그것은 데몬이 제 말로 한 문장이라 **그대로** 세운다 — 번역 열쇠로
+            // 돌리면 없는 열쇠라 `set.complete.why.this daemon cannot…` 이 찍힌다. 코드로 오는
+            // 사유(off·unrouted…)만 문장으로 바꾼다.
+            val assist = dev.sayaya.magi.ide.usecase.Assist
+            completeWhy.text = assist.lastRefused?.let { MagiBundle.msg("set.complete.refused", it) }
+                ?: assist.lastEmpty?.let { MagiBundle.msg("set.complete.why." + it, it) }.orEmpty()
             modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
             backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
             // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히
