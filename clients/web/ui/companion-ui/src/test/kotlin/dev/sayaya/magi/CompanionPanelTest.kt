@@ -85,6 +85,24 @@ internal class CompanionPanelTest : GwtTestSpec({
                 model.locator("md-select-option[value=\"fast-model\"]").count() shouldBe 1
                 model.locator("md-select-option[value=\"deep-model\"]").count() shouldBe 1
             }
+            // 이 판은 22rem 기둥 안에 산다. Material 의 고르개는 inline-flex 라 제 <b>내용</b>만큼만
+            // 넓어져서, 같은 칸 안에서 210px 과 282px 로 서로 다르게 서 있었다 — 오른쪽이 비어
+            // 보이던 것의 정체는 카드 여백이 아니라 이것이었다(실측). 폭을 못 박아 두지 않으면
+            // 라벨이 짧은 항목이 하나 들어오는 것만으로 줄이 다시 들쭉날쭉해진다.
+            Then("고르개는 칸을 다 쓴다 — 제 글자만큼이 아니라") {
+                openSide(page)
+                val same = page.evaluate(
+                    "(() => { const d = document.querySelector('#sidecol > #detail');" +
+                        " const row = d.querySelector('.f .v > md-outlined-select');" +
+                        " if (!row) return 'no select in the panel';" +
+                        " const box = row.parentElement.getBoundingClientRect().width;" +
+                        " const bad = Array.from(d.querySelectorAll('.f .v > md-outlined-select'))" +
+                        "   .filter(e => Math.abs(e.getBoundingClientRect().width - box) > 1)" +
+                        "   .map(e => Math.round(e.getBoundingClientRect().width) + '/' + Math.round(box));" +
+                        " return bad.length ? bad.join(', ') : 'ok'; })()"
+                )
+                same shouldBe "ok"
+            }
             // 「마지막 활동」은 이 판에서 <b>가만히 있을 때</b> 보는 값이다 — 그래서 명단
             // 프레임에 매달아 두면 정확히 볼 이유가 있는 동안 얼어붙는다(서버는 쉰 시간만
             // 달라진 프레임을 보내지 않는다). 이 줄은 창의 시계로 늙는다.

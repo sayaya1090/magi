@@ -2547,6 +2547,16 @@
     box-sizing:border-box;
   }
   #detail { display:flex; flex-direction:column; gap:var(--magi-sys-space-200); }
+  /* 이 판은 22rem 기둥 안에 산다 — 다른 두 판(#cron·파일)이 창 폭을 쓰는 것과 사정이 다르다.
+     공통 카드 패딩 16px 은 그 폭의 10%를 양옆으로 가져가고, 남은 자리에서 값이 줄바꿈된다.
+     세로 여백은 그대로 둔다: 줄 사이 간격은 좁아진 게 아니라 읽는 데 필요한 것이다. */
+  #sidecol > #detail { padding-inline:var(--magi-sys-space-150); }
+  /* 컨트롤은 칸을 다 쓴다. md-outlined-select 는 inline-flex 라 제 내용만큼만 넓어서, 303px 칸에
+     210px·282px 로 서로 다르게 서 있었다 — 오른쪽이 비어 보이던 것의 정체는 카드 여백이 아니라
+     이것이었다(실측). 라벨이 긴 항목이 들어오면 칸이 다시 들쭉날쭉해지는 것도 같은 이유다. */
+  #detail .f .v > md-outlined-select,
+  #detail .f .v > md-filled-select,
+  #detail .f .v > md-outlined-text-field { width:100%; }
   /* An open file stays at the top of the conversation while the conversation scrolls under it.
      It is being read ALONGSIDE the transcript — that is the whole reason it is on this page and
      not a screen of its own — and a file that scrolls away the moment somebody reads three
