@@ -115,16 +115,7 @@ class MagiToolWindow : ToolWindowFactory {
                                 .createPopupChooserBuilder(rows.map { Pick(it) })
                                 .setTitle(MagiBundle.msg("chat.pick.title"))
                                 .setItemChosenCallback { picked ->
-                                    val sid = picked.row.id
-                                    val tab = View(project, pinned = sid)
-                                    val content = ContentFactory.getInstance()
-                                        .createContent(tab.root, "·" + sid.takeLast(6), false)
-                                    content.isCloseable = true
-                                    // 탭이 닫히면 스트림도 닫힌다 — 고아 스트림 금지.
-                                    com.intellij.openapi.util.Disposer.register(content, tab)
-                                    toolWindow.contentManager.addContent(content)
-                                    toolWindow.contentManager.setSelectedContent(content)
-                                    tab.refresh()
+                                    MagiTabs.open(project, picked.row.id, "·" + picked.row.id.takeLast(6))
                                 }
                                 .createPopup()
                                 .showInFocusCenter()
@@ -1525,6 +1516,42 @@ class MagiToolWindow : ToolWindowFactory {
  * 그리고 **없으면 null 을 준다** — 액션이 "창이 아직 안 열렸다"고 말할 수 있어야 하고, 빈 답을
  * 내면 "이 파일은 아무도 안 건드렸다"와 구분이 안 된다.
  */
+/**
+ * 대화 하나를 하단 독의 **고정 탭**으로 연다.
+ *
+ * 기어 메뉴의 세션 피커가 하던 일을 여기로 꺼냈다. 부르는 데가 둘이 됐기 때문이다 — 피커와,
+ * 「계획」 판의 서브에이전트 줄. 두 벌로 두면 한쪽만 고쳐지고, 그 한쪽이 스트림을 안 닫는
+ * 쪽이면 새는 것은 화면이 아니라 소켓이다(이 창이 이미 한 번 겪은 결함).
+ *
+ * 이미 그 대화의 탭이 열려 있으면 **새로 만들지 않고 그것을 고른다.** 탭을 세션 id 로 알아보는
+ * 것이지 이름으로 알아보지 않는다: 이름은 id 의 꼬리 여섯 자라 서로 다른 두 대화가 같은 이름을
+ * 달 수 있고, 그때 이름으로 찾으면 남의 탭을 고른다.
+ */
+internal object MagiTabs {
+    private val SID = com.intellij.openapi.util.Key.create<String>("magi.tab.session")
+
+    fun open(project: Project, sid: String, label: String) {
+        val tw = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+            .getToolWindow("magi") ?: return
+        tw.activate({
+            val cm = tw.contentManager
+            cm.contents.firstOrNull { it.getUserData(SID) == sid }?.let {
+                cm.setSelectedContent(it)
+                return@activate
+            }
+            val tab = MagiToolWindow.View(project, pinned = sid)
+            val content = ContentFactory.getInstance().createContent(tab.root, label, false)
+            content.isCloseable = true
+            content.putUserData(SID, sid)
+            // 탭이 닫히면 스트림도 닫힌다 — 고아 스트림 금지.
+            com.intellij.openapi.util.Disposer.register(content, tab)
+            cm.addContent(content)
+            cm.setSelectedContent(content)
+            tab.refresh()
+        }, true)
+    }
+}
+
 internal object MagiWindows {
     private val live = java.util.WeakHashMap<Project, MagiToolWindow.View>()
     fun put(project: Project, view: MagiToolWindow.View) = synchronized(live) { live[project] = view }

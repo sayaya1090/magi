@@ -129,6 +129,19 @@ class Companion(
     fun sessions(): Response = send(Request(method = "sessions"))
 
     /**
+     * 한 세션이 띄운 서브에이전트 대화들 — 회의 방도 여기 든다(참가자는 회의를 자식 세션에서 연다).
+     *
+     * `jobs().children` 과 겹치지만 겹치는 것이 전부는 아니다: 그쪽은 지금 도는 것과 방금 끝난
+     * 것의 인메모리 등록부라 데몬이 재시작하면 사라지고, 이쪽은 로그의 사실이라 지난 것도 답한다.
+     * 화면은 둘을 합쳐 그린다 — 도는 것은 등록부가 더 잘 알고(진행·오류), 과거는 이 문만 안다.
+     *
+     * 부모 id 는 **필수**다(데몬이 빈 값을 거부한다): 「지금 대화」는 부르는 쪽마다 다른 사실이라
+     * 데몬이 대신 정해 주면 누가 묻느냐에 따라 다른 질문에 답하게 된다.
+     */
+    fun children(parent: String = session): Response =
+        send(Request(method = "children", session = parent))
+
+    /**
      * 커밋 메시지 초안 — 스테이지된 변경에서, 워크스페이스의 하우스 스타일 템플릿을 얹어서
      * (`internal/adapter/daemon/daemon.go` 의 `answerGitMsg` → `DraftCommit`). 답은 `out` 에
      * 실리고, 빈 답은 실패가 아니라 「스테이지가 없다」일 수 있다(`git.go` 가 명시한 갈래).

@@ -101,6 +101,16 @@ data class Response(
     val jobs: Jobs? = null,
     /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`daemon.go` 의 `SessionRow`), 최근 활동 순. */
     val sessions: List<SessionRow>? = null,
+    /**
+     * 한 세션이 띄운 서브에이전트 대화들 — `children` 문의 답, 최근 활동 순.
+     *
+     * `jobs.children` 과 다른 목록이고 그 차이가 이 문이 있는 이유다: 그쪽은 **지금 도는 것과
+     * 방금 끝난 것**의 인메모리 등록부라 데몬이 재시작하면 사라지고, 이쪽은 **로그의 사실**이라
+     * 지난주 것도 답한다. 어느 쪽도 다른 쪽의 캐시가 아니다.
+     *
+     * null 은 「문 없음」이고 빈 목록은 「띄운 적 없음」이다 — 두 화면이 다르다.
+     */
+    val children: List<SessionRow>? = null,
     /** 건넨 일 하나의 지금 — `hand-state` 의 답(`daemon.go` 의 `Handover`). */
     val handover: Handover? = null,
     /** 예약들 — `cron` 문의 답(`daemon.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
@@ -143,6 +153,12 @@ data class CronRow(
 data class SessionRow(
     val id: String = "",
     val title: String? = null,
+    /**
+     * 서브에이전트 역할 — 자식 세션에만 있다. 그것을 띄운 툴이 이름을 준다("meeting", 델리게이트의
+     * 역할). 최상위 대화에는 비어 있고, 그래서 한 모양이 두 문을 다 섬긴다: 행은 대화이고 이
+     * 필드가 「누가 시켰나」를 말한다 — 회의 방과 델리게이트를 가르는 유일한 사실이다.
+     */
+    val agent: String? = null,
     val model: String? = null,
     val labels: List<String>? = null,
     val created: String? = null,

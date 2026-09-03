@@ -273,6 +273,9 @@ class PlanToolWindow : ToolWindowFactory {
             val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
+            // 끝난 자식은 등록부에 없다 — 로그가 아는 것을 문에 묻는다. 문 없는 데몬은 null 을
+            // 주고, 그때 이 판은 도는 것만 그린다(모름을 없음으로 그리지 않는다는 그 규칙).
+            val past = comp.children().children.orEmpty()
             SwingUtilities.invokeLater {
                 if (my != pollSeq.get()) return@invokeLater // 더 새 틱이 이미 섰다 — 낡은 그림 금지
                 stale.isVisible = false
@@ -288,7 +291,7 @@ class PlanToolWindow : ToolWindowFactory {
                         (jr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                } else if (queued.isEmpty() && bgRunning.isEmpty() && kids.isEmpty()) {
+                } else if (queued.isEmpty() && bgRunning.isEmpty() && kids.isEmpty() && past.isEmpty()) {
                     work.add(JBLabel(MagiBundle.msg("plan.tasks.none")).apply { foreground = Look.faint })
                 }
                 queued.forEach { q ->
@@ -316,8 +319,24 @@ class PlanToolWindow : ToolWindowFactory {
                         }, BorderLayout.EAST)
                     })
                 }
+                // 서브에이전트 — 도는 것 먼저, 그다음 **끝난 것**.
+                //
+                // 도는 것은 `jobs` 등록부가 더 잘 안다(무엇을 시켰는지, 몇 걸음인지). 끝난 것은
+                // 그 등록부에서 사라지므로 `children` 문이 답한다 — 회의가 닫히면 참가자 방이
+                // 정확히 그렇게 빠진다(ForgetSubagent). 둘을 합쳐 그리되 id 로 겹치는 것은
+                // 도는 쪽을 남긴다.
+                //
+                // 줄은 **누를 수 있다.** 자식이 무엇을 했는지는 그 자식의 전사에 있고, 전사 문은
+                // 자식 id 도 받는다 — 여기 없던 것은 문이 아니라 누를 자리였다.
+                val running = kids.map { it.id }.toSet()
                 kids.forEach { c ->
-                    work.add(JBLabel("⛐ ${c.task?.take(60) ?: c.id}").apply { foreground = Look.faint })
+                    work.add(kidRow(project, "⛐ " + (c.task?.take(60) ?: c.id), c.id))
+                }
+                past.filter { it.id !in running }.take(pastKids).forEach { c ->
+                    // 역할이 있으면 그것이 이름이다 — 회의 방과 델리게이트를 가르는 유일한 사실.
+                    val what = c.title?.take(52)?.ifBlank { null } ?: c.id.takeLast(6)
+                    val who = c.agent?.ifBlank { null }?.let { "$it · " } ?: ""
+                    work.add(kidRow(project, "⛒ $who$what", c.id))
                 }
                 fleet.removeAll()
                 val rows = r.roster
@@ -550,6 +569,33 @@ class PlanToolWindow : ToolWindowFactory {
             }
         )
     }
+
+    /**
+     * 끝난 자식을 한 번에 몇 줄까지 그리나.
+     *
+     * 이 판의 본업은 「지금 무엇이 돌고 있나」라, 지난 것이 그 위를 덮으면 판의 뜻이 바뀐다.
+     * 한 턴이 자식을 수십 개 띄우는 것은 이 트리가 이미 겪은 모양이고(등록부가 한도를 두는
+     * 이유가 그것이다), 여기도 같은 이유로 자른다.
+     */
+    private val pastKids = 6
+
+    /**
+     * 서브에이전트 한 줄 — 누르면 그 자식의 전사가 하단 독의 탭으로 선다.
+     *
+     * 라벨을 버튼으로 바꾸지 않는다: 이 판의 다른 줄은 전부 라벨이고, 하나만 버튼이면 그 줄이
+     * 판에서 제일 시끄러워진다. 손 모양 커서와 툴팁으로 「누를 수 있다」를 말한다.
+     */
+    private fun kidRow(project: Project, text: String, sid: String): JBLabel =
+        JBLabel(text).apply {
+            foreground = Look.faint
+            cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+            toolTipText = MagiBundle.msg("plan.kid.tip")
+            addMouseListener(object : java.awt.event.MouseAdapter() {
+                override fun mouseClicked(e: java.awt.event.MouseEvent) {
+                    MagiTabs.open(project, sid, "⛐" + sid.takeLast(6))
+                }
+            })
+        }
 
     /** 토큰 수를 사람 눈금으로. 정수 나눗셈의 "0k" 를 안 만든다(1k 미만은 그대로). */
     private fun k(n: Int): String = if (n >= 1000) "${n / 1000}k" else "$n"
