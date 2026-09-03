@@ -336,6 +336,38 @@ internal class CompanionPanelTest : GwtTestSpec({
                 page.locator("#sidecol:not([hidden])").count() shouldBe 1
             }
         }
+        When("오른쪽 기둥의 내용이 창보다 길어지면") {
+            Then("카드는 자기 내용을 자르지 않는다 — 자르는 것은 기둥 하나뿐이다") {
+                openSide(page)
+                // 두 카드가 각자 overflow:auto 이던 때가 있었다. 사실판이 가운데 기둥에서 전사와
+                // 높이를 다투던 시절의 규칙이 카드를 따라 이사해 온 것인데, 22rem 한 기둥에서는
+                // 스크롤 판이 위아래로 둘이 되고 각자 절반쯤을 숨긴다(데모 실측: 사실판 1094 중
+                // 625, 진행 1081 중 604). 끝난 카드와 잘린 카드는 화면에서 같은 글자이고,
+                // macOS 의 오버레이 스크롤바는 이미 스크롤한 사람에게만 보인다.
+                val cut = page.evaluate(
+                    "(() => {" +
+                        " const col = document.querySelector('#sidecol');" +
+                        " if (!col) return 'no column';" +
+                        // 창보다 확실히 긴 내용을 카드 안에 넣는다. 목 데이터의 길이에 기대면
+                        // 짧은 날 이 시험은 아무것도 재지 않는다.
+                        " const tall = document.createElement('div');" +
+                        " tall.style.height = '3000px'; tall.id = 'magi_test_tall';" +
+                        " const card = col.querySelector('#detail'); card.appendChild(tall);" +
+                        " const bad = Array.from(col.children)" +
+                        "   .filter(e => e.scrollHeight > e.clientHeight + 1)" +
+                        "   .map(e => (e.id || e.className) + ' ' + e.scrollHeight + '/' + e.clientHeight);" +
+                        " tall.remove();" +
+                        " return bad.length ? bad.join(', ') : 'ok'; })()"
+                )
+                cut shouldBe "ok"
+            }
+            Then("기둥이 그 스크롤을 진다") {
+                val scrolls = page.evaluate(
+                    "getComputedStyle(document.querySelector('#sidecol')).overflowY"
+                )
+                scrolls shouldBe "auto"
+            }
+        }
         When("창이 아주 넓어지면") {
             // 2560은 이 판이 실제로 도는 화면이고, 여기서 캡이 드러난다. 캡은 230ch(≈1939px)
             // 였으므로 1400 에서는 아무 일도 없고 — 그래서 이 시험은 그 위에서 잰다.

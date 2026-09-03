@@ -2794,6 +2794,22 @@
     body[at="agent"] #filecol, body[at="agent"] #sidecol {
       position:relative; z-index:2; height:100%; max-height:none; top:auto;
     }
+    /* The right column scrolls; the cards in it do not.
+       Both cards had their own overflow:auto, from when the facts card lived in the middle column
+       and had to fight the transcript for height. In one 22rem column that arrangement puts two
+       scrollports one above the other, each hiding about half of itself with nothing on screen to
+       say so — measured on the demo: the facts 1094px of content in 625, cut mid-field at
+       Approvals, and what is running 1081 in 604. A card that ends and a card that is cut look the
+       same, and on macOS the overlay scrollbar is not there until somebody already scrolled.
+       One scrollport, at the edge of the window where a scrollbar is expected, and the cards stand
+       at their own height inside it. */
+    body[at="agent"] #sidecol {
+      overflow:hidden auto; overscroll-behavior:contain; scrollbar-gutter:stable;
+    }
+    body[at="agent"] #sidecol > #detail,
+    body[at="agent"] #sidecol > #side {
+      flex:0 0 auto; overflow:visible; max-height:none;
+    }
     body[at="agent"] #stream { height:100%; min-height:0; overflow:hidden; }
     /* What is above the transcript keeps its size while the transcript grows.
        The column is a flex box and everything in it was shrinkable, so a conversation getting
