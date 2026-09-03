@@ -57,6 +57,10 @@ scratchpad/overnight_log.md
 # 14MB 짜리가 한 번 커밋에 섞여 들어갔다(2026-09-02) — 이름을 여기 적어 다시 안 겪는다.
 /clients/powerpoint/helper/helper.exe
 /magi-web
+# `go build ./clients/web/server` 를 그 디렉토리 안에서 돌리면 패키지 이름으로 떨어진다 —
+# 확장자가 없어서 위의 어떤 규칙에도 안 걸렸고, 19MB 가 커밋에 섞였다(2026-09-03, 세 번째).
+# 이름을 적는 방식이 세 번 샜으므로 모양으로도 막는다: internal/repo/tracked_test.go.
+/clients/web/server/server
 
 # The agent's own runtime state. .magi/experience is what a companion has learned ON THIS MACHINE —
 # memories and skills it wrote itself. Four of them were swept in by a bulk add; they are working
