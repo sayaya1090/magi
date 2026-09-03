@@ -3147,6 +3147,18 @@ func (d daemonEngine) MeetingTurn(ctx context.Context, meeting, topic, transcrip
 // from the text that arrived rather than from what it remembers — which is nothing.
 func writeUp(ctx context.Context, d daemonEngine, meeting, who, topic, minutes string,
 	u meetinglib.Utterance) string {
+	// A pass does not touch the document. By definition it added nothing, so the write-up can only
+	// spend a model call and damage the record — and it did: measured across five live meetings,
+	// eight of the nine revisions that came back SHORTER than the document they were handed were
+	// passes, one of them cutting 1263 characters to 611. A turn in which nobody said anything
+	// deleted half of what the room had agreed.
+	//
+	// Not a prompt rule. "Do not change it when you have nothing to add" is advice a model can
+	// follow or not; not asking is a fact. Why somebody passed is in the transcript, which is
+	// where a reason nobody acted on belongs.
+	if u.Pass {
+		return ""
+	}
 	note := d.handover.minutesFor(meeting)
 	if note == "" {
 		got, err := d.App.MeetingWriteRoom(ctx, d.handover.at.now(), who, topic)

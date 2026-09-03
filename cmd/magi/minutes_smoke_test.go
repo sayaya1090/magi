@@ -117,3 +117,49 @@ func (t sameAnswer) StreamChat(ctx context.Context, _ port.ChatRequest) (<-chan 
 	close(ch)
 	return ch, nil
 }
+
+// A pass does not open a minutes session, and does not spend a turn on one.
+//
+// Measured over five live meetings: eight of the nine revisions that came back SHORTER than the
+// document they were handed were passes — one cut 1263 characters to 611. A turn in which nobody
+// said anything deleted half of what the room had agreed. Asking at all is the defect: a pass has
+// nothing to add, so the only thing the call can do is damage the record.
+func TestAPassDoesNotTouchTheMinutes(t *testing.T) {
+	st, err := jsonl.New(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "m", ContextWindow: 8000, Tools: true})
+	// A model that passes on everything. PASS as the first word is what readUtterance reads.
+	a := app.New(st, sameAnswer("PASS nothing in my workspace touches this"), builtin.NewRegistry(),
+		bus.New(), nil, app.Config{Permission: "allow", Models: reg})
+	t.Cleanup(func() { _ = a.Close(context.Background()) })
+	ctx := context.Background()
+	wd := t.TempDir()
+	parent, err := a.CreateSession(ctx, command.CreateSession{Workdir: wd,
+		Model: session.ModelRef{Provider: "openai", Model: "m"},
+		Actor: event.Actor{Kind: event.ActorUser, ID: "cli"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := daemonEngine{App: a, workdir: wd, card: func() mcpserve.Card { return mcpserve.Card{Name: "api"} },
+		handover: handover{at: newWhere(parent), rooms: newSideSessions(), minutes: newSideSessions()}}
+
+	const doc = "## Decided\n- the room agreed something"
+	got, err := d.MeetingTurn(ctx, "m-1", "which store", "", doc, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Pass {
+		t.Fatalf("the fake passed and the turn did not read it as one: %+v", got)
+	}
+	if got.Minutes != "" {
+		t.Errorf("a pass answered with a document (%d chars); the convener would write it over "+
+			"what the room agreed", len(got.Minutes))
+	}
+	if note := d.handover.minutesFor("m-1"); note != "" {
+		t.Errorf("a pass opened a minutes session (%s) — the call is the defect, not what it "+
+			"answers", note)
+	}
+}
