@@ -279,6 +279,30 @@ internal class MeetingScreenTest : GwtTestSpec({
                 page.evaluate("delete window.__magi_test_press_refuses")
             }
         }
+        When("방이 열려 있으면") {
+            Then("대화 옆에 상시 선다 — 접히지도, 눌러야 열리지도 않는다") {
+                page.waitForSelector("#meet .meetpair .meetminutes")
+                page.locator("#meet .meetminutes .meetminutesline").count() shouldBe 4
+            }
+            Then("첫 그림에서는 아무것도 안 번쩍인다 — 견줄 앞판이 없다") {
+                page.locator("#meet .meetminutesline.fresh").count() shouldBe 0
+            }
+        }
+        When("한 줄이 늘고 한 줄이 바뀌면") {
+            page.evaluate(
+                "window.__magi_test_room('minutes:## Decided|- postgres|- and the queue|" +
+                    "## Still open|- the retry budget, by friday')")
+            Then("바뀐 줄에만 강조가 붙는다 — 안 바뀐 줄은 조용하다") {
+                page.waitForCondition {
+                    page.locator("#meet .meetminutes .meetminutesline").count() == 5
+                }
+                // 새로 생긴 "- and the queue" 와 글자가 바뀐 "- the retry budget, by friday" 둘.
+                // 전부에 붙으면 매 라운드 문서 전체가 번쩍이고, 그건 아무것도 안 알려주는 것과 같다.
+                page.locator("#meet .meetminutesline.fresh").count() shouldBe 2
+                page.locator("#meet .meetminutesline.fresh").first().textContent()
+                    .shouldContain("and the queue")
+            }
+        }
         When("없는 방을 대면") {
             page.evaluate("history.replaceState(null,'','?v=meet&m=gone'); window.dispatchEvent(new PopStateEvent('popstate'))")
             Then("사라졌다고 말하고, 무엇을 할 수 있는지도 말한다") {
@@ -296,4 +320,5 @@ internal class MeetingScreenTest : GwtTestSpec({
             }
         }
     }
+
 })

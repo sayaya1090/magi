@@ -117,6 +117,10 @@ type meetView struct {
 	Speakers   []meetSpeaker `json:"speakers"`
 	Said       []meetLine    `json:"said"`
 	Tasks      []meetTask    `json:"tasks,omitempty"`
+	// Minutes is the document the participants keep between them, whole. The screen draws it
+	// beside the discussion and highlights what changed since it last drew — which it can do
+	// because this is the text and not a patch.
+	Minutes string `json:"minutes,omitempty"`
 }
 
 // meetTask is one participant's conclusion on the wire.
@@ -958,6 +962,7 @@ func (run *meetingRun) viewLocked() meetView {
 		Opened:     run.m.Opened,
 		Collecting: run.collecting,
 		Trouble:    run.trouble, Speakers: []meetSpeaker{}, Said: []meetLine{},
+		Minutes: run.m.Minutes,
 	}
 	for _, t := range run.tasks {
 		out.Tasks = append(out.Tasks, meetTask{Who: t.Who, What: t.What})

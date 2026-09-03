@@ -441,6 +441,8 @@
   "meet.trouble": "Could not be reached: {why}",
   "meet.waiting": "Nobody has spoken yet.",
   "meet.waiting_on": "Waiting on {who}",
+  "meet.minutes": "Minutes",
+  "meet.minutes_empty": "Nothing written down yet — the first speaker starts them.",
   "meet.who": "Who is being asked",
   "meet.why": "Ask several companions one question. They read each other's answers in turn, and each leaves with something to do — or with nothing, which is an ordinary outcome.",
   "meet.working": "How it got there",

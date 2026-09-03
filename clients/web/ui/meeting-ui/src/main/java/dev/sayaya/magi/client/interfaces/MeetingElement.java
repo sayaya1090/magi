@@ -51,6 +51,11 @@ public class MeetingElement {
     private String refusal = "";
     private String refusalAt = "";
     private String refusalRoom = "";
+    /**
+     * 지난번에 그린 회의록. 무엇이 바뀌었는지는 <b>이 화면만</b> 안다 — 문은 문서 전문을 나르지
+     * 어느 줄이 새것인지는 말하지 않는다. 줄 단위로 견줘 바뀐 줄에만 강조를 건다.
+     */
+    private String drawnMinutes = "";
 
     @Inject
     public MeetingElement(MeetingStore store) { this.store = store; }
@@ -323,8 +328,50 @@ public class MeetingElement {
         if (!bool(m, "closed")) box.append(sayBox(m));
         if (bool(m, "closed") && len(m, "tasks") > 0) box.append(conclusions(m));
         if (bool(m, "closed")) box.append(reopenBox(m));
-        root.replaceChildren(box);
+        // 회의록은 대화 옆에 <b>상시</b> 선다 — 접히지도, 눌러야 열리지도 않는다. 회의가 남기는
+        // 것이 그것이고, 옆에 안 서 있으면 사람이 전사를 읽어 같은 답을 다시 만들어야 한다.
+        HTMLElement pair = cell("meetpair", null);
+        pair.append(box, minutes(m));
+        root.replaceChildren(pair);
         sayRefusal();
+    }
+
+    /**
+     * 회의록 판 — 방이 지금까지 적어 둔 것.
+     *
+     * 비어 있어도 <b>자리는 선다.</b> 첫 발언이 문서를 세우기 전까지 오른쪽이 통째로 없다가 갑자기
+     * 나타나면 그때 판이 밀리고, 사람이 읽던 자리가 흔들린다.
+     */
+    private HTMLElement minutes(JsPropertyMap<Object> m) {
+        HTMLElement box = cell("meetminutes", null);
+        box.append(head(tr("meet.minutes"), null));
+        String now = str(m, "minutes");
+        HTMLElement body = cell("meetminutesbody", null);
+        if (now.isEmpty()) {
+            body.append(cell("meetminuteswait", tr("meet.minutes_empty")));
+        } else {
+            // 지난 판과 줄 단위로 견준다. 바뀐 줄에만 클래스가 붙어야 한다 — 전부에 붙이면 매
+            // 라운드 문서 전체가 번쩍이고, 그건 무엇이 바뀌었는지 안 알려주는 것과 같다.
+            java.util.List<String> was = lines(drawnMinutes);
+            java.util.List<String> is = lines(now);
+            for (int i = 0; i < is.size(); i++) {
+                String line = is.get(i);
+                boolean fresh = !drawnMinutes.isEmpty() && !was.contains(line);
+                body.append(cell("meetminutesline" + (fresh ? " fresh" : ""), line));
+            }
+        }
+        drawnMinutes = now;
+        box.append(body);
+        return box;
+    }
+
+    /** 한 문서를 줄로. 빈 줄은 버린다 — 강조는 글자가 있는 줄에만 걸린다. */
+    private static java.util.List<String> lines(String doc) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String l : doc.split("\n")) {
+            if (!l.trim().isEmpty()) out.add(l);
+        }
+        return out;
     }
 
     /** 명단 — 색으로 갈리고, 지금 쥔 이는 선택되어 있다. 누르면 그 이를 지명한다. */

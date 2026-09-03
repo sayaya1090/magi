@@ -3695,6 +3695,28 @@
      token is the mechanism, so it is the loudest thing on the screen — everything else here is
      ordinary text at ordinary weight. */
   #meet { display:block; max-width:var(--magi-sys-page); }
+  /* 대화와 회의록이 나란히. 왼쪽이 남는 폭을 갖고, 회의록은 읽을 만한 폭에서 멈춘다 —
+     문서가 화면 반을 차지하면 대화가 못 읽을 만큼 좁아진다. */
+  .meetpair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,26rem); gap:var(--magi-sys-space-300); align-items:start; }
+  /* 좁으면 아래로. 「상시 표시」는 옆이 아니라 **항상 있다**는 뜻이고, 한 칸에서 옆은 없다. */
+  @media (max-width:60rem) { .meetpair { grid-template-columns:minmax(0,1fr); } }
+  .meetminutes { position:sticky; top:var(--magi-sys-space-200); }
+  .meetminutesbody {
+    display:grid; gap:2px; font:var(--magi-sys-body-s) var(--magi-ref-mono);
+    max-height:70vh; overflow:auto; overflow-wrap:anywhere;
+  }
+  .meetminutesline { padding:1px 0; }
+  .meetminuteswait { color:var(--magi-ref-muted); }
+  /* 바뀐 줄만. 배경만 잠깐 물들고 자리는 안 움직인다 — 레이아웃에 거는 전환은 사람이 읽던
+     자리를 밀어내고, 이 트리는 스크롤 애니메이션에서 이미 한 번 그것으로 데었다. */
+  @keyframes meetfresh {
+    from { background:var(--magi-ref-primaryContainer); }
+    to   { background:transparent; }
+  }
+  .meetminutesline.fresh { animation:meetfresh 1.8s ease-out 1; border-radius:3px; }
+  @media (prefers-reduced-motion:reduce) {
+    .meetminutesline.fresh { animation:none; background:var(--magi-ref-primaryContainer); border-radius:3px; }
+  }
   .meetbox { display:grid; gap:var(--magi-sys-space-200); }
   /* Capped to the house prose measure like .accsay: uncapped these helper sentences ran 132–163ch
      on a wide screen, past the guide's 120ch ceiling for large displays. */

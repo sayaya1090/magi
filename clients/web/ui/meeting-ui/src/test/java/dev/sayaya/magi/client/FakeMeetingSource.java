@@ -18,6 +18,9 @@ import java.util.function.Consumer;
 @Singleton
 public class FakeMeetingSource implements MeetingSource {
     private String stage = "open";     // open | held | closed
+    // 회의록. 한 번 고쳐진 판을 만들 수 있어야 「바뀐 줄에만 강조」를 잰다 — 그 주장은 두 판을
+    // 견줘야만 참이 되고, 한 판만으로는 전부 강조해도 통과한다.
+    private String minutes = "## Decided\n- postgres\n## Still open\n- the retry budget";
     private Consumer<Object> waiting = null;
 
     @Inject
@@ -25,6 +28,11 @@ public class FakeMeetingSource implements MeetingSource {
 
     private void door() {
         Js.asPropertyMap(DomGlobal.window).set("__magi_test_room", (StageFn) s -> {
+            if (s.startsWith("minutes:")) {
+                minutes = s.substring("minutes:".length()).replace("|", "\n");
+                if (waiting != null) waiting.accept(roomOf());
+                return;
+            }
             stage = s;
             if (waiting != null) waiting.accept(roomOf());
         });
@@ -56,7 +64,8 @@ public class FakeMeetingSource implements MeetingSource {
                 "{\"name\":\"beta\",\"socket\":\"/tmp/b1.sock\",\"room\":\"s_b\"}," +
                 "{\"name\":\"you\",\"person\":true}]," +
                 "\"said\":[{\"who\":\"alpha\",\"round\":1,\"text\":\"postgres, for the ordering\"}," +
-                "{\"who\":\"beta\",\"round\":1,\"pass\":true,\"text\":\"nothing to add\"}]";
+                "{\"who\":\"beta\",\"round\":1,\"pass\":true,\"text\":\"nothing to add\"}]," +
+                "\"minutes\":" + Global.JSON.stringify(minutes);
         switch (stage) {
             case "held":
                 return Global.JSON.parse("{" + common + ",\"opened\":true,\"holder\":\"alpha\"}");
