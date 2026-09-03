@@ -80,6 +80,27 @@ func TestAMeetingTurnKeepsTheSpeakingAndMinutesSessionsApart(t *testing.T) {
 	if kinds[room] != meeting.Origin {
 		t.Errorf("the speaking session is stamped %q, not %q", kinds[room], meeting.Origin)
 	}
+	// And opening it ran NOTHING. The first shape seeded a prompt saying "nothing to do yet",
+	// which cost two model calls per participant per meeting — the model answered the do-nothing
+	// prompt with a minutes table of its own invention, and magi's step-budget nudge drew a second
+	// one. Both landed in the context this session exists to keep clean. Measured live, then fixed.
+	//
+	// Counted rather than named: what must not happen is a TURN, and a turn is prompts and answers.
+	evs, err := st.Read(ctx, note, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns := 0
+	for _, e := range evs {
+		if e.Type == event.TypePromptSubmitted {
+			turns++
+		}
+	}
+	// One: the write-up this turn asked for. Two or more means the session was seeded as well.
+	if turns != 1 {
+		t.Errorf("the minutes session has %d prompts in it; opening it should run nothing and the "+
+			"write-up should be its first turn", turns)
+	}
 	if kinds[note] != meeting.MinutesOrigin {
 		t.Errorf("the minutes session is stamped %q, not %q — every screen that tells meeting "+
 			"children apart reads this", kinds[note], meeting.MinutesOrigin)

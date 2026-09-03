@@ -429,4 +429,17 @@ func TestTheFirstSpeakerGetsAFormAndTheRestGetTheDocument(t *testing.T) {
 	if !strings.Contains(later, "did not accept it") {
 		t.Error("nothing stops the writer assigning work to a name that never took it on")
 	}
+	// The OTHER half of the same rule, and the one that was missing. Only the prohibition was
+	// here, and a live run lost a commitment to exactly that gap: a speaker said it would add a
+	// header to api.md and the minutes came back byte-identical to the document it was handed.
+	// A model told only what it must not write, and asked to carry the rest through unchanged,
+	// carries the whole thing through unchanged.
+	if !strings.Contains(later, "MUST gain a line") {
+		t.Error("nothing obliges the writer to record work the speaker just took on — the " +
+			"prohibition alone loses commitments")
+	}
+	// And it names the speaker, so "took work on" is about this turn rather than about anybody.
+	if !strings.Contains(later, "If design took work on") {
+		t.Errorf("the obligation does not say WHOSE turn this is:\n%s", later)
+	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/meeting"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -173,28 +174,24 @@ func (a *App) MeetingWriteUp(ctx context.Context, child session.SessionID, who, 
 }
 
 // MeetingWriteRoom opens the session the minutes are kept in, once per meeting per participant.
+//
+// It creates the session and runs NOTHING. That was not the first shape: it seeded a prompt saying
+// "nothing to do yet, the first revision arrives next", which cost two model calls per participant
+// per meeting and put two documents nobody asked for into the very context this session exists to
+// keep clean. Measured on a live meeting — the seed turn answered the "nothing to do" prompt with a
+// full minutes table of its own invention, then magi's own step-budget nudge drew a second one.
+//
+// A session with no turns in it is exactly right here. The first write-up is its first turn.
 func (a *App) MeetingWriteRoom(ctx context.Context, sid session.SessionID, who, topic string) (
 	session.SessionID, error) {
 	s := a.sessionInfo(ctx, sid)
-	res, err := a.spawnChild(ctx, s, event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},
-		port.SpawnSpec{
-			ToolName: "minutes",
-			System:   minutesSystem(who),
-			// The topic FIRST: a session's title is its first line, and the screens that list
-			// children show that title. Led with the instruction, every minutes session on every
-			// screen read "You are keeping the minutes for a meeting about…" and the one thing a
-			// reader wanted — which meeting — was off the end of the row.
-			Prompt: strings.TrimSpace(topic) + "\n\nYou are keeping the minutes for this meeting. " +
-				"Nothing to do yet: the first revision arrives next.",
-			MaxSteps: 1,
-		}, nil)
-	if err != nil {
-		return session.SessionID(res.SessionID), err
-	}
-	if res.Err != "" {
-		return session.SessionID(res.SessionID), fmt.Errorf("%s", res.Err)
-	}
-	return session.SessionID(res.SessionID), nil
+	return a.CreateSession(ctx, command.CreateSession{
+		Workdir: s.Workdir,
+		Parent:  string(sid),
+		Agent:   spawnAgentName,
+		Model:   s.Model,
+		Actor:   event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},
+	})
 }
 
 func minutesSystem(who string) string {
@@ -242,9 +239,16 @@ func minutesPrompt(who, topic, minutes, said string) string {
 		"- Carry every section and every line you are not changing through UNCHANGED. Do not " +
 		"summarise them: minutes that shrink each round end the meeting with nothing in them.\n" +
 		"- Move a line from \"Still open\" to \"Decided\" only when the room actually settled it.\n" +
-		"- Under \"Action items\", write only what somebody took on in their own words, and your " +
-		"own. Never assign work to a name that did not accept it — that is a promise they do not " +
-		"know they made.\n" +
+		// Both halves, because only the prohibition was here and the record lost commitments to it.
+		// Measured over 31 revisions of ten live meetings: nothing ever shrank, and once a speaker
+		// said "I will add an X-Retry-Limit header to api.md" and got back a document identical to
+		// the one it was given. Told only what it must NOT write, a model handed a document it was
+		// asked to carry through unchanged returns it unchanged.
+		"- If " + who + " took work on in this turn, \"Action items\" MUST gain a line for it. A " +
+		"turn where somebody said what they would do and the document came back unchanged has " +
+		"lost the one thing that turn produced.\n" +
+		"- Never assign work to a name that did not accept it in their own words — that is a " +
+		"promise they do not know they made.\n" +
 		"- Answer with the document and nothing else. No preamble, no explanation of what you " +
 		"changed.\n")
 	return b.String()
