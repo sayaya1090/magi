@@ -13,22 +13,27 @@
         하나로 끝나면 안 된다 — 예전엔 두 문장이었고 그 안에 기능 이름이 하나도 없었다.
         적는 것은 **plugin.xml 이 이미 광고하는 것들**이다(액션·도구창·인텐션·상태 위젯);
         여기서 새 약속을 하면 매뉴얼·번들과 갈리고, 그 갈림은 ManualTest 밖이라 조용하다.
+
+        **이름 엔티티를 쓰지 마라.** 처음엔 `&mdash;` 로 적었는데 플러그인 목록에는 글자
+        「mdash;」가 그대로 찍혔다(실측 2026-09-03, 샌드박스 IDE) — 이 자리를 그리는 쪽이
+        `&` 를 먼저 이스케이프해서 엔티티가 안 풀린다. CDATA 안이라 XML 파서도 안 건드리고,
+        어떤 시험도 안 울고, 눈으로 봐야만 드러난다. 글자를 그대로 쓴다.
     -->
     <description><![CDATA[
         <p>Runs a magi companion for the open project: it starts the workspace's daemon or attaches
         to the one already there, shows the turn as it happens, and answers the prompts it raises.</p>
         <ul>
-          <li><b>The turn, as it happens</b> &mdash; the conversation docks at the bottom beside Run
+          <li><b>The turn, as it happens</b> — the conversation docks at the bottom beside Run
           and Terminal; what the companion is planning goes to a pane on the right.</li>
-          <li><b>Ask about what you are reading</b> &mdash; a selection, a whole file, or output in
+          <li><b>Ask about what you are reading</b> — a selection, a whole file, or output in
           the Run console or the terminal, answered where you were reading it.</li>
-          <li><b>Review</b> &mdash; review the file you are editing, unsaved changes included; what
+          <li><b>Review</b> — review the file you are editing, unsaved changes included; what
           it finds arrives as editor banners rather than a wall of text.</li>
-          <li><b>Commit messages</b> &mdash; drafted from the staged changes. Text you typed
+          <li><b>Commit messages</b> — drafted from the staged changes. Text you typed
           yourself is kept.</li>
-          <li><b>Who wrote this line</b> &mdash; trace a line back to the magi task that wrote it,
+          <li><b>Who wrote this line</b> — trace a line back to the magi task that wrote it,
           or be told plainly that it cannot tell.</li>
-          <li><b>Approvals in the IDE</b> &mdash; the permission a companion asks for is answered
+          <li><b>Approvals in the IDE</b> — the permission a companion asks for is answered
           here, not in a terminal in another window.</li>
         </ul>
         <p>The plugin does not talk to a model itself. It speaks to the magi daemon over a unix

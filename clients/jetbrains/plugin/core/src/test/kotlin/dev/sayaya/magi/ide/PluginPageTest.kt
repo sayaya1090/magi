@@ -121,4 +121,24 @@ class PluginPageTest {
                     "플러그인 페이지는 사람이 「깔 것인가」를 정하는 자리다")
         assertTrue(body.contains("<li>"), "설명이 줄글 한 덩어리다 — 목록으로 나눈 것과 읽는 값이 다르다")
     }
+
+    /**
+     * 설명에 **이름 엔티티를 쓰지 않는다.**
+     *
+     * `&mdash;` 로 적었더니 플러그인 목록에 글자 「mdash;」가 그대로 찍혔다(실측 2026-09-03,
+     * 샌드박스 IDE 를 띄워 눈으로 봤다) — 이 자리를 그리는 쪽이 `&` 를 먼저 이스케이프해서
+     * 엔티티가 풀리지 않는다. CDATA 안이라 XML 파서도 안 건드리고, 어떤 시험도 안 울었다.
+     *
+     * 숫자 엔티티(`&#8212;`)도 같은 이유로 막는다. 글자를 그대로 쓰면 되는 자리다.
+     */
+    @Test
+    fun `설명에 엔티티를 쓰지 않는다 — 목록에는 글자로 찍힌다`() {
+        val xml = File(plugin, "intellij/src/main/resources/META-INF/plugin.xml").readText()
+        val body = Regex("""<description><!\[CDATA\[(.*?)]]></description>""", RegexOption.DOT_MATCHES_ALL)
+            .find(xml)?.groupValues?.get(1)
+            ?: throw AssertionError("<description> 을 못 찾았다")
+        val found = Regex("""&(#?\w+);""").findAll(body).map { it.value }.toList()
+        assertTrue(found.isEmpty(),
+            "설명에 엔티티가 있다: ${found.distinct()} — 목록에는 그 글자가 그대로 찍힌다(실측). 글자를 직접 쓸 것")
+    }
 }
