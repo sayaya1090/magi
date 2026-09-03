@@ -1341,3 +1341,61 @@ func TestACouncilOlderThanEveryVisibleRowGoesOnTop(t *testing.T) {
 		t.Fatalf("an older round must precede the rows that outlived it: %+v", got)
 	}
 }
+
+// A companion that has never been spoken to gets a frame, and that frame is an empty list.
+//
+// Both halves were broken at once, and each alone kept the screen blank. The loop only wrote a
+// frame when the log had grown, so a session with no events never got a first one; and the rows
+// were a nil slice, which `encoding/json` writes as `null`. The page cannot tell `null` from "we
+// have not asked yet", so it drew nothing — and the label that says "nothing has been said here
+// yet, type below" is exactly what it draws when it is handed an empty list.
+func TestASilentSessionIsStreamedAsAnEmptyList(t *testing.T) {
+	f := newFleetFixture(t)
+	wd := shortTempDir(t)
+	sock := f.daemonAt(wd, "silent", true)
+
+	// Nothing is appended. That is the point: a companion nobody has spoken to has *no* events,
+	// not one — and with even a single event the log has grown since the stream opened, so the
+	// "has it changed" test comes back true and hides the branch this is measuring.
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := httptest.NewRequest(http.MethodGet, "/events?d="+url.QueryEscape(sock), nil).WithContext(ctx)
+	w := newStreamRecorder()
+	done := make(chan struct{})
+	go func() { defer close(done); f.srv.events(w, r) }()
+
+	// The transcript frame is the unnamed one. The fleet and meet frames on this same stream also
+	// carry `data: [`, so looking for that string anywhere would pass on a stream that never sent a
+	// transcript at all — which is exactly the state being measured.
+	deadline := time.Now().Add(3 * time.Second)
+	var got string
+	for time.Now().Before(deadline) {
+		if got = transcriptFrame(w.body()); got != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if got == "" {
+		t.Fatalf("a session with nothing in it was never sent a transcript frame, so the page waits forever: %q", w.body())
+	}
+	if got != "[]" {
+		t.Errorf("the empty transcript went out as %s, and the page reads anything but a list as "+
+			"\"not known yet\" — it draws neither rows nor the empty-conversation label", got)
+	}
+}
+
+// transcriptFrame returns the payload of the first frame on an SSE body that carries no event name.
+func transcriptFrame(body string) string {
+	for _, block := range strings.Split(body, "\n\n") {
+		if block == "" || strings.HasPrefix(block, "event:") {
+			continue
+		}
+		if p, ok := strings.CutPrefix(block, "data: "); ok {
+			return strings.TrimSpace(p)
+		}
+	}
+	return ""
+}

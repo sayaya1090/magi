@@ -182,6 +182,13 @@ func (s *server) transcript(w http.ResponseWriter, r *http.Request) {
 	if marks, cerr := s.reader.CouncilMarks(r.Context(), sid); cerr == nil {
 		rows = spliceCouncil(rows, marks, messageOrder(msgs))
 	}
+	// 빈 대화는 `[]` 다. nil 슬라이스는 JSON 에서 `null` 이 되고, 화면은 그것을 "아직 못 물어봤다"로
+	// 읽어 아무것도 안 그린다 — 물어봤는데 없는 것과 아직 안 물어본 것이 같은 글자가 되는 자리다.
+	// 그래서 아무 말도 오간 적 없는 컴패니언의 대화창은 빈 채로 남았고, 그 자리에 서야 할
+	// "시작하십시오"가 영영 안 섰다.
+	if rows == nil {
+		rows = []line{}
+	}
 	writeJSON(w, "transcript", rows)
 }
 

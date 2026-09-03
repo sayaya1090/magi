@@ -1385,6 +1385,16 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 		// lastSeq starts at -1, so the first pass asks for everything and the first frame is the
 		// backlog — a viewer that connects to a session hours after the work is the ordinary case.
 		seq, changed, err := s.reader.NewSince(r.Context(), sid, lastSeq)
+		// 첫 통과는 <b>바뀐 것이 없어도</b> 말한다. 사건이 하나도 없는 세션은 영영 changed=false
+		// 라서 프레임이 한 번도 안 갔고, 화면은 "아직 못 물어봤다"에 머물러 빈 채로 있었다 —
+		// A companion nobody has spoken to yet has no events at all, so `changed` is false on every
+		// tick and this loop used to write nothing — forever. The page then sits on the state it
+		// starts in, which is "we have not been told yet", and draws neither a transcript nor the
+		// label that says the conversation is empty. Measured in the browser: the stream was sending
+		// a frame every 2.5s and every one of them was `null`.
+		if err == nil && !changed && lastSeq < 0 {
+			changed = true
+		}
 		if err == nil && changed {
 			lastSeq = seq
 			msgs, _, serr := s.reader.SessionState(r.Context(), sid)
@@ -1400,6 +1410,13 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			// from — so the transcript and the row cannot say different things about one companion.
 			_, turning := s.reader.UnfinishedTurnOf(r.Context(), sid)
 			rows := markPending(renderMessages(msgs), turning)
+			// 빈 대화는 `[]` 로 나간다. nil 슬라이스는 `null` 이 되고, 화면은 그것을 "아직 못
+			// 물어봤다"로 읽어 아무것도 안 그린다 — 물어봤는데 없는 것과 같은 글자가 된다.
+			// 스트림으로 확인했다: 아무 말도 오간 적 없는 컴패니언에게 이 회선은 `null` 을
+			// 2.5초마다 영원히 보내고 있었고, 그래서 그 화면은 늘 빈 채였다.
+			if rows == nil {
+				rows = []line{}
+			}
 			// And the same fact on its own frame, because the ROW marks cannot carry it.
 			//
 			// markPending marks what is being waited ON — a prompt with no reply yet, a tool call
