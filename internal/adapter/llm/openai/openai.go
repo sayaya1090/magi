@@ -818,7 +818,7 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 		if len(tc.Args) == 0 {
 			tc.Args = json.RawMessage("{}")
 		} else {
-			tc.Args = repairArgs(firstJSONValue(tc.Args))
+			tc.Args = emptyArgsToObject(repairArgs(firstJSONValue(tc.Args)))
 		}
 		if tc.CallID == "" {
 			tc.CallID = fmt.Sprintf("call_%d_%d", idx, time.Now().UnixNano())
@@ -841,6 +841,32 @@ func (a *toolAccumulator) finish() []*session.ToolCall {
 // call is finalized, rather than in each of the forty tools that would otherwise need it. Args that
 // already parse are returned untouched, and an irreparable payload is left exactly as it came so
 // the tool still reports the real error.
+// emptyArgsToObject folds the ways a model spells "this call takes no arguments" into the one
+// spelling every tool can read.
+//
+// This function's own doc comment above already claimed the job — "normalizing empty argument
+// payloads to {}" — but it only knew one spelling: a zero-length payload. A model that emits an
+// empty COLLECTION instead reached the tools as `[]`, and the 26 builtins each unmarshal into a
+// struct, so the call died with a Go type error the model cannot act on:
+//
+//	websearch []  ->  invalid arguments: json: cannot unmarshal array into Go value of type
+//	                  builtin.webSearchArgs
+//
+// Measured on a live run (2026-09-04): the model asked for a web search, got that line back, and
+// the search never happened. From the tool's answer alone there is no way to tell a malformed
+// payload from a genuinely wrong argument — the same reason repairArgs below prints when it gives
+// up.
+//
+// Only the EMPTY forms fold. A non-empty array is a real mistake and must still be refused, so the
+// tool can name the argument it wanted instead of being handed a silently emptied call.
+func emptyArgsToObject(raw json.RawMessage) json.RawMessage {
+	switch strings.TrimSpace(string(raw)) {
+	case "", "null", "[]":
+		return json.RawMessage("{}")
+	}
+	return raw
+}
+
 func repairArgs(raw json.RawMessage) json.RawMessage {
 	var probe any
 	if json.Unmarshal(raw, &probe) == nil {

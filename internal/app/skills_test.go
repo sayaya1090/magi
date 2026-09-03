@@ -116,3 +116,38 @@ func TestAFlatSkillEditedInPlaceIsServedFresh(t *testing.T) {
 		t.Fatalf("the edited skill is still served stale: %q", body2)
 	}
 }
+
+// TestASubdirectoryOfSkillsIsInert pins what the PowerPoint task pane's guide manager stands on:
+// a skill moved into a SUBDIRECTORY of .magi/skills is not loaded.
+//
+// That client offers "disable" next to "delete", and the difference between them is the whole
+// point — a disabled guide keeps its text so it can come back. It implements that by moving the
+// file into .magi/skills/off/, which is inert only because the loader skips directories.
+//
+// This test is here rather than in the client because a test written over there would only pin
+// the client's UNDERSTANDING of this loader. If the loader ever descends into subdirectories,
+// every guide a person switched off comes back on, silently, in their next turn.
+func TestASubdirectoryOfSkillsIsInert(t *testing.T) {
+	wd := t.TempDir()
+	a := &App{}
+	dir := filepath.Join(wd, ".magi", "skills")
+	off := filepath.Join(dir, "off")
+	if err := os.MkdirAll(off, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	on := "---\ndescription: on\n---\nbody"
+	if err := os.WriteFile(filepath.Join(dir, "kept.md"), []byte(on), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(off, "hidden.md"), []byte("---\ndescription: off\n---\nbody"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	skills := a.loadSkills(wd)
+	if len(skills) != 1 || skills[0].Name != "kept" {
+		t.Fatalf("only the enabled guide should load, got %+v", skills)
+	}
+	// And the description is the one the manager shows: frontmatter, not the first line.
+	if skills[0].Description != "on" {
+		t.Errorf("description should come from frontmatter, got %q", skills[0].Description)
+	}
+}
