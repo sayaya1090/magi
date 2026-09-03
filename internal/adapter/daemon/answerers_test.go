@@ -548,3 +548,46 @@ func TestTheCronWriteDoorsAreSerialised(t *testing.T) {
 		}
 	}
 }
+
+// Every advertised capability must be something a client can actually reach.
+//
+// A cap is a promise a screen gates on: "draw the editor, the door is there". A typo in one is a
+// screen that never appears and never explains why — the call is not made, so there is no refusal
+// to read either. Nothing checked that the promise had a door behind it.
+//
+// Four names are not methods, and each is here with its reason rather than as a blanket exemption:
+// two are dispatched before the method table (they take the connection over), and two are group
+// names covering several methods. A fifth would have to be added deliberately, which is the point.
+func TestEveryAdvertisedCapabilityHasSomethingBehindIt(t *testing.T) {
+	notMethods := map[string]string{
+		"roster":       "answered before the method table — read from the listener's home directory",
+		"transcript":   "turns the connection into a stream, so it is dispatched before the table",
+		"settings":     "the group name for config-get / config-set / profiles",
+		"tool-servers": "the group name for mcp-attach / mcp-detach",
+		// Not a door at all: it marks a build whose `about` carries proto and caps, which is what
+		// a peer reads to decide whether the rest of this list means anything.
+		"handshake": "the marker that this build answers a handshake in the first place",
+	}
+	// Every optional door this build knows how to advertise, from an engine that implements all of
+	// them — capsOf(nil) would answer only the constants.
+	for _, cap := range capsOf(&omniEngine{}) {
+		if _, ok := answers[cap]; ok {
+			continue
+		}
+		if why, ok := notMethods[cap]; ok {
+			if why == "" {
+				t.Errorf("%q is exempt with no reason written down", cap)
+			}
+			continue
+		}
+		t.Errorf("capability %q is advertised and nothing answers it — a screen gated on it "+
+			"never draws and never says why", cap)
+	}
+	// And the exemptions do not outlive what they excused: a name here that is now a real method
+	// is a comment that has stopped being true.
+	for cap := range notMethods {
+		if _, ok := answers[cap]; ok {
+			t.Errorf("%q is listed as not-a-method but the table answers it now", cap)
+		}
+	}
+}
