@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -150,6 +151,17 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 	section := "cron." + name
 
 	if r.FormValue("delete") != "" {
+		// The DAEMON writes it when there is one. It already owns the schema, the layer a job
+		// belongs to and the name rules, and the change takes effect the moment it lands rather
+		// than at the next reload — one owner while something is running.
+		if done, msg, err := s.cronThroughDoor(r, daemon.CronEdit{Name: name, Remove: true}); done {
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeText(w, msg)
+			return
+		}
 		if err := config.RemoveSection(path, section); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -196,6 +208,21 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The daemon writes it when there is one — same reason as the removal above.
+	var on *bool
+	if v := r.FormValue("enabled"); v != "" {
+		b := v == "true"
+		on = &b
+	}
+	if done, msg, err := s.cronThroughDoor(r, daemon.CronEdit{
+		Name: name, Schedule: schedule, Prompt: prompt, Enabled: on}); done {
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeText(w, msg)
+		return
+	}
 	if err := config.SetKey(path, section, "schedule", schedule); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -211,6 +238,71 @@ func (s *server) cronWrite(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeText(w, "wrote "+name+" to "+path+s.tellDaemon(r))
+}
+
+// cronThroughDoor asks the daemon to make the change, and reports whether it was able to.
+//
+// # Why the daemon and not this file
+//
+// This process knows how to write config.toml — it has to, for the case below — but a second
+// writer is a second copy of where a workspace's file lives, how a name becomes a table header
+// and which of the three layers wins. The daemon already owns all of that (it is what the agent's
+// own `schedule` tool goes through), so while one is running it does the writing and this console
+// says what came back.
+//
+// # Why the file path stays
+//
+// A companion that is not running still has a schedule, and setting one up for it is a reasonable
+// thing to do from a fleet screen — the records outlive the processes. Nothing can be asked of a
+// daemon that is not there, and refusing the edit would be worse than writing the file the daemon
+// will read at its next start. So: done=false means "nobody answered", and the caller falls back.
+//
+// The duplication that remains is honest and named: the offline path is the only place this
+// process still composes TOML, and it is reached only when no daemon can be asked.
+func (s *server) cronThroughDoor(r *http.Request, c daemon.CronEdit) (done bool, msg string, err error) {
+	e := s.withClient(r, func(cl *daemon.Client, _ session.SessionID) error {
+		// **Ask what it can do before asking it to do anything.** Without the handshake a
+		// transport failure and a refusal arrive as the same error, and this function has to tell
+		// them apart: one means "fall back and write the file", the other means "the owner said
+		// no, do not go around it". Measured — a test daemon that predates these doors answered
+		// with an EOF and the console reported it to the person as a refused name.
+		if _, herr := cl.Hello(); herr != nil {
+			return herr
+		}
+		want := "cron-set"
+		if c.Remove {
+			want = "cron-remove"
+		}
+		if !cl.PeerSupports(want) {
+			return errors.New("this daemon has no " + want + " door")
+		}
+		var said string
+		var derr error
+		if c.Remove {
+			_, said, derr = cl.RemoveCron(c.Name)
+		} else {
+			_, said, derr = cl.SetCron(c.Name, c.Schedule, c.Prompt, c.Enabled)
+		}
+		// From here every error is the daemon's answer, not the wire's.
+		done = true
+		if derr != nil {
+			err = derr
+			return nil
+		}
+		msg = said
+		if msg == "" {
+			msg = "wrote " + c.Name
+		}
+		if c.Remove {
+			msg = "removed " + c.Name
+		}
+		return nil
+	})
+	if e != nil && !done {
+		// No daemon to ask. Not an error here — the caller writes the file.
+		return false, "", nil
+	}
+	return done, msg, err
 }
 
 // scheduleProblem returns why a schedule cannot be used, or "".
