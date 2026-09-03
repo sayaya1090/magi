@@ -2437,6 +2437,38 @@ async function makeZip(files) {
   ]);
   ok('한 번에 하나만 들어간다', most === 1, `가장 많을 때 ${most}개`);
 
+  // **안 끝나는 앞사람이 뒤엣것을 영영 막지 않는다.**
+  //
+  // 줄을 세우면서 이 문이 생겼다: 호스트가 한 호출에서 멎으면 그 뒤로 아무것도 못 지나가고
+  // 손이 통째로 죽는다. 실물에서 그 화면을 봤다(2026-09-03): `list_slides` 가 45초씩 세 번
+  // 죽자 모델은 이 도구를 버리고 **bash 로 PowerPoint 를 직접 열어 딴 파일을 만들려 했다** —
+  // 그 파일은 사람이 보고 있는 덱이 아니다.
+  {
+    const was = OfficeHand.stuckAfter;
+    OfficeHand.stuckAfter = 30;
+    try {
+      let stuckStarted = false;
+      const stuck = new OfficeHand({
+        run: async (fn) => {
+          if (!stuckStarted) {
+            stuckStarted = true;
+            // 영영 안 끝나는 호출 하나.
+            await new Promise(() => {});
+          }
+          return slow(fn);
+        },
+        supports: () => true, document: 'd',
+      });
+      const never = stuck.run('list_slides', {});
+      never.then(() => {}, () => {});
+      const after = await Promise.race([
+        stuck.run('list_slides', {}).then(() => 'ok'),
+        new Promise((r) => { setTimeout(() => r('막힘'), 2000); }),
+      ]);
+      ok('멎은 호출은 언젠가 줄에서 비켜난다', after === 'ok', String(after));
+    } finally { OfficeHand.stuckAfter = was; }
+  }
+
   // **앞사람이 넘어져도 뒷사람은 선다.**
   const bad = hand.run('read_slide', { slide: 99 }).then(() => null, (e) => e.message);
   const good = hand.run('list_slides', {});

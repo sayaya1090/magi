@@ -110,7 +110,12 @@ func catalogue() []tool {
 			Desc: "A DECK IS ALREADY OPEN IN POWERPOINT AND THESE TOOLS ARE ATTACHED TO IT. You do not " +
 				"create, open or upload a deck, and there is no tool that does — the person is looking at " +
 				"theirs right now and every tool here edits that one. Never ask them to provide, upload or " +
-				"open a file; if a call fails, the deck is still there and the call is what went wrong. " +
+				"open a file; if a call fails, the deck is still there and the call is what went wrong — " +
+				"RETRY IT. Do not fall back to building a deck any other way: a .pptx you write with a " +
+				"shell, COM automation or python-pptx is a FILE NOBODY IS LOOKING AT, and the person ends " +
+				"up with an unchanged deck on screen plus scripts they did not ask for. If these tools " +
+				"truly cannot do it, say so and stop; that is a better answer than a deck delivered " +
+				"somewhere else. " +
 				"THE DECK'S TABLE OF CONTENTS: for every slide, its 1-based position, id, layout name and shape count. The row marked current:true is the slide the person is looking at RIGHT NOW, and the answer carries it as current as well. Every tool that takes slide/slide_id defaults to that slide when you omit both — so when somebody says \"this slide\" or names none, omit them; never answer that with a question listing the slides. Start here — the answer also names the document every later call should address." + declare,
 			Props:    []property{{Name: "from", Type: "integer", Desc: "1-based position to start at (default 1). Use with count to page through a large deck."}, {Name: "count", Type: "integer", Desc: "How many slides to return (default: all of them from `from`)."}},
 			ReadOnly: true,

@@ -169,9 +169,27 @@ export class OfficeHand extends HandPort {
       try { return await this.#dispatch(op, args); } finally { this.#inside = false; }
     });
     // **앞사람이 넘어져도 뒷사람은 선다.** 거절도 줄에서는 그냥 「끝난 것」이다.
-    this.#queue = mine.then(() => {}, () => {});
+    //
+    // 그리고 **안 끝나는 앞사람도 언젠가는 비켜 준다.** 줄을 세우면서 이 문이 생겼다:
+    // 호스트가 한 호출에서 멎으면 그 뒤로 아무것도 못 지나가고, 손이 통째로 죽는다.
+    // 실물에서 그 화면을 봤다(2026-09-03): `list_slides` 가 45초씩 세 번 죽자 모델은 이
+    // 도구를 버리고 **bash 로 PowerPoint 를 직접 열어 딴 파일을 만들려 했다** — 그 파일은
+    // 사람이 보고 있는 덱이 아니다.
+    //
+    // 헬퍼는 `handCallTimeout`(45초)에서 이미 기다리기를 그만둔다. 그보다 조금 뒤에 줄을
+    // 놓아 주면, 아무도 안 기다리는 호출이 뒤엣것을 막는 일은 없다.
+    this.#queue = Promise.race([
+      mine.then(() => {}, () => {}),
+      new Promise((done) => { setTimeout(done, OfficeHand.stuckAfter); }),
+    ]);
     return mine;
   }
+
+  /**
+   * 멎은 호출을 줄에서 놓아 주는 때. 헬퍼가 기다리기를 그만두는 45초보다 조금 뒤다 — 그때쯤엔
+   * 그 호출의 답을 기다리는 사람이 아무도 없다.
+   */
+  static stuckAfter = 50000;
 
   #queue = Promise.resolve();
 
