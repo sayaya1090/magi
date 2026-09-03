@@ -93,7 +93,7 @@ export class View {
     });
     this.renderPending();
     if (this.readTranscript) {
-      this.readTranscript.onChange = () => this.onLog();
+      this.readTranscript.onChange = () => this.onLogSoon();
       this.onLog();
     }
     if (this.watchPrompt) {
@@ -447,6 +447,37 @@ export class View {
   logShape() { return logShapeOf(this.readTranscript?.view); }
 
   /** 로그가 움직였다. 여기 하나로 대화·안내·컴포저가 다 따라간다. */
+  /**
+   * **한 프레임에 한 번만 다시 그린다.**
+   *
+   * `onChange` 는 글자 한 조각마다 뛴다 — 긴 턴 하나에 수천 번이다. 그리고 `renderRows` 는
+   * 대화 칸을 통째로 비우고 **모든 줄을 새로 만든다.** 줄이 N 개, 사건이 M 개면 DOM 을
+   * N×M 번 짓는 셈이라, 2만 5천 프레임짜리 대화에서는 수백만 번이 된다.
+   *
+   * 그러면 창이 느려지다 끝내 답을 못 하게 되고, **작업창이 죽으면 모델의 조작이 전부
+   * 45초씩 죽는다.** 실물에서 그 사슬을 봤다(2026-09-03): 긴 판마다 작업창이 사라졌고,
+   * 도구가 죽자 모델은 PowerShell COM 으로 우회했으며, 그건 사람이 쓰던 PowerPoint 를
+   * 닫는다. 화면 하나가 느린 것으로 끝나지 않는다.
+   *
+   * 그림은 사람이 보는 것이라 **한 프레임에 한 번이면 충분하다.** 값은 그대로 쌓이고
+   * 그리기만 모은다 — 마지막 상태는 같다.
+   */
+  onLogSoon() {
+    if (this.#drawing) return;
+    this.#drawing = true;
+    // **`requestAnimationFrame` 은 안 쓴다.** 작업창이 접히거나 가려지면 그 콜백은 아예
+    // 안 뛴다 — 브라우저에서 쟀다(2026-09-03): `visibilityState` 가 `hidden` 이면 800ms 를
+    // 기다려도 한 번도 안 뛰었다. 그러면 화면이 느려지는 것이 아니라 **영영 안 그려진다.**
+    // 사람이 창을 다시 펼 때까지 보낸 말도, 온 답도 안 보인다. 모아 그리려다 안 그리는 것과
+    // 바꿀 수는 없다. 타이머는 가려져도 뛴다(느려질 뿐이고, 모아 그리기에는 그걸로 족하다).
+    setTimeout(() => {
+      this.#drawing = false;
+      this.onLog();
+    });
+  }
+
+  #drawing = false;
+
   onLog() {
     const v = this.readTranscript.view;
     if (this.sendTurn.settle(this.logShape().userRows)) {
