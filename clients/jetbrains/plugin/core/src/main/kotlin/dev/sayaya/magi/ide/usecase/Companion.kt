@@ -155,9 +155,17 @@ class Companion(
      * [enabled] 가 null 이면 스위치는 그대로다. 말만 고치는 편집이 꺼 둔 잡을 도로 켜면 안 되고,
      * 그래서 와이어에서도 이 값은 세 갈래다.
      */
-    fun setCron(name: String, schedule: String, prompt: String, enabled: Boolean? = null): Response =
+    fun setCron(
+        name: String,
+        schedule: String,
+        prompt: String,
+        enabled: Boolean? = null,
+        command: String = "",
+        timeout: String = "",
+    ): Response =
         send(Request(method = "cron-set", name = name, schedule = schedule,
-            text = prompt, enabled = enabled))
+            text = prompt, enabled = enabled,
+            command = command.ifBlank { null }, timeout = timeout.ifBlank { null }))
 
     /** 예약 하나를 지운다. */
     fun removeCron(name: String): Response = send(Request(method = "cron-remove", name = name))

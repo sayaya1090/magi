@@ -37,9 +37,12 @@ data class Request(
     val name: String? = null,
     val looking: Boolean? = null,
     val meeting: String? = null,
-    /** 예약 편집의 두 필드. [enabled] 는 **세 갈래**다 — 없음은 「스위치는 그대로」다. */
+    /** 예약 편집의 필드들. [enabled] 는 **세 갈래**다 — 없음은 「스위치는 그대로」다. */
     val schedule: String? = null,
     val enabled: Boolean? = null,
+    /** 도는 잡의 명령과 그 시한. `prompt`(=[text])와 배타 — 데몬이 둘 다면 거부한다. */
+    val command: String? = null,
+    val timeout: String? = null,
     /** 설정 쓰기가 어느 층에 쓸지 — 비우면 데몬이 정한다(project 우선). */
     val tier: String? = null,
     val n: Int? = null,
@@ -171,6 +174,15 @@ data class CronRow(
     val enabled: Boolean = false,
     /** 이 잡이 **묻는 말**. 없으면 화면은 잡이 있다는 것만 말하고 무엇을 하는지는 못 말한다. */
     val prompt: String? = null,
+    /**
+     * 이 잡이 **도는 명령**. [prompt] 와 배타다 — 잡은 묻거나 돌거나 하나다.
+     *
+     * 커맨드 잡은 모델을 안 부르고 도구 권한 관문도 안 지난다(설정에 적은 것이 곧 승인).
+     * 그래서 에이전트는 이 필드를 못 쓴다 — 사람과 컨트롤 소켓만 쓴다.
+     */
+    val command: String? = null,
+    /** 커맨드 한 번의 시한, 적힌 그대로("20m"). 비면 기본값. */
+    val timeout: String? = null,
     /** RFC3339. 비어 있으면 영영 안 돈다 — 꺼졌거나 [problem] 이 사유다. */
     val next: String? = null,
     val problem: String? = null,

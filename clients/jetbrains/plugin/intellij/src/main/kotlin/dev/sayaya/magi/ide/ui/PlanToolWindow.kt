@@ -404,7 +404,10 @@ class PlanToolWindow : ToolWindowFactory {
                             border = JBUI.Borders.empty(1, 0)
                             // 잡이 **무엇을 묻는지**는 툴팁에 — 한 줄에 다 적으면 이 좁은 판에서
                             // 다른 절을 밀어낸다. 고치는 화면은 누르면 열린다.
-                            j.prompt?.takeIf { it.isNotBlank() }?.let { toolTipText = it.take(300) }
+                            // 무엇을 하는 잡인지 — 도는 잡은 `$` 로 시작해 한눈에 갈린다.
+                            (j.command?.takeIf { it.isNotBlank() }?.let { "$ $it" }
+                                ?: j.prompt?.takeIf { it.isNotBlank() })
+                                ?.let { toolTipText = it.take(300) }
                             if (canEditCron) {
                                 cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
                                 addMouseListener(object : java.awt.event.MouseAdapter() {
@@ -659,6 +662,20 @@ class PlanToolWindow : ToolWindowFactory {
             val prompt = com.intellij.ui.components.JBTextArea(job?.prompt ?: "", 5, 40).apply {
                 lineWrap = true; wrapStyleWord = true
             }
+            // **묻거나 돈다 — 하나다.** 데몬이 둘 다인 잡을 거부하므로 화면도 그렇게 묻는다:
+            // 라디오 둘이면 「둘 다 채웠다」가 만들어질 수 없고, 거부를 읽어서 배우지 않아도 된다.
+            val runs = !job?.command.isNullOrBlank()
+            val asks = javax.swing.JRadioButton(MagiBundle.msg("plan.schedule.asks"), !runs)
+            val doesRun = javax.swing.JRadioButton(MagiBundle.msg("plan.schedule.runs"), runs)
+            // 한 쌍으로 묶어야 배타가 성립한다 — 안 묶으면 둘 다 켜지고 그게 데몬이 거부하는 모양이다.
+            val kind = javax.swing.ButtonGroup().apply { add(asks); add(doesRun) }
+            val command = com.intellij.ui.components.JBTextField(job?.command ?: "", 24)
+            val timeout = com.intellij.ui.components.JBTextField(job?.timeout ?: "", 8)
+            fun sync() {
+                prompt.isEnabled = asks.isSelected
+                command.isEnabled = doesRun.isSelected
+                timeout.isEnabled = doesRun.isSelected
+            }
             val on = javax.swing.JCheckBox(MagiBundle.msg("plan.schedule.enabled"), job?.enabled ?: true)
             init {
                 title = MagiBundle.msg(if (job == null) "plan.schedule.new" else "plan.schedule.edit")
@@ -668,8 +685,14 @@ class PlanToolWindow : ToolWindowFactory {
                 com.intellij.util.ui.FormBuilder.createFormBuilder()
                     .addLabeledComponent(MagiBundle.msg("plan.schedule.name"), name)
                     .addLabeledComponent(MagiBundle.msg("plan.schedule.when"), schedule)
-                    .addLabeledComponent(MagiBundle.msg("plan.schedule.asks"),
-                        com.intellij.ui.components.JBScrollPane(prompt))
+                    .addComponent(asks)
+                    .addLabeledComponent("", com.intellij.ui.components.JBScrollPane(prompt))
+                    .addComponent(doesRun)
+                    .addLabeledComponent(MagiBundle.msg("plan.schedule.cmd"), command)
+                    .addLabeledComponent(MagiBundle.msg("plan.schedule.timeout"), timeout)
+                    .addComponentToRightColumn(JBLabel(MagiBundle.msg("plan.schedule.cmd.why")).apply {
+                        foreground = Look.faint
+                    })
                     .addComponent(on)
                     // 사람이 쓰기 전에 규칙을 말한다 — 데몬이 거부한 뒤에 배우는 것보다 싸다.
                     .addComponentToRightColumn(JBLabel(MagiBundle.msg("plan.schedule.hint")).apply {
@@ -677,16 +700,25 @@ class PlanToolWindow : ToolWindowFactory {
                     })
                     .panel
             override fun getPreferredFocusedComponent(): javax.swing.JComponent =
-                if (job == null) name else prompt
+                when {
+                    job == null -> name
+                    runs -> command
+                    else -> prompt
+                }
         }
+        // 고른 종류만 열려 있다 — 잠근 칸에 친 글자가 조용히 버려지지 않게.
+        dlg.asks.addActionListener { dlg.sync() }
+        dlg.doesRun.addActionListener { dlg.sync() }
+        dlg.sync()
         if (!dlg.showAndGet()) return
         val n = dlg.name.text.trim()
         val sch = dlg.schedule.text.trim()
-        val words = dlg.prompt.text.trim()
+        val e = dev.sayaya.magi.ide.usecase.Schedules.edit(
+            dlg.doesRun.isSelected, dlg.prompt.text, dlg.command.text, dlg.timeout.text)
         // 스위치를 안 건드렸으면 안 보낸다.
         val flag = if (job != null && dlg.on.isSelected == job.enabled) null else dlg.on.isSelected
         ws.onDaemon({ note(MagiBundle.msg("common.failed", it)) }) { c ->
-            val r = c.setCron(n, sch, words, flag)
+            val r = c.setCron(n, sch, e.prompt, flag, e.command, e.timeout)
             if (!r.ok) note(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
             else SwingUtilities.invokeLater { after() }
         }
