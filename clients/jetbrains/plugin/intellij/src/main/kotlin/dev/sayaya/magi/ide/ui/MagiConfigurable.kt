@@ -53,6 +53,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
      * 있었다: `status` 가 둘 다 싣는데 플러그인 와이어에 그 필드가 없어 조용히 버려졌다. 바꿔
      * 주겠다는 화면은 **무엇에서 바꾸는지**를 보여야 한다.
      */
+    private val completeWhy = Look.note("", Look.faint) as javax.swing.JTextArea
     private val modelNow = Look.wide()
     private val backendNow = Look.wide()
     private val outside = Look.flow(Look.warn)
@@ -142,6 +143,10 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(MagiBundle.msg("set.look"), lookTyping)
         note(MagiBundle.msg("set.look.why"))
         row(MagiBundle.msg("set.complete"), autoComplete)
+        // **왜 아무것도 안 뜨는지**를 여기 적는다. 매 타건마다 말하면 잡음이고, 고치는 자리가
+        // 이 화면이다 — 라우팅 키(`autocomplete.code_profile`)가 바로 아래 문이 준 칸에 선다.
+        // 이 값이 없으면 사람은 체크를 켜 놓고 아무것도 안 뜨는 채로 이유를 알 길이 없다.
+        row("", completeWhy)
         row(MagiBundle.msg("set.suggest"), composerSuggest)
         row(MagiBundle.msg("set.autostart"), autostart)
         note(MagiBundle.msg("set.local.why"))
@@ -347,6 +352,9 @@ class MagiConfigurable(private val project: Project) : Configurable {
             }
             perm.text = Perms.label(f.permission)
             // 모름은 모름으로 — 빈 칸은 「없음」으로 읽힌다.
+            completeWhy.text = dev.sayaya.magi.ide.usecase.Assist.lastEmpty?.let {
+                MagiBundle.msg("set.complete.why." + it, it)
+            }.orEmpty()
             modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
             backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
             // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히

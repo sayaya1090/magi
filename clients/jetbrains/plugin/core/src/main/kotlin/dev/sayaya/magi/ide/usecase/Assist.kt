@@ -39,7 +39,30 @@ class Assist(
             put("prefix", JsonPrimitive(prefix))
             put("suffix", JsonPrimitive(suffix))
         }
-        return call { c -> c.exchange(Request(method = "complete", name = path, args = args)).out }
+        return call { c ->
+            val r = c.exchange(Request(method = "complete", name = path, args = args))
+            // 왜 빈손인지를 **기억한다.** 매 타건마다 말하면 잡음이라 설정 화면이 읽는다 —
+            // 고치는 자리가 거기이기 때문이다(라우팅 키가 같은 화면에 서 있다).
+            lastEmpty = if (r.out.isNullOrEmpty()) r.reason?.takeIf { it.isNotBlank() } else null
+            r.out
+        }
+    }
+
+    companion object {
+        /**
+         * 마지막 완성이 빈손이었던 사유, 있으면.
+         *
+         * **인스턴스가 아니라 여기 산다.** 이 클래스는 호출마다 새로 만들어지므로(에디터의
+         * 완성 자리를 보라) 인스턴스 필드에 적으면 그 자리에서 사라진다 — 기억할 것은 한 자리에
+         * 있어야 읽는 쪽이 하나다.
+         *
+         * 글자가 나온 완성은 이 값을 지운다. 한 번 못 뜬 사유가 잘 되는 동안에도 화면에 남아
+         * 있으면 그 문장이 늙는다 — 이 트리가 오늘 다섯 번 겪은 그 부류다.
+         */
+        @Volatile
+        @JvmStatic
+        var lastEmpty: String? = null
+            internal set
     }
 
     /** 컴포저 제안. 사람이 치던 지시를 어떻게 끝낼지. */

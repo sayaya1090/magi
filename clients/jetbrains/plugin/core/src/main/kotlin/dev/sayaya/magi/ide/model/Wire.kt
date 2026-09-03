@@ -100,6 +100,16 @@ data class Response(
      */
     val backend: String? = null,
     val model: String? = null,
+    /**
+     * 완성이 **왜 빈손인가** — `complete` 가 글자를 못 냈을 때만 온다(off · unrouted ·
+     * nothing-asked · no-answer). 글자가 나온 완성에는 없다.
+     *
+     * 이 필드는 **에디터를 위해** 생겼다(코어 주석 그대로): 없으면 「할 말이 없던 완성기」와
+     * 「꺼져 있거나 설정이 안 된 완성기」가 에디터에게 똑같은 빈 문자열로 온다. 그런데 그
+     * 에디터가 이 필드를 안 읽고 있었다 — 사람이 체크를 켜 놓고 아무것도 안 뜨는 채로 이유를
+     * 알 길이 없었다.
+     */
+    val reason: String? = null,
     val user: String? = null,
     val tools: List<String>? = null,
     val models: List<String>? = null,
