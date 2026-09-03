@@ -1950,7 +1950,7 @@ async function makeZip(files) {
   {
     const [hand, log] = handOn(deckWith({}));
     const out = await hand.run('add_chart', {
-      slide: 2, kind: 'bar', title: '분기', categories: ['1분기', '2분기'],
+      slide: 2, new_slide: true, kind: 'bar', title: '분기', categories: ['1분기', '2분기'],
       series: [{ name: '매출', values: [10, 20] }],
     });
     const pack = await insertedPackage(log);
@@ -1969,11 +1969,47 @@ async function makeZip(files) {
       JSON.stringify(out.changed));
   }
 
+  // **기본은 짚은 장에 넣는 것이다.**
+  //
+  // 앞 판본은 늘 새 장을 만들었다. 그런데 「5번 장에 차트를 넣어 줘」라고 시킨 사람도,
+  // `add_chart{slide:5}` 를 부른 모델도 그 장에 들어가기를 바란다. 실물에서 그 화면을 봤다
+  // (2026-09-03): 모델이 차트를 넣고 → 늘어난 장을 보고 → 지우고 → 다시 넣기를 **여덟 번**
+  // 되풀이하다 25분을 태우고 덱을 비웠다.
+  {
+    const model = deckWith({});
+    const [hand, log] = handOn(model);
+    const was = model.slides.length;
+    const out = await hand.run('add_chart', {
+      slide: 2, kind: 'bar', categories: ['ㄱ'], series: [{ name: 'ㄴ', values: [1] }],
+    });
+    ok('장이 안 늘어난다', model.slides.length === was, `${was} → ${model.slides.length}`);
+    const pack = await insertedPackage(log);
+    const slideXml = textOf(pack.get('ppt/slides/slide1.xml'));
+    ok('있던 글은 그대로 있다', /<p:sp[\s>]/.test(slideXml), slideXml.slice(0, 200));
+    ok('차트도 들어간다', /<p:graphicFrame>/.test(slideXml));
+    ok('옛 장을 지운다 — 같은 장이 둘이 되지 않게', log.some((l) => l === 'slide-delete:s2'),
+      log.filter((l) => l.startsWith('slide-delete')).join(' '));
+    // **자리는 지운 뒤의 것이다.** 옛 장이 앞에 있었으므로 번호가 하나 당겨진다 — 안 다시 읽으면
+    // 2장짜리 덱에 「슬라이드 3」이라고 답하게 된다(실물에서 그 답을 봤다, 2026-09-03).
+    ok('자리를 지운 뒤로 셈한다', out.result.slide === 2, String(out.result.slide));
+  }
+
+  // `new_slide: true` 는 예전처럼 새 장이다 — 그때만 있던 것을 걷는다.
+  {
+    const model = deckWith({});
+    const [hand] = handOn(model);
+    const was = model.slides.length;
+    await hand.run('add_chart', {
+      slide: 2, new_slide: true, kind: 'bar', categories: ['ㄱ'], series: [{ name: 'ㄴ', values: [1] }],
+    });
+    ok('청하면 장이 하나 는다', model.slides.length === was + 1, `${was} → ${model.slides.length}`);
+  }
+
   // **남의 노트를 물려주지 않는다.** 뼈대는 장을 통째로 뜬 것이라 노트가 딸려 온다.
   {
     const [hand, log] = handOn(deckWith({ notes: '이건 2장 발표 노트다' }));
     await hand.run('add_chart', {
-      slide: 2, kind: 'bar', categories: ['ㄱ'], series: [{ name: 'ㄴ', values: [1] }],
+      slide: 2, new_slide: true, kind: 'bar', categories: ['ㄱ'], series: [{ name: 'ㄴ', values: [1] }],
     });
     const pack = await insertedPackage(log);
     ok('차트 장은 남의 노트를 안 달고 나온다',
@@ -1989,7 +2025,7 @@ async function makeZip(files) {
       + '<p:grpSp><p:cNvPr id="6"/><p:sp><p:cNvPr id="7"/></p:sp></p:grpSp>';
     const [hand, log] = handOn(deckWith({ spTree: messy }));
     await hand.run('add_image', {
-      slide: 1, path: 'C:/a/b.png', image_base64: toBase64(new Uint8Array([1, 2, 3])),
+      slide: 1, new_slide: true, path: 'C:/a/b.png', image_base64: toBase64(new Uint8Array([1, 2, 3])),
       image_ext: 'png', image_mime: 'image/png', image_width: 200, image_height: 100, image_bytes: 3,
     });
     const pack = await insertedPackage(log);

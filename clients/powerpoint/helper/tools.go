@@ -275,33 +275,37 @@ func catalogue() []tool {
 		},
 		{
 			Name: "add_chart",
-			Desc: "Put a NATIVE PowerPoint chart on a new slide — a real chart object the person can restyle, " +
+			Desc: "Put a NATIVE PowerPoint chart on a slide — a real chart object the person can restyle, " +
 				"not a picture and not a pile of rectangles. Give it the categories and the numbers; it wears this " +
-				"deck's theme because it is built from one of its slides. It lands on a NEW slide and touches " +
-				"nothing that was already there. One thing it cannot do: the chart carries its numbers inside " +
+				"deck's theme because it is built from one of its slides. " +
+				"It goes ON THE SLIDE YOU NAME, keeping what is already there — that is what \"put a chart on slide 5\" means. Because the slide is rebuilt to carry it the slide KEEPS ITS POSITION but GETS A NEW ID, which the answer gives you. Pass new_slide:true to put it on a fresh slide of its own instead — that one is added AFTER the slide you name and leaves every existing slide alone. " +
+				"One thing it cannot do: the chart carries its numbers inside " +
 				"itself rather than in the little spreadsheet PowerPoint usually attaches, so \"Edit Data\" will not " +
 				"open — say so when you report it, and call this tool again to change a number." + declare,
 			Props: withSlide(
+				property{Name: "new_slide", Type: "boolean", Desc: "Put it on a fresh slide added after the one you named, instead of on that slide. Default false."},
 				property{Name: "kind", Type: "string", Desc: "bar/column (vertical bars), hbar (horizontal), line, pie — Korean names work too (막대·가로막대·꺾은선·원). Default bar. An unknown name is refused with the list, never swapped for something close."},
 				property{Name: "title", Type: "string", Desc: "Chart title. Omit for none."},
 				property{Name: "categories", Type: "array", Items: "string", Desc: "The labels along the category axis (\"1분기\", \"2분기\", …). Required."},
 				property{Name: "series", Type: "array", Items: "object", Desc: "One entry per line/bar set: {name, values}. values must have exactly as many numbers as there are categories — a mismatch is refused rather than padded, because a padded zero reads as real data. A pie takes exactly one series."},
-				property{Name: "left", Type: "number", Desc: "Position in points (default 60)."},
+				property{Name: "left", Type: "number", Desc: "Position in points (default 60). On a slide that already has a title and body, put it below them or the chart will sit on top of the words — read_slide tells you where they are."},
 				property{Name: "top", Type: "number", Desc: "Position in points (default 90)."},
-				property{Name: "width", Type: "number", Desc: "Size in points (default 840)."},
+				property{Name: "width", Type: "number", Desc: "Size in points (default 600 — fits a 4:3 deck too, since this host cannot read the slide size)."},
 				property{Name: "height", Type: "number", Desc: "Size in points (default 400)."},
 			),
 			Required: []string{"categories", "series"},
 		},
 		{
 			Name: "add_image",
-			Desc: "Put a picture from the person's own computer on a new slide. Give the FILE PATH — never " +
+			Desc: "Put a picture from the person's own computer on a slide. Give the FILE PATH — never " +
 				"base64: the helper reads the file itself, so the bytes never travel through this conversation. " +
 				"The file is checked by its CONTENT, not its name, and anything that is not a real PNG/JPEG/GIF/BMP " +
 				"is refused — so a text file renamed to .png cannot end up embedded in a slide somebody then " +
-				"shares. It lands on a NEW slide and touches nothing that was already there. Ask the person for " +
-				"the path if you do not have one; do not guess at filenames." + declare,
+				"shares. " +
+				"It goes ON THE SLIDE YOU NAME, keeping what is already there — that is what \"put a chart on slide 5\" means. Because the slide is rebuilt to carry it the slide KEEPS ITS POSITION but GETS A NEW ID, which the answer gives you. Pass new_slide:true to put it on a fresh slide of its own instead — that one is added AFTER the slide you name and leaves every existing slide alone. " +
+				"Ask the person for the path if you do not have one; do not guess at filenames." + declare,
 			Props: withSlide(
+				property{Name: "new_slide", Type: "boolean", Desc: "Put it on a fresh slide added after the one you named, instead of on that slide. Default false."},
 				property{Name: "path", Type: "string", Desc: "Where the picture is on this machine, e.g. C:\\Users\\me\\Pictures\\logo.png. Required."},
 				property{Name: "alt", Type: "string", Desc: "Alt text for screen readers. Strongly worth setting: if you omit it the file name is used, which is better than nothing but rarely describes the picture."},
 				property{Name: "name", Type: "string", Desc: "Shape name in the deck. Defaults to 그림."},

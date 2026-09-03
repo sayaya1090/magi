@@ -453,21 +453,31 @@ export class FakeHand extends HandPort {
         // 성공했고 실물은 ItemNotFound 를 던졌다.
         const at = this.#slide(args);
         const where = this.model.slides.indexOf(at);
-        const slide = {
-          id: `sl-chart${this.nextId++}`, index: where + 1, layout: '차트',
-          shapes: [{ id: 'chart-1', name: args.title ?? '차트', type: 'Chart', text: '' }],
-        };
-        this.model.slides.splice(where + 1, 0, slide);
+        // **짚은 장에 넣는 것이 기본이다** — 진짜 손과 같은 계약이다. 새 장은 청해야 생긴다.
+        const fresh = args.new_slide === true;
+        const slide = fresh
+          ? { id: `sl-chart${this.nextId++}`, index: where + 1, layout: '차트', shapes: [] }
+          : at;
+        slide.shapes.push({ id: `chart-${this.nextId++}`, name: args.title ?? '차트', type: 'Chart', text: '' });
+        if (fresh) {
+          this.model.slides.splice(where + 1, 0, slide);
+        } else {
+          // 실물은 장을 다시 지으므로 **id 가 바뀐다.** 가짜도 그렇게 해야 이 화면에서 배운 것이
+          // 실물에서 맞는다.
+          slide.id = `${slide.id}-c${this.nextId++}`;
+        }
         this.model.slides.forEach((sl, i) => { sl.index = i; });
         this.#mutated();
         return this.#envelope({
-          slide: where + 2, slide_id: slide.id, chart: kind.ko,
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id, chart: kind.ko,
           categories: args.categories.length, series: args.series.length,
           data_sheet: false,
-        }, [`슬라이드 ${where + 2}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
-          + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)',
-        `이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
-          + '들고 있던 목차가 있으면 다시 읽으세요.']);
+        }, [`슬라이드 ${this.model.slides.indexOf(slide) + 1}(id ${slide.id}) 에 ${kind.ko} 차트를 넣었습니다 — `
+          + '「데이터 편집」은 안 열립니다(품은 표가 없습니다)']
+          .concat(fresh
+            ? [`이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
+              + '들고 있던 목차가 있으면 다시 읽으세요.']
+            : [`이 장은 다시 지어졌으므로 **id 가 바뀌었습니다** — ${slide.id}`]));
       }
 
       case 'add_image': {
@@ -478,11 +488,13 @@ export class FakeHand extends HandPort {
         }
         const at = this.#slide(args);
         const where = this.model.slides.indexOf(at);
-        const slide = {
-          id: `sl-img${this.nextId++}`, index: where + 1, layout: '그림',
-          shapes: [{ id: 'pic-1', name: args.name ?? '그림', type: 'Picture', text: '' }],
-        };
-        this.model.slides.splice(where + 1, 0, slide);
+        const fresh = args.new_slide === true;
+        const slide = fresh
+          ? { id: `sl-img${this.nextId++}`, index: where + 1, layout: '그림', shapes: [] }
+          : at;
+        slide.shapes.push({ id: `pic-${this.nextId++}`, name: args.name ?? '그림', type: 'Picture', text: '' });
+        if (fresh) this.model.slides.splice(where + 1, 0, slide);
+        else slide.id = `${slide.id}-i${this.nextId++}`;
         this.model.slides.forEach((sl, i) => { sl.index = i; });
         this.#mutated();
         // **비율 이야기를 여기서도 한다.** 진짜 손은 `aspect_kept` 로 「이 사진은 늘어났다」를
@@ -493,14 +505,16 @@ export class FakeHand extends HandPort {
           ? { width: Number(args.width), height: Number(args.height), kept: false }
           : fitBox(Number(args.image_width ?? 0), Number(args.image_height ?? 0),
             Number(args.width ?? 640), Number(args.height ?? 420));
-        const lines = [`슬라이드 ${where + 2}(id ${slide.id}) 에 그림을 넣었습니다`];
+        const lines = [`슬라이드 ${this.model.slides.indexOf(slide) + 1}(id ${slide.id}) 에 그림을 넣었습니다`];
         if (!said && !fit.kept) {
           lines.push('원래 크기를 못 읽어 비율을 못 맞췄습니다 — 찌그러져 보이면 크기를 짚어 주세요');
         }
-        lines.push(`이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 `
-          + '밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.');
+        lines.push(fresh
+          ? `이 장 뒤에 끼워 넣었으므로 ${where + 2} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
+            + '들고 있던 목차가 있으면 다시 읽으세요.'
+          : `이 장은 다시 지어졌으므로 **id 가 바뀌었습니다** — ${slide.id}`);
         return this.#envelope({
-          slide: where + 2, slide_id: slide.id,
+          slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id,
           path: args.path ?? null, format: args.image_ext ?? 'png',
           bytes: Number(args.image_bytes ?? 0),
           natural: { width: Number(args.image_width ?? 0), height: Number(args.image_height ?? 0) },

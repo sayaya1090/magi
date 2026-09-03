@@ -1474,9 +1474,19 @@ export class OfficeHand extends HandPort {
 
       const dec = new TextDecoder();
       const at = (name) => files.find((f) => f.name === name);
-      // 뼈대만 쓴다: 있던 도형은 걷어 내고 차트만 놓는다. 자리표시자까지 그대로 두면 「제목을
-      // 입력하십시오」가 차트 옆에 남는다.
-      let slideXml = bareSpTree(dec.decode(at(slideName).data));
+      // **짚은 장에 넣는 것이 기본이다.**
+      //
+      // 앞 판본은 늘 새 장을 만들었다. 그런데 「5번 장에 차트를 넣어 줘」라고 시킨 사람도,
+      // `add_chart{slide:5}` 를 부른 모델도 **그 장에 들어가기를 바란다.** 실물에서 그 화면을
+      // 봤다(2026-09-03): 모델이 차트를 넣고 → 늘어난 장을 보고 → 지우고 → 다시 넣기를
+      // **여덟 번** 되풀이하다 25분을 태우고 덱을 비웠다.
+      //
+      // 새 장이 필요하면 `new_slide: true` 로 청한다. 그때만 뼈대를 쓴다 — 자리표시자까지
+      // 남기면 「제목을 입력하십시오」가 차트 옆에 뜬다.
+      const fresh = args.new_slide === true;
+      let slideXml = fresh
+        ? bareSpTree(dec.decode(at(slideName).data))
+        : dec.decode(at(slideName).data);
 
       // **이름이 겹치면 안 된다.** 뼈대로 뜬 장에 이미 차트가 있을 수 있고, 그때 같은 이름을
       // 하나 더 넣으면 zip 에 같은 이름이 둘 생겨 PowerPoint 가 통째로 거절한다.
@@ -1518,6 +1528,17 @@ export class OfficeHand extends HandPort {
       slides.load('items/id,items/index');
       await context.sync();
       const made = slides.items.find((s) => !before.includes(s.id));
+      // **제자리에 넣는 것이면 옛 장을 지운다.** 안 지우면 같은 장이 둘이 된다.
+      // `set_notes`·`replace_table` 과 같은 모양이고 같은 대가를 치른다 — **id 가 바뀐다.**
+      // 못 찾았으면 안 지운다: 지우고 나서 못 찾으면 그 장은 사라진 것이다.
+      if (!fresh && made) {
+        slide.delete();
+        await context.sync();
+        // **지운 뒤의 자리를 다시 읽는다.** 옛 장이 앞에 있었으므로 번호가 하나 당겨진다 —
+        // 안 읽으면 2장짜리 덱에 「슬라이드 3」이라고 답하게 된다(실물에서 그 답을 봤다).
+        slides.load('items/id,items/index');
+        await context.sync();
+      }
       this.#mutated();
       if (!made) {
         // **자리를 짐작해 「넣었습니다」라고 답하지 않는다.** `duplicate_slide` 도 같은 자리에서
@@ -1598,7 +1619,11 @@ export class OfficeHand extends HandPort {
       const dec = new TextDecoder();
       const enc = new TextEncoder();
       const at = (name) => files.find((f) => f.name === name);
-      let slideXml = bareSpTree(dec.decode(at(slideName).data));
+      // 차트와 같은 규칙이다 — 짚은 장에 넣는 것이 기본, 새 장은 `new_slide: true`.
+      const fresh = args.new_slide === true;
+      let slideXml = fresh
+        ? bareSpTree(dec.decode(at(slideName).data))
+        : dec.decode(at(slideName).data);
 
       const spot = freeImageName(files.map((f) => f.name), ext);
       const relId = freeRelId(dec.decode(at(relsName).data));
@@ -1648,6 +1673,17 @@ export class OfficeHand extends HandPort {
       slides.load('items/id,items/index');
       await context.sync();
       const made = slides.items.find((s) => !before.includes(s.id));
+      // **제자리에 넣는 것이면 옛 장을 지운다.** 안 지우면 같은 장이 둘이 된다.
+      // `set_notes`·`replace_table` 과 같은 모양이고 같은 대가를 치른다 — **id 가 바뀐다.**
+      // 못 찾았으면 안 지운다: 지우고 나서 못 찾으면 그 장은 사라진 것이다.
+      if (!fresh && made) {
+        slide.delete();
+        await context.sync();
+        // **지운 뒤의 자리를 다시 읽는다.** 옛 장이 앞에 있었으므로 번호가 하나 당겨진다 —
+        // 안 읽으면 2장짜리 덱에 「슬라이드 3」이라고 답하게 된다(실물에서 그 답을 봤다).
+        slides.load('items/id,items/index');
+        await context.sync();
+      }
       this.#mutated();
       if (!made) {
         throw new Error('그림을 넣었는데 덱에서 새 장을 못 찾았습니다 — '
