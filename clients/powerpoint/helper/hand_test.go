@@ -232,3 +232,35 @@ func TestOneCallAtATimeButOnlyOneCall(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// 붙어 있던 덱이 사라졌는데 **답 못 하는 연결만 남았을 때** 무엇이라고 말하는가.
+//
+// 실물에서 그 화면을 봤다(2026-09-03): 작업창이 끊긴 뒤 남은 것은 엿듣기만 하는 붙임
+// 하나였는데, 우리는 그것을 「열린 덱」으로 적어 보냈다. 모델은 그 목록을 보고 이것저것
+// 시도하다 끝내 PowerShell COM 으로 갔고, 그건 사람이 쓰던 PowerPoint 에 붙어 파일을 닫는다.
+func TestWhenTheOnlyConnectionsLeftAreDeafTheRefusalSaysSoAndWarnsOffCOM(t *testing.T) {
+	h := NewHandHub()
+	h.Timeout = 20 * time.Millisecond
+	// 아무도 안 듣는 연결 하나. 한 번 물어보고 놓치게 만든다.
+	h.Join("ghost", "watcher")
+	_, _ = h.Call(context.Background(), "", "list_slides", map[string]any{})
+
+	_, err := h.Call(context.Background(), "doc-gone", "list_slides", map[string]any{})
+	if err == nil {
+		t.Fatal("사라진 덱이 통과했다")
+	}
+	for _, want := range []string{
+		"doc-gone",
+		"no longer attached",
+		"open the magi pane",
+		"COM automation",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("거절 문구에 %q 가 없다: %v", want, err)
+		}
+	}
+	// **유령을 덱이라고 세지 않는다.**
+	if strings.Contains(err.Error(), "watcher") {
+		t.Errorf("답 못 하는 연결을 열린 덱으로 적었다: %v", err)
+	}
+}

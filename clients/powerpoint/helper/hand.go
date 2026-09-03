@@ -197,11 +197,33 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 	if document != "" {
 		c, ok := h.conns[document]
 		if !ok {
+			// **일한 적 있는 손만 덱으로 센다.**
+			//
+			// 붙어 있다는 것과 일하고 있다는 것은 다르다. 엿듣기만 하는 붙임, 얼어붙은 창,
+			// 아직 아무 말도 안 해 본 연결이 여기 섞이면 「덱이 둘 있다」는 거짓말이 된다 —
+			// 실물에서 그 답을 봤다(2026-09-03): 작업창이 끊긴 뒤 목록에 남은 것은 엿듣는
+			// 붙임 하나뿐이었는데, 그것을 열린 덱으로 적어 보냈다.
 			open := make([]string, 0, len(h.conns))
 			for k, c := range h.conns {
+				// **물어봤는데 답을 못 한 연결만 뺀다.** 아직 아무도 안 물어본 창은 멀쩡한 덱이다 —
+				// 갓 붙은 작업창이 그렇고, 그것까지 빼면 첫 호출이 「덱이 없다」로 죽는다.
+				if c.deaf > 0 && !c.answered {
+					continue
+				}
 				open = append(open, fmt.Sprintf("%s (%s)", k, c.label))
 			}
 			sort.Strings(open)
+			if len(open) == 0 {
+				// **모델이 다른 길을 찾아 나서는 자리다.** 무엇이 일어났고 사람이 무엇을
+				// 하면 되는지 적는다 — 안 적으면 모델은 PowerShell 로 PowerPoint 를 직접
+				// 열려 하고, 그건 사람이 쓰던 창에 붙어 그 파일을 닫을 수 있다.
+				return nil, fmt.Errorf("the deck %q is no longer attached, and no other deck is "+
+					"either — the magi task pane was closed, reloaded or stopped answering. "+
+					"Nothing was changed. This is not something you can work around: tell the "+
+					"person to open the magi pane in PowerPoint again, and do NOT try to build "+
+					"the deck with PowerShell, COM automation or python-pptx (that attaches to "+
+					"their running PowerPoint and can close their file)", document)
+			}
 			return nil, fmt.Errorf("no open deck is addressed by %q. Open decks: %s. "+
 				"Nothing was changed — a deck that is not open is not one this helper will guess at",
 				document, joinOr(open, "none"))
