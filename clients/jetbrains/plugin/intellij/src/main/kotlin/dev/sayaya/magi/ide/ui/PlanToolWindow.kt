@@ -12,6 +12,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.util.ui.JBUI
 import com.intellij.openapi.application.ApplicationManager
 import dev.sayaya.magi.ide.model.Request
+import dev.sayaya.magi.ide.model.CronRow
 import dev.sayaya.magi.ide.model.RosterRow
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.model.SessionRow
@@ -273,6 +274,12 @@ class PlanToolWindow : ToolWindowFactory {
             val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
+            // 한 번만 읽고 기억한다 — 데몬이 도는 동안 능력은 안 바뀐다.
+            if (!capsRead) {
+                val caps = comp.about().caps.orEmpty()
+                capsRead = true
+                canEditCron = caps.contains("cron-set")
+            }
             // 끝난 자식은 등록부에 없다 — 로그가 아는 것을 문에 묻는다. 문 없는 데몬은 null 을
             // 주고, 그때 이 판은 도는 것만 그린다(모름을 없음으로 그리지 않는다는 그 규칙).
             val past = comp.children().children.orEmpty()
@@ -395,8 +402,31 @@ class PlanToolWindow : ToolWindowFactory {
                         cronPane.add(JBLabel(line).apply {
                             foreground = if (!j.problem.isNullOrBlank()) Look.error else Look.faint
                             border = JBUI.Borders.empty(1, 0)
+                            // 잡이 **무엇을 묻는지**는 툴팁에 — 한 줄에 다 적으면 이 좁은 판에서
+                            // 다른 절을 밀어낸다. 고치는 화면은 누르면 열린다.
+                            j.prompt?.takeIf { it.isNotBlank() }?.let { toolTipText = it.take(300) }
+                            if (canEditCron) {
+                                cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                                addMouseListener(object : java.awt.event.MouseAdapter() {
+                                    override fun mouseClicked(e: java.awt.event.MouseEvent) =
+                                        editCron(project, j, workspace, { tell(it) }, { poll() })
+                                })
+                            }
                         })
                     }
+                }
+                // 「추가」는 **문이 있을 때만** 선다. 없는 문을 부르고 거부를 읽는 방식으로는 낡은
+                // 빌드와 거부하는 엔진을 못 가르고, 화면은 그 둘에 다른 말을 해야 한다.
+                if (canEditCron) {
+                    cronPane.add(JBLabel(MagiBundle.msg("plan.schedule.add")).apply {
+                        foreground = Look.accent
+                        cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
+                        border = JBUI.Borders.empty(2, 0)
+                        addMouseListener(object : java.awt.event.MouseAdapter() {
+                            override fun mouseClicked(e: java.awt.event.MouseEvent) =
+                                editCron(project, null, workspace, { tell(it) }, { poll() })
+                        })
+                    })
                 }
                 cronPane.revalidate(); cronPane.repaint()
             }
@@ -598,6 +628,69 @@ class PlanToolWindow : ToolWindowFactory {
                 }
             })
         }
+
+    /**
+     * 이 데몬이 예약을 고칠 수 있는가 — 핸드셰이크에서 한 번 읽고 기억한다.
+     *
+     * 화면이 편집기를 그릴지 정하는 자리라 **부르기 전에** 알아야 한다. 없는 문을 부르고 거부를
+     * 읽는 방식으로는 「낡은 빌드」와 「거부하는 엔진」을 못 가르는데, 화면은 그 둘에 다른 말을
+     * 해야 한다(이 트리의 문 원칙 첫째).
+     */
+    private var canEditCron = false
+    private var capsRead = false
+
+    /**
+     * 예약 하나를 고치는 판 — [job] 이 null 이면 새로 만든다.
+     *
+     * 이름은 **고칠 때 잠근다**: 이름이 잡의 정체이고, 여기서 바꾸면 「고치기」가 조용히
+     * 「새로 만들고 옛것을 남기기」가 된다. 바꾸고 싶으면 지우고 다시 만드는 것이 그 뜻에 맞다.
+     *
+     * 스위치를 안 건드린 편집은 스위치를 안 보낸다(문의 세 갈래 `enabled`) — 말만 고치는 편집이
+     * 꺼 둔 잡을 도로 켜면 안 된다.
+     */
+    private fun editCron(project: Project, job: CronRow?, ws: Workspace,
+                         note: (String) -> Unit, after: () -> Unit) {
+        val dlg = object : com.intellij.openapi.ui.DialogWrapper(project, true) {
+            val name = com.intellij.ui.components.JBTextField(job?.name ?: "").apply {
+                isEnabled = job == null
+                columns = 18
+            }
+            val schedule = com.intellij.ui.components.JBTextField(job?.schedule ?: "@daily").apply { columns = 18 }
+            val prompt = com.intellij.ui.components.JBTextArea(job?.prompt ?: "", 5, 40).apply {
+                lineWrap = true; wrapStyleWord = true
+            }
+            val on = javax.swing.JCheckBox(MagiBundle.msg("plan.schedule.enabled"), job?.enabled ?: true)
+            init {
+                title = MagiBundle.msg(if (job == null) "plan.schedule.new" else "plan.schedule.edit")
+                init()
+            }
+            override fun createCenterPanel(): javax.swing.JComponent =
+                com.intellij.util.ui.FormBuilder.createFormBuilder()
+                    .addLabeledComponent(MagiBundle.msg("plan.schedule.name"), name)
+                    .addLabeledComponent(MagiBundle.msg("plan.schedule.when"), schedule)
+                    .addLabeledComponent(MagiBundle.msg("plan.schedule.asks"),
+                        com.intellij.ui.components.JBScrollPane(prompt))
+                    .addComponent(on)
+                    // 사람이 쓰기 전에 규칙을 말한다 — 데몬이 거부한 뒤에 배우는 것보다 싸다.
+                    .addComponentToRightColumn(JBLabel(MagiBundle.msg("plan.schedule.hint")).apply {
+                        foreground = Look.faint
+                    })
+                    .panel
+            override fun getPreferredFocusedComponent(): javax.swing.JComponent =
+                if (job == null) name else prompt
+        }
+        if (!dlg.showAndGet()) return
+        val n = dlg.name.text.trim()
+        val sch = dlg.schedule.text.trim()
+        val words = dlg.prompt.text.trim()
+        // 스위치를 안 건드렸으면 안 보낸다.
+        val flag = if (job != null && dlg.on.isSelected == job.enabled) null else dlg.on.isSelected
+        ws.onDaemon({ note(MagiBundle.msg("common.failed", it)) }) { c ->
+            val r = c.setCron(n, sch, words, flag)
+            if (!r.ok) note(MagiBundle.msg("common.notsent", r.error ?: MagiBundle.msg("common.noreason")))
+            else SwingUtilities.invokeLater { after() }
+        }
+    }
 
     /** 토큰 수를 사람 눈금으로. 정수 나눗셈의 "0k" 를 안 만든다(1k 미만은 그대로). */
     private fun k(n: Int): String = if (n >= 1000) "${n / 1000}k" else "$n"

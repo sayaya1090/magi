@@ -125,6 +125,29 @@ class Companion(
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * 이 데몬이 무엇을 할 수 있는가 — 핸드셰이크의 `caps`.
+     *
+     * **부르기 전에 안다.** 편집기를 그릴지 말지는 문이 있는지에 달렸고, 「없는 문을 부르고
+     * 거부를 읽는」 방식으로는 <b>낡은 빌드</b>와 <b>거부하는 엔진</b>을 못 가른다 — 화면은 그
+     * 둘에 다른 말을 해야 한다. 이 값은 데몬이 도는 동안 안 바뀌므로 부르는 쪽이 한 번만
+     * 읽고 기억하면 된다.
+     */
+    fun about(): Response = send(Request(method = "about"))
+
+    /**
+     * 예약 하나를 쓴다 — 없으면 만들고, 같은 이름이 있으면 고친다.
+     *
+     * [enabled] 가 null 이면 스위치는 그대로다. 말만 고치는 편집이 꺼 둔 잡을 도로 켜면 안 되고,
+     * 그래서 와이어에서도 이 값은 세 갈래다.
+     */
+    fun setCron(name: String, schedule: String, prompt: String, enabled: Boolean? = null): Response =
+        send(Request(method = "cron-set", name = name, schedule = schedule,
+            text = prompt, enabled = enabled))
+
+    /** 예약 하나를 지운다. */
+    fun removeCron(name: String): Response = send(Request(method = "cron-remove", name = name))
+
     /** 이 워크스페이스의 대화들. 최근 활동 순 — 차례는 데몬이 정했다. */
     fun sessions(): Response = send(Request(method = "sessions"))
 

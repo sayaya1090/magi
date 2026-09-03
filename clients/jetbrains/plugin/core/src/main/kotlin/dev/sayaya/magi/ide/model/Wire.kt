@@ -37,6 +37,9 @@ data class Request(
     val name: String? = null,
     val looking: Boolean? = null,
     val meeting: String? = null,
+    /** 예약 편집의 두 필드. [enabled] 는 **세 갈래**다 — 없음은 「스위치는 그대로」다. */
+    val schedule: String? = null,
+    val enabled: Boolean? = null,
     val n: Int? = null,
     val args: JsonElement? = null,
     val ask: Boolean? = null,
@@ -140,6 +143,8 @@ data class CronRow(
     val name: String = "",
     val schedule: String? = null,
     val enabled: Boolean = false,
+    /** 이 잡이 **묻는 말**. 없으면 화면은 잡이 있다는 것만 말하고 무엇을 하는지는 못 말한다. */
+    val prompt: String? = null,
     /** RFC3339. 비어 있으면 영영 안 돈다 — 꺼졌거나 [problem] 이 사유다. */
     val next: String? = null,
     val problem: String? = null,

@@ -2983,12 +2983,12 @@ func (c *Client) RemoveCron(name string) ([]CronRow, string, error) {
 }
 
 func (c *Client) editCron(r Request) ([]CronRow, string, error) {
+	// exchange already carries a refusal out as Refused — a second !OK check here would be
+	// unreachable, and if it ever were reached it would DOWNGRADE that type to a plain error,
+	// which is what withClient reads to tell "the daemon said no" from "the pipe is dead".
 	resp, err := c.exchange(r)
 	if err != nil {
 		return nil, "", err
-	}
-	if !resp.OK {
-		return nil, "", errors.New(resp.Err)
 	}
 	return resp.Cron, resp.Out, nil
 }
