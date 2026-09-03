@@ -141,7 +141,14 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// A real prompt count measured before the fold describes a context that no longer
 			// exists, and it is the LARGER number — carrying it across would report a companion
 			// as nearly full at the exact moment it was emptied.
+			//
+			// The make-up goes with it, for exactly the same reason and one line later than it
+			// should have: a fold is what SHRINKS the conversation, so the piece that just changed
+			// most is the one this breakdown exists to show. Keeping it would draw the pre-fold
+			// bar under a post-fold total — the fold's whole effect, rendered as if it had not
+			// happened.
 			out.Used, out.Cached, out.CacheReported = 0, 0, false
+			out.Parts = ContextParts{}
 			out.Topics = out.Topics[:0]
 			for _, sh := range d.Shards {
 				out.Topics = append(out.Topics, sh.Topic)

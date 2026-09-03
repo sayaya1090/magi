@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -202,5 +203,48 @@ func TestTheTerminalAndTheConsoleReadOneContext(t *testing.T) {
 			t.Errorf("the terminal's reading does not mention %q — a person reading it there still "+
 				"cannot see that most of the window is the prompt and the catalog: %s", want, view)
 		}
+	}
+}
+
+// A fold clears the make-up, the way it clears the total.
+//
+// A compaction is the one moment the conversation actually shrinks, so the breakdown from before
+// it describes a context that no longer exists — and the piece it is most wrong about is the one
+// this reading exists to show. The total already had this rule; the make-up was added beside it
+// and did not get it, so a folded session drew the pre-fold band under a post-fold number.
+func TestAFoldClearsTheMakeUpWithTheTotal(t *testing.T) {
+	a, dir := newApp(t, &fakeLLM{}, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ev := func(typ event.Type, d any) event.Event {
+		b, merr := json.Marshal(d)
+		if merr != nil {
+			t.Fatal(merr)
+		}
+		return event.Event{Type: typ, Data: b, TS: time.Now()}
+	}
+	// A finished turn that recorded what it was made of, and then a fold.
+	if _, err := a.store.Append(context.Background(), sid,
+		ev(event.TypeTurnFinished, event.TurnFinishedData{
+			Usage:  event.Usage{In: 9000},
+			Prompt: &event.PromptShape{System: 2404, Tools: 5703, Talk: 800, Results: 93},
+		}),
+		ev(event.TypeCompaction, event.CompactionData{TokensBefore: 9000, TokensAfter: 1200}),
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Parts != (ContextParts{}) {
+		t.Errorf("the reading still carries the pre-fold make-up %+v — drawn under a post-fold "+
+			"total, that band renders the fold as if it had not happened", st.Parts)
+	}
+	if st.Used > 9000 {
+		t.Errorf("the total survived the fold too: %d", st.Used)
 	}
 }
