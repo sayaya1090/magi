@@ -260,7 +260,7 @@ func deckEnv(configDir string, from []string) []string {
 //
 // `--no-update-check` 는 기동을 사람이 안 보는 자리에서 붙잡아 두지 않으려는 것이다.
 func runDetached(bin, workdir string, env []string) error {
-	cmd := exec.Command(bin, "--daemon", "--detach", "--no-update-check")
+	cmd := exec.Command(bin, daemonArgs()...)
 	cmd.Dir = workdir
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
@@ -273,6 +273,32 @@ func runDetached(bin, workdir string, env []string) error {
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, said)
+}
+
+// daemonArgs 는 우리가 띄우는 컴패니언의 명령줄이다. 함수로 뺀 것은 **재려고**다 —
+// `Spawn` 이음매는 `(bin, workdir, env)` 만 나르므로 인자는 그 이음매로 안 보인다.
+//
+// **`--permission ask` 가 여기 있는 이유가 이 함수가 있는 이유다.** 플래그도 config 도 프로파일도
+// 비면 모드를 **기동 형태로** 정하고(`cmd/magi/main.go` 의 `headless`), `--daemon` 은 거기서
+// headless 쪽이라 기본값이 `allow` 다. 그리고 `internal/app/permission.go` 의 `requestPermission`
+// 은 `allow` 에서 **맨 앞에서 참을 돌려준다** — 허용 규칙도 프롬프트도 전부 그 뒤에 있다.
+// 즉 안 적으면 **우리가 띄운 컴패니언만 `delete_shape` 까지 안 묻고 돈다.**
+//
+// 그게 세 곳을 동시에 무너뜨린다. `DESIGN.md` §8 의 「매 호출이 권한 게이트를 지난다」가 하필
+// 우리가 만드는 데몬에서 거짓이 되고, §6 이 「쓰기는 허용 규칙에 안 넣는다」로 지키려던 것이
+// 지켜지지 않으며, §5.7 이 지은 권한 물음 창이 **한 번도 안 뜬다.** 답할 UI 가 있기 때문에
+// `ask` 가 성립한다 — 작업창이 그 UI 다(§5.0).
+//
+// **`auto` 가 아닌 이유**도 §5.0 에 있다: 답이 없을 때 정책으로 흘려보내므로, 사람이 자리를 비운
+// 사이 덱이 바뀐다. 이 설계가 제일 피하려는 일이다.
+//
+// ⚠ **§5.0 이 요구한 둘 중 하나만 여기 있다.** 나머지 하나(`workspace-write`)는 **명령줄로 줄 수가
+// 없다** — `cfg.Sandbox` 는 config·프로파일에서만 오고 `magi --help` 에 `-sandbox` 가 없다
+// (2026-09-04 확인). 그러니 §8 의 「덱 디렉토리가 쓰기 루트」는 지금 기본값에 대한 서술이 아니고,
+// 그 절반을 여기서 지킬 방법이 없다는 사실을 적어 둔다 — 안 적으면 다음 사람이 이 줄을 보고
+// 둘 다 지켜진 줄 안다.
+func daemonArgs() []string {
+	return []string{"--daemon", "--detach", "--no-update-check", "--permission", "ask"}
 }
 
 // errNoConfigDir 는 설정 디렉토리 없이 부른 경우. 있을 수 없지만, 있으면 조용히 빈 경로에 폴더를

@@ -304,3 +304,41 @@ func TestEnsureRefusesWithoutAConfigDir(t *testing.T) {
 		t.Fatalf("빈 설정 디렉토리를 그냥 받았다: %v", err)
 	}
 }
+
+// TestTheCompanionWeStartAsksBeforeItChangesTheDeck 는 우리가 띄우는 컴패니언이 **묻는가**를 잰다.
+//
+// 실물에서 나왔다(2026-09-04, Mac). 헬퍼가 마련한 컴패니언을 `/api/companions` 로 물으니
+// `"permission": "allow"` 였다 — `DESIGN.md` §5.0 이 「우리가 띄우는 데몬은 모드를 명시한다 —
+// `ask` 다」라고 못 박아 둔 자리인데 명령줄에 그 값이 없었다. 문서만 고쳐져 있었다.
+//
+// **자동 시험 넷이 다 초록인 채로 그랬다.** 인자는 `Spawn` 이음매로 안 나르므로 이 레인의
+// 어느 층도 볼 수 없었고, 사람이 붙여 보고 명단을 읽어야 보였다.
+func TestTheCompanionWeStartAsksBeforeItChangesTheDeck(t *testing.T) {
+	args := daemonArgs()
+	if len(args) == 0 {
+		t.Fatal("명령줄이 비었다 — 이 시험은 아무것도 안 쟀다")
+	}
+	mode := ""
+	for i, a := range args {
+		if a == "--permission" && i+1 < len(args) {
+			mode = args[i+1]
+		}
+	}
+	if mode != "ask" {
+		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다.\n"+
+			"안 적으면 기동 형태로 정해져 headless 기본값 allow 가 되고, "+
+			"requestPermission 이 allow 에서 맨 앞에서 참을 돌려준다: delete_shape 까지 안 묻고 돈다. "+
+			"명령줄: %v", mode, "ask", args)
+	}
+	for _, want := range []string{"--daemon", "--detach", "--no-update-check"} {
+		found := false
+		for _, a := range args {
+			if a == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s 가 빠졌다 — %v", want, args)
+		}
+	}
+}

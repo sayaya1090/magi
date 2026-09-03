@@ -45,6 +45,12 @@ go build -o magi-ppt ./clients/powerpoint/helper
 | 남의 리스너는 **지우지도 붙지도 않는다** | §5.3 ⚠ | `TestAStrangerOnThePortIsRefusedNotAdopted` |
 | 연결이 둘이다(전사 ≠ 요청) | §5.7 ⚠ | `TestStatusAnswersWhileTheTranscriptIsStreaming` |
 | 커서를 미는 것은 `seq > 0` 뿐 | §5.7 | `TestOnlyASeatedEventMovesTheCursor` |
+| 우리가 띄우는 컴패니언은 **묻는다**(`--permission ask`) | §5.0 | `TestTheCompanionWeStartAsksBeforeItChangesTheDeck` — 문서에만 있고 코드에 없던 값이다 |
+| 답은 stdout · 진단은 stderr | §7 | `TestAnswersGoToStdoutAndDiagnosticsToStderr` — `-allow-rules > file` 이 빈 파일을 만들고 있었다 |
+| 그림은 **한 번만** 간다 | §6.10 | `TestThePictureGoesOnceNotTwice` — 본문 55,392자 + 이미지 블록으로 두 번 갔다 |
+| 빈 배열은 **인자 없음** | §4.3 | `TestAnEmptyArrayIsAnEmptyCall` |
+| 가이드: **끄는 것 ≠ 지우는 것** | 매뉴얼 §3.6 | `TestDisablingIsNotDeleting` · `TestAGuideNameCannotBecomeAPath` |
+| 가이드 설명은 **모델이 받는 그것** | 매뉴얼 §3.6 | `TestTheDescriptionIsTheOneTheModelSees` |
 
 그리고 **magi 자신의 MCP 클라이언트가 이 서버에 붙는다**(`TestMagisOwnClientAttachesToThisHelper`).
 가짜 상대로 도는 시험은 내가 상대를 어떻게 이해했는지를 검사하지 상대를 검사하지 않는다 —
@@ -53,6 +59,7 @@ go build -o magi-ppt ./clients/powerpoint/helper
 
 ## 아직 아닌 것
 
+- **Mac 에서도 돈다(2026-09-04).** 요구 집합 여섯이 다 ✓, 실물 덱까지. 남은 Mac 미측정은 S14 와 단축키다.
 - ~~**PowerPoint 에 한 번도 안 붙여 봤다.**~~ → **2026-09-01 에 붙었다.** Windows 11 ·
   Microsoft 365 · Ollama `gpt-oss:120b-cloud` 로 작업창 → 헬퍼 → 데몬 → 모델 → 도구 →
   **덱이 실제로 바뀌는 것**까지 돌았다. S1·S13·S14 는 그날 답이 났다(§9). 그 하루에 나온

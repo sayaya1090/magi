@@ -270,22 +270,35 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		body["changed"] = res.Changed
 	}
 
+	// 그림은 **글이 아니라 자기 블록으로** 간다. 손이 base64 를 실어 보내면 그대로 넘긴다 —
+	// 다만 이 경로는 아껴 쓴다(개정 3): 붙을 모델이 멀티모달이라는 보장이 없고, **카운슬은
+	// 어느 경우에도 그림을 못 본다**(§7).
+	//
+	// ⚠ **떼는 것이 글을 짓기 전이어야 한다.** 앞 판본은 `delete` 를 아래 `MarshalIndent` **뒤에**
+	// 두었다 — 그 줄은 이미 만들어진 글을 못 고치므로 **아무 일도 안 했다.** 주석은 「본문에서는
+	// 지운다」고 적고 코드는 안 지우는, 이 저장소가 이름까지 붙여 둔 그 모양이다.
+	//
+	// 값은 실측으로 나왔다(2026-09-04, Mac): 한 번의 `render_slide` 결과 본문이 **55,392자**였고
+	// 같은 그림이 이미지 블록으로 한 번 더 갔다. §6.10 이 「제일 비싼 도구」라고 적어 둔 것이
+	// 값을 **두 번** 물고 있었고, 못 보는 모델에게는 그 55KB 가 순수한 낭비다.
+	var image map[string]any
+	if img, ok := res.Result["image_base64"].(string); ok && img != "" {
+		mime, _ := res.Result["image_mime"].(string)
+		if mime == "" {
+			mime = "image/png"
+		}
+		image = map[string]any{"type": "image", "data": img, "mimeType": mime}
+		delete(body, "image_base64")
+	}
+
 	text, err := json.MarshalIndent(body, "", "  ")
 	if err != nil {
 		return errorResult("could not render the result: " + err.Error())
 	}
 
 	content := []map[string]any{{"type": "text", "text": string(text)}}
-	// 그림은 **글이 아니라 자기 블록으로** 간다. 손이 base64 를 실어 보내면 그대로 넘긴다 —
-	// 다만 이 경로는 아껴 쓴다(개정 3): 붙을 모델이 멀티모달이라는 보장이 없고, **카운슬은
-	// 어느 경우에도 그림을 못 본다**(§7).
-	if img, ok := res.Result["image_base64"].(string); ok && img != "" {
-		mime, _ := res.Result["image_mime"].(string)
-		if mime == "" {
-			mime = "image/png"
-		}
-		content = append(content, map[string]any{"type": "image", "data": img, "mimeType": mime})
-		delete(body, "image_base64")
+	if image != nil {
+		content = append(content, image)
 	}
 	return map[string]any{"content": content}
 }

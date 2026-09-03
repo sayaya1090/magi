@@ -26,9 +26,19 @@ import (
 // 안다 — 애드인의 `main.js` 가 같은 규율을 지키는 그 자리다.
 //
 //coverage:ignore — 프로세스 진입점. 아래 조각들은 각자 시험이 있다.
-func main() { os.Exit(run(os.Args[1:], os.Stderr)) }
+func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
-func run(args []string, log io.Writer) int {
+// run 은 두 곳에 쓴다. **물어본 것에 답하는 것은 `out`(stdout), 진단은 `log`(stderr)** 다.
+//
+// 한 곳이었고, 그 한 곳이 stderr 였다. 그래서 매뉴얼 §7 이 시키는 대로 규칙을 받으려고
+// `magi-ppt -allow-rules > config.toml` 을 하면 **빈 파일이 조용히 생겼다** — 화면에는 규칙이
+// 보이므로 사람은 받은 줄 안다. 2026-09-04 에 실제로 두 번 겪고 고친다.
+//
+// 가르는 축은 「긴가 짧은가」가 아니라 **「사람이 물어본 것인가」**다. `-version`·`-allow-rules`
+// ·`-cert-hint` 는 물음에 대한 답이라 파이프로 받을 수 있어야 하고, 기동 배너·실패 사유는
+// 서버가 도는 동안 흘리는 말이라 stderr 가 맞다. 그래서 `fs.SetOutput` 도 `log` 그대로다 —
+// 플래그 오류는 답이 아니다.
+func run(args []string, out, log io.Writer) int {
 	fs := flag.NewFlagSet("magi-ppt", flag.ContinueOnError)
 	fs.SetOutput(log)
 	var (
@@ -47,12 +57,12 @@ func run(args []string, log io.Writer) int {
 		return 2
 	}
 	if *showVer {
-		fmt.Fprintf(log, "magi-ppt %s\n", version.String())
+		fmt.Fprintf(out, "magi-ppt %s\n", version.String())
 		return 0
 	}
 	if *showRules {
 		// 산문으로 두면 안 자란다 — 도구를 하나 더할 때 규칙도 같이 자라야 하므로 코드가 만든다.
-		fmt.Fprint(log, AllowRulesTOML())
+		fmt.Fprint(out, AllowRulesTOML())
 		return 0
 	}
 
@@ -61,7 +71,7 @@ func run(args []string, log io.Writer) int {
 		dir = platform.OS{}.ConfigDir()
 	}
 	if *showCert {
-		fmt.Fprintln(log, CertInstallHint(dir))
+		fmt.Fprintln(out, CertInstallHint(dir))
 		return 0
 	}
 	root := *addin
@@ -234,6 +244,9 @@ func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/permission", a.guard(a.permission))
 	mux.HandleFunc("/api/question", a.guard(a.question))
 	mux.HandleFunc("/api/documents", a.guard(a.documents))
+	// 가이드 관리 — 추가·삭제·활성화·비활성화(guides.go).
+	mux.HandleFunc("/api/guides", a.guard(a.guides))
+	mux.HandleFunc("/api/guide", a.guard(a.guide))
 }
 
 // guard 는 **한 자리에서** 루프백과 토큰을 본다. 핸들러마다 적으면 하나를 빠뜨리는 날이 오고,
@@ -619,6 +632,66 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 		out["chat"] = bindErr.Error()
 	}
 	writeJSON(w, out)
+}
+
+// guides 는 목록. **꺼 둔 것도 같이 준다** — 빼면 다시 켤 길이 없다.
+func (a *API) guides(w http.ResponseWriter, _ *http.Request) {
+	list, err := ListGuides(a.ConfigDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []Guide{}
+	}
+	writeJSON(w, map[string]any{"guides": list})
+}
+
+// guide 는 한 벌을 읽고·쓰고·켜고·끄고·지운다. `op` 로 가른다.
+//
+// **한 문에 다섯을 넣은 이유**: 다섯이 같은 것(가이드 하나)에 대한 일이고, 화면이 그 다섯을 한
+// 자리에서 부른다. 나누면 라우트가 다섯이 되고 토큰 검사도 다섯 벌이 된다.
+func (a *API) guide(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Op   string `json:"op"` // read | save | enable | disable | delete
+		Name string `json:"name"`
+		Body string `json:"body"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	switch in.Op {
+	case "read":
+		body, enabled, err := ReadGuide(a.ConfigDir, in.Name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		writeJSON(w, map[string]any{"name": in.Name, "body": body, "enabled": enabled})
+	case "save":
+		g, err := WriteGuide(a.ConfigDir, in.Name, in.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, g)
+	case "enable", "disable":
+		g, err := EnableGuide(a.ConfigDir, in.Name, in.Op == "enable")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, g)
+	case "delete":
+		if err := DeleteGuide(a.ConfigDir, in.Name); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"deleted": in.Name})
+	default:
+		// **모르는 것을 짐작하지 않는다** — 아는 것을 이름으로 대어 준다.
+		http.Error(w, "모르는 op 입니다: "+in.Op+" — read|save|enable|disable|delete", http.StatusBadRequest)
+	}
 }
 
 func (a *API) submit(w http.ResponseWriter, r *http.Request) { a.say(w, r, a.Bridge.Submit) }

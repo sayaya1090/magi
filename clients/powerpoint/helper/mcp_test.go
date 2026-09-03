@@ -298,3 +298,37 @@ func (h *countingHand) Attached() bool { return true }
 func (h *countingHand) Call(_ context.Context, _, _ string, _ map[string]any) (HandResult, error) {
 	return h.onCall()
 }
+
+// TestThePictureGoesOnceNotTwice 는 **그림이 글에 남지 않는가**를 잰다.
+//
+// 실물에서 나왔다(2026-09-04, Mac). `render_slide` 한 번의 결과 본문이 **55,392자**였고, 같은
+// 그림이 이미지 블록으로 한 번 더 갔다. 이유는 순서였다: `delete(body, "image_base64")` 가
+// `MarshalIndent` **뒤에** 있어서 이미 만들어진 글을 못 고쳤다 — 그 줄은 아무 일도 안 했고,
+// 주석만 「본문에서는 지운다」고 말하고 있었다.
+//
+// §6.10 이 이 도구를 「제일 비싼 도구」라고 적어 두었는데 값을 두 번 물고 있었다. 못 보는
+// 모델에게는 그 55KB 가 순수한 낭비이고, 보는 모델에게도 같은 그림을 두 벌 보낸 것이다.
+func TestThePictureGoesOnceNotTwice(t *testing.T) {
+	const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	hand := &fakeHand{attached: true, answer: HandResult{
+		Document: "doc-1",
+		Result:   map[string]any{"image_base64": png, "image_mime": "image/png", "image_bytes": 68},
+	}}
+	srv := &MCPServer{Hand: hand}
+	out := srv.call(httptest.NewRequest("POST", "/mcp", nil), "render_slide", json.RawMessage(`{"slide":1}`))
+
+	blocks, _ := out["content"].([]map[string]any)
+	if len(blocks) != 2 {
+		t.Fatalf("글 하나와 그림 하나여야 한다 — 블록 %d개: %v", len(blocks), out)
+	}
+	text, _ := blocks[0]["text"].(string)
+	if strings.Contains(text, png) {
+		t.Errorf("글에 base64 가 남았다(%d자) — 그림이 두 번 간다", len(text))
+	}
+	if !strings.Contains(text, "image_bytes") {
+		t.Error("얼마짜리였는지는 글에 남아야 한다 — 모르면 아끼는 판단을 못 한다(§6.10)")
+	}
+	if blocks[1]["type"] != "image" || blocks[1]["data"] != png {
+		t.Errorf("그림 블록이 그림을 안 들었다: %v", blocks[1])
+	}
+}

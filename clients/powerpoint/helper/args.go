@@ -25,11 +25,27 @@ func (e argError) Error() string { return e.msg }
 
 func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 	args := map[string]any{}
-	if len(raw) > 0 && string(raw) != "null" {
-		dec := json.NewDecoder(strings.NewReader(string(raw)))
+	// **비어 있다고 말하는 방식이 셋이다: 안 보냄 · `null` · `[]`.** 셋 다 뜻이 같다 —
+	// 「이 호출에 인자가 없다」.
+	//
+	// 앞 판본은 앞의 둘만 받았다. 실물에서 그 화면을 봤다(2026-09-04, Mac): 첫 호출이
+	// `mcp__ppt__list_slides []` 였고 —— 인자가 하나도 필요 없는 도구다 —— 답이
+	// `arguments must be a JSON object: json: cannot unmarshal array into Go value of type
+	// map[string]interface {}` 였다. 사람이 본 것은 대화 첫 줄의 **✗ 실패했습니다**이고, 모델은
+	// 아무것도 안 틀렸다.
+	//
+	// **빈 배열만 받는다.** 값이 든 배열은 진짜로 틀린 것이라 그대로 거절하되, 아래 문구가
+	// 무엇을 보내야 하는지 말한다 — 모델이 읽는 글이라 사유만 적으면 다음 시도에서 또 지어낸다.
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "[]" {
+		trimmed = "{}"
+	}
+	if trimmed != "" && trimmed != "null" {
+		dec := json.NewDecoder(strings.NewReader(trimmed))
 		dec.UseNumber() // 정수를 float 로 바꾸면 슬라이드 번호가 3 이 아니라 3.0000000001 로 간다
 		if err := dec.Decode(&args); err != nil {
-			return nil, argError{fmt.Sprintf("arguments must be a JSON object: %v", err)}
+			return nil, argError{fmt.Sprintf(
+				"arguments must be a JSON object like {\"slide\": 3} — an empty call is {} or [] (%v)", err)}
 		}
 	}
 

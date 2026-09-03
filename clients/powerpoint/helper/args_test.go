@@ -150,3 +150,38 @@ func TestARealTypeMismatchIsStillRefused(t *testing.T) {
 		t.Fatal("정수 자리에 글을 받아 줬다")
 	}
 }
+
+// TestAnEmptyArrayIsAnEmptyCall 는 **비어 있다고 말하는 세 방식**이 다 통하는가를 잰다.
+//
+// 실물에서 나왔다(2026-09-04, Mac). 대화의 첫 호출이 `mcp__ppt__list_slides []` 였다 — 인자가
+// 하나도 필요 없는 도구다 — 그런데 답이 `cannot unmarshal array into Go value of type
+// map[string]interface{}` 였고, 사람이 본 것은 첫 줄의 **✗ 실패했습니다**였다.
+//
+// 이 파일은 `null` 에 대해 이미 같은 판단을 내려 뒀다(선택 칸의 `null` 은 안 준 것). 빈 배열은
+// 그 판단의 세 번째 얼굴인데 안 받고 있었다.
+//
+// **값이 든 배열은 그대로 거절한다** — 그건 진짜로 틀린 것이고, 관용은 뜻이 같은 것에만 준다.
+func TestAnEmptyArrayIsAnEmptyCall(t *testing.T) {
+	var readTool tool
+	for _, tl := range catalogue() {
+		if tl.Name == "list_slides" {
+			readTool = tl
+		}
+	}
+	if readTool.Name == "" {
+		t.Fatal("list_slides 가 카탈로그에 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+	for _, raw := range []string{"[]", " [] ", "{}", "null", ""} {
+		args, err := validateArgs(readTool, json.RawMessage(raw))
+		if err != nil {
+			t.Errorf("%q 는 인자 없는 호출이어야 한다: %v", raw, err)
+			continue
+		}
+		if len(args) != 0 {
+			t.Errorf("%q 가 인자를 만들어 냈다: %v", raw, args)
+		}
+	}
+	if _, err := validateArgs(readTool, json.RawMessage(`[1,2]`)); err == nil {
+		t.Error("값이 든 배열은 거절해야 한다 — 관용은 뜻이 같은 것에만 준다")
+	}
+}
