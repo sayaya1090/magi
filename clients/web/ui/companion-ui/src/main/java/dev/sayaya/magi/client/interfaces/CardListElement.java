@@ -174,7 +174,7 @@ public class CardListElement {
         row.append(doing);
 
         // 스텝 수는 폰에서 제 이름표를 스스로 단다(colk) — 열 머리가 안 그려지는 폭에서.
-        HTMLElement steps = cell("num r", a.steps > 0 ? String.valueOf(a.steps) : "—");
+        HTMLElement steps = cell("num r", dev.sayaya.magi.bridge.AgentStates.stepsText(a));
         steps.append(cell("colk", tr("field.steps")));
         row.append(steps);
         HTMLElement idle = cell("num r", ago(a.idle));

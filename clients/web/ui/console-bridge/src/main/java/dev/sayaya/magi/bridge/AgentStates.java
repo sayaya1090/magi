@@ -53,4 +53,27 @@ public final class AgentStates {
     public static boolean answering(FleetAgent a) {
         return a != null && (!jsinterop.base.Js.asPropertyMap(a).has("live") || a.live);
     }
+
+    /**
+     * 턴이 열려 있는가 — <b>스텝 0의 뜻을 가르는 술어</b>.
+     *
+     * <p>명단은 열린 턴이 있을 때만 스텝을 채운다. 그래서 쉬는 컴패니언의 0 은 "셀 것이 없다"
+     * 이고 대시가 맞지만, 도는 턴의 0 은 "아직 아무 도구도 안 불렀다"이고 그건 사람이 바로
+     * 알고 싶은 소식이다 — 실측: 43초째 도는 컴패니언이 툴 0회였고, 두 화면 모두 그것을
+     * 「모른다」와 같은 글자로 그리고 있었다.
+     *
+     * <p>여기 사는 이유는 groupOf·answering과 같다: 이 판단을 하는 화면이 둘이다(사실판과
+     * 명단 표). 화면마다 제 판을 두면 한쪽만 고쳐지고 — 실제로 그렇게 됐다. 사실판을 고친
+     * 커밋이 표를 놓쳤고, 같은 0 이 한 화면에서는 0 으로 다른 화면에서는 대시로 그려졌다.
+     */
+    public static boolean turning(FleetAgent a) {
+        if (a == null) return false;
+        return "working".equals(a.state) || "waiting".equals(a.state) || "abandoned".equals(a.state);
+    }
+
+    /** 스텝 칸에 적을 말. 도는 턴이면 0 도 숫자로, 아니면 대시. */
+    public static String stepsText(FleetAgent a) {
+        if (a == null) return "—";
+        return turning(a) || a.steps > 0 ? String.valueOf(a.steps) : "—";
+    }
 }
