@@ -146,6 +146,23 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 // `{name, description, inputSchema}` 셋뿐이라 통째로 버려진다(§4.4 ⑤). 그러니 이 칸은 다른
 // 클라이언트를 향한 선언이자, 규약이 붙을 자리를 미리 맞춰 두는 것이지 지금 무엇을 막고 있다는
 // 뜻이 아니다. 지금 `advise` 를 실제로 가르는 것은 이름 하나이고, 그 자리는 허용 규칙이다.
+// readOnly 는 이 이름이 덱을 안 고치는 조작인가. **표는 하나뿐이다**(`tools()`) — 여기에
+// 이름을 또 적으면 도구가 하나 늘 때마다 두 자리를 고쳐야 하고, 하나를 빠뜨리는 날이 온다.
+func (s *MCPServer) readOnly(name string) bool {
+	for _, t := range catalogue() {
+		if t.Name == name {
+			return t.ReadOnly
+		}
+	}
+	return false
+}
+
+// isTimeout 은 「우리가 기다리다 그만뒀다」인가. 거절의 뜻을 문자열로 가르는 것이 좋진 않지만,
+// 그 문구를 만드는 곳도 우리이고 시험이 둘을 함께 문다.
+func isTimeout(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "stopped waiting after")
+}
+
 func (s *MCPServer) toolDefs() []map[string]any {
 	tools := catalogue()
 	out := make([]map[string]any, 0, len(tools))
@@ -213,6 +230,18 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		args["image_bytes"] = img.Bytes
 	}
 	res, err := s.Hand.Call(r.Context(), documentOf(args), name, args)
+	// **읽기만 하는 조작은 한 번 더 보낸다.**
+	//
+	// 실물에서 본 것(2026-09-03): 첫 호출 둘이 45초씩 죽고, 셋째가 4초에 살아나고, 그 뒤로는
+	// 20ms 다. 작업창이 잠깐 답을 못 하는 창이 있고 곧 돌아온다 — 그런데 그 사이에 죽은
+	// 호출을 받은 모델은 **이 도구를 통째로 버리고 bash 로 PowerPoint 를 직접 열어 딴 파일을
+	// 만들려 했다.** 사람은 안 바뀐 화면과 부탁하지 않은 스크립트 더미를 받는다.
+	//
+	// **쓰기는 안 보낸다.** 시간 초과는 「안 갔다」가 아니라 「답을 못 들었다」이므로, 다시
+	// 보내면 장이 둘 생기거나 글이 두 번 바뀔 수 있다. 읽기는 두 번 해도 같다.
+	if err != nil && isTimeout(err) && s.readOnly(name) {
+		res, err = s.Hand.Call(r.Context(), documentOf(args), name, args)
+	}
 	if err != nil {
 		return errorResult(err.Error())
 	}

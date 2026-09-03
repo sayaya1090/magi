@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -252,4 +253,48 @@ func firstText(t *testing.T, res map[string]any) string {
 	}
 	s, _ := blocks[0]["text"].(string)
 	return s
+}
+
+// 읽기만 하는 조작은 시간 초과 뒤 **한 번 더** 보낸다.
+//
+// 실물에서 본 것(2026-09-03): 첫 호출 둘이 45초씩 죽고 셋째가 살아난다. 그 사이에 죽은
+// 호출을 받은 모델은 이 도구를 통째로 버리고 bash 로 PowerPoint 를 직접 열어 딴 파일을
+// 만들려 했다 — 사람은 안 바뀐 화면과 부탁하지 않은 스크립트 더미를 받는다.
+//
+// **쓰기는 안 보낸다.** 시간 초과는 「안 갔다」가 아니라 「답을 못 들었다」이므로, 다시
+// 보내면 장이 둘 생길 수 있다.
+func TestReadOnlyCallsAreTriedOnceMoreAfterATimeout(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		tool  string
+		want  int
+		story string
+	}{
+		{"읽기는 다시 보낸다", "list_slides", 2, "덱을 안 고치므로 두 번 해도 같다"},
+		{"쓰기는 안 보낸다", "add_slide", 1, "답을 못 들은 것이지 안 간 것이 아니다 — 장이 둘 생긴다"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			hs := &countingHand{
+				onCall: func() (HandResult, error) {
+					calls++
+					return HandResult{}, fmt.Errorf("the magi helper stopped waiting after 45s: PowerPoint did not answer this call")
+				},
+			}
+			s := &MCPServer{Hand: hs}
+			s.call(httptest.NewRequest(http.MethodPost, "/mcp", nil), tc.tool, json.RawMessage(`{}`))
+			if calls != tc.want {
+				t.Fatalf("%s: %d번 불렀다, %d번이어야 한다 — %s", tc.tool, calls, tc.want, tc.story)
+			}
+		})
+	}
+}
+
+type countingHand struct{ onCall func() (HandResult, error) }
+
+func (h *countingHand) Attached() bool { return true }
+func (h *countingHand) Call(_ context.Context, _, _ string, _ map[string]any) (HandResult, error) {
+	return h.onCall()
 }
