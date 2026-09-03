@@ -92,6 +92,29 @@ export class FakeHand extends HandPort {
     return shape;
   }
 
+  /**
+   * 자리 이름으로 도형을 짚는다. **짐작해서 채우지 않는다** — 없거나 둘 이상이면 거절하고
+   * 무엇이 있는지 알려 준다(진짜 손과 같은 계약).
+   */
+  #holder(slide, want) {
+    const name = String(want ?? '').trim().toLowerCase();
+    if (!name) {
+      throw new Error('어느 도형을 고칠지 shape_id 를 주세요 — '
+        + '또는 placeholder 로 자리를 짚으세요(title · body · subtitle)');
+    }
+    const holders = slide.shapes.filter((sh) => sh.placeholder);
+    const hit = holders.filter((sh) => String(sh.placeholder).toLowerCase().includes(name));
+    if (hit.length === 0) {
+      throw new Error(`이 장에 '${name}' 자리가 없습니다 — `
+        + `이 장의 자리: ${holders.map((sh) => sh.placeholder).join(', ') || '없음'}`);
+    }
+    if (hit.length > 1) {
+      throw new Error(`이 장에 '${name}' 자리가 ${hit.length}개 있습니다 — `
+        + `shape_id 로 하나를 짚어 주세요(${hit.map((sh) => sh.id).join(', ')})`);
+    }
+    return hit[0];
+  }
+
   #mutated() { this.count += 1; }
 
   #envelope(result, changed = []) {
@@ -171,7 +194,7 @@ export class FakeHand extends HandPort {
       }
       case 'set_text': {
         const slide = this.#slide(args);
-        const shape = this.#shape(slide, args.shape_id);
+        const shape = args.shape_id ? this.#shape(slide, args.shape_id) : this.#holder(slide, args.placeholder);
         const before = shape.text;
         shape.text = String(args.text ?? '');
         this.#mutated();

@@ -530,10 +530,50 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * 한 도형의 글을 바꾼다.
+   *
+   * # 자리 이름으로도 짚을 수 있다
+   *
+   * 「이 장 제목을 이렇게 바꿔」가 흔한 부탁인데, 앞 판본은 **도형 id 를 반드시** 요구했다.
+   * 그래서 모델은 `read_slide` → id 찾기 → `set_text` 로 매번 두 걸음을 걸었고, 그것도 모르고
+   * `set_text{slide:1, text:…}` 로 불렀다가 거절당했다(실측 2026-09-03).
+   *
+   * **짐작해서 채우지는 않는다.** id 를 안 주면 `placeholder` 를 줘야 하고, 그 자리가 이 장에
+   * 없거나 둘 이상이면 **거절하고 무엇이 있는지 알려 준다** — 비슷한 것으로 갈음하면 모델이
+   * 엉뚱한 상자를 고치고도 성공했다고 말한다(§5.8).
+   */
   #setText(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
-      const shape = slide.shapes.getItem(args.shape_id);
+      let id = args.shape_id;
+      if (id == null || String(id) === '') {
+        const want = String(args.placeholder ?? '').trim().toLowerCase();
+        if (!want) {
+          throw new Error('어느 도형을 고칠지 shape_id 를 주세요 — '
+            + '또는 placeholder 로 자리를 짚으세요(title · body · subtitle)');
+        }
+        const all = slide.shapes;
+        all.load('items/id,items/name,items/type');
+        await context.sync();
+        // **자리표시자가 아닌 도형에 그 칸을 걸면 호스트가 묶음을 죽인다**(§6.x) — 그래서
+        // 종류를 먼저 보고, 자리표시자인 것에만 묻는다.
+        const holders = (all.items ?? []).filter((sh) => String(sh.type ?? '').toLowerCase() === 'placeholder');
+        for (const sh of holders) sh.placeholderFormat.load('type');
+        await context.sync();
+        const hit = holders.filter((sh) => String(sh.placeholderFormat.type ?? '').toLowerCase().includes(want));
+        if (hit.length === 0) {
+          const kinds = holders.map((sh) => sh.placeholderFormat.type).filter(Boolean);
+          throw new Error(`이 장에 '${want}' 자리가 없습니다 — `
+            + `이 장의 자리: ${kinds.join(', ') || '없음'}`);
+        }
+        if (hit.length > 1) {
+          throw new Error(`이 장에 '${want}' 자리가 ${hit.length}개 있습니다 — `
+            + `shape_id 로 하나를 짚어 주세요(${hit.map((sh) => sh.id).join(', ')})`);
+        }
+        id = hit[0].id;
+      }
+      const shape = slide.shapes.getItem(id);
       shape.textFrame.textRange.load('text');
       await context.sync();
       const before = shape.textFrame.textRange.text ?? '';
@@ -541,8 +581,8 @@ export class OfficeHand extends HandPort {
       await context.sync();
       this.#mutated();
       return this.#envelope(
-        { slide_id: slide.id, shape_id: args.shape_id, text: args.text },
-        [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: "${before}" → "${args.text}"`]);
+        { slide_id: slide.id, shape_id: id, text: args.text },
+        [`슬라이드 ${slide.id} · 도형 ${id}: "${before}" → "${args.text}"`]);
     });
   }
 
@@ -1646,11 +1686,9 @@ export class OfficeHand extends HandPort {
         at(got.notesName).data = enc.encode(
           withNotesText(dec.decode(at(got.notesName).data), text));
       } else {
-        // 노트가 없던 장이다. **마스터가 있어야 지을 수 있다** — 없으면 지어내지 않고 말한다.
-        if (!got.masterName) {
-          throw new Error('이 덱에는 슬라이드 노트 마스터가 없어 노트를 새로 못 만듭니다 — '
-            + 'PowerPoint 에서 이 장에 노트를 한 줄 적어 두면 그 뒤로는 고칠 수 있습니다');
-        }
+        // 노트가 없던 장이다. **마스터가 없어도 짓는다** — 갓 만든 덱에는 노트 마스터가
+        // 없고(실측 2026-09-03), 거기서 노트를 통째로 막으면 「모든 장에 노트」가 새 덱에서만
+        // 영영 안 된다. 마스터로 가는 줄은 `notesRels` 가 알아서 뺀다.
         const spot = freeNotesName(got.files.map((f) => f.name));
         const relId = freeRelId(dec.decode(at(got.relsName).data));
         got.files.push({ name: spot.part, data: enc.encode(notesPart(text)) });

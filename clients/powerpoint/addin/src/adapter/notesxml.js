@@ -68,11 +68,22 @@ export function notesPart(text) {
  * 실물에서 읽은 그대로다(2026-09-03): `notesMaster` 와 `slide` 둘.
  */
 export function notesRels(slideName, masterName) {
+  // **마스터가 없으면 그 줄을 안 적는다.**
+  //
+  // 앞 판본은 마스터가 없으면 아예 거절했다. 그런데 **갓 만든 덱에는 노트 마스터가 없다**
+  // (실측 2026-09-03: `Presentations.Add` 로 만든 덱도, 사람이 「새 프레젠테이션」으로 연
+  // 덱도 없다). 그래서 새 덱에 노트를 다는 일이 통째로 막혔고, 「모든 장에 노트를 달라」는
+  // 부탁을 받은 모델이 네 번 거절당한 뒤 노트 대신 **슬라이드 위에 「확인 필요: 발표자 노트」
+  // 라는 글상자를 놓았다.** 없는 것을 못 만든다고 답하는 것이 옳았지만, 정말 못 만드는지는
+  // 안 재 본 채였다 — PowerPoint 는 저장할 때 스스로 노트 마스터를 만든다.
+  const toMaster = masterName
+    ? '<Relationship Id="rId1"'
+      + ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"'
+      + ` Target="../notesMasters/${masterName}"/>`
+    : '';
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-    + '<Relationship Id="rId1"'
-    + ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesMaster"'
-    + ` Target="../notesMasters/${masterName}"/>`
+    + toMaster
     + '<Relationship Id="rId2"'
     + ' Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide"'
     + ` Target="../slides/${slideName}"/>`

@@ -81,6 +81,12 @@ type handConn struct {
 	// 개정 쌍은 「안 바뀌었다」가 아니라 **「모른다」**로 답해야 한다.
 	epoch int
 	count int
+	// answered 는 이 손이 **무엇이든 답한 적이 있는가**. 붙어 있다는 것과 일하고 있다는 것은
+	// 다르고, 그 차이가 활성 문서를 고를 때 걸린다(아래 pick).
+	answered bool
+	// deaf 는 이 손이 **기다리다 놓친 호출 수**. 얼어붙은 작업창 하나가 모든 호출을 45초씩
+	// 삼키는 것을 막는 재료다.
+	deaf int
 }
 
 // HandHub 은 붙어 있는 손 전부.
@@ -202,13 +208,50 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 		}
 		return c, nil
 	}
+	// **가장 최근에 붙은 손이 아니라, 답하는 손을 고른다.**
+	//
+	// 앞 판본은 `seen` 이 제일 늦은 것을 골랐다. 그러면 **답 못 하는 연결 하나가 모든 호출을
+	// 삼킨다** — 얼어붙은 작업창, 남아 있는 옛 PowerPoint 창, 엿듣기만 하는 붙임 하나면 된다.
+	// 2026-09-03 에 그 화면을 봤다: 모델이 `list_slides` 를 세 번 부르고 세 번 다 45초 뒤에
+	// 「PowerPoint 가 답을 안 했다」를 받았고, 결국 **덱이 안 열려 있다고 판단해 사람에게
+	// 빈 파일을 올려 달라고 했다.** 덱은 그동안 열려 있었다.
+	//
+	// 차례: ① 답한 적 있고 안 놓친 손 → ② 아직 아무 말도 안 해 본 손 → ③ 놓친 적 있는 손.
+	// 같은 층에서는 최근 것이 이긴다. **한 번은 나쁜 연결에 걸릴 수 있어도 두 번은 아니다.**
+	rank := func(c *handConn) int {
+		switch {
+		case c.answered && c.deaf == 0:
+			return 0
+		case !c.answered && c.deaf == 0:
+			return 1
+		default:
+			return 2
+		}
+	}
 	var best *handConn
 	for _, c := range h.conns {
-		if best == nil || c.seen.After(best.seen) {
+		if best == nil || rank(c) < rank(best) || (rank(c) == rank(best) && c.seen.After(best.seen)) {
 			best = c
 		}
 	}
 	return best, nil
+}
+
+// attachedNames 는 지금 붙어 있는 덱들을 사람이 부르는 이름으로. **거절문이 사실을 적게**
+// 하는 재료다 — 「못 찾았다」와 「하나도 안 붙었다」는 사람이 할 일이 다르다.
+func (h *HandHub) attachedNames() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	out := make([]string, 0, len(h.conns))
+	for k, c := range h.conns {
+		if c.label != "" {
+			out = append(out, c.label)
+		} else {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Call 은 조작 하나를 손에 넘기고 답을 기다린다.
@@ -255,9 +298,23 @@ func (h *HandHub) Call(ctx context.Context, document, op string, args map[string
 	case <-timeout.C:
 		// 우리가 끊었다는 것과 **얼마에서 끊었는지**를 적는다. magi 의 60초 천장이 이 문구를
 		// 안 실어 주는 것이 §4.4 ③ 이 코어에 낸 유일한 요청이라, 우리 쪽에서 같은 실수를 하지 않는다.
+		//
+		// **이 손이 놓쳤다는 사실을 남긴다.** 다음 고르기에서 뒤로 밀린다 — 얼어붙은 연결
+		// 하나가 모든 호출을 삼키는 것을 여기서 끊는다.
+		c.mu.Lock()
+		c.deaf++
+		c.mu.Unlock()
+		// **덱이 안 열렸다는 뜻이 아니다.** 이 말을 안 적었더니 모델이 세 번 놓친 뒤
+		// 「덱이 없다」고 판단하고 사람에게 빈 파일을 올려 달라고 했다(2026-09-03 실측).
+		// 붙어 있는 덱이 몇인지 같이 적어, 그 결론을 못 내리게 한다.
 		return HandResult{}, fmt.Errorf(
 			"the magi helper stopped waiting after %v: PowerPoint did not answer this call. "+
-				"It may still be running, so re-read before assuming nothing changed", h.timeout())
+				"It may still be running, so re-read before assuming nothing changed. "+
+				"THE DECK IS STILL OPEN AND ATTACHED (%d attached: %s) — this is a slow or stuck "+
+				"answer, not a missing deck, and asking the person to open or upload a file is the "+
+				"wrong move. Try the same call again: a call that goes to a stuck connection is "+
+				"retried on a live one",
+			h.timeout(), len(h.attachedNames()), joinOr(h.attachedNames(), "none"))
 	case rep := <-reply:
 		c.mu.Lock()
 		c.seen = h.now()
@@ -340,6 +397,9 @@ func newRequestID() string {
 func (c *handConn) deliver(rep HandReply) bool {
 	c.mu.Lock()
 	ch, ok := c.waiting[rep.ID]
+	// **답한 적이 있다는 사실을 남긴다.** 기다리는 사람이 없는 늦은 답이어도 이 손이 살아
+	// 있다는 증거이므로 센다.
+	c.answered = true
 	c.mu.Unlock()
 	if !ok {
 		return false

@@ -2053,11 +2053,24 @@ async function makeZip(files) {
       JSON.stringify(b.result));
   }
 
-  // **노트 마스터가 없으면 지어내지 않는다** — 덱의 모양을 우리가 정하는 일이다.
+  // **노트 마스터가 없어도 노트를 단다.**
+  //
+  // 앞 판본은 거절했다. 그런데 **갓 만든 덱에는 노트 마스터가 없다**(실측 2026-09-03:
+  // 프로그램으로 만든 덱도, 사람이 「새 프레젠테이션」으로 연 덱도 없다). 그래서 「모든 장에
+  // 노트를 달아 줘」가 새 덱에서만 통째로 막혔고, 네 번 거절당한 모델이 노트 대신 슬라이드
+  // 위에 「확인 필요: 발표자 노트」라는 글상자를 놓았다 — 사람이 보는 장에 없어야 할 글이
+  // 생긴 셈이다. 없는 것을 못 만든다고 답한 것까지는 옳았지만, **정말 못 만드는지를 안 재
+  // 본 채였다.**
   {
-    const [hand] = handOn(deckWith({ master: false }));
-    const why = await threw(() => hand.run('set_notes', { slide: 2, text: 'ㄱ' }));
-    ok('마스터가 없으면 사람 말로 거절한다', why?.includes('노트 마스터'), String(why));
+    const [hand, log] = handOn(deckWith({ master: false }));
+    const out = await hand.run('set_notes', { slide: 2, text: '마스터가 없어도 적힌다' });
+    ok('마스터가 없어도 노트를 단다', out.result.created === true, JSON.stringify(out.result));
+    const pack = await insertedPackage(log);
+    const rels = [...pack.keys()].find((n) => /notesSlides\/_rels/.test(n));
+    ok('노트 조각이 들어간다', rels != null, [...pack.keys()].join(' '));
+    const xml = textOf(pack.get(rels));
+    ok('마스터로 가는 줄은 안 적는다', !/notesMaster/.test(xml), xml);
+    ok('장으로 가는 줄은 적는다', /relationships\/slide/.test(xml));
   }
 
   // 26 계열을 넘어도 주소가 안 망가진다.
@@ -2381,6 +2394,53 @@ async function makeZip(files) {
     await hand.run('set_text', { slide: 1, shape_id: 'a', text: '첫\n둘\n셋' });
     ok('set_text 가 문단으로 쓴다', deck.slides[0].shapes[0].text === '첫\r둘\r셋',
       JSON.stringify(deck.slides[0].shapes[0].text));
+  }
+}
+
+// ── 제목을 바꾸는 데 두 걸음이 들지 않는다 ───────────────────────────────────
+//
+// 「이 장 제목을 이렇게 바꿔」가 흔한 부탁인데, 앞 판본은 도형 id 를 반드시 요구했다.
+// 그래서 모델은 `read_slide` → id 찾기 → `set_text` 로 매번 두 걸음을 걸었고, 그것도 모른
+// 채 `set_text{slide:1, text:…}` 로 불렀다가 거절당했다(실측 2026-09-03).
+//
+// **짐작해서 채우지는 않는다** — 없거나 둘 이상이면 거절하고 무엇이 있는지 알려 준다.
+{
+  const deck = () => ({
+    slides: [{
+      id: 's1', index: 0, layout: { name: 'L' },
+      shapes: [
+        { id: 't', name: '제목 1', type: 'Placeholder', text: '옛 제목', placeholderFormat: { type: 'title' }, placeholder: 'title', altTextDescription: null },
+        { id: 'b', name: '본문 2', type: 'Placeholder', text: '몸', placeholderFormat: { type: 'body' }, placeholder: 'body', altTextDescription: null },
+        { id: 'x', name: '상자', type: 'TextBox', text: '딴것', altTextDescription: null },
+      ],
+    }],
+    masters: [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: 'L' }] }],
+  });
+
+  {
+    const model = deck();
+    const hand = new OfficeHand({ run: stubRunner(model, []), supports: () => true, document: 'd' });
+    const out = await hand.run('set_text', { slide: 1, placeholder: 'title', text: '새 제목' });
+    ok('자리 이름으로 제목을 바꾼다', model.slides[0].shapes[0].text === '새 제목',
+      String(model.slides[0].shapes[0].text));
+    ok('어느 도형을 고쳤는지 답한다', out.result.shape_id === 't', String(out.result.shape_id));
+    ok('옆 상자는 안 건드린다', model.slides[0].shapes[2].text === '딴것');
+
+    const none = await threw(() => hand.run('set_text', { slide: 1, placeholder: 'footer', text: 'x' }));
+    ok('없는 자리는 거절하고 있는 것을 알려 준다',
+      none?.includes('footer') && none?.includes('이 장의 자리'), String(none));
+    const nothing = await threw(() => hand.run('set_text', { slide: 1, text: 'x' }));
+    ok('둘 다 없으면 무엇을 달라는지 말한다', nothing?.includes('placeholder'), String(nothing));
+  }
+
+  // 두 손이 같은 말을 한다.
+  {
+    const fake = new FakeHand(deck());
+    await fake.run('set_text', { slide: 1, placeholder: 'title', text: '새 제목' });
+    ok('가짜 손도 자리 이름을 받는다', fake.model.slides[0].shapes[0].text === '새 제목',
+      String(fake.model.slides[0].shapes[0].text));
+    const why = await threw(() => fake.run('set_text', { slide: 1, placeholder: 'footer', text: 'x' }));
+    ok('가짜 손의 거절도 있는 자리를 알려 준다', why?.includes('이 장의 자리'), String(why));
   }
 }
 

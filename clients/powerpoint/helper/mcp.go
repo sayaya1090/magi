@@ -114,8 +114,13 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 			// 서버가 적어 보내는 instructions 는 **magi 에 도달하지 않는다**(§7 — 클라이언트가
 			// 핸드셰이크 결과를 통째로 버린다). 다른 클라이언트를 위해 싣되, 이 문장에 기대는
 			// 설계는 없다. 기대는 자리는 도구 설명문이다.
-			"instructions": "Tools act on the deck a person has open in PowerPoint. Positions are 1-based. " +
-				"Nothing here edits charts, SmartArt, animation or speaker notes, and nothing restyles an existing table.",
+			// 이 문장은 **낡으면 안 된다.** 앞 판본은 「차트·애니메이션·노트는 못 고친다」라고
+			// 적어 둔 채로 그 셋이 다 생겼다 — 있는 것을 없다고 적는 것이 이 저장소가 제일
+			// 싫어하는 모양인데, magi 에 안 닿는다는 이유로 아무도 안 고쳤다.
+			"instructions": "A deck is already open in PowerPoint and these tools are attached to it. " +
+				"You do not create, open or upload a deck and there is no tool that does. Positions are " +
+				"1-based. Charts, images, speaker notes, entrance animation and durable suggestions are " +
+				"all supported; SmartArt is not, and nothing restyles an existing table.",
 		}, nil
 	case "ping":
 		return map[string]any{}, nil

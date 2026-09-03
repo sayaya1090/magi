@@ -106,8 +106,12 @@ func catalogue() []tool {
 
 	return []tool{
 		{
-			Name:     "list_slides",
-			Desc:     "The deck's table of contents: for every slide, its 1-based position, id, layout name and shape count. The row marked current:true is the slide the person is looking at RIGHT NOW, and the answer carries it as current as well. Every tool that takes slide/slide_id defaults to that slide when you omit both — so when somebody says \"this slide\" or names none, omit them; never answer that with a question listing the slides. Start here — the answer also names the document every later call should address." + declare,
+			Name: "list_slides",
+			Desc: "A DECK IS ALREADY OPEN IN POWERPOINT AND THESE TOOLS ARE ATTACHED TO IT. You do not " +
+				"create, open or upload a deck, and there is no tool that does — the person is looking at " +
+				"theirs right now and every tool here edits that one. Never ask them to provide, upload or " +
+				"open a file; if a call fails, the deck is still there and the call is what went wrong. " +
+				"THE DECK'S TABLE OF CONTENTS: for every slide, its 1-based position, id, layout name and shape count. The row marked current:true is the slide the person is looking at RIGHT NOW, and the answer carries it as current as well. Every tool that takes slide/slide_id defaults to that slide when you omit both — so when somebody says \"this slide\" or names none, omit them; never answer that with a question listing the slides. Start here — the answer also names the document every later call should address." + declare,
 			Props:    []property{{Name: "from", Type: "integer", Desc: "1-based position to start at (default 1). Use with count to page through a large deck."}, {Name: "count", Type: "integer", Desc: "How many slides to return (default: all of them from `from`)."}},
 			ReadOnly: true,
 		},
@@ -205,10 +209,16 @@ func catalogue() []tool {
 		},
 
 		{
-			Name:     "set_text",
-			Desc:     "Replace the text of one shape. The result carries the old text and the new one, because that pair is the only record of the change that reaches the council.",
-			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to write, from read_slide or find_shapes."}, property{Name: "text", Type: "string", Desc: "The new text. Use \\n for a line break."}),
-			Required: []string{"shape_id", "text"},
+			Name: "set_text",
+			Desc: "Replace the text of one shape. The result carries the old text and the new one, because " +
+				"that pair is the only record of the change that reaches the council. To retitle a slide you " +
+				"do NOT need to read it first: pass placeholder \"title\" instead of shape_id.",
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The shape to write, from read_slide or find_shapes."},
+				property{Name: "placeholder", Type: "string", Desc: "Instead of shape_id, name the slot: title, body, subtitle. Refused if the slide has no such slot or more than one."},
+				property{Name: "text", Type: "string", Desc: "The new text. Use \\n for a line break."},
+			),
+			Required: []string{"text"},
 		},
 		{
 			Name: "format_shape",
