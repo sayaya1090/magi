@@ -79,18 +79,26 @@ func TestProbeEngramPluginEndToEnd(t *testing.T) {
 	// (the whole test tree building and running at once) it read the directory before the skill
 	// landed and failed with "no such file". Observed exactly that way on 2026-08-07; the test
 	// passes alone every time, which is the shape of a wait that was inherited rather than taken.
+	// Waited for by CONTENT, not by existence — the way the ledger above is waited for.
+	//
+	// Creating a file and writing it are two steps, so a wait that stops at "it opened" can hand
+	// the assertion an empty buffer. Observed under a full-tree run on 2026-09-04: "skill
+	// malformed:" followed by nothing at all, which is what a zero-byte read prints. The fix one
+	// comment up learned this for the ledger and did not carry it here; two spellings of the same
+	// wait in one file, and the flaky one is the shorter spelling.
 	var skill []byte
-	var err error
 	for deadline = time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		if skill, err = os.ReadFile(filepath.Join(wd, ".claude/skills/port_conflict_lsof/SKILL.md")); err == nil {
+		b, rerr := os.ReadFile(filepath.Join(wd, ".claude/skills/port_conflict_lsof/SKILL.md"))
+		if rerr == nil && strings.Contains(string(b), "name: port_conflict_lsof") {
+			skill = b
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err != nil {
-		t.Fatalf("skill not saved: %v; log:\n%s", err, log.String())
+	if len(skill) == 0 {
+		t.Fatalf("skill never landed with its front matter; log:\n%s", log.String())
 	}
-	if !strings.Contains(string(skill), "name: port_conflict_lsof") || !strings.Contains(string(skill), "lsof") {
+	if !strings.Contains(string(skill), "lsof") {
 		t.Errorf("skill malformed:\n%s", skill)
 	}
 
