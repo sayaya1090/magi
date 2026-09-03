@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <plugins>
-  <plugin id="dev.sayaya.magi.ide" url="https://github.com/sayaya1090/magi/releases/download/jetbrains-v0.2.11/magi-jetbrains-0.2.11.zip" version="0.2.11">
+  <plugin id="dev.sayaya.magi.ide" url="https://github.com/sayaya1090/magi/releases/download/jetbrains-v0.2.12/magi-jetbrains-0.2.12.zip" version="0.2.12">
     <idea-version since-build="261"/>
   </plugin>
 </plugins>
