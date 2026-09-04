@@ -217,7 +217,11 @@ async function boot() {
     const showCompanions = async (show = true) => {
       try {
         const list = await api.companions();
-        if (show) { pick.render(list); offerRepick(false); }
+        // **명단도 데려온다.** 이 판은 스크롤 영역 맨 위에 서는데 그것을 여는 손은 화면
+        // 아래(브랜드 줄 → `⋯`)에 있다. 대화가 길면 명단이 저 위에 열리고, 사람이 보기에는
+        // **단추를 눌렀는데 아무 일도 안 일어난 것**이다 — 실물에서 그 화면을 봤다(2026-09-04).
+        // 「늘 지킬 것」·「가이드」는 같은 날 고쳤는데 이 자리를 빠뜨렸다.
+        if (show) { pick.render(list); offerRepick(false); view.reveal(document.querySelector('#pick')); }
         // **헬퍼가 이미 붙어 있을 수 있다.** PowerPoint 는 작업창을 껐다 켤 때마다 이 창을
         // 새로 만드는데 헬퍼는 그대로 살아 있으므로, 「아무 데도 안 붙었다」로 시작하면 붙어
         // 있는 것을 안 붙었다고 적는다. 그때 물려받을 것은 **이름 둘**이다 — 대화 이름(그래야

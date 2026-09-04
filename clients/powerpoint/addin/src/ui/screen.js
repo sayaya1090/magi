@@ -257,7 +257,27 @@ export function rowShape(r) {
   if (r.kind === 'tool' || r.kind === 'result' || r.kind === 'permission') return 'tool';
   if (r.kind === 'turn') return 'turn';
   if (r.kind === 'council') return 'council';
+  // **혼잣말은 접힌다.** 사용자에게 한 말이 아닌데 답풍선과 같은 자리를 통째로 먹고 있었다 —
+  // 도형 하나에 호출 하나인 이 제품에서 그 글은 길고, 348×391 에서는 답을 밀어낸다.
+  if (r.kind === 'think') return 'think';
   return 'text';
+}
+
+/**
+ * 접힌 혼잣말의 **요약 한 줄**. 웹 콘솔과 같은 모양이다 —
+ * `ConversationElement` 가 `tr("row.reasoning") + " · " + Rows.oneLine(text, 80)` 으로 짓는다.
+ *
+ * **첫 줄을 미리 보여 주는 것이 요점이다.** 손잡이만 있으면 열기 전에는 무슨 생각인지 모르고,
+ * 열어 보지 않으면 안 열게 된다. 미리보기가 있으면 열지 말지를 열기 전에 정한다.
+ */
+export function thinkHead(r) {
+  const one = oneLine(r?.text ?? '');
+  return one ? `혼잣말 · ${clip(one, 80)}` : '혼잣말';
+}
+
+/** 줄바꿈과 이어진 공백을 한 칸으로. 요약은 **한 줄**이어야 줄 높이가 안 흔들린다. */
+export function oneLine(s) {
+  return String(s ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /**

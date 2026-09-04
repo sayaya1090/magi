@@ -25,7 +25,7 @@ import {
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
-  planAnchor, reviewAsk, appendAsk, confirmAsk,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -900,6 +900,29 @@ export class View {
       // (`ToolResult.Advisory`). 이 제품에서 그 오독은 「슬라이드가 안 바뀌었다」로 읽힌다.
       el.classList.toggle('failed', res.failed);
       el.classList.toggle('advisory', res.advisory);
+    }
+    if (shape === 'think') {
+      // **혼잣말도 접는다.** 도구 줄과 같은 손잡이 하나짜리 모양이다 — 규칙이 하나면 사람이
+      // 무엇이 어디 접혀 있는지 안 외운다.
+      //
+      // 요약에 **첫 줄을 미리 보여 준다**(`thinkHead`). 손잡이만 있으면 열기 전에는 무슨
+      // 생각인지 모르고, 모르면 안 열게 된다. 웹 콘솔이 같은 자리를 같은 모양으로 그린다.
+      const fold = document.createElement('details');
+      fold.className = 'turn-fold';
+      const sum = document.createElement('summary');
+      sum.className = 'turn-line';
+      const name = document.createElement('span');
+      name.className = 'turn-head';
+      name.textContent = thinkHead(r);
+      sum.append(name);
+      fold.append(sum);
+      const body = document.createElement('div');
+      body.className = 'turn-think';
+      // **글 그대로 둔다.** 혼잣말은 모델이 자기에게 쓴 글이라 줄바꿈이 뜻을 갖는다.
+      body.textContent = r.text ?? '';
+      fold.append(body);
+      el.append(fold);
+      return el;
     }
     if (shape === 'tool' && r.kind === 'tool') {
       // **도구 한 번이 줄 하나다.** 이름과 결과가 **같은 줄**에 서고, 그 줄을 누르면 보낸 것과

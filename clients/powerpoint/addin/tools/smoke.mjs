@@ -32,7 +32,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -2415,9 +2415,22 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     !rowHead({ kind: 'user' }) && !rowHead({ kind: 'assistant' }));
   const shapes = ['tool', 'turn', 'user', 'think'].map((k) => rowShape({ kind: k }));
   ok('도구·끝난 턴·말이 다른 모양으로 그려진다',
-    shapes[0] === 'tool' && shapes[1] === 'turn' && shapes[2] === shapes[3]
-      && shapes[2] === 'text',
+    shapes[0] === 'tool' && shapes[1] === 'turn' && shapes[2] === 'text',
     shapes.join(' · '));
+  // **혼잣말은 사람 말과 같은 모양이 아니다.** 사용자에게 한 말이 아닌데 답풍선과 같은 자리를
+  // 통째로 먹고 있었다 — 도형 하나에 호출 하나인 이 제품에서 그 글은 길다.
+  ok('혼잣말은 접히는 모양이다', shapes[3] === 'think', shapes.join(' · '));
+  // 요약은 **한 줄이고 첫머리를 미리 보여 준다** — 웹 콘솔과 같은 규칙
+  // (`ConversationElement`: `row.reasoning + " · " + oneLine(text, 80)`).
+  {
+    const long = { kind: 'think', text: '상자 폭 문제로\n  보인다  —\n' + 'x'.repeat(200) };
+    const h = thinkHead(long);
+    ok('혼잣말 요약이 한 줄이다', !h.includes('\n'), h.slice(0, 40));
+    ok('요약이 첫머리를 보여 준다', h.startsWith('혼잣말 · 상자 폭 문제로 보인다'), h.slice(0, 40));
+    ok('요약이 길어지지 않는다', h.length <= 90, String(h.length));
+    ok('글이 없으면 미리보기도 없다', thinkHead({ kind: 'think', text: '   ' }) === '혼잣말');
+    ok('여러 공백이 한 칸이 된다', oneLine('a \n\t b') === 'a b');
+  }
 
   // 「set_text 를 불렀다」는 무엇이 바뀌었는지 안 알려 준다.
   ok('인자 없는 것과 있는 것이 갈린다',
@@ -3095,6 +3108,26 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('넓은 손 줄은 양쪽정렬이다', /\.advanced \{[^}]*justify-content:\s*space-between/.test(paneCss));
   }
 
+  // ── 혼잣말은 **접힌 상자**로 선다 ───────────────────────────
+  //
+  // 앞 판본은 답풍선과 같은 자리에 펴 놓았다. 사용자에게 한 말이 아닌 글이 348×391 판에서
+  // 답을 밀어냈다. 도구 줄과 **같은 손잡이 하나짜리 모양**으로 맞춘다 — 규칙이 하나면 사람이
+  // 무엇이 어디 접혀 있는지 안 외운다.
+  {
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    const branch = /if \(shape === 'think'\) \{([\s\S]*?)\n    \}/.exec(v)?.[1] ?? '';
+    ok('혼잣말 갈래를 찾았다', branch !== '');
+    ok('접히는 상자로 짓는다', /createElement\('details'\)/.test(branch), branch.slice(0, 60));
+    ok('손잡이에 요약을 적는다', /thinkHead\(r\)/.test(branch));
+    // **기본은 접힘이다.** 펴 두면 앞 판본과 같아진다.
+    ok('펴 놓지 않는다', !/\.open = true/.test(branch), branch.slice(0, 60));
+    // 혼잣말은 모델이 자기에게 쓴 글이라 줄바꿈이 뜻을 갖는다.
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    ok('줄바꿈을 살린다', /\.turn-think \{[^}]*white-space:\s*pre-wrap/.test(paneCss));
+    // 답풍선과 **다르게 보여야 한다** — 사용자에게 한 말이 아니다.
+    ok('답과 다른 색으로 적는다', /\.turn-think \{[^}]*color:\s*var\(--muted\)/.test(paneCss));
+  }
+
   // ── 아래에 고정된 띠들 사이에는 여백이 없다 ──────────────────
   //
   // 컴포저 · 가끔 쓰는 넷 · 브랜드 줄은 셋 다 제 테두리와 바탕을 가진 띠라, 사이에 12px 이
@@ -3196,17 +3229,33 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // ── 아래에서 연 것은 **화면 안에** 선다 ──────────────────────
   //
-  // 편집 칸은 목록 아래에 서는데, 목록이 길면 화면 밖이다 — 열어 놓고 아무 일도 안 일어난
-  // 것으로 보인다. 실물에서 그 화면을 봤다(2026-09-04: `top` 이 803, 창은 673).
+  // 이 판들은 스크롤 영역 **안**에 서는데 그것을 여는 손은 화면 아래(브랜드 줄 → `⋯`)에 있다.
+  // 대화가 길면 판이 저 위에 열리고, 사람이 보기에는 **단추를 눌렀는데 아무 일도 안 일어난
+  // 것**이다. 실물에서 두 번 봤다(2026-09-04: 편집 칸 `top` 803 / 창 673, 그리고 명단).
+  //
+  // ⚠ **이름을 대지 않고 자리를 센다.** 처음엔 「늘 지킬 것」과 「가이드」만 이름 대어 고쳤고,
+  // **명단을 빠뜨린 것을 사람이 발견했다**. 이름을 대는 검사는 안 댄 자리를 못 본다 — 그래서
+  // 여기서는 판을 여는 **모든 자리**를 세고, 하나라도 안 데려오면 운다.
   {
     const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-    const opens = [...m.matchAll(/gEdit\.hidden = false/g)].length;
-    ok('편집 칸을 여는 자리를 찾았다', opens > 0, opens);
-    // `everyOf` 인 것은 이 저장소의 규율이다 — 빈 배열에 `.every` 를 걸면 **훑을 것이 없을 때
-    // 조용히 초록**이 된다.
-    ok('여는 자리마다 데려온다',
-      everyOf([...m.matchAll(/gEdit\.hidden = false;? ?([^\n]*)/g)], (x) => x[1].includes('view.reveal')),
-      m.split('\n').filter((l) => l.includes('gEdit.hidden = false')).join(' | '));
+    // 스크롤 영역 안에 서는 판들. 이 밖의 것(`advanced` 등)은 고정 줄이라 데려올 것이 없다.
+    const inScroll = ['pick', 'rules-panel', 'guides-panel', 'guides-edit'];
+    const markup = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+    const scroll = markup.slice(markup.indexOf('id="scroll"'), markup.indexOf('/#scroll'));
+    ok('스크롤 영역을 찾았다', scroll.length > 200, String(scroll.length));
+    ok('세는 판이 전부 스크롤 안에 있다',
+      everyOf(inScroll, (id) => scroll.includes(`id="${id}"`)),
+      inScroll.filter((id) => !scroll.includes(`id="${id}"`)).join(', '));
+    // 판을 펴는 자리 = `<무엇>.hidden = false`. **그 뒤에 같은 것을 데려오는 줄**이 와야 한다 —
+    // 이름이 같은지까지 본다. 아무 `reveal` 이나 세면 옆 판을 데려오는 줄이 이 자리를 덮는다.
+    const opens = [...m.matchAll(/([A-Za-z$][\w$]*)\.hidden = false/g)]
+      .map((x) => ({ who: x[1], after: m.slice(x.index, x.index + 220) }));
+    ok('판을 여는 자리를 실제로 찾았다', opens.length >= 4, String(opens.length));
+    ok('여는 자리마다 그 판을 데려온다',
+      everyOf(opens, (o) => o.after.includes(`view.reveal(${o.who})`)),
+      opens.filter((o) => !o.after.includes(`view.reveal(${o.who})`)).map((o) => o.who).join(' | '));
+    // 명단은 그 중에서도 **가장 먼저** 열리는 판이라 따로 못 박는다 — 붙기 전 화면이다.
+    ok('명단도 데려온다', /pick\.render\(list\)[\s\S]{0,120}view\.reveal/.test(m));
   }
 
   // ── 이름을 두 번 안 적는다 ───────────────────────────────────
