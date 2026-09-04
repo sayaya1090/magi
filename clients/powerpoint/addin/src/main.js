@@ -509,7 +509,7 @@ async function boot() {
             editing = row.name;
             if (gName) { gName.value = row.name; gName.disabled = true; }
             if (gBody) gBody.value = got?.body ?? '';
-            if (gEdit) gEdit.hidden = false;
+            if (gEdit) { gEdit.hidden = false; view.reveal(gEdit); }
             sayGuides('');
           } catch (e) { sayGuides(`읽지 못했습니다: ${e?.message ?? e}`); }
         })());
@@ -521,14 +521,18 @@ async function boot() {
         del.setAttribute('aria-label', row.deleteTip);
         del.addEventListener('click', () => void (async () => {
           // **한 번 더 묻는다.** 되돌릴 곳이 없는 일이고, 끄는 것이 바로 옆에 있다.
-          if (!globalThis.confirm?.(`${row.name} 를 지웁니다. 되돌릴 수 없습니다 — 잠시 안 쓸 것이면 「꺼짐」으로 두세요.`)) return;
+          // 판 안의 다이얼로그다 — `window.confirm` 은 이 창에서 안 뜰 수 있고, 안 뜨면
+          // 지우기가 거절도 실패도 아닌 채로 조용히 아무 일도 안 한다.
+          if (!await view.ask('delete-guide', row.name)) return;
           try {
             await api.guide('delete', row.name);
             sayGuides(`${row.name} 를 지웠습니다.`);
           } catch (e) { sayGuides(`지우지 못했습니다: ${e?.message ?? e}`); }
           await drawGuides();
         })());
-        el.append(nm, size, toggle, edit, del, desc);
+        // **스위치가 맨 오른쪽이다.** 켜고 끄는 것은 이 목록에서 가장 자주 하는 일이고,
+        // 지우기가 그 자리에 있으면 자주 하는 손이 되돌릴 수 없는 손 옆에 선다.
+        el.append(nm, size, edit, del, toggle, desc);
         gList.append(el);
       }
     };
@@ -548,7 +552,9 @@ async function boot() {
       editing = null;
       if (gName) { gName.value = ''; gName.disabled = false; }
       if (gBody) gBody.value = '---\ndescription: \n---\n\n';
-      if (gEdit) gEdit.hidden = false;
+      // 편집 칸은 목록 **아래**에 선다 — 목록이 길면 화면 밖이라, 열어 놓고 아무 일도 안
+      // 일어난 것으로 보인다. 실물에서 그 화면을 봤다(2026-09-04: `top` 이 803, 창은 673).
+      if (gEdit) { gEdit.hidden = false; view.reveal(gEdit); }
       sayGuides('');
     });
     document.querySelector('#guide-cancel')?.addEventListener('click', () => {

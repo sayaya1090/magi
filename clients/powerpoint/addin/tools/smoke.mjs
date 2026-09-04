@@ -32,7 +32,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk,
+  planAnchor, reviewAsk, appendAsk, confirmAsk,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -1553,6 +1553,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ["b.addEventListener('click', go);", 'go() 가 this.send 를 지난다'],
     ["b.addEventListener('click', () => {", '그만 기다리기 — composer.release 와 다시 그리기뿐'],
     ["x.addEventListener('click', () => {", '인용 빼기 — composer.detach 와 다시 그리기뿐'],
+    // 묻는 판의 셋. 하는 일이 **약속 하나를 매듭짓는 것뿐**이라 던질 문이 없다 — 진짜 일은
+    // 답을 받은 쪽(`main.js` 의 지우기)이 하고, 그쪽이 제 사유를 적는다.
+    ["ok.addEventListener('click', yes);", '묻는 판 — resolve(true) 뿐'],
+    ["cancel.addEventListener('click', no);", '묻는 판 — resolve(false) 뿐'],
+    ["box.addEventListener('keydown', esc);", '묻는 판 — Escape 는 그만두는 쪽이다'],
   ]);
   const sites = [];
   const stray = [];
@@ -3073,6 +3078,135 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('자리도 같이 옮긴다', /left:\s*22px/.test(on), on.trim());
     // ⚠ 트랙 안에 글자를 넣지 않는다 — 그 크기의 폰트는 접근성 미달이라고 같은 문서가 적는다.
     ok('트랙에 글자를 안 넣는다', !/switch-handle[\s\S]{0,200}textContent/.test(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')));
+  }
+
+  // ── 정렬은 취향이 아니라 **폭**으로 정한다 ───────────────────
+  //
+  // `.advanced` 는 넷이 줄을 거의 채워서 양끝이 곧 줄의 양끝이다. `.rules-row` 는 둘뿐이라
+  // 양쪽정렬로 두면 한 묶음인 두 손이 판 양끝으로 벌어진다 — 묶음은 붙어 있어야 묶음이다.
+  {
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    const rr = /\.rules-row \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    ok('좁은 손 줄 규칙을 찾았다', rr !== '');
+    ok('좁으면 오른쪽에 모은다', /justify-content:\s*flex-end/.test(rr), rr.trim());
+    ok('양쪽정렬이 아니다', !/space-between/.test(rr), rr.trim());
+    ok('간격은 여전히 16 이다', /gap:\s*16px/.test(rr), rr.trim());
+    // 넓은 줄은 그대로 양쪽정렬이다 — 같은 기준의 반대쪽이라 같이 못 박는다.
+    ok('넓은 손 줄은 양쪽정렬이다', /\.advanced \{[^}]*justify-content:\s*space-between/.test(paneCss));
+  }
+
+  // ── 아래에 고정된 띠들 사이에는 여백이 없다 ──────────────────
+  //
+  // 컴포저 · 가끔 쓰는 넷 · 브랜드 줄은 셋 다 제 테두리와 바탕을 가진 띠라, 사이에 12px 이
+  // 들어가면 리듬이 아니라 **띠 사이에 낀 흰 조각**으로 보인다. `⋯` 로 넷을 폈을 때 회색 띠
+  // 둘 사이에 흰 줄이 서 있는 것을 실물에서 봤다(2026-09-04에 지적받았다).
+  //
+  // 선택자가 `#pane` 를 지나는 것까지 잰다 — 세로 리듬 규칙이 id 를 물어 (1,0,1) 이라,
+  // 클래스만으로 적은 `margin-top: 0` 은 조용히 진다.
+  {
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    const zero = /#pane > \.composer, #pane > \.advanced, #pane > \.brand \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    ok('아래 띠들의 여백 규칙을 찾았다', zero !== '');
+    ok('띠 사이에 여백이 없다', /margin-top:\s*0/.test(zero), zero.trim());
+    // 그 리듬 규칙이 여전히 id 를 지나는지도 같이 본다 — 저쪽이 약해지면 이 규칙은 필요 없어진
+    // 것이 아니라 **이유가 사라진 채로 남는다.**
+    ok('세로 리듬은 여전히 id 를 지난다', /#pane > \*:not\(\[hidden\]\) \+ \*:not\(\[hidden\]\) \{[^}]*margin-top/.test(paneCss));
+  }
+
+  // ── 자주 쓰는 손이 되돌릴 수 없는 손 옆에 안 선다 ────────────
+  //
+  // 가이드 줄의 스위치는 **맨 오른쪽**이다. 켜고 끄는 것이 이 목록에서 가장 자주 하는 일인데,
+  // 그것이 지우기 옆에 있으면 자주 가는 손이 되돌릴 수 없는 손과 이웃한다.
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const order = /el\.append\(([^)]*)\);/.exec(m)?.[1] ?? '';
+    ok('가이드 줄의 차례를 찾았다', order.includes('toggle'), order);
+    const parts = order.split(',').map((x) => x.trim());
+    ok('스위치가 지우기보다 뒤다', parts.indexOf('toggle') > parts.indexOf('del'), order);
+    ok('스위치가 고치기보다 뒤다', parts.indexOf('toggle') > parts.indexOf('edit'), order);
+  }
+
+  // ── 물러나는 손이 왼쪽, 저지르는 손이 오른쪽 ─────────────────
+  //
+  // 오른쪽에 모으고 나면 **순서가 뜻을 갖는다.** 줄 끝에 있는 것이 가장 마지막에 읽히고 가장
+  // 쉽게 눌리므로, 거기 서는 것은 사람이 하려던 일이어야 한다. 물러나는 손이 그 자리에 있으면
+  // 다 읽고 손이 가는 자리가 「안 함」이다. M3 의 다이얼로그 액션도 확인이 오른쪽이다.
+  //
+  // 앞 판본은 셋이 거꾸로였다 — 저장이 왼쪽, 닫기가 오른쪽(2026-09-04에 지적받았다).
+  {
+    const rows = [...html.matchAll(/<div class="(rules-row|confirm-row)">([\s\S]*?)<\/div>/g)];
+    ok('손 줄들을 실제로 찾았다', rows.length >= 4, rows.length);
+    const wrong = rows
+      .map((m) => m[2])
+      .map((body) => [...body.matchAll(/<button[^>]*id="([^"]+)"[^>]*class="([^"]*)"/g)]
+        .map((b) => ({ id: b[1], primary: /icon-primary|text-danger/.test(b[2]) })))
+      .filter((btns) => btns.length >= 2 && !btns[btns.length - 1].primary)
+      .map((btns) => btns.map((b) => b.id).join('+'));
+    ok('저지르는 손이 줄 끝이다', wrong.length === 0, wrong.join(' / '));
+    const heads = rows
+      .map((m) => m[2])
+      .map((body) => [...body.matchAll(/<button[^>]*id="([^"]+)"[^>]*class="([^"]*)"/g)])
+      .filter((b) => b.length >= 2)
+      .filter((b) => /icon-primary|text-danger/.test(b[0][2]))
+      .map((b) => b[0][1]);
+    ok('물러나는 손이 줄 머리다', heads.length === 0, heads.join(' / '));
+  }
+
+  // ── 되돌릴 수 없는 것은 **판 안에서** 묻는다 ─────────────────
+  //
+  // `window.confirm` 을 쓰던 자리다. 그게 이 판에서 위험한 이유는 **안 뜰 수 있어서**인데,
+  // 안 뜨면 `undefined` 가 돌아오고 부르는 쪽은 그것을 「아니오」로 읽는다 — 지우기가 거절도
+  // 실패도 아닌 채로 조용히 아무 일도 안 하는 단추가 된다.
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    // ⚠ **부르는 꼴로 잰다.** 이름만 찾으면 그걸 왜 안 쓰는지 적은 주석이 걸린다 — 오늘
+    // 이 파일에서 같은 덫을 세 번째로 밟았다.
+    ok('브라우저 판정에 안 맡긴다', !/globalThis\.confirm\?\.\(|\bwindow\.confirm\(/.test(m + v));
+    ok('지우기가 판 안의 물음을 지난다', /view\.ask\('delete-guide'/.test(m));
+    // 글을 못 지으면 **묻지 않고 거절한다** — 참을 돌려주면 안 물어보고 지운다.
+    ok('물을 말이 없으면 거절이다', /if \(!box \|\| !text\) return Promise\.resolve\(false\)/.test(v));
+    // 포커스는 **덜 위험한 쪽**에 준다. 판이 뜨자마자 엔터를 치는 손이 지우면 안 된다.
+    ok('포커스가 그만두는 쪽에 간다', /cancel\.focus\(\)/.test(v));
+    ok('Escape 도 그만두는 쪽이다', /Escape' \) *\{? *done\(false\)|Escape'\) done\(false\)/.test(v.replace(/\s+/g, ' ')) || /if \(e\.key === 'Escape'\) done\(false\)/.test(v));
+    // 되돌릴 수 없는 일이므로 **끄는 길이 옆에 있다**를 같이 말한다. 그 말이 없으면 「잠깐
+    // 안 쓰려고」 지우는 사람이 생기고, 그건 되돌릴 곳이 없다.
+    const t = confirmAsk('delete-guide', 'design-guide');
+    ok('무엇을 지우는지 이름을 댄다', t.head.includes('design-guide'));
+    ok('되돌릴 수 없다고 적는다', t.body.includes('되돌릴 수 없습니다'));
+    ok('끄는 길을 같이 권한다', t.body.includes('스위치를 끄'));
+    ok('모르는 물음은 안 짓는다', confirmAsk('무엇인지 모름', 'x') === null);
+    // 다이얼로그의 손은 **글자 단추**다(M3: action = label-large). 아이콘 둘로 두면 되돌릴 수
+    // 없는 쪽과 그만두는 쪽이 그림으로 안 갈린다.
+    ok('손이 글자다', /id="confirm-ok"[^>]*class="text-btn/.test(html) && /id="confirm-cancel"[^>]*class="text-btn/.test(html));
+    ok('낭독기에 경고 판이라고 말한다', /role="alertdialog"[\s\S]{0,120}aria-modal="true"/.test(html));
+  }
+  {
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    // 값은 M3 basic dialog 에서 옮긴 것이다.
+    const box = /\.confirm-box \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    ok('묻는 판 규칙을 찾았다', box !== '');
+    ok('모서리가 28 이다', /border-radius:\s*28px/.test(box), box.trim());
+    ok('패딩이 24 다', /padding:\s*24px/.test(box), box.trim());
+    ok('폭 천장이 560 이다', /max-width:\s*560px/.test(box), box.trim());
+    ok('버튼 사이가 8 이다', /\.confirm-row \{[^}]*gap:\s*8px/.test(paneCss));
+    // 덮는 판이 상자를 못 덮으면 뒤가 눌린다.
+    ok('덮을 상자가 기준점이다', /#pane \{[^}]*position:\s*relative/.test(paneCss));
+  }
+
+  // ── 아래에서 연 것은 **화면 안에** 선다 ──────────────────────
+  //
+  // 편집 칸은 목록 아래에 서는데, 목록이 길면 화면 밖이다 — 열어 놓고 아무 일도 안 일어난
+  // 것으로 보인다. 실물에서 그 화면을 봤다(2026-09-04: `top` 이 803, 창은 673).
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const opens = [...m.matchAll(/gEdit\.hidden = false/g)].length;
+    ok('편집 칸을 여는 자리를 찾았다', opens > 0, opens);
+    // `everyOf` 인 것은 이 저장소의 규율이다 — 빈 배열에 `.every` 를 걸면 **훑을 것이 없을 때
+    // 조용히 초록**이 된다.
+    ok('여는 자리마다 데려온다',
+      everyOf([...m.matchAll(/gEdit\.hidden = false;? ?([^\n]*)/g)], (x) => x[1].includes('view.reveal')),
+      m.split('\n').filter((l) => l.includes('gEdit.hidden = false')).join(' | '));
   }
 
   // ── 이름을 두 번 안 적는다 ───────────────────────────────────

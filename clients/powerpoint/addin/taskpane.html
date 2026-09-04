@@ -124,8 +124,8 @@
       <textarea id="rules-text" class="rules-text" rows="6"
         placeholder="예) 불릿은 한 줄로. 강조는 #1F4E79 로. 표는 머리글을 굵게."></textarea>
       <div class="rules-row">
-        <button type="button" id="rules-save" class="icon-btn icon-primary" title="적어 둡니다 — 다음 부탁부터 걸립니다" aria-label="적어 둡니다 — 다음 부탁부터 걸립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
         <button type="button" id="rules-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+        <button type="button" id="rules-save" class="icon-btn icon-primary" title="적어 둡니다 — 다음 부탁부터 걸립니다" aria-label="적어 둡니다 — 다음 부탁부터 걸립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
       </div>
       <p id="rules-note" class="rules-note" hidden></p>
     </section>
@@ -148,8 +148,8 @@
         안 부르면 안 읽습니다.</p>
       <div id="guides-list" class="guides-list"></div>
       <div class="rules-row">
-        <button type="button" id="guides-new" class="icon-btn icon-primary" title="가이드를 새로 만듭니다" aria-label="가이드를 새로 만듭니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
         <button type="button" id="guides-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+        <button type="button" id="guides-new" class="icon-btn icon-primary" title="가이드를 새로 만듭니다" aria-label="가이드를 새로 만듭니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
       </div>
 
       <!-- 고치는 자리. 이름은 새로 만들 때만 받는다 — 이름이 곧 파일 이름이라 바꾸면 딴 것이 된다. -->
@@ -158,8 +158,8 @@
         <textarea id="guide-body" class="rules-text" rows="8"
           placeholder="---&#10;description: 한 줄 설명 — 모델이 이걸 보고 부를지 정합니다&#10;---&#10;&#10;# 본문"></textarea>
         <div class="rules-row">
-          <button type="button" id="guide-save" class="icon-btn icon-primary" title="이 가이드를 저장합니다" aria-label="이 가이드를 저장합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
           <button type="button" id="guide-cancel" class="icon-btn" title="고치던 것을 버립니다" aria-label="고치던 것을 버립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+          <button type="button" id="guide-save" class="icon-btn icon-primary" title="이 가이드를 저장합니다" aria-label="이 가이드를 저장합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
         </div>
       </div>
       <p id="guides-note" class="rules-note" hidden></p>
@@ -281,6 +281,31 @@
       <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
       <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
       <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+    </div>
+
+    <!--
+      **되돌릴 수 없는 것을 누르기 전에 한 번 더 묻는 판.**
+
+      `window.confirm` 을 쓰던 자리다. 그게 이 판에서 위험한 이유는 **안 뜰 수 있어서**인데,
+      안 뜨면 `undefined` 가 돌아오고 그러면 지우기가 조용히 아무 일도 안 한다 — 거절도 아니고
+      실패도 아닌, 눌렀는데 아무 말이 없는 단추가 된다. Office 작업창은 우리가 고른 브라우저가
+      아니라서, 「대개 뜬다」를 근거로 삼을 수 없다.
+
+      `role="alertdialog"` 이고 판 전체를 덮는다. 값은 M3 basic dialog 에서 옮겼다 —
+      모서리 28 · 패딩 24 · 제목↔본문 16 · 본문↔액션 24 · 버튼 사이 8 · 폭 280~560.
+      348px 판에서는 최소폭이 이기므로 좌우 16씩 물리고 그 안에서 늘어난다.
+    -->
+    <div id="confirm" class="confirm" hidden>
+      <div class="confirm-box" role="alertdialog" aria-modal="true"
+        aria-labelledby="confirm-head" aria-describedby="confirm-body">
+        <h2 id="confirm-head" class="confirm-head"></h2>
+        <p id="confirm-body" class="confirm-body"></p>
+        <div class="confirm-row">
+          <!-- **덜 위험한 쪽이 먼저 포커스를 받는다.** 엔터를 눌러 지우는 일이 없게. -->
+          <button type="button" id="confirm-cancel" class="text-btn"></button>
+          <button type="button" id="confirm-ok" class="text-btn text-danger"></button>
+        </div>
+      </div>
     </div>
 
     <!--

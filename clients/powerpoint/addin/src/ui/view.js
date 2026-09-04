@@ -25,7 +25,7 @@ import {
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
-  planAnchor, reviewAsk, appendAsk,
+  planAnchor, reviewAsk, appendAsk, confirmAsk,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -712,6 +712,48 @@ export class View {
       this.planAt = at.key;
       this.scrollWithin(list, list.children[at.index]);
     }
+  }
+
+  /**
+   * **한 번 더 묻는다.** 답이 올 때까지 기다리는 약속을 돌려준다.
+   *
+   * `window.confirm` 을 대신한다. 그게 이 판에서 위험한 이유는 **안 뜰 수 있어서**인데, 안
+   * 뜨면 `undefined` 가 돌아오고 부르는 쪽은 그것을 「아니오」로 읽는다 — 그러면 지우기가
+   * 거절도 실패도 아닌 채로 조용히 아무 일도 안 한다. Office 작업창은 우리가 고른 브라우저가
+   * 아니라서 「대개 뜬다」를 근거로 삼을 수 없다.
+   *
+   * **포커스는 덜 위험한 쪽에 준다.** 판이 뜨자마자 엔터를 치는 손이 지우는 일이 없어야 한다.
+   * Escape 도 그만두는 쪽이다 — 판을 닫는 관습적인 키가 파괴로 이어지면 안 된다.
+   */
+  ask(what, name) {
+    const box = $('#confirm');
+    const text = confirmAsk(what, name);
+    // 글을 못 지으면 **묻지 않고 거절한다.** 여기서 참을 돌려주면 안 물어보고 지운다.
+    if (!box || !text) return Promise.resolve(false);
+    $('#confirm-head').textContent = text.head;
+    $('#confirm-body').textContent = text.body;
+    const ok = $('#confirm-ok');
+    const cancel = $('#confirm-cancel');
+    ok.textContent = text.ok;
+    cancel.textContent = text.cancel;
+    ok.classList.toggle('text-danger', Boolean(text.danger));
+    box.hidden = false;
+    cancel.focus();
+    return new Promise((resolve) => {
+      const done = (v) => {
+        box.hidden = true;
+        ok.removeEventListener('click', yes);
+        cancel.removeEventListener('click', no);
+        box.removeEventListener('keydown', esc);
+        resolve(v);
+      };
+      const yes = () => done(true);
+      const no = () => done(false);
+      const esc = (e) => { if (e.key === 'Escape') done(false); };
+      ok.addEventListener('click', yes);
+      cancel.addEventListener('click', no);
+      box.addEventListener('keydown', esc);
+    });
   }
 
   /**

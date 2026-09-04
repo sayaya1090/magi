@@ -105,7 +105,8 @@ body.standalone #pane {
   width: 360px; flex: none; border-left: 1px solid var(--line); background: var(--bg);
 }
 
-#pane { display: flex; flex-direction: column; width: 100%; min-width: 0; }
+/* `position` 이 계약이다 — 묻는 판이 `inset: 0` 으로 이 상자를 덮는다. */
+#pane { display: flex; flex-direction: column; width: 100%; min-width: 0; position: relative; }
 
 /* 세로 리듬을 한 자리에서 준다. 판마다 마진을 손으로 적으면 그 자리만 또 갈린다. */
 #pane > * { flex: none; }
@@ -122,6 +123,17 @@ body.standalone #pane {
 [hidden] { display: none !important; }
 
 #pane > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+/*
+  **아래에 고정된 것들끼리는 그 리듬을 안 쓴다.**
+
+  컴포저 · 가끔 쓰는 넷 · 브랜드 줄은 셋 다 **제 테두리와 바탕을 가진 띠**라, 사이에 12px 이
+  더 들어가면 그건 리듬이 아니라 **띠 사이에 낀 흰 조각**으로 보인다. 실제로 `⋯` 로 넷을 폈을
+  때 회색 띠 둘 사이에 흰 줄이 서 있는 것을 봤다(2026-09-04에 지적받았다).
+
+  선택자가 `#pane` 를 지나는 것이 요점이다 — 위 규칙이 id 를 물어 (1,0,1) 이라, 클래스만으로
+  적은 `margin-top: 0` 은 조용히 진다. 이 저장소가 `#pane > .scroll` 에서 한 번 겪은 그 모양이다.
+*/
+#pane > .composer, #pane > .advanced, #pane > .brand { margin-top: 0; }
 
 /*
   제목 줄. **오른쪽에 44px 을 비워 둔다** — 거기 Office 의 personality 메뉴가 뜬다(Windows
@@ -198,7 +210,18 @@ header {
   background: var(--bg-sub); border: 1px solid var(--line); border-radius: var(--r-md);
   padding: var(--s2);
 }
-.rules-row { display: flex; align-items: center; gap: var(--s3); margin-top: var(--s2); }
+/*
+  **좁게 차지하는 손들은 오른쪽에 모은다.**
+
+  위 `.advanced` 는 양쪽정렬인데 여기는 아니다 — 기준은 취향이 아니라 **폭**이다. 저 줄은 넷이
+  줄을 거의 채워서 양끝이 곧 줄의 양끝이지만, 이 줄은 둘뿐이라 양쪽정렬로 두면 아무 관계 없는
+  두 손이 판 양끝으로 벌어진다. 「저장」과 「닫기」는 한 묶음이고, 묶음은 붙어 있어야 묶음이다.
+
+  오른쪽인 것은 이 판들이 **위에서 아래로 읽히기 때문이다** — 다 읽고 나서 누르는 자리는 글이
+  끝나는 쪽이다. M3 의 다이얼로그 액션도 같은 자리에 선다.
+  간격은 16 을 지킨다(32짜리 손의 48 타겟이 안 겹치는 최소치).
+*/
+.rules-row { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: var(--s2); }
 .rules-save {
   font: var(--t-body); color: var(--accent-fg); background: var(--accent);
   border: 0; border-radius: var(--r-md); padding: var(--s1) var(--s3); cursor: pointer;
@@ -537,6 +560,39 @@ button:disabled { cursor: default; opacity: .5; }
 */
 .brand > .icon-btn { margin-left: var(--s2); }
 .brand { min-height: 40px; }
+
+/*
+  ── 한 번 더 묻는 판 ───────────────────────────────────────
+  값은 M3 basic dialog 에서 옮겼다(`guide-specs.md`): 모서리 **28** · 패딩 **24** ·
+  제목↔본문 **16** · 본문↔액션 **24** · 버튼 사이 **8** · 폭 **280~560**.
+  348px 판에서는 최소폭이 이기므로 좌우로 물리고 그 안에서 늘어난다.
+*/
+.confirm {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s4);
+  background: color-mix(in srgb, #000 32%, transparent);
+}
+.confirm-box {
+  width: 100%; max-width: 560px; box-sizing: border-box;
+  padding: 24px; border-radius: 28px;
+  background: var(--bg); border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+}
+.confirm-head { font: var(--t-subtitle); font-weight: 600; margin: 0 0 16px; }
+.confirm-body { font: var(--t-body); color: var(--fg-2); margin: 0 0 24px; }
+.confirm-row { display: flex; justify-content: flex-end; gap: 8px; }
+/* 다이얼로그의 손은 **글자 단추**다(M3: action = label-large). 아이콘으로 두면 되돌릴 수 없는
+   쪽과 그만두는 쪽이 그림 둘이 되고, 그 둘은 그림으로 안 갈린다. */
+.text-btn {
+  min-height: 40px; padding: 0 12px; border-radius: 9999px;
+  background: none; border: 0; color: var(--accent, #1F4E79);
+  font: var(--t-body); font-weight: 600; cursor: pointer;
+}
+.text-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.text-btn:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.text-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
+.text-danger { color: #B3261E; }
 
 /* ── 흐르는 가운데, 고정된 위아래 ────────────────────────────── */
 /*

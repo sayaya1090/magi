@@ -13,7 +13,7 @@
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
 | 1·2·3. Go (`helper/`) | 138 | 2026-09-04 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,272 | 2026-09-04 | 통과 (smoke 675 · officehand 547 · hand 50) |
+| 4. JS 순수층 (`addin/tools/`) | 1,322 | 2026-09-04 | 통과 (smoke 725 · officehand 547 · hand 50) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
@@ -139,7 +139,7 @@
 > 거의 전부 DOM 코드 **안에 박힌 결정**이었다. 가짜 DOM 을 지어 재는 자리를 늘리는 것보다
 > 결정을 재지는 자리로 옮기는 것이 쌌다.
 
-`node tools/smoke.mjs` (675) 이 무는 것 중 몇 가지:
+`node tools/smoke.mjs` (725) 이 무는 것 중 몇 가지:
 
 | 규칙 | 왜 |
 |---|---|
