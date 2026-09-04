@@ -132,8 +132,12 @@ body.standalone #pane {
 
   선택자가 `#pane` 를 지나는 것이 요점이다 — 위 규칙이 id 를 물어 (1,0,1) 이라, 클래스만으로
   적은 `margin-top: 0` 은 조용히 진다. 이 저장소가 `#pane > .scroll` 에서 한 번 겪은 그 모양이다.
+
+  ⚠ **이 목록은 이름을 대는 목록이라 새 띠가 생길 때마다 늘어야 한다.** 실제로 한 번 놓쳤다 —
+  진행 막대를 넣고 여기 안 적어서 12px 이 다시 생겼고, 사람이 보고 물었다(2026-09-04). 그래서
+  검사가 이름을 세지 않고 **`#pane` 의 고정 띠를 전부 세어** 하나라도 빠지면 운다.
 */
-#pane > .composer, #pane > .advanced, #pane > .brand { margin-top: 0; }
+#pane > .composer, #pane > .advanced, #pane > .brand, #pane > .busy { margin-top: 0; }
 
 /*
   제목 줄. **오른쪽에 44px 을 비워 둔다** — 거기 Office 의 personality 메뉴가 뜬다(Windows

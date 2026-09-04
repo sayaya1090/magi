@@ -372,6 +372,23 @@ func catalogue(hasCouncil bool) []tool {
 			Required: []string{"text"},
 		},
 		{
+			Name: "set_deck_font",
+			Desc: "Put every piece of text in the deck on one font family — placeholders and the plain text " +
+				"boxes alike. apply_style picks shapes by placeholder ROLE, which is what makes it deck-" +
+				"independent, but a deck built here also carries source lines and labels that are not " +
+				"placeholders: change the font with apply_style alone and those keep the old one, so one slide " +
+				"ends up with two fonts. ⚠ This does NOT change the theme font. Office.js exposes no font " +
+				"scheme at any API set, so slides you make AFTER this, chart text and table styles still come " +
+				"out in the theme's font — the answer says so. Use one of the nine fonts deck-design names; a " +
+				"family this machine lacks is silently swapped by PowerPoint." + declare,
+			Props: []property{
+				{Name: "font", Type: "string", Desc: "Font family, e.g. Arial or Georgia."},
+				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions. Omit for the whole deck."},
+				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids. Wins over slides."},
+			},
+			Required: []string{"font"},
+		},
+		{
 			// ⚠ **손이 1.9 를 확인한 뒤에만 광고한다**(`OfficeHand.ops`).
 			//
 			// 이 도구가 없던 값이 기록돼 있다: 사람이 표를 만들고 「고쳐 달라」고 했는데 모델에게

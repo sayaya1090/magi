@@ -3101,6 +3101,24 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('낭독기에 진행이라고 말한다', /id="busy"[^>]*role="progressbar"/.test(html));
   }
 
+  // ── 못 닿는 데를 말한다 ─────────────────────────────────────
+  //
+  // 덱 글꼴을 바꾸는 도구는 **테마 글꼴을 못 바꾼다** — Office.js 에 글꼴 스킴이 없다(어느
+  // API 집합에도, 프리뷰에도). 그래서 이 도구가 하는 일은 글자마다 글꼴을 주는 것이고, 새로
+  // 만드는 장과 차트·표는 여전히 테마 글꼴로 선다. **그 사실을 답이 적어야 한다** — 안 적으면
+  // 사람은 「덱 글꼴을 바꿨다」고 믿고 다음 장에서 딴 글꼴을 본다.
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    const body = /#deckFont\(args\) \{([\s\S]*?)\n  \}/.exec(h)?.[1] ?? '';
+    ok('덱 글꼴 갈래를 찾았다', body !== '');
+    ok('못 바꾸는 것을 답에 적는다', /테마 글꼴은 안 바뀝니다/.test(body), body.slice(-120));
+    // 자리표시자만이 아니라 **모든 글 있는 도형**을 훑는다 — 그게 apply_style 과 갈리는 이유다.
+    ok('도형을 전부 훑는다', /shapes;[\s\S]{0,200}for \(const sh of box\.items\)/.test(body));
+    // 글이 없는 도형에 쓰면 그 왕복 전체가 던져서 **한 장이 통째로 안 바뀐다.**
+    ok('글 없는 도형에서 안 죽는다', /catch \{ skipped \+= 1; \}/.test(body));
+    ok('건너뛴 수를 센다', /skipped/.test(body) && /skipped \?/.test(body));
+  }
+
   // ── 세우는 손 ───────────────────────────────────────────────
   //
   // `/api/interrupt` 는 처음부터 있었고 어댑터에도 있었는데 **아무도 안 불렀다** — 문은 만들어
@@ -3237,9 +3255,21 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 클래스만으로 적은 `margin-top: 0` 은 조용히 진다.
   {
     const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
-    const zero = /#pane > \.composer, #pane > \.advanced, #pane > \.brand \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
-    ok('아래 띠들의 여백 규칙을 찾았다', zero !== '');
-    ok('띠 사이에 여백이 없다', /margin-top:\s*0/.test(zero), zero.trim());
+    const zeroRule = /#pane > [^{]*\{[^}]*margin-top:\s*0[^}]*\}/.exec(paneCss)?.[0] ?? '';
+    ok('아래 띠들의 여백 규칙을 찾았다', zeroRule !== '');
+    // ⚠ **이름을 세지 않고 자리를 센다.** 처음엔 셋을 이름으로 적었고, 진행 막대를 넣으면서
+    // 하나를 빠뜨려 12px 이 다시 생겼다 — 사람이 보고 물었다(2026-09-04). 이름을 대는 검사는
+    // 안 댄 자리를 못 본다. 그래서 스크롤 밖에 서는 띠를 **전부** 세어 맞춘다.
+    const after = html.slice(html.indexOf('/#scroll'));
+    const bars = [...after.matchAll(/<(?:div|footer|details)[^>]*class="([a-z-]+)"/g)]
+      .map((m) => m[1])
+      .filter((c) => ['composer', 'advanced', 'brand', 'busy', 'plan'].includes(c));
+    ok('스크롤 밖의 띠를 실제로 찾았다', bars.length >= 4, bars.join(', '));
+    // `plan` 은 접히는 판이라 위 여백이 있어도 띠 사이에 흰 조각으로 안 보인다 — 나머지를 센다.
+    const need = bars.filter((c) => c !== 'plan');
+    ok('띠마다 여백이 없다',
+      everyOf(need, (c) => zeroRule.includes(`#pane > .${c}`)),
+      need.filter((c) => !zeroRule.includes(`#pane > .${c}`)).join(', '));
     // 그 리듬 규칙이 여전히 id 를 지나는지도 같이 본다 — 저쪽이 약해지면 이 규칙은 필요 없어진
     // 것이 아니라 **이유가 사라진 채로 남는다.**
     ok('세로 리듬은 여전히 id 를 지난다', /#pane > \*:not\(\[hidden\]\) \+ \*:not\(\[hidden\]\) \{[^}]*margin-top/.test(paneCss));
