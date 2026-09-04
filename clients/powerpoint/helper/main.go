@@ -614,7 +614,9 @@ func (a *API) freshOn(socket string) (string, error) {
 		return "", err
 	}
 	defer cl.Close()
-	return cl.NewSession()
+	// **옮기지 않고 연다.** 이 헬퍼는 덱마다 대화를 하나씩 들고, 옮기면 방금까지 일하던 덱의
+	// 대화에 「컴패니언이 떠났다」가 적힌다(2026-09-05 실측).
+	return cl.NewSessionKeeping()
 }
 
 // makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**

@@ -372,6 +372,20 @@ func answerSessionNew(ctx context.Context, eng Engine, req Request) Response {
 	if !ok {
 		return Response{Err: "this daemon cannot open a new conversation"}
 	}
+	// **옮기지 말라고 하면 안 옮긴다.** 대화를 여는 것과 거기로 가는 것은 다른 일이고, 한 데몬이
+	// 대화를 여럿 섬기는 클라이언트에게는 앞의 것만 뜻이다 — 옮기면 방금까지 일하던 대화에
+	// 「컴패니언이 떠났다」가 적힌다(2026-09-05 실측).
+	if req.Keep {
+		o, can := eng.(ConversationOpener)
+		if !can {
+			return Response{Err: "this daemon can only open a conversation by moving onto it"}
+		}
+		sid, err := o.NewSessionKeeping(ctx)
+		if err != nil {
+			return Response{Err: err.Error()}
+		}
+		return Response{OK: true, Session: string(sid)}
+	}
 	sid, err := k.NewSession(ctx)
 	if err != nil {
 		return Response{Err: err.Error()}

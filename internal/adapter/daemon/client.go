@@ -447,8 +447,14 @@ func (c *Client) Children(sid string) ([]SessionRow, error) {
 
 // NewSession opens a fresh conversation on the companion and moves it there, answering with the
 // new id. The one way to get a new conversation: resume refuses invented ids on purpose.
-func (c *Client) NewSession() (string, error) {
-	resp, err := c.exchange(Request{Method: "session-new"})
+func (c *Client) NewSession() (string, error) { return c.newSession(false) }
+
+// NewSessionKeeping opens a conversation and leaves the companion on the one it is serving. A
+// client that holds several conversations at once wants this one — see Request.Keep.
+func (c *Client) NewSessionKeeping() (string, error) { return c.newSession(true) }
+
+func (c *Client) newSession(keep bool) (string, error) {
+	resp, err := c.exchange(Request{Method: "session-new", Keep: keep})
 	if err != nil {
 		return "", err
 	}

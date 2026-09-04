@@ -2829,6 +2829,19 @@ func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error)
 	return sid, nil
 }
 
+// NewSessionKeeping opens a conversation and **leaves this companion where it is** — the half of
+// NewSession that a client serving several conversations from one daemon actually wants.
+//
+// The PowerPoint helper gives each open deck its own conversation. Moving on each one wrote "the
+// companion left this conversation" into the deck that was working a second ago (2026-09-05).
+// Nothing else changes: submit and the transcript stream both name their session on the wire.
+func (d daemonEngine) NewSessionKeeping(ctx context.Context) (session.SessionID, error) {
+	return d.App.CreateSession(ctx, command.CreateSession{
+		Workdir: d.workdir,
+		Actor:   event.Actor{Kind: event.ActorUser, ID: "attach"},
+	})
+}
+
 // ScheduledHere satisfies daemon.CronTeller: the same standing-work answer the TUI panel reads
 // in-process, for the dock on the other side of the socket.
 func (d daemonEngine) ScheduledHere() []app.ScheduledJobInfo {

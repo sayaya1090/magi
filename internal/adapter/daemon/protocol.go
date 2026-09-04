@@ -152,6 +152,16 @@ type ToolServerHost interface {
 	DetachToolServer(owner, name string) (bool, error)
 }
 
+// ConversationOpener opens a conversation WITHOUT moving the companion onto it.
+//
+// Its own optional interface rather than a second argument on ConversationKeeper: that one is what
+// every fake in every package must satisfy, and a control surface which grows is not a reason to
+// touch four test doubles (the same reasoning `reload-cron` records).
+type ConversationOpener interface {
+	// NewSessionKeeping opens a conversation and leaves the companion where it is.
+	NewSessionKeeping(ctx context.Context) (session.SessionID, error)
+}
+
 // UserNamer is an engine that knows what to call the person it is talking to.
 //
 // A plugin can rename them — an SSO bridge puts the authenticated username there through
@@ -564,7 +574,15 @@ type Transcriber interface {
 type Request struct {
 	Method  string `json:"method"`
 	Session string `json:"session,omitempty"`
-	Text    string `json:"text,omitempty"`
+	// Keep asks session-new to open a conversation WITHOUT moving the companion onto it.
+	//
+	// Opening one has always meant "and go there" — the console's button means both. A client that
+	// serves several conversations from one daemon means only the first: the PowerPoint helper gives
+	// each open deck its own, and moving on each one writes "the companion left this conversation"
+	// into the deck that was working a second ago (measured 2026-09-05). Omitted keeps the old
+	// meaning, so every existing caller and every older client is unchanged.
+	Keep bool `json:"keep,omitempty"`
+	Text string `json:"text,omitempty"`
 	CallID  string `json:"callId,omitempty"`
 	// Decision is the permission verdict as the core spells it: allow | deny | always. Carried as
 	// the same string rather than translated into booleans here — a second vocabulary for one
