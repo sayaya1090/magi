@@ -76,7 +76,28 @@ async function boot() {
   // **헬퍼가 준 문서 키로 말한다.** `hello` 는 스트림이 서고 나서 오므로, 오는 즉시 넘긴다 —
   // 그때부터 이 창의 API 호출은 자기 덱의 대화로 간다. 그 전의 호출은 열쇠 없는 대화로 가고,
   // 그것도 답이다(창이 아직 어느 덱인지 모르는 때).
-  if (real) helperStream.on('hello', (d) => api.useDeck(d?.document ?? ''));
+  // **자기 덱을 알기 전에는 남의 대화 이름을 보게 된다.**
+  //
+  // `hello` 는 스트림이 선 뒤에 오는데, 그 전에 상태를 물으면 열쇠 없는 대화(아무 덱에도 안 매인
+  // 자리)의 이름이 온다 — 창을 둘 띄우면 **둘 다 같은 이름**을 그린다. 실물에서 그 화면을 봤다
+  // (2026-09-05: 사람이 "둘 다 똑같은게 떠 있는데"라고 물었다).
+  //
+  // 그래서 이름을 알게 되는 순간 **자기 덱으로 다시 물어** 그 대화 이름을 적는다.
+  if (real) {
+    helperStream.on('hello', (d) => {
+      api.useDeck(d?.document ?? '');
+      void (async () => {
+        try {
+          const mine = await api.companions();
+          const sid = mine?.bound?.session ?? '';
+          if (sid) {
+            listenTo(sid);
+            view.ready(bound, sid);
+          }
+        } catch { /* 못 물었으면 앞서 그린 것을 그대로 둔다 */ }
+      })();
+    });
+  }
   const status = real ? new HelperStatus(api) : new FakeStatus();
   const watchPrompt = new WatchPrompt(status);
   // **연결이 둘이다**(§5.7). 내는 것과 받는 것이 다른 연결이고, 서로의 생사 증거가 아니다.
