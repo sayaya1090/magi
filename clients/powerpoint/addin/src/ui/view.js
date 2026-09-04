@@ -657,8 +657,9 @@ export class View {
    * 붙은 컴패니언 이름을 쥔다. **그리는 것은 `renderReady` 가 매 로그 변화마다 다시 한다** —
    * 여기서 그려 두면 조건(대화가 비었는가)이 바뀌어도 문장이 남는다.
    */
-  ready(bound) {
+  ready(bound, session = '') {
     this.boundName = bound || null;
+    this.boundSession = session || '';
     this.renderReady(this.readTranscript ? this.readTranscript.view.rows.length : 0);
   }
 
@@ -794,11 +795,11 @@ export class View {
     if (stop) stop.hidden = !(running && this.canStop);
   }
 
-  /** 「바로 시키시면 됩니다」는 첫 줄이 서는 순간 증명된다 — 그때 사라진다. */
+  /** 처음 뜰 때 이 창이 어느 대화인지 적는다. 첫 줄이 서면 사라진다 — 그때부턴 대화가 증거다. */
   renderReady(rowCount) {
     const el = $('#ready');
     if (!el) return;
-    const text = readyText(this.boundName, rowCount);
+    const text = readyText(this.boundName, rowCount, this.boundSession);
     el.textContent = text;
     el.hidden = text === '';
   }

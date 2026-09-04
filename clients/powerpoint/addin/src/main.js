@@ -278,7 +278,7 @@ async function boot() {
           // 사람이 거기부터 보지는 않는다.
           // **이 말은 첫 줄이 서는 순간 증명된다.** 그래서 `where`(창이 사는 동안 참인 칸)가
           // 아니라 `ready` 로 간다 — 조건이 사라지면 문장도 같이 사라져야 한다.
-          view.ready(bound);
+          view.ready(bound, list?.bound?.session ?? '');
           await refreshBrand();
         }
       } catch (e) {
@@ -629,6 +629,9 @@ async function boot() {
           // 걸러져서, 눌렀는데 아무 말도 안 보이는 화면이 된다(§5.7).
           listenTo(out?.session);
           view.where(out?.note || '새 대화를 열었습니다 — 슬라이드는 그대로입니다.');
+          // **새 이름을 화면에 적는다.** 이 단추의 결과는 「대화가 바뀌었다」인데, 바뀐 이름을
+          // 안 보여 주면 사람은 무엇이 달라졌는지 못 본다 — 창을 둘 띄웠을 때 특히 그렇다.
+          view.ready(bound, out?.session ?? '');
           await refreshBrand();
         } catch (e) {
           // 못 열었으면 **쓰던 대화는 그대로다.** 그 사실까지 적는다 — 안 적으면 사람은
