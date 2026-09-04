@@ -3204,8 +3204,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     // 글이 없는 도형에 쓰면 그 왕복 전체가 던져서 **한 장이 통째로 안 바뀐다.**
     // ⚠ **모으는 그 줄이 감싸여 있는가**를 본다. 앞 판본은 아무 `catch` 나 세어서, 모으는 자리의
     // 보호를 벗기는 변이가 아래쪽 try 에 걸려 통과했다(2026-09-04).
+    // ⚠ 그리고 **한 줄짜리 모양으로 재지 않는다.** 앞 판본은 `try { fonts.push(…); } catch` 를
+    // 글자 그대로 물었고, 같은 try 에 한 줄이 더 붙자(불릿 모으기) 뜻은 그대로인데 시험이
+    // 깨졌다 — 모양을 물면 리팩터링마다 거짓 빨강이 난다. 무는 것은 **모으는 줄이 자기 try
+    // 안에 있는가**다.
+    const guarded = body.slice(body.indexOf('try {'), body.indexOf('} catch'));
     ok('글 없는 도형에서 안 죽는다',
-      /try \{ fonts\.push\(sh\.textFrame\.textRange\.font\); \} catch/.test(body));
+      guarded.includes('fonts.push(sh.textFrame.textRange.font)'), guarded.slice(0, 80));
     // **테마는 안 바뀐다.** 안 적으면 사람은 「덱 글꼴을 바꿨다」고 믿고 다음 장에서 딴 글꼴을 본다.
     ok('못 바꾸는 것을 답에 적는다', /테마는 안 바뀝니다/.test(body), body.slice(-100));
   }

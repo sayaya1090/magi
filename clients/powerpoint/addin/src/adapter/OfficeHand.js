@@ -1280,10 +1280,16 @@ export class OfficeHand extends HandPort {
       box.load('items/id');
       await context.sync();
       const fonts = [];
+      const bullets = [];
       for (const sh of box.items) {
         // **글이 없는 도형은 건너뛴다.** 도형마다 `textFrame` 이 있는 것은 아니고, 없는 것에
         // 쓰면 그 왕복 전체가 던진다 — 한 장이 통째로 안 바뀐다.
-        try { fonts.push(sh.textFrame.textRange.font); } catch { skipped += 1; }
+        try {
+          fonts.push(sh.textFrame.textRange.font);
+          if (want.bullet !== undefined) {
+            bullets.push(sh.textFrame.textRange.paragraphFormat.bulletFormat);
+          }
+        } catch { skipped += 1; }
       }
       for (const f of fonts) {
         try {
@@ -1294,6 +1300,9 @@ export class OfficeHand extends HandPort {
           if (want.color !== undefined) f.color = want.color;
           touched += 1;
         } catch { skipped += 1; }
+      }
+      for (const b of bullets) {
+        try { b.visible = want.bullet; } catch { skipped += 1; }
       }
       await context.sync();
     }
@@ -1516,7 +1525,13 @@ export class OfficeHand extends HandPort {
       // 로드 자체가 그 자리에서 던지는 판이 있다(글틀 없는 자리표시자). **한 도형 때문에
       // 나머지를 포기하지 않는다** — 못 묻는 것은 대상에서 빼고 그 수를 센다.
       try { font.load('name,size,bold,italic,color'); } catch { continue; }
-      targets.push({ role, want, font });
+      // **불릿은 글꼴 객체에 없다.** 문단 서식에 있고, `font.bullet = …` 로 쓰면 조용히
+      // 아무 일도 안 일어난다 — 그리고 답에는 「바꿨습니다」가 실린다.
+      let bullet = null;
+      if (want.bullet !== undefined) {
+        try { bullet = sh.textFrame.textRange.paragraphFormat.bulletFormat; } catch { bullet = null; }
+      }
+      targets.push({ role, want, font, bullet });
     }
     if (targets.length === 0) return { worn: [], read: true, targets: 0 };
     try {
@@ -1530,13 +1545,20 @@ export class OfficeHand extends HandPort {
     }
 
     const worn = [];
-    for (const { role, want, font } of targets) {
+    for (const { role, want, font, bullet } of targets) {
       const now = fontOf(font) ?? {};
       const diff = {};
       for (const [k, v] of Object.entries(want)) {
+        if (k === 'bullet') continue; // 글꼴 칸이 아니다 — 아래에서 따로 쓴다
         // **같은 값을 같은 글자로 견준다**(색의 대소문자). 안 그러면 같은 서식을 매번 다시 쓰고,
         // 「N개를 바꿨습니다」가 매 호출 되풀이된다.
         if (normal(k, now[k]) !== normal(k, v)) diff[k] = v;
+      }
+      if (want.bullet !== undefined && bullet) {
+        try {
+          bullet.visible = want.bullet;
+          worn.push(`${role}: 글머리 기호 ${want.bullet ? '보임' : '없앰'}`);
+        } catch { /* 이 자리는 문단 서식을 못 받는다 */ }
       }
       if (Object.keys(diff).length === 0) continue;
       for (const [k, v] of Object.entries(diff)) font[k] = v;
@@ -1696,6 +1718,17 @@ export class OfficeHand extends HandPort {
       if (!hit) { unfilled.push({ role: w.role, text: w.text }); continue; }
       taken.add(hit.id);
       hit.textFrame.textRange.text = withoutBulletMarks(asParagraphs(w.text));
+      // **불릿은 글을 쓰는 이 자리에서 정한다.**
+      //
+      // 레이아웃의 본문 자리표시자는 글머리 기호를 달고 나온다. 나중에 없애려면 도형마다 다시
+      // 불러야 하고, 실물에서는 그 왕복을 아무도 안 했다(2026-09-04: 여덟 장 IR 덱에서 `bullet`
+      // 인자 0회). 사람이 본 것은 「불릿이 왜 남아있냐」는 화면이다. 쓸 때 같이 정하면 그 왕복이
+      // 아예 안 생긴다.
+      if (args.bullet !== undefined) {
+        try {
+          hit.textFrame.textRange.paragraphFormat.bulletFormat.visible = Boolean(args.bullet);
+        } catch { /* 이 자리는 문단 서식을 못 받는다 — 글은 이미 들어갔다 */ }
+      }
       filled.push({ role: w.role, text: w.text, shape_id: hit.id });
     }
     await context.sync();
@@ -3622,6 +3655,11 @@ function pickFont(spec) {
   if (spec.bold !== undefined) out.bold = Boolean(spec.bold);
   if (spec.italic !== undefined) out.italic = Boolean(spec.italic);
   if (spec.color !== undefined) out.color = String(spec.color);
+  // **불릿도 여기서 받는다.** 없으면 여러 장을 한 번에 꾸미는 문에 그 손잡이가 없어서, 레이아웃이
+  // 달고 나온 기본 불릿이 그대로 남는다 — 도형마다 `format_shape` 를 부르지 않는 한. 실물에서
+  // 그 결과를 봤다(2026-09-04): 여덟 장짜리 IR 덱에서 `bullet` 인자가 **0회** 불렸고, 사람이
+  // 「불릿은 왜 남아있어?」라고 물었다.
+  if (spec.bullet !== undefined) out.bullet = Boolean(spec.bullet);
   return Object.keys(out).length ? out : null;
 }
 

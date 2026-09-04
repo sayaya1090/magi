@@ -236,7 +236,7 @@ func catalogue(hasCouncil bool) []tool {
 			Name: "add_slides",
 			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
 			Props: []property{
-				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each bullet on its own line in body."},
+				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body, bullet}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each line of body on its own line. bullet is false to write those lines WITHOUT the layout's bullet glyphs — set it here, when the text is written, or the layout's bullets stay and you have to go back shape by shape."},
 				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide."},
 			},
 			Required: []string{"slides"},
@@ -250,9 +250,9 @@ func catalogue(hasCouncil bool) []tool {
 			Name: "apply_style",
 			Desc: "Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. \"Make every title blue\". Placeholders are picked by role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
 			Props: []property{
-				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color}. Only the fields you give are touched."},
-				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields."},
-				{Name: "all", Type: "object", Desc: "Same fields, applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
+				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color, bullet}. Only the fields you give are touched. bullet:false removes the layout's bullet glyphs."},
+				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields, including bullet."},
+				{Name: "all", Type: "object", Desc: "Same fields (including bullet), applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
 				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
 				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
 			},

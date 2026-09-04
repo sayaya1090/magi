@@ -158,7 +158,15 @@ class StubTextRange extends Loaded {
     super(raw, pending);
     this.log = log;
     this.font = new StubFont(raw.font ?? {}, pending, log);
-    this.paragraphFormat = {};
+    // 문단 서식. **불릿은 글꼴 객체가 아니라 여기 있다** — 흉내에 이 자리가 없으면 손이 쓰기를
+    // 시도하다 조용히 catch 로 빠지고, 시험은 「썼다」와 「못 썼다」를 구별 못 한다.
+    this.paragraphFormat = {
+      bulletFormat: {
+        set visible(v) { log.push(`bullet:${raw.id}:${v}`); },
+        get visible() { return true; },
+      },
+      set indentLevel(v) { log.push(`indent:${raw.id}:${v}`); },
+    };
     // **이 문이 아예 없는 호스트가 있다.** 그 갈래는 「없다」를 답에 적는 길이라, 흉내에서도
     // 함수 자체가 없어야 잰다 — 던지게 두면 우리는 다른 가지를 재게 된다.
     if (raw.noSubstring) this.getSubstring = undefined;
@@ -3851,6 +3859,54 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 글을 쓰는 그 자리에서 불릿을 정한다 ─────────────────────────────────────
+//
+// 레이아웃의 본문 자리표시자는 글머리 기호를 달고 나온다. 나중에 없애려면 도형마다 다시 불러야
+// 하고, 실물에서는 그 왕복을 아무도 안 했다(2026-09-04: 여덟 장 IR 덱에서 `bullet` 인자 0회).
+{
+  const deck = model();
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  await hand.run('add_slides', {
+    slides: [{ layout: '제목 및 내용', title: '가', body: '한 줄\n두 줄', bullet: false }],
+  });
+  const wrote = log.filter((l) => l.startsWith('bullet:'));
+  ok('만들면서 불릿을 끈다', wrote.length > 0 && wrote.every((l) => l.endsWith(':false')),
+    wrote.join(' ') || '(안 씀)');
+
+  // **안 주면 안 건드린다.** 레이아웃이 정한 것을 우리가 말없이 뒤집으면, 불릿을 원한 사람이
+  // 왜 없어졌는지 알 길이 없다.
+  const log2 = [];
+  await new OfficeHand({ run: stubRunner(model(), log2), supports: () => true })
+    .run('add_slides', { slides: [{ layout: '제목 및 내용', title: '가', body: '한 줄' }] });
+  ok('안 주면 레이아웃 그대로', !log2.some((l) => l.startsWith('bullet:')),
+    log2.filter((l) => l.startsWith('bullet:')).join(' '));
+}
+
+// ── 불릿도 한 번에 끌 수 있어야 한다 ────────────────────────────────────────
+//
+// `format_shape` 에는 불릿 손잡이가 있었지만 `apply_style` 에는 없었다. 그래서 여러 장을 한 번에
+// 꾸미는 문에는 그 칸이 없고, 레이아웃이 달고 나온 기본 불릿이 그대로 남는다 — 도형마다 따로
+// 부르지 않는 한. 실물에서 그 결과를 봤다(2026-09-04): 여덟 장 IR 덱에서 `bullet` 인자가 0회
+// 불렸고, 사람이 「불릿은 왜 남아있어?」라고 물었다.
+{
+  const deck = model();
+  deck.slides[0].shapes[0].placeholderFormat = { type: 'body' };
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  // **터지면 FAIL 로 읽혀야 한다** — 그냥 두면 스위트가 죽고 어느 단언인지 안 남는다.
+  let out = null;
+  let boom = null;
+  try { out = await hand.run('apply_style', { all: { bullet: false } }); }
+  catch (e) { boom = e?.message ?? String(e); }
+  ok('전체 경로가 불릿만으로도 돈다', boom === null && out.result?.applied?.bullet === false,
+    boom ?? JSON.stringify(out?.result?.applied));
+  // **답이 아니라 쓴 것을 센다.** `||` 로 느슨하게 두면 아무것도 안 쓰고도 초록이 된다.
+  const wrote = log.filter((l) => l.startsWith('bullet:'));
+  ok('불릿을 실제로 끈다', wrote.length > 0 && wrote.every((l) => l.endsWith(':false')),
+    wrote.join(' ') || '(안 씀)');
+}
+
 // ── 서체 이름 하나는 이 덱을 설명하지 못한다 ─────────────────────────────────
 //
 // `font.name` 은 첫 run 의 서체다. 한국어 덱에서 그 한 칸은 장마다 다르게 나온다 — 한글만
