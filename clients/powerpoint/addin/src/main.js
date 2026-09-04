@@ -153,7 +153,12 @@ async function boot() {
     if (real) {
       try { hands = (await api.documents())?.documents?.length; } catch { hands = undefined; }
     }
-    view.brand({ companion: bound, streamLive: readTranscript?.view?.live !== false, hands });
+    view.brand({
+      companion: bound,
+      streamLive: readTranscript?.view?.live !== false,
+      hands,
+      session: watchPrompt?.view?.session ?? '',
+    });
   };
   // 부팅 직후 한 번. **비워 두면 「아직 안 골랐다」와 「골랐는데 화면이 안 그렸다」가 같은
   // 빈칸이 된다** — 가짜 갈래에서는 이 한 줄이 「가짜 덱」이라고 적는 자리다.
@@ -710,7 +715,8 @@ async function boot() {
       if (sid && sid !== saidSession) {
         saidSession = sid;
         listenTo(sid);
-        view.ready(bound, sid);
+        // 브랜드 줄이 그 이름을 든다 — 창이 그 대화에 붙어 있는 동안 계속.
+        void refreshBrand();
       }
       if (watchPrompt.view.stale) companionRestarted();
     };

@@ -155,9 +155,16 @@ export function capsSummary(c) {
  * 브랜드 줄에 같이 서는 상태 한 마디. **붙은 곳과 손을 한 줄에** 적는다 — 둘 다 「지금 이
  * 창이 무엇에 닿아 있나」이고, 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
  */
-export function brandState({ companion, streamLive, hands }) {
+export function brandState({ companion, streamLive, hands, session }) {
   if (!companion) return '컴패니언 미선택';
   const bits = [companion];
+  // **어느 대화인가.** 창을 둘 띄우면 이것이 두 창을 가르는 유일한 값이고, 오늘 그것이 없어서
+  // 한나절을 썼다(2026-09-05: 빈 작업창, 남의 덱에 간 호출, 아무도 못 듣는 권한 물음).
+  //
+  // 브랜드 줄에 두는 이유는 **수명이 여기 맞기 때문**이다. 처음 뜰 때만 적는 자리(`#ready`)에
+  // 두었더니 「첫 줄 전까지만」 규칙에 걸려, 이미 오간 대화에 붙은 창에서는 영영 안 보였다 —
+  // 사람이 세 번 「똑같다」고 한 자리다. 이 값은 창이 그 대화에 붙어 있는 동안 계속 참이다.
+  if (session) bits.push(`대화 ${session}`);
   bits.push(streamLive ? '대화 연결됨' : '대화 끊김');
   if (typeof hands === 'number') bits.push(hands === 1 ? '덱 1' : `덱 ${hands}`);
   return bits.join(' · ');
@@ -534,7 +541,12 @@ export function adapterText(deck) {
  * @param {string} [session] 이 창이 붙은 대화 이름.
  */
 export function readyText(bound, rowCount, session = '') {
-  if (!bound || rowCount > 0) return '';
+  // **컴패니언 이름은 이 문장에 안 쓰인다.** 그런데 조건에는 남아 있었고, 첫 폴이 그 이름보다
+  // 먼저 오면 그리는 쪽은 빈 문자열을 받았다 — 그리고 부르는 자리의 걸쇠는 이미 잠겨서 다시
+  // 안 그렸다. 사람이 세 번 「똑같다」고 한 자리다(2026-09-05).
+  //
+  // 적을 것은 **대화 이름**이다. 그것이 있으면 적고, 첫 줄이 서면 사라진다.
+  if (rowCount > 0) return '';
   return session ? `대화 ${session}` : '';
 }
 

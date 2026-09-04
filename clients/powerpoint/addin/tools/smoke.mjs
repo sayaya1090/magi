@@ -3541,7 +3541,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('모르는 어댑터도 적는다', adapterText({}) === 'unknown');
   ok('어댑터가 없어도 안 터진다', adapterText(null) === 'unknown');
 
-  ok('안 붙었으면 아무것도 안 적는다', readyText(null, 0, 's_1') === '');
+  // **컴패니언 이름은 이 문장에 안 쓰이므로 조건도 아니다.** 남겨 뒀더니 첫 폴이 그 이름보다
+  // 먼저 오는 창에서 영영 안 그려졌다(2026-09-05).
+  ok('컴패니언 이름을 몰라도 대화 이름은 적는다', readyText(null, 0, 's_1').includes('s_1'));
+  // **브랜드 줄이 그 이름을 든다.** 처음 뜰 때만 적는 자리에 두었더니 「첫 줄 전까지만」 규칙에
+  // 걸려, 이미 오간 대화에 붙은 창에서는 영영 안 보였다(2026-09-05: "똑같은데?" 세 번).
+  ok('브랜드 줄이 대화 이름을 든다',
+    brandState({ companion: 'ppt', streamLive: true, hands: 2, session: 's_abc' }).includes('대화 s_abc'));
+  ok('이름을 모르면 그 칸은 없다',
+    !brandState({ companion: 'ppt', streamLive: true, hands: 2 }).includes('대화 s_'));
+  ok('안 붙었으면 여전히 미선택', brandState({ session: 's_abc' }) === '컴패니언 미선택');
   // **처음 뜰 때 이 창이 어느 대화인지 적는다.** 창을 둘 띄우면 어느 창이 어느 대화인지가 화면
   // 어디에도 없었고, 오늘 그것 때문에 한나절을 썼다(2026-09-05: 빈 작업창, 남의 덱에 간 호출,
   // 아무도 못 듣는 권한 물음). 앞 판본은 「바로 시키시면 됩니다」였는데 그건 아무것도 더 안
