@@ -81,7 +81,7 @@ export class OfficeHand extends HandPort {
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
       ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells'] : []),
-      'set_deck_font', 'probe_theme',
+      'set_deck_font',
       ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];
   }
 
@@ -291,7 +291,6 @@ export class OfficeHand extends HandPort {
       case 'set_table_cells': return this.#setCells(args);
       case 'format_table_cells': return this.#formatCells(args);
       case 'set_deck_font': return this.#deckFont(args);
-      case 'probe_theme': return this.#probeTheme(args);
       case 'render_shape': return this.#renderShape(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
@@ -1184,68 +1183,6 @@ export class OfficeHand extends HandPort {
           + (skipped ? ` (글이 없는 도형 ${skipped}개는 건너뜀)` : ''),
           '⚠ **테마 글꼴은 안 바뀝니다** — Office.js 에 그 문이 없습니다. '
           + '앞으로 만드는 장, 차트 안 글자, 표 스타일은 여전히 테마 글꼴로 섭니다']);
-    });
-  }
-
-  /**
-   * **테마의 여러 부분을 한 번에 갈아 끼워 본다** — 재는 도구다.
-   *
-   * 앞 실험은 글꼴 하나만, 그것도 **라틴 전용 글꼴(Georgia)** 로 쟀다. 새 장의 글이 한글이면
-   * 한글은 `<a:ea>`·`script="Hang"` 으로 풀리므로, 테마가 걸렸든 아니든 화면은 한글 글꼴을
-   * 보인다 — **혼동을 못 걸렀다.** 사용자가 짚었다(2026-09-04).
-   *
-   * 그리고 「되는가/안 되는가」는 너무 거친 물음이다. PowerPoint 는 색은 되매핑하고 다른 것은
-   * 실을 수도 있다 — **부분마다 따로 재야 한다.**
-   *
-   * 그래서 이 도구는 셋을 한꺼번에 바꾸고, 무엇을 바꿨는지 센다. 무엇이 살아남았는지는
-   * **새 장을 만들어 읽어야** 안다 — 이 답은 그것을 안 지어낸다.
-   */
-  #probeTheme(args) {
-    return this.runner(async (context) => {
-      const got = await this.#unpack(context, args);
-      const dec = new TextDecoder();
-      const enc = new TextEncoder();
-      const font = String(args.font ?? '바탕');
-      const accent = String(args.accent ?? '#FF0000').replace('#', '');
-      const counts = { latin: 0, ea: 0, hang: 0, accent1: 0, bullet: 0, files: 0 };
-      for (const f of got.files) {
-        if (!/^ppt\/(theme\/theme\d+|slideMasters\/slideMaster\d+)\.xml$/.test(f.name)) continue;
-        let x = dec.decode(f.data);
-        const was = x;
-        // 글꼴 — **셋 다** 바꾼다. 라틴만 바꾸면 한글은 옛 글꼴로 남아 실험이 못 가린다.
-        x = x.replace(/<a:latin typeface="[^"]*"/g, (m) => { counts.latin += 1; return `<a:latin typeface="${font}"`; });
-        x = x.replace(/<a:ea typeface="[^"]*"/g, (m) => { counts.ea += 1; return `<a:ea typeface="${font}"`; });
-        x = x.replace(/<a:font script="Hang" typeface="[^"]*"/g, (m) => { counts.hang += 1; return `<a:font script="Hang" typeface="${font}"`; });
-        // 색 — accent1 만. 되매핑되는지 보는 대조군이다.
-        x = x.replace(/(<a:accent1>\s*<a:srgbClr val=")[0-9A-Fa-f]{6}(")/g,
-          (m, a1, a2) => { counts.accent1 += 1; return a1 + accent + a2; });
-        // 불릿 — 마스터의 목록 스타일에 있는 글머리 글자.
-        x = x.replace(/<a:buChar char="[^"]*"/g, (m) => { counts.bullet += 1; return '<a:buChar char="\u25B8"'; });
-        if (x !== was) { counts.files += 1; f.data = enc.encode(x); }
-      }
-      if (counts.files === 0) throw new Error('테마·마스터 파일에서 바꿀 것을 못 찾았습니다');
-
-      const slides = context.presentation.slides;
-      slides.load('items/id,items/index');
-      await context.sync();
-      const before = slides.items.map((sl) => sl.id);
-      const wasAt = got.slide.index ?? 0;
-      context.presentation.insertSlidesFromBase64(toBase64(zipStore(got.files)),
-        { targetSlideId: got.slide.id });
-      await context.sync();
-      slides.load('items/id,items/index');
-      await context.sync();
-      const fresh = slides.items.find((sl) => !before.includes(sl.id));
-      if (!fresh) { this.#mutated(); throw new Error('되넣은 장을 못 찾았습니다 — 옛 장은 그대로 둡니다'); }
-      got.slide.delete();
-      await context.sync();
-      this.#mutated();
-      return this.#envelope(
-        { slide: wasAt + 1, slide_id: fresh.id, was: got.slide.id, font, accent: '#' + accent, patched: counts },
-        [`테마·마스터 ${counts.files}개를 고쳐 되넣었습니다 — 글꼴 ${counts.latin}/${counts.ea}/${counts.hang}(라틴/EA/한글) · `
-          + `accent1 ${counts.accent1} · 불릿 ${counts.bullet}. **id 가 ${got.slide.id} → ${fresh.id}**`,
-          '⚠ 무엇이 살아남았는지는 이 답이 모릅니다 — **새 장을 만들어** read_slide·read_theme_colors 로 '
-          + '글꼴·색·불릿을 각각 확인하세요. 부분마다 다를 수 있습니다']);
     });
   }
 

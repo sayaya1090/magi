@@ -381,20 +381,6 @@ func catalogue(hasCouncil bool) []tool {
 			Required: []string{"text"},
 		},
 		{
-			// 재는 도구다. 「테마를 OOXML 로 갈아 끼울 수 있나」에 **부분마다** 답하려고 붙였다 —
-			// 앞 실험은 라틴 전용 글꼴 하나로 재서 한글 대체 폰트와 구별을 못 했다.
-			Name: "probe_theme",
-			Desc: "MEASUREMENT TOOL. Rewrites several parts of the deck's theme and master at once — font " +
-				"(latin, east-asian and the Hangul script entry), accent1, and the bullet character — then puts " +
-				"the slide back so PowerPoint can accept or remap them. It does NOT tell you what survived: make " +
-				"a new slide afterwards and read its font, theme colours and bullets separately, because the " +
-				"parts may not behave the same. The slide is rebuilt, so its id changes." + declare,
-			Props: withSlide(
-				property{Name: "font", Type: "string", Desc: "Font to write into the scheme. Use one with Hangul coverage (e.g. 바탕) or the test cannot tell a theme change from a script fallback."},
-				property{Name: "accent", Type: "string", Desc: "accent1 as #RRGGBB. Default #FF0000 — obvious on sight."},
-			),
-		},
-		{
 			Name: "render_shape",
 			Desc: "A picture of ONE shape. render_slide is the most expensive tool here and most checks are " +
 				"about a single chart or table — drawing the whole slide for that costs five times as much and " +
