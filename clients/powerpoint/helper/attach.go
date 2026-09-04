@@ -165,6 +165,15 @@ func heldKey(socket, owner string) string {
 
 type attachment struct {
 	tools []string
+	// url 은 **그 등록이 데몬에게 알려 준 주소**다. 거기에 덱이 실려 있고(`MCPURL`), 그 값이
+	// `document` 를 생략한 호출의 목적지를 정한다. 그래서 **주소가 바뀌면 다른 등록**이다 —
+	// 같은 소켓·같은 주인이라도 덱이 달라졌으면 다시 붙여야 한다.
+	//
+	// 안 넣었더니 이렇게 됐다(2026-09-05 실물): 창을 새로 열어 새 덱에 붙였는데 `HasLive` 가
+	// 「이미 붙어 있다」로 답해 재부착을 건너뛰었고, 등록은 **앞 PowerPoint 세션의 덱 이름**을
+	// 그대로 들고 있었다. 그 대화의 호출은 사라진 덱으로 갔고, 모델은 사람에게 「어느 덱에
+	// 만들까요」를 물었다.
+	url string
 	// life 는 그 데몬 **프로세스**의 신원(pid@시작시각). 다르면 남의 생애이고, 우리 등록은
 	// 거기 없다 — 「이미 붙어 있다」가 아니라 「다시 붙여야 한다」다.
 	life string
@@ -193,6 +202,17 @@ func (a *Attachments) HasLive(socket, life string) bool {
 	// life 를 못 읽었으면(기록이 없는 소켓) 옛 답을 그대로 준다 — 모르는 것을 「떨어졌다」로
 	// 적으면 멀쩡한 등록을 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
 	return ok && (life == "" || h.life == life)
+}
+
+// SameURL 은 그 등록이 지금 붙이려는 주소로 붙어 있는가. 다르면 다시 붙여야 한다 — 주소가
+// 덱을 나르므로, 다른 주소는 다른 목적지다.
+func (a *Attachments) SameURL(key, url string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	h, ok := a.held[key]
+	// 옛 등록은 주소를 안 들고 있다(이 칸이 생기기 전). 모르는 것을 「다르다」로 읽으면 멀쩡한
+	// 등록을 매번 다시 붙이고, 그 재부착이 첫 등록을 떨어뜨린다.
+	return ok && (h.url == "" || h.url == url)
 }
 
 // anyOn 은 그 소켓에 붙어 있는 등록 하나. 주인이 누구든 상관없다. 호출자가 잠금을 든다.
@@ -244,7 +264,7 @@ func (a *Attachments) Attach(socket, url, token, owner string) ([]string, error)
 		in.Socket = socket
 		life = lifeOf(in)
 	}
-	if a.HasLive(heldKey(socket, owner), life) {
+	if a.HasLive(heldKey(socket, owner), life) && a.SameURL(heldKey(socket, owner), url) {
 		// 이미 우리가 붙여 뒀다. **다시 안 붙인다** — 같은 이름으로 다시 붙이면 첫 등록이
 		// 떨어지고, 그 창 동안 그 컴패니언의 호출은 도구가 없어서 실패한다.
 		return a.Tools(heldKey(socket, owner)), nil
@@ -278,7 +298,7 @@ func (a *Attachments) Attach(socket, url, token, owner string) ([]string, error)
 		return nil, fmt.Errorf("도구를 못 붙였습니다: %w", err)
 	}
 	a.mu.Lock()
-	a.held[heldKey(socket, owner)] = attachment{tools: append([]string(nil), tools...), life: life}
+	a.held[heldKey(socket, owner)] = attachment{tools: append([]string(nil), tools...), life: life, url: url}
 	a.mu.Unlock()
 	return tools, nil
 }

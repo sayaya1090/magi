@@ -27,3 +27,27 @@ func TestOurRegistrationIsFoundWhateverTheOwner(t *testing.T) {
 		t.Error("주인 없는 등록이 안 보인다 — 이 변경 전의 모든 등록이 그 모양이다")
 	}
 }
+
+// **주소가 바뀌면 다른 등록이다.**
+//
+// 주소는 덱을 나르고(`MCPURL`), 그 값이 `document` 를 생략한 호출의 목적지를 정한다. 앞 판본은
+// (소켓, 주인)만 보고 「이미 붙어 있다」로 재부착을 건너뛰었고, 등록은 **앞 PowerPoint 세션의 덱
+// 이름**을 그대로 들고 있었다 — 그 대화의 호출은 사라진 덱으로 갔고, 모델은 사람에게 「어느 덱에
+// 만들까요」를 물었다(2026-09-05 실물).
+func TestADifferentAddressIsADifferentRegistration(t *testing.T) {
+	a := NewAttachments()
+	key := heldKey("/sock", "sess-a")
+	a.held[key] = attachment{tools: []string{"x"}, url: "https://h/mcp?deck=old"}
+
+	if !a.SameURL(key, "https://h/mcp?deck=old") {
+		t.Error("같은 주소를 다르다고 한다 — 매번 다시 붙이면 첫 등록이 떨어진다")
+	}
+	if a.SameURL(key, "https://h/mcp?deck=new") {
+		t.Error("덱이 바뀌었는데 같은 등록으로 친다 — 호출이 옛 덱으로 간다")
+	}
+	// 주소를 안 들고 있던 옛 등록은 그대로 산다 — 모르는 것을 「다르다」로 읽지 않는다.
+	a.held[key] = attachment{tools: []string{"x"}}
+	if !a.SameURL(key, "https://h/mcp?deck=new") {
+		t.Error("주소를 모르는 옛 등록을 매번 다시 붙인다")
+	}
+}
