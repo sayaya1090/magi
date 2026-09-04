@@ -705,10 +705,23 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const shape = slide.shapes.getItem(args.shape_id);
-      const font = shape.textFrame.textRange.font;
-      font.load('name,size,bold,italic,color');
-      await context.sync();
-      const before = { name: font.name, size: font.size, bold: font.bold, italic: font.italic, color: font.color };
+      // **글이 없는 도형도 여기 온다.** 표·그림·그룹에는 `textFrame` 이 없고, 그것을 무조건
+      // 읽으면 그 왕복 전체가 `InvalidArgument` 로 터진다 — 그러면 **대체 텍스트조차 못 단다.**
+      // 실물에서 그 실패를 봤다(2026-09-04): 모델이 표에 alt_text 를 달려다 통째로 거절당했고,
+      // 대체 텍스트가 가장 필요한 자리가 바로 표와 그림이다.
+      //
+      // 그래서 **글 관련 값을 실제로 달라고 했을 때만** 글을 읽는다. 안 읽으면 `before` 가 비고,
+      // 그때는 「무엇에서 무엇으로」를 못 적는다 — 그 사실도 적는다.
+      const wantsText = ['font', 'size', 'bold', 'italic', 'color', 'align', 'bullet',
+        'bullet_type', 'bullet_style', 'indent'].some((k) => args[k] !== undefined);
+      let font = null;
+      let before = {};
+      if (wantsText) {
+        font = shape.textFrame.textRange.font;
+        font.load('name,size,bold,italic,color');
+        await context.sync();
+        before = { name: font.name, size: font.size, bold: font.bold, italic: font.italic, color: font.color };
+      }
 
       const changed = [];
       if (args.font !== undefined) { font.name = args.font; changed.push(`글꼴 ${before.name} → ${args.font}`); }
@@ -728,7 +741,7 @@ export class OfficeHand extends HandPort {
       // **글머리 기호.** `visible` 은 **1.4** 라 이 애드인의 바닥(1.8)보다 아래다 — 어디서나 된다.
       // 오래 「못 하는 것」으로 알고 있었는데, 그건 우리가 안 찾아본 것이지 없는 문이 아니었다
       // (2026-09-04, 사용자가 `bulletFormat` 을 짚어 줬다).
-      const bullets = shape.textFrame.textRange.paragraphFormat.bulletFormat;
+      const bullets = wantsText ? shape.textFrame.textRange.paragraphFormat.bulletFormat : null;
       if (args.bullet !== undefined) {
         bullets.visible = Boolean(args.bullet);
         changed.push(`글머리 기호 → ${args.bullet ? '켬' : '끔'}`);

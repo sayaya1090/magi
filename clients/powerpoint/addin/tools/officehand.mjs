@@ -106,6 +106,16 @@ class StubShape extends Loaded {
     super(raw, pending);
     this.log = log;
     this.textFrame = { textRange: new StubTextRange(raw, pending, log) };
+    // **글이 없는 도형은 글칸을 읽는 순간 묶음을 죽인다.** 표·그림·그룹이 그렇고, 실물에서
+    // 그 실패를 봤다(2026-09-04: 모델이 표에 `alt_text` 를 달려다 `InvalidArgument`).
+    // 스텁이 모든 도형에 글칸을 주면 이 시험은 **우리가 안 겪을 세상**만 재고, 접근성 인자가
+    // 정작 필요한 자리에서 못 도는 것을 영영 못 본다.
+    if (raw.noText) {
+      this.textFrame.textRange.font.load = () => {
+        pending.push(['__throw__', 'InvalidArgument']);
+        return this.textFrame.textRange.font;
+      };
+    }
     this.fill = { setSolidColor: (c) => log.push(`fill:${c}`), clear: () => log.push('fill:clear') };
     // **자리표시자가 아닌 도형에 이 칸을 걸면 호스트가 묶음 전체를 죽인다.** 실물에서 잰 것이라
     // (2026-09-02: 표가 있는 장에서 `read_slide` 가 GeneralException) 스텁도 그렇게 군다 —
@@ -523,6 +533,37 @@ const model = () => ({
   ok('쓰기가 개정 쌍을 올린다', out.count === 1, String(out.count));
 }
 
+// 표에 대체 텍스트를 다는 길 — **글칸을 안 건드리고** 간다.
+//
+// 이 손은 `format_shape` 첫머리에서 글꼴을 무조건 읽었다. 그러면 표·그림처럼 글칸이 없는
+// 도형은 그 왕복에서 통째로 죽고, **대체 텍스트가 제일 필요한 자리에서 도구가 안 돈다.**
+// 실물에서 잰 실패다(2026-09-04, `s_b070a910` 세션: `alt_text`+`alt_title` → InvalidArgument).
+{
+  const log = [];
+  const deck = model();
+  deck.slides[1].shapes.push({
+    id: 'tb1', name: '표 1', type: 'Table', noText: true,
+    left: 10, top: 20, width: 600, height: 200, altTextDescription: null,
+  });
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  // **터지는 것을 그냥 두면 스위트가 통째로 죽는다** — 그러면 exit 1 은 맞는데 어느 단언이
+  // 무너졌는지가 화면에 안 남는다. 사유를 줄에 실어서 읽을 수 있게 잡는다.
+  let out = null;
+  let boom = null;
+  try {
+    out = await hand.run('format_shape', {
+      slide: 2, shape_id: 'tb1', alt_text: '구간별 병목 4행 3열', alt_title: '병목 표',
+    });
+  } catch (e) { boom = e?.message ?? String(e); }
+  ok('글칸 없는 도형에도 대체 텍스트가 달린다',
+    boom === null && out.changed.join(' ').includes('구간별 병목'),
+    boom ?? out.changed.join(' '));
+  // 그리고 **안 읽었으면 안 읽었다**: 글꼴을 물었으면 위 왕복이 죽었을 것이므로, 성공 자체가
+  // 증거다. 뒤집어서도 문다 — 글 관련 인자를 주면 그때는 글칸을 읽어야 하고, 표에서는 죽는다.
+  const why = await threw(() => hand.run('format_shape', { slide: 2, shape_id: 'tb1', size: 20 }));
+  ok('글을 달라고 하면 그때는 글칸을 읽는다', why?.includes('InvalidArgument'), String(why));
+}
+
 {
   const hand = new OfficeHand({ run: stubRunner(model()), supports: () => true });
   // **아무것도 안 바꿨으면 바꿨다고 말하지 않는다.**
@@ -564,9 +605,13 @@ const model = () => ({
 
 {
   // **바닥과 천장 사이의 것은 먼저 묻는다** — LTSC 2024 에는 선택이 있고 하이퍼링크가 없다.
-  const hand = new OfficeHand({ run: stubRunner(model()), supports: (n, v) => v !== '1.6' });
+  //
+  // ⚠ 이 시험은 오래 **1.6** 을 물었다. 1.6 이 준 것은 읽기 전용 `Slide.hyperlinks` 였고,
+  // 우리가 부르는 `Shape.setHyperlink` 는 **1.10** 이다(2026-09-04 정정). 틀린 문지방은
+  // 1.6~1.9 호스트에서 도구를 광고해 놓고 런타임에 터지는 것으로 나타난다.
+  const hand = new OfficeHand({ run: stubRunner(model()), supports: (n, v) => v !== '1.10' });
   const why = await threw(() => hand.run('set_hyperlink', { slide: 1, shape_id: 'sh1', url: 'https://x' }));
-  ok('1.6 이 없으면 링크를 조용히 성공시키지 않는다', why?.includes('1.6'), why);
+  ok('1.10 이 없으면 링크를 조용히 성공시키지 않는다', why?.includes('1.10'), why);
 
   const log = [];
   const okHand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
@@ -821,10 +866,18 @@ async function makeZip(files) {
   const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
   const body = go.slice(go.indexOf('return []tool{'));
   const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]);
-  const known = new OfficeHand({}).ops();
+  // **다 지원하는 손으로 잰다.** `ops()` 는 호스트 요구집합에 따라 줄어들고(1.9/1.10 게이트),
+  // 지원 없는 손으로 재면 게이트 뒤의 도구가 전부 「손이 모른다」로 읽힌다 — 오늘 그 위양성을
+  // 다섯 건 봤다(2026-09-04). 광고와 손이 어긋났는지를 묻는 자리이므로 **천장에서** 견준다.
+  const known = new OfficeHand({ supports: () => true }).ops();
   // **두 손을 다 본다.** 여태 진짜 손만 봤고, 그래서 가짜 손의 `ops()` 가 세 개를 빠뜨린 채
   // 초록이었다(리뷰가 짚었다, 2026-09-02) — 가드가 절반만 보면 나머지 절반은 안 지켜진다.
   const fakeOps = new FakeHand({ slides: [] }).ops();
+  // 그리고 **바닥에서는 줄어야 한다.** 위를 천장으로 재게 했으니, 게이트가 통째로 사라져도
+  // 이 블록은 초록이다. 게이트가 실제로 무는지는 여기서 따로 문다.
+  const floor = new OfficeHand({ supports: () => false }).ops();
+  ok('요구집합이 없으면 광고가 줄어든다', floor.length < known.length,
+    `${floor.length} / ${known.length}`);
 
   ok('도구 표에서 이름을 뽑았다', advertised.length >= 20, `${advertised.length}개`);
   const missing = advertised.filter((n) => !known.includes(n));

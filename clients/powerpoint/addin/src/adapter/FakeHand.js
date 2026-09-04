@@ -44,6 +44,8 @@ export class FakeHand extends HandPort {
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
       'animate_slide', 'read_animation',
+      'set_background', 'set_theme_colors', 'read_theme_colors', 'format_table_cells',
+      'render_shape',
       'suggest', 'read_suggestions', 'drop_suggestion'];
   }
 
@@ -51,6 +53,12 @@ export class FakeHand extends HandPort {
    * 가짜 덱이 가진 레이아웃. **테마가 없으므로 지어낸 것이고, 그렇게 적는다** — 진짜 덱의
    * 레이아웃 이름은 그 덱의 테마가 정한다(`OfficeHand.#listLayouts`).
    */
+  /** 가짜 덱의 테마 색. **지어낸 값이고, 읽을 때 그렇게 적는다.** */
+  static THEME = {
+    accent1: '#1F4E79', accent2: '#6B7785', accent3: '#156082',
+    text1: '#14202E', background1: '#FFFFFF',
+  };
+
   static LAYOUTS = [
     { layout: '제목 및 내용', layout_id: 'fake-l1', placeholders: ['title', 'body'] },
     { layout: '제목만', layout_id: 'fake-l2', placeholders: ['title'] },
@@ -594,6 +602,64 @@ export class FakeHand extends HandPort {
         });
       }
 
+      // ── 이 화면에도 있어야 하는 다섯 ────────────────────────────────────────
+      //
+      // 게이트 뒤의 도구라 실물에서는 1.9/1.10 호스트에서만 광고되지만, **가짜 덱에는 게이트가
+      // 없다** — 여기는 호스트가 아니라 우리가 세운 세계다. 이름만 얹고 몸을 안 두면 이 화면에서
+      // 부른 사람은 「이 손은 X 을 모릅니다」를 보고, 그건 도구가 없는 것과 구별이 안 된다.
+      case 'set_background': {
+        const slide = this.#slide(args);
+        const was = slide.background ?? null;
+        if (args.reset === true) {
+          delete slide.background;
+          return this.#envelope({ ok: true }, [`${(this.model.slides.indexOf(slide) + 1)}장 배경을 테마 값으로 되돌렸습니다`]);
+        }
+        const color = args.color ?? args.foreground_color;
+        if (!color) throw new Error('어떤 색으로 칠할지 color 를 주세요 — 되돌리려면 reset: true');
+        slide.background = { color, transparency: args.transparency ?? 0 };
+        return this.#envelope({ ok: true },
+          [`${(this.model.slides.indexOf(slide) + 1)}장 배경 ${was?.color ?? '테마 값'} → ${color}`]);
+      }
+      case 'read_theme_colors': {
+        // **가짜 덱에는 테마가 없다. 지어낸 값이라고 적는다** — 레이아웃 이름과 같은 규칙이다.
+        return this.#envelope({
+          scope: args.scope ?? 'presentation',
+          colors: { ...FakeHand.THEME },
+          note: '이 값은 가짜 덱이 지어낸 것입니다 — 실물 덱의 테마 색이 아닙니다',
+        });
+      }
+      case 'set_theme_colors': {
+        const asked = Object.entries(args).filter(([k]) => k in FakeHand.THEME);
+        if (asked.length === 0) {
+          throw new Error('어떤 색을 바꿀지 주세요 — ' + Object.keys(FakeHand.THEME).join(', '));
+        }
+        const changed = asked.map(([k, v]) => `${k} ${FakeHand.THEME[k]} → ${v}`);
+        for (const [k, v] of asked) FakeHand.THEME[k] = String(v);
+        return this.#envelope({ ok: true }, changed);
+      }
+      case 'format_table_cells': {
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        if (!shape.table) throw new Error(`표가 아닙니다: ${args.shape_id}`);
+        const one = ['cells', 'row', 'column'].filter((k) => args[k] !== undefined);
+        if (one.length !== 1) throw new Error('cells · row · column 중 정확히 하나를 주세요');
+        const rows = shape.table.length;
+        const cols = shape.table[0]?.length ?? 0;
+        const at = [];
+        if (args.cells) for (const c of args.cells) at.push([c.row, c.column]);
+        if (args.row !== undefined) for (let c = 0; c < cols; c += 1) at.push([args.row, c]);
+        if (args.column !== undefined) for (let r = 0; r < rows; r += 1) at.push([r, args.column]);
+        const gone = at.filter(([r, c]) => shape.table[r]?.[c] === undefined);
+        if (gone.length) throw new Error(`없는 칸입니다: ${gone.map((p) => p.join(',')).join(' · ')}`);
+        return this.#envelope({ ok: true, cells: at.length },
+          [`${(this.model.slides.indexOf(slide) + 1)}장 ${args.shape_id} 의 칸 ${at.length}개 서식을 바꿨습니다`]);
+      }
+      case 'render_shape': {
+        const slide = this.#slide(args);
+        this.#shape(slide, args.shape_id);
+        // 그림은 못 만든다. **못 만든다고 답하는 것이 빈 그림을 주는 것보다 낫다.**
+        throw new Error('가짜 덱은 도형을 그림으로 못 냅니다 — 실물 PowerPoint 에 붙여 주세요');
+      }
       case 'read_animation': {
         const slide = this.#slide(args);
         const steps = slide.animation ?? [];
