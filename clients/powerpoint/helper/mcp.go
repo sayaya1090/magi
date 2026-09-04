@@ -290,13 +290,10 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	// 같은 그림이 이미지 블록으로 한 번 더 갔다. §6.10 이 「제일 비싼 도구」라고 적어 둔 것이
 	// 값을 **두 번** 물고 있었고, 못 보는 모델에게는 그 55KB 가 순수한 낭비다.
 	var image map[string]any
-	if img, ok := res.Result["image_base64"].(string); ok && img != "" {
-		mime, _ := res.Result["image_mime"].(string)
-		if mime == "" {
-			mime = "image/png"
-		}
-		image = map[string]any{"type": "image", "data": img, "mimeType": mime}
+	if block, note, ok := imageBlock(res.Result); ok {
+		image = block
 		delete(body, "image_base64")
+		body["picture"] = note
 	}
 
 	text, err := json.MarshalIndent(body, "", "  ")
@@ -350,6 +347,30 @@ func loopbackOnly(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// pictureNote 는 **그림을 주면서 볼 방법을 안 주면 모델이 셸로 간다**는 실측에서 나왔다.
+//
+// 2026-09-04: `render_shape` 로 도형을 뽑은 뒤 모델이 그 그림을 확인하려고 캐시 파일을 `read`
+// 했고 — magi 는 그림을 워크스페이스 **밖**에 쓴다 — 「outside workdir」로 거부당하자 인자
+// 이름을 바꿔 한 번 더 시도하고, 그다음 **PIL 이 있는지 보려고 bash 를 불렀다.** 승인기가
+// 거기서 판을 세웠고 사람이 본 것은 멈춘 판이다. 그림은 이미 답에 붙어 있으니, 파일로 열
+// 생각을 말라고 여기서 말한다 — 못 보는 모델에게는 무엇으로 대신하라는 말까지 같이.
+const pictureNote = "이 답에 이미지로 붙여 보냈습니다. 파일로 열려고 하지 마세요 — " +
+	"그림은 워크스페이스 밖 캐시에 있어 read 가 거부하고, 셸로 열 일도 아닙니다. " +
+	"그림이 안 보이면 read_slide 의 수치(자리·크기·서체·색)로 판단하세요."
+
+// imageBlock 은 결과에 그림이 있으면 MCP 이미지 블록과 그 안내를 준다.
+func imageBlock(result map[string]any) (map[string]any, string, bool) {
+	img, ok := result["image_base64"].(string)
+	if !ok || img == "" {
+		return nil, "", false
+	}
+	mime, _ := result["image_mime"].(string)
+	if mime == "" {
+		mime = "image/png"
+	}
+	return map[string]any{"type": "image", "data": img, "mimeType": mime}, pictureNote, true
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
