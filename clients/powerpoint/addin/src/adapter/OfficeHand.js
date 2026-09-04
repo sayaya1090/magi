@@ -1998,27 +1998,26 @@ export class OfficeHand extends HandPort {
    * 물어본 것이 아니었다 — 우리 탐침이 1.8 에서 멈춰 있었고, 다시 재 보니 1.10 이 있었다
    * (2026-09-04). 그래서 이 도구는 **있으면 광고되고 없으면 목록에 아예 안 실린다**(`ops`).
    *
-   * ⚠ **되돌리는 문이 없다.** 앞 판본은 색을 안 주면 테마로 되돌린다고 적고 `fill.clear()` 를
-   * 불렀는데, 그런 메서드가 없다 — 실물에서 `clear is not a function` 을 받고서야 알았다
-   * (2026-09-04). `SlideBackgroundFill` 이 가진 것은 `setSolidFill`·`setGradientFill`·
-   * `setPatternFill`·`setPictureOrTextureFill` 넷과 읽기뿐이고, 레퍼런스를 다시 읽어 확인했다.
+   * **색을 안 주면 되돌린다** — `slide.background.reset()`.
    *
-   * **내가 확인 안 하고 유추한 이름이었다.** 도형의 `fill.clear()` 가 있으니 배경에도 있으리라
-   * 여겼다 — 이 저장소가 반복해서 적어 둔, 값을 치른 그 실수다.
+   * ⚠ 이 자리를 오늘 두 번 틀렸다. 처음엔 `fill.clear()` 를 불렀는데 그런 메서드가 없어서
+   * 실물에서 `clear is not a function` 을 받았다. 그래서 레퍼런스를 읽고 「되돌리는 문이 없다」고
+   * 적어 내보냈는데, **그것도 틀렸다** — `reset()` 은 `fill` 이 아니라 그 부모인 `background` 에
+   * 있다(1.10). 한 층만 보고 「없다」고 단정한 것이다.
    *
-   * 그래서 이 도구는 **한 방향이다.** 되돌리려면 `snapshot_slide` 로 먼저 떠 두고
-   * `restore_slide` 로 돌아간다. 그 사실을 도구 설명이 적는다 — 못 되돌리는 것을 되돌릴 수
-   * 있다고 적으면 사람은 안심하고 누르고, 그 다음에 못 돌아간다.
+   * 없는 것을 있다고 적은 첫 번째보다, **있는 것을 없다고 적은 두 번째가 더 오래 갔을 것이다** —
+   * 첫 번째는 호출이 터져서 바로 드러나지만, 두 번째는 아무도 안 불러 보므로 조용하다.
    */
   #setBackground(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const color = args.color === undefined || args.color === null ? '' : String(args.color).trim();
       if (color === '' || color.toLowerCase() === 'none' || color.toLowerCase() === 'theme') {
-        // **없는 문을 흉내 내지 않는다.** 사유를 적고 되돌리는 진짜 길을 가리킨다.
-        throw new Error('배경을 테마로 되돌리는 문이 Office.js 에 없습니다 — '
-          + 'snapshot_slide 로 떠 둔 뒤 restore_slide 로 돌아가세요. '
-          + '칠하려면 color 에 #RRGGBB 를 주세요');
+        slide.background.reset();
+        await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, background: 'theme' },
+          [`슬라이드 배경을 테마 기본으로 되돌렸습니다 (${slide.id})`]);
       }
       if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
         throw new Error(`색은 #RRGGBB 로 주세요 — 받은 것: ${color}`);

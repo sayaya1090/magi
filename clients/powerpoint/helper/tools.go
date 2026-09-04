@@ -444,14 +444,12 @@ func catalogue(hasCouncil bool) []tool {
 			Name: "set_background",
 			Desc: "Paint one slide's background a solid colour — the theme decides it otherwise, and nothing " +
 				"here could change it before. The slide KEEPS ITS ID: this goes through the object model, not " +
-				"through rebuilding the slide. ⚠ THIS DOES NOT UNDO. Office.js gives no way to put a slide " +
-				"background back to the theme's own — the fill object can only be set, never cleared. Take a " +
-				"snapshot_slide first if the person may want the original back." + declare,
+				"through rebuilding the slide. Omit color (or pass \"theme\") to put it back to the theme's " +
+				"own background — that is slide.background.reset(), so this is reversible." + declare,
 			Props: withSlide(
-				property{Name: "color", Type: "string", Desc: "Background colour as #RRGGBB. Required — there is no value that clears it back to the theme."},
+				property{Name: "color", Type: "string", Desc: "Background colour as #RRGGBB. Omit, or \"theme\", to reset it back to the theme's own background."},
 				property{Name: "transparency", Type: "number", Desc: "0 to 1. Omitted means fully opaque — a value is never invented for you."},
 			),
-			Required: []string{"color"},
 		},
 		{
 			Name: "read_theme_colors",
