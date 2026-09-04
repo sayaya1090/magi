@@ -469,6 +469,60 @@ export class OfficeHand extends HandPort {
         textUnavailable = true;
       }
 
+      // **한 이름은 이 덱을 설명하지 못한다.**
+      //
+      // `font.name` 은 글 전체가 아니라 **첫 run 의 서체**다. 한국어 덱에서 그 한 칸은 장마다
+      // 다르게 나온다 — 한글만 있는 제목은 「맑은 고딕」, 「ARR」·「60억」처럼 라틴이나 숫자가
+      // 섞인 제목은 「Arial」. 같은 값을 걸어 놓고도 그렇다.
+      //
+      // 실물에서 그 대가를 봤다(2026-09-04). 사람이 「기본 속성이 많이 남았다」고 했고 나도
+      // 되읽은 값을 보고 그렇게 읽었다. 모델은 OOXML 원문을 뜯어 보고서야 **글꼴은 걸려 있고
+      // 보고가 한 쪽만 말한 것**임을 밝혔다 — 그 판정에 export_slide_ooxml 왕복 셋이 들었다.
+      //
+      // 그래서 **글이 문자 계열을 섞을 때만** 자리를 더 짚어 읽는다. 안 섞이면 이름은 하나뿐이라
+      // 왕복을 안 쓴다.
+      const spots = texts.map((t, i) => (frames[i] ? mixedSpots(t) : null));
+      const asked = [];
+      for (let i = 0; i < spots.length; i += 1) {
+        if (!spots[i]) continue;
+        const range = frames[i].textRange;
+        // 이 문은 있을 수도 없을 수도 있다. **없으면 없다고 적는다** — 지어내지 않는다.
+        if (typeof range.getSubstring !== 'function') {
+          spots[i] = { unavailable: true };
+          continue;
+        }
+        const at = [];
+        for (const [where, index] of Object.entries(spots[i])) {
+          const sub = range.getSubstring(index, 1);
+          sub.font.load('name');
+          at.push([where, sub]);
+        }
+        asked.push([i, at]);
+      }
+      if (asked.length > 0) {
+        try {
+          await context.sync();
+          for (const [i, at] of asked) {
+            const seen = [];
+            for (const [where, sub] of at) {
+              try {
+                if (sub.font.name) seen.push({ at: where, font: sub.font.name });
+              } catch { /* 이 자리는 모른다 */ }
+            }
+            // **같으면 안 싣는다.** 한 벌뿐인 것을 두 줄로 적으면 섞였다는 뜻이 된다.
+            const names = new Set(seen.map((one) => one.font));
+            if (fonts[i] && seen.length > 1 && names.size > 1) fonts[i].mixed = seen;
+          }
+        } catch { /* 자리별 읽기가 죽어도 신원과 첫 이름은 살린다 */ }
+      }
+      for (let i = 0; i < spots.length; i += 1) {
+        if (spots[i]?.unavailable && fonts[i]) {
+          fonts[i].note = 'name 은 첫 run 의 서체입니다 — 이 글은 문자 계열이 섞여 있는데 '
+            + '이 호스트에는 자리별로 읽는 문(getSubstring)이 없습니다. '
+            + '정확한 값은 export_slide_ooxml 로 보세요';
+        }
+      }
+
       // 표는 **도형 하나가 아니라 격자**다. 칸의 글을 안 실으면 모델은 「여기 표가 하나 있다」
       // 까지만 알고 **무슨 내용인지는 모른다** — 「이 표 고쳐 줘」에 쓸 것이 하나도 없다.
       // 실물에서 그 화면을 봤다(2026-09-02): 방금 만든 표를 다시 읽었더니 종류와 크기만 왔다.
@@ -3637,6 +3691,22 @@ function describeFont(f) {
  * 글꼴 값을 사람이 읽는 모양으로. **빈 칸은 안 싣는다** — 호스트가 안 준 값을 `null` 로
  * 채우면 「없다」로 읽히고, 섞인 서식(한 상자 안에 크기가 여럿)일 때 호스트가 그렇게 답한다.
  */
+/**
+ * 글이 **문자 계열을 섞는가**. 섞으면 자리별로 서체가 다를 수 있고, 그때만 더 읽을 값이 있다.
+ *
+ * PowerPoint 는 한 run 안에서도 라틴(`a:latin`)과 동아시아(`a:ea`) 서체를 따로 들고, 어느 쪽을
+ * 쓰는지는 **글자가** 정한다. 그래서 판정도 글자로 한다 — 호스트에 물을 것이 없다.
+ *
+ * @returns {{latin:number, hangul:number}|null} 각 계열이 처음 나오는 자리. 안 섞이면 null.
+ */
+export function mixedSpots(text) {
+  const s = String(text ?? '');
+  const latin = s.search(/[A-Za-z0-9]/);
+  const hangul = s.search(/[\u3131-\u318E\uAC00-\uD7A3\u4E00-\u9FFF\u3040-\u30FF]/);
+  if (latin < 0 || hangul < 0) return null;
+  return { latin, hangul };
+}
+
 function fontOf(font) {
   if (!font) return null;
   const out = {};

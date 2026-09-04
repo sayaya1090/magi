@@ -159,6 +159,20 @@ class StubTextRange extends Loaded {
     this.log = log;
     this.font = new StubFont(raw.font ?? {}, pending, log);
     this.paragraphFormat = {};
+    // **이 문이 아예 없는 호스트가 있다.** 그 갈래는 「없다」를 답에 적는 길이라, 흉내에서도
+    // 함수 자체가 없어야 잰다 — 던지게 두면 우리는 다른 가지를 재게 된다.
+    if (raw.noSubstring) this.getSubstring = undefined;
+  }
+  // 실물의 자리별 읽기. **한 run 이 아니라 글자가 서체를 정한다** — 픽스처는 `fontAt` 으로
+  // 그 규칙을 흉내 낸다(라틴/숫자면 이것, 아니면 저것). 이 문이 없는 호스트도 있으므로
+  // 그 갈래는 `noSubstring` 픽스처가 따로 잰다.
+  getSubstring(start, len) {
+    this.log?.push(`substring:${start},${len}`);
+    const ch = String(this.raw.text ?? '').slice(start, start + (len ?? 1));
+    const map = this.raw.fontAt ?? {};
+    const which = /[A-Za-z0-9]/.test(ch) ? 'latin' : 'hangul';
+    return new StubTextRange({ text: ch, font: { name: map[which] ?? this.raw.font?.name } },
+      this.pending, this.log);
   }
   set text(v) { this.log.push(`text:${this.raw.id}:${v}`); this.raw.text = v; }
   get text() { return this.shown; }
@@ -3837,6 +3851,58 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 서체 이름 하나는 이 덱을 설명하지 못한다 ─────────────────────────────────
+//
+// `font.name` 은 첫 run 의 서체다. 한국어 덱에서 그 한 칸은 장마다 다르게 나온다 — 한글만
+// 있는 제목은 맑은 고딕, 「ARR」이 섞인 제목은 Arial. 그 한 칸만 보고 사람도 나도 「기본 서식이
+// 남았다」고 읽었다(2026-09-04). 모델은 OOXML 을 세 번 뜯어 보고서야 아니라는 것을 밝혔다.
+{
+  const deck = model();
+  const t = deck.slides[0].shapes[0];
+  t.text = 'ARR이 세 배가 됐습니다';
+  t.font = { name: 'Arial', size: 36, bold: true, color: '#111111' };
+  t.fontAt = { latin: 'Arial', hangul: '맑은 고딕' };
+  const hand = new OfficeHand({ run: stubRunner(deck), supports: () => true });
+  const out = await hand.run('read_slide', { slide: 1 });
+  const font = out.result.shapes[0].font;
+  ok('첫 이름은 그대로 온다', font.name === 'Arial', String(font.name));
+  const seen = (font.mixed ?? []).map((one) => `${one.at}=${one.font}`).sort().join(',');
+  ok('섞였으면 자리별 서체를 다 싣는다', seen === 'hangul=맑은 고딕,latin=Arial', seen);
+
+  // **안 섞이면 안 싣는다.** 한 벌뿐인 것을 두 줄로 적으면 섞였다는 뜻이 된다.
+  const plain = model();
+  plain.slides[0].shapes[0].text = '고객 한 곳이 다섯 달';
+  plain.slides[0].shapes[0].font = { name: '맑은 고딕', size: 36 };
+  plain.slides[0].shapes[0].fontAt = { latin: 'Arial', hangul: '맑은 고딕' };
+  const plainLog = [];
+  const out2 = await new OfficeHand({ run: stubRunner(plain, plainLog), supports: () => true })
+    .run('read_slide', { slide: 1 });
+  ok('한 계열뿐이면 mixed 를 안 싣는다', out2.result.shapes[0].font.mixed === undefined,
+    JSON.stringify(out2.result.shapes[0].font.mixed));
+  // **안 싣는 것으로는 모자란다** — 안 섞인 글에서도 자리를 짚어 읽으면 이름이 같아 답이 같고,
+  // 그러면 위 단언은 「안 물어봤다」와 「물어봤는데 같더라」를 구별 못 한다. 차이는 왕복이다.
+  ok('안 섞인 글에는 자리를 안 물어본다',
+    !plainLog.some((l) => l.startsWith('substring:')), plainLog.filter((l) => l.startsWith('substring:')).join(' '));
+
+  // 그리고 **문이 없으면 없다고 적는다.** 지어내지 않는다.
+  const old = model();
+  old.slides[0].shapes[0].text = 'ARR이 세 배';
+  old.slides[0].shapes[0].font = { name: 'Arial', size: 36 };
+  old.slides[0].shapes[0].noSubstring = true;
+  // **터지면 FAIL 로 읽혀야 한다.** 그냥 두면 스위트가 통째로 죽고, 어느 단언이 무너졌는지가
+  // 화면에 안 남는다 — 이 파일에서 오늘 두 번째로 겪은 모양이다.
+  let f3 = null;
+  let boom3 = null;
+  try {
+    const out3 = await new OfficeHand({ run: stubRunner(old), supports: () => true })
+      .run('read_slide', { slide: 1 });
+    f3 = out3.result.shapes[0].font;
+  } catch (e) { boom3 = e?.message ?? String(e); }
+  ok('자리별로 못 읽으면 그 사실을 적는다',
+    boom3 === null && (f3.note ?? '').includes('첫 run') && f3.mixed === undefined,
+    boom3 ?? JSON.stringify(f3));
+}
+
 // ── 색을 바꿨다고 테마를 바꾼 것이 아니다 ────────────────────────────────────
 //
 // 이 문은 색만 연다. 글꼴을 바꾸는 문은 이 호스트에 없고(Office.js 요구 집합에 테마 글꼴이
