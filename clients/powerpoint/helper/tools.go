@@ -102,7 +102,31 @@ func catalogue() []tool {
 	// 도달하지 않는다. 남는 자리가 `tools/list` 의 설명문뿐이라, 이 문장은 예의가 아니라
 	// **도달 가능한 유일한 자리**다. 조회만 한 턴도 선언하게 두는 값이 그것이다 — 안 하면
 	// 모델 왕복 세 번에 「확인되지 않음」 배너까지 붙는다.
-	const declare = " A turn that called any tool must end by declaring it finished with council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
+	// ⚠ **우리 도구가 아닌 것을 이름으로 시킨다 — 그래서 있는지 없는지를 같이 말해야 한다.**
+	//
+	// 앞 판본은 `council{complete:true}` 를 부르라고만 적었다. 그런데 카운슬은 컴패니언 설정으로
+	// 끌 수 있고(`CouncilConfig.Enabled`), 끄면 **그 도구가 목록에서 사라진다.** 우리는 붙은
+	// 컴패니언의 도구 목록을 볼 수 없으므로 있는지 모른다.
+	//
+	// 실물에서 그 값을 치렀다(2026-09-04, 웨이브 1): 카운슬을 끈 컴패니언에서 모델이 우리 말을
+	// 그대로 따라 부르고 `unknown tool: council` 을 받았다. 지시를 지킨 대가가 실패였고, 사람은
+	// 대화 끝에 ✗ 한 줄을 봤다.
+	//
+	// 모르는 것을 단정하지 않는다 — **두 갈래를 다 적는다.** 모델은 제 도구 목록을 보므로 어느
+	// 쪽인지 스스로 안다.
+	// ⚠ **조건을 앞에 둔다 — 내용이 맞아도 순서가 틀리면 안 읽힌다.**
+	//
+	// 앞 판본은 두 갈래를 다 적되 **무조건형을 먼저** 놓았다("must end by declaring … If you
+	// have no council tool, …"). 웨이브 3 에서 그 문장이 나간 채로 모델이 또 `council` 을 불렀다 —
+	// 앞의 명령을 읽고 행동했고 뒤의 조건은 안 밟았다. 고친 것이 나가고 있는지 도구 목록을
+	// 뽑아 확인까지 했으므로, 안 닿은 것이 아니라 **안 읽힌 것**이다.
+	//
+	// 그래서 「먼저 목록을 보라」가 첫 절이다. 이 저장소가 이름 붙여 둔 그 규칙과 같다 —
+	// **조건부는 정직하고 무조건 서는 줄이 위험하다.**
+	const declare = " Before you finish: look at your own tool list. If it has a council tool, a " +
+		"turn that called any tool must end with council{complete:true}, even a read-only one — " +
+		"otherwise the turn lands UNVERIFIED. If it does not, this companion runs without that " +
+		"gate: just stop, and do not call a tool you cannot see."
 
 	return []tool{
 		{

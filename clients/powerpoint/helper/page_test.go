@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func pagesAt(t *testing.T) (*Pages, string) {
@@ -106,5 +107,59 @@ func TestTheRootGoesToTheTaskpane(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusFound || !strings.Contains(resp.Header.Get("Location"), "taskpane.html") {
 		t.Fatalf("루트가 %d / %q 로 답했다", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}
+
+// TestAssetsCarryABuildIDInTheirPath 는 **고친 화면이 사람에게 닿는가**를 잰다.
+//
+// Office 는 작업창 자산을 자기 캐시에 물고 그 캐시는 `Cache-Control` 로 못 끈다 — 이 저장소가
+// 재 봤다(TESTING §5.1.3): no-store 를 줘도, 창을 껐다 열어도, PowerPoint 를 재시작해도,
+// WebView2 캐시를 지워도 옛 화면이었다. 그래서 문서는 「화면은 목업에서 잰다」로 물러나 있었는데
+// 그건 대안이지 해결이 아니다 — **사람이 쓰는 화면은 고쳐도 안 바뀐다**는 뜻이기 때문이다.
+//
+// `?v=` 로는 안 된다: 페이지가 부르는 것은 진입점 하나뿐이고 나머지는 그 안의 `import` 로 오므로
+// 모듈 스무 개가 옛 주소 그대로 온다. 그래서 판본을 **경로**에 넣는다.
+func TestAssetsCarryABuildIDInTheirPath(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "taskpane.html"),
+		[]byte(`<link rel="stylesheet" href="taskpane.css" /><!--MAGI_BOOT--><script type="module" src="src/main.js"></script>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.js"), []byte("export const a=1;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &Pages{Root: root, Token: "t"}
+	page := func() string {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/taskpane.html", nil)
+		req.RemoteAddr = "127.0.0.1:5555"
+		p.Handler().ServeHTTP(rec, req)
+		return rec.Body.String()
+	}
+	first := page()
+	if !strings.Contains(first, `src="/v/`) || !strings.Contains(first, `href="/v/`) {
+		t.Fatalf("자산 주소에 판본이 안 꼈다:\n%s", first)
+	}
+
+	// **파일이 바뀌면 주소가 바뀐다** — 그것이 이 수의 전부다.
+	time.Sleep(10 * time.Millisecond)
+	if err := os.WriteFile(filepath.Join(root, "src", "main.js"), []byte("export const a=2;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if second := page(); second == first {
+		t.Error("파일을 고쳤는데 주소가 그대로다 — 캐시가 옛것을 계속 준다")
+	}
+
+	// 그리고 **판본이 낀 주소로 지금 파일이 온다.** 옛 판본으로 들어와도 404 로 죽이지 않는다 —
+	// 열려 있던 창이 그 자리에서 멎는다.
+	rec := httptest.NewRecorder()
+	vreq := httptest.NewRequest("GET", "/v/deadbeef0000/src/main.js", nil)
+	vreq.RemoteAddr = "127.0.0.1:5555"
+	p.Handler().ServeHTTP(rec, vreq)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "a=2") {
+		t.Errorf("판본 낀 주소가 지금 파일을 안 준다: %d %q", rec.Code, rec.Body.String())
 	}
 }

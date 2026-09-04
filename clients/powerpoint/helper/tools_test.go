@@ -343,3 +343,36 @@ func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
 		}
 	}
 }
+
+// TestTheFinishInstructionSaysWhatToDoWithoutACouncil 는 **우리 도구가 아닌 것을 시킬 때**
+// 있는지 없는지를 같이 말하는가를 잰다.
+//
+// 실물에서 나왔다(2026-09-04, 웨이브 1). 카운슬을 끈 컴패니언에서 모델이 우리 설명문을 그대로
+// 따라 `council{complete:true}` 를 불렀고 `unknown tool: council` 을 받았다 — **지시를 지킨
+// 대가가 실패였다.** 우리는 붙은 컴패니언의 도구 목록을 볼 수 없으므로 있는지 모르고, 모르는
+// 것을 단정하는 대신 두 갈래를 다 적는다.
+func TestTheFinishInstructionSaysWhatToDoWithoutACouncil(t *testing.T) {
+	var read tool
+	for _, tl := range catalogue() {
+		if tl.Name == "list_slides" {
+			read = tl
+		}
+	}
+	if read.Name == "" {
+		t.Fatal("list_slides 가 없다 — 이 시험은 아무것도 안 쟀다")
+	}
+	if !strings.Contains(read.Desc, "council{complete:true}") {
+		t.Error("선언하는 법을 안 적는다 — 조회만 한 턴이 UNVERIFIED 로 착지한다")
+	}
+	if !strings.Contains(read.Desc, "look at your own tool list") {
+		t.Errorf("카운슬이 없는 갈래를 안 적는다 — 없는 도구를 부르게 시키는 셈이다:\n%s", read.Desc)
+	}
+	// **순서까지 잰다.** 웨이브 3 에서 두 갈래를 다 적고도 또 불렀다 — 무조건형이 먼저 서
+	// 있었고 모델은 그것을 읽고 행동했다. 조건이 뒤에 있으면 없는 것과 같다.
+	look := strings.Index(read.Desc, "look at your own tool list")
+	call := strings.Index(read.Desc, "council{complete:true}")
+	if look < 0 || call < 0 || look > call {
+		t.Errorf("조건이 명령보다 뒤에 있다(조건 %d · 명령 %d) — 내용이 맞아도 순서가 틀리면 "+
+			"안 읽힌다", look, call)
+	}
+}

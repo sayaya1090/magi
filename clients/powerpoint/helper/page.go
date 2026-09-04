@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -58,8 +62,63 @@ func (p *Pages) Handler() http.Handler {
 			p.serveTaskpane(w, r)
 			return
 		}
+		// **판본이 낀 주소를 벗겨서 같은 파일을 낸다**(`buildID`). Office 의 작업창 캐시는
+		// 주소로 돌고 헤더로 못 끄므로, 파일이 바뀌면 주소가 바뀌게 해서 새로 받게 만든다.
+		// 벗기기만 하고 판본은 안 따진다 — 낡은 판본으로 들어온 요청도 **지금 파일**을 받는
+		// 것이 맞다. 우리는 옛 판본을 갖고 있지 않고, 없는 것을 404 로 답하면 열려 있던 창이
+		// 그 자리에서 죽는다.
+		if rest, ok := strings.CutPrefix(clean, "/v/"); ok {
+			if i := strings.IndexByte(rest, '/'); i >= 0 {
+				r2 := *r
+				u := *r.URL
+				u.Path = rest[i:]
+				r2.URL = &u
+				files.ServeHTTP(w, &r2)
+				return
+			}
+		}
 		files.ServeHTTP(w, r)
 	})
+}
+
+// buildID 는 지금 디스크에 있는 애드인의 판본. 파일이 하나라도 바뀌면 달라진다.
+//
+// **왜 필요한가.** Office 는 작업창 자산을 **자기 캐시**에 물고, 그 캐시는 `Cache-Control` 로
+// 못 끈다 — 이 저장소가 재 봤다(TESTING §5.1.3): `no-store` 를 줘도, 창을 껐다 열어도,
+// PowerPoint 를 재시작해도, WebView2 캐시를 지워도 옛 화면이었다. 그래서 문서는 「화면은
+// 목업에서 잰다」로 물러나 있었는데, 그건 대안이지 해결이 아니다 — **사람이 쓰는 화면은 고쳐도
+// 안 바뀐다**는 뜻이기 때문이다.
+//
+// 캐시가 **주소로** 도는 이상 답은 주소를 바꾸는 것이다. 그런데 `?v=` 를 붙이는 흔한 수는 여기서
+// 안 듣는다: 페이지가 부르는 것은 `src/main.js` 하나뿐이고 나머지는 그 안의 `import` 로 오므로,
+// 진입점 주소만 바뀌면 **모듈 스무 개는 옛 주소 그대로** 온다. 그래서 판본을 **경로**에 넣는다 —
+// `/v/<id>/src/main.js` 가 `./ui/view.js` 를 부르면 `/v/<id>/src/ui/view.js` 로 저절로 간다.
+func buildID(root string) string {
+	h := sha256.New()
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		fmt.Fprintf(h, "%s|%d|%d\n", path, info.Size(), info.ModTime().UnixNano())
+		return nil
+	})
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+// versionAssets 는 페이지가 부르는 **우리 자산**의 주소에 판본을 끼운다. 남의 주소(office.js
+// 같은 절대 URL)는 안 건드린다 — 우리가 캐시를 논할 자리가 아니다.
+func versionAssets(body []byte, id string) []byte {
+	for _, pair := range [][2]string{
+		{`href="taskpane.css"`, `href="/v/` + id + `/taskpane.css"`},
+		{`src="src/main.js"`, `src="/v/` + id + `/src/main.js"`},
+	} {
+		body = bytes.Replace(body, []byte(pair[0]), []byte(pair[1]), 1)
+	}
+	return body
 }
 
 func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
@@ -73,7 +132,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 	// 토큰을 들고 오고, 증상은 「어제 열어 둔 창이 오늘 401 을 받는다」다.
 	w.Header().Set("Cache-Control", "no-store")
 	if p.Token == "" && p.Boot == nil {
-		_, _ = w.Write(body)
+		_, _ = w.Write(versionAssets(body, buildID(p.Root)))
 		return
 	}
 	boot := map[string]any{}
@@ -89,6 +148,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := bytes.Replace(body, []byte(tokenMarker), buf.Bytes(), 1)
+	out = versionAssets(out, buildID(p.Root))
 	if !bytes.Contains(body, []byte(tokenMarker)) {
 		// **조용히 넘어가지 않는다.** 마커가 없으면 페이지는 토큰 없이 뜨고, 증상은 화면이
 		// 아무 말 없이 비는 것이다 — 그 실패를 여기서 한 번 말한다.
