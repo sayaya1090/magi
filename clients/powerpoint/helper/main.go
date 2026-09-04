@@ -535,6 +535,22 @@ func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "socket": socket})
 		return
 	}
+	// **대화를 바꾸면 도구도 그 이름으로 다시 붙어야 한다.**
+	//
+	// 등록은 주인(대화)별로 산다. 새 대화를 열고 등록을 그대로 두면 그 대화는 자기 이름으로 붙은
+	// 등록이 없어 **주인 없는 옛 등록**으로 떨어지고, 그 등록의 주소에는 덱이 없다 — 그러면
+	// `document` 를 생략한 호출이 「덱이 둘이라 못 고른다」로 죽고, 모델은 사람에게 「어느 덱에
+	// 만들까요」를 묻는다. 실물에서 그 화면을 봤다(2026-09-05: 사람이 그 질문을 그대로 옮겨 물었다.
+	// "플러그인 통해서 요청하면 저런거 안 떠?" — 안 떠야 맞고, 이 자리가 빠져 있었다).
+	if _, err := a.boltOf(socket, MCPURL(a.Port, deckOf(r)), a.Token, sid); err != nil {
+		// 못 붙였으면 대화는 열렸고 도구만 옛 것이다. **등급이 다른 둘을 한 칸으로 안 합친다.**
+		defer func() {
+			writeJSON(w, map[string]any{"session": sid, "socket": socket,
+				"note":  "새 대화를 열었습니다. 슬라이드는 그대로입니다 — 지운 것은 대화뿐입니다.",
+				"tools": "이 대화 몫으로 도구를 다시 못 붙였습니다: " + err.Error()})
+		}()
+		return
+	}
 	// **대화를 바꾸면 창도 그 이름으로 옮겨 앉아야 한다.** 안 그러면 새 대화의 이벤트가 전부
 	// 남의 것으로 걸러진다 — 실물에서 그 화면을 봤던 자리다(§5.7).
 	out := map[string]any{"session": sid, "socket": socket,

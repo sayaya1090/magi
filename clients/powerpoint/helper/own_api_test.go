@@ -632,9 +632,12 @@ func TestANewConversationSaysTheDeckIsUntouched(t *testing.T) {
 	if !strings.Contains(note, "슬라이드는 그대로") {
 		t.Fatalf("덱이 무사하다는 말을 안 한다: %q", note)
 	}
-	// 도형·장에 손대는 길이 이 핸들러에 없다는 것은 Bolt 호출 수로 잰다.
-	if len(rig.attached) != 1 {
-		t.Fatalf("새 대화가 도구를 다시 붙였다: %v", rig.attached)
+	// ⚠ 이 자리는 「덱을 안 건드린다」를 **부착 횟수**로 대신 재고 있었다(1이어야 한다고). 그
+	// 대리 지표는 2026-09-05 에 틀린 것이 됐다 — 새 대화는 **자기 이름으로 도구를 다시 붙여야**
+	// 하고(등록은 주인별로 산다), 그건 슬라이드를 안 건드린다. 재는 것을 뜻으로 되돌린다.
+	if len(rig.attached) != 2 {
+		t.Fatalf("새 대화 몫으로 도구를 안 붙였다 — 그 대화는 주인 없는 옛 등록으로 떨어진다: %v",
+			rig.attached)
 	}
 }
 
