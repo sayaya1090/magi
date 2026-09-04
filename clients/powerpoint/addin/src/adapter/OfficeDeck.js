@@ -11,6 +11,52 @@ import { DeckPort } from '../port/DeckPort.js';
  * 답하는지는 안 재 봤다. `point()` 는 한 번도 안 돌았다. **S13·S14 는 둘 다 열려 있고**, 재는
  * 자리가 정확히 이 둘이다. 돌려 보기 전까지 "된다"고 적지 않는다.
  */
+/** 이 덱이 자기 이름을 드는 자리. 사람이 볼 일이 없으므로 `magi.` 로 숨겨 둔다. */
+export const DECK_TAG = 'MAGI.DECK';
+
+/**
+ * **덱이 자기 이름을 든다.**
+ *
+ * 저장 안 한 덱에는 PowerPoint 가 주는 신원이 없다(`presentationID` 가 빈다). 그래서 헬퍼의
+ * 허브가 붙을 때마다 번호를 발급했고 — `doc-…-1` → `-4` → `-1` — 작업창이 다시 붙을 때마다
+ * **덱과 대화의 묶음이 끊겼다.** 하루에 셋을 봤다(2026-09-04): 아무것도 안 흐르는 빈 작업창,
+ * 8분을 기다린 권한 물음, 「그런 덱 없다」로 죽은 `list_slides`.
+ *
+ * 이름은 덱 안에 둔다. 프레젠테이션 태그는 1.3 이라 이 판의 바닥(1.8) 아래이고, 파일에 같이
+ * 저장되므로 PowerPoint 를 껐다 켜도 같은 이름이다.
+ *
+ * **못 읽거나 못 쓰면 빈 문자열을 준다** — 그때는 여태처럼 허브가 번호를 발급하고, 그건 오늘
+ * 아침까지의 동작이다. 이름을 지어내서 돌려주면 매번 다른 이름이 되어 더 나쁘다.
+ *
+ * @param {(fn:Function)=>Promise<any>} [runner] 시험이 채우는 자리. 기본은 `PowerPoint.run`.
+ * @returns {Promise<string>}
+ */
+export async function stableDeckId(runner) {
+  const run = runner ?? (typeof PowerPoint === 'undefined' ? null : PowerPoint.run);
+  if (!run) return '';
+  try {
+    return await run(async (context) => {
+      const tags = context.presentation.tags;
+      const had = tags.getItemOrNullObject(DECK_TAG);
+      had.load('value,isNullObject');
+      await context.sync();
+      if (had.isNullObject !== true && had.value) return String(had.value);
+      const made = newDeckId();
+      tags.add(DECK_TAG, made);
+      await context.sync();
+      return made;
+    });
+  } catch {
+    return '';
+  }
+}
+
+/** 이름 하나. 부딪히면 두 덱이 한 대화를 나눠 가지므로 넉넉히 무작위로 짓는다. */
+function newDeckId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return `deck-${crypto.randomUUID()}`;
+  return `deck-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export class OfficeDeck extends DeckPort {
   get label() { return 'PowerPoint (Office.js)'; }
 

@@ -13,6 +13,7 @@
 // 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
+import { stableDeckId, DECK_TAG } from '../src/adapter/OfficeDeck.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
@@ -3924,6 +3925,51 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await api.guide?.('a') ?? null;
   const q = seen.filter((u) => u.includes('deck=doc-9-3'));
   ok('바꾼 이름이 다음 호출부터 실린다', q.length >= 0, String(q.length));
+}
+
+// ── 덱이 자기 이름을 든다 ────────────────────────────────────────────────────
+//
+// 저장 안 한 덱에는 PowerPoint 가 주는 신원이 없다. 그래서 허브가 붙을 때마다 번호를 발급했고
+// (`doc-…-1` → `-4` → `-1`), 작업창이 다시 붙을 때마다 덱과 대화의 묶음이 끊겼다. 하루에 셋을
+// 봤다(2026-09-04): 빈 작업창, 8분 기다린 권한 물음, 「그런 덱 없다」로 죽은 list_slides.
+{
+  const store = new Map();
+  const runner = async (fn) => fn({
+    presentation: { tags: {
+      getItemOrNullObject: (k) => ({
+        load() {}, get isNullObject() { return !store.has(k); }, get value() { return store.get(k); },
+      }),
+      add: (k, v) => store.set(k, v),
+    } },
+    sync: async () => {},
+  });
+
+  const first = await stableDeckId(runner);
+  ok('처음 붙을 때 이름을 짓는다', typeof first === 'string' && first.startsWith('deck-'), first);
+  ok('덱에 적어 둔다', store.get(DECK_TAG) === first, String(store.get(DECK_TAG)));
+
+  // **다시 붙어도 같은 이름이라야 한다** — 그게 이 기전의 전부다.
+  const again = await stableDeckId(runner);
+  ok('다시 붙으면 같은 이름', again === first, `${first} / ${again}`);
+
+  // 두 덱은 서로 다른 이름을 갖는다 — 부딪히면 한 대화를 나눠 갖는다.
+  const other = new Map();
+  const otherRun = async (fn) => fn({
+    presentation: { tags: {
+      getItemOrNullObject: (k) => ({
+        load() {}, get isNullObject() { return !other.has(k); }, get value() { return other.get(k); },
+      }),
+      add: (k, v) => other.set(k, v),
+    } },
+    sync: async () => {},
+  });
+  ok('덱마다 다른 이름', (await stableDeckId(otherRun)) !== first);
+
+  // **못 읽으면 지어내지 않는다.** 매번 다른 이름을 주면 여태보다 나쁘다 — 빈 값이면 허브가
+  // 번호를 발급하고, 그건 오늘 아침까지의 동작이다.
+  const broken = async () => { throw new Error('태그를 못 읽는다'); };
+  ok('못 읽으면 빈 이름', (await stableDeckId(broken)) === '');
+  ok('Office 가 없으면 빈 이름', (await stableDeckId(null)) === '');
 }
 
 // 부를 때마다 「그런 덱은 없다」를 받았다(한 판에 여섯 번).

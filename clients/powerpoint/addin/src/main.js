@@ -6,6 +6,7 @@ import { SendTurn } from './usecase/SendTurn.js';
 import { WatchPrompt } from './usecase/WatchPrompt.js';
 import { FakeDeck } from './adapter/FakeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from './adapter/pickDeck.js';
+import { stableDeckId } from './adapter/OfficeDeck.js';
 import { FakeChat } from './adapter/FakeChat.js';
 import { FakeStatus } from './adapter/FakeStatus.js';
 import { FakeTranscript } from './adapter/FakeTranscript.js';
@@ -62,8 +63,15 @@ async function boot() {
 
   const api = real ? new HelperApi({ token: boot.token }) : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
+  // **덱이 자기 이름을 들게 하고, 그 이름으로 붙는다.** 없으면 허브가 붙을 때마다 새 번호를
+  // 발급하고, 그때마다 이 창의 대화가 끊긴다(`stableDeckId` 의 주석).
+  const deckId = real ? await stableDeckId() : '';
   const helperStream = real
-    ? new HelperStream({ token: boot.token, presentation: boot.presentation ?? '', label: boot.label ?? '' }).open()
+    ? new HelperStream({
+      token: boot.token,
+      presentation: deckId || (boot.presentation ?? ''),
+      label: boot.label ?? '',
+    }).open()
     : null;
   // **헬퍼가 준 문서 키로 말한다.** `hello` 는 스트림이 서고 나서 오므로, 오는 즉시 넘긴다 —
   // 그때부터 이 창의 API 호출은 자기 덱의 대화로 간다. 그 전의 호출은 열쇠 없는 대화로 가고,
