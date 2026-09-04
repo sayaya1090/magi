@@ -43,6 +43,28 @@ local function n(key)
   return tonumber(magi.store_get(key) or "0") or 0
 end
 
+-- **읽은 것은 한 일이 아니다.**
+--
+-- 첫 판본은 손잡이(숫자)만 봤다. 그런데 읽기에도 손잡이가 있다 — 「list_slides 로 총 1장임을
+-- 확인했습니다(id 256#2243864090)」는 숫자도 id 도 있고, 그래서 문을 그냥 지났다. 실물에서
+-- 봤다(2026-09-04): 덱을 지으라는 부탁에 정찰만 하고 그 문장으로 착지했다.
+--
+-- 읽기 동사는 `verified` 의 몫이다. `did` 는 **바뀐 것**을 적는 자리다.
+local LOOKED = {
+  "확인했습니다", "읽었습니다", "조회했", "살펴", "파악했", "점검했",
+  "list_slides", "read_slide", "read_notes", "read_tags", "read_theme_colors",
+  "describe_style", "list_layouts", "read_animation", "read_suggestions",
+  "checked", "read the", "looked at", "verified that",
+}
+
+local function looksLikeReading(s)
+  local low = string.lower(s or "")
+  for _, w in ipairs(LOOKED) do
+    if string.find(low, string.lower(w), 1, true) then return true end
+  end
+  return false
+end
+
 -- **계획인가 한 일인가.** 미래형과 다짐은 한 일이 아니다. 이 목록은 실물에서 그 턴들이 실제로
 -- 쓴 말에서 왔다("얹겠습니다", "시작합니다", "따르고", "확인했습니다").
 local PLANNY = {
@@ -70,9 +92,12 @@ magi.register_tool{
   description = table.concat({
     "Declare this turn finished. A turn that only SAYS what it will do is not finished, and this",
     "is the door that tells the two apart. Call it as the last thing you do.",
-    "did: what you actually changed, one entry per thing, EACH WITH A HANDLE the reader can go",
+    "did: what you CHANGED, one entry per thing, EACH WITH A HANDLE the reader can go",
     "look at — a slide number or id, a file path, a shape id. \"정리했습니다\" is not an entry;",
     "\"슬라이드 7(id 269#2126229183) 표 4×3 을 넣고 대체 텍스트를 달았습니다\" is.",
+    "READING IS NOT DOING: a line about list_slides, read_slide or \"확인했습니다\" belongs in",
+    "verified, not here. A turn that only looked at the deck has not finished a job that asked",
+    "for slides — and this door will say so.",
     "verified: how you checked, in the same concrete terms — which tool you re-read with and what",
     "value came back. If you did not check, say so; an honest gap beats a claim.",
     "left: anything you did NOT do that the ask covered. Empty string if nothing.",
@@ -96,6 +121,8 @@ magi.register_tool{
         bad[#bad + 1] = ("%d번째 줄에 손잡이가 없습니다(«%s»)"):format(i, s)
       elseif looksLikePlan(s) then
         bad[#bad + 1] = ("%d번째 줄이 계획으로 읽힙니다(«%s»)"):format(i, s)
+      elseif looksLikeReading(s) then
+        bad[#bad + 1] = ("%d번째 줄은 읽은 것입니다(«%s»)"):format(i, s)
       end
     end
     if #bad > 0 then

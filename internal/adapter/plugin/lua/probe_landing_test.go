@@ -110,3 +110,29 @@ func TestProbeLandingCountsAnUnlandedTurn(t *testing.T) {
 		t.Errorf("착지한 턴까지 셌다: %s", log.String())
 	}
 }
+
+// **읽은 것은 한 일이 아니다.** 읽기에도 손잡이가 있어서 첫 판본의 문을 그냥 지났다 — 덱을
+// 지으라는 부탁에 정찰만 하고 「list_slides 로 총 1장임을 확인했습니다(id 256#…)」로 착지했다
+// (2026-09-04 실물). 읽기 동사는 verified 의 몫이다.
+func TestProbeLandingRefusesAReadAsIfItWereWork(t *testing.T) {
+	reg := builtin.NewRegistry()
+	loadLanding(t, reg, &syncLog{})
+	tool, _ := reg.Get("land")
+	wd := t.TempDir()
+
+	got, isErr := execTool(t, tool,
+		`{"did":["list_slides 로 덱을 읽어 총 1장임을 확인했습니다 — id 256#2243864090"]}`, wd)
+	if !isErr {
+		t.Errorf("읽은 것을 한 일로 받아 줬다: %s", got)
+	}
+	if !strings.Contains(got, "읽은 것") {
+		t.Errorf("무엇이 문제인지 안 말한다: %s", got)
+	}
+
+	// 그래도 **진짜 변경은 받는다.** 거절만 하는 문은 문이 아니라 벽이다.
+	got, isErr = execTool(t, tool,
+		`{"did":["슬라이드 5(id 270#22086) 를 새로 만들고 제목을 넣었다"],"verified":"read_slide 로 되읽었다"}`, wd)
+	if isErr {
+		t.Fatalf("진짜 변경을 거절했다: %s", got)
+	}
+}
