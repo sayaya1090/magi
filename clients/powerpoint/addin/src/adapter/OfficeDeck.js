@@ -31,24 +31,53 @@ export const DECK_TAG = 'MAGI.DECK';
  * @param {(fn:Function)=>Promise<any>} [runner] 시험이 채우는 자리. 기본은 `PowerPoint.run`.
  * @returns {Promise<string>}
  */
-export async function stableDeckId(runner) {
+export async function stableDeckId(runner, note) {
+  const say = note ?? ((m) => {
+    if (typeof console !== 'undefined') console.warn('[magi] 덱 이름:', m);
+  });
   const run = runner ?? (typeof PowerPoint === 'undefined' ? null : PowerPoint.run);
   if (!run) return '';
-  try {
-    return await run(async (context) => {
-      const tags = context.presentation.tags;
-      const had = tags.getItemOrNullObject(DECK_TAG);
-      had.load('value,isNullObject');
-      await context.sync();
-      if (had.isNullObject !== true && had.value) return String(had.value);
-      const made = newDeckId();
-      tags.add(DECK_TAG, made);
-      await context.sync();
-      return made;
-    });
-  } catch {
-    return '';
+  // **어디에 적을지 두 자리를 본다.**
+  //
+  // 프레젠테이션 태그가 첫째다 — 장을 지우고 옮겨도 남는다. 그런데 그 칸이 없는 판이 있고
+  // (호스트가 `presentation.tags` 를 안 내는 경우), 그때 앞 판본은 **조용히 빈 값**을 줬다.
+  // 그러면 허브가 번호를 발급하고 창은 재연결마다 신원을 잃는다 — 실물에서 그 창을 봤다
+  // (2026-09-05: 한 창만 `doc-…` 을 받았고, 왜인지는 아무 데도 안 남아 있었다).
+  //
+  // 둘째는 **첫 장의 태그**다. 장을 지우면 같이 사라지므로 첫째보다 약하지만, 번호를 새로
+  // 받는 것보다는 낫다 — 그 창은 적어도 창을 껐다 켜는 동안 같은 이름이다.
+  for (const where of ['presentation', 'slide']) {
+    try {
+      const got = await run(async (context) => {
+        const tags = where === 'presentation'
+          ? context.presentation.tags
+          : firstSlideTags(context);
+        if (!tags || typeof tags.getItemOrNullObject !== 'function') {
+          throw new Error(`${where} 에 태그 칸이 없습니다`);
+        }
+        const had = tags.getItemOrNullObject(DECK_TAG);
+        had.load('value,isNullObject');
+        await context.sync();
+        if (had.isNullObject !== true && had.value) return String(had.value);
+        const made = newDeckId();
+        tags.add(DECK_TAG, made);
+        await context.sync();
+        return made;
+      });
+      if (got) return got;
+    } catch (e) {
+      // **사유를 남긴다.** 조용히 물러서면 다음에 여는 사람이 같은 자리를 다시 판다.
+      say(`${where} 자리에 못 적었습니다: ${e?.message ?? e}`);
+    }
   }
+  return '';
+}
+
+/** 첫 장의 태그 칸. 장이 하나도 없으면 없는 것이다. */
+function firstSlideTags(context) {
+  const slides = context.presentation.slides;
+  const first = slides.getItemAt(0);
+  return first?.tags ?? null;
 }
 
 /** 이름 하나. 부딪히면 두 덱이 한 대화를 나눠 가지므로 넉넉히 무작위로 짓는다. */

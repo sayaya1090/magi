@@ -3932,6 +3932,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   api.useDeck('doc-9-2');
   await api.status();
   ok('이름을 알면 GET 에 붙는다', seen[1].includes('deck=doc-9-2'), seen[1]);
+  // **붙이는 호출에도 붙는다.** 덱 없이 가면 열쇠 없는 자리만 묶이고, 창은 자기 자리가 빈 것을
+  // 보고 「데몬에 안 닿습니다」를 그린다 — 사람이 그 화면을 네 번 말했다(2026-09-05).
+  await api.own();
+  ok('붙이는 호출에도 이름이 실린다', seen[seen.length - 1].includes('deck=doc-9-2'),
+    seen[seen.length - 1]);
+  // 그리고 **알기 전에는 안 실린다** — 그 값이 있는지로 기다릴지를 정한다.
+  ok('이름을 알면 그 값이 보인다', api.deck === 'doc-9-2', String(api.deck));
   await api.submit('가');
   ok('보내는 것에도 붙는다', seen[2].includes('deck=doc-9-2'), seen[2]);
   // **이미 물음표가 있는 길에도 제대로 붙는다.** `?` 를 두 번 쓰면 서버가 못 읽는다.
@@ -3979,10 +3986,33 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   });
   ok('덱마다 다른 이름', (await stableDeckId(otherRun)) !== first);
 
+  // **프레젠테이션 칸이 없으면 첫 장으로 물러선다.** 그 칸이 없는 판이 있고, 앞 판본은 조용히
+  // 빈 값을 줘서 허브가 번호를 발급했다 — 그 창은 재연결마다 신원을 잃었다(2026-09-05 실물).
+  const slideOnly = new Map();
+  const said = [];
+  const runner2 = async (fn) => fn({
+    presentation: {
+      // 프레젠테이션 태그 칸이 아예 없는 호스트.
+      slides: { getItemAt: () => ({ tags: {
+        getItemOrNullObject: (k) => ({
+          load() {}, get isNullObject() { return !slideOnly.has(k); }, get value() { return slideOnly.get(k); },
+        }),
+        add: (k, v) => slideOnly.set(k, v),
+      } }) },
+    },
+    sync: async () => {},
+  });
+  const viaSlide = await stableDeckId(runner2, (m) => said.push(m));
+  ok('프레젠테이션 칸이 없으면 첫 장에 적는다', viaSlide.startsWith('deck-'), viaSlide);
+  ok('물러선 사유를 남긴다', said.some((m) => m.includes('presentation')), said.join(' | '));
+  ok('첫 장에 적은 것도 다시 붙으면 같다', (await stableDeckId(runner2, () => {})) === viaSlide);
+
   // **못 읽으면 지어내지 않는다.** 매번 다른 이름을 주면 여태보다 나쁘다 — 빈 값이면 허브가
   // 번호를 발급하고, 그건 오늘 아침까지의 동작이다.
   const broken = async () => { throw new Error('태그를 못 읽는다'); };
-  ok('못 읽으면 빈 이름', (await stableDeckId(broken)) === '');
+  const why = [];
+  ok('못 읽으면 빈 이름', (await stableDeckId(broken, (m) => why.push(m))) === '');
+  ok('두 자리 다 사유를 남긴다', why.length === 2, why.join(' | '));
   ok('Office 가 없으면 빈 이름', (await stableDeckId(null)) === '');
 }
 
