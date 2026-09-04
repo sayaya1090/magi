@@ -81,7 +81,6 @@ export class OfficeHand extends HandPort {
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
       ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells'] : []),
-      'set_deck_font',
       ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];
   }
 
@@ -290,7 +289,6 @@ export class OfficeHand extends HandPort {
       case 'replace_table': return this.#replaceTable(args);
       case 'set_table_cells': return this.#setCells(args);
       case 'format_table_cells': return this.#formatCells(args);
-      case 'set_deck_font': return this.#deckFont(args);
       case 'render_shape': return this.#renderShape(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
@@ -1128,62 +1126,56 @@ export class OfficeHand extends HandPort {
    * 역할은 테마가 정한 이름이라 어느 덱에서나 같은 뜻이다.
    */
   /**
-   * **덱의 글꼴을 한 번에 바꾼다 — 닿는 데까지.**
+   * **글이 있는 도형 전부에 서식을 준다** — `apply_style{all:{...}}` 의 속.
    *
-   * ⚠ **테마 글꼴은 못 바꾼다.** Office.js 에 그 문이 없다: `Slide` 에도 `SlideMaster` 에도
-   * `themeColorScheme` 만 있고 폰트 쪽은 **프리뷰에도 없다**(2026-09-04에 레퍼런스를 읽어
-   * 확인했다). 그래서 이 도구는 테마를 바꾸는 것이 아니라 **글자마다 글꼴을 준다.**
+   * 자리표시자만 훑는 갈래와 나누는 이유: 이 애드인이 만든 덱에는 출처 줄·라벨처럼 **자리표시자가
+   * 아닌 글상자**가 많고, 역할로만 고르면 그것들만 옛 서식으로 남아 한 장에 글꼴이 둘이 된다.
    *
-   * 그 차이가 결과에 나온다. 새로 만드는 장은 여전히 테마 글꼴로 서고, 차트 안 글자와 표
-   * 스타일도 테마를 따른다 — **이 도구가 닿지 않는 자리다.** 안 적으면 사람은 「덱 글꼴을
-   * 바꿨다」고 믿고 다음 장에서 딴 글꼴을 본다.
+   * 앞서 `set_deck_font` 라는 **도구**로 뒀다가 여기로 합쳤다. 글꼴을 주는 도구가 셋이면
+   * (도형 하나 · 자리표시자 · 전부) 모델이 매번 고르고, 고르는 자리마다 틀릴 수 있다.
+   * **범위는 인자이지 도구가 아니다.**
    *
-   * `apply_style` 과 나누는 이유: 저건 **자리표시자 역할**로 도형을 고른다(그래서 어느 덱에서나
-   * 같은 뜻이다). 그런데 이 애드인이 만든 덱에는 출처 줄·라벨처럼 **자리표시자가 아닌 글상자**가
-   * 많고, 저 도구로 글꼴을 바꾸면 그것들만 옛 글꼴로 남아 한 장에 글꼴이 둘이 된다.
+   * ⚠ **테마는 안 바뀐다.** 새로 만드는 장, 차트 안 글자, 표 스타일은 여전히 테마를 따른다 —
+   * Office.js 에 글꼴 스킴이 없고, OOXML 로 갈아 끼우는 길도 **재 보고 안 되는 것으로
+   * 확인했다**(TESTING §7b). 그 사실을 답이 적는다.
    */
-  #deckFont(args) {
-    return this.runner(async (context) => {
-      const font = String(args.font ?? '').trim();
-      if (!font) throw new Error('무슨 글꼴로 바꿀지가 안 왔습니다 — font 를 주세요');
-      const slides = context.presentation.slides;
-      slides.load('items/id,items/index');
+  async #styleEveryShape(context, args, want) {
+    const slides = context.presentation.slides;
+    slides.load('items/id,items/index');
+    await context.sync();
+    const pick = pickSlides(slides.items, args);
+    if (pick.length === 0) throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${slides.items.length} 장입니다`);
+    this.#mutated();
+    let touched = 0;
+    let skipped = 0;
+    for (const sl of pick) {
+      const box = context.presentation.slides.getItem(sl.id).shapes;
+      box.load('items/id');
       await context.sync();
-      const want = pickSlides(slides.items, args);
-      if (want.length === 0) throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${slides.items.length} 장입니다`);
-
-      this.#mutated();
-      let shapes = 0;
-      let skipped = 0;
-      for (const sl of want) {
-        const box = context.presentation.slides.getItem(sl.id).shapes;
-        box.load('items/id');
-        await context.sync();
-        const fonts = [];
-        for (const sh of box.items) {
-          // **글이 없는 도형은 건너뛴다.** 도형마다 `textFrame` 이 있는 것은 아니고, 없는 것에
-          // 쓰면 그 왕복 전체가 던진다 — 한 장이 통째로 안 바뀐다.
-          try {
-            const f = sh.textFrame.textRange.font;
-            f.load('name');
-            fonts.push({ f, id: sh.id });
-          } catch { skipped += 1; }
-        }
-        try {
-          await context.sync();
-        } catch { /* 못 읽은 것은 아래에서 세어 넘긴다 */ }
-        for (const { f } of fonts) {
-          try { f.name = font; shapes += 1; } catch { skipped += 1; }
-        }
-        await context.sync();
+      const fonts = [];
+      for (const sh of box.items) {
+        // **글이 없는 도형은 건너뛴다.** 도형마다 `textFrame` 이 있는 것은 아니고, 없는 것에
+        // 쓰면 그 왕복 전체가 던진다 — 한 장이 통째로 안 바뀐다.
+        try { fonts.push(sh.textFrame.textRange.font); } catch { skipped += 1; }
       }
-      return this.#envelope(
-        { font, slides: want.length, shapes, skipped },
-        [`장 ${want.length}개의 글자 ${shapes}곳을 ${font} 로 바꿨습니다`
-          + (skipped ? ` (글이 없는 도형 ${skipped}개는 건너뜀)` : ''),
-          '⚠ **테마 글꼴은 안 바뀝니다** — Office.js 에 그 문이 없습니다. '
-          + '앞으로 만드는 장, 차트 안 글자, 표 스타일은 여전히 테마 글꼴로 섭니다']);
-    });
+      for (const f of fonts) {
+        try {
+          if (want.name !== undefined) f.name = want.name;
+          if (want.size !== undefined) f.size = want.size;
+          if (want.bold !== undefined) f.bold = want.bold;
+          if (want.italic !== undefined) f.italic = want.italic;
+          if (want.color !== undefined) f.color = want.color;
+          touched += 1;
+        } catch { skipped += 1; }
+      }
+      await context.sync();
+    }
+    const said = Object.entries(want).map(([k, v]) => `${k}=${v}`).join(' · ');
+    return this.#envelope(
+      { scope: 'all', slides: pick.length, shapes: touched, skipped, applied: want },
+      [`장 ${pick.length}개의 글자 ${touched}곳에 ${said} 를 줬습니다`
+        + (skipped ? ` (글이 없는 도형 ${skipped}개는 건너뜀)` : ''),
+        '⚠ **테마는 안 바뀝니다** — 앞으로 만드는 장, 차트 안 글자, 표 스타일은 여전히 테마를 따릅니다']);
   }
 
   /**
@@ -1221,10 +1213,13 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const wantTitle = pickFont(args.title);
       const wantBody = pickFont(args.body);
-      if (!wantTitle && !wantBody) {
-        throw new Error('무엇을 바꿀지가 안 왔습니다 — title 이나 body 에 '
-          + '{font, size, bold, italic, color} 중 하나는 주세요');
+      const wantAll = pickFont(args.all);
+      if (!wantTitle && !wantBody && !wantAll) {
+        throw new Error('무엇을 바꿀지가 안 왔습니다 — title·body·all 중 하나에 '
+          + '{font, size, bold, italic, color} 를 주세요');
       }
+      // **범위는 인자다.** `all` 이면 자리표시자를 넘어 글이 있는 도형 전부에 준다.
+      if (wantAll) return this.#styleEveryShape(context, args, wantAll);
       const slides = context.presentation.slides;
       slides.load('items/id,items/index');
       await context.sync();

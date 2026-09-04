@@ -3185,22 +3185,28 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('style 을 우리가 검사하지 않는다', !/BulletStyle|ArabicNumeralPeriod'/.test(h));
   }
 
-  // ── 못 닿는 데를 말한다 ─────────────────────────────────────
+  // ── 범위는 **인자**이지 도구가 아니다 ───────────────────────
   //
-  // 덱 글꼴을 바꾸는 도구는 **테마 글꼴을 못 바꾼다** — Office.js 에 글꼴 스킴이 없다(어느
-  // API 집합에도, 프리뷰에도). 그래서 이 도구가 하는 일은 글자마다 글꼴을 주는 것이고, 새로
-  // 만드는 장과 차트·표는 여전히 테마 글꼴로 선다. **그 사실을 답이 적어야 한다** — 안 적으면
-  // 사람은 「덱 글꼴을 바꿨다」고 믿고 다음 장에서 딴 글꼴을 본다.
+  // 글꼴을 주는 도구가 셋이었다 — 도형 하나(`format_shape`) · 자리표시자(`apply_style`) ·
+  // 전부(`set_deck_font`). 셋째는 둘째의 특수한 경우라 합쳤다. 도구가 셋이면 모델이 매번 고르고,
+  // 고르는 자리마다 틀릴 수 있다.
   {
     const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
-    const body = /#deckFont\(args\) \{([\s\S]*?)\n  \}/.exec(h)?.[1] ?? '';
-    ok('덱 글꼴 갈래를 찾았다', body !== '');
-    ok('못 바꾸는 것을 답에 적는다', /테마 글꼴은 안 바뀝니다/.test(body), body.slice(-120));
-    // 자리표시자만이 아니라 **모든 글 있는 도형**을 훑는다 — 그게 apply_style 과 갈리는 이유다.
-    ok('도형을 전부 훑는다', /shapes;[\s\S]{0,200}for \(const sh of box\.items\)/.test(body));
+    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    ok('덱 글꼴 도구가 따로 없다', !/set_deck_font/.test(t));
+    ok('범위가 인자로 있다', /Name: "all"/.test(t));
+    ok('그 갈래로 빠진다', /if \(wantAll\) return this\.#styleEveryShape/.test(h));
+    const body = /#styleEveryShape\(context, args, want\) \{([\s\S]*?)\n  \}/.exec(h)?.[1] ?? '';
+    ok('전부 훑는 갈래를 찾았다', body !== '');
+    // 자리표시자만이 아니라 **모든 글 있는 도형**을 훑는다 — 그게 역할로 고르는 갈래와 갈리는 이유다.
+    ok('도형을 전부 훑는다', /for \(const sh of box\.items\)/.test(body));
     // 글이 없는 도형에 쓰면 그 왕복 전체가 던져서 **한 장이 통째로 안 바뀐다.**
-    ok('글 없는 도형에서 안 죽는다', /catch \{ skipped \+= 1; \}/.test(body));
-    ok('건너뛴 수를 센다', /skipped/.test(body) && /skipped \?/.test(body));
+    // ⚠ **모으는 그 줄이 감싸여 있는가**를 본다. 앞 판본은 아무 `catch` 나 세어서, 모으는 자리의
+    // 보호를 벗기는 변이가 아래쪽 try 에 걸려 통과했다(2026-09-04).
+    ok('글 없는 도형에서 안 죽는다',
+      /try \{ fonts\.push\(sh\.textFrame\.textRange\.font\); \} catch/.test(body));
+    // **테마는 안 바뀐다.** 안 적으면 사람은 「덱 글꼴을 바꿨다」고 믿고 다음 장에서 딴 글꼴을 본다.
+    ok('못 바꾸는 것을 답에 적는다', /테마는 안 바뀝니다/.test(body), body.slice(-100));
   }
 
   // ── 세우는 손 ───────────────────────────────────────────────

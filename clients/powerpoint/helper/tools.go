@@ -231,10 +231,11 @@ func catalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "apply_style",
-			Desc: "Restyle titles or bodies across many slides in one call — \"make every title blue\". Shapes are picked by placeholder role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
+			Desc: "Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. \"Make every title blue\". Placeholders are picked by role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
 			Props: []property{
 				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color}. Only the fields you give are touched."},
 				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields."},
+				{Name: "all", Type: "object", Desc: "Same fields, applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
 				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
 				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
 			},
@@ -391,23 +392,6 @@ func catalogue(hasCouncil bool) []tool {
 			),
 			Required: []string{"shape_id"},
 			ReadOnly: true,
-		},
-		{
-			Name: "set_deck_font",
-			Desc: "Put every piece of text in the deck on one font family — placeholders and the plain text " +
-				"boxes alike. apply_style picks shapes by placeholder ROLE, which is what makes it deck-" +
-				"independent, but a deck built here also carries source lines and labels that are not " +
-				"placeholders: change the font with apply_style alone and those keep the old one, so one slide " +
-				"ends up with two fonts. ⚠ This does NOT change the theme font. Office.js exposes no font " +
-				"scheme at any API set, so slides you make AFTER this, chart text and table styles still come " +
-				"out in the theme's font — the answer says so. Use one of the nine fonts deck-design names; a " +
-				"family this machine lacks is silently swapped by PowerPoint." + declare,
-			Props: []property{
-				{Name: "font", Type: "string", Desc: "Font family, e.g. Arial or Georgia."},
-				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions. Omit for the whole deck."},
-				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids. Wins over slides."},
-			},
-			Required: []string{"font"},
 		},
 		{
 			// ⚠ **손이 1.9 를 확인한 뒤에만 광고한다**(`OfficeHand.ops`).
