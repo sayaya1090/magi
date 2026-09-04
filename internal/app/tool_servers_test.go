@@ -29,7 +29,7 @@ func (f *fakeToolServers) Attach(_ context.Context, owner, name, url string, hea
 	return f.names, f.attachEr
 }
 
-func (f *fakeToolServers) Detach(name string) (bool, error) {
+func (f *fakeToolServers) Detach(owner, name string) (bool, error) {
 	f.detached = append(f.detached, name)
 	return f.had, f.detachEr
 }
@@ -52,7 +52,7 @@ func TestABuildWithNoDoorSaysSoRatherThanAnsweringNo(t *testing.T) {
 	if _, err := a.AttachToolServer(context.Background(), "", "editor", "http://localhost:1/mcp", nil); err == nil {
 		t.Error("a build that attaches nothing accepted an attach")
 	}
-	had, err := a.DetachToolServer("editor")
+	had, err := a.DetachToolServer("", "editor")
 	if err == nil {
 		t.Error("a build that attaches nothing accepted a detach")
 	}
@@ -142,7 +142,7 @@ func TestDetachSaysWhetherThereWasOneAndWhetherItWasAllowed(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			a := &App{tools: builtin.Default()}
 			a.UseToolServers(c.srv)
-			had, err := a.DetachToolServer("editor")
+			had, err := a.DetachToolServer("", "editor")
 			if had != c.had {
 				t.Errorf("there was one: %v", had)
 			}

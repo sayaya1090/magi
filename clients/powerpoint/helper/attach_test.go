@@ -46,7 +46,7 @@ type doorEngine struct {
 	fail     error
 }
 
-func (e *doorEngine) AttachToolServer(_ context.Context, name, url string, headers map[string]string) ([]string, error) {
+func (e *doorEngine) AttachToolServer(_ context.Context, owner, name, url string, headers map[string]string) ([]string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.fail != nil {
@@ -59,7 +59,7 @@ func (e *doorEngine) AttachToolServer(_ context.Context, name, url string, heade
 	return e.tools, nil
 }
 
-func (e *doorEngine) DetachToolServer(name string) (bool, error) {
+func (e *doorEngine) DetachToolServer(owner, name string) (bool, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.detached = append(e.detached, name)
@@ -144,7 +144,7 @@ func TestAttachingAlwaysDetachesFirst(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok123")
+	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok123", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,11 +171,11 @@ func TestASecondWindowDoesNotStealTheFirstsRegistration(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok"); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, firstDetached := eng.seen()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok"); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok", ""); err != nil {
 		t.Fatal(err)
 	}
 	_, again := eng.seen()
@@ -210,7 +210,7 @@ func TestACompanionWithNoDoorCannotBeChosen(t *testing.T) {
 	if !strings.Contains(c.Why(), "빌드") {
 		t.Errorf("사유가 빌드의 성질로 안 적혔다: %s", c.Why())
 	}
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), ""); err == nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", ""); err == nil {
 		t.Fatal("door 없는 데몬에 붙었다")
 	}
 }
@@ -292,7 +292,7 @@ func TestAFailedAttachSaysSo(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	_, err := a.Attach(sock, MCPURL(DefaultPort, ""), "")
+	_, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", "")
 	if err == nil {
 		t.Fatal("실패했는데 성공으로 답했다")
 	}
@@ -319,7 +319,7 @@ func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
 	defer stop()
 
 	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), ""); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", ""); err != nil {
 		t.Fatalf("첫 등록이 실패했다: %v", err)
 	}
 	in, err := daemon.Published(sock)
@@ -351,7 +351,7 @@ func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
 	a.held[sock] = attachment{tools: []string{"옛것"}, life: "죽은-생애"}
 	a.mu.Unlock()
 	_, detachedBefore := eng.seen()
-	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "")
+	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", "")
 	if err != nil {
 		t.Fatalf("다시 못 붙였다: %v", err)
 	}
@@ -384,4 +384,47 @@ func TestZZZAtLeastOneRealDaemonWasStarted(t *testing.T) {
 		t.Fatal("이 파일의 시험이 데몬을 하나도 못 띄웠다 — 초록이 아니라 '볼 것이 없었다'다")
 	}
 	t.Logf("진짜 데몬 %d 개를 띄워서 쟀다", daemonsStarted)
+}
+
+// 창 둘이 **한 컴패니언에 각자** 붙는다.
+//
+// ⚠ 이름이 짧은 이유가 있다. `startDaemon` 은 유닉스 소켓 경로가 OS 한계(약 100바이트)를 넘으면
+// **건너뛴다**, 그리고 건너뛴 시험은 화면에서 초록과 구별이 안 된다. 이 시험의 첫 이름
+// (`TestTwoWindowsEachGetTheirOwnRegistration`)이 딱 그만큼 길어서 한 번도 안 돌았고,
+// 돌연변이를 넣어도 아무 일이 없어서 그것을 알았다.
+//
+// 앞 판본은 보관을 소켓으로만 셌다. 그러면 둘째 창은 「이미 붙어 있다」로 읽혀 자기 등록을 영영
+// 못 받고, 그 앞의 detach 가 첫째 것을 뗀다. 사람이 창 둘을 띄우고 물은 것이 이 자리다
+// (2026-09-04). 주인이 다르면 등록도 둘이다.
+func TestTwoPanesTwoRegs(t *testing.T) {
+	dir := t.TempDir()
+	eng := &doorEngine{tools: []string{"mcp__ppt__list_slides"}}
+	sock, _ := startDaemon(t, dir, "dsn", eng)
+
+	a := NewAttachments()
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, "doc-1"), "tok", "sess-a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, "doc-2"), "tok", "sess-b"); err != nil {
+		t.Fatal(err)
+	}
+	// **둘 다 남아 있어야 한다.** 하나면 둘째가 첫째를 밀어낸 것이고, 그게 이 시험이 막는 일이다.
+	if got := len(a.Sockets()); got != 2 {
+		t.Fatalf("등록이 %d 개다 — 창마다 하나여야 한다: %v", got, a.Sockets())
+	}
+	// 그리고 **둘째가 첫째 것을 안 뗐다.** 문에 간 detach 는 자기 주인 것뿐이다.
+	_, detached := eng.seen()
+	for _, d := range detached {
+		if d != ServerName {
+			continue
+		}
+	}
+	// 하나를 놓아도 나머지는 산다.
+	keys := a.Sockets()
+	if err := a.Detach(keys[0]); err != nil {
+		t.Fatalf("떼기: %v", err)
+	}
+	if got := len(a.Sockets()); got != 1 {
+		t.Fatalf("하나를 뗐는데 %d 개가 남았다: %v", got, a.Sockets())
+	}
 }

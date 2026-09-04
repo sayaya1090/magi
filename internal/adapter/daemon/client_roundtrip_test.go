@@ -149,7 +149,7 @@ func TestClientWrappersRoundTrip(t *testing.T) {
 	if _, err := c.AttachMCP("", "x", "http://127.0.0.1:9/mcp", nil); err == nil {
 		t.Fatal("AttachMCP on a doorless engine must refuse in words")
 	}
-	if _, err := c.DetachMCP("x"); err == nil {
+	if _, err := c.DetachMCP("", "x"); err == nil {
 		t.Fatal("DetachMCP likewise")
 	}
 	if err := c.UseBackend("http://b:1"); err == nil {

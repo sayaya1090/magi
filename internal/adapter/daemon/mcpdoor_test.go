@@ -28,7 +28,7 @@ func (e *attachEngine) AttachToolServer(_ context.Context, owner, name, url stri
 	return e.tools, e.err
 }
 
-func (e *attachEngine) DetachToolServer(name string) (bool, error) {
+func (e *attachEngine) DetachToolServer(owner, name string) (bool, error) {
 	e.detached = true
 	e.gotName = name
 	return e.hadIt, e.detachErr

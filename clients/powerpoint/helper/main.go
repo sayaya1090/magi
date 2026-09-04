@@ -247,11 +247,11 @@ func (a *API) fleetOf(configDir string) ([]Companion, error) {
 	return a.Attachments.Fleet(configDir)
 }
 
-func (a *API) boltOf(socket, url, token string) ([]string, error) {
+func (a *API) boltOf(socket, url, token, owner string) ([]string, error) {
 	if a.Bolt != nil {
 		return a.Bolt(socket, url, token)
 	}
-	return a.Attachments.Attach(socket, url, token)
+	return a.Attachments.Attach(socket, url, token, owner)
 }
 
 func (a *API) Route(mux *http.ServeMux) {
@@ -629,7 +629,7 @@ func (a *API) makeOwn(deck string) {
 	}
 	// 덱 몫의 컴패니언은 **그 덱만** 붙으므로 주소가 덱을 날라도 참이다. 덱을 모르는 때(기동 직후)
 	// 는 빈 값이고, 그때는 여태처럼 활성 문서 규칙을 탄다.
-	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port, deck), a.Token)
+	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port, deck), a.Token, mine.Session)
 	if err != nil {
 		a.Work.Done(OwnReport{
 			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
@@ -667,19 +667,6 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	// **주입 자리를 지나간다.** 이 한 줄만 `Attachments` 를 직접 불렀고, 그래서 이 핸들러의
-	// 갈래는 실물 소켓 없이는 못 쟀다 — 못 재는 갈래는 안 만든 것과 같다(TESTING §1). 다른
-	// 부착 자리(`makeOwn`)는 이미 `boltOf` 를 지난다.
-	// ⚠ **주소에 덱을 안 적는다 — 아직은.** 등록은 소켓당 한 벌이고, 같은 컴패니언에 덱 둘이
-	// 붙으면 나중 등록이 앞의 것을 덮는다. 그때 주소에 적힌 덱은 **마지막에 붙은 덱**이고, 그
-	// 값으로 기본 문서를 정하면 조용히 남의 덱을 고친다 — 지금의 「못 고른다」보다 나쁘다.
-	// 덱마다 자기 데몬을 두기 전까지는 비워 둔다(그 일이 남은 절반이다).
-	tools, err := a.boltOf(in.Socket, MCPURL(a.Port, ""), a.Token)
-	if err != nil {
-		// **끝내 못 붙으면 말한다**(§5.3). 조용히 넘어가면 화면이 「할 일 없음」처럼 보인다.
-		http.Error(w, err.Error(), http.StatusBadGateway)
-		return
-	}
 	// **한 세션에 두 덱이 붙으면 갈라 놓은 뜻이 없어진다.** 다른 창이 이미 그 대화를 들고 있으면
 	// 같은 데몬에 **새 대화**를 연다 — 사람이 명단에서 고른 것은 「저 컴패니언」이지 「저 대화」가
 	// 아니다. 못 열면 그때는 사실대로 거절한다: 몰래 같은 대화에 밀어 넣으면 두 창이 다시 한
@@ -695,6 +682,28 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 			}
 			session = fresh
 		}
+	}
+	// **주입 자리를 지나간다.** 이 한 줄만 `Attachments` 를 직접 불렀고, 그래서 이 핸들러의
+	// 갈래는 실물 소켓 없이는 못 쟀다 — 못 재는 갈래는 안 만든 것과 같다(TESTING §1). 다른
+	// 부착 자리(`makeOwn`)는 이미 `boltOf` 를 지난다.
+	//
+	// **이 덱의 대화 것으로 붙인다.** 등록이 주인별로 살게 됐으므로(코어의 `Attach(owner, …)`),
+	// 같은 컴패니언에 덱 둘이 붙어도 서로를 안 덮고 서로의 손을 안 본다. 그래서 이제 주소에
+	// 덱을 적어도 참이다 — 그 등록으로 오는 호출은 이 덱의 것뿐이다.
+	//
+	// **세션이 먼저다.** 위에서 이 덱의 대화를 정하고 그 이름으로 붙인다 — 순서가 뒤집히면
+	// 주인 없는 등록이 하나 생기고, 주인 없는 것은 모두에게 보인다.
+	deck := deckOf(r)
+	owner := session
+	if deck == "" {
+		// 이름 없는 창은 여태처럼 데몬 전체 등록을 쓴다.
+		owner = ""
+	}
+	tools, err := a.boltOf(in.Socket, MCPURL(a.Port, deck), a.Token, owner)
+	if err != nil {
+		// **끝내 못 붙으면 말한다**(§5.3). 조용히 넘어가면 화면이 「할 일 없음」처럼 보인다.
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
 	}
 	bindErr := a.chat(r).Bind(in.Socket, session)
 	out := map[string]any{"tools": tools}

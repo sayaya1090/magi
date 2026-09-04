@@ -29,7 +29,7 @@ func TestTheAnswerActuallyCarriesThePictureNote(t *testing.T) {
 	defer mgr.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if _, err := mgr.Attach(ctx, ServerName, srv.URL, nil); err != nil {
+	if _, err := mgr.Attach(ctx, "", ServerName, srv.URL, nil); err != nil {
 		t.Fatalf("못 붙었다: %v", err)
 	}
 	tool := s.get("mcp__" + ServerName + "__render_shape")

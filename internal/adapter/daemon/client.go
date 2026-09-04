@@ -351,8 +351,8 @@ func (c *Client) AttachMCP(owner, name, url string, headers map[string]string) (
 // The bool is whether there was one, and "already clean" is a normal answer rather than a failure.
 // An error means the daemon refused — including when the name belongs to a server the operator
 // declared in config, which this door does not own.
-func (c *Client) DetachMCP(name string) (bool, error) {
-	resp, err := c.exchange(Request{Method: "mcp-detach", Name: name})
+func (c *Client) DetachMCP(owner, name string) (bool, error) {
+	resp, err := c.exchange(Request{Method: "mcp-detach", Owner: owner, Name: name})
 	if err != nil {
 		return false, err
 	}

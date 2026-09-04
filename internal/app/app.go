@@ -196,11 +196,11 @@ func (a *App) AttachToolServer(ctx context.Context, owner, name, url string, hea
 
 // DetachToolServer removes one by name: false when there was none, an error when there was one and
 // this caller may not remove it.
-func (a *App) DetachToolServer(name string) (bool, error) {
+func (a *App) DetachToolServer(owner, name string) (bool, error) {
 	if a.toolServers == nil {
 		return false, fmt.Errorf("this build attaches no tool servers")
 	}
-	return a.toolServers.Detach(name)
+	return a.toolServers.Detach(owner, name)
 }
 
 // ToolNames returns the names of all registered tools, sorted.

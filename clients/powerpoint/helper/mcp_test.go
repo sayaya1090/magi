@@ -114,7 +114,7 @@ func TestMagisOwnClientAttachesToThisHelper(t *testing.T) {
 	defer cancel()
 
 	// door 가 답하는 것은 ack 가 아니라 **증거**다(§5.0.1) — 무엇이 등록됐는지.
-	got, err := mgr.Attach(ctx, ServerName, srv.URL, nil)
+	got, err := mgr.Attach(ctx, "", ServerName, srv.URL, nil)
 	if err != nil {
 		t.Fatalf("magi 가 못 붙었다: %v", err)
 	}

@@ -149,7 +149,7 @@ type ToolServerHost interface {
 	AttachToolServer(ctx context.Context, owner, name, url string, headers map[string]string) ([]string, error)
 	// DetachToolServer removes one by name: false when there was none to remove, an error when
 	// there was one this caller may not remove (a server the operator declared in config).
-	DetachToolServer(name string) (bool, error)
+	DetachToolServer(owner, name string) (bool, error)
 }
 
 // UserNamer is an engine that knows what to call the person it is talking to.

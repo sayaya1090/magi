@@ -146,7 +146,7 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 	// "ppt_one" are two rows in the map and one namespace in the registry, so the second used to
 	// take the first's tool names silently and detaching it left the first claiming to be attached
 	// with nothing registered.
-	key := sanitizeToolPart(name)
+	key := serverKey(sanitizeToolPart(name), owner)
 	var sc *serverConn
 	for attempt := 0; ; attempt++ {
 		m.mu.Lock()
@@ -324,8 +324,9 @@ func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers m
 // declared in config, with no way to get it back until the daemon is restarted. The lifetime net
 // (Remove, on the client's Done) is deliberately NOT narrowed this way: a config server nobody can
 // reach still has to be cleaned up.
-func (m *Manager) Detach(name string) (bool, error) {
-	key := sanitizeToolPart(name)
+// owner is whose registration to remove; empty is the daemon-wide one.
+func (m *Manager) Detach(owner, name string) (bool, error) {
+	key := serverKey(sanitizeToolPart(name), owner)
 	m.mu.Lock()
 	sc := m.servers[key]
 	if sc == nil {
@@ -414,6 +415,16 @@ func (m *Manager) Close() {
 	for _, sc := range conns {
 		closeConn(sc)
 	}
+}
+
+// serverKey 는 등록 하나의 신원이다. **이름만으로는 모자라다** — 대화 둘이 같은 서버 이름으로
+// 붙으면 둘 다 살아야 하고(각자 자기 손), 이름만 키로 쓰면 둘째가 첫째를 밀어낸다.
+// 주인이 비면 옛 키 그대로라, 이 변경 전에 붙어 있던 것과 이름이 안 달라진다.
+func serverKey(name, owner string) string {
+	if owner == "" {
+		return name
+	}
+	return name + "\x00" + owner
 }
 
 // namespacedToolName builds the registry name for a server's tool as "mcp__<server>__<tool>", each

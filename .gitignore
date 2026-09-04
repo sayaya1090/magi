@@ -97,3 +97,6 @@ clients/web/ui/gradle.properties
 # 디렉토리를 임베드하지 못한다). clients/web/server/console/README.md 참고.
 clients/web/server/console/*
 !clients/web/server/console/README.md
+
+# 헬퍼를 그 폴더에서 빌드하면 여기 떨어진다 — 13MB 짜리가 한 번 이력에 들어갔다(2026-09-04).
+clients/powerpoint/helper/helper

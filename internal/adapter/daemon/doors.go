@@ -449,7 +449,7 @@ func answerMCPDetach(ctx context.Context, eng Engine, req Request) Response {
 	if !ok {
 		return Response{Err: "this daemon cannot attach tool servers"}
 	}
-	removed, err := h.DetachToolServer(req.Name)
+	removed, err := h.DetachToolServer(req.Owner, req.Name)
 	if err != nil {
 		return Response{Err: err.Error()} // refused: there is one, and it is not this caller's
 	}

@@ -652,7 +652,11 @@ type ToolServers interface {
 	// and separately whether it was refused, which "no" alone cannot say. An implementation may
 	// only remove what it attached through this door: a server the operator declared is not
 	// this caller's to take away, and nothing here can put it back until the daemon restarts.
-	Detach(name string) (bool, error)
+	//
+	// owner is the conversation whose registration is being removed; empty is the daemon-wide one.
+	// Without it a second conversation detaching before it attaches — which is what a client
+	// recovering from its own crash does — would take away the first's hand.
+	Detach(owner, name string) (bool, error)
 }
 
 // ---- Context providers ----

@@ -123,13 +123,13 @@ func TestDetachFreesTheNameAndTheTools(t *testing.T) {
 	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
-	if removed, err := m.Detach("ppt"); err != nil || !removed {
+	if removed, err := m.Detach("", "ppt"); err != nil || !removed {
 		t.Fatalf("detach said removed=%v err=%v — it attached this one itself", removed, err)
 	}
 	if sink.has("mcp__ppt__render") {
 		t.Error("the tool is still advertised after its server was detached")
 	}
-	if removed, err := m.Detach("ppt"); removed || err != nil {
+	if removed, err := m.Detach("", "ppt"); removed || err != nil {
 		t.Errorf("detaching twice said removed=%v err=%v — already clean is an answer, not a failure", removed, err)
 	}
 	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
@@ -262,7 +262,7 @@ func TestTwoNamesThatSanitiseToOneAreRefused(t *testing.T) {
 		t.Fatalf("second attach said %v — one namespace, one server", err)
 	}
 	// …and the name it was refused under is still the first one's to give up.
-	if removed, err := m.Detach("ppt.one"); err != nil || !removed {
+	if removed, err := m.Detach("", "ppt.one"); err != nil || !removed {
 		t.Errorf("detach of the original name said removed=%v err=%v", removed, err)
 	}
 }
@@ -279,7 +279,7 @@ func TestTheDoorDoesNotRemoveAConfigServer(t *testing.T) {
 	if err := m.AddHTTP(context.Background(), "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("config attach: %v", err)
 	}
-	removed, err := m.Detach("ppt")
+	removed, err := m.Detach("", "ppt")
 	if removed || err == nil {
 		t.Fatalf("the door removed a config server (removed=%v err=%v)", removed, err)
 	}
@@ -337,7 +337,7 @@ func TestDetachDuringAttachIsTrueOnlyIfTheAttachAlsoFoldsUp(t *testing.T) {
 	}()
 	waitForServer(t, m, "ppt", true) // the reservation is in the map; the handshake is still out
 
-	removed, err := m.Detach("ppt")
+	removed, err := m.Detach("", "ppt")
 	if err != nil || !removed {
 		t.Fatalf("detach of a name that is claimed: removed=%v err=%v, want true/nil", removed, err)
 	}
@@ -462,7 +462,7 @@ func TestAFailedAttachReleasesOnlyItsOwnClaim(t *testing.T) {
 		firstDone <- err
 	}()
 	waitForServer(t, m, "ppt", true)
-	if removed, err := m.Detach("ppt"); !removed || err != nil {
+	if removed, err := m.Detach("", "ppt"); !removed || err != nil {
 		t.Fatalf("detach: removed=%v err=%v", removed, err)
 	}
 
