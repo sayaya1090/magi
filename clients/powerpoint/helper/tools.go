@@ -252,6 +252,7 @@ func catalogue(hasCouncil bool) []tool {
 			Props: []property{
 				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color, bullet}. Only the fields you give are touched. bullet:false removes the layout's bullet glyphs."},
 				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields, including bullet."},
+				{Name: "ea_font", Type: "string", Desc: "East Asian typeface for Hangul/CJK text, e.g. \"본고딕\". ⚠ font (above) only sets the LATIN typeface — Office.js has no other door — so on a Korean deck the visible Hangul keeps the theme's face no matter how often you set font. This one writes the run property in the slide itself, which means the slide is REBUILT: it keeps its position but GETS A NEW ID, and the answer lists the old→new pairs."},
 				{Name: "all", Type: "object", Desc: "Same fields (including bullet), applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
 				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
 				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},

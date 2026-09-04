@@ -16,6 +16,7 @@ import {
 import {
   FIXABLE, fixLabel, freeFixKey, encodeFix, isFixKey, suggestionsOf,
 } from '../domain/Suggestion.js';
+import { withEastAsianFont, eastAsianRuns } from './eaxml.js';
 
 /**
  * 손을 Office.js 로 구현한다. **이 파일과 `OfficeDeck` 만 Office 를 안다.**
@@ -1369,14 +1370,81 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * **한글 서체는 다른 길로 간다.**
+   *
+   * `font.name` 은 라틴 서체만 바꾼다(Office.js). 한국어 덱에서는 그래서 글꼴을 몇 번을 걸어도
+   * 눈에 보이는 한글이 안 바뀐다 — 오늘 그 화면을 세 번 봤다(2026-09-04). 동아시아 서체는
+   * 슬라이드 XML 의 런 속성(`a:ea`)에 있고, 거기 쓰려면 장을 뜯어 고쳐 다시 넣어야 한다.
+   *
+   * **대가가 있다: 장이 다시 지어지므로 id 가 바뀐다.** `set_notes`·`replace_table` 과 같은
+   * 대가이고, 답에 그대로 적는다.
+   */
+  async #wearEastAsian(context, args, face) {
+    const got = await this.#unpack(context, args);
+    if (!got.slideName) {
+      throw new Error('이 장의 꾸러미에서 슬라이드 파일을 못 찾았습니다 — 한글 서체를 못 걸었습니다');
+    }
+    const dec = new TextDecoder();
+    const enc = new TextEncoder();
+    const at = got.files.find((f) => f.name === got.slideName);
+    const before = dec.decode(at.data);
+    const { xml, runs } = withEastAsianFont(before, face);
+    if (runs === 0) return { runs: 0, was: got.slide.id, now: got.slide.id };
+    at.data = enc.encode(xml);
+
+    const slides = context.presentation.slides;
+    slides.load('items/id');
+    await context.sync();
+    const had = slides.items.map((sl) => sl.id);
+    context.presentation.insertSlidesFromBase64(toBase64(zipStore(got.files)),
+      { targetSlideId: got.slide.id });
+    await context.sync();
+    slides.load('items/id');
+    await context.sync();
+    const fresh = slides.items.find((sl) => !had.includes(sl.id));
+    if (!fresh) {
+      // **새 장을 못 찾으면 옛 장을 안 지운다.** 지우고 나서 못 찾으면 그 장은 사라진 것이다.
+      throw new Error('한글 서체를 건 장을 덱에서 못 찾았습니다 — 옛 장은 그대로 두었습니다');
+    }
+    got.slide.delete();
+    await context.sync();
+    return { runs, was: got.slide.id, now: fresh.id, wrote: eastAsianRuns(xml, face) };
+  }
+
   #applyStyle(args) {
     return this.runner(async (context) => {
       const wantTitle = pickFont(args.title);
       const wantBody = pickFont(args.body);
       const wantAll = pickFont(args.all);
-      if (!wantTitle && !wantBody && !wantAll) {
+      // **한글 서체는 라틴 서체와 다른 자리에 있다.** 별도 인자로 받고, 별도 길로 간다.
+      const ko = String(args.ea_font ?? '').trim();
+      if (!wantTitle && !wantBody && !wantAll && !ko) {
         throw new Error('무엇을 바꿀지가 안 왔습니다 — title·body·all 중 하나에 '
-          + '{font, size, bold, italic, color} 를 주세요');
+          + '{font, size, bold, italic, color} 를, 또는 한글 서체는 ea_font 로 주세요');
+      }
+      if (ko) {
+        const slides = context.presentation.slides;
+        slides.load('items/id,items/index');
+        await context.sync();
+        const pick = pickSlides(slides.items, args);
+        if (pick.length === 0) {
+          throw new Error(`고른 장이 하나도 없습니다 — 이 덱은 ${slides.items.length} 장입니다`);
+        }
+        this.#mutated();
+        const moved = [];
+        let runs = 0;
+        for (const sl of pick) {
+          // **장마다 뜯어 고쳐 다시 넣는다.** 그래서 id 가 바뀐다 — 답에 그대로 적는다.
+          const got = await this.#wearEastAsian(context, { slide_id: sl.id }, ko);
+          runs += got.runs;
+          if (got.was !== got.now) moved.push(`${got.was} → ${got.now}`);
+        }
+        return this.#envelope(
+          { scope: 'ea', slides: pick.length, runs, ea_font: ko, moved },
+          [`장 ${pick.length}개의 런 ${runs}곳에 한글 서체 「${ko}」를 걸었습니다`,
+            '⚠ **id 가 바뀐 장이 있습니다** — 장을 다시 지어야 걸리는 서식입니다: ' + (moved.join(' · ') || '없음'),
+            '라틴 서체는 이 인자가 안 건드립니다 — title·body·all 의 font 로 따로 주세요']);
       }
       // **범위는 인자다.** `all` 이면 자리표시자를 넘어 글이 있는 도형 전부에 준다.
       if (wantAll) return this.#styleEveryShape(context, args, wantAll);

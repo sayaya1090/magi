@@ -11,6 +11,7 @@
 import { readFileSync } from 'node:fs';
 import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
+import { withEastAsianFont, eastAsianRuns } from '../src/adapter/eaxml.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
@@ -3859,6 +3860,32 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 한글 서체는 라틴과 다른 자리에 있다 ─────────────────────────────────────
+//
+// `font.name` 은 라틴 서체만 바꾼다. 한국어 덱에서는 그래서 글꼴을 몇 번을 걸어도 눈에 보이는
+// 한글이 안 바뀐다 — 오늘 그 화면을 세 번 봤다(2026-09-04: 되읽은 값이 latin=Arial,
+// hangul=맑은 고딕). 동아시아 서체는 슬라이드 XML 의 런 속성에 있다.
+{
+  const cases = [
+    ['<a:rPr lang="ko"/>', '자기 닫는 런도 연다'],
+    ['<a:rPr lang="ko"><a:latin typeface="Arial"/></a:rPr>', '라틴 바로 뒤에 둔다'],
+    ['<a:rPr><a:ea typeface="맑은 고딕"/></a:rPr>', '옛것을 갈아 끼운다'],
+    ['<a:endParaRPr lang="ko"/>', '빈 문단 끝도 본다'],
+  ];
+  for (const [xml, label] of cases) {
+    const got = withEastAsianFont(xml, '본고딕');
+    ok(label, eastAsianRuns(got.xml, '본고딕') === 1 && !got.xml.includes('맑은 고딕'), got.xml);
+  }
+  // **둘을 남기면 안 된다.** PowerPoint 는 앞의 것을 쓰므로, 남기면 아무 일도 안 일어난 것처럼 보인다.
+  const twice = withEastAsianFont(withEastAsianFont('<a:rPr/>', '가').xml, '나');
+  ok('두 번 걸어도 하나만 남는다',
+    (twice.xml.match(/<a:ea\b/g) ?? []).length === 1 && twice.xml.includes('나'), twice.xml);
+  // 이름이 비면 아무것도 안 한다 — 빈 서체를 박으면 그 런은 서체가 없는 상태가 된다.
+  ok('빈 이름은 안 건드린다', withEastAsianFont('<a:rPr/>', '  ').runs === 0);
+  // 따옴표가 든 이름이 속성을 깨지 않는다.
+  ok('이름을 감싼다', withEastAsianFont('<a:rPr/>', 'a"b').xml.includes('a&quot;b'));
+}
+
 // ── 만드는 문이 꾸미기도 받는다 ──────────────────────────────────────────────
 //
 // 이 문은 자리와 글만 받았고 서식은 `format_shape` 를 한 번 더 불러야 했다. 실물에서 모델은 그
