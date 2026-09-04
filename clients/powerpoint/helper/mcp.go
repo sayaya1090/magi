@@ -237,7 +237,20 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		args["path"] = img.Path
 		args["image_bytes"] = img.Bytes
 	}
-	res, err := s.Hand.Call(r.Context(), documentOf(args), name, args)
+	// **부르는 대화가 자기 덱을 안다.** 그 대화 몫으로 붙인 등록은 주소에 덱을 싣고 오므로,
+	// 인자에 `document` 가 없어도 어느 덱인지가 정해진다.
+	//
+	// 없으면 허브가 「덱이 둘이면 안 고른다」로 거절하고, 모델은 사람에게 되묻는다 — 실물에서
+	// 그 화면을 봤다(2026-09-05: 작업창에서 시킨 일인데 「어느 덱을 비울까요」를 물었다. 그
+	// 대화는 그 덱에 묶여 있었다). 물을 필요가 없는 것을 묻는 것은 사람의 시간을 쓰는 일이다.
+	//
+	// ⚠ 주소의 덱은 **인자보다 약하다.** 모델이 다른 덱을 대면 그쪽이 이긴다 — 한 대화에서 옆
+	// 덱을 읽는 일은 있고, 그때 우리가 이겨 버리면 그 부탁이 조용히 엉뚱한 덱에 간다.
+	where := documentOf(args)
+	if where == "" {
+		where = r.URL.Query().Get("deck")
+	}
+	res, err := s.Hand.Call(r.Context(), where, name, args)
 	// **읽기만 하는 조작은 한 번 더 보낸다.**
 	//
 	// 실물에서 본 것(2026-09-03): 첫 호출 둘이 45초씩 죽고, 셋째가 4초에 살아나고, 그 뒤로는
@@ -248,7 +261,7 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	// **쓰기는 안 보낸다.** 시간 초과는 「안 갔다」가 아니라 「답을 못 들었다」이므로, 다시
 	// 보내면 장이 둘 생기거나 글이 두 번 바뀔 수 있다. 읽기는 두 번 해도 같다.
 	if err != nil && isTimeout(err) && s.readOnly(name) {
-		res, err = s.Hand.Call(r.Context(), documentOf(args), name, args)
+		res, err = s.Hand.Call(r.Context(), where, name, args)
 	}
 	if err != nil {
 		return errorResult(err.Error())
