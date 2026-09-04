@@ -52,6 +52,11 @@ func (p *Pages) Handler() http.Handler {
 		//
 		// 캐시로 아낄 것이 없기도 하다 — 루프백이고, 파일은 한 줌이며, 창은 하루에 몇 번 뜬다.
 		w.Header().Set("Cache-Control", "no-store, must-revalidate")
+		// **마크는 그려서 낸다.** 파일서버보다 먼저 서는 것이 요점이다 — 뒤에 두면 디스크에
+		// 남아 있는 옛 파일이 이긴다. 그 옛 파일이 단색 네모였고, 리본에 그게 떴다.
+		if serveIcon(w, r) {
+			return
+		}
 		clean := r.URL.Path
 		if clean == "" || clean == "/" {
 			// 애드인의 진입점은 하나다. `/` 로 들어온 사람을 404 로 보내지 않는다.
