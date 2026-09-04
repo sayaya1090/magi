@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
 import { zipEntries, zipRead, zipReadBytes, fromBase64 } from '../src/adapter/zip.js';
@@ -3859,6 +3859,42 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 만드는 문이 꾸미기도 받는다 ──────────────────────────────────────────────
+//
+// 이 문은 자리와 글만 받았고 서식은 `format_shape` 를 한 번 더 불러야 했다. 실물에서 모델은 그
+// 둘을 하나로 쓰려 했다 — `add_shape{fill, color, bold, size, align}` 을 보냈고 세 번 거절당한
+// 뒤 그 도형을 포기했다(2026-09-04). `format_shape` 는 그대로 있다: 이미 있는 것을 고치는 일은
+// 만드는 문이 못 한다.
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('add_shape', {
+    slide: 1, kind: 'rectangle', text: '강조', left: 10, top: 10, width: 100, height: 40,
+    fill: '#E8000D', color: '#FFFFFF', bold: true, size: 18, bullet: false,
+  });
+  ok('만들면서 채운다', log.some((l) => l.startsWith('fill:')), log.join(' ').slice(0, 90));
+  ok('만들면서 불릿을 끈다', log.some((l) => l.startsWith('bullet:') && l.endsWith(':false')),
+    log.filter((l) => l.startsWith('bullet:')).join(' ') || '(안 씀)');
+  // **무엇을 꾸몄는지 답이 말한다.** 안 적으면 「만들었습니다」만 남고, 서식이 걸렸는지는 아무도
+  // 모른다 — 그 침묵이 이 저장소가 최악이라고 적어 둔 실패다.
+  ok('꾸민 것을 답에 적는다', (out.result?.styled ?? []).length >= 3,
+    JSON.stringify(out.result?.styled));
+}
+
+// ── 틀린 도형 이름에 가장 가까운 것을 짚어 준다 ──────────────────────────────
+//
+// 목록 60개를 주는 것만으로는 다음 시도가 나아지지 않는다. 실물에서 모델은
+// `rounded_rectangle` 을 보냈고(정본 `roundRectangle`) 목록을 받고도 그 도형을 포기했다.
+{
+  let why = '';
+  try { geometryOf('rounded_rectangle'); } catch (e) { why = e.message; }
+  ok('가까운 이름을 짚는다', why.includes('roundRectangle') && why.includes('혹시'), why.slice(0, 80));
+  // 아주 다른 말에는 안 짚는다 — 아무거나 짚으면 그 제안이 다음 오답이 된다.
+  let far = '';
+  try { geometryOf('우주선'); } catch (e) { far = e.message; }
+  ok('먼 이름에는 안 짚는다', !far.includes('혹시'), far.slice(0, 60));
+}
+
 // ── 글을 쓰는 그 자리에서 불릿을 정한다 ─────────────────────────────────────
 //
 // 레이아웃의 본문 자리표시자는 글머리 기호를 달고 나온다. 나중에 없애려면 도형마다 다시 불러야

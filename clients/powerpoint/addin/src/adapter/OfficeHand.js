@@ -1068,9 +1068,33 @@ export class OfficeHand extends HandPort {
         shape.textFrame.textRange.text = asParagraphs(args.text);
         await context.sync();
       }
+      // **만들면서 꾸민다.**
+      //
+      // 이 문은 자리와 글만 받았고 서식은 `format_shape` 를 한 번 더 불러야 했다. 실물에서
+      // 모델은 그 둘을 하나로 쓰려 했다 — `add_shape{fill, color, bold, size, align}` 을 보냈고
+      // 세 번 거절당한 뒤 그 도형을 포기했다(2026-09-04). 만드는 문이 받으면 그 왕복이 아예
+      // 안 생긴다. `format_shape` 는 그대로 있다 — **이미 있는 것을 고치는 일**은 여기서 못 한다.
+      const dressed = [];
+      try {
+        if (args.fill) { shape.fill.setSolidColor(String(args.fill).replace('#', '')); dressed.push(`채움 ${args.fill}`); }
+        if (args.line) { shape.lineFormat.color = String(args.line); dressed.push(`선 ${args.line}`); }
+      } catch { /* 이 도형은 그 칸을 안 받는다 — 글 서식은 아래에서 따로 본다 */ }
+      try {
+        const range = shape.textFrame.textRange;
+        const font = range.font;
+        if (args.font !== undefined) { font.name = String(args.font); dressed.push(`글꼴 ${args.font}`); }
+        if (args.size !== undefined) { font.size = Number(args.size); dressed.push(`${args.size}pt`); }
+        if (args.bold !== undefined) { font.bold = Boolean(args.bold); dressed.push(args.bold ? '굵게' : '보통'); }
+        if (args.italic !== undefined) { font.italic = Boolean(args.italic); dressed.push(args.italic ? '기울임' : '곧게'); }
+        if (args.color !== undefined) { font.color = String(args.color); dressed.push(`글자색 ${args.color}`); }
+        if (args.align !== undefined) { range.paragraphFormat.horizontalAlignment = String(args.align); dressed.push(`정렬 ${args.align}`); }
+        if (args.bullet !== undefined) { range.paragraphFormat.bulletFormat.visible = Boolean(args.bullet); dressed.push(args.bullet ? '글머리 기호' : '글머리 기호 없음'); }
+      } catch { /* 글칸이 없는 도형이다 — 만든 것은 이미 섰다 */ }
+      if (dressed.length) await context.sync();
       this.#mutated();
-      return this.#envelope({ slide_id: slide.id, shape_id: shape.id },
-        [`슬라이드 ${slide.id}: ${kind} 도형 ${shape.id} 추가${args.text ? `("${args.text}")` : ''}`]);
+      return this.#envelope({ slide_id: slide.id, shape_id: shape.id, styled: dressed },
+        [`슬라이드 ${slide.id}: ${kind} 도형 ${shape.id} 추가${args.text ? `("${args.text}")` : ''}`
+          + (dressed.length ? ` · ${dressed.join(' · ')}` : '')]);
     });
   }
 
@@ -3805,8 +3829,20 @@ export function geometryOf(kind) {
   // (별명은 `flowchartdata` 였다). 광고와 실행이 어긋나면 모델은 광고된 이름을 부르고 튕긴다.
   const got = GEOMETRY.get(key) ?? CANON.get(key);
   if (!got) {
-    // **있는 이름을 알려 준다** — 「모른다」만으로는 다음에 무엇을 부를지 모른다.
-    throw new Error(`${raw} 는 이 손이 아는 도형이 아닙니다 — 아는 것: ` + geometryNames().join(', '));
+    // **가장 가까운 것을 짚어 준다.**
+    //
+    // 목록 전체를 주는 것만으로는 다음 시도가 나아지지 않는다 — 실물에서 모델은
+    // `rounded_rectangle` 을 보냈고(정본은 `roundRectangle`), 목록 60개를 받고도 그 도형을
+    // 포기했다(2026-09-04). 사람이 쓰는 말과 Office 의 철자는 한 글자씩 어긋나고, 그 한 글자를
+    // 우리가 메울 수 있다.
+    const near = geometryNames().filter((n) => {
+      const flat = n.toLowerCase();
+      return flat.includes(key) || key.includes(flat)
+        || flat.startsWith(key.slice(0, 5)) || key.startsWith(flat.slice(0, 5));
+    }).slice(0, 5);
+    throw new Error(`${raw} 는 이 손이 아는 도형이 아닙니다`
+      + (near.length ? ` — 혹시 ${near.join(' · ')} 입니까?` : '')
+      + ' — 아는 것: ' + geometryNames().join(', '));
   }
   return got;
 }

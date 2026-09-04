@@ -321,6 +321,21 @@ func catalogue(hasCouncil bool) []tool {
 				property{Name: "top", Type: "number", Desc: "Top edge in points."},
 				property{Name: "width", Type: "number", Desc: "Width in points."},
 				property{Name: "height", Type: "number", Desc: "Height in points."},
+				// **만들면서 꾸민다.** 이 도구는 자리와 글만 받았고, 서식은 `format_shape` 를 한 번
+				// 더 불러야 했다. 실물에서 모델은 그 두 번을 한 번으로 쓰려 했다 — `add_shape` 에
+				// fill·color·bold·size·align 을 실어 보냈고 세 번 거절당한 뒤 포기했다
+				// (2026-09-04). 만드는 문이 그것을 받으면 그 왕복이 아예 안 생긴다.
+				//
+				// `format_shape` 는 그대로 있다 — **이미 있는 것을 고치는 일**은 만드는 문이 못 한다.
+				property{Name: "fill", Type: "string", Desc: "Fill colour as #RRGGBB. Omit for the shape's default; a textbox has none."},
+				property{Name: "line", Type: "string", Desc: "Outline colour as #RRGGBB."},
+				property{Name: "font", Type: "string", Desc: "Typeface for the text. ⚠ Latin only — Hangul and other East Asian text keeps the theme's font."},
+				property{Name: "size", Type: "number", Desc: "Text size in points."},
+				property{Name: "bold", Type: "boolean", Desc: "Bold text."},
+				property{Name: "italic", Type: "boolean", Desc: "Italic text."},
+				property{Name: "color", Type: "string", Desc: "Text colour as #RRGGBB."},
+				property{Name: "align", Type: "string", Desc: "Paragraph alignment: left, center, right or justify."},
+				property{Name: "bullet", Type: "boolean", Desc: "Show or hide the paragraph bullets."},
 			),
 		},
 		{
