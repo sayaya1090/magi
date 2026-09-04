@@ -743,6 +743,7 @@ const TOOL_LABELS = new Map(Object.entries({
   format_table_cells: '표 서식 바꾸기',
   set_deck_font: '덱 글꼴 바꾸기',
   probe_theme: '테마 실험',
+  render_shape: '도형만 그림으로',
   add_chart: '차트 넣기', add_image: '그림 넣기',
   // 배경·테마 (1.10 이 있는 호스트에서만 손이 광고한다)
   set_background: '배경색 칠하기', set_theme_colors: '테마 색 바꾸기',

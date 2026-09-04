@@ -81,7 +81,8 @@ export class OfficeHand extends HandPort {
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
       ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells'] : []),
-      'set_deck_font', 'probe_theme'];
+      'set_deck_font', 'probe_theme',
+      ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];
   }
 
   /**
@@ -291,6 +292,7 @@ export class OfficeHand extends HandPort {
       case 'format_table_cells': return this.#formatCells(args);
       case 'set_deck_font': return this.#deckFont(args);
       case 'probe_theme': return this.#probeTheme(args);
+      case 'render_shape': return this.#renderShape(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
       case 'advise':
@@ -1247,6 +1249,37 @@ export class OfficeHand extends HandPort {
     });
   }
 
+  /**
+   * **도형 하나만 그림으로**(1.10). `render_slide` 는 이 도구들 중 제일 비싼데, 확인하고 싶은
+   * 것이 차트 하나·표 하나인 경우가 많다 — 그때 장 전체를 뜨는 것은 값을 다섯 배 내고 답의
+   * 5분의 1을 보는 일이다.
+   */
+  #renderShape(args) {
+    return this.runner(async (context) => {
+      if (!this.supports('PowerPointApi', '1.10')) {
+        throw new Error('도형 하나만 뜨는 것은 PowerPointApi 1.10 이 필요한데 이 호스트에는 '
+          + '없습니다 — render_slide 로 장 전체를 보세요');
+      }
+      const slide = await this.#slide(context, args);
+      const shape = slide.shapes.getItem(String(args.shape_id));
+      const width = Math.max(80, Math.min(Number(args.max_width ?? 640), 4096));
+      let image;
+      try {
+        image = shape.getImageAsBase64({ width });
+        await context.sync();
+      } catch {
+        image = shape.getImageAsBase64();
+        await context.sync();
+      }
+      return this.#envelope({
+        slide_id: slide.id,
+        shape_id: String(args.shape_id),
+        image_base64: image.value,
+        bytes: String(image.value ?? '').length,
+      });
+    });
+  }
+
   #applyStyle(args) {
     return this.runner(async (context) => {
       const wantTitle = pickFont(args.title);
@@ -2094,10 +2127,27 @@ export class OfficeHand extends HandPort {
    * 들어가는데, 테마는 마스터의 것이라 한 장에서 바꾼 것이 어디까지 번지는지 **우리는 안 재
    * 봤다.** 그래서 결과에 그 사실을 적는다 — 모르는 것을 아는 척하지 않는다.
    */
+  /**
+   * **어느 층의 테마인가**(1.10). 셋 다 `themeColorScheme` 을 갖는다 — 장·레이아웃·마스터.
+   *
+   * 장 단위로만 바꾸던 시절 「이 바꿈이 어디까지 번지는가」를 못 재고 결과에 「모른다」를 적어
+   * 뒀다(2026-09-04). 층을 고를 수 있으면 그 물음이 사라진다 — **마스터에 주면 그 마스터를
+   * 쓰는 장 전부**이고, 그건 짐작이 아니라 층의 뜻이다.
+   */
+  #schemeAt(slide, scope) {
+    if (scope === 'master') return slide.slideMaster.themeColorScheme;
+    if (scope === 'layout') return slide.layout.themeColorScheme;
+    return slide.themeColorScheme;
+  }
+
   #setThemeColors(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
-      const scheme = slide.themeColorScheme;
+      const scope = String(args.scope ?? 'slide').toLowerCase();
+      if (!['slide', 'layout', 'master'].includes(scope)) {
+        throw new Error(`scope 는 slide·layout·master 중 하나입니다 — 받은 것: ${scope}`);
+      }
+      const scheme = this.#schemeAt(slide, scope);
       const names = ['dark1', 'dark2', 'light1', 'light2',
         'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
         'hyperlink', 'followedHyperlink'];
@@ -2117,9 +2167,13 @@ export class OfficeHand extends HandPort {
       }
       await context.sync();
       this.#mutated();
-      return this.#envelope({ slide_id: slide.id, set: set.length },
-        [`테마 색을 바꿨습니다: ${set.join(', ')}`,
-          '⚠ 테마는 덱이 공유합니다 — 이 바꿈이 다른 장에도 걸리는지는 안 재 봤습니다. 렌더로 확인하세요']);
+      return this.#envelope({ slide_id: slide.id, scope, set: set.length },
+        [`${scope} 층의 테마 색을 바꿨습니다: ${set.join(', ')}`,
+          scope === 'master'
+            ? '이 마스터를 쓰는 장 전부에 걸립니다'
+            : scope === 'layout'
+              ? '이 레이아웃을 쓰는 장에 걸립니다 — 덱 전체를 바꾸려면 scope:"master" 로 부르세요'
+              : '이 장에 걸립니다 — 덱 전체를 바꾸려면 scope:"master" 로 부르세요']);
     });
   }
 
@@ -2127,7 +2181,8 @@ export class OfficeHand extends HandPort {
   #readThemeColors(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
-      const scheme = slide.themeColorScheme;
+      const scope = String(args.scope ?? 'slide').toLowerCase();
+      const scheme = this.#schemeAt(slide, scope);
       const names = ['dark1', 'dark2', 'light1', 'light2',
         'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
         'hyperlink', 'followedHyperlink'];
@@ -2135,7 +2190,7 @@ export class OfficeHand extends HandPort {
       await context.sync();
       const out = {};
       names.forEach((n, i) => { out[n] = got[i]?.value ?? null; });
-      return this.#envelope({ slide_id: slide.id, theme: out });
+      return this.#envelope({ slide_id: slide.id, scope, theme: out });
     });
   }
 

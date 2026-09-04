@@ -395,6 +395,18 @@ func catalogue(hasCouncil bool) []tool {
 			),
 		},
 		{
+			Name: "render_shape",
+			Desc: "A picture of ONE shape. render_slide is the most expensive tool here and most checks are " +
+				"about a single chart or table — drawing the whole slide for that costs five times as much and " +
+				"answers a fifth as much. Needs PowerPointApi 1.10; where it is missing, use render_slide." + declare,
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The shape to draw."},
+				property{Name: "max_width", Type: "number", Desc: "Width in pixels, 80 to 4096. Default 640."},
+			),
+			Required: []string{"shape_id"},
+			ReadOnly: true,
+		},
+		{
 			Name: "set_deck_font",
 			Desc: "Put every piece of text in the deck on one font family — placeholders and the plain text " +
 				"boxes alike. apply_style picks shapes by placeholder ROLE, which is what makes it deck-" +
@@ -463,11 +475,13 @@ func catalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "read_theme_colors",
-			Desc: "The deck's twelve theme colours as they are now: dark1/dark2, light1/light2, accent1-6, " +
+			Desc: "The twelve theme colours of a layer as they are now: dark1/dark2, light1/light2, accent1-6, " +
 				"hyperlink, followedHyperlink. Read this before set_theme_colors — changing a theme colour " +
 				"repaints every shape that inherits it, so knowing what is there is how you know what you are " +
 				"about to change." + declare,
-			Props:    withSlide(),
+			Props: withSlide(
+				property{Name: "scope", Type: "string", Desc: "slide (default), layout or master — read the same layer you mean to change."},
+			),
 			ReadOnly: true,
 		},
 		{
@@ -478,6 +492,7 @@ func catalogue(hasCouncil bool) []tool {
 				"through a slide but belongs to the deck, and how far one change carries has NOT been measured " +
 				"here: render a slide afterwards and look." + declare,
 			Props: withSlide(
+				property{Name: "scope", Type: "string", Desc: "Which layer to change: slide (default), layout, or master. master reaches every slide that uses that master — this is how a deck is restyled; slide reaches only this one."},
 				property{Name: "colors", Type: "object", Desc: "Names to #RRGGBB, e.g. {\"accent1\": \"#1F4E79\"}. Names: dark1, dark2, light1, light2, accent1-accent6, hyperlink, followedHyperlink. Only the ones you give are touched."},
 			),
 			Required: []string{"colors"},

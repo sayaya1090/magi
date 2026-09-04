@@ -3128,6 +3128,28 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('없다고 적지 않는다', !/되돌리는 문이 Office\.js 에 없습니다/.test(h));
   }
 
+  // ── 테마는 **층**을 골라 바꾼다 ─────────────────────────────
+  //
+  // 장 단위로만 바꾸던 시절 「이 바꿈이 어디까지 번지는가」를 못 재고 결과에 「모른다」를 적어
+  // 뒀다. 층을 고를 수 있으면 그 물음이 사라진다 — 마스터에 주면 그 마스터를 쓰는 장 전부이고,
+  // 그건 짐작이 아니라 층의 뜻이다.
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    ok('층 셋을 다 고를 수 있다',
+      /slideMaster\.themeColorScheme/.test(h) && /slide\.layout\.themeColorScheme/.test(h)
+      && /return slide\.themeColorScheme/.test(h));
+    ok('모르는 층은 거절한다', /scope 는 slide·layout·master 중 하나입니다/.test(h));
+    // 읽는 쪽도 같은 층을 읽어야 한다 — 다른 층을 읽고 바꾸면 「안 바뀌었다」로 보인다.
+    ok('읽기도 층을 고른다', /read_theme_colors[\s\S]{0,600}Name: "scope"/.test(t));
+    // **「모른다」를 더 안 적는다.** 층이 답하므로 그 문장은 이제 거짓이다.
+    ok('번짐을 모른다고 안 적는다', !/다른 장에도 걸리는지는 안 재 봤습니다/.test(h));
+    // 도형 하나만 뜨는 길 — render_slide 는 이 도구들 중 제일 비싸다.
+    ok('도형만 뜨는 길이 있다', /shape\.getImageAsBase64\(/.test(h));
+    ok('없는 호스트엔 사유를 준다', /도형 하나만 뜨는 것은 PowerPointApi 1\.10/.test(h));
+    ok('읽기 전용으로 광고한다', /Name: "render_shape"[\s\S]{0,700}ReadOnly: true/.test(t));
+  }
+
   // ── 글머리 기호 ─────────────────────────────────────────────
   //
   // 오래 「못 하는 것」으로 알고 있었는데 안 찾아본 것이었다. `bulletFormat.visible` 은 **1.4** 라
