@@ -60,7 +60,9 @@ async function boot() {
   const boot = (typeof window !== 'undefined' && window.MAGI) ? window.MAGI : null;
   const real = Boolean(boot?.token);
 
-  const api = real ? new HelperApi({ token: boot.token }) : null;
+  const api = real
+    ? new HelperApi({ token: boot.token, deck: boot.presentation ?? '' })
+    : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   const helperStream = real
     ? new HelperStream({ token: boot.token, presentation: boot.presentation ?? '', label: boot.label ?? '' }).open()

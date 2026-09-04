@@ -7,15 +7,22 @@
  * 안 본다(헬퍼의 `TestTheAddinDoesNotWriteTheOriginDown` 이 그것을 매 빌드에서 막는다).
  */
 export class HelperApi {
-  constructor({ token, origin, fetchImpl } = {}) {
+  constructor({ token, origin, fetchImpl, deck = '' } = {}) {
     this.token = token ?? '';
+    // **어느 덱의 말인가.** 헬퍼는 프로세스 하나로 창 여럿을 받으므로, 이 이름이 없으면 두
+    // 창이 한 대화를 나눠 갖는다 — 실물에서 그 화면을 봤다(2026-09-04: PowerPoint 를 둘 띄웠더니
+    // 양쪽 작업창에 같은 말이 흘렀다). 손 스트림은 이미 이 이름으로 갈라져 있었다.
+    this.deck = deck ?? '';
     this.origin = origin ?? (typeof location === 'undefined' ? '' : location.origin);
     this.fetch = fetchImpl ?? (typeof fetch === 'undefined' ? null : fetch.bind(globalThis));
   }
 
   async #send(path, { method = 'POST', body } = {}) {
     if (!this.fetch) throw new Error('이 환경에는 fetch 가 없다');
-    const res = await this.fetch(`${this.origin}${path}`, {
+    const at = this.deck
+      ? `${path}${path.includes('?') ? '&' : '?'}deck=${encodeURIComponent(this.deck)}`
+      : path;
+    const res = await this.fetch(`${this.origin}${at}`, {
       method,
       headers: {
         'Content-Type': 'application/json',

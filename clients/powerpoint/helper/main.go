@@ -108,12 +108,16 @@ func run(args []string, out, log io.Writer) int {
 	}
 
 	hub := NewHandHub()
-	bridge := NewBridge()
+	bridges := NewBridges()
+	// 열쇠 없는 덱의 대화. 이름을 안 실어 보내는 길이 그리로 간다.
+	bridge := bridges.For("")
 	attachments := NewAttachments()
 	mux := http.NewServeMux()
 
-	handHTTP := &HandHTTP{Hub: hub, Token: token, Feed: func(string) <-chan StreamFrame {
-		ch, _ := bridge.Subscribe()
+	// **창마다 자기 덱의 대화를 듣는다.** 이 자리는 열쇠를 받고도 버리고 있었고, 그래서
+	// PowerPoint 창을 둘 띄우면 양쪽 작업창에 같은 말이 흘렀다(2026-09-04 사용자 제보).
+	handHTTP := &HandHTTP{Hub: hub, Token: token, Feed: func(deck string) <-chan StreamFrame {
+		ch, _ := bridges.For(deck).Subscribe()
 		return ch
 	}}
 	mux.Handle("/mcp", &MCPServer{Hand: hub, Token: token, Council: func() bool {
@@ -130,7 +134,7 @@ func run(args []string, out, log io.Writer) int {
 	mux.HandleFunc(handReplyPath, handHTTP.Reply)
 
 	api := &API{
-		Bridge: bridge, Attachments: attachments, Hub: hub,
+		Bridge: bridge, Bridges: bridges, Attachments: attachments, Hub: hub,
 		Token: token, ConfigDir: dir, Port: *port,
 		Own:  &OwnCompanion{ConfigDir: dir},
 		Work: NewOwnWork(),
@@ -209,7 +213,11 @@ type API struct {
 	mu       sync.Mutex
 	hostCaps map[string]any
 
-	Bridge      *Bridge
+	// Bridge 는 **열쇠 없는 덱**의 대화다. 창이 자기 이름을 아직 안 실어 보내는 길(옛 판본의
+	// 작업창·시험)이 그리로 간다. 이름이 오면 `Bridges` 에서 그 덱의 것을 고른다.
+	Bridge *Bridge
+	// Bridges 는 **덱 하나에 대화 하나**(bridges.go). 두 창이 한 스트림을 듣던 결함을 여기서 막는다.
+	Bridges     *Bridges
 	Attachments *Attachments
 	Hub         *HandHub
 	Token       string
@@ -268,6 +276,28 @@ func (a *API) Route(mux *http.ServeMux) {
 // guard 는 **한 자리에서** 루프백과 토큰을 본다. 핸들러마다 적으면 하나를 빠뜨리는 날이 오고,
 // 그 하나가 무엇이었는지는 아무도 모른다 — 콘솔이 같은 이유로 라우트 표를 하나 두고 시험이
 // 핸들러 목록을 훑는다(SECURITY.md §4).
+// deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
+// `presentation` 으로 갈라 놓은 그 이름이다.
+func deckOf(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	return r.URL.Query().Get("deck")
+}
+
+// chat 은 이 요청이 말할 대화. **등록부가 없으면 옛 하나로 떨어진다** — 시험과 옛 창이 그 길로
+// 돈다. 있으면 덱마다 갈린다.
+func (a *API) chat(r *http.Request) *Bridge {
+	if a.Bridges == nil {
+		return a.Bridge
+	}
+	key := deckOf(r)
+	if key == "" {
+		return a.Bridge
+	}
+	return a.Bridges.For(key)
+}
+
 func (a *API) guard(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !loopbackOnly(w, r) {
@@ -284,7 +314,7 @@ func (a *API) guard(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc
 	}
 }
 
-func (a *API) companions(w http.ResponseWriter, _ *http.Request) {
+func (a *API) companions(w http.ResponseWriter, r *http.Request) {
 	fleet, err := a.Attachments.Fleet(a.ConfigDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -298,7 +328,7 @@ func (a *API) companions(w http.ResponseWriter, _ *http.Request) {
 			"why":        c.Why(),
 		})
 	}
-	socket, sid, live := a.Bridge.Bound()
+	socket, sid, live := a.chat(r).Bound()
 	writeJSON(w, map[string]any{
 		"companions": rows,
 		"bound":      map[string]any{"socket": socket, "session": sid, "streamLive": live},
@@ -319,7 +349,7 @@ func (a *API) companions(w http.ResponseWriter, _ *http.Request) {
 // 실패를 **한 문장으로 뭉치지 않는다.** 「magi 를 못 찾았다」와 「띄웠는데 안 선다」와 「떴는데
 // 도구를 못 받는 빌드다」는 사람이 할 일이 각각 다르고, 답에 자리(소켓·워크스페이스·로그)를 실어
 // 두는 것이 유일하게 행동으로 옮길 수 있는 말이다.
-func (a *API) own(w http.ResponseWriter, _ *http.Request) {
+func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	if a.Own == nil || a.Work == nil {
 		http.Error(w, "이 헬퍼는 자기 컴패니언을 마련하도록 세워지지 않았습니다", http.StatusNotImplemented)
 		return
@@ -492,8 +522,8 @@ func (a *API) instructions(w http.ResponseWriter, r *http.Request) {
 // 유일하게 아는 복구 수단**이고, 그 단추가 없으면 이상해진 판 앞에서 할 수 있는 일이 없다.
 //
 // **덱은 안 건드린다.** 지우는 것은 대화뿐이고, 슬라이드는 그대로다 — 답이 그렇게 적는다.
-func (a *API) fresh(w http.ResponseWriter, _ *http.Request) {
-	socket, _, _ := a.Bridge.Bound()
+func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
+	socket, _, _ := a.chat(r).Bound()
 	if socket == "" {
 		writeStatus(w, http.StatusConflict, map[string]any{
 			"error": "아직 아무 컴패니언에도 안 붙어 있어서 새 대화를 열 자리가 없습니다",
@@ -509,7 +539,7 @@ func (a *API) fresh(w http.ResponseWriter, _ *http.Request) {
 	// 남의 것으로 걸러진다 — 실물에서 그 화면을 봤던 자리다(§5.7).
 	out := map[string]any{"session": sid, "socket": socket,
 		"note": "새 대화를 열었습니다. 슬라이드는 그대로입니다 — 지운 것은 대화뿐입니다."}
-	if err := a.Bridge.Bind(socket, sid); err != nil {
+	if err := a.chat(r).Bind(socket, sid); err != nil {
 		out["chat"] = err.Error()
 	}
 	// 마련해 둔 기록도 새 이름으로 고친다. 안 고치면 다음 `/api/own` 이 옛 이름을 도로 물린다.
@@ -635,13 +665,32 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	tools, err := a.Attachments.Attach(in.Socket, MCPURL(a.Port), a.Token)
+	// **주입 자리를 지나간다.** 이 한 줄만 `Attachments` 를 직접 불렀고, 그래서 이 핸들러의
+	// 갈래는 실물 소켓 없이는 못 쟀다 — 못 재는 갈래는 안 만든 것과 같다(TESTING §1). 다른
+	// 부착 자리(`makeOwn`)는 이미 `boltOf` 를 지난다.
+	tools, err := a.boltOf(in.Socket, MCPURL(a.Port), a.Token)
 	if err != nil {
 		// **끝내 못 붙으면 말한다**(§5.3). 조용히 넘어가면 화면이 「할 일 없음」처럼 보인다.
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	bindErr := a.Bridge.Bind(in.Socket, in.Session)
+	// **한 세션에 두 덱이 붙으면 갈라 놓은 뜻이 없어진다.** 다른 창이 이미 그 대화를 들고 있으면
+	// 같은 데몬에 **새 대화**를 연다 — 사람이 명단에서 고른 것은 「저 컴패니언」이지 「저 대화」가
+	// 아니다. 못 열면 그때는 사실대로 거절한다: 몰래 같은 대화에 밀어 넣으면 두 창이 다시 한
+	// 줄이 되고, 그 증상이 바로 이 결함이다.
+	session := in.Session
+	if a.Bridges != nil && deckOf(r) != "" {
+		if who, taken := a.Bridges.Holder(session); taken && who != deckOf(r) {
+			fresh, err := a.freshOn(in.Socket)
+			if err != nil {
+				http.Error(w, "그 대화는 다른 덱이 쓰고 있고, 이 덱에 새 대화를 여는 데 "+
+					"실패했습니다: "+err.Error(), http.StatusConflict)
+				return
+			}
+			session = fresh
+		}
+	}
+	bindErr := a.chat(r).Bind(in.Socket, session)
 	out := map[string]any{"tools": tools}
 	if bindErr != nil {
 		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).
@@ -710,8 +759,8 @@ func (a *API) guide(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *API) submit(w http.ResponseWriter, r *http.Request) { a.say(w, r, a.Bridge.Submit) }
-func (a *API) steer(w http.ResponseWriter, r *http.Request)  { a.say(w, r, a.Bridge.Steer) }
+func (a *API) submit(w http.ResponseWriter, r *http.Request) { a.say(w, r, a.chat(r).Submit) }
+func (a *API) steer(w http.ResponseWriter, r *http.Request)  { a.say(w, r, a.chat(r).Steer) }
 
 func (a *API) say(w http.ResponseWriter, r *http.Request, fn func(string) error) {
 	var in struct {
@@ -732,8 +781,8 @@ func (a *API) say(w http.ResponseWriter, r *http.Request, fn func(string) error)
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (a *API) interrupt(w http.ResponseWriter, _ *http.Request) {
-	if err := a.Bridge.Interrupt(); err != nil {
+func (a *API) interrupt(w http.ResponseWriter, r *http.Request) {
+	if err := a.chat(r).Interrupt(); err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -763,8 +812,8 @@ func (a *API) caps(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-func (a *API) status(w http.ResponseWriter, _ *http.Request) {
-	st, err := a.Bridge.Status()
+func (a *API) status(w http.ResponseWriter, r *http.Request) {
+	st, err := a.chat(r).Status()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -774,7 +823,7 @@ func (a *API) status(w http.ResponseWriter, _ *http.Request) {
 	// 우리 MCP 등록은 죽은 프로세스와 같이 사라졌고, 이 창이 붙들고 있는 대화 이름도 남의
 	// 생애의 것이다. 실물에서 그 화면을 봤다(2026-09-01): 창은 「대화 연결됨」이라고 적었고,
 	// 모델에게는 덱 도구가 하나도 없었다.
-	if socket, _, _ := a.Bridge.Bound(); socket != "" {
+	if socket, _, _ := a.chat(r).Bound(); socket != "" {
 		st["stale"] = !a.Attachments.HasLive(socket, publishedLife(socket))
 	}
 	// **안 잰 것과 「못 한다」를 가른다.** 창이 아직 안 보냈으면 이 칸은 아예 없다 — 빈 목록을
@@ -806,7 +855,7 @@ func (a *API) permission(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := a.Bridge.AnswerPermission(in.CallID, in.Decision); err != nil {
+	if err := a.chat(r).AnswerPermission(in.CallID, in.Decision); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -821,7 +870,7 @@ func (a *API) question(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &in) {
 		return
 	}
-	if err := a.Bridge.AnswerQuestion(in.CallID, in.Text); err != nil {
+	if err := a.chat(r).AnswerQuestion(in.CallID, in.Text); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
