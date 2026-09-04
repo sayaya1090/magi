@@ -467,13 +467,28 @@ async function boot() {
         // **아이콘 단추.** 글자 셋이 한 줄에 서면 348px 에서 이름이 잘린다. 다만 아이콘만
         // 두는 대가가 있어서 셋을 같이 단다: 툴팁(동작을 적는다) · `aria-label`(낭독기) ·
         // 그리고 켜짐은 글리프와 굵기 **두 속성**으로 말한다(M3).
+        /**
+         * **스위치다 — 아이콘 단추가 아니다.**
+         *
+         * M3 가 셋을 갈라 두는 기준이 명시적이다: 체크박스는 목록에서 여럿, 라디오는 하나,
+         * **스위치는 독립적인 설정**. 가이드는 서로 무관하고 하나씩 켜고 꺼지며 저장 없이
+         * 즉시 먹으므로 스위치가 그 자리다. 앞 판본의 `◉`/`○` 는 읽는 사람에게 라디오의
+         * 모양이라 「이 중 하나만」으로 읽혔다.
+         *
+         * `<button role="switch">` 인 것은 **키보드를 공짜로 얻으려는 것**이다 — M3 가 요구하는
+         * Space·Enter 가 네이티브 단추의 기본 동작이다. 상태는 `aria-checked` 로 말한다
+         * (`aria-pressed` 가 아니다: 그건 눌린 단추이고, 이건 켜진 설정이다).
+         */
         const toggle = document.createElement('button');
         toggle.type = 'button';
-        toggle.className = 'icon-btn' + (row.enabled ? ' icon-on' : '');
-        toggle.append(icon(row.enabled ? 'i-on' : 'i-off'));
+        toggle.className = 'switch' + (row.enabled ? ' on' : '');
+        toggle.setAttribute('role', 'switch');
+        const handle = document.createElement('span');
+        handle.className = 'switch-handle';
+        toggle.append(handle);
         toggle.title = row.toggleTip;
         toggle.setAttribute('aria-label', row.toggleTip);
-        toggle.setAttribute('aria-pressed', row.enabled ? 'true' : 'false');
+        toggle.setAttribute('aria-checked', row.enabled ? 'true' : 'false');
         toggle.addEventListener('click', () => void (async () => {
           try {
             await api.guide(row.enabled ? 'disable' : 'enable', row.name);

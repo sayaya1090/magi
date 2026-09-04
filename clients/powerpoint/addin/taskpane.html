@@ -46,8 +46,6 @@
       <g id="i-close"><path d="M4 4l8 8M12 4l-8 8"/></g>
       <g id="i-send"><path d="M3 13l10-5L3 3l2 5z"/></g>
       <g id="i-quote"><path d="M7 4H4v3"/><path d="M9 12h3V9"/></g>
-      <g id="i-on"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/></g>
-      <g id="i-off"><circle cx="8" cy="8" r="4.5"/></g>
       <g id="i-edit"><path d="M11 3l2 2-7 7-3 1 1-3z"/></g>
       <g id="i-more"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></g>
       <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
@@ -233,22 +231,6 @@
       목록 자체는 접어 둔다. 늘 보이는 것은 **진척과 지금 하는 것 한 줄**이고, 그 둘이 이 판이
       답해야 하는 전부다.
     -->
-    <!--
-      **가끔 쓰는 넷.** 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언 바꾸기.
-
-      이 줄은 **스크롤 영역 밖**이다. 안에 있던 시절엔 맨 위에 붙어 있어서, 누르려면 대화를
-      끝까지 거슬러 올라가야 했다 — 대화가 길수록 멀어지는 단추였다(2026-09-04에 지적받았다).
-
-      그렇다고 늘 펴 두지는 않는다. 348×391 에서 이 줄은 48px 이고 그건 대화에서 빼 오는 것이다.
-      **아래 브랜드 줄의 `⋯` 가 이걸 편다** — 그 줄은 이미 고정이고 글자만 있어서, 손잡이 하나를
-      더 놓는 데 드는 자리가 32px 뿐이다. 접혀 있으면 이 줄은 0px 다.
-    -->
-    <div id="advanced" class="advanced" hidden>
-      <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 슬라이드는 그대로입니다" aria-label="새 대화를 시작합니다 — 슬라이드는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
-      <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
-      <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
-      <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
-    </div>
 
     <details id="plan" class="plan" hidden>
       <summary id="plan-summary"></summary>
@@ -279,6 +261,27 @@
         <button type="button" id="send" class="icon-btn icon-primary" title="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다" aria-label="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-send"/></svg></button>
       </div>
     </div><!-- /composer -->
+
+    <!--
+      **가끔 쓰는 넷.** 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언 바꾸기.
+
+      이 줄은 **스크롤 영역 밖**이다. 안에 있던 시절엔 맨 위에 붙어 있어서, 누르려면 대화를
+      끝까지 거슬러 올라가야 했다 — 대화가 길수록 멀어지는 단추였다(2026-09-04에 지적받았다).
+
+      그렇다고 늘 펴 두지는 않는다. 348×391 에서 이 줄은 48px 이고 그건 대화에서 빼 오는 것이다.
+      **아래 브랜드 줄의 `⋯` 가 이걸 편다** — 그 줄은 이미 고정이고 글자만 있어서, 손잡이 하나를
+      더 놓는 데 드는 자리가 32px 뿐이다. 접혀 있으면 이 줄은 0px 다.
+
+      **그래서 자리가 그 손잡이 바로 위다.** 처음엔 컴포저 위에 뒀는데, 그러면 누른 자리와
+      열리는 자리 사이에 컴포저와 계획 판이 통째로 끼어서 무엇이 열렸는지 눈이 못 따라갔다.
+      펴지는 것은 편 손 옆에 서야 한다.
+    -->
+    <div id="advanced" class="advanced" hidden>
+      <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 슬라이드는 그대로입니다" aria-label="새 대화를 시작합니다 — 슬라이드는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
+      <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
+      <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
+      <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+    </div>
 
     <!--
       브랜드 줄. MS 지침이 작업창 아래에 두라고 적은 자리다(Outlook 만 예외). 여기서는 그

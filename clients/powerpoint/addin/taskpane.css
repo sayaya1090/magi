@@ -660,8 +660,43 @@ button:disabled { cursor: default; opacity: .5; }
 .icon-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); color: var(--fg); }
 .icon-btn:active { background: color-mix(in srgb, currentColor 12%, transparent); }
 .icon-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
-/* 켜짐은 **색 하나로 말하지 않는다** — 글리프(◉/○)와 굵기 둘이다(M3). */
+/* 켜짐은 **색 하나로 말하지 않는다** — 글리프와 굵기 둘이다(M3). */
 .icon-on { color: var(--fg); }
+
+/*
+  ── 스위치 ─────────────────────────────────────────────────
+  **값은 M3 스펙에서 그대로 옮겼다**(`.claude/skills/material-3/guide-specs.md` 의 Switch):
+  트랙 **32×52** · 외곽선 **2** · 모서리 **Full** · 핸들 비선택 **16** / 선택 **24** /
+  눌림 **28** · 스테이트 레이어 **40** · 포커스 **3 @ 2**.
+
+  **핸들이 커지는 것이 요점이다.** 16 → 24 는 장식이 아니라 **색 말고 다른 한 속성**이다 —
+  M3 접근성 문서가 스위치에 대해 이름 대어 요구하는 신호가 그것이고(`핸들 크기 증가`),
+  자리(왼쪽/오른쪽)와 합쳐 둘이 된다.
+
+  ⚠ **트랙 안에 글자를 넣지 않는다** — 그 크기의 폰트는 접근성 미달이라고 같은 문서가 적는다.
+*/
+.switch {
+  width: 52px; height: 32px; flex: none; padding: 0;
+  position: relative; display: inline-flex; align-items: center;
+  box-sizing: border-box;
+  border: 2px solid var(--line); border-radius: 9999px;
+  background: var(--bg-sub); cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+/* 타겟 48 — 32 짜리 트랙 밖으로 8 씩. 그림은 안 커지고 누를 자리만 커진다. */
+.switch::before { content: ''; position: absolute; inset: -8px; }
+.switch-handle {
+  position: absolute; left: 6px;
+  width: 16px; height: 16px; border-radius: 9999px;
+  background: var(--muted);
+  transition: width .12s ease, height .12s ease, left .12s ease, background .12s ease;
+}
+.switch.on { background: var(--accent, #1F4E79); border-color: var(--accent, #1F4E79); }
+/* 선택되면 핸들이 **커지고**(16 → 24) 자리를 옮긴다. 둘 다 색이 아니다. */
+.switch.on .switch-handle { width: 24px; height: 24px; left: 22px; background: #fff; }
+.switch:active .switch-handle { width: 28px; height: 28px; }
+.switch.on:active .switch-handle { left: 20px; }
+.switch:focus-visible { outline: 3px solid var(--accent, #1F4E79); outline-offset: 2px; }
 .icon-danger:hover { color: #B3261E; }
 
 /* 도구 줄의 접힘. 머리 자체가 손잡이라 접혀 있을 때 드는 자리가 0줄이다. */

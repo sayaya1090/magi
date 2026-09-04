@@ -3012,6 +3012,12 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('넷은 스크롤 밖이다',
     html.indexOf('id="advanced"') > html.indexOf('/#scroll'),
     `advanced=${html.indexOf('id="advanced"')} scroll끝=${html.indexOf('/#scroll')}`);
+  // **펴지는 것은 편 손 옆에 선다.** 컴포저 위에 뒀더니 누른 자리와 열리는 자리 사이에 컴포저와
+  // 계획 판이 통째로 끼어서 무엇이 열렸는지 눈이 못 따라갔다 — 손잡이 바로 위가 그 자리다.
+  ok('펴지는 줄이 손잡이 바로 위다',
+    html.indexOf('id="advanced"') > html.indexOf('class="composer"')
+    && html.indexOf('id="advanced"') < html.indexOf('<footer class="brand">'),
+    `composer=${html.indexOf('class="composer"')} advanced=${html.indexOf('id="advanced"')} footer=${html.indexOf('<footer class="brand">')}`);
   // 그렇다고 늘 펴 두지는 않는다 — 48px 는 대화에서 빼 오는 것이다. 손잡이는 **이미 고정이고
   // 글자만 있던 줄**에 얹는다.
   ok('손잡이는 브랜드 줄에 있다',
@@ -3029,6 +3035,44 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('아래에서 연 판을 데려온다',
       /rulesPanel\.hidden = false;[\s\S]{0,200}view\.reveal\(rulesPanel\)/.test(m)
       && /gPanel\.hidden = false;[\s\S]{0,120}view\.reveal\(gPanel\)/.test(m));
+  }
+
+  // ── 켜고 끄는 것은 **스위치**다 ──────────────────────────────
+  //
+  // M3 가 셋을 갈라 두는 기준이 명시적이다: 체크박스는 목록에서 여럿, 라디오는 하나,
+  // **스위치는 독립적인 설정**. 가이드는 서로 무관하고 하나씩, 저장 없이 즉시 먹는다.
+  // 앞 판본의 `◉`/`○` 는 읽는 사람에게 라디오의 모양이라 「이 중 하나만」으로 읽혔다.
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    ok('가이드 토글이 스위치다', /toggle\.setAttribute\('role', 'switch'\)/.test(m));
+    // 켜진 **설정**이지 눌린 **단추**가 아니다 — 낭독기에게 그 둘은 다른 말이다.
+    ok('상태를 aria-checked 로 말한다', /toggle\.setAttribute\('aria-checked'/.test(m));
+    ok('눌린 단추라고 말하지 않는다', !/toggle\.setAttribute\('aria-pressed'/.test(m));
+    // 네이티브 단추라야 Space·Enter 가 공짜다(M3 가 스위치에 요구하는 키 경로).
+    ok('키보드가 공짜인 자리에 얹는다', /const toggle = document\.createElement\('button'\)/.test(m));
+    ok('라디오 글리프를 더 안 그린다', !/i-on|i-off/.test(html));
+  }
+  {
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    const sw = /\.switch \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    ok('스위치 규칙을 찾았다', sw !== '');
+    // 값은 스펙에서 그대로 옮긴 것이다 — 트랙 32×52, 외곽선 2, 모서리 Full.
+    ok('트랙이 52×32 다', /width:\s*52px/.test(sw) && /height:\s*32px/.test(sw), sw.trim());
+    ok('외곽선이 2 다', /border:\s*2px/.test(sw), sw.trim());
+    ok('모서리가 Full 이다', /border-radius:\s*9999px/.test(sw), sw.trim());
+    // 32 짜리 트랙 밖으로 8 씩 — 타겟 48. 아이콘 단추와 같은 규칙이다.
+    ok('타겟이 48 이다', /\.switch::before \{[^}]*inset:\s*-8px/.test(paneCss));
+    // **핸들이 커지는 것**이 색 말고 다른 한 속성이다 — M3 접근성 문서가 스위치에 대해 이름
+    // 대어 요구하는 신호가 그것이고, 자리(왼쪽/오른쪽)와 합쳐 둘이 된다.
+    const off = /\.switch-handle \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    const on = /\.switch\.on \.switch-handle \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+    ok('핸들 규칙 둘을 찾았다', off !== '' && on !== '');
+    ok('꺼짐 핸들이 16 이다', /width:\s*16px/.test(off), off.trim());
+    ok('켜짐 핸들이 24 로 커진다', /width:\s*24px/.test(on), on.trim());
+    ok('눌리면 28 이다', /\.switch:active \.switch-handle \{[^}]*width:\s*28px/.test(paneCss));
+    ok('자리도 같이 옮긴다', /left:\s*22px/.test(on), on.trim());
+    // ⚠ 트랙 안에 글자를 넣지 않는다 — 그 크기의 폰트는 접근성 미달이라고 같은 문서가 적는다.
+    ok('트랙에 글자를 안 넣는다', !/switch-handle[\s\S]{0,200}textContent/.test(readFileSync(new URL('../src/main.js', import.meta.url), 'utf8')));
   }
 
   // ── 이름을 두 번 안 적는다 ───────────────────────────────────

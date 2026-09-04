@@ -524,10 +524,17 @@ export function guideBoard(state) {
       descMissing: !g.description,
       enabled: Boolean(g.enabled),
       toggleText: g.enabled ? '켜짐' : '꺼짐',
-      // 아이콘 단추 셋. **툴팁은 동작을 적는다 — 아이콘 이름이 아니라**(M3 icon-buttons:
-      // "a tooltip describing its action, rather than the name of the icon itself").
-      // 그리고 켜짐/꺼짐은 **두 속성**으로 말한다: 글리프(◉/○)와 굵기. 색 하나로만 가르면
-      // 못 가리는 사람이 있다 — 같은 문서의 "at least two properties, rather than just color".
+      // **켜고 끄는 것은 스위치다 — 아이콘 단추가 아니다.**
+      //
+      // 앞 판본은 `◉`/`○` 아이콘 단추였다. M3 가 그 셋을 갈라 두는 기준이 명시적이다:
+      // 체크박스는 목록에서 **여럿**, 라디오는 **하나**, 스위치는 **독립적인 설정**. 가이드는
+      // 서로 무관하고 하나씩 켜고 꺼지며 **저장 없이 즉시** 먹으므로 스위치가 그 자리다.
+      // 그리고 `◉`/`○` 는 읽는 사람에게 **라디오의 모양**이라, 「이 중 하나만」으로 읽힌다.
+      //
+      // 툴팁은 **동작을 적는다 — 아이콘 이름이 아니라**(M3 icon-buttons: "a tooltip describing
+      // its action, rather than the name of the icon itself"). 켜짐/꺼짐은 **두 속성**으로
+      // 말한다: 자리(핸들이 왼쪽/오른쪽)와 **핸들 크기**(16→24). 색 하나로만 가르지 않는다 —
+      // 같은 문서의 "at least two properties, rather than just color".
       toggleIcon: g.enabled ? '◉' : '○',
       toggleTip: g.enabled ? `${g.name} 를 끕니다 — 글은 그대로 둡니다` : `${g.name} 를 켭니다`,
       editTip: `${g.name} 를 고칩니다`,
