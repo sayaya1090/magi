@@ -75,6 +75,8 @@ type OwnWork struct {
 	doing bool
 	// began 은 그 일이 시작한 때. 걸린 일을 알아보는 유일한 근거다.
 	began time.Time
+	// unread 는 **아직 아무도 안 본 실패**가 들려 있는가. 폴링이 실패를 지우는 것을 막는다.
+	unread bool
 	// now 는 시계. **시험만 이 자리를 채운다** — 못 재는 갈래는 안 만든 것과 같다.
 	now func() time.Time
 }
@@ -114,6 +116,20 @@ func (o *OwnWork) Begin() (now OwnReport, mine bool) {
 	} else if o.report.Phase == OwnReady {
 		// **이미 다 됐으면 다시 안 한다.** 붙은 것을 다시 붙이면 첫 등록이 떨어진다(§5.0.1).
 		return o.report, false
+	} else if o.report.Phase == OwnFailed && o.unread {
+		// **실패를 폴링이 지우지 않는다.**
+		//
+		// 판은 `working` 인 동안 이 자리를 1초마다 두드린다. 앞 판본은 「Ready 가 아니면 시작」
+		// 이었으므로, 실패로 끝난 바로 다음 폴이 그 일을 **다시 시작하며 `working` 을 답했다** —
+		// 판은 5분을 그렇게 돌다 「아직 안 떴습니다」로 포기하고 명단을 그렸고, **실패 사유는
+		// 한 번도 화면에 안 닿았다.** 실물에서 그 화면을 봤다(2026-09-05: 사람이 「기본으로
+		// 파워포인트 데몬 쓰는 거 아니냐」고 물었다. 맞는 말이었고, 자동 경로가 조용히 죽어 있었다).
+		//
+		// **한 번만 붙잡는다.** 그 한 번이 사유가 화면에 닿는 자리이고, 그다음 폴은 다시 해 본다 —
+		// 영영 붙잡으면 한 번 실패한 판은 헬퍼가 사는 내내 못 낫는다(패닉 뒤 재시도를 못박은
+		// 시험이 그 계약이다). 시계를 안 쓰므로 느린 판에서도 같게 군다.
+		o.unread = false
+		return o.report, false
 	}
 	o.doing = true
 	o.began = o.clock()
@@ -128,6 +144,9 @@ func (o *OwnWork) Done(r OwnReport) {
 	defer o.mu.Unlock()
 	o.doing = false
 	o.report = r
+	// **실패는 한 번 읽힐 때까지 들고 있다.** 안 그러면 다음 폴이 그 자리에서 새 일을 시작하며
+	// `working` 을 답하고, 사유는 아무 화면에도 안 닿는다(`Begin` 의 주석).
+	o.unread = r.Phase == OwnFailed
 }
 
 // Forget 은 결과를 지운다 — 다음 물음이 처음부터 다시 하도록.

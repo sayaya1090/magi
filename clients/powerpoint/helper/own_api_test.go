@@ -430,8 +430,16 @@ func TestAPanicWhileProvisioningDoesNotTrapThePane(t *testing.T) {
 	if !strings.Contains(got.Why, "골라 주세요") {
 		t.Fatalf("갈 곳을 안 알려 준다: %v", got.Why)
 	}
-	// 그리고 다시 해 볼 수 있어야 한다.
+	// **사유는 한 번 읽힐 때까지 들려 있다.** 판은 `working` 인 동안 이 자리를 1초마다 두드리는데,
+	// 앞 판본은 실패 직후의 폴이 그 일을 다시 시작하며 `working` 을 답했다 — 판은 5분을 그렇게
+	// 돌다 포기하고 명단을 그렸고, 사유는 한 번도 화면에 안 닿았다(2026-09-05 실물).
 	boom = false
+	if got := rig.poke(t); got.Phase != OwnFailed {
+		t.Fatalf("실패가 폴 한 번에 지워졌다: %+v", got)
+	}
+
+	// 그리고 **그다음엔 다시 해 볼 수 있어야 한다** — 영영 붙잡으면 한 번 실패한 판은 헬퍼가
+	// 사는 내내 못 낫는다.
 	rig.poke(t)
 	if got := rig.settle(t); got.Phase != OwnReady {
 		t.Fatalf("패닉 뒤에 다시 못 한다: %+v", got)

@@ -177,19 +177,43 @@ func NewAttachments() *Attachments { return &Attachments{held: map[string]attach
 func lifeOf(in daemon.Info) string { return fmt.Sprintf("%d@%s", in.PID, in.Started) }
 
 // HasLive 는 **이 생애의** 데몬에 우리가 이미 붙어 있는가.
+// **소켓 하나에 등록이 여럿일 수 있다**(창마다 하나). 그래서 이름만으로 찾으면, 주인을 달고
+// 붙인 등록은 「없는 것」으로 읽힌다 — 그리고 그 오답은 조용하지 않다: `/api/own` 이 매 폴마다
+// 「우리 것이 아니다」로 읽고 `Forget` → 재시작을 반복하며 **영원히 「준비하는 중」**을 답한다.
+// 판은 5분을 그렇게 돌다 포기하고 명단을 그린다. 실물에서 그 화면을 봤다(2026-09-05: 사람이
+// 「기본으로 파워포인트 데몬 쓰는 거 아니냐」고 물었다 — 맞는 말이었고, 자동 경로가 내 어제
+// 변경(`f013096b`)에 조용히 막혀 있었다).
+//
+// 그래서 **그 소켓에 붙은 것이 하나라도 있으면 우리 것**이다. 어느 창의 것인지는 여기서 물을
+// 일이 아니다 — 묻는 쪽은 「이 데몬에 우리 도구가 붙어 있는가」를 알고 싶은 것이다.
 func (a *Attachments) HasLive(socket, life string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	h, ok := a.held[socket]
+	h, ok := a.anyOn(socket)
 	// life 를 못 읽었으면(기록이 없는 소켓) 옛 답을 그대로 준다 — 모르는 것을 「떨어졌다」로
 	// 적으면 멀쩡한 등록을 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
 	return ok && (life == "" || h.life == life)
 }
 
+// anyOn 은 그 소켓에 붙어 있는 등록 하나. 주인이 누구든 상관없다. 호출자가 잠금을 든다.
+func (a *Attachments) anyOn(socket string) (attachment, bool) {
+	if h, ok := a.held[socket]; ok {
+		return h, true
+	}
+	for key, h := range a.held {
+		if sock, _ := splitHeld(key); sock == socket {
+			return h, true
+		}
+	}
+	return attachment{}, false
+}
+
+// Tools 도 같은 규칙이다 — 이름만으로 찾으면 주인을 단 등록의 도구가 「없음」으로 나온다.
 func (a *Attachments) Tools(socket string) []string {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return append([]string(nil), a.held[socket].tools...)
+	h, _ := a.anyOn(socket)
+	return append([]string(nil), h.tools...)
 }
 
 func (a *Attachments) Sockets() []string {
