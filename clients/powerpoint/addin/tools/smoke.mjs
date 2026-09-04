@@ -3101,6 +3101,25 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('낭독기에 진행이라고 말한다', /id="busy"[^>]*role="progressbar"/.test(html));
   }
 
+  // ── 글머리 기호 ─────────────────────────────────────────────
+  //
+  // 오래 「못 하는 것」으로 알고 있었는데 안 찾아본 것이었다. `bulletFormat.visible` 은 **1.4** 라
+  // 이 애드인의 바닥(1.8)보다 아래다 — 게이트가 필요 없다. `type`·`style` 만 1.10 이다.
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    // ⚠ **사이에 무엇이 끼었는지까지 본다.** 앞 판본은 두 낱말 사이를 느슨하게 물어서, 그 사이에
+    // 게이트를 끼워 넣는 변이가 조용히 지나갔다(2026-09-04).
+    const span = /args\.bullet !== undefined([\s\S]{0,160}?)bullets\.visible = Boolean/.exec(h)?.[1];
+    ok('켜고 끄는 자리를 찾았다', span !== undefined);
+    ok('켜고 끄기에 게이트가 없다', span !== undefined && !/supports\(/.test(span), String(span).slice(0, 80));
+    // 없는 호스트에서 조용히 넘어가면 「했습니다」 하고 안 바뀐다 — 사유를 들고 거절한다.
+    ok('type·style 은 사유를 들고 거절한다',
+      /bullet_type[\s\S]{0,400}supports\('PowerPointApi', '1\.10'\)[\s\S]{0,200}throw new Error/.test(h));
+    // **style 목록을 우리가 안 든다.** 레퍼런스가 나열한 41개 밖의 이름도 실제로 받는다
+    // (`bulletChromaDot`). 목록을 들면 늙고, 늙은 목록은 되는 값을 거절한다.
+    ok('style 을 우리가 검사하지 않는다', !/BulletStyle|ArabicNumeralPeriod'/.test(h));
+  }
+
   // ── 못 닿는 데를 말한다 ─────────────────────────────────────
   //
   // 덱 글꼴을 바꾸는 도구는 **테마 글꼴을 못 바꾼다** — Office.js 에 글꼴 스킴이 없다(어느
@@ -3255,8 +3274,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 클래스만으로 적은 `margin-top: 0` 은 조용히 진다.
   {
     const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
-    const zeroRule = /#pane > [^{]*\{[^}]*margin-top:\s*0[^}]*\}/.exec(paneCss)?.[0] ?? '';
+    const zeroRule = /#pane > \.advanced[^{]*\{[^}]*margin-top:\s*0[^}]*\}/.exec(paneCss)?.[0] ?? '';
     ok('아래 띠들의 여백 규칙을 찾았다', zeroRule !== '');
+    // **막대와 컴포저는 한 묶음이다.** 둘 사이에 여백이 들어가면 막대가 컴포저에 붙은 것이
+    // 아니라 떠 있는 줄로 보이고, 그 막대가 말하는 「이 입력칸이 낸 일이 돌고 있다」가 흐려진다.
+    ok('막대와 컴포저 사이엔 여백이 없다',
+      /#pane > \.busy \+ \.composer \{[^}]*margin-top:\s*0/.test(paneCss));
+    // 컴포저를 0 으로 못박지 않는다 — 막대가 없을 때 그 여백을 물려받아야 하고, 리듬 규칙이
+    // `[hidden]` 을 건너뛰므로 저절로 그렇게 된다.
+    ok('컴포저는 0 으로 못박지 않는다',
+      !/#pane > [^{]*\.composer[^+{]*\{[^}]*margin-top:\s*0/.test(paneCss.replace(/#pane > \.busy \+ \.composer \{[^}]*\}/g, '')));
     // ⚠ **이름을 세지 않고 자리를 센다.** 처음엔 셋을 이름으로 적었고, 진행 막대를 넣으면서
     // 하나를 빠뜨려 12px 이 다시 생겼다 — 사람이 보고 물었다(2026-09-04). 이름을 대는 검사는
     // 안 댄 자리를 못 본다. 그래서 스크롤 밖에 서는 띠를 **전부** 세어 맞춘다.
@@ -3266,7 +3293,8 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       .filter((c) => ['composer', 'advanced', 'brand', 'busy', 'plan'].includes(c));
     ok('스크롤 밖의 띠를 실제로 찾았다', bars.length >= 4, bars.join(', '));
     // `plan` 은 접히는 판이라 위 여백이 있어도 띠 사이에 흰 조각으로 안 보인다 — 나머지를 센다.
-    const need = bars.filter((c) => c !== 'plan');
+    // `plan` 은 접히는 판이고, `busy`·`composer` 는 위에서 따로 잰다(묶음 규칙).
+    const need = bars.filter((c) => !['plan', 'busy', 'composer'].includes(c));
     ok('띠마다 여백이 없다',
       everyOf(need, (c) => zeroRule.includes(`#pane > .${c}`)),
       need.filter((c) => !zeroRule.includes(`#pane > .${c}`)).join(', '));
