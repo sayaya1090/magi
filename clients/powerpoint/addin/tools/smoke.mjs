@@ -3101,6 +3101,33 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('낭독기에 진행이라고 말한다', /id="busy"[^>]*role="progressbar"/.test(html));
   }
 
+  // ── 1.10 이 여는 것들 ───────────────────────────────────────
+  //
+  // 요구 집합 1.10 을 통째로 읽고 나서 붙인 것들이다(2026-09-04). 그 전에는 「없다」고 적어 둔
+  // 자리가 셋 있었고, 셋 다 있었다 — `SlideBackground.reset`·`Shape.rotation`·배경 그라데이션.
+  // **있는 것을 없다고 적으면 아무도 안 불러 보므로 조용히 남는다.**
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    // 접근성 셋 — 가이드가 요구하면서 도구가 없던 자리다.
+    for (const [arg, member] of [['alt_title', 'altTextTitle'], ['alt_text', 'altTextDescription'],
+      ['decorative', 'isDecorative'], ['rotation', 'rotation'], ['visible', 'visible']]) {
+      ok(`${arg} 가 ${member} 로 간다`, h.includes(`['${arg}', '${member}']`));
+      ok(`${arg} 를 광고한다`, t.includes(`Name: "${arg}"`));
+    }
+    // 없는 호스트에서 조용히 넘어가면 「했습니다」 하고 안 바뀐다.
+    ok('1.10 짜리는 사유를 들고 거절한다',
+      /alt_title[\s\S]{0,600}supports\('PowerPointApi', '1\.10'\)[\s\S]{0,200}throw new Error/.test(h));
+    // 하위 불릿은 들여쓰기 단계로 만든다 — 이것이 없어서 글머리가 한 단계만 됐다.
+    ok('들여쓰기 단계가 있다', /paragraphFormat\.indentLevel = lv/.test(h));
+    // 배경 채움이 넷이다. 단색만 되던 시절이 visual-deck 에서 스타일 열한 개를 뺀 근거였다.
+    ok('그라데이션 배경', /setGradientFill\(\{ type:/.test(h));
+    ok('패턴 배경', /setPatternFill\(\{/.test(h));
+    // 그리고 되돌리기는 **있다** — fill 이 아니라 그 부모에.
+    ok('배경 되돌리기가 있다', /slide\.background\.reset\(\)/.test(h));
+    ok('없다고 적지 않는다', !/되돌리는 문이 Office\.js 에 없습니다/.test(h));
+  }
+
   // ── 글머리 기호 ─────────────────────────────────────────────
   //
   // 오래 「못 하는 것」으로 알고 있었는데 안 찾아본 것이었다. `bulletFormat.visible` 은 **1.4** 라

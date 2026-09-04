@@ -268,6 +268,12 @@ func catalogue(hasCouncil bool) []tool {
 				property{Name: "italic", Type: "boolean", Desc: "Italic on or off."},
 				property{Name: "color", Type: "string", Desc: "Text colour as #RRGGBB."},
 				property{Name: "fill", Type: "string", Desc: "Fill colour as #RRGGBB, or \"none\" to clear it."},
+				property{Name: "alt_title", Type: "string", Desc: "Alt text title — what this shape IS, for a screen reader. Needs PowerPointApi 1.10."},
+				property{Name: "alt_text", Type: "string", Desc: "Alt text description — what the shape SHOWS. Put the finding on a chart here, not the file name. Needs 1.10."},
+				property{Name: "decorative", Type: "boolean", Desc: "Mark the shape as decorative so screen readers skip it. The opposite of alt text: a divider line is decorative, a chart never is. Needs 1.10."},
+				property{Name: "rotation", Type: "number", Desc: "Rotation in degrees around the z-axis. Needs 1.10."},
+				property{Name: "visible", Type: "boolean", Desc: "Show or hide the shape without deleting it. Needs 1.10."},
+				property{Name: "indent", Type: "integer", Desc: "Paragraph indent level — this is how sub-bullets are made. Needs 1.10."},
 				property{Name: "bullet", Type: "boolean", Desc: "Show or hide the paragraph bullets. This one is PowerPointApi 1.4 — below the floor, so it works on every supported host."},
 				property{Name: "bullet_type", Type: "string", Desc: "None, Numbered or Unnumbered. Needs PowerPointApi 1.10; refused with a reason where that is missing."},
 				property{Name: "bullet_style", Type: "string", Desc: "Bullet style name, e.g. ArabicNumeralPeriod, AlphabetLowercaseParenthesisRight or bulletChromaDot. Not checked here — the host refuses an unknown one, and a list kept here would age. Needs PowerPointApi 1.10."},
@@ -449,6 +455,10 @@ func catalogue(hasCouncil bool) []tool {
 			Props: withSlide(
 				property{Name: "color", Type: "string", Desc: "Background colour as #RRGGBB. Omit, or \"theme\", to reset it back to the theme's own background."},
 				property{Name: "transparency", Type: "number", Desc: "0 to 1. Omitted means fully opaque — a value is never invented for you."},
+				property{Name: "kind", Type: "string", Desc: "solid (default), gradient or pattern."},
+				property{Name: "gradient", Type: "string", Desc: "With kind=gradient: linear, radial, rectangle or path."},
+				property{Name: "pattern", Type: "string", Desc: "With kind=pattern: the pattern name, e.g. diagonalCross, dotted, wide. color is the foreground, background is the other one."},
+				property{Name: "background", Type: "string", Desc: "With kind=pattern: the pattern's background colour as #RRGGBB. Defaults to white."},
 			),
 		},
 		{

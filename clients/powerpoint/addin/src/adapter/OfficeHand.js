@@ -734,6 +734,32 @@ export class OfficeHand extends HandPort {
         bullets.visible = Boolean(args.bullet);
         changed.push(`글머리 기호 → ${args.bullet ? '켬' : '끔'}`);
       }
+      // **접근성 셋**(1.10). 가이드가 「돌려질 그림에는 설명 글을 붙이라」고 요구하면서 도구가
+      // 없던 자리다 — 요구는 있는데 문이 없으면 그 요구는 지켜질 수 없는 말이다.
+      //
+      // `decorative` 는 **설명 글의 반대짝**이다: 뜻을 안 나르는 장식이라고 표시하면 낭독기가
+      // 건너뛴다. 장식에 설명을 붙이는 것도, 뜻이 있는 것을 장식으로 표시하는 것도 둘 다 나쁘다.
+      for (const [name, key] of [['alt_title', 'altTextTitle'], ['alt_text', 'altTextDescription'],
+        ['decorative', 'isDecorative'], ['rotation', 'rotation'], ['visible', 'visible']]) {
+        if (args[name] === undefined) continue;
+        if (!this.supports('PowerPointApi', '1.10')) {
+          throw new Error(`${name} 은 PowerPointApi 1.10 이 필요한데 이 호스트에는 없습니다`);
+        }
+        const v = key === 'isDecorative' || key === 'visible' ? Boolean(args[name])
+          : key === 'rotation' ? Number(args[name]) : String(args[name]);
+        shape[key] = v;
+        changed.push(`${name} → ${v}`);
+      }
+      // **들여쓰기 단계**(1.10). 이것이 없어서 글머리 기호가 한 단계만 됐다 — 하위 항목을
+      // 만들려면 문단마다 단계를 줘야 하고, 그 문이 여기다.
+      if (args.indent !== undefined) {
+        if (!this.supports('PowerPointApi', '1.10')) {
+          throw new Error('indent 는 PowerPointApi 1.10 이 필요한데 이 호스트에는 없습니다');
+        }
+        const lv = Number(args.indent);
+        shape.textFrame.textRange.paragraphFormat.indentLevel = lv;
+        changed.push(`들여쓰기 단계 → ${lv}`);
+      }
       // `type`·`style` 은 **1.10** 이라 게이트를 지난다. 없는 호스트에서 조용히 넘어가면
       // 「했습니다」 하고 안 바뀌므로, 사유를 들고 거절한다.
       //
@@ -2018,6 +2044,28 @@ export class OfficeHand extends HandPort {
         this.#mutated();
         return this.#envelope({ slide_id: slide.id, background: 'theme' },
           [`슬라이드 배경을 테마 기본으로 되돌렸습니다 (${slide.id})`]);
+      }
+      // **채움 종류가 넷이다**(1.10). 단색만 내주던 시절은 `visual-deck` 에서 스타일 열한 개를
+      // 「그라데이션이라 못 한다」로 뺀 근거였는데, 그 판단은 1.8 기준이었다.
+      const kind = String(args.kind ?? 'solid').toLowerCase();
+      if (kind === 'gradient') {
+        slide.background.fill.setGradientFill({ type: String(args.gradient ?? 'linear') });
+        await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, background: 'gradient', gradient: args.gradient ?? 'linear' },
+          [`슬라이드 배경을 ${args.gradient ?? 'linear'} 그라데이션으로 바꿨습니다 (${slide.id})`]);
+      }
+      if (kind === 'pattern') {
+        if (!/^#[0-9A-Fa-f]{6}$/.test(color)) throw new Error('패턴에는 color(앞색)를 #RRGGBB 로 주세요');
+        const back = String(args.background ?? '#FFFFFF');
+        slide.background.fill.setPatternFill({
+          foregroundColor: color, backgroundColor: back,
+          pattern: String(args.pattern ?? 'diagonalCross'),
+        });
+        await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, background: 'pattern', pattern: args.pattern ?? 'diagonalCross' },
+          [`슬라이드 배경을 ${args.pattern ?? 'diagonalCross'} 패턴으로 바꿨습니다 — 앞 ${color} · 뒤 ${back}`]);
       }
       if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
         throw new Error(`색은 #RRGGBB 로 주세요 — 받은 것: ${color}`);
