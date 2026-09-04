@@ -600,6 +600,31 @@ button:disabled { cursor: default; opacity: .5; }
 .text-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
 .text-danger { color: #B3261E; }
 
+/*
+  ── 도는 중 ────────────────────────────────────────────────
+  M3 의 linear progress indicator. 값은 스펙에서 옮겼다(`guide-specs.md`): 굵기 **4**,
+  트랙과 활성 부분이 같은 굵기. **무한(indeterminate)** 이라 진척을 안 적는다 — 이 제품은
+  한 턴에 도구가 몇 번 돌지 모르고, 모르는 것을 %로 적으면 그건 지어낸 숫자다.
+*/
+.busy { height: 4px; background: var(--line); overflow: hidden; flex: none; }
+.busy-bar {
+  height: 100%; width: 40%;
+  background: var(--accent, #1F4E79);
+  animation: busy-slide 1.4s ease-in-out infinite;
+}
+@keyframes busy-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+/*
+  **움직임을 줄이라고 한 사람에게는 안 움직인다.** 그래도 **사라지지는 않는다** — 이 막대가
+  나르는 것은 장식이 아니라 「지금 일하는 중」이라는 사실이고, 그 사실을 못 받으면 그 사람은
+  멈춘 화면을 보고 있는 것과 같아진다. 움직임 대신 채운 띠로 선다.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .busy-bar { width: 100%; animation: none; opacity: .55; }
+}
+
 /* ── 흐르는 가운데, 고정된 위아래 ────────────────────────────── */
 /*
   작업창은 PowerPoint 에서 348×391 이다(MS 지침의 크기 표). 판이 하나 늘 때마다 컴포저가

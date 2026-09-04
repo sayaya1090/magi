@@ -32,7 +32,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -3058,6 +3058,40 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('아래에서 연 판을 데려온다',
       /rulesPanel\.hidden = false;[\s\S]{0,200}view\.reveal\(rulesPanel\)/.test(m)
       && /gPanel\.hidden = false;[\s\S]{0,120}view\.reveal\(gPanel\)/.test(m));
+  }
+
+  // ── 도는 중이라는 것 하나 ───────────────────────────────────
+  //
+  // 도형마다 호출 하나인 제품이라 사람이 읽을 글은 몇 분에 한 줄뿐이다. 그 사이 화면은 「멈춘
+  // 것」과 구별되지 않고, 실제로 그 물음을 받았다(2026-09-04).
+  //
+  // **상태를 따로 묻지 않고 로그에서 유도한다** — 적어 두면 조건이 사라져도 남고, 유도하면
+  // 같이 사라진다.
+  ok('말을 냈고 끝난 턴이 없으면 도는 중', turnRunning([{ kind: 'user' }]) === true);
+  ok('끝난 턴이 뒤에 있으면 아니다', turnRunning([{ kind: 'user' }, { kind: 'turn' }]) === false);
+  // 도구가 줄줄이 도는 동안에도 도는 중이다 — 그 구간이 바로 이 막대가 있어야 하는 자리다.
+  ok('도구가 도는 동안에도 도는 중',
+    turnRunning([{ kind: 'user' }, { kind: 'tool' }, { kind: 'model' }]) === true);
+  // 앞 턴이 끝난 뒤 새 말을 내면 다시 도는 중이다.
+  ok('다음 말에 다시 선다',
+    turnRunning([{ kind: 'user' }, { kind: 'turn' }, { kind: 'user' }]) === true);
+  ok('사람 말이 없으면 아니다', turnRunning([{ kind: 'model' }]) === false);
+  ok('빈 로그에서도 안 터진다', turnRunning(undefined) === false);
+  {
+    const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+    // 진척을 모르므로 **무한**이다. %를 적으면 그건 지어낸 숫자다.
+    ok('무한 막대다', /\.busy-bar \{[^}]*animation:[^}]*infinite/.test(paneCss));
+    ok('굵기는 4 다', /\.busy \{[^}]*height:\s*4px/.test(paneCss), 'M3 linear progress');
+    // 움직임을 줄이라고 한 사람에게는 **안 움직이되 사라지지도 않는다** — 이 막대가 나르는
+    // 것은 장식이 아니라 사실이다.
+    const reduce = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(paneCss)?.[1] ?? '';
+    ok('움직임 줄이기를 존중한다', /animation:\s*none/.test(reduce), reduce.trim().slice(0, 60));
+    ok('그래도 안 사라진다', !/display:\s*none/.test(reduce), reduce.trim().slice(0, 60));
+    // **맨 위다.** 대화가 어디로 스크롤돼 있든 보이는 자리는 거기뿐이다.
+    ok('스크롤 영역보다 위에 있다',
+      html.indexOf('id="busy"') < html.indexOf('id="scroll"'),
+      `busy=${html.indexOf('id="busy"')} scroll=${html.indexOf('id="scroll"')}`);
+    ok('낭독기에 진행이라고 말한다', /id="busy"[^>]*role="progressbar"/.test(html));
   }
 
   // ── **없는 문은 광고하지 않는다** ───────────────────────────

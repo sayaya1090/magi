@@ -1851,20 +1851,27 @@ export class OfficeHand extends HandPort {
    * 물어본 것이 아니었다 — 우리 탐침이 1.8 에서 멈춰 있었고, 다시 재 보니 1.10 이 있었다
    * (2026-09-04). 그래서 이 도구는 **있으면 광고되고 없으면 목록에 아예 안 실린다**(`ops`).
    *
-   * `color` 를 안 주면 **테마로 되돌린다.** 칠한 것을 못 벗기면 이 도구는 되돌릴 수 없는 도구가
-   * 되고, 그러면 사람은 한 번 눌러 보기를 겁낸다.
+   * ⚠ **되돌리는 문이 없다.** 앞 판본은 색을 안 주면 테마로 되돌린다고 적고 `fill.clear()` 를
+   * 불렀는데, 그런 메서드가 없다 — 실물에서 `clear is not a function` 을 받고서야 알았다
+   * (2026-09-04). `SlideBackgroundFill` 이 가진 것은 `setSolidFill`·`setGradientFill`·
+   * `setPatternFill`·`setPictureOrTextureFill` 넷과 읽기뿐이고, 레퍼런스를 다시 읽어 확인했다.
+   *
+   * **내가 확인 안 하고 유추한 이름이었다.** 도형의 `fill.clear()` 가 있으니 배경에도 있으리라
+   * 여겼다 — 이 저장소가 반복해서 적어 둔, 값을 치른 그 실수다.
+   *
+   * 그래서 이 도구는 **한 방향이다.** 되돌리려면 `snapshot_slide` 로 먼저 떠 두고
+   * `restore_slide` 로 돌아간다. 그 사실을 도구 설명이 적는다 — 못 되돌리는 것을 되돌릴 수
+   * 있다고 적으면 사람은 안심하고 누르고, 그 다음에 못 돌아간다.
    */
   #setBackground(args) {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const color = args.color === undefined || args.color === null ? '' : String(args.color).trim();
-      const clearing = color === '' || color.toLowerCase() === 'none' || color.toLowerCase() === 'theme';
-      if (clearing) {
-        slide.background.fill.clear();
-        await context.sync();
-        this.#mutated();
-        return this.#envelope({ slide_id: slide.id, background: 'theme' },
-          [`슬라이드 배경을 테마 기본으로 되돌렸습니다 (${slide.id})`]);
+      if (color === '' || color.toLowerCase() === 'none' || color.toLowerCase() === 'theme') {
+        // **없는 문을 흉내 내지 않는다.** 사유를 적고 되돌리는 진짜 길을 가리킨다.
+        throw new Error('배경을 테마로 되돌리는 문이 Office.js 에 없습니다 — '
+          + 'snapshot_slide 로 떠 둔 뒤 restore_slide 로 돌아가세요. '
+          + '칠하려면 color 에 #RRGGBB 를 주세요');
       }
       if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
         throw new Error(`색은 #RRGGBB 로 주세요 — 받은 것: ${color}`);

@@ -264,6 +264,30 @@ export function rowShape(r) {
 }
 
 /**
+ * **지금 도는 중인가.** 상단 진행 막대가 이 값으로 뜨고 진다.
+ *
+ * 상태를 따로 묻지 않고 **로그에서 유도한다.** 사람이 말을 냈고 그 뒤로 끝난 턴이 없으면 도는
+ * 중이다 — 이 저장소가 화면 값을 다루는 규칙이 그렇다: 적어 두면 조건이 사라져도 남고,
+ * 유도하면 같이 사라진다.
+ *
+ * 도구가 도는 동안 글이 몇 분에 한 줄뿐인 제품이라(도형마다 한 호출) 이 막대가 없으면
+ * 「멈춘 것」과 「도는 중」이 화면에서 같아 보인다. 실제로 그 물음을 받았다(2026-09-04).
+ */
+export function turnRunning(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  let lastUser = -1;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    if (list[i]?.kind === 'user') { lastUser = i; break; }
+  }
+  if (lastUser < 0) return false;
+  // 그 뒤에 **끝난 턴**이 있으면 끝난 것이다.
+  for (let i = lastUser + 1; i < list.length; i += 1) {
+    if (list[i]?.kind === 'turn') return false;
+  }
+  return true;
+}
+
+/**
  * 접힌 혼잣말의 **요약 한 줄**. 웹 콘솔과 같은 모양이다 —
  * `ConversationElement` 가 `tr("row.reasoning") + " · " + Rows.oneLine(text, 80)` 으로 짓는다.
  *

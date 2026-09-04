@@ -25,7 +25,7 @@ import {
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, turnRunning,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -546,6 +546,7 @@ export class View {
       this.renderUnknown(v.unknownNote);
       this.renderAdviceFrom(v.rows);
       this.renderSent();
+      this.renderBusy(v.rows);
     });
   }
 
@@ -781,6 +782,12 @@ export class View {
     // 가운데에 세운다 — 위아래로 무엇이 더 있는지가 같이 보여야 진척으로 읽힌다.
     const mid = el.offsetTop - (box.clientHeight - el.offsetHeight) / 2;
     box.scrollTop = Math.max(0, mid);
+  }
+
+  /** 도는 중이라는 것 하나. 판정은 `turnRunning` 이 한다 — 화면 밖이라야 잰다. */
+  renderBusy(rows) {
+    const el = $('#busy');
+    if (el) el.hidden = !turnRunning(rows);
   }
 
   /** 「바로 시키시면 됩니다」는 첫 줄이 서는 순간 증명된다 — 그때 사라진다. */
