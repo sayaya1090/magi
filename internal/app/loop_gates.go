@@ -119,6 +119,11 @@ func (a *App) injectStuckNudge(ctx context.Context, tc turnCtx, turnTask string,
 		msg = "Still no concrete progress since the last note — same advice stands: finish via the " +
 			"`council` tool if the work is complete, otherwise take a DIFFERENT concrete action or say " +
 			"exactly what is blocking you."
+		if !a.HasCouncil() {
+			msg = "Still no concrete progress since the last note — same advice stands: if the work " +
+				"is complete, say what you changed and stop; otherwise take a DIFFERENT concrete " +
+				"action or say exactly what is blocking you."
+		}
 	} else if kind == "stalled" {
 		msg = "You've run many steps without changing anything or making concrete progress — you may be " +
 			"re-running checks or restating the same conclusion instead of advancing the task. If the work is " +
@@ -313,7 +318,7 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts: []session.Part{{Kind: session.PartText,
-			Text: declareAskNudge(ts.declareAsks, lastText) + notesTail(a.turnNotesBlock(tc.s.ID))}},
+			Text: declareAskNudge(ts.declareAsks, lastText, a.HasCouncil()) + notesTail(a.turnNotesBlock(tc.s.ID))}},
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted, event.Actor{Kind: event.ActorSystem, ID: "orchestrator"}, pd)
 	return loopContinue, true
@@ -338,11 +343,28 @@ func (a *App) requireFinishDeclaration(ctx context.Context, tc turnCtx, usedTool
 // "Nothing has changed on disk" is safe to assert here rather than guessed: reaching ask 2 proves
 // it. The caller zeroes declareAsks whenever the mutation epoch moves, so a second ask exists only
 // when no file was written between them.
-func declareAskNudge(n int, lastSaid string) string {
-	const first = "You stopped without saying you are finished. A turn ends by declaring it: call the " +
+// hasCouncil says whether the `council` tool is actually registered for this companion. **The nudge
+// must name a door that exists.** These sentences used to name the council unconditionally, and a
+// companion running without one taught the model to call a tool that is not there: the call comes
+// back `unknown tool: council`, the turn spends a round trip on it, and to the person watching it
+// looks like the run will not end. Measured 2026-09-04 on the PowerPoint companion, whose config
+// has `[council] enabled = false` — the model declared completion through the council three
+// separate times and was refused each time.
+func declareAskNudge(n int, lastSaid string, hasCouncil bool) string {
+	first := "You stopped without saying you are finished. A turn ends by declaring it: call the " +
 		"`council` tool with `complete: true`, and the council reads the record — what actually ran, " +
 		"how it ended, what is on disk now — and either accepts (the turn is over) or tells you what " +
 		"is still undone. If the work is finished, declare it now. If it is not, keep working."
+	if !hasCouncil {
+		// **이 판에는 카운슬이 없다.** 그러면 턴을 끝내는 것은 「한 일을 말하고 멈추는 것」이고,
+		// 그게 사실이다 — 없는 문을 가리키면 모델은 그 문을 두드리다 한 바퀴를 버린다.
+		// **없는 것을 이름으로 부르지도 않는다.** 「카운슬이 없다」고 적으면 모델은 그 말을 보고
+		// 그것을 찾아본다 — 실제로 그렇게 한 판을 봤다. 필요한 것은 없는 문의 이름이 아니라
+		// **있는 길**이다.
+		first = "You stopped without saying you are finished. A turn here ends by SAYING what you " +
+			"did — name what you changed and where, in one message — and then stopping. If the " +
+			"work is finished, say so now. If it is not, keep working."
+	}
 	if n <= 1 {
 		return first
 	}
