@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"image/color"
 	"image/png"
+	"io"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -180,5 +184,64 @@ func TestEverySizeTheManifestNamesIsDrawn(t *testing.T) {
 		if !have[n] {
 			t.Errorf("매니페스트는 %d 를 부르는데 그리지 않는다", n)
 		}
+	}
+}
+
+// **디스크에 남은 옛 파일이 이기면 안 된다.**
+//
+// 그리는 손이 파일서버보다 먼저 서야 한다는 계약이다. 뒤에 두면 누가 `assets/` 를 다시 만들어
+// 넣는 날 그 파일이 이기고, 그때 리본에 뜨는 것은 그 파일이다 — 바로 이번에 고친 그 모양으로.
+func TestTheDrawnMarkBeatsAFileOnDisk(t *testing.T) {
+	p, dir := pagesAt(t)
+	if err := os.MkdirAll(filepath.Join(dir, "assets"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// 옛 사고를 그대로 재현한다: 단색 한 조각.
+	if err := os.WriteFile(filepath.Join(dir, "assets", "icon-32.png"), []byte("flat"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+
+	res, err := http.Get(srv.URL + "/assets/icon-32.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("상태 %d", res.StatusCode)
+	}
+	if ct := res.Header.Get("Content-Type"); ct != "image/png" {
+		t.Errorf("Content-Type 이 %q", ct)
+	}
+	got, err := io.ReadAll(res.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) == "flat" {
+		t.Fatal("디스크의 파일이 이겼다 — 그리는 손이 파일서버 뒤에 있다")
+	}
+	img, err := png.Decode(bytes.NewReader(got))
+	if err != nil {
+		t.Fatalf("PNG 가 아니다: %v", err)
+	}
+	if img.Bounds().Dx() != 32 {
+		t.Errorf("%d px 로 나왔다", img.Bounds().Dx())
+	}
+}
+
+// **아무 크기나 그려 주지 않는다.** 크기를 주소로 받는 그림은 낯선 요청 하나가 큰 그림을
+// 그리게 만드는 자리다.
+func TestAnUnknownSizeIsNotDrawn(t *testing.T) {
+	p, _ := pagesAt(t)
+	srv := httptest.NewServer(p.Handler())
+	defer srv.Close()
+	res, err := http.Get(srv.URL + "/assets/icon-4096.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Errorf("상태 %d — 404 여야 한다", res.StatusCode)
 	}
 }
