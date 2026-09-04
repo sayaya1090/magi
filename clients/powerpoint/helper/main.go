@@ -276,6 +276,35 @@ func (a *API) Route(mux *http.ServeMux) {
 // guard 는 **한 자리에서** 루프백과 토큰을 본다. 핸들러마다 적으면 하나를 빠뜨리는 날이 오고,
 // 그 하나가 무엇이었는지는 아무도 모른다 — 콘솔이 같은 이유로 라우트 표를 하나 두고 시험이
 // 핸들러 목록을 훑는다(SECURITY.md §4).
+// joinDeck 은 그 덱을 이 컴패니언의 대화에 묶는다. **덱마다 자기 대화다** — 다른 덱이 이미 그
+// 대화를 들고 있으면 새로 연다. 이미 묶여 있으면 아무것도 안 한다: 다시 묶으면 스트림이 끊겼다
+// 이어지고, 그 사이의 사건이 아무 화면에도 안 닿는다.
+func (a *API) joinDeck(deck, socket, session string) {
+	if deck == "" || socket == "" || a.Bridges == nil {
+		return
+	}
+	target := a.Bridges.For(deck)
+	if _, sid, _ := target.Bound(); sid != "" {
+		return
+	}
+	use := session
+	if who, taken := a.Bridges.Holder(use); taken && who != deck {
+		fresh, err := a.freshOn(socket)
+		if err != nil {
+			return
+		}
+		use = fresh
+	}
+	if use == "" {
+		fresh, err := a.freshOn(socket)
+		if err != nil {
+			return
+		}
+		use = fresh
+	}
+	_ = target.Bind(socket, use)
+}
+
 // deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
 // `presentation` 으로 갈라 놓은 그 이름이다.
 func deckOf(r *http.Request) string {
@@ -371,6 +400,14 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	if !mine {
 		// 이미 돌고 있거나 이미 다 됐다. **새로 시작하지 않는다** — 덱을 둘 열면 이 자리가 둘에서
 		// 두드려지는데, 각자 띄우면 둘이 한 워크스페이스를 두고 다툰다.
+		//
+		// **다만 묻는 덱은 여기서 묶는다.** 마련하는 일은 컴패니언 하나에 한 번이지만 **묶는
+		// 것은 덱마다**다. 둘째 창이 열리면 이 길로 오는데, 앞 판본은 이미 `Ready` 라는 이유로
+		// 아무것도 안 하고 돌려보냈다 — 그 창은 다 붙은 컴패니언 옆에서 「아직 안 붙었다」를
+		// 그렸다(2026-09-05: 사람이 "똑같은데?" 라고 세 번 물었다).
+		if now.Phase == OwnReady && now.Socket != "" {
+			a.joinDeck(deckOf(r), now.Socket, now.Session)
+		}
 		writeJSON(w, now)
 		return
 	}
