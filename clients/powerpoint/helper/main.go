@@ -673,7 +673,24 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	// 줄이 되고, 그 증상이 바로 이 결함이다.
 	session := in.Session
 	if a.Bridges != nil && deckOf(r) != "" {
-		if who, taken := a.Bridges.Holder(session); taken && who != deckOf(r) {
+		// **붙어 있지 않은 덱은 임자가 아니다.**
+		//
+		// 저장 안 한 덱은 작업창이 다시 붙을 때마다 허브에서 새 번호를 받는다(`doc-…-1` → `-4`).
+		// 그러면 옛 키는 아무 손도 없는 채로 그 대화를 붙잡고 있고, 새 키로 온 창은 **자기 대화를
+		// 못 가져간다** — 사람은 아무것도 안 흐르는 빈 작업창을 본다. 실물에서 그 화면을 봤다
+		// (2026-09-04: 사람이 "내용이 하나도 안 들어오노"라고 물었다).
+		//
+		// 붙어 있는 이름은 허브가 안다. 죽은 임자면 그 대화를 이 덱이 이어받는다.
+		// 허브가 없는 판(시험)에서는 「모른다」이고, 그때는 임자를 그대로 존중한다 — 모르는 것을
+		// 「죽었다」로 읽으면 멀쩡한 대화를 남이 가져간다.
+		live := map[string]bool{}
+		known := a.Hub != nil
+		if known {
+			for _, d := range a.Hub.Documents() {
+				live[d["document"]] = true
+			}
+		}
+		if who, taken := a.Bridges.Holder(session); taken && who != deckOf(r) && (!known || live[who]) {
 			fresh, err := a.freshOn(in.Socket)
 			if err != nil {
 				http.Error(w, "그 대화는 다른 덱이 쓰고 있고, 이 덱에 새 대화를 여는 데 "+

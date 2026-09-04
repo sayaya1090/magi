@@ -1300,6 +1300,7 @@ export class OfficeHand extends HandPort {
     this.#mutated();
     let touched = 0;
     let skipped = 0;
+    let lost = 0;
     for (const sl of pick) {
       const box = context.presentation.slides.getItem(sl.id).shapes;
       box.load('items/id');
@@ -1329,13 +1330,28 @@ export class OfficeHand extends HandPort {
       for (const b of bullets) {
         try { b.visible = want.bullet; } catch { skipped += 1; }
       }
-      await context.sync();
+      // **묶음이 터지는 자리는 여기다.**
+      //
+      // 위의 `try` 들은 값을 **적는** 순간만 감싼다. Office.js 는 그때 아무 말도 안 하고, 실패는
+      // `sync()` 에서 한꺼번에 나온다 — 그래서 도형 하나가 나쁘면 **그 장 전체가 안 바뀌고**
+      // 호출은 `InvalidArgument` 로 끝난다. 실물에서 그 화면을 봤다(2026-09-04): `ea_font` 로
+      // 장을 다시 지은 직후 `apply_style{all}` 이 통째로 죽었고, 여덟 장이 하나도 안 바뀌었다.
+      //
+      // 한 장이 죽어도 **나머지 장은 계속 간다.** 죽은 장은 세어서 답에 적는다 — 조용히 빠지면
+      // 「N곳에 걸었습니다」가 거짓이 된다.
+      try {
+        await context.sync();
+      } catch {
+        lost += 1;
+        touched -= fonts.length;
+      }
     }
     const said = Object.entries(want).map(([k, v]) => `${k}=${v}`).join(' · ');
     return this.#envelope(
-      { scope: 'all', slides: pick.length, shapes: touched, skipped, applied: want },
-      [`장 ${pick.length}개의 글자 ${touched}곳에 ${said} 를 줬습니다`
-        + (skipped ? ` (글이 없는 도형 ${skipped}개는 건너뜀)` : ''),
+      { scope: 'all', slides: pick.length, shapes: Math.max(touched, 0), skipped, lost, applied: want },
+      [`장 ${pick.length - lost}개의 글자 ${Math.max(touched, 0)}곳에 ${said} 를 줬습니다`
+        + (skipped ? ` (글이 없는 도형 ${skipped}개는 건너뜀)` : '')
+        + (lost ? ` · ⚠ ${lost}개 장은 호스트가 거절해 안 바뀌었습니다 — 그 장은 도형을 하나씩 format_shape 로 거세요` : ''),
         '⚠ **테마는 안 바뀝니다** — 앞으로 만드는 장, 차트 안 글자, 표 스타일은 여전히 테마를 따릅니다']);
   }
 

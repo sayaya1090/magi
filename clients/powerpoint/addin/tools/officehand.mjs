@@ -3860,6 +3860,39 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 한 장이 죽어도 나머지는 간다 ────────────────────────────────────────────
+//
+// 도형마다 둔 `try` 는 값을 **적는** 순간만 감싼다. Office.js 는 그때 아무 말도 안 하고 실패는
+// `sync()` 에서 한꺼번에 나온다 — 그래서 도형 하나가 나쁘면 그 장 전체가 안 바뀌고 호출이
+// `InvalidArgument` 로 끝난다. 실물에서 봤다(2026-09-04): `ea_font` 로 장을 다시 지은 직후
+// `apply_style{all}` 이 통째로 죽어 여덟 장이 하나도 안 바뀌었다.
+{
+  const deck = model();
+  deck.slides[1].shapes.push({ id: 'bad', name: '나쁜', type: 'GeometricShape', text: 'x' });
+  // 둘째 장의 왕복만 죽인다 — 첫 장은 멀쩡히 걸려야 한다.
+  let syncs = 0;
+  const runner = stubRunner(deck);
+  const hand = new OfficeHand({
+    supports: () => true,
+    run: async (fn) => runner(async (ctx) => {
+      const real = ctx.sync;
+      ctx.sync = async () => { syncs += 1; if (syncs === 3) throw new Error('InvalidArgument'); return real(); };
+      return fn(ctx);
+    }),
+  });
+  let out = null;
+  let boom = null;
+  try { out = await hand.run('apply_style', { all: { font: 'Arial' } }); }
+  catch (e) { boom = e?.message ?? String(e); }
+  ok('한 장이 죽어도 호출은 산다', boom === null, boom ?? 'ok');
+  ok('죽은 장을 세어 답에 적는다', (out?.result?.lost ?? 0) >= 1, JSON.stringify(out?.result));
+  // **죽은 장의 글자는 안 센다.** 한 장(도형 1개)만 살았으므로 1이라야 한다 — 2 면 안 바뀐 것을
+  // 바뀌었다고 세는 것이고, 그 수는 사람이 읽는 「N곳에 걸었습니다」가 된다.
+  ok('안 바뀐 장의 글자를 세지 않는다', out?.result?.shapes === 1, JSON.stringify(out?.result));
+  ok('안 바뀐 장을 답에 적는다', out.changed.join(' ').includes('안 바뀌었습니다'),
+    out?.changed?.join(' ') ?? '');
+}
+
 // ── 한글 서체는 라틴과 다른 자리에 있다 ─────────────────────────────────────
 //
 // `font.name` 은 라틴 서체만 바꾼다. 한국어 덱에서는 그래서 글꼴을 몇 번을 걸어도 눈에 보이는
