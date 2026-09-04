@@ -198,6 +198,16 @@ type TurnFinishedData struct {
 // tokens, which is larger than most conversations ever get. A screen showing only a total invites
 // somebody watching a full window to go trim the conversation, which is usually the small half.
 type PromptShape struct {
+	// Window is the model's context window at the moment this request was assembled, or 0 when
+	// this process did not know it.
+	//
+	// It rides here because a reader cannot work it out. The window comes from a model registry
+	// and a backend probe, and a console loads neither: it builds its own App over the log with an
+	// empty registry and no prober, so it answered 0 for every companion and drew no gauge at all
+	// — measured against a daemon that had probed the same model and knew 262,144. "The window is
+	// unknown" and "this backend has no limit" are the same 0 to that reader, and the screen has a
+	// rule about the difference it could not act on.
+	Window  int `json:"window,omitempty"`
 	System  int `json:"system,omitempty"`  // identity, workdir, memory, skills
 	Tools   int `json:"tools,omitempty"`   // the tool catalog: names, descriptions, schemas
 	Talk    int `json:"talk,omitempty"`    // what the person and the companion said

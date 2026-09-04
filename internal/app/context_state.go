@@ -108,6 +108,14 @@ type ContextParts struct {
 // may be the provider's real count and these are always the estimate.
 func (p ContextParts) Sum() int { return p.System + p.Tools + p.Talk + p.Calls + p.Results }
 
+// partsOf is the five token counts out of a recorded shape. Window rides on the same fact but is
+// not one of the parts — it is what they are measured AGAINST, and adding it to the sum would put
+// the whole context window inside the bar that shows how full the context window is.
+func partsOf(sh event.PromptShape) ContextParts {
+	return ContextParts{System: sh.System, Tools: sh.Tools, Talk: sh.Talk,
+		Calls: sh.Calls, Results: sh.Results}
+}
+
 // ContextStateOf reads one session's context situation.
 func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (ContextState, error) {
 	evs, err := a.store.Read(ctx, sid, 0)
@@ -164,7 +172,14 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// the empty finishes a cancel writes — those leave the previous shape standing, which
 			// is the last thing this companion actually held.
 			if d.Prompt != nil {
-				out.Parts = ContextParts(*d.Prompt)
+				out.Parts = partsOf(*d.Prompt)
+				// The window travels with the make-up, and for the same reason: this process may
+				// not be the one that knows it. A console reading a log has an empty model
+				// registry and no backend prober, so its own answer is always 0 — and 0 means
+				// "unknown", which is the state where the screen deliberately draws no gauge.
+				if d.Prompt.Window > 0 {
+					out.Window = d.Prompt.Window
+				}
 			}
 			// The provider's own count, from the most recent turn that reported one. A zero is
 			// not a measurement — several backends omit usage — so it does not displace an

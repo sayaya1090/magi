@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+	"github.com/sayaya1090/magi/internal/core/bus"
 	"github.com/sayaya1090/magi/internal/core/command"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/model"
@@ -65,6 +67,20 @@ func TestTheContextReadingSaysWhatTheWindowIsFilledWith(t *testing.T) {
 	if sum := st.Parts.Sum(); sum < st.Parts.System+st.Parts.Tools {
 		t.Errorf("the parts sum to %d, less than the two pieces it just reported", sum)
 	}
+	// And the window this process knew is on the fact — measured through a READER over the same
+	// log, which is the only way to see it. This App knows the model, so it fills the window in
+	// from its own registry whether or not the recording side wrote anything down; a console does
+	// not, and that is the half that breaks silently.
+	reader := New(a.store, nil, builtin.NewRegistry(), bus.New(), nil, Config{})
+	rst, rerr := reader.ContextStateOf(context.Background(), sid)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if rst.Window != 8000 {
+		t.Errorf("a reader over this log gets a window of %d where the session's model is 8000 — "+
+			"the recording side did not put it on the fact, and a console has no other way to it",
+			rst.Window)
+	}
 }
 
 // A session that has never assembled a request records no make-up rather than a zeroed one.
@@ -113,7 +129,7 @@ func TestEachKindIsMeasuredOverItsOwnCharacters(t *testing.T) {
 		{ToolResult: &session.ToolResult{Content: res}},
 	}}}
 	a := &App{}
-	a.notePromptShape("s", sys, msgs, []port.ToolSpec{{Name: "bash", Description: "run a command"}})
+	a.notePromptShape("s", "", sys, msgs, []port.ToolSpec{{Name: "bash", Description: "run a command"}})
 	sh, ok := a.promptShape("s")
 	if !ok {
 		t.Fatal("nothing was recorded")
@@ -134,15 +150,15 @@ func TestEachKindIsMeasuredOverItsOwnCharacters(t *testing.T) {
 	}
 }
 
-// The two shapes are the same shape.
+// The five parts come across, and the window does not join them.
 //
-// ContextParts converts from event.PromptShape. A field added to the fact and not to the reading
-// (or the reverse) has to stop the build, because the silent version of that mistake is a piece of
-// the context that is recorded and then never shown.
+// partsOf takes the recorded fact apart. The window rides on the same fact — a reader cannot work
+// it out for itself — but it is what the parts are measured AGAINST, and folding it into the sum
+// would put the whole context window inside the bar that shows how full the context window is.
 func TestTheRecordedShapeAndTheReportedPartsMatch(t *testing.T) {
-	p := ContextParts(event.PromptShape{System: 1, Tools: 2, Talk: 3, Calls: 4, Results: 5})
+	p := partsOf(event.PromptShape{Window: 100000, System: 1, Tools: 2, Talk: 3, Calls: 4, Results: 5})
 	if p.Sum() != 15 {
-		t.Errorf("the parts sum to %d, so the conversion dropped a field", p.Sum())
+		t.Errorf("the parts sum to %d — either a field was dropped, or the window joined them", p.Sum())
 	}
 }
 
@@ -316,5 +332,49 @@ func TestTheLiveMeterCountsTheToolCatalog(t *testing.T) {
 			t.Errorf("meter %d reported %d tokens, below the %d of tool catalog every request "+
 				"carries — this is the number the IDE gauge draws", i, n, st.Parts.Tools)
 		}
+	}
+}
+
+// A reader that cannot know the context window is told it.
+//
+// The window comes from a model registry and a backend probe. A console builds its own App over
+// the log with an empty registry and no prober, so its own answer is 0 for every companion — and
+// 0 is what the screens read as "unknown", which is the state where they deliberately draw no
+// gauge at all. Measured against a daemon that had probed the same model and knew 262,144: the
+// panel showed a token count with nothing to measure it against.
+func TestTheWindowTravelsOnTheRecordedFact(t *testing.T) {
+	// A reader: no models, no prober — exactly what the web console constructs.
+	reader, dir := newApp(t, &fakeLLM{}, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := reader.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := reader.contextWindow("some-model"); got != 0 {
+		t.Fatalf("this reader claims to know a window (%d); the test cannot measure what it is for", got)
+	}
+
+	b, err := json.Marshal(event.TurnFinishedData{
+		Prompt: &event.PromptShape{Window: 262144, System: 2404, Tools: 5703, Talk: 4},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reader.store.Append(context.Background(), sid,
+		event.Event{Type: event.TypeTurnFinished, Data: b, TS: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := reader.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Window != 262144 {
+		t.Errorf("the reading reports a window of %d — the screen then has a token count and "+
+			"nothing to measure it against, and draws no gauge", st.Window)
+	}
+	// And the window is not one of the parts: it is what they are measured against.
+	if st.Parts.Sum() >= 262144 {
+		t.Errorf("the window was folded into the parts (sum %d) — the bar would show the whole "+
+			"window sitting inside the window", st.Parts.Sum())
 	}
 }

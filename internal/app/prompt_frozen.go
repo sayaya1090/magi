@@ -102,8 +102,8 @@ func (a *App) sessionToolSpecs(sid session.SessionID, agent AgentSpec) []port.To
 // carry it. Measured here because here is the only place that holds all five pieces at once: the
 // system prompt and the tool catalog exist only in this process's memory, and a reader replaying
 // the log can measure the conversation and nothing else.
-func (a *App) notePromptShape(sid session.SessionID, sys string, msgs []session.Message, specs []port.ToolSpec) {
-	sh := event.PromptShape{System: len(sys) / 4, Tools: toolSpecTokens(specs)}
+func (a *App) notePromptShape(sid session.SessionID, model, sys string, msgs []session.Message, specs []port.ToolSpec) {
+	sh := event.PromptShape{Window: a.contextWindow(model), System: len(sys) / 4, Tools: toolSpecTokens(specs)}
 	for _, m := range msgs {
 		for _, p := range m.Parts {
 			if p.Kind == session.PartText {

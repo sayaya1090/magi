@@ -803,7 +803,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 		}}})
 	}
 	specs := a.sessionToolSpecs(sid, agent)
-	a.notePromptShape(sid, sys, msgs, specs)
+	a.notePromptShape(sid, s.Model.Model, sys, msgs, specs)
 	a.publishContextUsage(sid, agentActor, s.Model.Model, sys, msgs, specs, cumOut)
 
 	return port.ChatRequest{
