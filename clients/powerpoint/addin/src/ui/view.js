@@ -786,8 +786,12 @@ export class View {
 
   /** 도는 중이라는 것 하나. 판정은 `turnRunning` 이 한다 — 화면 밖이라야 잰다. */
   renderBusy(rows) {
+    const running = turnRunning(rows);
     const el = $('#busy');
-    if (el) el.hidden = !turnRunning(rows);
+    if (el) el.hidden = !running;
+    // **세우는 손은 세울 것이 있을 때만.** 그리고 부를 문이 있을 때만 — 가짜 갈래에는 없다.
+    const stop = $('#stop');
+    if (stop) stop.hidden = !(running && this.canStop);
   }
 
   /** 「바로 시키시면 됩니다」는 첫 줄이 서는 순간 증명된다 — 그때 사라진다. */

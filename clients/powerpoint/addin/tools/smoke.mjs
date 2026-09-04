@@ -3087,11 +3087,37 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const reduce = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(paneCss)?.[1] ?? '';
     ok('움직임 줄이기를 존중한다', /animation:\s*none/.test(reduce), reduce.trim().slice(0, 60));
     ok('그래도 안 사라진다', !/display:\s*none/.test(reduce), reduce.trim().slice(0, 60));
-    // **맨 위다.** 대화가 어디로 스크롤돼 있든 보이는 자리는 거기뿐이다.
-    ok('스크롤 영역보다 위에 있다',
-      html.indexOf('id="busy"') < html.indexOf('id="scroll"'),
-      `busy=${html.indexOf('id="busy"')} scroll=${html.indexOf('id="scroll"')}`);
+    // **스크롤 영역 밖이다.** 안에 두면 대화가 밀릴 때 같이 밀려서, 정작 「도는 중」을 알아야
+    // 하는 긴 턴에서 사라진다. 재는 것은 「위냐 아래냐」가 아니라 **밀려나지 않는가**다.
+    ok('막대가 스크롤 밖이다',
+      html.indexOf('id="busy"') > html.indexOf('/#scroll'),
+      `busy=${html.indexOf('id="busy"')} scroll끝=${html.indexOf('/#scroll')}`);
+    // **계획과 컴포저 사이다.** 눈이 이미 가 있는 자리 — 무엇을 하는 중인지와 무엇을 시킬지
+    // 사이에 「지금 하는 중」이 놓인다.
+    ok('계획과 컴포저 사이다',
+      html.indexOf('id="plan"') < html.indexOf('id="busy"')
+      && html.indexOf('id="busy"') < html.indexOf('class="composer"'),
+      `plan=${html.indexOf('id="plan"')} busy=${html.indexOf('id="busy"')} composer=${html.indexOf('class="composer"')}`);
     ok('낭독기에 진행이라고 말한다', /id="busy"[^>]*role="progressbar"/.test(html));
+  }
+
+  // ── 세우는 손 ───────────────────────────────────────────────
+  //
+  // `/api/interrupt` 는 처음부터 있었고 어댑터에도 있었는데 **아무도 안 불렀다** — 문은 만들어
+  // 두고 손잡이를 안 단 것이다. 진행 막대를 붙이고 나서 더 분명해졌다: 「도는 중」이라고 적으면서
+  // 세울 길이 없는 화면이었다.
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    ok('세우는 손이 있다', /id="stop"/.test(html));
+    ok('그 손이 문을 부른다', /#stop[\s\S]{0,400}api\.interrupt\(\)/.test(m));
+    // **도는 동안에만 선다.** 누를 것이 없는 단추는 「지금 뭔가 돌고 있나」를 되묻게 만든다.
+    ok('처음엔 안 보인다', /id="stop"[^>]*hidden/.test(html));
+    ok('도는 동안에만 보인다', /stop\.hidden = !\(running && this\.canStop\)/.test(v));
+    // 부를 문이 없는 갈래(목업)에서는 손잡이도 없다.
+    ok('문이 없으면 손잡이도 없다', /view\.canStop = true/.test(m) && /if \(api\) \{/.test(m));
+    // **세운 것은 실패가 아니다.** 한 일이 남아 있다고 말해 주지 않으면 되돌려진 줄 안다.
+    ok('세운 뒤 남아 있다고 말한다', /세웠습니다[\s\S]{0,40}그대로 남아/.test(m));
   }
 
   // ── **없는 문은 광고하지 않는다** ───────────────────────────

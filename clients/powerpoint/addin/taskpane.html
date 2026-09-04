@@ -55,6 +55,7 @@
       <g id="i-quote"><path d="M7 4H4v3"/><path d="M9 12h3V9"/></g>
       <g id="i-edit"><path d="M11 3l2 2-7 7-3 1 1-3z"/></g>
       <g id="i-more"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></g>
+      <g id="i-stop"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/></g>
       <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
       <g id="i-trash"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8"/></g>
     </defs>
@@ -78,16 +79,6 @@
       PowerPoint 안이 아니라는 걸 영영 알 수 없다), 반대로 이 사실이 누름의 사유를 덮는다.
       수명이 다르다: 이건 창이 사는 동안 계속 참이고, 저건 이번 한 번의 일이다.
     -->
-    <!--
-      **도는 중이라는 것 하나.** 이 제품은 도형마다 호출 하나라, 사람이 읽을 글은 몇 분에 한
-      줄뿐이다 — 그 사이 화면은 「멈춘 것」과 구별되지 않는다. 실제로 그 물음을 받았다.
-
-      **맨 위에 둔다.** 대화가 어디로 스크롤돼 있든 보이는 자리는 여기뿐이고, 이 값은 판
-      전체에 대한 사실이지 어느 줄에 대한 것이 아니다. 진척을 모르므로 **무한**이다 — 몇 %
-      라고 적으면 그건 지어낸 숫자다.
-    -->
-    <div id="busy" class="busy" hidden role="progressbar" aria-label="시키신 일을 하는 중입니다"><div class="busy-bar"></div></div>
-
     <div id="where" class="where" hidden></div>
 
     <!--
@@ -254,6 +245,19 @@
       <div id="plan-list" class="plan-list"></div>
     </details>
 
+    <!--
+      **도는 중이라는 것 하나.** 이 제품은 도형마다 호출 하나라, 사람이 읽을 글은 몇 분에 한
+      줄뿐이다 — 그 사이 화면은 「멈춘 것」과 구별되지 않는다. 실제로 그 물음을 받았다.
+
+      **계획과 컴포저 사이다.** 스크롤 영역 밖이라 대화가 어디로 밀려 있든 안 사라지고,
+      그 둘 사이가 사람 눈이 이미 가 있는 자리다 — 무엇을 하는 중인지(계획)와 무엇을 시킬지
+      (컴포저) 사이에 「지금 하는 중」이 놓인다. 맨 위에 뒀던 앞 판본은 안 보이는 것은
+      아니었지만 눈이 안 가는 자리였다.
+
+      진척을 모르므로 **무한**이다 — 몇 %라고 적으면 그건 지어낸 숫자다.
+    -->
+    <div id="busy" class="busy" hidden role="progressbar" aria-label="시키신 일을 하는 중입니다"><div class="busy-bar"></div></div>
+
     <div class="composer">
       <div id="pending" class="pending"></div>
       <!--
@@ -275,6 +279,17 @@
             aria-label="지금 보는 장을 검토해 달라고 적습니다 — 보내기는 직접 누르세요"><svg class="i" viewBox="0 0 16 16"><use href="#i-review"/></svg></button>
         </div>
         <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
+        <!--
+          **세우는 손.** 도는 동안에만 선다 — 도는 중이 아닐 때 이 단추가 있으면 누를 것이 없고,
+          누를 것이 없는 단추는 화면을 읽는 사람에게 「지금 뭔가 돌고 있나?」를 되묻게 만든다.
+
+          `/api/interrupt` 는 처음부터 있었고 어댑터에도 있었는데 **아무도 안 불렀다** — 문은
+          만들어 두고 손잡이를 안 단 것이다(2026-09-04에 지적받았다). 진행 막대를 붙이고 나니
+          더 분명해졌다: 「도는 중」이라고 적으면서 세울 길이 없는 화면이었다.
+        -->
+        <button type="button" id="stop" class="icon-btn icon-danger" hidden
+          title="하던 일을 세웁니다 — 여기까지 한 것은 그대로 남습니다"
+          aria-label="하던 일을 세웁니다 — 여기까지 한 것은 그대로 남습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-stop"/></svg></button>
         <button type="button" id="send" class="icon-btn icon-primary" title="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다" aria-label="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-send"/></svg></button>
       </div>
     </div><!-- /composer -->
