@@ -2857,19 +2857,30 @@ export class OfficeHand extends HandPort {
   #hyperlink(args) {
     // **바닥과 천장 사이에 있는 것은 먼저 묻는다**(부록 A: LTSC 2024 에는 선택이 있고 하이퍼링크가
     // 없다). 없는 호스트에서 조용히 성공하면 그게 §2.3 의 최악이다.
-    if (!this.supports('PowerPointApi', '1.6')) {
+    //
+    // ⚠ **게이트가 1.6 이었는데 틀렸다.** 1.6 이 준 것은 `Slide.hyperlinks` — **읽는 쪽**이다.
+    // `Shape.setHyperlink` 와 `HyperlinkCollection.add` 는 **1.10 목록에 있다**(2026-09-04에
+    // 요구 집합 표를 읽고 확인). 1.6~1.9 호스트에서는 이 도구가 광고된 채 호출이 터졌을 것이다 —
+    // 아무도 그 호스트에서 안 눌러 봐서 조용했다.
+    if (!this.supports('PowerPointApi', '1.10')) {
       return Promise.reject(new Error(
-        '이 PowerPoint 는 하이퍼링크 API(1.6)가 없습니다 — 링크는 사람이 직접 걸어야 합니다'));
+        '이 PowerPoint 는 링크를 거는 API(1.10)가 없습니다 — 1.6 은 읽기만 줍니다. '
+        + '링크는 사람이 직접 걸어야 합니다'));
     }
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const shape = slide.shapes.getItem(args.shape_id);
       const url = String(args.url ?? '');
-      shape.setHyperlink(url === '' ? null : { address: url });
+      // **마우스를 올렸을 때 뜨는 말**(`screenTip`). 주소만 걸면 사람은 링크를 누르기 전에
+      // 어디로 가는지 못 읽는다 — 주소가 곧 설명인 링크는 드물다.
+      const tip = args.screen_tip === undefined ? '' : String(args.screen_tip);
+      const opts = tip ? { address: url, screenTip: tip } : { address: url };
+      shape.setHyperlink(url === '' ? null : opts);
       await context.sync();
       this.#mutated();
-      return this.#envelope({ slide_id: slide.id, shape_id: args.shape_id, url },
-        [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: 링크 ${url === '' ? '제거' : `→ ${url}`}`]);
+      return this.#envelope({ slide_id: slide.id, shape_id: args.shape_id, url, screen_tip: tip },
+        [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: 링크 ${url === '' ? '제거' : `→ ${url}`}`
+          + (tip ? ` (설명 「${tip}」)` : '')]);
     });
   }
 

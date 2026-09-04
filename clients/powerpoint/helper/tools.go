@@ -633,9 +633,15 @@ func catalogue(hasCouncil bool) []tool {
 			Required: []string{"to"},
 		},
 		{
-			Name:     "set_hyperlink",
-			Desc:     "Set or clear the hyperlink on one shape.",
-			Props:    withSlide(property{Name: "shape_id", Type: "string", Desc: "The shape to link."}, property{Name: "url", Type: "string", Desc: "The address. An empty string removes the link."}),
+			Name: "set_hyperlink",
+			Desc: "Set or clear the hyperlink on one shape. ⚠ Needs PowerPointApi 1.10: 1.6 gave the hyperlink " +
+				"COLLECTION, which only reads — setting one arrived at 1.10. Where it is missing this refuses " +
+				"with a reason rather than failing at the call." + declare,
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The shape to link."},
+				property{Name: "url", Type: "string", Desc: "The address. An empty string removes the link."},
+				property{Name: "screen_tip", Type: "string", Desc: "What to show when the pointer rests on the link. An address is rarely its own explanation."},
+			),
 			Required: []string{"shape_id", "url"},
 		},
 		{

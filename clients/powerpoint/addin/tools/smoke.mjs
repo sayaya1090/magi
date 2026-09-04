@@ -3150,6 +3150,22 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('읽기 전용으로 광고한다', /Name: "render_shape"[\s\S]{0,700}ReadOnly: true/.test(t));
   }
 
+  // ── 링크는 **거는 것이 1.10 이다** ──────────────────────────
+  //
+  // 게이트가 1.6 이었는데 틀렸다. 1.6 이 준 것은 `Slide.hyperlinks` — **읽는 쪽**이다.
+  // `Shape.setHyperlink` 는 1.10 목록에 있다. 1.6~1.9 호스트에서는 이 도구가 광고된 채 호출이
+  // 터졌을 것이고, **아무도 그 호스트에서 안 눌러 봐서 조용했다.**
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const gate = /#hyperlink\(args\) \{([\s\S]*?)return this\.runner/.exec(h)?.[1] ?? '';
+    ok('링크 게이트를 찾았다', gate !== '');
+    ok('링크 게이트가 1.10 이다', /supports\('PowerPointApi', '1\.10'\)/.test(gate), gate.slice(0, 60));
+    ok('1.6 으로 재지 않는다', !/'1\.6'/.test(gate));
+    // 주소만 걸면 사람은 누르기 전에 어디로 가는지 못 읽는다.
+    ok('설명을 같이 걸 수 있다', /screenTip: tip/.test(h) && /Name: "screen_tip"/.test(t));
+  }
+
   // ── 글머리 기호 ─────────────────────────────────────────────
   //
   // 오래 「못 하는 것」으로 알고 있었는데 안 찾아본 것이었다. `bulletFormat.visible` 은 **1.4** 라
