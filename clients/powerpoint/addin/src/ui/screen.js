@@ -249,7 +249,7 @@ export function rowHead(r) {
   if (r.kind === 'council') return councilHead(r);
   const head = headOf(r);
   if (!head) return '';
-  return r.kind === 'tool' ? `⚙ ${r.tool ?? '(이름 없음)'}` : head;
+  return r.kind === 'tool' ? `⚙ ${toolLabel(r.tool)}` : head;
 }
 
 /** 줄을 어떤 모양으로 그리는가. 다 말풍선으로 그리면 도구 호출이 사람 말이 된다(§5.7). */
@@ -273,13 +273,13 @@ export function resultCell(r) {
   const res = r.result;
   if (!res) return null;
   if (res.advisory) {
-    return { mark: '⚠', head: '됐습니다 — 읽을 것이 붙었습니다', text: resultText(res),
+    return { mark: '⚠', head: '완료 — 읽을 것 있음', text: resultText(res),
       failed: false, advisory: true };
   }
   if (res.isError) {
-    return { mark: '✗', head: '실패했습니다', text: resultText(res), failed: true, advisory: false };
+    return { mark: '✗', head: '실패', text: resultText(res), failed: true, advisory: false };
   }
-  return { mark: '✓', head: '됐습니다', text: resultText(res), failed: false, advisory: false };
+  return { mark: '✓', head: '완료', text: resultText(res), failed: false, advisory: false };
 }
 
 /** 답의 몸통. 글일 때도 객체일 때도 있어서(`json.RawMessage`) 편 뒤에 자른다. */
@@ -290,6 +290,28 @@ function resultText(res) {
   // 「도구가 아무것도 안 냈다」와 「낸 것을 우리가 못 그린다」가 같은 화면이 된다.
   const img = res.images > 0 ? `\n(그림 ${res.images}장은 이 창이 아직 안 그립니다)` : '';
   return clip(s.trim(), 400) + img;
+}
+
+/**
+ * 답에서 **사람이 읽을 줄**만 뽑는다 — 우리 도구가 `changed` 에 한국어로 적어 보내는 것.
+ *
+ * 실물에서 판이 이것 때문에 찼다(2026-09-04, 스크린샷): `read_slide` 한 번의 답이
+ * `"revision"`·`"shapes"` 를 통째로 펴서 화면을 덮었다. 인자는 접어 뒀는데 **답은 안 접고
+ * 있었다** — 그리고 이 창에서 값이 있는 것은 그 JSON 이 아니라 그 안의 한두 줄이다.
+ *
+ * 그래서 화면은 이 줄만 펴 두고 **원문은 접는다.** 못 뽑으면 빈 배열이고, 그때는 접힘만 남는다 —
+ * 지어내지 않는다.
+ */
+export function changedLines(r) {
+  const c = r?.result?.content;
+  if (typeof c !== 'string') return [];
+  try {
+    const got = JSON.parse(c);
+    const list = got?.changed;
+    return Array.isArray(list) ? list.filter((x) => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 /** 허락 한 줄. 이 제품에서 이 답은 **덱을 고치게 뒀는가**다. */
@@ -358,42 +380,6 @@ export function argsCell(r) {
   return r.args == null ? '(인자 없음)' : clip(pretty(r.args), 300);
 }
 
-/**
- * 대화 줄에 서는 **한 줄짜리** 인자. 펴 놓은 JSON 이 아니다.
- *
- * # 왜 줄였나
- *
- * 작업창은 348×391 이고, 이 제품의 한 턴은 도구 호출이 수십 번이다(도형마다 한 번). 인자를
- * 펴면 `set_text` 하나가 예닐곱 줄을 먹고, 그 줄들이 대화를 통째로 밀어낸다. 그리고 **무엇이
- * 바뀌었는지는 결과가 이미 한국어로 적는다** — 결과의 `changed` 가 「슬라이드 3 · 도형 5: … →
- * …」로 온다. 인자를 펴 두는 것은 같은 말을 기계 모양으로 한 번 더 하는 것이다.
- *
- * # 줄이지 않는 자리
- *
- * **권한 물음은 그대로 다 편다**(`argsText`). 거기서는 결과가 아직 없고, 사람이 **누르기 전에**
- * 무엇을 허락하는지 알아야 하는 유일한 순간이다. 이 저장소가 그 자리에서 두 번 틀렸다 —
- * 「permission: bash」만 놓고 단추를 내민 화면이 두 클라이언트에 다 있었다.
- *
- * # 모양
- *
- * `key=value` 를 ` · ` 로 잇는다. 값이 길면 자르고, 배열·객체는 **펴지 않고 크기만** 적는다 —
- * 「무엇을 만졌나」에 답하는 줄이지 「무엇을 보냈나」를 재현하는 줄이 아니다.
- *
- * `document` 는 뺀다. 모든 호출에 실리고 늘 같아서, 있으면 한 줄의 절반을 먹고 아무것도 안 가른다.
- */
-export function argsLine(args) {
-  if (args == null) return '';
-  if (typeof args === 'string') return clip(args, 80);
-  if (typeof args !== 'object') return clip(String(args), 80);
-  const bits = [];
-  for (const [k, v] of Object.entries(args)) {
-    if (k === 'document' || v == null) continue;
-    if (Array.isArray(v)) bits.push(`${k}[${v.length}]`);
-    else if (typeof v === 'object') bits.push(`${k}{…}`);
-    else bits.push(`${k}=${clip(String(v), 24)}`);
-  }
-  return clip(bits.join(' · '), 90);
-}
 
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
 export function endText(r) {
@@ -590,3 +576,111 @@ export function planBoard(todos) {
     })),
   };
 }
+
+/**
+ * 계획 목록에서 **눈이 가 있어야 하는 줄.**
+ *
+ * 목록은 96px 짜리 제 스크롤을 갖는데(`.plan-list`), 항목이 예닐곱을 넘으면 지금 도는 것이
+ * 그 밖으로 밀린다 — 그러면 이 판이 답하려던 「지금 어디까지 왔나」를 판을 열어 두고도 못 본다.
+ *
+ * 고르는 규칙은 둘이다. **도는 것이 있으면 그것**이고, 없으면 **마지막으로 끝난 것**이다 —
+ * 하나를 끝내고 다음을 아직 안 고른 사이가 실제로 있고(`planBoard.doneText` 가 그 자리를
+ * 적는다), 그때 방금 바뀐 자리는 끝난 쪽이다.
+ *
+ * `key` 를 같이 돌려주는 것이 요점이다. 로그는 **글자 한 조각마다** 뛰므로 그릴 때마다 끌면
+ * 사람이 목록을 제 손으로 넘겨 볼 수가 없다 — 잡은 자리가 **바뀌었을 때만** 끈다. 글까지
+ * 키에 넣는 것은 항목이 제자리에서 고쳐 쓰이는 경우가 있기 때문이다.
+ */
+export function planAnchor(board) {
+  const rows = board?.rows ?? [];
+  if (rows.length === 0) return null;
+  let i = rows.findIndex((r) => r.state === 'in_progress');
+  if (i < 0) {
+    for (let k = rows.length - 1; k >= 0; k--) {
+      if (rows[k].state === 'completed' || rows[k].state === 'cancelled') { i = k; break; }
+    }
+  }
+  if (i < 0) i = 0;
+  return { index: i, key: `${i}:${rows[i].state}:${rows[i].text}` };
+}
+
+/**
+ * **「지금 이 장을 봐 달라」의 글.**
+ *
+ * 번호가 있어야 짓는다. 모델은 장을 **번호로** 짚으므로(`read_slide {"slide": 5}`) 번호가
+ * 없으면 이 부탁은 가리키는 데가 없는 말이 된다 — 그때는 「지금 보고 있는 장」 같은 말로
+ * 갈음하지 않는다. 그 말을 받은 모델은 자기가 마지막으로 만진 장을 고르고, 그건 사람이
+ * 보고 있는 장이 아니다(§5.8 의 "못 찾은 것을 비슷한 것으로 갈음하지 않는다").
+ */
+export function reviewAsk(sel) {
+  const n = sel?.slideNo;
+  if (!Number.isInteger(n) || n < 1) {
+    return { text: '', note: '몇 번째 장인지 못 읽었습니다. 번호를 적어서 시키세요.' };
+  }
+  return {
+    text: `${n}번 슬라이드를 검토해 주세요. 그림으로 확인하고, 고칠 것을 짚어 주세요. `
+      + `고치는 것은 제가 시킨 뒤에 해 주세요.`,
+    note: '',
+  };
+}
+
+/**
+ * 컴포저에 **덧붙인다.** 적던 글을 안 지운다 — 단추 하나가 사람이 쓰던 문단을 날리면 그
+ * 단추는 다시 안 눌린다.
+ */
+export function appendAsk(cur, add) {
+  const c = String(cur ?? '');
+  if (!add) return c;
+  if (!c.trim()) return add;
+  return `${c.replace(/\s+$/, '')}\n${add}`;
+}
+
+/**
+ * 도구의 **표시 이름**. `mcp__ppt__set_text` 가 아니라 「글 바꾸기」.
+ *
+ * 화면에 기계 이름을 그대로 내면 사람이 매번 번역해서 읽어야 하고, 이 판은 한 턴에 그 줄이
+ * 수십 개다. 다만 **모르는 것은 지어내지 않는다** — 표에 없으면 받은 이름을 그대로 적는다.
+ * 지어낸 이름은 「이 창이 아는 도구」와 「모르는 도구」를 화면에서 같아 보이게 만든다.
+ *
+ * ⚠ **이 표는 `helper/tools.go` 의 카탈로그와 갈릴 수 있다.** 도구가 늘면 여기도 늘어야 하고,
+ * 안 늘면 새 도구만 기계 이름으로 뜬다 — 조용히. 그래서 `smoke` 가 카탈로그를 읽어 **빠진
+ * 이름을 세운다.**
+ */
+const TOOL_LABELS = new Map(Object.entries({
+  // 읽기
+  list_slides: '목차 읽기', read_slide: '슬라이드 읽기', list_layouts: '레이아웃 보기',
+  describe_style: '이 덱 서식 읽기', find_shapes: '도형 찾기', render_slide: '그림으로 보기',
+  export_slide_ooxml: '원본 XML 읽기', snapshot_slide: '되돌릴 자리 만들기',
+  read_notes: '발표자 노트 읽기', read_tags: '메모 읽기', read_animation: '애니메이션 읽기',
+  read_suggestions: '제안 읽기',
+  // 안내
+  advise: '안내 붙이기', clear_advice: '안내 걷기',
+  // 장
+  add_slide: '장 만들기', add_slides: '여러 장 만들기', delete_slide: '장 지우기',
+  duplicate_slide: '장 복제', apply_layout: '레이아웃 바꾸기', reorder_slide: '장 순서 바꾸기',
+  restore_slide: '되돌리기',
+  // 글·서식
+  set_text: '글 바꾸기', format_shape: '서식 바꾸기', apply_style: '서식 한 번에 바꾸기',
+  move_shape: '자리 옮기기', align_shapes: '줄 세우기', add_shape: '도형 넣기',
+  delete_shape: '도형 지우기', set_hyperlink: '링크 걸기',
+  // 표·차트·그림
+  add_table: '표 만들기', replace_table: '표 다시 짓기', set_table_cells: '표 칸 채우기',
+  add_chart: '차트 넣기', add_image: '그림 넣기',
+  // 덱에 남는 것
+  set_notes: '발표자 노트 쓰기', set_tag: '메모 남기기', animate_slide: '애니메이션 걸기',
+  suggest: '제안 붙이기', drop_suggestion: '제안 떼기',
+  // 덱 밖 — magi 자신의 것
+  websearch: '웹 검색', webfetch: '웹 페이지 읽기', todowrite: '계획 세우기',
+  bash: '셸 명령', read: '파일 읽기', write: '파일 쓰기', edit: '파일 고치기',
+  glob: '파일 찾기', grep: '파일 안 찾기', list: '폴더 보기', remember: '기억해 두기',
+  skill: '스킬 읽기', ask_user: '사람에게 묻기', council: '완료 선언',
+}));
+
+export function toolLabel(name) {
+  if (!name) return '(이름 없음)';
+  const short = name.startsWith('mcp__ppt__') ? name.slice('mcp__ppt__'.length) : name;
+  return TOOL_LABELS.get(short) ?? name;
+}
+
+/** 표시 이름을 가진 도구들. `smoke` 가 카탈로그와 견주는 데 쓴다. */
+export function labelledTools() { return [...TOOL_LABELS.keys()]; }

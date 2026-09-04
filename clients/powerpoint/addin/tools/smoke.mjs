@@ -31,7 +31,8 @@ import {
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
-  adapterText, readyText, guideBoard, planBoard, argsLine,
+  adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
+  planAnchor, reviewAsk, appendAsk,
 } from '../src/ui/screen.js';
 import { Transcript } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -2399,9 +2400,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     rowClass({ kind: 'turn' }) === 'turn kind-turn'
       && rowClass({ kind: 'turn' }).split(' ')[1] !== 'turn');
 
-  // `⚙` 하나로는 무엇이 슬라이드를 고쳤는지 모른다.
+  // `⚙` 하나로는 무엇이 슬라이드를 고쳤는지 모른다. **이름은 사람 말로 적는다**(`toolLabel`) —
+  // 기계 이름을 그대로 내면 한 턴에 수십 줄을 사람이 매번 번역해서 읽는다.
   ok('도구 줄은 이름까지 적는다',
-    rowHead({ kind: 'tool', tool: 'set_text' }).includes('set_text')
+    rowHead({ kind: 'tool', tool: 'set_text' }).includes('글 바꾸기')
       && rowHead({ kind: 'tool' }).includes('이름 없음'),
     rowHead({ kind: 'tool' }));
   ok('사람과 모델의 말에는 머리가 없다',
@@ -2628,7 +2630,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       one({ isError: true, advisory: true }).mark);
   }
 
-  // 아직 답이 안 온 호출. **「됐습니다」를 미리 적지 않는다.**
+  // 아직 답이 안 온 호출. **「완료」를 미리 적지 않는다.**
   {
     const t = new Transcript();
     t.append(call('c1', 'mcp__ppt__set_text', {}));
@@ -3001,6 +3003,51 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
     ok('돌아갈 자리가 마크업에 있다', /id="repick"/.test(html));
     ok('붙기 전에는 안 보인다', /id="advanced"[^>]*hidden/.test(html), html.slice(html.indexOf('id="advanced"'), html.indexOf('id="advanced"') + 60));
+
+  // ── 가끔 쓰는 넷은 **늘 닿는 자리**에 ────────────────────────
+  //
+  // 스크롤 영역 안 맨 위에 있던 시절, 누르려면 대화를 끝까지 거슬러 올라가야 했다 — 대화가
+  // 길수록 멀어지는 단추였다(2026-09-04에 지적받았다). **자리로** 잰다: 스크롤 닫는 자리보다
+  // 뒤에 있어야 고정이다.
+  ok('넷은 스크롤 밖이다',
+    html.indexOf('id="advanced"') > html.indexOf('/#scroll'),
+    `advanced=${html.indexOf('id="advanced"')} scroll끝=${html.indexOf('/#scroll')}`);
+  // 그렇다고 늘 펴 두지는 않는다 — 48px 는 대화에서 빼 오는 것이다. 손잡이는 **이미 고정이고
+  // 글자만 있던 줄**에 얹는다.
+  ok('손잡이는 브랜드 줄에 있다',
+    /<footer class="brand">[\s\S]*?id="more"[\s\S]*?<\/footer>/.test(html));
+  ok('손잡이도 붙기 전에는 안 보인다', /id="more"[^>]*hidden/.test(html));
+  ok('무엇을 펴는지 낭독기에 말한다', /id="more"[\s\S]{0,400}aria-controls="advanced"/.test(html));
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    // 펴짐을 **`aria-expanded` 로도** 말한다 — 화면을 안 보는 손에게는 그 값이 전부다.
+    ok('펴짐을 낭독기에도 알린다', /more\.setAttribute\('aria-expanded'/.test(m));
+    // 문만 감추고 판을 펴 둔 채로 두면 **닫을 손이 없는 줄**이 남는다.
+    ok('문을 감출 때 판도 닫는다', /if \(!on && advanced\) advanced\.hidden = true/.test(m));
+    // 여는 단추가 화면 아래라, 안 데려오면 판은 대화 저 위에서 열린다 — 사람이 보기에는
+    // **아무 일도 안 일어난 것**이다.
+    ok('아래에서 연 판을 데려온다',
+      /rulesPanel\.hidden = false;[\s\S]{0,200}view\.reveal\(rulesPanel\)/.test(m)
+      && /gPanel\.hidden = false;[\s\S]{0,120}view\.reveal\(gPanel\)/.test(m));
+  }
+
+  // ── 이름을 두 번 안 적는다 ───────────────────────────────────
+  //
+  // 작업창 머리는 PowerPoint 가 그리고 거기 애드인 이름이 이미 서 있다. 그 아래 한 줄 더
+  // 적으면 같은 말이 두 번이고, 348×391 에서 그 줄은 대화에서 빼 온 것이다.
+  {
+    const head = /<header[^>]*>([\s\S]*?)<\/header>/.exec(html)?.[1] ?? '';
+    ok('머리 줄을 찾았다', head !== '');
+    ok('머리에 이름을 안 적는다', !/MAGI/.test(head), head.trim().slice(0, 60));
+    // 남은 말은 **예상 밖일 때만** 서는 것 하나뿐이라, 그것이 없으면 줄도 없어야 한다 —
+    // 빈 테두리 한 줄이 28px 를 먹는다.
+    ok('할 말이 없으면 줄도 없다', /id="head"[^>]*hidden/.test(html));
+    ok('브랜드는 아래에 남는다', /<footer class="brand">[\s\S]*?MAGI/.test(html));
+  }
+  {
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    ok('말이 없으면 줄을 지운다', /head\.hidden = label === ''/.test(v));
+  }
     ok('누르면 명단이 선다', /#repick[\s\S]{0,120}showCompanions\(true\)/.test(src));
     ok('붙고 나면 그 줄이 뜬다', /pick\.hide\(\);\s*\n\s*offerRepick\(true\)/.test(src));
     ok('명단이 떠 있는 동안에는 안 뜬다', /pick\.render\(list\); offerRepick\(false\)/.test(src));
@@ -3113,21 +3160,290 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('빈 모양은 계획을 안 지운다', read.view.todos.length === 2);
 }
 
-// ── 대화 줄의 인자는 한 줄이다 ───────────────────────────────────────────────────
+// ── 인자는 대화 줄에 안 적고, 물음에는 다 적는다 ────────────────────────────────
+//
+// 좁은 판(348×391)에서 호출 하나가 예닐곱 줄을 먹었다. 무엇이 바뀌었는지는 결과가 한국어로
+// 적으므로 인자는 같은 말을 기계 모양으로 한 번 더 하는 것이다. **다만 물음은 다르다** —
+// 누르기 전에는 결과가 없고, 그때가 사람이 무엇을 허락하는지 알 수 있는 유일한 순간이다.
 {
-  const line = argsLine({ document: 'doc-1', slide: 3, placeholder: 'title', text: '3분기 매출이 12% 늘었다' });
-  // `document` 는 모든 호출에 실리고 늘 같아서 한 줄의 절반을 먹고 아무것도 안 가른다.
-  ok('document 는 빼고 적는다', !line.includes('doc-1'), line);
-  ok('무엇을 만졌는지는 남는다', line.includes('slide=3') && line.includes('placeholder=title'), line);
-  ok('한 줄이다', !line.includes('\n') && line.length <= 90, String(line.length));
-  // 배열·객체는 **펴지 않고 크기만** — 「무엇을 만졌나」에 답하는 줄이지 재현하는 줄이 아니다.
-  const t = argsLine({ rows: 6, columns: 3, values: [1, 2, 3], options: { a: 1 } });
-  ok('배열은 크기만', t.includes('values[3]'), t);
-  ok('객체는 안 편다', t.includes('options{…}'), t);
-  // 없으면 빈 줄 — 없는 칸을 「(인자 없음)」으로 채우면 그 줄이 자리를 먹는다.
-  ok('없으면 안 적는다', argsLine(null) === '' && argsLine({}) === '');
-  // 그리고 **권한 물음은 그대로 다 편다** — 누르기 전에 무엇을 허락하는지 알아야 하는 자리다.
+  const src = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+  // 머리 자체가 손잡이라 접혀 있을 때 자리를 안 먹는다.
+  ok('도구 줄이 인자를 접어 둔다', /turn-fold[\s\S]*?createElement\('summary'\)/.test(src));
+  // **기본이 접힘이다** — 열어 두면 줄인 뜻이 없다.
+  ok('기본은 접힘이다', !/fold\.open\s*=\s*true/.test(src));
+  // 접힌 것을 색이 아니라 글리프로 가른다(못 가리는 사람이 있다).
+  const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
+  ok('접힘을 글리프로 알린다', /\.turn-fold > summary::after/.test(paneCss));
+
+  // **아이콘 줄은 양쪽정렬이되 간격에 바닥이 있다.** `space-between` 만 두면 판이 좁아질 때
+  // 간격이 0 으로 가고, 32짜리 단추의 48 타겟이 서로 겹쳐 가장자리를 누른 사람이 옆 단추를 누른다.
+  const row = /\.advanced \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+  ok('아이콘 줄 규칙을 찾았다', row !== '');
+  ok('양쪽정렬이다', /justify-content:\s*space-between/.test(row), row.trim());
+  ok('간격에 바닥이 있다', /gap:\s*16px/.test(row), row.trim());
+
+  // **필드+단추 한 줄은 필드 높이의 세로 가운데다 — 바닥정렬 금지.** 이 집의 규칙이라
+  // 가이드에는 없다. 여러 줄을 적어 칸이 늘어나도 단추가 아래로 끌려가면 안 된다.
+  const composer = /\.buttons \{([^}]*)\}/.exec(paneCss)?.[1] ?? '';
+  ok('컴포저 줄 규칙을 찾았다', composer !== '');
+  ok('세로 가운데다', /align-items:\s*center/.test(composer), composer.trim());
+  ok('바닥정렬이 아니다', !/align-items:\s*(flex-)?end|baseline/.test(composer), composer.trim());
+  // 셋이 한 줄에 있어야 그 정렬이 뜻을 갖는다.
+  const html2 = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+  // **컴포저 줄부터 컴포저 끝까지**를 잡는다. 안쪽에 상자가 생기면(`.btn-col`) 게으른 `</div>`
+  // 는 거기서 멈추고, 그러면 이 검사는 「입력칸이 없다」고 **틀린 이유로 붉어진다** — 실제로
+  // 그랬다(2026-09-04). 닫는 짝을 세지 않을 것이면 **바깥 경계를 이름으로** 잡는다.
+  const line = /<div class="buttons">([\s\S]*?)<\/div>\s*<\/div><!-- \/composer -->/.exec(html2)?.[1] ?? '';
+  ok('컴포저 줄을 찾았다', line !== '');
+  ok('인용·입력칸·보내기가 한 줄이다',
+    /id="quote"/.test(line) && /<textarea/.test(line) && /id="send"/.test(line), line.slice(0, 60));
+  // **검토는 인용 아래다** — 한 줄에 넷이면 입력칸이 220px 에서 172px 로 준다.
+  const col = /<div class="btn-col">([\s\S]*?)<\/div>/.exec(line)?.[1] ?? '';
+  ok('집어 오는 손 둘이 한 칸에', /id="quote"/.test(col) && /id="review"/.test(col), col.slice(0, 60));
+  ok('그 칸은 세로다', /\.btn-col \{[^}]*flex-direction:\s*column/.test(paneCss));
+  ok('입력칸과 보내기는 그 칸 밖이다', !/<textarea/.test(col) && !/id="send"/.test(col));
+
+  // **계획은 반대다 — 기본이 펼침이다.** 도는 동안 계속 보는 값이라 접어 두면 답을 못 본다.
+  ok('계획은 펴진 채로 선다', /if \(!this\.planShown\)[\s\S]{0,80}el\.open = true/.test(src));
+  // 다만 **처음 설 때 한 번만** — 매 변화마다 열면 사람이 접어 둔 것이 토큰마다 다시 열린다.
+  ok('계획을 매번 다시 펴지 않는다', /this\.planShown = true/.test(src));
+  // 계획이 끝나면 그 기억도 지운다 — 다음 계획은 다시 펴져야 한다.
+  ok('다음 계획은 다시 펴진다', /this\.planShown = false/.test(src));
+
+  // ── 계획 목록이 **바뀐 자리를 따라간다** ──────────────────────
+  //
+  // 목록은 96px 이라 항목이 예닐곱을 넘으면 지금 도는 것이 밖으로 밀린다. 그러면 판을 펴 두고도
+  // 「지금 어디까지 왔나」를 못 본다 — 이 판이 존재하는 이유가 그 물음이다.
+  {
+    const b3 = planBoard([
+      { content: '자료 찾기', status: 'completed' },
+      { content: '뼈대 잡기', status: 'in_progress' },
+      { content: '차트 넣기', status: 'pending' },
+    ]);
+    const a3 = planAnchor(b3);
+    ok('도는 것을 잡는다', a3.index === 1, JSON.stringify(a3));
+    // 하나를 끝내고 다음을 아직 안 고른 사이가 실제로 있다(`doneText` 가 그 자리를 적는다).
+    // 그때 방금 바뀐 자리는 **끝난 쪽**이다.
+    const b4 = planBoard([
+      { content: 'a', status: 'completed' },
+      { content: 'b', status: 'completed' },
+      { content: 'c', status: 'pending' },
+    ]);
+    ok('도는 것이 없으면 마지막으로 끝난 것', planAnchor(b4).index === 1, JSON.stringify(planAnchor(b4)));
+    const b5 = planBoard([{ content: 'a', status: 'pending' }, { content: 'b', status: 'pending' }]);
+    ok('아무것도 안 끝났으면 첫 줄', planAnchor(b5).index === 0);
+    ok('계획이 없으면 잡을 자리도 없다', planAnchor({ rows: [] }) === null);
+    // **키가 요점이다.** 로그는 글자 한 조각마다 뛰므로, 매번 끌면 사람이 목록을 제 손으로
+    // 넘겨 볼 수가 없다. 같은 상태면 같은 키라야 안 끈다.
+    ok('안 바뀌었으면 같은 키', planAnchor(b3).key === planAnchor(planBoard([
+      { content: '자료 찾기', status: 'completed' },
+      { content: '뼈대 잡기', status: 'in_progress' },
+      { content: '차트 넣기', status: 'pending' },
+    ])).key);
+    // 항목이 **제자리에서 고쳐 쓰이는** 경우가 있다 — 자리가 같아도 글이 다르면 다른 줄이다.
+    const b6 = planBoard([
+      { content: '자료 찾기', status: 'completed' },
+      { content: '뼈대 다시 잡기', status: 'in_progress' },
+      { content: '차트 넣기', status: 'pending' },
+    ]);
+    ok('글이 바뀌면 다른 키', planAnchor(b3).key !== planAnchor(b6).key);
+  }
+  ok('바뀐 자리로만 민다', /at\.key !== this\.planAt/.test(src));
+  // **`scrollIntoView` 를 안 쓴다.** 그건 조상 스크롤러까지 민다 — 여기서 그 조상은 대화
+  // 영역이라, 계획 한 줄을 보이게 하려다 **읽던 대화가 튄다.** 방금 고친 바닥 고정과 정면으로
+  // 부딪히는 동작이다.
+  // ⚠ **금지가 아니라 자리를 잰다.** 물음 판은 스스로 보이게 하려고 `scrollIntoView` 를 쓰고
+  // 있고 그건 정당하다(막힌 데몬의 물음은 보여야 한다). 여기서 막는 것은 **이 함수 안**이다.
+  // 그리고 이름이 아니라 **부르는 꼴**로 재는데, 이름만 찾으면 그걸 왜 안 쓰는지 적은 바로 위
+  // 주석이 걸린다 — 오늘 그렇게 한 번 붉었다(이 파일에서 같은 덫을 두 번째로 밟았다).
+  {
+    const body = /scrollWithin\(box, el\) \{([\s\S]*?)\n  \}/.exec(src)?.[1] ?? '';
+    ok('상자 안에서만 미는 함수를 찾았다', body !== '');
+    ok('조상 스크롤을 안 건드린다', !/\.scrollIntoView\(/.test(body), body.trim().slice(0, 60));
+    ok('미는 것은 그 상자다', /box\.scrollTop =/.test(body));
+  }
+  // `offsetTop` 은 offsetParent 기준이다 — 상자가 그게 아니면 **판 전체 기준**이 되어 엉뚱한
+  // 데로 민다. 그래서 `position` 이 계약이다.
+  ok('계획 목록이 offsetParent 다', /\.plan-list \{[^}]*position:\s*relative/.test(paneCss));
+  ok('스크롤 영역도 offsetParent 다', /#pane > \.scroll \{[^}]*position:\s*relative/.test(paneCss));
+
+  // ── 바닥 고정은 **모든 판이 선 뒤에** ────────────────────────
+  //
+  // 재고 붙이는 것이 `renderRows` 안에 있던 시절, 그 뒤에 서는 계획 판이 `#scroll` 을 줄이면
+  // 붙여 둔 바닥이 그대로 풀렸다 — 실물에서 그 화면을 봤다(2026-09-04). 순서를 지키라고
+  // 적는 것보다 **뒤에 못 오게 만드는 것**이 싸므로, 감싸는 모양으로 두고 그것을 잰다.
+  ok('바닥 고정이 감싸는 모양이다', /keepingEnd\(draw\) \{[\s\S]{0,200}const stick = this\.atEnd\(\);[\s\S]{0,120}draw\(\);[\s\S]{0,120}if \(stick\) this\.toEnd\(\);/.test(src));
+  ok('줄 그리기는 더 이상 스스로 안 붙인다',
+    !/renderRows\(rows\) \{[\s\S]{0,600}?scrollTop =/.test(src));
+  {
+    // **감싼 것 안에 판이 다 들어 있는가.** 하나라도 밖으로 나가면 그것이 선 뒤에 바닥이
+    // 안 붙는다 — 오늘 고친 것이 정확히 그 모양이었다.
+    const wrap = /this\.keepingEnd\(\(\) => \{([\s\S]*?)\}\);/.exec(src)?.[1] ?? '';
+    ok('감싼 자리를 찾았다', wrap !== '');
+    const panels = ['renderStream', 'renderRows', 'renderPlan', 'renderReady', 'renderUnknown',
+      'renderAdviceFrom', 'renderSent'];
+    ok('높이를 바꾸는 판이 전부 그 안에 있다',
+      everyOf(panels, (n) => wrap.includes(`this.${n}(`)),
+      panels.filter((n) => !wrap.includes(`this.${n}(`)).join(', '));
+    // 물음 판도 `#scroll` 안에 선다 — 서고 나면 바닥이 밀린다.
+    ok('물음 판도 같이 감싼다', /renderAsk\(\) \{ this\.keepingEnd\(\(\) => this\.drawAsk\(\)\); \}/.test(src));
+  }
+
+  // ── 「지금 이 장을 봐 달라」 ──────────────────────────────────
+  //
+  // 모델은 장을 **번호로** 짚는다(`read_slide {"slide": 5}`). 번호가 없으면 이 부탁은 가리키는
+  // 데가 없는 말이라, 「지금 보고 있는 장」 따위로 갈음하지 않는다 — 그 말을 받은 모델은 자기가
+  // 마지막으로 만진 장을 고르고 그건 사람이 보는 장이 아니다.
+  ok('번호가 있으면 그 번호로 짓는다', reviewAsk({ slideNo: 5 }).text.startsWith('5번 슬라이드'));
+  ok('번호가 없으면 안 짓는다', reviewAsk({ slideNo: null }).text === '');
+  ok('안 지은 이유를 적는다', reviewAsk({ slideNo: null }).note.includes('못 읽었습니다'));
+  ok('선택 자체가 없어도 안 터진다', reviewAsk(undefined).text === '');
+  ok('0번은 없는 번호다', reviewAsk({ slideNo: 0 }).text === '');
+  ok('번호가 정수가 아니면 안 짓는다', reviewAsk({ slideNo: 2.5 }).text === '');
+  // **고치라고는 안 시킨다.** 검토를 부탁했는데 덱이 바뀌어 있으면 그건 검토가 아니다.
+  ok('보기부터 시킨다', reviewAsk({ slideNo: 3 }).text.includes('제가 시킨 뒤에'));
+  // **적던 글을 안 지운다.** 단추 하나가 쓰던 문단을 날리면 그 단추는 다시 안 눌린다.
+  ok('빈 칸이면 그대로 넣는다', appendAsk('', 'X') === 'X');
+  ok('공백만 있어도 그대로 넣는다', appendAsk('  \n ', 'X') === 'X');
+  ok('적던 글 아래에 붙인다', appendAsk('색 대비를 봐 줘', 'X') === '색 대비를 봐 줘\nX');
+  ok('적던 글을 안 지운다', appendAsk('내 글', 'X').startsWith('내 글'));
+  ok('붙일 것이 없으면 그대로 둔다', appendAsk('내 글', '') === '내 글');
+  // **안 보낸다 — 채워만 둔다.** 누름 하나로 나가면 사람이 안 읽은 말이 나간다.
+  ok('검토는 컴포저를 채우기만 한다',
+    /async onReview\(\)[\s\S]{0,700}input\.value = appendAsk/.test(src)
+    && !/async onReview\(\)[\s\S]{0,700}this\.sendTurn/.test(src));
+  // 그리고 물음은 그대로 다 편다.
   ok('물음은 인자를 다 편다', argsText({ args: { slide: 3, text: 'x' } }).includes('"slide": 3'));
+  ok('물음의 인자 칸이 뷰에 서 있다', /argsText\(slot\)/.test(src));
+}
+
+// ── 물음은 「모르는 것」이 아니다 ────────────────────────────────────────────────
+//
+// 물음 판이 `status` 를 폴해서 그린다(매뉴얼 §7.1) — 대화 스트림으로 오는 같은 사건은 여기서
+// 그릴 것이 아니다. 앞 판본은 그것을 `unknown` 으로 세어 화면 아래에 「이 창이 아직 그릴 줄
+// 모르는 이벤트 2건 — permission.requested」를 띄웠다. 그 줄의 뜻은 **「이 창을 고쳐야 한다」**
+// 인데 고칠 것이 없었다. 그런 줄이 늘 떠 있으면 진짜로 못 그리는 것이 왔을 때 같이 안 읽힌다.
+{
+  const port = new FakeTranscript({ A: [] });
+  const read = new ReadTranscript(port);
+  read.attach('A');
+  port.push({ seq: 0, sessionId: 'A', type: 'permission.requested', data: { callId: 'c1' } });
+  port.push({ seq: 0, sessionId: 'A', type: 'question.requested', data: {} });
+  ok('물음을 「모른다」고 안 적는다', !read.view.unknownNote, read.view.unknownNote ?? '(없다)');
+  ok('물음이 대화 줄로도 안 선다', read.view.rows.length === 0);
+  // 그리고 **자리 없는 사건이라 커서를 안 민다**(§5.7 — `seq > 0` 만 민다). 붙을 때의 커서는
+  // -1(전량)이고, 자리 없는 사건이 지나가도 그대로여야 한다 — 0 으로 밀리면 그건 이 문의
+  // 계약에서 「전부 다시」라 화면이 두 벌이 된다.
+  ok('자리 없는 물음은 커서를 안 민다', read.cursor.seq === -1, String(read.cursor.seq));
+}
+
+// ── 판본이 낀 주소 ───────────────────────────────────────────────────────────────
+//
+// Office 는 작업창 자산을 자기 캐시에 물고 그 캐시는 헤더로 못 끈다(TESTING §5.1.3 실측).
+// 캐시가 주소로 도는 이상 답은 주소를 바꾸는 것이고, `?v=` 로는 안 된다 — 페이지가 부르는 것은
+// 진입점 하나뿐이고 나머지 모듈 스무 개는 그 안의 `import` 로 오므로 옛 주소 그대로 온다.
+{
+  const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+  // 페이지는 상대 주소를 그대로 적는다 — 판본은 **헬퍼가 낀다**(page.go 의 versionAssets).
+  ok('진입점이 하나다', (html.match(/<script type="module"/g) ?? []).length === 1);
+  ok('진입점 주소가 상대다', /src="src\/main\.js"/.test(html));
+  ok('스타일 주소가 상대다', /href="taskpane\.css"/.test(html));
+  // 모듈이 서로를 상대 경로로 부르는 것이 이 수가 서는 이유다: 접두사 하나가 전부에 걸린다.
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  ok('모듈은 상대 경로로 서로를 부른다', /from '\.\//.test(main));
+  ok('절대 주소로 우리 모듈을 안 부른다', !/from '\/(src|ui)/.test(main));
+}
+
+// ── 아이콘 단추는 반드시 말을 단다 ──────────────────────────────────────────────
+//
+// 아이콘만 두면 무슨 단추인지 모른다. M3 가 그것을 거동으로 못 박았다 — 「hover 에 **동작을
+// 설명하는** 툴팁을 띄운다, **아이콘의 이름이 아니라**」. 낭독기에는 `aria-label` 이 그 몫이다.
+{
+  const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+  const btns = [...html.matchAll(/<button[^>]*class="[^"]*icon-btn[^"]*"[^>]*>/g)].map((m) => m[0]);
+  // **훑을 것을 실제로 찾았는가** — 0개를 훑고 초록인 것과 다 통과한 것은 글자가 같다(§9).
+  ok('아이콘 단추를 찾았다', btns.length >= 8, String(btns.length));
+  // `everyOf` 는 **빈 것에 참을 안 준다**(§4.1) — `every` 로 적으면 0개를 훑고도 초록이다.
+  ok('전부 툴팁이 있다', everyOf(btns, (b) => /title="[^"]{4,}"/.test(b)),
+    btns.find((b) => !/title="[^"]{4,}"/.test(b)) ?? '');
+  ok('전부 낭독기 이름이 있다', everyOf(btns, (b) => /aria-label="[^"]{4,}"/.test(b)),
+    btns.find((b) => !/aria-label="[^"]{4,}"/.test(b)) ?? '');
+  // 스프라이트는 파일 안에 있다 — 남의 주소에서 아이콘을 부르면 LNA·혼합 콘텐츠가 다시
+  // 걸린다(§5.5). **글자가 아니라 주소를 센다**: 이 파일에는 그 이유를 적은 주석도 있어서
+  // 낱말로 재면 제 주석에 제가 걸린다(실제로 걸렸다).
+  const outside = [...html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)].map((m) => m[1]);
+  ok('아이콘이 파일 안에 있다', /<svg width="0"/.test(html));
+  ok('밖에서 받아오는 것은 office.js 뿐이다',
+    everyOf(outside, (u) => u.startsWith('https://appsforoffice.microsoft.com/')), outside.join(' '));
+
+  // **권한 단추는 아이콘으로 안 바꾼다.** 여는 폭을 문구에 적어야 하는 자리라(§8), 「이번
+  // 호출만」과 「이 세션의 set_text 전부」가 아이콘으로는 안 갈린다.
+  const view = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+  ok('권한 단추는 글자로 남는다', /askAction/.test(view) && !/askAction[\s\S]{0,200}icon\(/.test(view));
+}
+
+// ── 답도 접힌다 ─────────────────────────────────────────────────────────────────
+//
+// 실물 스크린샷에서 판이 답으로 찼다(2026-09-04): `read_slide` 한 번의 JSON 이 `revision`·
+// `shapes` 를 펴서 화면을 덮었다. 인자는 접어 뒀는데 **답은 안 접고 있었다.**
+//
+// 늘 보여야 하는 것은 **됐는가**(머리줄의 ✓/✗/⚠)이고, **무엇이 어떻게 됐는가**는 여는 값이다.
+{
+  const view = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+  const block = /if \(shape === 'tool' && r\.kind === 'tool'\) \{([\s\S]*?)\n      return el;/.exec(view)?.[1] ?? '';
+  ok('도구 줄 렌더러를 찾았다', block !== '');
+  // **이름과 결과가 같은 줄**이다 — 손잡이가 하나여야 무엇이 어디 접혀 있는지를 안 외운다.
+  ok('이름과 결과가 한 줄이다', /sum\.append\(name, mark\)/.test(block));
+  // 그리고 그 한 줄을 누르면 **보낸 것과 받은 것이 같이** 펴진다.
+  ok('한 손잡이가 인자와 답을 같이 편다',
+    /turn-args[\s\S]*?turn-result/.test(block) && (block.match(/createElement\('details'\)/g) ?? []).length === 1);
+  ok('바뀐 줄도 같이 접힌다', /fold\.append\(d\)/.test(block));
+  ok('기본은 접힘이다', !/fold\.open\s*=\s*true/.test(block));
+  // 답이 아직 없으면 **미리 「완료」를 적지 않는다.**
+  ok('안 온 답을 지어내지 않는다', /⋯ 대기/.test(block));
+
+  // `changed` 를 못 뽑아도 **지어내지 않는다** — 빈 배열이면 접힘만 남는다.
+  ok('못 뽑으면 빈 배열', changedLines({ result: { content: '이건 JSON 이 아니다' } }).length === 0);
+  ok('뽑으면 그 줄만', changedLines({ result: { content: JSON.stringify({ changed: ['슬라이드 3 · 제목'], shapes: [1, 2] }) } })
+    .join('') === '슬라이드 3 · 제목');
+}
+
+// ── 도구는 사람 말로 뜬다 ────────────────────────────────────────────────────────
+//
+// `mcp__ppt__set_text` 가 아니라 「글 바꾸기」. 한 턴에 그 줄이 수십 개라 기계 이름을 그대로
+// 내면 사람이 매번 번역해서 읽는다.
+{
+  ok('덱 도구는 사람 말로', toolLabel('mcp__ppt__set_text') === '글 바꾸기');
+  ok('접두사 없이도 같은 이름', toolLabel('set_text') === '글 바꾸기');
+  ok('덱 밖 도구도 사람 말로', toolLabel('websearch') === '웹 검색');
+  // **모르는 것은 지어내지 않는다** — 지어낸 이름은 아는 도구와 모르는 도구를 같아 보이게 한다.
+  ok('모르는 도구는 받은 이름 그대로', toolLabel('mcp__zzz__nope') === 'mcp__zzz__nope');
+  ok('이름이 없으면 없다고 적는다', toolLabel('') === '(이름 없음)');
+
+  // ⚠ **이 표는 카탈로그와 갈릴 수 있다.** 도구가 늘면 여기도 늘어야 하고, 안 늘면 새 도구만
+  // 기계 이름으로 뜬다 — 조용히. 그래서 카탈로그를 읽어 빠진 것을 세운다.
+  const goSrc = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const names = [...goSrc.matchAll(/^\t\t\tName: *"([a-z_]+)",$/gm)].map((m) => m[1]);
+  ok('카탈로그를 읽었다', names.length > 30, String(names.length));
+  const labelled = new Set(labelledTools());
+  const missing = names.filter((n) => !labelled.has(n));
+  ok('카탈로그의 모든 도구에 표시 이름이 있다', missing.length === 0, missing.join(', '));
+}
+
+// ── 목업은 「열린 덱」으로 세어지지 않는다 ──────────────────────────────────────
+//
+// 실물에서 값을 치렀다(2026-09-04, 웨이브 5). 브라우저로 이 페이지를 열면 덱은 가짜인데 손은
+// 헬퍼에 등록됐고, 그래서 모델에게 **열린 덱이 둘**로 보였다 — 둘 중 하나가 가짜인 것을 알
+// 길이 없다. 탭을 새로고침할 때마다 등록이 새 번호를 받아, 도는 모델이 방금 받은 문서 번호로
+// 부를 때마다 「그런 덱은 없다」를 받았다(한 판에 여섯 번).
+{
+  const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  ok('손을 내놓는 자리를 찾았다', /new ServeHand\(/.test(main));
+  // **진짜 호스트일 때만 내놓는다.**
+  ok('목업은 손을 안 내놓는다', /if \(deck\.isHost\) \{[\s\S]{0,200}new ServeHand\(/.test(main));
+  // 다만 **화면 안에서 쓰는 손은 그대로** — 제안 카드는 브라우저에서 눌러 봐야 한다.
+  ok('화면은 여전히 손을 쓴다', /view\.useHand\(hand\)/.test(main));
+  ok('가짜 손을 여전히 만든다', /new FakeHand\(/.test(main));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

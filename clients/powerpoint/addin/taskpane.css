@@ -134,9 +134,8 @@ header {
   border-bottom: 1px solid var(--line);
   margin-top: 0;
 }
-header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent); }
-/* 어댑터 이름은 제목 **아래**로 흐른다. 오른쪽 끝에 붙이면 위 여백을 다 쓰고도 메뉴에 닿는다. */
-.adapter { font: var(--t-caption); color: var(--muted); flex-basis: 100%; }
+/* 제목이 없어졌으므로 흐를 자리도 없다 — 이 줄에 서는 것은 이 말 하나뿐이다. */
+.adapter { font: var(--t-caption); color: var(--muted); }
 
 /*
   호스트가 자기 입으로 말한 요구 집합. 잰 것과 안 잰 것을 **색으로 가른다** — 회색은
@@ -165,7 +164,21 @@ header strong { font: var(--t-subtitle); font-weight: 600; color: var(--accent);
 .pick-note { color: var(--accent); }
 
 /* 고급 한 줄. **눈에 안 띄어야 한다** — 대개의 사람은 이 줄을 안 봐도 된다. */
-.advanced { padding: 0 var(--s4) var(--s2); display: flex; gap: var(--s3); }
+/*
+  아이콘 단추 줄 — **양쪽정렬.** 첫 단추는 왼쪽 끝, 마지막은 오른쪽 끝에 붙고 나머지가 그 사이를
+  고르게 나눈다.
+
+  `gap` 은 **최소치로 남긴다**: 판이 좁아지면(작업창은 사람이 끌어 줄인다) `space-between` 이
+  주는 간격이 0 으로 가는데, 그때 32짜리 단추의 48 타겟이 서로 겹쳐 가장자리를 누른 사람이 옆
+  단추를 누른다. 최소 16 이 그것을 막고, 더 좁아지면 줄이 넘어간다.
+*/
+/*
+  이제 **스크롤 밖의 고정 줄**이라 위에 선이 있어야 한다 — 안에 있을 때는 흐르는 것들 사이의
+  한 줄이었지만, 밖에서는 컴포저와 같은 층이라 경계가 없으면 대화의 꼬리처럼 읽힌다.
+*/
+.advanced { padding: var(--s2) var(--s4); display: flex; align-items: center;
+  justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  flex: none; border-top: 1px solid var(--line); background: var(--bg-sub); }
 /* **밑줄은 가리킬 때만.** 첫 화면에서 이 줄이 눈에 띄면, 아무것도 안 해도 되는 사람이
    「저걸 눌러야 하나」를 하게 된다 — 이 줄은 찾는 사람만 찾으면 된다. */
 .linky {
@@ -416,7 +429,25 @@ textarea {
   padding: var(--s2) var(--s3);
 }
 textarea::placeholder { color: var(--muted); }
-.buttons { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s2); }
+/*
+  컴포저 한 줄: 인용 · 입력칸 · 보내기.
+
+  **단추는 필드 높이의 세로 가운데다 — 바닥정렬이 아니다.** 이 집의 규칙이고, 여러 줄을 적어
+  칸이 늘어나도 단추가 아래로 끌려가지 않는다. `align-items: center` 가 그 한 줄이다.
+
+  입력칸만 늘어난다(`flex: 1`). 단추는 `.icon-btn` 이 `flex: none` 이라 안 줄어든다 — 안 그러면
+  좁은 판에서 아이콘이 눌려 점이 된다(2026-09-04 에 겪은 그것).
+*/
+.buttons { display: flex; align-items: center; gap: 16px; margin-top: var(--s2); }
+/*
+  **집어 오는 손 둘이 한 칸에.** 줄 간격 8 인 것은 이 둘이 한 묶음이라 그렇다 — 바깥 16 과
+  갈려야 「같은 종류 둘」로 읽힌다. 8 이면 48 타겟끼리 8px 겹치는데, **세로로 겹치는 것은
+  가로와 다르다**: 위아래로 8px 는 32 짜리 그림 밖이라 사람이 그림을 겨냥하면 안 물린다.
+  그래도 가장자리를 노리면 옆이 눌리므로, 이 둘은 **되돌릴 수 있는 것끼리**만 묶는다
+  (담기와 적기 — 둘 다 덱을 안 바꾼다).
+*/
+.btn-col { display: flex; flex-direction: column; gap: var(--s2); flex: none; }
+.buttons > textarea { flex: 1 1 auto; min-width: 0; margin: 0; }
 
 /* ── 컨트롤 ─────────────────────────────────────────────────── */
 
@@ -499,6 +530,13 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .brand-name { font-weight: 600; color: var(--accent); }
 .brand-state { margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+  **손잡이 하나만 여기 둔다.** 넷을 다 두면 176px 이라(32×4 + 16×3) 붙은 컴패니언 이름이
+  밀리는데, 그 이름은 늘 보여야 하는 값이다 — 이 줄이 존재하는 이유의 절반이다.
+  그래서 넷은 위에서 펴고, 여기 서는 것은 그 문 하나다.
+*/
+.brand > .icon-btn { margin-left: var(--s2); }
+.brand { min-height: 40px; }
 
 /* ── 흐르는 가운데, 고정된 위아래 ────────────────────────────── */
 /*
@@ -515,6 +553,8 @@ button:disabled { cursor: default; opacity: .5; }
 #pane > .scroll {
   flex: 1 1 auto; min-height: 0; overflow-y: auto;
   display: flex; flex-direction: column;
+  /* `View.reveal` 이 `offsetTop` 으로 민다 — 이 상자가 offsetParent 라야 그 값이 맞다. */
+  position: relative;
 }
 .scroll > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
 /* 대화는 스크롤 영역 **안에서** 자란다 — 자기가 또 스크롤을 갖지 않는다. 두 겹이면 어느
@@ -587,16 +627,65 @@ button:disabled { cursor: default; opacity: .5; }
   border-top: 1px solid var(--line);
 }
 .plan > summary { font: var(--t-caption); color: var(--fg-2); cursor: pointer; }
-.plan-list { max-height: 96px; overflow-y: auto; }
+/* `position` 이 계약이다 — `View.scrollWithin` 이 `offsetTop` 으로 미는데, 이 상자가
+   offsetParent 가 아니면 그 값이 **판 전체 기준**이 되어 엉뚱한 데로 민다. */
+.plan-list { max-height: 96px; overflow-y: auto; position: relative; }
 
-/* 아이콘 단추. **최소 크기를 지킨다** — 24px 는 마우스로도 작다. */
+/*
+  아이콘 단추 — **M3 XS**. 값은 스펙 그림에서 직접 읽은 것을 옮겼다
+  (`.claude/skills/material-3/guide-controls.md`): 높이 **32**, 아이콘 **20**, 모서리 **Full**.
+  「4dp 같은 어중간한 코너는 M3 버튼이 아니다」라고 그 문서가 못 박는다.
+
+  **타겟은 컨테이너와 따로 잰다.** XS·S 는 48×48 이상이어야 하는데 32 짜리 컨테이너를 48 로
+  키우면 348px 판에서 네 개가 줄을 먹는다. Material Web 도 같은 자리에서 둘을 분리한다
+  (`.touch{height:48px}`) — 여기서는 `::before` 가 컨테이너 밖으로 8px 씩 뻗어 48 을 만든다.
+
+  줄 간격은 **16**(8 그리드 둘). 32 + 16 = 48 이라 이웃한 타겟이 **겹치지 않고 맞닿는다** —
+  8 로 두면 타겟끼리 8px 겹쳐서 가장자리를 누른 사람이 옆 단추를 누른다.
+*/
 .icon-btn {
-  width: 28px; height: 28px;
+  width: 32px; height: 32px; padding: 0; flex: none;
+  position: relative;
   display: inline-flex; align-items: center; justify-content: center;
-  background: none; border: 1px solid transparent; border-radius: var(--r-sm);
-  color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer;
+  background: none; border: 0; border-radius: 9999px;
+  color: var(--muted); line-height: 1; cursor: pointer;
 }
-.icon-btn:hover { background: var(--bg-sunken); color: var(--fg); }
+/* 보이는 32 밖으로 8 씩 — 타겟 48. 그림은 안 커지고 누를 자리만 커진다. */
+.icon-btn::before { content: ''; position: absolute; inset: -8px; }
+/*
+  스테이트 레이어. **번들에서 읽은 값**이다 — hover 0.08 · pressed 0.12
+  (`vendor/material.js` 의 `hover-state-layer-opacity`·`pressed-state-layer-opacity`).
+  색을 바꾸는 것이 아니라 그 표면의 글자색을 그 불투명도로 **덮는다.**
+*/
+.icon-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); color: var(--fg); }
+.icon-btn:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
 /* 켜짐은 **색 하나로 말하지 않는다** — 글리프(◉/○)와 굵기 둘이다(M3). */
-.icon-on { color: var(--fg); font-weight: 700; }
+.icon-on { color: var(--fg); }
 .icon-danger:hover { color: #B3261E; }
+
+/* 도구 줄의 접힘. 머리 자체가 손잡이라 접혀 있을 때 드는 자리가 0줄이다. */
+.turn-fold > summary { cursor: pointer; list-style: none; }
+.turn-fold > summary::-webkit-details-marker { display: none; }
+/* 접힌 것을 알 수 있게 — 색이 아니라 **글리프**로 가른다. */
+.turn-fold > summary::after { content: ' ⋯'; color: var(--muted); }
+.turn-fold[open] > summary::after { content: ''; }
+
+/* 아이콘 한 벌. 선으로 그린 것이라 굵기를 한 곳에서 정한다. */
+/* `flex: none` 이 없으면 좁은 자리에서 **줄어들어 점이 된다** — 위 패딩 건이 그 모양이었다. */
+.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5;
+     stroke-linecap: round; stroke-linejoin: round; }
+/* 주 동작은 채워서 — **색 하나로만 가르지 않는다**(테두리와 굵기가 같이 간다). */
+.icon-primary { background: var(--accent, #1F4E79); color: #fff; border-color: transparent; }
+.icon-primary:hover { background: #17405f; color: #fff; }
+
+/* 답에서 사람이 읽을 줄. 원문은 그 아래 접힌다. */
+.turn-changed { font: var(--t-caption); color: var(--fg-2); margin-top: var(--s1); }
+.turn-result-more { font: var(--t-caption); color: var(--muted); cursor: pointer; }
+
+
+
+/* 도구 한 번이 줄 하나. 이름과 결과가 같은 줄에 선다. */
+.turn-line { display: flex; align-items: baseline; gap: var(--s2); cursor: pointer; }
+.turn-line .turn-head { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.turn-line .turn-result-head { flex: none; }

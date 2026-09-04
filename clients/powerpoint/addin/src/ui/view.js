@@ -24,7 +24,8 @@ import {
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
-  fixBoard, adapterText, readyText, planBoard, argsLine,
+  fixBoard, adapterText, readyText, planBoard, changedLines,
+  planAnchor, reviewAsk, appendAsk,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -77,8 +78,13 @@ export class View {
   mount() {
     // **예상 밖일 때만 적는다**(`adapterText`). 진짜 호스트면 빈 칸이라 판 한 줄이 는다.
     const adapter = $('#adapter');
-    adapter.textContent = adapterText(this.deck);
-    adapter.hidden = adapterText(this.deck) === '';
+    const label = adapterText(this.deck);
+    adapter.textContent = label;
+    adapter.hidden = label === '';
+    // **줄 자체를 지운다.** 안쪽만 감추면 테두리 한 줄이 28px 를 그대로 먹는다 — 이름은 위에서
+    // PowerPoint 가 그리므로 이 줄에 남은 말은 이것 하나뿐이고, 그것이 없으면 줄도 없다.
+    const head = $('#head');
+    if (head) head.hidden = label === '';
     this.renderCaps();
     // 브랜드 줄은 **처음부터 사실을 말한다.** 비워 두면 「아직 안 골랐다」와 「골랐는데 화면이
     // 안 그렸다」가 같은 빈칸이 된다.
@@ -88,6 +94,18 @@ export class View {
     // **누르기 전 읽기**(S14 의 대조군). 호버는 포커스를 안 옮기므로 여기서 읽은 선택이
     // 「작업창이 포커스를 가져가기 전」의 값이다. 들어올 때마다 덮어써서 낡지 않게 둔다.
     $('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());
+    const review = $('#review');
+    if (review) {
+      review.addEventListener('click',
+        () => this.guard(() => this.onReview(), '지금 보는 장을 못 읽었습니다'));
+      // 인용 단추와 **같은 이유로** 들어올 때 미리 읽는다(S14). 저기서 잰 것은 도형이었고
+      // 장은 아직 안 재 봤다 — 그래서 「재 봤으니 안 그런다」가 아니라 **옆 단추가 겪은 일을
+      // 안 겪는 쪽**으로 둔다. 마우스가 아닌 손(키보드)에는 이 표본이 없으므로 그때는 즉석에서
+      // 읽는다.
+      review.addEventListener('pointerenter', () => {
+        this.deck.selection().then((sel) => { this.reviewSample = sel; }).catch(() => {});
+      });
+    }
     $('#send').addEventListener('click', () => this.guard(() => this.onSend(), '못 보냈습니다'));
     $('#input').addEventListener('keydown', (e) => {
       if (isSendKey(e)) {
@@ -115,7 +133,10 @@ export class View {
    * 잠근다. **셋 — 폭을 단추 문구에 적는다.** 「허용」이라고만 쓰면 세션 전체를 여는 줄 모르고
    * 누른다.
    */
-  renderAsk() {
+  /** 물음 판도 스크롤 영역 **안에** 선다 — 서고 나면 바닥이 밀린다. 그래서 같이 감싼다. */
+  renderAsk() { this.keepingEnd(() => this.drawAsk()); }
+
+  drawAsk() {
     if (!this.watchPrompt) return;
     // **붙기 전에는 「못 닿는다」가 아니다**(`askKind`). 그 사실을 뷰가 값에 실어 준다 —
     // 판정은 화면 밖에서 하고, 여기서는 넘기기만 한다.
@@ -429,6 +450,31 @@ export class View {
   }
 
   /**
+   * **지금 보고 있는 장을 봐 달라.**
+   *
+   * **안 보낸다 — 컴포저에 채워만 둔다.** 누름 하나로 나가면 사람이 안 읽은 말이 나가고,
+   * 「특히 색 대비를」 같은 한 줄을 덧붙일 자리가 사라진다. 이 제품에서 한 번의 부탁은
+   * 도구 수십 번이라, 잘못 나간 말의 값이 비싸다.
+   *
+   * 적던 글도 안 지운다(`appendAsk`) — 단추 하나가 쓰던 문단을 날리면 그 단추는 다시 안 눌린다.
+   */
+  async onReview() {
+    const sel = this.reviewSample ?? await this.deck.selection();
+    this.reviewSample = null;
+    // 글은 `reviewAsk` 가 짓는다: 화면 밖이라야 잰다.
+    const r = reviewAsk(sel);
+    if (!r.text) {
+      this.note(r.note, { sticky: true });
+      return;
+    }
+    const input = $('#input');
+    input.value = appendAsk(input.value, r.text);
+    input.focus();
+    // 덧붙인 뒤 이어 적을 수 있게 커서를 끝으로.
+    if (input.setSelectionRange) input.setSelectionRange(input.value.length, input.value.length);
+  }
+
+  /**
    * 보낸다. **화면에 미리 붙이지 않는다**(§5.7).
    *
    * 낸 것을 그 자리에서 대화에 붙이면 로그가 같은 말을 다시 실어 올 때 두 벌이 되고, 신원으로
@@ -488,13 +534,17 @@ export class View {
       $('#input').value = '';
       this.renderPending();
     }
-    this.renderStream(v);
-    this.renderRows(v.rows);
-    this.renderPlan(v.todos);
-    this.renderReady(v.rows.length);
-    this.renderUnknown(v.unknownNote, v.skippedNote);
-    this.renderAdviceFrom(v.rows);
-    this.renderSent();
+    // 판을 **전부 그린 뒤에** 바닥을 붙인다 — 계획·안내·요약 어느 것이 서든 스크롤 영역의
+    // 높이가 그때 바뀐다.
+    this.keepingEnd(() => {
+      this.renderStream(v);
+      this.renderRows(v.rows);
+      this.renderPlan(v.todos);
+      this.renderReady(v.rows.length);
+      this.renderUnknown(v.unknownNote);
+      this.renderAdviceFrom(v.rows);
+      this.renderSent();
+    });
   }
 
   /**
@@ -509,26 +559,29 @@ export class View {
   }
 
   /**
-   * 못 그리는 것과 **안 그리기로 한 것**을 같은 칸에, 다른 줄로 적는다. 한 문장으로 합치면
-   * 「이 창을 고쳐야 한다」와 「이대로가 맞다」가 같은 말이 되고, 그런 줄은 곧 안 읽힌다.
+   * **못 그리는 것만 적는다.**
+   *
+   * 두 줄이었다: 「그릴 줄 모르는 N건」과 「일부러 안 그린 N건」. 뜻이 달라서 칸을 나눴었는데,
+   * 실제로 화면에 서 보니 **뒤엣것은 사람이 할 일이 없는 줄**이었다 — `context.usage` 는 턴마다
+   * 수십 건 오고 `session.created` 는 대화의 첫 줄일 뿐이다. 348×391 에서 그 줄은 대화를
+   * 밀어내는 값만 한다.
+   *
+   * 앞엣것은 남긴다. 그 줄의 뜻은 **「이 창을 고쳐야 한다」**이고, 실제로 그 줄을 보고
+   * `todos.changed` 를 그리게 됐다.
+   *
+   * 세는 것을 그만두지는 않는다 — `skippedCounts` 는 그대로 돌고 시험이 그것을 본다. 화면에
+   * 안 적을 뿐이다. 안 세면 나중에 「무엇을 안 그리기로 했었나」를 알 길이 없다.
    */
-  renderUnknown(note, skipped) {
+  renderUnknown(note) {
     const el = $('#unknown');
     el.replaceChildren();
     const un = unknownLine(note);
-    const sk = skippedLine(skipped);
     if (!un.hidden) {
       const d = document.createElement('div');
       d.textContent = un.text;
       el.append(d);
     }
-    if (!sk.hidden) {
-      const d = document.createElement('div');
-      d.className = 'skipped';
-      d.textContent = sk.text;
-      el.append(d);
-    }
-    el.hidden = un.hidden && sk.hidden;
+    el.hidden = un.hidden;
   }
 
   /** 냈는데 아직 로그에 안 뜬 것. **나가는 문을 같이 준다** — 없으면 잠금이 사람을 가둔다. */
@@ -609,15 +662,30 @@ export class View {
   /**
    * 계획 판. 결정은 `planBoard` 가 하고 여기서는 그리기만 한다.
    *
-   * **접힘을 우리가 안 건드린다.** 매 로그 변화마다 열고 닫으면 사람이 펴 둔 목록이 글자 한
-   * 조각마다 닫힌다 — `onChange` 는 토큰마다 뛴다. 여는 것도 접는 것도 사람이 한다.
+   * **기본은 펼침이다.** 이 판이 답하는 것이 「지금 어디까지 왔나」인데 접혀 있으면 그 답을
+   * 누르기 전엔 못 본다. 도구 줄의 인자와 반대다 — 저건 가끔 필요한 값이라 접고, 이건 도는
+   * 동안 계속 보는 값이라 편다.
+   *
+   * **다만 펴는 것은 계획이 처음 설 때 한 번뿐이다.** 매 로그 변화마다 열면 사람이 접어 둔
+   * 것이 글자 한 조각마다 다시 열린다 — `onChange` 는 토큰마다 뛴다. 그래서 「안 보이던 것이
+   * 보이게 된 순간」에만 열고, 그 뒤로는 사람이 정한다. 계획이 끝나 판이 사라지면 그 기억도
+   * 지워서, 다음 계획은 다시 펴진 채로 선다.
    */
   renderPlan(todos) {
     const el = $('#plan');
     if (!el) return;
     const b = planBoard(todos);
     el.hidden = b.hidden;
-    if (b.hidden) return;
+    if (b.hidden) {
+      // 다음 계획은 다시 펴진 채로 선다.
+      this.planShown = false;
+      this.planAt = null;
+      return;
+    }
+    if (!this.planShown) {
+      el.open = true;
+      this.planShown = true;
+    }
     const sum = $('#plan-summary');
     if (sum) sum.textContent = `${b.headText} · ${b.doneText}`;
     const list = $('#plan-list');
@@ -634,6 +702,41 @@ export class View {
       row.append(m, t);
       list.append(row);
     }
+    // **바뀐 자리를 따라간다.** 목록은 96px 이라 항목이 예닐곱을 넘으면 지금 도는 것이 그
+    // 밖으로 밀린다. 고르는 것은 `planAnchor` 가 하고(화면 밖이라야 잰다) 여기서는 민다.
+    //
+    // **키가 바뀐 때만** 민다. 로그는 글자 한 조각마다 뛰므로 그릴 때마다 끌면 사람이 목록을
+    // 제 손으로 넘겨 볼 수가 없다 — 도구 줄에서 이미 한 번 겪은 자리다(`planShown`).
+    const at = planAnchor(b);
+    if (at && at.key !== this.planAt) {
+      this.planAt = at.key;
+      this.scrollWithin(list, list.children[at.index]);
+    }
+  }
+
+  /**
+   * **연 판을 보이는 데까지 데려온다.**
+   *
+   * 「늘 지킬 것」·「가이드」는 스크롤 영역 **안**에 서는데 그것을 여는 단추는 이제 화면
+   * 아래(브랜드 줄 → `⋯`)에 있다. 대화가 길면 판은 저 위에 열리고, 사람이 보기에는
+   * **아무 일도 안 일어난 것**이다 — 단추를 아래로 내린 것이 오히려 안 눌리는 단추를 만든다.
+   */
+  reveal(el) {
+    this.scrollWithin(this.scroller(), el);
+  }
+
+  /**
+   * 상자 **안에서만** 민다.
+   *
+   * `scrollIntoView` 를 안 쓰는 이유가 있다 — 그건 조상 스크롤러까지 같이 민다. 여기서 그
+   * 조상은 대화 영역(`#scroll`)이라, 계획 한 줄을 보이게 하려다 **읽던 대화가 튄다.**
+   * 방금 고친 바닥 고정과 정면으로 부딪히는 동작이다.
+   */
+  scrollWithin(box, el) {
+    if (!box || !el) return;
+    // 가운데에 세운다 — 위아래로 무엇이 더 있는지가 같이 보여야 진척으로 읽힌다.
+    const mid = el.offsetTop - (box.clientHeight - el.offsetHeight) / 2;
+    box.scrollTop = Math.max(0, mid);
   }
 
   /** 「바로 시키시면 됩니다」는 첫 줄이 서는 순간 증명된다 — 그때 사라진다. */
@@ -701,13 +804,44 @@ export class View {
     // 들어가는 것은 대화 칸이다(`#turns`). 한 변수로 뭉쳤더니 `replaceChildren` 이 **스크롤
     // 영역을 통째로 비웠고**, 화면에서는 요구 집합도 컴패니언 카드도 사라진 것으로 보였다
     // (실물에서 그 화면을 보고 갈랐다, 2026-09-01).
+    // **바닥 고정은 여기서 안 한다.** 재고 붙이는 것은 `keepingEnd` 가 감싸는 자리다 — 이
+    // 함수가 그린 뒤에도 스크롤 영역의 **높이가 더 바뀌기 때문이다.** 계획 판이 서면 `#scroll`
+    // 이 그만큼 줄어드는데 여기서 붙여 둔 바닥은 그 줄어듦을 못 봐서 그대로 풀린다 — 실물에서
+    // 그 화면을 봤다(2026-09-04). 판이 하나 늘 때마다 같은 일이 난다.
     const box = $('#turns');
-    const scroller = $('#scroll') ?? box;
-    const atEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
     box.replaceChildren();
     for (const r of rows) box.append(this.rowEl(r));
-    // 위로 올려 읽는 중이면 **안 끌어내린다.** 도구가 줄줄이 도는 턴에서 읽던 자리를 뺏는다.
-    if (atEnd) scroller.scrollTop = scroller.scrollHeight;
+  }
+
+  /** 스크롤은 **가운데 영역이 갖는다.** 없으면 예전처럼 대화 칸이다. */
+  scroller() { return $('#scroll') ?? $('#turns'); }
+
+  /**
+   * 지금 바닥에 있는가. 위로 올려 읽는 중이면 **안 끌어내린다** — 도구가 줄줄이 도는 턴에서
+   * 읽던 자리를 뺏는다.
+   */
+  atEnd() {
+    const s = this.scroller();
+    if (!s) return false;
+    return s.scrollHeight - s.scrollTop - s.clientHeight < 40;
+  }
+
+  toEnd() {
+    const s = this.scroller();
+    if (s) s.scrollTop = s.scrollHeight;
+  }
+
+  /**
+   * **바닥에 있었으면 다시 바닥으로.** 재는 것은 그리기 전, 붙이는 것은 **모든 판이 선 뒤**다.
+   *
+   * 감싸는 모양인 것이 요점이다. 「마지막에 부르세요」로 두면 판을 하나 더 그리는 날 그 줄이
+   * 뒤에 붙고 고정이 조용히 풀린다 — 순서를 지키라고 적는 것보다 **뒤에 못 오게 만드는 것**이
+   * 싸다.
+   */
+  keepingEnd(draw) {
+    const stick = this.atEnd();
+    draw();
+    if (stick) this.toEnd();
   }
 
   rowEl(r) {
@@ -717,28 +851,80 @@ export class View {
     // 그 한 줄에 준 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
     el.className = rowClass(r);
     const head = rowHead(r);
+    const shape = rowShape(r);
+    const res = shape === 'tool' ? resultCell(r) : null;
+    if (res) {
+      // **`isError` 하나로 ✗ 를 찍지 않는다** — `advisory` 는 「했는데 읽을 것이 붙었다」다
+      // (`ToolResult.Advisory`). 이 제품에서 그 오독은 「슬라이드가 안 바뀌었다」로 읽힌다.
+      el.classList.toggle('failed', res.failed);
+      el.classList.toggle('advisory', res.advisory);
+    }
+    if (shape === 'tool' && r.kind === 'tool') {
+      // **도구 한 번이 줄 하나다.** 이름과 결과가 **같은 줄**에 서고, 그 줄을 누르면 보낸 것과
+      // 받은 것이 **같이** 펴진다.
+      //
+      // 접힘이 둘이었다(이름 밑에 인자, 결과 밑에 답). 좁은 판에서 그건 손잡이가 둘이라는 뜻이고,
+      // 무엇이 어디 접혀 있는지를 사람이 외워야 한다. 하나로 합치면 규칙이 한 줄로 선다 —
+      // **접혀 있을 때는 「무엇을 불렀고 어떻게 됐나」, 펴면 「무엇을 보내고 무엇을 받았나」.**
+      //
+      // 늘 보이는 것은 됐는가(`✓/✗/⚠`)이고, 나머지는 궁금할 때 여는 값이다. 지우지는 않는다 —
+      // 모델이 정확히 무엇을 주고받았는지 사람이 확인할 유일한 자리다.
+      const fold = document.createElement('details');
+      fold.className = 'turn-fold';
+      const sum = document.createElement('summary');
+      sum.className = 'turn-line';
+      const name = document.createElement('span');
+      name.className = 'turn-head';
+      name.textContent = head ?? '';
+      const mark = document.createElement('span');
+      // 답이 아직 안 왔으면 **비워 두는 것이 사실이다** — 「완료」를 미리 적으면 실패한 호출이
+      // 성공으로 보이는 구간이 생긴다.
+      mark.className = res ? 'turn-result-head' : 'turn-result-head pending';
+      // 셋이 **짝을 이룬다**: `완료` · `실패` · `대기`. 길이가 갈리면 줄마다 오른쪽 끝이 흔들리고,
+      // 수십 줄이 서는 판에서 그 흔들림이 읽기를 방해한다.
+      mark.textContent = res ? `${res.mark} ${res.head}` : '⋯ 대기';
+      sum.append(name, mark);
+      fold.append(sum);
+
+      if (r.args != null) {
+        const pre = document.createElement('pre');
+        pre.className = 'turn-args';
+        pre.textContent = argsCell(r);
+        fold.append(pre);
+      }
+      // 허락은 이 제품에서 **덱을 고치게 뒀는가**다. 접힘 안에 둔다 — 줄을 하나 더 세우지 않고,
+      // 궁금할 때 이름과 인자와 함께 한자리에서 읽힌다.
+      const perm = permissionText(r);
+      if (perm) {
+        const p = document.createElement('div');
+        p.className = 'turn-perm';
+        p.textContent = perm;
+        fold.append(p);
+      }
+      for (const line of changedLines(r)) {
+        const d = document.createElement('div');
+        d.className = 'turn-changed';
+        d.textContent = line;
+        fold.append(d);
+      }
+      if (res?.text) {
+        const pre = document.createElement('pre');
+        pre.className = 'turn-result';
+        pre.textContent = res.text;
+        fold.append(pre);
+      }
+      el.append(fold);
+      return el;
+    }
     if (head) {
       const h = document.createElement('div');
       h.className = 'turn-head';
       h.textContent = head;
       el.append(h);
     }
-    const shape = rowShape(r);
     if (shape === 'tool') {
-      // **무엇을 만졌는지 한 줄로 적는다**(`argsLine`). 「set_text 를 불렀다」만으로는 모르고,
-      // 인자를 펴면 호출 하나가 예닐곱 줄을 먹는다 — 무엇이 바뀌었는지는 아래 결과가 한국어로
-      // 적는다. 다 펴는 자리는 권한 물음 하나뿐이다(§5.7).
-      if (r.kind === 'tool') {
-        const line = argsLine(r.args);
-        if (line) {
-          const d = document.createElement('div');
-          d.className = 'turn-argline';
-          d.textContent = line;
-          el.append(d);
-        }
-      }
-      // 허락과 답은 **같은 줄에** 붙는다(`Transcript.append` 가 `callId` 로 접었다). 따로
-      // 세우면 도구가 줄줄이 도는 턴에서 「무엇을 불렀나」와 「어떻게 됐나」의 짝이 안 맞는다.
+      // 짝을 못 찾은 답·허락만 여기로 온다(`Transcript.append` 가 호출 줄을 못 찾은 경우).
+      // **버리지 않는다** — 이 창이 로그 중간부터 읽기 시작했다는 사실이다.
       const perm = permissionText(r);
       if (perm) {
         const p = document.createElement('div');
@@ -746,28 +932,10 @@ export class View {
         p.textContent = perm;
         el.append(p);
       }
-      const res = resultCell(r);
       if (res) {
-        // **`isError` 하나로 ✗ 를 찍지 않는다** — `advisory` 는 「했는데 읽을 것이 붙었다」다
-        // (`ToolResult.Advisory`). 이 제품에서 그 오독은 「슬라이드가 안 바뀌었다」로 읽힌다.
-        el.classList.toggle('failed', res.failed);
-        el.classList.toggle('advisory', res.advisory);
         const h = document.createElement('div');
         h.className = 'turn-result-head';
         h.textContent = `${res.mark} ${res.head}`;
-        el.append(h);
-        if (res.text) {
-          const pre = document.createElement('pre');
-          pre.className = 'turn-result';
-          pre.textContent = res.text;
-          el.append(pre);
-        }
-      } else if (r.kind === 'tool') {
-        // 답이 아직 안 왔다. **비워 두는 것이 사실이다** — 「됐습니다」를 미리 적으면 실패한
-        // 호출이 성공으로 보이는 구간이 생긴다.
-        const h = document.createElement('div');
-        h.className = 'turn-result-head pending';
-        h.textContent = '⋯ 답을 기다립니다';
         el.append(h);
       }
       return el;

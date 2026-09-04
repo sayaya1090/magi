@@ -71,7 +71,18 @@ const DRAWN = new Map([
  * `unknown` 으로도 `skip` 으로도 세지 않는다. 앞엣것은 「이 창을 고쳐야 한다」는 뜻이고
  * 뒤엣것은 「고칠 것이 없다」는 뜻인데, 이건 **고쳐서 그리기로 한 것**이다.
  */
-const PANEL = new Set(['todos.changed']);
+const PANEL = new Set([
+  'todos.changed',
+  // **물음은 이 창이 이미 그린다 — 다른 판에서.** 물음 판은 `status` 를 폴해서 그리고, 그게
+  // 계약이다(매뉴얼 §7.1: 물음은 로그에 안 쌓이고 막힌 데몬의 버스로만 나가므로 대화 스트림
+  // 으로는 영영 안 온다). 그래서 스트림에 같은 것이 흘러와도 **여기서 그릴 것이 아니다.**
+  //
+  // 앞 판본은 이 둘을 `unknown` 으로 세어서 화면 아래에 「이 창이 아직 그릴 줄 모르는 이벤트
+  // 2건 — permission.requested」를 띄웠다. 그 줄의 뜻은 **「이 창을 고쳐야 한다」**인데 고칠
+  // 것이 없었다 — 이미 그리고 있었다. 그런 줄이 늘 떠 있으면 사람은 그 자리를 안 읽게 되고,
+  // 진짜로 못 그리는 것이 왔을 때 그것도 같이 안 읽힌다.
+  'permission.requested', 'question.requested', 'question.answered',
+]);
 
 const IGNORED = new Set([
   'context.usage', 'council.deliberating',

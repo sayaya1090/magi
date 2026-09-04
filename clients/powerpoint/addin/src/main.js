@@ -19,6 +19,22 @@ import { mountPick } from './ui/pick.js';
 import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
 import { guideBoard } from './ui/screen.js';
+
+/**
+ * 스프라이트에서 아이콘 하나를 꺼낸다(`taskpane.html` 의 `<defs>`).
+ *
+ * **부르는 자리는 반드시 `title` 과 `aria-label` 을 같이 단다** — 아이콘만으로는 무슨 단추인지
+ * 모르고, 그 글은 **동작**을 적어야 한다(아이콘 이름이 아니라, M3 icon-buttons).
+ */
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'i');
+  svg.setAttribute('viewBox', '0 0 16 16');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', '#' + name);
+  svg.append(use);
+  return svg;
+}
 import { mountFakeCanvas } from './ui/fakeCanvas.js';
 import { mountFakePrompts } from './ui/fakePrompts.js';
 import { fixture } from './ui/deckFixture.js';
@@ -118,7 +134,20 @@ async function boot() {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
     // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
     // 「붙었는데 아무 일도 안 일어난다」를 사람이 가려낼 수 있다.
-    new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
+    // ⚠ **목업은 손을 헬퍼에 내놓지 않는다.**
+    //
+    // 이 페이지를 브라우저에서 열면 덱은 `FakeDeck` 인데, 앞 판본은 그래도 손을 등록했다.
+    // 그러면 모델에게 **열린 덱이 둘**로 보이고 둘 중 하나가 가짜인 것을 알 길이 없다 —
+    // 실물에서 그 값을 치렀다(2026-09-04, 웨이브 5): 화면을 확인하느라 브라우저 탭을 여덟 번
+    // 새로고침했더니 등록이 매번 새 번호를 받아, 도는 모델이 방금 받은 문서 번호로 부를 때마다
+    // 「그런 덱은 없다」를 받았다. 한 판에 여섯 번. 노트를 가짜 덱에 쓰려 한 호출도 있었다.
+    //
+    // 화면에서 눌러 보는 손은 그대로 둔다(위 `view.useHand`) — 제안 카드는 브라우저에서
+    // 확인해야 하고, 그건 **이 창 안의 일**이라 모델과 무관하다. 멈추는 것은 **밖에 내놓는
+    // 것**뿐이다.
+    if (deck.isHost) {
+      new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
+    }
 
     /**
      * 이 대화에 창을 붙인다. **고르기 전에 부른다** — `choose` 가 문을 여는 순간 헬퍼가 로그를
@@ -310,6 +339,23 @@ async function boot() {
      * 무엇을 하라는 것인지 흐려진다.
      */
     const advanced = document.querySelector('#advanced');
+    /**
+     * **가끔 쓰는 넷을 여는 문.**
+     *
+     * 넷을 브랜드 줄에 그대로 놓으면 176px 라(32×4 + 16×3) 붙은 컴패니언 이름이 밀린다.
+     * 그 이름은 늘 보여야 하는 값이라, 대신 **문 하나**만 두고 넷은 컴포저 위에서 편다.
+     * 접혀 있으면 그 줄은 0px 다.
+     *
+     * `aria-expanded` 를 같이 돌린다 — 화면을 안 보는 손에게는 이 값이 「펴졌다」의 전부다.
+     */
+    const more = document.querySelector('#more');
+    more?.addEventListener('click', () => {
+      if (!advanced) return;
+      const open = advanced.hidden;
+      advanced.hidden = !open;
+      more.setAttribute('aria-expanded', String(open));
+      more.classList.toggle('icon-on', open);
+    });
     document.querySelector('#repick')?.addEventListener('click', () => {
       void showCompanions(true);
     });
@@ -337,6 +383,8 @@ async function boot() {
         if (!rulesPanel) return;
         if (!rulesPanel.hidden) { rulesPanel.hidden = true; return; }
         rulesPanel.hidden = false;
+        // 여는 단추가 화면 아래라, 안 데려오면 이 판은 대화 저 위에서 열린다.
+        view.reveal(rulesPanel);
         sayRules('');
         try {
           const got = await api.rules();
@@ -422,7 +470,7 @@ async function boot() {
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'icon-btn' + (row.enabled ? ' icon-on' : '');
-        toggle.textContent = row.toggleIcon;
+        toggle.append(icon(row.enabled ? 'i-on' : 'i-off'));
         toggle.title = row.toggleTip;
         toggle.setAttribute('aria-label', row.toggleTip);
         toggle.setAttribute('aria-pressed', row.enabled ? 'true' : 'false');
@@ -437,7 +485,7 @@ async function boot() {
         const edit = document.createElement('button');
         edit.type = 'button';
         edit.className = 'icon-btn';
-        edit.textContent = '✎';
+        edit.append(icon('i-edit'));
         edit.title = row.editTip;
         edit.setAttribute('aria-label', row.editTip);
         edit.addEventListener('click', () => void (async () => {
@@ -453,7 +501,7 @@ async function boot() {
         const del = document.createElement('button');
         del.type = 'button';
         del.className = 'icon-btn icon-danger';
-        del.textContent = '✕';
+        del.append(icon('i-trash'));
         del.title = row.deleteTip;
         del.setAttribute('aria-label', row.deleteTip);
         del.addEventListener('click', () => void (async () => {
@@ -473,6 +521,7 @@ async function boot() {
       if (!gPanel) return;
       if (!gPanel.hidden) { gPanel.hidden = true; return; }
       gPanel.hidden = false;
+      view.reveal(gPanel);
       if (gEdit) gEdit.hidden = true;
       sayGuides('');
       void drawGuides();
@@ -533,7 +582,17 @@ async function boot() {
         }
       })();
     });
-    const offerRepick = (on) => { if (advanced) advanced.hidden = !on; };
+    // 붙기 전에는 문도 넷도 안 보인다 — 그때는 명단 자체가 떠 있고, 같은 것을 두 자리에서
+    // 권하면 화면이 무엇을 하라는 것인지 흐려진다. **닫는 쪽은 판까지 같이 닫는다**: 문만
+    // 감추고 판을 펴 둔 채로 두면 닫을 손이 없는 줄이 남는다.
+    const offerRepick = (on) => {
+      if (more) more.hidden = !on;
+      if (!on && advanced) advanced.hidden = true;
+      if (!on && more) {
+        more.setAttribute('aria-expanded', 'false');
+        more.classList.remove('icon-on');
+      }
+    };
 
     // **명단은 안 그리고** 읽기만 한다 — 이미 붙어 있는지만 보면 된다.
     await showCompanions(false);

@@ -26,8 +26,44 @@
       **오른쪽 위는 비워 둔다** — 거기 personality 메뉴가 뜬다(Windows 12×32, Mac 34×32,
       8px 안쪽으로 뜬다). 그 자리에 컨트롤을 두면 사용자가 우리 것을 못 누른다.
     -->
-    <header>
-      <strong>MAGI</strong>
+  <!--
+    **아이콘 한 벌.** 망을 안 탄다 — 작업창은 우리가 내주는 오리진이고, 남의 CDN 을 부르면
+    LNA·혼합 콘텐츠가 다시 걸린다(§5.5). 폰트어썸 같은 것을 베끼지 않은 것은 **저작자 표시
+    의무**(CC BY)를 이 저장소에 들이지 않으려는 것이고, 여기 있는 것은 16px 에서 읽히는
+    최소한의 도형이다.
+
+    ⚠ **아이콘만으로는 무슨 단추인지 모른다.** 그래서 이 스프라이트를 쓰는 자리는 반드시
+    `title`(툴팁)과 `aria-label` 을 같이 단다 — 그리고 그 글은 **동작**을 적는다, 아이콘
+    이름이 아니라(M3 icon-buttons).
+  -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <g id="i-new"><path d="M8 3v10M3 8h10"/></g>
+      <g id="i-pin"><path d="M4 3h8v10l-4-3-4 3z"/></g>
+      <g id="i-guide"><path d="M3 3h10v10H3z"/><path d="M6 6h5M6 9h5"/></g>
+      <g id="i-swap"><path d="M3 6h9M9 3l3 3-3 3"/><path d="M13 10H4M7 13l-3-3 3-3"/></g>
+      <g id="i-save"><path d="M3 8.5l3.5 3.5L13 5"/></g>
+      <g id="i-close"><path d="M4 4l8 8M12 4l-8 8"/></g>
+      <g id="i-send"><path d="M3 13l10-5L3 3l2 5z"/></g>
+      <g id="i-quote"><path d="M7 4H4v3"/><path d="M9 12h3V9"/></g>
+      <g id="i-on"><circle cx="8" cy="8" r="4.5"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/></g>
+      <g id="i-off"><circle cx="8" cy="8" r="4.5"/></g>
+      <g id="i-edit"><path d="M11 3l2 2-7 7-3 1 1-3z"/></g>
+      <g id="i-more"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></g>
+      <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
+      <g id="i-trash"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8"/></g>
+    </defs>
+  </svg>
+    <!--
+      **이름을 여기 안 적는다.** 작업창의 머리는 PowerPoint 가 그리고 거기 애드인 이름이 이미
+      서 있다 — 그 아래 한 줄 더 적으면 같은 말이 두 번이고, 348×391 에서 그 줄은 대화에서
+      빼 온 것이다(MS 지침도 「제목에 애드인 이름」이라고 적지 우리가 또 그리라고는 안 한다).
+
+      그래서 이 줄에 남는 것은 **예상 밖일 때만 서는 말** 하나다. 진짜 호스트면 그 말도 비므로
+      줄 자체가 사라진다 — 빈 테두리 한 줄이 28px 를 먹는 것을 안 두려고 `hidden` 을 같이 건다.
+      브랜드는 아래 `footer` 에 있다(MS 지침이 지정한 자리).
+    -->
+    <header id="head" hidden>
       <span id="adapter" class="adapter"></span>
     </header>
 
@@ -74,18 +110,6 @@
     -->
     <section id="pick" class="pick" hidden></section>
 
-    <!--
-      **명단으로 돌아가는 길.** 붙고 나면 명단은 접히는데, 접힌 뒤로는 그것을 다시 세울 방법이
-      화면 어디에도 없었다 — 「저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶다」는
-      경우가 실제로 있어서 명단을 남겨 뒀는데, 그 길이 코드에만 있고 화면에는 없었다.
-      한 줄이고, 붙기 전에는 안 보인다(그때는 명단 자체가 떠 있다).
-    -->
-    <div id="advanced" class="advanced" hidden>
-      <button type="button" id="fresh" class="linky">새 대화 시작</button>
-      <button type="button" id="rules" class="linky">늘 지킬 것</button>
-      <button type="button" id="guides" class="linky">가이드</button>
-      <button type="button" id="repick" class="linky">다른 컴패니언에 붙이기</button>
-    </div>
 
     <!--
       **한 번 적어 두면 매번 지켜지는 말.** 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」 —
@@ -102,8 +126,8 @@
       <textarea id="rules-text" class="rules-text" rows="6"
         placeholder="예) 불릿은 한 줄로. 강조는 #1F4E79 로. 표는 머리글을 굵게."></textarea>
       <div class="rules-row">
-        <button type="button" id="rules-save" class="rules-save">저장</button>
-        <button type="button" id="rules-close" class="linky">닫기</button>
+        <button type="button" id="rules-save" class="icon-btn icon-primary" title="적어 둡니다 — 다음 부탁부터 걸립니다" aria-label="적어 둡니다 — 다음 부탁부터 걸립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
+        <button type="button" id="rules-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
       </div>
       <p id="rules-note" class="rules-note" hidden></p>
     </section>
@@ -126,8 +150,8 @@
         안 부르면 안 읽습니다.</p>
       <div id="guides-list" class="guides-list"></div>
       <div class="rules-row">
-        <button type="button" id="guides-new" class="rules-save">새 가이드</button>
-        <button type="button" id="guides-close" class="linky">닫기</button>
+        <button type="button" id="guides-new" class="icon-btn icon-primary" title="가이드를 새로 만듭니다" aria-label="가이드를 새로 만듭니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
+        <button type="button" id="guides-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
       </div>
 
       <!-- 고치는 자리. 이름은 새로 만들 때만 받는다 — 이름이 곧 파일 이름이라 바꾸면 딴 것이 된다. -->
@@ -136,8 +160,8 @@
         <textarea id="guide-body" class="rules-text" rows="8"
           placeholder="---&#10;description: 한 줄 설명 — 모델이 이걸 보고 부를지 정합니다&#10;---&#10;&#10;# 본문"></textarea>
         <div class="rules-row">
-          <button type="button" id="guide-save" class="rules-save">저장</button>
-          <button type="button" id="guide-cancel" class="linky">취소</button>
+          <button type="button" id="guide-save" class="icon-btn icon-primary" title="이 가이드를 저장합니다" aria-label="이 가이드를 저장합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
+          <button type="button" id="guide-cancel" class="icon-btn" title="고치던 것을 버립니다" aria-label="고치던 것을 버립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
         </div>
       </div>
       <p id="guides-note" class="rules-note" hidden></p>
@@ -209,6 +233,23 @@
       목록 자체는 접어 둔다. 늘 보이는 것은 **진척과 지금 하는 것 한 줄**이고, 그 둘이 이 판이
       답해야 하는 전부다.
     -->
+    <!--
+      **가끔 쓰는 넷.** 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언 바꾸기.
+
+      이 줄은 **스크롤 영역 밖**이다. 안에 있던 시절엔 맨 위에 붙어 있어서, 누르려면 대화를
+      끝까지 거슬러 올라가야 했다 — 대화가 길수록 멀어지는 단추였다(2026-09-04에 지적받았다).
+
+      그렇다고 늘 펴 두지는 않는다. 348×391 에서 이 줄은 48px 이고 그건 대화에서 빼 오는 것이다.
+      **아래 브랜드 줄의 `⋯` 가 이걸 편다** — 그 줄은 이미 고정이고 글자만 있어서, 손잡이 하나를
+      더 놓는 데 드는 자리가 32px 뿐이다. 접혀 있으면 이 줄은 0px 다.
+    -->
+    <div id="advanced" class="advanced" hidden>
+      <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 슬라이드는 그대로입니다" aria-label="새 대화를 시작합니다 — 슬라이드는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
+      <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
+      <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
+      <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+    </div>
+
     <details id="plan" class="plan" hidden>
       <summary id="plan-summary"></summary>
       <div id="plan-list" class="plan-list"></div>
@@ -216,13 +257,28 @@
 
     <div class="composer">
       <div id="pending" class="pending"></div>
-      <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
+      <!--
+        **인용 · 입력칸 · 보내기가 한 줄이다.** 그리고 단추는 **필드 높이의 세로 가운데**에
+        선다 — 바닥정렬이 아니다. 여러 줄을 적어 칸이 늘어나도 단추는 가운데에 머문다.
+      -->
       <div class="buttons">
-        <button id="quote" class="ghost"
-          title="지금 잡혀 있는 도형을 인용에 담습니다">⌸ 선택 인용</button>
-        <button id="send" class="primary">보내기</button>
+        <!--
+          **화면에서 집어 오는 손 둘이 한 칸에 세로로 선다.** 인용은 지금 잡은 도형, 검토는
+          지금 보는 장 — 같은 종류라 붙어 있어야 하고, 한 줄에 넷을 놓으면 입력칸이 220px 에서
+          172px 로 줄어 한국어 줄바꿈이 깨진다. 세로 24px 이 가로 48px 보다 싸다.
+        -->
+        <div class="btn-col">
+          <button type="button" id="quote" class="icon-btn"
+            title="지금 잡혀 있는 도형을 인용에 담습니다"
+            aria-label="지금 잡혀 있는 도형을 인용에 담습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-quote"/></svg></button>
+          <button type="button" id="review" class="icon-btn"
+            title="지금 보는 장을 검토해 달라고 적습니다 — 보내기는 직접 누르세요"
+            aria-label="지금 보는 장을 검토해 달라고 적습니다 — 보내기는 직접 누르세요"><svg class="i" viewBox="0 0 16 16"><use href="#i-review"/></svg></button>
+        </div>
+        <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (⌘Enter 로 보내기)"></textarea>
+        <button type="button" id="send" class="icon-btn icon-primary" title="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다" aria-label="보냅니다 — ⌘/Ctrl+Enter 로도 됩니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-send"/></svg></button>
       </div>
-    </div>
+    </div><!-- /composer -->
 
     <!--
       브랜드 줄. MS 지침이 작업창 아래에 두라고 적은 자리다(Outlook 만 예외). 여기서는 그
@@ -232,6 +288,10 @@
     <footer class="brand">
       <span class="brand-name">MAGI</span>
       <span id="brand-state" class="brand-state"></span>
+      <button type="button" id="more" class="icon-btn" hidden
+        title="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
+        aria-label="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
+        aria-expanded="false" aria-controls="advanced"><svg class="i" viewBox="0 0 16 16"><use href="#i-more"/></svg></button>
     </footer>
   </section>
 
