@@ -410,6 +410,8 @@ export class View {
   renderCaps() {
     const el = $('#caps');
     if (!el) return;
+    // 잰 것을 **헬퍼에도 넘긴다.** 실패해도 화면은 그리던 대로 그린다 — 이 값은 부수적이다.
+    try { this.tellCaps?.(capsOf(this.deck)); } catch { /* 화면이 먼저다 */ }
     const c = capsOf(this.deck);
     el.dataset.measured = c.measured ? 'yes' : 'no';
     const full = capsText(c);

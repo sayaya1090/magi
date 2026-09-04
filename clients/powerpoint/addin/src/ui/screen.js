@@ -717,6 +717,9 @@ const TOOL_LABELS = new Map(Object.entries({
   // 표·차트·그림
   add_table: '표 만들기', replace_table: '표 다시 짓기', set_table_cells: '표 칸 채우기',
   add_chart: '차트 넣기', add_image: '그림 넣기',
+  // 배경·테마 (1.10 이 있는 호스트에서만 손이 광고한다)
+  set_background: '배경색 칠하기', set_theme_colors: '테마 색 바꾸기',
+  read_theme_colors: '테마 색 읽기',
   // 덱에 남는 것
   set_notes: '발표자 노트 쓰기', set_tag: '메모 남기기', animate_slide: '애니메이션 걸기',
   suggest: '제안 붙이기', drop_suggestion: '제안 떼기',

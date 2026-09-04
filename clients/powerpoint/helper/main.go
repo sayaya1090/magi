@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -194,6 +195,11 @@ func defaultAddinRoot() string {
 
 // API 는 애드인이 두드리는 자리들(§5.7). 전부 토큰이 필요하고, 전부 루프백이다.
 type API struct {
+	// mu·hostCaps 는 **창이 잰 요구 집합**을 든다. 창 안에서만 잴 수 있는 값이고, 창에만 두면
+	// 사람이 화면을 읽어야만 아는 값이 된다(`caps` 핸들러의 주석).
+	mu       sync.Mutex
+	hostCaps map[string]any
+
 	Bridge      *Bridge
 	Attachments *Attachments
 	Hub         *HandHub
@@ -244,6 +250,7 @@ func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/permission", a.guard(a.permission))
 	mux.HandleFunc("/api/question", a.guard(a.question))
 	mux.HandleFunc("/api/documents", a.guard(a.documents))
+	mux.HandleFunc("/api/caps", a.guard(a.caps))
 	// 가이드 관리 — 추가·삭제·활성화·비활성화(guides.go).
 	mux.HandleFunc("/api/guides", a.guard(a.guides))
 	mux.HandleFunc("/api/guide", a.guard(a.guide))
@@ -724,6 +731,29 @@ func (a *API) interrupt(w http.ResponseWriter, _ *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
+// caps 는 **호스트가 무엇을 지원한다고 말했는지**를 창에서 받아 둔다.
+//
+// 이 값은 창 안에서만 잴 수 있다(`Office.context.requirements` 는 거기 있다). 그런데 그것을
+// 창에만 두면 **사람이 화면을 읽어야만 아는 값**이 된다 — 「그건 1.10 이라 못 한다」가 문서에
+// 적히고 아무도 다시 재지 않는 일이 실제로 있었다(2026-09-04). 재는 자리는 창이지만 **아는
+// 자리는 여기여야** 도구도 시험도 그 답을 쓸 수 있다.
+//
+// 그대로 나른다. 요약하지 않는다 — 여섯이 여덟이 되던 날 요약이 있었으면 그 둘이 사라졌다.
+func (a *API) caps(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Measured bool             `json:"measured"`
+		Note     string           `json:"note"`
+		Sets     []map[string]any `json:"sets"`
+	}
+	if !readJSON(w, r, &in) {
+		return
+	}
+	a.mu.Lock()
+	a.hostCaps = map[string]any{"measured": in.Measured, "note": in.Note, "sets": in.Sets}
+	a.mu.Unlock()
+	w.WriteHeader(http.StatusAccepted)
+}
+
 func (a *API) status(w http.ResponseWriter, _ *http.Request) {
 	st, err := a.Bridge.Status()
 	if err != nil {
@@ -738,6 +768,13 @@ func (a *API) status(w http.ResponseWriter, _ *http.Request) {
 	if socket, _, _ := a.Bridge.Bound(); socket != "" {
 		st["stale"] = !a.Attachments.HasLive(socket, publishedLife(socket))
 	}
+	// **안 잰 것과 「못 한다」를 가른다.** 창이 아직 안 보냈으면 이 칸은 아예 없다 — 빈 목록을
+	// 실으면 「전부 미지원」으로 읽힌다.
+	a.mu.Lock()
+	if a.hostCaps != nil {
+		st["caps"] = a.hostCaps
+	}
+	a.mu.Unlock()
 	writeJSON(w, st)
 }
 

@@ -72,7 +72,37 @@ export class OfficeHand extends HandPort {
       'duplicate_slide', 'replace_table', 'add_chart', 'add_image',
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
       'animate_slide', 'read_animation',
-      'suggest', 'read_suggestions', 'drop_suggestion'];
+      'suggest', 'read_suggestions', 'drop_suggestion',
+      // **1.10 이 있는 호스트에서만 광고한다.** 없는데 목록에 실으면 모델이 부르고, 부르면
+      // 「했습니다」 하고 안 바뀐다 — 이 파일 머리가 최악이라고 적은 그 실패다.
+      ...(this.supports('PowerPointApi', '1.10')
+        ? ['set_background', 'set_theme_colors', 'read_theme_colors']
+        : [])];
+  }
+
+  /**
+   * **판 크기를 포인트로 묻는다**(`pageSetup`, PowerPointApi 1.10).
+   *
+   * 오래 못 물어보던 값이라 두 자리가 짐작으로 돌았다 — `align_shapes` 는 슬라이드가 아니라
+   * 「고른 도형들」을 기준으로 삼았고, 차트 기본 크기는 4:3 에서도 안 넘치게 600×380 으로
+   * 깎아 뒀다. 둘 다 **짐작이 맞아서가 아니라 못 물어봐서** 그렇게 된 것이다.
+   *
+   * 없는 호스트에서는 `null` 이다. **기본값을 지어내지 않는다** — 부르는 쪽이 「모른다」를
+   * 보고 옛 갈래로 가면 되고, 지어낸 숫자는 틀려도 아무도 모른다.
+   */
+  async #slideSize(context) {
+    if (!this.supports('PowerPointApi', '1.10')) return null;
+    try {
+      const setup = context.presentation.pageSetup;
+      setup.load('slideWidth,slideHeight');
+      await context.sync();
+      const w = Number(setup.slideWidth);
+      const h = Number(setup.slideHeight);
+      if (!(w > 0 && h > 0)) return null;
+      return { width: w, height: h };
+    } catch {
+      return null;
+    }
   }
 
   #envelope(result, changed = []) {
@@ -236,6 +266,9 @@ export class OfficeHand extends HandPort {
       case 'duplicate_slide': return this.#duplicateSlide(args);
       case 'add_chart': return this.#addChart(args);
       case 'add_image': return this.#addImage(args);
+      case 'set_background': return this.#setBackground(args);
+      case 'set_theme_colors': return this.#setThemeColors(args);
+      case 'read_theme_colors': return this.#readThemeColors(args);
       case 'set_notes': return this.#setNotes(args);
       case 'read_notes': return this.#readNotes(args);
       case 'set_tag': return this.#setTag(args);
@@ -1494,6 +1527,8 @@ export class OfficeHand extends HandPort {
 
       const dec = new TextDecoder();
       const at = (name) => files.find((f) => f.name === name);
+      // 판 크기를 물어본다(1.10). 없으면 `null` 이고 아래 기본값이 옛 값으로 간다.
+      const size = await this.#slideSize(context);
       // **짚은 장에 넣는 것이 기본이다.**
       //
       // 앞 판본은 늘 새 장을 만들었다. 그런데 「5번 장에 차트를 넣어 줘」라고 시킨 사람도,
@@ -1516,11 +1551,14 @@ export class OfficeHand extends HandPort {
         id: freeShapeId(slideXml),
         name: args.title ? String(args.title) : '차트', relId,
         left: Number(args.left ?? 60), top: Number(args.top ?? 90),
-        // **4:3 덱에서 넘치지 않는 크기가 기본이다.** 이 호스트는 장 크기를 못 읽는다
-        // (`pageSetup` 은 1.10). 앞 기본값 840 은 16:9(960pt)에는 맞고 4:3(720pt)에서는
+        // **판 크기를 물어봐서 정한다.** 앞 기본값 840 은 16:9(960pt)에는 맞고 4:3(720pt)에서는
         // 오른쪽 180pt 가 화면 밖으로 나갔는데, 우리는 그걸 모른 채 「넣었습니다」라고
-        // 답했다(리뷰, 2026-09-03). 둘 다에 드는 크기를 고른다.
-        width: Number(args.width ?? 600), height: Number(args.height ?? 380),
+        // 답했다(리뷰, 2026-09-03). 그래서 둘 다에 드는 600×380 으로 깎아 뒀는데, 그건 **못
+        // 물어봐서** 고른 값이지 좋은 값이 아니었다 — 16:9 에서는 오른쪽이 360pt 비었다.
+        //
+        // 1.10 이 있으면 판의 좌우 60pt 를 남긴 폭을 쓴다. 없으면 옛 값 그대로다.
+        width: Number(args.width ?? (size ? Math.round(size.width - 120) : 600)),
+        height: Number(args.height ?? (size ? Math.round(size.height * 0.7) : 380)),
       });
       slideXml = withFrame(slideXml, frame);
 
@@ -1802,6 +1840,100 @@ export class OfficeHand extends HandPort {
    * 노트가 이미 있으면 조각을 새로 짓지 않고 **본문만 갈아 끼운다** — PowerPoint 가 만든 것에는
    * 우리가 모르는 서식이 붙어 있을 수 있고, 통째로 갈아 치우면 그것이 조용히 사라진다.
    */
+  /**
+   * **장 배경을 칠한다**(PowerPointApi 1.10).
+   *
+   * 오래 「못 하는 것」에 적혀 있던 자리다. 그런데 그건 **스펙을 읽고 적은 것**이지 이 호스트에
+   * 물어본 것이 아니었다 — 우리 탐침이 1.8 에서 멈춰 있었고, 다시 재 보니 1.10 이 있었다
+   * (2026-09-04). 그래서 이 도구는 **있으면 광고되고 없으면 목록에 아예 안 실린다**(`ops`).
+   *
+   * `color` 를 안 주면 **테마로 되돌린다.** 칠한 것을 못 벗기면 이 도구는 되돌릴 수 없는 도구가
+   * 되고, 그러면 사람은 한 번 눌러 보기를 겁낸다.
+   */
+  #setBackground(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const color = args.color === undefined || args.color === null ? '' : String(args.color).trim();
+      const clearing = color === '' || color.toLowerCase() === 'none' || color.toLowerCase() === 'theme';
+      if (clearing) {
+        slide.background.fill.clear();
+        await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, background: 'theme' },
+          [`슬라이드 배경을 테마 기본으로 되돌렸습니다 (${slide.id})`]);
+      }
+      if (!/^#[0-9A-Fa-f]{6}$/.test(color)) {
+        throw new Error(`색은 #RRGGBB 로 주세요 — 받은 것: ${color}`);
+      }
+      // 투명도는 0~1 이다(스니펫의 `transparency: 0.2`). 안 주면 안 싣는다 — 기본값을
+      // 지어내면 「안 줬는데 반투명해졌다」가 된다.
+      const opts = { color };
+      if (args.transparency !== undefined && args.transparency !== null) {
+        const t = Number(args.transparency);
+        if (!(t >= 0 && t <= 1)) throw new Error(`transparency 는 0~1 입니다 — 받은 것: ${args.transparency}`);
+        opts.transparency = t;
+      }
+      slide.background.fill.setSolidFill(opts);
+      await context.sync();
+      this.#mutated();
+      const said = color + (opts.transparency ? ` (투명도 ${opts.transparency})` : '');
+      return this.#envelope({ slide_id: slide.id, background: color, transparency: opts.transparency ?? 0 },
+        [`슬라이드 배경을 ${said} 로 칠했습니다 (${slide.id})`]);
+    });
+  }
+
+  /**
+   * **덱의 테마 색을 바꾼다**(1.10).
+   *
+   * ⚠ **장 하나를 통해 닿지만 테마는 덱이 공유한다.** API 는 `slide.themeColorScheme` 로
+   * 들어가는데, 테마는 마스터의 것이라 한 장에서 바꾼 것이 어디까지 번지는지 **우리는 안 재
+   * 봤다.** 그래서 결과에 그 사실을 적는다 — 모르는 것을 아는 척하지 않는다.
+   */
+  #setThemeColors(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const scheme = slide.themeColorScheme;
+      const names = ['dark1', 'dark2', 'light1', 'light2',
+        'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
+        'hyperlink', 'followedHyperlink'];
+      const given = args.colors && typeof args.colors === 'object' ? args.colors : {};
+      const set = [];
+      for (const [name, value] of Object.entries(given)) {
+        if (!names.includes(name)) {
+          throw new Error(`모르는 테마 색 이름입니다: ${name} — 쓸 수 있는 것: ${names.join(', ')}`);
+        }
+        const c = String(value).trim();
+        if (!/^#[0-9A-Fa-f]{6}$/.test(c)) throw new Error(`${name} 의 색은 #RRGGBB 로 주세요 — 받은 것: ${c}`);
+        scheme.setThemeColor(name, c);
+        set.push(`${name}=${c}`);
+      }
+      if (set.length === 0) {
+        throw new Error(`바꿀 색을 하나도 안 줬습니다 — colors 에 ${names.slice(0, 4).join('·')} 같은 이름과 #RRGGBB 를 주세요`);
+      }
+      await context.sync();
+      this.#mutated();
+      return this.#envelope({ slide_id: slide.id, set: set.length },
+        [`테마 색을 바꿨습니다: ${set.join(', ')}`,
+          '⚠ 테마는 덱이 공유합니다 — 이 바꿈이 다른 장에도 걸리는지는 안 재 봤습니다. 렌더로 확인하세요']);
+    });
+  }
+
+  /** 지금 테마 색이 무엇인지. 바꾸기 전에 읽으라고 있는 짝이다. */
+  #readThemeColors(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const scheme = slide.themeColorScheme;
+      const names = ['dark1', 'dark2', 'light1', 'light2',
+        'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
+        'hyperlink', 'followedHyperlink'];
+      const got = names.map((n) => scheme.getThemeColor(n));
+      await context.sync();
+      const out = {};
+      names.forEach((n, i) => { out[n] = got[i]?.value ?? null; });
+      return this.#envelope({ slide_id: slide.id, theme: out });
+    });
+  }
+
   #setNotes(args) {
     return this.runner(async (context) => {
       const text = String(args.text ?? '');

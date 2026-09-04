@@ -81,6 +81,8 @@ async function boot() {
     watchPrompt,
     readTranscript,
   });
+  // 창이 잰 요구 집합을 헬퍼로 넘기는 길. **가짜 갈래엔 없다** — 헬퍼가 없으면 보낼 곳도 없다.
+  if (api) view.tellCaps = (caps) => { void api.caps(caps).catch(() => {}); };
   view.mount();
   // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
   // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야

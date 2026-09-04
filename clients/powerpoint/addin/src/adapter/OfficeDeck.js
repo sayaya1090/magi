@@ -50,6 +50,11 @@ export class OfficeDeck extends DeckPort {
       ['PowerPointApi', '1.2'],
       ['PowerPointApi', '1.5'], ['PowerPointApi', '1.6'],
       ['PowerPointApi', '1.7'], ['PowerPointApi', '1.8'],
+      // **바닥 위도 묻는다.** 여기까지만 묻던 시절, 문서는 「슬라이드 배경과 테마 색은 1.10 이라
+      // 못 한다」고 적고 있었다 — 그건 **스펙을 읽고 적은 것이지 이 호스트에 물어본 것이
+      // 아니다.** 못 하는 것의 목록은 재 보고 적어야 한다. 있으면 문이 열리고, 없으면 그때
+      // 「없다」가 처음으로 사실이 된다.
+      ['PowerPointApi', '1.9'], ['PowerPointApi', '1.10'],
       ['SharedRuntime', '1.1'],
     ];
     const sets = want.map(([name, version]) => {

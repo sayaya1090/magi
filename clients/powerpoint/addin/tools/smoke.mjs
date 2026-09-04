@@ -1679,10 +1679,15 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const caps = new OfficeDeck().capabilities();
     ok('물어봤으면 쟀다고 말한다', caps.measured === true && caps.note === '', caps.note);
     // 셈이 아니라 **명단**으로 못박는다. 하나가 빠지면 빠진 이름이 diff 에 보인다.
+    //
+    // **바닥 위(1.9·1.10)도 명단에 있다.** 문서가 「그건 1.10 이라 못 한다」고 적고 있었는데,
+    // 그건 스펙을 읽고 적은 것이지 이 호스트에 물어본 것이 아니었다 — 우리 탐침이 1.8 에서
+    // 멈춰 있었다. **못 하는 것의 목록은 재 보고 적는다.**
     const want = 'PowerPointApi 1.2,PowerPointApi 1.5,PowerPointApi 1.6,'
-      + 'PowerPointApi 1.7,PowerPointApi 1.8,SharedRuntime 1.1';
+      + 'PowerPointApi 1.7,PowerPointApi 1.8,PowerPointApi 1.9,PowerPointApi 1.10,'
+      + 'SharedRuntime 1.1';
     const got = caps.sets.map((s) => `${s.name} ${s.version}`).join(',');
-    ok('여섯을 요약 없이 그대로 돌려준다', got === want, got);
+    ok('여덟을 요약 없이 그대로 돌려준다', got === want, got);
     ok('물어본 것과 돌려준 것이 같다', asked.join(',') === want, asked.join(','));
     const by = new Map(caps.sets.map((s) => [`${s.name} ${s.version}`, s.ok]));
     ok('그렇다고 답한 집합은 true', by.get('PowerPointApi 1.5') === true);
@@ -3053,6 +3058,23 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('아래에서 연 판을 데려온다',
       /rulesPanel\.hidden = false;[\s\S]{0,200}view\.reveal\(rulesPanel\)/.test(m)
       && /gPanel\.hidden = false;[\s\S]{0,120}view\.reveal\(gPanel\)/.test(m));
+  }
+
+  // ── 잰 것은 **헬퍼도 안다** ─────────────────────────────────
+  //
+  // 요구 집합은 창 안에서만 잴 수 있다. 그런데 창에만 두면 **사람이 화면을 읽어야만 아는 값**이
+  // 되고, 그러면 「그건 1.10 이라 못 한다」가 문서에 적힌 채 아무도 다시 안 잰다 — 실제로
+  // 그랬고, 다시 재 보니 **지원됐다**(2026-09-04).
+  {
+    const m = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    const a = readFileSync(new URL('../src/adapter/helperApi.js', import.meta.url), 'utf8');
+    ok('헬퍼에 넘기는 문이 있다', /caps\(body\) \{ return this\.#send\('\/api\/caps'/.test(a));
+    ok('잰 자리에서 넘긴다', /this\.tellCaps\?\.\(capsOf\(this\.deck\)\)/.test(v));
+    // 화면이 먼저다 — 넘기다 터져도 요구 집합 줄은 그리던 대로 그린다.
+    ok('넘기다 실패해도 화면은 그린다', /try \{ this\.tellCaps[\s\S]{0,80}catch/.test(v));
+    // 가짜 갈래엔 헬퍼가 없다. 없는 곳으로 보내지 않는다.
+    ok('헬퍼가 없으면 안 보낸다', /if \(api\) view\.tellCaps =/.test(m));
   }
 
   // ── 켜고 끄는 것은 **스위치**다 ──────────────────────────────

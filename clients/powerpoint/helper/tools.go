@@ -363,6 +363,46 @@ func catalogue() []tool {
 			),
 			Required: []string{"text"},
 		},
+		// ── 배경·테마 (PowerPointApi 1.10) ───────────────────────────────
+		//
+		// ⚠ **이 셋은 호스트가 1.10 을 지원할 때만 손이 광고한다**(`OfficeHand.ops`). 카탈로그에는
+		// 늘 있지만 손이 안 내주면 magi 에 등록되지 않는다 — 없는 문을 이름으로 시키면
+		// 「했습니다」 하고 안 바뀌고, 그게 이 클라이언트가 최악이라고 적어 둔 실패다.
+		//
+		// 오래 「못 하는 것」에 적혀 있었다. 그건 스펙을 읽고 적은 것이지 호스트에 물어본 것이
+		// 아니었고, 우리 탐침이 1.8 에서 멈춰 있었다. 다시 재 보니 있었다(2026-09-04).
+		{
+			Name: "set_background",
+			Desc: "Paint one slide's background a solid colour — the theme decides it otherwise, and until now " +
+				"nothing here could change it. Omit color (or pass \"theme\") to put it back to the theme's own " +
+				"background, so this is always reversible. The slide KEEPS ITS ID: this goes through the object " +
+				"model, not through rebuilding the slide." + declare,
+			Props: withSlide(
+				property{Name: "color", Type: "string", Desc: "Background colour as #RRGGBB. Omit, or \"theme\", to clear it back to the theme."},
+				property{Name: "transparency", Type: "number", Desc: "0 to 1. Omitted means fully opaque — a value is never invented for you."},
+			),
+		},
+		{
+			Name: "read_theme_colors",
+			Desc: "The deck's twelve theme colours as they are now: dark1/dark2, light1/light2, accent1-6, " +
+				"hyperlink, followedHyperlink. Read this before set_theme_colors — changing a theme colour " +
+				"repaints every shape that inherits it, so knowing what is there is how you know what you are " +
+				"about to change." + declare,
+			Props:    withSlide(),
+			ReadOnly: true,
+		},
+		{
+			Name: "set_theme_colors",
+			Desc: "Change the deck's theme colours by name. This repaints everything that inherits them — " +
+				"placeholders, chart series, table styles — which is the point: it is how a deck is restyled in " +
+				"one call rather than shape by shape. Read read_theme_colors first. ⚠ The theme is reached " +
+				"through a slide but belongs to the deck, and how far one change carries has NOT been measured " +
+				"here: render a slide afterwards and look." + declare,
+			Props: withSlide(
+				property{Name: "colors", Type: "object", Desc: "Names to #RRGGBB, e.g. {\"accent1\": \"#1F4E79\"}. Names: dark1, dark2, light1, light2, accent1-accent6, hyperlink, followedHyperlink. Only the ones you give are touched."},
+			),
+			Required: []string{"colors"},
+		},
 		{
 			Name: "read_tags",
 			Desc: "Notes you left on a slide or shape earlier, stored INSIDE the deck. This is your memory " +
