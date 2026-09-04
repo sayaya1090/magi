@@ -76,28 +76,6 @@ async function boot() {
   // **헬퍼가 준 문서 키로 말한다.** `hello` 는 스트림이 서고 나서 오므로, 오는 즉시 넘긴다 —
   // 그때부터 이 창의 API 호출은 자기 덱의 대화로 간다. 그 전의 호출은 열쇠 없는 대화로 가고,
   // 그것도 답이다(창이 아직 어느 덱인지 모르는 때).
-  // **자기 덱을 알기 전에는 남의 대화 이름을 보게 된다.**
-  //
-  // `hello` 는 스트림이 선 뒤에 오는데, 그 전에 상태를 물으면 열쇠 없는 대화(아무 덱에도 안 매인
-  // 자리)의 이름이 온다 — 창을 둘 띄우면 **둘 다 같은 이름**을 그린다. 실물에서 그 화면을 봤다
-  // (2026-09-05: 사람이 "둘 다 똑같은게 떠 있는데"라고 물었다).
-  //
-  // 그래서 이름을 알게 되는 순간 **자기 덱으로 다시 물어** 그 대화 이름을 적는다.
-  if (real) {
-    helperStream.on('hello', (d) => {
-      api.useDeck(d?.document ?? '');
-      void (async () => {
-        try {
-          const mine = await api.companions();
-          const sid = mine?.bound?.session ?? '';
-          if (sid) {
-            listenTo(sid);
-            view.ready(bound, sid);
-          }
-        } catch { /* 못 물었으면 앞서 그린 것을 그대로 둔다 */ }
-      })();
-    });
-  }
   const status = real ? new HelperStatus(api) : new FakeStatus();
   const watchPrompt = new WatchPrompt(status);
   // **연결이 둘이다**(§5.7). 내는 것과 받는 것이 다른 연결이고, 서로의 생사 증거가 아니다.
@@ -207,6 +185,30 @@ async function boot() {
      * 「붙었다」고 적는 것은 여기가 아니다(그건 `choose` 가 성공한 뒤다). 여기서 하는 것은
      * **어느 이름의 이벤트를 우리 것으로 셀지**를 정하는 것뿐이라, 실패해도 거짓말이 안 된다.
      */
+    // **붙고 나서 한 번 적는다.**
+    //
+    // 창은 자기 덱 이름을 `hello` 가 와야 안다. 그 전에 상태를 물으면 열쇠 없는 대화(아무 덱에도
+    // 안 매인 자리)의 이름이 오고, 창이 둘이면 **둘 다 같은 것**을 그린다 — 이름을 보여 주는
+    // 목적이 「어느 창이 어느 대화인가」인데 정확히 그 반대를 한다. 실물에서 그 화면을 봤다
+    // (2026-09-05: "둘 다 똑같은게 떠 있는데").
+    //
+    // 그래서 **덱을 알게 된 뒤 자기 것으로 한 번** 묻고, 그 이름만 적는다.
+    if (real) {
+      helperStream.on('hello', (d) => {
+        api.useDeck(d?.document ?? '');
+        void (async () => {
+          try {
+            const mine = await api.companions();
+            const sid = mine?.bound?.session ?? '';
+            if (sid) {
+              listenTo(sid);
+              view.ready(bound, sid);
+            }
+          } catch { /* 못 물었으면 그 줄은 안 뜬다 — 틀린 이름보다 없는 게 낫다 */ }
+        })();
+      });
+    }
+
     const listenTo = (session) => {
       if (session && readTranscript.sessionId !== session) readTranscript.attach(session);
     };
@@ -299,7 +301,10 @@ async function boot() {
           // 사람이 거기부터 보지는 않는다.
           // **이 말은 첫 줄이 서는 순간 증명된다.** 그래서 `where`(창이 사는 동안 참인 칸)가
           // 아니라 `ready` 로 간다 — 조건이 사라지면 문장도 같이 사라져야 한다.
-          view.ready(bound, list?.bound?.session ?? '');
+          // **여기서는 대화 이름을 안 적는다.** 이 길은 창이 자기 덱을 알기 전에도 지나가고,
+          // 그때 오는 것은 열쇠 없는 대화의 이름이다 — 창이 둘이면 둘 다 같은 것을 그린다.
+          // 이름은 붙은 뒤에 한 번 적는다(아래 `hello`).
+          view.ready(bound);
           await refreshBrand();
         }
       } catch (e) {
