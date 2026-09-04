@@ -695,8 +695,23 @@ async function boot() {
     // **컴패니언이 다시 뜬 것을 폴이 알려 준다.** 화면이 이미 그리는 것 뒤에 한 줄 더 건다 —
     // `readTranscript.onChange` 를 감싼 것과 같은 자리, 같은 이유다(한 사건에 한 자리).
     const drewAsk = watchPrompt.onChange;
+    // **붙는 순간에 이름을 적는다.**
+    //
+    // 앞 판본은 `hello` 때 한 번만 적었다. 그 순간에는 아직 어느 대화에도 안 붙어 있어서 이름이
+    // 없고, 그 뒤로 다시 그리는 자리가 없었다 — 자동으로 다 붙은 뒤에도 그 줄은 영영 비었다.
+    // 사람이 물었다(2026-09-05): "세션아이디는 언제 나옴?"
+    //
+    // 폴이 붙음을 보는 그 자리에서 적는다. **바뀔 때만** — 매 폴마다 그리면 첫 줄이 선 뒤에도
+    // 다시 세워질 수 있고, 그 문장은 대화가 서면 사라져야 한다.
+    let saidSession = '';
     watchPrompt.onChange = () => {
       drewAsk?.();
+      const sid = watchPrompt.view.session ?? '';
+      if (sid && sid !== saidSession) {
+        saidSession = sid;
+        listenTo(sid);
+        view.ready(bound, sid);
+      }
       if (watchPrompt.view.stale) companionRestarted();
     };
   }

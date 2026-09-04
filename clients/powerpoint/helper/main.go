@@ -669,7 +669,29 @@ func (a *API) makeOwn(deck string) {
 		Phase: OwnReady, Started: st.Started, Tools: tools,
 		Socket: mine.Socket, Session: mine.Session, Workdir: st.Workdir, Log: st.Log,
 	}
-	if err := a.Bridge.Bind(mine.Socket, mine.Session); err != nil {
+	// **그 덱의 자리에 묶는다.**
+	//
+	// 여태 열쇠 없는 자리(`a.Bridge`)에만 묶었다. 그러면 창이 자기 덱으로 상태를 물을 때 그 자리는
+	// 비어 있고, 화면은 「아직 안 붙었다」를 그린다 — 자동으로 다 붙여 놓고도 그렇다. 사람이
+	// 그것을 보고 물었다(2026-09-05): "플러그인 열리면 바로 데몬에 붙고 세션 만들어서 커넥션
+	// 만들어지면 세션아이디 출력하라고."
+	//
+	// 그리고 **덱마다 자기 대화다.** 다른 덱이 이미 그 대화를 들고 있으면 여기서 새로 연다 —
+	// 같은 규칙이 `choose` 에도 있고, 자동 경로만 빠져 있었다.
+	session := mine.Session
+	if deck != "" && a.Bridges != nil {
+		if who, taken := a.Bridges.Holder(session); taken && who != deck {
+			if fresh, err := a.freshOn(mine.Socket); err == nil {
+				session = fresh
+			}
+		}
+	}
+	target := a.Bridge
+	if deck != "" && a.Bridges != nil {
+		target = a.Bridges.For(deck)
+	}
+	out.Session = session
+	if err := target.Bind(mine.Socket, session); err != nil {
 		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).
 		out.Chat = err.Error()
 	}

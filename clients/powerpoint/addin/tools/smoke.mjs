@@ -3990,6 +3990,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const w = mk([{ reachable: false, session: '', why: '아직 어느 컴패니언에도 안 붙었습니다' }]);
   await w.poll();
   ok('안 붙었으면 bound 가 거짓이다', w.view.bound === false, String(w.view.bound));
+  ok('안 붙었으면 적을 이름이 없다', w.view.session === '', w.view.session);
   ok('안 붙었으면 배너를 안 그린다', askKind(w.view) === 'none', askKind(w.view));
 
   // **붙었는데 못 닿는 것은 여전히 배너다.** 둘을 합치면 진짜 끊김이 조용해진다.
@@ -3998,6 +3999,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   await lost.poll();
   await lost.poll();
   ok('붙었는데 못 닿으면 배너를 그린다', askKind(lost.view) === 'lost', askKind(lost.view));
+
+  // **붙는 순간 이름이 실린다.** 화면이 「어느 창이 어느 대화인가」를 적을 근거는 이것뿐이고,
+  // 앞 판본은 `hello` 때 한 번만 봤다 — 그 순간엔 아직 안 붙어 있어서 영영 비었다.
+  const joins = mk([{ reachable: false, session: '' }, { reachable: true, session: 's_abc', pending: null }]);
+  await joins.poll();
+  ok('붙기 전에는 이름이 없다', joins.view.session === '');
+  await joins.poll();
+  ok('붙으면 이름이 실린다', joins.view.session === 's_abc', joins.view.session);
 
   // 문이 아예 안 열리면 **모르는 것**이라 앞의 답을 든다 — 여기서 「안 붙었다」로 적으면
   // 진짜 끊김이 배너 없이 사라진다.

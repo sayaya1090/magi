@@ -34,6 +34,8 @@ export class WatchPrompt {
      * 연결되면 지워야지"). 규칙이 적혀 있고 도달 불가였던 자리다.
      */
     this.bound = false;
+    /** 붙은 대화의 이름. 화면이 적는 유일한 신원이다. */
+    this.session = '';
     /** 못 닿는다고 이미 말했나. 값이 아니라 **말했는지**를 기억한다. */
     this.saidLost = false;
     /**
@@ -75,7 +77,10 @@ export class WatchPrompt {
     const wasBound = this.bound;
     // **문이 안 열렸을 때는 모르는 것이다.** 그때 「안 붙었다」로 적으면 진짜 끊김이 배너 없이
     // 조용해진다 — 모르면 앞의 답을 그대로 든다.
-    if (s.session !== undefined) this.bound = String(s.session || '') !== '';
+    if (s.session !== undefined) {
+      this.session = String(s.session || '');
+      this.bound = this.session !== '';
+    }
     if (this.bound !== wasBound) this.onChange();
     this.stale = s.stale === true;
     this.reachable = s.reachable !== false;
@@ -191,6 +196,8 @@ export class WatchPrompt {
       reachable: this.reachable,
       /** 어느 대화에 붙었는가. 거짓이면 「못 닿는다」가 아니라 **아직 안 붙은 것**이다. */
       bound: this.bound,
+      /** 그 대화의 이름. 창이 처음 뜰 때 이것을 적는다 — 어느 창이 어느 대화인지가 그것뿐이다. */
+      session: this.session,
       /** 못 닿는다는 말을 지금 화면에 올릴 것인가. **한 번뿐**이다. */
       lostNote: this.reachable
         ? null
