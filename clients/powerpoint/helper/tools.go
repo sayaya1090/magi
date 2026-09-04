@@ -371,6 +371,33 @@ func catalogue(hasCouncil bool) []tool {
 			),
 			Required: []string{"text"},
 		},
+		{
+			// ⚠ **손이 1.9 를 확인한 뒤에만 광고한다**(`OfficeHand.ops`).
+			//
+			// 이 도구가 없던 값이 기록돼 있다: 사람이 표를 만들고 「고쳐 달라」고 했는데 모델에게
+			// 고칠 길이 없어 **표를 하나 더 만들었다**(2026-09-02 신고). 남은 길이 `replace_table`
+			// 뿐이었고 그건 지우고 다시 지으므로 id 를 버린다.
+			Name: "format_table_cells",
+			Desc: "Restyle cells of a table that already exists — fill, text colour, size, bold, italic, " +
+				"alignment — WITHOUT rebuilding it, so the table KEEPS ITS ID and its text. Give exactly one " +
+				"of cells (a list), row (a whole row) or column (a whole column): a header row is the usual " +
+				"reason to call this, and spelling it cell by cell costs one entry per column. This does NOT " +
+				"touch the text — use set_table_cells for that, so that changing words never resets a style " +
+				"and changing a style never rewrites words." + declare,
+			Props: withSlide(
+				property{Name: "shape_id", Type: "string", Desc: "The table shape's id."},
+				property{Name: "cells", Type: "array", Items: "object", Desc: "Cells to restyle: [{row, column}] with 0-based indexes."},
+				property{Name: "row", Type: "integer", Desc: "Restyle one whole row (0-based). Use instead of cells."},
+				property{Name: "column", Type: "integer", Desc: "Restyle one whole column (0-based). Use instead of cells."},
+				property{Name: "fill", Type: "string", Desc: "Cell fill as #RRGGBB, or \"none\" to clear it."},
+				property{Name: "color", Type: "string", Desc: "Text colour as #RRGGBB."},
+				property{Name: "size", Type: "number", Desc: "Font size in points."},
+				property{Name: "bold", Type: "boolean", Desc: "Bold on or off."},
+				property{Name: "italic", Type: "boolean", Desc: "Italic on or off."},
+				property{Name: "align", Type: "string", Desc: "left, center, right or justify."},
+			),
+			Required: []string{"shape_id"},
+		},
 		// ── 배경·테마 (PowerPointApi 1.10) ───────────────────────────────
 		//
 		// ⚠ **이 셋은 호스트가 1.10 을 지원할 때만 손이 광고한다**(`OfficeHand.ops`). 카탈로그에는

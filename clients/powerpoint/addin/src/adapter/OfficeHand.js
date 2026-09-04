@@ -77,7 +77,10 @@ export class OfficeHand extends HandPort {
       // 「했습니다」 하고 안 바뀐다 — 이 파일 머리가 최악이라고 적은 그 실패다.
       ...(this.supports('PowerPointApi', '1.10')
         ? ['set_background', 'set_theme_colors', 'read_theme_colors']
-        : [])];
+        : []),
+      // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
+      // 다시 지으므로 id 가 바뀐다.
+      ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells'] : [])];
   }
 
   /**
@@ -284,6 +287,7 @@ export class OfficeHand extends HandPort {
       case 'add_table': return this.#addTable(args);
       case 'replace_table': return this.#replaceTable(args);
       case 'set_table_cells': return this.#setCells(args);
+      case 'format_table_cells': return this.#formatCells(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
       case 'advise':
@@ -2837,6 +2841,90 @@ export class OfficeHand extends HandPort {
       clipped,
       values: cells.map((line) => line.map((cell) => (cell.isNullObject ? '' : (cell.text ?? '')))),
     };
+  }
+
+  /**
+   * **있는 표의 셀 서식을 제자리에서 고친다**(PowerPointApi 1.9).
+   *
+   * 이 도구가 없던 시절의 값이 기록돼 있다: 사람이 표를 만들고 「이거 고쳐 줘」라고 했는데
+   * 모델에게는 고칠 길이 없어서 **표를 하나 더 만들었다**(2026-09-02 신고). 남은 길은
+   * `replace_table` 뿐이었고 그건 지우고 다시 지으므로 **쓰던 글과 id 를 함께 버린다.**
+   *
+   * 1.8 에서 글은 이미 제자리에서 고쳐졌다(`set_table_cells` — `TableCell.text` 가 1.8 이다).
+   * 1.9 가 더해 주는 것은 **서식**이다: `fill`·`font`·정렬. 그래서 이 도구는 글을 안 만진다 —
+   * 한 도구가 둘을 다 하면 「글만 바꾸려다 서식이 초기화됐다」가 난다.
+   *
+   * 범위는 셀 목록이거나 `all` 이다. 머리글 한 줄만 굵게 하는 것이 이 도구를 부르는 가장 흔한
+   * 이유인데, 그걸 셀 하나씩 적게 하면 열 개짜리 표에서 열 번 적어야 한다.
+   */
+  #formatCells(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const shape = slide.shapes.getItem(args.shape_id);
+      const table = shape.getTable();
+      table.load('rowCount,columnCount');
+      await context.sync();
+
+      // 어디를 고칠지. **셋 중 하나만** 온다 — 섞이면 무엇이 이겼는지 결과가 못 적는다.
+      const given = [args.cells, args.row, args.column].filter((x) => x !== undefined && x !== null);
+      if (given.length !== 1) {
+        throw new Error('어디를 고칠지 하나만 주세요 — cells(목록) · row(한 행) · column(한 열) 중 하나입니다');
+      }
+      const spots = [];
+      if (Array.isArray(args.cells)) {
+        for (const c of args.cells) spots.push({ row: Number(c.row), column: Number(c.column) });
+      } else if (args.row !== undefined && args.row !== null) {
+        const r = Number(args.row);
+        for (let c = 0; c < table.columnCount; c += 1) spots.push({ row: r, column: c });
+      } else {
+        const c = Number(args.column);
+        for (let r = 0; r < table.rowCount; r += 1) spots.push({ row: r, column: c });
+      }
+      if (spots.length === 0) throw new Error('고칠 셀이 하나도 없습니다');
+
+      const want = {};
+      if (args.fill !== undefined) want.fill = String(args.fill);
+      if (args.color !== undefined) want.color = String(args.color);
+      if (args.size !== undefined) want.size = Number(args.size);
+      if (args.bold !== undefined) want.bold = Boolean(args.bold);
+      if (args.italic !== undefined) want.italic = Boolean(args.italic);
+      if (args.align !== undefined) want.align = String(args.align);
+      if (Object.keys(want).length === 0) {
+        // **아무것도 안 바꿨으면 바꿨다고 말하지 않는다.**
+        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — fill·color·size·bold·italic·align 중 하나는 주세요');
+      }
+
+      const handles = spots.map((s) => {
+        const cell = table.getCellOrNullObject(s.row, s.column);
+        cell.load('isNullObject');
+        return { at: s, cell };
+      });
+      await context.sync();
+      for (const { at, cell } of handles) {
+        if (cell.isNullObject) {
+          // **없는 셀은 지어내지 않는다.** 절반만 고치고 성공으로 답하면 나머지도 됐다고 읽힌다.
+          throw new Error(`표에 (${at.row}, ${at.column}) 셀이 없습니다 — 아무것도 안 고쳤습니다`);
+        }
+      }
+      for (const { cell } of handles) {
+        if (want.fill !== undefined) {
+          if (want.fill.toLowerCase() === 'none') cell.fill.clear();
+          else cell.fill.setSolidColor(want.fill);
+        }
+        if (want.color !== undefined) cell.font.color = want.color;
+        if (want.size !== undefined) cell.font.size = want.size;
+        if (want.bold !== undefined) cell.font.bold = want.bold;
+        if (want.italic !== undefined) cell.font.italic = want.italic;
+        if (want.align !== undefined) cell.horizontalAlignment = want.align;
+      }
+      await context.sync();
+      this.#mutated();
+      const said = Object.entries(want).map(([k, v]) => `${k}=${v}`).join(' · ');
+      return this.#envelope(
+        { slide_id: slide.id, shape_id: args.shape_id, cells: spots.length, applied: want },
+        [`표 ${args.shape_id} 의 셀 ${spots.length}개를 고쳤습니다 (${said}) — `
+          + '표를 다시 짓지 않았으므로 **id 는 그대로입니다**']);
+    });
   }
 
   #setCells(args) {

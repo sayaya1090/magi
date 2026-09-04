@@ -3060,6 +3060,23 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       && /gPanel\.hidden = false;[\s\S]{0,120}view\.reveal\(gPanel\)/.test(m));
   }
 
+  // ── **없는 문은 광고하지 않는다** ───────────────────────────
+  //
+  // 1.9·1.10 짜리 도구는 호스트가 그것을 지원할 때만 손이 내놓는다. 없는데 목록에 실으면 모델이
+  // 부르고, 부르면 「했습니다」 하고 안 바뀐다 — 이 클라이언트가 최악이라고 적어 둔 실패다.
+  {
+    const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
+    const gated = [['1.10', 'set_background'], ['1.10', 'set_theme_colors'],
+      ['1.10', 'read_theme_colors'], ['1.9', 'format_table_cells']];
+    ok('새 도구는 능력 뒤에 선다',
+      everyOf(gated, ([ver, name]) => new RegExp(`supports\\('PowerPointApi', '${ver}'\\)[\\s\\S]{0,220}'${name}'`).test(h)),
+      gated.filter(([ver, name]) => !new RegExp(`supports\\('PowerPointApi', '${ver}'\\)[\\s\\S]{0,220}'${name}'`).test(h)).map(([, n]) => n).join(', '));
+    // 그리고 **부를 자리도 있어야 한다.** 목록에만 있고 갈래가 없으면 「모르는 조작」으로 떨어진다.
+    ok('부를 자리가 다 있다',
+      everyOf(gated, ([, name]) => h.includes(`case '${name}':`)),
+      gated.filter(([, name]) => !h.includes(`case '${name}':`)).map(([, n]) => n).join(', '));
+  }
+
   // ── 잰 것은 **헬퍼도 안다** ─────────────────────────────────
   //
   // 요구 집합은 창 안에서만 잴 수 있다. 그런데 창에만 두면 **사람이 화면을 읽어야만 아는 값**이
