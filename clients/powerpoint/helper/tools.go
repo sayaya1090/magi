@@ -470,7 +470,12 @@ func catalogue(hasCouncil bool) []tool {
 				"placeholders, chart series, table styles — which is the point: it is how a deck is restyled in " +
 				"one call rather than shape by shape. Read read_theme_colors first. ⚠ The theme is reached " +
 				"through a slide but belongs to the deck, and how far one change carries has NOT been measured " +
-				"here: render a slide afterwards and look." + declare,
+				"here: render a slide afterwards and look. ⚠ COLOURS ONLY — this does NOT change the " +
+				"typeface, and there is no door that does: no PowerPoint requirement set exposes the theme " +
+				"font, and rewriting the theme part in OOXML is undone by PowerPoint (measured). A deck whose " +
+				"colours you changed still has the default theme's typeface at the layout's default sizes, " +
+				"which is exactly what \"it still looks like the PowerPoint template\" means. Set the type " +
+				"with apply_style across the deck." + declare,
 			Props: withSlide(
 				property{Name: "scope", Type: "string", Desc: "Which layer to change: slide (default), layout, or master. master reaches every slide that uses that master — this is how a deck is restyled; slide reaches only this one."},
 				property{Name: "colors", Type: "object", Desc: "Names to #RRGGBB, e.g. {\"accent1\": \"#1F4E79\"}. Names: dark1, dark2, light1, light2, accent1-accent6, hyperlink, followedHyperlink. Only the ones you give are touched."},

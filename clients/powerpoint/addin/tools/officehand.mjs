@@ -206,6 +206,21 @@ function stubRunner(model, log = []) {
       // 「넣고 나서 되읽어 확인한다」를 재려고 하면 늘 원본이 나왔다.
       view.exportAsBase64 = () => ({ value: s.exported ?? model.exported ?? 'PPTXBASE64' });
       view.applyLayout = (id) => log.push(`layout:${s.id}:${id}`);
+      // 테마 색은 세 층에 있다(장·레이아웃·마스터). 흉내에도 셋 다 둔다 — 한 층만 두면
+      // `scope` 를 잘못 고르는 갈래가 시험에 안 걸린다. 값은 덱 하나에 한 벌이라 모델에 둔다.
+      model.theme = model.theme ?? { accent1: '#156082', dark1: '#000000' };
+      const scheme = {
+        setThemeColor: (name, c) => { log.push(`theme:${name}=${c}`); model.theme[name] = c; },
+        // 실물은 왕복 뒤에 값이 선다. 흉내는 바로 세워도 이 손이 읽는 자리(`sync` 뒤)가
+        // 같으므로 재는 것은 안 달라진다 — 왕복을 세는 시험이 따로 있다.
+        getThemeColor: (name) => ({ value: model.theme[name] ?? null }),
+      };
+      view.themeColorScheme = scheme;
+      view.slideMaster = { themeColorScheme: scheme };
+      // **레이아웃은 `Loaded` 라야 한다.** 이 손은 레이아웃 이름을 `load` 로 읽는 자리가 있고,
+      // 평범한 객체를 끼우면 그 왕복이 `raw` 를 못 찾아 통째로 죽는다.
+      view.layout = Object.assign(new Loaded(s.layout ?? { name: '기본' }, pending),
+        { themeColorScheme: scheme });
       view.moveTo = (i) => { log.push(`moveTo:${s.id}:${i}`); move(s, i); };
       view.delete = () => { log.push(`slide-delete:${s.id}`); drop(s); };
       return view;
@@ -3822,6 +3837,37 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 색을 바꿨다고 테마를 바꾼 것이 아니다 ────────────────────────────────────
+//
+// 이 문은 색만 연다. 글꼴을 바꾸는 문은 이 호스트에 없고(Office.js 요구 집합에 테마 글꼴이
+// 없다), 그래서 **여기서 말하지 않으면 아무도 말해 주지 않는다.** 실물에서 그 대가를 봤다
+// (2026-09-04 IR 판): accent1 을 브랜드 색으로 바꾼 뒤 「테마를 맞췄다」로 넘어갔고 일곱 장이
+// 전부 맑은 고딕 44pt 로 남았다.
+{
+  const log = [];
+  const deck = model();
+  // **버릇은 둘 이상일 때만 버릇이다**(`#deckStyle`) — 한 장만 두면 「일관된 버릇 없음」이
+  // 나오고, 그러면 이 시험은 우리가 재려는 것을 안 재게 된다.
+  const face = { name: '맑은 고딕', size: 44, bold: true, color: '#111111' };
+  deck.slides[0].shapes[0].font = { ...face };
+  deck.slides[1].shapes.push({
+    id: 'sh2', name: '제목 2', type: 'Placeholder', text: '둘째',
+    left: 10, top: 20, width: 300, height: 60,
+    placeholderFormat: { type: 'title' }, font: { ...face },
+  });
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  const out = await hand.run('set_theme_colors', { slide: 1, scope: 'master', colors: { accent1: '#E8000D' } });
+  ok('색은 실제로 걸린다', log.some((l) => l.includes('accent1')) || out.result.set === 1,
+    `${out.result.set} · ${log.join(' ')}`);
+  const said = out.changed.join(' ');
+  ok('글꼴은 안 바뀐다고 말한다', said.includes('글꼴은 안 바뀝니다'), said);
+  ok('바꾸는 길을 같이 말한다', said.includes('apply_style'), said);
+  // **산문만으로는 모자란다** — 모델이 읽는 것은 데이터다.
+  ok('지금 글꼴을 값으로 싣는다', out.result.font_now === '맑은 고딕', String(out.result.font_now));
+  ok('안 바뀌었다는 것을 칸으로도 싣는다', out.result.fonts_unchanged === true,
+    String(out.result.fonts_unchanged));
+}
+
 // ── 바꿨으면 바뀐 것을 돌려준다 ──────────────────────────────────────────────
 //
 // 산문 `changed` 는 사람이 읽고, `now` 는 **모델이 다음 호출에 그대로 쓴다.** 이 손에는

@@ -2169,9 +2169,26 @@ export class OfficeHand extends HandPort {
       }
       await context.sync();
       this.#mutated();
-      return this.#envelope({ slide_id: slide.id, scope, set: set.length },
-        [`${scope} 층의 테마 색을 바꿨습니다: ${set.join(', ')}`,
-          scope === 'master'
+      // **색을 바꿨다고 테마를 바꾼 것이 아니다.** 이 문은 색만 연다 — 글꼴을 바꾸는 문은
+      // 이 호스트에 **없다**(Office.js 의 어느 요구 집합에도 테마 글꼴이 없고, OOXML 로 테마
+      // 부분을 갈아 끼우는 길은 PowerPoint 가 되돌려 놓는다 — TESTING §7b 실측).
+      //
+      // 그래서 여기서 말하지 않으면 아무도 말해 주지 않는다. 실물에서 그 결과를 봤다
+      // (2026-09-04 IR 판): 모델이 이 문으로 accent1 을 브랜드 색으로 바꾸고 「테마를 맞췄다」로
+      // 넘어갔고, 일곱 장 전부 **맑은 고딕 44pt** 로 남았다 — PowerPoint 기본 그대로다.
+      // 사람이 본 것은 「기본 속성이 많이 남은」 덱이다.
+      //
+      // 지금 이 덱이 쓰는 글꼴을 같이 읽어서 **값으로** 보여 준다. 산문보다 데이터가 세다.
+      const now = await this.#deckStyle(context);
+      const face = now.title?.name ?? now.body?.name ?? null;
+      return this.#envelope({
+        slide_id: slide.id, scope, set: set.length,
+        fonts_unchanged: true, font_now: face,
+      },
+      [`${scope} 층의 테마 색을 바꿨습니다: ${set.join(', ')}`,
+        `⚠ 글꼴은 안 바뀝니다 — 이 문은 색만 엽니다${face ? `. 지금 이 덱의 글꼴은 「${face}」입니다` : ''}`,
+        '테마 글꼴을 바꾸는 문은 없습니다(실측) — 글꼴은 apply_style 로 장 전체에 거세요',
+        scope === 'master'
             ? '이 마스터를 쓰는 장 전부에 걸립니다'
             : scope === 'layout'
               ? '이 레이아웃을 쓰는 장에 걸립니다 — 덱 전체를 바꾸려면 scope:"master" 로 부르세요'
