@@ -76,24 +76,51 @@ func TestAnUnknownDocumentIsRefusedNotGuessed(t *testing.T) {
 	}
 }
 
-// 생략은 **활성 문서**다 — 가장 최근에 말한 손(§4.4 ④).
-func TestOmittingTheDocumentUsesTheDeckThatSpokeLast(t *testing.T) {
+// 생략은 **활성 문서**다 — 덱이 하나일 때는(§4.4 ④).
+func TestOmittingTheDocumentUsesTheOnlyDeck(t *testing.T) {
 	h := NewHandHub()
-	base := time.Unix(1000, 0)
-	h.Now = func() time.Time { return base }
-	first := h.Join("p1", "old.pptx")
-	answerWith(t, first, func(HandRequest) HandReply { return HandReply{} })
-
-	base = base.Add(time.Minute)
-	second := h.Join("p2", "new.pptx")
-	answerWith(t, second, func(HandRequest) HandReply { return HandReply{} })
+	h.Now = func() time.Time { return time.Unix(1000, 0) }
+	only := h.Join("p1", "old.pptx")
+	answerWith(t, only, func(HandRequest) HandReply { return HandReply{} })
 
 	res, err := h.Call(context.Background(), "", "read_slide", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Document != second.key {
-		t.Fatalf("활성 문서가 %q 다 — 최근에 말한 것은 %q 였다", res.Document, second.key)
+	if res.Document != only.key {
+		t.Fatalf("활성 문서가 %q 다 — 열린 덱은 %q 하나뿐이었다", res.Document, only.key)
+	}
+}
+
+// **둘이 똑같이 좋으면 고르지 않는다.**
+//
+// 앞 판본은 최근에 말한 손을 골랐다. 덱이 하나면 그것이 답인데 둘이면 답이 아니라 추측이고,
+// 틀리면 **사람이 보고 있지도 않은 덱이 고쳐진다.** 실물에서 그 화면을 봤다(2026-09-04):
+// 창 둘 중 새 덱에 만들라고 했는데 모델이 읽은 것은 옆 덱(17장)이었고, 사람이 "17장짜리는
+// 다른 덱인데?" 라고 물었다. 어느 창이 앞에 있는지는 PowerPoint 만 안다.
+func TestTwoOpenDecksAreNotGuessedBetween(t *testing.T) {
+	h := NewHandHub()
+	base := time.Unix(1000, 0)
+	h.Now = func() time.Time { return base }
+	first := h.Join("p1", "old.pptx")
+	answerWith(t, first, func(HandRequest) HandReply { return HandReply{} })
+	base = base.Add(time.Minute)
+	second := h.Join("p2", "new.pptx")
+	answerWith(t, second, func(HandRequest) HandReply { return HandReply{} })
+
+	_, err := h.Call(context.Background(), "", "read_slide", map[string]any{})
+	if err == nil {
+		t.Fatal("덱이 둘인데 하나를 골랐다 — 그 추측이 틀리면 남의 덱이 고쳐진다")
+	}
+	// **이름을 대라고 하려면 이름을 줘야 한다.** 사유만 적으면 모델은 다음에도 못 고른다.
+	for _, must := range []string{first.key, second.key, "old.pptx", "new.pptx", "document"} {
+		if !strings.Contains(err.Error(), must) {
+			t.Errorf("거절이 %q 를 안 적는다: %v", must, err)
+		}
+	}
+	// 그리고 **쓰지 않았다고 말한다.** 「실패했다」만으로는 모델이 덱이 반쯤 고쳐졌다고 읽는다.
+	if !strings.Contains(err.Error(), "Nothing was changed") {
+		t.Errorf("안 바뀌었다는 말이 없다: %v", err)
 	}
 }
 

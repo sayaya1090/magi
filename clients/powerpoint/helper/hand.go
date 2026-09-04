@@ -256,6 +256,35 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 			best = c
 		}
 	}
+	// **둘 이상이 똑같이 좋으면 고르지 않는다.**
+	//
+	// 여태 같은 층에서는 최근 것이 이겼다. 덱이 하나일 때는 그것이 답인데, **둘일 때는 답이
+	// 아니라 추측**이다 — 그리고 그 추측이 틀리면 사람이 보고 있지도 않은 덱이 고쳐진다.
+	// 실물에서 그 화면을 봤다(2026-09-04): PowerPoint 창 둘 중 새 덱에 자료를 만들라고 했는데
+	// 모델이 읽은 것은 옆 덱(17장)이었고, 사람이 "17장짜리는 다른 덱인데?" 라고 물었다. 그때는
+	// 아직 아무것도 안 쓴 참이었다.
+	//
+	// 어느 창이 앞에 있는지는 이 허브가 알 수 없다 — PowerPoint 만 안다. 모르는 것을 고르는
+	// 대신 **이름을 대라고 답한다.** 덱이 하나면 여태처럼 그것을 준다.
+	tied := 0
+	for _, c := range h.conns {
+		if rank(c) == rank(best) {
+			tied++
+		}
+	}
+	if tied > 1 {
+		open := make([]string, 0, tied)
+		for k, c := range h.conns {
+			if rank(c) == rank(best) {
+				open = append(open, fmt.Sprintf("%s (%s)", k, c.label))
+			}
+		}
+		sort.Strings(open)
+		return nil, fmt.Errorf("more than one deck is open and this helper cannot tell which one "+
+			"the person is looking at — PowerPoint knows that, we do not. Name it: pass "+
+			"document with one of %s. Nothing was changed; guessing here would edit a deck "+
+			"nobody is watching", joinOr(open, "none"))
+	}
 	return best, nil
 }
 
