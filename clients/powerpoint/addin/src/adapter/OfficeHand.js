@@ -274,7 +274,10 @@ export class OfficeHand extends HandPort {
     if (inner) return out;
     if (this.count === before || !out || typeof out !== 'object') return out;
     const now = await this.#nowAt(args).catch(() => null);
-    return now ? { ...out, now } : out;
+    // **`result` 안에 넣는다.** 헬퍼는 손의 답에서 `result` 안쪽만 봉투로 옮긴다 — 형제로
+    // 붙은 칸은 조용히 버려지고, 모델은 그 값을 영영 못 본다. 실물 로그가 잡았다(2026-09-04:
+    // 22번의 변이 호출 답에 `now` 가 0건).
+    return now ? { ...out, result: { ...out.result, now } } : out;
   }
 
   /**

@@ -3877,18 +3877,22 @@ async function makeZip(files) {
   const log = [];
   const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
   const out = await hand.run('set_text', { slide: 1, shape_id: 'sh1', text: 'Q3 실적' });
-  ok('변이 답에 바뀐 뒤의 장이 실린다', out.now?.slide === 1 && out.now?.slide_id === 's1',
-    JSON.stringify(out.now));
-  ok('도형을 겨눈 호출이면 도형도 실린다', out.now?.shape?.id === 'sh1', JSON.stringify(out.now?.shape));
+  // **층까지 문다.** 헬퍼는 `result` 안쪽만 봉투로 옮기므로, 한 층 위에 붙이면 모델에게는
+  // 없는 것과 같다 — 앞 판본이 정확히 그랬고 이 시험은 그 틀린 모양을 그대로 물어 초록이었다.
+  ok('바뀐 것은 result 안에 실린다', out.result?.now !== undefined, JSON.stringify(Object.keys(out)));
+  ok('변이 답에 바뀐 뒤의 장이 실린다',
+    out.result?.now?.slide === 1 && out.result?.now?.slide_id === 's1', JSON.stringify(out.result?.now));
+  ok('도형을 겨눈 호출이면 도형도 실린다', out.result?.now?.shape?.id === 'sh1',
+    JSON.stringify(out.result?.now?.shape));
 
   // **안 바꾼 호출에는 안 붙는다.** 붙이면 읽기마다 왕복이 하나씩 늘고, 그건 모든 호출의
   // 세금이 된다 — 이 값은 진짜 변이의 값이라야 한다.
   const read = await hand.run('read_slide', { slide: 1 });
-  ok('읽기에는 안 붙는다', read.now === undefined, JSON.stringify(read.now));
+  ok('읽기에는 안 붙는다', read.result?.now === undefined, JSON.stringify(read.result?.now));
 
   // 겨눈 것이 없으면 지어내지 않는다.
   const all = await hand.run('apply_style', { title: { size: 30 } });
-  ok('겨눈 장이 없으면 안 싣는다', all.now === undefined, JSON.stringify(all.now));
+  ok('겨눈 장이 없으면 안 싣는다', all.result?.now === undefined, JSON.stringify(all.result?.now));
 
   // **가짜 손도 같은 계약이다.** 이 화면에서 배운 다음 호출이 실물에서 틀리면 안 된다.
   const fake = new FakeHand({ slides: [
@@ -3896,10 +3900,10 @@ async function makeZip(files) {
   ] });
   const fout = await fake.run('set_text', { slide: 1, shape_id: 'a', text: '나' });
   ok('가짜 손도 바뀐 뒤의 객체를 싣는다',
-    fout.now?.slide === 1 && fout.now?.slide_id === 'f1' && fout.now?.shape?.id === 'a',
-    JSON.stringify(fout.now));
+    fout.result?.now?.slide === 1 && fout.result?.now?.slide_id === 'f1'
+    && fout.result?.now?.shape?.id === 'a', JSON.stringify(fout.result?.now));
   const fread = await fake.run('read_slide', { slide: 1 });
-  ok('가짜 손도 읽기에는 안 붙인다', fread.now === undefined, JSON.stringify(fread.now));
+  ok('가짜 손도 읽기에는 안 붙인다', fread.result?.now === undefined, JSON.stringify(fread.result?.now));
 }
 
 console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리 가지를 잰 것이고, ' +

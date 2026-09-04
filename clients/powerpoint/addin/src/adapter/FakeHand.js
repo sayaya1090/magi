@@ -156,7 +156,8 @@ export class FakeHand extends HandPort {
         };
       }
     }
-    return { ...out, now };
+    // 진짜 손과 같은 층이라야 한다 — 헬퍼는 `result` 안쪽만 옮긴다.
+    return { ...out, result: { ...out.result, now } };
   }
 
   async #run(op, args = {}) {

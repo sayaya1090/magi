@@ -1,0 +1,6 @@
+name = "landing"
+version = "1.0.0"
+description = "말만 하고 끝나는 턴을 잡는다 — 끝내려면 지나야 하는 신고 툴과, 안 지나고 끝난 턴의 기록"
+entry = "init.lua"
+capabilities = ["tool", "context-provider", "notify", "command"]
+permissions = []

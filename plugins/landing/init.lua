@@ -1,0 +1,154 @@
+-- landing — **말만 하고 끝나는 턴**을 잡는다.
+--
+-- 실물에서 잰 것이다(2026-09-04, PowerPoint 컴패니언). 한 판은 정찰만 하고 "5장부터 얹겠습니다"
+-- 한 줄로 끝났다 — 슬라이드 0장. 다른 판은 일곱 장을 다 짓고도 **닫는 말 없이** 끝나, 명시적으로
+-- 요구한 검사표 보고가 통째로 없었다. 두 실패는 같은 모양이다: **턴의 마지막 말이 그 턴이 실제로
+-- 무엇을 했는지와 무관하다.**
+--
+-- 코어는 안 건드린다. 코어의 끝-신고 게이트는 카운슬을 요구하고, 이 판에서 카운슬은 꺼져 있다.
+--
+-- ## 왜 프록시가 아닌가
+--
+-- `magi.serve` + `set_base_url` 로 LLM 을 가로채면 끝내는 응답을 직접 볼 수 있다. 안 쓴다 —
+-- 그 서버는 본문을 통째로 쓰고 **스트리밍을 못 한다**. 창의 생각 상자와 진행 막대가 죽는다.
+-- 결함 하나를 잡으려고 매 턴의 화면을 죽이는 것은 남는 장사가 아니다.
+--
+-- ## 그래서 무엇을 하는가 — 그리고 무엇을 못 하는가
+--
+-- **못 하는 것부터.** 플러그인은 턴이 끝나는 것을 **막을 수 없다**. `turn_finished` 는 비차단
+-- 관찰 이벤트고, 값을 돌려줘도 아무도 안 읽는다. 그러니 이 플러그인은 「절대 안 일어나게」가
+-- 아니라 **「일어나면 값을 치르게」**다. 그 차이를 여기 적어 둔다 — 안 그러면 다음에 읽는 사람이
+-- 이걸 보증으로 읽는다.
+--
+-- 하는 것 셋:
+--
+-- 1. **`land` 툴** — 끝낼 때 지나는 문. 한 일을 **손잡이와 함께** 신고해야 받는다. 계획 문장만
+--    실으면 거절하고, 거절은 툴 결과이므로 **루프가 계속 돈다.** 이것이 이 플러그인에서 유일하게
+--    턴을 실제로 이어 붙이는 자리다.
+-- 2. **컨텍스트** — 매 턴 계약 한 줄. 그리고 훈계가 아니라 **이 세션에서 잰 수**를 같이 싣는다.
+-- 3. **기록·알림** — 안 지나고 끝난 턴을 세고 사람에게 알린다. 조용히 지나가는 것이 제일 나쁘다.
+
+local STORE_MISSES = "landing.misses"
+
+-- 지나간 신고의 수. **세션별로 못 센다** — 툴 실행에는 세션이 안 실려 온다(`magi.session_id`
+-- 는 spawn 결과에만 있고 전역 함수가 아니다). 그래서 세션 키로 짜면 툴은 늘 한 이름에 적고
+-- 이벤트는 진짜 세션 이름으로 읽어, **카운터가 영구 거짓**이 된다. 시험이 그 모양을 잡았다.
+--
+-- 그래서 셈으로 짠다: 신고가 하나 들어오면 늘고, 턴이 끝날 때 하나 있으면 쓰고 준다. 한 데몬에
+-- 대화가 여럿 붙어 있으면 **잘못된 대화가 그 신고를 쓸 수 있다** — 그때는 놓친 턴을 덜 세게
+-- 되지, 없는 것을 지어내지는 않는다. 울지 않는 쪽으로 틀리는 것이 매 턴 우는 것보다 낫다.
+local credits = 0
+
+local function n(key)
+  return tonumber(magi.store_get(key) or "0") or 0
+end
+
+-- **계획인가 한 일인가.** 미래형과 다짐은 한 일이 아니다. 이 목록은 실물에서 그 턴들이 실제로
+-- 쓴 말에서 왔다("얹겠습니다", "시작합니다", "따르고", "확인했습니다").
+local PLANNY = {
+  "하겠습니다", "겠습니다", "예정", "계획입니다", "시작합니다", "진행하겠",
+  "will ", "going to", "plan to", "next I", "이제 ",
+}
+
+local function looksLikePlan(s)
+  local low = string.lower(s or "")
+  for _, w in ipairs(PLANNY) do
+    if string.find(low, w, 1, true) then return true end
+  end
+  return false
+end
+
+-- 손잡이가 있는가. **다시 집을 수 있는 이름**이라야 신고다 — 슬라이드 id·번호·파일 경로처럼.
+-- 없으면 그 줄은 소감이지 증거가 아니다.
+local function hasHandle(s)
+  s = s or ""
+  return string.find(s, "%d") ~= nil
+end
+
+magi.register_tool{
+  name = "land",
+  description = table.concat({
+    "Declare this turn finished. A turn that only SAYS what it will do is not finished, and this",
+    "is the door that tells the two apart. Call it as the last thing you do.",
+    "did: what you actually changed, one entry per thing, EACH WITH A HANDLE the reader can go",
+    "look at — a slide number or id, a file path, a shape id. \"정리했습니다\" is not an entry;",
+    "\"슬라이드 7(id 269#2126229183) 표 4×3 을 넣고 대체 텍스트를 달았습니다\" is.",
+    "verified: how you checked, in the same concrete terms — which tool you re-read with and what",
+    "value came back. If you did not check, say so; an honest gap beats a claim.",
+    "left: anything you did NOT do that the ask covered. Empty string if nothing.",
+    "An empty or plan-shaped declaration is REFUSED and you keep going — that refusal is not an",
+    "error, it is the turn telling you it is not over.",
+  }, " "),
+  schema = [[{"type":"object","properties":{
+    "did":{"type":"array","items":{"type":"string"}},
+    "verified":{"type":"string"},
+    "left":{"type":"string"}},"required":["did"]}]],
+  execute = function(args)
+    local did = args.did or {}
+    if type(did) ~= "table" or #did == 0 then
+      return "아직 끝이 아닙니다 — did 가 비었습니다. 이 턴에 실제로 바꾼 것을 손잡이(슬라이드 번호·id·경로)와 "
+        .. "함께 적으세요. 바꾼 것이 정말 없으면, 지금 하세요.", true
+    end
+    local bad = {}
+    for i, one in ipairs(did) do
+      local s = tostring(one)
+      if not hasHandle(s) then
+        bad[#bad + 1] = ("%d번째 줄에 손잡이가 없습니다(«%s»)"):format(i, s)
+      elseif looksLikePlan(s) then
+        bad[#bad + 1] = ("%d번째 줄이 계획으로 읽힙니다(«%s»)"):format(i, s)
+      end
+    end
+    if #bad > 0 then
+      return "아직 끝이 아닙니다 — " .. table.concat(bad, " · ")
+        .. ". 한 일은 다시 집을 수 있는 이름으로 적습니다. 안 한 것은 did 가 아니라 left 에 적으세요.", true
+    end
+    credits = credits + 1
+    local left = args.left or ""
+    return ("착지했습니다 — 한 일 %d건%s. 이 턴은 여기서 끝나도 됩니다."):format(
+      #did, (left ~= "" and (" · 남긴 것: " .. left) or ""))
+  end,
+}
+
+magi.on("turn_finished", function(ev)
+  if credits > 0 then
+    credits = credits - 1
+    return
+  end
+  -- **안 지나고 끝났다.** 세고, 사람에게 알린다. 여기서 턴을 되살릴 수는 없다 — 이 이벤트는
+  -- 비차단이다. 그러니 최소한 **조용하지는 않게** 한다.
+  local misses = n(STORE_MISSES) + 1
+  magi.store_set(STORE_MISSES, tostring(misses))
+  local tail = string.sub(ev.text or "", -80)
+  magi.notify(("landing: 이 턴은 `land` 없이 끝났습니다 — 한 일 신고가 없습니다%s (누적 %d회)")
+    :format(looksLikePlan(ev.text or "") and ", 그리고 마지막 말이 계획입니다" or "", misses))
+  magi.log("landing: unlanded turn · tail=" .. tail)
+end)
+
+magi.register_context_provider{
+  name = "landing-contract",
+  provide = function()
+    local misses = n(STORE_MISSES)
+    local lines = {
+      "이 판에는 `land` 툴이 있습니다. 턴을 끝낼 때 마지막으로 부르고, 이 턴에 **실제로 바꾼 것**을 "
+        .. "손잡이(슬라이드 번호·id·경로)와 함께 신고하세요. 계획만 적으면 거절되고 턴은 계속됩니다.",
+    }
+    -- **훈계가 아니라 잰 수를 싣는다.** 숫자가 0이면 아무 말도 더 하지 않는다.
+    if misses > 0 then
+      lines[#lines + 1] = ("이 컴패니언에서 신고 없이 끝난 턴이 지금까지 %d회입니다.")
+        :format(misses)
+    end
+    return { text = table.concat(lines, " ") }
+  end,
+}
+
+magi.register_command{
+  name = "landing",
+  description = "신고 없이 끝난 턴의 누적 수를 보거나(인자 없음) 0으로 되돌립니다(reset)",
+  execute = function(args)
+    if (args or ""):match("reset") then
+      magi.store_set(STORE_MISSES, "0")
+      return "landing: 0 으로 되돌렸습니다."
+    end
+    return ("landing: 신고 없이 끝난 턴 %d회."):format(n(STORE_MISSES))
+  end,
+}

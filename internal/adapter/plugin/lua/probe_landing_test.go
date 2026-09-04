@@ -1,0 +1,112 @@
+package lua
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
+)
+
+// landing 은 **말만 하고 끝나는 턴**을 잡으려고 있다. 그 판정이 맞는지는 문장이 아니라 이 문을
+// 실제로 통과시켜 봐야 안다 — 계획을 신고로 받아 주면 이 플러그인은 있으나 마나다.
+func loadLanding(t *testing.T, reg *builtin.Registry, log *syncLog) *Host {
+	t.Helper()
+	src := filepath.Join("..", "..", "..", "..", "plugins", "landing")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled landing plugin not present")
+	}
+	h := NewHostWithConfig(HostConfig{
+		ToolSink:   reg,
+		ContextReg: &fakeContextReg{},
+		DataDir:    t.TempDir(),
+		Logf:       log.logf,
+	})
+	if _, err := h.Load(context.Background(), src); err != nil {
+		t.Fatalf("load landing: %v", err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+	return h
+}
+
+func TestProbeLandingRefusesAPlanAndAcceptsWork(t *testing.T) {
+	reg := builtin.NewRegistry()
+	log := &syncLog{}
+	loadLanding(t, reg, log)
+
+	tool, ok := reg.Get("land")
+	if !ok {
+		t.Fatal("land 툴이 안 걸렸다 — 이 플러그인의 유일한 게이트다")
+	}
+	wd := t.TempDir()
+
+	// 하나 — **빈 신고는 끝이 아니다.** 실물에서 본 턴이 정확히 이 모양이었다: 정찰만 하고
+	// "얹겠습니다" 한 줄.
+	got, isErr := execTool(t, tool, `{"did":[]}`, wd)
+	if !isErr {
+		t.Errorf("빈 did 를 받아 줬다: %s", got)
+	}
+	if !strings.Contains(got, "아직 끝이 아닙니다") {
+		t.Errorf("거절이 왜인지를 안 말한다: %s", got)
+	}
+
+	// 둘 — **손잡이 없는 줄은 소감이다.** 다시 집을 수 있는 이름이 없으면 아무도 확인 못 한다.
+	got, isErr = execTool(t, tool, `{"did":["표지를 정리했습니다"]}`, wd)
+	if !isErr {
+		t.Errorf("손잡이 없는 신고를 받아 줬다: %s", got)
+	}
+	if !strings.Contains(got, "손잡이") {
+		t.Errorf("무엇이 없는지를 안 말한다: %s", got)
+	}
+
+	// 셋 — **계획은 한 일이 아니다.** 숫자가 있어도 미래형이면 거절한다. 이 갈래가 없으면
+	// "5장부터 얹겠습니다" 가 손잡이를 달고 통과한다.
+	got, isErr = execTool(t, tool, `{"did":["슬라이드 5부터 7까지 만들겠습니다"]}`, wd)
+	if !isErr {
+		t.Errorf("계획 문장을 신고로 받아 줬다: %s", got)
+	}
+	if !strings.Contains(got, "계획") {
+		t.Errorf("계획이라고 말하지 않는다: %s", got)
+	}
+
+	// 넷 — **진짜 신고는 받는다.** 거절만 하는 문은 문이 아니라 벽이다.
+	got, isErr = execTool(t, tool,
+		`{"did":["슬라이드 7(id 269#2126229183) 에 4x3 표를 넣고 대체 텍스트를 달았다"],`+
+			`"verified":"read_slide 로 되읽어 alt 가 비지 않은 것을 봤다","left":""}`, wd)
+	if isErr {
+		t.Fatalf("옳은 신고를 거절했다: %s", got)
+	}
+	if !strings.Contains(got, "착지") {
+		t.Errorf("받았다는 말이 없다: %s", got)
+	}
+}
+
+// 안 지나고 끝난 턴은 **세고 알린다.** 되살릴 수는 없다 — `turn_finished` 는 비차단이다.
+// 그러니 최소한 조용하지는 않아야 하고, 그 「조용하지 않음」이 이 플러그인이 실제로 주는 것이다.
+func TestProbeLandingCountsAnUnlandedTurn(t *testing.T) {
+	reg := builtin.NewRegistry()
+	log := &syncLog{}
+	h := loadLanding(t, reg, log)
+
+	h.FireEventWith("turn_finished", map[string]string{
+		"session": "s1", "text": "가이드를 골랐습니다. 5장부터 얹겠습니다.",
+	})
+	h.DrainEvents(5 * time.Second)
+
+	if !strings.Contains(log.String(), "unlanded turn") {
+		t.Errorf("신고 없이 끝난 턴을 기록하지 않았다: %s", log.String())
+	}
+
+	// 그리고 **지난 턴은 안 센다.** 모든 턴을 세면 그 수는 아무 말도 안 하게 된다.
+	before := log.String()
+	tool, _ := reg.Get("land")
+	execTool(t, tool, `{"did":["슬라이드 9(id 271#150) 제목을 24pt 로 줄였다"]}`, t.TempDir())
+	h.FireEventWith("turn_finished", map[string]string{"session": "s2", "text": "했습니다"})
+	h.DrainEvents(5 * time.Second)
+	if strings.Count(log.String(), "unlanded turn") != strings.Count(before, "unlanded turn") {
+		t.Errorf("착지한 턴까지 셌다: %s", log.String())
+	}
+}
