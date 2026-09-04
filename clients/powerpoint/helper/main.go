@@ -160,11 +160,11 @@ func run(args []string, out, log io.Writer) int {
 	// **기동을 안 붙잡는다.** 뒤에서 돌고, 실패해도 헬퍼는 그대로 선다 — 명단으로 가는 길이
 	// 남아 있고, 사유는 판이 `/api/own` 으로 물으면 그대로 나온다.
 	if _, mine := api.Work.Begin(); mine {
-		go api.makeOwn()
+		go api.makeOwn("")
 	}
 
 	fmt.Fprintf(log, "magi-ppt %s\n애드인: %s\nMCP: %s\n애드인 소스: %s\n",
-		version.Version, PageURL(*port), MCPURL(*port), root)
+		version.Version, PageURL(*port), MCPURL(*port, ""), root)
 	fmt.Fprintln(log, CertInstallHint(dir))
 
 	// 나갈 때 **우리 등록을 뗀다**(§5.4). 남겨 두면 다음에 뜬 헬퍼가 이름 충돌로 거절당하고,
@@ -374,7 +374,7 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, now)
 		return
 	}
-	go a.makeOwn()
+	go a.makeOwn(deckOf(r))
 	writeJSON(w, now)
 }
 
@@ -565,7 +565,7 @@ func (a *API) freshOn(socket string) (string, error) {
 }
 
 // makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**
-func (a *API) makeOwn() {
+func (a *API) makeOwn(deck string) {
 	// **깃발은 반드시 내려간다.** `doing` 을 내리는 것은 `Done` 하나뿐이라, 이 아래에서 패닉이
 	// 나면 그 깃발이 영영 참으로 남고 헬퍼가 사는 내내 모든 작업창이 「준비하는 중」을 본다.
 	// 헬퍼는 **판이 아니라 사람의 파워포인트 옆에서** 도는 프로세스이므로 조용히 죽어도 안 된다.
@@ -627,7 +627,9 @@ func (a *API) makeOwn() {
 		})
 		return
 	}
-	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port), a.Token)
+	// 덱 몫의 컴패니언은 **그 덱만** 붙으므로 주소가 덱을 날라도 참이다. 덱을 모르는 때(기동 직후)
+	// 는 빈 값이고, 그때는 여태처럼 활성 문서 규칙을 탄다.
+	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port, deck), a.Token)
 	if err != nil {
 		a.Work.Done(OwnReport{
 			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
@@ -668,7 +670,11 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	// **주입 자리를 지나간다.** 이 한 줄만 `Attachments` 를 직접 불렀고, 그래서 이 핸들러의
 	// 갈래는 실물 소켓 없이는 못 쟀다 — 못 재는 갈래는 안 만든 것과 같다(TESTING §1). 다른
 	// 부착 자리(`makeOwn`)는 이미 `boltOf` 를 지난다.
-	tools, err := a.boltOf(in.Socket, MCPURL(a.Port), a.Token)
+	// ⚠ **주소에 덱을 안 적는다 — 아직은.** 등록은 소켓당 한 벌이고, 같은 컴패니언에 덱 둘이
+	// 붙으면 나중 등록이 앞의 것을 덮는다. 그때 주소에 적힌 덱은 **마지막에 붙은 덱**이고, 그
+	// 값으로 기본 문서를 정하면 조용히 남의 덱을 고친다 — 지금의 「못 고른다」보다 나쁘다.
+	// 덱마다 자기 데몬을 두기 전까지는 비워 둔다(그 일이 남은 절반이다).
+	tools, err := a.boltOf(in.Socket, MCPURL(a.Port, ""), a.Token)
 	if err != nil {
 		// **끝내 못 붙으면 말한다**(§5.3). 조용히 넘어가면 화면이 「할 일 없음」처럼 보인다.
 		http.Error(w, err.Error(), http.StatusBadGateway)

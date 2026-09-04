@@ -15,6 +15,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 
 	"github.com/sayaya1090/magi/internal/version"
 )
@@ -50,7 +51,21 @@ func Origin(port int) string { return fmt.Sprintf("https://%s:%d", Host, port) }
 func PageURL(port int) string { return Origin(port) + "/taskpane.html" }
 
 // MCPURL 은 `mcp-attach` 에 넘기는 URL 이다(§5.0.1 — door 는 URL 만 받고 커맨드라인은 안 받는다).
-func MCPURL(port int) string { return Origin(port) + "/mcp" }
+// **주소가 덱을 나른다.**
+//
+// MCP 호출에는 「어느 대화가 불렀는지」가 안 실려 온다 — 등록이 이름당 한 벌이고 데몬 전체를
+// 덮는다. 그래서 덱마다 자기 데몬을 두고, 그 데몬이 붙는 **주소에** 덱을 적는다. 그러면 그
+// 데몬에서 온 호출은 `document` 를 생략해도 어느 덱인지가 정해진다.
+//
+// 이 자리가 없으면 증상은 이렇다(2026-09-04 실물): 창 둘 중 새 덱에 만들라고 했는데 모델이 읽은
+// 것은 옆 덱이었다. 그때는 아직 읽기만 했지만, 한 호출만 늦었어도 남의 덱에 장이 생겼다.
+func MCPURL(port int, deck string) string {
+	at := Origin(port) + "/mcp"
+	if deck == "" {
+		return at
+	}
+	return at + "?deck=" + url.QueryEscape(deck)
+}
 
 // BindAddr 는 리슨하는 자리. **루프백만** 이다(§8) — 라우팅 가능한 주소로는 안 연다.
 func BindAddr(port int) string { return fmt.Sprintf("%s:%d", Host, port) }

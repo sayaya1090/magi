@@ -144,7 +144,7 @@ func TestAttachingAlwaysDetachesFirst(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	tools, err := a.Attach(sock, MCPURL(DefaultPort), "tok123")
+	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok123")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestAttachingAlwaysDetachesFirst(t *testing.T) {
 		t.Errorf("detach 가 %v 다 — attach 앞에 한 번 있어야 한다", detached)
 	}
 	// 토큰이 헤더로 간다(§5.0.1 — headers 를 함수 자리로 열어 둔 이유가 토큰이다).
-	if got := attached[ServerName]; !strings.Contains(got, "Bearer tok123") || !strings.Contains(got, MCPURL(DefaultPort)) {
+	if got := attached[ServerName]; !strings.Contains(got, "Bearer tok123") || !strings.Contains(got, MCPURL(DefaultPort, "")) {
 		t.Errorf("붙인 자리가 %q 다", got)
 	}
 }
@@ -171,11 +171,11 @@ func TestASecondWindowDoesNotStealTheFirstsRegistration(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort), "tok"); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok"); err != nil {
 		t.Fatal(err)
 	}
 	_, firstDetached := eng.seen()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort), "tok"); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok"); err != nil {
 		t.Fatal(err)
 	}
 	_, again := eng.seen()
@@ -210,7 +210,7 @@ func TestACompanionWithNoDoorCannotBeChosen(t *testing.T) {
 	if !strings.Contains(c.Why(), "빌드") {
 		t.Errorf("사유가 빌드의 성질로 안 적혔다: %s", c.Why())
 	}
-	if _, err := a.Attach(sock, MCPURL(DefaultPort), ""); err == nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), ""); err == nil {
 		t.Fatal("door 없는 데몬에 붙었다")
 	}
 }
@@ -292,7 +292,7 @@ func TestAFailedAttachSaysSo(t *testing.T) {
 	sock, _ := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	_, err := a.Attach(sock, MCPURL(DefaultPort), "")
+	_, err := a.Attach(sock, MCPURL(DefaultPort, ""), "")
 	if err == nil {
 		t.Fatal("실패했는데 성공으로 답했다")
 	}
@@ -319,7 +319,7 @@ func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
 	defer stop()
 
 	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort), ""); err != nil {
+	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), ""); err != nil {
 		t.Fatalf("첫 등록이 실패했다: %v", err)
 	}
 	in, err := daemon.Published(sock)
@@ -351,7 +351,7 @@ func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
 	a.held[sock] = attachment{tools: []string{"옛것"}, life: "죽은-생애"}
 	a.mu.Unlock()
 	_, detachedBefore := eng.seen()
-	tools, err := a.Attach(sock, MCPURL(DefaultPort), "")
+	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "")
 	if err != nil {
 		t.Fatalf("다시 못 붙였다: %v", err)
 	}
@@ -368,8 +368,8 @@ func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
 func TestTheAttachedURLIsTheOneWeServe(t *testing.T) {
 	srv := httptest.NewServer(&MCPServer{Hand: &fakeHand{attached: true}})
 	defer srv.Close()
-	if !strings.HasSuffix(MCPURL(DefaultPort), "/mcp") {
-		t.Fatalf("붙이는 URL 이 %q 다 — 헬퍼가 여는 경로와 같아야 한다", MCPURL(DefaultPort))
+	if !strings.HasSuffix(MCPURL(DefaultPort, ""), "/mcp") {
+		t.Fatalf("붙이는 URL 이 %q 다 — 헬퍼가 여는 경로와 같아야 한다", MCPURL(DefaultPort, ""))
 	}
 }
 

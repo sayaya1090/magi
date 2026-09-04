@@ -150,3 +150,18 @@ func TestTheManifestKeepsTheSchemaOrder(t *testing.T) {
 
 // xmlComment 는 `<!-- … -->` 하나. `(?s)` 로 줄바꿈을 넘긴다.
 var xmlComment = regexp.MustCompile(`(?s)<!--.*?-->`)
+
+// **주소가 덱을 나른다** — 덱마다 자기 데몬을 둘 때, 그 데몬에서 온 호출은 어느 덱인지가 정해진다.
+func TestMCPURLCarriesTheDeck(t *testing.T) {
+	if got := MCPURL(3000, ""); got != Origin(3000)+"/mcp" {
+		t.Errorf("덱을 모르면 옛 주소 그대로여야 한다: %s", got)
+	}
+	got := MCPURL(3000, "doc-1-2")
+	if got != Origin(3000)+"/mcp?deck=doc-1-2" {
+		t.Errorf("덱이 주소에 안 실렸다: %s", got)
+	}
+	// **이름을 그대로 붙이지 않는다.** 덱 이름에 `&` 나 공백이 들어오면 질의가 갈라진다.
+	if q := MCPURL(3000, "a b&c=d"); !strings.Contains(q, "deck=a+b%26c%3Dd") {
+		t.Errorf("덱 이름을 안 감쌌다: %s", q)
+	}
+}
