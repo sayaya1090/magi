@@ -672,6 +672,16 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	// 아니다. 못 열면 그때는 사실대로 거절한다: 몰래 같은 대화에 밀어 넣으면 두 창이 다시 한
 	// 줄이 되고, 그 증상이 바로 이 결함이다.
 	session := in.Session
+	// **덱마다 자기 대화다.** 컴패니언에 아직 대화가 없으면(갓 뜬 데몬) 여기서 하나 연다 —
+	// 안 그러면 `Bind(socket, "")` 이 「아직 대화가 없습니다」로 거절하고, 그 창은 붙긴 했는데
+	// 말을 걸 곳이 없다. 사람이 물었다(2026-09-05): "덱마다 새 세션 아니야?" — 맞는 말이고,
+	// 그때까지는 내가 `/api/fresh` 를 손으로 불러 메우고 있었다.
+	if session == "" && deckOf(r) != "" {
+		if fresh, err := a.freshOn(in.Socket); err == nil {
+			session = fresh
+		}
+		// 못 열었으면 그대로 간다 — 아래 `Bind` 가 사유를 적고, 그 사유가 화면에 뜬다.
+	}
 	if a.Bridges != nil && deckOf(r) != "" {
 		// **붙어 있지 않은 덱은 임자가 아니다.**
 		//
