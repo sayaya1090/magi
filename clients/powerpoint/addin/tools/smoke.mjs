@@ -3977,6 +3977,36 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('Office 가 없으면 빈 이름', (await stableDeckId(null)) === '');
 }
 
+// ── 「안 붙었다」는 「못 닿는다」가 아니다 ───────────────────────────────────
+//
+// `askKind` 는 처음부터 `bound === false` 면 배너를 안 그리게 적혀 있었는데 **그 값을 아무도 안
+// 채웠다** — 늘 `undefined` 라 그 가지가 한 번도 안 돌았고, 붙기 전 창에 「데몬에 안 닿습니다」가
+// 떴다. 사람이 그것을 보고 물었다(2026-09-05). 규칙이 코드에 있고 도달 불가였던 자리다.
+{
+  const mk = (rows) => {
+    let at = 0;
+    return new WatchPrompt({ status: async () => rows[Math.min(at++, rows.length - 1)] });
+  };
+  const w = mk([{ reachable: false, session: '', why: '아직 어느 컴패니언에도 안 붙었습니다' }]);
+  await w.poll();
+  ok('안 붙었으면 bound 가 거짓이다', w.view.bound === false, String(w.view.bound));
+  ok('안 붙었으면 배너를 안 그린다', askKind(w.view) === 'none', askKind(w.view));
+
+  // **붙었는데 못 닿는 것은 여전히 배너다.** 둘을 합치면 진짜 끊김이 조용해진다.
+  const lost = mk([{ reachable: true, session: 's_1', pending: null },
+    { reachable: false, session: 's_1', pending: null }]);
+  await lost.poll();
+  await lost.poll();
+  ok('붙었는데 못 닿으면 배너를 그린다', askKind(lost.view) === 'lost', askKind(lost.view));
+
+  // 문이 아예 안 열리면 **모르는 것**이라 앞의 답을 든다 — 여기서 「안 붙었다」로 적으면
+  // 진짜 끊김이 배너 없이 사라진다.
+  const dark = new WatchPrompt({ status: async () => { throw new Error('문 닫힘'); } });
+  dark.bound = true;
+  await dark.poll();
+  ok('못 물었으면 붙음 여부를 안 뒤집는다', dark.view.bound === true, String(dark.view.bound));
+}
+
 // 부를 때마다 「그런 덱은 없다」를 받았다(한 판에 여섯 번).
 {
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');

@@ -1312,7 +1312,8 @@ export class OfficeHand extends HandPort {
         // 쓰면 그 왕복 전체가 던진다 — 한 장이 통째로 안 바뀐다.
         try {
           fonts.push(sh.textFrame.textRange.font);
-          if (want.bullet !== undefined) {
+          if (want.bullet !== undefined || want.bulletType !== undefined
+            || want.bulletStyle !== undefined) {
             bullets.push(sh.textFrame.textRange.paragraphFormat.bulletFormat);
           }
         } catch { skipped += 1; }
@@ -1328,7 +1329,18 @@ export class OfficeHand extends HandPort {
         } catch { skipped += 1; }
       }
       for (const b of bullets) {
-        try { b.visible = want.bullet; } catch { skipped += 1; }
+        try {
+          if (want.bullet !== undefined) b.visible = want.bullet;
+          // 모양은 1.10 이다. 없는 판에서 쓰면 그 왕복이 죽으므로 **먼저 묻는다.**
+          if (want.bulletType !== undefined || want.bulletStyle !== undefined) {
+            if (!this.supports('PowerPointApi', '1.10')) {
+              throw new Error('글머리 기호 모양은 PowerPointApi 1.10 이 필요합니다 — '
+                + '이 호스트에는 없습니다. 켜고 끄는 것(bullet)은 됩니다');
+            }
+            if (want.bulletType !== undefined) b.type = want.bulletType;
+            if (want.bulletStyle !== undefined) b.style = want.bulletStyle;
+          }
+        } catch { skipped += 1; }
       }
       // **묶음이 터지는 자리는 여기다.**
       //
@@ -1636,7 +1648,8 @@ export class OfficeHand extends HandPort {
       // **불릿은 글꼴 객체에 없다.** 문단 서식에 있고, `font.bullet = …` 로 쓰면 조용히
       // 아무 일도 안 일어난다 — 그리고 답에는 「바꿨습니다」가 실린다.
       let bullet = null;
-      if (want.bullet !== undefined) {
+      if (want.bullet !== undefined || want.bulletType !== undefined
+        || want.bulletStyle !== undefined) {
         try { bullet = sh.textFrame.textRange.paragraphFormat.bulletFormat; } catch { bullet = null; }
       }
       targets.push({ role, want, font, bullet });
@@ -1657,15 +1670,26 @@ export class OfficeHand extends HandPort {
       const now = fontOf(font) ?? {};
       const diff = {};
       for (const [k, v] of Object.entries(want)) {
-        if (k === 'bullet') continue; // 글꼴 칸이 아니다 — 아래에서 따로 쓴다
+        // 글꼴 칸이 아니다 — 아래에서 따로 쓴다
+        if (k === 'bullet' || k === 'bulletType' || k === 'bulletStyle') continue;
         // **같은 값을 같은 글자로 견준다**(색의 대소문자). 안 그러면 같은 서식을 매번 다시 쓰고,
         // 「N개를 바꿨습니다」가 매 호출 되풀이된다.
         if (normal(k, now[k]) !== normal(k, v)) diff[k] = v;
       }
-      if (want.bullet !== undefined && bullet) {
+      if (bullet) {
         try {
-          bullet.visible = want.bullet;
-          worn.push(`${role}: 글머리 기호 ${want.bullet ? '보임' : '없앰'}`);
+          if (want.bullet !== undefined) {
+            bullet.visible = want.bullet;
+            worn.push(`${role}: 글머리 기호 ${want.bullet ? '보임' : '없앰'}`);
+          }
+          if (want.bulletType !== undefined) {
+            bullet.type = want.bulletType;
+            worn.push(`${role}: 글머리 종류 ${want.bulletType}`);
+          }
+          if (want.bulletStyle !== undefined) {
+            bullet.style = want.bulletStyle;
+            worn.push(`${role}: 글머리 모양 ${want.bulletStyle}`);
+          }
         } catch { /* 이 자리는 문단 서식을 못 받는다 */ }
       }
       if (Object.keys(diff).length === 0) continue;
@@ -1832,9 +1856,18 @@ export class OfficeHand extends HandPort {
       // 불러야 하고, 실물에서는 그 왕복을 아무도 안 했다(2026-09-04: 여덟 장 IR 덱에서 `bullet`
       // 인자 0회). 사람이 본 것은 「불릿이 왜 남아있냐」는 화면이다. 쓸 때 같이 정하면 그 왕복이
       // 아예 안 생긴다.
-      if (args.bullet !== undefined) {
+      if (args.bullet !== undefined || args.bullet_type !== undefined
+        || args.bullet_style !== undefined) {
         try {
-          hit.textFrame.textRange.paragraphFormat.bulletFormat.visible = Boolean(args.bullet);
+          const bf = hit.textFrame.textRange.paragraphFormat.bulletFormat;
+          if (args.bullet !== undefined) bf.visible = Boolean(args.bullet);
+          // 모양은 1.10 이다. 없는 판에서는 **켜고 끄는 것만** 걸고 넘어간다 — 글은 이미 들어갔고,
+          // 여기서 던지면 그 장이 통째로 안 선다.
+          if ((args.bullet_type !== undefined || args.bullet_style !== undefined)
+            && this.supports('PowerPointApi', '1.10')) {
+            if (args.bullet_type !== undefined) bf.type = String(args.bullet_type);
+            if (args.bullet_style !== undefined) bf.style = String(args.bullet_style);
+          }
         } catch { /* 이 자리는 문단 서식을 못 받는다 — 글은 이미 들어갔다 */ }
       }
       filled.push({ role: w.role, text: w.text, shape_id: hit.id });
@@ -3768,6 +3801,11 @@ function pickFont(spec) {
   // 그 결과를 봤다(2026-09-04): 여덟 장짜리 IR 덱에서 `bullet` 인자가 **0회** 불렸고, 사람이
   // 「불릿은 왜 남아있어?」라고 물었다.
   if (spec.bullet !== undefined) out.bullet = Boolean(spec.bullet);
+  // **모양도 여기서 받는다.** 켜기/끄기만 일괄로 되면 고를 수 있는 것이 끄기뿐이고, 모델은
+  // 고를 수 있는 것을 고른다 — 사람이 그것을 보고 물었다(2026-09-05: "불릿은 왜 false 를
+  // 선호하는거야? 커스텀 불릿을 쓰지 않고?"). 선호가 아니라 **일괄 경로에 손잡이가 없었다.**
+  if (spec.bullet_type !== undefined) out.bulletType = String(spec.bullet_type);
+  if (spec.bullet_style !== undefined) out.bulletStyle = String(spec.bullet_style);
   return Object.keys(out).length ? out : null;
 }
 

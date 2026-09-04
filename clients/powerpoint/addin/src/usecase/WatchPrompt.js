@@ -24,6 +24,16 @@ export class WatchPrompt {
     /** 물음이 내려간 사유. 내려간 **그 순간에만** 실린다. */
     this.clearedBy = null;
     this.reachable = true;
+    /**
+     * **어느 대화에 붙어 있는가.** 「아직 안 붙었다」와 「붙었는데 못 닿는다」는 다른 사실이고,
+     * 사람이 할 일도 다르다 — 앞엣것은 고르면 되고 뒤엣것은 기다리거나 데몬을 봐야 한다.
+     *
+     * `askKind` 는 처음부터 `bound === false` 면 배너를 안 그리게 적혀 있었는데, **이 값을
+     * 아무도 안 채웠다** — 늘 `undefined` 라 그 가지가 한 번도 안 돌았고, 붙기 전 창에
+     * 「데몬에 안 닿습니다」가 떴다. 사람이 그것을 보고 물었다(2026-09-05: "이건 왜 떠있는거야?
+     * 연결되면 지워야지"). 규칙이 적혀 있고 도달 불가였던 자리다.
+     */
+    this.bound = false;
     /** 못 닿는다고 이미 말했나. 값이 아니라 **말했는지**를 기억한다. */
     this.saidLost = false;
     /**
@@ -62,6 +72,11 @@ export class WatchPrompt {
     }
     const wasReachable = this.reachable;
     const wasStale = this.stale;
+    const wasBound = this.bound;
+    // **문이 안 열렸을 때는 모르는 것이다.** 그때 「안 붙었다」로 적으면 진짜 끊김이 배너 없이
+    // 조용해진다 — 모르면 앞의 답을 그대로 든다.
+    if (s.session !== undefined) this.bound = String(s.session || '') !== '';
+    if (this.bound !== wasBound) this.onChange();
     this.stale = s.stale === true;
     this.reachable = s.reachable !== false;
     if (this.reachable) this.saidLost = false;
@@ -174,6 +189,8 @@ export class WatchPrompt {
       pending: this.pending,
       clearedBy: this.clearedBy,
       reachable: this.reachable,
+      /** 어느 대화에 붙었는가. 거짓이면 「못 닿는다」가 아니라 **아직 안 붙은 것**이다. */
+      bound: this.bound,
       /** 못 닿는다는 말을 지금 화면에 올릴 것인가. **한 번뿐**이다. */
       lostNote: this.reachable
         ? null
