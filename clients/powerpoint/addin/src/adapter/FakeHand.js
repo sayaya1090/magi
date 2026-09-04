@@ -133,7 +133,33 @@ export class FakeHand extends HandPort {
     };
   }
 
+  /**
+   * **진짜 손과 같은 계약이라야 이 화면에서 배운 것이 실물에서도 맞다.** 변이 답에는 바뀐
+   * 뒤의 객체가 실린다(`OfficeHand.#dispatch`) — 여기에도 실어야 모델이 이 화면에서 배운
+   * 다음 호출이 실물에서도 같은 값을 본다.
+   */
   async run(op, args = {}) {
+    const before = this.count;
+    const out = await this.#run(op, args);
+    if (this.count === before || !out || typeof out !== 'object') return out;
+    const asked = args.slide ?? args.slide_id;
+    if (asked === undefined || asked === null) return out;
+    let slide = null;
+    try { slide = this.#slide(args); } catch { return out; }
+    const now = { slide: this.model.slides.indexOf(slide) + 1, slide_id: slide.id };
+    if (args.shape_id !== undefined && args.shape_id !== null) {
+      const sh = slide.shapes.find((one) => String(one.id) === String(args.shape_id));
+      if (sh) {
+        now.shape = {
+          id: sh.id, name: sh.name, type: sh.type,
+          left: sh.left, top: sh.top, width: sh.width, height: sh.height,
+        };
+      }
+    }
+    return { ...out, now };
+  }
+
+  async #run(op, args = {}) {
     switch (op) {
       case 'list_slides': {
         const from = Math.max(1, Number(args.from ?? 1));

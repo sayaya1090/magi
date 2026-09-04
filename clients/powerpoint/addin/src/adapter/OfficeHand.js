@@ -197,7 +197,9 @@ export class OfficeHand extends HandPort {
    * 그냥 통과시킨다** — 안 그러면 자기 자신을 기다리다 멎는다.
    */
   async run(op, args = {}) {
-    if (this.#inside) return this.#dispatch(op, args);
+    // **재진입은 자기라고 말하고 들어간다.** `#inside` 로는 못 가른다 — 아래 바깥 경로도
+    // 부르기 전에 그것을 세우므로, 그 값으로 읽으면 모든 호출이 재진입으로 보인다.
+    if (this.#inside) return this.#dispatch(op, args, true);
     const joined = Date.now();
     const mine = (this.#queue ?? Promise.resolve()).then(async () => {
       // **아무도 안 기다리는 일은 안 한다.**
@@ -248,7 +250,62 @@ export class OfficeHand extends HandPort {
 
   #inside = false;
 
-  #dispatch(op, args = {}) {
+  /**
+   * **바꿨으면 바뀐 것을 돌려준다.**
+   *
+   * 여태 변이 도구의 답은 `changed` 산문 줄이었다. 사람에게는 그게 맞는데 **모델은 그 뒤에
+   * 그 객체를 다시 가리켜야 하고**, 산문에서 id 를 긁어내야 했다. 그리고 이 손에는 조작이
+   * 신원을 바꾸는 갈래가 있다 — 노트를 적으면 장이 다시 지어져 id 가 바뀐다. 실물에서 그
+   * 대가를 봤다(2026-09-04 IR 판): 노트 여섯 줄을 적는 동안 장 여섯의 id 가 전부 갈렸고,
+   * 그 뒤의 호출은 전부 낡은 id 를 들고 있었다.
+   *
+   * 그래서 **실제로 바뀐 호출에만** 바뀐 뒤의 객체를 한 벌 얹는다. `#mutated()` 가 세는
+   * 값이 그 판정이다 — 안 바뀐 호출(읽기·안내·이미 그 값이던 서식)에는 안 붙는다. 즉
+   * **왕복 한 번은 진짜 변이의 값이지, 모든 호출의 세금이 아니다.**
+   *
+   * 못 읽으면 안 싣는다. 지운 도형·지운 장이 그렇고, 그건 실패가 아니다.
+   */
+  async #dispatch(op, args = {}, inner = false) {
+    const before = this.count;
+    const out = await this.#route(op, args);
+    // **재진입한 호출에는 안 붙인다.** 그 갈래(`drop_suggestion` → `set_tag`)는 바깥 호출의
+    // `PowerPoint.run` 안에서 도는데, 거기서 왕복을 새로 열면 묶음이 겹친다. 바깥 호출이
+    // 자기 몫으로 한 벌 얹으므로 잃는 것도 없다.
+    if (inner) return out;
+    if (this.count === before || !out || typeof out !== 'object') return out;
+    const now = await this.#nowAt(args).catch(() => null);
+    return now ? { ...out, now } : out;
+  }
+
+  /**
+   * 바뀐 뒤의 객체 한 벌. 인자가 가리키는 것을 그대로 다시 읽는다 — 도형을 겨눈 호출이면
+   * 도형을, 장만 겨눈 호출이면 장을. 아무것도 안 겨눈 호출(테마 색·덱 전체 서식)은 `null`.
+   */
+  async #nowAt(args) {
+    const asked = args.slide ?? args.slide_id;
+    if (asked === undefined || asked === null) return null;
+    return this.runner(async (context) => {
+      // `#slide` 는 위치·id 를 다 받고 **자기 왕복 안에서 번호까지 읽는다** — 여기서 다시
+      // 목차를 훑을 필요가 없다.
+      const slide = await this.#slide(context, args);
+      let shape = null;
+      if (args.shape_id !== undefined && args.shape_id !== null) {
+        shape = slide.shapes.getItemOrNullObject(String(args.shape_id));
+        shape.load('id,name,type,left,top,width,height,isNullObject');
+      }
+      await context.sync();
+      const now = { slide: slide.index + 1, slide_id: slide.id };
+      if (shape && shape.isNullObject !== true) {
+        now.shape = {
+          id: shape.id, name: shape.name, type: shape.type,
+          left: shape.left, top: shape.top, width: shape.width, height: shape.height,
+        };
+      }
+      return now;
+    });
+  }
+
+  #route(op, args = {}) {
     switch (op) {
       case 'list_slides': return this.#listSlides(args);
       case 'read_slide': return this.#readSlide(args);

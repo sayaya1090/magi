@@ -74,6 +74,25 @@ func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 		known[p.Name] = p
 	}
 
+	// **다른 이름으로 온 것을 제자리에 옮긴다.** 별칭은 스키마에 없으므로 모델이 볼 이름은
+	// 여전히 하나고, 여기서 조용히 받아 준다 — 조용히 **버리는** 것이 아니라 **옮기는** 것이다.
+	// 정본과 별칭이 같이 오면 둘 중 어느 쪽이 뜻인지 우리가 못 정하니 거절한다.
+	for _, p := range t.Props {
+		for _, other := range p.Also {
+			v, ok := args[other]
+			if !ok {
+				continue
+			}
+			if _, taken := args[p.Name]; taken {
+				return nil, argError{fmt.Sprintf(
+					"%s: %q and %q are the same thing — send only %q. Nothing was changed — this call did not run.",
+					t.Name, p.Name, other, p.Name)}
+			}
+			args[p.Name] = v
+			delete(args, other)
+		}
+	}
+
 	var unknown []string
 	for k := range args {
 		if _, ok := known[k]; !ok {

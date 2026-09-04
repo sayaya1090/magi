@@ -60,6 +60,15 @@ type property struct {
 	Desc string
 	// Items 는 array 일 때의 원소 타입. 비면 제약을 안 적는다.
 	Items string
+	// Also 는 **이 칸을 부르는 다른 이름**이다. 스키마에는 안 실린다 — 모델이 고를 이름은
+	// 하나여야 하고, 두 개를 광고하면 어느 쪽이 정본인지 묻게 된다. 이것은 광고가 아니라
+	// **받아 주기**다: 그 이름으로 온 값을 `Name` 자리로 옮기고 그대로 돌린다.
+	//
+	// 실물에서 잰 것이다(2026-09-04, IR 판): 모델이 `set_notes{notes: ...}` 를 보냈고 —
+	// 도구 이름이 set_**notes** 이니 자연스러운 오답이다 — 거절당한 뒤 **재시도하지 않았다.**
+	// 그래서 그 장의 고지 한 줄이 통째로 비었고, 사람은 아무 일도 안 일어난 것을 봤다.
+	// 이름 한 칸 때문에 내용이 조용히 사라지는 것이 거절보다 나쁘다.
+	Also []string
 }
 
 // tool 은 도구 하나.
@@ -377,7 +386,8 @@ func catalogue(hasCouncil bool) []tool {
 				"slide is rebuilt to carry them, so the slide KEEPS ITS POSITION but GETS A NEW ID: anything " +
 				"you address by slide id afterwards must use the new one, which the answer gives you." + declare,
 			Props: withSlide(
-				property{Name: "text", Type: "string", Desc: "The notes. Empty string clears them. Newlines become paragraphs."},
+				property{Name: "text", Type: "string", Also: []string{"notes"},
+					Desc: "The notes. Empty string clears them. Newlines become paragraphs."},
 			),
 			Required: []string{"text"},
 		},

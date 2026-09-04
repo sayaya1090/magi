@@ -319,6 +319,10 @@ function makeShapes(slide, pending, log) {
   coll.itemsView = views;
   coll.getItem = (id) => views.find((v) => v.raw.id === id)
     ?? (() => { throw new Error(`no shape ${id}`); })();
+  // 실물의 `…OrNullObject` 는 없으면 **던지지 않고** `isNullObject: true` 를 단 껍데기를 준다.
+  // 지운 도형을 다시 읽는 길이 그것이라, 흉내에도 있어야 그 갈래가 시험에 걸린다.
+  coll.getItemOrNullObject = (id) => views.find((v) => v.raw.id === id)
+    ?? Object.assign(new Loaded({ isNullObject: true }, pending), { load(spec) { pending.push([this, spec]); return this; } });
   coll.getCount = () => ({ value: slide.shapes.length });
   coll.addTextBox = (text, opts) => {
     log.push(`addTextBox:${text}:${opts.left},${opts.top}`);
@@ -3818,6 +3822,40 @@ async function makeZip(files) {
 }
 
 // **안 잰 것을 안 잰 것으로 적는다**(§9 「초록을 읽는 법」).
+// ── 바꿨으면 바뀐 것을 돌려준다 ──────────────────────────────────────────────
+//
+// 산문 `changed` 는 사람이 읽고, `now` 는 **모델이 다음 호출에 그대로 쓴다.** 이 손에는
+// 조작이 신원을 바꾸는 갈래가 있어서(노트를 적으면 장이 다시 지어진다) 그 값이 특히 세다 —
+// 실물에서 장 여섯의 id 가 한 턴에 전부 갈리는 것을 봤다(2026-09-04 IR 판).
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('set_text', { slide: 1, shape_id: 'sh1', text: 'Q3 실적' });
+  ok('변이 답에 바뀐 뒤의 장이 실린다', out.now?.slide === 1 && out.now?.slide_id === 's1',
+    JSON.stringify(out.now));
+  ok('도형을 겨눈 호출이면 도형도 실린다', out.now?.shape?.id === 'sh1', JSON.stringify(out.now?.shape));
+
+  // **안 바꾼 호출에는 안 붙는다.** 붙이면 읽기마다 왕복이 하나씩 늘고, 그건 모든 호출의
+  // 세금이 된다 — 이 값은 진짜 변이의 값이라야 한다.
+  const read = await hand.run('read_slide', { slide: 1 });
+  ok('읽기에는 안 붙는다', read.now === undefined, JSON.stringify(read.now));
+
+  // 겨눈 것이 없으면 지어내지 않는다.
+  const all = await hand.run('apply_style', { title: { size: 30 } });
+  ok('겨눈 장이 없으면 안 싣는다', all.now === undefined, JSON.stringify(all.now));
+
+  // **가짜 손도 같은 계약이다.** 이 화면에서 배운 다음 호출이 실물에서 틀리면 안 된다.
+  const fake = new FakeHand({ slides: [
+    { id: 'f1', layout: '제목 및 내용', shapes: [{ id: 'a', name: '제목', type: 'Placeholder', text: '가', left: 1, top: 2, width: 3, height: 4 }] },
+  ] });
+  const fout = await fake.run('set_text', { slide: 1, shape_id: 'a', text: '나' });
+  ok('가짜 손도 바뀐 뒤의 객체를 싣는다',
+    fout.now?.slide === 1 && fout.now?.slide_id === 'f1' && fout.now?.shape?.id === 'a',
+    JSON.stringify(fout.now));
+  const fread = await fake.run('read_slide', { slide: 1 });
+  ok('가짜 손도 읽기에는 안 붙인다', fread.now === undefined, JSON.stringify(fread.now));
+}
+
 console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리 가지를 잰 것이고, ' +
   '호스트가 실제로 어떻게 답하는지는 S1·S13·S14 가 열려 있는 채다.');
 console.log(failed ? `${failed} 실패` : '전부 통과');
