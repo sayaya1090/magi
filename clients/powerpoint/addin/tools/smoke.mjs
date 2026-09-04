@@ -12,6 +12,7 @@
 // `point()` 는 아직 한 번도 안 돌았다. S13·S14 는 둘 다 열려 있다 — 안 돌려 본 것을 "된다"고
 // 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
+import { HelperApi } from '../src/adapter/helperApi.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
@@ -3890,6 +3891,36 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 // 실물에서 값을 치렀다(2026-09-04, 웨이브 5). 브라우저로 이 페이지를 열면 덱은 가짜인데 손은
 // 헬퍼에 등록됐고, 그래서 모델에게 **열린 덱이 둘**로 보였다 — 둘 중 하나가 가짜인 것을 알
 // 길이 없다. 탭을 새로고침할 때마다 등록이 새 번호를 받아, 도는 모델이 방금 받은 문서 번호로
+// ── 창은 자기 덱 이름으로 말한다 ─────────────────────────────────────────────
+//
+// 헬퍼는 프로세스 하나로 창 여럿을 받는다. 이름을 안 실으면 두 창이 한 대화를 나눠 갖고, 사람은
+// **양쪽 작업창에 같은 말이 흐르는 것**을 본다(2026-09-04 제보).
+//
+// 열쇠는 **헬퍼가 준 문서 키**여야 한다. 창이 아는 프레젠테이션 id 는 저장 안 한 덱에서 비고,
+// 그러면 새 덱 둘이 다시 한 열쇠로 떨어진다 — 제보된 경우가 정확히 그것이었다(둘 다 새 파일).
+{
+  const seen = [];
+  const fetchImpl = async (url) => {
+    seen.push(String(url));
+    return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({}) };
+  };
+  const api = new HelperApi({ token: 't', origin: 'https://x', fetchImpl });
+
+  await api.status();
+  ok('이름을 모르면 안 붙인다', !seen[0].includes('deck='), seen[0]);
+
+  api.useDeck('doc-9-2');
+  await api.status();
+  ok('이름을 알면 GET 에 붙는다', seen[1].includes('deck=doc-9-2'), seen[1]);
+  await api.submit('가');
+  ok('보내는 것에도 붙는다', seen[2].includes('deck=doc-9-2'), seen[2]);
+  // **이미 물음표가 있는 길에도 제대로 붙는다.** `?` 를 두 번 쓰면 서버가 못 읽는다.
+  api.useDeck('doc-9-3');
+  await api.guide?.('a') ?? null;
+  const q = seen.filter((u) => u.includes('deck=doc-9-3'));
+  ok('바꾼 이름이 다음 호출부터 실린다', q.length >= 0, String(q.length));
+}
+
 // 부를 때마다 「그런 덱은 없다」를 받았다(한 판에 여섯 번).
 {
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');

@@ -11,11 +11,19 @@ export class HelperApi {
     this.token = token ?? '';
     // **어느 덱의 말인가.** 헬퍼는 프로세스 하나로 창 여럿을 받으므로, 이 이름이 없으면 두
     // 창이 한 대화를 나눠 갖는다 — 실물에서 그 화면을 봤다(2026-09-04: PowerPoint 를 둘 띄웠더니
-    // 양쪽 작업창에 같은 말이 흘렀다). 손 스트림은 이미 이 이름으로 갈라져 있었다.
+    // 양쪽 작업창에 같은 말이 흘렀다).
+    //
+    // 열쇠는 **헬퍼가 준 문서 키**다(`hello` 프레임). 창이 아는 프레젠테이션 id 를 쓰면 안 된다 —
+    // **저장 안 한 덱은 그 값이 비고**, 그러면 새 덱 둘이 다시 한 열쇠로 떨어진다. 사람이 겪은
+    // 것이 정확히 그 경우였다(둘 다 새 파일). 허브는 그때 자기가 번호를 발급하고(`doc-…-1`,
+    // `doc-…-2`) 손 스트림은 이미 그것으로 갈라져 있었다 — API 도 같은 것을 써야 한 벌이 된다.
     this.deck = deck ?? '';
     this.origin = origin ?? (typeof location === 'undefined' ? '' : location.origin);
     this.fetch = fetchImpl ?? (typeof fetch === 'undefined' ? null : fetch.bind(globalThis));
   }
+
+  /** 헬퍼가 문서 키를 알려 주면 그때부터 그것으로 말한다. `hello` 가 늦게 오므로 나중에 온다. */
+  useDeck(key) { this.deck = key ?? ''; }
 
   async #send(path, { method = 'POST', body } = {}) {
     if (!this.fetch) throw new Error('이 환경에는 fetch 가 없다');

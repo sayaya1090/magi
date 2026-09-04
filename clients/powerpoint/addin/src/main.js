@@ -60,13 +60,15 @@ async function boot() {
   const boot = (typeof window !== 'undefined' && window.MAGI) ? window.MAGI : null;
   const real = Boolean(boot?.token);
 
-  const api = real
-    ? new HelperApi({ token: boot.token, deck: boot.presentation ?? '' })
-    : null;
+  const api = real ? new HelperApi({ token: boot.token }) : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   const helperStream = real
     ? new HelperStream({ token: boot.token, presentation: boot.presentation ?? '', label: boot.label ?? '' }).open()
     : null;
+  // **헬퍼가 준 문서 키로 말한다.** `hello` 는 스트림이 서고 나서 오므로, 오는 즉시 넘긴다 —
+  // 그때부터 이 창의 API 호출은 자기 덱의 대화로 간다. 그 전의 호출은 열쇠 없는 대화로 가고,
+  // 그것도 답이다(창이 아직 어느 덱인지 모르는 때).
+  if (real) helperStream.on('hello', (d) => api.useDeck(d?.document ?? ''));
   const status = real ? new HelperStatus(api) : new FakeStatus();
   const watchPrompt = new WatchPrompt(status);
   // **연결이 둘이다**(§5.7). 내는 것과 받는 것이 다른 연결이고, 서로의 생사 증거가 아니다.
