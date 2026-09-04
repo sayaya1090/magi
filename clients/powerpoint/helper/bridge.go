@@ -276,6 +276,9 @@ func (b *Bridge) Status() (map[string]any, error) {
 		out["permission"] = st.Permission
 		out["backend"] = st.Backend
 		out["model"] = st.Model
+		// **카운슬이 있는지**. 도구 설명문이 이 값을 보고 문장을 고른다(`tools.go` 의 `declare`) —
+		// 없는 도구를 이름으로 부르면 모델이 그것을 부르고 `unknown tool` 을 받는다.
+		out["council"] = st.Council
 		if st.Asking != nil {
 			out["asking"] = st.Asking
 		}

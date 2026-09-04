@@ -198,6 +198,9 @@ type Info struct {
 	// listing already asks each companion how it is doing, and this rides that answer rather than
 	// costing a second question or a walk through the workspace's session metadata.
 	Model string `json:"-"`
+	// Council says whether a working turn here ends by declaring to a council. Read by anything
+	// that has to tell the model the truth about its own tool list — see the wire field's comment.
+	Council bool `json:"-"`
 }
 
 // SessionFile is where a daemon records what it is driving.

@@ -118,8 +118,8 @@ func TestMagisOwnClientAttachesToThisHelper(t *testing.T) {
 	if err != nil {
 		t.Fatalf("magi 가 못 붙었다: %v", err)
 	}
-	if len(got) != len(catalogue()) {
-		t.Fatalf("도구 %d 개를 올렸는데 %d 개가 등록됐다: %v", len(catalogue()), len(got), got)
+	if len(got) != len(catalogue(true)) {
+		t.Fatalf("도구 %d 개를 올렸는데 %d 개가 등록됐다: %v", len(catalogue(true)), len(got), got)
 	}
 	want := "mcp__" + ServerName + "__list_slides"
 	tool := s.get(want)

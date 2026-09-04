@@ -96,7 +96,7 @@ func withSlide(rest ...property) []property {
 }
 
 // catalogue 는 §6 의 목록 그대로다. 순서는 읽기 → 쓰기 → 되돌리기 → 안내.
-func catalogue() []tool {
+func catalogue(hasCouncil bool) []tool {
 	// 읽기 도구의 설명문에 **선언 안내가 붙는다**(§7). 이유가 기전에 있다: magi 의 MCP
 	// 클라이언트는 핸드셰이크 응답을 통째로 버려서 서버가 적어 보내는 instructions 가 모델에
 	// 도달하지 않는다. 남는 자리가 `tools/list` 의 설명문뿐이라, 이 문장은 예의가 아니라
@@ -123,10 +123,18 @@ func catalogue() []tool {
 	//
 	// 그래서 「먼저 목록을 보라」가 첫 절이다. 이 저장소가 이름 붙여 둔 그 규칙과 같다 —
 	// **조건부는 정직하고 무조건 서는 줄이 위험하다.**
-	const declare = " Before you finish: look at your own tool list. If it has a council tool, a " +
-		"turn that called any tool must end with council{complete:true}, even a read-only one — " +
-		"otherwise the turn lands UNVERIFIED. If it does not, this companion runs without that " +
-		"gate: just stop, and do not call a tool you cannot see."
+	// ⚠ **설정에 따라 다른 문장을 쓴다.** 앞 두 판본은 갈래를 산문으로 적었다 — 「목록에 있으면
+	// 부르고 없으면 말라」. 둘 다 안 들었다: 카운슬이 꺼진 컴패니언에서 모델이 그대로 부르고
+	// `unknown tool: council` 을 받았다(2026-09-04에 두 번 실측). **이름을 마흔두 개 설명문에
+	// 적어 두면 문장을 어떻게 배열해도 결국 불린다.**
+	//
+	// 고침은 더 나은 문장이 아니라 **참이 아닐 때 안 적는 것**이고, 아는 것은 데몬뿐이라
+	// 거기서 받아 온다(`daemon.Status.Council`). 없으면 이 자리는 빈 문자열이다.
+	declare := ""
+	if hasCouncil {
+		declare = " A turn that called any tool must end by declaring it finished with " +
+			"council{complete:true}, even a read-only one: otherwise the turn lands UNVERIFIED."
+	}
 
 	return []tool{
 		{
@@ -674,7 +682,8 @@ func schemaOf(t tool) json.RawMessage {
 // 빈 주어에 걸리는 글롭이라야 한다.
 func allowRules() []string {
 	var out []string
-	for _, t := range catalogue() {
+	// 읽기 전용인지만 본다 — 마무리 안내는 설명문에만 붙어서 규칙에 안 걸린다.
+	for _, t := range catalogue(false) {
 		if t.ReadOnly {
 			out = append(out, fmt.Sprintf("mcp__%s__%s(**)", ServerName, t.Name))
 		}

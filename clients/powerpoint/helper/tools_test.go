@@ -16,7 +16,7 @@ import (
 // 의견도 안 낸다.** 그리고 빈 `inputSchema` 는 매니저가 `{"type":"object"}` 로 채워 넣어서
 // **모양은 멀쩡한데 검사만 꺼진 스키마**가 된다. 그러니 한 도구라도 빠지면 그 도구만 조용해진다.
 func TestEverySchemaKeepsTheArgumentCheckOn(t *testing.T) {
-	tools := catalogue()
+	tools := catalogue(true)
 	if len(tools) == 0 {
 		t.Fatal("도구가 하나도 없다 — 볼 것이 없었다")
 	}
@@ -57,7 +57,7 @@ func TestEverySchemaKeepsTheArgumentCheckOn(t *testing.T) {
 // 하나라도 빠지면 그 도구만 언제나 활성 문서를 향하고, 창이 둘일 때 목표가 사람이 마지막에
 // 누른 창을 조용히 따라간다.
 func TestEveryToolTakesTheDocument(t *testing.T) {
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		var body struct {
 			Properties map[string]json.RawMessage `json:"properties"`
 			Required   []string                   `json:"required"`
@@ -79,7 +79,7 @@ func TestEveryToolTakesTheDocument(t *testing.T) {
 func TestToolNamesSurviveSanitizing(t *testing.T) {
 	safe := regexp.MustCompile(`^[a-z0-9_]+$`)
 	seen := map[string]bool{}
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if !safe.MatchString(tl.Name) {
 			t.Errorf("도구 이름 %q 에 다듬기가 손댈 문자가 있다", tl.Name)
 		}
@@ -144,7 +144,7 @@ func TestAllowRulesCoverExactlyWhatDoesNotChangeTheDeck(t *testing.T) {
 // 조회만 한 턴이 조르기 세 번을 지나 UNVERIFIED 로 착지한다. 아무것도 안 고친 조회에.
 func TestReadToolsSayHowToDeclareFinished(t *testing.T) {
 	checked := 0
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if tl.Name == "advise" || tl.Name == "clear_advice" || tl.Name == "snapshot_slide" {
 			continue // 덱을 안 고치지만 조회 도구는 아니다
 		}
@@ -169,7 +169,7 @@ func TestReadToolsSayHowToDeclareFinished(t *testing.T) {
 // 그건 「고쳤습니다」 하고 안 바뀌는 실패를 인자 한 칸에 심어 두는 것이다.
 func TestSetTableCellsAdvertisesNoFormatting(t *testing.T) {
 	var found *tool
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if tl.Name == "set_table_cells" {
 			c := tl
 			found = &c
@@ -212,7 +212,7 @@ func TestOmittingTheSlideMeansTheOneInFront(t *testing.T) {
 	// **그 말이 슬라이드를 받는 도구 전부에 실려 나가는지**까지 본다. 한 자리에 적어 두고
 	// `withSlide` 로 나르는 구조라 지금은 자동이지만, 그 구조가 깨지면 여기서 운다.
 	seen := 0
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		for _, p := range tl.Props {
 			if p.Name != "slide" {
 				continue
@@ -281,7 +281,7 @@ func TestTheManualNamesEveryTool(t *testing.T) {
 	}
 	man := string(raw)
 	missing := []string{}
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if !strings.Contains(man, "`"+tl.Name+"`") {
 			missing = append(missing, tl.Name)
 		}
@@ -289,7 +289,7 @@ func TestTheManualNamesEveryTool(t *testing.T) {
 	if len(missing) > 0 {
 		t.Errorf("매뉴얼이 안 적은 도구: %s", strings.Join(missing, ", "))
 	}
-	if len(catalogue()) == 0 {
+	if len(catalogue(true)) == 0 {
 		t.Fatal("도구가 하나도 없다 — 이 시험은 아무것도 안 쟀다")
 	}
 }
@@ -304,9 +304,9 @@ func TestTheManualNamesEveryTool(t *testing.T) {
 // 무는 자리를 **현재 주장에만** 건다. 실물 기록(§5.1 의 「도구 28개」처럼 그날 화면이 적은 말)은
 // 그날 참이었으므로 고칠 것이 아니다. 그래서 정규식으로 훑지 않고 **정확한 문자열**을 센다.
 func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
-	n := len(catalogue())
+	n := len(catalogue(true))
 	read := 0
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if tl.ReadOnly {
 			read++
 		}
@@ -344,35 +344,39 @@ func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
 	}
 }
 
-// TestTheFinishInstructionSaysWhatToDoWithoutACouncil 는 **우리 도구가 아닌 것을 시킬 때**
-// 있는지 없는지를 같이 말하는가를 잰다.
+// 마무리 안내는 **카운슬이 있을 때만 적힌다.**
 //
-// 실물에서 나왔다(2026-09-04, 웨이브 1). 카운슬을 끈 컴패니언에서 모델이 우리 설명문을 그대로
-// 따라 `council{complete:true}` 를 불렀고 `unknown tool: council` 을 받았다 — **지시를 지킨
-// 대가가 실패였다.** 우리는 붙은 컴패니언의 도구 목록을 볼 수 없으므로 있는지 모르고, 모르는
-// 것을 단정하는 대신 두 갈래를 다 적는다.
-func TestTheFinishInstructionSaysWhatToDoWithoutACouncil(t *testing.T) {
-	var read tool
-	for _, tl := range catalogue() {
-		if tl.Name == "list_slides" {
-			read = tl
+// 실물에서 두 번 나왔다(2026-09-04). 카운슬을 끈 컴패니언에서 모델이 우리 설명문을 그대로 따라
+// `council{complete:true}` 를 불렀고 `unknown tool: council` 을 받았다 — 지시를 지킨 대가가
+// 실패였다. 산문으로 두 번 고쳤다: 갈래를 적고, 조건을 문장 앞으로 옮기고. 둘 다 안 들었다.
+// **이름을 마흔두 개 설명문에 적어 두면 문장을 어떻게 배열해도 결국 불린다.**
+//
+// 그래서 재는 것이 바뀌었다. 앞 판본은 문장의 낱말과 **순서**를 쟀다 — 그건 그 접근이 듣는다는
+// 전제 위에 선 검사였고, 전제가 틀렸으므로 검사도 같이 버린다. 지금 재는 것은 **없을 때 안
+// 적히는가**다.
+func TestTheFinishInstructionOnlyExistsWhenACouncilDoes(t *testing.T) {
+	pick := func(hasCouncil bool) tool {
+		for _, tl := range catalogue(hasCouncil) {
+			if tl.Name == "list_slides" {
+				return tl
+			}
 		}
-	}
-	if read.Name == "" {
 		t.Fatal("list_slides 가 없다 — 이 시험은 아무것도 안 쟀다")
+		return tool{}
 	}
-	if !strings.Contains(read.Desc, "council{complete:true}") {
-		t.Error("선언하는 법을 안 적는다 — 조회만 한 턴이 UNVERIFIED 로 착지한다")
+	with := pick(true)
+	if !strings.Contains(with.Desc, "council{complete:true}") {
+		t.Error("카운슬이 있는데 선언하는 법을 안 적는다 — 조회만 한 턴이 UNVERIFIED 로 착지한다")
 	}
-	if !strings.Contains(read.Desc, "look at your own tool list") {
-		t.Errorf("카운슬이 없는 갈래를 안 적는다 — 없는 도구를 부르게 시키는 셈이다:\n%s", read.Desc)
+	without := pick(false)
+	// **이름이 한 번도 안 나와야 한다.** 「없으면 부르지 마라」조차 이름을 부르는 것이고,
+	// 그 이름이 곧 호출로 돌아왔다.
+	if strings.Contains(without.Desc, "council") {
+		t.Errorf("카운슬이 없는데 그 이름이 설명문에 있다 — 없는 문을 이름으로 가리킨다:\n%s", without.Desc)
 	}
-	// **순서까지 잰다.** 웨이브 3 에서 두 갈래를 다 적고도 또 불렀다 — 무조건형이 먼저 서
-	// 있었고 모델은 그것을 읽고 행동했다. 조건이 뒤에 있으면 없는 것과 같다.
-	look := strings.Index(read.Desc, "look at your own tool list")
-	call := strings.Index(read.Desc, "council{complete:true}")
-	if look < 0 || call < 0 || look > call {
-		t.Errorf("조건이 명령보다 뒤에 있다(조건 %d · 명령 %d) — 내용이 맞아도 순서가 틀리면 "+
-			"안 읽힌다", look, call)
+	// 안내 말고 나머지는 같아야 한다. 갈래가 설명 전체를 갈아치우면 도구가 딴것이 된다.
+	if !strings.HasPrefix(with.Desc, without.Desc) {
+		t.Errorf("안내를 뺀 나머지가 다르다 — 갈래가 설명을 갈아치우고 있다:\n있음: %s\n없음: %s",
+			with.Desc, without.Desc)
 	}
 }

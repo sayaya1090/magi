@@ -8,7 +8,7 @@ import (
 
 func toolNamed(t *testing.T, name string) tool {
 	t.Helper()
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if tl.Name == name {
 			return tl
 		}
@@ -163,7 +163,7 @@ func TestARealTypeMismatchIsStillRefused(t *testing.T) {
 // **값이 든 배열은 그대로 거절한다** — 그건 진짜로 틀린 것이고, 관용은 뜻이 같은 것에만 준다.
 func TestAnEmptyArrayIsAnEmptyCall(t *testing.T) {
 	var readTool tool
-	for _, tl := range catalogue() {
+	for _, tl := range catalogue(true) {
 		if tl.Name == "list_slides" {
 			readTool = tl
 		}

@@ -116,7 +116,16 @@ func run(args []string, out, log io.Writer) int {
 		ch, _ := bridge.Subscribe()
 		return ch
 	}}
-	mux.Handle("/mcp", &MCPServer{Hand: hub, Token: token})
+	mux.Handle("/mcp", &MCPServer{Hand: hub, Token: token, Council: func() bool {
+		// 데몬이 답한다(`daemon.Status.Council`). 못 닿으면 거짓 — 모르는 채로 없는 도구를
+		// 가리키느니 안 적는 쪽이 낫다.
+		st, err := bridge.Status()
+		if err != nil {
+			return false
+		}
+		on, _ := st["council"].(bool)
+		return on
+	}})
 	mux.HandleFunc(handStreamPath, handHTTP.Stream)
 	mux.HandleFunc(handReplyPath, handHTTP.Reply)
 

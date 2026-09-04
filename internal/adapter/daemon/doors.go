@@ -473,6 +473,9 @@ func answerStatus(ctx context.Context, eng Engine, req Request) Response {
 		resp.Permission = c.Permission()
 		resp.Backend = c.Backend()
 	}
+	if c, ok := eng.(CouncilTeller); ok {
+		resp.Council = c.HasCouncil()
+	}
 	if n, ok := eng.(UserNamer); ok {
 		resp.User = n.UserLabel(session.SessionID(req.Session))
 	}

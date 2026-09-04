@@ -18,6 +18,19 @@ import (
 // mode. Split out of app.go; behavior unchanged.
 
 // Permission returns the current tool-permission policy.
+// HasCouncil answers whether a working turn here ends by declaring to a council.
+//
+// It reads the same two things the gate does (`requireFinishDeclaration`): the config has one, and
+// the tool is actually registered. Either alone lies — a config with a council whose tool never got
+// registered still cannot be declared to.
+func (a *App) HasCouncil() bool {
+	if a.cfg.Council == nil || !declareFinishEnabled() {
+		return false
+	}
+	_, ok := a.tools.Get("council")
+	return ok
+}
+
 func (a *App) Permission() string {
 	a.mu.Lock()
 	defer a.mu.Unlock()

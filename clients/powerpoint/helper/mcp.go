@@ -36,7 +36,15 @@ type MCPServer struct {
 	Token string
 	// Now 는 결과의 `as_of` 를 찍는다. 시험이 시계를 안 재게 주입한다.
 	Now func() time.Time
+	// Council 은 **붙은 컴패니언이 카운슬로 끝내는가**를 답한다. 도구 설명문의 마무리 안내가
+	// 이 값으로 갈린다 — 없는 도구를 이름으로 적으면 모델이 그것을 부른다(`tools.go` 의
+	// `declare`). nil 이면 「모른다」이고, 그때는 **안 적는다**: 지어낸 안내가 없는 문을
+	// 가리키는 쪽이, 있는 문을 안 알려 주는 쪽보다 나쁘다.
+	Council func() bool
 }
+
+// hasCouncil 은 위 물음의 답. 모르면 거짓이다.
+func (s *MCPServer) hasCouncil() bool { return s.Council != nil && s.Council() }
 
 func (s *MCPServer) now() time.Time {
 	if s.Now != nil {
@@ -149,7 +157,7 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 // readOnly 는 이 이름이 덱을 안 고치는 조작인가. **표는 하나뿐이다**(`tools()`) — 여기에
 // 이름을 또 적으면 도구가 하나 늘 때마다 두 자리를 고쳐야 하고, 하나를 빠뜨리는 날이 온다.
 func (s *MCPServer) readOnly(name string) bool {
-	for _, t := range catalogue() {
+	for _, t := range catalogue(s.hasCouncil()) {
 		if t.Name == name {
 			return t.ReadOnly
 		}
@@ -164,7 +172,7 @@ func isTimeout(err error) bool {
 }
 
 func (s *MCPServer) toolDefs() []map[string]any {
-	tools := catalogue()
+	tools := catalogue(s.hasCouncil())
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
 		out = append(out, map[string]any{
@@ -184,7 +192,7 @@ func (s *MCPServer) toolDefs() []map[string]any {
 // 바꿀까」를 정하는 데 쓰인다.
 func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[string]any {
 	var found *tool
-	for _, t := range catalogue() {
+	for _, t := range catalogue(s.hasCouncil()) {
 		if t.Name == name {
 			c := t
 			found = &c
@@ -305,7 +313,8 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 
 func toolNames() []string {
 	var out []string
-	for _, t := range catalogue() {
+	// 이름만 센다 — 마무리 안내는 설명문에만 붙으므로 어느 쪽이든 목록이 같다.
+	for _, t := range catalogue(false) {
 		out = append(out, t.Name)
 	}
 	return out

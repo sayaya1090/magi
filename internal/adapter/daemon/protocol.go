@@ -214,6 +214,14 @@ type Controller interface {
 	Backend() string
 }
 
+// CouncilTeller answers whether a working turn here must end by declaring to a council.
+//
+// Separate from Controller because it is a fact, not a control: nothing outside sets it, and an
+// engine that has no council still answers — with false.
+type CouncilTeller interface {
+	HasCouncil() bool
+}
+
 // ToolReader is an engine that can run one of its READ-ONLY tools where it is, outside the turn.
 //
 // # Why the console does not read the files itself
@@ -672,6 +680,19 @@ type Response struct {
 	// User is what to call the person, when a plugin has renamed them. Same reason as Permission:
 	// it is set at runtime, in the memory of the process holding the run, and nowhere else.
 	User string `json:"user,omitempty"`
+	// Council says whether this companion ends a working turn by declaring to a council. It is here
+	// for the reason Permission is: it is settable per companion, and something OUTSIDE the daemon
+	// has to be able to tell the model the truth about it.
+	//
+	// The gap it closes was measured (2026-09-04). The PowerPoint helper appends a clause to every
+	// tool description telling the model to finish with `council{complete:true}` — the only place a
+	// clause can reach that model, because the MCP handshake's instructions are dropped. On a
+	// companion with council switched off that clause names a tool that is not there, and the model
+	// called it and got `unknown tool: council`. It was rewritten twice, in prose, and called
+	// anyway: a name repeated in forty-two descriptions gets called whatever the sentence around it
+	// says. The fix is not a better sentence, it is not writing the sentence when it is not true —
+	// and the only process that knows is this one.
+	Council bool `json:"council,omitempty"`
 	// Reason answers the complete method when Out is empty: WHICH empty it is (app.CompleteReason
 	// — off, unrouted, nothing-asked, no-answer). A failed completion is Err, not a reason. Without
 	// it every one of those arrived as an empty string, so an editor could not tell a completer
@@ -976,6 +997,10 @@ type Status struct {
 	// Model is the model the conversation is on now — the same kind of runtime fact as the two
 	// above, and the one a model select has to show before it offers to change it.
 	Model string
+	// Council says whether a working turn here ends by declaring to a council. Anything that tells
+	// the model what to do at the end of a turn has to read this first, or it names a tool that
+	// is not there — which is what happened, twice, before this field existed.
+	Council bool
 }
 
 // Contribution is one participant's turn in a meeting: what it said, whether that was a pass, and
