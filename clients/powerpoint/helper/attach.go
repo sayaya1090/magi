@@ -236,7 +236,8 @@ func (a *Attachments) Attach(socket, url, token string) ([]string, error) {
 	if token != "" {
 		headers["Authorization"] = "Bearer " + token
 	}
-	tools, err := cl.AttachMCP(ServerName, url, headers)
+	// 주인은 아직 안 싣는다 — 헬퍼가 덱의 세션을 여기까지 나르는 것이 다음 조각이다.
+	tools, err := cl.AttachMCP("", ServerName, url, headers)
 	if err != nil {
 		return nil, fmt.Errorf("도구를 못 붙였습니다: %w", err)
 	}

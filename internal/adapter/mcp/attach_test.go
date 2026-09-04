@@ -81,7 +81,7 @@ func TestAttachAnswersWithTheToolsItBrought(t *testing.T) {
 	m := NewManager(sink)
 	defer m.Close()
 
-	names, err := m.Attach(context.Background(), "ppt", srv.URL, nil)
+	names, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil)
 	if err != nil {
 		t.Fatalf("attach: %v", err)
 	}
@@ -102,10 +102,10 @@ func TestTheSameNameCannotBeAttachedTwice(t *testing.T) {
 	m := NewManager(&namesSink{})
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt", a.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", a.URL, nil); err != nil {
 		t.Fatalf("first attach: %v", err)
 	}
-	_, err := m.Attach(context.Background(), "ppt", b.URL, nil)
+	_, err := m.Attach(context.Background(), "", "ppt", b.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "already attached") {
 		t.Fatalf("second attach said %v — a taken name must be refused by name", err)
 	}
@@ -120,7 +120,7 @@ func TestDetachFreesTheNameAndTheTools(t *testing.T) {
 	m := NewManager(sink)
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt", srv.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 	if removed, err := m.Detach("ppt"); err != nil || !removed {
@@ -132,7 +132,7 @@ func TestDetachFreesTheNameAndTheTools(t *testing.T) {
 	if removed, err := m.Detach("ppt"); removed || err != nil {
 		t.Errorf("detaching twice said removed=%v err=%v — already clean is an answer, not a failure", removed, err)
 	}
-	if _, err := m.Attach(context.Background(), "ppt", srv.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("re-attach after detach: %v — that is the reconnect path", err)
 	}
 }
@@ -145,7 +145,7 @@ func TestAServerThatStopsAnsweringIsDropped(t *testing.T) {
 	m := NewManager(sink)
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt", srv.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
 		t.Fatalf("attach: %v", err)
 	}
 	srv.Close() // the helper dies without a word
@@ -205,7 +205,7 @@ func TestTwoAttachesRacingForOneNameLeaveOneServer(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, errs[i] = m.Attach(context.Background(), "ppt", url, nil)
+			_, errs[i] = m.Attach(context.Background(), "", "ppt", url, nil)
 		}()
 	}
 	wg.Wait()
@@ -236,10 +236,10 @@ func TestANameIsNotBurnedByAnAttachThatFailed(t *testing.T) {
 	m := NewManager(sink)
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt", dead.URL, nil); err == nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", dead.URL, nil); err == nil {
 		t.Fatal("attaching to a closed server succeeded")
 	}
-	if _, err := m.Attach(context.Background(), "ppt", live.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", live.URL, nil); err != nil {
 		t.Fatalf("the name was still held after a failed attach: %v", err)
 	}
 }
@@ -254,10 +254,10 @@ func TestTwoNamesThatSanitiseToOneAreRefused(t *testing.T) {
 	m := NewManager(&namesSink{})
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt.one", a.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt.one", a.URL, nil); err != nil {
 		t.Fatalf("first attach: %v", err)
 	}
-	_, err := m.Attach(context.Background(), "ppt_one", b.URL, nil)
+	_, err := m.Attach(context.Background(), "", "ppt_one", b.URL, nil)
 	if err == nil || !strings.Contains(err.Error(), "collides") {
 		t.Fatalf("second attach said %v — one namespace, one server", err)
 	}
@@ -332,7 +332,7 @@ func TestDetachDuringAttachIsTrueOnlyIfTheAttachAlsoFoldsUp(t *testing.T) {
 
 	attached := make(chan error, 1)
 	go func() {
-		_, err := m.Attach(context.Background(), "ppt", srv.URL, nil)
+		_, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil)
 		attached <- err
 	}()
 	waitForServer(t, m, "ppt", true) // the reservation is in the map; the handshake is still out
@@ -371,7 +371,7 @@ func TestADeadServerDoesNotTakeItsReplacementWithIt(t *testing.T) {
 	m := NewManager(sink)
 	defer m.Close()
 
-	if _, err := m.Attach(context.Background(), "ppt", a.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", a.URL, nil); err != nil {
 		t.Fatal(err)
 	}
 	m.mu.Lock()
@@ -381,7 +381,7 @@ func TestADeadServerDoesNotTakeItsReplacementWithIt(t *testing.T) {
 
 	b := mcpHTTP(t, "render")
 	defer b.Close()
-	if _, err := m.Attach(context.Background(), "ppt", b.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "ppt", b.URL, nil); err != nil {
 		t.Fatalf("replacement attach: %v", err)
 	}
 	if !sink.has("mcp__ppt__render") {
@@ -458,7 +458,7 @@ func TestAFailedAttachReleasesOnlyItsOwnClaim(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() {
-		_, err := m.Attach(context.Background(), "ppt", doomed.URL, nil)
+		_, err := m.Attach(context.Background(), "", "ppt", doomed.URL, nil)
 		firstDone <- err
 	}()
 	waitForServer(t, m, "ppt", true)
@@ -468,7 +468,7 @@ func TestAFailedAttachReleasesOnlyItsOwnClaim(t *testing.T) {
 
 	secondDone := make(chan error, 1)
 	go func() {
-		_, err := m.Attach(context.Background(), "ppt", replacement.URL, nil)
+		_, err := m.Attach(context.Background(), "", "ppt", replacement.URL, nil)
 		secondDone <- err
 	}()
 	waitForServer(t, m, "ppt", true) // the second attach now holds the name
@@ -497,13 +497,13 @@ func TestADeadHandsNameIsTakenOverByTheNextAttach(t *testing.T) {
 	sink := &namesSink{}
 	m := NewManager(sink)
 	defer m.Close()
-	if _, err := m.Attach(context.Background(), "jetbrains", dead.URL, nil); err != nil {
+	if _, err := m.Attach(context.Background(), "", "jetbrains", dead.URL, nil); err != nil {
 		t.Fatalf("first attach: %v", err)
 	}
 	dead.Close() // kill -9, as the transport sees it: connection refused, and no detach ever sent
 	alive := mcpHTTP(t, "new")
 	defer alive.Close()
-	names, err := m.Attach(context.Background(), "jetbrains", alive.URL, nil)
+	names, err := m.Attach(context.Background(), "", "jetbrains", alive.URL, nil)
 	if err != nil {
 		t.Fatalf("the reconnect was refused by a dead holder: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestADeadConfigServersNameIsNotTakenByTheDoor(t *testing.T) {
 	cfg.Close() // the declared server dies without anything detaching it
 	claimant := mcpHTTP(t, "new")
 	defer claimant.Close()
-	if _, err := m.Attach(context.Background(), "ppt", claimant.URL, nil); err == nil || !strings.Contains(err.Error(), "already attached") {
+	if _, err := m.Attach(context.Background(), "", "ppt", claimant.URL, nil); err == nil || !strings.Contains(err.Error(), "already attached") {
 		t.Fatalf("the door took a config server's name: %v", err)
 	}
 }

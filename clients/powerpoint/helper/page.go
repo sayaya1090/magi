@@ -137,6 +137,7 @@ func (p *Pages) serveTaskpane(w http.ResponseWriter, r *http.Request) {
 	// 토큰을 들고 오고, 증상은 「어제 열어 둔 창이 오늘 401 을 받는다」다.
 	w.Header().Set("Cache-Control", "no-store")
 	if p.Token == "" && p.Boot == nil {
+		// 헤더는 이미 나갔다 — 최선 노력이다(icon.go 의 같은 자리와 같은 이유).
 		_, _ = w.Write(versionAssets(body, buildID(p.Root)))
 		return
 	}

@@ -9,6 +9,9 @@ import (
 
 // attachEngine is an engine that can attach tool servers, and remembers what it was asked.
 type attachEngine struct {
+	// owner 는 문이 실어 온 주인. **적어 두지 않으면 「누구 것으로 붙였는가」가 시험 밖으로 샌다** —
+	// 그 값이 이 인자가 생긴 이유다(SESSION_SCOPE.md).
+	owner string
 	fakeEngine
 	gotName, gotURL string
 	gotHeaders      map[string]string
@@ -19,7 +22,8 @@ type attachEngine struct {
 	hadIt           bool
 }
 
-func (e *attachEngine) AttachToolServer(_ context.Context, name, url string, h map[string]string) ([]string, error) {
+func (e *attachEngine) AttachToolServer(_ context.Context, owner, name, url string, h map[string]string) ([]string, error) {
+	e.owner = owner
 	e.gotName, e.gotURL, e.gotHeaders = name, url, h
 	return e.tools, e.err
 }

@@ -83,7 +83,7 @@ func (a *App) sessionToolSpecs(sid session.SessionID, agent AgentSpec) []port.To
 		return specs
 	}
 	a.mu.Unlock()
-	specs := a.toolSpecs(agent)
+	specs := a.toolSpecs(sid, agent)
 	a.mu.Lock()
 	st = a.stateLocked(sid)
 	if st.toolsFrozen == nil {

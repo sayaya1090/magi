@@ -144,7 +144,9 @@ type ToolLister interface {
 type ToolServerHost interface {
 	// AttachToolServer connects to an HTTP MCP server and answers with the tool names it
 	// registered — evidence, not an ack.
-	AttachToolServer(ctx context.Context, name, url string, headers map[string]string) ([]string, error)
+	// owner names the conversation the tools belong to; empty is the whole daemon, which is what
+	// every caller sent before this field existed and what an older client still sends.
+	AttachToolServer(ctx context.Context, owner, name, url string, headers map[string]string) ([]string, error)
 	// DetachToolServer removes one by name: false when there was none to remove, an error when
 	// there was one this caller may not remove (a server the operator declared in config).
 	DetachToolServer(name string) (bool, error)
@@ -622,6 +624,12 @@ type Request struct {
 	// convenience later (a caller that needs a process needs a different door).
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	// Owner is the session these tools belong to. **Omitted means the whole daemon** — an older
+	// client sends nothing here and keeps exactly the behaviour it had. A client that serves two
+	// conversations from one daemon (the PowerPoint helper with two decks open) names the session,
+	// and then a tool call can say which conversation it came from — which is the one thing a
+	// tool call could not say before (internal/adapter/mcp/SESSION_SCOPE.md).
+	Owner string `json:"owner,omitempty"`
 	// Args is the tool method's arguments, verbatim, as the tool's own schema spells them. Raw
 	// JSON rather than a field per argument: the caller and the tool already agree on a schema,
 	// and re-declaring it here would be a third copy to keep in step with the other two.

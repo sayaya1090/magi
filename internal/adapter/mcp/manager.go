@@ -28,6 +28,10 @@ type ToolSink interface {
 // sink. When a server exits, its tools are unregistered automatically (F-MCP).
 type Manager struct {
 	sink ToolSink
+	// byName is the tool object registered under each namespaced name. Held so a second attach
+	// under the same server name can MERGE its hand into the tool already registered instead of
+	// replacing it — the registry is keyed by name and would otherwise drop the first silently.
+	byName map[string]*mcpTool
 	// Confine wraps a stdio server's argv so the OS runs it under this machine's sandbox. Supplied
 	// by the binary that has the platform code; nil = spawn as-is.
 	//
@@ -52,6 +56,9 @@ type serverConn struct {
 	client *Client
 	cmd    *exec.Cmd
 	tools  []string
+	// owner: the conversation these tools belong to, empty for the whole daemon. Held here so a
+	// later attach under the same name can see whose it was.
+	owner string
 	// viaDoor: attached at runtime through port.ToolServers, not declared in config. The door may
 	// only remove what the door added — see Detach. A reservation (client still nil) is also a
 	// serverConn: it holds the name while the handshake runs, and the SAME object is filled in and
@@ -62,7 +69,7 @@ type serverConn struct {
 
 // NewManager returns a manager that registers tools into sink.
 func NewManager(sink ToolSink) *Manager {
-	return &Manager{sink: sink, servers: map[string]*serverConn{}}
+	return &Manager{sink: sink, servers: map[string]*serverConn{}, byName: map[string]*mcpTool{}}
 }
 
 // AddStdio spawns an MCP server over stdio, performs the handshake, discovers
@@ -91,7 +98,7 @@ func (m *Manager) AddStdio(ctx context.Context, name, command string, args, env 
 	}
 
 	client := newClient(stdout, stdin, &procCloser{stdin: stdin, cmd: cmd})
-	_, err = m.registerClient(ctx, name, client, cmd, false)
+	_, err = m.registerClient(ctx, name, client, cmd, false, "")
 	return err
 }
 
@@ -99,7 +106,7 @@ func (m *Manager) AddStdio(ctx context.Context, name, command string, args, env 
 // performs the handshake, discovers its tools, and registers them.
 func (m *Manager) AddHTTP(ctx context.Context, name, url string, headers map[string]string) error {
 	client := newHTTPClient(url, headers, nil)
-	_, err := m.registerClient(ctx, name, client, nil, false)
+	_, err := m.registerClient(ctx, name, client, nil, false, "")
 	return err
 }
 
@@ -108,7 +115,7 @@ func (m *Manager) AddHTTP(ctx context.Context, name, url string, headers map[str
 // auth tokens) that change between requests rather than being frozen at setup.
 func (m *Manager) AddHTTPDynamic(ctx context.Context, name, url string, headersFn func() map[string]string) error {
 	client := newHTTPClient(url, nil, headersFn)
-	_, err := m.registerClient(ctx, name, client, nil, false)
+	_, err := m.registerClient(ctx, name, client, nil, false, "")
 	return err
 }
 
@@ -124,7 +131,9 @@ const mcpProbeTimeout = 2 * time.Second
 // registerClient is the common logic for registering a client (stdio or HTTP). It answers with the
 // published server so a caller can read the tools it registered without going back to the map by
 // name — by then the name may be someone else's.
-func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool) (*serverConn, error) {
+// owner is the conversation these tools belong to; empty means the whole daemon. Config-declared
+// servers pass empty, which is the only thing they ever meant.
+func (m *Manager) registerClient(ctx context.Context, name string, client *Client, cmd *exec.Cmd, viaDoor bool, owner string) (*serverConn, error) {
 	// One name, one server — and the name is claimed BEFORE the handshake, which takes up to
 	// mcpRegisterTimeout. Checking and then releasing the lock let two attaches under one name both
 	// pass the check and both succeed: the loser stayed out of the map, never closed, its
@@ -143,7 +152,7 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		m.mu.Lock()
 		held, taken := m.servers[key]
 		if !taken {
-			sc = &serverConn{name: name, cmd: cmd, viaDoor: viaDoor}
+			sc = &serverConn{name: name, cmd: cmd, viaDoor: viaDoor, owner: owner}
 			m.servers[key] = sc
 			m.mu.Unlock()
 			break
@@ -217,7 +226,8 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		if len(schema) == 0 {
 			schema = []byte(`{"type":"object"}`)
 		}
-		t := &mcpTool{client: client, name: namespacedToolName(name, d.Name), remote: d.Name,
+		t := &mcpTool{byOwner: map[string]*Client{owner: client},
+			name: namespacedToolName(name, d.Name), remote: d.Name,
 			description: d.Description, schema: schema, imageDir: m.ImageDir}
 		tools = append(tools, t)
 	}
@@ -241,7 +251,19 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 	// registry'"'"'s own mutex and never reaches back here, so Manager.mu → sink has no other
 	// direction to meet. Close still happens outside the lock; it waits on a subprocess.
 	for _, t := range tools {
+		// **덮지 않고 합친다.** 레지스트리는 이름으로 키를 잡으므로, 같은 서버 이름으로 둘째가
+		// 붙으면 `Register` 는 첫째의 도구 객체를 통째로 갈아 치운다 — 그러면 첫째 대화는
+		// 자기 손을 조용히 잃는다(광고에서도 빠지고, 부르면 남의 손으로 간다).
+		//
+		// 그래서 이름당 도구는 하나로 두고 **손만 주인별로 더한다.** 주인이 같으면 새것으로
+		// 갈아 끼운다 — 그건 재부착이고, 앞의 손은 죽은 것이다.
+		if had, ok := m.byName[t.name]; ok && had != nil {
+			had.adopt(owner, client)
+			sc.tools = append(sc.tools, t.name)
+			continue
+		}
 		m.sink.Register(t)
+		m.byName[t.name] = t
 		sc.tools = append(sc.tools, t.name)
 	}
 	sc.client = client
@@ -271,12 +293,14 @@ func (m *Manager) watch(key string, sc *serverConn) {
 // worked; a caller that gets mcp__ppt__render, mcp__ppt__open has been told what it can now ask
 // for, and a caller that gets an empty list has been told the server answered and offers nothing —
 // three different situations that one ack flattens into one.
-func (m *Manager) Attach(ctx context.Context, name, url string, headers map[string]string) ([]string, error) {
+// owner names the conversation these tools belong to; empty is the whole daemon — what every
+// caller meant before the parameter existed (port.ToolServers).
+func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers map[string]string) ([]string, error) {
 	if strings.TrimSpace(name) == "" || strings.TrimSpace(url) == "" {
 		return nil, fmt.Errorf("mcp: attach needs a name and a url")
 	}
 	client := newHTTPClient(url, headers, nil)
-	sc, err := m.registerClient(ctx, name, client, nil, true)
+	sc, err := m.registerClient(ctx, name, client, nil, true, owner)
 	if err != nil {
 		return nil, err
 	}
@@ -356,8 +380,16 @@ func (m *Manager) removeConn(key string, sc *serverConn) {
 // lock, so the two never disagree about who is attached. Caller holds m.mu.
 func (m *Manager) unpublishLocked(key string, sc *serverConn) {
 	delete(m.servers, key)
-	for _, t := range sc.tools {
-		m.sink.Unregister(t)
+	for _, name := range sc.tools {
+		// **주인이 여럿이면 내 손만 놓는다.** 통째로 떼면 아직 붙어 있는 다른 대화가 자기 손을
+		// 잃고, 그 대화는 아무 잘못도 안 했다.
+		if had, ok := m.byName[name]; ok && had != nil {
+			if left := had.release(sc.owner); left > 0 {
+				continue
+			}
+			delete(m.byName, name)
+		}
+		m.sink.Unregister(name)
 	}
 }
 

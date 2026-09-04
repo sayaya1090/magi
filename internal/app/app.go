@@ -172,7 +172,8 @@ func (a *App) UseToolServers(s port.ToolServers) { a.toolServers = s }
 
 // AttachToolServer connects an HTTP MCP server to this companion and answers with the tools it
 // brought. The names matter to the caller: they are what it may ask for now.
-func (a *App) AttachToolServer(ctx context.Context, name, url string, headers map[string]string) ([]string, error) {
+// owner names the conversation the tools belong to; empty is the whole daemon (port.ToolServers).
+func (a *App) AttachToolServer(ctx context.Context, owner, name, url string, headers map[string]string) ([]string, error) {
 	if a.toolServers == nil {
 		return nil, fmt.Errorf("this build attaches no tool servers")
 	}
@@ -190,7 +191,7 @@ func (a *App) AttachToolServer(ctx context.Context, name, url string, headers ma
 			return nil, fmt.Errorf("%q is the name of a tool this companion already has", name)
 		}
 	}
-	return a.toolServers.Attach(ctx, name, url, headers)
+	return a.toolServers.Attach(ctx, owner, name, url, headers)
 }
 
 // DetachToolServer removes one by name: false when there was none, an error when there was one and

@@ -430,7 +430,7 @@ func answerMCPAttach(ctx context.Context, eng Engine, req Request) Response {
 	if !ok {
 		return Response{Err: "this daemon cannot attach tool servers"}
 	}
-	names, err := h.AttachToolServer(ctx, req.Name, req.URL, req.Headers)
+	names, err := h.AttachToolServer(ctx, req.Owner, req.Name, req.URL, req.Headers)
 	if err != nil {
 		return Response{Err: err.Error()}
 	}

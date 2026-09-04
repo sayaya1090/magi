@@ -146,7 +146,7 @@ func TestClientWrappersRoundTrip(t *testing.T) {
 	}
 
 	// The doors this engine does not have: the refusal must travel as an error, not as silence.
-	if _, err := c.AttachMCP("x", "http://127.0.0.1:9/mcp", nil); err == nil {
+	if _, err := c.AttachMCP("", "x", "http://127.0.0.1:9/mcp", nil); err == nil {
 		t.Fatal("AttachMCP on a doorless engine must refuse in words")
 	}
 	if _, err := c.DetachMCP("x"); err == nil {

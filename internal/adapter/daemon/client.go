@@ -335,8 +335,10 @@ func (c *Client) Tools() ([]string, error) {
 // The caller is an application that IS the server — it starts, tells the companion where to reach
 // it, and is expected to detach on the way out. Nothing is written to config: a daemon that
 // restarts has forgotten, and the application attaches again when it notices.
-func (c *Client) AttachMCP(name, url string, headers map[string]string) ([]string, error) {
-	resp, err := c.exchange(Request{Method: "mcp-attach", Name: name, URL: url, Headers: headers})
+// owner names the conversation the tools belong to; empty is the whole daemon — what this call
+// meant before the field existed.
+func (c *Client) AttachMCP(owner, name, url string, headers map[string]string) ([]string, error) {
+	resp, err := c.exchange(Request{Method: "mcp-attach", Owner: owner, Name: name, URL: url, Headers: headers})
 	if err != nil {
 		return nil, err
 	}

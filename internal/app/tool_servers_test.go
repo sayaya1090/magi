@@ -22,8 +22,10 @@ type fakeToolServers struct {
 	detachEr error
 }
 
-func (f *fakeToolServers) Attach(_ context.Context, name, url string, headers map[string]string) ([]string, error) {
-	f.attached = append(f.attached, name+"|"+url+"|"+strings.Join(sortedKeys(headers), ","))
+func (f *fakeToolServers) Attach(_ context.Context, owner, name, url string, headers map[string]string) ([]string, error) {
+	// 주인까지 적는다 — 안 적으면 「누구 것으로 붙였는가」가 시험 밖으로 새고, 그 값이 바로
+	// 이 인자가 생긴 이유다.
+	f.attached = append(f.attached, owner+"|"+name+"|"+url+"|"+strings.Join(sortedKeys(headers), ","))
 	return f.names, f.attachEr
 }
 
@@ -47,7 +49,7 @@ func sortedKeys(m map[string]string) []string {
 // answering the same way would have that caller believe it had tidied something it never could.
 func TestABuildWithNoDoorSaysSoRatherThanAnsweringNo(t *testing.T) {
 	a := &App{tools: builtin.Default()}
-	if _, err := a.AttachToolServer(context.Background(), "editor", "http://localhost:1/mcp", nil); err == nil {
+	if _, err := a.AttachToolServer(context.Background(), "", "editor", "http://localhost:1/mcp", nil); err == nil {
 		t.Error("a build that attaches nothing accepted an attach")
 	}
 	had, err := a.DetachToolServer("editor")
@@ -66,7 +68,7 @@ func TestTheDoorIsWhatWiringHandsOver(t *testing.T) {
 	srv := &fakeToolServers{names: []string{"mcp__editor__open"}}
 	a.UseToolServers(srv)
 
-	got, err := a.AttachToolServer(context.Background(), "editor", "http://localhost:9/mcp",
+	got, err := a.AttachToolServer(context.Background(), "", "editor", "http://localhost:9/mcp",
 		map[string]string{"Authorization": "Bearer x"})
 	if err != nil {
 		t.Fatalf("attach: %v", err)
@@ -75,9 +77,26 @@ func TestTheDoorIsWhatWiringHandsOver(t *testing.T) {
 	if len(got) != 1 || got[0] != "mcp__editor__open" {
 		t.Errorf("the attach answered %v", got)
 	}
-	if len(srv.attached) != 1 || srv.attached[0] != "editor|http://localhost:9/mcp|Authorization" {
-		t.Errorf("the manager was asked for %v — the name, the url and the headers are the whole "+
-			"of what this door passes on", srv.attached)
+	// The owner rides along with them: empty here, which is the whole daemon and what every caller
+	// meant before conversations could own a server (port.ToolServers).
+	if len(srv.attached) != 1 || srv.attached[0] != "|editor|http://localhost:9/mcp|Authorization" {
+		t.Errorf("the manager was asked for %v — the owner, the name, the url and the headers are "+
+			"the whole of what this door passes on", srv.attached)
+	}
+}
+
+// The owner is passed on, not dropped. Without this the door could take the argument and ignore it,
+// and every conversation would keep seeing every other conversation's tools — which is the whole of
+// what this parameter exists to stop (internal/adapter/mcp/SESSION_SCOPE.md).
+func TestTheOwnerReachesTheManager(t *testing.T) {
+	srv := &fakeToolServers{names: []string{"mcp__ppt__list_slides"}}
+	a := &App{tools: builtin.Default()}
+	a.UseToolServers(srv)
+	if _, err := a.AttachToolServer(context.Background(), "sess-b", "ppt", "http://localhost:9/mcp", nil); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	if len(srv.attached) != 1 || !strings.HasPrefix(srv.attached[0], "sess-b|ppt|") {
+		t.Errorf("주인이 매니저까지 안 갔다: %v", srv.attached)
 	}
 }
 
@@ -93,7 +112,7 @@ func TestAServerMayNotBeCalledWhatAToolIsCalled(t *testing.T) {
 		t.Fatal("the companion has no tools, so this proves nothing")
 	}
 	for _, name := range []string{taken[0], taken[len(taken)-1]} {
-		if _, err := a.AttachToolServer(context.Background(), name, "http://localhost:9/mcp", nil); err == nil {
+		if _, err := a.AttachToolServer(context.Background(), "", name, "http://localhost:9/mcp", nil); err == nil {
 			t.Errorf("a server was allowed to be called %q, which is a tool this companion has", name)
 		}
 	}
@@ -101,7 +120,7 @@ func TestAServerMayNotBeCalledWhatAToolIsCalled(t *testing.T) {
 		t.Errorf("the manager was asked anyway: %v", srv.attached)
 	}
 	// A name nothing answers to goes through.
-	if _, err := a.AttachToolServer(context.Background(), "slides", "http://localhost:9/mcp", nil); err != nil {
+	if _, err := a.AttachToolServer(context.Background(), "", "slides", "http://localhost:9/mcp", nil); err != nil {
 		t.Errorf("a free name was refused: %v", err)
 	}
 }

@@ -166,6 +166,8 @@ func serveIcon(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	w.Header().Set("Content-Type", "image/png")
+	// **최선 노력이다.** 이미 헤더를 보냈으므로 여기서 쓰기가 실패해도 할 말이 없다 — 상대가
+	// 연결을 끊은 것이고, 그건 오류가 아니라 리본이 아이콘을 다 받았거나 안 받았다는 사실일 뿐이다.
 	_, _ = w.Write(body)
 	return true
 }

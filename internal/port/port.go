@@ -611,10 +611,42 @@ type ToolRegistry interface {
 // Runtime only. Nothing is written to config — a server that existed this afternoon must not leave
 // a line the daemon tries to dial every morning, and writing beside a section plugins are refused
 // would be a side door next to a locked one.
+// Owned is a tool that belongs to one conversation. A tool that does not implement it belongs to
+// the whole daemon, which is every builtin and every server declared in config.
+//
+// It is an optional interface rather than a field on ToolMetadata because the fact is the adapter's:
+// core never decides who owns a tool, it only asks and honours the answer.
+type Owned interface {
+	// VisibleTo says whether this tool is advertised to that conversation. A tool may belong to
+	// several — one MCP server name attached once per deck registers ONE tool that holds a hand
+	// per conversation, because the registry is keyed by name and a second registration would
+	// otherwise silently replace the first.
+	VisibleTo(session string) bool
+}
+
+// VisibleToSession answers whether a tool is advertised to that conversation. A tool that does not
+// declare ownership is everyone's, which is every builtin and every config-declared server.
+func VisibleToSession(t Tool, session string) bool {
+	if o, ok := t.(Owned); ok {
+		return o.VisibleTo(session)
+	}
+	return true
+}
+
 type ToolServers interface {
 	// Attach connects to an HTTP MCP server, registers its tools under name, and returns the tool
 	// names that were registered — evidence rather than an ack, so the caller can say what it got.
-	Attach(ctx context.Context, name, url string, headers map[string]string) ([]string, error)
+	//
+	// owner names the conversation these tools belong to; EMPTY means the whole daemon, which is
+	// what every caller meant before this parameter existed and still means today (a server
+	// declared in config, an IDE attaching its hand). A non-empty owner is advertised to that
+	// session alone.
+	//
+	// It exists because a tool call carries no conversation. Two PowerPoint decks on one daemon
+	// registered one set of tools between them, so a call could not say which deck it meant and
+	// the helper had to guess — a guess that, when wrong, edits a deck nobody is watching
+	// (measured 2026-09-04; see internal/adapter/mcp/SESSION_SCOPE.md).
+	Attach(ctx context.Context, owner, name, url string, headers map[string]string) ([]string, error)
 	// Detach removes a server and its tools. Reports whether there was one to remove — a caller
 	// reconnecting after a crash wants to know whether it is cleaning up or was already clean —
 	// and separately whether it was refused, which "no" alone cannot say. An implementation may

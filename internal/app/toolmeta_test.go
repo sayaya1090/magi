@@ -37,7 +37,7 @@ func TestAnInternalToolReachesOnlyTheAgentThatNamesIt(t *testing.T) {
 
 	names := func(spec AgentSpec) []string {
 		var out []string
-		for _, s := range a.toolSpecs(spec) {
+		for _, s := range a.toolSpecs("", spec) {
 			out = append(out, s.Name)
 		}
 		return out
@@ -116,7 +116,7 @@ func TestASubagentCanShipOffAndOnlyTheUserTurnsItOn(t *testing.T) {
 
 	advertised := func() []string {
 		var out []string
-		for _, s := range a.toolSpecs(AgentSpec{}) {
+		for _, s := range a.toolSpecs("", AgentSpec{}) {
 			out = append(out, s.Name)
 		}
 		return out
