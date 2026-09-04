@@ -60,9 +60,17 @@ type property struct {
 	Desc string
 	// Items 는 array 일 때의 원소 타입. 비면 제약을 안 적는다.
 	Items string
-	// Also 는 **이 칸을 부르는 다른 이름**이다. 스키마에는 안 실린다 — 모델이 고를 이름은
-	// 하나여야 하고, 두 개를 광고하면 어느 쪽이 정본인지 묻게 된다. 이것은 광고가 아니라
-	// **받아 주기**다: 그 이름으로 온 값을 `Name` 자리로 옮기고 그대로 돌린다.
+	// Also 는 **이 칸을 부르는 다른 이름**이다. 값은 `Name` 자리로 옮겨져 그대로 돈다.
+	//
+	// ⚠ **스키마에 싣는다.** 처음엔 안 실었다 — 모델이 고를 이름은 하나여야 한다고 봤다. 그
+	// 판단이 실물에서 틀렸다(2026-09-04, 별칭을 넣은 그날): magi 는 **광고된 스키마**로 모르는
+	// 인자를 가려내고, 안 실린 이름이 오면 결과 뒤에 `[ignored arguments] … the call ran
+	// WITHOUT it` 을 붙인다. 값은 제대로 들어갔는데 **경고만 거짓**이 되고, 모델은 자기가 방금
+	// 성공시킨 호출을 의심해 대조 실험까지 하며 왕복을 버렸다. 안 실으면 그 경고는 **반드시**
+	// 거짓이다 — 광고가 유일하게 그것을 참으로 만든다.
+	//
+	// 그래서 싣되 **정본이 무엇인지 설명에 적는다.** 두 이름을 나란히 놓는 값은 치르고, 거짓
+	// 경고는 안 치른다.
 	//
 	// 실물에서 잰 것이다(2026-09-04, IR 판): 모델이 `set_notes{notes: ...}` 를 보냈고 —
 	// 도구 이름이 set_**notes** 이니 자연스러운 오답이다 — 거절당한 뒤 **재시도하지 않았다.**
@@ -728,6 +736,14 @@ func schemaOf(t tool) json.RawMessage {
 			entry["items"] = map[string]any{"type": p.Items}
 		}
 		props[p.Name] = entry
+		// 별칭도 싣는다 — 안 실으면 그 이름으로 온 호출마다 magi 가 「버렸다」는 거짓 경고를
+		// 붙인다(위 `Also` 주석). 설명이 정본을 가리키므로 어느 쪽이 본이름인지는 안 헷갈린다.
+		for _, other := range p.Also {
+			props[other] = map[string]any{
+				"type":        p.Type,
+				"description": "Same as " + p.Name + " — prefer " + p.Name + ". Do not send both.",
+			}
+		}
 	}
 	req := t.Required
 	if req == nil {

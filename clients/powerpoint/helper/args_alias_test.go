@@ -31,14 +31,21 @@ func TestAliasMovesValueIntoPlace(t *testing.T) {
 		t.Fatalf("별칭 이름이 남아 손까지 갔다: %#v", args)
 	}
 
-	// **광고는 하나뿐이다.** 별칭을 스키마에 실으면 모델이 어느 쪽이 정본인지 묻게 된다.
-	for _, p := range notes.Props {
-		if p.Name == "notes" {
-			t.Fatal("별칭이 스키마에 실렸다")
-		}
+	// **별칭은 광고돼야 한다.** magi 는 광고된 스키마로 모르는 인자를 가려내므로, 안 실으면
+	// 그 이름으로 온 호출마다 「버렸다」는 거짓 경고가 붙는다 — 값은 들어갔는데 모델은 자기가
+	// 성공시킨 호출을 의심한다(2026-09-04 실측). 정본이 무엇인지는 설명이 말한다.
+	schema := string(schemaOf(notes))
+	if !strings.Contains(schema, `"notes"`) {
+		t.Fatalf("별칭이 스키마에 없다 — 거짓 경고가 붙는다: %s", schema)
 	}
-	if schema := string(schemaOf(notes)); strings.Contains(schema, `"notes"`) {
-		t.Fatalf("별칭이 스키마 JSON 에 보인다: %s", schema)
+	if !strings.Contains(schema, "prefer text") {
+		t.Fatalf("어느 쪽이 정본인지 스키마가 말하지 않는다: %s", schema)
+	}
+	// 그래도 **필수는 정본 하나**다. 별칭을 필수로 세면 둘 다 보내라는 말이 된다.
+	for _, r := range notes.Required {
+		if r == "notes" {
+			t.Fatal("별칭이 필수로 실렸다")
+		}
 	}
 
 	// 둘 다 오면 우리가 뜻을 못 정한다 — 지어내지 말고 거절한다.
