@@ -606,12 +606,9 @@ func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState) (
 		"turn does no more work on the task. The "+
 		"call is in the transcript with no result, which is what a call that never happened looks "+
 		"like; nothing crossed and nobody was asked.\n\n", strings.Join(quoted(names), ", "))
-	// "write your final answer" here produced a second copy of the report the agent had already
-	// written before declaring (live 2026-09-05, 2.1K + 2.6K characters). The earlier message stands.
 	b.WriteString("If the work is NOT finished after all, say that plainly now — it is the only " +
 		"way back, and it is a better answer than a call that goes nowhere. If it IS finished, " +
-		"the message you wrote before declaring is the final answer — do not write it again; " +
-		"reply with one short line, and stop.")
+		"ignore this and write your final answer.")
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: b.String()}},
