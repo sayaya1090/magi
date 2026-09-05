@@ -185,7 +185,7 @@ public sealed partial class InteropOps
     {
         var sh = pres.Slides[n].Shapes.AddTable(t.Rows, t.Columns, (float)(t.Left ?? 60), (float)(t.Top ?? 120), (float)(t.Width ?? 600), (float)(t.Height ?? 40 * t.Rows));
         var table = sh.Table;
-        if (t.Values is not null) for (var r = 0; r < t.Values.Count; r++) for (var c = 0; c < t.Values[r].Count; c++) table.Cell(r + 1, c + 1).Shape.TextFrame.TextRange.Text = t.Values[r][c];
+        if (t.Values is not null) for (var r = 0; r < t.Values.Count; r++) for (var c = 0; c < t.Values[r].Count; c++) table.Cell(r + 1, c + 1).Shape.TextFrame.TextRange.Text = AsParagraphs(t.Values[r][c]);
         for (var r = 1; r <= t.Rows; r++) for (var c = 1; c <= t.Columns; c++)
         {
             var tr = table.Cell(r, c).Shape.TextFrame.TextRange;
@@ -218,7 +218,7 @@ public sealed partial class InteropOps
             table.Cell(m.Row + 1, m.Column + 1).Merge(table.Cell(r2, c2));
         }
     }
-    public void SetCells(int n, string id, IReadOnlyList<(int Row, int Column, string Text)> cells) { var t = TableShape(n, id); foreach (var (r, c, text) in cells) t.Cell(r + 1, c + 1).Shape.TextFrame.TextRange.Text = text; }
+    public void SetCells(int n, string id, IReadOnlyList<(int Row, int Column, string Text)> cells) { var t = TableShape(n, id); foreach (var (r, c, text) in cells) t.Cell(r + 1, c + 1).Shape.TextFrame.TextRange.Text = AsParagraphs(text); }
     public void FormatCells(int n, string id, IReadOnlyList<(int Row, int Column)> cells, CellFormat f)
     {
         var t = TableShape(n, id);

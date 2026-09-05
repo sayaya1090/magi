@@ -117,6 +117,62 @@ public class HandTests
         }
     }
 
+    /// <summary>
+    /// 줄바꿈이 **진짜 문단**이 되는가.
+    ///
+    /// 눈으로는 안 갈린다 — 글머리 자리표시자는 소프트 줄바꿈(\n)에도 기호를 붙인다. 그런데 문단이
+    /// 아니면 문단 단위로 할 수 있는 일이 전부 막힌다. 2021 실측에서 그 화면을 봤다(2026-09-05):
+    /// 세 줄짜리 본문에 paragraphs:"each" 를 걸었는데 걸음이 하나였다.
+    ///
+    /// 여기서 재는 것은 **\r\n 을 걸러내는 것**이다. 그냥 \n → \r 만 하면 윈도우에서 온 글의 \r\n 이
+    /// \r\r 이 되고, 줄 사이마다 **빈 문단이 하나씩** 끼어 애니메이션 걸음이 두 배가 된다.
+    ///
+    /// 안 재는 것: 이 함수를 **부르는 자리**들. COM 을 타므로 실물 PowerPoint 에서만 갈린다(§5.5).
+    /// </summary>
+    [Fact]
+    public void TurnsLineBreaksIntoRealParagraphs()
+    {
+        Assert.Equal("가\r나\r다", InteropOps.AsParagraphs("가\n나\n다"));
+        Assert.Equal("가\r나", InteropOps.AsParagraphs("가\r\n나"));   // 빈 문단이 끼면 안 된다
+        Assert.Equal("가\r나", InteropOps.AsParagraphs("가\r나"));      // 이미 문단이면 그대로
+        Assert.Equal("", InteropOps.AsParagraphs(null));
+    }
+
+    /// <summary>
+    /// 답의 **칸 이름**이 365 판과 같은가.
+    ///
+    /// 이름의 차집합은 <c>hand_com_parity_test.go</c> 가 잰다 — 도구가 하나 빠지면 잡힌다. 그런데
+    /// **답의 칸 이름은 아무도 안 쟀다.** 2021 실측에서 그 대가를 봤다(2026-09-05):
+    /// <c>read_notes</c> 가 365 에서는 <c>notes</c>, 이 손에서는 <c>text</c> 였다. 노트는 잘 적혔는데
+    /// 읽는 쪽이 「없다」로 읽었다 — 도구는 맞고 계약이 갈린 것이다.
+    ///
+    /// 손이 둘이면 계약도 둘이 되고, 그 갈라짐은 **양쪽을 다 돌려 봐야만** 보인다. 여기가 그것을
+    /// 한쪽에서 잡는 자리다. 값은 안 본다 — 이름만 본다.
+    /// </summary>
+    [Fact]
+    public void AnswersCarryTheSameFieldNamesAsThe365Hand()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        // 365 판(OfficeHand.js)이 싣는 칸들. 여기 적힌 것이 하나라도 빠지면 모델이 한쪽에서
+        // 배운 것이 다른 쪽에서 안 맞는다.
+        var must = new (string Op, string Args, string[] Fields)[]
+        {
+            ("read_notes", "{\"slide\":1}", new[] { "has_notes", "notes" }),
+            ("read_tags", "{\"slide\":1}", new[] { "tags" }),
+            ("read_animation", "{\"slide\":1}", new[] { "has_animation", "steps" }),
+            ("read_suggestions", "{}", new[] { "suggestions", "count" }),
+            ("list_slides", "{}", new[] { "slides" }),
+            ("read_slide", "{\"slide\":1}", new[] { "shapes" }),
+        };
+        foreach (var (op, args, fields) in must)
+        {
+            var r = hand.Handle(Call(op, args));
+            Assert.True(r.Error is null, $"{op}: {r.Error}");
+            foreach (var f in fields)
+                Assert.True(r.Result!.ContainsKey(f), $"{op} 의 답에 '{f}' 칸이 없다 — 365 판은 그 이름으로 싣는다");
+        }
+    }
+
     [Fact]
     public void AlignsAndDistributesFromTheShapesOwnBox()
     {

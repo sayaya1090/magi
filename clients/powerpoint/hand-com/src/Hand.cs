@@ -120,7 +120,13 @@ public sealed partial class Hand
             {
                 var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id"));
                 var t = ops.ReadNotes(n);
-                return (new() { ["slide"] = n, ["has_notes"] = t.Length > 0, ["text"] = t }, new() { t.Length > 0 ? $"슬라이드 {n} 노트 {t.Length}자" : $"슬라이드 {n} 노트 없음" });
+                // **365 판은 이 칸을 `notes` 로 부른다.** 같은 도구가 손마다 다른 이름을 쓰면, 모델이
+                // 한쪽에서 배운 것이 다른 쪽에서 안 맞는다 — 2021 실측에서 그 화면을 봤다(2026-09-05:
+                // 노트는 잘 적혔는데 읽는 쪽이 `notes` 를 찾다 「없다」로 읽었다).
+                //
+                // **옛 이름을 없애지는 않는다.** 이 손의 답을 `text` 로 읽는 것이 이미 있을 수 있고,
+                // 칸 하나 더 싣는 값이 그것을 깨뜨리는 값보다 싸다.
+                return (new() { ["slide"] = n, ["has_notes"] = t.Length > 0, ["notes"] = t.Length > 0 ? t : null, ["text"] = t }, new() { t.Length > 0 ? $"슬라이드 {n} 노트 {t.Length}자" : $"슬라이드 {n} 노트 없음" });
             }
             case "set_notes":
             {

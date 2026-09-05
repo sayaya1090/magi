@@ -28,6 +28,20 @@ public sealed partial class InteropOps : IOps
     }
 
     /// <summary>떠 있는 PowerPoint 에 붙는다. 없으면 실패한다 — 몰래 띄우지 않는다.</summary>
+    /// <summary>
+    /// 줄바꿈을 **진짜 문단으로** 만든다.
+    ///
+    /// PowerPoint 는 \n 을 소프트 줄바꿈으로, \r 을 문단 나누기로 받는다. 보이는 것은 똑같아서
+    /// (글머리 자리표시자는 소프트 줄바꿈에도 기호를 붙인다) 이 차이는 눈으로 안 보인다. 그런데
+    /// 문단이 아니면 **문단 단위로 할 수 있는 일이 전부 막힌다** — 「한 줄씩 나타나게」가 그렇다.
+    ///
+    /// 2021 실측에서 그 화면을 봤다(2026-09-05): 세 줄짜리 본문에 paragraphs:"each" 를 걸었는데
+    /// 걸음이 하나였다. 애니메이션 코드가 아니라 **문단이 애초에 하나**였다. 365 판이 같은 자리를
+    /// 먼저 고쳤고(asParagraphs), 이 손에는 그것이 없었다.
+    /// </summary>
+    internal static string AsParagraphs(string? text) =>
+        (text ?? "").Replace("\r\n", "\r").Replace('\n', '\r');
+
     public static InteropOps AttachToRunning()
     {
         var app = (PowerPoint.Application)GetActiveObject("PowerPoint.Application");
@@ -108,7 +122,7 @@ public sealed partial class InteropOps : IOps
         if (target is null) throw new HandError(shapeId is not null ? $"슬라이드 {n} 에 도형 {shapeId} 이 없습니다" : $"이 장에 '{placeholder}' 자리가 없습니다");
         if (target.HasTextFrame != Office.MsoTriState.msoTrue) throw new HandError($"도형 {target.Id} 는 글을 못 받습니다");
         var before = target.TextFrame.TextRange.Text;
-        target.TextFrame.TextRange.Text = text;
+        target.TextFrame.TextRange.Text = AsParagraphs(text);
         return (target.Id.ToString(), before);
     }
 
@@ -126,7 +140,7 @@ public sealed partial class InteropOps : IOps
         var page = pres.Slides[n].NotesPage;
         foreach (PowerPoint.Shape sh in page.Shapes)
             if (sh.Type == Office.MsoShapeType.msoPlaceholder && sh.PlaceholderFormat.Type == PowerPoint.PpPlaceholderType.ppPlaceholderBody && sh.HasTextFrame == Office.MsoTriState.msoTrue)
-            { sh.TextFrame.TextRange.Text = text; return; }
+            { sh.TextFrame.TextRange.Text = AsParagraphs(text); return; }
         throw new HandError($"슬라이드 {n} 의 노트 자리를 못 찾았습니다");
     }
 
@@ -209,7 +223,7 @@ public sealed partial class InteropOps : IOps
     private void Fill(PowerPoint.Slide s, string role, string text)
     {
         foreach (PowerPoint.Shape sh in s.Shapes)
-            if (FakeOps.Role(PlaceholderOf(sh)) == role && sh.HasTextFrame == Office.MsoTriState.msoTrue) { sh.TextFrame.TextRange.Text = text; return; }
+            if (FakeOps.Role(PlaceholderOf(sh)) == role && sh.HasTextFrame == Office.MsoTriState.msoTrue) { sh.TextFrame.TextRange.Text = AsParagraphs(text); return; }
         throw new HandError($"{role} 자리가 없는 레이아웃입니다");
     }
 
