@@ -21,7 +21,7 @@ import (
 	"github.com/sayaya1090/magi/internal/version"
 )
 
-// magi-xl — PowerPoint 애드인의 헬퍼(DESIGN.md §5).
+// magi-xl — Excel 애드인의 헬퍼(파워포인트 판 DESIGN.md §5 와 같은 구조).
 //
 // 여기는 **조립만** 한다. 무엇이 무엇인지 아는 자리는 이 파일뿐이고, 안쪽은 서로를 인터페이스로만
 // 안다 — 애드인의 `main.js` 가 같은 규율을 지키는 그 자리다.
@@ -48,7 +48,7 @@ func run(args []string, out, log io.Writer) int {
 		cfgDir = fs.String("config-dir", "",
 			"magi 설정 디렉토리(기본값: 플랫폼 것, MAGI_CONFIG_DIR 존중). 여기서 컴패니언 명단을 읽고 인증서를 둔다")
 		addin = fs.String("addin", "",
-			"애드인 소스 디렉토리(기본값: 이 바이너리 옆의 clients/powerpoint/addin)")
+			"애드인 소스 디렉토리(기본값: 이 바이너리 옆의 clients/excel/addin)")
 		showRules = fs.Bool("allow-rules", false,
 			"통합 문서를 고치지 않는 도구의 허용 규칙을 찍고 나간다(§6). config.toml 에 그대로 붙여 넣는다")
 		showVer  = fs.Bool("version", false, "판본을 찍고 나간다")
@@ -115,7 +115,7 @@ func run(args []string, out, log io.Writer) int {
 	mux := http.NewServeMux()
 
 	// **창마다 자기 덱의 대화를 듣는다.** 이 자리는 열쇠를 받고도 버리고 있었고, 그래서
-	// PowerPoint 창을 둘 띄우면 양쪽 작업창에 같은 말이 흘렀다(2026-09-04 사용자 제보).
+	// 파워포인트 판에서 창을 둘 띄우면 양쪽 작업창에 같은 말이 흘렀다(2026-09-04 사용자 제보).
 	handHTTP := &HandHTTP{Hub: hub, Token: token, Feed: func(deck string) <-chan StreamFrame {
 		ch, _ := bridges.For(deck).Subscribe()
 		return ch
@@ -195,7 +195,7 @@ func run(args []string, out, log io.Writer) int {
 // 소스 트리 자리도 같이 본다 — 못 찾으면 **말하고 멈춘다**(위 run 이 그렇게 한다).
 func defaultAddinRoot() string {
 	candidates := []string{
-		filepath.Join("clients", "powerpoint", "addin"),
+		filepath.Join("clients", "excel", "addin"),
 		filepath.Join("..", "addin"),
 	}
 	if exe, err := os.Executable(); err == nil {

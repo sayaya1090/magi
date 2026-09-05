@@ -121,7 +121,7 @@ func TestAllowRulesCoverExactlyWhatDoesNotChangeTheDeck(t *testing.T) {
 		"restore_range",
 	} {
 		if has(name) {
-			t.Errorf("%s 가 허용 규칙에 있다 — 덱을 고치는 것은 물어야 하는 일이다", name)
+			t.Errorf("%s 가 허용 규칙에 있다 — 통합 문서를 고치는 것은 물어야 하는 일이다", name)
 		}
 	}
 	// 규칙의 도구 자리에는 와일드카드가 없다(§4.4 ②). `list_*` 같은 줄은 `parseRule` 을
@@ -318,12 +318,12 @@ func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
 		filepath.Join("..", "docs", "MANUAL.ko.md"): {
 			fmt.Sprintf("### 6.1 도구 %d개", n),
 			fmt.Sprintf("**읽는 것 (%d) — 안 물어보고 도는 무리**", read),
-			fmt.Sprintf("**덱을 고치는 것 (%d) — 권한을 묻는 무리**", n-read),
+			fmt.Sprintf("**통합 문서를 고치는 것 (%d) — 권한을 묻는 무리**", n-read),
 			fmt.Sprintf("MCP 서버: 도구 %d개를 데몬에 붙인다", n),
-			fmt.Sprintf("deck2 에 붙었습니다 — 도구 %d 개.", n),
+			fmt.Sprintf("준비됐습니다 — 도구 %d 개.", n),
 		},
 		filepath.Join("..", "docs", "TESTING.ko.md"): {
-			fmt.Sprintf("에 붙었습니다 — 도구 %d 개.", n),
+			fmt.Sprintf("준비됐습니다 — 도구 %d 개.", n),
 		},
 	}
 	for path, lines := range want {
@@ -336,7 +336,7 @@ func TestTheDocsCountTheToolsWeAdvertise(t *testing.T) {
 			if !strings.Contains(doc, line) {
 				t.Errorf("%s 에 없다: %q\n"+
 					"카탈로그는 도구 %d개(읽기 %d · 쓰기 %d)다. 수를 적은 자리를 다 고쳐라 — "+
-					"`grep -n '도구 [0-9]' clients/powerpoint/docs/*.md` 로 찾는다. "+
+					"`grep -n '도구 [0-9]' clients/excel/docs/*.md` 로 찾는다. "+
 					"§5.1 의 실물 기록은 그날 참이었으므로 안 고친다.",
 					path, line, n, read, n-read)
 			}

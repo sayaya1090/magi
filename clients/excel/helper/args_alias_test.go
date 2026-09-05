@@ -7,8 +7,9 @@ import (
 )
 
 // 별칭으로 온 값은 **제자리로 옮겨진다.** 버리는 것이 아니다 — 버리면 「적었습니다」 하고 빈
-// 노트가 남는다(2026-09-04 IR 판에서 그 화면을 봤다: `set_notes{notes:...}` 가 거절당한 뒤
-// 모델이 재시도하지 않아 표지 고지가 통째로 비었다).
+// 칸이 남는다(파워포인트 판이 2026-09-04 IR 판에서 그 화면을 봤다: `set_notes{notes:...}` 가
+// 거절당한 뒤 모델이 재시도하지 않아 표지 고지가 통째로 비었다). 엑셀에서 같은 자리는
+// `set_number_format{number_format:...}` — 정본은 `format` 이다.
 func TestAliasMovesValueIntoPlace(t *testing.T) {
 	var notes tool
 	for _, one := range catalogue(false) {
@@ -49,7 +50,7 @@ func TestAliasMovesValueIntoPlace(t *testing.T) {
 	}
 
 	// 둘 다 오면 우리가 뜻을 못 정한다 — 지어내지 말고 거절한다.
-	if _, err := validateArgs(notes, json.RawMessage(`{"slide":3,"text":"가","notes":"나"}`)); err == nil {
+	if _, err := validateArgs(notes, json.RawMessage(`{"address":"B2","format":"가","number_format":"나"}`)); err == nil {
 		t.Fatal("정본과 별칭이 같이 왔는데 통과했다")
 	} else if !strings.Contains(err.Error(), "only") {
 		t.Fatalf("사유가 무엇을 보내야 하는지 안 말한다: %v", err)
@@ -57,7 +58,7 @@ func TestAliasMovesValueIntoPlace(t *testing.T) {
 
 	// 그리고 **여전히 모르는 이름은 거절한다.** 별칭을 받는 것이 아무 이름이나 받는 것이 되면,
 	// 조용히 안 먹는 인자가 다시 생긴다.
-	if _, err := validateArgs(notes, json.RawMessage(`{"slide":3,"text":"가","memo":"나"}`)); err == nil {
+	if _, err := validateArgs(notes, json.RawMessage(`{"address":"B2","format":"가","memo":"나"}`)); err == nil {
 		t.Fatal("모르는 이름이 통과했다")
 	}
 }
