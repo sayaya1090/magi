@@ -4619,7 +4619,10 @@ export function fitNote(role, text, size, box) {
   if (lines === 0) return '';
   if (role === 'title') {
     if (lines < 2) return '';
-    return `⚠ 제목이 ${lines}줄로 접힐 수 있습니다(${[...String(text)].length}자·${size}pt·자리 폭 ${Math.round(box.width)}pt) — 제목은 한 줄: 줄이거나 subtitle/body 로 나누세요`;
+    // 몇 자까지 한 줄인지 **숫자로** 준다 — 실물 2026-09-05: 숫자가 없으니 장마다 set_text 로 줄이는
+    // 왕복이 여덟 번이었다. 한글 기준(한 글자 = 글자 크기)이라 라틴이 섞이면 조금 더 들어간다.
+    const fits = Math.floor(box.width / size);
+    return `⚠ 제목이 ${lines}줄로 접힐 수 있습니다(${[...String(text)].length}자·${size}pt·자리 폭 ${Math.round(box.width)}pt) — 이 자리는 한글 약 ${fits}자까지 한 줄입니다: 그 안으로 줄이거나 subtitle/body 로 나누세요`;
   }
   const height = Number(box?.height);
   if (!(height > 0)) return '';

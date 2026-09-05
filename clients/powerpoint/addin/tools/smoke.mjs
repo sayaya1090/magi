@@ -4087,6 +4087,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('링크는 http(s) 만 받고 주소를 든다', bold.find((k) => k.t === 'link')?.href === 'https://x.y/z');
   ok('javascript: 링크는 링크가 아니다', everyOf(inlines('[x](javascript:alert(1))'), (k) => k.t !== 'link'));
   ok('숫자 사이의 별표 하나는 기울임이 아니다', everyOf(inlines('3*4*5'), (k) => k.t === 'text'));
+  ok('<br> 은 줄바꿈이고 다른 태그는 글자다', inlines('a<br>b<br/>c<i>d').map((k) => k.t).join(',') === 'text,br,text,br,text', inlines('a<br>b<br/>c<i>d').map((k) => k.t).join(','));
   const md = parseMd('## 요약\n\n첫 문단\n둘째 줄\n\n- 하나\n- 둘 **굵게**\n\n1. 첫\n2. 둘\n\n| 장 | 제목 |\n|---|---|\n| 1 | 표지 |\n| 2 | 문제 |\n\n```json\n{"a":1}\n```\n\n---\n끝');
   ok('블록: 제목·문단·목록 둘·표·코드·가로줄·문단', md.map((b) => b.t).join(',') === 'heading,para,list,list,table,code,hr,para', md.map((b) => b.t).join(','));
   ok('제목 단계를 든다', md[0].level === 2);

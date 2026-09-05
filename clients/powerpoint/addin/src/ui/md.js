@@ -22,6 +22,8 @@ export function inlines(text) {
     const rest = s.slice(i);
     let m;
     if ((m = /^`([^`]+)`/.exec(rest))) { flush(); push('code', m[1]); i += m[0].length; continue; }
+    // 모델이 표 셀 안 줄바꿈을 <br> 로 쓴다(실물 2026-09-05). 원시 HTML 은 안 읽지만 이것 하나는 줄바꿈이다.
+    if ((m = /^<br\s*\/?>/i.exec(rest))) { flush(); out.push({ t: 'br' }); i += m[0].length; continue; }
     if ((m = /^\*\*(.+?)\*\*/.exec(rest))) { flush(); out.push({ t: 'strong', kids: inlines(m[1]) }); i += m[0].length; continue; }
     if ((m = /^(?:\*|_)([^*_\n]+?)(?:\*|_)(?![\w가-힣])/.exec(rest))) { flush(); out.push({ t: 'em', kids: inlines(m[1]) }); i += m[0].length; continue; }
     if ((m = /^\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/.exec(rest))) { flush(); push('link', m[1], { href: m[2] }); i += m[0].length; continue; }
@@ -101,6 +103,7 @@ export function mdToDom(document, text) {
     for (const k of kids) {
       if (k.t === 'text') { parent.append(document.createTextNode(k.text)); continue; }
       if (k.t === 'code') { const c = document.createElement('code'); c.textContent = k.text; parent.append(c); continue; }
+      if (k.t === 'br') { parent.append(document.createElement('br')); continue; }
       if (k.t === 'link') {
         const a = document.createElement('a'); a.textContent = k.text; a.href = k.href; a.target = '_blank'; a.rel = 'noopener';
         parent.append(a); continue;

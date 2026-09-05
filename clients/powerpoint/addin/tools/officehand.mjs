@@ -4471,7 +4471,7 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('제목 한 줄이면 말이 없다', fitNote('title', '요약', 40, { width: 400, height: 60 }) === '');
   const t2 = fitNote('title', '매출 성장률과 시장 점유율 전망 2026', 40, { width: 400, height: 60 });
   ok('제목이 접히면 줄 수·글자 수·크기·폭을 대고 한 줄로 만들라고 한다',
-    t2.includes('2줄') && t2.includes('22자') && t2.includes('40pt') && t2.includes('400pt') && t2.includes('한 줄'), t2);
+    t2.includes('2줄') && t2.includes('22자') && t2.includes('40pt') && t2.includes('400pt') && t2.includes('약 10자까지 한 줄'), t2);
   ok('모르면 아무 말도 안 한다', fitNote('title', '매우 긴 제목 매우 긴 제목 매우 긴 제목', NaN, { width: 400 }) === '');
   const b1 = fitNote('body', '12% 성장', 40, { width: 600, height: 300 });
   ok('본문이 자리의 40% 미만이면 빈 띠라고 한다', b1.includes('16%') && b1.includes('빈 띠') && b1.includes('move_shape'), b1);
