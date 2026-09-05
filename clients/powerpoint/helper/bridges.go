@@ -49,6 +49,34 @@ func (bs *Bridges) Holder(session string) (string, bool) {
 	return "", false
 }
 
+// Binding 은 묶음 하나의 (소켓, 대화, 생애). 나갈 때 뗄 것과 「우리 것인가」의 근거가 이것이다.
+type Binding struct{ Socket, Session, Life string }
+
+// Bindings 는 지금 묶여 있는 것 전부 — 열쇠 없는 자리까지. 결정의 캐시가 아니라 **살아 있는 묶음의
+// 목록**이다: 무엇이 붙어 있는지를 따로 기억하던 `Attachments.held` 를 이것이 대신한다(DESIGN §5.9.2).
+func (bs *Bridges) Bindings() []Binding {
+	bs.mu.Lock()
+	defer bs.mu.Unlock()
+	out := []Binding{}
+	for _, b := range bs.made {
+		if socket, sid, life, _ := b.BoundTo(); socket != "" {
+			out = append(out, Binding{socket, sid, life})
+		}
+	}
+	return out
+}
+
+// AttachedTo 는 **이 생애의** 그 데몬에 우리 묶음이 하나라도 있는가. 소켓만 같고 생애가 다르면 다시
+// 뜬 데몬이고, 우리 등록은 그 데몬과 같이 사라졌다 — 그때는 「아니오」다.
+func (bs *Bridges) AttachedTo(socket, life string) bool {
+	for _, b := range bs.Bindings() {
+		if b.Socket == socket && (life == "" || b.Life == life) {
+			return true
+		}
+	}
+	return false
+}
+
 // Keys 는 지금 선 덱들. 시험과 상태 보고용이다.
 func (bs *Bridges) Keys() []string {
 	bs.mu.Lock()

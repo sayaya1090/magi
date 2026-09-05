@@ -173,7 +173,7 @@ func run(args []string, out, log io.Writer) int {
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
 	fmt.Fprintln(log, "나갑니다 — 붙여 둔 등록을 뗍니다.")
-	attachments.DetachAll()
+	attachments.DetachAll(bridges.Bindings())
 	bridge.Stop()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -250,7 +250,7 @@ func (a *API) fleetOf(configDir string) ([]Companion, error) {
 	if a.ReadFleet != nil {
 		return a.ReadFleet(configDir)
 	}
-	return a.Attachments.Fleet(configDir)
+	return a.Attachments.Fleet(configDir, a.ours())
 }
 
 func (a *API) boltOf(socket, url, token, owner string) ([]string, error) {
@@ -281,6 +281,14 @@ func (a *API) Route(mux *http.ServeMux) {
 
 // deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
 // `presentation` 으로 갈라 놓은 그 이름이다.
+// ours 는 「이 소켓·이 생애에 우리 묶음이 있는가」 — 명단과 상태가 같은 물음을 같은 자리에 한다.
+func (a *API) ours() attached {
+	if a.Bridges == nil {
+		return nil
+	}
+	return a.Bridges.AttachedTo
+}
+
 func deckOf(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -318,7 +326,7 @@ func (a *API) guard(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc
 }
 
 func (a *API) companions(w http.ResponseWriter, r *http.Request) {
-	fleet, err := a.Attachments.Fleet(a.ConfigDir)
+	fleet, err := a.Attachments.Fleet(a.ConfigDir, a.ours())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -875,7 +883,7 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	// 생애의 것이다. 실물에서 그 화면을 봤다(2026-09-01): 창은 「대화 연결됨」이라고 적었고,
 	// 모델에게는 덱 도구가 하나도 없었다.
 	if socket, _, _ := a.chat(r).Bound(); socket != "" {
-		st["stale"] = !a.Attachments.HasLive(socket, publishedLife(socket))
+		st["stale"] = a.Bridges != nil && !a.Bridges.AttachedTo(socket, publishedLife(socket))
 	}
 	// **안 잰 것과 「못 한다」를 가른다.** 창이 아직 안 보냈으면 이 칸은 아예 없다 — 빈 목록을
 	// 실으면 「전부 미지원」으로 읽힌다.

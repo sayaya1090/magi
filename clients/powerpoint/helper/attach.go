@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
@@ -83,7 +82,7 @@ func (c Companion) Why() string {
 // 왕복이 후보당 **둘**이다(§5.0.5): `List` 의 프로브가 하나, `about` 핸드셰이크가 하나.
 // 명단과 cap 은 다른 왕복이다 — `List` 가 dial 까지 하지만 싣는 것은 `Status` 이지 핸드셰이크가
 // 아니다.
-func (a *Attachments) Fleet(configDir string) ([]Companion, error) {
+func (a *Attachments) Fleet(configDir string, ours attached) ([]Companion, error) {
 	infos, err := daemon.List(configDir)
 	if err != nil {
 		return nil, err
@@ -95,7 +94,7 @@ func (a *Attachments) Fleet(configDir string) ([]Companion, error) {
 			Socket: in.Socket, Workdir: in.Workdir, Name: in.Name, Role: in.Role,
 			Team: in.Team, Session: in.Session, Live: in.Live, Doing: in.Doing,
 			Asking: in.Asking != nil, Permission: in.Permission, Backend: in.Backend,
-			Model: in.Model, Attached: a.HasLive(in.Socket, lifeOf(in)),
+			Model: in.Model, Attached: ours != nil && ours(in.Socket, lifeOf(in)),
 		}
 		if !in.Live {
 			// 안 사는 것에 핸드셰이크를 걸면 후보 수만큼 타임아웃을 산다. 프로브가 이미 답했다.
@@ -144,108 +143,17 @@ func ask(socket string) (toolServers, transcript bool, err error) {
 // 그 헬퍼의 것이므로, 데몬 하나에 붙는 일도 한 번이다. 이미 붙어 있는 데몬을 둘째 창이 고르면
 // 그 창은 **아무것도 안 붙인다** — 붙일 것이 이미 거기 있고, 덱을 가르는 것은 이름이 아니라
 // `document` 다. 이 규칙이 없으면 둘째 창이 열리는 것만으로 첫째 창이 쓰던 등록이 떨어진다.
-type Attachments struct {
-	mu   sync.Mutex
-	held map[string]attachment // socket → 우리가 붙여 둔 것
-}
+type Attachments struct{}
 
-// attachment 는 등록 하나. **소켓 경로만으로는 못 센다** — 데몬이 죽었다 같은 경로로 다시 뜨면
-// 우리 등록은 그 프로세스와 같이 사라지는데 경로는 그대로다. 실물에서 그 화면을 봤다
-// (2026-09-01): 데몬을 `--permission ask` 로 다시 띄웠더니 카드가 「이미 붙어 있음」이라고
-// 적었고, 모델에게는 덱 도구가 하나도 없었다. 사람은 셸로 우회하려는 모델을 보고 있었다.
-// heldKey 는 우리가 붙여 둔 것 하나의 신원. **소켓만으로는 모자라다** — 창 둘이 한 컴패니언에
-// 각자 붙으면 둘 다 살아야 하고, 소켓만 키로 쓰면 둘째가 「이미 붙어 있다」로 읽혀 자기 손을
-// 영영 못 받는다(그리고 그 앞의 detach 가 첫째의 것을 뗀다).
-func heldKey(socket, owner string) string {
-	if owner == "" {
-		return socket
-	}
-	return socket + "\x00" + owner
-}
+// attached 는 「이 소켓·이 생애에 우리 묶음이 있는가」 — 명단의 `Attached` 칸이 이것을 묻는다. 진실은
+// `Bridges` 가 들고 있어 여기서는 물음만 나른다.
+type attached func(socket, life string) bool
 
-type attachment struct {
-	tools []string
-	// url 은 **그 등록이 데몬에게 알려 준 주소**다. 거기에 덱이 실려 있고(`MCPURL`), 그 값이
-	// `document` 를 생략한 호출의 목적지를 정한다. 그래서 **주소가 바뀌면 다른 등록**이다 —
-	// 같은 소켓·같은 주인이라도 덱이 달라졌으면 다시 붙여야 한다.
-	//
-	// 안 넣었더니 이렇게 됐다(2026-09-05 실물): 창을 새로 열어 새 덱에 붙였는데 `HasLive` 가
-	// 「이미 붙어 있다」로 답해 재부착을 건너뛰었고, 등록은 **앞 PowerPoint 세션의 덱 이름**을
-	// 그대로 들고 있었다. 그 대화의 호출은 사라진 덱으로 갔고, 모델은 사람에게 「어느 덱에
-	// 만들까요」를 물었다.
-	url string
-	// life 는 그 데몬 **프로세스**의 신원(pid@시작시각). 다르면 남의 생애이고, 우리 등록은
-	// 거기 없다 — 「이미 붙어 있다」가 아니라 「다시 붙여야 한다」다.
-	life string
-}
-
-func NewAttachments() *Attachments { return &Attachments{held: map[string]attachment{}} }
+func NewAttachments() *Attachments { return &Attachments{} }
 
 // lifeOf 는 데몬 프로세스 하나의 신원. **세션 id 가 아니다** — 세션은 `/new` 로도 바뀌는데
 // MCP 등록은 그때 안 죽는다. 죽는 것은 프로세스가 바뀔 때다.
 func lifeOf(in daemon.Info) string { return fmt.Sprintf("%d@%s", in.PID, in.Started) }
-
-// HasLive 는 **이 생애의** 데몬에 우리가 이미 붙어 있는가.
-// **소켓 하나에 등록이 여럿일 수 있다**(창마다 하나). 그래서 이름만으로 찾으면, 주인을 달고
-// 붙인 등록은 「없는 것」으로 읽힌다 — 그리고 그 오답은 조용하지 않다: `/api/own` 이 매 폴마다
-// 「우리 것이 아니다」로 읽고 `Forget` → 재시작을 반복하며 **영원히 「준비하는 중」**을 답한다.
-// 판은 5분을 그렇게 돌다 포기하고 명단을 그린다. 실물에서 그 화면을 봤다(2026-09-05: 사람이
-// 「기본으로 파워포인트 데몬 쓰는 거 아니냐」고 물었다 — 맞는 말이었고, 자동 경로가 내 어제
-// 변경(`f013096b`)에 조용히 막혀 있었다).
-//
-// 그래서 **그 소켓에 붙은 것이 하나라도 있으면 우리 것**이다. 어느 창의 것인지는 여기서 물을
-// 일이 아니다 — 묻는 쪽은 「이 데몬에 우리 도구가 붙어 있는가」를 알고 싶은 것이다.
-func (a *Attachments) HasLive(socket, life string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	h, ok := a.anyOn(socket)
-	// life 를 못 읽었으면(기록이 없는 소켓) 옛 답을 그대로 준다 — 모르는 것을 「떨어졌다」로
-	// 적으면 멀쩡한 등록을 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
-	return ok && (life == "" || h.life == life)
-}
-
-// SameURL 은 그 등록이 지금 붙이려는 주소로 붙어 있는가. 다르면 다시 붙여야 한다 — 주소가
-// 덱을 나르므로, 다른 주소는 다른 목적지다.
-func (a *Attachments) SameURL(key, url string) bool {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	h, ok := a.held[key]
-	// 옛 등록은 주소를 안 들고 있다(이 칸이 생기기 전). 모르는 것을 「다르다」로 읽으면 멀쩡한
-	// 등록을 매번 다시 붙이고, 그 재부착이 첫 등록을 떨어뜨린다.
-	return ok && (h.url == "" || h.url == url)
-}
-
-// anyOn 은 그 소켓에 붙어 있는 등록 하나. 주인이 누구든 상관없다. 호출자가 잠금을 든다.
-func (a *Attachments) anyOn(socket string) (attachment, bool) {
-	if h, ok := a.held[socket]; ok {
-		return h, true
-	}
-	for key, h := range a.held {
-		if sock, _ := splitHeld(key); sock == socket {
-			return h, true
-		}
-	}
-	return attachment{}, false
-}
-
-// Tools 도 같은 규칙이다 — 이름만으로 찾으면 주인을 단 등록의 도구가 「없음」으로 나온다.
-func (a *Attachments) Tools(socket string) []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	h, _ := a.anyOn(socket)
-	return append([]string(nil), h.tools...)
-}
-
-func (a *Attachments) Sockets() []string {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	out := make([]string, 0, len(a.held))
-	for s := range a.held {
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
-}
 
 // Attach 는 데몬 하나에 우리 도구를 붙인다.
 //
@@ -256,19 +164,10 @@ func (a *Attachments) Sockets() []string {
 // owner 는 이 등록이 누구 것인가 — 그 덱의 대화(세션). **비면 데몬 전체**로, 이 인자가 생기기
 // 전과 같다. 창 둘이 한 컴패니언을 쓸 때 서로의 손을 안 보게 하는 것이 이 값의 전부다.
 func (a *Attachments) Attach(socket, url, token, owner string) ([]string, error) {
-	// **어느 생애의 데몬인가**를 먼저 읽는다. 기록을 못 읽으면 빈 글이고, 그때는 옛 규칙대로
-	// 「소켓이 같으면 같은 데몬」으로 군다 — 모르는 것을 「죽었다」로 적으면 멀쩡한 등록을
-	// 다시 붙이러 가고, 그 재부착이 첫 등록을 떨어뜨린다.
-	life := ""
-	if in, err := daemon.Published(socket); err == nil {
-		in.Socket = socket
-		life = lifeOf(in)
-	}
-	if a.HasLive(heldKey(socket, owner), life) && a.SameURL(heldKey(socket, owner), url) {
-		// 이미 우리가 붙여 뒀다. **다시 안 붙인다** — 같은 이름으로 다시 붙이면 첫 등록이
-		// 떨어지고, 그 창 동안 그 컴패니언의 호출은 도구가 없어서 실패한다.
-		return a.Tools(heldKey(socket, owner)), nil
-	}
+	// **여기서는 「이미 붙었는가」를 안 본다.** 그 판단은 `settle` 이 묶음의 기록(소켓·세션·생애)으로
+	// 하고, 같으면 이 함수를 아예 안 부른다(DESIGN §5.9.2). 앞 판본은 여기서도 (소켓·주인·주소·생애)
+	// 를 따로 기억해 걸렀는데, 같은 사실의 둘째 캐시였고 재기동마다 다르게 낡았다. 이 함수는 붙이고
+	// 떼는 일만 한다 — 멱등이다: 뗀 뒤 붙이므로 몇 번을 불러도 등록은 하나다.
 	cl, err := daemon.Dial(socket)
 	if err != nil {
 		return nil, fmt.Errorf("이 컴패니언에 못 닿았습니다: %w", err)
@@ -297,45 +196,18 @@ func (a *Attachments) Attach(socket, url, token, owner string) ([]string, error)
 	if err != nil {
 		return nil, fmt.Errorf("도구를 못 붙였습니다: %w", err)
 	}
-	a.mu.Lock()
-	a.held[heldKey(socket, owner)] = attachment{tools: append([]string(nil), tools...), life: life, url: url}
-	a.mu.Unlock()
 	return tools, nil
 }
 
-// Detach 는 우리 등록을 뗀다. 나갈 때 부른다 — 남겨 두면 다음에 뜬 헬퍼가 이름 충돌로 거절당하고,
-// 그 사이 모델에게는 **손이 없는 도구가 광고된다**(§5.4).
-// key 는 `Sockets()` 가 준 그대로다 — 소켓 하나에 등록이 여럿일 수 있어서(창마다 하나) 소켓만으로는
-// 어느 것을 떼는지 못 정한다.
-func (a *Attachments) Detach(key string) error {
-	a.mu.Lock()
-	_, held := a.held[key]
-	delete(a.held, key)
-	a.mu.Unlock()
-	if !held {
-		return nil
-	}
-	socket, owner := splitHeld(key)
-	cl, err := daemon.Dial(socket)
-	if err != nil {
-		return err
-	}
-	defer cl.Close()
-	_, err = cl.DetachMCP(owner, ServerName)
-	return err
-}
-
-// splitHeld 는 `heldKey` 를 되푼다.
-func splitHeld(key string) (socket, owner string) {
-	if i := strings.IndexByte(key, 0); i >= 0 {
-		return key[:i], key[i+1:]
-	}
-	return key, ""
-}
-
-// DetachAll 은 나가는 길에 전부 뗀다.
-func (a *Attachments) DetachAll() {
-	for _, s := range a.Sockets() {
-		_ = a.Detach(s)
+// DetachAll 은 나가는 길에 묶음 전부를 뗀다 — 무엇이 묶여 있는지는 `Bridges` 가 안다. 남겨 두면
+// 다음에 뜬 헬퍼가 이름 충돌로 거절당하고, 그 사이 모델에게는 손이 없는 도구가 광고된다(§5.4).
+func (a *Attachments) DetachAll(bound []Binding) {
+	for _, b := range bound {
+		cl, err := daemon.DialWithin(b.Socket, aliveTimeout, aliveTimeout)
+		if err != nil {
+			continue
+		}
+		_, _ = cl.DetachMCP(b.Session, ServerName)
+		_ = cl.Close()
 	}
 }

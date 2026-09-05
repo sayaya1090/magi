@@ -161,36 +161,13 @@ func TestAttachingAlwaysDetachesFirst(t *testing.T) {
 	}
 }
 
-// 이미 붙여 둔 데몬을 다시 고르면 **아무것도 안 한다**(§5.0.1).
-//
-// 창이 둘이면 애드인 인스턴스도 둘이고 이름은 고정이라, 이 규칙이 없으면 **둘째 창이 열리는
-// 것만으로 첫째 창이 쓰던 등록이 떨어진다** — 한 저장소에서 덱 둘을 여는 가장 평범한 경우다.
-func TestASecondWindowDoesNotStealTheFirstsRegistration(t *testing.T) {
-	dir := shortDir(t)
-	eng := &doorEngine{tools: []string{"mcp__ppt__list_slides"}}
-	sock, _ := startDaemon(t, dir, "dsn", eng)
-
-	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok", ""); err != nil {
-		t.Fatal(err)
-	}
-	_, firstDetached := eng.seen()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "tok", ""); err != nil {
-		t.Fatal(err)
-	}
-	_, again := eng.seen()
-	if len(again) != len(firstDetached) {
-		t.Fatalf("두 번째 고르기가 등록을 다시 건드렸다: detach %v", again)
-	}
-}
-
 // door 가 없는 컴패니언은 **고를 수 없고, 사유가 빌드의 성질이다**(§5.0.5).
 func TestACompanionWithNoDoorCannotBeChosen(t *testing.T) {
 	dir := shortDir(t)
 	sock, _ := startDaemon(t, dir, "old", &testEngine{})
 
 	a := NewAttachments()
-	fleet, err := a.Fleet(dir)
+	fleet, err := a.Fleet(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +202,7 @@ func TestNotAskedIsNotTheSameAsCannot(t *testing.T) {
 	sock, stop := startDaemon(t, dir, "dsn", eng)
 
 	a := NewAttachments()
-	fleet, err := a.Fleet(dir)
+	fleet, err := a.Fleet(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +220,7 @@ func TestNotAskedIsNotTheSameAsCannot(t *testing.T) {
 	// 이제 **SIGKILL 당한 컴패니언**을 하나 만든다. 깨끗이 나간 데몬은 소켓도 기록도 지우고
 	// 가므로(§5.4 — 그래서 「일부러 껐다」를 따로 기록하지 않아도 유도된다) 그 갈래로는 이걸
 	// 못 잰다. 죽임을 당한 쪽은 **파일이 남는다.**
-	_ = a.Detach(sock)
+	a.DetachAll([]Binding{{Socket: sock}})
 	stop()
 	crashed := filepath.Join(dir, "daemon-gone.sock")
 	if err := os.WriteFile(crashed, nil, 0o600); err != nil {
@@ -254,7 +231,7 @@ func TestNotAskedIsNotTheSameAsCannot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fleet2, err := a.Fleet(dir)
+	fleet2, err := a.Fleet(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,68 +276,6 @@ func TestAFailedAttachSaysSo(t *testing.T) {
 	if !strings.Contains(err.Error(), "이미 잡혀 있다") {
 		t.Errorf("데몬이 준 사유가 안 실렸다: %v", err)
 	}
-	if a.HasLive(sock, "") {
-		t.Error("실패한 등록을 붙은 것으로 세고 있다")
-	}
-}
-
-// 데몬이 죽었다 **같은 경로로** 다시 뜨면, 우리 등록은 그 프로세스와 같이 사라진다.
-//
-// 실물에서 그 화면을 봤다(2026-09-01): `--permission ask` 로 데몬을 다시 띄웠더니 고르는
-// 카드가 「이미 붙어 있음」이라고 적었고, 그 컴패니언에게는 덱 도구가 하나도 없었다. 사람은
-// 셸로 우회하려는 모델을 지켜보고 있었고, 화면에는 그 사실이 어디에도 없었다.
-//
-// 소켓 경로는 워크스페이스에서 유도되므로 **다시 떠도 같다.** 달라지는 것은 프로세스라, 세는
-// 것도 프로세스여야 한다(`pid@started`).
-func TestARestartedDaemonIsNotStillAttached(t *testing.T) {
-	dir := shortDir(t)
-	eng := &doorEngine{tools: []string{"mcp__ppt__list_slides"}}
-	sock, stop := startDaemon(t, dir, "life", eng)
-	defer stop()
-
-	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", ""); err != nil {
-		t.Fatalf("첫 등록이 실패했다: %v", err)
-	}
-	in, err := daemon.Published(sock)
-	if err != nil {
-		t.Fatalf("기록을 못 읽었다: %v", err)
-	}
-	in.Socket = sock
-	if !a.HasLive(sock, lifeOf(in)) {
-		t.Fatal("방금 붙였는데 안 붙은 것으로 센다")
-	}
-
-	// 같은 소켓, 다른 생애. **재는 것은 데몬을 정말 다시 띄우는 일이 아니라 무엇을 신원으로
-	// 세는가**라, 기록 하나를 바꿔 묻는 것으로 충분하다.
-	next := in
-	next.PID = in.PID + 1
-	if a.HasLive(sock, lifeOf(next)) {
-		t.Error("다시 뜬 데몬을 여전히 붙어 있는 것으로 센다")
-	}
-	// 시작 시각만 달라도 남의 생애다 — pid 는 돌아온다.
-	later := in
-	later.Started = "2099-01-01T00:00:00Z"
-	if a.HasLive(sock, lifeOf(later)) {
-		t.Error("pid 만 보고 세고 있다 — pid 는 재사용된다")
-	}
-
-	// **그리고 다시 붙일 수 있어야 한다.** 「이미 붙어 있다」로 일찍 돌아서면 사람이 다시
-	// 골라도 아무 일이 안 일어나고, 그 창은 도구 없는 컴패니언을 도구 있는 것처럼 그린다.
-	a.mu.Lock()
-	a.held[sock] = attachment{tools: []string{"옛것"}, life: "죽은-생애"}
-	a.mu.Unlock()
-	_, detachedBefore := eng.seen()
-	tools, err := a.Attach(sock, MCPURL(DefaultPort, ""), "", "")
-	if err != nil {
-		t.Fatalf("다시 못 붙였다: %v", err)
-	}
-	if len(tools) != 1 || tools[0] != "mcp__ppt__list_slides" {
-		t.Errorf("다시 붙였는데 옛 도구 목록을 돌려줬다: %v", tools)
-	}
-	if _, detachedAfter := eng.seen(); len(detachedAfter) <= len(detachedBefore) {
-		t.Error("다시 붙이면서 detach 를 안 걸었다 — 순서는 언제나 detach → attach 다")
-	}
 }
 
 // httptest 를 쓰지 않는 시험이지만, MCP URL 이 실제로 열리는 주소인지까지 한 번 견준다 —
@@ -386,45 +301,7 @@ func TestZZZAtLeastOneRealDaemonWasStarted(t *testing.T) {
 	t.Logf("진짜 데몬 %d 개를 띄워서 쟀다", daemonsStarted)
 }
 
-// 창 둘이 **한 컴패니언에 각자** 붙는다.
-//
-// ⚠ 이름이 짧은 이유가 있다. `startDaemon` 은 유닉스 소켓 경로가 OS 한계(약 100바이트)를 넘으면
-// **건너뛴다**, 그리고 건너뛴 시험은 화면에서 초록과 구별이 안 된다. 이 시험의 첫 이름
-// (`TestTwoWindowsEachGetTheirOwnRegistration`)이 딱 그만큼 길어서 한 번도 안 돌았고,
-// 돌연변이를 넣어도 아무 일이 없어서 그것을 알았다.
-//
-// 앞 판본은 보관을 소켓으로만 셌다. 그러면 둘째 창은 「이미 붙어 있다」로 읽혀 자기 등록을 영영
-// 못 받고, 그 앞의 detach 가 첫째 것을 뗀다. 사람이 창 둘을 띄우고 물은 것이 이 자리다
-// (2026-09-04). 주인이 다르면 등록도 둘이다.
-func TestTwoPanesTwoRegs(t *testing.T) {
-	dir := t.TempDir()
-	eng := &doorEngine{tools: []string{"mcp__ppt__list_slides"}}
-	sock, _ := startDaemon(t, dir, "dsn", eng)
-
-	a := NewAttachments()
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, "doc-1"), "tok", "sess-a"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := a.Attach(sock, MCPURL(DefaultPort, "doc-2"), "tok", "sess-b"); err != nil {
-		t.Fatal(err)
-	}
-	// **둘 다 남아 있어야 한다.** 하나면 둘째가 첫째를 밀어낸 것이고, 그게 이 시험이 막는 일이다.
-	if got := len(a.Sockets()); got != 2 {
-		t.Fatalf("등록이 %d 개다 — 창마다 하나여야 한다: %v", got, a.Sockets())
-	}
-	// 그리고 **둘째가 첫째 것을 안 뗐다.** 문에 간 detach 는 자기 주인 것뿐이다.
-	_, detached := eng.seen()
-	for _, d := range detached {
-		if d != ServerName {
-			continue
-		}
-	}
-	// 하나를 놓아도 나머지는 산다.
-	keys := a.Sockets()
-	if err := a.Detach(keys[0]); err != nil {
-		t.Fatalf("떼기: %v", err)
-	}
-	if got := len(a.Sockets()); got != 1 {
-		t.Fatalf("하나를 뗐는데 %d 개가 남았다: %v", got, a.Sockets())
-	}
-}
+// ⚠ 여기 있던 셋 — 「둘째 창이 첫째 등록을 안 뺏는다」·「다시 뜬 데몬에는 안 붙어 있다」·「창 둘에
+// 등록 둘」 — 은 `Attachments` 가 (소켓·주인·주소·생애)를 기억하던 시절의 시험이다. 그 기억은 같은
+// 사실의 둘째 캐시였고 재기동마다 다르게 낡았다(DESIGN §5.9.1). 이제 그 판단은 `settle` 이 묶음의
+// 기록으로 하고, 같은 셋을 `restart_events_test.go`·`join_deck_test.go` 가 그 층에서 잰다.
