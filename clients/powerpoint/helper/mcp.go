@@ -223,7 +223,8 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	// 읽는 쪽이 **내용을 보고 그림이 아니면 거절한다**(image.go) — 남이 준 덱에 숨은 글이 모델을
 	// 꾀어 엉뚱한 파일을 가리키게 할 수 있고, 그러면 그 내용이 슬라이드에 박혀 사람이 그것을
 	// 그대로 남에게 보낸다.
-	if name == "add_image" {
+	// 배경 그림(`set_background{kind:picture}`)도 같은 길이다 — 경로만 오고 바이트는 여기서 읽는다.
+	if name == "add_image" || (name == "set_background" && fmt.Sprint(args["kind"]) == "picture") {
 		img, ierr := ReadImage(fmt.Sprint(args["path"]))
 		if ierr != nil {
 			return errorResult(ierr.Error())

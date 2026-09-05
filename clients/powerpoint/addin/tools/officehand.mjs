@@ -145,6 +145,7 @@ class StubShape extends Loaded {
   delete() { this.log.push(`delete:${this.raw.id}`); }
   setHyperlink(v) { this.log.push(`link:${v?.address ?? 'none'}`); }
   setZOrder(v) { this.log.push(`zorder:${this.raw.id}:${v}`); }
+  get group() { const id = this.raw.id; const log = this.log; return { ungroup: () => log.push(`ungroup:${id}`) }; }
   getTable() { return this.table ?? (this.table = new StubTable(this.raw, this.pending, this.log)); }
 }
 
@@ -194,8 +195,13 @@ class StubTextRange extends Loaded {
     const ch = String(this.raw.text ?? '').slice(start, start + (len ?? 1));
     const map = this.raw.fontAt ?? {};
     const which = /[A-Za-z0-9]/.test(ch) ? 'latin' : 'hangul';
-    return new StubTextRange({ text: ch, font: { name: map[which] ?? this.raw.font?.name } },
+    const sub = new StubTextRange({ text: ch, font: { name: map[which] ?? this.raw.font?.name } },
       this.pending, this.log);
+    // 부분 서식 시험용: 글꼴에 쓴 값을 자리와 함께 남긴다.
+    const log = this.log;
+    sub.font = new Proxy(sub.font, { set(target, key, v) { log?.push(`runfont:${start},${len}:${String(key)}=${v}`); target[key] = v; return true; } });
+    sub.setHyperlink = (o) => log?.push(`runlink:${start},${len}:${o?.address ?? 'none'}`);
+    return sub;
   }
   set text(v) { this.log.push(`text:${this.raw.id}:${v}`); this.raw.text = v; }
   get text() { return this.shown; }
@@ -271,6 +277,16 @@ function stubRunner(model, log = []) {
       // 「넣고 나서 되읽어 확인한다」를 재려고 하면 늘 원본이 나왔다.
       view.exportAsBase64 = () => ({ value: s.exported ?? model.exported ?? 'PPTXBASE64' });
       view.applyLayout = (id) => log.push(`layout:${s.id}:${id}`);
+      view.background = {
+        reset: () => log.push(`bg:${s.id}:reset`),
+        set areBackgroundGraphicsHidden(v) { log.push(`bg-graphics-hidden:${s.id}:${v}`); },
+        fill: {
+          setSolidFill: (o) => log.push(`bg-solid:${s.id}:${o.color}`),
+          setGradientFill: (o) => log.push(`bg-gradient:${s.id}:${o.type}`),
+          setPatternFill: (o) => log.push(`bg-pattern:${s.id}:${o.pattern}`),
+          setPictureOrTextureFill: (o) => log.push(`bg-picture:${s.id}:${(o.imageBase64 ?? '').slice(0, 6)}:${o.transparency ?? ''}`),
+        },
+      };
       // 테마 색은 세 층에 있다(장·레이아웃·마스터). 흉내에도 셋 다 둔다 — 한 층만 두면
       // `scope` 를 잘못 고르는 갈래가 시험에 안 걸린다. 값은 덱 하나에 한 벌이라 모델에 둔다.
       model.theme = model.theme ?? { accent1: '#156082', dark1: '#000000' };
@@ -408,6 +424,10 @@ function makeShapes(slide, pending, log) {
     log.push(`addTextBox:${text}:${opts.left},${opts.top}`);
     const raw = { id: 'sh-new', name: 'TextBox', type: 'TextBox', text };
     return new StubShape(raw, pending, log);
+  };
+  coll.addGroup = (ids) => {
+    log.push(`addGroup:${ids.join('+')}`);
+    return new StubShape({ id: 'sh-group', name: 'Group', type: 'Group' }, pending, log);
   };
   coll.addLine = (ct, opts) => {
     log.push(`addLine:${ct}:${opts.left},${opts.top}:${opts.width},${opts.height}`);
@@ -4310,6 +4330,55 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   const hand2 = new OfficeHand({ run: stubRunner(deck, log2), supports: () => true });
   await hand2.run('format_table_cells', { slide: 1, shape_id: 'tb8', column: 1, borders: 'none' });
   ok('none 은 네 변을 굵기 0 으로 끈다(투명도는 호스트가 거절한다)', ['top', 'bottom', 'left', 'right'].every((e) => log2.includes(`cell-border:1,1:${e}:weight=0`)) && !log2.some((l) => l.includes('color=') || l.includes('transparency')), log2.filter((l) => l.startsWith('cell-border:1,1')).join(' '));
+}
+
+// ── 글자 일부 서식 · 묶기/풀기 · 배경 그림 ──────────────────────────────────────
+{
+  const log = [];
+  const deck = model();
+  deck.slides[0].shapes[0].text = 'ARR 140억 원 달성, 전년 대비 140% 성장';
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  // 돌연변이(부분 대신 전체 range)가 던지면 시험이 죽지 않고 **FAIL 로 울려야** 한다.
+  const out = await hand.run('format_text', { slide: 1, shape_id: 'sh1', find: '140', occurrence: 2, bold: true, color: '#DC2626', url: 'https://x.test', screen_tip: '출처' })
+    .catch((e) => ({ result: {}, changed: [], error: e?.message ?? String(e) }));
+  ok('find 의 n번째를 자리로 바꾼다', out.result.start === 21 && out.result.length === 3 && out.result.text === '140', out.error ?? JSON.stringify(out.result));
+  ok('서식은 그 글자에만(getSubstring 의 폰트)', log.includes('runfont:21,3:bold=true') && log.includes('runfont:21,3:color=#DC2626'), log.filter((l) => l.startsWith('runfont')).join(' '));
+  ok('링크도 그 글자에만', log.includes('runlink:21,3:https://x.test'), log.filter((l) => l.startsWith('runlink')).join(' '));
+  ok('상자 전체 글꼴은 안 건드린다', !log.some((l) => /^font:sh1/.test(l)), log.join(' '));
+  const miss = await threw(() => hand.run('format_text', { slide: 1, shape_id: 'sh1', find: '없는말', bold: true }));
+  ok('없는 글은 글을 보여 주며 거절', miss?.includes('없는말') && miss?.includes('ARR'), String(miss));
+  const pos = await hand.run('format_text', { slide: 1, shape_id: 'sh1', start: 0, length: 3, size: 20 });
+  ok('start/length 로도 짚는다', pos.result.text === 'ARR' && log.includes('runfont:0,3:size=20'), JSON.stringify(pos.result));
+  const over = await threw(() => hand.run('format_text', { slide: 1, shape_id: 'sh1', start: 30, length: 50, size: 20 }));
+  ok('범위 밖은 길이를 대고 거절', over?.includes('벗어납니다'), String(over));
+  const old = new OfficeHand({ run: stubRunner(deck, []), supports: (_, v) => v !== '1.10' });
+  const no = await threw(() => old.run('format_text', { slide: 1, shape_id: 'sh1', find: 'ARR', url: 'https://x' }));
+  ok('링크는 1.10 없는 호스트에서 거절', no?.includes('1.10'), String(no));
+}
+
+{
+  const log = [];
+  const deck = model();
+  deck.slides[0].shapes.push({ id: 'g1', name: '그룹', type: 'Group', noText: true });
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  const out = await hand.run('group_shapes', { slide: 1, shape_ids: ['sh1', 'sh2'] });
+  ok('묶기는 addGroup 으로, 결과가 그룹 id', log.includes('addGroup:sh1+sh2') && out.result.shape_id === 'sh-group', JSON.stringify(out.result));
+  const one = await threw(() => hand.run('group_shapes', { slide: 1, shape_ids: ['sh1'] }));
+  ok('하나는 못 묶는다', one?.includes('둘 이상'), String(one));
+  await hand.run('ungroup_shapes', { slide: 1, shape_id: 'g1' });
+  ok('풀기는 group.ungroup 으로', log.includes('ungroup:g1'), log.filter((l) => l.startsWith('ungroup')).join(' '));
+  const notg = await threw(() => hand.run('ungroup_shapes', { slide: 1, shape_id: 'sh1' }));
+  ok('그룹이 아니면 종류를 대고 거절', notg?.includes('그룹이 아닙니다'), String(notg));
+}
+
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('set_background', { slide: 1, kind: 'picture', image_base64: 'iVBORw0KGgo', path: '/tmp/bg.png', transparency: 0.3, hide_graphics: true });
+  ok('배경 그림은 setPictureOrTextureFill 로, 헬퍼가 실어 준 바이트로', log.includes('bg-picture:s1:iVBORw:0.3'), log.filter((l) => l.startsWith('bg-')).join(' '));
+  ok('마스터 그래픽 숨김이 같이 간다', log.includes('bg-graphics-hidden:s1:true') && out.changed.join(' ').includes('숨김'), out.changed.join(' '));
+  const nob = await threw(() => hand.run('set_background', { slide: 1, kind: 'picture', path: '/tmp/x.png' }));
+  ok('바이트 없이 오면 헬퍼 길을 가리키며 거절', nob?.includes('헬퍼'), String(nob));
 }
 
 console.log(failed ? `${failed} 실패` : '전부 통과');

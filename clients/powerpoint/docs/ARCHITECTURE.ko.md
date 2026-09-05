@@ -6,7 +6,7 @@
 
 ## 0. 한 문장
 
-PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구 45개를 달아 줍니다. 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
+PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구 48개를 달아 줍니다. 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
 
 ## 1. 프로세스가 넷이다
 
@@ -17,7 +17,7 @@ PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)
 | 데몬 `magi --daemon` | machine 에 하나(워크스페이스 `powerpoint`) | 대화 N개, 모델 호출, 도구 디스패치, 권한 물음 | `internal/` (공용 코어) |
 | 모델 심(shim) | 모델당 하나 | OpenAI 호환 `/v1` 을 흉내내어 실제 모델에 넘김 | `plugins-embedded/{antigravity,codex,claudecode}` |
 
-실측(2026-09-05 09:30): 데몬 pid 23062 는 `--base-url http://127.0.0.1:58415/v1 --model "Gemini 3.8 Flash (High)"` 로 떠 있고, 헬퍼 pid 22624 는 3000 번 포트, 덱 둘이 각각 `s_98eb88…`·`s_b63eeb…` 대화를 쥐고 도구 45개씩 달았습니다.
+실측(2026-09-05 09:30): 데몬 pid 23062 는 `--base-url http://127.0.0.1:58415/v1 --model "Gemini 3.8 Flash (High)"` 로 떠 있고, 헬퍼 pid 22624 는 3000 번 포트, 덱 둘이 각각 `s_98eb88…`·`s_b63eeb…` 대화를 쥐고 도구 48개씩 달았습니다.
 
 **왜 헬퍼가 따로 있는가**(DESIGN §5.1). Office 는 애드인을 https 로만 받고, 애드인은 밖으로 소켓을 열 수 없습니다. 유닉스 소켓으로 데몬에 닿고 인증서를 쥐는 프로세스가 하나 있어야 하고, 그것이 창마다가 아니라 **사용자당 하나**여야 창 둘이 같은 데몬을 봅니다(§5.2).
 
@@ -42,7 +42,7 @@ PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)
 
 `mcp.go` 는 Streamable HTTP MCP 서버입니다. stdio 가 아닌 이유(머리 주석): 데몬이 서버를 자식으로 띄우면 워크스페이스마다 헬퍼가 생기는데, 헬퍼는 사용자당 하나여야 합니다.
 
-- `tools/list` → `tools.go` 의 목록 45개(실측 2026-09-05, 저녁 판). 도구 하나가 Office.js 호출 하나에 대응하고, **실행은 창이** 합니다.
+- `tools/list` → `tools.go` 의 목록 48개(실측 2026-09-05, 저녁 판). 도구 하나가 Office.js 호출 하나에 대응하고, **실행은 창이** 합니다.
 - `tools/call` → `args.go` 가 인자를 검사하고(모르는 키는 거절, 별칭은 광고된 것만), `hand.go` 가 **어느 창**에 보낼지 고릅니다. 문서 인자(`document`)가 첫째, 주소의 `?deck=` 이 둘째, 덱이 하나면 그것, 둘 이상이면 **거절**합니다(`hand.go pick`: "more than one deck is open … Name it").
 - 그림 결과(`render_*`)는 `image.go` 가 파일을 읽어 MCP 이미지 블록으로 바꿉니다.
 
@@ -66,7 +66,7 @@ PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)
 | `adapter/` | `OfficeHand`(4,065) · `OfficeDeck`(252) · `HelperStream`(165) · `HelperPorts`(98) · `helperApi`(100) · OOXML 다섯(`chartxml`·`animxml`·`notesxml`·`eaxml`·`zip`/`zipwrite`) · Fake 다섯 | 7,354 |
 | `ui/` + `main.js` | `view`(1,215) · `screen`(786) · `pick`(96) · 픽스처 셋 · `main.js`(794) | 3,160 |
 
-**`OfficeHand.js` 가 4,065줄인 이유.** 도구 45개의 실행이 전부 이 파일입니다 — 도구 하나가 Office.js 호출 한 벌이고, Office.js 가 못 하는 것(한글 폰트 `a:ea`, 차트, 애니메이션, 노트)은 OOXML 을 직접 써서 슬라이드를 다시 만듭니다(`eaxml.js` 등). 그래서 `ea_font` 를 바꾸면 슬라이드 id 가 바뀝니다.
+**`OfficeHand.js` 가 4,065줄인 이유.** 도구 48개의 실행이 전부 이 파일입니다 — 도구 하나가 Office.js 호출 한 벌이고, Office.js 가 못 하는 것(한글 폰트 `a:ea`, 차트, 애니메이션, 노트)은 OOXML 을 직접 써서 슬라이드를 다시 만듭니다(`eaxml.js` 등). 그래서 `ea_font` 를 바꾸면 슬라이드 id 가 바뀝니다.
 
 Fake 어댑터 다섯(`FakeHand` 1,038줄 포함)은 브라우저만으로 창을 띄우는 데모·시험용입니다(`main.js` 의 `real` 분기).
 
@@ -114,7 +114,7 @@ DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go s
 사용자가 창에 "IR 자료 만들어" 를 넣으면:
 
 1. 창 `SendTurn` → `POST /api/submit?deck=` → 헬퍼 `Bridge.Submit` → 데몬 `Submit{session}` → 202.
-2. 데몬이 모델(심 `:58415`)을 부릅니다. 도구 목록에는 코어 내장 도구와 이 대화의 `ppt` 45개, 플러그인 `land` 가 있습니다([TOOLS.ko.md](TOOLS.ko.md)).
+2. 데몬이 모델(심 `:58415`)을 부릅니다. 도구 목록에는 코어 내장 도구와 이 대화의 `ppt` 48개, 플러그인 `land` 가 있습니다([TOOLS.ko.md](TOOLS.ko.md)).
 3. 모델이 `mcp__ppt__add_slides` 를 부르면 데몬이 권한을 묻습니다(`--permission ask`). 창의 `WatchPrompt` 가 물음을 그리고 사람이 답합니다.
 4. 허용되면 데몬 → `POST /mcp?deck=` → 헬퍼 `pick` 이 창을 고름 → `/hand/stream` 으로 `{kind:"call", data}` → 창 `ServeHand` → `OfficeHand` 가 Office.js 실행 → `/hand/reply` → 헬퍼 → MCP 응답 → 데몬 → 모델.
 5. 변이 도구는 답에 `now`(바뀐 뒤의 객체)를 싣습니다. 모델이 다시 읽지 않아도 되게 하려는 것입니다.

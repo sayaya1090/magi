@@ -82,6 +82,9 @@ export class OfficeHand extends HandPort {
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
       ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells', 'edit_table'] : []),
+      // 글자 일부 서식은 1.4(getSubstring)면 되고, 묶기/풀기는 1.8 이다.
+      'format_text',
+      ...(this.supports('PowerPointApi', '1.8') ? ['group_shapes', 'ungroup_shapes'] : []),
       ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];
   }
 
@@ -351,6 +354,9 @@ export class OfficeHand extends HandPort {
       case 'set_table_cells': return this.#setCells(args);
       case 'format_table_cells': return this.#formatCells(args);
       case 'edit_table': return this.#editTable(args);
+      case 'format_text': return this.#formatText(args);
+      case 'group_shapes': return this.#groupShapes(args);
+      case 'ungroup_shapes': return this.#ungroupShapes(args);
       case 'render_shape': return this.#renderShape(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
@@ -2413,6 +2419,29 @@ export class OfficeHand extends HandPort {
     return this.runner(async (context) => {
       const slide = await this.#slide(context, args);
       const color = args.color === undefined || args.color === null ? '' : String(args.color).trim();
+      const kind = String(args.kind ?? 'solid').toLowerCase();
+      // 마스터의 배경 그래픽(로고·띠) 숨김 — 전면 그림의 단짝. 그림이 아니어도 따로 켤 수 있다.
+      let hid = '';
+      if (args.hide_graphics !== undefined) {
+        slide.background.areBackgroundGraphicsHidden = Boolean(args.hide_graphics);
+        hid = args.hide_graphics ? ' · 마스터 그래픽 숨김' : ' · 마스터 그래픽 보임';
+      }
+      if (kind === 'picture') {
+        // 바이트는 헬퍼가 읽어 실어 보낸다(add_image 와 같은 길, mcp.go). 모델이 base64 를 싣지 않는다.
+        const b64 = String(args.image_base64 ?? '');
+        if (!b64) throw new Error('그림 바이트가 안 왔습니다 — path 를 주면 헬퍼가 파일을 읽어 실어 보냅니다');
+        const opts = { imageBase64: b64 };
+        if (args.transparency !== undefined && args.transparency !== null) {
+          const tp = Number(args.transparency);
+          if (!(tp >= 0 && tp <= 1)) throw new Error(`transparency 는 0~1 입니다 — 받은 것: ${args.transparency}`);
+          opts.transparency = tp;
+        }
+        slide.background.fill.setPictureOrTextureFill(opts);
+        await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, background: 'picture', path: args.path ?? null, transparency: opts.transparency ?? 0 },
+          [`슬라이드 배경을 그림(${args.path ?? '?'}${opts.transparency ? `, 투명도 ${opts.transparency}` : ''})으로 채웠습니다 (${slide.id})${hid}`]);
+      }
       if (color === '' || color.toLowerCase() === 'none' || color.toLowerCase() === 'theme') {
         slide.background.reset();
         await context.sync();
@@ -2422,7 +2451,6 @@ export class OfficeHand extends HandPort {
       }
       // **채움 종류가 넷이다**(1.10). 단색만 내주던 시절은 `visual-deck` 에서 스타일 열한 개를
       // 「그라데이션이라 못 한다」로 뺀 근거였는데, 그 판단은 1.8 기준이었다.
-      const kind = String(args.kind ?? 'solid').toLowerCase();
       if (kind === 'gradient') {
         slide.background.fill.setGradientFill({ type: String(args.gradient ?? 'linear') });
         await context.sync();
@@ -3676,6 +3704,106 @@ export class OfficeHand extends HandPort {
       return this.#envelope(
         { slide_id: slide.id, shape_id: args.shape_id, was: before, now: { rows: table.rowCount, columns: table.columnCount } },
         [`표 ${args.shape_id}: ${done.join(' · ')} — ${before.rows}×${before.columns} → ${table.rowCount}×${table.columnCount}, id 는 그대로입니다`]);
+    });
+  }
+
+  /**
+   * 글자 **일부**만 서식(1.4 `getSubstring`) — 「140억만 빨갛게」. 상자 전체를 다시 칠하는
+   * `format_shape` 와 다르다. `find` 로 짚으면 글을 읽어 자리를 찾고, 없으면 이름을 대고 거절한다.
+   * 링크(1.10)는 그 글자에만 건다.
+   */
+  #formatText(args) {
+    return this.runner(async (context) => {
+      const slide = await this.#slide(context, args);
+      const shape = slide.shapes.getItem(args.shape_id);
+      const range = shape.textFrame.textRange;
+      range.load('text');
+      await context.sync();
+      const text = String(range.text ?? '');
+      let start; let length;
+      if (args.find !== undefined && args.find !== null && String(args.find) !== '') {
+        const needle = String(args.find);
+        const nth = Math.max(1, Number(args.occurrence ?? 1));
+        let at = -1; let from = 0;
+        for (let i = 0; i < nth; i += 1) {
+          at = text.indexOf(needle, from);
+          if (at < 0) break;
+          from = at + needle.length;
+        }
+        if (at < 0) {
+          throw new Error(`「${needle}」${nth > 1 ? `의 ${nth}번째` : ''} 가 이 도형의 글에 없습니다 — 글: "${text.slice(0, 80)}${text.length > 80 ? '…' : ''}"`);
+        }
+        start = at; length = needle.length;
+      } else if (args.start !== undefined) {
+        start = Number(args.start); length = Number(args.length ?? (text.length - start));
+        if (!(start >= 0 && start < text.length) || !(length >= 1) || start + length > text.length) {
+          throw new Error(`start ${args.start}·length ${args.length ?? '?'} 가 글 길이 ${text.length} 를 벗어납니다`);
+        }
+      } else {
+        throw new Error('어느 글자인지 find 나 start/length 로 짚어 주세요');
+      }
+      const sub = range.getSubstring(start, length);
+      const font = sub.font;
+      const changed = [];
+      if (args.font !== undefined) { font.name = String(args.font); changed.push(`글꼴 ${args.font}`); }
+      if (args.size !== undefined) { font.size = Number(args.size); changed.push(`${args.size}pt`); }
+      if (args.bold !== undefined) { font.bold = Boolean(args.bold); changed.push(args.bold ? '굵게' : '보통'); }
+      if (args.italic !== undefined) { font.italic = Boolean(args.italic); changed.push(args.italic ? '기울임' : '곧게'); }
+      if (args.color !== undefined) { font.color = String(args.color); changed.push(`글자색 ${args.color}`); }
+      if (args.underline !== undefined) { font.underline = String(args.underline); changed.push(`밑줄 ${args.underline}`); }
+      for (const [name, key] of [['strikethrough', 'strikethrough'], ['superscript', 'superscript'], ['subscript', 'subscript']]) {
+        if (args[name] === undefined) continue;
+        if (!this.supports('PowerPointApi', '1.8')) throw new Error(`${name} 은 PowerPointApi 1.8 이 필요한데 이 호스트에는 없습니다`);
+        font[key] = Boolean(args[name]); changed.push(`${name} ${args[name]}`);
+      }
+      if (args.url !== undefined) {
+        if (!this.supports('PowerPointApi', '1.10')) throw new Error('글자 링크는 PowerPointApi 1.10 이 필요한데 이 호스트에는 없습니다');
+        const url = String(args.url);
+        const opts = args.screen_tip ? { address: url, screenTip: String(args.screen_tip) } : { address: url };
+        sub.setHyperlink(opts);
+        changed.push(`링크 → ${url}`);
+      }
+      if (changed.length === 0) throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — bold·color·size·underline·url 중 하나는 주세요');
+      await context.sync();
+      this.#mutated();
+      const picked = text.slice(start, start + length);
+      return this.#envelope({ slide_id: slide.id, shape_id: args.shape_id, start, length, text: picked },
+        [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: 「${picked}」(${start}~${start + length}) ${changed.join(' · ')} — 나머지 글은 그대로`]);
+    });
+  }
+
+  /** 도형 여럿을 한 덩어리로(1.8 `addGroup`). 결과 id 로 옮기면 같이 움직인다. */
+  #groupShapes(args) {
+    return this.runner(async (context) => {
+      if (!this.supports('PowerPointApi', '1.8')) throw new Error('group_shapes 는 PowerPointApi 1.8 이 필요한데 이 호스트에는 없습니다');
+      const ids = Array.isArray(args.shape_ids) ? args.shape_ids.map(String) : [];
+      if (ids.length < 2) throw new Error('묶으려면 도형이 둘 이상이어야 합니다 — shape_ids 에 둘 이상 주세요');
+      const slide = await this.#slide(context, args);
+      const group = slide.shapes.addGroup(ids);
+      group.load('id');
+      await context.sync();
+      this.#mutated();
+      return this.#envelope({ slide_id: slide.id, shape_id: group.id, members: ids },
+        [`슬라이드 ${slide.id}: 도형 ${ids.join(', ')} 을 묶었습니다 → 그룹 ${group.id}. 옮기려면 이 id 로 move_shape`]);
+    });
+  }
+
+  /** 덩어리를 푼다(1.8 `ShapeGroup.ungroup`). 구성 도형은 제 id 를 되찾는다 — read_slide 로 본다. */
+  #ungroupShapes(args) {
+    return this.runner(async (context) => {
+      if (!this.supports('PowerPointApi', '1.8')) throw new Error('ungroup_shapes 는 PowerPointApi 1.8 이 필요한데 이 호스트에는 없습니다');
+      const slide = await this.#slide(context, args);
+      const shape = slide.shapes.getItem(args.shape_id);
+      shape.load('type');
+      await context.sync();
+      if (String(shape.type ?? '').toLowerCase() !== 'group') {
+        throw new Error(`도형 ${args.shape_id} 는 그룹이 아닙니다(${shape.type ?? '?'}) — 아무것도 안 풀었습니다`);
+      }
+      shape.group.ungroup();
+      await context.sync();
+      this.#mutated();
+      return this.#envelope({ slide_id: slide.id, ungrouped: args.shape_id },
+        [`슬라이드 ${slide.id}: 그룹 ${args.shape_id} 을 풀었습니다 — 구성 도형의 id 는 read_slide 로 보세요`]);
     });
   }
 

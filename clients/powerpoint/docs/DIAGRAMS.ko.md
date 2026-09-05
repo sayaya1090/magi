@@ -30,8 +30,8 @@ flowchart LR
     MCP["/mcp<br/>Streamable HTTP"]
   end
   subgraph Daemon["magi --daemon (machine 에 하나)"]
-    S1["대화 s_98eb…<br/>ppt 45 · 주인=s_98eb…"]
-    S2["대화 s_b63e…<br/>ppt 45 · 주인=s_b63e…"]
+    S1["대화 s_98eb…<br/>ppt 48 · 주인=s_98eb…"]
+    S2["대화 s_b63e…<br/>ppt 48 · 주인=s_b63e…"]
     Core["코어 도구 26 · land"]
   end
   Shim["모델 심 :58415<br/>agy → Gemini"]
@@ -60,7 +60,7 @@ sequenceDiagram
   P->>H: POST /api/submit?deck=K {text}
   H->>D: Submit{session}
   H-->>P: 202 (답은 스트림으로)
-  D->>M: 메시지 + 도구 목록(코어 26 · ppt 45 · land)
+  D->>M: 메시지 + 도구 목록(코어 26 · ppt 48 · land)
   M-->>D: tool-call mcp__ppt__add_slides{slides:[…]}
   D->>P: permission.asked (Transcript 스트림)
   U->>P: 허용
@@ -103,10 +103,10 @@ sequenceDiagram
     else
       H->>D: NewSessionKeeping() → sid'
       H->>D: DetachMCP(sid', "ppt")
-      H->>D: AttachMCP(sid', "ppt", /mcp?deck=K, Bearer) → 45
+      H->>D: AttachMCP(sid', "ppt", /mcp?deck=K, Bearer) → 48
       H->>H: Bridges[K].BindWith(socket, sid', life, tools)
     end
-    H-->>P: {phase: ready, session: sid, tools: 45}
+    H-->>P: {phase: ready, session: sid, tools: 48}
   end
   loop WatchPrompt.poll
     P->>H: GET /api/status?deck=K
@@ -192,7 +192,7 @@ classDiagram
   }
   class MCPServer {
     Hand *Hub
-    tools/list → tools.go (45)
+    tools/list → tools.go (48)
     tools/call → args.go → checkBullets → Hub.pick
   }
   API --> Bridges
@@ -237,7 +237,7 @@ flowchart LR
     PointAtAdvice
   end
   subgraph adapter["adapter (7,354줄)"]
-    OfficeHand["OfficeHand (4,065)<br/>도구 45 의 실행"]
+    OfficeHand["OfficeHand (4,065)<br/>도구 48 의 실행"]
     OfficeDeck["OfficeDeck<br/>stableDeckId · MAGI.DECK"]
     HelperStream["HelperStream (SSE)"]
     HelperPorts["HelperChat · HelperStatus · HelperTranscript"]

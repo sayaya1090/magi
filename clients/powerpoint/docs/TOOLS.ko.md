@@ -8,7 +8,7 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 덱 도구 | `mcp__ppt__*` | **45** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
+| 덱 도구 | `mcp__ppt__*` | **48** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `websearch`, `skill`, `todowrite` … | 레지스트리 26 이름(§3) | 데몬 `internal/adapter/tool/builtin` |
 | 플러그인 도구 | `land` | 1 | `<config>/plugins/landing`(Lua) |
 | 가이드(스킬) | `deck-design`, `design-guide`, `visual-deck`, `academic-deck`, `research` | 5 (17,483자) | 워크스페이스 `.magi/skills/*.md` — `skill` 도구로 읽음 |
@@ -17,7 +17,7 @@
 
 **정확히 어느 코어 도구가 이 대화에 광고되는지는 아직 실물로 못 셉니다.** 데몬에 「이 대화가 보는 도구 목록」을 답하는 문이 없습니다(DESIGN §5.9.6 5번 `mcp-list`, ⏳). 위 26 은 레지스트리에 있는 이름이고, 승인기 로그에서 실제로 불린 것은 `skill`·`todowrite`·`read`·`list`·`glob`·`grep`·`websearch`·`webfetch`·`land` 아홉입니다.
 
-## 1. 덱 도구 45 — 무리별
+## 1. 덱 도구 48 — 무리별
 
 인자 수는 `document`(어느 덱인지, 모든 도구가 받음)를 뺀 것입니다. 필수도 마찬가지입니다.
 ### 읽기
@@ -53,7 +53,7 @@
 | `delete_slide` | Remove one slide. Every slide after it shifts down one, and the result says so. Snapshot first if the person might want it back — nothing… | 2 | — |
 | `reorder_slide` | Move a slide to another position. Every position after the move is a different slide than it was, so re-read before addressing anything b… | 3 | `to` |
 | `apply_layout` | Put one slide on a different layout. Layout names come from list_slides — they are the deck's own vocabulary. This CHOOSES a layout; it n… | 3 | `layout` |
-| `set_background` | Paint one slide's background a solid colour — the theme decides it otherwise, and nothing here could change it before. The slide KEEPS IT… | 8 | — |
+| `set_background` | Paint one slide's background a solid colour — the theme decides it otherwise, and nothing here could change it before. The slide KEEPS IT… | 10 | — |
 | `snapshot_slide` | Take a snapshot of one slide before changing it — the .pptx bytes of that slide, kept by the helper. It reads the deck and changes nothin… | 2 | — |
 | `restore_slide` | Put a snapshot back. The restored slide is INSERTED and the original removed, so it comes back with a NEW id: the result carries that id,… | 3 | `snapshot` |
 
@@ -62,7 +62,8 @@
 | 도구 | 한 줄 | 인자 | 필수 |
 |---|---|---|---|
 | `set_text` | Replace the text of one shape. The result carries the old text and the new one, because that pair is the only record of the change that r… | 5 | `text` |
-| `format_shape` | Change the look of one shape: font family, size, bold, italic, colour, alignment, fill. | 19 | `shape_id` |
+| `format_text` | Format PART of a shape's text — one word, a number, a phrase — without touching the rest: bold, colour, size, underline, or a hyperlink o… | 18 | `shape_id` |
+| `format_shape` | Change the look of one shape: font family, size, bold, italic, colour, alignment, fill. | 32 | `shape_id` |
 | `apply_style` | Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. "Make every title blue". Placeho… | 6 | — |
 | `set_notes` | Write the speaker notes on one slide, replacing whatever was there. Newlines become paragraphs. Read them first with read_notes unless yo… | 4 | `text` |
 | `set_hyperlink` | Set or clear the hyperlink on one shape. ⚠ Needs PowerPointApi 1.10: 1.6 gave the hyperlink COLLECTION, which only reads — setting one ar… | 5 | `shape_id`, `url` |
@@ -71,9 +72,11 @@
 
 | 도구 | 한 줄 | 인자 | 필수 |
 |---|---|---|---|
-| `add_shape` | Add a shape to a slide — a text box or a geometric shape — at a position given in points. Shapes carry text: pass text and it goes inside… | 17 | — |
-| `move_shape` | Move or resize ONE shape. Units are points, the same units read_slide reports. To line SEVERAL shapes up or space them out, call align_sh… | 7 | `shape_id` |
+| `add_shape` | Add a shape to a slide — a text box or a geometric shape — at a position given in points. Shapes carry text: pass text and it goes inside… | 25 | — |
+| `move_shape` | Move or resize ONE shape. Units are points, the same units read_slide reports. To line SEVERAL shapes up or space them out, call align_sh… | 8 | `shape_id` |
 | `align_shapes` | Line shapes up or space them evenly — "centre these", "even out the gaps". Without it the coordinates have to be worked out by hand and m… | 4 | `how` |
+| `group_shapes` | Group several shapes on one slide into ONE shape that moves and resizes together — a diagram of boxes and arrows, a KPI tile. The result … | 3 | `shape_ids` |
+| `ungroup_shapes` | Take a group apart; its members become ordinary shapes again with their own ids (read_slide to see them). Needs PowerPointApi 1.8. | 3 | `shape_id` |
 | `delete_shape` | Delete one shape. There is no undo for a delete: the tag journal cannot restore what it was written on, so the snapshot is the only way b… | 3 | `shape_id` |
 | `add_image` | Put a picture from the person's own computer on a slide. Give the FILE PATH — never base64: the helper reads the file itself, so the byte… | 10 | `path` |
 
@@ -81,10 +84,11 @@
 
 | 도구 | 한 줄 | 인자 | 필수 |
 |---|---|---|---|
-| `add_table` | Add a NEW table. If the slide already has one and the person is asking to change it, this is the wrong tool: write cells with set_table_c… | 13 | `rows`, `columns` |
-| `replace_table` | Rebuild an existing table in place: the old one is removed and a new one is created at the same position and size, with the rows, columns… | 14 | — |
+| `add_table` | Add a NEW table. If the slide already has one and the person is asking to change it, this is the wrong tool: write cells with set_table_c… | 22 | `rows`, `columns` |
+| `replace_table` | Rebuild an existing table in place: the old one is removed and a new one is created at the same position and size, with the rows, columns… | 23 | — |
+| `edit_table` | Change the STRUCTURE or style of an existing table without rebuilding it: add or delete rows and columns, merge cells, set column widths … | 17 | `shape_id` |
 | `set_table_cells` | Write text into cells of an existing table — the first thing to reach for when someone wants a table changed. Text only: an existing tabl… | 4 | `shape_id`, `cells` |
-| `format_table_cells` | Restyle cells of a table that already exists — fill, text colour, size, bold, italic, alignment — WITHOUT rebuilding it, so the table KEE… | 12 | `shape_id` |
+| `format_table_cells` | Restyle cells of a table that already exists — fill, text colour, size, bold, italic, alignment — WITHOUT rebuilding it, so the table KEE… | 15 | `shape_id` |
 | `add_chart` | Put a NATIVE PowerPoint chart on a slide — a real chart object the person can restyle, not a picture and not a pile of rectangles. Give i… | 11 | `categories`, `series` |
 
 ### 테마·애니메이션
@@ -108,7 +112,6 @@
 |---|---|---|---|
 | `advise` | Pin advice in the task pane without touching the deck: what to change and why, optionally pointing at a slide and shapes. Clicking an ite… | 1 | `items` |
 | `clear_advice` | Take the pinned advice down. Nothing to undo: it was never in the deck. | 0 | — |
-
 
 ### 도구 하나가 답하는 모양
 

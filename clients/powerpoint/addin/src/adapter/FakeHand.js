@@ -45,7 +45,7 @@ export class FakeHand extends HandPort {
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
       'animate_slide', 'read_animation',
       'set_background', 'set_theme_colors', 'read_theme_colors', 'format_table_cells',
-      'edit_table',
+      'edit_table', 'format_text', 'group_shapes', 'ungroup_shapes',
       'render_shape',
       'suggest', 'read_suggestions', 'drop_suggestion'];
   }
@@ -717,6 +717,48 @@ export class FakeHand extends HandPort {
         const now = { rows: shape.table.length, columns: cols() };
         return this.#envelope({ slide_id: slide.id, shape_id: args.shape_id, was, now },
           [`표 ${args.shape_id}: ${done.join(' · ')} — ${was.rows}×${was.columns} → ${now.rows}×${now.columns}, id 는 그대로입니다`]);
+      }
+      case 'format_text': {
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        const text = String(shape.text ?? '');
+        let start; let length;
+        if (args.find) {
+          const at = text.indexOf(String(args.find));
+          if (at < 0) throw new Error(`「${args.find}」 가 이 도형의 글에 없습니다 — 글: "${text.slice(0, 80)}"`);
+          start = at; length = String(args.find).length;
+        } else if (args.start !== undefined) {
+          start = Number(args.start); length = Number(args.length ?? text.length - start);
+        } else throw new Error('어느 글자인지 find 나 start/length 로 짚어 주세요');
+        const what = ['font', 'size', 'bold', 'italic', 'color', 'underline', 'url'].filter((k) => args[k] !== undefined);
+        if (what.length === 0) throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — bold·color·size·underline·url 중 하나는 주세요');
+        shape.runs = [...(shape.runs ?? []), { start, length, ...Object.fromEntries(what.map((k) => [k, args[k]])) }];
+        this.#mutated();
+        const picked = text.slice(start, start + length);
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, start, length, text: picked },
+          [`슬라이드 ${slide.id} · 도형 ${shape.id}: 「${picked}」(${start}~${start + length}) ${what.map((k) => `${k} ${args[k]}`).join(' · ')} — 나머지 글은 그대로`]);
+      }
+      case 'group_shapes': {
+        const slide = this.#slide(args);
+        const ids = Array.isArray(args.shape_ids) ? args.shape_ids.map(String) : [];
+        if (ids.length < 2) throw new Error('묶으려면 도형이 둘 이상이어야 합니다 — shape_ids 에 둘 이상 주세요');
+        const members = ids.map((id) => this.#shape(slide, id));
+        const gid = `g${slide.shapes.length + 1}`;
+        slide.shapes = slide.shapes.filter((s) => !members.includes(s));
+        slide.shapes.push({ id: gid, name: `그룹 ${gid}`, type: 'Group', members,
+          left: Math.min(...members.map((m) => m.left ?? 0)), top: Math.min(...members.map((m) => m.top ?? 0)), width: 100, height: 100 });
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: gid, members: ids },
+          [`슬라이드 ${slide.id}: 도형 ${ids.join(', ')} 을 묶었습니다 → 그룹 ${gid}. 옮기려면 이 id 로 move_shape`]);
+      }
+      case 'ungroup_shapes': {
+        const slide = this.#slide(args);
+        const g = this.#shape(slide, args.shape_id);
+        if (g.type !== 'Group') throw new Error(`도형 ${args.shape_id} 는 그룹이 아닙니다(${g.type}) — 아무것도 안 풀었습니다`);
+        slide.shapes = slide.shapes.filter((s) => s !== g).concat(g.members ?? []);
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, ungrouped: String(args.shape_id) },
+          [`슬라이드 ${slide.id}: 그룹 ${args.shape_id} 을 풀었습니다 — 구성 도형의 id 는 read_slide 로 보세요`]);
       }
       case 'render_shape': {
         const slide = this.#slide(args);

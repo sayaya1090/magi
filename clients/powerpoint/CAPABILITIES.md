@@ -510,6 +510,9 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 | `rows.add/getItemAt().delete`·`columns.add/…delete` (1.9) | `edit_table` (새 도구, id 유지) | `add_rows`·`add_rows_at`·`delete_rows`·`add_columns`·… |
 | `TableColumn.width`·`TableRow.height`·`TableAddOptions.columns/rows` (1.8/1.9) | `add_table`·`replace_table`·`edit_table` | `column_widths`·`row_heights` |
 | `TableCell.verticalAlignment`·`borders` (1.9) | `format_table_cells`·(`valign` 은 만들 때도) | `valign`·`borders`·`border_weight` |
+| `TextRange.getSubstring().font` (1.4) · `TextRange.setHyperlink` (1.10) | `format_text` (새 도구) | `find`/`occurrence` 또는 `start`/`length` + 글꼴 칸 + `url` |
+| `ShapeCollection.addGroup`·`ShapeGroup.ungroup` (1.8) | `group_shapes`·`ungroup_shapes` (새 도구) | `shape_ids` / `shape_id` |
+| `SlideBackgroundFill.setPictureOrTextureFill`·`areBackgroundGraphicsHidden` (1.10) | `set_background` | `kind:"picture"`·`path`·`transparency`·`hide_graphics` — 바이트는 헬퍼가 읽는다 |
 
 열거형 7종(`BulletStyle`·`BulletType`·`ShapeFontUnderlineStyle`·`TextVerticalAlignment`·`ShapeAutoSize`·`ShapeZOrder`·`ShapeLineDashStyle`·`ConnectorType`·`TableStyle`)은 문서에서 값을 베껴 `helper/enums.go` 한 자리에 두고 스키마 `enum` 으로 광고한다. **예시 값은 계약이다** — `bulletChromaDot` 이라는 지어낸 예시 하나가 8장짜리 `add_slides` 를 `InvalidArgument` 한 단어로 죽였다.
 
@@ -517,6 +520,7 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 
 - **`Border.transparency` 는 쓰기를 거절한다** — 0 이든 1 이든 `InvalidArgument — Border.transparency` 로 배치 전체가 되돌아온다. 셀 테두리는 색·굵기만 쓰고, 「없음」은 `weight = 0` 으로 한다(렌더로 확인).
 - **`ShapeAddOptions` 의 0 은 「안 줌」이다** — `addLine(..., {width: 400, height: 0})` 이 기본 높이로 그려져 수평선이 사선이 됐다. 만든 뒤 `shape.height = 0` 을 따로 쓰면 수평이 된다.
+- 링크를 건 글자는 테마의 하이퍼링크 색이 글자색을 이긴다(`format_text{color, url}` 을 같이 주면 색은 링크 색으로 보인다 — 실측 렌더).
 - 병합된 영역 안의 셀은 `getCellOrNullObject` 가 null 을 준다 — 머리행을 병합한 뒤 그 행의 (0,1) 을 고치려 하면 「셀이 없습니다」가 맞는 답이다.
 
 ### 11.2 호스트에 있는데 아직 도구가 안 받는 것 — 다음 후보
@@ -524,10 +528,7 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 | 멤버(집합) | 무엇을 열어 주나 | 메모 |
 |---|---|---|
 | `TableCell.margins`·`split`·`resize` (1.9) | 셀 여백·분할 | 드물다 |
-| `TextRange.getSubstring().font`·`setHyperlink` (1.4/1.10) | **글 일부**만 서식·링크(“숫자만 빨갛게”) | 지금은 상자 전체뿐 |
-| `SlideBackgroundFill.setPictureOrTextureFill` (1.10) | 배경 그림 | `set_background` 는 단색·그라데이션·패턴 |
 | `SlideLayout.background`·`SlideMaster.background` (1.10) | 덱 전체 배경 | 테마 색은 되고 배경은 장마다 |
-| `ShapeCollection.addGroup`·`ShapeGroup.ungroup` (1.8) | 묶기/풀기 | |
 | `Presentation.properties`·`customProperties` (1.7) | 제목·작성자·주제 메타데이터 | 파일 속성 |
 | `Shape.adjustments` (1.10) | 모서리 둥글기 등 도형 조정점 | 드물다 |
 | `SlideCollection.exportAsBase64Presentation` (1.10) | 여러 장을 한 파일로 | 스냅샷은 장 단위 |

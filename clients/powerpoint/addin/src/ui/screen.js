@@ -762,6 +762,9 @@ const TOOL_LABELS = new Map(Object.entries({
   add_table: '표 만들기', replace_table: '표 다시 짓기', set_table_cells: '표 칸 채우기',
   format_table_cells: '표 서식 바꾸기',
   edit_table: '표 구조 바꾸기',
+  format_text: '글자 일부 서식',
+  group_shapes: '도형 묶기',
+  ungroup_shapes: '도형 풀기',
   render_shape: '도형만 그림으로',
   add_chart: '차트 넣기', add_image: '그림 넣기',
   // 배경·테마 (1.10 이 있는 호스트에서만 손이 광고한다)
