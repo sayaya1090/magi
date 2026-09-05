@@ -1,0 +1,2 @@
+[plugins.landing]
+socket = "daemon-powerpoint-0d1qqmi9.sock"
