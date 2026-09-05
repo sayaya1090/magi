@@ -13,9 +13,9 @@ import (
 
 func pretendConsole(t *testing.T, has bool) {
 	t.Helper()
-	was := hasConsole
-	hasConsole = func() bool { return has }
-	t.Cleanup(func() { hasConsole = was })
+	was := HasConsole
+	HasConsole = func() bool { return has }
+	t.Cleanup(func() { HasConsole = was })
 }
 
 // The daemon case: no console of our own → the child gets an invisible one. Whatever the caller

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // 파워포인트가 **자기 컴패니언을 갖는다** — 남의 워크스페이스를 빌리지 않는다.
@@ -263,6 +264,9 @@ func runDetached(bin, workdir string, env []string) error {
 	cmd := exec.Command(bin, daemonArgs()...)
 	cmd.Dir = workdir
 	cmd.Env = env
+	// 헬퍼는 콘솔 없이 떠 있다(설치기가 숨겨 띄운다). 그 자식인 이 콘솔 프로그램은 창을 새로 열었다 — 카운슬
+	// 스위치를 누를 때마다 검은 창이 떴다(2026-09-06, 사용자). 우리에게 콘솔이 없을 때만 자식을 숨긴다.
+	quietconsole.Apply(cmd)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		return nil
