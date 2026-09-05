@@ -307,7 +307,10 @@ func (m *Manager) Attach(ctx context.Context, owner, name, url string, headers m
 	// Still the one we published, not merely something under that name. Going back to the map by
 	// name would answer with a replacement'"'"'s tool names as if this attach had registered them.
 	m.mu.Lock()
-	ours := m.servers[sanitizeToolPart(name)] == sc
+	// **주인까지 든 열쇠로 본다.** `registerClient` 는 (이름, 주인)으로 예약하는데 이 검사는 이름만
+	// 보고 있었다 — 주인 달린 등록은 매번 「붙었다가 사라졌다」로 거절됐다(2026-09-05 실물, PowerPoint
+	// 덱 둘 다). 단위 시험은 `mcpTool` 만 직접 재고 이 문에 주인을 실어 본 적이 없었다.
+	ours := m.servers[serverKey(sanitizeToolPart(name), owner)] == sc
 	m.mu.Unlock()
 	if !ours {
 		return nil, fmt.Errorf("mcp: %q attached and then vanished", name)
