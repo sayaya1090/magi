@@ -38,6 +38,8 @@ export class WatchPrompt {
     this.session = '';
     /** 못 닿는다고 이미 말했나. 값이 아니라 **말했는지**를 기억한다. */
     this.saidLost = false;
+    /** 카운슬이 켜졌는가 — 데몬이 말한 값. null 은 모름(안 닿았거나 옛 헬퍼). */
+    this.council = null;
     /**
      * 데몬이 뭘 하는 중인지. 바뀔 때만 화면에 올린다.
      *
@@ -82,6 +84,7 @@ export class WatchPrompt {
       this.bound = this.session !== '';
     }
     if (this.bound !== wasBound) this.onChange();
+    if (typeof s.council === 'boolean' && s.council !== this.council) { this.council = s.council; this.onChange(); }
     this.stale = s.stale === true;
     this.reachable = s.reachable !== false;
     if (this.reachable) this.saidLost = false;
@@ -203,6 +206,8 @@ export class WatchPrompt {
       bound: this.bound,
       /** 그 대화의 이름. 창이 처음 뜰 때 이것을 적는다 — 어느 창이 어느 대화인지가 그것뿐이다. */
       session: this.session,
+      /** 카운슬이 켜졌는가(데몬의 말). null 은 모름 — 단추는 마지막으로 안 값을 든다. */
+      council: this.council,
       /** 못 닿는다는 말을 지금 화면에 올릴 것인가. **한 번뿐**이다. */
       lostNote: this.reachable
         ? null

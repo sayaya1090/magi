@@ -33,7 +33,7 @@ import {
   isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
-  capsSummary, capsQuiet, brandState, resultCell, permissionText, councilBody, skippedLine,
+  capsSummary, capsQuiet, councilButton, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
   planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning,
 } from '../src/ui/screen.js';
@@ -2641,6 +2641,31 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('안 쟀으면 요약이 안 쟀다고 적는다',
     capsSummary({ measured: false, sets: [] }).includes('재지 못했'),
     capsSummary({ measured: false, sets: [] }));
+  // 카운슬 단추: 글이 동작을 적고(끕니다/켭니다), 값(재기동·새 대화)을 미리 말한다.
+  {
+    const on = councilButton(true), off = councilButton(false), unk = councilButton(null);
+    ok('켜져 있으면 「끕니다」와 눌림', on.pressed === true && on.title.includes('끕니다') && on.title.includes('지금 켜짐'), on.title);
+    ok('꺼져 있으면 「켭니다」', off.pressed === false && off.title.includes('켭니다') && off.title.includes('지금 꺼짐'), off.title);
+    ok('모르면 모른다고 적는다', unk.pressed === false && unk.title.includes('모름'), unk.title);
+    ok('새 대화로 시작된다는 값을 미리 적는다', everyOf([on, off, unk], (b) => b.title.includes('새 대화')));
+    const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+    ok('단추가 고급 줄에 있다', /id="advanced"[\s\S]*?id="council"[\s\S]*?id="repick"/.test(html));
+    const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+    ok('누르면 헬퍼의 카운슬 문을 두드린다', /#council'\)\?\.addEventListener[\s\S]*?api\.setCouncil\(want\)/.test(src));
+    ok('상태가 바뀌면 단추를 다시 그린다', /view\.councilButton\(watchPrompt\.view\.council\)/.test(src));
+    // 폴이 말한 값이 view 에 실린다 — 바뀔 때만 onChange.
+    const port = new FakeStatus();
+    port.reachable = true;
+    const wp = new WatchPrompt(port);
+    let changes = 0; wp.onChange = () => { changes += 1; };
+    await wp.poll();
+    ok('모르면 null', wp.view.council === null);
+    port.council = true; const before = changes; await wp.poll();
+    ok('데몬이 켜졌다고 하면 true 고 onChange', wp.view.council === true && changes === before + 1, String(changes - before));
+    await wp.poll();
+    ok('같은 값이면 onChange 안 한다', changes === before + 1, String(changes - before));
+  }
+
   // 다 지원이면 줄이 숨는다 — 못 쟀거나 하나라도 빠지면 보인다(숨은 채로 거짓말 금지).
   ok('요구 집합 줄은 다 지원일 때만 숨는다',
     capsQuiet({ measured: true, sets: [{ ok: true }, { ok: true }] }) === true

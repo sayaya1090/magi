@@ -22,7 +22,7 @@ import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
   userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
-  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, brandState, streamLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, councilButton, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
@@ -1083,6 +1083,17 @@ export class View {
     }
     el.append(this.proseEl(bodyText(r)));
     return el;
+  }
+
+  /** 카운슬 단추의 눌림·글. 데몬이 말한 값이 바뀔 때마다 다시 그린다(`WatchPrompt.view.council`). */
+  councilButton(on) {
+    const el = $('#council');
+    if (!el) return;
+    const b = councilButton(on);
+    el.setAttribute('aria-pressed', String(b.pressed));
+    el.classList.toggle('icon-on', b.pressed);
+    el.title = b.title;
+    el.setAttribute('aria-label', b.title);
   }
 
   /** 마크다운 표식이 있으면 그려서, 없으면 문단 하나로. 마크업을 읽는 길은 없다(`md.js`). */

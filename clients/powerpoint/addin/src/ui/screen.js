@@ -844,3 +844,19 @@ export function toolLabel(name) {
 
 /** 표시 이름을 가진 도구들. `smoke` 가 카탈로그와 견주는 데 쓴다. */
 export function labelledTools() { return [...TOOL_LABELS.keys()]; }
+
+/**
+ * 카운슬 단추의 글. **동작을 적는다** — 지금 켜져 있으면 「끕니다」, 꺼져 있으면 「켭니다」. 그리고 값을 적는다:
+ * 누르면 컴패니언이 다시 뜨고 대화가 새로 시작된다(helper/council.go). 그 말이 title 에 없으면 사람은
+ * 대화가 왜 사라졌는지 모른다. 모르는 상태(null)면 켜는 쪽으로 적되 「모름」을 붙인다.
+ */
+export function councilButton(on) {
+  const known = typeof on === 'boolean';
+  const pressed = on === true;
+  const verb = pressed ? '끕니다' : '켭니다';
+  const state = known ? (pressed ? '지금 켜짐' : '지금 꺼짐') : '지금 상태 모름';
+  return {
+    pressed,
+    title: `카운슬을 ${verb} — ${state}. 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다(슬라이드는 그대로)`,
+  };
+}

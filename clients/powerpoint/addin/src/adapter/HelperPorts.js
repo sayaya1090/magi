@@ -35,6 +35,8 @@ export class HelperStatus extends StatusPort {
       // dial 은 성공하는데, 우리 등록도 이 창이 든 대화 이름도 남의 생애의 것이다.
       stale: st?.stale === true,
       answered: st?.answered ?? null,
+      // 데몬이 말하는 값 — 켜졌는가. 불리언이 아니면 모른다(안 닿았거나 옛 헬퍼).
+      council: typeof st?.council === 'boolean' ? st.council : null,
       pending: st?.asking ? pendingOf(st.asking) : null,
     };
   }

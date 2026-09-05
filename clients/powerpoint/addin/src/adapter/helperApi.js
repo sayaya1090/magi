@@ -73,6 +73,9 @@ export class HelperApi {
    * 대화 하나가 영원히 쌓이면 앞의 혼란이 뒤를 오염시킨다. 덱은 안 건드린다.
    */
   fresh() { return this.#send('/api/fresh', { body: {} }); }
+  /** 카운슬 스위치 — 읽기는 설정이 말하는 값, 쓰기는 고치고 컴패니언을 다시 띄운다(새 대화). */
+  council() { return this.#send('/api/council', { method: 'GET' }); }
+  setCouncil(enabled) { return this.#send('/api/council', { body: { enabled: Boolean(enabled) } }); }
 
   /** 늘 지킬 것을 읽는다. 아직 아무것도 안 적은 것은 **실패가 아니다.** */
   rules() { return this.#send('/api/instructions', { method: 'GET' }); }

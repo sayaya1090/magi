@@ -58,6 +58,7 @@
       <g id="i-stop"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/></g>
       <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
       <g id="i-trash"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8"/></g>
+      <g id="i-council"><path d="M8 2.5v11M4 13.5h8M2.5 5.5h11"/><path d="M4 5.5l-1.8 4h3.6zM12 5.5l-1.8 4h3.6z"/></g>
     </defs>
   </svg>
     <!--
@@ -333,6 +334,10 @@
       <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 슬라이드는 그대로입니다" aria-label="새 대화를 시작합니다 — 슬라이드는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
       <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
       <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
+      <!-- 카운슬 스위치. **누르면 컴패니언이 다시 뜨고 대화가 새로 시작된다** — 카운슬이 있는가는 기동 때
+           정해지는 값이라(helper/council.go) 도는 중에 못 뒤집는다. 그 값을 title 이 적는다. 켜짐/꺼짐은
+           aria-pressed 로, 글은 `councilButton`(screen.js)이 정한다. -->
+      <button type="button" id="council" class="icon-btn" aria-pressed="false" title="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다" aria-label="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-council"/></svg></button>
       <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
     </div>
 

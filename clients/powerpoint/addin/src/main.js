@@ -456,6 +456,25 @@ async function boot() {
     });
 
     /**
+     * **카운슬 스위치.** 켜면 턴 끝을 위원 셋이 재고(느리고 꼼꼼), 끄면 모델이 끝냈다면 끝이다(빠르다).
+     * 기동 때 정해지는 값이라 헬퍼가 설정을 고치고 컴패니언을 다시 띄운다 — **대화가 새로 시작된다.**
+     * 그 값은 단추의 title 이 미리 적고(`councilButton`), 누른 뒤에는 헬퍼의 note 가 적는다. 다시 붙는 것은
+     * 재기동 사건 처리(`companionRestarted`)가 한다 — 여기서 따로 하지 않는다.
+     */
+    document.querySelector('#council')?.addEventListener('click', () => {
+      void (async () => {
+        const want = watchPrompt.view.council !== true;
+        view.where(`카운슬을 ${want ? '켜는' : '끄는'} 중입니다 — 컴패니언을 다시 띄웁니다.`);
+        try {
+          const out = await api.setCouncil(want);
+          view.where(out?.note || `카운슬을 ${want ? '켰습니다' : '껐습니다'} — 컴패니언을 다시 띄우는 중입니다.`);
+        } catch (e) {
+          view.where(`카운슬을 못 바꿨습니다: ${e?.message ?? e}. 지금 상태 그대로입니다.`);
+        }
+      })();
+    });
+
+    /**
      * **늘 지킬 것** — 한 번 적어 두면 매번 지켜지는 말.
      *
      * 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」. 이런 것은 부탁이 아니라 **취향이고**
@@ -763,6 +782,7 @@ async function boot() {
         // 브랜드 줄이 그 이름을 든다 — 창이 그 대화에 붙어 있는 동안 계속.
         void refreshBrand();
       }
+      view.councilButton(watchPrompt.view.council);
       if (watchPrompt.view.stale) companionRestarted();
     };
   }

@@ -17,7 +17,7 @@ export class FakeStatus extends StatusPort {
 
   async status() {
     if (this.throwOnStatus) throw new Error('dial 실패');
-    return { reachable: this.reachable, pending: this.pending, doing: this.doing, answered: this.answered };
+    return { reachable: this.reachable, pending: this.pending, doing: this.doing, answered: this.answered, council: this.council };
   }
 
   async answerPermission(callId, decision) {
