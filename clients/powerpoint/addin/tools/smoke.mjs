@@ -463,6 +463,22 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('말풍선 클래스에 상태가 실린다', rowClass(urows[2]).includes('status-running') && rowClass(urows[1]).includes('status-done') && !rowClass({ kind: 'model' }).includes('status-'));
   }
 
+  // **카운슬의 한 판정은 두 번 온다** — 심의 중 살아 있는 이벤트(seq 0)와 끝난 뒤의 기록(seq N).
+  // 창은 한 줄로 접는다(실물 2026-09-05: 위원 셋이 두 번씩 떴다).
+  {
+    const port7 = new FakeTranscript({ V: [] });
+    const read7 = new ReadTranscript(port7);
+    read7.attach('V');
+    const v = (seq, member) => port7.push({ seq, sessionId: 'V', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 1, member, lens: 'x', decision: 'continue', rationale: '이유 ' + member } });
+    v(0, 'Melchior'); v(0, 'Balthasar'); v(0, 'Casper');
+    v(21, 'Melchior'); v(22, 'Balthasar'); v(23, 'Casper');
+    const verdicts = read7.view.rows.filter((r) => r.kind === 'council' && r.council?.stage === 'verdict');
+    ok('살아 있는 판정과 기록된 판정은 한 줄이다', verdicts.length === 3, String(verdicts.length));
+    ok('자리는 기록 쪽 것을 갖는다', verdicts.map((r) => r.seq).join(',') === '21,22,23', verdicts.map((r) => r.seq).join(','));
+    port7.push({ seq: 30, sessionId: 'V', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 2, member: 'Melchior', lens: 'x', decision: 'done', rationale: 'r2' } });
+    ok('다른 회차는 새 줄이다', read7.view.rows.filter((r) => r.kind === 'council' && r.council?.stage === 'verdict').length === 4);
+  }
+
   // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,
   // 다시 붙은 창은 `appended` 만 받으므로 **붙어 있던 창과 화면이 갈린다.**
   const port5 = new FakeTranscript({ A: [] });

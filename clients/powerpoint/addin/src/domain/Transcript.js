@@ -295,6 +295,23 @@ export class Transcript {
       }
     }
 
+    // **카운슬의 한 판정은 두 번 온다.** 코어는 심의 중에 판정을 살아 있는 이벤트(자리 없음, seq 0)로
+    // 먼저 흘리고, 끝나면 기록으로 한 번 더 남긴다(council_advice.go publishTransient → council_events.go
+    // appendFact). 살아서 보는 창은 둘 다 받는다 — 실물 2026-09-05: 위원 셋의 판정이 두 번씩 떴다.
+    // 같은 회차·같은 위원·같은 결정이면 한 줄이고, 기록 쪽이 자리(seq)를 준다.
+    if (kind === 'council') {
+      const c = councilOf(ev, type);
+      if (c.stage === 'verdict') {
+        const same = this.rows.find((r) => r.kind === 'council' && r.council?.stage === 'verdict'
+          && r.council.round === c.round && r.council.member === c.member && r.council.decision === c.decision);
+        if (same) {
+          if (ev?.seq > 0 && ev.seq > same.seq) same.seq = ev.seq;
+          if (c.rationale && !same.council.rationale) same.council.rationale = c.rationale;
+          return same;
+        }
+      }
+    }
+
     const row = new Row({
       seq: ev?.seq, kind, actor: ev?.actor, messageId,
       text: textOf(ev, kind), call: toolCallOf(ev), finish: finishOf(ev, type),
