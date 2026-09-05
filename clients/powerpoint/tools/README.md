@@ -42,3 +42,7 @@ if ($page -match '"token":\s*"([^"]+)"') { $matches[1] | Set-Content "$env:TEMP\
 
 캡처는 `C:\Users\velve\Workspace\ppt-test\` 로 떨어진다(이 저장소 밖 — 스크린샷은 골라서
 `docs/img/` 로 옮긴다).
+
+## sweep.py — Mac/Linux 전수 스윕
+
+`python3 clients/powerpoint/tools/sweep.py` — 붙은 첫 덱에 도구 48개를 순서대로 다 부르고(장을 만들고 끝에 지운다) ok/ERR 표를 낸다. `tools-sweep.ps1` 의 Mac 판. 실측 2026-09-05: 48/48 · 57호출 · 오류 0.
