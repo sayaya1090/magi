@@ -104,6 +104,10 @@ node tools/officehand.mjs     # Office.js 손과 zip 읽개 — **PowerPoint 없
 - **Windows** — `HKCU\Software\Microsoft\Office\16.0\WEF\Developer` 에 매니페스트 경로를 값으로
   적는다(매뉴얼 §2.4 에 그대로 붙여 넣을 PowerShell 이 있다). 재시작하면 홈 리본의
   **추가 기능 → 개발자 추가 기능**에 `Magi(AI Assistant)` 가 선다.
+- **Windows, 볼륨 판(LTSC 2021)** — 위 개발자 키를 **무시한다**(실측: 개발자 추가 기능 탭 자체가 없다).
+  MS 가 적어 둔 길은 신뢰 카탈로그다: 매니페스트를 담은 폴더를 UNC 로 신뢰하고 **삽입 → 내 추가 기능 →
+  공유 폴더** 에서 넣는다([INSTALL.ko.md §3.2](../docs/INSTALL.ko.md)). 그 판에서 창은 화면만 맡고 편집은
+  COM 손(`../hand-com`)이 한다. 판을 읽어 길을 고르는 것이 `../install.ps1` 이다.
 - **macOS** — `~/Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef/` 에 `manifest.xml`
   복사 후 PowerPoint 재시작. **2026-09-04 에 돌렸다**(16.112.3) — 요구 집합 여섯이 다 ✓ 였고
   실물 덱까지 이어졌다. 인증서는 `-d` 없이 login keychain 에 넣는다(`-d` 는 System 저장소를
