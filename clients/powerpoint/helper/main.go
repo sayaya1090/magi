@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -333,7 +334,31 @@ func (a *API) guard(h func(http.ResponseWriter, *http.Request)) http.HandlerFunc
 				return
 			}
 		}
+		if debugRequests {
+			// MAGI_DEBUG 일 때만 — 어느 창이 무엇을 두드리는지. 「띠가 안 보인다」가 창이 안 부른 것인지 답이 안 온
+			// 것인지를 이 줄 없이는 못 가른다(2026-09-06).
+			rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+			h(rec, r)
+			log.Printf("api %s %s → %d", r.Method, r.URL.RequestURI(), rec.code)
+			return
+		}
 		h(w, r)
+	}
+}
+
+var debugRequests = os.Getenv("MAGI_DEBUG") != ""
+
+type statusRecorder struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *statusRecorder) WriteHeader(code int) { s.code = code; s.ResponseWriter.WriteHeader(code) }
+
+// Flush 는 SSE 가 아닌 /api/* 에서는 안 쓰이지만, 감싼 writer 가 Flusher 를 잃지 않게 넘겨 준다.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }
 

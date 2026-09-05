@@ -194,9 +194,11 @@ function spyFetch(answers = {}) {
 
 {
   const asking = { id: 'c1', kind: 'permission', what: 'mcp__ppt__set_text', args: { a: 1 }, since: '2026-08-31T00:00:00Z' };
-  const { impl } = spyFetch({ '/api/status': { status: 200, body: { reachable: true, doing: '읽는 중', asking } } });
+  const { impl } = spyFetch({ '/api/status': { status: 200, body: { reachable: true, doing: '읽는 중', asking, session: 's_live' } } });
   const st = await new HelperStatus(new HelperApi({ origin: '', fetchImpl: impl })).status();
   ok('물음이 값으로 온다', st.pending?.id === 'c1' && st.pending?.kind === 'permission');
+  ok('대화 이름이 값으로 온다 — 떨어뜨리면 창은 영영 「아직 안 붙었다」다', st.session === 's_live');
+  ok('이름이 안 실려 오면 모름(undefined)이지 빈 이름이 아니다', (await new HelperStatus(new HelperApi({ origin: '', fetchImpl: spyFetch({ '/api/status': { status: 200, body: { reachable: true } } }).impl })).status()).session === undefined);
   ok('닿았는지가 값으로 온다', st.reachable === true && st.doing === '읽는 중');
 
   const dead = spyFetch({ '/api/status': { status: 200, body: { reachable: false, why: '못 닿았습니다' } } });

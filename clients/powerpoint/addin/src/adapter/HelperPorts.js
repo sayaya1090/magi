@@ -28,6 +28,10 @@ export class HelperStatus extends StatusPort {
     // **못 닿은 것과 「묻는 게 없다」를 안 뭉갠다**(§5.7). 헬퍼가 그 둘을 갈라 실어 보낸다.
     return {
       reachable: st?.reachable === true,
+      // **어느 대화에 붙었는가.** 헬퍼가 실어 보내는데 이 포트가 떨어뜨려서, 폴은 대화 이름을 영영 몰랐다 — 브랜드 줄의
+      // 「대화 s_…」와 컨텍스트 띠(붙은 대화가 있어야 묻는다)가 실물에서 안 섰다(2026-09-06). 없으면 undefined — 폴은
+      // 「모름」과 「빈 이름」을 가른다(WatchPrompt: `!== undefined`).
+      session: typeof st?.session === 'string' ? st.session : undefined,
       doing: st?.doing ?? '',
       why: st?.why ?? '',
       streamLive: st?.streamLive === true,
