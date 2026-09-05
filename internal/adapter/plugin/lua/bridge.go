@@ -37,6 +37,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "spawn", L.NewFunction(p.bridgeSpawn))
 	L.SetField(t, "spawn_all", L.NewFunction(p.bridgeSpawnAll))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
+	L.SetField(t, "turn_steps", L.NewFunction(p.bridgeTurnSteps))
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
 	L.SetField(t, "merge_child", L.NewFunction(p.bridgeMergeChild))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
@@ -281,6 +282,12 @@ func (p *plugin) bridgeChildSteps(L *lua.LState) int {
 	if err != nil {
 		return fail(L, "child_steps: "+err.Error())
 	}
+	L.Push(stepsTable(L, steps))
+	return 1
+}
+
+// stepsTable renders tool steps for Lua: {name=, args=(decoded), failed=, output=, output_bytes=}.
+func stepsTable(L *lua.LState, steps []port.ChildStep) *lua.LTable {
 	out := L.NewTable()
 	for _, st := range steps {
 		row := L.NewTable()
@@ -299,7 +306,22 @@ func (p *plugin) bridgeChildSteps(L *lua.LState) int {
 		L.SetField(row, "output_bytes", lua.LNumber(st.OutputBytes))
 		out.Append(row)
 	}
-	L.Push(out)
+	return out
+}
+
+// magi.turn_steps() -> {{name=, args=, failed=, output=, output_bytes=}, ...}
+// The tool calls of the turn this tool call belongs to, oldest first, the running one
+// excluded. Only inside a tool call: a door that judges the turn (landing's `land`) reads
+// what the turn did from the log, not from the agent's account of it.
+func (p *plugin) bridgeTurnSteps(L *lua.LState) int {
+	if p.env.TurnSteps == nil {
+		return fail(L, "turn_steps: only available inside a tool call")
+	}
+	steps, err := p.env.TurnSteps(p.spawnCtx())
+	if err != nil {
+		return fail(L, "turn_steps: "+err.Error())
+	}
+	L.Push(stepsTable(L, steps))
 	return 1
 }
 

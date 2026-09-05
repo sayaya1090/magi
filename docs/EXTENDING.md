@@ -451,6 +451,11 @@ magi.register_mcp{
 
 Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
+> **`magi.turn_steps()`** — inside a tool call only: the tool calls of the turn this call belongs
+> to, oldest first, as `{name=, args=(decoded), failed=, output=(only when failed), output_bytes=}`,
+> the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
+> from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
+
 > 🔐 **`magi.nonce(nbytes?)`** returns `nbytes` (default 16) of cryptographic randomness as a hex
 > string (`crypto/rand`). The sandbox's `math.random` is **deterministically seeded** (with `os`
 > removed there is no clock to seed from), so for **security values** — an OAuth/PKCE `state`, a CSRF

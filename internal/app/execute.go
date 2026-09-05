@@ -487,6 +487,7 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 		// Paired with Spawn and scoped to the same tool call: it answers only for children this
 		// call started, so a plugin cannot read a session it did not create.
 		ChildSteps: hooks.Steps,
+		TurnSteps:  func(c context.Context) ([]port.ChildStep, error) { return a.turnSteps(c, sid) },
 		// Same scope again: a call can only put back a child it started.
 		RestoreChild: hooks.Restore,
 		MergeChild:   hooks.Merge,

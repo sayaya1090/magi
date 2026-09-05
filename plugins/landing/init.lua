@@ -103,6 +103,9 @@ magi.register_tool{
     "left: anything you did NOT do that the ask covered. Empty string if nothing.",
     "An empty or plan-shaped declaration is REFUSED and you keep going — that refusal is not an",
     "error, it is the turn telling you it is not over.",
+    "SEEN IS PART OF DONE: this door reads the turn's own tool log. A turn that added slides",
+    "(add_slides / add_slide) and looked at fewer of them than it made (render_slide) is refused —",
+    "a page nobody looked at is not finished, whatever the report says.",
   }, " "),
   schema = [[{"type":"object","properties":{
     "did":{"type":"array","items":{"type":"string"}},
@@ -128,6 +131,30 @@ magi.register_tool{
     if #bad > 0 then
       return "아직 끝이 아닙니다 — " .. table.concat(bad, " · ")
         .. ". 한 일은 다시 집을 수 있는 이름으로 적습니다. 안 한 것은 did 가 아니라 left 에 적으세요.", true
+    end
+    -- **본 것도 한 일의 일부다.** 신고문은 모델이 쓰지만 이 셈은 턴의 툴 기록에서 한다
+    -- (`magi.turn_steps`): 실물 2026-09-04 두 덱 런에서 스킬이 「장마다 한 번 render_slide」를
+    -- 시켰는데 렌더는 0번이었고, land 는 그것을 몰랐다. 만든 장 수보다 본 횟수가 적으면 거절.
+    local pages, renders = 0, 0
+    local ok, steps = pcall(magi.turn_steps)
+    if ok and type(steps) == "table" then
+      for _, st in ipairs(steps) do
+        if not st.failed then
+          if st.name == "add_slides" then
+            local a = st.args
+            pages = pages + ((type(a) == "table" and type(a.slides) == "table") and #a.slides or 1)
+          elseif st.name == "add_slide" then
+            pages = pages + 1
+          elseif st.name == "render_slide" then
+            renders = renders + 1
+          end
+        end
+      end
+    end
+    if pages > 0 and renders < pages then
+      return ("아직 끝이 아닙니다 — 이 턴에 장을 %d장 만들었는데 눈으로 본 것(render_slide)은 %d번입니다. "
+        .. "장 하나가 끝날 때마다 render_slide{max_width: 640} 로 한 번 보고 어긋난 것을 고친 뒤 착지하세요. "
+        .. "아직 안 본 장부터."):format(pages, renders), true
     end
     credits = credits + 1
     local left = args.left or ""

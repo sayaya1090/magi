@@ -428,6 +428,11 @@ magi.register_mcp{
 
 런타임 정보 API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
+> **`magi.turn_steps()`** — 툴 호출 안에서만: 이 호출이 속한 턴의 툴 호출들을 오래된 순으로
+> `{name=, args=(디코드됨), failed=, output=(실패했을 때만), output_bytes=}` 로 돌려줍니다. 지금
+> 도는 호출(자기 자신)은 빠집니다. 턴을 판정하는 문(landing 의 `land`)이 모델의 신고 대신 기록에서
+> 턴이 한 일을 읽는 자리입니다. 행 모양은 `magi.child_steps(sid)` 와 같습니다.
+
 > 🔐 **`magi.nonce(nbytes?)`** — `nbytes`(기본 16) 바이트의 암호학적 난수를 hex 문자열로 반환
 > (`crypto/rand`). 샌드박스의 `math.random`은 **결정론적으로 시드**되므로(os 제거로 시계 시드 불가)
 > OAuth/PKCE `state`·CSRF 토큰·요청 ID 같은 **보안 값엔 절대 `math.random`을 쓰지 말고 `magi.nonce`를 써라.**

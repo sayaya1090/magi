@@ -427,6 +427,12 @@ type Question struct {
 // ToolEnv carries per-execution context and capabilities granted to a tool.
 type ToolEnv struct {
 	SessionID session.SessionID
+	// TurnSteps lists the tool calls of THIS session's current turn (since the last user
+	// prompt), oldest first, each with its arguments and whether it failed; the call still
+	// running (the caller's own) is not in it. It is how a plugin door can ask what the turn
+	// actually did instead of trusting the agent's account of it — landing's `land` counts
+	// render_slide calls against the slides the turn made. Nil outside a tool call.
+	TurnSteps func(ctx context.Context) ([]ChildStep, error)
 	Workdir   string
 	// ScratchLogs is the TURN's directory for captured command output. A tool that runs a command
 	// writes the combined stdout/stderr there and names the file in its result, so the output
