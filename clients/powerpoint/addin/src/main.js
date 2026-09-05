@@ -487,8 +487,19 @@ async function boot() {
       } catch (e) { view.where(`못 바꿨습니다: ${e?.message ?? e}`); }
       await loadModels();
     };
-    document.querySelector('#provider')?.addEventListener('change', (ev) => { void sendModel({ base: ev.target.value }); });
-    document.querySelector('#model')?.addEventListener('change', (ev) => { void sendModel({ model: ev.target.value }); });
+    // M3 메뉴: 단추가 펴고, 항목이 고르고, 바깥 클릭·Esc 가 접는다.
+    for (const [btnId, menuId, key] of [['#provider', '#provider-menu', 'base'], ['#model', '#model-menu', 'model']]) {
+      const btn = document.querySelector(btnId); const menu = document.querySelector(menuId);
+      btn?.addEventListener('click', () => view.menu(btnId, menu?.hidden !== false));
+      menu?.addEventListener('click', (ev) => {
+        const item = ev.target.closest('[role="menuitemradio"]'); if (!item) return;
+        view.menu(btnId, false);
+        if (item.getAttribute('aria-checked') === 'true') return;
+        void sendModel({ [key]: item.dataset.value });
+      });
+    }
+    document.addEventListener('click', (ev) => { if (!ev.target.closest('#pick-model')) view.menu(null, false); });
+    document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') view.menu(null, false); });
     document.querySelector('#repick')?.addEventListener('click', () => {
       void showCompanions(true);
     });

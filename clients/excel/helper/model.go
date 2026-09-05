@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -65,15 +66,36 @@ func (b *Bridge) Compact() error {
 	})
 }
 
-// providers 는 지금 카탈로그를 답하는 심 명단. 전역 설정의 base_url 도 후보에 든다(웹 콘솔과 같은 조합).
-func (a *API) providers(ctx context.Context) []provider.Provider {
-	base := ""
-	if cfg, err := config.Load(a.ConfigDir); err == nil {
-		base = cfg.BaseURL
-	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+// providers 는 지금 카탈로그를 답하는 심 명단. **지금 쓰는 백엔드**가 먼저 후보에 든다 — 컴패니언 설정의
+// base_url 로 띄운 심은 어느 플러그인도 기록하지 않아 발견 밖이고, 그러면 명단이 그것을 못 세워 다른 데로 바꾼 뒤
+// 되돌아올 길이 없다(실물 2026-09-06: 클로드 심 58412 가 「명단 밖」으로만 섰다). 전역 설정의 base_url 도 든다.
+func (a *API) providers(ctx context.Context, current string) []provider.Provider {
+	ctx, cancel := context.WithTimeout(ctx, 6*time.Second)
 	defer cancel()
-	return provider.Discover(ctx, a.ConfigDir, base)
+	global := ""
+	if cfg, err := config.Load(a.ConfigDir); err == nil {
+		global = strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	}
+	current = strings.TrimRight(strings.TrimSpace(current), "/")
+	first := current
+	if first == "" {
+		first = global
+	}
+	out := provider.Discover(ctx, a.ConfigDir, first)
+	taken := map[string]bool{}
+	for i := range out {
+		taken[out[i].Base] = true
+		if out[i].Name == "default" && out[i].Base == current && current != "" {
+			out[i].Name = "지금 백엔드"
+		}
+	}
+	if global != "" && global != current && !taken[global] {
+		// 발견은 한 후보만 받는다 — 플러그인 기록 없는 빈 뿌리로 한 번 더 물어 전역 것을 붙인다.
+		for _, p := range provider.Discover(ctx, filepath.Join(a.ConfigDir, "no-plugin-data-here"), global) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // GET /api/context — 창의 구성. 안 붙었으면 사유를 실어 409.
@@ -92,18 +114,20 @@ func (a *API) contextState(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/models — 고를 수 있는 것(프로바이더·모델)과 지금 것(백엔드·모델).
 func (a *API) models(w http.ResponseWriter, r *http.Request) {
-	out := map[string]any{"providers": a.providers(r.Context())}
 	if socket, _, _ := a.chat(r).Bound(); socket == "" {
-		out["error"] = "아직 어느 컴패니언에도 안 붙었습니다"
-		writeStatus(w, http.StatusConflict, out)
+		writeStatus(w, http.StatusConflict, map[string]any{"error": "아직 어느 컴패니언에도 안 붙었습니다", "providers": []provider.Provider{}})
 		return
 	}
+	out := map[string]any{}
+	current := ""
 	if st, err := a.chat(r).Status(); err == nil {
 		out["backend"] = st["backend"]
 		out["model"] = st["model"]
+		current, _ = st["backend"].(string)
 	} else {
 		out["warning"] = err.Error()
 	}
+	out["providers"] = a.providers(r.Context(), current)
 	names, err := a.chat(r).Models()
 	if err != nil {
 		out["warning"] = err.Error()
@@ -135,7 +159,11 @@ func (a *API) setModel(w http.ResponseWriter, r *http.Request) {
 	did := []string{}
 	if in.Base != "" {
 		known := false
-		for _, p := range a.providers(r.Context()) {
+		current := ""
+		if st, err := a.chat(r).Status(); err == nil {
+			current, _ = st["backend"].(string)
+		}
+		for _, p := range a.providers(r.Context(), current) {
 			if p.Base == in.Base {
 				known = true
 			}

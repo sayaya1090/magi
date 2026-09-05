@@ -908,7 +908,25 @@ button:disabled { cursor: default; opacity: .5; }
 .p-system { color: var(--p-system); } .p-tools { color: var(--p-tools); } .p-talk { color: var(--p-talk); } .p-calls { color: var(--p-calls); } .p-results { color: var(--p-results); }
 .ctx-bar i.p-system { background: var(--p-system); } .ctx-bar i.p-tools { background: var(--p-tools); } .ctx-bar i.p-talk { background: var(--p-talk); }
 .ctx-bar i.p-calls { background: var(--p-calls); } .ctx-bar i.p-results { background: var(--p-results); }
-/* ── 프로바이더·모델 ─────────────────────────────────────────── */
-.pick-model { display: flex; gap: var(--s1); align-items: center; flex-wrap: wrap; margin-left: var(--s2); }
-.pick-model select { font: var(--t-caption); max-width: 130px; padding: 2px 4px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg, #fff); color: inherit; }
+/* ── 프로바이더·모델 — M3 메뉴 ─────────────────────────────────
+   아이콘 단추(.icon-btn)를 누르면 위로 펴지는 메뉴. M3 menu: extra-small 모서리(4px), 항목 48px, 라벨 body-large,
+   surface container 위에 level 2 그림자, 너비 112~280. 고른 항목은 앞의 체크로 선다(menuitemradio). */
+.pick-model { position: relative; display: flex; gap: var(--s1); align-items: center; }
+.menu {
+  position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 20;
+  min-width: 112px; max-width: 280px; padding: 8px 0; border-radius: 4px;
+  background: var(--bg, #fff); color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
+  max-height: 60vh; overflow: auto;
+}
+.menu-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px;
+  background: none; border: 0; text-align: left; font: var(--t-body); color: var(--fg); cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
+.menu-item:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.menu-check { width: 18px; flex: none; color: var(--accent); visibility: hidden; }
+.menu-item[aria-checked="true"] .menu-check { visibility: visible; }
+.menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-empty { padding: 12px; font: var(--t-caption); color: var(--muted); }
 .model-note { font: var(--t-caption); color: var(--muted); }

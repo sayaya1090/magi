@@ -38,6 +38,7 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-xl`, 3001)
 | 지침(`instructions.go`) | 덱 브리프 7단계 | 통합 문서 브리프 7단계 |
 | 스킬 | 5벌 | 3벌(`excel/skills/`: `sheet-design`·`formulas`·`charts-and-pivots`) |
 | 그림(`image.go`) | 슬라이드·도형 | 범위·차트(`render_range`·`render_chart`) — 같은 기전 |
+| 모델·컨텍스트(`model.go`) | 같음 | `/api/models`·`/api/model`·`/api/context`·`/api/compact` — 데몬의 models·use-backend·set-model·context·compact 문 위 |
 
 나머지 파일(`args.go`·`attach.go`·`bridge.go`·`bridges.go`·`certs.go`·`claim.go`·`council.go`·`guides.go`·
 `handhttp.go`·`icon.go`·`mcp.go`·`own.go`·`ownstate.go`·`page.go`·`skills.go`)은 이름만 바꾼 복사다. **이것은

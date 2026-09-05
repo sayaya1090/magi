@@ -1110,14 +1110,36 @@ export class View {
   /** 프로바이더·모델 고르기. 목록과 지금 것은 `modelPicker`(screen.js)가 정한다. */
   modelPicker(m) {
     const p = modelPicker(m);
-    const fill = (sel, options) => {
-      if (!sel) return;
-      sel.replaceChildren(...options.map((o) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.text; el.selected = o.selected; return el; }));
-      sel.disabled = options.length === 0;
+    const fill = (btnId, menuId, options, what) => {
+      const btn = $(btnId); const menu = $(menuId);
+      if (!btn || !menu) return;
+      const now = options.find((o) => o.selected)?.text ?? '모름';
+      const tip = `${what}: ${now} — 누르면 고릅니다(다음 턴부터)`;
+      btn.title = tip; btn.setAttribute('aria-label', tip);
+      btn.disabled = options.length === 0;
+      if (options.length === 0) {
+        const empty = document.createElement('div'); empty.className = 'menu-empty'; empty.textContent = '고를 것이 없습니다';
+        menu.replaceChildren(empty); return;
+      }
+      menu.replaceChildren(...options.map((o) => {
+        const item = document.createElement('button'); item.type = 'button'; item.className = 'menu-item';
+        item.setAttribute('role', 'menuitemradio'); item.setAttribute('aria-checked', String(o.selected)); item.dataset.value = o.value;
+        const check = document.createElement('span'); check.className = 'menu-check'; check.textContent = '✓';
+        const label = document.createElement('span'); label.className = 'menu-label'; label.textContent = o.text; label.title = o.text;
+        item.append(check, label); return item;
+      }));
     };
-    fill($('#provider'), p.providers); fill($('#model'), p.models);
+    fill('#provider', '#provider-menu', p.providers, '프로바이더'); fill('#model', '#model-menu', p.models, '모델');
     const note = $('#model-note'); if (note) { note.textContent = p.note; note.hidden = !p.note; }
-    const wrap = $('#pick-model'); if (wrap) wrap.title = p.title;
+  }
+
+  /** 메뉴 하나를 펴거나 접는다. 하나만 펴진다 — 둘이 겹치면 어느 것을 고르는지 눈이 못 따라간다. */
+  menu(id, open) {
+    for (const [b, m] of [['#provider', '#provider-menu'], ['#model', '#model-menu']]) {
+      const btn = $(b); const menu = $(m); if (!btn || !menu) continue;
+      const on = open && b === id;
+      menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)); btn.classList.toggle('icon-on', on);
+    }
   }
 
   councilButton(on) {
