@@ -716,6 +716,11 @@ Office.js 에 글꼴 스킴이 없다는 것은 레퍼런스로 확인했다(`Sl
 
 ---
 
+**`-race` 는 안 돈다 — 그리고 돌리면 둘이 난다(2026-09-05 실측).** `TestOneCallAtATimeButOnlyOneCall`
+(`hand.go` 의 허브)과 `TestAJobThatNeverReturnsDoesNotTrapEveryonePane`(픽스처가 `Own.Alive` 를 도는
+고루틴이 읽는 중에 갈아 끼움). 둘 다 재설계(`ffc039e0`) **전** 커밋에서도 난다 — 새 것이 아니라
+여태 안 잰 것이다. 허브 쪽은 실물 결함일 수 있고, 픽스처 쪽은 시험의 결함이다. 다음에 잡는다.
+
 ## 9. 가드를 새로 세울 때 묻는 셋
 
 1. **훑는 범위가 규칙이 사는 범위와 같은가.** 매니페스트 순서 가드는 처음에 주석 안까지 봤고,

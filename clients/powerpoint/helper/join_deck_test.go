@@ -1,8 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 )
 
 // **마련은 컴패니언당 한 번, 묶는 것은 덱마다.**
@@ -17,28 +20,65 @@ func TestEachDeckSettlesEvenWhenTheWorkIsDone(t *testing.T) {
 	api := &API{
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
 		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
-		Fresh: func(string) (string, error) { opened++; return "sess-b", nil },
+		Fresh: func(string) (string, error) { opened++; return fmt.Sprintf("sess-%d", opened), nil },
 	}
-	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-a", Life: "1@t0"}
+	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
 
+	// **이름 있는 덱은 데몬의 「지금」 대화를 안 받는다** — 그건 콘솔의 것이다(§5.9.3). 앞 판본은
+	// 첫 덱이 그것을 받았고, 창 둘이 같은 순간 폴하면 그 「첫」이 둘이 됐다.
 	got := api.settle("deck-a", ready)
-	if got.Session != "sess-a" || len(got.Tools) != 1 {
-		t.Fatalf("첫 덱이 안 묶였다: %+v", got)
+	if got.Session == "sess-console" || got.Session == "" || len(got.Tools) != 1 {
+		t.Fatalf("첫 덱이 자기 대화를 안 열었다: %+v", got)
 	}
-	// 둘째 덱은 **자기 대화**를 받는다 — 같은 것에 묶으면 두 창이 한 줄이 된다.
-	got = api.settle("deck-b", ready)
-	if got.Session != "sess-b" {
-		t.Fatalf("둘째 덱이 남의 대화에 묶였다: %q", got.Session)
+	// 둘째 덱도 **자기 대화** — 같은 것에 묶으면 두 창이 한 줄이 된다.
+	got2 := api.settle("deck-b", ready)
+	if got2.Session == got.Session || got2.Session == "" {
+		t.Fatalf("둘째 덱이 첫째와 같은 대화에 묶였다: %q", got2.Session)
 	}
-	if opened != 1 || bolts != 2 {
-		t.Errorf("새 대화 %d번, 붙임 %d번 — 각각 1, 2 여야 한다", opened, bolts)
+	if opened != 2 || bolts != 2 {
+		t.Errorf("새 대화 %d번, 붙임 %d번 — 각각 2 여야 한다", opened, bolts)
 	}
 	// **이미 맞으면 아무것도 안 한다.** 다시 붙이면 첫 등록이 떨어지고, 다시 묶으면 스트림이
 	// 끊겼다 이어진다.
 	api.settle("deck-a", ready)
 	api.settle("deck-b", ready)
-	if opened != 1 || bolts != 2 {
+	if opened != 2 || bolts != 2 {
 		t.Errorf("멱등이 아니다: 대화 %d, 붙임 %d", opened, bolts)
+	}
+}
+
+// **같은 순간에 폴하는 창 둘.** 멱등은 순서를 보장하지 않는다 — 나란히 돌면 둘 다 안 묶인 채라
+// 서로를 못 본다. 실물에서 두 덱이 같은 주인으로 붙다 `attached and then vanished` 를 받았다
+// (2026-09-05). 직렬화가 그것을 막고, 이 시험은 그 잠금을 빼면 운다.
+func TestConcurrentSettlesDoNotShareASession(t *testing.T) {
+	bs := NewBridges()
+	var mu sync.Mutex
+	opened := 0
+	owners := map[string]int{}
+	api := &API{
+		Bridge: NewBridge(), Bridges: bs, Port: 3000,
+		Bolt: func(_, _, _ string) ([]string, error) {
+			return []string{"t"}, nil
+		},
+		Fresh: func(string) (string, error) {
+			mu.Lock()
+			defer mu.Unlock()
+			opened++
+			time.Sleep(2 * time.Millisecond) // 경주가 실제로 겹치게
+			return fmt.Sprintf("s-%d", opened), nil
+		},
+	}
+	_ = owners
+	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
+	var wg sync.WaitGroup
+	got := make([]OwnReport, 2)
+	for i, d := range []string{"deck-a", "deck-b"} {
+		wg.Add(1)
+		go func(i int, d string) { defer wg.Done(); got[i] = api.settle(d, ready) }(i, d)
+	}
+	wg.Wait()
+	if got[0].Session == got[1].Session {
+		t.Fatalf("나란히 돌자 두 덱이 같은 대화를 받았다: %q", got[0].Session)
 	}
 }
 
@@ -50,9 +90,10 @@ func TestADaemonRestartIsSeenByItsLife(t *testing.T) {
 	bolts := 0
 	api := &API{
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
-		Bolt: func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
+		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
+		Fresh: func(string) (string, error) { return "sess-a", nil },
 	}
-	first := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-a", Life: "1@t0"}
+	first := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
 	api.settle("deck-a", first)
 	api.settle("deck-a", first)
 	if bolts != 1 {

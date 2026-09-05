@@ -231,6 +231,11 @@ type API struct {
 	// 갈래는 안 만든 것과 같다(TESTING §1).
 	ReadFleet func(configDir string) ([]Companion, error)
 	Bolt      func(socket, url, token string) ([]string, error)
+	// settling 은 `settle` 을 **한 번에 하나만** 돌린다. 창 둘이 같은 순간에 폴하면 두 `settle` 이
+	// 나란히 도는데, 둘 다 아직 안 묶인 채라 서로를 못 보고 **같은 대화·같은 주인**으로 붙는다 —
+	// 데몬은 그것을 `"ppt" attached and then vanished` 로 거절했다(2026-09-05 실물, 두 덱 다).
+	// 멱등은 순서를 보장하지 않는다; 직렬화가 한다.
+	settling sync.Mutex
 	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
 	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
 	LifeOf func(socket string) string
@@ -438,6 +443,8 @@ func (a *API) provision() {
 // 스트림의 `live` 는 안 본다 — 스트림은 스스로 재접속하고(`Bridge.stream`), 막 묶은 직후는 늘
 // `live=false` 라 그것으로 재면 매 폴마다 다시 묶는다.
 func (a *API) settle(deck string, rep OwnReport) OwnReport {
+	a.settling.Lock()
+	defer a.settling.Unlock()
 	b := a.Bridge
 	if deck != "" && a.Bridges != nil {
 		b = a.Bridges.For(deck)
@@ -448,25 +455,24 @@ func (a *API) settle(deck string, rep OwnReport) OwnReport {
 		return rep
 	}
 	// 세션을 정한다. 이미 이 소켓에 묶였던 대화면 그대로 — 데몬이 다시 떠도 대화는 디스크에 있다.
-	// 처음이면 컴패니언의 것을 받는다. **그것이 비었으면 명단을 다시 읽는다** — 갓 뜬 데몬은
-	// 소켓에 선 뒤에 자기 기록을 쓰므로, 마련할 때는 없던 이름이 지금은 있을 수 있다. 그래도
-	// 없고 덱이 있으면 새로 연다(덱마다 자기 대화). 다른 덱이 들고 있어도 새로 연다.
+	//
+	// **이름 있는 덱은 늘 자기 대화를 새로 연다.** 데몬의 「지금」 대화(`rep.Session`)는 콘솔의
+	// 편의이지 어느 덱의 것이 아니다(DESIGN §5.9.3). 앞 판본은 첫 덱이 그것을 받고 둘째부터 새로
+	// 열었는데, 그 「첫」이 경주에서 둘이 됐다. 이름 없는 창(옛 길)만 「지금」을 받고, 그것이
+	// 비었으면 명단을 다시 읽는다 — 갓 뜬 데몬은 소켓에 선 뒤에 자기 기록을 쓴다.
 	sid := sid0
 	if sid == "" || socket0 != rep.Socket {
-		sid = rep.Session
-		if sid == "" {
-			sid = a.sessionOn(rep.Socket)
-		}
-		if deck != "" && a.Bridges != nil {
-			if who, taken := a.Bridges.Holder(sid); sid == "" || (taken && who != deck) {
-				fresh, err := a.freshOn(rep.Socket)
-				if err != nil && sid == "" {
-					rep.Chat = "이 덱의 대화를 못 열었습니다: " + err.Error()
-					return rep
-				}
-				if err == nil {
-					sid = fresh
-				}
+		if deck != "" {
+			fresh, err := a.freshOn(rep.Socket)
+			if err != nil {
+				rep.Chat = "이 덱의 대화를 못 열었습니다: " + err.Error()
+				return rep
+			}
+			sid = fresh
+		} else {
+			sid = rep.Session
+			if sid == "" {
+				sid = a.sessionOn(rep.Socket)
 			}
 		}
 	}

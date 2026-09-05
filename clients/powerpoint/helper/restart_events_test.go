@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"testing"
 )
@@ -24,7 +25,7 @@ func newRestartRig() *restartRig {
 			r.bolts = append(r.bolts, socket)
 			return []string{"list_slides"}, nil
 		},
-		Fresh: func(string) (string, error) { r.opened++; return "s_fresh", nil },
+		Fresh: func(string) (string, error) { r.opened++; return fmt.Sprintf("s_fresh%d", r.opened), nil },
 	}
 	return r
 }
@@ -44,7 +45,7 @@ func TestRestartColumnPaneReopen(t *testing.T) {
 	if len(r.bolts) != before {
 		t.Errorf("창을 껐다 켰는데 다시 붙였다: %v", r.bolts)
 	}
-	if got.Session != "s_deck" || len(got.Tools) != 1 {
+	if got.Session != "s_fresh1" || len(got.Tools) != 1 {
 		t.Errorf("묶여 있던 것을 그대로 안 줬다: %+v", got)
 	}
 }
@@ -75,7 +76,7 @@ func TestRestartColumnDaemonRestart(t *testing.T) {
 	if len(r.bolts) != 2 {
 		t.Errorf("다시 뜬 데몬에 안 붙였다: %v", r.bolts)
 	}
-	if got.Session != "s_deck" {
+	if got.Session != "s_fresh1" {
 		t.Errorf("데몬이 다시 떴다고 대화를 갈았다: %q", got.Session)
 	}
 	// 그리고 `/api/own` 이 그 사건을 **보는** 자리는 하나다 — 생애 비교.
@@ -97,10 +98,10 @@ func TestRestartColumnPowerPointRestart(t *testing.T) {
 	r.api.settle("pid-deck-OLD", r.ready())
 	// 새 덱 키. 옛 키는 아무 손도 없이 s_deck 을 들고 있다.
 	got := r.api.settle("pid-deck-NEW", r.ready())
-	if got.Session == "s_deck" {
+	if got.Session == "s_fresh1" {
 		t.Errorf("새 덱이 죽은 덱의 대화를 물려받았다 — 두 창이 한 줄이 된다: %+v", got)
 	}
-	if r.opened != 1 {
+	if r.opened != 2 {
 		t.Errorf("새 덱에 자기 대화를 안 열었다: opened=%d", r.opened)
 	}
 }
