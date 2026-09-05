@@ -12,7 +12,7 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 167 | 2026-09-05 | 통과 |
+| 1·2·3. Go (`helper/`) | 168 | 2026-09-05 | 통과 |
 | 4. JS 순수층 (`addin/tools/`) | 1,542 | 2026-09-05 | 통과 (smoke 837 · officehand 653 · hand 52) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
