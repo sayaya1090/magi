@@ -10,6 +10,15 @@
 local SUMMARY = "SESSION_SUMMARY.md"
 local SKILLS_DIR = ".claude/skills"
 
+-- [plugins.engram] author_skills — 기본 true. "false"/"off"/"0" 이면 스킬을 짓지 않는다(교훈은 남긴다).
+local function authorSkills()
+  local v = magi.store_get("author_skills")
+  if v == nil then return true end
+  if type(v) == "boolean" then return v end  -- `false or "true"` 의 함정: 불리언은 or 로 못 받는다
+  local s = tostring(v):lower()
+  return not (s == "false" or s == "off" or s == "0")
+end
+
 -- 셸 스크립트로 보이는가: 한글 음절이 없고(UTF-8 EA B0 80 ~ ED 9E A3), 첫 비어 있지 않은 줄이
 -- shebang 이거나 명령처럼 시작한다. 산문 절차를 .sh 로 쓰지 않기 위한 문지기(2026-09-05).
 local function looksLikeShell(s)
@@ -657,7 +666,14 @@ local function analyze_and_record(sid, hint, user, used_csv)
   end
 
   -- 검증된 성공의 스킬만 저장 (사이드카 프롬프트의 결정 규칙이 1차 게이트)
+  -- [plugins.engram] author_skills = false 면 교훈만 남기고 스킬은 짓지 않는다. 모델이 지은 스킬은
+  -- 손으로 쓴 스킬과 같은 자리에 광고돼 다음 런의 규칙이 된다 — 실물 2026-09-05(PPT): 지은 스킬
+  -- 하나가 세 런에 걸쳐 존재하지 않는 검증 스크립트를 찾게 했다. 컴패니언마다 끌 수 있어야 한다.
   local skill = result.skill
+  if skill and not authorSkills() then
+    magi.log("engram: skill authoring is off for this companion ([plugins.engram] author_skills) — lesson only")
+    skill = nil
+  end
   if skill and skill.name and skill.technique then
     -- 되돌리기 스냅샷은 저장 **전**에 뜬다: 같은 name 재사용(머지·진화) 저장의 취소는
     -- "삭제"가 아니라 "이전 판 복원"이어야 한다 — 삭제는 이번 턴이 만든 것이 아니라

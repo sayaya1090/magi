@@ -76,3 +76,29 @@ func jsonString(s string) string {
 	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 	return `"` + r.Replace(s) + `"`
 }
+
+// [plugins.engram] author_skills=false keeps the lesson and writes no skill.
+func TestEngramAuthorSkillsOff(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	wd := t.TempDir()
+	fa := &fakeAnalyzer{reply: `{"lesson":{"task":"덱 제작","approach":"x","outcome":"success","lesson":"y","category":"구현"},` +
+		`"skill":{"name":"deck_off","trigger":"t","technique":"add_slides 로 뼈대","description":"d"}}`}
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, Analyzer: fa,
+		DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: wd}, Notify: func(string, string) {}, Logf: func(string) {},
+		PluginConfigs: map[string]map[string]any{"engram": {"author_skills": false}}})
+	if _, err := h.Load(context.Background(), src); err != nil {
+		t.Fatalf("load engram: %v", err)
+	}
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "덱 만들어"})
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "만들었습니다", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+	if b, err := os.ReadFile(filepath.Join(wd, "SESSION_SUMMARY.md")); err != nil || !strings.Contains(string(b), "덱 제작") {
+		t.Fatalf("the lesson must still be recorded: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(wd, ".claude/skills/deck_off/SKILL.md")); err == nil {
+		t.Error("with author_skills=false no skill may be written")
+	}
+}
