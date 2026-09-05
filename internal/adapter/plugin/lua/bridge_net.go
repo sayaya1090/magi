@@ -459,17 +459,22 @@ func (p *plugin) streamServeBody(w http.ResponseWriter, r *http.Request, pull *s
 		flusher.Flush()
 	}
 	for {
-		select {
-		case <-r.Context().Done():
-			p.callServeAbort(pull)
-			return
-		default:
-		}
+		// Pull first, and only treat a gone client as an abort while we are WAITING for data. The
+		// last chunk is usually the whole ending (finish frame, usage, [DONE]); a client that read it
+		// closes the connection at once, and checking the context before the next pull mistook that
+		// for abandonment — the plugin's abort then killed a child that had just answered correctly
+		// (2026-09-05 실측: every turn spawned a fresh agy).
 		chunk, done, ok := p.pullServeChunk(pull)
 		if !ok || done {
 			return
 		}
 		if chunk == "" {
+			select {
+			case <-r.Context().Done():
+				p.callServeAbort(pull)
+				return
+			default:
+			}
 			time.Sleep(servePullIdle)
 			continue
 		}

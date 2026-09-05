@@ -491,3 +491,59 @@ magi.log("port=" .. tostring(s.port))`,
 		t.Fatalf("stream tail = %q", rest)
 	}
 }
+
+// A client that reads the whole stream and hangs up at once is not an abandonment: the body's next
+// pull returns nil and that is the end. `abort` fires only when the client leaves while the body is
+// still waiting for data. The distinction matters for a shim that kills its child on abort.
+func TestServeAbortFiresOnlyWhenTheClientLeavesMidStream(t *testing.T) {
+	h, out := loadHost(t, HostConfig{},
+		`name="srv"`+"\n"+`permissions=["net:listen"]`,
+		`local aborted = 0
+local s = magi.serve{ port = 0, handler = function(req)
+  if req.path == "/aborted" then return tostring(aborted) end
+  local n = 0
+  local slow = req.path == "/slow"
+  return { status = 200, body = function()
+    n = n + 1
+    if n == 1 then return "all of it\n" end
+    if slow then return "" end            -- keeps waiting for more that never comes
+    return nil
+  end, abort = function() aborted = aborted + 1 end }
+end }
+magi.log("port=" .. tostring(s.port))`,
+	)
+	defer func() { _ = h.Unload("srv") }()
+	port := parsePort(t, out)
+	get := func(path string) string {
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d%s", port, path))
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return string(b)
+	}
+	if got := get("/done"); got != "all of it\n" {
+		t.Fatalf("body = %q", got)
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := get("/aborted"); got != "0" {
+		t.Fatalf("a client that read everything and hung up counted as an abort (%s)", got)
+	}
+	// Now leave in the middle: read the first chunk, close while the body is still waiting.
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/slow", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 32)
+	_, _ = resp.Body.Read(buf)
+	resp.Body.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if get("/aborted") == "1" {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("leaving mid-stream did not fire abort")
+}
