@@ -2351,9 +2351,12 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 보내는 키. Enter 혼자로 보내지면 여러 줄을 적을 수 없다 — 줄바꿈이 발송이 된다.
   ok('Cmd/Ctrl 을 짚어야 보낸다',
     isSendKey({ key: 'Enter', metaKey: true }) && isSendKey({ key: 'Enter', ctrlKey: true })
-      && !isSendKey({ key: 'Enter' }),
+      && isSendKey({ key: 'Enter' }),
     `plain=${isSendKey({ key: 'Enter' })}`);
   ok('Enter 가 아니면 짚어도 안 보낸다', !isSendKey({ key: 'k', metaKey: true }));
+  // 채팅 창의 약속(2026-09-05): Enter 는 보내고 Shift+Enter 는 줄바꿈. 한글 조합 중의 Enter 는 보내지 않는다.
+  ok('Shift+Enter 는 줄바꿈이라 안 보낸다', !isSendKey({ key: 'Enter', shiftKey: true }) && !isSendKey({ key: 'Enter', altKey: true }));
+  ok('조합 중의 Enter 는 안 보낸다', !isSendKey({ key: 'Enter', isComposing: true }));
 
   // 판을 다시 세우면 사람이 적던 답과 포커스가 지워진다. 서명이 같은 동안은 안 세운다.
   ok('서명이 같으면 판을 안 다시 세운다',

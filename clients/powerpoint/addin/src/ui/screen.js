@@ -14,7 +14,11 @@ import { targetLabel } from '../domain/Advice.js';
 
 /** 보내는 키. **Enter 혼자로는 안 보낸다** — 여러 줄을 적는 칸이라 줄바꿈이 발송이 되면 안 된다. */
 export function isSendKey(e) {
-  return e.key === 'Enter' && (e.metaKey || e.ctrlKey);
+  // Enter 가 보내고 Shift+Enter 가 줄을 바꾼다 — 채팅 창의 흔한 약속(사용자 2026-09-05). ⌘/Ctrl+Enter
+  // 도 여전히 보낸다. **한글 조합 중의 Enter 는 조합을 끝내는 키라 보내지 않는다**(isComposing).
+  if (e.key !== 'Enter' || e.isComposing) return false;
+  if (e.metaKey || e.ctrlKey) return true;
+  return !e.shiftKey && !e.altKey;
 }
 
 /**

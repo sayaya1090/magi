@@ -110,6 +110,7 @@ export class View {
     $('#send').addEventListener('click', () => this.guard(() => this.onSend(), '못 보냈습니다'));
     $('#input').addEventListener('keydown', (e) => {
       if (isSendKey(e)) {
+        e.preventDefault();   // 보내는 Enter 는 줄을 바꾸지 않는다
         this.guard(() => this.onSend(), '못 보냈습니다');
       }
     });
