@@ -127,7 +127,18 @@ var (
 
 // serveIcon 은 `/assets/icon-<n>.png` 를 낸다.
 func serveIcon(w http.ResponseWriter, r *http.Request) bool {
-	name, ok := strings.CutPrefix(r.URL.Path, "/assets/icon-")
+	// 주소에 판 번호 한 칸(/assets/v3/icon-32.png)을 허용한다 — Office 는 애드인 자원을 주소로 캐시하므로
+	// 그림을 바꾸면 매니페스트의 번호를 올려 새 주소로 받게 한다. 번호는 아무 값이나 받는다 — 그림은
+	// 하나뿐이다. (쿼리 ?v=2 도 시도했는데 그때는 아래 Cache-Control 이 아직 no-store 라 자리표시자가
+	// 떴다 — 쿼리 자체가 안 되는지는 다시 안 쟀다. 경로 판은 되는 것이 잰 사실이라 이쪽을 둔다.)
+	rest, ok := strings.CutPrefix(r.URL.Path, "/assets/")
+	if !ok {
+		return false
+	}
+	if head, tail, found := strings.Cut(rest, "/"); found && len(head) > 1 && head[0] == 'v' && isDigits(head[1:]) {
+		rest = tail
+	}
+	name, ok := strings.CutPrefix(rest, "icon-")
 	if !ok {
 		return false
 	}
@@ -166,8 +177,26 @@ func serveIcon(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	w.Header().Set("Content-Type", "image/png")
+	// **아이콘만은 캐시하게 둔다.** 페이지 손잡이가 위에서 no-store 를 걸었는데, Office 의 리본은 아이콘을
+	// 자기 캐시 파일에서 그린다 — 캐시할 수 없는 그림은 기본 자리표시자(파란 육각형)로 떴다(2026-09-06,
+	// LTSC 2021 실측: 주소를 바꿔 새로 받게 해도 자리표시자였고, 이 헤더를 바꾸니 마크가 섰다). 주소에
+	// 판 번호가 있으므로 오래 캐시해도 그림이 바뀌면 새 주소로 새로 받는다.
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	// **최선 노력이다.** 이미 헤더를 보냈으므로 여기서 쓰기가 실패해도 할 말이 없다 — 상대가
 	// 연결을 끊은 것이고, 그건 오류가 아니라 리본이 아이콘을 다 받았거나 안 받았다는 사실일 뿐이다.
 	_, _ = w.Write(body)
+	return true
+}
+
+// isDigits 는 빈 문자열이 아니고 전부 숫자인가.
+func isDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
 	return true
 }

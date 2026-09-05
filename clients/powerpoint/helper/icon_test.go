@@ -168,7 +168,7 @@ func TestEverySizeTheManifestNamesIsDrawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := regexp.MustCompile(`/assets/icon-(\d+)\.png`).FindAllStringSubmatch(string(body), -1)
+	want := regexp.MustCompile(`/assets/(?:v\d+/)?icon-(\d+)\.png`).FindAllStringSubmatch(string(body), -1)
 	if len(want) == 0 {
 		t.Fatal("매니페스트에서 아이콘 주소를 못 찾았다 — 훑을 것이 없으면 이 시험은 아무것도 안 잰다")
 	}

@@ -39,10 +39,18 @@
   <Version>0.1.0.0</Version>
   <ProviderName>magi</ProviderName>
   <DefaultLocale>ko-KR</DefaultLocale>
-  <DisplayName DefaultValue="magi" />
+  <DisplayName DefaultValue="Magi(AI Assistant)" />
   <Description DefaultValue="열려 있는 덱을 읽고, 말로 시킨 편집을 수행하고, 무엇을 바꿨는지 말합니다." />
-  <IconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/assets/icon-80.png" />
+  <!--
+    아이콘 주소의 /v N/ 칸은 **캐시 깨기**다. Office 는 애드인 자원을 주소의 해시로 캐시한다
+    (%LOCALAPPDATA%/Microsoft/Office/16.0/Wef/Resources/<해시>) — 같은 주소면 서버가 새 그림을 내도
+    영영 옛 그림을 그린다. 실물에서 봤다(2026-09-06, LTSC 2021): 헬퍼는 magi 마크를 내는데 리본은 9월 1일의
+    82바이트짜리 주황 네모를 그리고 있었고, 리본 캐시를 지우고 다시 추가해도 그대로였다. 그림을 바꾸면 N 을
+    올린다. 그리고 그림은 **캐시할 수 있어야** 한다 — no-store 로 내면 리본은 기본 자리표시자(파란 육각형)를
+    그린다(icon.go serveIcon 이 아이콘에만 max-age 를 준다).
+  -->
+  <IconUrl DefaultValue="https://127.0.0.1:3000/assets/v3/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/assets/v3/icon-80.png" />
   <SupportUrl DefaultValue="https://github.com/sayaya1090/magi" />
 
   <AppDomains>
@@ -127,22 +135,22 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3000/assets/icon-16.png" />
-        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3000/assets/icon-32.png" />
-        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3000/assets/icon-80.png" />
+        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-16.png" />
+        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-32.png" />
+        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-80.png" />
       </bt:Images>
       <bt:Urls>
         <bt:Url id="Taskpane.Url" DefaultValue="https://127.0.0.1:3000/taskpane.html" />
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/sayaya1090/magi" />
       </bt:Urls>
       <bt:ShortStrings>
-        <bt:String id="Group.Label" DefaultValue="magi" />
-        <bt:String id="Button.Label" DefaultValue="magi 창" />
-        <bt:String id="GetStarted.Title" DefaultValue="magi 가 설치됐습니다" />
+        <bt:String id="Group.Label" DefaultValue="AI Assistant" />
+        <bt:String id="Button.Label" DefaultValue="Magi" />
+        <bt:String id="GetStarted.Title" DefaultValue="Magi(AI Assistant)가 설치됐습니다" />
       </bt:ShortStrings>
       <bt:LongStrings>
         <bt:String id="Button.Tooltip" DefaultValue="채팅창을 엽니다. 도형을 잡고 「선택 인용」을 누르면 인용부호로 담깁니다." />
-        <bt:String id="GetStarted.Description" DefaultValue="홈 탭의 magi 단추로 창을 엽니다." />
+        <bt:String id="GetStarted.Description" DefaultValue="홈 탭 「AI Assistant」의 「Magi」 단추로 창을 엽니다." />
       </bt:LongStrings>
     </Resources>
   </VersionOverrides>

@@ -702,6 +702,19 @@ GUID, 애니메이션 by-level, 배경. 차트의 품은 통합 문서도 열린
 `Start-Sleep 4` 동안 살아 있는데 창 핸들 0. 같은 날 `internal/app` 의 `TestWhatThisSessionBuiltIsNotAskedAbout` 가
 빨간데, 내 변경을 걷어내도 빨갛다 — 이 머신의 기존 실패다.
 
+**리본 이름과 아이콘(2026-09-06, 사용자).** 이름을 바꾸고 다시 추가해도 「magi 창」이 남았다 — Office 는 리본
+customization 을 레지스트리(`WEF\PowerPoint_*RibbonCustomizationExpire`·`PowerPoint_RibbonCache`)에 캐시한다.
+그 값을 지우고 껐다 켜고 다시 추가하니 새 이름이 섰다(설치기가 매니페스트가 바뀌면 그렇게 한다). 그룹 이름은
+한 줄만 그린다 — 「Magi(AI Assistant)」가 그룹을 넓혀서 그룹 「AI Assistant」·단추 「Magi」로 갈랐다(사용자).
+아이콘은 세 겹이었다. ① 리본은 9월 1일 M365 시절의 82바이트 주황 네모를 `Wef\Resources` 에 물고 있었다 —
+주소가 같으면 서버가 새 그림을 내도 안 받는다. 주소에 판 번호를 넣었다(`/assets/v3/icon-32.png`, 헬퍼가 그 칸을
+벗긴다). ② 새 주소로 받게 해도 **파란 육각형(기본 자리표시자)**가 떴다 — WinHTTP 로 직접 받으면 200 인데.
+원인은 `Cache-Control: no-store` 였다: 페이지 손잡이가 모든 것에 걸어 둔 것인데, 리본은 아이콘을 **캐시 파일에서**
+그린다. 아이콘에만 `max-age` 를 주니 마크가 섰다. ③ 그 사이 쿼리(?v=2)로도 해 봤는데 그때는 no-store 가 살아
+있어서 그 실패는 원인이 둘 섞인 것이다 — 쿼리 자체가 되는지는 다시 안 쟀다. 시험: 판 번호 경로가 같은 바이트를
+내고 엉뚱한 칸은 404(`icon_version_test.go`), 아이콘은 캐시 가능하고 페이지는 여전히 no-store(`icon_cache_test.go`).
+둘 다 변이로 확인했다.
+
 **여기서 배운 것:** 손이 둘이면 계약도 둘이 되고, 그 갈라짐은 **양쪽을 다 돌려 봐야만** 보인다.
 `hand_com_parity_test.go` 가 도구 **이름**의 차집합은 잰다. **답의 칸 이름은 아무도 안 잰다.**
 

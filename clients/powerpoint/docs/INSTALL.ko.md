@@ -20,9 +20,9 @@
 손을 정리한다. 손은 뜰 때 한 번만 PowerPoint 에 붙기 때문에 이 감시기가 필요하다.
 
 다시 돌려도 된다 — 된 것은 건너뛴다. `-NoAutostart` 로 자동 시작을 안 걸고, `-SkipBuild` 로 빌드를 건너뛴다(배포본).
-끝나면 PowerPoint 를 껐다 켜고, 볼륨 판은 **삽입 → 내 추가 기능 → 공유 폴더 → magi → 추가** 를 한 번 한다.
+끝나면 PowerPoint 를 껐다 켜고, 볼륨 판은 **삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가** 를 한 번 한다.
 
-이 머신(LTSC 2021)에서 잰 것(2026-09-06): 설치기가 끝까지 돌고, 공유 폴더에 magi 가 서고, 추가하면 홈 탭에 단추가
+이 머신(LTSC 2021)에서 잰 것(2026-09-06): 설치기가 끝까지 돌고, 공유 폴더에 Magi(AI Assistant) 가 서고, 추가하면 홈 탭에 단추가
 서고, 창이 열리고, 감시기가 손을 붙여 헬퍼가 덱 하나(COM)를 본다. 설치기를 만들며 잡은 것 셋 — 헬퍼의 기본
 설정 디렉토리가 `%APPDATA%\magi` 라 거기에 **새 인증서**를 만들어 버린다(그래서 `-config-dir ~/.magi` 를 못 박는다);
 PowerShell 5.1 의 TLS 클라이언트는 이 Go 서버와 악수를 못 한다(살아 있는지는 `curl.exe`/TCP 로 묻는다);
@@ -72,12 +72,12 @@ PowerPoint 2021(2108, 13722 이상)부터 있다. 2021 실측이 그 표와 맞�
 
 1. 매니페스트를 담은 폴더를 **UNC 경로**로 신뢰한다 —
    `HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\{guid}` 에 `Id`·`Url`·`Flags=1`.
-2. PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더 → magi → 추가**.
-3. 홈 탭에 `magi` 단추가 선다. 누르면 창이 열린다.
+2. PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가**.
+3. 홈 탭에 「AI Assistant」 무리의 「Magi」 단추가 선다. 누르면 창이 열린다.
 
 ![공유 폴더 탭에 선 magi](img/install-2021-shared-folder.png)
 
-![홈 탭의 magi 단추와 설치 안내](img/install-2021-ribbon.png)
+![홈 탭의 단추와 설치 안내 — 이 그림은 이름을 바꾸기 전(「magi」)이다](img/install-2021-ribbon.png)
 
 ![창이 말하는 지원 API — 1.2 ✓, 1.5~1.10 ✗, SharedRuntime ✓](img/install-2021-pane.png)
 
@@ -145,6 +145,9 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
   `powershell -NoProfile -Command "echo hello"` 가 창 핸들 1574678 로 떴다. 이제 magi 자신에게 콘솔 창이 없으면
   자식을 보이지 않는 콘솔로 띄운다(`internal/quietconsole`). 고친 뒤 같은 자식의 창 핸들은 0 이다. 터미널에서
   띄운 magi(TUI)는 그대로다 — 자식이 그 터미널을 물려받는다. 옛 빌드면 설치기를 다시 돌리면 된다.
+- **리본 이름이 옛것이거나 아이콘이 파란 육각형이다** — 이름·아이콘은 Office 가 캐시한다. 설치기는 매니페스트가
+  바뀌면 리본 캐시 값을 지우고 「다시 추가하라」고 말한다: PowerPoint 를 껐다 켜고 삽입 → 내 추가 기능 → 공유
+  폴더 → 추가. 파란 육각형은 아이콘을 캐시 못 했다는 뜻이고, 이 빌드부터 헬퍼가 아이콘을 캐시 가능하게 낸다.
 - **PowerPoint 를 다 끄면 데몬도 꺼지나** — 아니다. 헬퍼(`magi-ppt`)와 데몬(`magi --daemon --detach`)은 PowerPoint 와
   무관하게 이 계정에 떠 있다. 꺼지는 것은 COM 손뿐이고(PowerPoint 가 없으면 COM 참조가 죽는다), 감시기가 그것을
   정리하고 다음에 덱이 열리면 다시 붙인다. 전부 내리려면: `Stop-Process -Name magi-ppt,magi,magi-ppt-hand`.

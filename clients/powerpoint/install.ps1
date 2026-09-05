@@ -77,6 +77,10 @@ if ($ollama) { Done "ollama: $($ollama.Source)" } else { Warn 'ollama 가 없다
 Say '설치 폴더의 옛 프로세스를 멈춘다'
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $destFull = (Resolve-Path $Dest).Path
+# 손 감시기부터 멈춘다 — 안 멈추면 아래서 손을 멈추자마자 감시기가 다시 띄워 COM 손 빌드가 파일 잠금으로 죽는다
+# (2026-09-06 실측). 끝에서 다시 띄운다.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*-File*' -and $_.CommandLine -like '*hand-watch.ps1*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Done "손 감시기 (pid $($_.ProcessId)) 멈춤" }
 # 데몬(magi.exe)도 설치 폴더의 것이면 멈춘다 — 헬퍼가 거기서 띄운 것이고, 안 멈추면 새 magi.exe 를 못 쓴다.
 # 하던 대화는 끊긴다. 창을 다시 열면 헬퍼가 새 데몬을 띄운다.
 foreach ($name in @('magi-ppt', 'magi-ppt-hand', 'magi')) {
@@ -182,7 +186,17 @@ if ($perpetual) {
   # 관리 공유(\\localhost\C$\…)로 닿지 않았고, 프로필 바로 아래는 닿았다. 왜인지는 안 잡았다 — 잰 대로 둔다.
   $catalog = Join-Path $configDir 'ppt-catalog'
   New-Item -ItemType Directory -Force $catalog | Out-Null
-  Copy-Item $manifest (Join-Path $catalog 'magi-manifest.xml') -Force
+  $copy = Join-Path $catalog 'magi-manifest.xml'
+  # 매니페스트가 바뀌었으면 리본 캐시를 지운다 — 안 지우면 PowerPoint 가 옛 이름·옛 단추를 그린다(2026-09-06 실측:
+  # 이름을 바꾸고 다시 추가해도 「magi 창」이 남았고, 이 값 둘을 지우고 껐다 켜고 다시 추가하니 새 이름이 섰다).
+  $changed = -not (Test-Path $copy) -or ((Get-FileHash $copy).Hash -ne (Get-FileHash $manifest).Hash)
+  Copy-Item $manifest $copy -Force
+  if ($changed) {
+    foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'PowerPoint_*RibbonCustomizationExpire' -or $_ -eq 'PowerPoint_RibbonCache' })) {
+      Remove-ItemProperty -Path $wef -Name $v -ErrorAction SilentlyContinue
+    }
+    Warn '매니페스트가 바뀌었다 — PowerPoint 를 껐다 켜고 「공유 폴더」에서 다시 추가해야 리본이 새 이름을 그린다'
+  }
   # 관리 공유로 UNC 를 만든다: C:\Users\… → \\localhost\C$\Users\…  (이 계정이 관리자면 된다. 아니면 폴더를 진짜로 공유하고 그 UNC 를 Url 에 넣는다)
   $unc = '\\localhost\' + $catalog.Substring(0, 1) + '$' + $catalog.Substring(2)
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
@@ -231,8 +245,8 @@ Write-Host ''
 Write-Host '설치 끝. 이제:' -ForegroundColor Cyan
 Write-Host '  1. PowerPoint 를 껐다 켠다(떠 있었다면).'
 if ($perpetual) {
-  Write-Host '  2. 삽입 → 내 추가 기능 → 공유 폴더 에서 magi 를 고르고 「추가」. (한 번만. 매니페스트가 바뀌면 다시)'
-  Write-Host '  3. 홈 탭의 magi 단추로 창을 연다. 편집은 COM 손이 한다 — 덱을 연 채로 두면 감시기가 알아서 붙인다.'
+  Write-Host '  2. 삽입 → 내 추가 기능 → 공유 폴더 에서 Magi(AI Assistant) 를 고르고 「추가」. (한 번만. 매니페스트가 바뀌면 다시)'
+  Write-Host '  3. 홈 탭 「AI Assistant」의 「Magi」로 창을 연다. 편집은 COM 손이 한다 — 덱을 연 채로 두면 감시기가 알아서 붙인다.'
 } else {
   Write-Host '  2. 홈 탭 → 추가 기능 → 개발자 추가 기능 → magi. (리본에 바로 안 보이면 이 길)'
 }

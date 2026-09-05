@@ -103,7 +103,7 @@ node tools/officehand.mjs     # Office.js 손과 zip 읽개 — **PowerPoint 없
 
 - **Windows** — `HKCU\Software\Microsoft\Office\16.0\WEF\Developer` 에 매니페스트 경로를 값으로
   적는다(매뉴얼 §2.4 에 그대로 붙여 넣을 PowerShell 이 있다). 재시작하면 홈 리본의
-  **추가 기능 → 개발자 추가 기능**에 `magi` 가 선다.
+  **추가 기능 → 개발자 추가 기능**에 `Magi(AI Assistant)` 가 선다.
 - **macOS** — `~/Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef/` 에 `manifest.xml`
   복사 후 PowerPoint 재시작. **2026-09-04 에 돌렸다**(16.112.3) — 요구 집합 여섯이 다 ✓ 였고
   실물 덱까지 이어졌다. 인증서는 `-d` 없이 login keychain 에 넣는다(`-d` 는 System 저장소를

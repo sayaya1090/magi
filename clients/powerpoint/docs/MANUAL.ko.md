@@ -91,7 +91,7 @@ New-ItemProperty -Path "HKCU:\Software\Microsoft\Office\16.0\WEF\Developer" `
   -Name "magi" -Value "$dir\manifest.xml" -PropertyType String -Force | Out-Null
 ```
 
-PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가 기능**에 `magi` 가 선다. 누르면
+PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가 기능**에 `Magi(AI Assistant)` 가 선다. 누르면
 작업창이 열린다.
 
 ![홈 → 추가 기능 → 개발자 추가 기능 에 선 magi](img/00-ribbon.png)
@@ -118,8 +118,8 @@ New-Item -Path $k -Force | Out-Null
 Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Flags 1 -Type DWord
 ```
 
-PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더** 에서 `magi` 를 고르고 **추가**. 홈 탭에
-`magi` 단추가 서고, 누르면 창이 열린다. 창의 「지원 API」 줄은 `1.2 ✓ · 1.5~1.10 ✗ · SharedRuntime 1.1 ✓`
+PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더** 에서 `Magi(AI Assistant)` 를 고르고 **추가**. 홈 탭에
+「AI Assistant」 무리의 「Magi」 단추가 서고, 누르면 창이 열린다. 창의 「지원 API」 줄은 `1.2 ✓ · 1.5~1.10 ✗ · SharedRuntime 1.1 ✓`
 를 말한다 — 그 판에서 편집은 COM 손(`INSTALL.ko.md` §3)이 한다. 창은 그것을 스스로 알고 화면만 맡지만
 **사람에게 그 구분을 말하지는 않는다** — 시키면 되고, 되면 그만이다. 말하는 것은 하나, COM 손을 아직 안
 띄웠을 때다: 「이 PowerPoint 판에서는 magi-ppt-hand 를 띄워야 편집이 됩니다 — 아직 안 떠 있습니다」. 띄우면
