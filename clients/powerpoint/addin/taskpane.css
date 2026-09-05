@@ -48,6 +48,7 @@
 
   /* 뜻이 있는 색 */
   --accent: #b7472a;    /* PowerPoint 의 붉은 계열 */
+  --danger: #B3261E;    /* 작업 중지 — M3 error 40 */
   --accent-fg: #ffffff;
   --accent-weak: #fdf6f4;
   --sel: #0f6cbd;       /* 포커스·선택 */
@@ -804,7 +805,11 @@ button:disabled { cursor: default; opacity: .5; }
 .switch:active .switch-handle { width: 28px; height: 28px; }
 .switch.on:active .switch-handle { left: 20px; }
 .switch:focus-visible { outline: 3px solid var(--accent, #1F4E79); outline-offset: 2px; }
-.icon-danger:hover { color: #B3261E; }
+/* 작업 중지는 채운 붉은 단추다(사용자 2026-09-05: 「빨간색 filled, 새빨간색 말고」). M3 error 톤 —
+   #B3261E(error 40), 누르면 #8C1D18(error 30). 새빨강(#FF0000)이 아니라 PowerPoint 의 붉은 계열과 어울린다. */
+.icon-danger { background: var(--danger, #B3261E); color: #fff; border-color: transparent; }
+.icon-danger:hover { background: #8C1D18; color: #fff; }
+.icon-danger:focus-visible { outline: 3px solid var(--danger, #B3261E); outline-offset: 2px; }
 
 /* 도구 줄의 접힘. 머리 자체가 손잡이라 접혀 있을 때 드는 자리가 0줄이다. */
 .turn-fold > summary { cursor: pointer; list-style: none; }
