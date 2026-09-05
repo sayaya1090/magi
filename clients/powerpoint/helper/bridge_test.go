@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -302,5 +303,51 @@ func TestTheLastPermissionAnswerIsRemembered(t *testing.T) {
 	}
 	if id, _ := b.LastAnswer(); id != "" {
 		t.Fatalf("거절된 답을 기억했다: %q", id)
+	}
+}
+
+// 늦게 붙는 창은 그 대화의 앞을 받는다 — 붙은 뒤의 프레임만 흘리면 창을 다시 열 때마다 대화가
+// 빈 채로 시작한다(사용자 지적 2026-09-05). 다른 대화로 옮기면 되풀이할 것도 바뀐다.
+func TestALateSubscriberGetsTheConversationSoFar(t *testing.T) {
+	dir := shortDir(t)
+	eng := &talkEngine{}
+	sock, _ := startDaemon(t, dir, "talk", eng)
+	b := NewBridge()
+	defer b.Stop()
+	first, unsub1 := b.Subscribe()
+	defer unsub1()
+	if err := b.Bind(sock, "sess-hist"); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, first, "stream", 3*time.Second)
+	for i := int64(1); i <= 3; i++ {
+		eng.emit(event.Event{Seq: i, Type: event.TypePromptSubmitted, SessionID: "sess-hist"})
+		drain(t, first, "event", 3*time.Second)
+	}
+	late, unsub2 := b.Subscribe()
+	defer unsub2()
+	drain(t, late, "stream", time.Second)
+	var seqs []int64
+	for i := 0; i < 3; i++ {
+		f := drain(t, late, "event", time.Second)
+		var ev event.Event
+		_ = json.Unmarshal(f.Data, &ev)
+		seqs = append(seqs, ev.Seq)
+	}
+	if fmt.Sprint(seqs) != "[1 2 3]" {
+		t.Fatalf("늦게 붙은 쪽이 앞을 순서대로 못 받았다: %v", seqs)
+	}
+	if err := b.Bind(sock, "sess-other"); err != nil {
+		t.Fatal(err)
+	}
+	again, unsub3 := b.Subscribe()
+	defer unsub3()
+	drain(t, again, "stream", time.Second)
+	select {
+	case f := <-again:
+		if f.Kind == "event" {
+			t.Fatalf("다른 대화로 옮겼는데 옛 대화의 프레임을 되풀이했다: %s", f.Data)
+		}
+	case <-time.After(300 * time.Millisecond):
 	}
 }

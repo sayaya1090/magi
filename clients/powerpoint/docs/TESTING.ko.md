@@ -12,8 +12,8 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 170 | 2026-09-05 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,605 | 2026-09-05 | 통과 (smoke 873 · officehand 680 · hand 52) |
+| 1·2·3. Go (`helper/`) | 171 | 2026-09-05 | 통과 |
+| 4. JS 순수층 (`addin/tools/`) | 1,607 | 2026-09-05 | 통과 (smoke 873 · officehand 680 · hand 54) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **48개** 전수 57호출 (`tools/sweep.py`) | **2026-09-05 11:07** | 통과 48 · 실패 0 (§5.4 는 09-02 의 27개 34항목 기록) |
@@ -93,7 +93,7 @@
 | 읽기 도구도 **끝났다고 선언하는 법**을 설명에 싣는다 | 27개 설명문 | `ReadToolsSayHowToDeclareFinished` |
 | **매뉴얼이 코드가 만든 허용 규칙을 그대로 옮겼는가** | `AllowRulesTOML()` 과 매뉴얼의 `allow = […]` 덩어리를 글자로 견준다 | `TheManualQuotesTheRulesWeGenerate` |
 | **매뉴얼이 도구를 하나도 안 빠뜨렸는가** | 도구 표를 훑어 매뉴얼에서 이름을 찾는다 — 표에 없는 도구는 사람에게 없는 기능이다 | `TheManualNamesEveryTool` |
-| **우리가 띄우는 컴패니언이 묻는가** | `daemonArgs()` 에 `--permission ask` 가 있는가 — 인자는 `Spawn` 이음매로 안 날라서 함수로 뺐다 | `TheCompanionWeStartAsksBeforeItChangesTheDeck` |
+| **우리가 띄우는 컴패니언의 권한 모드** | `daemonArgs()` 에 `--permission allow` 가 있는가(2026-09-05 사용자 결정, 전엔 ask) — 인자는 `Spawn` 이음매로 안 날라서 함수로 뺐다 | `TheCompanionWeStartAsksBeforeItChangesTheDeck` |
 | **답은 stdout · 진단은 stderr** | `-version`·`-allow-rules`·`-cert-hint` 를 실제로 돌려 두 갈래를 본다 | `AnswersGoToStdoutAndDiagnosticsToStderr` |
 | **그림이 글에 안 남는다** | `render_slide` 결과의 글 블록에 base64 가 없는가 | `ThePictureGoesOnceNotTwice` |
 | **빈 배열은 인자 없음** | `[]`·`null`·`{}` 는 통과, 값이 든 배열은 거절 | `AnEmptyArrayIsAnEmptyCall` |
@@ -557,7 +557,7 @@ Mac 에서 PowerPoint 창 둘을 띄우고 IR·임원보고를 나란히 시켰�
 16. PowerPoint 를 껐다 켠 뒤 옛 문서 주소로 부르면 **거절당하고 지금 열린 덱을 알려 준다.**
 
 **권한**
-17. `--permission ask` 로 띄우면 덱을 고치기 전에 **작업창 안에서** 묻는다.
+17. `--permission ask` 로 띄우면 덱을 고치기 전에 **작업창 안에서** 묻는다(헬퍼 기본은 2026-09-05 부터 allow).
 18. 「항상」 단추가 **세션 전체를 연다는 것**이 문구에 있다.
 19. `-allow-rules` 를 넣으면 읽기 도구는 안 묻는다.
 

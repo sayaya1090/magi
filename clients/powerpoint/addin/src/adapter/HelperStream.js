@@ -47,6 +47,7 @@ export class HelperStream {
       ?? (typeof EventSource === 'undefined' ? null : EventSource);
     /** kind → Set<fn> */
     this.handlers = new Map();
+    this.backlog = [];   // 청자가 없을 때 온 event 프레임 — 첫 청자에게 준다
     this.source = null;
     /** 애드인이 붙은 문서 키. `hello` 프레임이 준다 — 도구의 `document` 인자가 이 값이다. */
     this.document = null;
@@ -55,11 +56,22 @@ export class HelperStream {
   on(kind, fn) {
     if (!this.handlers.has(kind)) this.handlers.set(kind, new Set());
     this.handlers.get(kind).add(fn);
+    // **먼저 온 것을 버리지 않는다.** 스트림은 창이 뜨자마자 열리고 전사 읽기는 대화 이름을 안 뒤에
+    // 붙는다 — 그 사이 헬퍼가 되풀이해 준 앞부분이 듣는 이 없이 지나갔다(2026-09-05). 첫 청자에게 준다.
+    if (kind === 'event' && this.backlog.length) {
+      const held = this.backlog; this.backlog = [];
+      for (const data of held) fn(data);
+    }
     return () => this.handlers.get(kind)?.delete(fn);
   }
 
   #emit(kind, data) {
-    for (const fn of this.handlers.get(kind) ?? []) fn(data);
+    const fns = this.handlers.get(kind);
+    if (kind === 'event' && (!fns || fns.size === 0)) {
+      if (this.backlog.length < 10000) this.backlog.push(data);
+      return;
+    }
+    for (const fn of fns ?? []) fn(data);
   }
 
   /** 붙는다. **붙는 것이 곧 등록이고 끊기는 것이 곧 떠남이다** — 작별 프레임이 없다(§5.5). */

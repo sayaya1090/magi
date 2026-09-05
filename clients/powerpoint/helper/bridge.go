@@ -59,8 +59,12 @@ type Bridge struct {
 	read      func(ctx context.Context, socket, sid string, since int64) error
 	lastSeq   int64
 	listeners map[chan StreamFrame]struct{}
-	cancel    context.CancelFunc
-	stopped   bool
+	// history 는 지금 묶인 대화의 event 프레임 전부(상한 historyCap). 창은 열릴 때마다 새로 붙고
+	// 이 피드는 붙은 뒤의 프레임만 흘렸다 — 그래서 창을 다시 열면 그 대화의 앞이 비어 있었다
+	// (사용자 지적 2026-09-05: 「리로드하면 과거 대화도 뿌려 달라」). 늦게 붙는 쪽에 되풀이한다.
+	history []StreamFrame
+	cancel  context.CancelFunc
+	stopped bool
 }
 
 func NewBridge() *Bridge { return &Bridge{listeners: map[chan StreamFrame]struct{}{}} }
@@ -74,15 +78,20 @@ func (b *Bridge) Bound() (socket, sid string, streamLive bool) {
 
 // Subscribe 는 애드인 스트림 하나를 대화에 붙인다. 돌려주는 것은 끊는 함수.
 func (b *Bridge) Subscribe() (<-chan StreamFrame, func()) {
-	ch := make(chan StreamFrame, 64)
 	b.mu.Lock()
-	b.listeners[ch] = struct{}{}
+	// 되풀이와 등록을 한 락 안에서 한다: push 는 listeners 를 락 아래에서 훑으므로, 등록 전의
+	// 프레임은 history 에 있고 등록 후의 프레임은 라이브로 온다 — 빠지는 것도 겹치는 것도 없다.
+	ch := make(chan StreamFrame, len(b.history)+64)
 	live, sid := b.live, b.session
-	b.mu.Unlock()
 	// 붙자마자 **지금 상태를 한 번 말한다.** 「스트림이 끊겼습니다」를 부팅 화면이 단언하던
 	// 결함이 목업에 실제로 있었다(README): `detach()` 는 알리는데 `attach()` 는 안 알려서,
 	// 빈 대화에 붙으면 붙기 전에 그린 그림이 영영 서 있었다. **비대칭 통지는 거짓말 생성기다.**
 	ch <- StreamFrame{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": live, "session": sid}))}
+	for _, f := range b.history {
+		ch <- f
+	}
+	b.listeners[ch] = struct{}{}
+	b.mu.Unlock()
 	return ch, func() {
 		b.mu.Lock()
 		delete(b.listeners, ch)
@@ -90,8 +99,20 @@ func (b *Bridge) Subscribe() (<-chan StreamFrame, func()) {
 	}
 }
 
+// historyCap 은 한 대화에 대해 되풀이할 event 프레임의 상한. 덱 한 판이 200 안팎이다.
+const historyCap = 10000
+
 func (b *Bridge) push(f StreamFrame) {
 	b.mu.Lock()
+	switch f.Kind {
+	case "event":
+		if len(b.history) >= historyCap {
+			b.history = b.history[len(b.history)-historyCap+1:]
+		}
+		b.history = append(b.history, f)
+	case "restart":
+		b.history = nil // 서버가 이어 읽기 위치를 거절했다 — 처음부터 다시 온다
+	}
 	targets := make([]chan StreamFrame, 0, len(b.listeners))
 	for ch := range b.listeners {
 		targets = append(targets, ch)
@@ -140,6 +161,7 @@ func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
 	}
 	if b.session != sid {
 		b.lastSeq = -1
+		b.history = nil
 	}
 	b.socket, b.session, b.live = socket, sid, false
 	b.life, b.tools = life, append([]string(nil), tools...)

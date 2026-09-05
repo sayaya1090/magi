@@ -354,6 +354,22 @@ class FakeEventSource {
 // 헬퍼가 다시 뜨면 이 페이지의 토큰은 영영 거부된다. 다시 붙어도 안 되고, 새 토큰을 실은
 // 페이지를 받아 오는 수밖에 없다. 그래서 **왜 끊겼는지 묻고 나서** 움직인다.
 {
+  // **먼저 온 것을 버리지 않는다.** 스트림은 창이 뜨자마자 열리고 전사 읽기는 대화 이름을 안 뒤에
+  // 붙는다 — 헬퍼가 되풀이해 준 앞부분(리로드 뒤 과거 대화)이 듣는 이 없이 지나갔다(2026-09-05).
+  {
+    const s = new HelperStream({ token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource }).open();
+    const src = FakeEventSource.last;
+    src.emit('event', { seq: 1, type: 'prompt.submitted' });
+    src.emit('event', { seq: 2, type: 'part.appended' });
+    const got = [];
+    s.on('event', (ev) => got.push(ev.seq));
+    src.emit('event', { seq: 3, type: 'part.appended' });
+    ok('청자가 붙기 전에 온 event 프레임은 첫 청자에게 순서대로 간다', got.join(',') === '1,2,3', got.join(','));
+    const later = [];
+    s.on('event', (ev) => later.push(ev.seq));
+    ok('둘째 청자에게는 되풀이하지 않는다', later.length === 0);
+  }
+
   const openStream = ({ answer, reload, waits }) => {
     const s = new HelperStream({
       token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource,
