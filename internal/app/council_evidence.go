@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -171,11 +172,16 @@ func guidanceRead(evs []event.Event, perCap, totalCap int) string {
 	return strings.TrimSpace(b.String())
 }
 
+// evidenceKeptPerTool bounds how many pre-window "last result of tool X" lines are kept, so a turn
+// that touched twenty different tools does not smuggle twenty lines past the window.
+const evidenceKeptPerTool = 6
+
 func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
 	// One entry per finished call, keyed so a REPEAT of the same call can supersede the earlier
 	// result — see the collapse below the scan.
 	type entry struct {
+		name string // the tool, so a window can tell what it is about to drop
 		key  string // name + identifying args; "" = no identity, never superseded
 		line string
 		stub string // what the line collapses to when a later result answers the same call
@@ -229,7 +235,7 @@ func turnToolEvidence(evs []event.Event, k int) string {
 					"reflects the current state; this older output is omitted so it cannot be " +
 					"mistaken for the file as it is now"
 			}
-			ents = append(ents, entry{key: key, line: evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)), stub: stub})
+			ents = append(ents, entry{name: b.name, key: key, line: evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)), stub: stub})
 		}
 	}
 	if len(ents) == 0 {
@@ -265,9 +271,39 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	// each deliberation could see only the round before it. clipEach in this same file has always
 	// marked its drop; these did not.
 	if len(lines) > k {
-		dropped := len(lines) - k
-		lines = append([]string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)},
-			lines[len(lines)-k:]...)
+		// **A window of the last k drops the one result the task hinges on.** Live 2026-09-05
+		// (IR deck, second run): read_notes proved the cover disclaimer, then eight render_slide
+		// and eight read_slide calls followed, and the council — shown only the last 8 — voted
+		// 3:0 "no read_notes evidence". So the latest result of every tool that has none inside
+		// the window is kept above it, marked; the window itself is unchanged.
+		cut := len(lines) - k
+		inWindow := map[string]bool{}
+		for _, en := range ents[cut:] {
+			inWindow[en.name] = true
+		}
+		latest := map[string]int{}
+		for i := 0; i < cut; i++ {
+			if en := ents[i]; en.key == "" || last[en.key] == i { // a real line, not a superseded stub
+				latest[en.name] = i
+			}
+		}
+		var keep []int
+		for name, i := range latest {
+			if !inWindow[name] {
+				keep = append(keep, i)
+			}
+		}
+		sort.Ints(keep)
+		if len(keep) > evidenceKeptPerTool {
+			keep = keep[len(keep)-evidenceKeptPerTool:]
+		}
+		var kept []string
+		for _, i := range keep {
+			kept = append(kept, "[kept from before the window — the last "+ents[i].name+" result this turn] "+lines[i])
+		}
+		dropped := cut - len(kept)
+		head := []string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)}
+		lines = append(append(head, kept...), lines[cut:]...)
 	}
 	// The reading rule, stated where the list starts: without it a reader has no way to know the
 	// order carries meaning, and the mistake it makes is always the same one — quoting an early

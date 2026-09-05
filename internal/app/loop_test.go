@@ -73,6 +73,24 @@ func TestTurnToolEvidence(t *testing.T) {
 	if e := turnToolEvidence([]event.Event{prompt, call("c1", "bash"), result("c1", `"boom"`, true)}, 8); !strings.Contains(e, "[error]") {
 		t.Errorf("errored tool should be labeled: %q", e)
 	}
+
+	// The window keeps the last result of a tool it would otherwise drop (live 2026-09-05: read_notes
+	// proved the disclaimer, sixteen renders/reads followed, the council saw no read_notes).
+	win := turnToolEvidence([]event.Event{prompt,
+		call("n1", "read_notes"), result("n1", `"note: fictional company disclaimer"`, false),
+		call("r1", "render_slide"), result("r1", `"png 1"`, false),
+		call("r2", "render_slide"), result("r2", `"png 2"`, false),
+		call("r3", "render_slide"), result("r3", `"png 3"`, false),
+	}, 2)
+	if !strings.Contains(win, "[kept from before the window — the last read_notes result this turn] tool read_notes [ok]: note: fictional company disclaimer") {
+		t.Errorf("the dropped tool's last result must be kept above the window:\n%s", win)
+	}
+	if strings.Contains(win, "png 1") || !strings.Contains(win, "png 2") || !strings.Contains(win, "png 3") {
+		t.Errorf("the window itself is the last k as before, and a tool already in it is not duplicated:\n%s", win)
+	}
+	if !strings.Contains(win, "…1 earlier tool results this turn are not shown") {
+		t.Errorf("the drop count must not count the kept line:\n%s", win)
+	}
 }
 
 // fakeLLM returns a scripted sequence of responses, one per loop step.

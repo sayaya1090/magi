@@ -11,9 +11,11 @@ package app
 //	premise was never verified — exactly the dna-assembly slip-through observed in the
 //	o20-20 bench (BsaI=GATC hallucinated; real site GGTCTC).
 //
-// This file asserts CURRENT (buggy) behavior. After the ①+② fix lands, the derived
-// signal (unverifiedLookup) must resurface the failure regardless of aging-out; the
-// committed unit test TestUnverifiedLookup encodes that contract.
+// This file asserted the buggy behavior until 2026-09-05, when the window learned to keep
+// the last result of every tool it would otherwise drop (council_evidence.go: the same
+// aging-out hid a read_notes proof behind sixteen renders/reads on the IR deck). It now
+// asserts the fixed shape: the failed lookup stays visible above the window, marked as kept.
+// The derived signal (unverifiedLookup, TestUnverifiedLookup) remains the second line.
 
 import (
 	"strings"
@@ -54,7 +56,7 @@ func dnaLikeTurn() []event.Event {
 	return evs
 }
 
-func TestProbeLookupFailAgesOut(t *testing.T) {
+func TestProbeLookupFailStaysAboveWindow(t *testing.T) {
 	evs := dnaLikeTurn()
 
 	// Sanity: the failure IS in the full log (so a signal COULD be derived from it).
@@ -66,16 +68,15 @@ func TestProbeLookupFailAgesOut(t *testing.T) {
 		t.Fatal("probe setup wrong: failed lookup not in event log")
 	}
 
-	// PATHOLOGY: the council's evidence window omits the failed lookup entirely.
+	// FIXED: the window keeps the failed lookup above the last-k slice, marked as kept.
 	window := turnToolEvidence(evs, councilActionsCap)
 	t.Logf("council evidence window (last %d):\n%s", councilActionsCap, window)
-	if strings.Contains(window, "websearch") || strings.Contains(window, "x509") {
-		t.Fatalf("expected the failed lookup to have aged OUT of the council window, but it is still present:\n%s", window)
+	if !strings.Contains(window, "[kept from before the window — the last websearch result this turn] tool websearch [error]") ||
+		!strings.Contains(window, "x509") {
+		t.Fatalf("the failed lookup must stay visible above the window, marked as kept:\n%s", window)
 	}
-	// And what the council DOES see is format-only success — nothing hinting the
-	// premise was never verified.
+	// The window itself is still the format-only tail.
 	if !strings.Contains(window, "primers.fasta") {
 		t.Fatalf("probe setup wrong: expected format-only actions in the window:\n%s", window)
 	}
-	t.Log("PROVEN: failed knowledge lookup is invisible to the council; only format-only success remains.")
 }
