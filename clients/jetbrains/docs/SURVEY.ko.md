@@ -66,7 +66,7 @@
 - **이미지 첨부** — 보류, **그리고 앞선 판정은 틀렸다**(실측으로 정정): 와이어에 image
   kind 가 있는 것은 맞지만 그것은 **도구 결과**가 그림을 실어 나르는 자리다
   (`internal/core/session/session.go` 의 `ToolResult.Images`). 사람이 보내는 길은 없다 —
-  소켓 문의 submit 은 `text` 하나로 파트를 짓고(`internal/adapter/daemon/daemon.go` 의
+  소켓 문의 submit 은 `text` 하나로 파트를 짓고(`internal/adapter/daemon/serve.go` 의
   `dispatchNow`), 요청에 이미지 필드가 없다. 그러니 「입력 UI 만의 문제」가 아니라 **문과
   코어의 일**이고, 클라이언트 혼자 못 한다. 코어 쪽에 넘겼다.
 - **자동 승인 전부 켜기**(Copilot 의 global auto approve) — **안 한다.** 우리 퍼미션 게이트를

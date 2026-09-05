@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonNull
 /**
  * 데몬 소켓 위의 한 줄.
  *
- * 필드 이름은 `internal/adapter/daemon/daemon.go` 의 json 태그와 같아야 한다. Go 의
+ * 필드 이름은 `internal/adapter/daemon/protocol.go` 의 json 태그와 같아야 한다. Go 의
  * encoding/json 은 못 맞춘 필드를 **말없이 버리므로**, 이름이 어긋나면 에러가 아니라
  * "묻지 않은 질문에 정상 응답"이 된다. 그쪽 `wire_invariant_test.go` 가 필드를 지우거나
  * 이름 바꾸는 것을 막고 있고, 이 파일이 그 짝이다.
@@ -125,9 +125,9 @@ data class Response(
     val event: LogEvent? = null,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
     val roster: List<RosterRow>? = null,
-    /** 작업 — `jobs` 문의 답(`internal/adapter/daemon/daemon.go` 의 `Jobs`). */
+    /** 작업 — `jobs` 문의 답(`internal/adapter/daemon/protocol.go` 의 `Jobs`). */
     val jobs: Jobs? = null,
-    /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`daemon.go` 의 `SessionRow`), 최근 활동 순. */
+    /** 이 워크스페이스의 대화들 — `sessions` 문의 답(`protocol.go` 의 `SessionRow`), 최근 활동 순. */
     val sessions: List<SessionRow>? = null,
     /**
      * 한 세션이 띄운 서브에이전트 대화들 — `children` 문의 답, 최근 활동 순.
@@ -139,11 +139,11 @@ data class Response(
      * null 은 「문 없음」이고 빈 목록은 「띄운 적 없음」이다 — 두 화면이 다르다.
      */
     val children: List<SessionRow>? = null,
-    /** 건넨 일 하나의 지금 — `hand-state` 의 답(`daemon.go` 의 `Handover`). */
+    /** 건넨 일 하나의 지금 — `hand-state` 의 답(`protocol.go` 의 `Handover`). */
     val handover: Handover? = null,
-    /** 예약들 — `cron` 문의 답(`daemon.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
+    /** 예약들 — `cron` 문의 답(`protocol.go` 의 `CronRow`), 고장 먼저 그다음 임박순. */
     val cron: List<CronRow>? = null,
-    /** 고칠 수 있는 설정 키들 — `config-get`/`config-set` 의 답(`daemon.go` 의 `ConfigItem`). */
+    /** 고칠 수 있는 설정 키들 — `config-get`/`config-set` 의 답(`protocol.go` 의 `ConfigItem`). */
     val config: List<ConfigItem>? = null,
     /** 프로파일 후보들 — `profiles` 문의 답. 프로파일 모양 키의 콤보를 채운다. */
     val profiles: List<ProfileChoice>? = null,
@@ -292,11 +292,11 @@ data class RosterRow(
 )
 
 /**
- * 사람에게 물어 놓고 답을 기다리는 프롬프트. daemon.go 의 `Waiting`.
+ * 사람에게 물어 놓고 답을 기다리는 프롬프트. protocol.go 의 `Waiting`.
  *
  * 이것이 응답에 실려 오는 이유가 설계상 중요하다. `permission.requested` 는 **전이 이벤트라
  * 로그에 없으므로**, 로그만 꼬리 무는 클라이언트는 프롬프트를 영영 못 본다. 데몬이 한 곳에서
- * 다시 조립해 주고(daemon.go 의 `Waiting` 주석) 그 자리가 여기다.
+ * 다시 조립해 주고(protocol.go 의 `Waiting` 주석) 그 자리가 여기다.
  */
 @Serializable
 data class Waiting(
@@ -319,7 +319,7 @@ data class Waiting(
      * 이 물음에 이 창이 그릴 수 있는 것.
      *
      * 처음엔 `isPermission` 하나였고 나머지는 전부 질문이었다. 그 `else` 가 **모르는 종류를 질문이라고
-     * 넘겨짚는다.** 코어는 같은 자리를 반대로 가른다 — `daemon.go` 의 `Waiting.Event` 는 `"question"`
+     * 넘겨짚는다.** 코어는 같은 자리를 반대로 가른다 — `protocol.go` 의 `Waiting.Event` 는 `"question"`
      * 이 아니면 전부 권한 물음으로 그린다. 셋째 종류가 생기면 두 창이 같은 물음을 다르게 그리고, 둘 중
      * 하나는 반드시 틀린다.
      *
@@ -351,7 +351,7 @@ data class Waiting(
      * `reason` 마저 없으면 화면에 남는 것은 굵은 글씨 «bash» 와 허용·거부·항상 셋뿐이다 —
      * **무엇을 허가하는지 모르는 채로 누른다.** `args` 는 소켓에서 `omitempty` 라 진짜로 안 온다.
      *
-     * 이 칸이 있는 이유를 코어가 이미 적어 뒀다(`daemon.go` 의 `Waiting`): *"the rest of the
+     * 이 칸이 있는 이유를 코어가 이미 적어 뒀다(`protocol.go` 의 `Waiting`): *"the rest of the
      * request, **so a viewer draws the prompt rather than a description of it**"*. 도구 이름은
      * 요청의 설명이지 요청이 아니다.
      *
@@ -409,7 +409,7 @@ sealed interface Ask {
     data class Undrawable(val why: String) : Ask
 }
 
-/** 데몬이 소켓 옆에 공표하는 것. daemon.go 의 `Info`. */
+/** 데몬이 소켓 옆에 공표하는 것. publish.go 의 `Info`. */
 @Serializable
 data class Published(
     val socket: String? = null,

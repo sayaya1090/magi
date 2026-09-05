@@ -34,7 +34,7 @@ import (
 // # 그래서 magi 가 가진 폴더 하나
 //
 // 데몬에게는 진짜 디렉토리가 필요하다. 워크스페이스가 **세션이 아니라 데몬의 성질**인 것은 우연이
-// 아니라 못 박은 결정이라(`daemon.go` — "a method that let the caller name a directory would be a way
+// 아니라 못 박은 결정이라(`protocol.go` — "a method that let the caller name a directory would be a way
 // to run commands anywhere on that machine from a page"), 세션마다 다른 디렉토리를 주는 길로 뚫으면 안
 // 된다. 대신 magi 가 소유한 폴더 하나를 워크스페이스로 준다. 불변식은 그대로고, 그 워크스페이스가
 // 저장소가 아니라 **덱 작업용 마당**일 뿐이다.

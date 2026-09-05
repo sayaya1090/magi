@@ -29,7 +29,7 @@ class WireConformanceTest {
     private fun goSources(): List<File> {
         val listed = System.getProperty("magi.wire.origins").orEmpty()
         assertTrue(listed.isNotBlank(), "magi.wire.origins 가 없다 — 빌드가 원천 경로를 안 줬다")
-        // 디렉토리도 받는다 — **파일 이름을 적으면 늙는다.** daemon.go 를 이름으로 적어 뒀다가
+        // 디렉토리도 받는다 — **파일 이름을 적으면 늙는다.** 데몬의 큰 파일 하나를 이름으로 적어 뒀다가
         // 그 파일이 여섯으로 갈린 날 이 시험이 릴리스에서 죽었다(2026-09-03). 구조체는 패키지
         // 안에서 옮겨 다니고, 이 시험이 대조하는 것은 그 구조체이지 파일이 아니다.
         return listed.split(File.pathSeparator).map(::File).flatMap { f ->

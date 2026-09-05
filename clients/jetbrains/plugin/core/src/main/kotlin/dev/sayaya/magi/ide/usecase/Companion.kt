@@ -188,7 +188,7 @@ class Companion(
 
     /**
      * 커밋 메시지 초안 — 스테이지된 변경에서, 워크스페이스의 하우스 스타일 템플릿을 얹어서
-     * (`internal/adapter/daemon/daemon.go` 의 `answerGitMsg` → `DraftCommit`). 답은 `out` 에
+     * (`internal/adapter/daemon/doors.go` 의 `answerGitMsg` → `DraftCommit`). 답은 `out` 에
      * 실리고, 빈 답은 실패가 아니라 「스테이지가 없다」일 수 있다(`git.go` 가 명시한 갈래).
      *
      * **text 를 안 싣는다** — 그 자리는 힌트가 아니라 **일회용 규칙 오버라이드**다: 비어 있지
@@ -223,7 +223,7 @@ class Companion(
      * 설정 화면의 동사들 — 남는 상태를 데몬에 쓴다(설계 문서 docs/UI.ko.md §5). 값을 IDE 에
      * 한 벌 더 두지 않으므로 화면은 열 때 읽고, 적용이 쓰고, 다시 읽어 확인한다(§5.1).
      *
-     * 넷 다 데몬 어휘 그대로다: 모델·백엔드·승인은 `name` 한 칸에 실린다(`daemon.go` 의
+     * 넷 다 데몬 어휘 그대로다: 모델·백엔드·승인은 `name` 한 칸에 실린다(`doors.go` 의
      * `dispatch` — `SetModel(sid, r.Name)`), 승인 모드의 낱말은 코어의 것이다
      * (`internal/app/routing.go` 의 `SetPermission`: ask | auto | allow | deny).
      */

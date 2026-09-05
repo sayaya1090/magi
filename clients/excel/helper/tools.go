@@ -616,9 +616,9 @@ func catalogue(hasCouncil bool) []tool {
 			Required: []string{"address", "cf_kind"},
 		},
 		{
-			Name:     "clear_conditional_formats",
-			Desc:     "Remove every conditional format that touches a range (omit address for the whole sheet).",
-			Props:    withRange(),
+			Name:  "clear_conditional_formats",
+			Desc:  "Remove every conditional format that touches a range (omit address for the whole sheet).",
+			Props: withRange(),
 		},
 		{
 			Name: "set_validation",
@@ -707,9 +707,9 @@ func catalogue(hasCouncil bool) []tool {
 			Required: []string{"source", "destination"},
 		},
 		{
-			Name:     "refresh_pivot",
-			Desc:     "Refresh one pivot (by name) or every pivot on the sheet when name is omitted.",
-			Props:    withSheet(property{Name: "name", Type: "string", Desc: "Pivot name."}),
+			Name:  "refresh_pivot",
+			Desc:  "Refresh one pivot (by name) or every pivot on the sheet when name is omitted.",
+			Props: withSheet(property{Name: "name", Type: "string", Desc: "Pivot name."}),
 		},
 
 		// ── 되돌리기·메모·제안 ───────────────────────────────────────────────────────

@@ -581,9 +581,9 @@ type Request struct {
 	// each open deck its own, and moving on each one writes "the companion left this conversation"
 	// into the deck that was working a second ago (measured 2026-09-05). Omitted keeps the old
 	// meaning, so every existing caller and every older client is unchanged.
-	Keep bool `json:"keep,omitempty"`
-	Text string `json:"text,omitempty"`
-	CallID  string `json:"callId,omitempty"`
+	Keep   bool   `json:"keep,omitempty"`
+	Text   string `json:"text,omitempty"`
+	CallID string `json:"callId,omitempty"`
 	// Decision is the permission verdict as the core spells it: allow | deny | always. Carried as
 	// the same string rather than translated into booleans here — a second vocabulary for one
 	// decision is a place for the two to drift.

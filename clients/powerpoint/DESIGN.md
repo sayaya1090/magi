@@ -3,7 +3,7 @@
 Status: **돈다.** (제안은 2026-08-28, 첫 구현은 2026-08-31, **실물 착지는 2026-09-01**)
 
 > **쓰는 법은 [사용자 매뉴얼](./docs/MANUAL.ko.md), 무엇이 어디서 재지는지는
-> [무엇을 어디서 재나](./docs/TESTING.ko.md).** 이 문서는 **왜 이렇게 만들었나**를 적는다.
+> [무엇을 어디서 재나](./docs/TESTING.ko.md)(`clients/powerpoint/docs/TESTING.ko.md`).** 이 문서는 **왜 이렇게 만들었나**를 적는다.
 >
 > **무엇이 섰나.** M1·M2 가 섰다 — `helper/` 가 MCP 서버로 서고(Streamable HTTP), door 로 붙고
 > (`mcp-detach` → `mcp-attach`, 이름 `ppt`), 애드인 페이지를 https 로 내주고, 대화를 애드인으로
@@ -638,7 +638,7 @@ ok=false를 돌려주고 `newPolicy`가 그 줄을 **말없이 버린다.** 규�
   `Post "http://127.0.0.1:PORT/mcp": context deadline exceeded`이고, `tool.go`의 `mcpTool`이
   그것을 그대로 `IsError: true`로 싣는다. **60초라는 말이 없고, 그 선을 magi가 그었다는 말이 없고,
   서버가 아직 일하는 중일 수 있다는 말이 없다.** 모델이 읽으면 "서버가 실패했다"로 읽힌다. 같은
-  문제를 같은 저장소가 이미 한 번 풀었다 — `internal/adapter/daemon/daemon.go`의 `tooLong`은
+  문제를 같은 저장소가 이미 한 번 풀었다 — `internal/adapter/daemon/publish.go`의 `tooLong`은
   OS가 "invalid argument"라고만 하는 자리에서 **사유를 직접 만들어 붙인다**(`Listen`이 부른다).
   여기도 같은 처방이 되고, **이 수정은 60초가 얼마로 정해지든 상관없이 맞다**(재기 전에 요청할 수
   있는 유일한 몫이 이것이다).
@@ -1025,7 +1025,7 @@ the spec mandates for a notification was the one we refused"에서 202를 받도
 
 - **켜진 데몬이 있으면 그중에서 고른다.** `daemon.List(configDir)`가 공표된 데몬 전부를 **dial까지
   해서** 돌려준다 — 워크디렉토리·이름·역할·팀·`Live`, 그리고 지금 무엇을 묻고 무엇을 하는 중인지
-  까지(`internal/adapter/daemon/daemon.go`). 고르는 화면에 필요한 것이 이미 다 있고, SIGKILL로
+  까지(`internal/adapter/daemon/publish.go`). 고르는 화면에 필요한 것이 이미 다 있고, SIGKILL로
   죽어 소켓만 남은 것도 **죽었다고 표시돼서** 온다. 새로 셀 것이 없다.
 - **하나도 없으면 덱의 디렉토리에 띄운다.** 저장소 안의 덱이면 그 저장소가 워크스페이스가 되고,
   바탕화면의 덱이면 바탕화면이 된다. 후자가 이상해 보이지만 대안은 "워크스페이스 없음"이고 그건
@@ -1046,7 +1046,7 @@ the spec mandates for a notification was the one we refused"에서 202를 받도
   지난다」고 적은 것은 `ask`/`auto`에서만 참이고, 하필 우리가 만드는 그 데몬이 예외다.
 
   ⚠ **그리고 이 문장이 두 판 동안 문서에만 있었다.** 2026-09-04 에 Mac 에서 붙여 보고
-  `/api/companions` 를 읽으니 우리가 마련한 컴패니언이 **`allow`** 였다 — `own.go` 가 부르는 줄에
+  `/api/companions` 를 읽으니 우리가 마련한 컴패니언이 **`allow`** 였다 — `clients/powerpoint/helper/own.go` 가 부르는 줄에
   그 값이 없었다. **자동 시험 넷이 전부 초록인 채로** 그랬는데, 인자가 `Spawn` 이음매로 안 날라서
   (`(bin, workdir, env)`) 이 레인의 어느 층도 볼 수 없었다. 고치면서 명령줄을 `daemonArgs()` 로
   빼서 **잴 수 있게** 했다. 여기서 남는 규율 하나: **문서가 값을 못 박으면 그 값을 재는 자리도
@@ -1114,7 +1114,7 @@ compact · set-model · set-permission · use-backend · reload-cron · hand 이
 목록 **읽기**는 열려 있고 바꾸기만 닫힌다.
 
 세 자리가 전부 "이 결정은 머신 주인의 것"으로 수렴한다. 그런데 **데몬 소켓은 0600이고 호출자가 곧
-그 주인이다**(`daemon.go`의 `os.Chmod(path, 0o600)`). 그러니 소켓 위의 `mcp-attach`는 공유되지
+그 주인이다**(`internal/adapter/daemon/serve.go`의 `os.Chmod(path, 0o600)`). 그러니 소켓 위의 `mcp-attach`는 공유되지
 않은 콘솔의 `/mcp` 쓰기와 **같은 신뢰 등급**이고, 새 원칙을 세우는 게 아니라 이미 있는 원칙이 닿는
 자리를 하나 더 여는 것이다. 한 칸 더 약하기도 하다 — `/mcp` 쓰기가 거부되는 이유는 항목이
 **"이 머신이 다음 기동에 스폰할 커맨드 라인"**이어서인데, `mcp-attach`가 받는 것은 URL이라 스폰이
@@ -1283,7 +1283,7 @@ capability is the engine's, not the build's"). `capsOf(eng)`가 `eng.(ToolServer
 
   ⚠ **그 dial이 「뭘 묻는 중인지」보다 많이 실어 온다 — 앞 판본이 괄호 안에 그렇게만 적어 뒀다.**
   같은 호출이 `Asking`·`Doing`과 함께 **`Permission`·`Backend`·`User`**까지 채운다
-  (`daemon.go`의 `List`). 그래서 §12 #2가 고르는 화면에 요구한 「주소를 그대로 적는다」와 「모드를
+  (`publish.go`의 `List`). 그래서 §12 #2가 고르는 화면에 요구한 「주소를 그대로 적는다」와 「모드를
   적는다」는 **왕복이 하나 더 드는 일이 아니다** — 명단을 그리는 그 호출에 이미 실려 온다. 후보
   하나당 왕복은 **둘**이다: `List`의 프로브, 그리고 `about`.
 
@@ -1435,7 +1435,7 @@ magi의 `claim_unix.go`에서 왔다.
   행위가 상태를 바꾼다**(`clients/jetbrains/README.md` §2).
 - **잔재 소켓을 지우기 전에 dial로 증명한다.** 락만으로는 부족하다. magi의 순서는 `claimPath` →
   **`net.Dial`** → `os.Remove`이고, 코드 옆에 이유가 적혀 있다 — *"This Remove is only safe BECAUSE
-  the dial above proved nothing is listening"* (`internal/adapter/daemon/daemon.go`). 프로브가 잡는
+  the dial above proved nothing is listening"* (`internal/adapter/daemon/serve.go`). 프로브가 잡는
   것은 **클레임을 모르는 옛 빌드**가 살아있는 소켓을 쥐고 있는 경우다. 락은 비어 있으니 새
   프로세스가 락을 잡고 **남의 살아있는 소켓을 지운다** — 유닉스 소켓은 평범한 디렉토리 엔트리라 산
   것을 지워도 성공하고, 그 데몬의 리스너는 조용히 고아가 된다. 자기 업데이트가 있는 제품이면 이
@@ -1529,7 +1529,7 @@ magi의 `claim_unix.go`에서 왔다.
   ⚠ 이 문단은 **코드를 읽어서 유도한 것이고 재 보지 않았다.** §9의 떼어 냄이 잴 자리다.
 - **"일부러 껐다"는 기록하지 않는다 — 유도된다.** 앞 판본은 `<socket>.stopped` 표식을 두려 했다.
   **버린다.** magi를 읽어 보면 표식이 필요 없다: 깨끗한 종료는 나가면서 소켓 파일을 지우고
-  (`daemon.go`의 `Serve` defer: `ln.Close()` → `os.Remove(d.path)` → `release()`), SIGKILL을
+  (`internal/adapter/daemon/serve.go`의 `Serve` defer: `ln.Close()` → `os.Remove(d.path)` → `release()`), SIGKILL을
   당하면 파일이 남는다. 그러니 **소켓 파일이 없으면 되살리지 않고, 있는데 dial이 안 되면
   되살린다**가 그대로 유도된다. ⚠ **이건 되살리는 쪽에게만 하는 말이다.** 없음에는 "한 번도 안
   떴다"도 들어 있어서, 사람이 헬퍼를 요구한 경우까지 이 규칙으로 덮으면 첫 기동이 막힌다 — 가르는
@@ -1579,7 +1579,7 @@ S3에서 확인한다.
 
 **작별 프레임으로 죽음을 알리지 않는다.** 헬퍼가 나가면서 열린 연결에 한마디 하고 싶어지는데,
 소켓 문에서는 그게 프로토콜을 깬다 — magi의 소켓은 락스텝이라 **청하지 않은 프레임이 진행 중인
-호출의 답으로 소비된다**(`daemon.go`가 그 불변식을 주석으로 적었고, `watch`가 예외인 이유는 연결을
+호출의 답으로 소비된다**(`internal/adapter/daemon/serve.go`가 그 불변식을 주석으로 적었고, `watch`가 예외인 이유는 연결을
 통째로 넘겨받기 때문이다). 애드인 쪽 전송은 WebSocket이라 사정이 다르지만, **MCP 쪽은 그 함정이
 그대로 있다.** 죽음은 연결이 끊기는 것으로 알린다.
 
@@ -1613,7 +1613,7 @@ magi의 "아무것도 포트를 열지 않는다"는 여기서 지킬 수 없다
 §12 #3이 직접 적어 뒀다 — **심사자가 그 주소를 못 열어서**다. 심사자가 없는 두 경로(사내
 카탈로그·sideload)에는 그 사유가 없고, **목업 매니페스트가 오늘 이미 그 모양이다**
 (`<SourceLocation>`이 `https://localhost:3000/taskpane.html`). 다른 것은 그 자리에서 페이지를
-내주는 것이 헬퍼냐 `tools/serve.mjs` 같은 정적 서버냐뿐이다. **그래서 이 결정은 §12 #3도 같이
+내주는 것이 헬퍼냐 `clients/powerpoint/addin/tools/serve.mjs` 같은 정적 서버냐뿐이다. **그래서 이 결정은 §12 #3도 같이
 정한다 — AppSource는 이제 못 고르는 것이 아니라 포기한 것이다.**
 
 기각한 둘과 사유를 남긴다. 셋째가 무는 값이 그 둘이 무너진 자리와 같아서다.
@@ -1875,11 +1875,11 @@ is unavailable."*고 위 예제는 빈 문자열이다(둘 다 부록 A). 어느
 
 **~~그 메서드는 이미 설계돼 있고 요구자는 둘이다~~ → 그 메서드가 났다**(2026-08-28,
 「a door that reads a conversation out」). 계약은 이제 형제 문서가 아니라 코어에 있다 —
-`internal/adapter/daemon/daemon.go`의 `Transcriber`이고, 방법 이름은 `transcript`, 커서 인자는
+`internal/adapter/daemon/protocol.go`의 `Transcriber`이고, 방법 이름은 `transcript`, 커서 인자는
 `since`다. 아래 기본값 문단은 지어낸 요구가 아니라 **선 계약에 대한 서술로 바뀐다.**
 
 ⚠ **그 문은 연결을 통째로 가져간다 — 그래서 헬퍼는 소켓에 두 번 붙는다.** `transcript`는 `watch`와
-같은 모양이다: 데몬 쪽은 스트림이 끝나면 연결도 끝내고(`daemon.go`가 그 자리에 *"this connection
+같은 모양이다: 데몬 쪽은 스트림이 끝나면 연결도 끝내고(`streams.go`가 그 자리에 *"this connection
 was a stream"*이라고 적어 뒀다), 클라이언트 쪽은 `Client.Transcript`가 다른 모든 호출이 한 왕복만
 잡는 그 뮤텍스를 **읽는 내내** 쥔다. 그러니 같은 `Client`로 `status`나 `permission`을 부르면
 거절도 에러도 아니고 **그냥 안 돌아온다** — `Dial`은 데드라인을 안 걸어서 영영. 아래에서 정하는
@@ -1903,7 +1903,7 @@ was a stream"*이라고 적어 뒀다), 클라이언트 쪽은 `Client.Transcrip
 
 하나, **커서를 서버가 검사하고, 안 되면 소리 내어 거절한다.** 로그의 끝을 넘은 `since`는 그대로
 안 쓰이고 전량으로 되돌려지는데, 그 사실이 **첫 이벤트보다 먼저** 프레임 하나로 온다 — 이벤트가
-없고 사유만 실린 프레임이다(`internal/adapter/daemon/daemon.go`의 `answerable`). **그 프레임을 안
+없고 사유만 실린 프레임이다(`internal/adapter/daemon/serve.go`의 `answerable`). **그 프레임을 안
 읽으면 화면에 있던 대화 뒤에 같은 대화의 처음이 붙는다.** 위 문단이 "작업창은 PowerPoint를 껐다 켤
 때마다 새로 붙는다"고 적은 그 쪽이 정확히 이 프레임을 제일 자주 받는 쪽이다.
 
@@ -2485,7 +2485,7 @@ UI는 **마지막 하나만** 보이다가 그 호출의 결과가 오면 **지�
 갈린다 — 칸이 없어지는 것과 빈 칸이 서 있는 것 — 그런데 사람 눈에는 둘 다 「원래 이만큼인가
 보다」다.
 
-**규칙은 이미 적혀 있었다. 생산자 쪽에.** `internal/adapter/daemon/daemon.go`의 `Waiting` 주석이
+**규칙은 이미 적혀 있었다. 생산자 쪽에.** `internal/adapter/daemon/protocol.go`의 `Waiting` 주석이
 *"The rest of the request, so a viewer draws the prompt rather than a description of it"*이다.
 「도구 이름은 요청의 **설명**이지 요청이 아니다」가 소켓 정의 옆에 서 있는데, 그것을 받는 창 둘이
 둘 다 설명만 그렸다. 규칙이 **적혀 있는데도** 안 지켜지는 자리는 읽어서는 안 걸린다 — 이 절이
@@ -2798,7 +2798,7 @@ N 대화를 쓰는 클라이언트의 규칙:
    걷었다. 「우리 것인가」는 `Bridges.AttachedTo` 가 묶음의 기록으로 답한다.
 3. ✅ 부르는 자리는 **하나로** 줄었다 — `/api/own` 폴. 창은 hello 뒤에도, 스트림이 끊겨도 그 폴을
    돌리므로 셋이 한 문으로 온다.
-4. ✅ `restart_events_test.go` — 표의 열 넷이 시험 넷. 돌연변이 넷이 운다(생애 무시·생애 바뀌어도
+4. ✅ `clients/powerpoint/helper/restart_events_test.go` — 표의 열 넷이 시험 넷. 돌연변이 넷이 운다(생애 무시·생애 바뀌어도
    안 붙임·늦은 기록 안 읽음·남의 대화 나눠 줌). 다섯째(대화 바뀌어도 등록 안 바꿈)는 **안 울었고**
    죽은 조건이라 뺐다.
 5. ⏳ `mcp-list` 문(데몬) — 있으면 「모르면 다시 붙인다」를 「물어서 안 붙인다」로 바꾼다.
@@ -2806,7 +2806,7 @@ N 대화를 쓰는 클라이언트의 규칙:
 ## 6. MCP 서버가 내놓는 도구
 
 헬퍼가 `tools/list`로 올리는 목록이다. magi에는 `mcp__ppt__<이름>`으로 보인다. **오늘 서른아홉
-개**이고 정본은 `helper/tools.go`의 `catalogue`다. **쓰는 법은 여기 안 적는다** — 도구마다 무슨
+개**이고 정본은 `clients/powerpoint/helper/tools.go`의 `catalogue`다. **쓰는 법은 여기 안 적는다** — 도구마다 무슨
 말을 하면 되는지는 [사용자 매뉴얼 §6](./docs/MANUAL.ko.md)이 지고, 이 절이 지는 것은 **무엇이
 도구가 될 자격을 얻었나**다.
 
@@ -3326,7 +3326,7 @@ not what you get from running the same weights again; it is what you get from di
   ⚠ **다만 규칙이 남는 자리를 ~~`.magi/config.toml`~~로 적은 것은 틀렸다 — 다시 재서 고친다.**
   쓰는 것은 `cmd/magi/persisters.go`의 `permPersister`이고, 자리는 **컴패니언 자기 config**,
   `<설정디렉토리>/companions/<덱 디렉토리 이름>-<해시>/config.toml`이다
-  (`internal/config/trust.go`의 `CompanionDir`, `internal/adapter/daemon/daemon.go`의 `WorkspaceKey`).
+  (`internal/config/trust.go`의 `CompanionDir`, `internal/adapter/daemon/publish.go`의 `WorkspaceKey`).
   코어가 옮긴 이유가 그 타입 주석에 있다 — 워크스페이스 파일에 붙이면 승인할 때마다 사용자 git
   트리가 더러워지고, 한 사람의 허락이 diff가 되어 팀에게 제안된다.
 
@@ -3466,7 +3466,7 @@ not what you get from running the same weights again; it is what you get from di
 | S14 · 단축키 | **아직 Mac 값이 없다.** 단축키 바닥(16.105.2)을 이 판이 처음 넘으므로 잴 수 있는 첫 머신이다 |
 
 그날 나온 결함 여덟과 각각이 지금 어디서 물리는지는
-[`docs/TESTING.ko.md` §5.1.5](./docs/TESTING.ko.md). 그중 둘이 이 문서의 문장을 고쳤다 —
+[`clients/powerpoint/docs/TESTING.ko.md` §5.1.5](./docs/TESTING.ko.md). 그중 둘이 이 문서의 문장을 고쳤다 —
 §5.0 의 「우리가 띄우는 데몬은 `ask` 를 명시한다」가 **코드에는 없었고**, §6.10 이 「그림은 본문에서
 지운다」고 적은 것이 **순서 때문에 안 지워지고 있었다.** 둘 다 문서가 맞고 코드가 틀린 쪽이었다.
 
@@ -3689,7 +3689,7 @@ M4 전까지는 **아무한테도 쓰라고 하지 않는다.** 판정 없는 �
    빠뜨린 게 아니라 결정이고 코어가 사유를 적어 뒀다: 런타임에 바뀌는 값을 **시작 시각에 쓴 파일은
    예전에 말하던 주소를 말한다.** 그래서 그 값은 파일이 아니라 **다이얼로 온다.**
    ⚠ **여기서 심볼을 하나 지어냈었다.** 앞 판본이 `Sighting.Backend`라고 적었는데 저장소에 그런
-   타입이 없고, 실물은 `daemon.go`의 `Info` — 즉 **바로 앞 줄이 「백엔드가 없다」고 지목한 그
+   타입이 없고, 실물은 `publish.go`의 `Info` — 즉 **바로 앞 줄이 「백엔드가 없다」고 지목한 그
    구조체**다. 없는 것은 구조체가 아니라 **파일**이고, 가르는 것이 `json:"-"` 한 줄이다.
    심볼을 파일 없이 적으면 `citecheck.py`가 세지 않는다는 것을 이 줄이 증명했다.
    **코어에 청할 것이 여기엔 없다.**

@@ -7,7 +7,7 @@ import java.nio.file.Paths
 /**
  * 데몬 소켓이 어디 있는지 계산한다.
  *
- * 여기는 magi 의 `internal/adapter/daemon/daemon.go` 를 **그대로 옮긴 자리**다. 한 글자라도
+ * 여기는 magi 의 `internal/adapter/daemon/publish.go` 를 **그대로 옮긴 자리**다. 한 글자라도
  * 어긋나면 증상이 "여기 데몬 없음"이고, 그 말은 참이 아니면서 참처럼 보인다. 그래서 각 함수에
  * 원본을 **심볼 이름으로** 짚는다. 줄 번호로 적었다가 하루 만에 다섯 개(587, 576, 2474, 2330,
  * 2341)가 다 밀렸다. 고친 값을 화살표로 적어 뒀었는데 그 화살표의 오른쪽도 며칠 만에 또
@@ -21,7 +21,7 @@ object SocketPath {
     const val MAX_SOCKET_PATH = 100
 
     /**
-     * daemon.go 의 `WorkspaceKey`.
+     * publish.go 의 `WorkspaceKey`.
      *
      * 절대경로로 만들고 **심링크를 푼 뒤** 해싱한다. 푸는 단계를 빼면 `/tmp/x` 와
      * `/private/tmp/x` 가 서로 다른 소켓을 갖는다. macOS 에서 실제로 그렇게 갈렸다.
@@ -100,15 +100,15 @@ object SocketPath {
         }
     }
 
-    /** daemon.go 의 `SocketPath`. */
+    /** publish.go 의 `SocketPath`. */
     fun of(configDir: Path, workdir: Path): Path =
         configDir.resolve("daemon-" + workspaceKey(workdir) + ".sock")
 
-    /** 데몬이 소켓 옆에 자기를 적어 두는 파일. daemon.go 의 `SessionFile`. */
+    /** 데몬이 소켓 옆에 자기를 적어 두는 파일. publish.go 의 `SessionFile`. */
     fun sessionFile(socket: Path): Path = Paths.get(socket.toString() + ".session")
 
     /**
-     * daemon.go 의 `tooLong`. OS 는 이 실패를 "invalid argument" 로만 말하고 길이 얘기를 안 한다.
+     * publish.go 의 `tooLong`. OS 는 이 실패를 "invalid argument" 로만 말하고 길이 얘기를 안 한다.
      * 그래서 사유를 여기서 만든다. null 이면 문제 없음.
      */
     fun tooLong(socket: Path): String? {
@@ -143,7 +143,7 @@ object SocketPath {
     }
 
     /**
-     * daemon.go 의 `sanitize`.
+     * publish.go 의 `sanitize`.
      *
      * 원본은 **룬** 단위로 돈다. 자바의 char 단위로 돌면 서로게이트 쌍이 '-' 둘이 되어 이름이
      * 갈린다. 그래서 코드포인트로 걷는다.
@@ -162,7 +162,7 @@ object SocketPath {
     }
 
     /**
-     * daemon.go 의 `shortHash` — FNV-1a 64비트를 base36 여덟 자리로.
+     * publish.go 의 `shortHash` — FNV-1a 64비트를 base36 여덟 자리로.
      *
      * 두 곳이 자바에서 틀리기 쉽다. 첫째, 원본이 **바이트**를 XOR 하므로 UTF-8 바이트로 걷는다.
      * 둘째, 나눗셈과 나머지가 **부호 없는** 연산이다. Long 은 부호가 있어 상위 비트가 서면
@@ -195,7 +195,7 @@ object SocketPath {
  * 데몬이 소켓 옆에 공표한 것을 읽는다.
  *
  * 어느 대화에 붙을지를 **넘겨짚지 않기 위해** 있다. "이 워크스페이스의 최신 세션"으로 고르면
- * 며칠 도는 데몬에서 그사이 누가 연 대화를 열게 된다 — daemon.go 가 레코드를 두는 사유가 그것이다.
+ * 며칠 도는 데몬에서 그사이 누가 연 대화를 열게 된다 — publish.go 가 레코드를 두는 사유가 그것이다.
  */
 object Published {
     fun of(socket: java.nio.file.Path): dev.sayaya.magi.ide.model.Published? = runCatching {

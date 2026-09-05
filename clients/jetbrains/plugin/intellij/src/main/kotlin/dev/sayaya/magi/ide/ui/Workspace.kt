@@ -111,7 +111,7 @@ internal class Workspace(private val project: Project) {
                 // 확인하기 전에 원인을 대지 않는다.
                 DaemonClient.connect(sock).use { client ->
                     // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로
-                    // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(daemon.go 의 사유).
+                    // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(publish.go 의 사유).
                     // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는
                     // 자리를 모를 때의 규칙이지, 이름 댄 자리를 막는 규칙이 아니다(리뷰).
                     val sid = at ?: Published.of(sock)?.session

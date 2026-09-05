@@ -17,7 +17,7 @@ import kotlinx.coroutines.withContext
  * 커서 자리에 회색 글씨로 이어붙일 것을 띄운다 — 콘솔의 그 기능을 IDE 로 옮긴 것이다.
  *
  * 부르는 것은 데몬의 `complete` 이고, 콘솔의 `/complete` 라우트가 부르는 것과 **같은 메서드**다
- * (`daemon.go` 의 `Client.CompleteCode`). 두 화면이 같은 문을 쓰므로 켜고 끄는 스위치도 하나다 —
+ * (`internal/adapter/daemon/client.go` 의 `Client.CompleteCode`). 두 화면이 같은 문을 쓰므로 켜고 끄는 스위치도 하나다 —
  * magi 쪽 `[autocomplete]` 설정이 정하고, 꺼져 있으면 데몬이 빈 문자열을 돌려준다. **플러그인이
  * 두 번째 스위치를 만들지 않는다**(설계 문서 §5).
  *

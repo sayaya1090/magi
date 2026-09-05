@@ -30,7 +30,7 @@ import java.net.InetSocketAddress
  * 구현하면 안 도는 코드가 생기고, 그것은 첫 사용자가 쓸 때 처음 깨진다.
  *
  * 말하는 메서드는 **넷**이다: `initialize` · `notifications/initialized` · `tools/list` ·
- * `tools/call`. 코어 클라이언트가 그 넷만 부른다(`client.go`).
+ * `tools/call`. 코어 클라이언트가 그 넷만 부른다(`internal/adapter/mcp/client.go`).
  */
 class HandServer private constructor(
     private val http: HttpServer,

@@ -16,7 +16,7 @@ import javax.swing.SwingUtilities
 
 /**
  * 열어 둔 파일을 컴패니언에게 훑어보게 한다 — 콘솔의 `/look` 이 하는 그 일이고, 부르는 메서드도
- * 같다(`daemon.go` 의 `Client.LookOver`).
+ * 같다(`internal/adapter/daemon/client.go` 의 `Client.LookOver`).
  *
  * **저장 안 한 내용을 보낸다.** 디스크가 아니라 편집기 버퍼를 읽는 이유는, 방금 고친 것을 봐 달라는
  * 것이 이 동작의 전부이기 때문이다. `read` 툴에게 시키면 디스크를 읽어 낡은 내용을 훑는다.

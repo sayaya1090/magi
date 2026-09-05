@@ -162,7 +162,7 @@ func TestSocketPathGoldens(t *testing.T) {
 			"$REAL": "that directory after resolution (Go: filepath.EvalSymlinks, JVM: toRealPath) — every " +
 				"answer below is relative to this",
 		},
-		Regenerate: "The socket name derivation moved. Both sides derive it — internal/adapter/daemon/daemon.go " +
+		Regenerate: "The socket name derivation moved. Both sides derive it — internal/adapter/daemon/publish.go " +
 			"(WorkspaceKey, sanitize, shortHash) and clients/jetbrains/plugin/core/src/main/kotlin/dev/sayaya/" +
 			"magi/ide/transport/SocketPath.kt — and a difference of one character reads as \"there is no daemon " +
 			"here\". Fix both, then regenerate: MAGI_GOLDEN_UPDATE=1 go test ./internal/adapter/daemon/ -run Golden",

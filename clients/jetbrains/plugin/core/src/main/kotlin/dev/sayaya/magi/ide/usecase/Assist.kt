@@ -34,7 +34,7 @@ class Assist(
     fun completeCode(path: String, prefix: String, suffix: String): String? {
         if ((prefix.trim() + suffix.trim()).isEmpty()) return null
         // 커서 양쪽은 args 에 JSON 으로 간다. Text 하나로는 한쪽밖에 못 싣는다는 것이
-        // daemon.go 의 CompleteCode 주석이 밝히는 사유다.
+        // internal/adapter/daemon/client.go 의 CompleteCode 주석이 밝히는 사유다.
         val args = buildJsonObject {
             put("prefix", JsonPrimitive(prefix))
             put("suffix", JsonPrimitive(suffix))

@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
  * 모르는 물음을 아는 물음으로 넘겨짚지 않는다는 것을 못박는다.
  *
  * 이 시험이 지키는 것은 갈래 셋이 아니라 **셋째 갈래가 있다**는 사실이다. 이전 판은 갈래가 둘이라
- * `permission` 이 아닌 모든 것이 질문이었고, 그러면 코어(`daemon.go` 의 `Waiting.Event`, 반대로
+ * `permission` 이 아닌 모든 것이 질문이었고, 그러면 코어(`protocol.go` 의 `Waiting.Event`, 반대로
  * `question` 이 아닌 모든 것이 권한)와 같은 물음을 서로 다르게 그린다.
  */
 class AskTest {
