@@ -489,6 +489,8 @@ textarea::placeholder { color: var(--muted); }
   (담기와 적기 — 둘 다 덱을 안 바꾼다).
 */
 .btn-col { display: flex; flex-direction: column; gap: var(--s2); flex: none; }
+/* 오른쪽 묶음(세우기·보내기): 세우기는 도는 중에만 있어 평소엔 보내기 하나다 — 그때도 같은 자리에 선다. */
+.btn-col-end { align-self: center; }
 .buttons > textarea { flex: 1 1 auto; min-width: 0; margin: 0; }
 
 /* ── 컨트롤 ─────────────────────────────────────────────────── */
