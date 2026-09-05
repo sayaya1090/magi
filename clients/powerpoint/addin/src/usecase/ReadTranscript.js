@@ -69,6 +69,10 @@ export class ReadTranscript {
         // 남의 대화 이벤트가 이 연결로 올 리는 없지만, 왔다면 그건 화면 문제가 아니라
         // 신원 문제다. 조용히 섞지 않는다.
         if (ev?.sessionId && ev.sessionId !== this.sessionId) return;
+        // **되풀이는 한 번만 그린다.** 헬퍼는 늦게 붙는 쪽에 그 대화의 앞을 되풀이한다 — 스트림이
+        // 끊겼다 다시 붙으면 이미 그린 것이 또 온다. 실물 2026-09-05: 카운슬 판정 셋이 두 번 떴다.
+        // 순번은 단조증가라, 커서 뒤의 것만 그린다. 순번 0 은 자리 없는 버스 전용 이벤트라 그대로 둔다.
+        if (typeof ev?.seq === 'number' && ev.seq > 0 && this.cursor.usableFor(this.sessionId) && ev.seq <= this.cursor.seq) return;
         this.transcript.append(ev);
         this.cursor = this.cursor.advanced(this.sessionId, ev?.seq);
         this.onChange();

@@ -414,6 +414,20 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('안 밝힌 줄은 사람이 쓰던 글을 안 지운다',
     anonComp.echoed(read4.view.rows.filter((r) => r.kind === 'user').length) === false);
 
+  // **되풀이는 한 번만 그린다.** 스트림이 끊겼다 다시 붙으면 헬퍼가 그 대화의 앞을 다시 흘린다 —
+  // 이미 그린 순번은 다시 안 그린다(실물 2026-09-05: 카운슬 판정 셋이 두 번 떴다).
+  {
+    const port5 = new FakeTranscript({ R: [] });
+    const read5 = new ReadTranscript(port5);
+    read5.attach('R');
+    for (const seq of [1, 2, 3]) port5.push({ seq, sessionId: 'R', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 1, member: 'M' + seq, decision: 'done', rationale: 'r' } });
+    const before = read5.view.rows.length;
+    for (const seq of [1, 2, 3]) port5.push({ seq, sessionId: 'R', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 1, member: 'M' + seq, decision: 'done', rationale: 'r' } });
+    ok('다시 온 순번은 다시 안 그린다', read5.view.rows.length === before && before === 3, `${before} → ${read5.view.rows.length}`);
+    port5.push({ seq: 4, sessionId: 'R', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 1, member: 'M4', decision: 'done', rationale: 'r' } });
+    ok('새 순번은 그린다', read5.view.rows.length === 4);
+  }
+
   // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,
   // 다시 붙은 창은 `appended` 만 받으므로 **붙어 있던 창과 화면이 갈린다.**
   const port5 = new FakeTranscript({ A: [] });
