@@ -164,8 +164,15 @@ export function brandState({ companion, streamLive, hands, session }) {
   // 브랜드 줄에 두는 이유는 **수명이 여기 맞기 때문**이다. 처음 뜰 때만 적는 자리(`#ready`)에
   // 두었더니 「첫 줄 전까지만」 규칙에 걸려, 이미 오간 대화에 붙은 창에서는 영영 안 보였다 —
   // 사람이 세 번 「똑같다」고 한 자리다. 이 값은 창이 그 대화에 붙어 있는 동안 계속 참이다.
-  if (session) bits.push(`대화 ${session}`);
-  bits.push(streamLive ? '대화 연결됨' : '대화 끊김');
+  // **대화가 없는 것과 대화가 끊긴 것은 다른 말이다.** 붙기 전·대화가 아직 안 열린 창에도
+  // 「대화 끊김」이 섰다 — 끊길 대화가 없는데 끊겼다고 하니 사람이 고장으로 읽었다(2026-09-05).
+  // 「끊김」은 대화가 있는데 스트림이 죽은 것에만 쓴다.
+  if (session) {
+    bits.push(`대화 ${session}`);
+    bits.push(streamLive ? '대화 연결됨' : '대화 끊김');
+  } else {
+    bits.push('대화 없음');
+  }
   if (typeof hands === 'number') bits.push(hands === 1 ? '덱 1' : `덱 ${hands}`);
   return bits.join(' · ');
 }

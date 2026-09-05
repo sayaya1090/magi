@@ -2385,6 +2385,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       && streamLine({ live: false }).hidden === false
       && streamLine({ live: false }).text.includes('끊겼'),
     streamLine({ live: false }).text);
+  {
+    // 대화가 없는 창은 「없음」이지 「끊김」이 아니다 — 끊길 것이 없다.
+    const none = brandState({ companion: 'powerpoint', session: '', streamLive: false, hands: 1 });
+    ok('대화가 없으면 「대화 없음」', none.includes('대화 없음') && !none.includes('끊김'), none);
+    const dead = brandState({ companion: 'powerpoint', session: 's_1', streamLive: false, hands: 1 });
+    ok('대화가 있는데 스트림이 죽으면 「대화 끊김」', dead.includes('대화 끊김') && !dead.includes('없음'), dead);
+  }
   ok('거절과 끊김은 둘 다 적는다',
     streamLine({ live: false, refusal: '커서가 낡았다' }).text.includes('커서가 낡았다')
       && streamLine({ live: false, refusal: '커서가 낡았다' }).text.includes('끊겼'),
@@ -2514,11 +2521,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 {
   ok('안 골랐으면 안 골랐다고 적는다',
     brandState({ companion: null, streamLive: false }) === '컴패니언 미선택');
-  ok('붙었으면 어디에·대화가 살아 있는지·손이 몇인지',
-    brandState({ companion: 'deck2', streamLive: true, hands: 2 }) === 'deck2 · 대화 연결됨 · 덱 2',
-    brandState({ companion: 'deck2', streamLive: true, hands: 2 }));
-  ok('대화가 끊기면 그렇게 적는다',
-    brandState({ companion: 'deck2', streamLive: false }).includes('대화 끊김'));
+  ok('붙었으면 어디에·어느 대화·살아 있는지·손이 몇인지',
+    brandState({ companion: 'deck2', session: 's_1', streamLive: true, hands: 2 }) === 'deck2 · 대화 s_1 · 대화 연결됨 · 덱 2',
+    brandState({ companion: 'deck2', session: 's_1', streamLive: true, hands: 2 }));
+  ok('대화가 있는데 끊기면 그렇게 적는다',
+    brandState({ companion: 'deck2', session: 's_1', streamLive: false }).includes('대화 끊김'));
 }
 
 
