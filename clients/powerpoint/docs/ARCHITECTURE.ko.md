@@ -114,7 +114,7 @@ DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go s
 사용자가 창에 "IR 자료 만들어" 를 넣으면:
 
 1. 창 `SendTurn` → `POST /api/submit?deck=` → 헬퍼 `Bridge.Submit` → 데몬 `Submit{session}` → 202.
-2. 데몬이 모델(심 `:58415`)을 부릅니다. 도구 목록에는 코어 내장 도구와 이 대화의 `ppt` 48개, 플러그인 `land` 가 있습니다([TOOLS.ko.md](TOOLS.ko.md)).
+2. 데몬이 모델(심 `:58415`)을 부릅니다. 도구 목록에는 코어 내장 도구와 이 대화의 `ppt` 48개가 있습니다. landing 플러그인은 카운슬이 있는 판에서는 도구 대신 선언 게이트로 섭니다([TOOLS.ko.md](TOOLS.ko.md) §4).
 3. 모델이 `mcp__ppt__add_slides` 를 부르면 데몬이 권한을 묻습니다(`--permission ask`). 창의 `WatchPrompt` 가 물음을 그리고 사람이 답합니다.
 4. 허용되면 데몬 → `POST /mcp?deck=` → 헬퍼 `pick` 이 창을 고름 → `/hand/stream` 으로 `{kind:"call", data}` → 창 `ServeHand` → `OfficeHand` 가 Office.js 실행 → `/hand/reply` → 헬퍼 → MCP 응답 → 데몬 → 모델.
 5. 변이 도구는 답에 `now`(바뀐 뒤의 객체)를 싣습니다. 모델이 다시 읽지 않아도 되게 하려는 것입니다.
@@ -130,5 +130,5 @@ DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go s
 ## 7. 알려진 틈
 
 - `-race` 가 잡는 둘: `hand.go` 허브의 맵 접근, `own` 픽스처의 `Alive` 교체(TESTING §8).
-- 모델이 도구 없이 말만 하고 끝내는 턴은 `land` 플러그인이 세지만 막지는 못합니다(TOOLS §5).
+- 모델이 만든 장을 보지 않고 끝내려는 턴은 선언 게이트가 렌더 수와 남은 제목 ⚠ 를 재서 거절합니다(TOOLS §4 · 3차 런 실측: 거절 0, 첫 심의 done).
 - 헬퍼가 죽을 때 등록을 떼는데(`DetachAll`), 데몬이 느리면 "정리 중에 시한이 지났습니다" 를 남기고 나갑니다. 다음 `settle` 이 어차피 떼고 붙이므로 남은 등록은 해가 없습니다.

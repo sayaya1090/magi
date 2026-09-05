@@ -32,7 +32,7 @@ flowchart LR
   subgraph Daemon["magi --daemon (machine 에 하나)"]
     S1["대화 s_98eb…<br/>ppt 48 · 주인=s_98eb…"]
     S2["대화 s_b63e…<br/>ppt 48 · 주인=s_b63e…"]
-    Core["코어 도구 26 · land"]
+    Core["코어 도구 26 · 선언 게이트(landing)"]
   end
   Shim["모델 심 :58415<br/>agy → Gemini"]
   Pane -- https --> Page
@@ -60,7 +60,7 @@ sequenceDiagram
   P->>H: POST /api/submit?deck=K {text}
   H->>D: Submit{session}
   H-->>P: 202 (답은 스트림으로)
-  D->>M: 메시지 + 도구 목록(코어 26 · ppt 48 · land)
+  D->>M: 메시지 + 도구 목록(코어 26 · ppt 48)
   M-->>D: tool-call mcp__ppt__add_slides{slides:[…]}
   D->>P: permission.asked (Transcript 스트림)
   U->>P: 허용
@@ -73,7 +73,8 @@ sequenceDiagram
   P->>H: POST /hand/reply {result, now}
   H-->>D: MCP 응답
   D->>M: tool-result
-  M-->>D: land{did, verified, left}
+  M-->>D: council{complete: true}
+  D->>D: 선언 게이트(렌더 수 · 제목 ⚠) → 카운슬
   D-->>P: part.appended … (Transcript)
 ```
 
