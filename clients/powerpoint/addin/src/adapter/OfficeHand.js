@@ -2532,7 +2532,13 @@ export class OfficeHand extends HandPort {
         'accent1', 'accent2', 'accent3', 'accent4', 'accent5', 'accent6',
         'hyperlink', 'followedHyperlink'];
       const given = args.colors && typeof args.colors === 'object' ? args.colors : {};
+      // 바꾸기 전 값을 읽어 둔다 — 「바꿨는데 화면이 그대로」의 절반은 **거의 같은 색으로 바꾼 것**이다
+      // (2026-09-05 실물: dark1 #000000 → #0B0F19, 사람이 「반영이 안 됐다」고 봤다).
+      const was = {};
+      const asks = Object.keys(given).filter((n) => names.includes(n)).map((n) => [n, scheme.getThemeColor(n)]);
+      try { await context.sync(); asks.forEach(([n, r]) => { was[n] = r?.value ?? null; }); } catch { /* 못 읽으면 견주지 않는다 */ }
       const set = [];
+      const faint = [];
       for (const [name, value] of Object.entries(given)) {
         if (!names.includes(name)) {
           throw new Error(`모르는 테마 색 이름입니다: ${name} — 쓸 수 있는 것: ${names.join(', ')}`);
@@ -2541,6 +2547,7 @@ export class OfficeHand extends HandPort {
         if (!/^#[0-9A-Fa-f]{6}$/.test(c)) throw new Error(`${name} 의 색은 #RRGGBB 로 주세요 — 받은 것: ${c}`);
         scheme.setThemeColor(name, c);
         set.push(`${name}=${c}`);
+        if (typeof was[name] === 'string' && contrastRatio(was[name], c) < 1.15) faint.push(`${name} ${was[name]}→${c}`);
       }
       if (set.length === 0) {
         throw new Error(`바꿀 색을 하나도 안 줬습니다 — colors 에 ${names.slice(0, 4).join('·')} 같은 이름과 #RRGGBB 를 주세요`);
@@ -2564,6 +2571,12 @@ export class OfficeHand extends HandPort {
         fonts_unchanged: true, font_now: face,
       },
       [`${scope} 층의 테마 색을 바꿨습니다: ${set.join(', ')}`,
+        // **어디에 보이는가**를 같이 말한다. 새 덱의 글자는 dark1, 배경은 light1 뿐이라 accent 를 바꿔도
+        // 화면은 그대로다 — 도구는 시킨 대로 했고 사람은 「반영이 안 됐다」고 본다(2026-09-05 실물).
+        '테마 색이 보이는 자리: 자리표시자 글자(dark1)·배경(light1)·차트 계열(accent1~6)·표 스타일·테마 색으로 칠한 도형. '
+          + '#RRGGBB 로 직접 칠한 도형·글자는 안 바뀝니다. 새 덱에는 accent 를 쓰는 것이 없으므로 차트·표·강조 상자를 넣거나 '
+          + 'apply_style/format_shape 로 색을 걸어야 눈에 보입니다',
+        ...(faint.length ? [`⚠ 거의 같은 색으로 바꿨습니다(눈에 안 띕니다): ${faint.join(', ')}`] : []),
         `⚠ 글꼴은 안 바뀝니다 — 이 문은 색만 엽니다${face ? `. 지금 이 덱의 글꼴은 「${face}」입니다` : ''}`,
         '테마 글꼴을 바꾸는 문은 없습니다(실측) — 글꼴은 apply_style 로 장 전체에 거세요',
         scope === 'master'

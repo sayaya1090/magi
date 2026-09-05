@@ -4434,6 +4434,18 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('대비가 충분하면 조용하다', !fine.changed.join(' ').includes('안 보일'), fine.changed.join(' '));
 }
 
+{
+  // 테마색: 「어디에 보이나」와 「거의 같은 색」을 답에 싣는다 — 사람이 「반영이 안 됐다」고 본 날의 것.
+  const deck = model();
+  deck.theme = { accent1: '#156082', dark1: '#000000' };
+  const hand = new OfficeHand({ run: stubRunner(deck, []), supports: () => true });
+  const out = await hand.run('set_theme_colors', { slide: 1, scope: 'master', colors: { dark1: '#0B0F19', accent1: '#2563EB' } });
+  const said = out.changed.join(' ');
+  ok('테마색이 보이는 자리를 말한다', said.includes('보이는 자리') && said.includes('#RRGGBB 로 직접'), said.slice(0, 200));
+  ok('거의 같은 색으로 바꾼 것을 이름 댄다(dark1)', said.includes('거의 같은 색') && said.includes('dark1 #000000→#0B0F19'), said);
+  ok('확실히 다른 색(accent1)은 그 목록에 없다', !/거의 같은 색[^⚠]*accent1/.test(said), said);
+}
+
 console.log(failed ? `${failed} 실패` : '전부 통과');
 
 process.exit(failed ? 1 : 0);
