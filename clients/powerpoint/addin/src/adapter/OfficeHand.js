@@ -835,9 +835,20 @@ export class OfficeHand extends HandPort {
         : asParagraphs(args.text);
       await context.sync();
       this.#mutated();
+      // 자리(제목/본문)에 넣은 글은 맞는지 잰다 — add_slides 와 같은 자(`#fitNotes`).
+      let role = String(args.placeholder ?? '').trim().toLowerCase();
+      if (!role) {
+        try {
+          shape.placeholderFormat.load('type');
+          await context.sync();
+          const t = String(shape.placeholderFormat.type ?? '').toLowerCase();
+          role = /title/.test(t) && !/sub/.test(t) ? 'title' : (/body|content|subtitle|text/.test(t) ? 'body' : '');
+        } catch { role = ''; }
+      }
+      const [note] = role ? await this.#fitNotes(context, [{ shape, role, text: args.text }]) : [''];
       return this.#envelope(
-        { slide_id: slide.id, shape_id: id, text: args.text },
-        [`슬라이드 ${slide.id} · 도형 ${id}: "${before}" → "${args.text}"`]);
+        { slide_id: slide.id, shape_id: id, text: args.text, ...(note ? { note } : {}) },
+        [`슬라이드 ${slide.id} · 도형 ${id}: "${before}" → "${args.text}"` + (note ? ` · ${note}` : '')]);
     });
   }
 
@@ -1374,11 +1385,13 @@ export class OfficeHand extends HandPort {
       const missed = unfilled.length
         ? ` · ⚠ ${unfilled.map((u) => `${u.role} 자리가 없어 "${clipText(u.text)}" 는 안 넣었습니다`).join(' · ')}`
         : '';
+      const fit = filled.filter((f) => f.note).map((f) => f.note);
       return this.#envelope(
         {
           slide_id: newId, slide: at, layout: layoutName,
           filled: filled.map((f) => f.role),
           unfilled: unfilled.map((u) => u.role),
+          notes: fit,
           // 이 덱의 버릇을 따랐는가. 빈 배열은 **따를 것이 없었다**는 뜻이다(덱이 제각각이거나
           // 테마 그대로거나) — 「안 맞췄다」가 아니다. 못 읽어서 못 맞춘 것은 아래 칸이 가른다.
           styled: worn,
@@ -1389,6 +1402,7 @@ export class OfficeHand extends HandPort {
           (layoutName ? ` — 레이아웃 ${layoutName}` : '') +
           (notes.length ? ` · ${notes.join(' · ')}` : '') +
           (filled.length ? ` · ${filled.map((f) => `${f.role}="${clipText(f.text)}"`).join(' · ')}` : '') +
+          (fit.length ? ` · ${fit.join(' · ')}` : '') +
           (worn.length ? ` · 이 덱 스타일에 맞춤(${worn.join(' · ')})` : '') +
           (styleGot && !styleGot.read ? ' · ⚠ 이 장의 서식을 못 읽어 덱 스타일에 못 맞췄습니다' : '') +
           missed]);
@@ -1902,6 +1916,7 @@ export class OfficeHand extends HandPort {
           layout: chosen[i]?.layout?.name ?? plan[i].layout ?? null,
           filled: filled.map((f) => f.role),
           unfilled: unfilled.map((u) => u.role),
+          notes: filled.filter((f) => f.note).map((f) => f.note),
           styled: worn,
           style_unread: (got ? !got.read : false) || style?.read === false,
         });
@@ -1929,6 +1944,7 @@ export class OfficeHand extends HandPort {
       }
 
       const missed = rows.filter((r) => r.unfilled.length);
+      const fitRows = rows.filter((r) => r.notes.length);
       // **첫 줄로 전체를 대변하지 않는다.** 1번만 맞고 나머지가 안 맞았는데 「맞춤」이라고
       // 적으면 그건 아홉 장에 대한 거짓말이다(리뷰가 짚었다, 2026-09-02).
       const wornRows = rows.filter((r) => r.styled.length);
@@ -1941,6 +1957,10 @@ export class OfficeHand extends HandPort {
           + (wornAny.length ? ` · 전부 이 덱 스타일에 맞춤(${wornAny.join(' · ')})` : '')
           + (!wornAny.length && wornRows.length ? ` · ${wornRows.length}/${rows.length} 장만 덱 스타일에 맞춤` : '')
           + (unreadRows.length ? ` · ⚠ ${unreadRows.length}장은 서식을 못 읽어 못 맞췄습니다` : '')]
+          .concat(fitRows.length
+            ? [`⚠ 재 보니 안 맞는 것(추정 — 그 장을 render_slide 로 보고 고치세요): `
+              + fitRows.map((r) => `${r.slide}: ${r.notes.join(' · ')}`).join(' / ')]
+            : [])
           .concat(missed.length
             ? [`⚠ 넣을 자리가 없어 못 채운 것: `
               + missed.map((r) => `${r.slide}번의 ${r.unfilled.join(',')}`).join(' · ')]
@@ -2006,10 +2026,38 @@ export class OfficeHand extends HandPort {
           }
         } catch { /* 이 자리는 문단 서식을 못 받는다 — 글은 이미 들어갔다 */ }
       }
-      filled.push({ role: w.role, text: w.text, shape_id: hit.id });
+      filled.push({ role: w.role, text: w.text, shape_id: hit.id, shape: hit });
     }
     await context.sync();
-    return { filled, unfilled };
+    const notes = await this.#fitNotes(context, filled.map((f) => ({ shape: f.shape, role: f.role, text: f.text })));
+    return {
+      filled: filled.map((f, i) => ({ role: f.role, text: f.text, shape_id: f.shape_id, note: notes[i] })),
+      unfilled,
+    };
+  }
+
+  /**
+   * 넣은 글이 자리에 맞는지 **재서** 말한다 — 그림 없이. 실물 두 덱(2026-09-04)에서 제목이
+   * 두 줄로 접히고 본문 아래가 빈 띠였는데, 모델은 렌더를 안 봤고 도구 답에는 아무 말이
+   * 없었다. 자리 폭·높이와 글자 크기로 줄 수를 어림한다(`fitNote`) — 추정이라 「수 있습니다」로
+   * 적고, 못 읽으면(자리 크기·글자 크기가 안 오면) 아무 말도 안 한다. 항목마다 '' 또는 ⚠ 한 줄.
+   */
+  async #fitNotes(context, entries) {
+    const out = entries.map(() => '');
+    if (entries.length === 0) return out;
+    try {
+      for (const e of entries) {
+        e.shape.load('width,height');
+        e.shape.textFrame.textRange.font.load('size');
+      }
+      await context.sync();
+    } catch { return out; }
+    return entries.map((e) => {
+      try {
+        return fitNote(e.role, e.text, Number(e.shape.textFrame.textRange.font.size),
+          { width: Number(e.shape.width), height: Number(e.shape.height) });
+      } catch { return ''; }
+    });
   }
 
   /**
@@ -4531,6 +4579,52 @@ export function overlaps(a, b) {
 }
 
 /** WCAG 대비율. #RRGGBB 가 아니면 21(= 모른다, 경고하지 않는다). */
+/**
+ * 글 한 줄의 폭을 pt 로 어림한다: 한글·한자·전각은 글자 크기만큼, 라틴·숫자는 0.55배, 공백은
+ * 0.3배. 서체를 모르니 정확할 수 없고, 정확할 필요도 없다 — 「한 줄에 드는가」를 가르는 자다.
+ */
+export function textWidthPt(text, size) {
+  let w = 0;
+  for (const ch of String(text ?? '')) {
+    if (ch === ' ') w += 0.3;
+    else if (/[\u1100-\u11ff\u3000-\u9fff\uac00-\ud7ff\uf900-\ufaff\uff00-\uffef]/.test(ch)) w += 1;
+    else w += 0.55;
+  }
+  return w * size;
+}
+
+/** 문단마다 접히는 줄 수의 합. 폭이나 크기를 모르면 0(=모름). */
+export function linesNeeded(text, size, width) {
+  if (!(size > 0) || !(width > 0)) return 0;
+  return String(text ?? '').split(/\r?\n/).reduce((n, para) => {
+    const w = textWidthPt(para, size);
+    return n + (w === 0 ? 1 : Math.ceil(w / width));
+  }, 0);
+}
+
+/**
+ * 자리에 넣은 글이 맞는지 한 줄로 — '' 이면 할 말 없음. 제목은 한 줄이어야 하고, 본문은 자리의
+ * 40% 는 채워야 아래가 빈 띠로 안 보이며, 자리를 넘치면 잘린다. 전부 추정이라 「수 있습니다」.
+ */
+export function fitNote(role, text, size, box) {
+  const lines = linesNeeded(text, size, box?.width);
+  if (lines === 0) return '';
+  if (role === 'title') {
+    if (lines < 2) return '';
+    return `⚠ 제목이 ${lines}줄로 접힐 수 있습니다(${[...String(text)].length}자·${size}pt·자리 폭 ${Math.round(box.width)}pt) — 제목은 한 줄: 줄이거나 subtitle/body 로 나누세요`;
+  }
+  const height = Number(box?.height);
+  if (!(height > 0)) return '';
+  const used = lines * size * 1.2;
+  if (used > height * 1.15) {
+    return `⚠ 본문이 자리를 넘칠 수 있습니다(${lines}줄·${size}pt ≈ ${Math.round(used)}pt, 자리 높이 ${Math.round(height)}pt) — 줄이거나 장을 나누세요`;
+  }
+  if (height >= 150 && used < height * 0.4) {
+    return `⚠ 본문이 자리 높이의 ${Math.round((used / height) * 100)}% 만 씁니다 — 아래가 빈 띠로 보일 수 있습니다: 내용을 더하거나 글자를 키우거나(format_shape) 자리를 줄이세요(move_shape)`;
+  }
+  return '';
+}
+
 export function contrastRatio(fg, bg) {
   const lum = (hex) => {
     const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());

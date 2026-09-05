@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, overlaps, contrastRatio, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, overlaps, contrastRatio, textWidthPt, linesNeeded, fitNote, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { withEastAsianFont, eastAsianRuns } from '../src/adapter/eaxml.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
@@ -340,6 +340,7 @@ function stubRunner(model, log = []) {
           // 새 장의 자리표시자는 **테마의 값을 들고 나온다** — 실물이 그렇다. 이게 없으면
           // 「이미 같은 값이면 안 건드린다」를 잴 수가 없다.
           font: { ...(model.themeFont ?? {}) },
+          ...(model.placeholderBox?.[t] ?? {}),
         })),
       });
       renumber();
@@ -4453,6 +4454,65 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('없는 번호: 장 수와 list_slides 를 말한다', why?.includes('슬라이드 98 이 없습니다') && why?.includes('장입니다') && why?.includes('list_slides'), String(why));
   const why2 = await threw(() => hand.run('read_slide', { slide_id: 'ghost#1' }));
   ok('없는 id: 지워졌거나 다시 지어졌다고 말한다', why2?.includes('ghost#1') && why2?.includes('다시 지어졌'), String(why2));
+}
+
+// ── 넣은 글이 자리에 맞는가 — 도구가 잰다 ─────────────────────────────────────
+//
+// 실물 두 덱(2026-09-04): 제목이 두 줄로 접히고 본문 아래가 빈 띠였는데 모델은 렌더를 안 봤고
+// 도구 답에는 아무 말이 없었다. 자리 폭·높이와 글자 크기로 줄 수를 어림해 ⚠ 한 줄을 싣는다.
+{
+  ok('폭: 한글은 글자 크기만큼, 라틴은 0.55배', textWidthPt('가나', 10) === 20 && Math.abs(textWidthPt('ab', 10) - 11) < 1e-9);
+  ok('폭: 공백은 0.3배', Math.abs(textWidthPt('가 나', 10) - 23) < 1e-9);
+  ok('줄 수: 폭을 넘으면 접힌다', linesNeeded('가나다라마바사아', 10, 50) === 2, String(linesNeeded('가나다라마바사아', 10, 50)));
+  ok('줄 수: 문단은 각각 센다', linesNeeded('가\n나', 10, 100) === 2);
+  ok('줄 수: 빈 문단도 한 줄', linesNeeded('가\n\n나', 10, 100) === 3);
+  ok('줄 수: 폭이나 크기를 모르면 0', linesNeeded('가나', 0, 100) === 0 && linesNeeded('가나', 10, NaN) === 0);
+  ok('제목 한 줄이면 말이 없다', fitNote('title', '요약', 40, { width: 400, height: 60 }) === '');
+  const t2 = fitNote('title', '매출 성장률과 시장 점유율 전망 2026', 40, { width: 400, height: 60 });
+  ok('제목이 접히면 줄 수·글자 수·크기·폭을 대고 한 줄로 만들라고 한다',
+    t2.includes('2줄') && t2.includes('22자') && t2.includes('40pt') && t2.includes('400pt') && t2.includes('한 줄'), t2);
+  ok('모르면 아무 말도 안 한다', fitNote('title', '매우 긴 제목 매우 긴 제목 매우 긴 제목', NaN, { width: 400 }) === '');
+  const b1 = fitNote('body', '12% 성장', 40, { width: 600, height: 300 });
+  ok('본문이 자리의 40% 미만이면 빈 띠라고 한다', b1.includes('16%') && b1.includes('빈 띠') && b1.includes('move_shape'), b1);
+  ok('작은 자리(150pt 미만)는 빈 띠를 따지지 않는다', fitNote('body', '짧게', 20, { width: 600, height: 120 }) === '' && fitNote('body', '짧게', 20, { width: 600, height: 150 }) !== '');
+  const long = Array.from({ length: 10 }, () => '가나다라마바사아자차').join('\n');
+  const b2 = fitNote('body', long, 40, { width: 600, height: 300 });
+  ok('본문이 자리를 넘치면 잘린다고 한다', b2.includes('넘칠') && b2.includes('10줄') && b2.includes('300pt'), b2);
+  ok('본문이 알맞게 차면 말이 없다',
+    fitNote('body', Array.from({ length: 4 }, () => '가나다라마바사아자차').join('\n'), 40, { width: 600, height: 300 }) === '');
+  ok('높이를 모르면 본문은 말이 없다', fitNote('body', '12% 성장', 40, { width: 600 }) === '');
+
+  // add_slides 가 장마다 잰 것을 싣는다 — 결과의 notes 와 사람이 읽는 줄 둘 다.
+  const m = model();
+  m.masters = [{ id: 'm1', name: '기본', layouts: [{ id: 'l1', name: '제목 및 내용', placeholders: ['title', 'body'] }] }];
+  m.themeFont = { size: 40 };
+  m.placeholderBox = { title: { width: 400, height: 60 }, body: { width: 600, height: 300 } };
+  const hand = new OfficeHand({ run: stubRunner(m, []), supports: () => true, document: 'doc-1' });
+  const out = await hand.run('add_slides', { slides: [
+    { layout: '제목 및 내용', title: '매출 성장률과 시장 점유율 전망 2026', body: '12% 성장' },
+    { layout: '제목 및 내용', title: '요약', body: Array.from({ length: 4 }, () => '가나다라마바사아자차').join('\n') },
+  ] });
+  const rows = out.result.slides;
+  ok('접히는 제목과 빈 본문은 그 장의 notes 에 실린다', rows[0].notes.length === 2 && rows[0].notes[0].includes('제목이 2줄') && rows[0].notes[1].includes('빈 띠'), JSON.stringify(rows[0].notes));
+  ok('맞는 장은 notes 가 비어 있다', rows[1].notes.length === 0, JSON.stringify(rows[1].notes));
+  const said = out.changed.join('\n');
+  ok('사람이 읽는 줄에도 장 번호와 함께 싣고 렌더로 보라고 한다', said.includes('재 보니 안 맞는 것') && said.includes(`${rows[0].slide}: ⚠ 제목이 2줄`) && said.includes('render_slide'), said);
+
+  // add_slide 한 장도 같은 자로 잰다.
+  const one = await hand.run('add_slide', { layout: '제목 및 내용', title: '매출 성장률과 시장 점유율 전망 2026', body: '12% 성장' });
+  ok('add_slide 도 notes 를 싣는다', one.result.notes.length === 2 && one.changed.join('').includes('제목이 2줄'), JSON.stringify(one.result.notes));
+
+  // set_text 로 제목을 갈아 끼울 때도 잰다 — 자리(placeholder)로 짚었든 shape_id 로 짚었든.
+  const m2 = model();
+  m2.slides[0].shapes[0].font = { size: 40 };
+  const hand2 = new OfficeHand({ run: stubRunner(m2, []), supports: () => true, document: 'doc-1' });
+  const st = await hand2.run('set_text', { slide: 1, placeholder: 'title', text: '매출 성장률과 시장 점유율 전망 2026' });
+  ok('set_text(placeholder) 가 제목 접힘을 말한다', typeof st.result.note === 'string' && st.result.note.includes('제목이') && st.changed.join('').includes('접힐'), JSON.stringify(st.result));
+  const st2 = await hand2.run('set_text', { slide: 1, shape_id: 'sh1', text: '요약' });
+  ok('맞으면 note 칸이 없다', st2.result.note === undefined, JSON.stringify(st2.result));
+  // shape_id 로 짚으면 자리의 종류를 읽어 제목의 자로 잰다 — 본문의 자(넘침)가 아니라.
+  const st3 = await hand2.run('set_text', { slide: 1, shape_id: 'sh1', text: '매출 성장률과 시장 점유율 전망 2026' });
+  ok('set_text(shape_id) 도 자리 종류를 읽어 제목으로 잰다', typeof st3.result.note === 'string' && st3.result.note.includes('제목이 3줄'), JSON.stringify(st3.result));
 }
 
 console.log(failed ? `${failed} 실패` : '전부 통과');
