@@ -85,13 +85,25 @@ rule and the tool-name
 rule are held on **both sides (Go and Kotlin) by the same golden files**, so a one-character drift
 cannot read as "there is no daemon here".
 
-### The PowerPoint add-in — design stage
+### The PowerPoint add-in — shipped, and the shape it settled into
 
-A proposal with no code yet (`clients/powerpoint/DESIGN.md`). Three directions are set: the agent
-stays magi and the deck-touching tools are offered **as MCP** (no new daemon — context must not be
-split); the add-in **chooses which companion to attach to**, and with no daemon running it starts
-one in the deck's own directory; and judgement rides numbers and text by default, **pixels as the
-last resort** (there is no guarantee the attached model reads images).
+`clients/powerpoint/` — a helper (`magi-ppt`, Go) that serves the task pane and speaks MCP, an
+Office.js add-in (`addin/`) that is the hand on the deck, and ~45 tools. The three directions from
+the proposal held: the agent stays magi and the deck tools are offered **as MCP** through the
+daemon's `mcp-attach` door; the pane **attaches itself** to a companion the helper provisions in the
+deck's own workspace (a picker is shown only when that fails); and judgement rides numbers and text,
+pixels last (`render_shape` is one shape, `render_slide` the expensive whole).
+
+Two things the proposal did not foresee, both measured 2026-09-04/05:
+
+- **One daemon, one conversation per deck.** Two open decks share one companion but each gets its
+  own conversation and its own tool registration (`owner` on `mcp-attach`, `keep` on `session-new`),
+  and the MCP address carries the deck so a call that omits `document` still lands on its own deck.
+  A deck carries its own name in a presentation tag, so reconnecting does not re-issue it.
+- **The helper must not cache decisions.** Six identities across four maps, each keyed differently,
+  went stale under four different restart events; fourteen fixes in one day were each one cell of
+  that table. The redesign — one idempotent `reconcile(deck)` that asks the pane, the daemon and the
+  deck for the truth and mends the difference — is `DESIGN.md` §5.9 and is the next thing to build.
 
 ### The fleet through one socket — the `roster` door (design direction, set 2026-08-29)
 

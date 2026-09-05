@@ -468,7 +468,12 @@ written, rather than a menu going quiet six months later.
   this afternoon must not leave a line the daemon dials every morning. `EXTENDING.md` §1.4 is the
   contract; the daemon speaks it as `mcp-attach` / `mcp-detach` and advertises it as the
   `tool-servers` capability — asked of the engine, since whether a daemon accepts the door is a
-  fact about what it is running and not about this build.
+  fact about what it is running and not about this build. An attach may name an **owner** (a
+  session): the tools are then advertised to that conversation alone and refuse a call from any
+  other, and a second attach under the same server name for a different owner merges a hand into
+  the one registered tool instead of replacing it. Empty owner is the whole daemon, which is what
+  every attach meant before the field existed (2026-09-04, for a client that holds one conversation
+  per open PowerPoint deck).
 
 `ToolEnv` used to carry two more fields — `Ask` (a subagent escalating to its
 orchestrator) and `Report` (a subagent's structured final result, `port.ReportInput`).
