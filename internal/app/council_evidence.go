@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -99,6 +100,77 @@ func evidenceArgs(name string, raw json.RawMessage) string {
 // defeatist agent talks the council into "done" with no artifact (the download-youtube
 // lesson). Only events since the last user prompt are considered, so a prior turn's
 // successful tool result can't masquerade as this turn's. Most recent k results.
+// guidanceRead is the full text of every skill the agent opened this SESSION (the `skill`
+// tool), latest reading of each, in first-read order. Skills carry instructions the agent
+// bound itself to — a layout rule, a "render each finished page" step — and a council that
+// judges only against the task cannot see a skill's rule being skipped. Unlike the tool
+// evidence this is not reset at each user prompt: a skill read in turn 1 still binds turn 3.
+// Each body is clipped at perCap bytes and the whole at totalCap; skills that do not fit are
+// named so the reader knows what it is not seeing.
+func guidanceRead(evs []event.Event, perCap, totalCap int) string {
+	byCall := map[string]string{} // callID -> skill name
+	body := map[string]string{}   // skill name -> latest body
+	var order []string
+	for _, e := range evs {
+		if e.Type != event.TypePartAppended {
+			continue
+		}
+		var d event.PartAppendedData
+		if json.Unmarshal(e.Data, &d) != nil {
+			continue
+		}
+		switch d.Part.Kind {
+		case session.PartToolCall:
+			tc := d.Part.ToolCall
+			if tc == nil || tc.Name != "skill" {
+				continue
+			}
+			var sa struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal(tc.Args, &sa) == nil && sa.Name != "" {
+				byCall[tc.CallID] = sa.Name
+			}
+		case session.PartToolResult:
+			tr := d.Part.ToolResult
+			if tr == nil || tr.IsError {
+				continue
+			}
+			name, ok := byCall[tr.CallID]
+			if !ok {
+				continue
+			}
+			text := strings.TrimSpace(toolResultText(tr.Content))
+			if text == "" {
+				continue
+			}
+			if _, seen := body[name]; !seen {
+				order = append(order, name)
+			}
+			body[name] = text
+		}
+	}
+	var b strings.Builder
+	var omitted []string
+	for _, name := range order {
+		t := body[name]
+		if len(t) > perCap {
+			t = clipLine(t, perCap) + "\n[clipped: skill " + name + " is " + strconv.Itoa(len(body[name])) + " bytes]"
+		}
+		entry := "## skill " + name + "\n" + t + "\n\n"
+		if b.Len()+len(entry) > totalCap {
+			omitted = append(omitted, name)
+			continue
+		}
+		b.WriteString(entry)
+	}
+	if len(omitted) > 0 {
+		b.WriteString("[" + strconv.Itoa(len(omitted)) + " more skill(s) the agent read did not fit: " +
+			strings.Join(omitted, ", ") + "]\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
 	// One entry per finished call, keyed so a REPEAT of the same call can supersede the earlier

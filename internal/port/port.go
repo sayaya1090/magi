@@ -196,6 +196,9 @@ type DeliberationRequest struct {
 	Declared bool
 	Plan     string // acceptance criteria / contract
 	Report   string // the agent's self-reported result / claim (optional)
+	// Guidance is the full text of the skills the agent opened this session (the `skill` tool):
+	// instructions it bound itself to, which a judge reading only the task cannot know it broke.
+	Guidance string
 	// Actions is a summary of this turn's tool RESULTS (e.g. write "wrote 13 bytes to
 	// hello.txt", bash `cat` output) — real, git-independent evidence so the council can
 	// judge a create/write turn in a non-git workdir on what happened, not on an absent

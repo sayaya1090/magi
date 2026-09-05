@@ -800,6 +800,7 @@ func evidence(req port.DeliberationRequest) string {
 			"work behind it is done.\n\n")
 	}
 	section("The agent’s own plan (its todo list, not a contract anyone else authored)", req.Plan)
+	section("Guidance the agent read this session (skills it opened with the `skill` tool — instructions it bound itself to; a rule here the work skipped is a defect even when the task never spelled it out)", req.Guidance)
 	section("Agent's report (the claim)", req.Report)
 	// The identifiers the task NAMES, and whether each is in what the turn wrote. A comparison of
 	// two things the members already have, made for them because it is the one a reader makes only

@@ -63,6 +63,12 @@ func councilDoing(members, answered int, onePanel bool, elapsed time.Duration) s
 	}
 }
 
+// A skill is ~10 KB (deck-design 9.9 KB measured 2026-09-05); a session reads two or three.
+const (
+	councilGuidancePerCap = 12000
+	councilGuidanceCap    = 30000
+)
+
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")
@@ -91,6 +97,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	// because it is the part nobody wrote: which commands ran, how they really ended, and which
 	// of them it could not determine.
 	actions := turnToolEvidence(evs, councilActionsCap)
+	guidance := guidanceRead(evs, councilGuidancePerCap, councilGuidanceCap)
 	if rec := a.stopRecord(ctx, sid); rec != "" {
 		if strings.TrimSpace(actions) == "" {
 			actions = rec
@@ -230,6 +237,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	}()
 	delib, err := a.cfg.Council.Deliberate(ctx, port.DeliberationRequest{
 		Round: 1, Task: task, Plan: plan, Report: lastText, Actions: actions, Changes: changes,
+		Guidance:     guidance,
 		Declared:     complete,
 		NoChanges:    strings.TrimSpace(changes) == "",
 		Members:      members,

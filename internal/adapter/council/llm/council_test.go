@@ -1053,3 +1053,25 @@ func TestEvidenceSaysWhenTheRoundWasConvenedByADeclaration(t *testing.T) {
 		t.Errorf("a declaration round must say so:\n%s", declared)
 	}
 }
+
+// Guidance (skills the agent read) is a section of its own, placed before the report so a judge
+// reads the rules before the claim; absent when nothing was read.
+func TestEvidenceGuidanceSection(t *testing.T) {
+	got := evidence(port.DeliberationRequest{
+		Task:     "make a deck",
+		Report:   "done",
+		Guidance: "## skill deck-design\nrender each finished page once",
+	})
+	if !strings.Contains(got, "Guidance the agent read this session") {
+		t.Errorf("guidance section header missing:\n%s", got)
+	}
+	if !strings.Contains(got, "render each finished page once") {
+		t.Errorf("guidance body missing:\n%s", got)
+	}
+	if strings.Index(got, "Guidance the agent read") > strings.Index(got, "Agent's report") {
+		t.Errorf("guidance must precede the report:\n%s", got)
+	}
+	if e := evidence(port.DeliberationRequest{Task: "x", Report: "y"}); strings.Contains(e, "Guidance the agent read") {
+		t.Errorf("no guidance → no section:\n%s", e)
+	}
+}
