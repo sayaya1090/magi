@@ -169,6 +169,8 @@ export class Row {
      * 이어 붙인다. 로그를 처음부터 다시 읽을 때는 델타가 아예 없어서 전부 뒤엣것이 된다.
      */
     this.settled = false;
+    /** 마지막으로 앉은 완성본 조각. 같은 조각이 두 번 오는 것(아래 `append`)을 가르는 데 쓴다. */
+    this.lastPart = null;
   }
   get drawn() { return this.kind !== 'unknown'; }
   /**
@@ -285,8 +287,18 @@ export class Transcript {
         const row = this.rows[at];
         const t = textOf(ev, kind);
         if (type === 'part.appended') {
-          row.text = row.settled ? row.text + t : t;
-          row.settled = true;
+          // **같은 완성본이 두 번 오면 한 번이다.** 카운슬 판정과 같은 길이다(아래 `council`): 코어가
+          // 살아 있는 이벤트(seq 0)로 한 번, 기록(seq>0)으로 한 번 보내면 붙어 있는 창은 둘 다 받는다.
+          // 「완성본 둘은 다음 조각」 규칙이 그것을 이어 붙여 답의 끝이 두 번 섰다(사용자 2026-09-06:
+          // 「응답 끝이 두 번 그려지는 버그」). 글이 같고 둘 중 하나가 자리 없는 이벤트면 되풀이다 —
+          // 둘 다 자리가 있고 자리가 다르면 정말 같은 글을 두 번 말한 것이라 그대로 잇는다.
+          const twice = row.settled && t === row.lastPart
+            && (!(ev?.seq > 0) || !(row.seq > 0) || ev.seq === row.seq);
+          if (!twice) {
+            row.text = row.settled ? row.text + t : t;
+            row.settled = true;
+            row.lastPart = t;
+          }
         } else {
           row.text += t;
         }

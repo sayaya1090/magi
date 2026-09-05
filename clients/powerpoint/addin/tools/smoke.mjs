@@ -568,6 +568,21 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('델타 뒤 완성본은 되풀이가 아니다',
     t3.rows.length === 1 && t3.rows[0].text === '키웠습니다', t3.rows.map((r) => r.text).join('|'));
 
+  // **같은 완성본이 두 번**(살아 있는 seq 0 + 기록된 seq)은 되풀이다 — 답의 끝이 두 번 서던 자리
+  // (사용자 2026-09-06). 글이 같고 한쪽이 자리 없는 이벤트면 한 번으로 접는다.
+  const tDup = new Transcript();
+  tDup.append(dlt('m5', 'text', '키웠'));
+  tDup.append(dlt('m5', 'text', '습니다.'));
+  tDup.append(app('m5', { kind: 'text', text: '키웠습니다.' }));
+  tDup.append({ seq: 9, type: 'part.appended', data: { messageId: 'm5', part: { kind: 'text', text: '키웠습니다.' } } });
+  ok('살아 있는 완성본과 기록된 완성본은 한 번이다',
+    tDup.rows.length === 1 && tDup.rows[0].text === '키웠습니다.' && tDup.rows[0].seq === 9, tDup.rows.map((r) => r.text).join('|'));
+  // 둘 다 자리가 있고 자리가 다르면 정말 같은 말을 두 번 한 것이다 — 그대로 잇는다.
+  const tDupB = new Transcript();
+  tDupB.append({ seq: 3, type: 'part.appended', data: { messageId: 'm5b', part: { kind: 'text', text: '네.' } } });
+  tDupB.append({ seq: 4, type: 'part.appended', data: { messageId: 'm5b', part: { kind: 'text', text: '네.' } } });
+  ok('자리가 다른 같은 글 둘은 두 번이다', tDupB.rows[0].text === '네.네.', tDupB.rows[0].text);
+
   // 그런데 **완성본 둘**은 되풀이가 아니라 다음 조각이다(로그를 처음부터 읽으면 델타가 없다).
   const t4 = new Transcript();
   t4.append(app('m4', { kind: 'text', text: '먼저.' }));
