@@ -324,11 +324,10 @@ func TestTheCompanionWeStartAsksAndTheRulesOpenTheDeck(t *testing.T) {
 			mode = args[i+1]
 		}
 	}
-	// ask 다. 안 묻는 것은 컴패니언 설정의 allow 규칙이 정한다(덱 도구 전부·읽기·기억·검색). allow 모드로
-	// 통째 열면 bash 까지 안 묻고 돈다 — 2026-09-05 실물: 덱 도구가 끊긴 틈에 모델이 셸로 프로세스와
-	// 로그를 뒤졌다. 모드는 명시적으로 적혀 있어야 한다(안 적으면 기동 형태의 기본값이 정한다).
-	if mode != "ask" {
-		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다. 명령줄: %v", mode, "ask", args)
+	// allow 다 — 사용자 결정(2026-09-05 밤). ask 였던 여섯 시간의 사유는 own.go 의 주석에 있다. 모드는
+	// 명시적으로 적혀 있어야 한다(안 적으면 기동 형태의 기본값이 정한다).
+	if mode != "allow" {
+		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다. 명령줄: %v", mode, "allow", args)
 	}
 	for _, want := range []string{"--daemon", "--detach", "--no-update-check"} {
 		found := false
