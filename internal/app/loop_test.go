@@ -112,6 +112,20 @@ func TestTurnToolEvidence(t *testing.T) {
 	if strings.Contains(many, strings.Repeat("x", 2000)) {
 		t.Error("a kept line must be clipped short")
 	}
+	// The tally: every tool of the turn with its count and identifying args, ahead of the window.
+	if !strings.Contains(many, "tool render_slide ×3 (3 ok)") || !strings.Contains(many, "tool tool_00 ×1 (1 ok)") {
+		t.Errorf("the tally must list every tool with its count:\n%s", clipLine(many, 800))
+	}
+	if strings.Index(many, "tallied") > strings.Index(many, "time order") {
+		t.Error("the tally comes before the window")
+	}
+	errs := turnToolEvidence([]event.Event{prompt,
+		call("a", "render_slide"), result("a", `"png"`, false),
+		call("b", "render_slide"), result("b", `"boom"`, true),
+	}, 8)
+	if !strings.Contains(errs, "tool render_slide ×2 (1 ok, 1 error)") {
+		t.Errorf("the tally must count errors apart:\n%s", errs)
+	}
 }
 
 // fakeLLM returns a scripted sequence of responses, one per loop step.

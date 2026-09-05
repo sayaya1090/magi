@@ -53,7 +53,7 @@ func TestEvidenceNamesTheCallNotJustItsAnswer(t *testing.T) {
 	if !strings.Contains(got, "ln -sf /app/sqlite/sqlite3 /usr/local/bin/sqlite3") {
 		t.Errorf("the call that CREATED the symlink must be identifiable:\n%s", got)
 	}
-	lines := strings.Split(got, "\n- ")
+	lines := strings.Split(got[strings.Index(got, "(time order"):], "\n- ")
 	if len(lines) != 3 { // the reading-rule header, then the two evidence lines
 		t.Fatalf("want a header and two evidence lines, got %d:\n%s", len(lines), got)
 	}

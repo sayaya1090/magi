@@ -179,8 +179,9 @@ func guidanceRead(evs []event.Event, perCap, totalCap int) string {
 // So the count is generous and the kept lines are short instead: a "last result of tool X"
 // is a reminder that it ran and what it said, not the place to read it in full.
 const (
-	evidenceKeptPerTool = 16
-	evidenceKeptLineCap = 1500
+	evidenceKeptPerTool  = 16
+	evidenceKeptLineCap  = 1500
+	evidenceTallyArgsCap = 240 // a tally line lists the identifying args of one tool's calls
 )
 
 func turnToolEvidence(evs []event.Event, k int) string {
@@ -190,6 +191,8 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	type entry struct {
 		name string // the tool, so a window can tell what it is about to drop
 		key  string // name + identifying args; "" = no identity, never superseded
+		args string // the identifying args, for the tally
+		ok   bool
 		line string
 		stub string // what the line collapses to when a later result answers the same call
 	}
@@ -242,7 +245,8 @@ func turnToolEvidence(evs []event.Event, k int) string {
 					"reflects the current state; this older output is omitted so it cannot be " +
 					"mistaken for the file as it is now"
 			}
-			ents = append(ents, entry{name: b.name, key: key, line: evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)), stub: stub})
+			ents = append(ents, entry{name: b.name, key: key, args: b.args, ok: status == "ok",
+				line: evidenceLine(b, status, toolResultText(d.Part.ToolResult.Content)), stub: stub})
 		}
 	}
 	if len(ents) == 0 {
@@ -315,7 +319,45 @@ func turnToolEvidence(evs []event.Event, k int) string {
 	// The reading rule, stated where the list starts: without it a reader has no way to know the
 	// order carries meaning, and the mistake it makes is always the same one — quoting an early
 	// snapshot as though nothing after it happened.
-	return "(time order, oldest first — a later result outranks an earlier one about the same file or command)\n" +
+	// **The tally answers "did X ever run" for the whole turn** — a question the window cannot,
+	// and one the judges keep asking (live 2026-09-05, IR deck run 5: render_slide ran on slides
+	// 1–8 right before the declaration, the window held 2–8, and a judge said "no render of
+	// slide 1" three rounds running). One line per tool, its identifying args listed, clipped.
+	var tally []string
+	seen := map[string]bool{}
+	for _, en := range ents {
+		if seen[en.name] {
+			continue
+		}
+		seen[en.name] = true
+		okN, errN := 0, 0
+		var keys []string
+		for _, e2 := range ents {
+			if e2.name != en.name {
+				continue
+			}
+			if e2.ok {
+				okN++
+			} else {
+				errN++
+			}
+			if e2.args != "" && e2.ok {
+				keys = append(keys, e2.args)
+			}
+		}
+		t := "tool " + en.name + " ×" + strconv.Itoa(okN+errN) + " (" + strconv.Itoa(okN) + " ok"
+		if errN > 0 {
+			t += ", " + strconv.Itoa(errN) + " error"
+		}
+		t += ")"
+		if len(keys) > 0 {
+			t += " on " + clipLine(strings.Join(keys, "; "), evidenceTallyArgsCap)
+		}
+		tally = append(tally, t)
+	}
+	return "(every tool call of this turn, tallied — what ran and on what; the results themselves follow)\n" +
+		"- " + strings.Join(tally, "\n- ") + "\n\n" +
+		"(time order, oldest first — a later result outranks an earlier one about the same file or command)\n" +
 		"- " + strings.Join(lines, "\n- ")
 }
 

@@ -50,8 +50,10 @@ func TestTheEvidenceBlockSaysWhatItLeftOut(t *testing.T) {
 				t.Errorf("%s: the most recent results must be there, missing %s", c.name, want)
 			}
 		}
-		if strings.Count(c.got, "\n") != 9 { // reading-rule header + 8 results + the marker = 10 lines, 9 newlines
-			t.Errorf("%s: the cap still holds — %d newlines", c.name, strings.Count(c.got, "\n"))
+		// The tally of the whole turn precedes the window; the cap is about the window.
+		window := c.got[strings.Index(c.got, "(time order"):]
+		if strings.Count(window, "\n") != 9 { // reading-rule header + 8 results + the marker = 10 lines, 9 newlines
+			t.Errorf("%s: the cap still holds — %d newlines", c.name, strings.Count(window, "\n"))
 		}
 	}
 
