@@ -12,8 +12,8 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 163 | 2026-09-05 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,472 | 2026-09-05 | 통과 (smoke 833 · officehand 587 · hand 52) |
+| 1·2·3. Go (`helper/`) | 166 | 2026-09-05 | 통과 |
+| 4. JS 순수층 (`addin/tools/`) | 1,491 | 2026-09-05 | 통과 (smoke 833 · officehand 606 · hand 52) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
@@ -42,7 +42,7 @@
 | 층 | 어디 | 언제 도나 | 무엇을 아나 |
 |---|---|---|---|
 | 1. 계약 | `helper/mcp_test.go`·`hand_test.go`·`handhttp_test.go`·`bridge_test.go` | `go test` | 프로토콜·문·손이 규약대로 구는가 |
-| 2. 유도 가드 | `helper/names_test.go`·`tools_test.go`·`args_test.go`·`bullets_test.go` | `go test` | 두 벌 적힌 것이 갈렸는가 |
+| 2. 유도 가드 | `helper/names_test.go`·`tools_test.go`·`args_test.go`·`bullets_test.go`·`enums_test.go` | `go test` | 두 벌 적힌 것이 갈렸는가 |
 | 3. 상호운용 | `helper/mcp_test.go` 의 `MagisOwnClientAttachesToThisHelper`·`attach_test.go` | `go test` | **magi 자신**과 맞물리는가 |
 | 4. 화면 규칙 | `addin/tools/*.mjs` | `node tools/smoke.mjs` | 화면이 무엇을 적기로 정하는가 |
 | 5. 실물 | PowerPoint + 데몬 + 모델 | 사람이 | 호스트가 실제로 어떻게 답하는가 |
@@ -480,6 +480,8 @@ Mac 에서 PowerPoint 창 둘을 띄우고 IR·임원보고를 나란히 시켰�
 
 | 본 것 | 원인 | 착지 |
 |---|---|---|
+| **IR 9장이 전부 「제목 슬라이드」로 섰다** — 본문이 60pt 제목 밑 부제목 칸에(2026-09-05, Gemini 두 덱 모두) | 모델이 `layout` 을 안 줬고, `slides.add({})` 의 호스트 기본은 **첫 레이아웃**이다. 도구 설명은 "omit it for the deck default" 라고만 했다 | `#contentLayout`: layout 없이 본문이 있는 장은 자리표시자 **역할**(Title 계열 + Body/Content)로 고른다 — 이름은 로캘마다 다르다. `add_slide`·`add_slides` 둘 다, 답에 고른 이름을 싣는다. 돌연변이(본문 장도 기본으로)가 시험 둘을 울린다 |
+| **API 재대조**(2026-09-05): 호스트가 1.4 부터 주던 칸을 도구가 안 받고 있었다 | 테두리(`lineFormat`)·채움 투명도·세로 정렬·줄바꿈·자동 맞춤·밑줄·취소선·대문자(1.8)·앞뒤 순서(`setZOrder` 1.8)·선 그리기(`addLine`) — `add_shape` 만 `line` 을 받고 `format_shape` 는 못 받는 식의 비대칭 | `format_shape` 33 인자·`move_shape{z_order}`·`add_shape{kind:line, connector}`·`apply_style` 객체에 밑줄·취소선·대문자. 열거형 7종은 `enums.go` 한 자리(출처·판 명시), 스키마 `enum` 광고, 나무 전체를 걸어 거절. 돌연변이 3(기본 레이아웃·setZOrder 제거·line→도형) 전부 울림. **5층 실측은 아직** — CAPABILITIES §11 |
 | **`add_slides` 7장이 `InvalidArgument` 열두 글자로 죽었다**(2026-09-05, Gemini, s_98eb88…) | 모델이 `bullet_style: "bulletChromaDot"` 을 보냈다 — 그 이름은 **우리 도구 설명의 예시**였고 `PowerPoint.BulletStyle` 열거형에는 없다(번호 매김 41종뿐, 기호 글머리는 문이 없다). 호스트는 배치 전체를 되돌리고 어느 칸인지 안 말한다. 게다가 `add_slides` 는 그 칸을 받으면서 광고하지 않았다 | `bullets.go` 가 한 자리에서 이름을 대고 거절(`slides[1].bullet_style = "bulletChromaDot" is not …`), `format_shape` 는 스키마 `enum`, `add_slides`·`apply_style` 설명이 두 칸을 광고, 창은 `officeWhy` 로 `errorLocation` 을 싣는다. 돌연변이 4개 전부 울림(`bullets_test.go`·smoke-hand) |
 | 양쪽 작업창에 같은 말이 흐름 | `Bridge` 가 프로세스당 하나 | `bridges.go` — 덱마다 하나 (`87932c7c`) |
 | 새 덱 둘이 다시 한 열쇠 | 저장 안 한 덱은 `presentationID` 가 빔 | 덱이 태그에 자기 이름을 듦 (`47df4b0a`) |

@@ -42,13 +42,11 @@ var bulletStyles = []string{
 	"TraditionalChinesePeriod", "TraditionalChinesePlain",
 }
 
-// bulletEnums 는 칸 이름 → 받는 값. 두 칸은 인자 나무의 **어느 깊이에든** 온다 — `format_shape`
-// 는 맨 위에, `apply_style` 은 `title`/`body`/`all` 안에, `add_slides` 는 `slides[i]` 안에.
-var bulletEnums = map[string][]string{"bullet_type": bulletTypes, "bullet_style": bulletStyles}
-
-// checkBullets 는 인자 나무를 끝까지 걸어 두 칸의 값을 거른다. 이름이 틀리면 **어느 칸·어느 값**인지와
-// 대신 쓸 것을 한 문장으로 돌려준다. 문자열이 아닌 값은 여기서 안 본다(타입은 checkType 의 몫).
-func checkBullets(toolName string, args map[string]any) error {
+// checkEnums 는 인자 나무를 끝까지 걸어 열거형 칸(enums.go `valueEnums`)의 값을 거른다 — 두 글머리
+// 칸은 `format_shape` 맨 위에, `apply_style` 의 `title`/`body`/`all` 안에, `add_slides` 의 `slides[i]`
+// 안에 온다. 이름이 틀리면 **어느 칸·어느 값**인지와 대신 쓸 것을 한 문장으로 돌려준다. 문자열이
+// 아닌 값은 여기서 안 본다(타입은 checkType 의 몫).
+func checkEnums(toolName string, args map[string]any) error {
 	var walk func(path string, v any) error
 	walk = func(path string, v any) error {
 		switch x := v.(type) {
@@ -59,9 +57,9 @@ func checkBullets(toolName string, args map[string]any) error {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				if allowed, watched := bulletEnums[k]; watched {
+				if allowed, watched := valueEnums[k]; watched {
 					if s, isStr := x[k].(string); isStr && !contains(allowed, s) {
-						return argError{bulletRefusal(toolName, joinPath(path, k), k, s)}
+						return argError{enumRefusal(toolName, joinPath(path, k), k, s)}
 					}
 					continue
 				}

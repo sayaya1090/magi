@@ -828,7 +828,10 @@ export class OfficeHand extends HandPort {
       // 그래서 **글 관련 값을 실제로 달라고 했을 때만** 글을 읽는다. 안 읽으면 `before` 가 비고,
       // 그때는 「무엇에서 무엇으로」를 못 적는다 — 그 사실도 적는다.
       const wantsText = ['font', 'size', 'bold', 'italic', 'color', 'align', 'bullet',
-        'bullet_type', 'bullet_style', 'indent'].some((k) => args[k] !== undefined);
+        'bullet_type', 'bullet_style', 'indent', 'underline', 'strikethrough', 'superscript',
+        'subscript', 'all_caps', 'small_caps'].some((k) => args[k] !== undefined);
+      // 글칸(TextFrame)의 칸은 글꼴을 읽을 필요가 없다 — 표처럼 글꼴이 없는 도형에도 세로 정렬은 있다.
+      const wantsFrame = ['valign', 'wrap', 'autosize'].some((k) => args[k] !== undefined);
       let font = null;
       let before = {};
       if (wantsText) {
@@ -856,6 +859,38 @@ export class OfficeHand extends HandPort {
       // **글머리 기호.** `visible` 은 **1.4** 라 이 애드인의 바닥(1.8)보다 아래다 — 어디서나 된다.
       // 오래 「못 하는 것」으로 알고 있었는데, 그건 우리가 안 찾아본 것이지 없는 문이 아니었다
       // (2026-09-04, 사용자가 `bulletFormat` 을 짚어 줬다).
+      // 테두리·투명도 — 2026-09-05 API 재대조에서 `add_shape` 만 `line` 을 받고 이 도구는 못 받던 것.
+      if (args.line !== undefined) {
+        const v = String(args.line);
+        if (v.toLowerCase() === 'none') shape.lineFormat.visible = false;
+        else { shape.lineFormat.visible = true; shape.lineFormat.color = v; }
+        changed.push(`테두리 → ${v}`);
+      }
+      if (args.line_weight !== undefined) { shape.lineFormat.weight = Number(args.line_weight); changed.push(`테두리 굵기 → ${args.line_weight}pt`); }
+      if (args.line_dash !== undefined) { shape.lineFormat.dashStyle = String(args.line_dash); changed.push(`테두리 모양 → ${args.line_dash}`); }
+      if (args.transparency !== undefined) {
+        const tr = Number(args.transparency);
+        if (!(tr >= 0 && tr <= 1)) throw new Error(`transparency 는 0~1 입니다 — 받은 것: ${args.transparency}`);
+        shape.fill.transparency = tr;
+        changed.push(`채움 투명도 → ${tr}`);
+      }
+      // 글꼴의 나머지 칸 — 밑줄은 1.4, 취소선·위첨자·아래첨자·대문자는 1.8.
+      for (const [name, key, since] of [['underline', 'underline', '1.4'], ['strikethrough', 'strikethrough', '1.8'],
+        ['superscript', 'superscript', '1.8'], ['subscript', 'subscript', '1.8'],
+        ['all_caps', 'allCaps', '1.8'], ['small_caps', 'smallCaps', '1.8']]) {
+        if (args[name] === undefined) continue;
+        if (!this.supports('PowerPointApi', since)) {
+          throw new Error(`${name} 은 PowerPointApi ${since} 이 필요한데 이 호스트에는 없습니다`);
+        }
+        font[key] = key === 'underline' ? String(args[name]) : Boolean(args[name]);
+        changed.push(`${name} → ${args[name]}`);
+      }
+      if (wantsFrame) {
+        const frame = shape.textFrame;
+        if (args.valign !== undefined) { frame.verticalAlignment = String(args.valign); changed.push(`세로 정렬 → ${args.valign}`); }
+        if (args.wrap !== undefined) { frame.wordWrap = Boolean(args.wrap); changed.push(`줄바꿈 → ${args.wrap}`); }
+        if (args.autosize !== undefined) { frame.autoSizeSetting = String(args.autosize); changed.push(`자동 맞춤 → ${args.autosize}`); }
+      }
       const bullets = wantsText ? shape.textFrame.textRange.paragraphFormat.bulletFormat : null;
       if (args.bullet !== undefined) {
         bullets.visible = Boolean(args.bullet);
@@ -905,7 +940,7 @@ export class OfficeHand extends HandPort {
       if (changed.length === 0) {
         // **아무것도 안 바꿨으면 바꿨다고 말하지 않는다.** 「wrote N bytes」가 변화로 읽히는
         // 자리를 magi 가 이미 한 번 겪었다(ARCHITECTURE §4 의 self-revert).
-        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — font·size·bold·italic·color·fill·align·bullet 중 하나는 주세요');
+        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — font·size·bold·italic·color·fill·align·bullet·line·valign·underline 중 하나는 주세요');
       }
       await context.sync();
       this.#mutated();
@@ -924,13 +959,23 @@ export class OfficeHand extends HandPort {
       for (const key of ['left', 'top', 'width', 'height']) {
         if (args[key] !== undefined) shape[key] = Number(args[key]);
       }
+      // 앞뒤 순서(1.8). 「그림 뒤로 보내」가 이 손에 없어서 모델이 도형을 지우고 다시 만들던 자리다.
+      let stacked = '';
+      if (args.z_order !== undefined) {
+        if (!this.supports('PowerPointApi', '1.8')) {
+          throw new Error('z_order 는 PowerPointApi 1.8 이 필요한데 이 호스트에는 없습니다');
+        }
+        shape.setZOrder(String(args.z_order));
+        stacked = ` · 순서 ${args.z_order}`;
+      }
       await context.sync();
       this.#mutated();
       return this.#envelope(
-        { slide_id: slide.id, shape_id: args.shape_id, left: shape.left, top: shape.top, width: shape.width, height: shape.height },
+        { slide_id: slide.id, shape_id: args.shape_id, left: shape.left, top: shape.top, width: shape.width, height: shape.height,
+          ...(stacked ? { z_order: String(args.z_order) } : {}) },
         [`슬라이드 ${slide.id} · 도형 ${args.shape_id}: ` +
           `(${before.left}, ${before.top}) ${before.width}×${before.height}pt → ` +
-          `(${shape.left}, ${shape.top}) ${shape.width}×${shape.height}pt`]);
+          `(${shape.left}, ${shape.top}) ${shape.width}×${shape.height}pt${stacked}`]);
     });
   }
 
@@ -1060,12 +1105,15 @@ export class OfficeHand extends HandPort {
         width: Number(args.width ?? 200), height: Number(args.height ?? 60),
       };
       const kind = String(args.kind ?? 'textbox');
+      // 선(1.4): left/top 이 시작점, width/height 가 끝까지의 거리다(문서의 예제가 그렇게 쓴다).
       const shape = kind === 'textbox'
         ? slide.shapes.addTextBox(asParagraphs(args.text), options)
-        : slide.shapes.addGeometricShape(geometryOf(kind), options);
+        : kind === 'line'
+          ? slide.shapes.addLine(String(args.connector ?? 'Straight'), options)
+          : slide.shapes.addGeometricShape(geometryOf(kind), options);
       shape.load('id');
       await context.sync();
-      if (kind !== 'textbox' && args.text) {
+      if (kind !== 'textbox' && kind !== 'line' && args.text) {
         shape.textFrame.textRange.text = asParagraphs(args.text);
         await context.sync();
       }
@@ -1079,7 +1127,17 @@ export class OfficeHand extends HandPort {
       try {
         if (args.fill) { shape.fill.setSolidColor(String(args.fill).replace('#', '')); dressed.push(`채움 ${args.fill}`); }
         if (args.line) { shape.lineFormat.color = String(args.line); dressed.push(`선 ${args.line}`); }
+        if (args.line_weight !== undefined) { shape.lineFormat.weight = Number(args.line_weight); dressed.push(`선 ${args.line_weight}pt`); }
+        if (args.line_dash !== undefined) { shape.lineFormat.dashStyle = String(args.line_dash); dressed.push(`선 모양 ${args.line_dash}`); }
+        if (args.transparency !== undefined) { shape.fill.transparency = Number(args.transparency); dressed.push(`투명도 ${args.transparency}`); }
       } catch { /* 이 도형은 그 칸을 안 받는다 — 글 서식은 아래에서 따로 본다 */ }
+      if (kind === 'line') {
+        if (dressed.length) await context.sync();
+        this.#mutated();
+        return this.#envelope({ slide_id: slide.id, shape_id: shape.id, styled: dressed },
+          [`슬라이드 ${slide.id}: 선 ${shape.id} 추가 (${options.left}, ${options.top}) → +${options.width}, +${options.height}`
+            + (dressed.length ? ` · ${dressed.join(' · ')}` : '')]);
+      }
       try {
         const range = shape.textFrame.textRange;
         const font = range.font;
@@ -1090,6 +1148,10 @@ export class OfficeHand extends HandPort {
         if (args.color !== undefined) { font.color = String(args.color); dressed.push(`글자색 ${args.color}`); }
         if (args.align !== undefined) { range.paragraphFormat.horizontalAlignment = String(args.align); dressed.push(`정렬 ${args.align}`); }
         if (args.bullet !== undefined) { range.paragraphFormat.bulletFormat.visible = Boolean(args.bullet); dressed.push(args.bullet ? '글머리 기호' : '글머리 기호 없음'); }
+        if (args.underline !== undefined) { font.underline = String(args.underline); dressed.push(`밑줄 ${args.underline}`); }
+        if (args.valign !== undefined) { shape.textFrame.verticalAlignment = String(args.valign); dressed.push(`세로 ${args.valign}`); }
+        if (args.wrap !== undefined) { shape.textFrame.wordWrap = Boolean(args.wrap); dressed.push(args.wrap ? '줄바꿈' : '줄바꿈 없음'); }
+        if (args.autosize !== undefined) { shape.textFrame.autoSizeSetting = String(args.autosize); dressed.push(`자동 맞춤 ${args.autosize}`); }
       } catch { /* 글칸이 없는 도형이다 — 만든 것은 이미 섰다 */ }
       if (dressed.length) await context.sync();
       this.#mutated();
@@ -1123,6 +1185,27 @@ export class OfficeHand extends HandPort {
    * 자리표시자 역할까지 같이 싣는 이유도 같다: **무엇을 채울 수 있는 장인지**를 알아야
    * 「제목만 있는 장」과 「제목+본문 장」을 고를 수 있다.
    */
+  /**
+   * 본문 자리가 있는 첫 레이아웃 — 「제목 및 내용」이 보통 그것이다. 이름으로 안 고른다(로캘마다
+   * 다르다): 자리표시자의 **역할**로 고른다(Title 계열 하나 + Body/Content 하나). 없으면 null —
+   * 그때는 호스트 기본(첫 레이아웃)에 맡긴다.
+   */
+  async #contentLayout(context, masters) {
+    const all = [];
+    for (const m of masters.items) {
+      for (const l of m.layouts.items) { l.shapes.load('items/id,items/name,items/type'); all.push({ layout: l, master: m }); }
+    }
+    await context.sync();
+    const flat = all.flatMap(({ layout }) => layout.shapes?.items ?? []);
+    const roles = await this.#placeholderRoles(context, flat);
+    const kinds = (l) => (l.shapes?.items ?? []).map((sh) => String(roles.get(sh) ?? '').toLowerCase());
+    return all.find(({ layout }) => {
+      const k = kinds(layout);
+      return k.some((r) => r === 'title' || r === 'centertitle')
+        && k.some((r) => r === 'body' || r === 'content' || r === 'object');
+    }) ?? null;
+  }
+
   #listLayouts() {
     return this.runner(async (context) => {
       const masters = context.presentation.slideMasters;
@@ -1192,6 +1275,17 @@ export class OfficeHand extends HandPort {
         options.layoutId = found.layout.id;
         options.slideMasterId = found.master.id;
         layoutName = found.layout.name;
+      } else if (hasText(args.body)) {
+        // 본문이 있으면 본문 자리가 있는 레이아웃 — add_slides 와 같은 규칙(그쪽 주석).
+        const masters = context.presentation.slideMasters;
+        masters.load('items/id,items/name,items/layouts/items/id,items/layouts/items/name');
+        await context.sync();
+        const hit = await this.#contentLayout(context, masters);
+        if (hit) {
+          options.layoutId = hit.layout.id;
+          options.slideMasterId = hit.master.id;
+          layoutName = hit.layout.name;
+        }
       }
       // **버릇은 장을 만들기 전에 읽는다.** 만든 뒤에 읽으면 새 장이 제 값으로 계산에 끼어들어
       // 덱의 버릇을 희석한다 — 세 장이 32pt 인 덱에 60pt 짜리 새 장이 끼면 최빈값이 갈려
@@ -1738,9 +1832,16 @@ export class OfficeHand extends HandPort {
       // 버릇은 **만들기 전에, 한 번만** 읽는다(위 `add_slide` 와 같은 이유).
       const style = args.match_style === false ? null : await this.#deckStyle(context);
 
+      // **layout 을 안 주고 본문을 준 장은 본문 자리가 있는 레이아웃으로.** 호스트의 기본은 첫
+      // 레이아웃(제목 슬라이드)이라, 앞 판본은 8장짜리 IR 덱을 전부 제목 슬라이드로 세우고 본문을
+      // 부제목 칸에 60pt 제목 밑으로 밀어 넣었다 — 사람이 그 화면을 봤다(2026-09-05).
+      const needsBody = plan.some((x) => !x.layout && hasText(x.body));
+      const bodyHit = needsBody ? await this.#contentLayout(context, masters) : null;
+      const chosen = plan.map((want) => (want.layout ? byName.get(want.layout)
+        : (hasText(want.body) ? bodyHit : null)));
+
       const before = new Set(slides.items.map((s) => s.id));
-      for (const want of plan) {
-        const hit = want.layout ? byName.get(want.layout) : null;
+      for (const hit of chosen) {
         slides.add(hit ? { layoutId: hit.layout.id, slideMasterId: hit.master.id } : {});
       }
       await context.sync();
@@ -1765,7 +1866,7 @@ export class OfficeHand extends HandPort {
         rows.push({
           slide: (made[i].index ?? 0) + 1,
           slide_id: made[i].id,
-          layout: plan[i].layout ?? null,
+          layout: chosen[i]?.layout?.name ?? plan[i].layout ?? null,
           filled: filled.map((f) => f.role),
           unfilled: unfilled.map((u) => u.role),
           styled: worn,
@@ -3796,6 +3897,11 @@ function pickFont(spec) {
   if (spec.bold !== undefined) out.bold = Boolean(spec.bold);
   if (spec.italic !== undefined) out.italic = Boolean(spec.italic);
   if (spec.color !== undefined) out.color = String(spec.color);
+  // 글꼴의 나머지 칸(밑줄 1.4 · 취소선·대문자 1.8) — 2026-09-05 API 재대조에서 더했다.
+  if (spec.underline !== undefined) out.underline = String(spec.underline);
+  if (spec.strikethrough !== undefined) out.strikethrough = Boolean(spec.strikethrough);
+  if (spec.all_caps !== undefined) out.allCaps = Boolean(spec.all_caps);
+  if (spec.small_caps !== undefined) out.smallCaps = Boolean(spec.small_caps);
   // **불릿도 여기서 받는다.** 없으면 여러 장을 한 번에 꾸미는 문에 그 손잡이가 없어서, 레이아웃이
   // 달고 나온 기본 불릿이 그대로 남는다 — 도형마다 `format_shape` 를 부르지 않는 한. 실물에서
   // 그 결과를 봤다(2026-09-04): 여덟 장짜리 IR 덱에서 `bullet` 인자가 **0회** 불렸고, 사람이
@@ -3868,6 +3974,10 @@ function describeFont(f) {
   if (f.size) bits.push(`${f.size}pt`);
   if (f.bold) bits.push('굵게');
   if (f.color) bits.push(f.color);
+  if (f.underline) bits.push(`밑줄 ${f.underline}`);
+  if (f.strikethrough) bits.push('취소선');
+  if (f.allCaps) bits.push('대문자');
+  if (f.smallCaps) bits.push('작은대문자');
   return bits.join(' ') || '(빈 값)';
 }
 
@@ -4062,4 +4172,9 @@ export function pickPart(entries, part) {
     throw new Error(`${part} 조각이 이 슬라이드에 없습니다 — 들어 있는 것: ${names.join(', ')}`);
   }
   return found;
+}
+
+/** 본문으로 칠 글이 있는가 — 공백만 있는 것은 없는 것이다. */
+export function hasText(v) {
+  return v !== undefined && v !== null && String(v).trim() !== '';
 }

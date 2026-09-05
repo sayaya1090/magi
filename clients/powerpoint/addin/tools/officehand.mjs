@@ -117,7 +117,20 @@ class StubShape extends Loaded {
         return this.textFrame.textRange.font;
       };
     }
-    this.fill = { setSolidColor: (c) => log.push(`fill:${c}`), clear: () => log.push('fill:clear') };
+    this.fill = {
+      setSolidColor: (c) => log.push(`fill:${c}`), clear: () => log.push('fill:clear'),
+      set transparency(v) { log.push(`fill-transparency:${raw.id}:${v}`); },
+    };
+    // 테두리·글칸 — 값을 적어 두기만 한다. 호스트가 그 값을 받는지는 5층의 일이다.
+    this.lineFormat = {
+      set color(v) { log.push(`line:${raw.id}:${v}`); },
+      set weight(v) { log.push(`line-weight:${raw.id}:${v}`); },
+      set dashStyle(v) { log.push(`line-dash:${raw.id}:${v}`); },
+      set visible(v) { log.push(`line-visible:${raw.id}:${v}`); },
+    };
+    for (const [key, tag] of [['verticalAlignment', 'valign'], ['wordWrap', 'wrap'], ['autoSizeSetting', 'autosize']]) {
+      Object.defineProperty(this.textFrame, key, { set(v) { log.push(`${tag}:${raw.id}:${v}`); }, configurable: true });
+    }
     // **자리표시자가 아닌 도형에 이 칸을 걸면 호스트가 묶음 전체를 죽인다.** 실물에서 잰 것이라
     // (2026-09-02: 표가 있는 장에서 `read_slide` 가 GeneralException) 스텁도 그렇게 군다 —
     // 안 그러면 이 시험은 우리가 안 겪을 세상만 잰다.
@@ -131,6 +144,7 @@ class StubShape extends Loaded {
   }
   delete() { this.log.push(`delete:${this.raw.id}`); }
   setHyperlink(v) { this.log.push(`link:${v?.address ?? 'none'}`); }
+  setZOrder(v) { this.log.push(`zorder:${this.raw.id}:${v}`); }
   getTable() { return this.table ?? (this.table = new StubTable(this.raw, this.pending, this.log)); }
 }
 
@@ -366,6 +380,10 @@ function makeShapes(slide, pending, log) {
     log.push(`addTextBox:${text}:${opts.left},${opts.top}`);
     const raw = { id: 'sh-new', name: 'TextBox', type: 'TextBox', text };
     return new StubShape(raw, pending, log);
+  };
+  coll.addLine = (ct, opts) => {
+    log.push(`addLine:${ct}:${opts.left},${opts.top}:${opts.width},${opts.height}`);
+    return new StubShape({ id: 'sh-line', name: 'Line', type: 'Line', text: '' }, pending, log);
   };
   coll.addGeometricShape = (geo, opts) => {
     log.push(`addGeometricShape:${geo}:${opts.left},${opts.top}`);
@@ -1224,8 +1242,12 @@ async function makeZip(files) {
   const listed = /geometric shape: ([^.]+)./.exec(desc)?.[1] ?? '';
   const advertised = listed.split(',').map((w) => w.trim())
     .filter((w) => /^[a-zA-Z][A-Za-z0-9]+$/.test(w));
+  // `textbox`·`line` 은 기하 도형이 아니라 손이 **따로 그리는** 종류다(addTextBox·addLine) —
+  // 광고돼 있고 실행도 된다. 여기서 세면 이 시험이 제 헛것을 잡는다.
+  const drawnElsewhere = new Set(['textbox', 'line']);
   const unknown = [];
   for (const w of advertised) {
+    if (drawnElsewhere.has(w)) continue;
     const got = await geoOf(w);
     if (!got) unknown.push(w);
   }
@@ -4126,5 +4148,87 @@ async function makeZip(files) {
 
 console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리 가지를 잰 것이고, ' +
   '호스트가 실제로 어떻게 답하는지는 S1·S13·S14 가 열려 있는 채다.');
+// ── 2026-09-05 API 재대조로 더한 칸들 ─────────────────────────────────────────
+//
+// 호스트가 1.4 부터 주던 테두리·세로 정렬·밑줄·앞뒤 순서·선 그리기를 도구가 안 받고 있었다.
+// 여기서 재는 것은 **손이 그 칸을 호스트의 그 자리에 쓰는가**다 — 값이 실제로 먹는지는 5층.
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('format_shape', {
+    slide: 1, shape_id: 'sh1', line: 'none', line_weight: 2, line_dash: 'Dash', transparency: 0.3,
+    valign: 'MiddleCentered', wrap: false, autosize: 'AutoSizeShapeToFitText', underline: 'Single', all_caps: true,
+  });
+  const said = out.changed.join(' ');
+  ok('테두리 none 은 선을 숨긴다', log.includes('line-visible:sh1:false'), log.filter((l) => l.startsWith('line')).join(' '));
+  ok('테두리 굵기·모양이 lineFormat 에 간다', log.includes('line-weight:sh1:2') && log.includes('line-dash:sh1:Dash'));
+  ok('투명도는 채움에 간다(글자가 아니다)', log.includes('fill-transparency:sh1:0.3'));
+  ok('세로 정렬·줄바꿈·자동 맞춤은 글칸에 간다',
+    log.includes('valign:sh1:MiddleCentered') && log.includes('wrap:sh1:false') && log.includes('autosize:sh1:AutoSizeShapeToFitText'),
+    log.filter((l) => /valign|wrap|autosize/.test(l)).join(' '));
+  ok('답이 바꾼 것을 전부 이름 댄다', ['테두리', '투명도', '세로 정렬', 'underline', 'all_caps'].every((w) => said.includes(w)), said);
+  const why = await threw(() => hand.run('format_shape', { slide: 1, shape_id: 'sh1', transparency: 1.5 }));
+  ok('투명도 범위 밖은 던진다', why?.includes('0~1'), String(why));
+}
+
+{
+  const log = [];
+  const noOld = new OfficeHand({ run: stubRunner(model(), log), supports: (_, v) => v !== '1.8' });
+  const why = await threw(() => noOld.run('format_shape', { slide: 1, shape_id: 'sh1', strikethrough: true }));
+  ok('1.8 칸은 없는 호스트에서 이름을 대고 거절한다', why?.includes('1.8') && why?.includes('strikethrough'), String(why));
+  const ok14 = await threw(() => noOld.run('format_shape', { slide: 1, shape_id: 'sh1', underline: 'Single' }));
+  ok('1.4 칸(밑줄)은 그 호스트에서도 된다', ok14 === null, String(ok14));
+}
+
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('move_shape', { slide: 1, shape_id: 'sh1', z_order: 'SendToBack' });
+  ok('z_order 만 보내도 움직인다(자리 없이)', log.includes('zorder:sh1:SendToBack') && out.result.z_order === 'SendToBack',
+    log.filter((l) => l.startsWith('zorder')).join(' ') + ' ' + JSON.stringify(out.result.z_order));
+  ok('자리를 안 줬으면 자리는 안 건드린다', !log.some((l) => /^(left|top|width|height):sh1/.test(l)), log.join(' '));
+}
+
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  const out = await hand.run('add_shape', { slide: 1, kind: 'line', connector: 'Elbow', left: 10, top: 20, width: 300, height: 0, line: '#FF0000', line_weight: 3 });
+  ok('kind=line 은 addLine 으로 간다(도형이 아니다)', log.some((l) => l.startsWith('addLine:Elbow:10,20:300,0')), log.join(' '));
+  ok('선에도 색·굵기가 붙는다', log.includes('line:sh-line:#FF0000') && log.includes('line-weight:sh-line:3'));
+  ok('선의 답은 시작점과 거리를 말한다', out.changed.join(' ').includes('(10, 20)'), out.changed.join(' '));
+  ok('선에는 글을 안 쓴다', !log.some((l) => l.startsWith('text:sh-line')));
+}
+
+// ── layout 을 안 준 장 — 본문이 있으면 본문 자리가 있는 레이아웃 ─────────────────
+//
+// 호스트의 기본은 첫 레이아웃(제목 슬라이드)이다. 앞 판본은 IR 8장을 전부 제목 슬라이드로 세워
+// 본문을 부제목 칸에 넣었다 — 2026-09-05 실물. 이름이 아니라 자리표시자의 역할로 고른다.
+{
+  const log = [];
+  const deck = model();
+  deck.masters = [{ id: 'm1', name: '기본', layouts: [
+    { id: 'l-title', name: '제목 슬라이드', placeholders: ['CenterTitle', 'Subtitle'] },
+    { id: 'l-body', name: '제목 및 내용', placeholders: ['Title', 'Content'] },
+  ] }];
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  const out = await hand.run('add_slides', { slides: [
+    { title: '표지' }, { title: '문제', body: '검토 지연\n비용' },
+  ], match_style: false });
+  const adds = log.filter((l) => l.startsWith('slides.add:'));
+  ok('본문 없는 장은 호스트 기본(첫 레이아웃)에 맡긴다', adds[0] === 'slides.add::', adds.join(' '));
+  ok('본문 있는 장은 본문 자리가 있는 레이아웃으로', adds[1]?.includes('l-body'), adds.join(' '));
+  ok('답이 고른 레이아웃 이름을 말한다', JSON.stringify(out.result).includes('제목 및 내용'), JSON.stringify(out.result).slice(0, 240));
+  const one = [];
+  const deck2 = model();
+  deck2.masters = deck.masters;
+  const single = new OfficeHand({ run: stubRunner(deck2, one), supports: () => true });
+  await single.run('add_slide', { title: 'x', body: 'y', match_style: false });
+  ok('add_slide(단수)도 같은 규칙', one.some((l) => l.startsWith('slides.add:l-body')), one.filter((l) => l.startsWith('slides.add')).join(' '));
+  const bare = [];
+  const deck3 = model(); deck3.masters = deck.masters;
+  await new OfficeHand({ run: stubRunner(deck3, bare), supports: () => true }).run('add_slide', { title: '표지만', match_style: false });
+  ok('본문 없는 단수 장은 기본에 맡긴다', bare.some((l) => l === 'slides.add::'), bare.filter((l) => l.startsWith('slides.add')).join(' '));
+}
 console.log(failed ? `${failed} 실패` : '전부 통과');
+
 process.exit(failed ? 1 : 0);

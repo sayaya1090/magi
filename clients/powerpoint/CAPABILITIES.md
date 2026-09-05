@@ -487,3 +487,50 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
   가장 값이 클 수 있는 항목이면서 가장 안 확인된 항목이다
 - **§10 전체는 설계 제안이다.** 스케치도, 토큰 비용도, 인덱스/ID 왕복의 실제 실패율도 재지
   않았다. `DESIGN.md` §9의 S6·S7에 태울 것
+
+---
+
+## 11. 2026-09-05 재대조 — 요구 집합 1.4~1.10 과 도구 44 를 다시 맞춰 봤다
+
+호스트(Mac PowerPoint 16.105 이상)가 `PowerPointApi 1.10` 까지 답한다(`/api/caps` 실측: 1.2·1.5~1.10 ok, 1.11 없음). 마이크로소프트의 집합별 API 목록(1.4·1.8·1.9·1.10·preview, 2026-07-15 판)을 `tools.go` 와 `OfficeHand.js` 가 실제로 부르는 멤버와 대조했다. 방법: 집합 페이지의 표 전부 + `grep -c` 로 판이 쓰는 멤버 빈도.
+
+### 11.1 이날 도구에 더한 것(호스트에 있는데 도구가 안 받던 칸)
+
+| 멤버(집합) | 어디에 | 인자 |
+|---|---|---|
+| `Shape.lineFormat` color/weight/dashStyle/visible (1.4) | `format_shape`·`add_shape` | `line`·`line_weight`·`line_dash` |
+| `ShapeFill.transparency` (1.4) | 같음 | `transparency` |
+| `TextFrame.verticalAlignment`·`wordWrap`·`autoSizeSetting` (1.4) | 같음 | `valign`·`wrap`·`autosize` |
+| `ShapeFont.underline` (1.4) · `strikethrough`·`superscript`·`subscript`·`allCaps`·`smallCaps` (1.8) | `format_shape`·`add_shape`·`apply_style{title/body/all}` | `underline`·`strikethrough`·… |
+| `Shape.setZOrder` (1.8) | `move_shape` | `z_order` |
+| `ShapeCollection.addLine` + `ConnectorType` (1.4) | `add_shape` | `kind:"line"`·`connector` |
+| `BulletFormat.type`·`style` (1.10) — 값 검사 | 세 도구 | 열거형 41+3, `enums.go` |
+
+열거형 7종(`BulletStyle`·`BulletType`·`ShapeFontUnderlineStyle`·`TextVerticalAlignment`·`ShapeAutoSize`·`ShapeZOrder`·`ShapeLineDashStyle`·`ConnectorType`·`TableStyle`)은 문서에서 값을 베껴 `helper/enums.go` 한 자리에 두고 스키마 `enum` 으로 광고한다. **예시 값은 계약이다** — `bulletChromaDot` 이라는 지어낸 예시 하나가 8장짜리 `add_slides` 를 `InvalidArgument` 한 단어로 죽였다.
+
+### 11.2 호스트에 있는데 아직 도구가 안 받는 것 — 다음 후보
+
+| 멤버(집합) | 무엇을 열어 주나 | 메모 |
+|---|---|---|
+| `Table.mergeCells`·`TableCell.split`·`resize` (1.9) | 셀 병합 | 표 머리행 병합이 흔한 요청 |
+| `TableStyleSettings` style·areRowsBanded·isFirstRowHighlighted… (1.9), `TableAddOptions.style` | 표 스타일·줄무늬 | 열거형은 이미 `tableStyles` 74 |
+| `TableRowCollection.add/deleteRows`·`TableColumnCollection.add/deleteColumns` (1.9) | 행·열 추가/삭제 | 지금은 `replace_table` 로 통째 재생성 |
+| `TableCell.verticalAlignment`·`margins`·`borders`(셀별) (1.9) | 셀 세로 정렬·여백·셀별 테두리 | `format_table_cells` 에 없음 |
+| `TableColumn.width`·`TableRow.height` (1.9) | 있는 표의 열 너비·행 높이 | `add_table{columns}` 는 만들 때만 |
+| `TextRange.getSubstring().font`·`setHyperlink` (1.4/1.10) | **글 일부**만 서식·링크(“숫자만 빨갛게”) | 지금은 상자 전체뿐 |
+| `SlideBackgroundFill.setPictureOrTextureFill` (1.10) | 배경 그림 | `set_background` 는 단색·그라데이션·패턴 |
+| `SlideLayout.background`·`SlideMaster.background` (1.10) | 덱 전체 배경 | 테마 색은 되고 배경은 장마다 |
+| `ShapeCollection.addGroup`·`ShapeGroup.ungroup` (1.8) | 묶기/풀기 | |
+| `Presentation.properties`·`customProperties` (1.7) | 제목·작성자·주제 메타데이터 | 파일 속성 |
+| `Shape.adjustments` (1.10) | 모서리 둥글기 등 도형 조정점 | 드물다 |
+| `SlideCollection.exportAsBase64Presentation` (1.10) | 여러 장을 한 파일로 | 스냅샷은 장 단위 |
+| `Presentation.bindings` (1.8) | 도형 바인딩 | 쓰임이 안 보인다 |
+
+### 11.3 프리뷰(이 호스트에서는 못 쓴다 — 프리뷰 CDN·인사이더 빌드 필요)
+
+`ShapeCollection.addPicture`(그림을 OOXML 없이), `AddSlideOptions.index`(원하는 자리에 바로), `Presentation.getActiveSlideOrNullObject`, **`onSlideSelectionChanged` 이벤트**(§7 은 「이벤트가 없다」였다 — 프리뷰에는 하나 생겼다), `Graphic.convertToShape`(SmartArt/그래픽 → 도형, §8 의 「고칠 수 없다」에 첫 문이 열린다), `SlideLayout.delete`·`SlideMaster.delete`. 이 판은 1.10 에서 멈추므로 위 항목은 **적어 두기만** 한다.
+
+### 11.4 정정
+
+- §8 의 「`Notes`·`Animation`·`Chart` 는 없다」는 여전히 맞다(preview 에도 없음). 이 도구는 셋 다 OOXML 로 한다(`notesxml`·`animxml`·`chartxml`).
+- `BulletStyle` 은 **번호 매김**의 모양이다 — 점·대시·체크 기호를 고르는 문은 없다. 기호 글머리는 `bullet:true` 로 켜면 레이아웃의 기호가 나오고, 다른 기호는 `a:buChar` OOXML 이 있어야 한다.

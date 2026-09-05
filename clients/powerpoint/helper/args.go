@@ -148,8 +148,8 @@ func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 				t.Name, key, v)}
 		}
 	}
-	// 글머리 기호 두 칸은 어느 깊이에든 오므로 나무를 걸어 거른다(bullets.go).
-	if err := checkBullets(t.Name, args); err != nil {
+	// 열거형 칸은 어느 깊이에든 오므로 나무를 걸어 거른다(enums.go · bullets.go).
+	if err := checkEnums(t.Name, args); err != nil {
 		return nil, err
 	}
 	return args, nil
