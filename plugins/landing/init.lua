@@ -277,8 +277,13 @@ magi.on("turn_finished", function(ev)
   magi.store_set(STORE_MISSES, tostring(misses))
   local tail = string.sub(ev.text or "", -80)
   local plan = looksLikePlan(ev.text or "")
-  magi.notify(("landing: 이 턴은 `land` 없이 끝났습니다 — 한 일 신고가 없습니다%s (누적 %d회)")
-    :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
+  -- notify 는 (세션, 글) 둘이다. 글 하나만 넘기던 앞 판본은 여기서 죽었고(bad argument #2), 그 뒤의 줄은
+  -- 한 번도 안 돌았다 — 실물 데몬 로그에서 봤다(2026-09-06 01:49). 시험은 알림 채널이 없어 조용히 넘어갔다;
+  -- 이제 시험이 채널을 붙여 잰다(probe_landing_test).
+  if ev.session and ev.session ~= "" then
+    magi.notify(ev.session, ("landing: 이 턴은 `land` 없이 끝났습니다 — 한 일 신고가 없습니다%s (누적 %d회)")
+      :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
+  end
   magi.log("landing: unlanded turn · tail=" .. tail)
   if not claimsWork(ev.text or "") then
     magi.log("landing: no nudge — the turn neither claimed nor planned work")

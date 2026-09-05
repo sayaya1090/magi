@@ -154,8 +154,11 @@ func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
 		t.Skip("bundled landing plugin not present")
 	}
+	// 알림 채널을 붙인다 — 없으면 `magi.notify` 가 조용히 실패해 그 줄의 인자 오류를 못 잡는다(실물에서 죽었던 자리).
+	var notes []string
 	h := NewHostWithConfig(HostConfig{
 		ToolSink: reg, ContextReg: &fakeContextReg{}, DataDir: t.TempDir(), Logf: log.logf,
+		Notify:        func(sid, text string) { notes = append(notes, sid+": "+text) },
 		PluginConfigs: map[string]map[string]any{"landing": {"socket": "/tmp/fake-daemon.sock"}},
 	})
 	if _, err := h.Load(context.Background(), src); err != nil {
@@ -186,5 +189,11 @@ func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
 	}
 	if !strings.Contains(log.String(), "nudged session s9 to land (2/2)") || !strings.Contains(log.String(), "no nudge") {
 		t.Errorf("로그가 넛지와 cap 을 안 적는다: %s", log.String())
+	}
+	if len(notes) != 4 || !strings.HasPrefix(notes[0], "s9: landing:") {
+		t.Errorf("알림이 (세션, 글)로 네 번 가야 한다: %v", notes)
+	}
+	if strings.Contains(log.String(), "bad argument") {
+		t.Errorf("처리기가 죽었다: %s", log.String())
 	}
 }
