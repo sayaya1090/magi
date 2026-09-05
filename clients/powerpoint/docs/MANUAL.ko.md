@@ -91,10 +91,11 @@ New-ItemProperty -Path "HKCU:\Software\Microsoft\Office\16.0\WEF\Developer" `
   -Name "magi" -Value "$dir\manifest.xml" -PropertyType String -Force | Out-Null
 ```
 
-PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가 기능**에 `Magi(AI Assistant)` 가 선다. 누르면
-작업창이 열린다.
+PowerPoint 를 껐다 켜면 홈 탭에 「AI Assistant」 무리의 「Magi」 단추가 선다(추가 기능 목록에는
+`Magi(AI Assistant)`). 누르면 작업창이 열린다. 리본에 바로 안 보이면 **홈 리본 → 추가 기능 → 개발자 추가
+기능** 에서 고른다.
 
-![홈 → 추가 기능 → 개발자 추가 기능 에 선 magi](img/00-ribbon.png)
+![홈 → 추가 기능 → 개발자 추가 기능 에 선 magi — 이름을 바꾸기 전(「magi」) 그림이다](img/00-ribbon.png)
 
 > ⚠ **매니페스트가 조용히 버려지는 자리가 하나 있다.** `VersionOverrides` 안에서
 > `<Requirements>` 는 `<Hosts>` **앞**에 와야 한다. 순서가 뒤면 Office 는 애드인을 **아무 말

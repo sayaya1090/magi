@@ -715,6 +715,19 @@ customization 을 레지스트리(`WEF\PowerPoint_*RibbonCustomizationExpire`·`
 내고 엉뚱한 칸은 404(`icon_version_test.go`), 아이콘은 캐시 가능하고 페이지는 여전히 no-store(`icon_cache_test.go`).
 둘 다 변이로 확인했다.
 
+**카운슬 스위치를 2021 에서(2026-09-06).** 메인이 더한 `/api/council` 과 고급 줄의 저울 단추를 설치본으로 눌러 봤다.
+누르니 컴패니언이 다시 떴고(데몬 하나, 새 세션), 설정 파일이 `[council] enabled = false` 가 되고, 상태가 council=false 를
+말한다 — 된다. 다시 뜨는 20초 남짓 동안 상태가 reachable 을 몇 번 오갔고 한 번은 council=true 를 지나갔다 — 옛
+데몬이 내려가고 새것이 올라오는 사이의 값이다. 그리고 **누를 때마다 검은 창이 떴다**(사용자): 헬퍼가 띄우는
+`magi --daemon --detach` 가 콘솔 프로그램인데 헬퍼는 콘솔 없이 떠 있어서다 — 앞의 셸 도구와 같은 자리, 같은 고침
+(`quietconsole.Apply`, own.go). 그런데 그것만으로는 **똑같았다**(사용자). 다시 재니 창의 주인이 달랐다: 작업 표시줄에
+남는 검은 창은 `conhost` 이고 제목이 `…\magi\ppt\magi.exe` 였다 — 데몬이 「restarting onto the binary on disk」로
+**자기를 다시 띄울 때**(`internal/graceful` 의 Windows reexec) 생긴 것이다. 첫 데몬은 `--detach` 로 콘솔 없이 뜨는데,
+그 후임은 `CREATE_NEW_PROCESS_GROUP` 만 주고 띄워서 콘솔 없는 부모의 콘솔 자식 → Windows 가 새 창을 줬다. 부모에게
+콘솔이 없으면 후임도 `DETACHED_PROCESS` 로 띄운다(`reexecAttr`, 터미널의 magi 는 그대로). 시험 둘 + 변이(조건을
+죽이면 빨갛다). 이 창은 카운슬 스위치뿐 아니라 설치기가 magi.exe 를 새로 놓을 때마다 떴을 것이다 — 데몬이 디스크의
+새 바이너리를 보고 스스로 다시 뜨기 때문이다.
+
 **여기서 배운 것:** 손이 둘이면 계약도 둘이 되고, 그 갈라짐은 **양쪽을 다 돌려 봐야만** 보인다.
 `hand_com_parity_test.go` 가 도구 **이름**의 차집합은 잰다. **답의 칸 이름은 아무도 안 잰다.**
 

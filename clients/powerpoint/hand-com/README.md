@@ -124,6 +124,13 @@ M365 를 지우고 이 머신에 2021 을 깔아 같은 훑기를 한 번 더 �
 
 ## 빌드·실행
 
+**쓰는 사람은 설치기로 합니다** — `clients/powerpoint/install.ps1` 이 볼륨 판을 보면 이것을 Release 로 빌드해
+`%LOCALAPPDATA%\magi\ppt\hand\${B} 에 놓고, 손 감시기(`hand-watch.ps1`)를 로그인 때 띄웁니다. 감시기가 PowerPoint 가
+덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면 정리합니다(이 프로세스는 뜰 때 한 번만 붙습니다 —
+PowerPoint 를 껐다 켜면 옛 손은 죽은 COM 참조를 듭니다). 절차와 실측은 `docs/INSTALL.ko.md` §0·§3.3.
+
+아래는 개발할 때의 것입니다.
+
 - 빌드는 어디서나 됩니다(PIA 는 메타데이터). 실행은 **Windows + PowerPoint 2021 이 떠 있고 덱이 열려 있을 때**만.
 - .NET 9 런타임이 필요합니다(`dotnet --list-runtimes`). 없으면 `dotnet publish -r win-x64 --self-contained` 로 묶습니다.
 - `Microsoft.Office.Core` 는 NuGet 에 공식 PIA 가 없어 재포장본(`MicrosoftOfficeCore` 15.0.0)을 씁니다. 설치된 Office
@@ -133,7 +140,7 @@ M365 를 지우고 이 머신에 2021 을 깔아 같은 훑기를 한 번 더 �
 cd clients/powerpoint/hand-com/src
 dotnet run -- --helper https://127.0.0.1:3000          # Windows: 떠 있는 PowerPoint 의 활성 덱에 붙는다
 dotnet run -- --fake                                   # 어디서나: 메모리 덱으로 규약만 돈다
-cd ../tests && dotnet test                             # 규약 시험 19
+cd ../tests && dotnet test                             # 규약 시험 21
 ```
 
 떠 있는 PowerPoint 는 ROT 에서 꺼냅니다(`GetActiveObject`, .NET 9 엔 `Marshal.GetActiveObject` 가 없어 P/Invoke).

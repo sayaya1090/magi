@@ -90,6 +90,13 @@ PowerPoint 2021(2108, 13722 이상)부터 있다. 2021 실측이 그 표와 맞�
 
 2021 의 작업창은 화면이고 편집은 못 한다. 편집은 `hand-com/`(.NET 9 + PowerPoint COM)이 한다.
 
+**설치기가 다 한다** — `%LOCALAPPDATA%\magi\ppt\hand\magi-ppt-hand.exe` 로 빌드해 놓고, 손 감시기(`hand-watch.ps1`)를
+로그인 때 띄운다. 감시기는 PowerPoint 가 덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면 손을 정리한다
+(로그는 같은 폴더의 `hand-watch.log`). 손은 뜰 때 한 번만 PowerPoint 에 붙기 때문에 이 감시기가 필요하다 —
+PowerPoint 를 껐다 켜면 옛 손은 죽은 COM 참조를 들고 있다.
+
+손으로 띄우려면(개발할 때):
+
 ```
 cd clients/powerpoint/hand-com/src
 dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 활성 덱에 붙는다
@@ -148,6 +155,8 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
 - **리본 이름이 옛것이거나 아이콘이 파란 육각형이다** — 이름·아이콘은 Office 가 캐시한다. 설치기는 매니페스트가
   바뀌면 리본 캐시 값을 지우고 「다시 추가하라」고 말한다: PowerPoint 를 껐다 켜고 삽입 → 내 추가 기능 → 공유
   폴더 → 추가. 파란 육각형은 아이콘을 캐시 못 했다는 뜻이고, 이 빌드부터 헬퍼가 아이콘을 캐시 가능하게 낸다.
+- **카운슬 스위치를 누를 때 검은 창이 떴다** — 헬퍼가 컴패니언을 다시 띄우는 `magi --daemon --detach` 가 콘솔 창을
+  열었다. 이 빌드(2026-09-06)에서 같은 방법으로 숨겼다.
 - **PowerPoint 를 다 끄면 데몬도 꺼지나** — 아니다. 헬퍼(`magi-ppt`)와 데몬(`magi --daemon --detach`)은 PowerPoint 와
   무관하게 이 계정에 떠 있다. 꺼지는 것은 COM 손뿐이고(PowerPoint 가 없으면 COM 참조가 죽는다), 감시기가 그것을
   정리하고 다음에 덱이 열리면 다시 붙인다. 전부 내리려면: `Stop-Process -Name magi-ppt,magi,magi-ppt-hand`.
