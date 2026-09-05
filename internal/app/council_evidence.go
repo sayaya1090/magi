@@ -174,7 +174,14 @@ func guidanceRead(evs []event.Event, perCap, totalCap int) string {
 
 // evidenceKeptPerTool bounds how many pre-window "last result of tool X" lines are kept, so a turn
 // that touched twenty different tools does not smuggle twenty lines past the window.
-const evidenceKeptPerTool = 6
+// A deck turn touches a dozen distinct tools before its final renders (live 2026-09-05: 14),
+// and the cut at 6 dropped the one line that mattered — read_notes — three rounds running.
+// So the count is generous and the kept lines are short instead: a "last result of tool X"
+// is a reminder that it ran and what it said, not the place to read it in full.
+const (
+	evidenceKeptPerTool = 16
+	evidenceKeptLineCap = 1500
+)
 
 func turnToolEvidence(evs []event.Event, k int) string {
 	names := map[string]toolCallBrief{} // callID -> what was asked
@@ -299,7 +306,7 @@ func turnToolEvidence(evs []event.Event, k int) string {
 		}
 		var kept []string
 		for _, i := range keep {
-			kept = append(kept, "[kept from before the window — the last "+ents[i].name+" result this turn] "+lines[i])
+			kept = append(kept, "[kept from before the window — the last "+ents[i].name+" result this turn] "+clipLine(lines[i], evidenceKeptLineCap))
 		}
 		dropped := cut - len(kept)
 		head := []string{fmt.Sprintf("…%d earlier tool results this turn are not shown", dropped)}

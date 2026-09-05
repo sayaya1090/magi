@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,26 @@ func TestTurnToolEvidence(t *testing.T) {
 	}
 	if !strings.Contains(win, "…1 earlier tool results this turn are not shown") {
 		t.Errorf("the drop count must not count the kept line:\n%s", win)
+	}
+	// Fourteen distinct tools before the window (a deck turn): every one is kept, short.
+	var evs []event.Event
+	evs = append(evs, prompt)
+	for i := 0; i < 14; i++ {
+		id := fmt.Sprintf("t%d", i)
+		evs = append(evs, call(id, fmt.Sprintf("tool_%02d", i)), result(id, `"`+strings.Repeat("x", 3000)+`"`, false))
+	}
+	for i := 0; i < 3; i++ {
+		id := fmt.Sprintf("r%d", i)
+		evs = append(evs, call(id, "render_slide"), result(id, `"png"`, false))
+	}
+	many := turnToolEvidence(evs, 2)
+	for i := 0; i < 14; i++ {
+		if !strings.Contains(many, fmt.Sprintf("the last tool_%02d result this turn]", i)) {
+			t.Errorf("tool_%02d must be kept above the window:\n%s", i, clipLine(many, 600))
+		}
+	}
+	if strings.Contains(many, strings.Repeat("x", 2000)) {
+		t.Error("a kept line must be clipped short")
 	}
 }
 
