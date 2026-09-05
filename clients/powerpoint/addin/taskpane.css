@@ -288,8 +288,10 @@ header {
 }
 .turn.kind-model p { padding: 0; }
 /* 사용자 말풍선의 상태: 처리 중(스피너) · 대기 중. 색이 아니라 글과 움직임으로 가른다. */
-.turn-badge { display: inline-flex; align-items: center; gap: var(--s1); margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+.turn-badge { display: flex; justify-content: flex-end; align-items: center; gap: var(--s1); margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
 .turn-badge.queued { color: var(--warn-fg); }
+/* 대기 중인 말풍선은 아직 안 읽힌 말이다 — 점선 테두리, 바탕 없음, 흐린 글자로 처리 중과 갈린다(사용자 2026-09-05). */
+.turn.kind-user.status-queued p { background: transparent; border-style: dashed; color: var(--fg-2); }
 .spin { width: 10px; height: 10px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }

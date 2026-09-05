@@ -448,6 +448,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     port6.push({ seq: 6, sessionId: 'Q', type: 'part.appended', actor: { kind: 'agent', id: 'a' }, data: { messageId: 'x', role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c', name: 'route_interjection', args: { action: 'append' } } } } });
     ok('모델이 지금 턴에 합치면 큐의 말은 끝', rows() === 'done,done,running,done', rows());
     ok('배지 문구', userBadge('running').kind === 'running' && userBadge('queued').text.includes('대기') && userBadge('done') === null);
+    // 대기 중인 말풍선은 모양이 다르다 — 줄의 클래스로 갈린다(CSS 가 점선·흐린 글자를 건다).
+    const urows = read6.view.rows.filter((r) => r.kind === 'user');
+    ok('말풍선 클래스에 상태가 실린다', rowClass(urows[2]).includes('status-running') && rowClass(urows[1]).includes('status-done') && !rowClass({ kind: 'model' }).includes('status-'));
   }
 
   // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,

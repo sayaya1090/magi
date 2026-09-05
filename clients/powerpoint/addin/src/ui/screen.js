@@ -233,7 +233,8 @@ export function quoteMeta(q) {
  * 모양이 **모든 줄에** 걸린다. 실제로 사용자 말이 가운데 정렬됐었다.
  */
 export function rowClass(r) {
-  return `turn kind-${r.kind}`;
+  // 사용자 말풍선은 상태로 모양이 갈린다 — 대기 중인 말은 옅게(점선·흐린 글자), 처리 중인 말은 그대로.
+  return `turn kind-${r.kind}` + (r.kind === 'user' && r.status ? ` status-${r.status}` : '');
 }
 
 /**
