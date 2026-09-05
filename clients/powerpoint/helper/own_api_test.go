@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -342,8 +343,18 @@ func TestARetryDoesNotShowTheOldFailure(t *testing.T) {
 func TestAJobThatNeverReturnsDoesNotTrapEveryonePane(t *testing.T) {
 	stuck := make(chan struct{})
 	defer close(stuck)
+	// **손을 갈아 끼우지 않고 스위치를 켠다.** 첫 두드림이 띄운 마련 고루틴이 `Own.Alive` 를 읽는
+	// 시점은 시험이 모른다 — 필드를 다시 대입하면 그 읽기와 경합한다(-race 가 CI 에서 잡았다,
+	// 2026-09-06). 같은 함수가 원자 깃발을 보고 갈린다.
+	var release atomic.Bool
 	rig := ownFixture(t, func(a *API, _ *ownRig) {
-		a.Own.Alive = func(string) bool { <-stuck; return true } // 영영 안 돌아온다
+		a.Own.Alive = func(string) bool { // 깃발이 서기 전에는 영영 안 돌아온다
+			if release.Load() {
+				return true
+			}
+			<-stuck
+			return true
+		}
 	})
 	if got := rig.poke(t); got.Phase != OwnWorking {
 		t.Fatalf("첫 두드림이 일하는 중이 아니다: %+v", got)
@@ -351,8 +362,8 @@ func TestAJobThatNeverReturnsDoesNotTrapEveryonePane(t *testing.T) {
 	// 시계를 앞으로 돌린다 — 실물에서 3분을 기다리는 시험은 아무도 안 돌린다.
 	rig.api.Work.now = func() time.Time { return time.Now().Add(stuckAfter + time.Second) }
 
-	// 이번엔 되는 손으로 갈아 끼우고 다시 두드린다.
-	rig.api.Own.Alive = func(string) bool { return true }
+	// 이번엔 되는 손으로 다시 두드린다.
+	release.Store(true)
 	rig.poke(t)
 	if got := rig.settle(t); got.Phase != OwnReady {
 		t.Fatalf("걸린 일을 넘겨받지 못했다 — 사람이 갇힌다: %+v", got)

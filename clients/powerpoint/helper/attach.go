@@ -207,6 +207,8 @@ func (a *Attachments) DetachAll(bound []Binding) {
 		if err != nil {
 			continue
 		}
+		// 나가는 길이라 실패해도 할 일이 없다 — 최선 노력. 남은 등록은 다음 헬퍼가 이름 충돌로
+		// 보고, 그 보고가 사람에게 닿는 자리다(위 주석).
 		_, _ = cl.DetachMCP(b.Session, ServerName)
 		_ = cl.Close()
 	}

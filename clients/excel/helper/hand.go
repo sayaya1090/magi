@@ -191,14 +191,24 @@ func (h *HandHub) bestLocked() *handConn {
 // rankConn 은 손을 고르는 차례: ① 답한 적 있고 안 놓친 손 → ② 아직 아무 말도 안 해 본 손 → ③ 놓친 적 있는 손.
 // 사연은 pick 에 있다.
 func rankConn(c *handConn) int {
+	deaf, answered := c.record()
 	switch {
-	case c.answered && c.deaf == 0:
+	case answered && deaf == 0:
 		return 0
-	case !c.answered && c.deaf == 0:
+	case !answered && deaf == 0:
 		return 1
 	default:
 		return 2
 	}
+}
+
+// record 는 이 손의 전적(놓친 수·답한 적)을 **잠그고** 읽는다. 둘 다 `mu` 아래에서 쓰이는데
+// (deliver 가 answered 를, 시간 초과가 deaf 를), 고르는 쪽은 허브 락만 쥐고 읽고 있었다 —
+// -race 가 그 자리를 잡았다(CI 2026-09-06). 허브 락은 목록을 지키지 손의 칸을 지키지 않는다.
+func (c *handConn) record() (deaf int, answered bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.deaf, c.answered
 }
 
 func (h *HandHub) Leave(c *handConn) {
@@ -251,7 +261,7 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 			for k, c := range h.conns {
 				// **물어봤는데 답을 못 한 연결만 뺀다.** 아직 아무도 안 물어본 창은 멀쩡한 덱이다 —
 				// 갓 붙은 작업창이 그렇고, 그것까지 빼면 첫 호출이 「덱이 없다」로 죽는다.
-				if c.deaf > 0 && !c.answered {
+				if deaf, answered := c.record(); deaf > 0 && !answered {
 					continue
 				}
 				open = append(open, fmt.Sprintf("%s (%s)", k, c.label))

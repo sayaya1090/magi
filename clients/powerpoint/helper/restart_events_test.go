@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // DESIGN §5.9.1 의 표 — 재기동 사건 넷, **열 하나가 시험 하나다.** 09-05 까지는 이 열이 하나도 없어서
@@ -91,6 +92,11 @@ func TestRestartColumnDaemonRestart(t *testing.T) {
 	r.api.Own = quietOwn(t)
 	r.api.LifeOf = func(string) string { return "2@t1" }
 	r.api.own(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/own?deck=pid-deck-A", nil))
+	// own 이 띄운 마련 고루틴이 시험의 TempDir 에 적는다 — 끝나기 전에 시험이 나가면 TempDir 정리가
+	// 「directory not empty」로 죽는다(CI -race 2026-09-06). 마련이 끝날 때까지 기다린다.
+	for deadline := time.Now().Add(3 * time.Second); work.Now().Phase == OwnWorking && time.Now().Before(deadline); {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if work.Now().Phase == OwnReady {
 		t.Error("생애가 바뀌었는데 옛 마련을 Ready 로 들고 있다")
 	}
