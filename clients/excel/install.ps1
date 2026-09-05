@@ -177,7 +177,7 @@ if ($Clean) {
   if (Get-Process EXCEL -ErrorAction SilentlyContinue) { Fail 'Excel 이 떠 있다 — 끄고 다시 돌려라(캐시를 쥐고 있다)' }
   foreach ($k in @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)) {
     $u = (Get-ItemProperty $k.PSPath).Url
-    if ($u -and $u -match '\\xl-catalog$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u)" }
+    if ($u -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u) — 파워포인트 판과 같이 쓰는 키다, 그쪽도 다시 추가해야 한다" }
   }
   if (Get-ItemProperty "$wef\Developer" -Name 'magi-xl' -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name 'magi-xl'; Done 'Developer\magi-xl 삭제' }
   foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'Excel_*RibbonCustomizationExpire' -or $_ -eq 'Excel_RibbonCache' })) {
@@ -189,7 +189,11 @@ if ($Clean) {
 $manifest = Join-Path $addinDest 'manifest.xml'
 if ($perpetual) {
   Say '애드인을 신뢰 카탈로그로 등록한다(볼륨 판은 개발자 키를 무시한다)'
-  $catalog = Join-Path $configDir 'xl-catalog'
+  # **카탈로그는 하나다 — 파워포인트 판과 같은 폴더, 같은 키.** Excel 2021(16.0.14334)은 TrustedCatalogs 아래에 키가
+  # 둘 이상이면 「설정을 읽는 도중 문제가 발생」이라며 **전부 지운다**(2026-09-06 실측: 자기가 만든 키 하나는 살고, 둘째
+  # 키를 더하면 빈 폴더든 무엇이든 다 사라졌다 — 파워포인트 판의 키까지). 그래서 두 설치기가 ~/.magi/catalog 하나에
+  # 각자의 매니페스트를 놓고 키 하나를 같이 쓴다.
+  $catalog = Join-Path $configDir 'catalog'
   New-Item -ItemType Directory -Force $catalog | Out-Null
   $copy = Join-Path $catalog 'magi-xl-manifest.xml'
   $changed = -not (Test-Path $copy) -or ((Get-FileHash $copy).Hash -ne (Get-FileHash $manifest).Hash)
@@ -211,13 +215,16 @@ if ($perpetual) {
     Warn "진짜 공유가 없어 관리 공유($unc)를 쓴다. Excel 2021 은 이 형태를 켤 때마다 지운다 — 관리자 PowerShell 에서: New-SmbShare -Name magi -Path `"$configDir`" -ReadAccess $env:USERNAME 하고 다시 돌려라"
   }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
+  # 우리 것이 아닌 magi 카탈로그 키(옛 자리 ppt-catalog·xl-catalog, 옛 관리 공유 주소)는 지운다 — 키가 둘이면 Excel 이
+  # 전부 지우므로 하나만 남겨야 한다.
   foreach ($old in $keys) {
     $u = (Get-ItemProperty $old.PSPath).Url
-    if ($u -and $u -ne $unc -and $u -match '\\xl-catalog$' -and -not (Test-Path $u)) { Remove-Item $old.PSPath -Recurse -Force; Warn "닿지 않는 옛 카탈로그 키를 지웠다: $u" }
+    if ($u -and $u -ne $unc -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $old.PSPath -Recurse -Force; Warn "옛 magi 카탈로그 키를 지웠다(키는 하나여야 한다): $u" }
   }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
   $mine = $keys | Where-Object { (Get-ItemProperty $_.PSPath).Url -eq $unc } | Select-Object -First 1
-  if ($mine) { $k = $mine.PSPath; $id = $mine.PSChildName } else { $id = '{' + [guid]::NewGuid().ToString() + '}'; $k = "$wef\TrustedCatalogs\$id"; New-Item -Path $k -Force | Out-Null }
+  if ($keys.Count -gt ($(if ($mine) { 1 } else { 0 }))) { Warn "다른 신뢰 카탈로그 키가 더 있다($($keys.Count)개). Excel 2021 은 키가 둘 이상이면 전부 지운다 — 우리 것만 남기거나 -Clean." }
+  if ($mine) { $k = $mine.PSPath; $id = $mine.PSChildName } else { $id = '{' + [guid]::NewGuid().ToString().ToUpperInvariant() + '}'; $k = "$wef\TrustedCatalogs\$id"; New-Item -Path $k -Force | Out-Null }
   Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Flags 1 -Type DWord
   if (-not (Test-Path "$unc\magi-xl-manifest.xml")) { Warn "$unc 에 닿지 못한다(관리 공유가 막혔나). 폴더를 진짜로 공유하고 Url 을 바꿔라: $k" }
   Done "카탈로그 $unc ($id)"

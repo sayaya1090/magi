@@ -5,11 +5,10 @@
 > Mac(Excel 16.112.3)에서는 2026-09-06 에 §3.1 그대로 깔려 붙었다. Windows 절차는 파워포인트 판이 실측한 것을 엑셀 말로
 > 옮긴 것이라 아직 안 잰 것이다.
 >
-> **2026-09-06, LTSC 2021 에서 깔아 봤다 — 반은 됐고 반은 막혔다.** `install.ps1` 은 끝까지 돈다(빌드·인증서·카탈로그
-> 키·Run 키·헬퍼 3001). 그런데 **Excel 2021 은 켤 때마다 `WEF\TrustedCatalogs` 아래의 키를 지운다** — 관리 공유
-> (`\\localhost\C$\…`, `\\NARI\C$\…`) 형태의 카탈로그를 둘 다, 그리고 **파워포인트 판의 키까지**. PowerPoint 2021 은 같은
-> 키를 받았다. 개발자 키(`WEF\Developer`)도 파워포인트 판처럼 무시한다(리본에도 「내 추가 기능」에도 안 선다). 진짜
-> 공유(`New-SmbShare`, 관리자 권한)로 잰 것은 아래 §3.3 에 적는다.
+> **2026-09-06, LTSC 2021(16.0.14334)에서 끝까지 됐다.** `install.ps1` 한 줄 → 공유 폴더에 Magi(AI Assistant) → 추가 → 홈 탭
+> 「AI Assistant › Magi」(아이콘 포함) → 창 「준비됐습니다 — 도구 61 개」(지원 API 줄 숨음 = 전부 ✓) → 창의 보내기로
+> 「A5 에 '설치 확인', B5 에 B2:B3 합계」를 시키니 A5 와 `=SUM(B2:B3)`→8 이 들어갔다(COM 으로 읽어 확인). 다만
+> 그 전에 반나절 막힌 것이 하나 있다 — §3.3 의 「키는 하나」.
 
 ## 1. 판 고르기 — 하나뿐이다
 
@@ -52,11 +51,17 @@ com.microsoft.Excel/Data/Library/Application Support/Microsoft/Office/16.0/Wef/`
 
 ### 3.3 Windows — 2019·2021 LTSC
 
-**실측(2026-09-06, Excel 2021 16.0.14334):** 관리 공유 UNC 로 등록한 신뢰 카탈로그 키는 Excel 이 뜨면서 **지워진다**
-(같은 머신에서 PowerPoint 2021 은 받는 것을). 그래서 설치기는 카탈로그 폴더를 덮는 **진짜 공유**가 있으면 그 UNC 를
-쓰고(`-CatalogUnc` 로 직접 줄 수도 있다), 없으면 관리 공유를 쓰되 그렇게 경고한다. 진짜 공유는 관리자 PowerShell 한 줄:
-`New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME`. 그 뒤 설치기를 다시 돌리면
-`\\<컴퓨터>\magi\xl-catalog` 로 등록한다.
+**실측(2026-09-06, Excel 2021 16.0.14334) — 신뢰 카탈로그 키는 하나여야 한다.** Excel 은 뜰 때 `WEF\TrustedCatalogs`
+아래에 키가 **둘 이상이면** 신뢰 센터에 「설정을 읽는 도중 문제가 발생하여 다시 설정해야 합니다」를 띄우고 **전부 지운다**
+— 자기가 만든 키, 빈 폴더를 가리키는 키, 파워포인트 판의 키, 가리지 않고. 하나면 산다. 같은 머신의 PowerPoint 2021 은
+둘을 받는다. 처음에는 관리 공유(`\\localhost\C$`)·GUID 대소문자·매니페스트 내용을 의심해 하나씩 걷어냈는데 전부
+아니었고, 남은 것이 개수였다. 그래서 두 설치기가 **한 폴더** `~/.magi/catalog` 에 각자의 매니페스트(`magi-ppt-manifest.xml`,
+`magi-xl-manifest.xml`)를 놓고 **키 하나**를 같이 쓴다. 옛 자리(ppt-catalog·xl-catalog)를 가리키는 키는 설치기가 지운다.
+
+UNC 는 카탈로그 폴더를 덮는 진짜 공유가 있으면 그것(`\\<컴퓨터>\magi\catalog`), 없으면 관리 공유다(`-CatalogUnc` 로 직접
+줄 수도 있다). 이 머신은 관리자 PowerShell 에서 `New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess
+$env:USERNAME` 로 만든 공유를 썼다 — 관리 공유로도 키가 하나면 Excel 이 받는지는 다시 안 쟀다. 개발자 키
+(`WEF\Developer`)는 파워포인트 판처럼 무시한다.
 
 
 

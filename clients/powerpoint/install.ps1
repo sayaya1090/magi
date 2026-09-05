@@ -198,7 +198,7 @@ if ($Clean) {
   if (Get-Process POWERPNT -ErrorAction SilentlyContinue) { Fail 'PowerPoint 가 떠 있다 — 끄고 다시 돌려라(캐시를 쥐고 있다)' }
   foreach ($k in @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)) {
     $u = (Get-ItemProperty $k.PSPath).Url
-    if ($u -and $u -match '\\magi[\\-]') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u)" }
+    if ($u -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u) — 엑셀 판과 같이 쓰는 키다, 그쪽도 다시 추가해야 한다" }
   }
   if (Get-ItemProperty "$wef\Developer" -Name magi -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name magi; Done 'Developer\magi 삭제' }
   foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'PowerPoint_*RibbonCustomizationExpire' })) {
@@ -213,9 +213,12 @@ if ($perpetual) {
   Say '애드인을 신뢰 카탈로그로 등록한다(볼륨 판은 개발자 키를 무시한다)'
   # 카탈로그는 설정 디렉토리 옆에 둔다(~/.magi/ppt-catalog). 첫 시험(2026-09-06)에서 %LOCALAPPDATA% 아래는
   # 관리 공유(\\localhost\C$\…)로 닿지 않았고, 프로필 바로 아래는 닿았다. 왜인지는 안 잡았다 — 잰 대로 둔다.
-  $catalog = Join-Path $configDir 'ppt-catalog'
+  # **카탈로그는 하나다 — 엑셀 판과 같은 폴더(~/.magi/catalog), 같은 키.** 같은 머신의 Excel 2021 은 TrustedCatalogs 아래에
+  # 키가 둘 이상이면 「설정을 읽는 도중 문제가 발생」이라며 전부 지운다(2026-09-06 실측) — 이 판의 키까지. 두 설치기가
+  # 한 폴더에 각자의 매니페스트를 놓고 키 하나를 같이 쓴다.
+  $catalog = Join-Path $configDir 'catalog'
   New-Item -ItemType Directory -Force $catalog | Out-Null
-  $copy = Join-Path $catalog 'magi-manifest.xml'
+  $copy = Join-Path $catalog 'magi-ppt-manifest.xml'
   # 매니페스트가 바뀌었으면 리본 캐시를 지운다 — 안 지우면 PowerPoint 가 옛 이름·옛 단추를 그린다(2026-09-06 실측:
   # 이름을 바꾸고 다시 추가해도 「magi 창」이 남았고, 이 값 둘을 지우고 껐다 켜고 다시 추가하니 새 이름이 섰다).
   $changed = -not (Test-Path $copy) -or ((Get-FileHash $copy).Hash -ne (Get-FileHash $manifest).Hash)
@@ -237,16 +240,18 @@ if ($perpetual) {
     Warn "진짜 공유가 없어 관리 공유($unc)를 쓴다. 같은 머신의 Excel 2021 이 이 등록을 켤 때마다 지운다 — 관리자 PowerShell 에서: New-SmbShare -Name magi -Path `"$configDir`" -ReadAccess $env:USERNAME"
   }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
-  # 이 설치기가 전에 만든 키 중 자리가 사라진 것은 지운다 — 남겨 두면 「공유 폴더」에 닿지 않는 카탈로그가 하나 더 선다.
+  # 우리 것이 아닌 magi 카탈로그 키(옛 자리 ppt-catalog·xl-catalog, 옛 관리 공유 주소)는 지운다 — 키가 둘이면 같은 머신의
+  # Excel 2021 이 전부 지우므로 하나만 남겨야 한다. 옛 자리의 폴더는 그대로 둔다(파일은 해가 없다).
   foreach ($old in $keys) {
     $u = (Get-ItemProperty $old.PSPath).Url
-    if ($u -and $u -ne $unc -and $u -match '\\magi[\\-]' -and -not (Test-Path $u)) { Remove-Item $old.PSPath -Recurse -Force; Warn "닿지 않는 옛 카탈로그 키를 지웠다: $u" }
+    if ($u -and $u -ne $unc -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $old.PSPath -Recurse -Force; Warn "옛 magi 카탈로그 키를 지웠다(키는 하나여야 한다): $u" }
   }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
   $mine = $keys | Where-Object { (Get-ItemProperty $_.PSPath).Url -eq $unc } | Select-Object -First 1
-  if ($mine) { $k = $mine.PSPath; $id = $mine.PSChildName } else { $id = '{' + [guid]::NewGuid().ToString() + '}'; $k = "$wef\TrustedCatalogs\$id"; New-Item -Path $k -Force | Out-Null }
+  if ($keys.Count -gt ($(if ($mine) { 1 } else { 0 }))) { Warn "다른 신뢰 카탈로그 키가 더 있다($($keys.Count)개). 같은 머신의 Excel 2021 은 키가 둘 이상이면 전부 지운다." }
+  if ($mine) { $k = $mine.PSPath; $id = $mine.PSChildName } else { $id = '{' + [guid]::NewGuid().ToString().ToUpperInvariant() + '}'; $k = "$wef\TrustedCatalogs\$id"; New-Item -Path $k -Force | Out-Null }
   Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Flags 1 -Type DWord
-  if (-not (Test-Path "$unc\magi-manifest.xml")) { Warn "$unc 에 닿지 못한다(관리 공유가 막혔나). 폴더를 진짜로 공유하고 Url 을 바꿔라: $k" }
+  if (-not (Test-Path "$unc\magi-ppt-manifest.xml")) { Warn "$unc 에 닿지 못한다(관리 공유가 막혔나). 폴더를 진짜로 공유하고 Url 을 바꿔라: $k" }
   Done "카탈로그 $unc ($id)"
 } else {
   Say '애드인을 개발자 키로 등록한다'

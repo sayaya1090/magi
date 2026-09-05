@@ -703,6 +703,11 @@ GUID, 애니메이션 by-level, 배경. 차트의 품은 통합 문서도 열린
 `Start-Sleep 4` 동안 살아 있는데 창 핸들 0. 같은 날 `internal/app` 의 `TestWhatThisSessionBuiltIsNotAskedAbout` 가
 빨간데, 내 변경을 걷어내도 빨갛다 — 이 머신의 기존 실패다.
 
+**엑셀 판을 같은 2021 에 깔다가 파워포인트 판의 카탈로그 키가 사라졌다(2026-09-06).** Excel 2021 은 `TrustedCatalogs`
+아래에 키가 둘 이상이면 뜰 때 전부 지운다 — 가설 셋(관리 공유·GUID 대소문자·매니페스트 내용)을 하나씩 걷어내고 남은
+것이 개수였다(엑셀 판 INSTALL §3.3). 두 설치기가 `~/.magi/catalog` 하나에 키 하나를 같이 쓰게 했다. 이 머신에서 확인한
+것: 키 하나면 Excel 재시작 뒤에도 남고, 공유 폴더에 두 애드인이 각자 서고, 엑셀 창에서 시킨 편집이 셀에 들어간다.
+
 **리본 이름과 아이콘(2026-09-06, 사용자).** 이름을 바꾸고 다시 추가해도 「magi 창」이 남았다 — Office 는 리본
 customization 을 레지스트리(`WEF\PowerPoint_*RibbonCustomizationExpire`·`PowerPoint_RibbonCache`)에 캐시한다.
 그 값을 지우고 껐다 켜고 다시 추가하니 새 이름이 섰다(설치기가 매니페스트가 바뀌면 그렇게 한다). 그룹 이름은
