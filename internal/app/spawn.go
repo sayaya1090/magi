@@ -598,36 +598,7 @@ func (a *App) childSteps(ctx context.Context, sid session.SessionID) ([]port.Chi
 	if err != nil {
 		return nil, fmt.Errorf("child steps: %w", err)
 	}
-	var out []port.ChildStep
-	at := map[string]int{} // callID -> index in out, so a result finds the call it belongs to
-	for _, e := range evs {
-		if e.Type != event.TypePartAppended {
-			continue
-		}
-		var d event.PartAppendedData
-		if json.Unmarshal(e.Data, &d) != nil {
-			continue
-		}
-		switch {
-		case d.Part.Kind == session.PartToolCall && d.Part.ToolCall != nil:
-			at[d.Part.ToolCall.CallID] = len(out)
-			out = append(out, port.ChildStep{Name: d.Part.ToolCall.Name, Args: d.Part.ToolCall.Args})
-		case d.Part.Kind == session.PartToolResult && d.Part.ToolResult != nil:
-			i, ok := at[d.Part.ToolResult.CallID]
-			if !ok {
-				continue // a result whose call is not in this log; nothing to attach it to
-			}
-			text := resultText(d.Part.ToolResult.Content)
-			out[i].OutputBytes = len(text)
-			out[i].Failed = d.Part.ToolResult.IsError
-			// Verbatim, and only for a failure — see the ChildStep doc for why the successful
-			// output is left behind.
-			if d.Part.ToolResult.IsError {
-				out[i].Output = text
-			}
-		}
-	}
-	return out, nil
+	return stepsOf(evs, false), nil
 }
 
 // forwardChildProgress relays what the child is doing onto the PARENT's transcript, returning a

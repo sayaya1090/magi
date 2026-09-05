@@ -27,11 +27,20 @@ const turnStepOutputCap = 6000
 // without one is the call in flight — the plugin tool asking — and is left out, so a door
 // never counts itself as work the turn did.
 func turnStepsOf(evs []event.Event) []port.ChildStep {
+	return stepsOf(evs, true)
+}
+
+// stepsOf is the one reader of tool calls and their results from a session log. turnOnly
+// resets at each user prompt and drops unanswered calls (the turn's own door asking);
+// otherwise the whole log is read and an unanswered call stays — a child cut off mid-tool
+// must show the tool it was in (childSteps). An OK result's text is clipped, a failure's
+// travels whole.
+func stepsOf(evs []event.Event, turnOnly bool) []port.ChildStep {
 	var out []port.ChildStep
 	var answered []bool
 	at := map[string]int{}
 	for _, e := range evs {
-		if e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
+		if turnOnly && e.Type == event.TypePromptSubmitted && e.Actor.Kind == event.ActorUser {
 			out, answered, at = nil, nil, map[string]int{}
 			continue
 		}
@@ -55,17 +64,22 @@ func turnStepsOf(evs []event.Event) []port.ChildStep {
 			text := resultText(d.Part.ToolResult.Content)
 			out[i].OutputBytes = len(text)
 			out[i].Failed = d.Part.ToolResult.IsError
-			// Unlike childSteps, an OK result's text travels too (clipped): a door judging the
-			// turn needs what the tools SAID — the ⚠ notes a deck tool attached to a success —
-			// not only that they succeeded. Live 2026-09-05: seven "title wraps" warnings,
-			// all ignored, and the agent declared "titles on one line".
-			if d.Part.ToolResult.IsError || len(text) <= turnStepOutputCap {
+			switch {
+			case d.Part.ToolResult.IsError:
+				out[i].Output = text // a failure travels whole, in both modes
+			case !turnOnly:
+				// childSteps' contract: an OK result carries its size, not its text (a parent
+				// reads what a child did, not everything it read).
+			case len(text) <= turnStepOutputCap:
 				out[i].Output = text
-			} else {
+			default:
 				out[i].Output = text[:turnStepOutputCap] + "…[clipped]"
 			}
 			answered[i] = true
 		}
+	}
+	if !turnOnly {
+		return out
 	}
 	kept := out[:0]
 	for i, st := range out {

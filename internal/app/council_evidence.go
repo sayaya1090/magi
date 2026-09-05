@@ -341,12 +341,7 @@ func clipSpec(s string, n int) string {
 // toolResultText renders a tool result's JSON content as readable one-ish-line text
 // (unwrapping a JSON string, collapsing newlines) for the council evidence summary.
 func toolResultText(raw json.RawMessage) string {
-	s := string(raw)
-	var str string
-	if json.Unmarshal(raw, &str) == nil {
-		s = str
-	}
-	return strings.TrimSpace(strings.ReplaceAll(s, "\n", " ⏎ "))
+	return strings.TrimSpace(strings.ReplaceAll(resultText(raw), "\n", " ⏎ "))
 }
 
 // truncateForCouncil clips s to at most n bytes (on a rune boundary), appending a
