@@ -24,12 +24,18 @@
 
 .PARAMETER SkipBuild
   빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본).
+
+.PARAMETER Clean
+  애드인을 **지우고 다시 깐다.** 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를 비운 뒤
+  보통 설치를 이어 간다. 이름·아이콘이 바뀌었는데 리본이 옛것을 그릴 때 — 캐시가 매니페스트 사본을 들고 있어서다.
+  PowerPoint 가 떠 있으면 멈춘다(캐시를 쥐고 있다).
 #>
 [CmdletBinding()]
 param(
   [string]$Dest = (Join-Path $env:LOCALAPPDATA 'magi\ppt'),
   [switch]$NoAutostart,
-  [switch]$SkipBuild
+  [switch]$SkipBuild,
+  [switch]$Clean
 )
 
 $ErrorActionPreference = 'Stop'
@@ -179,6 +185,24 @@ else {
 
 # ── 6. 애드인 등록 ───────────────────────────────────────────────────────────
 $wef = 'HKCU:\Software\Microsoft\Office\16.0\WEF'
+# ── 지우기(-Clean) — 등록과 캐시를 걷어 낸 뒤 아래 보통 설치가 다시 넣는다 ───────────────────────────
+# MS 문서: 낱개 매니페스트만 지우지 말고 Wef 폴더를 통째로 비워라(낱개만 지우면 전부 안 뜬다). 리본 캐시 만료값도
+# 같이 지운다. PowerPoint 가 떠 있으면 캐시를 쥐고 있어 되살아난다 — 끄라고 하고 멈춘다.
+if ($Clean) {
+  Say '애드인 등록과 캐시를 지운다(-Clean)'
+  if (Get-Process POWERPNT -ErrorAction SilentlyContinue) { Fail 'PowerPoint 가 떠 있다 — 끄고 다시 돌려라(캐시를 쥐고 있다)' }
+  foreach ($k in @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)) {
+    $u = (Get-ItemProperty $k.PSPath).Url
+    if ($u -and $u -match '\\magi[\\-]') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u)" }
+  }
+  if (Get-ItemProperty "$wef\Developer" -Name magi -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name magi; Done 'Developer\magi 삭제' }
+  foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'PowerPoint_*RibbonCustomizationExpire' })) {
+    Remove-ItemProperty -Path $wef -Name $v -ErrorAction SilentlyContinue
+  }
+  $cache = Join-Path $env:LOCALAPPDATA 'Microsoft\Office\16.0\Wef'
+  if (Test-Path $cache) { Get-ChildItem $cache -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Done "캐시 비움 $cache" }
+  Warn '다시 넣은 뒤 PowerPoint 를 켜고 삽입 → 내 추가 기능 → 공유 폴더에서 「Magi」를 다시 추가해야 리본에 선다'
+}
 $manifest = Join-Path $addinDest 'manifest.xml'
 if ($perpetual) {
   Say '애드인을 신뢰 카탈로그로 등록한다(볼륨 판은 개발자 키를 무시한다)'

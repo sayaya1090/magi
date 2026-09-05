@@ -165,6 +165,18 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
 
 ## 7. 지우기
 
+**지우고 다시 깔기는 한 줄이다.** PowerPoint 를 끈 뒤:
+
+```powershell
+& .\clients\powerpoint\install.ps1 -Clean
+```
+
+등록 키(신뢰 카탈로그·개발자 키)와 리본 캐시 만료값을 지우고 `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\` 를 비운
+다음 보통 설치를 이어 간다. 이름·아이콘이 바뀌었는데 리본이 옛것을 그릴 때 쓰는 길이다 — 캐시가 매니페스트 사본을
+들고 있어서 그렇다. 끝나면 PowerPoint 를 켜고 삽입 → 내 추가 기능 → 공유 폴더에서 「Magi」를 다시 추가한다.
+
+손으로 하려면:
+
 - 개발자 키(M365): `WEF\Developer` 의 값 삭제 + `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\` 비우기(MS: 낱개
   매니페스트만 지우지 말 것 — 전부 안 뜨게 된다).
 - 신뢰 카탈로그(2021): `WEF\TrustedCatalogs\{guid}` 키 삭제 + 같은 Wef 폴더 비우기.
