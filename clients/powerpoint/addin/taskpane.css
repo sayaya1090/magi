@@ -170,10 +170,13 @@ header {
   호스트가 자기 입으로 말한 요구 집합. 잰 것과 안 잰 것을 **색으로 가른다** — 회색은
   「아직 모른다」고 화면이 말하는 것이지 「괜찮다」가 아니다.
 */
+/* 흐르는 영역 안의 다른 줄(`.where`)과 같은 카드 꼴 — 앞 판본은 가장자리까지 닿는 띠(padding 만, 아래
+   선)라 옆 줄들과 어긋나 보였다(사용자 2026-09-05: 「띠지처럼 둘러져 있네」). 안쪽 여백은 summary 와
+   detail 이 제 것을 갖고 있으므로 바깥에는 안 준다 — 겹치면 두 배가 된다. */
 .caps {
   font: var(--t-caption); color: var(--muted);
-  padding: var(--s2) var(--s4);
-  background: var(--bg-sub); border-bottom: 1px solid var(--line);
+  margin-left: var(--s4); margin-right: var(--s4);
+  background: var(--bg-sub); border-radius: var(--r-md);
   font-variant-numeric: tabular-nums;
   margin-top: 0;
 }
@@ -567,7 +570,7 @@ button:disabled { cursor: default; opacity: .5; }
 
 .caps summary {
   cursor: pointer; list-style: none;
-  padding: var(--s2) var(--s4);
+  padding: var(--s2) var(--s3);
   font: var(--t-caption); color: var(--muted);
 }
 .caps summary::-webkit-details-marker { display: none; }
@@ -575,7 +578,7 @@ button:disabled { cursor: default; opacity: .5; }
 .caps[open] summary::before { content: "▾ "; }
 .caps[data-measured="yes"] summary { color: var(--fg-2); }
 .caps-detail {
-  padding: 0 var(--s4) var(--s2);
+  padding: 0 var(--s3) var(--s2);
   font: var(--t-caption); color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
