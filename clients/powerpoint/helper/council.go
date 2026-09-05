@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -56,41 +57,80 @@ func ReadCouncilSwitch(path string) (bool, error) {
 	return *doc.Council.Enabled, nil
 }
 
-var councilEnabledLine = regexp.MustCompile(`^(\s*enabled\s*=\s*)(true|false)(.*)$`)
-
 // WriteCouncilSwitch 는 `[council] enabled` 한 줄만 바꾼다. 나머지 글자는 그대로다.
 func WriteCouncilSwitch(path string, on bool) error {
+	want := "false"
+	if on {
+		want = "true"
+	}
+	return writeTomlLine(path, "council", "enabled", want)
+}
+
+// SeedLandingSocket 은 착지 플러그인에게 **이 데몬의 소켓**을 알려 준다 — `[plugins.landing] socket`.
+//
+// 플러그인은 제 데몬의 소켓을 모른다(브리지가 주는 것은 작업 디렉토리와 OS 이름뿐이고 `os` 도 없다).
+// 그런데 land 없이 끝난 턴에 모델을 다시 부르려면(`magi --relay <소켓>` 으로 submit) 그 경로가 있어야
+// 한다. 아는 쪽은 여기다 — 데몬을 띄우는 쪽이니. 데몬이 뜨기 전에 심는다(설정은 기동 때 읽힌다).
+// 값이 이미 같으면 파일을 안 건드린다 — 사람이 적어 둔 파일의 mtime 을 매 기동마다 바꾸지 않는다.
+func SeedLandingSocket(configDir string) error {
+	path := CouncilConfigPath(configDir)
+	want := strconv.Quote(DeckSocket(configDir))
+	if data, err := os.ReadFile(path); err == nil && tomlLine(string(data), "plugins.landing", "socket") == want {
+		return nil
+	}
+	return writeTomlLine(path, "plugins.landing", "socket", want)
+}
+
+// writeTomlLine 은 `[section]` 절의 `key = …` 한 줄만 바꾼다(없으면 만든다). 나머지 글자는 그대로다 —
+// BurntSushi 로 풀었다 다시 묶으면 사람이 적어 둔 주석이 전부 사라진다.
+func writeTomlLine(path, section, key, value string) error {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	body := councilSwitched(string(data), on)
+	body := tomlSetLine(string(data), section, key, value)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return os.WriteFile(path, []byte(body), 0o600)
 }
 
-// councilSwitched 는 순수 함수 — 시험이 잰다.
-func councilSwitched(text string, on bool) string {
-	want := "false"
-	if on {
-		want = "true"
+// tomlLine 은 그 절의 그 키가 지금 무슨 값인지(원문 그대로). 없으면 "".
+func tomlLine(text, section, key string) string {
+	in := false
+	re := regexp.MustCompile(`^\s*` + regexp.QuoteMeta(key) + `\s*=\s*(.*?)\s*(#.*)?$`)
+	for _, line := range strings.Split(text, "\n") {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "[") {
+			in = t == "["+section+"]"
+			continue
+		}
+		if in {
+			if m := re.FindStringSubmatch(line); m != nil {
+				return strings.TrimSpace(m[1])
+			}
+		}
 	}
+	return ""
+}
+
+// tomlSetLine 은 순수 함수 — 시험이 잰다. 값은 TOML 원문(따옴표 포함)이다.
+func tomlSetLine(text, section, key, value string) string {
+	re := regexp.MustCompile(`^(\s*` + regexp.QuoteMeta(key) + `\s*=\s*)(.*?)(\s*#.*)?$`)
 	lines := strings.Split(text, "\n")
-	inCouncil, header := false, -1
+	in, header := false, -1
 	for i, line := range lines {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "[") {
-			inCouncil = t == "[council]"
-			if inCouncil {
+			in = t == "["+section+"]"
+			if in {
 				header = i
 			}
 			continue
 		}
-		if inCouncil {
-			if m := councilEnabledLine.FindStringSubmatch(line); m != nil {
-				lines[i] = m[1] + want + m[3]
+		if in {
+			if m := re.FindStringSubmatch(line); m != nil {
+				lines[i] = m[1] + value + m[3]
 				return strings.Join(lines, "\n")
 			}
 		}
@@ -98,7 +138,7 @@ func councilSwitched(text string, on bool) string {
 	if header >= 0 {
 		// 절은 있는데 줄이 없다 — 머리 바로 아래에 넣는다.
 		out := append([]string{}, lines[:header+1]...)
-		out = append(out, "enabled = "+want)
+		out = append(out, key+" = "+value)
 		out = append(out, lines[header+1:]...)
 		return strings.Join(out, "\n")
 	}
@@ -106,7 +146,15 @@ func councilSwitched(text string, on bool) string {
 	if body != "" {
 		body += "\n\n"
 	}
-	return body + "[council]\nenabled = " + want + "\n"
+	return body + "[" + section + "]\n" + key + " = " + value + "\n"
+}
+
+// councilSwitched 는 옛 이름 — 시험이 부른다.
+func councilSwitched(text string, on bool) string {
+	if on {
+		return tomlSetLine(text, "council", "enabled", "true")
+	}
+	return tomlSetLine(text, "council", "enabled", "false")
 }
 
 // restartOn 은 그 소켓의 데몬에게 제 restart 문을 두드린다. 데몬은 같은 인자로 다시 뜬다(graceful.Reexec).

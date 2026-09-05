@@ -164,6 +164,7 @@ func run(args []string, out, log io.Writer) int {
 		// 안이 아니라 여기서 동기로 심는다: 시험의 TempDir 정리와 부딪히지 않고, 못 심어도 마련은 계속한다.
 		_, _ = SeedInstructions(dir)
 		_, _ = SeedSkills(dir)
+		_ = SeedLandingSocket(dir) // 착지 플러그인이 land 없이 끝난 턴을 되부를 때 쓰는 소켓(council.go)
 		go api.provision()
 	}
 
@@ -377,6 +378,7 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	if mine {
 		_, _ = SeedInstructions(a.ConfigDir)
 		_, _ = SeedSkills(a.ConfigDir)
+		_ = SeedLandingSocket(a.ConfigDir)
 		go a.provision()
 	}
 	if now.Phase == OwnReady {

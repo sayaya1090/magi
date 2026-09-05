@@ -5,8 +5,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 사람이 적어 둔 주석은 그대로고, `[council]` 절의 `enabled` 한 줄만 바뀐다.
@@ -115,5 +117,34 @@ func TestTheCouncilDoorWritesThenRestarts(t *testing.T) {
 	}
 	if on, _ := ReadCouncilSwitch(CouncilConfigPath(cfg)); !on {
 		t.Fatal("재기동이 실패했어도 파일은 바뀌어 있어야 한다")
+	}
+}
+
+// 착지 플러그인이 쓸 소켓을 설정에 심는다 — 같은 값이면 파일을 안 건드리고, 다른 절은 그대로다.
+func TestTheLandingSocketIsSeededOnce(t *testing.T) {
+	cfg := t.TempDir()
+	path := CouncilConfigPath(cfg)
+	if err := WriteCouncilSwitch(path, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedLandingSocket(cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := os.ReadFile(path)
+	want := "[plugins.landing]\nsocket = " + strconv.Quote(DeckSocket(cfg))
+	if !strings.Contains(string(body), want) || !strings.Contains(string(body), "[council]\nenabled = false") {
+		t.Fatalf("심은 모양이 다르다:\n%s", body)
+	}
+	st1, _ := os.Stat(path)
+	time.Sleep(15 * time.Millisecond)
+	if err := SeedLandingSocket(cfg); err != nil {
+		t.Fatal(err)
+	}
+	st2, _ := os.Stat(path)
+	if !st2.ModTime().Equal(st1.ModTime()) {
+		t.Fatal("같은 값인데 파일을 다시 썼다")
+	}
+	if got := tomlLine(string(body), "plugins.landing", "socket"); got != strconv.Quote(DeckSocket(cfg)) {
+		t.Fatalf("되읽은 값이 다르다: %s", got)
 	}
 }
