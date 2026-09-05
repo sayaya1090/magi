@@ -11,13 +11,20 @@ local SUMMARY = "SESSION_SUMMARY.md"
 local SKILLS_DIR = ".claude/skills"
 
 -- [plugins.engram] author_skills — 기본 true. "false"/"off"/"0" 이면 스킬을 짓지 않는다(교훈은 남긴다).
-local function authorSkills()
-  local v = magi.store_get("author_skills")
-  if v == nil then return true end
+local function flag(key, default)
+  local v = magi.store_get(key)
+  if v == nil then return default end
   if type(v) == "boolean" then return v end  -- `false or "true"` 의 함정: 불리언은 or 로 못 받는다
-  local s = tostring(v):lower()
-  return not (s == "false" or s == "off" or s == "0")
+  local sv = tostring(v):lower()
+  return not (sv == "false" or sv == "off" or sv == "0")
 end
+
+local function authorSkills() return flag("author_skills", true) end
+
+-- [plugins.engram] lessons — 기본 true. false 면 턴 끝의 사이드카 분석을 아예 안 돈다: 교훈도 스킬도 없다.
+-- 사이드카 분석은 플러그인 락을 쥔 채 두 분 안팎을 돌고, 그동안 다음 턴의 컨텍스트 제공자가 그 락을
+-- 기다린다 — 실물 2026-09-05(PPT): 턴이 끝난 뒤 큐의 지시가 되살아나기까지 2분이 빈 채였다.
+local function recordLessons() return flag("lessons", true) end
 
 -- 셸 스크립트로 보이는가: 한글 음절이 없고(UTF-8 EA B0 80 ~ ED 9E A3), 첫 비어 있지 않은 줄이
 -- shebang 이거나 명령처럼 시작한다. 산문 절차를 .sh 로 쓰지 않기 위한 문지기(2026-09-05).
@@ -909,7 +916,7 @@ magi.on("turn_finished", function(ev)
   push_recent(ev.session, "assistant", ev.text)
   local outcome = ev.outcome or "done"
   update_usage(ev.skills, outcome)
-  if ANALYZE_OUTCOMES[outcome] then
+  if ANALYZE_OUTCOMES[outcome] and recordLessons() then
     local user = ev.user
     if user == "" then user = nil end
     analyze_and_record(ev.session, outcome_hint(outcome, ev.reason), user, ev.skills)

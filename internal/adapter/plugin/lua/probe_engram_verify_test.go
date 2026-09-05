@@ -102,3 +102,32 @@ func TestEngramAuthorSkillsOff(t *testing.T) {
 		t.Error("with author_skills=false no skill may be written")
 	}
 }
+
+// [plugins.engram] lessons=false skips the sidecar analysis entirely: no ledger, no skill, and —
+// the reason it exists — no two-minute hold on the plugin lock after every turn.
+func TestEngramLessonsOff(t *testing.T) {
+	src := filepath.Join("..", "..", "..", "..", "plugins", "engram")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled engram plugin not present")
+	}
+	wd := t.TempDir()
+	fa := &fakeAnalyzer{reply: `{"lesson":{"task":"덱 제작","approach":"x","outcome":"success","lesson":"y","category":"구현"},"skill":null}`}
+	h := NewHostWithConfig(HostConfig{ToolSink: builtin.NewRegistry(), ContextReg: &fakeContextReg{}, Analyzer: fa,
+		DataDir: t.TempDir(), Runtime: RuntimeInfo{Workdir: wd}, Notify: func(string, string) {}, Logf: func(string) {},
+		PluginConfigs: map[string]map[string]any{"engram": {"lessons": false}}})
+	if _, err := h.Load(context.Background(), src); err != nil {
+		t.Fatalf("load engram: %v", err)
+	}
+	h.FireEventWith("user_message", map[string]string{"session": "s1", "text": "덱 만들어"})
+	h.FireEventWith("turn_finished", map[string]string{"session": "s1", "text": "만들었습니다", "outcome": "verified"})
+	h.DrainEvents(5 * time.Second)
+	if _, err := os.Stat(filepath.Join(wd, "SESSION_SUMMARY.md")); err == nil {
+		t.Error("with lessons=false no ledger may be written")
+	}
+	fa.mu.Lock()
+	n := fa.calls
+	fa.mu.Unlock()
+	if n != 0 {
+		t.Errorf("with lessons=false the sidecar must not be called, got %d", n)
+	}
+}
