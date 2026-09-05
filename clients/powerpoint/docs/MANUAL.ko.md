@@ -34,6 +34,10 @@ PowerPoint 작업창(애드인)  ←https→  magi-ppt(헬퍼)  ←unix socket�
 
 ## 2. 설치 — 처음 한 번
 
+> **한 줄로 하려면** `& .\clients\powerpoint\install.ps1` — 아래 2.1~2.5 를 다 한다([`INSTALL.ko.md`](INSTALL.ko.md) §0).
+> 아래는 손으로 할 때와 무엇이 왜 있는지의 설명이다.
+
+
 ### 2.1 필요한 것
 
 | 무엇 | 왜 |
