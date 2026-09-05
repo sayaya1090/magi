@@ -9,6 +9,15 @@
 
 local SUMMARY = "SESSION_SUMMARY.md"
 local SKILLS_DIR = ".claude/skills"
+
+-- 셸 스크립트로 보이는가: 한글 음절이 없고(UTF-8 EA B0 80 ~ ED 9E A3), 첫 비어 있지 않은 줄이
+-- shebang 이거나 명령처럼 시작한다. 산문 절차를 .sh 로 쓰지 않기 위한 문지기(2026-09-05).
+local function looksLikeShell(s)
+  -- (Lua 5.1 에는 \x 이스케이프가 없다 — 10진 바이트로 적는다: EA B0 80 ~ ED 9E A3)
+  if s:find("[\234-\237][\128-\191][\128-\191]") then return false end
+  local first = s:match("^%s*([^\n]+)") or ""
+  return first:match("^#!") ~= nil or first:match("^[%w_%./%-]+[%s$]") ~= nil or first:match("^[%w_%./%-]+$") ~= nil
+end
 local LEDGER_TITLE = "# 작업 이력 및 교훈 기록 (팀 공유)"
 local LEDGER_HEADER = "| 일시 | 사용자 | 분류 | 작업 | 시도한 접근 | 결과 | 교훈 |"
 local LEDGER_DIVIDER = "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
@@ -519,19 +528,26 @@ local function save_skill(skill)
   body[#body + 1] = tostring(skill.technique or "")
   body[#body + 1] = ""
   local verify = tostring(skill.verify or "")
+  -- **산문은 스크립트가 아니다.** 앞 판본은 200자를 넘는 verify 를 내용을 안 보고 scripts/verify.sh 로
+  -- 썼다. 실물 2026-09-05(PPT 컴패니언): 사이드카가 「read_notes 로 고지문을 확인하고 read_slide 로
+  -- 실측한다」는 한국어 문장을 verify 에 담았고, 그것이 verify.sh 가 되어 스킬 본문이 「실행해 확인한다」고
+  -- 적혔다. 다음 런의 모델은 bash 로 그 파일을 돌리려 했고(exit 127), 카운슬은 실행 증거를 요구했고,
+  -- 기억은 「검증 스크립트 실행 증거 없음」을 교훈으로 굳혔다 — 세 런에 걸쳐 되풀이됐다.
+  -- 스크립트로 쓰는 것은 셸로 보이는 것뿐이다: 한글이 없고, 첫 줄이 shebang 이거나 명령처럼 시작한다.
+  local asScript = verify ~= "" and #verify > 200 and looksLikeShell(verify)
   if verify ~= "" then
     body[#body + 1] = "## 검증"
-    if #verify > 200 then
-      -- 긴 검증 절차는 부속 스크립트로 분리 — magi가 번들 리소스 매니페스트로
+    if asScript then
+      -- 긴 검증 스크립트는 부속 파일로 분리 — magi가 번들 리소스 매니페스트로
       -- 스킬 디렉토리 파일 목록을 본문에 노출하므로 상대 참조가 해석된다.
       magi.write_file(SKILLS_DIR .. "/" .. slug .. "/scripts/verify.sh", verify)
-      body[#body + 1] = "scripts/verify.sh 를 실행해 확인한다."
+      body[#body + 1] = "scripts/verify.sh 를 실행해 확인한다(셸 스크립트)."
     else
       body[#body + 1] = verify
     end
     body[#body + 1] = ""
   end
-  if verify == "" or #verify <= 200 then
+  if not asScript then
     -- 머지 저장이 부속 스크립트에서 인라인(또는 무검증)으로 돌아오면, 이전 판의 verify.sh는
     -- 본문이 더는 가리키지 않는 고아다 — 지운다. 취소 스냅샷은 저장 전에 떠 있으므로
     -- undo가 되살린다.
