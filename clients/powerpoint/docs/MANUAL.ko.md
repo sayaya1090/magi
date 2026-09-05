@@ -116,7 +116,10 @@ Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Fl
 
 PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더** 에서 `magi` 를 고르고 **추가**. 홈 탭에
 `magi` 단추가 서고, 누르면 창이 열린다. 창의 「지원 API」 줄은 `1.2 ✓ · 1.5~1.10 ✗ · SharedRuntime 1.1 ✓`
-를 말한다 — 그 판에서 편집은 COM 손(`INSTALL.ko.md` §3)이 한다.
+를 말한다 — 그 판에서 편집은 COM 손(`INSTALL.ko.md` §3)이 한다. 창은 그것을 스스로 알고 화면만 맡지만
+**사람에게 그 구분을 말하지는 않는다** — 시키면 되고, 되면 그만이다. 말하는 것은 하나, COM 손을 아직 안
+띄웠을 때다: 「이 PowerPoint 판에서는 magi-ppt-hand 를 띄워야 편집이 됩니다 — 아직 안 떠 있습니다」. 띄우면
+그 줄이 지워지고 창이 따라 붙는다.
 
 ![삽입 → 내 추가 기능 → 공유 폴더 에 선 magi (LTSC 2021)](img/install-2021-shared-folder.png)
 

@@ -16,6 +16,7 @@ import { HelperChat, HelperStatus, HelperTranscript } from './adapter/HelperPort
 import { FakeHand } from './adapter/FakeHand.js';
 import { OfficeHand } from './adapter/OfficeHand.js';
 import { ServeHand } from './usecase/ServeHand.js';
+import { handRole } from './usecase/HandRole.js';
 import { mountPick } from './ui/pick.js';
 import { ReadTranscript } from './usecase/ReadTranscript.js';
 import { View } from './ui/view.js';
@@ -66,11 +67,18 @@ async function boot() {
   // **덱이 자기 이름을 들게 하고, 그 이름으로 붙는다.** 없으면 허브가 붙을 때마다 새 번호를
   // 발급하고, 그때마다 이 창의 대화가 끊긴다(`stableDeckId` 의 주석).
   const deckId = real ? await stableDeckId() : '';
+  // **이 창이 손인가, 화면인가.** 바닥(PowerPointApi 1.8) 아래 호스트에서는 화면만 맡는다 —
+  // 편집은 COM 손이 하고, 이 창이 손으로 붙으면 못 하는 호출을 받아 날 오류를 낸다. 실물
+  // LTSC 2021 에서 그 화면을 봤다(2026-09-05, HandRole.js). 재는 것은 isSetSupported 의 답이다.
+  const role = (real && typeof deck.capabilities === 'function')
+    ? handRole({ isHost: deck.isHost, caps: deck.capabilities() })
+    : { role: 'hand', why: '' };
   const helperStream = real
     ? new HelperStream({
       token: boot.token,
       presentation: deckId || (boot.presentation ?? ''),
       label: boot.label ?? '',
+      role: role.role,
     }).open()
     : null;
   // **헬퍼가 준 문서 키로 말한다.** `hello` 는 스트림이 서고 나서 오므로, 오는 즉시 넘긴다 —
@@ -111,6 +119,15 @@ async function boot() {
     });
   }
   view.mount();
+  // **손과 화면의 구분은 사람에게 안 말한다**(2026-09-06, 사용자: 「둘을 구분할 필요가 없어」).
+  // 말하는 것은 사람이 할 일이 있을 때 하나 — 편집하는 손(magi-ppt-hand)이 아직 안 떠 있을 때.
+  // 스트림이 `nohand` 로 알려 주면 켜고, 손이 붙어 `hello` 가 오면 끈다. 붙는 과정이 덮는
+  // 판 사실 칸(`where`)이 아니라 자기 칸(`role`)이다 — `where` 에 적었더니 「준비됐습니다 —
+  // 도구 48 개」가 덮었다(실물 LTSC 2021, 2026-09-06).
+  if (helperStream && role.role === 'viewer') {
+    helperStream.on('stream', (d) => { if (d?.reason === 'nohand') view.role(d.why); });
+    helperStream.on('hello', () => view.role(''));
+  }
   // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
   // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
   // 「붙었는데 아무 일도 안 일어난다」를 사람이 가려낼 수 있다.
@@ -123,7 +140,10 @@ async function boot() {
     : new OfficeHand({});
   // **화면도 손을 쓴다.** 덱에 저장된 제안을 읽고, 「적용」이 그 손을 부른다 — 헬퍼를 거치지
   // 않는다. 사람이 누른 것은 모델의 턴이 아니고, 모델의 로그에 남을 일도 아니다.
-  view.useHand(hand);
+  // **손이 아닌 창은 제안도 안 읽는다.** 제안은 덱의 태그(PowerPointApi 1.3)에 사는데, 바닥 아래
+  // 호스트에서 그 읽기는 Office.js 의 날 오류(「'index' 속성을 사용할 수 없습니다」)로 화면에 떴다
+  // (실물 LTSC 2021, 2026-09-06). 사람이 할 일이 없는 문장은 안 띄운다.
+  if (role.role === 'hand') view.useHand(hand);
   // **대화 이름을 우리가 짓지 않는다.** 이름을 가진 쪽은 컴패니언이고(`.sock.session`),
   // `ReadTranscript` 는 남의 대화 이벤트를 신원으로 걸러 낸다 — 여기서 지어낸 이름에 붙이면
   // **진짜 이벤트가 전부 그 그물에 걸린다.** 실물에서 그 화면을 봤다(2026-09-01): 모델은 덱의
@@ -179,7 +199,9 @@ async function boot() {
     // 화면에서 눌러 보는 손은 그대로 둔다(위 `view.useHand`) — 제안 카드는 브라우저에서
     // 확인해야 하고, 그건 **이 창 안의 일**이라 모델과 무관하다. 멈추는 것은 **밖에 내놓는
     // 것**뿐이다.
-    if (deck.isHost) {
+    // **화면은 손을 내놓지 않는다.** 스트림이 viewer 로 붙어 호출이 오지 않지만, 여기서도 막는다 —
+    // 두 자리 중 하나가 어긋나도 이 창이 1.2 호스트에서 조작을 받는 일은 없어야 한다.
+    if (deck.isHost && role.role === 'hand') {
       new ServeHand({ stream: helperStream, api, hand, onNote: (s) => view.where(s) }).start();
     }
 

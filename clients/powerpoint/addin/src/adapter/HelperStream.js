@@ -20,12 +20,15 @@
  */
 export class HelperStream {
   /**
-   * @param {{token:string, presentation?:string, label?:string,
-   *          EventSourceImpl?:Function, origin?:string}} opts
+   * @param {{token:string, presentation?:string, label?:string, role?:'hand'|'viewer',
+   *          EventSourceImpl?:Function, origin?:string,
+   *          fetchImpl?:Function, reload?:Function, wait?:(ms:number)=>Promise<void>}} opts
+   *   `role` 은 손(기본)인가 화면인가 — 화면은 전사만 받고 호출은 안 받는다(HandRole.js).
+   *   `fetchImpl`·`reload`·`wait` 는 되살리기의 세 문이고, 시험이 채운다.
    */
   constructor({
     token, presentation = '', label = '', EventSourceImpl, origin,
-    fetchImpl, reload, wait,
+    fetchImpl, reload, wait, role = 'hand',
   } = {}) {
     this.token = token;
     // 되살리기에 쓰는 셋. **시험이 채워 넣을 수 있어야** 이 갈래를 잴 수 있고, 못 재는 갈래는
@@ -40,6 +43,12 @@ export class HelperStream {
     this.healing = false;
     this.presentation = presentation;
     this.label = label;
+    /**
+     * 손인가 화면인가. **화면(viewer)은 전사만 받고 호출은 안 받는다** — 바닥(PowerPointApi 1.8)
+     * 아래 호스트에서 편집은 COM 손이 하고, 이 창이 손으로 붙으면 못 하는 호출을 받아 날 오류를
+     * 낸다(HandRole.js). 헬퍼는 같은 문서 키의 연결을 하나로 보므로 역할은 붙을 때 말해야 한다.
+     */
+    this.role = role === 'viewer' ? 'viewer' : 'hand';
     // 주소는 **적지 않는다** — 페이지가 헬퍼에서 왔으므로 헬퍼의 주소가 곧 자기 오리진이다
     // (§5.5). 시험만 이 자리를 채운다.
     this.origin = origin ?? (typeof location === 'undefined' ? '' : location.origin);
@@ -80,6 +89,7 @@ export class HelperStream {
     const q = new URLSearchParams({ token: this.token ?? '' });
     if (this.presentation) q.set('presentation', this.presentation);
     if (this.label) q.set('label', this.label);
+    if (this.role === 'viewer') q.set('role', 'viewer');
     const src = new this.EventSourceImpl(`${this.origin}/hand/stream?${q}`);
     this.source = src;
 
@@ -136,6 +146,18 @@ export class HelperStream {
         });
         // 물러서되 천장을 둔다. 무한정 늘리면 헬퍼가 돌아와도 한참 뒤에야 붙는다.
         await this.wait(Math.min(1000 * 2 ** (this.misses - 1), 15000));
+      } else if (this.role === 'viewer' && (await this.#anyHand()) === false) {
+        // **볼 손이 없다.** 보는 연결은 손이 있어야 선다 — 헬퍼가 404 를 주는데 EventSource 는
+        // 그 번호를 안 알려 주고 onerror 만 낸다. 그래서 따로 묻는다. 2021 에서 COM 손을 아직
+        // 안 띄운 자리가 정확히 이것이고, 사람이 할 일이 있으므로 사실대로 적고 물러선다.
+        this.misses += 1;
+        this.#emit('stream', {
+          live: false, reason: 'nohand',
+          // **사람이 할 일이 있는 유일한 문장이다.** 손과 화면의 구분은 사람에게 안 말한다 — 이건
+          // 구분이 아니라 「띄워라」다.
+          why: '이 PowerPoint 판에서는 magi-ppt-hand 를 띄워야 편집이 됩니다 — 아직 안 떠 있습니다. 띄우면 이 창이 따라 붙습니다',
+        });
+        await this.wait(Math.min(1000 * 2 ** (this.misses - 1), 15000));
       } else {
         this.misses = 0;
       }
@@ -167,6 +189,27 @@ export class HelperStream {
       return 'dropped';
     } catch {
       return 'down';
+    }
+  }
+
+  /**
+   * 볼 손이 하나라도 붙어 있는가 — `true` · `false` · `null`(못 물었다). 보는 연결만 묻는다.
+   * 못 물은 것을 「없다」로 읽지 않는다 — 그러면 헬퍼가 잠깐 바쁜 사이에 사람에게 손을 띄우라고
+   * 하게 된다.
+   */
+  async #anyHand() {
+    if (!this.fetchImpl) return null;
+    try {
+      const r = await this.fetchImpl(`${this.origin}/api/documents`, {
+        headers: { Authorization: `Bearer ${this.token ?? ''}` },
+      });
+      if (!r || r.status !== 200 || typeof r.json !== 'function') return null;
+      const j = await r.json();
+      if (j?.attached === true) return true;
+      if (j?.attached === false) return false;
+      return null;
+    } catch {
+      return null;
     }
   }
 

@@ -319,3 +319,90 @@ func TestAViewerSeesTheStreamButNeverGetsACall(t *testing.T) {
 		t.Fatal("화면이 떠났는데 손의 자리가 비었다")
 	}
 }
+
+// 2021 판의 창은 자기 덱 이름을 태그(PowerPointApi 1.3)로 짓는데 그 호스트에는 태그 칸이 없어 빈 이름을 들고 오고,
+// COM 손은 파일 경로 지문으로 붙는다 — 둘의 키가 같을 길이 없다. 키가 같아야만 보게 하면 2021 의 창은 영영
+// 아무것도 못 본다(2026-09-05 실물). 보는 연결은 자기 키의 손이 없으면 **있는 손**을 본다.
+func TestAViewerWithAnotherKeyWatchesTheHandThatIsThere(t *testing.T) {
+	hub := NewHandHub()
+	hh := &HandHTTP{Hub: hub, PingEvery: time.Hour}
+	mux := http.NewServeMux()
+	mux.HandleFunc(handStreamPath, hh.Stream)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	hand, err := http.Get(srv.URL + handStreamPath + "?presentation=com-3f9a&label=ltsc.pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hand.Body.Close()
+	hr := &sseReader{br: bufio.NewReader(hand.Body)}
+	_, data := hr.next(t)
+	var hello struct {
+		Document string `json:"document"`
+	}
+	_ = json.Unmarshal(data, &hello)
+
+	for _, q := range []string{"?presentation=doc-from-a-tagless-host&role=viewer", "?role=viewer"} {
+		viewer, err := http.Get(srv.URL + handStreamPath + q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if viewer.StatusCode != http.StatusOK {
+			t.Fatalf("%s: 보는 연결이 %d 다 — 손이 있는데 못 본다", q, viewer.StatusCode)
+		}
+		vr := &sseReader{br: bufio.NewReader(viewer.Body)}
+		_, vd := vr.next(t)
+		var seen struct {
+			Document string `json:"document"`
+		}
+		_ = json.Unmarshal(vd, &seen)
+		if seen.Document != hello.Document {
+			t.Fatalf("%s: 창이 %q 를 보는데 손은 %q 다", q, seen.Document, hello.Document)
+		}
+		viewer.Body.Close()
+	}
+}
+
+// 보는 연결의 첫 규칙은 **같은 키**다. 더 최근에 붙은 다른 손이 있어도 자기 키의 손이 이긴다 — 폴백은
+// 자기 키의 손이 없을 때만이다.
+func TestAViewerWithItsOwnKeyIgnoresANewerHand(t *testing.T) {
+	hub := NewHandHub()
+	hh := &HandHTTP{Hub: hub, PingEvery: time.Hour}
+	mux := http.NewServeMux()
+	mux.HandleFunc(handStreamPath, hh.Stream)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	docOf := func(resp *http.Response) string {
+		r := &sseReader{br: bufio.NewReader(resp.Body)}
+		_, data := r.next(t)
+		var hello struct {
+			Document string `json:"document"`
+		}
+		_ = json.Unmarshal(data, &hello)
+		return hello.Document
+	}
+	mine, err := http.Get(srv.URL + handStreamPath + "?presentation=mine&label=a.pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mine.Body.Close()
+	myDoc := docOf(mine)
+	time.Sleep(20 * time.Millisecond) // 다른 손이 더 최근이 되게
+	newer, err := http.Get(srv.URL + handStreamPath + "?presentation=newer&label=b.pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer newer.Body.Close()
+	_ = docOf(newer)
+
+	viewer, err := http.Get(srv.URL + handStreamPath + "?presentation=mine&role=viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Body.Close()
+	if got := docOf(viewer); got != myDoc {
+		t.Fatalf("자기 키의 손이 있는데 창이 %q 를 본다(자기 것은 %q)", got, myDoc)
+	}
+}

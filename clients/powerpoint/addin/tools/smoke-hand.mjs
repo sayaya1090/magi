@@ -9,6 +9,7 @@
 // 그물을 약하게 만들지 않는다.
 import { FakeHand } from '../src/adapter/FakeHand.js';
 import { ServeHand } from '../src/usecase/ServeHand.js';
+import { handRole } from '../src/usecase/HandRole.js';
 import { HelperStream } from '../src/adapter/HelperStream.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
 import { HelperChat, HelperStatus, HelperTranscript, pendingOf } from '../src/adapter/HelperPorts.js';
@@ -455,6 +456,91 @@ class FakeEventSource {
     ok('한 번만 되살린다', FakeEventSource.opened === base + 1,
       String(FakeEventSource.opened - base));
   }
+}
+
+// ── 역할: 바닥 아래 호스트에서는 화면만 ────────────────────────────────────────
+//
+// 실물 LTSC 2021 에서 본 것(2026-09-05): 창이 도구 48개를 광고했고, 모델이 부른 첫 호출이
+// 「'index' 속성을 사용할 수 없습니다」로 돌아왔고, 모델은 「PowerPoint API 가 없다」고 결론짓고
+// 셸로 돌아섰다. 그 호스트에서 창은 화면이고 손은 COM 프로세스다.
+{
+  const caps = (ok18) => ({ measured: true, sets: [
+    { name: 'PowerPointApi', version: '1.2', ok: true }, { name: 'PowerPointApi', version: '1.5', ok: ok18 },
+    { name: 'PowerPointApi', version: '1.8', ok: ok18 }, { name: 'PowerPointApi', version: '1.10', ok: false },
+    { name: 'SharedRuntime', version: '1.1', ok: true }] });
+  ok('1.8 이 있으면 손', handRole({ isHost: true, caps: caps(true) }).role === 'hand');
+  const v = handRole({ isHost: true, caps: caps(false) });
+  ok('1.8 이 없으면 화면', v.role === 'viewer', v.role);
+  ok('사유가 이 호스트의 천장을 말하고 SKU 는 안 말한다 — 1.8 아래는 Mac·웹·옛 리테일도 있다',
+    v.why.includes('1.2') && !/2021|LTSC|COM/.test(v.why), v.why);
+  ok('못 쟀으면 손 — 모르는 것을 없다로 읽지 않는다',
+    handRole({ isHost: true, caps: { measured: false, sets: [] } }).role === 'hand');
+  ok('가짜 덱은 역할을 안 바꾼다', handRole({ isHost: false, caps: caps(false) }).role === 'hand');
+  const ten = handRole({ isHost: true, caps: { measured: true, sets: [
+    { name: 'PowerPointApi', version: '1.9', ok: true }, { name: 'PowerPointApi', version: '1.10', ok: true }] } });
+  ok('천장은 수로 잰다 — 1.10 이 1.9 보다 높다', ten.top === '1.10', ten.top);
+}
+{
+  new HelperStream({ token: 'tok', presentation: 'p1', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource, role: 'viewer' }).open();
+  ok('화면은 role=viewer 로 붙는다', FakeEventSource.last.url.includes('role=viewer'), FakeEventSource.last.url);
+  new HelperStream({ token: 'tok', presentation: 'p1', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource }).open();
+  ok('손은 role 을 안 싣는다', !FakeEventSource.last.url.includes('role='), FakeEventSource.last.url);
+}
+{
+  // 볼 손이 아직 없으면 — 헬퍼는 404 를 주고 EventSource 는 onerror 만 낸다. 왜인지 물어서 사람에게 적고 물러선다.
+  const answer = (attached) => async (url) => (String(url).endsWith('/api/documents')
+    ? { status: 200, json: async () => ({ attached, documents: [] }) }
+    : { status: 200 });
+  const waits = []; const said = [];
+  const s = new HelperStream({
+    token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource, role: 'viewer',
+    fetchImpl: answer(false), reload: () => {}, wait: async (ms) => { waits.push(ms); },
+  }).open();
+  s.on('stream', (d) => said.push(d));
+  const first = FakeEventSource.last;
+  await first.onerror();
+  ok('손이 없으면 그렇게 적는다 — 사람이 할 일이 있다',
+    said.some((d) => d.reason === 'nohand' && d.why.includes('magi-ppt-hand') && d.why.includes('띄워')), JSON.stringify(said));
+  ok('그 문장은 손·화면 구분을 말하지 않는다 — 사람은 구분할 일이 없다',
+    !said.some((d) => d.reason === 'nohand' && /화면|viewer/.test(d.why)), JSON.stringify(said));
+  ok('물러섰다가 다시 본다', waits.length === 1 && FakeEventSource.last !== first, JSON.stringify(waits));
+
+  const waits2 = []; const said2 = [];
+  const s2 = new HelperStream({
+    token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource, role: 'viewer',
+    fetchImpl: answer(true), reload: () => {}, wait: async (ms) => { waits2.push(ms); },
+  }).open();
+  s2.on('stream', (d) => said2.push(d));
+  await FakeEventSource.last.onerror();
+  ok('손이 있으면 그냥 다시 붙는다', waits2.length === 0 && !said2.some((d) => d.reason === 'nohand'), JSON.stringify(said2));
+
+  // **못 물은 것은 「없다」가 아니다.** 헬퍼가 잠깐 바쁘거나 답이 이상하면 그냥 다시 붙는다 —
+  // 여기서 「없다」로 읽으면 헬퍼가 바쁜 사이에 사람에게 손을 띄우라고 하게 된다.
+  for (const [name, answer] of [
+    ['비-200', async (url) => (String(url).endsWith('/api/documents') ? { status: 503 } : { status: 200 })],
+    ['attached 칸 없음', async (url) => (String(url).endsWith('/api/documents')
+      ? { status: 200, json: async () => ({ documents: [] }) } : { status: 200 })],
+    ['던짐', async (url) => { if (String(url).endsWith('/api/documents')) throw new Error('끊김'); return { status: 200 }; }],
+  ]) {
+    const w = []; const said = [];
+    const s = new HelperStream({
+      token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource, role: 'viewer',
+      fetchImpl: answer, reload: () => {}, wait: async (ms) => { w.push(ms); },
+    }).open();
+    s.on('stream', (d) => said.push(d));
+    await FakeEventSource.last.onerror();
+    ok(`손이 있는지 못 물었으면(${name}) 없다로 안 읽는다`, w.length === 0 && !said.some((d) => d.reason === 'nohand'), JSON.stringify(said));
+  }
+
+  // 손(role 없음)은 이 물음을 아예 안 한다 — 앞 판본과 같은 길.
+  const asked = [];
+  const s3 = new HelperStream({
+    token: 'tok', origin: 'https://127.0.0.1:3000', EventSourceImpl: FakeEventSource,
+    fetchImpl: async (url) => { asked.push(String(url)); return { status: 200 }; }, reload: () => {}, wait: async () => {},
+  }).open();
+  s3.on('stream', () => {});
+  await FakeEventSource.last.onerror();
+  ok('손은 손이 있는지 안 묻는다', !asked.some((u) => u.endsWith('/api/documents')), asked.join(','));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

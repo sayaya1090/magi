@@ -4185,7 +4185,24 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const main = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
   ok('손을 내놓는 자리를 찾았다', /new ServeHand\(/.test(main));
   // **진짜 호스트일 때만 내놓는다.**
-  ok('목업은 손을 안 내놓는다', /if \(deck\.isHost\) \{[\s\S]{0,200}new ServeHand\(/.test(main));
+  ok('목업은 손을 안 내놓는다', /if \(deck\.isHost && role\.role === 'hand'\) \{[\s\S]{0,300}new ServeHand\(/.test(main));
+  // **화면(viewer)도 안 내놓는다** — 바닥 아래 호스트에서 손은 COM 프로세스다(2026-09-05, LTSC 2021 실물).
+  // 스트림이 viewer 로 붙는 것과 손을 안 세우는 것, 두 자리가 다 있어야 한다.
+  ok('화면은 손을 안 내놓는다', /role: role\.role,/.test(main));
+  // **손·화면 구분은 사람에게 안 말한다**(2026-09-06, 사용자). 부팅 때 역할 문장을 띄우는 줄이 없어야 하고,
+  // 띄우는 것은 손이 안 떠 있을 때의 한 줄뿐 — nohand 에 켜고 hello 에 끈다.
+  ok('부팅 때 역할 문장을 안 띄운다', !/view\.role\(role\.why\)/.test(main));
+  ok('손이 없을 때만 한 줄 — nohand 에 켜고', /reason === 'nohand'\) view\.role\(d\.why\)/.test(main));
+  ok('손이 붙으면 끈다 — hello 에', /on\('hello', \(\) => view\.role\(''\)\)/.test(main));
+  {
+    const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+    const v = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    ok('그 줄은 자기 칸이 있다 — where 는 붙는 과정이 덮는다', /id="role"/.test(html) && /role\(text\) \{[\s\S]{0,160}\$\('#role'\)/.test(v));
+    const whereBody = v.match(/  where\(text\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+    ok('판 사실 줄이 그 칸을 안 건드린다', whereBody.includes("'#where'") && !whereBody.includes('#role'));
+    const roleBody = v.match(/  role\(text\) \{([\s\S]*?)\n  \}/)?.[1] ?? '';
+    ok('빈 글이면 숨긴다 — 손이 붙으면 지워져야 한다', /hidden = !text/.test(roleBody));
+  }
   // 다만 **화면 안에서 쓰는 손은 그대로** — 제안 카드는 브라우저에서 눌러 봐야 한다.
   ok('화면은 여전히 손을 쓴다', /view\.useHand\(hand\)/.test(main));
   ok('가짜 손을 여전히 만든다', /new FakeHand\(/.test(main));

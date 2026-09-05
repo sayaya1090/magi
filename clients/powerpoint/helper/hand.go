@@ -157,14 +157,48 @@ func (h *HandHub) Join(presentationID, label string) *handConn {
 
 // Leave 는 애드인이 사라졌을 때. **헬퍼는 애드인 없이도 산다**(§5.4) — 마지막 손이 없어져도
 // 프로세스는 그대로고, 도구가 「붙어 있지 않다」로 실패할 뿐이다.
-// Peek 은 그 문서 키에 이미 붙어 있는 손을 돌려준다 — 없으면 nil. 붙지도 떼지도 않는다(role=viewer).
+// Peek 은 보는 연결(role=viewer)이 볼 손을 돌려준다 — 붙지도 떼지도 않는다.
+//
+// 먼저 그 문서 키 그대로. 없으면 **답하는 손 중 가장 최근 것**이다. 2021 판에서 그 자리를 봤다
+// (2026-09-05): 창은 자기 덱 이름을 태그(PowerPointApi 1.3)로 짓는데 그 호스트에는 태그 칸이 없어
+// 빈 이름을 들고 오고, COM 손은 파일 경로 지문으로 붙는다 — 둘의 키가 같을 길이 없다. 키가 같아야만
+// 보게 하면 2021 의 창은 영영 아무것도 못 본다. 손이 하나도 없으면 nil 이다 — 볼 것이 없다.
+//
+// 보는 것은 고치는 것이 아니라서 pick 의 「둘이 똑같이 좋으면 안 고른다」는 여기 없다 — 화면이
+// 옆 덱의 전사를 보는 것은 헛일이지 사고가 아니다.
 func (h *HandHub) Peek(presentationID string) *handConn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if presentationID == "" {
-		return nil
+	if presentationID != "" {
+		if c := h.conns["pid-"+presentationID]; c != nil {
+			return c
+		}
 	}
-	return h.conns["pid-"+presentationID]
+	return h.bestLocked()
+}
+
+// bestLocked 은 답하는 손 중 가장 최근 것. pick 과 같은 차례다. 잠근 채로 부른다.
+func (h *HandHub) bestLocked() *handConn {
+	var best *handConn
+	for _, c := range h.conns {
+		if best == nil || rankConn(c) < rankConn(best) || (rankConn(c) == rankConn(best) && c.seen.After(best.seen)) {
+			best = c
+		}
+	}
+	return best
+}
+
+// rankConn 은 손을 고르는 차례: ① 답한 적 있고 안 놓친 손 → ② 아직 아무 말도 안 해 본 손 → ③ 놓친 적 있는 손.
+// 사연은 pick 에 있다.
+func rankConn(c *handConn) int {
+	switch {
+	case c.answered && c.deaf == 0:
+		return 0
+	case !c.answered && c.deaf == 0:
+		return 1
+	default:
+		return 2
+	}
 }
 
 func (h *HandHub) Leave(c *handConn) {
@@ -250,19 +284,9 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 	//
 	// 차례: ① 답한 적 있고 안 놓친 손 → ② 아직 아무 말도 안 해 본 손 → ③ 놓친 적 있는 손.
 	// 같은 층에서는 최근 것이 이긴다. **한 번은 나쁜 연결에 걸릴 수 있어도 두 번은 아니다.**
-	rank := func(c *handConn) int {
-		switch {
-		case c.answered && c.deaf == 0:
-			return 0
-		case !c.answered && c.deaf == 0:
-			return 1
-		default:
-			return 2
-		}
-	}
 	var best *handConn
 	for _, c := range h.conns {
-		if best == nil || rank(c) < rank(best) || (rank(c) == rank(best) && c.seen.After(best.seen)) {
+		if best == nil || rankConn(c) < rankConn(best) || (rankConn(c) == rankConn(best) && c.seen.After(best.seen)) {
 			best = c
 		}
 	}
@@ -278,14 +302,14 @@ func (h *HandHub) pick(document string) (*handConn, error) {
 	// 대신 **이름을 대라고 답한다.** 덱이 하나면 여태처럼 그것을 준다.
 	tied := 0
 	for _, c := range h.conns {
-		if rank(c) == rank(best) {
+		if rankConn(c) == rankConn(best) {
 			tied++
 		}
 	}
 	if tied > 1 {
 		open := make([]string, 0, tied)
 		for k, c := range h.conns {
-			if rank(c) == rank(best) {
+			if rankConn(c) == rankConn(best) {
 				open = append(open, fmt.Sprintf("%s (%s)", k, c.label))
 			}
 		}
