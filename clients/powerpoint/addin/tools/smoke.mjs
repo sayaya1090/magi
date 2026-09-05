@@ -37,7 +37,7 @@ import {
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
   planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning,
 } from '../src/ui/screen.js';
-import { Transcript } from '../src/domain/Transcript.js';
+import { Transcript, isPluginNudge, PLUGIN_NUDGE_MARK } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
 import { FakeStatus } from '../src/adapter/FakeStatus.js';
@@ -567,6 +567,40 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   t3.append(app('m3', { kind: 'text', text: '키웠습니다' }));
   ok('델타 뒤 완성본은 되풀이가 아니다',
     t3.rows.length === 1 && t3.rows[0].text === '키웠습니다', t3.rows.map((r) => r.text).join('|'));
+
+  // 플러그인이 넣은 사용자 메시지(⟦landing⟧ …)는 사람의 말풍선으로 안 선다 — 수만 센다.
+  {
+    const t = new Transcript();
+    t.append({ seq: 1, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: PLUGIN_NUDGE_MARK + ' 이 턴은 land 없이 끝났습니다.' } });
+    t.append({ seq: 2, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: '제목 키워' } });
+    ok('플러그인 넛지는 말풍선이 아니다', t.rows.length === 1 && t.rows[0].text === '제목 키워', t.rows.map((r) => r.text).join('|'));
+    ok('안 그린 수를 센다', t.skippedCounts.get('plugin.nudge') === 1);
+    ok('표식은 첫머리만 본다', isPluginNudge('  ⟦landing⟧ x') && !isPluginNudge('x ⟦landing⟧'));
+    const lua = readFileSync(new URL('../../../../plugins/landing/init.lua', import.meta.url), 'utf8');
+    ok('플러그인과 창이 같은 표식을 쓴다', lua.includes('local NUDGE_MARK = "' + PLUGIN_NUDGE_MARK + '"'));
+  }
+
+  // land 로 끝난 턴은 「응답 끝」 줄을 안 그린다 — 착지의 답이 이미 끝을 말했다(사용자 2026-09-06).
+  {
+    const user = { seq: 1, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: '정리해' } };
+    const call = (mid, cid, name) => ({ seq: 2, type: 'part.appended', data: { messageId: mid, part: { kind: 'tool-call', toolCall: { callId: cid, name } } } });
+    const res = (cid, isError) => ({ seq: 3, type: 'part.appended', data: { messageId: 'r', part: { kind: 'tool-result', toolResult: { callId: cid, content: '"x"', isError } } } });
+    const end = { seq: 4, type: 'turn.finished', data: {} };
+    const t1 = new Transcript();
+    [user, call('m', 'c1', 'land'), res('c1', false), end].forEach((e) => t1.append(e));
+    ok('land 가 받아들여진 턴은 landed', t1.rows.find((r) => r.kind === 'turn')?.landed === true);
+    const t2 = new Transcript();
+    [user, call('m', 'c2', 'land'), res('c2', true), end].forEach((e) => t2.append(e));
+    ok('land 가 거절된 턴은 landed 가 아니다', t2.rows.find((r) => r.kind === 'turn')?.landed === false);
+    const t3 = new Transcript();
+    [user, call('m', 'c3', 'mcp__ppt__set_text'), res('c3', false), end].forEach((e) => t3.append(e));
+    ok('land 없이 끝난 턴은 그대로 그린다', t3.rows.find((r) => r.kind === 'turn')?.landed === false);
+    const t4 = new Transcript();
+    [user, call('m', 'c4', 'land'), res('c4', false), { ...user, seq: 5 }, end].forEach((e) => t4.append(e));
+    ok('그 뒤에 사람 말이 오면 새 턴이다', t4.rows.find((r) => r.kind === 'turn')?.landed === false);
+    const view = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+    ok('그리는 쪽이 landed 턴의 끝 줄을 숨긴다', /shape === 'turn'[\s\S]{0,200}r\.landed && !r\.unverified[\s\S]{0,40}el\.hidden = true/.test(view));
+  }
 
   // **같은 완성본이 두 번**(살아 있는 seq 0 + 기록된 seq)은 되풀이다 — 답의 끝이 두 번 서던 자리
   // (사용자 2026-09-06). 글이 같고 한쪽이 자리 없는 이벤트면 한 번으로 접는다.

@@ -32,6 +32,10 @@
  * 발표하느냐 열어 보느냐를 가른다.
  */
 
+/** 플러그인이 넣은 메시지의 표식. 착지 플러그인(plugins/landing NUDGE_MARK)과 같은 글자다. */
+export const PLUGIN_NUDGE_MARK = '⟦landing⟧';
+export const isPluginNudge = (text) => String(text ?? '').trimStart().startsWith(PLUGIN_NUDGE_MARK);
+
 /** 채팅창이 실제로 그릴 줄 아는 종류. 나머지는 버리지 않고 `unknown` 으로 남는다. */
 const DRAWN = new Map([
   ['prompt.submitted', 'user'],
@@ -169,6 +173,8 @@ export class Row {
      * 이어 붙인다. 로그를 처음부터 다시 읽을 때는 델타가 아예 없어서 전부 뒤엣것이 된다.
      */
     this.settled = false;
+    /** 끝난 턴이 `land` 로 끝났는가 — 그러면 「응답 끝」 줄은 안 그린다(`append`). */
+    this.landed = false;
     /** 마지막으로 앉은 완성본 조각. 같은 조각이 두 번 오는 것(아래 `append`)을 가르는 데 쓴다. */
     this.lastPart = null;
   }
@@ -261,6 +267,14 @@ export class Transcript {
       this.skippedCounts.set(type, (this.skippedCounts.get(type) ?? 0) + 1);
       return null;
     }
+    // **플러그인이 넣은 사용자 메시지는 사람의 말풍선이 아니다.** 착지 플러그인이 land 없이 끝난 턴을
+    // 되부를 때 데몬의 submit 문으로 넣는 글이라(plugins/landing), 로그에는 사용자 말로 적힌다. 표식으로
+    // 가려 안 그린다 — 그리면 사람이 안 친 말이 제 말풍선으로 선다(사용자 2026-09-06: 「지가 보낸 건
+    // 출력에서 빼면 되지」). 수는 센다: 조용히 버리는 것과 안 그리기로 한 것은 달라야 한다.
+    if (type === 'prompt.submitted' && isPluginNudge(textOf(ev, 'user'))) {
+      this.skippedCounts.set('plugin.nudge', (this.skippedCounts.get('plugin.nudge') ?? 0) + 1);
+      return null;
+    }
     const messageId = ev?.data?.messageId ?? null;
 
     // 호출의 답과 그 허락은 **호출한 줄에 접힌다.** 짝은 `callId` 로 짓는다 — 한 턴에 같은
@@ -324,6 +338,11 @@ export class Transcript {
       }
     }
 
+    // **land 로 끝난 턴은 「응답 끝」 줄이 필요 없다.** 착지 신고의 답(「착지했습니다 — 한 일 N건」)이 이미
+    // 끝을 말했고, 그 밑에 또 한 줄이 서면 끝이 두 번 그려진 것으로 보인다(사용자 2026-09-06: 「land 출력
+    // 날아갈 때에는 응답 끝 출력하지 마」). 이 턴(마지막 사람 말 이후)에서 land 가 거절 없이 답했으면 표시해
+    // 두고, 그리는 쪽이 그 줄을 숨긴다. 검증 못 한 착지는 그대로 그린다 — 그건 끝이 아니라 경고다.
+    const landed = kind === 'turn' && this.#landedSinceLastUser();
     const row = new Row({
       seq: ev?.seq, kind, actor: ev?.actor, messageId,
       text: textOf(ev, kind), call: toolCallOf(ev), finish: finishOf(ev, type),
@@ -332,9 +351,19 @@ export class Transcript {
       council: kind === 'council' ? councilOf(ev, type) : null,
     });
     row.settled = type === 'part.appended';
+    row.landed = landed;
     this.rows.push(row);
     this.#trackTurn(row, ev, type);
     return row;
+  }
+  /** 마지막 사람 말 뒤에 `land` 가 거절 없이 답했는가. */
+  #landedSinceLastUser() {
+    for (let i = this.rows.length - 1; i >= 0; i -= 1) {
+      const r = this.rows[i];
+      if (r.kind === 'user') return false;
+      if (r.kind === 'tool' && r.tool === 'land') return r.result != null && r.result.isError !== true;
+    }
+    return false;
   }
 
   /**

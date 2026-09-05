@@ -1053,6 +1053,8 @@ export class View {
       return el;
     }
     if (shape === 'turn') {
+      // land 로 끝난 턴은 그 답이 이미 끝을 말했다 — 「응답 끝」을 겹쳐 그리지 않는다(Transcript.landed).
+      if (r.landed && !r.unverified) { el.hidden = true; return el; }
       // 끝난 턴. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`).
       el.classList.toggle('unverified', r.unverified);
       const p = document.createElement('p');
