@@ -227,19 +227,56 @@ magi.register_tool{
 end -- not councilOwnsTheDoor
 
 if not councilOwnsTheDoor then
+-- ── land 없이 끝난 턴을 **되부른다** ─────────────────────────────────────────
+--
+-- 알림과 다음 턴의 컨텍스트만으로는 그 턴이 그대로 끝난다 — 사람은 「끝났다」는 말을 받았는데
+-- 신고가 없고, 만든 장을 아무도 안 봤을 수 있다(사용자 2026-09-06: 「land 가 오지 않으면 모델에게
+-- 넛지가 가야지」). 코어에는 플러그인이 모델에게 말을 넣는 문이 없다. 그래서 데몬의 relay 문
+-- (`magi --relay <소켓>`, 데몬 규약을 stdin 으로 받는다)으로 **사용자 메시지**를 넣는다 — 「land 로
+-- 끝내라」. 그 메시지는 NUDGE_MARK 로 시작하고, 창은 그 표식을 보고 사람의 말풍선으로 안 그린다
+-- (addin: Transcript.js). 소켓은 헬퍼가 `[plugins.landing] socket` 에 심어 둔다(helper/council.go) —
+-- 플러그인은 제 데몬의 소켓을 모른다.
+--
+-- 한 대화에 **두 번까지**. 넛지를 받은 턴이 또 land 없이 끝나면 한 번 더, 그 다음은 사람 몫이다 —
+-- 카운슬의 declareAskCap 과 같은 생각이고, 끝없이 되부르는 것은 판이 안 끝나는 것으로 보인다.
+local NUDGE_MARK = "⟦landing⟧"
+local NUDGE_CAP = 2
+local nudged = {}   -- session → 이 대화에서 보낸 넛지 수
+local function nudge(sid, text)
+  local socket = magi.store_get("socket")
+  if type(socket) ~= "string" or socket == "" then return false, "socket 미설정" end
+  if not sid or sid == "" then return false, "session 없음" end
+  nudged[sid] = (nudged[sid] or 0) + 1
+  if nudged[sid] > NUDGE_CAP then return false, ("cap %d"):format(NUDGE_CAP) end
+  local req = magi.json_encode({ method = "submit", session = sid, text = NUDGE_MARK .. " " .. text })
+  local r = magi.exec("magi", { "--relay", socket }, { stdin = req .. "\n", timeout = "15s" })
+  if not r then return false, "magi --relay 가 안 돌았다" end
+  local resp = magi.json_decode(r.stdout or "")
+  if type(resp) == "table" and resp.ok then return true end
+  return false, ("relay 답: %s / %s"):format(tostring(r.stdout):sub(1, 120), tostring(r.stderr):sub(1, 120))
+end
+
 magi.on("turn_finished", function(ev)
   if credits > 0 then
     credits = credits - 1
     return
   end
-  -- **안 지나고 끝났다.** 세고, 사람에게 알린다. 여기서 턴을 되살릴 수는 없다 — 이 이벤트는
-  -- 비차단이다. 그러니 최소한 **조용하지는 않게** 한다.
   local misses = n(STORE_MISSES) + 1
   magi.store_set(STORE_MISSES, tostring(misses))
   local tail = string.sub(ev.text or "", -80)
+  local plan = looksLikePlan(ev.text or "")
   magi.notify(("landing: 이 턴은 `land` 없이 끝났습니다 — 한 일 신고가 없습니다%s (누적 %d회)")
-    :format(looksLikePlan(ev.text or "") and ", 그리고 마지막 말이 계획입니다" or "", misses))
+    :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
   magi.log("landing: unlanded turn · tail=" .. tail)
+  local ok, why = nudge(ev.session, "이 턴은 `land` 없이 끝났습니다. 이 턴에 실제로 바꾼 것을 손잡이"
+    .. "(슬라이드 번호·id·경로)와 함께 `land{did, verified, left}` 로 신고하고 끝내세요. 만든 장을 아직 안 봤으면 "
+    .. "render_slide 로 본 뒤에. 바꾼 것이 정말 없으면 did 에 그렇게 적으세요."
+    .. (plan and " 마지막 말이 계획이었습니다 — 계획은 신고가 아닙니다." or ""))
+  if ok then
+    magi.log("landing: nudged session " .. tostring(ev.session) .. " to land (" .. nudged[ev.session] .. "/" .. NUDGE_CAP .. ")")
+  else
+    magi.log("landing: no nudge — " .. tostring(why))
+  end
 end)
 end -- not councilOwnsTheDoor
 

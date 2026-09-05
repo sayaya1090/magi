@@ -136,3 +136,49 @@ func TestProbeLandingRefusesAReadAsIfItWereWork(t *testing.T) {
 		t.Fatalf("진짜 변경을 거절했다: %s", got)
 	}
 }
+
+// land 없이 끝난 턴은 **되부른다** — 설정에 소켓이 있으면 `magi --relay <소켓>` 으로 데몬에 사용자 메시지를
+// 넣고, 한 대화에 두 번까지다. 여기서는 PATH 앞에 가짜 magi 를 두어 무엇을 보냈는지 잰다.
+func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
+	bin := t.TempDir()
+	got := filepath.Join(bin, "got.txt")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + got + "\ncat >> " + got + "\nprintf '{\"ok\":true}\\n'\n"
+	if err := os.WriteFile(filepath.Join(bin, "magi"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	reg := builtin.NewRegistry()
+	log := &syncLog{}
+	src := filepath.Join("..", "..", "..", "..", "plugins", "landing")
+	if _, err := os.Stat(filepath.Join(src, "init.lua")); err != nil {
+		t.Skip("bundled landing plugin not present")
+	}
+	h := NewHostWithConfig(HostConfig{
+		ToolSink: reg, ContextReg: &fakeContextReg{}, DataDir: t.TempDir(), Logf: log.logf,
+		PluginConfigs: map[string]map[string]any{"landing": {"socket": "/tmp/fake-daemon.sock"}},
+	})
+	if _, err := h.Load(context.Background(), src); err != nil {
+		t.Fatalf("load landing: %v", err)
+	}
+	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
+
+	for i := 0; i < 3; i++ {
+		h.FireEventWith("turn_finished", map[string]string{"session": "s9", "text": "정리했습니다."})
+		h.DrainEvents(5 * time.Second)
+	}
+	body, _ := os.ReadFile(got)
+	sent := string(body)
+	if strings.Count(sent, "--relay /tmp/fake-daemon.sock") != 2 {
+		t.Fatalf("한 대화에 두 번까지 되불러야 한다(cap):\n%s\nlog: %s", sent, log.String())
+	}
+	if !strings.Contains(sent, `"method":"submit"`) || !strings.Contains(sent, `"session":"s9"`) || !strings.Contains(sent, "⟦landing⟧") {
+		t.Errorf("submit 이 표식 달린 사용자 메시지로 가야 한다:\n%s", sent)
+	}
+	if !strings.Contains(sent, "land{did, verified, left}") {
+		t.Errorf("무엇으로 끝내라는지 말해야 한다:\n%s", sent)
+	}
+	if !strings.Contains(log.String(), "nudged session s9 to land (2/2)") || !strings.Contains(log.String(), "no nudge") {
+		t.Errorf("로그가 넛지와 cap 을 안 적는다: %s", log.String())
+	}
+}

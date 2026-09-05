@@ -3,4 +3,5 @@ version = "1.0.0"
 description = "말만 하고 끝나는 턴을 잡는다 — 끝내려면 지나야 하는 신고 툴과, 안 지나고 끝난 턴의 기록"
 entry = "init.lua"
 capabilities = ["tool", "context-provider", "notify", "command"]
-permissions = []
+# exec:magi — land 없이 끝난 턴을 되부를 때 `magi --relay <소켓>` 으로 데몬에 사용자 메시지를 넣는다(init.lua 의 nudge).
+permissions = ["exec:magi"]
