@@ -38,6 +38,13 @@ type Bridge struct {
 	mu      sync.Mutex
 	socket  string
 	session string
+	// life 는 **어느 생애의 데몬**에 묶었는가(pid@시작시각). 데몬이 다시 뜨면 등록도 스트림도
+	// 죽는데 소켓 경로는 그대로다 — 이 값이 다르면 「같은 자리에 다른 데몬」이고, 조정이 다시
+	// 붙인다(DESIGN §5.9.2). 결정의 캐시가 아니라 **이 묶음이 무엇에 묶였는가**의 기록이다.
+	life string
+	// tools 는 묶을 때 그 데몬이 답한 도구 이름. 다시 물을 문(`mcp-list`)이 생기기 전까지는
+	// 이것이 「이 대화에 무엇이 붙어 있는가」의 유일한 증거다.
+	tools []string
 	// live 는 대화 스트림이 살아 있는가. **요청 쪽 연결과 따로 센다** — 서로의 생존 증거가 아니다.
 	live      bool
 	lastSeq   int64
@@ -94,7 +101,28 @@ func (b *Bridge) push(f StreamFrame) {
 // 대화가 바뀌면 **커서를 -1 로 되돌린다**(§5.7). 옛 커서를 새 대화에 들고 가면 그 대화의 앞을
 // 못 본다 — 와이어에는 숫자만 있고 어느 로그에서 센 숫자인지가 안 실려 오므로, 세션 id 를 seq
 // 옆에 같이 들고 있는 것은 **클라이언트 몫**이라고 문이 스스로 적어 뒀다.
-func (b *Bridge) Bind(socket, sid string) error {
+// BoundTo 는 이 묶음이 무엇에 묶였는가 — 조정이 「다시 할 일이 있는가」를 재는 셋.
+func (b *Bridge) BoundTo() (socket, sid, life string, tools []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.socket, b.session, b.life, append([]string(nil), b.tools...)
+}
+
+// Bind 는 (socket, sid) 에 묶고 스트림을 연다. life·tools 는 그 묶음의 기록이다 — 비워도 되지만
+// 그러면 데몬 재기동을 이 자리에서 못 알아본다.
+func (b *Bridge) Bind(socket, sid string, mark ...string) error {
+	return b.BindWith(socket, sid, firstOr(mark, ""), nil)
+}
+
+func firstOr(xs []string, or string) string {
+	if len(xs) > 0 {
+		return xs[0]
+	}
+	return or
+}
+
+// BindWith 는 Bind 에 생애와 도구까지 적는 것.
+func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
 	b.mu.Lock()
 	if b.cancel != nil {
 		b.cancel()
@@ -104,6 +132,7 @@ func (b *Bridge) Bind(socket, sid string) error {
 		b.lastSeq = -1
 	}
 	b.socket, b.session, b.live = socket, sid, false
+	b.life, b.tools = life, append([]string(nil), tools...)
 	b.stopped = false
 	b.mu.Unlock()
 

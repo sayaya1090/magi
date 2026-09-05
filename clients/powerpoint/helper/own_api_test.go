@@ -54,7 +54,6 @@ func ownFixture(t *testing.T, tweak func(*API, *ownRig)) *ownRig {
 		// 진짜 부착은 Attachments 에 기록을 남기지만 이 픽스처는 Bolt 를 가로채므로 남는 것이
 		// 없다. 「우리 것이 그대로인가」를 여기서 참으로 두고, 아니라고 답하는 갈래는 그 시험이
 		// 따로 채운다.
-		Ours: func(string) bool { return true },
 		Bolt: func(socket, _, _ string) ([]string, error) {
 			rig.mu.Lock()
 			rig.attached = append(rig.attached, socket)
@@ -90,8 +89,14 @@ func (r *ownRig) settle(t *testing.T) OwnReport {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		now := r.api.Work.Now()
-		if now.Phase == OwnReady || now.Phase == OwnFailed {
+		if now.Phase == OwnFailed {
 			return now
+		}
+		if now.Phase == OwnReady {
+			// **마련이 끝난 것과 이 덱이 묶인 것은 다른 일이다**(DESIGN §5.9.2). 마련은 뒤에서
+			// 한 번, 묶음은 폴마다 — 그래서 마련이 끝난 뒤 한 번 두드려야 도구·대화·사유가 실린
+			// 답이 온다. 앞 판본의 리그는 마련만 기다렸고, 그때는 둘이 한 고루틴이었다.
+			return r.poke(t)
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
@@ -384,28 +389,27 @@ func TestAJobStillRunningIsNotTakenOver(t *testing.T) {
 	}
 }
 
-// **`Ready` 가 굳지 않는다.**
-//
-// `Begin` 은 이미 `Ready` 면 새 일을 안 시작한다. 그런데 그 사이 데몬이 죽으면 그 빗장이 다시
-// 마련하는 길까지 막아, 작업창은 「대화 연결됨」인데 덱 도구는 하나도 없고 돌아갈 길도 없다.
+// 「죽었는가」는 **생애**로 잰다 — 소켓 경로는 그대로인데 pid@시작시각이 다르면 다시 뜬 데몬이고,
+// 등록도 스트림도 그 데몬과 같이 죽었다. 앞 판본은 `Ours` 라는 참/거짓 하나를 주입받았는데, 그건
+// 「무엇으로 재는가」를 시험 밖에 두는 것이었다.
 func TestADeadCompanionIsProvisionedAgain(t *testing.T) {
-	ours := true
+	life := "1@t0"
 	rig := ownFixture(t, func(a *API, _ *ownRig) {
-		a.Ours = func(string) bool { return ours }
+		a.LifeOf = func(string) string { return life }
 	})
 	rig.poke(t)
 	if got := rig.settle(t); got.Phase != OwnReady {
 		t.Fatalf("먼저 붙어야 한다: %+v", got)
 	}
-	// 그대로면 다시 안 붙는다 — 재부착은 첫 등록을 떨어뜨린다.
-	rig.poke(t)
+	rig.poke(t) // 마련이 끝난 뒤 첫 폴이 붙인다
+	rig.poke(t) // 둘째는 아무것도 안 한다
 	if len(rig.attached) != 1 {
 		t.Fatalf("멀쩡한데 다시 붙었다: %v", rig.attached)
 	}
-	// 죽으면 다시 마련한다.
-	ours = false
-	rig.poke(t)
-	rig.settle(t)
+	life = "2@t1"
+	rig.poke(t)   // 생애가 다르다 → 마련부터 다시
+	rig.settle(t) // 마련 끝
+	rig.poke(t)   // 다시 붙인다
 	if len(rig.attached) != 2 {
 		t.Fatalf("죽었는데 다시 안 붙었다 — 도구 없는 「연결됨」에 갇힌다: %v", rig.attached)
 	}

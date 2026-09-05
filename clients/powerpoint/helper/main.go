@@ -160,7 +160,7 @@ func run(args []string, out, log io.Writer) int {
 	// **기동을 안 붙잡는다.** 뒤에서 돌고, 실패해도 헬퍼는 그대로 선다 — 명단으로 가는 길이
 	// 남아 있고, 사유는 판이 `/api/own` 으로 물으면 그대로 나온다.
 	if _, mine := api.Work.Begin(); mine {
-		go api.makeOwn("")
+		go api.provision()
 	}
 
 	fmt.Fprintf(log, "magi-ppt %s\n애드인: %s\nMCP: %s\n애드인 소스: %s\n",
@@ -231,8 +231,9 @@ type API struct {
 	// 갈래는 안 만든 것과 같다(TESTING §1).
 	ReadFleet func(configDir string) ([]Companion, error)
 	Bolt      func(socket, url, token string) ([]string, error)
-	// Ours 는 「아까 붙여 둔 것이 지금도 그대로인가」. 기본값은 stillOurs 다.
-	Ours func(socket string) bool
+	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
+	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
+	LifeOf func(socket string) string
 	// Fresh 는 새 대화를 여는 길. 기본값은 데몬에 묻는 것이다.
 	Fresh func(socket string) (string, error)
 	// Work 는 그 마련하는 일의 상태. **한 번에 하나만 돈다**(ownstate.go).
@@ -271,38 +272,6 @@ func (a *API) Route(mux *http.ServeMux) {
 	// 가이드 관리 — 추가·삭제·활성화·비활성화(guides.go).
 	mux.HandleFunc("/api/guides", a.guard(a.guides))
 	mux.HandleFunc("/api/guide", a.guard(a.guide))
-}
-
-// guard 는 **한 자리에서** 루프백과 토큰을 본다. 핸들러마다 적으면 하나를 빠뜨리는 날이 오고,
-// 그 하나가 무엇이었는지는 아무도 모른다 — 콘솔이 같은 이유로 라우트 표를 하나 두고 시험이
-// 핸들러 목록을 훑는다(SECURITY.md §4).
-// joinDeck 은 그 덱을 이 컴패니언의 대화에 묶는다. **덱마다 자기 대화다** — 다른 덱이 이미 그
-// 대화를 들고 있으면 새로 연다. 이미 묶여 있으면 아무것도 안 한다: 다시 묶으면 스트림이 끊겼다
-// 이어지고, 그 사이의 사건이 아무 화면에도 안 닿는다.
-func (a *API) joinDeck(deck, socket, session string) {
-	if deck == "" || socket == "" || a.Bridges == nil {
-		return
-	}
-	target := a.Bridges.For(deck)
-	if _, sid, _ := target.Bound(); sid != "" {
-		return
-	}
-	use := session
-	if who, taken := a.Bridges.Holder(use); taken && who != deck {
-		fresh, err := a.freshOn(socket)
-		if err != nil {
-			return
-		}
-		use = fresh
-	}
-	if use == "" {
-		fresh, err := a.freshOn(socket)
-		if err != nil {
-			return
-		}
-		use = fresh
-	}
-	_ = target.Bind(socket, use)
 }
 
 // deckOf 는 이 요청이 어느 덱의 것인가. 창이 `deck` 으로 실어 보낸다 — 손 스트림이 이미
@@ -364,55 +333,186 @@ func (a *API) companions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// own 은 **파워포인트 몫의 컴패니언에 붙는다** — 고르는 화면을 거치지 않는다.
+// own 은 「이 덱은 준비됐나」. **결정을 기억하지 않는다 — 매번 진실을 보고 차이를 메운다.**
 //
-// 앞 판본은 이 머신의 데몬을 명단으로 보여 주고 사람에게 고르게 했다. 그 화면이 성립하려면 이미
-// 데몬이 떠 있어야 하는데, 메일에서 받은 `.pptx` 를 더블클릭한 사람에게는 **늘 비어 있다.**
-// 명단은 안 없앤다 — 저장소에서 일하다 코드를 보는 에이전트에게 덱을 맡기고 싶은 경우가 실제로
-// 있어서, `/api/companions` 는 「고급」으로 남는다.
+// 앞 판본(`makeOwn`)은 마련·붙임·묶음을 한 고루틴에서 하고 결과를 `OwnWork` 에 기억했다. 그
+// 기억이 재기동 사건 넷마다 다른 방식으로 거짓이 됐고(DESIGN §5.9.1 의 표), 고칠 때마다 무효화
+// 조건이 하나씩 늘었다 — `stillOurs`·`rebindChat`·`joinDeck`·`Forget` 이 그 자국이다.
 //
-// **답이 즉시 온다.** 데몬 냉시동은 오래 걸리고(실물에서 120초 요청이 끊겼다, 2026-09-02) 그동안
-// 판이 멎어 있으면 사람은 그것을 고장으로 읽는다 — 무엇을 기다리는지도, 다시 눌러야 하는지도
-// 모른다. 그래서 이 자리는 **지금 상태를 답하고** 일은 뒤로 보낸다. 판은 다시 물어 진행을 본다.
-//
-// 실패를 **한 문장으로 뭉치지 않는다.** 「magi 를 못 찾았다」와 「띄웠는데 안 선다」와 「떴는데
-// 도구를 못 받는 빌드다」는 사람이 할 일이 각각 다르고, 답에 자리(소켓·워크스페이스·로그)를 실어
-// 두는 것이 유일하게 행동으로 옮길 수 있는 말이다.
+// 이제 둘로 가른다. **마련**(`provision`)은 컴패니언당 한 번이고 오래 걸리므로 뒤에서 돌며
+// `OwnWork` 가 「도는 중」과 그 결과(소켓·생애)를 든다. **묶음**(`settle`)은 덱마다·폴마다이고
+// 멱등이다 — 이미 맞으면 아무것도 안 하고, 생애가 바뀌었으면 다시 붙인다.
 func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	if a.Own == nil || a.Work == nil {
 		http.Error(w, "이 헬퍼는 자기 컴패니언을 마련하도록 세워지지 않았습니다", http.StatusNotImplemented)
 		return
 	}
-	// **`Ready` 를 든 채로 굳지 않는다.**
-	//
-	// `Begin` 은 이미 `Ready` 면 새 일을 안 시작한다 — 붙은 것을 다시 붙이면 첫 등록이 떨어지기
-	// 때문이다(§5.0.1). 그런데 그 사이에 데몬이 죽으면 그 빗장이 **다시 마련하는 길까지** 막는다.
-	// 그러면 작업창은 「대화 연결됨」인데 덱 도구는 하나도 없고, 돌아갈 길도 없다 — 이 저장소가
-	// 최악이라고 적은 「멀쩡하다고 적힌 고장」이다. 리뷰가 짚었다(2026-09-02): `Forget` 은 그
-	// 빗장을 푸는 유일한 손인데 **부르는 자리가 시험 말고는 없었다.**
-	if held := a.Work.Now(); held.Phase == OwnReady && !a.oursOf(held.Socket) {
+	// **데몬이 다시 떴으면 마련도 다시다.** 소켓 경로는 그대로인데 생애가 다르다 — 등록도 스트림도
+	// 그 데몬과 같이 죽었다. 이것이 「아까 그것이 지금도 그것인가」를 재는 유일한 자리다.
+	if held := a.Work.Now(); held.Phase == OwnReady && held.Socket != "" &&
+		a.lifeOf(held.Socket) != held.Life {
 		a.Work.Forget()
 	}
-	// **뒤늦게 생긴 대화를 잡는다.** 도구는 붙었는데 대화만 비어 있는 상태로 굳으면, 사람이 말을
-	// 걸었을 때 「아직 대화가 없습니다」가 돌아오고 되돌릴 길이 없다.
-	a.rebindChat()
 	now, mine := a.Work.Begin()
-	if !mine {
-		// 이미 돌고 있거나 이미 다 됐다. **새로 시작하지 않는다** — 덱을 둘 열면 이 자리가 둘에서
-		// 두드려지는데, 각자 띄우면 둘이 한 워크스페이스를 두고 다툰다.
-		//
-		// **다만 묻는 덱은 여기서 묶는다.** 마련하는 일은 컴패니언 하나에 한 번이지만 **묶는
-		// 것은 덱마다**다. 둘째 창이 열리면 이 길로 오는데, 앞 판본은 이미 `Ready` 라는 이유로
-		// 아무것도 안 하고 돌려보냈다 — 그 창은 다 붙은 컴패니언 옆에서 「아직 안 붙었다」를
-		// 그렸다(2026-09-05: 사람이 "똑같은데?" 라고 세 번 물었다).
-		if now.Phase == OwnReady && now.Socket != "" {
-			a.joinDeck(deckOf(r), now.Socket, now.Session)
+	if mine {
+		go a.provision()
+	}
+	if now.Phase == OwnReady {
+		now = a.settle(deckOf(r), now)
+	}
+	writeJSON(w, now)
+}
+
+func (a *API) lifeOf(socket string) string {
+	if a.LifeOf != nil {
+		return a.LifeOf(socket)
+	}
+	return publishedLife(socket)
+}
+
+// provision 은 **컴패니언을 마련한다** — 띄우고, 명단에 서기를 기다리고, 고를 수 있는지 본다.
+// 덱은 모른다: 여기서 하는 일은 어느 덱이 물어도 같다. 결과는 `OwnWork` 에 든다.
+func (a *API) provision() {
+	defer func() {
+		if r := recover(); r != nil {
+			a.Work.Done(OwnReport{
+				Phase: OwnFailed,
+				Why: fmt.Sprintf("컴패니언을 마련하다 내부 오류가 났습니다: %v — "+
+					"아래에서 컴패니언을 골라 주세요", r),
+			})
 		}
-		writeJSON(w, now)
+	}()
+	st, err := a.Own.Ensure()
+	if err != nil {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Why: err.Error(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
 		return
 	}
-	go a.makeOwn(deckOf(r))
-	writeJSON(w, now)
+	fleet, err := a.waitForFleet(st.Socket)
+	if err != nil {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	var mine *Companion
+	for i := range fleet {
+		if fleet[i].Socket == st.Socket {
+			mine = &fleet[i]
+			break
+		}
+	}
+	if mine == nil {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started,
+			Why: "컴패니언이 " + st.Socket + " 에 섰는데 명단에 그 자리가 없습니다 — " +
+				"그 사이 데몬이 내려갔거나, 헬퍼와 데몬이 서로 다른 자리를 보고 있습니다. " +
+				"데몬이 남긴 말: " + st.Log,
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	if !mine.Chooseable() {
+		a.Work.Done(OwnReport{
+			Phase: OwnFailed, Started: st.Started, Why: mine.Why(),
+			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
+		})
+		return
+	}
+	a.Work.Done(OwnReport{
+		Phase: OwnReady, Started: st.Started,
+		Socket: mine.Socket, Session: mine.Session, Workdir: st.Workdir, Log: st.Log,
+		Life: a.lifeOf(mine.Socket),
+	})
+}
+
+// settle 은 **이 덱을 그 컴패니언에 묶는다** — 멱등이다.
+//
+// 묶였는가는 기억이 아니라 묶음 자체가 든 기록(소켓·세션·생애)으로 잰다. 셋이 다 맞으면 아무것도
+// 안 한다 — 다시 붙이면 첫 등록이 떨어지고 다시 묶으면 스트림이 끊겼다 이어진다. 하나라도 다르면
+// 붙이고 묶는다. 붙임과 묶음은 **한 짝**이다: 등록의 주인이 그 대화이므로 따로 하면 어긋난다.
+//
+// 스트림의 `live` 는 안 본다 — 스트림은 스스로 재접속하고(`Bridge.stream`), 막 묶은 직후는 늘
+// `live=false` 라 그것으로 재면 매 폴마다 다시 묶는다.
+func (a *API) settle(deck string, rep OwnReport) OwnReport {
+	b := a.Bridge
+	if deck != "" && a.Bridges != nil {
+		b = a.Bridges.For(deck)
+	}
+	socket0, sid0, life0, tools0 := b.BoundTo()
+	if sid0 != "" && socket0 == rep.Socket && life0 == rep.Life {
+		rep.Session, rep.Tools = sid0, tools0
+		return rep
+	}
+	// 세션을 정한다. 이미 이 소켓에 묶였던 대화면 그대로 — 데몬이 다시 떠도 대화는 디스크에 있다.
+	// 처음이면 컴패니언의 것을 받는다. **그것이 비었으면 명단을 다시 읽는다** — 갓 뜬 데몬은
+	// 소켓에 선 뒤에 자기 기록을 쓰므로, 마련할 때는 없던 이름이 지금은 있을 수 있다. 그래도
+	// 없고 덱이 있으면 새로 연다(덱마다 자기 대화). 다른 덱이 들고 있어도 새로 연다.
+	sid := sid0
+	if sid == "" || socket0 != rep.Socket {
+		sid = rep.Session
+		if sid == "" {
+			sid = a.sessionOn(rep.Socket)
+		}
+		if deck != "" && a.Bridges != nil {
+			if who, taken := a.Bridges.Holder(sid); sid == "" || (taken && who != deck) {
+				fresh, err := a.freshOn(rep.Socket)
+				if err != nil && sid == "" {
+					rep.Chat = "이 덱의 대화를 못 열었습니다: " + err.Error()
+					return rep
+				}
+				if err == nil {
+					sid = fresh
+				}
+			}
+		}
+	}
+	// **등록이 바뀔 때만 붙인다.** 등록의 신원은 (소켓, 주인, 생애)다. 대화가 바뀌는 경우는 위에서
+	// 이미 「처음이거나 소켓이 다르다」로 걸러졌으므로 여기서 다시 안 본다 — 돌연변이가 그 조건을
+	// 빼도 아무것도 안 울어서 죽은 조건임을 알았다(2026-09-05). 이름 없는 창은 주인이 비어 있어
+	// 대화가 바뀌어도 등록은 그대로고, 그때 다시 붙이면 첫 등록이 떨어진다(§5.0.1).
+	owner := sid
+	if deck == "" {
+		owner = ""
+	}
+	tools := tools0
+	if len(tools0) == 0 || socket0 != rep.Socket || life0 != rep.Life {
+		got, err := a.boltOf(rep.Socket, MCPURL(a.Port, deck), a.Token, owner)
+		if err != nil {
+			rep.Phase, rep.Why = OwnFailed, err.Error()
+			return rep
+		}
+		if len(got) == 0 {
+			rep.Phase = OwnFailed
+			rep.Why = "붙이기는 했는데 덱 도구가 하나도 안 실렸습니다 — 이 컴패니언은 도구 서버를 " +
+				"받지 못하는 빌드일 수 있습니다. 데몬이 남긴 말: " + rep.Log
+			return rep
+		}
+		tools = got
+	}
+	if err := b.BindWith(rep.Socket, sid, rep.Life, tools); err != nil {
+		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).
+		rep.Chat = err.Error()
+	}
+	rep.Session, rep.Tools = sid, tools
+	return rep
+}
+
+// sessionOn 은 명단이 지금 그 소켓에 적어 둔 대화 이름. 없으면 빈 문자열이다 — 지어내지 않는다.
+func (a *API) sessionOn(socket string) string {
+	fleet, err := a.fleetOf(a.ConfigDir)
+	if err != nil {
+		return ""
+	}
+	for _, c := range fleet {
+		if c.Socket == socket {
+			return c.Session
+		}
+	}
+	return ""
 }
 
 // chatWait·chatTries 는 **대화가 생기기를 기다리는** 만큼이다.
@@ -454,63 +554,6 @@ func (a *API) waitForFleet(socket string) ([]Companion, error) {
 	// 끝내 안 생겼으면 **마지막 답을 그대로 준다** — 지어내지 않는다. 부르는 쪽이 그 사실을
 	// `Chat` 칸에 적고, 아래 `rebindChat` 이 나중에라도 생기면 잡는다.
 	return last, nil
-}
-
-// rebindChat 은 **나중에 생긴 대화를 뒤늦게라도 잡는다.**
-//
-// `Ready` 인데 대화 이름이 비어 있으면, 그건 「이 컴패니언은 대화를 못 준다」가 아니라 「우리가
-// 너무 일찍 물었다」일 수 있다. 작업창은 이 자리를 계속 두드리므로, 그 물음마다 한 번 더 본다.
-//
-// **도구를 다시 붙이지는 않는다.** 재부착은 첫 등록을 떨어뜨린다(§5.0.1) — 여기서 고치려는 것은
-// 대화뿐이고, 도구는 이미 멀쩡히 붙어 있다.
-func (a *API) rebindChat() {
-	held := a.Work.Now()
-	if held.Phase != OwnReady || held.Session != "" || held.Socket == "" {
-		return
-	}
-	fleet, err := a.fleetOf(a.ConfigDir)
-	if err != nil {
-		return
-	}
-	for _, c := range fleet {
-		if c.Socket != held.Socket || c.Session == "" {
-			continue
-		}
-		if err := a.Bridge.Bind(c.Socket, c.Session); err != nil {
-			return
-		}
-		held.Session = c.Session
-		held.Chat = ""
-		a.Work.Done(held)
-		return
-	}
-}
-
-// stillOurs 는 아까 붙여 둔 것이 **지금도 그대로인가.**
-//
-// 둘을 같이 본다. 소켓이 답해도 그건 **다른 생애의** 데몬일 수 있고(같은 경로에 다시 뜬다),
-// 그 생애에는 우리 등록이 없다. 반대로 등록 기록만 보면 죽은 데몬을 살아 있다고 읽는다.
-//
-// 못 읽은 것은 「떨어졌다」로 안 적는다 — `publishedLife` 가 빈 글을 주면 `HasLive` 가 옛 답을
-// 그대로 주고, 그 관대함을 여기서 뒤집으면 멀쩡한 등록을 다시 붙이러 가서 첫 등록을 떨어뜨린다.
-func (a *API) oursOf(socket string) bool {
-	if a.Ours != nil {
-		return a.Ours(socket)
-	}
-	return a.stillOurs(socket)
-}
-
-func (a *API) stillOurs(socket string) bool {
-	if socket == "" {
-		return false
-	}
-	if !a.Attachments.HasLive(socket, publishedLife(socket)) {
-		return false
-	}
-	if a.Own != nil && a.Own.Alive != nil {
-		return a.Own.Alive(socket)
-	}
-	return probeAlive(socket)
 }
 
 // instructions 는 **한 번 적어 두면 매번 지켜지는 말**을 읽고 쓴다(instructions.go).
@@ -619,123 +662,6 @@ func (a *API) freshOn(socket string) (string, error) {
 	return cl.NewSessionKeeping()
 }
 
-// makeOwn 은 실제로 마련하는 일. **뒤에서 돈다.**
-func (a *API) makeOwn(deck string) {
-	// **깃발은 반드시 내려간다.** `doing` 을 내리는 것은 `Done` 하나뿐이라, 이 아래에서 패닉이
-	// 나면 그 깃발이 영영 참으로 남고 헬퍼가 사는 내내 모든 작업창이 「준비하는 중」을 본다.
-	// 헬퍼는 **판이 아니라 사람의 파워포인트 옆에서** 도는 프로세스이므로 조용히 죽어도 안 된다.
-	defer func() {
-		if r := recover(); r != nil {
-			a.Work.Done(OwnReport{
-				Phase: OwnFailed,
-				Why: fmt.Sprintf("컴패니언을 마련하다 내부 오류가 났습니다: %v — "+
-					"아래에서 컴패니언을 골라 주세요", r),
-			})
-		}
-	}()
-	st, err := a.Own.Ensure()
-	if err != nil {
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Why: err.Error(),
-			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	// 세션 id 와 「도구를 받을 수 있는가」는 **명단이 이미 답하는 것**이다. 여기서 따로 물으면
-	// 같은 것을 두 식으로 재게 되고, 두 식은 언젠가 갈린다.
-	fleet, err := a.waitForFleet(st.Socket)
-	if err != nil {
-		// **방금 띄운 것을 안 띄운 것으로 적지 않는다.** 다른 실패 갈래는 전부 `Started` 와
-		// 워크스페이스를 싣는데 여기만 빠뜨리고 있었다 — 그러면 사람이 유일하게 할 수 있는 일
-		// (「지금 <워크스페이스> 에 데몬이 하나 돌고 있다」)이 답에서 사라진다.
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
-			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	var mine *Companion
-	for i := range fleet {
-		if fleet[i].Socket == st.Socket {
-			mine = &fleet[i]
-			break
-		}
-	}
-	if mine == nil {
-		// 방금 섰다고 확인한 것이 명단에 없다. **사유를 하나로 단정하지 않는다** — 소켓 유도식이
-		// 갈렸을 수도 있고, 그 사이 데몬이 죽어 소켓을 치웠을 수도 있다. 둘은 할 일이 다르고,
-		// 우리는 여기서 어느 쪽인지 모른다.
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Started: st.Started,
-			Why: "컴패니언이 " + st.Socket + " 에 섰는데 명단에 그 자리가 없습니다 — " +
-				"그 사이 데몬이 내려갔거나, 헬퍼와 데몬이 서로 다른 자리를 보고 있습니다. " +
-				"데몬이 남긴 말: " + st.Log,
-			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	if !mine.Chooseable() {
-		// **고를 수 없는 이유를 그대로 전한다**(§5.0.5). 「안 됩니다」만으로는 할 일이 없다.
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Started: st.Started, Why: mine.Why(),
-			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	// 덱 몫의 컴패니언은 **그 덱만** 붙으므로 주소가 덱을 날라도 참이다. 덱을 모르는 때(기동 직후)
-	// 는 빈 값이고, 그때는 여태처럼 활성 문서 규칙을 탄다.
-	tools, err := a.boltOf(mine.Socket, MCPURL(a.Port, deck), a.Token, mine.Session)
-	if err != nil {
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Started: st.Started, Why: err.Error(),
-			Socket: st.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	if len(tools) == 0 {
-		// **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1). 이름이 하나도 없으면 붙은 것이
-		// 아니고, 그때 `ready` 로 답하면 작업창은 「준비됐습니다 — 도구 0 개」를 적는다. 그
-		// 문장이 이 저장소가 최악이라고 적은 그 모양이다.
-		a.Work.Done(OwnReport{
-			Phase: OwnFailed, Started: st.Started,
-			Why: "붙이기는 했는데 덱 도구가 하나도 안 실렸습니다 — 이 컴패니언은 도구 서버를 " +
-				"받지 못하는 빌드일 수 있습니다. 데몬이 남긴 말: " + st.Log,
-			Socket: mine.Socket, Workdir: st.Workdir, Log: st.Log,
-		})
-		return
-	}
-	out := OwnReport{
-		Phase: OwnReady, Started: st.Started, Tools: tools,
-		Socket: mine.Socket, Session: mine.Session, Workdir: st.Workdir, Log: st.Log,
-	}
-	// **그 덱의 자리에 묶는다.**
-	//
-	// 여태 열쇠 없는 자리(`a.Bridge`)에만 묶었다. 그러면 창이 자기 덱으로 상태를 물을 때 그 자리는
-	// 비어 있고, 화면은 「아직 안 붙었다」를 그린다 — 자동으로 다 붙여 놓고도 그렇다. 사람이
-	// 그것을 보고 물었다(2026-09-05): "플러그인 열리면 바로 데몬에 붙고 세션 만들어서 커넥션
-	// 만들어지면 세션아이디 출력하라고."
-	//
-	// 그리고 **덱마다 자기 대화다.** 다른 덱이 이미 그 대화를 들고 있으면 여기서 새로 연다 —
-	// 같은 규칙이 `choose` 에도 있고, 자동 경로만 빠져 있었다.
-	session := mine.Session
-	if deck != "" && a.Bridges != nil {
-		if who, taken := a.Bridges.Holder(session); taken && who != deck {
-			if fresh, err := a.freshOn(mine.Socket); err == nil {
-				session = fresh
-			}
-		}
-	}
-	target := a.Bridge
-	if deck != "" && a.Bridges != nil {
-		target = a.Bridges.For(deck)
-	}
-	out.Session = session
-	if err := target.Bind(mine.Socket, session); err != nil {
-		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).
-		out.Chat = err.Error()
-	}
-	a.Work.Done(out)
-}
 func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Socket  string `json:"socket"`

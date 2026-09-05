@@ -50,6 +50,9 @@ type OwnReport struct {
 	Log string `json:"log,omitempty"`
 	// Why 는 실패 사유. 사람이 읽는 문장이다.
 	Why string `json:"why,omitempty"`
+	// Life 는 마련한 데몬의 생애(pid@시작시각). 선 밖의 값이다 — 폴마다 지금 생애와 견줘
+	// 데몬 재기동을 알아보는 데만 쓴다(DESIGN §5.9.2).
+	Life string `json:"-"`
 	// Chat 은 붙기는 했는데 대화를 못 연 경우의 사유. **Why 와 등급이 다르다**(§5.0.5) —
 	// 이쪽은 도구가 다 도는 상태이고, 합치면 멀쩡한 것을 고장으로 그린다.
 	Chat string `json:"chat,omitempty"`
