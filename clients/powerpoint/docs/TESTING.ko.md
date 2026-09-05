@@ -12,7 +12,7 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 171 | 2026-09-05 | 통과 |
+| 1·2·3. Go (`helper/`) | 172 | 2026-09-05 | 통과 |
 | 4. JS 순수층 (`addin/tools/`) | 1,615 | 2026-09-05 | 통과 (smoke 881 · officehand 680 · hand 54) |
 | 5. COM 손 (`hand-com/`, xunit) | 9 | 2026-09-05 | 통과 · `--fake` 로 헬퍼 왕복 6호출 실측 |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |

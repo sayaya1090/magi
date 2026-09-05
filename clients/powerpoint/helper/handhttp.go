@@ -83,8 +83,21 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn := h.Hub.Join(r.URL.Query().Get("presentation"), r.URL.Query().Get("label"))
-	defer h.Hub.Leave(conn)
+	// **보는 연결은 손이 아니다.** 같은 문서 키로 붙는 연결을 허브는 하나로 보고 호출을 아무 쪽에나 준다 —
+	// 2021 판에서는 손(COM 프로세스)과 화면(창)이 다른 연결이라, 화면은 role=viewer 로 붙어 전사만 받고
+	// 호출은 안 받는다(hand-com/README.md). Leave 도 하지 않는다: 손의 자리를 화면이 걷어가면 안 된다.
+	viewer := r.URL.Query().Get("role") == "viewer"
+	var conn *handConn
+	if viewer {
+		conn = h.Hub.Peek(r.URL.Query().Get("presentation"))
+		if conn == nil {
+			http.Error(w, "no hand is attached for that presentation yet — a viewer needs a hand to look at", http.StatusNotFound)
+			return
+		}
+	} else {
+		conn = h.Hub.Join(r.URL.Query().Get("presentation"), r.URL.Query().Get("label"))
+		defer h.Hub.Leave(conn)
+	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
@@ -101,11 +114,15 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 	ping := time.NewTicker(h.pingEvery())
 	defer ping.Stop()
 
+	calls := conn.out
+	if viewer {
+		calls = nil // 닫힌 채널이 아니라 nil 채널: 영영 안 고른다
+	}
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case req := <-conn.out:
+		case req := <-calls:
 			writeSSE(w, "call", req)
 			flusher.Flush()
 		case f, ok := <-feed:

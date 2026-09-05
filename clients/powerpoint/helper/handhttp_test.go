@@ -224,3 +224,98 @@ func TestTheTranscriptRidesTheSameStream(t *testing.T) {
 		t.Fatalf("대화 프레임이 %q %s 다", event, data)
 	}
 }
+
+// 2021 판은 손(COM 프로세스)과 화면(창)이 다른 연결이다. 화면이 role=viewer 로 붙으면 hello 와 전사는 받되
+// 호출은 손에게만 간다 — 같은 키의 연결을 허브가 하나로 봐서 호출이 화면으로 새면 손이 영영 못 받는다.
+func TestAViewerSeesTheStreamButNeverGetsACall(t *testing.T) {
+	hub := NewHandHub()
+	hub.Timeout = 3 * time.Second
+	hh := &HandHTTP{Hub: hub, PingEvery: time.Hour}
+	mux := http.NewServeMux()
+	mux.HandleFunc(handStreamPath, hh.Stream)
+	mux.HandleFunc(handReplyPath, hh.Reply)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// 손이 없는데 보러 오면 404 — 볼 것이 없다.
+	if resp, err := http.Get(srv.URL + handStreamPath + "?presentation=p1&role=viewer"); err != nil {
+		t.Fatal(err)
+	} else if resp.Body.Close(); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("손 없는 문서를 보러 왔는데 %d 다", resp.StatusCode)
+	}
+
+	hand, err := http.Get(srv.URL + handStreamPath + "?presentation=p1&label=q3.pptx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer hand.Body.Close()
+	hr := &sseReader{br: bufio.NewReader(hand.Body)}
+	_, data := hr.next(t)
+	var hello struct {
+		Document string `json:"document"`
+	}
+	if err := json.Unmarshal(data, &hello); err != nil {
+		t.Fatal(err)
+	}
+
+	viewer, err := http.Get(srv.URL + handStreamPath + "?presentation=p1&role=viewer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer viewer.Body.Close()
+	if viewer.StatusCode != http.StatusOK {
+		t.Fatalf("보는 연결이 %d 다", viewer.StatusCode)
+	}
+	vr := &sseReader{br: bufio.NewReader(viewer.Body)}
+	if event, _ := vr.next(t); event != "hello" {
+		t.Fatalf("보는 연결의 첫 프레임이 %q 다", event)
+	}
+
+	// 호출 하나 — 손에게만 간다. 화면 쪽 채널에는 아무것도 오지 않는다.
+	done := make(chan error, 1)
+	go func() {
+		_, err := hub.Call(context.Background(), hello.Document, "list_slides", nil)
+		done <- err
+	}()
+	event, data := hr.next(t)
+	if event != "call" {
+		t.Fatalf("손에게 %q 가 왔다", event)
+	}
+	var call struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(data, &call)
+	body := `{"id":"` + call.ID + `","document":"` + hello.Document + `","result":{"count":1},"epoch":1}`
+	if resp, err := http.Post(srv.URL+handReplyPath, "application/json", strings.NewReader(body)); err != nil {
+		t.Fatal(err)
+	} else {
+		resp.Body.Close()
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("손이 답했는데 호출이 %v 로 끝났다", err)
+	}
+	got := make(chan string, 1)
+	go func() { // vr.next 는 끊기면 t.Fatal 을 부르므로 여기선 날것으로 읽는다 — 아래에서 일부러 닫는다
+		for {
+			line, err := vr.br.ReadString('\n')
+			if err != nil {
+				return
+			}
+			if strings.HasPrefix(line, "event:") {
+				got <- strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			}
+		}
+	}()
+	select {
+	case ev := <-got:
+		t.Fatalf("보는 연결에 %q 가 왔다 — 화면이 호출을 받으면 안 된다", ev)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	// 화면이 떠나도 손은 그대로 붙어 있다.
+	viewer.Body.Close()
+	time.Sleep(50 * time.Millisecond)
+	if hub.Peek("p1") == nil {
+		t.Fatal("화면이 떠났는데 손의 자리가 비었다")
+	}
+}

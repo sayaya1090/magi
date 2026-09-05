@@ -30,7 +30,7 @@ PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)
 | 길 | 파일 | 하는 일 |
 |---|---|---|
 | `/taskpane.html`, 정적 파일 | `page.go`, `certs.go`, `icon.go` | 페이지를 직접 내줍니다. 토큰은 페이지에 박혀 나오고(§5.5), 인증서는 헬퍼가 만들되 신뢰 저장소에는 사람이 넣습니다 |
-| `/hand/stream` (SSE) · `/hand/reply` (POST) | `handhttp.go`, `hand.go` | 창이 **손**으로 등록하는 자리. 헬퍼가 조작을 `{kind, data}` 봉투로 내려보내고 창이 결과를 올립니다. WebSocket 이 아닌 이유는 `handhttp.go` 머리 주석에 있습니다(프록시·인증서·재접속) |
+| `/hand/stream` (SSE) · `/hand/reply` (POST) | `handhttp.go`, `hand.go` | 창이 **손**으로 등록하는 자리. `role=viewer` 로 붙으면 손이 아니라 **보는 연결**이라 hello 와 전사만 받고 호출은 안 받습니다(2021 판: 손은 `hand-com/` 의 COM 프로세스, 화면은 따로 — 손이 없으면 404). 헬퍼가 조작을 `{kind, data}` 봉투로 내려보내고 창이 결과를 올립니다. WebSocket 이 아닌 이유는 `handhttp.go` 머리 주석에 있습니다(프록시·인증서·재접속) |
 | `/api/own` · `/api/fresh` · `/api/choose` · `/api/companions` | `own.go`, `ownstate.go`, `attach.go`, `bridges.go` | 데몬을 마련하고 이 덱을 대화에 묶는 문. §4 참고 |
 | `/api/submit` · `/api/steer` · `/api/interrupt` · `/api/status` · `/api/permission` · `/api/question` | `bridge.go` | 대화 한 개의 앞뒤. `submit` 은 202 만 답하고 답은 스트림으로 옵니다(§5.7) |
 | `/api/documents` · `/api/caps` | `hand.go`, `main.go` | 지금 붙어 있는 덱 목록, 호스트가 말한 요구사항 집합 |

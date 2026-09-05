@@ -157,6 +157,16 @@ func (h *HandHub) Join(presentationID, label string) *handConn {
 
 // Leave 는 애드인이 사라졌을 때. **헬퍼는 애드인 없이도 산다**(§5.4) — 마지막 손이 없어져도
 // 프로세스는 그대로고, 도구가 「붙어 있지 않다」로 실패할 뿐이다.
+// Peek 은 그 문서 키에 이미 붙어 있는 손을 돌려준다 — 없으면 nil. 붙지도 떼지도 않는다(role=viewer).
+func (h *HandHub) Peek(presentationID string) *handConn {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if presentationID == "" {
+		return nil
+	}
+	return h.conns["pid-"+presentationID]
+}
+
 func (h *HandHub) Leave(c *handConn) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
