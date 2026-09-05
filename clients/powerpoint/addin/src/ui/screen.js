@@ -144,6 +144,16 @@ export function capsOf(deck) {
  * 뭔가 안 될 때만 읽는 값이다. 그래서 접되 **요약은 사실을 말한다** — 안 쟀으면 안 쟀다고
  * 하고, 하나라도 ✗ 면 그 수를 적는다. 「다 좋다」로 접어 두면 그 창은 접힌 채로 거짓말을 한다.
  */
+/**
+ * 이 줄을 **숨겨도 되는가.** 다 지원이면 읽을 사람이 없다 — 348×391 판에서 한 줄을 먹을 뿐이다
+ * (사용자 2026-09-05: 「어디 꼭 필요할 때만 참고하게 숨기는 게 좋겠다」). 못 쟀거나 하나라도 빠지면
+ * 보인다: 숨은 채로 거짓말을 하는 것은 접힌 채로 거짓말을 하는 것보다 나쁘다. 전문은 늘 콘솔에 남는다.
+ */
+export function capsQuiet(c) {
+  if (!c.measured) return false;
+  return c.sets.every((s) => s.ok === true);
+}
+
 export function capsSummary(c) {
   if (!c.measured) return '지원 API: 재지 못했습니다';
   const no = c.sets.filter((s) => s.ok === false).length;

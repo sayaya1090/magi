@@ -22,7 +22,7 @@ import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
   userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
-  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
@@ -416,6 +416,8 @@ export class View {
     try { this.tellCaps?.(capsOf(this.deck)); } catch { /* 화면이 먼저다 */ }
     const c = capsOf(this.deck);
     el.dataset.measured = c.measured ? 'yes' : 'no';
+    // 다 지원이면 숨긴다 — 이 값이 필요한 순간은 뭔가 안 될 때뿐이다. 그때는 저절로 나온다.
+    el.hidden = capsQuiet(c);
     const full = capsText(c);
     // 접히는 판이라 자리가 둘이다. **요약도 사실을 말한다** — 「다 좋다」로 접어 두면 접힌
     // 채로 거짓말을 하게 되므로, 안 쟀거나 빠진 것이 있으면 요약이 그것을 적는다.

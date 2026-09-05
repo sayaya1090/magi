@@ -33,7 +33,7 @@ import {
   isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
-  capsSummary, brandState, resultCell, permissionText, councilBody, skippedLine,
+  capsSummary, capsQuiet, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
   planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning,
 } from '../src/ui/screen.js';
@@ -2626,6 +2626,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('안 쟀으면 요약이 안 쟀다고 적는다',
     capsSummary({ measured: false, sets: [] }).includes('재지 못했'),
     capsSummary({ measured: false, sets: [] }));
+  // 다 지원이면 줄이 숨는다 — 못 쟀거나 하나라도 빠지면 보인다(숨은 채로 거짓말 금지).
+  ok('요구 집합 줄은 다 지원일 때만 숨는다',
+    capsQuiet({ measured: true, sets: [{ ok: true }, { ok: true }] }) === true
+      && capsQuiet({ measured: false, sets: [] }) === false
+      && capsQuiet({ measured: true, sets: [{ ok: true }, { ok: false }] }) === false
+      && capsQuiet({ measured: true, sets: [{ ok: true }, { ok: null }] }) === false,
+    'capsQuiet');
   ok('다 되면 수를 적는다', capsSummary(all).includes('2종'), capsSummary(all));
   ok('빠진 것이 있으면 접힌 줄이 그것을 적는다',
     capsSummary(some).includes('1개 없음') && capsSummary(some).includes('1개 모름'),
