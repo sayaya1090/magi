@@ -5,7 +5,7 @@
 
 const CASES = [
   {
-    label: '권한 물음',
+    label: '권한 확인 요청',
     ask: {
       id: 'call_perm_1', kind: 'permission', what: 'bash',
       args: { command: 'rm -rf build/ && make', cwd: '/Users/me/deck' },
@@ -27,18 +27,18 @@ const CASES = [
     },
   },
   {
-    // **인자가 안 실린 권한 물음.** 소켓의 `Args` 는 `omitempty` 라 진짜로 이렇게 온다. 화면이
+    // **인자가 안 실린 권한 확인 요청.** 소켓의 `Args` 는 `omitempty` 라 진짜로 이렇게 온다. 화면이
     // 이때 인자 칸을 통째로 안 만들던 자리라, 여기에 이 칸이 없으면 그 갈래를 **아무도 못 본다**
     // — 이 파일이 있는 이유가 그것이다. 「permission: bash」만 놓고 누르라는 화면이 어떻게
     // 생겼는지는 눈으로 봐야 안다.
-    label: '인자 없는 권한 물음',
+    label: '인자 없는 권한 확인 요청',
     ask: {
       id: 'call_perm_2', kind: 'permission', what: 'bash',
       reason: '허용 규칙에 없는 명령입니다',
     },
   },
   {
-    // 코어의 `Waiting.Event` 가 `default:` 로 권한 물음을 만들어 내는 그 자리(§5.7).
+    // 코어의 `Waiting.Event` 가 `default:` 로 권한 확인 요청을 만들어 내는 그 자리(§5.7).
     label: '모르는 종류',
     ask: { id: 'call_x_1', kind: 'confirm', what: '무언가를 확인해 주십시오' },
   },

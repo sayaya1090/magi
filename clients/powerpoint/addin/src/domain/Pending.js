@@ -14,7 +14,7 @@
 export const DECISIONS = [
   { value: 'allow',   label: '이번 호출만 허용',        width: 'call' },
   { value: 'deny',    label: '거절',                    width: 'call' },
-  { value: 'always',  label: '이 세션에서 이 도구 전부', width: 'session' },
+  { value: 'always',  label: '이 대화에서 이 도구 전부', width: 'session' },
   { value: 'persist', label: '앞으로 계속 (설정에 기록)', width: 'project' },
 ];
 
@@ -29,13 +29,13 @@ export const DECISIONS = [
  * 사례 둘을 덮는다는 것이 그 규칙이 맞다는 표시다.
  */
 export const WIDTH_NOTE =
-  '넓은 선택은 코어가 이번 호출 하나로 줄일 수 있습니다 — 줄이면 대화에 그렇게 적힙니다.';
+  '넓은 선택은 magi 가 이번 호출 하나로 줄일 수 있습니다 — 줄이면 대화에 그렇게 적힙니다.';
 
 /**
  * 이 창이 답할 줄 아는 종류 둘. **모르는 종류를 이 둘 중 하나로 넘겨짚지 않는다.**
  *
  * 넘겨짚으면 어떻게 되는지가 코어에 실물로 있다 — `daemon.go`의 `Waiting.Event`는 `switch
- * w.Kind`의 `default:`가 **질문이 아닌 것을 전부 권한 물음으로** 되살린다. 새 종류가 생기면
+ * w.Kind`의 `default:`가 **질문이 아닌 것을 전부 권한 확인 요청으로** 되살린다. 새 종류가 생기면
  * 옛 뷰어가 그것을 「허용/거절」 단추와 함께 그리고, 사람이 누른 결정은 그 종류가 기다리는
  * 답이 아니다. 이 파일의 첫 판에도 `kind ?? 'permission'`이 그대로 있었다(자백이다).
  *
@@ -139,7 +139,7 @@ export function clearedNote(clearedBy) {
   // 헬퍼를 거쳐 밖에서 답한 것은 헬퍼가 결정을 안다 — 짐작이 아니라 넘긴 값이다.
   if (typeof clearedBy === 'string' && clearedBy.startsWith(`${CLEARED.via}:`)) {
     const [, decision, what] = clearedBy.split(':');
-    return `직전 물음(${what || '도구'}): 이 창 밖에서 ${DECISION_WORD[decision] ?? decision}했습니다.`;
+    return `직전 확인 요청(${what || '도구'}): 이 창 밖에서 ${DECISION_WORD[decision] ?? decision}했습니다.`;
   }
   switch (clearedBy) {
     case CLEARED.answered:
@@ -147,15 +147,15 @@ export function clearedNote(clearedBy) {
       return null;
     // **무엇으로 답했는지는 안 적는다** — 헬퍼를 안 거친 답은 남의 입에 결정을 넣는 것이 된다.
     case CLEARED.elsewhere:
-      return '직전 물음: 다른 곳에서 답했습니다 — 무엇으로 답했는지는 모릅니다.';
+      return '직전 확인 요청: 다른 곳에서 답했습니다 — 무엇으로 답했는지는 모릅니다.';
     // **끝난 것이 아니라 모르게 된 것이다.** 「답했다」로 읽히면 사람이 그 물음을 잊는다.
     case CLEARED.unreachable:
-      return '직전 물음: 데몬에 못 닿아 내려갔습니다 — 끝난 것이 아닙니다.';
+      return '직전 확인 요청: magi 에 연결되지 않아 내려갔습니다 — 끝난 것이 아닙니다.';
     // 내려간 물음이 없다. 여기만 조용해도 된다.
     case null: case undefined:
       return null;
     default:
-      return `직전 물음이 이 창이 모르는 사유로 내려갔습니다(${clearedBy}). 이 창을 고쳐야 합니다.`;
+      return `직전 확인 요청이 이 창이 모르는 사유로 내려갔습니다(${clearedBy}). 이 창을 고쳐야 합니다.`;
   }
 }
 
@@ -163,7 +163,7 @@ export function clearedNote(clearedBy) {
  * 물음의 **인자 칸**이 무엇을 담는가. `null` 은 이 칸을 아예 안 만든다는 뜻이다.
  *
  * **화면에서 여기로 내렸다.** 앞 판본은 `askEl` 안의 `if (p.args != null)` 한 줄이었고, 안
- * 걸리면 **칸이 통째로 없었다.** 그러면 권한 물음이 「권한을 묻고 있습니다 · bash」와 허용/거절
+ * 걸리면 **칸이 통째로 없었다.** 그러면 권한 확인 요청이 「권한을 묻고 있습니다 · bash」와 허용/거절
  * 단추만으로 서고, 사람은 무엇을 허가하는지 모르는 채 누른다 — 이 파일 위쪽이 「정해진 것은
  * 도구 이름이 아니라 인자다」라고 적어 둔 바로 그 자리인데, 인자가 없을 때 그 사실을 아무도
  * 말하지 않았다. 같은 창의 로그 줄(`rowEl`)은 인자가 없으면 「(인자 없음)」이라고 적는다.
@@ -181,7 +181,7 @@ export function clearedNote(clearedBy) {
 export function askArgs(p) {
   if (p.args == null) {
     if (!p.isPermission) return null;
-    return { note: '무엇에 대한 허가인지 이 창에 안 실렸습니다 — 인자 없이 부르는 도구인지 '
+    return { note: '무엇에 대한 허가인지 이 창에 전달되지 않았습니다 — 인자 없이 부르는 도구인지 '
       + '오다 빠진 것인지 못 가릅니다. 도구 이름만 보고 누르지 마세요.' };
   }
   // 빈 것을 **빈 상자로 그리지 않는다.** 빈 `<pre>` 는 「인자가 이렇다」도 「없다」도 아니고,

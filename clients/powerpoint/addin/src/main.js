@@ -103,9 +103,9 @@ async function boot() {
           await api.interrupt();
           // 세운 것은 **실패가 아니다.** 여기까지 한 것은 덱에 그대로 남아 있고, 그 사실을
           // 말해 주지 않으면 사람은 되돌려진 줄 안다.
-          view.note('세웠습니다 — 여기까지 한 것은 그대로 남아 있습니다.');
+          view.note('멈췄습니다 — 여기까지 한 것은 그대로 남아 있습니다.');
         } catch (e) {
-          view.note(`못 세웠습니다: ${e?.message ?? e}`, { sticky: true });
+          view.note(`멈추지 못했습니다: ${e?.message ?? e}`, { sticky: true });
         }
       })();
     });
@@ -228,7 +228,7 @@ async function boot() {
           offerRepick(true);
           // **붙었다는 증거는 ack 가 아니라 도구 이름이다**(§5.0.1).
           const name = nameOf(companion);
-          view.where(`${name} 에 붙었습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
+          view.where(`${name} 에 연결했습니다 — 도구 ${out?.tools?.length ?? 0} 개.` +
             (out?.chat ? ` 다만 채팅은 아직입니다: ${out.chat}` : ''));
           bound = name;
           saidStale = false;   // 다시 골랐으니 그 말은 끝났다
@@ -237,7 +237,7 @@ async function boot() {
           await refreshBrand();
         } catch (e) {
           // **끝내 못 붙으면 말한다**(§5.3). 조용하면 화면이 「할 일 없음」처럼 보인다.
-          pick.note(`못 붙였습니다: ${e?.message ?? e}`);
+          pick.note(`연결하지 못했습니다: ${e?.message ?? e}`);
         }
       },
       onRefresh: () => { void showCompanions(); },
@@ -264,7 +264,7 @@ async function boot() {
       saidStale = true;
       bound = null;
       view.setBound(false);
-      view.where('붙어 있던 컴패니언이 다시 떴습니다 — 다시 붙는 중입니다.');
+      view.where('연결돼 있던 컴패니언이 다시 시작됐습니다 — 다시 연결하는 중입니다.');
       if (await attachOwn()) return;
       void showCompanions();
     };
@@ -381,7 +381,7 @@ async function boot() {
         // 적었다 — 데몬 이야기를 하는데 사실은 헬퍼 이야기였다.
         const why = r?.why
           || (askFailed ? `magi 헬퍼가 답하지 않습니다(${askFailed})` : null)
-          || (r?.phase === 'working' ? '아직 안 떴습니다(5분 넘음)' : '알 수 없음');
+          || (r?.phase === 'working' ? '아직 시작되지 않았습니다(5분 넘음)' : '알 수 없음');
         failedWhy = why;
         failedLog = r?.log ?? '';
         view.where('자동으로 준비하지 못했습니다 — 아래에서 컴패니언을 골라 주세요.');
@@ -394,7 +394,7 @@ async function boot() {
       bound = baseNameOf(r.workdir) || 'PowerPoint';
       saidStale = false;
       view.where(`준비됐습니다 — 도구 ${r.tools?.length ?? 0} 개.`
-        + (r.started ? ' (magi 를 방금 띄웠습니다)' : '')
+        + (r.started ? ' (magi 를 방금 시작했습니다)' : '')
         + (r.chat ? ` 다만 채팅은 아직입니다: ${r.chat}` : ''));
       view.setBound(true);
       await refreshBrand();

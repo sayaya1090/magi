@@ -45,7 +45,7 @@ export class HelperStatus extends StatusPort {
 
 /**
  * 데몬의 `Waiting` 을 이 창의 값으로. **`kind` 에 기본값을 안 준다** — 모르는 종류를
- * 권한 물음으로 넘겨짚으면 사람이 누른 답이 그 종류가 기다리는 답이 아니고, 거절은
+ * 권한 확인 요청으로 넘겨짚으면 사람이 누른 답이 그 종류가 기다리는 답이 아니고, 거절은
  * **틀린 사유**로 온다("이미 결정됐거나 만료됐다"). 코어의 `default:` 가 그 실물이다(§5.7).
  */
 export function pendingOf(w) {
@@ -79,11 +79,11 @@ export function pendingOf(w) {
 export class HelperTranscript extends TranscriptPort {
   constructor(stream) { super(); this.stream = stream; this.off = []; }
 
-  get label() { return '헬퍼가 나르는 대화'; }
+  get label() { return '헬퍼가 중계하는 대화'; }
 
   subscribe(_sessionId, _since, { onRestart, onEvent, onEnd, onLive }) {
     const offs = [
-      this.stream.on('restart', (d) => onRestart?.(d?.why ?? '커서가 거절됐습니다')),
+      this.stream.on('restart', (d) => onRestart?.(d?.why ?? '이어 읽기 위치가 거절됐습니다')),
       this.stream.on('event', (ev) => onEvent?.(ev)),
       // **양쪽을 다 알린다.** 죽음만 알리면 화면은 한 번 끊긴 뒤로 영영 끊긴 채이고, 이 창은
       // 스트림을 먼저 열고 컴패니언을 나중에 고르므로 **정상 흐름이 죽은 채로 시작한다.**

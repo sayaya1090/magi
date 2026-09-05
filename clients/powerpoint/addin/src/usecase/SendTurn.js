@@ -110,7 +110,7 @@ export function sendNote(r) {
     // 왜 글이 남았는지를 같이 적고, 그 말은 스스로 안 사라진다(사라지면 남은 글만 남는다).
     if (r.blind) {
       return { sticky: true,
-        text: '보냈습니다. 이 창이 로그를 못 읽고 있어 갔는지 확인은 못 합니다 — '
+        text: '보냈습니다. 이 창이 대화 기록을 못 읽고 있어 갔는지 확인은 못 합니다 — '
           + '적은 글은 그대로 뒀습니다.' };
     }
     // 갔고 로그도 읽는 중이다. 메아리가 곧 온다 — 그때 글이 지워지는 것이 곧 답이다.
@@ -121,7 +121,7 @@ export function sendNote(r) {
     case 'failed':
       return { sticky: true, text: `못 보냈습니다: ${r.error?.message ?? String(r.error)}` };
     case 'waiting':
-      return { sticky: false, text: '앞서 낸 말이 아직 로그에 안 떴습니다.' };
+      return { sticky: false, text: '앞서 낸 말이 아직 대화 기록에 오르지 않았습니다.' };
     // 빈 상자. **여기만 조용해도 된다** — 사람이 방금 빈 칸에서 누른 것을 안다.
     case 'empty':
       return null;

@@ -2378,7 +2378,7 @@ async function makeZip(files) {
     ]);
     ok('둘이면 둘이라고 적는다', board.headText === '제안 2건', board.headText);
     ok('가리킬 곳을 글로 적는다', board.cards[0].whereText === '슬라이드 2 · 도형 3', board.cards[0].whereText);
-    ok('장이 없으면 없다고 적는다', board.cards[1].whereText.includes('안 실렸'), board.cards[1].whereText);
+    ok('장이 없으면 없다고 적는다', board.cards[1].whereText.includes('전달되지 않았'), board.cards[1].whereText);
     ok('못 누르는 것은 버튼 글이 다르다', board.cards[1].applyText === '적용 불가');
     ok('빈 까닭은 숨긴다', board.cards[0].whyHidden === true && board.cards[1].whyHidden === false);
     ok('하나도 없으면 층이 없다', fixBoard([]).wrapHidden === true);
@@ -3169,7 +3169,7 @@ async function makeZip(files) {
   }
 }
 
-// ── 줄 세우기와 간격 ─────────────────────────────────────────────────────────
+// ── 정렬와 간격 ─────────────────────────────────────────────────────────
 //
 // 「가운데 맞춰 줘」·「간격 똑같이」는 PC 를 잘 다루지 못하는 사람이 제일 자주 하는 부탁인데,
 // 이 도구가 없으면 모델이 좌표를 손으로 셈해 `move_shape` 를 도형 수만큼 부른다 — 셈이 틀리면
@@ -4347,7 +4347,7 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('none 은 네 변을 굵기 0 으로 끈다(투명도는 호스트가 거절한다)', ['top', 'bottom', 'left', 'right'].every((e) => log2.includes(`cell-border:1,1:${e}:weight=0`)) && !log2.some((l) => l.includes('color=') || l.includes('transparency')), log2.filter((l) => l.startsWith('cell-border:1,1')).join(' '));
 }
 
-// ── 글자 일부 서식 · 묶기/풀기 · 배경 그림 ──────────────────────────────────────
+// ── 글자 일부 서식 바꾸기 · 묶기/풀기 · 배경 그림 ──────────────────────────────────────
 {
   const log = [];
   const deck = model();

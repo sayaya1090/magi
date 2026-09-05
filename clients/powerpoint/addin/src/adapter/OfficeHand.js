@@ -82,7 +82,7 @@ export class OfficeHand extends HandPort {
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
       ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells', 'edit_table'] : []),
-      // 글자 일부 서식은 1.4(getSubstring)면 되고, 묶기/풀기는 1.8 이다.
+      // 글자 일부 서식 바꾸기은 1.4(getSubstring)면 되고, 묶기/풀기는 1.8 이다.
       'format_text',
       ...(this.supports('PowerPointApi', '1.8') ? ['group_shapes', 'ungroup_shapes'] : []),
       ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];

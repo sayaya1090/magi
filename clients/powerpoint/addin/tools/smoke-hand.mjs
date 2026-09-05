@@ -378,7 +378,7 @@ class FakeEventSource {
     ok('다시 붙어 보지는 않는다 — 붙어도 안 되는 갈래다',
       FakeEventSource.last === first, 'reopened');
     ok('왜 깜빡이는지 사람에게 적는다',
-      said.some((d) => d.reason === 'stale' && d.why.includes('헬퍼가 다시 떴습니다')),
+      said.some((d) => d.reason === 'stale' && d.why.includes('헬퍼가 다시 시작됐습니다')),
       JSON.stringify(said));
   }
 

@@ -181,15 +181,15 @@ export class WatchPrompt {
    * 찾아 나서고, 물음은 그대로 서 있다. 사유를 아는 자리에서 사유를 대는 편이 낫다.
    */
   answering(kind) {
-    if (!this.pending) throw new Error('묻고 있는 것이 없는데 답을 보내려 했습니다');
+    if (!this.pending) throw new Error('기다리는 확인 요청이 없는데 답을 보내려 했습니다');
     // 종류를 먼저 본다. 「이미 보냈다」는 사람이 두 번 누른 흔한 일이고 종류 어긋남은 **이
     // 코드의 결함**이라, 둘이 겹치면 결함 쪽을 말해야 한다. 뒤에 두면 결함이 흔한 일에 가린다.
     if (this.pending.kind !== kind) {
       const got = this.pending.kind || '(없음)';
-      throw new Error(`${kind} 이 아닌 물음에 ${kind} 의 답을 보내려 했습니다: kind=${got}`);
+      throw new Error(`${kind} 이 아닌 확인 요청에 ${kind} 의 답을 보내려 했습니다: kind=${got}`);
     }
     if (this.sentFor === this.pending.id) {
-      throw new Error('이미 답을 보냈습니다 — 물음이 내려가기를 기다리는 중입니다');
+      throw new Error('이미 답을 보냈습니다 — 요청이 내려가기를 기다리는 중입니다');
     }
     return this.pending;
   }
@@ -206,7 +206,7 @@ export class WatchPrompt {
       /** 못 닿는다는 말을 지금 화면에 올릴 것인가. **한 번뿐**이다. */
       lostNote: this.reachable
         ? null
-        : '데몬에 안 닿습니다 — 이 화면이 보여 주는 것은 마지막으로 읽은 것입니다',
+        : 'magi 에 연결되지 않습니다 — 이 화면은 마지막으로 읽은 것을 보여 줍니다',
       doing: this.doing,
       /**
        * 붙어 있던 컴패니언이 **다시 떴다.** 닿기는 닿는데 우리 등록은 죽은 프로세스와 같이
@@ -228,7 +228,7 @@ export class WatchPrompt {
        * 사람이 엉뚱한 답을 보내고, 안 그리면 §6이 말한 「아무도 안 보는 곳에서 대기」다.
        */
       unknownKindNote: this.pending && !this.pending.known
-        ? '이 창이 모르는 종류의 물음이 대기 중입니다'
+        ? '이 창이 모르는 종류의 확인 요청이 기다리고 있습니다'
           + `(kind=${this.pending.kind || '(없음)'}, id=${this.pending.id})`
           + ' — 답할 수 있는 창에서 답해 주십시오.'
         : null,

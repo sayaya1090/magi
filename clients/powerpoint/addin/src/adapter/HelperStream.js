@@ -112,7 +112,7 @@ export class HelperStream {
       const why = await this.#why();
       if (why === 'stale') {
         // 다시 불러오기 전에 한 번 적는다 — 화면이 깜빡이는 이유를 사람이 알아야 한다.
-        this.#emit('stream', { live: false, why: '헬퍼가 다시 떴습니다 — 창을 새로 불러옵니다', reason: why });
+        this.#emit('stream', { live: false, why: '헬퍼가 다시 시작됐습니다 — 창을 새로 불러옵니다', reason: why });
         this.reload?.();
         return;
       }
@@ -120,7 +120,7 @@ export class HelperStream {
         this.misses += 1;
         this.#emit('stream', {
           live: false, reason: why,
-          why: 'magi 헬퍼가 응답하지 않습니다 — 다시 붙어 보는 중입니다',
+          why: 'magi 헬퍼가 응답하지 않습니다 — 다시 연결해 보는 중입니다',
         });
         // 물러서되 천장을 둔다. 무한정 늘리면 헬퍼가 돌아와도 한참 뒤에야 붙는다.
         await this.wait(Math.min(1000 * 2 ** (this.misses - 1), 15000));
@@ -131,7 +131,7 @@ export class HelperStream {
       dead.close?.();
       this.source = null;
       this.open();
-      this.#emit('stream', { live: true, why: '다시 붙었습니다', reason: 'back' });
+      this.#emit('stream', { live: true, why: '다시 연결됐습니다', reason: 'back' });
     } finally {
       this.healing = false;
     }

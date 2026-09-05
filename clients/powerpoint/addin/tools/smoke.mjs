@@ -237,7 +237,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
 // 안 덮은 어댑터도 사유를 낸다 — 오늘 프로덕션 어댑터 둘은 `capabilities()` 를 다 덮으므로
 // 이 기본값을 보는 사람은 **다음 어댑터를 쓰는 사람**뿐이고, 그래서 아무도 안 밟는다. 여기서
-// 한 번 밟아 둔다: 사유가 비면 화면은 「요구 집합: 」만 적고 그건 계측을 안 한 것과 못 한 것을
+// 한 번 밟아 둔다: 사유가 비면 화면은 「지원 API: 」만 적고 그건 계측을 안 한 것과 못 한 것을
 // 같은 침묵으로 만든다. (사유가 `measured:false` 를 되풀이하는 것만 적는 결함은 기계가 못
 // 가른다 — 그건 사람이 읽어야 한다.)
 {
@@ -517,7 +517,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     /part\.appended \(image\)/.test(t5.unknownNote ?? ''), t5.unknownNote ?? '(없음)');
 }
 
-// ── 권한 물음(§5.7). 스트림에 안 오는 것이라 따로 돈다.
+// ── 권한 확인 요청(§5.7). 스트림에 안 오는 것이라 따로 돈다.
 {
   const st = new FakeStatus();
   let drew = 0;
@@ -529,7 +529,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('묻는 것이 서면 화면에 선다', w.view.pending?.id === 'call_7');
   // 이 물음에는 인자가 없다 — 소켓의 `Args` 는 `omitempty` 라 **진짜로 이렇게 온다.** 화면이
   // 이때 인자 칸을 통째로 안 만들면 사람은 무엇을 허가하는지 모른 채 누른다(`askArgs`).
-  ok('인자 없이 온 권한 물음은 그 사실이 칸의 내용이다',
+  ok('인자 없이 온 권한 확인 요청은 그 사실이 칸의 내용이다',
     askArgs(w.view.pending)?.note != null);
 
   // 폴링이 같은 것을 계속 실어 온다. 매번 새로 그리면 고르던 것이 지워지고, 스크린 리더는
@@ -620,10 +620,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('넷이 다 있고 폭이 셋으로 갈린다',
     DECISIONS.length === 4 && widths.size === 3, [...widths].join('/'));
   ok('문구가 폭을 말한다',
-    everyOf(DECISIONS, (d) => d.width === 'call' || /세션|계속|설정/.test(d.label)),
+    everyOf(DECISIONS, (d) => d.width === 'call' || /대화에서|계속|설정/.test(d.label)),
     DECISIONS.map((d) => d.label).join(' · '));
 
-  // 모르는 종류. 코어의 `Waiting.Event` 는 `default:` 로 질문 아닌 것을 전부 권한 물음으로
+  // 모르는 종류. 코어의 `Waiting.Event` 는 `default:` 로 질문 아닌 것을 전부 권한 확인 요청으로
   // 되살린다 — 새 종류가 생기면 옛 창이 「허용/거절」 단추를 달고 그리고, 사람이 누른 결정은
   // 그 종류가 기다리는 답이 아니다. 이 창은 넘겨짚지 않는다.
   const st3 = new FakeStatus();
@@ -1756,7 +1756,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 물음. 종류를 가르는 두 줄과 「1개뿐이면 안 센다」가 안 잡혀 있었다.
   const perm = new Pending({ id: 'c1', kind: 'permission', what: 'bash' });
   const ques = new Pending({ id: 'c2', kind: 'question', what: '어느 쪽?' });
-  ok('권한 물음은 권한 물음이다', perm.isPermission === true && perm.isQuestion === false);
+  ok('권한 확인 요청은 권한 확인 요청이다', perm.isPermission === true && perm.isQuestion === false);
   ok('질문은 질문이다', ques.isQuestion === true && ques.isPermission === false);
   ok('모르는 종류는 둘 다 아니다',
     new Pending({ id: 'c3', kind: 'confirm', what: 'x' }).known === false);
@@ -1766,9 +1766,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // **인자 칸.** 화면은 `if (p.args != null)` 한 줄이라, 안 실리면 칸이 통째로 없었다 —
   // 「권한을 묻고 있습니다 · bash」와 허용/거절 단추만 서고, 사람은 무엇을 허가하는지 모르는
-  // 채로 누른다. 위의 `perm` 이 바로 그 모양이다(인자 없는 권한 물음).
+  // 채로 누른다. 위의 `perm` 이 바로 그 모양이다(인자 없는 권한 확인 요청).
   const slot = askArgs(perm);
-  ok('인자가 안 실린 권한 물음은 그 사실을 말한다',
+  ok('인자가 안 실린 권한 확인 요청은 그 사실을 말한다',
     slot?.note != null && slot.args === undefined, JSON.stringify(slot));
   // 소켓의 `Args` 는 `omitempty` 라 「인자 없이 부르는 도구」와 「오다 빠진 인자」가 여기
   // 도착할 때 똑같이 생겼다. 못 가르는 것을 가른 척하면 그게 이 창이 없애려는 뭉갬이다.
@@ -2298,7 +2298,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('못 닿는 것이 물음 없음보다 앞선다', kinds[0] === 'lost' && kinds[1] === 'last');
 
   // 권한인지 아닌지가 **머리에서** 갈려야 사람이 무게를 안다.
-  ok('권한 물음은 머리부터 다르다',
+  ok('권한 확인 요청은 머리부터 다르다',
     askHead({ isPermission: true }) !== askHead({ isPermission: false })
       && askHead({ isPermission: true }).includes('권한'),
     askHead({ isPermission: true }));
@@ -2306,7 +2306,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 안 실린 것을 빈 칸으로 두면 「다 읽었다」로 보인다.
   ok('무엇인지 안 실렸으면 그렇다고 적는다',
     whatText({ what: '파일을 지운다' }) === '파일을 지운다'
-      && whatText({ what: '' }).includes('안 실렸'),
+      && whatText({ what: '' }).includes('전달되지 않았'),
     whatText({ what: '' }));
 
   // 글로 온 인자는 그대로, 값으로 온 것은 펴서. 편 것은 여러 줄이라 눈으로 갈린다.
@@ -2335,7 +2335,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     doingLine('', true).hidden === true && doingLine('빌드 중', true).hidden === false);
 
   // 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다. `show:false` 는 **할 말이 없다**는 뜻뿐.
-  ok('직전 물음 줄은 할 말이 없을 때만 안 선다',
+  ok('직전 확인 요청 줄은 할 말이 없을 때만 안 선다',
     lastAskShape(null).show === false
       && lastAskShape('무슨-사유인지-모름').show === true,
     lastAskShape('무슨-사유인지-모름').text);
@@ -2394,7 +2394,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('답한 것은 그대로 쓴다', capsOf({ capabilities: () => said }) === said);
   ok('안 잰 것은 안 잰 것으로 적는다',
     capsText({ measured: false, note: '가짜 덱' }).includes('가짜 덱')
-      && capsText({ measured: false, note: '' }).includes('사유를 안 실었다'),
+      && capsText({ measured: false, note: '' }).includes('사유를 알려 주지 않았'),
     capsText({ measured: false, note: '' }));
   // ok 가 null 인 것은 "아니오"가 아니라 **물어보다 던졌다**이므로 셋이 갈려야 한다.
   const capLine = capsText({ measured: true, sets: [
@@ -2547,9 +2547,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const all = { measured: true, sets: [{ ok: true }, { ok: true }] };
   const some = { measured: true, sets: [{ ok: true }, { ok: false }, { ok: null }] };
   ok('안 쟀으면 요약이 안 쟀다고 적는다',
-    capsSummary({ measured: false, sets: [] }).includes('못 쟀'),
+    capsSummary({ measured: false, sets: [] }).includes('재지 못했'),
     capsSummary({ measured: false, sets: [] }));
-  ok('다 되면 수를 적는다', capsSummary(all).includes('2개'), capsSummary(all));
+  ok('다 되면 수를 적는다', capsSummary(all).includes('2종'), capsSummary(all));
   ok('빠진 것이 있으면 접힌 줄이 그것을 적는다',
     capsSummary(some).includes('1개 없음') && capsSummary(some).includes('1개 모름'),
     capsSummary(some));
@@ -2677,7 +2677,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const t = new Transcript();
     t.append(result('없는-호출', '뭔가 됐다'));
     ok('짝 없는 답도 줄이 선다', t.drawnRows.length === 1 && t.drawnRows[0].kind === 'result');
-    ok('짝 없는 답은 그렇게 적는다', rowHead(t.drawnRows[0]).includes('앞을 못 본'),
+    ok('짝 없는 답은 그렇게 적는다', rowHead(t.drawnRows[0]).includes('앞부분을 못 본'),
       rowHead(t.drawnRows[0]));
   }
 
@@ -2746,10 +2746,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       rowHead(conv).includes('Melchior') && rowHead(conv).includes('majority'), rowHead(conv));
     ok('한 표는 누가·무엇으로·어떻게 인지 적는다',
       rowHead(verd).includes('Melchior') && rowHead(verd).includes('correctness')
-        && rowHead(verd).includes('더 하라'), rowHead(verd));
+        && rowHead(verd).includes('계속'), rowHead(verd));
     ok('그 표의 사유가 몸통에 온다', councilBody(verd) === '증거가 없다');
     ok('결론은 표 수까지 적는다',
-      rowHead(dec).includes('더 하라 3') && rowHead(dec).includes('끝났다 0'), rowHead(dec));
+      rowHead(dec).includes('계속 3') && rowHead(dec).includes('완료 0'), rowHead(dec));
     ok('결론의 사유가 몸통에 온다', councilBody(dec).includes('council 선언이 없다'));
     ok('판정은 대화와 다른 모양이다', rowShape(conv) === 'council');
 
@@ -2843,7 +2843,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 // 판은 정확히 그렸는데, **그 칸이 접힌 자리 밖이라 안 보였다.** 마우스 휠을 굴려야 나왔다.
 // §5.7 이 이름 대어 피하려는 「아무도 안 보는 곳에서 대기」가 화면 안에서 그대로 재현된 것이다.
 {
-  ok('새로 선 권한 물음은 끌어온다', askReveal('known', 'rebuild') === true);
+  ok('새로 선 권한 확인 요청은 끌어온다', askReveal('known', 'rebuild') === true);
   ok('그릴 줄 모르는 물음도 끌어온다 — 데몬은 똑같이 막혀 있다',
     askReveal('unknown', 'rebuild') === true);
   // **같은 물음을 매초 끌어오지 않는다.** 폴은 1초마다 도는데 그때마다 끌어오면 위로 올려
@@ -2851,7 +2851,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('같은 물음은 다시 안 끌어온다', askReveal('known', 'refresh') === false);
   // 사람이 답할 것이 없는 칸은 읽던 자리를 안 뺏는다.
   ok('못 닿는다는 말은 안 끌어온다', askReveal('lost', 'rebuild') === false);
-  ok('직전 물음이 내려간 것도 안 끌어온다', askReveal('last', 'rebuild') === false);
+  ok('직전 확인 요청이 내려간 것도 안 끌어온다', askReveal('last', 'rebuild') === false);
   ok('붙기 전에는 끌어올 것이 없다', askReveal('none', 'rebuild') === false);
 }
 
@@ -3280,7 +3280,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     // 부를 문이 없는 갈래(목업)에서는 손잡이도 없다.
     ok('문이 없으면 손잡이도 없다', /view\.canStop = true/.test(m) && /if \(api\) \{/.test(m));
     // **세운 것은 실패가 아니다.** 한 일이 남아 있다고 말해 주지 않으면 되돌려진 줄 안다.
-    ok('세운 뒤 남아 있다고 말한다', /세웠습니다[\s\S]{0,40}그대로 남아/.test(m));
+    ok('멈춘 뒤 남아 있다고 말한다', /멈췄습니다[\s\S]{0,40}그대로 남아/.test(m));
   }
 
   // ── **없는 문은 광고하지 않는다** ───────────────────────────
@@ -3601,7 +3601,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('안 붙었으면 여전히 미선택', brandState({ session: 's_abc' }) === '컴패니언 미선택');
   // **처음 뜰 때 이 창이 어느 대화인지 적는다.** 창을 둘 띄우면 어느 창이 어느 대화인지가 화면
   // 어디에도 없었고, 오늘 그것 때문에 한나절을 썼다(2026-09-05: 빈 작업창, 남의 덱에 간 호출,
-  // 아무도 못 듣는 권한 물음). 앞 판본은 「바로 시키시면 됩니다」였는데 그건 아무것도 더 안
+  // 아무도 못 듣는 권한 확인 요청). 앞 판본은 「바로 시키시면 됩니다」였는데 그건 아무것도 더 안
   // 알려 준다 — 붙었다는 것은 브랜드 줄이, 시키면 된다는 것은 입력창이 이미 말한다.
   ok('붙었고 대화가 비면 대화 이름을 적는다', readyText('deck2', 0, 's_abc').includes('s_abc'));
   ok('대화 이름을 모르면 안 적는다', readyText('deck2', 0) === '');
@@ -4000,7 +4000,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 //
 // 저장 안 한 덱에는 PowerPoint 가 주는 신원이 없다. 그래서 허브가 붙을 때마다 번호를 발급했고
 // (`doc-…-1` → `-4` → `-1`), 작업창이 다시 붙을 때마다 덱과 대화의 묶음이 끊겼다. 하루에 셋을
-// 봤다(2026-09-04): 빈 작업창, 8분 기다린 권한 물음, 「그런 덱 없다」로 죽은 list_slides.
+// 봤다(2026-09-04): 빈 작업창, 8분 기다린 권한 확인 요청, 「그런 덱 없다」로 죽은 list_slides.
 {
   const store = new Map();
   const runner = async (fn) => fn({

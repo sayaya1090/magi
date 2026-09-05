@@ -30,10 +30,10 @@ export function askAction(sig, prevSig) {
  *
  * 물음 칸은 대화 아래에 선다. 대화가 길면 그 칸은 접힌 자리 밖이고, 그러면 **데몬은 답을
  * 기다리고 사람은 물음을 못 본다** — §5.7 이 이름 대어 피하려는 「아무도 안 보는 곳에서
- * 대기」가 화면 안에서 그대로 재현된다. 실물에서 그 화면을 봤다(2026-09-01): 권한 물음이
+ * 대기」가 화면 안에서 그대로 재현된다. 실물에서 그 화면을 봤다(2026-09-01): 권한 확인 요청이
  * 떴는데 판에는 안 보였고, 마우스 휠을 굴려야 나왔다.
  *
- * **끌어오는 것은 막힌 물음뿐이다.** `lost`(못 닿음)·`last`(직전 물음이 내려감)는 사람이
+ * **끌어오는 것은 막힌 물음뿐이다.** `lost`(못 닿음)·`last`(직전 확인 요청이 내려감)는 사람이
  * 답할 것이 없으므로, 읽던 자리를 뺏으면서까지 보여 줄 이유가 없다. `unknown` 은 단추가
  * 없지만 **데몬은 여전히 막혀 있고**, 왜 아무 일도 안 일어나는지를 그 칸만 말한다.
  *
@@ -62,7 +62,7 @@ export function askHead(p) {
 
 /** 무엇을 묻는가. 안 실렸으면 **안 실렸다고 적는다** — 빈 칸은 다 읽었다는 뜻이 된다. */
 export function whatText(p) {
-  return p.what || '(무엇인지 안 실렸습니다)';
+  return p.what || '(무엇인지 전달되지 않았습니다)';
 }
 
 /** 실린 인자. 글이면 그대로, 아니면 펴서. */
@@ -76,7 +76,7 @@ export function argsText(slot) {
  */
 export function placeLine(placement) {
   return {
-    text: placement ? `${placement} — 이걸 답하면 다음 물음이 옵니다.` : '',
+    text: placement ? `${placement} — 이걸 답하면 다음 요청이 옵니다.` : '',
     hidden: !placement,
   };
 }
@@ -93,7 +93,7 @@ export function doingLine(doing, fresh) {
 }
 
 /**
- * 직전 물음이 **왜** 내려갔는지. `show:false` 는 **할 말이 없다**는 뜻이고 그때만 줄이 안
+ * 직전 확인 요청이 **왜** 내려갔는지. `show:false` 는 **할 말이 없다**는 뜻이고 그때만 줄이 안
  * 선다 — 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다(`clearedNote`).
  */
 export function lastAskShape(clearedBy) {
@@ -130,7 +130,7 @@ export function noteLife({ sticky = false } = {}) {
 export function capsOf(deck) {
   return (typeof deck.capabilities === 'function')
     ? deck.capabilities()
-    : { measured: false, note: '어댑터가 안 답한다', sets: [] };
+    : { measured: false, note: 'PowerPoint 연결이 답하지 않습니다', sets: [] };
 }
 
 /**
@@ -141,14 +141,14 @@ export function capsOf(deck) {
  * 하고, 하나라도 ✗ 면 그 수를 적는다. 「다 좋다」로 접어 두면 그 창은 접힌 채로 거짓말을 한다.
  */
 export function capsSummary(c) {
-  if (!c.measured) return '요구 집합: 못 쟀습니다';
+  if (!c.measured) return '지원 API: 재지 못했습니다';
   const no = c.sets.filter((s) => s.ok === false).length;
   const unknown = c.sets.filter((s) => s.ok !== true && s.ok !== false).length;
-  if (no === 0 && unknown === 0) return `요구 집합 ${c.sets.length}개 모두 지원`;
+  if (no === 0 && unknown === 0) return `API ${c.sets.length}종 모두 지원`;
   const bits = [];
   if (no > 0) bits.push(`${no}개 없음`);
   if (unknown > 0) bits.push(`${unknown}개 모름`);
-  return `요구 집합: ${bits.join(' · ')}`;
+  return `지원 API: ${bits.join(' · ')}`;
 }
 
 /**
@@ -159,7 +159,7 @@ export function brandState({ companion, streamLive, hands, session }) {
   if (!companion) return '컴패니언 미선택';
   const bits = [companion];
   // **어느 대화인가.** 창을 둘 띄우면 이것이 두 창을 가르는 유일한 값이고, 오늘 그것이 없어서
-  // 한나절을 썼다(2026-09-05: 빈 작업창, 남의 덱에 간 호출, 아무도 못 듣는 권한 물음).
+  // 한나절을 썼다(2026-09-05: 빈 작업창, 남의 덱에 간 호출, 아무도 못 듣는 권한 확인 요청).
   //
   // 브랜드 줄에 두는 이유는 **수명이 여기 맞기 때문**이다. 처음 뜰 때만 적는 자리(`#ready`)에
   // 두었더니 「첫 줄 전까지만」 규칙에 걸려, 이미 오간 대화에 붙은 창에서는 영영 안 보였다 —
@@ -179,8 +179,8 @@ export function brandState({ companion, streamLive, hands, session }) {
 
 /** 그 값을 한 줄로. `ok` 가 `null` 인 것은 "아니오"가 아니라 **물어보다 던졌다**라 `?` 로 가른다. */
 export function capsText(c) {
-  if (!c.measured) return `요구 집합: ${c.note || '어댑터가 사유를 안 실었다'}`;
-  return '요구 집합: ' + c.sets
+  if (!c.measured) return `지원 API: ${c.note || 'PowerPoint 연결이 사유를 알려 주지 않았습니다'}`;
+  return '지원 API: ' + c.sets
     .map((s) => `${s.name} ${s.version} ${s.ok === true ? '✓' : s.ok === false ? '✗' : '?'}`)
     .join(' · ');
 }
@@ -193,7 +193,7 @@ export function streamLine(v) {
   // 아직 안 붙었으면 스트림에 대해 할 말이 없다 — 「끊겼다」는 붙어 있던 것에 대한 말이다.
   if (v.bound === false) return { text: '', hidden: true };
   const parts = [];
-  if (v.refusal) parts.push(`서버가 이 창의 커서를 안 받았습니다: ${v.refusal}`);
+  if (v.refusal) parts.push(`서버가 이 창의 이어 읽기 위치를 받지 않았습니다: ${v.refusal}`);
   // 죽은 스트림과 「아직 아무 요청도 안 보낸 빈 대화」는 다르다. 빈 대화는 경고가 아니라 안내다
   // (사용자 지적 2026-09-05).
   if (!v.live && v.empty && !v.refusal) {
@@ -278,8 +278,8 @@ const ROW_HEAD = {
   // 짝이 되는 호출 줄을 못 찾은 것들. 보통은 호출 줄에 접히므로(`Transcript.append`) 이
   // 머리가 보인다는 것은 **이 창이 로그 중간부터 읽기 시작했다**는 뜻이고, 그건 사실이라
   // 적는다 — 「왜 답만 덩그러니 있나」를 사람이 이 줄로 안다.
-  result: '⚙ 앞을 못 본 호출의 답',
-  permission: '⚙ 앞을 못 본 호출의 권한 결정',
+  result: '⚙ 앞부분을 못 본 도구 호출의 결과',
+  permission: '⚙ 앞부분을 못 본 도구 호출의 권한 결정',
 };
 
 /**
@@ -409,7 +409,7 @@ export function permissionText(r) {
 
 /** 표결의 말. 코어의 이름(`done|continue|abstain`)을 사람 말로. */
 function decisionWord(d) {
-  return { done: '끝났다', continue: '더 하라', abstain: '기권' }[d] ?? (d || '(안 실림)');
+  return { done: '완료', continue: '계속', abstain: '보류' }[d] ?? (d || '(정보 없음)');
 }
 
 /**
@@ -419,7 +419,7 @@ function decisionWord(d) {
 export function tallyText(t) {
   if (!t) return '';
   const bits = [];
-  for (const [k, label] of [['done', '끝났다'], ['continue', '더 하라'], ['abstain', '기권']]) {
+  for (const [k, label] of [['done', '완료'], ['continue', '계속'], ['abstain', '보류']]) {
     if (typeof t[k] === 'number') bits.push(`${label} ${t[k]}`);
   }
   return bits.length ? ` — ${bits.join(' · ')}` : '';
@@ -437,11 +437,11 @@ export function councilHead(r) {
   const c = r?.council;
   if (!c) return '⚖';
   if (c.stage === 'convened') {
-    const who = c.members.length ? c.members.join(' · ') : '(구성원 안 실림)';
+    const who = c.members.length ? c.members.join(' · ') : '(구성원 정보 없음)';
     return `⚖ ${c.round}회차 판정 — ${who}${c.rule ? ` (${c.rule})` : ''}`;
   }
   if (c.stage === 'verdict') {
-    const who = c.member || '(누군지 안 실림)';
+    const who = c.member || '(누군지 정보 없음)';
     const lens = c.lens ? ` (${c.lens})` : '';
     // **말 없는 표를 「기권했다」로 적지 않는다**(`CouncilVerdictData.Silent`) — 백엔드가
     // 죽었거나 답을 못 읽은 것이라, 판단해서 기권한 것과 다른 사실이다.
@@ -469,8 +469,8 @@ export function argsCell(r) {
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
 export function endText(r) {
   return r.unverified
-    ? `검증되지 않은 끝${r.reason ? ` — ${r.reason}` : ''}`
-    : '— 턴 끝 —';
+    ? `검증 없이 끝남${r.reason ? ` — ${r.reason}` : ''}`
+    : '— 응답 끝 —';
 }
 
 /**
@@ -530,7 +530,7 @@ export function fixBoard(rows) {
       whyText: r.why || '',
       whyHidden: !r.why,
       whereText: [
-        r.slide != null ? `슬라이드 ${r.slide}` : '어느 장인지 안 실렸습니다',
+        r.slide != null ? `슬라이드 ${r.slide}` : '어느 장인지 전달되지 않았습니다',
         r.shape_id ? `도형 ${r.shape_id}` : null,
       ].filter(Boolean).join(' · '),
       doesText: r.does,
@@ -565,7 +565,7 @@ export function adapterText(deck) {
  * **아무것도 더 안 알려 주는 문장**이었다.
  *
  * 대신 **대화 이름**을 적는다. 창을 둘 띄우면 어느 창이 어느 대화인지가 화면 어디에도 없었고,
- * 오늘 그것 때문에 한나절을 썼다 — 빈 작업창, 남의 덱에 간 호출, 아무도 못 듣는 권한 물음.
+ * 오늘 그것 때문에 한나절을 썼다 — 빈 작업창, 남의 덱에 간 호출, 아무도 못 듣는 권한 확인 요청.
  * 사람이 그 이름을 볼 수 있으면 그 셋이 전부 눈으로 갈린다.
  *
  * 첫 줄이 서면 사라지는 것은 그대로다 — 그때부터는 대화 자체가 증거다.
@@ -779,24 +779,24 @@ const TOOL_LABELS = new Map(Object.entries({
   // 읽기
   list_slides: '목차 읽기', read_slide: '슬라이드 읽기', list_layouts: '레이아웃 보기',
   describe_style: '이 덱 서식 읽기', find_shapes: '도형 찾기', render_slide: '그림으로 보기',
-  export_slide_ooxml: '원본 XML 읽기', snapshot_slide: '되돌릴 자리 만들기',
+  export_slide_ooxml: '원본 XML 읽기', snapshot_slide: '되돌릴 지점 만들기',
   read_notes: '발표자 노트 읽기', read_tags: '메모 읽기', read_animation: '애니메이션 읽기',
   read_suggestions: '제안 읽기',
   // 안내
-  advise: '안내 붙이기', clear_advice: '안내 걷기',
+  advise: '안내 붙이기', clear_advice: '안내 지우기',
   // 장
   add_slide: '장 만들기', add_slides: '여러 장 만들기', delete_slide: '장 지우기',
   duplicate_slide: '장 복제', apply_layout: '레이아웃 바꾸기', reorder_slide: '장 순서 바꾸기',
   restore_slide: '되돌리기',
   // 글·서식
   set_text: '글 바꾸기', format_shape: '서식 바꾸기', apply_style: '서식 한 번에 바꾸기',
-  move_shape: '자리 옮기기', align_shapes: '줄 세우기', add_shape: '도형 넣기',
+  move_shape: '자리 옮기기', align_shapes: '정렬', add_shape: '도형 넣기',
   delete_shape: '도형 지우기', set_hyperlink: '링크 걸기',
   // 표·차트·그림
-  add_table: '표 만들기', replace_table: '표 다시 짓기', set_table_cells: '표 칸 채우기',
+  add_table: '표 만들기', replace_table: '표 새로 만들기', set_table_cells: '표 칸 채우기',
   format_table_cells: '표 서식 바꾸기',
   edit_table: '표 구조 바꾸기',
-  format_text: '글자 일부 서식',
+  format_text: '글자 일부 서식 바꾸기',
   group_shapes: '도형 묶기',
   ungroup_shapes: '도형 풀기',
   render_shape: '도형만 그림으로',
@@ -810,7 +810,7 @@ const TOOL_LABELS = new Map(Object.entries({
   // 덱 밖 — magi 자신의 것
   websearch: '웹 검색', webfetch: '웹 페이지 읽기', todowrite: '계획 세우기',
   bash: '셸 명령', read: '파일 읽기', write: '파일 쓰기', edit: '파일 고치기',
-  glob: '파일 찾기', grep: '파일 안 찾기', list: '폴더 보기', remember: '기억해 두기',
+  glob: '파일 찾기', grep: '파일 내용 검색', list: '폴더 보기', remember: '기억해 두기',
   skill: '스킬 읽기', ask_user: '사람에게 묻기', council: '완료 선언',
 }));
 

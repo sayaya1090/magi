@@ -174,7 +174,7 @@ export class View {
     box.hidden = el == null;
     // **막힌 물음은 화면 안으로 끌어온다.** 이 칸은 대화 아래에 서므로 대화가 길면 접힌 자리
     // 밖이고, 그러면 데몬은 답을 기다리고 사람은 물음을 못 본다(§5.7). 실물에서 그 화면을
-    // 봤다(2026-09-01) — 권한 물음이 떴는데 휠을 굴려야 나왔다. 무엇을 끌어올지는
+    // 봤다(2026-09-01) — 권한 확인 요청이 떴는데 휠을 굴려야 나왔다. 무엇을 끌어올지는
     // `askReveal` 이 정한다(화면 밖이라야 잰다).
     if (el && askReveal(kind, askAction(sig, this.askSig))) {
       box.scrollIntoView({ block: 'nearest' });
@@ -216,7 +216,7 @@ export class View {
   }
 
   /**
-   * 직전 물음이 **왜** 내려갔는지 한 줄. 「없다」만 남기면 이 창이 답한 것과 남이 답한 것이
+   * 직전 확인 요청이 **왜** 내려갔는지 한 줄. 「없다」만 남기면 이 창이 답한 것과 남이 답한 것이
    * 화면에서 똑같이 생긴다. 「무엇으로」는 안 적는다 — 남이 답한 것을 이 창은 모른다.
    */
   lastAskEl(clearedBy) {
@@ -234,7 +234,7 @@ export class View {
     const box = document.createElement('div');
     box.className = 'ask-box unknown';
     const h = document.createElement('h2');
-    h.textContent = '이 창이 답할 수 없는 물음';
+    h.textContent = '이 창이 답할 수 없는 확인 요청';
     const p = document.createElement('p');
     p.className = 'ask-unknown';
     p.textContent = v.unknownKindNote;
@@ -306,7 +306,7 @@ export class View {
     if (v.answered) {
       const sent = document.createElement('p');
       sent.className = 'ask-note';
-      sent.textContent = '답을 보냈습니다 — 물음이 내려가기를 기다립니다.';
+      sent.textContent = '답을 보냈습니다 — 요청이 내려가기를 기다립니다.';
       box.append(sent);
     }
     return box;
@@ -596,7 +596,7 @@ export class View {
     el.hidden = !this.composer.waiting;
     if (!this.composer.waiting) return;
     const p = document.createElement('span');
-    p.textContent = '보냈습니다 — 로그에 뜨기를 기다립니다.';
+    p.textContent = '보냈습니다 — 대화 기록에 오르기를 기다립니다.';
     const b = document.createElement('button');
     b.className = 'ghost';
     b.textContent = '그만 기다리기';
