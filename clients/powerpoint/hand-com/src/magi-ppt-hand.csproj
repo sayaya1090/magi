@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Office 2021(PowerPointApi 1.2 천장)에서 Office.js 로는 도형에 닿을 수 없어(LTSC.md §3) COM 으로 만든
+       「손」. 헬퍼·MCP·magi 는 그대로이고 이 프로세스가 손 하나로 붙는다(LTSC.md §1). 빌드는 어디서나
+       되지만(PIA 는 메타데이터뿐) 돈다는 것은 Windows + PowerPoint 가 떠 있을 때뿐이다. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>magi-ppt-hand</AssemblyName>
+    <RootNamespace>Magi.Ppt.Hand</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <LangVersion>latest</LangVersion>
+    <NoWarn>NU1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Office.Interop.PowerPoint" Version="15.0.4420.1018" />
+    <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" />
+  </ItemGroup>
+</Project>

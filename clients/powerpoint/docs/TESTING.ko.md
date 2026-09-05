@@ -14,6 +14,7 @@
 |---|---|---|---|
 | 1·2·3. Go (`helper/`) | 171 | 2026-09-05 | 통과 |
 | 4. JS 순수층 (`addin/tools/`) | 1,615 | 2026-09-05 | 통과 (smoke 881 · officehand 680 · hand 54) |
+| 5. COM 손 (`hand-com/`, xunit) | 9 | 2026-09-05 | 통과 · `--fake` 로 헬퍼 왕복 6호출 실측 |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **48개** 전수 57호출 (`tools/sweep.py`) | **2026-09-05 11:07** | 통과 48 · 실패 0 (§5.4 는 09-02 의 27개 34항목 기록) |
