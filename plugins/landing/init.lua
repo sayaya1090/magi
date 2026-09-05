@@ -87,6 +87,44 @@ local function hasHandle(s)
   return string.find(s, "%d") ~= nil
 end
 
+-- 턴의 툴 기록에서 「제목이 접힌다」⚠ 가 마지막 말로 남은 장 번호들. add_slides 답의 slides[].notes 와
+-- add_slide/set_text 답의 note(s) 를 읽고, 같은 장에 대한 뒤의 제목 set_text 답이 ⚠ 없이 오면 지운다.
+local function titleWarnings(steps)
+  local pending = {}
+  local function noteSays(notes)
+    if type(notes) == "string" then return notes:find("제목이", 1, true) ~= nil end
+    if type(notes) ~= "table" then return false end
+    for _, n in ipairs(notes) do
+      if type(n) == "string" and n:find("제목이", 1, true) then return true end
+    end
+    return false
+  end
+  for _, st in ipairs(steps) do
+    if not st.failed and type(st.output) == "string" then
+      local okj, out = pcall(magi.json_decode, st.output)
+      if okj and type(out) == "table" then
+        if st.name == "add_slides" and type(out.slides) == "table" then
+          for _, row in ipairs(out.slides) do
+            if type(row.slide) == "number" then pending[row.slide] = noteSays(row.notes) or nil end
+          end
+        elseif st.name == "add_slide" and type(out.slide) == "number" then
+          pending[out.slide] = noteSays(out.notes) or nil
+        elseif st.name == "set_text" then
+          local a = st.args
+          local role = type(a) == "table" and tostring(a.placeholder or ""):lower() or ""
+          local n = type(a) == "table" and tonumber(a.slide) or nil
+          if n and (role == "title" or pending[n]) then pending[n] = noteSays(out.note) or nil end
+        end
+      end
+    end
+  end
+  local list = {}
+  for n in pairs(pending) do list[#list + 1] = n end
+  table.sort(list)
+  for i, n in ipairs(list) do list[i] = tostring(n) end
+  return list
+end
+
 magi.register_tool{
   name = "land",
   description = table.concat({
@@ -155,6 +193,16 @@ magi.register_tool{
       return ("아직 끝이 아닙니다 — 이 턴에 장을 %d장 만들었는데 눈으로 본 것(render_slide)은 %d번입니다. "
         .. "장 하나가 끝날 때마다 render_slide{max_width: 640} 로 한 번 보고 어긋난 것을 고친 뒤 착지하세요. "
         .. "아직 안 본 장부터."):format(pages, renders), true
+    end
+    -- **도구가 ⚠ 로 잰 제목 접힘이 남아 있으면 안 끝난 것이다.** 실물 2026-09-05 IR 2차: 일곱 장에
+    -- 「제목이 2줄로 접힐 수 있습니다」가 실렸는데 하나도 안 줄이고 verified 에 「제목 한 줄」이라 적었다.
+    -- 장마다 마지막 말을 따른다: add_slides/add_slide 가 단 ⚠ 는 그 장 제목에 대한 뒤의 set_text 답이
+    -- ⚠ 없이 오면 지워진다.
+    local wrapped = titleWarnings(ok and steps or {})
+    if #wrapped > 0 then
+      return ("아직 끝이 아닙니다 — 제목이 접힌다는 ⚠ 가 남은 장: %s. 도구가 잰 것이라 render 로 본 것과 "
+        .. "상관없이 남습니다. set_text{slide, placeholder: \"title\"} 로 제목을 한 줄로 줄이면 그 답에 ⚠ 가 "
+        .. "안 실리고, 그때 지워집니다."):format(table.concat(wrapped, ", ")), true
     end
     credits = credits + 1
     local left = args.left or ""

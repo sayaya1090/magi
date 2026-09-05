@@ -452,7 +452,7 @@ magi.register_mcp{
 Runtime info API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
 > **`magi.turn_steps()`** — inside a tool call only: the tool calls of the turn this call belongs
-> to, oldest first, as `{name=, args=(decoded), failed=, output=(only when failed), output_bytes=}`,
+> to, oldest first, as `{name=, args=(decoded), failed=, output=, output_bytes=}` — `output` is the result text, whole when the call failed and clipped at 6 KB when it succeeded (a door reads the ⚠ a tool attached to a success),
 > the running call excluded. A door that judges a turn (landing's `land`) reads what the turn did
 > from the log instead of the agent's account of it. Same row shape as `magi.child_steps(sid)`.
 

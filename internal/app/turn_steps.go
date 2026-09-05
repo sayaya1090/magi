@@ -20,6 +20,9 @@ func (a *App) turnSteps(ctx context.Context, sid session.SessionID) ([]port.Chil
 	return turnStepsOf(evs), nil
 }
 
+// turnStepOutputCap bounds an OK result's text in a turn step; a failed one travels whole.
+const turnStepOutputCap = 6000
+
 // turnStepsOf keeps the tool calls since the last user prompt that have a result. A call
 // without one is the call in flight — the plugin tool asking — and is left out, so a door
 // never counts itself as work the turn did.
@@ -52,8 +55,14 @@ func turnStepsOf(evs []event.Event) []port.ChildStep {
 			text := resultText(d.Part.ToolResult.Content)
 			out[i].OutputBytes = len(text)
 			out[i].Failed = d.Part.ToolResult.IsError
-			if d.Part.ToolResult.IsError {
+			// Unlike childSteps, an OK result's text travels too (clipped): a door judging the
+			// turn needs what the tools SAID — the ⚠ notes a deck tool attached to a success —
+			// not only that they succeeded. Live 2026-09-05: seven "title wraps" warnings,
+			// all ignored, and the agent declared "titles on one line".
+			if d.Part.ToolResult.IsError || len(text) <= turnStepOutputCap {
 				out[i].Output = text
+			} else {
+				out[i].Output = text[:turnStepOutputCap] + "…[clipped]"
 			}
 			answered[i] = true
 		}

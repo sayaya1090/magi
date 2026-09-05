@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -37,8 +38,13 @@ func TestTurnStepsOfScopesToTheTurnAndDropsTheCallInFlight(t *testing.T) {
 	if !got[0].Failed || got[0].Output != "no such slide" || got[0].OutputBytes != len("no such slide") {
 		t.Errorf("a failed step must carry its output, got %+v", got[0])
 	}
-	if got[1].Failed || got[1].Output != "" {
-		t.Errorf("an ok step carries no output text, got %+v", got[1])
+	if got[1].Failed || got[1].Output != "ok" {
+		t.Errorf("an ok step carries its (clipped) output too — a door reads the ⚠ a tool attached, got %+v", got[1])
+	}
+	long := strings.Repeat("x", turnStepOutputCap+10)
+	clipped := turnStepsOf([]event.Event{prompt, call("e", "add_slides"), result("e", long, false)})
+	if len(clipped) != 1 || !strings.HasSuffix(clipped[0].Output, "…[clipped]") || len(clipped[0].Output) > turnStepOutputCap+20 {
+		t.Errorf("an ok output over the cap is clipped, not dropped: len=%d", len(clipped[0].Output))
 	}
 	if turnStepsOf(nil) != nil {
 		t.Error("no events → no steps")

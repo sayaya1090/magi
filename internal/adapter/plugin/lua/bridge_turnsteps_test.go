@@ -97,4 +97,20 @@ func TestLandingLandRequiresARenderPerPageMade(t *testing.T) {
 	if msg, isErr := call([]port.ChildStep{{Name: "set_text"}}); isErr {
 		t.Errorf("a turn that made no slide is not held to renders, got %q", msg)
 	}
+	// A title-wrap ⚠ the deck tool attached stays until a later set_text on that slide's title
+	// answers without one (live 2026-09-05: seven ⚠ ignored, "titles on one line" declared).
+	madeWarned := port.ChildStep{Name: "add_slides", Args: json.RawMessage(`{"slides":[{},{},{}]}`),
+		Output: `{"made":3,"slides":[{"slide":2,"notes":["⚠ 제목이 2줄로 접힐 수 있습니다(40자·44pt·자리 폭 828pt)"]},{"slide":3,"notes":[]},{"slide":4,"notes":["⚠ 제목이 2줄로 접힐 수 있습니다"]}]}`}
+	if msg, isErr := call([]port.ChildStep{madeWarned, render, render, render}); !isErr || !strings.Contains(msg, "남은 장: 2, 4") {
+		t.Errorf("unresolved title ⚠ must refuse naming the slides, got err=%v %q", isErr, msg)
+	}
+	fixed2 := port.ChildStep{Name: "set_text", Args: json.RawMessage(`{"slide":2,"placeholder":"title","text":"짧은 제목"}`), Output: `{"slide_id":"s2","shape_id":"t","text":"짧은 제목"}`}
+	stillLong4 := port.ChildStep{Name: "set_text", Args: json.RawMessage(`{"slide":4,"placeholder":"title","text":"여전히 긴"}`), Output: `{"slide_id":"s4","shape_id":"t","text":"x","note":"⚠ 제목이 2줄로 접힐 수 있습니다"}`}
+	if msg, isErr := call([]port.ChildStep{madeWarned, render, render, render, fixed2, stillLong4}); !isErr || !strings.Contains(msg, "남은 장: 4") || strings.Contains(msg, "2, 4") {
+		t.Errorf("a set_text answering without ⚠ clears its slide, one answering with ⚠ keeps it, got err=%v %q", isErr, msg)
+	}
+	fixed4 := port.ChildStep{Name: "set_text", Args: json.RawMessage(`{"slide":4,"placeholder":"title","text":"짧게"}`), Output: `{"slide_id":"s4","shape_id":"t","text":"짧게"}`}
+	if msg, isErr := call([]port.ChildStep{madeWarned, render, render, render, fixed2, fixed4}); isErr {
+		t.Errorf("all title ⚠ answered → lands, got %q", msg)
+	}
 }
