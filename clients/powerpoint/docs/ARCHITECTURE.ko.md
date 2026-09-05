@@ -115,7 +115,7 @@ DESIGN §5.9 의 결론을 지은 것이 `bridges.go`·`ownstate.go`·`main.go s
 
 1. 창 `SendTurn` → `POST /api/submit?deck=` → 헬퍼 `Bridge.Submit` → 데몬 `Submit{session}` → 202.
 2. 데몬이 모델(심 `:58415`)을 부릅니다. 도구 목록에는 코어 내장 도구와 이 대화의 `ppt` 48개가 있습니다. landing 플러그인은 카운슬이 있는 판에서는 도구 대신 선언 게이트로 섭니다([TOOLS.ko.md](TOOLS.ko.md) §4).
-3. 모델이 `mcp__ppt__add_slides` 를 부르면 데몬이 권한을 묻습니다(`--permission ask`). 창의 `WatchPrompt` 가 물음을 그리고 사람이 답합니다.
+3. 모델이 `mcp__ppt__add_slides` 를 부르면 데몬이 바로 실행합니다(`--permission allow`, 사용자 결정 2026-09-05 — 전엔 ask 였고 덱을 고치는 도구마다 창이 물었습니다). ask 로 띄운 판에서는 창의 `WatchPrompt` 가 물음을 그리고 사람이 답합니다.
 4. 허용되면 데몬 → `POST /mcp?deck=` → 헬퍼 `pick` 이 창을 고름 → `/hand/stream` 으로 `{kind:"call", data}` → 창 `ServeHand` → `OfficeHand` 가 Office.js 실행 → `/hand/reply` → 헬퍼 → MCP 응답 → 데몬 → 모델.
 5. 변이 도구는 답에 `now`(바뀐 뒤의 객체)를 싣습니다. 모델이 다시 읽지 않아도 되게 하려는 것입니다.
 6. 턴이 끝나면 전사가 `/hand/stream` 이 아니라 데몬 `Transcript` 로 창에 옵니다(`ReadTranscript`). `land` 를 불렀으면 그 선언(did/verified/left)이 전사 끝에 섭니다.

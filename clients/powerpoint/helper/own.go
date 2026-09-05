@@ -297,8 +297,11 @@ func runDetached(bin, workdir string, env []string) error {
 // (2026-09-04 확인). 그러니 §8 의 「덱 디렉토리가 쓰기 루트」는 지금 기본값에 대한 서술이 아니고,
 // 그 절반을 여기서 지킬 방법이 없다는 사실을 적어 둔다 — 안 적으면 다음 사람이 이 줄을 보고
 // 둘 다 지켜진 줄 안다.
+// 권한 모드는 allow 다(사용자 결정 2026-09-05: 「ask 에서 allow 로 바꿔줘, 승인 누르기 귀찮아」).
+// 앞 판본은 ask 였고 덱을 고치는 도구마다 창이 물었다 — 한 덱에 서른 번 안팎. 카운슬이 완료를
+// 심사하고 선언 게이트가 렌더·제목을 재는 판이라, 물음은 안전장치가 아니라 손가락 품이었다.
 func daemonArgs() []string {
-	return []string{"--daemon", "--detach", "--no-update-check", "--permission", "ask"}
+	return []string{"--daemon", "--detach", "--no-update-check", "--permission", "allow"}
 }
 
 // errNoConfigDir 는 설정 디렉토리 없이 부른 경우. 있을 수 없지만, 있으면 조용히 빈 경로에 폴더를

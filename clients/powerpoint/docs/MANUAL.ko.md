@@ -97,7 +97,7 @@ PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가
 ### 2.5 데몬과 헬퍼 띄우기
 
 ```bash
-magi --daemon --permission ask          # 덱이 있는 디렉토리에서
+magi --daemon --permission allow        # 덱이 있는 디렉토리에서 (헬퍼가 띄울 때의 기본값, 2026-09-05)
 ./magi-ppt                              # 어디서든 — 사용자당 하나
 ```
 

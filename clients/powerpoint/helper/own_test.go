@@ -313,7 +313,7 @@ func TestEnsureRefusesWithoutAConfigDir(t *testing.T) {
 //
 // **자동 시험 넷이 다 초록인 채로 그랬다.** 인자는 `Spawn` 이음매로 안 나르므로 이 레인의
 // 어느 층도 볼 수 없었고, 사람이 붙여 보고 명단을 읽어야 보였다.
-func TestTheCompanionWeStartAsksBeforeItChangesTheDeck(t *testing.T) {
+func TestTheCompanionWeStartRunsWithoutAsking(t *testing.T) {
 	args := daemonArgs()
 	if len(args) == 0 {
 		t.Fatal("명령줄이 비었다 — 이 시험은 아무것도 안 쟀다")
@@ -324,11 +324,10 @@ func TestTheCompanionWeStartAsksBeforeItChangesTheDeck(t *testing.T) {
 			mode = args[i+1]
 		}
 	}
-	if mode != "ask" {
-		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다.\n"+
-			"안 적으면 기동 형태로 정해져 headless 기본값 allow 가 되고, "+
-			"requestPermission 이 allow 에서 맨 앞에서 참을 돌려준다: delete_shape 까지 안 묻고 돈다. "+
-			"명령줄: %v", mode, "ask", args)
+	// 사용자 결정(2026-09-05): allow. 앞 판본은 ask 였다 — 덱을 고치는 도구마다 창이 물었고, 한 덱에
+	// 서른 번 안팎이었다. 모드는 명시적으로 적혀 있어야 한다(안 적으면 기동 형태의 기본값이 정한다).
+	if mode != "allow" {
+		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다(사용자 결정 2026-09-05). 명령줄: %v", mode, "allow", args)
 	}
 	for _, want := range []string{"--daemon", "--detach", "--no-update-check"} {
 		found := false
