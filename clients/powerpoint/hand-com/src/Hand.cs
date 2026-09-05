@@ -7,7 +7,7 @@ namespace Magi.Ppt.Hand;
 /// 같은 규약이다: 답의 <c>changed</c> 는 사람이 읽는 한국어 한 줄씩, <c>result</c> 는 도구가 광고한
 /// 모양, 실패는 <c>error</c> 한 문장. 모르는 op 는 「이 손이 아직 모른다」로 답한다 — 조용히 삼키지 않는다.
 /// </summary>
-public sealed class Hand
+public sealed partial class Hand
 {
     private readonly IOps ops;
     private int count;
@@ -17,9 +17,14 @@ public sealed class Hand
 
     public Hand(IOps ops, int epoch, string? document = null) { this.ops = ops; Epoch = epoch; Document = document ?? ops.DocumentKey; }
 
+    /// <summary>도구 48개 전부 — 헬퍼 catalogue 와 같은 이름들. 하나라도 빠지면 시험이 잡는다(KnowsEveryTool).</summary>
     public static readonly IReadOnlySet<string> Known = new HashSet<string> {
-        "list_slides", "read_slide", "list_layouts", "add_slide", "add_slides", "delete_slide", "reorder_slide",
-        "duplicate_slide", "set_text", "read_notes", "set_notes", "render_slide", "add_shape", "delete_shape", "apply_style",
+        "list_slides", "read_slide", "find_shapes", "render_slide", "export_slide_ooxml", "list_layouts", "describe_style", "read_notes", "render_shape",
+        "read_theme_colors", "read_tags", "read_animation", "read_suggestions", "snapshot_slide", "advise", "clear_advice",
+        "add_slide", "add_slides", "delete_slide", "apply_style", "duplicate_slide", "set_text", "format_shape", "move_shape", "add_shape", "align_shapes",
+        "add_chart", "add_image", "set_notes", "format_table_cells", "set_background", "set_theme_colors", "set_tag", "animate_slide", "suggest",
+        "drop_suggestion", "delete_shape", "apply_layout", "reorder_slide", "set_hyperlink", "add_table", "replace_table", "set_table_cells", "edit_table",
+        "format_text", "group_shapes", "ungroup_shapes", "restore_slide",
     };
 
     public HandReply Handle(HandCall call)
@@ -37,7 +42,7 @@ public sealed class Hand
         return reply;
     }
 
-    private (Dictionary<string, object?>, List<string>) Dispatch(string op, Args a)
+    private (Dictionary<string, object?> Result, List<string> Changed) Dispatch(string op, Args a)
     {
         switch (op)
         {
@@ -150,12 +155,13 @@ public sealed class Hand
             case "apply_style":
             {
                 var t = a.Object("title"); var b = a.Object("body");
-                var n = ops.ApplyStyle(t?.Str("font"), t?.Num("size"), t?.Str("color"), t?.Bool("bold"), b?.Str("font"), b?.Num("size"), b?.Str("color"));
+                var n = ops.ApplyStyle(t?.Str("font"), t?.Num("size"), t?.Str("color"), t?.Bool("bold"), b?.Str("font"), b?.Num("size"), b?.Str("color"), a.Str("ea_font"));
                 Mutated();
-                return (new() { ["styled"] = n }, new() { $"장 {n}개의 제목·본문 서식을 맞췄습니다" + (a.Str("ea_font") is not null ? " · ⚠ ea_font 는 이 손(COM)이 아직 못 겁니다" : "") });
+                return (new() { ["styled"] = n }, new() { $"장 {n}개의 제목·본문 서식을 맞췄습니다" + (a.Str("ea_font") is not null ? $" · 한글 글꼴 {a.Str("ea_font")}" : "") });
             }
             default:
-                throw new HandError($"이 손(COM, Office 2021)은 {op} 를 아직 모릅니다 — 아는 것: {string.Join(", ", Known)}");
+                return Shapes(op, a) ?? Tables(op, a) ?? Deck(op, a) ?? Memory(op, a)
+                    ?? throw new HandError($"이 손(COM, Office 2021)은 {op} 를 모릅니다 — 아는 것: {string.Join(", ", Known)}");
         }
     }
 
@@ -192,6 +198,15 @@ public sealed class Args
     }
     public bool? Bool(string k) => d.TryGetValue(k, out var v) ? v.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, JsonValueKind.String => v.GetString() is "true" or "1", _ => null } : null;
     public Args? Object(string k) => d.TryGetValue(k, out var v) && v.ValueKind == JsonValueKind.Object ? new Args(v.EnumerateObject().ToDictionary(p => p.Name, p => p.Value)) : null;
+    public bool Has(string k) => d.TryGetValue(k, out var v) && v.ValueKind != JsonValueKind.Null;
+    public JsonElement? Raw(string k) => d.TryGetValue(k, out var v) ? v : null;
+    public IEnumerable<string> Keys => d.Keys;
+    public List<string> Strings(string k) => Elements(k).Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.ToString()).ToList();
+    public List<double> Numbers(string k) => Elements(k).Select(e => e.ValueKind == JsonValueKind.Number ? e.GetDouble() : double.TryParse(e.ToString(), out var x) ? x : throw new HandError($"{k} 에 숫자가 아닌 값이 있습니다: {e}")).ToList();
+    public List<int> Ints(string k) => Numbers(k).Select(x => (int)Math.Round(x)).ToList();
+    /// <summary>줄 단위 배열의 배열(표의 values).</summary>
+    public List<List<string>> Rows(string k) => Elements(k).Select(r => r.ValueKind == JsonValueKind.Array ? r.EnumerateArray().Select(e => e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.ValueKind == JsonValueKind.Null ? "" : e.ToString()).ToList() : throw new HandError($"{k} 는 줄마다 배열이어야 합니다")).ToList();
+    private IEnumerable<JsonElement> Elements(string k) { if (d.TryGetValue(k, out var v) && v.ValueKind == JsonValueKind.Array) foreach (var e in v.EnumerateArray()) yield return e; }
     public IEnumerable<Args> Objects(string k)
     {
         if (!d.TryGetValue(k, out var v) || v.ValueKind != JsonValueKind.Array) yield break;

@@ -8,11 +8,11 @@ namespace Magi.Ppt.Hand;
 /// <summary>
 /// PowerPoint COM(PIA) 으로 덱에 닿는 손. Office 2021 은 Office.js 천장이 1.2 라 도형에 못 닿지만
 /// COM 객체 모델은 전부 열려 있다(LTSC.md §3). 이 파일은 Windows 에서만 돈다 — mac 에서는 컴파일만 된다.
-/// 이 손이 아직 못 하는 것: ea_font(OOXML 재작성), 표·차트·그림·애니메이션·테마 색. 그런 op 는 Hand 가
-/// 「모른다」로 답하고, 헬퍼는 그 답을 모델에게 그대로 준다 — 조용히 실패하지 않는다.
+/// 도구 48개 전부가 이 클래스(+ InteropOps.More.cs) 위에 선다. ⚠ 실물 PowerPoint 2021 에서 아직 안 재 봤다 —
+/// 객체 모델 문서로 쓴 것이라, 첫 실측에서 고칠 것이 나온다고 보고 읽어야 한다. 못 하는 것은 HandError 로 이유를 댄다.
 /// </summary>
 [SupportedOSPlatform("windows")]
-public sealed class InteropOps : IOps
+public sealed partial class InteropOps : IOps
 {
     private readonly PowerPoint.Application app;
     private readonly PowerPoint.Presentation pres;
@@ -62,7 +62,7 @@ public sealed class InteropOps : IOps
         var s = pres.Slides[n];
         var shapes = new List<ShapeInfo>();
         foreach (PowerPoint.Shape sh in s.Shapes)
-            shapes.Add(new ShapeInfo(sh.Id.ToString(), sh.Name, sh.Type.ToString().Replace("mso", ""), PlaceholderOf(sh), TextOf(sh), sh.Left, sh.Top, sh.Width, sh.Height));
+            shapes.Add(Info(sh));
         return new SlideDetail(n, s.SlideID.ToString(), s.CustomLayout?.Name ?? "", shapes, ReadNotes(n));
     }
 
@@ -172,7 +172,7 @@ public sealed class InteropOps : IOps
         throw new HandError($"슬라이드 {n} 에 도형 {id} 이 없습니다");
     }
 
-    public int ApplyStyle(string? tf, double? ts, string? tc, bool? tb, string? bf, double? bs, string? bc)
+    public int ApplyStyle(string? tf, double? ts, string? tc, bool? tb, string? bf, double? bs, string? bc, string? ea)
     {
         var touched = 0;
         foreach (PowerPoint.Slide s in pres.Slides)
@@ -183,8 +183,8 @@ public sealed class InteropOps : IOps
                 if (sh.HasTextFrame != Office.MsoTriState.msoTrue) continue;
                 var role = FakeOps.Role(PlaceholderOf(sh));
                 var f = sh.TextFrame.TextRange.Font;
-                if (role == "title") { if (tf is not null) f.Name = tf; if (ts is double x) f.Size = (float)x; if (tc is not null) f.Color.RGB = Bgr(tc); if (tb is bool b) f.Bold = b ? Office.MsoTriState.msoTrue : Office.MsoTriState.msoFalse; any = true; }
-                else if (role == "body") { if (bf is not null) f.Name = bf; if (bs is double y) f.Size = (float)y; if (bc is not null) f.Color.RGB = Bgr(bc); any = true; }
+                if (role == "title") { if (tf is not null) f.Name = tf; if (ts is double x) f.Size = (float)x; if (tc is not null) f.Color.RGB = Bgr(tc); if (tb is bool b) f.Bold = Tri(b); if (ea is not null) f.NameFarEast = ea; any = true; }
+                else if (role == "body") { if (bf is not null) f.Name = bf; if (bs is double y) f.Size = (float)y; if (bc is not null) f.Color.RGB = Bgr(bc); if (ea is not null) f.NameFarEast = ea; any = true; }
             }
             if (any) touched++;
         }
@@ -218,6 +218,20 @@ public sealed class InteropOps : IOps
         foreach (PowerPoint.Shape sh in s.Shapes) if (FakeOps.Role(PlaceholderOf(sh)) == "title") return TextOf(sh);
         return "";
     }
+    private static ShapeInfo Info(PowerPoint.Shape sh)
+    {
+        var text = TextOf(sh); string? font = null; double? size = null; string? color = null; bool? bold = null;
+        if (text.Length > 0)
+        {
+            var f = sh.TextFrame.TextRange.Font;
+            font = f.Name; size = f.Size; color = Hex(f.Color.RGB); bold = f.Bold == Office.MsoTriState.msoTrue;
+        }
+        var type = sh.HasTable == Office.MsoTriState.msoTrue ? "Table" : sh.HasChart == Office.MsoTriState.msoTrue ? "Chart" : sh.Type.ToString().Replace("mso", "");
+        return new ShapeInfo(sh.Id.ToString(), sh.Name, type, PlaceholderOf(sh), text, sh.Left, sh.Top, sh.Width, sh.Height, font, size, color, bold);
+    }
+    private static Office.MsoTriState Tri(bool b) => b ? Office.MsoTriState.msoTrue : Office.MsoTriState.msoFalse;
+    /// <summary>COM 의 BGR 정수를 "#RRGGBB" 로.</summary>
+    internal static string Hex(int bgr) => $"#{bgr & 0xFF:X2}{(bgr >> 8) & 0xFF:X2}{(bgr >> 16) & 0xFF:X2}";
     private static string TextOf(PowerPoint.Shape sh) => sh.HasTextFrame == Office.MsoTriState.msoTrue ? sh.TextFrame.TextRange.Text : "";
     private static string? PlaceholderOf(PowerPoint.Shape sh)
     {

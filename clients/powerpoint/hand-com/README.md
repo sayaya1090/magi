@@ -20,17 +20,26 @@ magi ── MCP ── magi-ppt(헬퍼) ── /hand/stream ── magi-ppt-hand
 
 ## 실측(2026-09-05, mac · `--fake`)
 
-PowerPoint 없이 메모리 덱으로 이 맥의 헬퍼에 붙여 MCP 로 여섯 호출을 흘렸습니다: `list_slides` → `add_slides`(2장, 긴
-제목에 ⚠) → `set_text` → `render_slide` → `add_chart`(모름, 정직한 거절) → `list_slides`(3장). 여섯 다 헬퍼를 거쳐
-손에 닿고 답이 돌아왔고, `revision.count` 가 바꾼 호출마다 올랐습니다.
+PowerPoint 없이 메모리 덱으로 이 맥의 헬퍼에 붙여 MCP 로 흘렸습니다. 첫 판(15개)에서 여섯 호출, 48개 판에서 열넷
+(`add_table`·`set_table_cells`·`add_chart`·`set_theme_colors`·`set_background`·`suggest`·`read_suggestions`·`animate_slide`·
+`align_shapes`·`snapshot_slide`·`format_text`(글이 없어 정직한 거절)·`export_slide_ooxml`·`describe_style`·`list_slides`).
+전부 헬퍼를 거쳐 손에 닿고 답이 돌아왔고, `revision.count` 가 바꾼 호출마다 올랐습니다.
 
-## 다루는 것 / 아직 아닌 것
+## 다루는 것 — 도구 48개 전부
 
-| 됨(15) | 아직(33) |
+헬퍼 catalogue 의 48개 이름을 다 압니다(`helper/hand_com_parity_test.go` 가 양쪽 차집합이 비었는지 잽니다).
+「스킬이 안 부르는 도구도 사람이 쓰다 보면 필요하다」(사용자, 2026-09-05)가 기준이라 빼 둔 것이 없습니다. 다만:
+
+| | |
 |---|---|
-| list_slides · read_slide · list_layouts · add_slide · add_slides · delete_slide · reorder_slide · duplicate_slide · set_text · read_notes · set_notes · render_slide · add_shape · delete_shape · apply_style(서체·크기·색, `ea_font` 제외) | 표 6종 · 차트 · 그림 · 애니메이션 · 테마 색 읽기/쓰기 · 배경 · 하이퍼링크 · 태그 · 제안·안내 · 그룹 · 정렬 · 스냅숏/복원 · OOXML 내보내기 · find_shapes · describe_style · format_shape · format_text · render_shape · move_shape · apply_layout |
+| 창이 있어야 뜻이 있는 것 | `advise`/`clear_advice` 는 「받았다」만 답하고 `shown:false` 를 적습니다. `suggest` 는 덱 파일의 태그(`MAGI.FIX.*`, 365 판과 같은 규약)로 남으니 그 덱을 365 에서 열면 카드가 보입니다 |
+| 이 손이 거절하는 인자 | `format_shape{decorative}` — 2021 객체 모델에 그 속성이 없습니다. `table_style` 은 `Styles.cs` 의 이름 31개만(GUID 표) |
+| 365 판보다 나은 것 | `add_chart` 는 품은 통합 문서에 값을 적어 「데이터 편집」이 열립니다(`data_sheet:true`). `ea_font` 는 `Font.NameFarEast` 한 줄 |
+| 스냅숏 | 덱 사본(.pptx)을 임시 파일로 저장해 두고 `InsertFromFile` 로 되살립니다 — 손이 떠 있는 동안만 압니다 |
 
-`ea_font` 는 365 판이 OOXML 재작성으로 하는 것이라 COM 에서는 `Font.NameFarEast` 로 따로 걸어야 합니다(미착수).
+⚠ **COM 쪽(`InteropOps*.cs`)은 실물 PowerPoint 2021 에서 아직 안 재 봤습니다.** 객체 모델 문서로 썼습니다. 가짜 덱에서
+초록인 것은 Hand 의 판단(인자 검사·정렬 계산·문구)이 맞다는 뜻이지 COM 호출이 맞다는 뜻이 아닙니다 — 첫 Windows 실측에서
+고칠 것이 나온다고 보고 읽어야 합니다. 특히 표 스타일 GUID, 애니메이션 `BuildByLevelEffect`, 배경 무늬 이름은 의심 순위가 높습니다.
 
 ## 화면(창)은 아직 없습니다
 
@@ -51,7 +60,7 @@ VSTO 애드인 안의 WebView2 로 같은 `taskpane.html` 을 띄우는 것인�
 cd clients/powerpoint/hand-com/src
 dotnet run -- --helper https://127.0.0.1:3000          # Windows: 떠 있는 PowerPoint 의 활성 덱에 붙는다
 dotnet run -- --fake                                   # 어디서나: 메모리 덱으로 규약만 돈다
-cd ../tests && dotnet test                             # 규약 시험 9
+cd ../tests && dotnet test                             # 규약 시험 19
 ```
 
 떠 있는 PowerPoint 는 ROT 에서 꺼냅니다(`GetActiveObject`, .NET 9 엔 `Marshal.GetActiveObject` 가 없어 P/Invoke).

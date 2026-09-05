@@ -14,6 +14,9 @@
     <NoWarn>NU1701</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="magi-ppt-hand.tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Microsoft.Office.Interop.PowerPoint" Version="15.0.4420.1018" />
     <PackageReference Include="MicrosoftOfficeCore" Version="15.0.0" />
   </ItemGroup>

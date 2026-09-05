@@ -65,8 +65,8 @@ public class HandTests
         Assert.Contains("이 덱은 지금 1장입니다", hand.Handle(Call("read_slide", "{\"slide\":9}")).Error);
         Assert.Contains("마지막 장은 지울 수 없습니다", hand.Handle(Call("delete_slide", "{\"slide\":1}")).Error);
         Assert.Contains("slide 나 slide_id 로 정확히", hand.Handle(Call("delete_slide")).Error);
-        var unknown = hand.Handle(Call("add_chart", "{}"));
-        Assert.Contains("아직 모릅니다", unknown.Error);
+        var unknown = hand.Handle(Call("fly", "{}"));
+        Assert.Contains("모릅니다", unknown.Error);
         Assert.Contains("list_slides", unknown.Error);
     }
 
@@ -102,5 +102,164 @@ public class HandTests
         var json = JsonSerializer.Serialize(r, Json.Options);
         Assert.Contains("\"id\":\"c1\"", json); Assert.Contains("\"document\":\"k\"", json); Assert.Contains("\"epoch\":7", json);
         Assert.DoesNotContain("\"error\"", json);
+    }
+
+    // ── 도구 48개 — 헬퍼 catalogue 와 같은 이름들. 하나라도 빠지면 그 도구는 「모른다」로 거절된다. ──
+    [Fact]
+    public void KnowsEveryTool()
+    {
+        Assert.Equal(48, Hand.Known.Count);
+        var hand = new Hand(new FakeOps(), 1);
+        foreach (var op in Hand.Known)
+        {
+            var r = hand.Handle(Call(op, "{}"));
+            Assert.False(r.Error?.Contains("모릅니다") == true, $"{op}: {r.Error}");
+        }
+    }
+
+    [Fact]
+    public void AlignsAndDistributesFromTheShapesOwnBox()
+    {
+        var a = new ShapeInfo("1", "a", "AutoShape", null, "", 10, 50, 100, 20);
+        var b = new ShapeInfo("2", "b", "AutoShape", null, "", 200, 80, 50, 20);
+        var c = new ShapeInfo("3", "c", "AutoShape", null, "", 400, 60, 100, 20);
+        var left = Hand.Aligned(new[] { a, b, c }, "left");
+        Assert.All(left, p => Assert.Equal(10, p.Left));
+        var middle = Hand.Aligned(new[] { a, b, c }, "middle");
+        Assert.All(middle, p => Assert.Equal(65, p.Top)); // (50+100)/2 - 10
+        var dist = Hand.Aligned(new[] { a, b, c }, "distribute_h");
+        Assert.Equal(10, dist[0].Left); Assert.Equal(400, dist[2].Left); Assert.Equal(230, dist[1].Left); // 빈 폭 240(490-250) 을 두 틈에 120씩
+        var hand = new Hand(new FakeOps(), 1);
+        hand.Handle(Call("add_shape", "{\"slide\":1,\"left\":10,\"top\":50,\"width\":100,\"height\":20}"));
+        hand.Handle(Call("add_shape", "{\"slide\":1,\"left\":200,\"top\":80,\"width\":50,\"height\":20}"));
+        var r = hand.Handle(Call("align_shapes", "{\"slide\":1,\"how\":\"top\",\"shape_ids\":[\"3\",\"4\"]}"));
+        Assert.Null(r.Error); Assert.Equal(1, r.Result!["moved"]);
+        Assert.Contains("distribute_h 는 도형이 3개 이상", hand.Handle(Call("align_shapes", "{\"slide\":1,\"how\":\"distribute_h\",\"shape_ids\":[\"3\",\"4\"]}")).Error);
+        Assert.Contains("도형 99 이 없습니다", hand.Handle(Call("align_shapes", "{\"slide\":1,\"how\":\"left\",\"shape_ids\":[\"3\",\"99\"]}")).Error);
+    }
+
+    [Fact]
+    public void TablesKeepTheirIdExceptWhenReplaced()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var made = hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":2,\"columns\":3,\"values\":[[\"a\",\"b\",\"c\"]],\"header_bold\":true}"));
+        Assert.Null(made.Error); var id = (string)made.Result!["shape_id"]!;
+        Assert.Contains("2×3 표", made.Changed![0]); Assert.Contains("헤더 굵게", made.Changed[0]);
+        Assert.Null(hand.Handle(Call("set_table_cells", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"cells\":[{{\"row\":1,\"column\":2,\"text\":\"z\"}}]}}")).Error);
+        Assert.Contains("표 밖입니다", hand.Handle(Call("set_table_cells", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"cells\":[{{\"row\":5,\"column\":0,\"text\":\"z\"}}]}}")).Error);
+        Assert.Contains("정확히 하나만", hand.Handle(Call("format_table_cells", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"row\":0,\"column\":1,\"bold\":true}}")).Error);
+        Assert.Contains("0번 줄", hand.Handle(Call("format_table_cells", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"row\":0,\"bold\":true}}")).Changed![0]);
+        var edited = hand.Handle(Call("edit_table", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"add_rows\":2,\"delete_columns\":[0]}}"));
+        Assert.Null(edited.Error); Assert.Equal(4, edited.Result!["rows"]); Assert.Equal(2, edited.Result["columns"]);
+        var dup = hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":1,\"columns\":1}"));
+        Assert.Contains("표가 이미 1개", dup.Changed![0]);
+        Assert.Contains("표가 2개라 어느 것인지", hand.Handle(Call("replace_table", "{\"slide\":1,\"rows\":1,\"columns\":1}")).Error);
+        var rep = hand.Handle(Call("replace_table", $"{{\"slide\":1,\"shape_id\":\"{id}\",\"rows\":1,\"columns\":2}}"));
+        Assert.Null(rep.Error); Assert.NotEqual(id, rep.Result!["shape_id"]); Assert.Contains("id 가 바뀌었습니다", rep.Changed![0]);
+        Assert.Contains("아는 표 스타일이 아닙니다", hand.Handle(Call("add_table", "{\"slide\":1,\"rows\":1,\"columns\":1,\"table_style\":\"Fancy\"}")).Error);
+    }
+
+    [Fact]
+    public void SuggestionsUseTheSharedTagCodec()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var s = hand.Handle(Call("suggest", "{\"slide\":1,\"what\":\"제목을 줄이세요\",\"why\":\"두 줄로 접힙니다\",\"fix\":{\"tool\":\"set_text\",\"args\":{\"placeholder\":\"title\",\"text\":\"짧게\"}}}"));
+        Assert.Null(s.Error); var key = (string)s.Result!["suggestion"]!;
+        Assert.StartsWith("MAGI.FIX.", key); Assert.Contains("아직 안 고친 것", s.Changed![0]);
+        Assert.Contains("누를 수 있는 손이 아닙니다", hand.Handle(Call("suggest", "{\"slide\":1,\"what\":\"x\",\"fix\":{\"tool\":\"delete_slide\"}}")).Error);
+        var read = hand.Handle(Call("read_suggestions", "{}"));
+        Assert.Equal(1, read.Result!["count"]);
+        var row = ((List<Dictionary<string, object?>>)read.Result["suggestions"]!)[0];
+        Assert.Equal("제목을 줄이세요", row["what"]); Assert.Equal(false, row["broken"]); Assert.NotNull(row["fix"]);
+        Assert.Contains("제안의 키가 아닙니다", hand.Handle(Call("drop_suggestion", "{\"slide\":1,\"key\":\"NOTE\"}")).Error);
+        Assert.Null(hand.Handle(Call("drop_suggestion", $"{{\"slide\":1,\"key\":\"{key}\"}}")).Error);
+        Assert.Equal(0, hand.Handle(Call("read_suggestions", "{}")).Result!["count"]);
+        // set_tag 는 대문자로 저장되고 답이 그 이름을 돌려준다
+        var t = hand.Handle(Call("set_tag", "{\"slide\":1,\"key\":\"made.by\",\"value\":\"magi\"}"));
+        Assert.Equal("MADE.BY", t.Result!["key"]); Assert.Contains("바꿔 저장했습니다", t.Changed![0]);
+        Assert.Contains("MADE.BY", hand.Handle(Call("read_tags", "{\"slide\":1}")).Changed![0] + JsonSerializer.Serialize(hand.Handle(Call("read_tags", "{\"slide\":1}")).Result));
+    }
+
+    [Fact]
+    public void AnimationReplacesAndCountsClicks()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var r = hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[{\"shape_id\":\"1\"},{\"shape_id\":\"2\",\"effect\":\"wipe\",\"start\":\"after_previous\",\"paragraphs\":\"each\"}]}"));
+        Assert.Null(r.Error); Assert.Equal(2, r.Result!["steps"]); Assert.Equal(1, r.Result["clicks"]);
+        var read = hand.Handle(Call("read_animation", "{\"slide\":1}"));
+        Assert.Equal(true, read.Result!["has_animation"]); Assert.Equal(true, read.Result["all_known"]);
+        Assert.Contains("effect 는 appear, fade, wipe, zoom", hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[{\"shape_id\":\"1\",\"effect\":\"fly\"}]}")).Error);
+        var cleared = hand.Handle(Call("animate_slide", "{\"slide\":1,\"steps\":[]}"));
+        Assert.Contains("전부 지웠습니다(2개)", cleared.Changed![0]);
+    }
+
+    [Fact]
+    public void SnapshotRestoresWithANewId()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        hand.Handle(Call("set_text", "{\"slide\":1,\"placeholder\":\"title\",\"text\":\"원본\"}"));
+        var snap = hand.Handle(Call("snapshot_slide", "{\"slide\":1}"));
+        Assert.Null(snap.Error); var id = (string)snap.Result!["snapshot"]!; var oldId = (string)snap.Result["slide_id"]!;
+        hand.Handle(Call("set_text", "{\"slide\":1,\"placeholder\":\"title\",\"text\":\"망침\"}"));
+        var back = hand.Handle(Call("restore_slide", $"{{\"slide\":1,\"snapshot\":\"{id}\"}}"));
+        Assert.Null(back.Error); Assert.NotEqual(oldId, back.Result!["slide_id"]); Assert.Contains("id 가", back.Changed![0]);
+        var shapes = (List<Dictionary<string, object?>>)hand.Handle(Call("read_slide", "{\"slide\":1}")).Result!["shapes"]!;
+        Assert.Equal("원본", shapes.First(s => (string?)s["placeholder"] == "CenterTitle")["text"]);
+        Assert.Contains("그런 스냅숏이 없습니다", hand.Handle(Call("restore_slide", "{\"snapshot\":\"snap-9\"}")).Error);
+    }
+
+    [Fact]
+    public void ChartsRefuseMismatchedSeriesAndNameTheKind()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        Assert.Contains("값이 2개인데 항목은 3개", hand.Handle(Call("add_chart", "{\"slide\":1,\"categories\":[\"a\",\"b\",\"c\"],\"series\":[{\"name\":\"s\",\"values\":[1,2]}]}")).Error);
+        Assert.Contains("모르는 차트 종류", hand.Handle(Call("add_chart", "{\"slide\":1,\"kind\":\"donut\",\"categories\":[\"a\"],\"series\":[{\"values\":[1]}]}")).Error);
+        var r = hand.Handle(Call("add_chart", "{\"slide\":1,\"kind\":\"꺾은선\",\"categories\":[\"a\",\"b\"],\"series\":[{\"name\":\"s\",\"values\":[1,2]}],\"new_slide\":true}"));
+        Assert.Null(r.Error); Assert.Equal("꺾은선", r.Result!["chart"]); Assert.Equal(2, r.Result["slide"]); Assert.Equal(true, r.Result["data_sheet"]);
+        Assert.Contains("번호는 전부 하나씩 밀렸습니다", r.Changed![1]);
+    }
+
+    [Fact]
+    public void FormatShapeSaysWhatItChangedAndRefusesEmptyOrBadValues()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var r = hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"bold\":true,\"color\":\"#1F4E79\",\"align\":\"center\"}"));
+        Assert.Null(r.Error); Assert.Equal(3, r.Result!["changed"]); Assert.Contains("굵게 → True", r.Changed![0]); Assert.Contains("글자색 → #1F4E79", r.Changed[0]);
+        Assert.Contains("바꿀 것이 하나도", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\"}")).Error);
+        Assert.Contains("#RRGGBB", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"color\":\"blue\"}")).Error);
+        Assert.Contains("underline 는", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"underline\":\"Squiggle\"}")).Error);
+        Assert.Contains("decorative 는 이 손", hand.Handle(Call("format_shape", "{\"slide\":1,\"shape_id\":\"1\",\"decorative\":true}")).Error);
+        var ft = hand.Handle(Call("set_text", "{\"slide\":1,\"placeholder\":\"title\",\"text\":\"매출 140억 달성\"}"));
+        var run = hand.Handle(Call("format_text", "{\"slide\":1,\"shape_id\":\"1\",\"find\":\"140억\",\"color\":\"#FF0000\"}"));
+        Assert.Null(run.Error); Assert.Equal(3, run.Result!["start"]); Assert.Equal(4, run.Result["length"]);
+        Assert.Contains("'없음' 가 없습니다", hand.Handle(Call("format_text", "{\"slide\":1,\"shape_id\":\"1\",\"find\":\"없음\",\"bold\":true}")).Error);
+    }
+
+    [Fact]
+    public void ThemeColorsWarnWhenTheChangeIsInvisible()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        var r = hand.Handle(Call("set_theme_colors", "{\"slide\":1,\"scope\":\"master\",\"colors\":{\"accent1\":\"#4472C5\",\"light1\":\"#F3F1EC\"}}"));
+        Assert.Null(r.Error); Assert.Equal(2, r.Result!["set"]);
+        Assert.Contains(r.Changed!, l => l.Contains("거의 같은 색") && l.Contains("accent1") && !l.Contains("light1"));
+        Assert.Contains("테마 색 이름이 아닙니다", hand.Handle(Call("set_theme_colors", "{\"slide\":1,\"colors\":{\"accent9\":\"#000000\"}}")).Error);
+        var read = hand.Handle(Call("read_theme_colors", "{\"slide\":1}"));
+        Assert.Equal("#F3F1EC", ((Dictionary<string, object?>)read.Result!["theme"]!)["light1"]);
+        Assert.Contains("테마 배경으로 되돌렸습니다", hand.Handle(Call("set_background", "{\"slide\":1}")).Changed![0]);
+        Assert.Contains("kind=picture 에는 path", hand.Handle(Call("set_background", "{\"slide\":1,\"kind\":\"picture\"}")).Error);
+    }
+
+    [Fact]
+    public void FindShapesFiltersAcrossTheDeck()
+    {
+        var hand = new Hand(new FakeOps(), 1);
+        hand.Handle(Call("add_slides", "{\"slides\":[{\"title\":\"매출\",\"body\":\"성장\"},{\"title\":\"비용\"}]}"));
+        var r = hand.Handle(Call("find_shapes", "{\"text\":\"매출\"}"));
+        Assert.Null(r.Error); Assert.Equal(1, r.Result!["matched"]);
+        var titles = hand.Handle(Call("find_shapes", "{\"placeholder\":\"title\"}"));
+        Assert.Equal(3, titles.Result!["matched"]);
+        var one = hand.Handle(Call("find_shapes", "{\"slide\":3,\"placeholder\":\"title\"}"));
+        Assert.Equal(1, one.Result!["matched"]);
+        Assert.Equal(0, hand.Handle(Call("advise", "{\"items\":[{\"message\":\"m\",\"why\":\"w\"}]}")).Changed!.Count); // 안내는 한 일이 아니다
     }
 }
