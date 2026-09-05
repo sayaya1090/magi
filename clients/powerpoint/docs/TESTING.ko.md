@@ -13,7 +13,7 @@
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
 | 1·2·3. Go (`helper/`) | 167 | 2026-09-05 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,526 | 2026-09-05 | 통과 (smoke 833 · officehand 641 · hand 52) |
+| 4. JS 순수층 (`addin/tools/`) | 1,538 | 2026-09-05 | 통과 (smoke 833 · officehand 653 · hand 52) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
@@ -480,6 +480,7 @@ Mac 에서 PowerPoint 창 둘을 띄우고 IR·임원보고를 나란히 시켰�
 
 | 본 것 | 원인 | 착지 |
 |---|---|---|
+| **함수 단위 점검**(2026-09-05, Gemini 두 덱 완주 뒤 호출 39개를 전사·되읽기·렌더로 대조) — `[ignored arguments]` 0, 오류 0, 못 채운 자리 0. 그런데 렌더에는 셋이 틀려 있었다: ① 표지가 **통째로 안 보임**(배경 dark1 위에 글자도 dark1) ② 제목에 「•」(add_slides 의 bullet 이 제목 자리에도 걸림) ③ 표가 본문을 반쯤 덮음. 그리고 add_chart 답이 「번호가 밀렸다」고 했는데 거짓(제자리 재생성, id 만 바뀜) | 도구는 시킨 대로 했고 **답이 의도 어긋남을 말하지 않았다**. 겹침과 대비는 셈이 되는데 §7 은 눈으로 보라고만 했다 | ① `set_background` 가 그 장 글자색과의 대비 3:1 미만이면 도형·색을 대고 ⚠ ② 기호는 본문 자리에만 ③ `add_shape`·`add_table` 이 겹치는 도형 이름을 ⚠ 로 ④ 문구를 `new_slide` 로 가름. 돌연변이 4 전부 울림(969cf279). 스킬 §7 은 「장마다 한 번 640px 로 본다, 편집마다는 아니다」로 고쳤다(워크스페이스 파일) |
 | **글 한 덩어리만 강조·링크할 길이 없었다**, 도형을 묶을 길도, 배경에 그림을 깔 길도 | 1.4 `getSubstring().font`·1.10 `TextRange.setHyperlink`·1.8 `addGroup`/`ungroup`·1.10 `setPictureOrTextureFill` 을 도구가 안 받았다(§11.2) | `format_text{find/occurrence 또는 start/length}`·`group_shapes`/`ungroup_shapes`·`set_background{kind:picture, path, hide_graphics}`(바이트는 헬퍼가 add_image 와 같은 길로 읽음 — Go 배선 시험). 돌연변이 3(전체 range·addGroup 안 부름·그림 안 씀) 전부 울림 — 첫 것은 처음엔 **시험이 죽었지**(TypeError) 울리지 않아 `.catch` 로 FAIL 이 되게 고쳤다. **5층 실측 10:40**(deck2 시험 장, 렌더): 둘째 「140」만 굵게·밑줄·링크, A+B 그룹이 한 몸으로 이동, 배경 그림 60% 투명 + 마스터 그래픽 숨김 ✓ |
 | **표를 고치려면 통째로 다시 지어야 했다** — 「열 하나 더」에 `replace_table`, id 가 바뀜 | 1.9 의 `rows.add`·`columns.add`·`mergeCells`·`styleSettings`·열 너비·행 높이·셀 세로 정렬·셀 테두리를 도구가 안 받았다(API 재대조 §11.2) | `edit_table`(구조·스타일 제자리, id 유지) + `add_table`/`replace_table` 에 `table_style`·줄무늬·`column_widths`·`row_heights`·`merge`·`valign` + `format_table_cells` 에 `valign`·`borders`. 돌연변이 3(병합 안 넘김·행 삭제 오름차순·none 이 굵기 0 안 씀) 전부 울림. **5층 실측 2026-09-05 10:31~10:45**(deck2 시험 장, 렌더로 확인): 표 스타일·병합·너비·`edit_table`(3×3→4×2)·셀 테두리 색 ✓. 두 번 거절당한 것 — `Border.transparency` 는 이 호스트가 0 이든 1 이든 `InvalidArgument` 로 되돌린다(→ 「없음」은 굵기 0), 선의 `height:0` 은 옵션에서 「안 줌」으로 읽혀 사선이 됐다(→ 만든 뒤 따로 씀) |
 | **IR 9장이 전부 「제목 슬라이드」로 섰다** — 본문이 60pt 제목 밑 부제목 칸에(2026-09-05, Gemini 두 덱 모두) | 모델이 `layout` 을 안 줬고, `slides.add({})` 의 호스트 기본은 **첫 레이아웃**이다. 도구 설명은 "omit it for the deck default" 라고만 했다 | `#contentLayout`: layout 없이 본문이 있는 장은 자리표시자 **역할**(Title 계열 + Body/Content)로 고른다 — 이름은 로캘마다 다르다. `add_slide`·`add_slides` 둘 다, 답에 고른 이름을 싣는다. 돌연변이(본문 장도 기본으로)가 시험 둘을 울린다 |
