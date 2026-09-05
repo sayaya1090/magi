@@ -12,6 +12,7 @@ go test ./clients/excel/helper/                      # 헬퍼: 계약·유도 �
 node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 61개
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
 node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 61개 전부
+TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다 — MCP 로 부르면 여기로 온다
 ```
 
 2026-09-06 실측: 헬퍼 전부 통과, smoke 344 ok, smoke-hand 71 ok, excelhand 61/61 지나감(거절 0).
@@ -56,9 +57,24 @@ node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 
 (`pickBook`), 요구 집합(`OfficeWorkbook.capabilities` — 여덟+하나를 각각, 던진 것은 「모름」), 역할
 (`handRole` — `ExcelApi 1.7` 바닥), 통합 문서의 안정된 이름(`stableBookId` — `MAGI.BOOK` 설정), A1 산수.
 
+## 4b. 살아 있는 헬퍼에 가짜 손을 붙여 본 것 — 2026-09-06
+
+Excel 없이 헬퍼·MCP·손 규약을 실물 헬퍼에 대고 돌렸다(`tools/livehand.mjs`, `magi-xl` 3001):
+
+- `/hand/stream` → `hello`(문서 키 `doc-…`) → `/api/documents` 가 그 문서를 든다.
+- MCP `tools/list` 61개, 첫 설명이 「A WORKBOOK IS ALREADY OPEN IN EXCEL…」.
+- MCP `tools/call list_sheets` → SSE `call` → FakeHand → `/hand/reply` → 결과(시트 둘, 활성 표시)가 MCP 로 돌아온다.
+- 거절이 MCP 오류로 그대로 온다: 열거형(`chart_type="bubble3d"` → 21종 목록), 모르는 인자(`value` → 받는 이름
+  목록), `visibility="Nope"`, 가짜 손의 그림 거절. 별칭 `number_format` 은 `format` 으로 옮겨져 돈다.
+- **막힌 자리 하나**: 데몬이 도구를 붙일 때 헬퍼의 자가 서명 인증서를 못 믿는다(`x509: certificate signed by
+  unknown authority`). 파워포인트 판은 사람이 `magi-ppt helper` 를 키체인에 넣어 둔 상태였고, 엑셀 것
+  (`xl-helper-cert.pem`, CN `magi-xl helper`)은 아직이다. 데몬의 MCP 클라이언트에는 CA 를 따로 주는 길이 없다 —
+  신뢰 저장소가 유일한 길이고, 그것은 사람이 한다(`./magi-xl -cert-hint`).
+
 ## 5. 실물 — Excel 과 사람의 손
 
-**아직 없다(2026-09-06).** 처음 붙이는 날 여기에 쌓는다. 파워포인트 판 §5.2 의 점검표를 엑셀 말로 옮긴 것:
+**아직 없다(2026-09-06).** 처음 붙이는 날 여기에 쌓는다. 이 Mac 에는 Excel 16.112.3 이 있고 매니페스트는
+`~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/` 에 넣어 뒀다 — 인증서를 신뢰하고 Excel 을 열면 된다. 파워포인트 판 §5.2 의 점검표를 엑셀 말로 옮긴 것:
 
 1. Excel 을 열고 리본 「홈」 오른쪽 끝 **AI Assistant › Magi** → 작업창.
 2. 「지원 API」 줄 — 2021/365 면 숨어 있어야 한다(전부 ✓). 펴져 있으면 무엇이 없는지 읽는다.

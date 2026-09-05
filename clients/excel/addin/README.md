@@ -13,6 +13,7 @@ Excel 작업창. 파워포인트 판 애드인을 **복사해 손을 바꿨다**
 | `node tools/smoke-hand.mjs` | `FakeHand`·`ServeHand`·`HelperStream` | **돈다** — 71 ok |
 | `node tools/excelhand.mjs` | `ExcelHand` 를 가짜 Office.js 위에서 | **돈다** — 61/61, 거절 0 |
 | `PORT=3010 node tools/serve.mjs` 로 브라우저에서 | 가짜 격자 + `FakeHand` | 돈다 — 인용·전송·안내·제안 적용까지 |
+| `TOKEN=… node tools/livehand.mjs` | `FakeHand` 를 **살아 있는 헬퍼**에 손으로 | **돈다** — MCP `tools/call` 이 SSE 로 내려와 답이 돌아간다(2026-09-06, TESTING §4b) |
 | **헬퍼가 내준 페이지**(`magi-xl`) | `HelperApi`·`HelperStream`, 손은 `ExcelHand`(Excel 안) 또는 `FakeHand` | 브라우저에서는 돈다. **Excel 안에서는 아직 안 돌았다** |
 
 **실물 Excel 에서 아직 안 돌았다(2026-09-06).** `excelhand.mjs` 의 stub 은 어떤 속성을 읽어도 값을 주고 어떤 메서드도
