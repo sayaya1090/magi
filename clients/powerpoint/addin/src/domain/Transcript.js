@@ -228,6 +228,18 @@ export class Transcript {
 
   append(ev) {
     const type = String(ev?.type ?? '');
+    // 코어가 큐를 직접 말한다: `interjection.deferred{messageId, resolved}` 는 그 말이 큐에 들었다(또는
+    // 큐에서 풀렸다), `interjection.answered{messageId}` 는 모델이 지금 턴에서 답했다고 했다. 줄로
+    // 그리지 않고 그 말풍선의 상태에 얹는다 — 앞 판본은 「그릴 줄 모르는 이벤트」로 셌다(2026-09-05).
+    if (type === 'interjection.deferred' || type === 'interjection.answered') {
+      const id = ev?.data?.messageId;
+      const row = id ? this.rows.find((r) => r.kind === 'user' && r.messageId === id) : null;
+      if (row) {
+        const settled = type === 'interjection.answered' || ev?.data?.resolved === true;
+        row.status = settled ? 'done' : 'queued';
+      }
+      return null;
+    }
     if (PANEL.has(type)) {
       // **쌓지 않고 갈아 끼운다.** 계약이 매번 전량이므로 마지막 것이 곧 지금 계획이다.
       // 배열이 아니면 안 건드린다 — 모양이 달라졌을 때 빈 계획으로 덮으면 있던 것이 사라진다.

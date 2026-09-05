@@ -448,6 +448,16 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     port6.push({ seq: 6, sessionId: 'Q', type: 'part.appended', actor: { kind: 'agent', id: 'a' }, data: { messageId: 'x', role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c', name: 'route_interjection', args: { action: 'append' } } } } });
     ok('모델이 지금 턴에 합치면 큐의 말은 끝', rows() === 'done,done,running,done', rows());
     ok('배지 문구', userBadge('running').kind === 'running' && userBadge('queued').text.includes('대기') && userBadge('done') === null);
+    // 코어의 큐 이벤트가 오면 그것이 정본이다 — 줄로 안 그리고 상태에 얹는다.
+    const before7 = read6.view.rows.length;
+    u(7, 'm4');
+    port6.push({ seq: 8, sessionId: 'Q', type: 'interjection.deferred', actor: { kind: 'system', id: 'loop' }, data: { messageId: 'm4' } });
+    ok('interjection.deferred 는 그 말을 대기 중으로 만들고 줄은 안 는다', rows().endsWith(',queued') && read6.view.rows.length === before7 + 1 && !read6.view.unknownNote, String(read6.view.unknownNote));
+    port6.push({ seq: 9, sessionId: 'Q', type: 'interjection.deferred', actor: { kind: 'system', id: 'loop' }, data: { messageId: 'm4', resolved: true } });
+    ok('resolved 면 끝', rows().endsWith(',done'), rows());
+    u(10, 'm5');
+    port6.push({ seq: 11, sessionId: 'Q', type: 'interjection.answered', actor: { kind: 'system', id: 'loop' }, data: { messageId: 'm5' } });
+    ok('interjection.answered 도 끝', rows().endsWith(',done'), rows());
     // 대기 중인 말풍선은 모양이 다르다 — 줄의 클래스로 갈린다(CSS 가 점선·흐린 글자를 건다).
     const urows = read6.view.rows.filter((r) => r.kind === 'user');
     ok('말풍선 클래스에 상태가 실린다', rowClass(urows[2]).includes('status-running') && rowClass(urows[1]).includes('status-done') && !rowClass({ kind: 'model' }).includes('status-'));
