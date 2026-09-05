@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -176,7 +177,7 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.requireFinishDeclaration(ctx, tc, usedTools, lastText, ts); done {
 		return act
 	}
-	if act, done := a.sayWhatWasNotRun(ctx, tc, ts); done {
+	if act, done := a.sayWhatWasNotRun(ctx, tc, ts, lastText); done {
 		return act
 	}
 	if act, done := a.noteOutstandingHandoffs(ctx, tc, ts); done {
@@ -593,7 +594,17 @@ func (a *App) callsAfterDeclaring(ctx context.Context, sid session.SessionID,
 //
 // Once, and it keeps the turn open so the answer can be acted on: "not finished after all" is a
 // thing an agent can still say here, and it is the only way back.
-func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState) (loopAction, bool) {
+// notRunTail ends the not-run notice: the same measured rule as closingCall — an answer already
+// written is not asked for again.
+func notRunTail(lastText string) string {
+	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
+		return "If it IS finished, the message you wrote before declaring already is the final answer — " +
+			"do not write it again; reply with one short line, and stop."
+	}
+	return "If it IS finished, ignore this and write your final answer."
+}
+
+func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState, lastText string) (loopAction, bool) {
 	if ts.dropTold || len(ts.dropped) == 0 {
 		return 0, false
 	}
@@ -607,8 +618,7 @@ func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState) (
 		"call is in the transcript with no result, which is what a call that never happened looks "+
 		"like; nothing crossed and nobody was asked.\n\n", strings.Join(quoted(names), ", "))
 	b.WriteString("If the work is NOT finished after all, say that plainly now — it is the only " +
-		"way back, and it is a better answer than a call that goes nowhere. If it IS finished, " +
-		"ignore this and write your final answer.")
+		"way back, and it is a better answer than a call that goes nowhere. " + notRunTail(lastText))
 	pd, _ := json.Marshal(event.PromptSubmittedData{
 		MessageID: "m_" + newID(),
 		Parts:     []session.Part{{Kind: session.PartText, Text: b.String()}},

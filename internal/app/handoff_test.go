@@ -670,7 +670,7 @@ func TestWhatADeclaredTurnMayStillDo(t *testing.T) {
 		t.Errorf("it dropped %v in silence", ts.dropped)
 	}
 	// And says so, keeping the turn open long enough to be told.
-	act, done := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts)
+	act, done := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts, "")
 	if !done || act != loopContinue {
 		t.Fatalf("the drop was not reported: %v %v", act, done)
 	}
@@ -681,7 +681,7 @@ func TestWhatADeclaredTurnMayStillDo(t *testing.T) {
 		}
 	}
 	// Asked once, never again — the same turn must not be nagged about it every step.
-	if _, again := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts); again {
+	if _, again := f.a.sayWhatWasNotRun(ctx, turnCtx{s: session.Session{ID: "mine"}}, &ts, ""); again {
 		t.Error("it said the same thing twice")
 	}
 }

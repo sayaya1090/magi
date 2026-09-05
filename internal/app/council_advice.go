@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -68,6 +69,25 @@ const (
 	councilGuidancePerCap = 12000
 	councilGuidanceCap    = 30000
 )
+
+// finalAnswerFloor: an assistant message at least this long just before the declaration is the
+// answer itself (live 2026-09-05: 2.0–3.2K characters, then a near-identical copy after the
+// acceptance because the closing call asked for "your final answer"). Below it — "done", a
+// one-liner — the answer is still owed. Measured, not assumed: a short report keeps the old call.
+const finalAnswerFloor = 400
+
+// closingCall is what the agent reads when the council accepts. Headless prints every fact
+// as it streams, so an answer already written is already out; asking for it again only
+// doubles it.
+func closingCall(lastText string) string {
+	if utf8.RuneCountInString(strings.TrimSpace(lastText)) >= finalAnswerFloor {
+		return "The council accepts that the task is finished. Your turn ends here. Your message just " +
+			"before declaring reads as the final answer for whoever asked — it stands; do not write it " +
+			"again. Reply with one line at most, and stop."
+	}
+	return "The council accepts that the task is finished. Your turn ends here — write your final " +
+		"answer for whoever asked, and stop."
+}
 
 // declarationGater is what a TurnObserver may also be: the plugin host's declaration gates
 // (magi.register_declaration_gate), asked before a completion declaration convenes a council.
@@ -333,8 +353,7 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// takeTurnControl) and a fix in one of them is dead code the moment another drains
 		// first — which is what happened to the first attempt.
 		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish, tc.unverifiedReason = true, "" })
-		return "The council accepts that the task is finished. Your turn ends here — write your final " +
-			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		return closingCall(lastText) + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
 	if landed, msg := a.noteCouncilRejection(sid, epoch, feedback); landed {
