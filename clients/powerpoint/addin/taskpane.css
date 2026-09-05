@@ -796,6 +796,14 @@ button:disabled { cursor: default; opacity: .5; }
 .icon-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
 /* 켜짐은 **색 하나로 말하지 않는다** — 글리프와 굵기 둘이다(M3). */
 .icon-on { color: var(--fg); }
+/*
+  **토글 단추의 선택 상태는 칠한다.** M3 의 toggle icon button 은 selected 를 tonal 컨테이너로 그린다 —
+  글자색만 진해지는 `.icon-on` 은 「펴짐」(⋯) 같은 순간 상태엔 맞지만, 카운슬처럼 **켜짐/꺼짐이 오래
+  서 있는 스위치**는 흰 바탕에서 구분이 안 됐다(사용자 2026-09-06: 「활성화는 색을 좀 칠해 주지」).
+  aria-pressed 가 참인 단추만 — 눌림이 상태인 단추의 표식이 그 속성이다.
+*/
+.icon-btn[aria-pressed="true"] { background: var(--accent-weak); color: var(--accent); }
+.icon-btn[aria-pressed="true"]:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-weak)); }
 
 /*
   ── 스위치 ─────────────────────────────────────────────────
