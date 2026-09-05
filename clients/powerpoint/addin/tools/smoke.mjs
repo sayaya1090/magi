@@ -4365,7 +4365,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
   ok('띠·접기·프로바이더·모델이 마크업에 있다', ['id="ctx"', 'id="ctx-bar"', 'id="compact"', 'id="provider"', 'id="model"', 'id="provider-menu"', 'id="model-menu"'].filter((id) => !html.includes(id)).length === 0);
-  ok('프로바이더·모델은 select 가 아니라 아이콘 단추 + M3 메뉴다', !/<select id="(provider|model)"/.test(html) && html.includes('aria-haspopup="menu"') && html.includes('role="menu"'));
+  ok('프로바이더·모델은 네이티브 select 가 아니라 직접 구현한 M3 exposed dropdown(필드 + listbox 메뉴)이다', !/<select id="(provider|model)"/.test(html) && html.includes('aria-haspopup="listbox"') && html.includes('role="listbox"') && html.includes('class="dd-label"'));
   ok('다섯 조각의 색이 CSS 에 있다', CONTEXT_PARTS.filter(([k]) => !readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8').includes(`--p-${k}`)).length === 0);
 }
 

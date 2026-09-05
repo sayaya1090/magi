@@ -908,14 +908,35 @@ button:disabled { cursor: default; opacity: .5; }
 .p-system { color: var(--p-system); } .p-tools { color: var(--p-tools); } .p-talk { color: var(--p-talk); } .p-calls { color: var(--p-calls); } .p-results { color: var(--p-results); }
 .ctx-bar i.p-system { background: var(--p-system); } .ctx-bar i.p-tools { background: var(--p-tools); } .ctx-bar i.p-talk { background: var(--p-talk); }
 .ctx-bar i.p-calls { background: var(--p-calls); } .ctx-bar i.p-results { background: var(--p-results); }
-/* ── 프로바이더·모델 — M3 메뉴 ─────────────────────────────────
-   아이콘 단추(.icon-btn)를 누르면 위로 펴지는 메뉴. M3 menu: extra-small 모서리(4px), 항목 48px, 라벨 body-large,
-   surface container 위에 level 2 그림자, 너비 112~280. 고른 항목은 앞의 체크로 선다(menuitemradio). */
-.pick-model { position: relative; display: flex; gap: var(--s1); align-items: center; }
+/* ── 프로바이더·모델 — 직접 구현한 M3 exposed dropdown menu ─────────
+   Outlined text field 모양의 필드(1px outline, 4px 모서리, 떠 있는 라벨, 오른쪽 arrow_drop_down)를 누르면 M3 menu 가
+   위로 펴진다: surface container, level 2 그림자, extra-small 모서리(4px), 항목 48px·body-large, 너비 112~280,
+   고른 항목은 앞의 체크와 옅은 채움(selected). 필드 높이는 이 판의 밀도에 맞춘 40(M3 기본 56 은 348px 판에서 한 줄을
+   다 먹는다). 스테이트 레이어는 아이콘 단추와 같은 값(hover 8%·pressed 12%). 포커스·펼침은 2px primary 테두리. */
+.pick-model { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; margin-left: var(--s1); }
+.dd { position: relative; flex: 1 1 120px; min-width: 120px; max-width: 200px; }
+.dd-field {
+  position: relative; width: 100%; height: 40px; padding: 0 32px 0 12px;
+  display: flex; align-items: center; text-align: left;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line-strong); border-radius: 4px;
+  font: var(--t-body); cursor: pointer;
+}
+.dd-field:hover { border-color: var(--fg); background: color-mix(in srgb, currentColor 8%, var(--bg)); }
+.dd-field:active { background: color-mix(in srgb, currentColor 12%, var(--bg)); }
+.dd-field:focus-visible, .dd-field[aria-expanded="true"] { outline: none; border: 2px solid var(--accent); padding-left: 11px; }
+.dd-field:disabled { color: var(--muted); border-color: var(--line); cursor: default; }
+.dd-label {
+  position: absolute; top: -7px; left: 8px; padding: 0 4px; background: var(--bg);
+  font: var(--t-caption); font-size: 11px; line-height: 14px; color: var(--muted);
+}
+.dd-field[aria-expanded="true"] .dd-label, .dd-field:focus-visible .dd-label { color: var(--accent); }
+.dd-value { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-caret { position: absolute; right: 8px; top: 50%; margin-top: -8px; width: 16px; height: 16px; color: var(--muted); transition: transform .15s; }
+.dd-field[aria-expanded="true"] .dd-caret { transform: rotate(180deg); }
 .menu {
   position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 20;
-  min-width: 112px; max-width: 280px; padding: 8px 0; border-radius: 4px;
-  background: var(--bg, #fff); color: var(--fg);
+  min-width: 112px; max-width: 280px; width: max-content; padding: 8px 0; border-radius: 4px;
+  background: var(--bg); color: var(--fg);
   box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
   max-height: 60vh; overflow: auto;
 }
@@ -925,8 +946,9 @@ button:disabled { cursor: default; opacity: .5; }
 }
 .menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
 .menu-item:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.menu-item[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .menu-check { width: 18px; flex: none; color: var(--accent); visibility: hidden; }
-.menu-item[aria-checked="true"] .menu-check { visibility: visible; }
+.menu-item[aria-selected="true"] .menu-check { visibility: visible; }
 .menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .menu-empty { padding: 12px; font: var(--t-caption); color: var(--muted); }
-.model-note { font: var(--t-caption); color: var(--muted); }
+.model-note { font: var(--t-caption); color: var(--muted); flex-basis: 100%; }

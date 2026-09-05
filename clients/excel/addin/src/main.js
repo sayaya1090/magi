@@ -492,9 +492,9 @@ async function boot() {
       const btn = document.querySelector(btnId); const menu = document.querySelector(menuId);
       btn?.addEventListener('click', () => view.menu(btnId, menu?.hidden !== false));
       menu?.addEventListener('click', (ev) => {
-        const item = ev.target.closest('[role="menuitemradio"]'); if (!item) return;
+        const item = ev.target.closest('[role="option"]'); if (!item) return;
         view.menu(btnId, false);
-        if (item.getAttribute('aria-checked') === 'true') return;
+        if (item.getAttribute('aria-selected') === 'true') return;
         void sendModel({ [key]: item.dataset.value });
       });
     }

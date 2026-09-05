@@ -1117,13 +1117,14 @@ export class View {
       const tip = `${what}: ${now} — 누르면 고릅니다(다음 턴부터)`;
       btn.title = tip; btn.setAttribute('aria-label', tip);
       btn.disabled = options.length === 0;
+      const value = $(`${btnId}-value`); if (value) value.textContent = options.length === 0 ? '—' : now;
       if (options.length === 0) {
         const empty = document.createElement('div'); empty.className = 'menu-empty'; empty.textContent = '고를 것이 없습니다';
         menu.replaceChildren(empty); return;
       }
       menu.replaceChildren(...options.map((o) => {
         const item = document.createElement('button'); item.type = 'button'; item.className = 'menu-item';
-        item.setAttribute('role', 'menuitemradio'); item.setAttribute('aria-checked', String(o.selected)); item.dataset.value = o.value;
+        item.setAttribute('role', 'option'); item.setAttribute('aria-selected', String(o.selected)); item.dataset.value = o.value;
         const check = document.createElement('span'); check.className = 'menu-check'; check.textContent = '✓';
         const label = document.createElement('span'); label.className = 'menu-label'; label.textContent = o.text; label.title = o.text;
         item.append(check, label); return item;
@@ -1138,7 +1139,7 @@ export class View {
     for (const [b, m] of [['#provider', '#provider-menu'], ['#model', '#model-menu']]) {
       const btn = $(b); const menu = $(m); if (!btn || !menu) continue;
       const on = open && b === id;
-      menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)); btn.classList.toggle('icon-on', on);
+      menu.hidden = !on; btn.setAttribute('aria-expanded', String(on));
     }
   }
 
