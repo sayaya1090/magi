@@ -160,6 +160,9 @@ func run(args []string, out, log io.Writer) int {
 	// **기동을 안 붙잡는다.** 뒤에서 돌고, 실패해도 헬퍼는 그대로 선다 — 명단으로 가는 길이
 	// 남아 있고, 사유는 판이 `/api/own` 으로 물으면 그대로 나온다.
 	if _, mine := api.Work.Begin(); mine {
+		// 운영 지침은 도구 쪽 일이다 — 사람이 브리프에 적게 두지 않는다(instructions.go). 마련(goroutine)
+		// 안이 아니라 여기서 동기로 심는다: 시험의 TempDir 정리와 부딪히지 않고, 못 심어도 마련은 계속한다.
+		_, _ = SeedInstructions(dir)
 		go api.provision()
 	}
 
@@ -368,6 +371,7 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	}
 	now, mine := a.Work.Begin()
 	if mine {
+		_, _ = SeedInstructions(a.ConfigDir)
 		go a.provision()
 	}
 	if now.Phase == OwnReady {

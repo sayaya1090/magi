@@ -843,7 +843,7 @@ func catalogue(hasCouncil bool) []tool {
 var documentProp = property{
 	Name: "document",
 	Type: "string",
-	Desc: "Which open deck to act on, as returned by an earlier call. Omit for the deck the person is looking at now.",
+	Desc: "Omit it. This conversation is bound to one deck and every call goes to that deck. Only a hub-wide conversation (no deck of its own) names one here, with a key from an earlier answer.",
 }
 
 // schemaOf 는 도구 하나의 `inputSchema` 를 짓는다.

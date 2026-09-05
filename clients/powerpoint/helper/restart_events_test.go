@@ -83,7 +83,7 @@ func TestRestartColumnDaemonRestart(t *testing.T) {
 	work := NewOwnWork()
 	work.Done(OwnReport{Phase: OwnReady, Socket: "/sock", Session: "s_deck", Life: "1@t0"})
 	r.api.Work = work
-	r.api.Own = &OwnCompanion{ConfigDir: t.TempDir()}
+	r.api.Own = quietOwn(t)
 	r.api.LifeOf = func(string) string { return "2@t1" }
 	r.api.own(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/own?deck=pid-deck-A", nil))
 	if work.Now().Phase == OwnReady {

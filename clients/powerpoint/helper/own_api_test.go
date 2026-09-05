@@ -677,7 +677,7 @@ func TestANewConversationCarriesWhyItFailed(t *testing.T) {
 func TestFreshIsBehindTheSameGuard(t *testing.T) {
 	api := &API{
 		Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir(),
-		Token: "s3cret", Own: &OwnCompanion{ConfigDir: t.TempDir()}, Work: NewOwnWork(),
+		Token: "s3cret", Own: quietOwn(t), Work: NewOwnWork(),
 	}
 	mux := http.NewServeMux()
 	api.Route(mux)
@@ -704,7 +704,7 @@ func TestOwnSaysSoWhenTheHelperHasNoOwnCompanion(t *testing.T) {
 func TestOwnIsBehindTheSameGuard(t *testing.T) {
 	api := &API{
 		Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir(),
-		Token: "s3cret", Own: &OwnCompanion{ConfigDir: t.TempDir()}, Work: NewOwnWork(),
+		Token: "s3cret", Own: quietOwn(t), Work: NewOwnWork(),
 	}
 	mux := http.NewServeMux()
 	api.Route(mux)
@@ -715,5 +715,20 @@ func TestOwnIsBehindTheSameGuard(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("토큰 없이 지나갔다: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// quietOwn 은 **데몬을 절대 안 띄우는** 컴패니언 — 시험용. 맨 `quietOwn(t)` 은
+// 기본 Spawn 이 진짜 `magi --daemon --detach` 라, PATH 에 magi 가 있으면 시험이 임시 폴더에 데몬을
+// 띄우고 그 데몬이 시험이 끝난 뒤 소켓·로그를 써서 TempDir 정리가 「directory not empty」로 죽었다
+// (2026-09-05 실측, 2~10/10). 마련이 실패하는 것은 이 시험들의 관심사가 아니다.
+func quietOwn(t *testing.T) *OwnCompanion {
+	t.Helper()
+	return &OwnCompanion{
+		ConfigDir: t.TempDir(),
+		Look:      func(string) (string, error) { return "", errors.New("시험은 magi 를 안 찾는다") },
+		Exists:    func(string) bool { return false },
+		Spawn:     func(string, string, []string) error { return errors.New("시험은 데몬을 안 띄운다") },
+		Alive:     func(string) bool { return false },
 	}
 }

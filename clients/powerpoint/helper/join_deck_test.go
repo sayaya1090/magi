@@ -120,7 +120,7 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 	work.Done(OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-a", Life: "1@t0"})
 	api := &API{
 		Bridge: NewBridge(), Bridges: bs, Work: work, Port: 3000,
-		Own:    &OwnCompanion{ConfigDir: t.TempDir()},
+		Own:    quietOwn(t),
 		LifeOf: func(string) string { return "1@t0" },
 		Bolt:   func(string, string, string) ([]string, error) { return []string{"t"}, nil },
 		Fresh:  func(string) (string, error) { return "sess-b", nil },

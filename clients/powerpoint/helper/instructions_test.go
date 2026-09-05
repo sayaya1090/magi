@@ -148,7 +148,7 @@ func TestReadingGivesBackWhatWritingStored(t *testing.T) {
 func TestInstructionsAreBehindTheSameGuard(t *testing.T) {
 	api := &API{
 		Bridge: NewBridge(), Attachments: NewAttachments(), ConfigDir: t.TempDir(),
-		Token: "s3cret", Own: &OwnCompanion{ConfigDir: t.TempDir()}, Work: NewOwnWork(),
+		Token: "s3cret", Own: quietOwn(t), Work: NewOwnWork(),
 	}
 	mux := http.NewServeMux()
 	api.Route(mux)
@@ -158,5 +158,40 @@ func TestInstructionsAreBehindTheSameGuard(t *testing.T) {
 	mux.ServeHTTP(w, r)
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("토큰 없이 지나갔다: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// 운영 지침은 워크스페이스가 생길 때 한 번 심고, 사람이 적은 것은 안 건드린다.
+func TestDefaultInstructionsAreSeededOnceAndNeverOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	seeded, err := SeedInstructions(dir)
+	if err != nil || !seeded {
+		t.Fatalf("빈 워크스페이스에 안 심었다: %v %v", seeded, err)
+	}
+	got, _ := ReadInstructions(dir)
+	for _, must := range []string{"document", "ea_font", "render_slide", "land", "deck-design"} {
+		if !strings.Contains(got, must) {
+			t.Fatalf("심은 지침에 %q 가 없다:\n%s", must, got)
+		}
+	}
+	again, _ := SeedInstructions(dir)
+	if again {
+		t.Fatal("이미 있는데 또 심었다")
+	}
+	if _, err := WriteInstructions(dir, "표는 항상 머리글 굵게"); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := SeedInstructions(dir); s {
+		t.Fatal("사람이 적은 지침을 덮었다")
+	}
+	if got, _ := ReadInstructions(dir); got != "표는 항상 머리글 굵게" {
+		t.Fatalf("사람의 글이 바뀌었다: %q", got)
+	}
+	// 비운 뒤(빈 글 = 파일 삭제)에는 다시 심는다 — 「아무것도 없음」이 기본으로 돌아가는 길이다.
+	if _, err := WriteInstructions(dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := SeedInstructions(dir); !s {
+		t.Fatal("비운 뒤에 다시 안 심었다")
 	}
 }

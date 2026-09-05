@@ -85,3 +85,41 @@ func WriteInstructions(configDir, text string) (string, error) {
 	}
 	return body, nil
 }
+
+// DefaultInstructions 는 **워크스페이스가 처음 생길 때 한 번** AGENTS.md 에 심는 운영 지침이다.
+//
+// 왜 여기 있나: 사람은 내용만 말한다. 「document 인자를 쓰지 마라」「ea_font 는 맨 마지막」「장마다 한 번
+// 렌더」 같은 것은 부탁이 아니라 이 도구를 쓰는 **방법**이고, 그것이 브리프에 들어 있으면 사람이
+// 매번 적어야 한다(2026-09-05 까지 실제로 그랬다 — 사용자가 짚었다). 스킬은 모델이 읽어야 들어오지만
+// AGENTS.md 는 매 시스템 프롬프트에 들어간다(`internal/app/memory.go`). 사람이 고치면 그 뒤로는 사람
+// 것이다 — 비어 있거나 없을 때만 심는다.
+const DefaultInstructions = `# PowerPoint 컴패니언 — 늘 지킬 것
+
+이 대화는 **덱 하나**에 묶여 있습니다. 도구의 ` + "`document`" + ` 인자는 쓰지 않습니다.
+사람은 **내용**만 말합니다 — 도구 이름·순서·인자를 사람에게 묻지 말고, 아래 순서를 스스로 지킵니다.
+
+1. 첫 도구를 부르기 전에 ` + "`skill`" + ` 로 ` + "`deck-design`" + ` 을 읽고, 자료 성격에 맞는 가이드 하나(` + "`design-guide`·`visual-deck`·`academic-deck`" + `)를 더 읽습니다.
+2. 뼈대 먼저: ` + "`add_slides`" + ` 로 장을 한 번에 세웁니다. 본문이 있는 장은 ` + "`layout`" + ` 을 줍니다(` + "`list_layouts`" + ` 의 이름). 표지는 제목 슬라이드 레이아웃으로.
+3. 그 다음 내용: 차트·표·그림·강조 상자·대체 텍스트·발표자 노트. 배경을 어둡게 칠했으면 그 장의 글자색을 밝게 바꿉니다.
+4. 서식은 뒤에: ` + "`apply_style`" + ` 로 서체·크기·글머리 기호. **` + "`apply_style{ea_font}`" + ` 는 맨 마지막**(장 id 가 바뀝니다).
+5. 장 하나가 끝날 때마다 ` + "`render_slide{max_width: 640}`" + ` 로 한 번 보고 어긋난 것을 고칩니다 — 편집마다는 아닙니다. 도구 답의 ⚠(겹침·대비·못 채운 자리)는 그림 없이 먼저 읽습니다.
+6. 끝나면 ` + "`read_slide`" + ` 로 되읽어 장별 표로 보고하고 ` + "`land`" + ` 로 신고합니다.
+
+한 턴에 여러 도구를 불러도 됩니다. 답에 「id 가 바뀌었습니다」가 오면 그 id 를 다시 씁니다.
+`
+
+// SeedInstructions 는 파일이 없거나 비어 있을 때만 DefaultInstructions 를 적는다. 사람이 적은 글은
+// 한 글자도 안 건드린다. 심었으면 true.
+func SeedInstructions(configDir string) (bool, error) {
+	have, err := ReadInstructions(configDir)
+	if err != nil {
+		return false, err
+	}
+	if have != "" {
+		return false, nil
+	}
+	if _, err := WriteInstructions(configDir, DefaultInstructions); err != nil {
+		return false, err
+	}
+	return true, nil
+}
