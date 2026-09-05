@@ -134,6 +134,12 @@ export class Row {
     this.messageId = messageId ?? null;
     /** 도구 이름. `kind === 'tool'` 일 때만 있다 — 이 줄이 「모델이 한 일」이다. */
     this.tool = call?.name ?? null;
+    /**
+     * 사용자 말풍선의 처리 상태 — `running`(지금 이 말로 턴이 도는 중) · `queued`(턴 도는 중에 와서
+     * 큐에 들어감; 끝나면 제 턴으로 되살아나거나 지금 턴에 합쳐진다) · `done` · null(사용자 줄 아님).
+     * 사용자 지적 2026-09-05: 「큐에 들어간 건 말풍선에 따로 표기, 처리 중인 건 스피너」.
+     */
+    this.status = null;
     /** 그 호출의 인자와 신원. 안내 포스트잇이 여기서 나온다(§6.1). */
     this.args = call?.args ?? null;
     this.callId = call?.callId ?? null;
@@ -183,6 +189,9 @@ export class Transcript {
     this.skippedCounts = new Map();
     /** 스트림이 살아 있다고 **믿는가**. 끊김은 에러로 안 오므로 이 값은 밖에서 꺼 준다. */
     this.live = false;
+    /** 턴이 도는 중인가(사용자 말 뒤 `turn.finished` 전). 말풍선 상태(`Row.status`)의 근거다. */
+    this.turnOpen = false;
+    this.driving = null;
     /** 살아 있지 않은 이유가 「아직 아무 요청도 안 보내 빈 대화」인가. 끊김과 화면에서 갈린다. */
     this.empty = false;
     /** 서버가 커서를 거절하며 한 말. 있으면 화면이 그대로 보여 준다. */
@@ -283,7 +292,37 @@ export class Transcript {
     });
     row.settled = type === 'part.appended';
     this.rows.push(row);
+    this.#trackTurn(row, ev, type);
     return row;
+  }
+
+  /**
+   * 말풍선의 처리 상태를 잇는다. 턴은 사용자 말로 시작해 `turn.finished` 로 끝난다. 그 사이에 온
+   * 사용자 말은 큐다. 큐의 말은 (a) 되살아나면(`resurfacedFrom` 이 그 말을 가리키는 새 말) 처리된
+   * 것이고, (b) 모델이 `route_interjection` 으로 지금 턴에 합치면(append·redirect) 처리된 것이다.
+   */
+  #trackTurn(row, ev, type) {
+    if (row.kind === 'user') {
+      const from = ev?.data?.resurfacedFrom;
+      if (from) {
+        const origin = this.rows.find((r) => r.kind === 'user' && r.messageId === from);
+        if (origin) origin.status = 'done';
+      }
+      if (this.turnOpen) { row.status = 'queued'; return; }
+      row.status = 'running'; this.turnOpen = true; this.driving = row;
+      return;
+    }
+    if (type === 'turn.finished') {
+      if (this.driving) this.driving.status = 'done';
+      this.driving = null; this.turnOpen = false;
+      return;
+    }
+    if (row.kind === 'tool' && row.tool === 'route_interjection') {
+      const action = String(row.args?.action ?? '');
+      if (action === 'append' || action === 'redirect') {
+        for (const r of this.rows) if (r.kind === 'user' && r.status === 'queued') r.status = 'done';
+      }
+    }
   }
 
   get drawnRows() { return this.rows.filter((r) => r.drawn); }

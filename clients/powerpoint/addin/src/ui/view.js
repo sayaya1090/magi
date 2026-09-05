@@ -21,7 +21,7 @@ import { mdToDom, looksLikeMd } from './md.js';
 import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
-  isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
+  userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, brandState, streamLine,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
@@ -1052,6 +1052,15 @@ export class View {
       const p = document.createElement('p');
       p.textContent = bodyText(r);
       el.append(p);
+      // 처리 중인 말풍선엔 스피너, 큐에 든 말풍선엔 「대기 중」(사용자 2026-09-05).
+      const badge = userBadge(r.status);
+      if (badge) {
+        const b = document.createElement('span');
+        b.className = `turn-badge ${badge.kind}`;
+        if (badge.kind === 'running') { const s = document.createElement('span'); s.className = 'spin'; b.append(s); }
+        b.append(document.createTextNode(badge.text));
+        el.append(b);
+      }
       return el;
     }
     el.append(this.proseEl(bodyText(r)));

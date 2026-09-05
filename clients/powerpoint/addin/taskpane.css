@@ -287,6 +287,12 @@ header {
   border-radius: var(--r-lg); padding: var(--s2) var(--s3);
 }
 .turn.kind-model p { padding: 0; }
+/* 사용자 말풍선의 상태: 처리 중(스피너) · 대기 중. 색이 아니라 글과 움직임으로 가른다. */
+.turn-badge { display: inline-flex; align-items: center; gap: var(--s1); margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+.turn-badge.queued { color: var(--warn-fg); }
+.spin { width: 10px; height: 10px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
 .turn.kind-think { border-left: 2px solid var(--line); padding-left: var(--s2); }
 .turn.kind-note p { color: var(--muted); font: var(--t-caption); }
 /* 접힌 혼잣말의 속. 답풍선과 **다르게 보여야 한다** — 사용자에게 한 말이 아니다. */

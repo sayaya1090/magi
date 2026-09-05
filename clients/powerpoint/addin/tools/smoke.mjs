@@ -29,7 +29,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { parseMd, inlines, mdToDom, looksLikeMd } from '../src/ui/md.js';
 import { fixture } from '../src/ui/deckFixture.js';
 import {
-  headOf, noteHead, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
+  headOf, noteHead, userBadge, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
   isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
@@ -426,6 +426,28 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('다시 온 순번은 다시 안 그린다', read5.view.rows.length === before && before === 3, `${before} → ${read5.view.rows.length}`);
     port5.push({ seq: 4, sessionId: 'R', type: 'council.verdict', actor: { kind: 'system', id: 'council' }, data: { round: 1, member: 'M4', decision: 'done', rationale: 'r' } });
     ok('새 순번은 그린다', read5.view.rows.length === 4);
+  }
+
+  // **말풍선의 상태.** 턴을 끄는 말은 처리 중, 턴 도는 중에 온 말은 대기 중, 끝나면 없음.
+  // 큐의 말은 되살아나거나(resurfacedFrom) 모델이 지금 턴에 합치면(route_interjection append) 처리된 것.
+  {
+    const port6 = new FakeTranscript({ Q: [] });
+    const read6 = new ReadTranscript(port6);
+    read6.attach('Q');
+    const u = (seq, id, extra = {}) => port6.push({ seq, sessionId: 'Q', type: 'prompt.submitted', actor: { kind: 'user', id: 'u' }, data: { messageId: id, parts: [{ kind: 'text', text: '말 ' + id }], ...extra } });
+    u(1, 'm1');
+    const rows = () => read6.view.rows.filter((r) => r.kind === 'user').map((r) => r.status).join(',');
+    ok('첫 말은 처리 중', rows() === 'running', rows());
+    u(2, 'm2');
+    ok('턴 도는 중에 온 말은 대기 중', rows() === 'running,queued', rows());
+    port6.push({ seq: 3, sessionId: 'Q', type: 'turn.finished', actor: { kind: 'system', id: 'loop' }, data: { usage: {} } });
+    ok('턴이 끝나면 끈 말은 끝, 큐는 그대로', rows() === 'done,queued', rows());
+    u(4, 'm2r', { resurfacedFrom: 'm2' });
+    ok('되살아나면 원래 말은 끝, 되살아난 말이 처리 중', rows() === 'done,done,running', rows());
+    u(5, 'm3');
+    port6.push({ seq: 6, sessionId: 'Q', type: 'part.appended', actor: { kind: 'agent', id: 'a' }, data: { messageId: 'x', role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c', name: 'route_interjection', args: { action: 'append' } } } } });
+    ok('모델이 지금 턴에 합치면 큐의 말은 끝', rows() === 'done,done,running,done', rows());
+    ok('배지 문구', userBadge('running').kind === 'running' && userBadge('queued').text.includes('대기') && userBadge('done') === null);
   }
 
   // 델타와 완성본은 같은 말 두 번이다(같은 messageId). 둘 다 쌓으면 모델의 답이 두 번 뜨고,

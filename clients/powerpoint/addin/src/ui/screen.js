@@ -242,6 +242,13 @@ export function rowClass(r) {
  * `note` 만 줄을 들여다본다. 「사람이 아닌 배우가 넣었다」는 **배우를 밝혔을 때만** 할 수 있는
  * 말이고, 안 밝힌 줄에 그렇게 적으면 모르는 것을 아는 것처럼 적는 것이다(`Row.attributed`).
  */
+/** 사용자 말풍선에 붙는 상태 표시. 끝난 말엔 아무것도 안 붙인다. */
+export function userBadge(status) {
+  if (status === 'running') return { kind: 'running', text: '처리 중' };
+  if (status === 'queued') return { kind: 'queued', text: '대기 중 — 지금 일이 끝나면 이어서 처리합니다' };
+  return null;
+}
+
 export function headOf(r) {
   if (r.kind !== 'note') return ROW_HEAD[r.kind];
   return r.attributed ? noteHead(r.actor) : '⟳ 누가 넣었는지 안 밝힌 줄';
