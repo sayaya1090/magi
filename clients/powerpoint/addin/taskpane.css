@@ -677,6 +677,10 @@ button:disabled { cursor: default; opacity: .5; }
   position: relative;
 }
 .scroll > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+/* 「어디에 붙었나」「준비됐다」가 흐르는 영역의 첫 줄이 되면서(6fa4f06d) 위 형제가 없어 윗마진을 잃었다 —
+   `.turns` 는 제 padding(s3·s4)으로 안쪽 여백을 갖는데 이 둘은 margin 이라 첫 자리에서 판 가장자리에
+   붙었다(사용자 2026-09-05: 「주변에 마진 없는 듯」). 첫 줄이어도 같은 리듬을 준다. */
+.scroll > .where:not([hidden]) { margin-top: var(--s3); }
 /* 대화는 스크롤 영역 **안에서** 자란다 — 자기가 또 스크롤을 갖지 않는다. 두 겹이면 어느
    쪽이 움직일지 사람이 못 고른다. */
 .turns { flex: 0 0 auto; overflow: visible; }
