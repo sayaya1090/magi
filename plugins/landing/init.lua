@@ -72,9 +72,43 @@ local PLANNY = {
   "will ", "going to", "plan to", "next I", "이제 ",
 }
 
+-- 제안·안내 문장은 계획이 아니다. 「무엇을 도와드릴까요? 말씀해 주시면 진행하겠습니다」는 인사지 계획인데,
+-- 「겠습니다」 하나로 걸려 인사 턴이 되불려 왔다(실물 2026-09-06: 넛지 → 「바꾼 것 없음」 → land 두 번 거절).
+-- 그런 문장을 걷어 낸 뒤에 잰다 — 문장 단위로, 제안 어휘가 든 문장만.
+local OFFERS = {
+  "도와드리", "도와 드리", "말씀해", "말씀하시", "알려 주시", "알려주시", "필요하시", "원하시", "요청하시", "요청해 주시",
+  "시키시", "부탁하시", "let me know", "happy to help", "tell me", "how can i help", "what would you like",
+}
+local function withoutOffers(s)
+  local kept = {}
+  -- 구분자는 ASCII 만. 문자 집합에 「。」을 넣으면 그 바이트(E3 80 82)가 한글 글자 안의 바이트와 겹쳐 글자
+  -- 중간에서 잘린다 — Lua 패턴은 바이트 단위다(실측: 「도와」가 「도�」로 잘려 제안 어휘를 못 봤다).
+  local ascii = string.gsub(s or "", "。", ".")
+  for sentence in string.gmatch(ascii, "[^%.%!%?\n]+") do
+    local low = string.lower(sentence)
+    local offer = false
+    for _, w in ipairs(OFFERS) do
+      if string.find(low, w, 1, true) then offer = true break end
+    end
+    if not offer then kept[#kept + 1] = sentence end
+  end
+  return table.concat(kept, ". ")
+end
 local function looksLikePlan(s)
-  local low = string.lower(s or "")
+  local low = string.lower(withoutOffers(s))
   for _, w in ipairs(PLANNY) do
+    if string.find(low, w, 1, true) then return true end
+  end
+  return false
+end
+-- 「바꾼 것 없음」 — 정직한 무(無)는 신고다. 손잡이를 요구하면 아무것도 안 바꾼 턴은 영영 못 끝난다(실물
+-- 2026-09-06: 넛지가 「바꾼 것이 없으면 그렇게 적으라」 했는데 문이 손잡이 없다고 두 번 거절했다).
+local NOTHING = { "바꾼 것 없", "바꾼것 없", "바꾼 것이 없", "변경 없", "변경한 것 없", "변경 사항 없", "변경사항 없",
+  "수정 없", "수정한 것 없", "고친 것 없", "바꾸지 않았", "변경하지 않았", "수정하지 않았",
+  "no change", "nothing changed", "did not change", "changed nothing", "no modification" }
+local function saysNothingChanged(s)
+  local low = string.lower(s or "")
+  for _, w in ipairs(NOTHING) do
     if string.find(low, w, 1, true) then return true end
   end
   return false
@@ -176,7 +210,7 @@ magi.register_tool{
     "Declare this turn finished. A turn that only SAYS what it will do is not finished, and this",
     "is the door that tells the two apart. Call it as the last thing you do.",
     "did: what you CHANGED, one entry per thing, EACH WITH A HANDLE the reader can go",
-    "look at — a slide number or id, a file path, a shape id. \"정리했습니다\" is not an entry;",
+    "look at — a slide number or id, a sheet name and range, a file path, a shape id. \"정리했습니다\" is not an entry;",
     "\"슬라이드 7(id 269#2126229183) 표 4×3 을 넣고 대체 텍스트를 달았습니다\" is.",
     "READING IS NOT DOING: a line about list_slides, read_slide or \"확인했습니다\" belongs in",
     "verified, not here. A turn that only looked at the deck has not finished a job that asked",
@@ -185,7 +219,8 @@ magi.register_tool{
     "value came back. If you did not check, say so; an honest gap beats a claim.",
     "left: anything you did NOT do that the ask covered. Empty string if nothing.",
     "An empty or plan-shaped declaration is REFUSED and you keep going — that refusal is not an",
-    "error, it is the turn telling you it is not over.",
+    "error, it is the turn telling you it is not over. If you changed NOTHING this turn, say exactly",
+    "that as the single entry of did (\"바꾼 것 없음\") — an honest nothing is accepted; a made-up handle is not.",
     "SEEN IS PART OF DONE: this door reads the turn's own tool log. A turn that added slides",
     "(add_slides / add_slide) and looked at fewer of them than it made (render_slide) is refused —",
     "a page nobody looked at is not finished, whatever the report says.",
@@ -197,13 +232,16 @@ magi.register_tool{
   execute = function(args)
     local did = args.did or {}
     if type(did) ~= "table" or #did == 0 then
-      return "아직 끝이 아닙니다 — did 가 비었습니다. 이 턴에 실제로 바꾼 것을 손잡이(슬라이드 번호·id·경로)와 "
-        .. "함께 적으세요. 바꾼 것이 정말 없으면, 지금 하세요.", true
+      return "아직 끝이 아닙니다 — did 가 비었습니다. 이 턴에 실제로 바꾼 것을 손잡이(슬라이드 번호·id·시트와 범위·경로)와 "
+        .. "함께 적으세요. 바꾼 것이 정말 없으면 did 에 「바꾼 것 없음」 한 줄로 적으세요.", true
     end
+    local nothing = #did == 1 and saysNothingChanged(tostring(did[1]))
     local bad = {}
     for i, one in ipairs(did) do
       local s = tostring(one)
-      if not hasHandle(s) then
+      if nothing then
+        -- 정직한 무는 손잡이가 없다 — 그대로 받는다
+      elseif not hasHandle(s) then
         bad[#bad + 1] = ("%d번째 줄에 손잡이가 없습니다(«%s»)"):format(i, s)
       elseif looksLikePlan(s) then
         bad[#bad + 1] = ("%d번째 줄이 계획으로 읽힙니다(«%s»)"):format(i, s)
@@ -219,6 +257,10 @@ magi.register_tool{
     if seen then return seen, true end
     credits = credits + 1
     local left = args.left or ""
+    if nothing then
+      return "착지했습니다 — 바꾼 것 없음으로 신고했습니다" .. (left ~= "" and (" · 남긴 것: " .. left) or "")
+        .. ". 이 턴은 여기서 끝나도 됩니다."
+    end
     return ("착지했습니다 — 한 일 %d건%s. 이 턴은 여기서 끝나도 됩니다."):format(
       #did, (left ~= "" and (" · 남긴 것: " .. left) or ""))
   end,
@@ -273,9 +315,15 @@ magi.on("turn_finished", function(ev)
     credits = credits - 1
     return
   end
+  local tail = string.sub(ev.text or "", -80)
+  -- **일을 했다고도 하겠다고도 안 한 턴은 신고할 것이 없다.** 인사·되묻기·설명은 세지도 알리지도 않는다 —
+  -- 세면 「누적 34회」가 인사마다 자라고, 알리면 작업창에 인사마다 플러그인 줄이 선다(실물 2026-09-06).
+  if not claimsWork(ev.text or "") then
+    magi.log("landing: unlanded turn, no claim and no plan — not counted · tail=" .. tail)
+    return
+  end
   local misses = n(STORE_MISSES) + 1
   magi.store_set(STORE_MISSES, tostring(misses))
-  local tail = string.sub(ev.text or "", -80)
   local plan = looksLikePlan(ev.text or "")
   -- notify 는 (세션, 글) 둘이다. 글 하나만 넘기던 앞 판본은 여기서 죽었고(bad argument #2), 그 뒤의 줄은
   -- 한 번도 안 돌았다 — 실물 데몬 로그에서 봤다(2026-09-06 01:49). 시험은 알림 채널이 없어 조용히 넘어갔다;
@@ -285,13 +333,9 @@ magi.on("turn_finished", function(ev)
       :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
   end
   magi.log("landing: unlanded turn · tail=" .. tail)
-  if not claimsWork(ev.text or "") then
-    magi.log("landing: no nudge — the turn neither claimed nor planned work")
-    return
-  end
   local ok, why = nudge(ev.session, "이 턴은 `land` 없이 끝났습니다. 이 턴에 실제로 바꾼 것을 손잡이"
-    .. "(슬라이드 번호·id·경로)와 함께 `land{did, verified, left}` 로 신고하고 끝내세요. 만든 장을 아직 안 봤으면 "
-    .. "render_slide 로 본 뒤에. 바꾼 것이 정말 없으면 did 에 그렇게 적으세요."
+    .. "(슬라이드 번호·id·시트와 범위·경로)와 함께 `land{did, verified, left}` 로 신고하고 끝내세요. 만든 장이 있는데 "
+    .. "아직 안 봤으면 render_slide(엑셀은 render_range)로 본 뒤에. 바꾼 것이 정말 없으면 did 에 「바꾼 것 없음」 한 줄로 적으세요."
     .. (plan and " 마지막 말이 계획이었습니다 — 계획은 신고가 아닙니다." or ""))
   if ok then
     magi.log("landing: nudged session " .. tostring(ev.session) .. " to land (" .. nudged[ev.session] .. "/" .. NUDGE_CAP .. ")")

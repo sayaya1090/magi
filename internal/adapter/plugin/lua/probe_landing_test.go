@@ -166,11 +166,17 @@ func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
 	}
 	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
 
-	// 인사말 턴은 되부르지 않는다 — 신고할 일이 없다.
-	h.FireEventWith("turn_finished", map[string]string{"session": "s9", "text": "안녕하세요! 무엇을 도와드릴까요?"})
+	// 인사말 턴은 되부르지도, 세지도, 알리지도 않는다 — 신고할 일이 없다. 「말씀해 주시면 진행하겠습니다」는
+	// 제안이지 계획이 아니다(실물 2026-09-06: 「겠습니다」 하나로 인사가 되불려 와 land 가 두 번 거절됐다).
+	h.FireEventWith("turn_finished", map[string]string{"session": "s9",
+		"text": "안녕하세요! 무엇을 도와드릴까요? 시트 이름을 말씀해 주시면 바로 진행하겠습니다."})
 	h.DrainEvents(5 * time.Second)
 	if _, err := os.Stat(got); err == nil {
-		t.Fatal("인사말 턴을 되불렀다")
+		body, _ := os.ReadFile(got)
+		t.Fatalf("인사말 턴을 되불렀다:\n%s\nlog: %s", body, log.String())
+	}
+	if len(notes) != 0 {
+		t.Fatalf("인사말 턴을 알렸다: %v", notes)
 	}
 	for i := 0; i < 3; i++ {
 		h.FireEventWith("turn_finished", map[string]string{"session": "s9", "text": "정리했습니다."})
@@ -190,10 +196,35 @@ func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
 	if !strings.Contains(log.String(), "nudged session s9 to land (2/2)") || !strings.Contains(log.String(), "no nudge") {
 		t.Errorf("로그가 넛지와 cap 을 안 적는다: %s", log.String())
 	}
-	if len(notes) != 4 || !strings.HasPrefix(notes[0], "s9: landing:") {
-		t.Errorf("알림이 (세션, 글)로 네 번 가야 한다: %v", notes)
+	if len(notes) != 3 || !strings.HasPrefix(notes[0], "s9: landing:") {
+		t.Errorf("알림이 (세션, 글)로 세 번 가야 한다(일을 했다고 한 턴만): %v", notes)
 	}
 	if strings.Contains(log.String(), "bad argument") {
 		t.Errorf("처리기가 죽었다: %s", log.String())
+	}
+}
+
+// **정직한 무(無)는 신고다.** 손잡이를 요구하기만 하면 아무것도 안 바꾼 턴은 영영 못 끝난다 — 실물에서
+// 넛지가 「바꾼 것이 없으면 그렇게 적으라」 했는데 문이 손잡이가 없다고 두 번 거절했다(2026-09-06, 엑셀
+// 작업창의 인사 턴). 「바꾼 것 없음」 한 줄은 지나가고, 손잡이 없는 「정리했습니다」는 여전히 막힌다.
+func TestProbeLandingAcceptsAnHonestNothing(t *testing.T) {
+	reg := builtin.NewRegistry()
+	log := &syncLog{}
+	loadLanding(t, reg, log)
+	tool, _ := reg.Get("land")
+	wd := t.TempDir()
+
+	got, isErr := execTool(t, tool, `{"did":["바꾼 것 없음 — 인사에만 답했습니다"]}`, wd)
+	if isErr || !strings.Contains(got, "바꾼 것 없음") {
+		t.Errorf("정직한 무를 거절했다: %s", got)
+	}
+	got, isErr = execTool(t, tool, `{"did":["No change — only answered a greeting"],"left":""}`, wd)
+	if isErr {
+		t.Errorf("영어 무를 거절했다: %s", got)
+	}
+	// 무와 소감을 섞으면 소감이 걸린다 — 무는 **한 줄일 때만** 무다.
+	got, isErr = execTool(t, tool, `{"did":["바꾼 것 없음","표지를 정리했습니다"]}`, wd)
+	if !isErr {
+		t.Errorf("무 옆의 손잡이 없는 줄을 받아 줬다: %s", got)
 	}
 }
