@@ -239,6 +239,18 @@ if not councilOwnsTheDoor then
 --
 -- 한 대화에 **두 번까지**. 넛지를 받은 턴이 또 land 없이 끝나면 한 번 더, 그 다음은 사람 몫이다 —
 -- 카운슬의 declareAskCap 과 같은 생각이고, 끝없이 되부르는 것은 판이 안 끝나는 것으로 보인다.
+-- 인사말에는 안 되부른다. 「하이」에 「무엇을 도와드릴까요」로 답한 턴은 신고할 일이 없다 — 되부르면 그 판은
+-- 인사마다 두 턴을 돈다. 되부르는 것은 **일을 했다고 하거나 하겠다고 한** 턴뿐이다: 계획으로 읽히거나
+-- (looksLikePlan), 바꿨다는 말이 있거나(아래 CLAIMY). 둘 다 아니면 알림·집계만 하고 넘어간다.
+local CLAIMY = { "만들었", "넣었", "바꿨", "고쳤", "추가했", "수정했", "삭제했", "지웠", "정리했", "적용했", "완료", "끝냈",
+  "반영했", "옮겼", "채웠", "작성했", "생성했", "배치했", "맞췄", "줄였", "키웠" }
+local function claimsWork(s)
+  if looksLikePlan(s) then return true end
+  for _, w in ipairs(CLAIMY) do
+    if string.find(s or "", w, 1, true) then return true end
+  end
+  return false
+end
 local NUDGE_MARK = "⟦landing⟧"
 local NUDGE_CAP = 2
 local nudged = {}   -- session → 이 대화에서 보낸 넛지 수
@@ -268,6 +280,10 @@ magi.on("turn_finished", function(ev)
   magi.notify(("landing: 이 턴은 `land` 없이 끝났습니다 — 한 일 신고가 없습니다%s (누적 %d회)")
     :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
   magi.log("landing: unlanded turn · tail=" .. tail)
+  if not claimsWork(ev.text or "") then
+    magi.log("landing: no nudge — the turn neither claimed nor planned work")
+    return
+  end
   local ok, why = nudge(ev.session, "이 턴은 `land` 없이 끝났습니다. 이 턴에 실제로 바꾼 것을 손잡이"
     .. "(슬라이드 번호·id·경로)와 함께 `land{did, verified, left}` 로 신고하고 끝내세요. 만든 장을 아직 안 봤으면 "
     .. "render_slide 로 본 뒤에. 바꾼 것이 정말 없으면 did 에 그렇게 적으세요."

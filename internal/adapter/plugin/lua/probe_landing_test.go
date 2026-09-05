@@ -163,6 +163,12 @@ func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
 	}
 	t.Cleanup(func() { h.DrainEvents(5 * time.Second) })
 
+	// 인사말 턴은 되부르지 않는다 — 신고할 일이 없다.
+	h.FireEventWith("turn_finished", map[string]string{"session": "s9", "text": "안녕하세요! 무엇을 도와드릴까요?"})
+	h.DrainEvents(5 * time.Second)
+	if _, err := os.Stat(got); err == nil {
+		t.Fatal("인사말 턴을 되불렀다")
+	}
 	for i := 0; i < 3; i++ {
 		h.FireEventWith("turn_finished", map[string]string{"session": "s9", "text": "정리했습니다."})
 		h.DrainEvents(5 * time.Second)
