@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/port"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // OS implements port.Platform for the host operating system.
@@ -34,6 +35,9 @@ func (OS) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
 	// which corrupts the display. stdin stays /dev/null when unset, so tty-less
 	// prompts fail fast rather than hang. No-op on Windows.
 	detach(cmd)
+	// And no window for it either, when we have none ourselves (the detached daemon) —
+	// `git status` ran on every turn and blinked a console each time (2026-09-06).
+	quietconsole.Apply(cmd)
 	stdout := &capWriter{limit: c.MaxOutput}
 	stderr := &capWriter{limit: c.MaxOutput}
 	cmd.Stdout = stdout

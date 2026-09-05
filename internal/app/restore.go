@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // Putting a failed child's work back.
@@ -203,6 +204,7 @@ func gitAvailable(workdir string) bool {
 	}
 	cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
 	cmd.Dir = workdir
+	quietconsole.Apply(cmd)
 	out, err := cmd.Output()
 	return err == nil && strings.TrimSpace(string(out)) == "true"
 }
@@ -212,5 +214,6 @@ func gitAvailable(workdir string) bool {
 func gitCheckoutPath(ctx context.Context, workdir, rel string) error {
 	cmd := exec.CommandContext(ctx, "git", "checkout", "--", rel)
 	cmd.Dir = workdir
+	quietconsole.Apply(cmd)
 	return cmd.Run()
 }

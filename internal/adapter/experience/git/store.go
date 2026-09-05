@@ -20,6 +20,7 @@ import (
 	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/core/embed"
 	"github.com/sayaya1090/magi/internal/port"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // Same is what decides whether a record already held says the thing a new one says. Optional: with
@@ -331,8 +332,11 @@ func (s *Store) gitCommit(ctx context.Context, msg string) {
 	if _, err := os.Stat(filepath.Join(s.dir, ".git")); err != nil {
 		return
 	}
-	_ = exec.CommandContext(ctx, "git", "-C", s.dir, "add", ".").Run()
-	_ = exec.CommandContext(ctx, "git", "-C", s.dir, "commit", "-m", msg).Run()
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", msg}} {
+		cmd := exec.CommandContext(ctx, "git", append([]string{"-C", s.dir}, args...)...)
+		quietconsole.Apply(cmd) // a console-less daemon must not blink a window per commit
+		_ = cmd.Run()
+	}
 }
 
 // ---- helpers ----

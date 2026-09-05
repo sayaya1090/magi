@@ -2,6 +2,7 @@ package builtin
 
 import (
 	"context"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 	"os"
 	"os/exec"
 	"regexp"
@@ -58,7 +59,9 @@ var pgrepHitsUs = func(flags []string, pattern string) (hit, ok bool) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, path, args...).Output()
+	probe := exec.CommandContext(ctx, path, args...)
+	quietconsole.Apply(probe)
+	out, err := probe.Output()
 	if ctx.Err() != nil {
 		return false, false
 	}

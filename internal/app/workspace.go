@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -170,6 +171,7 @@ func applyPatch(ctx context.Context, dir, patch string) error {
 		return nil
 	}
 	cmd := exec.CommandContext(ctx, "git", "apply", "--whitespace=nowarn", "-")
+	quietconsole.Apply(cmd)
 	cmd.Dir = dir
 	cmd.Stdin = strings.NewReader(patch)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -181,6 +183,7 @@ func applyPatch(ctx context.Context, dir, patch string) error {
 // gitRun runs one git command in dir and returns its combined output.
 func gitRun(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
+	quietconsole.Apply(cmd)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -223,6 +226,7 @@ func (a *App) MergeChildWork(ctx context.Context, parentDir, workspace, base, he
 		args = []string{"apply", "--whitespace=nowarn", "-"}
 	}
 	cmd := exec.CommandContext(ctx, "git", args...)
+	quietconsole.Apply(cmd)
 	cmd.Dir = parentDir
 	cmd.Stdin = strings.NewReader(patch)
 	if out, err := cmd.CombinedOutput(); err != nil {

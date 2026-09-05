@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/sayaya1090/magi/internal/port"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // ToolSink is the subset of a tool registry the manager needs (satisfied by
@@ -82,6 +83,7 @@ func (m *Manager) AddStdio(ctx context.Context, name, command string, args, env 
 		}
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
+	quietconsole.Apply(cmd) // an MCP server is usually a console program; no window for it
 	if len(env) > 0 {
 		cmd.Env = append(cmd.Environ(), env...)
 	}

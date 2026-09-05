@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 	"io"
 	"os/exec"
 	"path/filepath"
@@ -131,6 +132,7 @@ func startLSP(ctx context.Context, srv lspServer, workdir string) (*lspClient, e
 		return nil, fmt.Errorf("%s is not installed (needed for LSP navigation of this language)", srv.argv[0])
 	}
 	cmd := exec.CommandContext(ctx, srv.argv[0], srv.argv[1:]...)
+	quietconsole.Apply(cmd)
 	cmd.Dir = workdir
 	in, err := cmd.StdinPipe()
 	if err != nil {

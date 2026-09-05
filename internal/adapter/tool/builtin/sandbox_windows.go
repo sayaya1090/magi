@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"github.com/sayaya1090/magi/internal/port"
+	"github.com/sayaya1090/magi/internal/quietconsole"
 )
 
 // killCmdTree force-terminates the command AND every descendant it spawned. Windows'
@@ -26,7 +27,9 @@ func killCmdTree(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
-	return exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid)).Run()
+	kill := exec.Command("taskkill", "/T", "/F", "/PID", strconv.Itoa(cmd.Process.Pid))
+	quietconsole.Apply(kill) // taskkill is a console program too — it blinked a window of its own
+	return kill.Run()
 }
 
 // Windows has no CLI sandbox wrapper (unlike macOS sandbox-exec / Linux bwrap),
@@ -44,7 +47,12 @@ func SandboxWrap(spec port.SandboxSpec, argv []string) ([]string, bool) { return
 // reached the redirected file. So the console is left attached; the timeout tree-kill bounds any
 // hang, and truly interactive programs go through the explicit pty path (background+pty=true).
 // A sandbox Token, when present, is left intact.
-func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return attr }
+//
+// What it DOES do now: when magi itself has no console (the daemon the PowerPoint helper starts
+// detached), the child gets an invisible console instead of a new visible one — the black window
+// that blinked on every shell tool call (2026-09-06, internal/quietconsole). CREATE_NO_WINDOW, not
+// DETACHED_PROCESS: the child still has a console, and redirected output still reaches the pipes.
+func detachTTY(attr *syscall.SysProcAttr) *syscall.SysProcAttr { return quietconsole.Attr(attr) }
 
 // killGroup is a no-op on Windows: there is no POSIX process-group signalling, and
 // the background command's context-cancel already terminates its process. Callers

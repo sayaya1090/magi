@@ -691,6 +691,17 @@ GUID, 애니메이션 by-level, 배경. 차트의 품은 통합 문서도 열린
 `smoke-hand.mjs` 가 그 문장이 손·화면 구분을 안 말하는지, 못 물은 것을 「없다」로 안 읽는지(비-200·칸
 없음·던짐)를 문다 — `=== false` 를 `!== true` 로 바꾸면 셋이 빨개진다.
 
+**설치기로 깔고 써 보니 검은 창이 깜빡였다(2026-09-06, 사용자).** 메시지를 보내는 동안 새로 뜨는 프로세스를
+250ms 마다 훑어 잡았다: `powershell -NoProfile -Command "echo hello"`(부모 magi.exe)가 **창 핸들 1574678** 로
+떴다. 매 턴의 `git status --porcelain=v2` 도 같은 길이다. 헬퍼가 띄운 데몬은 `--detach`(콘솔 없음)라, 콘솔
+자식마다 Windows 가 새 창을 연다 — 터미널에서 띄운 magi 는 자식이 그 터미널을 물려받아 안 보였던 것이다.
+고침: `internal/quietconsole` — magi 에게 콘솔 창이 없을 때만 자식에 `CREATE_NO_WINDOW`. `DETACHED_PROCESS` 가
+아니다(그건 출력 캡처를 깨뜨렸다고 `sandbox_windows.go` 가 적어 뒀다). 스폰 자리 아홉 곳에 붙였다(셸 도구
+셋·taskkill·git 넷·MCP·LSP). 시험: 콘솔이 없으면 플래그가 붙고 샌드박스 토큰이 남는지, 있으면 아무것도 안
+바꾸는지, 그리고 **숨긴 콘솔로 띄운 진짜 powershell 의 출력이 파이프로 돌아오는지**. 고친 뒤 실측: 같은 자식이
+`Start-Sleep 4` 동안 살아 있는데 창 핸들 0. 같은 날 `internal/app` 의 `TestWhatThisSessionBuiltIsNotAskedAbout` 가
+빨간데, 내 변경을 걷어내도 빨갛다 — 이 머신의 기존 실패다.
+
 **여기서 배운 것:** 손이 둘이면 계약도 둘이 되고, 그 갈라짐은 **양쪽을 다 돌려 봐야만** 보인다.
 `hand_com_parity_test.go` 가 도구 **이름**의 차집합은 잰다. **답의 칸 이름은 아무도 안 잰다.**
 
