@@ -1137,6 +1137,7 @@ export class OfficeHand extends HandPort {
       // 모델은 그 둘을 하나로 쓰려 했다 — `add_shape{fill, color, bold, size, align}` 을 보냈고
       // 세 번 거절당한 뒤 그 도형을 포기했다(2026-09-04). 만드는 문이 받으면 그 왕복이 아예
       // 안 생긴다. `format_shape` 는 그대로 있다 — **이미 있는 것을 고치는 일**은 여기서 못 한다.
+      const overlap = await this.#overlapNote(context, slide, options, shape.id);
       const dressed = [];
       try {
         if (args.fill) { shape.fill.setSolidColor(String(args.fill).replace('#', '')); dressed.push(`채움 ${args.fill}`); }
@@ -1171,7 +1172,7 @@ export class OfficeHand extends HandPort {
       this.#mutated();
       return this.#envelope({ slide_id: slide.id, shape_id: shape.id, styled: dressed },
         [`슬라이드 ${slide.id}: ${kind} 도형 ${shape.id} 추가${args.text ? `("${args.text}")` : ''}`
-          + (dressed.length ? ` · ${dressed.join(' · ')}` : '')]);
+          + (dressed.length ? ` · ${dressed.join(' · ')}` : '') + overlap]);
     });
   }
 
@@ -1971,8 +1972,10 @@ export class OfficeHand extends HandPort {
       // 불러야 하고, 실물에서는 그 왕복을 아무도 안 했다(2026-09-04: 여덟 장 IR 덱에서 `bullet`
       // 인자 0회). 사람이 본 것은 「불릿이 왜 남아있냐」는 화면이다. 쓸 때 같이 정하면 그 왕복이
       // 아예 안 생긴다.
-      if (args.bullet !== undefined || args.bullet_type !== undefined
-        || args.bullet_style !== undefined) {
+      // 글머리 기호는 **본문에만**. 앞 판본은 제목 자리에도 걸어 「• 300억 원 시리즈 B 유치」가
+      // 제목으로 섰다(2026-09-05 실물, 렌더로 봤다). 제목의 기호는 사람이 부탁한 적이 없다.
+      if (w.role === 'body' && (args.bullet !== undefined || args.bullet_type !== undefined
+        || args.bullet_style !== undefined)) {
         try {
           const bf = hit.textFrame.textRange.paragraphFormat.bulletFormat;
           if (args.bullet !== undefined) bf.visible = Boolean(args.bullet);
@@ -2136,6 +2139,7 @@ export class OfficeHand extends HandPort {
       slides.load('items/id,items/index');
       await context.sync();
       const before = slides.items.map((s) => s.id);
+      const originalId = slide.id;
 
       context.presentation.insertSlidesFromBase64(toBase64(zipStore(shipped)),
         { targetSlideId: slide.id });
@@ -2176,8 +2180,11 @@ export class OfficeHand extends HandPort {
         + '**「데이터 편집」은 안 열립니다**(품은 표가 없습니다) — 숫자를 고치려면 이 도구로 다시 만드세요.',
       // **번호가 밀렸다고 말한다.** `delete_slide` 는 이 말을 하는데 넣는 쪽은 안 했다.
       // 목차를 들고 있던 모델은 그 뒤로 한 칸씩 틀린 자리에 글을 쓴다(리뷰, 2026-09-03).
-      `이 장 뒤에 끼워 넣었으므로 ${(made.index ?? 0) + 1} 번 뒤의 번호는 전부 하나씩 밀렸습니다 — `
-        + '들고 있던 목차가 있으면 다시 읽으세요.']);
+      fresh
+        ? `새 장으로 ${(made.index ?? 0) + 1} 번에 끼워 넣었으므로 그 뒤의 번호는 전부 하나씩 밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.`
+        // 앞 판본은 여기서도 「번호가 밀렸다」고 했다 — 장을 다시 지어 제자리에 넣고 원본을 지우므로
+        // 번호는 그대로고 id 만 바뀐다. 모델이 그 말을 믿고 목차를 다시 읽는 왕복을 썼다(2026-09-05).
+        : `이 장은 다시 지어졌으므로 **id 가 ${originalId} 에서 ${made.id} 로 바뀌었습니다** — 번호(${(made.index ?? 0) + 1})는 그대로입니다.`]);
     });
   }
 
@@ -2281,6 +2288,7 @@ export class OfficeHand extends HandPort {
       slides.load('items/id,items/index');
       await context.sync();
       const before = slides.items.map((s) => s.id);
+      const originalId = slide.id;
 
       context.presentation.insertSlidesFromBase64(toBase64(zipStore(shipped)),
         { targetSlideId: slide.id });
@@ -2314,8 +2322,9 @@ export class OfficeHand extends HandPort {
       if (!said && !fit.kept) {
         lines.push('원래 크기를 못 읽어 비율을 못 맞췄습니다 — 찌그러져 보이면 크기를 짚어 주세요');
       }
-      lines.push(`이 장 뒤에 끼워 넣었으므로 ${(made.index ?? 0) + 1} 번 뒤의 번호는 전부 `
-        + '하나씩 밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.');
+      lines.push(fresh
+        ? `새 장으로 ${(made.index ?? 0) + 1} 번에 끼워 넣었으므로 그 뒤의 번호는 전부 하나씩 밀렸습니다 — 들고 있던 목차가 있으면 다시 읽으세요.`
+        : `이 장은 다시 지어졌으므로 **id 가 ${originalId} 에서 ${made.id} 로 바뀌었습니다** — 번호(${(made.index ?? 0) + 1})는 그대로입니다.`);
       return this.#envelope({
         slide: (made.index ?? 0) + 1,
         slide_id: made.id,
@@ -2485,8 +2494,9 @@ export class OfficeHand extends HandPort {
       await context.sync();
       this.#mutated();
       const said = color + (opts.transparency ? ` (투명도 ${opts.transparency})` : '');
+      const dim = await this.#contrastNote(context, slide, color);
       return this.#envelope({ slide_id: slide.id, background: color, transparency: opts.transparency ?? 0 },
-        [`슬라이드 배경을 ${said} 로 칠했습니다 (${slide.id})`]);
+        [`슬라이드 배경을 ${said} 로 칠했습니다 (${slide.id})${hid}${dim}`]);
     });
   }
 
@@ -3375,7 +3385,8 @@ export class OfficeHand extends HandPort {
       await context.sync();
       this.#mutated();
       const banded = await this.#styleTable(context, shape, { ...args, __styledAtCreate: true });
-      const warn = (note ? ` · ⚠ ${note}` : '') + (banded.length ? ` · ${banded.join(' · ')}` : '');
+      const overlap = await this.#overlapNote(context, slide, options, shape.id);
+      const warn = (note ? ` · ⚠ ${note}` : '') + (banded.length ? ` · ${banded.join(' · ')}` : '') + overlap;
       const dup = already.length
         ? ` · ⚠ 이 장에는 이미 표가 ${already.length}개 있습니다(${already.map((t) => t.id).join(', ')}) — `
           + '고치려던 것이면 그 표를 replace_table 로 바꾸거나 set_table_cells 로 글만 채우세요'
@@ -3805,6 +3816,37 @@ export class OfficeHand extends HandPort {
       return this.#envelope({ slide_id: slide.id, ungrouped: args.shape_id },
         [`슬라이드 ${slide.id}: 그룹 ${args.shape_id} 을 풀었습니다 — 구성 도형의 id 는 read_slide 로 보세요`]);
     });
+  }
+
+  /**
+   * 새로 놓은 상자가 **이미 있는 도형과 겹치는가** — 좌표로 센다. §7 「도형이 겹쳤는가」는 눈으로
+   * 보라고 했는데, 겹침은 셈이 된다. 실물(2026-09-05): 표를 (480,160) 에 놓아 본문 자리표시자를
+   * 반쯤 덮었고, 모델은 답에 「추가」만 듣고 넘어갔다. 겹치는 도형의 이름을 대어 돌려준다.
+   */
+  async #overlapNote(context, slide, rect, exceptId) {
+    try {
+      slide.shapes.load('items/id,items/name,items/left,items/top,items/width,items/height');
+      await context.sync();
+    } catch { return ''; }
+    const hits = (slide.shapes.items ?? []).filter((sh) => sh.id !== exceptId && overlaps(rect, sh));
+    if (hits.length === 0) return '';
+    return ` · ⚠ 겹칩니다: ${hits.map((sh) => `${sh.name ?? sh.id}(${sh.id})`).join(', ')} — 자리를 옮기거나 그 도형을 줄이세요`;
+  }
+
+  /**
+   * 배경색이 이 장의 글자색과 **너무 가까운가**. 실물(2026-09-05): 배경을 dark1 로 칠했는데 글자도
+   * dark1 이라 표지가 통째로 안 보였다 — 도구는 시킨 대로 했고 답에는 아무 말이 없었다.
+   */
+  async #contrastNote(context, slide, bg) {
+    try {
+      slide.shapes.load('items/id,items/name,items/type');
+      await context.sync();
+      const fonts = (slide.shapes.items ?? []).map((sh) => { try { const f = sh.textFrame.textRange.font; f.load('color'); return { sh, f }; } catch { return null; } }).filter(Boolean);
+      await context.sync();
+      const low = fonts.filter(({ f }) => typeof f.color === 'string' && contrastRatio(f.color, bg) < 3);
+      if (low.length === 0) return '';
+      return ` · ⚠ 글자가 안 보일 수 있습니다: ${low.map(({ sh, f }) => `${sh.name ?? sh.id}(${f.color})`).join(', ')} 의 글자색이 배경 ${bg} 와 대비 3:1 미만입니다 — apply_style/format_shape 로 글자색을 바꾸세요`;
+    } catch { return ''; }
   }
 
   #setCells(args) {
@@ -4447,4 +4489,27 @@ export function mergedAreasOf(list) {
     rowIndex: Number(m.row ?? 0), columnIndex: Number(m.column ?? 0),
     rowCount: Number(m.rows ?? 1), columnCount: Number(m.columns ?? 1),
   }));
+}
+
+/** 두 사각형이 겹치는가 — 변이 닿기만 한 것은 겹침이 아니다. */
+export function overlaps(a, b) {
+  const n = (v) => Number(v ?? 0);
+  if (![a.left, a.top, a.width, a.height, b.left, b.top, b.width, b.height].every((v) => Number.isFinite(n(v)))) return false;
+  return n(a.left) < n(b.left) + n(b.width) && n(b.left) < n(a.left) + n(a.width)
+    && n(a.top) < n(b.top) + n(b.height) && n(b.top) < n(a.top) + n(a.height);
+}
+
+/** WCAG 대비율. #RRGGBB 가 아니면 21(= 모른다, 경고하지 않는다). */
+export function contrastRatio(fg, bg) {
+  const lum = (hex) => {
+    const m = /^#?([0-9a-f]{6})$/i.exec(String(hex ?? '').trim());
+    if (!m) return null;
+    const c = [0, 2, 4].map((i) => parseInt(m[1].slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const a = lum(fg); const b = lum(bg);
+  if (a === null || b === null) return 21;
+  const [hi, lo] = a > b ? [a, b] : [b, a];
+  return (hi + 0.05) / (lo + 0.05);
 }

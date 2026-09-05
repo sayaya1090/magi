@@ -9,7 +9,7 @@
 // 시험에서 초록**이고 진짜 호스트에서만 죽는다 — 그게 이 목업이 못 잡는 결함의 대표 모양이라
 // 여기서만이라도 문다.
 import { readFileSync } from 'node:fs';
-import { OfficeHand, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
+import { OfficeHand, overlaps, contrastRatio, pickPart, placeShapes, pilesUp, addressesTheTool, noticeOf, asParagraphs, withoutBulletMarks, isSlot, geometryOf } from '../src/adapter/OfficeHand.js';
 import { zipStore, toBase64, crc32 } from '../src/adapter/zipwrite.js';
 import { withEastAsianFont, eastAsianRuns } from '../src/adapter/eaxml.js';
 import { chartPart, chartFrame, chartKind, withRelationship, withContentType, withFrame, xmlText, freeChartName, freeRelId, freeImageName, withDefaultType, picFrame, fitBox, bareSpTree, freeShapeId, withoutNotes, colName } from '../src/adapter/chartxml.js';
@@ -2133,6 +2133,17 @@ async function makeZip(files) {
     ok('짚은 장 바로 뒤에 놓았다고 답한다', out.result.slide === 3, String(out.result.slide));
     ok('뒤 번호가 밀렸다고 말한다', out.changed.some((c) => c.includes('밀렸습니다')),
       JSON.stringify(out.changed));
+  }
+
+  {
+    // 제자리에 다시 지은 장(new_slide 없음)은 번호가 **그대로**다 — 「밀렸다」고 말하면 거짓이고,
+    // 모델이 그 말을 믿고 목차를 다시 읽는 왕복을 썼다(2026-09-05 실물 두 덱).
+    const [hand] = handOn(deckWith({}));
+    const out = await hand.run('add_chart', {
+      slide: 2, kind: 'bar', categories: ['a'], series: [{ name: 's', values: [1] }],
+    });
+    const said = out.changed.join(' ');
+    ok('제자리에 다시 지은 장은 「번호 그대로, id 바뀜」이라고 말한다', said.includes('그대로') && said.includes('id 가') && !said.includes('밀렸'), said);
   }
 
   // **기본은 짚은 장에 넣는 것이다.**
@@ -4379,6 +4390,48 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('마스터 그래픽 숨김이 같이 간다', log.includes('bg-graphics-hidden:s1:true') && out.changed.join(' ').includes('숨김'), out.changed.join(' '));
   const nob = await threw(() => hand.run('set_background', { slide: 1, kind: 'picture', path: '/tmp/x.png' }));
   ok('바이트 없이 오면 헬퍼 길을 가리키며 거절', nob?.includes('헬퍼'), String(nob));
+}
+
+// ── 2026-09-05 함수 단위 점검에서 나온 넷 ────────────────────────────────────────
+{
+  ok('겹침: 변이 닿기만 하면 아니다', !overlaps({ left: 0, top: 0, width: 10, height: 10 }, { left: 10, top: 0, width: 10, height: 10 }));
+  ok('겹침: 한 점이라도 안쪽이면 맞다', overlaps({ left: 0, top: 0, width: 10, height: 10 }, { left: 9, top: 9, width: 10, height: 10 }));
+  ok('대비: 같은 색은 1', Math.abs(contrastRatio('#0F172A', '#0F172A') - 1) < 0.01, String(contrastRatio('#0F172A', '#0F172A')));
+  ok('대비: 흰 바탕에 검정은 21', Math.abs(contrastRatio('#000000', '#FFFFFF') - 21) < 0.01);
+  ok('대비: 모르는 색은 경고하지 않는다(21)', contrastRatio('accent1', '#000000') === 21);
+}
+
+{
+  // 글머리 기호는 본문에만 — 제목에 「•」가 서지 않는다.
+  const log = [];
+  const deck = model();
+  deck.masters = [{ id: 'm1', name: '기본', layouts: [{ id: 'l-body', name: '제목 및 내용', placeholders: ['Title', 'Content'] }] }];
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  await hand.run('add_slides', { slides: [{ title: '로드맵', body: '첫째\n둘째', bullet: true }], match_style: false });
+  const bullets = log.filter((l) => l.startsWith('bullet:'));
+  ok('본문 자리에는 기호를 건다', bullets.some((l) => /bullet:ph\d+-1:true/.test(l)), bullets.join(' '));
+  ok('제목 자리에는 안 건다', !bullets.some((l) => /bullet:ph\d+-0:/.test(l)), bullets.join(' '));
+}
+
+
+{
+  // 새 상자가 있는 도형을 덮으면 이름을 대고 알린다.
+  const hand = new OfficeHand({ run: stubRunner(model(), []), supports: () => true });
+  const out = await hand.run('add_shape', { slide: 1, kind: 'rectangle', left: 12, top: 22, width: 50, height: 30 });
+  ok('겹치는 도형의 이름을 댄다', out.changed.join(' ').includes('겹칩니다') && out.changed.join(' ').includes('sh1'), out.changed.join(' '));
+  const far = await hand.run('add_shape', { slide: 1, kind: 'rectangle', left: 900, top: 900, width: 50, height: 30 });
+  ok('안 겹치면 조용하다', !far.changed.join(' ').includes('겹칩니다'), far.changed.join(' '));
+}
+
+{
+  // 배경색이 글자색과 같으면 안 보인다고 말한다.
+  const deck = model();
+  deck.slides[0].shapes[0].font = { name: 'Arial', size: 44, color: '#0F172A' };
+  const hand = new OfficeHand({ run: stubRunner(deck, []), supports: () => true });
+  const out = await hand.run('set_background', { slide: 1, color: '#0F172A' });
+  ok('대비 3:1 미만이면 도형 이름과 색을 대고 경고', out.changed.join(' ').includes('안 보일 수 있습니다') && out.changed.join(' ').includes('#0F172A'), out.changed.join(' '));
+  const fine = await hand.run('set_background', { slide: 1, color: '#FFFFFF' });
+  ok('대비가 충분하면 조용하다', !fine.changed.join(' ').includes('안 보일'), fine.changed.join(' '));
 }
 
 console.log(failed ? `${failed} 실패` : '전부 통과');
