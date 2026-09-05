@@ -41,7 +41,7 @@ export class SendTurn {
    * @param {{userRows:number, live:boolean}} log 지금 로그에서 보이는 것. `live` 는 필수다.
    * @returns {Promise<{sent:boolean, why?:string, blind?:boolean, error?:Error}>}
    */
-  async run(text, { userRows = 0, live } = {}) {
+  async run(text, { userRows = 0, live, empty = false } = {}) {
     if (!this.composer.canSend(text)) {
       return { sent: false, why: this.composer.waiting ? 'waiting' : 'empty' };
     }
@@ -53,7 +53,11 @@ export class SendTurn {
       return { sent: false, why: 'failed', error: e };
     }
     // 스트림이 죽어 있으면 메아리가 올 곳이 없다. 잠근 채 두면 사람이 갇힌다.
-    if (!live) { this.composer.release(); return { sent: true, blind: true }; }
+    // **아직 빈 대화는 눈먼 보내기가 아니다.** 코어는 첫 말이 올 때 대화를 낳으므로 첫 보내기는
+    // 언제나 스트림이 아직 안 산 상태에서 나간다 — 그 말이 곧 스트림을 살린다. 실물 2026-09-05:
+    // 새 대화의 첫 보내기마다 「대화 기록을 못 읽고 있어 갔는지 확인은 못 합니다」가 떴다.
+    // 죽은 스트림(끊김)일 때만 눈먼 보내기다.
+    if (!live && !empty) { this.composer.release(); return { sent: true, blind: true }; }
     return { sent: true, blind: false };
   }
 
@@ -84,8 +88,8 @@ export class SendTurn {
 export function logShapeOf(view) {
   // 읽는 유스케이스가 아예 없는 판(문에 안 붙었다). **읽는 중이 아니다** — 눈감고 보내는
   // 쪽으로 가야 사람이 안 갇힌다.
-  if (!view) return { userRows: 0, live: false };
-  return { userRows: view.rows.filter((r) => r.kind === 'user').length, live: view.live };
+  if (!view) return { userRows: 0, live: false, empty: false };
+  return { userRows: view.rows.filter((r) => r.kind === 'user').length, live: view.live, empty: view.empty === true };
 }
 
 /**

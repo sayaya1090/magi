@@ -842,6 +842,15 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('둘째 인자가 통째로 없어도 마찬가지다',
     r6.blind === true && comp6.waiting === false);
 
+  // **아직 빈 대화는 눈먼 보내기가 아니다.** 코어는 첫 말이 올 때 대화를 낳으므로 첫 보내기는 늘
+  // 스트림이 아직 안 산 채로 나가고, 그 말이 스트림을 살린다. 실물 2026-09-05: 새 대화의 첫
+  // 보내기마다 「갔는지 확인은 못 합니다 — 적은 글은 그대로 뒀습니다」가 떴다.
+  const compE = new Composer();
+  const rE = await new SendTurn(chat, compE).run('첫 말', { userRows: 0, live: false, empty: true });
+  ok('빈 대화의 첫 보내기는 눈먼 보내기가 아니다', rE.sent === true && rE.blind === false && compE.waiting === true, JSON.stringify(rE));
+  ok('빈 대화라도 끊긴 것이면 눈먼 보내기다', (await new SendTurn(chat, new Composer()).run('x', { live: false, empty: false })).blind === true);
+  ok('logShapeOf 가 empty 를 나른다', logShapeOf({ rows: [], live: false, empty: true }).empty === true && logShapeOf(null).empty === false);
+
   // 문이 던지면 잠금을 푼다. 삼키면 사람은 간 줄 안다.
   const boom3 = new Error('문이 닫혔습니다');
   const bad = { async submit() { throw boom3; } };
