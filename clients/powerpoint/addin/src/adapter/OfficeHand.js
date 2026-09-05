@@ -129,17 +129,35 @@ export class OfficeHand extends HandPort {
    * `getActiveSlideOrNullObject` 는 프리뷰라 안 쓴다).
    */
   async #slide(context, args) {
+    // 없는 장은 **이름을 대고** 거절한다. 호스트의 말은 `GeneralException — SlideCollection.getItemAt`
+    // 뿐이라, 사람이 장을 지운 뒤 모델이 옛 번호로 여섯 번을 내리 부르는 것을 봤다(2026-09-05 12:07,
+    // 실패 15건 중 14건). 지금 몇 장인지와 목차를 다시 읽으라는 말이 그 여섯 번을 한 번으로 만든다.
+    const missing = async (what, e) => {
+      let n = null;
+      try {
+        const all = context.presentation.slides;
+        all.load('items/id');
+        await context.sync();
+        n = all.items.length;
+      } catch { /* 셀 수 없으면 수 없이 말한다 */ }
+      return new Error(`${what} — 이 덱은 지금 ${n === null ? '?' : n}장입니다. 장이 지워졌거나 다시 지어졌으니 `
+        + `list_slides 로 목차를 다시 읽고 그 번호·id 로 부르세요 (${e?.message ?? e})`);
+    };
     if (args.slide_id) {
-      const s = context.presentation.slides.getItem(args.slide_id);
-      s.load('id,index');
-      await context.sync();
-      return s;
+      try {
+        const s = context.presentation.slides.getItem(args.slide_id);
+        s.load('id,index');
+        await context.sync();
+        return s;
+      } catch (e) { throw await missing(`슬라이드 id ${args.slide_id} 가 없습니다`, e); }
     }
     if (args.slide !== undefined) {
-      const s = context.presentation.slides.getItemAt(Number(args.slide) - 1);
-      s.load('id,index');
-      await context.sync();
-      return s;
+      try {
+        const s = context.presentation.slides.getItemAt(Number(args.slide) - 1);
+        s.load('id,index');
+        await context.sync();
+        return s;
+      } catch (e) { throw await missing(`슬라이드 ${args.slide} 이 없습니다`, e); }
     }
     const sel = context.presentation.getSelectedSlides();
     sel.load('items/id,items/index');

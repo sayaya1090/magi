@@ -4446,6 +4446,15 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('확실히 다른 색(accent1)은 그 목록에 없다', !/거의 같은 색[^⚠]*accent1/.test(said), said);
 }
 
+{
+  // 없는 장은 몇 장인지와 다시 읽을 길을 대고 거절한다 — 호스트의 한 단어(GeneralException)가 아니라.
+  const hand = new OfficeHand({ run: stubRunner(model(), []), supports: () => true });
+  const why = await threw(() => hand.run('add_shape', { slide: 98, kind: 'rectangle' }));
+  ok('없는 번호: 장 수와 list_slides 를 말한다', why?.includes('슬라이드 98 이 없습니다') && why?.includes('장입니다') && why?.includes('list_slides'), String(why));
+  const why2 = await threw(() => hand.run('read_slide', { slide_id: 'ghost#1' }));
+  ok('없는 id: 지워졌거나 다시 지어졌다고 말한다', why2?.includes('ghost#1') && why2?.includes('다시 지어졌'), String(why2));
+}
+
 console.log(failed ? `${failed} 실패` : '전부 통과');
 
 process.exit(failed ? 1 : 0);
