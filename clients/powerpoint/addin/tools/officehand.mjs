@@ -207,7 +207,25 @@ class StubFont extends Loaded {
 }
 
 class StubTable {
-  constructor(raw, pending, log) { this.raw = raw; this.pending = pending; this.log = log; }
+  constructor(raw, pending, log) {
+    this.raw = raw; this.pending = pending; this.log = log;
+    const who = raw.id;
+    const line = (kind) => ({
+      add: (at, n) => log.push(`${kind}.add:${who}:${at ?? 'end'}:${n}`),
+      getItemAt: (i) => ({
+        delete: () => log.push(`${kind}.delete:${who}:${i}`),
+        set width(v) { log.push(`col-width:${who}:${i}:${v}`); },
+        set height(v) { log.push(`row-height:${who}:${i}:${v}`); },
+      }),
+    });
+    this.rows = line('rows');
+    this.columns = line('columns');
+    this.styleSettings = {};
+    for (const k of ['style', 'isFirstRowHighlighted', 'areRowsBanded', 'isFirstColumnHighlighted', 'areColumnsBanded']) {
+      Object.defineProperty(this.styleSettings, k, { set(v) { log.push(`tstyle:${who}:${k}:${v}`); }, configurable: true });
+    }
+  }
+  mergeCells(r, c, rows, cols) { this.log.push(`merge:${this.raw.id}:${r},${c},${rows},${cols}`); }
   // 크기는 물어야 안다 — 실물의 `Table` 도 `load` 를 거친다. 이게 없으면 제자리 교체가
   // 옛 표의 크기를 `null` 로 읽고, 그 값으로 새 표를 짓는다.
   load(spec) { this.pending.push([this, spec]); return this; }
@@ -219,6 +237,16 @@ class StubTable {
     const cell = { isNullObject: !(this.raw.cells?.[r]?.[c] !== undefined), text: this.raw.cells?.[r]?.[c] };
     const view = new Loaded(cell, this.pending);
     view.setText = (v) => this.log.push(`cell:${r},${c}:${v}`);
+    const log = this.log;
+    view.fill = { setSolidColor: (v) => log.push(`cell-fill:${r},${c}:${v}`), clear: () => log.push(`cell-fill:${r},${c}:clear`) };
+    view.font = {};
+    Object.defineProperty(view, 'verticalAlignment', { set(v) { log.push(`cell-valign:${r},${c}:${v}`); }, configurable: true });
+    Object.defineProperty(view, 'horizontalAlignment', { set(v) { log.push(`cell-align:${r},${c}:${v}`); }, configurable: true });
+    view.borders = Object.fromEntries(['top', 'bottom', 'left', 'right'].map((e) => [e, {
+      set color(v) { log.push(`cell-border:${r},${c}:${e}:color=${v}`); },
+      set weight(v) { log.push(`cell-border:${r},${c}:${e}:weight=${v}`); },
+      set transparency(v) { log.push(`cell-border:${r},${c}:${e}:transparency=${v}`); },
+    }]));
     Object.defineProperty(view, 'text', {
       get() { return this.shownText; },
       set(v) { view.setText(v); },
@@ -391,6 +419,7 @@ function makeShapes(slide, pending, log) {
   };
   coll.addTable = (r, c, opts) => {
     log.push(`addTable:${r}x${c}:${JSON.stringify(opts.uniformCellProperties ?? null)}:${opts.specificCellProperties ? 'specific' : 'none'}`);
+    log.push(`addTable-opts:${JSON.stringify({ style: opts.style, columns: opts.columns, rows: opts.rows, mergedAreas: opts.mergedAreas })}`);
     // 값도 남긴다. **안 남기면 「칸에 무엇을 썼는가」를 재는 시험이 아무것도 안 문다.**
     log.push(`addTable-values:${JSON.stringify(opts.values ?? null)}`);
     return new StubShape({ id: 'sh-table' }, pending, log);
@@ -4229,6 +4258,59 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   await new OfficeHand({ run: stubRunner(deck3, bare), supports: () => true }).run('add_slide', { title: '표지만', match_style: false });
   ok('본문 없는 단수 장은 기본에 맡긴다', bare.some((l) => l === 'slides.add::'), bare.filter((l) => l.startsWith('slides.add')).join(' '));
 }
+// ── 표: 만들 때 스타일·너비·병합, 제자리에서 구조 고치기(edit_table) ─────────────
+{
+  const log = [];
+  const hand = new OfficeHand({ run: stubRunner(model(), log), supports: () => true });
+  await hand.run('add_table', { slide: 1, rows: 3, columns: 3, values: [['a', 'b', 'c'], ['1', '2', '3'], ['4', '5', '6']],
+    table_style: 'MediumStyle2Accent1', banded_rows: true, header_row: true, column_widths: [120, 80], row_heights: [30],
+    merge: [{ row: 0, column: 0, columns: 3 }], valign: 'Middle' });
+  const opts = JSON.parse(log.find((l) => l.startsWith('addTable-opts:')).slice('addTable-opts:'.length));
+  ok('내장 스타일이 addTable 옵션으로 간다', opts.style === 'MediumStyle2Accent1', JSON.stringify(opts));
+  ok('열 너비는 열 수만큼 채우고 안 준 열은 빈 칸', JSON.stringify(opts.columns) === '[{"columnWidth":120},{"columnWidth":80},{}]', JSON.stringify(opts.columns));
+  ok('병합은 호스트 모양(rowIndex…)으로', JSON.stringify(opts.mergedAreas) === '[{"rowIndex":0,"columnIndex":0,"rowCount":1,"columnCount":3}]', JSON.stringify(opts.mergedAreas));
+  ok('세로 정렬은 uniformCellProperties 에', log.some((l) => l.startsWith('addTable:') && l.includes('"verticalAlignment":"Middle"')), log.find((l) => l.startsWith('addTable:')));
+  ok('줄무늬·머리행은 만든 뒤 styleSettings 에', log.includes('tstyle:sh-table:areRowsBanded:true') && log.includes('tstyle:sh-table:isFirstRowHighlighted:true'), log.filter((l) => l.startsWith('tstyle')).join(' '));
+  ok('style 은 옵션으로 갔으니 styleSettings 에 또 쓰지 않는다', !log.some((l) => l.startsWith('tstyle:') && l.includes(':style:')), log.filter((l) => l.startsWith('tstyle')).join(' '));
+}
+
+{
+  const log = [];
+  const deck = model();
+  deck.slides[0].shapes.push({ id: 'tb9', name: '표', type: 'Table', noText: true, cells: [['a', 'b'], ['c', 'd'], ['e', 'f']] });
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  const out = await hand.run('edit_table', { slide: 1, shape_id: 'tb9', delete_rows: [0, 2], add_rows: 2, add_rows_at: 1, add_columns: 1,
+    merge: [{ row: 0, column: 0, rows: 2 }], column_widths: [100, 50], row_heights: [null, 40], table_style: 'LightStyle1', banded_rows: false });
+  ok('행 삭제는 큰 번호부터(번호가 안 밀리게)', log.indexOf('rows.delete:tb9:2') < log.indexOf('rows.delete:tb9:0'), log.filter((l) => l.startsWith('rows.delete')).join(' '));
+  ok('지운 뒤에 더한다', log.indexOf('rows.delete:tb9:0') < log.indexOf('rows.add:tb9:1:2'), log.filter((l) => /rows\.(add|delete)/.test(l)).join(' '));
+  ok('열 추가는 끝에(자리 안 주면)', log.includes('columns.add:tb9:end:1'));
+  ok('병합은 mergeCells 로', log.includes('merge:tb9:0,0,2,1'));
+  ok('너비·높이는 그 열·행에만, null 은 건너뛴다', log.includes('col-width:tb9:0:100') && log.includes('col-width:tb9:1:50') && log.includes('row-height:tb9:1:40') && !log.some((l) => l.startsWith('row-height:tb9:0')), log.filter((l) => /width|height/.test(l)).join(' '));
+  ok('스타일은 styleSettings 에(만들 때가 아니므로 style 도)', log.includes('tstyle:tb9:style:LightStyle1') && log.includes('tstyle:tb9:areRowsBanded:false'), log.filter((l) => l.startsWith('tstyle')).join(' '));
+  ok('답이 전과 후의 크기를 말하고 id 가 그대로라고 한다', out.changed.join(' ').includes('id 는 그대로'), out.changed.join(' '));
+  const why = await threw(() => hand.run('edit_table', { slide: 1, shape_id: 'tb9', delete_rows: [7] }));
+  ok('없는 행은 이름을 대고 거절, 아무것도 안 고침', why?.includes('행 7') && why?.includes('3행'), String(why));
+  const none = await threw(() => hand.run('edit_table', { slide: 1, shape_id: 'tb9' }));
+  ok('바꿀 것이 없으면 던진다(edit_table)', none?.includes('하나는 주세요'), String(none));
+  const old = new OfficeHand({ run: stubRunner(deck, []), supports: (_, v) => v !== '1.9' });
+  const no19 = await threw(() => old.run('edit_table', { slide: 1, shape_id: 'tb9', add_rows: 1 }));
+  ok('1.9 없는 호스트는 replace_table 을 가리킨다', no19?.includes('1.9') && no19?.includes('replace_table'), String(no19));
+}
+
+{
+  const log = [];
+  const deck = model();
+  deck.slides[0].shapes.push({ id: 'tb8', name: '표', type: 'Table', noText: true, cells: [['a', 'b'], ['c', 'd']] });
+  const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
+  await hand.run('format_table_cells', { slide: 1, shape_id: 'tb8', row: 0, valign: 'Middle', borders: '#112233', border_weight: 1.5 });
+  ok('셀 세로 정렬', log.includes('cell-valign:0,0:Middle') && log.includes('cell-valign:0,1:Middle'), log.filter((l) => l.startsWith('cell-valign')).join(' '));
+  ok('테두리는 네 변에 색·굵기, 투명도 0', log.includes('cell-border:0,1:left:color=#112233') && log.includes('cell-border:0,0:top:weight=1.5') && log.includes('cell-border:0,0:bottom:transparency=0'), log.filter((l) => l.startsWith('cell-border:0,0')).join(' '));
+  const log2 = [];
+  const hand2 = new OfficeHand({ run: stubRunner(deck, log2), supports: () => true });
+  await hand2.run('format_table_cells', { slide: 1, shape_id: 'tb8', column: 1, borders: 'none' });
+  ok('none 은 네 변을 투명도 1 로 끈다', ['top', 'bottom', 'left', 'right'].every((e) => log2.includes(`cell-border:1,1:${e}:transparency=1`)) && !log2.some((l) => l.includes('color=')), log2.filter((l) => l.startsWith('cell-border:1,1')).join(' '));
+}
+
 console.log(failed ? `${failed} 실패` : '전부 통과');
 
 process.exit(failed ? 1 : 0);

@@ -8,7 +8,7 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 덱 도구 | `mcp__ppt__*` | **44** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
+| 덱 도구 | `mcp__ppt__*` | **45** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `websearch`, `skill`, `todowrite` … | 레지스트리 26 이름(§3) | 데몬 `internal/adapter/tool/builtin` |
 | 플러그인 도구 | `land` | 1 | `<config>/plugins/landing`(Lua) |
 | 가이드(스킬) | `deck-design`, `design-guide`, `visual-deck`, `academic-deck`, `research` | 5 (17,483자) | 워크스페이스 `.magi/skills/*.md` — `skill` 도구로 읽음 |
@@ -17,7 +17,7 @@
 
 **정확히 어느 코어 도구가 이 대화에 광고되는지는 아직 실물로 못 셉니다.** 데몬에 「이 대화가 보는 도구 목록」을 답하는 문이 없습니다(DESIGN §5.9.6 5번 `mcp-list`, ⏳). 위 26 은 레지스트리에 있는 이름이고, 승인기 로그에서 실제로 불린 것은 `skill`·`todowrite`·`read`·`list`·`glob`·`grep`·`websearch`·`webfetch`·`land` 아홉입니다.
 
-## 1. 덱 도구 44 — 무리별
+## 1. 덱 도구 45 — 무리별
 
 인자 수는 `document`(어느 덱인지, 모든 도구가 받음)를 뺀 것입니다. 필수도 마찬가지입니다.
 ### 읽기

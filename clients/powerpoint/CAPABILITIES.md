@@ -505,6 +505,11 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 | `Shape.setZOrder` (1.8) | `move_shape` | `z_order` |
 | `ShapeCollection.addLine` + `ConnectorType` (1.4) | `add_shape` | `kind:"line"`·`connector` |
 | `BulletFormat.type`·`style` (1.10) — 값 검사 | 세 도구 | 열거형 41+3, `enums.go` |
+| `Table.mergeCells`·`TableAddOptions.mergedAreas` (1.8/1.9) | `add_table`·`replace_table`·`edit_table` | `merge` |
+| `TableStyleSettings`·`TableAddOptions.style` (1.9) | 같음 | `table_style`·`header_row`·`banded_rows`·`first_column`·`banded_columns` |
+| `rows.add/getItemAt().delete`·`columns.add/…delete` (1.9) | `edit_table` (새 도구, id 유지) | `add_rows`·`add_rows_at`·`delete_rows`·`add_columns`·… |
+| `TableColumn.width`·`TableRow.height`·`TableAddOptions.columns/rows` (1.8/1.9) | `add_table`·`replace_table`·`edit_table` | `column_widths`·`row_heights` |
+| `TableCell.verticalAlignment`·`borders` (1.9) | `format_table_cells`·(`valign` 은 만들 때도) | `valign`·`borders`·`border_weight` |
 
 열거형 7종(`BulletStyle`·`BulletType`·`ShapeFontUnderlineStyle`·`TextVerticalAlignment`·`ShapeAutoSize`·`ShapeZOrder`·`ShapeLineDashStyle`·`ConnectorType`·`TableStyle`)은 문서에서 값을 베껴 `helper/enums.go` 한 자리에 두고 스키마 `enum` 으로 광고한다. **예시 값은 계약이다** — `bulletChromaDot` 이라는 지어낸 예시 하나가 8장짜리 `add_slides` 를 `InvalidArgument` 한 단어로 죽였다.
 
@@ -512,11 +517,7 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 
 | 멤버(집합) | 무엇을 열어 주나 | 메모 |
 |---|---|---|
-| `Table.mergeCells`·`TableCell.split`·`resize` (1.9) | 셀 병합 | 표 머리행 병합이 흔한 요청 |
-| `TableStyleSettings` style·areRowsBanded·isFirstRowHighlighted… (1.9), `TableAddOptions.style` | 표 스타일·줄무늬 | 열거형은 이미 `tableStyles` 74 |
-| `TableRowCollection.add/deleteRows`·`TableColumnCollection.add/deleteColumns` (1.9) | 행·열 추가/삭제 | 지금은 `replace_table` 로 통째 재생성 |
-| `TableCell.verticalAlignment`·`margins`·`borders`(셀별) (1.9) | 셀 세로 정렬·여백·셀별 테두리 | `format_table_cells` 에 없음 |
-| `TableColumn.width`·`TableRow.height` (1.9) | 있는 표의 열 너비·행 높이 | `add_table{columns}` 는 만들 때만 |
+| `TableCell.margins`·`split`·`resize` (1.9) | 셀 여백·분할 | 드물다 |
 | `TextRange.getSubstring().font`·`setHyperlink` (1.4/1.10) | **글 일부**만 서식·링크(“숫자만 빨갛게”) | 지금은 상자 전체뿐 |
 | `SlideBackgroundFill.setPictureOrTextureFill` (1.10) | 배경 그림 | `set_background` 는 단색·그라데이션·패턴 |
 | `SlideLayout.background`·`SlideMaster.background` (1.10) | 덱 전체 배경 | 테마 색은 되고 배경은 장마다 |

@@ -45,6 +45,7 @@ export class FakeHand extends HandPort {
       'set_notes', 'read_notes', 'set_tag', 'read_tags',
       'animate_slide', 'read_animation',
       'set_background', 'set_theme_colors', 'read_theme_colors', 'format_table_cells',
+      'edit_table',
       'render_shape',
       'suggest', 'read_suggestions', 'drop_suggestion'];
   }
@@ -680,6 +681,42 @@ export class FakeHand extends HandPort {
         if (gone.length) throw new Error(`없는 칸입니다: ${gone.map((p) => p.join(',')).join(' · ')}`);
         return this.#envelope({ ok: true, cells: at.length },
           [`${(this.model.slides.indexOf(slide) + 1)}장 ${args.shape_id} 의 칸 ${at.length}개 서식을 바꿨습니다`]);
+      }
+      case 'edit_table': {
+        // 가짜 표는 글의 격자다 — 행·열을 더하고 지우는 것만 흉내 낸다. 병합·스타일은 적어 두기만.
+        const slide = this.#slide(args);
+        const shape = this.#shape(slide, args.shape_id);
+        if (!shape.table) throw new Error(`표가 아닙니다: ${args.shape_id}`);
+        const was = { rows: shape.table.length, columns: shape.table[0]?.length ?? 0 };
+        const done = [];
+        const desc = (v) => (Array.isArray(v) ? [...new Set(v.map(Number))].sort((a, b) => b - a) : []);
+        for (const r of desc(args.delete_rows)) {
+          if (r < 0 || r >= shape.table.length) throw new Error(`행 ${r} 은 없습니다 — 이 표는 ${was.rows}행입니다. 아무것도 안 고쳤습니다`);
+          shape.table.splice(r, 1); done.push(`행 ${r} 삭제`);
+        }
+        for (const c of desc(args.delete_columns)) {
+          if (c < 0 || c >= was.columns) throw new Error(`열 ${c} 은 없습니다 — 이 표는 ${was.columns}열입니다. 아무것도 안 고쳤습니다`);
+          for (const row of shape.table) row.splice(c, 1); done.push(`열 ${c} 삭제`);
+        }
+        const cols = () => shape.table[0]?.length ?? was.columns;
+        if (args.add_rows !== undefined) {
+          const n = Number(args.add_rows); const at = args.add_rows_at === undefined ? shape.table.length : Number(args.add_rows_at);
+          for (let i = 0; i < n; i += 1) shape.table.splice(at + i, 0, Array.from({ length: cols() }, () => ''));
+          done.push(`행 ${n}개 추가`);
+        }
+        if (args.add_columns !== undefined) {
+          const n = Number(args.add_columns); const at = args.add_columns_at === undefined ? cols() : Number(args.add_columns_at);
+          for (const row of shape.table) for (let i = 0; i < n; i += 1) row.splice(at + i, 0, '');
+          done.push(`열 ${n}개 추가`);
+        }
+        for (const m of (Array.isArray(args.merge) ? args.merge : [])) done.push(`(${m.row ?? 0},${m.column ?? 0}) 병합`);
+        for (const k of ['column_widths', 'row_heights', 'table_style', 'header_row', 'banded_rows', 'first_column', 'banded_columns']) {
+          if (args[k] !== undefined) done.push(`${k} → ${JSON.stringify(args[k])}`);
+        }
+        if (done.length === 0) throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — add_rows·delete_rows·merge·column_widths·table_style 중 하나는 주세요');
+        const now = { rows: shape.table.length, columns: cols() };
+        return this.#envelope({ slide_id: slide.id, shape_id: args.shape_id, was, now },
+          [`표 ${args.shape_id}: ${done.join(' · ')} — ${was.rows}×${was.columns} → ${now.rows}×${now.columns}, id 는 그대로입니다`]);
       }
       case 'render_shape': {
         const slide = this.#slide(args);

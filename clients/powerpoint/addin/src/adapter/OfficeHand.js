@@ -81,7 +81,7 @@ export class OfficeHand extends HandPort {
         : []),
       // 있는 표를 **제자리에서** 고치는 길. 1.9 가 없으면 `replace_table` 만 남고, 그건 표를
       // 다시 지으므로 id 가 바뀐다.
-      ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells'] : []),
+      ...(this.supports('PowerPointApi', '1.9') ? ['format_table_cells', 'edit_table'] : []),
       ...(this.supports('PowerPointApi', '1.10') ? ['render_shape'] : [])];
   }
 
@@ -350,6 +350,7 @@ export class OfficeHand extends HandPort {
       case 'replace_table': return this.#replaceTable(args);
       case 'set_table_cells': return this.#setCells(args);
       case 'format_table_cells': return this.#formatCells(args);
+      case 'edit_table': return this.#editTable(args);
       case 'render_shape': return this.#renderShape(args);
       case 'snapshot_slide': return this.#snapshot(args);
       case 'restore_slide': return this.#restore(args);
@@ -3282,6 +3283,18 @@ export class OfficeHand extends HandPort {
       const edge = { color, weight: 1, dashStyle: 'solid' };
       uniform.borders = { top: edge, bottom: edge, left: edge, right: edge };
     }
+    // 2026-09-05 API 재대조: 1.8·1.9 가 만들 때 받는 것들 — 스타일·열 너비·행 높이·병합·세로 정렬.
+    if (args.table_style !== undefined) options.style = String(args.table_style);
+    if (Array.isArray(args.column_widths) && args.column_widths.length) {
+      options.columns = Array.from({ length: columns }, (_, i) => (
+        args.column_widths[i] === undefined ? {} : { columnWidth: Number(args.column_widths[i]) }));
+    }
+    if (Array.isArray(args.row_heights) && args.row_heights.length) {
+      options.rows = Array.from({ length: rows }, (_, i) => (
+        args.row_heights[i] === undefined ? {} : { rowHeight: Number(args.row_heights[i]) }));
+    }
+    if (Array.isArray(args.merge) && args.merge.length) options.mergedAreas = mergedAreasOf(args.merge);
+    if (args.valign !== undefined) uniform.verticalAlignment = String(args.valign);
     if (Object.keys(uniform).length > 0) options.uniformCellProperties = uniform;
     if (args.header_bold) {
       options.specificCellProperties = Array.from({ length: rows }, (_, r) => (
@@ -3326,7 +3339,8 @@ export class OfficeHand extends HandPort {
       shape.load('id');
       await context.sync();
       this.#mutated();
-      const warn = (note ? ` · ⚠ ${note}` : '') + (already.length ? '' : '');
+      const banded = await this.#styleTable(context, shape, { ...args, __styledAtCreate: true });
+      const warn = (note ? ` · ⚠ ${note}` : '') + (banded.length ? ` · ${banded.join(' · ')}` : '');
       const dup = already.length
         ? ` · ⚠ 이 장에는 이미 표가 ${already.length}개 있습니다(${already.map((t) => t.id).join(', ')}) — `
           + '고치려던 것이면 그 표를 replace_table 로 바꾸거나 set_table_cells 로 글만 채우세요'
@@ -3399,6 +3413,7 @@ export class OfficeHand extends HandPort {
       made.load('id');
       await context.sync();
       this.#mutated();
+      await this.#styleTable(context, made, { ...args, __styledAtCreate: true });
       old.delete();
       await context.sync();
       return this.#envelope(
@@ -3507,9 +3522,12 @@ export class OfficeHand extends HandPort {
       if (args.bold !== undefined) want.bold = Boolean(args.bold);
       if (args.italic !== undefined) want.italic = Boolean(args.italic);
       if (args.align !== undefined) want.align = String(args.align);
+      if (args.valign !== undefined) want.valign = String(args.valign);
+      if (args.borders !== undefined) want.borders = String(args.borders);
+      if (args.border_weight !== undefined) want.border_weight = Number(args.border_weight);
       if (Object.keys(want).length === 0) {
         // **아무것도 안 바꿨으면 바꿨다고 말하지 않는다.**
-        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — fill·color·size·bold·italic·align 중 하나는 주세요');
+        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — fill·color·size·bold·italic·align·valign·borders 중 하나는 주세요');
       }
 
       const handles = spots.map((s) => {
@@ -3534,6 +3552,20 @@ export class OfficeHand extends HandPort {
         if (want.bold !== undefined) cell.font.bold = want.bold;
         if (want.italic !== undefined) cell.font.italic = want.italic;
         if (want.align !== undefined) cell.horizontalAlignment = want.align;
+        if (want.valign !== undefined) cell.verticalAlignment = want.valign;
+        if (want.borders !== undefined) {
+          // 셀 테두리(1.9)는 네 변이 따로다. 「없음」은 지우는 문이 없어 투명도로 끈다.
+          const none = want.borders.toLowerCase() === 'none';
+          for (const edge of ['top', 'bottom', 'left', 'right']) {
+            const b = cell.borders[edge];
+            if (none) b.transparency = 1;
+            else {
+              b.transparency = 0;
+              b.color = want.borders;
+              if (want.border_weight !== undefined) b.weight = want.border_weight;
+            }
+          }
+        }
       }
       await context.sync();
       this.#mutated();
@@ -3542,6 +3574,99 @@ export class OfficeHand extends HandPort {
         { slide_id: slide.id, shape_id: args.shape_id, cells: spots.length, applied: want },
         [`표 ${args.shape_id} 의 셀 ${spots.length}개를 고쳤습니다 (${said}) — `
           + '표를 다시 짓지 않았으므로 **id 는 그대로입니다**']);
+    });
+  }
+
+  /**
+   * 표 스타일 설정(1.9): 내장 스타일·머리행·줄무늬. 만들 때(`add_table`·`replace_table`)와
+   * 고칠 때(`edit_table`)가 같은 자리에 쓴다. 안 준 칸은 안 건드린다.
+   */
+  async #styleTable(context, shape, args) {
+    const map = [['table_style', 'style', (v) => String(v)], ['header_row', 'isFirstRowHighlighted', Boolean],
+      ['banded_rows', 'areRowsBanded', Boolean], ['first_column', 'isFirstColumnHighlighted', Boolean],
+      ['banded_columns', 'areColumnsBanded', Boolean]];
+    const wanted = map.filter(([name]) => args[name] !== undefined);
+    if (wanted.length === 0) return [];
+    if (!this.supports('PowerPointApi', '1.9')) {
+      throw new Error(`${wanted.map(([n]) => n).join('·')} 은 PowerPointApi 1.9 가 필요한데 이 호스트에는 없습니다`);
+    }
+    const settings = shape.getTable().styleSettings;
+    const said = [];
+    for (const [name, key, cast] of wanted) {
+      // 만들 때 `style` 은 이미 addTable 옵션으로 갔다 — 여기서 또 쓰면 두 번 쓴다. 나머지만.
+      if (name === 'table_style' && args.__styledAtCreate) continue;
+      settings[key] = cast(args[name]);
+      said.push(`${name} → ${args[name]}`);
+    }
+    if (said.length) await context.sync();
+    return said;
+  }
+
+  /**
+   * 있는 표의 구조를 제자리에서 — 행·열 추가/삭제, 병합, 너비·높이, 스타일(1.9). 글은 그 자리에
+   * 남고 id 가 그대로다. 앞 판본은 「열 하나 더」에 replace_table 로 표를 통째 다시 지어 id 를
+   * 바꿨다. 순서는 **지우기 → 더하기 → 병합 → 크기 → 스타일**: 지운 뒤의 번호로 더하고 병합한다.
+   */
+  #editTable(args) {
+    return this.runner(async (context) => {
+      if (!this.supports('PowerPointApi', '1.9')) {
+        throw new Error('edit_table 은 PowerPointApi 1.9 가 필요한데 이 호스트에는 없습니다 — replace_table 로 다시 지으세요');
+      }
+      const slide = await this.#slide(context, args);
+      const shape = slide.shapes.getItem(args.shape_id);
+      const table = shape.getTable();
+      table.load('rowCount,columnCount');
+      await context.sync();
+      const before = { rows: table.rowCount, columns: table.columnCount };
+      const done = [];
+
+      const idx = (v) => (Array.isArray(v) ? [...new Set(v.map(Number))].filter(Number.isFinite).sort((a, b) => b - a) : []);
+      for (const r of idx(args.delete_rows)) {
+        if (r < 0 || r >= before.rows) throw new Error(`행 ${r} 은 없습니다 — 이 표는 ${before.rows}행입니다. 아무것도 안 고쳤습니다`);
+        table.rows.getItemAt(r).delete();
+        done.push(`행 ${r} 삭제`);
+      }
+      for (const c of idx(args.delete_columns)) {
+        if (c < 0 || c >= before.columns) throw new Error(`열 ${c} 은 없습니다 — 이 표는 ${before.columns}열입니다. 아무것도 안 고쳤습니다`);
+        table.columns.getItemAt(c).delete();
+        done.push(`열 ${c} 삭제`);
+      }
+      if (args.add_rows !== undefined) {
+        const n = Number(args.add_rows);
+        if (!(n >= 1)) throw new Error(`add_rows 는 1 이상입니다 — 받은 것: ${args.add_rows}`);
+        table.rows.add(args.add_rows_at === undefined ? null : Number(args.add_rows_at), n);
+        done.push(`행 ${n}개 추가${args.add_rows_at === undefined ? '(끝에)' : `(${args.add_rows_at} 자리에)`}`);
+      }
+      if (args.add_columns !== undefined) {
+        const n = Number(args.add_columns);
+        if (!(n >= 1)) throw new Error(`add_columns 는 1 이상입니다 — 받은 것: ${args.add_columns}`);
+        table.columns.add(args.add_columns_at === undefined ? null : Number(args.add_columns_at), n);
+        done.push(`열 ${n}개 추가${args.add_columns_at === undefined ? '(오른쪽에)' : `(${args.add_columns_at} 자리에)`}`);
+      }
+      for (const m of mergedAreasOf(args.merge ?? [])) {
+        table.mergeCells(m.rowIndex, m.columnIndex, m.rowCount, m.columnCount);
+        done.push(`(${m.rowIndex},${m.columnIndex}) 부터 ${m.rowCount}×${m.columnCount} 병합`);
+      }
+      if (Array.isArray(args.column_widths)) {
+        args.column_widths.forEach((w, i) => { if (w !== undefined && w !== null) { table.columns.getItemAt(i).width = Number(w); } });
+        done.push(`열 너비 ${args.column_widths.join('/')}pt`);
+      }
+      if (Array.isArray(args.row_heights)) {
+        args.row_heights.forEach((h, i) => { if (h !== undefined && h !== null) { table.rows.getItemAt(i).height = Number(h); } });
+        done.push(`행 높이 ${args.row_heights.join('/')}pt`);
+      }
+      if (done.length) await context.sync();
+      const styled = await this.#styleTable(context, shape, args);
+      done.push(...styled);
+      if (done.length === 0) {
+        throw new Error('무엇을 바꿀지가 하나도 안 왔습니다 — add_rows·delete_rows·merge·column_widths·table_style 중 하나는 주세요');
+      }
+      this.#mutated();
+      table.load('rowCount,columnCount');
+      await context.sync();
+      return this.#envelope(
+        { slide_id: slide.id, shape_id: args.shape_id, was: before, now: { rows: table.rowCount, columns: table.columnCount } },
+        [`표 ${args.shape_id}: ${done.join(' · ')} — ${before.rows}×${before.columns} → ${table.rowCount}×${table.columnCount}, id 는 그대로입니다`]);
     });
   }
 
@@ -4177,4 +4302,12 @@ export function pickPart(entries, part) {
 /** 본문으로 칠 글이 있는가 — 공백만 있는 것은 없는 것이다. */
 export function hasText(v) {
   return v !== undefined && v !== null && String(v).trim() !== '';
+}
+
+/** {row, column, rows, columns} 를 호스트의 mergedArea 모양으로. rows/columns 를 안 주면 1 이다. */
+export function mergedAreasOf(list) {
+  return (Array.isArray(list) ? list : []).map((m) => ({
+    rowIndex: Number(m.row ?? 0), columnIndex: Number(m.column ?? 0),
+    rowCount: Number(m.rows ?? 1), columnCount: Number(m.columns ?? 1),
+  }));
 }
