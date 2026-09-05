@@ -26,6 +26,7 @@ import { SendTurn, logShapeOf, sendNote } from '../src/usecase/SendTurn.js';
 import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { readFileSync, readdirSync } from 'node:fs';
+import { parseMd, inlines, mdToDom, looksLikeMd } from '../src/ui/md.js';
 import { fixture } from '../src/ui/deckFixture.js';
 import {
   headOf, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
@@ -4074,6 +4075,38 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 다만 **화면 안에서 쓰는 손은 그대로** — 제안 카드는 브라우저에서 눌러 봐야 한다.
   ok('화면은 여전히 손을 쓴다', /view\.useHand\(hand\)/.test(main));
   ok('가짜 손을 여전히 만든다', /new FakeHand\(/.test(main));
+}
+
+// ── 마크다운으로 온 글을 그린다 ────────────────────────────────────────────────
+//
+// 모델의 답·카운슬 판정·플러그인 줄이 `**굵게**`·`|---|`·백틱 그대로 찍혔다(2026-09-05).
+// 파서는 순수 함수라 여기서 재고, 짓는 쪽은 가짜 document 로 노드 모양만 본다.
+{
+  const bold = inlines('이건 **굵게** 와 `코드` 와 [링크](https://x.y/z) 와 *기울임*');
+  ok('인라인: 굵게·코드·링크·기울임을 가른다', bold.map((k) => k.t).join(',') === 'text,strong,text,code,text,link,text,em', bold.map((k) => k.t).join(','));
+  ok('링크는 http(s) 만 받고 주소를 든다', bold.find((k) => k.t === 'link')?.href === 'https://x.y/z');
+  ok('javascript: 링크는 링크가 아니다', everyOf(inlines('[x](javascript:alert(1))'), (k) => k.t !== 'link'));
+  ok('숫자 사이의 별표 하나는 기울임이 아니다', everyOf(inlines('3*4*5'), (k) => k.t === 'text'));
+  const md = parseMd('## 요약\n\n첫 문단\n둘째 줄\n\n- 하나\n- 둘 **굵게**\n\n1. 첫\n2. 둘\n\n| 장 | 제목 |\n|---|---|\n| 1 | 표지 |\n| 2 | 문제 |\n\n```json\n{"a":1}\n```\n\n---\n끝');
+  ok('블록: 제목·문단·목록 둘·표·코드·가로줄·문단', md.map((b) => b.t).join(',') === 'heading,para,list,list,table,code,hr,para', md.map((b) => b.t).join(','));
+  ok('제목 단계를 든다', md[0].level === 2);
+  ok('문단 안 줄바꿈은 한 문단이다', md[1].kids.map((k) => k.text).join('') === '첫 문단\n둘째 줄');
+  ok('목록은 순서 유무를 가른다', md[2].ordered === false && md[3].ordered === true && md[2].items.length === 2 && md[3].items.length === 2);
+  ok('표는 머리와 행을 가른다', md[4].head.length === 2 && md[4].rows.length === 2 && md[4].rows[1][1][0].text === '문제');
+  ok('코드 블록은 언어와 본문을 그대로 든다', md[5].lang === 'json' && md[5].text === '{"a":1}');
+  ok('표식이 없으면 파서를 안 거친다', looksLikeMd('그냥 문장입니다.') === false && looksLikeMd('**굵게**') && looksLikeMd('| a | b |'));
+  const mk = (tag) => ({ tag, kids: [], attrs: {}, append(...n) { this.kids.push(...n); }, set textContent(v) { this.kids = [{ tag: '#text', text: v }]; }, get textContent() { return this.kids.map((k) => k.text ?? k.textContent).join(''); }, set className(v) { this.attrs.class = v; }, set href(v) { this.attrs.href = v; }, set target(v) { this.attrs.target = v; }, set rel(v) { this.attrs.rel = v; } });
+  const doc = { createElement: mk, createTextNode: (t) => ({ tag: '#text', text: t }) };
+  const dom = mdToDom(doc, '## 제목\n\n**굵게** 글\n\n| a | b |\n|---|---|\n| 1 | 2 |');
+  ok('짓는 쪽: div.md 아래 h4·p·table', dom.attrs.class === 'md' && dom.kids.map((k) => k.tag).join(',') === 'h4,p,table', dom.kids.map((k) => k.tag).join(','));
+  ok('굵게는 strong 노드다', dom.kids[1].kids[0].tag === 'strong' && dom.kids[1].kids[0].textContent === '굵게');
+  ok('표는 thead/tbody 를 갖는다', dom.kids[2].kids.map((k) => k.tag).join(',') === 'thead,tbody');
+  const src = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
+  const body = /  rowEl\(r\) \{([\s\S]*?)\n  \}\n/.exec(src)?.[1] ?? '';
+  ok('rowEl 이 있다', body !== '');
+  ok('사람의 말은 글자 그대로 넣는다', /r\.kind === 'user'[\s\S]*?p\.textContent = bodyText\(r\)/.test(body));
+  ok('모델·플러그인의 글과 카운슬 판정은 마크다운으로 짓는다', (body.match(/this\.proseEl\(/g) ?? []).length >= 2, String((body.match(/this\.proseEl\(/g) ?? []).length));
+  ok('짓는 쪽은 md.js 의 mdToDom 을 쓴다', /mdToDom\(document, text\)/.test(src));
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

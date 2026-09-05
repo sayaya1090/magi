@@ -17,6 +17,7 @@ import { SlideNumbers } from '../domain/Advice.js';
 import { logShapeOf, sendNote } from '../usecase/SendTurn.js';
 import { quoteNote } from '../usecase/QuoteSelection.js';
 import { askSig } from '../usecase/WatchPrompt.js';
+import { mdToDom, looksLikeMd } from './md.js';
 import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
@@ -1023,11 +1024,7 @@ export class View {
       // 종료 게이트. **머리만으로 뜻이 서는 줄이 있다**(소집·결론) — 없는 몸통을 「(글 없음)」
       // 으로 채우면 화면이 빈 칸을 결함처럼 보이게 한다.
       const body = councilBody(r);
-      if (body) {
-        const p = document.createElement('p');
-        p.textContent = body;
-        el.append(p);
-      }
+      if (body) el.append(this.proseEl(body));
       return el;
     }
     if (shape === 'turn') {
@@ -1038,12 +1035,27 @@ export class View {
       el.append(p);
       return el;
     }
-    const p = document.createElement('p');
+    // **사람의 말은 글자 그대로, 나머지는 마크다운으로.** 모델의 답·플러그인이 넣은 줄은
+    // 마크다운으로 오는데 앞 판본은 전부 `textContent` 라 `**굵게**`·`|---|`·백틱이 그대로
+    // 찍혔다(사용자 지적 2026-09-05). 사람이 친 글은 그 사람이 친 그대로 보여야 한다.
     // 사용자 줄에는 인용이 **글로 접혀** 들어 있다(`promptOf`). 예쁘게 걷어 내지 않는다 —
     // 모델이 받은 것이 이것이고, 걷어 내면 화면이 모델보다 덜 아는 것을 감추게 된다.
-    p.textContent = bodyText(r);
-    el.append(p);
+    if (r.kind === 'user') {
+      const p = document.createElement('p');
+      p.textContent = bodyText(r);
+      el.append(p);
+      return el;
+    }
+    el.append(this.proseEl(bodyText(r)));
     return el;
+  }
+
+  /** 마크다운 표식이 있으면 그려서, 없으면 문단 하나로. 마크업을 읽는 길은 없다(`md.js`). */
+  proseEl(text) {
+    if (looksLikeMd(text)) return mdToDom(document, text);
+    const p = document.createElement('p');
+    p.textContent = text;
+    return p;
   }
 
   /**
