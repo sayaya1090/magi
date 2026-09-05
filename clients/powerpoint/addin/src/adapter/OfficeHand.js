@@ -1114,6 +1114,13 @@ export class OfficeHand extends HandPort {
           : slide.shapes.addGeometricShape(geometryOf(kind), options);
       shape.load('id');
       await context.sync();
+      // 선의 0 은 「안 줌」으로 읽힌다 — width/height 0 을 옵션에 넣으면 호스트가 기본 크기로 그려
+      // 수평선이 사선이 됐다(2026-09-05 실물: (60,300)→+400,+0 이 70pt 내려갔다). 만든 뒤 따로 쓴다.
+      if (kind === 'line' && (options.width === 0 || options.height === 0)) {
+        if (options.width === 0) shape.width = 0;
+        if (options.height === 0) shape.height = 0;
+        await context.sync();
+      }
       if (kind !== 'textbox' && kind !== 'line' && args.text) {
         shape.textFrame.textRange.text = asParagraphs(args.text);
         await context.sync();
@@ -3555,12 +3562,14 @@ export class OfficeHand extends HandPort {
         if (want.valign !== undefined) cell.verticalAlignment = want.valign;
         if (want.borders !== undefined) {
           // 셀 테두리(1.9)는 네 변이 따로다. 「없음」은 지우는 문이 없어 투명도로 끈다.
+          // `Border.transparency` 는 이 호스트(Mac 16.105, 1.10)가 쓰기를 거절한다 — 값이 0 이든 1 이든
+          // `InvalidArgument — Border.transparency` 로 배치 전체를 되돌렸다(2026-09-05 실물 두 번).
+          // 색·굵기만 쓰고, 「없음」은 굵기 0 으로 한다.
           const none = want.borders.toLowerCase() === 'none';
           for (const edge of ['top', 'bottom', 'left', 'right']) {
             const b = cell.borders[edge];
-            if (none) b.transparency = 1;
+            if (none) b.weight = 0;
             else {
-              b.transparency = 0;
               b.color = want.borders;
               if (want.border_weight !== undefined) b.weight = want.border_weight;
             }

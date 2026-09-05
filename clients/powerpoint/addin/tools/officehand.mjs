@@ -4226,6 +4226,7 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   ok('선에도 색·굵기가 붙는다', log.includes('line:sh-line:#FF0000') && log.includes('line-weight:sh-line:3'));
   ok('선의 답은 시작점과 거리를 말한다', out.changed.join(' ').includes('(10, 20)'), out.changed.join(' '));
   ok('선에는 글을 안 쓴다', !log.some((l) => l.startsWith('text:sh-line')));
+  ok('0 인 변은 만든 뒤 따로 쓴다(옵션의 0 은 「안 줌」이다)', log.includes('height:sh-line:0') && !log.some((l) => l.startsWith('width:sh-line')), log.filter((l) => /^(width|height):sh-line/.test(l)).join(' '));
 }
 
 // ── layout 을 안 준 장 — 본문이 있으면 본문 자리가 있는 레이아웃 ─────────────────
@@ -4304,11 +4305,11 @@ console.log('\n※ 이 파일은 PowerPoint 를 안 쓴다. 위 초록은 우리
   const hand = new OfficeHand({ run: stubRunner(deck, log), supports: () => true });
   await hand.run('format_table_cells', { slide: 1, shape_id: 'tb8', row: 0, valign: 'Middle', borders: '#112233', border_weight: 1.5 });
   ok('셀 세로 정렬', log.includes('cell-valign:0,0:Middle') && log.includes('cell-valign:0,1:Middle'), log.filter((l) => l.startsWith('cell-valign')).join(' '));
-  ok('테두리는 네 변에 색·굵기, 투명도 0', log.includes('cell-border:0,1:left:color=#112233') && log.includes('cell-border:0,0:top:weight=1.5') && log.includes('cell-border:0,0:bottom:transparency=0'), log.filter((l) => l.startsWith('cell-border:0,0')).join(' '));
+  ok('테두리는 네 변에 색·굵기 — 투명도는 안 쓴다(호스트가 거절한다)', log.includes('cell-border:0,1:left:color=#112233') && log.includes('cell-border:0,0:top:weight=1.5') && !log.some((l) => l.startsWith('cell-border:0,') && l.includes('transparency')), log.filter((l) => l.startsWith('cell-border:0,0')).join(' '));
   const log2 = [];
   const hand2 = new OfficeHand({ run: stubRunner(deck, log2), supports: () => true });
   await hand2.run('format_table_cells', { slide: 1, shape_id: 'tb8', column: 1, borders: 'none' });
-  ok('none 은 네 변을 투명도 1 로 끈다', ['top', 'bottom', 'left', 'right'].every((e) => log2.includes(`cell-border:1,1:${e}:transparency=1`)) && !log2.some((l) => l.includes('color=')), log2.filter((l) => l.startsWith('cell-border:1,1')).join(' '));
+  ok('none 은 네 변을 굵기 0 으로 끈다(투명도는 호스트가 거절한다)', ['top', 'bottom', 'left', 'right'].every((e) => log2.includes(`cell-border:1,1:${e}:weight=0`)) && !log2.some((l) => l.includes('color=') || l.includes('transparency')), log2.filter((l) => l.startsWith('cell-border:1,1')).join(' '));
 }
 
 console.log(failed ? `${failed} 실패` : '전부 통과');

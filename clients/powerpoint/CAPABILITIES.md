@@ -513,6 +513,12 @@ S7), 이 방향에서는 그 측정의 목적이 바뀐다 — "예산이 버티
 
 열거형 7종(`BulletStyle`·`BulletType`·`ShapeFontUnderlineStyle`·`TextVerticalAlignment`·`ShapeAutoSize`·`ShapeZOrder`·`ShapeLineDashStyle`·`ConnectorType`·`TableStyle`)은 문서에서 값을 베껴 `helper/enums.go` 한 자리에 두고 스키마 `enum` 으로 광고한다. **예시 값은 계약이다** — `bulletChromaDot` 이라는 지어낸 예시 하나가 8장짜리 `add_slides` 를 `InvalidArgument` 한 단어로 죽였다.
 
+**실측(2026-09-05 10:31~10:45, Mac PowerPoint 1.10, deck2 의 시험 장을 만들어 렌더로 확인).** 위 표의 칸은 전부 호스트가 받았다. 그 과정에서 문서에 없는 사실 둘을 봤다:
+
+- **`Border.transparency` 는 쓰기를 거절한다** — 0 이든 1 이든 `InvalidArgument — Border.transparency` 로 배치 전체가 되돌아온다. 셀 테두리는 색·굵기만 쓰고, 「없음」은 `weight = 0` 으로 한다(렌더로 확인).
+- **`ShapeAddOptions` 의 0 은 「안 줌」이다** — `addLine(..., {width: 400, height: 0})` 이 기본 높이로 그려져 수평선이 사선이 됐다. 만든 뒤 `shape.height = 0` 을 따로 쓰면 수평이 된다.
+- 병합된 영역 안의 셀은 `getCellOrNullObject` 가 null 을 준다 — 머리행을 병합한 뒤 그 행의 (0,1) 을 고치려 하면 「셀이 없습니다」가 맞는 답이다.
+
 ### 11.2 호스트에 있는데 아직 도구가 안 받는 것 — 다음 후보
 
 | 멤버(집합) | 무엇을 열어 주나 | 메모 |
