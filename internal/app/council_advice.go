@@ -333,12 +333,8 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 		// takeTurnControl) and a fix in one of them is dead code the moment another drains
 		// first — which is what happened to the first attempt.
 		a.signalTurnControl(sid, func(tc *turnControl) { tc.finish, tc.unverifiedReason = true, "" })
-		// "Write your final answer" made the agent write its report a second time — the message
-		// just before the declaration already WAS the report (live 2026-09-05: 2.7K + 2.5K
-		// characters per deck, near-identical). Say when not to.
-		return "The council accepts that the task is finished. Your turn ends here. If the message you " +
-			"wrote just before declaring already is the final answer for whoever asked, do not write it " +
-			"again — stop now. Otherwise write that answer once, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
+		return "The council accepts that the task is finished. Your turn ends here — write your final " +
+			"answer for whoever asked, and stop." + notesTail(a.turnNotesBlock(sid)) + "\n\n" +
 			renderCouncilAdvice(delib, "What the members said:"), nil
 	}
 	if landed, msg := a.noteCouncilRejection(sid, epoch, feedback); landed {
