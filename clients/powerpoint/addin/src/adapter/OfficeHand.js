@@ -722,10 +722,14 @@ export class OfficeHand extends HandPort {
       const seenAt = this.renders.get(slide.id);
       const now = `${this.epoch}:${this.count}`;
       if (seenAt === now && !args.force) {
-        // **거절이지만 실패가 아니다.** 무엇을 하라는 것인지까지 적는다.
-        throw new Error(`슬라이드 ${slide.id} 는 아까 뜬 뒤로 안 바뀌었습니다 — `
-          + '그때 받은 그림이 지금 그림입니다. 그림은 이 도구 중 제일 비싸니 다시 안 뜹니다. '
-          + '정말 다시 봐야 하면 force: true 를 주세요');
+        // **거절이지만 실패가 아니다** — 그래서 오류로 던지지 않는다. 앞 판본은 던졌고, 카운슬은
+        // 「render_slide [error]」 일곱 줄을 실패로 읽어 다시 continue 를 냈다(실물 2026-09-05 IR 4차:
+        // 카운슬이 렌더를 요구 → 모델이 다시 부름 → 캐시 거절이 오류로 실림 → 카운슬이 또 요구).
+        // 무엇을 하라는 것인지까지 적는다.
+        return this.#envelope(
+          { slide_id: slide.id, unchanged: true, rendered: false },
+          [`슬라이드 ${slide.id} 는 아까 뜬 뒤로 안 바뀌었습니다 — 그때 받은 그림이 지금 그림입니다. `
+            + '그림은 이 도구 중 제일 비싸니 다시 안 뜹니다. 정말 다시 봐야 하면 force: true 를 주세요']);
       }
 
       // 폭만 준다 — 비율은 호스트가 지킨다. 0 이나 음수는 「제한 없음」이 아니라 실수다.

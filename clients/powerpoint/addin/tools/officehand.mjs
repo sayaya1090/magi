@@ -2051,10 +2051,12 @@ async function makeZip(files) {
     ok('기본 폭이 1024 다', out.result.max_width === 1024, String(out.result.max_width));
 
     // **안 바뀐 장을 다시 안 뜬다.** 모델은 이미 그 그림을 대화에 갖고 있다.
-    let why = null;
-    try { await h.run('render_slide', { slide: 1 }); } catch (e) { why = e.message; }
-    ok('안 바뀐 장은 다시 안 뜬다', why?.includes('안 바뀌었습니다'), why);
-    ok('그때 무엇을 하라는지도 적는다', why?.includes('force'), why);
+    // 거절이지 실패가 아니다: 오류로 던지지 않고(카운슬이 [error] 로 읽는다) 답에 적는다.
+    const same = await h.run('render_slide', { slide: 1 });
+    const why = same.changed.join(' ');
+    ok('안 바뀐 장은 다시 안 뜬다 — 그림 없이 답한다', same.result.unchanged === true && same.result.image_base64 === undefined, JSON.stringify(same.result));
+    ok('안 바뀌었다고 답에 적는다', why.includes('안 바뀌었습니다'), why);
+    ok('그때 무엇을 하라는지도 적는다', why.includes('force'), why);
 
     // 정말 필요하면 다시 뜬다.
     const again = await h.run('render_slide', { slide: 1, force: true });
