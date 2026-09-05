@@ -125,6 +125,51 @@ local function titleWarnings(steps)
   return list
 end
 
+-- **본 것도 한 일의 일부다.** 신고문은 모델이 쓰지만 이 셈은 턴의 툴 기록에서 한다(`magi.turn_steps`).
+-- 실물 2026-09-04: 스킬이 「장마다 한 번 render_slide」를 시켰는데 렌더는 0번이었고 land 는 몰랐다.
+-- 실물 2026-09-05: 일곱 장에 「제목이 2줄」⚠ 가 실렸는데 하나도 안 줄이고 「제목 한 줄」이라 신고했다.
+-- 거절 사유 문자열을 돌려주거나, 통과면 nil. `land` 와 선언 게이트가 같은 자를 쓴다.
+local function seenGate()
+  local pages, renders = 0, 0
+  local ok, steps = pcall(magi.turn_steps)
+  if ok and type(steps) == "table" then
+    for _, st in ipairs(steps) do
+      if not st.failed then
+        if st.name == "add_slides" then
+          local a = st.args
+          pages = pages + ((type(a) == "table" and type(a.slides) == "table") and #a.slides or 1)
+        elseif st.name == "add_slide" then
+          pages = pages + 1
+        elseif st.name == "render_slide" then
+          renders = renders + 1
+        end
+      end
+    end
+  end
+  if pages > 0 and renders < pages then
+    return ("아직 끝이 아닙니다 — 이 턴에 장을 %d장 만들었는데 눈으로 본 것(render_slide)은 %d번입니다. "
+      .. "장 하나가 끝날 때마다 render_slide{max_width: 640} 로 한 번 보고 어긋난 것을 고친 뒤 끝내세요. "
+      .. "아직 안 본 장부터."):format(pages, renders)
+  end
+  local wrapped = titleWarnings(ok and steps or {})
+  if #wrapped > 0 then
+    return ("아직 끝이 아닙니다 — 제목이 접힌다는 ⚠ 가 남은 장: %s. 도구가 잰 것이라 render 로 본 것과 "
+      .. "상관없이 남습니다. set_text{slide, placeholder: \"title\"} 로 제목을 한 줄로 줄이면 그 답에 ⚠ 가 "
+      .. "안 실리고, 그때 지워집니다."):format(table.concat(wrapped, ", "))
+  end
+  return nil
+end
+
+-- **문은 하나다.** 카운슬이 완료 선언을 심사하는 판이면 `land` 는 두 번째 문이 된다 — 모델은 land 로
+-- 끝났다고 알고 멈추고, 코어는 council{complete:true} 를 기다리다 되묻는다(실물 2026-09-05, 매 턴 한 번).
+-- 그래서 카운슬이 있으면 land 를 내지 않고 같은 자를 선언 게이트로 건다: 선언이 카운슬에 가기 전에 돈다.
+local councilOwnsTheDoor = type(magi.council_enabled) == "function" and magi.council_enabled()
+
+if councilOwnsTheDoor then
+  magi.register_declaration_gate{ check = seenGate }
+end
+
+if not councilOwnsTheDoor then
 magi.register_tool{
   name = "land",
   description = table.concat({
@@ -170,40 +215,8 @@ magi.register_tool{
       return "아직 끝이 아닙니다 — " .. table.concat(bad, " · ")
         .. ". 한 일은 다시 집을 수 있는 이름으로 적습니다. 안 한 것은 did 가 아니라 left 에 적으세요.", true
     end
-    -- **본 것도 한 일의 일부다.** 신고문은 모델이 쓰지만 이 셈은 턴의 툴 기록에서 한다
-    -- (`magi.turn_steps`): 실물 2026-09-04 두 덱 런에서 스킬이 「장마다 한 번 render_slide」를
-    -- 시켰는데 렌더는 0번이었고, land 는 그것을 몰랐다. 만든 장 수보다 본 횟수가 적으면 거절.
-    local pages, renders = 0, 0
-    local ok, steps = pcall(magi.turn_steps)
-    if ok and type(steps) == "table" then
-      for _, st in ipairs(steps) do
-        if not st.failed then
-          if st.name == "add_slides" then
-            local a = st.args
-            pages = pages + ((type(a) == "table" and type(a.slides) == "table") and #a.slides or 1)
-          elseif st.name == "add_slide" then
-            pages = pages + 1
-          elseif st.name == "render_slide" then
-            renders = renders + 1
-          end
-        end
-      end
-    end
-    if pages > 0 and renders < pages then
-      return ("아직 끝이 아닙니다 — 이 턴에 장을 %d장 만들었는데 눈으로 본 것(render_slide)은 %d번입니다. "
-        .. "장 하나가 끝날 때마다 render_slide{max_width: 640} 로 한 번 보고 어긋난 것을 고친 뒤 착지하세요. "
-        .. "아직 안 본 장부터."):format(pages, renders), true
-    end
-    -- **도구가 ⚠ 로 잰 제목 접힘이 남아 있으면 안 끝난 것이다.** 실물 2026-09-05 IR 2차: 일곱 장에
-    -- 「제목이 2줄로 접힐 수 있습니다」가 실렸는데 하나도 안 줄이고 verified 에 「제목 한 줄」이라 적었다.
-    -- 장마다 마지막 말을 따른다: add_slides/add_slide 가 단 ⚠ 는 그 장 제목에 대한 뒤의 set_text 답이
-    -- ⚠ 없이 오면 지워진다.
-    local wrapped = titleWarnings(ok and steps or {})
-    if #wrapped > 0 then
-      return ("아직 끝이 아닙니다 — 제목이 접힌다는 ⚠ 가 남은 장: %s. 도구가 잰 것이라 render 로 본 것과 "
-        .. "상관없이 남습니다. set_text{slide, placeholder: \"title\"} 로 제목을 한 줄로 줄이면 그 답에 ⚠ 가 "
-        .. "안 실리고, 그때 지워집니다."):format(table.concat(wrapped, ", ")), true
-    end
+    local seen = seenGate()
+    if seen then return seen, true end
     credits = credits + 1
     local left = args.left or ""
     return ("착지했습니다 — 한 일 %d건%s. 이 턴은 여기서 끝나도 됩니다."):format(
@@ -211,6 +224,9 @@ magi.register_tool{
   end,
 }
 
+end -- not councilOwnsTheDoor
+
+if not councilOwnsTheDoor then
 magi.on("turn_finished", function(ev)
   if credits > 0 then
     credits = credits - 1
@@ -225,11 +241,17 @@ magi.on("turn_finished", function(ev)
     :format(looksLikePlan(ev.text or "") and ", 그리고 마지막 말이 계획입니다" or "", misses))
   magi.log("landing: unlanded turn · tail=" .. tail)
 end)
+end -- not councilOwnsTheDoor
 
 magi.register_context_provider{
   name = "landing-contract",
   provide = function()
     local misses = n(STORE_MISSES)
+    if councilOwnsTheDoor then
+      return { text = "턴을 끝내는 문은 `council{complete: true}` 하나입니다. 그 선언은 카운슬에 가기 전에 "
+        .. "이 턴의 툴 기록으로 먼저 재집니다 — 만든 장 수만큼 render_slide 로 봤는가, 도구가 단 "
+        .. "「제목이 접힌다」⚠ 가 남았는가. 남았으면 선언이 거절되고 사유가 옵니다." }
+    end
     local lines = {
       "이 판에는 `land` 툴이 있습니다. 턴을 끝낼 때 마지막으로 부르고, 이 턴에 **실제로 바꾼 것**을 "
         .. "손잡이(슬라이드 번호·id·경로)와 함께 신고하세요. 계획만 적으면 거절되고 턴은 계속됩니다.",

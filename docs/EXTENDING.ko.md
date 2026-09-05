@@ -428,6 +428,12 @@ magi.register_mcp{
 
 런타임 정보 API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
+> **`magi.register_declaration_gate{ check = fn }`** — 모델이 턴 완료를 선언할 때, 카운슬이 소집되기
+> **전에** `fn()` 이 돕니다(`magi.turn_steps()` 가 답합니다). `nil` 이면 통과, 문자열이면 거절이고 그
+> 문장이 모델에게 그대로 갑니다(카운슬 거절 횟수에 안 셉니다). **`magi.council_enabled()`** 는 이 판에서
+> 카운슬이 선언을 심사하는지 — 끝내는 문이 따로 있는 플러그인(landing 의 `land`)은 그때 문 대신 게이트를
+> 겁니다: 문은 하나.
+>
 > **`magi.turn_steps()`** — 툴 호출 안에서만: 이 호출이 속한 턴의 툴 호출들을 오래된 순으로
 > `{name=, args=(디코드됨), failed=, output=, output_bytes=}` 로 돌려줍니다. `output` 은 결과 본문으로, 실패한 호출은 통째로, 성공한 호출은 6 KB 에서 잘립니다(문이 성공 답에 실린 ⚠ 를 읽는 자리입니다). 지금
 > 도는 호출(자기 자신)은 빠집니다. 턴을 판정하는 문(landing 의 `land`)이 모델의 신고 대신 기록에서

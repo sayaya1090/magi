@@ -3,6 +3,7 @@ package lua
 import (
 	"context"
 	"fmt"
+	lua "github.com/yuin/gopher-lua"
 	"sort"
 	"strings"
 	"sync"
@@ -33,6 +34,10 @@ type RuntimeInfo struct {
 	Platform string // OS platform (darwin, linux, windows)
 	Workdir  string // Current working directory
 	Username string // OS/login user name ("" when undeterminable)
+	// CouncilEnabled says a consensus council judges completion declarations in this run. A
+	// plugin that has a door of its own for "the turn is finished" (landing's `land`) should
+	// then register a declaration gate instead — one door, not two (2026-09-05).
+	CouncilEnabled bool
 }
 
 // ContextProviderRegistry allows plugins to register context providers.
@@ -441,4 +446,37 @@ func (h *Host) unregister(p *plugin) {
 	for _, t := range p.tools {
 		h.sink.Unregister(t.name)
 	}
+}
+
+// RunDeclarationGates asks every plugin gate whether a completion declaration may go to
+// the council. Each gate runs under its plugin's lock with env set (so magi.turn_steps
+// answers) and returns nil to pass or a string to refuse; the refusals come back in
+// plugin order. No gates → nil. A gate that errors is logged and treated as passing:
+// a broken gate must not lock a turn shut.
+func (h *Host) RunDeclarationGates(ctx context.Context, env port.ToolEnv) []string {
+	var out []string
+	for _, p := range h.snapshot() {
+		p.mu.Lock()
+		if len(p.gates) == 0 {
+			p.mu.Unlock()
+			continue
+		}
+		prevEnv, prevCtx := p.env, p.callCtx
+		p.env, p.callCtx = env, ctx
+		for _, fn := range p.gates {
+			L := p.L
+			L.Push(fn)
+			if err := L.PCall(0, 1, nil); err != nil {
+				h.logf(fmt.Sprintf("[%s] declaration gate: %v", p.name, err))
+				continue
+			}
+			if s, ok := L.Get(-1).(lua.LString); ok && strings.TrimSpace(string(s)) != "" {
+				out = append(out, string(s))
+			}
+			L.Pop(1)
+		}
+		p.env, p.callCtx = prevEnv, prevCtx
+		p.mu.Unlock()
+	}
+	return out
 }

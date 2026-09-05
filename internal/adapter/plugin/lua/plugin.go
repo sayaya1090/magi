@@ -28,6 +28,7 @@ type plugin struct {
 	mu       sync.Mutex
 	L        *lua.LState
 	tools    []*luaTool
+	gates    []*lua.LFunction  // declaration gates (magi.register_declaration_gate)
 	commands []*luaCommand     // slash commands registered via magi.register_command
 	probes   []*luaDoctorProbe // -doctor checks registered via magi.register_doctor_probes
 	env      port.ToolEnv      // set per tool Execute so bridge calls see the workdir

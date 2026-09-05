@@ -114,3 +114,58 @@ func TestLandingLandRequiresARenderPerPageMade(t *testing.T) {
 		t.Errorf("all title ⚠ answered → lands, got %q", msg)
 	}
 }
+
+// With a council in the run, landing registers no `land` tool — one door — and its gates run
+// on the declaration instead, through RunDeclarationGates, with the same measurements.
+func TestLandingBecomesADeclarationGateWhenTheCouncilOwnsTheDoor(t *testing.T) {
+	dir, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "plugins", "landing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "init.lua")); err != nil {
+		t.Skip("plugins/landing not beside this tree")
+	}
+	sink := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{ToolSink: sink, ContextReg: &fakeContextReg{},
+		Notify: func(string, string) {}, Logf: func(string) {}, Runtime: RuntimeInfo{CouncilEnabled: true}})
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("load landing: %v", err)
+	}
+	if _, ok := sink.Get("land"); ok {
+		t.Fatal("with a council, landing must not register a second door (`land`)")
+	}
+	gate := func(steps []port.ChildStep) []string {
+		return h.RunDeclarationGates(context.Background(),
+			port.ToolEnv{TurnSteps: func(context.Context) ([]port.ChildStep, error) { return steps, nil }})
+	}
+	made := port.ChildStep{Name: "add_slides", Args: json.RawMessage(`{"slides":[{},{},{}]}`)}
+	render := port.ChildStep{Name: "render_slide"}
+	if why := gate([]port.ChildStep{made, render}); len(why) != 1 || !strings.Contains(why[0], "3장") || !strings.Contains(why[0], "1번") {
+		t.Errorf("3 made, 1 rendered must be refused at the declaration: %v", why)
+	}
+	if why := gate([]port.ChildStep{made, render, render, render}); len(why) != 0 {
+		t.Errorf("3 made, 3 rendered passes the gate: %v", why)
+	}
+	if why := gate(nil); len(why) != 0 {
+		t.Errorf("an empty turn passes: %v", why)
+	}
+}
+
+// A gate that raises is logged and passes — a broken gate must not lock a turn shut.
+func TestDeclarationGateErrorsPass(t *testing.T) {
+	sink := builtin.NewRegistry()
+	h := NewHostWithConfig(HostConfig{ToolSink: sink, Logf: func(string) {}})
+	dir := writePlugin(t, "name=\"gatey\"\ncapabilities=[\"tool\"]\n", `
+magi.register_declaration_gate{ check = function() error("boom") end }
+magi.register_declaration_gate{ check = function() return "no: " .. #magi.turn_steps() .. " steps" end }
+`)
+	if _, err := h.Load(context.Background(), dir); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	why := h.RunDeclarationGates(context.Background(), port.ToolEnv{TurnSteps: func(context.Context) ([]port.ChildStep, error) {
+		return []port.ChildStep{{Name: "x"}, {Name: "y"}}, nil
+	}})
+	if len(why) != 1 || why[0] != "no: 2 steps" {
+		t.Errorf("the erroring gate passes, the refusing one refuses with turn_steps in reach: %v", why)
+	}
+}

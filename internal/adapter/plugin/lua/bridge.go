@@ -38,6 +38,8 @@ func installBridge(p *plugin) {
 	L.SetField(t, "spawn_all", L.NewFunction(p.bridgeSpawnAll))
 	L.SetField(t, "child_steps", L.NewFunction(p.bridgeChildSteps))
 	L.SetField(t, "turn_steps", L.NewFunction(p.bridgeTurnSteps))
+	L.SetField(t, "council_enabled", L.NewFunction(p.bridgeCouncilEnabled))
+	L.SetField(t, "register_declaration_gate", L.NewFunction(p.bridgeRegisterDeclarationGate))
 	L.SetField(t, "restore_child", L.NewFunction(p.bridgeRestoreChild))
 	L.SetField(t, "merge_child", L.NewFunction(p.bridgeMergeChild))
 	L.SetField(t, "json_decode", L.NewFunction(p.bridgeJSONDecode))
@@ -307,6 +309,29 @@ func stepsTable(L *lua.LState, steps []port.ChildStep) *lua.LTable {
 		out.Append(row)
 	}
 	return out
+}
+
+// magi.council_enabled() -> bool — whether a council judges completion declarations here.
+func (p *plugin) bridgeCouncilEnabled(L *lua.LState) int {
+	L.Push(lua.LBool(p.host != nil && p.host.runtime.CouncilEnabled))
+	return 1
+}
+
+// magi.register_declaration_gate{ check = function() return nil | "why not" end }
+// The check runs when the agent declares the turn complete, BEFORE any council convenes,
+// with magi.turn_steps() answering for the turn. A string refuses the declaration and is
+// shown to the agent verbatim; nil lets it through. This is how a plugin door such as
+// landing keeps its gates when the council owns the door (one door, not two).
+func (p *plugin) bridgeRegisterDeclarationGate(L *lua.LState) int {
+	p.requireCap(L, "tool")
+	spec := L.CheckTable(1)
+	fn, ok := spec.RawGetString("check").(*lua.LFunction)
+	if !ok {
+		L.RaiseError("register_declaration_gate: 'check' must be a function")
+		return 0
+	}
+	p.gates = append(p.gates, fn)
+	return 0
 }
 
 // magi.turn_steps() -> {{name=, args=, failed=, output=, output_bytes=}, ...}

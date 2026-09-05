@@ -69,11 +69,34 @@ const (
 	councilGuidanceCap    = 30000
 )
 
+// declarationGater is what a TurnObserver may also be: the plugin host's declaration gates
+// (magi.register_declaration_gate), asked before a completion declaration convenes a council.
+type declarationGater interface {
+	GateDeclaration(ctx context.Context, sid string, steps func(context.Context) ([]port.ChildStep, error)) []string
+}
+
+// CouncilEnabled says a council judges completion declarations in this run — what a plugin
+// with a door of its own (landing) reads to register a gate instead of a second door.
+func (a *App) CouncilEnabled() bool { return a.cfg.Council != nil }
+
 func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges []fileChange, epoch int, question string, complete bool) (string, error) {
 	if a.cfg.Council == nil {
 		return "", fmt.Errorf("no council is configured for this run")
 	}
 	sid := s.ID
+	// **Plugin gates first, council second.** A declaration a plugin door can refuse on its
+	// own measurements (pages rendered, a title ⚠ still standing) never reaches the judges:
+	// it costs nothing and it does not count as a rejected declaration.
+	if complete {
+		if g, ok := a.cfg.Observer.(declarationGater); ok && g != nil {
+			if why := g.GateDeclaration(ctx, string(sid), func(c context.Context) ([]port.ChildStep, error) {
+				return a.turnSteps(c, sid)
+			}); len(why) > 0 {
+				return "The declaration is refused before any council convenes — " + strings.Join(why, " · ") +
+					" Do what it says, then declare again.", nil
+			}
+		}
+	}
 	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
 	members, rule := a.councilParams()
 

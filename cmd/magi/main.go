@@ -1472,10 +1472,11 @@ func startPluginHost(p hostParams, sid *session.SessionID) *pluginlua.Host {
 		Experience:    p.experience,
 		Notify:        func(sid, text string) { p.app.PluginNote(sid, text) },
 		Runtime: pluginlua.RuntimeInfo{
-			Model:    p.modelID,
-			Platform: runtime.GOOS,
-			Workdir:  p.wd,
-			Username: osUsername(),
+			Model:          p.modelID,
+			Platform:       runtime.GOOS,
+			Workdir:        p.wd,
+			Username:       osUsername(),
+			CouncilEnabled: p.app != nil && p.app.CouncilEnabled(),
 		},
 		Logf: pluginLogf(),
 	})

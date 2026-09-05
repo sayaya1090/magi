@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 	"io"
 	"io/fs"
 	"os"
@@ -247,6 +249,16 @@ func (o *pluginObserver) TurnFinished(sid string, ob app.TurnObservation) {
 
 // WantsTurnFinished lets the app skip the per-turn store scan when no loaded
 // plugin actually listens for turn_finished.
+// GateDeclaration runs the plugins' declaration gates (app.declarationGater); nil host → none.
+func (o *pluginObserver) GateDeclaration(ctx context.Context, sid string,
+	steps func(context.Context) ([]port.ChildStep, error)) []string {
+	h := o.host.Load()
+	if h == nil {
+		return nil
+	}
+	return h.RunDeclarationGates(ctx, port.ToolEnv{SessionID: session.SessionID(sid), TurnSteps: steps})
+}
+
 func (o *pluginObserver) WantsTurnFinished() bool {
 	h := o.host.Load()
 	return h != nil && h.HasEventHandlers("turn_finished")
