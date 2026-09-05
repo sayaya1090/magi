@@ -38,7 +38,7 @@ PowerPoint 작업창(애드인)  ←https→  magi-ppt(헬퍼)  ←unix socket�
 
 | 무엇 | 왜 |
 |---|---|
-| Microsoft 365 PowerPoint (Windows/Mac) 또는 웹 | Office.js 요구 집합 `PowerPointApi 1.8` + `SharedRuntime 1.1` 이 필요하다. **LTSC 2021/2024 는 안 된다** — 사유와 대안은 [`LTSC.md`](../LTSC.md) |
+| Microsoft 365 PowerPoint (Windows/Mac) 또는 웹 | Office.js 요구 집합 `PowerPointApi 1.8` + `SharedRuntime 1.1` 이 필요하다. **LTSC 2021 에서는 작업창은 뜨지만 편집은 못 한다**(1.2 까지) — 편집은 COM 손이 맡는다. 어느 판에 무엇이 되는지는 [`INSTALL.ko.md`](INSTALL.ko.md) §1, 사유는 [`LTSC.md`](../LTSC.md) |
 | Go 1.22+ | 헬퍼를 빌드한다 |
 | `magi` | 데몬. 덱이 있는 디렉토리(또는 아무 워크스페이스)에서 띄운다 |
 
@@ -73,7 +73,10 @@ Import-Certificate -FilePath "$env:USERPROFILE\.magi\ppt-helper-cert.pem" -CertS
 
 ### 2.4 애드인 사이드로드 (Windows)
 
-매니페스트를 담은 폴더를 하나 만들고, 그 경로를 레지스트리에 신뢰 카탈로그로 적는다.
+길이 **판마다 다르다.** Microsoft 365 는 개발자 키 한 줄이고, 볼륨 판(LTSC 2021)은 그 키를 무시한다 —
+§2.4.1. 조직에 뿌리는 길은 [`INSTALL.ko.md`](INSTALL.ko.md) §4.
+
+**Microsoft 365** — 매니페스트를 담은 폴더를 하나 만들고, 그 경로를 개발자 키에 적는다.
 
 ```powershell
 $dir = "C:\Users\<you>\magi-addin"
@@ -93,6 +96,35 @@ PowerPoint 를 껐다 켜면 **홈 리본 → 추가 기능 → 개발자 추가
 > `<Requirements>` 는 `<Hosts>` **앞**에 와야 한다. 순서가 뒤면 Office 는 애드인을 **아무 말
 > 없이** 목록에서 뺀다 — 오류도, 로그도 없다. 이 저장소는 그 하루를 실제로 겪었고,
 > `TestTheManifestKeepsTheSchemaOrder` 가 지금 그것을 문다.
+
+#### 2.4.1 볼륨 판 / LTSC 2021 — 신뢰 카탈로그
+
+2021 은 위의 개발자 키를 **무시한다**(2026-09-05 실측: 리본에 아무것도 안 서고, 「내 추가 기능」에
+개발자 추가 기능 탭 자체가 없다). MS 가 Windows 데스크톱에 적어 둔 길은 **신뢰 카탈로그** 다 — 매니페스트를
+담은 폴더를 UNC 경로로 신뢰하고, 「내 추가 기능 → 공유 폴더」에서 넣는다.
+
+```powershell
+$dir = "C:\Users\<you>\magi-addin"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Copy-Item .\clients\powerpoint\addin\manifest.xml $dir
+$unc = "\\localhost\C$" + $dir.Substring(2)           # 관리 공유. 진짜 공유 폴더를 만들었으면 그 UNC
+$id = "{" + [guid]::NewGuid() + "}"
+$k = "HKCU:\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\$id"
+New-Item -Path $k -Force | Out-Null
+Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Flags 1 -Type DWord
+```
+
+PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더** 에서 `magi` 를 고르고 **추가**. 홈 탭에
+`magi` 단추가 서고, 누르면 창이 열린다. 창의 「지원 API」 줄은 `1.2 ✓ · 1.5~1.10 ✗ · SharedRuntime 1.1 ✓`
+를 말한다 — 그 판에서 편집은 COM 손(`INSTALL.ko.md` §3)이 한다.
+
+![삽입 → 내 추가 기능 → 공유 폴더 에 선 magi (LTSC 2021)](img/install-2021-shared-folder.png)
+
+- 카탈로그 안의 것은 **복사본**이다. 매니페스트를 고치면 다시 복사하고, 리본이 바뀌면(단추·탭)
+  「공유 폴더」에서 다시 추가해야 한다 — MS 문서가 그렇게 적어 뒀다.
+- `Flags = 1` 이 「메뉴에 표시」다. 0 이면 신뢰만 하고 탭이 안 선다.
+- 관리 공유(`\\localhost\C$`)는 이 계정이 관리자일 때 되는 편법이다. 안 되면 폴더를 진짜로 공유한다
+  (`New-SmbShare`, 관리자 권한).
 
 ### 2.5 데몬과 헬퍼 띄우기
 
