@@ -601,6 +601,12 @@ The general-purpose way for a plugin to **interact with the user at startup** (t
 
   The request is `{ method, path, query={k=v}, headers={k=v}, body }`, and the response is
   `{ status=200, headers={k=v}, body }` (or just a string, which becomes a 200 body).
+  - **streaming body**: return `body = function() … end` instead of a string and the host pulls
+    it chunk by chunk, flushing each one — return a string to send it (`""` means "nothing yet,
+    ask again"), `nil` to finish. The plugin lock is held only for each pull, so a slow stream does
+    not block the plugin's other requests (two conversations on one model shim run side by side).
+    An optional `abort = function() … end` on the same table is called once if the client goes
+    away first. This is how a CLI-backed model shim streams tokens as SSE.
   Being **in-process**, it needs no external runtime and works inside the single static binary —
   identically on every OS.
 

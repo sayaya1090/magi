@@ -388,7 +388,7 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(io.LimitReader(r.Body, serveBodyMax))
-		status, respBody, respHeaders, ok := p.callServeHandler(handler, r, body)
+		status, respBody, respHeaders, pull, ok := p.callServeHandler(handler, r, body)
 		if !ok {
 			http.Error(w, "plugin handler error", http.StatusInternalServerError)
 			return
@@ -405,7 +405,11 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 			w.Header().Set(k, v)
 		}
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(respBody))
+		if pull == nil {
+			_, _ = w.Write([]byte(respBody))
+			return
+		}
+		p.streamServeBody(w, r, pull)
 	})}
 	go srv.Serve(ln)
 	// p.mu is held during a bridge call (tool Execute / fire), so appending here is safe.
@@ -424,12 +428,100 @@ func (p *plugin) bridgeServe(L *lua.LState) int {
 // callServeHandler invokes a magi.serve handler under the plugin lock (the Lua
 // state is not concurrency-safe) and maps its return to an HTTP response. ok=false
 // on any error so the HTTP layer can reply 500.
-func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byte) (status int, respBody string, headers map[string]string, ok bool) {
+// servePull is a streaming response body: the handler returned `body = function() … end`, and the
+// host pulls it one chunk at a time. Each pull takes the plugin lock only for the call itself, so
+// a slow stream does not hold the whole plugin — a second request (another conversation, on the
+// same shim) is answered between two chunks instead of after the last one.
+//
+// Why a pull and not a push: the handler runs inside one Lua call and the response is what it
+// returns. A body that is a function keeps that shape (the handler still returns a table) while
+// letting the bytes come later. The function returns a string (a chunk; "" means "nothing yet, ask
+// again"), or nil when the body is complete. An optional `abort = function() … end` on the same
+// table is called once if the client goes away first, so the plugin can stop whatever fed the
+// stream (a child process reading a long answer).
+type servePull struct {
+	next  *lua.LFunction
+	abort *lua.LFunction
+}
+
+// servePullIdle is how long the host waits after an empty pull before asking again. Short enough
+// that a token arriving from a child process is on the wire within a blink; long enough that an
+// idle stream is not a busy loop holding and releasing the plugin lock.
+const servePullIdle = 25 * time.Millisecond
+
+// streamServeBody drains a servePull into the response, flushing every chunk so the client sees
+// it now — an SSE consumer (magi's own model client) reads frame by frame, and a frame that sits
+// in a buffer until the end is a whole answer that arrives at once, which is the thing this exists
+// to undo. Between empty pulls it sleeps briefly rather than spin.
+func (p *plugin) streamServeBody(w http.ResponseWriter, r *http.Request, pull *servePull) {
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	for {
+		select {
+		case <-r.Context().Done():
+			p.callServeAbort(pull)
+			return
+		default:
+		}
+		chunk, done, ok := p.pullServeChunk(pull)
+		if !ok || done {
+			return
+		}
+		if chunk == "" {
+			time.Sleep(servePullIdle)
+			continue
+		}
+		if _, err := io.WriteString(w, chunk); err != nil {
+			p.callServeAbort(pull)
+			return
+		}
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+}
+
+func (p *plugin) pullServeChunk(pull *servePull) (chunk string, done bool, ok bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	L := p.L
 	if L == nil {
-		return 0, "", nil, false // plugin unloaded
+		return "", true, false
+	}
+	if err := L.CallByParam(lua.P{Fn: pull.next, NRet: 1, Protect: true}); err != nil {
+		p.logf(fmt.Sprintf("[%s] serve stream error: %v", p.name, err))
+		return "", true, false
+	}
+	v := L.Get(-1)
+	L.Pop(1)
+	if v == lua.LNil {
+		return "", true, true
+	}
+	return v.String(), false, true
+}
+
+func (p *plugin) callServeAbort(pull *servePull) {
+	if pull.abort == nil {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.L == nil {
+		return
+	}
+	if err := p.L.CallByParam(lua.P{Fn: pull.abort, NRet: 0, Protect: true}); err != nil {
+		p.logf(fmt.Sprintf("[%s] serve abort error: %v", p.name, err))
+	}
+}
+
+func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byte) (status int, respBody string, headers map[string]string, pull *servePull, ok bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	L := p.L
+	if L == nil {
+		return 0, "", nil, nil, false // plugin unloaded
 	}
 
 	req := L.NewTable()
@@ -451,7 +543,7 @@ func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byt
 
 	if err := L.CallByParam(lua.P{Fn: fn, NRet: 1, Protect: true}, req); err != nil {
 		p.logf(fmt.Sprintf("[%s] serve handler error: %v", p.name, err))
-		return 0, "", nil, false
+		return 0, "", nil, nil, false
 	}
 	result := L.Get(-1)
 	L.Pop(1)
@@ -469,15 +561,24 @@ func (p *plugin) callServeHandler(fn *lua.LFunction, r *http.Request, body []byt
 			})
 		}
 		rb := ""
-		if b := v.RawGetString("body"); b != lua.LNil {
-			rb = b.String()
+		switch b := v.RawGetString("body").(type) {
+		case *lua.LFunction:
+			// A streaming body. The status and headers go out now; the bytes come from `b` later.
+			pull = &servePull{next: b}
+			if ab, ok := v.RawGetString("abort").(*lua.LFunction); ok {
+				pull.abort = ab
+			}
+		case lua.LValue:
+			if b != lua.LNil {
+				rb = b.String()
+			}
 		}
-		return int(lua.LVAsNumber(v.RawGetString("status"))), rb, out, true
+		return int(lua.LVAsNumber(v.RawGetString("status"))), rb, out, pull, true
 	case lua.LString:
-		return http.StatusOK, string(v), nil, true
+		return http.StatusOK, string(v), nil, nil, true
 	default:
 		p.logf(fmt.Sprintf("[%s] serve handler returned non-table/string", p.name))
-		return 0, "", nil, false
+		return 0, "", nil, nil, false
 	}
 }
 

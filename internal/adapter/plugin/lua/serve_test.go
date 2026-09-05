@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // loadHost loads a single plugin and returns the host (so the caller can Unload)
@@ -420,5 +421,73 @@ magi.log("cleared=" .. tostring(r == true) .. " err=" .. tostring(e))`,
 	)
 	if !strings.Contains(out, "cleared=true") {
 		t.Errorf("clearing must not be refused for a zero token: %q", out)
+	}
+}
+
+// A handler may answer with `body = function() … end`: the host pulls chunks and flushes each one,
+// so the client sees the first chunk while the plugin is still producing the rest — and, because
+// the plugin lock is released between pulls, a second request is answered in the middle of the
+// stream instead of after it. This is what lets a CLI-backed model shim stream tokens and serve
+// two conversations at once (the antigravity shim before this held the lock for a whole answer).
+func TestServeStreamsAFunctionBodyAndDoesNotHoldTheLock(t *testing.T) {
+	h, out := loadHost(t, HostConfig{},
+		`name="srv"`+"\n"+`permissions=["net:listen"]`,
+		`local n = 0
+local released = false
+local s = magi.serve{ port = 0, handler = function(req)
+  if req.path == "/stream" then
+    n = 0
+    return { status = 200, headers = { ["Content-Type"] = "text/event-stream" }, body = function()
+      n = n + 1
+      if n == 1 then return "first\n" end
+      if n == 2 then return "" end
+      if n == 3 then return "second\n" end
+      if n == 4 then return released and "third:released\n" or "third:held\n" end
+      return nil
+    end }
+  end
+  released = true
+  return "plain"
+end }
+magi.log("port=" .. tostring(s.port))`,
+	)
+	defer func() { _ = h.Unload("srv") }()
+	port := parsePort(t, out)
+
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/stream", port))
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("headers did not go out before the body: %v", resp.Header)
+	}
+	buf := make([]byte, 64)
+	k, err := resp.Body.Read(buf)
+	if err != nil || string(buf[:k]) != "first\n" {
+		t.Fatalf("first chunk did not arrive on its own: %q %v", buf[:k], err)
+	}
+	done := make(chan string, 1)
+	go func() {
+		r2, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/plain", port))
+		if err != nil {
+			done <- "err:" + err.Error()
+			return
+		}
+		b, _ := io.ReadAll(r2.Body)
+		r2.Body.Close()
+		done <- string(b)
+	}()
+	select {
+	case got := <-done:
+		if got != "plain" {
+			t.Fatalf("second request answered wrong: %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("a second request waited on the whole stream — the plugin lock is held across chunks")
+	}
+	rest, _ := io.ReadAll(resp.Body)
+	if string(rest) != "second\nthird:released\n" {
+		t.Fatalf("stream tail = %q", rest)
 	}
 }

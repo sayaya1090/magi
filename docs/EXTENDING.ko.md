@@ -559,6 +559,7 @@ magi.set_llm_headers(function() return { Authorization = "Bearer " .. token } en
   요청: `{ method, path, query={k=v}, headers={k=v}, body }`,
   응답: `{ status=200, headers={k=v}, body }`(또는 문자열만 반환 → 200 본문).
   **인프로세스**라 외부 런타임 없이 단일 정적 바이너리 안에서 동작 — 모든 OS에서 동일.
+  - **스트리밍 본문**: `body` 에 문자열 대신 `function() … end` 를 주면 호스트가 청크 단위로 당겨 매번 흘려보냅니다 — 문자열을 돌려주면 보내고(`""` 는 「아직 없음, 다시 물어라」), `nil` 이면 끝입니다. 플러그인 락은 당길 때만 잡으므로 느린 스트림이 다른 요청을 막지 않습니다(한 모델 심 위에서 대화 둘이 나란히 돕니다). 같은 테이블의 `abort = function() … end` 는 클라이언트가 먼저 떠나면 한 번 불립니다. CLI 로 받은 모델을 SSE 로 흘려보내는 심이 쓰는 길입니다.
 
 **예: ADSSO — 시작 시 "브라우저 로그인 / 토큰 붙여넣기" 메뉴 (순수 플러그인, 코어 무수정)**
 ```toml
