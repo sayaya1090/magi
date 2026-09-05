@@ -850,6 +850,66 @@ export function labelledTools() { return [...TOOL_LABELS.keys()]; }
  * 누르면 컴패니언이 다시 뜨고 대화가 새로 시작된다(helper/council.go). 그 말이 title 에 없으면 사람은
  * 대화가 왜 사라졌는지 모른다. 모르는 상태(null)면 켜는 쪽으로 적되 「모름」을 붙인다.
  */
+/** 컨텍스트를 이루는 다섯 조각 — 요청에 실리는 순서(웹 콘솔 DetailElement.MAKEUP 과 같은 순서·같은 이름). */
+export const CONTEXT_PARTS = Object.freeze([
+  ['system', '시스템'], ['tools', '도구 목록'], ['talk', '대화'], ['calls', '호출'], ['results', '결과'],
+]);
+const commas = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/**
+ * 컨텍스트 띠 — 얼마나 찼고 **무엇으로** 찼나.
+ *
+ * 총량만 보여 주면 사람은 대화를 줄이러 간다. 이 하네스에서 대화는 대개 작은 쪽이고, 매 요청에 실려 가는 도구
+ * 목록이 가장 크다. 그래서 띠의 조각은 장식이 아니라 「무엇을 줄여야 하는가」의 답이다(웹 콘솔과 같은 이유).
+ * 다섯 조각이 전부 0 이면 측정이 아니라 **모름**이라 띠를 안 그린다 — 창을 모를 때 퍼센트를 안 적는 것과 같다.
+ */
+export function contextMeter(st) {
+  if (!st || typeof st !== 'object') return { hidden: true, text: '', title: '', segments: [], keys: [], pct: null, compactDisabled: true };
+  const used = Number(st.used) || 0; const window = Number(st.window) || 0;
+  if (used <= 0 && window <= 0) return { hidden: true, text: '', title: '', segments: [], keys: [], pct: null, compactDisabled: true };
+  const pct = window > 0 ? Math.min(100, Math.round(used * 100 / window)) : null;
+  const parts = st.parts && typeof st.parts === 'object' ? st.parts : {};
+  const sum = CONTEXT_PARTS.reduce((a, [k]) => a + (Number(parts[k]) || 0), 0);
+  const segments = sum > 0
+    ? CONTEXT_PARTS.filter(([k]) => (Number(parts[k]) || 0) > 0)
+      .map(([k, label]) => ({ kind: k, label, tokens: Number(parts[k]), pct: Number(parts[k]) * 100 / sum, title: `${label} · ${commas(parts[k])}` }))
+    : [];
+  const keys = segments.map((s) => ({ kind: s.kind, text: `${s.label} ${commas(s.tokens)}` }));
+  const text = `${st.estimated ? '~' : ''}${commas(used)}${window > 0 ? ` / ${commas(window)}` : ''} 토큰`
+    + (pct != null ? ` · ${pct}%` : '') + (Number(st.messages) > 0 ? ` · 메시지 ${commas(st.messages)}` : '');
+  const folds = Number(st.compactions) || 0;
+  const note = folds > 0 ? `접기 ${folds}회 · ${commas(st.shed)} 토큰 덜어냄` : '';
+  return {
+    hidden: false, pct, text, note, segments, keys,
+    title: [text, ...segments.map((s) => s.title), note].filter(Boolean).join(' · '),
+    // 도구 목록·시스템은 접어도 안 준다 — 대화가 없으면 접을 것이 없다.
+    compactDisabled: (Number(parts.talk) || 0) + (Number(parts.calls) || 0) + (Number(parts.results) || 0) === 0 && sum > 0,
+  };
+}
+
+/**
+ * 프로바이더·모델 고르기. 프로바이더 목록은 지금 카탈로그를 답하는 심들이고, 모델 목록은 고른 프로바이더의 것
+ * (없으면 데몬이 답한 것). **지금 것은 목록에 없어도 선다** — 안 서면 「고른 적 없음」과 「고른 것을 못 그림」이
+ * 같은 빈칸이 된다.
+ */
+export function modelPicker(m) {
+  const providers = Array.isArray(m?.providers) ? m.providers : [];
+  const backend = String(m?.backend ?? ''); const current = String(m?.model ?? '');
+  const on = providers.find((p) => p.base === backend);
+  const provOptions = providers.map((p) => ({ value: p.base, text: p.name || p.base, selected: p.base === backend }));
+  if (backend && !on) provOptions.unshift({ value: backend, text: `${backend} (명단 밖)`, selected: true });
+  let names = (on && Array.isArray(on.models) && on.models.length > 0) ? on.models : (Array.isArray(m?.models) ? m.models : []);
+  names = [...new Set(names)];
+  if (current && !names.includes(current)) names = [current, ...names];
+  const modelOptions = names.map((n) => ({ value: n, text: n, selected: n === current }));
+  const empty = provOptions.length === 0 && modelOptions.length === 0;
+  return {
+    providers: provOptions, models: modelOptions, empty,
+    note: empty ? (m?.warning || m?.error || '고를 것이 없습니다 — 답하는 프로바이더가 없습니다') : (m?.warning || ''),
+    title: `${on?.name || backend || '백엔드 모름'} · ${current || '모델 모름'}`,
+  };
+}
+
 export function councilButton(on) {
   const known = typeof on === 'boolean';
   const pressed = on === true;

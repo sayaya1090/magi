@@ -184,6 +184,22 @@ async function boot() {
   // 빈칸이 된다** — 가짜 갈래에서는 이 한 줄이 「가짜 덱」이라고 적는 자리다.
   void refreshBrand();
 
+  /**
+   * 컨텍스트 띠 — 붙어 있는 동안 10초마다, 그리고 대화가 바뀔 때. 전사의 `context.usage` 는 퍼센트만 실어 오고
+   * **무엇으로 찼는지**는 데몬의 `context` 문만 답하므로 따로 묻는다. 못 물으면 띠를 숨긴다 — 낡은 띠를 세워 두면
+   * 그것이 사실인 줄 안다.
+   */
+  const refreshContext = async () => {
+    if (!real || !(watchPrompt?.view?.session)) { view.contextMeter(null); return; }
+    try { view.contextMeter(await api.context()); } catch { view.contextMeter(null); }
+  };
+  setInterval(() => { void refreshContext(); }, 10000);
+  /** 프로바이더·모델 목록 — 펼 때 묻는다. 매 폴에 물으면 심마다 카탈로그를 두드린다. */
+  const loadModels = async () => {
+    if (!real) { view.modelPicker({ providers: [], models: [], warning: '브라우저 목업에서는 고를 것이 없습니다' }); return; }
+    try { view.modelPicker(await api.models()); } catch (e) { view.modelPicker({ providers: [], models: [], error: e?.message ?? String(e) }); }
+  };
+
   if (real) {
     // 손이 붙는다. **조작을 수행하는 것은 애드인이고**, 헬퍼는 그 손을 부린다(§5.1).
     // PowerPoint 안이 아니면 가짜 손을 붙인다 — 그 화면에서 도구를 눌러 볼 수 있어야
@@ -450,7 +466,29 @@ async function boot() {
       advanced.hidden = !open;
       more.setAttribute('aria-expanded', String(open));
       more.classList.toggle('icon-on', open);
+      if (open) void loadModels();
     });
+    /** 압축 — 데몬이 접는다. 눌렀다는 것과 끝났다는 것을 가른다: 끝은 띠가 바뀌는 것으로 본다. */
+    document.querySelector('#compact')?.addEventListener('click', () => {
+      void (async () => {
+        view.where('컨텍스트를 접는 중입니다 — 끝나면 아래 띠가 바뀝니다.');
+        try {
+          const out = await api.compact();
+          view.where(out?.note || '접기를 시켰습니다.');
+          setTimeout(() => { void refreshContext(); }, 3000);
+        } catch (e) { view.where(`접지 못했습니다: ${e?.message ?? e}`); }
+      })();
+    });
+    /** 프로바이더·모델 — 고르면 바로 보낸다. 백엔드를 바꾸면 모델 어휘가 바뀌므로 목록을 다시 묻는다. */
+    const sendModel = async (body) => {
+      try {
+        const out = await api.setModel(body);
+        view.where(out?.note || '바꿨습니다 — 다음 턴부터입니다.');
+      } catch (e) { view.where(`못 바꿨습니다: ${e?.message ?? e}`); }
+      await loadModels();
+    };
+    document.querySelector('#provider')?.addEventListener('change', (ev) => { void sendModel({ base: ev.target.value }); });
+    document.querySelector('#model')?.addEventListener('change', (ev) => { void sendModel({ model: ev.target.value }); });
     document.querySelector('#repick')?.addEventListener('click', () => {
       void showCompanions(true);
     });
@@ -781,6 +819,7 @@ async function boot() {
         listenTo(sid);
         // 브랜드 줄이 그 이름을 든다 — 창이 그 대화에 붙어 있는 동안 계속.
         void refreshBrand();
+        void refreshContext();
       }
       view.councilButton(watchPrompt.view.council);
       if (watchPrompt.view.stale) companionRestarted();

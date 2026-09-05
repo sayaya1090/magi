@@ -57,6 +57,8 @@
   --warn-fg: #6b4d00;
   --warn-line: #e6c66a;
   --ok: #0f7b0f;
+  /* 컨텍스트 다섯 조각 — 웹 콘솔의 역할 배정(outline·secondary·primary·accent·casper)을 이 판의 색으로 */
+  --p-system: #8a8f98; --p-tools: #6b5bd2; --p-talk: var(--accent); --p-calls: #c77700; --p-results: #0284c7;
 
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .08), 0 0 2px rgba(0, 0, 0, .06);
   --shadow-2: 0 4px 8px rgba(0, 0, 0, .10), 0 0 2px rgba(0, 0, 0, .06);
@@ -892,3 +894,21 @@ button:disabled { cursor: default; opacity: .5; }
 .md th { font-weight: 600; background: var(--surface-2, rgba(0,0,0,.04)); }
 .md hr { border: 0; border-top: 1px solid var(--line, rgba(0,0,0,.15)); margin: 8px 0; }
 .md a { color: var(--accent); }
+
+/* ── 컨텍스트 띠 ────────────────────────────────────────────── */
+.ctx { padding: var(--s1) var(--s4); border-top: 1px solid var(--line); font: var(--t-caption); color: var(--muted); }
+.ctx-row { display: flex; align-items: center; gap: var(--s2); min-height: 28px; }
+.ctx-bar { flex: 1 1 auto; height: 6px; display: flex; overflow: hidden; border-radius: 3px; background: var(--line); }
+.ctx-bar i { display: block; height: 100%; }
+.ctx-bar i + i { box-shadow: inset 1px 0 0 var(--bg, #fff); }
+.ctx-text { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ctx-keys { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: 2px; }
+.ctx-key::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: currentColor; }
+.ctx-note { margin-left: auto; }
+.p-system { color: var(--p-system); } .p-tools { color: var(--p-tools); } .p-talk { color: var(--p-talk); } .p-calls { color: var(--p-calls); } .p-results { color: var(--p-results); }
+.ctx-bar i.p-system { background: var(--p-system); } .ctx-bar i.p-tools { background: var(--p-tools); } .ctx-bar i.p-talk { background: var(--p-talk); }
+.ctx-bar i.p-calls { background: var(--p-calls); } .ctx-bar i.p-results { background: var(--p-results); }
+/* ── 프로바이더·모델 ─────────────────────────────────────────── */
+.pick-model { display: flex; gap: var(--s1); align-items: center; flex-wrap: wrap; margin-left: var(--s2); }
+.pick-model select { font: var(--t-caption); max-width: 130px; padding: 2px 4px; border: 1px solid var(--line-strong); border-radius: 4px; background: var(--bg, #fff); color: inherit; }
+.model-note { font: var(--t-caption); color: var(--muted); }

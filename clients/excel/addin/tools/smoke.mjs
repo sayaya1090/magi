@@ -34,7 +34,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, capsQuiet, councilButton, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, fixBoard,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, fixBoard,
 } from '../src/ui/screen.js';
 import { Transcript, isPluginNudge, PLUGIN_NUDGE_MARK } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -1388,6 +1388,37 @@ const point = new PointAtAdvice(book);
   ok('사람의 말도 마크다운 길로 짓는다', /r\.kind === 'user'[\s\S]*?el\.append\(this\.proseEl\(bodyText\(r\)\)\)/.test(body) && !/p\.textContent = bodyText\(r\)/.test(body));
   ok('모델·플러그인의 글과 카운슬 판정도 마크다운으로 짓는다', (body.match(/this\.proseEl\(/g) ?? []).length >= 3, String((body.match(/this\.proseEl\(/g) ?? []).length));
   ok('짓는 쪽은 md.js 의 mdToDom 을 쓴다', /mdToDom\(document, text\)/.test(src));
+}
+
+// ── 컨텍스트 띠와 모델 고르기 (2026-09-06) ─────────────────────────────────
+{
+  const st = { model: 'sonnet', window: 131072, used: 30861, estimated: false, messages: 12, compactions: 1, shed: 4000,
+    parts: { system: 2404, tools: 5703, talk: 800, calls: 300, results: 900 } };
+  const m = contextMeter(st);
+  ok('띠는 퍼센트와 토큰을 적는다', m.hidden === false && m.pct === 24 && m.text.startsWith('30,861 / 131,072 토큰 · 24%'), m.text);
+  ok('다섯 조각이 요청에 실리는 순서로 선다', m.segments.map((s) => s.kind).join(',') === CONTEXT_PARTS.map(([k]) => k).join(','));
+  ok('조각의 폭은 다섯의 합에 대한 몫이다', Math.round(m.segments[1].pct) === 56 && m.keys[1].text === '도구 목록 5,703');
+  ok('접은 기록을 적는다', m.note === '접기 1회 · 4,000 토큰 덜어냄' && m.title.includes('시스템 · 2,404'));
+  ok('추정치는 물결로', contextMeter({ ...st, estimated: true }).text.startsWith('~30,861'));
+  ok('창을 모르면 퍼센트를 안 짓는다', contextMeter({ used: 500, window: 0 }).pct === null && contextMeter({ used: 500, window: 0 }).text === '500 토큰');
+  ok('다섯 조각이 없으면 띠 조각도 없다 — 모름은 0이 아니다', contextMeter({ used: 500, window: 1000 }).segments.length === 0);
+  ok('아무것도 모르면 숨는다', contextMeter(null).hidden === true && contextMeter({}).hidden === true);
+  ok('대화·호출·결과가 없으면 접기 단추가 잠긴다', contextMeter({ used: 8000, window: 1e5, parts: { system: 2000, tools: 6000 } }).compactDisabled === true && m.compactDisabled === false);
+
+  const pick = modelPicker({ providers: [{ name: '클로드 심', base: 'http://127.0.0.1:58412/v1', models: ['opus', 'sonnet'] }, { name: 'Ollama', base: 'http://localhost:11434/v1', models: ['gpt-oss:20b'] }],
+    models: ['ignored'], backend: 'http://127.0.0.1:58412/v1', model: 'sonnet' });
+  ok('지금 프로바이더가 선택된다', pick.providers.length === 2 && pick.providers[0].selected === true && pick.providers[1].selected === false);
+  ok('모델 목록은 고른 프로바이더의 것', pick.models.map((o) => o.value).join(',') === 'opus,sonnet' && pick.models[1].selected === true);
+  ok('제목이 지금 것을 말한다', pick.title === '클로드 심 · sonnet' && pick.note === '');
+  const off = modelPicker({ providers: [{ name: 'Ollama', base: 'http://localhost:11434/v1', models: ['gpt-oss:20b'] }], models: ['a', 'b'], backend: 'http://x/v1', model: 'zzz' });
+  ok('명단 밖의 백엔드도 지금 것이면 선다', off.providers[0].text.includes('명단 밖') && off.providers[0].selected === true);
+  ok('지금 모델이 목록에 없어도 선다', off.models[0].value === 'zzz' && off.models[0].selected === true && off.models.length === 3);
+  const none = modelPicker({ providers: [], models: [], error: '아직 어느 컴패니언에도 안 붙었습니다' });
+  ok('고를 것이 없으면 사유가 선다', none.empty === true && none.note.includes('안 붙었'));
+
+  const html = readFileSync(new URL('../taskpane.html', import.meta.url), 'utf8');
+  ok('띠·접기·프로바이더·모델이 마크업에 있다', ['id="ctx"', 'id="ctx-bar"', 'id="compact"', 'id="provider"', 'id="model"'].filter((id) => !html.includes(id)).length === 0);
+  ok('다섯 조각의 색이 CSS 에 있다', CONTEXT_PARTS.filter(([k]) => !readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8').includes(`--p-${k}`)).length === 0);
 }
 
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');

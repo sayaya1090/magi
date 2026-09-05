@@ -54,6 +54,7 @@
       <g id="i-send"><path d="M3 13l10-5L3 3l2 5z"/></g>
       <g id="i-quote"><path d="M7 4H4v3"/><path d="M9 12h3V9"/></g>
       <g id="i-edit"><path d="M11 3l2 2-7 7-3 1 1-3z"/></g>
+      <g id="i-compress"><path d="M3 5.5h10M3 10.5h10M8 2v2.5M8 11.5V14M6 4l2-1.5L10 4M6 12l2 1.5 2-1.5"/></g>
       <g id="i-more"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></g>
       <g id="i-stop"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/></g>
       <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
@@ -339,6 +340,12 @@
            aria-pressed 로, 글은 `councilButton`(screen.js)이 정한다. -->
       <button type="button" id="council" class="icon-btn" aria-pressed="false" title="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다" aria-label="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-council"/></svg></button>
       <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+      <!-- 프로바이더·모델. 바꾸면 **다음 턴부터**다 — 도는 턴은 그대로 끝난다. 목록은 펼 때 헬퍼에 묻는다(/api/models). -->
+      <div id="pick-model" class="pick-model" title="프로바이더와 모델 — 바꾸면 다음 턴부터입니다">
+        <select id="provider" title="프로바이더(백엔드)를 고릅니다 — 다음 턴부터" aria-label="프로바이더(백엔드)를 고릅니다 — 다음 턴부터"></select>
+        <select id="model" title="모델을 고릅니다 — 다음 턴부터" aria-label="모델을 고릅니다 — 다음 턴부터"></select>
+        <span id="model-note" class="model-note" hidden></span>
+      </div>
     </div>
 
     <!--
@@ -371,12 +378,25 @@
       자리를 **상태 한 줄**과 같이 쓴다 — 어느 컴패니언에 붙어 있는지가 늘 보여야 하고,
       그것을 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
     -->
+    <!--
+      컨텍스트 띠. **얼마나 찼는가와 무엇으로 찼는가**를 한 줄에 — 웹 콘솔의 컨텍스트 칸과 같은 다섯 조각·같은
+      색 규칙이다(사용자 2026-09-06: 「컨텍스트 내용도 바로 보여주고, 웹처럼 구성별로 색깔로」). 접기 단추가 그 옆에
+      선다 — 접을 것이 대화·호출·결과이므로, 그것이 없으면 단추는 잠긴다. 다섯 조각을 모르면 띠 전체가 숨는다.
+    -->
+    <div id="ctx" class="ctx" hidden>
+      <div class="ctx-row">
+        <div id="ctx-bar" class="ctx-bar" role="img" aria-label="컨텍스트 구성"></div>
+        <span id="ctx-text" class="ctx-text"></span>
+        <button type="button" id="compact" class="icon-btn" title="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다" aria-label="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-compress"/></svg></button>
+      </div>
+      <div id="ctx-keys" class="ctx-keys"></div>
+    </div>
     <footer class="brand">
       <span class="brand-name">MAGI</span>
       <span id="brand-state" class="brand-state"></span>
       <button type="button" id="more" class="icon-btn" hidden
-        title="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
-        aria-label="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
+        title="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 카운슬 · 모델 · 컴패니언"
+        aria-label="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 카운슬 · 모델 · 컴패니언"
         aria-expanded="false" aria-controls="advanced"><svg class="i" viewBox="0 0 16 16"><use href="#i-more"/></svg></button>
     </footer>
   </section>

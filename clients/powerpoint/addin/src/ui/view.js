@@ -22,7 +22,7 @@ import { DECISIONS, WIDTH_NOTE, askArgs } from '../domain/Pending.js';
 // 화면이 **정하는 것**은 전부 여기 있다 — 이 파일은 부르고 대입만 한다(`screen.js` 머리).
 import {
   userBadge, isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
-  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, councilButton, brandState, streamLine,
+  lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, capsSummary, capsQuiet, councilButton, brandState, streamLine, contextMeter, modelPicker,
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
@@ -1088,6 +1088,38 @@ export class View {
   }
 
   /** 카운슬 단추의 눌림·글. 데몬이 말한 값이 바뀔 때마다 다시 그린다(`WatchPrompt.view.council`). */
+  /** 컨텍스트 띠. `contextMeter`(screen.js)가 정한 대로만 그린다 — 여기서 수를 세지 않는다. */
+  contextMeter(st) {
+    const wrap = $('#ctx'); if (!wrap) return;
+    const m = contextMeter(st);
+    wrap.hidden = m.hidden;
+    if (m.hidden) return;
+    const bar = $('#ctx-bar'); bar.replaceChildren();
+    for (const s of m.segments) {
+      const i = document.createElement('i'); i.className = `p-${s.kind}`; i.style.width = `${s.pct}%`; i.title = s.title; bar.appendChild(i);
+    }
+    bar.setAttribute('aria-label', m.title);
+    const text = $('#ctx-text'); if (text) { text.textContent = m.text; text.title = m.title; }
+    const keys = $('#ctx-keys'); if (keys) {
+      keys.replaceChildren(...m.keys.map((k) => { const el = document.createElement('span'); el.className = `ctx-key p-${k.kind}`; el.textContent = k.text; return el; }));
+      if (m.note) { const el = document.createElement('span'); el.className = 'ctx-note'; el.textContent = m.note; keys.appendChild(el); }
+    }
+    const btn = $('#compact'); if (btn) btn.disabled = m.compactDisabled;
+  }
+
+  /** 프로바이더·모델 고르기. 목록과 지금 것은 `modelPicker`(screen.js)가 정한다. */
+  modelPicker(m) {
+    const p = modelPicker(m);
+    const fill = (sel, options) => {
+      if (!sel) return;
+      sel.replaceChildren(...options.map((o) => { const el = document.createElement('option'); el.value = o.value; el.textContent = o.text; el.selected = o.selected; return el; }));
+      sel.disabled = options.length === 0;
+    };
+    fill($('#provider'), p.providers); fill($('#model'), p.models);
+    const note = $('#model-note'); if (note) { note.textContent = p.note; note.hidden = !p.note; }
+    const wrap = $('#pick-model'); if (wrap) wrap.title = p.title;
+  }
+
   councilButton(on) {
     const el = $('#council');
     if (!el) return;
