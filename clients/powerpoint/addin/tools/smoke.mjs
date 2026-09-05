@@ -2555,9 +2555,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     const long = { kind: 'think', text: '상자 폭 문제로\n  보인다  —\n' + 'x'.repeat(200) };
     const h = thinkHead(long);
     ok('혼잣말 요약이 한 줄이다', !h.includes('\n'), h.slice(0, 40));
-    ok('요약이 첫머리를 보여 준다', h.startsWith('혼잣말 · 상자 폭 문제로 보인다'), h.slice(0, 40));
-    ok('요약이 길어지지 않는다', h.length <= 90, String(h.length));
-    ok('글이 없으면 미리보기도 없다', thinkHead({ kind: 'think', text: '   ' }) === '혼잣말');
+    ok('요약이 첫머리를 보여 준다', h.startsWith('Thinking · 상자 폭 문제로 보인다'), h.slice(0, 40));
+    ok('요약이 길어지지 않는다', h.length <= 95, String(h.length)); // 'Thinking · ' + 80자 + …
+    ok('글이 없으면 미리보기도 없다', thinkHead({ kind: 'think', text: '   ' }) === 'Thinking');
     ok('여러 공백이 한 칸이 된다', oneLine('a \n\t b') === 'a b');
   }
 

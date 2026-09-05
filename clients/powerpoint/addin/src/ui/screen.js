@@ -293,7 +293,7 @@ export function noteHead(actor) {
 
 /** 종류별 줄머리. */
 const ROW_HEAD = {
-  think: '혼잣말 (사용자에게 한 말이 아님)',
+  think: 'Thinking (사용자에게 한 말이 아님)',
   note: '⟳ magi 가 넣은 줄',   // 실제 머리는 noteHead(actor) 가 배우별로 고른다
   tool: '⚙',
   error: '오류',
@@ -359,7 +359,7 @@ export function turnRunning(rows) {
  */
 export function thinkHead(r) {
   const one = oneLine(r?.text ?? '');
-  return one ? `혼잣말 · ${clip(one, 80)}` : '혼잣말';
+  return one ? `Thinking · ${clip(one, 80)}` : 'Thinking';
 }
 
 /** 줄바꿈과 이어진 공백을 한 칸으로. 요약은 **한 줄**이어야 줄 높이가 안 흔들린다. */
