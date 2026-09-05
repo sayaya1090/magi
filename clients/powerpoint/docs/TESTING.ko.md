@@ -12,8 +12,8 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 173 | 2026-09-05 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,615 | 2026-09-05 | 통과 (smoke 881 · officehand 680 · hand 54) |
+| 1·2·3. Go (`helper/`) | 179 | 2026-09-06 | 통과 |
+| 4. JS 순수층 (`addin/tools/`) | 1,644 | 2026-09-06 | 통과 (smoke 910 · officehand 680 · hand 54) |
 | 5. COM 손 (`hand-com/`, xunit) | 19 | 2026-09-05 | 통과 · 도구 48개 · `--fake` 로 헬퍼 왕복 20호출 · **실물에서 48/48 — M365 와 LTSC 2021 둘 다**(§5.5) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
