@@ -300,6 +300,30 @@ class FakeEventSource {
 }
 
 
+{
+  // **오류는 어느 속성이 거절됐는지까지 싣는다.** Office 는 code·message·errorLocation 을 따로
+  // 들고, 이 호스트는 message 가 code 와 같다 — 하나만 올리면 `InvalidArgument` 한 단어가 답이다.
+  const stream = new ScriptedStream();
+  stream.document = 'doc-err';
+  const api = new SpyApi();
+  const hand = {
+    document: 'doc-err',
+    async run() {
+      const e = new Error('InvalidArgument');
+      e.code = 'InvalidArgument';
+      e.debugInfo = { errorLocation: 'BulletFormat.style' };
+      throw e;
+    },
+  };
+  const serve = new ServeHand({ stream, api, hand });
+  serve.start();
+  stream.push('call', { id: 'r11', op: 'add_slides', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  const why = api.replies[0]?.error ?? '';
+  ok('오류가 거절된 속성 이름을 싣는다', why.includes('BulletFormat.style'), why);
+  ok('코드와 같은 message 는 한 번만 적는다', why.split('InvalidArgument').length === 2, why);
+}
+
 // ── 되살아난 것도 사건이다 ───────────────────────────────────────────────────
 //
 // 이 창은 스트림을 먼저 열고 컴패니언을 나중에 고른다. 그래서 **정상 흐름이 죽은 스트림으로

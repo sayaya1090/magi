@@ -77,6 +77,9 @@ type property struct {
 	// 그래서 그 장의 고지 한 줄이 통째로 비었고, 사람은 아무 일도 안 일어난 것을 봤다.
 	// 이름 한 칸 때문에 내용이 조용히 사라지는 것이 거절보다 나쁘다.
 	Also []string
+	// Enum 은 이 칸이 받는 값의 전부다. 스키마에 `enum` 으로 실리고, 값 검사는 bullets.go 처럼
+	// 칸마다 제 자리에서 한다 — 여기 적는 것은 **광고**이지 검사가 아니다.
+	Enum []string
 }
 
 // tool 은 도구 하나.
@@ -236,7 +239,7 @@ func catalogue(hasCouncil bool) []tool {
 			Name: "add_slides",
 			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
 			Props: []property{
-				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body, bullet}] in order, appended to the end of the deck. layout is a name from list_layouts; omit it for the deck default. Put each line of body on its own line. bullet is false to write those lines WITHOUT the layout's bullet glyphs — set it here, when the text is written, or the layout's bullets stay and you have to go back shape by shape."},
+				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body, bullet, bullet_type, bullet_style}] in order, appended to the end of the deck. bullet_type/bullet_style take the same values as format_shape (bullet_style is a NUMBERING style, not a glyph). layout is a name from list_layouts; omit it for the deck default. Put each line of body on its own line. bullet is false to write those lines WITHOUT the layout's bullet glyphs — set it here, when the text is written, or the layout's bullets stay and you have to go back shape by shape."},
 				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide."},
 			},
 			Required: []string{"slides"},
@@ -250,7 +253,7 @@ func catalogue(hasCouncil bool) []tool {
 			Name: "apply_style",
 			Desc: "Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. \"Make every title blue\". Placeholders are picked by role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
 			Props: []property{
-				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color, bullet}. Only the fields you give are touched. bullet:false removes the layout's bullet glyphs."},
+				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color, bullet, bullet_type, bullet_style}. bullet_type/bullet_style take the same values as format_shape. Only the fields you give are touched. bullet:false removes the layout's bullet glyphs."},
 				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields, including bullet."},
 				{Name: "ea_font", Type: "string", Desc: "East Asian typeface for Hangul/CJK text, e.g. \"본고딕\". ⚠ font (above) only sets the LATIN typeface — Office.js has no other door — so on a Korean deck the visible Hangul keeps the theme's face no matter how often you set font. This one writes the run property in the slide itself, which means the slide is REBUILT: it keeps its position but GETS A NEW ID, and the answer lists the old→new pairs."},
 				{Name: "all", Type: "object", Desc: "Same fields (including bullet), applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
@@ -294,8 +297,8 @@ func catalogue(hasCouncil bool) []tool {
 				property{Name: "visible", Type: "boolean", Desc: "Show or hide the shape without deleting it. Needs 1.10."},
 				property{Name: "indent", Type: "integer", Desc: "Paragraph indent level — this is how sub-bullets are made. Needs 1.10."},
 				property{Name: "bullet", Type: "boolean", Desc: "Show or hide the paragraph bullets. This one is PowerPointApi 1.4 — below the floor, so it works on every supported host."},
-				property{Name: "bullet_type", Type: "string", Desc: "None, Numbered or Unnumbered. Needs PowerPointApi 1.10; refused with a reason where that is missing."},
-				property{Name: "bullet_style", Type: "string", Desc: "Bullet style name, e.g. ArabicNumeralPeriod, AlphabetLowercaseParenthesisRight or bulletChromaDot. Not checked here — the host refuses an unknown one, and a list kept here would age. Needs PowerPointApi 1.10."},
+				property{Name: "bullet_type", Type: "string", Enum: bulletTypes, Desc: "None, Numbered or Unnumbered. Needs PowerPointApi 1.10; refused with a reason where that is missing."},
+				property{Name: "bullet_style", Type: "string", Enum: bulletStyles, Desc: "NUMBERING style for Numbered bullets — one of the enum values (ArabicNumeralPeriod, AlphabetLowercasePeriod, RomanUppercasePeriod, …). There is no glyph door here: for a plain dot bullet send bullet:true and leave this out. A name outside the enum is refused before anything runs. Needs PowerPointApi 1.10."},
 				property{Name: "align", Type: "string", Desc: "Paragraph alignment: left, center, right or justify."},
 			),
 			Required: []string{"shape_id"},
@@ -750,6 +753,9 @@ func schemaOf(t tool) json.RawMessage {
 		entry := map[string]any{"type": p.Type, "description": p.Desc}
 		if p.Items != "" {
 			entry["items"] = map[string]any{"type": p.Items}
+		}
+		if len(p.Enum) > 0 {
+			entry["enum"] = p.Enum
 		}
 		props[p.Name] = entry
 		// 별칭도 싣는다 — 안 실으면 그 이름으로 온 호출마다 magi 가 「버렸다」는 거짓 경고를

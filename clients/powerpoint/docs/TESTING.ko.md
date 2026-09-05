@@ -12,8 +12,8 @@
 
 | 층 | 수 | 언제 | 결과 |
 |---|---|---|---|
-| 1·2·3. Go (`helper/`) | 144 | 2026-09-04 | 통과 |
-| 4. JS 순수층 (`addin/tools/`) | 1,343 | 2026-09-04 | 통과 (smoke 746 · officehand 547 · hand 50) |
+| 1·2·3. Go (`helper/`) | 163 | 2026-09-05 | 통과 |
+| 4. JS 순수층 (`addin/tools/`) | 1,472 | 2026-09-05 | 통과 (smoke 833 · officehand 587 · hand 52) |
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **27개** 전수 34항목 | **2026-09-02** | 통과 34 · 실패 0 (§5.4) |
@@ -42,7 +42,7 @@
 | 층 | 어디 | 언제 도나 | 무엇을 아나 |
 |---|---|---|---|
 | 1. 계약 | `helper/mcp_test.go`·`hand_test.go`·`handhttp_test.go`·`bridge_test.go` | `go test` | 프로토콜·문·손이 규약대로 구는가 |
-| 2. 유도 가드 | `helper/names_test.go`·`tools_test.go`·`args_test.go` | `go test` | 두 벌 적힌 것이 갈렸는가 |
+| 2. 유도 가드 | `helper/names_test.go`·`tools_test.go`·`args_test.go`·`bullets_test.go` | `go test` | 두 벌 적힌 것이 갈렸는가 |
 | 3. 상호운용 | `helper/mcp_test.go` 의 `MagisOwnClientAttachesToThisHelper`·`attach_test.go` | `go test` | **magi 자신**과 맞물리는가 |
 | 4. 화면 규칙 | `addin/tools/*.mjs` | `node tools/smoke.mjs` | 화면이 무엇을 적기로 정하는가 |
 | 5. 실물 | PowerPoint + 데몬 + 모델 | 사람이 | 호스트가 실제로 어떻게 답하는가 |
@@ -171,7 +171,7 @@
 잰다 — 1.8 이 없으면 index 를 안 묻는가, 빈 선택은 왕복 한 번인가, 글을 잃어도 신원은 사는가.
 **그건 호스트가 아니다.** 호스트가 실제로 어떻게 답하는지는 5층의 일이다.
 
-`tools/smoke-hand.mjs` (36) 는 손의 서빙(`ServeHand`)과 스트림 어댑터를 잰다.
+`tools/smoke-hand.mjs` (52) 는 손의 서빙(`ServeHand`)과 스트림 어댑터를 잰다 — 오류가 `code — message — errorLocation` 셋을 겹치지 않게 싣는지도 여기서 잰다.
 
 ### 4.1 이 스위트가 스스로에게 거는 규율
 
@@ -480,6 +480,7 @@ Mac 에서 PowerPoint 창 둘을 띄우고 IR·임원보고를 나란히 시켰�
 
 | 본 것 | 원인 | 착지 |
 |---|---|---|
+| **`add_slides` 7장이 `InvalidArgument` 열두 글자로 죽었다**(2026-09-05, Gemini, s_98eb88…) | 모델이 `bullet_style: "bulletChromaDot"` 을 보냈다 — 그 이름은 **우리 도구 설명의 예시**였고 `PowerPoint.BulletStyle` 열거형에는 없다(번호 매김 41종뿐, 기호 글머리는 문이 없다). 호스트는 배치 전체를 되돌리고 어느 칸인지 안 말한다. 게다가 `add_slides` 는 그 칸을 받으면서 광고하지 않았다 | `bullets.go` 가 한 자리에서 이름을 대고 거절(`slides[1].bullet_style = "bulletChromaDot" is not …`), `format_shape` 는 스키마 `enum`, `add_slides`·`apply_style` 설명이 두 칸을 광고, 창은 `officeWhy` 로 `errorLocation` 을 싣는다. 돌연변이 4개 전부 울림(`bullets_test.go`·smoke-hand) |
 | 양쪽 작업창에 같은 말이 흐름 | `Bridge` 가 프로세스당 하나 | `bridges.go` — 덱마다 하나 (`87932c7c`) |
 | 새 덱 둘이 다시 한 열쇠 | 저장 안 한 덱은 `presentationID` 가 빔 | 덱이 태그에 자기 이름을 듦 (`47df4b0a`) |
 | 「17장짜리는 다른 덱인데?」 | 덱이 둘일 때 「최근에 말한 손」을 골랐음 | 둘이면 안 고름 (`2afca0fa`) |

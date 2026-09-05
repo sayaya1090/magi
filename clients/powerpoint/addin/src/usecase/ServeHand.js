@@ -63,7 +63,7 @@ export class ServeHand {
     } catch (e) {
       // **사유를 애드인 말로 올려 보낸다.** 헬퍼가 문장을 지어내면 Office.js 가 실제로 뭐라고
       // 했는지가 사라진다 — 그쪽 `HandReply.Error` 주석이 그 규칙이다.
-      const why = e?.message ?? String(e);
+      const why = officeWhy(e);
       this.onNote(`조작 ${op} 이 실패했습니다: ${why}`);
       try {
         await this.api.reply({ id, document: this.stream.document ?? '', error: why });
@@ -73,4 +73,22 @@ export class ServeHand {
       }
     }
   }
+}
+
+/**
+ * Office.js 오류를 **모델이 고칠 수 있는 한 줄**로 만든다.
+ *
+ * `OfficeExtension.Error` 는 셋을 따로 든다 — `code`(`InvalidArgument`), `message`(사람 문장),
+ * `debugInfo.errorLocation`(어느 속성이 거절됐나: `BulletFormat.style`). 앞 판본은 `message`
+ * 하나만 올렸는데, 이 호스트에서는 그것이 코드 한 단어와 같아서 결과가 `InvalidArgument`
+ * 열두 글자였다 — 슬라이드 7장짜리 add_slides 가 어느 칸 때문에 죽었는지 모델도 사람도 알 길이
+ * 없었다(2026-09-05, s_98eb88…). 셋을 겹치지 않게 이어 붙인다.
+ */
+export function officeWhy(e) {
+  const parts = [];
+  for (const one of [e?.code, e?.message, e?.debugInfo?.errorLocation]) {
+    const s = one == null ? '' : String(one).trim();
+    if (s && !parts.includes(s)) parts.push(s);
+  }
+  return parts.length ? parts.join(' — ') : String(e);
 }
