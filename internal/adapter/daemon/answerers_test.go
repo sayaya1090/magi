@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -154,7 +155,13 @@ func (o *omniEngine) NewSince(context.Context, session.SessionID, int64) (int64,
 	return 0, false, nil
 }
 
-func (o *omniEngine) About() string   { return "a companion" }
+func (o *omniEngine) About() string { return "a companion" }
+func (o *omniEngine) ContextStateOf(_ context.Context, sid session.SessionID) (app.ContextState, error) {
+	if sid == "" {
+		return app.ContextState{}, errors.New("no session")
+	}
+	return app.ContextState{Model: "m", Window: 100, Used: 40, Parts: app.ContextParts{System: 10, Tools: 20, Talk: 10}}, nil
+}
 func (o *omniEngine) Version() string { return "v-test" }
 
 // Every payload method refuses an engine without its door — in words, not a shrug. answerJobs is
@@ -889,5 +896,21 @@ func TestEveryStreamSaysWhyItIsNotADoor(t *testing.T) {
 		if s.run == nil {
 			t.Errorf("%q is in the table with nothing behind it", name)
 		}
+	}
+}
+
+// context answers per conversation — how full, and of what. Without a session it refuses in words
+// rather than answering for "the" conversation, which a daemon with several does not have.
+func TestContextAnswersTheWindowAndItsParts(t *testing.T) {
+	ctx := context.Background()
+	o := &omniEngine{}
+	if r := answerContext(ctx, o, Request{Session: "s1"}); !r.OK || r.Context == nil || r.Context.Used != 40 || r.Context.Parts.Tools != 20 {
+		t.Fatalf("context must carry usage and parts: %+v", r)
+	}
+	if r := answerContext(ctx, o, Request{}); r.OK || r.Err != "no session named" {
+		t.Fatalf("a sessionless context ask is refused in words: %+v", r)
+	}
+	if r := answerContext(ctx, &fakeEngine{}, Request{Session: "s1"}); r.OK || !strings.Contains(r.Err, "cannot say") {
+		t.Fatalf("an engine without the reading refuses with the table's reason: %+v", r)
 	}
 }

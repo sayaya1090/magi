@@ -186,6 +186,7 @@ func init() {
 		"mcp-attach":  {run: answerMCPAttach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"mcp-detach":  {run: answerMCPDetach, needs: (*ToolServerHost)(nil), why: "this daemon cannot attach tool servers", cap: "tool-servers"},
 		"sessions":    {run: answerSessions, needs: (*ConversationKeeper)(nil), why: "this daemon cannot list its conversations", cap: "sessions"},
+		"context":     {run: answerContext, needs: (*ContextTeller)(nil), why: "this daemon cannot say what fills its context window", cap: "context"},
 		"session-new": {run: answerSessionNew, needs: (*ConversationKeeper)(nil), why: "this daemon cannot open a new conversation", cap: "session-new"},
 		"children":    {run: answerChildren, needs: (*ChildLister)(nil), why: "this daemon cannot list a conversation's subagents", cap: "children"},
 		"cron":        {run: answerCron, needs: (*CronTeller)(nil), why: "this daemon cannot read its schedule", cap: "cron"},
@@ -516,6 +517,24 @@ func answerModels(ctx context.Context, eng Engine, req Request) Response {
 		}
 	}
 	return resp
+}
+
+// context answers how full a conversation's window is and what it is made of. A session must be
+// named: the answer is per conversation, and "the" conversation is a fiction on a daemon that
+// keeps several.
+func answerContext(ctx context.Context, eng Engine, req Request) Response {
+	t, ok := eng.(ContextTeller)
+	if !ok {
+		return Response{Err: "this daemon cannot say what fills its context window"}
+	}
+	if strings.TrimSpace(req.Session) == "" {
+		return Response{Err: "no session named"}
+	}
+	st, err := t.ContextStateOf(ctx, session.SessionID(req.Session))
+	if err != nil {
+		return Response{Err: err.Error()}
+	}
+	return Response{OK: true, Context: &st}
 }
 
 // tools is answered here too, and for the same reason.

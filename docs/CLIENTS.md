@@ -344,7 +344,8 @@ contracts this page already states.
 2. **Handshake**: `about` — the reply's `caps` names the doors this daemon answers: `handshake`
    and `roster` are always there (build-level), the rest are engine-gated and may be absent
    (`transcript`, `sessions`, `session-new`, `children`, `cron`, `cron-set`, `cron-remove`,
-   `job-kill`, `tool-servers`, `settings`). Read the advertisement and call; never call an absent
+   `job-kill`, `tool-servers`, `settings`, `context` — the last answers how full a conversation's window is and
+   what it is made of, for a screen drawing a meter). Read the advertisement and call; never call an absent
    door and read the refusal.
 
    The list is short on purpose, and shorter than the list of gated doors. A capability is for a

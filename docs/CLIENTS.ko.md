@@ -300,7 +300,8 @@ seq == 0 이벤트를 버려야** 합니다: 그들이 알리는 것은 전부 �
    없으면 띄웁니다.
 2. **악수**: `about` — 응답의 `caps`는 이 데몬이 답하는 문의 명단입니다: `handshake`·`roster`는
    항상 있고(빌드 수준), 나머지는 엔진-게이트라 없을 수 있습니다(`transcript`·`sessions`·
-   `session-new`·`children`·`cron`·`cron-set`·`cron-remove`·`job-kill`·`tool-servers`·`settings`).
+   `session-new`·`children`·`cron`·`cron-set`·`cron-remove`·`job-kill`·`tool-servers`·`settings`·`context` — 마지막 것은
+   대화의 창이 얼마나·무엇으로 찼는지를 띠를 그리는 화면에 답한다).
    없는 문을 부르고 거부를 읽는 게 아니라, 광고를 읽고 부릅니다.
 
    이 명단은 일부러 짧고, 게이트된 문의 수보다 적습니다. 능력은 **아무도 누르기 전에** 내리는

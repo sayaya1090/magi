@@ -226,6 +226,15 @@ type Controller interface {
 	Backend() string
 }
 
+// ContextTeller answers what fills a conversation's context window right now — how full, and
+// with what (system prompt, tool catalog, talk, calls, results). The web console reads this
+// in-process (clients/web/server/context.go); a client on the socket alone (the Office add-ins)
+// had no door to it, so their screens could show a percent from the live meter and nothing of
+// what the percent was made of — which is the one thing a person compacting needs to know.
+type ContextTeller interface {
+	ContextStateOf(ctx context.Context, sid session.SessionID) (app.ContextState, error)
+}
+
 // CouncilTeller answers whether a working turn here must end by declaring to a council.
 //
 // Separate from Controller because it is a fact, not a control: nothing outside sets it, and an
@@ -737,6 +746,8 @@ type Response struct {
 	Removed bool `json:"removed,omitempty"`
 	// Models answers the models method: what this daemon's backend says it could run on.
 	Models []string `json:"models,omitempty"`
+	// Context answers the context method: how full this conversation's window is and with what.
+	Context *app.ContextState `json:"context,omitempty"`
 	// Why carries a reason with an otherwise-empty answer — the backend refused, or timed out —
 	// so a caller can tell "nothing to offer" from "could not ask".
 	Why string `json:"why,omitempty"`

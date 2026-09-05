@@ -502,6 +502,19 @@ func (c *Client) Compact(_ context.Context, cmd command.Compact) error {
 	return c.call(Request{Method: "compact", Session: string(cmd.SessionID)})
 }
 
+// ContextState answers what fills the conversation's context window — usage against the window
+// and the five parts it is made of. The add-ins draw a meter from it; the terminal has /context.
+func (c *Client) ContextState(sid session.SessionID) (app.ContextState, error) {
+	resp, err := c.exchange(Request{Method: "context", Session: string(sid)})
+	if err != nil {
+		return app.ContextState{}, err
+	}
+	if resp.Context == nil {
+		return app.ContextState{}, errors.New("the daemon answered without a context state")
+	}
+	return *resp.Context, nil
+}
+
 func (c *Client) SetModel(sid session.SessionID, modelID string) error {
 	return c.call(Request{Method: "set-model", Session: string(sid), Name: modelID})
 }
