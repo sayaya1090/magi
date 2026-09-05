@@ -15,7 +15,7 @@
 하는 일 — Office 판을 읽고(M365 인가 볼륨 판인가), `magi.exe`·`magi-ppt.exe` 를 빌드해 `%LOCALAPPDATA%\magi\ppt` 에
 놓고, 애드인 파일을 그 옆에 복사하고, 데몬 권한 모드를 **allow** 로 두고(`~/.magi/config.toml`, 사용자 결정),
 헬퍼를 띄우고, 인증서를 이 계정의 신뢰 저장소에 넣고(Windows 가 한 번 묻는다), 애드인을 등록하고(M365 는 개발자
-키, 볼륨 판은 신뢰 카탈로그 `~/.magi/ppt-catalog`), 로그인 때 헬퍼가 같이 뜨게 한다. 볼륨 판이면 COM 손을 빌드하고
+키, 볼륨 판은 신뢰 카탈로그 `~/.magi/catalog` — 엑셀 판과 같은 폴더·같은 키), 로그인 때 헬퍼가 같이 뜨게 한다. 볼륨 판이면 COM 손을 빌드하고
 **손 감시기**(`hand-watch.ps1`)도 건다 — PowerPoint 가 덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면
 손을 정리한다. 손은 뜰 때 한 번만 PowerPoint 에 붙기 때문에 이 감시기가 필요하다.
 
