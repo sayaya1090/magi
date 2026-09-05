@@ -4049,7 +4049,10 @@ export function withoutBulletMarks(text) {
  */
 export const SLOTS = new Map([
   ['title', ['title', 'centertitle']],
-  ['body', ['body']],
+  // Office.js PlaceholderType: 본문 자리는 Body 만이 아니라 Content·Object·Text 로도 온다. 실측
+  // 2026-09-05 임원 덱: 「제목 및 내용」 레이아웃의 자리가 Content 라 set_text{placeholder:"body"} 가
+  // 네 장에서 「body 자리가 없습니다」로 거절됐다 — add_slides 의 채우기는 같은 자리를 body 로 본다.
+  ['body', ['body', 'content', 'object', 'text', 'verticalbody', 'verticalobject']],
   ['subtitle', ['subtitle']],
 ]);
 

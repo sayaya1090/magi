@@ -2799,6 +2799,7 @@ async function makeZip(files) {
     // 세 번 되풀이했다(실물, 2026-09-03).
     ok('subtitle 은 title 이 아니다', !isSlot('subTitle', 'title'));
     ok('centerTitle 은 title 이다', isSlot('centerTitle', 'title'));
+    ok('Content·Object·Text 자리는 body 다 — add_slides 의 채우기와 같은 눈', isSlot('Content', 'body') && isSlot('Object', 'body') && isSlot('Text', 'body') && !isSlot('Content', 'title'));
     ok('subtitle 은 subtitle 이다', isSlot('subTitle', 'subtitle'));
     ok('body 는 body 만', isSlot('body', 'body') && !isSlot('body', 'title'));
 
