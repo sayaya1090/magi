@@ -20,6 +20,19 @@ type ownRig struct {
 	spawned  int
 }
 
+// settleOwnWork 는 시험이 나가기 전에 own 문이 띄운 마련 고루틴이 끝나기를 기다린다. 그 고루틴은 시험의 TempDir 에
+// 소켓 자리·로그를 적는데, 먼저 나가면 TempDir 정리가 「directory not empty」로 죽는다 — CI -race 에서 하루 세 번 봤다
+// (2026-09-06, TestTheOwnDoorSettlesTheAskingDeck·TestRestartColumnDaemonRestart). t.Cleanup 은 뒤에 단 것이 먼저 돌므로
+// TempDir 을 만든 **뒤에** 달아야 그 정리보다 앞선다.
+func settleOwnWork(t *testing.T, w *OwnWork) {
+	t.Helper()
+	t.Cleanup(func() {
+		for deadline := time.Now().Add(3 * time.Second); w != nil && w.Now().Phase == OwnWorking && time.Now().Before(deadline); {
+			time.Sleep(5 * time.Millisecond)
+		}
+	})
+}
+
 func ownFixture(t *testing.T, tweak func(*API, *ownRig)) *ownRig {
 	t.Helper()
 	// 기다리는 시간을 0 으로 — 이 묶음이 재는 것은 **몇 번 다시 보는가**이지 몇 밀리초냐가 아니다.
@@ -66,6 +79,7 @@ func ownFixture(t *testing.T, tweak func(*API, *ownRig)) *ownRig {
 		tweak(api, rig)
 	}
 	rig.api = api
+	settleOwnWork(t, api.Work)
 	return rig
 }
 

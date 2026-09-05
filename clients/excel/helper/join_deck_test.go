@@ -125,6 +125,7 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 		Bolt:   func(string, string, string) ([]string, error) { return []string{"t"}, nil },
 		Fresh:  func(string) (string, error) { return "sess-b", nil },
 	}
+	settleOwnWork(t, work)
 	w := httptest.NewRecorder()
 	api.own(w, httptest.NewRequest("POST", "/api/own?deck=deck-z", nil))
 	if _, sid, _ := bs.For("deck-z").Bound(); sid == "" {
