@@ -842,7 +842,7 @@ export class OfficeHand extends HandPort {
           shape.placeholderFormat.load('type');
           await context.sync();
           const t = String(shape.placeholderFormat.type ?? '').toLowerCase();
-          role = /title/.test(t) && !/sub/.test(t) ? 'title' : (/body|content|subtitle|text/.test(t) ? 'body' : '');
+          role = roleOfPlaceholder(t);
         } catch { role = ''; }
       }
       const [note] = role ? await this.#fitNotes(context, [{ shape, role, text: args.text }]) : [''];
@@ -1725,9 +1725,7 @@ export class OfficeHand extends HandPort {
     // 없는 것에 글꼴을 물으면 묶음이 통째로 죽는다 — 그러면 `catch` 가 「이 덱에는 버릇이
     // 없다」로 답하고, 통일된 덱이 제각각으로 보고된다(리뷰가 짚었다, 2026-09-02).
     const wanted = holders.filter((sh) => {
-      const role = String(roles.get(sh) ?? '').toLowerCase();
-      return (/title/.test(role) && !/sub/.test(role))
-        || /body|content|subtitle|text/.test(role);
+      return roleOfPlaceholder(roles.get(sh)) !== '';
     });
     const fonts = new Map();
     for (const sh of wanted) {
@@ -1750,9 +1748,7 @@ export class OfficeHand extends HandPort {
 
     const buckets = { title: [], body: [] };
     for (const sh of wanted) {
-      const role = String(roles.get(sh) ?? '').toLowerCase();
-      const where = /title/.test(role) && !/sub/.test(role) ? 'title'
-        : (/body|content|subtitle|text/.test(role) ? 'body' : null);
+      const where = roleOfPlaceholder(roles.get(sh)) || null;
       if (!where) continue;
       const f = fontOf(fonts.get(sh));
       if (f) buckets[where].push(f);
@@ -1783,9 +1779,9 @@ export class OfficeHand extends HandPort {
     // 그래서 지금 값을 먼저 읽고 **다른 칸만** 쓴다.
     const targets = [];
     for (const sh of slide.shapes.items ?? []) {
-      const role = String(roles.get(sh) ?? '').toLowerCase();
-      const want = /title/.test(role) && !/sub/.test(role) ? style.title
-        : (/body|content|subtitle|text/.test(role) ? style.body : null);
+      const role = String(roles.get(sh) ?? '').toLowerCase();   // 답에 적는 자리 이름(content·subtitle …)
+      const where = roleOfPlaceholder(role);
+      const want = where === 'title' ? style.title : (where === 'body' ? style.body : null);
       if (!want) continue;
       const font = sh.textFrame.textRange.font;
       // 로드 자체가 그 자리에서 던지는 판이 있다(글틀 없는 자리표시자). **한 도형 때문에
@@ -1986,8 +1982,8 @@ export class OfficeHand extends HandPort {
    */
   async #fillPlaceholders(context, slide, args) {
     const wants = [
-      { role: 'title', text: args.title, match: (t) => /title/i.test(t) && !/sub/i.test(t) },
-      { role: 'body', text: args.body, match: (t) => /body|content|subtitle|text/i.test(t) },
+      { role: 'title', text: args.title, match: (t) => roleOfPlaceholder(t) === 'title' },
+      { role: 'body', text: args.body, match: (t) => roleOfPlaceholder(t) === 'body' },
     ].filter((w) => typeof w.text === 'string' && w.text !== '');
     if (wants.length === 0) return { filled: [], unfilled: [] };
 
@@ -4047,6 +4043,17 @@ export function withoutBulletMarks(text) {
  * 그 글자를 품는다 — 표지에서 `placeholder:"title"` 을 부르면 「'title' 자리가 2개 있습니다」로
  * 거절당했고, 모델은 세 번 되풀이했다(실물, 2026-09-03).
  */
+/**
+ * 자리표시자 종류 → 역할('title' | 'body' | ''). 같은 판정이 여섯 자리에 정규식으로 흩어져 있었다
+ * (채우기·set_text·apply_style 셋). 부제는 본문 없는 장에서 본문 자리로 쓰이므로 body 로 본다.
+ */
+export function roleOfPlaceholder(type) {
+  const t = String(type ?? '');
+  if (/title/i.test(t) && !/sub/i.test(t)) return 'title';
+  if (/body|content|subtitle|text/i.test(t)) return 'body';
+  return '';
+}
+
 export const SLOTS = new Map([
   ['title', ['title', 'centertitle']],
   // Office.js PlaceholderType: 본문 자리는 Body 만이 아니라 Content·Object·Text 로도 온다. 실측
