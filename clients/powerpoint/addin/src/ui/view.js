@@ -597,10 +597,17 @@ export class View {
     if (!this.composer.waiting) return;
     const p = document.createElement('span');
     p.textContent = '보냈습니다 — 대화 기록에 오르기를 기다립니다.';
+    // 중지 아이콘 단추다(사용자 2026-09-05: 「그만 기다리기는 중단 아이콘 버튼으로」). 글 단추가 아니라
+    // 보내기 옆의 중지와 같은 모양·같은 색이라, 뜻이 한 자리에서 읽힌다.
     const b = document.createElement('button');
-    b.className = 'ghost';
-    b.textContent = '그만 기다리기';
-    b.title = '잠금만 풉니다. 적은 글은 안 지웁니다 — 갔는지는 여전히 모릅니다.';
+    b.className = 'icon-btn icon-danger';
+    b.title = '그만 기다립니다 — 잠금만 풉니다. 적은 글은 안 지웁니다.';
+    b.setAttribute('aria-label', '그만 기다립니다 — 잠금만 풉니다. 적은 글은 안 지웁니다.');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'i'); svg.setAttribute('viewBox', '0 0 16 16');
+    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+    use.setAttribute('href', '#i-stop');
+    svg.append(use); b.append(svg);
     b.addEventListener('click', () => {
       this.composer.release();
       this.renderSent();

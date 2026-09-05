@@ -313,7 +313,7 @@ func TestEnsureRefusesWithoutAConfigDir(t *testing.T) {
 //
 // **자동 시험 넷이 다 초록인 채로 그랬다.** 인자는 `Spawn` 이음매로 안 나르므로 이 레인의
 // 어느 층도 볼 수 없었고, 사람이 붙여 보고 명단을 읽어야 보였다.
-func TestTheCompanionWeStartRunsWithoutAsking(t *testing.T) {
+func TestTheCompanionWeStartAsksAndTheRulesOpenTheDeck(t *testing.T) {
 	args := daemonArgs()
 	if len(args) == 0 {
 		t.Fatal("명령줄이 비었다 — 이 시험은 아무것도 안 쟀다")
@@ -324,10 +324,11 @@ func TestTheCompanionWeStartRunsWithoutAsking(t *testing.T) {
 			mode = args[i+1]
 		}
 	}
-	// 사용자 결정(2026-09-05): allow. 앞 판본은 ask 였다 — 덱을 고치는 도구마다 창이 물었고, 한 덱에
-	// 서른 번 안팎이었다. 모드는 명시적으로 적혀 있어야 한다(안 적으면 기동 형태의 기본값이 정한다).
-	if mode != "allow" {
-		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다(사용자 결정 2026-09-05). 명령줄: %v", mode, "allow", args)
+	// ask 다. 안 묻는 것은 컴패니언 설정의 allow 규칙이 정한다(덱 도구 전부·읽기·기억·검색). allow 모드로
+	// 통째 열면 bash 까지 안 묻고 돈다 — 2026-09-05 실물: 덱 도구가 끊긴 틈에 모델이 셸로 프로세스와
+	// 로그를 뒤졌다. 모드는 명시적으로 적혀 있어야 한다(안 적으면 기동 형태의 기본값이 정한다).
+	if mode != "ask" {
+		t.Errorf("우리가 띄우는 컴패니언의 권한 모드가 %q 다 — %q 여야 한다. 명령줄: %v", mode, "ask", args)
 	}
 	for _, want := range []string{"--daemon", "--detach", "--no-update-check"} {
 		found := false
