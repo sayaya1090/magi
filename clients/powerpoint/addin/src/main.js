@@ -513,6 +513,8 @@ async function boot() {
     document.querySelector('#council')?.addEventListener('click', () => {
       void (async () => {
         const want = watchPrompt.view.council !== true;
+        // 데몬을 다시 띄우는 일이라 **먼저 묻는다** — 같은 데몬의 다른 창·플러그인까지 끊긴다.
+        if (!await view.ask('council', want ? 'on' : 'off')) return;
         view.where(`카운슬을 ${want ? '켜는' : '끄는'} 중입니다 — 컴패니언을 다시 띄웁니다.`);
         try {
           const out = await api.setCouncil(want);

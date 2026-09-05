@@ -4369,5 +4369,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('다섯 조각의 색이 CSS 에 있다', CONTEXT_PARTS.filter(([k]) => !readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8').includes(`--p-${k}`)).length === 0);
 }
 
+{
+  const on = confirmAsk('council', 'on'); const off = confirmAsk('council', 'off');
+  ok('카운슬 토글은 먼저 묻는다 — 데몬이 다시 뜨고 다른 창·플러그인도 끊긴다고', on && on.danger === true && on.head.includes('켭니다') && off.head.includes('끕니다') && on.body.includes('다시 뜹니다') && on.body.includes('플러그인'));
+  ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '다시 띄웁니다');
+}
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);
