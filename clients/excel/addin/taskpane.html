@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MAGI</title>
+  <!--
+    마크. **헬퍼가 그려서 낸다**(`helper/icon.go`) — 트리에 PNG 를 안 싣는다. 리본이 쓰던
+    `assets/icon-*.png` 넷이 82~184바이트짜리 단색 주황 네모였고, 아무도 그 파일을 열어 보지
+    않아서 「추가 기능」을 눌러 본 사람이 처음 발견했다(2026-09-04). 그림을 파일로 실으면
+    그런 식으로 늙는다.
+  -->
+  <link rel="icon" href="/assets/icon-32.png" type="image/png" />
+  <link rel="stylesheet" href="taskpane.css" />
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <!--
+    헬퍼가 이 자리에 부팅 값을 심는다(`helper/page.go` 의 `tokenMarker`). 토큰이 **페이지에
+    박혀 나오는 것**이고 주소는 이 페이지의 자기 오리진이라, 「어떻게 도달하는가」가 통째로
+    사라진다(DESIGN.md §5.5·§12 #7).
+
+    맨 브라우저로 열면 이 주석은 그대로 남고 `window.MAGI` 가 없다 — 그때는 가짜로 돈다.
+    **조용히 진짜인 척하지 않는 것**이 이 갈래의 요점이다.
+  -->
+  <!--magi:boot-->
+</head>
+<body>
+  <!-- 목업에서만 보인다. 애드인 안에서는 PowerPoint 가 이 자리다. -->
+  <section id="fake"></section>
+
+  <section id="pane">
+    <!--
+      제목에 애드인 이름을 넣고 회사 이름은 안 붙인다(MS 애드인 디자인 지침의 「Do」).
+      **오른쪽 위는 비워 둔다** — 거기 personality 메뉴가 뜬다(Windows 12×32, Mac 34×32,
+      8px 안쪽으로 뜬다). 그 자리에 컨트롤을 두면 사용자가 우리 것을 못 누른다.
+    -->
+  <!--
+    **아이콘 한 벌.** 망을 안 탄다 — 작업창은 우리가 내주는 오리진이고, 남의 CDN 을 부르면
+    LNA·혼합 콘텐츠가 다시 걸린다(§5.5). 폰트어썸 같은 것을 베끼지 않은 것은 **저작자 표시
+    의무**(CC BY)를 이 저장소에 들이지 않으려는 것이고, 여기 있는 것은 16px 에서 읽히는
+    최소한의 도형이다.
+
+    ⚠ **아이콘만으로는 무슨 단추인지 모른다.** 그래서 이 스프라이트를 쓰는 자리는 반드시
+    `title`(툴팁)과 `aria-label` 을 같이 단다 — 그리고 그 글은 **동작**을 적는다, 아이콘
+    이름이 아니라(M3 icon-buttons).
+  -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <g id="i-new"><path d="M8 3v10M3 8h10"/></g>
+      <g id="i-pin"><path d="M4 3h8v10l-4-3-4 3z"/></g>
+      <g id="i-guide"><path d="M3 3h10v10H3z"/><path d="M6 6h5M6 9h5"/></g>
+      <g id="i-swap"><path d="M3 6h9M9 3l3 3-3 3"/><path d="M13 10H4M7 13l-3-3 3-3"/></g>
+      <g id="i-save"><path d="M3 8.5l3.5 3.5L13 5"/></g>
+      <g id="i-close"><path d="M4 4l8 8M12 4l-8 8"/></g>
+      <g id="i-send"><path d="M3 13l10-5L3 3l2 5z"/></g>
+      <g id="i-quote"><path d="M7 4H4v3"/><path d="M9 12h3V9"/></g>
+      <g id="i-edit"><path d="M11 3l2 2-7 7-3 1 1-3z"/></g>
+      <g id="i-more"><circle cx="3.5" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.1" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r="1.1" fill="currentColor" stroke="none"/></g>
+      <g id="i-stop"><rect x="4.5" y="4.5" width="7" height="7" rx="1"/></g>
+      <g id="i-review"><path d="M1.5 3h8.5v6H1.5z"/><circle cx="10.5" cy="10" r="3"/><path d="M12.7 12.2l1.5 1.5"/></g>
+      <g id="i-trash"><path d="M3 5h10M6 5V3h4v2M5 5l1 8h4l1-8"/></g>
+      <g id="i-council"><path d="M8 2.5v11M4 13.5h8M2.5 5.5h11"/><path d="M4 5.5l-1.8 4h3.6zM12 5.5l-1.8 4h3.6z"/></g>
+    </defs>
+  </svg>
+    <!--
+      **이름을 여기 안 적는다.** 작업창의 머리는 PowerPoint 가 그리고 거기 애드인 이름이 이미
+      서 있다 — 그 아래 한 줄 더 적으면 같은 말이 두 번이고, 348×391 에서 그 줄은 대화에서
+      빼 온 것이다(MS 지침도 「제목에 애드인 이름」이라고 적지 우리가 또 그리라고는 안 한다).
+
+      그래서 이 줄에 남는 것은 **예상 밖일 때만 서는 말** 하나다. 진짜 호스트면 그 말도 비므로
+      줄 자체가 사라진다 — 빈 테두리 한 줄이 28px 를 먹는 것을 안 두려고 `hidden` 을 같이 건다.
+      브랜드는 아래 `footer` 에 있다(MS 지침이 지정한 자리).
+    -->
+    <header id="head" hidden>
+      <span id="adapter" class="adapter"></span>
+    </header>
+
+
+    <!--
+      **여기부터 컴포저 앞까지가 스크롤 영역이다.** 작업창은 PowerPoint 에서 348×391 이라(MS
+      지침의 크기 표) 세로가 귀하고, 판이 하나 늘 때마다 컴포저가 화면 밖으로 밀렸다 — 실물에서
+      「보내기」가 잘린 화면을 보고 넣었다(2026-09-01). 위(제목)와 아래(컴포저·브랜드)는 고정이고
+      가운데만 흐른다.
+    -->
+    <div id="scroll" class="scroll">
+      <!--
+        **이 두 줄은 흐르는 영역 안에 있다.** 「어디에 붙었나」와 「준비됐다」는 창이 열릴 때 한 번 읽으면
+        되는 말이라, 대화가 차면 위로 밀려 올라가도 된다 — 위에 못 박아 두면 348×391 판에서 한 줄을
+        영영 먹는다(2026-09-05 사용자: 「내용이 차면 같이 스크롤되어 사라져도 되는데 스티키하게 붙어 있네」).
+      -->
+      <!--
+        **이 판이 무엇인가.** 어느 호스트에 붙었는지, 못 붙었으면 왜인지. 누름의 결과인 아래
+        `#note` 와 자리를 나눈다 — 한 칸을 같이 쓰면 첫 누름이 이 사실을 지우고(그 뒤로는
+        PowerPoint 안이 아니라는 걸 영영 알 수 없다), 반대로 이 사실이 누름의 사유를 덮는다.
+        수명이 다르다: 이건 창이 사는 동안 계속 참이고, 저건 이번 한 번의 일이다.
+      -->
+      <div id="where" class="where" hidden></div>
+
+      <!--
+        **이 창이 손인가 화면인가.** 바닥(ExcelApi 1.7) 아래 호스트에서 창은 화면만 맡고
+        편집은 COM 손이 한다 — 그 사실은 창이 사는 동안 계속 참이라 위 `#where` 와 수명이 같지만,
+        **칸은 따로다.** `#where` 는 「준비됐습니다 — 도구 48 개」처럼 붙는 과정마다 새 문장으로
+        덮이는데, 그때 이 사실이 같이 지워졌다(실물 LTSC 2021, 2026-09-06). 한 번 적히면 안 지워진다.
+      -->
+      <div id="role" class="where role" hidden></div>
+
+      <!--
+        **첫 말이 나오기 전까지만 참인 말.** 「붙었으니 시키면 된다」는 대화가 하나라도 서는 순간
+        증명되고, 그때부터는 348×391 짜리 판에서 한 줄을 그냥 먹는다.
+
+        `#where` 와 자리를 나누는 이유는 위 칸이 적어 둔 그 이유와 **같다** — 수명이 다른 두 말이
+        한 칸을 같이 쓰면 어느 수명을 골라도 다른 쪽이 틀린다. 위 칸은 창이 사는 동안 참이라
+        지우는 문이 없어야 하고(그래서 없다), 이 칸은 조건이 사라지면 같이 사라져야 한다.
+        그래서 여기 적히는 값은 **매 로그 변화마다 다시 유도된다**(`view.renderReady`).
+      -->
+      <div id="ready" class="where" hidden></div>
+    <!--
+      호스트가 자기 입으로 말한 요구 집합. **접어 둔다** — Excel 의 작업창은 1366×768 에서
+      348×391 이라 세로가 귀하고(MS 지침의 크기 표), 이 줄은 뭔가 안 될 때만 읽는 값이다.
+      요약 한 칸은 늘 보이므로 「안 쟀다」가 숨지는 않는다.
+    -->
+    <details id="caps" class="caps">
+      <summary id="caps-summary"></summary>
+      <div id="caps-detail" class="caps-detail"></div>
+    </details>
+
+    <!--
+      **붙을 곳은 애드인이 고른다**(DESIGN.md §5.0). 켜진 컴패니언 중에서 사람이 하나를 고르고,
+      못 고르는 것은 **이유와 함께** 못 고르게 둔다 — 고르는 순간 「이 컴패니언 됩니다」라고 말한
+      것이 되므로 거절이 그 뒤에 도착하면 늦다(§5.0.5).
+    -->
+    <section id="pick" class="pick" hidden></section>
+
+
+    <!--
+      **한 번 적어 두면 매번 지켜지는 말.** 「불릿은 한 줄로」, 「강조는 우리 회사 파랑으로」 —
+      이런 것은 부탁이 아니라 취향이고 규칙이라, 대화마다 다시 말하게 하면 사람이 지친다.
+      그리고 지치면 안 말하게 되고, 안 말하면 결과가 매번 조금씩 다르다.
+
+      접혀 있다. 대개의 사람은 이 판을 안 열어도 되고, 여는 사람은 찾아서 연다.
+    -->
+    <section id="rules-panel" class="rules" hidden>
+      <h2>늘 지킬 것</h2>
+      <p class="rules-why">여기 적어 두면 <strong>매번</strong> 함께 갑니다. 파워포인트에서만 걸립니다.<br>
+        <strong>모양에 대한 규칙</strong>이 가장 잘 지켜집니다 — 글꼴·색·줄 수 같은 것.
+        시킨 말을 바꾸는 규칙(예: 제목을 다르게 짓기)은 완료 검사에서 되돌려질 수 있습니다.</p>
+      <textarea id="rules-text" class="rules-text" rows="6"
+        placeholder="예) 불릿은 한 줄로. 강조는 #1F4E79 로. 표는 머리글을 굵게."></textarea>
+      <div class="rules-row">
+        <button type="button" id="rules-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+        <button type="button" id="rules-save" class="icon-btn icon-primary" title="적어 둡니다 — 다음 부탁부터 걸립니다" aria-label="적어 둡니다 — 다음 부탁부터 걸립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
+      </div>
+      <p id="rules-note" class="rules-note" hidden></p>
+    </section>
+
+    <!--
+      **가이드 — 여러 벌의, 이름 붙은, 껐다 켤 수 있는 규칙.**
+
+      「늘 지킬 것」과 자리를 나눈 이유는 **수명이 아니라 실리는 방식**이다. 저건 매 턴 프롬프트에
+      통째로 들어가서 반드시 지켜지는 대신 짧아야 하고 한 벌뿐이다. 이건 모델이 **필요할 때
+      불러 읽는다** — 길어도 되고 여러 벌이어도 되는 대신, **모델이 안 부르면 안 지켜진다.**
+
+      그 차이를 화면이 적어야 한다. 안 적으면 사람은 적어 둔 것이 늘 도는 줄 알고, 안 지켜진
+      날에 그것이 규칙 탓인지 모델 탓인지 가릴 수가 없다.
+    -->
+    <section id="guides-panel" class="rules" hidden>
+      <h2>가이드</h2>
+      <p class="rules-why">모델이 <strong>필요할 때 불러 읽는</strong> 규칙입니다 — 여러 벌을 두고
+        껐다 켤 수 있습니다.<br>
+        <strong>늘 지켜져야 하는 것은 「늘 지킬 것」에 적으세요.</strong> 여기 있는 것은 모델이
+        안 부르면 안 읽습니다.</p>
+      <div id="guides-list" class="guides-list"></div>
+      <div class="rules-row">
+        <button type="button" id="guides-close" class="icon-btn" title="닫습니다" aria-label="닫습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+        <button type="button" id="guides-new" class="icon-btn icon-primary" title="가이드를 새로 만듭니다" aria-label="가이드를 새로 만듭니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
+      </div>
+
+      <!-- 고치는 자리. 이름은 새로 만들 때만 받는다 — 이름이 곧 파일 이름이라 바꾸면 딴 것이 된다. -->
+      <div id="guides-edit" class="guides-edit" hidden>
+        <input type="text" id="guide-name" class="guide-name" placeholder="이름 (예: design-guide)">
+        <textarea id="guide-body" class="rules-text" rows="8"
+          placeholder="---&#10;description: 한 줄 설명 — 모델이 이걸 보고 부를지 정합니다&#10;---&#10;&#10;# 본문"></textarea>
+        <div class="rules-row">
+          <button type="button" id="guide-cancel" class="icon-btn" title="고치던 것을 버립니다" aria-label="고치던 것을 버립니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-close"/></svg></button>
+          <button type="button" id="guide-save" class="icon-btn icon-primary" title="이 가이드를 저장합니다" aria-label="이 가이드를 저장합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-save"/></svg></button>
+        </div>
+      </div>
+      <p id="guides-note" class="rules-note" hidden></p>
+    </section>
+
+
+    <!-- 스트림 자체에 대한 말. 대화가 조용한 것과 스트림이 죽은 것은 화면에서 똑같이 생겼다. -->
+    <div id="stream" class="stream" hidden></div>
+
+    <div id="turns" class="turns"></div>
+
+    <!-- 이 창이 그릴 줄 몰라 안 그린 것. 안 그린 것과 없는 것은 다르다
+         (clients/powerpoint/DESIGN.md §5.7). -->
+    <div id="unknown" class="unknown-note" hidden></div>
+
+    <!-- 냈는데 아직 로그에 안 뜬 것. 「생각 중…」이 아니다 — 짐작을 안 적는다. -->
+    <div id="sent" class="sent" hidden></div>
+    <!--
+      데몬이 스스로 말하는 「지금 하는 일」. 이건 짐작이 아니라 status 가 말한 사실이다 —
+      **방금 읽었을 때만.** 못 닿는 동안엔 근거가 없어지므로 현재형을 버리고 「마지막으로
+      읽었을 때」로 적는다(`WatchPrompt` 의 `doingFresh`).
+    -->
+    <div id="doing" class="doing" hidden></div>
+
+    <!--
+      **제안.** 안내(포스트잇)와 다른 것이다: 이건 **통합 문서 안에 저장되어 있고**, 파일을 닫았다
+      열어도 있고, 「적용」을 누르면 그때 고쳐지면서 없어진다. 워드의 주석과 같은 쓰임이다.
+
+      「무엇을 합니다」 줄은 **제안의 글이 아니라 제안이 달고 있는 손에서** 뽑는다 — 남이 준
+      통합 문서의 제안은 제 글에 아무 말이나 적어 둘 수 있기 때문이다.
+    -->
+    <div id="fix-wrap" class="fix-wrap" hidden>
+      <h2 id="fix-head">제안</h2>
+      <p class="advice-note">통합 문서에 저장된 제안입니다. <strong>누르기 전까지 통합 문서는 안 바뀝니다.</strong></p>
+      <div id="fixes"></div>
+    </div>
+
+    <div id="advice-wrap" class="advice-wrap" hidden>
+      <h2>안내</h2>
+      <p class="advice-note">누르면 그 도형을 잡습니다. 저절로 움직이지는 않습니다.</p>
+      <!-- 붙이려다 못 붙인 것. 안 붙은 이유가 어디엔가 있어야 한다
+           (clients/powerpoint/DESIGN.md §5.7). -->
+      <p id="advice-strays" class="advice-strays" hidden></p>
+      <div id="advice"></div>
+    </div>
+
+    <!-- **이번 한 번의 일.** 방금 누른 것이 어떻게 됐는지. 다음 누름이 물린다(`View.guard`).
+         이 판이 무엇인가는 위 `#where` 가 말한다. -->
+    <div id="note" class="note" hidden></div>
+
+    <!--
+      데몬이 막혀서 묻고 있는 자리. 대화창과 **다른 흐름**이다 — 물음은 로그에 안 쌓이고
+      막힌 데몬의 버스로만 나가므로 스트림으로는 영영 안 온다
+      (clients/powerpoint/DESIGN.md §5.7). 이 자리가
+      없으면 §6의 안전 규칙이 사람을 가둔다: 데몬은 답을 기다리고, 사람은 물음을 못 본다.
+    -->
+    <section id="ask" class="ask" hidden></section>
+
+    </div><!-- /#scroll -->
+
+    <!--
+      **계획은 고정이다.** 대화에 섞어 두면 글이 쌓일 때마다 위로 밀려나서, 정작 「지금 어디까지
+      왔나」를 볼 수 없다 — 이 제품의 턴은 길고(도형마다 한 호출) 그 사이 화면에 서는 것은 도구
+      이름뿐이라 그 물음이 가장 자주 나온다.
+
+      **끝나면 사라진다.** 다 된 계획은 자리만 먹는다. 접는 것으로는 모자란다 — 접힌 판도 348×391
+      에서는 한 줄을 계속 차지하고, 그 줄은 이미 지난 일이다.
+
+      목록 자체는 접어 둔다. 늘 보이는 것은 **진척과 지금 하는 것 한 줄**이고, 그 둘이 이 판이
+      답해야 하는 전부다.
+    -->
+
+    <details id="plan" class="plan" hidden>
+      <summary id="plan-summary"></summary>
+      <div id="plan-list" class="plan-list"></div>
+    </details>
+
+    <!--
+      **도는 중이라는 것 하나.** 이 제품은 도형마다 호출 하나라, 사람이 읽을 글은 몇 분에 한
+      줄뿐이다 — 그 사이 화면은 「멈춘 것」과 구별되지 않는다. 실제로 그 물음을 받았다.
+
+      **계획과 컴포저 사이다.** 스크롤 영역 밖이라 대화가 어디로 밀려 있든 안 사라지고,
+      그 둘 사이가 사람 눈이 이미 가 있는 자리다 — 무엇을 하는 중인지(계획)와 무엇을 시킬지
+      (컴포저) 사이에 「지금 하는 중」이 놓인다. 맨 위에 뒀던 앞 판본은 안 보이는 것은
+      아니었지만 눈이 안 가는 자리였다.
+
+      진척을 모르므로 **무한**이다 — 몇 %라고 적으면 그건 지어낸 숫자다.
+    -->
+    <div id="busy" class="busy" hidden role="progressbar" aria-label="시키신 일을 하는 중입니다"><div class="busy-bar"></div></div>
+
+    <div class="composer">
+      <div id="pending" class="pending"></div>
+      <!--
+        **집어 오는 둘 · 입력칸 · 내보내는 둘이 한 줄이다.** 양쪽 단추 묶음은 **필드 높이의 세로
+        가운데**에 선다 — 바닥정렬이 아니다. 여러 줄을 적어 칸이 늘어나도 단추는 가운데에 머문다.
+      -->
+      <div class="buttons">
+        <!--
+          **화면에서 집어 오는 손 둘이 한 칸에 세로로 선다.** 인용은 지금 잡은 도형, 검토는
+          지금 보는 장 — 같은 종류라 붙어 있어야 하고, 한 줄에 넷을 놓으면 입력칸이 220px 에서
+          172px 로 줄어 한국어 줄바꿈이 깨진다. 세로 24px 이 가로 48px 보다 싸다.
+        -->
+        <div class="btn-col">
+          <button type="button" id="quote" class="icon-btn"
+            title="지금 잡혀 있는 범위를 인용에 담습니다"
+            aria-label="지금 잡혀 있는 범위를 인용에 담습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-quote"/></svg></button>
+          <button type="button" id="review" class="icon-btn"
+            title="지금 보는 시트를 검토해 달라고 적습니다"
+            aria-label="지금 보는 시트를 검토해 달라고 적습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-review"/></svg></button>
+        </div>
+        <textarea id="input" rows="2" placeholder="시킬 말을 적습니다 (Enter 로 보내기 · Shift+Enter 로 줄바꿈)"></textarea>
+        <!--
+          **세우는 손.** 도는 동안에만 선다 — 도는 중이 아닐 때 이 단추가 있으면 누를 것이 없고,
+          누를 것이 없는 단추는 화면을 읽는 사람에게 「지금 뭔가 돌고 있나?」를 되묻게 만든다.
+
+          `/api/interrupt` 는 처음부터 있었고 어댑터에도 있었는데 **아무도 안 불렀다** — 문은
+          만들어 두고 손잡이를 안 단 것이다(2026-09-04에 지적받았다). 진행 막대를 붙이고 나니
+          더 분명해졌다: 「도는 중」이라고 적으면서 세울 길이 없는 화면이었다.
+        -->
+        <!--
+          **내보내는 손 둘도 한 칸에 세로로.** 세우기는 도는 동안만 서고, 그때 보내기 옆에 가로로
+          끼면 입력칸이 48px 을 더 잃는다 — 왼쪽의 집어 오는 둘과 같은 이유로 세로다(사용자가
+          정했다, 2026-09-05). 왼쪽 묶음의 「되돌릴 수 있는 것끼리」 규칙은 여기엔 안 맞지만,
+          세우기는 도는 중에만 있어 두 단추가 같이 보이는 시간이 짧고 그림도 다르다(빨강/파랑).
+        -->
+        <div class="btn-col btn-col-end">
+          <button type="button" id="stop" class="icon-btn icon-danger" hidden
+            title="하던 일을 멈춥니다 — 여기까지 한 것은 그대로 남습니다"
+            aria-label="하던 일을 세웁니다 — 여기까지 한 것은 그대로 남습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-stop"/></svg></button>
+          <button type="button" id="send" class="icon-btn icon-primary" title="보냅니다 — Enter 로도 됩니다(Shift+Enter 는 줄바꿈)" aria-label="보냅니다 — Enter 로도 됩니다(Shift+Enter 는 줄바꿈)"><svg class="i" viewBox="0 0 16 16"><use href="#i-send"/></svg></button>
+        </div>
+      </div>
+    </div><!-- /composer -->
+
+    <!--
+      **가끔 쓰는 넷.** 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언 바꾸기.
+
+      이 줄은 **스크롤 영역 밖**이다. 안에 있던 시절엔 맨 위에 붙어 있어서, 누르려면 대화를
+      끝까지 거슬러 올라가야 했다 — 대화가 길수록 멀어지는 단추였다(2026-09-04에 지적받았다).
+
+      그렇다고 늘 펴 두지는 않는다. 348×391 에서 이 줄은 48px 이고 그건 대화에서 빼 오는 것이다.
+      **아래 브랜드 줄의 `⋯` 가 이걸 편다** — 그 줄은 이미 고정이고 글자만 있어서, 손잡이 하나를
+      더 놓는 데 드는 자리가 32px 뿐이다. 접혀 있으면 이 줄은 0px 다.
+
+      **그래서 자리가 그 손잡이 바로 위다.** 처음엔 컴포저 위에 뒀는데, 그러면 누른 자리와
+      열리는 자리 사이에 컴포저와 계획 판이 통째로 끼어서 무엇이 열렸는지 눈이 못 따라갔다.
+      펴지는 것은 편 손 옆에 서야 한다.
+    -->
+    <div id="advanced" class="advanced" hidden>
+      <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 통합 문서는 그대로입니다" aria-label="새 대화를 시작합니다 — 통합 문서는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
+      <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
+      <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
+      <!-- 카운슬 스위치. **누르면 컴패니언이 다시 뜨고 대화가 새로 시작된다** — 카운슬이 있는가는 기동 때
+           정해지는 값이라(helper/council.go) 도는 중에 못 뒤집는다. 그 값을 title 이 적는다. 켜짐/꺼짐은
+           aria-pressed 로, 글은 `councilButton`(screen.js)이 정한다. -->
+      <button type="button" id="council" class="icon-btn" aria-pressed="false" title="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다" aria-label="카운슬을 켜거나 끕니다 — 누르면 컴패니언이 다시 뜨고 새 대화로 시작합니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-council"/></svg></button>
+      <button type="button" id="repick" class="icon-btn" title="다른 컴패니언에 붙입니다" aria-label="다른 컴패니언에 붙입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-swap"/></svg></button>
+    </div>
+
+    <!--
+      **되돌릴 수 없는 것을 누르기 전에 한 번 더 묻는 판.**
+
+      `window.confirm` 을 쓰던 자리다. 그게 이 판에서 위험한 이유는 **안 뜰 수 있어서**인데,
+      안 뜨면 `undefined` 가 돌아오고 그러면 지우기가 조용히 아무 일도 안 한다 — 거절도 아니고
+      실패도 아닌, 눌렀는데 아무 말이 없는 단추가 된다. Office 작업창은 우리가 고른 브라우저가
+      아니라서, 「대개 뜬다」를 근거로 삼을 수 없다.
+
+      `role="alertdialog"` 이고 판 전체를 덮는다. 값은 M3 basic dialog 에서 옮겼다 —
+      모서리 28 · 패딩 24 · 제목↔본문 16 · 본문↔액션 24 · 버튼 사이 8 · 폭 280~560.
+      348px 판에서는 최소폭이 이기므로 좌우 16씩 물리고 그 안에서 늘어난다.
+    -->
+    <div id="confirm" class="confirm" hidden>
+      <div class="confirm-box" role="alertdialog" aria-modal="true"
+        aria-labelledby="confirm-head" aria-describedby="confirm-body">
+        <h2 id="confirm-head" class="confirm-head"></h2>
+        <p id="confirm-body" class="confirm-body"></p>
+        <div class="confirm-row">
+          <!-- **덜 위험한 쪽이 먼저 포커스를 받는다.** 엔터를 눌러 지우는 일이 없게. -->
+          <button type="button" id="confirm-cancel" class="text-btn"></button>
+          <button type="button" id="confirm-ok" class="text-btn text-danger"></button>
+        </div>
+      </div>
+    </div>
+
+    <!--
+      브랜드 줄. MS 지침이 작업창 아래에 두라고 적은 자리다(Outlook 만 예외). 여기서는 그
+      자리를 **상태 한 줄**과 같이 쓴다 — 어느 컴패니언에 붙어 있는지가 늘 보여야 하고,
+      그것을 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
+    -->
+    <footer class="brand">
+      <span class="brand-name">MAGI</span>
+      <span id="brand-state" class="brand-state"></span>
+      <button type="button" id="more" class="icon-btn" hidden
+        title="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
+        aria-label="가끔 쓰는 것을 폅니다 — 새 대화 · 늘 지킬 것 · 가이드 · 컴패니언"
+        aria-expanded="false" aria-controls="advanced"><svg class="i" viewBox="0 0 16 16"><use href="#i-more"/></svg></button>
+    </footer>
+  </section>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
