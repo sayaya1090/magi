@@ -114,7 +114,11 @@ export class Pending {
  */
 export const CLEARED = Object.freeze({
   answered: 'answered', elsewhere: 'elsewhere', unreachable: 'unreachable',
+  /** 이 창 밖에서 헬퍼를 거쳐 답함 — `via:<결정>:<도구>` 로 결정을 싣는다. */
+  via: 'via',
 });
+
+const DECISION_WORD = { allow: '허용', deny: '거절', always: '항상 허용' };
 
 /**
  * 그 사유를 사람에게 주는 한 줄. `null` 은 **할 말이 없다** — 내려간 물음이 없다는 뜻이다.
@@ -132,10 +136,16 @@ export const CLEARED = Object.freeze({
  * 사유가 `'constructor'` 같은 이름이면 함수를 문장 자리에 앉힌다.
  */
 export function clearedNote(clearedBy) {
+  // 헬퍼를 거쳐 밖에서 답한 것은 헬퍼가 결정을 안다 — 짐작이 아니라 넘긴 값이다.
+  if (typeof clearedBy === 'string' && clearedBy.startsWith(`${CLEARED.via}:`)) {
+    const [, decision, what] = clearedBy.split(':');
+    return `직전 물음(${what || '도구'}): 이 창 밖에서 ${DECISION_WORD[decision] ?? decision}했습니다.`;
+  }
   switch (clearedBy) {
     case CLEARED.answered:
-      return '직전 물음: 답을 보냈고 내려갔습니다.';
-    // **무엇으로 답했는지는 안 적는다** — 남의 입에 결정을 넣는 것이 된다(위 주석).
+      // 이 창이 답한 것은 이 창이 안다 — 줄을 띄우지 않는다(사용자 지적 2026-09-05: 「굳이 출력해야 하나」).
+      return null;
+    // **무엇으로 답했는지는 안 적는다** — 헬퍼를 안 거친 답은 남의 입에 결정을 넣는 것이 된다.
     case CLEARED.elsewhere:
       return '직전 물음: 다른 곳에서 답했습니다 — 무엇으로 답했는지는 모릅니다.';
     // **끝난 것이 아니라 모르게 된 것이다.** 「답했다」로 읽히면 사람이 그 물음을 잊는다.

@@ -895,6 +895,10 @@ func (a *API) status(w http.ResponseWriter, r *http.Request) {
 	if socket, _, _ := a.chat(r).Bound(); socket != "" {
 		st["stale"] = a.Bridges != nil && !a.Bridges.AttachedTo(socket, publishedLife(socket))
 	}
+	// 마지막으로 이 헬퍼를 지나간 권한 답. 창은 이것으로 「다른 곳에서 답했다」에 결정을 붙인다.
+	if id, d := a.chat(r).LastAnswer(); id != "" {
+		st["answered"] = map[string]any{"callId": id, "decision": d}
+	}
 	// **안 잰 것과 「못 한다」를 가른다.** 창이 아직 안 보냈으면 이 칸은 아예 없다 — 빈 목록을
 	// 실으면 「전부 미지원」으로 읽힌다.
 	a.mu.Lock()

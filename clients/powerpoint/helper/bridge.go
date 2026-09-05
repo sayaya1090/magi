@@ -52,6 +52,9 @@ type Bridge struct {
 	// 낳으므로(49684eb1) 그 전엔 전사 문이 「없는 대화」라 답한다 — 그것은 끊김이 아니다. 실물
 	// 2026-09-05: 데몬 재기동 뒤 새 대화로 다시 붙은 창이 「대화 스트림이 끊겼습니다」를 띄웠다.
 	empty bool
+	// answered 는 이 헬퍼가 마지막으로 데몬에 넘긴 권한 답(call id, 결정). 창 밖(승인기·다른 창)에서
+	// 답해 물음이 내려갔을 때 창이 「무엇으로 답했는지 모른다」 대신 결정을 적을 수 있다(2026-09-05).
+	answered struct{ id, decision string }
 	// read 는 한 번 붙어서 끝까지 읽는 함수. 시험이 바꿔 낀다.
 	read      func(ctx context.Context, socket, sid string, since int64) error
 	lastSeq   int64
@@ -159,6 +162,13 @@ func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
 // 안 두어서 나는 말이고, 붙을 소켓은 멀쩡하다.
 func isEmptyConversation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "no conversation")
+}
+
+// LastAnswer 는 이 헬퍼가 마지막으로 넘긴 권한 답(call id, 결정). 없으면 빈 문자열 둘.
+func (b *Bridge) LastAnswer() (callID, decision string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.answered.id, b.answered.decision
 }
 
 // Empty 는 붙은 대화가 아직 빈 것인가(첫 말 전). 스트림이 죽은 것과 화면에서 갈라야 한다.
@@ -370,11 +380,17 @@ func (b *Bridge) AnswerPermission(callID, decision string) error {
 		return fmt.Errorf("%q 는 보낼 수 있는 결정이 아닙니다(allow · deny · always)", decision)
 	}
 	_, sid, _ := b.Bound()
-	return b.call(func(cl *daemon.Client) error {
+	err := b.call(func(cl *daemon.Client) error {
 		return cl.RespondPermission(context.Background(), command.RespondPermission{
 			SessionID: session.SessionID(sid), CallID: callID, Decision: decision,
 		})
 	})
+	if err == nil {
+		b.mu.Lock()
+		b.answered = struct{ id, decision string }{callID, decision}
+		b.mu.Unlock()
+	}
+	return err
 }
 
 // AnswerQuestion 은 모델이 물은 것에 대한 답. **권한과 손이 다르다** — 권한은 정해진 낱말이고

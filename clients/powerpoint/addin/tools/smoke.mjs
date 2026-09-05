@@ -921,9 +921,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 // 「내려간 물음이 없다」와 같은 모양으로. 없애려던 뭉갬이 한 겹 위에서 되살아난 자리다.
 {
   // 사유는 손으로 안 적고 `CLEARED` 를 그대로 쓴다. 값이 한쪽에서만 바뀌면 드리프트다.
-  const said = Object.values(CLEARED).map((c) => clearedNote(c));
-  ok('세 사유가 다 제 말을 갖는다', everyOf(said, (t) => typeof t === 'string' && t.length > 0));
-  ok('셋이 서로 다른 말이다', new Set(said).size === 3);
+  // `answered`(이 창이 답함)는 일부러 말이 없다(2026-09-05) — 나머지 둘은 제 말을 갖고 서로 다르다.
+  // `via` 는 접두어라 결정·도구가 붙어야 말이 된다(위 시험).
+  const spoken = [CLEARED.elsewhere, CLEARED.unreachable].map((c) => clearedNote(c));
+  ok('말이 있는 사유는 다 제 말을 갖는다', everyOf(spoken, (t) => typeof t === 'string' && t.length > 0));
+  ok('둘이 서로 다른 말이다', new Set(spoken).size === 2);
   // 「모르게 된 것」을 「답했다」로 읽으면 사람이 그 물음을 잊는다.
   ok('못 닿아 내려간 것은 끝난 것이 아니라고 적는다',
     clearedNote(CLEARED.unreachable).includes('끝난 것이 아닙니다'));
@@ -2328,9 +2330,29 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 모르는 사유는 조용히 숨는 대신 제 말을 갖고 온다. `show:false` 는 **할 말이 없다**는 뜻뿐.
   ok('직전 물음 줄은 할 말이 없을 때만 안 선다',
     lastAskShape(null).show === false
-      && lastAskShape(CLEARED.answered).show === true
       && lastAskShape('무슨-사유인지-모름').show === true,
     lastAskShape('무슨-사유인지-모름').text);
+  // 이 창이 답한 것은 이 창이 안다 — 줄을 띄우지 않는다(사용자 지적 2026-09-05).
+  ok('내가 답한 물음은 줄을 안 띄운다', lastAskShape(CLEARED.answered).show === false);
+  // 밖(승인기)에서 헬퍼를 거쳐 답했으면 결정과 도구를 적는다.
+  ok('밖에서 답한 물음은 결정과 도구를 적는다',
+    lastAskShape('via:allow:mcp__ppt__add_slides').text.includes('허용') && lastAskShape('via:allow:mcp__ppt__add_slides').text.includes('add_slides'),
+    lastAskShape('via:allow:mcp__ppt__add_slides').text);
+  ok('결정을 모르면 예전 말 그대로', lastAskShape(CLEARED.elsewhere).text.includes('무엇으로 답했는지는 모릅니다'));
+  {
+    const fs = new FakeStatus();
+    const wp = new WatchPrompt(fs);
+    fs.ask({ id: 'call_9', kind: 'permission', what: 'mcp__ppt__add_slides' });
+    await wp.poll();
+    fs.clear(); fs.answered = { callId: 'call_9', decision: 'allow' };
+    await wp.poll();
+    ok('헬퍼가 넘긴 답이면 via:결정:도구 로 사유를 적는다', wp.clearedBy === 'via:allow:mcp__ppt__add_slides', String(wp.clearedBy));
+    fs.ask({ id: 'call_10', kind: 'permission', what: 'bash' });
+    await wp.poll();
+    fs.clear(); fs.answered = { callId: 'call_9', decision: 'allow' };  // 다른 물음의 답
+    await wp.poll();
+    ok('다른 물음의 답은 근거가 못 된다 — elsewhere', wp.clearedBy === CLEARED.elsewhere, String(wp.clearedBy));
+  }
 
   // 폭이 넓은 결정은 넓게 생겨야 한다 — 문구만으로는 안 읽고 누른다(§5.7).
   const widths = new Set(DECISIONS.map(decisionClass));

@@ -126,9 +126,14 @@ export class WatchPrompt {
       this.sentFor = null;
       this.onChange();
     } else if (this.pending) {
-      // 답한 것이 우리면 `answer()`가 이미 사유를 적어 뒀다. 아니면 남이 답한 것이다.
+      // 답한 것이 우리면 `answer()`가 이미 사유를 적어 뒀다. 아니면 남이 답한 것이다 — 그 답이
+      // 헬퍼를 지나갔으면(승인기·다른 창) 헬퍼가 결정을 안다(status.answered).
+      const gone = this.pending;
       this.pending = null;
-      this.clearedBy ??= CLEARED.elsewhere;
+      const a = s.answered;
+      this.clearedBy ??= (a && a.callId === gone.id)
+        ? `${CLEARED.via}:${a.decision}:${gone.what ?? ''}`
+        : CLEARED.elsewhere;
       this.sentFor = null;
       this.onChange();
     }

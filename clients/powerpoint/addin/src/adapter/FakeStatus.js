@@ -12,11 +12,12 @@ export class FakeStatus extends StatusPort {
     this.doing = '';
     this.answers = [];   // 시험이 보는 것: 실제로 보낸 (callId, decision)
     this.throwOnStatus = false;
+    this.answered = null;  // 헬퍼를 지나간 마지막 권한 답 {callId, decision}
   }
 
   async status() {
     if (this.throwOnStatus) throw new Error('dial 실패');
-    return { reachable: this.reachable, pending: this.pending, doing: this.doing };
+    return { reachable: this.reachable, pending: this.pending, doing: this.doing, answered: this.answered };
   }
 
   async answerPermission(callId, decision) {

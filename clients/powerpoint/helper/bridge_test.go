@@ -289,3 +289,18 @@ func TestAnEmptyConversationIsNotABrokenStream(t *testing.T) {
 		}
 	}
 }
+
+// 헬퍼가 넘긴 권한 답은 기억된다 — 창이 「무엇으로 답했는지 모른다」 대신 결정을 적기 위해.
+// 보낼 수 없는 결정은 기억되지 않는다.
+func TestTheLastPermissionAnswerIsRemembered(t *testing.T) {
+	b := NewBridge()
+	if id, _ := b.LastAnswer(); id != "" {
+		t.Fatalf("처음부터 답이 있다: %q", id)
+	}
+	if err := b.AnswerPermission("call_1", "maybe"); err == nil {
+		t.Fatal("보낼 수 없는 결정을 받았다")
+	}
+	if id, _ := b.LastAnswer(); id != "" {
+		t.Fatalf("거절된 답을 기억했다: %q", id)
+	}
+}
