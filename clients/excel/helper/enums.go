@@ -19,6 +19,19 @@ var chartTypes = []string{
 	"Radar", "Waterfall", "Treemap", "Sunburst", "Funnel", "Histogram", "BoxWhisker",
 }
 var seriesBys = []string{"Columns", "Rows"}
+
+// chartAliases 는 사람 말로 부르는 차트 이름 — 손(handCore.CHART_ALIASES)이 Excel.js 이름으로 옮긴다. 스키마에는
+// 정본 21개만 광고하고 검사만 이것도 받는다. 실물(2026-09-06)에서 「막대」가 여기서 막혀 차트가 하나도 안 그려졌다.
+var chartAliases = []string{
+	"bar", "column", "막대", "세로막대", "hbar", "가로막대", "line", "꺾은선", "선", "pie", "원", "파이", "doughnut", "도넛",
+	"area", "영역", "scatter", "분산", "radar", "방사형", "stacked", "누적", "waterfall", "폭포",
+}
+
+// enumExempt 는 이름은 같지만 뜻이 다른 칸 — suggest 의 `what` 은 제안 한 문장이지 clear_range 의 `what` 이 아니다.
+// 실물(2026-09-06)에서 suggest 가 전부 「what 은 all/contents/…」로 거절됐다.
+var enumExempt = map[string]map[string]bool{
+	"suggest": {"what": true},
+}
 var aligns = []string{"General", "Left", "Center", "Right", "Fill", "Justify", "CenterAcrossSelection", "Distributed"}
 var valigns = []string{"Top", "Center", "Bottom", "Justify", "Distributed"}
 var borderStyles = []string{"Continuous", "Dash", "DashDot", "DashDotDot", "Dot", "Double", "SlantDashDot", "None"}
@@ -53,7 +66,7 @@ var tableStyles = func() []string {
 // 이름을 다르게 지었다(cf_kind / validation_kind / chart_type, insert 의 shift 와 delete 의 shift 는 값이
 // 갈려 합쳐 둔다).
 var valueEnums = map[string][]string{
-	"chart_type":          chartTypes,
+	"chart_type":          append(append([]string{}, chartTypes...), chartAliases...),
 	"series_by":           seriesBys,
 	"align":               aligns,
 	"valign":              valigns,
@@ -95,7 +108,7 @@ func checkEnums(toolName string, args map[string]any) error {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				if allowed, watched := valueEnums[k]; watched {
+				if allowed, watched := valueEnums[k]; watched && !enumExempt[toolName][k] {
 					if s, isStr := x[k].(string); isStr && !contains(allowed, s) {
 						return argError{enumRefusal(toolName, joinPath(path, k), k, s)}
 					}

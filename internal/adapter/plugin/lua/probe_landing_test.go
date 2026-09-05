@@ -228,3 +228,27 @@ func TestProbeLandingAcceptsAnHonestNothing(t *testing.T) {
 		t.Errorf("무 옆의 손잡이 없는 줄을 받아 줬다: %s", got)
 	}
 }
+
+// **모양이 조금 달라도 뜻이 같으면 받는다.** 실물(2026-09-06, 파워포인트 세션 s_7105…): did 를 문자열로 준 호출 둘이
+// 「비었습니다」로 거절됐고, {change, slide} 객체로 준 호출은 Lua 오류(concat string and table)로 죽었다. 다섯 번째에
+// 착지했다 — 네 번의 거절이 전부 문의 편식이었다.
+func TestProbeLandingReadsAStringOrAnObjectAsAnEntry(t *testing.T) {
+	reg := builtin.NewRegistry()
+	log := &syncLog{}
+	loadLanding(t, reg, log)
+	tool, _ := reg.Get("land")
+	wd := t.TempDir()
+
+	got, isErr := execTool(t, tool, `{"did":"슬라이드 5(id 269#3752879036)에 도형 16개로 피카츄를 그렸다"}`, wd)
+	if isErr {
+		t.Errorf("문자열 하나로 온 did 를 거절했다: %s", got)
+	}
+	got, isErr = execTool(t, tool, `{"did":[{"change":"add_shape 16회로 피카츄 작화","slide":5,"slide_id":"269#3752879036"}],"left":""}`, wd)
+	if isErr || strings.Contains(got, "concat") {
+		t.Errorf("객체 항목에서 죽거나 거절했다: %s", got)
+	}
+	got, isErr = execTool(t, tool, `{"did":[{"change":"정리했습니다"}]}`, wd)
+	if !isErr {
+		t.Errorf("객체 안의 손잡이 없는 소감을 받아 줬다: %s", got)
+	}
+}

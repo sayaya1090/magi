@@ -209,7 +209,8 @@ magi.register_tool{
   name = "land",
   description = table.concat({
     "Declare this turn finished. A turn that only SAYS what it will do is not finished, and this",
-    "is the door that tells the two apart. Call it as the last thing you do.",
+    "is the door that tells the two apart. Call it as the last thing you do. The tool's name is exactly",
+    "`land` — no mcp__ prefix. did is an ARRAY OF STRINGS.",
     "did: what you CHANGED, one entry per thing, EACH WITH A HANDLE the reader can go",
     "look at — a slide number or id, a sheet name and range, a file path, a shape id. \"정리했습니다\" is not an entry;",
     "\"슬라이드 7(id 269#2126229183) 표 4×3 을 넣고 대체 텍스트를 달았습니다\" is.",
@@ -231,9 +232,31 @@ magi.register_tool{
     "verified":{"type":"string"},
     "left":{"type":"string"}},"required":["did"]}]],
   execute = function(args)
+    -- **모양이 조금 달라도 뜻이 같으면 받는다.** 실물(2026-09-06, 파워포인트): did 를 문자열 하나로 준 호출이
+    -- 「비었습니다」로 두 번 거절됐고, 항목을 {change, slide} 객체로 준 호출은 여기서 Lua 오류로 죽었다 — 다섯 번째에야
+    -- 착지했다. 문자열은 한 줄로, 객체는 그 안의 글로 읽는다. 거절은 손잡이·계획·읽기에만 남긴다.
     local did = args.did or {}
+    if type(did) == "string" then did = { did } end
+    if type(did) == "table" then
+      local flat = {}
+      for _, one in ipairs(did) do
+        if type(one) == "table" then
+          local parts = {}
+          for _, k in ipairs({ "change", "did", "what", "text", "description" }) do
+            if type(one[k]) == "string" then parts[#parts + 1] = one[k] end
+          end
+          for _, k in ipairs({ "slide", "slide_id", "id", "sheet", "address", "path" }) do
+            if one[k] ~= nil then parts[#parts + 1] = k .. "=" .. tostring(one[k]) end
+          end
+          flat[#flat + 1] = #parts > 0 and table.concat(parts, " ") or magi.json_encode(one)
+        elseif one ~= nil then
+          flat[#flat + 1] = tostring(one)
+        end
+      end
+      did = flat
+    end
     if type(did) ~= "table" or #did == 0 then
-      return "아직 끝이 아닙니다 — did 가 비었습니다. 이 턴에 실제로 바꾼 것을 손잡이(슬라이드 번호·id·시트와 범위·경로)와 "
+      return "아직 끝이 아닙니다 — did 가 비었습니다(문자열 배열로 주세요). 이 턴에 실제로 바꾼 것을 손잡이(슬라이드 번호·id·시트와 범위·경로)와 "
         .. "함께 적으세요. 바꾼 것이 정말 없으면 did 에 「바꾼 것 없음」 한 줄로 적으세요.", true
     end
     local nothing = #did == 1 and saysNothingChanged(tostring(did[1]))
@@ -334,7 +357,7 @@ magi.on("turn_finished", function(ev)
       :format(plan and ", 그리고 마지막 말이 계획입니다" or "", misses))
   end
   magi.log("landing: unlanded turn · tail=" .. tail)
-  local ok, why = nudge(ev.session, "이 턴은 `land` 없이 끝났습니다. 이 턴에 실제로 바꾼 것을 손잡이"
+  local ok, why = nudge(ev.session, "이 턴은 `land` 없이 끝났습니다(도구 이름은 그냥 land — mcp__ 접두사 없음, did 는 문자열 배열). 이 턴에 실제로 바꾼 것을 손잡이"
     .. "(슬라이드 번호·id·시트와 범위·경로)와 함께 `land{did, verified, left}` 로 신고하고 끝내세요. 만든 장이 있는데 "
     .. "아직 안 봤으면 render_slide(엑셀은 render_range)로 본 뒤에. 바꾼 것이 정말 없으면 did 에 「바꾼 것 없음」 한 줄로 적으세요."
     .. (plan and " 마지막 말이 계획이었습니다 — 계획은 신고가 아닙니다." or ""))

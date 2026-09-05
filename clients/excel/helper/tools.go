@@ -578,7 +578,8 @@ func catalogue(hasCouncil bool) []tool {
 				property{Name: "y_title", Type: "string", Desc: "Value axis title."},
 				property{Name: "legend", Type: "string", Desc: "Right, Left, Top, Bottom, or none.", Enum: legendPositions},
 				property{Name: "data_labels", Type: "boolean", Desc: "Show values on the points."},
-				property{Name: "chart_type", Type: "string", Desc: "Change the type.", Enum: chartTypes},
+				property{Name: "chart_type", Type: "string", Desc: "Change the type." +
+					" Korean/short names are accepted too: 막대, 가로막대, 꺾은선, 원, 도넛, 영역, 분산, 방사형, 누적, 폭포 (bar, hbar, line, pie, scatter…).", Enum: chartTypes},
 				property{Name: "left", Type: "number"}, property{Name: "top", Type: "number"},
 				property{Name: "width", Type: "number"}, property{Name: "height", Type: "number"},
 			),
@@ -683,6 +684,7 @@ func catalogue(hasCouncil bool) []tool {
 				"PNG/JPEG/GIF/BMP is refused. Needs ExcelApi 1.9.",
 			Props: withSheet(
 				property{Name: "path", Type: "string", Desc: "Where the picture is on this machine. Required."},
+				property{Name: "address", Type: "string", Desc: "Cell whose top-left corner anchors the picture, e.g. \"E10\". Overrides left/top."},
 				property{Name: "left", Type: "number", Desc: "Points (default 20)."}, property{Name: "top", Type: "number", Desc: "Points (default 20)."},
 				property{Name: "width", Type: "number", Desc: "Points. Omit both width and height to keep the natural size (capped to fit)."},
 				property{Name: "height", Type: "number"},

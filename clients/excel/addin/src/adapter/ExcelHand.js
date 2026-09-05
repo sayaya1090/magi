@@ -313,10 +313,11 @@ export class ExcelHand extends HandPort {
       const ws = t.worksheet; ws.load('name');
       const r = t.getRange(); r.load('address,rowCount');
       const h = t.getHeaderRowRange(); h.load('values');
-      const body = t.getDataBodyRangeOrNullObject(); body.load('rowCount,columnCount,isNullObject');
+      // getDataBodyRangeOrNullObject 는 없다(실물 2026-09-06: 「is not a function」). 표는 몸통 행을 늘 하나는 갖는다.
+      const body = t.getDataBodyRange(); body.load('rowCount,columnCount');
       await context.sync();
       let rows = []; let truncated = false;
-      if (!body.isNullObject) {
+      {
         const n = Math.min(body.rowCount, maxRows); truncated = n < body.rowCount;
         const part = body.getCell(0, 0).getResizedRange(n - 1, body.columnCount - 1); part.load('values');
         await context.sync(); rows = part.values;
@@ -411,7 +412,9 @@ export class ExcelHand extends HandPort {
       const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address');
       const dv = range.dataValidation; dv.load('type,rule,prompt,errorAlert,valid');
       await context.sync();
-      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), type: dv.type, rule: dv.rule ?? null, prompt: dv.prompt ?? null, error: dv.errorAlert ?? null, valid: dv.valid });
+      // rule 은 종류별 칸이 다 실리고 하나만 채워진 객체다 — 채워진 것만 남긴다(실물 2026-09-06: OData 덩어리가 통째로 갔다).
+      const rule = dv.rule && typeof dv.rule === 'object' ? Object.fromEntries(Object.entries(dv.rule).filter(([k, v]) => v != null && !k.startsWith('@'))) : null;
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), type: dv.type, rule, prompt: dv.prompt ?? null, error: dv.errorAlert ?? null, valid: dv.valid });
     });
   }
 
@@ -758,7 +761,7 @@ export class ExcelHand extends HandPort {
       const t = ws.tables.add(`'${ws.name}'!${at}`, hasHeaders);
       t.load('name');
       if (name) t.name = name; if (style) t.style = style; if (totals != null) t.showTotals = totals;
-      await context.sync(); this.#mutated();
+      await context.sync(); t.load('name'); await context.sync(); this.#mutated(); // 이름은 sync 뒤에 다시 읽어야 지은 이름이다(실물: 표1 로 보고됐다)
       return this.#envelope({ table: t.name, sheet: ws.name, address: at, has_headers: hasHeaders, style: style ?? null }, [`${ws.name}!${at} 를 표 '${t.name}' 으로 만들었습니다${style ? ` (${style})` : ''}`]);
     });
   }
@@ -772,9 +775,9 @@ export class ExcelHand extends HandPort {
     const cells = arr(a, 'cells'); if (!cells || cells.length === 0) refuse('cells 가 비었습니다 — [{row, column, value}]');
     return this.runner(async (context) => {
       const t = await this.#tableNamed(context, a);
-      const h = t.getHeaderRowRange(); h.load('values'); const body = t.getDataBodyRangeOrNullObject(); body.load('rowCount,columnCount,isNullObject');
+      const h = t.getHeaderRowRange(); h.load('values'); const body = t.getDataBodyRange(); body.load('rowCount,columnCount');
       await context.sync();
-      const headers = h.values[0].map(String); const rows = body.isNullObject ? 0 : body.rowCount;
+      const headers = h.values[0].map(String); const rows = body.rowCount;
       let appended = 0;
       for (const c of cells) {
         const r = int(c, 'row'); const col = typeof c.column === 'number' ? c.column : headers.indexOf(String(c.column));
@@ -963,8 +966,9 @@ export class ExcelHand extends HandPort {
       const { ws, range, used } = this.#range(context, a, { must: false }); ws.load('name'); range.load('address,isNullObject');
       await context.sync();
       if (used && range.isNullObject) return this.#envelope({ sheet: ws.name, cleared: 0 }, [`시트 '${ws.name}' 은 비어 있습니다`]);
-      const cfs = range.conditionalFormats; cfs.load('count'); await context.sync();
-      const n = cfs.count; cfs.clearAll(); await context.sync(); if (n) this.#mutated();
+      // 컬렉션에 count 속성은 없다 — getCount() 가 답을 준다(실물 2026-09-06: 「undefined개를 지웠습니다」).
+      const cfs = range.conditionalFormats; const cnt = cfs.getCount(); await context.sync();
+      const n = cnt.value; cfs.clearAll(); await context.sync(); if (n) this.#mutated();
       return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), cleared: n }, [`${ws.name}!${ExcelHand.#bare(range.address)} 의 조건부 서식 ${n}개를 지웠습니다`]);
     });
   }
@@ -1028,14 +1032,18 @@ export class ExcelHand extends HandPort {
       await context.sync();
       if (range.rowCount * range.columnCount !== 1) refuse('메모는 셀 하나에 답니다 — address 를 셀 하나로');
       const cell = `'${ws.name}'!${ExcelHand.#bare(range.address)}`;
-      const had = context.workbook.comments.getItemByCellOrNullObject(cell); had.load('isNullObject,id');
-      await context.sync();
+      const had = await this.#commentAt(context, cell);
       let replied = false;
-      if (!had.isNullObject) { had.replies.add(text); replied = true; } else { context.workbook.comments.add(cell, text); }
+      if (had) { had.replies.add(text); replied = true; } else { context.workbook.comments.add(cell, text); }
       await context.sync(); this.#mutated();
       const at = ExcelHand.#bare(range.address);
       return this.#envelope({ sheet: ws.name, address: at, replied }, [replied ? `${ws.name}!${at} 의 메모에 답글을 달았습니다` : `${ws.name}!${at} 에 메모를 달았습니다 — 「${clip(text, 40)}」`]);
     });
+  }
+  /** 셀의 메모, 없으면 null. `getItemByCellOrNullObject` 는 없다(실물 2026-09-06) — `getItemByCell` 은 없으면 던지므로 받아 준다. */
+  async #commentAt(context, cell) {
+    const c = context.workbook.comments.getItemByCell(cell); c.load('id');
+    try { await context.sync(); return c; } catch (e) { if (e?.code === 'ItemNotFound') return null; throw e; }
   }
   async #resolveComment(a) {
     this.#need('ExcelApi', '1.10', 'resolve_comment');
@@ -1044,8 +1052,8 @@ export class ExcelHand extends HandPort {
     return this.runner(async (context) => {
       const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address'); await context.sync();
       const cell = `'${ws.name}'!${ExcelHand.#bare(range.address)}`;
-      const c = context.workbook.comments.getItemByCellOrNullObject(cell); c.load('isNullObject'); await context.sync();
-      if (c.isNullObject) refuse(`${ExcelHand.#bare(range.address)} 에는 메모가 없습니다`);
+      const c = await this.#commentAt(context, cell);
+      if (!c) refuse(`${ExcelHand.#bare(range.address)} 에는 메모가 없습니다`);
       if (del) c.delete(); else c.resolved = resolved;
       await context.sync(); this.#mutated();
       const at = ExcelHand.#bare(range.address);
@@ -1060,7 +1068,9 @@ export class ExcelHand extends HandPort {
     return this.runner(async (context) => {
       const ws = this.#sheet(context, a); ws.load('name');
       const shape = ws.shapes.addImage(b64); shape.load('name,width,height');
-      shape.left = num(a, 'left') ?? 20; shape.top = num(a, 'top') ?? 20;
+      const anchor = str(a, 'address');
+      if (anchor) { const at = ws.getRange(anchor); at.load('left,top'); await context.sync(); shape.left = at.left; shape.top = at.top; }
+      else { shape.left = num(a, 'left') ?? 20; shape.top = num(a, 'top') ?? 20; }
       const w = num(a, 'width'); const h = num(a, 'height');
       await context.sync();
       if (w != null && h != null) { shape.lockAspectRatio = false; shape.width = w; shape.height = h; }

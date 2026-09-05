@@ -11,7 +11,7 @@ func TestEnumOutsideListIsRefusedByName(t *testing.T) {
 	cases := []struct{ tool, raw, where, oneOf string }{
 		{"format_range", `{"address":"B2","valign":"middle"}`, "valign", "Center"},
 		{"format_range", `{"address":"B2","underline":"yes"}`, "", ""}, // 타입은 checkType 이 잡는다
-		{"add_chart", `{"source":"A1:B2","chart_type":"bar"}`, "chart_type", "ColumnClustered"},
+		{"add_chart", `{"source":"A1:B2","chart_type":"bubble3d"}`, "chart_type", "ColumnClustered"},
 		{"clear_range", `{"address":"A1","what":"everything"}`, "what", "contents"},
 		{"format_range", `{"address":"B2","border_style":"dotted"}`, "border_style", "Dot"},
 	}

@@ -141,6 +141,12 @@ func validateArgs(t tool, raw json.RawMessage) (map[string]any, error) {
 		if !ok {
 			continue
 		}
+		// 엑셀에서 rows·columns 는 **목록**이기도 하다 — add_table_rows 의 행 배열, add_pivot 의 필드 이름.
+		// 그 자리에서 이 검사가 「1부터」라고 거절했다(실물 2026-09-06). 수가 아닌 것은 이 검사의 것이 아니다.
+		switch v.(type) {
+		case []any, map[string]any:
+			continue
+		}
 		n, err := asInt(v)
 		if err != nil || n < 1 {
 			return nil, argError{fmt.Sprintf(
