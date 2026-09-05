@@ -325,6 +325,16 @@ export class Transcript {
     // 먼저 흘리고, 끝나면 기록으로 한 번 더 남긴다(council_advice.go publishTransient → council_events.go
     // appendFact). 살아서 보는 창은 둘 다 받는다 — 실물 2026-09-05: 위원 셋의 판정이 두 번씩 떴다.
     // 같은 회차·같은 위원·같은 결정이면 한 줄이고, 기록 쪽이 자리(seq)를 준다.
+    // **끝난 턴도 두 번 온다.** part.appended·카운슬 판정과 같은 길 — 살아 있는 이벤트(seq 0)와 기록(seq>0).
+    // 로그에는 한 번인데(실측 2026-09-06, s_bdff89cc: turn.finished 는 seq 4 하나) 창에는 「응답 끝」이 둘 섰다.
+    // 바로 앞 줄이 끝 줄이고 둘 중 하나가 자리 없는 이벤트면 같은 끝이다 — 자리만 잇는다.
+    if (kind === 'turn') {
+      const last = this.rows[this.rows.length - 1];
+      if (last && last.kind === 'turn' && (!(ev?.seq > 0) || !(last.seq > 0) || ev.seq === last.seq)) {
+        if (ev?.seq > 0) last.seq = ev.seq;
+        return last;
+      }
+    }
     if (kind === 'council') {
       const c = councilOf(ev, type);
       if (c.stage === 'verdict') {

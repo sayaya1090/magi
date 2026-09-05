@@ -580,6 +580,20 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('플러그인과 창이 같은 표식을 쓴다', lua.includes('local NUDGE_MARK = "' + PLUGIN_NUDGE_MARK + '"'));
   }
 
+  // 끝난 턴이 살아 있는 이벤트(seq 0)와 기록(seq>0)으로 두 번 오면 「응답 끝」은 한 줄이다(사용자 2026-09-06:
+  // 「카운슬을 켜든 끄든 저거 두 번 와」). 사람 말이 사이에 있으면 정말 두 턴이다.
+  {
+    const t = new Transcript();
+    t.append({ seq: 1, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: '하이' } });
+    t.append({ seq: 0, type: 'turn.finished', data: {} });
+    t.append({ seq: 4, type: 'turn.finished', data: {} });
+    const ends = t.rows.filter((r) => r.kind === 'turn');
+    ok('살아 있는 끝과 기록된 끝은 한 줄', ends.length === 1 && ends[0].seq === 4, String(ends.length));
+    t.append({ seq: 5, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: '또' } });
+    t.append({ seq: 6, type: 'turn.finished', data: {} });
+    ok('사람 말 뒤의 끝은 새 끝', t.rows.filter((r) => r.kind === 'turn').length === 2);
+  }
+
   // land 로 끝난 턴은 「응답 끝」 줄을 안 그린다 — 착지의 답이 이미 끝을 말했다(사용자 2026-09-06).
   {
     const user = { seq: 1, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: '정리해' } };
