@@ -85,7 +85,7 @@ func TestAntigravityShimStreamsAndKeepsOneChildPerConversation(t *testing.T) {
 	joined := func(frames []string) string { return strings.Join(frames, "\n") }
 
 	// 1. first turn: streams, thinks, closes with usage.
-	f1, first, last := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"user","content":"hi"}]}`)
+	f1, first, last := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"system","content":"now it is early"},{"role":"user","content":"hi"}]}`)
 	all := joined(f1)
 	if !strings.Contains(all, `"content":"hello "`) || !strings.Contains(all, `"content":"turn1"`) {
 		t.Fatalf("prose did not stream as content frames:\n%s", all)
@@ -100,8 +100,9 @@ func TestAntigravityShimStreamsAndKeepsOneChildPerConversation(t *testing.T) {
 		t.Fatalf("the whole answer arrived at once (first %v, last %v) — not streamed", first, last)
 	}
 
-	// 2. second turn on the same conversation: the child remembers (turn2), no new process.
-	f2, _, _ := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello turn1"},{"role":"user","content":"again"}]}`)
+	// 2. second turn on the same conversation: the child remembers (turn2), no new process — even
+	// though magi rebuilt the system message with a different context block (it does, every turn).
+	f2, _, _ := ask(`{"model":"Gemini 3.8 Flash (High)","messages":[{"role":"system","content":"now it is later"},{"role":"user","content":"hi"},{"role":"assistant","content":"hello turn1"},{"role":"user","content":"again"}]}`)
 	if !strings.Contains(joined(f2), `"content":"turn2"`) {
 		t.Fatalf("second request did not continue the same child (expected turn2):\n%s", joined(f2))
 	}
