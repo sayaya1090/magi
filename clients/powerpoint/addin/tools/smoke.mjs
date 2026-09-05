@@ -29,7 +29,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { parseMd, inlines, mdToDom, looksLikeMd } from '../src/ui/md.js';
 import { fixture } from '../src/ui/deckFixture.js';
 import {
-  headOf, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
+  headOf, noteHead, rowHead, rowShape, rowClass, argsCell, endText, bodyText,
   isSendKey, askAction, askReveal, askKind, askHead, whatText, argsText, placeLine, doingLine,
   lastAskShape, decisionClass, failNote, noteLife, capsOf, capsText, streamLine,
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
@@ -398,6 +398,13 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     headOf(read4.view.rows[1]) !== headOf(read4.view.rows[3])
       && headOf(read4.view.rows[3]) === '⟳ 누가 넣었는지 안 밝힌 줄',
     String(headOf(read4.view.rows[3])));
+  // 머리는 「누가 무엇을 끼웠는가」로 적는다 — 「사람이 아닌 배우」는 코어 필드의 직역이었다(2026-09-05).
+  ok('중간 지시는 그렇게 읽힌다', noteHead({ kind: 'system', id: 'steer' }).includes('중간에 보낸 지시') && noteHead({ kind: 'system', id: 'steer' }).includes('사용자'));
+  ok('카운슬·압축·플러그인은 제 이름으로', noteHead({ kind: 'system', id: 'council' }).includes('카운슬')
+    && noteHead({ kind: 'system', id: 'compact' }).includes('압축') && noteHead({ kind: 'system', id: 'plugin' }).includes('플러그인'));
+  ok('모르는 시스템 id 는 magi 와 id 로', noteHead({ kind: 'system', id: 'loop' }) === '⟳ magi 가 넣은 줄 (loop)');
+  ok('다른 에이전트는 이름을 댄다', noteHead({ kind: 'agent', id: 'explorer' }).includes('explorer'));
+  ok('「배우」라는 말은 화면에 없다', !noteHead({ kind: 'system', id: 'x' }).includes('배우'));
 
   // 그리고 이게 왜 화면 모양만의 문제가 아닌지 — 컴포저까지 내려가서 잰다.
   const anonComp = new Composer();

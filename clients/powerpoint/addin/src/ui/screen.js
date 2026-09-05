@@ -244,13 +244,35 @@ export function rowClass(r) {
  */
 export function headOf(r) {
   if (r.kind !== 'note') return ROW_HEAD[r.kind];
-  return r.attributed ? ROW_HEAD.note : '⟳ 누가 넣었는지 안 밝힌 줄';
+  return r.attributed ? noteHead(r.actor) : '⟳ 누가 넣었는지 안 밝힌 줄';
+}
+
+/**
+ * 사람이 아닌 쪽이 대화에 끼운 줄의 머리 — **누가, 무엇을** 끼웠는지로 적는다. 앞 판본의
+ * 「사람이 아닌 배우가 넣은 줄」은 코어의 actor 필드를 직역한 말이라 사람이 읽을 말이 아니었다
+ * (사용자 지적 2026-09-05: 「용어 좀 잘 골라봐라」). 코어의 배우 id 는 `steer`·`interject`·
+ * `council`·`loop`·`compact`·`plugin`·`hook`·`handoff`·`orchestrator` 등이다(internal/app).
+ */
+export function noteHead(actor) {
+  const kind = String(actor?.kind ?? '');
+  const id = String(actor?.id ?? '');
+  if (kind === 'agent') return `⟳ 다른 에이전트(${id || '이름 없음'})가 넣은 줄`;
+  switch (id) {
+    case 'steer': return '⟳ 중간에 보낸 지시 — 사용자의 말을 magi 가 대화에 끼웠습니다';
+    case 'interject': return '⟳ 끼어든 말 — magi 가 대화에 끼웠습니다';
+    case 'council': return '⟳ 카운슬이 넣은 줄';
+    case 'compact': return '⟳ 대화 압축 — magi 가 앞부분을 요약해 넣었습니다';
+    case 'plugin': return '⟳ 플러그인이 넣은 줄';
+    case 'hook': return '⟳ 훅이 넣은 줄';
+    case 'handoff': return '⟳ 넘겨받은 일 — magi 가 넣었습니다';
+    default: return `⟳ magi 가 넣은 줄${id ? ` (${id})` : ''}`;
+  }
 }
 
 /** 종류별 줄머리. */
 const ROW_HEAD = {
   think: '혼잣말 (사용자에게 한 말이 아님)',
-  note: '⟳ 사람이 아닌 배우가 넣은 줄',
+  note: '⟳ magi 가 넣은 줄',   // 실제 머리는 noteHead(actor) 가 배우별로 고른다
   tool: '⚙',
   error: '오류',
   // 짝이 되는 호출 줄을 못 찾은 것들. 보통은 호출 줄에 접히므로(`Transcript.append`) 이
