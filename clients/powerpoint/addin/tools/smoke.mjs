@@ -4243,8 +4243,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const src = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
   const body = /  rowEl\(r\) \{([\s\S]*?)\n  \}\n/.exec(src)?.[1] ?? '';
   ok('rowEl 이 있다', body !== '');
-  ok('사람의 말은 글자 그대로 넣는다', /r\.kind === 'user'[\s\S]*?p\.textContent = bodyText\(r\)/.test(body));
-  ok('모델·플러그인의 글과 카운슬 판정은 마크다운으로 짓는다', (body.match(/this\.proseEl\(/g) ?? []).length >= 2, String((body.match(/this\.proseEl\(/g) ?? []).length));
+  // 사람의 말도 마크다운으로 짓는다(사용자 2026-09-05) — 표·목록을 붙여 넣는 부탁이 흔하다. 표식이 없으면 문단 하나.
+  ok('사람의 말도 마크다운 길로 짓는다', /r\.kind === 'user'[\s\S]*?el\.append\(this\.proseEl\(bodyText\(r\)\)\)/.test(body) && !/p\.textContent = bodyText\(r\)/.test(body));
+  ok('모델·플러그인의 글과 카운슬 판정도 마크다운으로 짓는다', (body.match(/this\.proseEl\(/g) ?? []).length >= 3, String((body.match(/this\.proseEl\(/g) ?? []).length));
   ok('짓는 쪽은 md.js 의 mdToDom 을 쓴다', /mdToDom\(document, text\)/.test(src));
 }
 
