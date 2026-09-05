@@ -2888,16 +2888,19 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     ok('안 실린 칸은 「다시 떴다」가 아니다', w.view.stale === false);
   }
 
-  // 조립 자리의 규칙: **몰래 다시 붙이지 않는다.** 다시 붙이는 것은 「이 컴패니언에 맡긴다」를
-  // 다시 말하는 일이고, 그 말은 사람이 한다(§5.0). 그래서 그 신호가 부르는 것은 `choose` 가
-  // 아니라 고르는 판이어야 한다.
+  // 조립 자리의 규칙: **사람이 고른 컴패니언에 몰래 다시 붙지 않는다**(`choose` 는 사람의
+  // 말이다, §5.0). 그러나 이 창의 컴패니언은 헬퍼가 마련한 것이라(`attachOwn`), 다시 뜬 것에도
+  // 헬퍼가 다시 붙이면 되고 사람에게 물을 일이 없다 — 사용자 교정 2026-09-05. 앞 판본은
+  // 「다시 골라 주세요」와 명단을 띄웠다. 명단은 자동으로도 못 붙었을 때의 뒷길이다.
   {
     const src = readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
-    const body = /const companionRestarted = \(\) => \{([\s\S]*?)\n    \};/.exec(src)?.[1] ?? '';
+    const body = /const companionRestarted = async \(\) => \{([\s\S]*?)\n    \};/.exec(src)?.[1] ?? '';
     ok('다시 뜬 경우를 다루는 자리가 있다', body !== '');
-    ok('그 자리는 고르는 판을 도로 세운다', /showCompanions\(\)/.test(body), body.trim().slice(0, 60));
-    ok('그 자리가 몰래 다시 붙이지는 않는다', !/api\.choose/.test(body));
+    ok('그 자리는 헬퍼에게 다시 마련을 청한다', /await attachOwn\(\)/.test(body), body.trim().slice(0, 60));
+    ok('그 자리는 못 붙었을 때만 고르는 판을 세운다', /if \(await attachOwn\(\)\) return;[\s\S]*showCompanions\(\)/.test(body));
+    ok('그 자리가 사람이 고른 것에 몰래 다시 붙지는 않는다', !/api\.choose/.test(body));
     ok('그 자리는 「붙어 있다」를 내린다', /setBound\(false\)/.test(body));
+    ok('그 자리는 사람에게 고르라고 하지 않는다', !/다시 골라/.test(body));
   }
 }
 

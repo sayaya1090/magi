@@ -472,8 +472,12 @@ func (a *API) settle(deck string, rep OwnReport) OwnReport {
 	// 편의이지 어느 덱의 것이 아니다(DESIGN §5.9.3). 앞 판본은 첫 덱이 그것을 받고 둘째부터 새로
 	// 열었는데, 그 「첫」이 경주에서 둘이 됐다. 이름 없는 창(옛 길)만 「지금」을 받고, 그것이
 	// 비었으면 명단을 다시 읽는다 — 갓 뜬 데몬은 소켓에 선 뒤에 자기 기록을 쓴다.
+	// **데몬이 다시 떴으면 옛 대화 이름은 남의 생애의 것이다.** 앞 판본은 소켓이 같으면 sid 를
+	// 그대로 물고 새 생애에 붙였고, 실물에서 그 화면을 봤다(2026-09-04): own 은 옛 대화로
+	// ready 라 답했고, 보내기는 502 「no conversation」이었으며, 사람이 /api/fresh 를 손으로
+	// 불러서야 풀렸다. 생애가 갈렸으면 소켓이 갈린 것과 같이 다룬다 — 덱 창은 새 대화를 연다.
 	sid := sid0
-	if sid == "" || socket0 != rep.Socket {
+	if sid == "" || socket0 != rep.Socket || life0 != rep.Life {
 		if deck != "" {
 			fresh, err := a.freshOn(rep.Socket)
 			if err != nil {

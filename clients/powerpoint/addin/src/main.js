@@ -252,12 +252,20 @@ async function boot() {
      * 맡긴다」를 다시 말하는 일이고, 그 말은 사람이 한다(§5.0).
      */
     let saidStale = false;
-    const companionRestarted = () => {
+    /**
+     * 붙어 있던 컴패니언이 다시 떴다. **사람에게 묻지 않는다** — 이 창의 컴패니언은 헬퍼가
+     * 마련하는 것이라, 다시 뜬 것에도 헬퍼가 다시 붙이면 된다(`attachOwn`: 헬퍼는 생애가
+     * 갈린 것을 보고 새 대화를 열어 덱 도구를 다시 싣는다). 앞 판본은 「다시 골라 주세요」와
+     * 명단을 띄웠고, 사용자 교정(2026-09-05): 「데몬 재기동시 바인딩은 피피티 컴패니언에게
+     * 자동으로 붙으면 돼, 사람에게 물을 일이 없어」. 명단은 자동으로도 못 붙었을 때만 편다.
+     */
+    const companionRestarted = async () => {
       if (saidStale) return;
       saidStale = true;
       bound = null;
       view.setBound(false);
-      view.where('붙어 있던 컴패니언이 다시 떴습니다 — 덱 도구가 떨어졌으니 다시 골라 주세요.');
+      view.where('붙어 있던 컴패니언이 다시 떴습니다 — 다시 붙는 중입니다.');
+      if (await attachOwn()) return;
       void showCompanions();
     };
 

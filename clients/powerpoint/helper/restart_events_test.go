@@ -76,8 +76,13 @@ func TestRestartColumnDaemonRestart(t *testing.T) {
 	if len(r.bolts) != 2 {
 		t.Errorf("다시 뜬 데몬에 안 붙였다: %v", r.bolts)
 	}
-	if got.Session != "s_fresh1" {
-		t.Errorf("데몬이 다시 떴다고 대화를 갈았다: %q", got.Session)
+	// 옛 대화는 죽은 데몬과 같이 갔다(실측 2026-09-04: 옛 sid 로 보내면 502 no conversation).
+	// 새 생애에는 새 대화를 열어 묶는다 — 사람이 /api/fresh 를 손으로 부르게 하지 않는다.
+	if got.Session != "s_fresh2" {
+		t.Errorf("데몬이 다시 떴는데 죽은 생애의 대화를 그대로 물었다: %q", got.Session)
+	}
+	if _, sid, life, _ := r.api.Bridges.For("pid-deck-A").BoundTo(); sid != "s_fresh2" || life != "2@t1" {
+		t.Errorf("덱의 묶음이 새 생애·새 대화가 아니다: sid=%q life=%q", sid, life)
 	}
 	// 그리고 `/api/own` 이 그 사건을 **보는** 자리는 하나다 — 생애 비교.
 	work := NewOwnWork()
