@@ -43,5 +43,5 @@ go build -o magi-xl ./clients/excel/helper
 
 ## 아직 아닌 것
 
-- **실물 Excel 에 한 번도 안 붙여 봤다**(2026-09-06). 붙이는 날 `docs/TESTING.ko.md` §5 에 적는다.
+- 실물 Excel 에는 2026-09-06 에 붙어 도구 61개가 전부 돌았다(`docs/TESTING.ko.md` §5.1). 작업창 화면의 실물 점검은 아직.
 - 공용 패키지로 갈라야 한다(위).

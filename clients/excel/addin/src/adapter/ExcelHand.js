@@ -413,7 +413,8 @@ export class ExcelHand extends HandPort {
       const dv = range.dataValidation; dv.load('type,rule,prompt,errorAlert,valid');
       await context.sync();
       // rule 은 종류별 칸이 다 실리고 하나만 채워진 객체다 — 채워진 것만 남긴다(실물 2026-09-06: OData 덩어리가 통째로 갔다).
-      const rule = dv.rule && typeof dv.rule === 'object' ? Object.fromEntries(Object.entries(dv.rule).filter(([k, v]) => v != null && !k.startsWith('@'))) : null;
+      const strip = (o) => (o && typeof o === 'object' && !Array.isArray(o) ? Object.fromEntries(Object.entries(o).filter(([k, v]) => v != null && !k.startsWith('@')).map(([k, v]) => [k, strip(v)])) : o);
+      const rule = dv.rule && typeof dv.rule === 'object' ? strip(dv.rule) : null;
       return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), type: dv.type, rule, prompt: dv.prompt ?? null, error: dv.errorAlert ?? null, valid: dv.valid });
     });
   }

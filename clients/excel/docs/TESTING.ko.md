@@ -57,7 +57,7 @@ TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 �
 (`pickBook`), 요구 집합(`OfficeWorkbook.capabilities` — 여덟+하나를 각각, 던진 것은 「모름」), 역할
 (`handRole` — `ExcelApi 1.7` 바닥), 통합 문서의 안정된 이름(`stableBookId` — `MAGI.BOOK` 설정), A1 산수.
 
-## 4b. 살아 있는 헬퍼에 가짜 손을 붙여 본 것 — 2026-09-06
+## 4b. 살아 있는 헬퍼에 가짜 손을 붙여 본 것 — 2026-09-06 새벽
 
 Excel 없이 헬퍼·MCP·손 규약을 실물 헬퍼에 대고 돌렸다(`tools/livehand.mjs`, `magi-xl` 3001):
 
@@ -73,8 +73,36 @@ Excel 없이 헬퍼·MCP·손 규약을 실물 헬퍼에 대고 돌렸다(`tools
 
 ## 5. 실물 — Excel 과 사람의 손
 
-**아직 없다(2026-09-06).** 처음 붙이는 날 여기에 쌓는다. 이 Mac 에는 Excel 16.112.3 이 있고 매니페스트는
-`~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/` 에 넣어 뒀다 — 인증서를 신뢰하고 Excel 을 열면 된다. 파워포인트 판 §5.2 의 점검표를 엑셀 말로 옮긴 것:
+### 5.1 2026-09-06 — 처음 붙인 날, 도구 61개 전수
+
+Mac · Excel 16.112.3 · 사용자가 `xl-helper-cert` 를 키체인에 넣고 작업창을 열었다(`wb-book-985f…`). 사람이 작업창에서
+「하이」를 친 것과 별개로, 같은 통합 문서에 **MCP 로 도구를 하나씩** 불렀다(스크래치 `xlreal.py`, 쓰기는 새 시트
+`magi-test` 안에서만). 첫 판 75호출 중 17이 안 됐고 **전부 우리 쪽**이었다. 고친 뒤 둘째 판 77호출 실패 0, 61/61.
+
+| 층 | 막힌 것 | 원인 | 고침 |
+|---|---|---|---|
+| 헬퍼 | `add_chart{chart_type:"막대"}` 거절 → 차트 넷 전멸 | 손의 한국어 별칭이 헬퍼 열거형 검사에 먼저 막혔다 | 별칭은 검사만 받고 스키마엔 정본 21개(`chartAliases`) |
+| 헬퍼 | `suggest` 전부 거절 | `what` 이 `clear_range`·`autofit` 의 열거형 `what` 과 이름이 같다 | 도구별 예외(`enumExempt`) |
+| 헬퍼 | `add_table_rows`·`add_pivot` 의 `rows` 가 「1부터」로 거절 | 파워포인트에서 온 수 검사가 목록에도 걸렸다 | 수가 아니면 검사 밖 |
+| 손 | `read_table`·`set_table_cells` | `Table.getDataBodyRangeOrNullObject` 는 Office.js 에 없다 | `getDataBodyRange()` |
+| 손 | `add_comment`·`resolve_comment` | `comments.getItemByCellOrNullObject` 도 없다 | `getItemByCell` + `ItemNotFound` 받기 |
+| 손 | `clear_conditional_formats` 가 「undefined개」 | 컬렉션에 `count` 속성이 없다 | `getCount()` |
+| 손 | `add_table{name}` 이 「표1」로 보고 | 이름은 sync 뒤에 다시 읽어야 지은 이름 | 재로드 |
+| 손 | `read_validation.rule` 이 OData 덩어리 | 종류별 칸이 다 실린다 | 채워진 칸만, 재귀 |
+| 손 | `add_image{address}` 없음 | 셀에 앵커할 길이 없었다 | `address` 로 그 셀의 left/top |
+
+둘째 판에서 본 것: `render_range` 5,976B·`render_chart` 10,596B(480×300)가 MCP 이미지 블록으로 왔다. 메모 달기·답글·
+해결·삭제, 피벗, 이름, 유효성, 조건부 서식 둘, 표(만들기·칸·행·정렬·필터·풀기), 시트 복사·이름·이동·숨김·고정·보호가
+전부 사람 눈앞의 통합 문서에서 됐다. 호출당 5~230ms.
+
+배운 것 하나 — **stub 은 없는 메서드를 못 잡는다.** `tools/excelhand.mjs` 의 stub 은 어떤 이름을 불러도 받아 주므로
+`getDataBodyRangeOrNullObject` 같은 지어낸 이름이 초록으로 지나갔다. 그 층이 재는 것은 「우리가 부르는 모양」이지
+「Office.js 에 그 이름이 있는가」가 아니다. 그 답은 실물뿐이고, 그래서 이 표가 있다.
+
+작업창 쪽은 이날 헬퍼를 다시 띄우자 스스로 새 판(`/v/<id>/`)으로 되살아났다 — 파워포인트 판이 캐시와 싸워 얻은 길이
+그대로 왔다. 통합 문서에는 `magi-test` 시트(표·꺾은선 차트·피벗·그림)가 남아 있다 — 사람이 보라고 남겼다.
+
+### 5.2 점검표 — 판을 낼 때 손으로 돈다 파워포인트 판 §5.2 의 점검표를 엑셀 말로 옮긴 것:
 
 1. Excel 을 열고 리본 「홈」 오른쪽 끝 **AI Assistant › Magi** → 작업창.
 2. 「지원 API」 줄 — 2021/365 면 숨어 있어야 한다(전부 ✓). 펴져 있으면 무엇이 없는지 읽는다.
