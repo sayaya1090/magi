@@ -1170,7 +1170,12 @@ export class OfficeHand extends HandPort {
       const dressed = [];
       try {
         if (args.fill) { shape.fill.setSolidColor(String(args.fill).replace('#', '')); dressed.push(`채움 ${args.fill}`); }
-        if (args.line) { shape.lineFormat.color = String(args.line); dressed.push(`선 ${args.line}`); }
+        if (args.line) {
+          // `none` 은 색이 아니다 — format_shape 와 같은 처리. 실측(2026-09-05 IR 덱): 색으로 넘기면
+          // 호스트가 InvalidArgument(ShapeLineFormat.color) 로 도형 추가 전체를 거절했다.
+          if (String(args.line).toLowerCase() === 'none') { shape.lineFormat.visible = false; dressed.push('선 없음'); }
+          else { shape.lineFormat.visible = true; shape.lineFormat.color = String(args.line); dressed.push(`선 ${args.line}`); }
+        }
         if (args.line_weight !== undefined) { shape.lineFormat.weight = Number(args.line_weight); dressed.push(`선 ${args.line_weight}pt`); }
         if (args.line_dash !== undefined) { shape.lineFormat.dashStyle = String(args.line_dash); dressed.push(`선 모양 ${args.line_dash}`); }
         if (args.transparency !== undefined) { shape.fill.transparency = Number(args.transparency); dressed.push(`투명도 ${args.transparency}`); }
