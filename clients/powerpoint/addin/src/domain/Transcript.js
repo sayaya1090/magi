@@ -183,6 +183,8 @@ export class Transcript {
     this.skippedCounts = new Map();
     /** 스트림이 살아 있다고 **믿는가**. 끊김은 에러로 안 오므로 이 값은 밖에서 꺼 준다. */
     this.live = false;
+    /** 살아 있지 않은 이유가 「아직 아무 요청도 안 보내 빈 대화」인가. 끊김과 화면에서 갈린다. */
+    this.empty = false;
     /** 서버가 커서를 거절하며 한 말. 있으면 화면이 그대로 보여 준다. */
     this.refusal = null;
     /**

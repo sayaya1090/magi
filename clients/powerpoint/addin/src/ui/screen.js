@@ -194,8 +194,13 @@ export function streamLine(v) {
   if (v.bound === false) return { text: '', hidden: true };
   const parts = [];
   if (v.refusal) parts.push(`서버가 이 창의 커서를 안 받았습니다: ${v.refusal}`);
+  // 죽은 스트림과 「아직 아무 요청도 안 보낸 빈 대화」는 다르다. 빈 대화는 경고가 아니라 안내다
+  // (사용자 지적 2026-09-05).
+  if (!v.live && v.empty && !v.refusal) {
+    return { text: '아직 대화가 없습니다 — 첫 요청을 보내면 그때부터 옵니다.', hidden: false, kind: 'info' };
+  }
   if (!v.live) parts.push('대화 스트림이 끊겼습니다 — 새 말이 안 옵니다.');
-  return { text: parts.join(' · '), hidden: parts.length === 0 };
+  return { text: parts.join(' · '), hidden: parts.length === 0, kind: 'warn' };
 }
 
 /** 일부러 안 그린 것. 못 그리는 것과 **다른 줄**이라 문장도 따로 만든다. */

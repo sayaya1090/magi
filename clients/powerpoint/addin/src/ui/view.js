@@ -559,6 +559,7 @@ export class View {
     const el = $('#stream');
     const line = streamLine({ ...v, bound: this.bound });
     el.textContent = line.text;
+    el.classList.toggle('info', line.kind === 'info');
     el.hidden = line.hidden;
   }
 

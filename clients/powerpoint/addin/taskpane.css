@@ -384,6 +384,10 @@ header {
   background: var(--warn-bg); color: var(--warn-fg);
   border: 1px solid var(--warn-line); font: var(--t-caption);
 }
+/* 스크롤 영역 맨 위에 서는 줄이라 위 여백이 없으면 머리에 붙는다(사용자 지적 2026-09-05). */
+.stream { margin-top: var(--s3); }
+/* 빈 대화 안내는 경고가 아니다 — 경고색을 벗는다. */
+.stream.info { background: var(--bg-sub); color: var(--fg-2); border-color: var(--line); }
 .unknown-note { color: var(--muted); font: var(--t-caption); }
 .sent {
   display: flex; align-items: center; gap: var(--s2);

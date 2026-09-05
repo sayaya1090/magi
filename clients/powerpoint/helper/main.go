@@ -346,7 +346,7 @@ func (a *API) companions(w http.ResponseWriter, r *http.Request) {
 	socket, sid, live := a.chat(r).Bound()
 	writeJSON(w, map[string]any{
 		"companions": rows,
-		"bound":      map[string]any{"socket": socket, "session": sid, "streamLive": live},
+		"bound":      map[string]any{"socket": socket, "session": sid, "streamLive": live, "streamEmpty": a.chat(r).Empty()},
 	})
 }
 

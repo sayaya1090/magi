@@ -2386,6 +2386,14 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
       && streamLine({ live: false }).hidden === false
       && streamLine({ live: false }).text.includes('끊겼'),
     streamLine({ live: false }).text);
+  // **아직 아무 요청도 안 보낸 빈 대화는 끊김이 아니다.** 코어는 첫 말이 올 때 대화를 낳는다 — 그 전의
+  // 「없는 대화」는 안내이지 경고가 아니다(사용자 지적 2026-09-05).
+  ok('빈 대화는 안내로 적는다', streamLine({ live: false, empty: true }).text.includes('아직 대화가 없습니다')
+    && streamLine({ live: false, empty: true }).kind === 'info'
+    && !streamLine({ live: false, empty: true }).text.includes('끊겼'), streamLine({ live: false, empty: true }).text);
+  ok('끊긴 것은 경고로 적는다', streamLine({ live: false, empty: false }).kind === 'warn');
+  ok('살아 있으면 empty 는 뜻이 없다', streamLine({ live: true, empty: true }).hidden === true);
+  ok('커서 거절은 빈 대화보다 앞선다', streamLine({ live: false, empty: true, refusal: 'x' }).text.includes('x'));
   {
     // 대화가 없는 창은 「없음」이지 「끊김」이 아니다 — 끊길 것이 없다.
     const none = brandState({ companion: 'powerpoint', session: '', streamLive: false, hands: 1 });

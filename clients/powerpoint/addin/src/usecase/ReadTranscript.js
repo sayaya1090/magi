@@ -73,8 +73,11 @@ export class ReadTranscript {
         this.cursor = this.cursor.advanced(this.sessionId, ev?.seq);
         this.onChange();
       },
-      onEnd: () => {
+      // 끝난 이유가 둘이다: 스트림이 죽었거나, 아직 아무 요청도 안 보내 대화가 비어 있거나
+      // (코어는 첫 말이 올 때 대화를 낳는다). 화면이 둘을 다르게 적어야 한다(사용자 지적 2026-09-05).
+      onEnd: (empty) => {
         this.transcript.live = false;
+        this.transcript.empty = empty === true;
         this.onChange();
       },
       /**
@@ -88,6 +91,7 @@ export class ReadTranscript {
        */
       onLive: () => {
         this.transcript.live = true;
+        this.transcript.empty = false;
         this.onChange();
       },
     });
@@ -108,6 +112,7 @@ export class ReadTranscript {
   get view() {
     return {
       live: this.transcript.live,
+      empty: this.transcript.empty,
       refusal: this.transcript.refusal,
       rows: this.transcript.drawnRows,
       unknownNote: this.transcript.unknownNote,

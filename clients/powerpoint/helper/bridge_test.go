@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -242,5 +244,48 @@ func TestAPermissionDecisionIsOneOfThreeWords(t *testing.T) {
 	}
 	if err := b.AnswerPermission("", "allow"); err == nil {
 		t.Fatal("어느 호출인지 없이 통과했다")
+	}
+}
+
+// 첫 말 전의 대화는 코어 저장소에 없어서 전사 문이 「없는 대화」라 답한다. 그것은 끊김이 아니다:
+// 창에는 empty 프레임 한 번, 「끊겼습니다」 쪽지는 없음, 그리고 조용히 다시 붙어 본다. 실물
+// 2026-09-05: 데몬 재기동 뒤 새 대화로 붙은 창 둘이 「대화 스트림이 끊겼습니다」를 띄웠다.
+func TestAnEmptyConversationIsNotABrokenStream(t *testing.T) {
+	b := NewBridge()
+	defer b.Stop()
+	var calls int32
+	b.read = func(ctx context.Context, _, _ string, _ int64) error {
+		atomic.AddInt32(&calls, 1)
+		return errors.New(`no conversation "s_x" in this workspace — ` + "`sessions`" + ` lists them`)
+	}
+	frames, unsub := b.Subscribe()
+	defer unsub()
+	drain(t, frames, "stream", time.Second) // the initial "not live"
+	if err := b.BindWith("/sock", "s_x", "1@t0", nil); err != nil {
+		t.Fatal(err)
+	}
+	f := drain(t, frames, "stream", 3*time.Second)
+	if !strings.Contains(string(f.Data), `"empty":true`) {
+		t.Fatalf("빈 대화를 끊김으로 적었다: %s", f.Data)
+	}
+	if !b.Empty() {
+		t.Fatal("Empty() 가 거짓이다")
+	}
+	deadline := time.After(1500 * time.Millisecond)
+	for {
+		select {
+		case fr := <-frames:
+			if fr.Kind == "note" {
+				t.Fatalf("빈 대화에 「끊겼습니다」 쪽지를 냈다: %s", fr.Data)
+			}
+			if fr.Kind == "stream" && strings.Contains(string(fr.Data), `"empty":true`) {
+				t.Fatalf("empty 를 되풀이해 말했다: %s", fr.Data)
+			}
+		case <-deadline:
+			if atomic.LoadInt32(&calls) < 2 {
+				t.Fatalf("다시 붙어 보지 않았다(read %d회)", calls)
+			}
+			return
+		}
 	}
 }

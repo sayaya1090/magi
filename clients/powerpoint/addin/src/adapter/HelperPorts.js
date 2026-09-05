@@ -89,7 +89,7 @@ export class HelperTranscript extends TranscriptPort {
       // 실물에서 그 화면을 봤다(2026-09-01): 헬퍼는 `live:true` 를 보내는데 창은 「끊겼습니다」
       // 를 띄우고 있었다. **비대칭 통지는 거짓말 생성기다.**
       this.stream.on('stream', (d) => {
-        if (d?.live === false) onEnd?.();
+        if (d?.live === false) onEnd?.(d?.empty === true);
         else if (d?.live === true) onLive?.();
       }),
     ];

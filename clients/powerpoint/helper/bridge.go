@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +47,13 @@ type Bridge struct {
 	// 이것이 「이 대화에 무엇이 붙어 있는가」의 유일한 증거다.
 	tools []string
 	// live 는 대화 스트림이 살아 있는가. **요청 쪽 연결과 따로 센다** — 서로의 생존 증거가 아니다.
-	live      bool
+	live bool
+	// empty 는 「대화가 있기는 한데 아직 아무 말도 없다」. 코어는 새 대화를 첫 말이 올 때 저장소에
+	// 낳으므로(49684eb1) 그 전엔 전사 문이 「없는 대화」라 답한다 — 그것은 끊김이 아니다. 실물
+	// 2026-09-05: 데몬 재기동 뒤 새 대화로 다시 붙은 창이 「대화 스트림이 끊겼습니다」를 띄웠다.
+	empty bool
+	// read 는 한 번 붙어서 끝까지 읽는 함수. 시험이 바꿔 낀다.
+	read      func(ctx context.Context, socket, sid string, since int64) error
 	lastSeq   int64
 	listeners map[chan StreamFrame]struct{}
 	cancel    context.CancelFunc
@@ -148,6 +155,19 @@ func (b *Bridge) BindWith(socket, sid, life string, tools []string) error {
 }
 
 // Stop 은 붙어 있던 것을 놓는다.
+// isEmptyConversation 은 전사 문의 「없는 대화」 답을 알아본다 — 코어가 첫 말 전의 대화를 저장소에
+// 안 두어서 나는 말이고, 붙을 소켓은 멀쩡하다.
+func isEmptyConversation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "no conversation")
+}
+
+// Empty 는 붙은 대화가 아직 빈 것인가(첫 말 전). 스트림이 죽은 것과 화면에서 갈라야 한다.
+func (b *Bridge) Empty() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.empty
+}
+
 func (b *Bridge) Stop() {
 	b.mu.Lock()
 	b.stopped = true
@@ -166,21 +186,36 @@ func (b *Bridge) stream(ctx context.Context, socket, sid string) {
 		since := b.lastSeq
 		b.mu.Unlock()
 
-		err := b.readOnce(ctx, socket, sid, since)
-		b.mu.Lock()
-		wasLive := b.live
-		b.live = false
-		b.mu.Unlock()
-		if wasLive {
-			b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(`{"live":false}`)})
+		read := b.read
+		if read == nil {
+			read = b.readOnce
 		}
+		err := read(ctx, socket, sid, since)
+		empty := isEmptyConversation(err)
+		b.mu.Lock()
+		wasLive, wasEmpty := b.live, b.empty
+		b.live, b.empty = false, empty
+		b.mu.Unlock()
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
-			b.push(StreamFrame{Kind: "note", Data: json.RawMessage(mustJSON(map[string]any{
-				"note": "대화 스트림이 끊겼습니다: " + err.Error(),
+		switch {
+		case empty && !wasEmpty:
+			// 빈 대화: 끊긴 것이 아니라 아직 시작 전이다. 그렇게 말하고, 조용히 다시 붙어 본다.
+			b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{
+				"live": false, "empty": true, "session": sid,
 			}))})
+		case empty:
+			// 이미 말했다 — 되풀이하지 않는다.
+		default:
+			if wasLive || wasEmpty {
+				b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(`{"live":false}`)})
+			}
+			if err != nil {
+				b.push(StreamFrame{Kind: "note", Data: json.RawMessage(mustJSON(map[string]any{
+					"note": "대화 스트림이 끊겼습니다: " + err.Error(),
+				}))})
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -205,7 +240,7 @@ func (b *Bridge) readOnce(ctx context.Context, socket, sid string, since int64) 
 	}()
 
 	b.mu.Lock()
-	b.live = true
+	b.live, b.empty = true, false
 	b.mu.Unlock()
 	b.push(StreamFrame{Kind: "stream", Data: json.RawMessage(mustJSON(map[string]any{"live": true, "session": sid}))})
 
