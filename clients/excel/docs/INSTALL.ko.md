@@ -4,6 +4,12 @@
 
 > Mac(Excel 16.112.3)에서는 2026-09-06 에 §3.1 그대로 깔려 붙었다. Windows 절차는 파워포인트 판이 실측한 것을 엑셀 말로
 > 옮긴 것이라 아직 안 잰 것이다.
+>
+> **2026-09-06, LTSC 2021 에서 깔아 봤다 — 반은 됐고 반은 막혔다.** `install.ps1` 은 끝까지 돈다(빌드·인증서·카탈로그
+> 키·Run 키·헬퍼 3001). 그런데 **Excel 2021 은 켤 때마다 `WEF\TrustedCatalogs` 아래의 키를 지운다** — 관리 공유
+> (`\\localhost\C$\…`, `\\NARI\C$\…`) 형태의 카탈로그를 둘 다, 그리고 **파워포인트 판의 키까지**. PowerPoint 2021 은 같은
+> 키를 받았다. 개발자 키(`WEF\Developer`)도 파워포인트 판처럼 무시한다(리본에도 「내 추가 기능」에도 안 선다). 진짜
+> 공유(`New-SmbShare`, 관리자 권한)로 잰 것은 아래 §3.3 에 적는다.
 
 ## 1. 판 고르기 — 하나뿐이다
 
@@ -45,6 +51,14 @@ com.microsoft.Excel/Data/Library/Application Support/Microsoft/Office/16.0/Wef/`
 홈 → 추가 기능 → 개발자 추가 기능에 선다.
 
 ### 3.3 Windows — 2019·2021 LTSC
+
+**실측(2026-09-06, Excel 2021 16.0.14334):** 관리 공유 UNC 로 등록한 신뢰 카탈로그 키는 Excel 이 뜨면서 **지워진다**
+(같은 머신에서 PowerPoint 2021 은 받는 것을). 그래서 설치기는 카탈로그 폴더를 덮는 **진짜 공유**가 있으면 그 UNC 를
+쓰고(`-CatalogUnc` 로 직접 줄 수도 있다), 없으면 관리 공유를 쓰되 그렇게 경고한다. 진짜 공유는 관리자 PowerShell 한 줄:
+`New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME`. 그 뒤 설치기를 다시 돌리면
+`\\<컴퓨터>\magi\xl-catalog` 로 등록한다.
+
+
 
 개발자 키를 무시하므로 **신뢰 카탈로그(공유 폴더)** 다(파워포인트 판 §3.2 절차 그대로, 매니페스트만 이것):
 `HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\{guid}` 에 `Id`·`Url`(UNC)·`Flags=1` → 삽입 → 내 추가 기능

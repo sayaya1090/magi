@@ -35,8 +35,13 @@ param(
   [string]$Dest = (Join-Path $env:LOCALAPPDATA 'magi\ppt'),
   [switch]$NoAutostart,
   [switch]$SkipBuild,
-  [switch]$Clean
+  [switch]$Clean,
+  [string]$CatalogUnc = ''
 )
+# -CatalogUnc: 카탈로그 폴더(~/.magi/ppt-catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
+# 그 폴더를 덮는 공유를 찾고, 없으면 관리 공유(\\<컴퓨터>\C$\…)를 쓴다. PowerPoint 2021 은 관리 공유도 받지만,
+# 같은 머신의 Excel 2021 은 관리 공유 형태의 카탈로그를 **켤 때마다 지운다**(2026-09-06 실측) — 그러면 이 등록도
+# 같이 사라진다. 진짜 공유가 안전하다: New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME
 
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
@@ -221,8 +226,16 @@ if ($perpetual) {
     }
     Warn '매니페스트가 바뀌었다 — PowerPoint 를 껐다 켜고 「공유 폴더」에서 다시 추가해야 리본이 새 이름을 그린다'
   }
-  # 관리 공유로 UNC 를 만든다: C:\Users\… → \\localhost\C$\Users\…  (이 계정이 관리자면 된다. 아니면 폴더를 진짜로 공유하고 그 UNC 를 Url 에 넣는다)
-  $unc = '\\localhost\' + $catalog.Substring(0, 1) + '$' + $catalog.Substring(2)
+  # UNC: 준 것 → 이 폴더를 덮는 진짜 공유 → 관리 공유(\\localhost\C$\…, 이 계정이 관리자일 때). 위 -CatalogUnc 주석.
+  $unc = $CatalogUnc
+  if (-not $unc) {
+    $share = Get-SmbShare -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Name -notmatch '\$$' -and $catalog.StartsWith($_.Path.TrimEnd('\') + '\', 'OrdinalIgnoreCase') } | Sort-Object { $_.Path.Length } -Descending | Select-Object -First 1
+    if ($share) { $unc = '\\' + $env:COMPUTERNAME + '\' + $share.Name + $catalog.Substring($share.Path.TrimEnd('\').Length) }
+  }
+  if (-not $unc) {
+    $unc = '\\localhost\' + $catalog.Substring(0, 1) + '$' + $catalog.Substring(2)
+    Warn "진짜 공유가 없어 관리 공유($unc)를 쓴다. 같은 머신의 Excel 2021 이 이 등록을 켤 때마다 지운다 — 관리자 PowerShell 에서: New-SmbShare -Name magi -Path `"$configDir`" -ReadAccess $env:USERNAME"
+  }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
   # 이 설치기가 전에 만든 키 중 자리가 사라진 것은 지운다 — 남겨 두면 「공유 폴더」에 닿지 않는 카탈로그가 하나 더 선다.
   foreach ($old in $keys) {
