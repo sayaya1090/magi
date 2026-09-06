@@ -680,6 +680,12 @@ embed_model = "nomic-embed-text"   # model that turns text into vectors. It buys
 # compact_ratio    = 0.8   # share of the window that may fill before auto-compaction runs (§7).
                            # Lower it to compact earlier (safer headroom); raise it to keep more raw
                            # history live before summarizing.
+# compact_keep     = 0.25  # how much recent conversation a fold keeps VERBATIM — a share of the
+                           # compaction budget (window × compact_ratio). It used to be a fixed six
+                           # events: half the window after bulky results, almost nothing after short turns.
+# compact_model    = ""    # the model that writes the fold brief. Empty = the session's model. A small
+                           # model on the same backend makes folding cheap enough to lower compact_ratio
+                           # and fold earlier, a little at a time.
 
 [llm.profiles.fast]        # named backend (endpoint/key/model/headers, ${ENV} expansion)
 base_url = "https://fast.gateway/v1"

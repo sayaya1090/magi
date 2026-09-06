@@ -378,6 +378,18 @@ Rules:
 - R3 The context afterwards is the newest compaction summary plus everything after it. Detail the
   compaction shed is recovered with `recall_context`.
 - R4 A manual `Compact` command does the same.
+- R5 Folding is tiered, cheapest first (2026-09-07). Before any summary: bulky tool results the
+  assistant already narrated are stubbed, newest first; then results of READ-ONLY tools (the
+  builtin looks, and any MCP tool declaring `annotations.readOnlyHint`), oldest first, the newest
+  three spared — re-derivable, so a stub says how to have them again. The fold runs only when
+  that does not cover the overage.
+- R6 The fold keeps a tail measured in tokens — `[limits] compact_keep` of the budget (default
+  0.25), never fewer than six events — and its brief ACCUMULATES: the previous brief is kept
+  verbatim and only the new turns are folded after it; the running brief is condensed once, as a
+  whole, when it outgrows a tenth of the budget. The brief is structured (request, decisions,
+  done, open, names), written in the person's language, and headed by the statement that it
+  records what was done, not the state now. `[limits] compact_model` may name the model that
+  writes it.
 
 ```
 compact-ctx-1: history over threshold → next turn       ⇒ 1 compaction event, request message count drops

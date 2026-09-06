@@ -309,6 +309,14 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 - R2 오래된 메시지 요약 → `compaction` 이벤트 append(원본 보존).
 - R3 이후 컨텍스트 = 최신 compaction 요약 + 그 이후 이벤트. 압축이 떨궈낸 상세는 `recall_context`로 되찾는다.
 - R4 수동 `Compact` 커맨드도 동일.
+- R5 접기는 싼 것부터 층으로 간다(2026-09-07). 요약 전에: 어시스턴트가 이미 설명한 큰 도구 결과를 최신 것부터
+  스텁으로, 그래도 모자라면 **읽기 전용 도구**(내장 읽기 도구와 `annotations.readOnlyHint` 를 단 MCP 도구)의
+  결과를 오래된 것부터 — 최신 셋은 남기고 — 스텁으로. 다시 얻을 수 있는 것이라 스텁이 그 길을 적는다.
+  접기(요약)는 그래도 초과일 때만 돈다.
+- R6 접을 때 남기는 꼬리는 토큰으로 잰다 — 예산의 `[limits] compact_keep`(기본 0.25), 최소 사건 6개 — 그리고
+  브리프는 **누적**된다: 앞 브리프는 그대로 두고 새 턴만 접어 뒤에 붙이며, 예산의 1/10 을 넘으면 그때 한 번
+  통째로 줄인다. 브리프는 틀이 있고(요청·결정·한 것·남은 것·이름), 사람의 언어로 쓰며, 「지금 상태가 아니라
+  한 일의 기록」이라는 머리말을 단다. `[limits] compact_model` 로 쓰는 모델을 따로 둘 수 있다.
 
 ```
 compact-ctx-1: history over threshold → next turn       ⇒ 1 compaction event, request message count drops

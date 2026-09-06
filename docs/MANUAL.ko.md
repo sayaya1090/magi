@@ -624,6 +624,10 @@ embed_model = "nomic-embed-text"   # 텍스트를 벡터로 바꾸는 모델. �
                            # (`/context <model> <tokens>`와 같되 영속). magi의 창 추정이 틀릴 때 설정.
 # compact_ratio    = 0.8   # 자동 컴팩션이 돌기 전 창을 채울 수 있는 비율(§7).
                            # 낮추면 더 일찍 컴팩션(여유 확보), 높이면 원본 히스토리를 더 오래 살려둔다.
+# compact_keep     = 0.25  # 접을 때 **그대로 남기는 최근 꼬리**의 크기 — 컴팩션 예산(창×compact_ratio)의 몫.
+                           # 예전엔 사건 6개 고정이라 결과가 크면 창의 절반, 짧은 턴이면 거의 안 남았다.
+# compact_model    = ""    # 요약(브리프)을 쓰는 모델. 비우면 세션의 모델. 같은 백엔드의 작은 모델을
+                           # 두면 접기가 싸져 compact_ratio 를 낮춰 더 자주 조금씩 접을 수 있다.
 
 [llm.profiles.fast]        # 이름붙인 백엔드 (엔드포인트/키/모델/헤더, ${ENV} 확장)
 base_url = "https://fast.gateway/v1"
