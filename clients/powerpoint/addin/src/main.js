@@ -478,15 +478,14 @@ async function boot() {
     document.querySelector('#compact')?.addEventListener('click', () => {
       void (async () => {
         // 데몬의 compact 문은 접기가 끝나야 답한다 — 그동안 위 진행 막대가 돈다(사용자 요청 2026-09-06).
-        const bar = document.querySelector('#busy'); const btn = document.querySelector('#compact');
-        if (bar) bar.hidden = false; if (btn) btn.disabled = true;
+        view.folding(true);
         view.where('컨텍스트를 접는 중입니다…');
         try {
           const out = await api.compact();
           view.where(out?.note || '접었습니다.');
           void refreshContext();
         } catch (e) { view.where(`접지 못했습니다: ${e?.message ?? e}`); }
-        finally { if (bar) bar.hidden = true; if (btn) btn.disabled = false; }
+        finally { view.folding(false); }
       })();
     });
     /** 프로바이더·모델 — 고르면 바로 보낸다. 백엔드를 바꾸면 모델 어휘가 바뀌므로 목록을 다시 묻는다. */

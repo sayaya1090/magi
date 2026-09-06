@@ -811,6 +811,12 @@ export class View {
     box.scrollTop = Math.max(0, mid);
   }
 
+  /** 접는 동안 진행 막대를 돌리고 접기 단추를 잠근다 — 데몬의 compact 문은 접기가 끝나야 답한다. */
+  folding(on) {
+    const bar = $('#busy'); if (bar) bar.hidden = !on;
+    const btn = $('#compact'); if (btn) btn.disabled = on;
+  }
+
   /** 도는 중이라는 것 하나. 판정은 `turnRunning` 이 한다 — 화면 밖이라야 잰다. */
   renderBusy(rows) {
     const running = turnRunning(rows);
