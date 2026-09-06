@@ -13,6 +13,10 @@ go build -o magi ./cmd/magi
 ./magi office -allow-rules=xl    # 그 프로그램의 읽기 도구 허용 규칙(config.toml 에 붙여 넣는다)
 ```
 
+볼륨 판(LTSC 2021) PowerPoint 는 작업창으로 편집이 안 돼 COM 손(`magi-ppt-hand`)이 편집한다. `clients/office/install.ps1`
+은 볼륨 판이면 그 손도 짓고(.NET SDK 필요) 손 감시기(`hand-watch.ps1`)를 로그인 때 같이 뜨게 건다(2026-09-07 — 그 전엔
+파워포인트 판 설치기에 미뤄, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다).
+
 ## 자리
 
 | 자리 | 파워포인트 | 엑셀 | 워드 |

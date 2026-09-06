@@ -12,7 +12,9 @@
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나에 매니페스트 셋.
     6. 로그인할 때 헬퍼가 같이 뜨게 한다. -NoAutostart 로 끌 수 있다.
 
-  볼륨 판 PowerPoint(LTSC 2021)의 COM 손(magi-ppt-hand)은 여기서 안 짓는다 — clients/powerpoint/install.ps1 이 한다.
+  볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 손(magi-ppt-hand)이 편집한다 — 볼륨 판이면 여기서 그 손을
+  빌드하고(.NET SDK 필요) 손 감시기(hand-watch.ps1)를 로그인 때 같이 뜨게 건다. 2026-09-07 까지는 이 설치기가 그것을
+  clients/powerpoint/install.ps1 에 미뤘고, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다.
   2026-09-06 밤 Windows 2021(볼륨 판)에서 끝까지 돌았다(메인 555ff0b9): 새 인증서 하나, 카탈로그 하나에 매니페스트 셋, Run\magi-office,
   3000 번 하나에서 /ppt·/xl·/word — 파워포인트 판 TESTING §5.5. 워드 애드인은 그날 Word 로는 안 열어 봤다.
 
@@ -79,20 +81,30 @@ foreach ($app in $apps) {
     Warn "$($app.exe) 가 보이지 않는다 — $($app.ribbon) 이 안 깔린 Office 인가? (등록은 그대로 진행한다)"
   }
 }
-if ($perpetual) { Done 'Excel 2021·Word 2021 은 작업창이 그대로 손이다. PowerPoint 2021 은 COM 손이 필요하다(clients/powerpoint/install.ps1).' }
+if ($perpetual) { Done 'Excel 2021·Word 2021 은 작업창이 그대로 손이다. PowerPoint 2021 은 COM 손이 편집한다 — 아래서 짓는다.' }
 
 # ── 1. 도구 ─────────────────────────────────────────────────────────────────
 Say '필요한 도구를 본다'
 $go = Get-Command go -ErrorAction SilentlyContinue
 if (-not $SkipBuild -and -not $go) { Fail 'Go 가 없다(go.dev/dl). 빌드된 실행 파일이 이미 있으면 -SkipBuild.' }
 if ($go) { Done "go: $($go.Source)" }
+$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+if (-not $dotnet -and (Test-Path 'C:\Program Files\dotnet\dotnet.exe')) { $dotnet = Get-Item 'C:\Program Files\dotnet\dotnet.exe' }
+if ($perpetual) {
+  if ($dotnet) { Done "dotnet: $(if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName }) — PowerPoint 2021 의 COM 손을 이것으로 짓는다" }
+  else { Warn '.NET SDK 가 없다 — PowerPoint 2021 의 COM 손을 못 만든다(작업창만으로는 편집이 안 된다). dotnet.microsoft.com 에서 .NET 9 SDK 를 깔고 다시 돌려라. Excel·Word 는 손이 필요 없다.' }
+}
 
 # ── 2. 전에 깔린 것을 멈춘다(설치 폴더의 실행 파일만) ─────────────────────────
 Say '설치 폴더의 옛 프로세스를 멈춘다'
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $destFull = (Resolve-Path $Dest).Path
+# 손 감시기부터 멈춘다 — 안 멈추면 아래서 손을 멈추자마자 감시기가 다시 띄워 COM 손 빌드가 파일 잠금으로 죽는다
+# (파워포인트 판 설치기 2026-09-06 실측). 끝에서 다시 띄운다.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*-File*' -and $_.CommandLine -like '*hand-watch.ps1*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Done "손 감시기 (pid $($_.ProcessId)) 멈춤" }
 # 데몬(magi.exe)도 설치 폴더의 것이면 멈춘다 — 헬퍼가 거기서 띄운 것이고, 안 멈추면 새 magi.exe 를 못 쓴다.
-foreach ($name in @('magi')) {
+foreach ($name in @('magi', 'magi-ppt-hand')) {
   Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($destFull, 'OrdinalIgnoreCase') } |
     ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null; Done "$name (pid $($_.Id)) 멈춤" }
 }
@@ -114,6 +126,15 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Fail 'magi 빌드 실패' }
   } finally { Pop-Location }
   Done "magi.exe → $Dest"
+  if ($perpetual -and $dotnet) {
+    Say 'PowerPoint 2021 의 COM 손을 빌드한다'
+    $dn = if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName }
+    $handProj = Join-Path $repo 'clients\powerpoint\hand-com\src\magi-ppt-hand.csproj'
+    $handOut = Join-Path $Dest 'hand'
+    & $dn build $handProj -c Release -o $handOut --nologo -v q
+    if ($LASTEXITCODE -ne 0) { Fail 'COM 손 빌드 실패' }
+    Done "magi-ppt-hand.exe → $handOut"
+  }
 } else { Say '빌드는 건너뛴다(-SkipBuild)' }
 if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없다" }
 
@@ -126,6 +147,8 @@ foreach ($app in $apps) {
   $manifests[$app.key] = Join-Path $addinDest 'manifest.xml'
   Done "$($app.dir)\addin → $addinDest"
 }
+# 손 감시기는 헬퍼 옆에 산다 — $Dest\hand\magi-ppt-hand.exe 를 자기 옆에서 찾는다(hand-watch.ps1 의 $root).
+Copy-Item (Join-Path $repo 'clients\powerpoint\hand-watch.ps1') (Join-Path $Dest 'hand-watch.ps1') -Force
 
 # ── 4. 데몬 권한 모드 = allow ────────────────────────────────────────────────
 Say '데몬 권한 모드를 allow 로 둔다'
@@ -256,10 +279,23 @@ $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if ($NoAutostart) {
   Say '자동 시작은 안 건다(-NoAutostart)'
   Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
+  Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
 } else {
   Say '로그인할 때 헬퍼가 뜨게 한다'
   New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
   Done 'Run\magi-office'
+  if ($perpetual -and (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
+    # PowerPoint 2021 의 손은 뜰 때 한 번만 PowerPoint 에 붙으므로 감시기가 필요하다 — PowerPoint 가 덱을 연 채 떠
+    # 있으면 손을 붙이고, PowerPoint 가 내려가면 손을 거둔다(hand-watch.ps1). 로그인 때 같이 뜨고, 지금도 띄운다.
+    $watch = Join-Path $Dest 'hand-watch.ps1'
+    $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watch`""
+    New-ItemProperty -Path $run -Name 'magi-ppt-hand-watch' -Value $cmd -PropertyType String -Force | Out-Null
+    Done 'Run\magi-ppt-hand-watch — PowerPoint 가 떠 있으면 손을 붙인다'
+    if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
+      Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $watch) -WindowStyle Hidden | Out-Null
+      Done '손 감시기를 지금 띄웠다'
+    }
+  }
 }
 
 # ── 8. 다음 할 일 ────────────────────────────────────────────────────────────
@@ -268,7 +304,7 @@ Write-Host '설치 끝. 이제:' -ForegroundColor Cyan
 Write-Host '  1. PowerPoint·Excel·Word 를 껐다 켠다(떠 있었다면).'
 if ($perpetual) {
   Write-Host '  2. 각 프로그램에서 삽입 → 내 추가 기능 → 공유 폴더 에서 Magi(AI Assistant) 를 고르고 「추가」. (한 번만. 매니페스트가 바뀌면 다시)'
-  Write-Host '  3. 홈 탭의 「Magi」로 창을 연다. PowerPoint 2021 은 COM 손이 있어야 편집이 된다(clients\powerpoint\install.ps1).'
+  Write-Host '  3. 홈 탭의 「Magi」로 창을 연다. PowerPoint 2021 은 COM 손이 편집한다 — 덱을 열어 두면 감시기가 몇 초 안에 손을 붙이고, 창의 「magi-ppt-hand 를 띄워야」 줄이 사라진다.'
 } else {
   Write-Host '  2. 각 프로그램에서 홈 탭 → 추가 기능 → 개발자 추가 기능 → Magi(AI Assistant). (리본에 바로 안 보이면 이 길)'
 }

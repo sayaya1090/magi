@@ -4,7 +4,7 @@
 **여러 머신에 뿌리는 길**이다. 여기 적힌 것 중 실측한 것과 MS 문서에서 읽기만 한 것을 갈라 적는다 —
 읽기만 한 것은 그렇게 표시한다.
 
-## 0. 한 번에 깔기 — `install.ps1`(COM 손까지) · 세 프로그램을 한 번에는 `clients/office/install.ps1`
+## 0. 한 번에 깔기 — `install.ps1`(COM 손까지) · 세 프로그램을 한 번에는 `clients/office/install.ps1`(2026-09-07 부터 COM 손과 감시기도 짓는다)
 
 저장소를 받은 Windows 머신에서 이 한 줄이면 된다(Go 가 있어야 한다. 볼륨 판이면 .NET 9 SDK 도):
 
