@@ -16,6 +16,10 @@ type restartRig struct {
 	bolts  []string // 붙인 (소켓|주인)
 	opened int
 	life   string
+	// known 은 데몬이 「그 문서 것」으로 적어 둔 대화 — `sessions` 의 `for`. 시험이 채운다: 헬퍼가
+	// 열고 사람이 말을 걸어 디스크에 적힌 뒤의 진실이다. 비어 있으면 데몬은 모른다.
+	known map[string]string
+	fors  []string // Fresh 가 받은 문서 키 — 대화를 누구 것으로 열었나
 }
 
 func newRestartRig() *restartRig {
@@ -26,8 +30,14 @@ func newRestartRig() *restartRig {
 			r.bolts = append(r.bolts, socket)
 			return []string{"list_paragraphs"}, nil
 		},
-		Fresh: func(string) (string, error) { r.opened++; return fmt.Sprintf("s_fresh%d", r.opened), nil },
+		Fresh: func(_, deck string) (string, error) {
+			r.opened++
+			r.fors = append(r.fors, deck)
+			return fmt.Sprintf("s_fresh%d", r.opened), nil
+		},
+		Resume: func(_, deck string) (string, bool) { sid, ok := r.known[deck]; return sid, ok },
 	}
+	r.known = map[string]string{}
 	return r
 }
 
@@ -114,5 +124,65 @@ func TestRestartColumnPowerPointRestart(t *testing.T) {
 	}
 	if r.opened != 2 {
 		t.Errorf("새 덱에 자기 대화를 안 열었다: opened=%d", r.opened)
+	}
+}
+
+// 열 2 의 짝 — **헬퍼 재기동 뒤 대화는 되찾는다.** 실물(2026-09-06 엑셀): 헬퍼를 껐다 켜자 창은 되붙었는데
+// 대화가 새로 서서 세 턴의 전사가 사라졌다. 데몬은 대화마다 「누구 것으로 열렸나」를 알고(`for`), 헬퍼는
+// 새로 열기 전에 그것을 묻는다 — 기억을 파일에 남기지 않고 진실을 본다(DESIGN §5.9.2).
+func TestRestartColumnHelperRestartFindsTheDocumentsConversation(t *testing.T) {
+	r := newRestartRig()
+	r.api.settle("wb-deck-A", r.ready())
+	// 사람이 말을 걸어 데몬이 그 대화를 문서 것으로 적었다.
+	r.known["wb-deck-A"] = "s_fresh1"
+	r.api.Bridges = NewBridges()
+	got := r.api.settle("wb-deck-A", r.ready())
+	if got.Session != "s_fresh1" {
+		t.Errorf("헬퍼가 다시 떴다고 문서의 대화를 버리고 새로 열었다: %q", got.Session)
+	}
+	if r.opened != 1 {
+		t.Errorf("되찾을 수 있는데 새로 열었다: opened=%d", r.opened)
+	}
+	if len(r.bolts) != 2 {
+		t.Errorf("되찾은 대화 몫으로 도구를 다시 안 붙였다: %v", r.bolts)
+	}
+	if _, sid, _, _ := r.api.Bridges.For("wb-deck-A").BoundTo(); sid != "s_fresh1" {
+		t.Errorf("묶음이 되찾은 대화가 아니다: %q", sid)
+	}
+}
+
+// 열 3 의 짝 — **데몬 재기동 뒤도 같은 길이다.** 말이 오간 대화는 디스크에 있어 목록에 서고, 새 생애의
+// 데몬도 그것을 `for` 로 답한다. 옛 판은 「죽은 생애의 대화는 남의 것」이라 늘 새로 열었다 — 그건
+// 아무도 말하지 않은 대화(디스크에 없는 것)에만 맞는 말이었다.
+func TestRestartColumnDaemonRestartFindsTheDocumentsConversation(t *testing.T) {
+	r := newRestartRig()
+	r.api.settle("wb-deck-A", r.ready())
+	r.known["wb-deck-A"] = "s_fresh1"
+	r.life = "2@t1"
+	got := r.api.settle("wb-deck-A", r.ready())
+	if got.Session != "s_fresh1" || r.opened != 1 {
+		t.Errorf("데몬이 다시 떴다고 디스크에 있는 문서의 대화를 버렸다: %q opened=%d", got.Session, r.opened)
+	}
+	if _, sid, life, _ := r.api.Bridges.For("wb-deck-A").BoundTo(); sid != "s_fresh1" || life != "2@t1" {
+		t.Errorf("묶음이 (되찾은 대화, 새 생애)가 아니다: sid=%q life=%q", sid, life)
+	}
+}
+
+// **대화는 문서 이름으로 열린다.** 되찾기의 열쇠가 이것이라, 안 적으면 다음 헬퍼는 영영 못 찾는다.
+func TestAConversationIsOpenedInTheDocumentsName(t *testing.T) {
+	r := newRestartRig()
+	r.api.settle("wb-deck-A", r.ready())
+	if len(r.fors) != 1 || r.fors[0] != "wb-deck-A" {
+		t.Fatalf("대화를 문서 것으로 안 열었다: %v", r.fors)
+	}
+}
+
+// **남의 문서의 대화는 안 빌린다.** 되찾기는 이 문서 것만 본다 — 열쇠가 문서 키다.
+func TestAnotherDocumentsConversationIsNotBorrowed(t *testing.T) {
+	r := newRestartRig()
+	r.known["wb-deck-OLD"] = "s_theirs"
+	got := r.api.settle("wb-deck-NEW", r.ready())
+	if got.Session == "s_theirs" || r.opened != 1 {
+		t.Errorf("다른 문서의 대화를 물려받았다: %q opened=%d", got.Session, r.opened)
 	}
 }

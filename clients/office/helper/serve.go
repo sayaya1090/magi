@@ -280,8 +280,12 @@ type API struct {
 	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
 	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
 	LifeOf func(socket string) string
-	// Fresh 는 새 대화를 여는 길. 기본값은 데몬에 묻는 것이다.
-	Fresh func(socket string) (string, error)
+	// Fresh 는 새 대화를 여는 길. 기본값은 데몬에 묻는 것이다. deck 은 그 대화가 **누구 것인지** —
+	// 데몬이 대화에 적어 두고(`session-new` 의 `name`), `sessions` 가 `for` 로 되돌린다.
+	Fresh func(socket, deck string) (string, error)
+	// Resume 은 그 데몬에서 **이 문서의 대화를 되찾는** 길 — `sessions` 에서 `for` 가 이 문서인
+	// 가장 최근 것. 없으면 false. 기본값은 데몬에 묻는 것이고, 시험만 이 자리를 채운다.
+	Resume func(socket, deck string) (string, bool)
 	// Work 는 그 마련하는 일의 상태. **한 번에 하나만 돈다**(ownstate.go).
 	Work *OwnWork
 }
@@ -558,15 +562,25 @@ func (a *API) settle(deck string, rep OwnReport) OwnReport {
 	// 그대로 물고 새 생애에 붙였고, 실물에서 그 화면을 봤다(2026-09-04): own 은 옛 대화로
 	// ready 라 답했고, 보내기는 502 「no conversation」이었으며, 사람이 /api/fresh 를 손으로
 	// 불러서야 풀렸다. 생애가 갈렸으면 소켓이 갈린 것과 같이 다룬다 — 덱 창은 새 대화를 연다.
+	// **새로 열기 전에 되찾는다.** 헬퍼가 다시 뜨면 묶음은 비지만 대화는 데몬의 디스크에 있고, 데몬은
+	// 대화마다 「누구 것으로 열렸나」(`for`)를 안다. 실물(2026-09-06, 엑셀): 헬퍼를 껐다 켜자 창은 15초
+	// 안에 되붙었는데 대화가 새로 서서 세 턴의 전사가 사라졌다 — 사람에게는 「껐다 켜면 대화가 비는」
+	// 고장이다. 기억을 파일에 남기는 대신 데몬에 묻는다(DESIGN §5.9.2: 결정을 기억하지 않는다 —
+	// 진실을 본다). 데몬이 다시 뜬 뒤도 같은 길이다: 말이 오간 대화는 디스크에 있어 목록에 서고,
+	// 아무도 말하지 않은 대화는 애초에 안 적혀 못 찾는다 — 그때는 새로 연다.
 	sid := sid0
 	if sid == "" || socket0 != rep.Socket || life0 != rep.Life {
 		if deck != "" {
-			fresh, err := a.freshOn(rep.Socket)
-			if err != nil {
-				rep.Chat = "이 " + a.App.NounKo + "의 대화를 못 열었습니다: " + err.Error()
-				return rep
+			if old, ok := a.resumeOn(rep.Socket, deck); ok {
+				sid = old
+			} else {
+				fresh, err := a.freshOn(rep.Socket, deck)
+				if err != nil {
+					rep.Chat = "이 " + a.App.NounKo + "의 대화를 못 열었습니다: " + err.Error()
+					return rep
+				}
+				sid = fresh
 			}
-			sid = fresh
 		} else {
 			sid = rep.Session
 			if sid == "" {
@@ -714,7 +728,7 @@ func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	sid, err := a.freshOn(socket)
+	sid, err := a.freshOn(socket, deckOf(r))
 	if err != nil {
 		writeStatus(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "socket": socket})
 		return
@@ -751,10 +765,11 @@ func (a *API) fresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
-// freshOn 은 그 데몬에 새 대화를 청한다. **시험만 이 자리를 채운다.**
-func (a *API) freshOn(socket string) (string, error) {
+// freshOn 은 그 데몬에 새 대화를 청한다. **시험만 이 자리를 채운다.** deck 은 그 대화의 임자로
+// 데몬에 적힌다 — 다음 헬퍼가 `resumeOn` 으로 되찾는 열쇠다.
+func (a *API) freshOn(socket, deck string) (string, error) {
 	if a.Fresh != nil {
-		return a.Fresh(socket)
+		return a.Fresh(socket, deck)
 	}
 	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
 	if err != nil {
@@ -763,7 +778,34 @@ func (a *API) freshOn(socket string) (string, error) {
 	defer cl.Close()
 	// **옮기지 않고 연다.** 이 헬퍼는 덱마다 대화를 하나씩 들고, 옮기면 방금까지 일하던 덱의
 	// 대화에 「컴패니언이 떠났다」가 적힌다(2026-09-05 실측).
-	return cl.NewSessionKeeping()
+	return cl.NewSessionKeepingFor(deck)
+}
+
+// resumeOn 은 그 데몬에서 이 문서의 대화를 되찾는다 — `sessions` 의 `for` 가 이 문서인 것 중
+// 가장 최근 활동. 목록은 최근 활동순이라 첫 짝이 답이다. 없거나 못 물으면 false — 그때는 새로 연다.
+// 옛 데몬(`for` 를 모르는 판)은 빈 칸만 주므로 자연히 false 다.
+func (a *API) resumeOn(socket, deck string) (string, bool) {
+	if a.Resume != nil {
+		return a.Resume(socket, deck)
+	}
+	if deck == "" {
+		return "", false
+	}
+	cl, err := daemon.DialWithin(socket, aliveTimeout, aliveTimeout)
+	if err != nil {
+		return "", false
+	}
+	defer cl.Close()
+	rows, err := cl.Sessions()
+	if err != nil {
+		return "", false
+	}
+	for _, r := range rows {
+		if r.For == deck && r.ID != "" {
+			return r.ID, true
+		}
+	}
+	return "", false
 }
 
 func (a *API) choose(w http.ResponseWriter, r *http.Request) {
@@ -784,7 +826,7 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 	// 말을 걸 곳이 없다. 사람이 물었다(2026-09-05): "덱마다 새 세션 아니야?" — 맞는 말이고,
 	// 그때까지는 내가 `/api/fresh` 를 손으로 불러 메우고 있었다.
 	if session == "" && deckOf(r) != "" {
-		if fresh, err := a.freshOn(in.Socket); err == nil {
+		if fresh, err := a.freshOn(in.Socket, deckOf(r)); err == nil {
 			session = fresh
 		}
 		// 못 열었으면 그대로 간다 — 아래 `Bind` 가 사유를 적고, 그 사유가 화면에 뜬다.
@@ -808,7 +850,7 @@ func (a *API) choose(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if who, taken := a.Bridges.Holder(session); taken && who != deckOf(r) && (!known || live[who]) {
-			fresh, err := a.freshOn(in.Socket)
+			fresh, err := a.freshOn(in.Socket, deckOf(r))
 			if err != nil {
 				http.Error(w, "그 대화는 다른 "+a.App.NounKo+"가 쓰고 있고, 이 "+a.App.NounKo+"에 새 대화를 여는 데 "+
 					"실패했습니다: "+err.Error(), http.StatusConflict)

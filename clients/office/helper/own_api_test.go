@@ -645,7 +645,7 @@ func TestAChatThatAppearsAfterReadyIsPickedUpOnTheNextPoke(t *testing.T) {
 func freshRig(t *testing.T, tweak func(*API)) *ownRig {
 	t.Helper()
 	rig := ownFixture(t, func(a *API, _ *ownRig) {
-		a.Fresh = func(string) (string, error) { return "s_fresh", nil }
+		a.Fresh = func(string, string) (string, error) { return "s_fresh", nil }
 		if tweak != nil {
 			tweak(a)
 		}
@@ -717,7 +717,9 @@ func TestANewConversationNeedsSomethingToOpenItOn(t *testing.T) {
 // 데몬이 거절하면 **그 사유를 그대로** 전한다.
 func TestANewConversationCarriesWhyItFailed(t *testing.T) {
 	rig := freshRig(t, func(a *API) {
-		a.Fresh = func(string) (string, error) { return "", errors.New("이 빌드는 새 대화를 못 엽니다") }
+		a.Fresh = func(string, string) (string, error) {
+			return "", errors.New("이 빌드는 새 대화를 못 엽니다")
+		}
 	})
 	code, body := rig.askFresh(t)
 	if code != http.StatusBadGateway {

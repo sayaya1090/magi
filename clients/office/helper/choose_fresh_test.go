@@ -18,7 +18,7 @@ func TestADeckWithNoConversationGetsOne(t *testing.T) {
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: bs, Attachments: NewAttachments(Word),
 		Bolt:  func(socket, url, token string) ([]string, error) { return []string{"list_paragraphs"}, nil },
-		Fresh: func(socket string) (string, error) { opened++; return "sess-new", nil },
+		Fresh: func(socket, _ string) (string, error) { opened++; return "sess-new", nil },
 	}
 	body, _ := json.Marshal(map[string]string{"socket": "/sock"}) // 세션 없이 — 갓 뜬 데몬
 	w := httptest.NewRecorder()

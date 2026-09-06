@@ -72,7 +72,7 @@ func TestChoosingATakenSessionOpensAFreshOne(t *testing.T) {
 		Bridge: NewBridge(), Bridges: bs,
 		Attachments: NewAttachments(Word),
 		Bolt:        func(socket, url, token string) ([]string, error) { return []string{"list_paragraphs"}, nil },
-		Fresh: func(socket string) (string, error) {
+		Fresh: func(socket, _ string) (string, error) {
 			opened = socket
 			return "sess-new", nil
 		},

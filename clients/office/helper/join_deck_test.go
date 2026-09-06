@@ -20,7 +20,7 @@ func TestEachDeckSettlesEvenWhenTheWorkIsDone(t *testing.T) {
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
 		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
-		Fresh: func(string) (string, error) { opened++; return fmt.Sprintf("sess-%d", opened), nil },
+		Fresh: func(string, string) (string, error) { opened++; return fmt.Sprintf("sess-%d", opened), nil },
 	}
 	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
 
@@ -60,7 +60,7 @@ func TestConcurrentSettlesDoNotShareASession(t *testing.T) {
 		Bolt: func(_, _, _ string) ([]string, error) {
 			return []string{"t"}, nil
 		},
-		Fresh: func(string) (string, error) {
+		Fresh: func(string, string) (string, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			opened++
@@ -91,7 +91,7 @@ func TestADaemonRestartIsSeenByItsLife(t *testing.T) {
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
 		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
-		Fresh: func(string) (string, error) { return "sess-a", nil },
+		Fresh: func(string, string) (string, error) { return "sess-a", nil },
 	}
 	first := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
 	api.settle("deck-a", first)
@@ -123,7 +123,7 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 		Own:    quietOwn(t),
 		LifeOf: func(string) string { return "1@t0" },
 		Bolt:   func(string, string, string) ([]string, error) { return []string{"t"}, nil },
-		Fresh:  func(string) (string, error) { return "sess-b", nil },
+		Fresh:  func(string, string) (string, error) { return "sess-b", nil },
 	}
 	api.Own.Alive = func(string) bool { return true } // 마련해 둔 데몬이 답한다 — 이 시험은 생애만 본다
 	settleOwnWork(t, work)
