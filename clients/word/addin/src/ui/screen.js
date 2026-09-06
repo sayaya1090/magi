@@ -827,7 +827,7 @@ const TOOL_LABELS = new Map(Object.entries({
   snapshot_paragraphs: '되돌릴 지점 만들기', read_tags: '기록 읽기', read_suggestions: '제안 읽기', advise: '안내 붙이기', clear_advice: '안내 지우기',
   insert_paragraphs: '문단 넣기', replace_paragraph: '문단 글 바꾸기', delete_paragraphs: '문단 지우기', set_style: '스타일 걸기',
   format_text: '글자 서식', format_paragraph: '문단 서식', insert_table: '표 넣기', set_table_cells: '표 칸 쓰기', add_table_rows: '표 행 넣기',
-  delete_table: '표 지우기', format_table: '표 서식', insert_list: '목록 넣기', set_list: '목록으로', insert_image: '그림 넣기',
+  delete_table: '표 지우기', format_table: '표 서식', format_table_cells: '표 칸 서식', edit_table: '표 행·열 고치기', insert_list: '목록 넣기', set_list: '목록으로', insert_image: '그림 넣기',
   insert_break: '나누기 넣기', insert_field: '필드 넣기', insert_footnote: '각주 달기', delete_footnote: '각주 지우기', set_style_format: '스타일 정의', set_header_footer: '머리글·바닥글', set_hyperlink: '링크', replace_all: '찾아 바꾸기',
   add_comment: '메모 달기', reply_comment: '메모 답글', resolve_comment: '메모 해결', add_bookmark: '책갈피 넣기', delete_bookmark: '책갈피 지우기',
   set_track_changes: '변경 추적', review_changes: '변경 수락·거부', set_properties: '문서 속성', restore_paragraphs: '되돌리기',

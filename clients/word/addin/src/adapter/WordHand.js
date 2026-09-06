@@ -169,6 +169,8 @@ export class WordHand extends HandPort {
       case 'add_table_rows': return this.#addTableRows(a);
       case 'delete_table': return this.#deleteTable(a);
       case 'format_table': return this.#formatTable(a);
+      case 'format_table_cells': return this.#formatTableCells(a);
+      case 'edit_table': return this.#editTable(a);
       case 'insert_list': return this.#insertList(a);
       case 'set_list': return this.#setList(a);
       case 'insert_image': return this.#insertImage(a);
@@ -508,6 +510,77 @@ export class WordHand extends HandPort {
       if (widths) { t.load('values'); await context.sync(); const cols = t.values[0]?.length ?? 0; for (let c = 0; c < Math.min(cols, widths.length); c += 1) { const w = Number(widths[c]); if (Number.isFinite(w)) t.getCell(0, c).columnWidth = w; } }
       await context.sync(); this.#mutated();
       return this.#envelope({ table: int(a, 'table') }, [`표 ${int(a, 'table')}: ${words.join(', ')}`]);
+    });
+  }
+  /** 칸 고르기 — cells 목록이거나 rows/columns 사각형(0부터, 양끝 포함). 표 크기를 넘으면 거절. */
+  static #cellTargets(a, rowCount, cols) {
+    const span = (v, max, what) => {
+      if (v == null) return [0, max - 1];
+      const arr = Array.isArray(v) ? v : [v];
+      const lo = int({ v: arr[0] }, 'v') ?? 0; const hi = int({ v: arr[1] ?? arr[0] }, 'v') ?? lo;
+      if (lo < 0 || hi >= max || lo > hi) refuse(`${what} 범위가 표 밖입니다 — ${JSON.stringify(v)} (0부터 ${max - 1}까지)`);
+      return [lo, hi];
+    };
+    const cells = arr(a, 'cells');
+    if (cells && cells.length) {
+      return cells.map((c) => { const r = int(c, 'row'); const col = int(c, 'column') ?? int(c, 'col'); if (r == null || col == null || r < 0 || col < 0 || r >= rowCount || col >= cols) refuse(`표 밖의 칸입니다 — ${JSON.stringify(c)} (표는 ${rowCount}×${cols}, 0부터)`); return [r, col]; });
+    }
+    const [r0, r1] = span(a.rows, rowCount, 'rows'); const [c0, c1] = span(a.columns, cols, 'columns');
+    const out = []; for (let r = r0; r <= r1; r += 1) for (let c = c0; c <= c1; c += 1) out.push([r, c]);
+    return out;
+  }
+  async #formatTableCells(a) {
+    const fill = hex(a, 'fill', true); const color = hex(a, 'color'); const b = bool(a, 'bold'); const i = bool(a, 'italic'); const size = num(a, 'size');
+    const align = str(a, 'align'); const valign = str(a, 'valign'); const width = num(a, 'width');
+    const words = [fill && `채우기 ${fill}`, color && `글자색 ${color}`, b != null && (b ? '굵게' : '굵게 해제'), i != null && (i ? '기울임' : '기울임 해제'), size != null && `크기 ${size}`, align && `가로 ${align}`, valign && `세로 ${valign}`, width != null && `너비 ${width}pt`].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — fill·color·bold·italic·size·align·valign·width 중 하나');
+    return this.runner(async (context) => {
+      const t = await this.#table(context, a); t.load('rowCount,values'); await context.sync();
+      const cols = t.values[0]?.length ?? 0;
+      const targets = WordHand.#cellTargets(a, t.rowCount, cols);
+      for (const [r, c] of targets) {
+        const cell = t.getCell(r, c);
+        if (fill) cell.shadingColor = fill === 'none' ? '#FFFFFF' : fill;
+        if (align) cell.horizontalAlignment = align; if (valign) cell.verticalAlignment = valign; if (width != null) cell.columnWidth = width;
+        const f = cell.body.font; if (color) f.color = color; if (b != null) f.bold = b; if (i != null) f.italic = i; if (size != null) f.size = size;
+      }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ table: int(a, 'table'), cells: targets.length }, [`표 ${int(a, 'table')} 의 칸 ${targets.length}개: ${words.join(', ')}`]);
+    });
+  }
+  async #editTable(a) {
+    const delRows = arr(a, 'delete_rows'); const delCols = arr(a, 'delete_columns'); const add = a.add_columns && typeof a.add_columns === 'object' ? a.add_columns : null; const merge = a.merge && typeof a.merge === 'object' ? a.merge : null;
+    if (!delRows?.length && !delCols?.length && !add && !merge) refuse('할 일이 없습니다 — delete_rows·delete_columns·add_columns·merge 중 하나');
+    if (merge) this.#need('WordApi', '1.4', 'edit_table{merge}');
+    return this.runner(async (context) => {
+      const t = await this.#table(context, a); t.load('rowCount,values'); await context.sync();
+      let rows = t.rowCount; let cols = t.values[0]?.length ?? 0; const done = [];
+      if (merge) {
+        const fr = int(merge, 'from_row') ?? 0; const fc = int(merge, 'from_column') ?? 0; const tr = int(merge, 'to_row') ?? fr; const tc = int(merge, 'to_column') ?? fc;
+        if (fr < 0 || fc < 0 || tr >= rows || tc >= cols || fr > tr || fc > tc) refuse(`merge 가 표 밖입니다 — ${JSON.stringify(merge)} (표는 ${rows}×${cols}, 0부터)`);
+        t.mergeCells(fr, fc, tr, tc); await context.sync(); done.push(`(${fr},${fc})–(${tr},${tc}) 병합`);
+      }
+      if (add) {
+        const count = int(add, 'count') ?? (Array.isArray(add.values) ? add.values.length : 1); const values = Array.isArray(add.values) ? add.values.map((col) => (Array.isArray(col) ? col.map((v) => String(v ?? '')) : [String(col ?? '')])) : undefined;
+        // Word 의 values 는 행×열이다 — 사람은 열마다 위→아래로 준다. 표의 행 수에 맞춰 뒤집는다.
+        const byRow = values ? Array.from({ length: rows }, (_, r) => values.map((col) => col[r] ?? '')) : undefined;
+        const at = add.at ?? 'end';
+        if (at === 'end' || at === 'start') { t.addColumns(at === 'end' ? 'End' : 'Start', count, byRow); }
+        else { const idx = int({ v: at }, 'v'); if (idx == null || idx < 0 || idx >= cols) refuse(`add_columns.at 이 표 밖입니다 — ${at} (0부터 ${cols - 1}까지, 또는 end·start)`); t.getCell(0, idx).insertColumns('After', count, byRow); }
+        await context.sync(); cols += count; done.push(`열 ${count}개 추가(${at})`);
+      }
+      if (delCols?.length) {
+        const idxs = [...new Set(delCols.map((v) => int({ v }, 'v')))].sort((x, y) => y - x);
+        for (const c of idxs) { if (c == null || c < 0 || c >= cols) refuse(`delete_columns 가 표 밖입니다 — ${c} (0부터 ${cols - 1}까지)`); t.deleteColumns(c, 1); }
+        await context.sync(); cols -= idxs.length; done.push(`열 ${idxs.length}개 삭제`);
+      }
+      if (delRows?.length) {
+        const idxs = [...new Set(delRows.map((v) => int({ v }, 'v')))].sort((x, y) => y - x);
+        for (const r of idxs) { if (r == null || r < 0 || r >= rows) refuse(`delete_rows 가 표 밖입니다 — ${r} (0부터 ${rows - 1}까지)`); t.deleteRows(r, 1); }
+        await context.sync(); rows -= idxs.length; done.push(`행 ${idxs.length}개 삭제`);
+      }
+      this.#mutated();
+      return this.#envelope({ table: int(a, 'table'), rows, columns: cols }, [`표 ${int(a, 'table')}: ${done.join(', ')} — 이제 ${rows}×${cols}`]);
     });
   }
   async #insertList(a) {

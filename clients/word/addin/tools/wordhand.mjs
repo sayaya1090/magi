@@ -54,7 +54,7 @@ const ARGS = {
   set_style: { from: 2, builtin: 'Heading1' }, format_text: { from: 3, text: '요약', bold: true, color: '#C00000', highlight: 'Yellow' },
   format_paragraph: { from: 3, align: 'Justified', space_after: 6 }, insert_table: { values: [['a', 'b'], ['1', '2']], after: 5, table_style: 'GridTable4_Accent1' },
   set_table_cells: { table: 1, cells: [{ row: 1, column: 0, value: 'x' }] }, add_table_rows: { table: 1, rows: [['c', 'd']] }, delete_table: { table: 1 },
-  format_table: { table: 1, header_row: true, align: 'Centered', widths: [100, 200] }, insert_list: { items: ['하나', '둘'], after: 6, kind: 'numbered', levels: [0, 1] },
+  format_table: { table: 1, header_row: true, align: 'Centered', widths: [100, 200] }, format_table_cells: { table: 1, rows: [0, 0], fill: '#DDDDDD', bold: true }, edit_table: { table: 1, add_columns: { at: 'end', count: 1, values: [['합계', '3', '7']] }, delete_rows: [2] }, insert_list: { items: ['하나', '둘'], after: 6, kind: 'numbered', levels: [0, 1] },
   set_list: { from: 8, to: 9, kind: 'bulleted', level: 1 }, insert_image: { path: '/x.png', image_base64: 'AAAA', after: 3, width: 120, alt: '점' },
   insert_break: { paragraph: 2, kind: 'page' }, insert_field: { which: 'footer', template: '{page} / {pages}', align: 'Centered' }, set_header_footer: { which: 'footer', text: '기획팀', align: 'Centered' }, set_hyperlink: { from: 3, text: '요약', url: 'https://x' },
   replace_all: { find: '요약', replace: '개요' }, add_comment: { from: 3, comment: '근거는?' }, reply_comment: { id: 'c1', text: '답' }, resolve_comment: { id: 'c1' },

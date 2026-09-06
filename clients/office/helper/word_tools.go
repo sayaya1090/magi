@@ -268,6 +268,38 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Required: []string{"table"},
 		},
 		{
+			Name: "format_table_cells",
+			Desc: "Look of table CELLS: fill colour, text colour, bold, italic, size, horizontal and vertical alignment, " +
+				"column width. Target explicit `cells` or a rectangle by `rows`/`columns` ranges (0-based, inclusive; omit " +
+				"both for the whole table). Only the fields you pass change. Table looks as a whole: format_table.",
+			Props: []property{tableProp,
+				property{Name: "cells", Type: "array", Items: "object", Desc: "[{row, column}] 0-based, like set_table_cells."},
+				property{Name: "rows", Type: "array", Items: "integer", Desc: "[first, last] row range, 0-based inclusive; one number = that row."},
+				property{Name: "columns", Type: "array", Items: "integer", Desc: "[first, last] column range, 0-based inclusive."},
+				property{Name: "fill", Type: "string", Desc: "Cell shading #RRGGBB, or none."},
+				property{Name: "color", Type: "string", Desc: "Text colour #RRGGBB."},
+				property{Name: "bold", Type: "boolean"}, property{Name: "italic", Type: "boolean"},
+				property{Name: "size", Type: "number", Desc: "Points."},
+				property{Name: "align", Type: "string", Desc: "Left, Centered, Right, Justified.", Enum: wordAligns},
+				property{Name: "valign", Type: "string", Desc: "Top, Center, Bottom.", Enum: wordVAligns},
+				property{Name: "width", Type: "number", Desc: "Column width in points for the targeted columns."},
+			},
+			Required: []string{"table"},
+		},
+		{
+			Name: "edit_table",
+			Desc: "Change a table's shape: delete rows or columns (0-based indexes), add columns (at end, start, or after " +
+				"an index, with optional values top to bottom), merge a rectangle of cells (WordApi 1.4). Rows are added " +
+				"with add_table_rows.",
+			Props: []property{tableProp,
+				property{Name: "delete_rows", Type: "array", Items: "integer", Desc: "Row indexes to remove, 0-based."},
+				property{Name: "delete_columns", Type: "array", Items: "integer", Desc: "Column indexes to remove, 0-based."},
+				property{Name: "add_columns", Type: "object", Desc: "{at: \"end\" | \"start\" | <column index to insert after>, count, values: [[…per new column, top to bottom]]}."},
+				property{Name: "merge", Type: "object", Desc: "{from_row, from_column, to_row, to_column} 0-based inclusive."},
+			},
+			Required: []string{"table"},
+		},
+		{
 			Name: "insert_list",
 			Desc: "Insert a bulleted or numbered list after a paragraph (or at the end): one item per entry of " +
 				"`items`; `levels` (same length, 0-based) nests. Answers the new paragraphs' numbers. To turn " +

@@ -5,6 +5,9 @@ import (
 )
 
 var wordAligns = []string{"Left", "Centered", "Right", "Justified"}
+
+// wordVAligns 는 표 칸의 세로 정렬(Word.VerticalAlignment).
+var wordVAligns = []string{"Top", "Center", "Bottom"}
 var wordUnderlines = []string{"None", "Single", "Double", "Dotted", "Dashed", "Wave", "Thick"}
 var wordHighlights = []string{"Yellow", "BrightGreen", "Turquoise", "Pink", "Blue", "Red", "DarkBlue", "Teal", "Green", "Violet",
 	"DarkRed", "DarkYellow", "Gray50", "Gray25", "Black", "none"}
@@ -47,6 +50,7 @@ var wordTableStyles = func() []string {
 // 갈려 합쳐 둔다; suggest 의 what 은 문장이라 예외).
 var wordValueEnums = map[string][]string{
 	"align":       wordAligns,
+	"valign":      wordVAligns,
 	"underline":   wordUnderlines,
 	"highlight":   wordHighlights,
 	"at":          wordAtWhere,

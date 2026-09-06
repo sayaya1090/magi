@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 49개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 51개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 49개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 51개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -71,13 +71,20 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 없는 이름은 문서의 스타일 목록(한국어 Word 는 「각주 텍스트」「글머리 기호」… 수십 개)을 대고 거절. `document.getStyles()`·
 `Style.font`·`Style.paragraphFormat`·`addStyle` 전부 1.9 실물에서 그대로 됐다.
 
+### 5.1.4 format_table_cells · edit_table — 실물(2026-09-06 밤)
+
+도구 50·51. 실물 문서에 4×3 표를 넣고 머리글 행 채우기·흰 글자·굵게·가운데, 숫자 칸 오른쪽·크기 10, 칸 하나 채우기·세로 가운데·너비,
+열 추가(끝·0 뒤, 위→아래 값), 열·행 삭제, (0,0)–(0,1) 병합까지 열 호출 실패 0 — `TableCell.shadingColor`·`horizontalAlignment`·
+`verticalAlignment`·`columnWidth`·`body.font`·`addColumns`·`insertColumns('After')`·`deleteColumns`·`deleteRows`·`mergeCells` 전부 1.9
+실물에서 그대로. 병합한 뒤 `read_table` 은 그 행의 칸 수가 하나 줄어 보인다(병합 칸은 하나) — 값은 `순번\r매출` 처럼 줄바꿈으로 합쳐진다.
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 49 개.`
+3. 붙기 → `준비됐습니다 — 도구 51 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.
