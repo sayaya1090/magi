@@ -1,7 +1,7 @@
 import { HandPort } from '../port/HandPort.js';
 import {
   ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, Refusal, refuse, str, num, int, bool, arr, need, hex, span,
-  envelope, clip, nowEpoch, BUILTIN_PARAGRAPH_STYLES,
+  envelope, clip, nowEpoch, BUILTIN_PARAGRAPH_STYLES, fieldPieces,
 } from './handCore.js';
 
 /** 문단 스타일 — 내장 이름(Heading2·"Heading 2"·normal)은 언어와 무관한 styleBuiltIn 으로, 나머지는 문서가 보여 주는 이름 그대로.
@@ -173,6 +173,7 @@ export class WordHand extends HandPort {
       case 'set_list': return this.#setList(a);
       case 'insert_image': return this.#insertImage(a);
       case 'insert_break': return this.#insertBreak(a);
+      case 'insert_field': return this.#insertField(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
       case 'replace_all': return this.#replaceAll(a);
@@ -557,6 +558,48 @@ export class WordHand extends HandPort {
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();
       return this.#envelope({ width: pic.width, height: pic.height }, [`${said} 그림을 넣었습니다 (${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  async #insertField(a) {
+    this.#need('WordApi', '1.5', 'insert_field');
+    const { pieces, said: what } = fieldPieces(a);
+    const which = str(a, 'which'); const align = str(a, 'align');
+    return this.runner(async (context) => {
+      let host; let said;
+      if (which) {
+        const section = int(a, 'section') ?? 1; const kind = str(a, 'kind') ?? 'Primary';
+        const secs = context.document.sections; secs.load('items'); await context.sync();
+        if (section < 1 || section > secs.items.length) refuse(`문서에 ${section}번 구역이 없습니다 — 구역 ${secs.items.length}개`);
+        const s = secs.items[section - 1]; const body = which === 'header' ? s.getHeader(kind) : s.getFooter(kind);
+        host = body.insertParagraph('', 'End'); said = `구역 ${section} ${which === 'header' ? '머리글' : '바닥글'}(${kind})에`;
+      } else {
+        const items = await this.#paras(context, 'text');
+        const { p, where, said: at } = this.#anchor(items, a);
+        host = p ? p.insertParagraph('', where === 'Before' ? 'Before' : 'After') : context.document.body.insertParagraph('', where === 'Start' ? 'Start' : 'End');
+        said = at;
+      }
+      if (align) host.alignment = align;
+      if (!which) host.styleBuiltIn = 'Normal'; // 끝 문단의 제목 스타일을 물려받지 않게 — 필드 줄은 본문이다
+      // 실물 Word(16.x Mac, WordApi 1.9)에 Paragraph.insertField 가 없다 — Range 에만 있다. 그리고 필드의 result
+      // 범위에 이어 붙이면 첫 필드 뒤의 조각이 전부 사라졌다(2026-09-06 실물). 그래서 글을 통째로 먼저 적고, 자리
+      // 표시 글자(`{page}` 같은)를 찾아 그 범위를 필드로 **바꾼다** — 순서는 글이 지키고, 필드는 제자리에 선다.
+      const marks = pieces.map((piece, i) => (piece.text != null ? piece.text : `\u2063F${i}\u2063`)).join('');
+      host.insertText(marks, 'Start');
+      await context.sync();
+      const found = pieces.map((piece, i) => (piece.text != null ? null : host.search(`\u2063F${i}\u2063`, { matchCase: true })));
+      for (const r of found) if (r) r.load('items');
+      await context.sync();
+      const fields = [];
+      pieces.forEach((piece, i) => {
+        if (piece.text != null) return;
+        const hit = found[i].items[0];
+        if (!hit) refuse(`필드 자리를 못 찾았습니다 — ${piece.name}`);
+        fields.push(hit.insertField('Replace', piece.type, piece.code, false));
+      });
+      await context.sync();
+      for (const f of fields) f.updateResult(); // 목차는 갱신해야 채워진다
+      await context.sync(); this.#mutated();
+      return this.#envelope({ fields: fields.length, which: which ?? null }, [`${said} ${what}`]);
     });
   }
   async #insertBreak(a) {

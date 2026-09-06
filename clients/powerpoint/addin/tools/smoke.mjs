@@ -4342,11 +4342,12 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const st = { model: 'sonnet', window: 131072, used: 30861, estimated: false, messages: 12, compactions: 1, shed: 4000,
     parts: { system: 2404, tools: 5703, talk: 800, calls: 300, results: 900 } };
   const m = contextMeter(st);
-  ok('띠는 퍼센트와 토큰을 적는다', m.hidden === false && m.pct === 24 && m.text.startsWith('30,861 / 131,072 토큰 · 24%'), m.text);
+  ok('띠는 퍼센트와 토큰을 k 단위로 적는다', m.hidden === false && m.pct === 24 && m.text.startsWith('31k / 131k 토큰 · 24%'), m.text);
   ok('다섯 조각이 요청에 실리는 순서로 선다', m.segments.map((s) => s.kind).join(',') === CONTEXT_PARTS.map(([k]) => k).join(','));
-  ok('조각의 폭은 다섯의 합에 대한 몫이다', Math.round(m.segments[1].pct) === 56 && m.keys[1].text === '도구 목록 5,703');
-  ok('접은 기록을 적는다', m.note === '접기 1회 · 4,000 토큰 덜어냄' && m.title.includes('시스템 · 2,404'));
-  ok('추정치는 물결로', contextMeter({ ...st, estimated: true }).text.startsWith('~30,861'));
+  ok('조각의 폭은 모델 창에 대한 몫이다 — 안 찬 자리는 빈다', Math.round(m.segments[1].pct) === 4 && Math.round(m.segments.reduce((a, s) => a + s.pct, 0)) === 8 && m.keys[1].text === '도구 목록 5.7k', JSON.stringify(m.segments.map((s) => s.pct)));
+  ok('창을 모르면 합에 맞춘다 — 가득 찬 띠가 「모른다」의 모양', Math.round(contextMeter({ used: 100, window: 0, parts: { system: 25, tools: 75 } }).segments[1].pct) === 75);
+  ok('접은 기록을 적는다', m.note === '접기 1회 · 4k 토큰 덜어냄' && m.title.includes('시스템 · 2.4k'), m.note + ' | ' + m.title);
+  ok('추정치는 물결로', contextMeter({ ...st, estimated: true }).text.startsWith('~31k'));
   ok('창을 모르면 퍼센트를 안 짓는다', contextMeter({ used: 500, window: 0 }).pct === null && contextMeter({ used: 500, window: 0 }).text === '500 토큰');
   ok('다섯 조각이 없으면 띠 조각도 없다 — 모름은 0이 아니다', contextMeter({ used: 500, window: 1000 }).segments.length === 0);
   ok('아무것도 모르면 숨는다', contextMeter(null).hidden === true && contextMeter({}).hidden === true);

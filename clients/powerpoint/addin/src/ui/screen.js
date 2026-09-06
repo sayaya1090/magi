@@ -877,6 +877,14 @@ const commas = (n) => String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(
  * 목록이 가장 크다. 그래서 띠의 조각은 장식이 아니라 「무엇을 줄여야 하는가」의 답이다(웹 콘솔과 같은 이유).
  * 다섯 조각이 전부 0 이면 측정이 아니라 **모름**이라 띠를 안 그린다 — 창을 모를 때 퍼센트를 안 적는 것과 같다.
  */
+/** 토큰은 k 단위로 — 30,861 은 「31k」, 5,703 은 「5.7k」, 500 은 그대로(사용자 요청 2026-09-06). */
+export function kilo(n) {
+  const v = Number(n) || 0;
+  if (v < 1000) return String(v);
+  if (v < 10000) return `${(v / 1000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${Math.round(v / 1000)}k`;
+}
+
 export function contextMeter(st) {
   if (!st || typeof st !== 'object') return { hidden: true, text: '', title: '', segments: [], keys: [], pct: null, compactDisabled: true };
   const used = Number(st.used) || 0; const window = Number(st.window) || 0;
@@ -884,15 +892,19 @@ export function contextMeter(st) {
   const pct = window > 0 ? Math.min(100, Math.round(used * 100 / window)) : null;
   const parts = st.parts && typeof st.parts === 'object' ? st.parts : {};
   const sum = CONTEXT_PARTS.reduce((a, [k]) => a + (Number(parts[k]) || 0), 0);
-  const segments = sum > 0
+  // **눈금은 모델의 창이다.** 조각을 합에 맞춰 늘이면 띠가 늘 가득 차 보여 「얼마나 남았나」가 안 보인다
+  // (사용자 지적 2026-09-06). 창을 알면 창이 100% 고 안 찬 자리는 빈 채로 둔다; 창을 모르면 합(또는
+  // 제공자가 센 값 중 큰 쪽)에 맞춘다 — 그때는 가득 찬 띠가 「모른다」의 모양이다.
+  const scale = window > 0 ? window : Math.max(sum, used);
+  const segments = sum > 0 && scale > 0
     ? CONTEXT_PARTS.filter(([k]) => (Number(parts[k]) || 0) > 0)
-      .map(([k, label]) => ({ kind: k, label, tokens: Number(parts[k]), pct: Number(parts[k]) * 100 / sum, title: `${label} · ${commas(parts[k])}` }))
+      .map(([k, label]) => ({ kind: k, label, tokens: Number(parts[k]), pct: Math.min(100, Number(parts[k]) * 100 / scale), title: `${label} · ${kilo(parts[k])}` }))
     : [];
-  const keys = segments.map((s) => ({ kind: s.kind, text: `${s.label} ${commas(s.tokens)}` }));
-  const text = `${st.estimated ? '~' : ''}${commas(used)}${window > 0 ? ` / ${commas(window)}` : ''} 토큰`
+  const keys = segments.map((s) => ({ kind: s.kind, text: `${s.label} ${kilo(s.tokens)}` }));
+  const text = `${st.estimated ? '~' : ''}${kilo(used)}${window > 0 ? ` / ${kilo(window)}` : ''} 토큰`
     + (pct != null ? ` · ${pct}%` : '') + (Number(st.messages) > 0 ? ` · 메시지 ${commas(st.messages)}` : '');
   const folds = Number(st.compactions) || 0;
-  const note = folds > 0 ? `접기 ${folds}회 · ${commas(st.shed)} 토큰 덜어냄` : '';
+  const note = folds > 0 ? `접기 ${folds}회 · ${kilo(st.shed)} 토큰 덜어냄` : '';
   return {
     hidden: false, pct, text, note, segments, keys,
     title: [text, ...segments.map((s) => s.title), note].filter(Boolean).join(' · '),

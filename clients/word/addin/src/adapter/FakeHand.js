@@ -1,6 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
 import {
-  ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, refuse, str, num, int, bool, arr, need, hex, span, envelope, clip, nowEpoch,
+  ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, refuse, str, num, int, bool, arr, need, hex, span, envelope, clip, nowEpoch, fieldPieces,
 } from './handCore.js';
 
 /**
@@ -84,6 +84,22 @@ export class FakeHand extends HandPort {
       case 'insert_list': { const items = arr(a, 'items'); if (!items || !items.length) refuse('items 가 비었습니다'); const kind = str(a, 'kind') ?? 'bulleted'; const levels = arr(a, 'levels') ?? []; const { index, said } = this.#anchor(a); const made = items.map((t, i) => ({ text: String(t), style: 'List Paragraph', list: { kind, level: Number(levels[i] ?? 0) || 0 } })); this.P.splice(index, 0, ...made); this.#shift(index + 1, made.length); this.#mutated(); return this.#env({ inserted: made.length, kind, from: index + 1, to: index + made.length }, [`${said} ${kind === 'numbered' ? '번호' : '글머리 기호'} 목록 ${made.length}개를 넣었습니다`]); }
       case 'set_list': { const kind = str(a, 'kind'); const level = int(a, 'level'); const detach = bool(a, 'detach') ?? false; if (!kind && level == null && !detach) refuse('kind·level·detach 중 하나가 있어야 합니다'); const { from, to, list } = this.#pick(a); for (const p of list) { if (detach) { delete p.list; p.style = 'Normal'; } else { p.list = { kind: kind ?? p.list?.kind ?? 'bulleted', level: level ?? p.list?.level ?? 0 }; p.style = 'List Paragraph'; } } this.#mutated(); return this.#env({ from, to, kind: kind ?? null, level: level ?? null, detached: detach }, [detach ? `문단 ${from}${to > from ? `–${to}` : ''} 을 목록에서 뺐습니다` : `문단 ${from}${to > from ? `–${to}` : ''} 을 ${kind === 'numbered' ? '번호 ' : kind === 'bulleted' ? '글머리 기호 ' : ''}목록으로${level != null ? ` (단계 ${level})` : ''}`]); }
       case 'insert_image': { const b64 = str(a, 'image_base64'); if (!b64) refuse('그림 바이트가 안 왔습니다 — path 를 주면 헬퍼가 읽어 실어 줍니다'); const { index, said } = this.#anchor(a); const w = num(a, 'width') ?? 200; this.P.splice(index, 0, { text: '', style: 'Normal', image: { width: w, height: Math.round(w * 0.6), alt: str(a, 'alt') ?? '' } }); this.#shift(index + 1, 1); this.#mutated(); return this.#env({ width: w, height: Math.round(w * 0.6) }, [`${said} 그림을 넣었습니다 (${w}×${Math.round(w * 0.6)}pt)`]); }
+      case 'insert_field': {
+        this.#need('WordApi', '1.5', 'insert_field');
+        const { pieces, said: what } = fieldPieces(a);
+        const sample = { toc: '[목차]', page: '1', pages: '1', num_pages: '1', date: '2026-09-06', time: '12:00', title: this.model.properties?.title ?? '', author: this.model.properties?.author ?? '', file: 'doc.docx', file_name: 'doc.docx' };
+        const text = pieces.map((p) => (p.text != null ? p.text : sample[p.name])).join('');
+        const which = str(a, 'which');
+        if (which) {
+          const section = int(a, 'section') ?? 1; if (section < 1 || section > this.model.headers.length) refuse(`문서에 ${section}번 구역이 없습니다 — 구역 ${this.model.headers.length}개`);
+          const h = this.model.headers[section - 1]; h[which] = h[which] ? `${h[which]}\n${text}` : text; this.#mutated();
+          return this.#env({ fields: pieces.filter((p) => p.type).length, which }, [`구역 ${section} ${which === 'header' ? '머리글' : '바닥글'}(${str(a, 'kind') ?? 'Primary'})에 ${what}`]);
+        }
+        const { index, said } = this.#anchor(a);
+        this.P.splice(index, 0, { text, style: 'Normal', align: str(a, 'align') ?? undefined, field: pieces.filter((p) => p.type).map((p) => p.name) }); this.#shift(index + 1, 1);
+        this.#mutated();
+        return this.#env({ fields: pieces.filter((p) => p.type).length, which: null, paragraph: index + 1 }, [`${said} ${what}`]);
+      }
       case 'insert_break': { const n = int(a, 'paragraph') ?? int(a, 'para') ?? refuse('paragraph 가 없습니다'); const kind = str(a, 'kind') ?? 'page'; if (!['page', 'section', 'line'].includes(kind)) refuse(`kind 는 page·section·line 중 하나 — ${kind}`); if (n < 1 || n > this.P.length) refuse(`문서에 ${n}번 문단이 없습니다 — 문단 ${this.P.length}개`); this.P[n - 1].breakAfter = kind; if (kind === 'section') this.model.headers.push({ header: '', footer: '' }); this.#mutated(); return this.#env({ paragraph: n, kind }, [`문단 ${n} 뒤에 ${{ page: '쪽', section: '구역', line: '줄' }[kind]} 나누기`]); }
       case 'set_header_footer': { const which = str(a, 'which') ?? refuse('which 가 없습니다 — header 나 footer'); const text = String(a.text ?? refuse('text 가 없습니다')); const section = int(a, 'section') ?? 1; if (section < 1 || section > this.model.headers.length) refuse(`문서에 ${section}번 구역이 없습니다 — 구역 ${this.model.headers.length}개`); this.model.headers[section - 1][which] = text; this.#mutated(); return this.#env({ which, section, kind: str(a, 'kind') ?? 'Primary', text }, [`구역 ${section} ${which === 'header' ? '머리글' : '바닥글'}(${str(a, 'kind') ?? 'Primary'}) → 「${clip(text, 40)}」`]); }
       case 'set_hyperlink': { const url = str(a, 'url'); const { hits, said } = this.#targets(a); for (const h of hits) h.p.link = url ?? null; this.#mutated(); return this.#env({ targets: hits.length, url: url ?? null }, [url ? `${said} 에 링크 → ${url}` : `${said} 의 링크를 뗐습니다`]); }

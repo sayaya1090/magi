@@ -13,7 +13,7 @@ export const READ_OPS = Object.freeze([
 export const WRITE_OPS = Object.freeze([
   'insert_paragraphs', 'replace_paragraph', 'delete_paragraphs', 'set_style', 'format_text', 'format_paragraph',
   'insert_table', 'set_table_cells', 'add_table_rows', 'delete_table', 'format_table', 'insert_list', 'set_list',
-  'insert_image', 'insert_break', 'set_header_footer', 'set_hyperlink', 'replace_all',
+  'insert_image', 'insert_break', 'insert_field', 'set_header_footer', 'set_hyperlink', 'replace_all',
   'add_comment', 'reply_comment', 'resolve_comment', 'add_bookmark', 'delete_bookmark', 'set_track_changes', 'review_changes',
   'set_properties', 'restore_paragraphs', 'set_tag', 'suggest', 'drop_suggestion',
 ]);
@@ -27,6 +27,33 @@ export const BUILTIN_PARAGRAPH_STYLES = Object.freeze([
   'Quote', 'IntenseQuote', 'ListParagraph', 'Caption', 'NoSpacing', 'TocHeading', 'Toc1', 'Toc2', 'Toc3',
   'Emphasis', 'Strong', 'SubtleEmphasis', 'IntenseEmphasis', 'SubtleReference', 'IntenseReference', 'BookTitle',
 ]);
+/** insert_field 의 조각 — 글과 필드가 번갈아 온다. `template` 의 {page}·{pages}… 자리가 필드고, 없으면 `field` 하나. */
+export const FIELD_TYPES = Object.freeze({
+  toc: 'TOC', page: 'Page', num_pages: 'NumPages', pages: 'NumPages', date: 'Date', time: 'Time',
+  title: 'Title', author: 'Author', file_name: 'FileName', file: 'FileName',
+});
+export function fieldPieces(a) {
+  const field = str(a, 'field'); const template = str(a, 'template');
+  if (!field && !template) refuse('field 나 template 이 있어야 합니다 — 예: field "toc", template "{page} / {pages}"');
+  const codeOf = (name) => (name === 'toc' ? ` \\o "${str(a, 'levels') ?? '1-3'}" \\h \\z \\u ` : '');
+  const pieces = [];
+  if (template) {
+    const re = /\{(page|pages|num_pages|date|time|title|author|file|file_name|toc)\}/g;
+    let last = 0; let m;
+    while ((m = re.exec(template)) !== null) {
+      if (m.index > last) pieces.push({ text: template.slice(last, m.index) });
+      pieces.push({ type: FIELD_TYPES[m[1]], code: codeOf(m[1]), name: m[1] });
+      last = m.index + m[0].length;
+    }
+    if (last < template.length) pieces.push({ text: template.slice(last) });
+    if (!pieces.some((p) => p.type)) refuse(`template 에 필드 자리가 없습니다 — {page} {pages} {date} {time} {title} {author} {file} 중 하나를 넣으세요: ${template}`);
+  } else {
+    const type = FIELD_TYPES[field] ?? refuse(`모르는 필드입니다: ${field} — toc, page, num_pages, date, time, title, author, file_name`);
+    pieces.push({ type, code: codeOf(field), name: field });
+  }
+  const names = pieces.filter((p) => p.type).map((p) => ({ toc: '목차', page: '쪽 번호', pages: '전체 쪽수', num_pages: '전체 쪽수', date: '날짜', time: '시각', title: '제목', author: '작성자', file: '파일 이름', file_name: '파일 이름' }[p.name]));
+  return { pieces, said: `${names.join('·')} 필드를 넣었습니다${template ? ` — 「${template}」` : ''}` };
+}
 export const FIX_PREFIX = 'MAGI.FIX.';
 export const DOC_PROPERTY_KEY = 'MAGI.DOC';
 
