@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -460,7 +461,12 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// person or a companion has its own cap.
 		promptSeq := newestPromptSeq(evs)
 		if sig := stepSignature(text, toolCalls); repeatIsChurn(&ts, sig, toolCalls, promptSeq, guard) {
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, repeatedStepNote)
+			if err := a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, repeatedStepNote); err != nil {
+				// Best-effort: the note explains the ending to whoever reads the log; the ending
+				// itself does not depend on it, and a store that cannot take one line now will
+				// refuse the turn.finished a moment later, where the error is not swallowed.
+				log.Printf("magi: could not record why the turn ended on a repeated step: %v", err)
+			}
 			text, toolCalls = "", nil
 		} else {
 			ts.lastStep, ts.lastCalls, ts.lastPromptSeq = sig, callIDsOf(toolCalls), promptSeq

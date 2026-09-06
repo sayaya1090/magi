@@ -267,6 +267,11 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
 - R3 **페이스를 정하는 상한은 없고, 폭주 백스톱만 있다.** magi 자신의 산수로 걸던 graceful 종료는 측정으로 걷어냈다(ARCHITECTURE §4). 남은 것은 `MaxSteps`, 기본 **240** — 생산적인 턴이라면 절대 닿지 않을 높이다. 이걸 다 쓴 턴은 백스톱을 사유로 실은 UNVERIFIED로 착지하고, 작업물은 놓인 그대로 선다. 자기 예산을 선언하는 것은 워크플로 페이즈뿐이다.
 - R4 R1의 조용한 종료는 그대로 끝이 아니다 — **종료 경로**(`loop_gates.go`, `finishTurn`)가 게이트 여섯 개를 이 순서로 돈다: Stop 훅 → 빈 결과 넛지 → **선언 요구** → 선언 뒤 버려진 콜 통지 → 미회수 인계 → 돌아온 답의 평가. 하나라도 걸리면 턴은 작업으로 되돌아간다. 그리고 정말 끝날 때: 선택적 증류 패스(기본 꺼짐), 늦은 인터젝션 수거, `finalizeTodos`(열려 있던 스텝은 진짜 완료면 완료로, 아니면 취소로), 그리고 UNVERIFIED 사유가 있으면 그것을 실은 `turn.finished`. 카운슬은 그 목록에 없다: 에이전트가 부르는 툴이고(Part B의 F-COUNCIL), 선언 게이트는 불렀는지만 확인한다.
 
+- R5 **성공한 단계를 그대로 되풀이하면 턴이 끝난다**(2026-09-07). 글과 호출(이름·인자)이 앞 단계와 같고, 앞 단계의 호출이
+  전부 성공했고, 그 사이에 프롬프트 이벤트가 없었으면 새로 시킨 것이 없는 것이다: 호출을 다시 돌리지 않고 루프 메모를 적고
+  턴을 끝낸다(R1). 실측: `land` 가 답한 뒤 같은 `land` 단계 일곱 번. 실패 뒤 반복은 재시도라 돈다. `council`·`wait_for`·
+  `bash_output`·`ask_user`·`hand_off` 는 면제 — 반복 자체가 뜻이거나 제 캡이 있다.
+
 ```
 loop-stop-1: fake replies ["안녕"]                       ⇒ 1 step, turn.finished, 1 text part
 loop-stop-2: fake replies [tool-call read]→["완료"]       ⇒ 2 steps, tool-result part + text part

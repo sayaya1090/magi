@@ -316,6 +316,12 @@ Rules:
   completed on a genuine finish and cancelled otherwise), and `turn.finished` carrying the
   UNVERIFIED reason if there is one. The council is not on that list: it is a tool the agent calls
   (Part B, F-COUNCIL), and the declaration gate only checks that it did.
+- R5 **An exact repeat of a successful step ends the turn** (2026-09-07). A step whose text and
+  calls (name and arguments) equal the previous step's, when every call of that step succeeded
+  and no prompt event arrived in between, asks for nothing new: its calls are not run again, a
+  loop note says so, and the turn ends (R1). Measured: seven identical `land` steps after land had
+  answered. A repeat after a failure is a retry and runs; `council`, `wait_for`, `bash_output`,
+  `ask_user` and `hand_off` are exempt — their repeat has its own meaning or its own cap.
 
 ```
 loop-stop-1: fake replies ["hello"]                       ⇒ 1 step, turn.finished, 1 text part
