@@ -86,8 +86,6 @@ Say '필요한 도구를 본다'
 $go = Get-Command go -ErrorAction SilentlyContinue
 if (-not $SkipBuild -and -not $go) { Fail 'Go 가 없다(go.dev/dl). 빌드된 실행 파일이 이미 있으면 -SkipBuild.' }
 if ($go) { Done "go: $($go.Source)" }
-$ollama = Get-Command ollama -ErrorAction SilentlyContinue
-if ($ollama) { Done "ollama: $($ollama.Source)" } else { Warn 'ollama 가 없다. 기본 모델은 Ollama 클라우드(gpt-oss:120b-cloud)라 ollama 를 깔고 `ollama signin` 을 한 번 해야 한다. 다른 백엔드를 쓰면 ~/.magi/config.toml 의 model/base_url.' }
 
 # ── 2. 전에 깔린 것을 멈춘다(설치 폴더의 실행 파일만) ─────────────────────────
 Say '설치 폴더의 옛 프로세스를 멈춘다'
@@ -274,6 +272,5 @@ if ($perpetual) {
 } else {
   Write-Host '  2. 각 프로그램에서 홈 탭 → 추가 기능 → 개발자 추가 기능 → Magi(AI Assistant). (리본에 바로 안 보이면 이 길)'
 }
-if ($ollama) { Write-Host '  * 처음이면 `ollama signin` 을 한 번 한다(기본 모델이 Ollama 클라우드다).' }
 Write-Host "  * 자세한 것은 clients\<앱>\docs\INSTALL.ko.md. 설치 폴더는 $Dest"
 exit 0   # 마지막 네이티브 명령(robocopy 는 1 이 성공)의 코드가 스크립트의 코드로 새지 않게

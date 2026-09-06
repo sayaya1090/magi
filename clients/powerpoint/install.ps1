@@ -82,8 +82,6 @@ if ($perpetual) {
   if ($dotnet) { Done "dotnet: $(if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName })" }
   else { Warn '.NET SDK 가 없다 — COM 손을 못 만든다. dotnet.microsoft.com 에서 .NET 9 SDK 를 깔고 다시 돌려라.' }
 }
-$ollama = Get-Command ollama -ErrorAction SilentlyContinue
-if ($ollama) { Done "ollama: $($ollama.Source)" } else { Warn 'ollama 가 없다. 기본 모델은 Ollama 클라우드(gpt-oss:120b-cloud)라 ollama 를 깔고 `ollama signin` 을 한 번 해야 한다. 다른 백엔드를 쓰면 ~/.magi/config.toml 의 model/base_url.' }
 
 # ── 2. 전에 깔린 것을 멈춘다(설치 폴더의 실행 파일만) ─────────────────────────
 Say '설치 폴더의 옛 프로세스를 멈춘다'
@@ -292,6 +290,5 @@ if ($perpetual) {
 } else {
   Write-Host '  2. 홈 탭 → 추가 기능 → 개발자 추가 기능 → magi. (리본에 바로 안 보이면 이 길)'
 }
-if ($ollama) { Write-Host '  * 처음이면 `ollama signin` 을 한 번 한다(기본 모델이 Ollama 클라우드다).' }
 Write-Host "  * 문제가 생기면 docs\INSTALL.ko.md §6, 지우기는 §7. 설치 폴더는 $Dest"
 exit 0   # 마지막 네이티브 명령(robocopy 는 1 이 성공)의 코드가 스크립트의 코드로 새지 않게
