@@ -12,6 +12,29 @@
 | 2019 · 2021 LTSC | 1.3 | 손 — 메모·책갈피·변경 추적(1.4)·변경 검토(1.6)·제안(settings 1.4)은 이름을 대고 거절 |
 | 2016 이하 | ≤1.2 | 화면만 |
 
+### 1.1 볼륨 판에 Word 가 빠져 있을 때 — Office 배포 도구로 더한다
+
+LTSC 2021 을 Word 없이 깐 머신이 있다(Click-to-Run 설정의 `ProPlus2021Volume.ExcludedApps` 에 `word`). Microsoft 의 Office 배포
+도구(ODT, 다운로드 센터 id=49117 의 `officedeploymenttool_*.exe`, 서명 확인 뒤 `/quiet /extract:폴더` 로 푼다)로 **같은 제품을 Word 만 뺀
+제외 목록으로 다시 구성**하면 나머지는 그대로 두고 Word 만 더해진다(2026-09-07 실측, 약 2분):
+
+```xml
+<Configuration>
+  <Add OfficeClientEdition="64" Channel="PerpetualVL2021">
+    <Product ID="ProPlus2021Volume">
+      <Language ID="ko-kr" />
+      <ExcludeApp ID="Access" /><ExcludeApp ID="Groove" /><ExcludeApp ID="Lync" /><ExcludeApp ID="OneDrive" />
+      <ExcludeApp ID="OneNote" /><ExcludeApp ID="Outlook" /><ExcludeApp ID="Publisher" /><ExcludeApp ID="Teams" />
+    </Product>
+  </Add>
+  <Display Level="Full" AcceptEULA="FALSE" />
+</Configuration>
+```
+
+`setup.exe /configure 위파일.xml` 을 **관리자 권한**으로 돈다(UAC). 제외 목록은 그 머신의 레지스트리
+`HKLM\SOFTWARE\Microsoft\Office\ClickToRun\Configuration` 에서 읽어 그대로 옮기고 Word 만 뺀다 — 다르게 적으면 그 프로그램이 지워진다.
+라이선스는 기존 Office 의 것을 그대로 따른다. 끝나면 이미 있는 카탈로그에서 「공유 폴더 → 추가」만 하면 된다(TESTING §5.3).
+
 ## 2. 공통
 
 ```bash

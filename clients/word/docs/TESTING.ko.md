@@ -10,7 +10,7 @@ node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙�
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
 node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 66개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
-node clients/word/addin/tools/sweep.mjs [--docx x.docx]  # 실물: 붙은 문서에 66개 전부 — 끝에 붙인 문단 아래에서만 놀고 지운다(아직 실물에 안 대 봤다 — 2021 머신에 Word 가 없다)
+node clients/word/addin/tools/sweep.mjs [--docx x.docx]  # 실물: 붙은 문서에 66개 전부 — 끝에 붙인 문단 아래에서만 놀고 지운다(§5.3)
 ```
 
 2026-09-06: 헬퍼 전부 통과, smoke 356 ok, smoke-hand 71 ok, wordhand 44/44.
@@ -138,6 +138,24 @@ GeneralException → 채우기·자리 먼저, 글은 다음 배치에. 한 번 
 
 한글 입력만 사람 손이 남았다: 접근성 keystroke 는 한국어 IME 를 안 타 자모가 들어가서, 부탁 글은 헬퍼의 `/api/submit`(작업창의
 보내기 단추가 두드리는 그 문)으로 넣었다. 인용·적용·⋯ 단추와 그려지는 것은 전부 작업창에서 눌러 본 것이다.
+
+### 5.3 2026-09-07 — Windows LTSC 2021 에서 66개를 하나씩 (`tools/sweep.mjs`)
+
+이 머신(Office LTSC 2021 16.0.14334, 볼륨 판)에는 Word 가 빠져 있었다(Click-to-Run 제외 목록에 word). Office 배포 도구로
+같은 제품(`ProPlus2021Volume`, x64, ko-kr)을 Word 만 뺀 제외 목록으로 다시 구성해 더했다(INSTALL §1.1) — 약 2분. 카탈로그에는
+매니페스트가 이미 있어서(통합 설치기) 「삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가」만 했고, 창이 바로
+「준비됐습니다 — 도구 66 개 · 지원 API: 8개 없음」으로 열렸다. 없는 여덟: WordApi 1.4~1.9 여섯, WordApiDesktop 1.1, SharedRuntime 1.1
+(SharedRuntime 이 ✗ 라도 창은 뜨고 손 노릇을 한다 — 매니페스트가 그것을 최상위 요구에 안 적는다).
+
+엑셀·파워포인트 판과 같은 물음(「기능을 하나하나 실행해서 2021에서도 동일하게 적용되는지」)에 `tools/sweep.mjs` 를 지어 답했다:
+문서 끝에 문단 셋을 붙이고 그 아래에서 66개를 80호출로 부르고, 끝에 그 문단부터 지운다. **66/66 호출 · 오류 27 · 5.9초.**
+27 중 26 은 1.3 호스트가 **이름을 대고 거절**한 것 — 1.4(메모 넷·책갈피 둘·변경 추적·제안 셋·`edit_table{merge}`), 1.5(필드 둘·각주 셋·
+스타일 서식), 1.6(변경 읽기·검토), WordApiDesktop(쪽 설정 둘·도형 넷) — INSTALL §1 의 표 그대로다. 나머지 하나는 `render_page`:
+이 머신에 poppler 의 pdftoppm 이 없다(판의 한계가 아니라 머신의 것). 우리 것의 고장은 0.
+
+들어간 것(각 답의 `changed` 와 되읽기로 확인): 문단 넣기·바꾸기·옮기기·지우기, 스타일·글자·문단 서식, 찾기·바꾸기, 링크, 표(만들기·칸·행·
+서식·칸 서식·열 추가·지우기), 목록(넣기·바꾸기·떼기), 그림(넣기·크기·지우기), 줄 나누기, 바닥글, 콘텐츠 컨트롤 넷, 다른 문서 넣기, 속성,
+기록(태그), 조언, 스냅숏·되돌리기. 끝에 문서는 처음의 문단 넷으로 돌아왔고(Word 가 못 지우는 마지막 빈 문단 하나가 남는다) 바닥글은 비었다.
 
 ## 통합 헬퍼 재확인
 

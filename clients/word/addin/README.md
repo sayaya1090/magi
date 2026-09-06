@@ -9,7 +9,7 @@
 | `node tools/smoke.mjs` | `FakeDocument`·`FakeHand` | **돈다** — 356 ok (2026-09-06) |
 | `node tools/smoke-hand.mjs` | `FakeHand`·`ServeHand`·`HelperStream` | **돈다** — 71 ok |
 | `node tools/wordhand.mjs` | `WordHand` 를 가짜 Word.js 위에서 | **돈다** — 66/66 (없는 메서드 이름은 못 잡는다) |
-| `node tools/sweep.mjs [--docx x.docx]` | **실물** — 붙은 문서 끝에 문단 셋을 붙이고 66개 전부(끝에 지운다) | 아직 안 대 봤다 — 2021 시험 머신에 Word 가 없다(2026-09-07). 엑셀 판 sweep.mjs 와 같은 뼈대 |
+| `node tools/sweep.mjs [--docx x.docx]` | **실물** — 붙은 문서 끝에 문단 셋을 붙이고 66개 전부(끝에 지운다) | **돈다** — LTSC 2021(WordApi 1.3): 66/66 호출, 거절 26 은 판의 한계(1.4+·Desktop), 고장 0(2026-09-07, TESTING §5.3) |
 | `PORT=3010 node tools/serve.mjs` | 가짜 문서 + `FakeHand` | 돈다 |
 | **Word 안에서** | `OfficeDocument`·`WordHand` | **돌았다** — 2026-09-06 실물 문서에 44/44, 63호출 실패 0([TESTING §5.1](../docs/TESTING.ko.md)) |
 

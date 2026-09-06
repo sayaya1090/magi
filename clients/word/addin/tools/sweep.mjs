@@ -6,8 +6,8 @@
 // 메모(태그)·제안을 되돌린다 — 앞에 있던 글은 안 건드린다. 토큰은 헬퍼 페이지에서, 문서는 /api/documents 에서 얻는다.
 // insert_file 은 --docx 로 준 파일을 넣는다(없으면 건너뛰고 그렇게 적는다). 그림 답은 이 파일 옆 sweep_<도구>.png.
 // 2019·2021(WordApi 1.3)에서는 메모·책갈피·변경 추적·각주·스타일 서식·도형·쪽 설정·제안(settings)이 **이름을 대고 거절**한다 —
-// 그것은 판의 한계지 고장이 아니다(docs/MANUAL.ko.md §1). 365 에서는 전부 통과가 기대값이다. 아직 실물에 안 대 봤다(2026-09-07 —
-// 이 머신에 Word 가 없다); 엑셀 판 sweep.mjs 와 같은 뼈대다.
+// 그것은 판의 한계지 고장이 아니다(docs/MANUAL.ko.md §1). 365 에서는 전부 통과가 기대값이다.
+// 실측 2026-09-07(LTSC 2021, WordApi 1.3): 66/66 · 80호출 · 오류 27 = 이름 대고 거절 26 + render_page(pdftoppm 없는 머신) — 고장 0(docs/TESTING.ko.md §5.3).
 import { writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
