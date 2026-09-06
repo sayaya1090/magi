@@ -99,7 +99,14 @@ Two things the proposal did not foresee, both measured 2026-09-04/05:
 - **One daemon, one conversation per deck.** Two open decks share one companion but each gets its
   own conversation and its own tool registration (`owner` on `mcp-attach`, `keep` on `session-new`),
   and the MCP address carries the deck so a call that omits `document` still lands on its own deck.
-  A deck carries its own name in a presentation tag, so reconnecting does not re-issue it.
+  A deck carries its own name in a presentation tag, so reconnecting does not re-issue it. And the
+  conversation carries the deck's name too: `session-new` with `keep` takes `name` — what the
+  conversation is FOR, the document key — the daemon records it on the session, and `sessions`
+  answers it back as `for`. That is how a helper that was restarted (its bindings gone, the
+  daemon's disk intact) finds the conversation a document already has instead of opening an
+  empty one: it asks `sessions`, takes the newest row whose `for` is the document, and opens a
+  fresh one only when there is none (measured 2026-09-06/07, Excel — three turns vanished from a
+  pane on every helper restart until this).
 - **The helper must not cache decisions.** Six identities across four maps, each keyed differently,
   went stale under four different restart events; fourteen fixes in one day were each one cell of
   that table. The redesign — one idempotent `reconcile(deck)` that asks the pane, the daemon and the
@@ -180,7 +187,8 @@ not attached, drawn from sightings, not commandable.
 
 **The session picker's two verbs, and the dock's one (★implemented).** The bottom dock must switch conversations
 and open fresh ones, so the control socket carries `sessions` (this workspace's conversations —
-id, first-prompt title, model, labels, timestamps, newest activity first) and `session-new`
+id, first-prompt title, model, labels, `for` when the opener named what it was for, timestamps,
+newest activity first) and `session-new`
 (open a fresh conversation AND move onto it — one verb). Open-turn is deliberately absent:
 answering it reads every log whole, and the one conversation it could matter for is the current
 one, whose id the roster row already carries. `resume` refuses an id that is not already this
