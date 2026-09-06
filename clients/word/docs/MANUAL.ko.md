@@ -5,9 +5,9 @@
 > **이 문서가 무엇인가.** 구현된 기능 전부를 **쓰는 사람의 눈**으로 적는다. 왜 이렇게 설계했는지는 파워포인트 판의
 > [`DESIGN.md`](../../powerpoint/DESIGN.md)가 말한다 — 워드 판은 엑셀 판을 그대로 가져와 손(도구)만 바꿨다.
 >
-> **아직 실물 Word 에 붙여 보지 않았다(2026-09-06).** 여기 적힌 것은 전부 Word 없이 도는 시험(`node tools/smoke.mjs`·
-> `smoke-hand.mjs`·`wordhand.mjs`, `go test`)이 잰 것이다 — 「Word.js 가 그렇게 답한다」는 §9 에 적힌 대로 **아직 안 잰
-> 것**이고, 안 재 본 것을 「된다」고 세지 않는다. 엑셀 판은 첫 실물에서 지어낸 메서드 이름 둘이 잡혔다 — 여기도 그럴 것이다.
+> **실물 Word 에서 도구 44개가 돌았다(2026-09-06)** — Mac Word 의 실물 문서에 MCP 로 전부 불러 63호출 실패 0([`TESTING.ko.md`](./TESTING.ko.md) §5.1).
+> 첫 판엔 엑셀 판처럼 지어낸 모양 넷이 잡혔다(언어별 스타일 이름·목록 상속·그림 위치·날짜형 기록). 작업창 단추(인용·제안 적용·검토)는
+> **아직 사람이 안 눌렀다** — 그것은 §5.2 에 남아 있다.
 
 ---
 
@@ -58,7 +58,7 @@ go build -o magi-word ./clients/word/helper
 매니페스트는 `clients/word/addin/manifest.xml` — `<SourceLocation>` 이 `https://127.0.0.1:3002/` 이고 헬퍼의 기본 포트도 3002.
 
 - **macOS** — `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` 에 `manifest.xml` 을 복사하고 Word 를 완전히 끝냈다
-  다시 연다. 홈 탭 오른쪽 끝 **AI Assistant › Magi**.
+  다시 연다. 홈 탭 「추가 기능 › 개발자 추가 기능 › Magi」를 한 번 누르면 리본 오른쪽 끝에 **Magi** 단추가 생긴다.
 - **Windows** — 엑셀 판 [`INSTALL.ko.md`](../../excel/docs/INSTALL.ko.md) 와 같은 절차, 매니페스트만 이것. Word 2021 도 신뢰
   카탈로그 키가 하나여야 하는지는 아직 안 쟀다. 한 줄 설치기는 아직 없다(§9).
 
@@ -209,7 +209,9 @@ Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 �
 
 ## 9. 알아두면 좋은 동작 · 아직 아닌 것
 
-- **실물 Word 에서 아직 안 돌았다**(2026-09-06). 처음 붙이는 날의 기록은 [`TESTING.ko.md`](./TESTING.ko.md) §5 에 쌓는다.
+- **실물 Word 에서 도구 44개는 돌았다**(2026-09-06, [`TESTING.ko.md`](./TESTING.ko.md) §5.1). 작업창 단추는 아직 사람이 안 눌렀다.
+- **목록 항목 뒤에 넣은 문단은 Word 가 그 목록에 이어 붙인다** — `insert_paragraphs` 는 그것을 떼어 문단으로 두고, 항목이 필요하면 `insert_list`·`set_list`.
+- **스타일 이름은 언어별이다** — 한국어 Word 의 「제목 1」은 `style:"Heading 1"` 로 못 찾는다. 내장 이름(`Heading1`, `Normal`, `ListParagraph`)은 언어와 무관하게 통하고, 문서 고유 스타일은 문서가 보여 주는 이름 그대로.
 - **한 줄 설치 스크립트가 없다.** 엑셀 판 `install.ps1` 을 옮기면 된다.
 - **선택 → 문단 번호는 글로 찾는다** — 같은 문단이 둘이면 첫 것이고 `approx` 가 붙는다.
 - **기록·제안의 값은 짧다** — 사용자 지정 속성은 255자. 제안은 settings(1.4)에 살아 2021 에는 없다.

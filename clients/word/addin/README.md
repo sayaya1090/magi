@@ -10,7 +10,7 @@
 | `node tools/smoke-hand.mjs` | `FakeHand`·`ServeHand`·`HelperStream` | **돈다** — 71 ok |
 | `node tools/wordhand.mjs` | `WordHand` 를 가짜 Word.js 위에서 | **돈다** — 44/44 (없는 메서드 이름은 못 잡는다) |
 | `PORT=3010 node tools/serve.mjs` | 가짜 문서 + `FakeHand` | 돈다 |
-| **Word 안에서** | `OfficeDocument`·`WordHand` | **아직 안 돌았다** |
+| **Word 안에서** | `OfficeDocument`·`WordHand` | **돌았다** — 2026-09-06 실물 문서에 44/44, 63호출 실패 0([TESTING §5.1](../docs/TESTING.ko.md)) |
 
 ## 구조 — 워드 고유 파일
 
@@ -34,4 +34,4 @@ src/ui/screen.js              도구 44개의 사람 말 라벨, 인용 몸통, 
 
 ## 아직 아닌 것
 
-- 실물 Word(위). 각주·필드·콘텐츠 컨트롤·도형 손이 없다. 목업 문서는 글과 표만 그린다.
+- 작업창 단추(인용·제안 적용·검토)의 실물 눈검사. 각주·필드·콘텐츠 컨트롤·도형 손이 없다. 목업 문서는 글과 표만 그린다.

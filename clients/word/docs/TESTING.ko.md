@@ -25,9 +25,32 @@ OOXML, 기록은 255자, 제안은 settings(1.4).
 
 ## 5. 실물 — Word 와 사람의 손
 
-**아직 없다(2026-09-06).** 처음 붙이는 날 여기에 쌓는다. 점검표:
+### 5.1 도구 44개 — 실물 문서에 전수(2026-09-06 오후)
 
-1. Word 를 열고 홈 탭 **AI Assistant › Magi** → 작업창.
+Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-…` 로 광고됐고(WordApi 1.9), 스크래치 드라이버(`wordreal.py`)가
+**MCP 로 44개 전부**를 불렀다 — 문서 끝에 「4. 시험 절」을 넣고 그 안에서만 고쳤다. **첫 판 실패 4종 → 고침 → 63호출 실패 0.**
+실패는 전부 우리 쪽이었고, 넷 중 셋이 「stub 이 못 잡는 것」(위 §4)이었다:
+
+| 도구 | 실물이 한 말 | 원인 | 고침 |
+|---|---|---|---|
+| `insert_paragraphs{style:"Heading 1"}` | `InvalidArgument — Paragraph.style` | 한국어 Word 엔 「Heading 1」이란 스타일이 없다(「제목 1」) | 내장 이름(`Heading1`·"Heading 1"·`normal`)은 언어와 무관한 `styleBuiltIn` 으로, 나머지만 `style`(`applyStyle`) — `set_style{style}` 도 같은 길 |
+| `insert_list` | `GeneralException — Paragraph.startNewList` / `attachToList` | 목록 항목 뒤에 `insertParagraph` 한 문단은 그 목록을 **물려받는다**; 이미 항목인 문단에 둘 다 터진다 | 물려받은 것은 떼고(`detachInherited`), 안 붙은 것만 붙인다(`attachMissing`); `insert_paragraphs` 도 뗀다 — 넣으라는 말은 문단이지 항목이 아니다 |
+| `insert_image` | 「그림 바이트가 안 왔습니다」 → `InvalidArgument — insertInlinePictureFromBase64` | 헬퍼가 `add_image`(파워포인트·엑셀 이름)에만 바이트를 실었다; 문단의 그 메서드는 `Replace·Start·End` 만 받는다 | 헬퍼는 `insert_image` 에 싣고, 그림은 앞/뒤에 빈 문단을 하나 얻어 그 `Start` 에 |
+| `read_tags` | `"2026-09-06"` 이 `2026-09-06T00:00:00.000Z` 로 | 사용자 지정 속성은 형이 있다 — 날짜꼴 문자열을 Word 가 Date 로 굳힌다 | `type` 을 같이 읽어 자정 날짜는 날짜만 돌려준다 |
+
+호출 시간은 평균 0.65초, 가장 긴 것 1.6초(`insert_list`). 새로 잰 것: `smoke.mjs` 가 내장 스타일 목록을 `enums.go` 와 대조하고
+`applyStyle` 의 세 갈래를 문다.
+
+눈으로 본 것: 리본 홈 탭 오른쪽 끝에 **Magi** 단추(사이드로드 뒤 「추가 기능 › 개발자 추가 기능 › Magi」를 한 번 눌러야 생긴다),
+브랜드 줄 `MAGI word · 대화 s_…`, 헬퍼를 껐다 켜면 작업창이 스스로 되살아나 다시 광고한다(점검표 3·10 ✓). 토큰은 기동마다 새로
+난다 — 스크립트는 `taskpane.html` 의 부트 JSON 에서 읽는다. ⚠헬퍼 바이너리를 **제자리에 `cp` 로 덮으면** macOS 가 서명 캐시
+불일치로 SIGKILL 한다(아무 말 없이 죽는다) — `rm` 뒤 `cp`.
+
+### 5.2 사람의 손 — 아직
+
+점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
+
+1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
 3. 붙기 → `준비됐습니다 — 도구 44 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
