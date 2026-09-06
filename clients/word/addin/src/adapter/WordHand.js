@@ -184,6 +184,7 @@ export class WordHand extends HandPort {
       case 'delete_footnote': return this.#deleteFootnote(a);
       case 'set_style_format': return this.#setStyleFormat(a);
       case 'move_paragraphs': return this.#moveParagraphs(a);
+      case 'insert_file': return this.#insertFile(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
       case 'replace_all': return this.#replaceAll(a);
@@ -682,6 +683,23 @@ export class WordHand extends HandPort {
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();
       return this.#envelope({ width: pic.width, height: pic.height }, [`${said} 그림을 넣었습니다 (${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  /** 다른 .docx 를 이 문서에 넣는다 — 바이트는 헬퍼가 읽어 실어 준다(그림과 같은 길). */
+  async #insertFile(a) {
+    const b64 = str(a, 'file_base64'); if (!b64) refuse('파일 바이트가 안 왔습니다 — path 를 주면 헬퍼가 읽어 실어 줍니다');
+    const name = str(a, 'file_name') ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { p, where, said } = this.#anchor(items, a);
+      // Paragraph.insertFileFromBase64 도 Replace·Start·End 뿐이다 — 빈 문단을 세우고 통째로 바꾼다.
+      // 본문 끝/처음도 빈 문단을 세워 바꾼다 — body 의 End 에 바로 넣으면 첫 문단이 마지막 문단에 합쳐지고 수가 하나 모자란다(실물 2026-09-06).
+      const host = p ? p.insertParagraph('', where === 'Before' ? 'Before' : 'After') : context.document.body.insertParagraph('', where === 'Start' ? 'Start' : 'End');
+      host.styleBuiltIn = 'Normal'; // 끝 문단의 제목 스타일을 물려받지 않게 — 넣는 문서의 문단 서식이 없으면 이 문단이 기준이다
+      host.insertFileFromBase64(b64, 'Replace');
+      await context.sync(); this.#mutated();
+      const now = await this.#paras(context, 'text');
+      return this.#envelope({ file: name, paragraphs_now: now.length, added: now.length - items.length }, [`${said} 「${name}」 을 넣었습니다 — 문단 ${now.length - items.length}개`]);
     });
   }
   /** 문단 덩어리를 옮긴다 — OOXML 로 떠서 새 자리에 넣고 원본을 지운다. 서식·표가 같이 간다. */

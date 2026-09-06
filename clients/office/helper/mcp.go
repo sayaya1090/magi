@@ -238,6 +238,19 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		args["path"] = img.Path
 		args["image_bytes"] = img.Bytes
 	}
+	// 문서 파일도 같은 길이다 — Word 의 insert_file(.docx), Excel 의 insert_sheets_from_file(.xlsx).
+	if s.App.WantsFile != nil {
+		if ext := s.App.WantsFile(name); ext != "" {
+			doc, derr := ReadDocFile(fmt.Sprint(args["path"]), ext)
+			if derr != nil {
+				return errorResult(derr.Error())
+			}
+			args["file_base64"] = doc.Base64
+			args["file_name"] = doc.Name
+			args["file_bytes"] = doc.Bytes
+			args["path"] = doc.Path
+		}
+	}
 	// **부르는 대화가 자기 덱을 안다.** 그 대화 몫으로 붙인 등록은 주소에 덱을 싣고 오므로,
 	// 인자에 `document` 가 없어도 어느 덱인지가 정해진다.
 	//

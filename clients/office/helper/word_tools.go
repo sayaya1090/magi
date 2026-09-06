@@ -401,6 +401,19 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Required: []string{"from"},
 		},
 		{
+			Name: "insert_file",
+			Desc: "Insert another Word document (.docx on this machine) into this one — after/before a paragraph or at " +
+				"start/end — with its text, tables and formatting. Say the path; the helper reads the file and refuses " +
+				"anything that is not a Word document.",
+			Props: []property{
+				property{Name: "path", Type: "string", Desc: "Where the .docx is on this machine. Required."},
+				property{Name: "after", Type: "integer", Desc: "Put it after this paragraph (1-based)."},
+				property{Name: "before", Type: "integer", Desc: "Put it before this paragraph."},
+				property{Name: "at", Type: "string", Desc: "start or end (default end) when neither is given.", Enum: wordAtWhere},
+			},
+			Required: []string{"path"},
+		},
+		{
 			Name: "set_style_format",
 			Desc: "Change a paragraph STYLE itself — font, size, bold, italic, colour, alignment, spacing, indents — so every " +
 				"paragraph in that style changes at once, now and later. `style` is a built-in name (Heading1, Normal, " +

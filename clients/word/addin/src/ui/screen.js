@@ -828,7 +828,7 @@ const TOOL_LABELS = new Map(Object.entries({
   insert_paragraphs: '문단 넣기', replace_paragraph: '문단 글 바꾸기', delete_paragraphs: '문단 지우기', set_style: '스타일 걸기',
   format_text: '글자 서식', format_paragraph: '문단 서식', insert_table: '표 넣기', set_table_cells: '표 칸 쓰기', add_table_rows: '표 행 넣기',
   delete_table: '표 지우기', format_table: '표 서식', format_table_cells: '표 칸 서식', edit_table: '표 행·열 고치기', insert_list: '목록 넣기', set_list: '목록으로', insert_image: '그림 넣기', format_image: '그림 크기·설명', delete_image: '그림 지우기',
-  insert_break: '나누기 넣기', insert_field: '필드 넣기', insert_footnote: '각주 달기', delete_footnote: '각주 지우기', set_style_format: '스타일 정의', move_paragraphs: '문단 옮기기', set_header_footer: '머리글·바닥글', set_hyperlink: '링크', replace_all: '찾아 바꾸기',
+  insert_break: '나누기 넣기', insert_field: '필드 넣기', insert_footnote: '각주 달기', delete_footnote: '각주 지우기', set_style_format: '스타일 정의', move_paragraphs: '문단 옮기기', insert_file: '문서 파일 넣기', set_header_footer: '머리글·바닥글', set_hyperlink: '링크', replace_all: '찾아 바꾸기',
   add_comment: '메모 달기', reply_comment: '메모 답글', resolve_comment: '메모 해결', add_bookmark: '책갈피 넣기', delete_bookmark: '책갈피 지우기',
   set_track_changes: '변경 추적', review_changes: '변경 수락·거부', set_properties: '문서 속성', restore_paragraphs: '되돌리기',
   set_tag: '기록 남기기', suggest: '제안 붙이기', drop_suggestion: '제안 떼기', land: '끝 신고',

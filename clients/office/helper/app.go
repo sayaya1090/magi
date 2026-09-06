@@ -42,6 +42,8 @@ type App struct {
 	CheckArgs  func(t tool, args map[string]any) error
 	// WantsImage 는 이 호출이 헬퍼가 디스크에서 그림을 읽어 실어야 하는 것인가(mcp.go).
 	WantsImage func(name string, args map[string]any) bool
+	// WantsFile 은 이 호출이 디스크의 Office 문서를 읽어 실어야 하는 것인가 — 받는 확장자를 답한다("" 이면 아니다).
+	WantsFile func(name string) string
 	// Instructions 는 워크스페이스가 처음 생길 때 AGENTS.md 에 심는 운영 지침.
 	Instructions string
 	// MCPInstructions 는 initialize 응답의 instructions. RenderHint 는 그림을 못 보는 모델에게 대신 볼 것.
@@ -130,8 +132,14 @@ var (
 		Key: "word", Product: "Word", Noun: "document", NounKo: "문서", PartKo: "문단은",
 		DocPrefix: "wd-", DocParam: "doc", AddinDir: "word", Workspace: "word", Skills: "skills/word",
 		Catalogue: wordCatalogue, DocumentProp: wordDocumentProp, ValueEnums: wordValueEnums, EnumExempt: wordEnumExempt,
-		ArgExample:   `{"paragraph": 3}`,
-		WantsImage:   func(name string, _ map[string]any) bool { return name == "insert_image" },
+		ArgExample: `{"paragraph": 3}`,
+		WantsImage: func(name string, _ map[string]any) bool { return name == "insert_image" },
+		WantsFile: func(name string) string {
+			if name == "insert_file" {
+				return ".docx"
+			}
+			return ""
+		},
 		Instructions: wordInstructions,
 		MCPInstructions: "A document is already open in Word and these tools are attached to it. " +
 			"You do not create, open or upload a document and there is no tool that does. Paragraphs are " +
