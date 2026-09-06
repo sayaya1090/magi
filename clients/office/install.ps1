@@ -321,6 +321,19 @@ if ($NoAutostart) {
       Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $watch) -WindowStyle Hidden | Out-Null
       Done '손 감시기를 지금 띄웠다'
     }
+  } elseif ($perpetual) {
+    # 여기서 손을 못 지었어도(.NET SDK 없음, -SkipBuild) 파워포인트 판 설치기가 걸어 둔 감시기가 있을 수 있다 — 2단계에서
+    # 그 감시기를 멈췄으니 **도로 띄운다.** 안 그러면 다음 로그인까지 손이 안 붙는다(2021, 2026-09-07: 「피피티 핸드가
+    # 자동으로 안 켜져」 — 통합 설치기가 옛 감시기를 죽이고 제 것은 안 띄운 자리).
+    $prev = (Get-ItemProperty $run -Name 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue).'magi-ppt-hand-watch'
+    if ($prev) {
+      if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
+        Start-Process cmd.exe -ArgumentList @('/c', $prev) -WindowStyle Hidden | Out-Null
+        Done "손 감시기를 도로 띄웠다(Run\magi-ppt-hand-watch: $prev)"
+      }
+    } else {
+      Warn 'PowerPoint 2021 의 COM 손이 없다 — 이 설치기가 못 지었고(.NET SDK) 파워포인트 판 설치기의 감시기도 없다. .NET 9 SDK 를 깔고 다시 돌리거나 clients\powerpoint\install.ps1 을 돌려라.'
+    }
   }
 }
 
