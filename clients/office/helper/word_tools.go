@@ -120,6 +120,13 @@ func wordCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
+			Name: "list_shapes",
+			Desc: "Every floating shape in the body — text boxes and geometric shapes: id, name, type, position and size " +
+				"(pt), the text inside. Needs WordApiDesktop 1.2 (Microsoft 365 desktop)." + declare,
+			Props:    []property{},
+			ReadOnly: true,
+		},
+		{
 			Name: "read_tracked_changes",
 			Desc: "Pending tracked changes (insertions, deletions, formatting) with author, date and text, plus the " +
 				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." + declare,
@@ -479,6 +486,39 @@ func wordCatalogue(hasCouncil bool) []tool {
 				property{Name: "tag", Type: "string"}, property{Name: "id", Type: "integer"},
 				property{Name: "keep_content", Type: "boolean", Desc: "Default true."},
 			},
+		},
+		{
+			Name: "insert_shape",
+			Desc: "Add a floating text box or geometric shape (rectangle, rounded_rectangle, ellipse, triangle, diamond, " +
+				"hexagon, star, arrows) with optional text, fill and outline, at left/top with width/height in points from the " +
+				"page's top-left. Needs WordApiDesktop 1.2 — refused by name elsewhere.",
+			Props: []property{
+				property{Name: "shape", Type: "string", Desc: "textbox (default) or a geometric kind.", Enum: wordShapeKinds},
+				property{Name: "paragraph", Type: "integer", Desc: "Paragraph the shape is anchored to (1-based, default 1) — it floats, the anchor decides which page."},
+				property{Name: "text", Type: "string", Desc: "Text inside."},
+				property{Name: "name", Type: "string", Desc: "A name to find it by later."},
+				property{Name: "left", Type: "number"}, property{Name: "top", Type: "number"},
+				property{Name: "width", Type: "number", Desc: "Default 200."}, property{Name: "height", Type: "number", Desc: "Default 60."},
+				property{Name: "fill", Type: "string", Desc: "#RRGGBB, or none."},
+				property{Name: "line_color", Type: "string", Desc: "#RRGGBB outline, or none."},
+			},
+		},
+		{
+			Name: "format_shape",
+			Desc: "Change one shape (by id or name): text, fill, outline colour, position, size, name. Only the fields you pass change.",
+			Props: []property{
+				property{Name: "id", Type: "integer"}, property{Name: "name", Type: "string"},
+				property{Name: "text", Type: "string"}, property{Name: "fill", Type: "string", Desc: "#RRGGBB or none."},
+				property{Name: "line_color", Type: "string", Desc: "#RRGGBB or none."},
+				property{Name: "left", Type: "number"}, property{Name: "top", Type: "number"},
+				property{Name: "width", Type: "number"}, property{Name: "height", Type: "number"},
+				property{Name: "new_name", Type: "string"},
+			},
+		},
+		{
+			Name:  "delete_shape",
+			Desc:  "Remove one shape by id or name.",
+			Props: []property{property{Name: "id", Type: "integer"}, property{Name: "name", Type: "string"}},
 		},
 		{
 			Name: "set_style_format",

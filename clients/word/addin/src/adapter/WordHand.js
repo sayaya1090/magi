@@ -186,6 +186,10 @@ export class WordHand extends HandPort {
       case 'set_style_format': return this.#setStyleFormat(a);
       case 'move_paragraphs': return this.#moveParagraphs(a);
       case 'set_page_setup': return this.#setPageSetup(a);
+      case 'list_shapes': return this.#listShapes(a);
+      case 'insert_shape': return this.#insertShape(a);
+      case 'format_shape': return this.#formatShape(a);
+      case 'delete_shape': return this.#deleteShape(a);
       case 'read_content_controls': return this.#readContentControls(a);
       case 'insert_content_control': return this.#insertContentControl(a);
       case 'set_content_control': return this.#setContentControl(a);
@@ -725,6 +729,80 @@ export class WordHand extends HandPort {
       await context.sync(); this.#mutated();
       const now = await this.#paras(context, 'text');
       return this.#envelope({ file: name, paragraphs_now: now.length, added: now.length - items.length }, [`${said} 「${name}」 을 넣었습니다 — 문단 ${now.length - items.length}개`]);
+    });
+  }
+  // 도형(WordApiDesktop 1.2) — 글 상자와 기하 도형. 이름·id 로 고른다.
+  static #GEOMETRY = { rectangle: 'Rectangle', rounded_rectangle: 'RoundRectangle', ellipse: 'Ellipse', triangle: 'Triangle', diamond: 'Diamond', hexagon: 'Hexagon', star: 'Star5', right_arrow: 'RightArrow', left_arrow: 'LeftArrow', up_arrow: 'UpArrow', down_arrow: 'DownArrow' };
+  async #shapes(context) {
+    const col = context.document.body.shapes; col.load('items/id,items/name,items/type,items/left,items/top,items/width,items/height'); await context.sync();
+    return col.items;
+  }
+  async #shapePick(context, a) {
+    const id = int(a, 'id'); const name = str(a, 'name');
+    if (id == null && !name) refuse('id 나 name 이 있어야 합니다 — list_shapes 가 둘 다 줍니다');
+    const all = await this.#shapes(context);
+    const s = id != null ? all.find((x) => x.id === id) : all.find((x) => x.name === name);
+    if (!s) refuse(`${id != null ? `id ${id}` : `이름 「${name}」`}인 도형이 없습니다 — ${all.length ? `있는 것: ${all.map((x) => `${x.name || '(이름 없음)'}#${x.id}`).join(', ')}` : '하나도 없습니다'}`);
+    return s;
+  }
+  static #shapeText(s) { try { const b = s.body; b.load('text'); return b; } catch { return null; } }
+  async #listShapes() {
+    this.#need('WordApiDesktop', '1.2', 'list_shapes');
+    return this.runner(async (context) => {
+      const all = await this.#shapes(context);
+      const bodies = all.map((s) => WordHand.#shapeText(s)); try { await context.sync(); } catch { /* 글 없는 도형은 body 가 없다 */ }
+      const shapes = all.map((s, i) => ({ id: s.id, name: s.name, type: s.type, left: Math.round(s.left), top: Math.round(s.top), width: Math.round(s.width), height: Math.round(s.height), text: bodies[i] ? clip(bodies[i].text ?? '', 80) : '' }));
+      return this.#envelope({ count: shapes.length, shapes });
+    });
+  }
+  async #insertShape(a) {
+    this.#need('WordApiDesktop', '1.2', 'insert_shape');
+    const kind = str(a, 'shape') ?? 'textbox'; const text = str(a, 'text'); const name = str(a, 'name');
+    const opts = { left: num(a, 'left') ?? 72, top: num(a, 'top') ?? 72, width: num(a, 'width') ?? 200, height: num(a, 'height') ?? 60 };
+    const fill = hex(a, 'fill', true); const line = hex(a, 'line_color', true);
+    const geom = kind === 'textbox' ? null : (WordHand.#GEOMETRY[kind] ?? refuse(`shape 는 textbox, ${Object.keys(WordHand.#GEOMETRY).join(', ')} 중 하나 — ${kind}`));
+    return this.runner(async (context) => {
+      // 실물(Mac 365, WordApiDesktop 1.2): Body 에는 insertTextBox/insertGeometricShape 가 없고 문단·범위에 있다(2026-09-06).
+      // 도형은 문단에 닻을 내린다 — paragraph 를 안 주면 첫 문단.
+      const items = await this.#paras(context, 'text');
+      const n = int(a, 'paragraph') ?? 1;
+      if (n < 1 || n > items.length) refuse(`문서에 ${n}번 문단이 없습니다 — 문단 ${items.length}개`);
+      const host = items[n - 1];
+      const s = geom ? host.insertGeometricShape(geom, opts) : host.insertTextBox(text ?? '', opts);
+      if (name) s.name = name;
+      if (fill) { if (fill === 'none') s.fill.clear(); else s.fill.setSolidColor(fill); }
+      // 실물의 Shape 프록시에 outline 이 없다(2026-09-06) — line 이 있으면 그것으로, 둘 다 없으면 못 바꿨다고 적는다.
+      const ol = s.outline ?? s.line; let lineNote = '';
+      if (line) { if (ol) { if (line === 'none') ol.visible = false; else { ol.visible = true; ol.color = line; } } else lineNote = ' (선 색은 이 Word 판에서 못 바꿉니다)'; }
+      if (geom && text) s.body.insertText(text, 'Replace');
+      s.load('id,name'); await context.sync(); this.#mutated();
+      return this.#envelope({ id: s.id, name: s.name, shape: kind, ...opts }, [`${kind === 'textbox' ? '글 상자' : `도형(${kind})`}를 넣었습니다 — id ${s.id}${s.name ? ` 「${s.name}」` : ''}, (${opts.left}, ${opts.top}) ${opts.width}×${opts.height}pt${text ? ` 「${clip(text, 30)}」` : ''}${lineNote}`]);
+    });
+  }
+  async #formatShape(a) {
+    this.#need('WordApiDesktop', '1.2', 'format_shape');
+    const text = str(a, 'text'); const fill = hex(a, 'fill', true); const line = hex(a, 'line_color', true); const nn = str(a, 'new_name');
+    const pos = ['left', 'top', 'width', 'height'].filter((k) => num(a, k) != null);
+    const words = [text != null && `글 「${clip(text, 30)}」`, fill && `채우기 ${fill}`, line && `선 ${line}`, ...pos.map((k) => `${k} ${num(a, k)}`), nn && `이름 「${nn}」`].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — text·fill·line_color·left/top/width/height·new_name 중 하나');
+    return this.runner(async (context) => {
+      const s = await this.#shapePick(context, a);
+      if (text != null) s.body.insertText(text, 'Replace');
+      if (fill) { if (fill === 'none') s.fill.clear(); else s.fill.setSolidColor(fill); }
+      const ol = s.outline ?? s.line;
+      if (line) { if (ol) { if (line === 'none') ol.visible = false; else { ol.visible = true; ol.color = line; } } else refuse('선 색은 이 Word 판에서 못 바꿉니다 — Shape 에 outline 이 없습니다'); }
+      for (const k of pos) s[k] = num(a, k);
+      if (nn) s.name = nn;
+      await context.sync(); this.#mutated();
+      return this.#envelope({ id: s.id, name: nn ?? s.name }, [`도형 「${s.name || s.id}」: ${words.join(', ')}`]);
+    });
+  }
+  async #deleteShape(a) {
+    this.#need('WordApiDesktop', '1.2', 'delete_shape');
+    return this.runner(async (context) => {
+      const s = await this.#shapePick(context, a); const id = s.id; const name = s.name;
+      s.delete(); await context.sync(); this.#mutated();
+      return this.#envelope({ id, name }, [`도형 「${name || id}」 를 지웠습니다`]);
     });
   }
   async #setPageSetup(a) {

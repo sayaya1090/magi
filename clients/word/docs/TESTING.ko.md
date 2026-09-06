@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 62개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 66개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 62개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 66개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -111,13 +111,20 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 제목 바꾸고, 잠금 해제·태그 바꾸기, 없는 태그는 있는 것을 대고 거절, 떼면 글은 남는다 — 열다섯 호출, 일부러 낸 거절 둘 빼고 실패 0.
 `insertContentControl`·`cannotEdit/cannotDelete`·`placeholderText`·`appearance`·`delete(keep)` 전부 1.9 실물 그대로.
 
+### 5.1.10 도형 넷 — 실물(2026-09-06 밤)
+
+도구 63~66(WordApiDesktop 1.2 — Mac 365 에서 됨). 글 상자(채우기·글)와 오른쪽 화살표(문단 9 에 닻)를 넣고, 목록(id·이름·종류·자리·크기·
+글), 이름으로 글·채우기·자리·너비 고치기, 이름 바꾸기, 없는 이름은 있는 것을 대고 거절, 지우기. 실물이 가르쳐 준 것 둘: `Body` 에는
+`insertTextBox`·`insertGeometricShape` 가 없다(문단·범위에만) → 문단에 닻(`paragraph`, 기본 1); `Shape` 프록시에 `outline` 이 없다 →
+선 색은 「이 Word 판에서 못 바꿉니다」로 답에 적고 나머지는 한다.
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 62 개.`
+3. 붙기 → `준비됐습니다 — 도구 66 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.

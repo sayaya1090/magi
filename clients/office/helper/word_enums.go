@@ -25,6 +25,9 @@ var wordPapers = []string{"A4", "A3", "A5", "B4", "B5", "Letter", "Legal", "Tabl
 // wordCCAppearances 는 콘텐츠 컨트롤의 모양(Word.ContentControlAppearance).
 var wordCCAppearances = []string{"BoundingBox", "Tags", "Hidden"}
 
+// wordShapeKinds 는 insert_shape 의 종류 — 사람 말 이름을 Word.GeometricShapeType 으로 옮긴다(손).
+var wordShapeKinds = []string{"textbox", "rectangle", "rounded_rectangle", "ellipse", "triangle", "diamond", "hexagon", "star", "right_arrow", "left_arrow", "up_arrow", "down_arrow"}
+
 var wordFieldKinds = []string{"toc", "page", "num_pages", "date", "time", "title", "author", "file_name"}
 var wordHeaderFooter = []string{"header", "footer"}
 var wordHeaderKinds = []string{"Primary", "FirstPage", "EvenPages"}
@@ -67,6 +70,7 @@ var wordValueEnums = map[string][]string{
 	"orientation": wordOrientations,
 	"paper":       wordPapers,
 	"appearance":  wordCCAppearances,
+	"shape":       wordShapeKinds,
 	"mode":        wordTrackModes,
 	"what":        wordReviewWhats,
 	"builtin":     wordBuiltinStyles,

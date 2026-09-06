@@ -6,14 +6,14 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 문서 도구 | `mcp__word__*` | **62** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
+| 문서 도구 | `mcp__word__*` | **66** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `skill`, `todowrite` … | 코어 레지스트리 | 데몬 |
 | 플러그인 도구 | `land` | 1 (카운슬 끈 대화) | `<config>/plugins/landing` |
 | 가이드 | `document-structure`, `editing`, `tables-and-review` | 3 | 헬퍼가 `word/skills/` 에서 심는다 |
 | 지속 지시 | `AGENTS.md` | 브리프 7단계 | `instructions.go` |
 | 첫 도구 설명의 머리말 | "A DOCUMENT IS ALREADY OPEN IN WORD…" | 1 | `list_paragraphs` |
 
-## 1. 도구 62 — 무리별과 요구 집합
+## 1. 도구 66 — 무리별과 요구 집합
 
 | 무리 | 도구 | 요구 집합 |
 |---|---|---|
@@ -25,6 +25,7 @@
 | 메모·책갈피·추적 | `read_comments` `add_comment` `reply_comment` `resolve_comment` `add_bookmark` `delete_bookmark` `set_track_changes` | 1.4 |
 | 변경 검토 | `read_tracked_changes` `review_changes` | 1.6 |
 | 스타일 정의 | `set_style_format` — 스타일의 글꼴·간격을 문서 전체로, `create` 로 새 스타일 | 1.5 |
+| 도형 | `list_shapes` `insert_shape` `format_shape` `delete_shape` | WordApiDesktop 1.2 |
 | 쪽 설정 | `set_page_setup` — 방향·용지·여백 | WordApiDesktop 1.1 |
 | 콘텐츠 컨트롤 | `read_content_controls` `insert_content_control` `set_content_control` `delete_content_control` | 1.1 |
 | 각주·미주 | `read_footnotes` `insert_footnote` `delete_footnote` | 1.5 |
