@@ -240,7 +240,7 @@ func catalogue(hasCouncil bool) []tool {
 				property{Name: "after", Type: "integer", Desc: "Insert after this paragraph number (default: end of body)."},
 				property{Name: "before", Type: "integer", Desc: "Insert before this paragraph number."},
 				property{Name: "at", Type: "string", Desc: "\"start\" or \"end\" of the body when neither after nor before is given.", Enum: atWhere},
-				property{Name: "style", Type: "string", Desc: "Paragraph style name for all lines, e.g. \"Heading 2\"."},
+				property{Name: "style", Type: "string", Desc: "Style for all lines: a built-in name (\"Heading2\", \"Normal\", \"ListParagraph\" — language-independent) or the document's own style name."},
 			},
 			Required: []string{"lines"},
 		},
@@ -265,7 +265,7 @@ func catalogue(hasCouncil bool) []tool {
 				"are how headings become headings — the navigation pane, the table of contents and the outline " +
 				"all read them; bold 16pt text is not a heading.",
 			Props: withFromTo(
-				property{Name: "style", Type: "string", Desc: "Style name as the document shows it (localized names work)."},
+				property{Name: "style", Type: "string", Desc: "Style name as the document shows it (localized names work); a built-in name like \"Heading2\" is taken as builtin."},
 				property{Name: "builtin", Type: "string", Desc: "Built-in style, language-independent.", Enum: builtinStyles},
 			),
 			Required: []string{"from"},
