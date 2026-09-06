@@ -88,6 +88,13 @@ func wordCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
+			Name: "list_images",
+			Desc: "Every inline picture in the body: number (document order), the paragraph it sits in, width and height " +
+				"(pt), alt text. Use the number with format_image / delete_image." + declare,
+			Props:    withFromTo(),
+			ReadOnly: true,
+		},
+		{
 			Name: "read_footnotes",
 			Desc: "Every footnote and endnote: number, kind, the paragraph it hangs on, the referenced text, and the note. " +
 				"Needs WordApi 1.5 — refused by name on 2019/2021." + declare,
@@ -334,6 +341,24 @@ func wordCatalogue(hasCouncil bool) []tool {
 				property{Name: "alt", Type: "string", Desc: "Alt text. Set it."},
 			},
 			Required: []string{"path"},
+		},
+		{
+			Name: "format_image",
+			Desc: "Resize or relabel one inline picture (number from list_images): width and/or height in points (aspect " +
+				"kept when only one is given), alt text, and the paragraph's alignment (Left, Centered, Right).",
+			Props: []property{
+				property{Name: "image", Type: "integer", Desc: "Picture number, 1-based in document order. Required."},
+				property{Name: "width", Type: "number", Desc: "Points."}, property{Name: "height", Type: "number", Desc: "Points."},
+				property{Name: "alt", Type: "string", Desc: "Alt text."},
+				property{Name: "align", Type: "string", Desc: "Left, Centered, Right — of the paragraph holding it.", Enum: wordAligns},
+			},
+			Required: []string{"image"},
+		},
+		{
+			Name:     "delete_image",
+			Desc:     "Remove one inline picture by number (list_images). The paragraph stays; its text (if any) stays.",
+			Props:    []property{property{Name: "image", Type: "integer", Desc: "Picture number, 1-based. Required."}},
+			Required: []string{"image"},
 		},
 		{
 			Name:     "insert_break",

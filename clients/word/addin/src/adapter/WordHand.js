@@ -174,6 +174,9 @@ export class WordHand extends HandPort {
       case 'insert_list': return this.#insertList(a);
       case 'set_list': return this.#setList(a);
       case 'insert_image': return this.#insertImage(a);
+      case 'list_images': return this.#listImages(a);
+      case 'format_image': return this.#formatImage(a);
+      case 'delete_image': return this.#deleteImage(a);
       case 'insert_break': return this.#insertBreak(a);
       case 'insert_field': return this.#insertField(a);
       case 'read_footnotes': return this.#readFootnotes(a);
@@ -620,6 +623,49 @@ export class WordHand extends HandPort {
       if (level != null) { for (const p of list) { p.listItem.level = level; } }
       await context.sync(); this.#mutated();
       return this.#envelope({ from, to, kind: kind ?? null, level: level ?? null }, [`문단 ${from}${to > from ? `–${to}` : ''} 을 ${kind === 'numbered' ? '번호 ' : kind === 'bulleted' ? '글머리 기호 ' : ''}목록으로${level != null ? ` (단계 ${level})` : ''}`]);
+    });
+  }
+  /** 본문의 그림 — 문서 순서, 1부터. 문단 번호는 그림이 앉은 문단의 글로 찾는다. */
+  async #pictures(context, items) {
+    const pics = context.document.body.inlinePictures; pics.load('items/width,items/height,items/altTextDescription'); await context.sync();
+    const paras = pics.items.map((p) => { const q = p.paragraph; q.load('text'); return q; }); await context.sync();
+    return pics.items.map((p, i) => ({ pic: p, number: i + 1, paragraph: (items.findIndex((x) => x.text === paras[i].text) + 1) || null, width: p.width, height: p.height, alt: p.altTextDescription ?? '' }));
+  }
+  async #listImages(a) {
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { from, to } = this.#pick(items, a, { must: false });
+      const all = await this.#pictures(context, items);
+      const images = all.filter((p) => p.paragraph == null || (p.paragraph >= from && p.paragraph <= to)).map(({ number, paragraph, width, height, alt }) => ({ number, paragraph, width: Math.round(width), height: Math.round(height), alt }));
+      return this.#envelope({ from, to, count: images.length, images });
+    });
+  }
+  async #formatImage(a) {
+    const n = int(a, 'image') ?? refuse('image 가 없습니다 — list_images 의 번호'); const w = num(a, 'width'); const h = num(a, 'height'); const alt = str(a, 'alt'); const align = str(a, 'align');
+    const words = [w != null && `너비 ${w}pt`, h != null && `높이 ${h}pt`, alt != null && `대체 텍스트 「${clip(alt, 30)}」`, align && `정렬 ${align}`].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — width·height·alt·align 중 하나');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const all = await this.#pictures(context, items);
+      if (n < 1 || n > all.length) refuse(`그림 ${n}번이 없습니다 — 그림 ${all.length}개`);
+      const { pic } = all[n - 1];
+      if (w != null && h != null) { pic.lockAspectRatio = false; pic.width = w; pic.height = h; }
+      else if (w != null) { pic.lockAspectRatio = true; pic.width = w; }
+      else if (h != null) { pic.lockAspectRatio = true; pic.height = h; }
+      if (alt != null) pic.altTextDescription = alt;
+      if (align) pic.paragraph.alignment = align;
+      pic.load('width,height'); await context.sync(); this.#mutated();
+      return this.#envelope({ image: n, width: Math.round(pic.width), height: Math.round(pic.height) }, [`그림 ${n}: ${words.join(', ')} (지금 ${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  async #deleteImage(a) {
+    const n = int(a, 'image') ?? refuse('image 가 없습니다 — list_images 의 번호');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const all = await this.#pictures(context, items);
+      if (n < 1 || n > all.length) refuse(`그림 ${n}번이 없습니다 — 그림 ${all.length}개`);
+      all[n - 1].pic.delete(); await context.sync(); this.#mutated();
+      return this.#envelope({ image: n, deleted: true }, [`그림 ${n}번을 지웠습니다 — 문단은 그대로입니다`]);
     });
   }
   async #insertImage(a) {
