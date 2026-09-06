@@ -484,3 +484,56 @@ func TestTheReadingCountsTheAnswerThatCameBack(t *testing.T) {
 		t.Errorf("the companion answered ~200 tokens and the reading says the conversation is %d — it measured the request that was sent, not the context that came back: %+v", st.Parts.Talk, st.Parts)
 	}
 }
+
+// The reading takes what the window HELD at the end of the turn, not the turn's bill. The bill sums
+// In over every step, so a six-step turn billed 221k against a 35k context — and the make-up,
+// scaled to the bill, drew a 196k tool catalog (Excel, 2026-09-07).
+func TestTheReadingTakesWhatTheWindowHeldNotTheBill(t *testing.T) {
+	a, dir := newApp(t, &fakeLLM{}, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(event.TurnFinishedData{
+		Usage:  event.Usage{In: 221482, Out: 3000, Cached: 167852, CacheReported: true}, // six steps, summed
+		Held:   &event.Usage{In: 35000, Out: 500, Cached: 30000, CacheReported: true},   // the last one
+		Prompt: &event.PromptShape{System: 3000, Tools: 31000, Talk: 400},
+	})
+	if _, err := a.store.Append(context.Background(), sid, event.Event{Type: event.TypeTurnFinished, Data: b, TS: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Used != 35500 || st.Cached != 30000 {
+		t.Fatalf("the reading took the bill for the window: used=%d cached=%d", st.Used, st.Cached)
+	}
+	if st.Parts.Tools > 35500 {
+		t.Errorf("the tool catalog was scaled to the bill: %+v", st.Parts)
+	}
+}
+
+// A finished turn records what the window held — the last step's own count — beside the bill.
+func TestAFinishRecordsWhatTheWindowHeld(t *testing.T) {
+	llm := &usageLLM{text: "done", in: 1234, out: 56}
+	a, dir := newApp(t, llm, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evs := runToTerminal(t, a, sid)
+	var d event.TurnFinishedData
+	found := false
+	for _, e := range evs {
+		if e.Type == event.TypeTurnFinished && json.Unmarshal(e.Data, &d) == nil {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no turn.finished")
+	}
+	if d.Held == nil || d.Held.In != 1234 || d.Held.Out != 56 {
+		t.Fatalf("the finish did not record what the window held: %+v", d.Held)
+	}
+}

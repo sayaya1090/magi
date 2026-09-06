@@ -209,7 +209,15 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// the prompt it sent plus the answer that came back, and the backend counted both. In
 			// alone is what the request cost, one answer short of what the window holds now — a
 			// person saw "talk 1" on a companion that had answered them (2026-09-06).
-			if d.Usage.In > 0 {
+			// And it is the LAST request's count, not the turn's bill. Usage sums In over every
+			// step of the turn; a six-step turn's bill is six windows' worth, and a reading that
+			// took it for the window drew a 35k context as 221k with a 196k tool catalog (Excel,
+			// 2026-09-07). Held is what the window actually held when the turn ended; the bill
+			// stands in only for turns recorded before Held was.
+			if d.Held != nil && d.Held.In > 0 {
+				out.Used = d.Held.In + d.Held.Out
+				out.Cached, out.CacheReported = d.Held.Cached, d.Held.CacheReported
+			} else if d.Usage.In > 0 {
 				out.Used = d.Usage.In + d.Usage.Out
 				out.Cached, out.CacheReported = d.Usage.Cached, d.Usage.CacheReported
 			}

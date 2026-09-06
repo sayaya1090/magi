@@ -213,7 +213,7 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	}
 	// A finish no council ever read (the agent never declared, past declareAskCap) lands as
 	// UNVERIFIED so the UI stops painting an abandoned task as a confident done.
-	d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Prompt: shapeOf(a, tc.s.ID),
+	d, _ := json.Marshal(event.TurnFinishedData{Usage: u, Held: heldOf(ts.held), Prompt: shapeOf(a, tc.s.ID),
 		Unverified: ts.unverifiedReason != "", Reason: ts.unverifiedReason})
 	a.appendFact(ctx, tc.s.ID, event.TypeTurnFinished, tc.actor, d)
 	return loopFinish

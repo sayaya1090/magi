@@ -183,6 +183,9 @@ type turnState struct {
 	dropTold         bool
 	reasks           int    // how many times this turn asked somebody again after declaring finished
 	unverifiedReason string // non-empty when the turn finishes WITHOUT council approval
+	// held is the last step's own usage — what the window holds now — recorded on the finish as
+	// TurnFinishedData.Held beside the bill.
+	held event.Usage
 }
 
 // allowAtFinish lets a tool run in the steps after a turn has declared itself done.
@@ -417,6 +420,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			cumOut += usage.Out
 			if usage.In > 0 {
 				lastIn = usage.In
+				// What the window holds after THIS step — this request and its answer — for the
+				// finish to record beside the bill (TurnFinishedData.Held).
+				ts.held = *usage
 			}
 			cumCost += a.cfg.Models.Get(s.Model.Model).Cost(usage.In, usage.Out)
 		}
@@ -540,6 +546,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	if depth == 0 && !a.cfg.Workflow {
 		d, _ := json.Marshal(event.TurnFinishedData{
 			Usage:      turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost),
+			Held:       heldOf(ts.held),
 			Prompt:     shapeOf(a, sid),
 			Unverified: true,
 			Reason: fmt.Sprintf("the turn spent the %d-step runaway backstop without finishing — "+
@@ -954,6 +961,16 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		}
 	}
 	return true
+}
+
+// heldOf is the Held a finish records: the last step's own usage, or nothing when no step reported
+// one — a zero would read as "an empty window", which is not what silence means.
+func heldOf(u event.Usage) *event.Usage {
+	if u.In <= 0 {
+		return nil
+	}
+	h := u
+	return &h
 }
 
 // turnUsage is what a finished turn reports: the BILL, measured as the meter's delta across the turn

@@ -190,6 +190,13 @@ type TurnFinishedData struct {
 	// Recorded once per turn rather than per step because it is stable within a turn by
 	// construction (the prompt is frozen at turn start so the backend's prefix cache holds).
 	Prompt *PromptShape `json:"prompt,omitempty"`
+	// Held is what the context window HELD when the turn ended: the last request's prompt count
+	// and the answer that came back, as the backend counted them. Usage is the bill — In summed
+	// over every step of the turn — and a reader that took the bill for the window's size drew a
+	// six-step turn as six windows: a 35k context read 221k, and the tool catalog, scaled to it,
+	// 196k (Excel, 2026-09-07). Absent on turns recorded before this was, and on the empty
+	// finishes a cancel writes; readers fall back to Usage there.
+	Held *Usage `json:"held,omitempty"`
 }
 
 // PromptShape is the estimated make-up of one request, in tokens.
