@@ -1508,4 +1508,11 @@ console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
   ok('compaction 은 접은 줄로 선다 — 모르는 이벤트가 아니다', row?.kind === 'fold' && row.fold.before === 9000 && t.unknownNote === null, JSON.stringify({ kind: row?.kind, un: t.unknownNote }));
   ok('접은 줄의 글은 전후와 덜어낸 양을 k 로', foldText(row) === '컨텍스트를 접었습니다 — 9k → 1.2k 토큰 · 7.8k 덜어냄', foldText(row));
   ok('전후를 모르면 접었다고만', foldText({ kind: 'fold', fold: { before: 0, after: 0 } }) === '컨텍스트를 접었습니다');
+  // 덜어냄(2026-09-07) — 접기의 싼 층. 모르는 이벤트가 아니라 접은 줄이고, 진행 말은 세기만 한다.
+  t.append({ type: 'result.elided', seq: 10, data: { callId: 'c1', bytes: 8000 } });
+  const cut = t.rows[t.rows.length - 1];
+  ok('result.elided 는 덜어낸 줄로 선다', cut?.kind === 'fold' && cut.fold.bytes === 8000 && t.unknownNote === null, JSON.stringify({ kind: cut?.kind, un: t.unknownNote }));
+  ok('덜어낸 줄의 글은 토큰쯤과 되돌리는 길', foldText(cut) === '도구 결과 하나를 덜어냈습니다 — 2k 토큰쯤 · 다시 읽으면 돌아옵니다', foldText(cut));
+  t.append({ type: 'tool.progress', seq: 11, data: { name: 'compact', text: 'freed the window' } });
+  ok('tool.progress 는 세기만 한다 — 모르는 것도 그리는 것도 아니다', t.unknownNote === null && /tool\.progress/.test(t.skippedNote ?? ''), `${t.unknownNote} / ${t.skippedNote}`);
 }

@@ -54,6 +54,10 @@ const DRAWN = new Map([
   // 접기. 그리지 않으면 「그릴 줄 모르는 이벤트 — compaction」이 뜬다(사용자 2026-09-06). 접기 전후를 적어
   // 사람이 무엇이 줄었는지 본다 — 시스템·도구 목록은 접히지 않으므로 줄어든 것은 대화뿐이다.
   ['compaction', 'fold'],
+  // 덜어냄. 접기의 싼 층 — 큰 도구 결과 하나를 스텁으로 바꾼 것(코어 `compact.go elideRecentResults`).
+  // 안 그리면 「그릴 줄 모르는 이벤트 — result.elided」가 뜬다(사용자 2026-09-07). 접은 줄과 같은 모양으로,
+  // 몇 바이트를 덜어냈고 다시 읽을 수 있다는 것을 적는다.
+  ['result.elided', 'fold'],
 ]);
 
 /**
@@ -100,6 +104,9 @@ const IGNORED = new Set([
   // 대화의 첫 줄일 뿐이다. 그런 줄이 늘 떠 있으면 사람은 그 자리를 안 읽게 되고, 진짜
   // 모르는 것이 왔을 때 그 줄이 아무 일도 못 한다.
   'session.created', 'session.moved',
+  // 도구의 진행 말(접기의 「덜어냈다·접는 중·접었다」도 이 채널). 사실은 `result.elided`·`compaction` 이
+  // 따로 오고 그 둘을 그리므로, 진행 말까지 그리면 같은 일이 두 번 선다.
+  'tool.progress',
 ]);
 
 /**
@@ -364,7 +371,8 @@ export class Transcript {
       result: kind === 'result' ? toolResultOf(ev) : null,
       permission: kind === 'permission' ? decisionOf(ev) : null,
       council: kind === 'council' ? councilOf(ev, type) : null,
-      fold: kind === 'fold' ? { before: Number(ev?.data?.tokensBefore) || 0, after: Number(ev?.data?.tokensAfter) || 0 } : null,
+      fold: kind === 'fold' ? { before: Number(ev?.data?.tokensBefore) || 0, after: Number(ev?.data?.tokensAfter) || 0,
+        bytes: type === 'result.elided' ? Number(ev?.data?.bytes) || 0 : 0 } : null,
     });
     row.settled = type === 'part.appended';
     row.landed = landed;

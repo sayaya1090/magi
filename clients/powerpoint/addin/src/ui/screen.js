@@ -492,6 +492,8 @@ export function argsCell(r) {
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
 /** 접은 줄의 글. 줄어든 것은 대화다 — 시스템·도구 목록은 접히지 않는다. */
 export function foldText(r) {
+  const bytes = Number(r?.fold?.bytes) || 0;
+  if (bytes > 0) return `도구 결과 하나를 덜어냈습니다 — ${kilo(Math.round(bytes / 4))} 토큰쯤 · 다시 읽으면 돌아옵니다`;
   const b = Number(r?.fold?.before) || 0; const a = Number(r?.fold?.after) || 0;
   if (b <= 0 && a <= 0) return '컨텍스트를 접었습니다';
   const shed = b - a;
