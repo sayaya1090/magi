@@ -244,6 +244,8 @@ fallback-1: assistant outputs fenced block:
             ⇒ {tool-call, read, {path:"x"}}
 fallback-2: assistant outputs "그냥 일반 답변입니다"   ⇒ text part, no tool-call
 fallback-3: assistant outputs broken JSON             ⇒ 1 repair retry; if still bad → text part
+fallback-4: 툴 이름 없는 객체만 출력                    ⇒ 답을 인용해 「이름이 없다」고 되묻는 repair 요청,
+            (예: {"address":"A1","text":"…"})            턴당 최대 2회, 그 뒤엔 text. 인자 키로 툴을 추측하지 않는다.
 ```
 
 > ⚠️ 이 영역은 **mock SSE 픽스처 단위테스트 + 실제 Ollama 모델 라이브 통합테스트** 둘 다 필수.

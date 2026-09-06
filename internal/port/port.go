@@ -142,6 +142,13 @@ type ProviderEvent struct {
 	// text output (prompt-based fallback) rather than native tool_calls. The
 	// loop uses this to avoid also persisting the text as a separate part.
 	FromText bool
+	// MalformedCall is set on a ProviderFinish when the reply carried no native tool call but its
+	// text had the SHAPE of one — a bare JSON object, or a <function=…> opener — that could not be
+	// read as a call: no tool name, or a name that is not a tool. Models that drop the name emit
+	// exactly that (gpt-oss via Ollama, Excel 2021, 2026-09-07: {"address":"A1","text":"…"} was
+	// printed as prose and nothing ran). The loop answers it with a repair request
+	// (F-LLM-FALLBACK R3) instead of showing the JSON to the person.
+	MalformedCall bool
 }
 
 // ---- Council (D14: consensus termination gate) ----

@@ -45,7 +45,7 @@ func parseFallbackToolCall(text string, known map[string]bool) (*session.ToolCal
 		}
 	}
 	if !parsed {
-		fmt.Fprintf(os.Stderr, "magi: a reply that looks like a tool call did not parse (%d bytes); treating it as text\n", len(s))
+		fmt.Fprintf(os.Stderr, "magi: a reply that looks like a tool call did not parse (%d bytes); the loop will ask for a repair\n", len(s))
 		return nil, false
 	}
 	name := probe.Name
@@ -63,6 +63,21 @@ func parseFallbackToolCall(text string, known map[string]bool) (*session.ToolCal
 	args = normalizeArgs(args)
 
 	return &session.ToolCall{Name: name, Args: args}, true
+}
+
+// looksLikeToolCall reports whether assistant text has the SHAPE of a tool call even when it
+// cannot be read as one: a single JSON object (optionally fenced) or a <function=…>/[function=…]
+// opener. Ordinary prose, arrays and numbers are not. It is what turns "treat it as text" into
+// "ask for a repair" (port.ProviderEvent.MalformedCall) — a reply that is one object is an action
+// the model failed to phrase, not an answer for the person.
+func looksLikeToolCall(text string) bool {
+	s := stripFence(strings.TrimSpace(text))
+	// The XML form counts only when the reply STARTS with it — prose that mentions the syntax, or
+	// code that contains it, is an answer (review 2026-09-07).
+	if loc := xmlFuncRE.FindStringIndex(s); loc != nil && loc[0] == 0 {
+		return true
+	}
+	return strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}")
 }
 
 var (

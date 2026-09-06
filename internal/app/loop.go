@@ -159,7 +159,10 @@ type turnState struct {
 	// So the rule is not "say it once", it is "never say the same thing twice". Each repeat names
 	// the repetition and narrows what is being asked for, which is information the previous one
 	// did not carry.
-	spins           int
+	spins int
+	// malformed counts replies shaped like a tool call that named no tool; each gets a repair
+	// request (F-LLM-FALLBACK R3), at most two a turn — then such a reply is shown as text.
+	malformed       int
 	cutNoted        bool
 	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
 	declareAskEpoch int  // guard.mutationEpoch() at the last such ask; a later epoch resets the count
@@ -417,6 +420,27 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 					"it again:\n\n" + tail
 			}
 			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, say)
+			continue
+		}
+		// A reply shaped like a tool call that could not be read as one — no tool name (gpt-oss via
+		// Ollama drops it). Nothing ran, and showing the JSON as prose tells the person nothing (Excel
+		// 2021, 2026-09-07: {"address":"A1","text":"…"} on the screen, no note on A1). Ask the model to
+		// say it again as a real call (F-LLM-FALLBACK R3), twice at most; the reply is discarded like a
+		// spin, and travels back inside the request so it can be corrected rather than re-derived.
+		if res.malformedCall && len(res.toolCalls) == 0 && ts.malformed < 2 {
+			ts.malformed++
+			// The reply is discarded but it was generated and metered — unlike a spin (cancelled
+			// mid-stream, usage rarely arrives) this one finished, so its tokens go on the bill.
+			if res.usage != nil {
+				cumOut += res.usage.Out
+				if res.usage.In > 0 {
+					lastIn = res.usage.In
+					ts.held = *res.usage
+				}
+			}
+			a.emitToolProgress(sid, agentActor, "", agent.Name,
+				fmt.Sprintf("a reply looked like a tool call but named no tool (%d) — asking for a real call", ts.malformed))
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, malformedCallNudge(ts.malformed, res.text))
 			continue
 		}
 		text, reasoning := res.text, res.reasoning
