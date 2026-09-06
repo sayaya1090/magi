@@ -1,0 +1,111 @@
+/**
+ * 헬퍼의 왕복들. **토큰은 헤더로 간다** — 쿼리에 실리는 자리는 `EventSource` 하나뿐이다
+ * (clients/powerpoint/DESIGN.md §5.5, `HelperStream`).
+ *
+ * 주소를 안 적는 이유도 거기 있다: 페이지가 헬퍼에서 왔으므로 헬퍼의 주소가 곧 자기 오리진이다.
+ * 소스에 주소를 박으면 §5.5 가 「같아야 한다」고 적은 이름 넷이 다섯이 되고, 다섯째는 아무도
+ * 안 본다(헬퍼의 `TestTheAddinDoesNotWriteTheOriginDown` 이 그것을 매 빌드에서 막는다).
+ */
+export class HelperApi {
+  constructor({ token, origin, fetchImpl, deck = '' } = {}) {
+    this.token = token ?? '';
+    // **어느 덱의 말인가.** 헬퍼는 프로세스 하나로 창 여럿을 받으므로, 이 이름이 없으면 두
+    // 창이 한 대화를 나눠 갖는다 — 실물에서 그 화면을 봤다(2026-09-04: PowerPoint 를 둘 띄웠더니
+    // 양쪽 작업창에 같은 말이 흘렀다).
+    //
+    // 열쇠는 **헬퍼가 준 문서 키**다(`hello` 프레임). 창이 아는 프레젠테이션 id 를 쓰면 안 된다 —
+    // **저장 안 한 덱은 그 값이 비고**, 그러면 새 덱 둘이 다시 한 열쇠로 떨어진다. 사람이 겪은
+    // 것이 정확히 그 경우였다(둘 다 새 파일). 허브는 그때 자기가 번호를 발급하고(`doc-…-1`,
+    // `doc-…-2`) 손 스트림은 이미 그것으로 갈라져 있었다 — API 도 같은 것을 써야 한 벌이 된다.
+    this.deck = deck ?? '';
+    this.origin = origin ?? (typeof location === 'undefined' ? '' : location.origin);
+    this.fetch = fetchImpl ?? (typeof fetch === 'undefined' ? null : fetch.bind(globalThis));
+  }
+
+  /** 헬퍼가 문서 키를 알려 주면 그때부터 그것으로 말한다. `hello` 가 늦게 오므로 나중에 온다. */
+  useDeck(key) { this.deck = key ?? ''; }
+
+  async #send(path, { method = 'POST', body } = {}) {
+    if (!this.fetch) throw new Error('이 환경에는 fetch 가 없다');
+    const at = this.deck
+      ? `${path}${path.includes('?') ? '&' : '?'}deck=${encodeURIComponent(this.deck)}`
+      : path;
+    const res = await this.fetch(`${this.origin}${at}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!res.ok) {
+      // **사유를 그대로 나른다.** 여기서 문장을 지어내면 헬퍼가 적은 것(어느 컴패니언이,
+      // 무엇을 못 했는지)이 사라진다.
+      const text = await res.text().catch(() => '');
+      throw new Error(text.trim() || `헬퍼가 ${res.status} 로 답했습니다`);
+    }
+    if (res.status === 204 || res.status === 202) return null;
+    const ct = res.headers?.get?.('Content-Type') ?? '';
+    if (!ct.includes('json')) return null;
+    return res.json();
+  }
+
+  companions() { return this.#send('/api/companions', { method: 'GET' }); }
+  documents() { return this.#send('/api/documents', { method: 'GET' }); }
+  status() { return this.#send('/api/status', { method: 'GET' }); }
+
+  /**
+   * **파워포인트 몫의 컴패니언**을 마련해 달라고 한다 — 고르는 화면을 안 거치는 길.
+   *
+   * 답은 **즉시** 온다. 데몬 냉시동은 오래 걸리는데 그걸 요청 안에서 기다리면 판이 멎고,
+   * 멎은 화면은 사람에게 고장으로 읽힌다. 그래서 이 자리는 지금 상태(phase)를 주고 일은 뒤에서
+   * 돈다 — 다시 불러 진행을 본다. 두 번 불러도 데몬이 둘 뜨지 않는다.
+   */
+  own() { return this.#send('/api/own', { body: {} }); }
+  // 창이 잰 요구 집합을 헬퍼에 넘긴다. **재는 자리는 창이지만 아는 자리는 헬퍼여야** 도구도
+  // 시험도 그 답을 쓸 수 있다 — 「1.10 이라 못 한다」가 문서에 적힌 채 아무도 다시 안 재는 일이
+  // 실제로 있었다(2026-09-04, 실은 지원됐다).
+  caps(body) { return this.#send('/api/caps', { body }); }
+
+  /**
+   * **새 대화를 연다** — 「얘가 이상해요」의 탈출구.
+   *
+   * 대화 하나가 영원히 쌓이면 앞의 혼란이 뒤를 오염시킨다. 덱은 안 건드린다.
+   */
+  fresh() { return this.#send('/api/fresh', { body: {} }); }
+  /** 카운슬 스위치 — 읽기는 설정이 말하는 값, 쓰기는 고치고 컴패니언을 다시 띄운다(새 대화). */
+  /** 창의 구성 — 얼마나·무엇으로 찼나. 헬퍼가 데몬의 `context` 문을 두드린다. */
+  context() { return this.#send('/api/context', { method: 'GET' }); }
+  /** 고를 수 있는 프로바이더·모델과 지금 것. */
+  models() { return this.#send('/api/models', { method: 'GET' }); }
+  /** 백엔드(base)와 모델(model)을 바꾼다 — 다음 턴부터. 둘 중 하나만 보내도 된다. */
+  setModel({ base = '', model = '' } = {}) { return this.#send('/api/model', { body: { base, model } }); }
+  /** 컨텍스트를 접는다 — 데몬이 한다. 답은 202 뿐이고 결과는 /api/context 로 본다. */
+  compact() { return this.#send('/api/compact', { body: {} }); }
+  council() { return this.#send('/api/council', { method: 'GET' }); }
+  setCouncil(enabled) { return this.#send('/api/council', { body: { enabled: Boolean(enabled) } }); }
+
+  /** 늘 지킬 것을 읽는다. 아직 아무것도 안 적은 것은 **실패가 아니다.** */
+  rules() { return this.#send('/api/instructions', { method: 'GET' }); }
+
+  /** 늘 지킬 것을 적는다. 빈 글이면 지운다. */
+  setRules(text) { return this.#send('/api/instructions', { body: { text } }); }
+
+  /**
+   * 가이드 — 여러 벌의, 껐다 켤 수 있는 규칙.
+   *
+   * `rules` 와 문이 갈린 이유는 실리는 방식이 달라서다: 저건 매 턴 통째로, 이건 모델이 부를 때만.
+   */
+  guides() { return this.#send('/api/guides', { method: 'GET' }); }
+  guide(op, name, body) { return this.#send('/api/guide', { body: { op, name, body } }); }
+
+  choose(socket, session) { return this.#send('/api/choose', { body: { socket, session } }); }
+  submit(text) { return this.#send('/api/submit', { body: { text } }); }
+  steer(text) { return this.#send('/api/steer', { body: { text } }); }
+  interrupt() { return this.#send('/api/interrupt', { body: {} }); }
+  permission(callId, decision) { return this.#send('/api/permission', { body: { callId, decision } }); }
+  question(callId, text) { return this.#send('/api/question', { body: { callId, text } }); }
+
+  /** 조작의 답을 올려 보낸다. 기다리는 사람이 없으면 헬퍼가 **410 으로 말한다**. */
+  reply(payload) { return this.#send('/hand/reply', { body: payload }); }
+}

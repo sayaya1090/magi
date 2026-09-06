@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  magi 애드인의 매니페스트.
+
+  세 가지를 일부러 그렇게 뒀다.
+
+  1) 최상위 <Requirements> 에 WordApi 를 **안 적는다.** 적으면 조건이 안 맞는 Word 에서
+     애드인이 목록에서 아예 사라져 사용자가 *왜* 없는지 모른다(DESIGN.md §3.3). 확인은 런타임에
+     isSetSupported 로 하고 못 돈다고 **말한다.**
+
+  2) VersionOverrides 안에는 SharedRuntime 1.1 을 적는다. 작업창이 닫혀도 코드가 살아 있어야
+     하기 때문이다(§5.7) — 이게 없으면 창을 한 번 닫은 사용자에게는 permission 물음이 아무
+     데도 안 도착한다. 이 요구는 §3.3 의 1.8 바닥보다 낮아 새로 걸러내는 것이 없다(부록 A).
+
+     ⚠ 자리가 중요하다. MS 절차는 이걸 **최상위** <Requirements> 에 넣으라고 하는데, 그러면
+     못 맞추는 빌드에서 애드인이 아예 안 뜬다 — 1) 이 금지한 바로 그것이다. 그래서 여기로
+     옮겨 뒀다. 대신 못 맞추면 이 절 전체가 무시돼 **리본 단추가 사라진다**(애드인은 남는다).
+     셋 중 가운데를 고른 것이고, 근거는 부록 A 에 적었다.
+
+  3) <Action> 에 <TaskpaneId> 를 **안 적는다.** 긴 수명 런타임 아래에서는 작업창이 하나여야
+     한다(부록 A). 아래 Control 에 그 이유를 다시 적어 뒀다.
+
+  4) 주소가 `https://127.0.0.1:3002` 이다 — `localhost` 가 아니다(§5.5 ⚠). 오리진은 문자열로
+     견줘지므로 페이지를 한 이름으로 내주고 전송이 다른 이름을 부르면 **자기 오리진이 아니게
+     되어** 혼합 콘텐츠와 LNA 가 그대로 돌아온다. 그래서 매니페스트·바인드 주소·인증서 SAN·
+     전송 URL 넷이 **같은 문자열**이어야 하고, 그것을 헬퍼의 `TestTheFourNamesAreOneString`
+     이 매 빌드에서 견준다. 처음엔 이 파일만 `localhost` 였고 그 시험이 여덟 자리를 짚었다.
+
+  ✅ 2026-09-01 에 M365 Word(16.0.20228)에 실제로 사이드로드해서 붙였다. 그때 4)가 났다.
+-->
+<OfficeApp
+  xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xmlns:ov="http://schemas.microsoft.com/office/taskpaneappversionoverrides"
+  xsi:type="TaskPaneApp">
+
+  <Id>d1e48653-30f8-59c9-89b0-0b9af8e667c3</Id>
+  <Version>0.1.0.0</Version>
+  <ProviderName>magi</ProviderName>
+  <DefaultLocale>ko-KR</DefaultLocale>
+  <DisplayName DefaultValue="Magi(AI Assistant)" />
+  <Description DefaultValue="열려 있는 덱을 읽고, 말로 시킨 편집을 수행하고, 무엇을 바꿨는지 말합니다." />
+  <!--
+    아이콘 주소의 /v N/ 칸은 **캐시 깨기**다. Office 는 애드인 자원을 주소의 해시로 캐시한다
+    (%LOCALAPPDATA%/Microsoft/Office/16.0/Wef/Resources/<해시>) — 같은 주소면 서버가 새 그림을 내도
+    영영 옛 그림을 그린다. 실물에서 봤다(2026-09-06, LTSC 2021): 헬퍼는 magi 마크를 내는데 리본은 9월 1일의
+    82바이트짜리 주황 네모를 그리고 있었고, 리본 캐시를 지우고 다시 추가해도 그대로였다. 그림을 바꾸면 N 을
+    올린다. 그리고 그림은 **캐시할 수 있어야** 한다 — no-store 로 내면 리본은 기본 자리표시자(파란 육각형)를
+    그린다(icon.go serveIcon 이 아이콘에만 max-age 를 준다).
+  -->
+  <IconUrl DefaultValue="https://127.0.0.1:3002/assets/v3/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3002/assets/v3/icon-80.png" />
+  <SupportUrl DefaultValue="https://github.com/sayaya1090/magi" />
+
+  <AppDomains>
+    <AppDomain>https://127.0.0.1:3002</AppDomain>
+  </AppDomains>
+
+  <Hosts>
+    <Host Name="Document" />
+  </Hosts>
+
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://127.0.0.1:3002/taskpane.html" />
+  </DefaultSettings>
+
+  <Permissions>ReadWriteDocument</Permissions>
+
+  <VersionOverrides xmlns="http://schemas.microsoft.com/office/taskpaneappversionoverrides" xsi:type="VersionOverridesV1_0">
+    <!--
+      **자리가 계약이다.** 이 절의 자식 순서는 스키마가 정한다: Description? → Requirements? →
+      Hosts → Resources. 한동안 이것이 <Hosts> **뒤에** 있었다 — 스키마를 어긴 매니페스트를
+      Office 는 통째로 버리고, 그때 증상은 「리본 단추가 없다」가 아니라 **「애드인이 아예
+      없다」**이며 아무 데도 사유가 안 뜬다. 사이드로드해 보고서야 볼 수 있는 자리다.
+    -->
+    <Requirements>
+      <bt:Sets DefaultMinVersion="1.1">
+        <bt:Set Name="SharedRuntime" MinVersion="1.1" />
+      </bt:Sets>
+    </Requirements>
+
+    <Hosts>
+      <Host xsi:type="Document">
+
+        <Runtimes>
+          <!-- 이 한 줄이 §5.7 의 전제다. 창을 닫아도 런타임이 안 죽는다. -->
+          <Runtime resid="Taskpane.Url" lifetime="long" />
+        </Runtimes>
+
+        <DesktopFormFactor>
+          <GetStarted>
+            <Title resid="GetStarted.Title" />
+            <Description resid="GetStarted.Description" />
+            <LearnMoreUrl resid="GetStarted.LearnMoreUrl" />
+          </GetStarted>
+          <FunctionFile resid="Taskpane.Url" />
+
+          <ExtensionPoint xsi:type="PrimaryCommandSurface">
+            <OfficeTab id="TabHome">
+              <Group id="magi.group">
+                <Label resid="Group.Label" />
+                <Icon>
+                  <bt:Image size="16" resid="Icon.16" />
+                  <bt:Image size="32" resid="Icon.32" />
+                  <bt:Image size="80" resid="Icon.80" />
+                </Icon>
+                <Control xsi:type="Button" id="magi.taskpane.button">
+                  <Label resid="Button.Label" />
+                  <Supertip>
+                    <Title resid="Button.Label" />
+                    <Description resid="Button.Tooltip" />
+                  </Supertip>
+                  <Icon>
+                    <bt:Image size="16" resid="Icon.16" />
+                    <bt:Image size="32" resid="Icon.32" />
+                    <bt:Image size="80" resid="Icon.80" />
+                  </Icon>
+                  <!--
+                    <TaskpaneId> 를 **일부러 안 적는다.** 긴 수명 <Runtime> 이 있는 <Host> 아래에서
+                    Action 이 TaskpaneId 를 가지면 작업창이 둘이 되는 구성이고, 공유 런타임은
+                    작업창 하나만 받는다(DESIGN.md 부록 A). 창이 둘이면 §5.7 의 "창을 닫아도
+                    코드가 산다" 가 어느 창 얘기인지 모르게 된다.
+                  -->
+                  <Action xsi:type="ShowTaskpane">
+                    <SourceLocation resid="Taskpane.Url" />
+                  </Action>
+                </Control>
+              </Group>
+            </OfficeTab>
+          </ExtensionPoint>
+        </DesktopFormFactor>
+      </Host>
+    </Hosts>
+
+    <Resources>
+      <bt:Images>
+        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3002/assets/v3/icon-16.png" />
+        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3002/assets/v3/icon-32.png" />
+        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3002/assets/v3/icon-80.png" />
+      </bt:Images>
+      <bt:Urls>
+        <bt:Url id="Taskpane.Url" DefaultValue="https://127.0.0.1:3002/taskpane.html" />
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/sayaya1090/magi" />
+      </bt:Urls>
+      <bt:ShortStrings>
+        <bt:String id="Group.Label" DefaultValue="AI Assistant" />
+        <bt:String id="Button.Label" DefaultValue="Magi" />
+        <bt:String id="GetStarted.Title" DefaultValue="Magi(AI Assistant)가 설치됐습니다" />
+      </bt:ShortStrings>
+      <bt:LongStrings>
+        <bt:String id="Button.Tooltip" DefaultValue="채팅창을 엽니다. 도형을 잡고 「선택 인용」을 누르면 인용부호로 담깁니다." />
+        <bt:String id="GetStarted.Description" DefaultValue="홈 탭 「AI Assistant」의 「Magi」 단추로 창을 엽니다." />
+      </bt:LongStrings>
+    </Resources>
+  </VersionOverrides>
+</OfficeApp>

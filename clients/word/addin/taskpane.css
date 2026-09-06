@@ -1,0 +1,954 @@
+/*
+  작업창의 생김새.
+
+  # 어느 언어를 따르나 — Fluent 2 다, Material 이 아니다
+
+  이 저장소의 콘솔은 Material 3 를 따른다(`docs/UI.md` §3). **이 창은 안 따른다.** 여기는
+  PowerPoint 안에 도킹된 판이고, 옆에 Office 의 리본이 붙어 있다. 한 화면 안에서 두 언어가
+  부딪히면 사용자는 그것을 「우리 창이 잘못 그려졌다」로 읽는다. 그래서 마이크로소프트의 애드인
+  디자인 지침(Fluent 2)의 값들을 쓴다 — 타입 램프, 8의 배수 간격, 32px 컨트롤 높이, 중립 램프.
+
+  # 값을 토큰으로 두는 이유
+
+  첫 판에는 여백이 `6px 9px`, `7px 9px`, `10px 11px` 처럼 자리마다 달랐고, 새로 붙인 판
+  (`#pick`)에는 **아예 없었다.** 실물에서 그게 「패딩도 없고 단추가 서로 붙어 있다」로 나타났다.
+  자리마다 손으로 고르면 다음 판에서 또 갈리므로, 고르는 자리를 여기 하나로 모은다.
+*/
+
+:root {
+  /* 간격 — 4의 배수. 이 파일에 이 밖의 여백 값은 없다. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+
+  /* 모서리 */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 8px;
+
+  /* 타입 램프(Fluent 2) — 크기와 줄높이가 짝이다. 크기만 바꾸면 줄이 붙는다. */
+  --t-caption: 12px/16px;
+  --t-body: 14px/20px;
+  --t-body-strong: 14px/20px;
+  --t-subtitle: 16px/22px;
+  --t-title: 20px/28px;
+
+  /* 중립 램프 */
+  --bg: #ffffff;
+  --bg-sub: #faf9f8;    /* 카드·인용의 바닥 */
+  --bg-sunken: #f3f2f1; /* 창 밖(목업)의 바닥 */
+  --fg: #242424;
+  --fg-2: #424242;      /* 본문 다음 등급 */
+  --muted: #616161;     /* 곁말. 이보다 흐린 회색은 안 쓴다 — 안 읽힌다 */
+  --line: #e0e0e0;
+  --line-strong: #c7c7c7;
+
+  /* 뜻이 있는 색 */
+  --accent: #2b579a;    /* Word 의 파랑 계열 */
+  --danger: #B3261E;    /* 작업 중지 — M3 error(40). 새빨강이 아니라 크림슨 쪽이다 */
+  --on-danger: #FFFFFF; /* M3 on-error */
+  --accent-fg: #ffffff;
+  --accent-weak: #fdf6f4;
+  --sel: #0f6cbd;       /* 포커스·선택 */
+  --warn-bg: #fff4ce;
+  --warn-fg: #6b4d00;
+  --warn-line: #e6c66a;
+  --ok: #0f7b0f;
+  /* 컨텍스트 다섯 조각 — 웹 콘솔의 역할 배정(outline·secondary·primary·accent·casper)을 이 판의 색으로 */
+  --p-system: #8a8f98; --p-tools: #6b5bd2; --p-talk: var(--accent); --p-calls: #c77700; --p-results: #0284c7;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .08), 0 0 2px rgba(0, 0, 0, .06);
+  --shadow-2: 0 4px 8px rgba(0, 0, 0, .10), 0 0 2px rgba(0, 0, 0, .06);
+}
+
+/*
+  어두운 테마. Office 의 테마를 직접 물어보는 길이 이 판에는 없으므로 OS 의 것을 따른다 —
+  틀릴 때가 있지만, **틀린 색보다 나쁜 것은 흰 판이 어두운 Office 안에서 혼자 타는 것**이다.
+*/
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1f1f;
+    --bg-sub: #292929;
+    --bg-sunken: #141414;
+    --fg: #f5f5f5;
+    --fg-2: #e0e0e0;
+    --muted: #adadad;
+    --line: #3d3d3d;
+    --line-strong: #575757;
+    --accent: #e06c4f;
+    --accent-fg: #1f1f1f;
+    --accent-weak: #2d211e;
+    --sel: #62abf5;
+    --warn-bg: #3b2f00;
+    --warn-fg: #ffd966;
+    --warn-line: #6b5600;
+    --danger: #F2B8B5;    /* M3 error(80) — 어두운 판의 error 롤 */
+    --on-danger: #601410; /* M3 on-error(20) */
+    --ok: #6ccb5f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  display: flex;
+  height: 100vh;
+  font: var(--t-body) "Segoe UI", -apple-system, "Apple SD Gothic Neo", system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 애드인 안에서는 작업창 하나뿐이다. 목업일 때만 왼쪽에 가짜 캔버스가 생긴다. */
+#fake { display: none; }
+body.standalone { background: var(--bg-sunken); }
+body.standalone #fake { display: block; flex: 1; min-width: 0; padding: var(--s5); }
+body.standalone #pane {
+  width: 360px; flex: none; border-left: 1px solid var(--line); background: var(--bg);
+}
+
+/* `position` 이 계약이다 — 묻는 판이 `inset: 0` 으로 이 상자를 덮는다. */
+#pane { display: flex; flex-direction: column; width: 100%; min-width: 0; position: relative; }
+
+/* 세로 리듬을 한 자리에서 준다. 판마다 마진을 손으로 적으면 그 자리만 또 갈린다. */
+#pane > * { flex: none; }
+/*
+  **`hidden` 이 언제나 이긴다.**
+
+  `hidden` 은 UA 스타일시트의 `display:none` 으로만 서 있어서, 저자 규칙이 `display:` 를 적는
+  순간 진다. 실제로 그렇게 새어 나왔다(2026-09-04): 가이드 편집 칸에 `display:flex` 를 줬더니
+  판을 열자마자 **안 누른 편집기가 같이 열려** 있었다. 자바스크립트는 `hidden = true` 를 옳게
+  세우고 있었고, 화면만 안 듣고 있었다 — 이 저장소가 `.turn.turn` 에서 한 번 겪은 그 모양이다.
+
+  한 줄로 못 박는다. 이 뒤로 어떤 규칙이 `display` 를 적어도 `hidden` 이 이긴다.
+*/
+[hidden] { display: none !important; }
+
+#pane > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+/*
+  **아래에 고정된 것들끼리는 그 리듬을 안 쓴다.**
+
+  컴포저 · 가끔 쓰는 넷 · 브랜드 줄은 셋 다 **제 테두리와 바탕을 가진 띠**라, 사이에 12px 이
+  더 들어가면 그건 리듬이 아니라 **띠 사이에 낀 흰 조각**으로 보인다. 실제로 `⋯` 로 넷을 폈을
+  때 회색 띠 둘 사이에 흰 줄이 서 있는 것을 봤다(2026-09-04에 지적받았다).
+
+  선택자가 `#pane` 를 지나는 것이 요점이다 — 위 규칙이 id 를 물어 (1,0,1) 이라, 클래스만으로
+  적은 `margin-top: 0` 은 조용히 진다. 이 저장소가 `#pane > .scroll` 에서 한 번 겪은 그 모양이다.
+
+  ⚠ **이 목록은 이름을 대는 목록이라 새 띠가 생길 때마다 늘어야 한다.** 실제로 한 번 놓쳤다 —
+  진행 막대를 넣고 여기 안 적어서 12px 이 다시 생겼고, 사람이 보고 물었다(2026-09-04). 그래서
+  검사가 이름을 세지 않고 **`#pane` 의 고정 띠를 전부 세어** 하나라도 빠지면 운다.
+*/
+#pane > .advanced, #pane > .brand { margin-top: 0; }
+/*
+  **막대와 컴포저는 한 묶음이다.** 둘 사이에 여백이 들어가면 막대가 컴포저에 붙은 것이 아니라
+  떠 있는 줄로 보인다 — 그 막대가 말하는 것은 「지금 이 입력칸이 낸 일이 돌고 있다」이므로
+  붙어 있어야 그 뜻이 선다. 여백은 **묶음 위**에 한 번만 준다.
+
+  막대가 없을 때는 컴포저가 그 여백을 물려받아야 하는데, 위 리듬 규칙이 `[hidden]` 을 건너뛰므로
+  **그냥 저절로 그렇게 된다** — 컴포저를 0 으로 못박지 않는 이유가 그것이다.
+*/
+#pane > .busy + .composer { margin-top: 0; }
+
+/*
+  제목 줄. **오른쪽에 44px 을 비워 둔다** — 거기 Office 의 personality 메뉴가 뜬다(Windows
+  12×32, Mac 은 34×32 에 오른쪽 8px·위 6px 여백). 그 자리에 우리 컨트롤을 두면 겹쳐서 못 누른다.
+  MS 지침이 「navigational/commanding 요소가 그 메뉴에 가릴 수 있다」고 적은 그 자리다.
+*/
+header {
+  display: flex; align-items: baseline; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s3) 44px var(--s2) var(--s4);
+  border-bottom: 1px solid var(--line);
+  margin-top: 0;
+}
+/* 제목이 없어졌으므로 흐를 자리도 없다 — 이 줄에 서는 것은 이 말 하나뿐이다. */
+.adapter { font: var(--t-caption); color: var(--muted); }
+
+/*
+  호스트가 자기 입으로 말한 요구 집합. 잰 것과 안 잰 것을 **색으로 가른다** — 회색은
+  「아직 모른다」고 화면이 말하는 것이지 「괜찮다」가 아니다.
+*/
+/* 흐르는 영역 안의 다른 줄(`.where`)과 같은 카드 꼴 — 앞 판본은 가장자리까지 닿는 띠(padding 만, 아래
+   선)라 옆 줄들과 어긋나 보였다(사용자 2026-09-05: 「띠지처럼 둘러져 있네」). 안쪽 여백은 summary 와
+   detail 이 제 것을 갖고 있으므로 바깥에는 안 준다 — 겹치면 두 배가 된다. */
+.caps {
+  font: var(--t-caption); color: var(--muted);
+  margin-left: var(--s4); margin-right: var(--s4);
+  background: var(--bg-sub); border-radius: var(--r-md);
+  font-variant-numeric: tabular-nums;
+  margin-top: 0;
+}
+.caps[data-measured="yes"] { color: var(--fg-2); }
+
+/* ── 컴패니언 고르기 ─────────────────────────────────────────── */
+
+.pick { padding: 0 var(--s4); }
+.pick h2 { font: var(--t-subtitle); font-weight: 600; margin: 0 0 var(--s2); }
+.pick-bound, .pick-empty, .pick-note {
+  font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2);
+}
+.pick-empty {
+  padding: var(--s3); border: 1px dashed var(--line-strong);
+  border-radius: var(--r-md); background: var(--bg-sub);
+}
+.pick-note { color: var(--accent); }
+
+/* 고급 한 줄. **눈에 안 띄어야 한다** — 대개의 사람은 이 줄을 안 봐도 된다. */
+/*
+  아이콘 단추 줄 — **양쪽정렬.** 첫 단추는 왼쪽 끝, 마지막은 오른쪽 끝에 붙고 나머지가 그 사이를
+  고르게 나눈다.
+
+  `gap` 은 **최소치로 남긴다**: 판이 좁아지면(작업창은 사람이 끌어 줄인다) `space-between` 이
+  주는 간격이 0 으로 가는데, 그때 32짜리 단추의 48 타겟이 서로 겹쳐 가장자리를 누른 사람이 옆
+  단추를 누른다. 최소 16 이 그것을 막고, 더 좁아지면 줄이 넘어간다.
+*/
+/*
+  이제 **스크롤 밖의 고정 줄**이라 위에 선이 있어야 한다 — 안에 있을 때는 흐르는 것들 사이의
+  한 줄이었지만, 밖에서는 컴포저와 같은 층이라 경계가 없으면 대화의 꼬리처럼 읽힌다.
+*/
+.advanced { padding: var(--s2) var(--s4); display: flex; align-items: center;
+  justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  flex: none; border-top: 1px solid var(--line); background: var(--bg-sub); }
+/* **밑줄은 가리킬 때만.** 첫 화면에서 이 줄이 눈에 띄면, 아무것도 안 해도 되는 사람이
+   「저걸 눌러야 하나」를 하게 된다 — 이 줄은 찾는 사람만 찾으면 된다. */
+.linky {
+  background: none; border: 0; padding: 0;
+  font: var(--t-caption); color: var(--muted);
+  text-decoration: none; cursor: pointer;
+}
+.linky:hover, .linky:focus-visible { color: var(--accent); text-decoration: underline; }
+
+/* 늘 지킬 것 — 접혀 있는 판. 세로가 귀하므로(§3) 열었을 때만 자리를 쓴다. */
+.rules { padding: 0 var(--s4) var(--s3); }
+.rules h2 { font: var(--t-subtitle); font-weight: 600; margin: 0 0 var(--s1); }
+.rules-why { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.rules-text {
+  width: 100%; box-sizing: border-box; resize: vertical;
+  font: var(--t-body); color: var(--fg);
+  background: var(--bg-sub); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s2);
+}
+/*
+  **좁게 차지하는 손들은 오른쪽에 모은다.**
+
+  위 `.advanced` 는 양쪽정렬인데 여기는 아니다 — 기준은 취향이 아니라 **폭**이다. 저 줄은 넷이
+  줄을 거의 채워서 양끝이 곧 줄의 양끝이지만, 이 줄은 둘뿐이라 양쪽정렬로 두면 아무 관계 없는
+  두 손이 판 양끝으로 벌어진다. 「저장」과 「닫기」는 한 묶음이고, 묶음은 붙어 있어야 묶음이다.
+
+  오른쪽인 것은 이 판들이 **위에서 아래로 읽히기 때문이다** — 다 읽고 나서 누르는 자리는 글이
+  끝나는 쪽이다. M3 의 다이얼로그 액션도 같은 자리에 선다.
+  간격은 16 을 지킨다(32짜리 손의 48 타겟이 안 겹치는 최소치).
+*/
+.rules-row { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: var(--s2); }
+.rules-save {
+  font: var(--t-body); color: var(--accent-fg); background: var(--accent);
+  border: 0; border-radius: var(--r-md); padding: var(--s1) var(--s3); cursor: pointer;
+}
+.rules-note { font: var(--t-caption); color: var(--muted); margin: var(--s2) 0 0; }
+
+/* 한 줄이 카드다. 이름 → 곁말 → 사유 → 단추 순서로 읽히게 세로로 쌓는다. */
+.pick-row {
+  display: flex; flex-direction: column; gap: var(--s1);
+  padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); box-shadow: var(--shadow-1);
+  margin-bottom: var(--s2);
+}
+.pick-row strong { font: var(--t-body); font-weight: 600; }
+.pick-detail { font: var(--t-caption); color: var(--muted); }
+/* 못 고르는 이유는 **흐리게 두지 않는다** — 이 칸의 내용이 그 문장이다. */
+.pick-why { font: var(--t-caption); color: var(--fg-2); }
+/* 카드 안의 단추는 **왼쪽에서 시작한다.** `.primary` 가 컴포저에서 오른쪽으로 밀리려고
+   `margin-left:auto` 를 갖고 있는데, 그 규칙이 여기까지 따라와 단추가 카드 오른쪽 끝에
+   붙었다 — 한 클래스가 두 자리에서 다른 뜻을 가지면 나중 자리가 진다. */
+.pick-row button { align-self: flex-start; margin-top: var(--s1); margin-left: 0; }
+.pick-row.pick-off { background: var(--bg-sub); border-style: dashed; box-shadow: none; }
+.pick > button { margin-top: var(--s1); }
+
+/* ── 대화 ───────────────────────────────────────────────────── */
+
+.turns {
+  flex: 1 1 auto; overflow-y: auto;
+  padding: var(--s3) var(--s4);
+  display: flex; flex-direction: column; gap: var(--s3);
+}
+.turn { margin: 0; }
+/*
+  **긴 토막을 강제로 끊는다.** `pre-wrap` 은 빈칸에서만 접히므로, 모델이 쓴
+  `mcp__ppt__set_text --slide-id` 같은 한 덩어리가 판보다 길면 그 줄이 판 밖으로 나가고
+  스크롤 영역에 **가로 막대**가 선다 — 320px 짜리 작업창에서 글이 오른쪽으로 잘린다.
+  실물에서 그 화면을 봤다(2026-09-01). 브라우저에서 판 너비를 305px 로 줄여 재현했다:
+  `#scroll` 의 scrollWidth 294 · clientWidth 289, 넘긴 것은 혼잣말 줄의 <p> 였다.
+*/
+.turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn-head { font: var(--t-caption); color: var(--muted); margin-bottom: var(--s1); }
+
+/* 사람의 말은 오른쪽에 선다(사용자 2026-09-05: 「사용자 요청은 우측정렬 어떠냐」) — 대화 앱의 관습이라 누가 한
+   말인지 머리말 없이도 갈린다. 말풍선 자체는 오른쪽에 붙되 안의 글은 왼쪽 정렬 그대로다(오른쪽 정렬 글은
+   읽기 어렵다). 폭은 판의 88% 까지 — 짧은 말은 짧은 풍선, 긴 말은 왼쪽에 숨 쉴 자리를 남긴다.
+   말풍선은 문단(`p`) 이거나 마크다운 상자(`.md`) 다(5c615146) — 둘 다 같은 옷을 입는다. */
+.turn.kind-user { display: flex; flex-direction: column; align-items: flex-end; }
+.turn.kind-user .turn-head { text-align: right; }
+.turn.kind-user > p, .turn.kind-user > .md {
+  background: var(--accent-weak); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: var(--s2) var(--s3);
+  max-width: 88%; box-sizing: border-box;
+}
+.turn.kind-model p { padding: 0; }
+/* 사용자 말풍선의 상태: 처리 중(스피너) · 대기 중. 색이 아니라 글과 움직임으로 가른다. */
+.turn-badge { display: flex; justify-content: flex-end; align-items: center; gap: var(--s1); margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+.turn-badge.queued { color: var(--warn-fg); }
+/* 대기 중인 말풍선은 아직 안 읽힌 말이다 — 점선 테두리, 바탕 없음, 흐린 글자로 처리 중과 갈린다(사용자 2026-09-05). */
+.turn.kind-user.status-queued > p, .turn.kind-user.status-queued > .md { background: transparent; border-style: dashed; color: var(--fg-2); }
+.spin { width: 10px; height: 10px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+.turn.kind-think { border-left: 2px solid var(--line); padding-left: var(--s2); }
+.turn.kind-note p { color: var(--muted); font: var(--t-caption); }
+/* 접힌 혼잣말의 속. 답풍선과 **다르게 보여야 한다** — 사용자에게 한 말이 아니다. */
+.turn-think {
+  margin-top: var(--s1);
+  font: var(--t-caption); color: var(--muted);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.turn.kind-tool {
+  background: var(--bg-sub); border: 1px solid var(--line);
+  border-radius: var(--r-md); padding: var(--s2) var(--s3);
+}
+.turn.kind-tool .turn-head { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.turn-args {
+  margin: var(--s1) 0 0;
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; color: var(--muted);
+}
+/* 실패·오류는 테마색이 아니라 error 롤이다 — 엑셀의 테마색은 초록이라(워드는 파랑) 「✗ 실패」가 초록으로 보였다(사용자 2026-09-06). */
+.turn.kind-error p { color: var(--danger, #B3261E); }
+
+/* 턴의 끝은 **줄이 아니라 자국이다.** 얇게 긋고 가운데 한 마디만 남긴다. */
+.turn.kind-turn p {
+  font: var(--t-caption); color: var(--muted); text-align: center;
+  border-top: 1px solid var(--line); padding-top: var(--s2);
+}
+/* 검증 못 한 착지를 보통 끝처럼 그리면 「고쳤다」와 「고쳤다는데 아무도 못 봤다」가
+   화면에서 똑같이 생긴다(`TurnFinishedData.Unverified`). */
+.turn.kind-turn.unverified p {
+  color: var(--warn-fg); background: var(--warn-bg); border-top-color: var(--warn-line);
+  border-radius: var(--r-md); padding: var(--s2) var(--s3); text-align: left;
+}
+
+/*
+  호출의 **답**. 호출 줄 안에 붙는다 — `Transcript.append` 가 `callId` 로 접어 뒀다.
+
+  성패는 글자로 먼저 말하고(`✓ 됐습니다` / `✗ 실패했습니다`) 색은 거들기만 한다. 색만으로
+  가르면 색을 못 보는 사람에게는 성공과 실패가 같은 줄이 된다(MS 애드인 접근성 지침).
+*/
+.turn-result-head {
+  margin-top: var(--s2); font: var(--t-caption); color: var(--ok);
+}
+.turn-result-head.pending { color: var(--muted); }
+.turn.kind-tool.failed { border-color: var(--warn-line); }
+.turn.kind-tool.failed .turn-result-head { color: var(--danger, #B3261E); }
+.turn.kind-tool.advisory { border-color: var(--warn-line); }
+.turn.kind-tool.advisory .turn-result-head { color: var(--warn-fg); }
+.turn-result {
+  margin: var(--s1) 0 0;
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-word; color: var(--fg-2);
+}
+/* 무엇을 허락했는가. 이 제품에서 그 답은 **문서를 고치게 뒀는가**라 눈에 띄어야 한다. */
+.turn-perm { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+
+/*
+  종료 게이트(카운슬). **대화가 아니라 판정이라** 말풍선과 다르게 생겨야 한다 — 왼쪽에 선을
+  긋고 글씨를 낮춘다. 이 줄이 없던 동안 사람은 모델이 왜 같은 일을 또 하는지 몰랐다.
+*/
+.turn.kind-council {
+  border-left: 2px solid var(--accent); padding-left: var(--s2);
+}
+.turn.kind-council .turn-head { color: var(--fg-2); }
+.turn.kind-council p { font: var(--t-caption); color: var(--muted); }
+
+/* 안 그리기로 한 것의 셈. 못 그리는 것보다 **한 단 낮게** 적는다 — 고칠 것이 없는 사실이다. */
+.unknown-note .skipped { color: var(--muted); opacity: .75; margin-top: var(--s1); }
+
+/* ── 인용 ───────────────────────────────────────────────────── */
+
+.quote {
+  position: relative;
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  background: var(--bg-sub); border-radius: var(--r-md);
+  padding: var(--s2) var(--s6) var(--s2) var(--s3);
+  margin-bottom: var(--s2);
+}
+.quote-head { font: var(--t-caption); color: var(--muted); }
+.quote-body { font: var(--t-body); }
+.quote-meta { font: var(--t-caption); color: var(--muted); }
+.quote-x {
+  position: absolute; top: var(--s1); right: var(--s1);
+  width: 24px; height: 24px; border: 0; border-radius: var(--r-sm);
+  background: none; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1;
+}
+.quote-x:hover { background: var(--line); color: var(--fg); }
+
+/* ── 창이 사람에게 하는 말들 ─────────────────────────────────── */
+
+/* 판 자체에 대한 사실(창이 사는 동안 참) — 아래 `.note`(이번 한 번의 일)와 **다르게 생겨야**
+   한다. 같은 노랑이면 나란히 떴을 때 어느 쪽이 방금 누른 결과인지 못 가린다. */
+.where, .note, .stream, .sent, .doing, .unknown-note { margin-left: var(--s4); margin-right: var(--s4); }
+.where {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--bg-sub); color: var(--fg-2);
+  border-left: 3px solid var(--line-strong); font: var(--t-caption);
+}
+.role { border-left-color: var(--accent); }
+.note, .stream {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-fg);
+  border: 1px solid var(--warn-line); font: var(--t-caption);
+}
+/* 스크롤 영역 맨 위에 서는 줄이라 위 여백이 없으면 머리에 붙는다(사용자 지적 2026-09-05). */
+.stream { margin-top: var(--s3); }
+/* 빈 대화 안내는 경고가 아니다 — 경고색을 벗는다. */
+.stream.info { background: var(--bg-sub); color: var(--fg-2); border-color: var(--line); }
+.unknown-note { color: var(--muted); font: var(--t-caption); }
+.sent {
+  display: flex; align-items: center; gap: var(--s2);
+  color: var(--muted); font: var(--t-caption);
+}
+.sent button { margin-left: auto; }
+.doing { color: var(--muted); font: var(--t-caption); }
+
+/* ── 안내(포스트잇) ─────────────────────────────────────────── */
+
+.advice-wrap { border-top: 1px solid var(--line); padding: var(--s3) var(--s4); }
+.advice-wrap h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s1); }
+.advice-note { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.advice-strays {
+  font: var(--t-caption); margin: 0 0 var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); background: var(--warn-bg); color: var(--warn-fg);
+  border: 1px solid var(--warn-line);
+}
+.advice {
+  display: block; width: 100%; text-align: left; margin-bottom: var(--s2);
+  padding: var(--s3); border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); color: var(--fg); cursor: pointer;
+  font: var(--t-body); box-shadow: var(--shadow-1);
+}
+.advice:hover:not(:disabled) { border-color: var(--sel); box-shadow: var(--shadow-2); }
+.advice:disabled { color: var(--muted); background: var(--bg-sub); cursor: default; box-shadow: none; }
+.advice-target { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+
+/* ── 데몬이 막혀서 묻는 자리 ─────────────────────────────────── */
+
+/* 물음 상자는 아래에도 숨 쉴 자리가 있어야 한다(사용자 지적 2026-09-05: 「박스 아래쪽에도 마진이 없다」). */
+.ask { margin: 0 var(--s4) var(--s3); }
+/* 대화 흐름 안에 섞이면 안 된다. 이건 읽는 것이 아니라 **막고 있는 것**이다. */
+.ask-box {
+  padding: var(--s3); border: 1px solid var(--accent);
+  border-radius: var(--r-lg); background: var(--accent-weak);
+  box-shadow: var(--shadow-1);
+}
+/* 답할 줄 모르는 종류. 눈에 띄되 「누르라」로 안 읽히게 강조를 뺀다. */
+.ask-box.unknown { border-color: var(--line); background: var(--bg-sub); }
+.ask-box h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s2); color: var(--accent); }
+.ask-box.unknown h2 { color: var(--muted); }
+.ask-unknown { font: var(--t-caption); margin: 0; white-space: pre-wrap; }
+.ask-what { font: var(--t-body); margin: 0 0 var(--s1); white-space: pre-wrap; }
+.ask-reason { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.ask-args {
+  margin: 0 0 var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-md); background: var(--bg); border: 1px solid var(--line);
+  font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto;
+}
+/* 인자가 안 실렸다는 말. **흐리게 두지 않는다** — 지금 누르려는 것에 대한 경고다. */
+.ask-args-missing { margin: 0 0 var(--s2); font: var(--t-caption); color: var(--accent); white-space: pre-wrap; }
+.ask-report { margin: 0 0 var(--s2); }
+.ask-report dt { font: var(--t-caption); color: var(--muted); }
+.ask-report dd { margin: 0 0 var(--s1); font: var(--t-caption); white-space: pre-wrap; }
+.ask-place { font: var(--t-caption); color: var(--muted); margin: 0 0 var(--s2); }
+.ask-picks { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.ask-note { font: var(--t-caption); color: var(--muted); margin: var(--s2) 0 0; }
+.ask-text { display: flex; gap: var(--s2); margin-top: var(--s2); }
+.ask-text input {
+  flex: 1; min-width: 0; font: var(--t-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md); padding: var(--s2) var(--s3);
+}
+.ask-lost {
+  padding: var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--warn-bg); color: var(--warn-fg); border: 1px solid var(--warn-line);
+  font: var(--t-caption);
+}
+.ask-last { font: var(--t-caption); color: var(--muted); }
+
+/* ── 컴포저 ─────────────────────────────────────────────────── */
+
+.composer {
+  border-top: 1px solid var(--line);
+  padding: var(--s3) var(--s4) var(--s4);
+  background: var(--bg);
+}
+.pending:not(:empty) { margin-bottom: var(--s2); }
+/* 기다리는 동안은 인용을 못 뺀다 — 이미 나간 글에 접혀 나갔다. */
+.pending.locked { opacity: .55; }
+textarea {
+  width: 100%; resize: vertical; min-height: 64px;
+  font: var(--t-body); color: var(--fg); background: var(--bg);
+  border: 1px solid var(--line-strong); border-radius: var(--r-md);
+  padding: var(--s2) var(--s3);
+}
+textarea::placeholder { color: var(--muted); }
+/*
+  컴포저 한 줄: 인용 · 입력칸 · 보내기.
+
+  **단추는 필드 높이의 세로 가운데다 — 바닥정렬이 아니다.** 이 집의 규칙이고, 여러 줄을 적어
+  칸이 늘어나도 단추가 아래로 끌려가지 않는다. `align-items: center` 가 그 한 줄이다.
+
+  입력칸만 늘어난다(`flex: 1`). 단추는 `.icon-btn` 이 `flex: none` 이라 안 줄어든다 — 안 그러면
+  좁은 판에서 아이콘이 눌려 점이 된다(2026-09-04 에 겪은 그것).
+*/
+.buttons { display: flex; align-items: center; gap: 16px; margin-top: var(--s2); }
+/*
+  **집어 오는 손 둘이 한 칸에.** 줄 간격 8 인 것은 이 둘이 한 묶음이라 그렇다 — 바깥 16 과
+  갈려야 「같은 종류 둘」로 읽힌다. 8 이면 48 타겟끼리 8px 겹치는데, **세로로 겹치는 것은
+  가로와 다르다**: 위아래로 8px 는 32 짜리 그림 밖이라 사람이 그림을 겨냥하면 안 물린다.
+  그래도 가장자리를 노리면 옆이 눌리므로, 이 둘은 **되돌릴 수 있는 것끼리**만 묶는다
+  (담기와 적기 — 둘 다 문서를 안 바꾼다).
+*/
+.btn-col { display: flex; flex-direction: column; gap: var(--s2); flex: none; }
+/* 오른쪽 묶음(세우기·보내기): 세우기는 도는 중에만 있어 평소엔 보내기 하나다 — 그때도 같은 자리에 선다. */
+.btn-col-end { align-self: center; }
+.buttons > textarea { flex: 1 1 auto; min-width: 0; margin: 0; }
+
+/* ── 컨트롤 ─────────────────────────────────────────────────── */
+
+button {
+  font: var(--t-body); font-weight: 600;
+  min-height: 32px; padding: 0 var(--s3);
+  border-radius: var(--r-md); border: 1px solid transparent;
+  cursor: pointer;
+}
+button:disabled { cursor: default; opacity: .5; }
+.ghost {
+  background: var(--bg); border-color: var(--line-strong); color: var(--fg);
+}
+.ghost:hover:not(:disabled) { background: var(--bg-sub); border-color: var(--sel); }
+.ghost:active:not(:disabled) { background: var(--line); }
+.primary {
+  margin-left: auto; background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+}
+.primary:hover:not(:disabled) { filter: brightness(1.06); }
+.primary:active:not(:disabled) { filter: brightness(.94); }
+/* 포커스는 **끄지 않는다.** 이 창은 키보드로도 돌아야 하고, 링을 지우면 어디에 있는지가
+   화면에서 사라진다. */
+:where(button, textarea, input, [tabindex]):focus-visible {
+  outline: 2px solid var(--sel); outline-offset: 2px;
+}
+
+/* ── 목업의 가짜 캔버스 ─────────────────────────────────────── */
+
+.strip { display: flex; gap: var(--s2); margin-bottom: var(--s3); }
+.thumb {
+  width: 36px; height: 27px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--muted); font: var(--t-caption);
+  border-radius: var(--r-sm); cursor: pointer;
+}
+.thumb.on { border-color: var(--sel); color: var(--sel); }
+.canvas {
+  position: relative; aspect-ratio: 16 / 9; background: #fff;
+  border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-2);
+}
+.shape {
+  position: absolute; border: 1px dashed var(--line-strong); border-radius: var(--r-sm);
+  padding: var(--s1) var(--s2); overflow: hidden; cursor: pointer;
+  font: var(--t-body); color: #333;
+}
+.shape:hover { border-color: var(--sel); }
+.shape.sel { border: 2px solid var(--sel); border-style: solid; }
+.hint { color: var(--muted); font: var(--t-caption); }
+.fake-prompts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2);
+  margin-top: var(--s4); font: var(--t-caption); color: var(--muted);
+}
+.fake-prompts button { min-height: 28px; font: var(--t-caption); font-weight: 600; }
+
+/* ── 접히는 요구 집합 ───────────────────────────────────────── */
+
+.caps summary {
+  cursor: pointer; list-style: none;
+  padding: var(--s2) var(--s3);
+  font: var(--t-caption); color: var(--muted);
+}
+.caps summary::-webkit-details-marker { display: none; }
+.caps summary::before { content: "▸ "; }
+.caps[open] summary::before { content: "▾ "; }
+.caps[data-measured="yes"] summary { color: var(--fg-2); }
+.caps-detail {
+  padding: 0 var(--s3) var(--s2);
+  font: var(--t-caption); color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 브랜드 줄 ─────────────────────────────────────────────── */
+/* MS 지침이 작업창 **아래**에 두라고 적은 자리. 위에 두면 세로 391px 에서 대화가 그만큼 준다. */
+
+.brand {
+  display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s2) var(--s4);
+  border-top: 1px solid var(--line); background: var(--bg-sub);
+  font: var(--t-caption); color: var(--muted);
+  margin-top: 0;
+}
+.brand-name { font-weight: 600; color: var(--accent); }
+.brand-state { margin-left: auto; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/*
+  **손잡이 하나만 여기 둔다.** 넷을 다 두면 176px 이라(32×4 + 16×3) 붙은 컴패니언 이름이
+  밀리는데, 그 이름은 늘 보여야 하는 값이다 — 이 줄이 존재하는 이유의 절반이다.
+  그래서 넷은 위에서 펴고, 여기 서는 것은 그 문 하나다.
+*/
+.brand > .icon-btn { margin-left: var(--s2); }
+.brand { min-height: 40px; }
+
+/*
+  ── 한 번 더 묻는 판 ───────────────────────────────────────
+  값은 M3 basic dialog 에서 옮겼다(`guide-specs.md`): 모서리 **28** · 패딩 **24** ·
+  제목↔본문 **16** · 본문↔액션 **24** · 버튼 사이 **8** · 폭 **280~560**.
+  348px 판에서는 최소폭이 이기므로 좌우로 물리고 그 안에서 늘어난다.
+*/
+.confirm {
+  position: absolute; inset: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--s4);
+  background: color-mix(in srgb, #000 32%, transparent);
+}
+.confirm-box {
+  width: 100%; max-width: 560px; box-sizing: border-box;
+  padding: 24px; border-radius: 28px;
+  background: var(--bg); border: 1px solid var(--line);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+}
+.confirm-head { font: var(--t-subtitle); font-weight: 600; margin: 0 0 16px; }
+.confirm-body { font: var(--t-body); color: var(--fg-2); margin: 0 0 24px; }
+.confirm-row { display: flex; justify-content: flex-end; gap: 8px; }
+/* 다이얼로그의 손은 **글자 단추**다(M3: action = label-large). 아이콘으로 두면 되돌릴 수 없는
+   쪽과 그만두는 쪽이 그림 둘이 되고, 그 둘은 그림으로 안 갈린다. */
+.text-btn {
+  min-height: 40px; padding: 0 12px; border-radius: 9999px;
+  background: none; border: 0; color: var(--accent, #1F4E79);
+  font: var(--t-body); font-weight: 600; cursor: pointer;
+}
+.text-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+.text-btn:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.text-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
+.text-danger { color: #B3261E; }
+
+/*
+  ── 도는 중 ────────────────────────────────────────────────
+  M3 의 linear progress indicator. 값은 스펙에서 옮겼다(`guide-specs.md`): 굵기 **4**,
+  트랙과 활성 부분이 같은 굵기. **무한(indeterminate)** 이라 진척을 안 적는다 — 이 제품은
+  한 턴에 도구가 몇 번 돌지 모르고, 모르는 것을 %로 적으면 그건 지어낸 숫자다.
+*/
+.busy { height: 4px; background: var(--line); overflow: hidden; flex: none; }
+.busy-bar {
+  height: 100%; width: 40%;
+  background: var(--accent, #1F4E79);
+  animation: busy-slide 1.4s ease-in-out infinite;
+}
+@keyframes busy-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+/*
+  **움직임을 줄이라고 한 사람에게는 안 움직인다.** 그래도 **사라지지는 않는다** — 이 막대가
+  나르는 것은 장식이 아니라 「지금 일하는 중」이라는 사실이고, 그 사실을 못 받으면 그 사람은
+  멈춘 화면을 보고 있는 것과 같아진다. 움직임 대신 채운 띠로 선다.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .busy-bar { width: 100%; animation: none; opacity: .55; }
+}
+
+/* ── 흐르는 가운데, 고정된 위아래 ────────────────────────────── */
+/*
+  작업창은 PowerPoint 에서 348×391 이다(MS 지침의 크기 표). 판이 하나 늘 때마다 컴포저가
+  화면 밖으로 밀렸고, 실물에서 「보내기」가 잘린 화면이 그대로 떴다. 그래서 세로를 셋으로
+  나눈다 — 제목은 위에 고정, 컴포저와 브랜드는 아래에 고정, **가운데만 흐른다.**
+*/
+/*
+  **선택자가 id 를 지나야 한다.** 위의 `#pane > *` 이 세로 리듬을 주려고 `flex: none` 을 거는데
+  그쪽은 id 를 물어 (1,0,0) 이고 클래스 하나는 (0,1,0) 이라 진다 — 그래서 이 영역이 높이 0 으로
+  접혔고, 화면에서는 **요구 집합과 컴패니언 카드가 통째로 사라진 것**으로 보였다. 실물에서 그
+  화면을 보고 고쳤다(2026-09-01).
+*/
+#pane > .scroll {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column;
+  /* `View.reveal` 이 `offsetTop` 으로 민다 — 이 상자가 offsetParent 라야 그 값이 맞다. */
+  position: relative;
+}
+.scroll > *:not([hidden]) + *:not([hidden]) { margin-top: var(--s3); }
+/* 「어디에 붙었나」「준비됐다」가 흐르는 영역의 첫 줄이 되면서(6fa4f06d) 위 형제가 없어 윗마진을 잃었다 —
+   `.turns` 는 제 padding(s3·s4)으로 안쪽 여백을 갖는데 이 둘은 margin 이라 첫 자리에서 판 가장자리에
+   붙었다(사용자 2026-09-05: 「주변에 마진 없는 듯」). 첫 줄이어도 같은 리듬을 준다. */
+.scroll > .where:not([hidden]) { margin-top: var(--s3); }
+/* 대화는 스크롤 영역 **안에서** 자란다 — 자기가 또 스크롤을 갖지 않는다. 두 겹이면 어느
+   쪽이 움직일지 사람이 못 고른다. */
+.turns { flex: 0 0 auto; overflow: visible; }
+.composer, .brand { flex: none; }
+
+/* ── 제안(문서에 저장된 주석) ──────────────────────────── */
+
+.fix-wrap { border-top: 1px solid var(--line); padding: var(--s3) var(--s4); }
+.fix-wrap h2 { font: var(--t-body); font-weight: 600; margin: 0 0 var(--s1); }
+.fix {
+  margin-bottom: var(--s2); padding: var(--s3);
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); font: var(--t-body); box-shadow: var(--shadow-1);
+}
+.fix-what { font-weight: 600; }
+.fix-why, .fix-where { margin-top: var(--s1); font: var(--t-caption); color: var(--muted); }
+/* **무엇을 합니다**가 카드에서 제일 또렷해야 한다 — 사람이 믿을 수 있는 유일한 줄이다. */
+.fix-does {
+  margin-top: var(--s2); padding: var(--s2) var(--s3);
+  border-radius: var(--r-sm); background: var(--bg-sub);
+  font: var(--t-caption); color: var(--fg);
+}
+.fix-buttons { margin-top: var(--s2); display: flex; gap: var(--s2); }
+.fix-buttons button {
+  padding: var(--s2) var(--s3); border-radius: var(--r-sm);
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  font: var(--t-body); cursor: pointer;
+}
+.fix-buttons button:hover:not(:disabled) { border-color: var(--sel); }
+.fix-buttons button:disabled { color: var(--muted); background: var(--bg-sub); cursor: default; }
+.fix-apply:not(:disabled) { border-color: var(--sel); font-weight: 600; }
+
+/* 가이드 판. 「늘 지킬 것」과 같은 상자를 쓰되, 줄마다 켜짐/꺼짐이 한눈에 갈려야 한다. */
+.guides-list { display: flex; flex-direction: column; gap: var(--s2); }
+.guide-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto auto;
+  gap: var(--s1) var(--s2);
+  align-items: center;
+  padding: var(--s2);
+  background: var(--bg-sub);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+/* 꺼진 것은 **흐리게 하되 사라지지 않는다** — 사라지면 다시 켤 길이 없다. */
+.guide-off { opacity: 0.55; }
+.guide-desc { grid-column: 1 / -1; font: var(--t-caption); color: var(--muted); }
+/* 설명이 없는 것은 그냥 회색 한 줄이 아니라 **고칠 거리**다 — 모델이 그 글을 보고 부를지 정한다. */
+.guide-desc-missing { font-style: italic; }
+.guide-size { font: var(--t-caption); color: var(--muted); }
+.guides-edit { display: flex; flex-direction: column; gap: var(--s2); margin-top: var(--s2); }
+.guide-name { padding: var(--s1) var(--s2); font: var(--t-body); border: 1px solid var(--line); border-radius: var(--r-sm); }
+
+/* 계획 판. 상태는 색이 아니라 **부호**로 가른다 — 색만 쓰면 못 가리는 사람이 있다. */
+.plan-list { display: flex; flex-direction: column; gap: var(--s1); margin-top: var(--s2); }
+.plan-row { display: grid; grid-template-columns: 16px 1fr; gap: var(--s2); font: var(--t-caption); }
+.plan-mark { color: var(--muted); text-align: center; }
+.plan-completed { color: var(--muted); text-decoration: line-through; }
+.plan-in_progress { font-weight: 600; }
+/* 모르는 상태는 **완료로 안 보이게** 둔다 — 지어내면 다 된 것처럼 읽힌다. */
+.plan-unknown { font-style: italic; }
+
+/* 계획 판은 **고정**이다 — 컴포저 바로 위. 대화가 쌓여도 안 밀린다. */
+.plan {
+  flex: 0 0 auto;
+  padding: var(--s2) var(--s4);
+  background: var(--bg-sub);
+  border-top: 1px solid var(--line);
+}
+.plan > summary { font: var(--t-caption); color: var(--fg-2); cursor: pointer; }
+/* `position` 이 계약이다 — `View.scrollWithin` 이 `offsetTop` 으로 미는데, 이 상자가
+   offsetParent 가 아니면 그 값이 **판 전체 기준**이 되어 엉뚱한 데로 민다. */
+.plan-list { max-height: 96px; overflow-y: auto; position: relative; }
+
+/*
+  아이콘 단추 — **M3 XS**. 값은 스펙 그림에서 직접 읽은 것을 옮겼다
+  (`.claude/skills/material-3/guide-controls.md`): 높이 **32**, 아이콘 **20**, 모서리 **Full**.
+  「4dp 같은 어중간한 코너는 M3 버튼이 아니다」라고 그 문서가 못 박는다.
+
+  **타겟은 컨테이너와 따로 잰다.** XS·S 는 48×48 이상이어야 하는데 32 짜리 컨테이너를 48 로
+  키우면 348px 판에서 네 개가 줄을 먹는다. Material Web 도 같은 자리에서 둘을 분리한다
+  (`.touch{height:48px}`) — 여기서는 `::before` 가 컨테이너 밖으로 8px 씩 뻗어 48 을 만든다.
+
+  줄 간격은 **16**(8 그리드 둘). 32 + 16 = 48 이라 이웃한 타겟이 **겹치지 않고 맞닿는다** —
+  8 로 두면 타겟끼리 8px 겹쳐서 가장자리를 누른 사람이 옆 단추를 누른다.
+*/
+.icon-btn {
+  width: 32px; height: 32px; padding: 0; flex: none;
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 9999px;
+  color: var(--muted); line-height: 1; cursor: pointer;
+}
+/* 보이는 32 밖으로 8 씩 — 타겟 48. 그림은 안 커지고 누를 자리만 커진다. */
+.icon-btn::before { content: ''; position: absolute; inset: -8px; }
+/*
+  스테이트 레이어. **번들에서 읽은 값**이다 — hover 0.08 · pressed 0.12
+  (`vendor/material.js` 의 `hover-state-layer-opacity`·`pressed-state-layer-opacity`).
+  색을 바꾸는 것이 아니라 그 표면의 글자색을 그 불투명도로 **덮는다.**
+*/
+.icon-btn:hover { background: color-mix(in srgb, currentColor 8%, transparent); color: var(--fg); }
+.icon-btn:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.icon-btn:focus-visible { outline: 2px solid var(--accent, #1F4E79); outline-offset: 2px; }
+/* 켜짐은 **색 하나로 말하지 않는다** — 글리프와 굵기 둘이다(M3). */
+.icon-on { color: var(--fg); }
+/*
+  **토글 단추의 선택 상태는 칠한다.** M3 의 toggle icon button 은 selected 를 tonal 컨테이너로 그린다 —
+  글자색만 진해지는 `.icon-on` 은 「펴짐」(⋯) 같은 순간 상태엔 맞지만, 카운슬처럼 **켜짐/꺼짐이 오래
+  서 있는 스위치**는 흰 바탕에서 구분이 안 됐다(사용자 2026-09-06: 「활성화는 색을 좀 칠해 주지」).
+  aria-pressed 가 참인 단추만 — 눌림이 상태인 단추의 표식이 그 속성이다.
+*/
+.icon-btn[aria-pressed="true"] { background: var(--accent-weak); color: var(--accent); }
+.icon-btn[aria-pressed="true"]:hover { background: color-mix(in srgb, var(--accent) 16%, var(--accent-weak)); }
+
+/*
+  ── 스위치 ─────────────────────────────────────────────────
+  **값은 M3 스펙에서 그대로 옮겼다**(`.claude/skills/material-3/guide-specs.md` 의 Switch):
+  트랙 **32×52** · 외곽선 **2** · 모서리 **Full** · 핸들 비선택 **16** / 선택 **24** /
+  눌림 **28** · 스테이트 레이어 **40** · 포커스 **3 @ 2**.
+
+  **핸들이 커지는 것이 요점이다.** 16 → 24 는 장식이 아니라 **색 말고 다른 한 속성**이다 —
+  M3 접근성 문서가 스위치에 대해 이름 대어 요구하는 신호가 그것이고(`핸들 크기 증가`),
+  자리(왼쪽/오른쪽)와 합쳐 둘이 된다.
+
+  ⚠ **트랙 안에 글자를 넣지 않는다** — 그 크기의 폰트는 접근성 미달이라고 같은 문서가 적는다.
+*/
+.switch {
+  width: 52px; height: 32px; flex: none; padding: 0;
+  position: relative; display: inline-flex; align-items: center;
+  box-sizing: border-box;
+  border: 2px solid var(--line); border-radius: 9999px;
+  background: var(--bg-sub); cursor: pointer;
+  transition: background .12s ease, border-color .12s ease;
+}
+/* 타겟 48 — 32 짜리 트랙 밖으로 8 씩. 그림은 안 커지고 누를 자리만 커진다. */
+.switch::before { content: ''; position: absolute; inset: -8px; }
+.switch-handle {
+  position: absolute; left: 6px;
+  width: 16px; height: 16px; border-radius: 9999px;
+  background: var(--muted);
+  transition: width .12s ease, height .12s ease, left .12s ease, background .12s ease;
+}
+.switch.on { background: var(--accent, #1F4E79); border-color: var(--accent, #1F4E79); }
+/* 선택되면 핸들이 **커지고**(16 → 24) 자리를 옮긴다. 둘 다 색이 아니다. */
+.switch.on .switch-handle { width: 24px; height: 24px; left: 22px; background: #fff; }
+.switch:active .switch-handle { width: 28px; height: 28px; }
+.switch.on:active .switch-handle { left: 20px; }
+.switch:focus-visible { outline: 3px solid var(--accent, #1F4E79); outline-offset: 2px; }
+/* 작업 중지는 채운 붉은 단추다(사용자 2026-09-05: 「빨간색 filled, 새빨간색 말고」). M3 error 톤 —
+   #B3261E(error 40), 누르면 #8C1D18(error 30). 새빨강(#FF0000)이 아니라 Word 의 파랑 계열 옆에서도 튀지 않는다. */
+/* M3 filled button on the error role: 바탕 error · 글리프 on-error, hover/pressed 는 on-error 8%/12% 상태 레이어.
+   밝은 판 #B3261E/#FFFFFF, 어두운 판 #F2B8B5/#601410 — M3 baseline 의 error 쌍이다. */
+.icon-danger { background: var(--danger, #B3261E); color: var(--on-danger, #fff); border-color: transparent; }
+.icon-danger:hover { background: color-mix(in srgb, var(--on-danger, #fff) 8%, var(--danger, #B3261E)); color: var(--on-danger, #fff); }
+.icon-danger:active { background: color-mix(in srgb, var(--on-danger, #fff) 12%, var(--danger, #B3261E)); }
+.icon-danger:focus-visible { outline: 3px solid var(--danger, #B3261E); outline-offset: 2px; }
+
+/* 도구 줄의 접힘. 머리 자체가 손잡이라 접혀 있을 때 드는 자리가 0줄이다. */
+.turn-fold > summary { cursor: pointer; list-style: none; }
+.turn-fold > summary::-webkit-details-marker { display: none; }
+/* 접힌 것을 알 수 있게 — 색이 아니라 **글리프**로 가른다. */
+.turn-fold > summary::after { content: ' ⋯'; color: var(--muted); }
+.turn-fold[open] > summary::after { content: ''; }
+
+/* 아이콘 한 벌. 선으로 그린 것이라 굵기를 한 곳에서 정한다. */
+/* `flex: none` 이 없으면 좁은 자리에서 **줄어들어 점이 된다** — 위 패딩 건이 그 모양이었다. */
+.i { width: 20px; height: 20px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5;
+     stroke-linecap: round; stroke-linejoin: round; }
+/* 주 동작은 채워서 — **색 하나로만 가르지 않는다**(테두리와 굵기가 같이 간다). */
+.icon-primary { background: var(--accent, #1F4E79); color: #fff; border-color: transparent; }
+.icon-primary:hover { background: #17405f; color: #fff; }
+
+/* 답에서 사람이 읽을 줄. 원문은 그 아래 접힌다. */
+.turn-changed { font: var(--t-caption); color: var(--fg-2); margin-top: var(--s1); }
+.turn-result-more { font: var(--t-caption); color: var(--muted); cursor: pointer; }
+
+
+
+/* 도구 한 번이 줄 하나. 이름과 결과가 같은 줄에 선다. */
+.turn-line { display: flex; align-items: baseline; gap: var(--s2); cursor: pointer; }
+.turn-line .turn-head { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.turn-line .turn-result-head { flex: none; }
+
+/* ── 마크다운으로 온 글(모델의 답·카운슬·플러그인 줄) — md.js 가 짓는다 ───────────── */
+.md { overflow-x: auto; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 0 0 8px; }
+.md h3, .md h4, .md h5, .md h6 { margin: 10px 0 4px; font-size: 13px; font-weight: 600; }
+.md h3 { font-size: 14px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 20px; }
+.md li { margin: 2px 0; }
+.md code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--surface-2, rgba(0,0,0,.06)); padding: 0 4px; border-radius: 4px; }
+.md pre { margin: 0 0 8px; padding: 8px; border-radius: 6px; background: var(--surface-2, rgba(0,0,0,.06)); overflow-x: auto; white-space: pre; }
+.md pre code { background: none; padding: 0; }
+.md table { border-collapse: collapse; margin: 0 0 8px; font-size: 12px; }
+.md th, .md td { border: 1px solid var(--line, rgba(0,0,0,.15)); padding: 3px 6px; text-align: left; vertical-align: top; }
+.md th { font-weight: 600; background: var(--surface-2, rgba(0,0,0,.04)); }
+.md hr { border: 0; border-top: 1px solid var(--line, rgba(0,0,0,.15)); margin: 8px 0; }
+.md a { color: var(--accent); }
+
+/* ── 컨텍스트 띠 ────────────────────────────────────────────── */
+.ctx { flex-basis: 100%; padding: 0 0 var(--s1); margin-bottom: var(--s1); border-bottom: 1px solid var(--line); font: var(--t-caption); color: var(--muted); }
+.ctx-row { display: flex; align-items: center; gap: var(--s2); min-height: 28px; }
+.ctx-bar { flex: 1 1 auto; height: 6px; display: flex; overflow: hidden; border-radius: 3px; background: var(--line); }
+.ctx-bar i { display: block; height: 100%; }
+.ctx-bar i + i { box-shadow: inset 1px 0 0 var(--bg, #fff); }
+.ctx-text { flex: none; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ctx-keys { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: 2px; }
+.ctx-key::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: currentColor; }
+.ctx-note { margin-left: auto; }
+.p-system { color: var(--p-system); } .p-tools { color: var(--p-tools); } .p-talk { color: var(--p-talk); } .p-calls { color: var(--p-calls); } .p-results { color: var(--p-results); }
+.ctx-bar i.p-system { background: var(--p-system); } .ctx-bar i.p-tools { background: var(--p-tools); } .ctx-bar i.p-talk { background: var(--p-talk); }
+.ctx-bar i.p-calls { background: var(--p-calls); } .ctx-bar i.p-results { background: var(--p-results); }
+/* ── 프로바이더·모델 — 직접 구현한 M3 exposed dropdown menu ─────────
+   Outlined text field 모양의 필드(1px outline, 4px 모서리, 떠 있는 라벨, 오른쪽 arrow_drop_down)를 누르면 M3 menu 가
+   위로 펴진다: surface container, level 2 그림자, extra-small 모서리(4px), 항목 48px·body-large, 너비 112~280,
+   고른 항목은 앞의 체크와 옅은 채움(selected). 필드 높이는 이 판의 밀도에 맞춘 40(M3 기본 56 은 348px 판에서 한 줄을
+   다 먹는다). 스테이트 레이어는 아이콘 단추와 같은 값(hover 8%·pressed 12%). 포커스·펼침은 2px primary 테두리. */
+.pick-model { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; margin-left: var(--s1); }
+.dd { position: relative; flex: 1 1 120px; min-width: 120px; max-width: 200px; }
+.dd-field {
+  position: relative; width: 100%; height: 40px; padding: 0 32px 0 12px;
+  display: flex; align-items: center; text-align: left;
+  background: var(--bg); color: var(--fg); border: 1px solid var(--line-strong); border-radius: 4px;
+  font: var(--t-body); cursor: pointer;
+}
+.dd-field:hover { border-color: var(--fg); background: color-mix(in srgb, currentColor 8%, var(--bg)); }
+.dd-field:active { background: color-mix(in srgb, currentColor 12%, var(--bg)); }
+.dd-field:focus-visible, .dd-field[aria-expanded="true"] { outline: none; border: 2px solid var(--accent); padding-left: 11px; }
+.dd-field:disabled { color: var(--muted); border-color: var(--line); cursor: default; }
+.dd-label {
+  position: absolute; top: -7px; left: 8px; padding: 0 4px; background: var(--bg);
+  font: var(--t-caption); font-size: 11px; line-height: 14px; color: var(--muted);
+}
+.dd-field[aria-expanded="true"] .dd-label, .dd-field:focus-visible .dd-label { color: var(--accent); }
+.dd-value { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-caret { position: absolute; right: 8px; top: 50%; margin-top: -8px; width: 16px; height: 16px; color: var(--muted); transition: transform .15s; }
+.dd-field[aria-expanded="true"] .dd-caret { transform: rotate(180deg); }
+.menu {
+  position: absolute; bottom: calc(100% + 4px); left: 0; z-index: 20;
+  min-width: 112px; max-width: 280px; width: max-content; padding: 8px 0; border-radius: 4px;
+  background: var(--bg); color: var(--fg);
+  box-shadow: 0 1px 2px rgba(0,0,0,.3), 0 2px 6px 2px rgba(0,0,0,.15);
+  max-height: 60vh; overflow: auto;
+}
+.menu-item {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px;
+  background: none; border: 0; text-align: left; font: var(--t-body); color: var(--fg); cursor: pointer;
+}
+.menu-item:hover, .menu-item:focus-visible { background: color-mix(in srgb, currentColor 8%, transparent); outline: none; }
+.menu-item:active { background: color-mix(in srgb, currentColor 12%, transparent); }
+.menu-item[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.menu-check { width: 18px; flex: none; color: var(--accent); visibility: hidden; }
+.menu-item[aria-selected="true"] .menu-check { visibility: visible; }
+.menu-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-empty { padding: 12px; font: var(--t-caption); color: var(--muted); }
+.model-note { font: var(--t-caption); color: var(--muted); flex-basis: 100%; }
