@@ -3,6 +3,7 @@ package office
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -36,6 +37,12 @@ type xlNoter interface {
 
 // openXLNoter 는 플랫폼이 정한다 — 시험은 가짜로 바꿔 끼운다.
 var openXLNoter = openXLNoterOS
+
+// xlNotesOnThisOS — COM 은 Windows 에만 있다.
+var xlNotesOnThisOS = runtime.GOOS == "windows"
+
+// notesFallback 은 이 앱의 헬퍼가 메모 도구를 노트로 대신할 수 있는가 — hello 프레임이 창에 알린다.
+func (a *App) notesFallback() bool { return a.Key == "xl" && a.Fallback != nil && xlNotesOnThisOS }
 
 var xlNoteTools = map[string]bool{"add_comment": true, "read_comments": true, "resolve_comment": true}
 

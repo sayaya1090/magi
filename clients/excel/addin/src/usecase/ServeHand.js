@@ -64,7 +64,10 @@ export class ServeHand {
       // **사유를 애드인 말로 올려 보낸다.** 헬퍼가 문장을 지어내면 Office.js 가 실제로 뭐라고
       // 했는지가 사라진다 — 그쪽 `HandReply.Error` 주석이 그 규칙이다.
       const why = officeWhy(e);
-      this.onNote(`조작 ${op} 이 실패했습니다: ${why}`);
+      // 2021 의 메모 셋은 헬퍼가 COM 노트로 대신한다(hello 의 notes) — 그때 「실패」라고 적으면 사람은 안 된 줄 안다. 오류는 그대로
+      // 올려 보낸다(헬퍼가 그것을 보고 대신한다); 화면에는 넘겼다고 적는다.
+      const handedToNotes = this.stream?.notesFallback === true && ['add_comment', 'read_comments', 'resolve_comment'].includes(op) && String(e?.code ?? '') === 'NotImplemented';
+      this.onNote(handedToNotes ? `${op}: 이 Excel 판은 메모 API 가 없어 헬퍼가 노트(옛 메모)로 대신합니다` : `조작 ${op} 이 실패했습니다: ${why}`);
       try {
         await this.api.reply({ id, document: this.stream.document ?? '', error: why });
       } catch (postErr) {

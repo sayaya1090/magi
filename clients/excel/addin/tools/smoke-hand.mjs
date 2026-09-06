@@ -337,6 +337,24 @@ class FakeEventSource {
   ok('거절된 자리도 그대로 싣는다', why.includes('CommentCollection._OnAccess'), why);
 }
 
+{
+  // 헬퍼가 노트로 대신할 수 있다고 했으면(hello notes:true) 화면에는 「실패」가 아니라 「노트로 대신」이 선다 — 오류는 그대로 올라간다.
+  const stream = new ScriptedStream(); stream.document = 'doc-ni2'; stream.notesFallback = true;
+  const api = new SpyApi(); const notes = [];
+  const hand = { document: 'doc-ni2', async run() { const e = new Error('NotImplemented'); e.code = 'NotImplemented'; e.debugInfo = { errorLocation: 'CommentCollection._OnAccess' }; throw e; } };
+  const serve = new ServeHand({ stream, api, hand, onNote: (s) => notes.push(s) });
+  serve.start();
+  stream.push('call', { id: 'r13', op: 'add_comment', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  ok('노트로 넘긴 것은 실패라고 안 적는다', notes.length === 1 && notes[0].includes('노트(옛 메모)로 대신') && !notes[0].includes('실패'), notes.join(' | '));
+  ok('오류는 그대로 헬퍼로 올라간다', (api.replies[0]?.error ?? '').includes('NotImplemented'), api.replies[0]?.error);
+  const plain = new ScriptedStream(); plain.document = 'doc-ni3'; const api2 = new SpyApi(); const notes2 = [];
+  new ServeHand({ stream: plain, api: api2, hand, onNote: (s) => notes2.push(s) }).start();
+  plain.push('call', { id: 'r14', op: 'add_comment', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  ok('헬퍼가 약속하지 않았으면(Mac) 실패로 적는다', notes2[0]?.includes('실패했습니다'), notes2.join(' | '));
+}
+
 // ── 되살아난 것도 사건이다 ───────────────────────────────────────────────────
 //
 // 이 창은 스트림을 먼저 열고 컴패니언을 나중에 고른다. 그래서 **정상 흐름이 죽은 스트림으로

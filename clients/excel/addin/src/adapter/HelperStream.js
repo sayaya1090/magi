@@ -100,7 +100,7 @@ export class HelperStream {
       src.addEventListener(kind, (m) => {
         let data = null;
         try { data = JSON.parse(m.data); } catch { data = { raw: m.data }; }
-        if (kind === 'hello') this.document = data?.document ?? null;
+        if (kind === 'hello') { this.document = data?.document ?? null; this.notesFallback = data?.notes === true; }
         this.#emit(kind, data);
       });
     }

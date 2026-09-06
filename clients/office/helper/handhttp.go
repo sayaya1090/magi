@@ -104,7 +104,8 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	// 애드인이 자기 문서 키를 **첫 프레임으로** 안다. 이 값이 도구의 `document` 인자와 같은
 	// 문자열이고, 화면이 「어느 덱에 붙었나」를 적는 근거다.
-	writeSSE(w, "hello", map[string]any{"document": conn.key, "label": conn.label, "epoch": conn.epoch})
+	// notes: 이 헬퍼가 메모 도구를 노트로 대신할 수 있는가(xl_notes.go) — 창은 이것을 보고 NotImplemented 를 「실패」가 아니라 「노트로 넘김」으로 적는다.
+	writeSSE(w, "hello", map[string]any{"document": conn.key, "label": conn.label, "epoch": conn.epoch, "notes": h.Hub.App.notesFallback()})
 	flusher.Flush()
 
 	var feed <-chan StreamFrame

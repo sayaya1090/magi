@@ -176,6 +176,15 @@ func TestNotesFallbackRefusesWithoutAWorkbookNameOrOnARange(t *testing.T) {
 	}
 }
 
+func TestOnlyExcelOnWindowsAdvertisesTheNoteFallback(t *testing.T) {
+	if XL.notesFallback() != xlNotesOnThisOS {
+		t.Errorf("엑셀 헬퍼는 이 OS 에 COM 이 있을 때만 노트를 약속한다: %v", XL.notesFallback())
+	}
+	if Word.notesFallback() || PPT.notesFallback() {
+		t.Error("워드·파워포인트는 노트 우회가 없다")
+	}
+}
+
 func TestNotesFallbackSaysWhenThereIsNoComAtAll(t *testing.T) {
 	was := openXLNoter
 	openXLNoter = func() (xlNoter, error) { return nil, errors.New("COM 은 Windows 에만 있습니다") }
