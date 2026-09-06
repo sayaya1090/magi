@@ -12,11 +12,11 @@ export const READ_OPS = Object.freeze([
   'read_tags', 'read_suggestions', 'trace_cell', 'advise', 'clear_advice',
 ]);
 export const WRITE_OPS = Object.freeze([
-  'write_range', 'replace_all', 'copy_range', 'fill_range', 'remove_duplicates', 'set_number_format', 'format_range', 'clear_range', 'merge_cells', 'unmerge_cells', 'insert_cells',
+  'write_range', 'set_cell_style', 'replace_all', 'copy_range', 'fill_range', 'remove_duplicates', 'set_number_format', 'format_range', 'clear_range', 'merge_cells', 'unmerge_cells', 'insert_cells',
   'delete_cells', 'autofit', 'set_hyperlink',
   'add_sheet', 'delete_sheet', 'rename_sheet', 'move_sheet', 'copy_sheet', 'set_sheet_visibility', 'activate_sheet',
-  'freeze_panes', 'set_rows_columns', 'set_tab_color', 'set_sheet_view', 'set_workbook_properties', 'protect_sheet', 'unprotect_sheet',
-  'add_table', 'set_table_cells', 'add_table_rows', 'remove_table', 'sort_range', 'filter_table',
+  'freeze_panes', 'set_rows_columns', 'set_tab_color', 'set_sheet_view', 'set_workbook_properties', 'set_page_setup', 'protect_workbook', 'protect_sheet', 'unprotect_sheet',
+  'add_table', 'set_table_cells', 'add_table_rows', 'edit_table', 'remove_table', 'sort_range', 'filter_table',
   'add_chart', 'format_chart', 'delete_chart',
   'add_conditional_format', 'clear_conditional_formats', 'set_validation', 'set_name', 'delete_name',
   'add_comment', 'resolve_comment', 'add_image', 'add_pivot', 'refresh_pivot', 'insert_sheets_from_file', 'import_csv',

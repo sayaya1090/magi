@@ -263,6 +263,13 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Required: []string{"address"},
 		},
 		{
+			Name: "set_cell_style",
+			Desc: "Apply one of Excel's built-in cell styles (Good, Bad, Neutral, Input, Heading1…, Total, Percent…) to a range — " +
+				"the styles under Home › Cell Styles, language-independent names. Needs ExcelApi 1.7.",
+			Props:    withRange(property{Name: "style", Type: "string", Desc: "Built-in style name. Required.", Enum: xlCellStyles}),
+			Required: []string{"address", "style"},
+		},
+		{
 			Name: "set_number_format",
 			Desc: "Number format of a range: \"#,##0\", \"#,##0.00\", \"0%\", \"yyyy-mm-dd\", \"@\" (text), \"General\". " +
 				"Changes how the values SHOW, not the values.",
@@ -461,6 +468,30 @@ func xlCatalogue(hasCouncil bool) []tool {
 			},
 		},
 		{
+			Name: "set_page_setup",
+			Desc: "How a worksheet prints: print area, orientation, fit to N pages wide/tall (0 = as many as needed), rows " +
+				"repeated on every page (\"$1:$1\"), gridlines, centering, margins (pt). Only the fields you pass change. Needs ExcelApi 1.9.",
+			Props: withSheet(
+				property{Name: "print_area", Type: "string", Desc: "A1 range to print, or none to clear."},
+				property{Name: "orientation", Type: "string", Desc: "Portrait or Landscape.", Enum: xlOrientations},
+				property{Name: "fit_width", Type: "integer", Desc: "Pages wide (1 = shrink to one page wide; 0 = automatic)."},
+				property{Name: "fit_height", Type: "integer", Desc: "Pages tall."},
+				property{Name: "title_rows", Type: "string", Desc: "Rows repeated at the top of every page, e.g. \"$1:$1\"; none to clear."},
+				property{Name: "gridlines", Type: "boolean", Desc: "Print gridlines."},
+				property{Name: "center", Type: "boolean", Desc: "Center horizontally on the page."},
+				property{Name: "margins", Type: "object", Desc: "{left, right, top, bottom} in points."},
+			),
+		},
+		{
+			Name: "protect_workbook",
+			Desc: "Protect the workbook's STRUCTURE (no adding, deleting, renaming or moving sheets), optionally with a password; " +
+				"protected:false lifts it. Cell edits are governed by protect_sheet. Needs ExcelApi 1.7.",
+			Props: []property{
+				property{Name: "protected", Type: "boolean", Desc: "Default true."},
+				property{Name: "password", Type: "string", Desc: "Optional; needed again to unprotect."},
+			},
+		},
+		{
 			Name: "protect_sheet",
 			Desc: "Protect a worksheet from edits (optionally with a password). Formatting/sorting stay allowed only " +
 				"if you say so. Needs ExcelApi 1.7.",
@@ -510,6 +541,20 @@ func xlCatalogue(hasCouncil bool) []tool {
 				{Name: "at", Type: "integer", Desc: "0-based body row to insert before. Omit to append."},
 			},
 			Required: []string{"table", "rows"},
+		},
+		{
+			Name: "edit_table",
+			Desc: "Change a table's shape: add columns (by name, at the end), delete columns (by name), resize to a new range " +
+				"(ExcelApi 1.13; must keep the header row), show/hide the totals row. Rows are added with add_table_rows; a table " +
+				"becomes a plain range with remove_table.",
+			Props: []property{
+				{Name: "table", Type: "string", Desc: "Table name. Required."},
+				{Name: "add_columns", Type: "array", Items: "string", Desc: "Header names of new columns, appended at the end."},
+				{Name: "delete_columns", Type: "array", Items: "string", Desc: "Header names of columns to remove."},
+				{Name: "resize", Type: "string", Desc: "New A1 range for the whole table including its header, e.g. \"A1:F30\"."},
+				{Name: "show_totals", Type: "boolean", Desc: "Totals row on/off."},
+			},
+			Required: []string{"table"},
 		},
 		{
 			Name: "remove_table",

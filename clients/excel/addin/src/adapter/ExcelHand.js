@@ -134,6 +134,10 @@ export class ExcelHand extends HandPort {
         return this.#envelope({ pinned: op === 'advise' ? (a.items?.length ?? 0) : 0 });
       // ── 쓰기 ──
       case 'write_range': return this.#writeRange(a);
+      case 'set_cell_style': return this.#setCellStyle(a);
+      case 'edit_table': return this.#editTable(a);
+      case 'set_page_setup': return this.#setPageSetup(a);
+      case 'protect_workbook': return this.#protectWorkbook(a);
       case 'trace_cell': return this.#traceCell(a);
       case 'insert_sheets_from_file': return this.#insertSheetsFromFile(a);
       case 'import_csv': return this.#importCSV(a);
@@ -629,6 +633,57 @@ export class ExcelHand extends HandPort {
       ws.load('name'); const target = ws.getRange(address).getCell(0, 0).getResizedRange(values.length - 1, width - 1); target.load('address'); await context.sync();
       target.values = values; await context.sync(); this.#mutated();
       return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(target.address), rows: values.length, columns: width, new_sheet: made }, [`「${name}」 ${values.length}×${width} → ${ws.name}!${ExcelHand.#bare(target.address)}${made ? ' (새 시트)' : ''}`]);
+    });
+  }
+  async #setCellStyle(a) {
+    this.#need('ExcelApi', '1.7', 'set_cell_style');
+    const style = String(need(a, 'style'));
+    return this.runner(async (context) => {
+      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address'); range.style = style; await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), style }, [`${ws.name}!${ExcelHand.#bare(range.address)} 에 셀 스타일 「${style}」`]);
+    });
+  }
+  async #editTable(a) {
+    const add = arr(a, 'add_columns'); const del = arr(a, 'delete_columns'); const resize = str(a, 'resize'); const totals = bool(a, 'show_totals');
+    if (!add?.length && !del?.length && !resize && totals == null) refuse('할 일이 없습니다 — add_columns·delete_columns·resize·show_totals 중 하나');
+    if (resize) this.#need('ExcelApi', '1.13', 'edit_table{resize}');
+    return this.runner(async (context) => {
+      const t = await this.#tableNamed(context, a); const done = [];
+      if (del?.length) { for (const n of del) { const col = t.columns.getItemOrNullObject(String(n)); col.load('isNullObject,name'); await context.sync(); if (col.isNullObject) refuse(`표 '${t.name}' 에 「${n}」 열이 없습니다`); col.delete(); } await context.sync(); done.push(`열 ${del.length}개 삭제(${del.join('/')})`); }
+      if (add?.length) { for (const n of add) t.columns.add(null, null, String(n)); await context.sync(); done.push(`열 ${add.length}개 추가(${add.join('/')})`); }
+      if (resize) { const ws = t.worksheet; t.resize(ws.getRange(resize)); await context.sync(); done.push(`범위 ${resize}`); }
+      if (totals != null) { t.showTotals = totals; await context.sync(); done.push(totals ? '요약 행 켬' : '요약 행 끔'); }
+      const r = t.getRange(); r.load('address'); t.columns.load('items/name'); await context.sync(); this.#mutated();
+      return this.#envelope({ table: t.name, address: ExcelHand.#bare(r.address), columns: t.columns.items.map((c) => c.name) }, [`표 '${t.name}': ${done.join(', ')} — 지금 ${ExcelHand.#bare(r.address)}`]);
+    });
+  }
+  async #setPageSetup(a) {
+    this.#need('ExcelApi', '1.9', 'set_page_setup');
+    const area = str(a, 'print_area'); const orient = str(a, 'orientation'); const fw = int(a, 'fit_width'); const fh = int(a, 'fit_height'); const titles = str(a, 'title_rows'); const grid = bool(a, 'gridlines'); const center = bool(a, 'center');
+    const margins = a.margins && typeof a.margins === 'object' ? a.margins : null;
+    const words = [area && (area.toLowerCase() === 'none' ? '인쇄 영역 해제' : `인쇄 영역 ${area}`), orient && (orient === 'Landscape' ? '가로' : '세로'), (fw != null || fh != null) && `쪽 맞춤 ${fw ?? '자동'}×${fh ?? '자동'}`, titles && (titles.toLowerCase() === 'none' ? '반복 행 해제' : `반복 행 ${titles}`), grid != null && (grid ? '눈금선 인쇄' : '눈금선 인쇄 안 함'), center != null && (center ? '가운데' : '가운데 해제'), margins && '여백'].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — print_area·orientation·fit_width·fit_height·title_rows·gridlines·center·margins 중 하나');
+    return this.runner(async (context) => {
+      const ws = this.#sheet(context, a); ws.load('name'); const pl = ws.pageLayout;
+      // 해제는 빈 글로 — null 은 InvalidArgument 다(실물 2026-09-06).
+      if (area) { if (area.toLowerCase() === 'none') pl.setPrintArea(''); else pl.setPrintArea(ws.getRange(area)); }
+      if (orient) pl.orientation = orient;
+      if (fw != null || fh != null) pl.zoom = { horizontalFitToPages: fw ?? 0, verticalFitToPages: fh ?? 0 };
+      if (titles) { if (titles.toLowerCase() === 'none') pl.setPrintTitleRows(''); else pl.setPrintTitleRows(titles); }
+      if (grid != null) pl.printGridlines = grid; if (center != null) pl.centerHorizontally = center;
+      if (margins) { for (const [k, prop] of [['left', 'leftMargin'], ['right', 'rightMargin'], ['top', 'topMargin'], ['bottom', 'bottomMargin']]) { const v = num(margins, k); if (v != null) pl[prop] = v; } }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name }, [`시트 '${ws.name}' 인쇄: ${words.join(', ')}`]);
+    });
+  }
+  async #protectWorkbook(a) {
+    this.#need('ExcelApi', '1.7', 'protect_workbook');
+    const on = bool(a, 'protected') ?? true; const pw = str(a, 'password');
+    return this.runner(async (context) => {
+      const p = context.workbook.protection; p.load('protected'); await context.sync();
+      if (on) { if (p.protected) refuse('통합 문서 구조가 이미 보호되어 있습니다'); p.protect(pw ?? undefined); } else { if (!p.protected) refuse('통합 문서 구조가 보호되어 있지 않습니다'); p.unprotect(pw ?? undefined); }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ protected: on, password: Boolean(pw) }, [on ? `통합 문서 구조를 보호했습니다${pw ? ' (암호)' : ''}` : '통합 문서 구조 보호를 풀었습니다']);
     });
   }
   async #setRowsColumns(a) {

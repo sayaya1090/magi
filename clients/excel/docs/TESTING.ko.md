@@ -9,9 +9,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 72개
+node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 76개
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 72개 전부
+node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 76개 전부
 TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다 — MCP 로 부르면 여기로 온다
 ```
 
@@ -150,7 +150,7 @@ Excel 창에서 띠를 봤고(「보인다」), 그 자리에서 「상시 나�
 
 1. Excel 을 열고 리본 「홈」 오른쪽 끝 **AI Assistant › Magi** → 작업창.
 2. 「지원 API」 줄 — 2021/365 면 숨어 있어야 한다(전부 ✓). 펴져 있으면 무엇이 없는지 읽는다.
-3. 붙기 → `준비됐습니다 — 도구 72 개.`
+3. 붙기 → `준비됐습니다 — 도구 76 개.`
 4. 범위를 고르고 「인용」 → `[인용] sheet="…" range=… size=…` 조각.
 5. 「이 시트 목차 읽어 줘」 → `시트 목차 읽기` 줄, 권한 물음 없이.
 6. 「B2:B6 를 천 단위로」 → 권한 물음에 `set_number_format` 과 인자(시트·범위·형식)가 그려진다 → 허용 → Excel
@@ -186,6 +186,12 @@ Office.js 가 실제로 어떻게 답하는가(`InvalidArgument` 의 `errorLocat
 `insert_sheets_from_file` 로 다른 .xlsx 의 시트가 들어오고(첫 판은 시트 수를 「0개」로 답함 — 같은 컬렉션 프록시를 앞뒤로 읽으면 같은
 스냅숏이라, 답으로 온 id 로 이름을 다시 묻게 고침), `.csv` 는 「.xlsx 파일만」 거절. `import_csv` 는 새 시트 `stock` 에 4×3(수는 수로,
 따옴표 안의 쉼표 유지), 기존 시트의 K1 에도.
+
+## 5.9 2026-09-06 밤 — 도구 73~76 (set_cell_style · edit_table · set_page_setup · protect_workbook)
+
+실물: 내장 셀 스타일 `Heading2`·`Good`·`Currency` 가 한국어 Excel 에서 영어 이름으로 그대로 먹는다. 표에 열 추가·요약 행(`요약` 행이
+생기고 수가 선다)·열 삭제(그 열을 읽던 수식은 `#REF!` — Excel 의 동작)·범위 늘리기(1.13). 인쇄 설정 여덟 항목 한 번에, 해제는 빈 글로
+(`setPrintArea(null)` 은 InvalidArgument — 첫 판에서 잡음). 통합 문서 구조 보호 뒤 `add_sheet` 가 AccessDenied 로 막히고 해제 뒤 풀린다.
 
 ## 통합 헬퍼 재확인
 

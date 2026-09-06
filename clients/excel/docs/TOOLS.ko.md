@@ -6,14 +6,14 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 통합 문서 도구 | `mcp__xl__*` | **72** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
+| 통합 문서 도구 | `mcp__xl__*` | **76** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `skill`, `todowrite` … | 코어 레지스트리 | 데몬 |
 | 플러그인 도구 | `land` | 1 (카운슬 끈 대화) | `<config>/plugins/landing` |
 | 가이드(스킬) | `sheet-design`, `formulas`, `charts-and-pivots` | 3 | 워크스페이스 `.magi/skills/*.md` — 헬퍼가 `excel/skills/` 에서 심는다 |
 | 지속 지시 | `AGENTS.md` | 첫 기동 때 브리프 7단계를 심는다(`instructions.go`) | 워크스페이스 뿌리, `/api/instructions` 로 사람이 편집 |
 | 첫 도구 설명의 머리말 | "A WORKBOOK IS ALREADY OPEN IN EXCEL…" | 1 | `list_sheets` 의 description 첫 줄 |
 
-## 1. 통합 문서 도구 72 — 무리별
+## 1. 통합 문서 도구 76 — 무리별
 
 정확한 설명·인자·열거형은 `clients/office/helper/xl_tools.go`·`xl_enums.go` 가 정본이고, 사람 말 요약은 매뉴얼 §6.1 이다. 여기는 무리와
 요구 집합만.
@@ -27,9 +27,9 @@
 | 유효성·피벗 | `read_validation` `set_validation` `add_pivot` `refresh_pivot` | 1.8 |
 | 참조·파일 | `trace_cell`(1.12/1.13) `insert_sheets_from_file`(1.13) `import_csv` | — |
 | 조건부 서식 | `read_conditional_formats` `add_conditional_format` `clear_conditional_formats` | 1.6 |
-| 값·서식 | `write_range` `replace_all` `copy_range` `fill_range` `remove_duplicates` `set_number_format` `format_range` `clear_range` `merge_cells` `unmerge_cells` `insert_cells` `delete_cells` `autofit` `set_hyperlink` | 1.7 |
-| 시트 | `add_sheet` `delete_sheet` `rename_sheet` `move_sheet` `copy_sheet` `set_sheet_visibility` `activate_sheet` `freeze_panes` `set_rows_columns` `set_tab_color` `set_sheet_view` `set_workbook_properties` `protect_sheet` `unprotect_sheet` | 1.7 (복사·고정 창이 1.7) |
-| 표 | `add_table` `set_table_cells` `add_table_rows` `remove_table` `sort_range` `filter_table` | 1.7, 자동 필터 1.9 |
+| 값·서식 | `write_range` `set_cell_style` `replace_all` `copy_range` `fill_range` `remove_duplicates` `set_number_format` `format_range` `clear_range` `merge_cells` `unmerge_cells` `insert_cells` `delete_cells` `autofit` `set_hyperlink` | 1.7 |
+| 시트 | `add_sheet` `delete_sheet` `rename_sheet` `move_sheet` `copy_sheet` `set_sheet_visibility` `activate_sheet` `freeze_panes` `set_rows_columns` `set_tab_color` `set_sheet_view` `set_workbook_properties` `set_page_setup` `protect_workbook` `protect_sheet` `unprotect_sheet` | 1.7 (복사·고정 창이 1.7) |
+| 표 | `add_table` `set_table_cells` `add_table_rows` `edit_table` `remove_table` `sort_range` `filter_table` | 1.7, 자동 필터 1.9 |
 | 차트 | `add_chart` `format_chart` `delete_chart` | 1.7 |
 | 이름 | `set_name` `delete_name` | 1.4 |
 | 그림 넣기 | `add_image` | 1.9 (`shapes.addImage`) |

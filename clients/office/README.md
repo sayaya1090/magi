@@ -18,7 +18,7 @@ go build -o magi ./cmd/magi
 | 자리 | 파워포인트 | 엑셀 | 워드 |
 |---|---|---|---|
 | 작업창 | `/ppt/taskpane.html` | `/xl/taskpane.html` | `/word/taskpane.html` |
-| MCP 서버 | `/ppt/mcp` (`ppt`, 도구 48) | `/xl/mcp` (`xl`, 72) | `/word/mcp` (`word`, 56) |
+| MCP 서버 | `/ppt/mcp` (`ppt`, 도구 48) | `/xl/mcp` (`xl`, 76) | `/word/mcp` (`word`, 56) |
 | 손 스트림 | `/ppt/hand/stream?presentation=` | `/xl/hand/stream?workbook=` | `/word/hand/stream?doc=` |
 | 문서 키 | `pid-…` | `wb-…` | `wd-…` |
 | 컴패니언 워크스페이스 | `<config>/powerpoint` | `<config>/excel` | `<config>/word` |

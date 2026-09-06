@@ -60,6 +60,11 @@ var xlTableStyles = func() []string {
 var xlCopyModes = []string{"all", "values", "formulas", "formats"}
 var xlFillKinds = []string{"default", "copy", "series", "formats", "values"}
 var xlTraceWhats = []string{"precedents", "dependents"}
+var xlOrientations = []string{"Portrait", "Landscape"}
+
+// xlCellStyles 는 Excel.BuiltInStyle 의 이름 — 언어와 무관하게 통한다(현지 이름 「좋음」은 안 받는다).
+var xlCellStyles = []string{"Normal", "Good", "Bad", "Neutral", "Input", "Output", "Calculation", "CheckCell", "LinkedCell", "Note", "WarningText",
+	"Explanatory", "Heading1", "Heading2", "Heading3", "Heading4", "Title", "Total", "Comma", "Comma0", "Currency", "Currency0", "Percent", "Hyperlink", "FollowedHyperlink", "EmphasisText1", "EmphasisText2", "EmphasisText3"}
 
 var xlValueEnums = map[string][]string{
 	"mode":                xlCopyModes,
@@ -70,6 +75,8 @@ var xlValueEnums = map[string][]string{
 	"valign":              xlValigns,
 	"border_style":        xlBorderStyles,
 	"what":                append(append(append([]string{}, xlClearWhats...), xlAutofitWhats...), xlTraceWhats...),
+	"orientation":         xlOrientations,
+	"style":               xlCellStyles,
 	"shift":               append(append([]string{}, xlInsertShifts...), xlDeleteShifts...),
 	"visibility":          xlVisibilities,
 	"legend":              xlLegendPositions,
