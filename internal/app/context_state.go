@@ -129,6 +129,26 @@ func (p ContextParts) scaledTo(total int) ContextParts {
 	return out
 }
 
+// scaledAround is scaledTo with the fixed pieces pinned: when fixed (the measured size of system +
+// tools) is known and fits under total, those two keep their mutual proportion and sum to fixed,
+// and the three conversation pieces share what is left. Without a measurement, or with a total
+// smaller than the measurement (a fold just emptied the window and the count is the estimate),
+// it is plain proportional scaling.
+func (p ContextParts) scaledAround(fixed, total int) ContextParts {
+	if fixed <= 0 || fixed >= total {
+		return p.scaledTo(total)
+	}
+	head := ContextParts{System: p.System, Tools: p.Tools}.scaledTo(fixed)
+	tail := ContextParts{Talk: p.Talk, Calls: p.Calls, Results: p.Results}
+	rest := total - fixed
+	if tail.Sum() == 0 {
+		tail.Talk = rest
+	} else {
+		tail = tail.scaledTo(rest)
+	}
+	return ContextParts{System: head.System, Tools: head.Tools, Talk: tail.Talk, Calls: tail.Calls, Results: tail.Results}
+}
+
 // partsOf is the five token counts out of a recorded shape. Window rides on the same fact but is
 // not one of the parts — it is what they are measured AGAINST, and adding it to the sum would put
 // the whole context window inside the bar that shows how full the context window is.
@@ -154,6 +174,14 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 		model = m
 	}
 	out := ContextState{Model: model, Window: a.contextWindow(model), Messages: len(msgs)}
+	// fixed is the measured size of the two pieces that do not change with the conversation —
+	// the system prompt and the tool catalog — taken from the FIRST turn that reported a real
+	// count: what the backend billed, less the chars/4 estimate of the little transcript there
+	// was. Scaling all five pieces to the total in proportion had the catalog growing with the
+	// conversation (31k estimated, 53k drawn, on Excel 2026-09-07): the backend counts JSON
+	// schemas heavier than chars/4, and the shortfall was spread over every piece. Measured once,
+	// it stays put, and everything the total grows by afterwards is the conversation's.
+	fixed := 0
 
 	for _, e := range evs {
 		switch e.Type {
@@ -217,6 +245,11 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			if d.Held != nil && d.Held.In > 0 {
 				out.Used = d.Held.In + d.Held.Out
 				out.Cached, out.CacheReported = d.Held.Cached, d.Held.CacheReported
+				if fixed == 0 && d.Prompt != nil {
+					if f := d.Held.In - (d.Prompt.Talk + d.Prompt.Calls + d.Prompt.Results); f > 0 {
+						fixed = f
+					}
+				}
 			} else if d.Usage.In > 0 {
 				out.Used = d.Usage.In + d.Usage.Out
 				out.Cached, out.CacheReported = d.Usage.Cached, d.Usage.CacheReported
@@ -251,7 +284,7 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 	// PROPORTIONS and takes the count's SIZE: each piece is scaled so the five add up to what was
 	// received. Before any count there is only arithmetic, and Estimated says so.
 	if out.Used > 0 {
-		out.Parts = out.Parts.scaledTo(out.Used)
+		out.Parts = out.Parts.scaledAround(fixed, out.Used)
 	}
 	if out.Used == 0 {
 		// The estimate is the whole request, not the transcript.

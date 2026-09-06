@@ -537,3 +537,44 @@ func TestAFinishRecordsWhatTheWindowHeld(t *testing.T) {
 		t.Fatalf("the finish did not record what the window held: %+v", d.Held)
 	}
 }
+
+// The system prompt and the tool catalog do not grow with the conversation, so their measured size
+// is taken once — from the first turn that reported a real count — and pinned; what the total grows
+// by afterwards is the conversation's. Scaled in proportion, the catalog read 31k estimated and 53k
+// drawn, and kept growing (Excel, 2026-09-07).
+func TestTheFixedPiecesAreMeasuredOnceAndPinned(t *testing.T) {
+	a, dir := newApp(t, &fakeLLM{}, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fin := func(held, talk int) event.Event {
+		b, _ := json.Marshal(event.TurnFinishedData{
+			Usage:  event.Usage{In: held * 3},
+			Held:   &event.Usage{In: held, Out: 0},
+			Prompt: &event.PromptShape{System: 3000, Tools: 15000, Talk: talk},
+		})
+		return event.Event{Type: event.TypeTurnFinished, Data: b, TS: time.Now()}
+	}
+	// First turn: 20,000 billed for a 100-token transcript → the fixed pieces measure 19,900.
+	// Later turn: 25,000 billed with a 1,200-token transcript estimate.
+	if _, err := a.store.Append(context.Background(), sid, fin(20000, 100), fin(25000, 1200)); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Used != 25000 {
+		t.Fatalf("used = %d", st.Used)
+	}
+	if got := st.Parts.System + st.Parts.Tools; got != 19900 {
+		t.Errorf("the fixed pieces should sum to the measured 19,900, got %d (%+v)", got, st.Parts)
+	}
+	if st.Parts.Talk != 5100 {
+		t.Errorf("the growth belongs to the conversation: talk = %d, want 5100 (%+v)", st.Parts.Talk, st.Parts)
+	}
+	if st.Parts.Sum() != st.Used {
+		t.Errorf("the pieces do not add up to the total: %d vs %d", st.Parts.Sum(), st.Used)
+	}
+}
