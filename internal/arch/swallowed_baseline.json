@@ -1,5 +1,5 @@
 {
-  "total": 158,
+  "total": 177,
   "files": {
     "clients/excel/helper/attach.go": 2,
     "clients/excel/helper/claim.go": 1,
@@ -19,6 +19,16 @@
     "clients/powerpoint/helper/own.go": 1,
     "clients/powerpoint/helper/page.go": 3,
     "clients/powerpoint/helper/skills.go": 1,
+    "clients/word/helper/attach.go": 2,
+    "clients/word/helper/claim.go": 1,
+    "clients/word/helper/enums.go": 1,
+    "clients/word/helper/handhttp.go": 2,
+    "clients/word/helper/icon.go": 1,
+    "clients/word/helper/main.go": 6,
+    "clients/word/helper/mcp.go": 1,
+    "clients/word/helper/own.go": 1,
+    "clients/word/helper/page.go": 3,
+    "clients/word/helper/skills.go": 1,
     "cmd/magi/autoupdate.go": 1,
     "cmd/magi/main.go": 2,
     "cmd/magi/relay.go": 1,
