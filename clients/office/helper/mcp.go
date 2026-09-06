@@ -2,6 +2,7 @@ package office
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -297,6 +298,32 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 		return errorResult(err.Error())
 	}
 
+	// **PDF 는 여기서 그림이 된다.** Word 의 손은 문서 전체를 PDF 로만 내줄 수 있어(render_page), 한 쪽을 PNG 로
+	// 만드는 일은 이 프로세스가 한다 — 남의 도구(pdftoppm·sips)가 없으면 이유를 대고 거절한다. 그림 블록을 싣는
+	// 자리(imageBlock)보다 앞에서 손의 결과를 고쳐야 그 블록이 이것을 본다.
+	if pdfB64, ok := res.Result["pdf_base64"].(string); ok && pdfB64 != "" {
+		delete(res.Result, "pdf_base64")
+		raw, derr := base64.StdEncoding.DecodeString(pdfB64)
+		if derr != nil {
+			return errorResult("PDF 바이트를 못 풀었습니다: " + derr.Error())
+		}
+		page := intOf(res.Result["page"])
+		width := intOf(res.Result["max_width"])
+		total := PDFPageCount(raw)
+		if total > 0 && page > total {
+			return errorResult(fmt.Sprintf("이 문서는 %d쪽입니다 — %d쪽은 없습니다", total, page))
+		}
+		png, rerr := RenderPDFPage(raw, page, width)
+		if rerr != nil {
+			return errorResult(rerr.Error())
+		}
+		res.Result["image_base64"] = base64.StdEncoding.EncodeToString(png)
+		res.Result["image_mime"] = "image/png"
+		res.Result["image_bytes"] = len(png)
+		res.Result["pdf_bytes"] = len(raw)
+		res.Result["pages"] = total
+	}
+
 	body := map[string]any{
 		// **손댄 문서를 싣는다**(§6). 받은 인자를 되받아 적는 것이 아니라 실제로 손댄 것이다 —
 		// 생략했을 때 답이 되는 쪽이 그것이고, 되받아 적기만 하면 생략한 호출은 여전히
@@ -474,4 +501,20 @@ func newToken() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// intOf 는 손이 답에 실은 수 — JSON 을 거친 float64, 시험의 int, json.Number 를 다 받는다. 아니면 0.
+func intOf(v any) int {
+	switch x := v.(type) {
+	case float64:
+		return int(x)
+	case int:
+		return x
+	case int64:
+		return int(x)
+	case json.Number:
+		n, _ := x.Int64()
+		return int(n)
+	}
+	return 0
 }

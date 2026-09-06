@@ -73,7 +73,7 @@ const point = new PointAtAdvice(book);
   const goBuiltin = [...enums.match(/var wordBuiltinStyles = \[\]string\{([\s\S]*?)\}/)[1].matchAll(/"([A-Za-z0-9]+)"/g)].map((m) => m[1]);
   ok('내장 문단 스타일 목록이 헬퍼 enums.go 와 같다', goBuiltin.length === BUILTIN_PARAGRAPH_STYLES.length && everyOf(goBuiltin, (n) => BUILTIN_PARAGRAPH_STYLES.includes(n)), `${goBuiltin.length} vs ${BUILTIN_PARAGRAPH_STYLES.length}`);
   ok('applyStyle: 내장 이름은 철자·띄어쓰기에 관대하게 styleBuiltIn, 나머지는 style', (() => { const a = {}; applyStyle(a, 'Heading 1'); const b = {}; applyStyle(b, 'normal'); const c = {}; applyStyle(c, '본문 강조'); return a.styleBuiltIn === 'Heading1' && b.styleBuiltIn === 'Normal' && c.style === '본문 강조' && c.styleBuiltIn === undefined; })());
-  ok('읽기 도구 집합도 같다', READ_OPS.length === 16 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);
+  ok('읽기 도구 집합도 같다', READ_OPS.length === 17 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);
   const suggestDesc = /Name: +"suggest",[\s\S]*?Desc: ([\s\S]*?)Props:/.exec(go)?.[1] ?? '';
   ok('제안으로 누를 수 있는 손 목록이 헬퍼 설명·손·화면에서 같다',
     everyOf([...FIX_TOOLS], (n) => suggestDesc.includes(n) && FIXABLE.has(n)) && FIXABLE.size === FIX_TOOLS.length);
@@ -166,6 +166,7 @@ const point = new PointAtAdvice(book);
   const mv2 = await call('move_paragraphs', { from: total, before: 1 });
   ok('문단 옮기기: 앞으로 되돌리면 1번', mv2.result.now_from === 1 && (await call('read_paragraphs', { from: 1, to: 1 })).result.paragraphs[0].text === t1, JSON.stringify(mv2.result));
   ok('문단 옮기기: 덩어리 안으로는 거절', (await threw(() => hand.run('move_paragraphs', { from: 2, to: 4, after: 3 })))?.includes('안입니다'));
+  ok('쪽 그림: 가짜 손은 지어내지 않는다', (await threw(() => call('render_page', { page: 1 })))?.includes('진짜 Word'));
   const before = (await call('list_paragraphs')).result.total;
   const inf = await call('insert_file', { file_base64: 'UEsDBA==', file_name: '부록.docx', at: 'end' });
   ok('문서 파일 넣기: 문단이 는다', inf.result.added === 2 && inf.result.paragraphs_now === before + 2 && inf.changed[0].includes('부록.docx'), JSON.stringify(inf));
@@ -218,7 +219,7 @@ const point = new PointAtAdvice(book);
   ok('지우기는 되돌릴 수 없다고 말한다', del.changed[0].includes('되돌릴 수 없습니다'));
   ok('전부 지우기는 거절', (await threw(async () => { const h = new FakeHand({ paragraphs: [{ text: 'x' }] }); await h.run('delete_paragraphs', { from: 1 }); }))?.includes('하나는'));
   const missing = ALL_OPS.filter((op) => !done.has(op));
-  ok('도구 56개를 전부 한 번씩 돌렸다', missing.length === 0 && ALL_OPS.length === 56, `안 돈 것: ${missing.join(', ')} / ${ALL_OPS.length}`);
+  ok('도구 57개를 전부 한 번씩 돌렸다', missing.length === 0 && ALL_OPS.length === 57, `안 돈 것: ${missing.join(', ')} / ${ALL_OPS.length}`);
   ok('모르는 op 는 아는 것을 대고 던진다', (await threw(() => hand.run('fly', {})))?.includes('list_paragraphs'));
   ok('바꾼 호출마다 count 가 오른다', hand.count > 25, String(hand.count));
 }

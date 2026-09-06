@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 56개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 57개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 56개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 57개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -96,13 +96,21 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 끝과 문단 2 뒤에 넣어 문단 2개씩 늘었고, `.png` 는 「.docx 파일만 받습니다」, 없는 경로는 「그런 파일이 없습니다」. 첫 판: body 의
 `End` 에 바로 넣으니 첫 문단이 마지막 빈 문단에 합쳐져 수가 하나 모자랐다 → 앞/뒤/끝/처음 전부 빈 문단을 세워 `Replace`.
 
+### 5.1.8 render_page — 실물(2026-09-06 밤)
+
+도구 57. 작업창이 `Office.context.document.getFileAsync(Pdf)` 로 문서 전체(조각 65KB)를 받아 base64 로 헬퍼에 주고, 헬퍼가 `pdftoppm`
+(없으면 Mac 의 `sips` 로 첫 쪽만)으로 그 쪽을 PNG 로 만들어 MCP 그림 블록으로 싣는다. 실물: 1쪽 600px 44KB·400px 20KB — 목차·제목·
+각주·바닥글 「1 / 1」이 그대로 보인다. 없는 쪽(9)은 「이 문서는 1쪽입니다」로 거절(쪽 수는 PDF 의 `/Type /Page` 를 센다). 첫 판 둘:
+그림 블록을 싣는 자리보다 뒤에서 변환해 글로만 갔다(순서 고침), 손이 답한 `page` 가 JSON 을 거쳐 float64 라 0 으로 읽혀 9쪽이
+1쪽으로 그려졌다(`intOf`).
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 56 개.`
+3. 붙기 → `준비됐습니다 — 도구 57 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.

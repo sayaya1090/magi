@@ -823,7 +823,7 @@ export function appendAsk(cur, add) {
  */
 const TOOL_LABELS = new Map(Object.entries({
   list_paragraphs: '문단 목차 읽기', read_paragraphs: '문단 읽기', read_document: '문서 살펴보기', find: '찾기', read_table: '표 읽기',
-  read_html: '모양 보기(HTML)', read_comments: '메모 읽기', read_footnotes: '각주 읽기', list_images: '그림 목록', read_tracked_changes: '변경 내역 읽기', describe_style: '이 문서 서식 읽기',
+  read_html: '모양 보기(HTML)', read_comments: '메모 읽기', read_footnotes: '각주 읽기', list_images: '그림 목록', render_page: '쪽 그림 보기', read_tracked_changes: '변경 내역 읽기', describe_style: '이 문서 서식 읽기',
   snapshot_paragraphs: '되돌릴 지점 만들기', read_tags: '기록 읽기', read_suggestions: '제안 읽기', advise: '안내 붙이기', clear_advice: '안내 지우기',
   insert_paragraphs: '문단 넣기', replace_paragraph: '문단 글 바꾸기', delete_paragraphs: '문단 지우기', set_style: '스타일 걸기',
   format_text: '글자 서식', format_paragraph: '문단 서식', insert_table: '표 넣기', set_table_cells: '표 칸 쓰기', add_table_rows: '표 행 넣기',

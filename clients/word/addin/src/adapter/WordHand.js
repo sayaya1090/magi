@@ -175,6 +175,7 @@ export class WordHand extends HandPort {
       case 'set_list': return this.#setList(a);
       case 'insert_image': return this.#insertImage(a);
       case 'list_images': return this.#listImages(a);
+      case 'render_page': return this.#renderPage(a);
       case 'format_image': return this.#formatImage(a);
       case 'delete_image': return this.#deleteImage(a);
       case 'insert_break': return this.#insertBreak(a);
@@ -626,6 +627,25 @@ export class WordHand extends HandPort {
       await context.sync(); this.#mutated();
       return this.#envelope({ from, to, kind: kind ?? null, level: level ?? null }, [`문단 ${from}${to > from ? `–${to}` : ''} 을 ${kind === 'numbered' ? '번호 ' : kind === 'bulleted' ? '글머리 기호 ' : ''}목록으로${level != null ? ` (단계 ${level})` : ''}`]);
     });
+  }
+  /** 문서 전체를 PDF 로 받는다(Office.context.document.getFileAsync) — 헬퍼가 한 쪽을 그림으로 만든다. */
+  async #renderPage(a) {
+    const page = int(a, 'page') ?? 1; const maxWidth = int(a, 'max_width') ?? 800;
+    if (page < 1) refuse('page 는 1부터입니다');
+    const office = globalThis.Office;
+    if (!office?.context?.document?.getFileAsync) refuse('이 창에는 문서를 PDF 로 내주는 문이 없습니다(Office.context.document.getFileAsync) — read_html 이 눈입니다');
+    const file = await new Promise((resolve, reject) => office.context.document.getFileAsync(office.FileType.Pdf, { sliceSize: 65536 }, (r) => (r.status === 'succeeded' ? resolve(r.value) : reject(new Error(r.error?.message ?? 'getFileAsync 실패')))));
+    try {
+      const parts = [];
+      for (let i = 0; i < file.sliceCount; i += 1) {
+        const slice = await new Promise((resolve, reject) => file.getSliceAsync(i, (r) => (r.status === 'succeeded' ? resolve(r.value) : reject(new Error(r.error?.message ?? 'getSliceAsync 실패')))));
+        parts.push(new Uint8Array(slice.data));
+      }
+      const total = parts.reduce((n, p) => n + p.length, 0); const all = new Uint8Array(total); let at = 0; for (const p of parts) { all.set(p, at); at += p.length; }
+      let bin = ''; for (let i = 0; i < all.length; i += 0x8000) bin += String.fromCharCode.apply(null, all.subarray(i, i + 0x8000));
+      this.count += 0; // 읽기 — 개정은 그대로
+      return this.#envelope({ page, max_width: maxWidth, pdf_base64: btoa(bin), pdf_bytes: total });
+    } finally { await new Promise((resolve) => file.closeAsync(() => resolve())); }
   }
   /** 본문의 그림 — 문서 순서, 1부터. 문단 번호는 그림이 앉은 문단의 글로 찾는다. */
   async #pictures(context, items) {

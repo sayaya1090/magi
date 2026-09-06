@@ -102,6 +102,17 @@ func wordCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
+			Name: "render_page",
+			Desc: "See one page of the document as a picture — Word hands the whole document over as PDF and the helper " +
+				"draws the asked page (needs poppler's pdftoppm on this machine; a Mac without it draws page 1 only). Use " +
+				"it to check layout after a batch of edits; read_html is the cheaper look at formatting." + declare,
+			Props: []property{
+				property{Name: "page", Type: "integer", Desc: "Page number, 1-based (default 1)."},
+				property{Name: "max_width", Type: "integer", Desc: "Picture width in pixels (default 800)."},
+			},
+			ReadOnly: true,
+		},
+		{
 			Name: "read_tracked_changes",
 			Desc: "Pending tracked changes (insertions, deletions, formatting) with author, date and text, plus the " +
 				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." + declare,

@@ -7,7 +7,7 @@
  */
 
 export const READ_OPS = Object.freeze([
-  'list_paragraphs', 'read_paragraphs', 'read_document', 'find', 'read_table', 'read_html', 'read_comments', 'read_footnotes', 'list_images', 'read_tracked_changes',
+  'list_paragraphs', 'read_paragraphs', 'read_document', 'find', 'read_table', 'read_html', 'read_comments', 'read_footnotes', 'list_images', 'render_page', 'read_tracked_changes',
   'describe_style', 'snapshot_paragraphs', 'read_tags', 'read_suggestions', 'advise', 'clear_advice',
 ]);
 export const WRITE_OPS = Object.freeze([

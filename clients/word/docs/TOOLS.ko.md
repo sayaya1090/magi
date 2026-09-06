@@ -6,18 +6,18 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 문서 도구 | `mcp__word__*` | **56** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
+| 문서 도구 | `mcp__word__*` | **57** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `skill`, `todowrite` … | 코어 레지스트리 | 데몬 |
 | 플러그인 도구 | `land` | 1 (카운슬 끈 대화) | `<config>/plugins/landing` |
 | 가이드 | `document-structure`, `editing`, `tables-and-review` | 3 | 헬퍼가 `word/skills/` 에서 심는다 |
 | 지속 지시 | `AGENTS.md` | 브리프 7단계 | `instructions.go` |
 | 첫 도구 설명의 머리말 | "A DOCUMENT IS ALREADY OPEN IN WORD…" | 1 | `list_paragraphs` |
 
-## 1. 도구 56 — 무리별과 요구 집합
+## 1. 도구 57 — 무리별과 요구 집합
 
 | 무리 | 도구 | 요구 집합 |
 |---|---|---|
-| 목차·읽기 | `list_paragraphs` `read_paragraphs` `read_document` `find` `read_table` `read_html` `describe_style` | 1.3 |
+| 목차·읽기 | `list_paragraphs` `read_paragraphs` `read_document` `find` `read_table` `read_html` `describe_style` `render_page`(PDF→PNG, 헬퍼) | 1.3 |
 | 문단 | `insert_paragraphs` `replace_paragraph` `delete_paragraphs` `move_paragraphs` `set_style` `format_text` `format_paragraph` `insert_break` | 1.3 |
 | 표 | `insert_table` `set_table_cells` `add_table_rows` `delete_table` `format_table` `format_table_cells` `edit_table`(병합은 1.4) | 1.3 |
 | 목록 | `insert_list` `set_list` | 1.3 |
