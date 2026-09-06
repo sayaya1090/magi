@@ -91,7 +91,7 @@ class Transcript(
          *
          * **넷이 다 전이인 것은 아니다 — 재 봤다.** `permission.decided` 는 `event.go` 의
          * `transientTypes` 에 없어서 사실이고, 사실은 저장돼 재생된다: `app.Subscribe` 는
-         * `store.Read` 가 준 것을 거르지 않고 그대로 흘린다(`app.go` 의 재생 루프). 실제 저장분
+         * `store.Read` 가 준 것을 거르지 않고 그대로 흘린다(`internal/app/app.go` 의 재생 루프). 실제 저장분
          * 69 벌을 세어 보니 여섯 벌에 들어 있었고 가장 많은 것이 여덟이었다(`~/.magi/sessions`,
          * 2026-08-29). 창을 다시 붙일 때마다 이 신호가 **한 번에 여덟 번까지** 울린다는 뜻이다.
          *

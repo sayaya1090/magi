@@ -1363,7 +1363,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 파일을 고치는 플러그인에 도는 턴을 멈출 방법이 하나도 없었다. 안 쓰는 동사라고 지우면
          * 지우는 것 자체가 결정이 된다 — 「멈출 수 없다」는 안전 속성이지 코드 정리 대상이 아니다.
          *
-         * **"세웠다"고 안 한다.** 코어의 `app.go` 의 `Interrupt` 는 도는 턴이 없어도 `nil` 을
+         * **"세웠다"고 안 한다.** 코어의 `internal/app/app.go` 의 `Interrupt` 는 도는 턴이 없어도 `nil` 을
          * 돌려주므로, `ok` 는 요청이 닿았다는 뜻이지 무엇을 세웠다는 뜻이 아니다. 화면이 와이어가
          * 뒷받침 안 하는 말을 하면 사람은 안 멈춘 것을 멈춘 줄 안다. 실제로 무엇이 멈췄는지는
          * 전사에 나온다.
@@ -1491,7 +1491,7 @@ class MagiToolWindow : ToolWindowFactory {
          * `say()` 는 처음부터 "안 갔다"를 보고했다. 한 창이 한 동사는 보고하고 나머지 넷은 삼켰다.
          *
          * 이게 지금 더 중요한 이유. 코어의 거절 문구가 **없음의 사유를 못 가른다** — 종류가 어긋난
-         * 답도 MagiBundle.msg("chat.gone")로 온다(`app.go` 의 `RespondQuestion`). 그 문장을 고치는 일이
+         * 답도 MagiBundle.msg("chat.gone")로 온다(`internal/app/app.go` 의 `RespondQuestion`). 그 문장을 고치는 일이
          * 논의 중인데, 받는 쪽이 버리고 있으면 고쳐 봐야 아무 데도 안 닿는다.
          */
         private fun add(label: String, act: (Companion) -> Response) {

@@ -1046,7 +1046,7 @@ the spec mandates for a notification was the one we refused"에서 202를 받도
   지난다」고 적은 것은 `ask`/`auto`에서만 참이고, 하필 우리가 만드는 그 데몬이 예외다.
 
   ⚠ **그리고 이 문장이 두 판 동안 문서에만 있었다.** 2026-09-04 에 Mac 에서 붙여 보고
-  `/api/companions` 를 읽으니 우리가 마련한 컴패니언이 **`allow`** 였다 — `clients/powerpoint/helper/own.go` 가 부르는 줄에
+  `/api/companions` 를 읽으니 우리가 마련한 컴패니언이 **`allow`** 였다 — `clients/office/helper/own.go` 가 부르는 줄에
   그 값이 없었다. **자동 시험 넷이 전부 초록인 채로** 그랬는데, 인자가 `Spawn` 이음매로 안 날라서
   (`(bin, workdir, env)`) 이 레인의 어느 층도 볼 수 없었다. 고치면서 명령줄을 `daemonArgs()` 로
   빼서 **잴 수 있게** 했다. 여기서 남는 규율 하나: **문서가 값을 못 박으면 그 값을 재는 자리도
@@ -2798,7 +2798,7 @@ N 대화를 쓰는 클라이언트의 규칙:
    걷었다. 「우리 것인가」는 `Bridges.AttachedTo` 가 묶음의 기록으로 답한다.
 3. ✅ 부르는 자리는 **하나로** 줄었다 — `/api/own` 폴. 창은 hello 뒤에도, 스트림이 끊겨도 그 폴을
    돌리므로 셋이 한 문으로 온다.
-4. ✅ `clients/powerpoint/helper/restart_events_test.go` — 표의 열 넷이 시험 넷. 돌연변이 넷이 운다(생애 무시·생애 바뀌어도
+4. ✅ `clients/office/helper/restart_events_test.go` — 표의 열 넷이 시험 넷. 돌연변이 넷이 운다(생애 무시·생애 바뀌어도
    안 붙임·늦은 기록 안 읽음·남의 대화 나눠 줌). 다섯째(대화 바뀌어도 등록 안 바꿈)는 **안 울었고**
    죽은 조건이라 뺐다.
 5. ⏳ `mcp-list` 문(데몬) — 있으면 「모르면 다시 붙인다」를 「물어서 안 붙인다」로 바꾼다.
@@ -2806,7 +2806,7 @@ N 대화를 쓰는 클라이언트의 규칙:
 ## 6. MCP 서버가 내놓는 도구
 
 헬퍼가 `tools/list`로 올리는 목록이다. magi에는 `mcp__ppt__<이름>`으로 보인다. **오늘 서른아홉
-개**이고 정본은 `clients/powerpoint/helper/tools.go`의 `catalogue`다. **쓰는 법은 여기 안 적는다** — 도구마다 무슨
+개**이고 정본은 `clients/office/helper/ppt_tools.go`의 `pptCatalogue`다. **쓰는 법은 여기 안 적는다** — 도구마다 무슨
 말을 하면 되는지는 [사용자 매뉴얼 §6](./docs/MANUAL.ko.md)이 지고, 이 절이 지는 것은 **무엇이
 도구가 될 자격을 얻었나**다.
 
