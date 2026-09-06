@@ -88,6 +88,13 @@ func wordCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
+			Name: "read_footnotes",
+			Desc: "Every footnote and endnote: number, kind, the paragraph it hangs on, the referenced text, and the note. " +
+				"Needs WordApi 1.5 — refused by name on 2019/2021." + declare,
+			Props:    withFromTo(),
+			ReadOnly: true,
+		},
+		{
 			Name: "read_tracked_changes",
 			Desc: "Pending tracked changes (insertions, deletions, formatting) with author, date and text, plus the " +
 				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." + declare,
@@ -321,6 +328,27 @@ func wordCatalogue(hasCouncil bool) []tool {
 				property{Name: "align", Type: "string", Desc: "Left, Centered, Right, Justified.", Enum: wordAligns},
 				property{Name: "levels", Type: "string", Desc: "toc only: heading levels to list, e.g. \"1-3\" (default)."},
 			},
+		},
+		{
+			Name: "insert_footnote",
+			Desc: "Add a footnote (default) or an endnote at a place in a paragraph: after `text` inside it, or at the " +
+				"paragraph's end when text is omitted. Needs WordApi 1.5 — refused by name on 2019/2021.",
+			Props: []property{
+				property{Name: "paragraph", Type: "integer", Desc: "The paragraph the note hangs on, 1-based. Required.", Also: []string{"from"}},
+				property{Name: "text", Type: "string", Desc: "Word(s) inside the paragraph the mark goes after. Omit for the paragraph's end."},
+				property{Name: "note", Type: "string", Desc: "The note itself. Required."},
+				property{Name: "kind", Type: "string", Desc: "footnote (default) or endnote.", Enum: wordNoteKinds},
+			},
+			Required: []string{"paragraph", "note"},
+		},
+		{
+			Name: "delete_footnote",
+			Desc: "Remove one footnote or endnote by its number (from read_footnotes). The mark and the note go; the text stays.",
+			Props: []property{
+				property{Name: "number", Type: "integer", Desc: "1-based, in document order within its kind. Required."},
+				property{Name: "kind", Type: "string", Desc: "footnote (default) or endnote.", Enum: wordNoteKinds},
+			},
+			Required: []string{"number"},
 		},
 		{
 			Name: "set_header_footer",

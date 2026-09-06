@@ -13,6 +13,8 @@ var wordListKinds = []string{"bulleted", "numbered"}
 var wordBreakKinds = []string{"page", "section", "line"}
 
 // wordFieldKinds 는 insert_field 가 넣는 필드 — 이름은 우리 것, Word.FieldType 으로 옮긴다(WordHand).
+var wordNoteKinds = []string{"footnote", "endnote"}
+
 var wordFieldKinds = []string{"toc", "page", "num_pages", "date", "time", "title", "author", "file_name"}
 var wordHeaderFooter = []string{"header", "footer"}
 var wordHeaderKinds = []string{"Primary", "FirstPage", "EvenPages"}
@@ -48,7 +50,7 @@ var wordValueEnums = map[string][]string{
 	"underline":   wordUnderlines,
 	"highlight":   wordHighlights,
 	"at":          wordAtWhere,
-	"kind":        append(append(append([]string{}, wordListKinds...), wordBreakKinds...), wordHeaderKinds...),
+	"kind":        append(append(append(append([]string{}, wordListKinds...), wordBreakKinds...), wordHeaderKinds...), wordNoteKinds...),
 	"which":       wordHeaderFooter,
 	"field":       wordFieldKinds,
 	"mode":        wordTrackModes,
