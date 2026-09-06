@@ -201,6 +201,8 @@ export class ExcelHand extends HandPort {
       const sheets = context.workbook.worksheets;
       sheets.load('items/name,items/position,items/visibility');
       const active = context.workbook.worksheets.getActiveWorksheet(); active.load('name');
+      // 통장 이름(1.7) — 헬퍼가 2021 의 메모를 COM 노트로 대신할 때 어느 통장인지 이것으로 잡는다(xl_notes.go).
+      const book = this.supports('ExcelApi', '1.7') ? context.workbook : null; if (book) book.load('name');
       await context.sync();
       const probes = sheets.items.map((ws) => {
         const used = ws.getUsedRangeOrNullObject(true); used.load('address,rowCount,columnCount');
@@ -216,7 +218,7 @@ export class ExcelHand extends HandPort {
         rows: used.isNullObject ? 0 : used.rowCount, columns: used.isNullObject ? 0 : used.columnCount,
         tables: tables.count, charts: charts.count, pivots: pivots ? pivots.count : null,
       }));
-      return this.#envelope({ sheets: rows, count: rows.length, active: active.name });
+      return this.#envelope({ sheets: rows, count: rows.length, active: active.name, workbook: book ? book.name : null });
     });
   }
 

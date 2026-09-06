@@ -43,7 +43,7 @@ Excel 작업창(애드인)  ←https→  magi office(헬퍼, /xl)  ←unix socke
 
 | 무엇 | 왜 |
 |---|---|
-| Excel 2019 이상 (Windows/Mac) 또는 Microsoft 365 | 요구 집합 `ExcelApi 1.7` + `SharedRuntime 1.1`. 찾기·그림은 1.9, 메모는 1.10, 유효성·피벗은 1.8 — 없는 것은 도구가 **이름을 대고 거절한다**. ⚠ **LTSC 2021** 은 1.10 을 ✓ 라 하면서 메모 스레드(`add_comment`·`read_comments`·`resolve_comment`)를 `NotImplemented` 로 거절한다 — 그 판의 한계고 도구가 그렇게 말한다. 같은 판에서 표에 열을 붙이거나 지운 시트의 범위로는 피벗을 못 만든다(원본을 다른 시트로 복사하거나 피벗을 먼저) — [`TESTING.ko.md`](./TESTING.ko.md) §5.10 |
+| Excel 2019 이상 (Windows/Mac) 또는 Microsoft 365 | 요구 집합 `ExcelApi 1.7` + `SharedRuntime 1.1`. 찾기·그림은 1.9, 메모는 1.10, 유효성·피벗은 1.8 — 없는 것은 도구가 **이름을 대고 거절한다**. ⚠ **LTSC 2021** 은 1.10 을 ✓ 라 하면서 메모 스레드(`add_comment`·`read_comments`·`resolve_comment`)를 `NotImplemented` 로 거절한다 — Windows 에서는 헬퍼가 COM 으로 **노트(옛 메모)** 를 대신 쓰고(답글은 덧붙임, 해결 표시 없음), Mac 에서는 도구가 그렇게 말한다. 같은 판에서 표에 열을 붙이거나 지운 시트의 범위로는 피벗을 못 만든다(원본을 다른 시트로 복사하거나 피벗을 먼저) — [`TESTING.ko.md`](./TESTING.ko.md) §5.10 |
 | Go 1.22+ | 헬퍼를 빌드한다 |
 | `magi` | 데몬. 통합 문서가 있는 디렉토리(또는 아무 워크스페이스)에서 띄운다 |
 
@@ -238,7 +238,7 @@ Excel 창을 둘 띄우면 2 가 된다(창마다 자기 대화를 갖는다).
 | `add_conditional_format` · `clear_conditional_formats` | 조건부 서식(셀 값·색조·데이터 막대·아이콘·글자 포함·상위/하위·수식)·지우기 |
 | `set_validation` | 유효성(목록·정수·소수·날짜·시간·글자 수·수식), `clear` 로 해제 |
 | `set_name` · `delete_name` | 이름 정의·삭제 |
-| `add_comment` · `resolve_comment` | 셀 하나에 메모/답글·해결 표시 또는 삭제 |
+| `add_comment` · `resolve_comment` | 셀 하나에 메모/답글·해결 표시 또는 삭제. **Excel 2021(Windows)** 은 스레드 메모 API 가 없어 헬퍼가 COM 으로 **노트(옛 메모)** 를 대신 넣는다 — 답글은 노트 글 뒤에 붙고 해결 표시는 없다(지우기만). 답의 `kind: "note"` 가 그것을 말한다 |
 | `add_image` | 그림 넣기 — 경로만 말하면 헬퍼가 바이트를 실어 준다. `address` 를 주면 그 셀에 앵커 |
 | `add_pivot` · `refresh_pivot` | 피벗 만들기(행·열·값 — 집계 방식·표시 형식·이름)·새로 고침 |
 | `insert_sheets_from_file` · `import_csv` | 다른 .xlsx 의 시트 전부를 이 문서에(1.13) · CSV 를 시트로(수는 수로) — 경로만, 헬퍼가 읽는다 |

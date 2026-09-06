@@ -1,6 +1,7 @@
 package office
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 )
@@ -44,6 +45,9 @@ type App struct {
 	WantsImage func(name string, args map[string]any) bool
 	// WantsFile 은 이 호출이 디스크의 Office 문서를 읽어 실어야 하는 것인가 — 받는 확장자를 답한다("" 이면 아니다).
 	WantsFile func(name string) string
+	// Fallback 은 손이 거절한 호출을 헬퍼가 다른 길로 대신할 수 있는가(mcp.go) — 엑셀 2021 의 메모를 COM 노트로(xl_notes.go).
+	// 두 번째 값이 false 면 이 길이 아니라 손의 오류가 그대로 간다.
+	Fallback func(ctx context.Context, hand Hand, where, name string, args map[string]any, handErr string) (HandResult, bool, error)
 	// Instructions 는 워크스페이스가 처음 생길 때 AGENTS.md 에 심는 운영 지침.
 	Instructions string
 	// MCPInstructions 는 initialize 응답의 instructions. RenderHint 는 그림을 못 보는 모델에게 대신 볼 것.
@@ -120,6 +124,7 @@ var (
 			return nil
 		},
 		WantsImage: func(name string, _ map[string]any) bool { return name == "add_image" },
+		Fallback:   xlNotesFallback,
 		WantsFile: func(name string) string {
 			switch name {
 			case "insert_sheets_from_file":

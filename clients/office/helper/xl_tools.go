@@ -122,7 +122,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "read_comments",
 			Desc: "Threaded comments on a sheet (or the whole workbook when sheet is omitted): cell, author, text, " +
-				"replies, resolved flag. Needs ExcelApi 1.10." + declare,
+				"replies, resolved flag. Needs ExcelApi 1.10. On Excel 2021 for Windows, which has no threaded-comment API, the helper " +
+				"reads cell NOTES instead and the answer says so (kind: note)." + declare,
 			Props:    withSheet(),
 			ReadOnly: true,
 		},
@@ -705,7 +706,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "add_comment",
-			Desc: "Add a threaded comment on a cell, or reply to the one already there. Needs ExcelApi 1.10.",
+			Desc: "Add a threaded comment on a cell, or reply to the one already there. Needs ExcelApi 1.10. On Excel 2021 for Windows " +
+				"(no threaded-comment API) the helper writes a cell NOTE instead — a reply is appended to the note — and the answer says so (kind: note).",
 			Props: withRange(
 				property{Name: "text", Type: "string", Desc: "Comment text. Required."},
 			),
@@ -714,7 +716,8 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "resolve_comment",
 			Desc: "Mark the comment thread on a cell resolved (or reopen it with resolved:false), or delete it. " +
-				"Needs ExcelApi 1.11 (resolve) / 1.10 (delete).",
+				"Needs ExcelApi 1.11 (resolve) / 1.10 (delete). On Excel 2021 for Windows the cell holds a NOTE instead: notes cannot be " +
+				"resolved, only deleted (delete:true).",
 			Props: withRange(
 				property{Name: "resolved", Type: "boolean", Desc: "Default true."},
 				property{Name: "delete", Type: "boolean", Desc: "Delete the thread instead."},

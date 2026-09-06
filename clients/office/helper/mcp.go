@@ -294,6 +294,15 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	if err != nil && isTimeout(err) && s.readOnly(name) {
 		res, err = s.Hand.Call(r.Context(), where, name, args)
 	}
+	// **손이 못 하는 것을 헬퍼가 다른 길로 대신하는 자리** — 엑셀 2021 의 메모 셋을 COM 노트로(xl_notes.go). 그 길이 아니면 손의 말이 그대로 간다.
+	if err != nil && s.App.Fallback != nil {
+		if alt, handled, ferr := s.App.Fallback(r.Context(), s.Hand, where, name, args, err.Error()); handled {
+			if ferr != nil {
+				return errorResult(ferr.Error())
+			}
+			res, err = alt, nil
+		}
+	}
 	if err != nil {
 		return errorResult(err.Error())
 	}

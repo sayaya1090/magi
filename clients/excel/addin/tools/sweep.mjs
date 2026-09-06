@@ -5,7 +5,7 @@
 // 「스윕」시트를 만들어 그 안에서만 놀고 끝에 지운다 — 원본 시트는 안 건드린다(통장 속성·메모·제안은 되돌린다).
 // 토큰은 헬퍼 페이지에서, 통장은 /api/documents 에서 얻는다. 그림 답은 이 파일 옆 sweep_<도구>.png 로 떨어진다.
 // insert_sheets_from_file 은 --xlsx 로 준 파일을 넣는다(없으면 건너뛰고 그렇게 적는다).
-// 실측 2026-09-07(Office LTSC 2021 · 창이 손): 76/76 호출 · 100호출, 오류는 메모 넷(2021 이 NotImplemented)뿐 — 피벗은 표의 열을 고치기 앞에
+// 실측 2026-09-07(Office LTSC 2021 · 창이 손): 76/76 · 101호출, 오류는 resolve_comment{resolved} 하나(2021 은 메모 대신 COM 노트라 해결 표시가 없다) — 피벗은 표의 열을 고치기 앞에
 // 만들어 2021 의 버릇을 피한다(docs/TESTING.ko.md §5.10). 365 에서는 전부 통과가 기대값이다.
 import { writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -99,9 +99,10 @@ await call('read_validation', { sheet: S, address: 'A2:A6' }, '');
 await call('set_name', { name: '스윕수량', refers_to: `='${S}'!$B$2:$B$6` }, '');
 await call('read_names', {}, '');
 await call('delete_name', { name: '스윕수량' }, '');
-await call('add_comment', { sheet: S, address: 'A2', text: '스윕 댓글' }, '2021: NotImplemented');
-await call('read_comments', { sheet: S }, '2021: NotImplemented');
-await call('resolve_comment', { sheet: S, address: 'A2' }, '해결');
+await call('add_comment', { sheet: S, address: 'A2', text: '스윕 댓글' }, '2021: 노트로');
+await call('add_comment', { sheet: S, address: 'A2', text: '답글 시험' }, '2021: 덧붙임');
+await call('read_comments', { sheet: S }, '2021: 노트');
+await call('resolve_comment', { sheet: S, address: 'A2' }, '해결(2021 노트는 거절)');
 await call('resolve_comment', { sheet: S, address: 'A2', delete: true }, '삭제');
 await call('add_image', { sheet: S, path: IMG, address: 'K5', alt: '스윕 그림', width: 40, height: 40 }, 'png');
 await call('trace_cell', { sheet: S, address: 'D2', what: 'precedents' }, '');
