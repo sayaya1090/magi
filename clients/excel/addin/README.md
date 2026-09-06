@@ -11,7 +11,7 @@ Excel 작업창. 파워포인트 판 애드인을 **복사해 손을 바꿨다**
 |---|---|---|
 | `node tools/smoke.mjs` | `FakeWorkbook`·`FakeHand` | **돈다** — 344 ok (2026-09-06) |
 | `node tools/smoke-hand.mjs` | `FakeHand`·`ServeHand`·`HelperStream` | **돈다** — 71 ok |
-| `node tools/excelhand.mjs` | `ExcelHand` 를 가짜 Office.js 위에서 | **돈다** — 61/61, 거절 0 |
+| `node tools/excelhand.mjs` | `ExcelHand` 를 가짜 Office.js 위에서 | **돈다** — 65/65, 거절 0 |
 | `PORT=3010 node tools/serve.mjs` 로 브라우저에서 | 가짜 격자 + `FakeHand` | 돈다 — 인용·전송·안내·제안 적용까지 |
 | `TOKEN=… node tools/livehand.mjs` | `FakeHand` 를 **살아 있는 헬퍼**에 손으로 | **돈다** — MCP `tools/call` 이 SSE 로 내려와 답이 돌아간다(2026-09-06, TESTING §4b) |
 | **헬퍼가 내준 페이지**(`magi office`) | `HelperApi`·`HelperStream`, 손은 `ExcelHand`(Excel 안) 또는 `FakeHand` | **Excel 안에서 돈다** — 2026-09-06 도구 61개 전부(docs/TESTING §5.1), Windows 2021 창의 보내기로 편집(§5.1.1). 인용·제안·검토 단추는 아직 사람이 안 눌렀다 |
@@ -24,8 +24,8 @@ Excel 작업창. 파워포인트 판 애드인을 **복사해 손을 바꿨다**
 ```
 src/port/WorkbookPort.js      selection() · point(sheet,address) · sheetNames() · capabilities()
 src/adapter/OfficeWorkbook.js Office.js 로 위를 한다. MAGI.BOOK 설정에 안정된 문서 이름을 적는다(stableBookId)
-src/adapter/ExcelHand.js      진짜 손 — op 61개를 Excel.run 한 묶음씩으로. 한 줄로 선다(40초 넘게 기다린 호출은 거절)
-src/adapter/FakeHand.js       가짜 손 — 메모리 통합 문서 위에서 61개를 정말로 돈다. 그림 둘만 거절
+src/adapter/ExcelHand.js      진짜 손 — op 65개를 Excel.run 한 묶음씩으로. 한 줄로 선다(40초 넘게 기다린 호출은 거절)
+src/adapter/FakeHand.js       가짜 손 — 메모리 통합 문서 위에서 65개를 정말로 돈다. 그림 둘만 거절
 src/adapter/handCore.js       두 손의 뼈대 — READ_OPS/WRITE_OPS/ALL_OPS, FIX_TOOLS, 인자 읽기, 거절, 봉투, 차트 별칭
 src/adapter/a1.js             A1 산수 — parseAddress · rangeName · cellName · colName
 src/adapter/pickBook.js       Office 가 있나·Excel 인가·늦나 — 가짜로 갈 때 사유를 남긴다
@@ -34,7 +34,7 @@ src/domain/Advice.js          안내 — 시트·범위 가리키기, SheetIndex
 src/domain/Suggestion.js      제안 카드 — 누를 수 있는 손 여섯
 src/usecase/HandRole.js       손인가 화면인가 — ExcelApi 1.7 바닥
 src/ui/bookFixture.js         브라우저 목업의 통합 문서(매출·비용) + 제안 둘
-src/ui/screen.js              화면이 정하는 것 — 도구 61개의 사람 말 라벨, 인용 몸통, 제안·안내 판, 검토 부탁
+src/ui/screen.js              화면이 정하는 것 — 도구 65개의 사람 말 라벨, 인용 몸통, 제안·안내 판, 검토 부탁
 ```
 
 두 손이 아는 이름은 헬퍼 `tools.go` 가 광고하는 이름과 같은 집합이어야 한다 — `smoke.mjs` 가 헬퍼 소스를 읽어 대조한다.

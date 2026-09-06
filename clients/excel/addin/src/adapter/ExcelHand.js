@@ -134,6 +134,10 @@ export class ExcelHand extends HandPort {
         return this.#envelope({ pinned: op === 'advise' ? (a.items?.length ?? 0) : 0 });
       // ── 쓰기 ──
       case 'write_range': return this.#writeRange(a);
+      case 'replace_all': return this.#replaceAll(a);
+      case 'copy_range': return this.#copyRange(a);
+      case 'fill_range': return this.#fillRange(a);
+      case 'remove_duplicates': return this.#removeDuplicates(a);
       case 'set_number_format': return this.#setNumberFormat(a);
       case 'format_range': return this.#formatRange(a);
       case 'clear_range': return this.#clearRange(a);
@@ -576,6 +580,57 @@ export class ExcelHand extends HandPort {
     });
   }
 
+  async #replaceAll(a) {
+    this.#need('ExcelApi', '1.9', 'replace_all');
+    const find = String(need(a, 'find')); const replace = String(a.replace ?? refuse('replace 가 없습니다(빈 문자열은 됩니다)'));
+    const matchCase = bool(a, 'match_case') ?? false; const completeMatch = bool(a, 'whole_cell') ?? false;
+    return this.runner(async (context) => {
+      const sheets = [];
+      if (str(a, 'sheet')) { const ws = this.#sheet(context, a); ws.load('name'); sheets.push(ws); } else { const all = context.workbook.worksheets; all.load('items/name'); await context.sync(); sheets.push(...all.items); }
+      const counts = sheets.map((ws) => ws.replaceAll(find, replace, { matchCase, completeMatch }));
+      await context.sync(); this.#mutated();
+      const per = sheets.map((ws, i) => ({ sheet: ws.name, cells: counts[i].value })).filter((x) => x.cells > 0);
+      const total = per.reduce((s, x) => s + x.cells, 0);
+      if (total === 0) refuse(`「${clip(find, 40)}」 가 ${str(a, 'sheet') ? `시트 ${sheets[0].name}` : '통합 문서'} 에 없습니다 — 바꾼 것이 없습니다`);
+      return this.#envelope({ find, replace, cells: total, sheets: per }, [`「${clip(find, 30)}」 → 「${clip(replace, 30)}」 셀 ${total}개 (${per.map((x) => `${x.sheet} ${x.cells}`).join(', ')})`]);
+    });
+  }
+  async #copyRange(a) {
+    this.#need('ExcelApi', '1.9', 'copy_range');
+    const source = String(need(a, 'source')); const mode = (str(a, 'mode') ?? 'all').toLowerCase(); const transpose = bool(a, 'transpose') ?? false;
+    const copyType = { all: 'All', values: 'Values', formulas: 'Formulas', formats: 'Formats' }[mode] ?? refuse(`mode 는 all, values, formulas, formats 중 하나 — '${mode}'`);
+    return this.runner(async (context) => {
+      const { ws, range } = this.#range(context, a); ws.load('name');
+      const src = this.#range(context, { sheet: str(a, 'source_sheet') ?? str(a, 'sheet'), address: source }); src.ws.load('name'); src.range.load('address,rowCount,columnCount');
+      await context.sync();
+      const dest = range.getCell(0, 0).getResizedRange((transpose ? src.range.columnCount : src.range.rowCount) - 1, (transpose ? src.range.rowCount : src.range.columnCount) - 1);
+      dest.copyFrom(src.range, copyType, false, transpose); dest.load('address'); await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, source: `${src.ws.name}!${ExcelHand.#bare(src.range.address)}`, address: ExcelHand.#bare(dest.address), mode, transpose }, [`${src.ws.name}!${ExcelHand.#bare(src.range.address)} → ${ws.name}!${ExcelHand.#bare(dest.address)} (${mode}${transpose ? ', 행열 바꿈' : ''})`]);
+    });
+  }
+  async #fillRange(a) {
+    this.#need('ExcelApi', '1.9', 'fill_range');
+    const to = String(need(a, 'to')); const fill = (str(a, 'fill') ?? 'default').toLowerCase();
+    const kind = { default: 'FillDefault', copy: 'FillCopy', series: 'FillSeries', formats: 'FillFormats', values: 'FillValues' }[fill] ?? refuse(`fill 은 default, copy, series, formats, values 중 하나 — '${fill}'`);
+    return this.runner(async (context) => {
+      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address');
+      const dest = ws.getRange(to); dest.load('address');
+      await context.sync();
+      range.autoFill(dest, kind); await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), to: ExcelHand.#bare(dest.address), fill }, [`${ws.name}!${ExcelHand.#bare(range.address)} 를 ${ExcelHand.#bare(dest.address)} 까지 채웠습니다 (${fill})`]);
+    });
+  }
+  async #removeDuplicates(a) {
+    this.#need('ExcelApi', '1.9', 'remove_duplicates');
+    const cols = arr(a, 'columns'); const header = bool(a, 'has_header') ?? true;
+    return this.runner(async (context) => {
+      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address,columnCount'); await context.sync();
+      const which = cols && cols.length ? cols.map((v) => int({ v }, 'v')) : Array.from({ length: range.columnCount }, (_, i) => i);
+      for (const c of which) if (c == null || c < 0 || c >= range.columnCount) refuse(`columns 가 블록 밖입니다 — ${c} (0부터 ${range.columnCount - 1}까지)`);
+      const res = range.removeDuplicates(which, header); res.load('removed,uniqueRemaining'); await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), removed: res.removed, remaining: res.uniqueRemaining }, [`${ws.name}!${ExcelHand.#bare(range.address)}: 중복 ${res.removed}행 제거, ${res.uniqueRemaining}행 남음`]);
+    });
+  }
   async #clearRange(a) {
     const what = (str(a, 'what') ?? 'all').toLowerCase();
     const applyTo = { all: 'All', contents: 'Contents', formats: 'Formats', hyperlinks: 'Hyperlinks' }[what] ?? refuse(`what 는 all, contents, formats, hyperlinks 중 하나입니다 — '${what}'`);

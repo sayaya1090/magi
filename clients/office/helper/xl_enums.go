@@ -56,7 +56,13 @@ var xlTableStyles = func() []string {
 // xlValueEnums 는 인자 이름 → 허용 값. 이름이 같으면 어느 도구에서든 같은 열거다 — 그래서 뜻이 다른 칸은
 // 이름을 다르게 지었다(cf_kind / validation_kind / chart_type, insert 의 shift 와 delete 의 shift 는 값이
 // 갈려 합쳐 둔다).
+// xlCopyModes·xlFillKinds 는 copy_range·fill_range 의 종류(Excel.RangeCopyType·AutoFillType 을 사람 말로).
+var xlCopyModes = []string{"all", "values", "formulas", "formats"}
+var xlFillKinds = []string{"default", "copy", "series", "formats", "values"}
+
 var xlValueEnums = map[string][]string{
+	"mode":                xlCopyModes,
+	"fill":                xlFillKinds,
 	"chart_type":          append(append([]string{}, xlChartTypes...), xlChartAliases...),
 	"series_by":           xlSeriesBys,
 	"align":               xlAligns,

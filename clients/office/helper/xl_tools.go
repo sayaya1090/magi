@@ -218,6 +218,51 @@ func xlCatalogue(hasCouncil bool) []tool {
 			Required: []string{"address"},
 		},
 		{
+			Name: "replace_all",
+			Desc: "Find and replace text in cell values across one sheet or the whole workbook. Answers how many cells " +
+				"changed. Case-insensitive and substring by default. Needs ExcelApi 1.9.",
+			Props: withSheet(
+				property{Name: "find", Type: "string", Desc: "Text to replace. Required."},
+				property{Name: "replace", Type: "string", Desc: "Replacement (empty string removes it). Required."},
+				property{Name: "match_case", Type: "boolean", Desc: "Case-sensitive (default false)."},
+				property{Name: "whole_cell", Type: "boolean", Desc: "Only cells whose whole content matches (default false)."},
+			),
+			Required: []string{"find", "replace"},
+		},
+		{
+			Name: "copy_range",
+			Desc: "Copy a block to another place — values, formulas, formats or all (default) — optionally transposed. " +
+				"`address` is the destination's top-left cell; the source may be on another sheet (`source_sheet`). Needs ExcelApi 1.9.",
+			Props: withRange(
+				property{Name: "source", Type: "string", Desc: "Source A1 range, e.g. \"B2:E9\". Required."},
+				property{Name: "source_sheet", Type: "string", Desc: "Sheet of the source when it differs from `sheet`."},
+				property{Name: "mode", Type: "string", Desc: "all (default), values, formulas, formats.", Enum: xlCopyModes},
+				property{Name: "transpose", Type: "boolean", Desc: "Swap rows and columns (default false)."},
+			),
+			Required: []string{"source", "address"},
+		},
+		{
+			Name: "fill_range",
+			Desc: "Fill down/right the way the fill handle does: extend `address` (the seed cells — a formula, a pattern, " +
+				"a series start) over `to` (a range that INCLUDES the seed). `fill` picks Excel's behaviour: default (Excel " +
+				"decides), copy, series, formats, values. Needs ExcelApi 1.9.",
+			Props: withRange(
+				property{Name: "to", Type: "string", Desc: "Destination range including the seed, e.g. seed C2 → to \"C2:C20\". Required."},
+				property{Name: "fill", Type: "string", Desc: "default, copy, series, formats, values.", Enum: xlFillKinds},
+			),
+			Required: []string{"address", "to"},
+		},
+		{
+			Name: "remove_duplicates",
+			Desc: "Remove duplicate rows inside a block, judged by the given columns (0-based within the block; omit for all " +
+				"columns). Answers how many rows went and how many remain. Needs ExcelApi 1.9.",
+			Props: withRange(
+				property{Name: "columns", Type: "array", Items: "integer", Desc: "Columns that define a duplicate, 0-based within the block."},
+				property{Name: "has_header", Type: "boolean", Desc: "First row is a header and is kept (default true)."},
+			),
+			Required: []string{"address"},
+		},
+		{
 			Name: "set_number_format",
 			Desc: "Number format of a range: \"#,##0\", \"#,##0.00\", \"0%\", \"yyyy-mm-dd\", \"@\" (text), \"General\". " +
 				"Changes how the values SHOW, not the values.",

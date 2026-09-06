@@ -183,6 +183,53 @@ export class FakeHand extends HandPort {
         const { sheet, box, address } = this.#rangeOf(args); this.#each(sheet, box, (r, c) => this.#put(sheet, r, c, patch)); this.#mutated();
         return this.#env({ sheet: sheet.name, address, changed: said.length }, [`${sheet.name}!${address}: ${said.join(', ')}`]);
       }
+      case 'replace_all': {
+        this.#need('ExcelApi', '1.9', 'replace_all');
+        const find = String(need(args, 'find')); const replace = String(args.replace ?? refuse('replace 가 없습니다(빈 문자열은 됩니다)')); const mc = bool(args, 'match_case') ?? false; const whole = bool(args, 'whole_cell') ?? false;
+        const sheets = str(args, 'sheet') ? [this.#sheet(args)] : this.model.sheets; const per = [];
+        for (const s of sheets) { let n = 0; for (const cell of Object.values(s.cells)) { if (cell?.f || typeof cell?.v !== 'string') continue; const hit = whole ? (mc ? cell.v === find : cell.v.toLowerCase() === find.toLowerCase()) : (mc ? cell.v.includes(find) : cell.v.toLowerCase().includes(find.toLowerCase())); if (!hit) continue; cell.v = whole ? replace : cell.v.replace(new RegExp(find.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), mc ? 'g' : 'gi'), replace); n += 1; } if (n) per.push({ sheet: s.name, cells: n }); }
+        const total = per.reduce((x, y) => x + y.cells, 0);
+        if (total === 0) refuse(`「${clip(find, 40)}」 가 ${str(args, 'sheet') ? `시트 ${sheets[0].name}` : '통합 문서'} 에 없습니다 — 바꾼 것이 없습니다`);
+        this.#mutated(); return this.#env({ find, replace, cells: total, sheets: per }, [`「${clip(find, 30)}」 → 「${clip(replace, 30)}」 셀 ${total}개 (${per.map((x) => `${x.sheet} ${x.cells}`).join(', ')})`]);
+      }
+      case 'copy_range': {
+        this.#need('ExcelApi', '1.9', 'copy_range');
+        const source = String(need(args, 'source')); const mode = (str(args, 'mode') ?? 'all').toLowerCase(); const transpose = bool(args, 'transpose') ?? false;
+        if (!['all', 'values', 'formulas', 'formats'].includes(mode)) refuse(`mode 는 all, values, formulas, formats 중 하나 — '${mode}'`);
+        const dest = this.#sheet(args); const srcSheet = this.#sheet(args, str(args, 'source_sheet') ? 'source_sheet' : 'sheet'); const sb = parseAddress(source); const db = parseAddress(String(need(args, 'address')));
+        const rows = transpose ? sb.cols : sb.rows; const cols = transpose ? sb.rows : sb.cols;
+        for (let r = 0; r < sb.rows; r += 1) for (let c = 0; c < sb.cols; c += 1) { const from = this.#cell(srcSheet, sb.top + r, sb.left + c) ?? {}; const tr = transpose ? c : r; const tc = transpose ? r : c; const k = cellName(db.top + tr, db.left + tc); const had = dest.cells[k] ?? {}; const next = mode === 'formats' ? { ...had, nf: from.nf, fmt: from.fmt } : mode === 'values' ? { ...had, v: from.v ?? '', f: undefined } : mode === 'formulas' ? { ...had, v: from.f ?? from.v ?? '', f: from.f } : { ...from }; dest.cells[k] = next; }
+        const at = rangeName(db.top, db.left, rows, cols); this.#mutated();
+        return this.#env({ sheet: dest.name, source: `${srcSheet.name}!${source}`, address: at, mode, transpose }, [`${srcSheet.name}!${source} → ${dest.name}!${at} (${mode}${transpose ? ', 행열 바꿈' : ''})`]);
+      }
+      case 'fill_range': {
+        this.#need('ExcelApi', '1.9', 'fill_range');
+        const to = String(need(args, 'to')); const fill = (str(args, 'fill') ?? 'default').toLowerCase(); if (!['default', 'copy', 'series', 'formats', 'values'].includes(fill)) refuse(`fill 은 default, copy, series, formats, values 중 하나 — '${fill}'`);
+        const { sheet, box, address } = this.#rangeOf(args); const tb = parseAddress(to);
+        if (tb.top > box.top || tb.left > box.left || tb.top + tb.rows < box.top + box.rows || tb.left + tb.cols < box.left + box.cols) refuse(`to(${to}) 는 씨앗(${address})을 포함해야 합니다`);
+        const seeds = []; for (let r = 0; r < box.rows; r += 1) for (let c = 0; c < box.cols; c += 1) seeds.push(this.#cell(sheet, box.top + r, box.left + c) ?? { v: '' });
+        const down = tb.rows > box.rows; const n = down ? box.rows : box.cols; const numeric = seeds.every((s) => !s.f && typeof s.v === 'number');
+        const step = numeric && seeds.length >= 2 ? seeds[1].v - seeds[0].v : (numeric ? 1 : 0);
+        let filled = 0;
+        for (let r = 0; r < tb.rows; r += 1) for (let c = 0; c < tb.cols; c += 1) {
+          const rr = tb.top + r; const cc = tb.left + c; if (rr >= box.top && rr < box.top + box.rows && cc >= box.left && cc < box.left + box.cols) continue;
+          const i = down ? (r % n) : (c % n); const seed = down ? seeds[i * box.cols + (cc - box.left)] : seeds[(rr - box.top) * box.cols + i]; const dist = down ? r : c; const series = numeric && fill !== 'copy' && fill !== 'formats';
+          const v = series ? seed.v + step * Math.floor(dist / n) * n + (fill === 'series' || fill === 'default' ? 0 : 0) : seed.v;
+          sheet.cells[cellName(rr, cc)] = fill === 'formats' ? { ...(sheet.cells[cellName(rr, cc)] ?? {}), nf: seed.nf, fmt: seed.fmt } : { ...seed, v: series ? seed.v + step * dist : v }; filled += 1;
+        }
+        this.#mutated(); return this.#env({ sheet: sheet.name, address, to, fill, filled }, [`${sheet.name}!${address} 를 ${to} 까지 채웠습니다 (${fill})`]);
+      }
+      case 'remove_duplicates': {
+        this.#need('ExcelApi', '1.9', 'remove_duplicates');
+        const cols = arr(args, 'columns'); const header = bool(args, 'has_header') ?? true; const { sheet, box, address } = this.#rangeOf(args);
+        const which = cols && cols.length ? cols.map((v) => int({ v }, 'v')) : Array.from({ length: box.cols }, (_, i) => i);
+        for (const c of which) if (c == null || c < 0 || c >= box.cols) refuse(`columns 가 블록 밖입니다 — ${c} (0부터 ${box.cols - 1}까지)`);
+        const rows = []; for (let r = 0; r < box.rows; r += 1) rows.push(Array.from({ length: box.cols }, (_, c) => this.#cell(sheet, box.top + r, box.left + c) ?? { v: '' }));
+        const start = header ? 1 : 0; const seen = new Set(); const kept = rows.slice(0, start); let removed = 0;
+        for (const row of rows.slice(start)) { const key = JSON.stringify(which.map((c) => row[c].v)); if (seen.has(key)) { removed += 1; continue; } seen.add(key); kept.push(row); }
+        for (let r = 0; r < box.rows; r += 1) for (let c = 0; c < box.cols; c += 1) { const k = cellName(box.top + r, box.left + c); if (r < kept.length) sheet.cells[k] = { ...kept[r][c] }; else delete sheet.cells[k]; }
+        this.#mutated(); return this.#env({ sheet: sheet.name, address, removed, remaining: kept.length - start }, [`${sheet.name}!${address}: 중복 ${removed}행 제거, ${kept.length - start}행 남음`]);
+      }
       case 'clear_range': {
         const what = (str(args, 'what') ?? 'all').toLowerCase(); if (!['all', 'contents', 'formats', 'hyperlinks'].includes(what)) refuse(`what 는 all, contents, formats, hyperlinks 중 하나입니다 — '${what}'`);
         const { sheet, box, address } = this.#rangeOf(args); let had = 0;

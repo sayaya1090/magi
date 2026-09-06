@@ -827,7 +827,7 @@ const TOOL_LABELS = new Map(Object.entries({
   read_comments: '메모 읽기', read_names: '이름 읽기', read_validation: '유효성 읽기',
   read_conditional_formats: '조건부 서식 읽기', describe_style: '이 문서 서식 읽기', snapshot_range: '되돌릴 지점 만들기',
   read_tags: '기록 읽기', read_suggestions: '제안 읽기', advise: '안내 붙이기', clear_advice: '안내 지우기',
-  write_range: '값 쓰기', set_number_format: '표시 형식 바꾸기', format_range: '서식 바꾸기', clear_range: '지우기',
+  write_range: '값 쓰기', replace_all: '찾아 바꾸기', copy_range: '범위 복사', fill_range: '채우기', remove_duplicates: '중복 제거', set_number_format: '표시 형식 바꾸기', format_range: '서식 바꾸기', clear_range: '지우기',
   merge_cells: '셀 병합', unmerge_cells: '병합 풀기', insert_cells: '셀 끼워 넣기', delete_cells: '셀 삭제',
   autofit: '폭 맞추기', set_hyperlink: '링크 걸기',
   add_sheet: '시트 만들기', delete_sheet: '시트 지우기', rename_sheet: '시트 이름 바꾸기', move_sheet: '시트 옮기기',

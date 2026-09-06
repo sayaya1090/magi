@@ -20,7 +20,7 @@ const scalar = (prop, path) => {
   switch (prop) {
     case 'name': return path.endsWith('.worksheet') || path.includes('worksheets') ? 'Sheet1' : 'Thing1';
     case 'address': return `Sheet1!${rangeOf(path)}`;
-    case 'rowCount': return boxOf(path).rows; case 'columnCount': return boxOf(path).cols; case 'cellCount': return boxOf(path).rows * boxOf(path).cols;
+    case 'removed': return 1; case 'uniqueRemaining': return 3; case 'rowCount': return boxOf(path).rows; case 'columnCount': return boxOf(path).cols; case 'cellCount': return boxOf(path).rows * boxOf(path).cols;
     case 'values': return [['h1', 'h2'], [1, 2]];
     case 'formulas': return [['h1', 'h2'], [1, '=A2*2']];
     case 'numberFormat': return [['General', 'General'], ['General', '#,##0']];
@@ -86,7 +86,7 @@ const ARGS = {
   write_range: { sheet: 'Sheet1', address: 'A1', values: [['x', 'y'], [1, 2]] },
   set_number_format: { sheet: 'Sheet1', address: 'B2', format: '#,##0' },
   format_range: { sheet: 'Sheet1', address: 'A1:B1', bold: true, fill: '#DDEBF7', align: 'Center', border_style: 'Continuous', font_color: '#FFFFFF', size: 12, wrap: true, column_width: 80 },
-  clear_range: { sheet: 'Sheet1', address: 'A1', what: 'contents' }, merge_cells: { sheet: 'Sheet1', address: 'A8:C8' }, unmerge_cells: { sheet: 'Sheet1', address: 'A8:C8' },
+  clear_range: { sheet: 'Sheet1', address: 'A1', what: 'contents' }, replace_all: { find: '매출', replace: '판매' }, copy_range: { sheet: 'Sheet1', source: 'A1:B2', address: 'D1', mode: 'values' }, fill_range: { sheet: 'Sheet1', address: 'A1:A2', to: 'A1:A5', fill: 'series' }, remove_duplicates: { sheet: 'Sheet1', address: 'A1:B5', columns: [0] }, merge_cells: { sheet: 'Sheet1', address: 'A8:C8' }, unmerge_cells: { sheet: 'Sheet1', address: 'A8:C8' },
   insert_cells: { sheet: 'Sheet1', address: 'A2:C2', shift: 'down' }, delete_cells: { sheet: 'Sheet1', address: 'A2:C2', shift: 'up' },
   autofit: { sheet: 'Sheet1', address: 'A1:B2', what: 'both' }, set_hyperlink: { sheet: 'Sheet1', address: 'C4', url: 'https://example.com', text: '링크' },
   add_sheet: { name: '요약', after: 'Sheet1' }, delete_sheet: { sheet: 'Sheet1' }, rename_sheet: { sheet: 'Sheet1', name: '요약2' }, move_sheet: { sheet: 'Sheet1', to: 1 },

@@ -12,7 +12,7 @@ export const READ_OPS = Object.freeze([
   'read_tags', 'read_suggestions', 'advise', 'clear_advice',
 ]);
 export const WRITE_OPS = Object.freeze([
-  'write_range', 'set_number_format', 'format_range', 'clear_range', 'merge_cells', 'unmerge_cells', 'insert_cells',
+  'write_range', 'replace_all', 'copy_range', 'fill_range', 'remove_duplicates', 'set_number_format', 'format_range', 'clear_range', 'merge_cells', 'unmerge_cells', 'insert_cells',
   'delete_cells', 'autofit', 'set_hyperlink',
   'add_sheet', 'delete_sheet', 'rename_sheet', 'move_sheet', 'copy_sheet', 'set_sheet_visibility', 'activate_sheet',
   'freeze_panes', 'protect_sheet', 'unprotect_sheet',
