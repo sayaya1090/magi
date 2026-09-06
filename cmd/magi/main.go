@@ -2843,10 +2843,14 @@ func (d daemonEngine) NewSession(ctx context.Context) (session.SessionID, error)
 // The PowerPoint helper gives each open deck its own conversation. Moving on each one wrote "the
 // companion left this conversation" into the deck that was working a second ago (2026-09-05).
 // Nothing else changes: submit and the transcript stream both name their session on the wire.
-func (d daemonEngine) NewSessionKeeping(ctx context.Context) (session.SessionID, error) {
+//
+// purpose is recorded on the session (`for` in `sessions`) and nothing else: it is the caller's
+// handle, not the engine's business.
+func (d daemonEngine) NewSessionKeeping(ctx context.Context, purpose string) (session.SessionID, error) {
 	return d.App.CreateSession(ctx, command.CreateSession{
 		Workdir: d.workdir,
 		Actor:   event.Actor{Kind: event.ActorUser, ID: "attach"},
+		For:     purpose,
 	})
 }
 

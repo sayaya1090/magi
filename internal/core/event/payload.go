@@ -27,6 +27,10 @@ type SessionCreatedData struct {
 	// Workdir — a child in its own temp clone files under its parent's project so the views
 	// that list children can find it. The store's path routing reads this.
 	Project string `json:"project,omitempty"`
+	// For is the caller's own handle for what this conversation serves (a document key), copied
+	// from the create command. Read back by the store's listing so a client can find the
+	// conversation again by the thing it belongs to.
+	For string `json:"for,omitempty"`
 }
 
 // PromptSubmittedData — TypePromptSubmitted (role=user).

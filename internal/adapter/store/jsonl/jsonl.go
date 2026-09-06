@@ -713,6 +713,7 @@ func (s *Store) scanSessions(workdir string) ([]session.SessionMeta, error) {
 				}
 				m.Agent = d.Agent
 				m.Parent = d.Parent
+				m.For = d.For
 				// Only when nothing later said otherwise: a model.changed found above is the
 				// session's model NOW, and this is the one it started on.
 				if m.Model == "" {

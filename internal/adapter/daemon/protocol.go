@@ -158,8 +158,11 @@ type ToolServerHost interface {
 // every fake in every package must satisfy, and a control surface which grows is not a reason to
 // touch four test doubles (the same reasoning `reload-cron` records).
 type ConversationOpener interface {
-	// NewSessionKeeping opens a conversation and leaves the companion where it is.
-	NewSessionKeeping(ctx context.Context) (session.SessionID, error)
+	// NewSessionKeeping opens a conversation and leaves the companion where it is. purpose is the
+	// caller's own handle for what the conversation is for (`name` on the wire — a document key);
+	// it is recorded on the session and answered back by `sessions` as `for`, so the caller can
+	// find this conversation again after forgetting it. Empty records nothing.
+	NewSessionKeeping(ctx context.Context, purpose string) (session.SessionID, error)
 }
 
 // UserNamer is an engine that knows what to call the person it is talking to.
@@ -912,11 +915,15 @@ type SessionRow struct {
 	// room a participant holds, the spawning tool's actor otherwise. The web console already
 	// keyed on it before this door existed ("nothing new has to be recorded to tell them apart"),
 	// which is the strongest argument for carrying it rather than inventing a second field.
-	Origin       string   `json:"origin,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Labels       []string `json:"labels,omitempty"`
-	Created      string   `json:"created,omitempty"`
-	LastActivity string   `json:"lastActivity,omitempty"`
+	Origin string   `json:"origin,omitempty"`
+	Model  string   `json:"model,omitempty"`
+	Labels []string `json:"labels,omitempty"`
+	// For is what the client that opened it said it was for (`name` on `session-new` with `keep`),
+	// so a client can pick "the conversation of document X" out of the list without a memory of
+	// its own. Empty when nobody said.
+	For          string `json:"for,omitempty"`
+	Created      string `json:"created,omitempty"`
+	LastActivity string `json:"lastActivity,omitempty"`
 }
 
 // Describer is an engine that can say what its companion is for and what it can be asked to do.

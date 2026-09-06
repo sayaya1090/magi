@@ -447,14 +447,22 @@ func (c *Client) Children(sid string) ([]SessionRow, error) {
 
 // NewSession opens a fresh conversation on the companion and moves it there, answering with the
 // new id. The one way to get a new conversation: resume refuses invented ids on purpose.
-func (c *Client) NewSession() (string, error) { return c.newSession(false) }
+func (c *Client) NewSession() (string, error) { return c.newSession(false, "") }
 
 // NewSessionKeeping opens a conversation and leaves the companion on the one it is serving. A
 // client that holds several conversations at once wants this one — see Request.Keep.
-func (c *Client) NewSessionKeeping() (string, error) { return c.newSession(true) }
+func (c *Client) NewSessionKeeping() (string, error) { return c.newSession(true, "") }
 
-func (c *Client) newSession(keep bool) (string, error) {
-	resp, err := c.exchange(Request{Method: "session-new", Keep: keep})
+// NewSessionKeepingFor is NewSessionKeeping with the caller's own handle for what the
+// conversation is for (a document key). `sessions` answers it back as `for`, which is how a
+// client that has forgotten its bindings — the Office helper after a restart — finds the
+// conversation a document already has instead of opening another.
+func (c *Client) NewSessionKeepingFor(purpose string) (string, error) {
+	return c.newSession(true, purpose)
+}
+
+func (c *Client) newSession(keep bool, purpose string) (string, error) {
+	resp, err := c.exchange(Request{Method: "session-new", Keep: keep, Name: purpose})
 	if err != nil {
 		return "", err
 	}

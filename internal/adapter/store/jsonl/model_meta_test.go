@@ -74,3 +74,19 @@ func TestAnUnchangedSessionReportsWhatItOpenedWith(t *testing.T) {
 		t.Fatalf("the opening model came back as %v", metas)
 	}
 }
+
+// What a session was opened FOR rides its created event and comes back in the listing. The Office
+// helper keys its documents on this: after a restart it has no bindings of its own, and without
+// this field the only move was a fresh, empty conversation for a document that already had one.
+func TestSessionMetaCarriesWhatItWasOpenedFor(t *testing.T) {
+	dir := t.TempDir()
+	st, _ := New(dir)
+	ctx := context.Background()
+	wd := t.TempDir()
+	created, _ := json.Marshal(event.SessionCreatedData{Workdir: wd, For: "wb-book-7"})
+	st.Append(ctx, "s_for", event.Event{SessionID: "s_for", Type: event.TypeSessionCreated, Data: created})
+	metas, _ := st.ListSessions(ctx, wd)
+	if len(metas) != 1 || metas[0].For != "wb-book-7" {
+		t.Fatalf("the listing lost what the session was opened for: %v", metas)
+	}
+}

@@ -60,7 +60,10 @@ type SessionMeta struct {
 	// Labels is what the agent said this work was about, as of the last time it said so. Free to
 	// carry: the scan that builds this already reads every event to find the title.
 	Labels []string `json:"labels,omitempty"`
-	Parent string   `json:"parent,omitempty"` // spawning session id (child sessions)
+	// For is what the client that opened the session said it was for — its own handle, such as
+	// an Office document's key. Off the created event; empty for a session nobody claimed.
+	For    string `json:"for,omitempty"`
+	Parent string `json:"parent,omitempty"` // spawning session id (child sessions)
 	// Origin is the actor id that opened the session — "cli", "tui", "cron:<name>". It answers a
 	// question a list of past work cannot otherwise answer: whether a person asked for this or
 	// something did it unattended. The scheduled-work editors read it to show a job's last run,

@@ -253,7 +253,7 @@ func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (sessi
 	// Held, not written. See sessionState.born: the id is real from here on and every consumer
 	// that needs one has it, while a session nobody speaks in leaves nothing behind.
 	data, _ := json.Marshal(event.SessionCreatedData{Workdir: c.Workdir, Agent: c.Agent, Model: model,
-		Parent: c.Parent, Project: c.Project})
+		Parent: c.Parent, Project: c.Project, For: c.For})
 	a.mu.Lock()
 	a.stateLocked(sid).born = &bornFact{actor: c.Actor, data: data, at: s.Created}
 	a.mu.Unlock()

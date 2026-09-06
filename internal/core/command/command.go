@@ -23,6 +23,12 @@ type CreateSession struct {
 	Agent   string           `json:"agent"`
 	Model   session.ModelRef `json:"model"`
 	Actor   event.Actor      `json:"actor"`
+	// For is what the caller opened this conversation FOR — a handle the caller owns and can ask
+	// for again (an Office helper puts the document's key here). The engine never reads it; it is
+	// recorded on the created event so that a client which lost its own memory (the helper was
+	// restarted) can find the conversation that belongs to a document instead of minting another
+	// one and leaving the person in front of an empty pane (measured 2026-09-06, Excel).
+	For string `json:"for,omitempty"`
 }
 
 // SubmitPrompt appends a user prompt and runs the agent loop (async).

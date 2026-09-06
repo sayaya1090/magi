@@ -311,7 +311,7 @@ func answerSessions(ctx context.Context, eng Engine, req Request) Response {
 	sort.SliceStable(metas, func(i, j int) bool { return metas[i].LastActivity.After(metas[j].LastActivity) })
 	rows := make([]SessionRow, 0, len(metas))
 	for _, m := range metas {
-		r := SessionRow{ID: string(m.ID), Title: m.Title, Model: m.Model, Labels: m.Labels}
+		r := SessionRow{ID: string(m.ID), Title: m.Title, Model: m.Model, Labels: m.Labels, For: m.For}
 		if !m.Created.IsZero() {
 			r.Created = m.Created.UTC().Format(time.RFC3339)
 		}
@@ -351,7 +351,7 @@ func answerChildren(ctx context.Context, eng Engine, req Request) Response {
 	rows := make([]SessionRow, 0, len(metas))
 	for _, m := range metas {
 		r := SessionRow{ID: string(m.ID), Title: m.Title, Agent: m.Agent, Origin: m.Origin,
-			Model: m.Model, Labels: m.Labels}
+			Model: m.Model, Labels: m.Labels, For: m.For}
 		if !m.Created.IsZero() {
 			r.Created = m.Created.UTC().Format(time.RFC3339)
 		}
@@ -381,7 +381,7 @@ func answerSessionNew(ctx context.Context, eng Engine, req Request) Response {
 		if !can {
 			return Response{Err: "this daemon can only open a conversation by moving onto it"}
 		}
-		sid, err := o.NewSessionKeeping(ctx)
+		sid, err := o.NewSessionKeeping(ctx, strings.TrimSpace(req.Name))
 		if err != nil {
 			return Response{Err: err.Error()}
 		}
