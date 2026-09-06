@@ -8,7 +8,7 @@
 ## 0. 한 줄로
 
 ```bash
-go test ./clients/excel/helper/                      # 헬퍼: 계약·유도 가드·문서 대조
+go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
 node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 61개
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
 node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 61개 전부
@@ -61,7 +61,7 @@ TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 �
 
 ## 4b. 살아 있는 헬퍼에 가짜 손을 붙여 본 것 — 2026-09-06 새벽
 
-Excel 없이 헬퍼·MCP·손 규약을 실물 헬퍼에 대고 돌렸다(`tools/livehand.mjs`, `magi-xl` 3001):
+Excel 없이 헬퍼·MCP·손 규약을 실물 헬퍼에 대고 돌렸다(`tools/livehand.mjs`, 그때의 `magi-xl` 3001 — 지금은 `magi office` 3000 의 `/xl`):
 
 - `/hand/stream` → `hello`(문서 키 `doc-…`) → `/api/documents` 가 그 문서를 든다.
 - MCP `tools/list` 61개, 첫 설명이 「A WORKBOOK IS ALREADY OPEN IN EXCEL…」.

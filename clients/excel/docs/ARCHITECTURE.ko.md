@@ -7,7 +7,7 @@
 
 ## 0. 한 문장
 
-Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-xl`, 3001)에 붙고, 헬퍼가 데몬(`magi --daemon`) 한 개에
+Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3000 의 `/xl`)에 붙고, 헬퍼가 데몬(`magi --daemon`) 한 개에
 통합 문서마다 **대화** 하나를 열어 그 대화에만 도구 61개(MCP 서버 이름 `xl`)를 단다. 모델이 도구를 부르면
 데몬 → 헬퍼(MCP) → 작업창(SSE `/hand/stream`) → Office.js 순으로 내려가 통합 문서를 고치고, 결과가 같은 길을
 되돌아온다(`/hand/reply`).
@@ -17,7 +17,7 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-xl`, 3001)
 | 프로세스 | 몇 개 | 무엇 | 소스 |
 |---|---|---|---|
 | Excel + 작업창 | 창마다 하나 | Office.js 를 쥔 유일한 자리. 통합 문서를 읽고 고치는 코드는 전부 여기 | `addin/src` |
-| 헬퍼 `magi-xl` | 사용자당 하나 | 페이지를 https 로 내주고, MCP 서버이며, 데몬을 마련해 붙인다 | `helper/*.go` |
+| 헬퍼 `magi office` | 사용자당 하나(세 프로그램 공용) | 페이지를 https 로 내주고, MCP 서버이며, 데몬을 마련해 붙인다 | `clients/office/helper/*.go` — 엑셀 몫은 `xl_*.go` |
 | 데몬 `magi --daemon` | machine 에 하나(워크스페이스 `excel`) | 대화 N개, 모델 호출, 도구 디스패치, 권한 물음 | `internal/` (공용 코어) |
 | 모델 심 | 모델당 하나 | OpenAI 호환 `/v1` | `plugins/{antigravity,codex,claudecode}` |
 
@@ -30,7 +30,7 @@ Excel 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-xl`, 3001)
 
 | 자리 | 파워포인트 | 엑셀 |
 |---|---|---|
-| 이름(`names.go`) | `ppt`, 3000, `ppt-helper-cert`, `magi-ppt`, 워크스페이스 `powerpoint` | `xl`, **3001**, `xl-helper-cert`, `magi-xl`, 워크스페이스 `excel` |
+| 이름(`app.go` 의 `XL`) | `ppt`, `/ppt`, `pid-`, 워크스페이스 `powerpoint` | `xl`, `/xl`, `wb-`, 워크스페이스 `excel` — 포트·인증서·바이너리는 셋이 하나(3000, `office-helper-cert`, `magi office`) |
 | 문서 키(`hand.go`) | `pid-<id>` (프레젠테이션 id) | `wb-<id>` (통합 문서의 `MAGI.BOOK` 설정 — 없으면 허브가 짓는다) |
 | 스트림 쿼리 | `?presentation=` | `?workbook=` |
 | 도구(`tools.go`) | 48 | 61 — 시트 인자는 `withSheet`(별칭 `worksheet`), 범위는 `withRange`(별칭 `range`) |

@@ -87,7 +87,7 @@ cannot read as "there is no daemon here".
 
 ### The PowerPoint add-in — shipped, and the shape it settled into
 
-`clients/powerpoint/` — a helper (`magi-ppt`, Go) that serves the task pane and speaks MCP, an
+`clients/powerpoint/` — a helper (`magi office`, Go, `clients/office/helper` — one process, one certificate and one port for PowerPoint, Excel and Word) that serves the task pane and speaks MCP, an
 Office.js add-in (`addin/`) that is the hand on the deck, and ~45 tools. The three directions from
 the proposal held: the agent stays magi and the deck tools are offered **as MCP** through the
 daemon's `mcp-attach` door; the pane **attaches itself** to a companion the helper provisions in the
@@ -114,7 +114,7 @@ asks first, because every other client on that daemon is cut too.
 
 ### The Excel add-in — the PowerPoint shape, copied, with sheets for slides
 
-`clients/excel/` (2026-09-06) — the same helper and pane copied and renamed (`magi-xl`, port 3001,
+`clients/excel/` (2026-09-06) — the same pane copied with a different hand (`/xl` on `magi office`,
 MCP server `xl`, 61 tools), with one difference of substance: **there is no COM hand.** Excel
 2019, 2021 and Microsoft 365 all carry `ExcelApi 1.7` or better (2021 is 1.14), so the task pane is
 the hand everywhere; a host below the floor gets a pane that says so. All 61 tools ran on a real

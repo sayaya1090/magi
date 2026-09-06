@@ -5,7 +5,8 @@
 .DESCRIPTION
   저장소 루트에서(또는 어디서든) 이 파일을 돌리면:
     1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 길을 고른다.
-    2. magi.exe · magi-ppt.exe 를 빌드해 설치 폴더에 놓고, 애드인 파일을 그 옆에 복사한다.
+    2. magi.exe 를 빌드해 설치 폴더에 놓고(헬퍼는 `magi office` 안 — 엑셀·워드와 공용, clients/office/install.ps1 이 셋을 한 번에 깐다),
+       애드인 파일을 그 옆 clients\powerpoint\addin 에 복사한다.
        볼륨 판이면 COM 손(magi-ppt-hand)도 빌드한다(.NET SDK 가 있을 때).
     3. 데몬 권한 모드를 allow 로 둔다(~/.magi/config.toml). 사용자 결정(2026-09-05·06).
     4. 헬퍼를 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
@@ -50,7 +51,7 @@ $addinSrc = Join-Path $PSScriptRoot 'addin'
 # AF_UNIX 소켓이 안 선다(MANUAL §2.5) — 헬퍼가 띄운 데몬에 아무도 못 붙는다. 그리고 첫 설치 시험(2026-09-06)에서
 # 헬퍼가 거기에 **새 인증서**를 만들어, 신뢰 저장소에 든 것과 다른 인증서로 떠 있었다.
 $configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.magi' }
-$helperUrl = 'https://127.0.0.1:3000'
+$helperUrl = 'https://127.0.0.1:3000/ppt'   # magi office 의 파워포인트 몫
 # PowerShell 5.1 은 TLS 1.0 으로 말을 건다 — Go 서버는 1.2 이상만 받는다. 이것이 없으면 「기본 연결이 닫혔습니다」.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 [Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
@@ -94,14 +95,15 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $
   ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Done "손 감시기 (pid $($_.ProcessId)) 멈춤" }
 # 데몬(magi.exe)도 설치 폴더의 것이면 멈춘다 — 헬퍼가 거기서 띄운 것이고, 안 멈추면 새 magi.exe 를 못 쓴다.
 # 하던 대화는 끊긴다. 창을 다시 열면 헬퍼가 새 데몬을 띄운다.
-foreach ($name in @('magi-ppt', 'magi-ppt-hand', 'magi')) {
+foreach ($name in @('magi-ppt', 'magi-ppt-hand', 'magi')) {   # magi-ppt 는 옛 헬퍼 — 남아 있으면 3000 을 쥔다
   Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($destFull, 'OrdinalIgnoreCase') } |
     ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null; Done "$name (pid $($_.Id)) 멈춤" }
 }
 # 헬퍼는 사용자당 하나다 — 다른 자리에서 뜬 것이 3000 번을 쥐고 있으면 새것은 물러난다.
 Start-Sleep -Milliseconds 500
 $other = Get-Process magi-ppt -ErrorAction SilentlyContinue | Where-Object { -not $_.HasExited }
-if ($other) { Warn "다른 곳의 magi-ppt(pid $($other.Id -join ','))가 떠 있다. 그것을 끄지 않으면 설치본 헬퍼는 조용히 물러난다: Stop-Process -Name magi-ppt" }
+if ($other) { $other | Stop-Process -Force; Done '옛 헬퍼 magi-ppt 를 멈췄다 — 이제 magi office 하나다' }
+Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' 'magi-ppt' -ErrorAction SilentlyContinue
 
 # ── 3. 빌드·복사 ─────────────────────────────────────────────────────────────
 if (-not $SkipBuild) {
@@ -110,10 +112,8 @@ if (-not $SkipBuild) {
   try {
     & go build -o (Join-Path $Dest 'magi.exe') ./cmd/magi
     if ($LASTEXITCODE -ne 0) { Fail 'magi 빌드 실패' }
-    & go build -o (Join-Path $Dest 'magi-ppt.exe') ./clients/powerpoint/helper
-    if ($LASTEXITCODE -ne 0) { Fail '헬퍼 빌드 실패' }
   } finally { Pop-Location }
-  Done "magi.exe · magi-ppt.exe → $Dest"
+  Done "magi.exe → $Dest (헬퍼는 magi office)"
   if ($perpetual -and $dotnet) {
     Say 'COM 손을 빌드한다'
     $dn = if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName }
@@ -124,10 +124,10 @@ if (-not $SkipBuild) {
     Done "magi-ppt-hand.exe → $handOut"
   }
 } else { Say '빌드는 건너뛴다(-SkipBuild)' }
-foreach ($exe in @('magi.exe', 'magi-ppt.exe')) { if (-not (Test-Path (Join-Path $Dest $exe))) { Fail "$Dest\$exe 가 없다" } }
+if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없다" }
 
 Say '애드인 파일을 헬퍼 옆에 놓는다'
-$addinDest = Join-Path $Dest 'addin'
+$addinDest = Join-Path $Dest 'clients\powerpoint\addin'   # magi office 가 자기 옆 clients\<앱>\addin 을 본다
 & robocopy $addinSrc $addinDest /MIR /NFL /NDL /NJH /NJS /NP | Out-Null   # robocopy 는 0~7 이 성공
 if ($LASTEXITCODE -ge 8) { Fail "애드인 복사 실패(robocopy $LASTEXITCODE)" }
 Done "addin → $addinDest"
@@ -151,12 +151,12 @@ if ($live) {
 
 # ── 5. 헬퍼를 띄우고 인증서를 넣는다 ─────────────────────────────────────────
 Say '헬퍼를 띄운다'
-$helperExe = Join-Path $Dest 'magi-ppt.exe'
-$helperArgs = @('-config-dir', $configDir)
-if (-not (Get-Process magi-ppt -ErrorAction SilentlyContinue)) {
+$helperExe = Join-Path $Dest 'magi.exe'
+$helperArgs = @('office', '-config-dir', $configDir)
+if (-not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue)) {
   Start-Process -FilePath $helperExe -ArgumentList $helperArgs -WorkingDirectory $Dest -WindowStyle Hidden | Out-Null
 }
-$pem = Join-Path $configDir 'ppt-helper-cert.pem'
+$pem = Join-Path $configDir 'office-helper-cert.pem'
 $deadline = (Get-Date).AddSeconds(20)
 while (-not (Test-Path $pem) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
 if (-not (Test-Path $pem)) { Fail "헬퍼가 인증서를 안 만들었다($pem). 헬퍼 로그를 봐라." }
@@ -175,7 +175,7 @@ while (-not $up -and (Get-Date) -lt $deadline) {
   if (-not $up) { Start-Sleep -Milliseconds 700 }
 }
 if ($up) { Done "헬퍼가 $helperUrl 에 떠 있다" }
-else { Fail "헬퍼가 $helperUrl 에 안 답한다. 다른 헬퍼가 3000 번을 쥐고 있으면 그것을 끄고 다시: Stop-Process -Name magi-ppt" }
+else { Fail "헬퍼가 $helperUrl 에 안 답한다. 다른 것이 3000 번을 쥐고 있으면 그것을 끄고 다시: Stop-Process -Name magi,magi-ppt" }
 
 Say '인증서를 이 계정의 신뢰 저장소에 넣는다'
 $cert = New-Object Security.Cryptography.X509Certificates.X509Certificate2 $pem
@@ -264,12 +264,12 @@ if ($perpetual) {
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if ($NoAutostart) {
   Say '자동 시작은 안 건다(-NoAutostart)'
-  Remove-ItemProperty $run 'magi-ppt' -ErrorAction SilentlyContinue
+  Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
   Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
 } else {
   Say '로그인할 때 헬퍼가 뜨게 한다'
-  New-ItemProperty -Path $run -Name 'magi-ppt' -Value "`"$helperExe`" -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
-  Done 'Run\magi-ppt'
+  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
+  Done 'Run\magi-office'
   if ($perpetual -and (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
     $watch = Join-Path $Dest 'hand-watch.ps1'
     $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watch`""

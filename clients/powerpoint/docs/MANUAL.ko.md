@@ -26,7 +26,7 @@ PowerPoint 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언
 셋이 한 줄로 선다:
 
 ```
-PowerPoint 작업창(애드인)  ←https→  magi-ppt(헬퍼)  ←unix socket→  magi --daemon  →  모델
+PowerPoint 작업창(애드인)  ←https→  magi office(헬퍼, /ppt)  ←unix socket→  magi --daemon  →  모델
         └── 손: Office.js 로 덱을 고친다        └── MCP 서버: 도구 48개를 데몬에 붙인다
 ```
 
@@ -53,23 +53,23 @@ PowerPoint 작업창(애드인)  ←https→  magi-ppt(헬퍼)  ←unix socket�
 ### 2.2 헬퍼 빌드
 
 ```bash
-go build -o magi-ppt ./clients/powerpoint/helper
+go build -o magi ./cmd/magi        # 헬퍼는 magi 안에 있다 — `magi office` 가 파워포인트·엑셀·워드 셋을 한 프로세스로 띄운다
 ```
 
 ### 2.3 인증서 — 사람이 신뢰 저장소에 넣는다
 
 Office 는 애드인 소스를 **https 로만** 받는다. 헬퍼는 첫 기동에 자기 서명 인증서를 만들고
-(`<config>/ppt-helper-cert.pem`, 키는 `0600`), **넣는 것은 사람이 한다** — 남의 신뢰 저장소를
+(`<config>/office-helper-cert.pem`, 키는 `0600`; 엑셀·워드 판과 같은 것 하나), **넣는 것은 사람이 한다** — 남의 신뢰 저장소를
 프로그램이 고치는 것은 가볍게 볼 일이 아니다.
 
 ```bash
-./magi-ppt -cert-hint
+./magi office -cert-hint
 ```
 
 Windows 에서는 이 한 줄이다(관리자 권한 불필요 — 이 계정의 저장소다):
 
 ```powershell
-Import-Certificate -FilePath "$env:USERPROFILE\.magi\ppt-helper-cert.pem" -CertStoreLocation Cert:\CurrentUser\Root
+Import-Certificate -FilePath "$env:USERPROFILE\.magi\office-helper-cert.pem" -CertStoreLocation Cert:\CurrentUser\Root
 ```
 
 인증서의 SAN 은 `127.0.0.1` **하나뿐이다.** `localhost` 로 열면 이름이 안 맞아 거절당한다 —
@@ -138,7 +138,7 @@ PowerPoint 를 껐다 켜고 **삽입 → 내 추가 기능 → 공유 폴더** 
 
 ```bash
 magi --daemon --permission ask          # 덱이 있는 디렉토리에서 — 덱 도구는 컴패니언 설정의 allow 규칙이 열어 안 묻는다(2026-09-05)
-./magi-ppt                              # 어디서든 — 사용자당 하나
+./magi office                           # 어디서든 — 사용자당 하나, 3000 의 /ppt(엑셀 /xl·워드 /word 와 한 프로세스)
 ```
 
 - 헬퍼는 **사용자당 하나**다. 두 번째 기동은 같은 인증서를 내미는 리스너를 우리 것으로 읽고
@@ -1596,7 +1596,7 @@ PowerPoint 가 세는 효과 수: 4
 **읽기만 하는 도구는 안 물어도 되게** 규칙을 만들어 준다:
 
 ```bash
-./magi-ppt -allow-rules      # config.toml 에 그대로 붙여 넣는다
+./magi office -allow-rules=ppt   # config.toml 에 그대로 붙여 넣는다
 ```
 
 ```toml

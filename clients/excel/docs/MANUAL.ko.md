@@ -28,7 +28,7 @@ Excel 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언이 �
 셋이 한 줄로 선다:
 
 ```
-Excel 작업창(애드인)  ←https→  magi-xl(헬퍼)  ←unix socket→  magi --daemon  →  모델
+Excel 작업창(애드인)  ←https→  magi office(헬퍼, /xl)  ←unix socket→  magi --daemon  →  모델
      └── 손: Office.js 로 통합 문서를 고친다     └── MCP 서버: 도구 61개를 데몬에 붙인다
 ```
 
@@ -50,17 +50,17 @@ Excel 작업창(애드인)  ←https→  magi-xl(헬퍼)  ←unix socket→  mag
 ### 2.2 헬퍼 빌드
 
 ```bash
-go build -o magi-xl ./clients/excel/helper
+go build -o magi ./cmd/magi        # 헬퍼는 magi 안에 있다 — `magi office` 가 파워포인트·엑셀·워드 셋을 한 프로세스로 띄운다
 ```
 
 ### 2.3 인증서 — 사람이 신뢰 저장소에 넣는다
 
-첫 기동이 `<config>/xl-helper-cert.pem` 을 만든다(키는 `0600`). Office 작업창은 신뢰 안 되는 https 를 조용히
-빈 화면으로 두므로, **그 인증서를 이 계정의 신뢰 저장소에 넣어야 한다.** 방법은 `./magi-xl -cert-hint` 가 찍는다.
+첫 기동이 `<config>/office-helper-cert.pem` 을 만든다(키는 `0600`; 세 프로그램 공용이라 하나만 넣는다). Office 작업창은 신뢰 안 되는 https 를 조용히
+빈 화면으로 두므로, **그 인증서를 이 계정의 신뢰 저장소에 넣어야 한다.** 방법은 `./magi office -cert-hint` 가 찍는다.
 
 ### 2.4 애드인 사이드로드
 
-매니페스트는 `clients/excel/addin/manifest.xml` — `<SourceLocation>` 이 `https://127.0.0.1:3001/` 이고, 헬퍼의
+매니페스트는 `clients/excel/addin/manifest.xml` — `<SourceLocation>` 이 `https://127.0.0.1:3000/xl/taskpane.html` 이고, 헬퍼의
 기본 포트도 3001 이다. **둘은 같은 값이어야 한다**(못 잡으면 다른 번호로 안 흘러간다).
 
 - **macOS** — `~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/` 에 `manifest.xml` 을 복사하고
@@ -74,7 +74,7 @@ go build -o magi-xl ./clients/excel/helper
 
 ```bash
 magi --daemon          # 통합 문서가 있는 디렉토리에서
-./magi-xl              # 127.0.0.1:3001, 애드인은 clients/excel/addin
+./magi office          # 127.0.0.1:3000 — /xl 아래, 애드인 소스는 clients/excel/addin
 ```
 
 헬퍼는 켜져 있는 컴패니언 명단을 읽고, 애드인이 붙으면 그 컴패니언에 **MCP 서버 `xl`** 로 도구를 단다.
@@ -273,7 +273,7 @@ Excel 이 그 자리로 간다. 시트가 지워졌으면 「이 시트는 이�
 
 ## 7. 권한 — 무엇을 물어보게 할까
 
-읽는 도구 18개는 안 묻고 돈다. 그 규칙은 **코드가 만든다** — `./magi-xl -allow-rules` 가 찍고, 아래는 그것을
+읽는 도구 18개는 안 묻고 돈다. 그 규칙은 **코드가 만든다** — `./magi office -allow-rules=xl` 가 찍고, 아래는 그것을
 그대로 옮겨 적은 것이다(시험이 두 벌이 같은지 문다):
 
 ```toml
@@ -338,7 +338,7 @@ Excel 없이 작업창이 뜬다. 왼쪽에 **가짜 격자**(시트 둘: 매출
 | 증상 | 보는 곳 |
 |---|---|
 | 작업창이 하얗다 | 인증서(§2.3). 헬퍼 로그에 `TLS handshake error` 가 찍힌다 |
-| 「준비됐습니다」가 안 온다 | `magi --daemon` 이 떠 있나, 헬퍼가 명단을 읽었나(`magi-xl` 로그) |
+| 「준비됐습니다」가 안 온다 | `magi --daemon` 이 떠 있나, 헬퍼가 명단을 읽었나(`magi office` 로그) |
 | 도구가 전부 「연결된 손이 없습니다」 | 헬퍼를 다시 띄웠으면 작업창이 스스로 되살아난다(§10.1). 안 되면 Excel 재시작 |
 | 모델이 셸로 `.xlsx` 를 만들려 한다 | 도구 설명이 막지만, 붙기 전에 시켰다면 그렇다 — 「준비됐습니다」 뒤에 시킨다 |
 

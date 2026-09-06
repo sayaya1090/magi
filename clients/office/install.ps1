@@ -1,27 +1,26 @@
 ﻿<#
 .SYNOPSIS
-  magi Excel 플러그인을 이 계정에 설치한다 — 빌드, 인증서, 애드인 등록, 헬퍼 기동까지 한 번에.
+  magi Office 플러그인(파워포인트·엑셀·워드)을 이 계정에 설치한다 — 빌드, 인증서, 애드인 등록, 헬퍼 기동까지 한 번에.
 
 .DESCRIPTION
-  파워포인트 판 install.ps1 의 엑셀 말이다. 다른 것은 셋뿐이다: 헬퍼가 magi-xl(포트 3001, 인증서 xl-helper-cert.pem),
-  카탈로그가 ~/.magi/xl-catalog, 그리고 **COM 손이 없다** — Excel 2021 은 ExcelApi 1.14 라 작업창이 그대로 손이다
-  (docs/INSTALL.ko.md §1). 저장소 루트에서(또는 어디서든) 이 파일을 돌리면:
+  헬퍼는 하나다: magi.exe 의 `magi office` 가 포트 3000 에서 /ppt·/xl·/word 세 판을 내준다(clients/office/helper).
+  그래서 인증서(office-helper-cert.pem)·자동 시작·신뢰 카탈로그 키가 전부 하나다. 이 파일을 돌리면:
     1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다.
-    2. magi.exe · magi-xl.exe 를 빌드해 설치 폴더에 놓고, 애드인 파일을 그 옆에 복사한다.
+    2. magi.exe 를 빌드해 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다(헬퍼가 그 자리를 본다).
     3. 데몬 권한 모드를 allow 로 둔다(~/.magi/config.toml). 사용자 결정(2026-09-05·06).
     4. 헬퍼를 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
-    5. 애드인을 등록한다 — M365 는 개발자 키, 볼륨 판은 신뢰 카탈로그(공유 폴더).
+    5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나에 매니페스트 셋.
     6. 로그인할 때 헬퍼가 같이 뜨게 한다. -NoAutostart 로 끌 수 있다.
 
-  파워포인트 판과 같이 깔아도 된다 — 포트·인증서·카탈로그·Run 키 이름이 다 다르다. magi.exe 는 둘이 같은 파일을
-  각자의 폴더에 갖는다(헬퍼가 자기 옆의 것을 먼저 본다).
+  볼륨 판 PowerPoint(LTSC 2021)의 COM 손(magi-ppt-hand)은 여기서 안 짓는다 — clients/powerpoint/install.ps1 이 한다.
+  ⚠ 이 파일은 2026-09-06 에 엑셀 판 설치기에서 옮겨 적은 것이고 Windows 에서 아직 안 돌렸다.
 
   다시 돌려도 된다 — 이미 된 것은 건너뛴다.
 
   ⚠ PowerShell 5.1 은 BOM 없는 UTF-8 을 ANSI 로 읽는다. 이 파일은 BOM 이 있어야 한다.
 
 .PARAMETER Dest
-  설치 폴더. 기본 %LOCALAPPDATA%\magi\xl
+  설치 폴더. 기본 %LOCALAPPDATA%\magi\office
 
 .PARAMETER NoAutostart
   로그인 때 자동으로 띄우는 등록(HKCU\...\Run)을 안 한다.
@@ -31,30 +30,34 @@
 
 .PARAMETER Clean
   애드인을 **지우고 다시 깐다.** 이 판의 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를
-  비운 뒤 보통 설치를 이어 간다. 캐시는 파워포인트 판과 같은 폴더라 그쪽도 다시 추가해야 한다. Excel 이 떠 있으면 멈춘다.
+  비운 뒤 보통 설치를 이어 간다. Office 프로그램이 떠 있으면 멈춘다.
 #>
 [CmdletBinding()]
 param(
-  [string]$Dest = (Join-Path $env:LOCALAPPDATA 'magi\xl'),
+  [string]$Dest = (Join-Path $env:LOCALAPPDATA 'magi\office'),
   [switch]$NoAutostart,
   [switch]$SkipBuild,
   [switch]$Clean,
   [string]$CatalogUnc = ''
 )
-# -CatalogUnc: 카탈로그 폴더(~/.magi/xl-catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
+# -CatalogUnc: 카탈로그 폴더(~/.magi/catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
 # 그 폴더를 덮는 공유를 찾고, 없으면 관리 공유(\\<컴퓨터>\C$\…)를 쓴다. Excel 2021 은 관리 공유 형태의 카탈로그를
 # 켤 때마다 지운다(2026-09-06 실측 — localhost 도 컴퓨터 이름도) — 진짜 공유가 필요하다:
 #   New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME   (관리자 PowerShell)
 
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
-$addinSrc = Join-Path $PSScriptRoot 'addin'
+$apps = @(
+  @{ key = 'ppt';  dir = 'powerpoint'; exe = 'POWERPNT.EXE'; proc = 'POWERPNT'; ribbon = 'PowerPoint' },
+  @{ key = 'xl';   dir = 'excel';      exe = 'EXCEL.EXE';    proc = 'EXCEL';    ribbon = 'Excel' },
+  @{ key = 'word'; dir = 'word';       exe = 'WINWORD.EXE';  proc = 'WINWORD';  ribbon = 'Word' }
+)
 # 설정 디렉토리는 ~/.magi 로 못 박는다 — 헬퍼의 기본값(%APPDATA%\magi) 아래에는 AF_UNIX 소켓이 안 서고,
 # 거기 새 인증서를 만들어 버린다(파워포인트 판 설치기가 잰 것).
 $configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.magi' }
-$port = 3001
+$port = 3000
 $helperUrl = "https://127.0.0.1:$port"
-$helperName = 'magi-xl'
+$helperName = 'magi'   # 헬퍼도 magi.exe 다 — `magi office`
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Say($s) { Write-Host "▸ $s" }
@@ -70,10 +73,12 @@ $ids = "$($c2r.ProductReleaseIds)"
 $perpetual = ($ids -match 'Volume|2019|2021|2024')      # 볼륨 판/LTSC — 개발자 키를 무시한다
 $edition = if ($perpetual) { "볼륨 판 $($c2r.VersionToReport)" } else { "Microsoft 365 $($c2r.VersionToReport)" }
 Done "$edition ($ids)"
-if (-not (Test-Path (Join-Path $env:ProgramFiles 'Microsoft Office\root\Office16\EXCEL.EXE')) -and -not (Test-Path (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Office\root\Office16\EXCEL.EXE'))) {
-  Warn 'EXCEL.EXE 가 보이지 않는다 — Excel 이 안 깔린 Office 인가? 깔고 다시 돌려라. (등록은 그대로 진행한다)'
+foreach ($app in $apps) {
+  if (-not (Test-Path (Join-Path $env:ProgramFiles "Microsoft Office\root\Office16\$($app.exe)")) -and -not (Test-Path (Join-Path ${env:ProgramFiles(x86)} "Microsoft Office\root\Office16\$($app.exe)"))) {
+    Warn "$($app.exe) 가 보이지 않는다 — $($app.ribbon) 이 안 깔린 Office 인가? (등록은 그대로 진행한다)"
+  }
 }
-if ($perpetual) { Done 'Excel 2021/2024 는 ExcelApi 1.14 — 작업창이 그대로 손이다. COM 손은 없다.' }
+if ($perpetual) { Done 'Excel 2021·Word 2021 은 작업창이 그대로 손이다. PowerPoint 2021 은 COM 손이 필요하다(clients/powerpoint/install.ps1).' }
 
 # ── 1. 도구 ─────────────────────────────────────────────────────────────────
 Say '필요한 도구를 본다'
@@ -88,33 +93,40 @@ Say '설치 폴더의 옛 프로세스를 멈춘다'
 New-Item -ItemType Directory -Force $Dest | Out-Null
 $destFull = (Resolve-Path $Dest).Path
 # 데몬(magi.exe)도 설치 폴더의 것이면 멈춘다 — 헬퍼가 거기서 띄운 것이고, 안 멈추면 새 magi.exe 를 못 쓴다.
-foreach ($name in @($helperName, 'magi')) {
+foreach ($name in @('magi')) {
   Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($destFull, 'OrdinalIgnoreCase') } |
     ForEach-Object { Stop-Process -Id $_.Id -Force; $_.WaitForExit(5000) | Out-Null; Done "$name (pid $($_.Id)) 멈춤" }
 }
 Start-Sleep -Milliseconds 500
-$other = Get-Process $helperName -ErrorAction SilentlyContinue | Where-Object { -not $_.HasExited }
-if ($other) { Warn "다른 곳의 $helperName(pid $($other.Id -join ','))가 떠 있다. 그것을 끄지 않으면 설치본 헬퍼는 조용히 물러난다: Stop-Process -Name $helperName" }
+$other = Get-Process magi -ErrorAction SilentlyContinue | Where-Object { -not $_.HasExited }
+if ($other) { Warn "다른 곳의 magi(pid $($other.Id -join ','))가 떠 있다. 그것이 $port 번을 쥐고 있으면 설치본 헬퍼는 조용히 물러난다: Stop-Process -Name magi" }
+foreach ($old in @('magi-ppt', 'magi-xl', 'magi-word')) {
+  $p = Get-Process $old -ErrorAction SilentlyContinue
+  if ($p) { $p | Stop-Process -Force; Done "옛 헬퍼 $old 멈춤 — 이제 magi office 하나다" }
+  Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' $old -ErrorAction SilentlyContinue
+}
 
 # ── 3. 빌드·복사 ─────────────────────────────────────────────────────────────
 if (-not $SkipBuild) {
-  Say 'magi 와 헬퍼를 빌드한다'
+  Say 'magi 를 빌드한다(헬퍼는 그 안에 있다)'
   Push-Location $repo
   try {
     & go build -o (Join-Path $Dest 'magi.exe') ./cmd/magi
     if ($LASTEXITCODE -ne 0) { Fail 'magi 빌드 실패' }
-    & go build -o (Join-Path $Dest "$helperName.exe") ./clients/excel/helper
-    if ($LASTEXITCODE -ne 0) { Fail '헬퍼 빌드 실패' }
   } finally { Pop-Location }
-  Done "magi.exe · $helperName.exe → $Dest"
+  Done "magi.exe → $Dest"
 } else { Say '빌드는 건너뛴다(-SkipBuild)' }
-foreach ($exe in @('magi.exe', "$helperName.exe")) { if (-not (Test-Path (Join-Path $Dest $exe))) { Fail "$Dest\$exe 가 없다" } }
+if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없다" }
 
-Say '애드인 파일을 헬퍼 옆에 놓는다'
-$addinDest = Join-Path $Dest 'addin'
-& robocopy $addinSrc $addinDest /MIR /NFL /NDL /NJH /NJS /NP | Out-Null   # robocopy 는 0~7 이 성공
-if ($LASTEXITCODE -ge 8) { Fail "애드인 복사 실패(robocopy $LASTEXITCODE)" }
-Done "addin → $addinDest"
+Say '세 애드인의 파일을 헬퍼 옆에 놓는다(clients\<앱>\addin — magi office 가 보는 자리)'
+$manifests = @{}
+foreach ($app in $apps) {
+  $addinDest = Join-Path $Dest "clients\$($app.dir)\addin"
+  & robocopy (Join-Path $repo "clients\$($app.dir)\addin") $addinDest /MIR /NFL /NDL /NJH /NJS /NP | Out-Null   # robocopy 는 0~7 이 성공
+  if ($LASTEXITCODE -ge 8) { Fail "애드인 복사 실패(robocopy $LASTEXITCODE): $($app.dir)" }
+  $manifests[$app.key] = Join-Path $addinDest 'manifest.xml'
+  Done "$($app.dir)\addin → $addinDest"
+}
 
 # ── 4. 데몬 권한 모드 = allow ────────────────────────────────────────────────
 Say '데몬 권한 모드를 allow 로 둔다'
@@ -134,12 +146,13 @@ if ($live) {
 
 # ── 5. 헬퍼를 띄우고 인증서를 넣는다 ─────────────────────────────────────────
 Say '헬퍼를 띄운다'
-$helperExe = Join-Path $Dest "$helperName.exe"
-$helperArgs = @('-config-dir', $configDir)
-if (-not (Get-Process $helperName -ErrorAction SilentlyContinue)) {
+$helperExe = Join-Path $Dest 'magi.exe'
+$helperArgs = @('office', '-config-dir', $configDir)
+$listening = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+if (-not $listening) {
   Start-Process -FilePath $helperExe -ArgumentList $helperArgs -WorkingDirectory $Dest -WindowStyle Hidden | Out-Null
 }
-$pem = Join-Path $configDir 'xl-helper-cert.pem'
+$pem = Join-Path $configDir 'office-helper-cert.pem'
 $deadline = (Get-Date).AddSeconds(20)
 while (-not (Test-Path $pem) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
 if (-not (Test-Path $pem)) { Fail "헬퍼가 인증서를 안 만들었다($pem). 헬퍼 로그를 봐라." }
@@ -148,7 +161,7 @@ $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
 $deadline = (Get-Date).AddSeconds(20); $up = $false
 while (-not $up -and (Get-Date) -lt $deadline) {
   if ($curl) {
-    $code = & $curl.Source -sk -o NUL -w '%{http_code}' --max-time 3 "$helperUrl/taskpane.html" 2>$null
+    $code = & $curl.Source -sk -o NUL -w '%{http_code}' --max-time 3 "$helperUrl/word/taskpane.html" 2>$null
     if ("$code" -eq '200') { $up = $true }
   } else {
     $tcp = New-Object Net.Sockets.TcpClient
@@ -157,7 +170,7 @@ while (-not $up -and (Get-Date) -lt $deadline) {
   if (-not $up) { Start-Sleep -Milliseconds 700 }
 }
 if ($up) { Done "헬퍼가 $helperUrl 에 떠 있다" }
-else { Fail "헬퍼가 $helperUrl 에 안 답한다. 다른 것이 $port 번을 쥐고 있으면 그것을 끄고 다시: Stop-Process -Name $helperName" }
+else { Fail "헬퍼가 $helperUrl 에 안 답한다. 다른 것이 $port 번을 쥐고 있으면 그것을 끄고 다시: Stop-Process -Name magi,magi-ppt" }
 
 Say '인증서를 이 계정의 신뢰 저장소에 넣는다'
 $cert = New-Object Security.Cryptography.X509Certificates.X509Certificate2 $pem
@@ -174,35 +187,37 @@ else {
 $wef = 'HKCU:\Software\Microsoft\Office\16.0\WEF'
 if ($Clean) {
   Say '이 판의 애드인 등록과 Office 캐시를 지운다(-Clean)'
-  if (Get-Process EXCEL -ErrorAction SilentlyContinue) { Fail 'Excel 이 떠 있다 — 끄고 다시 돌려라(캐시를 쥐고 있다)' }
+  foreach ($app in $apps) { if (Get-Process $app.proc -ErrorAction SilentlyContinue) { Fail "$($app.ribbon) 이 떠 있다 — 끄고 다시 돌려라(캐시를 쥐고 있다)" } }
   foreach ($k in @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)) {
     $u = (Get-ItemProperty $k.PSPath).Url
-    if ($u -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u) — 파워포인트 판과 같이 쓰는 키다, 그쪽도 다시 추가해야 한다" }
+    if ($u -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u)" }
   }
-  if (Get-ItemProperty "$wef\Developer" -Name 'magi-xl' -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name 'magi-xl'; Done 'Developer\magi-xl 삭제' }
-  foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'Excel_*RibbonCustomizationExpire' -or $_ -eq 'Excel_RibbonCache' })) {
+  foreach ($old in @('magi-ppt', 'magi-xl', 'magi-word')) {
+    if (Get-ItemProperty "$wef\Developer" -Name $old -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name $old; Done "Developer\$old 삭제" }
+  }
+  foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like '*RibbonCustomizationExpire' -or $_ -like '*_RibbonCache' })) {
     Remove-ItemProperty -Path $wef -Name $v -ErrorAction SilentlyContinue
   }
   $cache = Join-Path $env:LOCALAPPDATA 'Microsoft\Office\16.0\Wef'
-  if (Test-Path $cache) { Get-ChildItem $cache -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Done "캐시 비움 $cache (파워포인트 판도 다시 추가해야 한다)" }
+  if (Test-Path $cache) { Get-ChildItem $cache -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Done "캐시 비움 $cache" }
 }
-$manifest = Join-Path $addinDest 'manifest.xml'
 if ($perpetual) {
-  Say '애드인을 신뢰 카탈로그로 등록한다(볼륨 판은 개발자 키를 무시한다)'
-  # **카탈로그는 하나다 — 파워포인트 판과 같은 폴더, 같은 키.** Excel 2021(16.0.14334)은 TrustedCatalogs 아래에 키가
-  # 둘 이상이면 「설정을 읽는 도중 문제가 발생」이라며 **전부 지운다**(2026-09-06 실측: 자기가 만든 키 하나는 살고, 둘째
-  # 키를 더하면 빈 폴더든 무엇이든 다 사라졌다 — 파워포인트 판의 키까지). 그래서 두 설치기가 ~/.magi/catalog 하나에
-  # 각자의 매니페스트를 놓고 키 하나를 같이 쓴다.
+  Say '애드인 셋을 신뢰 카탈로그 하나로 등록한다(볼륨 판은 개발자 키를 무시한다)'
+  # **카탈로그는 하나다.** Excel 2021(16.0.14334)은 TrustedCatalogs 아래에 키가 둘 이상이면 「설정을 읽는 도중 문제가
+  # 발생」이라며 **전부 지운다**(2026-09-06 실측). 그래서 ~/.magi/catalog 하나에 매니페스트 셋을 놓고 키 하나를 쓴다.
   $catalog = Join-Path $configDir 'catalog'
   New-Item -ItemType Directory -Force $catalog | Out-Null
-  $copy = Join-Path $catalog 'magi-xl-manifest.xml'
-  $changed = -not (Test-Path $copy) -or ((Get-FileHash $copy).Hash -ne (Get-FileHash $manifest).Hash)
-  Copy-Item $manifest $copy -Force
+  $changed = $false
+  foreach ($app in $apps) {
+    $copy = Join-Path $catalog "magi-$($app.key)-manifest.xml"
+    if (-not (Test-Path $copy) -or ((Get-FileHash $copy).Hash -ne (Get-FileHash $manifests[$app.key]).Hash)) { $changed = $true }
+    Copy-Item $manifests[$app.key] $copy -Force
+  }
   if ($changed) {
-    foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like 'Excel_*RibbonCustomizationExpire' -or $_ -eq 'Excel_RibbonCache' })) {
+    foreach ($v in ((Get-Item $wef -ErrorAction SilentlyContinue).Property | Where-Object { $_ -like '*RibbonCustomizationExpire' -or $_ -like '*_RibbonCache' })) {
       Remove-ItemProperty -Path $wef -Name $v -ErrorAction SilentlyContinue
     }
-    Warn '매니페스트가 바뀌었다 — Excel 을 껐다 켜고 「공유 폴더」에서 다시 추가해야 리본이 새 것을 그린다'
+    Warn '매니페스트가 바뀌었다 — 프로그램을 껐다 켜고 「공유 폴더」에서 다시 추가해야 리본이 새 것을 그린다'
   }
   # UNC: 준 것 → 이 폴더를 덮는 진짜 공유 → 관리 공유. Excel 2021 은 관리 공유 카탈로그를 켤 때마다 지운다(위 -CatalogUnc).
   $unc = $CatalogUnc
@@ -226,36 +241,38 @@ if ($perpetual) {
   if ($keys.Count -gt ($(if ($mine) { 1 } else { 0 }))) { Warn "다른 신뢰 카탈로그 키가 더 있다($($keys.Count)개). Excel 2021 은 키가 둘 이상이면 전부 지운다 — 우리 것만 남기거나 -Clean." }
   if ($mine) { $k = $mine.PSPath; $id = $mine.PSChildName } else { $id = '{' + [guid]::NewGuid().ToString().ToUpperInvariant() + '}'; $k = "$wef\TrustedCatalogs\$id"; New-Item -Path $k -Force | Out-Null }
   Set-ItemProperty $k Id $id; Set-ItemProperty $k Url $unc; Set-ItemProperty $k Flags 1 -Type DWord
-  if (-not (Test-Path "$unc\magi-xl-manifest.xml")) { Warn "$unc 에 닿지 못한다(관리 공유가 막혔나). 폴더를 진짜로 공유하고 Url 을 바꿔라: $k" }
+  if (-not (Test-Path "$unc\magi-word-manifest.xml")) { Warn "$unc 에 닿지 못한다(관리 공유가 막혔나). 폴더를 진짜로 공유하고 Url 을 바꿔라: $k" }
   Done "카탈로그 $unc ($id)"
 } else {
-  Say '애드인을 개발자 키로 등록한다'
+  Say '애드인 셋을 개발자 키로 등록한다'
   New-Item -Path "$wef\Developer" -Force | Out-Null
-  New-ItemProperty -Path "$wef\Developer" -Name 'magi-xl' -Value $manifest -PropertyType String -Force | Out-Null
-  Done "Developer\magi-xl = $manifest"
+  foreach ($app in $apps) {
+    New-ItemProperty -Path "$wef\Developer" -Name "magi-$($app.key)" -Value $manifests[$app.key] -PropertyType String -Force | Out-Null
+    Done "Developer\magi-$($app.key) = $($manifests[$app.key])"
+  }
 }
 
 # ── 7. 로그인 때 같이 뜨게 ───────────────────────────────────────────────────
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if ($NoAutostart) {
   Say '자동 시작은 안 건다(-NoAutostart)'
-  Remove-ItemProperty $run $helperName -ErrorAction SilentlyContinue
+  Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
 } else {
   Say '로그인할 때 헬퍼가 뜨게 한다'
-  New-ItemProperty -Path $run -Name $helperName -Value "`"$helperExe`" -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
-  Done "Run\$helperName"
+  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
+  Done 'Run\magi-office'
 }
 
 # ── 8. 다음 할 일 ────────────────────────────────────────────────────────────
 Write-Host ''
 Write-Host '설치 끝. 이제:' -ForegroundColor Cyan
-Write-Host '  1. Excel 을 껐다 켠다(떠 있었다면).'
+Write-Host '  1. PowerPoint·Excel·Word 를 껐다 켠다(떠 있었다면).'
 if ($perpetual) {
-  Write-Host '  2. 삽입 → 내 추가 기능 → 공유 폴더 에서 Magi(AI Assistant) 를 고르고 「추가」. (한 번만. 매니페스트가 바뀌면 다시)'
-  Write-Host '  3. 홈 탭 「AI Assistant」의 「Magi」로 창을 연다. 편집은 창이 직접 한다(ExcelApi 1.14).'
+  Write-Host '  2. 각 프로그램에서 삽입 → 내 추가 기능 → 공유 폴더 에서 Magi(AI Assistant) 를 고르고 「추가」. (한 번만. 매니페스트가 바뀌면 다시)'
+  Write-Host '  3. 홈 탭의 「Magi」로 창을 연다. PowerPoint 2021 은 COM 손이 있어야 편집이 된다(clients\powerpoint\install.ps1).'
 } else {
-  Write-Host '  2. 홈 탭 → 추가 기능 → 개발자 추가 기능 → Magi(AI Assistant). (리본에 바로 안 보이면 이 길)'
+  Write-Host '  2. 각 프로그램에서 홈 탭 → 추가 기능 → 개발자 추가 기능 → Magi(AI Assistant). (리본에 바로 안 보이면 이 길)'
 }
 if ($ollama) { Write-Host '  * 처음이면 `ollama signin` 을 한 번 한다(기본 모델이 Ollama 클라우드다).' }
-Write-Host "  * 자세한 것은 docs\INSTALL.ko.md. 설치 폴더는 $Dest"
+Write-Host "  * 자세한 것은 clients\<앱>\docs\INSTALL.ko.md. 설치 폴더는 $Dest"
 exit 0   # 마지막 네이티브 명령(robocopy 는 1 이 성공)의 코드가 스크립트의 코드로 새지 않게

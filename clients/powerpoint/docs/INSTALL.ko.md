@@ -4,7 +4,7 @@
 **여러 머신에 뿌리는 길**이다. 여기 적힌 것 중 실측한 것과 MS 문서에서 읽기만 한 것을 갈라 적는다 —
 읽기만 한 것은 그렇게 표시한다.
 
-## 0. 한 번에 깔기 — `install.ps1`
+## 0. 한 번에 깔기 — `install.ps1`(COM 손까지) · 세 프로그램을 한 번에는 `clients/office/install.ps1`
 
 저장소를 받은 Windows 머신에서 이 한 줄이면 된다(Go 가 있어야 한다. 볼륨 판이면 .NET 9 SDK 도):
 
@@ -12,7 +12,7 @@
 & .\clients\powerpoint\install.ps1
 ```
 
-하는 일 — Office 판을 읽고(M365 인가 볼륨 판인가), `magi.exe`·`magi-ppt.exe` 를 빌드해 `%LOCALAPPDATA%\magi\ppt` 에
+하는 일 — Office 판을 읽고(M365 인가 볼륨 판인가), `magi.exe` 하나를 빌드해(헬퍼는 `magi office` 안) `%LOCALAPPDATA%\magi\ppt` 에
 놓고, 애드인 파일을 그 옆에 복사하고, 데몬 권한 모드를 **allow** 로 두고(`~/.magi/config.toml`, 사용자 결정),
 헬퍼를 띄우고, 인증서를 이 계정의 신뢰 저장소에 넣고(Windows 가 한 번 묻는다), 애드인을 등록하고(M365 는 개발자
 키, 볼륨 판은 신뢰 카탈로그 `~/.magi/catalog` — 엑셀 판과 같은 폴더·같은 키), 로그인 때 헬퍼가 같이 뜨게 한다. 볼륨 판이면 COM 손을 빌드하고
@@ -47,10 +47,10 @@ PowerPoint 2021(2108, 13722 이상)부터 있다. 2021 실측이 그 표와 맞�
 
 세 판 모두 같다. `MANUAL.ko.md` §2.2·§2.3·§2.5 그대로:
 
-1. 헬퍼 빌드 `go build -o magi-ppt ./clients/powerpoint/helper`
+1. 빌드 `go build -o magi ./cmd/magi` — 헬퍼는 `magi office`(파워포인트·엑셀·워드 공용, 3000 의 `/ppt`)
 2. 인증서를 이 계정의 신뢰 저장소에 넣는다 — `Import-Certificate … Cert:\CurrentUser\Root`. SAN 은 `127.0.0.1`
    하나다. 매니페스트·헬퍼·인증서가 전부 `https://127.0.0.1:3000` 한 문자열을 쓴다.
-3. 데몬 `magi --daemon --permission ask`, 헬퍼 `./magi-ppt` (사용자당 하나).
+3. 데몬 `magi --daemon --permission ask`, 헬퍼 `./magi office` (사용자당 하나).
 
 인증서는 **머신마다 다르다** — 헬퍼가 첫 기동에 만든다. 뿌릴 때 매니페스트는 같은 파일이지만 인증서 단계는
 머신마다 한 번씩 해야 한다.
@@ -160,9 +160,9 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
   폴더 → 추가. 파란 육각형은 아이콘을 캐시 못 했다는 뜻이고, 이 빌드부터 헬퍼가 아이콘을 캐시 가능하게 낸다.
 - **카운슬 스위치를 누를 때 검은 창이 떴다** — 헬퍼가 컴패니언을 다시 띄우는 `magi --daemon --detach` 가 콘솔 창을
   열었다. 이 빌드(2026-09-06)에서 같은 방법으로 숨겼다.
-- **PowerPoint 를 다 끄면 데몬도 꺼지나** — 아니다. 헬퍼(`magi-ppt`)와 데몬(`magi --daemon --detach`)은 PowerPoint 와
+- **PowerPoint 를 다 끄면 데몬도 꺼지나** — 아니다. 헬퍼(`magi office`)와 데몬(`magi --daemon --detach`)은 PowerPoint 와
   무관하게 이 계정에 떠 있다. 꺼지는 것은 COM 손뿐이고(PowerPoint 가 없으면 COM 참조가 죽는다), 감시기가 그것을
-  정리하고 다음에 덱이 열리면 다시 붙인다. 전부 내리려면: `Stop-Process -Name magi-ppt,magi,magi-ppt-hand`.
+  정리하고 다음에 덱이 열리면 다시 붙인다. 전부 내리려면: `Stop-Process -Name magi,magi-ppt-hand`.
 - **설치기를 다시 돌리면 하던 대화가 끊긴다** — 설치 폴더의 데몬을 멈추고 새 `magi.exe` 를 놓기 때문이다. 창을
   다시 열면 헬퍼가 새 데몬을 띄운다.
 

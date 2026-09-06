@@ -6,7 +6,7 @@
 
 ## 0. 한 문장
 
-Word 작업창이 헬퍼 `magi-word`(3002)에 붙고, 헬퍼가 데몬에 문서마다 대화 하나를 열어 도구 44개(MCP 서버 `word`)를 단다.
+Word 작업창이 헬퍼 `magi office`(3000, `/word`)에 붙고, 헬퍼가 데몬에 문서마다 대화 하나를 열어 도구 44개(MCP 서버 `word`)를 단다.
 
 ## 1. 프로세스 넷 — 그리고 넷뿐
 
@@ -16,7 +16,7 @@ Word 작업창이 헬퍼 `magi-word`(3002)에 붙고, 헬퍼가 데몬에 문서
 
 | 자리 | 엑셀 | 워드 |
 |---|---|---|
-| 이름(`names.go`) | `xl`, 3001, `xl-helper-cert`, `magi-xl`, 워크스페이스 `excel` | `word`, **3002**, `word-helper-cert`, `magi-word`, 워크스페이스 `word` |
+| 이름(`app.go` 의 `Word`) | `xl`, `/xl`, `wb-`, 워크스페이스 `excel` | `word`, `/word`, `wd-`, 워크스페이스 `word` — 포트·인증서·바이너리는 셋이 하나(3000, `office-helper-cert`, `magi office`) |
 | 문서 키 | `wb-` | `wd-`(문서의 사용자 지정 속성 `MAGI.DOC`) |
 | 스트림 쿼리 | `?workbook=` | `?doc=` |
 | 도구(`tools.go`) | 61 | 44 — 문단은 `from/to`·`paragraph`(1부터), 표는 번호 |

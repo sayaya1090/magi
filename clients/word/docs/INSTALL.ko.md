@@ -15,17 +15,17 @@
 ## 2. 공통
 
 ```bash
-go build -o magi-word ./clients/word/helper
-./magi-word -cert-hint      # <config>/word-helper-cert.pem 을 신뢰 저장소에 — 데몬도 이것으로 헬퍼에 붙는다
+go build -o magi ./cmd/magi
+./magi office -cert-hint    # <config>/office-helper-cert.pem 하나를 신뢰 저장소에(파워포인트·엑셀 공용) — 데몬도 이것으로 헬퍼에 붙는다
 magi --daemon
-./magi-word                 # 127.0.0.1:3002
+./magi office               # 127.0.0.1:3000 — /ppt·/xl·/word 세 판
 ```
 
 ## 3. 애드인 넣기
 
 - **macOS**: `cp clients/word/addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` 뒤 Word 재시작.
-- **Windows**: 엑셀 판 §3 과 같은 절차(M365 개발자 키 / 볼륨 판 신뢰 카탈로그). 한 줄 설치기는 아직 없다.
+- **Windows**: 엑셀 판 §3 과 같은 절차(M365 개발자 키 / 볼륨 판 신뢰 카탈로그). 한 줄 설치기는 `clients/office/install.ps1`(세 프로그램 공용, Windows 에서 아직 안 돌렸다).
 
 ## 4. 확인 · 5. 지우기
 
-「준비됐습니다 — 도구 44 개.」 · macOS 는 wef 의 manifest.xml 삭제, 인증서는 `word-helper-cert`.
+「준비됐습니다 — 도구 44 개.」 · macOS 는 wef 의 manifest.xml 삭제, 인증서는 `magi office helper`(세 판 공용이라 다른 판을 아직 쓰면 두지 않는다).

@@ -22,7 +22,7 @@ Word 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언이 �
   HTML 로 온다.
 
 ```
-Word 작업창(애드인)  ←https→  magi-word(헬퍼)  ←unix socket→  magi --daemon  →  모델
+Word 작업창(애드인)  ←https→  magi office(헬퍼, /word)  ←unix socket→  magi --daemon  →  모델
      └── 손: Word.js 로 문서를 고친다         └── MCP 서버: 도구 44개를 데몬에 붙인다
 ```
 
@@ -45,28 +45,28 @@ COM 손은 없다. Word 2019·2021·Microsoft 365 는 모두 `WordApi 1.3` 이�
 ### 2.2 헬퍼 빌드
 
 ```bash
-go build -o magi-word ./clients/word/helper
+go build -o magi ./cmd/magi        # 헬퍼는 magi 안에 있다 — `magi office` 가 파워포인트·엑셀·워드 셋을 한 프로세스로 띄운다
 ```
 
 ### 2.3 인증서 — 사람이 신뢰 저장소에 넣는다
 
-첫 기동이 `<config>/word-helper-cert.pem` 을 만든다. **그 인증서를 이 계정의 신뢰 저장소에 넣어야 한다** — 데몬도 그 인증서로
-헬퍼의 MCP 문에 붙는다(엑셀 판에서 그것을 안 넣어 도구가 안 붙었다). 방법은 `./magi-word -cert-hint` 가 찍는다.
+첫 기동이 `<config>/office-helper-cert.pem` 을 만든다(세 프로그램 공용 — 하나만 넣는다). **그 인증서를 이 계정의 신뢰 저장소에 넣어야 한다** — 데몬도 그 인증서로
+헬퍼의 MCP 문에 붙는다(엑셀 판에서 그것을 안 넣어 도구가 안 붙었다). 방법은 `./magi office -cert-hint` 가 찍는다.
 
 ### 2.4 애드인 사이드로드
 
-매니페스트는 `clients/word/addin/manifest.xml` — `<SourceLocation>` 이 `https://127.0.0.1:3002/` 이고 헬퍼의 기본 포트도 3002.
+매니페스트는 `clients/word/addin/manifest.xml` — `<SourceLocation>` 이 `https://127.0.0.1:3000/word/taskpane.html` 이다 — 헬퍼 하나가 3000 에서 `/ppt`·`/xl`·`/word` 세 판을 내준다.
 
 - **macOS** — `~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` 에 `manifest.xml` 을 복사하고 Word 를 완전히 끝냈다
   다시 연다. 홈 탭 「추가 기능 › 개발자 추가 기능 › Magi」를 한 번 누르면 리본 오른쪽 끝에 **Magi** 단추가 생긴다.
 - **Windows** — 엑셀 판 [`INSTALL.ko.md`](../../excel/docs/INSTALL.ko.md) 와 같은 절차, 매니페스트만 이것. Word 2021 도 신뢰
-  카탈로그 키가 하나여야 하는지는 아직 안 쟀다. 한 줄 설치기는 아직 없다(§9).
+  카탈로그 키가 하나여야 하는지는 아직 안 쟀다. 한 줄 설치기는 `clients/office/install.ps1`(§9).
 
 ### 2.5 데몬과 헬퍼 띄우기
 
 ```bash
 magi --daemon
-./magi-word              # 127.0.0.1:3002, 애드인은 clients/word/addin
+./magi office            # 127.0.0.1:3000 — /word 아래, 애드인 소스는 clients/word/addin
 ```
 
 ---
@@ -173,7 +173,7 @@ Word.js 에는 문단의 안정된 id 가 없다. `list_paragraphs` 가 준 번�
 
 ## 7. 권한
 
-읽는 도구 14개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi-word -allow-rules`) — 아래는 그것을 그대로 옮긴 것이다:
+읽는 도구 14개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi office -allow-rules=word`) — 아래는 그것을 그대로 옮긴 것이다:
 
 ```toml
 allow = [
@@ -212,7 +212,7 @@ Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 �
 - **실물 Word 에서 도구 44개는 돌았다**(2026-09-06, [`TESTING.ko.md`](./TESTING.ko.md) §5.1). 작업창 단추는 아직 사람이 안 눌렀다.
 - **목록 항목 뒤에 넣은 문단은 Word 가 그 목록에 이어 붙인다** — `insert_paragraphs` 는 그것을 떼어 문단으로 두고, 항목이 필요하면 `insert_list`·`set_list`.
 - **스타일 이름은 언어별이다** — 한국어 Word 의 「제목 1」은 `style:"Heading 1"` 로 못 찾는다. 내장 이름(`Heading1`, `Normal`, `ListParagraph`)은 언어와 무관하게 통하고, 문서 고유 스타일은 문서가 보여 주는 이름 그대로.
-- **한 줄 설치 스크립트가 없다.** 엑셀 판 `install.ps1` 을 옮기면 된다.
+- **한 줄 설치 스크립트**는 `clients/office/install.ps1` — 세 프로그램 공용이고 Windows 에서 아직 안 돌렸다.
 - **선택 → 문단 번호는 글로 찾는다** — 같은 문단이 둘이면 첫 것이고 `approx` 가 붙는다.
 - **기록·제안의 값은 짧다** — 사용자 지정 속성은 255자. 제안은 settings(1.4)에 살아 2021 에는 없다.
 

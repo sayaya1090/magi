@@ -23,7 +23,7 @@ flowchart LR
     Pane["작업창<br/>addin/src · Office.js"]
     Pane --- Deck
   end
-  subgraph Helper["magi-ppt (사용자당 하나, :3000)"]
+  subgraph Helper["magi office (사용자당 하나, :3000 의 /ppt)"]
     Page["/taskpane.html<br/>토큰이 박힌 페이지"]
     Hand["/hand/stream (SSE)<br/>/hand/reply (POST)"]
     API["/api/* 문(main.go 가 센다)"]

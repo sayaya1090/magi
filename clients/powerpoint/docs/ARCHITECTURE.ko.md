@@ -6,14 +6,14 @@
 
 ## 0. 한 문장
 
-PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi-ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구 48개를 달아 줍니다. 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
+PowerPoint 작업창(애드인)이 사용자당 하나인 **헬퍼**(`magi office`, 3000 의 `/ppt`)에 붙고, 헬퍼가 machine 의 **데몬**(`magi --daemon`) 한 개에 덱마다 **대화(session)** 하나를 열어 그 대화에만 덱 도구 48개를 달아 줍니다. 모델이 도구를 부르면 데몬 → 헬퍼(MCP) → 작업창(SSE) → Office.js 순으로 내려가 덱을 고치고, 결과가 같은 길로 돌아옵니다.
 
 ## 1. 프로세스가 넷이다
 
 | 프로세스 | 몇 개 | 무엇 | 소스 |
 |---|---|---|---|
 | PowerPoint + 작업창 | 창마다 하나 | Office.js 를 쥔 유일한 자리. 덱을 읽고 고치는 코드는 전부 여기 있습니다 | `addin/src` (JS, 12,799줄) |
-| 헬퍼 `magi-ppt` | 사용자당 하나 | 애드인 페이지를 https 로 내주고(§5.5), MCP 서버이며(§4.5), 데몬을 마련해 붙입니다(§5.0·§5.9) | `helper/*.go` (Go, 10,395줄 · 19 파일) |
+| 헬퍼 `magi office` | 사용자당 하나(엑셀·워드와 공용) | 애드인 페이지를 https 로 내주고(§5.5), MCP 서버이며(§4.5), 데몬을 마련해 붙입니다(§5.0·§5.9) | `clients/office/helper/*.go` — 파워포인트 몫은 `ppt_*.go` |
 | 데몬 `magi --daemon` | machine 에 하나(워크스페이스 `powerpoint`) | 대화 N개, 모델 호출, 도구 디스패치, 권한 물음 | `internal/` (공용 코어) |
 | 모델 심(shim) | 모델당 하나 | OpenAI 호환 `/v1` 을 흉내내어 실제 모델에 넘김 | `plugins-embedded/{antigravity,codex,claudecode}` |
 
