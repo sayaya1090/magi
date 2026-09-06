@@ -108,6 +108,27 @@ type ContextParts struct {
 // may be the provider's real count and these are always the estimate.
 func (p ContextParts) Sum() int { return p.System + p.Tools + p.Talk + p.Calls + p.Results }
 
+// scaledTo keeps the proportions and changes the size: the five pieces are multiplied so they sum
+// to total. The remainder of integer rounding lands on the largest piece, so the sum is exact. A
+// make-up with nothing in it stays empty — there are no proportions to keep.
+func (p ContextParts) scaledTo(total int) ContextParts {
+	sum := p.Sum()
+	if sum == 0 || total <= 0 || sum == total {
+		return p
+	}
+	sc := func(v int) int { return int(int64(v) * int64(total) / int64(sum)) }
+	out := ContextParts{System: sc(p.System), Tools: sc(p.Tools), Talk: sc(p.Talk), Calls: sc(p.Calls), Results: sc(p.Results)}
+	rest := total - out.Sum()
+	big := &out.System
+	for _, c := range []*int{&out.Tools, &out.Talk, &out.Calls, &out.Results} {
+		if *c > *big {
+			big = c
+		}
+	}
+	*big += rest
+	return out
+}
+
 // partsOf is the five token counts out of a recorded shape. Window rides on the same fact but is
 // not one of the parts — it is what they are measured AGAINST, and adding it to the sum would put
 // the whole context window inside the bar that shows how full the context window is.
@@ -184,11 +205,25 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			// The provider's own count, from the most recent turn that reported one. A zero is
 			// not a measurement — several backends omit usage — so it does not displace an
 			// earlier real number or the estimate.
+			// Measured on RECEIPT, not on send: the context this companion holds after the turn is
+			// the prompt it sent plus the answer that came back, and the backend counted both. In
+			// alone is what the request cost, one answer short of what the window holds now — a
+			// person saw "talk 1" on a companion that had answered them (2026-09-06).
 			if d.Usage.In > 0 {
-				out.Used = d.Usage.In
+				out.Used = d.Usage.In + d.Usage.Out
 				out.Cached, out.CacheReported = d.Usage.Cached, d.Usage.CacheReported
 			}
 		}
+	}
+	// The three transcript pieces are measured over the conversation AS IT STANDS — what the person
+	// and the companion have said so far, including the last answer — not over what the last
+	// request carried, which ends one answer earlier. The recorded shape keeps the two pieces a
+	// reader cannot measure (system prompt, tool catalog); the transcript it can, and should, read
+	// fresh.
+	if len(msgs) > 0 {
+		var tr event.PromptShape
+		measureMessages(&tr, msgs)
+		out.Parts.Talk, out.Parts.Calls, out.Parts.Results = tr.Talk, tr.Calls, tr.Results
 	}
 	// No finished turn has written a make-up yet — a session before its first turn, or one whose
 	// fold just emptied the shape. The transcript alone would say "system 0, tools 0", and a person
@@ -199,6 +234,16 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 		if parts, ok := a.assembledParts(sid, s, evs, msgs); ok {
 			out.Parts = parts
 		}
+	}
+	// **The count is the provider's; the make-up is ours.** The five pieces are character arithmetic
+	// (~4 per token) and the total beside them is what the backend actually billed — two rulers, and
+	// a band drawn with one under a number from the other never quite met: the segments summed to
+	// 20.1k under a "20.0k" total, or fell short of it. A person asked which was true (2026-09-06)
+	// and the answer is the received one. So when a real count exists, the make-up keeps its
+	// PROPORTIONS and takes the count's SIZE: each piece is scaled so the five add up to what was
+	// received. Before any count there is only arithmetic, and Estimated says so.
+	if out.Used > 0 {
+		out.Parts = out.Parts.scaledTo(out.Used)
 	}
 	if out.Used == 0 {
 		// The estimate is the whole request, not the transcript.

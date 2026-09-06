@@ -422,3 +422,65 @@ func TestTheReadingCarriesSystemAndToolsBeforeTheFirstTurn(t *testing.T) {
 		t.Errorf("a reader over the log assembles nothing and should not invent a make-up: %+v", rst.Parts)
 	}
 }
+
+// The band and the number beside it are drawn from one ruler: the count the backend reported. The
+// five pieces are arithmetic; when a real count exists they keep their proportions and take its size.
+func TestThePartsTakeTheProviderCountsSize(t *testing.T) {
+	a, dir := newApp(t, &fakeLLM{}, Config{Permission: "allow", Models: model.NewRegistry()})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{Workdir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(event.TurnFinishedData{
+		Usage:  event.Usage{In: 10000},
+		Prompt: &event.PromptShape{System: 2404, Tools: 5703, Talk: 800, Calls: 300, Results: 900}, // sums to 10107
+	})
+	if _, err := a.store.Append(context.Background(), sid, event.Event{Type: event.TypeTurnFinished, Data: b, TS: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Used != 10000 || st.Estimated {
+		t.Fatalf("the total should be the provider's count: used=%d estimated=%v", st.Used, st.Estimated)
+	}
+	if st.Parts.Sum() != 10000 {
+		t.Errorf("the pieces sum to %d under a total of 10000 — two rulers on one band: %+v", st.Parts.Sum(), st.Parts)
+	}
+	if st.Parts.Tools < st.Parts.System || st.Parts.System < st.Parts.Results || st.Parts.Results < st.Parts.Talk || st.Parts.Talk < st.Parts.Calls {
+		t.Errorf("scaling changed the proportions: %+v", st.Parts)
+	}
+	if got := (ContextParts{}).scaledTo(100); got != (ContextParts{}) {
+		t.Errorf("an empty make-up has no proportions to keep, got %+v", got)
+	}
+}
+
+// The reading counts what the window holds AFTER the turn: the answer is in it. A companion that
+// has answered cannot read "talk 1" — the person who saw that number had just read a paragraph
+// from it (2026-09-06).
+func TestTheReadingCountsTheAnswerThatCameBack(t *testing.T) {
+	long := strings.Repeat("답 ", 400) // ~800 chars of answer, ~200 tokens
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep(long)}}
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "m", ContextWindow: 8000, Tools: true})
+	a, dir := newApp(t, llm, Config{Permission: "allow", Models: reg})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: dir, Model: session.ModelRef{Provider: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Submit(context.Background(), command.SubmitPrompt{SessionID: sid,
+		Actor: event.Actor{Kind: event.ActorUser, ID: "cli"},
+		Parts: []session.Part{{Kind: session.PartText, Text: "하나만"}}}); err != nil {
+		t.Fatal(err)
+	}
+	waitForFinish(t, a, sid)
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Parts.Talk < 100 {
+		t.Errorf("the companion answered ~200 tokens and the reading says the conversation is %d — it measured the request that was sent, not the context that came back: %+v", st.Parts.Talk, st.Parts)
+	}
+}
