@@ -499,6 +499,14 @@ func TestAFinishingTurnIsAskedWhatTheAnswerWasWorth(t *testing.T) {
 		return false
 	})
 
+	// The message lands before the record does — two writes, and the wait above saw the first.
+	// Wait for the second too, without taking it (CI saw the gap once, 2026-09-06).
+	waitFor(t, "the answer to be recorded as waiting for judgement", func() bool {
+		f.a.mu.Lock()
+		defer f.a.mu.Unlock()
+		st, ok := f.a.stateIf("mine")
+		return ok && len(st.answered) > 0
+	})
 	got := f.a.takeAnsweredHandoffs("mine")
 	if len(got) != 1 || got[0].Who != "design on buildbox" {
 		t.Fatalf("an answer arrived and nothing knows it is waiting to be judged: %+v", got)
