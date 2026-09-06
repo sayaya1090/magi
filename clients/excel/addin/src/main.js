@@ -190,6 +190,8 @@ async function boot() {
    * 그것이 사실인 줄 안다.
    */
   const refreshContext = async () => {
+    // ⋯ 로 편 줄 안에 산다 — 접혀 있으면 안 묻는다(사용자: 「상시 나올 필요는 없는데」). 펼 때 한 번 묻고 그 뒤 10초마다.
+    if (document.querySelector('#advanced')?.hidden !== false) return;
     if (!real || !(watchPrompt?.view?.session)) { view.contextMeter(null); return; }
     try { view.contextMeter(await api.context()); } catch { view.contextMeter(null); }
   };
@@ -466,7 +468,7 @@ async function boot() {
       advanced.hidden = !open;
       more.setAttribute('aria-expanded', String(open));
       more.classList.toggle('icon-on', open);
-      if (open) void loadModels();
+      if (open) { void loadModels(); void refreshContext(); }
     });
     /** 압축 — 데몬이 접는다. 눌렀다는 것과 끝났다는 것을 가른다: 끝은 띠가 바뀌는 것으로 본다. */
     document.querySelector('#compact')?.addEventListener('click', () => {

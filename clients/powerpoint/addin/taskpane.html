@@ -332,6 +332,20 @@
       펴지는 것은 편 손 옆에 서야 한다.
     -->
     <div id="advanced" class="advanced" hidden>
+    <!--
+        컨텍스트 띠. **얼마나 찼는가와 무엇으로 찼는가**를 한 줄에 — 웹 콘솔의 컨텍스트 칸과 같은 다섯 조각·같은
+        색 규칙이다(사용자 2026-09-06: 「컨텍스트 내용도 바로 보여주고, 웹처럼 구성별로 색깔로」). 접기 단추가 그 옆에
+        선다 — 접을 것이 대화·호출·결과이므로, 그것이 없으면 단추는 잠긴다. 다섯 조각을 모르면 띠 전체가 숨는다.
+        **늘 보이지는 않는다** — ⋯ 로 편 줄의 맨 위에 선다(사용자: 「상시 나올 필요는 없는데」). 펼 때 새로 묻는다.
+      -->
+      <div id="ctx" class="ctx" hidden>
+        <div class="ctx-row">
+          <div id="ctx-bar" class="ctx-bar" role="img" aria-label="컨텍스트 구성"></div>
+          <span id="ctx-text" class="ctx-text"></span>
+          <button type="button" id="compact" class="icon-btn" title="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다" aria-label="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-compress"/></svg></button>
+        </div>
+        <div id="ctx-keys" class="ctx-keys"></div>
+      </div>
       <button type="button" id="fresh" class="icon-btn" title="새 대화를 시작합니다 — 슬라이드는 그대로입니다" aria-label="새 대화를 시작합니다 — 슬라이드는 그대로입니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-new"/></svg></button>
       <button type="button" id="rules" class="icon-btn" title="늘 지킬 것을 적습니다 — 매번 함께 갑니다" aria-label="늘 지킬 것을 적습니다 — 매번 함께 갑니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-pin"/></svg></button>
       <button type="button" id="guides" class="icon-btn" title="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다" aria-label="가이드를 관리합니다 — 모델이 필요할 때 불러 읽습니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-guide"/></svg></button>
@@ -391,19 +405,6 @@
       자리를 **상태 한 줄**과 같이 쓴다 — 어느 컴패니언에 붙어 있는지가 늘 보여야 하고,
       그것을 위쪽에 두면 세로 391px 에서 대화가 그만큼 줄어든다.
     -->
-    <!--
-      컨텍스트 띠. **얼마나 찼는가와 무엇으로 찼는가**를 한 줄에 — 웹 콘솔의 컨텍스트 칸과 같은 다섯 조각·같은
-      색 규칙이다(사용자 2026-09-06: 「컨텍스트 내용도 바로 보여주고, 웹처럼 구성별로 색깔로」). 접기 단추가 그 옆에
-      선다 — 접을 것이 대화·호출·결과이므로, 그것이 없으면 단추는 잠긴다. 다섯 조각을 모르면 띠 전체가 숨는다.
-    -->
-    <div id="ctx" class="ctx" hidden>
-      <div class="ctx-row">
-        <div id="ctx-bar" class="ctx-bar" role="img" aria-label="컨텍스트 구성"></div>
-        <span id="ctx-text" class="ctx-text"></span>
-        <button type="button" id="compact" class="icon-btn" title="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다" aria-label="컨텍스트를 접습니다 — 앞의 대화를 요약으로 바꿔 창을 비웁니다"><svg class="i" viewBox="0 0 16 16"><use href="#i-compress"/></svg></button>
-      </div>
-      <div id="ctx-keys" class="ctx-keys"></div>
-    </div>
     <footer class="brand">
       <span class="brand-name">MAGI</span>
       <span id="brand-state" class="brand-state"></span>

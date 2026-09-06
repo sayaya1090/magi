@@ -896,7 +896,7 @@ button:disabled { cursor: default; opacity: .5; }
 .md a { color: var(--accent); }
 
 /* ── 컨텍스트 띠 ────────────────────────────────────────────── */
-.ctx { padding: var(--s1) var(--s4); border-top: 1px solid var(--line); font: var(--t-caption); color: var(--muted); }
+.ctx { flex-basis: 100%; padding: 0 0 var(--s1); margin-bottom: var(--s1); border-bottom: 1px solid var(--line); font: var(--t-caption); color: var(--muted); }
 .ctx-row { display: flex; align-items: center; gap: var(--s2); min-height: 28px; }
 .ctx-bar { flex: 1 1 auto; height: 6px; display: flex; overflow: hidden; border-radius: 3px; background: var(--line); }
 .ctx-bar i { display: block; height: 100%; }
