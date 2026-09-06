@@ -104,25 +104,7 @@ func (a *App) sessionToolSpecs(sid session.SessionID, agent AgentSpec) []port.To
 // the log can measure the conversation and nothing else.
 func (a *App) notePromptShape(sid session.SessionID, model, sys string, msgs []session.Message, specs []port.ToolSpec) {
 	sh := event.PromptShape{Window: a.contextWindow(model), System: len(sys) / 4, Tools: toolSpecTokens(specs)}
-	for _, m := range msgs {
-		for _, p := range m.Parts {
-			if p.Kind == session.PartText {
-				sh.Talk += len(p.Text)
-			}
-			if p.ToolCall != nil {
-				sh.Calls += len(p.ToolCall.Name) + len(p.ToolCall.Args)
-			}
-			if p.ToolResult != nil {
-				sh.Results += len(p.ToolResult.Content)
-			}
-		}
-	}
-	// Each kind is summed in characters first and divided once, so each number is that kind's own
-	// best estimate. The five will not add up to estimateTokens exactly — five roundings instead of
-	// one, at most three characters lost per kind — and that is the right trade: the screen labels
-	// each piece, so each piece has to be right about itself. The total beside them comes from the
-	// provider's own count anyway, which these were never going to match.
-	sh.Talk, sh.Calls, sh.Results = sh.Talk/4, sh.Calls/4, sh.Results/4
+	measureMessages(&sh, msgs)
 	a.mu.Lock()
 	a.stateLocked(sid).shape = sh
 	a.mu.Unlock()
@@ -147,4 +129,27 @@ func shapeOf(a *App, sid session.SessionID) *event.PromptShape {
 		return nil
 	}
 	return &sh
+}
+
+// measureMessages fills the three transcript pieces of a shape from the messages a request carries.
+// Each kind is summed in characters first and divided once, so each number is that kind's own best
+// estimate. The five will not add up to estimateTokens exactly — five roundings instead of one, at
+// most three characters lost per kind — and that is the right trade: the screen labels each piece,
+// so each piece has to be right about itself. The total beside them comes from the provider's own
+// count anyway, which these were never going to match.
+func measureMessages(sh *event.PromptShape, msgs []session.Message) {
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartText {
+				sh.Talk += len(p.Text)
+			}
+			if p.ToolCall != nil {
+				sh.Calls += len(p.ToolCall.Name) + len(p.ToolCall.Args)
+			}
+			if p.ToolResult != nil {
+				sh.Results += len(p.ToolResult.Content)
+			}
+		}
+	}
+	sh.Talk, sh.Calls, sh.Results = sh.Talk/4, sh.Calls/4, sh.Results/4
 }

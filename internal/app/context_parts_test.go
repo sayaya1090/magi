@@ -40,18 +40,13 @@ func TestTheContextReadingSaysWhatTheWindowIsFilledWith(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The turn runs on its own goroutine; the make-up lands on its finish.
-	var st ContextState
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		st, err = a.ContextStateOf(context.Background(), sid)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if st.Parts.Sum() > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	// The turn runs on its own goroutine; the RECORDED make-up lands on its finish. (A reading
+	// before the finish already carries an assembled make-up, so "parts > 0" is not the signal —
+	// the finish is.)
+	waitForFinish(t, a, sid)
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if st.Parts.System == 0 {
 		t.Error("the reading reports no system prompt, which no request has ever had — the panel " +
@@ -102,12 +97,16 @@ func TestASessionThatNeverRanRecordsNoPromptShape(t *testing.T) {
 	if got := shapeOf(a, sid); got != nil {
 		t.Errorf("a session that assembled no request reports a make-up of %+v", *got)
 	}
+	// The READING is a different thing from the record: it says what the first request will be
+	// made of, assembled now from the same pieces — so the bar is never empty where the system
+	// prompt and the catalog belong (TestTheReadingCarriesSystemAndToolsBeforeTheFirstTurn).
+	// What it must not do is count a conversation that has not happened.
 	st, err := a.ContextStateOf(context.Background(), sid)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Parts != (ContextParts{}) {
-		t.Errorf("the reading invented a make-up for a companion that has never run: %+v", st.Parts)
+	if st.Parts.Talk != 0 || st.Parts.Calls != 0 || st.Parts.Results != 0 {
+		t.Errorf("the reading invented a conversation for a companion that has never run: %+v", st.Parts)
 	}
 }
 
@@ -257,9 +256,16 @@ func TestAFoldClearsTheMakeUpWithTheTotal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Parts != (ContextParts{}) {
+	// The pre-fold make-up is gone. What stands in its place is assembled now — the system prompt
+	// and the catalog the next request will carry, over the folded transcript (empty here) — so the
+	// band under the post-fold total describes the post-fold context, not the one that no longer
+	// exists.
+	if pre := partsOf(event.PromptShape{System: 2404, Tools: 5703, Talk: 800, Results: 93}); st.Parts == pre {
 		t.Errorf("the reading still carries the pre-fold make-up %+v — drawn under a post-fold "+
 			"total, that band renders the fold as if it had not happened", st.Parts)
+	}
+	if st.Parts.Talk != 0 || st.Parts.Calls != 0 || st.Parts.Results != 0 {
+		t.Errorf("after the fold the reading counts a conversation the folded log does not hold: %+v", st.Parts)
 	}
 	if st.Used > 9000 {
 		t.Errorf("the total survived the fold too: %d", st.Used)
@@ -308,13 +314,10 @@ func TestTheLiveMeterCountsTheToolCatalog(t *testing.T) {
 		Parts: []session.Part{{Kind: session.PartText, Text: "say something"}}}); err != nil {
 		t.Fatal(err)
 	}
-	var st ContextState
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if st, err = a.ContextStateOf(context.Background(), sid); err == nil && st.Parts.Sum() > 0 {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	waitForFinish(t, a, sid)
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if st.Parts.Tools == 0 {
 		t.Fatal("no tool catalog was recorded, so this test cannot measure what it is for")
@@ -376,5 +379,46 @@ func TestTheWindowTravelsOnTheRecordedFact(t *testing.T) {
 	if st.Parts.Sum() >= 262144 {
 		t.Errorf("the window was folded into the parts (sum %d) — the bar would show the whole "+
 			"window sitting inside the window", st.Parts.Sum())
+	}
+}
+
+// Before the first turn the bar was empty where the two biggest pieces belong. The system prompt
+// and the tool catalog exist the moment the session does — this process assembles them for every
+// request — so a reading before any request says what the first one WILL carry, and a reader over
+// the log, which assembles nothing, keeps saying nothing.
+func TestTheReadingCarriesSystemAndToolsBeforeTheFirstTurn(t *testing.T) {
+	llm := &fakeLLM{steps: [][]port.ProviderEvent{textStep("done")}}
+	reg := model.NewRegistry()
+	reg.Register(model.Info{ID: "m", ContextWindow: 8000, Tools: true})
+	a, dir := newApp(t, llm, Config{Permission: "allow", Models: reg})
+	sid, err := a.CreateSession(context.Background(), command.CreateSession{
+		Workdir: dir, Model: session.ModelRef{Provider: "openai", Model: "m"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := a.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Parts.System == 0 || st.Parts.Tools == 0 {
+		t.Fatalf("before any turn the reading says system=%d tools=%d — the pieces every request carries, counted as absent", st.Parts.System, st.Parts.Tools)
+	}
+	if st.Parts.Talk != 0 || st.Used != st.Parts.Sum() || !st.Estimated {
+		t.Errorf("an empty conversation should read talk=0 and an estimated total equal to the parts: %+v used=%d estimated=%v", st.Parts, st.Used, st.Estimated)
+	}
+	// Measuring froze nothing: the head is written by the first request, not by a reading.
+	a.mu.Lock()
+	frozen := a.stateLocked(sid).skillBlockSet || a.stateLocked(sid).turnSysSet || len(a.stateLocked(sid).toolsFrozen) > 0
+	a.mu.Unlock()
+	if frozen {
+		t.Error("a reading pinned the session's head — the skill block, the system prompt or the catalog was frozen by looking")
+	}
+	reader := New(a.store, nil, builtin.NewRegistry(), bus.New(), nil, Config{})
+	rst, err := reader.ContextStateOf(context.Background(), sid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rst.Parts.System != 0 || rst.Parts.Tools != 0 {
+		t.Errorf("a reader over the log assembles nothing and should not invent a make-up: %+v", rst.Parts)
 	}
 }

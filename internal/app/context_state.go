@@ -190,6 +190,16 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 			}
 		}
 	}
+	// No finished turn has written a make-up yet — a session before its first turn, or one whose
+	// fold just emptied the shape. The transcript alone would say "system 0, tools 0", and a person
+	// reading the bar asked exactly that: why the system prompt, the skills and the tools were not
+	// counted (2026-09-06, the Office pane). They ARE what the next request will carry, and this
+	// process can assemble them now without sending anything; a reader over the log cannot.
+	if out.Parts.System == 0 && out.Parts.Tools == 0 {
+		if parts, ok := a.assembledParts(sid, s, evs, msgs); ok {
+			out.Parts = parts
+		}
+	}
 	if out.Used == 0 {
 		// The estimate is the whole request, not the transcript.
 		//
@@ -205,4 +215,27 @@ func (a *App) ContextStateOf(ctx context.Context, sid session.SessionID) (Contex
 		}
 	}
 	return out, nil
+}
+
+// assembledParts measures what the next request would be made of, from the pieces this process
+// would assemble for it: the system prompt as buildStepSystem writes it (project memory, the
+// agent's prompt, the environment, the skill list), the tool catalog this agent is advertised, and
+// the transcript. Nothing is frozen or recorded by measuring — the skill block is rendered, not
+// pinned, and the catalog is read, not cached — so a reading has no effect on the turn that follows.
+//
+// Only a process that owns a provider assembles requests. A console reading the log has none, and
+// its answer stays what the log says.
+func (a *App) assembledParts(sid session.SessionID, s session.Session, evs []event.Event, msgs []session.Message) (ContextParts, bool) {
+	if a.llm == nil {
+		return ContextParts{}, false
+	}
+	agent := a.agentFor(s)
+	sys := a.systemFor(agent, s.Workdir)
+	if dir := langDirective(lastUserPromptText(a.liveEvents(sid, evs))); dir != "" {
+		sys = dir + "\n\n" + sys
+	}
+	sys += renderSkillBlock(a.loadSkills(s.Workdir))
+	sh := event.PromptShape{System: len(sys) / 4, Tools: toolSpecTokens(a.toolSpecs(sid, agent))}
+	measureMessages(&sh, msgs)
+	return partsOf(sh), true
 }

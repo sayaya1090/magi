@@ -75,17 +75,25 @@ func (a *App) skillBlockFor(sid session.SessionID, workdir string) string {
 		return st.skillBlock
 	}
 	st.skillSeen = map[string]bool{}
-	var b strings.Builder
 	for _, x := range sk {
 		st.skillSeen[x.Name] = true
-		b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
 	}
-	if b.Len() > 0 {
-		st.skillBlock = "\n\n# Available skills (use the skill tool to load one)\n" +
-			strings.TrimRight(b.String(), "\n")
-	}
+	st.skillBlock = renderSkillBlock(sk)
 	st.skillBlockSet = true
 	return st.skillBlock
+}
+
+// renderSkillBlock is the skill list as the head carries it — a pure function of the list, so a
+// reading that wants to know its size (assembledParts) can render it without freezing anything.
+func renderSkillBlock(sk []port.Skill) string {
+	var b strings.Builder
+	for _, x := range sk {
+		b.WriteString("- " + x.Name + ": " + oneLineHint(x.Description) + "\n")
+	}
+	if b.Len() == 0 {
+		return ""
+	}
+	return "\n\n# Available skills (use the skill tool to load one)\n" + strings.TrimRight(b.String(), "\n")
 }
 
 // skillArrivals names skills that appeared after this session's head was written, once each, and

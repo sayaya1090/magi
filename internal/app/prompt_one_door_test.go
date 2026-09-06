@@ -19,7 +19,11 @@ func TestPrefixBuildersHaveOneDoor(t *testing.T) {
 	allowed := map[string]map[string]bool{
 		// raw builder -> files that may name it (its own definition, the door, and their tests)
 		"a.buildStepSystem(": {"prompt_frozen.go": true, "loop.go": true},
-		"a.toolSpecs(":       {"prompt_frozen.go": true, "prompt.go": true},
+		// context_state.go MEASURES the catalog for a reading (assembledParts) and sends nothing.
+		// It must not take the door: the door freezes, and a reading can come before the tools a
+		// session will carry have attached — a pane polling its meter would have pinned a
+		// catalog without the document tools (2026-09-06).
+		"a.toolSpecs(": {"prompt_frozen.go": true, "prompt.go": true, "context_state.go": true},
 	}
 	entries, err := os.ReadDir(".")
 	if err != nil {

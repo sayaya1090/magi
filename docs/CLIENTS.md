@@ -108,7 +108,7 @@ Two things the proposal did not foresee, both measured 2026-09-04/05:
 Since 2026-09-06 the pane also carries the machine's own knobs, all over helper doors that sit on
 daemon doors: a provider/model picker (`/api/models` → `models` and the provider roster,
 `/api/model` → `use-backend` + `set-model`, next turn onward), a context meter drawn from the new
-`context` door (how full the window is and of what — system, tools, talk, calls, results), and a
+`context` door (how full the window is and of what — system, tools, talk, calls, results; before the first turn, and after a fold, the daemon measures the system prompt and the catalog it would send rather than reporting them as absent), and a
 compact button (`/api/compact` → `compact`). Switching the council restarts the daemon and the pane
 asks first, because every other client on that daemon is cut too.
 
