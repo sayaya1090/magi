@@ -252,7 +252,8 @@ internal/
                             만드는 flock 클레임, Publish(콘솔이 읽는 레코드), Client, 그리고
                             엔진이 선택적으로 만족할 수 있는 인터페이스들 — Controller(rewind,
                             compact, set-model, set-permission), JobRunner(턴 옆에서 도는 것과
-                            그 뒤에 밀린 것), ToolLister·ModelLister(명단과 목록 — 런을 쥔
+                            그 뒤에 밀린 것), ContextTeller(대화의 창이 무엇으로 찼는지 — 띠를
+                            그리는 화면의 것, Office 애드인이 소켓으로 읽는다), ToolLister·ModelLister(명단과 목록 — 런을 쥔
                             프로세스만이 말할 수 있다), UserNamer. 구현하지 않은 데몬은 에러가
                             아니라 빈 값을 답하고, 호출자는 그것을 "없다"가 아니라 "여기서는
                             알 수 없다"로 읽어야 한다. 플랫폼마다 다른 것 — 소켓을 잠그는 일과

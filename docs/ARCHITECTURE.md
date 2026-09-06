@@ -263,6 +263,8 @@ internal/
                             reads), Client, and the optional interfaces an engine may satisfy —
                             Controller (rewind, compact, set-model, set-permission), JobRunner
                             (what is running beside the turn, and what is queued behind it),
+                            ContextTeller (what fills a conversation's window, for a screen
+                            drawing a meter — the Office add-ins read it over the socket),
                             ToolLister and ModelLister (the roster and the catalogue, which only
                             the process holding the run can say), UserNamer. A daemon that does
                             not implement one answers empty rather than erroring, and every

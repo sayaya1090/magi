@@ -105,6 +105,23 @@ Two things the proposal did not foresee, both measured 2026-09-04/05:
   that table. The redesign — one idempotent `reconcile(deck)` that asks the pane, the daemon and the
   deck for the truth and mends the difference — is `DESIGN.md` §5.9 and is the next thing to build.
 
+Since 2026-09-06 the pane also carries the machine's own knobs, all over helper doors that sit on
+daemon doors: a provider/model picker (`/api/models` → `models` and the provider roster,
+`/api/model` → `use-backend` + `set-model`, next turn onward), a context meter drawn from the new
+`context` door (how full the window is and of what — system, tools, talk, calls, results), and a
+compact button (`/api/compact` → `compact`). Switching the council restarts the daemon and the pane
+asks first, because every other client on that daemon is cut too.
+
+### The Excel add-in — the PowerPoint shape, copied, with sheets for slides
+
+`clients/excel/` (2026-09-06) — the same helper and pane copied and renamed (`magi-xl`, port 3001,
+MCP server `xl`, 61 tools), with one difference of substance: **there is no COM hand.** Excel
+2019, 2021 and Microsoft 365 all carry `ExcelApi 1.7` or better (2021 is 1.14), so the task pane is
+the hand everywhere; a host below the floor gets a pane that says so. All 61 tools ran on a real
+workbook (Mac 16.112.3) and the Windows 2021 volume build installed and edited a cell through the
+pane the same day. The helper is a copy, not a shared package — that debt is written down in its
+ARCHITECTURE and is the thing to pay before a third Office client.
+
 ### The fleet through one socket — the `roster` door (design direction, set 2026-08-29)
 
 The direction is set: the companion management the web console offers must be possible **without

@@ -26,7 +26,7 @@ flowchart LR
   subgraph Helper["magi-ppt (사용자당 하나, :3000)"]
     Page["/taskpane.html<br/>토큰이 박힌 페이지"]
     Hand["/hand/stream (SSE)<br/>/hand/reply (POST)"]
-    API["/api/* 문 15개"]
+    API["/api/* 문(main.go 가 센다)"]
     MCP["/mcp<br/>Streamable HTTP"]
   end
   subgraph Daemon["magi --daemon (machine 에 하나)"]
