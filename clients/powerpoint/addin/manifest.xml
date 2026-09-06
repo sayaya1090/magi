@@ -49,8 +49,8 @@
     올린다. 그리고 그림은 **캐시할 수 있어야** 한다 — no-store 로 내면 리본은 기본 자리표시자(파란 육각형)를
     그린다(icon.go serveIcon 이 아이콘에만 max-age 를 준다).
   -->
-  <IconUrl DefaultValue="https://127.0.0.1:3000/assets/v3/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/assets/v3/icon-80.png" />
+  <IconUrl DefaultValue="https://127.0.0.1:3000/ppt/assets/v3/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://127.0.0.1:3000/ppt/assets/v3/icon-80.png" />
   <SupportUrl DefaultValue="https://github.com/sayaya1090/magi" />
 
   <AppDomains>
@@ -62,7 +62,7 @@
   </Hosts>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://127.0.0.1:3000/taskpane.html" />
+    <SourceLocation DefaultValue="https://127.0.0.1:3000/ppt/taskpane.html" />
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -135,12 +135,12 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-16.png" />
-        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-32.png" />
-        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3000/assets/v3/icon-80.png" />
+        <bt:Image id="Icon.16" DefaultValue="https://127.0.0.1:3000/ppt/assets/v3/icon-16.png" />
+        <bt:Image id="Icon.32" DefaultValue="https://127.0.0.1:3000/ppt/assets/v3/icon-32.png" />
+        <bt:Image id="Icon.80" DefaultValue="https://127.0.0.1:3000/ppt/assets/v3/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Taskpane.Url" DefaultValue="https://127.0.0.1:3000/taskpane.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://127.0.0.1:3000/ppt/taskpane.html" />
         <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://github.com/sayaya1090/magi" />
       </bt:Urls>
       <bt:ShortStrings>

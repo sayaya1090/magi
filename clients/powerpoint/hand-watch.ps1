@@ -7,7 +7,7 @@
 # ⚠ PowerShell 5.1 은 BOM 없는 UTF-8 을 ANSI 로 읽는다 — 이 파일은 BOM 이 있어야 한다.
 $root = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $hand = Join-Path $root 'hand\magi-ppt-hand.exe'
-$helper = 'https://127.0.0.1:3000'
+$helper = 'https://127.0.0.1:3000/ppt'
 $log = Join-Path $root 'hand-watch.log'
 function Log($s) { try { Add-Content $log ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $s) -Encoding UTF8 } catch { } }
 Log "감시기 시작 — 손: $hand"

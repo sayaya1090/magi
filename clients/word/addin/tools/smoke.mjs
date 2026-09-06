@@ -62,15 +62,15 @@ const point = new PointAtAdvice(book);
 // 헬퍼가 광고하는 이름(helper/tools.go)과 손이 아는 이름은 같은 집합이어야 한다 — 어긋나면 「고쳤습니다」
 // 없이 「모릅니다」로 끝나거나(손이 모름) 아무도 못 부른다(광고 없음).
 {
-  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const go = readFileSync(new URL('../../../office/helper/word_tools.go', import.meta.url), 'utf8');
   const advertised = [...go.matchAll(/^\t\t\tName: +"([a-z_]+)",/gm)].map((m) => m[1]);
   ok('헬퍼 도구 목록을 실제로 읽었다', advertised.length >= 40, String(advertised.length));
   const onlyHelper = advertised.filter((n) => !ALL_OPS.includes(n));
   const onlyHand = ALL_OPS.filter((n) => !advertised.includes(n));
   ok('헬퍼와 손이 같은 이름을 안다', onlyHelper.length === 0 && onlyHand.length === 0, `헬퍼에만: ${onlyHelper} / 손에만: ${onlyHand}`);
   const readOnlyGo = go.split(/\n\t\t\{\n/).filter((b) => /ReadOnly: true/.test(b)).map((b) => /Name: +"([a-z_]+)"/.exec(b)?.[1]).filter(Boolean);
-  const enums = readFileSync(new URL('../../helper/enums.go', import.meta.url), 'utf8');
-  const goBuiltin = [...enums.match(/var builtinStyles = \[\]string\{([\s\S]*?)\}/)[1].matchAll(/"([A-Za-z0-9]+)"/g)].map((m) => m[1]);
+  const enums = readFileSync(new URL('../../../office/helper/word_enums.go', import.meta.url), 'utf8');
+  const goBuiltin = [...enums.match(/var wordBuiltinStyles = \[\]string\{([\s\S]*?)\}/)[1].matchAll(/"([A-Za-z0-9]+)"/g)].map((m) => m[1]);
   ok('내장 문단 스타일 목록이 헬퍼 enums.go 와 같다', goBuiltin.length === BUILTIN_PARAGRAPH_STYLES.length && everyOf(goBuiltin, (n) => BUILTIN_PARAGRAPH_STYLES.includes(n)), `${goBuiltin.length} vs ${BUILTIN_PARAGRAPH_STYLES.length}`);
   ok('applyStyle: 내장 이름은 철자·띄어쓰기에 관대하게 styleBuiltIn, 나머지는 style', (() => { const a = {}; applyStyle(a, 'Heading 1'); const b = {}; applyStyle(b, 'normal'); const c = {}; applyStyle(c, '본문 강조'); return a.styleBuiltIn === 'Heading1' && b.styleBuiltIn === 'Normal' && c.style === '본문 강조' && c.styleBuiltIn === undefined; })());
   ok('읽기 도구 집합도 같다', READ_OPS.length === 14 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);

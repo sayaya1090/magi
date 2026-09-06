@@ -10,7 +10,7 @@
 | 어떻게 열었나 | 무엇이 붙나 | 오늘 상태 |
 |---|---|---|
 | `node tools/serve.mjs` 로 브라우저에서 | `FakeDeck`·`FakeChat`·`FakeHand` | **돈다** — 인용·전송·안내·도구까지 |
-| **헬퍼가 내준 페이지**(`magi-ppt`) | `HelperApi`·`HelperStream`, 손은 `OfficeHand`(PowerPoint 안) 또는 `FakeHand` | **돈다** — 2026-09-01 에 실물 PowerPoint 에서 끝까지 돌았다(아래) |
+| **헬퍼가 내준 페이지**(`magi office`) | `HelperApi`·`HelperStream`, 손은 `OfficeHand`(PowerPoint 안) 또는 `FakeHand` | **돈다** — 2026-09-01 에 실물 PowerPoint 에서 끝까지 돌았다(아래) |
 
 갈래를 가르는 것은 **토큰 하나**다: 헬퍼가 페이지에 `window.MAGI` 를 심어 내주면 진짜로 돌고
 (§5.5·§12 #7), 없으면 가짜다. 없는데 진짜인 척하지 않는 것이 이 갈래의 요점이다.
@@ -95,7 +95,7 @@ node tools/officehand.mjs     # Office.js 손과 zip 읽개 — **PowerPoint 없
 **절차 전체는 [사용자 매뉴얼 §2](../docs/MANUAL.ko.md) 에 있다.** 여기서는 이 디렉토리에
 관련된 것만 적는다.
 
-오늘의 길은 **헬퍼가 이 페이지를 내주는 것**이다(`magi-ppt`). 인증서도 헬퍼가 만들고
+오늘의 길은 **헬퍼가 이 페이지를 내주는 것**이다(`magi office`). 인증서도 헬퍼가 만들고
 (`-cert-hint` 가 신뢰 저장소에 넣는 법을 찍는다), 토큰은 페이지에 박혀 나간다. `tools/serve.mjs`
 는 **가짜 갈래 전용**으로 남아 있다 — 헬퍼 없이 화면만 볼 때 쓴다.
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""48개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:3000)에 붙은 **첫 덱**에 순서대로 다 불러 보고 표로 낸다.
+"""48개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:3000/ppt)에 붙은 **첫 덱**에 순서대로 다 불러 보고 표로 낸다.
 
   python3 clients/powerpoint/tools/sweep.py [--deck <pid-deck-…>] [--image <png>]
 
@@ -28,7 +28,7 @@ if not os.path.exists(IMG):
 rows=[]; done=set()
 def call(name, args, note=''):
     body=json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}).encode()
-    req=urllib.request.Request(f'https://127.0.0.1:3000/mcp?deck={DECK}', data=body, headers={'authorization':'Bearer '+TOK,'content-type':'application/json'}, method='POST')
+    req=urllib.request.Request(f'https://127.0.0.1:3000/ppt/mcp?deck={DECK}', data=body, headers={'authorization':'Bearer '+TOK,'content-type':'application/json'}, method='POST')
     t0=time.time()
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=120) as r: resp=json.loads(r.read())

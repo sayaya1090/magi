@@ -14,7 +14,7 @@ Excel 작업창. 파워포인트 판 애드인을 **복사해 손을 바꿨다**
 | `node tools/excelhand.mjs` | `ExcelHand` 를 가짜 Office.js 위에서 | **돈다** — 61/61, 거절 0 |
 | `PORT=3010 node tools/serve.mjs` 로 브라우저에서 | 가짜 격자 + `FakeHand` | 돈다 — 인용·전송·안내·제안 적용까지 |
 | `TOKEN=… node tools/livehand.mjs` | `FakeHand` 를 **살아 있는 헬퍼**에 손으로 | **돈다** — MCP `tools/call` 이 SSE 로 내려와 답이 돌아간다(2026-09-06, TESTING §4b) |
-| **헬퍼가 내준 페이지**(`magi-xl`) | `HelperApi`·`HelperStream`, 손은 `ExcelHand`(Excel 안) 또는 `FakeHand` | **Excel 안에서 돈다** — 2026-09-06 도구 61개 전부(docs/TESTING §5.1), Windows 2021 창의 보내기로 편집(§5.1.1). 인용·제안·검토 단추는 아직 사람이 안 눌렀다 |
+| **헬퍼가 내준 페이지**(`magi office`) | `HelperApi`·`HelperStream`, 손은 `ExcelHand`(Excel 안) 또는 `FakeHand` | **Excel 안에서 돈다** — 2026-09-06 도구 61개 전부(docs/TESTING §5.1), Windows 2021 창의 보내기로 편집(§5.1.1). 인용·제안·검토 단추는 아직 사람이 안 눌렀다 |
 
 `excelhand.mjs` 의 stub 은 어떤 속성을 읽어도 값을 주고 어떤 메서드도 받아 주므로, 지나간 것은 「우리가 부르는 모양」까지다 —
 실제로 `getDataBodyRangeOrNullObject` 같은 없는 이름이 초록으로 지나갔고 실물이 잡았다(docs/TESTING §5.1).

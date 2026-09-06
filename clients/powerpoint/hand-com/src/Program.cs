@@ -2,9 +2,9 @@ using System.Text.Json;
 using Magi.Ppt.Hand;
 
 // magi-ppt-hand — Office 2021 용 COM 손. 헬퍼(magi-ppt)에 붙어 call 을 받고 PowerPoint 를 COM 으로 움직인다.
-//   magi-ppt-hand [--helper https://127.0.0.1:3000] [--fake]
+//   magi-ppt-hand [--helper https://127.0.0.1:3000/ppt] [--fake]
 // --fake 는 PowerPoint 없이 메모리 덱으로 붙는다(개발·시험용, mac 에서도 돈다).
-var helperUrl = "https://127.0.0.1:3000";
+var helperUrl = "https://127.0.0.1:3000/ppt"; // magi office 는 한 포트에서 /ppt·/xl·/word 를 내준다 — 파워포인트 몫이 /ppt
 var fake = false;
 for (var i = 0; i < args.Length; i++)
 {

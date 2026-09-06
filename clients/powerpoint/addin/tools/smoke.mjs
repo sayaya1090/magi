@@ -2964,7 +2964,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 // 그래서 이 시험은 철자를 손으로 안 적는다 — **도구 표에서 뽑는다.** 손으로 적으면 이 파일도
 // 두 벌 중 하나가 되어, 스키마가 바뀌는 날 같이 안 바뀐다.
 {
-  const toolsGo = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const toolsGo = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
   // `[{message, why, slide_id, shape_ids}]` — `advise` 의 `items` 설명문이 광고하는 그것.
   // **`advise` 의 것만 본다.** 파일 안에 같은 모양이 하나 더 있고(`set_table_cells` 의
   // `[{row, column, text}]`), 처음 걸리는 것을 집으면 이 시험은 남의 스키마를 지킨다.
@@ -3330,7 +3330,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // **있는 것을 없다고 적으면 아무도 안 불러 보므로 조용히 남는다.**
   {
     const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
-    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     // 접근성 셋 — 가이드가 요구하면서 도구가 없던 자리다.
     for (const [arg, member] of [['alt_title', 'altTextTitle'], ['alt_text', 'altTextDescription'],
       ['decorative', 'isDecorative'], ['rotation', 'rotation'], ['visible', 'visible']]) {
@@ -3357,7 +3357,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 그건 짐작이 아니라 층의 뜻이다.
   {
     const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
-    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     ok('층 셋을 다 고를 수 있다',
       /slideMaster\.themeColorScheme/.test(h) && /slide\.layout\.themeColorScheme/.test(h)
       && /return slide\.themeColorScheme/.test(h));
@@ -3379,7 +3379,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 터졌을 것이고, **아무도 그 호스트에서 안 눌러 봐서 조용했다.**
   {
     const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
-    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     const gate = /#hyperlink\(args\) \{([\s\S]*?)return this\.runner/.exec(h)?.[1] ?? '';
     ok('링크 게이트를 찾았다', gate !== '');
     ok('링크 게이트가 1.10 이다', /supports\('PowerPointApi', '1\.10'\)/.test(gate), gate.slice(0, 60));
@@ -3414,7 +3414,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 고르는 자리마다 틀릴 수 있다.
   {
     const h = readFileSync(new URL('../src/adapter/OfficeHand.js', import.meta.url), 'utf8');
-    const t = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const t = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     ok('덱 글꼴 도구가 따로 없다', !/set_deck_font/.test(t));
     ok('범위가 인자로 있다', /Name: "all"/.test(t));
     ok('그 갈래로 빠진다', /if \(wantAll\) return this\.#styleEveryShape/.test(h));
@@ -4118,7 +4118,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
 
   // ⚠ **이 표는 카탈로그와 갈릴 수 있다.** 도구가 늘면 여기도 늘어야 하고, 안 늘면 새 도구만
   // 기계 이름으로 뜬다 — 조용히. 그래서 카탈로그를 읽어 빠진 것을 세운다.
-  const goSrc = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const goSrc = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
   const names = [...goSrc.matchAll(/^\t\t\tName: *"([a-z_]+)",$/gm)].map((m) => m[1]);
   ok('카탈로그를 읽었다', names.length > 30, String(names.length));
   const labelled = new Set(labelledTools());

@@ -62,7 +62,10 @@ async function boot() {
   const boot = (typeof window !== 'undefined' && window.MAGI) ? window.MAGI : null;
   const real = Boolean(boot?.token);
 
-  const api = real ? new HelperApi({ token: boot.token }) : null;
+  // **헬퍼는 하나고 앱은 셋이다.** 한 프로세스가 `/ppt`·`/xl`·`/word` 아래에 세 판을 내주므로
+  // (clients/office/helper), 이 창의 문은 오리진에 그 접두를 붙인 자리다. 접두는 부팅 값이 준다.
+  const origin = real ? location.origin + (boot.base ?? '') : undefined;
+  const api = real ? new HelperApi({ token: boot.token, origin }) : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
   // **덱이 자기 이름을 들게 하고, 그 이름으로 붙는다.** 없으면 허브가 붙을 때마다 새 번호를
   // 발급하고, 그때마다 이 창의 대화가 끊긴다(`stableDeckId` 의 주석).
@@ -76,6 +79,7 @@ async function boot() {
   const helperStream = real
     ? new HelperStream({
       token: boot.token,
+      origin,
       doc: bookId || (boot.doc ?? ''),
       label: boot.label ?? '',
       role: role.role,

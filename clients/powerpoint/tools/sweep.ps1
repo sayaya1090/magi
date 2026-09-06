@@ -13,7 +13,7 @@ function Call($name, $argmap) {
     ConvertTo-Json -Depth 12 -Compress
   $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
   try {
-    $r = Invoke-WebRequest -Uri https://127.0.0.1:3000/mcp -Method Post -Headers $h `
+    $r = Invoke-WebRequest -Uri https://127.0.0.1:3000/ppt/mcp -Method Post -Headers $h `
       -ContentType "application/json; charset=utf-8" -Body $bytes -UseBasicParsing
     ([System.Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json).result
   } catch {

@@ -973,7 +973,7 @@ async function makeZip(files) {
 //
 // 그래서 목록을 손으로 두 번 적지 않고 **원천에서 유도해 견준다.**
 {
-  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const go = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
   const body = go.slice(go.indexOf('return []tool{'));
   const advertised = [...body.matchAll(/Name:\s+"([a-z_]+)",\n\s*Desc:/g)].map((m) => m[1]);
   // **다 지원하는 손으로 잰다.** `ops()` 는 호스트 요구집합에 따라 줄어들고(1.9/1.10 게이트),
@@ -1234,7 +1234,7 @@ async function makeZip(files) {
 
   // 스키마가 **가르치는 말**도 시험한다 — 이 결함의 절반이 설명문이었다.
   {
-    const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const go = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     const desc = (name) => {
       const at = go.indexOf(`Name: "${name}"`);
       return at < 0 ? '' : go.slice(at, go.indexOf('\n', go.indexOf('Desc:', at)));
@@ -1284,7 +1284,7 @@ async function makeZip(files) {
 
   // 스키마가 광고하는 이름은 **손이 다 알아야 한다** — 광고와 실행이 어긋나면 모델은 광고된
   // 이름을 부르고 거절당한다.
-  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const go = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
   // 스키마의 `kind` 설명문에서 **쉼표로 나열된 이름들만** 뽑는다. 산문까지 긁으면 영어 낱말이
   // 도형 이름으로 세어져, 이 시험이 자기가 만든 헛것을 잡으려 든다.
   const at = go.indexOf(String.fromCharCode(34) + 'kind' + String.fromCharCode(34));
@@ -2085,7 +2085,7 @@ async function makeZip(files) {
 
   // 스키마가 **값을 말해야** 모델이 아낀다 — 설명문이 그 장치의 절반이다.
   {
-    const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+    const go = readFileSync(new URL('../../../office/helper/ppt_tools.go', import.meta.url), 'utf8');
     // 이름 뒤 공백은 gofmt 가 정렬하며 바뀐다 — **그 공백에 기대면 시험이 서식에 매인다.**
     const at = go.indexOf(String.fromCharCode(34) + 'render_slide' + String.fromCharCode(34));
     const desc = go.slice(at, go.indexOf('Props', at));

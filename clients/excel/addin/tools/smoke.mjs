@@ -62,7 +62,7 @@ const point = new PointAtAdvice(book);
 // 헬퍼가 광고하는 이름(helper/tools.go)과 손이 아는 이름은 같은 집합이어야 한다 — 어긋나면 「고쳤습니다」
 // 없이 「모릅니다」로 끝나거나(손이 모름) 아무도 못 부른다(광고 없음).
 {
-  const go = readFileSync(new URL('../../helper/tools.go', import.meta.url), 'utf8');
+  const go = readFileSync(new URL('../../../office/helper/xl_tools.go', import.meta.url), 'utf8');
   const advertised = [...go.matchAll(/^\t\t\tName: +"([a-z_]+)",/gm)].map((m) => m[1]);
   ok('헬퍼 도구 목록을 실제로 읽었다', advertised.length >= 40, String(advertised.length));
   const onlyHelper = advertised.filter((n) => !ALL_OPS.includes(n));

@@ -19,7 +19,7 @@ UTF-8 을 ANSI 로 읽어서, 한글이 든 스크립트가 **파서 오류**로
 `%TEMP%\ppt-token.txt` 에서 읽으므로, 헬퍼를 새로 띄웠으면 페이지에서 다시 뽑아 둔다:
 
 ```powershell
-$page = (Invoke-WebRequest https://127.0.0.1:3000/taskpane.html -UseBasicParsing).Content
+$page = (Invoke-WebRequest https://127.0.0.1:3000/ppt/taskpane.html -UseBasicParsing).Content
 if ($page -match '"token":\s*"([^"]+)"') { $matches[1] | Set-Content "$env:TEMP\ppt-token.txt" -NoNewline }
 ```
 
