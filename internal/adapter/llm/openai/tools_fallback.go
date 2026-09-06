@@ -65,6 +65,33 @@ func parseFallbackToolCall(text string, known map[string]bool) (*session.ToolCal
 	return &session.ToolCall{Name: name, Args: args}, true
 }
 
+// fallbackCallName is the name a call-shaped reply used, whether or not it is a tool — "" when it
+// named nothing. It is what the repair request quotes back when the name is not a tool: a model
+// that wrote {"name":"excel_add_comment"} (the name of a saved SKILL, 2026-09-07) is told that
+// name is not callable, which is a different correction from "you named nothing".
+func fallbackCallName(text string) string {
+	s := stripFence(strings.TrimSpace(text))
+	if m := xmlFuncRE.FindStringSubmatch(s); m != nil {
+		return m[1]
+	}
+	type probe struct {
+		Name string `json:"name"`
+		Tool string `json:"tool"`
+	}
+	for _, js := range jsonx.Objects(s) {
+		var p probe
+		if jsonx.Unmarshal(js, &p) {
+			if p.Name != "" {
+				return p.Name
+			}
+			if p.Tool != "" {
+				return p.Tool
+			}
+		}
+	}
+	return ""
+}
+
 // looksLikeToolCall reports whether assistant text has the SHAPE of a tool call even when it
 // cannot be read as one: a single JSON object (optionally fenced) or a <function=…>/[function=…]
 // opener. Ordinary prose, arrays and numbers are not. It is what turns "treat it as text" into

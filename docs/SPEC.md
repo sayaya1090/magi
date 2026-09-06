@@ -284,7 +284,7 @@ fallback-1: assistant outputs fenced block:
 fallback-2: assistant outputs an ordinary sentence      ⇒ text part, no tool-call
 fallback-3: assistant outputs broken JSON               ⇒ 1 repair retry; if still bad → text part
 fallback-4: assistant outputs an object with NO tool name  ⇒ repair request that quotes the reply and
-            (e.g. {"address":"A1","text":"…"})               names the defect; at most 2 per turn, then text.
+            (e.g. {"address":"A1","text":"…"})               names the defect (no name / not a tool); at most 3 per turn, then text.
             The tool is never guessed from the argument keys.
 ```
 

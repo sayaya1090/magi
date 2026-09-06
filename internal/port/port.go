@@ -149,6 +149,10 @@ type ProviderEvent struct {
 	// printed as prose and nothing ran). The loop answers it with a repair request
 	// (F-LLM-FALLBACK R3) instead of showing the JSON to the person.
 	MalformedCall bool
+	// MalformedName is the tool name the malformed reply used when it had one that is not a tool
+	// (a skill's name, a misspelling); empty when the reply named nothing. The repair request says
+	// which of the two happened — "no name" and "not a tool" need different corrections.
+	MalformedName string
 }
 
 // ---- Council (D14: consensus termination gate) ----

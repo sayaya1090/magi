@@ -629,6 +629,7 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 				// Fallback: no native tool_calls, but the text may itself be a
 				// tool call (e.g. qwen2.5-coder via Ollama).
 				malformed := false
+				malformedName := ""
 				if !nativeCalls && len(known) > 0 {
 					tc, ok := parseFallbackToolCall(fullText.String(), known)
 					if !ok {
@@ -638,12 +639,14 @@ func (c *Client) consume(ctx context.Context, cancel context.CancelFunc, body io
 						tc.CallID = fmt.Sprintf("call_fb_%d", time.Now().UnixNano())
 						emit(ctx, ch, port.ProviderEvent{Type: port.ProviderToolCall, ToolCall: tc, FromText: true})
 					} else if looksLikeToolCall(fullText.String()) {
-						// Shaped like a call, unreadable as one (no tool name). Not text — the loop asks
-						// the model to say it again properly (F-LLM-FALLBACK R3).
+						// Shaped like a call, unreadable as one (no tool name, or a name that is not a
+						// tool). Not text — the loop asks the model to say it again properly
+						// (F-LLM-FALLBACK R3), and is told which of the two it was.
 						malformed = true
+						malformedName = fallbackCallName(fullText.String())
 					}
 				}
-				emit(ctx, ch, port.ProviderEvent{Type: port.ProviderFinish, FinishReason: *choice.FinishReason, MalformedCall: malformed})
+				emit(ctx, ch, port.ProviderEvent{Type: port.ProviderFinish, FinishReason: *choice.FinishReason, MalformedCall: malformed, MalformedName: malformedName})
 				sawFinish = true
 				finishAt = time.Now()
 			}

@@ -31,6 +31,10 @@ func malformedStep(text string) []port.ProviderEvent {
 	return []port.ProviderEvent{{Type: port.ProviderText, Text: text}, {Type: port.ProviderFinish, FinishReason: "stop", MalformedCall: true}}
 }
 
+func misnamedStep(text, name string) []port.ProviderEvent {
+	return []port.ProviderEvent{{Type: port.ProviderText, Text: text}, {Type: port.ProviderFinish, FinishReason: "stop", MalformedCall: true, MalformedName: name}}
+}
+
 func lastRequestSays(r *repairAskLLM, i int, needle string) bool {
 	r.rmu.Lock()
 	defer r.rmu.Unlock()
@@ -83,11 +87,13 @@ func TestAMalformedToolCallIsSentBackForRepair(t *testing.T) {
 	}
 }
 
-// Two repair requests at most; the third such reply is shown as text so the turn cannot loop.
-func TestMalformedToolCallRepairIsAskedTwiceThenGivenUp(t *testing.T) {
+// Three repair requests at most; the fourth such reply is shown as text so the turn cannot loop.
+// A reply that names something that is not a tool is told exactly that, with the name.
+func TestMalformedToolCallRepairIsAskedThriceThenGivenUp(t *testing.T) {
 	llm := &repairAskLLM{fakeLLM: fakeLLM{steps: [][]port.ProviderEvent{
 		malformedStep(`{"address":"A1"}`),
-		malformedStep(`{"address":"A1"}`),
+		misnamedStep(`{"name":"sheet-design"}`, "sheet-design"),
+		misnamedStep(`{"name":"excel_add_comment","arguments":{"address":"A1"}}`, "excel_add_comment"),
 		malformedStep(`{"address":"A1"}`),
 		textStep("never reached"),
 	}}}
@@ -99,26 +105,33 @@ func TestMalformedToolCallRepairIsAskedTwiceThenGivenUp(t *testing.T) {
 	if countType(got, event.TypeTurnFinished) != 1 {
 		t.Fatalf("expected one finished turn, got %v", typesOf(got))
 	}
-	if llm.call != 3 {
-		t.Errorf("two repairs then text: the model should have been called exactly 3 times, got %d", llm.call)
+	if llm.call != 4 {
+		t.Errorf("three repairs then text: the model should have been called exactly 4 times, got %d", llm.call)
 	}
-	if !lastRequestSays(llm, 2, "LAST repair request") {
-		t.Error("the second repair must say it is the last")
+	if !lastRequestSays(llm, 2, `named "sheet-design", which is NOT a tool`) {
+		t.Error("a reply that named a non-tool is told the name is not a tool")
+	}
+	if !lastRequestSays(llm, 3, "LAST repair request") || !lastRequestSays(llm, 3, `"excel_add_comment"`) {
+		t.Error("the third repair must say it is the last and name the wrong tool")
 	}
 }
 
 func TestMalformedCallNudgeQuotesTheReplyAndEscalates(t *testing.T) {
-	first := malformedCallNudge(1, `{"address":"A1","text":"x"}`)
-	second := malformedCallNudge(2, `{"address":"A1","text":"x"}`)
+	first := malformedCallNudge(1, `{"address":"A1","text":"x"}`, "")
+	second := malformedCallNudge(2, `{"address":"A1","text":"x"}`, "")
+	third := malformedCallNudge(3, `{"address":"A1","text":"x"}`, "excel_add_comment")
+	if !strings.Contains(third, "LAST") || !strings.Contains(third, `"excel_add_comment", which is NOT a tool`) {
+		t.Errorf("the third nudge is the last and names the non-tool: %q", third)
+	}
 	for _, s := range []string{first, second} {
 		if !strings.Contains(s, `{"address":"A1","text":"x"}`) || !strings.Contains(s, `"name"`) || !strings.Contains(s, "Nothing ran") {
 			t.Errorf("the nudge must quote the reply, show the working form and say nothing ran: %q", s)
 		}
 	}
-	if first == second || !strings.Contains(second, "LAST") {
-		t.Error("the second nudge must differ from the first and say it is the last")
+	if first == second || strings.Contains(second, "LAST") || !strings.Contains(second, "again") {
+		t.Error("the second nudge must differ from the first and not yet be the last")
 	}
-	long := malformedCallNudge(1, strings.Repeat("x", 2000))
+	long := malformedCallNudge(1, strings.Repeat("x", 2000), "")
 	if len(long) > 1400 {
 		t.Errorf("a huge reply is cut before it is quoted (%d bytes)", len(long))
 	}

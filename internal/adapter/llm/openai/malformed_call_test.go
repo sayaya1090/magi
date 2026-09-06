@@ -51,21 +51,23 @@ func TestFinishFlagsAReplyShapedLikeACallWithNoToolName(t *testing.T) {
 		name, content string
 		malformed     bool
 		calls         int
+		badName       string
 	}{
-		{"arguments only", `{"address":"A1","text":"사용자 메모"}`, true, 0},
-		{"a skill's arguments only", `{"name":"sheet-design"}`, true, 0},
-		{"fenced arguments only", "```json\n{\"address\":\"A1\"}\n```", true, 0},
-		{"a readable fallback call", `{"name":"add_comment","arguments":{"address":"A1","text":"x"}}`, false, 1},
-		{"prose", "A1 에 메모를 붙였습니다.", false, 0},
-		{"an array", `[1,2,3]`, false, 0},
+		{"arguments only", `{"address":"A1","text":"사용자 메모"}`, true, 0, ""},
+		{"a skill's name where a tool's should be", `{"name":"sheet-design"}`, true, 0, "sheet-design"},
+		{"a full call under a saved skill's name", `{"name":"excel_add_comment","arguments":{"address":"A1","text":"검토 필요"}}`, true, 0, "excel_add_comment"},
+		{"fenced arguments only", "```json\n{\"address\":\"A1\"}\n```", true, 0, ""},
+		{"a readable fallback call", `{"name":"add_comment","arguments":{"address":"A1","text":"x"}}`, false, 1, ""},
+		{"prose", "A1 에 메모를 붙였습니다.", false, 0, ""},
+		{"an array", `[1,2,3]`, false, 0, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			fin, calls := finish(stream(t, c.content))
 			if fin.Type != port.ProviderFinish {
 				t.Fatal("no finish")
 			}
-			if fin.MalformedCall != c.malformed || calls != c.calls {
-				t.Errorf("malformed=%v calls=%d, want %v/%d", fin.MalformedCall, calls, c.malformed, c.calls)
+			if fin.MalformedCall != c.malformed || calls != c.calls || fin.MalformedName != c.badName {
+				t.Errorf("malformed=%v name=%q calls=%d, want %v/%q/%d", fin.MalformedCall, fin.MalformedName, calls, c.malformed, c.badName, c.calls)
 			}
 		})
 	}

@@ -23,10 +23,11 @@ type streamStep struct {
 	reasoning     string
 	toolCalls     []*session.ToolCall
 	usage         *event.Usage
-	textConsumed  bool // the text was a prompt-fallback tool call, not a real answer
-	reasoningSpun bool // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
-	malformedCall bool // the reply was shaped like a tool call but could not be read as one (port.ProviderEvent.MalformedCall)
-	stalled       bool // the stream went silent before the FIRST token (hung backend) — safe to retry
+	textConsumed  bool   // the text was a prompt-fallback tool call, not a real answer
+	reasoningSpun bool   // the response was cancelled as a reasoning-only spin (see reasoningSpinCap)
+	malformedCall bool   // the reply was shaped like a tool call but could not be read as one (port.ProviderEvent.MalformedCall)
+	malformedName string // the non-tool name that reply used, if any (port.ProviderEvent.MalformedName)
+	stalled       bool   // the stream went silent before the FIRST token (hung backend) — safe to retry
 	// cut is set when the stream carried a reply and then ended with neither finish_reason nor
 	// [DONE]. The text is a prefix; the loop says so and keeps going (see cutByLostStreamNote).
 	cut bool
@@ -259,10 +260,12 @@ func salvageTail(text, reasoning string) string {
 // malformedCallNudge is what the model hears when its reply was shaped like a tool call but named
 // no tool: the reply itself (it was discarded, so it must travel with the request — the model
 // cannot fix what is no longer in its context), what was wrong, and the exact form that works.
-// The second time says it is the last repair request; a third such reply is shown as text.
+// The third time says it is the last repair request; a fourth such reply is shown as text. Three,
+// not two: measured on Excel 2021 (2026-09-07) the model went arguments-only → a skill's name →
+// a full call under a skill's name, and only the last of those was told the name was wrong.
 // Guessing the tool from the argument keys was rejected on purpose (2026-09-07): every new tool
 // would make the guess worse, and a wrong guess runs the wrong thing. Telling the model is right.
-func malformedCallNudge(n int, reply string) string {
+func malformedCallNudge(n int, reply, badName string) string {
 	const limit = 800
 	r := strings.TrimSpace(reply)
 	if len(r) > limit {
@@ -272,17 +275,26 @@ func malformedCallNudge(n int, reply string) string {
 		}
 		r += "…"
 	}
+	defect := "it carried no tool name"
+	if badName != "" {
+		defect = "it named \"" + badName + "\", which is NOT a tool you can call — nothing by that name was " +
+			"offered to you (a skill's name or a saved recipe's name is not a tool name). Use the EXACT name " +
+			"of a tool from your tool list"
+	}
 	body := "Nothing ran and nothing changed. To use a tool, make a REAL tool call through the tool " +
 		"interface — the tool's NAME and its arguments — not JSON printed in the reply. If the interface " +
 		"is not available to you, write exactly {\"name\": \"<tool>\", \"arguments\": {…}} and nothing else. " +
 		"Do that now.\n\nYour reply was:\n\n" + r
-	if n <= 1 {
-		return "Your last reply was SHAPED like a tool call but was not one: it carried no tool name (or a " +
-			"name that is not a tool), so it could not be run. " + body
+	switch {
+	case n <= 1:
+		return "Your last reply was SHAPED like a tool call but was not one: " + defect + ", so it could not " +
+			"be run. " + body
+	case n == 2:
+		return "That happened again: another reply shaped like a tool call that could not be run — " + defect +
+			". It was discarded like the first. " + body
 	}
-	return "That happened again: another reply shaped like a tool call with no tool name, and it was " +
-		"discarded like the first. This is the LAST repair request — the next reply that is not a real " +
-		"tool call will be shown to the person as text. " + body
+	return "A third reply shaped like a tool call that could not be run — " + defect + ". This is the LAST " +
+		"repair request — the next reply that is not a real tool call will be shown to the person as text. " + body
 }
 
 func reasoningSpinNudge(n int) string {
@@ -430,6 +442,7 @@ loop:
 			finishAt = time.Now()
 			res.finishReason = ev.FinishReason
 			res.malformedCall = ev.MalformedCall
+			res.malformedName = ev.MalformedName
 		case port.ProviderError:
 			// Recorded either way; what differs is whether it ENDS the run. A cut stream and a
 			// stream magi itself aborted both leave a usable prefix, so they are marked recovered

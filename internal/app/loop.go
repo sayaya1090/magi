@@ -161,7 +161,7 @@ type turnState struct {
 	// did not carry.
 	spins int
 	// malformed counts replies shaped like a tool call that named no tool; each gets a repair
-	// request (F-LLM-FALLBACK R3), at most two a turn — then such a reply is shown as text.
+	// request (F-LLM-FALLBACK R3), at most three a turn — then such a reply is shown as text.
 	malformed       int
 	cutNoted        bool
 	declareAsks     int  // how many times this turn was told to declare completion (declareAskCap)
@@ -425,9 +425,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		// A reply shaped like a tool call that could not be read as one — no tool name (gpt-oss via
 		// Ollama drops it). Nothing ran, and showing the JSON as prose tells the person nothing (Excel
 		// 2021, 2026-09-07: {"address":"A1","text":"…"} on the screen, no note on A1). Ask the model to
-		// say it again as a real call (F-LLM-FALLBACK R3), twice at most; the reply is discarded like a
+		// say it again as a real call (F-LLM-FALLBACK R3), three times at most; the reply is discarded like a
 		// spin, and travels back inside the request so it can be corrected rather than re-derived.
-		if res.malformedCall && len(res.toolCalls) == 0 && ts.malformed < 2 {
+		if res.malformedCall && len(res.toolCalls) == 0 && ts.malformed < 3 {
 			ts.malformed++
 			// The reply is discarded but it was generated and metered — unlike a spin (cancelled
 			// mid-stream, usage rarely arrives) this one finished, so its tokens go on the bill.
@@ -439,8 +439,8 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 				}
 			}
 			a.emitToolProgress(sid, agentActor, "", agent.Name,
-				fmt.Sprintf("a reply looked like a tool call but named no tool (%d) — asking for a real call", ts.malformed))
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, malformedCallNudge(ts.malformed, res.text))
+				fmt.Sprintf("a reply looked like a tool call but could not be run (%d) — asking for a real call", ts.malformed))
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, malformedCallNudge(ts.malformed, res.text, res.malformedName))
 			continue
 		}
 		text, reasoning := res.text, res.reasoning
