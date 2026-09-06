@@ -275,7 +275,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	boundary = snapped
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
-	shards := shardBy(older, s.Workdir, topicKeysOf(a.toolSpecs(s.ID, agent)))
+	shards := shardBy(older, s.Workdir, topicKeysOf(a.sessionToolSpecs(s.ID, agent)))
 	// Say it is happening. Compaction is a model call on a large prompt — measured in tens of
 	// seconds on a local backend — and it runs BETWEEN steps, so nothing else is being drawn: the
 	// transcript simply stops. From the outside that is indistinguishable from a wedged turn, and

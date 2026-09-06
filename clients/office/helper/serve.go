@@ -1133,5 +1133,8 @@ func (a *API) image(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("Cache-Control", "private, max-age=3600")
-	_, _ = w.Write(b)
+	if _, err := w.Write(b); err != nil {
+		// 받는 쪽이 끊은 것이다 — 창이 닫혔거나 다른 그림으로 넘어갔다. 우리 쪽 실패가 아니라 적어만 둔다.
+		log.Printf("image: could not send %s: %v", filepath.Base(abs), err)
+	}
 }

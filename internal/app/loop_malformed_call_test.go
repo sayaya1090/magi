@@ -55,6 +55,7 @@ func lastRequestSays(r *repairAskLLM, i int, needle string) bool {
 // as a real call, with its own reply quoted so it can correct rather than re-derive. The next reply
 // is the answer. Guessing the tool from the argument keys was rejected (2026-09-07): telling the
 // model it was wrong is right, and it stays right as tools are added.
+// SPEC F-LLM-FALLBACK fallback-4: an object with no tool name is sent back for repair, quoted.
 func TestAMalformedToolCallIsSentBackForRepair(t *testing.T) {
 	llm := &repairAskLLM{fakeLLM: fakeLLM{steps: [][]port.ProviderEvent{
 		malformedStep(`{"address":"A1","text":"사용자 메모"}`),

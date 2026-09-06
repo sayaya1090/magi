@@ -440,7 +440,11 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 			a.emitToolProgress(sid, agentActor, "", agent.Name,
 				fmt.Sprintf("a reply looked like a tool call but could not be run (%d) — asking for a real call", ts.malformed))
-			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, malformedCallNudge(ts.malformed, res.text, res.malformedName))
+			if err := a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, malformedCallNudge(ts.malformed, res.text, res.malformedName)); err != nil {
+				// Best-effort: the repair request is the next step's prompt; a store that cannot take
+				// it refuses that step's own parts a moment later, where the error is not swallowed.
+				log.Printf("magi: could not record the repair request: %v", err)
+			}
 			continue
 		}
 		text, reasoning := res.text, res.reasoning
