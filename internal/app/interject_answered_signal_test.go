@@ -117,9 +117,13 @@ func TestTheBoundaryDrainSaysSoWhenItAnswersOne(t *testing.T) {
 
 	// The boundary drain runs AFTER the turn's terminal event, in the same goroutine — so waiting
 	// for the terminal event is waiting for the wrong thing. (Measured: the queue was still full
-	// and the log still three events long at that moment.) Wait for the disposition itself.
+	// and the log still three events long at that moment.) And waiting for the QUEUE to empty is
+	// waiting for the wrong thing too: the drain takes the entry out of the queue and then writes
+	// the "answered inline" record, and a reader between those two sees an empty queue and no
+	// record (CI -race, twice on 2026-09-06; never in 20 local runs). Wait for the record itself —
+	// that is the disposition this test is about.
 	deadline := time.Now().Add(10 * time.Second)
-	for a.hasPendingInterject(sid) && time.Now().Before(deadline) {
+	for !answeredIDs(t, a, sid)["m_1"] && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
