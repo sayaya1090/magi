@@ -1,8 +1,41 @@
 import { HandPort } from '../port/HandPort.js';
 import {
   ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, Refusal, refuse, str, num, int, bool, arr, need, hex, span,
-  envelope, clip, nowEpoch,
+  envelope, clip, nowEpoch, BUILTIN_PARAGRAPH_STYLES,
 } from './handCore.js';
+
+/** 문단 스타일 — 내장 이름(Heading2·"Heading 2"·normal)은 언어와 무관한 styleBuiltIn 으로, 나머지는 문서가 보여 주는 이름 그대로.
+ *  한국어 Word 에는 "Heading 1" 이란 스타일이 없어 `style = "Heading 1"` 이 InvalidArgument 였다(실물 2026-09-06). */
+export function applyStyle(p, style) {
+  if (!style) return;
+  const key = String(style).replace(/[\s_-]/g, '').toLowerCase();
+  const builtin = BUILTIN_PARAGRAPH_STYLES.find((b) => b.toLowerCase() === key);
+  if (builtin) p.styleBuiltIn = builtin; else p.style = style;
+}
+/** 목록 항목 뒤에 insertParagraph 한 문단은 Word 가 그 목록에 이어 붙인다 — 넣으라는 말은 문단이지 항목이 아니다. */
+async function detachInherited(context, paras) {
+  for (const p of paras) p.load('isListItem');
+  await context.sync();
+  let any = false;
+  for (const p of paras) if (p.isListItem) { p.detachFromList(); any = true; }
+  if (any) await context.sync();
+}
+/** 목록에 안 든 문단만 붙인다 — 든 문단에 attachToList 는 GeneralException. 항목이 된 문단에서 다시 읽는다. */
+async function attachMissing(context, paras, listId) {
+  for (const p of paras) p.load('isListItem');
+  await context.sync();
+  let any = false;
+  for (const p of paras) if (!p.isListItem) { p.attachToList(listId, 0); any = true; }
+  if (any) await context.sync();
+}
+/** 사용자 지정 속성은 형이 있다 — "2026-09-06" 을 문자열로 넣어도 Word 가 날짜로 굳힌다(실물). 자정 날짜는 날짜만 돌려준다. */
+function tagText(p) {
+  if (p.type !== 'Date') return String(p.value);
+  const d = new Date(p.value);
+  if (Number.isNaN(d.getTime())) return String(p.value);
+  const iso = d.toISOString();
+  return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso;
+}
 
 /**
  * 진짜 Word 에 닿는 손. **이 파일과 `OfficeDocument` 만 Office 를 안다.**
@@ -294,8 +327,8 @@ export class WordHand extends HandPort {
   }
   async #readTags() {
     return this.runner(async (context) => {
-      const props = context.document.properties.customProperties; props.load('items/key,items/value'); await context.sync();
-      const tags = props.items.filter((p) => String(p.key).startsWith('MAGI.') && !String(p.key).startsWith(FIX_PREFIX) && p.key !== DOC_PROPERTY_KEY).map((p) => ({ key: p.key, value: String(p.value) }));
+      const props = context.document.properties.customProperties; props.load('items/key,items/value,items/type'); await context.sync();
+      const tags = props.items.filter((p) => String(p.key).startsWith('MAGI.') && !String(p.key).startsWith(FIX_PREFIX) && p.key !== DOC_PROPERTY_KEY).map((p) => ({ key: p.key, value: tagText(p) }));
       return this.#envelope({ tags, count: tags.length });
     });
   }
@@ -328,10 +361,11 @@ export class WordHand extends HandPort {
         let np;
         if (cursor) np = cursor.insertParagraph(text, where === 'Before' && made.length === 0 ? 'Before' : 'After');
         else np = context.document.body.insertParagraph(text, where === 'Start' && made.length === 0 ? 'Start' : made.length === 0 ? 'End' : 'After');
-        if (style) np.style = style;
+        applyStyle(np, style);
         made.push(np); cursor = np;
       }
-      await context.sync(); this.#mutated();
+      await context.sync();
+      await detachInherited(context, made); this.#mutated();
       const after = await this.#paras(context, 'text');
       const firstText = String(lines[0] ?? '');
       let first = after.findIndex((q, i) => q.text === firstText && (p == null || i > 0)) + 1;
@@ -365,7 +399,7 @@ export class WordHand extends HandPort {
     return this.runner(async (context) => {
       const items = await this.#paras(context, 'text');
       const { from, to, list } = this.#pick(items, a);
-      for (const p of list) { if (builtin) p.styleBuiltIn = builtin; else p.style = style; }
+      for (const p of list) { if (builtin) p.styleBuiltIn = builtin; else applyStyle(p, style); }
       await context.sync(); this.#mutated();
       return this.#envelope({ from, to, style: builtin ?? style }, [`문단 ${from}${to > from ? `–${to}` : ''} 에 스타일 「${builtin ?? style}」`]);
     });
@@ -478,12 +512,18 @@ export class WordHand extends HandPort {
       const items = await this.#paras(context, 'text');
       const { p, where, said } = this.#anchor(items, a);
       const first = p ? p.insertParagraph(String(items0[0]), where === 'Before' ? 'Before' : 'After') : context.document.body.insertParagraph(String(items0[0]), where === 'Start' ? 'Start' : 'End');
+      await context.sync();
+      await detachInherited(context, [first]); // 목록 항목 뒤에 넣은 문단은 그 목록을 물려받고, 그 위에 startNewList 는 GeneralException 이다(실물 2026-09-06)
       const list = first.startNewList(); list.load('id');
       await context.sync();
       if (kind === 'numbered') list.setLevelNumbering(0, 'Arabic', [0, '.']); else list.setLevelBullet(0, 'Solid');
       let cursor = first; const made = [first];
-      for (let i = 1; i < items0.length; i += 1) { const np = cursor.insertParagraph(String(items0[i]), 'After'); np.attachToList(list.id, Number(levels[i] ?? 0) || 0); made.push(np); cursor = np; }
-      if (levels[0]) first.listItem.level = Number(levels[0]);
+      for (let i = 1; i < items0.length; i += 1) { const np = cursor.insertParagraph(String(items0[i]), 'After'); made.push(np); cursor = np; }
+      await context.sync();
+      // 목록 항목 뒤에 넣은 문단은 Word 가 그 목록에 이어 붙인다 — 이미 항목인 문단에 attachToList 는 GeneralException 이다(실물 2026-09-06).
+      // 그래서 붙이는 것은 안 붙은 것만, 단계는 항목이 된 뒤에 listItem 으로.
+      await attachMissing(context, made, list.id);
+      made.forEach((np, i) => { const lv = Number(levels[i] ?? 0) || 0; if (lv) np.listItem.level = lv; });
       await context.sync(); this.#mutated();
       return this.#envelope({ inserted: items0.length, kind }, [`${said} ${kind === 'numbered' ? '번호' : '글머리 기호'} 목록 ${items0.length}개를 넣었습니다`]);
     });
@@ -498,7 +538,7 @@ export class WordHand extends HandPort {
       let listId = null;
       if (kind || !list[0].isListItem) { const l = list[0].isListItem ? list[0].list : list[0].startNewList(); l.load('id'); await context.sync(); listId = l.id; if (kind === 'numbered') l.setLevelNumbering(0, 'Arabic', [0, '.']); else if (kind) l.setLevelBullet(0, 'Solid'); }
       else { const l = list[0].list; l.load('id'); await context.sync(); listId = l.id; }
-      for (let i = 0; i < list.length; i += 1) { const p = list[i]; if (!(i === 0 && p.isListItem === false && listId)) { if (!p.isListItem || i > 0) p.attachToList(listId, level ?? 0); } }
+      await attachMissing(context, list, listId);
       if (level != null) { for (const p of list) { p.listItem.level = level; } }
       await context.sync(); this.#mutated();
       return this.#envelope({ from, to, kind: kind ?? null, level: level ?? null }, [`문단 ${from}${to > from ? `–${to}` : ''} 을 ${kind === 'numbered' ? '번호 ' : kind === 'bulleted' ? '글머리 기호 ' : ''}목록으로${level != null ? ` (단계 ${level})` : ''}`]);
@@ -509,7 +549,10 @@ export class WordHand extends HandPort {
     return this.runner(async (context) => {
       const items = await this.#paras(context, 'text');
       const { p, where, said } = this.#anchor(items, a);
-      const pic = p ? p.insertInlinePictureFromBase64(b64, where === 'Before' ? 'Before' : 'After') : context.document.body.insertInlinePictureFromBase64(b64, where === 'Start' ? 'Start' : 'End');
+      // 문단의 insertInlinePictureFromBase64 는 Replace·Start·End 만 받는다(Before/After 는 InvalidArgument — 실물 2026-09-06).
+      // 그래서 그림은 제 문단을 하나 얻는다: 앞/뒤에 빈 문단을 넣고 그 첫머리에.
+      const host = p ? p.insertParagraph('', where === 'Before' ? 'Before' : 'After') : context.document.body.insertParagraph('', where === 'Start' ? 'Start' : 'End');
+      const pic = host.insertInlinePictureFromBase64(b64, 'Start');
       const w = num(a, 'width'); if (w != null) { pic.lockAspectRatio = true; pic.width = w; }
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();

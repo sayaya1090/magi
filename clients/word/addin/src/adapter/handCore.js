@@ -21,6 +21,12 @@ export const ALL_OPS = Object.freeze([...READ_OPS, ...WRITE_OPS]);
 
 /** 제안으로 누를 수 있는 손 — helper/tools.go 의 suggest 설명과 domain/Suggestion.js 의 FIXABLE 과 같은 목록. */
 export const FIX_TOOLS = Object.freeze(['replace_paragraph', 'format_text', 'format_paragraph', 'set_style', 'replace_all', 'insert_paragraphs']);
+/** Word.BuiltInStyleName 의 문단 스타일 — helper/enums.go 의 builtinStyles 와 같은 목록(smoke 가 대조한다). */
+export const BUILTIN_PARAGRAPH_STYLES = Object.freeze([
+  'Normal', 'Title', 'Subtitle', 'Heading1', 'Heading2', 'Heading3', 'Heading4', 'Heading5', 'Heading6', 'Heading7', 'Heading8', 'Heading9',
+  'Quote', 'IntenseQuote', 'ListParagraph', 'Caption', 'NoSpacing', 'TocHeading', 'Toc1', 'Toc2', 'Toc3',
+  'Emphasis', 'Strong', 'SubtleEmphasis', 'IntenseEmphasis', 'SubtleReference', 'IntenseReference', 'BookTitle',
+]);
 export const FIX_PREFIX = 'MAGI.FIX.';
 export const DOC_PROPERTY_KEY = 'MAGI.DOC';
 

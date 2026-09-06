@@ -16,7 +16,7 @@ import { fixLabel, FIXABLE } from '../src/domain/Suggestion.js';
 import { DocumentPort } from '../src/port/DocumentPort.js';
 import { FakeDocument } from '../src/adapter/FakeDocument.js';
 import { FakeHand } from '../src/adapter/FakeHand.js';
-import { ALL_OPS, READ_OPS, FIX_TOOLS, span } from '../src/adapter/handCore.js';
+import { ALL_OPS, READ_OPS, FIX_TOOLS, span, BUILTIN_PARAGRAPH_STYLES } from '../src/adapter/handCore.js';
 import { pickDoc, pickNote, lateNote, lateFailNote } from '../src/adapter/pickDoc.js';
 import { QuoteSelection, quoteNote } from '../src/usecase/QuoteSelection.js';
 import { SendTurn, logShapeOf, sendNote } from '../src/usecase/SendTurn.js';
@@ -24,6 +24,7 @@ import { FakeChat } from '../src/adapter/FakeChat.js';
 import { PointAtAdvice } from '../src/usecase/PointAtAdvice.js';
 import { handRole, HAND_FLOOR } from '../src/usecase/HandRole.js';
 import { readFileSync, readdirSync } from 'node:fs';
+import { applyStyle } from '../src/adapter/WordHand.js';
 import { parseMd, inlines, mdToDom, looksLikeMd } from '../src/ui/md.js';
 import { fixture } from '../src/ui/docFixture.js';
 import {
@@ -68,6 +69,10 @@ const point = new PointAtAdvice(book);
   const onlyHand = ALL_OPS.filter((n) => !advertised.includes(n));
   ok('헬퍼와 손이 같은 이름을 안다', onlyHelper.length === 0 && onlyHand.length === 0, `헬퍼에만: ${onlyHelper} / 손에만: ${onlyHand}`);
   const readOnlyGo = go.split(/\n\t\t\{\n/).filter((b) => /ReadOnly: true/.test(b)).map((b) => /Name: +"([a-z_]+)"/.exec(b)?.[1]).filter(Boolean);
+  const enums = readFileSync(new URL('../../helper/enums.go', import.meta.url), 'utf8');
+  const goBuiltin = [...enums.match(/var builtinStyles = \[\]string\{([\s\S]*?)\}/)[1].matchAll(/"([A-Za-z0-9]+)"/g)].map((m) => m[1]);
+  ok('내장 문단 스타일 목록이 헬퍼 enums.go 와 같다', goBuiltin.length === BUILTIN_PARAGRAPH_STYLES.length && everyOf(goBuiltin, (n) => BUILTIN_PARAGRAPH_STYLES.includes(n)), `${goBuiltin.length} vs ${BUILTIN_PARAGRAPH_STYLES.length}`);
+  ok('applyStyle: 내장 이름은 철자·띄어쓰기에 관대하게 styleBuiltIn, 나머지는 style', (() => { const a = {}; applyStyle(a, 'Heading 1'); const b = {}; applyStyle(b, 'normal'); const c = {}; applyStyle(c, '본문 강조'); return a.styleBuiltIn === 'Heading1' && b.styleBuiltIn === 'Normal' && c.style === '본문 강조' && c.styleBuiltIn === undefined; })());
   ok('읽기 도구 집합도 같다', READ_OPS.length === 14 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);
   const suggestDesc = /Name: +"suggest",[\s\S]*?Desc: ([\s\S]*?)Props:/.exec(go)?.[1] ?? '';
   ok('제안으로 누를 수 있는 손 목록이 헬퍼 설명·손·화면에서 같다',
