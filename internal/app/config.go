@@ -261,6 +261,11 @@ type Config struct {
 	// CompactRatio triggers auto-compaction when estimated context tokens exceed
 	// ContextWindow * ratio. Defaulted to 0.8.
 	CompactRatio float64
+	// CompactKeep is the share of the compaction budget (window × CompactRatio) kept verbatim as
+	// the recent tail when older history is folded. Defaulted to 0.25; outside (0,1) falls back.
+	CompactKeep float64
+	// CompactModel, when set, is the model the fold summaries are written with (same provider).
+	CompactModel string
 
 	// Experience is the shared team memory/skills store (D13). Optional.
 	Experience port.ExperienceStore
@@ -395,6 +400,9 @@ func (c Config) withDefaults() Config {
 	// rather than honor a number that has no reading.
 	if c.CompactRatio <= 0 || c.CompactRatio > 1 {
 		c.CompactRatio = 0.8
+	}
+	if c.CompactKeep <= 0 || c.CompactKeep >= 1 {
+		c.CompactKeep = 0.25
 	}
 	if c.WorkflowMaxLoops == 0 {
 		c.WorkflowMaxLoops = 3

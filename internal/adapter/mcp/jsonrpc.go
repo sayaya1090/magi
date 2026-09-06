@@ -61,6 +61,14 @@ type toolDef struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"inputSchema"`
+	// Annotations are the server's hints about the tool. Only readOnlyHint is read: it says the
+	// tool changes nothing, which makes its result re-derivable — what the context folder gives
+	// up first. Absent means "not declared", which is treated as not read-only.
+	Annotations *toolAnnotations `json:"annotations,omitempty"`
+}
+
+type toolAnnotations struct {
+	ReadOnlyHint bool `json:"readOnlyHint"`
 }
 
 type listToolsResult struct {

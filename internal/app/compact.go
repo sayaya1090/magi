@@ -73,6 +73,34 @@ func (a *App) maybeCompact(ctx context.Context, s session.Session, agent AgentSp
 // build logs that actually fill windows.
 const elideMinBytes = 2048
 
+// The second tier of the cheap cut: results of READ-ONLY tools. The first tier takes only what the
+// assistant narrated; a look that was never narrated is still re-derivable — the file is on disk,
+// the sheet is in the workbook — so when narrated results do not cover the overage, old looks go
+// next, OLDEST first (the model is working from the recent ones), keeping the newest
+// keepFreshLooks untouched. The bar is lower than elideMinBytes because many small looks add up
+// to the window that closed, and each stub still says how to have the bytes again.
+const (
+	elideLookMinBytes = 1024
+	keepFreshLooks    = 3
+)
+
+// toolReadOnly is whether a tool's result can be had again by calling it again: the builtin looks,
+// and any tool that declares it (an MCP server's `annotations.readOnlyHint`, port.ReadOnlyTool).
+func (a *App) toolReadOnly(name string) bool {
+	if readOnlyTools[name] {
+		return true
+	}
+	if a.tools == nil {
+		return false
+	}
+	t, ok := a.tools.Get(name)
+	if !ok {
+		return false
+	}
+	ro, can := t.(port.ReadOnlyTool)
+	return can && ro.ReadOnly()
+}
+
 // elideRecentResults marks bulky, digested tool results as elided, newest first, until the
 // overage is covered or candidates run out. Returns how many were marked and whether the
 // estimated savings covered the overage.
@@ -93,7 +121,8 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 	}
 	var results []cand // every tool result, in order
 	digested := map[string]bool{}
-	lastResult := "" // callID of the newest result — exempt
+	toolOf := map[string]string{} // callID → tool name, for the read-only tier
+	lastResult := ""              // callID of the newest result — exempt
 	for _, ev := range evs {
 		switch ev.Type {
 		case event.TypeResultElided:
@@ -107,6 +136,9 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 				continue
 			}
 			for _, p := range []session.Part{d.Part} {
+				if p.ToolCall != nil {
+					toolOf[p.ToolCall.CallID] = p.ToolCall.Name
+				}
 				if p.ToolResult != nil {
 					results = append(results, cand{p.ToolResult.CallID, len(p.ToolResult.Content)})
 					lastResult = p.ToolResult.CallID
@@ -128,15 +160,46 @@ func (a *App) elideRecentResults(ctx context.Context, s session.Session, actor e
 		if a.appendFact(ctx, s.ID, event.TypeResultElided, actor, d) != nil {
 			break
 		}
+		already[c.callID] = true
 		saved += c.bytes / 4
 		n++
 		if saved >= overTokens {
 			break
 		}
 	}
+	// Second tier: old read-only looks, oldest first, the newest keepFreshLooks spared.
+	looks := 0
+	if saved < overTokens {
+		var reads []cand
+		for _, c := range results {
+			if c.callID == lastResult || c.callID == "" || already[c.callID] ||
+				c.bytes < elideLookMinBytes || !a.toolReadOnly(toolOf[c.callID]) {
+				continue
+			}
+			reads = append(reads, c)
+		}
+		for i := 0; i < len(reads)-keepFreshLooks && saved < overTokens; i++ {
+			c := reads[i]
+			if already[c.callID] {
+				continue // taken by the first tier in this same pass
+			}
+			d, _ := json.Marshal(event.ResultElidedData{CallID: c.callID, Bytes: c.bytes})
+			if a.appendFact(ctx, s.ID, event.TypeResultElided, actor, d) != nil {
+				break
+			}
+			already[c.callID] = true
+			saved += c.bytes / 4
+			n++
+			looks++
+		}
+	}
 	if n > 0 {
+		what := "re-derivable, and already narrated"
+		if looks > 0 {
+			what = fmt.Sprintf("%d narrated, %d old read-only looks that can be taken again", n-looks, looks)
+		}
 		a.emitToolProgress(s.ID, actor, "", "compact",
-			fmt.Sprintf("freed the window by eliding %d bulky tool result(s) — re-derivable, and already narrated", n))
+			fmt.Sprintf("freed the window by eliding %d bulky tool result(s) — %s", n, what))
 	}
 	return n, saved >= overTokens
 }
@@ -159,6 +222,25 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 		return false // not enough to compact
 	}
 	boundary := factSeqs[len(factSeqs)-keepRecentEvents-1]
+	// The tail is measured in TOKENS, not events, when the window is known: keep the most recent
+	// turns that fit CompactKeep of the budget, and fold everything before them. Six events was
+	// half the window after a run of bulky results and next to nothing after a run of one-line
+	// turns; either way the person saw a fold that kept the wrong amount. The six-event floor
+	// stays as the least that is ever kept.
+	if keep := a.keepTailTokens(s); keep > 0 {
+		if b := tailBoundary(evs, keep); b > 0 && b < boundary {
+			boundary = b
+		}
+	}
+	// Never fold BELOW the previous fold's own event. With few turns since it, the event floor
+	// landed inside that fold's kept tail: the region folded was that tail alone, the previous
+	// brief (a later seq) survived the new snapshot as a second brief UNDER the new one, and the
+	// summariser never saw it — measured 2026-09-07 (Excel, two forced folds eight events apart:
+	// the view read brief-2, brief-1, tail, newest history first). From the previous fold's seq
+	// upward, the region is that brief plus everything since, which is what accumulates.
+	if c := lastCompactionSeq(evs); c > boundary {
+		boundary = c
+	}
 	// The boundary must not fall INSIDE a message. One step writes reasoning, text and tool
 	// calls as separate PartAppended events under one message id, and a boundary chosen by
 	// counting fact events lands between them routinely — the fold then dropped the whole
@@ -201,10 +283,26 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	// browser in another process can read (noteDoing).
 	a.emitToolProgress(s.ID, actor, "", "compact",
 		fmt.Sprintf("compacting the conversation — summarising %d earlier messages", len(older)))
-	summary := a.summarizeViaLLM(ctx, agent, s, older)
+	// The summary ACCUMULATES. The folded region holds the previous fold's brief as its first
+	// message, and summarising it again with the new turns made every fold a summary of a summary:
+	// four folds in, the opening decisions were a paraphrase of a paraphrase. The previous brief is
+	// kept verbatim and the new turns are folded after it; only when the running brief outgrows
+	// its share of the window is it condensed, once, as a whole.
+	prior := priorSummary(evs, boundary)
+	summary := a.summarizeViaLLM(ctx, agent, s, withoutBriefs(older))
 	if summary == "" {
 		a.emitToolProgress(s.ID, actor, "", "compact", "compaction did not produce a summary — keeping the conversation as it is")
 		return false
+	}
+	if prior != "" {
+		summary = prior + "\n\n" + summary
+	}
+	if cap := a.briefCapTokens(s); cap > 0 && len(summary)/4 > cap {
+		a.emitToolProgress(s.ID, actor, "", "compact",
+			fmt.Sprintf("the running brief outgrew its share (%d tokens over %d) — condensing it", len(summary)/4, cap))
+		if condensed := a.condenseBrief(ctx, agent, s, summary); condensed != "" {
+			summary = condensed
+		}
 	}
 
 	// Post-compaction context = the summary + the kept recent events.
@@ -491,10 +589,192 @@ func flattenForSummary(msgs []session.Message) []session.Message {
 	return out
 }
 
-// summarizeViaLLM asks the model to summarize prior conversation into a compact
-// brief that preserves decisions, facts, and open tasks. It uses the agent's own
-// provider so compaction runs on the same backend the agent is routed to.
+// keepTailTokens is how much recent conversation a fold keeps verbatim: CompactKeep of the
+// compaction budget. 0 when the window is unknown — then the event-count floor is all there is.
+func (a *App) keepTailTokens(s session.Session) int {
+	window := a.contextWindow(s.Model.Model)
+	if window <= 0 {
+		return 0
+	}
+	return int(float64(window) * a.cfg.CompactRatio * a.cfg.CompactKeep)
+}
+
+// briefCapTokens is how large the running brief may grow before it is condensed: a tenth of the
+// compaction budget, or a fixed 4k when the window is unknown (an unbounded brief on an unknown
+// window is the one case where the accumulation could eat the window it exists to save).
+func (a *App) briefCapTokens(s session.Session) int {
+	window := a.contextWindow(s.Model.Model)
+	if window <= 0 {
+		return 4000
+	}
+	return int(float64(window) * a.cfg.CompactRatio * briefShare)
+}
+
+const briefShare = 0.1
+
+// tailBoundary is the seq below which everything is folded so that what remains fits keepTokens:
+// messages are walked from the newest backwards, and the first one that does not fit is folded
+// whole (its last seq is the boundary). 0 when everything fits — then the caller's own floor
+// decides — or when the message that overflows has no seq of its own (a brief).
+func tailBoundary(evs []event.Event, keepTokens int) int64 {
+	last := map[string]int64{}
+	for _, e := range evs {
+		var id string
+		switch e.Type {
+		case event.TypePartAppended:
+			var d event.PartAppendedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				id = d.MessageID
+			}
+		case event.TypePromptSubmitted:
+			var d event.PromptSubmittedData
+			if json.Unmarshal(e.Data, &d) == nil {
+				id = d.MessageID
+			}
+		}
+		if id != "" && e.Seq > last[id] {
+			last[id] = e.Seq
+		}
+	}
+	msgs := reconstruct(evs)
+	total := 0
+	for i := len(msgs) - 1; i >= 0; i-- {
+		total += estimateTokens("", msgs[i:i+1])
+		if total <= keepTokens {
+			continue
+		}
+		return last[msgs[i].ID]
+	}
+	return 0
+}
+
+// lastCompactionSeq is the seq of the newest compaction event itself (not the boundary it wrote).
+func lastCompactionSeq(evs []event.Event) int64 {
+	var out int64
+	for _, e := range evs {
+		if e.Type == event.TypeCompaction && e.Seq > out {
+			out = e.Seq
+		}
+	}
+	return out
+}
+
+// priorSummary is the brief the last fold at or below boundary wrote — what the next brief is
+// appended to. "" when no fold is being folded over.
+func priorSummary(evs []event.Event, boundary int64) string {
+	out := ""
+	for _, e := range evs {
+		if e.Type != event.TypeCompaction || e.Seq > boundary {
+			continue
+		}
+		var d event.CompactionData
+		if json.Unmarshal(e.Data, &d) == nil {
+			out = d.Summary
+		}
+	}
+	return out
+}
+
+// withoutBriefs drops earlier folds' briefs from what the summariser reads: they are kept
+// verbatim by the caller, and re-summarising them is what made briefs drift.
+func withoutBriefs(msgs []session.Message) []session.Message {
+	out := make([]session.Message, 0, len(msgs))
+	for _, m := range msgs {
+		if strings.HasPrefix(m.ID, "compaction-") {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// foldPrompt is what the summariser is asked for. It names the sections because a one-line "keep
+// the key facts" produced briefs that kept the narrative and lost the identifiers — the cell
+// range, the slide number, the file the user named — which are exactly what the agent needs to
+// go on. And it says what a brief is NOT: the current state of anything. A fold's brief describes
+// what was done; the state is in the file, and an agent that trusted a brief's "B6 holds 58150"
+// after somebody edited B6 acted on a number that no longer existed.
+const foldPrompt = `You are folding the older part of a long working conversation into a brief that will REPLACE it. The agent continues from this brief plus the most recent turns, so anything not written here is gone.
+
+Write these sections, in this order, with these headings:
+1. Request — what the user asked for (their own words where the wording matters) and every constraint or preference they stated.
+2. Decisions — what was decided and why, including what was considered and ruled out.
+3. Done — what was changed or produced, naming exactly what was touched (files, sheets, cell ranges, slides, paragraphs, ids, commands) and the outcome of each.
+4. Open — what remains, what was tried and failed (so it is not tried again the same way), and anything the user is still waiting on.
+5. Names — identifiers, paths, numbers and terms the user uses that must be repeated exactly.
+
+Keep identifiers, paths, code and numbers verbatim. Describe what was DONE to a file or document, never its current contents as fact — the state is re-read from the source when needed. Be concise; omit pleasantries and narration. Write only the brief.`
+
+// condensePrompt rewrites an accumulated brief once it outgrows its share of the window.
+const condensePrompt = `Condense the following brief of a long working conversation into a shorter one with the same five sections (Request, Decisions, Done, Open, Names). Merge repeated points, drop narration, keep every identifier, path, number and unresolved item verbatim. Write only the condensed brief.`
+
+// summarizeViaLLM asks the model to fold prior conversation into a brief that preserves the
+// request, the decisions, what was done, what is open and the names in play. It uses the agent's
+// own provider so compaction runs on the same backend the agent is routed to, and asks for the
+// brief in the language the user was writing in.
 func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Session, msgs []session.Message) string {
+	system := foldPrompt
+	if d := langDirective(personsWords(msgs)); d != "" {
+		system += "\n\n" + d
+	}
+	return a.askForBrief(ctx, agent, s, system, asMaterial(flattenForSummary(msgs)))
+}
+
+// asMaterial hands the conversation to the summariser as ONE user message quoting it, role by
+// role, with the instruction last. Sent as a message list it was a conversation to CONTINUE: a
+// fold over a short tail ending in a tool result came back as the assistant's next reply ("no new
+// request, nothing further to do" — measured 2026-09-07), and that sentence became the session's
+// memory of everything it replaced. Quoted, it is material, and the last line says what to do.
+func asMaterial(msgs []session.Message) []session.Message {
+	var b strings.Builder
+	b.WriteString("The conversation to fold follows, oldest first, each turn marked by its role.\n\n<conversation>\n")
+	for _, m := range msgs {
+		for _, p := range m.Parts {
+			if p.Kind == session.PartText && p.Text != "" {
+				b.WriteString("[")
+				b.WriteString(string(m.Role))
+				b.WriteString("]\n")
+				b.WriteString(p.Text)
+				b.WriteString("\n\n")
+			}
+		}
+	}
+	b.WriteString("</conversation>\n\nWrite the brief now — do not answer or continue the conversation.")
+	return []session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: b.String()}}}}
+}
+
+// condenseBrief rewrites the running brief, shorter. "" when the model gave nothing — the caller
+// keeps the long one rather than losing it.
+func (a *App) condenseBrief(ctx context.Context, agent AgentSpec, s session.Session, brief string) string {
+	system := condensePrompt
+	if d := langDirective(brief); d != "" {
+		system += "\n\n" + d
+	}
+	return a.askForBrief(ctx, agent, s, system,
+		[]session.Message{{Role: session.RoleUser, Parts: []session.Part{{Kind: session.PartText, Text: brief}}}})
+}
+
+// personsWords is what the person wrote in these messages, joined — the sample the language of the
+// brief is chosen from.
+func personsWords(msgs []session.Message) string {
+	var b strings.Builder
+	for _, m := range msgs {
+		if m.Role != session.RoleUser {
+			continue
+		}
+		for _, p := range m.Parts {
+			if p.Kind == session.PartText {
+				b.WriteString(p.Text)
+				b.WriteString("\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+// askForBrief is the one model call both briefs go through: the session's provider, the
+// configured summariser model when there is one, and the truncation marking every brief needs.
+func (a *App) askForBrief(ctx context.Context, agent AgentSpec, s session.Session, system string, msgs []session.Message) string {
 	prov := a.providerFor(agent)
 	if prov == nil {
 		// The same guard generate_step grew: a reader-only App has no backend, and dereferencing
@@ -504,16 +784,19 @@ func (a *App) summarizeViaLLM(ctx context.Context, agent AgentSpec, s session.Se
 			"compact: no model backend to summarize with, so this fold was skipped")
 		return ""
 	}
+	model := s.Model.Model
+	if a.cfg.CompactModel != "" {
+		model = a.cfg.CompactModel
+	}
 	req := port.ChatRequest{
-		Model: s.Model.Model,
-		System: "Summarize the following conversation into a concise brief that preserves key facts, " +
-			"decisions, file changes, and any unfinished tasks. Write only the summary.",
-		// Tool calls and results flattened to plain text. The request carries no Tools, and a strict
-		// backend (Anthropic via a gateway) rejects a message holding tool_use blocks with no tools
-		// declared — so every auto-fold on such a route failed silently, forever. The summarizer
-		// only needs to READ the conversation; rendered as prose it says the same thing and goes out
-		// legally on any backend.
-		Messages: flattenForSummary(msgs),
+		Model:  model,
+		System: system,
+		// Tool calls and results flattened to plain text (the caller did it). The request carries
+		// no Tools, and a strict backend (Anthropic via a gateway) rejects a message holding
+		// tool_use blocks with no tools declared — so every auto-fold on such a route failed
+		// silently, forever. The summarizer only needs to READ the conversation; rendered as prose
+		// it says the same thing and goes out legally on any backend.
+		Messages: msgs,
 	}
 	stream, err := prov.StreamChat(ctx, req)
 	if err != nil {

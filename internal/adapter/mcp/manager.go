@@ -230,7 +230,8 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 		}
 		t := &mcpTool{byOwner: map[string]*Client{owner: client},
 			name: namespacedToolName(name, d.Name), remote: d.Name,
-			description: d.Description, schema: schema, imageDir: m.ImageDir}
+			description: d.Description, schema: schema, imageDir: m.ImageDir,
+			readOnly: d.Annotations != nil && d.Annotations.ReadOnlyHint}
 		tools = append(tools, t)
 	}
 

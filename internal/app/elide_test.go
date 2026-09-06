@@ -229,3 +229,62 @@ func TestCouncilEvidenceSurvivesElision(t *testing.T) {
 		t.Fatalf("the council is reading the model's stub instead of the log:\n%s", ev)
 	}
 }
+
+// The second tier: a read-only look is re-derivable whether or not the assistant narrated it, so
+// when narrated results do not cover the overage, OLD looks go next — oldest first, the newest
+// three spared, and never a result whose tool changes things (that one may be the only record
+// of what happened).
+func TestOldReadOnlyLooksGoAfterNarratedResults(t *testing.T) {
+	a, sid := elideApp(t)
+	big := strings.Repeat("r", 4000) // ~1000 tokens each
+	evs := seed(t, a, sid,
+		userPromptEvt(t, "m1", "look around"),
+		elideCall(t, "c1", "read"), elidePart(t, "c1", big, session.RoleTool), // oldest look, never narrated
+		elideCall(t, "c2", "bash"), elidePart(t, "c2", big, session.RoleTool), // not a look — its output is a record
+		elideCall(t, "c3", "read"), elidePart(t, "c3", big, session.RoleTool),
+		elideCall(t, "c4", "grep"), elidePart(t, "c4", big, session.RoleTool),
+		elideCall(t, "c5", "read"), elidePart(t, "c5", big, session.RoleTool),
+		elideCall(t, "c6", "read"), elidePart(t, "c6", big, session.RoleTool), // newest result — exempt
+	)
+	n, covered := a.elideRecentResults(context.Background(), session.Session{ID: sid},
+		event.Actor{Kind: event.ActorSystem, ID: "compact"}, evs, 900)
+	if n != 1 || !covered {
+		t.Fatalf("one old look covers a 900-token overage: n=%d covered=%v", n, covered)
+	}
+	evs, _ = a.store.Read(context.Background(), sid, 0)
+	stubbed := map[string]bool{}
+	for _, m := range reconstruct(evs) {
+		for _, p := range m.Parts {
+			if p.ToolResult != nil && strings.Contains(string(p.ToolResult.Content), "elided") {
+				stubbed[p.ToolResult.CallID] = true
+			}
+		}
+	}
+	if !stubbed["c1"] {
+		t.Error("the OLDEST look is the one to give up — the model works from the recent ones")
+	}
+	for _, id := range []string{"c2", "c3", "c4", "c5", "c6"} {
+		if stubbed[id] {
+			t.Errorf("%s was stubbed: bash output is not re-derivable, and the newest three looks are spared", id)
+		}
+	}
+}
+
+// When there is nothing but fresh looks and a changing tool's output, nothing goes.
+func TestFreshLooksAndRecordsAreKept(t *testing.T) {
+	a, sid := elideApp(t)
+	big := strings.Repeat("k", 4000)
+	evs := seed(t, a, sid,
+		userPromptEvt(t, "m1", "look"),
+		elideCall(t, "c1", "bash"), elidePart(t, "c1", big, session.RoleTool),
+		elideCall(t, "c2", "read"), elidePart(t, "c2", big, session.RoleTool),
+		elideCall(t, "c3", "read"), elidePart(t, "c3", big, session.RoleTool),
+		elideCall(t, "c4", "read"), elidePart(t, "c4", big, session.RoleTool),
+		elideCall(t, "c5", "read"), elidePart(t, "c5", big, session.RoleTool),
+	)
+	n, covered := a.elideRecentResults(context.Background(), session.Session{ID: sid},
+		event.Actor{Kind: event.ActorSystem, ID: "compact"}, evs, 900)
+	if n != 0 || covered {
+		t.Fatalf("three fresh looks (c2-c4 behind the exempt c5) and a bash record: nothing to give — n=%d covered=%v", n, covered)
+	}
+}

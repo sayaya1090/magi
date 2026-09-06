@@ -379,6 +379,15 @@ type Tool interface {
 	Execute(ctx context.Context, args json.RawMessage, env ToolEnv) (session.ToolResult, error)
 }
 
+// ReadOnlyTool is a tool that says it changes nothing, so its result can be had again by calling
+// it again. An MCP server declares this as `annotations.readOnlyHint`; the builtins that only look
+// are listed in the app. The context folder reads it: when the window closes, a result that can be
+// re-read is the cheapest thing to give up — cheaper than a fold, which pays a summariser call
+// and re-bills the whole conversation behind the cut.
+type ReadOnlyTool interface {
+	ReadOnly() bool
+}
+
 // FileTool is a tool that opens a named file, and says which one BEFORE it runs.
 //
 // magi recognised a file edit by the tool's NAME: `write`, `edit`, `multiedit`, with the path read

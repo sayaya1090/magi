@@ -978,6 +978,8 @@ func run() int {
 		AllowDomains:        cfg.AllowDomains,
 		MaxOutputTokens:     cfg.Limits.MaxOutputTokens, // [limits]; the spin guard defers when set
 		ContextTokens:       cfg.Limits.ContextTokens,   // [limits]; forces the window for every model
+		CompactKeep:         cfg.Limits.CompactKeep,     // [limits]; share of the budget kept verbatim when folding (0 = default)
+		CompactModel:        cfg.Limits.CompactModel,    // [limits]; the model that writes fold summaries ("" = the session's)
 		CompactRatio:        cfg.Limits.CompactRatio,    // [limits]; share of the window used before compaction (0 = default)
 		Experience:          experienceStore,
 		Companion:           cfg.Companion.Name,
@@ -1806,6 +1808,12 @@ func mergeProjectConfigSaying(cfg, proj config.Config, trusted bool) (config.Con
 	}
 	if proj.Limits.CompactRatio != 0 {
 		cfg.Limits.CompactRatio = proj.Limits.CompactRatio
+	}
+	if proj.Limits.CompactKeep != 0 {
+		cfg.Limits.CompactKeep = proj.Limits.CompactKeep
+	}
+	if proj.Limits.CompactModel != "" {
+		cfg.Limits.CompactModel = proj.Limits.CompactModel
 	}
 	if proj.Sampling.Temperature != nil {
 		cfg.Sampling.Temperature = proj.Sampling.Temperature

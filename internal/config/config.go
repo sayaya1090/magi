@@ -129,6 +129,14 @@ type LimitsConfig struct {
 	MaxOutputTokens int     `toml:"max_output_tokens"`
 	ContextTokens   int     `toml:"context_tokens"`
 	CompactRatio    float64 `toml:"compact_ratio"`
+	// CompactKeep is the share of the compaction budget kept VERBATIM as the recent tail when the
+	// rest is folded (default 0.25). The tail used to be a fixed six events, which was half the
+	// window after bulky results and next to nothing after short turns.
+	CompactKeep float64 `toml:"compact_keep"`
+	// CompactModel names the model that writes the fold summaries, on the session's own provider.
+	// Empty means the session's model. A small model here makes folding cheap enough to run
+	// earlier and more often, which loses less each time.
+	CompactModel string `toml:"compact_model"`
 }
 
 // SamplingConfig sets the sampling parameters sent with every request ([sampling]):

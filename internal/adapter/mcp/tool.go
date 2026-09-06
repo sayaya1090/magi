@@ -29,6 +29,8 @@ type mcpTool struct {
 	remote      string
 	description string
 	schema      json.RawMessage
+	// readOnly is the server's own word (`annotations.readOnlyHint`) that this tool changes nothing.
+	readOnly bool
 	// imageDir is where a picture this tool returns is kept — the daemon's data directory. Empty
 	// when the host gave none, and then images are reported as dropped rather than written
 	// somewhere that disappears.
@@ -76,6 +78,9 @@ func (t *mcpTool) handFor(session string) *Client {
 func (t *mcpTool) Name() string            { return t.name }
 func (t *mcpTool) Description() string     { return t.description }
 func (t *mcpTool) Schema() json.RawMessage { return t.schema }
+
+// ReadOnly answers port.ReadOnlyTool with what the server declared.
+func (t *mcpTool) ReadOnly() bool { return t.readOnly }
 
 // Execute forwards the call to the MCP server and flattens its content blocks into the tool
 // result: the text as text, and any images to disk with references beside it.

@@ -19,6 +19,7 @@ import (
 type namesSink struct {
 	mu    sync.Mutex
 	named map[string]bool
+	tools map[string]port.Tool
 }
 
 func (s *namesSink) Register(t port.Tool) {
@@ -26,14 +27,24 @@ func (s *namesSink) Register(t port.Tool) {
 	defer s.mu.Unlock()
 	if s.named == nil {
 		s.named = map[string]bool{}
+		s.tools = map[string]port.Tool{}
 	}
 	s.named[t.Name()] = true
+	s.tools[t.Name()] = t
 }
 
 func (s *namesSink) Unregister(name string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.named, name)
+	delete(s.tools, name)
+}
+
+func (s *namesSink) get(name string) (port.Tool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t, ok := s.tools[name]
+	return t, ok
 }
 
 func (s *namesSink) has(name string) bool {
@@ -533,5 +544,51 @@ func TestADeadConfigServersNameIsNotTakenByTheDoor(t *testing.T) {
 	defer claimant.Close()
 	if _, err := m.Attach(context.Background(), "", "ppt", claimant.URL, nil); err == nil || !strings.Contains(err.Error(), "already attached") {
 		t.Fatalf("the door took a config server's name: %v", err)
+	}
+}
+
+// A server's readOnlyHint reaches the tool the model calls, as port.ReadOnlyTool. The Office helper
+// has declared it on every tool since 2026-09 and magi dropped it at the wire; the context folder
+// now reads it to know which results can be had again.
+func TestReadOnlyHintRidesTheTool(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Method string `json:"method"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05",` +
+				`"capabilities":{},"serverInfo":{"name":"t","version":"1"}}}`))
+		case "tools/list":
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":2,"result":{"tools":[` +
+				`{"name":"look","description":"d","inputSchema":{"type":"object"},"annotations":{"readOnlyHint":true}},` +
+				`{"name":"look_write","description":"d","inputSchema":{"type":"object"}}]}}`))
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	}))
+	defer srv.Close()
+	sink := &namesSink{}
+	m := NewManager(sink)
+	defer m.Close()
+	if _, err := m.Attach(context.Background(), "", "ppt", srv.URL, nil); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+	ro := func(name string) bool {
+		t.Helper()
+		tool, ok := sink.get(name)
+		if !ok {
+			t.Fatalf("%s is not in the registry", name)
+		}
+		r, can := tool.(port.ReadOnlyTool)
+		return can && r.ReadOnly()
+	}
+	if !ro("mcp__ppt__look") {
+		t.Error("the hinted tool does not answer ReadOnly")
+	}
+	if ro("mcp__ppt__look_write") {
+		t.Error("an unhinted tool answered read-only — absent must mean not declared")
 	}
 }

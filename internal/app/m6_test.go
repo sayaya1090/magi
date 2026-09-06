@@ -38,8 +38,10 @@ func TestReconstructCompactionKeepsTail(t *testing.T) {
 	if len(msgs) != 2 {
 		t.Fatalf("got %d messages, want 2: %+v", len(msgs), msgs)
 	}
-	if msgs[0].Role != session.RoleSystem || msgs[0].Parts[0].Text != "SUMMARY" {
-		t.Errorf("first message should be the summary, got %+v", msgs[0])
+	// The brief is headed by what it is — a record of what was done, not the state now.
+	if msgs[0].Role != session.RoleSystem || !strings.HasSuffix(msgs[0].Parts[0].Text, "SUMMARY") ||
+		!strings.HasPrefix(msgs[0].Parts[0].Text, briefHeader) {
+		t.Errorf("first message should be the headed summary, got %+v", msgs[0])
 	}
 	if msgs[1].ID != "u2" || msgs[1].Parts[0].Text != "recent" {
 		t.Errorf("tail not preserved, got %+v", msgs[1])
@@ -111,12 +113,16 @@ type usageLLM struct {
 	in, out    int
 	lastModel  string
 	lastSystem string
+	lastMsgs   []session.Message
+	calls      int
 }
 
 func (f *usageLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan port.ProviderEvent, error) {
 	f.mu.Lock()
 	f.lastModel = r.Model
 	f.lastSystem = r.System
+	f.lastMsgs = r.Messages
+	f.calls++
 	f.mu.Unlock()
 	ch := make(chan port.ProviderEvent, 4)
 	txt := f.text
@@ -132,7 +138,14 @@ func (f *usageLLM) StreamChat(ctx context.Context, r port.ChatRequest) (<-chan p
 	return ch, nil
 }
 
-func usedModel(f *usageLLM) string  { f.mu.Lock(); defer f.mu.Unlock(); return f.lastModel }
+func usedModel(f *usageLLM) string { f.mu.Lock(); defer f.mu.Unlock(); return f.lastModel }
+func (f *usageLLM) lastRequest() []session.Message {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastMsgs
+}
+func (f *usageLLM) say(text string) { f.mu.Lock(); defer f.mu.Unlock(); f.text = text }
+func (f *usageLLM) callCount() int  { f.mu.Lock(); defer f.mu.Unlock(); return f.calls }
 func (f *usageLLM) lastSys() string { f.mu.Lock(); defer f.mu.Unlock(); return f.lastSystem }
 
 func runToTerminal(t *testing.T, a *App, sid session.SessionID) []event.Event {
