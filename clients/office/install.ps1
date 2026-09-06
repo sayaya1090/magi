@@ -7,7 +7,9 @@
   그래서 인증서(office-helper-cert.pem)·자동 시작·신뢰 카탈로그 키가 전부 하나다. 이 파일을 돌리면:
     1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다.
     2. magi.exe 를 빌드해 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다(헬퍼가 그 자리를 본다).
-    3. 데몬 권한 모드를 allow 로 둔다(~/.magi/config.toml). 사용자 결정(2026-09-05·06).
+    3. 데몬 권한 모드를 allow 로 둔다(~/.magi/config.toml). 사용자 결정(2026-09-05·06). 컴패니언은 ~/.magi 를 보고 평소의
+       magi 는 %APPDATA%\magi 를 보므로, 백엔드(model·base_url·api_key·[llm] 프로필)가 ~/.magi 쪽에 없으면 평소 것을 가져오고
+       플러그인 폴더는 정션으로 한자리에 둔다 — 안 그러면 평소 데몬은 되는데 컴패니언 셋만 「API 키를 확인하라」(2021, 2026-09-07).
     4. 헬퍼를 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나에 매니페스트 셋.
     6. 로그인할 때 헬퍼가 같이 뜨게 한다. -NoAutostart 로 끌 수 있다.
@@ -154,6 +156,30 @@ Copy-Item (Join-Path $repo 'clients\powerpoint\hand-watch.ps1') (Join-Path $Dest
 Say '데몬 권한 모드를 allow 로 둔다'
 New-Item -ItemType Directory -Force $configDir | Out-Null
 $cfg = Join-Path $configDir 'config.toml'
+# **백엔드는 평소의 magi 것을 쓴다.** 컴패니언은 $configDir(~/.magi)를 보는데(소켓·카탈로그 사정, 위) 사람이 평소 쓰는
+# magi 는 %APPDATA%\magi 를 본다. 그래서 평소 데몬은 잘 되는데 컴패니언 셋은 「API 키를 확인하라」에서 멈췄다(2021,
+# 2026-09-07). 이쪽에 백엔드를 정하는 줄이 하나도 없고 저쪽에 있으면 저쪽 파일을 통째로 가져온다(permission 은 아래서
+# 다시 allow 로). 이쪽에 이미 있으면 사람이 정한 것이니 손대지 않는다. 플러그인 폴더는 정션으로 한자리에 둔다 —
+# 백엔드를 플러그인이 정하는 판(set_base_url)이면 그 플러그인이 컴패니언에도 떠야 한다.
+$usual = Join-Path $env:APPDATA 'magi'
+$usualCfg = Join-Path $usual 'config.toml'
+$backendLine = { $_ -match '^\s*(model|base_url|api_key|profile)\s*=' -or $_ -match '^\s*\[llm' }
+if ((Test-Path $usualCfg) -and ((Resolve-Path $usualCfg).Path -ne $cfg)) {
+  $mine = @(); if (Test-Path $cfg) { $mine = @(Get-Content $cfg -Encoding UTF8) }
+  $theirs = @(Get-Content $usualCfg -Encoding UTF8)
+  if (-not ($mine | Where-Object $backendLine) -and ($theirs | Where-Object $backendLine)) {
+    Copy-Item $usualCfg $cfg -Force
+    Done "config.toml: 백엔드 설정을 평소의 magi 것에서 가져왔다($usualCfg)"
+  } elseif (-not ($mine | Where-Object $backendLine)) {
+    Warn "config.toml 에 백엔드(model·base_url·api_key)가 없다 — 컴패니언은 기본값(gpt-oss:120b-cloud, localhost:11434)으로 뜬다. $cfg 에 적어라."
+  }
+}
+$usualPlugins = Join-Path $usual 'plugins'
+$myPlugins = Join-Path $configDir 'plugins'
+if ((Test-Path $usualPlugins) -and -not (Test-Path $myPlugins)) {
+  New-Item -ItemType Junction -Path $myPlugins -Target $usualPlugins | Out-Null
+  Done "plugins → $usualPlugins (정션 — 평소 magi 의 플러그인이 컴패니언에도 뜬다)"
+}
 $lines = @(); if (Test-Path $cfg) { $lines = @(Get-Content $cfg -Encoding UTF8) }
 $live = $lines | Where-Object { $_ -match '^\s*permission\s*=' }
 if ($live) {
