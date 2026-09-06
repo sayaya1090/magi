@@ -319,6 +319,7 @@ export function rowHead(r) {
 export function rowShape(r) {
   if (r.kind === 'tool' || r.kind === 'result' || r.kind === 'permission') return 'tool';
   if (r.kind === 'turn') return 'turn';
+  if (r.kind === 'fold') return 'fold';
   if (r.kind === 'council') return 'council';
   // **혼잣말은 접힌다.** 사용자에게 한 말이 아닌데 답풍선과 같은 자리를 통째로 먹고 있었다 —
   // 도형 하나에 호출 하나인 이 제품에서 그 글은 길고, 348×391 에서는 답을 밀어낸다.
@@ -489,6 +490,14 @@ export function argsCell(r) {
 
 
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
+/** 접은 줄의 글. 줄어든 것은 대화다 — 시스템·도구 목록은 접히지 않는다. */
+export function foldText(r) {
+  const b = Number(r?.fold?.before) || 0; const a = Number(r?.fold?.after) || 0;
+  if (b <= 0 && a <= 0) return '컨텍스트를 접었습니다';
+  const shed = b - a;
+  return `컨텍스트를 접었습니다 — ${kilo(b)} → ${kilo(a)} 토큰${shed > 0 ? ` · ${kilo(shed)} 덜어냄` : ''}`;
+}
+
 export function endText(r) {
   return r.unverified
     ? `검증 없이 끝남${r.reason ? ` — ${r.reason}` : ''}`

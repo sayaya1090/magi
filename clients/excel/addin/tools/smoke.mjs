@@ -34,7 +34,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, capsQuiet, councilButton, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, fixBoard,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, fixBoard, foldText,
 } from '../src/ui/screen.js';
 import { Transcript, isPluginNudge, PLUGIN_NUDGE_MARK } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -1429,3 +1429,13 @@ const point = new PointAtAdvice(book);
   ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '다시 띄웁니다');
 }
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
+
+// ── 접기 이벤트 (2026-09-06) ─────────────────────────────────────────────
+{
+  const t = new Transcript();
+  t.append({ type: 'compaction', seq: 9, data: { tokensBefore: 9000, tokensAfter: 1200 } });
+  const row = t.rows[t.rows.length - 1];
+  ok('compaction 은 접은 줄로 선다 — 모르는 이벤트가 아니다', row?.kind === 'fold' && row.fold.before === 9000 && t.unknownNote === null, JSON.stringify({ kind: row?.kind, un: t.unknownNote }));
+  ok('접은 줄의 글은 전후와 덜어낸 양을 k 로', foldText(row) === '컨텍스트를 접었습니다 — 9k → 1.2k 토큰 · 7.8k 덜어냄', foldText(row));
+  ok('전후를 모르면 접었다고만', foldText({ kind: 'fold', fold: { before: 0, after: 0 } }) === '컨텍스트를 접었습니다');
+}

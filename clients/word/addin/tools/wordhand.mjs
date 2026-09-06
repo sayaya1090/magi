@@ -48,7 +48,7 @@ const context = () => ({ document: thing('document'), sync: async () => {} });
 
 const ARGS = {
   list_paragraphs: {}, read_paragraphs: { from: 1, to: 3 }, read_document: {}, find: { text: '요약' }, read_table: { table: 1 }, read_html: { from: 1, to: 2 },
-  read_comments: {}, read_tracked_changes: {}, describe_style: {}, snapshot_paragraphs: { from: 2, to: 3 }, read_tags: {}, read_suggestions: {},
+  read_comments: {}, read_footnotes: {}, insert_footnote: { paragraph: 3, text: '매출', note: '내부 집계 기준' }, delete_footnote: { number: 1 }, read_tracked_changes: {}, describe_style: {}, snapshot_paragraphs: { from: 2, to: 3 }, read_tags: {}, read_suggestions: {},
   advise: { items: [{ message: 'm' }] }, clear_advice: {},
   insert_paragraphs: { lines: ['a', 'b'], after: 3, style: 'Normal' }, replace_paragraph: { paragraph: 3, text: '새 글' }, delete_paragraphs: { from: 4, to: 4 },
   set_style: { from: 2, builtin: 'Heading1' }, format_text: { from: 3, text: '요약', bold: true, color: '#C00000', highlight: 'Yellow' },

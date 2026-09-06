@@ -16,14 +16,14 @@
 Word 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언이 열려 있는 문서를 직접 읽고 고친다** — 문단·스타일·글자 서식·
 표·목록·그림·머리글/바닥글·찾아 바꾸기·메모·책갈피·변경 추적까지.
 
-- 도구는 **MCP** 로 나간다(`mcp__word__*` 45개, §6). 컴패니언 쪽에는 새 계약이 없다.
+- 도구는 **MCP** 로 나간다(`mcp__word__*` 48개, §6). 컴패니언 쪽에는 새 계약이 없다.
 - **문서를 만지는 손은 애드인이다.** 헬퍼도 데몬도 파일을 안 연다. 셸로 `.docx` 를 새로 쓰는 일은 **하지 않는다**.
 - 파워포인트·엑셀 판과 다른 점 하나: **Word 는 페이지를 그림으로 못 준다.** 눈은 `read_html` 이다 — 굵기·크기·색·목록·표가
   HTML 로 온다.
 
 ```
 Word 작업창(애드인)  ←https→  magi office(헬퍼, /word)  ←unix socket→  magi --daemon  →  모델
-     └── 손: Word.js 로 문서를 고친다         └── MCP 서버: 도구 45개를 데몬에 붙인다
+     └── 손: Word.js 로 문서를 고친다         └── MCP 서버: 도구 48개를 데몬에 붙인다
 ```
 
 COM 손은 없다. Word 2019·2021·Microsoft 365 는 모두 `WordApi 1.3` 이상이라 작업창이 그대로 손이 된다. 2016 이하는 작업창이
@@ -84,7 +84,7 @@ magi --daemon
 
 ### 3.2 브랜드 줄 · 3.3 대화 줄 · 3.4~3.9
 
-엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 45 개.」** 로
+엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 48 개.」** 로
 끝난다. 가이드는 워드 것 셋(`document-structure`·`editing`·`tables-and-review`).
 
 ---
@@ -112,9 +112,9 @@ magi --daemon
 
 ## 6. 무엇을 시킬 수 있나
 
-### 6.1 도구 45개
+### 6.1 도구 48개
 
-**읽는 것 (14) — 안 물어보고 도는 무리**
+**읽는 것 (15) — 안 물어보고 도는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -125,6 +125,7 @@ magi --daemon
 | `read_table` | 표 하나 — 칸 전부 |
 | `read_html` | 구간을 HTML 로 — **눈이다.** Word 는 그림을 못 준다 |
 | `read_comments` | 메모 스레드(1.4) |
+| `read_footnotes` | 각주·미주 — 번호·문단·걸린 글·내용(1.5) |
 | `read_tracked_changes` | 변경 내역(1.6) |
 | `describe_style` | 쓰이는 스타일과 수, 본문·제목 글꼴, 제목 목록 |
 | `snapshot_paragraphs` | 구간의 OOXML 을 찍어 둔다 — `restore_paragraphs` 의 재료 |
@@ -133,7 +134,7 @@ magi --daemon
 | `advise` | 작업창에 안내 포스트잇 — 문서는 안 고친다 |
 | `clear_advice` | 포스트잇을 지운다 |
 
-**문서를 고치는 것 (31) — 권한을 묻는 무리**
+**문서를 고치는 것 (33) — 권한을 묻는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -145,6 +146,8 @@ magi --daemon
 | `insert_list` · `set_list` | 목록 넣기(글머리/번호, 단계) · 문단을 목록으로/목록에서 빼기 |
 | `insert_image` | 그림 — 경로만 말하면 헬퍼가 바이트를 실어 준다 |
 | `insert_break` | 쪽·구역·줄 나누기 |
+| `insert_footnote` | 각주(기본)·미주 — `paragraph` 안 `text` 뒤 또는 문단 끝에(1.5) |
+| `delete_footnote` | 번호로 각주·미주 하나 지우기 — 글은 그대로 |
 | `insert_field` | 필드 — 목차·쪽 번호·전체 쪽수·날짜·시각·제목·작성자·파일 이름. `template: "{page} / {pages}"` 로 글과 섞어 바닥글에도(1.5) |
 | `set_header_footer` | 구역의 머리글·바닥글 |
 | `set_hyperlink` | 링크 달기·떼기(낱말만도) |
@@ -174,7 +177,7 @@ Word.js 에는 문단의 안정된 id 가 없다. `list_paragraphs` 가 준 번�
 
 ## 7. 권한
 
-읽는 도구 14개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi office -allow-rules=word`) — 아래는 그것을 그대로 옮긴 것이다:
+읽는 도구 15개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi office -allow-rules=word`) — 아래는 그것을 그대로 옮긴 것이다:
 
 ```toml
 allow = [
@@ -185,6 +188,7 @@ allow = [
   "mcp__word__list_paragraphs(**)",
   "mcp__word__read_comments(**)",
   "mcp__word__read_document(**)",
+  "mcp__word__read_footnotes(**)",
   "mcp__word__read_html(**)",
   "mcp__word__read_paragraphs(**)",
   "mcp__word__read_suggestions(**)",
@@ -203,7 +207,7 @@ allow = [
 PORT=3010 node clients/word/addin/tools/serve.mjs     # http://localhost:3010/taskpane.html
 ```
 
-Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 문단과 표 하나)가 붙고, 손은 `FakeHand` — 45개가 메모리 문서 위에서
+Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 문단과 표 하나)가 붙고, 손은 `FakeHand` — 48개가 메모리 문서 위에서
 **정말로** 돈다.
 
 ---
@@ -229,5 +233,5 @@ Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 �
 ## 11. 이 문서와 시험의 관계
 
 이름 대는 도구는 전부 카탈로그에 있어야 하고(`TestTheManualNamesEveryTool`), §7 의 규칙은 코드가 만드는 것과 글자까지 같아야
-하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 45개」「읽는 것 14」「고치는 것 31」「준비됐습니다 — 도구 45 개」는 수를
+하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 48개」「읽는 것 15」「고치는 것 33」「준비됐습니다 — 도구 48 개」는 수를
 세는 시험이 문다(`TestTheDocsCountTheToolsWeAdvertise`).

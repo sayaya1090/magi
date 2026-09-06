@@ -319,6 +319,7 @@ export function rowHead(r) {
 export function rowShape(r) {
   if (r.kind === 'tool' || r.kind === 'result' || r.kind === 'permission') return 'tool';
   if (r.kind === 'turn') return 'turn';
+  if (r.kind === 'fold') return 'fold';
   if (r.kind === 'council') return 'council';
   // **혼잣말은 접힌다.** 사용자에게 한 말이 아닌데 답풍선과 같은 자리를 통째로 먹고 있었다 —
   // 도형 하나에 호출 하나인 이 제품에서 그 글은 길고, 348×391 에서는 답을 밀어낸다.
@@ -489,6 +490,14 @@ export function argsCell(r) {
 
 
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
+/** 접은 줄의 글. 줄어든 것은 대화다 — 시스템·도구 목록은 접히지 않는다. */
+export function foldText(r) {
+  const b = Number(r?.fold?.before) || 0; const a = Number(r?.fold?.after) || 0;
+  if (b <= 0 && a <= 0) return '컨텍스트를 접었습니다';
+  const shed = b - a;
+  return `컨텍스트를 접었습니다 — ${kilo(b)} → ${kilo(a)} 토큰${shed > 0 ? ` · ${kilo(shed)} 덜어냄` : ''}`;
+}
+
 export function endText(r) {
   return r.unverified
     ? `검증 없이 끝남${r.reason ? ` — ${r.reason}` : ''}`
@@ -814,12 +823,12 @@ export function appendAsk(cur, add) {
  */
 const TOOL_LABELS = new Map(Object.entries({
   list_paragraphs: '문단 목차 읽기', read_paragraphs: '문단 읽기', read_document: '문서 살펴보기', find: '찾기', read_table: '표 읽기',
-  read_html: '모양 보기(HTML)', read_comments: '메모 읽기', read_tracked_changes: '변경 내역 읽기', describe_style: '이 문서 서식 읽기',
+  read_html: '모양 보기(HTML)', read_comments: '메모 읽기', read_footnotes: '각주 읽기', read_tracked_changes: '변경 내역 읽기', describe_style: '이 문서 서식 읽기',
   snapshot_paragraphs: '되돌릴 지점 만들기', read_tags: '기록 읽기', read_suggestions: '제안 읽기', advise: '안내 붙이기', clear_advice: '안내 지우기',
   insert_paragraphs: '문단 넣기', replace_paragraph: '문단 글 바꾸기', delete_paragraphs: '문단 지우기', set_style: '스타일 걸기',
   format_text: '글자 서식', format_paragraph: '문단 서식', insert_table: '표 넣기', set_table_cells: '표 칸 쓰기', add_table_rows: '표 행 넣기',
   delete_table: '표 지우기', format_table: '표 서식', insert_list: '목록 넣기', set_list: '목록으로', insert_image: '그림 넣기',
-  insert_break: '나누기 넣기', insert_field: '필드 넣기', set_header_footer: '머리글·바닥글', set_hyperlink: '링크', replace_all: '찾아 바꾸기',
+  insert_break: '나누기 넣기', insert_field: '필드 넣기', insert_footnote: '각주 달기', delete_footnote: '각주 지우기', set_header_footer: '머리글·바닥글', set_hyperlink: '링크', replace_all: '찾아 바꾸기',
   add_comment: '메모 달기', reply_comment: '메모 답글', resolve_comment: '메모 해결', add_bookmark: '책갈피 넣기', delete_bookmark: '책갈피 지우기',
   set_track_changes: '변경 추적', review_changes: '변경 수락·거부', set_properties: '문서 속성', restore_paragraphs: '되돌리기',
   set_tag: '기록 남기기', suggest: '제안 붙이기', drop_suggestion: '제안 떼기', land: '끝 신고',

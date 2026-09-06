@@ -285,6 +285,7 @@ header {
   `#scroll` 의 scrollWidth 294 · clientWidth 289, 넘긴 것은 혼잣말 줄의 <p> 였다.
 */
 .turn p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn.kind-fold p { font: var(--t-caption); color: var(--muted); text-align: center; }
 .turn-head { font: var(--t-caption); color: var(--muted); margin-bottom: var(--s1); }
 
 /* 사람의 말은 오른쪽에 선다(사용자 2026-09-05: 「사용자 요청은 우측정렬 어떠냐」) — 대화 앱의 관습이라 누가 한

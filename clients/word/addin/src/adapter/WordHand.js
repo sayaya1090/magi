@@ -174,6 +174,9 @@ export class WordHand extends HandPort {
       case 'insert_image': return this.#insertImage(a);
       case 'insert_break': return this.#insertBreak(a);
       case 'insert_field': return this.#insertField(a);
+      case 'read_footnotes': return this.#readFootnotes(a);
+      case 'insert_footnote': return this.#insertFootnote(a);
+      case 'delete_footnote': return this.#deleteFootnote(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
       case 'replace_all': return this.#replaceAll(a);
@@ -558,6 +561,60 @@ export class WordHand extends HandPort {
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();
       return this.#envelope({ width: pic.width, height: pic.height }, [`${said} 그림을 넣었습니다 (${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  // 각주·미주(1.5). 번호는 종류 안에서 문서 순서(1부터) — Word 가 매기는 그 번호다.
+  async #notes(context, kind) {
+    const col = kind === 'endnote' ? context.document.body.endnotes : context.document.body.footnotes;
+    col.load('items'); await context.sync();
+    return col.items;
+  }
+  async #readFootnotes(a) {
+    this.#need('WordApi', '1.5', 'read_footnotes');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { from, to } = this.#pick(items, a, { must: false });
+      const out = [];
+      for (const kind of ['footnote', 'endnote']) {
+        const notes = await this.#notes(context, kind);
+        const paras = notes.map((n) => { const p = n.reference.paragraphs.getFirst(); p.load('text'); n.body.load('text'); n.reference.load('text'); return p; });
+        await context.sync();
+        // 실물: reference 의 text 는 표식 문자(\u0002) 하나고, 본문도 그 문자로 시작한다(2026-09-06). 걸린 글은 그 문단에서
+        // 표식 바로 앞 글로 보인다 — 같은 문단에 여럿이면 순서대로 n 번째 표식.
+        const seen = new Map();
+        notes.forEach((n, i) => {
+          const at = items.findIndex((p) => p.text === paras[i].text) + 1;
+          const t = paras[i].text; const nth = (seen.get(at) ?? 0) + 1; seen.set(at, nth);
+          let k = -1; for (let j = 0; j < nth; j += 1) k = t.indexOf('\u0002', k + 1);
+          const on = k > 0 ? t.slice(Math.max(0, k - 30), k).replace(/\u0002/g, '').trim() : '';
+          if (at >= from && at <= to) out.push({ number: i + 1, kind, paragraph: at || null, on: clip(on, 40), text: clip(n.body.text.replace(/[\u0002\s]+/, ''), 200) });
+        });
+      }
+      return this.#envelope({ from, to, count: out.length, notes: out });
+    });
+  }
+  async #insertFootnote(a) {
+    this.#need('WordApi', '1.5', 'insert_footnote');
+    const note = String(need(a, 'note')); const kind = str(a, 'kind') ?? 'footnote';
+    const n = int(a, 'paragraph') ?? int(a, 'from') ?? refuse('paragraph 가 없습니다 — 각주가 걸릴 문단 번호');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { from, ranges, said } = await this.#targets(context, { ...a, from: n, to: n }, items);
+      const at = str(a, 'text') ? ranges[0] : items[from - 1].getRange('End');
+      const made = kind === 'endnote' ? at.insertEndnote(note) : at.insertFootnote(note);
+      void made; await context.sync(); this.#mutated();
+      const all = await this.#notes(context, kind);
+      return this.#envelope({ paragraph: from, kind, number: all.length }, [`${said} 에 ${kind === 'endnote' ? '미주' : '각주'}를 달았습니다 — 「${clip(note, 40)}」`]);
+    });
+  }
+  async #deleteFootnote(a) {
+    this.#need('WordApi', '1.5', 'delete_footnote');
+    const number = int(a, 'number') ?? refuse('number 가 없습니다 — read_footnotes 의 번호'); const kind = str(a, 'kind') ?? 'footnote';
+    return this.runner(async (context) => {
+      const notes = await this.#notes(context, kind);
+      if (number < 1 || number > notes.length) refuse(`${kind === 'endnote' ? '미주' : '각주'} ${number}번이 없습니다 — ${notes.length}개`);
+      notes[number - 1].delete(); await context.sync(); this.#mutated();
+      return this.#envelope({ number, kind, deleted: true }, [`${kind === 'endnote' ? '미주' : '각주'} ${number}번을 지웠습니다 — 글은 그대로입니다`]);
     });
   }
   async #insertField(a) {

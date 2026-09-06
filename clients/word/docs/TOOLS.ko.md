@@ -6,14 +6,14 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 문서 도구 | `mcp__word__*` | **45** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
+| 문서 도구 | `mcp__word__*` | **48** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고 |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `skill`, `todowrite` … | 코어 레지스트리 | 데몬 |
 | 플러그인 도구 | `land` | 1 (카운슬 끈 대화) | `<config>/plugins/landing` |
 | 가이드 | `document-structure`, `editing`, `tables-and-review` | 3 | 헬퍼가 `word/skills/` 에서 심는다 |
 | 지속 지시 | `AGENTS.md` | 브리프 7단계 | `instructions.go` |
 | 첫 도구 설명의 머리말 | "A DOCUMENT IS ALREADY OPEN IN WORD…" | 1 | `list_paragraphs` |
 
-## 1. 도구 45 — 무리별과 요구 집합
+## 1. 도구 48 — 무리별과 요구 집합
 
 | 무리 | 도구 | 요구 집합 |
 |---|---|---|
@@ -24,6 +24,7 @@
 | 그림·머리글·링크·바꾸기 | `insert_image` `set_header_footer` `set_hyperlink` `replace_all` | 1.3 |
 | 메모·책갈피·추적 | `read_comments` `add_comment` `reply_comment` `resolve_comment` `add_bookmark` `delete_bookmark` `set_track_changes` | 1.4 |
 | 변경 검토 | `read_tracked_changes` `review_changes` | 1.6 |
+| 각주·미주 | `read_footnotes` `insert_footnote` `delete_footnote` | 1.5 |
 | 필드 | `insert_field` — 목차·쪽 번호·전체 쪽수·날짜·시각·제목·작성자·파일 이름, `template` 로 글과 섞어 본문·머리글·바닥글에 | 1.5 |
 | 되돌리기·속성·기억 | `snapshot_paragraphs` `restore_paragraphs` `set_properties` `read_tags` `set_tag` | 1.3 |
 | 제안 | `read_suggestions` `suggest` `drop_suggestion` | 1.4 (settings) |

@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 45개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 48개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 45개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 48개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -58,13 +58,19 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 
 부수로: 본문 끝에 넣은 문단이 끝 문단의 제목 스타일을 물려받아 필드 줄이 「제목 2」였다 → 본문 자리엔 `Normal` 을 준다.
 
+### 5.1.2 각주·미주 — 실물(2026-09-06 저녁)
+
+도구 46~48(`read_footnotes`·`insert_footnote`·`delete_footnote`). 실물 문서에 각주 둘(하나는 「12%」 뒤, 하나는 문단 끝)·미주 하나를 달고
+읽고 지웠다 — 여섯 호출 실패 0. 실물이 가르쳐 준 것: 각주의 `reference` 범위 글은 표식 문자(`\u0002`) 하나이고 각주 본문도 그
+문자로 시작한다 → 걸린 글은 그 문단에서 표식 바로 앞 30자로 보이고(같은 문단에 여럿이면 n 번째 표식), 본문에서는 표식을 지운다.
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 45 개.`
+3. 붙기 → `준비됐습니다 — 도구 48 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.

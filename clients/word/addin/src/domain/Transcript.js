@@ -51,6 +51,9 @@ const DRAWN = new Map([
   // 무엇을 허락했는가. 이 제품에서 그 답은 **덱을 고칠 권한을 줬는가**라, 감사 줄이 아니라
   // 사람이 읽는 줄이다. 짝이 되는 호출 줄에 접힌다(아래 `append`).
   ['permission.decided', 'permission'],
+  // 접기. 그리지 않으면 「그릴 줄 모르는 이벤트 — compaction」이 뜬다(사용자 2026-09-06). 접기 전후를 적어
+  // 사람이 무엇이 줄었는지 본다 — 시스템·도구 목록은 접히지 않으므로 줄어든 것은 대화뿐이다.
+  ['compaction', 'fold'],
 ]);
 
 /**
@@ -124,7 +127,7 @@ const PART_DRAWN = new Map([
 const FOLDED = new Set(['model', 'think']);
 
 export class Row {
-  constructor({ seq, kind, text, actor, messageId, call, finish, result, permission, council }) {
+  constructor({ seq, kind, text, actor, messageId, call, finish, result, permission, council, fold }) {
     this.seq = seq ?? 0;
     this.kind = kind;       // user | model | think | tool | note | turn | error | unknown
     // **`type` 과 `ts` 는 안 싣는다.** 로그의 이름 그대로와 시각을 각각 실어 뒀지만, 이
@@ -152,6 +155,8 @@ export class Row {
      * (`TurnFinishedData.Unverified`) — 「했다」와 「했다는데 아무도 못 봤다」가 같은 종류로
      * 온다는 뜻이라, 이걸 안 실으면 화면은 둘을 똑같이 그린다.
      */
+    /** 접기 전후 토큰. `kind === 'fold'` 일 때만 있다. */
+    this.fold = fold ?? null;
     this.unverified = finish?.unverified === true;
     this.reason = finish?.reason ?? '';
     /**
@@ -359,6 +364,7 @@ export class Transcript {
       result: kind === 'result' ? toolResultOf(ev) : null,
       permission: kind === 'permission' ? decisionOf(ev) : null,
       council: kind === 'council' ? councilOf(ev, type) : null,
+      fold: kind === 'fold' ? { before: Number(ev?.data?.tokensBefore) || 0, after: Number(ev?.data?.tokensAfter) || 0 } : null,
     });
     row.settled = type === 'part.appended';
     row.landed = landed;

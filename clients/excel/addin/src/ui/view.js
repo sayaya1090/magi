@@ -26,7 +26,7 @@ import {
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, turnRunning,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, turnRunning, foldText,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -1050,6 +1050,12 @@ export class View {
       // 으로 채우면 화면이 빈 칸을 결함처럼 보이게 한다.
       const body = councilBody(r);
       if (body) el.append(this.proseEl(body));
+      return el;
+    }
+    if (shape === 'fold') {
+      const p = document.createElement('p');
+      p.textContent = foldText(r);
+      el.append(p);
       return el;
     }
     if (shape === 'turn') {

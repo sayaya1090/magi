@@ -34,7 +34,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, capsQuiet, councilButton, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, fixBoard,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, fixBoard, foldText,
 } from '../src/ui/screen.js';
 import { Transcript, isPluginNudge, PLUGIN_NUDGE_MARK } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
@@ -73,7 +73,7 @@ const point = new PointAtAdvice(book);
   const goBuiltin = [...enums.match(/var wordBuiltinStyles = \[\]string\{([\s\S]*?)\}/)[1].matchAll(/"([A-Za-z0-9]+)"/g)].map((m) => m[1]);
   ok('내장 문단 스타일 목록이 헬퍼 enums.go 와 같다', goBuiltin.length === BUILTIN_PARAGRAPH_STYLES.length && everyOf(goBuiltin, (n) => BUILTIN_PARAGRAPH_STYLES.includes(n)), `${goBuiltin.length} vs ${BUILTIN_PARAGRAPH_STYLES.length}`);
   ok('applyStyle: 내장 이름은 철자·띄어쓰기에 관대하게 styleBuiltIn, 나머지는 style', (() => { const a = {}; applyStyle(a, 'Heading 1'); const b = {}; applyStyle(b, 'normal'); const c = {}; applyStyle(c, '본문 강조'); return a.styleBuiltIn === 'Heading1' && b.styleBuiltIn === 'Normal' && c.style === '본문 강조' && c.styleBuiltIn === undefined; })());
-  ok('읽기 도구 집합도 같다', READ_OPS.length === 14 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);
+  ok('읽기 도구 집합도 같다', READ_OPS.length === 15 && everyOf([...READ_OPS], (n) => readOnlyGo.includes(n)), `${READ_OPS.filter((n) => !readOnlyGo.includes(n))}`);
   const suggestDesc = /Name: +"suggest",[\s\S]*?Desc: ([\s\S]*?)Props:/.exec(go)?.[1] ?? '';
   ok('제안으로 누를 수 있는 손 목록이 헬퍼 설명·손·화면에서 같다',
     everyOf([...FIX_TOOLS], (n) => suggestDesc.includes(n) && FIXABLE.has(n)) && FIXABLE.size === FIX_TOOLS.length);
@@ -136,6 +136,14 @@ const point = new PointAtAdvice(book);
   ok('필드: 목차는 본문 문단으로', toc.result.fields === 1 && toc.result.paragraph === 2 && (await call('read_paragraphs', { from: 2, to: 2 })).result.paragraphs[0].text === '[목차]', JSON.stringify(toc));
   ok('필드: 자리 없는 틀은 거절', (await threw(() => hand.run('insert_field', { template: '쪽' })))?.includes('필드 자리가 없습니다'));
   await call('delete_paragraphs', { from: 2, to: 2 });
+  const p3 = (await call('read_paragraphs', { from: 3, to: 3 })).result.paragraphs[0].text; const word = p3.split(/\s+/).find((w) => w.length > 1) ?? '';
+  const fn = await call('insert_footnote', { paragraph: 3, text: word, note: '내부 집계 기준' });
+  await call('insert_footnote', { paragraph: 5, note: '미주 하나', kind: 'endnote' });
+  const notes = await call('read_footnotes');
+  ok('각주: 달고 읽는다 — 번호는 종류 안에서', fn.result.number === 1 && notes.result.count === 2 && notes.result.notes[0].paragraph === 3 && notes.result.notes[0].on === word && notes.result.notes[1].kind === 'endnote' && notes.result.notes[1].number === 1 && notes.result.notes[1].paragraph === 5, JSON.stringify(notes.result));
+  ok('각주: 없는 번호는 수를 대고 거절', (await threw(() => hand.run('delete_footnote', { number: 3 })))?.includes('각주 3번이 없습니다'));
+  await call('delete_footnote', { number: 1 }); await call('delete_footnote', { number: 1, kind: 'endnote' });
+  ok('각주: 지우면 비고 글은 그대로', (await call('read_footnotes')).result.count === 0 && (await call('read_paragraphs', { from: 3, to: 3 })).result.paragraphs[0].text === p3);
   ok('구역을 나누면 머리글 자리가 는다', (await call('read_document')).result.sections === 2);
   await call('set_header_footer', { which: 'footer', text: '기획팀', section: 2 });
   ok('없는 구역은 거절', (await threw(() => hand.run('set_header_footer', { which: 'header', text: 'x', section: 9 })))?.includes('구역 2개'));
@@ -177,7 +185,7 @@ const point = new PointAtAdvice(book);
   ok('지우기는 되돌릴 수 없다고 말한다', del.changed[0].includes('되돌릴 수 없습니다'));
   ok('전부 지우기는 거절', (await threw(async () => { const h = new FakeHand({ paragraphs: [{ text: 'x' }] }); await h.run('delete_paragraphs', { from: 1 }); }))?.includes('하나는'));
   const missing = ALL_OPS.filter((op) => !done.has(op));
-  ok('도구 45개를 전부 한 번씩 돌렸다', missing.length === 0 && ALL_OPS.length === 45, `안 돈 것: ${missing.join(', ')} / ${ALL_OPS.length}`);
+  ok('도구 48개를 전부 한 번씩 돌렸다', missing.length === 0 && ALL_OPS.length === 48, `안 돈 것: ${missing.join(', ')} / ${ALL_OPS.length}`);
   ok('모르는 op 는 아는 것을 대고 던진다', (await threw(() => hand.run('fly', {})))?.includes('list_paragraphs'));
   ok('바꾼 호출마다 count 가 오른다', hand.count > 25, String(hand.count));
 }
@@ -1415,3 +1423,13 @@ const point = new PointAtAdvice(book);
   ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '다시 띄웁니다');
 }
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
+
+// ── 접기 이벤트 (2026-09-06) ─────────────────────────────────────────────
+{
+  const t = new Transcript();
+  t.append({ type: 'compaction', seq: 9, data: { tokensBefore: 9000, tokensAfter: 1200 } });
+  const row = t.rows[t.rows.length - 1];
+  ok('compaction 은 접은 줄로 선다 — 모르는 이벤트가 아니다', row?.kind === 'fold' && row.fold.before === 9000 && t.unknownNote === null, JSON.stringify({ kind: row?.kind, un: t.unknownNote }));
+  ok('접은 줄의 글은 전후와 덜어낸 양을 k 로', foldText(row) === '컨텍스트를 접었습니다 — 9k → 1.2k 토큰 · 7.8k 덜어냄', foldText(row));
+  ok('전후를 모르면 접었다고만', foldText({ kind: 'fold', fold: { before: 0, after: 0 } }) === '컨텍스트를 접었습니다');
+}
