@@ -14,6 +14,7 @@
 // 것은 다르므로 여기 적는다.
 import { foldAdvice, adviceNote } from '../domain/AdviceBoard.js';
 import { ParagraphIndex } from '../domain/Advice.js';
+import { fixLabel } from '../domain/Suggestion.js';
 import { logShapeOf, sendNote } from '../usecase/SendTurn.js';
 import { quoteNote } from '../usecase/QuoteSelection.js';
 import { askSig } from '../usecase/WatchPrompt.js';
@@ -1212,7 +1213,9 @@ export class View {
     if (!this.hand) return;
     try {
       const out = await this.hand.run('read_suggestions', {});
-      this.fixes = out?.result?.suggestions ?? [];
+      // 「무엇을 합니다」 줄과 누를 수 있는지는 제안의 글이 아니라 **달린 손**에서 뽑는다 — 진짜 손은 글만 주고,
+      // 워드 실물에서 그 줄이 빈 회색 띠로 섰다(2026-09-06 §5.2).
+      this.fixes = (out?.result?.suggestions ?? []).map((r) => { const l = fixLabel(r.fix); return { ...r, does: r.does ?? l.text, appliable: r.appliable ?? l.can }; });
     } catch (e) {
       this.fixes = [];
       this.note(`문서의 제안을 못 읽었습니다 — ${e?.message ?? e}`);
