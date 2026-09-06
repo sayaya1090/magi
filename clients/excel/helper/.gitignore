@@ -1,6 +1,0 @@
-# 헬퍼 시험이 작업 디렉토리에 심는 워크스페이스·컴패니언 — 산출물이지 소스가 아니다. excel/skills 는 임베드되는 소스라 남긴다.
-companions/
-excel/.magi/
-excel/AGENTS.md
-# go build 가 떨어뜨리는 바이너리
-/helper

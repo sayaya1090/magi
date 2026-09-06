@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	office "github.com/sayaya1090/magi/clients/office/helper"
 	"io"
 	"os"
 	"os/exec"
@@ -168,6 +169,12 @@ var restartSession string
 const restartSessionEnv = "MAGI_RESTART_SESSION"
 
 func main() {
+	// `magi office`: 파워포인트·엑셀·워드 애드인의 헬퍼를 한 프로세스·한 인증서·한 포트로 띄운다
+	// (clients/office/helper). 데몬과 한 바이너리라 받을 파일이 하나고, 헬퍼가 띄우는 데몬은 자기
+	// 자신이다.
+	if len(os.Args) > 1 && os.Args[1] == "office" {
+		os.Exit(office.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
 	code := run()
 	if restartOnExit {
 		if restartSession != "" {
