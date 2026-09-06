@@ -303,9 +303,29 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Required: []string{"paragraph"},
 		},
 		{
+			Name: "insert_field",
+			Desc: "Insert a Word field — a table of contents, a page number, the page count, today's date or time, or a " +
+				"document property — that Word keeps up to date. Goes into the body after/before a paragraph, or into a " +
+				"section's header or footer (`which`). `template` writes text around fields: \"{page} / {pages}\" in a footer, " +
+				"\"작성일 {date}\" in the body. A table of contents needs heading styles (set_style builtin Heading1…) to " +
+				"list anything. Needs WordApi 1.5 (Word 2021 is 1.3 — refused there, nothing changed).",
+			Props: []property{
+				property{Name: "field", Type: "string", Desc: "toc, page, num_pages, date, time, title, author, file_name. Omit when template names them.", Enum: wordFieldKinds},
+				property{Name: "template", Type: "string", Desc: "Text with {page} {pages} {date} {time} {title} {author} {file} placeholders, e.g. \"{page} / {pages}\"."},
+				property{Name: "after", Type: "integer", Desc: "Body: put it in a new paragraph after this paragraph (1-based)."},
+				property{Name: "before", Type: "integer", Desc: "Body: put it in a new paragraph before this paragraph."},
+				property{Name: "at", Type: "string", Desc: "Body: start or end (default end) when neither after nor before is given.", Enum: wordAtWhere},
+				property{Name: "which", Type: "string", Desc: "header or footer — then it goes there (appended as a new line) instead of the body.", Enum: wordHeaderFooter},
+				property{Name: "section", Type: "integer", Desc: "With which: section number, 1-based (default 1)."},
+				property{Name: "kind", Type: "string", Desc: "With which: Primary (default), FirstPage, EvenPages.", Enum: wordHeaderKinds},
+				property{Name: "align", Type: "string", Desc: "Left, Centered, Right, Justified.", Enum: wordAligns},
+				property{Name: "levels", Type: "string", Desc: "toc only: heading levels to list, e.g. \"1-3\" (default)."},
+			},
+		},
+		{
 			Name: "set_header_footer",
 			Desc: "Set the header or footer text of a section (default: first section, primary). Replaces what is " +
-				"there. Word keeps page-number fields; to keep one, say so in `keep_fields`.",
+				"there. Word keeps page-number fields; to keep one, say so in `keep_fields`. To ADD a page number, use insert_field.",
 			Props: []property{
 				property{Name: "which", Type: "string", Desc: "header or footer. Required.", Enum: wordHeaderFooter},
 				property{Name: "text", Type: "string", Desc: "The new text. Empty string clears it. Required."},

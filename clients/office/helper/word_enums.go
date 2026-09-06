@@ -11,6 +11,9 @@ var wordHighlights = []string{"Yellow", "BrightGreen", "Turquoise", "Pink", "Blu
 var wordAtWhere = []string{"start", "end"}
 var wordListKinds = []string{"bulleted", "numbered"}
 var wordBreakKinds = []string{"page", "section", "line"}
+
+// wordFieldKinds 는 insert_field 가 넣는 필드 — 이름은 우리 것, Word.FieldType 으로 옮긴다(WordHand).
+var wordFieldKinds = []string{"toc", "page", "num_pages", "date", "time", "title", "author", "file_name"}
 var wordHeaderFooter = []string{"header", "footer"}
 var wordHeaderKinds = []string{"Primary", "FirstPage", "EvenPages"}
 var wordTrackModes = []string{"Off", "TrackAll", "TrackMineOnly"}
@@ -47,6 +50,7 @@ var wordValueEnums = map[string][]string{
 	"at":          wordAtWhere,
 	"kind":        append(append(append([]string{}, wordListKinds...), wordBreakKinds...), wordHeaderKinds...),
 	"which":       wordHeaderFooter,
+	"field":       wordFieldKinds,
 	"mode":        wordTrackModes,
 	"what":        wordReviewWhats,
 	"builtin":     wordBuiltinStyles,
