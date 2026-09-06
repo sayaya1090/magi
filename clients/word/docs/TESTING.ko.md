@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 44개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 45개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 44개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 45개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -46,13 +46,25 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 난다 — 스크립트는 `taskpane.html` 의 부트 JSON 에서 읽는다. ⚠헬퍼 바이너리를 **제자리에 `cp` 로 덮으면** macOS 가 서명 캐시
 불일치로 SIGKILL 한다(아무 말 없이 죽는다) — `rm` 뒤 `cp`.
 
+### 5.1.1 insert_field — 실물(2026-09-06 저녁, 통합 헬퍼)
+
+도구 45번째. 실물 문서에 목차(`field:"toc"`, 제목 1 셋을 항목으로), 바닥글 `template:"{page} / {pages}"` → 「1 / 1」, 본문
+`"작성일 {date} {time} · {title} · {file}"` → 「작성일 9/6/26 6:13 PM · · 문서1」, `num_pages` 까지 넷 다 OK. 첫 판 실패 둘:
+
+| 실물이 한 말 | 원인 | 고침 |
+|---|---|---|
+| `host.insertField is not a function` | Mac Word 16.x(WordApi 1.9)에 `Paragraph.insertField` 가 없다 — `Range` 에만 있다 | 범위로 넣는다 |
+| 첫 필드 뒤의 조각이 전부 사라짐(「작성일 9/6/26」만 남음) | 필드의 `result` 범위에 이어 붙이면 그 뒤 insert 가 증발한다 | 글을 통째로 먼저 적고(보이지 않는 표식 `\u2063F<i>\u2063`), 표식을 `search` 로 찾아 `insertField('Replace')` 로 제자리에서 바꾼다 |
+
+부수로: 본문 끝에 넣은 문단이 끝 문단의 제목 스타일을 물려받아 필드 줄이 「제목 2」였다 → 본문 자리엔 `Normal` 을 준다.
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 44 개.`
+3. 붙기 → `준비됐습니다 — 도구 45 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.
