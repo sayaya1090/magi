@@ -440,6 +440,40 @@ func TestADeadCompanionIsProvisionedAgain(t *testing.T) {
 	}
 }
 
+// 생애가 같아도 **답이 없으면 죽은 것이다.** 소켓 옆에 남은 기록은 옛 생애를 그대로 답하므로, 생애만
+// 재면 죽은 데몬이 산 것으로 읽힌다 — 헬퍼를 띄운 뒤 데몬을 죽이니 창은 「데몬이 죽었다」를 적고 헬퍼는
+// 영영 다시 안 띄웠다(2021 실물, 2026-09-06 밤).
+func TestACompanionThatStoppedAnsweringIsProvisionedAgain(t *testing.T) {
+	var alive atomic.Bool
+	alive.Store(true)
+	var spawned atomic.Int32
+	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		a.LifeOf = func(string) string { return "1@t0" } // 옛 기록이 답하는 생애 — 죽어도 그대로다
+		a.Own.Alive = func(string) bool { return alive.Load() }
+		prev := a.Own.Spawn
+		a.Own.Spawn = func(bin, wd string, env []string) error {
+			spawned.Add(1)
+			alive.Store(true) // 다시 띄운 것이 답한다
+			return prev(bin, wd, env)
+		}
+	})
+	rig.poke(t)
+	if got := rig.settle(t); got.Phase != OwnReady {
+		t.Fatalf("먼저 붙어야 한다: %+v", got)
+	}
+	if spawned.Load() != 0 {
+		t.Fatalf("답하는 데몬이 있는데 띄웠다: %d", spawned.Load())
+	}
+	alive.Store(false)
+	rig.poke(t) // 답이 없다 → 생애가 같아도 마련부터 다시
+	if got := rig.settle(t); got.Phase != OwnReady {
+		t.Fatalf("다시 마련이 안 끝났다: %+v", got)
+	}
+	if spawned.Load() != 1 {
+		t.Fatalf("죽었는데 다시 안 띄웠다(띄움 %d) — 창은 「데몬이 죽었다」에 갇힌다", spawned.Load())
+	}
+}
+
 // **패닉이 나도 깃발은 내려간다.** 안 내려가면 헬퍼가 사는 내내 모두가 「준비하는 중」이다.
 func TestAPanicWhileProvisioningDoesNotTrapThePane(t *testing.T) {
 	boom := true

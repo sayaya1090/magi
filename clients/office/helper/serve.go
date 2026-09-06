@@ -432,8 +432,12 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 	}
 	// **데몬이 다시 떴으면 마련도 다시다.** 소켓 경로는 그대로인데 생애가 다르다 — 등록도 스트림도
 	// 그 데몬과 같이 죽었다. 이것이 「아까 그것이 지금도 그것인가」를 재는 유일한 자리다.
+	//
+	// **죽은 것도 다시다.** 생애만 재면 소켓 옆에 남은 기록이 옛 생애를 그대로 답해 죽은 데몬이 산 것으로
+	// 읽힌다 — 헬퍼를 띄운 뒤 데몬을 죽이니 창은 「데몬이 죽었다」를 적고 헬퍼는 영영 다시 안 띄웠다
+	// (2021 실물, 2026-09-06 밤). 문을 두드려 답이 없으면 그것도 「아까 그것이 아니다」다.
 	if held := a.Work.Now(); held.Phase == OwnReady && held.Socket != "" &&
-		a.lifeOf(held.Socket) != held.Life {
+		(a.lifeOf(held.Socket) != held.Life || !a.alive(held.Socket)) {
 		a.Work.Forget()
 	}
 	now, mine := a.Work.Begin()
@@ -447,6 +451,15 @@ func (a *API) own(w http.ResponseWriter, r *http.Request) {
 		now = a.settle(deckOf(r), now)
 	}
 	writeJSON(w, now)
+}
+
+// alive 는 그 소켓의 데몬이 지금 답하는가. 마련할 때 쓰는 것과 같은 탐침이다(`OwnCompanion.Alive`) —
+// 시험이 그 자리를 채우면 여기도 같이 채워진다.
+func (a *API) alive(socket string) bool {
+	if a.Own != nil && a.Own.Alive != nil {
+		return a.Own.Alive(socket)
+	}
+	return probeAlive(socket)
 }
 
 func (a *API) lifeOf(socket string) string {

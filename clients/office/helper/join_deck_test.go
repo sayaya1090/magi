@@ -125,6 +125,7 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 		Bolt:   func(string, string, string) ([]string, error) { return []string{"t"}, nil },
 		Fresh:  func(string) (string, error) { return "sess-b", nil },
 	}
+	api.Own.Alive = func(string) bool { return true } // 마련해 둔 데몬이 답한다 — 이 시험은 생애만 본다
 	settleOwnWork(t, work)
 	w := httptest.NewRecorder()
 	api.own(w, httptest.NewRequest("POST", "/api/own?deck=deck-z", nil))
