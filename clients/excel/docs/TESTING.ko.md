@@ -36,6 +36,8 @@ TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 �
 | 읽기 18개 ↔ `READ_OPS` | 「읽기 도구 집합도 같다」 |
 | 제안으로 누를 수 있는 여섯: 헬퍼 `suggest` 설명 ↔ `FIX_TOOLS` ↔ 화면 `FIXABLE` | 「제안으로 누를 수 있는 손 목록이 … 같다」 |
 | 61개 전부 사람 말 라벨 | 「도구 61개 전부 라벨이 있다」 |
+| 컨텍스트 띠·드롭다운·카운슬 확인 판이 정하는 값 | `contextMeter`·`modelPicker`·`confirmAsk('council')` 블록(2026-09-06) — 다섯 조각 순서, 모름은 0이 아님, 지금 것은 목록에 없어도 섬, 덜 위험한 쪽이 그만두기 |
+| 상태 포트가 대화 이름을 옮긴다 | `smoke-hand.mjs` 「대화 이름이 값으로 온다」 — 떨어뜨리면 띠가 영영 숨는다(실물에서 그랬다) |
 | 매뉴얼의 허용 규칙 ↔ `AllowRulesTOML()` | `TestTheManualQuotesTheRulesWeGenerate` |
 | 매뉴얼이 이름 대는 도구 ↔ 카탈로그 | `TestTheManualNamesEveryTool` |
 | 「도구 61개」「읽는 것 18」 등 수 | `TestTheDocsCountTheToolsWeAdvertise` — 이 문서의 「준비됐습니다 — 도구 61 개.」 도 그 시험이 센다 |
@@ -125,6 +127,10 @@ PowerPoint 2021 은 둘을 받는다. 관리 공유(`\\localhost\C$`)·GUID 대�
 haiku 를 지금 것으로 답했다(sonnet 으로 되돌림). 명단 밖 주소(`http://evil:1/v1`)는 400. `/api/compact` 202.
 `/api/context` 는 새 대화라 `used 0 / window 200000, parts 없음` — 첫 턴 뒤에야 다섯 조각이 선다. 처음 판의 명단은
 지금 백엔드를 못 세웠다(플러그인 기록 밖의 심) — 헬퍼가 지금 백엔드를 후보에 넣게 고쳤다.
+
+창에서: 처음엔 띠가 안 섰다 — 창은 새 판을 받아 status·documents 는 두드리는데 `/api/context` 는 한 번도 안 왔다(헬퍼의
+MAGI_DEBUG 요청 로그로 갈랐다). 상태 포트가 헬퍼 답의 `session` 을 떨어뜨려 「아직 안 붙었다」였다. 고친 뒤 사용자가
+Excel 창에서 띠를 봤고(「보인다」), 그 자리에서 「상시 나올 필요는 없다」고 해 ⋯ 판 안으로 옮겼다.
 
 ### 5.2 점검표 — 판을 낼 때 손으로 돈다
 
