@@ -59,6 +59,7 @@ var xlTableStyles = func() []string {
 // xlCopyModes·xlFillKinds 는 copy_range·fill_range 의 종류(Excel.RangeCopyType·AutoFillType 을 사람 말로).
 var xlCopyModes = []string{"all", "values", "formulas", "formats"}
 var xlFillKinds = []string{"default", "copy", "series", "formats", "values"}
+var xlTraceWhats = []string{"precedents", "dependents"}
 
 var xlValueEnums = map[string][]string{
 	"mode":                xlCopyModes,
@@ -68,7 +69,7 @@ var xlValueEnums = map[string][]string{
 	"align":               xlAligns,
 	"valign":              xlValigns,
 	"border_style":        xlBorderStyles,
-	"what":                append(append([]string{}, xlClearWhats...), xlAutofitWhats...),
+	"what":                append(append(append([]string{}, xlClearWhats...), xlAutofitWhats...), xlTraceWhats...),
 	"shift":               append(append([]string{}, xlInsertShifts...), xlDeleteShifts...),
 	"visibility":          xlVisibilities,
 	"legend":              xlLegendPositions,

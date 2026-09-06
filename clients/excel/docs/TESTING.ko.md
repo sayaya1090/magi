@@ -9,9 +9,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 69개
+node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 72개
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 69개 전부
+node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 72개 전부
 TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다 — MCP 로 부르면 여기로 온다
 ```
 
@@ -150,7 +150,7 @@ Excel 창에서 띠를 봤고(「보인다」), 그 자리에서 「상시 나�
 
 1. Excel 을 열고 리본 「홈」 오른쪽 끝 **AI Assistant › Magi** → 작업창.
 2. 「지원 API」 줄 — 2021/365 면 숨어 있어야 한다(전부 ✓). 펴져 있으면 무엇이 없는지 읽는다.
-3. 붙기 → `준비됐습니다 — 도구 69 개.`
+3. 붙기 → `준비됐습니다 — 도구 72 개.`
 4. 범위를 고르고 「인용」 → `[인용] sheet="…" range=… size=…` 조각.
 5. 「이 시트 목차 읽어 줘」 → `시트 목차 읽기` 줄, 권한 물음 없이.
 6. 「B2:B6 를 천 단위로」 → 권한 물음에 `set_number_format` 과 인자(시트·범위·형식)가 그려진다 → 허용 → Excel
@@ -177,6 +177,15 @@ Office.js 가 실제로 어떻게 답하는가(`InvalidArgument` 의 `errorLocat
 실물 통합 문서의 새 시트에서 행 3:4 숨김/보임·높이, 열 B:C 너비·그룹/해제, 행 하나("2")·열 하나("B"), 탭 색과 해제, 눈금선·머리글
 끄고 켜기, 문서 속성(제목·작성자)까지 실패 0. 첫 판: 헬퍼의 「1부터」 검사가 `rows: "3:4"` 같은 **구간 글**을 수로 읽어 거절했다 →
 글은 수로 읽힐 때만 재고(`"2"` 는 통과, `"0"` 은 거절), 구간·열 글자는 지나간다(`TestOneBasedCheckSkipsSpanStrings`).
+
+## 5.8 2026-09-06 밤 — 차트 계열·피벗 값 서식·참조 추적·시트 가져오기·CSV (도구 70~72 + format_chart·add_pivot 확장)
+
+실물: `trace_cell` 이 `=B2-C2` 의 원천을 `'magi-x'!B2:C2` 로, B2 를 읽는 수식을 D2 로 답함(1.12/1.13). `format_chart` 에 계열 색·이름·
+추세선·표식, 축 최소·최대·서식, 원본 바꾸기 — 꺾은선·막대 둘 다 OK. 첫 판: 꺾은선 계열에 `fill.setSolidColor` 가 InvalidOperation →
+선 차트(Line·Scatter·Radar)는 `format.line.color` 로. `add_pivot` 값에 `number_format`·`name` → 「매출 합」 열이 `#,##0` 으로.
+`insert_sheets_from_file` 로 다른 .xlsx 의 시트가 들어오고(첫 판은 시트 수를 「0개」로 답함 — 같은 컬렉션 프록시를 앞뒤로 읽으면 같은
+스냅숏이라, 답으로 온 id 로 이름을 다시 묻게 고침), `.csv` 는 「.xlsx 파일만」 거절. `import_csv` 는 새 시트 `stock` 에 4×3(수는 수로,
+따옴표 안의 쉼표 유지), 기존 시트의 K1 에도.
 
 ## 통합 헬퍼 재확인
 

@@ -839,7 +839,7 @@ const TOOL_LABELS = new Map(Object.entries({
   add_conditional_format: '조건부 서식 걸기', clear_conditional_formats: '조건부 서식 지우기',
   set_validation: '유효성 걸기', set_name: '이름 정의', delete_name: '이름 지우기',
   add_comment: '메모 달기', resolve_comment: '메모 해결', add_image: '그림 넣기',
-  add_pivot: '피벗 만들기', refresh_pivot: '피벗 새로 고침',
+  add_pivot: '피벗 만들기', refresh_pivot: '피벗 새로 고침', trace_cell: '참조 추적', insert_sheets_from_file: '다른 통합 문서의 시트 넣기', import_csv: 'CSV 가져오기',
   restore_range: '되돌리기', set_tag: '기록 남기기', suggest: '제안 붙이기', drop_suggestion: '제안 떼기',
   land: '착지 신고',
   websearch: '웹 검색', webfetch: '웹 페이지 읽기', todowrite: '계획 세우기',

@@ -3,6 +3,7 @@ package office
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/csv"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +24,54 @@ const maxDocBytes = 20 << 20 // 20MB
 
 // docExts 는 Office.js 의 insertFileFromBase64(Word) · insertWorksheetsFromBase64(Excel) 가 받는 것.
 var docExts = map[string]string{".docx": "Word", ".xlsx": "Excel"}
+
+// CSVFile 은 읽어 온 CSV — 판에는 2차원 배열로 간다.
+type CSVFile struct {
+	Path string
+	Name string
+	Rows [][]string
+}
+
+// ReadCSVFile 은 .csv 를 읽어 줄×칸으로 푼다(UTF-8; BOM 은 뗀다). 빈 파일은 거절.
+func ReadCSVFile(path string) (CSVFile, error) {
+	raw := strings.TrimSpace(path)
+	if raw == "" {
+		return CSVFile{}, fmt.Errorf("어느 파일인지 경로를 주세요")
+	}
+	abs, err := filepath.Abs(raw)
+	if err != nil {
+		abs = raw
+	}
+	st, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return CSVFile{}, fmt.Errorf("그런 파일이 없습니다: %s", abs)
+		}
+		return CSVFile{}, fmt.Errorf("파일을 못 봤습니다(%s): %w", abs, err)
+	}
+	if st.IsDir() || strings.ToLower(filepath.Ext(abs)) != ".csv" {
+		return CSVFile{}, fmt.Errorf(".csv 파일만 받습니다 — %s", abs)
+	}
+	if st.Size() > maxDocBytes {
+		return CSVFile{}, fmt.Errorf("파일이 너무 큽니다(%.1fMB, 최대 %dMB): %s", float64(st.Size())/(1<<20), maxDocBytes>>20, abs)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return CSVFile{}, fmt.Errorf("파일을 못 읽었습니다(%s): %w", abs, err)
+	}
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	r := csv.NewReader(bytes.NewReader(data))
+	r.FieldsPerRecord = -1
+	r.LazyQuotes = true
+	rows, err := r.ReadAll()
+	if err != nil {
+		return CSVFile{}, fmt.Errorf("CSV 를 못 풀었습니다(%s): %w", abs, err)
+	}
+	if len(rows) == 0 {
+		return CSVFile{}, fmt.Errorf("빈 CSV 입니다: %s", abs)
+	}
+	return CSVFile{Path: abs, Name: filepath.Base(abs), Rows: rows}, nil
+}
 
 // ReadDocFile 은 경로 하나를 읽어 Office 문서(OOXML zip)인지 보고 넘겨준다. `want` 는 이 도구가 받는 확장자.
 func ReadDocFile(path, want string) (DocFile, error) {

@@ -240,7 +240,23 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	}
 	// 문서 파일도 같은 길이다 — Word 의 insert_file(.docx), Excel 의 insert_sheets_from_file(.xlsx).
 	if s.App.WantsFile != nil {
-		if ext := s.App.WantsFile(name); ext != "" {
+		if ext := s.App.WantsFile(name); ext == ".csv" {
+			f, cerr := ReadCSVFile(fmt.Sprint(args["path"]))
+			if cerr != nil {
+				return errorResult(cerr.Error())
+			}
+			rows := make([]any, 0, len(f.Rows))
+			for _, r := range f.Rows {
+				cells := make([]any, len(r))
+				for i, c := range r {
+					cells[i] = c
+				}
+				rows = append(rows, cells)
+			}
+			args["csv_rows"] = rows
+			args["file_name"] = f.Name
+			args["path"] = f.Path
+		} else if ext != "" {
 			doc, derr := ReadDocFile(fmt.Sprint(args["path"]), ext)
 			if derr != nil {
 				return errorResult(derr.Error())

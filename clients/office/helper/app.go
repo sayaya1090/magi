@@ -119,7 +119,16 @@ var (
 			}
 			return nil
 		},
-		WantsImage:   func(name string, _ map[string]any) bool { return name == "add_image" },
+		WantsImage: func(name string, _ map[string]any) bool { return name == "add_image" },
+		WantsFile: func(name string) string {
+			switch name {
+			case "insert_sheets_from_file":
+				return ".xlsx"
+			case "import_csv":
+				return ".csv"
+			}
+			return ""
+		},
 		Instructions: xlInstructions,
 		MCPInstructions: "A workbook is already open in Excel and these tools are attached to it. " +
 			"You do not create, open or upload a workbook and there is no tool that does. Sheets are named " +

@@ -575,6 +575,10 @@ func xlCatalogue(hasCouncil bool) []tool {
 				property{Name: "y_title", Type: "string", Desc: "Value axis title."},
 				property{Name: "legend", Type: "string", Desc: "Right, Left, Top, Bottom, or none.", Enum: xlLegendPositions},
 				property{Name: "data_labels", Type: "boolean", Desc: "Show values on the points."},
+				property{Name: "series", Type: "array", Items: "object", Desc: "[{index (0-based) or name, color (#RRGGBB), new_name, trendline: linear|none, marker: Circle|Square|Diamond|Triangle|None}] — per-series looks (color 1.1, trendline/marker 1.7)."},
+				property{Name: "y_min", Type: "number", Desc: "Value axis minimum (1.7)."}, property{Name: "y_max", Type: "number", Desc: "Value axis maximum (1.7)."},
+				property{Name: "y_format", Type: "string", Desc: "Value axis number format, e.g. \"#,##0\" (1.8)."},
+				property{Name: "source", Type: "string", Desc: "Re-point the chart at another data range (A1 or Sheet!A1)."},
 				property{Name: "chart_type", Type: "string", Desc: "Change the type." +
 					" Korean/short names are accepted too: 막대, 가로막대, 꺾은선, 원, 도넛, 영역, 분산, 방사형, 누적, 폭포 (bar, hbar, line, pie, scatter…).", Enum: xlChartTypes},
 				property{Name: "left", Type: "number"}, property{Name: "top", Type: "number"},
@@ -701,9 +705,38 @@ func xlCatalogue(hasCouncil bool) []tool {
 				property{Name: "name", Type: "string", Desc: "Pivot name."},
 				property{Name: "rows", Type: "array", Items: "string", Desc: "Row fields (header names)."},
 				property{Name: "columns", Type: "array", Items: "string", Desc: "Column fields."},
-				property{Name: "values", Type: "array", Items: "object", Desc: "[{field, function}] — function: Sum (default), Count, Average, Max, Min.", Also: []string{"data"}},
+				property{Name: "values", Type: "array", Items: "object", Desc: "[{field, function, number_format, name}] — function: Sum (default), Count, Average, Max, Min; number_format like \"#,##0\"; name is the shown label.", Also: []string{"data"}},
 			),
 			Required: []string{"source", "destination"},
+		},
+		{
+			Name: "trace_cell",
+			Desc: "Where a cell's value comes from (precedents: the cells its formula reads) or goes to (dependents: cells " +
+				"whose formulas read it) — the way into \"why is this number what it is\". One cell. Needs ExcelApi 1.12 " +
+				"(precedents) / 1.13 (dependents)." + declare,
+			Props:    withRange(property{Name: "what", Type: "string", Desc: "precedents (default) or dependents.", Enum: xlTraceWhats}),
+			Required: []string{"address"},
+			ReadOnly: true,
+		},
+		{
+			Name: "insert_sheets_from_file",
+			Desc: "Copy every worksheet of another workbook (.xlsx on this machine) into this one, at the end or after a " +
+				"sheet. Say the path; the helper reads the file and refuses anything that is not an Excel workbook. Needs ExcelApi 1.13.",
+			Props: []property{
+				property{Name: "path", Type: "string", Desc: "Where the .xlsx is on this machine. Required."},
+				property{Name: "after", Type: "string", Desc: "Insert after this sheet (default: at the end)."},
+			},
+			Required: []string{"path"},
+		},
+		{
+			Name: "import_csv",
+			Desc: "Write a CSV file's rows into a sheet starting at a cell (default A1 of a new sheet named after the file). " +
+				"Numbers stay numbers, everything else is text. Say the path; the helper reads and parses it.",
+			Props: withSheet(
+				property{Name: "path", Type: "string", Desc: "Where the .csv is on this machine. Required."},
+				property{Name: "address", Type: "string", Desc: "Top-left cell (default A1)."},
+			),
+			Required: []string{"path"},
 		},
 		{
 			Name:  "refresh_pivot",

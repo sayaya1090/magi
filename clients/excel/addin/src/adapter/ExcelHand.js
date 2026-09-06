@@ -134,6 +134,9 @@ export class ExcelHand extends HandPort {
         return this.#envelope({ pinned: op === 'advise' ? (a.items?.length ?? 0) : 0 });
       // ── 쓰기 ──
       case 'write_range': return this.#writeRange(a);
+      case 'trace_cell': return this.#traceCell(a);
+      case 'insert_sheets_from_file': return this.#insertSheetsFromFile(a);
+      case 'import_csv': return this.#importCSV(a);
       case 'set_rows_columns': return this.#setRowsColumns(a);
       case 'set_tab_color': return this.#setTabColor(a);
       case 'set_sheet_view': return this.#setSheetView(a);
@@ -584,6 +587,50 @@ export class ExcelHand extends HandPort {
     });
   }
 
+  async #traceCell(a) {
+    const what = (str(a, 'what') ?? 'precedents').toLowerCase();
+    if (what !== 'precedents' && what !== 'dependents') refuse(`what 는 precedents 나 dependents — '${what}'`);
+    this.#need('ExcelApi', what === 'precedents' ? '1.12' : '1.13', `trace_cell{${what}}`);
+    return this.runner(async (context) => {
+      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address,rowCount,columnCount,formulas'); await context.sync();
+      if (range.rowCount * range.columnCount !== 1) refuse('셀 하나를 주세요 — address 를 셀 하나로');
+      const areas = what === 'precedents' ? range.getDirectPrecedents() : range.getDirectDependents();
+      areas.load('addresses'); await context.sync();
+      const list = (areas.addresses ?? []).map((x) => String(x));
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(range.address), what, formula: range.formulas[0][0], count: list.length, cells: list });
+    });
+  }
+  async #insertSheetsFromFile(a) {
+    this.#need('ExcelApi', '1.13', 'insert_sheets_from_file');
+    const b64 = str(a, 'file_base64'); if (!b64) refuse('파일 바이트가 안 왔습니다 — path 를 주면 헬퍼가 읽어 실어 줍니다');
+    const name = str(a, 'file_name') ?? ''; const after = str(a, 'after');
+    return this.runner(async (context) => {
+      const opts = after ? { positionType: 'After', relativeTo: after } : { positionType: 'End' };
+      // 답은 넣은 시트의 id 목록이다 — 이름은 그 id 로 다시 묻는다. 컬렉션을 앞뒤로 두 번 읽어 빼는 길은 같은 프록시가
+      // 같은 스냅숏을 돌려줘 「0개」라고 답했다(실물 2026-09-06).
+      const ids = context.workbook.insertWorksheetsFromBase64(b64, opts); await context.sync(); this.#mutated();
+      const sheets = (Array.isArray(ids.value) ? ids.value : []).map((id) => { const w = context.workbook.worksheets.getItem(id); w.load('name'); return w; }); await context.sync();
+      const added = sheets.map((w) => w.name);
+      return this.#envelope({ file: name, sheets: added, count: added.length }, [`「${name}」 의 시트 ${added.length}개를 넣었습니다${added.length ? ` — ${added.join(', ')}` : ''}`]);
+    });
+  }
+  async #importCSV(a) {
+    const rows = arr(a, 'csv_rows'); if (!rows || !rows.length) refuse('CSV 줄이 안 왔습니다 — path 를 주면 헬퍼가 읽어 실어 줍니다');
+    const name = str(a, 'file_name') ?? 'csv'; const address = str(a, 'address') ?? 'A1';
+    const width = Math.max(...rows.map((r) => r.length));
+    const values = rows.map((r) => Array.from({ length: width }, (_, i) => { const v = r[i] ?? ''; const t = String(v).trim(); return t !== '' && /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : v; }));
+    return this.runner(async (context) => {
+      let ws; let made = false;
+      if (str(a, 'sheet')) { ws = this.#sheet(context, a); } else {
+        const base = name.replace(/\.csv$/i, '').slice(0, 28) || 'csv'; const all = context.workbook.worksheets; all.load('items/name'); await context.sync();
+        let title = base; let k = 2; while (all.items.some((s) => s.name === title)) { title = `${base} ${k}`; k += 1; }
+        ws = context.workbook.worksheets.add(title); made = true;
+      }
+      ws.load('name'); const target = ws.getRange(address).getCell(0, 0).getResizedRange(values.length - 1, width - 1); target.load('address'); await context.sync();
+      target.values = values; await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, address: ExcelHand.#bare(target.address), rows: values.length, columns: width, new_sheet: made }, [`「${name}」 ${values.length}×${width} → ${ws.name}!${ExcelHand.#bare(target.address)}${made ? ' (새 시트)' : ''}`]);
+    });
+  }
   async #setRowsColumns(a) {
     const rows = str(a, 'rows'); const cols = str(a, 'columns');
     if ((rows == null) === (cols == null)) refuse('rows("3:5") 나 columns("B:D") 중 하나를 주세요');
@@ -1002,8 +1049,28 @@ export class ExcelHand extends HandPort {
       const legend = str(a, 'legend'); if (legend) { if (legend.toLowerCase() === 'none') { c.legend.visible = false; said.push('범례 없음'); } else { c.legend.visible = true; c.legend.position = legend; said.push(`범례 ${legend}`); } }
       const labels = bool(a, 'data_labels'); if (labels != null) { c.dataLabels.showValue = labels; said.push(labels ? '값 표시' : '값 표시 해제'); }
       const type = str(a, 'chart_type'); if (type) { c.chartType = chartTypeOf(type); said.push(`종류 ${CHART_KO.get(c.chartType) ?? c.chartType}`); }
+      const source = str(a, 'source'); if (source) { const at = ExcelHand.#sheetOf(source); c.setData(at ? context.workbook.worksheets.getItem(at.sheet).getRange(at.address) : ws.getRange(source), 'Auto'); said.push(`원본 ${source}`); }
+      const ymin = num(a, 'y_min'); const ymax = num(a, 'y_max'); const yfmt = str(a, 'y_format');
+      if (ymin != null || ymax != null) { this.#need('ExcelApi', '1.7', 'format_chart{y_min,y_max}'); if (ymin != null) { c.axes.valueAxis.minimum = ymin; said.push(`세로축 최소 ${ymin}`); } if (ymax != null) { c.axes.valueAxis.maximum = ymax; said.push(`세로축 최대 ${ymax}`); } }
+      if (yfmt) { this.#need('ExcelApi', '1.8', 'format_chart{y_format}'); c.axes.valueAxis.numberFormat = yfmt; said.push(`세로축 서식 ${yfmt}`); }
+      const series = arr(a, 'series');
+      if (series && series.length) {
+        c.series.load('items/name'); c.load('chartType'); await context.sync();
+        // 선 차트(꺾은선·분산·방사형)의 계열 색은 선 색이다 — 채우기에 setSolidColor 는 InvalidOperation(실물 2026-09-06).
+        const lineLike = /Line|Scatter|Radar/.test(String(c.chartType));
+        for (const s of series) {
+          const idx = int(s, 'index'); const byName = str(s, 'name');
+          const item = idx != null ? c.series.items[idx] : c.series.items.find((x) => x.name === byName);
+          if (!item) refuse(`계열이 없습니다 — ${JSON.stringify(s)} (계열 ${c.series.items.length}개: ${c.series.items.map((x) => x.name).join(', ')})`);
+          const label = byName ?? `#${idx}`;
+          const color = hex(s, 'color'); if (color) { if (lineLike) item.format.line.color = color; else item.format.fill.setSolidColor(color); said.push(`계열 ${label} 색 ${color}`); }
+          const nn = str(s, 'new_name'); if (nn) { item.name = nn; said.push(`계열 ${label} 이름 「${nn}」`); }
+          const tl = str(s, 'trendline'); if (tl) { this.#need('ExcelApi', '1.7', 'format_chart{series.trendline}'); if (tl === 'none') { item.trendlines.clear(); said.push(`계열 ${label} 추세선 없음`); } else { item.trendlines.add('Linear'); said.push(`계열 ${label} 추세선`); } }
+          const mk = str(s, 'marker'); if (mk) { this.#need('ExcelApi', '1.7', 'format_chart{series.marker}'); item.markerStyle = mk; said.push(`계열 ${label} 표식 ${mk}`); }
+        }
+      }
       for (const k of ['left', 'top', 'width', 'height']) { const v = num(a, k); if (v != null) { c[k] = v; said.push(`${k} ${v}`); } }
-      if (said.length === 0) refuse('바꿀 것이 하나도 안 왔습니다 — title, x_title, y_title, legend, data_labels, chart_type, left/top/width/height');
+      if (said.length === 0) refuse('바꿀 것이 하나도 안 왔습니다 — title, x_title, y_title, legend, data_labels, chart_type, series, y_min/y_max/y_format, source, left/top/width/height');
       await context.sync(); this.#mutated();
       return this.#envelope({ chart: c.name, sheet: ws.name, changed: said.length }, [`차트 '${c.name}': ${said.join(', ')}`]);
     });
@@ -1204,6 +1271,7 @@ export class ExcelHand extends HandPort {
       for (const v of values) {
         const field = typeof v === 'string' ? v : String(need(v, 'field')); const fn = (typeof v === 'string' ? null : str(v, 'function')) ?? 'Sum';
         const dh = pivot.dataHierarchies.add(pivot.hierarchies.getItem(field)); dh.summarizeBy = fn;
+        if (typeof v !== 'string') { const nf = str(v, 'number_format'); if (nf) dh.numberFormat = nf; const nm = str(v, 'name'); if (nm) dh.name = nm; }
       }
       await context.sync(); this.#mutated();
       return this.#envelope({ pivot: name, sheet: ws.name, destination: ExcelHand.#bare(target.address), rows, columns: cols, values: values.length }, [`시트 '${ws.name}' ${ExcelHand.#bare(target.address)} 에 피벗 '${name}' — 행 ${rows.join('/') || '없음'}, 열 ${cols.join('/') || '없음'}, 값 ${values.length}개`]);

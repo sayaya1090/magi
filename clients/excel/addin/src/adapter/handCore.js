@@ -9,7 +9,7 @@
 export const READ_OPS = Object.freeze([
   'list_sheets', 'describe_sheet', 'read_range', 'find', 'read_table', 'read_chart', 'render_range', 'render_chart',
   'read_comments', 'read_names', 'read_validation', 'read_conditional_formats', 'describe_style', 'snapshot_range',
-  'read_tags', 'read_suggestions', 'advise', 'clear_advice',
+  'read_tags', 'read_suggestions', 'trace_cell', 'advise', 'clear_advice',
 ]);
 export const WRITE_OPS = Object.freeze([
   'write_range', 'replace_all', 'copy_range', 'fill_range', 'remove_duplicates', 'set_number_format', 'format_range', 'clear_range', 'merge_cells', 'unmerge_cells', 'insert_cells',
@@ -19,7 +19,7 @@ export const WRITE_OPS = Object.freeze([
   'add_table', 'set_table_cells', 'add_table_rows', 'remove_table', 'sort_range', 'filter_table',
   'add_chart', 'format_chart', 'delete_chart',
   'add_conditional_format', 'clear_conditional_formats', 'set_validation', 'set_name', 'delete_name',
-  'add_comment', 'resolve_comment', 'add_image', 'add_pivot', 'refresh_pivot',
+  'add_comment', 'resolve_comment', 'add_image', 'add_pivot', 'refresh_pivot', 'insert_sheets_from_file', 'import_csv',
   'restore_range', 'set_tag', 'suggest', 'drop_suggestion',
 ]);
 export const ALL_OPS = Object.freeze([...READ_OPS, ...WRITE_OPS]);
