@@ -832,7 +832,7 @@ const TOOL_LABELS = new Map(Object.entries({
   autofit: '폭 맞추기', set_hyperlink: '링크 걸기',
   add_sheet: '시트 만들기', delete_sheet: '시트 지우기', rename_sheet: '시트 이름 바꾸기', move_sheet: '시트 옮기기',
   copy_sheet: '시트 복사', set_sheet_visibility: '시트 숨기기/보이기', activate_sheet: '시트로 가기',
-  freeze_panes: '틀 고정', protect_sheet: '시트 보호', unprotect_sheet: '시트 보호 해제',
+  freeze_panes: '틀 고정', set_rows_columns: '행·열 숨김·그룹·크기', set_tab_color: '탭 색', set_sheet_view: '눈금선·머리글', set_workbook_properties: '문서 속성', protect_sheet: '시트 보호', unprotect_sheet: '시트 보호 해제',
   add_table: '표 만들기', set_table_cells: '표 칸 채우기', add_table_rows: '표 행 추가', remove_table: '표 풀기',
   sort_range: '정렬', filter_table: '필터',
   add_chart: '차트 넣기', format_chart: '차트 서식 바꾸기', delete_chart: '차트 지우기',

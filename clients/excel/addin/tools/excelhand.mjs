@@ -91,7 +91,7 @@ const ARGS = {
   autofit: { sheet: 'Sheet1', address: 'A1:B2', what: 'both' }, set_hyperlink: { sheet: 'Sheet1', address: 'C4', url: 'https://example.com', text: '링크' },
   add_sheet: { name: '요약', after: 'Sheet1' }, delete_sheet: { sheet: 'Sheet1' }, rename_sheet: { sheet: 'Sheet1', name: '요약2' }, move_sheet: { sheet: 'Sheet1', to: 1 },
   copy_sheet: { sheet: 'Sheet1', name: '사본' }, set_sheet_visibility: { sheet: 'Sheet1', visibility: 'Hidden' }, activate_sheet: { sheet: 'Sheet1', address: 'B2' },
-  freeze_panes: { sheet: 'Sheet1', rows: 1 }, protect_sheet: { sheet: 'Sheet1' }, unprotect_sheet: { sheet: 'Sheet1' },
+  freeze_panes: { sheet: 'Sheet1', rows: 1 }, set_rows_columns: { sheet: 'Sheet1', rows: '3:5', hidden: true }, set_tab_color: { sheet: 'Sheet1', color: '#FF0000' }, set_sheet_view: { sheet: 'Sheet1', gridlines: false }, set_workbook_properties: { title: '보고' }, protect_sheet: { sheet: 'Sheet1' }, unprotect_sheet: { sheet: 'Sheet1' },
   add_table: { sheet: 'Sheet1', address: 'D1:E3', name: '새표', table_style: 'TableStyleMedium2' },
   set_table_cells: { table: 'Thing1', cells: [{ row: 0, column: 'h1', value: 'v' }] }, add_table_rows: { table: 'Thing1', rows: [['a', 1]] },
   remove_table: { table: 'Thing1' }, sort_range: { sheet: 'Sheet1', address: 'A1:B2', by: [{ column: 1, ascending: false }], has_header: true },

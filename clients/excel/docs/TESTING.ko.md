@@ -9,9 +9,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 65개
+node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙·인용·안내·제안·가짜 손 69개
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 65개 전부
+node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 69개 전부
 TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다 — MCP 로 부르면 여기로 온다
 ```
 
@@ -150,7 +150,7 @@ Excel 창에서 띠를 봤고(「보인다」), 그 자리에서 「상시 나�
 
 1. Excel 을 열고 리본 「홈」 오른쪽 끝 **AI Assistant › Magi** → 작업창.
 2. 「지원 API」 줄 — 2021/365 면 숨어 있어야 한다(전부 ✓). 펴져 있으면 무엇이 없는지 읽는다.
-3. 붙기 → `준비됐습니다 — 도구 65 개.`
+3. 붙기 → `준비됐습니다 — 도구 69 개.`
 4. 범위를 고르고 「인용」 → `[인용] sheet="…" range=… size=…` 조각.
 5. 「이 시트 목차 읽어 줘」 → `시트 목차 읽기` 줄, 권한 물음 없이.
 6. 「B2:B6 를 천 단위로」 → 권한 물음에 `set_number_format` 과 인자(시트·범위·형식)가 그려진다 → 허용 → Excel
@@ -171,6 +171,12 @@ Office.js 가 실제로 어떻게 답하는가(`InvalidArgument` 의 `errorLocat
 로 D2:D5 까지(참조가 행마다 밀린다 — `=B3*C3`…), 1·2 를 등차로 F6 까지(3·4·5·6), 값만 행열 바꿔 복사, 블록 전체 복사, 품목 열로
 중복 1행 제거(남은 3행이 위로 당겨지고 마지막 행은 빈다). 열네 호출 중 거절 하나(일부러), 실패 0. `replaceAll`·`copyFrom`·
 `autoFill`·`removeDuplicates` 전부 1.9 실물에서 그대로.
+
+## 5.7 2026-09-06 밤 — 도구 66~69 (set_rows_columns · set_tab_color · set_sheet_view · set_workbook_properties)
+
+실물 통합 문서의 새 시트에서 행 3:4 숨김/보임·높이, 열 B:C 너비·그룹/해제, 행 하나("2")·열 하나("B"), 탭 색과 해제, 눈금선·머리글
+끄고 켜기, 문서 속성(제목·작성자)까지 실패 0. 첫 판: 헬퍼의 「1부터」 검사가 `rows: "3:4"` 같은 **구간 글**을 수로 읽어 거절했다 →
+글은 수로 읽힐 때만 재고(`"2"` 는 통과, `"0"` 은 거절), 구간·열 글자는 지나간다(`TestOneBasedCheckSkipsSpanStrings`).
 
 ## 통합 헬퍼 재확인
 

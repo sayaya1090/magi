@@ -426,6 +426,41 @@ func xlCatalogue(hasCouncil bool) []tool {
 			),
 		},
 		{
+			Name: "set_rows_columns",
+			Desc: "Rows or columns as a whole: hide/show, group/ungroup (outline), height (rows, pt) or width (columns, pt). " +
+				"Give `rows` like \"3:5\" or `columns` like \"B:D\". Only the fields you pass change. Grouping needs ExcelApi 1.10.",
+			Props: withSheet(
+				property{Name: "rows", Type: "string", Desc: "Row span, e.g. \"3:5\" (or \"7\")."},
+				property{Name: "columns", Type: "string", Desc: "Column span, e.g. \"B:D\" (or \"B\")."},
+				property{Name: "hidden", Type: "boolean", Desc: "true hides, false shows."},
+				property{Name: "group", Type: "boolean", Desc: "true groups (outline level), false ungroups."},
+				property{Name: "height", Type: "number", Desc: "Row height in points (rows only)."},
+				property{Name: "width", Type: "number", Desc: "Column width in points (columns only)."},
+			),
+		},
+		{
+			Name:     "set_tab_color",
+			Desc:     "Colour a worksheet's tab (#RRGGBB), or none to clear. Needs ExcelApi 1.7.",
+			Props:    withSheet(property{Name: "color", Type: "string", Desc: "#RRGGBB or none. Required."}),
+			Required: []string{"color"},
+		},
+		{
+			Name: "set_sheet_view",
+			Desc: "What a worksheet shows around the cells: gridlines on/off, row/column headings on/off. Needs ExcelApi 1.8.",
+			Props: withSheet(
+				property{Name: "gridlines", Type: "boolean"}, property{Name: "headings", Type: "boolean"},
+			),
+		},
+		{
+			Name: "set_workbook_properties",
+			Desc: "Set the workbook's document properties: title, subject, author, keywords, comments, category. Only the " +
+				"fields you pass change. Needs ExcelApi 1.7.",
+			Props: []property{
+				property{Name: "title", Type: "string"}, property{Name: "subject", Type: "string"}, property{Name: "author", Type: "string"},
+				property{Name: "keywords", Type: "string"}, property{Name: "comments", Type: "string"}, property{Name: "category", Type: "string"},
+			},
+		},
+		{
 			Name: "protect_sheet",
 			Desc: "Protect a worksheet from edits (optionally with a password). Formatting/sorting stay allowed only " +
 				"if you say so. Needs ExcelApi 1.7.",

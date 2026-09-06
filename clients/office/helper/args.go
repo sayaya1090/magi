@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -138,8 +139,21 @@ func validateArgs(app *App, t tool, raw json.RawMessage) (map[string]any, error)
 		}
 		// 엑셀에서 rows·columns 는 **목록**이기도 하다 — add_table_rows 의 행 배열, add_pivot 의 필드 이름.
 		// 그 자리에서 이 검사가 「1부터」라고 거절했다(실물 2026-09-06). 수가 아닌 것은 이 검사의 것이 아니다.
-		switch v.(type) {
+		switch x := v.(type) {
 		case []any, map[string]any:
+			continue
+		case string:
+			// 엑셀의 rows·columns 는 "3:5"·"B:D" 같은 **구간**이기도 하다(set_rows_columns, 실물 2026-09-06). 수가 아닌 글은
+			// 이 검사의 것이 아니고, 수인 글("2")은 여기서 재고 끝낸다 — asInt 는 글을 안 받는다.
+			n, err := strconv.Atoi(strings.TrimSpace(x))
+			if err != nil {
+				continue
+			}
+			if n < 1 {
+				return nil, argError{fmt.Sprintf(
+					"%s: %q starts at 1 (got %v). Omit it rather than passing 0 — 0 would mean \"none\", and this call did not run",
+					t.Name, key, v)}
+			}
 			continue
 		}
 		n, err := asInt(v)

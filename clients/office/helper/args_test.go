@@ -188,3 +188,17 @@ func TestAnEmptyArrayIsAnEmptyCall(t *testing.T) {
 		t.Error("값이 든 배열은 거절해야 한다 — 관용은 뜻이 같은 것에만 준다")
 	}
 }
+
+// 「1부터」 검사는 수에만 건다 — "3:5" 같은 구간 글은 지나간다(실물: set_rows_columns 가 rows "3:4" 로 거절당했다, 2026-09-06).
+func TestOneBasedCheckSkipsSpanStrings(t *testing.T) {
+	tl := toolOf(t, XL, "set_rows_columns")
+	if _, err := validateArgs(XL, tl, []byte(`{"rows":"3:5","hidden":true}`)); err != nil {
+		t.Fatalf("구간 글을 수로 읽어 거절했다: %v", err)
+	}
+	if _, err := validateArgs(XL, tl, []byte(`{"rows":"0","hidden":true}`)); err == nil {
+		t.Fatal("숫자 글 0 은 여전히 거절해야 한다")
+	}
+	if _, err := validateArgs(XL, tl, []byte(`{"rows":"2","hidden":true}`)); err != nil {
+		t.Fatalf("숫자 글 2 를 거절했다(실물: rows \"2\"): %v", err)
+	}
+}

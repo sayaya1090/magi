@@ -134,6 +134,10 @@ export class ExcelHand extends HandPort {
         return this.#envelope({ pinned: op === 'advise' ? (a.items?.length ?? 0) : 0 });
       // ── 쓰기 ──
       case 'write_range': return this.#writeRange(a);
+      case 'set_rows_columns': return this.#setRowsColumns(a);
+      case 'set_tab_color': return this.#setTabColor(a);
+      case 'set_sheet_view': return this.#setSheetView(a);
+      case 'set_workbook_properties': return this.#setWorkbookProperties(a);
       case 'replace_all': return this.#replaceAll(a);
       case 'copy_range': return this.#copyRange(a);
       case 'fill_range': return this.#fillRange(a);
@@ -580,6 +584,51 @@ export class ExcelHand extends HandPort {
     });
   }
 
+  async #setRowsColumns(a) {
+    const rows = str(a, 'rows'); const cols = str(a, 'columns');
+    if ((rows == null) === (cols == null)) refuse('rows("3:5") 나 columns("B:D") 중 하나를 주세요');
+    const hidden = bool(a, 'hidden'); const group = bool(a, 'group'); const height = num(a, 'height'); const width = num(a, 'width');
+    if (group != null) this.#need('ExcelApi', '1.10', 'set_rows_columns{group}');
+    const words = [hidden != null && (hidden ? '숨김' : '보임'), group != null && (group ? '그룹' : '그룹 해제'), height != null && `높이 ${height}pt`, width != null && `너비 ${width}pt`].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — hidden·group·height·width 중 하나');
+    if (rows != null && width != null) refuse('width 는 columns 에만 — rows 에는 height');
+    if (cols != null && height != null) refuse('height 는 rows 에만 — columns 에는 width');
+    const span = rows != null ? (rows.includes(':') ? rows : `${rows}:${rows}`) : (cols.includes(':') ? cols : `${cols}:${cols}`);
+    return this.runner(async (context) => {
+      const ws = this.#sheet(context, a); ws.load('name'); const range = ws.getRange(span); range.load('address'); await context.sync();
+      if (hidden != null) { if (rows != null) range.rowHidden = hidden; else range.columnHidden = hidden; }
+      if (height != null) range.format.rowHeight = height; if (width != null) range.format.columnWidth = width;
+      if (group != null) { if (group) range.group(rows != null ? 'ByRows' : 'ByColumns'); else range.ungroup(rows != null ? 'ByRows' : 'ByColumns'); }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, span, kind: rows != null ? 'rows' : 'columns' }, [`${ws.name} ${rows != null ? '행' : '열'} ${span}: ${words.join(', ')}`]);
+    });
+  }
+  async #setTabColor(a) {
+    this.#need('ExcelApi', '1.7', 'set_tab_color');
+    const color = hex(a, 'color', true) ?? refuse('color 가 없습니다 — #RRGGBB 또는 none');
+    return this.runner(async (context) => {
+      const ws = this.#sheet(context, a); ws.load('name'); ws.tabColor = color === 'none' ? '' : color; await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, color }, [`시트 '${ws.name}' 탭 색 → ${color === 'none' ? '없음' : color}`]);
+    });
+  }
+  async #setSheetView(a) {
+    this.#need('ExcelApi', '1.8', 'set_sheet_view');
+    const grid = bool(a, 'gridlines'); const head = bool(a, 'headings');
+    if (grid == null && head == null) refuse('바꿀 것이 없습니다 — gridlines·headings 중 하나');
+    return this.runner(async (context) => {
+      const ws = this.#sheet(context, a); ws.load('name'); if (grid != null) ws.showGridlines = grid; if (head != null) ws.showHeadings = head; await context.sync(); this.#mutated();
+      return this.#envelope({ sheet: ws.name, gridlines: grid, headings: head }, [`시트 '${ws.name}': ${[grid != null && `눈금선 ${grid ? '켬' : '끔'}`, head != null && `머리글 ${head ? '켬' : '끔'}`].filter(Boolean).join(', ')}`]);
+    });
+  }
+  async #setWorkbookProperties(a) {
+    this.#need('ExcelApi', '1.7', 'set_workbook_properties');
+    const keys = ['title', 'subject', 'author', 'keywords', 'comments', 'category']; const set = keys.filter((k) => str(a, k) != null);
+    if (set.length === 0) refuse('바꿀 것이 없습니다 — title·subject·author·keywords·comments·category 중 하나');
+    return this.runner(async (context) => {
+      const props = context.workbook.properties; for (const k of set) props[k] = str(a, k); await context.sync(); this.#mutated();
+      return this.#envelope(Object.fromEntries(set.map((k) => [k, str(a, k)])), [`통합 문서 속성: ${set.map((k) => `${k}=「${clip(str(a, k), 30)}」`).join(', ')}`]);
+    });
+  }
   async #replaceAll(a) {
     this.#need('ExcelApi', '1.9', 'replace_all');
     const find = String(need(a, 'find')); const replace = String(a.replace ?? refuse('replace 가 없습니다(빈 문자열은 됩니다)'));
