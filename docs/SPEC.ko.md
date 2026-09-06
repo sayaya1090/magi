@@ -273,6 +273,8 @@ llm-err-3: invalid base URL            ⇒ StreamChat returns error immediately
   전부 성공했고, 그 사이에 프롬프트 이벤트가 없었으면 새로 시킨 것이 없는 것이다: 호출을 다시 돌리지 않고 루프 메모를 적고
   턴을 끝낸다(R1). 실측: `land` 가 답한 뒤 같은 `land` 단계 일곱 번. 실패 뒤 반복은 재시도라 돈다. `council`·`wait_for`·
   `bash_output`·`ask_user`·`hand_off` 는 면제 — 반복 자체가 뜻이거나 제 캡이 있다.
+- R6 **툴이 제가 도는 턴을 끝낼 수 있다**(`magi.finish`, `turnControl.finishNow`). 그 단계의 호출이 돈 직후 읽는다: 답이 이미
+  적혀 있으면 거기서 종료 경로를 타고, 아직 없으면 표시는 지워지고 다음 단계가 R1 대로 답을 싣고 끝낸다.
 
 ```
 loop-stop-1: fake replies ["안녕"]                       ⇒ 1 step, turn.finished, 1 text part

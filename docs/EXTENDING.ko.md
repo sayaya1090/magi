@@ -910,6 +910,7 @@ end
 | `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | 워크디렉터리에 갇힌 파일 접근 |
 | `magi.list_files(dir)` | `fs:read` | 한 디렉토리의 이름들(재귀 없음), 디렉토리는 끝에 `/`가 붙는다. 권한을 넓히지 않는다 — 이름은 `read_file`이 이미 주는 내용보다 적다 — 그리고 권한 밖 디렉토리는 빈 목록이 아니라 **거부**한다: "없다"와 "볼 수 없다"는 호출자를 정반대 행동으로 이끈다 |
 | `magi.notify(text)` | — | 데스크톱 알림 |
+| `magi.finish([session])` | `notify` | 부른 툴이 도는 턴을 끝낸다 — 툴 호출 안에서만, 제 세션만. 랜딩 플러그인의 `land` 가 받아 준 착지에서 부른다: 모델이 답을 이미 적었으면 그 단계에서 턴이 끝나고, 호출 없는 다음 단계를 기다리지 않는다(그 길로 모델이 land 를 일곱 번 되불렀다, 2026-09-07) |
 | `magi.json_decode(text)` | — | JSON → Lua 테이블 |
 | `magi.json_encode(v)` | — | Lua 값 → JSON, **키 정렬**. 정렬이 요점입니다 — `pairs()`는 테이블을 해시 순서로 돌아서, 손으로 쓴 인코더는 같은 스키마를 매번 다른 바이트로 만듭니다. 그 바이트가 심 프롬프트의 머리이고, 벤치 arm 셋이 프롬프트 캐시에서 0을 읽은 이유입니다. 복사본마다 반복되는 규칙 대신 구현 하나, 테스트 하나 |
 | `magi.register_doctor_probes{…}` | — | `magi -doctor`에 접히는 환경 점검 |

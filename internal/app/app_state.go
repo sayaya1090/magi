@@ -346,6 +346,10 @@ type turnControl struct {
 	// turn ends UNVERIFIED with this reason on the record. Empty on an accepted finish.
 	unverifiedReason string
 	reason           string
+	// finishNow is set by a TOOL that ends the turn it runs in (magi.finish — the landing plugin's
+	// land). Read and cleared right after that step's calls run: the turn finishes there when the
+	// model has already written its answer, instead of waiting for a next step with no call.
+	finishNow bool
 }
 
 // realPromptTokens returns the actual prompt token count from the last turn (0

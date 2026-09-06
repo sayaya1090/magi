@@ -325,6 +325,9 @@ Rules:
   loop note says so, and the turn ends (R1). Measured: seven identical `land` steps after land had
   answered. A repeat after a failure is a retry and runs; `council`, `wait_for`, `bash_output`,
   `ask_user` and `hand_off` are exempt — their repeat has its own meaning or its own cap.
+- R6 **A tool may end the turn it runs in** (`magi.finish`, `turnControl.finishNow`). Read right
+  after that step's calls ran: with an answer already written the turn takes the finish path there;
+  with none yet the mark lapses and the next step ends it the R1 way, carrying the answer.
 
 ```
 loop-stop-1: fake replies ["hello"]                       ⇒ 1 step, turn.finished, 1 text part

@@ -986,6 +986,7 @@ server, a migrated database. No isolation scheme in magi undoes those, and it do
 | `magi.write_file` / `magi.read_file` / `magi.remove_file` | `fs:write` / `fs:read` | workdir-confined file access |
 | `magi.list_files(dir)` | `fs:read` | the names in one directory, no recursion; a directory carries a trailing `/`. Widens no grant — a name is less than the contents `read_file` already returns — and a directory outside the grant is **refused**, never answered with an empty list: "nothing there" and "not allowed to look" lead a caller to opposite actions |
 | `magi.notify(text)` | — | a desktop notification |
+| `magi.finish([session])` | `notify` | ends the turn the calling tool runs in — only from inside a tool call, and only its own session. The landing plugin's `land` calls it on a landing it accepts: the turn finishes on that step when the model has already written its answer, instead of waiting for a next step with no call (a model re-called land seven times that way, 2026-09-07) |
 | `magi.json_decode(text)` | — | JSON → a Lua table |
 | `magi.json_encode(v)` | — | a Lua value → JSON, **keys sorted**. The ordering is the point: `pairs()` walks a table in hash order, so a hand-written encoder gives the same schema different bytes on every call — and those bytes are the head of a shim's prompt, which is why three bench arms read zero from the prompt cache. One implementation, one test, instead of a rule repeated in every copy |
 | `magi.register_doctor_probes{…}` | — | environment checks folded into `magi -doctor` |

@@ -17,6 +17,22 @@ import (
 // an unanswered user prompt, and the model sees it next turn (an "engram saved
 // skill X — reply N to undo" notice is actionable precisely because the model
 // and the user both see it).
+// PluginFinish is a plugin tool ending the turn it was called in (magi.finish). The loop reads
+// the mark right after the step's calls ran; see turnControl.finishNow.
+func (a *App) PluginFinish(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	a.signalTurnControl(session.SessionID(sessionID), func(tc *turnControl) { tc.finishNow = true })
+}
+
+// takeFinishNow reads and clears the tool-ended mark, leaving the rest of the control alone.
+func (a *App) takeFinishNow(sid session.SessionID) bool {
+	now := false
+	a.signalTurnControl(sid, func(tc *turnControl) { now, tc.finishNow = tc.finishNow, false })
+	return now
+}
+
 func (a *App) PluginNote(sessionID, text string) {
 	text = strings.TrimSpace(text)
 	if sessionID == "" || text == "" {

@@ -281,6 +281,10 @@ magi.register_tool{
     if seen then return seen, true end
     credits = credits + 1
     local left = args.left or ""
+    -- **착지가 곧 끝이다.** 코어의 finish 문(magi.finish)이 있으면 이 단계에서 턴을 끝낸다 — 없던 판은 모델의 다음
+    -- 단계가 호출 없이 와야 끝났고, 모델이 land 를 일곱 번 되부른 것을 실물에서 봤다(엑셀 2026-09-07). 옛 호스트엔
+    -- 이 문이 없으니 있을 때만 부른다.
+    if type(magi.finish) == "function" then pcall(magi.finish) end
     if nothing then
       return "착지했습니다 — 바꾼 것 없음으로 신고했습니다" .. (left ~= "" and (" · 남긴 것: " .. left) or "")
         .. ". 이 턴은 여기서 끝나도 됩니다."

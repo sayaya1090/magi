@@ -113,6 +113,7 @@ type Host struct {
 	analyzer      Analyzer                     // sidecar LLM analysis (magi.analyze); nil = unavailable
 	experience    port.ExperienceStore         // D13 team store (magi.propose_experience); nil = unavailable
 	notify        func(sessionID, text string) // session note sink (magi.notify); nil = unavailable
+	finish        func(sessionID string)       // turn ender (magi.finish); nil = unavailable
 	logf          func(string)
 
 	mu        sync.Mutex
@@ -146,22 +147,26 @@ type Analyzer interface {
 }
 
 type HostConfig struct {
-	ToolSink      ToolSink
-	MCPMgr        MCPManager                   // optional: enables magi.register_mcp()
-	ContextReg    ContextProviderRegistry      // optional: enables magi.register_context_provider()
-	LLMReg        LLMHeaderRegistry            // optional: enables magi.set_llm_headers()
-	BaseReg       BaseURLRegistry              // optional: enables magi.set_base_url()
-	ModelReg      ModelRegistry                // optional: enables magi.set_model()
-	UserReg       UserLabelRegistry            // optional: enables magi.set_user_label()
-	Analyzer      Analyzer                     // optional: enables magi.analyze (sidecar LLM analysis)
-	Experience    port.ExperienceStore         // optional: enables magi.propose_experience (D13 team store)
-	Notify        func(sessionID, text string) // optional: enables magi.notify (session transcript note)
-	PluginConfigs map[string]map[string]any    // optional: [plugins.<name>] settings, read via magi.store_get
-	ConfigPath    string                       // optional: path to config.toml (enables magi.get/set_config_key)
-	DataDir       string                       // base dir for per-plugin persistent config stores (store_set)
-	Prompter      prompt.Prompter              // optional: enables magi.ask interactive prompts
-	Runtime       RuntimeInfo                  // runtime context for plugins
-	Logf          func(string)                 // optional: log output
+	ToolSink   ToolSink
+	MCPMgr     MCPManager                   // optional: enables magi.register_mcp()
+	ContextReg ContextProviderRegistry      // optional: enables magi.register_context_provider()
+	LLMReg     LLMHeaderRegistry            // optional: enables magi.set_llm_headers()
+	BaseReg    BaseURLRegistry              // optional: enables magi.set_base_url()
+	ModelReg   ModelRegistry                // optional: enables magi.set_model()
+	UserReg    UserLabelRegistry            // optional: enables magi.set_user_label()
+	Analyzer   Analyzer                     // optional: enables magi.analyze (sidecar LLM analysis)
+	Experience port.ExperienceStore         // optional: enables magi.propose_experience (D13 team store)
+	Notify     func(sessionID, text string) // optional: enables magi.notify (session transcript note)
+	// Finish, when set, enables magi.finish: a tool that ends the turn it was called in. The
+	// landing plugin's `land` is the case — without it the turn ended only when the model's next
+	// step carried no call, and a model that kept re-calling land never produced one.
+	Finish        func(sessionID string)
+	PluginConfigs map[string]map[string]any // optional: [plugins.<name>] settings, read via magi.store_get
+	ConfigPath    string                    // optional: path to config.toml (enables magi.get/set_config_key)
+	DataDir       string                    // base dir for per-plugin persistent config stores (store_set)
+	Prompter      prompt.Prompter           // optional: enables magi.ask interactive prompts
+	Runtime       RuntimeInfo               // runtime context for plugins
+	Logf          func(string)              // optional: log output
 }
 
 // NewHostWithConfig returns a plugin host with full configuration.
@@ -185,6 +190,7 @@ func NewHostWithConfig(cfg HostConfig) *Host {
 		analyzer:      cfg.Analyzer,
 		experience:    cfg.Experience,
 		notify:        cfg.Notify,
+		finish:        cfg.Finish,
 		logf:          cfg.Logf,
 		plugins:       map[string]*plugin{},
 	}

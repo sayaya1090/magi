@@ -124,7 +124,9 @@ func TestBothFinishPathsUseTheSameAccounting(t *testing.T) {
 	if bytes.Contains(src[:decl], []byte(oldShape)) {
 		t.Error("a finish path is building its own usage from the stream locals — turnUsage is the one accounting")
 	}
-	if n := bytes.Count(src, []byte("turnUsage(a, sid, usageAtStart")); n != 2 {
-		t.Errorf("both finish paths must go through turnUsage, found %d call(s)", n)
+	// Three finish paths, one accounting: the call-less step, the step a tool ended (magi.finish,
+	// 2026-09-07), and the runaway backstop.
+	if n := bytes.Count(src, []byte("turnUsage(a, sid, usageAtStart")); n != 3 {
+		t.Errorf("every finish path must go through turnUsage, found %d call(s) (want 3)", n)
 	}
 }

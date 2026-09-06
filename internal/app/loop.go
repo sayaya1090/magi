@@ -589,6 +589,20 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			}
 		}
 
+		// **A tool ended the turn.** The landing plugin's `land` says so through magi.finish; when
+		// the model has already written its answer (the text before the call), the turn finishes
+		// here — the same finish path a call-less step takes. With no text yet, the mark lapses and
+		// the next step ends the turn the ordinary way, carrying the answer.
+		if a.takeFinishNow(sid) && strings.TrimSpace(lastText) != "" {
+			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
+			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
+			case loopContinue:
+				continue
+			case loopFinish:
+				finished = ts.unverifiedReason == ""
+				return lastText, nil
+			}
+		}
 		// Corrective re-grounding: before any force-stop, give a thrashing agent ONE nudge to
 		// re-read the task and change approach — far cheaper than burning the rest of the budget.
 		a.injectStuckNudge(ctx, tc, turnTask, evs)

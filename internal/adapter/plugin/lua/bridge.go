@@ -46,6 +46,7 @@ func installBridge(p *plugin) {
 	L.SetField(t, "json_encode", L.NewFunction(p.bridgeJSONEncode))
 	L.SetField(t, "propose_experience", L.NewFunction(p.bridgeProposeExperience))
 	L.SetField(t, "notify", L.NewFunction(p.bridgeNotify))
+	L.SetField(t, "finish", L.NewFunction(p.bridgeFinish))
 	L.SetField(t, "remove_file", L.NewFunction(p.bridgeRemoveFile))
 	L.SetField(t, "ask", L.NewFunction(p.bridgeAsk))
 	L.SetField(t, "log", L.NewFunction(p.bridgeLog))
@@ -1255,6 +1256,30 @@ func (p *plugin) bridgeNotify(L *lua.LState) int {
 		return fail(L, "notify: session and text are required")
 	}
 	p.host.notify(sid, text)
+	L.Push(lua.LTrue)
+	return 1
+}
+
+// magi.finish([session]) → true (or nil, err). Ends the turn the calling tool runs in: the loop
+// finishes after this step instead of waiting for the model's next step to carry no call.
+//
+// Only from inside a tool call, where the session is known (the argument may name it, and must
+// match). Capability "notify" — it steers the conversation the way a note does. Live (Excel,
+// 2026-09-07): with no such door, `land` answered "you may end here" and the model re-called it
+// seven times, byte for byte, before the repeat guard stopped it.
+func (p *plugin) bridgeFinish(L *lua.LState) int {
+	p.requireCap(L, "notify")
+	if p.host == nil || p.host.finish == nil {
+		return fail(L, "finish: no turn to end from here (the host offers no finish door)")
+	}
+	sid := string(p.env.SessionID)
+	if sid == "" {
+		return fail(L, "finish: only available inside a tool call")
+	}
+	if want := strings.TrimSpace(L.OptString(1, "")); want != "" && want != sid {
+		return fail(L, "finish: that is not the session this tool is running in")
+	}
+	p.host.finish(sid)
 	L.Push(lua.LTrue)
 	return 1
 }
