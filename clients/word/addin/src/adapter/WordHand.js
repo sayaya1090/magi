@@ -787,12 +787,13 @@ export class WordHand extends HandPort {
     if (words.length === 0) refuse('바꿀 것이 없습니다 — text·fill·line_color·left/top/width/height·new_name 중 하나');
     return this.runner(async (context) => {
       const s = await this.#shapePick(context, a);
-      if (text != null) s.body.insertText(text, 'Replace');
+      // 채우기·선·자리를 먼저, 글은 마지막에 — 글을 바꾼 뒤 같은 배치에서 setSolidColor 가 GeneralException 이었다(실물 2026-09-06).
       if (fill) { if (fill === 'none') s.fill.clear(); else s.fill.setSolidColor(fill); }
       const ol = s.outline ?? s.line;
       if (line) { if (ol) { if (line === 'none') ol.visible = false; else { ol.visible = true; ol.color = line; } } else refuse('선 색은 이 Word 판에서 못 바꿉니다 — Shape 에 outline 이 없습니다'); }
       for (const k of pos) s[k] = num(a, k);
       if (nn) s.name = nn;
+      if (text != null) { await context.sync(); s.body.insertText(text, 'Replace'); }
       await context.sync(); this.#mutated();
       return this.#envelope({ id: s.id, name: nn ?? s.name }, [`도형 「${s.name || s.id}」: ${words.join(', ')}`]);
     });
