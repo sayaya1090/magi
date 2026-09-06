@@ -16,14 +16,14 @@
 Word 작업창 안에서 magi 컴패니언과 대화하고, **컴패니언이 열려 있는 문서를 직접 읽고 고친다** — 문단·스타일·글자 서식·
 표·목록·그림·머리글/바닥글·찾아 바꾸기·메모·책갈피·변경 추적까지.
 
-- 도구는 **MCP** 로 나간다(`mcp__word__*` 57개, §6). 컴패니언 쪽에는 새 계약이 없다.
+- 도구는 **MCP** 로 나간다(`mcp__word__*` 62개, §6). 컴패니언 쪽에는 새 계약이 없다.
 - **문서를 만지는 손은 애드인이다.** 헬퍼도 데몬도 파일을 안 연다. 셸로 `.docx` 를 새로 쓰는 일은 **하지 않는다**.
 - 파워포인트·엑셀 판과 다른 점 하나: **Word 는 페이지를 그림으로 못 준다.** 눈은 `read_html` 이다 — 굵기·크기·색·목록·표가
   HTML 로 온다.
 
 ```
 Word 작업창(애드인)  ←https→  magi office(헬퍼, /word)  ←unix socket→  magi --daemon  →  모델
-     └── 손: Word.js 로 문서를 고친다         └── MCP 서버: 도구 57개를 데몬에 붙인다
+     └── 손: Word.js 로 문서를 고친다         └── MCP 서버: 도구 62개를 데몬에 붙인다
 ```
 
 COM 손은 없다. Word 2019·2021·Microsoft 365 는 모두 `WordApi 1.3` 이상이라 작업창이 그대로 손이 된다. 2016 이하는 작업창이
@@ -84,7 +84,7 @@ magi --daemon
 
 ### 3.2 브랜드 줄 · 3.3 대화 줄 · 3.4~3.9
 
-엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 57 개.」** 로
+엑셀 판 [`MANUAL.ko.md`](../../excel/docs/MANUAL.ko.md) §3.2~§3.9 와 같다. 붙는 과정은 **「준비됐습니다 — 도구 62 개.」** 로
 끝난다. 가이드는 워드 것 셋(`document-structure`·`editing`·`tables-and-review`).
 
 ---
@@ -112,9 +112,9 @@ magi --daemon
 
 ## 6. 무엇을 시킬 수 있나
 
-### 6.1 도구 57개
+### 6.1 도구 62개
 
-**읽는 것 (17) — 안 물어보고 도는 무리**
+**읽는 것 (18) — 안 물어보고 도는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -127,6 +127,7 @@ magi --daemon
 | `read_comments` | 메모 스레드(1.4) |
 | `render_page` | 한 쪽을 그림으로 — Word 가 문서 전체를 PDF 로 내주고 헬퍼가 그 쪽을 PNG 로(이 머신에 pdftoppm 이 있어야; Mac 은 없으면 sips 로 첫 쪽만) |
 | `list_images` | 본문의 그림 — 번호·문단·크기·대체 텍스트 |
+| `read_content_controls` | 콘텐츠 컨트롤 — id·태그·제목·글·자리 글·잠금·문단 |
 | `read_footnotes` | 각주·미주 — 번호·문단·걸린 글·내용(1.5) |
 | `read_tracked_changes` | 변경 내역(1.6) |
 | `describe_style` | 쓰이는 스타일과 수, 본문·제목 글꼴, 제목 목록 |
@@ -136,7 +137,7 @@ magi --daemon
 | `advise` | 작업창에 안내 포스트잇 — 문서는 안 고친다 |
 | `clear_advice` | 포스트잇을 지운다 |
 
-**문서를 고치는 것 (40) — 권한을 묻는 무리**
+**문서를 고치는 것 (44) — 권한을 묻는 무리**
 
 | 도구 | 하는 일 |
 |---|---|
@@ -154,6 +155,8 @@ magi --daemon
 | `edit_table` | 표 모양 — 행·열 삭제, 열 추가(위→아래 값), 칸 병합(1.4) |
 | `insert_file` | 다른 .docx 를 이 문서에(경로만 — 헬퍼가 읽고 Word 문서가 아니면 거절) |
 | `move_paragraphs` | 문단 덩어리를 다른 자리로(서식·표 같이) — 새 번호를 답한다 |
+| `set_page_setup` | 구역의 쪽 설정 — 방향·용지·여백·머리글/바닥글 거리·첫 쪽 따로(WordApiDesktop 1.1) |
+| `insert_content_control` · `set_content_control` · `delete_content_control` | 문단(또는 그 안의 글)을 태그 단 서식 슬롯으로 · 태그/id 로 채우기·잠그기 · 떼기(글은 남김) |
 | `set_style_format` | 스타일 자체를 고친다 — 글꼴·크기·굵게·색·정렬·간격·들여쓰기; 그 스타일의 문단이 전부 바뀐다. `create` 로 새 스타일(1.5) |
 | `insert_footnote` | 각주(기본)·미주 — `paragraph` 안 `text` 뒤 또는 문단 끝에(1.5) |
 | `delete_footnote` | 번호로 각주·미주 하나 지우기 — 글은 그대로 |
@@ -179,14 +182,14 @@ Word.js 에는 문단의 안정된 id 가 없다. `list_paragraphs` 가 준 번�
 ### 6.3 아직 안 되는 것
 
 - **페이지 그림은 우회로다** — Word.js 는 안 주고, `render_page` 가 PDF(getFileAsync)를 헬퍼에서 그림으로 만든다. 그 머신에 poppler 의 `pdftoppm` 이 없으면 Mac 은 첫 쪽만, Windows 는 거절한다(설치 안내를 답에 적는다). `read_html` 이 값싼 눈이다.
-- **각주·미주·필드·콘텐츠 컨트롤·도형** — 손에 안 달았다.
+- **도형** — 손에 안 달았다(WordApiDesktop 1.2). 각주·필드·콘텐츠 컨트롤은 달았다.
 - **저장** — Office.js 가 안 준다. 사람이 저장한다.
 
 ---
 
 ## 7. 권한
 
-읽는 도구 17개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi office -allow-rules=word`) — 아래는 그것을 그대로 옮긴 것이다:
+읽는 도구 18개는 안 묻고 돈다. 규칙은 코드가 만든다(`./magi office -allow-rules=word`) — 아래는 그것을 그대로 옮긴 것이다:
 
 ```toml
 allow = [
@@ -197,6 +200,7 @@ allow = [
   "mcp__word__list_images(**)",
   "mcp__word__list_paragraphs(**)",
   "mcp__word__read_comments(**)",
+  "mcp__word__read_content_controls(**)",
   "mcp__word__read_document(**)",
   "mcp__word__read_footnotes(**)",
   "mcp__word__read_html(**)",
@@ -218,7 +222,7 @@ allow = [
 PORT=3010 node clients/word/addin/tools/serve.mjs     # http://localhost:3010/taskpane.html
 ```
 
-Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 문단과 표 하나)가 붙고, 손은 `FakeHand` — 57개가 메모리 문서 위에서
+Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 문단과 표 하나)가 붙고, 손은 `FakeHand` — 62개가 메모리 문서 위에서
 **정말로** 돈다.
 
 ---
@@ -244,5 +248,5 @@ Word 없이 작업창이 뜬다. 왼쪽에 **가짜 문서**(보고서 열한 �
 ## 11. 이 문서와 시험의 관계
 
 이름 대는 도구는 전부 카탈로그에 있어야 하고(`TestTheManualNamesEveryTool`), §7 의 규칙은 코드가 만드는 것과 글자까지 같아야
-하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 57개」「읽는 것 17」「고치는 것 40」「준비됐습니다 — 도구 57 개」는 수를
+하며(`TestTheManualQuotesTheRulesWeGenerate`), 「도구 62개」「읽는 것 18」「고치는 것 44」「준비됐습니다 — 도구 62 개」는 수를
 세는 시험이 문다(`TestTheDocsCountTheToolsWeAdvertise`).

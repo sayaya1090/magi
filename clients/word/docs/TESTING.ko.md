@@ -6,9 +6,9 @@
 
 ```bash
 go test ./clients/office/helper/                     # 헬퍼(세 판 공용): 계약·유도 가드·문서 대조
-node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 57개
+node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙·인용·안내·제안·가짜 손 62개
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
-node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 57개 전부
+node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 62개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
 ```
 
@@ -104,13 +104,20 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 그림 블록을 싣는 자리보다 뒤에서 변환해 글로만 갔다(순서 고침), 손이 답한 `page` 가 JSON 을 거쳐 float64 라 0 으로 읽혀 9쪽이
 1쪽으로 그려졌다(`intOf`).
 
+### 5.1.9 set_page_setup · 콘텐츠 컨트롤 넷 — 실물(2026-09-06 밤)
+
+도구 58~62. `set_page_setup`(WordApiDesktop 1.1 — Mac 365 에서 됨): 가로·A4·여백 넷·첫 쪽 따로, 되돌리기, 없는 구역은 수를 대고 거절.
+콘텐츠 컨트롤: 문단 통째(`summary`)와 문단 안 글(「표」→`ref`, Tags 모양, 잠금)에 넣고, 읽고(id·태그·문단·글·잠금), 태그로 채우고
+제목 바꾸고, 잠금 해제·태그 바꾸기, 없는 태그는 있는 것을 대고 거절, 떼면 글은 남는다 — 열다섯 호출, 일부러 낸 거절 둘 빼고 실패 0.
+`insertContentControl`·`cannotEdit/cannotDelete`·`placeholderText`·`appearance`·`delete(keep)` 전부 1.9 실물 그대로.
+
 ### 5.2 사람의 손 — 아직
 
 점검표 4~9(인용·권한 물음·제안 적용·`read_html` 대화·창 둘)는 아직 사람이 안 눌렀다. 점검표:
 
 1. Word 를 열고 홈 탭 **Magi** → 작업창(처음엔 「추가 기능 › 개발자 추가 기능 › Magi」).
 2. 「지원 API」 줄 — 365 면 숨어 있어야 한다. 2021 은 1.3 까지 ✓ 라 펴져 있다.
-3. 붙기 → `준비됐습니다 — 도구 57 개.`
+3. 붙기 → `준비됐습니다 — 도구 62 개.`
 4. 문단을 잡고 「인용」 → `[인용] paragraphs=…`.
 5. 「목차 읽어 줘」 → `문단 목차 읽기` 줄, 권한 물음 없이.
 6. 「3번 문단을 다시 써 줘」 → 권한 물음에 `replace_paragraph` 와 인자 → 허용 → Word 화면이 바뀐다.

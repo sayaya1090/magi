@@ -18,6 +18,13 @@ var wordBreakKinds = []string{"page", "section", "line"}
 // wordFieldKinds 는 insert_field 가 넣는 필드 — 이름은 우리 것, Word.FieldType 으로 옮긴다(WordHand).
 var wordNoteKinds = []string{"footnote", "endnote"}
 
+// wordOrientations·wordPapers 는 set_page_setup — Word.PageOrientation·Word.PaperSize 의 이름.
+var wordOrientations = []string{"Portrait", "Landscape"}
+var wordPapers = []string{"A4", "A3", "A5", "B4", "B5", "Letter", "Legal", "Tabloid", "Executive"}
+
+// wordCCAppearances 는 콘텐츠 컨트롤의 모양(Word.ContentControlAppearance).
+var wordCCAppearances = []string{"BoundingBox", "Tags", "Hidden"}
+
 var wordFieldKinds = []string{"toc", "page", "num_pages", "date", "time", "title", "author", "file_name"}
 var wordHeaderFooter = []string{"header", "footer"}
 var wordHeaderKinds = []string{"Primary", "FirstPage", "EvenPages"}
@@ -57,6 +64,9 @@ var wordValueEnums = map[string][]string{
 	"kind":        append(append(append(append([]string{}, wordListKinds...), wordBreakKinds...), wordHeaderKinds...), wordNoteKinds...),
 	"which":       wordHeaderFooter,
 	"field":       wordFieldKinds,
+	"orientation": wordOrientations,
+	"paper":       wordPapers,
+	"appearance":  wordCCAppearances,
 	"mode":        wordTrackModes,
 	"what":        wordReviewWhats,
 	"builtin":     wordBuiltinStyles,

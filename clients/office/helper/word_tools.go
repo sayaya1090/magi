@@ -113,6 +113,13 @@ func wordCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
+			Name: "read_content_controls",
+			Desc: "Every content control in the body — id, tag, title, type, the text inside, placeholder, whether editing/" +
+				"deleting is locked, and the paragraph it starts in. Templates and forms live here; set_content_control fills them." + declare,
+			Props:    withFromTo(),
+			ReadOnly: true,
+		},
+		{
 			Name: "read_tracked_changes",
 			Desc: "Pending tracked changes (insertions, deletions, formatting) with author, date and text, plus the " +
 				"tracking mode. Needs WordApi 1.6 (Microsoft 365 / 2024)." + declare,
@@ -423,6 +430,55 @@ func wordCatalogue(hasCouncil bool) []tool {
 				property{Name: "at", Type: "string", Desc: "start or end (default end) when neither is given.", Enum: wordAtWhere},
 			},
 			Required: []string{"path"},
+		},
+		{
+			Name: "set_page_setup",
+			Desc: "Page size and margins of a section (default: every section): orientation, paper, margins in points, " +
+				"header/footer distance, different first page. Needs WordApiDesktop 1.1 (Microsoft 365 desktop) — refused by name elsewhere.",
+			Props: []property{
+				property{Name: "section", Type: "integer", Desc: "Section number, 1-based. Omit for all sections."},
+				property{Name: "orientation", Type: "string", Desc: "Portrait or Landscape.", Enum: wordOrientations},
+				property{Name: "paper", Type: "string", Desc: "A4, A3, A5, B4, B5, Letter, Legal, Tabloid, Executive.", Enum: wordPapers},
+				property{Name: "margins", Type: "object", Desc: "{left, right, top, bottom} in points (72 = 1 inch, 28.35 = 1 cm)."},
+				property{Name: "header_distance", Type: "number", Desc: "Header from page edge, points."},
+				property{Name: "footer_distance", Type: "number", Desc: "Footer from page edge, points."},
+				property{Name: "different_first_page", Type: "boolean", Desc: "First page has its own header/footer."},
+			},
+		},
+		{
+			Name: "insert_content_control",
+			Desc: "Wrap a paragraph (or `text` inside it) in a rich-text content control — a named, fillable slot with a tag " +
+				"and title, optionally locked. The way to turn a document into a template or to mark a field to fill later.",
+			Props: []property{
+				property{Name: "paragraph", Type: "integer", Desc: "The paragraph, 1-based. Required.", Also: []string{"from"}},
+				property{Name: "text", Type: "string", Desc: "Words inside the paragraph to wrap; omit to wrap the whole paragraph."},
+				property{Name: "tag", Type: "string", Desc: "Machine name, e.g. \"customer\". Required."},
+				property{Name: "title", Type: "string", Desc: "Shown label."},
+				property{Name: "placeholder", Type: "string", Desc: "Text shown while empty."},
+				property{Name: "appearance", Type: "string", Desc: "BoundingBox (default), Tags, Hidden.", Enum: wordCCAppearances},
+				property{Name: "locked", Type: "boolean", Desc: "true = cannot be edited or deleted by the person."},
+			},
+			Required: []string{"paragraph", "tag"},
+		},
+		{
+			Name: "set_content_control",
+			Desc: "Fill or relabel a content control found by tag (or id): new text, title, tag, placeholder, lock. Only the " +
+				"fields you pass change.",
+			Props: []property{
+				property{Name: "tag", Type: "string", Desc: "Tag of the control (first match)."},
+				property{Name: "id", Type: "integer", Desc: "Id from read_content_controls, when tags repeat."},
+				property{Name: "text", Type: "string", Desc: "Replace the text inside."},
+				property{Name: "title", Type: "string"}, property{Name: "new_tag", Type: "string"}, property{Name: "placeholder", Type: "string"},
+				property{Name: "locked", Type: "boolean"},
+			},
+		},
+		{
+			Name: "delete_content_control",
+			Desc: "Remove a content control by tag or id — keep_content (default true) leaves its text in place; false removes the text too.",
+			Props: []property{
+				property{Name: "tag", Type: "string"}, property{Name: "id", Type: "integer"},
+				property{Name: "keep_content", Type: "boolean", Desc: "Default true."},
+			},
 		},
 		{
 			Name: "set_style_format",

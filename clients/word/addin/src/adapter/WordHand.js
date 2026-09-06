@@ -185,6 +185,11 @@ export class WordHand extends HandPort {
       case 'delete_footnote': return this.#deleteFootnote(a);
       case 'set_style_format': return this.#setStyleFormat(a);
       case 'move_paragraphs': return this.#moveParagraphs(a);
+      case 'set_page_setup': return this.#setPageSetup(a);
+      case 'read_content_controls': return this.#readContentControls(a);
+      case 'insert_content_control': return this.#insertContentControl(a);
+      case 'set_content_control': return this.#setContentControl(a);
+      case 'delete_content_control': return this.#deleteContentControl(a);
       case 'insert_file': return this.#insertFile(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
@@ -720,6 +725,81 @@ export class WordHand extends HandPort {
       await context.sync(); this.#mutated();
       const now = await this.#paras(context, 'text');
       return this.#envelope({ file: name, paragraphs_now: now.length, added: now.length - items.length }, [`${said} 「${name}」 을 넣었습니다 — 문단 ${now.length - items.length}개`]);
+    });
+  }
+  async #setPageSetup(a) {
+    this.#need('WordApiDesktop', '1.1', 'set_page_setup');
+    const section = int(a, 'section'); const orient = str(a, 'orientation'); const paper = str(a, 'paper'); const m = a.margins && typeof a.margins === 'object' ? a.margins : null;
+    const hd = num(a, 'header_distance'); const fd = num(a, 'footer_distance'); const dfp = bool(a, 'different_first_page');
+    const words = [orient && (orient === 'Landscape' ? '가로' : '세로'), paper && `용지 ${paper}`, m && `여백 ${['left', 'right', 'top', 'bottom'].filter((k) => num(m, k) != null).map((k) => `${k} ${num(m, k)}pt`).join('/')}`, hd != null && `머리글 거리 ${hd}pt`, fd != null && `바닥글 거리 ${fd}pt`, dfp != null && (dfp ? '첫 쪽 따로' : '첫 쪽 같이')].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — orientation·paper·margins·header_distance·footer_distance·different_first_page 중 하나');
+    return this.runner(async (context) => {
+      const secs = context.document.sections; secs.load('items'); await context.sync();
+      if (section != null && (section < 1 || section > secs.items.length)) refuse(`문서에 ${section}번 구역이 없습니다 — 구역 ${secs.items.length}개`);
+      const list = section != null ? [secs.items[section - 1]] : secs.items;
+      for (const s of list) {
+        const ps = s.pageSetup;
+        if (orient) ps.orientation = orient; if (paper) ps.paperSize = paper;
+        if (m) { for (const [k, prop] of [['left', 'leftMargin'], ['right', 'rightMargin'], ['top', 'topMargin'], ['bottom', 'bottomMargin']]) { const v = num(m, k); if (v != null) ps[prop] = v; } }
+        if (hd != null) ps.headerDistance = hd; if (fd != null) ps.footerDistance = fd; if (dfp != null) ps.differentFirstPageHeaderFooter = dfp;
+      }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ sections: list.length }, [`${section != null ? `구역 ${section}` : `구역 ${list.length}개`} 쪽 설정: ${words.join(', ')}`]);
+    });
+  }
+  /** 콘텐츠 컨트롤 — 태그(첫 것)나 id 로 고른다. */
+  async #ccPick(context, a) {
+    const tag = str(a, 'tag'); const id = int(a, 'id');
+    if (!tag && id == null) refuse('tag 나 id 가 있어야 합니다 — read_content_controls 가 둘 다 줍니다');
+    const all = context.document.body.contentControls; all.load('items/id,items/tag,items/title'); await context.sync();
+    const cc = id != null ? all.items.find((c) => c.id === id) : all.items.find((c) => c.tag === tag);
+    if (!cc) refuse(`${id != null ? `id ${id}` : `태그 「${tag}」`}인 콘텐츠 컨트롤이 없습니다 — ${all.items.length ? `있는 것: ${all.items.map((c) => `${c.tag || '(태그 없음)'}#${c.id}`).join(', ')}` : '하나도 없습니다'}`);
+    return cc;
+  }
+  async #readContentControls(a) {
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { from, to } = this.#pick(items, a, { must: false });
+      const all = context.document.body.contentControls; all.load('items/id,items/tag,items/title,items/text,items/type,items/placeholderText,items/cannotEdit,items/cannotDelete,items/appearance'); await context.sync();
+      const firsts = all.items.map((c) => { const p = c.paragraphs.getFirst(); p.load('text'); return p; }); await context.sync();
+      const out = all.items.map((c, i) => ({ id: c.id, tag: c.tag, title: c.title, type: c.type, text: clip(c.text, 120), placeholder: c.placeholderText || '', locked: Boolean(c.cannotEdit || c.cannotDelete), appearance: c.appearance, paragraph: (items.findIndex((p) => p.text === firsts[i].text) + 1) || null }))
+        .filter((c) => c.paragraph == null || (c.paragraph >= from && c.paragraph <= to));
+      return this.#envelope({ from, to, count: out.length, controls: out });
+    });
+  }
+  async #insertContentControl(a) {
+    const n = int(a, 'paragraph') ?? int(a, 'from') ?? refuse('paragraph 가 없습니다'); const tag = String(need(a, 'tag'));
+    const title = str(a, 'title'); const ph = str(a, 'placeholder'); const app = str(a, 'appearance'); const locked = bool(a, 'locked');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { ranges, said } = await this.#targets(context, { ...a, from: n, to: n }, items);
+      const cc = ranges[0].insertContentControl();
+      cc.tag = tag; if (title != null) cc.title = title; if (ph != null) cc.placeholderText = ph; if (app) cc.appearance = app;
+      if (locked != null) { cc.cannotEdit = locked; cc.cannotDelete = locked; }
+      cc.load('id'); await context.sync(); this.#mutated();
+      return this.#envelope({ id: cc.id, tag, paragraph: n }, [`${said} 에 콘텐츠 컨트롤 「${tag}」(id ${cc.id})${title ? ` — ${title}` : ''}`]);
+    });
+  }
+  async #setContentControl(a) {
+    const text = str(a, 'text'); const title = str(a, 'title'); const nt = str(a, 'new_tag'); const ph = str(a, 'placeholder'); const locked = bool(a, 'locked');
+    const words = [text != null && `글 「${clip(text, 30)}」`, title != null && `제목 「${title}」`, nt && `태그 「${nt}」`, ph != null && `자리 글 「${clip(ph, 20)}」`, locked != null && (locked ? '잠금' : '잠금 해제')].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — text·title·new_tag·placeholder·locked 중 하나');
+    return this.runner(async (context) => {
+      const cc = await this.#ccPick(context, a);
+      if (locked === false) { cc.cannotEdit = false; cc.cannotDelete = false; }
+      if (text != null) cc.insertText(text, 'Replace');
+      if (title != null) cc.title = title; if (nt) cc.tag = nt; if (ph != null) cc.placeholderText = ph;
+      if (locked === true) { cc.cannotEdit = true; cc.cannotDelete = true; }
+      await context.sync(); this.#mutated();
+      return this.#envelope({ id: cc.id, tag: nt ?? cc.tag }, [`콘텐츠 컨트롤 「${cc.tag}」#${cc.id}: ${words.join(', ')}`]);
+    });
+  }
+  async #deleteContentControl(a) {
+    const keep = bool(a, 'keep_content') ?? true;
+    return this.runner(async (context) => {
+      const cc = await this.#ccPick(context, a); const tag = cc.tag; const id = cc.id;
+      cc.cannotDelete = false; cc.delete(keep); await context.sync(); this.#mutated();
+      return this.#envelope({ id, tag, kept_content: keep }, [`콘텐츠 컨트롤 「${tag}」#${id} 를 뗐습니다${keep ? ' — 글은 그대로입니다' : ' — 글도 지웠습니다'}`]);
     });
   }
   /** 문단 덩어리를 옮긴다 — OOXML 로 떠서 새 자리에 넣고 원본을 지운다. 서식·표가 같이 간다. */

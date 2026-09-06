@@ -7,13 +7,13 @@
  */
 
 export const READ_OPS = Object.freeze([
-  'list_paragraphs', 'read_paragraphs', 'read_document', 'find', 'read_table', 'read_html', 'read_comments', 'read_footnotes', 'list_images', 'render_page', 'read_tracked_changes',
+  'list_paragraphs', 'read_paragraphs', 'read_document', 'find', 'read_table', 'read_html', 'read_comments', 'read_footnotes', 'list_images', 'render_page', 'read_content_controls', 'read_tracked_changes',
   'describe_style', 'snapshot_paragraphs', 'read_tags', 'read_suggestions', 'advise', 'clear_advice',
 ]);
 export const WRITE_OPS = Object.freeze([
   'insert_paragraphs', 'replace_paragraph', 'delete_paragraphs', 'set_style', 'format_text', 'format_paragraph',
   'insert_table', 'set_table_cells', 'add_table_rows', 'delete_table', 'format_table', 'format_table_cells', 'edit_table', 'insert_list', 'set_list',
-  'insert_image', 'format_image', 'delete_image', 'insert_break', 'insert_field', 'insert_footnote', 'delete_footnote', 'set_style_format', 'move_paragraphs', 'insert_file', 'set_header_footer', 'set_hyperlink', 'replace_all',
+  'insert_image', 'format_image', 'delete_image', 'insert_break', 'insert_field', 'insert_footnote', 'delete_footnote', 'set_style_format', 'set_page_setup', 'insert_content_control', 'set_content_control', 'delete_content_control', 'move_paragraphs', 'insert_file', 'set_header_footer', 'set_hyperlink', 'replace_all',
   'add_comment', 'reply_comment', 'resolve_comment', 'add_bookmark', 'delete_bookmark', 'set_track_changes', 'review_changes',
   'set_properties', 'restore_paragraphs', 'set_tag', 'suggest', 'drop_suggestion',
 ]);
