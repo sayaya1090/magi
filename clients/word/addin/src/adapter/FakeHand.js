@@ -1,6 +1,6 @@
 import { HandPort } from '../port/HandPort.js';
 import {
-  ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, refuse, str, num, int, bool, arr, need, hex, span, envelope, clip, nowEpoch, fieldPieces,
+  ALL_OPS, FIX_TOOLS, FIX_PREFIX, DOC_PROPERTY_KEY, refuse, str, num, int, bool, arr, need, hex, span, envelope, clip, nowEpoch, fieldPieces, BUILTIN_PARAGRAPH_STYLES,
 } from './handCore.js';
 
 /**
@@ -12,7 +12,7 @@ export class FakeHand extends HandPort {
     super();
     this.model = model;
     this.model.paragraphs ??= []; this.model.tables ??= []; this.model.comments ??= []; this.model.bookmarks ??= {}; this.model.settings ??= {}; this.model.tags ??= {};
-    this.model.properties ??= {}; this.model.trackChanges ??= 'Off'; this.model.changes ??= []; this.model.headers ??= [{ header: '', footer: '' }]; this.model.notes ??= [];
+    this.model.properties ??= {}; this.model.trackChanges ??= 'Off'; this.model.changes ??= []; this.model.headers ??= [{ header: '', footer: '' }]; this.model.notes ??= []; this.model.styleDefs ??= {};
     this.supports = supports ?? (() => true);
     this.document = document; this.labelText = label;
     this.epoch = nowEpoch(); this.count = 0; this.snapshots = new Map(); this.nextComment = 1;
@@ -84,6 +84,21 @@ export class FakeHand extends HandPort {
       case 'insert_list': { const items = arr(a, 'items'); if (!items || !items.length) refuse('items 가 비었습니다'); const kind = str(a, 'kind') ?? 'bulleted'; const levels = arr(a, 'levels') ?? []; const { index, said } = this.#anchor(a); const made = items.map((t, i) => ({ text: String(t), style: 'List Paragraph', list: { kind, level: Number(levels[i] ?? 0) || 0 } })); this.P.splice(index, 0, ...made); this.#shift(index + 1, made.length); this.#mutated(); return this.#env({ inserted: made.length, kind, from: index + 1, to: index + made.length }, [`${said} ${kind === 'numbered' ? '번호' : '글머리 기호'} 목록 ${made.length}개를 넣었습니다`]); }
       case 'set_list': { const kind = str(a, 'kind'); const level = int(a, 'level'); const detach = bool(a, 'detach') ?? false; if (!kind && level == null && !detach) refuse('kind·level·detach 중 하나가 있어야 합니다'); const { from, to, list } = this.#pick(a); for (const p of list) { if (detach) { delete p.list; p.style = 'Normal'; } else { p.list = { kind: kind ?? p.list?.kind ?? 'bulleted', level: level ?? p.list?.level ?? 0 }; p.style = 'List Paragraph'; } } this.#mutated(); return this.#env({ from, to, kind: kind ?? null, level: level ?? null, detached: detach }, [detach ? `문단 ${from}${to > from ? `–${to}` : ''} 을 목록에서 뺐습니다` : `문단 ${from}${to > from ? `–${to}` : ''} 을 ${kind === 'numbered' ? '번호 ' : kind === 'bulleted' ? '글머리 기호 ' : ''}목록으로${level != null ? ` (단계 ${level})` : ''}`]); }
       case 'insert_image': { const b64 = str(a, 'image_base64'); if (!b64) refuse('그림 바이트가 안 왔습니다 — path 를 주면 헬퍼가 읽어 실어 줍니다'); const { index, said } = this.#anchor(a); const w = num(a, 'width') ?? 200; this.P.splice(index, 0, { text: '', style: 'Normal', image: { width: w, height: Math.round(w * 0.6), alt: str(a, 'alt') ?? '' } }); this.#shift(index + 1, 1); this.#mutated(); return this.#env({ width: w, height: Math.round(w * 0.6) }, [`${said} 그림을 넣었습니다 (${w}×${Math.round(w * 0.6)}pt)`]); }
+      case 'set_style_format': {
+        this.#need('WordApi', '1.5', 'set_style_format');
+        const given = String(need(a, 'style')); const create = bool(a, 'create') ?? false;
+        const fmt = { font: str(a, 'font'), size: num(a, 'size'), bold: bool(a, 'bold'), italic: bool(a, 'italic'), color: hex(a, 'color'), align: str(a, 'align'), space_before: num(a, 'space_before'), space_after: num(a, 'space_after'), line_spacing: num(a, 'line_spacing'), first_line_indent: num(a, 'first_line_indent'), left_indent: num(a, 'left_indent') };
+        const set = Object.entries(fmt).filter(([, v]) => v != null);
+        if (set.length === 0) refuse('바꿀 것이 없습니다 — font·size·bold·italic·color·align·space_before·space_after·line_spacing·first_line_indent·left_indent 중 하나');
+        const norm = (s) => String(s).replace(/[\s_-]/g, '').toLowerCase();
+        const known = new Set([...this.P.map((p) => p.style ?? 'Normal'), ...Object.keys(this.model.styleDefs), 'Normal', 'Heading 1', 'Heading 2', 'Heading 3', 'Title']);
+        let local = [...known].find((s) => s === given) ?? [...known].find((s) => norm(s) === norm(given));
+        if (!local && create) local = given;
+        if (!local) refuse(`「${given}」 스타일이 없습니다 — 이 문서의 스타일: ${[...known].join(', ')}. 새로 만들려면 create: true`);
+        this.model.styleDefs[local] = { ...(this.model.styleDefs[local] ?? {}), ...Object.fromEntries(set) };
+        const affected = this.P.filter((p) => (p.style ?? 'Normal') === local).length; this.#mutated();
+        return this.#env({ style: local, builtin: BUILTIN_PARAGRAPH_STYLES.find((b) => b.toLowerCase() === norm(given)) ?? null, affected, created: !known.has(local) }, [`스타일 「${local}」: ${set.map(([k, v]) => `${k} ${v}`).join(', ')} — 문단 ${affected}개에 걸립니다`]);
+      }
       case 'read_footnotes': { this.#need('WordApi', '1.5', 'read_footnotes'); const { from, to } = this.#pick(a, { must: false }); const out = []; for (const kind of ['footnote', 'endnote']) this.model.notes.filter((n) => n.kind === kind).forEach((n, i) => { if (n.paragraph >= from && n.paragraph <= to) out.push({ number: i + 1, kind, paragraph: n.paragraph, on: clip(n.on, 60), text: clip(n.text, 200) }); }); return this.#env({ from, to, count: out.length, notes: out }); }
       case 'insert_footnote': { this.#need('WordApi', '1.5', 'insert_footnote'); const note = String(need(a, 'note')); const kind = str(a, 'kind') ?? 'footnote'; const n = int(a, 'paragraph') ?? int(a, 'from') ?? refuse('paragraph 가 없습니다 — 각주가 걸릴 문단 번호'); const { hits, said } = this.#targets({ ...a, from: n, to: n }); this.model.notes.push({ kind, paragraph: hits[0].i, on: str(a, 'text') ?? hits[0].p.text, text: note }); this.#mutated(); return this.#env({ paragraph: hits[0].i, kind, number: this.model.notes.filter((n) => n.kind === kind).length }, [`${said} 에 ${kind === 'endnote' ? '미주' : '각주'}를 달았습니다 — 「${clip(note, 40)}」`]); }
       case 'delete_footnote': { this.#need('WordApi', '1.5', 'delete_footnote'); const number = int(a, 'number') ?? refuse('number 가 없습니다 — read_footnotes 의 번호'); const kind = str(a, 'kind') ?? 'footnote'; const mine = this.model.notes.filter((n) => n.kind === kind); if (number < 1 || number > mine.length) refuse(`${kind === 'endnote' ? '미주' : '각주'} ${number}번이 없습니다 — ${mine.length}개`); this.model.notes.splice(this.model.notes.indexOf(mine[number - 1]), 1); this.#mutated(); return this.#env({ number, kind, deleted: true }, [`${kind === 'endnote' ? '미주' : '각주'} ${number}번을 지웠습니다 — 글은 그대로입니다`]); }

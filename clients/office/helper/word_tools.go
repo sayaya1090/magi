@@ -330,6 +330,29 @@ func wordCatalogue(hasCouncil bool) []tool {
 			},
 		},
 		{
+			Name: "set_style_format",
+			Desc: "Change a paragraph STYLE itself — font, size, bold, italic, colour, alignment, spacing, indents — so every " +
+				"paragraph in that style changes at once, now and later. `style` is a built-in name (Heading1, Normal, " +
+				"ListParagraph — language-independent) or the name the document shows (describe_style). `create: true` makes a " +
+				"new paragraph style of that name when none exists. Needs WordApi 1.5 — refused by name on 2019/2021.",
+			Props: []property{
+				property{Name: "style", Type: "string", Desc: "Built-in (Heading2) or the document's own style name. Required."},
+				property{Name: "font", Type: "string", Desc: "Typeface, e.g. \"맑은 고딕\"."},
+				property{Name: "size", Type: "number", Desc: "Points."},
+				property{Name: "bold", Type: "boolean"},
+				property{Name: "italic", Type: "boolean"},
+				property{Name: "color", Type: "string", Desc: "#RRGGBB."},
+				property{Name: "align", Type: "string", Desc: "Left, Centered, Right, Justified.", Enum: wordAligns},
+				property{Name: "space_before", Type: "number", Desc: "Points before each paragraph."},
+				property{Name: "space_after", Type: "number", Desc: "Points after each paragraph."},
+				property{Name: "line_spacing", Type: "number", Desc: "Points between lines (12 ≈ single at 12pt)."},
+				property{Name: "first_line_indent", Type: "number", Desc: "Points."},
+				property{Name: "left_indent", Type: "number", Desc: "Points."},
+				property{Name: "create", Type: "boolean", Desc: "Make the style when the document has none by that name (a new paragraph style)."},
+			},
+			Required: []string{"style"},
+		},
+		{
 			Name: "insert_footnote",
 			Desc: "Add a footnote (default) or an endnote at a place in a paragraph: after `text` inside it, or at the " +
 				"paragraph's end when text is omitted. Needs WordApi 1.5 — refused by name on 2019/2021.",

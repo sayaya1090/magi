@@ -177,6 +177,7 @@ export class WordHand extends HandPort {
       case 'read_footnotes': return this.#readFootnotes(a);
       case 'insert_footnote': return this.#insertFootnote(a);
       case 'delete_footnote': return this.#deleteFootnote(a);
+      case 'set_style_format': return this.#setStyleFormat(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
       case 'replace_all': return this.#replaceAll(a);
@@ -561,6 +562,38 @@ export class WordHand extends HandPort {
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();
       return this.#envelope({ width: pic.width, height: pic.height }, [`${said} 그림을 넣었습니다 (${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  // 스타일 자체를 고친다(1.5) — 그 스타일의 문단이 지금도, 나중에도 전부 바뀐다.
+  async #setStyleFormat(a) {
+    this.#need('WordApi', '1.5', 'set_style_format');
+    const given = String(need(a, 'style')); const create = bool(a, 'create') ?? false;
+    const f = { name: str(a, 'font'), size: num(a, 'size'), bold: bool(a, 'bold'), italic: bool(a, 'italic'), color: hex(a, 'color') };
+    const pf = { alignment: str(a, 'align'), spaceBefore: num(a, 'space_before'), spaceAfter: num(a, 'space_after'), lineSpacing: num(a, 'line_spacing'), firstLineIndent: num(a, 'first_line_indent'), leftIndent: num(a, 'left_indent') };
+    const words = [f.name && `글꼴 ${f.name}`, f.size != null && `크기 ${f.size}`, f.bold != null && (f.bold ? '굵게' : '굵게 해제'), f.italic != null && (f.italic ? '기울임' : '기울임 해제'), f.color && `색 ${f.color}`,
+      pf.alignment && `정렬 ${pf.alignment}`, pf.spaceBefore != null && `앞 ${pf.spaceBefore}pt`, pf.spaceAfter != null && `뒤 ${pf.spaceAfter}pt`, pf.lineSpacing != null && `줄 간격 ${pf.lineSpacing}pt`, pf.firstLineIndent != null && `첫 줄 들여쓰기 ${pf.firstLineIndent}pt`, pf.leftIndent != null && `왼쪽 들여쓰기 ${pf.leftIndent}pt`].filter(Boolean);
+    if (words.length === 0) refuse('바꿀 것이 없습니다 — font·size·bold·italic·color·align·space_before·space_after·line_spacing·first_line_indent·left_indent 중 하나');
+    return this.runner(async (context) => {
+      const styles = context.document.getStyles(); styles.load('items/nameLocal,items/type'); await context.sync();
+      let target = styles.items.find((s) => s.nameLocal === given);
+      const key = given.replace(/[\s_-]/g, '').toLowerCase();
+      const builtin = BUILTIN_PARAGRAPH_STYLES.find((b) => b.toLowerCase() === key);
+      const items = await this.#paras(context, 'text,style,styleBuiltIn');
+      if (!target && builtin) {
+        // 내장 이름의 **현지 이름**을 찾는다: 그 스타일인 문단이 있으면 거기서, 없으면 문단 하나를 잠깐 세워 읽는다.
+        let local = items.find((p) => p.styleBuiltIn === builtin)?.style;
+        if (!local) { const tmp = context.document.body.insertParagraph('', 'End'); tmp.styleBuiltIn = builtin; tmp.load('style'); await context.sync(); local = tmp.style; tmp.delete(); await context.sync(); }
+        target = styles.items.find((s) => s.nameLocal === local);
+      }
+      if (!target && create) { target = context.document.addStyle(given, 'Paragraph'); target.load('nameLocal'); await context.sync(); }
+      if (!target) refuse(`「${given}」 스타일이 없습니다 — 이 문서의 스타일: ${styles.items.slice(0, 24).map((s) => s.nameLocal).join(', ')}${styles.items.length > 24 ? ' …' : ''}. 새로 만들려면 create: true`);
+      if (f.name) target.font.name = f.name; if (f.size != null) target.font.size = f.size; if (f.bold != null) target.font.bold = f.bold; if (f.italic != null) target.font.italic = f.italic; if (f.color) target.font.color = f.color;
+      const pfmt = target.paragraphFormat;
+      if (pf.alignment) pfmt.alignment = pf.alignment; if (pf.spaceBefore != null) pfmt.spaceBefore = pf.spaceBefore; if (pf.spaceAfter != null) pfmt.spaceAfter = pf.spaceAfter;
+      if (pf.lineSpacing != null) pfmt.lineSpacing = pf.lineSpacing; if (pf.firstLineIndent != null) pfmt.firstLineIndent = pf.firstLineIndent; if (pf.leftIndent != null) pfmt.leftIndent = pf.leftIndent;
+      await context.sync(); this.#mutated();
+      const local = target.nameLocal; const affected = items.filter((p) => p.style === local).length;
+      return this.#envelope({ style: local, builtin: builtin ?? null, affected, created: Boolean(create && !styles.items.some((s) => s.nameLocal === local)) }, [`스타일 「${local}」: ${words.join(', ')} — 문단 ${affected}개에 걸립니다`]);
     });
   }
   // 각주·미주(1.5). 번호는 종류 안에서 문서 순서(1부터) — Word 가 매기는 그 번호다.

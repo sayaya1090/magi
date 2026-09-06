@@ -13,7 +13,7 @@ export const READ_OPS = Object.freeze([
 export const WRITE_OPS = Object.freeze([
   'insert_paragraphs', 'replace_paragraph', 'delete_paragraphs', 'set_style', 'format_text', 'format_paragraph',
   'insert_table', 'set_table_cells', 'add_table_rows', 'delete_table', 'format_table', 'insert_list', 'set_list',
-  'insert_image', 'insert_break', 'insert_field', 'insert_footnote', 'delete_footnote', 'set_header_footer', 'set_hyperlink', 'replace_all',
+  'insert_image', 'insert_break', 'insert_field', 'insert_footnote', 'delete_footnote', 'set_style_format', 'set_header_footer', 'set_hyperlink', 'replace_all',
   'add_comment', 'reply_comment', 'resolve_comment', 'add_bookmark', 'delete_bookmark', 'set_track_changes', 'review_changes',
   'set_properties', 'restore_paragraphs', 'set_tag', 'suggest', 'drop_suggestion',
 ]);

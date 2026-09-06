@@ -12,7 +12,7 @@ const seen = [];
 const scalar = (prop, path, idx) => {
   switch (prop) {
     case 'text': return path.includes('search') ? '요약' : PARAS[idx ?? 0] ?? '글';
-    case 'style': return STYLES[idx ?? 0] ?? 'Normal'; case 'styleBuiltIn': return (STYLES[idx ?? 0] ?? 'Normal').replace(/\s+/g, '');
+    case 'style': case 'nameLocal': return STYLES[idx ?? 0] ?? 'Normal'; case 'styleBuiltIn': return (STYLES[idx ?? 0] ?? 'Normal').replace(/\s+/g, '');
     case 'isListItem': return (STYLES[idx ?? 0] ?? '') === 'List Paragraph'; case 'tableNestingLevel': return 0; case 'alignment': return 'Left';
     case 'lineSpacing': return 13.8; case 'spaceAfter': return 8; case 'spaceBefore': return 0; case 'firstLineIndent': return 0; case 'leftIndent': return 0;
     case 'name': return '맑은 고딕'; case 'size': return 11; case 'bold': return false; case 'italic': return false; case 'color': return '#000000'; case 'highlightColor': return null; case 'underline': return 'None';
@@ -48,7 +48,7 @@ const context = () => ({ document: thing('document'), sync: async () => {} });
 
 const ARGS = {
   list_paragraphs: {}, read_paragraphs: { from: 1, to: 3 }, read_document: {}, find: { text: '요약' }, read_table: { table: 1 }, read_html: { from: 1, to: 2 },
-  read_comments: {}, read_footnotes: {}, insert_footnote: { paragraph: 3, text: '매출', note: '내부 집계 기준' }, delete_footnote: { number: 1 }, read_tracked_changes: {}, describe_style: {}, snapshot_paragraphs: { from: 2, to: 3 }, read_tags: {}, read_suggestions: {},
+  read_comments: {}, read_footnotes: {}, insert_footnote: { paragraph: 3, text: '매출', note: '내부 집계 기준' }, set_style_format: { style: 'Title', size: 14, bold: true, space_before: 12 }, delete_footnote: { number: 1 }, read_tracked_changes: {}, describe_style: {}, snapshot_paragraphs: { from: 2, to: 3 }, read_tags: {}, read_suggestions: {},
   advise: { items: [{ message: 'm' }] }, clear_advice: {},
   insert_paragraphs: { lines: ['a', 'b'], after: 3, style: 'Normal' }, replace_paragraph: { paragraph: 3, text: '새 글' }, delete_paragraphs: { from: 4, to: 4 },
   set_style: { from: 2, builtin: 'Heading1' }, format_text: { from: 3, text: '요약', bold: true, color: '#C00000', highlight: 'Yellow' },
