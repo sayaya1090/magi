@@ -13,7 +13,8 @@
     6. 로그인할 때 헬퍼가 같이 뜨게 한다. -NoAutostart 로 끌 수 있다.
 
   볼륨 판 PowerPoint(LTSC 2021)의 COM 손(magi-ppt-hand)은 여기서 안 짓는다 — clients/powerpoint/install.ps1 이 한다.
-  ⚠ 이 파일은 2026-09-06 에 엑셀 판 설치기에서 옮겨 적은 것이고 Windows 에서 아직 안 돌렸다.
+  2026-09-06 밤 Windows 2021(볼륨 판)에서 끝까지 돌았다(메인 555ff0b9): 새 인증서 하나, 카탈로그 하나에 매니페스트 셋, Run\magi-office,
+  3000 번 하나에서 /ppt·/xl·/word — 파워포인트 판 TESTING §5.5. 워드 애드인은 그날 Word 로는 안 열어 봤다.
 
   다시 돌려도 된다 — 이미 된 것은 건너뛴다.
 

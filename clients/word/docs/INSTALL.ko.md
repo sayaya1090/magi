@@ -24,7 +24,7 @@ magi --daemon
 ## 3. 애드인 넣기
 
 - **macOS**: `cp clients/word/addin/manifest.xml ~/Library/Containers/com.microsoft.Word/Data/Documents/wef/` 뒤 Word 재시작.
-- **Windows**: 엑셀 판 §3 과 같은 절차(M365 개발자 키 / 볼륨 판 신뢰 카탈로그). 한 줄 설치기는 `clients/office/install.ps1`(세 프로그램 공용, Windows 에서 아직 안 돌렸다).
+- **Windows**: 엑셀 판 §3 과 같은 절차(M365 개발자 키 / 볼륨 판 신뢰 카탈로그). 한 줄 설치기는 `clients/office/install.ps1`(세 프로그램 공용; 2021 에서 돌았다 — 파워포인트 판 TESTING §5.5. Word 애드인을 그 머신의 Word 로 여는 것은 아직).
 
 ## 4. 확인 · 5. 지우기
 

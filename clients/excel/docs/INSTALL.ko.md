@@ -86,7 +86,7 @@ $env:USERNAME` 로 만든 공유를 썼다 — 관리 공유로도 키가 하나
 `HKCU\Software\Microsoft\Office\16.0\WEF\TrustedCatalogs\{guid}` 에 `Id`·`Url`(UNC)·`Flags=1` → 삽입 → 내 추가 기능
 → 공유 폴더 → Magi(AI Assistant) → 추가.
 
-한 줄 설치는 `clients/office/install.ps1`(§0)이 이것을 다 한다 — 헬퍼 하나(`magi office`)에 세 애드인을 등록한다(2026-09-06 에 엑셀 판 설치기에서 옮겨 적었고 Windows 에서 아직 안 돌렸다).
+한 줄 설치는 `clients/office/install.ps1`(§0)이 이것을 다 한다 — 헬퍼 하나(`magi office`)에 세 애드인을 등록한다(2026-09-06 밤 2021 에서 끝까지 돌았다 — 파워포인트 판 TESTING §5.5).
 
 ## 4. 확인
 
