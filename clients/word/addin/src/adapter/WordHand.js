@@ -183,6 +183,7 @@ export class WordHand extends HandPort {
       case 'insert_footnote': return this.#insertFootnote(a);
       case 'delete_footnote': return this.#deleteFootnote(a);
       case 'set_style_format': return this.#setStyleFormat(a);
+      case 'move_paragraphs': return this.#moveParagraphs(a);
       case 'set_header_footer': return this.#setHeaderFooter(a);
       case 'set_hyperlink': return this.#setHyperlink(a);
       case 'replace_all': return this.#replaceAll(a);
@@ -681,6 +682,34 @@ export class WordHand extends HandPort {
       const alt = str(a, 'alt'); pic.altTextDescription = alt ?? String(str(a, 'path') ?? '').split(/[\\/]/).pop();
       pic.load('width,height'); await context.sync(); this.#mutated();
       return this.#envelope({ width: pic.width, height: pic.height }, [`${said} 그림을 넣었습니다 (${Math.round(pic.width)}×${Math.round(pic.height)}pt)`]);
+    });
+  }
+  /** 문단 덩어리를 옮긴다 — OOXML 로 떠서 새 자리에 넣고 원본을 지운다. 서식·표가 같이 간다. */
+  async #moveParagraphs(a) {
+    const after = int(a, 'after'); const before = int(a, 'before'); const at = str(a, 'at');
+    if (after == null && before == null && !at) refuse('어디로 옮길지가 없습니다 — after·before·at(start/end) 중 하나');
+    return this.runner(async (context) => {
+      const items = await this.#paras(context, 'text');
+      const { from, to, list } = this.#pick(items, a);
+      const target = after ?? before;
+      if (target != null && target >= from && target <= to) refuse(`옮길 자리(문단 ${target})가 옮기는 덩어리(${from}–${to}) 안입니다`);
+      const { p, where, said } = this.#anchor(items, { after, before, at });
+      const texts = list.map((q) => q.text);
+      const ooxml = WordHand.#rangeOf(list).getOoxml(); await context.sync();
+      // Paragraph.insertOoxml 은 Replace·Start·End 만 받는다(Before/After 는 InvalidArgument — 실물 2026-09-06). 빈 문단을
+      // 앞/뒤에 세우고 그것을 통째로 바꾼다.
+      if (p) p.insertParagraph('', where === 'Before' ? 'Before' : 'After').insertOoxml(ooxml.value, 'Replace');
+      else context.document.body.insertOoxml(ooxml.value, where === 'Start' ? 'Start' : 'End');
+      await context.sync();
+      for (const q of list) q.delete();
+      await context.sync(); this.#mutated();
+      // 새 번호: 옮긴 덩어리의 첫 글이 지금 어디 섰나. 같은 글이 둘이면 옮긴 방향 쪽 것.
+      const now = await this.#paras(context, 'text');
+      const hits = now.map((q, i) => (q.text === texts[0] ? i + 1 : 0)).filter(Boolean);
+      const dir = where === 'Start' || (target != null && target < from) ? 'first' : 'last';
+      const nf = hits.length ? (dir === 'first' ? hits[0] : hits[hits.length - 1]) : null;
+      return this.#envelope({ from, to, moved: list.length, now_from: nf, now_to: nf ? nf + list.length - 1 : null, total: now.length },
+        [`문단 ${from}${to > from ? `–${to}` : ''} 을 ${said} 옮겼습니다${nf ? ` — 지금은 문단 ${nf}${list.length > 1 ? `–${nf + list.length - 1}` : ''}` : ''}`]);
     });
   }
   // 스타일 자체를 고친다(1.5) — 그 스타일의 문단이 지금도, 나중에도 전부 바뀐다.

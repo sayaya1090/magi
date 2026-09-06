@@ -387,6 +387,20 @@ func wordCatalogue(hasCouncil bool) []tool {
 			},
 		},
 		{
+			Name: "move_paragraphs",
+			Desc: "Move a block of paragraphs (from…to, tables included) to another place: after/before a paragraph outside " +
+				"the block, or `at` start/end. Formatting travels with it. Answers the block's new numbers — every number " +
+				"between the old and new place shifts, so re-read list_paragraphs before touching neighbours.",
+			Props: []property{
+				property{Name: "from", Type: "integer", Desc: "First paragraph of the block, 1-based. Required (Omit `to` to move just this one).", Also: []string{"paragraph"}},
+				property{Name: "to", Type: "integer", Desc: "Last paragraph of the block, inclusive (default: from)."},
+				property{Name: "after", Type: "integer", Desc: "Put the block after this paragraph (numbers as they are NOW)."},
+				property{Name: "before", Type: "integer", Desc: "Put the block before this paragraph."},
+				property{Name: "at", Type: "string", Desc: "start or end of the body when neither after nor before is given.", Enum: wordAtWhere},
+			},
+			Required: []string{"from"},
+		},
+		{
 			Name: "set_style_format",
 			Desc: "Change a paragraph STYLE itself — font, size, bold, italic, colour, alignment, spacing, indents — so every " +
 				"paragraph in that style changes at once, now and later. `style` is a built-in name (Heading1, Normal, " +
