@@ -106,7 +106,10 @@ Two things the proposal did not foresee, both measured 2026-09-04/05:
   daemon's disk intact) finds the conversation a document already has instead of opening an
   empty one: it asks `sessions`, takes the newest row whose `for` is the document, and opens a
   fresh one only when there is none (measured 2026-09-06/07, Excel — three turns vanished from a
-  pane on every helper restart until this).
+  pane on every helper restart until this). Two more things a tool server can declare and the core
+  reads: `annotations.readOnlyHint` (a result that can be had again — the first thing the context
+  folder gives up) and `"x-magi-topic": true` on a schema property (the argument that names what a
+  call is about — sheet, slide, paragraph — which the fold shards by so `recall_context` can find it).
 - **The helper must not cache decisions.** Six identities across four maps, each keyed differently,
   went stale under four different restart events; fourteen fixes in one day were each one cell of
   that table. The redesign — one idempotent `reconcile(deck)` that asks the pane, the daemon and the

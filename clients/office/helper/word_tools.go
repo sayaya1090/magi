@@ -2,7 +2,7 @@ package office
 
 var fromProp = property{Name: "from", Type: "integer", Desc: "First paragraph, 1-based (from list_paragraphs). Omit for the whole body."}
 var toProp = property{Name: "to", Type: "integer", Desc: "Last paragraph, inclusive. Omit for just `from`."}
-var paraProp = property{Name: "paragraph", Type: "integer", Desc: "A paragraph number, 1-based (from list_paragraphs).", Also: []string{"para"}}
+var paraProp = property{Name: "paragraph", Type: "integer", Topic: true, Desc: "A paragraph number, 1-based (from list_paragraphs).", Also: []string{"para"}}
 var tableProp = property{Name: "table", Type: "integer", Desc: "Table number, 1-based in body order (from list_paragraphs / read_document)."}
 
 func withFromTo(rest ...property) []property {
@@ -417,7 +417,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 				"the block, or `at` start/end. Formatting travels with it. Answers the block's new numbers — every number " +
 				"between the old and new place shifts, so re-read list_paragraphs before touching neighbours.",
 			Props: []property{
-				property{Name: "from", Type: "integer", Desc: "First paragraph of the block, 1-based. Required (Omit `to` to move just this one).", Also: []string{"paragraph"}},
+				property{Name: "from", Type: "integer", Topic: true, Desc: "First paragraph of the block, 1-based. Required (Omit `to` to move just this one).", Also: []string{"paragraph"}},
 				property{Name: "to", Type: "integer", Desc: "Last paragraph of the block, inclusive (default: from)."},
 				property{Name: "after", Type: "integer", Desc: "Put the block after this paragraph (numbers as they are NOW)."},
 				property{Name: "before", Type: "integer", Desc: "Put the block before this paragraph."},
@@ -457,7 +457,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Desc: "Wrap a paragraph (or `text` inside it) in a rich-text content control — a named, fillable slot with a tag " +
 				"and title, optionally locked. The way to turn a document into a template or to mark a field to fill later.",
 			Props: []property{
-				property{Name: "paragraph", Type: "integer", Desc: "The paragraph, 1-based. Required.", Also: []string{"from"}},
+				property{Name: "paragraph", Type: "integer", Topic: true, Desc: "The paragraph, 1-based. Required.", Also: []string{"from"}},
 				property{Name: "text", Type: "string", Desc: "Words inside the paragraph to wrap; omit to wrap the whole paragraph."},
 				property{Name: "tag", Type: "string", Desc: "Machine name, e.g. \"customer\". Required."},
 				property{Name: "title", Type: "string", Desc: "Shown label."},
@@ -494,7 +494,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 				"page's top-left. Needs WordApiDesktop 1.2 — refused by name elsewhere.",
 			Props: []property{
 				property{Name: "shape", Type: "string", Desc: "textbox (default) or a geometric kind.", Enum: wordShapeKinds},
-				property{Name: "paragraph", Type: "integer", Desc: "Paragraph the shape is anchored to (1-based, default 1) — it floats, the anchor decides which page."},
+				property{Name: "paragraph", Type: "integer", Topic: true, Desc: "Paragraph the shape is anchored to (1-based, default 1) — it floats, the anchor decides which page."},
 				property{Name: "text", Type: "string", Desc: "Text inside."},
 				property{Name: "name", Type: "string", Desc: "A name to find it by later."},
 				property{Name: "left", Type: "number"}, property{Name: "top", Type: "number"},
@@ -548,7 +548,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Desc: "Add a footnote (default) or an endnote at a place in a paragraph: after `text` inside it, or at the " +
 				"paragraph's end when text is omitted. Needs WordApi 1.5 — refused by name on 2019/2021.",
 			Props: []property{
-				property{Name: "paragraph", Type: "integer", Desc: "The paragraph the note hangs on, 1-based. Required.", Also: []string{"from"}},
+				property{Name: "paragraph", Type: "integer", Topic: true, Desc: "The paragraph the note hangs on, 1-based. Required.", Also: []string{"from"}},
 				property{Name: "text", Type: "string", Desc: "Word(s) inside the paragraph the mark goes after. Omit for the paragraph's end."},
 				property{Name: "note", Type: "string", Desc: "The note itself. Required."},
 				property{Name: "kind", Type: "string", Desc: "footnote (default) or endnote.", Enum: wordNoteKinds},
@@ -671,7 +671,7 @@ func wordCatalogue(hasCouncil bool) []tool {
 			Props: []property{
 				property{Name: "what", Type: "string", Desc: "The suggestion, one sentence. Required."},
 				property{Name: "why", Type: "string", Desc: "Why it would be better."},
-				property{Name: "paragraph", Type: "integer", Desc: "Where it applies, 1-based."},
+				property{Name: "paragraph", Type: "integer", Topic: true, Desc: "Where it applies, 1-based."},
 				property{Name: "fix", Type: "object", Desc: "{tool, args} — the call Apply should make."},
 			},
 			Required: []string{"what"},

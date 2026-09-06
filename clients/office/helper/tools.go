@@ -67,6 +67,10 @@ type property struct {
 	Also []string
 	// Enum 은 값의 열거. 있으면 스키마에 광고하고, 거절문이 이것을 적는다.
 	Enum []string
+	// Topic 은 이 칸이 **이 호출의 주제**라는 선언 — 시트 이름·슬라이드 번호·문단 번호. 스키마에
+	// `x-magi-topic` 으로 실리고, 코어가 접을 때 그 값으로 샤드를 나눠 `recall_context` 가 되찾는다
+	// (앞 판은 path·file 만 봐서 Office 대화가 통째로 「discussion」 한 조각이었다, 2026-09-07).
+	Topic bool
 }
 
 // tool 은 목록의 한 줄.
@@ -100,9 +104,16 @@ func schemaOf(app *App, t tool) json.RawMessage {
 		if len(p.Enum) > 0 {
 			entry["enum"] = p.Enum
 		}
+		if p.Topic {
+			entry["x-magi-topic"] = true
+		}
 		props[p.Name] = entry
 		for _, alias := range p.Also {
-			props[alias] = map[string]any{"type": p.Type, "description": "Same as " + p.Name + " — prefer " + p.Name + "."}
+			entry := map[string]any{"type": p.Type, "description": "Same as " + p.Name + " — prefer " + p.Name + "."}
+			if p.Topic {
+				entry["x-magi-topic"] = true // the alias names the same topic
+			}
+			props[alias] = entry
 		}
 	}
 	required := t.Required

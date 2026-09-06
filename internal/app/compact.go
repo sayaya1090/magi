@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -274,7 +275,7 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 	boundary = snapped
 	// Index the compacted region into recallable topics (deterministic — by file path,
 	// each carrying its tool-action trail as a brief), then write the overall summary.
-	shards := shardByPath(older, s.Workdir)
+	shards := shardBy(older, s.Workdir, topicKeysOf(a.toolSpecs(s.ID, agent)))
 	// Say it is happening. Compaction is a model call on a large prompt — measured in tens of
 	// seconds on a local backend — and it runs BETWEEN steps, so nothing else is being drawn: the
 	// transcript simply stops. From the outside that is indistinguishable from a wedged turn, and
@@ -344,14 +345,100 @@ func (a *App) compactNow(ctx context.Context, s session.Session, agent AgentSpec
 // least one shard, and a topic is a path the agent naturally recalls. Prior summaries
 // (id "compaction-*") are skipped — they are not original detail to recover.
 func shardByPath(older []session.Message, workdir string) []event.ContextShard {
-	callPath := map[string]string{}  // tool callID → relative path, to attribute a result to its call's file
-	actions := map[string][]string{} // path → ordered tool names, for a deterministic brief
+	return shardBy(older, workdir, nil)
+}
+
+// topicKeysOf reads, per tool, which arguments the tool DECLARED as its topic — a schema property
+// carrying `"x-magi-topic": true`. A file tool's topic was always its path; a sheet, a slide or a
+// paragraph is the same kind of handle for a tool that works on a document, and the core cannot
+// know which argument that is unless the tool says. The Office helper declares them.
+func topicKeysOf(specs []port.ToolSpec) map[string][]string {
+	out := map[string][]string{}
+	for _, sp := range specs {
+		if keys := topicArgsOf(sp.Schema); len(keys) > 0 {
+			out[sp.Name] = keys
+		}
+	}
+	return out
+}
+
+// topicArgsOf is the property names of a schema marked "x-magi-topic": true, sorted.
+func topicArgsOf(schema json.RawMessage) []string {
+	var sc struct {
+		Properties map[string]map[string]any `json:"properties"`
+	}
+	if json.Unmarshal(schema, &sc) != nil {
+		return nil
+	}
+	var out []string
+	for name, prop := range sc.Properties {
+		if v, ok := prop["x-magi-topic"].(bool); ok && v {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// callTopics is every topic one call names: the file path when it has one (any tool), and each
+// declared topic argument as "<argument> <value>" — a string or number as it is, an array as one
+// topic per element. Empty when the call names nothing.
+func callTopics(workdir, name string, args json.RawMessage, topics map[string][]string) []string {
+	var out []string
+	if rel := shardPath(workdir, args); rel != "" {
+		out = append(out, rel)
+	}
+	keys := topics[name]
+	if len(keys) == 0 {
+		return out
+	}
+	var raw map[string]any
+	if json.Unmarshal(args, &raw) != nil {
+		return out
+	}
+	scalar := func(v any) string {
+		switch x := v.(type) {
+		case string:
+			return strings.TrimSpace(x)
+		case float64:
+			if x == float64(int64(x)) {
+				return strconv.FormatInt(int64(x), 10)
+			}
+			return strconv.FormatFloat(x, 'f', -1, 64)
+		case bool:
+			return strconv.FormatBool(x)
+		}
+		return ""
+	}
+	for _, k := range keys {
+		switch v := raw[k].(type) {
+		case []any:
+			for _, e := range v {
+				if s := scalar(e); s != "" {
+					out = append(out, k+" "+s)
+				}
+			}
+		default:
+			if s := scalar(v); s != "" {
+				out = append(out, k+" "+s)
+			}
+		}
+	}
+	return out
+}
+
+// shardBy is shardByPath with the tools' declared topics beside the file paths.
+func shardBy(older []session.Message, workdir string, topics map[string][]string) []event.ContextShard {
+	callPath := map[string][]string{} // tool callID → its topics, to attribute a result to its call
+	actions := map[string][]string{}  // topic → ordered tool names, for a deterministic brief
 	for _, m := range older {
 		for _, p := range m.Parts {
 			if p.Kind == session.PartToolCall && p.ToolCall != nil {
-				if rel := shardPath(workdir, p.ToolCall.Args); rel != "" {
-					callPath[p.ToolCall.CallID] = rel
-					actions[rel] = append(actions[rel], p.ToolCall.Name)
+				if ts := callTopics(workdir, p.ToolCall.Name, p.ToolCall.Args, topics); len(ts) > 0 {
+					callPath[p.ToolCall.CallID] = ts
+					for _, t := range ts {
+						actions[t] = append(actions[t], p.ToolCall.Name)
+					}
 				}
 			}
 		}
@@ -383,12 +470,12 @@ func shardByPath(older []session.Message, workdir string) []event.ContextShard {
 		for _, p := range m.Parts {
 			switch {
 			case p.Kind == session.PartToolCall && p.ToolCall != nil:
-				if rel := shardPath(workdir, p.ToolCall.Args); rel != "" {
-					paths[rel] = true
+				for _, t := range callTopics(workdir, p.ToolCall.Name, p.ToolCall.Args, topics) {
+					paths[t] = true
 				}
 			case p.Kind == session.PartToolResult && p.ToolResult != nil:
-				if rel := callPath[p.ToolResult.CallID]; rel != "" {
-					paths[rel] = true
+				for _, t := range callPath[p.ToolResult.CallID] {
+					paths[t] = true
 				}
 			}
 		}
@@ -703,7 +790,7 @@ Write these sections, in this order, with these headings:
 4. Open — what remains, what was tried and failed (so it is not tried again the same way), and anything the user is still waiting on.
 5. Names — identifiers, paths, numbers and terms the user uses that must be repeated exactly.
 
-Keep identifiers, paths, code and numbers verbatim. Describe what was DONE to a file or document, never its current contents as fact — the state is re-read from the source when needed. Be concise; omit pleasantries and narration. Write only the brief.`
+Keep identifiers, paths, code and numbers verbatim. Describe what was DONE to a file or document, never its current contents as fact — the state is re-read from the source when needed. Do not record personal data — email addresses, phone numbers, account or card numbers — unless the task itself is about them. Be concise; omit pleasantries and narration. Write only the brief.`
 
 // condensePrompt rewrites an accumulated brief once it outgrows its share of the window.
 const condensePrompt = `Condense the following brief of a long working conversation into a shorter one with the same five sections (Request, Decisions, Done, Open, Names). Merge repeated points, drop narration, keep every identifier, path, number and unresolved item verbatim. Write only the condensed brief.`

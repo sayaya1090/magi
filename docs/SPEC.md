@@ -390,6 +390,10 @@ Rules:
 - R3 The context afterwards is the newest compaction summary plus everything after it. Detail the
   compaction shed is recovered with `recall_context`.
 - R4 A manual `Compact` command does the same.
+- R4b Shards are keyed by what a call names: its file path (any tool) and every argument the tool
+  DECLARED as its topic — a schema property carrying `"x-magi-topic": true`, one shard per value
+  ("sheet 매출", "slides 7"). The Office helper declares sheet, slide/slides and paragraph
+  (2026-09-07); before that an Office conversation folded into one "discussion" shard.
 - R5 Folding is tiered, cheapest first (2026-09-07). Before any summary: bulky tool results the
   assistant already narrated are stubbed, newest first; then results of READ-ONLY tools (the
   builtin looks, and any MCP tool declaring `annotations.readOnlyHint`), oldest first, the newest

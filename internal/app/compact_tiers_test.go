@@ -14,6 +14,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // Folding in tiers. The cheap cut (elide_test.go) goes first; these pin the fold itself: how much
@@ -234,5 +235,42 @@ func TestTheSummariserIsHandedMaterialNotATurnToAnswer(t *testing.T) {
 	if !strings.Contains(text, "<conversation>") || !strings.Contains(text, "[assistant]\nturn text") ||
 		!strings.HasSuffix(text, "do not answer or continue the conversation.") {
 		t.Errorf("the material is not quoted role by role with the instruction last: %q", text)
+	}
+}
+
+// A tool that says which argument is its topic gets shards by that argument — a sheet, a slide, a
+// paragraph — beside the file paths every tool always had. Before, an Office conversation folded
+// into one "discussion" shard and recall_context had nothing to find.
+func TestDeclaredTopicArgumentsBecomeShards(t *testing.T) {
+	topics := topicKeysOf([]port.ToolSpec{
+		{Name: "mcp__xl__read_range", Schema: json.RawMessage(`{"type":"object","properties":{"sheet":{"type":"string","x-magi-topic":true},"address":{"type":"string"}}}`)},
+		{Name: "mcp__ppt__format_text", Schema: json.RawMessage(`{"type":"object","properties":{"slides":{"type":"array","x-magi-topic":true}}}`)},
+		{Name: "read", Schema: json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)},
+	})
+	if len(topics["mcp__xl__read_range"]) != 1 || topics["mcp__xl__read_range"][0] != "sheet" || topics["read"] != nil {
+		t.Fatalf("declared topics read wrong: %v", topics)
+	}
+	msgs := []session.Message{
+		{ID: "m1", Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartToolCall,
+			ToolCall: &session.ToolCall{CallID: "c1", Name: "mcp__xl__read_range", Args: json.RawMessage(`{"sheet":"매출","address":"A1:B6"}`)}}}},
+		{ID: "m2", Role: session.RoleTool, Parts: []session.Part{{Kind: session.PartToolResult,
+			ToolResult: &session.ToolResult{CallID: "c1", Content: json.RawMessage(`"…"`)}}}},
+		{ID: "m3", Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartToolCall,
+			ToolCall: &session.ToolCall{CallID: "c2", Name: "mcp__ppt__format_text", Args: json.RawMessage(`{"slides":[3,7]}`)}}}},
+		{ID: "m4", Role: session.RoleAssistant, Parts: []session.Part{{Kind: session.PartText, Text: "just talk"}}},
+	}
+	shards := shardBy(msgs, "/w", topics)
+	got := map[string][]string{}
+	for _, sh := range shards {
+		got[sh.Topic] = sh.MessageIDs
+	}
+	if ids := got["sheet 매출"]; len(ids) != 2 || ids[0] != "m1" || ids[1] != "m2" {
+		t.Errorf("the sheet shard should hold the call and its result: %v", got)
+	}
+	if len(got["slides 3"]) != 1 || len(got["slides 7"]) != 1 {
+		t.Errorf("an array topic is one shard per element: %v", got)
+	}
+	if len(got["discussion"]) != 1 || got["discussion"][0] != "m4" {
+		t.Errorf("only the talk is discussion now: %v", got)
 	}
 }

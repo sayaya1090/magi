@@ -1,7 +1,7 @@
 package office
 
 var slideProps = []property{
-	{Name: "slide", Type: "integer", Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one. Omit both this and slide_id for the slide the person is looking at now — do not ask which slide when they did not name one."},
+	{Name: "slide", Type: "integer", Topic: true, Desc: "1-based position of the slide, as a person would say it (\"slide 3\"). Positions shift when slides are added, removed or reordered, so prefer slide_id when you have one. Omit both this and slide_id for the slide the person is looking at now — do not ask which slide when they did not name one."},
 	{Name: "slide_id", Type: "string", Desc: "Exact slide id, as returned by list_slides or read_slide. Wins over slide when both are given. Omit both this and slide for the slide the person is looking at now."},
 }
 
@@ -151,7 +151,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields, including bullet."},
 				{Name: "ea_font", Type: "string", Desc: "East Asian typeface for Hangul/CJK text, e.g. \"본고딕\". ⚠ font (above) only sets the LATIN typeface — Office.js has no other door — so on a Korean deck the visible Hangul keeps the theme's face no matter how often you set font. This one writes the run property in the slide itself, which means the slide is REBUILT: it keeps its position but GETS A NEW ID, and the answer lists the old→new pairs."},
 				{Name: "all", Type: "object", Desc: "Same fields (including bullet), applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
-				{Name: "slides", Type: "array", Items: "integer", Desc: "1-based slide positions to touch. Omit for the whole deck."},
+				{Name: "slides", Type: "array", Items: "integer", Topic: true, Desc: "1-based slide positions to touch. Omit for the whole deck."},
 				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
 			},
 		},
@@ -504,7 +504,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 				"pressing Apply would ACTUALLY do, derived from the fix and not from the suggestion's own " +
 				"words — trust that field over \"what\" if they disagree, and say so." + declare,
 			Props: []property{
-				{Name: "slide", Type: "integer", Desc: "1-based position. Omit for the whole deck."},
+				{Name: "slide", Type: "integer", Topic: true, Desc: "1-based position. Omit for the whole deck."},
 				{Name: "slide_id", Type: "string", Desc: "Exact slide id. Wins over slide."},
 			},
 			Required: []string{},

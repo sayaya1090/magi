@@ -1,6 +1,6 @@
 package office
 
-var sheetProp = property{Name: "sheet", Type: "string", Desc: "Worksheet name exactly as the tab reads (\"2분기\", \"Sheet1\"). Omit it for the sheet the person is looking at right now — that is what \"this sheet\" means. A number is accepted too (1-based tab position) but names are safer: tabs get reordered.", Also: []string{"worksheet"}}
+var sheetProp = property{Name: "sheet", Type: "string", Topic: true, Desc: "Worksheet name exactly as the tab reads (\"2분기\", \"Sheet1\"). Omit it for the sheet the person is looking at right now — that is what \"this sheet\" means. A number is accepted too (1-based tab position) but names are safer: tabs get reordered.", Also: []string{"worksheet"}}
 var addressProp = property{Name: "address", Type: "string", Desc: "A1-style range: a cell (\"C3\"), a block (\"B2:E9\"), whole columns (\"A:C\") or rows (\"5:7\"). Omit it where the description says so (usually: the sheet's used range). Never put the sheet name inside the address — that is what sheet is for.", Also: []string{"range"}}
 
 func withSheet(rest ...property) []property {

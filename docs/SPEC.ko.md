@@ -318,6 +318,9 @@ perm-4: policy=ask, user answers "always" ⇒ 1st write asks, 2nd write auto-all
 - R2 오래된 메시지 요약 → `compaction` 이벤트 append(원본 보존).
 - R3 이후 컨텍스트 = 최신 compaction 요약 + 그 이후 이벤트. 압축이 떨궈낸 상세는 `recall_context`로 되찾는다.
 - R4 수동 `Compact` 커맨드도 동일.
+- R4b 샤드는 호출이 이름 댄 것으로 나눈다: 파일 경로(모든 도구)와, 도구가 **주제라고 선언한** 인자 — 스키마 속성의
+  `"x-magi-topic": true` — 값마다 샤드 하나(「sheet 매출」「slides 7」). Office 헬퍼가 sheet·slide/slides·paragraph 를
+  선언한다(2026-09-07); 그 전엔 Office 대화가 통째로 「discussion」 한 조각이었다.
 - R5 접기는 싼 것부터 층으로 간다(2026-09-07). 요약 전에: 어시스턴트가 이미 설명한 큰 도구 결과를 최신 것부터
   스텁으로, 그래도 모자라면 **읽기 전용 도구**(내장 읽기 도구와 `annotations.readOnlyHint` 를 단 MCP 도구)의
   결과를 오래된 것부터 — 최신 셋은 남기고 — 스텁으로. 다시 얻을 수 있는 것이라 스텁이 그 길을 적는다.
