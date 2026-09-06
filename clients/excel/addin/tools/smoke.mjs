@@ -1513,6 +1513,12 @@ console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
   const cut = t.rows[t.rows.length - 1];
   ok('result.elided 는 덜어낸 줄로 선다', cut?.kind === 'fold' && cut.fold.bytes === 8000 && t.unknownNote === null, JSON.stringify({ kind: cut?.kind, un: t.unknownNote }));
   ok('덜어낸 줄의 글은 토큰쯤과 되돌리는 길', foldText(cut) === '도구 결과 하나를 덜어냈습니다 — 2k 토큰쯤 · 다시 읽으면 돌아옵니다', foldText(cut));
+  // 그림은 참조로 온다 — 줄이 경로를 들고, 글은 아래에 그린다고만 적는다(2026-09-07).
+  t.append({ type: 'part.appended', seq: 12, data: { messageId: 'mc_img', role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'c_img', name: 'render_range', args: {} } } } });
+  t.append({ type: 'part.appended', seq: 13, data: { messageId: 'mr_img', role: 'tool', part: { kind: 'tool-result', toolResult: { callId: 'c_img', content: '{"address":"A1:B6"}', images: [{ path: '/data/images/s_1/render-abc.png', mime: 'image/png' }] } } } });
+  const pic = t.rows.find((r) => r.kind === 'tool' && r.callId === 'c_img');
+  ok('그림 결과는 경로를 든다', pic?.result?.images?.length === 1 && pic.result.images[0].path === '/data/images/s_1/render-abc.png', JSON.stringify(pic?.result?.images));
+  ok('그림 결과의 글은 아래에 그린다고만 적는다', /그림 1장 — 아래에 그립니다/.test(resultCell(pic)?.text ?? '') && !/안 그립니다/.test(resultCell(pic)?.text ?? ''), resultCell(pic)?.text);
   t.append({ type: 'tool.progress', seq: 11, data: { name: 'compact', text: 'freed the window' } });
   ok('tool.progress 는 세기만 한다 — 모르는 것도 그리는 것도 아니다', t.unknownNote === null && /tool\.progress/.test(t.skippedNote ?? ''), `${t.unknownNote} / ${t.skippedNote}`);
 }

@@ -1026,6 +1026,23 @@ export class View {
         fold.append(pre);
       }
       el.append(fold);
+      // **그림은 접힘 밖에 선다.** 그림을 달라고 한 사람은 그림을 보러 온 것이라 펼쳐야 보이는 자리에 두지
+      // 않는다. 여는 길(`loadImage`)이 없는 판(가짜 손·시험)에서는 안 그리고, 못 열면 사유를 적는다.
+      const refs = Array.isArray(r.result?.images) ? r.result.images : [];
+      if (refs.length > 0 && typeof this.loadImage === 'function') {
+        for (const ref of refs) {
+          const img = document.createElement('img');
+          img.className = 'turn-image';
+          img.alt = '도구가 남긴 그림';
+          el.append(img);
+          this.loadImage(ref.path).then((url) => { img.src = url; }).catch((e) => {
+            const p = document.createElement('p');
+            p.className = 'turn-image-lost';
+            p.textContent = `그림을 못 열었습니다 — ${e?.message ?? e}`;
+            img.replaceWith(p);
+          });
+        }
+      }
       return el;
     }
     if (head) {

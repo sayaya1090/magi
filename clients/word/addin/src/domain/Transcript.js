@@ -508,7 +508,9 @@ function toolResultOf(ev) {
     content: r.content ?? null,
     isError: r.isError === true,
     advisory: r.advisory === true,
-    images: Array.isArray(r.images) ? r.images.length : 0,
+    // 그림은 참조(경로)로 온다 — 창이 헬퍼의 `/api/image` 로 열어 그린다(2026-09-07). 수만 세던 앞 판은
+    // 「(그림 1장은 이 창이 아직 안 그립니다)」가 그 줄의 전부였다.
+    images: Array.isArray(r.images) ? r.images.map((i) => ({ path: String(i?.path ?? ''), mime: String(i?.mime ?? '') })).filter((i) => i.path) : [],
   };
 }
 

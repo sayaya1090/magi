@@ -106,6 +106,8 @@ async function boot() {
   });
   // 창이 잰 요구 집합을 헬퍼로 넘기는 길. **가짜 갈래엔 없다** — 헬퍼가 없으면 보낼 곳도 없다.
   if (api) view.tellCaps = (caps) => { void api.caps(caps).catch(() => {}); };
+  // 도구의 그림을 여는 길. 헬퍼가 데몬의 images 디렉토리에서 내준다 — 가짜 갈래엔 없다.
+  if (api) view.loadImage = (path) => api.image(path);
   // 하던 일을 세우는 길. **문이 있을 때만 손잡이를 보인다**(`View.renderBusy`).
   if (api) {
     view.canStop = true;

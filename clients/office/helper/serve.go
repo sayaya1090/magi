@@ -261,7 +261,10 @@ type API struct {
 	Hub         *HandHub
 	Token       string
 	ConfigDir   string
-	Port        int
+	// ImageRoot 는 데몬이 도구의 그림을 두는 자리(`<데이터 디렉토리>/images`). 작업창의 `/api/image` 가 그 아래 파일만
+	// 내준다. 비면 이 플랫폼의 데이터 디렉토리로 — 시험만 딴 곳을 준다.
+	ImageRoot string
+	Port      int
 	// Restart 는 그 소켓의 데몬에게 restart 문을 두드리는 것(council.go). 시험이 바꿔 끼운다.
 	Restart func(socket string) error
 	// Own 은 **파워포인트 몫의 컴패니언**. 명단에서 남의 워크스페이스를 골라 빌리는 대신 이것을
@@ -323,6 +326,7 @@ func (a *API) Route(mux *http.ServeMux) {
 	mux.HandleFunc("/api/permission", a.guard(a.permission))
 	mux.HandleFunc("/api/question", a.guard(a.question))
 	mux.HandleFunc("/api/documents", a.guard(a.documents))
+	mux.HandleFunc("/api/image", a.guard(a.image))
 	mux.HandleFunc("/api/caps", a.guard(a.caps))
 	// 가이드 관리 — 추가·삭제·활성화·비활성화(guides.go).
 	mux.HandleFunc("/api/guides", a.guard(a.guides))
@@ -1087,4 +1091,47 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
+}
+
+// image 는 도구가 남긴 그림 한 장을 작업창에 내준다 — `/api/image?path=<절대 경로>`.
+//
+// 그림은 참조로만 온다: 코어의 MCP 어댑터가 도구의 이미지 블록을 `<데이터 디렉토리>/images/<세션>/…` 에 적고
+// 결과에는 경로(ImageRef)만 싣는다(로그를 작게 두려고). 작업창은 그 경로를 받고도 열 문이 없어 「(그림 1장은 이
+// 창이 아직 안 그립니다)」만 적었다(엑셀 실물 2026-09-07). 헬퍼는 데몬과 같은 기계라 그 파일을 읽을 수 있고,
+// 여는 자리는 **그 디렉토리 아래, 그림 확장자**뿐이다 — 경로를 받아 파일을 내주는 문은 그 둘로 닫아야 문이지
+// 구멍이 아니다.
+func (a *API) image(w http.ResponseWriter, r *http.Request) {
+	root := a.ImageRoot
+	if root == "" {
+		root = filepath.Join(platform.OS{}.DataDir(), "images")
+	}
+	want := strings.TrimSpace(r.URL.Query().Get("path"))
+	if want == "" {
+		http.Error(w, "path 가 없습니다", http.StatusBadRequest)
+		return
+	}
+	abs, err := filepath.Abs(want)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	rootAbs, _ := filepath.Abs(root)
+	rel, err := filepath.Rel(rootAbs, abs)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		http.Error(w, "그림은 데몬의 images 디렉토리 아래 것만 내줍니다", http.StatusForbidden)
+		return
+	}
+	mime := map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}[strings.ToLower(filepath.Ext(abs))]
+	if mime == "" {
+		http.Error(w, "그림 파일이 아닙니다", http.StatusForbidden)
+		return
+	}
+	b, err := os.ReadFile(abs)
+	if err != nil {
+		http.Error(w, "그 그림이 없습니다: "+err.Error(), http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Cache-Control", "private, max-age=3600")
+	_, _ = w.Write(b)
 }

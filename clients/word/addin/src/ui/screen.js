@@ -396,7 +396,8 @@ function resultText(res) {
   const s = typeof c === 'string' ? c : (c == null ? '' : pretty(c));
   // 그림은 **참조로만** 온다(`ImageRef`). 이 창은 아직 못 여는데, 몇 장인지도 안 적으면
   // 「도구가 아무것도 안 냈다」와 「낸 것을 우리가 못 그린다」가 같은 화면이 된다.
-  const img = res.images > 0 ? `\n(그림 ${res.images}장은 이 창이 아직 안 그립니다)` : '';
+  const n = Array.isArray(res.images) ? res.images.length : 0;
+  const img = n > 0 ? `\n(그림 ${n}장 — 아래에 그립니다)` : '';
   return clip(s.trim(), 400) + img;
 }
 

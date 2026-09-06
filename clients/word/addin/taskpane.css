@@ -321,6 +321,8 @@ header {
   border-radius: var(--r-md); padding: var(--s2) var(--s3);
 }
 .turn.kind-tool .turn-head { color: var(--fg-2); font-variant-numeric: tabular-nums; }
+.turn-image { display: block; max-width: 100%; margin-top: var(--s2); border: 1px solid var(--line); border-radius: var(--r-md); }
+.turn-image-lost { color: var(--muted); margin: var(--s1) 0 0; }
 .turn-args {
   margin: var(--s1) 0 0;
   font: 12px/18px ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, monospace;

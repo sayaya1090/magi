@@ -55,6 +55,24 @@ export class HelperApi {
   status() { return this.#send('/api/status', { method: 'GET' }); }
 
   /**
+   * 도구가 남긴 그림 한 장을 연다 — 헬퍼의 `/api/image?path=` 로 바이트를 받아 object URL 로 돌려준다.
+   * `<img src>` 에는 Authorization 헤더를 실을 수 없어 fetch 로 받는다. 못 열면 사유를 그대로 던진다.
+   */
+  async image(path) {
+    if (!this.fetch) throw new Error('이 환경에는 fetch 가 없다');
+    const res = await this.fetch(`${this.origin}/api/image?path=${encodeURIComponent(path)}`, {
+      method: 'GET',
+      headers: { ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}) },
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(text.trim() || `헬퍼가 ${res.status} 로 답했습니다`);
+    }
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  }
+
+  /**
    * **파워포인트 몫의 컴패니언**을 마련해 달라고 한다 — 고르는 화면을 안 거치는 길.
    *
    * 답은 **즉시** 온다. 데몬 냉시동은 오래 걸리는데 그걸 요청 안에서 기다리면 판이 멎고,
