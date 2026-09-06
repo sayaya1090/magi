@@ -45,7 +45,10 @@ func (f *budgetBurningLLM) StreamChat(_ context.Context, r port.ChatRequest) (<-
 		ch <- port.ProviderEvent{Type: port.ProviderText,
 			Text: "REPORT: read three files, the parser is the culprit; unfinished: the fix"}
 	} else {
-		ch <- port.ProviderEvent{Type: port.ProviderText, Text: "still looking around"}
+		// A DIFFERENT look each round: the loop now ends a turn that repeats a successful step
+		// byte for byte (nothing new asked), so a child that burns its budget has to be one that
+		// keeps looking somewhere new — which is what a budget-burning child does.
+		ch <- port.ProviderEvent{Type: port.ProviderText, Text: "still looking around " + itoa64(int64(f.rounds))}
 		ch <- port.ProviderEvent{Type: port.ProviderToolCall,
 			ToolCall: &session.ToolCall{CallID: "c" + itoa64(int64(f.rounds)), Name: "list",
 				Args: json.RawMessage(`{"path":"."}`)}}

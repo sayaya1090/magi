@@ -186,6 +186,11 @@ type turnState struct {
 	// held is the last step's own usage — what the window holds now — recorded on the finish as
 	// TurnFinishedData.Held beside the bill.
 	held event.Usage
+	// lastStep is the previous step's signature (text + calls) and lastCalls its call ids — the
+	// identical-step check compares against them.
+	lastStep      string
+	lastCalls     []string
+	lastPromptSeq int64
 }
 
 // allowAtFinish lets a tool run in the steps after a turn has declared itself done.
@@ -437,6 +442,28 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			a.appendPart(ctx, sid, agentActor, msgID, session.RoleAssistant, session.Part{
 				ID: reasonPartID, Kind: session.PartReasoning, Text: reasoning,
 			})
+		}
+		// **An exact repeat of the previous step asks for nothing new.** The same text and the same
+		// calls with the same arguments, right after a step whose calls all succeeded: running them
+		// again returns what they returned a moment ago. Measured live (Excel, 2026-09-07): after
+		// `land` answered "you may end here", the model repeated "text + land" seven times, byte
+		// for byte, until the repeat nudge fired — seven landings on the screen and seven model
+		// calls billed for one sentence. A turn that has nothing new to say is finished; the note
+		// says so on the record, and the calls are not run again. A repeat after a FAILURE is a
+		// retry and runs as before.
+		//
+		// Two things make a repeat NOT churn, and both are checked: something new arrived between
+		// the steps (a nudge, an interjection, a gate's question, a hand-off's answer — every one
+		// of those is a prompt event, so the newest prompt seq says whether the model was told
+		// anything), or the call is one whose repeat has its own meaning — a council declaration
+		// is judged, not counted; a wait or a poll is meant to be asked again; a question to a
+		// person or a companion has its own cap.
+		promptSeq := newestPromptSeq(evs)
+		if sig := stepSignature(text, toolCalls); repeatIsChurn(&ts, sig, toolCalls, promptSeq, guard) {
+			_ = a.appendPromptText(ctx, sid, event.Actor{Kind: event.ActorSystem, ID: "loop"}, repeatedStepNote)
+			text, toolCalls = "", nil
+		} else {
+			ts.lastStep, ts.lastCalls, ts.lastPromptSeq = sig, callIDsOf(toolCalls), promptSeq
 		}
 		if text != "" && !textConsumed {
 			lastText = text
@@ -961,6 +988,73 @@ func (a *App) allParallelSafe(calls []*session.ToolCall) bool {
 		}
 	}
 	return true
+}
+
+// repeatedStepNote is what the record says when a step was an exact repeat of the one before it.
+const repeatedStepNote = "That step repeated the previous one exactly — the same words and the same calls — " +
+	"and those calls all succeeded a moment ago, so nothing new was asked for. The calls were not run " +
+	"again and the turn ends here."
+
+// stepSignature is the step as the model wrote it: its text and every call's name and arguments.
+// Empty for a step with no calls — a text-only step is a finish, not something to compare.
+func stepSignature(text string, calls []*session.ToolCall) string {
+	if len(calls) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(strings.TrimSpace(text))
+	for _, c := range calls {
+		if c == nil {
+			continue
+		}
+		b.WriteString("\x00")
+		b.WriteString(c.Name)
+		b.WriteString("\x00")
+		b.Write(c.Args)
+	}
+	return b.String()
+}
+
+// repeatExempt are the tools whose identical repeat means something: a declaration is for the
+// council to judge, a wait or a poll is asked again by design, and a question to a person or to a
+// companion is capped by its own rules.
+var repeatExempt = map[string]bool{"council": true, "wait_for": true, "bash_output": true, "ask_user": true, "hand_off": true}
+
+// repeatIsChurn is whether this step is an exact repeat of the previous one with nothing new in
+// between: the same signature, no prompt event since (promptSeq unchanged), every previous call
+// succeeded, and no call whose repeat has its own meaning.
+func repeatIsChurn(ts *turnState, sig string, calls []*session.ToolCall, promptSeq int64, guard *runGuard) bool {
+	if sig == "" || len(calls) == 0 || sig != ts.lastStep || promptSeq != ts.lastPromptSeq {
+		return false
+	}
+	for _, c := range calls {
+		if c != nil && repeatExempt[c.Name] {
+			return false
+		}
+	}
+	return guard == nil || !guard.anyFailed(ts.lastCalls)
+}
+
+// newestPromptSeq is the seq of the newest prompt event in the log — what "was the model told
+// anything since" is measured by.
+func newestPromptSeq(evs []event.Event) int64 {
+	var out int64
+	for i := len(evs) - 1; i >= 0; i-- {
+		if evs[i].Type == event.TypePromptSubmitted {
+			return evs[i].Seq
+		}
+	}
+	return out
+}
+
+func callIDsOf(calls []*session.ToolCall) []string {
+	out := make([]string, 0, len(calls))
+	for _, c := range calls {
+		if c != nil {
+			out = append(out, c.CallID)
+		}
+	}
+	return out
 }
 
 // heldOf is the Held a finish records: the last step's own usage, or nothing when no step reported

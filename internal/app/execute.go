@@ -569,6 +569,9 @@ func (a *App) executeTool(ctx context.Context, s session.Session, agent AgentSpe
 	// that landed but fails gofmt/a hook still changed the file, and the council must see
 	// that (broken) change — so change capture keys off this, not the post-diagnostics flag.
 	toolOK := !res.IsError
+	if guard != nil {
+		guard.noteOutcome(tc.CallID, toolOK)
+	}
 
 	// An unrecognized argument that is not a misspelling ran anyway (see the dispatch check), so
 	// the result answers a narrower question than the model asked. Say which part of the call was

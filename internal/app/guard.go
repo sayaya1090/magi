@@ -168,6 +168,8 @@ type runGuard struct {
 	// across 27 states produced no note at all. A guard silenced exactly in the case it exists for
 	// is worse than no guard, because the silence reads as an all-clear.
 	rewriteNoted map[string]int
+	// failed is which calls (by id) answered with an error — read by the identical-step check.
+	failed map[string]bool
 }
 
 // fileChange is one file's before/after content captured around an agent edit this turn.
@@ -808,6 +810,30 @@ func (g *runGuard) noteBashExec(cmd string, novel bool) {
 // deliverable changes (a read-only bash or an idempotent rewrite does not bump it), so it
 // is the version stamp the fresh-evidence gate compares against: a tester PASS recorded at
 // epoch N is stale the moment a later mutation bumps the epoch past N, forcing re-check.
+// noteOutcome records whether a call's own result was an error, by call id, for the loop's
+// identical-step check: a step that repeats a step whose calls all SUCCEEDED asks for nothing
+// new, while a repeat after a failure is a retry and runs.
+func (g *runGuard) noteOutcome(callID string, ok bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.failed == nil {
+		g.failed = map[string]bool{}
+	}
+	g.failed[callID] = !ok
+}
+
+// anyFailed is whether any of these calls was recorded as failing.
+func (g *runGuard) anyFailed(callIDs []string) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	for _, id := range callIDs {
+		if g.failed[id] {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *runGuard) mutationEpoch() int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
