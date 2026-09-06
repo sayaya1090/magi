@@ -36,4 +36,16 @@ func TestWhatTheFirstRealWorkbookTaught(t *testing.T) {
 	if _, err := validateArgs(XL, byName["freeze_panes"], json.RawMessage(`{"rows":0}`)); err == nil || !strings.Contains(err.Error(), "starts at 1") {
 		t.Errorf("수로 온 rows 0 은 여전히 거절해야 한다: %v", err)
 	}
+	// 넷 — fill 은 fill_range 에서만 채우기 방식이다. 색으로 받는 두 도구가 그 열거에 걸려 죽었다(2021 실물 2026-09-07).
+	for _, c := range []struct{ tool, args string }{
+		{"format_range", `{"address":"A1:D1","bold":true,"fill":"#1E3A8A"}`},
+		{"add_conditional_format", `{"address":"B2:B6","cf_kind":"cell_value","operator":"GreaterThan","value":"5","fill":"#FEF3C7"}`},
+	} {
+		if _, err := validateArgs(XL, byName[c.tool], json.RawMessage(c.args)); err != nil {
+			t.Errorf("%s 의 색 fill 이 fill_range 의 열거에 걸렸다: %v", c.tool, err)
+		}
+	}
+	if _, err := validateArgs(XL, byName["fill_range"], json.RawMessage(`{"address":"D2","to":"D2:D5","fill":"#FEF3C7"}`)); err == nil {
+		t.Error("fill_range 의 fill 은 여전히 열거형이어야 한다")
+	}
 }

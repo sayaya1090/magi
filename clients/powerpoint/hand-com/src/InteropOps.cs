@@ -205,6 +205,18 @@ public sealed partial class InteropOps : IOps
         return touched;
     }
 
+    public int CurrentSlide()
+    {
+        if (pres.Slides.Count == 0) throw new HandError("이 덱에는 장이 없습니다");
+        // 사람이 보고 있는 장 — 이 덱의 창이 앞에 있으면 그 창, 아니면 이 덱의 첫 창. 창이 없거나 그 보기에 「보는 장」이
+        // 없으면(여러 장 보기) 365 손처럼 거절한다 — 조용히 1장으로 받으면 사람이 안 보는 장의 색을 바꾸게 된다(리뷰 2026-09-07).
+        PowerPoint.DocumentWindow? w = null;
+        try { var aw = app.ActiveWindow; if (aw.Presentation.FullName == pres.FullName) w = aw; } catch { }
+        if (w is null) { try { if (pres.Windows.Count > 0) w = pres.Windows[1]; } catch { } }
+        if (w is null) throw new HandError("어느 장인지 알 수 없습니다 — 이 덱의 창이 없습니다. slide 나 slide_id 를 주세요");
+        try { return ((PowerPoint.Slide)w.View.Slide).SlideIndex; }
+        catch { throw new HandError("어느 장인지 알 수 없습니다 — 지금 보기에는 고른 장이 없습니다(여러 장 보기?). slide 나 slide_id 를 주세요"); }
+    }
     public int ResolveSlide(int? slide, string? slideId)
     {
         if (slideId is not null)

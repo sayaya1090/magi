@@ -426,7 +426,7 @@ func xlCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "freeze_panes",
 			Desc: "Freeze the top rows and/or left columns so headers stay while scrolling. rows:1 is the usual " +
-				"call. Both 0 unfreezes. Needs ExcelApi 1.7.",
+				"call. Call it with neither rows nor columns to unfreeze (0 is refused). Needs ExcelApi 1.7.",
 			Props: withSheet(
 				property{Name: "rows", Type: "integer", Desc: "Rows to freeze from the top (default 0)."},
 				property{Name: "columns", Type: "integer", Desc: "Columns to freeze from the left (default 0)."},

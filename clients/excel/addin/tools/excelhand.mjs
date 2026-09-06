@@ -21,7 +21,8 @@ const scalar = (prop, path) => {
     case 'name': return path.endsWith('.worksheet') || path.includes('worksheets') ? 'Sheet1' : 'Thing1';
     case 'address': return `Sheet1!${rangeOf(path)}`;
     case 'removed': return 1; case 'uniqueRemaining': return 3; case 'rowCount': return boxOf(path).rows; case 'columnCount': return boxOf(path).cols; case 'cellCount': return boxOf(path).rows * boxOf(path).cols;
-    case 'values': return [['h1', 'h2'], [1, 2]];
+    // 행·열 전체("7:7", "C:D")의 values 는 2021 실물이 null 로 줬다 — 손이 .flat() 으로 죽지 않아야 한다(2026-09-07).
+    case 'values': return /^(\d+:\d+|[A-Z]+:[A-Z]+)$/.test(rangeOf(path)) ? null : [['h1', 'h2'], [1, 2]];
     case 'formulas': return [['h1', 'h2'], [1, '=A2*2']];
     case 'numberFormat': return [['General', 'General'], ['General', '#,##0']];
     case 'text': return path.endsWith('.title') || path.includes('axes') || path.includes('Title') ? '제목' : [['h1', 'h2'], ['1', '2']];
@@ -87,7 +88,7 @@ const ARGS = {
   set_number_format: { sheet: 'Sheet1', address: 'B2', format: '#,##0' },
   format_range: { sheet: 'Sheet1', address: 'A1:B1', bold: true, fill: '#DDEBF7', align: 'Center', border_style: 'Continuous', font_color: '#FFFFFF', size: 12, wrap: true, column_width: 80 },
   clear_range: { sheet: 'Sheet1', address: 'A1', what: 'contents' }, set_cell_style: { sheet: 'Sheet1', address: 'A1', style: 'Good' }, edit_table: { table: 'T1', add_columns: ['비고'], show_totals: true }, set_page_setup: { sheet: 'Sheet1', orientation: 'Landscape', fit_width: 1, print_area: 'A1:D20' }, protect_workbook: { protected: true }, replace_all: { find: '매출', replace: '판매' }, copy_range: { sheet: 'Sheet1', source: 'A1:B2', address: 'D1', mode: 'values' }, fill_range: { sheet: 'Sheet1', address: 'A1:A2', to: 'A1:A5', fill: 'series' }, remove_duplicates: { sheet: 'Sheet1', address: 'A1:B5', columns: [0] }, merge_cells: { sheet: 'Sheet1', address: 'A8:C8' }, unmerge_cells: { sheet: 'Sheet1', address: 'A8:C8' },
-  insert_cells: { sheet: 'Sheet1', address: 'A2:C2', shift: 'down' }, delete_cells: { sheet: 'Sheet1', address: 'A2:C2', shift: 'up' },
+  insert_cells: { sheet: 'Sheet1', address: '7:7', shift: 'down' }, delete_cells: { sheet: 'Sheet1', address: 'A2:C2', shift: 'up' },
   autofit: { sheet: 'Sheet1', address: 'A1:B2', what: 'both' }, set_hyperlink: { sheet: 'Sheet1', address: 'C4', url: 'https://example.com', text: '링크' },
   add_sheet: { name: '요약', after: 'Sheet1' }, delete_sheet: { sheet: 'Sheet1' }, rename_sheet: { sheet: 'Sheet1', name: '요약2' }, move_sheet: { sheet: 'Sheet1', to: 1 },
   copy_sheet: { sheet: 'Sheet1', name: '사본' }, set_sheet_visibility: { sheet: 'Sheet1', visibility: 'Hidden' }, activate_sheet: { sheet: 'Sheet1', address: 'B2' },

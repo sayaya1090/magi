@@ -46,3 +46,7 @@ if ($page -match '"token":\s*"([^"]+)"') { $matches[1] | Set-Content "$env:TEMP\
 ## sweep.py — Mac/Linux 전수 스윕
 
 `python3 clients/powerpoint/tools/sweep.py` — 붙은 첫 덱에 도구 48개를 순서대로 다 부르고(장을 만들고 끝에 지운다) ok/ERR 표를 낸다. `tools-sweep.ps1` 의 Mac 판. 실측 2026-09-05: 48/48 · 57호출 · 오류 0.
+
+## sweep.mjs — 같은 스윕, Node 로
+
+`node clients/powerpoint/tools/sweep.mjs [--deck pid-…] [--image x.png] [--origin https://127.0.0.1:3000/ppt]` — `sweep.py` 와 같은 57호출을 python3 없이 한다(2021 실물 머신이 그랬다). 붙은 것이 COM 손뿐이어도 그 덱에 대고 돈다. 실측 2026-09-07(LTSC 2021 · COM 손): 48/48 · 57호출 · 오류 0 · 9.4초(TESTING §5.5.1).

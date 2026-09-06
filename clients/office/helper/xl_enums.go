@@ -22,6 +22,10 @@ var xlChartAliases = []string{
 // 실물(2026-09-06)에서 suggest 가 전부 「what 은 all/contents/…」로 거절됐다.
 var xlEnumExempt = map[string]map[string]bool{
 	"suggest": {"what": true},
+	// fill 은 fill_range 에서는 채우기 방식(copy·series …)이고 format_range·add_conditional_format 에서는 **칠할 색**(#RRGGBB)이다.
+	// 2021 실물(2026-09-07)에서 머리행 칠하기와 조건부 서식이 전부 「fill 은 default/copy/…」로 거절됐다.
+	"format_range":           {"fill": true},
+	"add_conditional_format": {"fill": true},
 }
 var xlAligns = []string{"General", "Left", "Center", "Right", "Fill", "Justify", "CenterAcrossSelection", "Distributed"}
 var xlValigns = []string{"Top", "Center", "Bottom", "Justify", "Distributed"}

@@ -10,6 +10,7 @@ node clients/word/addin/tools/smoke.mjs              # 작업창: 화면 규칙�
 node clients/word/addin/tools/smoke-hand.mjs         # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
 node clients/word/addin/tools/wordhand.mjs           # 진짜 손(WordHand)을 가짜 Word.js 위에서 66개 전부
 TOKEN=… node clients/word/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다
+node clients/word/addin/tools/sweep.mjs [--docx x.docx]  # 실물: 붙은 문서에 66개 전부 — 끝에 붙인 문단 아래에서만 놀고 지운다(아직 실물에 안 대 봤다 — 2021 머신에 Word 가 없다)
 ```
 
 2026-09-06: 헬퍼 전부 통과, smoke 356 ok, smoke-hand 71 ok, wordhand 44/44.

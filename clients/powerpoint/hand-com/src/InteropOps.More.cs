@@ -18,6 +18,11 @@ public sealed partial class InteropOps
     private static T EnumOf<T>(string prefix, string name, string what) where T : struct, Enum
         => Enum.TryParse<T>(prefix + name, true, out var v) ? v : throw new HandError($"{what} 값을 이 손이 모릅니다: {name}");
 
+    /// <summary>format_shape 의 underline(Single·Double·Wavy …)을 Office 열거로 — 이름은 msoUnderline〈X〉Line 꼴이다. 접두를 mso 로만 붙여
+    /// 「underline 값을 이 손이 모릅니다: SingleLine」로 죽던 것을 봤다(2021 실물, 2026-09-07).</summary>
+    internal static Office.MsoTextUnderlineType UnderlineOf(string name)
+        => name == "None" ? Office.MsoTextUnderlineType.msoNoUnderline : EnumOf<Office.MsoTextUnderlineType>("msoUnderline", name + "Line", "underline");
+
     // ── 장 ──
     public void ApplyLayout(int n, string layout)
     {
@@ -100,7 +105,7 @@ public sealed partial class InteropOps
             var tr = sh.TextFrame.TextRange; var font = tr.Font; var f2 = sh.TextFrame2.TextRange.Font;
             if (f.Font is not null) font.Name = f.Font; if (f.Size is double s) font.Size = (float)s; if (f.Bold is bool b) font.Bold = Tri(b); if (f.Italic is bool i) font.Italic = Tri(i); if (f.Color is not null) font.Color.RGB = Bgr(f.Color);
             if (f.Align is not null) tr.ParagraphFormat.Alignment = f.Align.ToLowerInvariant() switch { "left" => PowerPoint.PpParagraphAlignment.ppAlignLeft, "center" => PowerPoint.PpParagraphAlignment.ppAlignCenter, "right" => PowerPoint.PpParagraphAlignment.ppAlignRight, _ => PowerPoint.PpParagraphAlignment.ppAlignJustify };
-            if (f.Underline is not null) f2.UnderlineStyle = f.Underline == "None" ? Office.MsoTextUnderlineType.msoNoUnderline : EnumOf<Office.MsoTextUnderlineType>("mso", f.Underline + "Line", "underline");
+            if (f.Underline is not null) f2.UnderlineStyle = UnderlineOf(f.Underline);
             if (f.Strikethrough is bool st) f2.Strike = st ? Office.MsoTextStrike.msoSingleStrike : Office.MsoTextStrike.msoNoStrike;
             if (f.Subscript is bool sub) font.Subscript = Tri(sub); if (f.Superscript is bool sup) font.Superscript = Tri(sup);
             if (f.AllCaps is bool ac) f2.Allcaps = Tri(ac); if (f.SmallCaps is bool sc) f2.Smallcaps = Tri(sc);

@@ -56,6 +56,11 @@ scratchpad/overnight_log.md
 # `go build ./...` 를 helper/ 안에서 돌리면 패키지 이름으로 바이너리가 떨어진다.
 # 14MB 짜리가 한 번 커밋에 섞여 들어갔다(2026-09-02) — 이름을 여기 적어 다시 안 겪는다.
 /clients/powerpoint/helper/helper.exe
+# 헬퍼 시험이 패키지 폴더 안에 컴패니언 설정을 떨어뜨린다(companions/<workspace>-<id>/config.toml). 옛 판별 헬퍼 폴더는
+# 통합(`magi office`) 뒤 저장소에 없고, 머신에 남은 것은 실행 때 생긴 것뿐이다 — 어느 것도 커밋 대상이 아니다(2026-09-07).
+/clients/office/helper/companions/
+/clients/excel/helper/
+/clients/powerpoint/helper/
 /magi-web
 # `go build ./clients/web/server` 를 그 디렉토리 안에서 돌리면 패키지 이름으로 떨어진다 —
 # 확장자가 없어서 위의 어떤 규칙에도 안 걸렸고, 19MB 가 커밋에 섞였다(2026-09-03, 세 번째).

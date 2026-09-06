@@ -52,6 +52,8 @@ public interface IOps
     (int Slide, string SlideId) DuplicateSlide(int slide);
     void ApplyLayout(int slide, string layout);
     int ResolveSlide(int? slide, string? slideId);
+    /// <summary>slide 도 slide_id 도 안 왔을 때의 장 — 사람이 보고 있는 장(365 손의 getSelectedSlides 와 같은 규약). 장이 없거나 보는 장을 모르면(창 없음·여러 장 보기) 거절.</summary>
+    int CurrentSlide();
     string ReadNotes(int slide);
     void SetNotes(int slide, string text);
     Rendered RenderSlide(int slide, int maxWidth);

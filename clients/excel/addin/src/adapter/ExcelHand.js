@@ -810,9 +810,11 @@ export class ExcelHand extends HandPort {
     const dir = insert ? { down: 'Down', right: 'Right' }[shift] : { up: 'Up', left: 'Left' }[shift];
     if (!dir) refuse(insert ? `shift 는 down 또는 right 입니다 — '${shift}'` : `shift 는 up 또는 left 입니다 — '${shift}'`);
     return this.runner(async (context) => {
-      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address,rowCount,columnCount,values');
+      const { ws, range } = this.#range(context, a); ws.load('name'); range.load('address,rowCount,columnCount');
+      // 값은 **쓰인 부분만** 읽는다 — 행·열 전체("7:7", "C:D")의 values 는 2021 판이 null 로 주어 .flat() 에서 죽었다(실물 2026-09-07).
+      const used = range.getUsedRangeOrNullObject(true); used.load('values,isNullObject');
       await context.sync();
-      const had = range.values.flat().filter((v) => v !== '' && v != null).length;
+      const had = used.isNullObject || !Array.isArray(used.values) ? 0 : used.values.flat().filter((v) => v !== '' && v != null).length;
       if (insert) range.insert(dir); else range.delete(dir);
       await context.sync(); this.#mutated();
       const at = ExcelHand.#bare(range.address);
@@ -1328,7 +1330,14 @@ export class ExcelHand extends HandPort {
         const dh = pivot.dataHierarchies.add(pivot.hierarchies.getItem(field)); dh.summarizeBy = fn;
         if (typeof v !== 'string') { const nf = str(v, 'number_format'); if (nf) dh.numberFormat = nf; const nm = str(v, 'name'); if (nm) dh.name = nm; }
       }
-      await context.sync(); this.#mutated();
+      try { await context.sync(); } catch (e) {
+        // Excel 2021(볼륨 판) 실물(2026-09-07): 같은 시트의 표에 열을 붙이거나 지운(edit_table add_columns·delete_columns) 뒤에는
+        // 그 시트의 범위로 피벗을 못 만든다 — GeneralException 한 단어. resize 로 늘린 표, 다른 시트의 원본, 피벗을 먼저
+        // 만든 뒤의 열 고치기는 다 된다. 코드 한 단어면 모델이 인자를 바꿔 다시 부르므로 **길을 적어 준다.**
+        if (e?.code === 'GeneralException') refuse(`피벗을 못 만들었습니다(GeneralException — PivotTableCollection.add). 원본 첫 줄이 머리글인지, 대상 ${dest} 가 원본이나 다른 것과 겹치지 않는지 보세요. 이 시트의 표에 열을 붙이거나 지운 뒤라면 Excel 2021 의 버릇입니다 — 원본을 다른 시트로 복사해(copy_range) 거기서 만들거나, 피벗을 먼저 만들고 표의 열을 고치세요`);
+        throw e;
+      }
+      this.#mutated();
       return this.#envelope({ pivot: name, sheet: ws.name, destination: ExcelHand.#bare(target.address), rows, columns: cols, values: values.length }, [`시트 '${ws.name}' ${ExcelHand.#bare(target.address)} 에 피벗 '${name}' — 행 ${rows.join('/') || '없음'}, 열 ${cols.join('/') || '없음'}, 값 ${values.length}개`]);
     });
   }

@@ -101,6 +101,14 @@ public sealed class FakeOps : IOps
         if (n is int) slides[at - 1] = c; else slides.Add(c);
         return (n is int ? at : slides.Count, c.Id.ToString());
     }
+    /// <summary>시험이 정하는 「보고 있는 장」. 0 이면 창이 없는 것 — 거절.</summary>
+    public int Current = 1;
+    public int CurrentSlide()
+    {
+        if (slides.Count == 0) throw new HandError("이 덱에는 장이 없습니다");
+        if (Current < 1 || Current > slides.Count) throw new HandError("어느 장인지 알 수 없습니다 — 이 덱의 창이 없습니다. slide 나 slide_id 를 주세요");
+        return Current;
+    }
     public int ResolveSlide(int? slide, string? slideId)
     {
         if (slideId is not null) { var i = slides.FindIndex(s => s.Id.ToString() == slideId); if (i < 0) throw new HandError($"슬라이드 id {slideId} 가 없습니다 — 지워졌거나 다시 지어졌으니 list_slides 로 목차를 다시 읽으세요"); return i + 1; }

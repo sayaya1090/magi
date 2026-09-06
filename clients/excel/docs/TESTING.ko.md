@@ -13,6 +13,7 @@ node clients/excel/addin/tools/smoke.mjs             # 작업창: 화면 규칙�
 node clients/excel/addin/tools/smoke-hand.mjs        # 손 노릇: 스트림 → 손 → 답, 역할(손/화면), 헬퍼 어댑터
 node clients/excel/addin/tools/excelhand.mjs         # 진짜 손(ExcelHand)을 가짜 Office.js 위에서 76개 전부
 TOKEN=… node clients/excel/addin/tools/livehand.mjs   # 가짜 손을 살아 있는 헬퍼에 붙인다 — MCP 로 부르면 여기로 온다
+node clients/excel/addin/tools/sweep.mjs [--xlsx x.xlsx]  # 실물: 붙은 통장에 76개 전부 — 「스윕」시트 안에서만 놀고 지운다(§5.10)
 ```
 
 2026-09-06 실측: 헬퍼 전부 통과, smoke 344 ok, smoke-hand 71 ok, excelhand 61/61 지나감(거절 0).
@@ -197,6 +198,26 @@ Office.js 가 실제로 어떻게 답하는가(`InvalidArgument` 의 `errorLocat
 실물: 내장 셀 스타일 `Heading2`·`Good`·`Currency` 가 한국어 Excel 에서 영어 이름으로 그대로 먹는다. 표에 열 추가·요약 행(`요약` 행이
 생기고 수가 선다)·열 삭제(그 열을 읽던 수식은 `#REF!` — Excel 의 동작)·범위 늘리기(1.13). 인쇄 설정 여덟 항목 한 번에, 해제는 빈 글로
 (`setPrintArea(null)` 은 InvalidArgument — 첫 판에서 잡음). 통합 문서 구조 보호 뒤 `add_sheet` 가 AccessDenied 로 막히고 해제 뒤 풀린다.
+
+### 5.10 2026-09-07 — LTSC 2021 에서 76개를 하나씩 (`tools/sweep.mjs`)
+
+파워포인트 판 §5.5.1 과 같은 물음. 이 판에는 전수 스크립트가 없었다(§5.1 의 `xlreal.py` 는 저장소 밖 스크래치였다) — `tools/sweep.mjs` 를
+지었다: 헬퍼 페이지에서 토큰, `/api/documents` 에서 통장, 「스윕」시트를 만들어 76개를 100호출로 부르고 시트를 지운다(통장 속성·메모·
+제안·이름은 되돌린다; `insert_sheets_from_file` 은 `--xlsx` 로 준 파일). 2021(16.0.14334, ExcelApi 1.14, 창이 손)에 대고 **첫 판 76/76 호출 ·
+오류 11.** 우리 것이 다섯, 판의 것이 둘:
+
+| 도구 | 2021 이 한 말 | 원인 | 고침 |
+|---|---|---|---|
+| `format_range{fill:"#1E3A8A"}` · `add_conditional_format{fill:…}` | 「fill 은 default/copy/series/formats/values 중 하나」 | 헬퍼의 열거 검사는 **이름으로** 잰다 — `fill_range` 의 채우기 방식이 색 칸 둘에도 걸렸다. 머리행 칠하기와 조건부 서식이 전부 막히던 자리 | `xlEnumExempt` 에 둘을 뺌(`xl_enums.go`), `real_excel_test.go` 가 셋(둘은 통과, `fill_range` 는 여전히 거절)을 잰다 |
+| `insert_cells{address:"7:7"}` · `delete_cells` | 「Cannot read properties of null (reading 'flat')」 | 행·열 전체의 `values` 를 2021 이 null 로 준다 | 쓰인 부분만 읽는다(`getUsedRangeOrNullObject`). `excelhand.mjs` 의 stub 이 이제 행 전체에 null 을 줘서 옛 코드는 같은 자리에서 죽는다 |
+| `freeze_panes{rows:0}` | 「rows starts at 1 (got 0)」 | 설명문이 「둘 다 0 이면 풀린다」고 했는데 1부터 검사가 0 을 거절한다(그 검사는 시험이 지키는 것) | 설명문을 고쳤다 — 둘 다 **생략**하면 풀린다. 스윕도 그렇게 부른다 |
+| `add_pivot` | 「GeneralException — PivotTableCollection.add」 | **이 판의 버릇.** 같은 시트의 표에 `edit_table` 로 열을 붙이거나 지운 뒤에는 그 시트의 범위로 피벗을 못 만든다(단계별 재현 `bisect` 로 `add_columns` 에서 갈렸다; `delete_columns` 도 같음. `resize` 로 늘린 표, 다른 시트의 원본, 피벗을 먼저 만든 뒤 열 고치기는 다 된다) | 손이 그 GeneralException 에 길을 적는다(원본을 다른 시트로 복사하거나 피벗을 먼저). 스윕은 피벗을 표 고치기 **앞**에 만든다 |
+| `add_comment` · `read_comments` · `resolve_comment`(둘) | 「NotImplemented — CommentCollection._OnAccess」 | 2021 은 요구 집합 1.10 을 ✓ 라 하면서 메모 스레드 API 를 안 준다 | 판의 한계 — 손이 「이 Excel 판이 이 기능을 아직 안 줍니다 … Excel 365 에서는 됩니다」를 붙인다(코드 한 단어면 모델이 인자를 바꿔 다시 부른다). smoke-hand 둘 |
+
+고친 헬퍼·창으로 다시 깔고(`clients/office/install.ps1`) Excel 을 껐다 켜서 돌리니 **76/76 · 100호출 · 오류 4(메모 넷) · 8.2초** — 남은
+넷은 2021 이 안 주는 것이고 365 에서는 통과가 기대값이다. 셀·표·차트·조건부 서식·유효성·이름·그림·피벗·참조 추적·틀 고정·
+행열·탭 색·보기·속성·인쇄·보호·시트 다루기·CSV·다른 통장 시트·메모(태그)·제안·조언이 전부 실제로 들어갔다 — 각 답의
+`changed` 가 그 사실을 적고, 끝에 시트 「데이터」 하나만 남았다.
 
 ## 통합 헬퍼 재확인
 

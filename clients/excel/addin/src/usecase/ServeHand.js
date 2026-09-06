@@ -90,5 +90,8 @@ export function officeWhy(e) {
     const s = one == null ? '' : String(one).trim();
     if (s && !parts.includes(s)) parts.push(s);
   }
+  // 볼륨 판(2021)은 요구 집합은 1.10 이라 하면서 메모 스레드(CommentCollection)를 NotImplemented 로 거절한다(실물 2026-09-07).
+  // 코드 한 단어로는 모델이 다른 인자로 다시 부른다 — 이 판이 안 주는 것이라고 적어 준다.
+  if (String(e?.code ?? '') === 'NotImplemented') parts.push('이 Excel 판이 이 기능을 아직 안 줍니다(볼륨 판 2021 의 메모 스레드가 이렇습니다) — 다른 판(Microsoft 365)에서는 될 수 있습니다. 다른 인자로 다시 불러도 같습니다');
   return parts.length ? parts.join(' — ') : String(e);
 }

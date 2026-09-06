@@ -18,6 +18,7 @@
 | 코어 (`internal/app` · `internal/adapter/llm/openai`) | 3 | 2026-09-04 | 통과 |
 | 코어 이식성 (`internal/adapter/daemon`) | 2 | 2026-09-04 | 통과 |
 | 5. 실물 PowerPoint | 도구 **48개** 전수 57호출 (`tools/sweep.py`) | **2026-09-05 11:07** | 통과 48 · 실패 0 (§5.4 는 09-02 의 27개 34항목 기록) |
+| 5. 실물 **LTSC 2021 · COM 손** | 도구 **48개** 전수 57호출 (`tools/sweep.mjs`) | **2026-09-07 01:13** | 통과 48 · 실패 0 — 첫 판은 3 실패, COM 손 둘을 고쳤다(§5.5.1) |
 | 5. 설치기 (`install.ps1`, LTSC 2021) | 끝까지 한 판 | 2026-09-06 | exit 0 · 공유 폴더 → 추가 → 창 → 감시기가 손을 붙임 → 창의 보내기로 슬라이드 하나 더함 · 카운슬 스위치 · 검은 창 없음(§5.5) |
 | 6. 실물 + 사람 말 (Windows) | — | 2026-09-03 | §5.1.4 |
 | 6. 실물 + 사람 말 (**Mac**) | — | **2026-09-04** | §5.1.5 |
@@ -598,7 +599,9 @@ $fly = $win.FindFirst($T::Descendants,
 ### 5.4 전수 점검 — 도구를 하나씩 실물에 대고 불러 본다
 
 `clients/powerpoint/tools/sweep.ps1` 이 **광고된 도구 전부**를 순서대로 부른다. 층 1~4 는 「우리가 정한 것을
-지키는가」를 재고, 이 스크립트는 **호스트가 실제로 어떻게 답하는가**를 잰다.
+지키는가」를 재고, 이 스크립트는 **호스트가 실제로 어떻게 답하는가**를 잰다. 같은 일을 헬퍼의 MCP 로 하는 것이
+`sweep.py`(python3, Mac/Linux)와 `sweep.mjs`(Node — python3 이 없는 Windows; 2021 실물이 그랬다)다. 둘은 같은 57호출이고,
+붙은 첫 덱(창이든 COM 손이든)에 대고 돈다: `node clients/powerpoint/tools/sweep.mjs [--deck pid-…]`.
 
 ```powershell
 & C:\Users\velve\Workspace\ppt-test\sweep.ps1
@@ -735,6 +738,7 @@ GUID, 애니메이션 by-level, 배경. 차트의 품은 통합 문서도 열린
 운영에서는 설치기가 옛 데몬을 먼저 멈추고 헬퍼를 띄우므로 이 순서가 안 나지만, 컴패니언이 죽으면 헬퍼가 다시
 마련하는 길이 없었다 — **고쳤다(`5034b267` 뒤, serve.go `own`)**: 마련해 둔 것의 생애가 같아도 소켓이 답하지 않으면 마련부터
 다시 한다(소켓 옆 기록은 옛 생애를 그대로 답해 생애만으로는 죽음을 못 봤다). `TestACompanionThatStoppedAnsweringIsProvisionedAgain`.
+다만 헬퍼는 **물어야** 다시 마련한다 — 창은 열릴 때만 물었으므로, 죽음을 보면 15초에 한 번 다시 묻게 했다(2026-09-07, §5.5.1).
 
 **리본 이름과 아이콘(2026-09-06, 사용자).** 이름을 바꾸고 다시 추가해도 「magi 창」이 남았다 — Office 는 리본
 customization 을 레지스트리(`WEF\PowerPoint_*RibbonCustomizationExpire`·`PowerPoint_RibbonCache`)에 캐시한다.
@@ -768,6 +772,28 @@ customization 을 레지스트리(`WEF\PowerPoint_*RibbonCustomizationExpire`·`
 **안 잰 것을 잰 것으로 세지 않는다.**
 
 ---
+
+### 5.5.1 2026-09-07 — 2021 에서 48개를 하나씩 (`tools/sweep.mjs`)
+
+사람이 물었다 — 「기능을 하나하나 실행해서 2021에서도 동일하게 적용되는지 확인해 줘」. `sweep.py` 의 57호출을 그대로 Node 로 옮겨
+(`tools/sweep.mjs` — 이 머신에는 python3 이 없다) 통합 헬퍼(`magi office`, 메인 `88c9fb63`)의 `/ppt/mcp` 에, 붙은 것이 COM 손뿐인
+덱(`pid-com-…`, ltsc.pptx)에 대고 돌렸다. **첫 판 48/48 호출 · 오류 3**, 셋 다 COM 손의 것이었다:
+
+| 도구 | 2021 COM 손이 한 말 | 원인 | 고침 |
+|---|---|---|---|
+| `format_shape{underline:"Single"}` | 「underline 값을 이 손이 모릅니다: SingleLine」 | Office 열거는 `msoUnderline〈X〉Line` 인데 접두를 `mso` 로만 붙였다 — 밑줄 낱말 17개가 전부 죽는 자리 | `InteropOps.UnderlineOf` 로 빼고 접두를 고침. 시험 `UnderlineNamesMapToOfficeEnums` 가 17개 전부를 Office 열거에 대 본다 |
+| `read_theme_colors{scope:"master"}` | 「어느 장인지 slide 나 slide_id 로 말해 주세요」 | 365 손은 장을 안 주면 **고른 장**을 쓴다(`getSelectedSlides`); COM 손만 거절했다 | `IOps.CurrentSlide()` — 이 덱의 창이 앞에 있으면 그 창이 보는 장, 아니면 1장. 시험 `ThemeColorsWithoutASlideUseTheCurrentOne` |
+| `set_theme_colors{scope:"master"}` | 같음 | 같음 | 같음 |
+
+고친 손을 `install.ps1` 로 다시 얹고 돌리니 **48/48 · 57호출 · 오류 0 · 9.4초** — 365 창(2026-09-05, 약 1초)과 호출·도구 수가 같다.
+COM 이라 느린 것은 `add_chart`(1.8초)·`list_layouts`(0.8초)뿐. 끝에 장 하나만 남고, 되읽기(`read_slide`)가 매 단계 실제 도형 수를
+냈다(2장 도형 2→4, 표 3×3→4×3→2×2, 스냅숏 되돌리기에 id 가 바뀜을 말함).
+
+같은 날 잰 것 하나 더 — **컴패니언이 죽으면 창이 헬퍼에 다시 마련해 달라고 한다.** 메인 `768aa9f8` 뒤 헬퍼는 `/api/own` 으로
+물으면 답 없는 소켓을 다시 마련하는데, 창은 열릴 때만 물었다: 데몬 셋을 죽이니 상태가 40초 넘게 「the daemon died」였고
+아무도 안 물었다. `WatchPrompt` 가 사유가 죽음일 때 15초에 한 번 `own()` 을 부르게 했다(두 판 같은 파일, smoke 넷). 다시 죽이니
+**5초 안에** 두 창(파워포인트·엑셀) 몫이 다시 떴고 상태가 `reachable` 로 돌아왔다. 아직 안 잰 것: 죽은 뒤 첫 보내기가 502 를 받는
+그 한 번 — 창이 되살린 뒤 사람이 다시 보내야 한다.
 
 ## 6. 코어 쪽에 남긴 시험
 

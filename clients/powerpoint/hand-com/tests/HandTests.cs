@@ -292,6 +292,35 @@ public class HandTests
     }
 
     [Fact]
+    public void ThemeColorsWithoutASlideUseTheCurrentOne()
+    {
+        // 365 손은 장을 안 주면 고른 장을 쓴다 — 2021 스윕(2026-09-07)에서 COM 손만 「어느 장인지 말해 주세요」로 거절했다.
+        var fake = new FakeOps(); var hand = new Hand(fake, 1);
+        hand.Handle(Call("add_slide", "{\"title\":\"둘째\"}"));
+        fake.Current = 2; // 사람이 2장을 보고 있다
+        var r = hand.Handle(Call("read_theme_colors", "{\"scope\":\"master\"}"));
+        Assert.Null(r.Error); Assert.Equal(2, r.Result!["slide"]); Assert.Equal("master", r.Result["scope"]);
+        var w = hand.Handle(Call("set_theme_colors", "{\"scope\":\"master\",\"colors\":{\"accent1\":\"#0284C7\"}}"));
+        Assert.Null(w.Error); Assert.Equal(2, w.Result!["slide"]);
+        Assert.Equal("#0284C7", ((Dictionary<string, object?>)hand.Handle(Call("read_theme_colors", "{}")).Result!["theme"]!)["accent1"]);
+        // 보는 장을 모르면(창 없음) 1장으로 넘겨짚지 않고 거절한다 — 365 손과 같다.
+        fake.Current = 0;
+        Assert.Contains("slide 나 slide_id", hand.Handle(Call("read_theme_colors", "{}")).Error);
+        Assert.Null(hand.Handle(Call("read_theme_colors", "{\"slide\":1}")).Error);
+    }
+
+    [Fact, System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void UnderlineNamesMapToOfficeEnums()
+    {
+        // format_shape 의 underline 낱말 전부가 Office 열거로 간다 — 접두가 틀려 「SingleLine 을 모릅니다」로 죽던 것(2026-09-07).
+        foreach (var u in new[] { "None", "Single", "Double", "Heavy", "Dotted", "DottedHeavy", "Dash", "DashHeavy", "DashLong", "DashLongHeavy", "DotDash", "DotDashHeavy", "DotDotDash", "DotDotDashHeavy", "Wavy", "WavyHeavy", "WavyDouble" })
+            InteropOps.UnderlineOf(u);
+        Assert.Equal(Microsoft.Office.Core.MsoTextUnderlineType.msoUnderlineSingleLine, InteropOps.UnderlineOf("Single"));
+        Assert.Equal(Microsoft.Office.Core.MsoTextUnderlineType.msoNoUnderline, InteropOps.UnderlineOf("None"));
+        Assert.Contains("underline", Assert.Throws<HandError>(() => InteropOps.UnderlineOf("Squiggle")).Message);
+    }
+
+    [Fact]
     public void ThemeColorsWarnWhenTheChangeIsInvisible()
     {
         var hand = new Hand(new FakeOps(), 1);

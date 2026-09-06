@@ -38,6 +38,9 @@ export class WatchPrompt {
     this.session = '';
     /** 못 닿는다고 이미 말했나. 값이 아니라 **말했는지**를 기억한다. */
     this.saidLost = false;
+    /** 죽은 컴패니언을 헬퍼에 다시 마련해 달라고 마지막으로 물은 때. 15초에 한 번만. */
+    this.askedOwnAt = 0;
+    this.reasked = 0;
     /** 카운슬이 켜졌는가 — 데몬이 말한 값. null 은 모름(안 닿았거나 옛 헬퍼). */
     this.council = null;
     /**
@@ -97,6 +100,16 @@ export class WatchPrompt {
       const firstTime = wasReachable || !this.saidLost;
       this.saidLost = true;
       if (firstTime) this.onChange();
+      // **죽은 컴패니언은 헬퍼에 다시 마련해 달라고 한다.** 헬퍼는 `/api/own` 으로 물어야 다시 띄운다(768aa9f8) — 창이
+      // 열릴 때 한 번만 묻던 판은 데몬이 죽으면 「죽었다」만 세워 두고 아무도 안 물었다(2021 실물 2026-09-07, 40초 넘게).
+      // 사유가 죽음일 때만, 15초에 한 번. 답은 안 기다린다 — 다음 폴이 살아난 것을 본다.
+      // 죽음의 말은 코어의 dial 이 낸다(internal/adapter/daemon/client.go): 소켓은 있는데 안 듣는다 · 소켓 파일이 없다 · 소켓이 아니다.
+      if (typeof this.port.own === 'function' && /nothing is listening|daemon died|no magi daemon at|is not a socket/.test(String(s.why ?? ''))
+        && Date.now() - this.askedOwnAt > 15000) {
+        this.askedOwnAt = Date.now();
+        this.reasked += 1;
+        Promise.resolve().then(() => this.port.own()).catch(() => {});
+      }
       return this.view;
     }
 

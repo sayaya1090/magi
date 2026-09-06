@@ -645,6 +645,30 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     /part\.appended \(image\)/.test(t5.unknownNote ?? ''), t5.unknownNote ?? '(없음)');
 }
 
+// ── 죽은 컴패니언은 헬퍼에 다시 마련해 달라고 한다(768aa9f8 뒤 헬퍼는 물어야 띄운다).
+{
+  let owns = 0;
+  const dead = { async status() { return { reachable: false, why: 'a socket is at x.sock but nothing is listening — the daemon died', doing: '', pending: null }; }, async own() { owns++; return { phase: 'working' }; } };
+  const w = new WatchPrompt(dead);
+  await w.poll(); await w.poll(); await w.poll();
+  await new Promise((r) => setTimeout(r, 0));
+  ok('죽은 데몬을 보면 헬퍼에 다시 마련해 달라고 한다 — 15초에 한 번', owns === 1 && w.reasked === 1, `own ${owns}번`);
+  w.askedOwnAt = Date.now() - 16000; await w.poll(); await new Promise((r) => setTimeout(r, 0));
+  ok('15초가 지나면 다시 묻는다', owns === 2 && w.reasked === 2, `own ${owns}번`);
+  const gone = new WatchPrompt({ async status() { return { reachable: false, why: 'no magi daemon at C:/x/daemon.sock', doing: '', pending: null }; }, async own() { owns += 1; } });
+  await gone.poll(); await new Promise((r) => setTimeout(r, 0));
+  ok('소켓 파일이 없어진 것도 죽음이다', owns === 3, `own ${owns}번`);
+  const mute = new WatchPrompt({ async status() { return { reachable: false, why: 'helper unreachable', doing: '', pending: null }; }, async own() { owns += 10; } });
+  await mute.poll(); await new Promise((r) => setTimeout(r, 0));
+  ok('죽음이 아닌 불통에는 안 묻는다', owns === 3, `own ${owns}`);
+  const fine = new WatchPrompt({ async status() { return { reachable: true, doing: '', pending: null }; }, async own() { owns += 100; } });
+  await fine.poll(); await new Promise((r) => setTimeout(r, 0));
+  ok('닿는 동안은 안 묻는다', owns === 3, `own ${owns}`);
+  const noOwn = new WatchPrompt({ async status() { return { reachable: false, why: 'the daemon died', doing: '', pending: null }; } });
+  await noOwn.poll();
+  ok('own 이 없는 포트(가짜)에서는 조용히 넘어간다', noOwn.reasked === 0);
+}
+
 // ── 권한 확인 요청(§5.7). 스트림에 안 오는 것이라 따로 돈다.
 {
   const st = new FakeStatus();

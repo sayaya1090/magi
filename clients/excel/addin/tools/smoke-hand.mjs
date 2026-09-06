@@ -321,6 +321,22 @@ class FakeEventSource {
   ok('코드와 같은 message 는 한 번만 적는다', why.split('InvalidArgument').length === 2, why);
 }
 
+{
+  // 볼륨 판(2021)은 메모 스레드를 NotImplemented 로 거절한다 — 코드 한 단어면 모델이 인자를 바꿔 다시 부른다.
+  // **이 판이 안 주는 것**이라고 적어야 멈춘다(실물 2026-09-07, add_comment·read_comments·resolve_comment 넷 다).
+  const stream = new ScriptedStream();
+  stream.document = 'doc-ni';
+  const api = new SpyApi();
+  const hand = { document: 'doc-ni', async run() { const e = new Error('NotImplemented'); e.code = 'NotImplemented'; e.debugInfo = { errorLocation: 'CommentCollection._OnAccess' }; throw e; } };
+  const serve = new ServeHand({ stream, api, hand });
+  serve.start();
+  stream.push('call', { id: 'r12', op: 'add_comment', args: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  const why = api.replies[0]?.error ?? '';
+  ok('NotImplemented 는 이 Excel 판이 안 주는 것이라고 적는다', why.includes('이 Excel 판이 이 기능을 아직 안 줍니다') && why.includes('Microsoft 365'), why);
+  ok('거절된 자리도 그대로 싣는다', why.includes('CommentCollection._OnAccess'), why);
+}
+
 // ── 되살아난 것도 사건이다 ───────────────────────────────────────────────────
 //
 // 이 창은 스트림을 먼저 열고 컴패니언을 나중에 고른다. 그래서 **정상 흐름이 죽은 스트림으로

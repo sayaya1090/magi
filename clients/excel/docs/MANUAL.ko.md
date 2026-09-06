@@ -43,7 +43,7 @@ Excel 작업창(애드인)  ←https→  magi office(헬퍼, /xl)  ←unix socke
 
 | 무엇 | 왜 |
 |---|---|
-| Excel 2019 이상 (Windows/Mac) 또는 Microsoft 365 | 요구 집합 `ExcelApi 1.7` + `SharedRuntime 1.1`. 찾기·그림은 1.9, 메모는 1.10, 유효성·피벗은 1.8 — 없는 것은 도구가 **이름을 대고 거절한다** |
+| Excel 2019 이상 (Windows/Mac) 또는 Microsoft 365 | 요구 집합 `ExcelApi 1.7` + `SharedRuntime 1.1`. 찾기·그림은 1.9, 메모는 1.10, 유효성·피벗은 1.8 — 없는 것은 도구가 **이름을 대고 거절한다**. ⚠ **LTSC 2021** 은 1.10 을 ✓ 라 하면서 메모 스레드(`add_comment`·`read_comments`·`resolve_comment`)를 `NotImplemented` 로 거절한다 — 그 판의 한계고 도구가 그렇게 말한다. 같은 판에서 표에 열을 붙이거나 지운 시트의 범위로는 피벗을 못 만든다(원본을 다른 시트로 복사하거나 피벗을 먼저) — [`TESTING.ko.md`](./TESTING.ko.md) §5.10 |
 | Go 1.22+ | 헬퍼를 빌드한다 |
 | `magi` | 데몬. 통합 문서가 있는 디렉토리(또는 아무 워크스페이스)에서 띄운다 |
 

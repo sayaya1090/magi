@@ -99,14 +99,14 @@ public sealed partial class Hand
             }
             case "read_theme_colors":
             {
-                var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var scope = a.Str("scope") ?? "slide";
+                var n = a.Int("slide") is null && a.Str("slide_id") is null ? ops.CurrentSlide() : ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var scope = a.Str("scope") ?? "slide";
                 if (scope is not ("slide" or "layout" or "master")) throw new HandError("scope 는 slide, layout, master 중 하나입니다");
                 var theme = ops.ReadThemeColors(n, scope);
                 return (new() { ["slide"] = n, ["scope"] = scope, ["theme"] = theme.ToDictionary(k => k.Key, k => (object?)k.Value) }, new() { $"슬라이드 {n} 의 {scope} 층 테마 색 {theme.Count}개" });
             }
             case "set_theme_colors":
             {
-                var n = ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var scope = a.Str("scope") ?? "slide";
+                var n = a.Int("slide") is null && a.Str("slide_id") is null ? ops.CurrentSlide() : ops.ResolveSlide(a.Int("slide"), a.Str("slide_id")); var scope = a.Str("scope") ?? "slide";
                 if (scope is not ("slide" or "layout" or "master")) throw new HandError("scope 는 slide, layout, master 중 하나입니다");
                 var colors = a.Object("colors") ?? throw new HandError("colors 가 없습니다 — {\"accent1\": \"#1F4E79\"} 꼴");
                 var set = new Dictionary<string, string>();
