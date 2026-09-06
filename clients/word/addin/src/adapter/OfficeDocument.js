@@ -9,6 +9,22 @@ import { DocumentPort } from '../port/DocumentPort.js';
 export const DOC_PROPERTY = 'MAGI.DOC';
 export const SAMPLE_CHARS = 1200;
 
+/**
+ * 이 문서를 사람이 부르는 이름 — 헬퍼에 `label` 로 실려 문서 목록과 「문서가 둘이라 못 고른다」 거절문에 키 옆에 선다.
+ * Word 는 저장한 문서의 URL 에서 파일 이름을 얻는다. 저장 전이면 빈 문자열 — 지어내지 않는다.
+ */
+export function documentName(url) {
+  return fileNameOf(url ?? (typeof Office !== 'undefined' ? Office?.context?.document?.url : ''));
+}
+/** 경로나 URL 의 마지막 조각 — 파일 이름. 없으면 빈 문자열(저장 안 한 문서는 URL 이 없다). */
+export function fileNameOf(url) {
+  const s = String(url ?? '').trim();
+  if (!s) return '';
+  let last = s.split(/[\\/]/).pop() ?? '';
+  try { last = decodeURIComponent(last); } catch { /* 그대로 */ }
+  return last;
+}
+
 export async function stableDocId(runner, note) {
   const say = note ?? ((m) => { if (typeof console !== 'undefined') console.warn('[magi] 문서 이름:', m); });
   const run = runner ?? (typeof Word === 'undefined' ? null : Word.run);

@@ -6,7 +6,7 @@ import { SendTurn } from './usecase/SendTurn.js';
 import { WatchPrompt } from './usecase/WatchPrompt.js';
 import { FakeDeck } from './adapter/FakeDeck.js';
 import { pickDeck, pickNote, lateNote, lateFailNote } from './adapter/pickDeck.js';
-import { stableDeckId } from './adapter/OfficeDeck.js';
+import { stableDeckId, documentName } from './adapter/OfficeDeck.js';
 import { FakeChat } from './adapter/FakeChat.js';
 import { FakeStatus } from './adapter/FakeStatus.js';
 import { FakeTranscript } from './adapter/FakeTranscript.js';
@@ -81,7 +81,7 @@ async function boot() {
       token: boot.token,
       origin,
       presentation: deckId || (boot.presentation ?? ''),
-      label: boot.label ?? '',
+      label: (real ? documentName() : '') || (boot.label ?? ''),   // 파일 이름 — 둘 이상 열렸을 때 가르는 손잡이
       role: role.role,
     }).open()
     : null;

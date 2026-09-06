@@ -8,7 +8,7 @@
 
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
-import { stableBookId, BOOK_SETTING, OfficeWorkbook, SAMPLE_ROWS } from '../src/adapter/OfficeWorkbook.js';
+import { stableBookId, BOOK_SETTING, OfficeWorkbook, SAMPLE_ROWS, documentName, fileNameOf } from '../src/adapter/OfficeWorkbook.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SheetIndex } from '../src/domain/Advice.js';
 import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
@@ -346,6 +346,10 @@ const point = new PointAtAdvice(book);
   const a = await stableBookId(run); const b = await stableBookId(run);
   ok('처음 한 번 짓고 그 뒤로는 같은 이름', a.startsWith('book-') && a === b && settings.get(BOOK_SETTING) === a);
   ok('못 적으면 빈 이름(허브가 짓는다)', (await stableBookId(async () => { throw new Error('no'); }, () => {})) === '');
+  // 사람이 부르는 이름(2026-09-07) — 통합 문서가 둘일 때 키 옆에 서는 손잡이. workbook.name 이 먼저, 없으면 URL 의 파일 이름, 그것도 없으면 빈 것.
+  ok('workbook.name 이 라벨이다', (await documentName(async (fn) => fn({ workbook: { load() {}, name: '매출.xlsx' }, sync: async () => {} }))) === '매출.xlsx');
+  ok('name 이 비면 URL 의 파일 이름', (await documentName(async (fn) => fn({ workbook: { load() {}, name: '' }, sync: async () => {} }), 'https://x/y/%EB%A7%A4%EC%B6%9C.xlsx')) === '매출.xlsx');
+  ok('둘 다 없으면 지어내지 않는다', (await documentName(async () => { throw new Error('no'); }, '')) === '' && fileNameOf(undefined) === '');
   ok('선택을 읽는다', (await new OfficeWorkbook({ run: async (fn) => fn({ workbook: { getSelectedRange: () => ({ load() {}, address: '매출!B2:C3', rowCount: 2, columnCount: 2, worksheet: { load() {}, name: '매출', position: 0 }, getCell: () => ({ getResizedRange: () => ({ load() {}, values: [[1, 2], [3, 4]] }) }) }) }, sync: async () => {} }) }).selection()).address === 'B2:C3');
 }
 

@@ -34,6 +34,35 @@ export async function stableBookId(runner, note) {
   }
   return '';
 }
+/**
+ * 이 통합 문서를 **사람이 부르는 이름** — 헬퍼에 `label` 로 실려 문서 목록과 「통합 문서가 둘이라 못 고른다」 거절문에
+ * 키 옆에 선다. 없던 자리다: 키(`wb-…`)만 있으면 통합 문서 둘 중 어느 것이 「매출.xlsx」인지 모델도 사람도 못 가린다
+ * (사용자 2026-09-07: 「엑셀이 여러 개 열려 있으면 어떻게 식별하나」). ExcelApi 1.7 의 `workbook.name` 이 저장 전에도
+ * 「통합 문서1」을 주고, 그것마저 없으면 문서 URL 의 파일 이름, 그것도 없으면 빈 문자열이다 — 지어내지 않는다.
+ */
+export async function documentName(runner, url) {
+  const run = runner ?? (typeof Excel === 'undefined' ? null : Excel.run);
+  if (run) {
+    try {
+      const got = await run(async (context) => {
+        const wb = context.workbook; wb.load('name');
+        await context.sync();
+        return String(wb.name ?? '');
+      });
+      if (got) return got;
+    } catch { /* 아래 폴백 */ }
+  }
+  return fileNameOf(url ?? (typeof Office !== 'undefined' ? Office?.context?.document?.url : ''));
+}
+/** 경로나 URL 의 마지막 조각 — 파일 이름. 없으면 빈 문자열(저장 안 한 문서는 URL 이 없다). */
+export function fileNameOf(url) {
+  const s = String(url ?? '').trim();
+  if (!s) return '';
+  let last = s.split(/[\\/]/).pop() ?? '';
+  try { last = decodeURIComponent(last); } catch { /* 그대로 */ }
+  return last;
+}
+
 function newBookId() {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return `book-${crypto.randomUUID()}`;
   return `book-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;

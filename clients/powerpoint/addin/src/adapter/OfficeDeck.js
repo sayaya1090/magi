@@ -31,6 +31,22 @@ export const DECK_TAG = 'MAGI.DECK';
  * @param {(fn:Function)=>Promise<any>} [runner] 시험이 채우는 자리. 기본은 `PowerPoint.run`.
  * @returns {Promise<string>}
  */
+/**
+ * 이 덱을 사람이 부르는 이름 — 헬퍼에 `label` 로 실려 덱 목록과 「덱이 둘이라 못 고른다」 거절문에 키 옆에 선다.
+ * 저장한 덱의 URL 에서 파일 이름을 얻는다. 저장 전이면 빈 문자열 — 지어내지 않는다.
+ */
+export function documentName(url) {
+  return fileNameOf(url ?? (typeof Office !== 'undefined' ? Office?.context?.document?.url : ''));
+}
+/** 경로나 URL 의 마지막 조각 — 파일 이름. 없으면 빈 문자열(저장 안 한 문서는 URL 이 없다). */
+export function fileNameOf(url) {
+  const s = String(url ?? '').trim();
+  if (!s) return '';
+  let last = s.split(/[\\/]/).pop() ?? '';
+  try { last = decodeURIComponent(last); } catch { /* 그대로 */ }
+  return last;
+}
+
 export async function stableDeckId(runner, note) {
   const say = note ?? ((m) => {
     if (typeof console !== 'undefined') console.warn('[magi] 덱 이름:', m);

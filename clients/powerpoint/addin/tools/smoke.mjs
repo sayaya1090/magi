@@ -13,7 +13,7 @@
 // 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
-import { stableDeckId, DECK_TAG } from '../src/adapter/OfficeDeck.js';
+import { stableDeckId, DECK_TAG, documentName } from '../src/adapter/OfficeDeck.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
@@ -4399,6 +4399,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('카운슬 토글은 먼저 묻는다 — 데몬이 다시 뜨고 다른 창·플러그인도 끊긴다고', on && on.danger === true && on.head.includes('켭니다') && off.head.includes('끕니다') && on.body.includes('다시 뜹니다') && on.body.includes('플러그인'));
   ok('덜 위험한 쪽이 그만두기다', on.cancel === '그만둡니다' && on.ok === '다시 띄웁니다');
 }
+// 사람이 부르는 이름(2026-09-07) — 문서가 둘일 때 키 옆에 서는 손잡이. 저장한 문서의 URL 에서 파일 이름, 저장 전이면 빈 것.
+ok('URL 의 파일 이름이 라벨이다', documentName('https://x/y/%EB%B3%B4%EA%B3%A0%EC%84%9C.docx') === '보고서.docx' || documentName('C:\\a\\b\\deck.pptx') === 'deck.pptx');
+ok('저장 전이면 지어내지 않는다', documentName('') === '');
 console.log(failed ? `\n${failed} 실패` : '\n전부 통과');
 process.exit(failed ? 1 : 0);
 
