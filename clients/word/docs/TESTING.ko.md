@@ -60,3 +60,7 @@ Mac Word 16.x, 새 문서 「문서1」(8문단). 작업창이 붙어 `wd-doc-�
 8. `read_html` 한 번 — HTML 이 대화에 뜬다.
 9. 창 둘 → 브랜드 줄 `문서 2`.
 10. 헬퍼를 껐다 켠다 → 작업창이 스스로 되살아난다.
+
+## 통합 헬퍼 재확인
+
+- **2026-09-06 저녁, 통합 헬퍼(`magi office`, 3000 의 `/word`) 재확인**: 작업창이 붙어(`wd-…`) 바인딩(도구 44)·`list_paragraphs`·`insert_paragraphs`·`format_text`·`read_document`·`delete_paragraphs` OK. 첫 턴 전 컨텍스트 띠가 system 2,824·tools 17,339 를 보인다(데몬 `context` 문이 그 자리에서 잰다).
