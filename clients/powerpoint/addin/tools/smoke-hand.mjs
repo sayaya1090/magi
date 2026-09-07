@@ -501,8 +501,13 @@ class FakeEventSource {
   s.on('stream', (d) => said.push(d));
   const first = FakeEventSource.last;
   await first.onerror();
-  ok('손이 없으면 그렇게 적는다 — 사람이 할 일이 있다',
-    said.some((d) => d.reason === 'nohand' && d.why.includes('magi-ppt-hand') && d.why.includes('띄워')), JSON.stringify(said));
+  // ⚠ **이 단언은 2026-09-07 부터 빨간 채로 있었다** — 「띄워」를 찾는데 그 낱말이 문구에서 빠졌다.
+  // 그날 둘이 같이 바뀌었다: 사용자가 「손이라는 말 쓰지 말고, 어댑터 아니냐」고 해서 문장이 바뀌었고
+  // (INSTALL §5), 어댑터를 띄우는 일이 사람에서 **헬퍼**로 옮겨졌다(helper/adapter.go). 그래서
+  // 「사람이 할 일이 있다」는 이 시험의 제목부터 이미 사실이 아니었다. 지금 재는 것은 그 자리의 진짜
+  // 약속이다 — **무엇이 아직 없는지 이름을 대고, 곧 저절로 붙는다고 말하는가.**
+  ok('손이 없으면 무엇이 없는지 이름을 대고, 저절로 붙는다고 말한다',
+    said.some((d) => d.reason === 'nohand' && d.why.includes('magi-ppt-hand') && d.why.includes('자동으로')), JSON.stringify(said));
   ok('그 문장은 손·화면 구분을 말하지 않는다 — 사람은 구분할 일이 없다',
     !said.some((d) => d.reason === 'nohand' && /화면|viewer/.test(d.why)), JSON.stringify(said));
   ok('물러섰다가 다시 본다', waits.length === 1 && FakeEventSource.last !== first, JSON.stringify(waits));
