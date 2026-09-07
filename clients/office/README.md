@@ -21,6 +21,20 @@ irm https://raw.githubusercontent.com/sayaya1090/magi/main/clients/office/instal
 .\install.ps1 -Clean          # 등록과 Office 캐시를 비우고 다시
 ```
 
+⚠ **파일로 받아 두면 그 줄 그대로는 안 돈다 — 두 가지가 같이 막는다.** 클라이언트 Windows 의 기본
+실행 정책(`Restricted`)과, 받은 파일에 붙는 「인터넷에서 왔다」는 표시다. 실측(2026-09-08, 깨끗한
+LTSC 2021 머신에 릴리스의 스크립트를 받아서): `.\install.ps1` 이 한 글자도 못 돌고
+`이 시스템에서 스크립트를 실행할 수 없으므로 … 로드할 수 없습니다`(`PSSecurityException`)로 멈췄다.
+표시를 떼고 **이 실행에만** 정책을 푼다 — 시스템 정책은 안 건드린다:
+
+```powershell
+Unblock-File .\install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+**`irm … | iex` 가 기본인 이유가 이것이다.** 그쪽은 파일이 아니라 둘 다에 안 걸린다. 파일로 받는 것은
+플래그가 필요할 때이고, 그때는 위 두 줄이 함께 간다.
+
 **툴체인이 필요 없다.** 설치기가 릴리스에서 받는다 — 코어는 `v*` 레인에서, Office 자산 둘은
 `office-v*` 레인에서. 어느 판인지는 `badges` 브랜치의 한 줄짜리 파일(`core-latest.txt`·
 `office-latest.txt`)이 말한다. `/releases/latest` 를 안 쓰는 이유는 그것이 이 저장소의 네 레인을
@@ -95,6 +109,17 @@ config 를 복사해도 소용이 없어, 소켓 자리를 떼는 것으로 갈�
 띄우고(`start.log`), 셋을 다 켜도 헬퍼는 하나이고, 다 끄면 **60초에 헬퍼·컴패니언·어댑터가 전부 스스로 끝나** 이
 계정에 magi 가 하나도 안 남고, 다시 켜면 다시 뜬다. 로그인 등록은 하나도 없다. 자세한 표는
 [`addin-com/README.md`](addin-com/README.md) §실측.
+
+**그리고 배포본으로 다시(2026-09-08, 같은 머신을 비운 뒤 `office-v0.0.4`).** 저장소도 툴체인도 없이 릴리스의
+설치기만 받아 끝까지 돌렸다 — 받는 것 넷, 컴패니언 설정 셋, 인증서, 카탈로그 등록, COM 추가 기능 등록까지 오류 0.
+그다음 **magi 를 전부 죽이고 PowerPoint 만 켰다**:
+
+```
+죽인뒤 magi=0  →  ppt=1 · magi=4
+start.log: [POWERPNT] 헬퍼를 띄웠습니다: …\magi.exe office -config-dir … -socket-dir …
+```
+
+로그를 POWERPNT 프로세스가 직접 적었다. 대화도 돌았고 턴 끝에 ⚖ 판정 줄이 없었다 — 카운슬이 꺼진 채로 깔린다.
 
 그 전에 **그 추가 기능이 PowerPoint 를 죽이고 있었다** — `IDTExtensibility2` 를 `InterfaceIsIDispatch` 로 선언해
 vtable 이 넷 밀렸고, Office 가 `OnConnection` 을 부르는 순간 `AccessViolationException` 으로 프로세스가 사라졌다.
