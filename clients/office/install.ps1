@@ -324,7 +324,7 @@ function GetAsset($tag, $asset, $into) {
 # `NETSDK1128: COM 호스팅에서는 자체 포함 배포가 지원되지 않습니다` 를 붙이고, 이 DLL 은 Office 프로세스
 # **안에서** 로드된다 — 미지원 경로를 그 자리에 놓지 않기로 했다(2026-09-08). 그 대가가 이 함수다.
 # 어댑터는 자체 포함이라 이것과 무관하게 돈다.
-function EnsureDesktopRuntime {{
+function EnsureDesktopRuntime {
   # `--list-runtimes` 에 WindowsDesktop 9 이 있으면 끝. dotnet.exe 가 있다고 런타임이 있는 것이 아니다.
   $have = $false
   foreach ($c in @('dotnet', 'C:\Program Files\dotnet\dotnet.exe')) {
