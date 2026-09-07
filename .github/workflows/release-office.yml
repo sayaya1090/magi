@@ -111,7 +111,11 @@ jobs:
           # 「무엇이 바뀌었나」는 커밋에서 유도한다. 경로는 **저장소 뿌리 기준**(`:/`)으로 짚는다 —
           # 플러그인 레인이 0.2.3 을 그렇게 태웠다(상대 경로가 아무것도 안 짚어 「바뀌지 않았습니다」가
           # 거짓말로 나갔다).
-          prev=$(git tag --list 'office-v*' --sort=-v:refname | grep -vFx "$GITHUB_REF_NAME" | head -1)
+          # `|| true` 가 있어야 **첫 판이 난다**. 태그가 이것 하나뿐이면 grep 은 걸러낼 것이
+          # 없어 exit 1 을 내고, `set -e -o pipefail` 이 그 자리에서 스텝을 끝낸다 — 릴리스는
+          # 안 만들어지고 로그에는 아무 말도 안 남는다(실측: office-v0.0.1-rc1 이 그렇게 죽었다).
+          # 「이전 판이 없다」는 정상이고, 이 레인에서는 반드시 한 번 일어난다.
+          prev=$(git tag --list 'office-v*' --sort=-v:refname | grep -vFx "$GITHUB_REF_NAME" | head -1 || true)
           echo "이전 판: ${prev:-없음}"
           [ "$(git rev-list --count HEAD -- :/clients/office :/clients/powerpoint)" -gt 0 ] || {
             echo "경로 지정이 이력에서 아무것도 안 짚는다 — 노트 유도가 깨졌다" >&2
