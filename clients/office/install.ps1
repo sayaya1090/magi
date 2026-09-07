@@ -39,6 +39,13 @@
 .PARAMETER Clean
   애드인을 **지우고 다시 깐다.** 이 판의 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를
   비운 뒤 보통 설치를 이어 간다. Office 프로그램이 떠 있으면 멈춘다.
+
+.PARAMETER Uninstall
+  **다 지운다** — 헬퍼·컴패니언·손·감시기를 멈추고, Run 키 둘, 애드인 등록(개발자 키 셋·신뢰 카탈로그 키), Office 애드인
+  캐시, 설치 폴더(Dest), 소켓 자리(~/.magi 의 daemon-*.sock*·catalog), 신뢰 저장소의 인증서(magi office helper), 사용자
+  환경 변수 MAGI_SOCKET_DIR 을 뺀다. 남기는 것: %APPDATA%\magi 의 config.toml(permission = "allow" 줄까지 — 평소 magi 의
+  파일이다)과 plugins, 컴패니언 워크스페이스(%APPDATA%\magi\powerpoint·excel·word — 대화 기록은 %LOCALAPPDATA%\magi).
+  그것까지 지우려면 그 폴더를 손으로.
 #>
 [CmdletBinding()]
 param(
@@ -46,6 +53,7 @@ param(
   [switch]$NoAutostart,
   [switch]$SkipBuild,
   [switch]$Clean,
+  [switch]$Uninstall,
   [string]$CatalogUnc = ''
 )
 # -CatalogUnc: 카탈로그 폴더(~/.magi/catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
@@ -76,6 +84,50 @@ function Say($s) { Write-Host "▸ $s" }
 function Done($s) { Write-Host "  ✓ $s" -ForegroundColor Green }
 function Warn($s) { Write-Host "  ⚠ $s" -ForegroundColor Yellow }
 function Fail($s) { Write-Host "  ✗ $s" -ForegroundColor Red; exit 1 }
+
+# ── 지우기(-Uninstall) — 깐 것의 역순. 설정 파일과 플러그인, 대화 기록은 남긴다(위 .PARAMETER Uninstall). ─────
+if ($Uninstall) {
+  Say '헬퍼·컴패니언·손·감시기를 멈춘다'
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like '*hand-watch.ps1*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Done "손 감시기 (pid $($_.ProcessId)) 멈춤" }
+  $destFull = if (Test-Path $Dest) { (Resolve-Path $Dest).Path } else { $Dest }
+  foreach ($name in @('magi-ppt-hand', 'magi')) {
+    Get-Process $name -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($destFull, 'OrdinalIgnoreCase') } |
+      ForEach-Object { Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue; Done "$name (pid $($_.Id)) 멈춤" }
+  }
+  Start-Sleep -Milliseconds 500
+  Say '로그인 때 뜨는 등록을 뺀다'
+  $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+  foreach ($k in @('magi-office', 'magi-ppt-hand-watch', 'magi-ppt', 'magi-xl', 'magi-word')) { Remove-ItemProperty $run $k -ErrorAction SilentlyContinue }
+  Done 'Run\magi-office · Run\magi-ppt-hand-watch'
+  Say '애드인 등록과 Office 캐시를 뺀다'
+  $wef = 'HKCU:\Software\Microsoft\Office\16.0\WEF'
+  foreach ($k in @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)) {
+    $u = (Get-ItemProperty $k.PSPath).Url
+    if ($u -and $u -match '\\\.magi\\(catalog|ppt-catalog|xl-catalog)$') { Remove-Item $k.PSPath -Recurse -Force; Done "카탈로그 키 $($k.PSChildName) 삭제 ($u)" }
+  }
+  foreach ($old in @('magi-ppt', 'magi-xl', 'magi-word', 'magi')) {
+    if (Get-ItemProperty "$wef\Developer" -Name $old -ErrorAction SilentlyContinue) { Remove-ItemProperty "$wef\Developer" -Name $old; Done "Developer\$old 삭제" }
+  }
+  $cache = Join-Path $env:LOCALAPPDATA 'Microsoft\Office\16.0\Wef'
+  if (Test-Path $cache) { Get-ChildItem $cache -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Done "캐시 비움 $cache" }
+  Say '설치 폴더·소켓 자리·인증서·환경 변수를 뺀다'
+  if (Test-Path $Dest) { Remove-Item $Dest -Recurse -Force -ErrorAction SilentlyContinue; Done "삭제 $Dest" }
+  if (Test-Path $socketDir) {
+    Get-ChildItem $socketDir -Filter 'daemon-*.sock*' -Force -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    $cat = Join-Path $socketDir 'catalog'
+    if (Test-Path $cat) { Remove-Item $cat -Recurse -Force -ErrorAction SilentlyContinue }
+    Done "소켓·명단·카탈로그 삭제 $socketDir"
+  }
+  foreach ($p in @((Join-Path $configDir 'office-helper-cert.pem'), (Join-Path $configDir 'office-helper-key.pem'))) { if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue } }
+  Get-ChildItem Cert:\CurrentUser\Root -ErrorAction SilentlyContinue | Where-Object { $_.Subject -like '*magi office helper*' -or $_.Subject -like '*magi-ppt helper*' -or $_.Subject -like '*magi-xl helper*' -or $_.Subject -like '*magi-word helper*' } |
+    ForEach-Object { Remove-Item $_.PSPath -ErrorAction SilentlyContinue; Done "신뢰 저장소에서 뺌: $($_.Subject)" }
+  [Environment]::SetEnvironmentVariable('MAGI_SOCKET_DIR', $null, 'User'); Done 'MAGI_SOCKET_DIR 사용자 환경 변수 삭제 — 평소 magi 는 새 터미널부터 소켓을 설정 디렉토리에 둔다'
+  Write-Host ''
+  Write-Host '지웠다. 남긴 것: %APPDATA%\magi 의 config.toml(permission = "allow" 줄 포함)과 plugins, 컴패니언 워크스페이스, 대화 기록(%LOCALAPPDATA%\magi).' -ForegroundColor Cyan
+  Write-Host '  Office 프로그램을 껐다 켜면 리본의 Magi 단추가 사라진다.'
+  exit 0
+}
 
 # ── 0. 어느 Office 인가 ───────────────────────────────────────────────────────
 Say 'Office 판을 읽는다'

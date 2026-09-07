@@ -178,6 +178,13 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
 & .\clients\office\install.ps1 -Clean
 ```
 
+**아예 지우기**도 한 줄이다(2026-09-07). 헬퍼·컴패니언·손·감시기를 멈추고 Run 키·애드인 등록·캐시·설치 폴더·소켓 자리·
+인증서·`MAGI_SOCKET_DIR` 을 뺀다. `%APPDATA%\magi` 의 config.toml 과 plugins, 대화 기록은 남긴다:
+
+```powershell
+& .\clients\office\install.ps1 -Uninstall
+```
+
 등록 키(신뢰 카탈로그·개발자 키)와 리본 캐시 만료값을 지우고 `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\` 를 비운
 다음 보통 설치를 이어 간다. 이름·아이콘이 바뀌었는데 리본이 옛것을 그릴 때 쓰는 길이다 — 캐시가 매니페스트 사본을
 들고 있어서 그렇다. 끝나면 PowerPoint 를 켜고 삽입 → 내 추가 기능 → 공유 폴더에서 「Magi」를 다시 추가한다.

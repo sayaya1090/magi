@@ -96,7 +96,7 @@ $env:USERNAME` 로 만든 공유를 썼다 — 관리 공유로도 키가 하나
 ## 5. 지우기
 
 - macOS: `wef/manifest.xml` 삭제 + Excel 재시작.
-- Windows: `clients/office/install.ps1 -Clean` 이 세 판의 등록과 Office 애드인 캐시를 걷어 낸다(카탈로그 키는 파워포인트 판과 같이 쓰는
+- Windows: `clients/office/install.ps1 -Uninstall` 이 다 지운다(헬퍼·컴패니언·손·감시기, Run 키, 등록, 캐시, 설치 폴더, 소켓 자리, 인증서, `MAGI_SOCKET_DIR` — config.toml·plugins·대화 기록은 남긴다). `-Clean` 은 세 판의 등록과 Office 애드인 캐시만 걷어 내고 다시 깐다(카탈로그 키는 파워포인트 판과 같이 쓰는
   것이라 그쪽도 다시 추가해야 한다). 손으로 하려면 `WEF\TrustedCatalogs` 의 키(볼륨 판) 또는 `WEF\Developer\magi-xl`(M365),
   `Run\magi-xl`, 설치 폴더 `%LOCALAPPDATA%\magi\xl`, 카탈로그의 `magi-xl-manifest.xml`.
 - 인증서: 신뢰 저장소에서 `magi office helper` 제거(다른 판도 같이 쓰는 것이라 전부 내릴 때만), `<config>/office-helper-*.pem` 삭제.
