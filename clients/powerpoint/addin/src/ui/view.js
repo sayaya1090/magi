@@ -27,7 +27,7 @@ import {
   unknownLine, skippedLine, quoteBody, quoteMeta, rowClass, rowHead, rowShape, argsCell, endText,
   bodyText, adviceBoard, adviceTargetText, pretty, resultCell, permissionText, councilBody,
   fixBoard, adapterText, readyText, planBoard, changedLines,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, turnRunning, foldText,
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, turnRunning, foldText, foldKey,
 } from './screen.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -886,6 +886,17 @@ export class View {
    * 되고, 정책이 밀어 넣은 줄이 사람이 한 말이 되고, 슬라이드를 고친 도구 호출이 안 보인다
    * (§5.7). 매번 통째로 다시 그리는데, 여기엔 사람이 적던 것이 없어서 그래도 된다.
    */
+  /**
+   * **사람이 편 것은 다시 그려도 펴 둔다.** `renderRows` 가 매번 통째로 다시 그리므로 `<details>` 의 열림은
+   * 여기서 기억한다 — 열쇠는 `foldKey`(screen.js). 닫으면 잊는다. 판이 접는 쪽으로만 틀리던 자리다(2026-09-07).
+   */
+  keepOpen(fold, key) {
+    if (!key) return;
+    this.opened ??= new Set();
+    if (this.opened.has(key)) fold.open = true;
+    fold.addEventListener('toggle', () => { if (fold.open) this.opened.add(key); else this.opened.delete(key); });
+  }
+
   renderRows(rows) {
     // 스크롤을 **가운데 영역이 갖는다.** 대화 칸이 자기 스크롤을 갖던 시절의 코드라, 자리를
     // 옮긴 뒤에도 같은 계산이 서게 상자를 골라 쓴다 — 없으면 예전처럼 대화 칸이다.
@@ -956,6 +967,7 @@ export class View {
       // 생각인지 모르고, 모르면 안 열게 된다. 웹 콘솔이 같은 자리를 같은 모양으로 그린다.
       const fold = document.createElement('details');
       fold.className = 'turn-fold';
+      this.keepOpen(fold, foldKey(r));
       const sum = document.createElement('summary');
       sum.className = 'turn-line';
       const name = document.createElement('span');
@@ -983,6 +995,7 @@ export class View {
       // 모델이 정확히 무엇을 주고받았는지 사람이 확인할 유일한 자리다.
       const fold = document.createElement('details');
       fold.className = 'turn-fold';
+      this.keepOpen(fold, foldKey(r));
       const sum = document.createElement('summary');
       sum.className = 'turn-line';
       const name = document.createElement('span');

@@ -492,6 +492,19 @@ export function argsCell(r) {
 
 /** 끝난 턴의 한 줄. **검증 못 한 착지를 보통 끝처럼 그리지 않는다**(`TurnFinishedData`). */
 /** 접은 줄의 글. 줄어든 것은 대화다 — 시스템·도구 목록은 접히지 않는다. */
+/**
+ * 접힘의 **열쇠** — 다시 그려도 사람이 편 것을 알아보는 이름. 판은 이벤트마다 통째로 다시 그리는데(`renderRows`),
+ * `<details>` 의 열림은 DOM 이 들고 있어서 새 요소는 늘 접혀 있었다 — 혼잣말을 펴 읽는 중에 다음 조각이 오면
+ * 제멋대로 접혔다(실물 2026-09-07: 「씽킹 내용을 펼쳤는데 왜 자꾸 지멋대로 접히냐」). 도구 줄은 callId, 혼잣말은
+ * messageId, 둘 다 없으면 seq — 한 턴 안에서 안 바뀌는 것이어야 한다.
+ */
+export function foldKey(r) {
+  if (!r) return '';
+  if (r.kind === 'tool' && r.callId) return `tool:${r.callId}`;
+  if (r.messageId) return `${r.kind}:${r.messageId}`;
+  return `${r.kind}:${r.seq ?? ''}`;
+}
+
 export function foldText(r) {
   const bytes = Number(r?.fold?.bytes) || 0;
   if (bytes > 0) return `도구 결과 하나를 덜어냈습니다 — ${kilo(Math.round(bytes / 4))} 토큰쯤 · 다시 읽으면 돌아옵니다`;

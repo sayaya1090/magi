@@ -35,8 +35,7 @@ import {
   unknownLine, quoteBody, quoteMeta, adviceBoard, adviceTargetText, pretty, clip,
   capsSummary, capsQuiet, councilButton, brandState, resultCell, permissionText, councilBody, skippedLine,
   adapterText, readyText, guideBoard, planBoard, changedLines, toolLabel, labelledTools,
-  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, foldText,
-} from '../src/ui/screen.js';
+  planAnchor, reviewAsk, appendAsk, confirmAsk, thinkHead, oneLine, turnRunning, contextMeter, modelPicker, CONTEXT_PARTS, foldText, foldKey } from '../src/ui/screen.js';
 import { Transcript, isPluginNudge, PLUGIN_NUDGE_MARK } from '../src/domain/Transcript.js';
 import { FakeTranscript } from '../src/adapter/FakeTranscript.js';
 import { ReadTranscript } from '../src/usecase/ReadTranscript.js';
@@ -4434,4 +4433,14 @@ process.exit(failed ? 1 : 0);
   ok('그림 결과의 글은 아래에 그린다고만 적는다', /그림 1장 — 아래에 그립니다/.test(resultCell(pic)?.text ?? '') && !/안 그립니다/.test(resultCell(pic)?.text ?? ''), resultCell(pic)?.text);
   t.append({ type: 'tool.progress', seq: 11, data: { name: 'compact', text: 'freed the window' } });
   ok('tool.progress 는 세기만 한다 — 모르는 것도 그리는 것도 아니다', t.unknownNote === null && /tool\.progress/.test(t.skippedNote ?? ''), `${t.unknownNote} / ${t.skippedNote}`);
+}
+
+// 접힘의 열쇠 — 다시 그려도 사람이 편 것을 알아보는 이름(screen.js foldKey). 판이 이벤트마다 통째로 다시 그려서
+// 편 혼잣말이 제멋대로 접히던 자리(실물 2026-09-07).
+{
+  ok('도구 줄은 callId', foldKey({ kind: 'tool', callId: 'c1', messageId: 'm1', seq: 3 }) === 'tool:c1');
+  ok('혼잣말은 messageId', foldKey({ kind: 'think', messageId: 'm1', seq: 3 }) === 'think:m1');
+  ok('둘 다 없으면 seq', foldKey({ kind: 'think', seq: 7 }) === 'think:7');
+  ok('같은 줄은 같은 열쇠', foldKey({ kind: 'think', messageId: 'm9', seq: 1 }) === foldKey({ kind: 'think', messageId: 'm9', seq: 5 }));
+  ok('없으면 빈 열쇠', foldKey(null) === '');
 }
