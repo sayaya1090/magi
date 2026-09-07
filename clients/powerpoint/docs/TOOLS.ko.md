@@ -95,7 +95,7 @@
 
 | 도구 | 한 줄 | 인자 | 필수 |
 |---|---|---|---|
-| `set_theme_colors` | Change the deck's theme colours by name. This repaints everything that inherits them — placeholders, chart series, table styles — which i… | 4 | `colors` |
+| `set_theme_colors` | Change the deck's theme colours by name. This repaints everything that inherits them — placeholders, chart series, table styles — which i… **TO TAKE ANOTHER OPEN DECK'S PALETTE**(`match_document`) | 5 | `colors` 또는 `match_document` |
 | `animate_slide` | Make things appear one at a time on a slide — what people mean by "애니메이션 넣어 줘" and "한 줄씩 나타나게". Doing it by hand in PowerPoint is fiddly … | 3 | `steps` |
 
 ### 덱 안의 기억

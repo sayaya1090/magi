@@ -52,11 +52,90 @@ func matchDocumentProp(noun string) property {
 	}
 }
 
+// matchThemeDocumentProp 는 같은 인자의 **테마 색** 쪽 설명. 옮기는 것이 달라 글이 따로다.
+func matchThemeDocumentProp(noun string) property {
+	return property{
+		Name: matchDocumentArg,
+		Type: "string",
+		Desc: "Another " + noun + "'s key from list_documents — read ITS theme colours and paint them here. " +
+			"Together with apply_style's match_document this is what \"make this " + noun + " look like that one\" means: " +
+			"that one carries the type, this one carries the palette. `colors` you pass yourself win, and you can omit " +
+			"`colors` entirely when you use this. The SAME `scope` is read from the other " + noun + " as the one you are " +
+			"writing, so pass scope:\"master\" on both sides to restyle a whole deck rather than a single slide.",
+	}
+}
+
 // styleRoles 는 서식을 옮기는 자리와, 옮기는 칸.
 var (
 	styleRoles  = []string{"title", "body"}
 	styleFields = []string{"font", "size", "color"}
+	// themeColorNames 는 테마 색 열둘. **정해진 순서로 걷는다** — 맵을 그냥 돌면 답의 줄이 호출마다
+	// 달라지고, 그 줄은 카운슬이 읽는 증거다.
+	themeColorNames = []string{
+		"dark1", "dark2", "light1", "light2",
+		"accent1", "accent2", "accent3", "accent4", "accent5", "accent6",
+		"hyperlink", "followedHyperlink",
+	}
 )
+
+// carryFrom 은 이 도구가 옆 문서에서 **무엇을** 가져와야 하는지 고른다. 도구마다 읽는 것이 다르다 —
+// 글꼴·크기·색은 `describe_style`, 테마 색 열둘은 `read_theme_colors` 다. 둘은 서로를 안 대신한다:
+// 테마 색만 바꾼 덱은 **여전히 기본 테마의 서체**이고(그게 「아직 파워포인트 템플릿 같다」의 뜻이다),
+// 서체만 맞춘 덱은 강조색이 남의 것이다.
+func carryFrom(ctx context.Context, hand Hand, toolName, from string, args map[string]any) ([]string, error) {
+	if toolName == "set_theme_colors" {
+		return carryThemeColors(ctx, hand, from, args)
+	}
+	return carryStyle(ctx, hand, from, args)
+}
+
+// carryThemeColors 는 `from` 문서의 테마 색을 읽어 이 호출의 `colors` 에 채운다.
+//
+// **같은 층을 읽는다.** 이 호출이 `scope:"master"` 면 저쪽도 master 를 읽는다 — 층이 어긋나면 딴 값을
+// 가져다 놓고 「따랐습니다」라고 적게 된다.
+func carryThemeColors(ctx context.Context, hand Hand, from string, args map[string]any) ([]string, error) {
+	if hand == nil {
+		return nil, errors.New("this helper has no hub, so it cannot read another document's theme")
+	}
+	ask := map[string]any{}
+	if scope, ok := args["scope"].(string); ok && strings.TrimSpace(scope) != "" {
+		ask["scope"] = scope
+	}
+	res, err := hand.Call(ctx, from, "read_theme_colors", ask)
+	if err != nil {
+		return nil, fmt.Errorf("could not read the theme colours of %s: %w — list_documents shows which documents are open and what their keys are", from, err)
+	}
+	label := res.Label
+	if label == "" {
+		label = from
+	}
+	theme, _ := res.Result["theme"].(map[string]any)
+	if len(theme) == 0 {
+		return []string{fmt.Sprintf("「%s」의 테마 색을 못 읽었습니다 — 색을 직접 주세요.", label)}, nil
+	}
+
+	mine, _ := args["colors"].(map[string]any)
+	if mine == nil {
+		mine = map[string]any{}
+	}
+	var took []string
+	for _, n := range themeColorNames {
+		v, has := theme[n]
+		if !has || v == nil {
+			continue
+		}
+		if _, already := mine[n]; already {
+			continue // 부른 쪽이 준 값이 이긴다
+		}
+		mine[n] = v
+		took = append(took, fmt.Sprintf("%s %v", n, v))
+	}
+	if len(took) == 0 {
+		return []string{fmt.Sprintf("「%s」에서 새로 가져올 테마 색이 없었습니다 — 준 값이 이미 열둘을 덮었습니다.", label)}, nil
+	}
+	args["colors"] = mine
+	return []string{fmt.Sprintf("「%s」의 테마 색 %d개를 따랐습니다 — %s", label, len(took), strings.Join(took, " · "))}, nil
+}
 
 // carryStyle 은 `from` 문서의 서식을 읽어 이 호출의 `title`·`body` 에 채운다.
 //

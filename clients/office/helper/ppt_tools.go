@@ -428,12 +428,13 @@ func pptCatalogue(hasCouncil bool) []tool {
 				"font, and rewriting the theme part in OOXML is undone by PowerPoint (measured). A deck whose " +
 				"colours you changed still has the default theme's typeface at the layout's default sizes, " +
 				"which is exactly what \"it still looks like the PowerPoint template\" means. Set the type " +
-				"with apply_style across the deck." + declare,
+				"with apply_style across the deck. TO TAKE ANOTHER OPEN DECK'S PALETTE, pass match_document with its key " +
+				"instead of naming colours — with apply_style's match_document that is the whole of \"make this deck look like that one\"." + declare,
 			Props: withSlide(
 				property{Name: "scope", Type: "string", Desc: "Which layer to change: slide (default), layout, or master. master reaches every slide that uses that master — this is how a deck is restyled; slide reaches only this one."},
-				property{Name: "colors", Type: "object", Desc: "Names to #RRGGBB, e.g. {\"accent1\": \"#1F4E79\"}. Names: dark1, dark2, light1, light2, accent1-accent6, hyperlink, followedHyperlink. Only the ones you give are touched."},
+				property{Name: "colors", Type: "object", Desc: "Names to #RRGGBB, e.g. {\"accent1\": \"#1F4E79\"}. Names: dark1, dark2, light1, light2, accent1-accent6, hyperlink, followedHyperlink. Only the ones you give are touched. Required unless you pass match_document."},
+				matchThemeDocumentProp("deck"),
 			),
-			Required: []string{"colors"},
 		},
 		{
 			Name: "read_tags",
@@ -737,9 +738,10 @@ func pptCatalogue(hasCouncil bool) []tool {
 		},
 		// 헬퍼가 답한다 — 손에 안 간다(tools.go listDocuments). 옆 덱의 서식을 보고 이 덱에 옮기는 일의 첫걸음.
 		listDocuments("deck", "PowerPoint",
-			"More than one deck is open. To make one look like another, do NOT read its style by eye or from a render — "+
-				"call apply_style on the deck you are building with match_document set to the other deck's key, and its "+
-				"typeface, size and colour are carried across. Layout names still come from list_layouts on that deck."),
+			"More than one deck is open. To make one look like another, do NOT read its look by eye or from a render — "+
+				"two calls carry it, both with match_document set to the other deck's key: apply_style takes its typeface, "+
+				"size and colour, and set_theme_colors (scope:\"master\") takes its twelve theme colours. "+
+				"Layout names still come from list_layouts on that deck."),
 	}
 }
 

@@ -311,7 +311,7 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	var carried []string
 	if s.App.StyleFrom != nil {
 		if from := s.App.StyleFrom(name, args); from != "" && from != where {
-			notes, cerr := carryStyle(r.Context(), s.Hand, from, args)
+			notes, cerr := carryFrom(r.Context(), s.Hand, name, from, args)
 			if cerr != nil {
 				return errorResult(cerr.Error())
 			}

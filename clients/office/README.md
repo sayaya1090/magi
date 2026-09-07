@@ -83,8 +83,10 @@ vtable 이 넷 밀렸고, Office 가 `OnConnection` 을 부르는 순간 `Access
 ## 문서 사이·프로그램 사이
 
 **같은 프로그램의 문서 둘**(옆 덱의 서식을 이 덱에): 모든 도구가 `document` 인자를 받고 인자가 주소를 이긴다. 파워포인트의
-`list_documents` 가 열린 덱의 키와 이름을 낸다. 그리고 **서식을 옮기는 것은 도구가 한다** — `apply_style{match_document: 옆 덱 키}`
-가 헬퍼를 시켜 그 덱의 `describe_style` 을 읽고 이 호출의 빈 칸을 채운다(`matchstyle.go`). 손은 덱마다 따로 붙어서 이 일을 못 한다.
+`list_documents` 가 열린 덱의 키와 이름을 낸다. 그리고 **옮기는 것은 도구가 한다**(`matchstyle.go`) — 둘 다 `match_document` 에
+옆 덱 키를 받는다: `apply_style` 이 그 덱의 `describe_style` 을 읽어 **서체·크기·색**을, `set_theme_colors{scope:"master"}` 가
+`read_theme_colors` 를 읽어 **테마 색 열둘**을 가져온다. 헬퍼가 읽어 이 호출의 **빈 칸만** 채우므로 직접 준 값은 안 덮인다.
+손은 덱마다 따로 붙어서 이 일을 못 한다 — 허브를 쥔 헬퍼만 할 수 있다.
 
 **실측(2026-09-08, LTSC 2021 · COM 손 · 덱 둘).** 「옆 덱 서식 그대로, 내용만 다르게 3장」이 끝까지 돌았다. 그 전에는 모델이
 옆 덱을 찾아 놓고도 서식은 안 읽고 **글꼴을 지어냈고**(원본은 맑은 고딕인데 `ea_font:"본고딕"`), 카운슬이 두 번 되돌려서야

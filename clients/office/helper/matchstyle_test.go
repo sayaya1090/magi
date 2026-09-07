@@ -38,7 +38,9 @@ func (h *styleHand) Call(_ context.Context, document, op string, args map[string
 	if err := h.fail[document]; err != nil {
 		return HandResult{}, err
 	}
-	if op == "describe_style" {
+	// 옆 덱에서 읽는 두 문. **둘 다 이 픽스처가 답해야 한다** — 하나만 답하면 다른 쪽 시험이
+	// 「안 옮겨졌다」로 빨개지는데 그건 제품이 아니라 픽스처의 말이다(그렇게 한 번 겪었다).
+	if op == "describe_style" || op == "read_theme_colors" {
 		return HandResult{Document: document, Label: document + ".pptx", Result: h.style[document]}, nil
 	}
 	return HandResult{Document: document, Label: document + ".pptx", Changed: []string{"장 3개를 고쳤습니다"}}, nil
@@ -206,6 +208,114 @@ func TestMatchingYourOwnDeckIsANoOp(t *testing.T) {
 	calls := hand.seen()
 	if len(calls) != 1 || calls[0].Op != "apply_style" {
 		t.Fatalf("제 덱을 따르라는 것은 왕복을 안 만든다: %+v", calls)
+	}
+}
+
+// 테마 색도 같은 문으로 온다 — 그리고 **같은 층을 읽는다.** 층이 어긋나면 딴 값을 가져다 놓고
+// 「따랐습니다」라고 적게 된다.
+func TestCarryingThemeColoursReadsTheSameLayer(t *testing.T) {
+	hand := &styleHand{style: map[string]map[string]any{
+		"src": {"theme": map[string]any{
+			"dark1": "#000000", "light1": "#FFFFFF",
+			"accent1": "#156082", "accent2": "#E97132",
+		}},
+	}}
+	args := map[string]any{
+		"scope":  "master",
+		"colors": map[string]any{"accent1": "#1F4E79"}, // 부른 쪽이 정한 값
+	}
+	notes, err := carryThemeColors(context.Background(), hand, "src", args)
+	if err != nil {
+		t.Fatalf("테마 색을 못 옮겼다: %v", err)
+	}
+	calls := hand.seen()
+	if len(calls) != 1 || calls[0].Op != "read_theme_colors" {
+		t.Fatalf("read_theme_colors 로 읽어야 한다: %+v", calls)
+	}
+	if calls[0].Args["scope"] != "master" {
+		t.Errorf("이 호출과 같은 층을 읽어야 한다: %+v", calls[0].Args)
+	}
+	colors, _ := args["colors"].(map[string]any)
+	if colors["accent1"] != "#1F4E79" {
+		t.Errorf("부른 쪽이 준 색을 덮어썼다: %v", colors["accent1"])
+	}
+	if colors["dark1"] != "#000000" || colors["accent2"] != "#E97132" {
+		t.Errorf("빈 칸이 안 채워졌다: %v", colors)
+	}
+	if !strings.Contains(strings.Join(notes, " "), "src.pptx") {
+		t.Errorf("어느 문서를 따랐는지 안 적었다: %v", notes)
+	}
+}
+
+// `set_theme_colors` 는 **둘 중 하나**가 있어야 한다. 앞 판은 `colors` 가 필수라 「저 덱 팔레트로」를
+// 인자 검사가 먼저 거절했다 — 그래서 필수를 풀고 이 규칙을 CheckArgs 로 옮겼다. 둘 다 없으면
+// **조용히 아무것도 안 하는 호출**이 되므로 여전히 거절한다.
+func TestSetThemeColoursNeedsColoursOrADeckToTakeThemFrom(t *testing.T) {
+	var themeTool *tool
+	for _, x := range PPT.Catalogue(false) {
+		if x.Name == "set_theme_colors" {
+			c := x
+			themeTool = &c
+		}
+	}
+	if themeTool == nil {
+		t.Fatal("set_theme_colors 가 없다")
+	}
+	for _, r := range themeTool.Required {
+		if r == "colors" {
+			t.Error("colors 가 아직 필수다 — 그러면 match_document 만 준 호출이 인자 검사에서 죽는다")
+		}
+	}
+	if _, err := validateArgs(PPT, *themeTool, []byte(`{}`)); err == nil {
+		t.Error("둘 다 없는 호출은 거절해야 한다")
+	} else if !strings.Contains(err.Error(), matchDocumentArg) {
+		t.Errorf("무엇을 주면 되는지 둘 다 적어야 한다: %v", err)
+	}
+	if _, err := validateArgs(PPT, *themeTool, []byte(`{"match_document":"src"}`)); err != nil {
+		t.Errorf("match_document 만 줘도 통과해야 한다: %v", err)
+	}
+	if _, err := validateArgs(PPT, *themeTool, []byte(`{"colors":{"accent1":"#1F4E79"}}`)); err != nil {
+		t.Errorf("colors 만 줘도 통과해야 한다: %v", err)
+	}
+}
+
+// 배선 — 테마 쪽도 MCP 문을 지나 손에 닿는가.
+func TestSetThemeColoursCarriesAnotherDecksPaletteThroughTheMCPDoor(t *testing.T) {
+	hand := &styleHand{style: map[string]map[string]any{
+		"src": {"theme": map[string]any{"accent1": "#156082", "dark1": "#000000"}},
+	}}
+	srv := httptest.NewServer(&MCPServer{App: PPT, Hand: hand, Now: func() time.Time { return time.Unix(0, 0) }})
+	defer srv.Close()
+
+	s := newSink()
+	m := mcp.NewManager(s)
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if _, err := m.Attach(ctx, "", PPT.Key, srv.URL+"?deck=tgt", nil); err != nil {
+		t.Fatalf("못 붙었다: %v", err)
+	}
+	tool := s.get("mcp__" + PPT.Key + "__set_theme_colors")
+	if tool == nil {
+		t.Fatal("set_theme_colors 가 광고되지 않았다")
+	}
+	res, err := tool.Execute(ctx, json.RawMessage(`{"match_document":"src","scope":"master"}`), port.ToolEnv{SessionID: session.SessionID("s1")})
+	if err != nil {
+		t.Fatalf("호출 실패: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("도구가 에러로 답했다: %s", res.Content)
+	}
+	calls := hand.seen()
+	if len(calls) != 2 || calls[0].Op != "read_theme_colors" || calls[1].Op != "set_theme_colors" {
+		t.Fatalf("옆 덱 읽기 + 이 덱 칠하기, 둘이어야 한다: %+v", calls)
+	}
+	colors, _ := calls[1].Args["colors"].(map[string]any)
+	if colors["accent1"] != "#156082" {
+		t.Errorf("손이 받은 인자에 옆 덱의 팔레트가 없다: %+v", calls[1].Args)
+	}
+	if _, still := calls[1].Args[matchDocumentArg]; still {
+		t.Errorf("match_document 를 손에 그대로 넘겼다: %+v", calls[1].Args)
 	}
 }
 

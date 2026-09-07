@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 )
 
 // App 은 헬퍼 하나가 섬기는 Office 프로그램 하나 — 파워포인트·엑셀·워드. 세 헬퍼가 이름만 다른
@@ -108,13 +109,24 @@ var (
 					return argError{fmt.Sprintf("%s: slide is a 1-based position, so it starts at 1 (got %v)", t.Name, s)}
 				}
 			}
+			// `set_theme_colors` 는 **둘 중 하나**가 있어야 한다 — 색을 대거나, 색을 가져올 덱을 대거나.
+			// `Required` 로는 이 「둘 중 하나」를 못 적어서 여기서 잰다. 조용히 아무것도 안 하는 호출을
+			// 만들지 않는 것이 요점이다(빈 `colors` 로 도는 것이 그 모양이다).
+			if t.Name == "set_theme_colors" {
+				colors, _ := args["colors"].(map[string]any)
+				from, _ := args[matchDocumentArg].(string)
+				if len(colors) == 0 && strings.TrimSpace(from) == "" {
+					return argError{fmt.Sprintf("%s needs either %q (names to #RRGGBB) or %q (another open deck's key, to take its palette). "+
+						"Nothing was changed — this call did not run.", t.Name, "colors", matchDocumentArg)}
+				}
+			}
 			return nil
 		},
 		WantsImage: func(name string, args map[string]any) bool {
 			return name == "add_image" || (name == "set_background" && fmt.Sprint(args["kind"]) == "picture")
 		},
 		StyleFrom: func(name string, args map[string]any) string {
-			return styleSourceOf(name, args, "apply_style")
+			return styleSourceOf(name, args, "apply_style", "set_theme_colors")
 		},
 		Instructions: pptInstructions,
 		MCPInstructions: "A deck is already open in PowerPoint and these tools are attached to it. " +
