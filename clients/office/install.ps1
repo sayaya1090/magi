@@ -39,10 +39,13 @@
   헬퍼를 손으로 띄워야 한다: `magi office`.
 
 .PARAMETER NoWait
-  먼저 할 것(Go·진짜 공유·.NET SDK)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
+  먼저 할 것(진짜 공유, -FromSource 의 툴체인)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
 
-.PARAMETER SkipBuild
-  빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본). COM 어댑터도 안 짓는다: Dest\hand 에 이미 있으면 헬퍼가 그것을 띄운다.
+.PARAMETER SkipDownload
+  받기를 건너뛴다 — Dest 에 이미 파일이 있을 때. 옛 이름 -SkipBuild 로도 부를 수 있다.
+
+.PARAMETER FromSource
+  릴리스에서 받는 대신 이 저장소에서 짓는다. 그때만 Go 와 .NET 9 SDK 가 필요하다.
 
 .PARAMETER Clean
   애드인을 **지우고 다시 깐다.** 이 판의 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를
@@ -60,13 +63,19 @@
 param(
   [string]$Dest = (Join-Path $env:LOCALAPPDATA 'magi\office'),
   [switch]$NoAutostart,
-  [switch]$SkipBuild,
+  [Alias('SkipBuild')][switch]$SkipDownload,
+  [switch]$FromSource,
   [switch]$Clean,
   [switch]$Uninstall,
   [switch]$NoWait,
   [string]$CatalogUnc = ''
 )
-# -NoWait: 사람이 먼저 해야 하는 것(진짜 공유·.NET SDK·Go)이 없어도 묻지 않고 그냥 간다(무인 배포). 기본은 **멈춰서 기다린다**.
+# -SkipDownload: 이미 받아 둔 파일을 그대로 쓴다. 옛 이름 -SkipBuild 도 받는다 — 그 이름으로 적어 둔
+#   명령줄이 깨지지 않게(이 스위치가 하던 일은 그대로다: 3단계를 통째로 건너뛴다).
+# -FromSource: 받는 대신 **이 저장소에서 짓는다**. 그때만 Go 와 .NET 9 SDK 가 필요하다. 저장소를 클론해
+#   고치는 사람의 자리이고, 그 사람에게는 방금 고친 것이 배포판보다 중요하다.
+# -NoWait: 사람이 먼저 해야 하는 것(진짜 공유·-FromSource 의 툴체인)이 없어도 묻지 않고 그냥 간다(무인 배포).
+#   기본은 **멈춰서 기다린다**.
 # -CatalogUnc: 카탈로그 폴더(~/.magi/catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
 # 그 폴더를 덮는 공유를 찾고, 없으면 관리 공유(\\<컴퓨터>\C$\…)를 쓴다. Excel 2021 은 관리 공유 형태의 카탈로그를
 # 켤 때마다 지운다(2026-09-06 실측 — localhost 도 컴퓨터 이름도) — 진짜 공유가 필요하다:
@@ -200,6 +209,12 @@ $edition = if ($perpetual) { "볼륨 판 $($c2r.VersionToReport)" } else { "Micr
 # COM 추가 기능은 Office 프로세스 **안에서** 뜨므로 비트 수가 같아야 한다. 대개 x64 다.
 $bitness = if ("$($c2r.Platform)" -eq 'x86') { 'x86' } else { 'x64' }
 Done "$edition ($ids · $bitness)"
+# 릴리스는 x64 자산만 낸다. 예전에는 여기서 x86 으로 지어 줬으므로 이것은 **기능 축소**이고, 그래서
+# 조용히 넘기지 않고 사유와 함께 멈춘다 — 조용히 x64 를 깔면 Office 가 추가 기능을 못 읽고, 그 증상은
+# 「아무 일도 안 일어난다」 하나로 뭉쳐 나온다.
+if ($bitness -eq 'x86' -and -not $FromSource -and -not $SkipDownload) {
+  Fail '32비트 Office 입니다. 배포되는 추가 기능은 64비트뿐이고, COM 추가 기능은 Office 프로세스 안에서 뜨므로 비트 수가 같아야 합니다. 이 저장소를 클론해 -FromSource 로 실행하시면 32비트로 지어 드립니다.'
+}
 foreach ($app in $apps) {
   if (-not (Test-Path (Join-Path $env:ProgramFiles "Microsoft Office\root\Office16\$($app.exe)")) -and -not (Test-Path (Join-Path ${env:ProgramFiles(x86)} "Microsoft Office\root\Office16\$($app.exe)"))) {
     Warn "$($app.ribbon) 이(가) 설치되어 있지 않은 것 같습니다. 그래도 계속합니다."
@@ -212,11 +227,13 @@ Say '필요한 것을 확인합니다'
 # 관리자 창에서 돌리고 있나 — 여기서 띄우는 감시기의 권한 수준이 그것을 물려받는다(아래 감시기 자리).
 $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($elevated) { Warn '관리자 권한으로 실행 중입니다. 이 설치는 관리자 권한이 필요 없으며, 일반 권한으로 실행하는 것을 권합니다.' }
+# 툴체인은 **-FromSource 일 때만** 필요하다. 기본은 릴리스에서 받으므로 Go 도 .NET SDK 도 안 깐다 —
+# 이 스크립트가 사람에게 시키던 일의 대부분이 그 둘을 찾고, 없으면 설명하고, 기다리는 것이었다.
 $go = $null
-if (-not $SkipBuild) {
-  if (WaitUntil 'Go' 'https://go.dev/dl 에서 Go 를 설치해 주세요. 이미 빌드된 파일이 있으면 -SkipBuild 로 건너뛸 수 있습니다.' { [bool](Get-Command go -ErrorAction SilentlyContinue) }) {
+if ($FromSource -and -not $SkipDownload) {
+  if (WaitUntil 'Go' 'https://go.dev/dl 에서 Go 를 설치해 주세요. -FromSource 없이 실행하면 릴리스에서 받으므로 Go 가 필요 없습니다.' { [bool](Get-Command go -ErrorAction SilentlyContinue) }) {
     $go = Get-Command go; Done "go: $($go.Source)"
-  } else { Fail 'Go 가 없어 설치를 계속할 수 없습니다.' }
+  } else { Fail 'Go 가 없어 -FromSource 빌드를 계속할 수 없습니다.' }
 }
 $dotnet = $null
 # .NET SDK 는 이제 판을 안 가린다 — 볼륨 판의 편집 어댑터도, 모든 판의 COM 추가 기능(Office 를 켤 때 헬퍼를 띄우는 것)도
@@ -225,11 +242,11 @@ $dotnet = $null
 # 프로그램에 등록하는 거 안 해도 된다는 거지?」 — 그렇다. Office 를 켤 때 헬퍼를 띄우는 추가 기능을 이것으로 짓기
 # 때문에, 있으면 로그인 등록이 하나도 필요 없고 없으면 물러설 자리가 없다(그 물러섬이 곧 「쓰지도 않는데 켜져 있는 것」
 # 이었다). 볼륨 판은 편집 어댑터까지 이것으로 짓는다.
-$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요(런타임만으로는 부족합니다). Office 를 켤 때 헬퍼를 띄우는 추가 기능을 이것으로 짓습니다.'
-if (-not $SkipBuild) {
+$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요(런타임만으로는 부족합니다). -FromSource 없이 실행하면 릴리스에서 받으므로 SDK 가 필요 없습니다.'
+if ($FromSource -and -not $SkipDownload) {
   if (WaitUntil '.NET 9 SDK' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk))" }
   if (-not $dotnet -and -not $NoAutostart) {
-    Fail '.NET 9 SDK 가 있어야 합니다 — Office 를 켤 때 헬퍼를 띄우는 추가 기능을 그것으로 짓습니다. 설치를 멈춥니다. SDK 를 설치한 뒤 다시 실행하거나, 헬퍼를 직접 띄워 쓸 것이면 -NoAutostart 로 다시 실행해 주세요.'
+    Fail '.NET 9 SDK 가 있어야 -FromSource 로 추가 기능을 지을 수 있습니다. SDK 를 설치하거나, -FromSource 를 빼고 릴리스에서 받아 주세요.'
   }
 }
 if ($perpetual) {
@@ -263,9 +280,82 @@ foreach ($old in @('magi-ppt', 'magi-xl', 'magi-word')) {
   Remove-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' $old -ErrorAction SilentlyContinue
 }
 
-# ── 3. 빌드·복사 ─────────────────────────────────────────────────────────────
-if (-not $SkipBuild) {
-  Say 'magi 를 빌드합니다'
+# ── 3. 받기(또는 -FromSource 로 짓기) ────────────────────────────────────────
+#
+# 기본은 **릴리스에서 받는다**. 예전에는 이 자리가 `go build` 와 `dotnet build` 였고, 그래서 이 스크립트를
+# 돌리는 사람은 저장소를 클론하고 툴체인 둘을 깔아야 했다 — 그리고 빌드가 실패하면 기능이 조용히 반쪽이
+# 됐다(어댑터가 없으면 PowerPoint 2021 편집만, 추가 기능이 없으면 Office 를 켜도 헬퍼가 안 뜬다).
+#
+# 판 번호는 **움직이지 않는 주소**에서 읽는다. `/releases/latest` 는 이 저장소의 레인을 안 가려서, 콘솔이
+# 더 최근에 나갔으면 office 자산이 404 이고 checksums.txt 는 남의 것을 200 으로 답한다(코어 레인이
+# 2026-08-31 에 실측한 그것). badges 브랜치의 한 줄짜리 파일이 그 함정을 통째로 없앤다.
+$RepoUrl   = 'https://github.com/sayaya1090/magi'
+$BadgesRaw = 'https://raw.githubusercontent.com/sayaya1090/magi/badges'
+
+# 한 줄짜리 판 번호 파일. 못 읽으면 $null — 부르는 쪽이 사유를 말한다.
+function LatestTag($file) {
+  try {
+    $r = Invoke-WebRequest -Uri "$BadgesRaw/$file" -UseBasicParsing -TimeoutSec 20
+    $v = "$($r.Content)".Trim()
+    if ($v) { return $v }
+  } catch { }
+  return $null
+}
+
+# 자산 하나를 받아 푼다. 받는 자리는 예전 빌드 산출물이 가던 그 자리라, 아래 복사·등록 절이 안 바뀐다.
+function GetAsset($tag, $asset, $into) {
+  $url = "$RepoUrl/releases/download/$tag/$asset"
+  $tmp = Join-Path ([IO.Path]::GetTempPath()) ("magi-" + [Guid]::NewGuid().ToString('N') + ".zip")
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing -TimeoutSec 300
+  } catch {
+    Fail "$asset 을 못 받았습니다($url): $($_.Exception.Message)"
+  }
+  New-Item -ItemType Directory -Force $into | Out-Null
+  # 덮어쓴다 — 옛 판의 파일이 섞여 남으면 무엇이 도는지가 파일 날짜로만 갈린다.
+  Expand-Archive -LiteralPath $tmp -DestinationPath $into -Force
+  Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+  Done "$asset → $into"
+}
+
+# 추가 기능이 쓰는 .NET 데스크톱 런타임. 없으면 받아서 조용히 깐다.
+#
+# 추가 기능만 framework-dependent 다(224KB). `--self-contained` 도 comhost.dll 을 내주기는 하지만 SDK 가
+# `NETSDK1128: COM 호스팅에서는 자체 포함 배포가 지원되지 않습니다` 를 붙이고, 이 DLL 은 Office 프로세스
+# **안에서** 로드된다 — 미지원 경로를 그 자리에 놓지 않기로 했다(2026-09-08). 그 대가가 이 함수다.
+# 어댑터는 자체 포함이라 이것과 무관하게 돈다.
+function EnsureDesktopRuntime {
+  # `--list-runtimes` 에 WindowsDesktop 9 이 있으면 끝. dotnet.exe 가 있다고 런타임이 있는 것이 아니다.
+  $have = $false
+  foreach ($c in @('dotnet', 'C:\Program Files\dotnet\dotnet.exe')) {
+    try {
+      $lines = @(& $c --list-runtimes 2>&1 | Where-Object { $_ -is [string] })
+      if ($lines | Where-Object { $_ -match '^Microsoft\.WindowsDesktop\.App 9\.' }) { $have = $true; break }
+    } catch { }
+  }
+  if ($have) { Done '.NET 9 데스크톱 런타임: 있음'; return }
+
+  Say '.NET 9 데스크톱 런타임을 받습니다(추가 기능이 씁니다)'
+  $url = 'https://aka.ms/dotnet/9.0/windowsdesktop-runtime-win-x64.exe'
+  $exe = Join-Path ([IO.Path]::GetTempPath()) 'windowsdesktop-runtime-9-x64.exe'
+  try {
+    Invoke-WebRequest -Uri $url -OutFile $exe -UseBasicParsing -TimeoutSec 600
+  } catch {
+    Warn "런타임을 못 받았습니다($url): $($_.Exception.Message). Office 를 켜도 헬퍼가 저절로 뜨지 않을 수 있습니다 — 직접 설치해 주세요."
+    return
+  }
+  # /install /quiet /norestart — MS 의 번들 설치기가 받는 그 셋. 관리자 권한이 없으면 UAC 가 뜬다.
+  $p = Start-Process -FilePath $exe -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
+  Remove-Item $exe -Force -ErrorAction SilentlyContinue
+  # 3010 = 성공했고 재부팅을 권한다. 실패가 아니다.
+  if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3010) { Done '.NET 9 데스크톱 런타임을 설치했습니다' }
+  else { Warn "런타임 설치기가 $($p.ExitCode) 로 끝났습니다. Office 를 켜도 헬퍼가 저절로 뜨지 않으면 https://dotnet.microsoft.com/download/dotnet/9.0 에서 데스크톱 런타임을 설치해 주세요." }
+}
+
+if ($SkipDownload) {
+  Say '받기를 건너뜁니다(-SkipDownload)'
+} elseif ($FromSource) {
+  Say 'magi 를 빌드합니다(-FromSource)'
   Push-Location $repo
   try {
     & go build -o (Join-Path $Dest 'magi.exe') ./cmd/magi
@@ -278,7 +368,6 @@ if (-not $SkipBuild) {
     $handProj = Join-Path $repo 'clients\powerpoint\hand-com\src\magi-ppt-hand.csproj'
     $handOut = Join-Path $Dest 'hand'
     & $dn build $handProj -c Release -o $handOut --nologo -v q
-    # 손이 안 지어져도 설치는 간다 — Excel·Word 와 파워포인트 작업창은 손과 무관하다(#181). 옛 손이 있으면 그것을 쓴다.
     # 어댑터가 안 지어져도 설치는 간다(PowerPoint 2021 편집만 안 된다). **$dotnet 을 지우지 않는다** — 아래 추가 기능은
     # 어댑터와 무관하고, 그것까지 못 지으면 헬퍼가 저절로 안 뜬다.
     if ($LASTEXITCODE -ne 0) { Warn "어댑터 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 어댑터 없이 계속합니다(PowerPoint 2021 편집만 안 됩니다)." }
@@ -292,7 +381,30 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Warn '추가 기능 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. Office 를 켤 때 헬퍼가 저절로 뜨지는 않습니다.' }
     else { Done "magi-office-start.comhost.dll → $startOut" }
   }
-} else { Say '빌드를 건너뜁니다(-SkipBuild)' }
+} else {
+  # 코어(= 헬퍼). `magi office` 가 헬퍼라 이 파일은 코어 바이너리 그 자체다 — 그래서 office 릴리스에
+  # 사본을 두지 않고 코어 레인에서 받는다. 두 레인에 같은 파일이 있으면 「어느 쪽이 최신인가」가 태그를
+  # 언제 달았느냐로 정해진다.
+  Say 'magi 를 받습니다'
+  $coreTag = LatestTag 'core-latest.txt'
+  if (-not $coreTag) { Fail "코어 판 번호를 못 읽었습니다($BadgesRaw/core-latest.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
+  Say "  코어 $coreTag"
+  GetAsset $coreTag 'magi_windows_amd64.zip' $Dest
+
+  # Office 자산 둘. 비트수는 Office 를 따라간다 — COM 추가 기능은 Office 프로세스 **안에서** 뜬다.
+  $officeTag = LatestTag 'office-latest.txt'
+  if (-not $officeTag) { Fail "Office 판 번호를 못 읽었습니다($BadgesRaw/office-latest.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
+  Say "  Office $officeTag"
+
+  if (-not $NoAutostart) {
+    GetAsset $officeTag 'magi-office-start_win_x64.zip' (Join-Path $Dest 'start')
+    EnsureDesktopRuntime
+  }
+  if ($perpetual) {
+    # PowerPoint 2021 편집 어댑터. 자체 포함이라 .NET 런타임과 무관하게 돈다(76MB).
+    GetAsset $officeTag 'magi-ppt-hand_win_x64.zip' (Join-Path $Dest 'hand')
+  }
+}
 if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없습니다." }
 
 Say '추가 기능 파일을 복사합니다'
@@ -505,12 +617,12 @@ if ($NoAutostart) {
   }
   Done 'Office 를 켜면 헬퍼가 뜹니다 — 로그인 때 뜨는 등록은 없습니다'
 } else {
-  # **로그인 등록으로 물러서지 않는다.** 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. .NET 은 위에서 이미
-  # 요구했으므로 여기 오는 것은 -SkipBuild 로 깐 판뿐이다 — 배포본에 추가 기능이 안 들어 있는 경우다.
+  # **로그인 등록으로 물러서지 않는다.** 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. 기본 경로는 추가
+  # 기능을 릴리스에서 받으므로, 여기 오는 것은 -SkipDownload 로 깐 판이거나 -FromSource 빌드가 실패한 경우다.
   Warn "추가 기능이 없어 Office 를 켤 때 헬퍼가 자동으로 뜨지 않습니다. Office 를 쓰기 전에 직접 띄우세요: `"$helperExe`" office"
 }
 if ($perpetual -and -not (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
-  Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.'
+  Warn 'PowerPoint 2021 용 어댑터가 없습니다. 설치기를 다시 실행하시면 릴리스에서 받습니다(-FromSource 면 .NET 9 SDK 가 필요합니다).'
 }
 
 # ── 8. 다음 할 일 ────────────────────────────────────────────────────────────
