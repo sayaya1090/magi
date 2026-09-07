@@ -149,6 +149,9 @@ Say '필요한 도구를 본다'
 $go = Get-Command go -ErrorAction SilentlyContinue
 if (-not $SkipBuild -and -not $go) { Fail 'Go 가 없다(go.dev/dl). 빌드된 실행 파일이 이미 있으면 -SkipBuild.' }
 if ($go) { Done "go: $($go.Source)" }
+# 관리자 창에서 돌리고 있나 — 여기서 띄우는 감시기의 권한 수준이 그것을 물려받는다(아래 감시기 자리).
+$elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($elevated) { Warn '관리자 창이다 — 감시기는 보통 권한으로 띄운다(관리자 프로세스는 보통 권한 PowerPoint 를 COM 으로 못 본다). 이 설치기는 관리자가 필요 없다.' }
 $dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
 if (-not $dotnet -and (Test-Path 'C:\Program Files\dotnet\dotnet.exe')) { $dotnet = Get-Item 'C:\Program Files\dotnet\dotnet.exe' }
 if ($perpetual) {
@@ -363,8 +366,12 @@ if ($NoAutostart) {
     New-ItemProperty -Path $run -Name 'magi-ppt-hand-watch' -Value $cmd -PropertyType String -Force | Out-Null
     Done 'Run\magi-ppt-hand-watch — PowerPoint 가 떠 있으면 손을 붙인다'
     if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
-      Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $watch) -WindowStyle Hidden | Out-Null
-      Done '손 감시기를 지금 띄웠다'
+      # **보통 권한으로 띄운다.** 이 설치기를 관리자 창에서 돌리면 여기서 뜬 감시기도 관리자이고, 관리자 프로세스는
+      # 보통 권한 PowerPoint 의 COM(ROT)을 못 본다 — 감시기 로그가 「감시기 시작」 한 줄로 끝나던 자리(실물 2021,
+      # 2026-09-07). runas /trustlevel 은 관리자 토큰을 벗긴 기본 토큰으로 띄운다; 관리자가 아니면 그냥 띄운다.
+      if ($elevated) { Start-Process runas.exe -ArgumentList @('/trustlevel:0x20000', $cmd) -WindowStyle Hidden | Out-Null }
+      else { Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $watch) -WindowStyle Hidden | Out-Null }
+      Done "손 감시기를 지금 띄웠다$(if ($elevated) { ' (보통 권한으로)' })"
     }
   } elseif ($perpetual) {
     # 여기서 손을 못 지었어도(.NET SDK 없음, -SkipBuild) 앞서 걸어 둔 감시기(이전 실행이나 옛 파워포인트 판 설치기의 것)가

@@ -13,18 +13,31 @@ function Log($s) { try { Add-Content $log ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get
 Log "감시기 시작 — 손: $hand"
 # **덱마다 손 하나.** 손 하나가 활성 덱에만 붙으면 다른 창의 부탁이 그 덱에 떨어지고 두 창이 같은 손을 봐 답이 섞인다
 # (실물 2026-09-07, 2021 에서 덱 둘). 열린 덱마다 `--presentation <경로>` 로 하나씩 띄우고, 닫힌 덱의 손은 거둔다.
+# COM 으로 못 닿으면 $null(사유는 $script:comWhy), 닿았는데 덱이 없으면 빈 배열 — 둘은 다른 사실이다.
 function OpenDecks {
-  try { $app = [Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application') } catch { return @() }
+  try { $app = [Runtime.InteropServices.Marshal]::GetActiveObject('PowerPoint.Application') } catch { $script:comWhy = $_.Exception.Message; return $null }
   $out = @(); foreach ($p in $app.Presentations) { try { $out += $p.FullName } catch { } }
   return $out
 }
 function HandProcesses { Get-CimInstance Win32_Process -Filter "Name='magi-ppt-hand.exe'" -ErrorAction SilentlyContinue }
+# **왜 안 붙이는지를 말한다** — 실물 2021(2026-09-07)에서 로그가 「감시기 시작」 한 줄뿐이었고, 세 조건 중 무엇이
+# 빠졌는지 아무도 몰랐다. 같은 사유는 한 번만 적는다(4초마다 반복하지 않게).
+$lastWhy = ''
+function Idle($why) { if ($why -ne $script:lastWhy) { Log $why; $script:lastWhy = $why } }
+$elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if ($elevated) { Log '⚠ 관리자 권한으로 떠 있다 — 보통 권한의 PowerPoint 는 COM 으로 안 보인다. 설치기를 관리자 아닌 창에서 다시 돌려라.' }
 while ($true) {
   try {
     $ppt = Get-Process POWERPNT -ErrorAction SilentlyContinue
     $hands = @(HandProcesses)
-    if ($ppt -and (Test-Path $hand)) {
-      $decks = @(OpenDecks)
+    if (-not $ppt) { Idle 'PowerPoint 가 안 떠 있다 — 기다린다' }
+    elseif (-not (Test-Path $hand)) { Idle "손 실행 파일이 없다: $hand — 설치기를 -SkipBuild 없이 다시 돌려라" }
+    else {
+      $found = OpenDecks
+      if ($null -eq $found) { Idle "PowerPoint 는 떠 있는데 COM 으로 못 닿는다($script:comWhy) — 권한 수준이 다르면(관리자 창) 그렇다" }
+      elseif ($found.Count -eq 0) { Idle 'PowerPoint 는 떠 있는데 열린 덱이 없다 — 기다린다' }
+      else { $script:lastWhy = '' }
+      $decks = @($found)
       foreach ($deck in $decks) {
         $has = $hands | Where-Object { $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($deck.ToLowerInvariant()) }
         if (-not $has) {
@@ -34,7 +47,8 @@ while ($true) {
         }
       }
       # 닫힌 덱의 손은 거둔다 — 헬퍼에 유령 덱을 남기지 않게. (--presentation 없이 뜬 옛 손은 덱이 하나일 때만 둔다.)
-      foreach ($h in $hands) {
+      # COM 으로 못 닿은 판에서는 안 거둔다 — 「덱 없음」이 아니라 「모름」이라, 멀쩡한 손을 죽이는 자리가 된다.
+      foreach ($h in $(if ($null -eq $found) { @() } else { $hands })) {
         $cmd = if ($h.CommandLine) { $h.CommandLine.ToLowerInvariant() } else { '' }
         $mine = $decks | Where-Object { $cmd.Contains($_.ToLowerInvariant()) }
         $legacy = -not $cmd.Contains('--presentation')
