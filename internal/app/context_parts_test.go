@@ -182,6 +182,12 @@ func TestTheTerminalAndTheConsoleReadOneContext(t *testing.T) {
 		Parts: []session.Part{{Kind: session.PartText, Text: "say something"}}}); err != nil {
 		t.Fatal(err)
 	}
+	// **Wait for the turn to STOP before reading, not for a number to appear.** The two readings
+	// below are of a fact that the running turn is still writing; taking them a moment apart let
+	// the second see a later shape, and the test failed on CI with the two totals differing by a
+	// turn's worth of tokens while passing everywhere quieter. The comparison is only meaningful
+	// once nothing is moving.
+	waitIdle(t, a, sid)
 	var st ContextState
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
