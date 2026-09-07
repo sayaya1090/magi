@@ -5,7 +5,9 @@
 .DESCRIPTION
   헬퍼는 하나다: magi.exe 의 `magi office` 가 포트 3000 에서 /ppt·/xl·/word 세 판을 내준다(clients/office/helper).
   그래서 인증서(office-helper-cert.pem)·자동 시작·신뢰 카탈로그 키가 전부 하나다. 이 파일을 돌리면:
-    1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다.
+    1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다. 그리고 **사람이 먼저 해야 하는 것**이 있으면
+       하라고 말하고 멈춰서 기다린다 — Go, 볼륨 판이면 카탈로그 폴더의 진짜 공유(New-SmbShare, 관리자 한 번)와 .NET 9 SDK.
+       설치기가 그 결과를 읽어 적는 것들이라 나중에 하면 다시 돌려야 한다. Enter 로 다시 재고 s 로 건너뛴다(-NoWait 는 안 묻는다).
     2. magi.exe 를 빌드해 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다(헬퍼가 그 자리를 본다).
     3. 데몬 권한 모드를 allow 로 둔다(설정 디렉토리의 config.toml — 평소의 magi 와 같은 파일). 사용자 결정(2026-09-05·06).
        컴패니언은 평소의 magi 와 같은 설정 나무(%APPDATA%\magi)를 보고, 소켓만 ~/.magi(MAGI_SOCKET_DIR)에 둔다.
@@ -32,6 +34,9 @@
 .PARAMETER NoAutostart
   로그인 때 자동으로 띄우는 등록(HKCU\...\Run 의 magi-office 와 magi-ppt-hand-watch)을 안 하고, 있던 것은 뺀다.
 
+.PARAMETER NoWait
+  먼저 할 것(Go·진짜 공유·.NET SDK)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
+
 .PARAMETER SkipBuild
   빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본). COM 손도 안 짓는다: Dest\hand 에 이미 있으면 그것을 쓰고,
   없으면 앞서 걸어 둔 감시기를 도로 띄운다.
@@ -54,8 +59,10 @@ param(
   [switch]$SkipBuild,
   [switch]$Clean,
   [switch]$Uninstall,
+  [switch]$NoWait,
   [string]$CatalogUnc = ''
 )
+# -NoWait: 사람이 먼저 해야 하는 것(진짜 공유·.NET SDK·Go)이 없어도 묻지 않고 그냥 간다(무인 배포). 기본은 **멈춰서 기다린다**.
 # -CatalogUnc: 카탈로그 폴더(~/.magi/catalog)가 보이는 **진짜 공유**의 UNC. 비우면 이 계정의 공유 목록에서
 # 그 폴더를 덮는 공유를 찾고, 없으면 관리 공유(\\<컴퓨터>\C$\…)를 쓴다. Excel 2021 은 관리 공유 형태의 카탈로그를
 # 켤 때마다 지운다(2026-09-06 실측 — localhost 도 컴퓨터 이름도) — 진짜 공유가 필요하다:
@@ -84,6 +91,45 @@ function Say($s) { Write-Host "▸ $s" }
 function Done($s) { Write-Host "  ✓ $s" -ForegroundColor Green }
 function Warn($s) { Write-Host "  ⚠ $s" -ForegroundColor Yellow }
 function Fail($s) { Write-Host "  ✗ $s" -ForegroundColor Red; exit 1 }
+# **사람이 먼저 해야 하는 것은 하라고 말하고 기다린다.** 설치기가 그 결과를 읽어 적는 것(공유의 UNC, SDK 로 짓는 손)은
+# 나중에 하면 설치기를 한 번 더 돌려야 한다 — 그러느니 여기서 멈춘다(사용자, 2026-09-07). Enter 로 다시 재고, s 로
+# 건너뛴다(그때의 결과는 부르는 쪽이 정한다). 사람이 없는 창(-NoWait·비대화형)에서는 경고만 남기고 간다.
+function WaitUntil($what, $howTo, [scriptblock]$check) {
+  if (& $check) { return $true }
+  if ($NoWait -or -not [Environment]::UserInteractive) { Warn "$what — 없다. $howTo"; return $false }
+  while ($true) {
+    Write-Host ''
+    Write-Host "  ■ 먼저 할 것: $what" -ForegroundColor Cyan
+    Write-Host "    $howTo"
+    $ans = Read-Host '    했으면 Enter, 건너뛰려면 s'
+    if ($ans -match '^[sS]') { Warn "$what — 건너뛴다"; return $false }
+    if (& $check) { return $true }
+    Write-Host '    아직 안 보인다.' -ForegroundColor Yellow
+  }
+}
+# **dotnet.exe 가 있다고 SDK 가 있는 것이 아니다.** 런타임만 깐 머신에도 호스트는 있고, x86 호스트가 PATH 앞에 서면 x64
+# SDK 를 못 본다 — 그때 `dotnet build` 는 「It was not possible to find any installed .NET SDKs」로 죽는다(#181, 2026-09-07).
+# 그래서 후보마다 `--list-sdks` 로 **SDK 가 실제로 보이는 것**을 고른다. 없으면 $null.
+function FindDotnet {
+  $candidates = @()
+  $onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+  if ($onPath) { $candidates += $onPath.Source }
+  $candidates += 'C:\Program Files\dotnet\dotnet.exe'
+  if ($env:DOTNET_ROOT) { $candidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe') }
+  $candidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\dotnet\dotnet.exe')
+  foreach ($c in ($candidates | Select-Object -Unique)) {
+    if (-not (Test-Path $c)) { continue }
+    # $ErrorActionPreference = 'Stop' 아래에서 네이티브 명령의 stderr 는 던진다(PS 5.1) — 삼키고 SDK 줄("9.0.xxx [경로]")만 남긴다.
+    $sdks = @()
+    try { $sdks = @(& $c --list-sdks 2>&1 | Where-Object { ($_ -is [string]) -and ($_ -match '^\d') }) } catch { $sdks = @() }
+    if ($sdks.Count -gt 0) { return [pscustomobject]@{ FullName = $c; Sdk = ($sdks | Select-Object -Last 1) } }
+  }
+  return $null
+}
+# 그 폴더를 덮는 **진짜 공유**(관리 공유 C$ 가 아닌 것). Excel 2021 은 관리 공유 카탈로그를 켤 때마다 지운다.
+function RealShareFor($folder) {
+  Get-SmbShare -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Name -notmatch '\$$' -and $folder.StartsWith($_.Path.TrimEnd('\') + '\', 'OrdinalIgnoreCase') } | Sort-Object { $_.Path.Length } -Descending | Select-Object -First 1
+}
 
 # ── 지우기(-Uninstall) — 깐 것의 역순. 설정 파일과 플러그인, 대화 기록은 남긴다(위 .PARAMETER Uninstall). ─────
 if ($Uninstall) {
@@ -144,35 +190,30 @@ foreach ($app in $apps) {
 }
 if ($perpetual) { Done 'Excel 2021·Word 2021 은 작업창이 그대로 손이다. PowerPoint 2021 은 COM 손이 편집한다 — 아래서 짓는다.' }
 
-# ── 1. 도구 ─────────────────────────────────────────────────────────────────
-Say '필요한 도구를 본다'
-$go = Get-Command go -ErrorAction SilentlyContinue
-if (-not $SkipBuild -and -not $go) { Fail 'Go 가 없다(go.dev/dl). 빌드된 실행 파일이 이미 있으면 -SkipBuild.' }
-if ($go) { Done "go: $($go.Source)" }
+# ── 1. 먼저 할 것 — 사람이 해야 하는 것은 여기서 멈춰서 기다린다 ─────────────────
+Say '먼저 할 것을 본다'
 # 관리자 창에서 돌리고 있나 — 여기서 띄우는 감시기의 권한 수준이 그것을 물려받는다(아래 감시기 자리).
 $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($elevated) { Warn '관리자 창이다 — 감시기는 보통 권한으로 띄운다(관리자 프로세스는 보통 권한 PowerPoint 를 COM 으로 못 본다). 이 설치기는 관리자가 필요 없다.' }
-# **dotnet.exe 가 있다고 SDK 가 있는 것이 아니다.** 런타임만 깐 머신에도 호스트는 있고, x86 호스트가 PATH 앞에 서면 x64
-# SDK 를 못 본다 — 그때 `dotnet build` 는 「It was not possible to find any installed .NET SDKs」로 죽는다(#181, 2026-09-07).
-# 그래서 후보마다 `--list-sdks` 로 **SDK 가 실제로 보이는 것**을 고른다. 없으면 손만 건너뛴다 — 설치 전체를 죽이지 않는다.
-$dotnet = $null
-$candidates = @()
-$onPath = Get-Command dotnet -ErrorAction SilentlyContinue
-if ($onPath) { $candidates += $onPath.Source }
-$candidates += 'C:\Program Files\dotnet\dotnet.exe'
-if ($env:DOTNET_ROOT) { $candidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe') }
-$candidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\dotnet\dotnet.exe')
-foreach ($c in ($candidates | Select-Object -Unique)) {
-  if (-not (Test-Path $c)) { continue }
-  # $ErrorActionPreference = 'Stop' 아래에서 네이티브 명령의 stderr 는 던진다(PS 5.1) — 삼키고 SDK 줄("9.0.xxx [경로]")만 남긴다.
-  $sdks = @()
-  try { $sdks = @(& $c --list-sdks 2>&1 | Where-Object { ($_ -is [string]) -and ($_ -match '^\d') }) } catch { $sdks = @() }
-  if ($sdks.Count -gt 0) { $dotnet = Get-Item $c; $sdkNote = ($sdks | Select-Object -Last 1); break }
+$go = $null
+if (-not $SkipBuild) {
+  if (WaitUntil 'Go' 'go.dev/dl 에서 Go 를 깔아라(빌드된 실행 파일이 이미 있으면 -SkipBuild).' { [bool](Get-Command go -ErrorAction SilentlyContinue) }) {
+    $go = Get-Command go; Done "go: $($go.Source)"
+  } else { Fail 'Go 가 없다 — 빌드를 못 한다.' }
 }
+$dotnet = $null
 if ($perpetual) {
-  if ($dotnet) { Done "dotnet: $($dotnet.FullName) (SDK $sdkNote) — PowerPoint 2021 의 COM 손을 이것으로 짓는다" }
-  elseif ($onPath) { Warn "dotnet 은 있는데($($onPath.Source)) SDK 가 하나도 안 보인다 — 런타임만 깔렸거나 x86 호스트가 PATH 앞에 섰다. dotnet.microsoft.com 에서 .NET 9 **SDK**(x64)를 깔고 다시 돌려라. 이번에는 손 없이 간다(Excel·Word 는 손이 필요 없다)." }
-  else { Warn '.NET SDK 가 없다 — PowerPoint 2021 의 COM 손을 못 만든다(작업창만으로는 편집이 안 된다). dotnet.microsoft.com 에서 .NET 9 SDK 를 깔고 다시 돌려라. Excel·Word 는 손이 필요 없다.' }
+  # 진짜 공유 — 카탈로그의 UNC 를 여기서 읽어 적으므로 나중에 만들면 설치기를 다시 돌려야 한다.
+  $catalogDir = Join-Path $socketDir 'catalog'
+  if (-not $CatalogUnc) {
+    $shareCmd = "관리자 PowerShell 에서 한 번: New-SmbShare -Name magi -Path `"$socketDir`" -ReadAccess $env:USERNAME   (Excel 2021 은 관리 공유 카탈로그를 켤 때마다 지운다)"
+    if (WaitUntil "카탈로그 폴더($socketDir)를 덮는 진짜 공유" $shareCmd { [bool](RealShareFor $catalogDir) }) { Done "공유: $((RealShareFor $catalogDir).Name)" }
+  }
+  # .NET SDK — COM 손을 여기서 지으므로 나중에 깔면 설치기를 다시 돌려야 한다.
+  if (-not $SkipBuild) {
+    $sdkHow = 'dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK(x64)를 깔아라 — 런타임만으로는 안 되고, x86 dotnet 이 PATH 앞에 서 있으면 x64 SDK 가 안 보인다(#181). 건너뛰면 PowerPoint 2021 의 편집만 안 된다.'
+    if (WaitUntil '.NET 9 SDK (PowerPoint 2021 의 COM 손)' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk)) — PowerPoint 2021 의 COM 손을 이것으로 짓는다" }
+  }
 }
 
 # ── 2. 전에 깔린 것을 멈춘다(설치 폴더의 실행 파일만) ─────────────────────────

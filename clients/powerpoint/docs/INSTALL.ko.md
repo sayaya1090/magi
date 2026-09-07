@@ -21,6 +21,11 @@
 **손 감시기**(`hand-watch.ps1`)도 건다 — PowerPoint 가 덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면
 손을 정리한다. 손은 뜰 때 한 번만 PowerPoint 에 붙기 때문에 이 감시기가 필요하다.
 
+**사람이 먼저 해야 하는 것은 설치기가 멈춰서 기다린다**(2026-09-07) — Go, 볼륨 판이면 카탈로그 폴더(`~/.magi`)의 진짜 공유
+(관리자 PowerShell 에서 한 번 `New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME`)와 .NET 9 SDK.
+셋 다 설치기가 그 결과를 읽어 적는 것이라 나중에 하면 다시 돌려야 한다. 하고 Enter, 건너뛰려면 s(`-NoWait` 는 안 묻는다).
+설치 중에 사람이 할 일은 인증서 확인 창 하나이고, 설치 뒤에는 Office 를 껐다 켜고 볼륨 판은 공유 폴더에서 Magi 를 추가한다.
+
 다시 돌려도 된다 — 된 것은 건너뛴다. `-NoAutostart` 로 자동 시작을 안 걸고, `-SkipBuild` 로 빌드를 건너뛴다(배포본).
 끝나면 PowerPoint 를 껐다 켜고, 볼륨 판은 **삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가** 를 한 번 한다.
 
