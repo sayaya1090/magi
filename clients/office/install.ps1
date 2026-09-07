@@ -403,17 +403,26 @@ if ($SkipDownload) {
   # 코어(= 헬퍼). `magi office` 가 헬퍼라 이 파일은 코어 바이너리 그 자체다 — 그래서 office 릴리스에
   # 사본을 두지 않고 코어 레인에서 받는다. 두 레인에 같은 파일이 있으면 「어느 쪽이 최신인가」가 태그를
   # 언제 달았느냐로 정해진다.
+  # `core-latest.txt`(= 가장 최근 코어 판)가 아니라 **이 office 판이 요구하는 코어**를 읽는다.
+  # 두 레인의 시계가 달라서, 가장 최근 코어가 이 판의 헬퍼를 안다는 보장이 없다 — 실측
+  # (2026-09-08): core-latest 는 v0.40.0(09-04)이었고 그 태그에는 clients/office/helper 가 아예
+  # 없어서, 받아 온 magi.exe 로 `magi office -h` 를 치면 그런 명령이 없다고 답했다. office 레인이
+  # 릴리스할 때 자기가 도달하는 코어 태그를 확인해 여기 적는다.
   Say 'magi 를 받습니다'
-  $coreTag = LatestTag 'core-latest.txt'
-  if (-not $coreTag) { Fail "코어 판 번호를 못 읽었습니다($BadgesRaw/core-latest.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
-  Say "  코어 $coreTag"
-  GetAsset $coreTag 'magi_windows_amd64.zip' $Dest
-
-  # Office 자산 셋. 비트수는 Office 를 따라간다 — COM 추가 기능은 Office 프로세스 **안에서** 뜬다.
   $officeTag = LatestTag 'office-latest.txt'
   if (-not $officeTag) { Fail "Office 판 번호를 못 읽었습니다($BadgesRaw/office-latest.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
-  Say "  Office $officeTag"
+  $coreTag = LatestTag 'office-core.txt'
+  if (-not $coreTag) { Fail "이 Office 판이 요구하는 코어 판을 못 읽었습니다($BadgesRaw/office-core.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
+  Say "  코어 $coreTag (Office $officeTag 가 요구하는 판)"
+  GetAsset $coreTag 'magi_windows_amd64.zip' $Dest
+  # 받은 바이너리를 여기서 **찔러 보지 않는다.** `magi office -h` 로 확인하고 싶지만, office 를
+  # 모르는 판은 그 인자를 무시하고 **대화형 TUI 를 띄운다** — 실측(v0.40.0): 둘 다 exit 0 이라
+  # 종료 코드로는 안 갈리고, Windows 라면 창이 떠서 설치기가 거기서 멈춘다. 확인하려던 것이
+  # 확인보다 나쁜 일을 한다.
+  # 그 판정은 릴리스 레인이 진다: office 태그를 달 때 그 코어 태그가 `magi office` 를 아는지 보고,
+  # 모르면 릴리스를 거부한다(release-office.yml, "which core this needs").
 
+  # Office 자산 셋. 비트수는 Office 를 따라간다 — COM 추가 기능은 Office 프로세스 **안에서** 뜬다.
   if (-not $NoAutostart) {
     GetAsset $officeTag 'magi-office-start_win_x64.zip' (Join-Path $Dest 'start')
     EnsureDesktopRuntime

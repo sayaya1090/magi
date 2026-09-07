@@ -30,6 +30,35 @@ jobs:
           # 「이전 판 이후 무엇이 바뀌었나」를 커밋에서 유도하므로 이력과 태그가 필요하다.
           fetch-depth: 0
 
+      # 이 판이 요구하는 **코어 태그**를 정하고, 그것이 실제로 `magi office` 를 아는지 본다.
+      #
+      # 헬퍼는 `magi office` 라 코어 바이너리 그 자체이고, 그래서 이 레인은 magi.exe 를 안 짓는다.
+      # 그런데 두 레인의 시계가 다르다: office 태그를 달아도 코어는 며칠 전 것일 수 있고, 그 사이에
+      # 들어온 `office` 서브커맨드는 어느 릴리스에도 없다. 실측(2026-09-08): core-latest 가
+      # v0.40.0(09-04)이었고 그 태그에는 clients/office/helper 가 아예 없어서, 설치기가 받아 온
+      # magi.exe 로 `magi office -h` 를 치면 그런 명령이 없다고 답했다.
+      #
+      # `core-latest.txt`(= 가장 최근 코어 판)를 안 쓰고 **이 커밋에서 도달하는 코어 태그**를 쓰는
+      # 이유가 그것이다. 그리고 그 태그가 office 를 모르면 여기서 선다 — 「코어를 먼저 태그할 것」을
+      # 사람이 기억하는 대신 기계가 막는다.
+      - name: which core this needs
+        shell: bash
+        run: |
+          set -euo pipefail
+          core=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || true)
+          if [ -z "$core" ]; then
+            echo "이 커밋에서 도달하는 코어 태그(v*)가 없다 — 코어를 먼저 태그할 것" >&2
+            exit 1
+          fi
+          if ! git show "$core:cmd/magi/main.go" | grep -q '"office"'; then
+            echo "코어 $core 는 magi office 를 모른다." >&2
+            echo "설치기는 이 태그에서 magi.exe 를 받으므로, 받은 바이너리가 헬퍼를 못 띄운다." >&2
+            echo "코어를 먼저 태그한 뒤(v*) office 태그를 다시 달 것." >&2
+            exit 1
+          fi
+          echo "코어: $core"
+          echo "$core" > office-core.txt
+
       - uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "9.0.x"
@@ -170,15 +199,20 @@ jobs:
           # 브랜치 위로, 절대 덮어쓰지 않는다 — 커버리지 배지와 코어 버전이 같은 브랜치에 살고,
           # 쓰는 쪽마다 제 파일 하나만 갖는다.
           git fetch -q --depth 1 origin badges && git checkout -q -B badges FETCH_HEAD || git checkout -q -B badges
-          printf '%s\n' "$ver" > office-latest.txt
-          git add office-latest.txt
+          # 판 번호와 **그 판이 요구하는 코어 태그** 둘 다. 설치기는 core-latest 가 아니라 이것을
+          # 읽는다 — 가장 최근 코어가 이 office 판을 돌릴 수 있다는 보장이 없기 때문이다.
+          write() {
+            printf '%s\n' "$ver" > office-latest.txt
+            cp "$GITHUB_WORKSPACE/office-core.txt" office-core.txt
+            git add office-latest.txt office-core.txt
+          }
+          write
           git commit -q -m "office-latest: $ver" || exit 0
           for try in 1 2 3; do
             git push -q origin badges && exit 0
             git fetch -q --depth 1 origin badges || break
             git checkout -q -B badges FETCH_HEAD
-            printf '%s\n' "$ver" > office-latest.txt
-            git add office-latest.txt
+            write
             git commit -q -m "office-latest: $ver" || exit 0
           done
           exit 1
