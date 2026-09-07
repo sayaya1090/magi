@@ -1,0 +1,159 @@
+# Office 클라이언트의 제 릴리스 레인.
+#
+# 코어는 `v*` 에서 goreleaser 로, 콘솔은 `web-v*`, 플러그인은 `jetbrains-v*` 로 나간다. Office 만
+# 레인이 없어서 「배포판」이라는 것이 없었고 사용자는 저장소를 클론해 툴체인 둘(Go·.NET SDK)을 깔아야
+# 했다. `office-v*` 태그가 이 판을 세우고, `install.ps1` 은 빌드 대신 여기서 받는다.
+#
+# **여기서 짓지 않는 것**: `magi.exe`. 헬퍼는 `magi office` 라 코어 바이너리 그 자체이고, 같은 것을 두
+# 레인에 두면 어느 쪽이 최신인지가 태그를 언제 달았느냐로 정해진다. 설치기는 코어 릴리스에서 받는다.
+#
+# **windows-latest 에서 도는 이유**: COM 호스팅(`EnableComHosting`)은 Windows RID 빌드라야 comhost.dll
+# 이 나온다. 리눅스 러너에서는 그 파일이 아예 안 생기고, 그러면 Office 를 켜도 헬퍼가 안 뜬다.
+name: release-office
+
+on:
+  push:
+    tags:
+      - "office-v*"
+  # 태그를 실제로 달기 전에 자산이 서는지 보려고. 이때는 릴리스를 만들지 않고 아티팩트만 올린다.
+  workflow_dispatch:
+
+permissions:
+  contents: write # gh release create 가 자산을 올리고, 아래 스텝이 'badges' 브랜치에 쓴다
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # 「이전 판 이후 무엇이 바뀌었나」를 커밋에서 유도하므로 이력과 태그가 필요하다.
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "9.0.x"
+
+      # 손이 아는 것을 지어 두고 재는 자리. vtable 가드가 여기서도 돈다 — 그 선언이 틀리면 Office 가
+      # 죽고, 그 사실은 실물에서만 드러나므로 소스를 텍스트로 읽는 것이 릴리스 앞의 마지막 그물이다.
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: test
+        run: go test ./clients/office/... -count=1
+
+      # 추가 기능은 **framework-dependent** 로 짓는다.
+      #
+      # `--self-contained true` 도 comhost.dll 을 내주기는 한다(실측 2026-09-08, .NET 9.0.301: 75MB,
+      # 런타임 171개 동봉, runtimeconfig 에 includedFrameworks). 그런데 SDK 가 함께 내는 말이
+      # `NETSDK1128: COM 호스팅에서는 자체 포함 배포가 지원되지 않습니다` 다. 이 DLL 은 Office
+      # 프로세스 **안에서** 로드되고, 바로 그 자리에서 2026-09-07 에 vtable 선언 하나가 PowerPoint 를
+      # 통째로 죽였다 — 미지원 경로를 그 자리에 놓지 않는다. 대신 설치기가 .NET 데스크톱 런타임을
+      # 받아 깐다.
+      - name: build the COM add-in
+        run: >
+          dotnet publish clients/office/addin-com/src/magi-office-start.csproj
+          -c Release -r win-x64 --self-contained false
+          -o out/start --nologo
+
+      # 어댑터는 **자체 포함**이다. 별도 프로세스라 Office 안의 런타임과 부딪힐 데가 없고, SDK 도
+      # 아무 말을 안 한다(실측: 경고 0). 76MB 를 받는 대신 이것만은 런타임 유무와 무관하게 돈다.
+      - name: build the PowerPoint 2021 adapter
+        run: >
+          dotnet publish clients/powerpoint/hand-com/src/magi-ppt-hand.csproj
+          -c Release -r win-x64 --self-contained true
+          -o out/hand --nologo
+
+      # 지어진 것을 **결과물에서** 확인한다. publish 가 성공했다는 것과 필요한 파일이 나왔다는 것은
+      # 다른 사실이고, 갈리는 날 알아채는 자리가 사용자의 흰 작업창이면 늦다.
+      - name: the files that matter are in there
+        shell: pwsh
+        run: |
+          $want = @(
+            'out/start/magi-office-start.comhost.dll',
+            'out/start/magi-office-start.dll',
+            'out/hand/magi-ppt-hand.exe'
+          )
+          $missing = $want | Where-Object { -not (Test-Path $_) }
+          if ($missing) {
+            Write-Error "빠진 파일: $($missing -join ', ')"
+            exit 1
+          }
+          # 어댑터가 정말 자체 포함인가 — 런타임이 옆에 없으면 사용자 머신에서만 드러난다.
+          if (-not (Test-Path 'out/hand/hostfxr.dll')) {
+            Write-Error "어댑터에 런타임이 안 붙었다 — --self-contained 가 안 먹었다"
+            exit 1
+          }
+          Get-ChildItem out/start, out/hand | Measure-Object -Property Length -Sum |
+            ForEach-Object { "합계 {0:N1} MB" -f ($_.Sum / 1MB) }
+
+      - name: zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out/start/* -DestinationPath magi-office-start_win_x64.zip -Force
+          Compress-Archive -Path out/hand/*  -DestinationPath magi-ppt-hand_win_x64.zip  -Force
+
+      # 태그 없이 돌린 판은 여기서 끝난다 — 자산이 서는지 보는 것이 목적이라 릴리스를 만들지 않는다.
+      - uses: actions/upload-artifact@v7
+        if: github.ref_type != 'tag'
+        with:
+          name: office-assets
+          path: magi-*_win_x64.zip
+
+      - name: release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 「무엇이 바뀌었나」는 커밋에서 유도한다. 경로는 **저장소 뿌리 기준**(`:/`)으로 짚는다 —
+          # 플러그인 레인이 0.2.3 을 그렇게 태웠다(상대 경로가 아무것도 안 짚어 「바뀌지 않았습니다」가
+          # 거짓말로 나갔다).
+          prev=$(git tag --list 'office-v*' --sort=-v:refname | grep -vFx "$GITHUB_REF_NAME" | head -1)
+          echo "이전 판: ${prev:-없음}"
+          [ "$(git rev-list --count HEAD -- :/clients/office :/clients/powerpoint)" -gt 0 ] || {
+            echo "경로 지정이 이력에서 아무것도 안 짚는다 — 노트 유도가 깨졌다" >&2
+            exit 1
+          }
+          gh release create "$GITHUB_REF_NAME" \
+            --title "magi for Office ${GITHUB_REF_NAME#office-v}" \
+            --generate-notes \
+            magi-office-start_win_x64.zip magi-ppt-hand_win_x64.zip
+
+      # 어느 판이 최신인지 **움직이지 않는 주소**에 적는다.
+      #
+      # GitHub 의 「latest release」는 이 저장소의 모든 레인을 통틀어 날짜가 제일 최근인 것이다. 그래서
+      # 콘솔이 더 최근에 나갔으면 `/releases/latest/download/magi-office-start_win_x64.zip` 은 404 이고,
+      # `checksums.txt` 는 **남의 것**을 200 으로 답한다(코어 레인이 2026-08-31 에 실측한 그것,
+      # release.yml 참조). 설치기는 이 파일을 읽어 정확한 태그로 받는다.
+      - name: publish the office version
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver="${GITHUB_REF_NAME}"
+          tmp=$(mktemp -d)
+          cd "$tmp"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # 브랜치 위로, 절대 덮어쓰지 않는다 — 커버리지 배지와 코어 버전이 같은 브랜치에 살고,
+          # 쓰는 쪽마다 제 파일 하나만 갖는다.
+          git fetch -q --depth 1 origin badges && git checkout -q -B badges FETCH_HEAD || git checkout -q -B badges
+          printf '%s\n' "$ver" > office-latest.txt
+          git add office-latest.txt
+          git commit -q -m "office-latest: $ver" || exit 0
+          for try in 1 2 3; do
+            git push -q origin badges && exit 0
+            git fetch -q --depth 1 origin badges || break
+            git checkout -q -B badges FETCH_HEAD
+            printf '%s\n' "$ver" > office-latest.txt
+            git add office-latest.txt
+            git commit -q -m "office-latest: $ver" || exit 0
+          done
+          exit 1
