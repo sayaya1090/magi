@@ -84,10 +84,10 @@ func TestTheComAddinStartsOneHelperAndNothingElse(t *testing.T) {
 	}
 	s := string(src)
 	for _, want := range []string{
-		`PortIsOpen(HelperPort)`,      // 이미 떠 있으면 아무것도 안 한다
-		`Local\magi-office-start`,     // 셋이 동시에 와도 하나만 띄운다
-		`CreateNoWindow = true`,       // 검은 창을 안 띄운다
-		`UseShellExecute = false`,     // 콘솔을 물려주지 않는다
+		`PortIsOpen(HelperPort)`,  // 이미 떠 있으면 아무것도 안 한다
+		`Local\magi-office-start`, // 셋이 동시에 와도 하나만 띄운다
+		`CreateNoWindow = true`,   // 검은 창을 안 띄운다
+		`UseShellExecute = false`, // 콘솔을 물려주지 않는다
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("Starter.cs 에 %q 가 없다", want)

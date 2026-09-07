@@ -36,7 +36,13 @@ jobs:
 
       - name: gofmt
         run: |
-          unformatted=$(gofmt -l .)
+          # Tracked files only, so this command means the same thing here and on a developer's
+          # machine. `gofmt -l .` walks the working tree, and a checkout has scratchpad/ and the
+          # local-only plugins in it — three unformatted files that are not the repository's and
+          # never will be. Anyone who ran the CI command locally got a red answer every time and
+          # learned to ignore it, which is how an unformatted test file reached main and turned
+          # this step red 23 seconds into the run.
+          unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
           if [ -n "$unformatted" ]; then
             echo "These files are not gofmt-clean:"; echo "$unformatted"; exit 1
           fi
