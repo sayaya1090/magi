@@ -50,7 +50,13 @@ jobs:
             echo "이 커밋에서 도달하는 코어 태그(v*)가 없다 — 코어를 먼저 태그할 것" >&2
             exit 1
           fi
-          if ! git show "$core:cmd/magi/main.go" | grep -q '"office"'; then
+          # **파일 목록으로 판정한다.** 처음에는 `git show "$core:cmd/magi/main.go" | grep '"office"'`
+          # 였는데, 그것이 맥에서는 찾고 이 Windows 러너에서는 못 찾았다(실측 2026-09-08: v0.41.0 이
+          # 로컬 1, CI 0). 그 파일은 한글 주석이 든 UTF-8 이고 Git Bash 의 grep 이 무엇을 달리
+          # 보는지 캐지 않았다 — 경로만 보면 ASCII 뿐이라 그 질문 자체가 사라진다.
+          # 판정도 이쪽이 곧다: 헬퍼 패키지가 그 태그에 있느냐가 곧 `magi office` 가 있느냐다
+          # (v0.40.0 → 0개, v0.41.0 → 102개).
+          if [ "$(git ls-tree -r --name-only "$core" | grep -c '^clients/office/helper/')" -eq 0 ]; then
             echo "코어 $core 는 magi office 를 모른다." >&2
             echo "설치기는 이 태그에서 magi.exe 를 받으므로, 받은 바이너리가 헬퍼를 못 띄운다." >&2
             echo "코어를 먼저 태그한 뒤(v*) office 태그를 다시 달 것." >&2
