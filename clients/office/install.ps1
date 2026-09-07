@@ -102,7 +102,7 @@ function WaitUntil($what, $howTo, [scriptblock]$check) {
     Write-Host "  ■ 먼저 필요합니다: $what" -ForegroundColor Cyan
     Write-Host "    $howTo"
     $ans = Read-Host '    준비되면 Enter, 건너뛰려면 s'
-    if ($ans -match '^[sS]') { Warn "$what: 건너뜁니다"; return $false }
+    if ($ans -match '^[sS]') { Warn "${what}: 건너뜁니다"; return $false }
     if (& $check) { return $true }
     Write-Host '    아직 확인되지 않습니다.' -ForegroundColor Yellow
   }
