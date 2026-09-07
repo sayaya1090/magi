@@ -46,13 +46,19 @@ while ($true) {
           Start-Sleep -Seconds 2
         }
       }
-      # 닫힌 덱의 손은 거둔다 — 헬퍼에 유령 덱을 남기지 않게. (--presentation 없이 뜬 옛 손은 덱이 하나일 때만 둔다.)
-      # COM 으로 못 닿은 판에서는 안 거둔다 — 「덱 없음」이 아니라 「모름」이라, 멀쩡한 손을 죽이는 자리가 된다.
-      foreach ($h in $(if ($null -eq $found) { @() } else { $hands })) {
+      # 닫힌 덱의 손, --presentation 없이 뜬 옛 손, 같은 덱에 둘 이상 뜬 손(오래된 쪽)을 거둔다 — 같은 덱에 손이 둘이면
+      # 호출을 서로 가로챈다(실물 2021, 2026-09-07). 앞 판은 옛 손을 「덱이 하나면 둔다」고 했는데 그 옆에 새 손을 또
+      # 띄워 정확히 그 둘을 만들었다. COM 으로 못 닿은 판에서는 안 거둔다 — 「덱 없음」이 아니라 「모름」이다.
+      $seen = @{}
+      foreach ($h in $(if ($null -eq $found) { @() } else { $hands | Sort-Object CreationDate -Descending })) {
         $cmd = if ($h.CommandLine) { $h.CommandLine.ToLowerInvariant() } else { '' }
-        $mine = $decks | Where-Object { $cmd.Contains($_.ToLowerInvariant()) }
-        $legacy = -not $cmd.Contains('--presentation')
-        if (-not $mine -and -not ($legacy -and $decks.Count -eq 1)) { Log "닫힌 덱의 손을 거둔다(pid $($h.ProcessId))"; Stop-Process -Id $h.ProcessId -Force -ErrorAction SilentlyContinue }
+        $mine = @($decks | Where-Object { $cmd.Contains($_.ToLowerInvariant()) })
+        $why = ''
+        if (-not $cmd.Contains('--presentation')) { $why = '덱을 안 댄 옛 손' }
+        elseif ($mine.Count -eq 0) { $why = '닫힌 덱의 손' }
+        elseif ($seen[$mine[0]]) { $why = "같은 덱에 둘째 손(오래된 쪽) — $($mine[0])" }
+        else { $seen[$mine[0]] = $true }
+        if ($why) { Log "$why 을 거둔다(pid $($h.ProcessId))"; Stop-Process -Id $h.ProcessId -Force -ErrorAction SilentlyContinue }
       }
     }
     # PowerPoint 가 내려가면 손도 내려간다(COM 참조가 죽는다). 붙어 있던 손이 남아 있으면 정리한다.

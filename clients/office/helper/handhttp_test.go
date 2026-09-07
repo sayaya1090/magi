@@ -437,3 +437,47 @@ func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
 		t.Fatalf("최근 %d 개만 남긴다: %d", peeksKept, n)
 	}
 }
+
+// **같은 문서에 손은 하나 — 새로 붙는 쪽이 이긴다.** 같은 키로 둘째 손이 붙으면 앞 판은 둘이 한 채널을 나눠 읽어
+// 호출을 가로챘고, 먼저 떠난 쪽의 Leave 가 남은 쪽의 자리를 지웠다(실물 2021, 2026-09-07: 옛 감시기의 손 옆에 새 손).
+// 이제 앞 손의 스트림은 bye 를 받고 끝나며, 그 뒤 앞 손이 떠나도 새 손의 자리는 남는다.
+func TestASecondHandForTheSameDocumentDismissesTheFirst(t *testing.T) {
+	hub := NewHandHub(PPT)
+	hub.Timeout = 3 * time.Second
+	hh := &HandHTTP{Hub: hub, PingEvery: time.Hour}
+	mux := http.NewServeMux()
+	mux.HandleFunc(handStreamPath, hh.Stream)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	open := func() (*http.Response, *sseReader) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", srv.URL+handStreamPath+"?presentation=com-a&label=a.pptx", nil)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sr := &sseReader{br: bufio.NewReader(resp.Body)}
+		if ev, _ := sr.next(t); ev != "hello" {
+			t.Fatalf("첫 프레임이 %q 다", ev)
+		}
+		return resp, sr
+	}
+	first, firstR := open()
+	defer first.Body.Close()
+	second, _ := open()
+	defer second.Body.Close()
+
+	// 앞 손은 bye 를 받는다 — 다시 붙지 말라는 말과 함께.
+	ev, data := firstR.next(t)
+	if ev != "bye" || !strings.Contains(string(data), "superseded") {
+		t.Fatalf("앞 손이 받은 것: %s %s", ev, data)
+	}
+	// 앞 손이 떠나도(스트림 끝) 새 손의 자리는 남는다 — 앞 판은 여기서 Leave 가 자리를 지웠다.
+	first.Body.Close()
+	time.Sleep(50 * time.Millisecond)
+	if !hub.Attached() || hub.Peek("com-a") == nil {
+		t.Fatal("앞 손이 떠나자 새 손의 자리가 사라졌다")
+	}
+	// 호출은 새 손에게만 간다: 이 시험은 채널을 나눠 읽는 독자가 하나뿐임을 위 bye 로 잰다.
+}

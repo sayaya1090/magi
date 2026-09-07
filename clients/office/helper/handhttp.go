@@ -94,9 +94,13 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "no hand is attached for that document yet — a viewer needs a hand to look at", http.StatusNotFound)
 			return
 		}
-	} else {
+	}
+	var superseded <-chan struct{}
+	if !viewer {
 		conn = h.Hub.Join(r.URL.Query().Get(h.Hub.App.DocParam), r.URL.Query().Get("label"))
-		defer h.Hub.Leave(conn)
+		gen, done := h.Hub.Lease(conn)
+		superseded = done
+		defer h.Hub.LeaveGen(conn, gen)
 	}
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -133,6 +137,14 @@ func (h *HandHTTP) Stream(w http.ResponseWriter, r *http.Request) {
 			}
 			writeSSE(w, f.Kind, json.RawMessage(f.Data))
 			flusher.Flush()
+		case <-superseded:
+			// **같은 문서에 새 손이 붙었다.** 이 스트림은 물러난다 — 둘이 한 채널을 나눠 읽으면 호출을 가로챈다(hand.go
+			// handConn.gen). 손 프로세스는 이 프레임을 받으면 다시 붙지 않고 끝나야 한다(Program.cs) — 안 그러면 둘이
+			// 번갈아 서로를 밀어낸다.
+			writeSSE(w, "bye", map[string]any{"reason": "superseded", "document": conn.key,
+				"why": "another hand attached for this " + h.Hub.App.Noun + " — this one is dismissed; do not reconnect"})
+			flusher.Flush()
+			return
 		case <-ping.C:
 			// 주석 프레임. 이벤트가 아니므로 화면이 아무것도 안 그린다.
 			_, _ = io.WriteString(w, ": ping\n\n")

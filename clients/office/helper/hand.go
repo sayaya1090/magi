@@ -88,6 +88,12 @@ type handConn struct {
 	// deaf 는 이 손이 **기다리다 놓친 호출 수**. 얼어붙은 작업창 하나가 모든 호출을 45초씩
 	// 삼키는 것을 막는 재료다.
 	deaf int
+	// gen·done 은 **같은 문서에 손은 하나**를 지키는 것. 같은 키로 둘째 손이 붙으면(옛 감시기가 띄운 손 옆에 새 손,
+	// 진단하느라 앞에서 띄운 손) 둘이 한 out 채널을 나눠 읽어 호출을 가로챘고, 먼저 떠난 쪽의 Leave 가 남은 쪽의 자리를
+	// 지웠다(실물 2021, 2026-09-07: 「핸드가 두 개 떠서 요청을 가로채는 것 같아」). 새로 붙는 쪽이 이기고, 진 쪽의
+	// 스트림은 done 이 닫혀 bye 를 받고 끝난다. gen 은 「내가 아직 그 손인가」의 표다.
+	gen  int
+	done chan struct{}
 }
 
 // HandHub 은 붙어 있는 손 전부.
@@ -165,10 +171,33 @@ func (h *HandHub) Join(presentationID, label string) *handConn {
 		c = &handConn{key: key, out: make(chan HandRequest, handQueue), waiting: map[string]chan HandReply{}, epoch: h.epoch}
 		h.conns[key] = c
 	}
+	// **새로 붙는 손이 이긴다.** 앞 손의 스트림에 done 을 닫아 bye 를 보내고, 세대를 올린다(handConn.gen).
+	if c.done != nil {
+		close(c.done)
+	}
+	c.done = make(chan struct{})
+	c.gen++
 	c.presentationID = presentationID
 	c.label = label
 	c.seen = h.now()
 	return c
+}
+
+// Lease 는 방금 Join 한 스트림이 **자기 세대와 물러날 신호**를 받아 가는 자리. done 이 닫히면 다른 손이 이 자리를
+// 가져간 것이다 — 그 스트림은 bye 를 보내고 끝나야 하고, 그 뒤의 Leave 는 남의 자리를 지우면 안 된다(LeaveGen).
+func (h *HandHub) Lease(c *handConn) (gen int, done <-chan struct{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return c.gen, c.done
+}
+
+// LeaveGen 은 그 세대의 손이 떠날 때 — 자리가 이미 다른 세대의 것이면 아무것도 안 한다.
+func (h *HandHub) LeaveGen(c *handConn, gen int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if cur, ok := h.conns[c.key]; ok && cur == c && c.gen == gen {
+		delete(h.conns, c.key)
+	}
 }
 
 // Leave 는 애드인이 사라졌을 때. **헬퍼는 애드인 없이도 산다**(§5.4) — 마지막 손이 없어져도
