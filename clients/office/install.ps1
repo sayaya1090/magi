@@ -152,10 +152,26 @@ if ($go) { Done "go: $($go.Source)" }
 # 관리자 창에서 돌리고 있나 — 여기서 띄우는 감시기의 권한 수준이 그것을 물려받는다(아래 감시기 자리).
 $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if ($elevated) { Warn '관리자 창이다 — 감시기는 보통 권한으로 띄운다(관리자 프로세스는 보통 권한 PowerPoint 를 COM 으로 못 본다). 이 설치기는 관리자가 필요 없다.' }
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-if (-not $dotnet -and (Test-Path 'C:\Program Files\dotnet\dotnet.exe')) { $dotnet = Get-Item 'C:\Program Files\dotnet\dotnet.exe' }
+# **dotnet.exe 가 있다고 SDK 가 있는 것이 아니다.** 런타임만 깐 머신에도 호스트는 있고, x86 호스트가 PATH 앞에 서면 x64
+# SDK 를 못 본다 — 그때 `dotnet build` 는 「It was not possible to find any installed .NET SDKs」로 죽는다(#181, 2026-09-07).
+# 그래서 후보마다 `--list-sdks` 로 **SDK 가 실제로 보이는 것**을 고른다. 없으면 손만 건너뛴다 — 설치 전체를 죽이지 않는다.
+$dotnet = $null
+$candidates = @()
+$onPath = Get-Command dotnet -ErrorAction SilentlyContinue
+if ($onPath) { $candidates += $onPath.Source }
+$candidates += 'C:\Program Files\dotnet\dotnet.exe'
+if ($env:DOTNET_ROOT) { $candidates += (Join-Path $env:DOTNET_ROOT 'dotnet.exe') }
+$candidates += (Join-Path $env:LOCALAPPDATA 'Microsoft\dotnet\dotnet.exe')
+foreach ($c in ($candidates | Select-Object -Unique)) {
+  if (-not (Test-Path $c)) { continue }
+  # $ErrorActionPreference = 'Stop' 아래에서 네이티브 명령의 stderr 는 던진다(PS 5.1) — 삼키고 SDK 줄("9.0.xxx [경로]")만 남긴다.
+  $sdks = @()
+  try { $sdks = @(& $c --list-sdks 2>&1 | Where-Object { ($_ -is [string]) -and ($_ -match '^\d') }) } catch { $sdks = @() }
+  if ($sdks.Count -gt 0) { $dotnet = Get-Item $c; $sdkNote = ($sdks | Select-Object -Last 1); break }
+}
 if ($perpetual) {
-  if ($dotnet) { Done "dotnet: $(if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName }) — PowerPoint 2021 의 COM 손을 이것으로 짓는다" }
+  if ($dotnet) { Done "dotnet: $($dotnet.FullName) (SDK $sdkNote) — PowerPoint 2021 의 COM 손을 이것으로 짓는다" }
+  elseif ($onPath) { Warn "dotnet 은 있는데($($onPath.Source)) SDK 가 하나도 안 보인다 — 런타임만 깔렸거나 x86 호스트가 PATH 앞에 섰다. dotnet.microsoft.com 에서 .NET 9 **SDK**(x64)를 깔고 다시 돌려라. 이번에는 손 없이 간다(Excel·Word 는 손이 필요 없다)." }
   else { Warn '.NET SDK 가 없다 — PowerPoint 2021 의 COM 손을 못 만든다(작업창만으로는 편집이 안 된다). dotnet.microsoft.com 에서 .NET 9 SDK 를 깔고 다시 돌려라. Excel·Word 는 손이 필요 없다.' }
 }
 
@@ -192,12 +208,13 @@ if (-not $SkipBuild) {
   Done "magi.exe → $Dest"
   if ($perpetual -and $dotnet) {
     Say 'PowerPoint 2021 의 COM 손을 빌드한다'
-    $dn = if ($dotnet.Source) { $dotnet.Source } else { $dotnet.FullName }
+    $dn = $dotnet.FullName
     $handProj = Join-Path $repo 'clients\powerpoint\hand-com\src\magi-ppt-hand.csproj'
     $handOut = Join-Path $Dest 'hand'
     & $dn build $handProj -c Release -o $handOut --nologo -v q
-    if ($LASTEXITCODE -ne 0) { Fail 'COM 손 빌드 실패' }
-    Done "magi-ppt-hand.exe → $handOut"
+    # 손이 안 지어져도 설치는 간다 — Excel·Word 와 파워포인트 작업창은 손과 무관하다(#181). 옛 손이 있으면 그것을 쓴다.
+    if ($LASTEXITCODE -ne 0) { Warn "COM 손 빌드 실패 — 위 dotnet 오류를 보라. 손 없이 간다(PowerPoint 2021 편집만 안 된다)."; $dotnet = $null }
+    else { Done "magi-ppt-hand.exe → $handOut" }
   }
 } else { Say '빌드는 건너뛴다(-SkipBuild)' }
 if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없다" }
