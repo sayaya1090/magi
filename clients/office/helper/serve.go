@@ -148,9 +148,10 @@ func Run(args []string, out, log io.Writer) int {
 	// 그 사이 모델에게는 손이 없는 도구가 광고된다.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	// **Office 가 하나도 없으면 헬퍼도 끝낸다**(idle.go officeWatch). 다음에 Office 를 켜면 COM 추가 기능이 다시 띄운다.
-	// `-keep-running` 은 그 자동 종료를 끈다 — Office 없이 헬퍼만 띄워 두고 보는 개발용이다.
-	if !*keepRunning {
+	// **Office 가 하나도 없으면 헬퍼도 끝낸다**(idle.go officeWatch). 다만 **다시 띄워 줄 것이 있을 때만** 그렇게 한다
+	// (wakesUpAgain) — mac·리눅스에는 COM 추가 기능 같은 자리가 없어서, 거기서 끝내면 사람이 손으로 띄운 헬퍼를 끄고
+	// 다음에 Office 를 켤 때 빈 창을 띄운다. `-keep-running` 은 그 자동 종료를 아예 끈다(개발용).
+	if !*keepRunning && wakesUpAgain() {
 		go func() {
 			w := &officeWatch{}
 			t := time.NewTicker(idleTickEvery)
