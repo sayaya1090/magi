@@ -413,22 +413,37 @@ func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
 	hub := NewHandHub(PPT)
 	hub.Join("com-aaaa", "a.pptx")
 	hub.Join("com-bbbb", "b.pptx")
-	if hub.Peek("com-aaaa") == nil || hub.Peek("") == nil || hub.Peek("com-zzzz") == nil {
-		t.Fatal("손이 둘 있는데 화면이 볼 것이 없다")
+	if hub.Peek("com-aaaa") == nil || hub.Peek("") == nil {
+		t.Fatal("자기 키와 빈 키는 볼 것이 있어야 한다")
+	}
+	// ⚠ **손이 둘일 때 모르는 키는 안 고른다**(2026-09-08 에 바뀐 규칙). 앞 판은 「가장 최근에 답한 손」을
+	// 보여 줬고, 실물에서 그것이 사고가 됐다: 두 창이 각자 이름을 들고 왔는데 둘 다 손과 안 맞아 **둘 다 같은
+	// 손을 봤고**, source 창의 작업창이 target 덱의 대화에 묶였다. 화면이 옆 덱을 보면 그 창이 보내는 말도
+	// 옆 덱으로 간다 — 헛일이 아니라 사고다.
+	if hub.Peek("com-zzzz") != nil {
+		t.Fatal("손이 둘인데 모르는 키에 아무 손이나 보여 줬다")
 	}
 	got := hub.Peeks()
 	if len(got) != 3 {
 		t.Fatalf("청 셋을 남겨야 한다: %+v", got)
 	}
-	// 최근 것부터: 모르는 키 → 있는 손, 빈 키 → 있는 손, 자기 키 → 자기 손.
+	// 최근 것부터: 모르는 키 → 아무것도, 빈 키 → 있는 손, 자기 키 → 자기 손.
 	if got[2].Asked != "com-aaaa" || got[2].Saw != "pid-com-aaaa" {
 		t.Fatalf("자기 키의 손을 봐야 한다: %+v", got[2])
 	}
 	if got[1].Asked != "" || got[1].Saw == "" {
 		t.Fatalf("빈 키는 있는 손을 봐야 한다: %+v", got[1])
 	}
-	if got[0].Asked != "com-zzzz" || got[0].Saw == "pid-com-zzzz" || got[0].Saw == "" {
-		t.Fatalf("모르는 키는 있는 손을 봐야 한다: %+v", got[0])
+	if got[0].Asked != "com-zzzz" || got[0].Saw != "" {
+		t.Fatalf("모르는 키는 아무 손도 안 봐야 한다 — 그리고 그 사실이 기록에 남아야 한다: %+v", got[0])
+	}
+
+	// **손이 하나뿐이면 여전히 보여 준다.** 그래야 이름을 못 짓는 창(저장 안 한 덱)이 아무것도 못 보는
+	// 일이 안 난다 — 그 경우 고를 것이 하나뿐이라 틀릴 수가 없다.
+	one := NewHandHub(PPT)
+	one.Join("com-only", "only.pptx")
+	if one.Peek("com-zzzz") == nil {
+		t.Fatal("손이 하나면 모르는 키도 그것을 봐야 한다")
 	}
 	for i := 0; i < peeksKept+3; i++ {
 		hub.Peek("")

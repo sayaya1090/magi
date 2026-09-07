@@ -47,12 +47,32 @@ export function fileNameOf(url) {
   return last;
 }
 
-export async function stableDeckId(runner, note) {
+export async function stableDeckId(runner, note, opts = {}) {
   const say = note ?? ((m) => {
     if (typeof console !== 'undefined') console.warn('[magi] 덱 이름:', m);
   });
   const run = runner ?? (typeof PowerPoint === 'undefined' ? null : PowerPoint.run);
   if (!run) return '';
+  const url = opts.url ?? (typeof Office !== 'undefined' ? Office?.context?.document?.url : '');
+
+  // **이 창이 화면이면 손의 언어로 말한다 — 경로 지문이 먼저다.**
+  //
+  // 1.8 아래 호스트에서 고치는 것은 별도 COM 손이고, 그 손은 자기를 **파일 경로 지문**으로 부른다
+  // (`DeckKey.cs`). 창의 할 일은 「어느 손을 볼지」를 가리키는 것뿐이라, 이름이 그 손과 같아야 한다.
+  //
+  // 아래 태그 자리를 먼저 보면 안 되는 이유가 실물에 있다(2026-09-08, LTSC 2021). 이 호스트는
+  // 태그를 **받아 준다** — 그래서 창은 `deck-<uuid>` 를 짓고 경로 분기까지 **영영 안 내려간다.**
+  // 그러면 창 이름과 손 이름이 같을 길이 없고, 허브는 「가장 최근에 답한 손」으로 물러선다
+  // (`hand.go Peek`). 덱을 둘 열면 **두 창이 같은 손을 봤다** — source 창의 작업창이 target 덱의
+  // 대화에 묶였다. 2026-09-07 에 이 자리를 고쳤다고 적어 뒀는데, 그 고침은 「태그 칸이 없는 판」을
+  // 전제해서 이 호스트에는 닿지도 않았다.
+  //
+  // 창이 손인 판(365)에서는 반대다 — 거기서는 이 창이 곧 손이므로 제가 지은 태그가 정본이고,
+  // 저장 안 한 덱에도 이름이 생긴다. 그래서 갈림은 **역할**이지 호스트 버전이 아니다.
+  if (opts.preferPath && url) {
+    try { return await comDeckId(url); } catch (e) { say(`경로로 이름을 못 지었습니다: ${e?.message ?? e}`); }
+  }
+
   // **어디에 적을지 두 자리를 본다.**
   //
   // 프레젠테이션 태그가 첫째다 — 장을 지우고 옮겨도 남는다. 그런데 그 칸이 없는 판이 있고
@@ -86,10 +106,8 @@ export async function stableDeckId(runner, note) {
       say(`${where} 자리에 못 적었습니다: ${e?.message ?? e}`);
     }
   }
-  // **태그 칸이 없는 판(2021)은 파일 경로로 짓는다** — COM 손(DeckKey.cs)이 pres.FullName 으로 짓는 것과 같은 키라,
-  // 이 창이 보는 손이 **자기 덱의 손**이 된다. 앞 판은 빈 이름을 줘 허브가 「가장 최근 손」을 보여 줬고, 덱을 둘 열면
-  // 두 창이 같은 손을 봐 답이 섞였다(실물 2026-09-07). 저장 안 한 덱은 URL 이 없어 여전히 빈 이름이다.
-  const url = typeof Office !== 'undefined' ? Office?.context?.document?.url : '';
+  // **태그 칸이 없는 판도 파일 경로로 짓는다** — COM 손(DeckKey.cs)이 pres.FullName 으로 짓는 것과 같은 키다.
+  // 위 `preferPath` 가 화면 역할일 때 이 자리를 앞으로 당긴다. 저장 안 한 덱은 URL 이 없어 여전히 빈 이름이다.
   if (url) {
     try { return await comDeckId(url); } catch (e) { say(`경로로 이름을 못 지었습니다: ${e?.message ?? e}`); }
   }

@@ -71,15 +71,20 @@ async function boot() {
   const origin = real ? location.origin + (boot.base ?? '') : undefined;
   const api = real ? new HelperApi({ token: boot.token, origin }) : null;
   // 진짜 문이 아니라 흉내다. 여기서 바꿔 끼우는 것이 곧 「데몬에 붙인다」가 된다(§5.5).
-  // **덱이 자기 이름을 들게 하고, 그 이름으로 붙는다.** 없으면 허브가 붙을 때마다 새 번호를
-  // 발급하고, 그때마다 이 창의 대화가 끊긴다(`stableDeckId` 의 주석).
-  const deckId = real ? await stableDeckId() : '';
   // **이 창이 손인가, 화면인가.** 바닥(PowerPointApi 1.8) 아래 호스트에서는 화면만 맡는다 —
   // 편집은 COM 손이 하고, 이 창이 손으로 붙으면 못 하는 호출을 받아 날 오류를 낸다. 실물
   // LTSC 2021 에서 그 화면을 봤다(2026-09-05, HandRole.js). 재는 것은 isSetSupported 의 답이다.
+  //
+  // **이름보다 먼저 정한다** — 이름 짓는 규칙이 역할에 걸려 있다(바로 아래).
   const role = (real && typeof deck.capabilities === 'function')
     ? handRole({ isHost: deck.isHost, caps: deck.capabilities() })
     : { role: 'hand', why: '' };
+  // **덱이 자기 이름을 들게 하고, 그 이름으로 붙는다.** 없으면 허브가 붙을 때마다 새 번호를
+  // 발급하고, 그때마다 이 창의 대화가 끊긴다(`stableDeckId` 의 주석).
+  //
+  // 화면 역할이면 **손의 언어(경로 지문)로** 짓는다. 제가 지은 태그 이름은 COM 손이 모르는 말이라,
+  // 덱을 둘 열면 두 창이 같은 손을 봤다(실물 2026-09-08 — source 창이 target 덱의 대화에 묶였다).
+  const deckId = real ? await stableDeckId(undefined, undefined, { preferPath: role.role === 'viewer' }) : '';
   const helperStream = real
     ? new HelperStream({
       token: boot.token,

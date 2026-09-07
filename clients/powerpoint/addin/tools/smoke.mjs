@@ -4270,6 +4270,38 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   ok('못 읽으면 빈 이름', (await stableDeckId(broken, (m) => why.push(m))) === '');
   ok('두 자리 다 사유를 남긴다', why.length === 2, why.join(' | '));
   ok('Office 가 없으면 빈 이름', (await stableDeckId(null)) === '');
+
+  // ── 화면 역할이면 **손의 언어로** 이름을 짓는다 ─────────────────────────────
+  //
+  // 실물 LTSC 2021(2026-09-08): 이 호스트는 태그를 **받아 준다.** 그래서 창은 `deck-<uuid>` 를 짓고
+  // 경로 분기까지 영영 안 내려갔고, COM 손은 경로 지문으로 붙으니 둘의 키가 같을 길이 없었다.
+  // 허브는 「가장 최근 손」으로 물러섰고 — 덱을 둘 열자 **두 창이 같은 손을 봤다.** source 창의
+  // 작업창이 target 덱의 대화에 묶였다. 2026-09-07 의 「경로로 짓는다」 고침은 **태그 칸이 없는
+  // 판**을 전제해서 이 호스트에는 닿지도 않았다.
+  const path = 'C:\\Users\\me\\deck.pptx';
+  const tagged = new Map();
+  const tagRunner = async (fn) => fn({
+    presentation: { tags: {
+      getItemOrNullObject: (k) => ({
+        load() {}, get isNullObject() { return !tagged.has(k); }, get value() { return tagged.get(k); },
+      }),
+      add: (k, v) => tagged.set(k, v),
+    } },
+    sync: async () => {},
+  });
+  const asViewer = await stableDeckId(tagRunner, () => {}, { preferPath: true, url: path });
+  ok('화면이면 태그가 먹혀도 경로 지문으로 짓는다', asViewer === (await comDeckId(path)), asViewer);
+  ok('화면이면 덱에 이름을 안 적는다', tagged.size === 0, String(tagged.size));
+
+  // 손인 판(365)에서는 반대다 — 거기서는 이 창이 곧 손이라 제가 지은 태그가 정본이고, 저장 안 한
+  // 덱에도 이름이 생긴다. 갈림은 **역할**이지 호스트 버전이 아니다.
+  const asHand = await stableDeckId(tagRunner, () => {}, { url: path });
+  ok('손이면 태그 이름이 정본', asHand.startsWith('deck-'), asHand);
+  ok('손이면 덱에 적어 둔다', tagged.get(DECK_TAG) === asHand);
+
+  // 저장 안 한 덱은 경로가 없다 — 그때는 화면이어도 태그로 물러선다(아무 이름도 없는 것보다 낫다).
+  const noPath = await stableDeckId(tagRunner, () => {}, { preferPath: true, url: '' });
+  ok('경로가 없으면 화면도 태그로 물러선다', noPath === asHand, noPath);
 }
 
 // ── 「안 붙었다」는 「못 닿는다」가 아니다 ───────────────────────────────────
