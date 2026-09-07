@@ -1,10 +1,13 @@
-using System.Text.Json;
 using Magi.Ppt.Hand;
 
-// magi-ppt-hand — Office 2021 용 COM 손. 헬퍼(magi-ppt)에 붙어 call 을 받고 PowerPoint 를 COM 으로 움직인다.
+// magi-ppt-hand — Office 2021 용 COM 어댑터. 헬퍼(magi office 의 /ppt)에 붙어 call 을 받고 PowerPoint 를 COM 으로 움직인다.
 //   magi-ppt-hand [--helper https://127.0.0.1:3000/ppt] [--presentation <파일 경로>] [--fake]
-// --presentation 은 떠 있는 PowerPoint 의 그 덱에 붙는다(덱마다 손 하나 — 감시기가 열린 덱마다 띄운다); 비면 활성 덱.
-// --fake 는 PowerPoint 없이 메모리 덱으로 붙는다(개발·시험용, mac 에서도 돈다).
+//
+// **인자 없이 띄우면 열린 덱 전부를 맡는다**(Supervisor) — 덱마다 연결 하나, 닫히면 거두고, PowerPoint 가 끝나면 같이
+// 끝난다. 이것을 띄우는 것은 헬퍼다(clients/office/helper/adapter.go): 로그인 때 뜨는 등록은 헬퍼 하나면 되고, 열린 덱을
+// 세는 일은 COM 이 손에 있는 이 프로그램이 한다(2026-09-07 이전에는 PowerShell 감시기가 그 둘을 다 했다).
+//
+// --presentation 은 그 덱 하나에만 붙는다(개발·진단용). --fake 는 PowerPoint 없이 메모리 덱으로 붙는다(mac 에서도 돈다).
 var helperUrl = "https://127.0.0.1:3000/ppt"; // magi office 는 한 포트에서 /ppt·/xl·/word 를 내준다 — 파워포인트 몫이 /ppt
 var fake = false;
 string? presentation = null;
@@ -19,50 +22,19 @@ for (var i = 0; i < args.Length; i++)
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
-IOps ops;
-if (fake) ops = new FakeOps();
-else if (OperatingSystem.IsWindows()) ops = InteropOps.AttachToRunning(presentation);
-else { Console.Error.WriteLine("PowerPoint COM 은 Windows 에서만 붙습니다 — 여기서는 --fake 로 규약만 돌려 볼 수 있습니다."); return 2; }
-
-var client = new HelperClient(helperUrl);
-Console.WriteLine($"magi-ppt-hand: {ops.Label} ({ops.DocumentKey}) → {helperUrl}");
-var backoff = 1000;
-while (!cts.IsCancellationRequested)
+if (fake)
 {
-    try
-    {
-        await client.FetchTokenAsync(cts.Token);
-        Hand? hand = null;
-        await foreach (var f in client.StreamAsync(ops.DocumentKey, ops.Label, cts.Token))
-        {
-            backoff = 1000;
-            if (f.Event == "hello")
-            {
-                var hello = JsonSerializer.Deserialize<Hello>(f.Data, Json.Options)!;
-                hand = new Hand(ops, hello.Epoch, hello.Document);
-                Console.WriteLine($"붙었습니다 — 문서 {hello.Document} · epoch {hello.Epoch}");
-                continue;
-            }
-            if (f.Event == "bye")
-            {
-                // 같은 덱에 새 손이 붙었다 — 헬퍼가 이 손을 물린 것이다. 다시 붙으면 둘이 번갈아 서로를 밀어낸다.
-                Console.WriteLine($"헬퍼가 이 어댑터를 종료시켰습니다({f.Data}). 끝냅니다.");
-                return 0;
-            }
-            if (f.Event != "call" || hand is null) continue;
-            var call = JsonSerializer.Deserialize<HandCall>(f.Data, Json.Options)!;
-            var reply = hand.Handle(call);
-            Console.WriteLine($"{call.Op} → {(reply.Error is null ? "ok" : "error: " + reply.Error)}");
-            await client.ReplyAsync(reply, cts.Token);
-        }
-        Console.WriteLine("스트림이 끝났습니다 — 다시 붙습니다");
-    }
-    catch (OperationCanceledException) { break; }
-    catch (Exception e)
-    {
-        Console.Error.WriteLine($"헬퍼에 못 붙었습니다: {e.Message} — {backoff / 1000}초 뒤 다시");
-    }
-    try { await Task.Delay(backoff, cts.Token); } catch (OperationCanceledException) { break; }
-    backoff = Math.Min(backoff * 2, 15000);
+    await Connection.RunAsync(helperUrl, new FakeOps(), cts.Token);
+    return 0;
 }
-return 0;
+if (!OperatingSystem.IsWindows())
+{
+    Console.Error.WriteLine("PowerPoint COM 은 Windows 에서만 붙습니다 — 여기서는 --fake 로 규약만 돌려 볼 수 있습니다.");
+    return 2;
+}
+if (presentation is not null)
+{
+    await Connection.RunAsync(helperUrl, InteropOps.AttachToRunning(presentation), cts.Token);
+    return 0;
+}
+return await Supervisor.RunAsync(helperUrl, cts.Token);

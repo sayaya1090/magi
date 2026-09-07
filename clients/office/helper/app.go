@@ -30,6 +30,9 @@ type App struct {
 	// ProcWin·ProcMac 은 이 프로그램의 프로세스 이름(Windows 이미지 이름 · macOS 프로세스 이름). 컴패니언은 이 프로세스가
 	// 하나도 없으면 내려간다(idle.go) — 사용자 결정(2026-09-07): 「오피스 컴패니언은 각 프로그램 인스턴스가 없으면 종료」.
 	ProcWin, ProcMac string
+	// AdapterExe 는 이 프로그램의 **편집 어댑터** 실행 파일 이름(파워포인트만 — 2021 의 작업창은 편집을 못 한다).
+	// 헬퍼가 프로그램이 떠 있는데 어댑터가 없으면 띄운다(adapter.go). 비면 그런 것이 없는 프로그램이다.
+	AdapterExe string
 	// Workspace 는 설정 디렉토리 아래 컴패니언 워크스페이스 이름(powerpoint·excel·word).
 	Workspace string
 	// Skills 는 번들 스킬이 든 embed 경로(skills/word).
@@ -84,7 +87,7 @@ func (a *App) refusal(toolName, where, key, got string) string {
 var (
 	PPT = &App{
 		Key: "ppt", Product: "PowerPoint", Noun: "deck", NounKo: "덱", PartKo: "슬라이드는",
-		ProcWin: "POWERPNT.EXE", ProcMac: "Microsoft PowerPoint",
+		ProcWin: "POWERPNT.EXE", ProcMac: "Microsoft PowerPoint", AdapterExe: "magi-ppt-hand.exe",
 		DocPrefix: "pid-", DocParam: "presentation", AddinDir: "powerpoint", Workspace: "powerpoint", Skills: "skills/powerpoint",
 		Catalogue: pptCatalogue, DocumentProp: pptDocumentProp, ValueEnums: pptValueEnums, EnumExempt: nil,
 		Refusal: func(app *App, toolName, where, key, got string) string {

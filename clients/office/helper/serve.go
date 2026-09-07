@@ -296,10 +296,15 @@ type API struct {
 	wide map[string]string
 	// Running·Stop·IdleAfter 는 「프로그램이 없으면 컴패니언도 없다」(idle.go)의 주입 자리. Running 은 (돌고 있나, 알 수
 	// 있나); 기본은 OS 에 묻는다. Stop 의 기본은 데몬의 shutdown 문. IdleAfter 의 기본은 60초.
-	Running   func() (bool, bool)
-	Stop      func(socket string) error
-	IdleAfter time.Duration
-	idleSince time.Time
+	Running func() (bool, bool)
+	Stop    func(socket string) error
+	// AdapterExe·AdapterAlive·SpawnAdapter 는 「PowerPoint 2021 의 편집 어댑터를 헬퍼가 띄운다」(adapter.go)의 주입 자리.
+	// 기본은 헬퍼 실행 파일 옆의 `hand\magi-ppt-hand.exe`, tasklist, 숨겨 띄우기다.
+	AdapterExe   func() string
+	AdapterAlive func() bool
+	SpawnAdapter func(exe string) error
+	IdleAfter    time.Duration
+	idleSince    time.Time
 	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
 	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
 	LifeOf func(socket string) string

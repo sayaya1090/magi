@@ -62,13 +62,15 @@ func (a *API) watchProgram(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case now := <-t.C:
+			// 순서가 뜻을 갖는다: 프로그램이 떠 있으면 어댑터를 띄우고, 없으면 컴패니언을 내린다.
+			a.adapterTick()
 			a.idleTick(now)
 		}
 	}
 }
 
 const (
-	idleTickEvery    = 10 * time.Second
+	idleTickEvery    = 5 * time.Second
 	idleAfterDefault = 60 * time.Second
 )
 
@@ -100,22 +102,25 @@ func (a *API) stopCompanion(socket string) error {
 }
 
 // processRunning 은 그 프로그램의 프로세스가 하나라도 있는가. 둘째 값이 거짓이면 이 OS 에서 못 잰 것이다.
-func processRunning(app *App) (bool, bool) {
+func processRunning(app *App) (bool, bool) { return imageRunning(app.ProcWin, app.ProcMac) }
+
+// imageRunning 은 그 이름의 프로세스가 하나라도 있는가 — (있나, 잴 수 있었나). 이 OS 몫의 이름이 비면 못 재는 것이다.
+func imageRunning(win, mac string) (bool, bool) {
 	switch runtime.GOOS {
 	case "windows":
-		if app.ProcWin == "" {
+		if win == "" {
 			return false, false
 		}
-		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+app.ProcWin, "/NH", "/FO", "CSV").Output()
+		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+win, "/NH", "/FO", "CSV").Output()
 		if err != nil {
 			return false, false
 		}
-		return bytes.Contains(bytes.ToUpper(out), []byte(strings.ToUpper(app.ProcWin))), true
+		return bytes.Contains(bytes.ToUpper(out), []byte(strings.ToUpper(win))), true
 	case "darwin":
-		if app.ProcMac == "" {
+		if mac == "" {
 			return false, false
 		}
-		err := exec.Command("pgrep", "-x", app.ProcMac).Run()
+		err := exec.Command("pgrep", "-x", mac).Run()
 		if err == nil {
 			return true, true
 		}

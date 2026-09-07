@@ -14,11 +14,12 @@
     4. 소켓 자리(~/.magi)를 이 계정의 환경 변수 MAGI_SOCKET_DIR 로 걸고(setx — 평소 magi 도 새 터미널부터 같은 명단을 본다),
        헬퍼를 -config-dir·-socket-dir 로 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나(~/.magi/catalog)에 매니페스트 셋.
-    6. 로그인할 때 헬퍼가 같이 뜨게 한다(Run\magi-office). 볼륨 판이면 손 감시기도(Run\magi-ppt-hand-watch). -NoAutostart 로 끈다.
+    6. 로그인할 때 헬퍼가 같이 뜨게 한다(Run\magi-office 하나뿐이다). -NoAutostart 로 끈다.
 
-  볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 손(magi-ppt-hand.exe)이 편집한다 — 볼륨 판이면 2단계에서 그 손도
-  빌드하고(.NET SDK 필요, 없으면 경고만) hand-watch.ps1 을 헬퍼 옆에 놓는다. 감시기는 PowerPoint 가 덱을 연 채 떠 있으면 손을
-  붙이고 PowerPoint 가 내려가면 거둔다. Excel·Word 2021 은 작업창이 그대로 손이라 손이 없다.
+  볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 어댑터(magi-ppt-hand.exe)가 편집한다 — 볼륨 판이면 그 어댑터도
+  빌드한다(.NET SDK 필요, 없으면 경고만). 어댑터를 띄우는 것은 헬퍼다: PowerPoint 가 떠 있는데 어댑터가 없으면 헬퍼가 띄우고,
+  어댑터가 열린 덱 전부를 맡다가 PowerPoint 가 끝나면 같이 끝난다. 그래서 로그인 때 뜨는 등록은 헬퍼 하나뿐이다(2026-09-07 —
+  그 전에는 PowerShell 감시기가 따로 떴다). Excel·Word 2021 은 작업창이 그대로 손이라 어댑터가 없다.
 
   실측: 2026-09-06 밤 2021(볼륨 판)에서 끝까지 돌았고(그때는 COM 손·소켓 분리 전), 같은 기계에서 세 프로그램의 도구가
   하나씩 전부 돌았다(파워포인트 48·엑셀 76·워드 66 — 각 판 TESTING). COM 손 빌드·감시기·MAGI_SOCKET_DIR 은 2026-09-07 에
@@ -32,14 +33,14 @@
   설치 폴더. 기본 %LOCALAPPDATA%\magi\office
 
 .PARAMETER NoAutostart
-  로그인 때 자동으로 띄우는 등록(HKCU\...\Run 의 magi-office 와 magi-ppt-hand-watch)을 안 하고, 있던 것은 뺀다.
+  로그인 때 자동으로 띄우는 등록(HKCU\...\Run 의 magi-office)을 안 하고, 있던 것은 뺀다. 그러면 Office 창을 열기 전에
+  헬퍼를 손으로 띄워야 한다 — 창이 붙을 자리가 헬퍼이고, Office 는 프로그램을 띄울 줄 모른다.
 
 .PARAMETER NoWait
   먼저 할 것(Go·진짜 공유·.NET SDK)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
 
 .PARAMETER SkipBuild
-  빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본). COM 손도 안 짓는다: Dest\hand 에 이미 있으면 그것을 쓰고,
-  없으면 앞서 걸어 둔 감시기를 도로 띄운다.
+  빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본). COM 어댑터도 안 짓는다: Dest\hand 에 이미 있으면 헬퍼가 그것을 띄운다.
 
 .PARAMETER Clean
   애드인을 **지우고 다시 깐다.** 이 판의 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를
@@ -269,8 +270,6 @@ foreach ($app in $apps) {
   $manifests[$app.key] = Join-Path $addinDest 'manifest.xml'
   Done "$($app.dir)\addin → $addinDest"
 }
-# 손 감시기는 헬퍼 옆에 산다 — $Dest\hand\magi-ppt-hand.exe 를 자기 옆에서 찾는다(hand-watch.ps1 의 $root).
-Copy-Item (Join-Path $repo 'clients\powerpoint\hand-watch.ps1') (Join-Path $Dest 'hand-watch.ps1') -Force
 
 # ── 4. 데몬 권한 모드 = allow ────────────────────────────────────────────────
 Say '설정을 확인합니다'
@@ -407,43 +406,22 @@ if ($perpetual) {
 }
 
 # ── 7. 로그인 때 같이 뜨게 ───────────────────────────────────────────────────
+# **등록은 헬퍼 하나뿐이다.** Office 는 프로그램을 띄울 줄 모르므로 창이 붙을 자리(헬퍼)가 먼저 떠 있어야 한다. 반대로
+# PowerPoint 2021 의 편집 어댑터는 헬퍼가 띄우므로(helper/adapter.go) 제 등록이 필요 없다 — 2026-09-07 까지는 PowerShell
+# 감시기가 그 자리를 차지했고, 사용자가 그것을 짚었다(「2021 은 그런 거 없어도 되잖아」). 옛 등록은 여기서 뺀다.
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
 if ($NoAutostart) {
   Say '자동 시작을 등록하지 않습니다(-NoAutostart)'
   Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
-  Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
+  Warn 'Office 창을 열기 전에 헬퍼를 직접 띄워야 합니다.'
 } else {
   Say '로그인할 때 자동으로 시작되게 합니다'
   New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`" -socket-dir `"$socketDir`"" -PropertyType String -Force | Out-Null
   Done '헬퍼 자동 시작'
-  if ($perpetual -and (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
-    # PowerPoint 2021 의 손은 뜰 때 한 번만 PowerPoint 에 붙으므로 감시기가 필요하다 — PowerPoint 가 덱을 연 채 떠
-    # 있으면 손을 붙이고, PowerPoint 가 내려가면 손을 거둔다(hand-watch.ps1). 로그인 때 같이 뜨고, 지금도 띄운다.
-    $watch = Join-Path $Dest 'hand-watch.ps1'
-    $cmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$watch`""
-    New-ItemProperty -Path $run -Name 'magi-ppt-hand-watch' -Value $cmd -PropertyType String -Force | Out-Null
-    Done '어댑터 자동 시작'
-    if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
-      # **보통 권한으로 띄운다.** 이 설치기를 관리자 창에서 돌리면 여기서 뜬 감시기도 관리자이고, 관리자 프로세스는
-      # 보통 권한 PowerPoint 의 COM(ROT)을 못 본다 — 감시기 로그가 「감시기 시작」 한 줄로 끝나던 자리(실물 2021,
-      # 2026-09-07). runas /trustlevel 은 관리자 토큰을 벗긴 기본 토큰으로 띄운다; 관리자가 아니면 그냥 띄운다.
-      if ($elevated) { Start-Process runas.exe -ArgumentList @('/trustlevel:0x20000', $cmd) -WindowStyle Hidden | Out-Null }
-      else { Start-Process powershell.exe -ArgumentList @('-NoProfile', '-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', $watch) -WindowStyle Hidden | Out-Null }
-      Done "어댑터 감시기를 시작했습니다"
-    }
-  } elseif ($perpetual) {
-    # 여기서 손을 못 지었어도(.NET SDK 없음, -SkipBuild) 앞서 걸어 둔 감시기(이전 실행이나 옛 파워포인트 판 설치기의 것)가
-    # 있을 수 있다 — 2단계에서 그 감시기를 멈췄으니 **도로 띄운다.** 안 그러면 다음 로그인까지 손이 안 붙는다(2021,
-    # 2026-09-07: 「피피티 핸드가 자동으로 안 켜져」 — 통합 설치기가 옛 감시기를 죽이고 제 것은 안 띄운 자리).
-    $prev = (Get-ItemProperty $run -Name 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue).'magi-ppt-hand-watch'
-    if ($prev) {
-      if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
-        Start-Process cmd.exe -ArgumentList @('/c', $prev) -WindowStyle Hidden | Out-Null
-        Done "이전 감시기를 다시 시작했습니다"
-      }
-    } else {
-      Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.'
-    }
+  if ($perpetual) {
+    if (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe')) { Done 'PowerPoint 편집 어댑터는 헬퍼가 띄웁니다 — 따로 등록하지 않습니다' }
+    else { Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.' }
   }
 }
 

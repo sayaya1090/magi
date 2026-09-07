@@ -43,6 +43,25 @@ public sealed partial class InteropOps : IOps
         (text ?? "").Replace("\r\n", "\r").Replace('\n', '\r');
 
     /// <summary>
+    /// 지금 열려 있는 덱의 파일 경로 전부. **못 닿으면 null** — 「덱이 없다」와 다른 사실이라 갈라 돌려준다
+    /// (PowerPoint 가 뜨는 중이거나, 이 프로세스와 권한 수준이 다르면 못 닿는다). 빈 목록은 「열린 덱이 없다」다.
+    /// </summary>
+    public static IReadOnlyList<string>? OpenDecks()
+    {
+        try
+        {
+            var app = (PowerPoint.Application)GetActiveObject("PowerPoint.Application");
+            var open = new List<string>();
+            foreach (PowerPoint.Presentation p in app.Presentations)
+            {
+                try { open.Add(p.FullName); } catch { /* 그 덱만 못 읽었다 */ }
+            }
+            return open;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
     /// 떠 있는 PowerPoint 의 **그 덱**에 붙는다. presentation 이 비면 활성 덱 — 덱이 하나일 때의 옛 길이다.
     /// 덱이 둘 이상이면 손도 덱마다 하나여야 한다(감시기가 열린 덱마다 하나씩 띄운다): 손 하나가 활성 덱에만
     /// 붙으면 다른 창의 부탁이 그 덱에 떨어진다(실물 2026-09-07, 답이 섞임).

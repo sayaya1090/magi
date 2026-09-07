@@ -24,7 +24,7 @@ PowerPointApi 1.2 까지라 손이 아니라 **화면**으로만 붙고(`/hand/s
 | 프로세스 | 몇 개 | 무엇 | 소스 |
 |---|---|---|---|
 | COM 손 `magi-ppt-hand` | PowerPoint 당 하나 | 떠 있는 PowerPoint 에 COM 으로 붙어 같은 48개 도구를 수행 — 헬퍼에는 작업창과 같은 손으로 보인다 | `hand-com/` (.NET 9) |
-| 손 감시기 `hand-watch.ps1` | 사용자당 하나 | PowerPoint 가 덱을 연 채로 떠 있으면 손을 붙이고, 내려가면 정리 — 손은 뜰 때 한 번만 붙는다 | `hand-watch.ps1` |
+| 편집 어댑터 `magi-ppt-hand.exe` | 사용자당 하나(열린 덱 전부를 맡는다) | PowerPoint 가 떠 있으면 **헬퍼가** 띄우고(`helper/adapter.go`), PowerPoint 가 끝나면 스스로 끝난다 — 어댑터는 뜰 때 한 번만 붙는다 | `hand-watch.ps1` |
 
 넷(또는 여섯)을 한 번에 놓는 것이 `install.ps1` 입니다 — Office 판을 읽어 어느 쪽인지 고릅니다.
 

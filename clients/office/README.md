@@ -14,7 +14,7 @@ go build -o magi ./cmd/magi
 ```
 
 볼륨 판(LTSC 2021) PowerPoint 는 작업창으로 편집이 안 돼 COM 손(`magi-ppt-hand`)이 편집한다. `clients/office/install.ps1`
-은 볼륨 판이면 그 손도 짓고(.NET SDK 필요) 손 감시기(`hand-watch.ps1`)를 로그인 때 같이 뜨게 건다(2026-09-07 — 그 전엔
+은 볼륨 판이면 그 어댑터도 짓는다(.NET SDK 필요). 어댑터를 띄우는 것은 헬퍼다(`helper/adapter.go`) — 로그인 때 뜨는 등록은 헬퍼 하나뿐이다(2026-09-07 — 그 전엔
 파워포인트 판 설치기에 미뤄, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다).
 
 Windows 에서 컴패니언 셋은 평소의 magi 와 **같은 설정 나무**(`%APPDATA%\magi` — config.toml·plugins)를 보고, 소켓과 명단
