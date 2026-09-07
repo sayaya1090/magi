@@ -13,7 +13,7 @@
 ```
 
 하는 일 — Office 판을 읽고(M365 인가 볼륨 판인가), `magi.exe` 하나를 빌드해(헬퍼는 `magi office` 안) `%LOCALAPPDATA%\magi\ppt` 에
-놓고, 애드인 파일을 그 옆에 복사하고, 데몬 권한 모드를 **allow** 로 두고(`~/.magi/config.toml`, 사용자 결정),
+놓고, 애드인 파일을 그 옆에 복사하고, 데몬 권한 모드를 **allow** 로 두고(`%APPDATA%\magi\config.toml` — 평소 magi 와 같은 파일, 사용자 결정),
 헬퍼를 띄우고, 인증서를 이 계정의 신뢰 저장소에 넣고(Windows 가 한 번 묻는다), 애드인을 등록하고(M365 는 개발자
 키, 볼륨 판은 신뢰 카탈로그 `~/.magi/catalog` — 엑셀 판과 같은 폴더·같은 키), 로그인 때 헬퍼가 같이 뜨게 한다. 볼륨 판이면 COM 손을 빌드하고
 **손 감시기**(`hand-watch.ps1`)도 건다 — PowerPoint 가 덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면
@@ -23,8 +23,10 @@
 끝나면 PowerPoint 를 껐다 켜고, 볼륨 판은 **삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가** 를 한 번 한다.
 
 이 머신(LTSC 2021)에서 잰 것(2026-09-06): 설치기가 끝까지 돌고, 공유 폴더에 Magi(AI Assistant) 가 서고, 추가하면 홈 탭에 단추가
-서고, 창이 열리고, 감시기가 손을 붙여 헬퍼가 덱 하나(COM)를 본다. 설치기를 만들며 잡은 것 셋 — 헬퍼의 기본
-설정 디렉토리가 `%APPDATA%\magi` 라 거기에 **새 인증서**를 만들어 버린다(그래서 `-config-dir ~/.magi` 를 못 박는다);
+서고, 창이 열리고, 감시기가 손을 붙여 헬퍼가 덱 하나(COM)를 본다. 설치기를 만들며 잡은 것 셋 — `%APPDATA%\magi`
+아래에는 유닉스 주소 100바이트 한도로 소켓이 안 선다(그래서 처음엔 `-config-dir ~/.magi` 를 못 박았는데, 그러면
+컴패니언이 평소 magi 와 다른 config.toml·plugins 를 봐 플러그인이 넣는 백엔드가 없었다 — 2026-09-07 부터는 설정은
+`%APPDATA%\magi` 그대로, 소켓·명단·카탈로그만 `MAGI_SOCKET_DIR=~/.magi`, 설치기가 `setx` 로 건다);
 PowerShell 5.1 의 TLS 클라이언트는 이 Go 서버와 악수를 못 한다(살아 있는지는 `curl.exe`/TCP 로 묻는다);
 `%LOCALAPPDATA%` 아래는 관리 공유로 닿지 않았다(카탈로그를 `~/.magi` 아래에 둔다).
 

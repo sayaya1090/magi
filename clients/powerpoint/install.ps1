@@ -47,10 +47,12 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
 $addinSrc = Join-Path $PSScriptRoot 'addin'
-# 설정 디렉토리는 **~/.magi 로 못 박는다.** 헬퍼의 기본값은 %APPDATA%\magi 인데, 이 머신에서 그 아래에는
-# AF_UNIX 소켓이 안 선다(MANUAL §2.5) — 헬퍼가 띄운 데몬에 아무도 못 붙는다. 그리고 첫 설치 시험(2026-09-06)에서
-# 헬퍼가 거기에 **새 인증서**를 만들어, 신뢰 저장소에 든 것과 다른 인증서로 떠 있었다.
-$configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:USERPROFILE '.magi' }
+# **설정은 평소의 magi 것(%APPDATA%\magi), 소켓만 ~/.magi.** %APPDATA%\magi 아래에는 유닉스 주소 100바이트 한도 때문에
+# 소켓이 안 서서(MANUAL §2.5) 2026-09-07 까지는 설정 디렉토리 자체를 ~/.magi 로 못 박았는데, 그러면 컴패니언이 평소 magi 와
+# 다른 config.toml·plugins 를 봐 플러그인이 넣는 백엔드가 없었다. 이제 MAGI_SOCKET_DIR 로 소켓·명단·카탈로그만 짧은
+# 자리에 두고 설정은 그대로 읽는다(clients/office/install.ps1 과 같은 모양). 인증서는 설정 디렉토리에 있다.
+$configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:APPDATA 'magi' }
+$socketDir = if ($env:MAGI_SOCKET_DIR) { $env:MAGI_SOCKET_DIR } else { Join-Path $env:USERPROFILE '.magi' }
 $helperUrl = 'https://127.0.0.1:3000/ppt'   # magi office 의 파워포인트 몫
 # PowerShell 5.1 은 TLS 1.0 으로 말을 건다 — Go 서버는 1.2 이상만 받는다. 이것이 없으면 「기본 연결이 닫혔습니다」.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -150,7 +152,9 @@ if ($live) {
 # ── 5. 헬퍼를 띄우고 인증서를 넣는다 ─────────────────────────────────────────
 Say '헬퍼를 띄운다'
 $helperExe = Join-Path $Dest 'magi.exe'
-$helperArgs = @('office', '-config-dir', $configDir)
+New-Item -ItemType Directory -Force $socketDir | Out-Null
+& setx MAGI_SOCKET_DIR $socketDir | Out-Null   # 평소 magi 도 새 터미널부터 같은 명단을 본다
+$helperArgs = @('office', '-config-dir', $configDir, '-socket-dir', $socketDir)
 if (-not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue)) {
   Start-Process -FilePath $helperExe -ArgumentList $helperArgs -WorkingDirectory $Dest -WindowStyle Hidden | Out-Null
 }
@@ -214,7 +218,7 @@ if ($perpetual) {
   # **카탈로그는 하나다 — 엑셀 판과 같은 폴더(~/.magi/catalog), 같은 키.** 같은 머신의 Excel 2021 은 TrustedCatalogs 아래에
   # 키가 둘 이상이면 「설정을 읽는 도중 문제가 발생」이라며 전부 지운다(2026-09-06 실측) — 이 판의 키까지. 두 설치기가
   # 한 폴더에 각자의 매니페스트를 놓고 키 하나를 같이 쓴다.
-  $catalog = Join-Path $configDir 'catalog'
+  $catalog = Join-Path $socketDir 'catalog'
   New-Item -ItemType Directory -Force $catalog | Out-Null
   $copy = Join-Path $catalog 'magi-ppt-manifest.xml'
   # 매니페스트가 바뀌었으면 리본 캐시를 지운다 — 안 지우면 PowerPoint 가 옛 이름·옛 단추를 그린다(2026-09-06 실측:
@@ -235,7 +239,7 @@ if ($perpetual) {
   }
   if (-not $unc) {
     $unc = '\\localhost\' + $catalog.Substring(0, 1) + '$' + $catalog.Substring(2)
-    Warn "진짜 공유가 없어 관리 공유($unc)를 쓴다. 같은 머신의 Excel 2021 이 이 등록을 켤 때마다 지운다 — 관리자 PowerShell 에서: New-SmbShare -Name magi -Path `"$configDir`" -ReadAccess $env:USERNAME"
+    Warn "진짜 공유가 없어 관리 공유($unc)를 쓴다. 같은 머신의 Excel 2021 이 이 등록을 켤 때마다 지운다 — 관리자 PowerShell 에서: New-SmbShare -Name magi -Path `"$socketDir`" -ReadAccess $env:USERNAME"
   }
   $keys = @(Get-ChildItem "$wef\TrustedCatalogs" -ErrorAction SilentlyContinue)
   # 우리 것이 아닌 magi 카탈로그 키(옛 자리 ppt-catalog·xl-catalog, 옛 관리 공유 주소)는 지운다 — 키가 둘이면 같은 머신의
@@ -266,7 +270,7 @@ if ($NoAutostart) {
   Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
 } else {
   Say '로그인할 때 헬퍼가 뜨게 한다'
-  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`"" -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`" -socket-dir `"$socketDir`"" -PropertyType String -Force | Out-Null
   Done 'Run\magi-office'
   if ($perpetual -and (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
     $watch = Join-Path $Dest 'hand-watch.ps1'
