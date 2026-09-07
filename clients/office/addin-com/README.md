@@ -50,8 +50,51 @@ dotnet build -r win-x64 --self-contained false     # comhost.dll 은 Windows RID
 
 `bin/…/magi-office-start.comhost.dll` 과 그 옆의 `.dll`·`.runtimeconfig.json`·`.deps.json` 이 한 벌입니다.
 
+## vtable — 이 파일이 한 번 Office 를 죽였다
+
+`IDTExtensibility2` 는 **dual** 인터페이스입니다. vtable 이 **IUnknown(3) + IDispatch(4) + 메서드(5)** 예요.
+
+첫 판은 이것을 `[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]` 로 선언했습니다. 그러면 CLR 은 **IDispatch
+일곱 슬롯짜리 vtable 만** 만듭니다. Office 는 `OnConnection` 을 여덟째 슬롯에서 부르고 — **빈 자리로 뜁니다.**
+
+실물(2026-09-07, LTSC 2021 16.0.14334): PowerPoint 를 켜면 20초쯤 뒤 창이 그냥 사라졌습니다.
+
+```
+Microsoft Office 16 : PowerPoint에서 'magi.office.start' 추가 기능을 사용할 경우 문제가 발생합니다…
+.NET Runtime        : POWERPNT.EXE | CoreCLR 9.0.19 | terminated due to an unhandled exception
+                      System.AccessViolationException: Attempted to read or write protected memory
+Application Error   : POWERPNT.EXE  예외 코드: 0xc0000005
+```
+
+**「무슨 일이 있어도 안 던진다」는 관리 코드 안에서만 참입니다.** 여기는 관리 코드에 **닿기 전**이라 `try/catch` 로
+못 막습니다 — 막는 자리는 선언 하나뿐입니다. 그래서 지금은 `InterfaceIsIUnknown` 으로 선언하고 **IDispatch 넷을
+손으로 앞에 적습니다.** 인자는 전부 `IntPtr` 이고 `[PreserveSig]` 로 HRESULT 를 직접 답합니다 — 원래 시그니처의
+`object`·`ref Array` 는 VARIANT/SAFEARRAY 마샬링을 타는데, 우리는 그 인자를 하나도 안 씁니다.
+
+`IID_IDispatch` 로 물으면 `ICustomQueryInterface` 로 **같은 vtable** 을 내줍니다. dual 이라 앞머리가 IDispatch 이므로
+그게 맞는 답이고, 이렇게 해야 늦은 바인딩 호출이 CLR 의 IDispatch 로 안 갑니다 — 그쪽은 타입 라이브러리를 요구하는데
+(`Typelib export: Type library is not registered`) `EnableComHosting` 은 TLB 를 만들지도 등록하지도 않습니다.
+
+무는 자리: `clients/office/helper/addin_com_vtable_test.go`. 소스를 글자로 읽습니다 — 이 결함은 Go 로도 C# 로도
+못 잡습니다. 틀리면 **프로세스가 죽어서** 시험이 결과를 못 받기 때문입니다. 돌연변이 둘(선언 되돌리기·IDispatch
+슬롯 빼기) 다 울립니다.
+
+## 실측 (2026-09-07 · Office LTSC 2021 16.0.14334 · x64)
+
+| 잰 것 | 결과 |
+|---|---|
+| 등록 뒤 PowerPoint 를 켠다 | ✓ 안 죽고, `start.log` 에 `[POWERPNT] 헬퍼를 띄웠습니다 …` 가 적힌다 |
+| Office 가 `LoadBehavior` 를 2 로 내리는가 | ✗ 안 내린다 — 3 그대로 |
+| 셋을 다 켠다(PowerPoint·Excel·Word) | ✓ 헬퍼는 **하나**. 뒤의 둘은 포트가 열린 것을 보고 아무것도 안 한다(로그에 줄이 안 는다) |
+| Office 를 다 끈다 | ✓ **60초에 헬퍼·컴패니언·어댑터가 전부 스스로 끝난다** — 이 계정에 magi 가 하나도 안 남는다 |
+| 다시 켠다 | ✓ 다시 뜬다(`start.log` 에 둘째 줄) |
+| 로그인 등록 | ✓ 하나도 없다(`Run` 키에 magi 없음) |
+
+이 표가 사용자 요구 둘을 그대로 잰 것입니다 — **상주 프로세스도 시작 프로그램 등록도 없을 것**, 그리고 **Office 를
+켜는 것 말고 사람이 따로 켜거나 관리할 것이 없을 것**.
+
 ## 아직 안 잰 것
 
-**실물 Office 에 등록해서 돌린 적이 없습니다**(2026-09-07 작성). 이 저장소에서 잰 것은 빌드가 되고 comhost 가 나오는
-것까지입니다. 실물에서 볼 것: 등록 뒤 Office 를 켰을 때 헬퍼가 뜨는가, `start.log` 에 무엇이 적히는가, 32비트 Office
-에서 비트가 갈리는가, Office 가 `LoadBehavior` 를 2 로 내리지 않는가.
+- **32비트 Office.** 이 머신은 x64 라 비트가 갈리는 자리를 안 밟았습니다.
+- **Microsoft 365.** 이 머신은 볼륨 판 2021 입니다.
+- **Mac.** Office for Mac 은 COM 추가 기능을 안 받습니다 — 거기서는 이 길 자체가 없습니다(`../README.md`).

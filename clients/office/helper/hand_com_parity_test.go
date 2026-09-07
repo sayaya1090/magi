@@ -12,9 +12,12 @@ import (
 // catalogue 와 같은 이름들이어야 한다 — 여기 도구가 하나 늘면 저쪽이 「모른다」로 거절하고, 저쪽에만 있는
 // 이름은 아무도 못 부른다. 그 소스를 여기서 읽어 양쪽 차집합이 비어 있는지 잰다.
 func TestTheComHandKnowsExactlyTheCatalogue(t *testing.T) {
-	src, err := os.ReadFile("../hand-com/src/Hand.cs")
+	// 자리는 `clients/powerpoint/hand-com` 이다. 2026-09-07 까지 여기가 `../hand-com` 이라 **이 시험은 한 번도
+	// 안 돌았다** — `t.Skip` 은 화면에서 초록과 구별이 안 된다(TESTING §9.1 의 「초록인데 안 재고 있던 모양」).
+	// 그래서 못 읽으면 건너뛰지 않고 실패한다: 이 파일이 옮겨지면 그 사실이 바로 보여야 한다.
+	src, err := os.ReadFile("../../powerpoint/hand-com/src/Hand.cs")
 	if err != nil {
-		t.Skip("hand-com 이 옆에 없다: ", err)
+		t.Fatalf("COM 손의 소스를 못 읽었다(%v) — 자리가 바뀌었으면 이 경로를 같이 고친다", err)
 	}
 	s := string(src)
 	i := strings.Index(s, "Known = new HashSet<string> {")

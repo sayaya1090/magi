@@ -335,6 +335,29 @@ New-Item -ItemType Directory -Force $socketDir | Out-Null
 & setx MAGI_SOCKET_DIR $socketDir | Out-Null
 Done "MAGI_SOCKET_DIR = $socketDir"
 $helperArgs = @('office', '-config-dir', $configDir, '-socket-dir', $socketDir)
+
+# 2026-09-07 에 설정 자리와 소켓 자리를 갈랐다(설정은 %APPDATA%\magi, 소켓만 ~/.magi). **인증서는 설정 자리를
+# 따라간다** — 그래서 그 전에 깐 머신은 신뢰 저장소에 든 것이 옛 자리(~/.magi)에 남고, 헬퍼는 새 자리에 만든
+# **아무도 안 믿는** 인증서로 TLS 를 선다. 그러면 작업창이 흰 화면이고 데몬도 MCP 문에 못 붙는데(엑셀 판
+# TESTING §4b 의 `x509: certificate signed by unknown authority`), 화면에는 아무 사유도 안 뜬다.
+# 그래서 **띄우기 전에** 옮긴다: 새 자리에 없거나 있는 것이 안 믿기는데 옛 자리 것이 믿기면, 믿기는 쪽을 쓴다.
+$oldPem = Join-Path $socketDir 'office-helper-cert.pem'
+$oldKey = Join-Path $socketDir 'office-helper-key.pem'
+$newPem = Join-Path $configDir 'office-helper-cert.pem'
+$newKey = Join-Path $configDir 'office-helper-key.pem'
+function Test-Trusted($path) {
+  if (-not (Test-Path $path)) { return $false }
+  try {
+    $c = New-Object Security.Cryptography.X509Certificates.X509Certificate2 $path
+    return [bool](Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Thumbprint -eq $c.Thumbprint })
+  } catch { return $false }
+}
+if ((Test-Path $oldPem) -and (Test-Path $oldKey) -and (Test-Trusted $oldPem) -and -not (Test-Trusted $newPem)) {
+  New-Item -ItemType Directory -Force $configDir | Out-Null
+  Copy-Item $oldPem $newPem -Force; Copy-Item $oldKey $newKey -Force
+  Done '옛 자리의 인증서를 설정 디렉토리로 옮겼습니다(이미 신뢰된 것이라 다시 안 묻습니다)'
+}
+
 $listening = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
 if (-not $listening) {
   Start-Process -FilePath $helperExe -ArgumentList $helperArgs -WorkingDirectory $Dest -WindowStyle Hidden | Out-Null

@@ -54,6 +54,15 @@ config 를 복사해도 소용이 없어, 소켓 자리를 떼는 것으로 갈�
 재는 것은 프로세스다(Windows `tasklist`, mac `pgrep`). **못 재는 OS 에서는 아무것도 안 내린다** — 모르는 것을 「없다」로
 읽으면 사람이 쓰는 헬퍼를 끈다. 개발할 때 Office 없이 헬퍼를 띄워 두려면 `-keep-running`.
 
+**실측(2026-09-07, LTSC 2021 16.0.14334 · x64).** 이 표를 끝까지 돌렸다 — PowerPoint 를 켜면 COM 추가 기능이 헬퍼를
+띄우고(`start.log`), 셋을 다 켜도 헬퍼는 하나이고, 다 끄면 **60초에 헬퍼·컴패니언·어댑터가 전부 스스로 끝나** 이
+계정에 magi 가 하나도 안 남고, 다시 켜면 다시 뜬다. 로그인 등록은 하나도 없다. 자세한 표는
+[`addin-com/README.md`](addin-com/README.md) §실측.
+
+그 전에 **그 추가 기능이 PowerPoint 를 죽이고 있었다** — `IDTExtensibility2` 를 `InterfaceIsIDispatch` 로 선언해
+vtable 이 넷 밀렸고, Office 가 `OnConnection` 을 부르는 순간 `AccessViolationException` 으로 프로세스가 사라졌다.
+사유와 고친 모양은 같은 문서에 있다. 재는 자리는 `helper/addin_com_vtable_test.go`.
+
 **헬퍼는 다시 띄워 줄 것이 있을 때만 스스로 끝난다**(`wakesUpAgain`). Windows 는 COM 추가 기능이, 맥은 launchd 가 그 일을
 한다. 둘 다 없으면(손으로 띄운 헬퍼, `-NoAutostart` 로 깐 판) 안 끝낸다 — 끝내면 다음에 Office 를 켤 때 빈 창이 뜬다.
 
