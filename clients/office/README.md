@@ -6,6 +6,34 @@
 한 벌로 모았다 — 사람이 신뢰 저장소에 넣는 인증서가 **하나**, 자동 시작이 하나, 볼륨 판 Excel 의 신뢰 카탈로그 키가 하나,
 받을 파일이 하나(`magi`)가 되게.
 
+## 까는 법
+
+```powershell
+.\install.ps1
+```
+
+**툴체인이 필요 없다.** 설치기가 릴리스에서 받는다 — 코어는 `v*` 레인에서, Office 자산 둘은
+`office-v*` 레인에서. 어느 판인지는 `badges` 브랜치의 한 줄짜리 파일(`core-latest.txt`·
+`office-latest.txt`)이 말한다. `/releases/latest` 를 안 쓰는 이유는 그것이 이 저장소의 네 레인을
+안 가려서다 — 콘솔이 더 최근에 나갔으면 Office 자산은 404 이고 `checksums.txt` 는 남의 것을 200 으로
+답한다.
+
+추가 기능만 .NET 데스크톱 런타임이 필요하고(자체 포함이 COM 호스팅에서 미지원이라 그렇다),
+없으면 설치기가 받아서 깐다. 어댑터는 자체 포함이라 런타임과 무관하다.
+
+⚠ **32비트 Office 는 릴리스 자산이 없다.** COM 추가 기능은 Office 프로세스 안에서 뜨므로 비트 수가
+같아야 하고, 레인은 x64 만 낸다. 그 경우 설치기가 사유를 말하고 멈춘다 — 아래 `-FromSource` 로는 된다.
+
+### 저장소에서 짓기
+
+```powershell
+.\install.ps1 -FromSource     # Go + .NET 9 SDK 가 필요하다
+```
+
+고치는 사람의 자리다. 방금 고친 것이 배포판보다 중요할 때 쓴다.
+
+### 헬퍼를 직접 굴리기
+
 ```
 go build -o magi ./cmd/magi
 ./magi office -cert-hint         # <config>/office-helper-cert.pem 을 신뢰 저장소에 — 한 번
@@ -13,8 +41,8 @@ go build -o magi ./cmd/magi
 ./magi office -allow-rules=xl    # 그 프로그램의 읽기 도구 허용 규칙(config.toml 에 붙여 넣는다)
 ```
 
-볼륨 판(LTSC 2021) PowerPoint 는 작업창으로 편집이 안 돼 COM 손(`magi-ppt-hand`)이 편집한다. `clients/office/install.ps1`
-은 볼륨 판이면 그 어댑터도 짓는다(.NET SDK 필요). 어댑터를 띄우는 것은 헬퍼다(`helper/adapter.go`) — 로그인 때 뜨는 등록은 헬퍼 하나뿐이다(2026-09-07 — 그 전엔
+볼륨 판(LTSC 2021) PowerPoint 는 작업창으로 편집이 안 돼 COM 손(`magi-ppt-hand`)이 편집한다. 설치기가
+볼륨 판이면 그 어댑터도 받는다. 어댑터를 띄우는 것은 헬퍼다(`helper/adapter.go`) — 로그인 때 뜨는 등록은 헬퍼 하나뿐이다(2026-09-07 — 그 전엔
 파워포인트 판 설치기에 미뤄, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다).
 
 Windows 에서 컴패니언 셋은 평소의 magi 와 **같은 설정 나무**(`%APPDATA%\magi` — config.toml·plugins)를 보고, 소켓과 명단
