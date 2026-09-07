@@ -997,9 +997,14 @@ type Taker interface {
 	// asked about with. A refusal is an error — this companion is mid-turn, or not published —
 	// because a refusal is an answer and the wire has one place for sentences a caller reads.
 	//
-	// looking says the asker declared this a QUESTION: the receiver runs it with the four tools
-	// that only read, and because such a turn cannot touch the workspace it need not wait for one
-	// that can. It is the receiver that enforces it, not the asker — an asker cannot bind anybody.
+	// looking says the asker declared this a QUESTION: the receiver runs it with the tools that only
+	// read, and because such a turn cannot touch the workspace it need not wait for one that can. It
+	// is the receiver that enforces it, not the asker — an asker cannot bind anybody.
+	//
+	// "Only read" is the four file tools PLUS any tool that declares it changes nothing
+	// (port.ReadOnlyTool). The four alone left an Office companion with nothing: its workspace is a
+	// document, not files, so a read-only question about it could not be answered at all
+	// (measured 2026-09-07, the Word companion said it had no tool to read the document with).
 	Hand(ctx context.Context, label, request string, looking bool) (receipt string, err error)
 	// Handed says what became of the work a receipt stands for. Read-only, and called by whoever
 	// is waiting, so it must stay cheap and must never make something happen.

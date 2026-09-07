@@ -241,7 +241,9 @@ it calls.
 ### Companion to companion, machine to machine
 
 On one machine, companions hand work to each other (hand_off — the first finished turn's last
-words come back as the answer) and hold meetings (participants get the four looking tools only).
+words come back as the answer) and hold meetings (participants get the looking tools only — the four
+file ones plus whatever their add-ins declare read-only, so a question about a workbook or a deck can
+be answered; the four alone left an Office companion with nothing to read, measured 2026-09-07).
 Between machines there is one TLS door, trusted by ssh key, carrying narrowed queries and the
 set-union replication of team knowledge (exp-sync).
 

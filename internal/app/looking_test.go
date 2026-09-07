@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/port"
 )
 
 // A session opened to answer a question may only look, and nothing else in the workspace has to
@@ -60,4 +63,66 @@ func TestWritingRunIgnoresATurnThatCannotWrite(t *testing.T) {
 	if _, busy := a.WritingRun(); !busy {
 		t.Error("a turn that can write is not reported as holding the workspace")
 	}
+}
+
+// declaresReadOnly is an MCP-backed tool the way the office helper's read tools arrive: a name no
+// built-in list contains, and its server's own word that it changes nothing.
+type declaresReadOnly struct {
+	name string
+	ro   bool
+}
+
+func (d declaresReadOnly) Name() string            { return d.name }
+func (d declaresReadOnly) Description() string     { return "reads a document through the add-in" }
+func (d declaresReadOnly) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (d declaresReadOnly) ReadOnly() bool          { return d.ro }
+func (d declaresReadOnly) Execute(context.Context, json.RawMessage, port.ToolEnv) (session.ToolResult, error) {
+	return session.ToolResult{}, nil
+}
+
+// A looking session may use a tool that DECLARES it only reads, even though its name is not one of
+// the four.
+//
+// Measured (2026-09-07): a looking hand_off to the Word companion answered that it had no tool to
+// read the document with. The four names are filesystem tools, and a companion whose workspace is a
+// document has nothing to read with them — so a read-only question about the document could not be
+// answered at all. The writing tool beside it stays out: the role still means what it says.
+func TestALookingSessionMayUseToolsThatDeclareTheyOnlyRead(t *testing.T) {
+	reads := declaresReadOnly{name: "mcp__word__list_paragraphs", ro: true}
+	writes := declaresReadOnly{name: "mcp__word__insert_paragraph", ro: false}
+	a := &App{cfg: Config{}, tools: manyTools{reads, writes}}
+	a.cfg = a.cfg.withDefaults()
+
+	looking := a.agentFor(session.Session{ID: "s1", Agent: LookingAgent})
+	got := map[string]bool{}
+	for _, s := range a.toolSpecs("s1", looking) {
+		got[s.Name] = true
+	}
+	if !got[reads.name] {
+		t.Error("a tool that says it only reads was kept from a session that may only look")
+	}
+	if got[writes.name] {
+		t.Error("a tool that does NOT say it only reads was offered to a session that may only look")
+	}
+
+	// An ordinary session is untouched — it had both already.
+	ordinary := a.agentFor(session.Session{ID: "s2"})
+	if n := len(a.toolSpecs("s2", ordinary)); n != 2 {
+		t.Errorf("an ordinary session saw %d tools, not both", n)
+	}
+}
+
+// manyTools is a registry over a fixed set.
+type manyTools []port.Tool
+
+func (m manyTools) Register(port.Tool) {}
+func (m manyTools) Unregister(string)  {}
+func (m manyTools) List() []port.Tool  { return m }
+func (m manyTools) Get(n string) (port.Tool, bool) {
+	for _, t := range m {
+		if t.Name() == n {
+			return t, true
+		}
+	}
+	return nil, false
 }

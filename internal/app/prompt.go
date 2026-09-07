@@ -24,11 +24,31 @@ import (
 // sid is the conversation being served. A tool attached FOR a conversation is advertised to that
 // one alone — see port.Owned. Every other tool (builtins, config-declared servers) has no owner and
 // is advertised to all, which is what this function did before owners existed.
+// looksOnlyReads widens the LOOKING role by the one thing its fixed list cannot know: a tool that
+// DECLARES it changes nothing (port.ReadOnlyTool — an MCP server's `annotations.readOnlyHint`).
+//
+// The four names in ReadOnlyToolNames are filesystem tools, and for a companion whose workspace is
+// a WORKBOOK the document is not a file it can read. Measured (2026-09-07): a looking hand_off to
+// the Word companion answered "이 요청을 받은 세션에는 문서를 읽을 수 있는 도구가 연결되어 있지 않고" —
+// the question was about the document, and the only tools that can see a document were all filtered
+// out. A read-only question that cannot read is not a narrower answer; it is no answer.
+//
+// The declaration is the server's own word, which is the same word compaction already trusts to
+// elide a result (compact.go). It is the only signal there is: nothing else can tell a reading
+// tool from a writing one, and the alternative — no MCP tools at all — is what this repairs.
+func looksOnlyReads(agent AgentSpec, t port.Tool) bool {
+	if agent.Name != LookingAgent {
+		return false
+	}
+	ro, can := t.(port.ReadOnlyTool)
+	return can && ro.ReadOnly()
+}
+
 func (a *App) toolSpecs(sid session.SessionID, agent AgentSpec) []port.ToolSpec {
 	var specs []port.ToolSpec
 	for _, t := range a.tools.List() {
 		name := t.Name()
-		if !agent.allows(name) {
+		if !agent.allows(name) && !looksOnlyReads(agent, t) {
 			continue
 		}
 		if !port.VisibleToSession(t, string(sid)) {
