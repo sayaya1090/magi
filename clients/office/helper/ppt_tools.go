@@ -114,8 +114,9 @@ func pptCatalogue(hasCouncil bool) []tool {
 		{
 			Name: "describe_style",
 			Desc: "What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was measured over. " +
-				"TO CARRY A LOOK FROM ANOTHER DECK, read the other one — call list_documents for its key, then this and list_layouts and read_slide with `document` set to it, and build here with what they report. " +
-				"A rendered picture is NOT how you do that: you cannot measure a font, a colour or a position out of an image, and render_slide is the most expensive tool here." + declare,
+				"TO MAKE THIS DECK LOOK LIKE ANOTHER ONE you do not need to read anything first: call apply_style with match_document set to the other deck's key (list_documents has the keys) and it carries the type across for you. " +
+				"Read this when you want the numbers themselves — to report them, or to copy only part of the look. " +
+				"A rendered picture is NOT how you do either: you cannot measure a font, a colour or a position out of an image, and render_slide is the most expensive tool here." + declare,
 			Props:    []property{},
 			ReadOnly: true,
 		},
@@ -128,7 +129,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 				{Name: "at", Type: "integer", Desc: "1-based position for the new slide. Omit to put it at the end."},
 				{Name: "title", Type: "string", Desc: "Text for the title placeholder, if the layout has one."},
 				{Name: "body", Type: "string", Desc: "Text for the body/subtitle placeholder. Use \\n between bullet lines."},
-				{Name: "match_style", Type: "boolean", Desc: "Match the deck it is joining (default true): if the existing slides consistently use a font, size or colour that is not the theme default, the new slide gets it too. Set false to leave the new slide on the plain theme."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck it is joining (default true): if the existing slides consistently use a font, size or colour that is not the theme default, the new slide gets it too. Set false to leave the new slide on the plain theme. This matches THIS deck — to follow ANOTHER deck that is open, build here and then call apply_style with match_document set to its key. Never copy a look off a rendered picture."},
 			},
 		},
 		{
@@ -136,7 +137,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 			Desc: "Build several slides in one call from an outline — the right tool when someone hands you a plan for a deck. One permission prompt instead of one per slide, which matters: with --permission ask, four calls means four clicks. Layout names are all checked before anything is created, so a wrong name does not leave half a deck behind.",
 			Props: []property{
 				{Name: "slides", Type: "array", Items: "object", Desc: "[{layout, title, body, bullet, bullet_type, bullet_style}] in order, appended to the end of the deck. bullet_type/bullet_style take the same values as format_shape (bullet_style is a NUMBERING style, not a glyph). layout is a name from list_layouts; omit it for the deck default. Put each line of body on its own line. bullet is false to write those lines WITHOUT the layout's bullet glyphs — set it here, when the text is written, or the layout's bullets stay and you have to go back shape by shape."},
-				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide."},
+				{Name: "match_style", Type: "boolean", Desc: "Match the deck the slides are joining (default true). Same rule as add_slide — it matches THIS deck. To follow ANOTHER open deck, build them here and then call apply_style with match_document set to its key."},
 			},
 			Required: []string{"slides"},
 		},
@@ -147,7 +148,8 @@ func pptCatalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "apply_style",
-			Desc: "Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. \"Make every title blue\". Placeholders are picked by role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore.",
+			Desc: "Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. \"Make every title blue\". Placeholders are picked by role, not by position or name, so it means the same thing in any deck. Without this, the same request costs one call and one permission prompt per shape, which on a twenty-slide deck is the difference between a request and a chore. " +
+				"THIS IS ALSO HOW ONE DECK IS MADE TO LOOK LIKE ANOTHER: pass match_document with the other deck's key and its type is carried across for you.",
 			Props: []property{
 				{Name: "title", Type: "object", Desc: "Formatting for title placeholders: {font, size, bold, italic, color, underline, strikethrough, all_caps, small_caps, bullet, bullet_type, bullet_style}. bullet_type/bullet_style take the same values as format_shape. Only the fields you give are touched. bullet:false removes the layout's bullet glyphs."},
 				{Name: "body", Type: "object", Desc: "Formatting for body/subtitle placeholders. Same fields, including bullet."},
@@ -155,6 +157,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 				{Name: "all", Type: "object", Desc: "Same fields (including bullet), applied to EVERY shape that holds text — not just placeholders. A deck built here also carries source lines and labels that are not placeholders: restyle by role alone and those keep the old look, so one slide ends up with two fonts. ⚠ This does not change the theme — slides made afterwards, chart text and table styles still follow it."},
 				{Name: "slides", Type: "array", Items: "integer", Topic: true, Desc: "1-based slide positions to touch. Omit for the whole deck."},
 				{Name: "slide_ids", Type: "array", Items: "string", Desc: "Exact slide ids to touch. Wins over slides."},
+				matchDocumentProp("deck"),
 			},
 		},
 		{
@@ -733,7 +736,10 @@ func pptCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		// 헬퍼가 답한다 — 손에 안 간다(tools.go listDocuments). 옆 덱의 서식을 보고 이 덱에 옮기는 일의 첫걸음.
-		listDocuments("deck", "PowerPoint"),
+		listDocuments("deck", "PowerPoint",
+			"More than one deck is open. To make one look like another, do NOT read its style by eye or from a render — "+
+				"call apply_style on the deck you are building with match_document set to the other deck's key, and its "+
+				"typeface, size and colour are carried across. Layout names still come from list_layouts on that deck."),
 	}
 }
 

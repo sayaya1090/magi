@@ -64,7 +64,7 @@
 | `set_text` | Replace the text of one shape. The result carries the old text and the new one, because that pair is the only record of the change that r… | 5 | `text` |
 | `format_text` | Format PART of a shape's text — one word, a number, a phrase — without touching the rest: bold, colour, size, underline, or a hyperlink o… | 18 | `shape_id` |
 | `format_shape` | Change the look of one shape: font family, size, bold, italic, colour, alignment, fill. | 32 | `shape_id` |
-| `apply_style` | Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. "Make every title blue". Placeho… | 6 | — |
+| `apply_style` | Restyle text across many slides in one call — titles, bodies, or with `all` every shape that holds text. "Make every title blue". Placeho… **THIS IS ALSO HOW ONE DECK IS MADE TO LOOK LIKE ANOTHER**(`match_document`) | 7 | — |
 | `set_notes` | Write the speaker notes on one slide, replacing whatever was there. Newlines become paragraphs. Read them first with read_notes unless yo… | 4 | `text` |
 | `set_hyperlink` | Set or clear the hyperlink on one shape. ⚠ Needs PowerPointApi 1.10: 1.6 gave the hyperlink COLLECTION, which only reads — setting one ar… | 5 | `shape_id`, `url` |
 

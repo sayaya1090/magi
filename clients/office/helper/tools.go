@@ -99,7 +99,10 @@ type DocumentLister interface {
 // 한 대화에서 옆 문서를 읽거나 서식을 옮기는 일의 첫걸음이다: 도구의 `document` 인자는 주소를 이기므로
 // 여기서 받은 키를 대면 그 문서로 간다. 없던 자리(2026-09-07): 옆 덱의 키를 알 길이 거절문뿐이었다.
 // 인자가 *App 이 아닌 것은 초기화 순환 때문이다 — 카탈로그 함수가 App 값을 보면 App 이 카탈로그를 보는 고리가 된다.
-func listDocuments(noun, product string) tool {
+// carry 는 「옆 문서 하나가 더 열려 있을 때」 답에 실을 한 줄 — 그 프로그램에서 서식을 옮기는 길이다.
+// 비면 안 싣는다. **설명이 아니라 답에 싣는 이유**: 설명은 그 도구를 부르기로 이미 정한 모델만 읽고,
+// 실물에서 모델은 옆 덱을 찾아 놓고도 서식을 지어냈다(2026-09-08, matchstyle.go).
+func listDocuments(noun, product, carry string) tool {
 	return tool{
 		Name: "list_documents",
 		Desc: "Every " + noun + " open in this " + product + " right now, with the key to pass as `document` and the file name people call it by. " +
@@ -117,7 +120,11 @@ func listDocuments(noun, product string) tool {
 			for _, d := range lister.Documents() {
 				rows = append(rows, map[string]any{"document": d["document"], "label": d["label"], "current": d["document"] == where})
 			}
-			return HandResult{Document: where, Result: map[string]any{"documents": rows, "count": len(rows)}}, nil
+			out := map[string]any{"documents": rows, "count": len(rows)}
+			if len(rows) > 1 && carry != "" {
+				out["note"] = carry
+			}
+			return HandResult{Document: where, Result: out}, nil
 		},
 	}
 }

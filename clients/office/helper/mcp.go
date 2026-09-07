@@ -304,6 +304,22 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	if where == "" {
 		where = r.URL.Query().Get("deck")
 	}
+	// **「저 덱처럼 해 줘」를 도구가 직접 한다**(matchstyle.go). 옆 문서의 서식을 읽어 이 호출의 빈 칸을
+	// 채운다 — 손은 덱마다 따로 붙어서 이 일을 못 하고, 허브를 쥔 이 프로세스만 할 수 있다. 안내를
+	// `describe_style` 설명에 적어 두는 것으로는 안 됐다: 그 글은 그 도구를 부르기로 이미 정한 모델만 읽고,
+	// 실물에서 모델은 그것을 건너뛰고 글꼴을 지어냈다(2026-09-08).
+	var carried []string
+	if s.App.StyleFrom != nil {
+		if from := s.App.StyleFrom(name, args); from != "" && from != where {
+			notes, cerr := carryStyle(r.Context(), s.Hand, from, args)
+			if cerr != nil {
+				return errorResult(cerr.Error())
+			}
+			carried = notes
+		}
+		// 손에게는 뜻이 없는 칸이다 — 헬퍼가 이미 다 썼다. 남겨 보내면 손이 모르는 인자를 받는다.
+		delete(args, matchDocumentArg)
+	}
 	res, err := s.Hand.Call(r.Context(), where, name, args)
 	// **읽기만 하는 조작은 한 번 더 보낸다.**
 	//
@@ -376,6 +392,11 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	// **바뀐 값은 결과가 스스로 싣는다**(§4.4 ⑤·§7). 카운슬이 「이번 턴의 편집」으로 받는 칸은
 	// 우리 턴에서 늘 빈다 — 우리 도구는 PowerPoint 를 시켜 고치지 파일을 쓰지 않으므로 디스크가
 	// 안 바뀐다. 그래서 before→after 가 여기 없으면 판정에 도달하는 것이 아무것도 없다.
+	// **따라온 서식이 무엇이었는지가 맨 앞에 선다.** 카운슬이 「저 덱을 따랐다」를 재는 칸이 `changed`
+	// 뿐이고, 실측에서 거절 사유가 정확히 「증거 없음」이었다(2026-09-08).
+	if len(carried) > 0 {
+		res.Changed = append(append([]string{}, carried...), res.Changed...)
+	}
 	if len(res.Changed) > 0 {
 		body["changed"] = res.Changed
 	}

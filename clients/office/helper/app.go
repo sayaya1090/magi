@@ -51,6 +51,10 @@ type App struct {
 	WantsImage func(name string, args map[string]any) bool
 	// WantsFile 은 이 호출이 디스크의 Office 문서를 읽어 실어야 하는 것인가 — 받는 확장자를 답한다("" 이면 아니다).
 	WantsFile func(name string) string
+	// StyleFrom 은 이 호출이 **다른 문서의 서식을 따라야 하는가** — 따라야 하면 그 문서 키를 답한다("" 이면 아니다).
+	// 헬퍼가 그 문서의 describe_style 을 읽어 이 호출의 빈 칸을 채운다(matchstyle.go). 손은 덱마다 따로 붙어서
+	// 한 호출이 A 를 읽고 B 에 쓸 수 없다 — 그 일을 할 수 있는 자리는 허브를 쥔 이 프로세스뿐이다.
+	StyleFrom func(name string, args map[string]any) string
 	// Fallback 은 손이 거절한 호출을 헬퍼가 다른 길로 대신할 수 있는가(mcp.go) — 엑셀 2021 의 메모를 COM 노트로(xl_notes.go).
 	// 두 번째 값이 false 면 이 길이 아니라 손의 오류가 그대로 간다.
 	Fallback func(ctx context.Context, hand Hand, where, name string, args map[string]any, handErr string) (HandResult, bool, error)
@@ -108,6 +112,9 @@ var (
 		},
 		WantsImage: func(name string, args map[string]any) bool {
 			return name == "add_image" || (name == "set_background" && fmt.Sprint(args["kind"]) == "picture")
+		},
+		StyleFrom: func(name string, args map[string]any) string {
+			return styleSourceOf(name, args, "apply_style")
 		},
 		Instructions: pptInstructions,
 		MCPInstructions: "A deck is already open in PowerPoint and these tools are attached to it. " +
