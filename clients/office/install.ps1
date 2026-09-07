@@ -9,15 +9,18 @@
     2. magi.exe 를 빌드해 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다(헬퍼가 그 자리를 본다).
     3. 데몬 권한 모드를 allow 로 둔다(설정 디렉토리의 config.toml — 평소의 magi 와 같은 파일). 사용자 결정(2026-09-05·06).
        컴패니언은 평소의 magi 와 같은 설정 나무(%APPDATA%\magi)를 보고, 소켓만 ~/.magi(MAGI_SOCKET_DIR)에 둔다.
-    4. 헬퍼를 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
-    5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나에 매니페스트 셋.
-    6. 로그인할 때 헬퍼가 같이 뜨게 한다. -NoAutostart 로 끌 수 있다.
+    4. 소켓 자리(~/.magi)를 이 계정의 환경 변수 MAGI_SOCKET_DIR 로 걸고(setx — 평소 magi 도 새 터미널부터 같은 명단을 본다),
+       헬퍼를 -config-dir·-socket-dir 로 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
+    5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나(~/.magi/catalog)에 매니페스트 셋.
+    6. 로그인할 때 헬퍼가 같이 뜨게 한다(Run\magi-office). 볼륨 판이면 손 감시기도(Run\magi-ppt-hand-watch). -NoAutostart 로 끈다.
 
-  볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 손(magi-ppt-hand)이 편집한다 — 볼륨 판이면 여기서 그 손을
-  빌드하고(.NET SDK 필요) 손 감시기(hand-watch.ps1)를 로그인 때 같이 뜨게 건다. 2026-09-07 까지는 이 설치기가 그것을
-  파워포인트 판만의 설치기(2026-09-07 에 지움)에 미뤘고, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다.
-  2026-09-06 밤 Windows 2021(볼륨 판)에서 끝까지 돌았다(메인 555ff0b9): 새 인증서 하나, 카탈로그 하나에 매니페스트 셋, Run\magi-office,
-  3000 번 하나에서 /ppt·/xl·/word — 파워포인트 판 TESTING §5.5. 워드 애드인은 그날 Word 로는 안 열어 봤다.
+  볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 손(magi-ppt-hand.exe)이 편집한다 — 볼륨 판이면 2단계에서 그 손도
+  빌드하고(.NET SDK 필요, 없으면 경고만) hand-watch.ps1 을 헬퍼 옆에 놓는다. 감시기는 PowerPoint 가 덱을 연 채 떠 있으면 손을
+  붙이고 PowerPoint 가 내려가면 거둔다. Excel·Word 2021 은 작업창이 그대로 손이라 손이 없다.
+
+  실측: 2026-09-06 밤 2021(볼륨 판)에서 끝까지 돌았고(그때는 COM 손·소켓 분리 전), 같은 기계에서 세 프로그램의 도구가
+  하나씩 전부 돌았다(파워포인트 48·엑셀 76·워드 66 — 각 판 TESTING). COM 손 빌드·감시기·MAGI_SOCKET_DIR 은 2026-09-07 에
+  더한 것이라 그 뒤의 실측이 아직 없다.
 
   다시 돌려도 된다 — 이미 된 것은 건너뛴다.
 
@@ -27,10 +30,11 @@
   설치 폴더. 기본 %LOCALAPPDATA%\magi\office
 
 .PARAMETER NoAutostart
-  로그인 때 자동으로 띄우는 등록(HKCU\...\Run)을 안 한다.
+  로그인 때 자동으로 띄우는 등록(HKCU\...\Run 의 magi-office 와 magi-ppt-hand-watch)을 안 하고, 있던 것은 뺀다.
 
 .PARAMETER SkipBuild
-  빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본).
+  빌드를 건너뛴다 — Dest 에 이미 실행 파일이 있을 때(배포본). COM 손도 안 짓는다: Dest\hand 에 이미 있으면 그것을 쓰고,
+  없으면 앞서 걸어 둔 감시기를 도로 띄운다.
 
 .PARAMETER Clean
   애드인을 **지우고 다시 깐다.** 이 판의 등록(신뢰 카탈로그 키·개발자 키)을 빼고 Office 의 애드인 캐시(Wef 폴더)를
@@ -311,9 +315,9 @@ if ($NoAutostart) {
       Done '손 감시기를 지금 띄웠다'
     }
   } elseif ($perpetual) {
-    # 여기서 손을 못 지었어도(.NET SDK 없음, -SkipBuild) 파워포인트 판 설치기가 걸어 둔 감시기가 있을 수 있다 — 2단계에서
-    # 그 감시기를 멈췄으니 **도로 띄운다.** 안 그러면 다음 로그인까지 손이 안 붙는다(2021, 2026-09-07: 「피피티 핸드가
-    # 자동으로 안 켜져」 — 통합 설치기가 옛 감시기를 죽이고 제 것은 안 띄운 자리).
+    # 여기서 손을 못 지었어도(.NET SDK 없음, -SkipBuild) 앞서 걸어 둔 감시기(이전 실행이나 옛 파워포인트 판 설치기의 것)가
+    # 있을 수 있다 — 2단계에서 그 감시기를 멈췄으니 **도로 띄운다.** 안 그러면 다음 로그인까지 손이 안 붙는다(2021,
+    # 2026-09-07: 「피피티 핸드가 자동으로 안 켜져」 — 통합 설치기가 옛 감시기를 죽이고 제 것은 안 띄운 자리).
     $prev = (Get-ItemProperty $run -Name 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue).'magi-ppt-hand-watch'
     if ($prev) {
       if (-not (Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object { $_.CommandLine -like '*hand-watch.ps1*' })) {
