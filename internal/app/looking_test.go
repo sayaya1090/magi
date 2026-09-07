@@ -126,3 +126,28 @@ func (m manyTools) Get(n string) (port.Tool, bool) {
 	}
 	return nil, false
 }
+
+// **광고와 실행이 같은 문을 지난다.** 앞 판은 목록만 넓혀서, 모델이 목록에서 본 도구를 부르면 디스패치가
+// "tool not permitted for agent looking" 으로 거절했다(실측 2026-09-07, 워드 컴패니언). 두 자리가 갈리면
+// 모델은 있는 도구를 부르고 없다는 말을 듣는다 — 재시도 말고는 할 것이 없는 막다른 길이다.
+func TestWhatALookingSessionIsOfferedIsAlsoWhatItMayCall(t *testing.T) {
+	reads := declaresReadOnly{name: "mcp__word__list_paragraphs", ro: true}
+	writes := declaresReadOnly{name: "mcp__word__insert_paragraph", ro: false}
+	a := &App{cfg: Config{}, tools: manyTools{reads, writes}}
+	a.cfg = a.cfg.withDefaults()
+	looking := a.agentFor(session.Session{ID: "s1", Agent: LookingAgent})
+
+	for _, spec := range a.toolSpecs("s1", looking) {
+		tool, ok := a.tools.Get(spec.Name)
+		if !ok {
+			t.Fatalf("%s 를 광고했는데 등록부에 없다", spec.Name)
+		}
+		if !looking.allows(spec.Name) && !looksOnlyReads(looking, tool) {
+			t.Errorf("%s 를 광고해 놓고 부르면 거절한다", spec.Name)
+		}
+	}
+	// 쓰기 도구는 여전히 못 부른다 — 넓힌 것은 「읽기만 한다고 선언한」 것뿐이다.
+	if w, _ := a.tools.Get(writes.name); looking.allows(writes.name) || looksOnlyReads(looking, w) {
+		t.Error("읽기 전용 턴이 쓰기 도구를 부를 수 있다")
+	}
+}
