@@ -77,8 +77,26 @@ type ghRelease struct {
 // Latest returns the newest release's asset for the current platform. For a private
 // source (Token set) it returns the asset-API URL so Download can authenticate;
 // otherwise it returns the public browser_download_url.
+//
+// # Which release "latest" means
+//
+// GitHub's /releases/latest is the newest BY DATE across every tag in the repository, and this one
+// runs four release trains: v* for the core, web-v* for the console, jetbrains-v* for the plugin,
+// office-v* for the Office client. So the endpoint hands back whichever train shipped most
+// recently, and the core's own updater then finds no asset it recognises. Measured 2026-09-08,
+// minutes after an office release:
+//
+//	magi: update failed: github: no asset for magi_darwin_arm64 in office-v0.0.4
+//
+// The message is honest and the update still does not happen. Every other consumer of this
+// distinction reads a one-line file the core release writes for the purpose — the shell installer,
+// the Office installer, the JetBrains plugin all do — so this reads it too, and falls back to the
+// endpoint when it cannot (a fork with one train, an Enterprise mirror without the branch).
 func (g *GitHubSource) Latest(ctx context.Context) (Release, error) {
 	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", g.apiBase(), g.Owner, g.Repo)
+	if tag := g.coreTag(ctx); tag != "" {
+		url = fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", g.apiBase(), g.Owner, g.Repo, tag)
+	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	g.authorize(req)
@@ -110,6 +128,47 @@ func (g *GitHubSource) Latest(ctx context.Context) (Release, error) {
 		}
 	}
 	return Release{}, fmt.Errorf("github: no asset for %s in %s", want, rel.TagName)
+}
+
+// coreTag reads badges/core-latest.txt — the tag of the newest CORE release, written by the core's
+// own release workflow at a fixed address for exactly this question.
+//
+// Empty on any doubt: no such branch, a mirror that does not carry it, a body that does not look
+// like a tag. The caller then uses /releases/latest, which is right for a fork with a single train
+// and is what this did before. Being wrong here would pin the updater to a tag that does not exist,
+// so anything unexpected reads as "do not know" rather than as an answer.
+//
+// raw.githubusercontent.com and not the API: no rate limit worth minding, no JSON, and it is the
+// same address the shell and Office installers read.
+func (g *GitHubSource) coreTag(ctx context.Context) string {
+	if g.APIBase != "" && g.APIBase != defaultGitHubAPIBase {
+		return "" // an Enterprise mirror does not serve raw.githubusercontent.com
+	}
+	url := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/badges/core-latest.txt", g.Owner, g.Repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	g.authorize(req)
+	resp, err := g.client().Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	// Small on purpose: the file is one short line, and a mirror answering an HTML error page with
+	// status 200 must not become a tag name.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if err != nil {
+		return ""
+	}
+	tag := strings.TrimSpace(string(body))
+	if tag == "" || strings.ContainsAny(tag, " \t\n/\\") {
+		return ""
+	}
+	return tag
 }
 
 // checksumOf reads the release's checksums.txt and finds the line for one asset.

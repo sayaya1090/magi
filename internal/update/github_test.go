@@ -33,6 +33,13 @@ func TestGitHubLatestPicksPlatformAsset(t *testing.T) {
 		if r.URL.String() == "http://x/sums" {
 			return cannedResp(http.StatusOK, sums), nil
 		}
+		// Latest asks badges/core-latest.txt first, to follow the CORE train rather than whichever
+		// of this repository's four released last (see coreTag). This fixture has no such file, so
+		// it answers 404 and Latest falls through to the endpoint below — which is what this test
+		// is about.
+		if strings.Contains(r.URL.String(), "raw.githubusercontent.com") {
+			return cannedResp(http.StatusNotFound, "404"), nil
+		}
 		if !strings.Contains(r.URL.String(), "/repos/o/r/releases/latest") {
 			t.Errorf("unexpected URL: %s", r.URL)
 		}
