@@ -46,7 +46,7 @@ while (!cts.IsCancellationRequested)
             if (f.Event == "bye")
             {
                 // 같은 덱에 새 손이 붙었다 — 헬퍼가 이 손을 물린 것이다. 다시 붙으면 둘이 번갈아 서로를 밀어낸다.
-                Console.WriteLine($"헬퍼가 이 손을 물렸습니다({f.Data}) — 끝냅니다");
+                Console.WriteLine($"헬퍼가 이 어댑터를 종료시켰습니다({f.Data}). 끝냅니다.");
                 return 0;
             }
             if (f.Event != "call" || hand is null) continue;

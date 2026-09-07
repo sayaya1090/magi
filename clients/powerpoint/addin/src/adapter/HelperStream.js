@@ -155,7 +155,7 @@ export class HelperStream {
           live: false, reason: 'nohand',
           // **사람이 할 일이 있는 유일한 문장이다.** 손과 화면의 구분은 사람에게 안 말한다 — 이건
           // 구분이 아니라 「띄워라」다.
-          why: '이 PowerPoint 판에서는 magi-ppt-hand 를 띄워야 편집이 됩니다 — 아직 안 떠 있습니다. 띄우면 이 창이 따라 붙습니다',
+          why: '편집 어댑터(magi-ppt-hand)가 아직 실행되지 않았습니다. 실행되면 자동으로 연결됩니다.',
         });
         await this.wait(Math.min(1000 * 2 ** (this.misses - 1), 15000));
       } else {

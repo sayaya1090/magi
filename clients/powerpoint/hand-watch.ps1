@@ -10,7 +10,7 @@ $hand = Join-Path $root 'hand\magi-ppt-hand.exe'
 $helper = 'https://127.0.0.1:3000/ppt'
 $log = Join-Path $root 'hand-watch.log'
 function Log($s) { try { Add-Content $log ("{0:yyyy-MM-dd HH:mm:ss} {1}" -f (Get-Date), $s) -Encoding UTF8 } catch { } }
-Log "감시기 시작 — 손: $hand"
+Log "감시기를 시작합니다. 어댑터: $hand"
 # **덱마다 손 하나.** 손 하나가 활성 덱에만 붙으면 다른 창의 부탁이 그 덱에 떨어지고 두 창이 같은 손을 봐 답이 섞인다
 # (실물 2026-09-07, 2021 에서 덱 둘). 열린 덱마다 `--presentation <경로>` 로 하나씩 띄우고, 닫힌 덱의 손은 거둔다.
 # COM 으로 못 닿으면 $null(사유는 $script:comWhy), 닿았는데 덱이 없으면 빈 배열 — 둘은 다른 사실이다.
@@ -25,23 +25,23 @@ function HandProcesses { Get-CimInstance Win32_Process -Filter "Name='magi-ppt-h
 $lastWhy = ''
 function Idle($why) { if ($why -ne $script:lastWhy) { Log $why; $script:lastWhy = $why } }
 $elevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if ($elevated) { Log '⚠ 관리자 권한으로 떠 있다 — 보통 권한의 PowerPoint 는 COM 으로 안 보인다. 설치기를 관리자 아닌 창에서 다시 돌려라.' }
+if ($elevated) { Log '⚠ 관리자 권한으로 실행 중입니다. 일반 권한의 PowerPoint 에 연결할 수 없으니, 설치기를 일반 권한 창에서 다시 실행해 주세요.' }
 while ($true) {
   try {
     $ppt = Get-Process POWERPNT -ErrorAction SilentlyContinue
     $hands = @(HandProcesses)
-    if (-not $ppt) { Idle 'PowerPoint 가 안 떠 있다 — 기다린다' }
-    elseif (-not (Test-Path $hand)) { Idle "손 실행 파일이 없다: $hand — 설치기를 -SkipBuild 없이 다시 돌려라" }
+    if (-not $ppt) { Idle 'PowerPoint 가 실행 중이 아닙니다. 기다립니다.' }
+    elseif (-not (Test-Path $hand)) { Idle "어댑터 파일이 없습니다: $hand. 설치기를 -SkipBuild 없이 다시 실행해 주세요." }
     else {
       $found = OpenDecks
-      if ($null -eq $found) { Idle "PowerPoint 는 떠 있는데 COM 으로 못 닿는다($script:comWhy) — 권한 수준이 다르면(관리자 창) 그렇다" }
-      elseif ($found.Count -eq 0) { Idle 'PowerPoint 는 떠 있는데 열린 덱이 없다 — 기다린다' }
+      if ($null -eq $found) { Idle "PowerPoint 는 실행 중이지만 연결할 수 없습니다($script:comWhy). 권한 수준이 다르면(관리자 창) 이렇게 됩니다." }
+      elseif ($found.Count -eq 0) { Idle 'PowerPoint 는 실행 중이지만 열린 문서가 없습니다. 기다립니다.' }
       else { $script:lastWhy = '' }
       $decks = @($found)
       foreach ($deck in $decks) {
         $has = $hands | Where-Object { $_.CommandLine -and $_.CommandLine.ToLowerInvariant().Contains($deck.ToLowerInvariant()) }
         if (-not $has) {
-          Log "덱이 열려 있고 손이 없다 — 붙인다: $deck"
+          Log "어댑터를 시작합니다: $deck"
           Start-Process -FilePath $hand -ArgumentList @('--helper', $helper, '--presentation', "`"$deck`"") -WorkingDirectory $root -WindowStyle Hidden | Out-Null
           Start-Sleep -Seconds 2
         }
@@ -54,15 +54,15 @@ while ($true) {
         $cmd = if ($h.CommandLine) { $h.CommandLine.ToLowerInvariant() } else { '' }
         $mine = @($decks | Where-Object { $cmd.Contains($_.ToLowerInvariant()) })
         $why = ''
-        if (-not $cmd.Contains('--presentation')) { $why = '덱을 안 댄 옛 손' }
-        elseif ($mine.Count -eq 0) { $why = '닫힌 덱의 손' }
-        elseif ($seen[$mine[0]]) { $why = "같은 덱에 둘째 손(오래된 쪽) — $($mine[0])" }
+        if (-not $cmd.Contains('--presentation')) { $why = '문서를 지정하지 않은 이전 어댑터' }
+        elseif ($mine.Count -eq 0) { $why = '닫힌 문서의 어댑터' }
+        elseif ($seen[$mine[0]]) { $why = "같은 문서에 중복된 어댑터(오래된 쪽) — $($mine[0])" }
         else { $seen[$mine[0]] = $true }
-        if ($why) { Log "$why 을 거둔다(pid $($h.ProcessId))"; Stop-Process -Id $h.ProcessId -Force -ErrorAction SilentlyContinue }
+        if ($why) { Log "$why 를 종료합니다(pid $($h.ProcessId))"; Stop-Process -Id $h.ProcessId -Force -ErrorAction SilentlyContinue }
       }
     }
     # PowerPoint 가 내려가면 손도 내려간다(COM 참조가 죽는다). 붙어 있던 손이 남아 있으면 정리한다.
-    if (-not $ppt -and $hands.Count -gt 0) { Log 'PowerPoint 가 없는데 손이 남아 있다 — 정리한다'; $hands | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
+    if (-not $ppt -and $hands.Count -gt 0) { Log 'PowerPoint 가 종료되어 남은 어댑터를 정리합니다'; $hands | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }
   } catch { Log "오류: $($_.Exception.Message)" }
   Start-Sleep -Seconds 4
 }
