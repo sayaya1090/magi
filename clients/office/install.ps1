@@ -277,7 +277,9 @@ if (-not $SkipBuild) {
     $handOut = Join-Path $Dest 'hand'
     & $dn build $handProj -c Release -o $handOut --nologo -v q
     # 손이 안 지어져도 설치는 간다 — Excel·Word 와 파워포인트 작업창은 손과 무관하다(#181). 옛 손이 있으면 그것을 쓴다.
-    if ($LASTEXITCODE -ne 0) { Warn "어댑터 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 어댑터 없이 계속합니다(PowerPoint 2021 편집만 안 됩니다)."; $dotnet = $null }
+    # 어댑터가 안 지어져도 설치는 간다(PowerPoint 2021 편집만 안 된다). **$dotnet 을 지우지 않는다** — 아래 추가 기능은
+    # 어댑터와 무관하고, 그것까지 못 지으면 헬퍼가 저절로 안 뜬다.
+    if ($LASTEXITCODE -ne 0) { Warn "어댑터 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 어댑터 없이 계속합니다(PowerPoint 2021 편집만 안 됩니다)." }
     else { Done "magi-ppt-hand.exe → $handOut" }
   }
   if ($dotnet -and -not $NoAutostart) {   # -NoAutostart 면 추가 기능을 안 짓는다 — 등록도 안 할 것이라서다
@@ -285,7 +287,7 @@ if (-not $SkipBuild) {
     $startProj = Join-Path $repo 'clients\office\addin-com\src\magi-office-start.csproj'
     $startOut = Join-Path $Dest 'start'
     & $dotnet.FullName build $startProj -c Release -r "win-$bitness" --self-contained false -o $startOut --nologo -v q
-    if ($LASTEXITCODE -ne 0) { Warn '추가 기능 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 대신 로그인할 때 헬퍼가 뜨게 합니다.' }
+    if ($LASTEXITCODE -ne 0) { Warn '추가 기능 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. Office 를 켤 때 헬퍼가 저절로 뜨지는 않습니다.' }
     else { Done "magi-office-start.comhost.dll → $startOut" }
   }
 } else { Say '빌드를 건너뜁니다(-SkipBuild)' }
