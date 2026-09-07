@@ -55,7 +55,11 @@ magi --daemon               # 통합 문서가 있는 디렉토리에서 — 없
 
 ## 3. 애드인을 Excel 에 넣는 길
 
-### 3.1 macOS
+### 3.1 macOS — **개발용이다**
+
+맥에서는 헬퍼를 띄울 자리가 Office 안에 없다(Office for Mac 은 COM 추가 기능을 안 받는다). 그래서 사람이 `magi office` 를
+직접 띄워야 하고, 그것은 「Office 를 켜는 것 말고 관리할 것이 없어야 한다」는 요구를 어긴다(office/README.md). 붙여 보고
+눌러 보는 자리로만 쓴다.
 
 ```bash
 cp clients/excel/addin/manifest.xml ~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/

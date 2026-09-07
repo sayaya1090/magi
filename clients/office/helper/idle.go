@@ -196,31 +196,24 @@ func officeGone() (bool, bool) {
 
 // wakesUpAgain 은 **우리를 다시 띄울 것이 있는가.**
 //
-// Office 가 없을 때 헬퍼가 끝나도 되는 것은 다음에 Office 를 켤 때 누가 다시 띄워 주기 때문이다. Windows 에서는 그것이
-// COM 추가 기능이다(clients/office/addin-com). 그것이 없는 자리 — mac·리눅스, 그리고 `-NoAutostart` 로 깐 Windows —
-// 에서는 끝내면 안 된다: 사람이 손으로 띄운 헬퍼를 끄는 셈이고, 다음에 Office 를 켜면 리본의 Magi 가 빈 창을 띄운다.
+// Office 가 없을 때 헬퍼가 끝나도 되는 것은 다음에 Office 를 켤 때 누가 다시 띄워 주기 때문이다. 그것은 COM 추가 기능
+// 하나뿐이고(clients/office/addin-com), 그것은 Windows 에만 있다. 없는 자리에서 끝내면 사람이 손으로 띄운 헬퍼를 끄는
+// 셈이고, 다음에 Office 를 켜면 리본의 Magi 가 빈 창을 띄운다.
+//
+// **맥에는 그 자리가 없다.** Office for Mac 은 COM 추가 기능을 안 받고, 남은 길(로그인 항목·launchd 주기 작업)은 전부
+// 「상주하거나, 사람이 따로 관리하는 것」이라 요구를 어긴다(사용자, 2026-09-07: 상주 프로세스 없음 · Office 를 켜는 것
+// 말고 사람이 관리할 것 없음). 그래서 맥은 **개발용**이고, 거기서는 헬퍼가 스스로 안 끝난다.
 //
 // 재는 것은 **추가 기능이 실제로 깔렸는가**다(설치기가 헬퍼 옆 `start\` 에 놓는다). 「Windows 니까」로 재면 추가 기능
 // 없이 깐 판에서 헬퍼가 스스로 사라진다.
 func wakesUpAgain() bool {
-	switch runtime.GOOS {
-	case "windows":
-		self, err := os.Executable()
-		if err != nil {
-			return false
-		}
-		_, err = os.Stat(filepath.Join(filepath.Dir(self), "start", "magi-office-start.comhost.dll"))
-		return err == nil
-	case "darwin":
-		// 맥에는 COM 추가 기능 자리가 없어 launchd 가 그 일을 한다(clients/office/mac/office-start.sh --install).
-		// 걸어 둔 사람만 자동 종료를 받는다.
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return false
-		}
-		_, err = os.Stat(filepath.Join(home, "Library", "LaunchAgents", "dev.magi.office.start.plist"))
-		return err == nil
-	default:
+	if runtime.GOOS != "windows" {
 		return false
 	}
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(filepath.Dir(self), "start", "magi-office-start.comhost.dll"))
+	return err == nil
 }
