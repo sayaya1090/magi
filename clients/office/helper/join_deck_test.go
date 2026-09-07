@@ -3,6 +3,7 @@ package office
 import (
 	"fmt"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,13 @@ func TestEachDeckSettlesEvenWhenTheWorkIsDone(t *testing.T) {
 	bolts := 0
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
-		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
+		// 덱 몫의 등록만 센다 — 컴패니언 전체 등록(주소에 덱 없음)은 생애당 하나 더 붙는다(아래 시험).
+		Bolt: func(_, url, _ string) ([]string, error) {
+			if strings.Contains(url, "?deck=") {
+				bolts++
+			}
+			return []string{"t"}, nil
+		},
 		Fresh: func(string, string) (string, error) { opened++; return fmt.Sprintf("sess-%d", opened), nil },
 	}
 	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
@@ -90,7 +97,12 @@ func TestADaemonRestartIsSeenByItsLife(t *testing.T) {
 	bolts := 0
 	api := &API{App: Word,
 		Bridge: NewBridge(), Bridges: bs, Port: 3000,
-		Bolt:  func(string, string, string) ([]string, error) { bolts++; return []string{"t"}, nil },
+		Bolt: func(_, url, _ string) ([]string, error) {
+			if strings.Contains(url, "?deck=") {
+				bolts++
+			}
+			return []string{"t"}, nil
+		},
 		Fresh: func(string, string) (string, error) { return "sess-a", nil },
 	}
 	first := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
@@ -137,5 +149,44 @@ func TestTheOwnDoorSettlesTheAskingDeck(t *testing.T) {
 	api.own(httptest.NewRecorder(), httptest.NewRequest("POST", "/api/own?deck=deck-z", nil))
 	if work.Now().Phase == OwnReady && work.Now().Life == "1@t0" {
 		t.Error("데몬이 다시 떴는데 옛 마련을 그대로 들고 있다")
+	}
+}
+
+// **덱 등록 옆에 컴패니언 전체 등록 하나.** 덱 몫의 등록은 그 대화에만 보여서, 이 컴패니언이 남의 부탁으로 여는
+// 대화(hand_off 의 옆 대화)에는 도구가 없었다 — 엑셀이 「이 표로 덱을 만들어라」를 넘겨도 파워포인트 컴패니언은
+// 손이 없었다(2026-09-07). 주인 없는 등록(주소에 덱 없음)을 한 생애에 한 번 더 붙인다.
+func TestACompanionWideRegistrationStandsBesideTheDeckOnes(t *testing.T) {
+	bs := NewBridges()
+	var urls []string
+	api := &API{App: PPT,
+		Bridge: NewBridge(), Bridges: bs, Port: 3000,
+		Bolt:  func(_, url, _ string) ([]string, error) { urls = append(urls, url); return []string{"t"}, nil },
+		Fresh: func(_, deck string) (string, error) { return "sess-" + deck, nil },
+	}
+	ready := OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-console", Life: "1@t0"}
+	api.settle("deck-a", ready)
+	api.settle("deck-b", ready)
+	api.settle("deck-a", ready)
+	wide, owned := 0, 0
+	for _, u := range urls {
+		if strings.Contains(u, "?deck=") {
+			owned++
+		} else {
+			wide++
+		}
+	}
+	if owned != 2 || wide != 1 {
+		t.Fatalf("덱 등록 둘과 전체 등록 하나여야 한다: 덱 %d · 전체 %d — %v", owned, wide, urls)
+	}
+	// 다시 뜬 데몬(생애가 다르다)에는 전체 등록도 다시 — 등록은 그 데몬과 같이 죽었다.
+	api.settle("deck-a", OwnReport{Phase: OwnReady, Socket: "/sock", Session: "sess-new", Life: "2@t1"})
+	wide = 0
+	for _, u := range urls {
+		if !strings.Contains(u, "?deck=") {
+			wide++
+		}
+	}
+	if wide != 2 {
+		t.Fatalf("다시 뜬 데몬에 전체 등록을 안 했다: %v", urls)
 	}
 }

@@ -290,6 +290,8 @@ type API struct {
 	// 데몬은 그것을 `"ppt" attached and then vanished` 로 거절했다(2026-09-05 실물, 두 덱 다).
 	// 멱등은 순서를 보장하지 않는다; 직렬화가 한다.
 	settling sync.Mutex
+	// wide 는 **컴패니언 전체 등록**을 한 생애에 한 번만 하려고 적어 두는 것(소켓 → 생애). settle 이 잠근 채로 만진다.
+	wide map[string]string
 	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
 	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
 	LifeOf func(socket string) string
@@ -624,6 +626,23 @@ func (a *API) settle(deck string, rep OwnReport) OwnReport {
 			return rep
 		}
 		tools = got
+	}
+	// **덱 등록 옆에 컴패니언 전체 등록 하나.** 덱 몫의 등록은 그 대화에만 보인다(port.Owned) — 그러면 이 컴패니언이
+	// **남의 부탁으로 여는 대화**(hand_off 의 옆 대화, 회의)에는 도구가 하나도 없다: 엑셀이 「이 표로 덱을 만들어라」를
+	// 넘겨도 파워포인트 컴패니언은 덱에 닿을 손이 없었다(2026-09-07). 주인 없는 등록은 모두에게 보이고, 자기 등록이
+	// 없는 대화의 손이 된다(mcp/tool.go handFor). 주소에 덱이 없으니 `document` 없는 호출은 허브의 「하나뿐이면 그것,
+	// 둘이면 이름을 대라」 규칙으로 간다 — list_documents 가 그 이름을 준다. 한 생애에 한 번이면 된다.
+	if deck != "" && rep.Socket != "" {
+		if a.wide == nil {
+			a.wide = map[string]string{}
+		}
+		if a.wide[rep.Socket] != rep.Life {
+			if _, err := a.boltOf(rep.Socket, a.App.MCPURL(a.Port, ""), a.Token, ""); err == nil {
+				a.wide[rep.Socket] = rep.Life
+			} else {
+				rep.Chat = "컴패니언 전체 몫의 도구를 못 붙였습니다(남의 부탁으로 여는 대화가 도구를 못 봅니다): " + err.Error()
+			}
+		}
 	}
 	if err := b.BindWith(rep.Socket, sid, rep.Life, tools); err != nil {
 		// 붙기는 했고 대화만 못 열었다. **등급이 다른 둘을 한 칸으로 합치지 않는다**(§5.0.5).

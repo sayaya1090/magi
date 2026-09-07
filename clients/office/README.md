@@ -28,7 +28,7 @@ config 를 복사해도 소용이 없어, 소켓 자리를 떼는 것으로 갈�
 | 자리 | 파워포인트 | 엑셀 | 워드 |
 |---|---|---|---|
 | 작업창 | `/ppt/taskpane.html` | `/xl/taskpane.html` | `/word/taskpane.html` |
-| MCP 서버 | `/ppt/mcp` (`ppt`, 도구 48) | `/xl/mcp` (`xl`, 76) | `/word/mcp` (`word`, 66) |
+| MCP 서버 | `/ppt/mcp` (`ppt`, 도구 49 — 손 도구 48 + `list_documents`) | `/xl/mcp` (`xl`, 76) | `/word/mcp` (`word`, 66) |
 | 손 스트림 | `/ppt/hand/stream?presentation=` | `/xl/hand/stream?workbook=` | `/word/hand/stream?doc=` |
 | 문서 키 | `pid-…` | `wb-…` | `wd-…` |
 | 컴패니언 워크스페이스 | `<config>/powerpoint` | `<config>/excel` | `<config>/word` |
@@ -37,6 +37,18 @@ config 를 복사해도 소용이 없어, 소켓 자리를 떼는 것으로 갈�
 셋이 나누는 것은 인증서·토큰·포트뿐이다. 손 허브·MCP 서버·API·컴패니언은 프로그램마다 따로 선다(`serve.go` 의 `mount`).
 다른 점은 전부 `app.go` 의 `App` 값 하나에 있다 — 새 프로그램을 더하면 `App` 하나와 `*_tools.go`·`*_enums.go`·
 `*_instructions.go`·스킬 디렉토리를 더한다.
+
+## 문서 사이·프로그램 사이
+
+**같은 프로그램의 문서 둘**(옆 덱의 서식을 이 덱에): 모든 도구가 `document` 인자를 받고 인자가 주소를 이긴다. 파워포인트의
+`list_documents` 가 열린 덱의 키와 이름을 내므로, 옆 덱을 `describe_style` 로 읽고 이 덱에 `format_shape` 로 옮기면 된다.
+
+**프로그램 둘**(엑셀 표로 덱을): 컴패니언이 다르다 — 엑셀 대화에는 파워포인트 도구가 없다. 길은 `hand_off{to:"powerpoint"}`
+다(컴패니언 이름은 워크스페이스 디렉토리 이름 `powerpoint`·`excel`·`word`). 넘어간 부탁은 파워포인트 컴패니언이 **옆 대화**
+에서 돌리는데, 덱 몫의 도구 등록은 그 덱의 대화에만 보여서 옆 대화에는 도구가 없었다 — 그래서 헬퍼가 덱 등록 옆에
+**컴패니언 전체 등록** 하나를 더 둔다(`serve.go` `settle`, 2026-09-07). 그 등록의 호출은 `document` 를 안 대면 허브의
+「하나뿐이면 그것, 둘이면 이름을 대라」 규칙으로 가고, 이름은 `list_documents` 가 준다. 브리프에는 데이터를 글로 싣는다 —
+받는 쪽은 보내는 쪽의 시트를 못 본다. **실물로는 아직 안 돌렸다.**
 
 ## 시험
 

@@ -3,6 +3,7 @@ package office
 import (
 	"fmt"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -26,8 +27,11 @@ func newRestartRig() *restartRig {
 	r := &restartRig{life: "1@t0"}
 	r.api = &API{App: Word,
 		Bridge: NewBridge(), Bridges: NewBridges(), Port: 3000,
-		Bolt: func(socket, _, _ string) ([]string, error) {
-			r.bolts = append(r.bolts, socket)
+		Bolt: func(socket, url, _ string) ([]string, error) {
+			// 덱 몫의 등록만 적는다 — 컴패니언 전체 등록(주소에 덱 없음)은 생애당 하나 더 붙는다(join_deck_test.go).
+			if strings.Contains(url, "?deck=") {
+				r.bolts = append(r.bolts, socket)
+			}
 			return []string{"list_paragraphs"}, nil
 		},
 		Fresh: func(_, deck string) (string, error) {
