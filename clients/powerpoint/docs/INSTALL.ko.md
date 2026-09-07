@@ -4,12 +4,14 @@
 **여러 머신에 뿌리는 길**이다. 여기 적힌 것 중 실측한 것과 MS 문서에서 읽기만 한 것을 갈라 적는다 —
 읽기만 한 것은 그렇게 표시한다.
 
-## 0. 한 번에 깔기 — `install.ps1`(COM 손까지) · 세 프로그램을 한 번에는 `clients/office/install.ps1`(2026-09-07 부터 COM 손과 감시기도 짓는다)
+## 0. 한 번에 깔기 — `clients/office/install.ps1`(세 프로그램 · COM 손과 감시기까지)
 
-저장소를 받은 Windows 머신에서 이 한 줄이면 된다(Go 가 있어야 한다. 볼륨 판이면 .NET 9 SDK 도):
+저장소를 받은 Windows 머신에서 이 한 줄이면 된다(Go 가 있어야 한다. 볼륨 판이면 .NET 9 SDK 도). 파워포인트 판만의
+설치기는 2026-09-07 에 지웠다 — 통합 설치기가 COM 손과 감시기까지 짓게 되자 둘이 같은 Run 키·카탈로그 키를 건드려
+나중에 돌린 쪽이 상태를 정하는 결함만 남았기 때문이다.
 
 ```powershell
-& .\clients\powerpoint\install.ps1
+& .\clients\office\install.ps1
 ```
 
 하는 일 — Office 판을 읽고(M365 인가 볼륨 판인가), `magi.exe` 하나를 빌드해(헬퍼는 `magi office` 안) `%LOCALAPPDATA%\magi\ppt` 에
@@ -173,7 +175,7 @@ dotnet run -- --helper https://127.0.0.1:3000     # 떠 있는 PowerPoint 의 �
 **지우고 다시 깔기는 한 줄이다.** PowerPoint 를 끈 뒤:
 
 ```powershell
-& .\clients\powerpoint\install.ps1 -Clean
+& .\clients\office\install.ps1 -Clean
 ```
 
 등록 키(신뢰 카탈로그·개발자 키)와 리본 캐시 만료값을 지우고 `%LOCALAPPDATA%\Microsoft\Office\16.0\Wef\` 를 비운

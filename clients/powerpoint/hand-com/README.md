@@ -124,8 +124,8 @@ M365 를 지우고 이 머신에 2021 을 깔아 같은 훑기를 한 번 더 �
 
 ## 빌드·실행
 
-**쓰는 사람은 설치기로 합니다** — `clients/powerpoint/install.ps1` 이 볼륨 판을 보면 이것을 Release 로 빌드해
-`%LOCALAPPDATA%\magi\ppt\hand\${B} 에 놓고, 손 감시기(`hand-watch.ps1`)를 로그인 때 띄웁니다. 감시기가 PowerPoint 가
+**쓰는 사람은 설치기로 합니다** — `clients/office/install.ps1` 이 볼륨 판을 보면 이것을 Release 로 빌드해
+`%LOCALAPPDATA%\magi\office\hand\` 에 놓고, 손 감시기(`hand-watch.ps1`)를 로그인 때 띄웁니다. 감시기가 PowerPoint 가
 덱을 연 채로 떠 있으면 손을 붙이고, PowerPoint 가 내려가면 정리합니다(이 프로세스는 뜰 때 한 번만 붙습니다 —
 PowerPoint 를 껐다 켜면 옛 손은 죽은 COM 참조를 듭니다). 절차와 실측은 `docs/INSTALL.ko.md` §0·§3.3.
 

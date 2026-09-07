@@ -15,7 +15,7 @@
 
   볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 손(magi-ppt-hand)이 편집한다 — 볼륨 판이면 여기서 그 손을
   빌드하고(.NET SDK 필요) 손 감시기(hand-watch.ps1)를 로그인 때 같이 뜨게 건다. 2026-09-07 까지는 이 설치기가 그것을
-  clients/powerpoint/install.ps1 에 미뤘고, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다.
+  파워포인트 판만의 설치기(2026-09-07 에 지움)에 미뤘고, 통합 설치기만 돌린 2021 은 「magi-ppt-hand 를 띄워야 편집이 됩니다」에서 멈췄다.
   2026-09-06 밤 Windows 2021(볼륨 판)에서 끝까지 돌았다(메인 555ff0b9): 새 인증서 하나, 카탈로그 하나에 매니페스트 셋, Run\magi-office,
   3000 번 하나에서 /ppt·/xl·/word — 파워포인트 판 TESTING §5.5. 워드 애드인은 그날 Word 로는 안 열어 봤다.
 
@@ -321,7 +321,7 @@ if ($NoAutostart) {
         Done "손 감시기를 도로 띄웠다(Run\magi-ppt-hand-watch: $prev)"
       }
     } else {
-      Warn 'PowerPoint 2021 의 COM 손이 없다 — 이 설치기가 못 지었고(.NET SDK) 파워포인트 판 설치기의 감시기도 없다. .NET 9 SDK 를 깔고 다시 돌리거나 clients\powerpoint\install.ps1 을 돌려라.'
+      Warn 'PowerPoint 2021 의 COM 손이 없다 — 이 설치기가 못 지었고(.NET SDK) 앞서 걸어 둔 감시기도 없다. .NET 9 SDK 를 깔고 다시 돌려라.'
     }
   }
 }
