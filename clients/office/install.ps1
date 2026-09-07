@@ -6,11 +6,12 @@
   헬퍼는 하나다: magi.exe 의 `magi office` 가 포트 3000 에서 /ppt·/xl·/word 세 판을 내준다(clients/office/helper).
   그래서 인증서(office-helper-cert.pem)·자동 시작·신뢰 카탈로그 키가 전부 하나다. 이 파일을 돌리면:
     1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다. 그리고 **사람이 먼저 해야 하는 것**이 있으면
-       하라고 말하고 멈춰서 기다린다 — Go, 볼륨 판이면 카탈로그 폴더의 진짜 공유(New-SmbShare, 관리자 한 번)와 .NET 9 SDK.
+       하라고 말하고 멈춰서 기다린다 — 볼륨 판이면 카탈로그 폴더의 진짜 공유(New-SmbShare, 관리자 한 번), -FromSource 면 Go 와 .NET 9 SDK.
        설치기가 그 결과를 읽어 적는 것들이라 나중에 하면 다시 돌려야 한다. Enter 로 다시 재고 s 로 건너뛴다(-NoWait 는 안 묻는다).
-    2. magi.exe 를 빌드해 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다(헬퍼가 그 자리를 본다).
-    3. 데몬 권한 모드를 allow 로 둔다(설정 디렉토리의 config.toml — 평소의 magi 와 같은 파일). 사용자 결정(2026-09-05·06).
-       컴패니언은 평소의 magi 와 같은 설정 나무(%APPDATA%\magi)를 보고, 소켓만 ~/.magi(MAGI_SOCKET_DIR)에 둔다.
+    2. 릴리스에서 magi.exe·추가 기능·어댑터를 받아 설치 폴더에 놓고, 세 애드인의 파일을 그 옆 clients\<앱>\addin 에 복사한다.
+    3. **컴패니언 셋의 워크스페이스에만** 설정을 쓴다(<config>\{powerpoint,excel,word}\.magi\config.toml):
+       permission = "allow"(사용자 결정 2026-09-05·06)와 [council] enabled = false(2026-09-08).
+       전역 config.toml 은 안 건드린다 — 그 파일은 이 사람이 평소 쓰는 magi 의 것이다.
     4. 소켓 자리(~/.magi)를 이 계정의 환경 변수 MAGI_SOCKET_DIR 로 걸고(setx — 평소 magi 도 새 터미널부터 같은 명단을 본다),
        헬퍼를 -config-dir·-socket-dir 로 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나(~/.magi/catalog)에 매니페스트 셋.
@@ -55,8 +56,9 @@
   **다 지운다** — 헬퍼·컴패니언·어댑터를 멈추고, COM 추가 기능 등록(Office 를 켤 때 헬퍼를 띄우던 것), 옛 Run 키,
   애드인 등록(개발자 키 셋·신뢰 카탈로그 키), Office 애드인
   캐시, 설치 폴더(Dest), 소켓 자리(~/.magi 의 daemon-*.sock*·catalog), 신뢰 저장소의 인증서(magi office helper), 사용자
-  환경 변수 MAGI_SOCKET_DIR 을 뺀다. 남기는 것: %APPDATA%\magi 의 config.toml(permission = "allow" 줄까지 — 평소 magi 의
-  파일이다)과 plugins, 컴패니언 워크스페이스(%APPDATA%\magi\powerpoint·excel·word — 대화 기록은 %LOCALAPPDATA%\magi).
+  환경 변수 MAGI_SOCKET_DIR 을 뺀다. 남기는 것: %APPDATA%\magi 의 config.toml 과 plugins(평소 magi 의 것이라 이 설치기가
+  쓴 적이 없다), 컴패니언 워크스페이스(%APPDATA%\magi\powerpoint·excel·word — 그 안의 .magi\config.toml 이 이 셋의
+  permission·council 이고, 대화 기록은 %LOCALAPPDATA%\magi).
   그것까지 지우려면 그 폴더를 손으로.
 #>
 [CmdletBinding()]
@@ -417,25 +419,59 @@ foreach ($app in $apps) {
   Done "$($app.dir)\addin → $addinDest"
 }
 
-# ── 4. 데몬 권한 모드 = allow ────────────────────────────────────────────────
-Say '설정을 확인합니다'
+# ── 4. Office 컴패니언만의 설정 ──────────────────────────────────────────────
+#
+# **전역 config.toml 을 안 건드린다.** 2026-09-08 까지 이 자리는 `%APPDATA%\magi\config.toml` 에
+# `permission = "allow"` 를 썼는데, 그 파일은 이 사람이 평소 쓰는 magi 의 것이다 — 터미널에서 치는
+# magi 도, 웹 콘솔의 컴패니언도, 예약 작업도 전부 그 한 줄을 물려받았다. Office 를 깔았다는 이유로
+# 그 사람의 모든 magi 가 승인 없이 도는 것은 이 설치기가 결정할 일이 아니다(사용자, 2026-09-08:
+# 「퍼미션이 전역에 들어가는건 이상하다」).
+#
+# 대신 **워크스페이스 층**에 쓴다. 컴패니언 셋은 `<config>\{powerpoint,excel,word}` 에서 돌고,
+# magi 는 그 자리의 `.magi\config.toml` 을 전역 위에 얹는다(`loadConfigLayers`). 컴패니언 층
+# (`companions\<이름>-<해시>`)이 더 좁지만 경로에 해시가 있어 여기서 계산할 수 없다.
+#
+# ⚠ 이미 전역에 `permission = "allow"` 가 적힌 머신은 **그대로 둔다.** 지우면 그 사람이 다른 이유로
+# 원했을 수도 있는 설정을 이 설치기가 없애는 것이 된다. 새로 쓰지 않을 뿐이다.
+Say 'Office 컴패니언 설정을 씁니다'
 New-Item -ItemType Directory -Force $configDir | Out-Null
 $cfg = Join-Path $configDir 'config.toml'
-# 백엔드는 이 파일이나 플러그인이 정한다 — 컴패니언은 평소의 magi 와 같은 나무를 보므로 여기서 가져올 것이 없다.
 if (Test-Path $cfg) {
   $has = @(Get-Content $cfg -Encoding UTF8) | Where-Object { $_ -match '^\s*(model|base_url|api_key|profile)\s*=' -or $_ -match '^\s*\[(llm|plugins)' }
   if (-not $has) { Warn "config.toml 에 모델 설정이 없습니다. 기본값으로 동작합니다. ($cfg)" }
 }
-$lines = @(); if (Test-Path $cfg) { $lines = @(Get-Content $cfg -Encoding UTF8) }
-$live = $lines | Where-Object { $_ -match '^\s*permission\s*=' }
-if ($live) {
-  if ($live -notmatch '"allow"') {
-    $lines = $lines | ForEach-Object { if ($_ -match '^\s*permission\s*=') { 'permission = "allow"   # magi 플러그인 설치기가 바꿨다 — 사용자 결정' } else { $_ } }
-    [IO.File]::WriteAllLines($cfg, $lines, (New-Object Text.UTF8Encoding $false)); Done 'config.toml: permission 을 allow 로 바꿨습니다'
-  } else { Done 'config.toml: 이미 설정되어 있습니다' }
-} else {
-  $lines += ''; $lines += '# magi Office 플러그인 설치기가 더했다(사용자 결정: 승인 창이 흐름을 끊는 품이 더 크다)'; $lines += 'permission = "allow"'
-  [IO.File]::WriteAllLines($cfg, $lines, (New-Object Text.UTF8Encoding $false)); Done 'config.toml: permission = "allow" 를 추가했습니다'
+
+foreach ($app in $apps) {
+  $space = Join-Path $configDir $app.dir          # 컴패니언이 도는 워크스페이스
+  $dotMagi = Join-Path $space '.magi'
+  New-Item -ItemType Directory -Force $dotMagi | Out-Null
+  $wsCfg = Join-Path $dotMagi 'config.toml'
+
+  # 워크스페이스가 **신뢰 목록**에 있어야 permission 을 푸는 방향으로 쓸 수 있다. 신뢰 안 된
+  # 워크스페이스의 설정은 가드레일을 조일 수만 있고 풀 수는 없다(mergeProjectConfigSaying) —
+  # 그 규칙은 남의 저장소를 클론했을 때를 위한 것이고, 이 셋은 설치기가 방금 만든 자리다.
+  $magiExe = Join-Path $Dest 'magi.exe'
+  if (Test-Path $magiExe) {
+    Push-Location $space
+    try { & $magiExe --trust 2>&1 | Out-Null } finally { Pop-Location }
+  }
+
+  # 통째로 쓴다. 이 파일은 설치기의 것이고 사람이 고칠 자리가 아니다 — 사람의 설정은 전역에 있다.
+  $body = @(
+    '# magi Office 설치기가 쓴다. 이 워크스페이스(= 이 컴패니언)에만 걸린다 —',
+    '# 사람이 평소 쓰는 magi 의 설정은 <config>\config.toml 이고 이 파일이 그것을 안 덮는다.',
+    '',
+    '# 승인 창이 흐름을 끊는 품이 더 크다(사용자 결정 2026-09-05·06). 이 셋에만 건다.',
+    'permission = "allow"',
+    '',
+    '# 카운슬은 끈다(사용자 결정 2026-09-08). 문서를 고치는 자리에서는 세 렌즈의 합의보다',
+    '# 사람이 화면에서 바로 보는 것이 빠르고, 매 턴 세 번의 모델 호출이 그 값을 못 한다.',
+    '# `council` 도구도 함께 사라지고, 그래서 끝냄 선언도 없어진다.',
+    '[council]',
+    'enabled = false'
+  )
+  [IO.File]::WriteAllLines($wsCfg, $body, (New-Object Text.UTF8Encoding $false))
+  Done "$($app.dir): permission=allow · council=off"
 }
 
 # ── 5. 헬퍼를 띄우고 인증서를 넣는다 ─────────────────────────────────────────
