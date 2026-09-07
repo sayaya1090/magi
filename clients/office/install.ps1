@@ -450,10 +450,26 @@ foreach ($app in $apps) {
   # 워크스페이스가 **신뢰 목록**에 있어야 permission 을 푸는 방향으로 쓸 수 있다. 신뢰 안 된
   # 워크스페이스의 설정은 가드레일을 조일 수만 있고 풀 수는 없다(mergeProjectConfigSaying) —
   # 그 규칙은 남의 저장소를 클론했을 때를 위한 것이고, 이 셋은 설치기가 방금 만든 자리다.
+  #
+  # 실측(2026-09-08): [council] enabled = false 는 **신뢰 없이도** 먹는다(도구 30→29). 조이는
+  # 쪽이라서다. 그래서 여기서 실패해도 카운슬은 꺼지고, 안 먹는 것은 permission 하나다.
+  #
+  # 못 걸면 **여기서 말한다.** 안 그러면 이 자리는 조용하고, 사유는 한참 뒤 데몬이 뜰 때
+  # 「a project may tighten how much it asks, not loosen it」로 다른 화면에 뜬다 — 그때 그 줄을
+  # 보는 사람은 설치가 무엇을 못 했는지 모른다.
   $magiExe = Join-Path $Dest 'magi.exe'
-  if (Test-Path $magiExe) {
+  if (-not (Test-Path $magiExe)) {
+    Warn "$($app.dir): $magiExe 가 없어 워크스페이스를 신뢰 목록에 못 넣었습니다. 카운슬은 꺼지지만 permission = allow 는 안 먹습니다(데몬이 뜰 때 「a project may tighten … not loosen it」이 뜹니다). 이 워크스페이스에서 한 번 실행해 주세요:  `"$magiExe`" --trust"
+  } else {
     Push-Location $space
-    try { & $magiExe --trust 2>&1 | Out-Null } finally { Pop-Location }
+    try {
+      & $magiExe --trust 2>&1 | Out-Null
+      $trustOk = ($LASTEXITCODE -eq 0)
+    } finally { Pop-Location }
+    # 종료 코드로 판정한다. 출력을 읽으면 「이미 신뢰됨」과 실패가 같은 글자로 보인다.
+    if (-not $trustOk) {
+      Warn "$($app.dir): 워크스페이스를 신뢰 목록에 못 넣었습니다(magi --trust 가 $LASTEXITCODE 로 끝났습니다). 카운슬은 꺼지지만 permission = allow 는 안 먹습니다. 이 워크스페이스에서 한 번 실행해 주세요:  `"$magiExe`" --trust"
+    }
   }
 
   # 통째로 쓴다. 이 파일은 설치기의 것이고 사람이 고칠 자리가 아니다 — 사람의 설정은 전역에 있다.
