@@ -121,6 +121,17 @@ start.log: [POWERPNT] 헬퍼를 띄웠습니다: …\magi.exe office -config-dir
 
 로그를 POWERPNT 프로세스가 직접 적었다. 대화도 돌았고 턴 끝에 ⚖ 판정 줄이 없었다 — 카운슬이 꺼진 채로 깔린다.
 
+그 설정이 **어디에 쓰였는지**도 같은 판에서 봤다. 전역 `config.toml` 은 활성줄이 **하나도 없고**(주석뿐인 기본
+템플릿 그대로), 컴패니언 셋의 워크스페이스에만 들어가 있다:
+
+```
+<config>\{powerpoint,excel,word}\.magi\config.toml
+    permission = "allow" | [council] | enabled = false
+```
+
+이것이 「Office 를 깔았다는 이유로 그 사람의 **모든** magi 가 승인 없이 돌지 않는다」의 실측이다 — 터미널에서 치는
+magi 도, 웹 콘솔의 컴패니언도, 예약 작업도 그 한 줄을 안 물려받는다.
+
 그 전에 **그 추가 기능이 PowerPoint 를 죽이고 있었다** — `IDTExtensibility2` 를 `InterfaceIsIDispatch` 로 선언해
 vtable 이 넷 밀렸고, Office 가 `OnConnection` 을 부르는 순간 `AccessViolationException` 으로 프로세스가 사라졌다.
 사유와 고친 모양은 같은 문서에 있다. 재는 자리는 `helper/addin_com_vtable_test.go`.
