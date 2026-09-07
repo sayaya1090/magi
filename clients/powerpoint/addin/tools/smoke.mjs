@@ -4236,6 +4236,7 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 2021 — 태그 칸이 없으면 파일 경로로 짓는다. COM 손(DeckKey.cs)과 같은 규칙·같은 벡터(sha256 앞 16자리).
   ok('경로 정규화는 손과 같다', normalizeDeckPath('file:///C:/Users/me/deck.pptx') === 'c:/users/me/deck.pptx' && normalizeDeckPath('C:\\Users\\ME\\Deck.PPTX') === 'c:/users/me/deck.pptx');
   ok('경로의 지문은 손과 같은 값', (await comDeckId('C:\\Users\\me\\deck.pptx')) === 'com-3181070406bd03b9' && (await comDeckId('file:///C:/Users/me/deck.pptx')) === 'com-3181070406bd03b9');
+  ok('한글 경로도 손과 같은 값', (await comDeckId('C:\\Users\\me\\260824_AI 보고 - 개선 현황.pptx')) === 'com-709f777cbeafb7ca');
 
   // **프레젠테이션 칸이 없으면 첫 장으로 물러선다.** 그 칸이 없는 판이 있고, 앞 판본은 조용히
   // 빈 값을 줘서 허브가 번호를 발급했다 — 그 창은 재연결마다 신원을 잃었다(2026-09-05 실물).

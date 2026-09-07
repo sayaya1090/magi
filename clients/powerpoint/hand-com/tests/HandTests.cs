@@ -18,6 +18,8 @@ public class HandTests
         Assert.Equal("com-3181070406bd03b9", DeckKey.Of("file:///C:/Users/me/deck.pptx"));
         Assert.Equal("com-3181070406bd03b9", DeckKey.Of("c:/users/ME/Deck.PPTX"));
         Assert.NotEqual(DeckKey.Of("C:\\a.pptx"), DeckKey.Of("C:\\b.pptx"));
+        // 한글 경로 — 실물 2021 의 덱 이름이 한글이었다(2026-09-07). UTF-8 바이트가 양쪽에서 같아야 한다.
+        Assert.Equal("com-709f777cbeafb7ca", DeckKey.Of("C:\\Users\\me\\260824_AI 보고 - 개선 현황.pptx"));
     }
 
     [Fact]

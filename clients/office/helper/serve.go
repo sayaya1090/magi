@@ -1087,7 +1087,8 @@ func (a *API) question(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) documents(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]any{"documents": a.Hub.Documents(), "attached": a.Hub.Attached()})
+	// viewers 는 화면(viewer)들이 청한 키와 본 손 — 2021 에서 두 창이 같은 손을 보는지 가르는 진단 창.
+	writeJSON(w, map[string]any{"documents": a.Hub.Documents(), "attached": a.Hub.Attached(), "viewers": a.Hub.Peeks()})
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {

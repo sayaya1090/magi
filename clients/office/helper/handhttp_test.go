@@ -406,3 +406,34 @@ func TestAViewerWithItsOwnKeyIgnoresANewerHand(t *testing.T) {
 		t.Fatalf("자기 키의 손이 있는데 창이 %q 를 본다(자기 것은 %q)", got, myDoc)
 	}
 }
+
+// 화면이 **무엇을 청했고 무엇을 봤는가**를 허브가 남긴다. 2021 실물(2026-09-07)에서 덱 둘의 손은 따로 붙었는데
+// 두 창이 같은 대화를 그렸고, 창이 어떤 키로 왔는지 볼 문이 없어 못 갈랐다 — `/api/documents` 의 viewers 가 이것이다.
+func TestTheHubRecordsWhatEachViewerAskedAndSaw(t *testing.T) {
+	hub := NewHandHub(PPT)
+	hub.Join("com-aaaa", "a.pptx")
+	hub.Join("com-bbbb", "b.pptx")
+	if hub.Peek("com-aaaa") == nil || hub.Peek("") == nil || hub.Peek("com-zzzz") == nil {
+		t.Fatal("손이 둘 있는데 화면이 볼 것이 없다")
+	}
+	got := hub.Peeks()
+	if len(got) != 3 {
+		t.Fatalf("청 셋을 남겨야 한다: %+v", got)
+	}
+	// 최근 것부터: 모르는 키 → 있는 손, 빈 키 → 있는 손, 자기 키 → 자기 손.
+	if got[2].Asked != "com-aaaa" || got[2].Saw != "pid-com-aaaa" {
+		t.Fatalf("자기 키의 손을 봐야 한다: %+v", got[2])
+	}
+	if got[1].Asked != "" || got[1].Saw == "" {
+		t.Fatalf("빈 키는 있는 손을 봐야 한다: %+v", got[1])
+	}
+	if got[0].Asked != "com-zzzz" || got[0].Saw == "pid-com-zzzz" || got[0].Saw == "" {
+		t.Fatalf("모르는 키는 있는 손을 봐야 한다: %+v", got[0])
+	}
+	for i := 0; i < peeksKept+3; i++ {
+		hub.Peek("")
+	}
+	if n := len(hub.Peeks()); n != peeksKept {
+		t.Fatalf("최근 %d 개만 남긴다: %d", peeksKept, n)
+	}
+}

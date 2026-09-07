@@ -102,7 +102,20 @@ type HandHub struct {
 	Timeout time.Duration
 	// Now 는 시험이 시계를 안 재게 주입한다.
 	Now func() time.Time
+	// peeks 는 화면(viewer)이 **무엇을 청했고 무엇을 봤는가** — 최근 것부터, 몇 개만. 2021 실물(2026-09-07)에서
+	// 덱 둘의 손은 따로 붙었는데 두 창이 같은 대화를 그렸고, 창이 어떤 키로 왔는지 볼 문이 없어 못 갈랐다.
+	// 진단 창(`/api/documents` 의 viewers)이 이것을 낸다.
+	peeks []Peek
 }
+
+// Peek 은 화면 한 연결의 청과 답. Asked 가 비면 이름 없는 창이고, Saw 가 비면 볼 손이 없었다.
+type Peek struct {
+	Asked string `json:"asked"`
+	Saw   string `json:"saw"`
+	At    string `json:"at"`
+}
+
+const peeksKept = 8
 
 func NewHandHub(app *App) *HandHub {
 	return &HandHub{App: app,
@@ -172,12 +185,26 @@ func (h *HandHub) Join(presentationID, label string) *handConn {
 func (h *HandHub) Peek(presentationID string) *handConn {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if presentationID != "" {
-		if c := h.conns[h.App.DocPrefix+presentationID]; c != nil {
-			return c
-		}
+	c := h.conns[h.App.DocPrefix+presentationID]
+	if presentationID == "" || c == nil {
+		c = h.bestLocked()
 	}
-	return h.bestLocked()
+	saw := ""
+	if c != nil {
+		saw = c.key
+	}
+	h.peeks = append([]Peek{{Asked: presentationID, Saw: saw, At: h.now().Format(time.RFC3339)}}, h.peeks...)
+	if len(h.peeks) > peeksKept {
+		h.peeks = h.peeks[:peeksKept]
+	}
+	return c
+}
+
+// Peeks 는 화면들이 청한 것과 본 것 — 최근 것부터. 진단용이다.
+func (h *HandHub) Peeks() []Peek {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]Peek(nil), h.peeks...)
 }
 
 // bestLocked 은 답하는 손 중 가장 최근 것. pick 과 같은 차례다. 잠근 채로 부른다.
