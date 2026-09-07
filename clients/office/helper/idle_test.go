@@ -61,3 +61,39 @@ func TestTheCompanionGoesDownWhenTheProgramIsGone(t *testing.T) {
 		t.Fatalf("두 번 내렸다: %v", stopped)
 	}
 }
+
+// **Office 가 하나도 없으면 헬퍼도 끝낸다**(officeWatch). 사용자(2026-09-07): 「헬퍼랑 데몬은 각 오피스가 켜진 게
+// 있을 때만 켜져 있고, 인스턴스가 없으면 종료되고」. 다음에 Office 를 켜면 COM 추가 기능이 다시 띄운다.
+func TestTheHelperEndsWhenNoOfficeProgramIsLeft(t *testing.T) {
+	gone, known := false, true
+	w := &officeWatch{After: 60 * time.Second, Gone: func() (bool, bool) { return gone, known }}
+	t0 := time.Unix(1_700_000_000, 0)
+
+	// 하나라도 떠 있으면 아무 때나 거짓이다.
+	if w.tick(t0) || w.tick(t0.Add(time.Hour)) {
+		t.Fatal("Office 가 떠 있는데 끝내려 했다")
+	}
+	// 없어졌다 — 유예 안에는 안 끝낸다(껐다 바로 켜는 사람).
+	gone = true
+	if w.tick(t0.Add(2*time.Hour)) || w.tick(t0.Add(2*time.Hour+59*time.Second)) {
+		t.Fatal("유예가 안 끝났는데 끝내려 했다")
+	}
+	// 그 사이 다시 켜지면 유예는 처음부터.
+	gone = false
+	w.tick(t0.Add(2*time.Hour + 30*time.Second))
+	gone = true
+	if w.tick(t0.Add(2*time.Hour + 40*time.Second)) {
+		t.Fatal("다시 켜진 뒤의 유예를 처음부터 세지 않았다")
+	}
+	if !w.tick(t0.Add(3 * time.Hour)) {
+		t.Fatal("유예가 지났는데 안 끝냈다")
+	}
+	// **못 재면 안 끝낸다** — 모르는 것을 「없다」로 읽으면 사람이 쓰는 헬퍼를 끈다.
+	known = false
+	w.since = time.Time{}
+	for i := 0; i < 20; i++ {
+		if w.tick(t0.Add(time.Duration(4+i) * time.Hour)) {
+			t.Fatal("못 재는 자리에서 끝냈다")
+		}
+	}
+}

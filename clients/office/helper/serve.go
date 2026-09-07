@@ -56,6 +56,9 @@ func Run(args []string, out, log io.Writer) int {
 			"그 프로그램(ppt·xl·word)의 문서를 고치지 않는 도구의 허용 규칙을 찍고 나간다(§6). config.toml 에 그대로 붙여 넣는다")
 		showVer  = fs.Bool("version", false, "판본을 찍고 나간다")
 		showCert = fs.Bool("cert-hint", false, "인증서를 신뢰 저장소에 넣는 법을 찍고 나간다")
+		// Office 가 하나도 안 떠 있으면 헬퍼는 스스로 끝난다 — Office 를 켤 때 COM 추가 기능이 다시 띄우기 때문이다.
+		// 개발할 때는 Office 없이 띄워 두고 싶으므로 그 자동 종료를 끄는 자리를 둔다.
+		keepRunning = fs.Bool("keep-running", false, "Office 가 하나도 안 떠 있어도 안 끝낸다(개발용)")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -145,6 +148,22 @@ func Run(args []string, out, log io.Writer) int {
 	// 그 사이 모델에게는 손이 없는 도구가 광고된다.
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	// **Office 가 하나도 없으면 헬퍼도 끝낸다**(idle.go officeWatch). 다음에 Office 를 켜면 COM 추가 기능이 다시 띄운다.
+	// `-keep-running` 은 그 자동 종료를 끈다 — Office 없이 헬퍼만 띄워 두고 보는 개발용이다.
+	if !*keepRunning {
+		go func() {
+			w := &officeWatch{}
+			t := time.NewTicker(idleTickEvery)
+			defer t.Stop()
+			for now := range t.C {
+				if w.tick(now) {
+					fmt.Fprintln(log, "Office 가 하나도 안 떠 있습니다 — 헬퍼를 끝냅니다(다음에 Office 를 켜면 다시 뜹니다).")
+					stop <- syscall.SIGTERM
+					return
+				}
+			}
+		}()
+	}
 	<-stop
 	fmt.Fprintln(log, "나갑니다 — 붙여 둔 등록을 뗍니다.")
 	for _, sv := range served {

@@ -14,7 +14,9 @@
     4. 소켓 자리(~/.magi)를 이 계정의 환경 변수 MAGI_SOCKET_DIR 로 걸고(setx — 평소 magi 도 새 터미널부터 같은 명단을 본다),
        헬퍼를 -config-dir·-socket-dir 로 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나(~/.magi/catalog)에 매니페스트 셋.
-    6. 로그인할 때 헬퍼가 같이 뜨게 한다(Run\magi-office 하나뿐이다). -NoAutostart 로 끈다.
+    6. **Office 를 켤 때 헬퍼가 뜨게 한다** — Office 안에서 뜨는 COM 추가 기능(magi-office-start)이 헬퍼를 띄운다.
+       그래서 로그인 때 뜨는 등록이 없다: Office 를 안 켜면 이 계정에 magi 는 하나도 없다. .NET SDK 가 없어 그것을 못
+       지으면 그때만 로그인 등록(Run\magi-office)으로 물러선다. -NoAutostart 는 둘 다 안 한다.
 
   볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 어댑터(magi-ppt-hand.exe)가 편집한다 — 볼륨 판이면 그 어댑터도
   빌드한다(.NET SDK 필요, 없으면 경고만). 어댑터를 띄우는 것은 헬퍼다: PowerPoint 가 떠 있는데 어댑터가 없으면 헬퍼가 띄우고,
@@ -33,8 +35,8 @@
   설치 폴더. 기본 %LOCALAPPDATA%\magi\office
 
 .PARAMETER NoAutostart
-  로그인 때 자동으로 띄우는 등록(HKCU\...\Run 의 magi-office)을 안 하고, 있던 것은 뺀다. 그러면 Office 창을 열기 전에
-  헬퍼를 손으로 띄워야 한다 — 창이 붙을 자리가 헬퍼이고, Office 는 프로그램을 띄울 줄 모른다.
+  magi 가 스스로 뜨게 하는 것을 **아무것도 안 한다** — COM 추가 기능도, 로그인 등록(Run\magi-office)도. 있던 것은 뺀다.
+  그러면 Office 창을 열기 전에 헬퍼를 손으로 띄워야 한다: `magi office`.
 
 .PARAMETER NoWait
   먼저 할 것(Go·진짜 공유·.NET SDK)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
@@ -81,6 +83,9 @@ $apps = @(
 # 소켓·명단 파일은 ~/.magi(MAGI_SOCKET_DIR)에 둔다 — 유닉스 주소는 100바이트라 %APPDATA%\magi 아래는 긴 사용자
 # 이름에서 넘친다(2026-09-02 실측). 2026-09-07 까지는 설정 디렉토리 자체를 ~/.magi 로 못 박아서, 평소 데몬은 되는데
 # 컴패니언 셋만 「API 키가 없다」였다. 카탈로그도 ~/.magi 아래에 둔다(공유로 내주는 폴더).
+# Office 를 켤 때 헬퍼를 띄우는 COM 추가 기능(clients/office/addin-com). 이 셋이 등록의 이름이다.
+$startClsid = '{38162D7F-4C03-4B36-9F55-15D83EEA5EF3}'
+$startProgId = 'Magi.Office.Start'
 $configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:APPDATA 'magi' }
 $socketDir = if ($env:MAGI_SOCKET_DIR) { $env:MAGI_SOCKET_DIR } else { Join-Path $env:USERPROFILE '.magi' }
 $port = 3000
@@ -158,6 +163,14 @@ if ($Uninstall) {
   }
   $cache = Join-Path $env:LOCALAPPDATA 'Microsoft\Office\16.0\Wef'
   if (Test-Path $cache) { Get-ChildItem $cache -Force | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue; Done "Office 캐시를 비웠습니다" }
+  Say 'Office 를 켤 때 뜨던 추가 기능 등록을 지웁니다'
+  foreach ($ribbon in @('PowerPoint', 'Excel', 'Word')) {
+    $k = "HKCU:\Software\Microsoft\Office\$ribbon\Addins\$startProgId"
+    if (Test-Path $k) { Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue; Done "지웠습니다: $ribbon" }
+  }
+  foreach ($k in @("HKCU:\Software\Classes\CLSID\$startClsid", "HKCU:\Software\Classes\$startProgId")) {
+    if (Test-Path $k) { Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue }
+  }
   Say '설치 폴더와 인증서를 지웁니다'
   if (Test-Path $Dest) { Remove-Item $Dest -Recurse -Force -ErrorAction SilentlyContinue; Done "지웠습니다: $Dest" }
   if (Test-Path $socketDir) {
@@ -183,7 +196,9 @@ if (-not $c2r) { Fail 'Office 를 찾지 못했습니다. Office 2019 이상 또
 $ids = "$($c2r.ProductReleaseIds)"
 $perpetual = ($ids -match 'Volume|2019|2021|2024')      # 볼륨 판/LTSC — 개발자 키를 무시한다
 $edition = if ($perpetual) { "볼륨 판 $($c2r.VersionToReport)" } else { "Microsoft 365 $($c2r.VersionToReport)" }
-Done "$edition ($ids)"
+# COM 추가 기능은 Office 프로세스 **안에서** 뜨므로 비트 수가 같아야 한다. 대개 x64 다.
+$bitness = if ("$($c2r.Platform)" -eq 'x86') { 'x86' } else { 'x64' }
+Done "$edition ($ids · $bitness)"
 foreach ($app in $apps) {
   if (-not (Test-Path (Join-Path $env:ProgramFiles "Microsoft Office\root\Office16\$($app.exe)")) -and -not (Test-Path (Join-Path ${env:ProgramFiles(x86)} "Microsoft Office\root\Office16\$($app.exe)"))) {
     Warn "$($app.ribbon) 이(가) 설치되어 있지 않은 것 같습니다. 그래도 계속합니다."
@@ -203,17 +218,18 @@ if (-not $SkipBuild) {
   } else { Fail 'Go 가 없어 설치를 계속할 수 없습니다.' }
 }
 $dotnet = $null
+# .NET SDK 는 이제 판을 안 가린다 — 볼륨 판의 편집 어댑터도, 모든 판의 COM 추가 기능(Office 를 켤 때 헬퍼를 띄우는 것)도
+# 이것으로 짓는다. 없으면 추가 기능 없이 가고, 그때는 로그인 등록으로 물러선다(7단계).
+$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요. 런타임만으로는 부족합니다. 건너뛰면 Office 를 켤 때가 아니라 로그인할 때 헬퍼가 뜨게 됩니다.'
+if (-not $SkipBuild -and -not $NoAutostart) {
+  if (WaitUntil '.NET 9 SDK' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk))" }
+}
 if ($perpetual) {
   # 진짜 공유 — 카탈로그의 UNC 를 여기서 읽어 적으므로 나중에 만들면 설치기를 다시 돌려야 한다.
   $catalogDir = Join-Path $socketDir 'catalog'
   if (-not $CatalogUnc) {
     $shareCmd = "관리자 PowerShell 에서 한 번만 실행해 주세요:  New-SmbShare -Name magi -Path `"$socketDir`" -ReadAccess $env:USERNAME"
     if (WaitUntil "폴더 공유($socketDir)" $shareCmd { [bool](RealShareFor $catalogDir) }) { Done "공유 폴더: $((RealShareFor $catalogDir).Name)" }
-  }
-  # .NET SDK — COM 손을 여기서 지으므로 나중에 깔면 설치기를 다시 돌려야 한다.
-  if (-not $SkipBuild) {
-    $sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK(x64)를 설치해 주세요. 런타임만으로는 부족합니다. 건너뛰면 PowerPoint 2021 에서 편집이 되지 않습니다.'
-    if (WaitUntil '.NET 9 SDK' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk))" }
   }
 }
 
@@ -257,6 +273,14 @@ if (-not $SkipBuild) {
     # 손이 안 지어져도 설치는 간다 — Excel·Word 와 파워포인트 작업창은 손과 무관하다(#181). 옛 손이 있으면 그것을 쓴다.
     if ($LASTEXITCODE -ne 0) { Warn "어댑터 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 어댑터 없이 계속합니다(PowerPoint 2021 편집만 안 됩니다)."; $dotnet = $null }
     else { Done "magi-ppt-hand.exe → $handOut" }
+  }
+  if ($dotnet -and -not $NoAutostart) {
+    Say 'Office 를 켤 때 헬퍼가 뜨게 하는 추가 기능을 빌드합니다'
+    $startProj = Join-Path $repo 'clients\office\addin-com\src\magi-office-start.csproj'
+    $startOut = Join-Path $Dest 'start'
+    & $dotnet.FullName build $startProj -c Release -r "win-$bitness" --self-contained false -o $startOut --nologo -v q
+    if ($LASTEXITCODE -ne 0) { Warn '추가 기능 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 대신 로그인할 때 헬퍼가 뜨게 합니다.' }
+    else { Done "magi-office-start.comhost.dll → $startOut" }
   }
 } else { Say '빌드를 건너뜁니다(-SkipBuild)' }
 if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없습니다." }
@@ -405,30 +429,61 @@ if ($perpetual) {
   }
 }
 
-# ── 7. 로그인 때 같이 뜨게 ───────────────────────────────────────────────────
-# **등록은 헬퍼 하나뿐이다.** Office 는 프로그램을 띄울 줄 모르므로 창이 붙을 자리(헬퍼)가 먼저 떠 있어야 한다. 반대로
-# PowerPoint 2021 의 편집 어댑터는 헬퍼가 띄우므로(helper/adapter.go) 제 등록이 필요 없다 — 2026-09-07 까지는 PowerShell
-# 감시기가 그 자리를 차지했고, 사용자가 그것을 짚었다(「2021 은 그런 거 없어도 되잖아」). 옛 등록은 여기서 뺀다.
+# ── 7. 언제 뜨게 할 것인가 ───────────────────────────────────────────────────
+# **Office 를 켤 때 뜬다.** 작업창의 페이지는 헬퍼가 내주므로 헬퍼가 먼저 떠 있어야 하는데, 그것을 로그인 등록으로
+# 풀면 Office 를 안 켜는 날에도 magi 가 떠 있다. 사용자가 그것을 물렸다(2026-09-07: 「윈도우 로그인 때 자동 켜지는 거
+# 하지 말라고」, 「오피스에서 플러그인 켤 때 COM 이랑 .NET 으로 프로세스 못 띄우냐」). COM 추가 기능은 Office 프로세스
+# 안에서 뜨므로 그 자리가 정확히 맞다. 헬퍼는 Office 가 하나도 없으면 스스로 끝나고(helper/idle.go), 컴패니언도 그렇다.
+#
+# 못 지었으면(.NET SDK 없음) **로그인 등록으로 물러선다** — 안 그러면 리본의 Magi 가 빈 창을 띄운다.
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
+Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue   # 옛 감시기 등록(2026-09-07 이전)
+$comhost = Join-Path $Dest 'start\magi-office-start.comhost.dll'
 if ($NoAutostart) {
   Say '자동 시작을 등록하지 않습니다(-NoAutostart)'
   Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
-  Warn 'Office 창을 열기 전에 헬퍼를 직접 띄워야 합니다.'
-} else {
-  Say '로그인할 때 자동으로 시작되게 합니다'
-  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`" -socket-dir `"$socketDir`"" -PropertyType String -Force | Out-Null
-  Done '헬퍼 자동 시작'
-  if ($perpetual) {
-    if (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe')) { Done 'PowerPoint 편집 어댑터는 헬퍼가 띄웁니다 — 따로 등록하지 않습니다' }
-    else { Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.' }
+  foreach ($ribbon in @('PowerPoint', 'Excel', 'Word')) {
+    $k = "HKCU:\Software\Microsoft\Office\$ribbon\Addins\$startProgId"
+    if (Test-Path $k) { Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue }
   }
+  Warn 'Office 창을 열기 전에 헬퍼를 직접 띄워야 합니다.'
+} elseif (Test-Path $comhost) {
+  Say 'Office 를 켤 때 헬퍼가 뜨게 등록합니다'
+  # 헬퍼의 명령줄은 여기서 적어 둔다 — 설정·소켓 자리를 아는 것은 설치기다(Starter.cs HelperArgs).
+  $argsLine = "office -config-dir `"$configDir`" -socket-dir `"$socketDir`""
+  [IO.File]::WriteAllText((Join-Path $Dest 'start\helper-args.txt'), $argsLine, (New-Object Text.UTF8Encoding $false))
+  # CLSID → comhost.dll, ProgID → CLSID. 전부 이 계정 몫이라 관리자 권한이 필요 없다.
+  $inproc = "HKCU:\Software\Classes\CLSID\$startClsid\InprocServer32"
+  New-Item -Path $inproc -Force | Out-Null
+  New-ItemProperty -Path $inproc -Name '(default)' -Value $comhost -PropertyType String -Force | Out-Null
+  New-ItemProperty -Path $inproc -Name 'ThreadingModel' -Value 'Both' -PropertyType String -Force | Out-Null
+  New-Item -Path "HKCU:\Software\Classes\CLSID\$startClsid\ProgID" -Force | Out-Null
+  New-ItemProperty -Path "HKCU:\Software\Classes\CLSID\$startClsid\ProgID" -Name '(default)' -Value $startProgId -PropertyType String -Force | Out-Null
+  New-Item -Path "HKCU:\Software\Classes\$startProgId\CLSID" -Force | Out-Null
+  New-ItemProperty -Path "HKCU:\Software\Classes\$startProgId\CLSID" -Name '(default)' -Value $startClsid -PropertyType String -Force | Out-Null
+  # LoadBehavior 3 = 시작할 때 불러 온다. Office 가 2 로 내려 두면 다음부터 안 부르므로 매번 3 으로 되돌린다.
+  foreach ($ribbon in @('PowerPoint', 'Excel', 'Word')) {
+    $k = "HKCU:\Software\Microsoft\Office\$ribbon\Addins\$startProgId"
+    New-Item -Path $k -Force | Out-Null
+    New-ItemProperty -Path $k -Name 'FriendlyName' -Value 'Magi' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $k -Name 'Description' -Value 'Magi 헬퍼를 띄웁니다' -PropertyType String -Force | Out-Null
+    New-ItemProperty -Path $k -Name 'LoadBehavior' -Value 3 -PropertyType DWord -Force | Out-Null
+  }
+  Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
+  Done 'Office 를 켜면 헬퍼가 뜹니다 — 로그인 때 뜨는 등록은 없습니다'
+} else {
+  Say '로그인할 때 헬퍼가 뜨게 합니다'
+  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`" -socket-dir `"$socketDir`"" -PropertyType String -Force | Out-Null
+  Warn '추가 기능(.NET SDK 필요)을 못 지어 로그인 때 뜨게 했습니다. SDK 를 설치하고 다시 실행하면 Office 를 켤 때만 뜹니다.'
+}
+if ($perpetual -and -not (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
+  Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.'
 }
 
 # ── 8. 다음 할 일 ────────────────────────────────────────────────────────────
 Write-Host ''
 Write-Host '설치를 마쳤습니다. 다음 단계:' -ForegroundColor Cyan
-Write-Host '  1. PowerPoint·Excel·Word 를 다시 시작합니다.'
+Write-Host '  1. PowerPoint·Excel·Word 를 다시 시작합니다. (헬퍼는 Office 를 켤 때 같이 뜹니다)'
 if ($perpetual) {
   Write-Host '  2. 각 프로그램에서 삽입 → 내 추가 기능 → 공유 폴더 → Magi(AI Assistant) → 추가. (처음 한 번)'
   Write-Host '  3. 홈 탭의 「Magi」단추로 창을 엽니다. PowerPoint 2021 은 문서를 열어 두면 몇 초 뒤 편집 준비가 됩니다.'

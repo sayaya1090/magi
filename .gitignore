@@ -105,3 +105,5 @@ clients/web/server/console/*
 
 # 헬퍼를 그 폴더에서 빌드하면 여기 떨어진다 — 13MB 짜리가 한 번 이력에 들어갔다(2026-09-04).
 clients/powerpoint/helper/helper
+clients/office/addin-com/src/bin/
+clients/office/addin-com/src/obj/

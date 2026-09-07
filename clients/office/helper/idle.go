@@ -132,3 +132,62 @@ func imageRunning(win, mac string) (bool, bool) {
 		return false, false
 	}
 }
+
+// Office 가 하나도 없으면 **헬퍼도 없다.**
+//
+// 컴패니언은 제 프로그램이 없으면 내려간다(위). 남는 것은 헬퍼인데, 그것도 Office 를 안 켠 동안 떠 있을 이유가 없다 —
+// 사용자가 그렇게 못박았다(2026-09-07: 「헬퍼랑 데몬은 각 오피스가 켜진 게 있을 때만 켜져 있고, 인스턴스가 없으면
+// 종료되고」). 다음에 Office 를 켜면 COM 추가 기능이 다시 띄운다(clients/office/addin-com).
+//
+// **못 재면 안 끝낸다.** 셋 다 잴 수 없는 OS 에서는 이 감시가 아무 말도 하지 않는다 — 모르는 것을 「없다」로 읽으면
+// 사람이 쓰고 있는 헬퍼를 끄는 자리가 된다.
+type officeWatch struct {
+	// Gone 은 (하나도 없나, 잴 수 있었나). 시험이 채운다.
+	Gone  func() (bool, bool)
+	After time.Duration
+	since time.Time
+}
+
+func (w *officeWatch) after() time.Duration {
+	if w.After > 0 {
+		return w.After
+	}
+	return idleAfterDefault
+}
+
+// tick 은 「지금 끝내야 하나」. 유예 안이거나 하나라도 떠 있으면 거짓이다.
+func (w *officeWatch) tick(now time.Time) bool {
+	gone, known := w.gone()
+	if !known || !gone {
+		w.since = time.Time{}
+		return false
+	}
+	if w.since.IsZero() {
+		w.since = now
+		return false
+	}
+	return now.Sub(w.since) >= w.after()
+}
+
+func (w *officeWatch) gone() (bool, bool) {
+	if w.Gone != nil {
+		return w.Gone()
+	}
+	return officeGone()
+}
+
+// officeGone 은 세 프로그램이 **하나도** 안 떠 있는가 — (없나, 잴 수 있었나).
+func officeGone() (bool, bool) {
+	known := false
+	for _, app := range Apps {
+		running, can := processRunning(app)
+		if !can {
+			continue
+		}
+		known = true
+		if running {
+			return false, true
+		}
+	}
+	return known, known
+}
