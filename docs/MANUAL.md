@@ -2503,6 +2503,7 @@ all five. That is worth reading once rather than discovering.
 | | Default | Override |
 |---|---|---|
 | config root | `~/.config/magi` (macOS: `~/Library/Application Support/magi`, Windows: `%AppData%\magi`) | `MAGI_CONFIG_DIR` |
+| socket dir | the config root | `MAGI_SOCKET_DIR` — moves the sockets and their session files only (config stays). The Windows Office installer sets it to `~/.magi` |
 | data root | `~/.cache/magi` (macOS: `~/Library/Caches/magi`, Windows: `%LocalAppData%\magi`) | `MAGI_DATA_DIR` |
 
 Both overrides replace the path outright rather than adding to it, which is what lets two magi

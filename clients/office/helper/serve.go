@@ -48,6 +48,8 @@ func Run(args []string, out, log io.Writer) int {
 			"애드인이 붙을 포트. **매니페스트의 <SourceLocation> 과 같은 값이어야 한다** — 못 잡으면 다른 번호로 안 흘러간다(§5.5.1)")
 		cfgDir = fs.String("config-dir", "",
 			"magi 설정 디렉토리(기본값: 플랫폼 것, MAGI_CONFIG_DIR 존중). 여기서 컴패니언 명단을 읽고 인증서를 둔다")
+		sockDir = fs.String("socket-dir", "",
+			"소켓과 명단 파일을 두는 디렉토리(기본값: 설정 디렉토리, MAGI_SOCKET_DIR 존중). Windows 의 %APPDATA% 는 유닉스 주소 100바이트를 넘기 쉬워 짧은 자리(~/.magi)를 준다 — 설정은 그대로 %APPDATA%\\magi 를 읽는다")
 		clients = fs.String("clients", "",
 			"애드인 소스가 든 clients 디렉토리(기본값: 이 바이너리 옆이나 저장소의 clients). 그 아래 powerpoint/addin·excel/addin·word/addin 을 본다")
 		showRules = fs.String("allow-rules", "",
@@ -73,6 +75,14 @@ func Run(args []string, out, log io.Writer) int {
 		return 0
 	}
 
+	// **소켓 자리는 환경으로 물려준다.** 컴패니언 데몬은 이 프로세스의 환경을 받으므로(own.go deckEnv) 여기서 세우면
+	// 데몬도 같은 자리에 서고, 명단을 읽는 모든 자리(daemon.SocketDir)가 같은 곳을 본다.
+	if *sockDir != "" {
+		if err := os.Setenv("MAGI_SOCKET_DIR", *sockDir); err != nil {
+			fmt.Fprintf(log, "-socket-dir 를 환경에 못 세웠습니다: %v\n", err)
+			return 2
+		}
+	}
 	dir := *cfgDir
 	if dir == "" {
 		dir = platform.OS{}.ConfigDir()

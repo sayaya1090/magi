@@ -103,7 +103,7 @@ func (p Pressure) Busy() bool { return p.Refused > 0 || p.Deepest > 0 }
 // Includes companions that are no longer running, deliberately: their files are not removed when
 // they stop, and the week after one was killed is when somebody asks whether it was overloaded.
 func LoadSince(configDir string, since time.Time) []Pressure {
-	paths, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock.load"))
+	paths, err := filepath.Glob(filepath.Join(SocketDir(configDir), "daemon-*.sock.load"))
 	if err != nil {
 		return nil
 	}

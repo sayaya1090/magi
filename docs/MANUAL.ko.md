@@ -2348,6 +2348,7 @@ flowchart TD
 |---|---|---|
 | 설정 뿌리 | `~/.config/magi` (macOS `~/Library/Application Support/magi`, Windows `%AppData%\magi`) | `MAGI_CONFIG_DIR` |
 | 데이터 뿌리 | `~/.cache/magi` (macOS `~/Library/Caches/magi`, Windows `%LocalAppData%\magi`) | `MAGI_DATA_DIR` |
+| 소켓 자리 | 설정 뿌리 | `MAGI_SOCKET_DIR` — 소켓·명단 파일만 옮긴다(설정은 그대로). Windows 의 Office 설치기가 `~/.magi` 로 건다 |
 
 둘 다 **더하는 것이 아니라 통째로 바꿉니다.** 그래야 한 기계 위 두 magi 인스턴스가 각자의 트리를
 가집니다. 없으면 `config.toml` 하나를 같이 쓰고, 실행 중 고른 것을 파일에 남기는 플러그인은 한
@@ -2355,7 +2356,9 @@ flowchart TD
 
 설정 뿌리엔 사람이 고치는 것이, 데이터 뿌리엔 프로그램이 쓰는 것(세션 로그·MCP 이미지)이 삽니다.
 소켓 경로도 설정 뿌리에서 유도되고, `MAGI_CONFIG_DIR` 이 길면 유닉스 주소가 담는 길이를 넘습니다 —
-magi 는 OS 한도(macOS 104, 리눅스 108)보다 낮은 **100바이트에서 거부**하고, 받은 길이를 대며 말합니다.
+magi 는 OS 한도(macOS 104, 리눅스 108)보다 낮은 **100바이트에서 거부**하고, 받은 길이를 대며 말합니다. 그럴 때는
+설정 뿌리를 옮기지 말고 `MAGI_SOCKET_DIR` 로 **소켓만** 짧은 자리에 두십시오 — 설정 뿌리를 옮기면 그 magi 만 다른
+config.toml·plugins 를 보게 됩니다(Windows Office 컴패니언이 2026-09-07 까지 그랬습니다).
 
 **설정 — `config.toml`, 프로젝트가 전역 위에 얹히고, 프로젝트는 「조일 수만」 있습니다.**
 

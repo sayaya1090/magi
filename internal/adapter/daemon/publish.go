@@ -23,7 +23,21 @@ import (
 // config directory rather than the workspace so it never lands in a deliverable tree or a git
 // status. The name carries the base directory so `ls` is readable by a person looking for theirs.
 func SocketPath(configDir, workdir string) string {
-	return filepath.Join(configDir, "daemon-"+WorkspaceKey(workdir)+".sock")
+	return filepath.Join(SocketDir(configDir), "daemon-"+WorkspaceKey(workdir)+".sock")
+}
+
+// SocketDir is where sockets and their session files live: MAGI_SOCKET_DIR when set, else the
+// config directory. Separate on purpose (2026-09-07): a unix address holds 100 bytes and Windows'
+// %AppData%\magi under a long user name is past it, so the Office installer had to put the
+// companions' config tree somewhere short — and then the companions read a config.toml the
+// person's usual magi never wrote, and a plugin that injects the backend at run time was not
+// there. With the sockets alone moved, one config tree serves every magi on the account and the
+// fleet still sees everyone: every lister goes through this function.
+func SocketDir(configDir string) string {
+	if d := strings.TrimSpace(os.Getenv("MAGI_SOCKET_DIR")); d != "" {
+		return d
+	}
+	return configDir
 }
 
 // WorkspaceKey names a workspace in one short, stable string: its base directory, so `ls` is
@@ -406,7 +420,7 @@ const probeTimeout = 700 * time.Millisecond
 // Matched against the published set rather than parsed from the parameter: the path arrives from a
 // page, and a path from a page must not become a path this process dials.
 func Find(configDir, socket string) (Info, error) {
-	socks, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock"))
+	socks, err := filepath.Glob(filepath.Join(SocketDir(configDir), "daemon-*.sock"))
 	if err != nil {
 		return Info{}, fmt.Errorf("daemon: listing: %w", err)
 	}
@@ -432,7 +446,7 @@ func Find(configDir, socket string) (Info, error) {
 // would send a viewer to a dead endpoint. A dead one is still listed — knowing a workspace has a
 // corpse is more useful than the entry silently missing — but it is marked.
 func List(configDir string) ([]Info, error) {
-	socks, err := filepath.Glob(filepath.Join(configDir, "daemon-*.sock"))
+	socks, err := filepath.Glob(filepath.Join(SocketDir(configDir), "daemon-*.sock"))
 	if err != nil {
 		return nil, fmt.Errorf("daemon: listing: %w", err)
 	}
