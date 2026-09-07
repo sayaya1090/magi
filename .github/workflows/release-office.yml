@@ -88,18 +88,39 @@ jobs:
           Get-ChildItem out/start, out/hand | Measure-Object -Property Length -Sum |
             ForEach-Object { "합계 {0:N1} MB" -f ($_.Sum / 1MB) }
 
+      # 애드인 자산 — 매니페스트와 작업창 파일. 지어지는 것이 아니라 저장소에 있는 그대로다.
+      #
+      # 릴리스에 싣는 이유: 설치기가 이것을 **저장소에서 복사**하고 있었고, 그래서 설치기를 돌리려면
+      # 저장소를 클론해야 했다. 툴체인을 없애 놓고 클론은 남겨 두면 반쪽이다 — `irm … | iex` 한 줄로
+      # 깔리려면 이것도 받아야 한다.
+      #
+      # zip 안의 구조를 `clients\<앱>\addin\…` 그대로 둔다. 설치기가 그 자리에 놓으므로 $Dest 에
+      # 풀기만 하면 되고, 경로를 다시 조립하는 코드가 양쪽에 안 생긴다.
       - name: zip
         shell: pwsh
         run: |
           Compress-Archive -Path out/start/* -DestinationPath magi-office-start_win_x64.zip -Force
           Compress-Archive -Path out/hand/*  -DestinationPath magi-ppt-hand_win_x64.zip  -Force
+          $addin = 'out/addins'
+          foreach ($app in 'powerpoint', 'excel', 'word') {
+            $to = Join-Path $addin "clients/$app/addin"
+            New-Item -ItemType Directory -Force $to | Out-Null
+            Copy-Item -Recurse -Force "clients/$app/addin/*" $to
+          }
+          Compress-Archive -Path "$addin/*" -DestinationPath magi-office-addins.zip -Force
+          # 매니페스트 셋이 실제로 들어갔는지 본다 — 이것이 없으면 애드인이 등록되지 않고,
+          # 그 증상은 「리본에 아무것도 없다」 하나로 뭉쳐 나온다.
+          $names = (Get-ChildItem -Recurse $addin -Filter manifest.xml).Count
+          if ($names -ne 3) { Write-Error "매니페스트가 3개가 아니라 $names 개다"; exit 1 }
 
       # 태그 없이 돌린 판은 여기서 끝난다 — 자산이 서는지 보는 것이 목적이라 릴리스를 만들지 않는다.
       - uses: actions/upload-artifact@v7
         if: github.ref_type != 'tag'
         with:
           name: office-assets
-          path: magi-*_win_x64.zip
+          path: |
+            magi-*_win_x64.zip
+            magi-office-addins.zip
 
       - name: release
         if: github.ref_type == 'tag'
@@ -124,7 +145,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "magi for Office ${GITHUB_REF_NAME#office-v}" \
             --generate-notes \
-            magi-office-start_win_x64.zip magi-ppt-hand_win_x64.zip
+            magi-office-start_win_x64.zip magi-ppt-hand_win_x64.zip magi-office-addins.zip
 
       # 어느 판이 최신인지 **움직이지 않는 주소**에 적는다.
       #

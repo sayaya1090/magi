@@ -84,7 +84,13 @@ param(
 #   New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME   (관리자 PowerShell)
 
 $ErrorActionPreference = 'Stop'
-$repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+# 저장소 자리. `irm … | iex` 로 돌 때는 **파일이 없어서** $PSScriptRoot 가 빈 문자열이고, 그러면
+# Resolve-Path 가 던진다 — 그래서 못 찾는 것을 정상으로 다룬다. 저장소가 필요한 것은 -FromSource
+# 하나뿐이고, 그때 없으면 그 자리에서 사유를 말한다(여기서 던지면 「Resolve-Path : …」만 남는다).
+$repo = $null
+if ($PSScriptRoot) {
+  try { $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path } catch { $repo = $null }
+}
 $apps = @(
   @{ key = 'ppt';  dir = 'powerpoint'; exe = 'POWERPNT.EXE'; proc = 'POWERPNT'; ribbon = 'PowerPoint' },
   @{ key = 'xl';   dir = 'excel';      exe = 'EXCEL.EXE';    proc = 'EXCEL';    ribbon = 'Excel' },
@@ -357,6 +363,9 @@ function EnsureDesktopRuntime {
 if ($SkipDownload) {
   Say '받기를 건너뜁니다(-SkipDownload)'
 } elseif ($FromSource) {
+  if (-not $repo) {
+    Fail '-FromSource 는 이 저장소 안에서 돌려야 합니다. `irm … | iex` 로는 스크립트가 파일이 아니라 저장소를 찾을 수 없습니다 — 저장소를 클론하고 clients\office\install.ps1 을 직접 실행해 주세요.'
+  }
   Say 'magi 를 빌드합니다(-FromSource)'
   Push-Location $repo
   try {
@@ -383,6 +392,13 @@ if ($SkipDownload) {
     if ($LASTEXITCODE -ne 0) { Warn '추가 기능 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. Office 를 켤 때 헬퍼가 저절로 뜨지는 않습니다.' }
     else { Done "magi-office-start.comhost.dll → $startOut" }
   }
+  Say '애드인 파일을 저장소에서 복사합니다'
+  foreach ($app in $apps) {
+    $addinDest = Join-Path $Dest "clients\$($app.dir)\addin"
+    & robocopy (Join-Path $repo "clients\$($app.dir)\addin") $addinDest /MIR /NFL /NDL /NJH /NJS /NP | Out-Null   # robocopy 는 0~7 이 성공
+    if ($LASTEXITCODE -ge 8) { Fail "추가 기능 파일 복사에 실패했습니다(robocopy $LASTEXITCODE): $($app.dir)" }
+    Done "$($app.dir)\addin → $addinDest"
+  }
 } else {
   # 코어(= 헬퍼). `magi office` 가 헬퍼라 이 파일은 코어 바이너리 그 자체다 — 그래서 office 릴리스에
   # 사본을 두지 않고 코어 레인에서 받는다. 두 레인에 같은 파일이 있으면 「어느 쪽이 최신인가」가 태그를
@@ -393,7 +409,7 @@ if ($SkipDownload) {
   Say "  코어 $coreTag"
   GetAsset $coreTag 'magi_windows_amd64.zip' $Dest
 
-  # Office 자산 둘. 비트수는 Office 를 따라간다 — COM 추가 기능은 Office 프로세스 **안에서** 뜬다.
+  # Office 자산 셋. 비트수는 Office 를 따라간다 — COM 추가 기능은 Office 프로세스 **안에서** 뜬다.
   $officeTag = LatestTag 'office-latest.txt'
   if (-not $officeTag) { Fail "Office 판 번호를 못 읽었습니다($BadgesRaw/office-latest.txt). 인터넷 연결을 확인하시거나, 직접 빌드하려면 -FromSource 로 실행해 주세요." }
   Say "  Office $officeTag"
@@ -406,17 +422,24 @@ if ($SkipDownload) {
     # PowerPoint 2021 편집 어댑터. 자체 포함이라 .NET 런타임과 무관하게 돈다(76MB).
     GetAsset $officeTag 'magi-ppt-hand_win_x64.zip' (Join-Path $Dest 'hand')
   }
+  # 애드인 파일(매니페스트·작업창). 저장소에 있는 그대로이고 지어지는 것이 아니지만 릴리스에도
+  # 실린다 — 이것만 저장소에서 가져오면 툴체인을 없애 놓고 클론은 남기는 셈이다. zip 안의 구조가
+  # `clients\<앱>\addin\…` 이라 여기 풀면 아래 등록 절의 경로가 그대로 맞는다.
+  GetAsset $officeTag 'magi-office-addins.zip' $Dest
 }
 if (-not (Test-Path (Join-Path $Dest 'magi.exe'))) { Fail "$Dest\magi.exe 가 없습니다." }
 
-Say '추가 기능 파일을 복사합니다'
+# 애드인 파일은 §3 이 이미 놓았다(받았거나, -FromSource 면 저장소에서 복사했거나). 여기서는
+# 매니페스트가 실제로 그 자리에 있는지만 본다.
 $manifests = @{}
 foreach ($app in $apps) {
   $addinDest = Join-Path $Dest "clients\$($app.dir)\addin"
-  & robocopy (Join-Path $repo "clients\$($app.dir)\addin") $addinDest /MIR /NFL /NDL /NJH /NJS /NP | Out-Null   # robocopy 는 0~7 이 성공
-  if ($LASTEXITCODE -ge 8) { Fail "추가 기능 파일 복사에 실패했습니다(robocopy $LASTEXITCODE): $($app.dir)" }
   $manifests[$app.key] = Join-Path $addinDest 'manifest.xml'
-  Done "$($app.dir)\addin → $addinDest"
+  # 매니페스트가 없으면 이 앱은 등록이 안 된다. 아래에서 등록에 실패하며 「파일이 없다」로 나오지만,
+  # 무엇이 없는지는 여기가 안다.
+  if (-not (Test-Path $manifests[$app.key])) {
+    Fail "$($app.dir) 의 매니페스트가 없습니다($($manifests[$app.key])). 애드인 파일이 제대로 풀리지 않았습니다."
+  }
 }
 
 # ── 4. Office 컴패니언만의 설정 ──────────────────────────────────────────────

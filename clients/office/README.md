@@ -9,7 +9,16 @@
 ## 까는 법
 
 ```powershell
-.\install.ps1
+irm https://raw.githubusercontent.com/sayaya1090/magi/main/clients/office/install.ps1 | iex
+```
+
+저장소도 툴체인도 필요 없다 — 이 한 줄이면 된다. 파일로 받아 두고 돌려도 되고, 그때는 아래
+플래그를 쓸 수 있다(`irm … | iex` 로는 인자를 넘길 수 없어 기본 설치만 된다).
+
+```powershell
+.\install.ps1                 # 같은 것
+.\install.ps1 -Uninstall      # 지우기
+.\install.ps1 -Clean          # 등록과 Office 캐시를 비우고 다시
 ```
 
 **툴체인이 필요 없다.** 설치기가 릴리스에서 받는다 — 코어는 `v*` 레인에서, Office 자산 둘은
