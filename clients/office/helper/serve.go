@@ -208,6 +208,8 @@ func mount(mux *http.ServeMux, app *App, dir, root, token string, port int) *ser
 		Work: NewOwnWork(),
 	}
 	api.Route(sub)
+	// 프로그램이 없으면 컴패니언도 없다(idle.go). 헬퍼가 사는 동안 돈다.
+	go api.watchProgram(make(chan struct{}))
 
 	pages := &Pages{Root: root, Token: token, Base: app.Base(), Boot: map[string]any{
 		"version": version.Version,
@@ -292,6 +294,12 @@ type API struct {
 	settling sync.Mutex
 	// wide 는 **컴패니언 전체 등록**을 한 생애에 한 번만 하려고 적어 두는 것(소켓 → 생애). settle 이 잠근 채로 만진다.
 	wide map[string]string
+	// Running·Stop·IdleAfter 는 「프로그램이 없으면 컴패니언도 없다」(idle.go)의 주입 자리. Running 은 (돌고 있나, 알 수
+	// 있나); 기본은 OS 에 묻는다. Stop 의 기본은 데몬의 shutdown 문. IdleAfter 의 기본은 60초.
+	Running   func() (bool, bool)
+	Stop      func(socket string) error
+	IdleAfter time.Duration
+	idleSince time.Time
 	// LifeOf 는 그 소켓에 선 데몬의 생애(pid@시작시각). **시험만 이 자리를 채운다** — 기본은
 	// `publishedLife`. 「아까 마련한 데몬이 지금도 그것인가」를 이 값 하나로 잰다.
 	LifeOf func(socket string) string

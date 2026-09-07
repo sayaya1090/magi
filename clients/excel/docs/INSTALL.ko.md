@@ -101,4 +101,5 @@ $env:USERNAME` 로 만든 공유를 썼다 — 관리 공유로도 키가 하나
   것이라 그쪽도 다시 추가해야 한다). 손으로 하려면 `WEF\TrustedCatalogs` 의 키(볼륨 판) 또는 `WEF\Developer\magi-xl`(M365),
   `Run\magi-xl`, 설치 폴더 `%LOCALAPPDATA%\magi\xl`, 카탈로그의 `magi-xl-manifest.xml`.
 - 인증서: 신뢰 저장소에서 `magi office helper` 제거(다른 판도 같이 쓰는 것이라 전부 내릴 때만), `<config>/office-helper-*.pem` 삭제.
-- 헬퍼·데몬 내리기: `Stop-Process -Name magi`(헬퍼도 magi 다). PowerPoint 를 다 꺼도 이것들은 안 꺼진다 — 파워포인트 판 INSTALL §6.
+- 헬퍼·데몬 내리기: `Stop-Process -Name magi`(헬퍼도 magi 다). Excel 을 다 끄면 엑셀 컴패니언은 60초 뒤 스스로 내려간다(2026-09-07 부터);
+  헬퍼는 세 프로그램 공용이라 남는다 — 파워포인트 판 INSTALL §6.

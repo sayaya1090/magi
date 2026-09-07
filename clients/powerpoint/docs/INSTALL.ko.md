@@ -184,9 +184,11 @@ comDeckId`), 손도 같은 규칙(`DeckKey.cs`)이라 창이 보는 손이 자�
   폴더 → 추가. 파란 육각형은 아이콘을 캐시 못 했다는 뜻이고, 이 빌드부터 헬퍼가 아이콘을 캐시 가능하게 낸다.
 - **카운슬 스위치를 누를 때 검은 창이 떴다** — 헬퍼가 컴패니언을 다시 띄우는 `magi --daemon --detach` 가 콘솔 창을
   열었다. 이 빌드(2026-09-06)에서 같은 방법으로 숨겼다.
-- **PowerPoint 를 다 끄면 데몬도 꺼지나** — 아니다. 헬퍼(`magi office`)와 데몬(`magi --daemon --detach`)은 PowerPoint 와
-  무관하게 이 계정에 떠 있다. 꺼지는 것은 COM 손뿐이고(PowerPoint 가 없으면 COM 참조가 죽는다), 감시기가 그것을
-  정리하고 다음에 덱이 열리면 다시 붙인다. 전부 내리려면: `Stop-Process -Name magi,magi-ppt-hand`.
+- **PowerPoint 를 다 끄면 데몬도 꺼지나** — 컴패니언은 꺼진다(2026-09-07 부터, 사용자 결정: 「각 프로그램 인스턴스가 없으면
+  종료」). 헬퍼가 10초마다 프로그램 프로세스(POWERPNT.EXE·EXCEL.EXE·WINWORD.EXE, Mac 은 `Microsoft PowerPoint` 등)를 보고
+  60초 동안 없으면 그 컴패니언에 shutdown 을 두드린다(`helper/idle.go`). 다시 켜고 창을 열면 처음처럼 몇 초 걸려 다시
+  마련한다. 헬퍼(`magi office`) 자신은 남는다 — 세 프로그램 공용이라 로그인 동안 떠 있는 것이 맞다. COM 손은 PowerPoint 와
+  같이 죽고 감시기가 정리한다. 전부 내리려면: `Stop-Process -Name magi,magi-ppt-hand`.
 - **설치기를 다시 돌리면 하던 대화가 끊긴다** — 설치 폴더의 데몬을 멈추고 새 `magi.exe` 를 놓기 때문이다. 창을
   다시 열면 헬퍼가 새 데몬을 띄운다.
 

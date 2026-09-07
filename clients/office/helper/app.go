@@ -27,6 +27,9 @@ type App struct {
 	DocParam string
 	// AddinDir 은 `clients/<AddinDir>/addin` — 작업창 소스가 있는 자리.
 	AddinDir string
+	// ProcWin·ProcMac 은 이 프로그램의 프로세스 이름(Windows 이미지 이름 · macOS 프로세스 이름). 컴패니언은 이 프로세스가
+	// 하나도 없으면 내려간다(idle.go) — 사용자 결정(2026-09-07): 「오피스 컴패니언은 각 프로그램 인스턴스가 없으면 종료」.
+	ProcWin, ProcMac string
 	// Workspace 는 설정 디렉토리 아래 컴패니언 워크스페이스 이름(powerpoint·excel·word).
 	Workspace string
 	// Skills 는 번들 스킬이 든 embed 경로(skills/word).
@@ -81,6 +84,7 @@ func (a *App) refusal(toolName, where, key, got string) string {
 var (
 	PPT = &App{
 		Key: "ppt", Product: "PowerPoint", Noun: "deck", NounKo: "덱", PartKo: "슬라이드는",
+		ProcWin: "POWERPNT.EXE", ProcMac: "Microsoft PowerPoint",
 		DocPrefix: "pid-", DocParam: "presentation", AddinDir: "powerpoint", Workspace: "powerpoint", Skills: "skills/powerpoint",
 		Catalogue: pptCatalogue, DocumentProp: pptDocumentProp, ValueEnums: pptValueEnums, EnumExempt: nil,
 		Refusal: func(app *App, toolName, where, key, got string) string {
@@ -112,6 +116,7 @@ var (
 	}
 	XL = &App{
 		Key: "xl", Product: "Excel", Noun: "workbook", NounKo: "통합 문서", PartKo: "시트는",
+		ProcWin: "EXCEL.EXE", ProcMac: "Microsoft Excel",
 		DocPrefix: "wb-", DocParam: "workbook", AddinDir: "excel", Workspace: "excel", Skills: "skills/excel",
 		Catalogue: xlCatalogue, DocumentProp: xlDocumentProp, ValueEnums: xlValueEnums, EnumExempt: xlEnumExempt,
 		ArgExample: `{"address": "B2"}`,
@@ -144,6 +149,7 @@ var (
 	}
 	Word = &App{
 		Key: "word", Product: "Word", Noun: "document", NounKo: "문서", PartKo: "문단은",
+		ProcWin: "WINWORD.EXE", ProcMac: "Microsoft Word",
 		DocPrefix: "wd-", DocParam: "doc", AddinDir: "word", Workspace: "word", Skills: "skills/word",
 		Catalogue: wordCatalogue, DocumentProp: wordDocumentProp, ValueEnums: wordValueEnums, EnumExempt: wordEnumExempt,
 		ArgExample: `{"paragraph": 3}`,
