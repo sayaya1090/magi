@@ -730,6 +730,8 @@ func pptCatalogue(hasCouncil bool) []tool {
 			Props:    []property{},
 			ReadOnly: true,
 		},
+		// 헬퍼가 답한다 — 손에 안 간다(tools.go listDocuments). 옆 덱의 서식을 보고 이 덱에 옮기는 일의 첫걸음.
+		listDocuments("deck", "PowerPoint"),
 	}
 }
 

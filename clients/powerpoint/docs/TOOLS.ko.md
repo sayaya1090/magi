@@ -8,7 +8,7 @@
 
 | 층 | 무엇 | 몇 개 | 어디서 오나 |
 |---|---|---|---|
-| 덱 도구 | `mcp__ppt__*` | **48** | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
+| 덱 도구 | `mcp__ppt__*` | **49**(손 도구 48 + 헬퍼가 답하는 `list_documents`, 2026-09-07) | 헬퍼 `tools.go` → MCP `tools/list` → 데몬이 이 대화에만 광고(`port.Owned.VisibleTo`) |
 | 코어 내장 도구 | `bash`, `read`, `edit`, `websearch`, `skill`, `todowrite` … | 레지스트리 26 이름(§3) | 데몬 `internal/adapter/tool/builtin` |
 | 플러그인 도구 | `land` | 1 | `<config>/plugins/landing`(Lua) |
 | 가이드(스킬) | `deck-design`, `design-guide`, `visual-deck`, `academic-deck`, `research` | 5 (17,483자) | 워크스페이스 `.magi/skills/*.md` — `skill` 도구로 읽음 |

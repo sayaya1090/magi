@@ -206,6 +206,29 @@ func (s *MCPServer) call(r *http.Request, name string, raw json.RawMessage) map[
 	if err != nil {
 		return errorResult(err.Error())
 	}
+	// **헬퍼가 답하는 도구**는 손 앞에서 끝난다 — 손이 없어도 답이 있다(「붙은 문서 없음」도 답이다).
+	if found.Local != nil {
+		if s.Hand == nil {
+			return errorResult("this helper has no hub to answer " + name)
+		}
+		where := documentOf(args)
+		if where == "" {
+			where = r.URL.Query().Get("deck")
+		}
+		res, lerr := found.Local(s.Hand, where, args)
+		if lerr != nil {
+			return errorResult(lerr.Error())
+		}
+		body := map[string]any{"document": res.Document, "as_of": s.now().UTC().Format(time.RFC3339)}
+		for k, v := range res.Result {
+			body[k] = v
+		}
+		text, merr := json.MarshalIndent(body, "", "  ")
+		if merr != nil {
+			return errorResult("could not render the result: " + merr.Error())
+		}
+		return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}}
+	}
 	if s.Hand == nil || !s.Hand.Attached() {
 		// **조용히 빈 결과를 주지 않는다**(§5.4). 빈 결과는 에이전트가 「덱이 비어 있다」로
 		// 읽는다. 사유가 「PowerPoint 에 붙어 있지 않다」여야 하고, 다음에 무엇을 하면 되는지도

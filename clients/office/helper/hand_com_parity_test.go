@@ -28,6 +28,9 @@ func TestTheComHandKnowsExactlyTheCatalogue(t *testing.T) {
 	}
 	mine := map[string]bool{}
 	for _, x := range PPT.Catalogue(false) {
+		if x.Local != nil {
+			continue // 헬퍼가 답하는 도구는 손에 안 간다 — 손이 몰라도 된다(list_documents)
+		}
 		mine[x.Name] = true
 	}
 	var onlyHere, onlyThere []string

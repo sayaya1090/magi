@@ -3,6 +3,7 @@ package office
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -84,6 +85,41 @@ type tool struct {
 	// 아니다 — `advise` 는 읽기 표에 없지만 문서를 안 고치고, `snapshot_range` 는 되돌리기 짝의
 	// 절반이지만 읽기만 한다.
 	ReadOnly bool
+	// Local 이 있으면 **헬퍼가 답한다** — 손에 안 간다. 열린 문서 목록처럼 손 하나가 아니라 허브가 아는 것.
+	// 손이 하나도 안 붙어 있어도 돈다(그때의 답이 「없다」이므로). COM 손·JS 손과의 이름 대조(parity)에서 뺀다.
+	Local func(hand Hand, where string, args map[string]any) (HandResult, error)
+}
+
+// DocumentLister 는 열린 문서를 다 아는 손 — 허브가 그렇다. 시험의 가짜 손은 아닐 수 있고, 그때 목록은 「모른다」다.
+type DocumentLister interface {
+	Documents() []map[string]string
+}
+
+// listDocuments 는 세 프로그램 공용 `list_documents` — 이 헬퍼에 붙은 문서 전부(키·이름)와, 이 대화가 묶인 것.
+// 한 대화에서 옆 문서를 읽거나 서식을 옮기는 일의 첫걸음이다: 도구의 `document` 인자는 주소를 이기므로
+// 여기서 받은 키를 대면 그 문서로 간다. 없던 자리(2026-09-07): 옆 덱의 키를 알 길이 거절문뿐이었다.
+// 인자가 *App 이 아닌 것은 초기화 순환 때문이다 — 카탈로그 함수가 App 값을 보면 App 이 카탈로그를 보는 고리가 된다.
+func listDocuments(noun, product string) tool {
+	return tool{
+		Name: "list_documents",
+		Desc: "Every " + noun + " open in this " + product + " right now, with the key to pass as `document` and the file name people call it by. " +
+			"The row marked current:true is the one this conversation is bound to; calls without `document` go there. " +
+			"Read this before working across " + noun + "s (copying a style from one, building from another): pass the other one's key as `document` " +
+			"to any tool and it goes there instead. Unsaved " + noun + "s may carry a generated key.",
+		Props:    []property{},
+		ReadOnly: true,
+		Local: func(hand Hand, where string, _ map[string]any) (HandResult, error) {
+			lister, ok := hand.(DocumentLister)
+			if !ok {
+				return HandResult{}, errors.New("this helper cannot list " + noun + "s — it has no hub")
+			}
+			rows := make([]map[string]any, 0)
+			for _, d := range lister.Documents() {
+				rows = append(rows, map[string]any{"document": d["document"], "label": d["label"], "current": d["document"] == where})
+			}
+			return HandResult{Document: where, Result: map[string]any{"documents": rows, "count": len(rows)}}, nil
+		},
+	}
 }
 
 // sheetProp 는 시트를 고르는 칸. 생략 = 사람이 보고 있는 시트(activeWorksheet).
