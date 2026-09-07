@@ -221,14 +221,16 @@ if (-not $SkipBuild) {
 $dotnet = $null
 # .NET SDK 는 이제 판을 안 가린다 — 볼륨 판의 편집 어댑터도, 모든 판의 COM 추가 기능(Office 를 켤 때 헬퍼를 띄우는 것)도
 # 이것으로 짓는다. 없으면 추가 기능 없이 가고, 그때는 로그인 등록으로 물러선다(7단계).
-$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요(런타임만으로는 부족합니다). Office 를 켤 때 헬퍼를 띄우는 추가 기능과, 볼륨 판의 편집 어댑터를 이것으로 짓습니다.'
+# **.NET 9 SDK 는 Go 와 나란한 요구다 — 판을 안 가린다.** 사용자 결정(2026-09-07): 「그냥 닷넷을 필수로 하면 시작
+# 프로그램에 등록하는 거 안 해도 된다는 거지?」 — 그렇다. Office 를 켤 때 헬퍼를 띄우는 추가 기능을 이것으로 짓기
+# 때문에, 있으면 로그인 등록이 하나도 필요 없고 없으면 물러설 자리가 없다(그 물러섬이 곧 「쓰지도 않는데 켜져 있는 것」
+# 이었다). 볼륨 판은 편집 어댑터까지 이것으로 짓는다.
+$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요(런타임만으로는 부족합니다). Office 를 켤 때 헬퍼를 띄우는 추가 기능을 이것으로 짓습니다.'
 if (-not $SkipBuild) {
   if (WaitUntil '.NET 9 SDK' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk))" }
-}
-# **볼륨 판은 .NET 없이는 깔 것이 없다.** 편집도 어댑터가 하고, 헬퍼를 띄우는 것도 추가 기능이 한다 — 둘 다 .NET 으로 짓는다.
-# 로그인 자동 시작으로 물러서던 길은 없앴다(사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」).
-if (-not $dotnet -and -not $SkipBuild -and $perpetual) {
-  Fail '이 판(볼륨/LTSC)은 .NET 9 SDK 가 있어야 합니다 — 편집 어댑터도, Office 를 켤 때 헬퍼를 띄우는 추가 기능도 그것으로 짓습니다. 설치를 멈춥니다. SDK 를 설치한 뒤 다시 실행해 주세요.'
+  if (-not $dotnet -and -not $NoAutostart) {
+    Fail '.NET 9 SDK 가 있어야 합니다 — Office 를 켤 때 헬퍼를 띄우는 추가 기능을 그것으로 짓습니다. 설치를 멈춥니다. SDK 를 설치한 뒤 다시 실행하거나, 헬퍼를 직접 띄워 쓸 것이면 -NoAutostart 로 다시 실행해 주세요.'
+  }
 }
 if ($perpetual) {
   # 진짜 공유 — 카탈로그의 UNC 를 여기서 읽어 적으므로 나중에 만들면 설치기를 다시 돌려야 한다.
@@ -480,9 +482,9 @@ if ($NoAutostart) {
   }
   Done 'Office 를 켜면 헬퍼가 뜹니다 — 로그인 때 뜨는 등록은 없습니다'
 } else {
-  # **로그인 등록으로 물러서지 않는다.** 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. 볼륨 판은 위에서 이미
-  # 멈췄으므로 여기 오는 것은 M365 에 .NET 이 없는 판뿐이다 — 작업창은 그대로 돌고, 헬퍼만 사람이 띄운다.
-  Warn "추가 기능을 못 지어 Office 를 켤 때 헬퍼가 자동으로 뜨지 않습니다. .NET 9 SDK 를 설치하고 다시 실행하거나, Office 를 쓰기 전에 직접 띄우세요: `"$helperExe`" office"
+  # **로그인 등록으로 물러서지 않는다.** 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. .NET 은 위에서 이미
+  # 요구했으므로 여기 오는 것은 -SkipBuild 로 깐 판뿐이다 — 배포본에 추가 기능이 안 들어 있는 경우다.
+  Warn "추가 기능이 없어 Office 를 켤 때 헬퍼가 자동으로 뜨지 않습니다. Office 를 쓰기 전에 직접 띄우세요: `"$helperExe`" office"
 }
 if ($perpetual -and -not (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
   Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.'
