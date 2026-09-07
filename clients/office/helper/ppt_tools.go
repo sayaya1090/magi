@@ -88,7 +88,7 @@ func pptCatalogue(hasCouncil bool) []tool {
 		},
 		{
 			Name: "render_slide",
-			Desc: "A PNG of one slide as PowerPoint draws it. **The most expensive tool here** — one picture costs what thousands of characters cost, and only a vision model can see it at all. Call it for a defect that numbers cannot show (text overflowing its box, shapes overlapping, contrast), never as a routine check: read_slide answers what is on the slide, in words, for nothing. Rendering a slide that has not changed since you last rendered it is refused, because you already have that picture." + declare,
+			Desc: "A PNG of one slide as PowerPoint draws it. **The most expensive tool here** — one picture costs what thousands of characters cost, and only a vision model can see it at all. Call it for a defect that numbers cannot show (text overflowing its box, shapes overlapping, contrast), never as a routine check: read_slide answers what is on the slide, in words, for nothing. Rendering a slide that has not changed since you last rendered it is refused, because you already have that picture. It is not how you copy a style from another deck: a picture cannot be measured — read that deck instead (list_documents, then describe_style/list_layouts/read_slide with `document` set to it)." + declare,
 			Props: withSlide(
 				property{Name: "max_width", Type: "integer", Desc: "Widest edge in pixels (default 1024). Smaller is cheaper; 1024 is enough to see overflow and overlap."},
 				property{Name: "force", Type: "boolean", Desc: "Render again even though nothing changed since the last render of this slide. Only when the person asked to look again."},
@@ -112,8 +112,10 @@ func pptCatalogue(hasCouncil bool) []tool {
 			ReadOnly: true,
 		},
 		{
-			Name:     "describe_style",
-			Desc:     "What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was measured over. Answers \"what style is this deck?\", and it is also exactly what a new slide will inherit — so read it when someone asks why a new slide came out looking the way it did." + declare,
+			Name: "describe_style",
+			Desc: "What this deck actually looks like: the font, size and colour its titles and bodies consistently use, and how many placeholders that was measured over. " +
+				"TO CARRY A LOOK FROM ANOTHER DECK, read the other one — call list_documents for its key, then this and list_layouts and read_slide with `document` set to it, and build here with what they report. " +
+				"A rendered picture is NOT how you do that: you cannot measure a font, a colour or a position out of an image, and render_slide is the most expensive tool here." + declare,
 			Props:    []property{},
 			ReadOnly: true,
 		},

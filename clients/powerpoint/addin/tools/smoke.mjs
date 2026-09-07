@@ -1722,6 +1722,8 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   // 지나도 되는 자리 — 손 대는 것이 이 창 안의 값뿐이라 던질 것이 없거나, 던지는 것을
   // 제가 잡는 자리. 여는 줄을 그대로 적어 둔다(줄 번호는 움직이므로).
   const allowed = new Map([
+    ["fold.addEventListener('toggle', () => { if (fold.open) this.opened.add(key); else this.opened.delete(key); });",
+      '접힘을 기억하는 자리 — 여는 문이 없다. Set 하나에 적고 지울 뿐이다(keepOpen)'],
     ["$('#quote').addEventListener('pointerenter', () => this.quoteSelection.sampleBeforeFocus());",
       'QuoteSelection.sampleBeforeFocus 가 제 안에서 잡는다 — 사람이 누른 것이 아니라 계측이다'],
     ["input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });",
@@ -3892,8 +3894,11 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
   const src = readFileSync(new URL('../src/ui/view.js', import.meta.url), 'utf8');
   // 머리 자체가 손잡이라 접혀 있을 때 자리를 안 먹는다.
   ok('도구 줄이 인자를 접어 둔다', /turn-fold[\s\S]*?createElement\('summary'\)/.test(src));
-  // **기본이 접힘이다** — 열어 두면 줄인 뜻이 없다.
-  ok('기본은 접힘이다', !/fold\.open\s*=\s*true/.test(src));
+  // **기본이 접힘이다** — 열어 두면 줄인 뜻이 없다. 예외는 **사람이 편 것을 다시 펴는 것** 하나이고
+  // (`keepOpen`, 2026-09-07), 그것이 없으면 판이 다시 그릴 때마다 읽던 혼잣말이 제멋대로 접힌다.
+  const born = [...src.matchAll(/fold\.open\s*=\s*true/g)];
+  ok('펴 놓고 시작하는 자리는 없다', born.length === 1, `${born.length} 자리`);
+  ok('그 하나는 사람이 편 것을 되살리는 자리다', /if \(this\.opened\.has\(key\)\) fold\.open = true;/.test(src));
   // 접힌 것을 색이 아니라 글리프로 가른다(못 가리는 사람이 있다).
   const paneCss = readFileSync(new URL('../taskpane.css', import.meta.url), 'utf8');
   ok('접힘을 글리프로 알린다', /\.turn-fold > summary::after/.test(paneCss));
