@@ -159,7 +159,13 @@ type sessionState struct {
 	// a finished one, and folding them together would make a turn that is waiting look like a
 	// turn that owes an opinion.
 	answered []answeredHandoff
-	grants   map[string]bool // "always" grants per tool
+	// delivered counts the answers that have been WRITTEN into this conversation. The finish gate
+	// compares it against what the running turn has already folded: an answer that lands while the
+	// last step is streaming is in the log but not in that step's context, and the turn would end
+	// saying it never came (measured 2026-09-07 — the asker replied 「답변이 아직 도착하지 않았습니다」
+	// seven seconds after both answers were written above it).
+	delivered int
+	grants    map[string]bool // "always" grants per tool
 	// handedFrom is who asked, when this conversation was opened for work another COMPANION
 	// handed over rather than for a person at a keyboard. Empty means the ordinary kind.
 	//

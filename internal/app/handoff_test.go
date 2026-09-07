@@ -780,3 +780,47 @@ func TestAnAnswerIsNamedByItsReceipt(t *testing.T) {
 		t.Fatalf("the piece waiting for a verdict cannot be named: %+v", got)
 	}
 }
+
+// An answer that lands while the turn is finishing gets one more step, not silence.
+//
+// Measured (2026-09-07, three companions on one machine): the asker was told at :50 that nothing
+// had come back, both answers were written into the log at :56 and :00, and at :07 the turn
+// finished with 「답변이 아직 도착하지 않았습니다」 — with the two answers sitting directly above it.
+// The step that composed that reply was already streaming when they landed, so they were in the
+// log and not in its request. The gate compares what the session has delivered against what this
+// turn has folded, and takes another step; the answers are already the context.
+func TestAnAnswerThatLandsWhileTheTurnFinishesGetsAnotherStep(t *testing.T) {
+	a := &App{cfg: Config{}}
+	a.cfg = a.cfg.withDefaults()
+	sid := session.SessionID("s1")
+	tc := turnCtx{s: session.Session{ID: sid}}
+	ts := &turnState{}
+
+	// Nothing delivered: the gate says nothing.
+	if _, done := a.foldArrivedHandoffs(tc, ts); done {
+		t.Fatal("아무것도 안 왔는데 한 걸음 더 갔다")
+	}
+	// Two answers land during the turn.
+	a.mu.Lock()
+	a.stateLocked(sid).delivered = 2
+	a.mu.Unlock()
+	act, done := a.foldArrivedHandoffs(tc, ts)
+	if !done || act != loopContinue {
+		t.Fatal("답이 도착했는데 턴이 그냥 끝났다")
+	}
+	// Folded once — the same two do not spin the loop.
+	if _, done := a.foldArrivedHandoffs(tc, ts); done {
+		t.Fatal("같은 답을 두 번 접었다 — 루프가 돈다")
+	}
+	// A third lands: one more step, once.
+	a.mu.Lock()
+	a.stateLocked(sid).delivered = 3
+	a.mu.Unlock()
+	if _, done := a.foldArrivedHandoffs(tc, ts); !done {
+		t.Fatal("새로 도착한 답을 안 접었다")
+	}
+	// A child has no Expect, so it can have nothing out — and is never held up here.
+	if _, done := a.foldArrivedHandoffs(turnCtx{s: session.Session{ID: sid}, depth: 1}, &turnState{}); done {
+		t.Fatal("자식 턴을 붙잡았다")
+	}
+}

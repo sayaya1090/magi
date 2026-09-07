@@ -312,9 +312,12 @@ Rules:
   the backstop named as the reason, and the work stands as it was left. Only a workflow phase
   declares a budget of its own.
 - R4 R1's quiet stop is not the end by itself — the **finish path** (`loop_gates.go`, `finishTurn`)
-  runs six gates in this order: Stop hooks → the empty-result nudge → **the declaration** → the
-  dropped-calls-after-the-declaration notice → outstanding hand-offs → what the answers that came back were
-  worth. Any one of them sends the turn back to work. Then, when it truly ends: the optional distil
+  runs seven gates in this order: Stop hooks → the empty-result nudge → **the declaration** → the
+  dropped-calls-after-the-declaration notice → outstanding hand-offs → **an answer that arrived while
+  the turn was finishing** → what the answers that came back were worth. The sixth appends nothing:
+  a delivered answer is already a prompt in the log, and the gate exists because a step that was
+  streaming when it landed did not have it in its request — measured 2026-09-07, a turn ended with
+  "the answers have not arrived" written directly under both answers. Any one of them sends the turn back to work. Then, when it truly ends: the optional distil
   pass (off by default), the late-interjection sweep, `finalizeTodos` (every still-open step becomes
   completed on a genuine finish and cancelled otherwise), and `turn.finished` carrying the
   UNVERIFIED reason if there is one. The council is not on that list: it is a tool the agent calls

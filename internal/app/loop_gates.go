@@ -183,6 +183,9 @@ func (a *App) finishTurn(ctx context.Context, tc turnCtx, step int, turnTask, la
 	if act, done := a.noteOutstandingHandoffs(ctx, tc, ts); done {
 		return act
 	}
+	if act, done := a.foldArrivedHandoffs(tc, ts); done {
+		return act
+	}
 	if act, done := a.askWhatTheAnswersWereWorth(ctx, tc, evs, ts); done {
 		return act
 	}
@@ -625,6 +628,31 @@ func (a *App) sayWhatWasNotRun(ctx context.Context, tc turnCtx, ts *turnState, l
 	})
 	a.appendFact(ctx, tc.s.ID, event.TypePromptSubmitted,
 		event.Actor{Kind: event.ActorSystem, ID: "loop"}, pd)
+	return loopContinue, true
+}
+
+// foldArrivedHandoffs takes one more step when an answer landed while this turn was finishing.
+//
+// The answer is already in the log — deliverHandoff writes it as a prompt — but a step that was
+// already streaming when it landed did not have it in its request. So the turn ends on a reply
+// composed without it, and the answer sits above that reply with nothing to read it. Measured
+// (2026-09-07, three companions on one machine): the asker was told at :50 that nothing had come
+// back, both answers were written at :56 and :00, and at :07 the turn finished with
+// 「답변이 아직 도착하지 않았습니다」 — the two answers directly above it.
+//
+// Nothing is appended here: the answers ARE the new context, and the next step reads the log. The
+// count is what stops it looping — each arrival is folded once.
+//
+// Top level only, like the note it follows: a child has no Expect and can have nothing out.
+func (a *App) foldArrivedHandoffs(tc turnCtx, ts *turnState) (loopAction, bool) {
+	if tc.depth != 0 {
+		return 0, false
+	}
+	n := a.deliveredHandoffs(tc.s.ID)
+	if n <= ts.handoffSeen {
+		return 0, false
+	}
+	ts.handoffSeen = n
 	return loopContinue, true
 }
 

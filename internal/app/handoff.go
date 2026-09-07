@@ -370,6 +370,7 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 	// leave the finish gate silent about a piece the agent never received.
 	a.mu.Lock()
 	if st, ok := a.stateIf(sid); ok {
+		st.delivered++
 		kept := st.handoffs[:0]
 		for _, h := range st.handoffs {
 			if h.Who != e.Who || h.Request != e.Request {
@@ -469,4 +470,16 @@ func (a *App) noteHandoff(ctx context.Context, sid session.SessionID, e port.Els
 // beside it too. It is a receipt, not a seal.
 func shortDigest(s string) string {
 	return fmt.Sprintf("%012x", hashContent(s)&0xffffffffffff)
+}
+
+// deliveredHandoffs is how many answers have been written into this conversation, ever. The finish
+// gate reads it to notice one that landed after the last model context was built.
+func (a *App) deliveredHandoffs(sid session.SessionID) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	st, ok := a.stateIf(sid)
+	if !ok {
+		return 0
+	}
+	return st.delivered
 }

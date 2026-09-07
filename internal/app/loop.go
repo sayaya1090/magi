@@ -169,7 +169,12 @@ type turnState struct {
 	declared        bool // the agent declared the task finished and the council accepted
 	distilAsked     bool // the finish seam already asked what was worth keeping (once per turn)
 	handoffTold     bool // the turn was told once that a companion has not answered yet
-	ratingAsked     bool // the turn was asked once what the answers it got were worth
+	// handoffSeen is how many delivered answers this turn has already had in its context. An answer
+	// that lands while the last step streams is in the log but not in that step's request, so the
+	// turn would finish saying it never came — the finish gate compares this against the session's
+	// count and takes one more step instead (foldArrivedHandoffs).
+	handoffSeen int
+	ratingAsked bool // the turn was asked once what the answers it got were worth
 	// finishTools are the tools the FINISH path itself asked for.
 	//
 	// Once a turn declares itself finished, its tool calls are dropped: the task is over and more
@@ -279,6 +284,9 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 	lastText := ""
 	guard := newRunGuard(a.touchesFile)
 	ts := turnState{} // per-turn mutable bookkeeping (finish guards, council accounting); lives for the whole turn — reground resets only the guard's stall arm (see reground)
+	// Answers delivered BEFORE this turn began are already in its opening context — only ones that
+	// land while it runs are news to it.
+	ts.handoffSeen = a.deliveredHandoffs(s.ID)
 	tc := turnCtx{s: s, agent: agent, depth: depth, maxSteps: maxSteps, actor: agentActor, runStart: runStart, guard: guard}
 	// The turn's scratch directory: captured command output, and the TMPDIR every command runs
 	// under. Created HERE because the turn is its lifetime — a child inherits the pointer at spawn
