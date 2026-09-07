@@ -308,6 +308,9 @@ const point = new PointAtAdvice(book);
   ok('다른 호스트면 가짜에 사유', xl.why === 'not-word' && pickNote(xl).includes('Excel'));
   const slow = await pickDoc({ office: { ...word, onReady: () => new Promise((r) => setTimeout(() => r({ host: 'Word' }), 50)) }, waitMs: 1 });
   ok('늦으면 가짜로 가되 늦은 답을 남긴다', slow.why === 'timeout' && slow.late instanceof Promise && pickNote(slow).includes('1.5초'));
+  // 헬퍼가 내준 페이지(시계 없음)는 느린 호스트를 **기다려서** 진짜에 붙는다(파워포인트 판 실물 2026-09-07).
+  const patient = await pickDoc({ office: { ...word, onReady: () => new Promise((r) => setTimeout(() => r({ host: 'Word' }), 50)) }, waitMs: Infinity });
+  ok('시계가 없으면 느린 호스트를 기다려 진짜', patient.why === null && !(patient.doc instanceof FakeDocument));
   ok('늦은 답의 말', lateNote('Word', 'Word').includes('새로고침') && lateNote('Excel', 'Word').includes('Excel') && lateFailNote(new Error('x')).includes('x'));
   const boom = await pickDoc({ office: { ...word, onReady: () => { throw new Error('boom'); } } });
   ok('던지면 사유', boom.why === 'threw' && pickNote(boom).includes('boom'));

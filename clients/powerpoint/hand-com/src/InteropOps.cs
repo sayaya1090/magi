@@ -23,8 +23,8 @@ public sealed partial class InteropOps : IOps
     {
         this.app = app; this.pres = pres;
         Label = pres.Name;
-        // 헬퍼의 문서 키는 presentation 파라미터에서 나온다("pid-" + 값). 파일 경로의 짧은 지문을 준다.
-        DocumentKey = "com-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(pres.FullName)))[..16].ToLowerInvariant();
+        // 헬퍼의 문서 키는 presentation 파라미터에서 나온다("pid-" + 값). 파일 경로의 짧은 지문 — 작업창과 같은 규칙(DeckKey).
+        DocumentKey = DeckKey.Of(pres.FullName);
     }
 
     /// <summary>떠 있는 PowerPoint 에 붙는다. 없으면 실패한다 — 몰래 띄우지 않는다.</summary>
@@ -42,11 +42,24 @@ public sealed partial class InteropOps : IOps
     internal static string AsParagraphs(string? text) =>
         (text ?? "").Replace("\r\n", "\r").Replace('\n', '\r');
 
-    public static InteropOps AttachToRunning()
+    /// <summary>
+    /// 떠 있는 PowerPoint 의 **그 덱**에 붙는다. presentation 이 비면 활성 덱 — 덱이 하나일 때의 옛 길이다.
+    /// 덱이 둘 이상이면 손도 덱마다 하나여야 한다(감시기가 열린 덱마다 하나씩 띄운다): 손 하나가 활성 덱에만
+    /// 붙으면 다른 창의 부탁이 그 덱에 떨어진다(실물 2026-09-07, 답이 섞임).
+    /// </summary>
+    public static InteropOps AttachToRunning(string? presentation = null)
     {
         var app = (PowerPoint.Application)GetActiveObject("PowerPoint.Application");
         if (app.Presentations.Count == 0) throw new InvalidOperationException("PowerPoint 는 떠 있는데 열린 프레젠테이션이 없습니다 — 덱을 먼저 여세요");
-        return new InteropOps(app, app.ActivePresentation);
+        if (string.IsNullOrWhiteSpace(presentation)) return new InteropOps(app, app.ActivePresentation);
+        var want = DeckKey.Of(presentation);
+        var open = new List<string>();
+        foreach (PowerPoint.Presentation p in app.Presentations)
+        {
+            if (DeckKey.Of(p.FullName) == want) return new InteropOps(app, p);
+            open.Add(p.FullName);
+        }
+        throw new InvalidOperationException($"그 덱이 열려 있지 않습니다: {presentation} — 열린 것: {string.Join(" · ", open)}");
     }
 
     // .NET 8 에는 Marshal.GetActiveObject 가 없다 — ROT 에서 직접 꺼낸다.

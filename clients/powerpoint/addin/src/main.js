@@ -54,7 +54,11 @@ const POLL_MS = 1000;
 const SESSION = 'sess-mock';
 
 async function boot() {
-  const { deck, why, host, late, error, office } = await pickDeck();
+  // 헬퍼가 내준 페이지(토큰이 박혀 온다)는 Office 안이다 — 거기서는 시계 없이 onReady 를 기다린다. 빈 덱을
+  // 새로 열면 호스트가 1.5초를 넘겨 PowerPoint 안에서 가짜 덱이 붙었다(실물 2021, 2026-09-07). 시계는
+  // 브라우저에서 그냥 연 목업 페이지 몫이다.
+  const served = Boolean((typeof window !== 'undefined' && window.MAGI) ? window.MAGI.token : '');
+  const { deck, why, host, late, error, office } = await pickDeck({ waitMs: served ? Infinity : 1500 });
   const composer = new Composer();
 
   // **헬퍼가 페이지를 내줬으면 진짜로 돈다.** 토큰이 페이지에 박혀 오는 것이 그 표시이고

@@ -54,7 +54,10 @@ const POLL_MS = 1000;
 const SESSION = 'sess-mock';
 
 async function boot() {
-  const { book, why, host, late, error, office } = await pickBook();
+  // 헬퍼가 내준 페이지(토큰이 박혀 온다)는 Office 안이다 — 거기서는 시계 없이 onReady 를 기다린다. 시계가
+  // 이기면 사람이 Excel 안에서 가짜 통합 문서를 본다(파워포인트 판 실물 2026-09-07). 시계는 목업 페이지 몫이다.
+  const served = Boolean((typeof window !== 'undefined' && window.MAGI) ? window.MAGI.token : '');
+  const { book, why, host, late, error, office } = await pickBook({ waitMs: served ? Infinity : 1500 });
   const composer = new Composer();
 
   // **헬퍼가 페이지를 내줬으면 진짜로 돈다.** 토큰이 페이지에 박혀 오는 것이 그 표시이고

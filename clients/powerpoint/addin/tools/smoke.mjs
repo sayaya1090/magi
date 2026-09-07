@@ -13,7 +13,7 @@
 // 세지 않는다.
 import { Composer, promptOf } from '../src/domain/Composer.js';
 import { HelperApi } from '../src/adapter/helperApi.js';
-import { stableDeckId, DECK_TAG, documentName } from '../src/adapter/OfficeDeck.js';
+import { stableDeckId, DECK_TAG, documentName, comDeckId, normalizeDeckPath } from '../src/adapter/OfficeDeck.js';
 import { Quote } from '../src/domain/Quote.js';
 import { Advice, targetLabel, SlideNumbers } from '../src/domain/Advice.js';
 import { foldAdvice, adviceNote } from '../src/domain/AdviceBoard.js';
@@ -1563,6 +1563,10 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     slow.why === 'timeout' && slow.deck instanceof FakeDeck);
   ok('늦은 답을 계속 듣는다', slow.late !== null);
   ok('늦게 온 답이 진짜로 온다', (await slow.late) === 'PowerPoint');
+  // 헬퍼가 내준 페이지(시계 없음)는 느린 호스트를 **기다려서** 진짜 덱에 붙는다 — 빈 덱을 새로 열 때
+  // PowerPoint 안에서 가짜 덱이 붙던 자리(실물 2021, 2026-09-07).
+  const patient = await pickDeck({ office: host('PowerPoint', 50), waitMs: Infinity });
+  ok('시계가 없으면 느린 호스트를 기다려 진짜 덱', patient.why === null && !(patient.deck instanceof FakeDeck));
 
   // `HostType` 이 없는 판. 호스트를 안 밝힌 답(`null`)과 「PowerPoint 다」를 같다고 세면
   // Word 위에서 진짜 덱을 만든다 — 모르는 둘을 같다고 세는 자리다.
@@ -4229,6 +4233,9 @@ ok('안 쟀으면 사유가 있다', typeof caps.note === 'string' && caps.note.
     sync: async () => {},
   });
   ok('덱마다 다른 이름', (await stableDeckId(otherRun)) !== first);
+  // 2021 — 태그 칸이 없으면 파일 경로로 짓는다. COM 손(DeckKey.cs)과 같은 규칙·같은 벡터(sha256 앞 16자리).
+  ok('경로 정규화는 손과 같다', normalizeDeckPath('file:///C:/Users/me/deck.pptx') === 'c:/users/me/deck.pptx' && normalizeDeckPath('C:\\Users\\ME\\Deck.PPTX') === 'c:/users/me/deck.pptx');
+  ok('경로의 지문은 손과 같은 값', (await comDeckId('C:\\Users\\me\\deck.pptx')) === 'com-3181070406bd03b9' && (await comDeckId('file:///C:/Users/me/deck.pptx')) === 'com-3181070406bd03b9');
 
   // **프레젠테이션 칸이 없으면 첫 장으로 물러선다.** 그 칸이 없는 판이 있고, 앞 판본은 조용히
   // 빈 값을 줘서 허브가 번호를 발급했다 — 그 창은 재연결마다 신원을 잃었다(2026-09-05 실물).

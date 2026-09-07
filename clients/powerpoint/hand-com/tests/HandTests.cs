@@ -9,6 +9,17 @@ public class HandTests
     private static HandCall Call(string op, string argsJson = "{}") =>
         new("c1", op, JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(argsJson, Json.Options));
 
+    // 덱 키는 작업창(OfficeDeck.js comDeckId)과 같은 규칙이어야 한다 — 같은 파일이면 글자 모양이 달라도 같은 키.
+    // 벡터 "c:/users/me/deck.pptx" 의 sha256 앞 16자리 = 3181070406bd03b9 (JS 스모크가 같은 값을 문다).
+    [Fact]
+    public void DeckKeyMatchesThePaneForTheSameFile()
+    {
+        Assert.Equal("com-3181070406bd03b9", DeckKey.Of("C:\\Users\\me\\deck.pptx"));
+        Assert.Equal("com-3181070406bd03b9", DeckKey.Of("file:///C:/Users/me/deck.pptx"));
+        Assert.Equal("com-3181070406bd03b9", DeckKey.Of("c:/users/ME/Deck.PPTX"));
+        Assert.NotEqual(DeckKey.Of("C:\\a.pptx"), DeckKey.Of("C:\\b.pptx"));
+    }
+
     [Fact]
     public void SseParsesEventAndMultilineData()
     {

@@ -86,7 +86,32 @@ export async function stableDeckId(runner, note) {
       say(`${where} 자리에 못 적었습니다: ${e?.message ?? e}`);
     }
   }
+  // **태그 칸이 없는 판(2021)은 파일 경로로 짓는다** — COM 손(DeckKey.cs)이 pres.FullName 으로 짓는 것과 같은 키라,
+  // 이 창이 보는 손이 **자기 덱의 손**이 된다. 앞 판은 빈 이름을 줘 허브가 「가장 최근 손」을 보여 줬고, 덱을 둘 열면
+  // 두 창이 같은 손을 봐 답이 섞였다(실물 2026-09-07). 저장 안 한 덱은 URL 이 없어 여전히 빈 이름이다.
+  const url = typeof Office !== 'undefined' ? Office?.context?.document?.url : '';
+  if (url) {
+    try { return await comDeckId(url); } catch (e) { say(`경로로 이름을 못 지었습니다: ${e?.message ?? e}`); }
+  }
   return '';
+}
+
+/** COM 손과 같은 정규화 — file:/// 를 벗기고, 퍼센트 부호를 풀고, 역슬래시를 슬래시로, 소문자로. */
+export function normalizeDeckPath(path) {
+  let s = String(path ?? '').trim();
+  if (/^file:\/\/\//i.test(s)) s = s.slice(8);
+  else if (/^file:\/\//i.test(s)) s = s.slice(7);
+  try { s = decodeURIComponent(s); } catch { /* 그대로 */ }
+  return s.replace(/\\/g, '/').toLowerCase();
+}
+
+/** 파일 경로의 짧은 지문 — `com-` + sha256 앞 16자리. DeckKey.Of 와 같은 값이어야 한다(양쪽 시험이 같은 벡터를 문다). */
+export async function comDeckId(path, digest) {
+  const subtle = digest ?? (typeof crypto !== 'undefined' ? crypto.subtle : null);
+  if (!subtle) throw new Error('이 환경에는 SHA-256 이 없습니다');
+  const bytes = new TextEncoder().encode(normalizeDeckPath(path));
+  const hash = new Uint8Array(await subtle.digest('SHA-256', bytes));
+  return 'com-' + [...hash].map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
 }
 
 /** 첫 장의 태그 칸. 장이 하나도 없으면 없는 것이다. */

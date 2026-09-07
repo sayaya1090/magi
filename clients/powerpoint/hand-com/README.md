@@ -139,6 +139,7 @@ PowerPoint 를 껐다 켜면 옛 손은 죽은 COM 참조를 듭니다). 절차�
 ```
 cd clients/powerpoint/hand-com/src
 dotnet run -- --helper https://127.0.0.1:3000          # Windows: 떠 있는 PowerPoint 의 활성 덱에 붙는다
+dotnet run -- --helper https://127.0.0.1:3000/ppt --presentation "C:\덱\a.pptx"   # 그 덱에 붙는다 — 덱마다 손 하나(감시기가 이렇게 띄운다)
 dotnet run -- --fake                                   # 어디서나: 메모리 덱으로 규약만 돈다
 cd ../tests && dotnet test                             # 규약 시험 21
 ```

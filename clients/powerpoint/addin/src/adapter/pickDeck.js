@@ -54,10 +54,12 @@ export async function pickDeck({
   let ready = null;
   try {
     ready = office.onReady().then((info) => info?.host ?? null);
-    const host = await Promise.race([
-      ready,
-      new Promise((r) => setTimeout(() => r(TIMED_OUT), waitMs)),
-    ]);
+    // **헬퍼가 내준 페이지에는 시계가 없다**(waitMs = Infinity). 그 페이지는 Office 안에서만 열리므로
+    // 「Office 밖이라 영영 안 풀린다」가 없고, 시계가 이겨 봤자 사람이 PowerPoint 안에서 가짜 덱을
+    // 본다 — 빈 덱을 새로 열면 호스트가 1.5초를 넘겨 그 화면이 떴다(실물 2021, 2026-09-07).
+    const host = await (Number.isFinite(waitMs)
+      ? Promise.race([ready, new Promise((r) => setTimeout(() => r(TIMED_OUT), waitMs))])
+      : ready);
     // `HostType` 이 없는 판이면 `want` 가 `null` 이다. 그걸 그대로 비교하면 호스트를 안 밝힌
     // 답(`host === null`)이 **PowerPoint 로 통과한다** — 모르는 둘을 같다고 세는 자리다.
     const want = office.HostType?.PowerPoint ?? null;

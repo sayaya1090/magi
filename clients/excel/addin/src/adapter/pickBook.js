@@ -22,10 +22,11 @@ export async function pickBook({
   let ready = null;
   try {
     ready = office.onReady().then((info) => info?.host ?? null);
-    const host = await Promise.race([
-      ready,
-      new Promise((r) => setTimeout(() => r(TIMED_OUT), waitMs)),
-    ]);
+    // **헬퍼가 내준 페이지에는 시계가 없다**(waitMs = Infinity) — Office 안에서만 열리는 페이지라 「영영 안
+    // 풀린다」가 없고, 시계가 이기면 사람이 Excel 안에서 가짜 통합 문서를 본다(파워포인트 판 실물 2026-09-07).
+    const host = await (Number.isFinite(waitMs)
+      ? Promise.race([ready, new Promise((r) => setTimeout(() => r(TIMED_OUT), waitMs))])
+      : ready);
     const want = office.HostType?.Excel ?? null;
     if (want !== null && host === want) {
       return { book: new OfficeWorkbook(), why: null, host, late: null, error: null, office };
