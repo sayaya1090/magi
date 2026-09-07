@@ -15,8 +15,8 @@
        헬퍼를 -config-dir·-socket-dir 로 띄우고, 헬퍼가 만든 인증서를 이 계정의 신뢰 저장소에 넣는다(Windows 가 한 번 묻는다).
     5. 애드인 셋을 등록한다 — M365 는 개발자 키 셋, 볼륨 판은 신뢰 카탈로그 하나(~/.magi/catalog)에 매니페스트 셋.
     6. **Office 를 켤 때 헬퍼가 뜨게 한다** — Office 안에서 뜨는 COM 추가 기능(magi-office-start)이 헬퍼를 띄운다.
-       그래서 로그인 때 뜨는 등록이 없다: Office 를 안 켜면 이 계정에 magi 는 하나도 없다. .NET SDK 가 없어 그것을 못
-       지으면 그때만 로그인 등록(Run\magi-office)으로 물러선다. -NoAutostart 는 둘 다 안 한다.
+       **로그인 때 뜨는 등록은 걸지 않는다**(사용자, 2026-09-07: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」).
+       Office 를 안 켜면 이 계정에 magi 는 하나도 없고, Office 를 다 끄면 스스로 다 끝난다. -NoAutostart 는 그 등록도 안 한다.
 
   볼륨 판 PowerPoint(LTSC 2021)는 작업창으로 편집이 안 돼 COM 어댑터(magi-ppt-hand.exe)가 편집한다 — 볼륨 판이면 그 어댑터도
   빌드한다(.NET SDK 필요, 없으면 경고만). 어댑터를 띄우는 것은 헬퍼다: PowerPoint 가 떠 있는데 어댑터가 없으면 헬퍼가 띄우고,
@@ -35,8 +35,8 @@
   설치 폴더. 기본 %LOCALAPPDATA%\magi\office
 
 .PARAMETER NoAutostart
-  magi 가 스스로 뜨게 하는 것을 **아무것도 안 한다** — COM 추가 기능도, 로그인 등록(Run\magi-office)도. 있던 것은 뺀다.
-  그러면 Office 창을 열기 전에 헬퍼를 손으로 띄워야 한다: `magi office`.
+  Office 를 켤 때 헬퍼가 뜨게 하는 COM 추가 기능을 **등록하지 않는다**(있던 것은 뺀다). 그러면 Office 창을 열기 전에
+  헬퍼를 손으로 띄워야 한다: `magi office`.
 
 .PARAMETER NoWait
   먼저 할 것(Go·진짜 공유·.NET SDK)이 없어도 묻지 않고 간다 — 무인 배포용. 없는 것은 경고로만 남는다.
@@ -49,7 +49,8 @@
   비운 뒤 보통 설치를 이어 간다. Office 프로그램이 떠 있으면 멈춘다.
 
 .PARAMETER Uninstall
-  **다 지운다** — 헬퍼·컴패니언·손·감시기를 멈추고, Run 키 둘, 애드인 등록(개발자 키 셋·신뢰 카탈로그 키), Office 애드인
+  **다 지운다** — 헬퍼·컴패니언·어댑터를 멈추고, COM 추가 기능 등록(Office 를 켤 때 헬퍼를 띄우던 것), 옛 Run 키,
+  애드인 등록(개발자 키 셋·신뢰 카탈로그 키), Office 애드인
   캐시, 설치 폴더(Dest), 소켓 자리(~/.magi 의 daemon-*.sock*·catalog), 신뢰 저장소의 인증서(magi office helper), 사용자
   환경 변수 MAGI_SOCKET_DIR 을 뺀다. 남기는 것: %APPDATA%\magi 의 config.toml(permission = "allow" 줄까지 — 평소 magi 의
   파일이다)과 plugins, 컴패니언 워크스페이스(%APPDATA%\magi\powerpoint·excel·word — 대화 기록은 %LOCALAPPDATA%\magi).
@@ -220,9 +221,14 @@ if (-not $SkipBuild) {
 $dotnet = $null
 # .NET SDK 는 이제 판을 안 가린다 — 볼륨 판의 편집 어댑터도, 모든 판의 COM 추가 기능(Office 를 켤 때 헬퍼를 띄우는 것)도
 # 이것으로 짓는다. 없으면 추가 기능 없이 가고, 그때는 로그인 등록으로 물러선다(7단계).
-$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요. 런타임만으로는 부족합니다. 건너뛰면 Office 를 켤 때가 아니라 로그인할 때 헬퍼가 뜨게 됩니다.'
-if (-not $SkipBuild -and -not $NoAutostart) {
+$sdkHow = 'https://dotnet.microsoft.com/download/dotnet/9.0 에서 .NET 9 SDK 를 설치해 주세요(런타임만으로는 부족합니다). Office 를 켤 때 헬퍼를 띄우는 추가 기능과, 볼륨 판의 편집 어댑터를 이것으로 짓습니다.'
+if (-not $SkipBuild) {
   if (WaitUntil '.NET 9 SDK' $sdkHow { [bool](FindDotnet) }) { $dotnet = FindDotnet; Done "dotnet: $($dotnet.FullName) (SDK $($dotnet.Sdk))" }
+}
+# **볼륨 판은 .NET 없이는 깔 것이 없다.** 편집도 어댑터가 하고, 헬퍼를 띄우는 것도 추가 기능이 한다 — 둘 다 .NET 으로 짓는다.
+# 로그인 자동 시작으로 물러서던 길은 없앴다(사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」).
+if (-not $dotnet -and -not $SkipBuild -and $perpetual) {
+  Fail '이 판(볼륨/LTSC)은 .NET 9 SDK 가 있어야 합니다 — 편집 어댑터도, Office 를 켤 때 헬퍼를 띄우는 추가 기능도 그것으로 짓습니다. 설치를 멈춥니다. SDK 를 설치한 뒤 다시 실행해 주세요.'
 }
 if ($perpetual) {
   # 진짜 공유 — 카탈로그의 UNC 를 여기서 읽어 적으므로 나중에 만들면 설치기를 다시 돌려야 한다.
@@ -274,7 +280,7 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) { Warn "어댑터 빌드에 실패했습니다. 위의 dotnet 오류를 확인해 주세요. 어댑터 없이 계속합니다(PowerPoint 2021 편집만 안 됩니다)."; $dotnet = $null }
     else { Done "magi-ppt-hand.exe → $handOut" }
   }
-  if ($dotnet -and -not $NoAutostart) {
+  if ($dotnet -and -not $NoAutostart) {   # -NoAutostart 면 추가 기능을 안 짓는다 — 등록도 안 할 것이라서다
     Say 'Office 를 켤 때 헬퍼가 뜨게 하는 추가 기능을 빌드합니다'
     $startProj = Join-Path $repo 'clients\office\addin-com\src\magi-office-start.csproj'
     $startOut = Join-Path $Dest 'start'
@@ -435,13 +441,14 @@ if ($perpetual) {
 # 하지 말라고」, 「오피스에서 플러그인 켤 때 COM 이랑 .NET 으로 프로세스 못 띄우냐」). COM 추가 기능은 Office 프로세스
 # 안에서 뜨므로 그 자리가 정확히 맞다. 헬퍼는 Office 가 하나도 없으면 스스로 끝나고(helper/idle.go), 컴패니언도 그렇다.
 #
-# 못 지었으면(.NET SDK 없음) **로그인 등록으로 물러선다** — 안 그러면 리본의 Magi 가 빈 창을 띄운다.
+# 못 지었으면 **아무것도 안 건다** — 그때는 사람이 `magi office` 를 직접 띄운다. 로그인 등록으로 물러서던 길은 없앴다.
 $run = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
-Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue   # 옛 감시기 등록(2026-09-07 이전)
+# 옛 등록은 언제나 뺀다 — 이 설치기는 로그인 때 뜨는 것을 하나도 안 남긴다.
+Remove-ItemProperty $run 'magi-ppt-hand-watch' -ErrorAction SilentlyContinue
+Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
 $comhost = Join-Path $Dest 'start\magi-office-start.comhost.dll'
 if ($NoAutostart) {
   Say '자동 시작을 등록하지 않습니다(-NoAutostart)'
-  Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
   foreach ($ribbon in @('PowerPoint', 'Excel', 'Word')) {
     $k = "HKCU:\Software\Microsoft\Office\$ribbon\Addins\$startProgId"
     if (Test-Path $k) { Remove-Item $k -Recurse -Force -ErrorAction SilentlyContinue }
@@ -469,12 +476,11 @@ if ($NoAutostart) {
     New-ItemProperty -Path $k -Name 'Description' -Value 'Magi 헬퍼를 띄웁니다' -PropertyType String -Force | Out-Null
     New-ItemProperty -Path $k -Name 'LoadBehavior' -Value 3 -PropertyType DWord -Force | Out-Null
   }
-  Remove-ItemProperty $run 'magi-office' -ErrorAction SilentlyContinue
   Done 'Office 를 켜면 헬퍼가 뜹니다 — 로그인 때 뜨는 등록은 없습니다'
 } else {
-  Say '로그인할 때 헬퍼가 뜨게 합니다'
-  New-ItemProperty -Path $run -Name 'magi-office' -Value "`"$helperExe`" office -config-dir `"$configDir`" -socket-dir `"$socketDir`"" -PropertyType String -Force | Out-Null
-  Warn '추가 기능(.NET SDK 필요)을 못 지어 로그인 때 뜨게 했습니다. SDK 를 설치하고 다시 실행하면 Office 를 켤 때만 뜹니다.'
+  # **로그인 등록으로 물러서지 않는다.** 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. 볼륨 판은 위에서 이미
+  # 멈췄으므로 여기 오는 것은 M365 에 .NET 이 없는 판뿐이다 — 작업창은 그대로 돌고, 헬퍼만 사람이 띄운다.
+  Warn "추가 기능을 못 지어 Office 를 켤 때 헬퍼가 자동으로 뜨지 않습니다. .NET 9 SDK 를 설치하고 다시 실행하거나, Office 를 쓰기 전에 직접 띄우세요: `"$helperExe`" office"
 }
 if ($perpetual -and -not (Test-Path (Join-Path $Dest 'hand\magi-ppt-hand.exe'))) {
   Warn 'PowerPoint 2021 용 어댑터가 없습니다. .NET 9 SDK 를 설치한 뒤 다시 실행해 주세요.'

@@ -22,7 +22,8 @@
 전부를 맡다가 PowerPoint 가 끝나면 같이 끝난다. 그리고 **헬퍼를 띄우는 것은 Office 자신이다** — COM 추가 기능
 (`clients/office/addin-com`)이 Office 프로세스 안에서 뜨며 헬퍼를 띄운다. 그래서 로그인 때 뜨는 등록이 하나도 없다
 (2026-09-07 부터 — 그 전에는 헬퍼와 PowerShell 감시기가 로그인 때 떴다). Office 를 다 끄면 컴패니언·어댑터·헬퍼가 차례로
-끝난다. .NET SDK 가 없어 추가 기능을 못 지으면 그때만 로그인 등록으로 물러선다.
+끝난다. **로그인 등록으로 물러서지 않는다** — 이 판은 .NET 9 SDK 가 없으면 설치기가 멈춘다(편집 어댑터도 추가 기능도
+그것으로 짓는다).
 
 **사람이 먼저 해야 하는 것은 설치기가 멈춰서 기다린다**(2026-09-07) — Go, 볼륨 판이면 카탈로그 폴더(`~/.magi`)의 진짜 공유
 (관리자 PowerShell 에서 한 번 `New-SmbShare -Name magi -Path "$env:USERPROFILE\.magi" -ReadAccess $env:USERNAME`)와 .NET 9 SDK.
