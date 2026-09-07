@@ -253,7 +253,11 @@ func manualQuotesTheRules(t *testing.T, app *App) {
 	if err != nil {
 		t.Fatalf("매뉴얼을 못 읽었다: %v", err)
 	}
-	man := string(raw)
+	// 줄 끝을 맞춘다. 이 파일은 저장소에서 LF 로 살지만 Windows 체크아웃은 CRLF 로 바꿔 주고
+	// (`.gitattributes` 가 없다), 아래 비교는 문자열 그대로다 — 그래서 같은 커밋이 맥에서는
+	// 초록이고 Windows 에서는 빨갛다. 2026-09-08 에 office 릴리스 레인이 windows-latest 에서
+	// 돌면서 처음 드러났다: 이 시험이 그때까지 리눅스와 맥에서만 돌았다.
+	man := strings.ReplaceAll(string(raw), "\r\n", "\n")
 
 	// 매뉴얼 안의 `allow = [ … ]` 한 덩어리.
 	start := strings.Index(man, "allow = [")
