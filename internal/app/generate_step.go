@@ -68,11 +68,23 @@ func (a *App) generateStep(ctx context.Context, tc turnCtx, agent AgentSpec, age
 			// request that stays too large after every fold still surfaces the error.
 			if ctxCompactRetryEnabled() && isContextOverflow(err) && ctxCompactRetries < maxCtxCompactRetries {
 				if fresh, rerr := a.store.Read(ctx, sid, 0); rerr == nil && a.compactNow(ctx, tc.s, agent, agentActor, fresh) {
-					ctxCompactRetries++
-					a.emitToolProgress(sid, agentActor, "", agent.Name, "context too large for the model — compacting and retrying")
-					evs, _ = a.store.Read(ctx, sid, 0)
-					req, evs = a.buildStepRequest(ctx, tc, evs, step, cumOut)
-					continue
+					// The FOLDED log, and its error is not decoration. Read answers (nil, err)
+					// when the log cannot be read, and this dropped it — so an unreadable log
+					// rebuilt the request from no conversation at all and re-issued THAT.
+					// Measured end to end: the retry went out with zero messages, the backend
+					// answered it, and the turn recorded turn.finished with no error. The
+					// recovery for "the request was too big" was to ask the model nothing and
+					// call the reply an answer.
+					//
+					// Unreadable here means the recovery cannot happen, so the overflow that
+					// started it is still the news: fall through to the error path below.
+					if folded, ferr := a.store.Read(ctx, sid, 0); ferr == nil {
+						ctxCompactRetries++
+						a.emitToolProgress(sid, agentActor, "", agent.Name, "context too large for the model — compacting and retrying")
+						evs = folded
+						req, evs = a.buildStepRequest(ctx, tc, evs, step, cumOut)
+						continue
+					}
 				}
 			}
 			a.emitError(ctx, sid, agentActor, err.Error())
