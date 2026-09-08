@@ -59,6 +59,19 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 		if n <= 0 || t.Failed() {
 			return // a failed run bounds nothing
 		}
+		// The bound is only worth what was actually walked, and a subtest can leave the walk
+		// early without failing: `t.Skip` ends the whole subtest, and it is invisible without
+		// `-v`. That is not hypothetical — the picker step skipped on every seed for want of a
+		// list, so all twenty walks stopped around step 34 and this very line reported 680
+		// steps as if it had checked ten thousand. Nothing was red, and the printed bound was
+		// fifteen times looser than it claimed to be. A short walk is a defect in the guard,
+		// so it fails here rather than being quietly folded into a smaller number.
+		if want := int64(len(seeds)) * int64(fuzzSteps(t)); n != want {
+			t.Errorf("walked %d steps, not %d: some seed left its walk early (a skip, most "+
+				"likely) — run with -v to see which, and fix the walk rather than the count",
+				n, want)
+			return
+		}
 		t.Logf("%d seeds x up to %d steps = %d checked steps; zero failures bounds the per-step "+
 			"rate at p < %.1e (95%%, rule of three). Per step of THIS vocabulary: a defect no step "+
 			"reaches is not in the bound.", len(seeds), fuzzSteps(t), n, 3/float64(n))
@@ -77,15 +90,28 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 			defer applyTheme(true)
 			// Real sessions for the picker step, made once: their IDs have to resolve, because
 			// the picker swallows a later enter and switches to the selected row.
+			//
+			// The rows are built from the ids CreateSession HANDED BACK, not from ListSessions.
+			// A session nobody has spoken in is deliberately held in memory and never written
+			// (app.CreateSession, "Held, not written"), so ListSessions — which reads the log
+			// directory — answered with nothing at all. That emptied the list, and the picker
+			// step below did `t.Skip`, which ends the WHOLE subtest: every one of the twenty
+			// seeds died at the first step that drew a picker, around step 34 of 500, and the
+			// run reported 680 checked steps where it meant to check ten thousand. It was
+			// invisible without `-v` because a skipped subtest is not a failure.
+			//
+			// The ids are real either way: switchSession resolves them through the app, which
+			// has held them since it made them.
 			var pickerRows []session.SessionMeta
 			for i := 0; i < 20; i++ {
-				if _, err := s.m.app.CreateSession(context.Background(),
-					command.CreateSession{Workdir: s.m.workdir}); err != nil {
+				sid, err := s.m.app.CreateSession(context.Background(),
+					command.CreateSession{Workdir: s.m.workdir})
+				if err != nil {
 					t.Fatal(err)
 				}
-			}
-			if metas, err := s.m.app.ListSessions(context.Background(), s.m.workdir); err == nil {
-				pickerRows = metas
+				pickerRows = append(pickerRows, session.SessionMeta{
+					ID: sid, Workdir: s.m.workdir, Created: time.Now(),
+				})
 			}
 			ids, calls := 0, 0
 			// Which tool each call id was, so a result can be the shape THAT tool's body parses.
