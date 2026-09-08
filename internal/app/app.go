@@ -225,6 +225,31 @@ const emptyTreeRef = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // CreateSession opens a session and returns its id. The session.created fact is written when
 // the session first has something in it — see sessionState.born.
+// promptMark is how many user prompts a session's log held at a moment — or nothing, when the log
+// could not be read.
+//
+// A struct rather than a bare int, and `taken` rather than `known`, because the ZERO VALUE has to
+// be the safe one. The mark is a count, so an unread log arriving as 0 is indistinguishable from
+// "the session had said nothing yet", and the difference between those two is a run restarting on
+// a conversation nobody re-sent. Written as an int, the accident (forget to set it, pass a zero
+// through) points at the dangerous answer; written this way it points at the harmless one.
+type promptMark struct {
+	n     int
+	taken bool
+}
+
+// steersSince is the prompts that arrived after a mark — and nothing at all when the mark was
+// never taken.
+//
+// Failing closed loses nothing: Steer takes a.mu for its running check and restarts a retired run
+// goroutine, so a genuine steer arrives by that path instead.
+func steersSince(mark promptMark, np []userPrompt) []userPrompt {
+	if !mark.taken || len(np) <= mark.n {
+		return nil
+	}
+	return np[mark.n:]
+}
+
 func (a *App) CreateSession(ctx context.Context, c command.CreateSession) (session.SessionID, error) {
 	sid := session.SessionID("s_" + newID())
 	model := c.Model
@@ -535,7 +560,7 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			// by hasUnansweredUserPrompt — re-run at once to answer it. Under the SAME lock, snapshot
 			// the user-prompt high-water mark: at this instant no unanswered steer trails, so every
 			// counted prompt is already answered or is a queued item's original. A steer arriving
-			// later increments the count past baseInput and is caught at teardown (3) — even if a
+			// later increments the count past the mark and is caught at teardown (3) — even if a
 			// triage reply later buries it (an ActorAgent part hides it from hasUnansweredUserPrompt's
 			// last-message view AND makes seedPromptIdx treat it as answered).
 			// Snapshot the deferred (queued-interjection) set BEFORE taking a.mu: the
@@ -549,10 +574,22 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 				a.mu.Unlock()
 				continue
 			}
-			baseInput := 0
+			var mark promptMark
 			if alive {
-				evs, _ := a.store.Read(runCtx, sid, 0)
-				baseInput = len(userPromptEntries(evs))
+				// The error is the whole point. Read answers (nil, err) when the log cannot be
+				// read, and a discarded error made that arrive as "this session has said
+				// nothing" — a mark of zero that reads as taken. The re-read at (3) then counts
+				// EVERY prompt the conversation ever held as arriving after it: each one is
+				// re-surfaced as its own fresh turn and the run restarts,
+				// so the person's whole history replays as if they had just typed it. A fact
+				// about the disk became a claim about what they said.
+				//
+				// Unknown is its own answer, carried to (3), which then claims no steer at all.
+				// That direction is safe: Steer takes a.mu for its running check and restarts a
+				// retired goroutine, so a real steer arrives by that path instead.
+				if evs, err := a.store.Read(runCtx, sid, 0); err == nil {
+					mark = promptMark{n: len(userPromptEntries(evs)), taken: true}
+				}
 			}
 			a.mu.Unlock()
 
@@ -672,9 +709,11 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 			a.mu.Lock()
 			var newSteers []userPrompt
 			if alive {
-				evs, _ := a.store.Read(runCtx, sid, 0)
-				if np := userPromptEntries(evs); len(np) > baseInput {
-					newSteers = np[baseInput:] // genuine steers that arrived after the snapshot
+				// Both halves have to be known for the difference to mean anything: a baseline
+				// that could not be taken, and a log that cannot be read now, are each "cannot
+				// say" rather than "nothing was there".
+				if evs, err := a.store.Read(runCtx, sid, 0); err == nil {
+					newSteers = steersSince(mark, userPromptEntries(evs))
 				}
 			}
 			// Only re-run while the ctx is live; on a cancel we still recover the input below
