@@ -19,6 +19,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/report"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/version"
 )
@@ -868,27 +869,9 @@ func (m *Model) sessionsList() string {
 	return b.String()
 }
 
-// agentSummary renders active subagent names compactly for the header badge,
-// collapsing duplicates as "explore×2".
-func agentSummary(names []string) string {
-	order := make([]string, 0, len(names))
-	count := map[string]int{}
-	for _, n := range names {
-		if count[n] == 0 {
-			order = append(order, n)
-		}
-		count[n]++
-	}
-	parts := make([]string, 0, len(order))
-	for _, n := range order {
-		if count[n] > 1 {
-			parts = append(parts, fmt.Sprintf("%s×%d", n, count[n]))
-		} else {
-			parts = append(parts, n)
-		}
-	}
-	return strings.Join(parts, ", ")
-}
+// agentSummary renders active subagent names compactly for the header badge, collapsing
+// duplicates as "explore×2". The spelling is text.Tally's — see there for why one place owns it.
+func agentSummary(names []string) string { return text.Tally(names, ", ") }
 
 func joinOr(xs []string, empty string) string {
 	if len(xs) == 0 {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
+	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -506,30 +507,8 @@ func shardBy(older []session.Message, workdir string, topics map[string][]string
 }
 
 // actionTrail renders a path's tool activity as a deterministic one-line brief, e.g.
-// "read · edit×2 · bash" — distinct tools in first-seen order, with a ×N count when
-// repeated. Empty when no tools were recorded.
-func actionTrail(names []string) string {
-	if len(names) == 0 {
-		return ""
-	}
-	var order []string
-	count := map[string]int{}
-	for _, n := range names {
-		if count[n] == 0 {
-			order = append(order, n)
-		}
-		count[n]++
-	}
-	parts := make([]string, 0, len(order))
-	for _, n := range order {
-		if count[n] > 1 {
-			parts = append(parts, fmt.Sprintf("%s×%d", n, count[n]))
-		} else {
-			parts = append(parts, n)
-		}
-	}
-	return strings.Join(parts, " · ")
-}
+// "read · edit×2 · bash". The spelling is text.Tally's — see there for why one place owns it.
+func actionTrail(names []string) string { return text.Tally(names, " · ") }
 
 // shardPath extracts the file a tool call targeted and returns it relative to workdir;
 // "" when the call references no file (e.g. bash, web tools). It reads "path" (most file
