@@ -37,8 +37,46 @@ type baseline struct {
 	Files map[string]int `json:"files"`
 }
 
+// scannerSamples pins what blankAssign must and must not match, as literal lines.
+//
+// Without this the ratchet cannot tell a cleaner tree from a scanner that stopped scanning. Both
+// arrive as a smaller number, and a smaller number is the case it does not fail on — it logs
+// "down to N from 141 — rebaseline to keep the ratchet tight", which is an invitation to write
+// the blindness into the baseline. Measured: with the pattern replaced by one that matches
+// nothing, the test passed, reported 0 discarded returns in 0 files, and printed that line.
+//
+// A guard whose whole subject is failures that pass silently was passing its own silently.
+var scannerSamples = []struct {
+	line string
+	want bool
+}{
+	{`_ = f()`, true},
+	{"\t_ = json.Unmarshal(b, &v)", true},
+	{`_, _ = io.Copy(w, r)`, true},
+	{"\t\t_, _, _ = three()", true},
+	{`  _  ,  _  = spaced()`, true},
+	// Not a discard: a comparison keeps everything, and an assignment that keeps a value is a
+	// different shape this does not hold (see the note on scope in the test below).
+	{`if a == b {`, false},
+	{`x, _ := f()`, false},
+	{`_ == other`, false},
+	{`return _foo = 1`, false},
+}
+
+// checkScanner fails when the pattern no longer does what the counts are read as meaning.
+func checkScanner(t *testing.T) {
+	t.Helper()
+	for _, s := range scannerSamples {
+		if got := blankAssign.MatchString(s.line); got != s.want {
+			t.Fatalf("the scanner is broken, so the count below would mean nothing: "+
+				"blankAssign.MatchString(%q) = %v, want %v", s.line, got, s.want)
+		}
+	}
+}
+
 func countSwallowed(t *testing.T) (map[string]int, int) {
 	t.Helper()
+	checkScanner(t)
 	counts := map[string]int{}
 	total := 0
 	for _, f := range goFiles(t) {
