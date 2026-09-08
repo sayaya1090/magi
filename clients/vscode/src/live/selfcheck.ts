@@ -60,6 +60,28 @@ export async function selfCheck(): Promise<string[]> {
     fail.push(`the conversation view would not open: ${(e as Error).message}`);
   }
 
+  // The editor's own tools reach the companion. This is the one that catches a hand that starts and
+  // is refused, or a daemon too old to take one — neither of which any unit test can see.
+  try {
+    const { Hand } = await import('../core/mcpserver');
+    const { handTools } = await import('../core/hand');
+    const probe = await Hand.start({
+      show: async () => 'x', replace: async () => 'x', problems: async () => 'x',
+    });
+    try {
+      const r = await fetch(probe.url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...probe.headers },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+      });
+      const body = await r.json() as { result?: { tools?: unknown[] } };
+      say((body.result?.tools ?? []).length === handTools().length,
+        'the editor hand does not serve its tools over HTTP');
+    } finally { probe.close(); }
+  } catch (e) {
+    fail.push(`the editor hand would not start: ${(e as Error).message}`);
+  }
+
   // And the socket this window computes is the one the daemon actually made.
   const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   const p = socketPath(dir);

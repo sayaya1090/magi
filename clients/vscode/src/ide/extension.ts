@@ -9,6 +9,7 @@ import { inlineCompletion } from './complete';
 import { entryPoints } from './entrypoints';
 import { chooseCommands } from './choose';
 import { doorCommands } from './doors';
+import { EditorHand } from './hand';
 import { found, start, NO_BINARY, offerToStart } from './start';
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -23,9 +24,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const chat = new Chat(companion, ctx.extensionUri);
   const plan = new Plan(companion);
   const looking = new Looking(companion);
+  // The tools this editor offers the companion. Offered once the companion is reachable — a hand
+  // attached to nothing is an address the daemon holds and cannot call.
+  const hand = new EditorHand(companion, workdir);
 
   ctx.subscriptions.push(
-    companion, status, chat, plan, looking,
+    companion, status, chat, plan, looking, hand,
     companion.onChanged((a) => status.draw(a)),
     companion.onSetup((s) => status.show(s)),
 
@@ -62,6 +66,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // `preserveFocus` throughout: nothing the person did caused this, so it must not take the
   // keyboard out of the editor they were typing in.
   void openIfAsked(companion, chat);
+
+  // Offer the editor's own tools. Failure is not fatal and not shouted about: the companion may not
+  // be running yet, and a second window on the same workspace is refused by design.
+  void hand.offer().catch((e) => console.warn('magi: the editor hand did not start —', e));
 
   // Only when asked for by environment. It is a test surface, not a feature, and a command in the
   // palette that runs a self-check is a thing to press by accident.
