@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	office "github.com/sayaya1090/magi/clients/office/helper"
+	"github.com/sayaya1090/magi/internal/adapter/idebridge"
 	"io"
 	"os"
 	"os/exec"
@@ -174,6 +175,12 @@ func main() {
 	// 자신이다.
 	if len(os.Args) > 1 && os.Args[1] == "office" {
 		os.Exit(office.Run(os.Args[2:], os.Stdout, os.Stderr))
+	}
+	// `magi ide-bridge`: 편집기 확장이 자식으로 띄우고 stdin/stdout 으로 말을 거는 문
+	// (internal/adapter/idebridge). 소켓 경로 유도·전선·전사 조립처럼 편집기마다 다시 쓰던 것을
+	// 여기 한 벌로 둔다 — 두 벌이 이미 갈렸다(docs/IDE_BRIDGE).
+	if len(os.Args) > 1 && os.Args[1] == "ide-bridge" {
+		os.Exit(idebridge.Run(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
 	}
 	code := run()
 	if restartOnExit {

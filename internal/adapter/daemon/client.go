@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -846,4 +847,50 @@ func (c *Client) RespondPermission(_ context.Context, cmd command.RespondPermiss
 func (c *Client) RespondQuestion(_ context.Context, cmd command.RespondQuestion) error {
 	return c.call(Request{Method: "answer", Session: string(cmd.SessionID),
 		CallID: cmd.CallID, Answer: cmd.Answer})
+}
+
+// Raw sends one request line verbatim and hands back the reply line verbatim.
+//
+// Every other method on this client encodes a typed Request and decodes a typed Response, which is
+// right when this build is the one asking. It is wrong when the question came from somewhere else:
+// `magi ide-bridge` forwards what an editor wrote, and a round trip through those structs would
+// drop every field they do not name — encoding/json discards unknown keys — so a door this binary
+// gained after the structs were written would be silently stripped on the way in and its answer
+// flattened on the way out. Nobody would see an error; the editor would see a door that does
+// nothing. Verbatim is the shape that stays correct while the protocol grows.
+//
+// An `ok:false` reply is NOT an error here, unlike exchange. The bytes ARE the answer, and the
+// caller passes on the daemon's own refusal instead of composing a second sentence about it.
+//
+// The line is compacted before it goes out: that validates it as JSON and, more to the point,
+// guarantees it holds no newline. One request per line is the whole framing, so a newline smuggled
+// inside would be read by the daemon as the start of a second request.
+func (c *Client) Raw(line []byte) ([]byte, error) {
+	var flat bytes.Buffer
+	if err := json.Compact(&flat, line); err != nil {
+		return nil, fmt.Errorf("daemon: not a request: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.deadline > 0 && c.nc != nil {
+		if err := c.nc.SetDeadline(time.Now().Add(c.deadline)); err != nil {
+			return nil, fmt.Errorf("daemon: %w", err)
+		}
+		defer c.nc.SetDeadline(time.Time{})
+	}
+	if _, err := c.rw.Write(append(flat.Bytes(), '\n')); err != nil {
+		return nil, fmt.Errorf("daemon: send: %w", err)
+	}
+	if !c.sc.Scan() {
+		if err := c.sc.Err(); err != nil {
+			return nil, fmt.Errorf("daemon: %w", err)
+		}
+		return nil, io.ErrUnexpectedEOF
+	}
+	// Copied, because the scanner's buffer is reused by the next Scan and the caller writes this
+	// out later. Handing back the live slice would send whatever the following reply overwrote it
+	// with — a wrong answer rather than a missing one.
+	out := make([]byte, len(c.sc.Bytes()))
+	copy(out, c.sc.Bytes())
+	return out, nil
 }
