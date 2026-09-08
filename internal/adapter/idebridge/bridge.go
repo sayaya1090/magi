@@ -14,6 +14,7 @@ package idebridge
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -94,8 +95,8 @@ func (b *bridge) serve(stdin io.Reader, stderr io.Writer) int {
 	// looks like the editor hung up. Same bound the daemon's own reader uses.
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for sc.Scan() {
-		line := sc.Bytes()
-		if len(trim(line)) == 0 {
+		line := trim(sc.Bytes())
+		if len(line) == 0 {
 			continue
 		}
 		var req request
@@ -233,6 +234,12 @@ func (b *bridge) reply(v map[string]any) {
 }
 
 func trim(b []byte) []byte {
+	// A UTF-8 BOM in front of the first line, which is what a Windows client writing with the
+	// platform's default UTF-8 encoder sends. Measured: without this the first request comes back
+	// as "invalid character 'U+FEFF' looking for beginning of value" and every later one is fine —
+	// so the symptom is a handshake that fails and a bridge that then works, which gets reported as
+	// flakiness rather than as an encoding. Three bytes are cheaper to skip than to explain.
+	b = bytes.TrimPrefix(b, []byte{0xEF, 0xBB, 0xBF})
 	for len(b) > 0 && (b[0] == ' ' || b[0] == '\t' || b[0] == '\r' || b[0] == '\n') {
 		b = b[1:]
 	}

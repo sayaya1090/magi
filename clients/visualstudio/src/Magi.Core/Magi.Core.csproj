@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- 이 프로젝트는 VisualStudio.Extensibility 를 참조하지 않는다. 그래야 프로토콜과 전사가 IDE 없이
+       `dotnet test` 로 시험된다(DESIGN §4). 규칙은 취향이 아니라 시험이다 —
+       Magi.Core.Tests 의 LayeringTests 가 참조가 새면 실패한다. 이 편집기에는 실물 확장을 자동으로
+       재는 1급 길이 없으므로(DESIGN §6), 여기 담긴 것이 많을수록 잰 것이 많다. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Magi.Core</AssemblyName>
+    <RootNamespace>Magi.Core</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <LangVersion>latest</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Magi.Core.Tests" />
+  </ItemGroup>
+</Project>

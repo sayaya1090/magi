@@ -1,8 +1,11 @@
-# clients/visualstudio/ — Visual Studio 확장 (설계 단계)
+# clients/visualstudio/ — Visual Studio 확장
 
 [↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: VS Code](../vscode/README.md) · [형제: 젯브레인](../jetbrains/README.md)
 
-> **상태: 설계와 실측이 있다. 코드는 아직 없다.**
+> **상태: 코어 층이 섰다. IDE 층은 아직 없다.**
+>
+> `src/Magi.Core` 는 브리지와 말하고 IDE 를 모른다 — `dotnet test` 로 25개가 돈다. 그 위에 얹을
+> `src/Magi.Extension` 이 다음이다([설계 §9](docs/DESIGN.ko.md) 걸음 2).
 >
 > Visual Studio 확장은 **Windows 에서만** 지어진다. **VS for Mac 은 2024 에 단종됐다.** 이 설계는
 > macOS 에서 쓰였고, 그래서 실물로 못 잰 것을 물음표로 남겼다 — 그 물음표들이 **2026-09-09 에
@@ -22,8 +25,31 @@ Visual Studio 가 연 솔루션의 magi 컴패니언에게 말을 걸고, 그가
 중인가」 · 승인 어휘 · 훑어본 말 가르기 · 완성 겹침 · 판 고르기). 그 여덟을 C# 으로 또 쓰면 세
 벌이 되고, 같은 사실이 세 군데 적히면 하나는 갈라진다.
 
-그래서 §3 이 `magi ide-bridge` 를 **권고한다** — 공통 여덟을 코어 바이너리가 맡고, 편집기 층은
-문 두드리기와 그리기만 한다. 그 결정은 사용자 몫으로 남겼다.
+그래서 §3 이 `magi ide-bridge` 를 **권고했고, 정해졌고, 이 클라이언트가 그 첫 사용자다.** 공통
+여덟을 코어 바이너리가 맡고 편집기 층은 문 두드리기와 그리기만 한다. `Magi.Core` 에는 소켓 경로
+유도도 FNV 상수도 **없고, 없다는 것을 시험이 지킨다.**
+
+## 지금 있는 것
+
+```
+src/Magi.Core/         브리지와 말한다. VisualStudio.Extensibility 를 참조하지 않는다
+test/Magi.Core.Tests/  25개. IDE 없이, 바이너리 없이, 컴패니언 없이 돈다
+tools/smoke.ps1        실물 브리지를 한 번 두드린다 — 유닛 시험이 일부러 안 하는 일
+```
+
+```powershell
+dotnet test clients/visualstudio/test/Magi.Core.Tests
+pwsh clients/visualstudio/tools/smoke.ps1        # magi 가 PATH 에 있어야 한다
+```
+
+**시험이 지키는 규칙 넷** — 넷 다 어겼을 때 조용히 틀리는 것들이라 시험으로 세웠다.
+
+| 규칙 | 어기면 |
+|---|---|
+| `Magi.Core` 가 `Microsoft.VisualStudio*` 를 참조하지 않는다 | 재는 것이 줄어든다. 이 편집기에는 실물 확장을 자동으로 재는 1급 길이 없다(설계 §6) |
+| 소켓 경로를 이쪽에서 유도하지 않는다(FNV 상수가 소스에 없다) | **에러 없이** 아무 데도 안 닿는다. 컴패니언이 있는 트리를 「안 돌고 있다」고 말하고 두 번째를 띄운다 |
+| 와이어 이름이 브리지의 Go 소스에 실제로 있다 | 예외가 아니라 기본값이 된다. 화면은 「없다」고 말하고 아무것도 실패하지 않는다 |
+| `Encoding.UTF8` 을 쓰지 않는다(BOM 을 쓴다) | **첫 요청만** malformed 가 되고 그다음부터 멀쩡하다 — 인코딩이 아니라 「가끔 그런다」로 보고된다 |
 
 ## 먼저 읽을 것
 

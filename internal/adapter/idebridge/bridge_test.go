@@ -203,6 +203,22 @@ func TestUnknownMethodIsNamed(t *testing.T) {
 	}
 }
 
+// A Windows client writing with the platform's default UTF-8 encoder puts three bytes in front of
+// the first line. Measured against the real bridge: without this, `about` came back as "invalid
+// character 'U+FEFF' looking for beginning of value" and every request after it was fine — a
+// handshake that fails and a bridge that then works, which gets reported as flakiness.
+func TestAByteOrderMarkOnTheFirstLineIsNotAMalformedRequest(t *testing.T) {
+	// Escaped rather than typed: a literal BOM in a Go source file is a compile error, and one
+	// pasted into a comment is invisible to whoever reads this next.
+	got := run(t, filepath.Join(t.TempDir(), "nothing.sock"), "\ufeff"+`{"id":1,"method":"about"}`)
+	if got[0]["ok"] != true {
+		t.Fatalf("a BOM made the first request malformed: %v", got[0])
+	}
+	if got[0]["version"] == nil {
+		t.Error("the reply is not an about answer")
+	}
+}
+
 // A line that is not JSON has no id to answer to, but it must still get a reply: a client that
 // gets nothing back cannot tell a bad request from a bridge that died.
 func TestMalformedLineStillAnswers(t *testing.T) {
