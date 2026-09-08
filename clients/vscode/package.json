@@ -10,7 +10,7 @@
     "url": "https://github.com/sayaya1090/magi"
   },
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.106.0"
   },
   "categories": [
     "AI",
@@ -29,7 +29,7 @@
           "icon": "$(comment-discussion)"
         }
       ],
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "magi-side",
           "title": "magi",
@@ -235,6 +235,17 @@
     "configuration": {
       "title": "magi",
       "properties": {
+        "magi.openConversation": {
+          "type": "string",
+          "enum": ["never", "whenRunning", "always"],
+          "enumDescriptions": [
+            "Open it only when you ask for it.",
+            "Open it when this workspace already has a companion running.",
+            "Open it every time this window opens."
+          ],
+          "default": "whenRunning",
+          "description": "Whether the conversation panel opens by itself when a window opens. It never takes the keyboard focus."
+        },
         "magi.startCompanion": {
           "type": "boolean",
           "default": true,
@@ -266,7 +277,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.106.0",
     "@vscode/test-electron": "^3.1.0",
     "typescript": "^5.5.0"
   }

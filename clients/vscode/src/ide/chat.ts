@@ -188,7 +188,18 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private post(msg: unknown): void { void this.view?.webview.postMessage(msg); }
 
-  reveal(): void { void vscode.commands.executeCommand(`${Chat.viewId}.focus`); }
+  /**
+   * Open the conversation.
+   *
+   * `preserveFocus` opens it WITHOUT taking the keyboard, which is the difference between a person
+   * pressing a command and this happening on its own at startup. The generated `<view>.focus`
+   * command takes it as an option and passes `!preserveFocus` to openView, so the same command
+   * serves both — a hand that pressed something wants to type in it, and a window that just opened
+   * does not want the cursor pulled out of the editor.
+   */
+  reveal(preserveFocus = false): void {
+    void vscode.commands.executeCommand(`${Chat.viewId}.focus`, { preserveFocus });
+  }
 
   dispose(): void {
     this.stream?.close();

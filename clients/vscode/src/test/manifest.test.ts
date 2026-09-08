@@ -1,0 +1,132 @@
+import { test } from 'node:test';
+import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const manifest = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8'),
+) as {
+  engines: { vscode: string };
+  contributes: {
+    viewsContainers: Record<string, { id: string }[]>;
+    views: Record<string, { id: string; type?: string }[]>;
+  };
+};
+
+/** The release that added `secondarySidebar` to `contributes.viewsContainers` (VS Code 1.106). */
+const SECONDARY_SIDEBAR_SINCE = 106;
+
+function minorFloor(range: string): number {
+  const m = /^\D*(\d+)\.(\d+)/.exec(range);
+  assert.ok(m, `engines.vscode is not a version range: ${range}`);
+  assert.equal(m![1], '1', 'this guard assumes the 1.x line');
+  return Number.parseInt(m![2], 10);
+}
+
+/**
+ * A container declared in a place the declared floor does not have.
+ *
+ * This is not a style rule. `secondarySidebar` landed in 1.106, and in builds below it the key is
+ * still parsed — an extension that ships it with a lower floor was reported moving OTHER
+ * extensions' views around and producing "container does not exist"
+ * (QwenLM/qwen-code#2432). So the damage is not "our view fails to appear", which somebody would
+ * notice; it is somebody else's layout, which they would blame on their own extension.
+ *
+ * The check is on the manifest rather than on a comment, because the floor and the container are
+ * edited in different sittings and only one of them is ever the thing being thought about.
+ */
+test('a view container is not declared in a place the engine floor lacks', () => {
+  const floor = minorFloor(manifest.engines.vscode);
+  const where = Object.keys(manifest.contributes.viewsContainers);
+  assert.ok(where.length > 0, 'no view containers found — this guard is reading nothing');
+  if (where.includes('secondarySidebar')) {
+    assert.ok(floor >= SECONDARY_SIDEBAR_SINCE,
+      `secondarySidebar needs VS Code 1.${SECONDARY_SIDEBAR_SINCE}+, but engines.vscode allows ` +
+      `1.${floor} — on older builds this moves other extensions' views`);
+  }
+  // Only the three the schema names. `additionalProperties: false` means a fourth (or a
+  // mis-cased `secondarySideBar`, which is how it is written in several write-ups) is a schema
+  // error the marketplace reports and nothing here would otherwise catch.
+  for (const w of where) {
+    assert.ok(['activitybar', 'panel', 'secondarySidebar'].includes(w),
+      `no such view container location: ${w}`);
+  }
+});
+
+/**
+ * Every view lives in a container that exists.
+ *
+ * The two are keyed by hand and edited apart — this move renamed the location and left the
+ * container id alone, and the reverse mistake produces a view that is simply never drawn, with no
+ * error anywhere.
+ */
+test('every view names a container that is declared', () => {
+  const declared = new Set(
+    Object.values(manifest.contributes.viewsContainers).flat().map((c) => c.id),
+  );
+  const keys = Object.keys(manifest.contributes.views);
+  assert.ok(keys.length > 0, 'no views found — this guard is reading nothing');
+  for (const k of keys) {
+    assert.ok(declared.has(k), `views."${k}" has no container by that id (declared: ${[...declared]})`);
+  }
+});
+
+/**
+ * Every test file is named in TESTING.ko.md.
+ *
+ * The document is the only map of what is measured, and a test that is not on it is one nobody
+ * knows to keep. This guard is carried over from the JetBrains client, which has had it for a
+ * while — and the first thing it found here was that `webview.test.ts` had never been listed.
+ */
+test('the testing document names every test file', () => {
+  const dir = path.join(__dirname, '..', '..', 'src', 'test');
+  const found = fs.readdirSync(dir).filter((f) => f.endsWith('.test.ts'));
+  assert.ok(found.length >= 5, `only ${found.length} test files walked — the walk is broken`);
+  const doc = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'TESTING.ko.md'), 'utf8');
+  const missing = found.filter((f) => !doc.includes(f));
+  assert.equal(missing.length, 0, `docs/TESTING.ko.md does not name: ${missing.join(', ')}`);
+});
+
+/**
+ * Every setting the code reads is declared, and every setting declared is read.
+ *
+ * A key the code reads but the manifest does not declare has no UI, no default from the manifest,
+ * and no error — `get(key, fallback)` quietly returns the fallback for ever, so the feature simply
+ * never turns on and nothing says why. The reverse is a switch in the settings UI that does
+ * nothing, which is worse: a person changes it and concludes the extension is broken.
+ */
+test('the settings the code reads are exactly the settings declared', () => {
+  const dir = path.join(__dirname, '..', '..', 'src');
+  // The tests are not the extension. This one in particular quotes the very shapes it looks for,
+  // and a scanner that reads its own explanation of itself reports a setting called "key" — which
+  // is how this guard failed the first time it ran.
+  const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (e.name === 'test' ? [] : walk(path.join(d, e.name)))
+      : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);
+  const src = walk(dir);
+  assert.ok(src.length >= 10, `only ${src.length} sources walked — the walk is broken`);
+
+  const read = new Set<string>();
+  for (const f of src) {
+    // Comments stripped for the same reason: a sentence ABOUT a setting is not a read of one.
+    const body = fs.readFileSync(f, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    // getConfiguration('magi') … .get<T>('key' …) — the two halves can sit apart, so the section
+    // is checked per file rather than per expression.
+    if (!/getConfiguration\(['"]magi['"]\)/.test(body)) continue;
+    for (const m of body.matchAll(/\.get(?:<[^>]*>)?\(\s*['"]([A-Za-z.]+)['"]/g)) read.add(`magi.${m[1]}`);
+  }
+  assert.ok(read.size > 0, 'no settings reads found — this guard is reading nothing');
+
+  const manifestKeys = new Set(Object.keys(
+    (JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8')) as
+      { contributes: { configuration?: { properties?: Record<string, unknown> } } })
+      .contributes.configuration?.properties ?? {},
+  ));
+  for (const k of read) {
+    assert.ok(manifestKeys.has(k), `the code reads ${k}, which package.json does not declare`);
+  }
+  for (const k of manifestKeys) {
+    assert.ok(read.has(k), `package.json declares ${k}, which no code reads`);
+  }
+});

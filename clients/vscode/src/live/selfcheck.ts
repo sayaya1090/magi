@@ -41,7 +41,13 @@ export async function selfCheck(): Promise<string[]> {
   say(all.length === 2, `expected two views, found ${all.length}`);
   say(all.every((v) => v.type === 'webview'), 'a view is not a webview');
   say(!!views['magi']?.some((v) => v.id === 'magi.chat'), 'the conversation is not in the panel container');
-  say(!!views['magi-side']?.some((v) => v.id === 'magi.plan'), 'the plan is not in the activity bar container');
+  say(!!views['magi-side']?.some((v) => v.id === 'magi.plan'), 'the plan is not in the magi-side container');
+  // WHERE that container hangs, not merely that it exists. The move to the Secondary Side Bar is a
+  // one-word change in the manifest, and a build that silently went back to the activity bar would
+  // pass every check above it — the views and their ids do not change.
+  const where = (ext?.packageJSON?.contributes?.viewsContainers ?? {}) as Record<string, { id: string }[]>;
+  say(!!where['secondarySidebar']?.some((c) => c.id === 'magi-side'),
+    `the plan container is not in the secondary sidebar (found: ${Object.keys(where).join(', ')})`);
 
   // Settings are real settings, not a webview.
   const props = Object.keys(ext?.packageJSON?.contributes?.configuration?.properties ?? {});

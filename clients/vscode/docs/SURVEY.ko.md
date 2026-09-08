@@ -21,10 +21,14 @@
 | Continue | **activitybar** `continue` | `continue.continueGUIView` | webview |
 | Continue(둘째) | **panel** `continueConsole` | `continue.continueConsoleView` | webview, `config.continue.enableConsole` 로 가려짐 |
 | Copilot Chat | 문서가 "the editor sidebar" 라고만 한다 | | |
-| **magi(계획)** | **panel** | 대화 | webview |
-| **magi(계획)** | **activitybar** | 계획·계기판 | webview |
+| **magi(대화)** | **panel** | 대화 | webview |
+| **magi(계획)** | **secondarySidebar** | 계획·계기판 | webview |
 
 **셋이 다 대화를 액티비티 바에 단다. 우리만 패널이다.** 이 조사의 첫 사실이고, 그래서 §4 가 있다.
+
+⚠ **이 표는 조사한 시점(액티비티 바와 패널 둘뿐이던 때)의 것이다.** VS Code 1.106 이
+`secondarySidebar` 를 열었으므로 저 셋도 지금은 오른쪽을 고를 수 있다 — **다시 조사하지 않았다.**
+저들이 옮겼는지 모르는 채로 「셋이 다 액티비티 바」를 지금 사실로 읽으면 안 된다.
 
 Continue 만 패널을 쓴다. 거기 놓은 것은 **채팅이 아니라 콘솔**이고, 기본은 꺼져 있다. 「패널은 옆에 두고 보는 것」이라는 규약의 말과 그들의 실물이 일치한다는 뜻이다.
 
@@ -64,6 +68,8 @@ Continue 만 패널을 쓴다. 거기 놓은 것은 **채팅이 아니라 콘솔
    출력이 사는 자리가 그 성격이다.
 2. **우리는 사이드바를 이미 쓴다.** 계획·컨텍스트·잡·플릿이 거기 간다(화면 설계 §3). 저들은
    그것들을 채팅 웹뷰 **안에** 그리므로 컨테이너가 하나면 된다. 우리는 둘이 필요하다.
+   (2026-09-09: 그 둘째 컨테이너가 **오른쪽**으로 옮겨갔다. 왼쪽을 비웠으므로 「이웃을 쓰던
+   사람이 액티비티 바에서 찾는다」는 아래의 값은 **더 커졌다** — 거기엔 이제 아무것도 없다.)
 
 ⚠ **그래서 값을 치른다.** 규약이 "users often minimize the Panel" 이라 하고, 이웃을 쓰던 사람은
 액티비티 바에서 찾을 것이다. 완화 둘: 상태 표시줄이 항상 서고([화면 설계 §4](./UI.ko.md)),
