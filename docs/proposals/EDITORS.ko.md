@@ -135,6 +135,13 @@ C#/.NET, MATLAB 은 MATLAB 이다. 그러니 이식이 아니라 **재작성**�
 
 ## 5. Visual Studio
 
+> ⚠ **이 절은 낡았다**(2026-09-09). 아래는 **VSSDK(VSIX + MEF)** 를 전제로 쓴 것인데, 그 뒤에
+> 확장 모델이 셋이고 마이크로소프트가 새 확장에 **`VisualStudio.Extensibility`** 를 권한다는
+> 것을 읽었다. 그 모델은 .NET 을 쓰고, IDE 밖에서 돌고, WPF 대신 Remote UI 로 그린다 —
+> 아래 「WPF 로 손수」라는 판단이 거기서 달라진다. 지금 설계는
+> [`clients/visualstudio/docs/DESIGN.ko.md`](../../clients/visualstudio/docs/DESIGN.ko.md) 다.
+> 이 절은 **그때의 근거로** 남긴다.
+
 - **VSIX + MEF.** 편집기 확장은 `IWpfTextViewCreationListener`·`ITaggerProvider` 계열이고,
   도구창은 WPF `ToolWindowPane` 이다.
 - **인라인 완성**은 버전에 갈린다. VS 2022 는 IntelliCode 의 회색 이어쓰기가 있지만 서드파티에
@@ -184,9 +191,9 @@ C#/.NET, MATLAB 은 MATLAB 이다. 그러니 이식이 아니라 **재작성**�
 
 | 걸음 | 무엇 | 왜 이 순서 |
 |---|---|---|
-| 1 | **VS Code, (가) 방식으로** | 대응이 1:1 이라 「무엇이 진짜 공통인지」가 여기서 드러난다. 심을 먼저 설계하면 젯브레인 하나만 보고 지은 계약이 된다 |
-| 2 | 1 에서 드러난 공통을 **`magi ide-bridge`** 로 뽑는다 | 두 벌을 보고 나서 뽑는 공통이 한 벌 보고 뽑은 것보다 낫다 |
-| 3 | **Visual Studio**, 심 위에 | 편집기 층만 새로 쓴다 |
+| ✅1 | **VS Code, (가) 방식으로** — 섰다([clients/vscode](../../clients/vscode/README.md)) | 대응이 1:1 이라 「무엇이 진짜 공통인지」가 여기서 드러난다. 심을 먼저 설계하면 젯브레인 하나만 보고 지은 계약이 된다 |
+| 2 | 1 에서 드러난 공통을 **`magi ide-bridge`** 로 뽑는다 | 두 벌을 보고 나서 뽑는 공통이 한 벌 보고 뽑은 것보다 낫다. **두 벌째 설계가 그 공통을 여덟으로 셌다** — [VS 설계 §3](../../clients/visualstudio/docs/DESIGN.ko.md) |
+| 3 | **Visual Studio**, 심 위에 | 편집기 층만 새로 쓴다. 설계는 섰고 ([clients/visualstudio](../../clients/visualstudio/README.md)) **짓는 것은 Windows 기계에서** |
 | 4 | MATLAB 은 §6 의 판단 뒤에 | |
 
 **각 걸음마다 조건 하나**: 새 클라이언트는 `WireConformanceTest` 에 해당하는 시험을 함께
@@ -198,6 +205,7 @@ C#/.NET, MATLAB 은 MATLAB 이다. 그러니 이식이 아니라 **재작성**�
 ## 8. 이 문서가 재지 않은 것
 
 - **Visual Studio 의 인라인 완성 API.** 판마다 다르다고만 적었다. 실물 SDK 로 안 띄워 봤다.
+  (2026-09-09: 새 모델의 공식 확장점 목록에도 **안 보인다**. 여전히 안 재봤다는 뜻이고, [VS 설계 §2](../../clients/visualstudio/docs/DESIGN.ko.md) 의 물음표 넷 중 하나다.)
 - **VS Code 확장 마켓 배포 절차**(퍼블리셔·서명)와 **VS Marketplace/OpenVSX 갈림.**
 - **MATLAB 애드온 배포**(`.mltbx` 서명·MathWorks File Exchange 규약).
 - 셋 각각의 **분량 추정.** 젯브레인이 9,778 줄이라는 것만 재 두었고, 그것이 다른 언어에서
