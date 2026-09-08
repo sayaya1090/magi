@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Companion } from './workspace';
 import { Chat } from './chat';
-import { Row } from '../core/transcript';
+import { Row, turnsBack } from '../core/transcript';
 import * as activity from '../core/activity';
 import { jobs as jobsOf, schedules } from '../core/panel';
 import { whyNoCompletion } from '../core/complete';
@@ -179,16 +179,23 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       const asked = chat.userRows();
       if (!asked.length) { void vscode.window.showInformationMessage('magi: nothing to go back to yet.'); return; }
       const pick = await vscode.window.showQuickPick(
-        asked.slice().reverse().map((r: Row) => ({
-          label: r.text.split('\n')[0].slice(0, 80), description: `#${r.seq}`, seq: r.seq,
+        asked.slice().reverse().map((r: Row, i) => ({
+          label: r.text.split('\n')[0].slice(0, 80),
+          description: i === 0 ? 'the last thing you asked' : `${i + 1} turns back`,
+          seq: r.seq,
         })),
         { title: 'magi — go back to just before' },
       );
       if (!pick) return;
+      // ⚠ The door counts TURNS (`n`), not sequence numbers, and it does not read `since` at all.
+      // This sent `since: seq` and the daemon rewound by its own default — the chosen point had
+      // nothing to do with it.
+      const n = turnsBack(asked, pick.seq);
+      if (!n) { void vscode.window.showWarningMessage('magi: that point is no longer in the conversation.'); return; }
       const ok = await vscode.window.showWarningMessage(
-        'Everything after that is dropped from the conversation.', { modal: true }, 'Rewind');
+        `Drop the last ${n} turn(s)? Everything after that point goes.`, { modal: true }, 'Rewind');
       if (ok !== 'Rewind') return;
-      if (await call('rewind', { session: chat.session, since: pick.seq })) chat.reload();
+      if (await call('rewind', { session: chat.session, n })) chat.reload();
     }),
 
     /** Pick up a conversation the daemon is not currently on. */

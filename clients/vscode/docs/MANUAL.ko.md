@@ -196,7 +196,7 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 | Resume a conversation | `sessions` → `resume` | |
 | Open another conversation | `sessions` | 읽기만 — 데몬이 도는 대화를 안 바꾼다 |
 | Fold this conversation | `compact` | **먼저 묻는다.** 요약만 남고 가운데가 사라진다 |
-| Go back to an earlier point | `rewind` | **먼저 묻는다.** 고를 자리는 **사람이 물은 것들**이다 — 사람이 기억하는 지점이 그것뿐이다 |
+| Go back to an earlier point | `rewind` | **먼저 묻는다.** 고를 자리는 **사람이 물은 것들**이다 — 사람이 기억하는 지점이 그것뿐이다. 문은 **턴 수**를 받는다(시퀀스 번호가 아니다) — 고른 자리를 「몇 턴 전」으로 바꿔 보내고, 확인 창이 그 수를 말한다 |
 | Show child conversations | `children` | 읽기만 |
 
 ## 7.1.5 다른 컴패니언에게 일 넘기기

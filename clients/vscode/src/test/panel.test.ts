@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import { context, fleet, jobs, schedules } from '../core/panel';
+import { Row, turnsBack } from '../core/transcript';
 
 /**
  * ★ These doors answer a STRUCT. They never fill `out`.
@@ -140,4 +141,40 @@ test('the children door fills children, not sessions', () => {
   const where = cmd.slice(cmd.indexOf("reg('magi.children'"), cmd.indexOf("// ---- scheduled work"));
   assert.ok(where.includes('r.children'), 'the children command does not read r.children');
   assert.ok(!/\br\.sessions\b/.test(where), 'the children command still reads r.sessions');
+});
+
+/**
+ * ★ `rewind` counts TURNS. It does not read `since`.
+ *
+ * The door hands `n` to `App.Rewind(sid, n)`. This client sent the picked row's `seq` in a field
+ * called `since` — a field the wire HAS (the transcript stream reads it) and this door never looks
+ * at — so the value went nowhere and the daemon used its own default. The person's chosen point had
+ * nothing to do with what happened, and nothing said so. The variant that is quietest: not an unknown
+ * field, but a known one this door ignores.
+ */
+test('going back to a prompt is counted in turns, newest first', () => {
+  const asked: Row[] = [
+    { seq: 10, who: 'user', text: 'first' },
+    { seq: 20, who: 'user', text: 'second' },
+    { seq: 30, who: 'user', text: 'third' },
+  ];
+  // The newest is one turn back; the oldest is all three.
+  assert.equal(turnsBack(asked, 30), 1);
+  assert.equal(turnsBack(asked, 20), 2);
+  assert.equal(turnsBack(asked, 10), 3);
+});
+
+/** A seq that is not one of these rows is 0 — and a caller must not send 0 as "rewind nothing". */
+test('a point no longer in the conversation counts as none', () => {
+  assert.equal(turnsBack([{ seq: 10, who: 'user', text: 'x' }], 99), 0);
+  assert.equal(turnsBack([], 10), 0);
+});
+
+/** And the call sends `n`, not `since`. Pinned because the two are both real wire fields. */
+test('the rewind call sends n and not since', () => {
+  const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const call = /call\('rewind',\s*\{([^}]*)\}/.exec(cmd);
+  assert.ok(call, 'the rewind call is not where this guard looks');
+  assert.match(call![1], /\bn\b/, 'rewind does not send n');
+  assert.ok(!/\bsince:/.test(call![1]), 'rewind still sends since, which this door never reads');
 });

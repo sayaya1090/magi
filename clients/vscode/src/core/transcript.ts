@@ -112,3 +112,23 @@ export function seat(member: string | undefined): string | null {
   const m = (member ?? '').toLowerCase();
   return SEATS.includes(m) ? m : null;
 }
+
+/**
+ * How many turns back a given prompt is — what the `rewind` door wants.
+ *
+ * ⚠ **The door counts TURNS, not sequence numbers.** It reads `n` and passes it to
+ * `App.Rewind(sid, n)`, whose own comment is about counting genuine user prompts. This client sent
+ * the picked row's `seq` in a field called `since`, which the door does not read at all: the daemon
+ * got n=0 and the person's chosen point had nothing to do with what happened. The JetBrains client
+ * sends `n = 1` and has always been right.
+ *
+ * "Back to just before this prompt" drops that prompt AND everything after it, so the count includes
+ * the picked one: the newest prompt is 1, the one before it is 2.
+ *
+ * 0 means the seq is not one of these rows — a caller must not send that as "rewind nothing", because
+ * the door would take it as its own default.
+ */
+export function turnsBack(asked: Row[], seq: number): number {
+  const i = asked.findIndex((r) => r.seq === seq);
+  return i < 0 ? 0 : asked.length - i;
+}

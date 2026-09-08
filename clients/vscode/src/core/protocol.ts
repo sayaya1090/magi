@@ -34,6 +34,14 @@ export interface Request {
    */
   schedule?: string;
   /**
+   * `rewind`: how many TURNS to drop, not a sequence number.
+   *
+   * The door reads `n` and hands it to `App.Rewind(sid, n)`. `since` — which this client sent — is a
+   * field the wire has (the transcript stream reads it) and this door never looks at, so the value
+   * went nowhere and the daemon used its own default.
+   */
+  n?: number;
+  /**
    * `hand`: whether the work handed over is a question rather than a request.
    *
    * The name is the core's (`Looking`, `json:"looking"`). The far side treats the two differently —
