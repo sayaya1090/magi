@@ -2,11 +2,12 @@
 
 [↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: VS Code](../vscode/README.md) · [형제: 젯브레인](../jetbrains/README.md)
 
-> **상태: 설계만 있다. 코드는 없고, 이 기계에서는 만들 수도 없다.**
+> **상태: 설계와 실측이 있다. 코드는 아직 없다.**
 >
-> Visual Studio 확장은 **Windows 에서만** 지어진다. 여기는 macOS 이고 `msbuild` 도 Visual Studio
-> 도 없다. **VS for Mac 은 2024 에 단종됐다.** 짓고 깔고 재는 것은 Windows 기계에서 해야 한다 —
-> [설계 §9](docs/DESIGN.ko.md) 에 무엇을 어떤 순서로 해야 하는지 적었다.
+> Visual Studio 확장은 **Windows 에서만** 지어진다. **VS for Mac 은 2024 에 단종됐다.** 이 설계는
+> macOS 에서 쓰였고, 그래서 실물로 못 잰 것을 물음표로 남겼다 — 그 물음표들이 **2026-09-09 에
+> Windows 기계에서 닫혔다.** 무엇을 어떤 순서로 하는지는 [설계 §9](docs/DESIGN.ko.md), 아직 안
+> 잰 것은 [§10](docs/DESIGN.ko.md).
 
 ## 무엇을 만드는가
 
@@ -28,11 +29,12 @@ Visual Studio 가 연 솔루션의 magi 컴패니언에게 말을 걸고, 그가
 
 - [`docs/DESIGN.ko.md` §1](docs/DESIGN.ko.md) — **어느 모델인가.** 확장 모델 셋 중 하나를 고르는
   것이 나머지를 거의 다 정한다. `VisualStudio.Extensibility` 를 프로세스 밖으로 쓴다
-- [`docs/DESIGN.ko.md` §2](docs/DESIGN.ko.md) — **기능 대조와 물음표 넷.** 상태 표시줄·인라인
-  완성·커밋 초안·코드 액션이 이 모델에서 되는지 **확인 못 했다.** 지어내지 않고 Windows 에서
-  실물로 확인할 일로 남겼다
-- [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md) — **소켓 계약.** Windows 에서 달라지는 셋. 특히
-  `%AppData%` 아래 AF_UNIX 의 함정을 오피스 클라이언트가 이미 겪었다
-- [`docs/PLATFORM.ko.md` §4](docs/PLATFORM.ko.md) — **VS Code 와 정반대인 것 셋.** 특히 설정
-  화면: VS Code 는 금지고 여기서는 보통이다. 그 금지를 그대로 옮기면 이 IDE 사람들이 기대하는
-  자리를 안 만드는 것이 된다
+- [`docs/DESIGN.ko.md` §2](docs/DESIGN.ko.md) — **기능 대조.** 물음표 넷(상태 표시줄·인라인
+  완성·커밋 초안·코드 액션)은 **넷 다 없는 것으로 닫혔다.** 문서 목록을 다시 읽어서가 아니라
+  설치된 SDK 의 공개 타입을 세서 — 그리고 표에 없던 `ICodeLensProvider` 가 그때 나왔다
+- [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md) — **소켓 계약.** `%AppData%` 아래에서는 AF_UNIX
+  **connect 가 안 된다**(bind 는 된다). 남은 소켓 파일은 코어의 삭제 기법으로도 못 지운다.
+  이 확장은 소켓을 거기 두면 안 된다
+- [`docs/PLATFORM.ko.md` §4](docs/PLATFORM.ko.md) — **VS Code 와 정반대인 것 셋… 이었던 것.**
+  설정 줄은 **틀렸다.** 「VS 에서는 확장이 Options 페이지를 만든다」는 VSSDK 이야기고, 우리가
+  고른 모델에는 그 문이 없다 — 선언형이라 VS Code 와 같은 모양이다

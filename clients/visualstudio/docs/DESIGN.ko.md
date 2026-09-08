@@ -9,6 +9,12 @@
 > **Visual Studio for Mac 은 2024 에 단종됐다.** 그러니 이 문서는 설계까지이고, 짓고 깔고 재는
 > 것은 Windows 기계에서 해야 한다 — §9 에 무엇을 어떻게 해야 하는지 적었다.
 >
+> ✅ **그 Windows 기계에서 쟀다(2026-09-09).** 코드는 여전히 없지만, 문서로 읽었을 뿐이라고
+> 적어 둔 것들은 이제 실물로 판정됐다 — §2 의 물음표 넷, §5 의 소켓 함정, §6 의 시험 하네스,
+> §7 의 CI 러너, §8 의 요구. 무엇을 어떻게 쟀는지는 그 자리마다 적었고, 아직 못 잰 것만 §10 에
+> 남겼다. 잰 기계: Windows 11, VS Community 2022 **17.14.37628.2**, 워크로드
+> `ManagedDesktop` · `VisualStudioExtension`.
+>
 > [EDITORS](../../../docs/proposals/EDITORS.ko.md) 가 셋을 견주고 「VS Code 부터, 두 벌을 본 뒤에
 > 공통을 뽑는다」고 정했다. VS Code 는 섰다. 이 문서는 **두 번째 벌**이고, 그래서 §3 이 이 설계의
 > 진짜 값이다: 무엇이 공통이고 무엇이 편집기마다 다른지가 이제야 두 벌로 보인다.
@@ -61,15 +67,55 @@ VS Code 이식표(마흔여덟)를 그대로 가져와 이 편집기에서 다�
 | 편집 적용(손) | `Extensibility.Editor().EditAsync(...)` | ✓ |
 | 훑어본 말을 줄에 걸기 | **Tagger / Classification tagger** — 샘플에 있다 | ✓ |
 | 파일 전체에 대한 말(띠) | **Text view margin** — word-count margin 샘플이 그 모양이다 | ✓ |
-| 상태 표시줄 | ⚠ **문서에서 확인 못 했다.** 출력 창·사용자 프롬프트는 있는데 상태 표시줄 항목은 나열에 없다 | ? |
-| 인라인 완성 | ⚠ **확인 못 했다.** VS 의 회색 이어쓰기는 IntelliCode 의 것이고, 서드파티에 열린 안정 API 인지 판마다 다르다 | ? |
-| 승인 답하기 | 툴 윈도 안(우리 판) 또는 User prompts | ✓ |
-| 커밋 메시지 초안 | ⚠ **확인 못 했다.** VS 의 Git 창에 서드파티가 단추를 다는 자리 | ? |
-| 진단 자리의 코드 액션 | ⚠ 확인 못 했다 | ? |
+| 상태 표시줄 | **없다.** `Shell` 에 `ProgressReporter` 와 프롬프트류뿐 | ✗ |
+| 인라인 완성 | **없다.** 완성이라는 낱말이 표면에 하나도 없다 | ✗ |
+| 승인 답하기 | 툴 윈도 안(우리 판) 또는 `Shell.PromptOptions` · `ChoiceDescription` | ✓ |
+| 커밋 메시지 초안 | **없다.** 소스 제어·커밋 자리가 없다 | ✗ |
+| 진단 자리의 코드 액션 | **없다.** 진단을 *내는* 문(`DiagnosticsReporter` · `DocumentDiagnostic`)은 있는데, 그 자리에 액션을 거는 문이 없다 | ✗ |
+| 코드 요소 위의 눌리는 딱지 | `ICodeLensProvider` · `VisualCodeLens` · `InvokableCodeLens` | ✓ **표에 없던 것** |
+| 설정 | `Settings` 에 **선언형** 한 벌(`Setting` · `SettingCategory` · `ArraySetting<T>`) | ✓ |
 | 코어 받기·데몬 기동 | 그냥 .NET 이다 | ✓ |
 
-**물음표 넷이 이 설계에서 다음에 할 일이다.** 지어내지 않는다 — Windows 기계에서 SDK 를 열어
-실물로 확인하고 나서 이 표를 고친다(§9).
+### 어떻게 쟀나 — 문서가 아니라 표면을 셌다
+
+물음표 넷은 「목록에 안 보인다」였고, 그때 남긴 걱정은 **그 목록이 전수인지 요약인지 모른다**는
+것이었다. 그래서 목록을 다시 읽지 않고 **설치된 어셈블리의 공개 타입을 셌다.** 설치 경로
+`Common7\IDE\CommonExtensions\Microsoft\Extensibility` 의 6개 어셈블리에 공개 타입 248개,
+`…\Editor` 까지 더해 이 모델이 확장 작성자에게 내주는 이름 전부다.
+
+| 찾은 말 | Extensibility 표면 | 브로커 계약(`RpcContracts.*`) |
+|---|---|---|
+| `StatusBar` | 0 | 0 |
+| `Completion` | 0 | 0 |
+| `SourceControl` · `Scm` | 0 | 0 |
+| `CodeAction` · `QuickFix` · `SuggestedAction` | 0 | 0 |
+| `Markdown` | 0 | — |
+
+브로커 계약까지 센 이유는, 프로세스 밖 확장이 `IServiceFactory`·`ServiceHubServiceMoniker` 로
+브로커 서비스를 잡을 수 있어서다. **그쪽에도 없다** — 확장 SDK 가 안 내주는 것을 옆문으로
+집을 수 있는지까지 본 값이다. `RpcContracts` 쪽 `Commit` 3건은 전부 `UnifiedSettings` 의 설정
+커밋이라 소스 제어와 무관하다.
+
+⚠ **이것이 답하는 것과 안 하는 것.** 「이 모델이 그 이름을 안 내준다」까지가 잰 값이다. VS 자체에
+상태 표시줄이 없다는 뜻이 아니고(있다), **프로세스 밖 확장이 그것을 건드릴 문이 이 판에 없다**는
+뜻이다. 판이 오르면 달라질 수 있으니 잰 판을 적는다: `Microsoft.VisualStudio.Extensibility.dll`
+**17.14.2099**(파일 판 17.14.2099.59265), NuGet `Microsoft.VisualStudio.Extensibility.Sdk`
+최신 **17.14.40608**.
+
+### 그래서 §1 의 결정은 유지된다
+
+물음표 넷이 전부 ✗ 로 닫혔으니 「필요한 확장점이 없으면 in-proc 으로 내려간다」를 저울에 올릴
+차례인데, **안 내려간다.** 넷 중 우리가 실제로 쓰려던 것이 없다:
+
+- 상태 표시줄은 **우리 판 안에 있으면 된다.** 「무엇을 하는 중인가」는 대화 판 머리에 그리는 것이
+  자연스럽고, 젯브레인·VS Code 도 결국 제 판에 그린다.
+- 인라인 완성·커밋 초안·코드 액션은 **이 클라이언트의 첫 벌에 없다.** 척추(§9 걸음 2)와 편집기
+  안(걸음 3)이 먼저고, 그 둘은 태거·마진·편집 API 로 전부 선다.
+
+넷을 위해 .NET Framework 로 돌아가고 격리를 잃는 것은 값이 맞지 않는다. **대신 얻은 것이 있다** —
+`ICodeLensProvider` 는 VS Code 이식표에 아예 없던 자리다. 코드 요소마다 눌리는 딱지를 걸 수
+있으니 「이 함수에 대해 물어보기」가 붙을 자리가 되는데, **첫 벌에는 안 넣는다.** 걸음 3 을
+지나고 나서 값을 따진다.
 
 ### 화면 만들기 — Remote UI
 
@@ -83,6 +129,12 @@ VS Code 이식표(마흔여덟)를 그대로 가져와 이 편집기에서 다�
 ⚠ 대신 **마크다운을 그릴 것이 없다.** VS Code 웹뷰는 최소한 브라우저였다. XAML 에는 그마저
 없으므로, 코드 펜스·굵게·목록을 XAML 요소로 직접 지어야 한다. 이것이 이 이식에서 가장 큰 미지의
 작업이고, §10 에 그렇게 적었다.
+
+**세어 봤다.** `Extensibility.UI` 가 내주는 공개 타입은 **일곱뿐**이다 — `RemoteUserControl`,
+`XamlFragment`, `ObservableList<T>`, `ResourceDictionaryCollection`, `AsyncCommand`,
+`IAsyncCommand`, `NotifyPropertyChangedObject`. 그릇과 묶기와 명령이 전부고, **그리는 것은 하나도
+없다.** 걱정이 맞았다는 뜻이지 놀랄 일은 아니다: Remote UI 는 화면을 그려 주는 층이 아니라 XAML
+을 건네는 통로다. 마크다운 렌더러는 우리가 쓴다.
 
 ---
 
@@ -160,10 +212,55 @@ test/Magi.Core.Tests/ 코어를 잰다
    `<home>\AppData\Roaming`.
 2. **유닉스 소켓은 Windows 10 1803+ 에서 된다.** .NET 은 `UnixDomainSocketEndPoint` 를 준다.
    오피스 클라이언트가 이미 그 길을 쓰고 있다.
-3. ⚠ **그런데 `%AppData%` 아래 AF_UNIX 가 이상하게 군다** — 오피스 헬퍼가 붙기 타임아웃으로
-   그것을 실측했고, 코어는 그래서 `MAGI_SOCKET_DIR` 로 소켓만 따로 뗄 수 있게 해 뒀다. 이
-   확장은 그 함정을 **물려받는다.** 주소 길이 상한(약 100바이트)도 긴 사용자 이름에서 실제로
-   걸린다.
+3. ⚠ **`%AppData%` 아래에서는 AF_UNIX 가 안 된다.** 「이상하게 군다」고만 적어 뒀던 것을
+   이 판에서 쟀다(아래).
+
+### `%AppData%` 아래 AF_UNIX — 실측 (2026-09-09, Windows 11, .NET 9)
+
+프로브가 한 것: 디렉토리를 만들고 → bind·listen → connect → 5바이트 왕복 → 닫고 → 지운다.
+bind 와 connect 사이에서는 **아무것도 안 만진다** — 재분석 지점을 들여다보는 것 자체가 syscall
+이라, 앞선 판이 거기서 파일 속성을 읽는 바람에 「재는 것이 재려는 것을 망가뜨렸나」를 못 갈랐다.
+
+| 디렉토리 | bind | connect | 지우기 |
+|---|---|---|---|
+| `%AppData%\…`(Roaming) | 됨 | **`WSAEINVAL`(10022)** | 못 지움 |
+| `%LocalAppData%\…` | 됨 | **`WSAEINVAL`(10022)** | 못 지움 |
+| `%LocalAppData%\Microsoft\…` | 됨 | **`WSAEINVAL`(10022)** | 못 지움 |
+| `C:\Users\<나>\AppData\…`(바로 아래) | 됨 | **`WSAEINVAL`(10022)** | 못 지움 |
+| `%LocalAppData%\Temp\…` (더 깊어도) | 됨 | 0ms | 지움 |
+| `C:\Users\<나>\…` | 됨 | 0ms | 지움 |
+| `…\Documents\…` · `C:\Users\Public\…` | 됨 | 0ms | 지움 |
+
+**경계가 `AppData` 트리 전체다. 예외는 `Temp` 하위뿐이다.** bind 는 늘 성공하고 파일도 생기므로,
+띄우는 쪽은 잘 떴다고 믿는다. 무너지는 것은 붙는 쪽이고, 그래서 증상이 「붙기 타임아웃」으로
+보였던 것이다.
+
+**두 번째 실측이 더 아프다: 그 소켓 파일은 지울 수 없다.** `File.Delete` 는 물론이고, 코어가
+[`listen_windows.go`](../../../internal/adapter/daemon/listen_windows.go) 에서 쓰는 그 방법 —
+`FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_DELETE_ON_CLOSE` 로 여는 것 — 조차 **ERROR 1920**
+(`ERROR_CANT_ACCESS_FILE`)로 진다. 코어의 복구 경로가 하필 코어가 Windows 에서 기본으로 삼는
+그 디렉토리에서만 무력하다. 한 번 남으면 그 주소는 영영 못 쓴다.
+
+**원인은 아직 모른다. 다만 아닌 것을 넷 지웠다.**
+
+- **주소 길이가 아니다.** 실패한 경로가 46–61바이트였다. 상한은 약 100이고, 성공한 `Temp` 경로가
+  오히려 64바이트로 더 길었다.
+- **ACL 이 아니다.** `AppData\{Roaming,Local}` 에만 앱 기능 SID(`S-1-15-3-…`) ACE 가 상속돼 있어
+  유력해 보였는데, 상속을 끊고 그 ACE 를 지워 `Temp` 와 똑같은 3개짜리로 만든 디렉토리도 그대로
+  10022 였다.
+- **디렉토리 속성·볼륨이 아니다.** 넷 다 평범한 `Directory` 이고 같은 `C:` 다.
+- **재는 도구의 샌드박스가 아니다.** 샌드박스를 끄고 돌려도 값이 같다.
+
+남은 유력한 자리는 **`AppData` 경로에 붙은 필터 드라이버**인데, `fltmc filters` 가 승격을
+요구해서 못 봤다. 등록된 보안 제품은 Windows Defender 하나뿐이다.
+
+⚠ **코어에 적힌 이유는 이 현상을 설명하지 못한다.** `SocketDir` 의 주석과 `socketdir_test.go` 는
+`MAGI_SOCKET_DIR` 이 갈라진 이유를 **「주소가 100바이트 상한을 넘어서」**로만 적는다. 그 이유도
+참일 수 있지만(긴 사용자 이름에서), 이 기계에서 실제로 무는 것은 그것이 아니다. 사용자 이름이
+다섯 글자인데도 `AppData` 아래면 전부 죽는다. **적힌 원인이 좁다.**
+
+**이 확장이 할 일:** 소켓을 `%AppData%` 아래에 두지 않는다. `MAGI_SOCKET_DIR` 을 따르는 것이
+선택이 아니라 조건이고, 그 규칙을 §6 의 골든이 지킨다.
 
 **골든은 VS Code 것을 그대로 쓴다.** 코어의 `WorkspaceKey` 가 답한 값이고, 언어가 달라도 답은
 같아야 한다. 특히 두 가지를 C# 에서 다시 밟기 쉽다:
@@ -183,11 +280,25 @@ test/Magi.Core.Tests/ 코어를 잰다
 | **와이어 대조** | Go 소스를 읽어 필드 이름을 맞춘다. 짝을 너무 적게 찾으면 **그것부터 실패한다** |
 | 소켓 키 | VS Code 와 같은 골든 |
 | 계층 | `Magi.Core` 가 Extensibility 를 참조하지 않는다 |
-| 매니페스트·확장점 | ⚠ **VS Code 처럼 실물로 재는 길이 있는지 아직 모른다.** VS 에는 `@vscode/test-electron` 에 해당하는 것이 있는지 §10 |
+| 매니페스트·확장점 | ⚠ **`@vscode/test-electron` 에 해당하는 1급 하네스가 없다**(아래) |
 
 **와이어 대조는 조건이다.** C# 의 `System.Text.Json` 도 모르는 필드를 조용히 버리고 없는 필드를
 기본값으로 준다 — 코틀린의 `ignoreUnknownKeys`, TypeScript 의 `undefined` 와 같은 함정이다.
 이름이 어긋나면 예외가 아니라 기본값이고, 화면은 「없다」고 말한 뒤 아무것도 실패하지 않는다.
+
+### 실물 확장을 자동으로 재는 길 — 찾아봤고, 1급은 없다 (2026-09-09)
+
+NuGet 을 이름으로 직접 물어서 확인했다(검색 색인이 아니라 `api.nuget.org` 의 판 목록).
+
+| 후보 | 있나 | 우리에게 |
+|---|---|---|
+| `Microsoft.VisualStudio.Extensibility.Testing.Xunit` | **404 — 없다** | — |
+| `Microsoft.VisualStudio.Sdk.TestFramework(.Xunit)` v17.11.66 | 있다 | ⚠ **VSSDK(in-proc)용**이다. VS 서비스를 흉내 내는 물건이라 프로세스 밖 모델과 판이 다르다 |
+| `VsixTesting.Xunit` v0.1.78 · `xunit.vsix` v0.9.3 | 있다 | 서드파티. VS 실험 인스턴스를 띄운다 |
+
+**그래서 §4 의 갈림이 여기서 값을 낸다.** 재는 길이 얇을수록 `Magi.Core` 에 든 것이 많아야
+한다. 프로토콜·소켓 키·전사 조립이 IDE 없이 `dotnet test` 로 서고, IDE 층에는 시험이 얇아도
+견딜 만큼만 남긴다 — 이건 취향이 아니라 이 편집기의 사정에 맞춘 것이다.
 
 ---
 
@@ -196,16 +307,37 @@ test/Magi.Core.Tests/ 코어를 잰다
 `vscode-v*` · `jetbrains-v*` 와 같은 모양으로 `vsstudio-v*` 레인을 둔다. 자산은 `.vsix`,
 판 번호는 태그에서만.
 
-⚠ **CI 가 Windows 러너를 써야 한다.** 다른 셋은 `ubuntu-latest` 인데 이것만 `windows-latest` 이고,
-`Visual Studio extension development` 워크로드가 필요하다. 그 워크로드가 GitHub 의 windows 러너
-이미지에 들어 있는지는 **확인 안 했다**(§10).
+⚠ **CI 가 Windows 러너를 써야 한다.** 다른 셋은 `ubuntu-latest` 인데 이것만 `windows-latest` 다.
+
+✅ **러너에 워크로드가 있다 — 확인했다(2026-09-09).** `actions/runner-images` 의 이미지 설명서를
+직접 읽었다. `windows-2022` 와 `windows-2025` **둘 다** Visual Studio Enterprise 2022
+17.14.37614.0 을 싣고, 목록에 `Microsoft.VisualStudio.Workload.VisualStudioExtension` 과
+`Microsoft.VisualStudio.Workload.ManagedDesktop` 이 둘 다 있다. **러너에서 워크로드를 따로 깔
+필요가 없다.** 판도 §8 의 17.9 요구를 넘는다.
 
 ---
 
 ## 8. 이 편집기가 요구하는 것
 
-- **Visual Studio 2022 17.9 이상**, `Visual Studio extension development` 워크로드.
+- **Visual Studio 2022 17.9 이상**, `Visual Studio extension development` 워크로드
+  (`Microsoft.VisualStudio.Workload.VisualStudioExtension`).
 - **Windows 전용.** VS for Mac 은 2024 에 단종됐다.
+
+✅ **깔아 보고 쟀다(2026-09-09).** 요구가 맞다. 세 가지를 기록해 둔다 — 다음 사람이 같은 데서
+멈추지 않도록.
+
+- `CoreEditor` 만 있는 VS 로는 **`.csproj` 조차 안 열린다**: `error MSB4236: 지정된
+  'Microsoft.NET.Sdk' SDK 를 찾을 수 없습니다`. `ManagedDesktop` 을 같이 넣어야 풀린다. 넣은 뒤
+  VS 의 MSBuild 로 SDK 형식 프로젝트가 483ms 에 복원됐다.
+- 워크로드를 넣으면 `Microsoft.VisualStudio.Component.VSSDK` 가 함께 들어온다 — 패키지 126 →
+  **582**.
+- 자동 설치는 **`--passive` 를 쓸 거면 반드시 승격된 프로세스에서** 시작해야 한다. 아니면
+  `Exit Code: 5007` 로 즉시 닫히고, 로그가 그 이유를 적는다: "Commands with --quiet or --passive
+  should be run elevated from the beginning". VS 가 떠 있으면 사전 검사 `VSProcessesRunning` 에
+  걸려 **8006** 이다. 그리고 `--installPath` 는 공백이 있으니 **따옴표째** 넘어가야 한다 —
+  안 그러면 「일치하는 설치된 제품을 찾을 수 없습니다」로 튕기면서도 **종료 코드는 0** 이다.
+  그 0 은 설치 관리자가 제 판을 갱신한 값이지 수정이 된 값이 아니다. **종료 코드로 세지 말고
+  `vswhere` 로 세라.**
 - VS 2019 이하는 이 모델이 지원하지 않는다. 지원해야 하면 VSSDK 로 별도 프로젝트를 두는 것이
   공식 권고인데, **우리는 안 한다** — 클라이언트가 여섯인데 일곱째를 두 벌로 만들 이유가 없다.
 
@@ -213,19 +345,22 @@ test/Magi.Core.Tests/ 코어를 잰다
 
 ## 9. 순서
 
-| 걸음 | 무엇 | 어디서 |
-|---|---|---|
-| 0 | **`magi ide-bridge`** — 공통 여덟(§3), [계약](../../../docs/IDE_BRIDGE.ko.md) | macOS ✅ **척추까지 섰다**(`about`·`daemon`). 유도 여섯은 남았다 |
-| 1 | 물음표 넷을 실물로 확인(§2) — 상태 표시줄·인라인 완성·커밋 초안·코드 액션 | **Windows** |
-| 2 | 척추 — 발견·악수·대화 툴 윈도·데몬 기동 | Windows |
-| 3 | 편집기 안 — 태거·마진 | Windows |
-| 4 | 진입점·계획판 | Windows |
-| 5 | `vsstudio-v*` 레인 | CI(windows-latest) |
+| 걸음 | 무엇 | 어디서 | 상태 |
+|---|---|---|---|
+| 0 | **`magi ide-bridge`** — 공통 여덟(§3), [계약](../../../docs/IDE_BRIDGE.ko.md) | 코어 | ✅ 척추(`about`·`daemon`). 유도 여섯은 남았다 |
+| 1 | 물음표 넷을 실물로 확인(§2) | **Windows** | ✅ 2026-09-09 · 넷 다 ✗ |
+| 2 | 척추 — 발견·악수·대화 툴 윈도·데몬 기동 | Windows | |
+| 3 | 편집기 안 — 태거·마진 | Windows | |
+| 4 | 진입점·계획판 | Windows | |
+| 5 | `vsstudio-v*` 레인 | CI(windows-latest) | |
 
 ### Windows 기계에서 첫날 할 것
 
-**걸음 1 이 나머지를 정하므로 먼저 한다.** 물음표 넷(§2)이 실제로 되는지 보기 전에 척추를 지으면,
-안 되는 것을 전제로 지은 설계 위에 코드가 얹힌다.
+**걸음 1 이 나머지를 정하므로 먼저 한다** — 물음표 넷(§2)이 실제로 되는지 보기 전에 척추를
+지으면, 안 되는 것을 전제로 지은 설계 위에 코드가 얹힌다.
+
+✅ **그 첫날이 2026-09-09 였다.** 아래는 그날 실제로 밟은 길이고, 이제는 **걸음 2 를 시작하는
+사람의 준비 절차**다. 걸음 1 의 답은 §2 에 있으니 다시 재지 않아도 된다.
 
 준비물 — Visual Studio 2022 **17.9 이상** + `Visual Studio extension development` 워크로드.
 설치 확인:
@@ -248,26 +383,28 @@ cd MagiProbe; dotnet build
 
 ```powershell
 go build -o magi.exe ./cmd/magi
-'{"id":1,"method":"about"}' | .\magi.exe ide-bridge -workspace C:\path	o\project
+'{"id":1,"method":"about"}' | .\magi.exe ide-bridge -workspace C:\path\to\project
 ```
 
 `daemon` 이 `null` 이고 `why` 가 있으면 그 워크스페이스에 컴패니언이 없는 것이다(에러가 아니다).
-⚠ 윈도우에서는 `%AppData%` 아래 AF_UNIX 함정(§5)이 여기서 처음 걸릴 자리다 — 걸리면
-`MAGI_SOCKET_DIR` 로 소켓만 짧은 경로에 뗀다.
+⚠ 윈도우에서는 `%AppData%` 아래 AF_UNIX 함정(§5)이 여기서 처음 걸릴 자리다 — **걸린다.** 잰
+값이 §5 에 있으니 처음부터 `MAGI_SOCKET_DIR` 로 소켓만 `AppData` 밖에 뗀다.
 
 ---
 
 ## 10. 재지 않은 것
 
-정직하게 적는다. 아래는 **문서로 읽었을 뿐 실물로 확인 안 한 것**이거나, 아예 안 본 것이다.
+정직하게 적는다. 아래는 **아직 실물로 확인 안 한 것**이다. 2026-09-09 에 다섯이 이 목록을 떠나
+각자의 자리로 갔다 — §2(물음표 넷) · §5(AF_UNIX) · §6(시험 하네스) · §7(러너) · §8(요구).
 
-- **상태 표시줄·인라인 완성·커밋 초안·코드 액션**이 이 모델에서 되는지(§2 의 물음표 넷). 공식
-  기능 목록에 안 보이는데, 목록이 전수인지 요약인지도 모른다.
-- **Remote UI 로 전사를 어떻게 그리나.** XAML 에는 마크다운 렌더러가 없다. 이 이식에서 가장 큰
-  미지의 작업이고, 분량을 짐작하지 않는다.
-- **실물 확장을 자동으로 재는 길**이 있는지(`@vscode/test-electron` 에 해당하는 것).
-- **GitHub windows 러너에 VS 확장 개발 워크로드가 있는지.**
-- **`%AppData%` 아래 AF_UNIX 의 그 이상 동작**이 정확히 무엇인지. 오피스 클라이언트가 겪었다는
-  것만 알고 원인은 안 쫓았다.
+- **Remote UI 로 전사를 어떻게 그리나.** `Extensibility.UI` 의 공개 타입이 일곱뿐이고 그리는 것은
+  하나도 없다는 것까지는 쟀다(§2). **마크다운을 XAML 로 어떻게 지을지는 안 정했고**, 분량도
+  짐작하지 않는다. 이 이식에서 가장 큰 미지의 작업인 것은 그대로다.
+- **`%AppData%` 아래 AF_UNIX 가 왜 그러는지.** 무엇이 일어나는지는 이제 정확히 안다(§5).
+  **원인은 모른다.** 길이·ACL·속성·볼륨·재는 도구는 아니라고 지웠고, 남은 유력한 자리인 필터
+  드라이버는 `fltmc` 가 승격을 요구해서 못 봤다. 다른 기계에서도 같은지도 안 봤다 — 표본이
+  하나다.
+- **`ICodeLensProvider` 가 실제로 어떻게 그려지는지.** 표면에 있다는 것만 쟀고 띄워 보지 않았다.
+  첫 벌에 안 넣기로 했으니 급하지 않다.
 - **분량.** 젯브레인 9,778줄, VS Code 는 코어+IDE 를 새로 썼다. C# 으로 몇 줄인지는 짐작이라 안
   적는다.
