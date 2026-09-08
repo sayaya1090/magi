@@ -4,6 +4,7 @@ import { Chat } from './chat';
 import { Row } from '../core/transcript';
 import * as activity from '../core/activity';
 import { jobs as jobsOf, schedules } from '../core/panel';
+import { whyNoCompletion } from '../core/complete';
 
 /**
  * The doors the JetBrains client opens and this one did not.
@@ -70,6 +71,11 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
         { label: `Backend: ${say(now.backend)}`, id: 'magi.chooseBackend', description: 'change' },
         { label: `Approval: ${say(now.permission)}`, id: 'magi.choosePermission', description: 'change' },
         { label: "magi's own settings", id: 'magi.changeSetting', description: 'models, templates, autocomplete' },
+        // Only when there is something to say. A row that reads "completion: fine" every time is a
+        // row nobody reads, and this one exists precisely for the case where nothing is appearing.
+        ...(whyNoCompletion()
+          ? [{ label: `Completion said nothing: ${whyNoCompletion()}`, id: 'magi.changeSetting', description: 'the companion\'s own reason' }]
+          : []),
       ], { title: 'magi — what is running' });
       if (pick) await vscode.commands.executeCommand(pick.id);
     }),
@@ -227,7 +233,9 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!await has('children', 'listing child conversations')) return;
       const r = await call('children', { session: chat.session });
       if (!r) return;
-      const list = (r.sessions ?? []) as { id?: string; title?: string }[];
+      // ⚠ `children`, not `sessions`. This read `sessions` and so answered "no children" on every
+      // build — the same defect class as the panel reading `out`: an absent field is an empty list.
+      const list = (r.children ?? []) as { id?: string; title?: string }[];
       if (!list.length) { void vscode.window.showInformationMessage('magi: this conversation has no children.'); return; }
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({

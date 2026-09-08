@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { around, usable } from '../core/complete';
+import { around, noteCompletion, usable } from '../core/complete';
 import { Companion } from './workspace';
 
 /**
@@ -21,6 +21,9 @@ export function inlineCompletion(companion: Companion): vscode.Disposable {
       // drawing this one would put a suggestion under a cursor that has moved.
       if (token.isCancellationRequested || !resp?.ok) return null;
       const out = usable(resp.out ?? '', args.prefix);
+      // Remember why nothing came back. Not shown here — a message per keystroke is noise — but
+      // `magi.setup` reads it, which is where a person looks when completion is silent.
+      noteCompletion(out, resp.reason);
       if (!out) return null;
       return [new vscode.InlineCompletionItem(out, new vscode.Range(pos, pos))];
     },

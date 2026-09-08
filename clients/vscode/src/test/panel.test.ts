@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
 import { context, fleet, jobs, schedules } from '../core/panel';
 
 /**
@@ -118,4 +120,24 @@ test('a refusal yields nothing everywhere', () => {
   assert.deepEqual(jobs({ ok: false }).jobs, []);
   assert.deepEqual(schedules({ ok: false }), []);
   assert.deepEqual(fleet({ ok: false }), []);
+});
+
+/**
+ * ★ `children` has its own field. Reading `sessions` here answers nothing, for ever.
+ *
+ * The third instance of one defect class found on 2026-09-09, after the panel reading `out` and the
+ * capability gates: a client reads a field the door does not fill, an absent field is an empty list,
+ * and the feature reports "nothing here" on every build without anything failing. This one is a
+ * shape test rather than a reader test, because the reading is inline — what it pins is the NAME.
+ */
+test('the children door fills children, not sessions', () => {
+  const doors = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  assert.match(doors, /Children\s+\[\]SessionRow\s+`json:"children/,
+    'the wire no longer calls it `children` — the client reads that name');
+
+  const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const where = cmd.slice(cmd.indexOf("reg('magi.children'"), cmd.indexOf("// ---- scheduled work"));
+  assert.ok(where.includes('r.children'), 'the children command does not read r.children');
+  assert.ok(!/\br\.sessions\b/.test(where), 'the children command still reads r.sessions');
 });

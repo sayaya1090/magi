@@ -101,6 +101,23 @@ export interface Response {
   jobs?: unknown;
   cron?: unknown[];
   context?: unknown;
+  /**
+   * `children`: the conversations this one spawned.
+   *
+   * ⚠ Its OWN field, not `sessions`. Reading `sessions` here returns nothing for ever — measured
+   * 2026-09-09 by listing what each door fills, and this client did exactly that.
+   */
+  children?: unknown[];
+  /**
+   * `complete` and `suggest`: why the answer was empty, when it was.
+   *
+   * The door answers ok with nothing rather than failing — a completer with nothing to say is the
+   * ordinary case. So the only way to tell "switched off" from "the model had nothing" is this
+   * field, and dropping it makes "why is completion silent" unanswerable.
+   */
+  reason?: string;
+  /** `job-kill` / `mcp-detach`: whether anything was actually removed. */
+  removed?: boolean;
   models?: string[];
   done?: boolean;
 }

@@ -34,3 +34,23 @@ export function usable(out: string, prefix: string): string {
   }
   return t;
 }
+
+/**
+ * Why the last completion came back empty, if it did.
+ *
+ * The door answers ok with nothing when it has nothing to say — that is the ordinary case, so it
+ * cannot be an error — and it puts the reason in `reason`. Saying it on every keystroke would be
+ * noise; saying it nowhere makes "why is completion silent" unanswerable, which is the state this
+ * client was in. So it is REMEMBERED, and the one screen a person opens when something is not
+ * working reads it.
+ *
+ * ⚠ **A completion that produced text clears it.** A reason left standing while things work is a
+ * sentence that has aged — the failure mode this tree keeps paying for.
+ */
+let lastEmpty = '';
+
+export function noteCompletion(text: string, reason: string | undefined): void {
+  lastEmpty = text.trim() ? '' : (reason ?? '').trim();
+}
+
+export function whyNoCompletion(): string { return lastEmpty; }

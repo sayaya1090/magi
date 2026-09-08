@@ -16,8 +16,11 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
       const resp = await companion.ask('models');
       const names = resp?.models ?? [];
       if (!resp?.ok || !names.length) {
+        // The door carries `why` for exactly this: an empty list with ok is not a failure, and the
+        // reason it is empty (no backend reachable, a gateway that would not answer) lives there.
+        // Composing our own sentence instead threw away the only one that says what to do.
         void vscode.window.showWarningMessage(
-          `magi: ${resp?.error ?? 'the companion did not say which models it has'}`);
+          `magi: ${resp?.error ?? resp?.why ?? 'the companion did not say which models it has'}`);
         return;
       }
       const pick = await vscode.window.showQuickPick(names, { title: 'magi — model' });
