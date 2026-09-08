@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/envflag"
@@ -138,14 +139,26 @@ func detachIndex(command string) int {
 	return -1
 }
 
-// bgLaunched tracks, per session, the program names already detached with a shell
-// `&` tail, so a relaunch of the same program gets a stronger warning: the agent is
-// about to race its own in-flight install (lock contention, duplicate downloads)
-// instead of awaiting it. Session-keyed (each subagent has its own), process-lifetime.
+// bgLaunched tracks, per session, WHEN each program was last detached with a shell `&` tail, so a
+// relaunch of the same program gets a stronger warning: the agent is about to race its own
+// in-flight install (lock contention, duplicate downloads) instead of awaiting it.
+//
+// The time is the point. This held a bare set and never forgot, while the sentence it produced
+// said "earlier in this run" — and a session in a daemon runs for days across many turns. So a
+// `make &` on Monday made Friday's FIRST `make &` read as a duplicate, with the note telling the
+// agent to go kill a port and not start it. A claim about something being in flight decays; a set
+// that never forgets does not, and the two drifted apart the moment the first turn ended.
+//
+// bgInFlightWindow is how long the warning is worth making, not a claim that the process is still
+// up — nothing here can know that, and the note now says so. maxBashTimeout is the honest scale to
+// borrow: it is the longest this tool will wait for a command in the foreground, so it is this
+// tool's own word for "as long as a command around here plausibly runs".
 var bgLaunched = struct {
 	mu sync.Mutex
-	m  map[string]map[string]bool // sessionID -> program set
-}{m: map[string]map[string]bool{}}
+	m  map[string]map[string]time.Time // sessionID -> program -> when it was detached
+}{m: map[string]map[string]time.Time{}}
+
+const bgInFlightWindow = maxBashTimeout * time.Second
 
 // backgroundTailNote flags an exit-0 result whose command was `&`-detached: the exit
 // says "started", not "finished" — with a stronger variant when the same program was
@@ -160,20 +173,43 @@ func backgroundTailNote(exit int, command string, sid session.SessionID) string 
 	// The program is the one BEFORE the `&`, which is the piece that got detached — not whatever
 	// the agent went on to run in the foreground afterwards.
 	prog := bgProgram(command[:at])
+	var since time.Duration
 	dup := false
 	if prog != "" {
+		now := time.Now()
 		bgLaunched.mu.Lock()
+		// Forget what is past the window before reading it, so the answer below is about what is
+		// plausibly still running rather than about everything this session ever detached.
+		//
+		// Every session, not just this one. A daemon opens a session per subagent and nothing here
+		// ever removed a key, so the map was somewhere sessions went and never left. Sweeping only
+		// the current session would not help: its own key is re-added on the next line, every time.
+		// The sweep costs one pass over the sessions that still hold an unexpired record — which
+		// is what is left after the first sweep, not every session the process has ever seen.
+		for id, prev := range bgLaunched.m {
+			for name, at := range prev {
+				if now.Sub(at) > bgInFlightWindow {
+					delete(prev, name)
+				}
+			}
+			if len(prev) == 0 {
+				delete(bgLaunched.m, id)
+			}
+		}
 		set := bgLaunched.m[string(sid)]
 		if set == nil {
-			set = map[string]bool{}
+			set = map[string]time.Time{}
 			bgLaunched.m[string(sid)] = set
 		}
-		dup = set[prog]
-		set[prog] = true
+		if at, seen := set[prog]; seen {
+			dup, since = true, now.Sub(at)
+		}
+		set[prog] = now
 		bgLaunched.mu.Unlock()
 	}
 	if dup {
-		return "[note: `" + prog + "` was ALREADY started in the background with `&` earlier in this run and its completion was never confirmed — launching another copy races the in-flight one (lock contention, a duplicate server that squats the port so callers hit the STALE copy). Don't stack another: for a server, free the port first with port_owner{port:N,kill:true} then start ONE with background=true (poll bash_output); for a one-shot job, wait for the first with wait_for.]"
+		return "[note: `" + prog + "` was ALREADY started in the background with `&` " +
+			since.Round(time.Second).String() + " ago in this session, and a `&` detach leaves no job entry — magi cannot see whether it finished, and the exit above does not say either. Launching another copy may race one still in flight (lock contention, a duplicate server that squats the port so callers hit the STALE copy). Don't stack another: for a server, free the port first with port_owner{port:N,kill:true} then start ONE with background=true (poll bash_output); for a one-shot job, wait for the first with wait_for.]"
 	}
 	return "[note: this command detached work with `&` — the exit above belongs to whatever ran in the FOREGROUND, so it says nothing about the detached part, which magi has no job entry, exit, or per-stage status for. Poll it (background=true + bash_output) or wait for it (wait_for) instead of assuming it finished or launching it again.]"
 }

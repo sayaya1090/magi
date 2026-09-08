@@ -3,8 +3,10 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -210,7 +212,7 @@ func TestBackgroundTailNote(t *testing.T) {
 		{"non-zero exit", 1, "opam install coq -y &", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := backgroundTailNote(tc.exit, tc.cmd, session.SessionID("s-"+tc.name)) != ""
+			got := backgroundTailNote(tc.exit, tc.cmd, freshSession(t)) != ""
 			if got != tc.want {
 				t.Errorf("backgroundTailNote(%d, %q) fired=%v, want %v", tc.exit, tc.cmd, got, tc.want)
 			}
@@ -221,7 +223,7 @@ func TestBackgroundTailNote(t *testing.T) {
 // The second `&`-detach of the SAME program in one session gets the stronger
 // duplicate-launch warning; a different program or a different session does not.
 func TestBackgroundTailDuplicateLaunch(t *testing.T) {
-	sid := session.SessionID("dup-test")
+	sid := freshSession(t)
 	first := backgroundTailNote(0, "opam switch create 4.14.2 -y &", sid)
 	if strings.Contains(first, "ALREADY") {
 		t.Fatalf("first launch must get the generic note, got %q", first)
@@ -234,7 +236,7 @@ func TestBackgroundTailDuplicateLaunch(t *testing.T) {
 	if strings.Contains(other, "ALREADY") {
 		t.Errorf("a different program must not inherit the duplicate warning, got %q", other)
 	}
-	fresh := backgroundTailNote(0, "opam install coq -y &", session.SessionID("other-session"))
+	fresh := backgroundTailNote(0, "opam install coq -y &", freshSession(t))
 	if strings.Contains(fresh, "ALREADY") {
 		t.Errorf("another session must start clean, got %q", fresh)
 	}
@@ -369,3 +371,19 @@ func TestMaskingTailNoteStatesTheAmbiguity(t *testing.T) {
 		t.Errorf("with every stage known clean the tail cannot have run: %q", got)
 	}
 }
+
+// freshSession hands out a session id nothing else has used.
+//
+// backgroundTailNote remembers, per session, what was detached with `&`, and that memory is
+// process-wide by design — a daemon holds it for as long as it runs. A test that names its
+// session with a constant therefore borrows whatever an earlier test, or an earlier RUN of
+// itself, left there: under `go test -count=2` both duplicate-launch tests failed on the second
+// pass, asserting "the first launch is not a duplicate" against a map that had already seen it.
+// Green that holds only the first time is not green. A fresh session is what these tests mean
+// anyway, so they say it.
+func freshSession(t *testing.T) session.SessionID {
+	t.Helper()
+	return session.SessionID(fmt.Sprintf("%s-%d", t.Name(), freshSessionN.Add(1)))
+}
+
+var freshSessionN atomic.Int64
