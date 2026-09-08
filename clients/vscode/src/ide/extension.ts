@@ -10,6 +10,7 @@ import { entryPoints } from './entrypoints';
 import { chooseCommands } from './choose';
 import { doorCommands } from './doors';
 import { EditorHand } from './hand';
+import { HandOff } from './handoff';
 import { found, start, NO_BINARY, offerToStart } from './start';
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -27,9 +28,12 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // The tools this editor offers the companion. Offered once the companion is reachable — a hand
   // attached to nothing is an address the daemon holds and cannot call.
   const hand = new EditorHand(companion, workdir);
+  // Asking another companion on this machine to do something. Named by the folder, because that is
+  // what the far side's transcript will say asked.
+  const handoff = new HandOff(companion, folder.name);
 
   ctx.subscriptions.push(
-    companion, status, chat, plan, looking, hand,
+    companion, status, chat, plan, looking, hand, handoff,
     companion.onChanged((a) => status.draw(a)),
     companion.onSetup((s) => status.show(s)),
 
@@ -46,6 +50,8 @@ export function activate(ctx: vscode.ExtensionContext): void {
     ...entryPoints(companion, chat, looking),
     ...chooseCommands(companion, chat),
     ...doorCommands(companion, chat),
+    ...handoff.commands(),
+    handoff.onChanged((w) => plan.showHanded(w)),
 
     vscode.commands.registerCommand('magi.focusChat', () => chat.reveal()),
     vscode.commands.registerCommand('magi.start', () => {

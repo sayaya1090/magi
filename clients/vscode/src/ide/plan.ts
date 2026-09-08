@@ -55,7 +55,24 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       context: ctx === null ? null : (ctx.out ?? ''),
       fleet: fleet === null ? null : (fleet.out ?? ''),
       cron: cron === null ? null : (cron.out ?? ''),
+      handed: this.handed,
     });
+  }
+
+  private handed = '';
+
+  /**
+   * What has been handed to other companions.
+   *
+   * Held here rather than asked for: the receipts belong to this window (the far side knows them by
+   * number, not by who asked), so if this panel had to fetch them there would be nowhere to fetch
+   * them from.
+   */
+  showHanded(work: { who: string; asked: string; line?: string }[]): void {
+    this.handed = work
+      .map((w) => `${w.who} · ${w.asked.split('\n')[0].slice(0, 50)} → ${w.line ?? 'asked'}`)
+      .join('\n');
+    void this.refresh();
   }
 
   dispose(): void {
@@ -98,6 +115,7 @@ window.addEventListener('message', (e) => {
   section('jobs', m.jobs);
   section('scheduled', m.cron);
   section('fleet', m.fleet);
+  section('handed over', m.handed);
 });
 vs.postMessage({ kind: 'ready' });
 </script></body></html>`;

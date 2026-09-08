@@ -24,6 +24,14 @@ export interface Request {
   since?: number;
   /** Tool arguments, for the `tool` door. */
   args?: unknown;
+  /**
+   * `hand`: whether the work handed over is a question rather than a request.
+   *
+   * The name is the core's (`Looking`, `json:"looking"`). The far side treats the two differently —
+   * a question is answered without changing their workspace — so getting this wrong hands somebody
+   * write access to their own tree when a person meant to ask them something.
+   */
+  looking?: boolean;
 }
 
 /** One event out of the log, as `transcript` streams it. */
@@ -79,6 +87,10 @@ export interface Response {
   profiles?: unknown[];
   /** `config-get`: the settings it will let a client change — a whitelist held by the engine. */
   config?: unknown[];
+  /** `roster`: the companions this machine can name. */
+  roster?: unknown[];
+  /** `hand-state`: how the work handed to another companion is going. */
+  handover?: unknown;
   models?: string[];
   done?: boolean;
 }

@@ -171,6 +171,11 @@
         "command": "magi.schedules",
         "title": "Scheduled work",
         "category": "magi"
+      },
+      {
+        "command": "magi.handOff",
+        "title": "Ask another companion to do something",
+        "category": "magi"
       }
     ],
     "submenus": [
@@ -265,6 +270,11 @@
           "command": "magi.schedules",
           "when": "view == magi.plan",
           "group": "navigation@2"
+        },
+        {
+          "command": "magi.handOff",
+          "when": "view == magi.plan",
+          "group": "navigation@3"
         }
       ],
       "editor/context": [
