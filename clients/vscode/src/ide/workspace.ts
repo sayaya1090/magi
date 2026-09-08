@@ -17,6 +17,18 @@ export class Companion implements vscode.Disposable {
   private conn: Daemon | null = null;
   private readonly changed = new vscode.EventEmitter<activity.Activity>();
   readonly onChanged = this.changed.event;
+  private readonly setupChanged = new vscode.EventEmitter<activity.Setup>();
+  readonly onSetup = this.setupChanged.event;
+  private setup: activity.Setup = {};
+  /**
+   * The conversation the poll asks about.
+   *
+   * `status` fills the model only when the request names a session — measured against a live
+   * daemon: with no session it answers permission and backend and no model at all. So the panel
+   * tells the poll which conversation it is on, and until it does the model is honestly unsaid
+   * rather than wrongly blank.
+   */
+  session = '';
   private last: activity.Activity = activity.cannotSay();
   private timer: NodeJS.Timeout | null = null;
   private gone = false;
@@ -97,11 +109,32 @@ export class Companion implements vscode.Disposable {
         // thing a person waits on with a stopwatch.
         next = idleMs;
       } else {
-        this.set(activity.of(await this.ask('status')));
+        const st = await this.ask('status', this.session ? { session: this.session } : {});
+        this.set(activity.of(st));
+        this.setSetup(activity.setupOf(st));
       }
       if (!this.gone) this.timer = setTimeout(tick, next);
     };
     void tick();
+  }
+
+  /**
+   * Ask again at once.
+   *
+   * For the commands that CHANGE something: the poll is on a two-second timer, and a screen that
+   * still says the old model after a person just changed it reads as the change not working.
+   */
+  async refresh(): Promise<void> {
+    if (this.gone) return;
+    const st = await this.ask('status', this.session ? { session: this.session } : {});
+    this.set(activity.of(st));
+    this.setSetup(activity.setupOf(st));
+  }
+
+  private setSetup(s: activity.Setup): void {
+    if (activity.sameSetup(s, this.setup)) return;
+    this.setup = s;
+    this.setupChanged.fire(s);
   }
 
   private set(a: activity.Activity): void {
@@ -116,5 +149,6 @@ export class Companion implements vscode.Disposable {
     this.conn?.close();
     this.capsSeen = null;
     this.changed.dispose();
+    this.setupChanged.dispose();
   }
 }

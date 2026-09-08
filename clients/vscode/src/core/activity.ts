@@ -66,3 +66,41 @@ export function label(a: Activity): string {
     case State.Unknown: return 'cannot say';
   }
 }
+
+/**
+ * How the companion is set up, as one `status` reply tells it.
+ *
+ * Kept apart from Activity on purpose. Activity is what it is DOING and changes every second; this
+ * is what it is RUNNING ON and changes when somebody changes it. Folding them into one type made
+ * every screen redraw its whole footer on each poll, and made "the model is unknown" and "it is
+ * idle" arrive as one fact when they are two.
+ *
+ * Every field is optional because every one can be genuinely unsaid: an older daemon does not send
+ * them, and `model` is absent whenever the request named no session.
+ */
+export interface Setup {
+  model?: string;
+  backend?: string;
+  permission?: string;
+}
+
+export function setupOf(resp: Response | null): Setup {
+  const out: Setup = {};
+  if (!resp?.ok) return out;
+  // Keys are left OUT rather than set to undefined. A caller that asks "did it say?" with `in` or
+  // with Object.keys gets the true answer, and a screen that spreads this over a previous reading
+  // does not overwrite what was known with nothing.
+  const put = (k: keyof Setup, v: string | undefined): void => {
+    const t = (v ?? '').trim();
+    if (t) out[k] = t;
+  };
+  put('model', resp.model);
+  put('backend', resp.backend);
+  put('permission', resp.permission);
+  return out;
+}
+
+/** Whether two readings say the same thing, so a screen redraws only when something moved. */
+export function sameSetup(a: Setup, b: Setup): boolean {
+  return a.model === b.model && a.backend === b.backend && a.permission === b.permission;
+}

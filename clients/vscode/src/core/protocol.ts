@@ -55,12 +55,30 @@ export interface Response {
   waiting?: Waiting;
   /** `status`: the latest progress note from a tool still running. Empty most of the time. */
   doing?: string;
+  /**
+   * `status`: how this companion is set up right now.
+   *
+   * The daemon has always sent these (`answerStatus` fills Permission, Backend and — when the
+   * request names a session — Model). Nothing here read them, so every screen had to say "ask
+   * elsewhere" about the one question a person opens the panel with: what is answering me.
+   *
+   * ⚠ `model` is only filled when the request carries a session. A poll that asks `status` with no
+   * session gets a reply with no model, and reading that absence as "no model" would be wrong: it
+   * means nobody said which conversation.
+   */
+  permission?: string;
+  backend?: string;
+  model?: string;
   /** `transcript`: one frame per event. */
   event?: Event;
   /** A stream's opening note — e.g. that a tail was asked for and a whole conversation is coming. */
   why?: string;
   session?: string;
   sessions?: unknown[];
+  /** `profiles`: the backends this daemon's config names. */
+  profiles?: unknown[];
+  /** `config-get`: the settings it will let a client change — a whitelist held by the engine. */
+  config?: unknown[];
   models?: string[];
   done?: boolean;
 }

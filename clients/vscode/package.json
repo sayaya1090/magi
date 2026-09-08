@@ -26,14 +26,14 @@
         {
           "id": "magi",
           "title": "magi",
-          "icon": "$(comment-discussion)"
+          "icon": "$(hubot)"
         }
       ],
       "secondarySidebar": [
         {
           "id": "magi-side",
           "title": "magi",
-          "icon": "$(checklist)"
+          "icon": "$(pulse)"
         }
       ]
     },
@@ -121,6 +121,56 @@
         "command": "magi.openConversation",
         "title": "Open another conversation",
         "category": "magi"
+      },
+      {
+        "command": "magi.setup",
+        "title": "Show what magi is running",
+        "category": "magi"
+      },
+      {
+        "command": "magi.chooseBackend",
+        "title": "Choose the backend",
+        "category": "magi"
+      },
+      {
+        "command": "magi.changeSetting",
+        "title": "Change one of magi's own settings",
+        "category": "magi"
+      },
+      {
+        "command": "magi.newConversation",
+        "title": "Start a new conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.resume",
+        "title": "Resume a conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.compact",
+        "title": "Fold this conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.rewind",
+        "title": "Go back to an earlier point",
+        "category": "magi"
+      },
+      {
+        "command": "magi.stopJob",
+        "title": "Stop a background job",
+        "category": "magi"
+      },
+      {
+        "command": "magi.children",
+        "title": "Show child conversations",
+        "category": "magi"
+      },
+      {
+        "command": "magi.schedules",
+        "title": "Scheduled work",
+        "category": "magi"
       }
     ],
     "submenus": [
@@ -142,12 +192,17 @@
           "group": "navigation@2"
         },
         {
-          "command": "magi.openConversation",
+          "command": "magi.setup",
+          "when": "view == magi.chat",
+          "group": "navigation@3"
+        },
+        {
+          "command": "magi.chooseModel",
           "when": "view == magi.chat",
           "group": "1_magi@1"
         },
         {
-          "command": "magi.chooseModel",
+          "command": "magi.chooseBackend",
           "when": "view == magi.chat",
           "group": "1_magi@2"
         },
@@ -155,6 +210,61 @@
           "command": "magi.choosePermission",
           "when": "view == magi.chat",
           "group": "1_magi@3"
+        },
+        {
+          "command": "magi.changeSetting",
+          "when": "view == magi.chat",
+          "group": "1_magi@4"
+        },
+        {
+          "command": "magi.newConversation",
+          "when": "view == magi.chat",
+          "group": "2_magi@1"
+        },
+        {
+          "command": "magi.openConversation",
+          "when": "view == magi.chat",
+          "group": "2_magi@2"
+        },
+        {
+          "command": "magi.resume",
+          "when": "view == magi.chat",
+          "group": "2_magi@3"
+        },
+        {
+          "command": "magi.compact",
+          "when": "view == magi.chat",
+          "group": "2_magi@4"
+        },
+        {
+          "command": "magi.rewind",
+          "when": "view == magi.chat",
+          "group": "2_magi@5"
+        },
+        {
+          "command": "magi.children",
+          "when": "view == magi.chat",
+          "group": "3_magi@1"
+        },
+        {
+          "command": "magi.stopJob",
+          "when": "view == magi.chat",
+          "group": "3_magi@2"
+        },
+        {
+          "command": "magi.schedules",
+          "when": "view == magi.chat",
+          "group": "3_magi@3"
+        },
+        {
+          "command": "magi.stopJob",
+          "when": "view == magi.plan",
+          "group": "navigation@1"
+        },
+        {
+          "command": "magi.schedules",
+          "when": "view == magi.plan",
+          "group": "navigation@2"
         }
       ],
       "editor/context": [
@@ -237,7 +347,11 @@
       "properties": {
         "magi.openConversation": {
           "type": "string",
-          "enum": ["never", "whenRunning", "always"],
+          "enum": [
+            "never",
+            "whenRunning",
+            "always"
+          ],
           "enumDescriptions": [
             "Open it only when you ask for it.",
             "Open it when this workspace already has a companion running.",
@@ -259,7 +373,7 @@
         "magi.complete": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Suggest a completion at the cursor. Which model answers is magi's own `[autocomplete]` profile \u2014 this switch only decides whether to ask."
+          "markdownDescription": "Suggest a completion at the cursor. Which model answers is magi's own `[autocomplete]` profile — this switch only decides whether to ask."
         },
         "magi.showEditMarks": {
           "type": "boolean",

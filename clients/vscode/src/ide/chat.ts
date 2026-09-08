@@ -57,6 +57,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       const first = (list?.sessions ?? [])[0] as { id?: string } | undefined;
       sid = first?.id ?? '';
       this.sid = sid;
+      // The status poll needs it too: the model is only in a reply that names a conversation.
+      this.companion.session = sid;
     }
     if (!sid) {
       // Not an error. Type and the daemon opens one — so say that, rather than leaving an empty
@@ -96,8 +98,30 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.stream = null;
     this.events = [];
     this.sid = sid;
+    this.companion.session = sid;
     void this.openStream();
   }
+
+  /** Which conversation this panel is on, for the doors that act on one. */
+  get session(): string { return this.sid; }
+
+  /**
+   * The person's own turns.
+   *
+   * Handed out as ROWS rather than as the raw log, because "which of my prompts" is a question
+   * about the conversation as it is drawn — and the rule that turns events into rows lives in one
+   * place (invariant 0-1). A caller that filtered the log itself would be the second copy.
+   */
+  userRows(): Row[] { return rows(this.events).filter((r) => r.who === 'user'); }
+
+  /**
+   * Read the conversation again from the daemon.
+   *
+   * After something rewrote it. The events held here are a copy of a stream, and a rewind leaves
+   * that copy describing a conversation that no longer exists — redrawing from it would show the
+   * dropped turns until the next restart.
+   */
+  reload(): void { this.showSession(this.sid); }
 
   /** Put references above the composer. The person still writes the message. */
   attach(refs: Ref[]): void {

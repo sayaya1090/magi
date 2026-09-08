@@ -8,6 +8,7 @@ import { Looking } from './look';
 import { inlineCompletion } from './complete';
 import { entryPoints } from './entrypoints';
 import { chooseCommands } from './choose';
+import { doorCommands } from './doors';
 import { found, start, NO_BINARY, offerToStart } from './start';
 
 export function activate(ctx: vscode.ExtensionContext): void {
@@ -26,6 +27,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   ctx.subscriptions.push(
     companion, status, chat, plan, looking,
     companion.onChanged((a) => status.draw(a)),
+    companion.onSetup((s) => status.show(s)),
 
     vscode.window.registerWebviewViewProvider(Chat.viewId, chat, {
       // Kept when hidden, because the guidelines say plainly that people minimise the panel, and
@@ -39,6 +41,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     inlineCompletion(companion),
     ...entryPoints(companion, chat, looking),
     ...chooseCommands(companion, chat),
+    ...doorCommands(companion, chat),
 
     vscode.commands.registerCommand('magi.focusChat', () => chat.reveal()),
     vscode.commands.registerCommand('magi.start', () => {
