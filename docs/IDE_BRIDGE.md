@@ -80,25 +80,38 @@ One bridge per workspace, because there is one companion per workspace.
 | method | what it does |
 |---|---|
 | `about` | the bridge's version, the methods it answers, and what the daemon advertises (`proto`, `caps`) |
+| `activity` | **one word for what the companion is doing** — `not-running` · `idle` · `working` · `waiting` · `unknown` — plus what it is running on |
 | `daemon` | **forwards `req` to the companion verbatim and returns its reply verbatim** |
 
 `about` names the methods this build answers, so a client never has to guess from this table — the
 table ages, the advertisement does not.
 
-**Not built yet.** These are the derivations, and they are the half that ends the drift in §1:
+**`activity` is the first derivation to move in.** It is the fourth of the eight, and it was about
+to be written a third time: the rule lives in TypeScript in `core/activity.ts`, and the Visual
+Studio client needed it in C#. Two rules travel with it because they are the same question wearing
+different clothes — is the socket path longer than the address allows, and is anything listening —
+and both answer in the same vocabulary rather than in an exception.
+
+`unknown` is an answer, not a shrug: "we could not ask" is a different fact from "it said it is
+idle". `waiting` beats `working`, because a turn blocked on a person is running but what the person
+needs to know is that it wants them. And the word is never the whole story — `why` carries the
+reason when there is one, so a client can say *which* kind of nothing it found.
+
+**Not built yet.** These are the rest of the derivations, and they are the half that ends the drift
+in §1:
 
 | method | what it will do |
 |---|---|
-| `activity` | one word: `not-running` · `idle` · `working` · `waiting` · `unknown` |
 | `watch` / `unwatch` | rows, activity and touched files as they change |
 | `look` | number a buffer, ask, split the answer into anchored and loose |
 | `complete` | window either side of a cursor, ask, strip the overlap |
 | `touched` | which files the companion changed, read off the transcript |
 | `serve` | make sure a companion is running for this workspace |
 
-⚠ Until they exist, **the drift measured in §1 is still there** — both editor clients still derive
-their own. The forwarding door is useful on its own (it reaches every door, including the fifteen
-no client has ported), but it carries none of the eight except the wire and the socket path.
+⚠ Until they exist, **the drift measured in §1 is still there** — the completion drift is the one
+§1 actually measured, and `complete` is still on the list. The forwarding door is useful on its own
+(it reaches every door, including the fifteen no client has ported), but the eight are only three
+in so far: the wire, the socket path, and now the one word.
 
 **`daemon` is deliberately dumb.** It does not translate: the request goes as written and the reply
 comes back as written. That is what makes the doors the clients have not ported — `compact`,
@@ -129,7 +142,7 @@ translated pass-through would be a new contract to keep in step with the old one
 
 | | where |
 |---|---|
-| the six derivations above | anywhere — this is ordinary Go, and the goldens can come from the two existing ports |
+| the five derivations above | anywhere — this is ordinary Go, and the goldens can come from the two existing ports |
 | **deciding the two drifts** in §1 — completion window size, and whether to strip the overlap | needs a decision, not a port. Copying either side would bless one by accident |
 | moving VS Code onto the bridge | anywhere. A second job, not a side effect of this one |
 | **the Visual Studio client** | **Windows.** No Visual Studio and no `msbuild` on the machine this was written on, and VS for Mac is discontinued — see the [design](../clients/visualstudio/docs/DESIGN.ko.md) §9 |

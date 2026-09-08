@@ -34,6 +34,10 @@ type request struct {
 	ID     int             `json:"id"`
 	Method string          `json:"method"`
 	Req    json.RawMessage `json:"req,omitempty"`
+	// Session names the conversation a question is about. Optional, and its absence is not a
+	// default: `status` fills the model only when the request carries one, so a poll that omits it
+	// gets an answer with no model — which means "nobody said which conversation", not "no model".
+	Session string `json:"session,omitempty"`
 }
 
 // Methods returns what this bridge answers, which is also what `about` advertises.
@@ -41,7 +45,7 @@ type request struct {
 // Advertised from one list rather than written twice: a bridge that answers a method it does not
 // name, or names one it does not answer, teaches a client to call a door that is not there. The
 // daemon's own handshake makes the same promise for the same reason.
-func Methods() []string { return []string{"about", "daemon"} }
+func Methods() []string { return []string{"about", "activity", "daemon"} }
 
 // Run speaks the bridge protocol on stdin/stdout until stdin closes.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -115,6 +119,8 @@ func (b *bridge) dispatch(req request) {
 	switch req.Method {
 	case "about":
 		b.about(req)
+	case "activity":
+		b.activity(req)
 	case "daemon":
 		b.forward(req)
 	default:
