@@ -1,11 +1,11 @@
 # clients/vscode/ — VS Code 확장 (설계 단계)
 
-[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
+[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
 
-> **상태: 설계만 있다. 코드는 없다.**
+> **상태: 1단계(척추) 착지.** 발견·악수·전사·상태 표시줄이 실물 데몬에 붙어 돈다.
 >
-> 순서는 사용자가 정했다(2026-09-08): 만들기 전에 설계문서부터. 그래서 이 디렉토리에는 지금
-> [`docs/DESIGN.ko.md`](docs/DESIGN.ko.md) 하나가 있고, 그것이 승인되면 `src/` 가 선다.
+> 순서는 사용자가 정했다(2026-09-08): 만들기 전에 설계문서부터. 문서 다섯이 먼저 서고 그 위에
+> 코드가 섰다. 지금 무엇이 되고 무엇이 아직 아닌지는 [매뉴얼 §6](docs/MANUAL.ko.md) 에 있다.
 
 ## 무엇을 만드는가
 
@@ -28,13 +28,14 @@ VS Code 가 연 폴더의 magi 컴패니언에게 말을 걸고, 그가 이 편�
 ```
 clients/vscode/
   README.md          ← 지금 이 파일
+  docs/MANUAL.ko.md    ← 지금 도는 것만 (아직 없는 것은 §6)
   docs/DESIGN.ko.md    ← 설계
   docs/UI.ko.md        ← 무엇이 어디에 어떻게 그려지나
   docs/PLATFORM.ko.md  ← VS Code 가 정해 둔 것과의 대조표
   docs/SURVEY.ko.md    ← 이웃들은 무엇을 어디에 다나
   src/core/          vscode 를 import 하지 않는다. node 만으로 돈다
   src/ide/           vscode API 가 사는 유일한 자리
-  test/              core 를 잰다
+  src/test/          core 를 잰다 — 골든 · 계층 · 와이어 대조 · 이식표
 ```
 
 ## 먼저 읽을 것
