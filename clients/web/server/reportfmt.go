@@ -52,9 +52,8 @@ func (s *server) reportFormat(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	if r.Method == http.MethodPost {

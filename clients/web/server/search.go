@@ -44,9 +44,8 @@ func (s *server) search(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, "search", []searchHit{})
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	if in.Workdir == "" {

@@ -112,9 +112,8 @@ func (s *server) loop(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	// A session named by the page is checked against the ones this workspace owns, for the reason

@@ -56,9 +56,8 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	if in.Workdir == "" {

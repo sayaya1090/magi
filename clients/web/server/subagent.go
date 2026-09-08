@@ -70,9 +70,8 @@ func (s *server) subagents(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	kids, err := s.reader.ChildSessions(r.Context(), in.Workdir, in.Session)
@@ -152,9 +151,8 @@ func (s *server) transcript(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	want := r.URL.Query().Get("session")
@@ -198,9 +196,8 @@ func (s *server) council(w http.ResponseWriter, r *http.Request) {
 	if s.forwarded(w, r, s.proxy) {
 		return
 	}
-	in, err := s.target(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+	in, ok := s.targetOr(w, r)
+	if !ok {
 		return
 	}
 	round, _ := strconv.Atoi(r.URL.Query().Get("round"))

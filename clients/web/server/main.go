@@ -701,7 +701,7 @@ func (s *server) target(r *http.Request) (daemon.Info, error) {
 	// it could act on it by simply omitting `d`. The list routes never reach target(); they filter
 	// their own output via onlySeen. On a one-operator console seen() is always true.
 	if !s.seen(r, in.Name, "") {
-		return daemon.Info{}, fmt.Errorf("that companion is not one you may act on here")
+		return daemon.Info{}, errNotYours
 	}
 	return in, nil
 }
@@ -777,14 +777,43 @@ func writeJSON(w http.ResponseWriter, what string, v any) {
 
 // session is the companion a request names, or a 404 saying why not.
 //
-// The pair is always the same: resolve the target, answer 404 with the resolver's own words when
+// errNotYours is target() refusing because the caller MAY NOT act on that companion, as opposed to
+// there being no such companion. Two different answers, and neither was being given: the eleven
+// routes that write a status for a target() failure answered 404 in seven of them and 400 in four,
+// picked by which file the handler happened to live in rather than by what went wrong. A client —
+// or a log — could not tell "you may not" from "it is not there", and 400 says a third thing that
+// was never true, that the request itself was malformed.
+var errNotYours = errors.New("that companion is not one you may act on here")
+
+// targetStatus is the status a target() failure deserves: 403 when the answer is "not yours", 404
+// when there is nothing to name. One place decides, so the answer stops depending on the file.
+func targetStatus(err error) int {
+	if errors.Is(err, errNotYours) {
+		return http.StatusForbidden
+	}
+	return http.StatusNotFound
+}
+
+// targetOr resolves the companion a request names, or writes the refusal and reports false — the
+// same pair session() below does, for the routes that need the record and not just the session id.
+// Nine routes each wrote the pair themselves, which is how the statuses drifted apart.
+func (s *server) targetOr(w http.ResponseWriter, r *http.Request) (daemon.Info, bool) {
+	in, err := s.target(r)
+	if err != nil {
+		http.Error(w, err.Error(), targetStatus(err))
+		return daemon.Info{}, false
+	}
+	return in, true
+}
+
+// The pair is always the same: resolve the target, answer with the resolver's own words when
 // there is none, and carry on with its session id. Returning the id rather than the record is what
 // the callers actually wanted — five of them reached straight for .Session — and it keeps the
 // published record from leaking into places that have no business holding a workspace path.
 func (s *server) session(w http.ResponseWriter, r *http.Request) (session.SessionID, bool) {
 	in, err := s.target(r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, err.Error(), targetStatus(err))
 		return "", false
 	}
 	return session.SessionID(in.Session), true
@@ -1323,7 +1352,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	in, err := s.target(r)
 	if err != nil {
 		if r.URL.Query().Get("d") != "" || r.URL.Query().Get("p") != "" {
-			http.Error(w, err.Error(), http.StatusNotFound)
+			http.Error(w, err.Error(), targetStatus(err))
 			return
 		}
 		s.fleetStream(w, r, fl)
