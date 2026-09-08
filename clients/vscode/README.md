@@ -1,6 +1,6 @@
 # clients/vscode/ — VS Code 확장 (설계 단계)
 
-[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
+[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
 
 > **상태: 설계만 있다. 코드는 없다.**
 >
@@ -28,7 +28,8 @@ VS Code 가 연 폴더의 magi 컴패니언에게 말을 걸고, 그가 이 편�
 ```
 clients/vscode/
   README.md          ← 지금 이 파일
-  docs/DESIGN.ko.md  ← 설계
+  docs/DESIGN.ko.md    ← 설계
+  docs/PLATFORM.ko.md  ← VS Code 가 정해 둔 것과의 대조표
   src/core/          vscode 를 import 하지 않는다. node 만으로 돈다
   src/ide/           vscode API 가 사는 유일한 자리
   test/              core 를 잰다
@@ -43,3 +44,5 @@ clients/vscode/
   내지 않고 VS Code 가 이미 그런 말을 세우는 자리로 옮긴다.
 - [`docs/DESIGN.ko.md` §10](docs/DESIGN.ko.md) — **재지 않은 것.** 원격·`vscode.dev`·웹뷰 렌더러·
   배포 절차·분량. 짐작은 안 적었다.
+- [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md) — **젯브레인과 정반대인 것 넷.** 포팅에서 가장
+  비싼 것은 없는 API 가 아니라 반대인 규약이다. 설정 화면을 손으로 짜는 습관이 여기서는 금지다.
