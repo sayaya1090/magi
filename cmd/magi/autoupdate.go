@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"io"
@@ -86,8 +87,24 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		res, err := update.RunCommit(cctx, latestSource(), current, exe)
 		cancel()
+		// Being offline and shipping a build that cannot run are not the same news.
+		//
+		// One branch used to cover both, and the loop said nothing either way — so a release whose
+		// binary failed the pre-flight was retried every six hours, forever, in silence. That is
+		// how the archive-instead-of-binary defect survived: `magi --update-core` reported it, and
+		// nothing else ever did (internal/update/unpack.go).
+		//
+		// A rollback means the download WAS installed and then undone. Said once per cycle, on the
+		// same stream every other daemon line uses. Offline and already-current stay quiet — they
+		// are the weather, and a line every six hours about the network is a line people learn to
+		// skip past.
+		var rolled *update.RolledBackError
+		if errors.As(err, &rolled) {
+			fmt.Fprintf(os.Stderr, "magi: auto-update: %v — staying on %s\n", rolled, current)
+			continue
+		}
 		if err != nil || !res.Updated {
-			continue // offline, already current, or rolled back — try again next cycle
+			continue // offline or already current — try again next cycle
 		}
 		// A new build is committed to disk; wait for an idle moment, then restart onto it.
 		for running() {

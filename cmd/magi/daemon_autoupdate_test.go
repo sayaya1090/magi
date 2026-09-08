@@ -4,8 +4,11 @@ package main
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -176,4 +179,109 @@ func TestDaemonAutoUpdateRefusesADevBuild(t *testing.T) {
 	if got, _ := os.ReadFile(exe); string(got) != string(goodBin) {
 		t.Error("the source-built binary on disk was replaced")
 	}
+}
+
+// grabStderr captures os.Stderr for the duration of fn.
+func grabStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		b, _ := io.ReadAll(r)
+		done <- string(b)
+	}()
+	fn()
+	os.Stderr = old
+	w.Close()
+	out := <-done
+	r.Close()
+	return out
+}
+
+// A release whose binary cannot run is REPORTED, every cycle, not retried in silence.
+//
+// The loop had one branch for every reason an update did not happen —
+//
+//	if err != nil || !res.Updated { continue }   // offline, already current, or rolled back
+//
+// — so a build that failed the pre-flight looked exactly like a bad network. It was retried every
+// six hours and said nothing, which is how the archive-instead-of-binary defect lived as long as it
+// did: `magi --update-core` reported it and the daemon never did.
+func TestAnUnrunnableReleaseIsReportedNotSwallowed(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "magi")
+	if err := os.WriteFile(exe, goodBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldSrc, oldTTL := latestSource, daemonAutoUpdateTTL
+	latestSource = func() update.Source {
+		// Not an archive (so it passes through binaryFromArchive) and not runnable either — it
+		// installs, fails the pre-flight, and is rolled back. That is the shape this test is about:
+		// a build that got as far as the disk. Something starting \x1f\x8b would be refused one
+		// step earlier, as a broken archive, which is a different report.
+		return binSource{rel: update.Release{Version: "v99.0.0", URL: "x"}, bin: []byte("not a program at all")}
+	}
+	daemonAutoUpdateTTL = 30 * time.Millisecond
+	defer func() { latestSource, daemonAutoUpdateTTL = oldSrc, oldTTL }()
+
+	var join func()
+	out := grabStderr(t, func() {
+		join = runLoop(t, dir, "v1.0.0", exe, func() bool { return false }, func() {
+			t.Error("restarted onto a build that does not run")
+		})
+		time.Sleep(300 * time.Millisecond)
+		join()
+	})
+
+	if !strings.Contains(out, "rolled back") {
+		t.Errorf("the daemon said nothing about a release it could not install: %q", out)
+	}
+	// And the operator is told what they are still on, because the sentence is otherwise about a
+	// version they do not have.
+	if !strings.Contains(out, "v1.0.0") {
+		t.Errorf("the report does not say which build is still running: %q", out)
+	}
+	// The rollback did its job: the old binary is still there.
+	if got, _ := os.ReadFile(exe); string(got) != string(goodBin) {
+		t.Error("the running binary was left replaced by one that does not run")
+	}
+}
+
+// Being offline stays quiet. A line every six hours about the network is one people learn to skip,
+// and skipping it is how the line above gets missed too.
+func TestOfflineIsNotAnnounced(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "magi")
+	if err := os.WriteFile(exe, goodBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	oldSrc, oldTTL := latestSource, daemonAutoUpdateTTL
+	latestSource = func() update.Source { return errSource{} }
+	daemonAutoUpdateTTL = 30 * time.Millisecond
+	defer func() { latestSource, daemonAutoUpdateTTL = oldSrc, oldTTL }()
+
+	var join func()
+	out := grabStderr(t, func() {
+		join = runLoop(t, dir, "v1.0.0", exe, func() bool { return false }, func() {})
+		time.Sleep(300 * time.Millisecond)
+		join()
+	})
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("a failed check said something it should keep to itself: %q", out)
+	}
+}
+
+// errSource cannot reach the network.
+type errSource struct{}
+
+func (errSource) Latest(context.Context) (update.Release, error) {
+	return update.Release{}, errors.New("dial tcp: no route to host")
+}
+func (errSource) Download(context.Context, string) ([]byte, error) {
+	return nil, errors.New("dial tcp: no route to host")
 }

@@ -174,8 +174,26 @@ func Commit(newBin []byte, target string) error {
 				"the binary on disk may be broken; %s", err, rerr, where)
 		}
 		discard()
-		return fmt.Errorf("update rolled back, the previous build is restored: %w", err)
+		return &RolledBackError{Err: err}
 	}
 	discard()
 	return nil
 }
+
+// RolledBackError says a downloaded build was installed, refused by the pre-flight, and undone.
+//
+// A type rather than a string because callers have to tell it from the ordinary reasons an update
+// does not happen. The daemon's loop had one branch for all of them —
+//
+//	if err != nil || !res.Updated { continue }   // offline, already current, or rolled back
+//
+// — so being offline for an hour and shipping a build that cannot execute produced the same
+// silence. The first two are the weather; this one is a release that does not run, and it went
+// unreported for as long as it existed (see internal/update/unpack.go for what that was).
+type RolledBackError struct{ Err error }
+
+func (e *RolledBackError) Error() string {
+	return "update rolled back, the previous build is restored: " + e.Err.Error()
+}
+
+func (e *RolledBackError) Unwrap() error { return e.Err }
