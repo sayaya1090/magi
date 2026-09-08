@@ -149,6 +149,10 @@ sanitize       = [A-Za-z0-9_-] 아니면 '-'
 줄 단위 JSON. 데몬은 `json.NewEncoder(conn)` 로 쓰고 `bufio.Scanner` 로 읽는다 — 요청 하나가 한
 줄, 응답 하나가 한 줄이다. 스트림 문(`transcript`·`watch`)은 같은 연결에 응답 줄이 계속 온다.
 
+⚠ **`status` 는 세션 id 를 안 준다.** 실물 데몬에 물어보니 답은 `ok`·`permission`·`backend`
+셋뿐이다. 어느 대화를 읽을지는 `sessions` 가 안다(최신 순). 여기서 `status.session` 을 기대하면
+빈 문자열이 가고 전사가 **0 프레임으로 조용히** 끝난다 — 에러가 없어서 그대로 나갈 뻔했다.
+
 ⚠ **쓰기 쪽을 반만 닫지 않는다.** 보내고 write half 를 shutdown 하는 one-shot 모양(`nc -w`)은
 끊김으로 읽혀 프레임 0개로 끝난다. `docs/CLIENTS` 가 이미 적어 둔 계약이다.
 

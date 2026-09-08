@@ -1,0 +1,50 @@
+{
+  "name": "magi",
+  "displayName": "magi",
+  "description": "Talk to the magi companion that runs in this workspace.",
+  "version": "0.1.0",
+  "publisher": "sayaya1090",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "https://github.com/sayaya1090/magi" },
+  "engines": { "vscode": "^1.90.0" },
+  "categories": ["AI", "Other"],
+  "main": "./out/ide/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "panel": [{ "id": "magi", "title": "magi", "icon": "$(comment-discussion)" }]
+    },
+    "views": {
+      "magi": [{ "id": "magi.chat", "name": "", "type": "webview" }]
+    },
+    "commands": [
+      { "command": "magi.focusChat", "title": "Open the conversation", "category": "magi" },
+      { "command": "magi.start", "title": "Start the companion for this workspace", "category": "magi" },
+      { "command": "magi.interrupt", "title": "Stop what the companion is doing", "category": "magi", "icon": "$(debug-stop)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "magi.interrupt", "when": "view == magi.chat", "group": "navigation@1" }
+      ]
+    },
+    "configuration": {
+      "title": "magi",
+      "properties": {
+        "magi.startCompanion": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the companion for this workspace when none is listening."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "tsc -p . && node --test out/test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.5.0"
+  }
+}

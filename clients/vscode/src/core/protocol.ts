@@ -1,0 +1,69 @@
+/**
+ * The daemon's wire, as the core spells it (`internal/adapter/daemon/protocol.go`).
+ *
+ * Field names are copied, not invented. TypeScript drops unknown keys silently and hands back
+ * `undefined` for missing ones — the same trap Kotlin's `ignoreUnknownKeys` sets — so a name that
+ * disagrees is not an exception but a default, and the screen says "nothing" while nothing fails.
+ * `wire.test.ts` reads the Go source and checks these names against it.
+ */
+
+/** The wire-protocol version this client speaks. The daemon carries its own in `about`. */
+export const PROTO_VERSION = 1;
+
+export interface Request {
+  method: string;
+  session?: string;
+  text?: string;
+  callId?: string;
+  /** The permission verdict as the core spells it. One vocabulary, so the two cannot drift. */
+  decision?: 'allow' | 'deny' | 'always';
+  answer?: string;
+  name?: string;
+  keep?: boolean;
+  tier?: 'project' | 'global';
+  since?: number;
+}
+
+/** One event out of the log, as `transcript` streams it. */
+export interface Event {
+  seq: number;
+  type: string;
+  ts?: string;
+  actor?: { kind?: string; id?: string };
+  data?: unknown;
+}
+
+export interface Waiting {
+  /** "permission" | "question" — the core's own two words. */
+  kind: string;
+  callId?: string;
+  what?: string;
+  text?: string;
+}
+
+export interface Response {
+  ok: boolean;
+  error?: string;
+  out?: string;
+  /** `about` only: the daemon's wire version and what it will answer. */
+  proto?: number;
+  caps?: string[];
+  version?: string;
+  /** `status`: absent when the engine is not blocked on anybody. */
+  waiting?: Waiting;
+  /** `status`: the latest progress note from a tool still running. Empty most of the time. */
+  doing?: string;
+  /** `transcript`: one frame per event. */
+  event?: Event;
+  /** A stream's opening note — e.g. that a tail was asked for and a whole conversation is coming. */
+  why?: string;
+  session?: string;
+  sessions?: unknown[];
+  models?: string[];
+  done?: boolean;
+}
+
+/** A door this build advertises in `about`. Read the advertisement; never call an absent door. */
+export type Cap =
+  | 'handshake' | 'roster' | 'transcript' | 'sessions' | 'session-new' | 'children'
+  | 'cron' | 'cron-set' | 'cron-remove' | 'job-kill' | 'tool-servers' | 'settings' | 'context';
