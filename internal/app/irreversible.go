@@ -302,8 +302,20 @@ func (a *App) gateIrreversible(ctx context.Context, s session.Session, actor eve
 	// prompt on the retry, and reached this line only because that retry happened to parse.
 	// Measured on cobol-modernization, 2026-08-23.
 	members, _ := a.councilParams()
+	// The task first, and its own refusal. This gate judges SCOPE, so without the task there is
+	// nothing to judge against — asking anyway produces an answer about a question that was never
+	// really put, and the paragraph below already says what a gate that cannot get an answer must
+	// do rather than wave the command through.
+	task, terr := a.gateTaskText(ctx, s.ID)
+	if terr != nil {
+		a.appendToolResult(ctx, s.ID, actor, toolMsgID, tc.CallID,
+			"this command cannot be undone from this workspace ("+what+") and the task it would be "+
+				"judged against could not be read from the session log: "+terr.Error()+". Do it in a "+
+				"form that leaves a way back, or report what you need and stop.", true)
+		return true
+	}
 	advice, err := a.cfg.Council.Advise(ctx, port.AdviceRequest{
-		Task:         a.gateTaskText(ctx, s.ID),
+		Task:         task,
 		Question:     q,
 		Members:      members,
 		DefaultModel: s.Model.Model,
@@ -348,10 +360,21 @@ func councilSaysNo(advice string) bool {
 // gateTaskText is the goal this gate judges scope against: the last user prompt, or the turn's
 // re-anchored goal when there is one. Same two sources councilAdvice uses, and for the same reason
 // — a re-anchor masks its own prompt, so reading only the log would judge against a stale goal.
-func (a *App) gateTaskText(ctx context.Context, sid session.SessionID) string {
+func (a *App) gateTaskText(ctx context.Context, sid session.SessionID) (string, error) {
 	if live := strings.TrimSpace(a.turnTaskNow(sid)); live != "" {
-		return live
+		return live, nil
 	}
-	evs, _ := a.store.Read(ctx, sid, 0)
-	return lastUserPromptText(evs)
+	// The error is load-bearing here in a way it is nowhere else in this file. This gate asks one
+	// question — does the TASK require this irreversible command, in this form — and the task is
+	// the only thing the answer can be measured against. Read answers (nil, err) when the log
+	// cannot be read, and a discarded error made that arrive as an empty task: measured, the gate
+	// asked a council to judge `rm -rf /server` against "" and, on assent, let it run.
+	//
+	// "Nobody has said anything in this session yet" is a different answer and keeps its old
+	// behaviour; the caller only refuses when the log could not be read at all.
+	evs, err := a.store.Read(ctx, sid, 0)
+	if err != nil {
+		return "", err
+	}
+	return lastUserPromptText(evs), nil
 }
