@@ -78,12 +78,20 @@ jobs:
       - name: test (race + coverage)
         # Live Ollama Cloud E2E tests are skipped (-skip E2E), so CI stays hermetic.
         #
-        # MAGI_FUZZ_SEEDS narrows the TUI random walk here. The walk's twenty baseline seeds cost
-        # ~33s each under -race — 11 minutes for that one test — and it blew the default 10m
-        # per-package timeout with a panic that named no test. What -race needs from the walk is
-        # the race detector over the view's code, which one seed already gives; what twenty seeds
-        # give is SEQUENCE coverage, and that does not need the detector. The full baseline still
-        # runs everywhere the variable is unset.
+        # MAGI_FUZZ_SEEDS narrows the TUI random walk here, and the narrowing matters far more
+        # than the number below it used to say. What -race needs from the walk is the race
+        # detector over the view's code, which one seed already gives; what twenty seeds give is
+        # SEQUENCE coverage, and that does not need the detector. The full baseline still runs
+        # everywhere the variable is unset.
+        #
+        # The old figure here — "~33s each, 11 minutes for that one test" — was measured while
+        # every seed was dying at about step 34 of 500: the picker step skipped for want of a
+        # session list, and t.Skip ends the whole subtest. So it timed a walk that was not
+        # happening. Re-measured after that was fixed, same four seeds, -race, on a 2026 laptop:
+        # 2.6s before, 88.4s after — thirty-four times the cost, and the package as a whole goes
+        # from a few seconds to 148s. A runner is slower again, so twenty seeds under -race would
+        # now be a quarter of an hour for one test and would blow the timeout below rather than
+        # merely stretch it. Widening this list is not a small edit; measure it first.
         #
         # -timeout is explicit so a slow package fails saying so, instead of panicking at a
         # default nobody chose.
