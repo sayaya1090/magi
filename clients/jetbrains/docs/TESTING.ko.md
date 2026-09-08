@@ -158,6 +158,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `SchedulesTest` | 예약 편집기가 무엇을 보내나 — **묻거나 돈다, 하나다**(잠긴 칸에 남은 글자를 같이 보내면 데몬이 「둘 다」로 읽고 거부한다) |
 | `PaletteTest` | 화면 색이 TUI 원본과 같은가 |
 | `CoreReleaseTest` | 어느 판을 어디서 받나(설정 파일 실물을 읽는다) · 인증서 검증 스위치 · **최신 고르기**(남의 열차를 안 타는가, 숫자로 견주는가) |
+| `OnceAcrossTest` | **여럿이 동시에 와도 한 번만 한다** — 창을 여러 개 켜 놓고 플러그인을 깔면 코어를 받는다는 대화가 창 수만큼 떴다(실사용 보고 2026-09-08). 합류·자리 비우기(성공·실패·시작하다 터짐)·null 나르기 |
 | `ArchitectureTest` | **소스가 전부 git 에 실려 있는가**(로컬만 초록이던 결함) · 계층 방향과 `usecase/` 파일 목록 |
 
 ### 전송 (`.../transport`)

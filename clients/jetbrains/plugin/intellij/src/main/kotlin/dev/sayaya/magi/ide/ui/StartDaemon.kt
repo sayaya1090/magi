@@ -115,11 +115,40 @@ internal object StartDaemon {
         }
     }
 
+    /**
+     * 코어를 받아오는 일은 **앱에 하나**다. 창마다가 아니다.
+     *
+     * 바이너리는 계정에 하나이고 자리도 하나인데(`<config>/bin/<판>/magi`) 받으러 가는 것은
+     * 프로젝트마다였다. 창을 셋 켜 놓고 플러그인을 깔면 셋이 나란히 여기 도착해 셋 다 「없다」를
+     * 보고, 셋 다 묻고, 셋 다 같은 파일을 같은 경로로 받았다 — 실사용 보고: 받는다는 대화가
+     * 여러 번 떴다.
+     *
+     * 이 클래스의 머리글이 경합을 이미 이야기하는데, 그것은 **데몬 기동**의 경합이다. 소켓
+     * 경로는 `Listen` 이 선점하므로 하나만 서고 나머지는 거절당한다. 받아오기는 그 한 걸음
+     * 앞이고 거기엔 선점할 경로가 없다. 거절을 기억하는 자리(DECLINED)는 이미 앱 수준인데
+     * 묻는 쪽만 아니었던 것이다.
+     */
+    private val fetching = dev.sayaya.magi.ide.usecase.OnceAcross<Path?>()
+
     private fun ensureBinaryThenStart(project: Project, base: String, sock: Path) {
         CoreBinary.found()?.let { return start(project, it, base, sock) }
         // 한 번 미룬 사람에게 프로젝트마다·재시작마다 모달을 들이밀지 않는다(리뷰 R11).
         // 이 기억은 앱 수준이다 — 거절은 이 프로젝트가 아니라 그 사람의 뜻이다.
         if (com.intellij.ide.util.PropertiesComponent.getInstance().getBoolean(DECLINED, false)) return
+        // 기다린 창도 **제 데몬을 띄운다.** 소켓은 워크스페이스마다 다르니 그쪽은 나뉘는 것이
+        // 맞고, 물러나 버리면 그 창은 이 IDE 가 사는 동안 데몬을 못 띄운다(백오프 재접속은
+        // 붙기만 하지 띄우지 않는다).
+        fetching.join { flight -> askAndFetch(project, flight) }
+            .whenComplete { bin, _ ->
+                if (bin != null && !project.isDisposed) start(project, bin, base, sock)
+            }
+    }
+
+    private fun askAndFetch(project: Project, flight: java.util.concurrent.CompletableFuture<Path?>) {
+        // 아래 `invokeLater` 는 이 프로젝트가 닫히면 **안 돈다**. 그러면 비행이 끝나지 않고
+        // 자리도 안 비워져, 남은 창들이 영영 못 받는다. 닫히는 것도 이 비행의 끝으로 친다
+        // (이미 끝났으면 no-op 이다).
+        com.intellij.openapi.util.Disposer.register(project) { flight.complete(null) }
         // **받을 판을 여기서 정한다.** 핀은 바닥일 뿐이다 — 먼저 옛 판을 받아 놓고 데몬이
         // 스스로 갱신하기를 기다리는 것은, 처음 쓰는 사람에게 두 번 기다리라는 말이다.
         // 이 자리는 이미 풀 스레드라 목록 한 번 물어보는 것이 화면을 안 막는다.
@@ -130,6 +159,7 @@ internal object StartDaemon {
         )
         val host = asset?.let { rel.host(it) } ?: return run {
             LOG.info("magi: 이 기계에 맞는 코어 자산이 없거나 받을 주소가 없다 — 안 묻는다")
+            flight.complete(null)
         }
         // **묻는다.** 네트워크에서 실행 파일을 받아 돌리는 일을 조용히 하지 않는다. 그리고
         // **어디서** 받는지를 보인다 — 미러로 갈아 끼울 수 있다는 것이 이 설계의 자랑인데,
@@ -144,6 +174,7 @@ internal object StartDaemon {
             ) == Messages.YES
             if (!yes) {
                 com.intellij.ide.util.PropertiesComponent.getInstance().setValue(DECLINED, true)
+                flight.complete(null)
                 return@invokeLater
             }
             object : Task.Backgroundable(project, MagiBundle.msg("core.get.title"), true) {
@@ -151,12 +182,16 @@ internal object StartDaemon {
                     val bin = runCatching { CoreBinary.download(indicator, pick) }.getOrElse { e ->
                         // 취소는 실패가 아니다. 플랫폼 계약상 이 예외는 삼키면 안 되고, 삼키면
                         // 사람이 누른 「취소」가 에러 풍선으로 돌아온다(리뷰 R4).
+                        // 취소도 이 비행의 끝이다. 자리를 안 비우고 던지면 그 자리는 이 IDE 가
+                        // 사는 동안 남고, 어느 창도 다시 받아올 수 없다.
+                        flight.complete(null)
                         if (e is com.intellij.openapi.progress.ProcessCanceledException) throw e
                         LOG.warn("magi: 코어를 못 받았다", e)
                         tell(project, MagiBundle.msg("core.get.failed", e.message ?: MagiBundle.msg("common.noreason")))
+                        flight.complete(null)
                         return
                     }
-                    if (!project.isDisposed) start(project, bin, base, sock)
+                    flight.complete(bin)
                 }
             }.queue()
         }, project.disposed)
