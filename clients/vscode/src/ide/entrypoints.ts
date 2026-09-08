@@ -13,6 +13,20 @@ import { Looking } from './look';
  * of remark is a diagnostic, so the code action lives there instead. Moved, not imitated.
  */
 export function entryPoints(companion: Companion, chat: Chat, looking: Looking): vscode.Disposable[] {
+  /**
+   * The editor these commands need, or a sentence saying why not.
+   *
+   * A command that returns quietly when nothing is open is the worst shape a command has: it is in
+   * the palette, it is pressed, and nothing happens — which reads as broken rather than as
+   * inapplicable. The `when` clauses in the manifest keep them out of the palette in the first
+   * place; this is for the paths a keybinding can still reach.
+   */
+  const editorOr = (why: string): vscode.TextEditor | null => {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed) { void vscode.window.showWarningMessage(`magi: ${why}`); return null; }
+    return ed;
+  };
+
   const refsOf = (ed: vscode.TextEditor): Ref[] => {
     const p = ed.document.uri.fsPath;
     return ed.selections.filter((s) => !s.isEmpty)
@@ -21,6 +35,14 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
 
   const attach = async (refs: Ref[]) => {
     if (!refs.length) return;
+    // Say so before the chips go up. Attaching to a companion that is not there looks like it
+    // worked — the chips appear — and then the message goes nowhere.
+    if (!(await companion.reachable())) {
+      void vscode.window.showWarningMessage(
+        'magi: no companion is running for this workspace.', 'Start one')
+        .then((pick) => { if (pick) void vscode.commands.executeCommand('magi.start'); });
+      return;
+    }
     // Save first. The companion reads the disk, so attaching an unsaved buffer would point it at
     // text that is not there — the JetBrains client saves on attach for the same reason.
     await vscode.workspace.saveAll(false);
@@ -30,7 +52,7 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
 
   return [
     vscode.commands.registerCommand('magi.attach', async () => {
-      const ed = vscode.window.activeTextEditor;
+      const ed = editorOr('open a file to attach code from it.');
       if (!ed) return;
       const refs = refsOf(ed);
       await attach(refs.length ? refs : [{ path: ed.document.uri.fsPath }]);
@@ -42,7 +64,7 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
     }),
 
     vscode.commands.registerCommand('magi.askAbout', async () => {
-      const ed = vscode.window.activeTextEditor;
+      const ed = editorOr('open a file to ask about its code.');
       if (!ed) return;
       const refs = refsOf(ed);
       const use = refs.length ? refs : [{ path: ed.document.uri.fsPath, from: ed.selection.active.line + 1 }];
@@ -53,12 +75,12 @@ export function entryPoints(companion: Companion, chat: Chat, looking: Looking):
     }),
 
     vscode.commands.registerCommand('magi.lookNow', async () => {
-      const ed = vscode.window.activeTextEditor;
+      const ed = editorOr('open a file for the companion to look over.');
       if (ed) await looking.now(ed);
     }),
 
     vscode.commands.registerCommand('magi.whoWrote', async () => {
-      const ed = vscode.window.activeTextEditor;
+      const ed = editorOr('open a file and put the cursor on the line you mean.');
       if (!ed) return;
       const line = ed.selection.active.line + 1;
       const said = chat.whoWrote(ed.document.uri.fsPath, line);

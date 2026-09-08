@@ -40,6 +40,10 @@ export class Looking implements vscode.Disposable {
 
   private typed(doc: vscode.TextDocument): void {
     if (doc.uri.scheme !== 'file') return;
+    // Only the file they are looking at. A change in a background document — a formatter, another
+    // extension, a search-and-replace — is not somebody typing, and sending it would spend a model
+    // call on a buffer nobody is reading.
+    if (vscode.window.activeTextEditor?.document !== doc) return;
     // The open buffer travels on every pause, always — the companion should know what is on screen
     // even when nobody asked it to look. That is ambient context, not a review.
     if (this.timer) clearTimeout(this.timer);
@@ -54,7 +58,12 @@ export class Looking implements vscode.Disposable {
   private async look(doc: vscode.TextDocument, asked: boolean): Promise<void> {
     if (doc.uri.scheme !== 'file') return;
     // One at a time. A look that overtakes its predecessor would paint the older answer last.
-    if (this.busy) return;
+    // A press while one is running is dropped rather than queued: by the time the queued one
+    // answered, the buffer it read would be two edits old.
+    if (this.busy) {
+      if (asked) void vscode.window.setStatusBarMessage('magi: already looking…', 2000);
+      return;
+    }
     this.busy = true;
     try {
       const resp = await this.companion.ask('look-over', {

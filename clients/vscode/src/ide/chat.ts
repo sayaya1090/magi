@@ -58,7 +58,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       sid = first?.id ?? '';
       this.sid = sid;
     }
-    if (!sid) { this.post({ kind: 'note', text: 'No conversation in this workspace yet — say something to start one.' }); return; }
+    if (!sid) {
+      // Not an error. Type and the daemon opens one — so say that, rather than leaving an empty
+      // panel that reads as broken.
+      this.post({ kind: 'note', text: 'No conversation here yet. Type below and one starts.' });
+      return;
+    }
     // A dedicated connection: this one is turned into a stream and answers nothing else, so
     // sharing it with the status poll would make every poll wait behind a conversation.
     const s = await Daemon.connect(this.companion.socket).catch(() => null);
@@ -142,6 +147,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.draw();
         break;
       }
+      case 'start':
+        await vscode.commands.executeCommand('magi.start');
+        break;
       case 'drop':
         this.refs = [];
         this.draw();
@@ -151,6 +159,28 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // for the two to drift.
         await this.companion.ask('permission', { callId: m.callId, decision: m.decision });
         break;
+      case 'reply':
+        // A QUESTION, not a permission. Its own door, because what it takes is a sentence and not
+        // a verdict — sending "allow" to a question would answer something nobody asked.
+        await this.companion.ask('answer', { callId: m.callId, answer: m.text ?? '' });
+        break;
+      case 'mention': {
+        // The file list behind `@`. It comes from the companion's own glob rather than from this
+        // window's idea of the workspace: the companion is what will read the file, and what it
+        // can reach is the answer that matters.
+        const r = await this.companion.ask('tool', { name: 'glob',
+          args: { pattern: `**/*${(m.text ?? '').trim()}*` } });
+        let files: string[] = [];
+        try { files = JSON.parse(r?.out ?? '[]') as string[]; } catch { files = []; }
+        this.post({ kind: 'mentions', files: files.slice(0, 20) });
+        break;
+      }
+      case 'suggest': {
+        // The composer's ghost text — the same door the console uses for its own.
+        const r = await this.companion.ask('suggest', { text: m.text ?? '' });
+        this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '' });
+        break;
+      }
       default:
         break;
     }
@@ -190,6 +220,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #ask { padding:8px 10px; border-top:1px solid var(--vscode-panel-border); }
   #ask .what { margin-bottom:6px; }
   #ask button { margin-right:6px; }
+  #hint { padding:0 10px 4px; font-size:.85em; opacity:.7; font-family:var(--vscode-editor-font-family); }
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
   .chip { font-size:.85em; padding:1px 6px; border-radius:9px;
           color:var(--vscode-badge-foreground); background:var(--vscode-badge-background); }
@@ -204,6 +235,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
 <div id="rows"></div><div id="ask" hidden></div><div id="note"></div><div id="refs"></div>
+<div id="hint"></div>
 <div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
 <script nonce="${nonce}">
 const vs = acquireVsCodeApi();
@@ -212,21 +244,58 @@ const noteEl = document.getElementById('note');
 const say = document.getElementById('say');
 const askEl = document.getElementById('ask');
 const refsEl = document.getElementById('refs');
+const hint = document.getElementById('hint');
+let suggestion = '';
+let typing = null;
 function drawAsk(a) {
   askEl.textContent = '';
   askEl.hidden = !a;
   if (!a) return;
   const w = document.createElement('div');
   w.className = 'what';
-  w.textContent = 'magi wants to run: ' + a.what;
   askEl.append(w);
-  /* The three words the core spells. One vocabulary, so the two cannot drift. */
-  for (const d of ['allow', 'deny', 'always']) {
+  if (a.kind === 'permission') {
+    w.textContent = 'magi wants to run: ' + a.what;
+    /* The three words the core spells. One vocabulary, so the two cannot drift. */
+    for (const d of ['allow', 'deny', 'always']) {
+      const b = document.createElement('button');
+      b.textContent = d;
+      b.addEventListener('click', () => vs.postMessage({ kind: 'answer', callId: a.callId, decision: d }));
+      askEl.append(b);
+    }
+    return;
+  }
+  /* A question wants a sentence, not a verdict. Options are shortcuts to one. */
+  w.textContent = a.what;
+  for (const opt of a.options || []) {
     const b = document.createElement('button');
-    b.textContent = d;
-    b.addEventListener('click', () => vs.postMessage({ kind: 'answer', callId: a.callId, decision: d }));
+    b.textContent = opt;
+    b.addEventListener('click', () => vs.postMessage({ kind: 'reply', callId: a.callId, text: opt }));
     askEl.append(b);
   }
+  const free = document.createElement('button');
+  free.textContent = 'answer in the box';
+  free.addEventListener('click', () => { pendingQuestion = a.callId; say.focus(); });
+  askEl.append(free);
+}
+let pendingQuestion = null;
+let mentions = [];
+function drawState(st) {
+  noteEl.textContent = '';
+  if (!st) return;
+  if (st.state === 'not-running') {
+    /* Not just the fact — the way out. A line saying nothing is listening, with nothing to press,
+       leaves somebody to find the command palette to learn what to do next. */
+    noteEl.append('No companion is running for this workspace. ');
+    const b = document.createElement('button');
+    b.textContent = 'Start one';
+    b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
+    noteEl.append(b);
+  } else if (st.state === 'unknown') {
+    noteEl.textContent = 'Could not reach the companion. ' + (st.asking || '');
+  }
+  /* idle / working / waiting say nothing here: the status bar already says them, and repeating a
+     line above the composer is a line in the way. */
 }
 function drawRefs(rs) {
   refsEl.textContent = '';
@@ -244,6 +313,9 @@ function drawRefs(rs) {
   }
 }
 function draw(rs) {
+  /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
+     an older row is the single most annoying thing a live transcript does. */
+  const wasAtBottom = rowsEl.scrollHeight - rowsEl.scrollTop - rowsEl.clientHeight < 40;
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
@@ -256,27 +328,70 @@ function draw(rs) {
     d.append(w, b);
     rowsEl.append(d);
   }
-  rowsEl.scrollTop = rowsEl.scrollHeight;
+  if (wasAtBottom) rowsEl.scrollTop = rowsEl.scrollHeight;
 }
 window.addEventListener('message', (e) => {
   const m = e.data;
-  if (m.kind === 'rows') { draw(m.rows); drawAsk(m.ask); drawRefs(m.refs); }
+  if (m.kind === 'rows') {
+    draw(m.rows); drawAsk(m.ask); drawRefs(m.refs);
+    if (noteEl.textContent === 'sending…') noteEl.textContent = '';
+  }
   else if (m.kind === 'compose') { say.value = m.text || ''; say.focus();
     say.setSelectionRange(say.value.length, say.value.length); }
-  else if (m.kind === 'state') noteEl.textContent = m.state && m.state.state === 'not-running'
-      ? 'No companion is listening on this workspace.' : '';
+  else if (m.kind === 'mentions') {
+    mentions = m.files || [];
+    hint.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
+  }
+  else if (m.kind === 'suggestion') {
+    /* Ghost text for the composer. Tab takes it — the same key the terminal uses. */
+    suggestion = m.text || '';
+    hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
+  }
+  else if (m.kind === 'state') drawState(m.state);
   else if (m.kind === 'note') noteEl.textContent = m.text || '';
 });
 function send() {
   const t = say.value.trim();
   if (!t) return;
-  vs.postMessage({ kind: 'say', text: t });
+  /* If a question is open and they chose to type, the box answers THAT rather than starting a new
+     turn — otherwise their sentence goes somewhere nobody was waiting for it. */
+  if (pendingQuestion) {
+    vs.postMessage({ kind: 'reply', callId: pendingQuestion, text: t });
+    pendingQuestion = null;
+  } else {
+    vs.postMessage({ kind: 'say', text: t });
+  }
   say.value = '';
+  hint.textContent = '';
+  /* The row for this arrives on the stream a moment later. Until then the box being empty is the
+     only sign anything happened, and on a slow first turn that reads as a lost message. */
+  noteEl.textContent = 'sending…';
+  setTimeout(() => { if (noteEl.textContent === 'sending…') noteEl.textContent = ''; }, 4000);
 }
 document.getElementById('send').addEventListener('click', send);
 /* Enter sends, Shift+Enter is a newline — the terminal and the web console both do this. */
 say.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return; }
+  if (e.key === 'Tab' && suggestion) {
+    e.preventDefault();
+    say.value += suggestion;
+    suggestion = '';
+    hint.textContent = '';
+  }
+});
+say.addEventListener('input', () => {
+  suggestion = '';
+  if (typing) clearTimeout(typing);
+  const v = say.value;
+  /* An @name at the start of a word asks the companion which files match. Two characters at
+     least, because one matches everything and the list would be the whole workspace.
+     (No backticks in here: this script lives in a template literal and one would close it.) */
+  const at = /(^|\s)@([^\s@]{2,})$/.exec(v);
+  typing = setTimeout(() => {
+    if (at) vs.postMessage({ kind: 'mention', text: at[2] });
+    else if (v.trim().length > 3) vs.postMessage({ kind: 'suggest', text: v });
+    else hint.textContent = '';
+  }, 450);
 });
 vs.postMessage({ kind: 'ready' });
 </script></body></html>`;

@@ -81,14 +81,25 @@ export class Companion implements vscode.Disposable {
     }
   }
 
+  /** Is there anything to talk to right now. Cheap: it does not dial, it looks. */
+  async reachable(): Promise<boolean> { return (await this.reach()) !== null; }
+
   /** Poll `status` and tell the screens. One place decides the word (core/activity). */
-  watch(everyMs = 2000): void {
+  watch(everyMs = 2000, idleMs = 10_000): void {
     const tick = async () => {
       if (this.gone) return;
       const p = this.socket;
-      if (!fs.existsSync(p)) this.set(activity.notRunning());
-      else this.set(activity.of(await this.ask('status')));
-      if (!this.gone) this.timer = setTimeout(tick, everyMs);
+      let next = everyMs;
+      if (!fs.existsSync(p)) {
+        this.set(activity.notRunning());
+        // Nothing there to ask. Checking a missing file every two seconds for the life of a window
+        // costs a wake-up each time and tells nobody anything — the socket appearing is not a
+        // thing a person waits on with a stopwatch.
+        next = idleMs;
+      } else {
+        this.set(activity.of(await this.ask('status')));
+      }
+      if (!this.gone) this.timer = setTimeout(tick, next);
     };
     void tick();
   }

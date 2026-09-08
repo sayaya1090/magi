@@ -22,6 +22,8 @@ export interface Request {
   keep?: boolean;
   tier?: 'project' | 'global';
   since?: number;
+  /** Tool arguments, for the `tool` door. */
+  args?: unknown;
 }
 
 /** One event out of the log, as `transcript` streams it. */

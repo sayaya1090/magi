@@ -166,6 +166,7 @@
       "magi.editorMenu": [
         {
           "command": "magi.attach",
+          "when": "editorHasSelection",
           "group": "1@1"
         },
         {
@@ -174,6 +175,7 @@
         },
         {
           "command": "magi.lookNow",
+          "when": "!editorHasSelection",
           "group": "1@3"
         },
         {
@@ -207,6 +209,26 @@
         {
           "command": "magi.attachFiles",
           "when": "false"
+        },
+        {
+          "command": "magi.attach",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "magi.askAbout",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "magi.whoWrote",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "magi.lookNow",
+          "when": "editorIsOpen"
+        },
+        {
+          "command": "magi.draftCommit",
+          "when": "scmProvider == git"
         }
       ]
     },
