@@ -150,10 +150,16 @@ func (s *MCPServer) handle(r *http.Request, req rpcRequest) (any, *rpcFault) {
 
 // toolDefs 는 `tools/list` 의 몸이다.
 //
-// `annotations.readOnlyHint` 를 단다. **오늘 magi 는 그것을 안 읽는다** — `toolDef` 가
-// `{name, description, inputSchema}` 셋뿐이라 통째로 버려진다(§4.4 ⑤). 그러니 이 칸은 다른
-// 클라이언트를 향한 선언이자, 규약이 붙을 자리를 미리 맞춰 두는 것이지 지금 무엇을 막고 있다는
-// 뜻이 아니다. 지금 `advise` 를 실제로 가르는 것은 이름 하나이고, 그 자리는 허용 규칙이다.
+// `annotations.readOnlyHint` 를 단다. **magi 가 이것을 읽는다**(2026-09-09 확인):
+// `internal/adapter/mcp/manager.go` 가 이 값으로 `mcpTool.readOnly` 를 채우고,
+// `internal/app/compact.go` 가 창이 닫힐 때 그것을 읽어 **다시 불러올 수 있는 결과부터
+// 덜어낸다** — 접기는 요약 호출과 재청구를 물어야 하므로 그보다 싸다. 그러니 이 칸은 미래를 위한
+// 자리가 아니라 지금 도는 절약이고, **선언을 빠뜨린 읽기 전용 도구는 접을 때 비싸게 굴려진다.**
+//
+// (이 주석은 「오늘 magi 는 그것을 안 읽는다」였다. 그때는 사실이었고 그 뒤 코어가 읽게 됐다 —
+// 남의 층이 자란 것을 이쪽 주석이 모르면, 이미 도는 절약을 없는 것으로 알고 걷어내게 된다.)
+//
+// 지금 `advise` 를 실제로 가르는 것은 이름 하나이고, 그 자리는 허용 규칙이다.
 // readOnly 는 이 이름이 덱을 안 고치는 조작인가. **표는 하나뿐이다**(`tools()`) — 여기에
 // 이름을 또 적으면 도구가 하나 늘 때마다 두 자리를 고쳐야 하고, 하나를 빠뜨리는 날이 온다.
 func (s *MCPServer) readOnly(name string) bool {
