@@ -485,6 +485,14 @@ for a newer release and, when one exists, downloads it, verifies the checksum, r
 new binary's `--version` as a pre-flight — **rolling back to the previous build if that
 fails** — and then restarts onto it once nothing is running (no turn in flight, no
 meeting round being composed). The restart reopens the conversation the daemon was on.
+
+A build that installs and then fails that pre-flight is **reported**, once per cycle:
+`auto-update: update rolled back, the previous build is restored: … — staying on <version>`.
+Being offline or already current says nothing — those are the weather, and a line about the
+network every six hours is one people learn to skip past. Until 2026-09-08 the loop treated all
+three the same and said nothing for any of them, which is how a release that could not run was
+retried four times a day in silence.
+
 Details that matter:
 
 - `[update] auto = false` in config turns the auto path off for that companion; the
