@@ -52,6 +52,54 @@ class IdeHand(private val project: Project) : Hand.Ide {
         "replaced $hits occurrence(s) in ${f.path} — in the editor, so undo and inspections see it"
     }
 
+    /**
+     * IDE 가 지금 말하는 오류와 경고.
+     *
+     * **하이라이트를 읽지 인스펙션을 다시 돌리지 않는다.** 다시 돌리면 초 단위이고, 사람이 보고 있는
+     * 것과 다른 답이 나올 수 있다 — 이 도구의 값은 「사람 화면에 밑줄로 그려진 그것」을 그대로 주는
+     * 데 있다.
+     *
+     * ⚠ **없다는 것이 괜찮다는 뜻은 아니다.** 아직 분석이 안 끝난 파일도 아무것도 안 말한다. 그래서
+     * 「없다」를 그렇게만 적지 않고 그 사정을 같이 적는다 — 조용한 성공을 「깨끗하다」로 읽으면
+     * 에이전트가 빌드도 안 돌리고 넘어간다.
+     *
+     * 힌트와 정보는 건다. 그것은 IDE 의 제안이고, 섞으면 빌드를 멈추는 둘이 묻힌다.
+     */
+    override fun problems(path: String?): String = onEdt {
+        val docs = com.intellij.openapi.fileEditor.FileDocumentManager.getInstance()
+        val files: List<VirtualFile> = if (path != null) {
+            listOf(find(path) ?: return@onEdt "no such file in this project: $path")
+        } else {
+            FileEditorManager.getInstance(project).openFiles.toList()
+        }
+        val lines = mutableListOf<String>()
+        for (f in files) {
+            val doc = docs.getDocument(f) ?: continue
+            val found = com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl.getHighlights(
+                doc, com.intellij.lang.annotation.HighlightSeverity.WARNING, project,
+            )
+            for (h in found) {
+                val kind = if (h.severity >= com.intellij.lang.annotation.HighlightSeverity.ERROR) "error" else "warning"
+                val line = doc.getLineNumber(h.startOffset) + 1
+                val col = h.startOffset - doc.getLineStartOffset(line - 1) + 1
+                val text = h.description ?: continue
+                lines += "${f.path}:$line:$col $kind: $text"
+            }
+        }
+        if (lines.isEmpty()) {
+            return@onEdt if (path != null) {
+                "no errors or warnings for $path — note that a file the IDE has not finished " +
+                    "analysing also reports none"
+            } else {
+                "no errors or warnings in the open files right now"
+            }
+        }
+        // 상한을 둔다. 리팩터링 중인 프로젝트는 수천 줄이 되고, 이것은 툴 결과로 실려 간다.
+        val cap = 200
+        if (lines.size <= cap) lines.joinToString("\n")
+        else lines.take(cap).joinToString("\n") + "\n… and ${lines.size - cap} more"
+    }
+
     /** 프로젝트 안의 파일만 찾는다. 밖을 열어 주면 워크스페이스 경계가 이 도구로 새 나간다. */
     private fun find(path: String): VirtualFile? {
         val abs = if (Paths.get(path).isAbsolute) path else "${project.basePath}/$path"

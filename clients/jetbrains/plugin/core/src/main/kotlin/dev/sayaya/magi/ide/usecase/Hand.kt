@@ -37,6 +37,14 @@ class Hand(private val ide: Ide) {
          * 되돌리기와 로컬 히스토리가 남고 인스펙션이 다시 돈다.
          */
         fun replace(path: String, old: String, new: String, all: Boolean): String
+
+        /**
+         * IDE 의 언어 서버·인스펙션이 **지금** 말하는 것. 경로를 안 주면 열린 파일 전부.
+         *
+         * 이것이 다른 둘과 다른 점은 **대체가 아니라는 것**이다. 지금 에이전트는 컴파일 오류를 셸로
+         * 빌드해 글자를 읽어 알아내는데, IDE 에는 사람이 보는 밑줄을 그리는 그 진단이 이미 있다.
+         */
+        fun problems(path: String?): String
     }
 
     /**
@@ -89,6 +97,20 @@ class Hand(private val ide: Ide) {
                 })
             },
         ),
+        Tool(
+            // 읽기만 한다. 그리고 이것은 magi 의 무엇도 대체하지 않는다 — 없던 도구다.
+            readOnly = true,
+            name = "problems",
+            description = "What this IDE's inspections and language support say right now, as errors " +
+                "and warnings with line numbers. This is the real diagnostic, not the output of a " +
+                "build command. Omit path for every open file.",
+            schema = buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject {
+                    put("path", buildJsonObject { put("type", "string") })
+                })
+            },
+        ),
     )
 
     /**
@@ -117,6 +139,7 @@ class Hand(private val ide: Ide) {
     fun call(name: String, args: JsonObject): Answer = try {
         when (name) {
             "show" -> Answer(ide.show(str(args, "path"), args["line"]?.jsonPrimitive?.content?.toIntOrNull()))
+            "problems" -> Answer(ide.problems(args["path"]?.jsonPrimitive?.content))
             "apply_edit" -> Answer(
                 ide.replace(
                     str(args, "path"), str(args, "old"), str(args, "new"),

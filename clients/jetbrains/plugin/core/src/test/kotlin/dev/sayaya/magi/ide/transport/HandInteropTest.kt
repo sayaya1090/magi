@@ -21,6 +21,7 @@ class HandInteropTest {
     private class FakeIde : Hand.Ide {
         override fun show(path: String, line: Int?) = "opened $path"
         override fun replace(path: String, old: String, new: String, all: Boolean) = "replaced in $path"
+        override fun problems(path: String?) = "no errors"
     }
 
     @Test

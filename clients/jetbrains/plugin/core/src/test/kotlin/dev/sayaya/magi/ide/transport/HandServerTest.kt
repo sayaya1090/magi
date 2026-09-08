@@ -32,6 +32,9 @@ class HandServerTest {
         override fun replace(path: String, old: String, new: String, all: Boolean): String {
             edit = listOf(path, old, new, all.toString()); return "replaced in $path"
         }
+        var askedFor: String? = null
+        var asked = false
+        override fun problems(path: String?): String { askedFor = path; asked = true; return "no errors" }
     }
 
     private fun post(s: HandServer, body: String, token: String? = null): Pair<Int, String> {
@@ -67,7 +70,10 @@ class HandServerTest {
 
             // 3. tools/list
             val tools = rpc(s, "tools/list")["result"]!!.jsonObject["tools"]!!.jsonArray
-            assertEquals(setOf("show", "apply_edit"), tools.map { it.jsonObject["name"]!!.jsonPrimitive.content }.toSet())
+            assertEquals(
+                setOf("show", "apply_edit", "problems"),
+                tools.map { it.jsonObject["name"]!!.jsonPrimitive.content }.toSet(),
+            )
             // 스키마가 있어야 한다 — 없으면 모델이 인자를 지어낸다
             assertTrue(tools.all { it.jsonObject["inputSchema"] != null })
             // **읽기만 하는지 말해야 한다.** 코어가 이 선언으로 두 가지를 정한다: 창이 닫힐 때
@@ -78,7 +84,13 @@ class HandServerTest {
                     it.jsonObject["annotations"]?.jsonObject?.get("readOnlyHint")?.jsonPrimitive?.content
             }
             assertEquals("true", ro["show"], "show 는 파일을 안 고친다고 말해야 한다")
+            assertEquals("true", ro["problems"], "진단을 읽는 것은 아무것도 안 고친다")
             assertEquals("false", ro["apply_edit"], "apply_edit 는 고친다 — 그래야 기록에 changed 로 오른다")
+
+            // 진단은 **없던 도구**다. 경로를 안 주면 열린 파일 전부라는 것까지 계약이다.
+            rpc(s, "tools/call", """{"name":"problems","arguments":{}}""")
+            assertTrue(ide.asked, "problems 가 IDE 에 안 물었다")
+            assertEquals(null, ide.askedFor, "경로를 안 줬으면 열린 파일 전부여야 한다")
 
             // 4. tools/call
             val r = rpc(s, "tools/call", """{"name":"show","arguments":{"path":"a.kt","line":"12"}}""")["result"]!!.jsonObject
