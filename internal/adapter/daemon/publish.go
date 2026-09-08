@@ -446,9 +446,24 @@ func Find(configDir, socket string) (Info, error) {
 // would send a viewer to a dead endpoint. A dead one is still listed — knowing a workspace has a
 // corpse is more useful than the entry silently missing — but it is marked.
 func List(configDir string) ([]Info, error) {
-	socks, err := filepath.Glob(filepath.Join(SocketDir(configDir), "daemon-*.sock"))
+	dir := SocketDir(configDir)
+	socks, err := filepath.Glob(filepath.Join(dir, "daemon-*.sock"))
 	if err != nil {
 		return nil, fmt.Errorf("daemon: listing: %w", err)
+	}
+	// Glob cannot report that it could not look. Its documentation is explicit — it ignores
+	// filesystem errors, and the only error it ever returns is a bad pattern — so a socket
+	// directory that EXISTS but cannot be read globs to nothing and arrives here as an empty
+	// list. Every caller above then draws "no companions" for what is really "could not say":
+	// fleet.ListLight forwards this error precisely to avoid that, with a comment saying so,
+	// and the error could never be non-nil for that reason.
+	//
+	// A directory that is not there is a different fact and stays empty: nobody has started a
+	// companion under this config yet, which is every first run.
+	if len(socks) == 0 {
+		if _, rerr := os.ReadDir(dir); rerr != nil && !os.IsNotExist(rerr) {
+			return nil, fmt.Errorf("daemon: cannot read %s: %w", dir, rerr)
+		}
 	}
 	out := make([]Info, len(socks))
 	for i, s := range socks {

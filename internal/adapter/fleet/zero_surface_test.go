@@ -108,13 +108,38 @@ func TestListLightFallbackAndHonestError(t *testing.T) {
 		t.Fatalf("the corpse draws Stopped via the fallback: (%+v, %v)", rows, err)
 	}
 
+	// The honest-error half, and it asserts rather than skips. It used to read `if err == nil {
+	// t.Skip(...) }` — blaming the filesystem for what was actually the product answering
+	// "no companions" to a directory it could not open. It skipped on this machine, as an
+	// ordinary user, on an ordinary APFS volume, for the whole life of the test.
+	//
+	// The cause was one layer down: filepath.Glob ignores filesystem errors by documented
+	// design, so daemon.List globbed an unreadable directory to nothing and reported an empty
+	// fleet with no error at all. Empty and cannot-look are different answers and a reader
+	// cannot tell them apart, which is the rule this package's empty-list comment already states.
 	locked := filepath.Join(t.TempDir(), "locked")
 	if err := os.Mkdir(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
-	if _, err := ListLight(locked, ""); err == nil {
-		t.Skip("this filesystem lets us read an unreadable directory (root?)")
+	// Root reads anything, so there the refusal cannot be staged at all — that, and only that,
+	// is a reason to stand down. Checked against the OS rather than assumed.
+	if _, rerr := os.ReadDir(locked); rerr == nil {
+		t.Skip("this filesystem lets us read a 0o000 directory (running as root?)")
+	}
+	blind, berr := ListLight(locked, "")
+	if berr == nil {
+		t.Fatalf("an unreadable config directory must say so, not draw an empty fleet: %d rows, nil error", len(blind))
+	}
+
+	// The other direction, and it is the one that would hurt more if it broke: a config
+	// directory that is NOT THERE is genuinely empty — nobody has started a companion under it
+	// — and that is every first run. A refusal here would greet a new install with an error
+	// instead of an empty fleet. Without this line, "report anything the OS complains about"
+	// passes the paragraph above just as well.
+	fresh, ferr := ListLight(filepath.Join(t.TempDir(), "never-used"), "")
+	if ferr != nil || len(fresh) != 0 {
+		t.Fatalf("a config directory nobody has used yet is an empty fleet, not an error: (%d rows, %v)", len(fresh), ferr)
 	}
 }
 
