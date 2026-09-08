@@ -172,3 +172,27 @@ test('every capability the client checks is one the daemon advertises', () => {
       'dead on every build. Call the door instead and show the daemon\'s own refusal.');
   }
 });
+
+/**
+ * ★ A value goes in the field the door reads, not in a field that merely exists.
+ *
+ * `cron-set` reads `req.Schedule` — a top-level field. This client sent the schedule as
+ * `args.schedule`, and `args` is a field the wire HAS (the `tool` door reads it) so nothing was
+ * dropped as unknown and nothing failed: the door simply got an empty schedule. The JetBrains client
+ * sent it top-level all along; only this one was wrong.
+ *
+ * Pinned against the Go source, because what makes this a defect is where the DAEMON looks.
+ */
+test('a scheduled job sends its schedule where the door reads it', () => {
+  const proto = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  const req = proto.slice(proto.indexOf('type Request struct'), proto.indexOf('type Response struct'));
+  assert.match(req, /Schedule\s+string\s+`json:"schedule/,
+    'the wire no longer carries a top-level `schedule` — this client sends one');
+
+  const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const call = /call\('cron-set',\s*\{([^}]*)\}/.exec(cmd);
+  assert.ok(call, 'the cron-set call is not where this guard looks');
+  assert.match(call![1], /\bschedule:/, 'cron-set does not send a top-level schedule');
+  assert.ok(!/\bargs:/.test(call![1]), 'cron-set still nests its fields inside args');
+});

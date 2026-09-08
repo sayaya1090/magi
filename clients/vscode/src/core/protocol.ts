@@ -22,8 +22,17 @@ export interface Request {
   keep?: boolean;
   tier?: 'project' | 'global';
   since?: number;
-  /** Tool arguments, for the `tool` door. */
+  /** Tool arguments, for the `tool` door — the ONE door that reads them. */
   args?: unknown;
+  /**
+   * `cron-set`: when the job comes round, in five cron fields.
+   *
+   * ⚠ **Top level, not inside `args`.** `answerCronEdit` reads `req.Schedule`, and this client sent
+   * it as `args.schedule` — so the daemon got an empty schedule and nothing said so: Go's decoder
+   * drops a field it does not know, and `args` is a field it knows and this door never reads. The
+   * JetBrains client had it right; only this one was wrong.
+   */
+  schedule?: string;
   /**
    * `hand`: whether the work handed over is a question rather than a request.
    *

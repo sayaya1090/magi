@@ -230,7 +230,7 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 | 무엇 | 문 | 조심할 것 |
 |---|---|---|
 | Stop a background job | `jobs` → `job-kill` | 고를 목록은 데몬의 것이다. 손으로 적는 id 는 짐작이다 |
-| Scheduled work | `cron` → `cron-set` · `cron-remove` · `reload-cron` | 지우기는 **있는 것만** 이름 댄다 |
+| Scheduled work | `cron` → `cron-set` · `cron-remove` · `reload-cron` | 지우기는 **있는 것만** 이름 댄다. 예약 시각은 **최상위 `schedule`** 로 간다 — `args` 안에 넣으면 데몬이 빈 스케줄을 받고 아무것도 안 말한다 |
 
 ⚠ `jobs` 와 `cron` 은 **사람이 읽을 산문**을 답한다. 그래서 id 를 **알아볼 때만** 뽑고, 못 알아
 보면 아무것도 안 내놓는다 — 문장에서 낱말을 집어 보내면 데몬이 없는 id 를 거절하고, 그 거절은

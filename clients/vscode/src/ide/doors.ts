@@ -295,7 +295,9 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
         title: 'magi — what to ask each time', ignoreFocusOut: true,
       });
       if (!text) return;
-      if (await call('cron-set', { name, args: { schedule: when }, text })) {
+      // `schedule` at the top level — the door reads `req.Schedule`, and `args` is for the `tool`
+      // door alone. Sent inside `args` it arrived empty, silently.
+      if (await call('cron-set', { name, schedule: when, text })) {
         void vscode.window.showInformationMessage(`magi: ${name} scheduled.`);
       }
     }),
