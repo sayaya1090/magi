@@ -14,6 +14,9 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	// Aliased: `text` is a common local name for a file's contents in this file.
+	magitext "github.com/sayaya1090/magi/internal/core/text"
 	"sync"
 	"time"
 
@@ -526,7 +529,7 @@ func (s *Store) Inventory(ctx context.Context) ([]SkillInfo, error) {
 		tags, body := parseMemory(text)
 		out = append(out, SkillInfo{
 			Name: strings.TrimSuffix(filepath.Base(f), ".md"), Kind: "memory",
-			Description: firstLine(body), Body: body, Tags: tags,
+			Description: magitext.FirstLine(body), Body: body, Tags: tags,
 			Observed: 1, // a fact is written once; there is no second observation to count
 		})
 	}
@@ -551,12 +554,6 @@ func parseMemory(text string) ([]string, string) {
 }
 
 // firstLine is the line a person scans, which for a fact is the fact.
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSpace(s)
-}
 
 // Forget removes one skill by name.
 //

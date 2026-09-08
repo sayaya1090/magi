@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/core/text"
+
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -146,20 +148,18 @@ func partsText(parts []session.Part) string {
 	return b.String()
 }
 
-// firstLine returns the first line of s, trimmed and truncated to n runes.
+// firstLine is the first line a brief should show: leading blank lines skipped, clipped to n
+// runes, and a sentinel when there is nothing at all.
+//
+// Both extras belong to this layer rather than to text.FirstLineClipped. A model's reply often
+// opens with a blank line, and a brief that showed one would say nothing where the reader expects
+// the gist — so the trim comes first here. And "(empty)" is a thing to READ; a string helper that
+// invented words would surprise every other caller.
 func firstLine(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
+	if out := text.FirstLineClipped(strings.TrimSpace(s), n); out != "" {
+		return out
 	}
-	r := []rune(s)
-	if len(r) > n {
-		return string(r[:n]) + "…"
-	}
-	if s == "" {
-		return "(empty)"
-	}
-	return s
+	return "(empty)"
 }
 
 // plural renders "1 step" / "3 steps".

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -330,7 +332,7 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 	form, close := "", "Fold it into what you have and carry on."
 	if strings.TrimSpace(e.AnswerAs) != "" {
 		form = fmt.Sprintf("\n\nYou asked them to answer in this form:\n\n> %s",
-			clipLine(oneLine(e.AnswerAs), 400))
+			clipLine(text.Collapse(e.AnswerAs), 400))
 		close = "Check it against the form you asked for before you fold it in — a part that is " +
 			"missing rather than filled in is the thing to notice now, not later."
 	}
@@ -358,7 +360,7 @@ func (a *App) deliverHandoff(ctx context.Context, sid session.SessionID, actor e
 		shortDigest(answer), len(answer))
 	text := fmt.Sprintf("# %s answered (%s)\n\nYou asked them:\n\n> %s%s\n\n---\n\n%s\n\n---\n"+
 		"This is a piece of the work you are already doing, not a new request. %s\n\n%s",
-		e.Who, e.Session, clipLine(oneLine(e.Request), 400), form, answer, close, rule)
+		e.Who, e.Session, clipLine(text.Collapse(e.Request), 400), form, answer, close, rule)
 
 	// context.WithoutCancel because this outlives the tool call that started it by design.
 	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,
@@ -454,7 +456,7 @@ func (a *App) noteHandoff(ctx context.Context, sid session.SessionID, e port.Els
 	text := fmt.Sprintf("# About %s\n\nYou asked them:\n\n> %s\n\n---\n\n%s\n\n---\n"+
 		"They have not answered yet and this is not their answer. Nothing more is needed from you "+
 		"to receive it — it still arrives here on its own if it comes.",
-		e.Who, clipLine(oneLine(e.Request), 400), news)
+		e.Who, clipLine(text.Collapse(e.Request), 400), news)
 	if err := a.appendPromptText(context.WithoutCancel(ctx), sid,
 		event.Actor{Kind: event.ActorSystem, ID: "handoff:" + e.Who}, text); err != nil {
 		// Said on the bus instead. This is news rather than the answer, so a failure to record it

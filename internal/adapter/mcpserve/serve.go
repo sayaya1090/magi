@@ -148,7 +148,7 @@ func (s *Server) load(ctx context.Context) ([]entry, error) {
 		}
 		title := strings.TrimSpace(e.Description)
 		if title == "" {
-			title = strings.TrimSpace(firstLine(e.Body))
+			title = text.FirstLine(e.Body)
 		}
 		seen := e.FirstSeen
 		if e.LastSeen != "" && e.LastSeen != e.FirstSeen {
@@ -160,13 +160,6 @@ func (s *Server) load(ctx context.Context) ([]entry, error) {
 		})
 	}
 	return out, nil
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
 }
 
 // knows searches, and answers in lines rather than JSON.
@@ -358,7 +351,7 @@ func Describe(c Card) string {
 		for _, sk := range c.Skills {
 			b.WriteString("  " + sk.Name)
 			if d := strings.TrimSpace(sk.Description); d != "" {
-				b.WriteString(" — " + text.Clip(oneLine(d), 160))
+				b.WriteString(" — " + text.Clip(text.Collapse(d), 160))
 			}
 			b.WriteString("\n")
 		}
@@ -376,9 +369,6 @@ func Describe(c Card) string {
 }
 
 // oneLine flattens a description so a multi-line first paragraph cannot break the list's shape.
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}
 
 // tools is what this server advertises.
 func (s *Server) tools() []map[string]any {

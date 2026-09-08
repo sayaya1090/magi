@@ -482,7 +482,7 @@ func (a *App) askWhatTheAnswersWereWorth(ctx context.Context, tc turnCtx, evs []
 		"turn knows whether it was the answer you needed.\n")
 	for _, h := range ask {
 		fmt.Fprintf(&b, "\n  %s (%s) — you asked: %s",
-			h.Who, h.Receipt, clipLine(oneLine(h.Request), 160))
+			h.Who, h.Receipt, clipLine(text.Collapse(h.Request), 160))
 	}
 	b.WriteString("\n\nCall `rate_handoff` once for each, naming it by the receipt in brackets so " +
 		"two answers from one companion are told apart, and judging the ANSWER and not whether it " +
@@ -693,7 +693,7 @@ func (a *App) noteOutstandingHandoffs(ctx context.Context, tc turnCtx, ts *turnS
 	b.WriteString("You handed work to another companion and it has not come back yet:\n")
 	for _, h := range out {
 		fmt.Fprintf(&b, "\n  %s — %s (asked %s ago)",
-			h.Who, clipLine(oneLine(h.Request), 160), time.Since(h.Since).Round(time.Second))
+			h.Who, clipLine(text.Collapse(h.Request), 160), time.Since(h.Since).Round(time.Second))
 	}
 	b.WriteString("\n\nIf that answer is part of what you were asked for, keep working until it " +
 		"arrives — it lands in this conversation on its own and you do not need to ask again, or " +

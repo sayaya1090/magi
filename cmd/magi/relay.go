@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 	"sync"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -176,7 +178,7 @@ func (p *pipe) Read(b []byte) (int, error) {
 	}
 	p.reap()
 	if p.code == relayNoDaemon {
-		return n, fmt.Errorf("%w: %s", daemon.ErrGone, firstLine(p.said.String()))
+		return n, fmt.Errorf("%w: %s", daemon.ErrGone, text.FirstLine(p.said.String()))
 	}
 	return n, err
 }
@@ -198,13 +200,6 @@ func (p *pipe) reap() {
 			p.code = -1
 		}
 	})
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return strings.TrimSpace(s)
 }
 
 // Close ends the conversation and the process with it.

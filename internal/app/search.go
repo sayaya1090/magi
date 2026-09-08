@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -190,7 +192,7 @@ func (a *App) SearchSessions(ctx context.Context, workdir, query string) (string
 			fmt.Fprintf(&b, " · %d matching turns", g.Turns)
 		}
 		for _, t := range g.Snippets {
-			fmt.Fprintf(&b, "\n    %s  %s", t.Ref(g.Meta.ID), clipLine(oneLine(t.Prompt), 100))
+			fmt.Fprintf(&b, "\n    %s  %s", t.Ref(g.Meta.ID), clipLine(text.Collapse(t.Prompt), 100))
 		}
 	}
 	b.WriteString("\n")
@@ -388,7 +390,6 @@ func buildTurns(sid session.SessionID, evs []event.Event) []turnDoc {
 
 // oneLine collapses a prompt's whitespace so a multi-line ask fits on a snippet row. The cutting
 // is clipLine's job (council_evidence.go), which is already the rune-safe one.
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 // SeedForTest writes one prompt and one reply into a session.
 //

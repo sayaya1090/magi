@@ -273,7 +273,7 @@ func clipTail(s string, max int) string {
 
 // exampleLine renders one past prompt as a single capped line for the few-shot list.
 func exampleLine(s string) string {
-	s = oneLine(s)
+	s = text.Collapse(s)
 	if len(s) > 200 {
 		return text.Cut(s, 200) + "…"
 	}

@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 	"time"
 	"unicode"
 
@@ -37,7 +39,7 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	// a summary of "fixed\nstale: true" must not retire the page, a "\nts: 9999…" must not forge
 	// the tie-break, and a "\neditor: alice" must not spoof provenance. Folding beats escaping:
 	// there is no reading of these fields where an embedded newline is meaning.
-	title := oneLine(e.Page)
+	title := text.Unwrap(e.Page)
 	if title == "" {
 		return fmt.Errorf("wiki: a page needs a title")
 	}
@@ -65,9 +67,9 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	if len(revs) > 0 {
 		seq = revs[0].seq + 1
 	}
-	summary := oneLine(e.Summary)
+	summary := text.Unwrap(e.Summary)
 	if summary == "" {
-		summary = firstLine(body) // tolerated, not refused: a refused write teaches a model to stop writing
+		summary = text.FirstLine(body) // tolerated, not refused: a refused write teaches a model to stop writing
 	}
 	// Nanosecond timestamps: two edits from two machines land within the same second routinely,
 	// and a seconds-granular tie falls through to the filename — deterministic, but "the later
@@ -80,14 +82,14 @@ func (s *Store) wikiWrite(ctx context.Context, e port.WikiEdit, editor string) e
 	for _, l := range append(append([]string{}, e.Links...), wikiLinksIn(body)...) {
 		// Commas fold to spaces along with newlines: the frontmatter renders links comma-joined,
 		// so a comma inside one link would split it into two on the next parse.
-		l = oneLine(strings.ReplaceAll(l, ",", " "))
+		l = text.Unwrap(strings.ReplaceAll(l, ",", " "))
 		if k := strings.ToLower(l); l != "" && !seen[k] {
 			seen[k] = true
 			links = append(links, l)
 		}
 	}
 	rev := wikiRevision{
-		Title: title, Editor: oneLine(editor), TS: time.Now().UTC().Format(time.RFC3339Nano),
+		Title: title, Editor: text.Unwrap(editor), TS: time.Now().UTC().Format(time.RFC3339Nano),
 		Summary: summary, Links: links, Body: body, Stale: e.Stale, seq: seq,
 	}
 	name := fmt.Sprintf("%04d-%s-%s.md", seq, sanitize(nonEmpty(editor, "unknown")), memoryID(body))
@@ -210,11 +212,6 @@ func SlugOf(title string) (current, legacy string) { return wikiSlug(title), san
 
 // oneLine folds a frontmatter value to a single trimmed line — see wikiWrite for why folding, not
 // escaping.
-func oneLine(s string) string {
-	return strings.TrimSpace(strings.Join(strings.FieldsFunc(s, func(r rune) bool {
-		return r == '\n' || r == '\r'
-	}), " "))
-}
 
 // WikiSearch implements port.WikiStore: up to n current pages matching the query, best first. An
 // exact (case-insensitive) title match outranks everything — that is what makes a title query
@@ -383,7 +380,7 @@ func (s *Store) WikiIndex(ctx context.Context, n int) ([]port.WikiPage, error) {
 	}
 	// The index is the advertisement, not the content: keep the hook to one line.
 	for i := range pages {
-		pages[i].Body = firstLine(pages[i].Body)
+		pages[i].Body = text.FirstLine(pages[i].Body)
 	}
 	return pages, nil
 }

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sayaya1090/magi/internal/core/text"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/config"
@@ -315,7 +317,7 @@ func (a *App) renderSchedule(workdir string) string {
 		default:
 			fmt.Fprintf(&b, " · next %s", j.Next.Format("2006-01-02 15:04 MST"))
 		}
-		fmt.Fprintf(&b, "\n    %s", clipLine(oneLine(j.Prompt), 120))
+		fmt.Fprintf(&b, "\n    %s", clipLine(text.Collapse(j.Prompt), 120))
 	}
 	b.WriteString("\n")
 	return b.String()
