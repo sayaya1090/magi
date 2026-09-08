@@ -70,6 +70,15 @@ class HandServerTest {
             assertEquals(setOf("show", "apply_edit"), tools.map { it.jsonObject["name"]!!.jsonPrimitive.content }.toSet())
             // 스키마가 있어야 한다 — 없으면 모델이 인자를 지어낸다
             assertTrue(tools.all { it.jsonObject["inputSchema"] != null })
+            // **읽기만 하는지 말해야 한다.** 코어가 이 선언으로 두 가지를 정한다: 창이 닫힐 때
+            // 무엇을 먼저 덜어낼지, 그리고 파일을 지목하는 이 도구가 **고치는가 보는가**. 안 실으면
+            // 프로토콜 기본값(쓰기)으로 잡혀 `show` 가 「이 턴이 그 파일을 고쳤다」로 기록에 오른다.
+            val ro = tools.associate {
+                it.jsonObject["name"]!!.jsonPrimitive.content to
+                    it.jsonObject["annotations"]?.jsonObject?.get("readOnlyHint")?.jsonPrimitive?.content
+            }
+            assertEquals("true", ro["show"], "show 는 파일을 안 고친다고 말해야 한다")
+            assertEquals("false", ro["apply_edit"], "apply_edit 는 고친다 — 그래야 기록에 changed 로 오른다")
 
             // 4. tools/call
             val r = rpc(s, "tools/call", """{"name":"show","arguments":{"path":"a.kt","line":"12"}}""")["result"]!!.jsonObject

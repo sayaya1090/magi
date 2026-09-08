@@ -265,7 +265,9 @@ func (m *Manager) registerClient(ctx context.Context, name string, client *Clien
 			sc.tools = append(sc.tools, t.name)
 			continue
 		}
-		m.sink.Register(t)
+		// Wrapped when the tool's own schema says it names a file, so an editor plugin's edit is
+		// visible to the core as an edit (see filetool.go).
+		m.sink.Register(declared(t))
 		m.byName[t.name] = t
 		sc.tools = append(sc.tools, t.name)
 	}

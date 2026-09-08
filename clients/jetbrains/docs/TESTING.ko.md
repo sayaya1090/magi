@@ -169,7 +169,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `SocketReachTest` | 붙어 보고 만난 것을 어느 갈래로 — **파일 종류로 가른다** |
 | `DaemonClientTimeoutTest` | 시한 안에 답하면 워치독이 물러난다 |
 | `GoldenTest` | 코어와 같은 바이트를 주고받나 |
-| `HandServerTest`·`HandInteropTest` | 손의 서버와 코어와의 맞물림 |
+| `HandServerTest`·`HandInteropTest` | 손의 서버와 코어와의 맞물림. **`readOnlyHint` 를 싣는지도** — 안 실으면 프로토콜 기본값(쓰기)으로 잡혀 `show` 가 「이 턴이 그 파일을 고쳤다」로 코어 기록에 오른다. 변이 둘로 확인(애노테이션 제거·`show` 의 readOnly 제거) |
 | `ConfigDirProbeTest` | 설정 디렉토리 해석 |
 | `LiveDaemonTest` | ⏸ 진짜 데몬에 붙어 핸드셰이크(청해야 돈다) |
 

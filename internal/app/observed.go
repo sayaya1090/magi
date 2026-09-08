@@ -65,6 +65,16 @@ type observedRun struct {
 	// say so — twenty times — but it lives in the tool result, which compaction takes away, and
 	// this block is what survives.
 	wrote map[string]int
+	// tried counts writes that did NOT land, per path. `changed` deliberately omits them — nothing
+	// was written, and naming a path there would claim a change that is not on disk.
+	//
+	// But omitting them everywhere is how a turn spends itself failing the same edit. The reason a
+	// write did not take (a wrong anchor, a refused path) is in the TOOL RESULT, and compaction
+	// takes that away; this block is what survives. So the fact that an edit was attempted and did
+	// not take is recorded beside the ones that did, and the reader tells them apart by the line
+	// they are on rather than by their absence.
+	tried      map[string]int
+	triedOrder []string
 }
 
 // noteRerun records one bash command, keyed by its own whitespace-normalized text.
@@ -231,6 +241,18 @@ func observeEvents(all []event.Event, touches func(string, json.RawMessage) (fil
 				// stays counted: the file on disk changed.) A call still in flight has no result
 				// yet and keeps the old benefit of the doubt.
 				if res := results[tc.CallID]; res.present && res.isError && !res.advisory {
+					// Refused before it ran is not an attempt: nothing was tried, so there is
+					// nothing for the reader to act on. A call that RAN and came back an error is
+					// an attempt that did not take, and that is the fact worth keeping.
+					if path != "" && !neverRan(res, denied[tc.CallID]) {
+						if out.tried == nil {
+							out.tried = map[string]int{}
+						}
+						if out.tried[path] == 0 {
+							out.triedOrder = append(out.triedOrder, path)
+						}
+						out.tried[path]++
+					}
 					continue
 				}
 				if path != "" {
@@ -342,6 +364,24 @@ func (o observedRun) rewritten() []string {
 	return out
 }
 
+// attempted lists the paths a write was tried on and did not land, busiest first. A path that also
+// changed later is still listed: the run DID spend those calls, and a reader deciding whether to
+// try the same anchor again needs to know it already failed there.
+func (o observedRun) attempted() []string {
+	var out []string
+	for _, p := range o.triedOrder {
+		if n := o.tried[p]; n > 0 {
+			if n == 1 {
+				out = append(out, clipLine(p, 70))
+				continue
+			}
+			out = append(out, fmt.Sprintf("%s ×%d", clipLine(p, 70), n))
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return countOf(out[i]) > countOf(out[j]) })
+	return out
+}
+
 // countOf reads back the ×N rendered above, for ordering. An unparseable tail sorts last.
 func countOf(s string) int {
 	i := strings.LastIndex(s, " ×")
@@ -359,7 +399,9 @@ func countOf(s string) int {
 // Ordered facts first: what changed, what ran, and last what magi could NOT determine — a reader
 // that stops early still has the part that is settled.
 func (o observedRun) render() string {
-	if len(o.cmds) == 0 && len(o.changed) == 0 {
+	// A run whose every write failed has no commands and nothing changed, and it is the run most
+	// worth telling: the reader is about to try the same anchor again.
+	if len(o.cmds) == 0 && len(o.changed) == 0 && len(o.tried) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -378,6 +420,11 @@ func (o observedRun) render() string {
 	}
 	if again := o.rewritten(); len(again) > 0 {
 		b.WriteString("\nauthored more than once: " + strings.Join(clipEach(again, 6), " · "))
+	}
+	// Right after what changed, because it is the same question — what happened to the files —
+	// and a reader who stops early should have both halves of it.
+	if failed := o.attempted(); len(failed) > 0 {
+		b.WriteString("\ntried to write and it did not take: " + strings.Join(clipEach(failed, 6), " · "))
 	}
 	// Every command, with the exit magi actually learned. It used to sort them first — inspections
 	// dropped entirely, the rest split into "ran clean" and "ran and FAILED" — and that sorting was

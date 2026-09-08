@@ -49,6 +49,12 @@ class Hand(private val ide: Ide) {
      */
     fun tools(): List<Tool> = listOf(
         Tool(
+            // **읽기만 한다고 말한다.** 코어가 이 말을 두 자리에서 읽는다: 창이 닫힐 때 다시 불러올
+            // 수 있는 결과부터 덜어내고(`internal/app/compact.go`), 파일을 지목하는 도구가
+            // **고치는가 보는가**를 이것으로 가른다(`internal/adapter/mcp/filetool.go`). 안 말하면
+            // 프로토콜의 기본값(쓰기)으로 잡혀, 파일을 열어 보인 것이 「이 턴이 그 파일을 고쳤다」로
+            // 기록에 오른다.
+            readOnly = true,
             name = "show",
             description = "Open a file in the IDE and put the caret on a line. Use this to point the " +
                 "person at something rather than describing where it is.",
@@ -62,6 +68,8 @@ class Hand(private val ide: Ide) {
             },
         ),
         Tool(
+            // 고친다. 그러니 선언도 안 한다(기본값이 쓰기다) — 그래야 코어의 기록에
+            // `changed: <경로>` 로 오르고, 카운슬이 그 기록으로 판단하며, 정체 가드가 진행으로 센다.
             name = "apply_edit",
             description = "Replace text in a file THROUGH the IDE, so undo, local history and " +
                 "inspections all see it. Prefer this over writing the file directly when the file " +
@@ -83,7 +91,19 @@ class Hand(private val ide: Ide) {
         ),
     )
 
-    data class Tool(val name: String, val description: String, val schema: JsonObject)
+    /**
+     * 내놓는 도구 하나.
+     *
+     * [readOnly] 는 **코어가 읽는 선언**이다(`annotations.readOnlyHint`). 기본값을 `false` 로 두는
+     * 것은 프로토콜의 기본값과 같게 맞춘 것이고, 그 방향으로 틀리는 것이 안전한 쪽이다 — 안 고친
+     * 것을 고쳤다고 적으면 기록에 눈에 보이는 군더더기가 남고, 고친 것을 안 적으면 아무도 모른다.
+     */
+    data class Tool(
+        val name: String,
+        val description: String,
+        val schema: JsonObject,
+        val readOnly: Boolean = false,
+    )
 
     /** 결과 하나. [error] 는 프로토콜의 `isError` 로 간다 — 모델이 그것을 보고 멈춘다. */
     data class Answer(val text: String, val error: Boolean = false)

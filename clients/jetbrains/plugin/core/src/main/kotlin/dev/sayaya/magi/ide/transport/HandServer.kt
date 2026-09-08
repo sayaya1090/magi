@@ -110,6 +110,10 @@ class HandServer private constructor(
                 hand.tools().forEach { t ->
                     add(buildJsonObject {
                         put("name", t.name); put("description", t.description); put("inputSchema", t.schema)
+                        // 코어가 읽는 선언. 안 실으면 프로토콜 기본값(쓰기)으로 잡혀 `show` 가
+                        // 「이 턴이 그 파일을 고쳤다」로 기록에 오른다 — 그리고 창이 닫힐 때 다시
+                        // 부를 수 있는 결과를 덜어내는 쪽도 이 값을 읽는다.
+                        put("annotations", buildJsonObject { put("readOnlyHint", t.readOnly) })
                     })
                 }
             })
