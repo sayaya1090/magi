@@ -33,9 +33,24 @@ export function peers(resp: Response | null): Peer[] {
   return rows.filter((r) => typeof r?.socket === 'string' && r.socket);
 }
 
-/** What a person picked this companion out of the list by. */
+/**
+ * What a person picked this companion out of the list by.
+ *
+ * ⚠ **The same rule everywhere a companion is named.** A person reads the fleet section and then
+ * picks from the hand-off list; if the two spell one companion differently there is no way to match
+ * them up. So the panel imports this rather than keeping its own.
+ *
+ * The WORKDIR's last segment before the socket's filename, because that is the name a person knows
+ * it by — `word`, `excel`, `ws-agy` — while the socket is `daemon-word-37iu1p70.sock`, which has the
+ * name in it plus a hash nobody reads. Measured on a live roster of eight: not one row carried a
+ * `name`, so the fallback IS the label in practice.
+ */
 export function peerLabel(p: Peer): string {
-  return p.name?.trim() || p.socket.split('/').pop() || p.socket;
+  const named = p.name?.trim();
+  if (named) return named;
+  const dir = (p.workdir ?? '').replace(/[/\\]+$/, '').split(/[/\\]/).pop();
+  if (dir) return dir;
+  return p.socket.split('/').pop() || p.socket;
 }
 
 /**

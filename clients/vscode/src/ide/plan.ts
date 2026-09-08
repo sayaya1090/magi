@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import * as activity from '../core/activity';
 import { Companion } from './workspace';
+import { context as contextOf, fleet as fleetOf, jobs as jobsOf, schedules } from '../core/panel';
 
 /**
  * The plan and the dials, in the sidebar.
@@ -51,10 +52,13 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       kind: 'plan',
       state: activity.label(this.companion.state),
       // "not asked" and "asked and empty" are different facts, and the panel says which.
-      jobs: jobs === null ? null : (jobs.out ?? ''),
-      context: ctx === null ? null : (ctx.out ?? ''),
-      fleet: fleet === null ? null : (fleet.out ?? ''),
-      cron: cron === null ? null : (cron.out ?? ''),
+      // ⚠ From the STRUCTURED fields. These four never fill `out` — measured against a live daemon —
+      // and reading `out` drew three empty sections on every build, without failing: an absent field
+      // is an empty string, and an empty string is what "nothing to report" looks like.
+      jobs: jobs === null ? null : jobLines(jobs),
+      context: ctx === null ? null : contextOf(ctx),
+      fleet: fleet === null ? null : fleetOf(fleet).join('\n'),
+      cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
     });
   }
@@ -120,4 +124,18 @@ window.addEventListener('message', (e) => {
 vs.postMessage({ kind: 'ready' });
 </script></body></html>`;
   }
+}
+
+/**
+ * The jobs section: what is running beside the turn, and what runs next.
+ *
+ * Queued work is drawn with it rather than in a section of its own — a person asking "what else is
+ * it doing" means both, and two sections that are usually empty read as a broken panel.
+ */
+function jobLines(resp: Parameters<typeof jobsOf>[0]): string {
+  const { queued, jobs: running } = jobsOf(resp);
+  return [
+    ...running.map((j) => `${j.id} · ${j.what}`),
+    ...queued.map((q) => `next — ${q}`),
+  ].join('\n');
 }

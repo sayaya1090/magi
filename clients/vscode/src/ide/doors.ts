@@ -3,7 +3,7 @@ import { Companion } from './workspace';
 import { Chat } from './chat';
 import { Row } from '../core/transcript';
 import * as activity from '../core/activity';
-import { jobIds, cronNames } from '../core/prose';
+import { jobs as jobsOf, schedules } from '../core/panel';
 
 /**
  * The doors the JetBrains client opens and this one did not.
@@ -30,7 +30,16 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
     return r;
   };
 
-  /** A door this build of the daemon does not advertise. Said once, with the door's name. */
+  /**
+   * A door this build of the daemon does not advertise. Said once, with the door's name.
+   *
+   * ⚠ **Only for names the daemon can actually advertise.** Thirteen of its forty-four doors carry a
+   * capability; the other thirty-one do not, and gating on one of those is a command that says "this
+   * companion does not do that" for ever, on every build. Measured: `compact`, `rewind` and
+   * `reload-cron` were gated that way here and were dead the whole time. For a capless door, CALL it
+   * — a refusal comes back in the daemon's own words, which is the sentence worth showing anyway.
+   * `manifest.test.ts` holds the list against the Go source.
+   */
   const has = async (cap: string, what: string): Promise<boolean> => {
     const caps = await companion.caps();
     if (caps.has(cap)) return true;
@@ -142,7 +151,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
      * middle of the work. So it asks first.
      */
     reg('magi.compact', async () => {
-      if (!await has('compact', 'folding a conversation')) return;
+      // No capability for this door — see `has`. Ask the person, then let the daemon answer.
       const ok = await vscode.window.showWarningMessage(
         'Fold this conversation? The companion keeps a summary and loses the detail.',
         { modal: true }, 'Fold');
@@ -160,7 +169,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
      * anybody thinks about "before I asked for that".
      */
     reg('magi.rewind', async () => {
-      if (!await has('rewind', 'rewinding')) return;
+      // No capability for this door either.
       const asked = chat.userRows();
       if (!asked.length) { void vscode.window.showInformationMessage('magi: nothing to go back to yet.'); return; }
       const pick = await vscode.window.showQuickPick(
@@ -200,11 +209,16 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!await has('job-kill', 'stopping a background job')) return;
       const r = await call('jobs');
       if (!r) return;
-      const ids = jobIds(r.out ?? '');
-      if (!ids.length) { void vscode.window.showInformationMessage('magi: nothing is running in the background.'); return; }
-      const pick = await vscode.window.showQuickPick(ids, { title: 'magi — stop which job' });
-      if (pick && await call('job-kill', { name: pick })) {
-        void vscode.window.showInformationMessage(`magi: asked ${pick} to stop.`);
+      // Only what can be stopped: queued work is not running yet, and offering it would send a kill
+      // for an id the daemon has never issued.
+      const live = jobsOf(r).jobs.filter((j) => j.running);
+      if (!live.length) { void vscode.window.showInformationMessage('magi: nothing is running in the background.'); return; }
+      const pick = await vscode.window.showQuickPick(
+        live.map((j) => ({ label: j.id, description: j.what })),
+        { title: 'magi — stop which job' },
+      );
+      if (pick && await call('job-kill', { name: pick.label })) {
+        void vscode.window.showInformationMessage(`magi: asked ${pick.label} to stop.`);
       }
     }),
 
@@ -236,7 +250,8 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!await has('cron', 'scheduled work')) return;
       const now = await call('cron');
       if (!now) return;
-      const names = cronNames(now.out ?? '');
+      const rows = schedules(now);
+      const names = rows.map((r) => r.name);
       const what = await vscode.window.showQuickPick([
         { label: 'Add a schedule', id: 'add' },
         { label: 'Remove a schedule', id: 'remove', description: names.length ? names.join(', ') : 'none yet' },
@@ -244,16 +259,19 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       ], { title: 'magi — scheduled work' });
       if (!what) return;
       if (what.id === 'reload') {
-        if (!await has('reload-cron', 're-reading its schedules')) return;
+        // `reload-cron` carries no capability, unlike `cron-set`/`cron-remove` below.
         if (await call('reload-cron')) void vscode.window.showInformationMessage('magi: schedules re-read.');
         return;
       }
       if (what.id === 'remove') {
         if (!await has('cron-remove', 'removing a schedule')) return;
         if (!names.length) { void vscode.window.showInformationMessage('magi: there are no schedules.'); return; }
-        const pick = await vscode.window.showQuickPick(names, { title: 'magi — remove which' });
-        if (pick && await call('cron-remove', { name: pick })) {
-          void vscode.window.showInformationMessage(`magi: ${pick} removed.`);
+        const pick = await vscode.window.showQuickPick(
+          rows.map((r) => ({ label: r.name, description: r.line })),
+          { title: 'magi — remove which' },
+        );
+        if (pick && await call('cron-remove', { name: pick.label })) {
+          void vscode.window.showInformationMessage(`magi: ${pick.label} removed.`);
         }
         return;
       }

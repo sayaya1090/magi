@@ -75,9 +75,15 @@ test('the roster drops rows with nothing to dial', () => {
 });
 
 /** The label falls back to the socket's own name — a companion with no name is still dialable. */
-test('a companion with no name is named by its socket', () => {
+test('a companion with no name is named by its folder, then by its socket', () => {
+  // The folder is the name a person knows it by; the socket carries that plus a hash nobody reads.
+  assert.equal(peerLabel({ socket: '/x/daemon-web-abc.sock', workdir: '/home/me/web' }), 'web');
+  assert.equal(peerLabel({ socket: '/x/daemon-web-abc.sock', workdir: '/home/me/web/' }), 'web');
+  // No folder either — then the socket's filename is all there is.
   assert.equal(peerLabel({ socket: '/x/daemon-web-abc.sock' }), 'daemon-web-abc.sock');
   assert.equal(peerLabel({ socket: '/x/y.sock', name: '  ' }), 'y.sock');
+  // A name always wins: somebody chose it.
+  assert.equal(peerLabel({ socket: '/x/y.sock', name: 'hub', workdir: '/home/me/web' }), 'hub');
 });
 
 test('a refused roster yields nobody', () => {

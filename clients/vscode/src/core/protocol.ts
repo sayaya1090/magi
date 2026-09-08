@@ -91,6 +91,16 @@ export interface Response {
   roster?: unknown[];
   /** `hand-state`: how the work handed to another companion is going. */
   handover?: unknown;
+  /**
+   * The doors that answer a STRUCT rather than prose.
+   *
+   * ⚠ None of these fills `out`, measured against a live daemon. The panel read `out` for all of
+   * them and drew nothing, on every build, without failing — an absent field is an empty string and
+   * an empty string parses to an empty list.
+   */
+  jobs?: unknown;
+  cron?: unknown[];
+  context?: unknown;
   models?: string[];
   done?: boolean;
 }

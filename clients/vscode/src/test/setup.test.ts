@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { setupOf, sameSetup } from '../core/activity';
-import { jobIds, cronNames } from '../core/prose';
 
 /**
  * The daemon has always sent these three; nothing read them.
@@ -49,21 +48,4 @@ test('two readings of the same setup are the same', () => {
   const a = { model: 'm', backend: 'b', permission: 'p' };
   assert.ok(sameSetup(a, { ...a }));
   assert.ok(!sameSetup(a, { ...a, model: 'other' }));
-});
-
-/**
- * `jobs` and `cron` answer prose meant for a person, so what is read out of them is offered only
- * when it is recognised. Handing back words plucked out of a sentence would send the daemon an id
- * that never existed — and `job-kill` would refuse, which reads as the job refusing to stop.
- */
-test('job ids are read when they are there and invented when they are not', () => {
-  assert.deepEqual(jobIds('running: job_7f2a1  (make test)\nqueued: bg-2 (lint)'), ['job_7f2a1', 'bg-2']);
-  assert.deepEqual(jobIds('nothing is running in the background'), []);
-  assert.deepEqual(jobIds(''), []);
-});
-
-test('schedule names are read the same cautious way', () => {
-  assert.deepEqual(cronNames('nightly   0 3 * * *   run the suite'), ['nightly']);
-  assert.deepEqual(cronNames('standup: 7 9 * * 1-5'), ['standup']);
-  assert.deepEqual(cronNames('no schedules'), []);
 });

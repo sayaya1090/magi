@@ -130,3 +130,45 @@ test('the settings the code reads are exactly the settings declared', () => {
     assert.ok(read.has(k), `package.json declares ${k}, which no code reads`);
   }
 });
+
+/**
+ * ★ Every capability this client gates on is one the daemon can actually advertise.
+ *
+ * Thirteen of the daemon's doors carry a capability; thirty-one do not. Gating a command on one of
+ * the thirty-one makes it answer "this companion does not offer that" on every build, for ever —
+ * and nothing fails, because a client that never calls a door never learns anything about it.
+ * Measured 2026-09-09: `compact`, `rewind` and `reload-cron` were gated that way and were dead the
+ * whole time they existed.
+ *
+ * Read from the Go source rather than from a list here, for the reason `wire.test.ts` reads it: a
+ * list copied into this repository's other language is the thing that goes stale.
+ */
+test('every capability the client checks is one the daemon advertises', () => {
+  const doors = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'doors.go'), 'utf8');
+  // `capsOf` puts these two in by hand — they are build-level, not read off the door table.
+  const advertised = new Set(['handshake', 'roster', 'transcript']);
+  for (const m of doors.matchAll(/cap:\s*"([a-z][a-z0-9-]*)"/g)) advertised.add(m[1]);
+  assert.ok(advertised.size >= 12,
+    `only ${advertised.size} capabilities found in doors.go — this guard is not reading it`);
+
+  const dir = path.join(__dirname, '..', '..', 'src');
+  const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (e.name === 'test' ? [] : walk(path.join(d, e.name)))
+      : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);
+  const checked = new Map<string, string>();
+  for (const f of walk(dir)) {
+    const body = fs.readFileSync(f, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    // caps.has('x'), and the `has('x', …)` helper in doors.ts.
+    for (const m of body.matchAll(/(?:caps\.has|\bhas)\(\s*'([a-z][a-z0-9-]*)'/g)) {
+      checked.set(m[1], path.relative(dir, f));
+    }
+  }
+  assert.ok(checked.size >= 5, `only ${checked.size} capability checks found — this guard is not reading them`);
+  for (const [cap, where] of checked) {
+    assert.ok(advertised.has(cap),
+      `${where} gates on capability "${cap}", which the daemon never advertises — that command is ` +
+      'dead on every build. Call the door instead and show the daemon\'s own refusal.');
+  }
+});
