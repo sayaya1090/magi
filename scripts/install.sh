@@ -58,4 +58,4 @@ else
 fi
 chmod +x "$BINDIR/magi"
 rm -rf "$tmp"
-echo "Installed: $($BINDIR/magi --version)"
+echo "Installed: $("$BINDIR/magi" --version)"

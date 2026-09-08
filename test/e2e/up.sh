@@ -12,7 +12,7 @@ echo "Starting LiteLLM (proxying to host Ollama)..."
 docker compose -f compose.e2e.yml up -d litellm
 
 echo "Waiting for LiteLLM to become healthy on :4000 ..."
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   if curl -sf http://localhost:4000/health/liveliness >/dev/null 2>&1 \
      || curl -sf http://localhost:4000/v1/models >/dev/null 2>&1; then
     echo "LiteLLM is up: http://localhost:4000/v1"

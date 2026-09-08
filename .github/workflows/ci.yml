@@ -69,6 +69,34 @@ jobs:
           }
           if ($bad) { exit 1 } else { Write-Host "ps1 parse ok" }
 
+      - name: shell scripts parse and check
+        # The .ps1 gate above has had no counterpart for shell, while scripts/install.sh is the
+        # script people run as `curl … | sh` — the least reviewed and most executed file here.
+        #
+        # Two passes, because they catch different things. `sh -n` is the shell's own parser and
+        # answers "would this even run"; shellcheck answers "does it do what it looks like".
+        # Severity starts at warning: the note level is mostly style and it has false positives on
+        # this tree (a JSON `\n` inside single quotes is not an echo escape).
+        #
+        # What it would NOT have caught, measured rather than assumed: install.sh broke on
+        # 2026-09-08 because under `set -e` an assignment from a failing command ends the script AT
+        # the assignment, so the error message written for that case had never once printed.
+        # shellcheck is silent on that at every severity, and so is `sh -n`. This gate is for
+        # syntax and the ordinary shellcheck classes; it is not a claim to have covered that one.
+        #
+        # shellcheck ships on the ubuntu runner image (checked against the runner-images manifest,
+        # 2026-09-08). If a later image drops it the step fails with 127 rather than passing on a
+        # command that never ran, which is the direction this has to fail in.
+        run: |
+          set -o pipefail
+          bad=0
+          files=$(git ls-files '*.sh' | grep -v '^scratchpad/')
+          [ -n "$files" ] || { echo "no shell scripts found — this step is checking nothing"; exit 1; }
+          printf '%s\n' "$files" | xargs -n1 sh -n || bad=1
+          printf '%s\n' "$files" | xargs shellcheck -S warning -f gcc || bad=1
+          if [ "$bad" != 0 ]; then exit 1; fi
+          echo "shell ok: $(printf '%s\n' "$files" | wc -l | tr -d ' ') scripts"
+
       - name: go vet
         run: go vet ./...
 
