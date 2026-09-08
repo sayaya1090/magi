@@ -1,6 +1,6 @@
 # clients/vscode/ — VS Code 확장 (설계 단계)
 
-[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
+[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
 
 > **상태: 설계만 있다. 코드는 없다.**
 >
@@ -31,6 +31,7 @@ clients/vscode/
   docs/DESIGN.ko.md    ← 설계
   docs/UI.ko.md        ← 무엇이 어디에 어떻게 그려지나
   docs/PLATFORM.ko.md  ← VS Code 가 정해 둔 것과의 대조표
+  docs/SURVEY.ko.md    ← 이웃들은 무엇을 어디에 다나
   src/core/          vscode 를 import 하지 않는다. node 만으로 돈다
   src/ide/           vscode API 가 사는 유일한 자리
   test/              core 를 잰다
@@ -47,5 +48,7 @@ clients/vscode/
   배포 절차·분량. 짐작은 안 적었다.
 - [`docs/UI.ko.md` §0](docs/UI.ko.md) — **불변식 일곱.** 여섯은 젯브레인에서 물려받고, 일곱째는
   이 클라이언트가 더한다: **웹뷰는 둘뿐이다** — 플랫폼이 그렇게 요구한다.
+- [`docs/SURVEY.ko.md` §1](docs/SURVEY.ko.md) — **이웃 셋이 다 액티비티 바에 대화를 단다.
+  우리만 패널이다.** 유지하기로 했고, 그 값을 §4-가 에 적었다.
 - [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md) — **젯브레인과 정반대인 것 넷.** 포팅에서 가장
   비싼 것은 없는 API 가 아니라 반대인 규약이다. 설정 화면을 손으로 짜는 습관이 여기서는 금지다.
