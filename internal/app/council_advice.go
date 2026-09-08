@@ -120,7 +120,23 @@ func (a *App) councilAdvice(ctx context.Context, s session.Session, guardChanges
 	councilActor := event.Actor{Kind: event.ActorSystem, ID: "council"}
 	members, rule := a.councilParams()
 
-	evs, _ := a.store.Read(ctx, sid, 0)
+	// Everything the council is about to judge comes out of this one read: the task, the tool
+	// evidence for what the turn actually ran, the guidance it bound itself to, the anchor the
+	// world-diff is measured from, the objections already made, and the turn's last words. Read
+	// answers (nil, err) when the log cannot be read, and a discarded error made every one of
+	// them empty — while the panel convened anyway.
+	//
+	// Measured: with the log unreadable, councilAdvice still returned "The council accepts that
+	// the task is finished", on a request whose Task was the empty string. A verdict on a
+	// completion claim, assembled out of a fact about the disk.
+	//
+	// The rule is already stated one file over, at the irreversible gate: a reader that cannot be
+	// reached makes the gate decorative, so it says so rather than waving the work through. A
+	// reader that can be reached but has nothing to read is the same gate, equally decorative.
+	evs, rerr := a.store.Read(ctx, sid, 0)
+	if rerr != nil {
+		return "", fmt.Errorf("the council cannot judge this turn: its log could not be read: %w", rerr)
+	}
 	evs = a.taskEvents(sid, evs)
 	task := lastUserPromptText(evs)
 	// The task the loop is actually answering wins when it is known. A redirect interjection
