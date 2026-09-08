@@ -103,10 +103,19 @@ func RunCommit(ctx context.Context, src Source, currentVersion, execPath string)
 	if err != nil {
 		return Result{}, err
 	}
+	// The digest first, on **what arrived**. checksums.txt lists the archive, so verifying after
+	// unpacking would compare the wrong bytes and the check would never pass.
 	if rel.SHA256 != "" {
 		if err := verifySHA256(bin, rel.SHA256); err != nil {
 			return Result{}, err
 		}
+	}
+	// Then take the binary out of it. Releases ship archives — magi_<os>_<arch>.tar.gz, .zip on
+	// Windows — and this step was missing: the archive itself was written over the running program.
+	// See binaryFromArchive for what that looked like from the outside.
+	bin, err = binaryFromArchive(bin)
+	if err != nil {
+		return Result{}, err
 	}
 	if err := Commit(bin, execPath); err != nil {
 		return Result{}, err
