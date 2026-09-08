@@ -215,14 +215,45 @@ test/Magi.Core.Tests/ 코어를 잰다
 
 | 걸음 | 무엇 | 어디서 |
 |---|---|---|
-| 0 | **`magi ide-bridge`** — 공통 여덟(§3), [계약](../../../docs/IDE_BRIDGE.ko.md) | 여기(macOS) |
+| 0 | **`magi ide-bridge`** — 공통 여덟(§3), [계약](../../../docs/IDE_BRIDGE.ko.md) | macOS ✅ **척추까지 섰다**(`about`·`daemon`). 유도 여섯은 남았다 |
 | 1 | 물음표 넷을 실물로 확인(§2) — 상태 표시줄·인라인 완성·커밋 초안·코드 액션 | **Windows** |
 | 2 | 척추 — 발견·악수·대화 툴 윈도·데몬 기동 | Windows |
 | 3 | 편집기 안 — 태거·마진 | Windows |
 | 4 | 진입점·계획판 | Windows |
 | 5 | `vsstudio-v*` 레인 | CI(windows-latest) |
 
-**0 은 여기서 할 수 있다.** 나머지는 Windows 기계가 있어야 한다.
+### Windows 기계에서 첫날 할 것
+
+**걸음 1 이 나머지를 정하므로 먼저 한다.** 물음표 넷(§2)이 실제로 되는지 보기 전에 척추를 지으면,
+안 되는 것을 전제로 지은 설계 위에 코드가 얹힌다.
+
+준비물 — Visual Studio 2022 **17.9 이상** + `Visual Studio extension development` 워크로드.
+설치 확인:
+
+```powershell
+& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+    -latest -products * -requires Microsoft.VisualStudio.Component.VSSDK `
+    -property catalog_productDisplayVersion
+```
+
+빈 확장 하나를 띄워 확장점 목록을 실물로 확인한다:
+
+```powershell
+dotnet new install Microsoft.VisualStudio.Extensibility.Templates
+dotnet new vsextension -n MagiProbe
+cd MagiProbe; dotnet build
+```
+
+**브리지는 그 기계에서 이렇게 확인한다** — 클라이언트가 무엇을 상대하는지부터 눈으로 본다:
+
+```powershell
+go build -o magi.exe ./cmd/magi
+'{"id":1,"method":"about"}' | .\magi.exe ide-bridge -workspace C:\path	o\project
+```
+
+`daemon` 이 `null` 이고 `why` 가 있으면 그 워크스페이스에 컴패니언이 없는 것이다(에러가 아니다).
+⚠ 윈도우에서는 `%AppData%` 아래 AF_UNIX 함정(§5)이 여기서 처음 걸릴 자리다 — 걸리면
+`MAGI_SOCKET_DIR` 로 소켓만 짧은 경로에 뗀다.
 
 ---
 
