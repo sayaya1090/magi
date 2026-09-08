@@ -51,6 +51,24 @@ export class Companion implements vscode.Disposable {
     }
   }
 
+  private capsSeen: Set<string> | null = null;
+
+  /**
+   * What this daemon says it answers.
+   *
+   * Read once and kept: `about` is a handshake, not a poll. A client that called a door the
+   * advertisement did not name would get a refusal and have no way to tell an old build from an
+   * engine that will not do it — which is the decision capabilities exist for, and it is made
+   * before anybody presses anything.
+   */
+  async caps(): Promise<Set<string>> {
+    if (this.capsSeen) return this.capsSeen;
+    const about = await this.ask('about');
+    if (!about?.ok) return new Set();       // not cached: we could not ask, and that may change
+    this.capsSeen = new Set(about.caps ?? []);
+    return this.capsSeen;
+  }
+
   /** Ask one question. Null when we could not ask at all — never a fabricated answer. */
   async ask(method: string, extra: Record<string, unknown> = {}): Promise<Response | null> {
     const d = await this.reach();
@@ -85,6 +103,7 @@ export class Companion implements vscode.Disposable {
     this.gone = true;
     if (this.timer) clearTimeout(this.timer);
     this.conn?.close();
+    this.capsSeen = null;
     this.changed.dispose();
   }
 }

@@ -1,0 +1,84 @@
+# The VS Code extension's own release lane. The core binary releases on v* through goreleaser and
+# its asset layout is load-bearing (self-update pulls magi_<os>_<arch> by name), so this does not
+# ride that train — the same reason web/ and jetbrains/ have their own.
+#
+# The version comes from the tag and nowhere else. package.json carries a version because vsce
+# insists on one, so this rewrites it from the tag before packaging: two places to say one number
+# is one place to forget.
+name: release-vscode
+
+on:
+  push:
+    tags:
+      - "vscode-v*"
+
+permissions:
+  contents: write # gh release create uploads the asset
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: which version this is
+        id: v
+        run: |
+          set -o pipefail
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "version=${tag#vscode-v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: build and check
+        working-directory: clients/vscode
+        run: |
+          set -o pipefail
+          npm install
+          npx tsc -p .
+          # The unit tests, which need no editor. The live check does need one and does not run
+          # here — see clients/vscode/docs/TESTING.ko.md for what that leaves unmeasured on CI.
+          node --test 'out/test/*.test.js'
+
+      - name: package
+        working-directory: clients/vscode
+        run: |
+          set -o pipefail
+          node -e '
+            const fs = require("fs"), p = "package.json";
+            const d = JSON.parse(fs.readFileSync(p, "utf8"));
+            d.version = process.argv[1];
+            fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
+          ' "${{ steps.v.outputs.version }}"
+          npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository
+          ls -l ./*.vsix
+
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          gh release create "${{ steps.v.outputs.tag }}" \
+            --title "VS Code extension ${{ steps.v.outputs.version }}" \
+            --notes "The magi extension for VS Code. Install with: code --install-extension magi-${{ steps.v.outputs.version }}.vsix" \
+            clients/vscode/magi-${{ steps.v.outputs.version }}.vsix
+
+      # A fixed address the extension (and a person) can read to find the newest, for the reason
+      # release.yml already states: /releases/latest does not pick a lane in this repository, so it
+      # answers with whichever train shipped last.
+      - name: write the version file
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -o pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin badges || true
+          git checkout badges 2>/dev/null || git checkout --orphan badges
+          echo "${{ steps.v.outputs.version }}" > vscode-latest.txt
+          git add vscode-latest.txt
+          git commit -m "vscode ${{ steps.v.outputs.version }}" || true
+          git push origin badges

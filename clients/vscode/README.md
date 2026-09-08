@@ -1,55 +1,55 @@
-# clients/vscode/ — VS Code 확장 (설계 단계)
+# clients/vscode/ — VS Code 확장
 
-[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
-
-> **상태: 1단계(척추) 착지.** 발견·악수·전사·상태 표시줄이 실물 데몬에 붙어 돈다.
->
-> 순서는 사용자가 정했다(2026-09-08): 만들기 전에 설계문서부터. 문서 다섯이 먼저 서고 그 위에
-> 코드가 섰다. 지금 무엇이 되고 무엇이 아직 아닌지는 [매뉴얼 §6](docs/MANUAL.ko.md) 에 있다.
-
-## 무엇을 만드는가
+[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [무엇을 어디서 재나](docs/TESTING.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
 
 VS Code 가 연 폴더의 magi 컴패니언에게 말을 걸고, 그가 이 편집기를 부릴 수 있게 하는 확장.
 **새 프로토콜을 만들지 않는다** — [`docs/CLIENTS`](../../docs/CLIENTS.ko.md) 가 정본이고 이 확장은
-그 문을 두드리는 여섯 번째 클라이언트다(터미널·웹 콘솔·젯브레인·PowerPoint·Excel·Word 에 이어).
+그 문을 두드리는 여섯 번째 클라이언트다.
 
-## 왜 이것부터인가
+## 지금 무엇이 되나
 
-[EDITORS](../../docs/proposals/EDITORS.ko.md) 가 셋을 견주고 내린 결론이다. VS Code 는 젯브레인
-기능 열여섯 칸 **전부**에 대응 API 가 있어 「무엇이 진짜 공통인지」가 여기서 드러난다. 공통을
-`magi ide-bridge` 로 뽑는 것은 **두 벌을 본 뒤**다 — 한 벌만 보고 뽑은 계약은 그 한 벌의 모양이
-된다.
+대화(패널) · 계획과 계기판(사이드바) · 상태 표시줄 · 인라인 완성 · 타이핑 중 훑어보기와 인레이 ·
+편집 표식 · 승인 답하기 · 코드 액션 · 첨부 · 커밋 메시지 초안 · 「이 줄 누가 썼나」 · 대화 바꾸기 ·
+모델·승인 고르기.
 
-## 이 디렉토리가 설 모양
+아직 없는 것은 [매뉴얼 §8](docs/MANUAL.ko.md) 에 있다.
 
-젯브레인과 같은 두 층 갈림이다. 그 갈림 덕에 프로토콜·전사 조립·승인 어휘가 **편집기 없이**
-시험된다.
+## 만들고 깔기
 
 ```
-clients/vscode/
-  README.md          ← 지금 이 파일
-  docs/MANUAL.ko.md    ← 지금 도는 것만 (아직 없는 것은 §6)
-  docs/DESIGN.ko.md    ← 설계
-  docs/UI.ko.md        ← 무엇이 어디에 어떻게 그려지나
-  docs/PLATFORM.ko.md  ← VS Code 가 정해 둔 것과의 대조표
-  docs/SURVEY.ko.md    ← 이웃들은 무엇을 어디에 다나
-  src/core/          vscode 를 import 하지 않는다. node 만으로 돈다
-  src/ide/           vscode API 가 사는 유일한 자리
-  src/test/          core 를 잰다 — 골든 · 계층 · 와이어 대조 · 이식표
+npm install && npx tsc -p .
+npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository
+code --install-extension magi-0.2.0.vsix --force
 ```
+
+## 재기
+
+```
+npx tsc -p . && node --test 'out/test/*.test.js'   # 편집기 없이
+npx tsc -p . && node out/live/run.js               # 실물 VS Code 를 띄워서
+```
+
+**둘 다 돌려야 한다.** 매니페스트의 오타는 첫째를 전부 통과하고 편집기에서 아무 일도 안 한다 —
+아무도 등록 안 한 뷰는 그냥 안 나타나서 에러도 없다. 자세한 것은
+[TESTING](docs/TESTING.ko.md).
+
+## 구조
+
+```
+src/core/   vscode 를 import 하지 않는다. node 만으로 돈다 → 여기서 시험된다
+src/ide/    vscode API 가 사는 유일한 자리
+src/live/   실물 편집기 안에서만 알 수 있는 것
+src/test/   core 를 잰다
+```
+
+그 갈림은 젯브레인과 같고, 이유도 같다: 프로토콜·전사·승인 어휘가 편집기 없이 재져야 한다.
+`layering.test.ts` 가 그 규칙을 붙든다.
 
 ## 먼저 읽을 것
 
 - [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md) — **소켓 계약.** 워크스페이스 키가 한 글자라도
-  다르면 에러가 안 난다. 아무도 없는 소켓을 찾고, 「실행되지 않음」이라 말하고, 같은 트리에 둘째
-  데몬을 띄우자고 권한다. 골든은 코어의 `WorkspaceKey` 가 직접 답한 값이다.
-- [`docs/DESIGN.ko.md` §4](docs/DESIGN.ko.md) — **자리가 달라지는 넷.** 젯브레인의 자리를 흉내
-  내지 않고 VS Code 가 이미 그런 말을 세우는 자리로 옮긴다.
-- [`docs/DESIGN.ko.md` §10](docs/DESIGN.ko.md) — **재지 않은 것.** 원격·`vscode.dev`·웹뷰 렌더러·
-  배포 절차·분량. 짐작은 안 적었다.
-- [`docs/UI.ko.md` §0](docs/UI.ko.md) — **불변식 일곱.** 여섯은 젯브레인에서 물려받고, 일곱째는
-  이 클라이언트가 더한다: **웹뷰는 둘뿐이다** — 플랫폼이 그렇게 요구한다.
-- [`docs/SURVEY.ko.md` §1](docs/SURVEY.ko.md) — **이웃 셋이 다 액티비티 바에 대화를 단다.
-  우리만 패널이다.** 유지하기로 했고, 그 값을 §4-가 에 적었다.
-- [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md) — **젯브레인과 정반대인 것 넷.** 포팅에서 가장
-  비싼 것은 없는 API 가 아니라 반대인 규약이다. 설정 화면을 손으로 짜는 습관이 여기서는 금지다.
+  다르면 **에러가 안 난다.** 골든은 코어의 `WorkspaceKey` 가 직접 답한 값이고, 이 포팅을 두 번
+  잡았다(해시 상수가 표준이 아니다, `basename("/")` 이 Go 와 Node 가 다르다).
+- [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md) — **젯브레인과 정반대인 것 넷.** 설정 화면을
+  손으로 짜는 습관이 여기서는 금지다.
+- [`docs/UI.ko.md` §0](docs/UI.ko.md) — **불변식 일곱.**

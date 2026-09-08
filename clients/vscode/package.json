@@ -2,29 +2,212 @@
   "name": "magi",
   "displayName": "magi",
   "description": "Talk to the magi companion that runs in this workspace.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "sayaya1090",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "https://github.com/sayaya1090/magi" },
-  "engines": { "vscode": "^1.90.0" },
-  "categories": ["AI", "Other"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sayaya1090/magi"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
   "main": "./out/ide/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
-      "panel": [{ "id": "magi", "title": "magi", "icon": "$(comment-discussion)" }]
+      "panel": [
+        {
+          "id": "magi",
+          "title": "magi",
+          "icon": "$(comment-discussion)"
+        }
+      ],
+      "activitybar": [
+        {
+          "id": "magi-side",
+          "title": "magi",
+          "icon": "$(checklist)"
+        }
+      ]
     },
     "views": {
-      "magi": [{ "id": "magi.chat", "name": "", "type": "webview" }]
+      "magi": [
+        {
+          "id": "magi.chat",
+          "name": "",
+          "type": "webview"
+        }
+      ],
+      "magi-side": [
+        {
+          "id": "magi.plan",
+          "name": "Plan",
+          "type": "webview"
+        }
+      ]
     },
     "commands": [
-      { "command": "magi.focusChat", "title": "Open the conversation", "category": "magi" },
-      { "command": "magi.start", "title": "Start the companion for this workspace", "category": "magi" },
-      { "command": "magi.interrupt", "title": "Stop what the companion is doing", "category": "magi", "icon": "$(debug-stop)" }
+      {
+        "command": "magi.focusChat",
+        "title": "Open the conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.start",
+        "title": "Start the companion for this workspace",
+        "category": "magi"
+      },
+      {
+        "command": "magi.interrupt",
+        "title": "Stop what the companion is doing",
+        "category": "magi",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "magi.lookNow",
+        "title": "Look over this file now",
+        "category": "magi",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "magi.attach",
+        "title": "Add this code to the conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.attachFiles",
+        "title": "Add these files to the conversation",
+        "category": "magi"
+      },
+      {
+        "command": "magi.askAbout",
+        "title": "Ask about this code",
+        "category": "magi"
+      },
+      {
+        "command": "magi.whoWrote",
+        "title": "Which turn wrote this line",
+        "category": "magi"
+      },
+      {
+        "command": "magi.explainOutput",
+        "title": "Explain this output",
+        "category": "magi"
+      },
+      {
+        "command": "magi.draftCommit",
+        "title": "Draft a commit message",
+        "category": "magi",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "magi.chooseModel",
+        "title": "Choose the model",
+        "category": "magi"
+      },
+      {
+        "command": "magi.choosePermission",
+        "title": "Choose the approval mode",
+        "category": "magi"
+      },
+      {
+        "command": "magi.openConversation",
+        "title": "Open another conversation",
+        "category": "magi"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "magi.editorMenu",
+        "label": "magi"
+      }
     ],
     "menus": {
       "view/title": [
-        { "command": "magi.interrupt", "when": "view == magi.chat", "group": "navigation@1" }
+        {
+          "command": "magi.lookNow",
+          "when": "view == magi.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "magi.interrupt",
+          "when": "view == magi.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "magi.openConversation",
+          "when": "view == magi.chat",
+          "group": "1_magi@1"
+        },
+        {
+          "command": "magi.chooseModel",
+          "when": "view == magi.chat",
+          "group": "1_magi@2"
+        },
+        {
+          "command": "magi.choosePermission",
+          "when": "view == magi.chat",
+          "group": "1_magi@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "magi.editorMenu",
+          "group": "0_magi"
+        }
+      ],
+      "magi.editorMenu": [
+        {
+          "command": "magi.attach",
+          "group": "1@1"
+        },
+        {
+          "command": "magi.askAbout",
+          "group": "1@2"
+        },
+        {
+          "command": "magi.lookNow",
+          "group": "1@3"
+        },
+        {
+          "command": "magi.whoWrote",
+          "group": "2@1"
+        },
+        {
+          "command": "magi.explainOutput",
+          "when": "editorHasSelection",
+          "group": "2@2"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "magi.attachFiles",
+          "group": "7_magi"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "magi.explainOutput",
+          "group": "7_magi"
+        }
+      ],
+      "scm/inputBox": [
+        {
+          "command": "magi.draftCommit"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "magi.attachFiles",
+          "when": "false"
+        }
       ]
     },
     "configuration": {
@@ -34,17 +217,35 @@
           "type": "boolean",
           "default": true,
           "description": "Start the companion for this workspace when none is listening."
+        },
+        "magi.lookWhileTyping": {
+          "type": "boolean",
+          "default": false,
+          "description": "After a pause in typing, let the companion read the buffer and say what looks wrong. Off by default: it costs a model call on every pause."
+        },
+        "magi.complete": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Suggest a completion at the cursor. Which model answers is magi's own `[autocomplete]` profile \u2014 this switch only decides whether to ask."
+        },
+        "magi.showEditMarks": {
+          "type": "boolean",
+          "default": true,
+          "description": "Mark the lines the companion changed during a turn."
         }
       }
     }
   },
   "scripts": {
     "build": "tsc -p .",
-    "test": "tsc -p . && node --test out/test"
+    "test": "tsc -p . && node --test 'out/test/*.test.js'",
+    "package": "npx --yes @vscode/vsce package --no-dependencies",
+    "test:live": "tsc -p . && node out/live/run.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-electron": "^3.1.0",
     "typescript": "^5.5.0"
   }
 }
