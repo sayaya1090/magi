@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -61,8 +62,52 @@ func goFiles(t *testing.T) []string {
 }
 
 // imports returns the module-internal imports of one file, repo-relative.
+// importSamples pins what importRe must and must not find, as literal file text.
+//
+// Every rule in this package is read off this one regex, and a regex that stops matching reports
+// no violations — which is the same output as a clean tree. Two of the three tests survive that by
+// accident: they assert their own reach is non-empty and go red. The third counts FILES WALKED, so
+// with a dead scanner it walks twenty core/port files, finds nothing in any of them, logs "20
+// core/port files checked" and passes. The line that reads as evidence is the one that stays true
+// when nothing is being read.
+//
+// Checked here rather than in each test, because the seam is shared: one dead scanner, one place
+// that says so.
+var importSamples = []struct {
+	line string
+	want string
+}{
+	{`	"` + modPath + `/internal/core/event"`, "/internal/core/event"},
+	{`	ev "` + modPath + `/internal/core/event"`, "/internal/core/event"},
+	{`	_ "` + modPath + `/internal/adapter/tool/builtin"`, "/internal/adapter/tool/builtin"},
+	// Not ours: another module's path, and a mention in prose rather than an import.
+	{`	"github.com/charmbracelet/x/ansi"`, ""},
+	{`// see ` + modPath + `/internal/app for the loop`, ""},
+}
+
+var importScannerOnce sync.Once
+
+// checkImportScanner fails when the regex no longer finds what every rule here is read off.
+func checkImportScanner(t *testing.T) {
+	t.Helper()
+	importScannerOnce.Do(func() {
+		for _, s := range importSamples {
+			got := importRe.FindAllStringSubmatch(s.line, -1)
+			var first string
+			if len(got) > 0 {
+				first = got[0][1]
+			}
+			if first != s.want {
+				t.Fatalf("the import scanner is broken, so every rule in this package would read "+
+					"as clean: on %q it found %q, want %q", s.line, first, s.want)
+			}
+		}
+	})
+}
+
 func imports(t *testing.T, rel string) []string {
 	t.Helper()
+	checkImportScanner(t)
 	b, err := os.ReadFile(filepath.Join("..", "..", rel))
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +129,7 @@ func TestTheDomainLayersDependOnNothingAboveThem(t *testing.T) {
 		"internal/core": {"internal/core"},
 		"internal/port": {"internal/core", "internal/port"},
 	}
-	checked := 0
+	checked, read := 0, 0
 	for _, f := range goFiles(t) {
 		want, ok := allowed[layerOf(f)]
 		if !ok {
@@ -92,6 +137,7 @@ func TestTheDomainLayersDependOnNothingAboveThem(t *testing.T) {
 		}
 		checked++
 		for _, imp := range imports(t, f) {
+			read++
 			fine := false
 			for _, a := range want {
 				if strings.HasPrefix(imp, a) {
@@ -107,7 +153,14 @@ func TestTheDomainLayersDependOnNothingAboveThem(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no core or port file was examined, so this asserts nothing")
 	}
-	t.Logf("%d core/port files checked", checked)
+	// Files walked is not the measurement — imports read is. port imports core, so a run that
+	// walked these files and found no module-internal import at all read nothing, whatever the
+	// file count says.
+	if read == 0 {
+		t.Fatalf("%d core/port files walked and not one module-internal import found — nothing "+
+			"was read, so a clean result here means nothing", checked)
+	}
+	t.Logf("%d core/port files checked, %d module-internal imports read", checked, read)
 }
 
 // appReachesIntoAdapters is the coupling that exists: six files in the application layer import
