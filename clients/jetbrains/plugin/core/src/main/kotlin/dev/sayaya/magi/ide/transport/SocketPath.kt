@@ -114,8 +114,12 @@ object SocketPath {
     fun tooLong(socket: Path): String? {
         val n = socket.toString().toByteArray(Charsets.UTF_8).size
         if (n <= MAX_SOCKET_PATH) return null
+        // ⚠ `MAGI_SOCKET_DIR` 이다. 전에는 `MAGI_CONFIG_DIR` 이라고 적었고 코어도 그랬는데,
+        // 그것이 바로 `MAGI_SOCKET_DIR` 이 생긴 사고의 처방이다 — 오피스 설치기가 설정 트리를
+        // 통째로 짧은 곳에 옮겼고, 그 컴패니언들이 사람의 평소 magi 가 쓴 적 없는 config.toml 을
+        // 읽었다(백엔드 플러그인도, 설정도 없이). 소켓만 옮기면 길이가 해결되고 설정 트리는 하나다.
         return "소켓 경로가 ${n}바이트이고 OS 가 받는 것은 약 ${MAX_SOCKET_PATH}바이트다 — " +
-            "MAGI_CONFIG_DIR 을 더 짧은 곳으로: $socket"
+            "MAGI_SOCKET_DIR 을 더 짧은 곳으로: $socket"
     }
 
     /**

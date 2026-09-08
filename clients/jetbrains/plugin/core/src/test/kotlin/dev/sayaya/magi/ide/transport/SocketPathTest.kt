@@ -65,7 +65,10 @@ class SocketPathTest {
         assertNull(SocketPath.tooLong(Paths.get("/tmp/mw1/daemon-ws1-b1lp9vc8.sock")))
         val long = Paths.get("/" + "x".repeat(120) + "/daemon-a-b.sock")
         val why = SocketPath.tooLong(long)
-        assertTrue(why != null && why.contains("MAGI_CONFIG_DIR"))
+        // ★ `MAGI_SOCKET_DIR` 이다. 이 단정이 옛 처방을 물고 있었고, 물고 있던 것이 그 처방을
+        // 살려 둔 이유다 — 설정 트리를 통째로 옮기는 것이 `MAGI_SOCKET_DIR` 이 생긴 사고의 원인이다.
+        assertTrue(why != null && why.contains("MAGI_SOCKET_DIR"), "빠져나갈 길을 안 말한다: $why")
+        assertTrue(why != null && !why.contains("MAGI_CONFIG_DIR"), "아직 설정 트리로 보낸다: $why")
     }
 
     /**

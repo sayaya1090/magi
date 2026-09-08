@@ -67,14 +67,30 @@ func WorkspaceKey(workdir string) string {
 // check is here, where the reason can be given.
 const maxSocketPath = 100
 
-// tooLong reports a path the OS will refuse, with the reason it will not give.
-func tooLong(path string) error {
+// TooLong reports a path the OS will refuse, with the reason it will not give.
+//
+// Exported because the length has to be judged BEFORE dialing by anything that wants to say which
+// kind of nothing it found — `magi ide-bridge` answers "unknown" for a path past the limit and
+// "not-running" for one nobody answers, and those are different facts. It kept its own copy of the
+// rule and the constant to do that, which is a second spelling of the thing this returns.
+//
+// ⚠ **The way out is MAGI_SOCKET_DIR, not MAGI_CONFIG_DIR.** This sentence said the latter for a
+// long time, and it was the advice that caused the incident SocketDir exists because of: the Office
+// installer moved the whole config tree somewhere short, and then those companions read a
+// config.toml the person's usual magi had never written — no backend plugin, no settings. Moving
+// the SOCKETS alone fixes the length and leaves one config tree for the account.
+func TooLong(path string) error {
 	if len(path) <= maxSocketPath {
 		return nil
 	}
 	return fmt.Errorf("daemon: the socket path is %d bytes and the OS allows about %d — "+
-		"set MAGI_CONFIG_DIR to somewhere shorter: %s", len(path), maxSocketPath, path)
+		"set MAGI_SOCKET_DIR to somewhere shorter (not MAGI_CONFIG_DIR: that moves the settings "+
+		"too, and a companion reading a config.toml nobody wrote is the bug this avoids): %s",
+		len(path), maxSocketPath, path)
 }
+
+// tooLong is the internal name this package already used everywhere.
+func tooLong(path string) error { return TooLong(path) }
 
 func sanitize(s string) string {
 	return strings.Map(func(r rune) rune {

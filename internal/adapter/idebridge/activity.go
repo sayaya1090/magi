@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -26,10 +25,6 @@ const (
 	Waiting    = "waiting"
 	Unknown    = "unknown"
 )
-
-// maxSocketPath is what a unix address holds. Past it the OS refuses with "invalid argument", which
-// names nothing — so the length is checked here and reported in words.
-const maxSocketPath = 100
 
 // activity is the answer, split the way the screens need it.
 //
@@ -131,10 +126,15 @@ func (b *bridge) answerActivity(id int, a activity) {
 	b.reply(resp)
 }
 
+// tooLong asks the DAEMON package whether the OS will refuse this path.
+//
+// Not a copy of the rule. This package held its own limit and its own sentence, and the two drifted
+// on the thing that matters: the core's copy still told people to move MAGI_CONFIG_DIR, which is the
+// advice that broke the Office companions. One constant, one sentence, one place to correct it —
+// which is the whole argument this package exists to make about the derivations it carries.
 func tooLong(p string) string {
-	if n := len(p); n > maxSocketPath {
-		return "the socket path is " + strconv.Itoa(n) + " bytes and the OS allows about " +
-			strconv.Itoa(maxSocketPath) + " — set MAGI_SOCKET_DIR to somewhere shorter: " + p
+	if err := daemon.TooLong(p); err != nil {
+		return err.Error()
 	}
 	return ""
 }

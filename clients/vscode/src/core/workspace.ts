@@ -119,6 +119,11 @@ export const MAX_SOCKET_PATH = 100;
 export function tooLong(p: string): string | null {
   const n = Buffer.byteLength(p, 'utf8');
   if (n <= MAX_SOCKET_PATH) return null;
+  // ⚠ MAGI_SOCKET_DIR, not MAGI_CONFIG_DIR. This said the latter, copied from the core, which said
+  // it too — and it is the advice that caused the incident MAGI_SOCKET_DIR exists because of: the
+  // Office installer moved the whole config tree somewhere short, and those companions then read a
+  // config.toml the person's usual magi had never written. Moving the sockets alone fixes the
+  // length and leaves one config tree for the account.
   return `the socket path is ${n} bytes and the OS allows about ${MAX_SOCKET_PATH} — ` +
-    `set MAGI_CONFIG_DIR to somewhere shorter: ${p}`;
+    `set MAGI_SOCKET_DIR to somewhere shorter: ${p}`;
 }

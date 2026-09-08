@@ -67,5 +67,11 @@ test('the socket path is the directory plus the key', () => {
 test('a path the OS will refuse says so, with the length and the way out', () => {
   assert.equal(tooLong('/s/daemon-x.sock'), null);
   const said = tooLong('/' + 'x'.repeat(120) + '.sock');
-  assert.ok(said?.includes('126') && said.includes('MAGI_CONFIG_DIR'), `got: ${said}`);
+  // ★ MAGI_SOCKET_DIR, not MAGI_CONFIG_DIR. This assertion pinned the wrong one — and pinning it
+  // is what kept the wrong advice alive: moving the whole config tree somewhere short is the thing
+  // that caused the incident MAGI_SOCKET_DIR exists because of (the Office companions then read a
+  // config.toml the person's usual magi never wrote).
+  assert.ok(said?.includes('126'), `the length is not named: ${said}`);
+  assert.ok(said?.includes('MAGI_SOCKET_DIR'), `the way out is not named: ${said}`);
+  assert.ok(!said?.includes('MAGI_CONFIG_DIR'), `it still sends people to the config tree: ${said}`);
 });
