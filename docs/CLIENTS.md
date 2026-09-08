@@ -405,6 +405,22 @@ for the stream doors (watch, transcript): **do not half-close the write side** �
 client that shuts write after sending (the `nc -w` shape) reads as a hang-up and ends with zero
 frames. Keeping the write half open while you read is half the stream contract.
 
+**Over HTTP, the console says the same thing with a status.** Every route that names a companion
+resolves it through one seam, and that seam fails for exactly two reasons, which are different
+answers:
+
+| | |
+|---|---|
+| **403** | the companion is there and this caller may not act on it (the console's own scope, `auth.toml`) |
+| **404** | nothing resolves that name — no such companion, or none in this directory |
+
+The body carries the resolver's own sentence either way, so a client can show a person what
+happened without mapping codes to prose. Never 400: the request was well-formed in both cases, and
+a client that retried differently on the strength of a 400 would be chasing a fault that is not in
+what it sent. (Until 2026-09-08 those two causes answered 404 in seven routes and 400 in four,
+chosen by which file the handler lived in — so a client written against one route learned the
+wrong rule for the next.)
+
 ## 3. The web screen map — what is the screen of what
 
 The shell resolves a destination **by the companion's type**: entering a detail view loads that

@@ -314,6 +314,28 @@ is fixed for all of them:
   it / it parses and the mismatch is the schema). An excerpt alone keeps only the head and tail,
   which is where the defect usually is not.
 
+### What holds the layering up (`internal/arch`)
+
+The picture above is only true while somebody checks it, and the checker is five tests in
+`internal/arch`. They read the tree as text — every production file, every GOOS at once — rather
+than asking `go list`, so no build tag hides an edge.
+
+| Rule | What fails it |
+|---|---|
+| The domain layers depend on nothing above them | any import out of `internal/core` or `internal/port` that is not core/port. Measured, not assumed: 22 files, 14 module-internal imports, all clean |
+| The application layer does not grow new adapter imports | a file in `internal/app` importing `internal/adapter` that is not one of the six already frozen — and a listed file that stops doing it, so the list cannot rot into fiction |
+| The console's dependency surface is frozen | anything `clients/web/server` reaches transitively that is not in `consoleSurface`, in **both** directions. A web release re-ships every one of those packages on its own clock |
+| Every provider wrapper keeps what it wraps | a new wrapper without `var _ port.ProviderExtras = …` |
+| Swallowed errors do not grow | a file with more `_ = f()` than its baseline, or a new file arriving with any. It holds a number (141 today) rather than forbidding the pattern, because forbidding it outright would fail on the first run and be deleted by the second |
+
+**Each of them checks that it is still able to check.** Every rule here is read off one regex or
+one directory walk, and a scanner that stops matching reports no violations — which is the same
+output as a clean tree. Two of the five once passed with a scanner that matched nothing: one of
+them even printed "20 core/port files checked" while reading not a single import, because it
+counted files walked rather than imports read. So the walk asserts it found files, the import
+scanner checks itself against fixed samples before anything reads it, and the swallowed-error
+scanner does the same. A guard that cannot fail loudly is not a guard.
+
 ---
 
 ## 2. Core data model (`core/session`, `core/event`)
