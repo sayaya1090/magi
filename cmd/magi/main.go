@@ -579,87 +579,7 @@ func run() int {
 	}
 
 	if *mcpTo != "" {
-		reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
-		list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))
-		if lerr != nil {
-			fmt.Fprintln(os.Stderr, "magi:", lerr)
-			return 1
-		}
-		found := fleet.Resolve(list, *mcpTo)
-		switch len(found) {
-		case 0:
-			fmt.Fprintf(os.Stderr, "magi: nobody here is called %q or does that. There is: %s\n",
-				*mcpTo, fleet.Roster(list))
-			return 1
-		case 1:
-		default:
-			// Refused rather than picked, the same rule handing work over follows. Serving the
-			// wrong companion's notes is a quieter mistake than sending work to the wrong one and
-			// a harder one to notice: the answers look plausible.
-			fmt.Fprintf(os.Stderr, "magi: %q matches %s — name one of them\n", *mcpTo, fleet.Names(found))
-			return 1
-		}
-		who := found[0]
-		if who.Workdir == "" {
-			fmt.Fprintf(os.Stderr, "magi: %s published no workspace, so there is no store to read\n", who.Name)
-			return 1
-		}
-		// Embeddings are their own backend, not the chat one.
-		//
-		// The SHAPE is near-universal — OpenAI, Voyage, Ollama, vLLM and LiteLLM all answer
-		// POST /v1/embeddings with {model, input[]} — but the endpoint magi is pointed at for chat
-		// may not serve it at all: Anthropic has no embedding model and its own documentation
-		// sends you to Voyage, and vLLM only answers when the model it is serving is an embedding
-		// model. So the URL and key default to the chat ones, which is right for a local Ollama or
-		// a LiteLLM proxy, and can be pointed elsewhere for everything else.
-		//
-		// No model named means no semantic half, and the search says so rather than quietly
-		// becoming a worse search.
-		// stderr, because stdout is the MCP conversation and a warning written there would be a
-		// line the client cannot parse.
-		emb := newEmbedder(cfg, *baseURL, *apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })
-		// The ear: putting a message into that companion's conversation.
-		//
-		// Steer rather than Submit, the same choice the console makes. They may be mid-turn — that
-		// is the ordinary case for this, since the whole point is talking WHILE both are working —
-		// and a Submit would queue a fresh turn behind the one the message is about. Which of the
-		// two it is, is the engine's decision on the far side, and making it twice is how the two
-		// come to disagree.
-		var ear func(from, text string) error
-		if strings.TrimSpace(*mcpAs) != "" && who.Socket != "" && who.Session != "" {
-			ear = func(from, text string) error {
-				cl, derr := daemon.Dial(who.Socket)
-				if derr != nil {
-					return derr
-				}
-				defer cl.Close()
-				return cl.Steer(context.Background(), command.SubmitPrompt{
-					SessionID: session.SessionID(who.Session),
-					Parts:     []session.Part{{Kind: session.PartText, Text: fleet.WordFrom(from) + "\n\n" + text}},
-				})
-			}
-		}
-		srv := &mcpserve.Server{
-			Name: who.Name, Role: who.Role,
-			Ear:     ear,
-			Caller:  strings.TrimSpace(*mcpAs),
-			Dir:     filepath.Join(who.Workdir, ".magi", "experience"),
-			Embed:   emb,
-			Team:    who.Team,
-			Hub:     who.Hub,
-			Workdir: who.Workdir,
-			// Their skills, not this machine's. `reader` was built with a nil platform, so
-			// loadSkills reads only <workspace>/.magi/skills and .claude/skills and leaves out the
-			// machine-wide directory — which is the right set: a shared skill is not something
-			// THIS companion can do that the asker cannot.
-			Skills: func() []port.Skill { return reader.Skills(who.Workdir) },
-			Reach:  reachableServers(who.Workdir),
-		}
-		if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "magi:", err)
-			return 1
-		}
-		return 0
+		return serveMCP(*mcpTo, *mcpAs, store, plat, wd, cfg, *baseURL, *apiKey)
 	}
 
 	// Stopping a companion, which is the same act as stopping the daemon that IS the companion.
@@ -3444,4 +3364,96 @@ func boundedForLine(e event.Event) event.Event {
 	}
 	e.Data = nd
 	return e
+}
+
+// serveMCP answers an MCP client that started this process as a subprocess, on behalf of one
+// companion. The prose that explains why there is no listener to secure stays at the call site,
+// with the rest of that chain.
+//
+// A function rather than eighty lines inside run(), like relayHere, fleetDoor and joinTheCluster
+// beside it: every other one-shot in that sequence is a single line naming what it does, and
+// this one was the exception for no reason except its size.
+func serveMCP(to, as string, store port.Store, plat *platform.OS, wd string,
+	cfg config.Config, baseURL, apiKey string) int {
+	reader := app.New(store, nil, builtin.NewRegistry(), bus.New(), nil, app.Config{})
+	list, lerr := fleet.List(context.Background(), reader, plat.ConfigDir(), daemon.SocketPath(plat.ConfigDir(), wd))
+	if lerr != nil {
+		fmt.Fprintln(os.Stderr, "magi:", lerr)
+		return 1
+	}
+	found := fleet.Resolve(list, to)
+	switch len(found) {
+	case 0:
+		fmt.Fprintf(os.Stderr, "magi: nobody here is called %q or does that. There is: %s\n",
+			to, fleet.Roster(list))
+		return 1
+	case 1:
+	default:
+		// Refused rather than picked, the same rule handing work over follows. Serving the
+		// wrong companion's notes is a quieter mistake than sending work to the wrong one and
+		// a harder one to notice: the answers look plausible.
+		fmt.Fprintf(os.Stderr, "magi: %q matches %s — name one of them\n", to, fleet.Names(found))
+		return 1
+	}
+	who := found[0]
+	if who.Workdir == "" {
+		fmt.Fprintf(os.Stderr, "magi: %s published no workspace, so there is no store to read\n", who.Name)
+		return 1
+	}
+	// Embeddings are their own backend, not the chat one.
+	//
+	// The SHAPE is near-universal — OpenAI, Voyage, Ollama, vLLM and LiteLLM all answer
+	// POST /v1/embeddings with {model, input[]} — but the endpoint magi is pointed at for chat
+	// may not serve it at all: Anthropic has no embedding model and its own documentation
+	// sends you to Voyage, and vLLM only answers when the model it is serving is an embedding
+	// model. So the URL and key default to the chat ones, which is right for a local Ollama or
+	// a LiteLLM proxy, and can be pointed elsewhere for everything else.
+	//
+	// No model named means no semantic half, and the search says so rather than quietly
+	// becoming a worse search.
+	// stderr, because stdout is the MCP conversation and a warning written there would be a
+	// line the client cannot parse.
+	emb := newEmbedder(cfg, baseURL, apiKey, plat, func(m string) { fmt.Fprintln(os.Stderr, "magi:", m) })
+	// The ear: putting a message into that companion's conversation.
+	//
+	// Steer rather than Submit, the same choice the console makes. They may be mid-turn — that
+	// is the ordinary case for this, since the whole point is talking WHILE both are working —
+	// and a Submit would queue a fresh turn behind the one the message is about. Which of the
+	// two it is, is the engine's decision on the far side, and making it twice is how the two
+	// come to disagree.
+	var ear func(from, text string) error
+	if strings.TrimSpace(as) != "" && who.Socket != "" && who.Session != "" {
+		ear = func(from, text string) error {
+			cl, derr := daemon.Dial(who.Socket)
+			if derr != nil {
+				return derr
+			}
+			defer cl.Close()
+			return cl.Steer(context.Background(), command.SubmitPrompt{
+				SessionID: session.SessionID(who.Session),
+				Parts:     []session.Part{{Kind: session.PartText, Text: fleet.WordFrom(from) + "\n\n" + text}},
+			})
+		}
+	}
+	srv := &mcpserve.Server{
+		Name: who.Name, Role: who.Role,
+		Ear:     ear,
+		Caller:  strings.TrimSpace(as),
+		Dir:     filepath.Join(who.Workdir, ".magi", "experience"),
+		Embed:   emb,
+		Team:    who.Team,
+		Hub:     who.Hub,
+		Workdir: who.Workdir,
+		// Their skills, not this machine's. `reader` was built with a nil platform, so
+		// loadSkills reads only <workspace>/.magi/skills and .claude/skills and leaves out the
+		// machine-wide directory — which is the right set: a shared skill is not something
+		// THIS companion can do that the asker cannot.
+		Skills: func() []port.Skill { return reader.Skills(who.Workdir) },
+		Reach:  reachableServers(who.Workdir),
+	}
+	if err := srv.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "magi:", err)
+		return 1
+	}
+	return 0
 }
