@@ -67,11 +67,11 @@ VS Code 이식표(마흔여덟)를 그대로 가져와 이 편집기에서 다�
 | 편집 적용(손) | `Extensibility.Editor().EditAsync(...)` | ✓ |
 | 훑어본 말을 줄에 걸기 | **Tagger / Classification tagger** — 샘플에 있다 | ✓ |
 | 파일 전체에 대한 말(띠) | **Text view margin** — word-count margin 샘플이 그 모양이다 | ✓ |
-| 상태 표시줄 | **없다.** `Shell` 에 `ProgressReporter` 와 프롬프트류뿐 | ✗ |
-| 인라인 완성 | **없다.** 완성이라는 낱말이 표면에 하나도 없다 | ✗ |
-| 승인 답하기 | 툴 윈도 안(우리 판) 또는 `Shell.PromptOptions` · `ChoiceDescription` | ✓ |
-| 커밋 메시지 초안 | **없다.** 소스 제어·커밋 자리가 없다 | ✗ |
-| 진단 자리의 코드 액션 | **없다.** 진단을 *내는* 문(`DiagnosticsReporter` · `DocumentDiagnostic`)은 있는데, 그 자리에 액션을 거는 문이 없다 | ✗ |
+| 상태 표시줄 | **항목을 다는 문은 없다.** 있는 것은 `StartProgressReportingAsync` 인데, 그 옵션 클래스가 문서에 **「Task Status Center 의 동작을 조정하는 옵션」**이라고 적혀 있다 — 상태 표시줄의 그 아이콘에서 열리는 작업 목록이지, 우리 글자를 놓는 자리가 아니다 | ✗ |
+| 인라인 완성 | **없다.** 완성이라는 낱말이 표면에 하나도 없다. VS 의 회색 이어쓰기는 IntelliCode 의 것이고 서드파티에 열린 문을 못 찾았다 | ✗ |
+| 승인 답하기 | 툴 윈도 안(우리 판) 또는 `Shell.PromptOptions` · `ChoiceDescription` · `ShowDialogAsync` | ✓ |
+| 커밋 메시지 초안 | **없다.** 실제로 그 일을 하는 서드파티 확장이 **메뉴 명령 + 클립보드**로 우회한다 — 상자 안에 단추를 다는 문이 있으면 그렇게 만들 리 없다 | ✗ |
+| 진단 자리의 코드 액션 | **이 모델에는 없다.** 진단을 *내는* 문(`DiagnosticsReporter` · `DocumentDiagnostic`)은 있다. 전구는 **VSSDK(in-proc)** 쪽에만 있다 | ✗ |
 | 코드 요소 위의 눌리는 딱지 | `ICodeLensProvider` · `VisualCodeLens` · `InvokableCodeLens` | ✓ **표에 없던 것** |
 | 설정 | `Settings` 에 **선언형** 한 벌(`Setting` · `SettingCategory` · `ArraySetting<T>`) | ✓ |
 | 코어 받기·데몬 기동 | 그냥 .NET 이다 | ✓ |
@@ -101,6 +101,25 @@ VS Code 이식표(마흔여덟)를 그대로 가져와 이 편집기에서 다�
 뜻이다. 판이 오르면 달라질 수 있으니 잰 판을 적는다: `Microsoft.VisualStudio.Extensibility.dll`
 **17.14.2099**(파일 판 17.14.2099.59265), NuGet `Microsoft.VisualStudio.Extensibility.Sdk`
 최신 **17.14.40608**.
+
+### 센 것을 문서와 대조했다 — 한 줄이 날카로워졌다
+
+「내 기계의 사본이 뒤처진 것 아닌가」는 표면을 세는 방법의 정당한 약점이다. 그래서 네 개의 ✗ 를
+공식 문서·API 참조와 다시 맞췄고, **넷 다 유지되지만 하나는 표현이 틀렸다.**
+
+| 대조한 곳 | 나온 것 |
+|---|---|
+| 공식 문서의 기능 영역 목록 | **열넷**이다(command · debugger-visualizer · diagnostics · dialog · document · editor · language-server-provider · output-window · project · settings · tool-window · user-prompt 등). **상태 표시줄·완성·소스 제어·코드 액션은 그 안에 없다** |
+| `ShellExtensibility` API 참조 | 패키지 판이 **17.14.2088** — 내가 센 17.14.2099 와 같은 줄이다. **뒤처진 사본을 센 것이 아니다** |
+| `ProgressReporterOptions` | 「**Task Status Center** 의 동작을 조정하는 옵션」. ⚠ **내 첫 문장이 부정확했다** — 「`ProgressReporter` 뿐」이라고만 적으면 그것이 상태 표시줄 항목의 사촌처럼 읽힌다. 아니다. 작업 상태 센터로 가고, 그 센터의 아이콘이 상태 표시줄에 있을 뿐이다 |
+| 전구(코드 액션) | 문서가 있다 — **`walkthrough-displaying-light-bulb-suggestions`**. 그런데 그것은 **VSSDK(in-proc) MEF** 문서다. 「어디에도 없다」가 아니라 **「우리가 고른 모델에 없다」**가 맞는 문장이다 |
+| 커밋 상자 | 확장으로 그 일을 하는 실물이 있는데 **메뉴 명령으로 만들고 클립보드로 건넨다.** 상자 안에 단추를 다는 문이 있었다면 그렇게 만들 리 없다 |
+| 인라인 완성 | 서드파티에 열린 문을 못 찾았다. 검색이 내놓는 것은 전부 **VS Code** 의 `InlineCompletionItemProvider` 이거나 VS 의 **IntelliCode** 자체 기능이다 |
+
+⚠ **여전히 못 지운 가능성 하나.** 「문서에 없고 표면에도 없다」는 「비공개 API 로도 불가능하다」와
+다르다. 브로커 계약까지 센 것이 그 틈을 좁히지만 없애지는 못한다. 그리고 개요 문서는 이 모델을
+아직 **preview** 라고 부른다(17.9 부터 대부분의 API 가 stable 이라고 하면서도) — 즉 **이 표는
+날짜가 붙은 표**다.
 
 ### 그래서 §1 의 결정은 유지된다
 
@@ -135,6 +154,25 @@ VS Code 이식표(마흔여덟)를 그대로 가져와 이 편집기에서 다�
 `IAsyncCommand`, `NotifyPropertyChangedObject`. 그릇과 묶기와 명령이 전부고, **그리는 것은 하나도
 없다.** 걱정이 맞았다는 뜻이지 놀랄 일은 아니다: Remote UI 는 화면을 그려 주는 층이 아니라 XAML
 을 건네는 통로다. 마크다운 렌더러는 우리가 쓴다.
+
+#### 그런데 「우리가 쓴다」가 생각보다 좁다 — 문서에서 확인한 제약 셋
+
+XAML 이 VS 프로세스에서 인스턴스화되기 때문에 따라오는 것들이고, 문서가 명시한다:
+
+1. **「Remote UI 는 당신의 커스텀 컨트롤을 참조하도록 허용하지 않는다.」** XAML 은 **확장의 타입과
+   어셈블리를 참조할 수 없고**, VS 프로세스의 것만 참조할 수 있다. 즉 `MarkdownTextBlock` 같은
+   컨트롤을 우리가 만들어 끼우는 길이 **막혀 있다.**
+2. **코드 비하인드도 이벤트 핸들러도 없다.** MVVM 과 데이터 바인딩, 명령, 트리거로만 짠다.
+3. 테마는 `Microsoft.VisualStudio.Shell` · `PlatformUI` 의 스타일을 XAML 안에서 참조해 따른다 —
+   그 어셈블리를 확장 프로젝트가 직접 참조하는 것은 아니다.
+
+**그래서 마크다운은 컨트롤이 아니라 모양(shape)으로 푼다.** 전사 한 줄을 「무엇을 그릴지」로 미리
+갈라 뷰 모델에 담고, XAML 쪽은 표준 WPF 원시 요소에 `DataTemplate` 을 걸어 그린다. 파싱은 C#
+(`Magi.Core`)에서 일어나고 — **IDE 없이 시험되는 자리다** — XAML 은 그 결과를 늘어놓기만 한다.
+이 갈림은 §4 의 모듈 갈림과 우연히 같은 선이 아니라, 이 플랫폼이 강제하는 선이다.
+
+⚠ 분량은 여전히 짐작하지 않는다. 다만 **어디서 막힐지는 이제 안다**: 인라인 서식이 섞인 문단
+하나를 원시 요소로 조립하는 일이고, 코드 펜스의 강조까지 가면 더 는다.
 
 ---
 
@@ -286,15 +324,23 @@ bind 와 connect 사이에서는 **아무것도 안 만진다** — 재분석 �
 기본값으로 준다 — 코틀린의 `ignoreUnknownKeys`, TypeScript 의 `undefined` 와 같은 함정이다.
 이름이 어긋나면 예외가 아니라 기본값이고, 화면은 「없다」고 말한 뒤 아무것도 실패하지 않는다.
 
-### 실물 확장을 자동으로 재는 길 — 찾아봤고, 1급은 없다 (2026-09-09)
+### 실물 확장을 자동으로 재는 길 — 있긴 한데 우리 것이 아니다 (2026-09-09)
 
-NuGet 을 이름으로 직접 물어서 확인했다(검색 색인이 아니라 `api.nuget.org` 의 판 목록).
+⚠ **처음에 「없다」고 적었다가 고쳤다.** `api.nuget.org` 에 이름을 직접 물어 404 를 받고 없다고
+결론지었는데, **패키지는 있다.** nuget.org 에 없을 뿐이다 — Microsoft 의 `vs-extension-testing`
+이 그것을 **Azure DevOps 피드**(`dev.azure.com/azure-public/vside/_artifacts/feed/vssdk`)로
+낸다. 「내가 아는 피드에 없다」를 「없다」로 세면 안 된다는 것을 이 줄이 남긴다.
 
 | 후보 | 있나 | 우리에게 |
 |---|---|---|
-| `Microsoft.VisualStudio.Extensibility.Testing.Xunit` | **404 — 없다** | — |
+| `Microsoft.VisualStudio.Extensibility.Testing.Xunit` | **있다** — 단 nuget.org 가 아니라 Azure DevOps 피드 | ⚠ **VSIX/VSSDK 확장을 위한 것**이다. 문서 어디에도 `VisualStudio.Extensibility`(프로세스 밖) 이야기가 없고, **저장소는 보관 처리되어** `dotnet/roslyn` 으로 옮겨 갔다 |
 | `Microsoft.VisualStudio.Sdk.TestFramework(.Xunit)` v17.11.66 | 있다 | ⚠ **VSSDK(in-proc)용**이다. VS 서비스를 흉내 내는 물건이라 프로세스 밖 모델과 판이 다르다 |
 | `VsixTesting.Xunit` v0.1.78 · `xunit.vsix` v0.9.3 | 있다 | 서드파티. VS 실험 인스턴스를 띄운다 |
+
+**그래서 결론은 안 바뀐다.** 셋 다 실험 인스턴스에 VSIX 를 심고 IDE 안에서 도는 모양이고, 어느
+것도 **프로세스 밖 모델을 지원한다고 말하지 않는다.** `@vscode/test-electron` 처럼 「이 모델의
+확장을 이 모델대로 띄워 재는」 1급 길은 못 찾았다. 다만 **「없다」가 아니라 「우리 모델을 겨냥한
+것이 없다」**이고, 그 둘은 다른 문장이다.
 
 **그래서 §4 의 갈림이 여기서 값을 낸다.** 재는 길이 얇을수록 `Magi.Core` 에 든 것이 많아야
 한다. 프로토콜·소켓 키·전사 조립이 IDE 없이 `dotnet test` 로 서고, IDE 층에는 시험이 얇아도
@@ -397,9 +443,10 @@ go build -o magi.exe ./cmd/magi
 정직하게 적는다. 아래는 **아직 실물로 확인 안 한 것**이다. 2026-09-09 에 다섯이 이 목록을 떠나
 각자의 자리로 갔다 — §2(물음표 넷) · §5(AF_UNIX) · §6(시험 하네스) · §7(러너) · §8(요구).
 
-- **Remote UI 로 전사를 어떻게 그리나.** `Extensibility.UI` 의 공개 타입이 일곱뿐이고 그리는 것은
-  하나도 없다는 것까지는 쟀다(§2). **마크다운을 XAML 로 어떻게 지을지는 안 정했고**, 분량도
-  짐작하지 않는다. 이 이식에서 가장 큰 미지의 작업인 것은 그대로다.
+- **Remote UI 로 전사를 어떻게 그리나.** 제약은 이제 안다(§2): 타입 일곱, 그리는 것 없음, **커스텀
+  컨트롤 금지**, 코드 비하인드 없음. 그래서 **길도 하나로 좁혀졌다** — 파싱은 코어에서, XAML 은
+  `DataTemplate` 으로. **안 잰 것은 그 길의 분량과, 인라인 서식이 섞인 문단이 원시 요소로 얼마나
+  깔끔하게 조립되는가**이다. 띄워 보지 않았다.
 - **`%AppData%` 아래 AF_UNIX 가 왜 그러는지.** 무엇이 일어나는지는 이제 정확히 안다(§5).
   **원인은 모른다.** 길이·ACL·속성·볼륨·재는 도구는 아니라고 지웠고, 남은 유력한 자리인 필터
   드라이버는 `fltmc` 가 승격을 요구해서 못 봤다. 다른 기계에서도 같은지도 안 봤다 — 표본이

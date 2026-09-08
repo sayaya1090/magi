@@ -38,7 +38,8 @@ VS Code 는 자리(액티비티 바·패널·상태 표시줄)를 고르는 것�
 | | 우리 계획 |
 |---|---|
 | 테마 | **우리가 색을 안 정한다.** IDE 가 XAML 에 테마를 입힌다 — VS Code 에서 색 토큰을 손으로 맞춘 것보다 낫다 |
-| 마크다운 | ⚠ **그릴 것이 없다.** 웹뷰가 아니라 XAML 이다. 코드 펜스·굵게·목록을 요소로 지어야 하고, 이 이식에서 가장 큰 미지수다(설계 §10) |
+| 마크다운 | ⚠ **그릴 것이 없고, 만들어 끼울 수도 없다.** 문서가 「Remote UI 는 당신의 커스텀 컨트롤을 참조하도록 허용하지 않는다」고 적는다 — XAML 은 VS 프로세스의 타입만 본다. 그래서 파싱은 코어에서 하고 XAML 은 `DataTemplate` 으로 늘어놓는다(설계 §2) |
+| 코드 비하인드 | **없다.** 이벤트 핸들러도 없다. MVVM·바인딩·명령·트리거로만 짠다 |
 | 툴 윈도 | 대화 하나, 계획 하나. 둘뿐인 것은 우리 규칙이다 |
 
 ## 3. 확장점 — 문서가 있다고 말하는 것
@@ -58,15 +59,21 @@ VS Code 는 자리(액티비티 바·패널·상태 표시줄)를 고르는 것�
 | Debugger visualizers | ✓ 개요 | 해당 없음 |
 | **CodeLens** | 개요에서 못 봤는데 **표면에 있다**(`ICodeLensProvider` · `InvokableCodeLens`) | 첫 벌엔 안 쓴다. 설계 §2 |
 | **Settings** | 〃 (`Setting` · `SettingCategory` · `ArraySetting<T>`) | **선언형**이다. §4 를 뒤집는 사실 |
-| 상태 표시줄 항목 | ✗ **없다 — 쟀다** | 우리 판 머리에 그린다 |
+| 상태 표시줄 항목 | ✗ **없다 — 쟀다.** 진행 표시는 상태 표시줄이 아니라 **Task Status Center** 로 간다 | 우리 판 머리에 그린다 |
 | 인라인 완성 | ✗ **없다 — 쟀다** | 안 한다 |
 | SCM(커밋 칸) 확장 | ✗ **없다 — 쟀다** | 안 한다 |
-| 진단 자리의 코드 액션 | ✗ **없다 — 쟀다.** 진단을 내는 문은 있다 | 안 한다 |
+| 진단 자리의 코드 액션 | ✗ **이 모델에 없다 — 쟀다.** 진단을 내는 문은 있고, 전구는 VSSDK 쪽에 있다 | 안 한다 |
 
 **「쟀다」가 무슨 뜻인지.** 문서 목록을 다시 읽은 것이 아니라 **설치된 어셈블리의 공개 타입을
 셌다** — 이 표를 처음 쓸 때 「목록이 전수인지 요약인지도 모른다」고 적었던 그 의심을 목록 바깥에서
 푸는 방법이다. 확장 SDK 표면과 브로커 계약(`RpcContracts.*`) 양쪽에서 `StatusBar`·`Completion`·
-`SourceControl`·`CodeAction` 이 **0건**이다. 잰 판과 방법은 [설계 §2](./DESIGN.ko.md) 에 있다.
+`SourceControl`·`CodeAction` 이 **0건**이다.
+
+그리고 **센 다음에 공식 문서와 다시 맞췄다.** 표면을 세는 방법의 약점은 「내 사본이 뒤처졌으면?」
+인데, `ShellExtensibility` API 참조가 패키지 판을 **17.14.2088** 로 적어 내가 센 17.14.2099 와
+같은 줄임을 보여 준다. 대조에서 넷 다 유지됐고 **한 줄의 표현이 틀린 것으로 드러났다**(진행
+표시의 목적지). 전구는 「어디에도 없다」가 아니라 「이 모델에 없다」가 맞다. 잰 판·방법·대조 결과는
+[설계 §2](./DESIGN.ko.md) 에 있다.
 
 ## 4. VS Code 와 정반대인 것 셋
 
@@ -114,6 +121,14 @@ VS Code 는 자리(액티비티 바·패널·상태 표시줄)를 고르는 것�
 `…\Common7\IDE\CommonExtensions\Microsoft\Extensibility` 의 6개 어셈블리(공개 타입 248개)와
 `…\Editor`, 그리고 `CommonExtensions\Microsoft` 전체(어셈블리 1,336개 · 공개 타입 59,158개)에서
 `RpcContracts.*`. 어셈블리 판은 `Microsoft.VisualStudio.Extensibility.dll` 17.14.2099.
+
+**대조 출처** (센 값을 다시 맞춘 곳).
+
+- [VisualStudio.Extensibility overview](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/visualstudio-extensibility?view=visualstudio) — 기능 영역 열넷, 그리고 이 모델이 아직 preview 라는 문장
+- [`ShellExtensibility` 클래스](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.extensibility.shell.shellextensibility?view=visualstudiosdk-2022) — 패키지 17.14.2088. 상태 표시줄 항목을 다는 멤버가 없다
+- [`ProgressReporterOptions`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.rpccontracts.progressreporting.progressreporteroptions?view=visualstudiosdk-2022) — 「Task Status Center 의 동작을 조정하는 옵션」
+- [전구 제안 walkthrough](https://github.com/MicrosoftDocs/visualstudio-docs/blob/main/docs/extensibility/walkthrough-displaying-light-bulb-suggestions.md) — VSSDK(in-proc) 문서다
+- [announcements.md](https://github.com/microsoft/VSExtensibility/blob/main/docs/announcements.md) — 마지막 기능 공지가 2024-09(설정·이미지·툴바)이고, 넷 중 어느 것도 그 뒤로 추가되지 않았다
 
 **문서 출처.**
 
