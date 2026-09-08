@@ -270,7 +270,20 @@ func (a attached) SuggestPrompt(ctx context.Context, sid session.SessionID, pref
 	if a.sock == "" {
 		return a.c.get().Suggest(prefix)
 	}
-	cl, err := daemon.Dial(a.sock)
+	// The ceiling the paragraph above promises, actually set. It said "bounded at seconds" and
+	// nothing bounded it at all: daemon.Dial has no timeouts by design — an attached view is
+	// meant to sit on its daemon — which is right for the pooled connection this view lives on
+	// and wrong for one question with somebody typing at the other end. Nothing else stood in:
+	// Client.exchange sets a deadline only if the dial gave it one, and the ctx handed in here
+	// is context.Background, because that is what the TUI is built from. So a daemon that
+	// accepted and then never answered kept this waiting for ever, and the composer fires again
+	// on every debounce — one open connection per keystroke burst, none of them ever returning.
+	//
+	// completeDeadline for both bounds, and for the reason already written beside it: a
+	// suggestion somebody waited twelve seconds for is worthless, so the deadline caps the
+	// wasted spend and frees the socket. daemonEngine.SuggestPrompt — the same door, taken by
+	// the web console — has been bounded by it all along. This is the attached path catching up.
+	cl, err := daemon.DialWithin(a.sock, completeDeadline, completeDeadline)
 	if err != nil {
 		return "", err
 	}
