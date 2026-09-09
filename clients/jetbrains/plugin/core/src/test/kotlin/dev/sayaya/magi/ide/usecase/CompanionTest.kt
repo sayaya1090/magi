@@ -285,6 +285,25 @@ class CompanionTest {
     }
 
     @Test
+    fun `창이 얼마나 찼나를 문에 묻는다 — 스트림은 재생이 없다`() {
+        // 같은 사실이 스트림의 `context.usage` 로도 오지만 그것은 **transient** 다(`event.go` 의
+        // `transientTypes` — 버스 전용, 로그에 안 쓰이고 재생 없음). 그래서 이미 돌고 있는 대화에
+        // 창을 붙이면 턴이 한 번 돌기 전까지 아무것도 못 본다. 문은 지금 답한다.
+        val fake = FakeDaemon(listOf("""{"ok":true,"context":{"window":200000,"used":48000}}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val r = Companion(c, "s_1").context()
+            assertEquals(200000, r.context?.window, "창 크기를 안 나른다")
+            assertEquals(48000, r.context?.used, "쓴 양을 안 나른다")
+        }
+        fake.close()
+        // **대화를 실어 보낸다.** 이 문은 세션마다 답이 다르므로, 안 실으면 데몬이 어느 대화를
+        // 재는지 부르는 쪽이 모르는 채로 정해진다.
+        assertTrue(fake.seen[0].contains("\"session\":\"s_1\""), fake.seen[0])
+        assertTrue(fake.seen[0].contains("\"method\":\"context\""), fake.seen[0])
+    }
+
+    @Test
     fun `카운슬 스위치는 세 갈래로 나른다`() {
         // 「이 컴패니언이 무엇 위에서 도나」는 셋이다 — permission·model·council. 셋이 같은 답에
         // 실려 오는데 이 클라이언트는 둘만 읽고 있었다(2026-09-09 실측). 선언이 없으면 읽을 수도

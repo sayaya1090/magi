@@ -79,6 +79,24 @@ class ArchitectureTest {
      * 전부 전사 행이어야 한다고 하면 사실을 엉뚱한 화면으로 민다.
      */
     @Test
+    fun `창 사용량은 문을 먼저 묻고 스트림은 낙하다`() {
+        // 스트림의 `context.usage` 는 transient 라 재생이 없다 — 이미 돌고 있는 대화에 붙은 창은
+        // 턴이 한 번 돌기 전까지 아무것도 못 본다. 문은 지금 답하므로 **문이 먼저**다. 문 없는
+        // 데몬에서는 스트림이 유일한 원천이라 낙하로 남긴다.
+        //
+        // 유닛은 문이 옳게 나가는 것까지만 잰다(`CompanionTest`). **판이 그것을 쓰는지**는
+        // `intellij` 에 있고 거기엔 시험 소스 세트가 없어 여기서 원본을 읽는다.
+        val plan = sources().firstOrNull { it.name == "PlanToolWindow.kt" }
+        assertTrue(plan != null, "PlanToolWindow.kt 를 못 찾았다 — 이 가드는 아무것도 안 읽고 있다")
+        val src = plan!!.readText()
+        assertTrue("comp.context()" in src, "판이 `context` 문을 안 두드린다 — 스트림만 보면 턴 전에는 빈칸이다")
+        assertTrue("""caps.contains("context")""" in src,
+            "광고를 안 보고 문을 두드린다 — 없는 문을 부르면 거절이 오고 그 거절은 판이 할 말이 아니다")
+        assertTrue(Regex("""ctxFromDoor \?: [^\n]*contextNow\(\)""") in src,
+            "문과 스트림의 차례가 뒤집혔거나 낙하가 사라졌다 — 문이 먼저이고 스트림은 낙하다")
+    }
+
+    @Test
     fun `코어가 쓰는 사건을 전부 읽거나, 안 읽는다고 적었다`() {
         val repo = generateSequence(File(".").absoluteFile) { it.parentFile }
             .firstOrNull { File(it, ".git").exists() }
