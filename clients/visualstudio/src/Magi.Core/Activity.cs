@@ -13,8 +13,22 @@ namespace Magi.Core;
 public sealed record Activity(string State, string? Asking, string? Doing, string? Why,
                               IReadOnlyDictionary<string, string> Setup)
 {
+    /// <summary>Nobody answered. Use <see cref="Of"/> for a reading the bridge actually gave.</summary>
     public static readonly Activity Unknown =
         new(ActivityState.Unknown, null, null, null, new Dictionary<string, string>());
+
+    /// <summary>
+    /// Whether the bridge said this, or we concluded it because the bridge did not answer.
+    /// </summary>
+    /// <remarks>
+    /// The state word cannot carry this. <c>unknown</c> is a word the bridge itself says — for a
+    /// socket path past the address limit, or a status round trip that failed — and it says it over
+    /// a working stdio pipe, having answered the question. That is a different fact from a bridge
+    /// that timed out or whose pipe is shut, and a caller that folds the two treats a healthy
+    /// bridge as a dead one. This repository's own rule, one layer up: "we could not ask" and "it
+    /// answered" must not arrive as the same news.
+    /// </remarks>
+    public bool Answered { get; init; }
 
     /// <summary>
     /// Read one <c>activity</c> reply.
@@ -32,7 +46,7 @@ public sealed record Activity(string State, string? Asking, string? Doing, strin
             return Unknown with { Why = reply?.Error };
         }
         return new Activity(reply.State!, Blank(reply.Asking), Blank(reply.Doing), Blank(reply.Why),
-                            reply.Setup ?? new Dictionary<string, string>());
+                            reply.Setup ?? new Dictionary<string, string>()) { Answered = true };
     }
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
@@ -49,7 +63,7 @@ public sealed record Activity(string State, string? Asking, string? Doing, strin
     public string Label() => State switch
     {
         ActivityState.NotRunning => "not running",
-        ActivityState.Idle => "idle",
+        ActivityState.Attached => "attached",
         ActivityState.Working => Doing is null ? "working" : $"working · {Doing}",
         ActivityState.Waiting => Asking is null ? "waiting on you" : $"waiting on you · {Asking}",
         ActivityState.Unknown => "cannot say",

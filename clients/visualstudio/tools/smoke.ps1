@@ -59,7 +59,9 @@ if ($null -eq $about.daemon) {
     Check "and says why nobody was home" (-not [string]::IsNullOrWhiteSpace($about.why)) "no why"
 }
 
-$words = @("not-running", "idle", "working", "waiting", "unknown")
+# "attached", not "idle" — the bridge stopped saying the latter, and this list said it for a day
+# longer. Against a companion that was merely running, this check would have failed here.
+$words = @("not-running", "attached", "working", "waiting", "unknown")
 Check "activity answers in the vocabulary" ($words -contains $activity.state) "state = $($activity.state)"
 Check "activity carries a reason when it found nothing" `
     ($activity.state -ne "not-running" -or -not [string]::IsNullOrWhiteSpace($activity.why)) "no why"

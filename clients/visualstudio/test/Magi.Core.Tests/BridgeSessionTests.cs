@@ -98,10 +98,10 @@ public class BridgeSessionTests
         var first = bridge.Session.AskAsync(new BridgeRequest { Method = "about" }, TimeSpan.FromSeconds(5));
         var second = bridge.Session.AskAsync(new BridgeRequest { Method = "activity" }, TimeSpan.FromSeconds(5));
 
-        bridge.Say("""{"id":2,"ok":true,"state":"idle"}""");
+        bridge.Say("""{"id":2,"ok":true,"state":"attached"}""");
         bridge.Say("""{"id":1,"ok":true,"version":"0.41.0"}""");
 
-        Assert.Equal("idle", (await second).State);
+        Assert.Equal("attached", (await second).State);
         Assert.Equal("0.41.0", (await first).Version);
     }
 

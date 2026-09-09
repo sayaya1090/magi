@@ -120,7 +120,25 @@ public sealed class DaemonInfo
 public static class ActivityState
 {
     public const string NotRunning = "not-running";
-    public const string Idle = "idle";
+
+    /// <summary>
+    /// It answered, and said no more than that — <b>not</b> "it is idle".
+    /// </summary>
+    /// <remarks>
+    /// The bridge lands here when a status reply carries neither a question nor a progress note,
+    /// and that is what an ordinary running turn looks like: the note is written by one builtin
+    /// tool out of fifty, and the status door has no field meaning "a turn is running" at all. The
+    /// reasoning is in <c>internal/adapter/idebridge/activity.go</c>, where the word is decided;
+    /// this is a copy of the spelling and nothing else.
+    /// <para>
+    /// ⚠ This client spelled it <c>idle</c> until 2026-09-10 — a word the bridge had stopped saying
+    /// nine hours after this file was written. The constant then matched no reply the bridge could
+    /// send, so <see cref="Activity.Label"/> fell through to its unrecognised-word default and the
+    /// panel drew the raw wire word. Nothing failed, which is the shape of every trap in this file.
+    /// </para>
+    /// </remarks>
+    public const string Attached = "attached";
+
     public const string Working = "working";
     public const string Waiting = "waiting";
     public const string Unknown = "unknown";

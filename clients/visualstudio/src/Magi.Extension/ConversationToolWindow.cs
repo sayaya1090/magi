@@ -129,8 +129,8 @@ internal class ConversationToolWindow : ToolWindow
     /// Nothing awaits this task — it is started with <c>_ =</c> — so an exception leaving it is not
     /// reported anywhere at all: it becomes an unobserved task exception inside somebody's IDE
     /// process, and what they see is a panel frozen on its last reading. A stopped panel showing
-    /// "idle" is indistinguishable from a companion that is idle. Hence the two catches, each with
-    /// one job.
+    /// "attached" is indistinguishable from a companion that is merely running. Hence the two
+    /// catches, each with one job.
     /// </para>
     /// </remarks>
     private async Task PollAsync(CancellationToken cancel)

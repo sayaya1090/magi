@@ -42,6 +42,35 @@ public class ActivityTests
     }
 
     /// <summary>
+    /// An <c>unknown</c> the bridge said is not an <c>unknown</c> we concluded.
+    /// </summary>
+    /// <remarks>
+    /// The bridge says the word itself when it could not ask the daemon — a socket path past the
+    /// address limit, or a status round trip that failed — and it says it over a pipe that works.
+    /// The caller that owns the child process acts on the difference: dropping a bridge that
+    /// answered kills a healthy process, and for the path-length reason, which never changes, it
+    /// would do so on every poll for the life of the window.
+    /// </remarks>
+    [Theory]
+    [InlineData("""{"id":1,"ok":true,"state":"unknown","why":"socket path is too long"}""", true)]
+    [InlineData("""{"id":1,"ok":true,"state":"attached"}""", true)]
+    [InlineData("""{"id":1,"ok":false,"error":"the bridge closed"}""", false)]
+    [InlineData("""{"id":1,"ok":true}""", false)]
+    public void SayingUnknownIsNotTheSameAsNotAnswering(string json, bool answered)
+    {
+        Assert.Equal(answered, Activity.Of(Reply(json)).Answered);
+    }
+
+    /// <summary>What we build for ourselves has answered nothing, whatever else is filled in.</summary>
+    [Fact]
+    public void TheUnknownWeMakeOurselvesNeverCountsAsAnAnswer()
+    {
+        Assert.False(Activity.Unknown.Answered);
+        Assert.False((Activity.Unknown with { Why = "magi is not installed" }).Answered);
+        Assert.False(Activity.Of(null).Answered);
+    }
+
+    /// <summary>
     /// The bridge decides the word; this side only reads it. A reply with no state is a bridge that
     /// answered without answering, which is not something to guess about.
     /// </summary>
@@ -61,6 +90,9 @@ public class ActivityTests
     [InlineData("""{"id":1,"ok":true,"state":"waiting","asking":"run `rm -rf build`"}""",
                 "waiting on you · run `rm -rf build`")]
     [InlineData("""{"id":1,"ok":true,"state":"not-running"}""", "not running")]
+    // The state an ordinary running turn produces — the commonest reply on this wire, and the one
+    // this client had no sentence for until 2026-09-10.
+    [InlineData("""{"id":1,"ok":true,"state":"attached"}""", "attached")]
     public void TheSentenceIsBuiltFromWhatWasSaid(string json, string expected)
     {
         Assert.Equal(expected, Activity.Of(Reply(json)).Label());
@@ -74,7 +106,7 @@ public class ActivityTests
     [Fact]
     public void SetupCarriesOnlyWhatWasSaid()
     {
-        var a = Activity.Of(Reply("""{"id":1,"ok":true,"state":"idle","setup":{"permission":"ask"}}"""));
+        var a = Activity.Of(Reply("""{"id":1,"ok":true,"state":"attached","setup":{"permission":"ask"}}"""));
         Assert.Equal("ask", a.Setup["permission"]);
         Assert.False(a.Setup.ContainsKey("model"));
     }

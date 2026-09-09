@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace Magi.Core.Tests;
@@ -72,20 +73,61 @@ public class WireTests
     }
 
     /// <summary>
-    /// The activity vocabulary is one vocabulary. A word spelled differently on this side is a
-    /// state that never matches — the screen would fall through to the default for ever.
+    /// The words the bridge declares, read from the declarations and not from the prose around them.
     /// </summary>
+    /// <remarks>
+    /// The shape is the const line itself — <c>Name = "word"</c> — which is what the bridge's own
+    /// cross-language check does to the TypeScript copy (<c>TestBothCopiesSpeakOneVocabulary</c>),
+    /// and for the same reason: that file argues about its vocabulary in comments, in quotation
+    /// marks, including words it deliberately no longer says.
+    /// </remarks>
+    private static HashSet<string> BridgeVocabulary()
+    {
+        var go = GoSource("internal/adapter/idebridge/activity.go");
+        var words = Regex.Matches(go, """^\s*[A-Z]\w*\s+=\s+"([a-z-]+)"\s*$""", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .ToHashSet(StringComparer.Ordinal);
+        // A scan that found nothing agrees with everything. If the const block is reshaped, this
+        // must fail as a broken scan rather than pass as a matching vocabulary.
+        Assert.True(words.Count >= 3,
+            $"only {words.Count} word(s) found in activity.go — the scan is broken, not the vocabulary");
+        return words;
+    }
+
+    /// <summary>
+    /// The activity vocabulary is one vocabulary, and the check runs both ways.
+    /// </summary>
+    /// <remarks>
+    /// A word spelled differently on this side is a state that never matches, and the sentence
+    /// falls through to the unrecognised-word default for ever. A word the bridge has and this side
+    /// has not is the same failure from the other direction, and it is the one that actually
+    /// happened: <c>attached</c> replaced <c>idle</c> in the bridge nine hours after this client
+    /// was written, and the old one-way check stayed green because the bridge's comments explain
+    /// the change using the word <c>"idle"</c> in quotation marks. Reading declarations rather than
+    /// the whole file is what closes that, and asking in both directions is what makes a word
+    /// arriving in the bridge somebody's problem here.
+    /// </remarks>
     [Fact]
     public void TheActivityWordsAreSpeltTheWayTheBridgeSpellsThem()
     {
-        var go = GoSource("internal/adapter/idebridge/activity.go");
-        foreach (var word in new[]
-                 {
-                     ActivityState.NotRunning, ActivityState.Idle, ActivityState.Working,
-                     ActivityState.Waiting, ActivityState.Unknown,
-                 })
+        var bridge = BridgeVocabulary();
+        var mine = typeof(ActivityState)
+            .GetFields(BindingFlags.Public | BindingFlags.Static)
+            .Where(f => f.IsLiteral && f.FieldType == typeof(string))
+            .ToDictionary(f => f.Name, f => (string)f.GetRawConstantValue()!, StringComparer.Ordinal);
+        Assert.NotEmpty(mine);
+
+        foreach (var (name, word) in mine)
         {
-            Assert.True(go.Contains($"\"{word}\""), $"the bridge does not know the word \"{word}\"");
+            Assert.True(bridge.Contains(word),
+                $"ActivityState.{name} is \"{word}\", which the bridge does not declare — it declares " +
+                string.Join(", ", bridge.OrderBy(w => w, StringComparer.Ordinal)));
+        }
+        foreach (var word in bridge)
+        {
+            Assert.True(mine.ContainsValue(word),
+                $"the bridge says \"{word}\" and ActivityState has no constant for it; " +
+                "Activity.Label would show the raw wire word");
         }
     }
 

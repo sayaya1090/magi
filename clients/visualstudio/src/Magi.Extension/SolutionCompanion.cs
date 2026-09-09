@@ -33,7 +33,13 @@ internal sealed class SolutionCompanion : IDisposable
         var reading = await companion.ActivityAsync(cancel: cancel).ConfigureAwait(false);
         // A bridge that has gone away answers unknown for ever otherwise: the child is dead and
         // every later question goes into the same closed pipe. Drop it and let the next one dial.
-        if (reading.State == ActivityState.Unknown) Drop();
+        //
+        // Only when it did not answer, though. `unknown` is also a word the bridge SAYS, over a
+        // pipe that is working, about a daemon it could not ask — a socket path past the address
+        // limit, or a status round trip that failed. Dropping on that kills a healthy child and
+        // starts another, and the path-length one never improves: the panel would spawn a process
+        // every ten seconds for the life of the window and show the same sentence each time.
+        if (reading.State == ActivityState.Unknown && !reading.Answered) Drop();
         return reading;
     }
 
