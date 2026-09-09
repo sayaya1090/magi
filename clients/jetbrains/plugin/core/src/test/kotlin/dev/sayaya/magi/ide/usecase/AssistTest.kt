@@ -73,7 +73,10 @@ class AssistTest {
         assertEquals("3번 줄: 널 검사가 없다", got)
         assertTrue(f.seen[0].contains("\"method\":\"look-over\""), "look 이 아니라 look-over: ${f.seen[0]}")
         assertTrue(f.seen[0].contains("\"name\":\"a.kt\""), "어느 파일을 보는지가 안 실렸다: ${f.seen[0]}")
-        assertTrue(f.seen[0].contains("\"text\":\"val x = y!!\""), "볼 글자가 안 실렸다: ${f.seen[0]}")
+        // ⚠ **번호가 붙은 채로** 실린다. 이 줄은 오래도록 `"text":"val x = y!!"` 를 못박았는데,
+        // 그것이 바로 결함이었다 — 코어의 프롬프트는 모델에게 「보이는 번호를 쓰라」고 하고 이 판은
+        // 번호를 안 붙였다. 시험이 그 상태를 고정하고 있었다.
+        assertTrue(f.seen[0].contains("\"text\":\"1\\tval x = y!!\""), "볼 글자에 번호가 안 붙었다: ${f.seen[0]}")
     }
 
     @Test
@@ -330,5 +333,50 @@ class AssistTest {
         assertTrue(want > 0, "코어에서 말이 안 되는 상한을 읽었다 — 훑기가 깨졌다")
         assertEquals(want, Assist.AMBIENT_CAP,
             "이 판은 ${Assist.AMBIENT_CAP} 바이트를 보내고 코어는 $want 를 남긴다")
+    }
+
+    /**
+     * ★ **훑어보기는 줄 번호를 붙여 보낸다 — 모델의 줄 세기를 믿지 않으려고 있는 설계다.**
+     *
+     * 코어의 프롬프트가 모델에게 약속한다: *"each is prefixed with its line number and a tab …
+     * using the numbers shown"*. 그런데 번호를 붙이는 것은 코어가 아니라 **클라이언트**다(코어는
+     * 자르기만 한다). 이 판은 안 붙였다 — 「보이는 번호」가 없으니 모델이 제가 줄을 세고, 그 셈을
+     * 이 판은 `doc.getLineEndOffset(n - 1)` 으로 **문서의 절대 행**이라 믿어 인레이를 놓았다.
+     * 짝인 VS Code 는 처음부터 붙여 보냈다.
+     */
+    @Test
+    fun `훑어보기는 줄 번호를 붙여 보낸다`() {
+        val f = Fake(listOf("""{"ok":true,"out":"2\tx"}""")); f.start()
+        Assist(f.opener()).lookOver("a.kt", "첫 줄\n둘째 줄\n셋째 줄")
+        f.close()
+        val sent = Regex(""""text":"([^"]*)"""").find(f.seen[0])!!.groupValues[1]
+        // JSON 안에서 탭은 \t 로, 줄바꿈은 \n 으로 escape 돼 있다.
+        assertTrue(sent.startsWith("1\\t첫 줄"), "첫 줄에 번호가 없다: $sent")
+        assertTrue("2\\t둘째 줄" in sent, "둘째 줄 번호가 틀렸다: $sent")
+        assertTrue("3\\t셋째 줄" in sent, "셋째 줄 번호가 틀렸다: $sent")
+    }
+
+    /** 번호는 **1부터의 절대 행**이다 — 0부터 세면 모든 인레이가 한 줄 위에 앉는다. */
+    @Test
+    fun `줄 번호는 1부터다`() {
+        assertTrue(Assist.numberedLines("a\nb").startsWith("1\ta"),
+            "0부터 셌다 — 모든 지적이 한 줄씩 어긋난다")
+        assertTrue(Assist.numberedLines("a\nb").endsWith("2\tb"))
+    }
+
+    /**
+     * 상한을 **줄 경계에서** 끊는다. 번호만 남고 코드가 반쯤 잘린 줄이나 번호 없는 꼬리를 남기면,
+     * 모델은 그 줄을 못 읽거나 없는 줄을 지적한다(코어가 자기 상한에서 같은 규칙을 쓴다).
+     */
+    @Test
+    fun `상한은 줄 경계에서 끊는다`() {
+        val many = (1..500).joinToString("\n") { "줄 $it 의 내용" }
+        val cut = Assist.numberedLines(many, 200)
+        assertTrue(cut.toByteArray(Charsets.UTF_8).size <= 200, "상한을 넘었다: ${cut.length}")
+        for (row in cut.split("\n")) assertTrue(Regex("""^\d+\t""").containsMatchIn(row),
+            "번호 없는 줄이 남았다: $row")
+        // 마지막 줄이 반쯤 잘리지 않았다 — 원문에 그 줄이 그대로 있다.
+        val last = cut.split("\n").last()
+        assertTrue(last.substringAfter('\t') in many, "마지막 줄이 중간에서 잘렸다: $last")
     }
 }

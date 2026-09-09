@@ -85,6 +85,38 @@ class Assist(
             prefix.takeLast(SIDE_CAP) to suffix.take(SIDE_CAP)
 
         /**
+         * 훑어보기로 보낼 바이트 상한 — 코어의 `lookOverCap`(60KB)보다 크지 않게.
+         *
+         * 짝인 VS Code 가 64KB 로 자르고 코어가 60KB 에서 한 번 더 자르므로, 여기서는 코어의 수를
+         * 그대로 쓴다 — 버려질 바이트를 실을 이유가 없다.
+         */
+        const val LOOK_CAP = 60 * 1024
+
+        /**
+         * 줄마다 **실제 줄 번호와 탭**을 앞에 붙인다 — `<n><TAB><코드>`.
+         *
+         * 코어의 프롬프트가 이 모양을 모델에게 약속하고 답도 그 모양(`<line><TAB><clause>`)으로
+         * 받는다. 번호를 안 붙이면 모델이 제가 줄을 세고, 그 셈은 틀린다 — 그래서 이 설계가 있다.
+         *
+         * 바이트로 셈해 **줄 경계에서** 끊는다: 번호만 남고 코드가 반쯤 잘린 줄이나 번호 없는
+         * 꼬리를 남기지 않는다(코어가 자기 상한에서 같은 규칙을 쓰는 이유와 같다).
+         */
+        @JvmStatic
+        internal fun numberedLines(text: String, maxBytes: Int = LOOK_CAP): String {
+            val out = StringBuilder()
+            var used = 0
+            for ((i, line) in text.split("\n").withIndex()) {
+                val row = "${i + 1}\t$line"
+                val cost = row.toByteArray(Charsets.UTF_8).size + 1
+                if (used + cost > maxBytes) break
+                if (out.isNotEmpty()) out.append('\n')
+                out.append(row)
+                used += cost
+            }
+            return out.toString()
+        }
+
+        /**
          * 주변 맥락으로 실어 보낼 글자 수의 상한 — 코어의 `ambientCap` 과 같은 수.
          *
          * 바이트 상한에 **글자**로 자른다. 글자는 바이트보다 적을 수 없으니 코어가 남길 바이트만큼은
@@ -193,7 +225,13 @@ class Assist(
     fun lookOver(path: String, text: String): String? {
         if (text.isBlank()) return null
         return call { c ->
-            val r = c.exchange(Request(method = "look-over", name = path, text = text))
+            // **번호를 붙여 보낸다.** 코어의 프롬프트가 모델에게 그렇게 말하고 있다: *"each is
+            // prefixed with its line number and a tab … using the numbers shown"*. 번호를 붙이는
+            // 것은 코어가 아니라 **클라이언트**이고(코어는 자르기만 한다), 이 판은 안 붙였다 —
+            // 모델은 「보이는 번호」가 없으니 제가 줄을 세고, 그 셈을 이 판은 `doc.getLineEndOffset`
+            // 으로 **문서의 절대 행**이라 믿어 인레이를 놓는다. 모델의 줄 세기를 믿지 않으려고
+            // 만든 설계에서 그것만 믿고 있었던 셈이다. 짝인 VS Code 는 처음부터 붙여 보냈다.
+            val r = c.exchange(Request(method = "look-over", name = path, text = numberedLines(text)))
             note(r.error, null)
             // 거부는 **답으로 돌려준다.** 이 문은 사람이 눌러서 열리고, 누른 자리에 판이 있다 —
             // 삼키면 그 판이 「할 말이 없다」고 적고, 데몬은 왜 못 하는지 말했는데 아무도 안 읽는다.
