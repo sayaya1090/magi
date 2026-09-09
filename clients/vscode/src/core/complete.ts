@@ -53,4 +53,37 @@ export function noteCompletion(text: string, reason: string | undefined): void {
   lastEmpty = text.trim() ? '' : (reason ?? '').trim();
 }
 
-export function whyNoCompletion(): string { return lastEmpty; }
+export function whyNoCompletion(): string { return sayWhyEmpty(lastEmpty); }
+
+/** The raw code, for a caller that wants to branch on it rather than read it. */
+export function whyCodeNoCompletion(): string { return lastEmpty; }
+
+/**
+ * The reason as a sentence, because `reason` is an ENUM and not prose.
+ *
+ * `CompleteReason` in `internal/app/complete.go` is four tokens — `off`, `unrouted`,
+ * `nothing-asked`, `no-answer` — and this client was putting the token itself on screen:
+ * "Completion said nothing: unrouted". That is a protocol word shown to a person, in the one row
+ * they open when completion is silent, under a description that calls it "the companion's own
+ * reason". It is not the companion's reason; it is the companion's constant.
+ *
+ * `unrouted` is the one that costs something. The core's own comment says it is "the one most
+ * worth surfacing: it is indistinguishable from a model with nothing to say, and unlike that model
+ * it will never have anything to say" — a configuration mistake that never fixes itself. The word
+ * "unrouted" does not tell anyone to go and pick a code profile. The JetBrains client translates
+ * all four; this one translated none.
+ *
+ * ⚠ **An unknown code passes through raw.** A daemon newer than this build may name a fifth kind of
+ * empty, and showing its word is better than inventing a sentence for it or swallowing it — the
+ * same rule this tree applies to permission modes it does not know.
+ */
+export function sayWhyEmpty(code: string): string {
+  switch (code.trim()) {
+    case '': return '';
+    case 'off': return 'code completion is switched off';
+    case 'unrouted': return 'no code profile is routed — pick one in the companion\'s settings';
+    case 'nothing-asked': return 'there was nothing around the cursor to complete';
+    case 'no-answer': return 'the completer was asked and offered nothing';
+    default: return code.trim();
+  }
+}

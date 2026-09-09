@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as activity from '../core/activity';
 import { State, panelNote, setupOf, sameSetup } from '../core/activity';
-import { noteCompletion, whyNoCompletion } from '../core/complete';
+import { noteCompletion, sayWhyEmpty, whyNoCompletion } from '../core/complete';
 
 /**
  * The daemon has always sent these three; nothing read them.
@@ -210,4 +210,44 @@ test('whether the council is on is a fact the screen can show', () => {
   // And it reaches a surface. The tooltip is where the other two already stand.
   const status = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'status.ts'), 'utf8');
   assert.ok(/setup\.council/.test(status), 'the fact is read into Setup and no screen shows it');
+});
+
+/**
+ * ★ `reason` is an ENUM, and this client was showing the token to the person.
+ *
+ * `CompleteReason` (`internal/app/complete.go`) is four words — `off`, `unrouted`, `nothing-asked`,
+ * `no-answer`. The "what is running" row said `Completion said nothing: ${reason}`, described as
+ * "the companion's own reason", and so a person opening the one screen they open when completion
+ * has gone silent read the sentence "Completion said nothing: unrouted".
+ *
+ * The core says which of the four costs the most: `unrouted` is "the one most worth surfacing: it
+ * is indistinguishable from a model with nothing to say, and unlike that model it will never have
+ * anything to say". It is a configuration mistake that never fixes itself, and the word "unrouted"
+ * does not tell anyone to go and pick a code profile. The JetBrains client translates all four in
+ * its bundle (`set.complete.why.*`); this one translated none.
+ *
+ * The guard reads the four out of the CORE, so a fifth kind of empty landing there fails here
+ * rather than reaching a screen as a bare token.
+ */
+test('every kind of empty completion the core names is said as a sentence', () => {
+  const core = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'app', 'complete.go'), 'utf8');
+  const codes = [...core.matchAll(/Complete\w+\s+CompleteReason\s*=\s*"([a-z-]+)"/g)].map((m) => m[1]);
+  assert.ok(codes.length >= 4,
+    `only ${codes.length} completion reasons read from the core — the parser is stale, and a stale ` +
+    'parser here answers "all translated" for ever');
+  assert.ok(codes.includes('unrouted'), 'the scan cannot see `unrouted`, the one the core calls most worth surfacing');
+
+  for (const c of codes) {
+    const said = sayWhyEmpty(c);
+    assert.notEqual(said, c,
+      `"${c}" reaches the person as the protocol word itself — it is a constant, not a sentence`);
+    assert.ok(said.length > c.length, `"${c}" → "${said}" is not a sentence`);
+  }
+  // The empty code is "it worked", and must stay silent rather than become a sentence.
+  assert.equal(sayWhyEmpty(''), '', 'a completion that produced text must say nothing at all');
+  // A code this build has never heard of is shown raw: better the daemon's word than an invented
+  // sentence, and better than silence. Same rule as an unknown permission mode.
+  assert.equal(sayWhyEmpty('rate-limited'), 'rate-limited',
+    'an unknown reason is swallowed or renamed — the daemon said something and nobody hears it');
 });
