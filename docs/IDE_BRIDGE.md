@@ -92,6 +92,13 @@ Studio client needed it in C#. Two rules travel with it because they are the sam
 different clothes — is the socket path longer than the address allows, and is anything listening —
 and both answer in the same vocabulary rather than in an exception.
 
+
+> **While the move is under way there are two copies:** this package and
+> `clients/vscode/src/core/activity.ts`. They did drift (2026-09-09), and this is not the kind
+> of thing to leave to somebody opening both files, so a test holds it —
+> `TestBothCopiesSpeakOneVocabulary` reads the TypeScript enum and compares the word sets. A
+> word on one side and not the other fails by name.
+
 `unknown` is an answer, not a shrug: "we could not ask" is a different fact from "it answered".
 And `attached` is the third of those, not a fourth spelling of idle — it means the daemon replied
 and said nothing further, which is what an ordinary running turn looks like on this wire. `doing`

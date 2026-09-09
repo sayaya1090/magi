@@ -3,6 +3,7 @@ package idebridge
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -148,4 +149,44 @@ func TestTheSessionReachesTheDaemon(t *testing.T) {
 	if setup["model"] != "opus" {
 		t.Errorf("setup = %v, want the model it named", setup)
 	}
+}
+
+// 두 사본이 같은 낱말을 말하나.
+//
+// 이 패키지의 존재 이유가 「한 규칙이 화면마다 한 벌씩 적히는 것」을 끝내는 것인데, 옮기는
+// 동안에는 사본이 **둘**이다(여기와 `clients/vscode/src/core/activity.ts`). 그리고 실제로
+// 갈렸다 — 2026-09-09, 타입스크립트 쪽에서 「데몬이 안 말한 침묵」을 idle 로 그리던 것을 고쳤는데
+// 이 패키지가 같은 낱말을 그대로 들고 있었다. 사람이 두 파일을 같이 여는 것에 기대면 안 되는
+// 종류의 일이라, 시험이 진다.
+//
+// 낱말만 본다. 언제 어느 낱말을 고르는지는 각 쪽의 시험이 따로 지고(여기 위쪽, 저쪽
+// `setup.test.ts`), 여기서 묻는 것은 **어휘가 하나인가** 뿐이다.
+func TestBothCopiesSpeakOneVocabulary(t *testing.T) {
+	ts := filepath.Join("..", "..", "..", "clients", "vscode", "src", "core", "activity.ts")
+	body, err := os.ReadFile(ts)
+	if err != nil {
+		t.Fatalf("타입스크립트 사본을 못 읽었다 — 옮겨졌으면 이 시험부터 고칠 것: %v", err)
+	}
+	// `Name = 'value',` 에서 값만. 주석 안의 따옴표에 안 걸리도록 열거 항목 모양을 그대로 본다.
+	re := regexp.MustCompile(`(?m)^\s{2}[A-Z]\w*\s*=\s*'([a-z-]+)',`)
+	got := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(string(body), -1) {
+		got[m[1]] = true
+	}
+	// 훑어서 「전부 같다」를 묻는 모양은 훑을 것이 없을 때도 초록이다.
+	if len(got) < 3 {
+		t.Fatalf("타입스크립트에서 낱말을 %d 개밖에 못 찾았다 — 스캔이 깨진 것이지 어휘가 맞는 게 아니다", len(got))
+	}
+	want := map[string]bool{NotRunning: true, Attached: true, Working: true, Waiting: true, Unknown: true}
+	for w := range want {
+		if !got[w] {
+			t.Errorf("이 패키지는 %q 를 말하는데 타입스크립트 사본에는 없다", w)
+		}
+	}
+	for w := range got {
+		if !want[w] {
+			t.Errorf("타입스크립트 사본이 %q 를 말하는데 이 패키지에는 없다", w)
+		}
+	}
+	t.Logf("낱말 %d 개를 두 사본에서 견줬다", len(want))
 }
