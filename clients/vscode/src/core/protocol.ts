@@ -137,7 +137,18 @@ export interface Response {
   /** `roster`: the companions this machine can name. */
   roster?: unknown[];
   /** `hand-state`: how the work handed to another companion is going. */
-  handover?: unknown;
+  /**
+   * `hand-state`: what became of one piece of work handed to a companion.
+   *
+   * Two endings, and they are not the same one — the core says so and says what collapsing them
+   * costs: `done` means a turn finished and `answer` is what was said; `over` means nothing is
+   * coming and `news` says why. "A caller that collapsed them would report a crash as an empty
+   * answer."
+   *
+   * It was `unknown` here, so the reader cast it to a shape of its own — and got two of the four
+   * names wrong. Typed now: an invented name stops compiling instead of reading `undefined`.
+   */
+  handover?: { done?: boolean; answer?: string; news?: string; over?: boolean };
   /**
    * The doors that answer a STRUCT rather than prose.
    *

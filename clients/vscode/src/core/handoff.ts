@@ -91,9 +91,18 @@ export interface Handed {
 export function handState(resp: Response | null): { line: string; over: boolean } {
   if (!resp) return { line: 'could not reach that companion', over: false };
   if (!resp.ok) return { line: resp.error ?? 'that companion has no record of this request', over: true };
-  const h = (resp.handover ?? null) as { done?: boolean; state?: string; answer?: string; error?: string } | null;
+  const h = resp.handover ?? null;
   if (!h) return { line: 'handed over — nothing back yet', over: false };
-  if (h.error) return { line: `failed: ${h.error}`, over: true };
+  // ⚠ **Two endings, not one.** `over` means nothing is coming — the far side crashed, restarted,
+  // or refused — and `news` is why. Reading only `done`, this window called that "working" and kept
+  // polling a receipt nobody would ever answer. The fields it DID read (`state`, `error`) have
+  // never been on this wire, so both of those branches were dead the whole time: an invented name
+  // reads as `undefined`, `undefined` is falsy, and nothing anywhere said so. The cast that let
+  // that happen is gone — the shape is typed at the wire now.
+  //
+  // `over` is asked first, because a handover can end WITHOUT finishing, and reporting the finish
+  // it did not have is the shape the core warns about: a crash reported as an empty answer.
+  if (h.over) return { line: h.news ? `stopped: ${h.news}` : 'stopped, and no reason came with it', over: true };
   if (h.done) return { line: `done: ${(h.answer ?? '').split('\n')[0].slice(0, 120) || '(no answer)'}`, over: true };
-  return { line: h.state ? `working: ${h.state}` : 'working', over: false };
+  return { line: 'working', over: false };
 }

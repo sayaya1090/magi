@@ -37,10 +37,18 @@ test('a refusal ends the wait and a dead connection does not', () => {
   assert.equal(unreachable.over, false, 'a companion we could not reach must be asked again');
 });
 
+/**
+ * ⚠ **This test used to invent the wire.** It fed `state: 'reading the tests'` and asserted the
+ * line came back with it — but `state` has never been a field of `handover`, so the branch it was
+ * exercising could not run against a real daemon. The reader had the same two invented names
+ * (`state`, `error`) and both of its branches were dead: an invented name reads as `undefined`,
+ * `undefined` is falsy, and nothing anywhere said so. The wire shape is typed now, so a test that
+ * makes one up stops compiling.
+ */
 test('work still running is not over', () => {
-  const r = handState({ ok: true, handover: { done: false, state: 'reading the tests' } });
+  const r = handState({ ok: true, handover: { done: false } });
   assert.equal(r.over, false);
-  assert.match(r.line, /reading the tests/);
+  assert.match(r.line, /working/);
 });
 
 test('an answer ends it, and the first line is what a panel shows', () => {
@@ -50,11 +58,26 @@ test('an answer ends it, and the first line is what a panel shows', () => {
   assert.ok(!r.line.includes('b.go'), 'the panel line should be one line');
 });
 
-/** A failure ends it too — and says so, rather than reading as still working for ever. */
-test('a failure ends it', () => {
-  const r = handState({ ok: true, handover: { error: 'the turn crashed' } });
-  assert.equal(r.over, true);
-  assert.match(r.line, /the turn crashed/);
+/**
+ * The OTHER ending. `done` means a turn finished and `answer` is what was said; `over` means
+ * nothing is coming and `news` says why. The core spells out what folding them costs — "a caller
+ * that collapsed them would report a crash as an empty answer" — and this reader read only `done`,
+ * so a handover that died read as "working" and this window polled a receipt nobody would answer,
+ * for as long as it was open.
+ */
+test('a handover that ended without finishing says so, and says why', () => {
+  const r = handState({ ok: true, handover: { over: true, news: 'the companion restarted' } });
+  assert.equal(r.over, true, 'nothing is coming and the window is still waiting for it');
+  assert.match(r.line, /the companion restarted/, 'the reason came and was dropped');
+
+  // Ended with no reason is still ended — silence here is what kept the poll alive.
+  const bare = handState({ ok: true, handover: { over: true } });
+  assert.equal(bare.over, true);
+  assert.ok(bare.line.trim(), 'it ended and the line is blank — that reads as nothing happened');
+
+  // And `over` is asked before `done`: an ending that did not finish must not report a finish.
+  const both = handState({ ok: true, handover: { over: true, news: 'killed', done: true, answer: '' } });
+  assert.match(both.line, /killed/, 'a crash was reported as an empty answer — the core names this exactly');
 });
 
 /** Nothing back yet is not an error, and not silence either. */
