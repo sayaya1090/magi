@@ -216,3 +216,59 @@ test('every state message carries its note', () => {
       `a state message goes out without its note, so the panel says nothing:\n  ${p}`);
   }
 });
+
+/**
+ * ★ Every message kind is both sent and received, in both directions, in every webview.
+ *
+ * A webview is a string of script: nothing type-checks the two halves against each other, and an
+ * orphan kind fails the quiet way — the sender posts, nobody listens, and the feature is simply
+ * absent. The narrower version of this guard (state messages must carry their note) was added after
+ * a mutation proved no unit test could see that wiring at all; this is the general case.
+ *
+ * Measured clean when written (chat: six kinds each way, plan: one and one). The point is that it
+ * stays that way.
+ */
+test('no webview message is sent to nobody or awaited from nobody', () => {
+  const dir = path.join(__dirname, '..', '..', 'src', 'ide');
+  const views = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))
+    .map((f) => ({ name: f, body: fs.readFileSync(path.join(dir, f), 'utf8') }))
+    .filter((v) => /<script\b/.test(v.body));
+  assert.ok(views.length >= 2, `only ${views.length} webviews found — this guard is reading nothing`);
+
+  for (const { name, body } of views) {
+    const at = body.search(/<script\b/);
+    const ext = body.slice(0, at);
+    const web = body.slice(at);
+    const kinds = (s: string, re: RegExp): Set<string> =>
+      new Set([...s.matchAll(re)].map((m) => m[1]));
+
+    // Extension → webview.
+    const sent = kinds(ext, /post(?:Message)?\(\{\s*kind:\s*'([a-z]+)'/g);
+    const heard = kinds(web, /m\.kind (?:===|!==) '([a-z]+)'/g);
+    assert.ok(sent.size > 0, `${name}: no messages out found — this guard is reading nothing`);
+    for (const k of sent) {
+      assert.ok(heard.has(k), `${name}: the extension posts "${k}" and the webview never reads it`);
+    }
+    for (const k of heard) {
+      assert.ok(sent.has(k), `${name}: the webview waits for "${k}" and nothing ever posts it`);
+    }
+
+    // Webview → extension. A kind the extension does not handle falls into its default and is lost.
+    //
+    // ⚠ Both shapes count. The chat side switches (`case 'say'`) and the plan side tests
+    // (`if (m.kind === 'ready')`) — this guard read only the first and reported the second as an
+    // unhandled message, which is a guard failing a build over nothing. A rule that recognises one
+    // spelling of a thing is a rule about spelling.
+    const back = kinds(web, /vs\.postMessage\(\{\s*kind:\s*'([a-z]+)'/g);
+    const taken = new Set([
+      ...kinds(ext, /case '([a-z]+)'/g),
+      ...kinds(ext, /m\.kind === '([a-z]+)'/g),
+    ]);
+    // The self-check sits here, where `back` exists: plan.ts sends at least `ready`, so reading none
+    // means this guard stopped seeing what it is for.
+    assert.ok(back.size > 0, `${name}: no messages back found — this guard is reading nothing`);
+    for (const k of back) {
+      assert.ok(taken.has(k), `${name}: the webview sends "${k}" and the extension never handles it`);
+    }
+  }
+});
