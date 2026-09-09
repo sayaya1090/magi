@@ -260,6 +260,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .who { font-size:.85em; opacity:.7; margin-bottom:2px; }
   .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
   .pending { opacity:.75; }
+  .abandoned { opacity:.6; text-decoration:line-through; }
   .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .error { color:var(--vscode-errorForeground); }
   .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
@@ -366,7 +367,7 @@ function draw(rs) {
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
-    d.className = 'row ' + r.who + (r.pending ? ' pending' : '');
+    d.className = 'row ' + r.who + (r.pending ? ' pending' : '') + (r.abandoned ? ' abandoned' : '');
     const w = document.createElement('div');
     w.className = 'who';
     w.textContent = r.label;

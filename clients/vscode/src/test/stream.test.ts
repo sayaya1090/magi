@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
 import { rows } from '../core/transcript';
 import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
@@ -142,4 +144,48 @@ test('a later reading replaces an earlier one', () => {
 test('no reading says nothing rather than zero percent', () => {
   assert.equal(usage([]), '');
   assert.equal(usage([{ seq: 1, type: 'context.usage', data: { tokens: 5 } }]), '');
+});
+
+const submitted = (msgId: string, text: string): Event =>
+  ({ seq: seq++, type: 'prompt.submitted', data: { messageId: msgId, parts: [{ text }] } });
+const abandoned = (msgId: string): Event =>
+  ({ seq: seq++, type: 'prompt.abandoned', data: { msgId } });
+
+/**
+ * ★ A cancelled prompt kept claiming it was waiting for an answer.
+ *
+ * `pending` is cleared by an assistant part or by `turn.finished`, and an interrupted prompt gets
+ * neither — so the bar stood for the life of the window about a request that had been stopped. A
+ * standing claim that has gone false is the shape this tree calls "sentences that age".
+ */
+test('a cancelled prompt stops claiming it is waiting', () => {
+  const got = rows([submitted('m1', 'do it'), abandoned('m1')]);
+  assert.equal(got.length, 1);
+  assert.ok(!got[0].pending, 'the row still says it is waiting for an answer');
+  assert.equal(got[0].abandoned, true, 'the row does not say it was cancelled');
+});
+
+/**
+ * ⚠ The two events spell the same id differently: `messageId` on the prompt, `msgId` on the
+ * abandonment. Reading either one for the other finds nothing and marks nothing — silently.
+ */
+test('the abandonment finds its prompt across the two spellings', () => {
+  const proto = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'payload.go'), 'utf8');
+  assert.match(proto, /MessageID string\s+`json:"messageId"/, 'the prompt no longer carries messageId');
+  assert.match(proto, /MsgID string\s+`json:"msgId"/, 'the abandonment no longer carries msgId');
+});
+
+/** Only the named prompt. Marking every row would cancel work that is still running. */
+test('an abandonment marks only its own prompt', () => {
+  const got = rows([submitted('m1', 'first'), submitted('m2', 'second'), abandoned('m1')]);
+  assert.equal(got[0].abandoned, true);
+  assert.ok(!got[1].abandoned, 'the other prompt was marked too');
+  assert.equal(got[1].pending, true, 'the other prompt stopped waiting');
+});
+
+/** An abandonment for a prompt this window never saw marks nothing rather than guessing. */
+test('an abandonment with no matching prompt is ignored', () => {
+  const got = rows([submitted('m1', 'first'), abandoned('nope')]);
+  assert.ok(!got[0].abandoned);
 });

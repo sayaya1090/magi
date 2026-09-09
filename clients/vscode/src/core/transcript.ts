@@ -32,6 +32,22 @@ export interface Row {
   ok?: boolean;
   /** A row whose prompt has no answer yet — the screen draws a bar beside it. */
   pending?: boolean;
+  /**
+   * A prompt whose turn was cancelled.
+   *
+   * ⚠ Without this the bar never comes down. `pending` is cleared by an assistant part or by
+   * `turn.finished`, and an interrupted prompt gets neither — so the row kept claiming "waiting for
+   * an answer" for the life of the window, about a request that had been stopped. A standing claim
+   * that has gone false is the defect shape this tree names "sentences that age".
+   */
+  abandoned?: boolean;
+  /**
+   * The prompt's own id, so a later event can find its row.
+   *
+   * ⚠ `prompt.submitted` spells it `messageId` and `prompt.abandoned` spells it `msgId` — the same
+   * id under two names. Reading either one for the other finds nothing and marks nothing, silently.
+   */
+  msgId?: string;
   /** Council rows: which member said it. Only three names ever get a colour. */
   member?: string;
   /** Rows that are folded shut by default (reasoning, tool bodies). */
@@ -91,7 +107,9 @@ export function rows(events: Event[]): Row[] {
       case 'prompt.submitted': {
         const parts = (d.parts as PartLike[] | undefined) ?? [];
         const text = parts.map((p) => p.text ?? '').join('').trim();
-        if (text) out.push({ seq: e.seq, who: 'user', text, pending: true });
+        if (text) {
+          out.push({ seq: e.seq, who: 'user', text, pending: true, msgId: String(d.messageId ?? '') });
+        }
         break;
       }
       case 'part.appended': {
@@ -146,6 +164,22 @@ export function rows(events: Event[]): Row[] {
        * that reads backwards: a summary can come out LARGER than what it replaced, and saying
        * "−0, −0%" there would hide the one outcome worth noticing.
        */
+      /**
+       * That prompt's turn was cancelled.
+       *
+       * The bar comes down and the row says so. Nothing else ever clears it: `pending` goes when an
+       * assistant part answers or the turn finishes, and an interrupted prompt gets neither — so the
+       * row went on claiming it was waiting, about a request that had been stopped.
+       */
+      case 'prompt.abandoned': {
+        // `msgId` here, `messageId` on the prompt. Same id, two spellings, no error either way.
+        const id = String(d.msgId ?? '');
+        if (!id) break;
+        for (const r of out) {
+          if (r.who === 'user' && r.msgId === id) { r.pending = false; r.abandoned = true; }
+        }
+        break;
+      }
       case 'compaction': {
         const before = Number(d.tokensBefore ?? 0);
         const after = Number(d.tokensAfter ?? 0);
