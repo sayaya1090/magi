@@ -455,3 +455,41 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     'the core writes these and nothing here reads them, so the feature is absent with nothing ' +
     'saying so: ' + missed.join(', ') + ' — read them, or add each to `skipped` with its reason.');
 });
+
+/**
+ * ★ No command id is registered twice.
+ *
+ * `vscode.commands.registerCommand` is documented in this repo's own typings as an error case:
+ * *"Registering a command with an existing command identifier twice will cause an error."* The
+ * registrations are built as one array inside `doorCommands()`, so the throw does not lose one
+ * button — it aborts the array, `activate()` fails, and **every** command of this extension is
+ * gone along with the views that activation wires up.
+ *
+ * Measured, not imagined: `magi.chooseBackend` was registered twice in `doors.ts` for a day. The
+ * second copy came with the info card, whose button needed the command, and nothing noticed —
+ * there is no vscode stub here, so no test ever calls `registerCommand`, and the one test that
+ * reads command names collects them into a `Set`, where a duplicate disappears by construction.
+ * A guard that dedupes cannot see doubling. This one counts.
+ */
+test('no command id is registered twice', () => {
+  const dir = path.join(__dirname, '..', '..', 'src');
+  const seen = new Map<string, string[]>();
+  const walk = (d: string): void => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) { if (e.name !== 'test') walk(p); continue; }
+      if (!e.name.endsWith('.ts')) continue;
+      const body = fs.readFileSync(p, 'utf8');
+      // Both shapes: the `reg('id', …)` helper and a direct `registerCommand('id', …)`.
+      for (const m of body.matchAll(/(?:registerCommand|\breg)\(\s*'(magi\.[A-Za-z]+)'/g)) {
+        seen.set(m[1], [...(seen.get(m[1]) ?? []), path.relative(dir, p)]);
+      }
+    }
+  };
+  walk(dir);
+  assert.ok(seen.size >= 10, `only ${seen.size} command registrations found — the scan is dead`);
+  for (const [id, where] of seen) {
+    assert.equal(where.length, 1,
+      `${id} is registered ${where.length} times (${where.join(', ')}) — registering it twice throws, and the throw takes every other command with it`);
+  }
+});

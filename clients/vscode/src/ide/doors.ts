@@ -200,17 +200,6 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (await call('restart')) void vscode.window.showInformationMessage('magi: restarting.');
     }),
 
-    /** Change which backend answers. The daemon lists them; nothing here invents a name. */
-    reg('magi.chooseBackend', async () => {
-      const r = await call('profiles');
-      if (!r) return;
-      const list = r.profiles ?? [];
-      if (!list.length) { void vscode.window.showWarningMessage('magi: this companion lists no backends.'); return; }
-      const pick = await vscode.window.showQuickPick(
-        list.map((p) => ({ label: p.name ?? '', description: p.tier })), { title: 'Backend' });
-      if (pick && await call('use-backend', { name: pick.label })) void companion.refresh();
-    }),
-
     reg('magi.compact', async () => {
       // No capability for this door — see `has`. Ask the person, then let the daemon answer.
       const ok = await vscode.window.showWarningMessage(
