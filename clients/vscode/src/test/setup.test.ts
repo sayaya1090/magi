@@ -238,11 +238,15 @@ test('every kind of empty completion the core names is said as a sentence', () =
     'parser here answers "all translated" for ever');
   assert.ok(codes.includes('unrouted'), 'the scan cannot see `unrouted`, the one the core calls most worth surfacing');
 
+  // ⚠ **Length is not sentence-ness.** The first cut asked for `said !== c` and `said.length >
+  // c.length`, and a mutation returning `'off '` — the token with a space — passed both while
+  // showing the person the same constant. Ask for what a sentence actually is: not the token once
+  // trimmed, and made of words.
   for (const c of codes) {
-    const said = sayWhyEmpty(c);
+    const said = sayWhyEmpty(c).trim();
     assert.notEqual(said, c,
       `"${c}" reaches the person as the protocol word itself — it is a constant, not a sentence`);
-    assert.ok(said.length > c.length, `"${c}" → "${said}" is not a sentence`);
+    assert.ok(said.split(/\s+/).length >= 3, `"${c}" → "${said}" is not a sentence, it is a label`);
   }
   // The empty code is "it worked", and must stay silent rather than become a sentence.
   assert.equal(sayWhyEmpty(''), '', 'a completion that produced text must say nothing at all');
