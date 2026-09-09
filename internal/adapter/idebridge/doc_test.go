@@ -54,7 +54,14 @@ func builtSection(t *testing.T, name, body string) string {
 		t.Fatalf("%s: no method section", name)
 	}
 	rest := body[start:]
-	for _, end := range []string{"**Not built yet.**", "**아직 안 지어진 것.**"} {
+	// The split is between the two tables, and the heading above the second one is prose somebody
+	// may reword — it was, on 2026-09-10, and this guard went red on main while the document was
+	// correct. So the markers are a LIST, and adding to it is how a rewording lands without
+	// breaking the build. What must not change is that there are two tables and something between
+	// them; if a rewrite leaves no marker at all, failing here is the right answer.
+	for _, end := range []string{
+		"**Not built yet.**", "**아직 안 지어진 것.**", "**향후 구현 예정 메서드.**",
+	} {
 		if i := strings.Index(rest, end); i >= 0 {
 			return rest[:i]
 		}
