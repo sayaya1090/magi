@@ -148,6 +148,20 @@ export interface Ask {
   /** Where this question sits in the run its call is asking: 3 of 5. */
   index?: number;
   total?: number;
+  /**
+   * When it was asked, as the event that raised it is stamped (`Event.ts`, RFC3339).
+   *
+   * ⚠ **A standing prompt said nothing about its own age.** Both clients drew the question and the
+   * buttons, and neither said when it went up — so a prompt raised forty minutes ago while nobody
+   * was looking is drawn exactly like one raised while you watched. Those are different situations:
+   * one means a turn has been stopped dead since before lunch, the other means you just caused it.
+   *
+   * The core carries the same fact down the other door too — `Waiting.Since` is the one field of
+   * that struct with no `omitempty`, so `status` always answers it — and the JetBrains window reads
+   * its prompt from there. Here the prompt is folded out of the log, and the log already stamps
+   * every event, so nothing new has to cross the wire for this screen to stop being silent about it.
+   */
+  since?: string;
 }
 
 /**
@@ -168,6 +182,7 @@ export function pendingAsk(events: Event[]): Ask | null {
       const raw = d.args;
       open = {
         kind: 'permission', callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool'),
+        since: e.ts,
         // The value, not its rendering: `args` is often a JSON string, and stringifying it twice
         // leaves the escapes on screen.
         args: raw === undefined || raw === null ? undefined
@@ -178,6 +193,7 @@ export function pendingAsk(events: Event[]): Ask | null {
     } else if (e.type === 'question.requested') {
       open = {
         kind: 'question', callId: String(d.callId ?? ''), what: String(d.question ?? ''),
+        since: e.ts,
         options: Array.isArray(d.options) ? d.options.map(String) : undefined,
         report: Array.isArray(d.report)
           ? (d.report as Record<string, unknown>[])

@@ -502,6 +502,16 @@ const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
 let suggestion = '';
 let typing = null;
+function askedAt(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const clock = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const now = new Date();
+  const sameDay = d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth()
+    && d.getDate() === now.getDate();
+  return sameDay ? clock : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + clock;
+}
 function drawAsk(a) {
   askEl.textContent = '';
   askEl.hidden = !a;
@@ -518,6 +528,19 @@ function drawAsk(a) {
     n.className = 'at';
     n.textContent = ' (' + a.index + '/' + a.total + ')';
     w.append(n);
+  }
+  /* WHEN it was asked. A prompt that went up forty minutes ago while nobody was looking is drawn
+     exactly like one you just caused, and those are different situations — the first means a turn
+     has been stopped dead since before you stepped away. Drawn as a CLOCK, not as "40m ago":
+     nothing redraws this panel while a prompt stands (no events arrive), so an elapsed figure would
+     freeze at whatever it said when it was first painted and then quietly lie. The date comes along
+     when it is not today, or "14:32" on a prompt from yesterday reads as an hour ago. */
+  const when = askedAt(a.since);
+  if (when) {
+    const t = document.createElement('span');
+    t.className = 'at';
+    t.textContent = ' asked ' + when;
+    w.append(t);
   }
   if (a.kind === 'permission') {
     w.prepend('magi wants to run: ' + a.what);

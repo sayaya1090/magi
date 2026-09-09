@@ -86,7 +86,7 @@ test('a permission stands until it is decided, and says it is a permission', () 
   const asked: Event = { seq: 1, type: 'permission.requested', data: { callId: 'p1', name: 'bash' } };
   assert.deepEqual(pendingAsk([asked]), {
     kind: 'permission', callId: 'p1', what: 'bash',
-    args: undefined, reason: undefined, diff: undefined,
+    args: undefined, reason: undefined, diff: undefined, since: undefined,
   });
   assert.equal(pendingAsk([asked, { seq: 2, type: 'permission.decided', data: {} }]), null);
 });
@@ -185,4 +185,25 @@ test('a question raises an ask, with its options', () => {
   // And they are drawn, above the buttons — they are what the decision is made FROM.
   assert.ok(/a\.report \|\| \[\]/.test(chat), 'the grounds are carried and no screen draws them');
   assert.ok(/\.ground\b/.test(chat), 'the grounds have no style — they would read as the question');
+});
+
+/**
+ * ★ A standing prompt says WHEN it went up.
+ *
+ * A prompt raised forty minutes ago while nobody was looking is drawn exactly like one raised while
+ * you watched, and they are different situations: the first means a turn has been stopped dead since
+ * before you stepped away, the second means you just caused it. Neither client said which.
+ *
+ * Nothing new crosses the wire for it — the log stamps every event, and the ask is folded out of the
+ * log. `undefined` when the event carries no stamp, because a screen that invents "just now" for an
+ * unstamped prompt is worse than one that says nothing.
+ */
+test('a standing prompt carries when it was asked', () => {
+  const at = '2026-09-10T04:12:00Z';
+  const perm = pendingAsk([{ seq: 1, type: 'permission.requested', ts: at, data: { callId: 'p1', name: 'bash' } }]);
+  assert.equal(perm?.since, at, 'a permission prompt drops the time it was raised');
+  const q = pendingAsk([{ seq: 1, type: 'question.requested', ts: at, data: { callId: 'q1', question: 'which?' } }]);
+  assert.equal(q?.since, at, 'a question prompt drops the time it was raised');
+  const unstamped = pendingAsk([{ seq: 1, type: 'question.requested', data: { callId: 'q1', question: 'which?' } }]);
+  assert.equal(unstamped?.since, undefined, 'an unstamped prompt was given a time it never had');
 });

@@ -273,3 +273,32 @@ test('a verdict cite is drawn as the record it quotes', () => {
     'rows no longer preserve newlines, so a multi-line cite collapses into one line');
   assert.ok(!/\.cite \{[^}]*white-space:\s*normal/.test(style), 'the cite overrides pre-wrap away');
 });
+
+/**
+ * ★ Every field of `Ask` reaches the prompt card.
+ *
+ * The card is where the most is riding on what is drawn, and this file already records two things
+ * that went missing there: the permission SUBJECT (a person pressed allow knowing only a tool name)
+ * and the GROUNDS a question was asked on. Both were carried across the wire, declared in the type,
+ * and drawn by nothing. A third joined them — `since`, the time the prompt went up.
+ *
+ * So the list is DERIVED from the type rather than remembered here: a field added to `Ask` and not
+ * drawn fails this, which is the exact shape of every one of those three defects. `callId` is read
+ * where the buttons post back, so the scan is the whole function, not the header.
+ */
+test('every field the ask carries is drawn on the card', () => {
+  const core = fs.readFileSync(path.join(IDE, '..', 'core', 'touched.ts'), 'utf8');
+  const decl = core.slice(core.indexOf('export interface Ask {'));
+  const body = decl.slice(0, decl.indexOf('\n}'));
+  const fields = [...body.matchAll(/^  (\w+)\??:/gm)].map((m) => m[1]);
+  assert.ok(fields.length >= 8, `only ${fields.length} Ask fields read — the scan is dead`);
+
+  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const at = chat.indexOf('function drawAsk(a) {');
+  assert.ok(at > 0, 'the prompt card is not where this guard looks for it');
+  const draw = chat.slice(at, chat.indexOf('\nconst moreEl', at));
+  for (const f of fields) {
+    assert.ok(new RegExp(`a\\.${f}\\b`).test(draw),
+      `the ask carries ${f} and the card never reads it — the field crosses the wire and dies here`);
+  }
+});
