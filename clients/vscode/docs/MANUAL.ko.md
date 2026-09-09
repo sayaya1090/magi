@@ -230,6 +230,45 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 **기본 단축키는 없다.** 남의 키를 안 덮으려는 것이라, 원하는 키는 Keyboard Shortcuts 에서
 `magi` 로 찾아 묶으면 된다.
 
+### 7.0 팔레트에서 부를 수 있는 것 — 전부
+
+명령 팔레트(⇧⌘P)에서 `magi` 를 치면 이 스물여섯이 나온다. **이 표가 완전한 이유**는 손으로
+적은 것이 아니라 `manifest.test.ts` 가 매니페스트와 대조하기 때문이다 — 하나라도 빠지면 시험이
+운다. 팔레트에 보이는 것은 영문 제목이므로 제목을 그대로 적고, 자세한 것은 그 기능이 사는 절로
+보낸다.
+
+| 팔레트 제목 | 무엇 | 자세히 |
+|---|---|---|
+| Open the conversation | 대화 판을 연다 | §3 |
+| Start the companion for this workspace | 데몬을 띄운다 | §1 |
+| Stop what the companion is doing | **도는 턴을 세운다.** 답이 이상한 길로 가고 있을 때 누른다 — 대화는 그대로고 그 턴만 끝난다 | §3.2 |
+| Look over this file now | 이 파일을 훑어보게 한다 | §7 |
+| Add this code to the conversation | 고른 코드를 대화에 붙인다 | §7 |
+| Add these files to the conversation | **탐색기에서 고른 파일 여럿**을 한 번에 붙인다. 에디터의 「고른 코드」와 다른 명령이다 | §7 |
+| Ask about this code | 고른 코드에 대해 묻는다 | §7 |
+| Which turn wrote this line | 이 줄을 쓴 턴을 찾는다 | §6 |
+| Explain this output | 진단·터미널 선택을 설명하게 한다 | §7 |
+| Draft a commit message | 커밋 메시지를 쓴다 | §7 |
+| Choose the model | 무엇이 답할지 고른다. 목록은 **데몬이 준 것** | §3.6a · §5.1 |
+| Choose the backend | 어느 백엔드로 갈지 고른다. 「기본 백엔드로 돌아가기」가 목록에 함께 선다 — 출구 없는 목록은 사람을 가둔다 | §3.6a · §5.1 |
+| Update this companion | 새 빌드로 갈아 끼우고 다시 띄운다. **먼저 묻는다** — 도는 턴이 끝난다 | §3.6a |
+| Restart this companion | 지금 빌드 그대로 다시 띄운다. **먼저 묻는다** | §3.6a |
+| Choose the approval mode | ask · auto · allow · deny | §3.6a · §5.1 |
+| Open another conversation | 읽기만 — 데몬이 도는 대화를 안 바꾼다 | §7.1 |
+| Show what magi is running | 모델·백엔드·승인·카운슬을 한 자리에 | §5.1 |
+| Change one of magi's own settings | 데몬만 아는 설정. 목록·기록되는 자리·언제 듣는지 전부 **데몬이 준다**. 못 읽는 설정 파일이 있으면 목록 **앞에** 그 사실이 먼저 뜬다 | §5.1 |
+| Start a new conversation | | §7.1 |
+| Resume a conversation | | §7.1 |
+| Fold this conversation | **먼저 묻는다** | §7.1 |
+| Go back to an earlier point | **먼저 묻는다** | §7.1 |
+| Stop a background job | | §7.2 |
+| Show child conversations | 읽기만 | §7.1 |
+| Scheduled work | | §7.2 |
+| Ask another companion to do something | | §7.1.5 |
+
+⚠ **이 표는 「무엇이 있나」이고 「어떻게 도나」가 아니다.** 되돌릴 수 없는 것(접기·되감기·업데이트·
+재시작)은 전부 먼저 묻고, 그 문구와 사유는 각 절에 있다.
+
 ---
 
 ## 7.1 대화의 삶

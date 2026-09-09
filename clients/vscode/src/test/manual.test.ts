@@ -125,3 +125,25 @@ test('the manual advertises only status words this client can say', () => {
       `screen that does not exist. This client can say: ${[...sayable].sort().join(', ')}`);
   }
 });
+
+/**
+ * ★ Every command a person can run is NAMED in this client's manual.
+ *
+ * Ten of twenty-six were not, and the palette shows the English TITLE — so somebody who found
+ * "magi: Choose the approval mode" there had no way to look it up: the manual covered the feature
+ * under a Korean heading and never spelled the words the palette had just shown them.
+ *
+ * The title, not the id. The id is what the code says; the title is what the person read.
+ */
+test('the manual names every command the palette offers', () => {
+  const root = path.join(__dirname, '..', '..');
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')) as
+    { contributes: { commands?: { command: string; title: string }[] } };
+  const cmds = manifest.contributes.commands ?? [];
+  assert.ok(cmds.length >= 20, `only ${cmds.length} commands read from the manifest — the scan is dead`);
+  const doc = fs.readFileSync(path.join(root, 'docs', 'MANUAL.ko.md'), 'utf8');
+  for (const c of cmds) {
+    assert.ok(doc.includes(c.title),
+      `the palette offers "${c.title}" and the manual never says those words — it cannot be looked up`);
+  }
+});
