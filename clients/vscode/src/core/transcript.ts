@@ -192,6 +192,30 @@ export function rows(events: Event[]): Row[] {
         const parts = (d.parts as PartLike[] | undefined) ?? [];
         const text = parts.map((p) => p.text ?? '').join('').trim();
         if (!text) break;
+        /**
+         * ⚠ **Not every prompt is the person's.** The core signs each one, and this client read
+         * none of it — so anything the daemon submitted came out wearing the person's name.
+         *
+         * Measured by streaming a real conversation off a live daemon (2026-09-10): two
+         * `prompt.submitted` events, one `actor.kind: "user"` and one
+         * `actor.kind: "system", id: "orchestrator"` carrying "You stopped without saying you are
+         * finished". This transcript showed the person saying that. They never typed it.
+         *
+         * - `agent` — a subagent's report, injected back. The body belongs to that child's own
+         *   transcript; repeating it here is noise the terminal also swallows.
+         * - `system` — a planner or council note. Worth a line, because without it this window
+         *   shows LESS than the headless printer does, and that was measured on the terminal. One
+         *   line only: the whole of it is in the log, and a note must not push the conversation out.
+         *
+         * The JetBrains shaper has split these three since it was written; this one had one branch.
+         */
+        const kind = String(e.actor?.kind ?? '');
+        if (kind === 'agent') break;
+        if (kind === 'system') {
+          const who = String(e.actor?.id ?? 'system');
+          out.push({ seq: e.seq, who: 'system', text: `⟳ ${who} note: ${text.split('\n')[0]}` });
+          break;
+        }
         const id = String(d.messageId ?? '');
         /**
          * ⚠ **A resurfaced interjection is the SAME question, not a second one.**
