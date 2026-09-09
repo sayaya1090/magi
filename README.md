@@ -4,6 +4,7 @@
 
 ### A terminal coding agent that isn't allowed to declare itself finished.
 
+**A single-binary Go AI coding agent** that runs in the terminal (TUI), web console, IDEs (VS Code, JetBrains, Visual Studio), and Office.
 In most agent loops the turn ends when the model stops calling tools. magi ends it differently.
 The agent has to *declare* that it is done, and three council members vote on whether the record
 backs that up, each reading the turn through a different lens. Before any of them may vote it
