@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { split, numbered, AMBIENT, ambient } from '../core/look';
+import { split, numbered, AMBIENT, ambient, place } from '../core/look';
 import { WINDOW, around, usable } from '../core/complete';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -169,4 +169,37 @@ test('the ambient cap is the core cap', () => {
   assert.ok(core > 0, 'read a nonsense cap out of the core — the scan is broken');
   assert.equal(AMBIENT, core,
     `this client sends ${AMBIENT} bytes of ambient context and the core keeps ${core}`);
+});
+
+/**
+ * ★ A finding whose line is not in the file is kept as words, not dropped.
+ *
+ * The placement step used to skip any number past the end of the buffer, and its comment called that
+ * what makes generous parsing safe. But at most three findings come back, so losing one leaves a
+ * screen identical to "nothing worth saying" — the reading this whole path exists to avoid.
+ *
+ * The JetBrains client resolves the same tension the other way and writes it down: a number outside
+ * the file is returned as a banner, "관대하게 읽되 지어내지는 않는" place. Generous in, nothing
+ * invented out, nothing lost.
+ */
+test('a finding outside the file is kept as words', () => {
+  const out = place({ anchored: [[2, 'in range'], [900, 'past the end'], [0, 'zero is not a line']], loose: '' }, 10);
+  assert.deepEqual(out.anchored, [[2, 'in range']], 'an out-of-range finding was anchored anyway');
+  // Kept WITH its number: the person can still find the place the model meant.
+  assert.match(out.loose, /900: past the end/);
+  assert.match(out.loose, /0: zero is not a line/);
+});
+
+/** Loose text that was already there is kept, and the strays come after it. */
+test('strays are added to the loose text, not instead of it', () => {
+  const out = place({ anchored: [[99, 'stray']], loose: 'a general remark' }, 3);
+  assert.equal(out.loose, 'a general remark\n99: stray');
+});
+
+/** Everything in range passes through untouched — placing must not reshuffle a good reply. */
+test('findings inside the file are left alone', () => {
+  const good: [number, string][] = [[1, 'a'], [3, 'b']];
+  const out = place({ anchored: good, loose: '' }, 3);
+  assert.deepEqual(out.anchored, good);
+  assert.equal(out.loose, '');
 });

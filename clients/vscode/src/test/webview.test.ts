@@ -382,3 +382,16 @@ test('the ambient push sends only the head of the buffer', () => {
   assert.ok(/text:\s*ambient\(doc\.getText\(\)\)\s*[,}]/.test(line),
     `the whole buffer goes out on every pause in typing: ${line.trim()}`);
 });
+
+/**
+ * And the look-over path actually places before storing.
+ *
+ * `look.ts` imports `vscode`, so it is read as text — the fifth time this session that a helper was
+ * written, tested, and could still have been left uncalled by the one place it was written for.
+ */
+test('the look-over reply is placed before it is stored', () => {
+  const src = fs.readFileSync(path.join(IDE, 'look.ts'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+  assert.ok(/place\(split\([^)]*\),\s*doc\.lineCount\)/.test(src),
+    'the reply is stored unplaced — a finding past the end of the file is lost silently');
+});

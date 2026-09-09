@@ -28,6 +28,34 @@ export interface Look {
  */
 const HEAD = /^\s*(\d{1,6})\s*[\t:.)\-]?\s*(.*)$/;
 
+/**
+ * Move findings whose line is not in the file into the loose text, instead of losing them.
+ *
+ * ⚠ **They were dropped.** The placement step skipped any number past the end of the buffer, with a
+ * comment calling that what makes generous parsing safe — and a dropped finding is a finding the
+ * person never sees. Three findings come back at most; losing one leaves a screen identical to
+ * "nothing worth saying", which is the reading this whole path is built to avoid.
+ *
+ * The JetBrains client resolves the same tension the other way and says so: a number outside the
+ * file "거는 쪽이 못 걸고 그 말을 그대로 띠로 돌려보낸다 — 관대하게 읽되 지어내지는 않는 자리다".
+ * Generous in, nothing invented out, and nothing lost either.
+ *
+ * `lines` is the buffer's line count. A finding at line 0 or below is out too — the numbers the
+ * prompt asks for start at 1.
+ */
+export function place(found: Look, lines: number): Look {
+  const anchored: [number, string][] = [];
+  const stray: string[] = [];
+  for (const [n, text] of found.anchored) {
+    if (n >= 1 && n <= lines) anchored.push([n, text]);
+    // Kept WITH its number: the person can still find the place the model meant, and a bare clause
+    // with no line would read as being about the file as a whole.
+    else stray.push(`${n}: ${text}`);
+  }
+  const loose = [found.loose, ...stray].filter(Boolean).join('\n');
+  return { anchored, loose };
+}
+
 export function split(out: string): Look {
   const anchored: [number, string][] = [];
   const loose: string[] = [];

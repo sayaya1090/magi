@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { split, numbered, Look, ambient } from '../core/look';
+import { split, numbered, Look, ambient, place } from '../core/look';
 import { Companion } from './workspace';
 
 /**
@@ -76,7 +76,10 @@ export class Looking implements vscode.Disposable {
         if (asked) void vscode.window.showWarningMessage(`magi: ${resp?.error ?? 'could not look over this file'}`);
         return;
       }
-      const found = split(resp.out ?? '');
+      // Anchored where it can be anchored; the rest kept as words rather than dropped. The line
+      // count is read here because this is where the document is — `place` decides nothing about
+      // the editor, only about which findings have a line in this buffer.
+      const found = place(split(resp.out ?? ''), doc.lineCount);
       this.notes.set(doc.uri.toString(), found);
       this.changed.fire();
       const ed = vscode.window.visibleTextEditors.find((e) => e.document === doc);
