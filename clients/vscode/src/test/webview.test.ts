@@ -84,3 +84,40 @@ test('every webview carries a strict content policy', () => {
     assert.ok(!/script-src[^;]*unsafe-inline/.test(csp), `${file}: inline script is allowed`);
   }
 });
+
+/**
+ * A send that did not land is said, and the words come back.
+ *
+ * The composer empties itself the instant Enter is pressed — deliberately, because the row for the
+ * message only arrives on the stream a moment later and until then the empty box is the only sign
+ * anything happened. That makes a dropped refusal invisible in the worst way: the sentence is
+ * already off the screen, so silence reads as "sent". Measured across this client, six `ask` call
+ * sites threw their answer away; the two on the composer's path were the ones a person can feel.
+ *
+ * The chips are part of it. They are cleared BEFORE the round trip so one cannot outlive its
+ * message — and a message that never went has nothing to outlive. The JetBrains client clears its
+ * box only after `ok` and its comment names the same trap ("the core keeps its promise that no
+ * attachment vanishes; the client was where that broke").
+ *
+ * Read off the source: the seam is a webview message handler and there is no daemon in this
+ * process, so what can be checked here is that the refusal is looked at and acted on.
+ */
+test('a refusal on the composer path is said, not swallowed', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+
+  const say = chat.slice(chat.indexOf("case 'say'"), chat.indexOf("case 'start'"));
+  assert.ok(say.length > 100, 'the send branch was not found — this guard is reading nothing');
+  assert.ok(/!r\?\.ok|!r\.ok/.test(say), 'the send never looks at whether the door said yes');
+  assert.ok(/giveBack\(/.test(say), 'a refused send says nothing and the words are gone with it');
+
+  const reply = chat.slice(chat.indexOf("case 'reply'"), chat.indexOf("case 'mention'"));
+  assert.ok(reply.length > 100, 'the reply branch was not found — this guard is reading nothing');
+  assert.ok(/giveBack\(/.test(reply), 'a refused answer says nothing — it is the same box, same rule');
+
+  // And giveBack really does all three things. Any one of them missing is a silent half-fix.
+  const back = chat.slice(chat.indexOf('private giveBack('));
+  const body = back.slice(0, back.indexOf('\n  }'));
+  assert.ok(/this\.refs\.push/.test(body), 'the chips are not given back — the attachment vanished');
+  assert.ok(/kind: 'note'/.test(body), 'nothing is said to the person');
+  assert.ok(/this\.compose\(/.test(body), 'the words are not put back in the box');
+});
