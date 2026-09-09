@@ -335,6 +335,15 @@ class PlanToolWindow : ToolWindowFactory {
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
                 val bgRunning = j?.background.orEmpty().filter { it.running }
+                // **깨끗하지 않게 끝난 것.** 도는 것만 그리는 동안 실패한 배경 명령은 판에서
+                // 그냥 사라졌다 — 컴패니언이 돌린 명령이 죽었는데 화면에는 아무 말도 안 남는다.
+                // 코어는 그러라고 `killed`·`exit` 를 싣고(이 판은 둘 다 선언만 하고 안 읽었다),
+                // 짝인 VS Code 는 끝난 잡마다 그 끝을 적는다.
+                //
+                // **깨끗이 끝난 것은 안 그린다.** 이 판은 좁고, 성공한 명령은 할 말이 없다.
+                // 바로 아래 자식 줄이 쓰는 규칙과 같다 — 끝난 것은 적되 실패했으면 사유를 붙인다.
+                val bgBad = j?.background.orEmpty()
+                    .filter { !it.running && (it.killed || it.exit != 0) }.take(pastKids)
                 val kids = j?.children.orEmpty().filter { it.running }
                 // 모름과 없음을 가른다(§0-3, 리뷰 실측): 문 없는 옛 데몬은 jobs 가 아예 안 온다 —
                 // 그것을 MagiBundle.msg("plan.tasks.none")으로 그리면 화면이 모르는 것을 아는 척한다. 현행 데몬은
@@ -344,7 +353,8 @@ class PlanToolWindow : ToolWindowFactory {
                         (jr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
                         foreground = Look.faint
                     })
-                } else if (queued.isEmpty() && bgRunning.isEmpty() && kids.isEmpty() && past.isEmpty()) {
+                } else if (queued.isEmpty() && bgRunning.isEmpty() && bgBad.isEmpty() &&
+                    kids.isEmpty() && past.isEmpty()) {
                     work.add(JBLabel(MagiBundle.msg("plan.tasks.none")).apply { foreground = Look.faint })
                 }
                 queued.forEach { q ->
@@ -352,6 +362,14 @@ class PlanToolWindow : ToolWindowFactory {
                     val head = if (q.kind == "handover") "↤ ${q.from ?: MagiBundle.msg("plan.someone")}: " else "· "
                     work.add(JBLabel(head + (q.text?.lineSequence()?.firstOrNull() ?: "")).apply {
                         foreground = if (q.kind == "handover") Look.accent else Look.body
+                    })
+                }
+                bgBad.forEach { b ->
+                    val how = if (b.killed) MagiBundle.msg("plan.bg.killed")
+                    else MagiBundle.msg("plan.bg.exit", b.exit)
+                    work.add(JBLabel("⚙ ${b.command?.take(48) ?: b.id} — $how").apply {
+                        foreground = Look.error
+                        border = JBUI.Borders.empty(1, 0)
                     })
                 }
                 bgRunning.forEach { b ->
