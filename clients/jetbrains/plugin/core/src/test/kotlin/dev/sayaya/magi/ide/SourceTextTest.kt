@@ -1200,4 +1200,60 @@ class SourceTextTest {
         assertTrue("addLoadHandler" in text,
             "로드 핸들러를 안 건다 — onLoadEnd 를 적어 놔도 아무도 부르지 않는다")
     }
+    /**
+     * ★ **코어가 물음에 실어 보낸 것은 그 물음을 그리는 자리에 닿는다.**
+     *
+     * `Waiting` 의 칸을 **와이어 선언에서 읽어** 판정한다. 손으로 적은 목록이 아니므로 코어가
+     * 칸을 더하고 이 판이 그것을 안 그리면 그때 운다 — 이 카드에서 사라졌던 것이 이미 셋이다
+     * (승인의 주어, 물음의 근거, 그리고 선 시각).
+     *
+     * 왜 소스를 글자로 읽나: 이것을 그리는 `MagiToolWindow` 는 `intellij` 모듈이고 그 모듈에는
+     * **시험 소스셋이 없다.** 그리는 자리를 재는 길이 이것뿐이다.
+     *
+     * 안 그리기로 한 것은 여기에 사유와 함께 적는다. 목록이 아니라 **결정**이다.
+     */
+    @Test
+    fun `물음에 실려 온 칸은 물음을 그리는 자리에 닿는다`() {
+        val wire = sources.first { it.name == "Wire.kt" }.readText()
+        val at = wire.indexOf("data class Waiting(")
+        assertTrue(at > 0, "Waiting 선언을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val decl = wire.substring(at, wire.indexOf("\n) {", at))
+        val fields = Regex("""^\s{4}val (\w+):""", RegexOption.MULTILINE)
+            .findAll(decl).map { it.groupValues[1] }.toList()
+        assertTrue(fields.size >= 8, "Waiting 칸을 ${fields.size} 개만 읽었다 — 훑기가 죽었다")
+
+        // 그리지 않기로 한 것과 그 사유.
+        val notDrawn = mapOf(
+            "id" to "답을 되보낼 때 쓰는 손잡이지 사람에게 보일 사실이 아니다 — 단추가 들고 간다",
+            "kind" to "무엇을 그릴지 정하는 값이다. `ask` 가 이 값에서 갈리므로 글자로 또 적으면 같은 말을 두 번 한다",
+        )
+        // **파생 속성을 따라간다.** `Waiting` 은 몇 칸을 스스로 접어 내놓는다 — `subject` 가
+        // args·reason 을, `ask` 가 kind·options 를 읽는다. 창은 그 속성을 그리므로, 칸이 거기
+        // 닿는 것도 「그린다」이다. 여기서 목록을 안 적고 **선언에서 읽어** 잇는다: 접는 자리가
+        // 칸 하나를 떨어뜨리면 그때도 운다.
+        val derived = Regex("""val (\w+): \w+ get\(\) \{""").findAll(wire.substring(at))
+            .associate { m ->
+                val body = wire.substring(at + m.range.first)
+                m.groupValues[1] to body.substring(0, body.indexOf("\n    }"))
+            }
+        assertTrue(derived.isNotEmpty(), "Waiting 의 파생 속성을 하나도 못 읽었다 — 훑기가 죽었다")
+
+        val win = sources.first { it.name == "MagiToolWindow.kt" }.readText()
+        val from = win.indexOf("private fun drawPrompt(")
+        assertTrue(from > 0, "물음을 그리는 자리를 못 찾았다")
+        val end = win.indexOf("\n        /**", from)
+        assertTrue(end > from, "그리는 자리의 끝을 못 찾았다 — 범위가 파일 끝까지 번졌다")
+        val draw = win.substring(from, end)
+
+        for (f in fields) {
+            if (f in notDrawn) continue
+            val direct = Regex("""\bw\.$f\b""").containsMatchIn(draw)
+            val viaDerived = derived.any { (name, body) ->
+                Regex("""\bw\.$name\b""").containsMatchIn(draw) && Regex("""\b$f\b""").containsMatchIn(body)
+            }
+            assertTrue(direct || viaDerived,
+                "코어가 물음에 `$f` 를 실어 보내는데 그리는 자리가 안 읽는다 — 전선을 건너와 여기서 죽는다")
+        }
+    }
+
 }

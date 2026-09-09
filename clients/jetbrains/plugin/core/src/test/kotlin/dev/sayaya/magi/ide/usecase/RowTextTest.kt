@@ -157,6 +157,40 @@ class RowTextTest {
         assertEquals("", RowText.clock("어제쯤"))
     }
 
+    /**
+     * ★ **서 있는 물음은 언제 선 것인지 말한다.**
+     *
+     * 코어가 `Waiting.since` 로 늘 보내는 값인데(그 구조체에서 `omitempty` 가 붙지 않은 유일한
+     * 칸) 두 판 다 안 읽고 있었다. 아무도 없을 때 선 물음과 방금 선 물음이 똑같이 그려지면,
+     * 사람은 자리를 비운 사이 턴이 멈춰 서 있었다는 것을 모른다.
+     *
+     * **경과가 아니라 시계**인 이유도 여기서 잰다: 오늘이면 시:분, 아니면 날짜가 붙는다.
+     */
+    @Test
+    fun `물음이 선 시각은 시계로 서고 오늘이 아니면 날짜가 붙는다`() {
+        val zone = java.time.ZoneId.systemDefault()
+        val now = java.time.Instant.parse("2026-09-10T04:00:00Z")
+        // 같은 날의 한 시간 전. 지어낸 문자열이 아니라 **now 에서 만들어** 표준시간대에 안 걸린다.
+        val today = now.minusSeconds(3600)
+        val t = RowText.asked(today.toString(), now)
+        val hm = today.atZone(zone).let { "%02d:%02d".format(it.hour, it.minute) }
+        assertEquals(hm, t, "오늘 선 물음에 날짜가 붙거나 시각이 틀렸다")
+
+        val old = now.minusSeconds(60L * 60 * 30) // 하루 하고도 여섯 시간 전 — 어떤 시간대에서도 어제보다 앞
+        val u = RowText.asked(old.toString(), now)
+        assertTrue(old.atZone(zone).toLocalDate().toString() in u, "오늘이 아닌 물음에 날짜가 없다: $u")
+        assertTrue(u != RowText.asked(today.toString(), now), "어제와 오늘이 같은 글자로 선다")
+    }
+
+    /** 없거나 못 읽는 시각에 「방금」을 지어내지 않는다 — 지어낸 시각은 없는 것보다 나쁘다. */
+    @Test
+    fun `못 읽는 물음 시각은 빈 글자다`() {
+        val now = java.time.Instant.parse("2026-09-10T04:00:00Z")
+        assertEquals("", RowText.asked(null, now))
+        assertEquals("", RowText.asked("", now))
+        assertEquals("", RowText.asked("아까", now))
+    }
+
     @Test
     fun `읽히는 시각은 나노초 없이 선다`() {
         val t = RowText.clock("2026-08-31T01:02:03.123456789Z")

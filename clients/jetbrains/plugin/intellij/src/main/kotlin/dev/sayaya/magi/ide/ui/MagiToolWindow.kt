@@ -1628,6 +1628,10 @@ class MagiToolWindow : ToolWindowFactory {
                 prompt.text = " "
             } else {
                 val at = if (w.total > 1) " (${w.index}/${w.total})" else ""
+                // **언제 선 물음인가.** 코어가 `Waiting.since` 로 늘 보내는 값이고(그 구조체에서
+                // omitempty 가 없는 유일한 칸), 안 읽고 있었다. 아무도 없을 때 선 물음과 방금 선
+                // 물음이 똑같이 보이면, 사람은 자리를 비운 사이 턴이 멈춰 서 있었다는 것을 모른다.
+                val asked = RowText.asked(w.since).let { if (it.isEmpty()) "" else " " + MagiBundle.msg("chat.perm.asked", it) }
                 // **무엇을 근거로 묻는지 같이 보인다.** 결정보고 스킬이 모은 것이고, 근거가 뒤에
                 // 남은 프롬프트를 막으려고 전선을 타는 값이다(코어 `Waiting.Report` 주석).
                 val grounds = w.report.orEmpty()
@@ -1646,7 +1650,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 보고 누르고, 창이 무엇을 덜 받았는지는 영영 안 나온다.
                     Subject.Unstated -> "<i>" + Markup.text(MagiBundle.msg("chat.perm.unknown")) + "</i>"
                 }
-                prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$grounds$why</html>"
+                prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<span>${Markup.text(asked)}</span><br/>$subject$grounds$why</html>"
                 when (ask) {
                     is Ask.Permission -> {
                         add(MagiBundle.msg("chat.perm.allow")) { it.allow(w.id) }

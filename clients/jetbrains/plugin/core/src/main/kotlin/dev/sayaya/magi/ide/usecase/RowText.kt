@@ -48,6 +48,30 @@ object RowText {
         }
     }
 
+    /**
+     * **서 있는 물음이 언제 선 것인가.** 없거나 못 읽으면 빈 글자.
+     *
+     * 코어가 이 사실을 [dev.sayaya.magi.ide.model.Waiting.since] 로 보낸다 — 그 구조체에서
+     * `omitempty` 가 붙지 않은 **유일한 칸**이라, 물음이 서 있으면 언제나 실려 온다. 안 읽고
+     * 있었다: 아무도 안 볼 때 마흔 분 전에 선 물음과 방금 내가 만든 물음이 똑같이 그려졌고,
+     * 둘은 다른 상황이다 — 앞의 것은 자리를 비운 사이 턴이 통째로 멈춰 서 있었다는 뜻이다.
+     *
+     * **경과("40분 전")가 아니라 시계로 적는다.** 물음이 서 있는 동안 이 판은 다시 안 그려지므로
+     * 경과는 처음 그려진 값에서 얼어붙어 조용히 거짓말을 한다. 시계는 언제 읽어도 맞는다.
+     *
+     * 오늘이 아니면 날짜를 붙인다 — 어제 것의 「14:32」는 한 시간 전으로 읽힌다. [now] 는 시험이
+     * 오늘을 정할 수 있게 인자로 받는다(기본은 진짜 지금).
+     */
+    fun asked(at: String?, now: java.time.Instant = java.time.Instant.now()): String = at?.let {
+        runCatching {
+            val zone = java.time.ZoneId.systemDefault()
+            val t = java.time.Instant.parse(it).atZone(zone)
+            val hm = "%02d:%02d".format(t.hour, t.minute)
+            if (t.toLocalDate() == now.atZone(zone).toLocalDate()) hm
+            else "${t.toLocalDate()} $hm"
+        }.getOrNull()
+    }.orEmpty()
+
     fun clock(at: String?): String = at?.let {
         runCatching {
             java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())
