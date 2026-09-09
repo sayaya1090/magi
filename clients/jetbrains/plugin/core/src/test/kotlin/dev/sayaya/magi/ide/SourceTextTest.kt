@@ -376,6 +376,36 @@ class SourceTextTest {
             "사유를 읽어 놓고 행에 안 붙인다 — 나르는 것과 그리는 것은 다르다: $row")
     }
 
+    /**
+     * **플릿 행이 그 컴패니언이 무엇을 하는 곳인지 말한다.**
+     *
+     * 라이브 실측(2026-09-10): word·excel·powerpoint 세 행이 「idle · sonnet」으로 **구별이 안 됐고**,
+     * 같은 행이 `does` 로 각각이 무엇을 하는지 싣고 있었다. 코어가 이 칸이 전선을 타는 이유를
+     * 적어 뒀다 — *"a name is enough to **pick a companion out of a roster**"*. 이 행이 그 로스터다.
+     *
+     * ⚠ `can` 은 `does.size` 가 아니다 — 목록이 `MaxDoes` 를 넘으면 **표본**이라 수를 따로 싣는다.
+     * 셋만 보이고 마는 행은 그것이 전부인 것처럼 읽힌다.
+     */
+    @Test
+    fun `플릿 행이 무엇을 하는 곳인지 말한다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val cluster = File(core, "internal/core/cluster/cluster.go")
+        assertTrue(cluster.isFile, "코어의 클러스터를 못 찾았다(${cluster.absolutePath})")
+        val src = cluster.readText()
+        assertTrue("A SAMPLE when there are more than MaxDoes" in src,
+            "코어가 더는 목록이 표본이라고 말하지 않는다 — `+N` 의 근거가 움직였다")
+
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("r.does" in panel, "행이 `does` 를 안 읽는다 — 컴패니언들이 서로 구별이 안 된다")
+        assertTrue("r.can" in panel, "`can` 을 안 읽는다 — 표본을 전부인 양 그린다")
+        assertTrue(Regex("""maxOf\(r\.can, does\.size\)""").containsMatchIn(panel),
+            "표본 수를 `does.size` 로 센다 — 코어가 수를 따로 싣는 이유가 그것이 아니다")
+        // 만드는 것과 붙이는 것은 다르다 — 라벨 문자열 자체를 본다.
+        val row = Regex("""JBLabel\(name \+ [^)]*\)""").find(panel)?.value
+        assertTrue(row != null, "플릿 행의 라벨을 못 찾았다")
+        assertTrue("offers" in row!!, "무엇을 하는지 만들어 놓고 행에 안 붙인다: $row")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서
