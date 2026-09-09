@@ -274,8 +274,17 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
         live.map((j) => ({ label: j.id, description: j.what })),
         { title: 'magi — stop which job' },
       );
-      if (pick && await call('job-kill', { name: pick.label })) {
-        void vscode.window.showInformationMessage(`magi: asked ${pick.label} to stop.`);
+      if (!pick) return;
+      const r2 = await call('job-kill', { name: pick.label });
+      // `ok` alone cannot tell the two endings apart, and the daemon knows which one it was:
+      // `removed` is true when this call stopped something and absent when there was nothing left
+      // to stop (`answerJobKill` — "pressed twice must read 'already gone', not 'failure'").
+      // Saying "asked it to stop" either way is a lie exactly when the list was stale — which is
+      // the case this button is most often pressed in, because the row outlives the job by one poll.
+      if (r2) {
+        void vscode.window.showInformationMessage(r2.removed
+          ? `magi: asked ${pick.label} to stop.`
+          : `magi: ${pick.label} had already finished — nothing to stop.`);
       }
     }),
 

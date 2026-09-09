@@ -197,3 +197,41 @@ test('the rewind call sends n and not since', () => {
   assert.match(call![1], /\bn\b/, 'rewind does not send n');
   assert.ok(!/\bsince:/.test(call![1]), 'rewind still sends since, which this door never reads');
 });
+
+/**
+ * ★ Stopping a job has TWO endings, and `ok` is the same in both.
+ *
+ * `answerJobKill` returns `{OK: true, Removed: k.KillBackgroundJob(name)}`, and the comment right
+ * above it says what that is for: "pressed twice must read 'already gone', not 'failure'". So the
+ * daemon deliberately does NOT refuse a kill for a job that has finished — it answers ok and says
+ * so in `removed`.
+ *
+ * ⚠ `Removed` is a Go bool with `omitempty`, so **false never goes on the wire** — the "already
+ * gone" answer is literally `{"ok":true}` (measured against a running daemon 2026-09-09). A client
+ * that reads `ok` alone therefore cannot tell the two apart, and this one said "asked it to stop"
+ * for both.
+ *
+ * That is worst precisely where the button is pressed most: the row is drawn from a `jobs` poll, so
+ * it outlives the job by up to one poll. Click a stale row, get told it was asked to stop, watch
+ * the row vanish on the next poll — everything agrees, and none of it happened.
+ */
+test('stopping a job tells "stopped it" apart from "it had already finished"', () => {
+  const wire = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  assert.match(wire, /Removed\s+bool\s+`json:"removed,omitempty"`/,
+    'the wire no longer carries `removed` the way this guard reads it');
+
+  const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const at = cmd.indexOf("reg('magi.stopJob'");
+  assert.ok(at > 0, 'the stop-job command is not where this guard looks');
+  // The command only — a wider slice reaches the next command and would pass on its sentences.
+  const where = cmd.slice(at, cmd.indexOf("reg('magi.", at + 10));
+  assert.ok(/\.removed\b/.test(where),
+    'stopping a job never reads `removed` — "already gone" and "stopped it" print the same sentence');
+  // Two endings means two sentences. One template with the field interpolated would satisfy a
+  // "reads removed" check while still saying one thing.
+  const said = [...where.matchAll(/showInformationMessage\(|`magi: /g)].length;
+  assert.ok(said >= 3, `only ${said} pieces of a two-ending answer found — the scan is reading nothing`);
+  assert.ok(/\?[\s\S]{0,160}:/.test(where),
+    '`removed` is read but only one sentence exists — the person is told the same thing either way');
+});
