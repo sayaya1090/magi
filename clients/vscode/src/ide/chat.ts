@@ -264,6 +264,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .abandoned { opacity:.6; text-decoration:line-through; }
   .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .error { color:var(--vscode-errorForeground); }
+  /* An image row carries a path, not the picture — the same font as a tool row, because that is
+     what it is: something a tool produced, with a place to find it. */
+  .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
   #note { padding:6px 10px; opacity:.8; font-size:.9em; }
   #ask { padding:8px 10px; border-top:1px solid var(--vscode-panel-border); }

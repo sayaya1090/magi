@@ -316,3 +316,43 @@ test('every event name the client branches on exists in the core', () => {
       `${where} branches on event "${name}", which the core does not have — that branch never runs`);
   }
 });
+
+/**
+ * ★ Every part kind the core can put in a log is one this client draws.
+ *
+ * The other direction of the event-name guard, and the one that just cost something: a part kind the
+ * fold does not name is **not an empty row — it is a row that never existed**, with nothing anywhere
+ * saying so. The web console's own comment says that, having hit it with `image` and `error`; this
+ * client had `error` and was dropping `image` on the floor.
+ *
+ * Not every kind belongs on this screen, so the ones deliberately left out are named here with the
+ * reason. A kind added to the core lands in neither list and fails — which is the point: the choice
+ * gets made rather than defaulting to silence.
+ */
+test('every part kind the core has is drawn or deliberately not', () => {
+  const src = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'session', 'session.go'), 'utf8');
+  const kinds = new Set([...src.matchAll(/PartKind = "([a-z-]+)"/g)].map((m) => m[1]));
+  assert.ok(kinds.size >= 5, `only ${kinds.size} part kinds read from the core — the parser is stale`);
+
+  const fold = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'transcript.ts'), 'utf8')
+    .replace(/\/\*(?:(?!\*\/)[\s\S])*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const drawn = new Set([...fold.matchAll(/p\.kind === '([a-z-]+)'/g)].map((m) => m[1]));
+  // ⚠ The self-check must not pin the thing under test. It pinned `image` at first, so removing the
+  // image branch failed here — with the wrong sentence — instead of at the judgement below, and a
+  // future decision to stop drawing images would have been reported as a broken guard.
+  assert.ok(drawn.has('text'), 'the guard cannot see the fold it is reading — text is branched on there');
+  assert.ok(drawn.size >= 4, `only ${drawn.size} part kinds seen in the fold — the guard is reading nothing`);
+
+  // Left out on purpose, each for a reason a reader can check.
+  const skipped: Record<string, string> = {
+    // A tool call and its result are drawn from `toolCall`/`toolResult`; the kinds above cover them.
+    // These two are the ROLE vocabulary that shares the string space, not part kinds this fold sees.
+  };
+  for (const k of kinds) {
+    if (k in skipped) continue;
+    assert.ok(drawn.has(k),
+      `the core can log a "${k}" part and this fold never names it — such a row never exists, and ` +
+      'nothing says so. Draw it, or add it to `skipped` with the reason.');
+  }
+});

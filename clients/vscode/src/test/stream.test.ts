@@ -189,3 +189,38 @@ test('an abandonment with no matching prompt is ignored', () => {
   const got = rows([submitted('m1', 'first'), abandoned('nope')]);
   assert.ok(!got[0].abandoned);
 });
+
+const imagePart = (path: string): Event =>
+  ({ seq: seq++, type: 'part.appended',
+     data: { role: 'assistant', part: { kind: 'image', image: { path, mime: 'image/png' } } } });
+
+/**
+ * ★ A part kind this fold does not name is not an empty row — it is a row that never existed.
+ *
+ * The web console hit exactly this and its comment says so: "An image and an error both reached the
+ * log and neither reached the page." `error` was handled here and `image` was not, so a tool that
+ * answered with a picture produced nothing at all on this screen — no row, no error, nothing.
+ *
+ * The path rather than the picture: a webview cannot read a file off disk without being handed a URI
+ * for it, and drawing nothing while that is worked out is the defect being fixed.
+ */
+test('a picture a tool returned is not dropped on the floor', () => {
+  const got = rows([imagePart('/tmp/shot.png')]);
+  assert.equal(got.length, 1, 'the image produced no row at all');
+  assert.equal(got[0].who, 'image');
+  assert.equal(got[0].text, '/tmp/shot.png');
+});
+
+/** An image part with nowhere to point is not a row — a path is the whole of what this can show. */
+test('an image with no path makes no row', () => {
+  assert.deepEqual(rows([{ seq: 1, type: 'part.appended',
+    data: { role: 'assistant', part: { kind: 'image', image: {} } } }]), []);
+});
+
+/** And it does not steal the error row, which shares the branch it was added beside. */
+test('an error part still draws as an error', () => {
+  const got = rows([{ seq: 1, type: 'part.appended',
+    data: { role: 'assistant', part: { kind: 'error', error: 'it broke' } } }]);
+  assert.equal(got[0].who, 'error');
+  assert.equal(got[0].text, 'it broke');
+});

@@ -10,7 +10,7 @@ import { Event } from './protocol';
  * payloads to compose sentences composes them once per client, and there are six clients.
  */
 
-export type Who = 'user' | 'agent' | 'tool' | 'thinking' | 'council' | 'system' | 'error';
+export type Who = 'user' | 'agent' | 'tool' | 'thinking' | 'council' | 'system' | 'error' | 'image';
 
 export interface Row {
   /** The event that put this row here, so a later frame can find it again. */
@@ -57,6 +57,8 @@ export interface Row {
 interface PartLike {
   kind?: string;
   text?: string;
+  /** `image` parts: where the picture is, and what it is. */
+  image?: { path?: string; mime?: string };
   toolCall?: { callId?: string; name?: string };
   toolResult?: { callId?: string; content?: unknown; isError?: boolean };
   error?: string;
@@ -135,6 +137,17 @@ export function rows(events: Event[]): Row[] {
           const call = p.toolResult.callId;
           const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === call);
           if (row) row.ok = !p.toolResult.isError;
+        } else if (p.kind === 'image' && p.image?.path) {
+          // ⚠ **A part kind this fold does not name is not an empty row — it is a row that never
+          // existed, with nothing anywhere saying so.** The web console hit exactly this and its
+          // comment says so: an image and an error both reached the log and neither reached the
+          // page. `error` was handled here; `image` was not, so a tool that answered with a picture
+          // produced nothing at all on this screen.
+          //
+          // The path, not the picture. A webview cannot read a file off disk without being handed a
+          // URI for it, and drawing nothing while we work that out is the defect being fixed. A path
+          // a person can open is the honest minimum.
+          out.push({ seq: e.seq, who: 'image', text: p.image.path });
         } else if (p.kind === 'error' && (p.error ?? '').trim()) {
           out.push({ seq: e.seq, who: 'error', text: p.error!.trim() });
         }
