@@ -731,22 +731,37 @@ test('a question answered later sits with its answer, once', () => {
   }
 
   // Resurfaced: one row, at the end, not queued, and the text that came with the re-emission.
+  // ⚠ Rows in between on purpose. A first cut of this fixture had the question two from the end,
+  // so a mover that guessed a POSITION instead of following the link landed on it by luck and the
+  // mutation survived. The link has to be the only thing that finds it.
   const re = rows([
     { seq: 1, type: 'prompt.submitted', data: { messageId: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } },
-    { seq: 2, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'working on the build' } } },
-    { seq: 3, type: 'prompt.submitted', data: { messageId: 'q2', resurfacedFrom: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } },
+    { seq: 2, type: 'interjection.deferred', data: { messageId: 'q1' } },
+    { seq: 3, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'working on the build' } } },
+    { seq: 4, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'and linking it' } } },
+    { seq: 5, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'done' } } },
+    { seq: 6, type: 'prompt.submitted', data: { messageId: 'q2', resurfacedFrom: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } },
   ] as unknown as Parameters<typeof rows>[0]);
+  assert.deepEqual(re.filter((r) => r.who === 'agent').map((r) => r.text),
+    ['working on the build', 'and linking it', 'done'],
+    'the answers were reordered — something moved a row that was not the question');
   const asked = re.filter((r) => r.who === 'user' && r.text === 'and the tests?');
   assert.equal(asked.length, 1, 'the resurfaced question appears twice — the stranded original was not dropped');
   assert.equal(re[re.length - 1].text, 'and the tests?', 'the question was not pulled down to where it is answered');
   assert.ok(!asked[0].queued, 'the moved question still wears its queued mark');
 
   // Inline: same pairing, but no fresh prompt exists at all.
+  // ⚠ Parked FIRST, so that clearing the mark is measurable. Without the deferral the row was
+  // never queued, and a move that forgot to clear the mark passed — the mutation proved it.
   const inline = rows([
     { seq: 1, type: 'prompt.submitted', data: { messageId: 'q1', parts: [{ kind: 'text', text: 'why is it slow?' }] } },
-    { seq: 2, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'a moment' } } },
-    { seq: 3, type: 'part.appended', data: { messageId: 'a2', role: 'assistant', inReplyTo: 'q1', part: { kind: 'text', text: 'the cache was cold' } } },
+    { seq: 2, type: 'interjection.deferred', data: { messageId: 'q1' } },
+    { seq: 3, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'a moment' } } },
+    { seq: 4, type: 'part.appended', data: { messageId: 'a2', role: 'assistant', inReplyTo: 'q1', part: { kind: 'text', text: 'the cache was cold' } } },
   ] as unknown as Parameters<typeof rows>[0]);
+  const q = inline.find((r) => r.text === 'why is it slow?');
+  assert.ok(q && !q.queued,
+    'the question was answered and still wears its parked mark — it reads as still waiting');
   const at = inline.findIndex((r) => r.text === 'why is it slow?');
   const ans = inline.findIndex((r) => r.text === 'the cache was cold');
   assert.ok(at >= 0 && ans >= 0, 'the shaper did not draw the pair this guard hands it');
