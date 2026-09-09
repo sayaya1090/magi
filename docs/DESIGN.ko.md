@@ -181,15 +181,7 @@ type Actor struct {
 
 > 원칙: **사실(fact)은 영속, 진행상황(delta/progress)은 전이.** 재생 시 delta는 불필요(완성 part로 충분). → 로그가 깔끔하고 D6의 "버스=저장" 정신 유지.
 
-> ★교정(실제 구현): 위 표들은 **어휘 전부가 아니라 표본**입니다. 오랫동안 전부로 읽혔지만 양쪽
-> 방향으로 다 틀렸습니다. `artifact.emitted`와 `tool.started`는 상수도 페이로드도 발신자도 없이
-> 행으로만 있었고 — 그래서 클라이언트가 오지 않을 툴-시작 줄을 기다렸습니다(툴 시작은 사실인
-> `part.appended(tool-call)`로 모든 화면에 닿습니다. 그래서 없다는 걸 아무도 눈치채지 못했습니다).
-> 반대로 로그에는 `result.elided`·`labels.changed`·`session.moved`·`model.changed`·
-> `interjection.deferred`·`interjection.answered`가 실려 나가는데 여기 적힌 적이 없습니다.
-> `agent.spawned`/`agent.status` 행은 실제로 없어졌습니다(EN 문서의 교정 참고).
-> **완전한 집합은 `docs/SPEC.md` F-EVENT-FACT-TRANSIENT**이며, 그 두 규칙을 시험이
-> `transientTypes`에 붙들어 둡니다. 페이로드 모양은 `internal/core/event/payload.go`입니다.
+> ★교정(실제 구현): 상기 표들은 **전체 어휘 목록이 아닌 대표 표본**이다. 과거에는 전체 목록으로 취급되었으나 양방향 모두에서 실제 구현과 차이가 있었다. `artifact.emitted`와 `tool.started`는 상수, 페이로드 구조체, 발신 로직 없이 문서상에만 존재하여, 클라이언트가 수신되지 않는 도구 시작 이벤트를 대기하는 문제를 유발했다(실제 도구 시작은 사실 이벤트인 `part.appended(tool-call)`를 통해 모든 화면에 정상 전달된다). 반대로 실제 로그에 기록되는 `result.elided`, `labels.changed`, `session.moved`, `model.changed`, `interjection.deferred`, `interjection.answered` 등은 기존 표에 누락되어 있었다. `agent.spawned`/`agent.status`는 에이전트 단일화에 따라 완전히 제거되었다. **완전한 정본 집합은 [`SPEC.ko.md`](SPEC.ko.md) F-EVENT-FACT-TRANSIENT**에 정의되어 있으며, 테스트 코드가 `transientTypes` 선언을 통해 정합성을 검증한다. 실제 페이로드 구조는 `internal/core/event/payload.go`를 따른다.
 
 **JSONL 로그 예시** (`~/<datadir>/projects/<cwd>/<sessionId>.jsonl`):
 ```json
@@ -362,23 +354,23 @@ type CouncilMember struct { // 테마명 라벨 + 렌즈 속성
     Provider string  // 빈값=기본 백엔드. 다르면 위원별 호출 모양 유지
     Weight   float64
 }
-// 렌즈에는 경로(core/council.Routes)가 딸린다 — 같은 증거를 그 위원이 어디부터 훑는가다.
-// 리터럴 문구와 값 그 자체(correctness), 각 동작이 실제로 돌아간 순간(verification), 과제가 요구한
-// 서로 다른 부분 전부(completeness). 경로는 관할이 아니라 탐색 순서다: 셋 다 여전히 과제 전체를
-// 판정한다. 나누면 한 위원의 몫 안에 든 결함이 아무것도 모르는 done 둘에 continue 하나로 맞서기
-// 때문이다. 경로를 넣은 이유는 렌즈만으로 위원이 구별되지 않아서다 — 렌즈 한 줄만 다르고 나머지
-// 지시가 전부 같았을 때 21회 중 21회를 이견 없이 done으로 투표했다.
+// 렌즈에는 고유한 탐색 경로(`core/council.Routes`)가 연계된다 — 동일한 증거를 각 위원이 어느 우선순위로 점검하는가의 차이다.
+// 리터럴 요구 문구와 수치 데이터 자체(correctness), 각 동작이 실제로 실행된 시점과 결과(verification), 과제가 요구한
+// 모든 구성 요소의 완전성(completeness). 경로는 관할의 분할이 아닌 탐색 우선순위다: 세 위원 모두 과제 전체에 대해
+// 독립적으로 최종 판정을 내린다. 관할을 분할할 경우 한 위원의 영역에 국한된 결함이 다른 영역 위원 2명의 완료 투표에 의해
+// 다수결로 은폐되기 때문이다. 탐색 경로를 명시한 근거: 렌즈 레이블만 다르고 지시문이 동일했던 3인 위원 구성 실험에서
+// 21회 시행 전량(21/21)이 단 하나의 이견도 없이 만장일치 완료로 수렴하는 과다승인 결함이 확인되었다.
 //
-// 위원은 결정을 말하기 전에 훑기를 쓴다: 요구사항 하나에 한 줄, SATISFIED 또는 UNSATISFIED,
-// 툴 결과에서 그대로 떼어 온 조각이나 NO-EVIDENCE로 결론. 이 필드는 스키마에서 decision보다 앞에
-// 놓여, 이미 내려놓은 결론에서 읽기를 거꾸로 조립할 수 없다. 위원이 무엇을 읽었다고 했는지는
-// Verdict.Cite에 남는다.
+// 위원은 판정을 내리기 전에 요구사항 교차 점검을 기록한다: 각 요구사항당 한 줄씩 SATISFIED 또는 UNSATISFIED,
+// 도구 실행 결과에서 직접 인용한 증거 스니펫이나 NO-EVIDENCE로 결론을 기재한다. 이 필드는 스키마상에서 decision보다
+// 앞선 위치에 배치되어, 이미 정해둔 결론에 맞추어 검증 증거를 사후 왜곡하는 현상을 방지한다. 위원이 실제로 확인한 증거는
+// `Verdict.Cite`에 영속 보존된다.
 //
-// 집계 뒤 닫는 호출 하나가 세 훑기를 한자리에서 읽는다 — 위원 간 모순, 어느 훑기도 덮지 않은
-// 요구사항, 그 자체로 틀린 값이 보이는 유일한 자리다. 그 결론은 한 방향으로 클램프되고
-// (done → continue, 반대는 없음), 무엇을 바꿨든 아니든 Deliberation.Close에 실린다. 클램프와
-// 패널 배치는 어댑터의 일이고, core/council은 여전히 표만 센다.
-// Verdict/Deliberation/Tally 등 결과 타입과 합의규칙은 core/council(순수). Signal은 D16.
+// 투표 집계 후 단일 종결 호출(Closing call)이 세 위원의 점검 결과를 종합 검토한다 — 위원 해석 간의 상호 모순,
+// 어떤 위원도 다루지 않은 미점검 요구사항, 그 자체로 명백히 오류인 수치가 식별되는 최종 단계다. 종결 호출의 결론은
+// 비대칭적으로 클램핑되며(기존 done → continue로의 반전만 허용, 반대 방향 불가), 판정 번복 여부와 무관하게
+// `Deliberation.Close`에 기록된다. 클램프 처리와 패널 배치는 어댑터 계층의 책임이며, `core/council`은 순수 함수로 투표만 집계한다.
+// Verdict, Deliberation, Tally 등 결과 모델 및 합의 규칙은 `core/council`(순수 패키지)에 속한다.
 ```
 
 ---
@@ -404,39 +396,38 @@ run(sessionID):
       tool-call    -> collect
       finish       -> store.Append(part.appended for text)    // 영속
     if no tool calls:
-      // ★정정: 원안의 "카운슬이 스스로 소집하는 종료 게이트"는 없다. 그 배치가 카운슬이 옳게
-      // 정할 수 없는 두 가지를 정해버렸다 — 언제 묻는가(에이전트가 이미 마음을 정한 그 순간)와
-      // 그 답이 읽히기는 하는가(헤드리스에선 자문 주입과 turn.finished가 같은 틱이라 안 읽혔다).
-      // 지금은 종료 경로(loop_gates.go)가 순서대로 돈다:
-      //   1) Stop 훅 — 실패하면 그 출력을 실어 작업으로 되돌림
+      // ★정정: 원안의 "카운슬이 스스로 소집하는 종료 게이트"는 철회되었다. 해당 배치는 카운슬이
+      // 합리적으로 결정할 수 없는 두 가지 문제 — 질의 시점(에이전트가 이미 판단을 굳힌 순간의 강제 개입)과
+      // 답변 수신 가능성(헤드리스 모드에서 자문 주입과 turn.finished가 동일 틱에 발생하여 미수신) — 를 유발했다.
+      // 현재는 종료 경로(loop_gates.go)가 6개 게이트를 순차 검증한다:
+      //   1) Stop 훅 — 실패 시 해당 출력을 피드백으로 전달하여 작업 복귀
       //   2) 빈 결과 넛지(텍스트 없는 답변) — 1회
-      //   3) 종료 선언 요구 — `council` 툴을 complete:true로 부르라고 알려준다.
-      //      무진전 구간당 3회로 경계. 마지막 요청 이후 실제 뮤테이션이 있으면 예산 재시작.
-      //      경계를 넘기면 미선언으로 기록된 UNVERIFIED 착지.
-      //   4) 선언 뒤에 부른 툴은 버려졌다는 통지 — 턴당 1회
-      //   5) 미회수 인계 — 다른 컴패니언에게 넘긴 일이 아직 안 돌아옴
-      //   6) 돌아온 답이 값했는가(rate_handoff, 종료 시점에 허용)
-      // 카운슬은 이제 에이전트가 부르는 **툴**이고, 선언을 받아들이면 루프에 신호가 간다.
-      // 그다음: 선택적 증류 패스(기본 꺼짐), 늦은 인터젝션 수거, finalizeTodos — 열려 있던
-      // 스텝은 진짜 완료면 완료로, 아니면 취소로. 착지한 런이 반쯤 체크된 목록을 남기지 않는다.
+      //   3) 종료 선언 요구 — `council` 툴을 complete:true로 호출하도록 유도.
+      //      무진전 구간당 3회로 제한되며, 마지막 요청 이후 실제 파일 변경 시 예산이 리셋된다.
+      //      경계를 초과하면 미선언 사유를 기록한 UNVERIFIED 상태로 종료된다.
+      //   4) 선언 이후 호출된 도구는 실행되지 않고 폐기됨을 통지 — 턴당 1회
+      //   5) 미회수 인계 — 타 컴패니언에 위임한 작업의 결과가 아직 회신되지 않음
+      //   6) 회신된 결과 평가(rate_handoff, 종료 시점에 허용)
+      // 카운슬은 이제 에이전트가 자발적으로 호출하는 **도구**이며, 선언이 승인되면 루프에 완료 신호가 전달된다.
+      // 이후 절차: 선택적 증류 패스(기본 비활성), 지연된 사용자 개입 수거, finalizeTodos — 열려 있던
+      // 작업 스텝을 실완료 또는 취소로 확정한다. 완료된 실행이 불완전한 상태의 체크리스트를 남기지 않도록 보장한다.
       store.Append(turn.finished{Unverified: reason != ""}); return
     for call in toolcalls:
       if needsPermission(call): bus.Publish(permission.requested); wait RespondPermission
       store.Append(permission.decided)
-      // 툴-호출 part는 답이 도착할 때 이미 append 됐습니다 — tool.started는 없습니다
+      // 도구 호출 part는 응답이 수신될 때 이미 append 완료된다 — 별도의 tool.started는 존재하지 않는다
       res = registry.Get(call.name).Execute(...)
       store.Append(part.appended{tool-result})
     if budget/depth exceeded (D7): graceful stop
 ```
 
-> ★정정 (as-built): **페이스를 정하는 상한은 없고 240스텝 폭주 백스톱만 있다.** 그리고 **가드는
-> 보고만 하고 정지시키지 않는다.** 강제 정지는 측정으로 걷어냈다 — 외부 데드라인에 닿은 런도
-> 채점되어 396건 중 76건이 통과한 반면 magi가 스스로 멈춘 28건은 통과가 0이었고 그중 8건은
-> 비정상 종료 코드 때문에 채점조차 되지 않았다. 백스톱을 소진한 최상위 턴은 그것을 사유로 적은
-> UNVERIFIED turn.finished를 영속으로 남기고 착지한다. 가드가 모으던 신호(반복·정체·자기되돌림·
-> 무변경 쓰기·실행 처닝)는 지금도 전부 모아 에이전트에게 넛지로 **말한다**. 언어 지시
-> (langDirective) 주입과 워크플로 모드 분기(`runWorkflow`)는 그대로다. 워크플로 페이즈는 자기
-> 예산을 선언한다.
+> ★정정 (as-built): **진행 속도를 임의 제한하는 상한은 없으며, 240스텝 폭주 백스톱만 유지한다.** 또한 **루프 가드는
+> 관찰 신호를 보고할 뿐 실행을 강제 정지시키지 않는다.** 자체 휴리스틱 강제 정지는 벤치마크 실측을 통해 전면 제거되었다 —
+> 외부 데드라인에 도달한 실행도 정규 채점되어 396건 중 76건이 통과한 반면, magi가 자체 판단으로 중단시킨 28건은 통과율이 0%였고
+> 그중 8건은 비정상 종료 코드로 인해 채점 기회조차 박탈되었기 때문이다. 백스톱 상한을 소진한 최상위 턴은 해당 사유를 명시한
+> `UNVERIFIED` turn.finished 이벤트를 로그에 남기고 안전하게 종료된다. 가드가 수집하는 이상 신호(반복, 정체, 자체 롤백,
+> 무변경 파일 쓰기, 실행 처닝)는 현재도 모두 취합되어 에이전트에게 넛지로 전달된다. 언어 지침
+> (langDirective) 주입 및 워크플로 모드 분기(`runWorkflow`)는 정상 유지된다. 워크플로 페이즈는 자체 실행 예산을 독립 선언한다.
 
 ---
 
