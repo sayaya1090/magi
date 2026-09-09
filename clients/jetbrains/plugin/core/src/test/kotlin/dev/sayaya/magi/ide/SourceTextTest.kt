@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.io.File
@@ -186,6 +187,51 @@ class SourceTextTest {
                         "백엔드가 죽으면 빈 목록이 이유 없이 선다(`ok` 는 참이라 거절 경로도 안 탄다)")
             }
         }
+    }
+
+    /**
+     * **컴패니언 상태는 낱말 열거형이고, 화면이 그 낱말을 찍고 있었다.**
+     *
+     * `fleet.State`(`internal/adapter/fleet/fleet.go`)는 여섯인데 플릿 행은 셋만 옮기고 나머지를
+     * `else` 로 흘렸다 — 사람은 「— abandoned」와 「— stopped」를 나란히 읽고 어느 쪽이 나쁜지
+     * 스스로 알아야 했다. 코어가 `Abandoned` 위에 적어 둔 것이 정확히 그 해악이다: *"Every other
+     * view renders this identically to a finished session, which is why it is here."*
+     *
+     * 여섯을 **코어에서 읽는다** — 일곱째가 코어에 서면 화면에 낱말로 새기 전에 여기서 운다.
+     * 그리고 **둘이 같은 글자로 읽히면** 실패한다: 코어가 애써 가른 것을 화면이 도로 붙이는 것이
+     * 이 규칙이 막으려는 바로 그 일이다.
+     */
+    @Test
+    fun `플릿 행은 컴패니언 상태를 낱말이 아니라 구절로 말한다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val fleet = File(core, "internal/adapter/fleet/fleet.go")
+        assertTrue(fleet.isFile, "코어의 플릿을 못 찾았다(${fleet.absolutePath}) — 근거를 못 대고 있다")
+        val states = Regex("""(?m)^\t(\w+)\s+State\s*=\s*"([a-z]+)"""")
+            .findAll(fleet.readText()).map { it.groupValues[2] }.toList()
+        assertTrue(states.size >= 6,
+            "코어에서 상태를 ${states.size}개만 읽었다 — 훑기가 죽으면 이 가드는 영원히 「전부 옮겼다」고 답한다")
+        for (must in listOf("abandoned", "stopped"))
+            assertTrue(must in states, "`$must` 을(를) 못 봤다 — 이 가드가 있는 이유가 그 둘이다")
+
+        val src = code(sources.first { it.name == "PlanToolWindow.kt" })
+        val at = src.indexOf("val state = when (r.state)")
+        assertTrue(at > 0, "플릿 행의 상태 갈래를 못 찾았다")
+        val where = src.substring(at, minOf(src.length, at + 700))
+        val en = File(sources.first { it.name == "PlanToolWindow.kt" }
+            .parentFile.parentFile.parentFile.parentFile.parentFile.parentFile.parentFile,
+            "resources/messages/MagiBundle.properties").readText()
+
+        val said = mutableMapOf<String, String>()
+        for (st in states) {
+            if (st == "idle") continue // 「아무 말 안 함」이 곧 「평상시」다 — 빈 칸이 맞다
+            val key = Regex(""""$st" -> MagiBundle\.msg\("([a-z.]+)"\)""").find(where)?.groupValues?.get(1)
+            assertTrue(key != null, "`$st` 가 갈래에 없다 — `else` 로 흘러 프로토콜 낱말이 그대로 찍힌다")
+            val line = Regex("(?m)^${Regex.escape(key!!)}=(.*)$").find(en)?.groupValues?.get(1)
+            assertTrue(line != null, "`$key` 가 번들에 없다 — 사람이 `!$key!` 를 본다")
+            said[st] = line!!
+        }
+        assertNotEquals(said["abandoned"], said["stopped"],
+            "일을 쥔 채 죽은 것과 끝나고 떠난 것이 같은 글자로 읽힌다 — 코어가 이름 댄 바로 그 해악이다")
     }
 
     @Test

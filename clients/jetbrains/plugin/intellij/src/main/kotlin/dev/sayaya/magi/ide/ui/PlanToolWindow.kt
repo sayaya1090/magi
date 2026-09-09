@@ -769,10 +769,22 @@ class PlanToolWindow : ToolWindowFactory {
     private fun fleetRow(r: RosterRow, crowded: Boolean = false): JBLabel {
         val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
         val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
+        // 상태는 **낱말 열거형**이다(`internal/adapter/fleet/fleet.go` 의 `State`, 여섯). 셋만
+        // 옮기고 나머지를 `else` 로 흘리면 사람이 「— abandoned」·「— stopped」를 나란히 읽는데,
+        // 코어가 `Abandoned` 위에 적어 둔 것이 정확히 그 해악이다: "nobody is listening and a turn
+        // was left open — a crash, a kill, a closed laptop. **Every other view renders this
+        // identically to a finished session, which is why it is here.**" 끝나고 떠난 것과 일을 쥔
+        // 채 죽은 것을 코어가 애써 갈라 두었는데 화면이 도로 붙이면 안 된다.
+        //
+        // 모르는 것은 날것으로 — 이 빌드보다 새 데몬이 일곱째를 이름 댈 수 있고, 그때는 저쪽
+        // 낱말이 지어낸 문장보다 낫다(모르는 승인 모드에 쓰는 그 규칙).
         val state = when (r.state) {
             "waiting" -> MagiBundle.msg("plan.companions.waiting")
             "working" -> MagiBundle.msg("plan.companions.working")
             "idle" -> ""
+            "abandoned" -> MagiBundle.msg("plan.companions.abandoned")
+            "stopped" -> MagiBundle.msg("plan.companions.stopped")
+            "remote" -> MagiBundle.msg("plan.companions.remote")
             else -> r.state?.let { " — $it" }.orEmpty()
         }
         val load = if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else ""
