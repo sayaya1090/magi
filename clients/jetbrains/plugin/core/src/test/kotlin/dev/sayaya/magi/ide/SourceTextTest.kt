@@ -1458,4 +1458,31 @@ class SourceTextTest {
             "실패한 명령이 서 있는데 판이 「할 일 없음」이라 적는다")
     }
 
+
+    /**
+     * ★ **읽는 자리도 커서 근처만 읽는다.**
+     *
+     * 보내는 자리는 `AssistTest` 가 잰다. 읽는 자리는 `intellij` 모듈이라 시험 소스셋이 없는데,
+     * **진짜 비용이 거기 있다** — 통째 `getText` 는 4만 줄 파일에서 타건이 멈출 때마다 버퍼 전체를
+     * ReadAction 안에서 복사한다. 보내는 쪽만 조이면 소켓은 가벼워지고 그 복사는 그대로 남는다.
+     *
+     * 그래서 문서 끝(`textLength`)이나 0 을 그대로 쓰는 범위가 없는지 본다 — 그것이 「통째로」의
+     * 모양이다. 상한은 `Assist.SIDE_CAP` 에서 온다(두 자리가 다른 수를 들면 한쪽이 헛일이다).
+     */
+    @Test
+    fun `완성 문맥을 읽는 자리도 커서 근처만 읽는다`() {
+        val src = sources.first { it.name == "InlineCompletion.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val at = src.indexOf("readAction {")
+        assertTrue(at > 0, "완성 문맥을 읽는 자리를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val block = src.substring(at, src.indexOf("\n        }", at))
+        assertTrue("TextRange" in block, "범위를 읽는 자리가 아니다 — 훑기가 엉뚱한 곳을 잡았다")
+        assertTrue("Assist.SIDE_CAP" in src,
+            "읽는 자리가 상한을 안 쓴다 — 보내는 자리만 조이면 통째 복사는 그대로 남는다")
+        assertFalse(Regex("""TextRange\(\s*0\s*,""").containsMatchIn(block),
+            "문서 처음부터 읽는다 — 커서에서 먼 쪽까지 통째로 복사한다")
+        assertFalse(Regex("""TextRange\(\s*offset\s*,\s*doc\.textLength\s*\)""").containsMatchIn(block),
+            "문서 끝까지 읽는다 — 커서에서 먼 쪽까지 통째로 복사한다")
+    }
+
 }
