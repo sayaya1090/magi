@@ -45,7 +45,7 @@ The eight, as counted in the Visual Studio design after two ports were in hand.
 | 1. socket path | deriving `workspaceKey` and the socket path. Two ports each re-implemented a non-standard FNV constant and `Base("/")`, and both got it wrong first |
 | 2. the wire | line-delimited JSON, keeping the write half open, matching replies to requests |
 | 3. transcript → rows | 601 lines of Kotlin, 114 of TypeScript, for the same log |
-| 4. one word for "what is it doing" | including that `unknown` is not `idle` |
+| 4. one word for "what is it doing" | including that `unknown` is not `attached`, and that `attached` is not `idle` |
 | 5. approval vocabulary | `allow` · `deny` · `always`, refused here if misspelled instead of silently ignored |
 | 6. splitting a look-over | which remarks hang on a line and which do not — including that the separator is not only a tab |
 | 7. completion window and overlap | the drift measured in §1 |
@@ -80,7 +80,7 @@ One bridge per workspace, because there is one companion per workspace.
 | method | what it does |
 |---|---|
 | `about` | the bridge's version, the methods it answers, and what the daemon advertises (`proto`, `caps`) |
-| `activity` | **one word for what the companion is doing** — `not-running` · `idle` · `working` · `waiting` · `unknown` — plus what it is running on |
+| `activity` | **one word for what the companion is doing** — `not-running` · `attached` · `working` · `waiting` · `unknown` — plus what it is running on |
 | `daemon` | **forwards `req` to the companion verbatim and returns its reply verbatim** |
 
 `about` names the methods this build answers, so a client never has to guess from this table — the
@@ -92,9 +92,14 @@ Studio client needed it in C#. Two rules travel with it because they are the sam
 different clothes — is the socket path longer than the address allows, and is anything listening —
 and both answer in the same vocabulary rather than in an exception.
 
-`unknown` is an answer, not a shrug: "we could not ask" is a different fact from "it said it is
-idle". `waiting` beats `working`, because a turn blocked on a person is running but what the person
-needs to know is that it wants them. And the word is never the whole story — `why` carries the
+`unknown` is an answer, not a shrug: "we could not ask" is a different fact from "it answered".
+And `attached` is the third of those, not a fourth spelling of idle — it means the daemon replied
+and said nothing further, which is what an ordinary running turn looks like on this wire. `doing`
+is a long-running tool's progress note (one builtin tool file in fifty writes it), and the `status`
+door has no field meaning "a turn is running", so a bridge that called that silence `idle` would be
+reporting rest at a companion working flat out. Measured 2026-09-09, in this package and in the
+TypeScript copy it exists to replace. `waiting` beats `working`, because a turn blocked on a person
+is running but what the person needs to know is that it wants them. And the word is never the whole story — `why` carries the
 reason when there is one, so a client can say *which* kind of nothing it found.
 
 **Not built yet.** These are the rest of the derivations, and they are the half that ends the drift

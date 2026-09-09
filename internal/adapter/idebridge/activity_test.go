@@ -42,8 +42,8 @@ func TestAskingFallsBackToTheKindOnlyWhenNothingBetterWasSaid(t *testing.T) {
 // Whitespace is not a progress note. A tool that reported "  " would otherwise pin the screen on
 // "working · " for the rest of the turn.
 func TestBlankProgressIsNotWorking(t *testing.T) {
-	if got := activityOf(daemon.Status{Doing: "   "}); got.State != Idle {
-		t.Errorf("state = %q for a blank note, want %q", got.State, Idle)
+	if got := activityOf(daemon.Status{Doing: "   "}); got.State != Attached {
+		t.Errorf("state = %q for a blank note, want %q", got.State, Attached)
 	}
 	if got := activityOf(daemon.Status{Doing: "running tests"}); got.State != Working || got.Doing != "running tests" {
 		t.Errorf("state = %q doing = %q, want working with the note", got.State, got.Doing)
@@ -137,8 +137,8 @@ func TestTheAppDataHintIsNotAddedToUnrelatedPaths(t *testing.T) {
 func TestTheSessionReachesTheDaemon(t *testing.T) {
 	d := listen(t, func(string) string { return `{"ok":true,"model":"opus","permission":"ask"}` })
 	got := run(t, d.path, `{"id":1,"method":"activity","session":"s_01"}`)
-	if got[0]["state"] != Idle {
-		t.Fatalf("state = %v, want %q", got[0]["state"], Idle)
+	if got[0]["state"] != Attached {
+		t.Fatalf("state = %v, want %q", got[0]["state"], Attached)
 	}
 	sent := d.requests()
 	if len(sent) != 1 || !strings.Contains(sent[0], `"session":"s_01"`) {

@@ -20,10 +20,24 @@ import (
 // idle", and a screen that folds them claims to know something it does not.
 const (
 	NotRunning = "not-running"
-	Idle       = "idle"
-	Working    = "working"
-	Waiting    = "waiting"
-	Unknown    = "unknown"
+	// Attached is "it answered, and it said no more" — NOT "it is idle".
+	//
+	// This branch is reached when a status reply carries no Asking and no Doing, and that is what
+	// an ordinary running turn looks like: Doing is a long-running tool's progress note, written by
+	// exactly ONE builtin tool file out of fifty (wait_for) plus a few exceptional paths
+	// (compaction, council, handover, a retry). A turn spending its minutes in read/bash/edit fills
+	// neither, and the status door has no field that means "a turn is running" at all
+	// (daemon.answerStatus). So the word this used to carry was a claim the daemon never made, and
+	// a screen showed "idle" at a companion working flat out.
+	//
+	// Measured 2026-09-09. The irony is the point: the paragraph above cites the VS Code status bar
+	// drawing "idle" for what the daemon had not said, and this file — written to be the one place
+	// that decides the word so the copies cannot drift — carried the same wrong word. Fixing the
+	// TypeScript copy alone would have left exactly the split this package exists to prevent.
+	Attached = "attached"
+	Working  = "working"
+	Waiting  = "waiting"
+	Unknown  = "unknown"
 )
 
 // activity is the answer, split the way the screens need it.
@@ -45,7 +59,7 @@ type activity struct {
 // is that it wants them. Reporting "working" there leaves a question standing with nothing pointing
 // at it.
 func activityOf(st daemon.Status) activity {
-	a := activity{State: Idle, Setup: setupOf(st)}
+	a := activity{State: Attached, Setup: setupOf(st)}
 	if st.Asking != nil {
 		a.State = Waiting
 		a.Asking = firstNonEmpty(st.Asking.What, st.Asking.Reason, st.Asking.Kind)
