@@ -51,7 +51,15 @@ test('the field scanner sees the shapes a wrong name takes', () => {
  */
 test('every field we read exists on the daemon wire', () => {
   assert.ok(fs.existsSync(PROTOCOL_GO), `the daemon protocol is not at ${PROTOCOL_GO}`);
-  const daemon = tags(PROTOCOL_GO);
+  // ⚠ **The PACKAGE, not one file.** This named `protocol.go` alone, and `RosterRow` lives in
+  // `roster.go` — so twenty-six wire names were invisible to this guard, and declaring any of them
+  // was reported as "written by nobody". Naming files ages: the JetBrains side of this same check
+  // learned it the hard way when a daemon file split into six and its release went red.
+  const dir = path.dirname(PROTOCOL_GO);
+  const daemon = new Set<string>();
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith('.go') && !f.endsWith('_test.go')) for (const t of tags(path.join(dir, f))) daemon.add(t);
+  }
   const events = tags(path.join(REPO, 'internal', 'core', 'event', 'payload.go'));
   const known = new Set([...daemon, ...events, ...tags(EVENT_GO)]);
 

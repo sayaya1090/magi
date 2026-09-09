@@ -1,4 +1,4 @@
-import { Response } from './protocol';
+import { Response, RosterRow } from './protocol';
 
 /**
  * Handing work to another companion on this machine, and watching what happens to it.
@@ -19,34 +19,19 @@ import { Response } from './protocol';
 export const DISPATCH_MARK = '— asked by ';
 
 /** One companion this machine can name. */
-export interface Peer {
-  socket: string;
-  name?: string;
-  workdir?: string;
-  state?: string;
-  /**
-   * A row this machine did not measure — it arrived as a record another machine signed.
-   *
-   * The core's words: "Visible, not commandable — its socket is a path on a machine this caller has
-   * no door to." So it HAS a socket string, and a filter that asks only whether a socket is there
-   * lets it through.
-   */
-  sighting?: boolean;
-  /**
-   * A dial just proved somebody is listening. **Local rows only** — a sighting's liveness is the
-   * one thing nobody here can check, which is what `sighting` is for.
-   *
-   * ⚠ Two-valued on the wire, not three. `omitempty` means a FALSE `live` is not sent at all, so
-   * `live === false` never happens and a branch written on it never runs. Presence is the whole
-   * signal: it is there, or nothing was said.
-   */
-  live?: boolean;
-}
+/**
+ * A companion this window can dial: a roster row that carries a socket.
+ *
+ * The wire shape is the core's (`RosterRow`) — kept as one type rather than a second copy, because
+ * a reader's own copy is exactly how two of its names came to be invented. What this adds is the
+ * one narrowing that matters here: `socket` is present, which is what makes a row a target.
+ */
+export type Peer = RosterRow & { socket: string };
 
 /** Read the `roster` reply. Rows without a socket are dropped: there is nothing to dial. */
 export function peers(resp: Response | null): Peer[] {
   if (!resp?.ok) return [];
-  const rows = (resp.roster ?? []) as Peer[];
+  const rows = resp.roster ?? [];
   // ⚠ **A socket string is not a door.** A sighting is a row another machine signed, and its socket
   // is a path over there — dialling it here reaches nothing. This filter asked only whether the
   // string was present, so the hand-off picker offered companions on other machines and handing
@@ -55,7 +40,7 @@ export function peers(resp: Response | null): Peer[] {
   // The JetBrains client asks for both halves in one breath (`it.live && !it.sighting`), and the
   // fleet section of this very file already writes down why: drawing an unreachable row like a
   // reachable one "is how somebody sends work to nobody".
-  return rows.filter((r) => typeof r?.socket === 'string' && r.socket && !r.sighting);
+  return rows.filter((r): r is Peer => typeof r?.socket === 'string' && !!r.socket && !r.sighting);
 }
 
 /**

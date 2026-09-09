@@ -129,13 +129,25 @@ export interface Response {
   /** A stream's opening note — e.g. that a tail was asked for and a whole conversation is coming. */
   why?: string;
   session?: string;
-  sessions?: unknown[];
+  /**
+   * `sessions` / `children`: one conversation, as `daemon.SessionRow` spells it.
+   *
+   * Typed rather than `unknown[]` for the reason `handover` was: an untyped wire lets each reader
+   * cast it to a shape of its own, and a name that is not on the wire then reads as `undefined`
+   * with nothing failing. That cost two measured defects in one session — a handover that died
+   * read as "working" for the life of the window, and a fleet row from another machine drew like
+   * one this window could talk to. Typed, an invented name stops compiling.
+   */
+  sessions?: SessionRow[];
   /** `profiles`: the backends this daemon's config names. */
-  profiles?: unknown[];
+  profiles?: { name?: string; tier?: string }[];
   /** `config-get`: the settings it will let a client change — a whitelist held by the engine. */
-  config?: unknown[];
+  config?: {
+    key?: string; value?: string; source?: string; tier?: string; file?: string;
+    applies?: string; doc?: string; profile?: boolean; unreadable?: boolean;
+  }[];
   /** `roster`: the companions this machine can name. */
-  roster?: unknown[];
+  roster?: RosterRow[];
   /** `hand-state`: how the work handed to another companion is going. */
   /**
    * `hand-state`: what became of one piece of work handed to a companion.
@@ -156,16 +168,30 @@ export interface Response {
    * them and drew nothing, on every build, without failing — an absent field is an empty string and
    * an empty string parses to an empty list.
    */
-  jobs?: unknown;
-  cron?: unknown[];
-  context?: unknown;
+  jobs?: {
+    background?: { id?: string; command?: string; running?: boolean; killed?: boolean;
+      exit?: number; started?: string; tail?: string }[];
+    children?: { id?: string; tool?: string; task?: string; started?: string; ended?: string;
+      running?: boolean; steps?: number; err?: string }[];
+    queued?: { kind?: string; text?: string; from?: string }[];
+  };
+  cron?: {
+    name?: string; schedule?: string; enabled?: boolean; next?: string; problem?: string;
+    command?: string; timeout?: string; prompt?: string;
+  }[];
+  context?: {
+    model?: string; window?: number; used?: number; estimated?: boolean; messages?: number;
+    cached?: number; cacheReported?: boolean; compactions?: number; shed?: number;
+    lastAt?: string; lastBefore?: number; lastAfter?: number; topics?: unknown;
+    parts?: Record<string, number>;
+  };
   /**
    * `children`: the conversations this one spawned.
    *
    * ⚠ Its OWN field, not `sessions`. Reading `sessions` here returns nothing for ever — measured
    * 2026-09-09 by listing what each door fills, and this client did exactly that.
    */
-  children?: unknown[];
+  children?: SessionRow[];
   /**
    * `complete` and `suggest`: why the answer was empty, when it was.
    *
@@ -184,3 +210,52 @@ export interface Response {
 export type Cap =
   | 'handshake' | 'roster' | 'transcript' | 'sessions' | 'session-new' | 'children'
   | 'cron' | 'cron-set' | 'cron-remove' | 'job-kill' | 'tool-servers' | 'settings' | 'context';
+
+/** One conversation on the roster or the session list (`daemon.SessionRow`). */
+export interface SessionRow {
+  id?: string;
+  title?: string;
+  agent?: string;
+  origin?: string;
+  model?: string;
+  labels?: string[];
+  for?: string;
+  created?: string;
+  lastActivity?: string;
+}
+
+/**
+ * One companion on this machine, or one another machine told us about (`daemon.RosterRow`).
+ *
+ * ⚠ `live` and `sighting` are the pair that says whether this window can DIAL the row, and both
+ * are `omitempty`: a false `live` is never sent, so `live === false` cannot happen and a branch
+ * written on it never runs. Presence is the whole signal.
+ */
+export interface RosterRow {
+  host?: string;
+  socket?: string;
+  name?: string;
+  role?: string;
+  team?: string;
+  hub?: string;
+  workdir?: string;
+  account?: string;
+  state?: string;
+  version?: string;
+  pid?: number;
+  addr?: string;
+  started?: string;
+  by?: string;
+  can?: string[];
+  does?: string;
+  waiting?: string;
+  handling?: number;
+  session?: string;
+  permission?: string;
+  backend?: string;
+  model?: string;
+  user?: string;
+  live?: boolean;
+  sighting?: boolean;
+  ageSeconds?: number;
+}

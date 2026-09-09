@@ -56,7 +56,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     let sid = this.sid;
     if (!sid) {
       const list = await this.companion.ask('sessions');
-      const first = (list?.sessions ?? [])[0] as { id?: string } | undefined;
+      const first = (list?.sessions ?? [])[0];
       sid = first?.id ?? '';
       this.sid = sid;
       // The status poll needs it too: the model is only in a reply that names a conversation.

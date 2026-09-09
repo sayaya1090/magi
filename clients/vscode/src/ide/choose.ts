@@ -46,7 +46,7 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
 
     vscode.commands.registerCommand('magi.openConversation', async () => {
       const resp = await companion.ask('sessions');
-      const list = (resp?.sessions ?? []) as { id?: string; title?: string; lastActivity?: string }[];
+      const list = resp?.sessions ?? [];
       if (!resp?.ok || !list.length) {
         void vscode.window.showWarningMessage('magi: this workspace has no conversations yet.');
         return;

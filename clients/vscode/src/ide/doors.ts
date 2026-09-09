@@ -93,7 +93,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!await has('settings', 'backend switching')) return;
       const r = await call('profiles');
       if (!r) return;
-      const list = (r.profiles ?? []) as { name?: string; tier?: string }[];
+      const list = r.profiles ?? [];
       const items = [
         { label: 'the default backend', description: 'config.toml base_url + model', name: '' },
         ...list.filter((p) => p.name).map((p) => ({ label: p.name!, description: p.tier ?? '', name: p.name! })),
@@ -203,7 +203,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!await has('sessions', 'resuming')) return;
       const r = await call('sessions');
       if (!r) return;
-      const list = (r.sessions ?? []) as { id?: string; title?: string; lastActivity?: string; model?: string }[];
+      const list = r.sessions ?? [];
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({
           label: (s.title || '(no messages)').split('\n')[0],
@@ -242,7 +242,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!r) return;
       // ⚠ `children`, not `sessions`. This read `sessions` and so answered "no children" on every
       // build — the same defect class as the panel reading `out`: an absent field is an empty list.
-      const list = (r.children ?? []) as { id?: string; title?: string }[];
+      const list = r.children ?? [];
       if (!list.length) { void vscode.window.showInformationMessage('magi: this conversation has no children.'); return; }
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({

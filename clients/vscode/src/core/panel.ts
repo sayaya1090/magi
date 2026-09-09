@@ -57,8 +57,7 @@ export interface Schedule {
 
 export function schedules(resp: Response | null): Schedule[] {
   if (!resp?.ok) return [];
-  const rows = (resp.cron ?? []) as
-    { name?: string; schedule?: string; enabled?: boolean; next?: string; problem?: string; prompt?: string; command?: string }[];
+  const rows = resp.cron ?? [];
   return rows.filter((r) => r.name).map((r) => ({
     name: r.name!,
     // A row carrying a problem is the row to mark: nothing else on any screen mentions it again.
@@ -75,9 +74,7 @@ export function schedules(resp: Response | null): Schedule[] {
 /** The other companions on this machine, as lines. */
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
-  const rows = (resp.roster ?? []) as
-    { name?: string; socket?: string; state?: string; workdir?: string; model?: string;
-      live?: boolean; sighting?: boolean }[];
+  const rows = resp.roster ?? [];
   // Rows with no socket are kept: the fleet section says what the roster says, and a companion this
   // window cannot dial is still a fact about the machine. Only the HAND-OFF list drops them, because
   // there the socket is the thing being used.
