@@ -44,6 +44,58 @@ class SourceTextTest {
         kt
     }
 
+    /**
+     * **카드의 되돌릴 수 없는 동사는 물어보고 한다.**
+     *
+     * 정보 카드는 모델 콤보 옆에 「다시 시작」과 「업데이트」를 세운다. 앞의 것은 되돌릴 수 있고
+     * 뒤의 둘은 **도는 턴을 끝낸다** — 한 판에 섞여 있으면 눌러 보다가 일을 날린다. 그래서
+     * 세 동사가 전부 `MessageDialogBuilder.yesNo(...).ask(project)` 를 지나는지 본다.
+     *
+     * 컴파일러도 다른 시험도 못 잡는다: 확인을 빼도 타입이 맞고 화면도 잘 그려진다. 다른
+     * 것이 되는 것뿐이다.
+     */
+    @Test
+    fun `카드의 되돌릴 수 없는 동사는 묻고 나서 문을 두드린다`() {
+        val f = sources.first { it.name == "MagiToolWindow.kt" }
+        val src = f.readText()
+        val at = src.indexOf("private fun showInfo(")
+        assertTrue(at > 0, "정보 카드를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        // 카드 하나만 본다. 뒤 함수까지 흘러들면 남의 확인 대화를 우리 것으로 세게 된다.
+        val end = src.indexOf("\n        /**", at)
+        assertTrue(end > at, "카드의 끝을 못 찾았다 — 범위가 파일 끝까지 번졌다")
+        val card = src.substring(at, end)
+
+        // 카드의 **단추**를 소스에서 세어 목록을 지어내지 않는다. 단추 하나는 `act(라벨, 확인) { 문 }`
+        // 한 줄이고, 가운데 인자가 그 단추의 확인 문구다 — 거기가 `null` 이면 말없이 도는 단추다.
+        val buttons = Regex("""act\(([^\n]*?)\)\s*\{ it\.(\w+)\(\) \}""")
+            .findAll(card).map { it.groupValues[1] to it.groupValues[2] }.toList()
+        val doors = buttons.map { it.second }
+        assertTrue(doors.size >= 3, "카드의 단추를 ${doors.size}개만 찾았다 — 훑기가 죽었다")
+        assertTrue("restart" in doors && "update" in doors,
+            "세우는 문 둘이 카드에 없다(찾은 것: $doors) — 이 규칙이 딴 자리를 보고 있다")
+        for ((args, door) in buttons) assertTrue(
+            Regex("""MagiBundle\.msg\("[^"]+"\)\s*,\s*MagiBundle\.msg\("[^"]+"\)""").containsMatchIn(args),
+            "`$door` 단추가 확인 문구 없이 선다 — 누르는 순간 돈다(인자: $args)")
+        assertTrue(card.contains(".yesNo(label, confirm).ask(project)"),
+            "확인 문구를 들고만 있고 묻지는 않는다 — 사람은 대화가 뜰 줄 알고 누른다")
+    }
+
+    /**
+     * **데몬이 말한 판 번호를 어느 화면인가는 그린다.**
+     *
+     * `about` 은 `version` 을 답하고 와이어에도 칸이 있는데, 2026-09-09까지 이 플러그인의 어느
+     * 화면도 그것을 안 그렸다. 에러가 나지 않는 부류다 — 사람이 「어느 빌드에 붙어 있나」를
+     * 물을 자리가 그냥 없었을 뿐이다. 다시 그렇게 되지 않게 못박는다.
+     */
+    @Test
+    fun `데몬이 말한 판 번호가 화면까지 온다`() {
+        val screens = sources.filter { "${File.separator}ui${File.separator}" in it.path }
+        assertTrue(screens.size > 3, "화면 소스를 ${screens.size}장만 찾았다 — 훑기가 죽었다")
+        assertTrue(
+            screens.any { Regex("""about\(\)[\s\S]{0,40}\.version""").containsMatchIn(it.readText()) },
+            "`about` 의 판 번호를 아무 화면도 안 읽는다 — 와이어에 있는 칸이 화면까지 안 온다")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서

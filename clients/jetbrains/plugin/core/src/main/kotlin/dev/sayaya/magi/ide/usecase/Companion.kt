@@ -255,6 +255,21 @@ class Companion(
      * (docs/UI.ko.md §5 의 갈래). resume 은 여기 없다: 와이어가 목적지 세션을 요구하는데
      * 고르는 화면이 아직 없다 — 지어낸 목록으로 단추를 만들면 틀린 답을 보낸다.
      */
+    /**
+     * 이 컴패니언 자신을 다시 세운다 — 도는 턴은 그것과 함께 끝난다.
+     *
+     * 코어에서 이 둘은 **스트림 문**이다(`internal/adapter/daemon/streams.go`): 답을 쓰고 나서
+     * 프로세스를 재우거나 새 빌드로 갈아탄다. 그래서 네트워크 문으로는 **일부러 안 넘어간다** —
+     * 남의 기계의 데몬을 여기서 세우는 일은 없다. 이 창은 언제나 이 워크스페이스의 컴패니언에
+     * 붙어 있으므로 그 경계가 여기서는 제약이 아니다.
+     *
+     * `update` 의 답은 데몬 자신의 말이다("updated A → B — restarting", 또는 갈 것이 없으면
+     * 그렇게). 화면은 그것을 **지어내지 않고 그대로 옮긴다** — 무엇이 바뀌었는지 아는 것은
+     * 저쪽이다.
+     */
+    fun restart(): Response = send(Request(method = "restart"))
+    fun update(): Response = send(Request(method = "update"))
+
     fun compact(): Response = send(Request(method = "compact", session = session))
     fun rewind(n: Int = 1): Response =
         send(Request(method = "rewind", session = session, n = n))

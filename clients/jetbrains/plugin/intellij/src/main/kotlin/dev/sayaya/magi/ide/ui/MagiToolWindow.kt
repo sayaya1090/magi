@@ -79,7 +79,10 @@ class MagiToolWindow : ToolWindowFactory {
         // 전사로 보고된다: 사건은 라벨이 아니라 전사라는 그 규칙이 여기도 그대로다.
         // 세우기는 제목줄로 — 도는 턴을 세우는 손은 늘 보이되 앞자리를 안 먹는다(TUI 의 esc 와
         // 같은 급). 보내기 옆에 쌍둥이로 서 있던 동안 매 턴의 동사처럼 읽혔다(사용자 실측).
-        toolWindow.setTitleActions(listOf(object : com.intellij.openapi.actionSystem.AnAction(
+        // 정보 카드는 **제목줄**에 접힌다(사용자 요청: 오피스처럼 줄여 놓고 빠르게). 기어 메뉴가
+        // 아니라 아이콘인 것은, 카드가 동사 목록이 아니라 **읽는 자리**이기 때문이다 — 메뉴는
+        // 신호등도 판 번호도 못 그린다.
+        toolWindow.setTitleActions(listOf(view.infoAction(), object : com.intellij.openapi.actionSystem.AnAction(
             MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                 MagiWindows.of(project)?.interruptFromTitle()
@@ -1312,6 +1315,138 @@ class MagiToolWindow : ToolWindowFactory {
         fun plan(): List<Rows.Todo>? = if (everBegan) shaper.todos else null
         fun modelNow(): String? = shaper.model
         fun contextNow(): Rows.Ctx? = shaper.context
+
+        /**
+         * 「이 컴패니언이 무엇 위에서 도는가」와 그것을 바꾸는 손잡이 — 웹 콘솔의 「정보」 카드와
+         * 같은 것을, 채팅 판에서 한 번에 닿는 자리에 둔다(사용자 요청).
+         *
+         * **접어 두는 것이 요구의 절반이다.** 이 창은 전에 전사 위에 늘 서 있는 한 줄을 뒀다가
+         * "왜 이렇게 커? 변하는 데이터도 없네"를 들었다(이 파일 머리의 주석). 그래서 늘 보이는
+         * 것은 이미 있는 것 둘로 족하다 — 판 안의 신호등 글리프와 상태 표시줄 — 이고, 나머지는
+         * 제목줄 아이콘 뒤에 접힌다. 눌러야 뜨는 자리는 폭을 안 먹는다.
+         *
+         * 카드가 **읽어서** 그리는 것은 넷이다: 수준(신호등과 같은 색), 판(`about` 의 `version`
+         * — 와이어에 칸이 있는데 이 플러그인의 어느 화면도 안 그리고 있었다, 2026-09-09 실측),
+         * 모델, 백엔드. 바꾸는 것은 셋(모델·백엔드·승인)이고 전부 **데몬이 준 목록에서** 고른다 —
+         * 이름을 지어내면 틀린 답을 보낸다(설정 화면이 같은 이유로 그렇게 한다).
+         *
+         * ⚠ **세우는 둘은 물어보고 한다.** `restart` 와 `update` 는 도는 턴을 끝낸다. 되돌릴 수
+         * 있는 것들(모델을 바꾸는 일) 옆에 되돌릴 수 없는 것을 말없이 두지 않는다. `shutdown` 은
+         * 아예 안 붙였다 — 끄고 나면 이 창에서 다시 켤 손이 없다.
+         */
+        fun infoAction(): com.intellij.openapi.actionSystem.AnAction =
+            object : com.intellij.openapi.actionSystem.AnAction(
+                MagiBundle.msg("chat.info"), MagiBundle.msg("chat.info.tip"),
+                com.intellij.icons.AllIcons.Actions.Properties) {
+                override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
+                    val seat = e.inputEvent?.component
+                    // 문 넷을 한 왕복에 묻는다. 창을 띄우고 나서 하나씩 물으면 콤보가 빈 채로
+                    // 떴다가 채워지고, 그 사이에 사람이 고르면 목록이 갈아치우며 그 선택을 먹는다.
+                    onDaemon { comp ->
+                        val f = comp.facts()
+                        val ver = comp.about().version
+                        val models = comp.models().let { if (it.ok) it.models.orEmpty() else emptyList() }
+                        val backs = comp.profiles().let { if (it.ok) it.profiles.orEmpty().mapNotNull { p -> p.name } else emptyList() }
+                        SwingUtilities.invokeLater { showInfo(seat, f, ver, models, backs) }
+                    }
+                }
+            }
+
+        /** 카드를 세운다. 값은 이미 다 읽혀 있고 여기서는 그리기만 한다 — EDT 에서 문을 안 두드린다. */
+        private fun showInfo(
+            under: java.awt.Component?,
+            f: Companion.Facts,
+            version: String?,
+            models: List<String>,
+            backends: List<String>,
+        ) {
+            val m = mood
+            val card = JBPanel<JBPanel<*>>(java.awt.GridBagLayout()).apply { border = Look.quiet }
+            val c = java.awt.GridBagConstraints().apply {
+                gridx = 0; gridy = 0; anchor = java.awt.GridBagConstraints.WEST
+                insets = com.intellij.util.ui.JBUI.insets(3, 0, 3, 8)
+            }
+            fun row(label: String, right: javax.swing.JComponent) {
+                c.gridx = 0; c.weightx = 0.0; c.fill = java.awt.GridBagConstraints.NONE
+                card.add(JBLabel(label).apply { foreground = Look.faint }, c)
+                c.gridx = 1; c.weightx = 1.0; c.fill = java.awt.GridBagConstraints.HORIZONTAL
+                card.add(right, c)
+                c.gridy++
+            }
+            // 신호등 — 판 안의 글리프와 **같은 사실**을 쓴다. 두 자리가 색을 따로 정하면
+            // 언젠가 갈라지고, 그러면 어느 쪽이 맞는지 사람이 알 길이 없다.
+            row(MagiBundle.msg("chat.info.state"), JBLabel(m.glyph + "  " + m.why).apply { foreground = m.colour })
+            // 판. 데몬이 안 말하면 빈칸이 아니라 「안 말했다」 — 모름을 값으로 그리지 않는다(§0.5-7).
+            row(MagiBundle.msg("chat.info.version"), JBLabel(version?.ifBlank { null } ?: MagiBundle.msg("set.unsaid")))
+
+            /** 목록이 비면 콤보를 안 세운다 — 고를 것이 없는 콤보는 눌러도 아무 일이 없다. */
+            fun picker(
+                now: String?,
+                choices: List<String>,
+                draw: (String?) -> String = { it.orEmpty() },
+                send: (Companion, String) -> Response,
+            ): javax.swing.JComponent {
+                if (choices.isEmpty()) return JBLabel(now?.let(draw)?.ifBlank { null } ?: MagiBundle.msg("set.unsaid"))
+                val box = Look.narrowCombo<String>()
+                // 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — 나가는 값이 프로토콜의 것이어야
+                // 한다(설정 화면이 같은 이유로 같은 모양이다).
+                box.renderer = com.intellij.ui.SimpleListCellRenderer.create<String> { label, value, _ ->
+                    label.text = draw(value)
+                }
+                // 데몬이 말한 지금 값이 목록에 없으면 **자리를 만들어 준다.** 편집 불가 콤보는
+                // 모델에 없는 값을 조용히 거부하고 첫 항목으로 되돌리는데, 그 되돌림이 리스너를
+                // 깨워 사람이 안 고른 값을 보낸다(설정 화면이 같은 결함을 겪었다 — 리뷰 R6).
+                (choices + listOfNotNull(now?.takeIf { it.isNotBlank() && it !in choices })).forEach { box.addItem(it) }
+                box.selectedItem = now
+                var painting = true
+                box.addActionListener {
+                    if (painting) return@addActionListener
+                    val pick = box.selectedItem as? String ?: return@addActionListener
+                    onDaemon { comp ->
+                        val r = send(comp, pick)
+                        if (r.ok) clearNotice() else report(MagiBundle.msg("chat.notsent", pick, r.error ?: MagiBundle.msg("common.noreason")))
+                    }
+                }
+                painting = false
+                return box
+            }
+            row(MagiBundle.msg("chat.info.model"), picker(f.model, models) { comp, v -> comp.setModel(v) })
+            row(MagiBundle.msg("chat.info.backend"), picker(f.backend, backends) { comp, v -> comp.useBackend(v) })
+            row(MagiBundle.msg("chat.info.permission"),
+                picker(f.permission, Perms.TOKENS, Perms::label) { comp, v -> comp.setPermission(v) })
+
+            val acts = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0))
+            var popup: com.intellij.openapi.ui.popup.JBPopup? = null
+            /** 카드의 단추 하나. [confirm] 이 있으면 먼저 묻는다 — 도는 턴을 끝내는 것들이다. */
+            fun act(label: String, confirm: String?, door: (Companion) -> Response) {
+                acts.add(JButton(label).apply {
+                    addActionListener {
+                        if (confirm != null && !com.intellij.openapi.ui.MessageDialogBuilder
+                                .yesNo(label, confirm).ask(project)) return@addActionListener
+                        popup?.cancel()
+                        onDaemon { comp ->
+                            val r = door(comp)
+                            // 데몬 자신의 말을 옮긴다 — 무엇이 바뀌었는지 아는 것은 저쪽이다.
+                            if (r.ok) report(r.out?.lineSequence()?.first()?.take(120)?.ifBlank { null } ?: label)
+                            else report(MagiBundle.msg("chat.notsent", label, r.error ?: MagiBundle.msg("common.noreason")))
+                        }
+                    }
+                })
+            }
+            act(MagiBundle.msg("chat.menu.compact"), MagiBundle.msg("chat.info.compact.ask")) { it.compact() }
+            act(MagiBundle.msg("chat.info.restart"), MagiBundle.msg("chat.info.restart.ask")) { it.restart() }
+            act(MagiBundle.msg("chat.info.update"), MagiBundle.msg("chat.info.update.ask")) { it.update() }
+            c.gridx = 0; c.gridwidth = 2; c.weightx = 1.0
+            c.fill = java.awt.GridBagConstraints.HORIZONTAL
+            card.add(acts, c)
+
+            popup = com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
+                .createComponentPopupBuilder(card, null)
+                .setTitle(MagiBundle.msg("chat.info"))
+                .setRequestFocus(true)
+                .createPopup()
+            if (under != null && under.isShowing) popup.showUnderneathOf(under) else popup.showInFocusCenter()
+        }
 
         /**
          * 기어 메뉴의 동사 하나. 답을 버리지 않는 것은 [add] 와 같은 규칙이고, 보고가 전사로
