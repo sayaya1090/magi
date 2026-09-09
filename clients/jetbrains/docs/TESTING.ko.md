@@ -18,7 +18,7 @@
 | 층 | 어디 | 언제 도나 | 무엇을 아나 |
 |---|---|---|---|
 | 1. 단위 | `plugin/core/src/test` | push 마다 | 셰이퍼·전송·파서의 규칙 |
-| 2. 소스 글자 | `SourceTextTest` (23) | push 마다 | 컴파일러가 안 잡는 규칙 |
+| 2. 소스 글자 | `SourceTextTest` (24) | push 마다 | 컴파일러가 안 잡는 규칙 |
 | 3. 유도 가드 | `ManualTest`·`ArchitectureTest`·`PaletteTest` | push 마다 | 광고면과 문서·구조가 갈렸나 |
 | 4. 헤드리스 IDE | `plugin/intellij/src/test` (10) | push 마다 | 진짜 IDE 안에서 우리 것이 서나 |
 | 5. 라이브 | `live/`·`LiveDaemonTest` (6) | 청해야 | 진짜 데몬·진짜 모델과 맞나 |
@@ -165,6 +165,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `RowsTest`(확인 못 한 종료) | **확인 못 한 채 끝난 턴은 그렇게 적히나.** 셰이퍼가 `turn.finished` 에서 대기 표시만 지우고 아무 말도 안 했다 — 실행으로 뒷받침되지 않은 종료가 뒷받침된 것과 똑같이 그려졌다. 어휘는 `error` 갈래와 같다(`Who.Info` + ⚠). 와이어 모양을 코어에서 확인하고, **평범한 종료가 조용한지**까지 본다 |
 | `RowTextTest`(판정의 근거) | **나르기만 하던 `cite` 를 그리나.** 셰이퍼는 처음부터 행에 실었고 어느 화면도 안 그렸다. `keep` 은 화면엔 있었는데 **옮겨 적는 글**에 없었다 — 붙여 넣은 글에서 빠지면 그 표가 무엇 위에 섰는지가 대화 밖으로 못 나간다. 와이어에 칸이 있는지까지 코어에서 확인한다 |
 | `RowTextTest`(카운슬 판정) | **`continue` 는 승인이 아니라 거부다.** `council.Decision` 셋 중 하나가 제 뜻의 반대로 읽히고, 그것은 **턴을 끝내는 게이트**라 작업이 못 지나간다. 코어가 이미 두 번 치른 값이다 — 터미널은 첫 판정부터 "reject"(`councilVerdictLabel`), 웹 서버에는 `TestAContinueVoteReadsAsTheRejectionItIs` 가 있다. 낱말은 **터미널의 표를 읽어** 못박는다(세 표면이 한 판정을 세 가지로 말하면 한 층 위의 같은 결함). `silent`(아무도 안 준 평결)이 「기권」과 다르게 읽히는지, **옮겨 적은 글**이 그 말을 실제로 쓰는지까지 본다. ⚠ 자기검사가 저를 잡았다 — 저장소 뿌리를 한 칸 덜 올라가 터미널의 표를 못 찾았고, 그대로 통과했으면 낱말이 근거 없이 선다 |
+| `SourceTextTest`(지고 있는 일) | **손에 하나를 쥔 컴패니언이 「비었다」로 읽히면 안 된다.** 코어가 `waiting`·`handling` 을 함께 서명하며 셈을 적어 뒀다(*"load is Waiting + (1 if Handling)"*). 이 판은 큐만 그렸다. 둘 다 그리는지, 그리고 **한 수로 접지 않았는지**까지 본다 — 접으면 「이미 하나가 돌고 있다」가 사라지고, 손으로 고르는 사람이 알고 싶은 것이 그것이다 |
 | `SourceTextTest`(창의 구성) | **창이 얼마나 찼나 옆에 무엇으로 찼나가 오나.** 이 클라이언트는 코어의 `ContextParts` 를 **선언조차 안 해서** 전선에서 화면까지 올 길이 없었고, 판은 총량만 그렸다 — 코어가 그 결과를 이름 대어 적어 뒀다(*"…the conversation is routinely the small half"*). 다섯을 **코어에서 읽어** 와이어가 다 받는지·화면이 다 그리는지 보고, ⚠ **제 컴포넌트로 그리는지**까지 본다: 총량 라벨에 `\n` 으로 붙이면 `JBLabel` 이 개행을 안 그려 **컴파일도 시험도 초록인 채 화면에서 사라진다** — 이 웨이브에서 실제로 한 번 그랬다. 변이 넷 전부 컴파일되고 전부 잡힌다 |
 | `SourceTextTest`(플릿 상태) | **상태는 낱말 열거형이고 화면이 그 낱말을 찍고 있었다.** `fleet.State` 는 여섯인데 행은 셋만 옮기고 `abandoned`·`stopped`·`remote` 를 `else` 로 흘렸다 — 「— abandoned」와 「— stopped」가 나란히 서고 어느 쪽이 나쁜지는 사람 몫이었다. 코어가 `Abandoned` 위에 적어 둔 해악이 정확히 그것이다(*"Every other view renders this identically to a finished session, which is why it is here."*). 여섯을 **코어에서 읽고**, 갈래·번들 열쇠·**두 글자가 다른지**까지 본다. 변이 넷(갈래 빼기·같은 열쇠 가리키기·번들에서 열쇠 지우기·서로 다른 열쇠에 같은 글자) 전부 컴파일되고 전부 잡힌다 |
 | `SourceTextTest`(잡 세우기) | **끝이 둘인데 `ok` 가 둘 다 참인 자리를 가르나.** `job-kill` 은 끝난 잡을 세우라고 해도 거절하지 않는다 — ok 로 답하고 `removed` 로 어느 쪽인지 말한다(코어 주석: "pressed twice must read 'already gone', not 'failure'"). `removed` 는 `omitempty` bool 이라 **거짓은 전선에 안 나가고**, 「이미 없었다」는 글자 그대로 `{"ok":true}` 다(도는 데몬 실측). 양쪽 다 안 읽고 있었다. 읽기만 하고 갈래가 없으면 사람에게 가는 말은 여전히 하나이므로 **`!kr.removed ->` 갈래까지** 못박는다 |
@@ -189,7 +190,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 
 | 클래스 | 무엇을 재나 |
 |---|---|
-| `SourceTextTest` | 컴파일러가 안 잡는 규칙 23가지 |
+| `SourceTextTest` | 컴파일러가 안 잡는 규칙 24가지 |
 | `ManualTest` | 광고면·번들·매뉴얼·이 문서가 갈렸나 |
 | `BundleFallbackTest` | 영어를 청했는데 한국어가 오던 기전 |
 | `PluginPageTest` | 플러그인 페이지 — 표가 서는가 · 규격 40×40 · **웹 콘솔의 파비콘과 같은 마크인가**(색은 `internal/webassets/assets.go` 에서 읽어 대조) · 자리를 안 넘는가 · 갈 곳(url)이 있는가 · 설명이 광고하는 기능을 이름 대는가 · **설명에 엔티티가 없는가**(목록에는 「mdash;」로 찍힌다) |
