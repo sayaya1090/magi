@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import { Daemon } from '../core/daemon';
+import { Daemon, deadlineFor } from '../core/daemon';
 import { Response } from '../core/protocol';
 import { socketPath, tooLong } from '../core/workspace';
 import * as activity from '../core/activity';
@@ -88,7 +88,8 @@ export class Companion implements vscode.Disposable {
     const d = await this.reach();
     if (!d) return null;
     try {
-      return await d.exchange({ method, ...extra });
+      // The deadline is the DOOR's, not one number for the wire — see `deadlineFor`.
+      return await d.exchange({ method, ...extra }, deadlineFor(method));
     } catch {
       this.conn = null;
       return null;

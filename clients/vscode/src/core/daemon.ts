@@ -135,3 +135,31 @@ export function retryAfter(attempt: number): number {
   if (attempt <= 0) return first;
   return Math.min(first * 2 ** attempt, cap);
 }
+
+/**
+ * Doors whose answer waits on the MODEL, and therefore on somebody else's hardware.
+ *
+ * Named, not guessed: each of these runs a generation before it can reply — a completion, a ghost
+ * line, a commit message, a look over a file, a pull-request write-up, a turn in a meeting. The
+ * rest of the wire answers from memory or from disk and should be quick.
+ */
+const THINKS = new Set([
+  'complete', 'suggest', 'git-msg', 'look-over', 'pr-msg', 'git-pr', 'meet', 'meet-join',
+]);
+
+/**
+ * How long to wait for one door's answer.
+ *
+ * Two numbers, because two different things go wrong when the wait is wrong. On the quick doors a
+ * long deadline means a wedged daemon holds a poll for minutes; on the model doors a short one
+ * turns a slow local model's CORRECT answer into a timeout — the JetBrains client's own words for
+ * why its patience is two minutes: "짧게 잡으면 느린 로컬 모델의 정답이 시한 초과로 둔갑한다".
+ *
+ * This client had one number for everything (30s), and the cost of getting it wrong just went up:
+ * a deadline now hangs up the connection, because a lock-step wire cannot be repaired once a reply
+ * is late. So a slow completion did not merely lose its answer, it dropped the socket under
+ * whatever else was in flight.
+ */
+export function deadlineFor(method: string): number {
+  return THINKS.has(method) ? 120_000 : 30_000;
+}
