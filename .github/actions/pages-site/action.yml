@@ -1,10 +1,12 @@
-# Builds the WHOLE Pages site — the console's demo at the root, and the benchmark report under
-# bench/. One action used by two workflows (pages.yml for core changes, test-web.yml for web
-# changes), because deploy-pages replaces the whole site: whichever lane publishes must publish
-# everything.
+# Builds the WHOLE Pages site — the landing page at the root, the console's clickable demo under
+# demo/, and the benchmark report under bench/. One action used by two workflows (pages.yml for
+# core changes, test-web.yml for web changes), because deploy-pages replaces the whole site:
+# whichever lane publishes must publish everything.
 #
-# There used to be two demos here, the old console's at the root and the new one under next/.
-# The old console is gone — the new one took its place, at the address people already had.
+# The demo used to be the site. It is now a sub-page of the landing site — the address people had
+# (…/magi/) still answers, with the page that says what this is, and the demo is one click away at
+# …/magi/demo/. Both are built from this repository at the same commit, so neither can describe a
+# magi that is not the one here.
 name: build-pages-site
 description: assemble the full Pages site into _site/
 inputs:
@@ -17,7 +19,7 @@ runs:
   steps:
     # 아이콘은 앞 단계(bake-icons)가 구워 산출물로 넘긴다 — 이 액션은 그것이 이미 제자리에
     # 있다고 보고 짓는다. 없으면(라이선스 없는 런) 화면들이 늘 그리던 도형을 그린다.
-    - name: assemble the console
+    - name: assemble the console and the landing page
       shell: bash
       run: |
         set -euo pipefail
@@ -33,12 +35,39 @@ runs:
         if [ ! -f clients/web/ui/build/demo-mock/demo/demo.nocache.js ]; then
           (cd clients/web/ui && ./gradlew assembleDemoMock -q)
         fi
+        # 랜딩도 콘솔 자산에 없다 — 콘솔을 여는 사람이 내려받을 이유가 없어서 assembleConsole이
+        # 빼 둔다(build.gradle.kts의 site 표). 그래서 사이트를 낼 때 여기서 짓는다.
+        (cd clients/web/ui && ./gradlew assembleLanding -q)
     # -console은 조립본을 디스크에서 읽으라는 뜻이다. 임베드된 사본을 쓰지 않는 이유는
     # 하나뿐: 그러려면 먼저 clients/web/server/console/ 로 복사하고 `go build`를 해야 하는데,
     # 여기서 필요한 것은 바이너리가 아니라 그 바이너리가 그릴 정적 사본이다.
-    - name: emit the console's demo at the site root
+    #
+    # 데모는 이제 사이트의 부속 페이지라 demo/ 아래로 나간다. 페이지가 제 자산을 전부
+    # 상대경로로 부르므로(emitDemo가 그렇게 고쳐 쓴다) 한 칸 내려가도 그대로 선다.
+    - name: emit the console's demo under demo/
       shell: bash
-      run: go run ./clients/web/server -console clients/web/ui/build/console -emit-demo ./_site
+      run: go run ./clients/web/server -console clients/web/ui/build/console -emit-demo ./_site/demo
+    - name: lay the landing page at the site root
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p ./_site
+        cp -R clients/web/ui/build/landing/. ./_site/
+        # 페이지가 부르는 것 셋. 전부 이미 저장소에 단일 원천이 있고, 그것을 사이트로 나르는
+        # 일만 여기서 한다.
+        #  · 서체 — 콘솔이 내주는 그 파일들(clients/web/server/fonts).
+        #  · rxjs — 스토어 밑감(bridge/Told)이 그 위에 산다. 콘솔의 페이지들과 같은 번들.
+        #  · 화면 사진 — README가 쓰는 그 그림들(docs/img).
+        mkdir -p ./_site/font ./_site/vendor ./_site/img
+        cp clients/web/server/fonts/*.woff2 ./_site/font/
+        cp clients/web/server/vendor/rxjs.js ./_site/vendor/
+        cp docs/img/console-*.png ./_site/img/
+        # 파비콘의 단일 원천은 internal/webassets이고, 그것을 파일로 꺼내는 것은 데모 에미터다
+        # — 앞 단계가 이미 꺼내 두었으니 그 사본을 뿌리에도 둔다.
+        cp ./_site/demo/icon.svg ./_site/icon.svg
+        # 밑줄로 시작하는 파일을 감추는 호스트가 사이트의 일부를 먹지 않게(데모는 제 것을 갖고
+        # 있지만 그것은 demo/ 아래다).
+        touch ./_site/.nojekyll
     - name: carry the benchmark report onto the site
       shell: bash
       run: |

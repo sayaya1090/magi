@@ -58,8 +58,11 @@ jobs:
           if [ "${{ github.event_name }}" != "push" ]; then echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           base="$BEFORE"
           if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then base="HEAD~1"; fi
-          if git diff --name-only "$base" HEAD | grep -q '^web/'; then
-            echo "이 커밋은 web/도 건드렸다 — 사이트는 test-web이 낸다"
+          # 경로는 clients/web/ 이다. 옛 이름(web/)으로 묻던 동안 이 검사는 한 번도 참이 된 적이
+          # 없었고, 그래서 두 레인이 같은 사이트를 함께 지어 pages 동시성 그룹이 하나를 취소했다
+          # — 취소된 줄은 실패처럼 보이는데 컴퓨트는 이미 쓴 뒤다.
+          if git diff --name-only "$base" HEAD | grep -q '^clients/web/'; then
+            echo "이 커밋은 clients/web/도 건드렸다 — 사이트는 test-web이 낸다"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
