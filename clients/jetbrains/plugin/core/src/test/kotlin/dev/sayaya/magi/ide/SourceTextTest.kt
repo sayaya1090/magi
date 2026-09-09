@@ -337,6 +337,41 @@ class SourceTextTest {
         assertTrue("plan.usage.kept" in panel, "주제를 적을 글자가 없다")
     }
 
+    /**
+     * **실패한 서브에이전트가 성공한 것과 다르게 그려진다.**
+     *
+     * 등록부는 「도는 것 **또는 방금 끝난 것**」을 든다(`internal/app/subagent_jobs.go` 의 그 주석)
+     * 그리고 `finish()` 는 행을 지우지 않고 `Err` 를 채운다. 그러니 `jobs.children` 에는 **실패
+     * 사유를 담은 끝난 행**이 있다.
+     *
+     * 이 판은 그 목록을 `running` 으로만 걸러 쓰고 끝난 것은 `children` 문(=`SessionRow`, 에러 칸이
+     * **없다**)으로 그려서, 실패한 자식과 성공한 자식이 똑같은 ⛒ 한 줄이었다. 붙들고 있던 것은
+     * 「끝나면 등록부에서 사라진다」는 **틀린 주석**이었다.
+     *
+     * 근거가 움직이면 이 규칙도 다시 읽어야 하므로, 코어의 그 두 사실을 여기서 못박는다.
+     */
+    @Test
+    fun `실패한 자식은 성공한 자식과 다르게 적힌다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val reg = File(core, "internal/app/subagent_jobs.go")
+        assertTrue(reg.isFile, "코어의 서브에이전트 등록부를 못 찾았다(${reg.absolutePath})")
+        val src = reg.readText()
+        assertTrue("running or have just finished" in src,
+            "등록부가 더는 「방금 끝난 것」을 든다고 말하지 않는다 — 이 규칙의 근거가 움직였다")
+        assertTrue(Regex("""j\.Running, j\.Ended, j\.Steps, j\.Err = false""").containsMatchIn(src),
+            "`finish()` 가 더는 `Err` 를 채우며 행을 남기지 않는다 — 다시 읽어라")
+
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("!it.running" in panel,
+            "끝난 자식의 행을 등록부에서 안 꺼낸다 — 실패 사유가 거기에만 있다")
+        assertTrue("plan.kid.failed" in panel, "실패를 적을 글자가 없다")
+        // 사유를 꺼내 놓고 안 그리면 같은 결함이다.
+        val at = panel.indexOf("⛒ ")
+        assertTrue(at > 0, "끝난 자식의 행을 못 찾았다")
+        assertTrue("failed" in panel.substring(maxOf(0, at - 300), at + 60),
+            "사유를 읽어 놓고 행에 안 붙인다 — 나르는 것과 그리는 것은 다르다")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서
