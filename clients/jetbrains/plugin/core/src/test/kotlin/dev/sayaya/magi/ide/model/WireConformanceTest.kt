@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide.model
 
 import java.io.File
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
@@ -171,6 +172,87 @@ class WireConformanceTest {
             "데몬이 이 칸들을 보내는데 선언이 없어 **읽을 수가 없다** — 화면에 닿을 길이 없고 " +
                 "아무것도 안 터진다: $missed. 읽거나, 사유와 함께 skipped 에 적을 것.",
         )
+    }
+
+    /** Go 구조체 이름 → (json 이름 → Go 타입). [goTags] 의 짝이되 **모양**까지 든다. */
+    private fun goTypes(): Map<String, Map<String, String>> {
+        val out = mutableMapOf<String, MutableMap<String, String>>()
+        val open = Regex("""^type (\w+) struct \{""")
+        val field = Regex("""^\t\w+\s+(\**\[?\]?[\w.\[\]]+)\s+`json:"([^",]+)""")
+        for (f in goSources()) {
+            if (!f.isFile) continue
+            var name: String? = null
+            for (line in f.readLines()) {
+                open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
+                if (name == null) continue
+                if (line == "}") { name = null; continue }
+                field.find(line)?.let { out[name]!![it.groupValues[2]] = it.groupValues[1].removePrefix("*") }
+            }
+        }
+        return out
+    }
+
+    /** Kotlin 클래스 이름 → (프로퍼티 → 선언된 타입). */
+    private fun ktTypes(): Map<String, Map<String, String>> {
+        val src = File(System.getProperty("user.dir"), "src/main/kotlin/dev/sayaya/magi/ide/model/Wire.kt")
+        assertTrue(src.isFile, "Wire.kt 를 못 찾았다: $src")
+        val out = mutableMapOf<String, MutableMap<String, String>>()
+        var name: String? = null
+        val open = Regex("""^(?:data )?class (\w+)\(""")
+        val prop = Regex("""^\s+val (\w+):\s*([\w<>?]+)""")
+        for (line in src.readLines()) {
+            open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
+            if (name == null) continue
+            if (line.startsWith(")")) { name = null; continue }
+            prop.find(line)?.let { out[name]!![it.groupValues[1]] = it.groupValues[2] }
+        }
+        return out
+    }
+
+    /**
+     * **이름이 맞아도 모양이 틀리면 같은 결함이다.**
+     *
+     * 옆 규칙은 「우리가 읽는 이름이 데몬이 보내는 이름인가」를 본다. 그것만으로는 모자란다 —
+     * VS Code 쪽에서 `RosterRow` **다섯 칸**이 구조체와 모양이 어긋난 채 서 있었다(2026-09-10:
+     * `hub` bool→String, `can` int→List, `does` []string→String, `waiting` int→String,
+     * `handling` bool→Number). 이름은 전부 맞았다.
+     *
+     * 왜 조용한가: `ignoreUnknownKeys` 와 `coerceInputValues` 아래에서 모양이 어긋난 칸은 예외가
+     * 아니라 **기본값**이 된다. 그리고 그것이 하는 일은 **맞는 읽기를 막는 것**이다 — 저쪽에서
+     * `r.waiting > 0` 이 «Operator '>' cannot be applied to types 'string' and 'number'» 로
+     * 거절됐고, 그래서 큐 깊이가 화면에 영영 없었다.
+     *
+     * 이 규칙은 오늘 **어긋난 것이 없음을 재서** 세운다(15쌍 전수). 지키는 것이지 고치는 것이 아니다.
+     */
+    @Test
+    fun `플러그인이 읽는 모양은 데몬이 보내는 모양이다`() {
+        val go = goTypes()
+        val kt = ktTypes()
+        val want = mapOf(
+            "string" to setOf("String"), "int" to setOf("Int", "Long"), "int64" to setOf("Long", "Int"),
+            "float64" to setOf("Double"), "bool" to setOf("Boolean"), "[]string" to setOf("List<String>"),
+        )
+        // 짝이 0이어도 조용히 초록이 되는 것부터 막는다 — 옆 규칙이 같은 이유로 같은 바닥을 둔다.
+        val paired = kt.keys.map { renamed[it] ?: it }.filter { go.containsKey(it) }
+        assertTrue(paired.size >= 12,
+            "Go 짝을 찾은 클래스가 ${paired.size}개뿐이다 — 이 시험은 소스의 모양을 놓치고 있다")
+        assertEquals("Int", kt["RosterRow"]?.get("waiting"),
+            "훑기가 아는 칸을 못 읽는다 — 이 규칙이 무엇을 보든 통과한다")
+
+        val drift = mutableListOf<String>()
+        for ((cls, props) in kt) {
+            val tags = go[renamed[cls] ?: cls] ?: continue
+            for ((name, declared) in props) {
+                val gt = tags[name] ?: continue
+                val ok = want[gt] ?: continue          // 이 규칙이 판정할 수 없는 모양은 건너뛴다
+                if (declared.removeSuffix("?") !in ok) {
+                    drift += "$cls.$name: 데몬은 `$gt`, 여기는 `$declared`"
+                }
+            }
+        }
+        assertTrue(drift.isEmpty(),
+            "모양이 어긋난 자리가 있다. 예외가 아니라 **기본값**으로 그려지고, 맞는 읽기는 " +
+                "컴파일에서 막힌다:\n  " + drift.sorted().joinToString("\n  "))
     }
 
     @Test
