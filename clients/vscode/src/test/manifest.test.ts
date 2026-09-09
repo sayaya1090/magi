@@ -436,10 +436,8 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
 
   // Left out on purpose, each with the reason a reader can check.
   const skipped: Record<string, string> = {
-    'permission.requested': 'the pending ask comes from `status`, which answers with the LIVE one — a log replay would re-raise prompts already decided',
-    'permission.decided': 'read by `touched`, which is not a row: the decision itself is drawn from the ask disappearing',
-    'question.requested': 'same as permission.requested — the live one comes from `status`',
-    'question.answered': 'the answer arrives as the prompt it produced; a second row would say the person spoke twice',
+    'permission.decided': 'not a row — it CLOSES the ask (pendingAsk and touched both read it); the decision itself shows as the ask disappearing',
+    'question.answered': 'not a row — it CLOSES the ask (pendingAsk reads it); the answer arrives as the prompt it produced, and a second row would say the person spoke twice',
     'session.moved': 'this window follows one workspace; a companion that left is reported by the socket going quiet',
     'labels.changed': 'nothing in this client renames people yet — the roster shows what the daemon calls them',
     'user.label.changed': 'same as labels.changed',

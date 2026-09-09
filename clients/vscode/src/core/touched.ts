@@ -98,15 +98,51 @@ function parseArgs(args: unknown): Record<string, unknown> {
 }
 
 /** What the companion is waiting on, if anything, read off the same stream. */
-export function pendingAsk(events: Event[]): { callId: string; what: string } | null {
-  let open: { callId: string; what: string } | null = null;
+/** What the companion is blocked on: a verdict to give, or a sentence to write. */
+export interface Ask {
+  /**
+   * `permission` or `question` — the core's own two words, and the screen draws two different
+   * things from them.
+   *
+   * ⚠ **It was never set.** The screen tests `kind === 'permission'` to put up allow/deny/always,
+   * and this function returned an object without the field — so every permission prompt fell
+   * through to the question branch and drew the TOOL NAME with a free-text box, while the three
+   * buttons sat in the code and never ran once. Measured 2026-09-09.
+   */
+  kind: 'permission' | 'question';
+  callId: string;
+  what: string;
+  /** A question's shortcuts to an answer (`QuestionRequestedData.Options`). */
+  options?: string[];
+  /** Where this question sits in the run its call is asking: 3 of 5. */
+  index?: number;
+  total?: number;
+}
+
+/**
+ * What is standing unanswered, from the log.
+ *
+ * ⚠ **Both kinds.** This read `permission.requested` alone, so a question — the `ask_user` tool,
+ * with its options — never raised an ask box at all: the core wrote `question.requested` and
+ * nothing here looked at it. The two are answered through different doors (`permission` takes a
+ * verdict, `answer` takes a sentence), which is exactly why the KIND has to travel with them.
+ */
+export function pendingAsk(events: Event[]): Ask | null {
+  let open: Ask | null = null;
   for (const e of events) {
     const d = (e.data ?? {}) as Record<string, unknown>;
     if (e.type === 'permission.requested') {
-            // `name` is the tool, as PermissionRequestedData spells it. Guessed field names are the
+      // `name` is the tool, as PermissionRequestedData spells it. Guessed field names are the
       // silent kind of wrong here: JSON hands back undefined and the row says "a tool" for ever.
-      open = { callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool') };
-    } else if (e.type === 'permission.decided' || e.type === 'turn.finished') {
+      open = { kind: 'permission', callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool') };
+    } else if (e.type === 'question.requested') {
+      open = {
+        kind: 'question', callId: String(d.callId ?? ''), what: String(d.question ?? ''),
+        options: Array.isArray(d.options) ? d.options.map(String) : undefined,
+        index: Number(d.index) || undefined,
+        total: Number(d.total) || undefined,
+      };
+    } else if (e.type === 'permission.decided' || e.type === 'question.answered' || e.type === 'turn.finished') {
       open = null;
     }
   }

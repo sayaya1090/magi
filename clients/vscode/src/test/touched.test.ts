@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
 import { touched, pendingAsk } from '../core/touched';
 import { Event } from '../core/protocol';
 
@@ -67,8 +69,41 @@ test('an edit still running is not counted', () => {
 });
 
 /** What the companion is blocked on, and that a decision clears it. */
-test('a permission stands until it is decided', () => {
+/**
+ * The ask carries WHICH KIND it is, and both kinds are seen.
+ *
+ * ⚠ This test used to pin the defect. It asserted `{callId, what}` — the shape without `kind` — and
+ * stayed green while the screen was broken: `drawAsk` tests `kind === 'permission'` to put up
+ * allow/deny/always, so every permission prompt fell through to the QUESTION branch and drew the
+ * tool name with a free-text box. The three buttons were in the code and never ran once.
+ *
+ * And only one kind was ever built. `question.requested` — the `ask_user` tool, with its options —
+ * was written by the core and read by nothing here, so a question raised no ask box at all. The two
+ * are answered through different doors (`permission` takes a verdict, `answer` takes a sentence),
+ * which is exactly why the kind has to travel.
+ */
+test('a permission stands until it is decided, and says it is a permission', () => {
   const asked: Event = { seq: 1, type: 'permission.requested', data: { callId: 'p1', name: 'bash' } };
-  assert.deepEqual(pendingAsk([asked]), { callId: 'p1', what: 'bash' });
+  assert.deepEqual(pendingAsk([asked]), { kind: 'permission', callId: 'p1', what: 'bash' });
   assert.equal(pendingAsk([asked, { seq: 2, type: 'permission.decided', data: {} }]), null);
+});
+
+test('a question raises an ask, with its options', () => {
+  const asked: Event = { seq: 1, type: 'question.requested',
+    data: { callId: 'q1', question: 'which branch?', options: ['main', 'dev'], index: 2, total: 3 } };
+  const a = pendingAsk([asked]);
+  assert.ok(a, 'a question raised no ask at all — the core wrote it and nothing read it');
+  assert.equal(a!.kind, 'question', 'a question is drawn as a permission — the wrong three buttons');
+  assert.equal(a!.what, 'which branch?');
+  assert.deepEqual(a!.options, ['main', 'dev'], 'the shortcuts are dropped and only a text box is left');
+  assert.equal(a!.index, 2);
+  assert.equal(a!.total, 3);
+
+  // Answered closes it, the same way a decision closes a permission.
+  assert.equal(pendingAsk([asked, { seq: 2, type: 'question.answered', data: {} }]), null);
+
+  // And the screen tells the two apart — the branch exists and must keep its input.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  assert.ok(/a\.kind === 'permission'/.test(chat), 'the screen no longer tells the two kinds apart');
+  assert.ok(/a\.options/.test(chat), "the screen never draws a question's shortcuts");
 });
