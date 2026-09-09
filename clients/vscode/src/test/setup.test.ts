@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as activity from '../core/activity';
 import { State, panelNote, setupOf, sameSetup } from '../core/activity';
 import { noteCompletion, whyNoCompletion } from '../core/complete';
 
@@ -114,4 +117,40 @@ test('a working companion says nothing here', () => {
     assert.equal(note.offerStart, false, `${state} offers to start one`);
   }
   assert.deepEqual(panelNote(null), { text: '', offerStart: false });
+});
+
+/**
+ * The screen says only what the daemon said.
+ *
+ * `status` has three shapes and they are not three states: `waiting` filled, `doing` filled, and
+ * NEITHER. The third is the ordinary one — `doing` is a long-running tool's progress note and one
+ * builtin tool file out of fifty writes it, and the door has no field meaning "a turn is running"
+ * (`answerStatus`). So the third shape is "it answered and said no more", and calling it `idle` is
+ * a claim about a companion that may be working flat out.
+ *
+ * Pinned as a rule about the WORD, not just the branch: this file's own module comment records the
+ * first version of this defect (Unknown drawn as idle), and the second version lived one line
+ * below it for as long. A guard that only checked the branch would have passed both times.
+ */
+test('a daemon that said nothing is not called idle', () => {
+  const quiet = activity.of({ ok: true });
+  assert.notEqual(quiet.state, 'idle', 'the empty answer is drawn as "idle" — the daemon never said that');
+  assert.equal(activity.label(quiet), 'attached', 'say what is known: it answered, and no more');
+
+  // The two that ARE said keep their words.
+  assert.equal(activity.of({ ok: true, doing: 'go build ./...' }).state, State.Working);
+  assert.equal(activity.of({ ok: true, waiting: { kind: 'permission' } }).state, State.Waiting);
+
+  // And "could not ask" stays its own answer — folding it in here is the defect this file's
+  // opening paragraph is about.
+  assert.equal(activity.of(null).state, State.Unknown);
+  assert.equal(activity.of({ ok: false, error: 'nope' }).state, State.Unknown);
+
+  // No screen keeps the retired word. A label is what a person reads, so a stale one is the defect
+  // still shipping with the code fixed underneath it.
+  for (const f of ['activity.ts', 'workspace.ts']) {
+    const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    assert.ok(!/['"`]idle['"`]/.test(src), `${f} still hands a screen the word "idle"`);
+  }
 });
