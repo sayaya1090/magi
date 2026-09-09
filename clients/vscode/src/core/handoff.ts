@@ -40,7 +40,20 @@ export function peers(resp: Response | null): Peer[] {
   // The JetBrains client asks for both halves in one breath (`it.live && !it.sighting`), and the
   // fleet section of this very file already writes down why: drawing an unreachable row like a
   // reachable one "is how somebody sends work to nobody".
-  return rows.filter((r): r is Peer => typeof r?.socket === 'string' && !!r.socket && !r.sighting);
+  //
+  // ⚠ **And then only one half was asked.** This kept `!sighting` and dropped `live`, so a LOCAL row
+  // whose dial failed was still offered as a target. `live` is a Go bool with `omitempty`, so a
+  // failed dial arrives as the field being absent — never as `false` — and `!r.sighting` is true for
+  // it. Measured by running one such reply through this client's own readers: the fleet section drew
+  // "no answer" beside the row and the hand-off picker offered it in the same breath. Handing work
+  // there goes nowhere and the receipt is polled until the window closes.
+  //
+  // `live` is filled by a DIAL, not by a snapshot: the core's Probe sets it false and turns it true
+  // only when a connection was made ("a file cannot say whether the process that wrote it is still
+  // there"), so its absence on a local row is a measurement, not a silence. That is why requiring it
+  // does not cost a reachable target.
+  return rows.filter((r): r is Peer =>
+    typeof r?.socket === 'string' && !!r.socket && !r.sighting && r.live === true);
 }
 
 /**

@@ -87,11 +87,18 @@ test('handed over with nothing back yet says that', () => {
   assert.match(r.line, /nothing back/);
 });
 
-/** A row with no socket cannot be dialled, so it is not offered. */
+/**
+ * A row with no socket cannot be dialled, so it is not offered.
+ *
+ * The reachable row carries `live` because a real one does: the core dials every local row before
+ * answering (`Probe`), so a row that came back reachable always has it. Written without it, this
+ * fixture described a reply the daemon does not send — and it went on passing while the filter was
+ * missing the `live` half entirely.
+ */
 test('the roster drops rows with nothing to dial', () => {
   const list = peers({
     ok: true,
-    roster: [{ socket: '/tmp/a.sock', name: 'web' }, { name: 'ghost' }, { socket: '' }],
+    roster: [{ socket: '/tmp/a.sock', name: 'web', live: true }, { name: 'ghost' }, { socket: '' }],
   });
   assert.equal(list.length, 1);
   assert.equal(list[0].name, 'web');
@@ -127,10 +134,40 @@ test('a refused roster yields nobody', () => {
  */
 test('a companion on another machine is not offered as a hand-off target', () => {
   const list = peers({ ok: true, roster: [
-    { socket: '/here/daemon-web-1.sock', workdir: '/w' },
+    { socket: '/here/daemon-web-1.sock', workdir: '/w', live: true },
     { socket: '/over/there/daemon-ws-9.sock', workdir: '/x', sighting: true },
     { workdir: '/no-socket' },
   ] });
   assert.equal(list.length, 1, 'the picker offers somebody this window cannot reach');
   assert.equal(list[0].socket, '/here/daemon-web-1.sock');
+});
+
+/**
+ * ★ A local row that did not answer is not a hand-off target.
+ *
+ * `live` is a Go bool with `omitempty`: a failed dial arrives as the field being ABSENT, never as
+ * `false`. So a filter that asks only `!sighting` keeps it, and the picker offers a companion this
+ * window has just proved it cannot reach — work handed there goes nowhere and the receipt is polled
+ * until the window closes.
+ *
+ * Measured by running one such reply through this client's own readers: the fleet section drew
+ * "no answer" beside the row while the hand-off picker offered it in the same breath. Two screens,
+ * one roster, opposite conclusions. The JetBrains panel has asked for both halves since it grew the
+ * row (`it.live && !it.sighting`), and this file's own comment quotes that rule one line above the
+ * filter that broke it.
+ *
+ * Requiring `live` costs no reachable target: the core's `Probe` sets it false and turns it true
+ * only when a dial connected, so its absence on a local row is a measurement rather than a silence.
+ */
+test('a local row that did not answer is not offered as a target', () => {
+  const got = peers({
+    ok: true,
+    roster: [
+      { socket: '/a/daemon-ws-1.sock', workdir: '/a', state: 'idle', live: true },
+      { socket: '/b/daemon-ws-2.sock', workdir: '/b', state: 'idle' },
+      { socket: '/over/there/daemon-ws-9.sock', workdir: '/c', sighting: true },
+    ],
+  }).map((p) => p.socket);
+  assert.deepEqual(got, ['/a/daemon-ws-1.sock'],
+    'the picker offers a companion this window could not dial, or drops one it could');
 });
