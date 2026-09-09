@@ -108,6 +108,52 @@ class SourceTextTest {
      * `why` 를 읽고 있었는데 새로 만든 카드만 안 읽었다. 세 자리가 갈리지 않게 못박는다 —
      * `models()` 를 부르는 자리는 전부 그 답의 `why` 를 읽는다.
      */
+    /**
+     * 주석을 걷고 **공백까지 접은** 소스. 「부르는 자리 옆」을 글자 수로 재는 규칙들이 쓴다.
+     *
+     * ⚠ 접는 것이 걷는 것만큼 중요하다. 주석만 지우면 그 줄의 **들여쓰기가 그대로 남아**, 여섯
+     * 줄짜리 설명 하나가 220자를 먹는다 — 창이 코드가 아니라 공백으로 차고, 규칙은 바로 아래
+     * 있는 코드를 못 본다. 실제로 그렇게 한 번 거짓으로 걸렸다.
+     */
+    private fun code(f: File): String = f.readText()
+        .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+        .replace(Regex("""//[^\n]*"""), "")
+        .replace(Regex("""\s+"""), " ")
+
+    /**
+     * **잡을 세우는 데는 끝이 둘이고 `ok` 는 둘 다 참이다.**
+     *
+     * `answerJobKill` 은 `{OK: true, Removed: KillBackgroundJob(name)}` 을 답하고, 바로 위
+     * 주석이 그 이유를 적는다 — "pressed twice must read 'already gone', not 'failure'". 끝난
+     * 잡을 세우라고 해도 **거절이 아니라** ok 로 답하고, 어느 쪽이었는지는 `removed` 가 말한다.
+     *
+     * ⚠ `Removed` 는 `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 「이미 없었다」의
+     * 답은 글자 그대로 `{"ok":true}` 다(도는 데몬 실측, 2026-09-09).
+     *
+     * 그리고 그 구별이 가장 필요한 자리가 이 단추다: 행은 `jobs` 폴로 그려지므로 **잡이 끝난 뒤에도
+     * 폴 한 번만큼 더 서 있다.** 낡은 행을 눌러도 행은 다음 폴에서 똑같이 사라지니, 아무 말이
+     * 없으면 이 단추가 세운 줄로 읽힌다.
+     */
+    @Test
+    fun `잡을 세운 것과 이미 없던 것을 가른다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val wire = File(core, "internal/adapter/daemon/protocol.go")
+        assertTrue(wire.isFile, "코어의 와이어를 못 찾았다(${wire.absolutePath}) — 근거를 못 대고 있다")
+        assertTrue(Regex("""Removed\s+bool\s+`json:"removed,omitempty"`""").containsMatchIn(wire.readText()),
+            "와이어가 `removed` 를 이 규칙이 읽는 모양으로 안 싣는다")
+
+        val src = code(sources.first { it.name == "PlanToolWindow.kt" })
+        val at = src.indexOf("killJob(")
+        assertTrue(at > 0, "잡을 세우는 자리를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        // 그 자리만 본다. 넓히면 남의 갈래가 이 규칙을 통과시킨다.
+        val where = src.substring(at, minOf(src.length, at + 300))
+        assertTrue("removed" in where,
+            "잡을 세우면서 답의 `removed` 를 안 읽는다 — 「세웠다」와 「이미 없었다」가 똑같이 조용하다")
+        // 읽기만 하고 갈래가 없으면 사람에게 가는 것은 여전히 하나다.
+        assertTrue(Regex("""!\w+\.removed\s*->""").containsMatchIn(where),
+            "`removed` 를 읽지만 그것으로 갈라지는 갈래가 없다 — 읽은 사실이 화면까지 안 온다")
+    }
+
     @Test
     fun `모델 목록을 묻는 화면은 못 받은 사유도 읽는다`() {
         // **부르는 자리만.** 문을 «선언하는» `Companion.kt` 는 `fun models()` 라 점이 없고,
@@ -123,22 +169,20 @@ class SourceTextTest {
         // 버려도 파일에는 언제나 `why` 가 있었다. 살아남은 것은 변이가 약해서가 아니라 이
         // 규칙이 **엉뚱한 자리를 보고 있어서**였다. 그래서 **부르는 자리 옆**만 본다.
         //
-        // 창은 400자. 실측 거리는 51·62·314자다(가장 먼 것은 설정 화면 — 답을 EDT 블록 안에서
-        // 읽는다). 이 창을 넓히면 남의 `why` 가 들어오고, 좁히면 그 화면이 거짓으로 걸린다.
+        // 창은 300자 — **접은 뒤**의 코드 300자다([code] 참조). 이 창을 넓히면 남의 `why` 가
+        // 들어오고, 좁히면 그 화면이 거짓으로 걸린다.
         //
         // ⚠ **주석은 걷고 잰다.** 두 번째 판이 그러지 않아 계획 판의 변이가 살아남았다 — 그
         // 자리의 주석이 마침 "why 는 백엔드가 잠깐 죽었다는 말이라…"라고 설명하고 있어서,
         // 코드가 사유를 통째로 버려도 낱말은 늘 거기 있었다. 이 파일의 다른 규칙이 같은 함정을
         // 이미 이름으로 부르고 있다("설명하는 문장이 위반으로 잡힌다" — 거울상이다).
-        val window = 400
+        val window = 300
         for (f in callers) {
-            val src = f.readText()
-                .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
-                .replace(Regex("""//[^\n]*"""), "")
+            val src = code(f)
             for (m in Regex("""\.models\(\)""").findAll(src)) {
                 val near = src.substring(m.range.last + 1, minOf(src.length, m.range.last + 1 + window))
                 assertTrue("why" in near,
-                    "${f.name} 가 `models()` 를 부르고 ${window}자 안에서 답의 `why` 를 안 읽는다 — " +
+                    "${f.name} 가 `models()` 를 부르고 접은 코드 ${window}자 안에서 답의 `why` 를 안 읽는다 — " +
                         "백엔드가 죽으면 빈 목록이 이유 없이 선다(`ok` 는 참이라 거절 경로도 안 탄다)")
             }
         }

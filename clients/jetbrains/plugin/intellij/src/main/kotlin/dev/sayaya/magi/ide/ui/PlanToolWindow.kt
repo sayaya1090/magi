@@ -335,7 +335,20 @@ class PlanToolWindow : ToolWindowFactory {
                             addActionListener {
                                 workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { c2 ->
                                     val kr = c2.killJob(b.id)
-                                    if (!kr.ok) tell(MagiBundle.msg("common.notsent", kr.error ?: MagiBundle.msg("common.noreason")))
+                                    // `ok` 는 두 끝을 못 가른다. 데몬은 어느 쪽인지 알고 그것을
+                                    // `removed` 로 말한다 — 참이면 이 호출이 세운 것이고, 없으면
+                                    // 세울 것이 이미 없었다(`answerJobKill`: "pressed twice must
+                                    // read 'already gone', not 'failure'").
+                                    //
+                                    // 성공은 여전히 안 적는다 — 행이 다음 폴에서 사라지는 것이
+                                    // 증거다. **이미 없던 경우만** 적는다: 그때도 행은 똑같이
+                                    // 사라지므로, 아무 말이 없으면 이 단추가 세운 줄로 읽힌다.
+                                    // 그리고 이 단추가 눌리는 가장 흔한 자리가 바로 그 자리다 —
+                                    // 행은 잡이 끝난 뒤에도 폴 한 번만큼 더 서 있다.
+                                    when {
+                                        !kr.ok -> tell(MagiBundle.msg("common.notsent", kr.error ?: MagiBundle.msg("common.noreason")))
+                                        !kr.removed -> tell(MagiBundle.msg("plan.kill.gone", b.id))
+                                    }
                                 }
                             }
                         }, BorderLayout.EAST)
