@@ -268,7 +268,7 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 | Stop a background job | | §7.2 |
 | Show child conversations | 읽기만. 줄마다 **누가 열었나**가 먼저 선다 — 서브에이전트는 이 대화가 시킨 일이고, 「meeting」·「minutes」는 남이 소집한 회의에 이 컴패니언이 앉은 자리다(회의는 자식을 둘 연다) | §7.1 |
 | Scheduled work | | §7.2 |
-| Ask another companion to do something | | §7.1.5 |
+| Ask another companion to do something | 목록은 **이 창이 방금 다이얼로 닿아 본** 컴패니언뿐이다 — 다른 기계의 것(가십)과 응답이 없던 것은 안 나온다 | §7.1.5 |
 
 ⚠ **이 표는 「무엇이 있나」이고 「어떻게 도나」가 아니다.** 되돌릴 수 없는 것(접기·되감기·업데이트·
 재시작)은 전부 먼저 묻고, 그 문구와 사유는 각 절에 있다.
