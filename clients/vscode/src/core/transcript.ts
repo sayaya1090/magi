@@ -15,6 +15,15 @@ export type Who = 'user' | 'agent' | 'tool' | 'thinking' | 'council' | 'system' 
 export interface Row {
   /** The event that put this row here, so a later frame can find it again. */
   seq: number;
+  /**
+   * A row built from streaming chunks, not yet written as a fact.
+   *
+   * It exists so the conversation moves WHILE the model answers. Without it this panel showed
+   * nothing at all until the whole reply landed: `part.delta` carries each chunk and the
+   * `part.appended` fact is only written once the stream finishes, so a long answer on a local
+   * model was a frozen panel with a status bar that said "working".
+   */
+  draft?: boolean;
   who: Who;
   text: string;
   /** Tool rows only: the call this row is about, so its result can land on it. */
@@ -47,9 +56,38 @@ interface PartLike {
 export function rows(events: Event[]): Row[] {
   const out: Row[] = [];
   const answered = new Set<number>();
+  // Streaming chunks, keyed by the message and kind they belong to. A draft is REPLACED by the fact
+  // when it arrives rather than added to — the appended part carries the whole text, so keeping both
+  // would show the answer twice.
+  const drafts = new Map<string, Row>();
+  const dropDraft = (key: string): void => {
+    const row = drafts.get(key);
+    if (!row) return;
+    drafts.delete(key);
+    const at = out.indexOf(row);
+    if (at >= 0) out.splice(at, 1);
+  };
   for (const e of events) {
     const d = (e.data ?? {}) as Record<string, unknown>;
     switch (e.type) {
+      case 'part.delta': {
+        const kind = String(d.kind ?? 'text');
+        const text = String(d.text ?? '');
+        if (!text || (kind !== 'text' && kind !== 'reasoning')) break;
+        const key = `${String(d.messageId ?? '')}:${kind}`;
+        let row = drafts.get(key);
+        if (!row) {
+          row = { seq: e.seq, who: kind === 'reasoning' ? 'thinking' : 'agent', text: '',
+            draft: true, folded: kind === 'reasoning' };
+          drafts.set(key, row);
+          out.push(row);
+          // A chunk is an answer to whatever is above it, the same as any assistant part. Without
+          // this the person's own row keeps its pending bar for the whole of a streamed reply.
+          for (const r of out) if (r.pending && !answered.has(r.seq)) { r.pending = false; answered.add(r.seq); }
+        }
+        row.text += text;
+        break;
+      }
       case 'prompt.submitted': {
         const parts = (d.parts as PartLike[] | undefined) ?? [];
         const text = parts.map((p) => p.text ?? '').join('').trim();
@@ -59,6 +97,9 @@ export function rows(events: Event[]): Row[] {
       case 'part.appended': {
         const p = (d.part ?? {}) as PartLike;
         const role = String(d.role ?? '');
+        // The fact replaces its own draft. Keyed by message AND kind, because one message streams
+        // reasoning and text as two drafts and only one of them is being written here.
+        if (p.kind === 'text' || p.kind === 'reasoning') dropDraft(`${String(d.messageId ?? '')}:${p.kind}`);
         // Any assistant part answers the prompts above it. The mark travels on the ROW rather than
         // being recomputed at draw time: a screen that re-derived it would have to hold the whole
         // log to draw one row.
@@ -97,6 +138,13 @@ export function rows(events: Event[]): Row[] {
       case 'turn.finished':
         // Not a row. It ends the turn, and the screen reads that from the LAST row's pending mark.
         for (const r of out) r.pending = false;
+        // ⚠ **Sweep the orphan drafts.** There are several paths where the core streams chunks and
+        // never writes the fact — a reply the spin guard discarded, a tool call that arrived as
+        // text, an interrupt or a provider error, a failed interjection mini-turn. The JetBrains
+        // client's own comment counts five. Left standing, a half-answer sits on the screen of the
+        // window that happened to be attached and nowhere else, which is the very split this is
+        // meant to prevent.
+        for (const key of [...drafts.keys()]) dropDraft(key);
         break;
       default:
         break; // facts for other screens (context.usage, todos.changed, labels.changed, …)
