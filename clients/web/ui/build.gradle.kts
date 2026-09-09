@@ -125,6 +125,9 @@ fun Project.uiModule(module: String, testModule: String, webPort: Int) {
         from("${rootDir}/console.css") { into("css") }
         val own = file("src/main/webapp")
         if (own.isDirectory) from(own) { include("*.css"); into("css") }
+        // 말 팩도 그대로 — 화면이 회선으로 읽는 것을 시험 페이지에서는 파일로 읽는다. 스텁을 두면
+        // 스텁을 시험하게 되고, 이 팩은 <b>배포되는 그 파일</b>이라 특히 그렇다.
+        if (own.isDirectory) from(own) { include("i18n/**"); into(".") }
         into("src/test/webapp")
     }
     tasks.named("processTestResources") { dependsOn(copyTestAssets) }

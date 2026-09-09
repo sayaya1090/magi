@@ -1,9 +1,9 @@
 package dev.sayaya.magi.client.interfaces;
 
-import dev.sayaya.magi.client.domain.Copy;
 import dev.sayaya.magi.client.domain.Page;
 import dev.sayaya.magi.client.domain.Tongue;
 import dev.sayaya.magi.client.usecase.TongueStore;
+import dev.sayaya.magi.client.usecase.WordStore;
 import elemental2.dom.DomGlobal;
 import elemental2.dom.HTMLElement;
 import jsinterop.base.Js;
@@ -27,20 +27,26 @@ public class LandingElement {
     private static final String DOCS = REPO + "/blob/main/docs/";
 
     private final TongueStore tongues;
+    private final WordStore words;
     private final HTMLElement root = el("div");
 
     @Inject
-    public LandingElement(TongueStore tongues) {
+    public LandingElement(TongueStore tongues, WordStore words) {
         this.tongues = tongues;
+        this.words = words;
         root.id = "page";
     }
 
     public void mount(HTMLElement frame) {
         frame.replaceChildren(root);
-        tongues.subscribe(this::render);
+        // 말이 바뀌었다는 소식이 아니라 <b>그 말의 팩이 왔다</b>는 소식을 듣는다 — 팩보다 먼저
+        // 그리면 키 문자열이 한 프레임 깜빡인다.
+        words.subscribe(this::render);
+        words.start();
     }
 
     private void render() {
+        if (!words.ready()) return;
         Tongue t = tongues.now();
         DomGlobal.document.documentElement.setAttribute("lang", t.code());
         root.replaceChildren(bar(t), main(t), foot(t));
@@ -55,14 +61,14 @@ public class LandingElement {
         bar.append(brand);
         HTMLElement doors = el("nav");
         doors.className = "doors";
-        for (String one : Page.NAV) doors.append(link("#" + one, word(t, "nav." + one)));
+        for (String one : Page.NAV) doors.append(link("#" + one, word("nav." + one)));
         bar.append(doors);
         HTMLElement acts = el("div");
         acts.className = "acts";
-        HTMLElement demo = link("demo/", word(t, "cta.demo"));
+        HTMLElement demo = link("demo/", word("cta.demo"));
         demo.className = "ghost";
         acts.append(demo);
-        HTMLElement repo = link(REPO, word(t, "cta.repo"));
+        HTMLElement repo = link(REPO, word("cta.repo"));
         repo.className = "ghost";
         acts.append(repo);
         acts.append(switcher(t));
@@ -79,7 +85,7 @@ public class LandingElement {
         button.id = "tongue";
         button.className = "ghost";
         button.textContent = t.other().tongueName();
-        button.setAttribute("aria-label", word(t, "lang.switch"));
+        button.setAttribute("aria-label", word("lang.switch"));
         button.setAttribute("lang", t.other().code());
         button.addEventListener("click", evt -> tongues.toggle());
         return button;
@@ -88,50 +94,50 @@ public class LandingElement {
     // ── 본문 ─────────────────────────────────────────────────────────────────
     private HTMLElement main(Tongue t) {
         HTMLElement main = el("main");
-        main.append(hero(t), problem(t), council(t), record(t), fleet(t), clients(t), features(t), start(t));
+        main.append(hero(), problem(), council(), record(), fleet(), clients(), features(), start(t));
         return main;
     }
 
-    private HTMLElement hero(Tongue t) {
+    private HTMLElement hero() {
         HTMLElement sec = section("hero");
-        sec.append(kicker(word(t, "hero.eyebrow")));
+        sec.append(kicker(word("hero.eyebrow")));
         HTMLElement name = el("h1");
         name.textContent = "magi";
         sec.append(name);
-        sec.append(para("tagline", word(t, "hero.tagline")));
-        sec.append(para("lede", word(t, "hero.lede")));
+        sec.append(para("tagline", word("hero.tagline")));
+        sec.append(para("lede", word("hero.lede")));
         HTMLElement acts = el("div");
         acts.className = "acts";
-        HTMLElement start = link("#start", word(t, "cta.start"));
+        HTMLElement start = link("#start", word("cta.start"));
         start.className = "cta primary";
-        HTMLElement demo = link("demo/", word(t, "cta.demo"));
+        HTMLElement demo = link("demo/", word("cta.demo"));
         demo.className = "cta";
         acts.append(start, demo);
         sec.append(acts);
-        sec.append(snippet(word(t, "hero.install"), Page.INSTALL));
-        sec.append(para("fineprint", word(t, "hero.note")));
+        sec.append(snippet(word("hero.install"), Page.INSTALL));
+        sec.append(para("fineprint", word("hero.note")));
         return sec;
     }
 
-    private HTMLElement problem(Tongue t) {
-        HTMLElement sec = head(t, "what");
+    private HTMLElement problem() {
+        HTMLElement sec = head("what");
         HTMLElement fig = el("figure");
         fig.className = "term";
         HTMLElement cap = el("figcaption");
         cap.className = "termhead";
-        cap.textContent = word(t, "figure.title");
+        cap.textContent = word("figure.title");
         HTMLElement pre = el("pre");
         pre.textContent = String.join("\n", Page.TRANSCRIPT);
         HTMLElement below = el("figcaption");
         below.className = "under";
-        below.textContent = word(t, "figure.caption");
+        below.textContent = word("figure.caption");
         fig.append(cap, pre, below);
         sec.append(fig);
         return sec;
     }
 
-    private HTMLElement council(Tongue t) {
-        HTMLElement sec = head(t, "council");
+    private HTMLElement council() {
+        HTMLElement sec = head("council");
         HTMLElement members = el("div");
         members.className = "members";
         for (String one : Page.MEMBERS) {
@@ -142,26 +148,26 @@ public class LandingElement {
             who.textContent = one.substring(0, 1).toUpperCase() + one.substring(1);
             HTMLElement lens = el("p");
             lens.className = "lens";
-            lens.textContent = word(t, "council." + one + ".lens");
-            card.append(who, lens, para("walk", word(t, "council." + one + ".walk")));
+            lens.textContent = word("council." + one + ".lens");
+            card.append(who, lens, para("walk", word("council." + one + ".walk")));
             members.append(card);
         }
         sec.append(members);
         HTMLElement pair = el("div");
         pair.className = "pair";
-        pair.append(note(word(t, "council.walk.head"), word(t, "council.walk.body")));
-        pair.append(note(word(t, "council.close.head"), word(t, "council.close.body")));
+        pair.append(note(word("council.walk.head"), word("council.walk.body")));
+        pair.append(note(word("council.close.head"), word("council.close.body")));
         sec.append(pair);
-        sec.append(tally(t));
-        sec.append(para("note", word(t, "tally.note")));
+        sec.append(tally());
+        sec.append(para("note", word("tally.note")));
         return sec;
     }
 
-    private HTMLElement tally(Tongue t) {
+    private HTMLElement tally() {
         HTMLElement table = el("table");
         table.className = "tally";
         HTMLElement head = el("tr");
-        head.append(cell("th", word(t, "tally.col.rule")), cell("th", word(t, "tally.col.when")));
+        head.append(cell("th", word("tally.col.rule")), cell("th", word("tally.col.when")));
         HTMLElement thead = el("thead");
         thead.append(head);
         HTMLElement body = el("tbody");
@@ -172,40 +178,40 @@ public class LandingElement {
             HTMLElement code = el("code");
             code.textContent = Page.TALLY_RULE[i];
             rule.append(code);
-            row.append(rule, cell("td", word(t, "tally." + Page.TALLY[i] + ".when")));
+            row.append(rule, cell("td", word("tally." + Page.TALLY[i] + ".when")));
             body.append(row);
         }
         table.append(thead, body);
         return table;
     }
 
-    private HTMLElement record(Tongue t) {
-        HTMLElement sec = head(t, "record");
+    private HTMLElement record() {
+        HTMLElement sec = head("record");
         HTMLElement list = el("ul");
         list.className = "knows";
         for (String key : Page.RECORD) {
             HTMLElement item = el("li");
-            item.innerHTML = word(t, key);
+            item.innerHTML = word(key);
             list.append(item);
         }
         sec.append(list);
         HTMLElement pull = el("p");
         pull.className = "pull";
-        pull.textContent = word(t, "record.line");
+        pull.textContent = word("record.line");
         sec.append(pull);
         return sec;
     }
 
-    private HTMLElement fleet(Tongue t) {
-        HTMLElement sec = head(t, "fleet");
+    private HTMLElement fleet() {
+        HTMLElement sec = head("fleet");
         HTMLElement list = el("ul");
         list.className = "fleetlist";
         for (String key : Page.FLEET) {
             HTMLElement item = el("li");
             HTMLElement what = el("b");
-            what.textContent = word(t, key + ".t");
+            what.textContent = word(key + ".t");
             HTMLElement says = el("span");
-            says.innerHTML = word(t, key + ".b");
+            says.innerHTML = word(key + ".b");
             item.append(what, says);
             list.append(item);
         }
@@ -218,11 +224,11 @@ public class LandingElement {
             HTMLElement a = link(Page.SHOT_HREF[i], "");
             HTMLElement img = el("img");
             img.setAttribute("src", Page.SHOT_IMG[i]);
-            img.setAttribute("alt", word(t, "shot." + Page.SHOTS[i] + ".cap"));
+            img.setAttribute("alt", word("shot." + Page.SHOTS[i] + ".cap"));
             img.setAttribute("loading", "lazy");
             a.append(img);
             HTMLElement cap = el("figcaption");
-            cap.textContent = word(t, "shot." + Page.SHOTS[i] + ".cap");
+            cap.textContent = word("shot." + Page.SHOTS[i] + ".cap");
             fig.append(a, cap);
             shots.append(fig);
         }
@@ -234,8 +240,8 @@ public class LandingElement {
      * 사람이 앉는 자리들. 사진이 있는 자리에는 사진이 서고, 없는 자리는 글만 선다 — 비슷하게
      * 생긴 남의 사진으로 칸을 채우면 그 자리가 실제로 어떤지에 대해 거짓을 말하게 된다.
      */
-    private HTMLElement clients(Tongue t) {
-        HTMLElement sec = head(t, "clients");
+    private HTMLElement clients() {
+        HTMLElement sec = head("clients");
         HTMLElement seats = el("div");
         seats.className = "seats";
         for (int i = 0; i < Page.SEATS.length; i++) {
@@ -245,20 +251,20 @@ public class LandingElement {
             if (!Page.SEAT_IMG[i].isEmpty()) {
                 HTMLElement img = el("img");
                 img.setAttribute("src", Page.SEAT_IMG[i]);
-                img.setAttribute("alt", word(t, "seat." + one + ".t"));
+                img.setAttribute("alt", word("seat." + one + ".t"));
                 img.setAttribute("loading", "lazy");
                 card.append(img);
             }
             HTMLElement line = el("h3");
             HTMLElement name = el("span");
-            name.textContent = word(t, "seat." + one + ".t");
+            name.textContent = word("seat." + one + ".t");
             HTMLElement chip = el("span");
             chip.className = "chip " + Page.SEAT_STATUS[i];
-            chip.textContent = word(t, "seat." + Page.SEAT_STATUS[i]);
+            chip.textContent = word("seat." + Page.SEAT_STATUS[i]);
             line.append(name, chip);
             card.append(line);
             HTMLElement says = el("p");
-            says.innerHTML = word(t, "seat." + one + ".b");
+            says.innerHTML = word("seat." + one + ".b");
             card.append(says);
             seats.append(card);
         }
@@ -266,30 +272,30 @@ public class LandingElement {
         return sec;
     }
 
-    private HTMLElement features(Tongue t) {
+    private HTMLElement features() {
         HTMLElement sec = section("features");
         HTMLElement title = el("h2");
-        title.textContent = word(t, "sec.feature.head");
+        title.textContent = word("sec.feature.head");
         sec.append(title);
         HTMLElement cards = el("div");
         cards.className = "cards";
         for (String one : Page.FEATURES) {
-            cards.append(note(word(t, "feature." + one + ".t"), word(t, "feature." + one + ".b")));
+            cards.append(note(word("feature." + one + ".t"), word("feature." + one + ".b")));
         }
         sec.append(cards);
         return sec;
     }
 
     private HTMLElement start(Tongue t) {
-        HTMLElement sec = head(t, "start");
-        sec.append(snippet(word(t, "start.build"), Page.BUILD));
-        sec.append(snippet(word(t, "start.run"), Page.RUN));
-        sec.append(para("note", word(t, "start.more")));
+        HTMLElement sec = head("start");
+        sec.append(snippet(word("start.build"), Page.BUILD));
+        sec.append(snippet(word("start.run"), Page.RUN));
+        sec.append(para("note", word("start.more")));
         HTMLElement acts = el("div");
         acts.className = "acts";
-        HTMLElement manual = link(DOCS + doc(t, "MANUAL"), word(t, "cta.manual"));
+        HTMLElement manual = link(DOCS + doc(t, "MANUAL"), word("cta.manual"));
         manual.className = "cta primary";
-        HTMLElement arch = link(DOCS + doc(t, "ARCHITECTURE"), word(t, "cta.arch"));
+        HTMLElement arch = link(DOCS + doc(t, "ARCHITECTURE"), word("cta.arch"));
         arch.className = "cta";
         acts.append(manual, arch);
         sec.append(acts);
@@ -304,26 +310,27 @@ public class LandingElement {
     private HTMLElement foot(Tongue t) {
         HTMLElement foot = el("footer");
         HTMLElement says = el("p");
-        says.textContent = word(t, "foot.note");
+        says.textContent = word("foot.note");
         HTMLElement acts = el("div");
         acts.className = "acts";
-        acts.append(link(REPO, word(t, "cta.repo")));
-        acts.append(link(DOCS + doc(t, "MANUAL"), word(t, "cta.manual")));
+        acts.append(link(REPO, word("cta.repo")));
+        acts.append(link(DOCS + doc(t, "MANUAL"), word("cta.manual")));
         acts.append(link(REPO + "/blob/main/LICENSE", "Apache-2.0"));
         foot.append(says, acts);
         return foot;
     }
 
     // ── 밑감 ─────────────────────────────────────────────────────────────────
-    private String word(Tongue t, String key) { return Copy.word(t, key); }
+    /** 말은 팩에서 온다 — 어느 말인지는 스토어가 안다. */
+    private String word(String key) { return words.word(key); }
 
     /** 절 하나 — 제목과 리드까지. 나머지는 부르는 쪽이 채운다. */
-    private HTMLElement head(Tongue t, String id) {
+    private HTMLElement head(String id) {
         HTMLElement sec = section(id);
         HTMLElement title = el("h2");
-        title.textContent = word(t, "sec." + id + ".head");
+        title.textContent = word("sec." + id + ".head");
         sec.append(title);
-        sec.append(para("lede", word(t, "sec." + id + ".lede")));
+        sec.append(para("lede", word("sec." + id + ".lede")));
         return sec;
     }
 
