@@ -15,8 +15,9 @@ console.html                     ← magi-web(7777)이 / 에서 서빙
     └── window 브리지(console-bridge)    셸↔화면의 유일한 만남
 ```
 
-모듈 열둘. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
-모른다.
+모듈 열셋. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
+모른다. 마지막 하나(`landing-ui`)는 화면이 아니라 **사이트**다 — 셸 없이 제 주소로 뜨고,
+콘솔 자산에는 실리지 않는다.
 
 | 모듈 | 무엇 | 산출물 |
 |---|---|---|
@@ -33,6 +34,7 @@ console.html                     ← magi-web(7777)이 / 에서 서빙
 | `meeting-ui` | 회의(v=meet) — 방 목록과 방 하나 | `meeting/meeting.nocache.js` |
 | `settings-ui` | 환경설정(v=settings) — 이 브라우저의 것과 데몬이 읽는 것 | `prefs/prefs.nocache.js` |
 | `demo-ui` | **화면이 아니다** — 정적 데모에서만 실리는 목. 경로로 답하고 회선의 이음매에 걸린다 | `demo/demo.nocache.js` (운영 자산에는 없다) |
+| `landing-ui` | **화면이 아니다** — GitHub Pages 의 랜딩 페이지(사이트 뿌리). 셸도 회선도 없고, 브리지에서 드는 것은 이 브라우저가 고른 말 하나(`Prefs`의 `lang`)뿐이다. 말 두 벌은 페이지 안에 산다 — 팩을 내려받지 않는다 | `index.html` + `landing.css` + `landing/landing.nocache.js` (`assembleLanding`, 운영 자산에는 없다) |
 
 ## 셸과 화면의 계약 (console-bridge)
 

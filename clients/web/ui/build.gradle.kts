@@ -33,6 +33,13 @@ val screens = linkedMapOf(
     "demo-ui" to ("dev.sayaya.magi.Demo" to "dev.sayaya.magi.DemoTest"),
 )
 
+// 사이트 모듈 — 화면이 아니다. 콘솔 안에 서지 않고 제 주소로 뜬다(랜딩 페이지). 빌드 규약은
+// 화면과 같아서 아래 recipe 를 그대로 받지만, assembleConsole 은 이것을 싣지 않는다: 콘솔을
+// 여는 사람이 랜딩을 내려받을 이유가 없고, 랜딩은 데몬 없이 파일로만 서는 것이 요건이다.
+val site = linkedMapOf(
+    "landing-ui" to ("dev.sayaya.magi.Landing" to "dev.sayaya.magi.LandingTest"),
+)
+
 subprojects {
     group = "dev.sayaya.magi"
     version = "0.0.1"
@@ -77,67 +84,88 @@ libraries.forEachIndexed { i, name ->
     }
 }
 
-// 화면 모듈: 의존성·GWT·테스트 포트·테스트 자산이 전부 여기서 온다.
-screens.entries.forEachIndexed { i, (name, both) ->
-    val (module, testModule) = both
-    project(":$name") {
-        apply(plugin = "org.jetbrains.kotlin.jvm")
-        apply(plugin = "dev.sayaya.gwt")
-        dependencies {
-            add("implementation", project(":console-bridge"))
-            add("implementation", project(":ui-components"))
-            add("implementation", cat.findBundle("sayaya-web").get())
-            add("annotationProcessor", cat.findLibrary("lombok").get())
-            add("annotationProcessor", cat.findLibrary("dagger-compiler").get())
-            add("testImplementation", cat.findBundle("test-web").get())
-            add("testAnnotationProcessor", cat.findLibrary("dagger-compiler").get())
-        }
-        gwtCommon(listOf(module))
-        val warDir = file("src/test/webapp")
-        extensions.getByName("gwt").withGroovyBuilder {
-            "devMode" {
-                setProperty("modules", listOf(module, testModule))
-                setProperty("war", warDir)
-            }
-            // 포트는 표의 순서로 — 손으로 세던 시절 두 모듈이 같은 포트를 잡은 적이 있다.
-            "test" {
-                setProperty("webPort", 18090 + i)
-            }
-        }
-        // 테스트 페이지의 자산은 단일 원천에서 매 빌드 복사한다(스냅샷 드리프트 없음):
-        // 머티리얼 번들과 콘솔 CSS, 그리고 이 모듈이 제 것으로 둔 스타일시트가 있으면 그것도.
-        // 번들 셋은 아직 clients/web/server/vendor에 산다 — 콘솔을 서빙하는 바이너리가 그것을
-        // /vendor/로 내주기 때문이고, 시험 페이지도 같은 파일을 물어야 같은 것을 시험한다.
-        val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
-            from("${rootDir}/../server/vendor/material.js") { into("js") }
-            // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
-            from("${rootDir}/../server/vendor/rxjs.js") { into("js") }
-            // 마크다운 렉서 — 전사가 그리는 것을 테스트 페이지에서도 그리려면 같은 번들이어야
-            // 한다. 스텁을 두면 스텁을 시험하게 된다.
-            from("${rootDir}/../server/vendor/marked.js") { into("js") }
-            from("${rootDir}/console.css") { into("css") }
-            val own = file("src/main/webapp")
-            if (own.isDirectory) from(own) { include("*.css"); into("css") }
-            into("src/test/webapp")
-        }
-        tasks.named("processTestResources") { dependsOn(copyTestAssets) }
+// 모듈 하나의 구성: 의존성·GWT·테스트 포트·테스트 자산이 전부 여기서 온다.
+//
+// 화면과 사이트가 이 하나를 함께 받는다 — 둘이 다른 것은 어디로 조립되느냐뿐이고, 그 차이는
+// 아래 assemble 태스크들이 진다. 구성을 베껴 두 벌로 두면 한쪽만 낡는다.
+fun Project.uiModule(module: String, testModule: String, webPort: Int) {
+    apply(plugin = "org.jetbrains.kotlin.jvm")
+    apply(plugin = "dev.sayaya.gwt")
+    dependencies {
+        add("implementation", project(":console-bridge"))
+        add("implementation", project(":ui-components"))
+        add("implementation", cat.findBundle("sayaya-web").get())
+        add("annotationProcessor", cat.findLibrary("lombok").get())
+        add("annotationProcessor", cat.findLibrary("dagger-compiler").get())
+        add("testImplementation", cat.findBundle("test-web").get())
+        add("testAnnotationProcessor", cat.findLibrary("dagger-compiler").get())
     }
+    gwtCommon(listOf(module))
+    val warDir = file("src/test/webapp")
+    extensions.getByName("gwt").withGroovyBuilder {
+        "devMode" {
+            setProperty("modules", listOf(module, testModule))
+            setProperty("war", warDir)
+        }
+        "test" {
+            setProperty("webPort", webPort)
+        }
+    }
+    // 테스트 페이지의 자산은 단일 원천에서 매 빌드 복사한다(스냅샷 드리프트 없음):
+    // 머티리얼 번들과 콘솔 CSS, 그리고 이 모듈이 제 것으로 둔 스타일시트가 있으면 그것도.
+    // 번들 셋은 아직 clients/web/server/vendor에 산다 — 콘솔을 서빙하는 바이너리가 그것을
+    // /vendor/로 내주기 때문이고, 시험 페이지도 같은 파일을 물어야 같은 것을 시험한다.
+    val copyTestAssets = tasks.register<Copy>("copyTestAssets") {
+        from("${rootDir}/../server/vendor/material.js") { into("js") }
+        // 스토어는 RxJS 위에 산다 — 테스트 페이지도 실제 번들을 문다(목이 아니라 그 파일).
+        from("${rootDir}/../server/vendor/rxjs.js") { into("js") }
+        // 마크다운 렉서 — 전사가 그리는 것을 테스트 페이지에서도 그리려면 같은 번들이어야
+        // 한다. 스텁을 두면 스텁을 시험하게 된다.
+        from("${rootDir}/../server/vendor/marked.js") { into("js") }
+        from("${rootDir}/console.css") { into("css") }
+        val own = file("src/main/webapp")
+        if (own.isDirectory) from(own) { include("*.css"); into("css") }
+        into("src/test/webapp")
+    }
+    tasks.named("processTestResources") { dependsOn(copyTestAssets) }
+}
+
+// 포트는 두 표를 이어 그 순서로 — 손으로 세던 시절 두 모듈이 같은 포트를 잡은 적이 있다.
+(screens + site).entries.forEachIndexed { i, (name, both) ->
+    val (module, testModule) = both
+    project(":$name") { uiModule(module, testModule, 18090 + i) }
 }
 
 // 모든 모듈의 GWT 산출물을 한 서빙 루트로 모은다 — web/server -ui 의 기본 경로가 여기다.
 tasks.register<Copy>("assembleConsole") {
-    dependsOn(subprojects.map { "${it.path}:gwtCompile" })
-    mustRunAfter(subprojects.map { "${it.path}:gwtTestCompile" })
+    // 사이트 모듈은 콘솔이 아니다 — 여기 있으면 랜딩의 html·css·모듈이 콘솔의 서빙 루트로
+    // 들어가고, 그중 index.html 은 셸의 것과 이름이 같다.
+    val consoleParts = subprojects.filter { it.name !in site.keys }
+    dependsOn(consoleParts.map { "${it.path}:gwtCompile" })
+    mustRunAfter(consoleParts.map { "${it.path}:gwtTestCompile" })
     // 화면 모듈이 제 것으로 둔 자산(css 등)도 함께.
-    subprojects.forEach { p -> from(p.projectDir.resolve("src/main/webapp")) }
+    consoleParts.forEach { p -> from(p.projectDir.resolve("src/main/webapp")) }
     // 팔레트·표 CSS. 화면 하나의 것이 아니라 콘솔 전체의 것이라 모듈 밖(clients/web/ui/console.css)에
     // 산다 — 예전에는 옛 콘솔의 page.css를 매 빌드 복사해 왔고, 그 콘솔이 사라지면서 원본이
     // 이리로 왔다.
     from("console.css")
-    subprojects.forEach { p -> from(p.layout.buildDirectory.dir("gwt/war")) }
+    consoleParts.forEach { p -> from(p.layout.buildDirectory.dir("gwt/war")) }
     // 목은 운영 자산이 아니다 — 데모를 낼 때만 따로 실어 나른다(assembleDemoMock).
     exclude("demo/**", "demo.nocache.js")
     into(layout.buildDirectory.dir("console"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// 랜딩 사이트 한 벌 — 페이지와 그것이 부르는 것 전부. Pages 잡이 이 디렉토리를 사이트
+// 뿌리에 붓고, 콘솔의 정적 데모는 그 아래 /demo/ 에 선다.
+//
+// 폰트는 여기 없다: 자리는 clients/web/server/fonts 하나이고(콘솔도 데모도 거기서 나온다),
+// 그것을 사이트로 나르는 것은 조립이 아니라 배선이라 Pages 액션이 한다.
+tasks.register<Copy>("assembleLanding") {
+    dependsOn(":landing-ui:gwtCompile")
+    from(project(":landing-ui").projectDir.resolve("src/main/webapp"))
+    from(project(":landing-ui").layout.buildDirectory.dir("gwt/war"))
+    into(layout.buildDirectory.dir("landing"))
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 시험 페이지의 모듈. 랜딩에는 물어볼 회선이 없어서 가짜 포트도 없다 — 진짜 진입점을
+     그대로 띄우고, 스펙은 사람이 보는 그 페이지를 잰다. -->
+<module rename-to="landingtest">
+    <inherits name="com.google.gwt.user.User"/>
+    <inherits name="org.jboss.elemento.Core"/>
+    <inherits name="dagger.Dagger"/>
+    <inherits name="dev.sayaya.Ui"/>
+    <inherits name="dev.sayaya.Rx"/>
+    <inherits name="dev.sayaya.magi.ConsoleBridge"/>
+    <inherits name="dev.sayaya.magi.UiComponents"/>
+    <entry-point class="dev.sayaya.magi.client.Application"/>
+    <source path="client"/>
+</module>

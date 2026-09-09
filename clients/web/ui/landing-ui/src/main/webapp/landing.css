@@ -1,0 +1,256 @@
+/* 랜딩 페이지의 옷.
+ *
+ * 색과 서체는 발명하지 않았다 — 전부 콘솔의 것이고(clients/web/ui/console.css), 그것은
+ * 다시 터미널의 것이다(internal/adapter/tui/styles.go). 한 제품이 세 자리에서 세 색을 쓰면
+ * 그중 어느 것도 그 제품의 색이 아니다. 여기서 새로 정한 것은 배치뿐이다.
+ *
+ * 폭: 산문(문단·리드·카드의 글)만 읽히는 길이로 묶고, 나머지 — 카드 격자·스크린샷·표·
+ * 터미널 그림 — 는 컨테이너 폭을 다 쓴다(집 규칙: 새 화면에 근거 없는 max-width 금지,
+ * 2026-09-09 확인).
+ */
+
+@font-face {
+  font-family: "Newsreader"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(font/newsreader-400.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Newsreader"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(font/newsreader-600.woff2) format("woff2");
+}
+@font-face {
+  font-family: "Newsreader"; font-style: italic; font-weight: 400; font-display: swap;
+  src: url(font/newsreader-italic.woff2) format("woff2");
+}
+/* 한글은 두 벌 모두에 앞세운다 — 콘솔의 그 이유 그대로: 한글을 등폭으로 그리는 곳은 아무도
+   없어서, 두지 않으면 기계마다 다른 얼굴이 된다. */
+@font-face {
+  font-family: "Noto Serif KR"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url(font/notoserifkr-400.woff2) format("woff2");
+  unicode-range: U+1100-11FF, U+3000-303F, U+3130-318F, U+4E00-9FFF, U+A960-A97F,
+    U+AC00-D7A3, U+D7B0-D7FF, U+F900-FAFF, U+FF01-FF60, U+FFE0-FFE6;
+}
+@font-face {
+  font-family: "Noto Serif KR"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url(font/notoserifkr-600.woff2) format("woff2");
+  unicode-range: U+1100-11FF, U+3000-303F, U+3130-318F, U+4E00-9FFF, U+A960-A97F,
+    U+AC00-D7A3, U+D7B0-D7FF, U+F900-FAFF, U+FF01-FF60, U+FFE0-FFE6;
+}
+
+:root {
+  color-scheme: dark;
+  /* 터미널의 역할색 그대로 — 이름도 콘솔의 그것을 쓴다. */
+  --magi-ref-primary: #FF7A1A;
+  --magi-ref-accent: #5CD8E6;
+  --magi-ref-muted: #C9C2B8;
+  --magi-ref-melchior: #FFB454;
+  --magi-ref-balthasar: #5CD8E6;
+  --magi-ref-casper: #D8B4FE;
+  --magi-ref-bg: #14110d;
+  --magi-ref-fg: #E8E2D8;
+  --magi-ref-surface-container-lowest: #0F0D0A;
+  --magi-ref-surface-container-low: #1B1712;
+  --magi-ref-surface-container: #211B14;
+
+  --magi-ref-display: "Newsreader", "Noto Serif KR", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --magi-ref-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Noto Serif KR", monospace;
+
+  /* 페이지가 제 것으로 정한 것 — 배치뿐이다. */
+  --line: color-mix(in srgb, var(--magi-ref-primary) 14%, transparent);
+  --line-soft: color-mix(in srgb, var(--magi-ref-primary) 8%, transparent);
+  --gutter: clamp(1.25rem, 4vw, 4rem);
+  --measure: 70ch;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; scroll-padding-top: 5rem; }
+
+body {
+  margin: 0;
+  background: var(--magi-ref-bg);
+  color: var(--magi-ref-fg);
+  font-family: var(--magi-ref-display);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  /* 바탕의 점자 — 아주 옅게. 빈 자리가 검정 한 판이 아니라 '재료'로 읽히게 한다. */
+  background-image: radial-gradient(color-mix(in srgb, var(--magi-ref-primary) 5%, transparent) 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+a { color: var(--magi-ref-primary); text-decoration: none; }
+a:hover { color: var(--magi-ref-melchior); }
+
+code, pre { font-family: var(--magi-ref-mono); }
+
+/* ── 위 띠 ─────────────────────────────────────────────────────────────── */
+#top {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 1.5rem;
+  padding: .75rem var(--gutter);
+  background: color-mix(in srgb, var(--magi-ref-bg) 82%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+#top .brand {
+  font-size: 1.25rem; font-weight: 600; letter-spacing: -.02em;
+  color: var(--magi-ref-fg);
+}
+#top .brand::before {
+  content: ""; display: inline-block; width: .5rem; height: .5rem; margin-right: .5rem;
+  border-radius: 50%; background: var(--magi-ref-primary); vertical-align: middle;
+}
+#top .doors { display: flex; gap: 1.25rem; flex: 1; }
+#top .doors a { color: var(--magi-ref-muted); font-size: .95rem; }
+#top .doors a:hover { color: var(--magi-ref-fg); }
+#top .acts { display: flex; align-items: center; gap: .5rem; }
+
+.ghost {
+  font: inherit; font-size: .9rem;
+  padding: .35rem .8rem; border-radius: 28px;
+  border: 1px solid var(--line); background: transparent; color: var(--magi-ref-muted);
+  cursor: pointer;
+}
+.ghost:hover { border-color: var(--magi-ref-primary); color: var(--magi-ref-fg); }
+
+/* ── 절 ────────────────────────────────────────────────────────────────── */
+main { display: block; }
+section { padding: clamp(3rem, 7vw, 6rem) var(--gutter); border-top: 1px solid var(--line-soft); }
+section#hero { border-top: 0; padding-top: clamp(3rem, 9vw, 7rem); }
+
+h1, h2, h3 { font-weight: 600; letter-spacing: -.02em; line-height: 1.2; margin: 0 0 .75rem; }
+h1 { font-size: clamp(3rem, 9vw, 5.5rem); }
+h2 { font-size: clamp(1.75rem, 3.4vw, 2.5rem); margin-bottom: 1rem; }
+h3 { font-size: 1.1rem; }
+
+p { margin: 0 0 1rem; }
+.lede, .tagline, .note p, .fineprint, .pull, li { max-width: var(--measure); }
+
+.eyebrow {
+  font-family: var(--magi-ref-mono); font-size: .78rem; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--magi-ref-primary); margin-bottom: .75rem;
+}
+.tagline { font-size: clamp(1.35rem, 2.6vw, 1.9rem); line-height: 1.35; margin-bottom: 1.25rem; }
+.lede { color: var(--magi-ref-muted); font-size: 1.05rem; }
+.fineprint { color: var(--magi-ref-muted); font-family: var(--magi-ref-mono); font-size: .8rem; }
+.note-line, .note { }
+
+/* 큰 한 줄 — 절의 결론. 인용이 아니라 이 페이지가 하는 주장이라 따옴표를 두지 않는다. */
+.pull {
+  font-size: clamp(1.2rem, 2.2vw, 1.6rem); line-height: 1.4;
+  border-left: 2px solid var(--magi-ref-primary);
+  padding-left: 1.25rem; margin-top: 2rem;
+}
+
+.acts { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.5rem 0; align-items: center; }
+.cta {
+  display: inline-block; padding: .6rem 1.4rem; border-radius: 28px;
+  border: 1px solid var(--line); color: var(--magi-ref-fg); font-size: .95rem;
+}
+.cta:hover { border-color: var(--magi-ref-primary); color: var(--magi-ref-fg); }
+.cta.primary {
+  background: var(--magi-ref-primary); border-color: var(--magi-ref-primary); color: #2A1500;
+  font-weight: 600;
+}
+.cta.primary:hover { background: var(--magi-ref-melchior); border-color: var(--magi-ref-melchior); color: #2A1500; }
+
+/* ── 기계가 낸 글 ──────────────────────────────────────────────────────── */
+.snippet, .term {
+  margin: 1.5rem 0 0; padding: 0;
+  background: var(--magi-ref-surface-container-lowest);
+  border: 1px solid var(--line); border-radius: 12px;
+}
+.snippet figcaption, .term .termhead {
+  font-family: var(--magi-ref-mono); font-size: .72rem; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--magi-ref-muted);
+  padding: .6rem 1rem; border-bottom: 1px solid var(--line-soft);
+}
+.snippet pre, .term pre {
+  margin: 0; padding: 1rem; overflow-x: auto;
+  font-size: .84rem; line-height: 1.55; color: var(--magi-ref-fg);
+}
+.term .under {
+  padding: .75rem 1rem; border-top: 1px solid var(--line-soft);
+  color: var(--magi-ref-muted); font-size: .9rem;
+}
+
+/* ── 카운슬 ────────────────────────────────────────────────────────────── */
+.members, .cards, .shots {
+  display: grid; gap: 1rem; margin: 2rem 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(20rem, 100%), 1fr));
+}
+/* 그림은 넷이라 한 줄에 셋이면 마지막 하나가 홀로 남는다 — 칸을 넓게 잡아 두 줄로 짝을 맞춘다.
+   아주 넓은 화면에서는 넷이 한 줄에 서고, 그때도 남는 것이 없다. */
+.shots { grid-template-columns: repeat(auto-fit, minmax(min(34rem, 100%), 1fr)); }
+
+.member, .note {
+  padding: 1.25rem; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--magi-ref-surface-container-low);
+}
+.member .lens {
+  font-family: var(--magi-ref-mono); font-size: .78rem; letter-spacing: .1em; text-transform: uppercase;
+  margin-bottom: .75rem;
+}
+.member .walk { color: var(--magi-ref-muted); margin: 0; }
+/* 위원마다 제 색 — 콘솔이 전사에서 쓰는 그 셋이다. */
+.m-melchior { border-top: 2px solid var(--magi-ref-melchior); }
+.m-melchior .lens { color: var(--magi-ref-melchior); }
+.m-balthasar { border-top: 2px solid var(--magi-ref-balthasar); }
+.m-balthasar .lens { color: var(--magi-ref-balthasar); }
+.m-casper { border-top: 2px solid var(--magi-ref-casper); }
+.m-casper .lens { color: var(--magi-ref-casper); }
+
+.pair { display: grid; gap: 1rem; margin-top: 1rem; grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr)); }
+.note p { color: var(--magi-ref-muted); margin: 0; }
+.note h3 { margin-bottom: .5rem; }
+
+.tally { width: 100%; border-collapse: collapse; margin: 2rem 0 1rem; font-size: .95rem; }
+.tally th {
+  text-align: left; font-family: var(--magi-ref-mono); font-size: .72rem; letter-spacing: .12em;
+  text-transform: uppercase; color: var(--magi-ref-muted); font-weight: 400;
+  padding: .5rem .75rem; border-bottom: 1px solid var(--line);
+}
+.tally td { padding: .6rem .75rem; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+.tally td.rule { white-space: nowrap; }
+.tally code { color: var(--magi-ref-primary); font-size: .85rem; }
+.note:last-child, p.note { color: var(--magi-ref-muted); }
+p.note { max-width: var(--measure); border: 0; padding: 0; background: none; }
+
+/* ── 기록 · 컴패니언 ───────────────────────────────────────────────────── */
+.knows, .fleetlist { margin: 1.5rem 0 0; padding: 0; list-style: none; }
+.knows li, .fleetlist li {
+  padding: .75rem 0 .75rem 1.5rem; border-bottom: 1px solid var(--line-soft);
+  color: var(--magi-ref-muted); position: relative;
+}
+.knows li::before {
+  content: "—"; position: absolute; left: 0; color: var(--magi-ref-primary);
+}
+.fleetlist li { padding-left: 0; }
+.fleetlist b {
+  display: block; font-family: var(--magi-ref-mono); font-size: .85rem;
+  color: var(--magi-ref-accent); font-weight: 400; margin-bottom: .25rem;
+}
+
+.shot { margin: 0; }
+.shot img {
+  display: block; width: 100%; height: auto;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--magi-ref-surface-container-lowest);
+}
+.shot a:hover img { border-color: var(--magi-ref-primary); }
+.shot figcaption { color: var(--magi-ref-muted); font-size: .9rem; padding-top: .6rem; }
+
+/* ── 바닥 ──────────────────────────────────────────────────────────────── */
+footer {
+  padding: 3rem var(--gutter) 4rem; border-top: 1px solid var(--line);
+  color: var(--magi-ref-muted); font-size: .9rem;
+}
+footer p { max-width: var(--measure); }
+footer .acts { margin-bottom: 0; }
+
+/* ── 좁은 화면 ─────────────────────────────────────────────────────────── */
+/* 52.5em — 콘솔이 판을 가르는 그 폭. 페이지마다 다른 기준을 쓰면 한 제품이 두 폭에서 접힌다. */
+@media (max-width: 52.5em) {
+  #top { gap: .75rem; }
+  #top .doors { display: none; }
+  #top .acts { margin-left: auto; }
+}

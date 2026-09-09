@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 랜딩 페이지 — 콘솔의 화면이 아니다. 셸도 데몬도 없이 제 index.html 로 뜨고, 그래서
+     RenderSharing 도 RosterSharing 도 쓰지 않는다(브리지에서 드는 것은 이 브라우저가
+     고른 말 하나뿐: Prefs 의 'lang').
+
+     모듈 이름이 'landing' 인데 페이지의 판 id 는 #page 다 — GWT 부트스트랩이 모듈 이름을
+     id 로 단 iframe 을 문서에 넣기 때문에 둘이 같으면 id 가 둘이 된다(콘솔에서 실측). -->
+<module rename-to="landing">
+    <inherits name="com.google.gwt.user.User"/>
+    <inherits name="org.jboss.elemento.Core"/>
+    <inherits name="dagger.Dagger"/>
+    <inherits name="dev.sayaya.Ui"/>
+    <inherits name="dev.sayaya.Rx"/>
+    <inherits name="dev.sayaya.magi.ConsoleBridge"/>
+    <inherits name="dev.sayaya.magi.UiComponents"/>
+    <entry-point class="dev.sayaya.magi.client.Application"/>
+    <source path="client"/>
+</module>
