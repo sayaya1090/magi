@@ -623,3 +623,46 @@ test('the council row carries the verdict wording and the silence', () => {
   assert.equal(drawn[0].decision, 'continue', 'the row no longer carries the core word it was given');
   assert.equal(drawn[1].silent, true, 'the row drops `silent`, so the label cannot tell no-answer from abstain');
 });
+
+/**
+ * ★ A verdict says what it stands on, and what it says to keep.
+ *
+ * Measured across four surfaces (2026-09-09): the terminal, the web console and the JetBrains
+ * client all read `lens`, `cite` and `keep` off `CouncilVerdictData`; this one read none of them,
+ * with nothing anywhere saying that was deliberate.
+ *
+ * The core states the case that matters on `cite` itself: it is recorded "because it is checkable
+ * — magi looks it up in the material the member was shown", and "an empty one on a `done` is
+ * itself worth seeing". A screen that drops it draws a vote standing on nothing exactly like a
+ * vote standing on the record. `keep` arrives on approvals too, and that is when it is worth
+ * reading: it is what a rewrite forced by another member's objection would otherwise drop.
+ */
+test('a verdict carries its lens, what it stands on, and what it would keep', () => {
+  const payload = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'payload.go'), 'utf8');
+  const at = payload.indexOf('type CouncilVerdictData struct');
+  assert.ok(at > 0, 'the core no longer has the verdict payload this guard reads');
+  const struct = payload.slice(at, payload.indexOf('\n}', at));
+  for (const f of ['lens', 'cite', 'keep']) {
+    assert.ok(new RegExp(`json:"${f}`).test(struct), `the wire no longer carries \`${f}\``);
+  }
+
+  const drawn = rows([{
+    seq: 1, type: 'council.verdict',
+    data: { member: 'Melchior', round: 1, decision: 'done', lens: 'correctness',
+      cite: 'NO-EVIDENCE', keep: 'the retry budget', rationale: 'reads right' },
+  }] as unknown as Parameters<typeof rows>[0]);
+  assert.equal(drawn.length, 1, 'the shaper did not draw the verdict this guard hands it');
+  assert.equal(drawn[0].lens, 'correctness', 'the row drops the lens — three seats read alike');
+  assert.equal(drawn[0].cite, 'NO-EVIDENCE',
+    'the row drops what the vote stands on — an approval resting on nothing draws like any other');
+  assert.equal(drawn[0].keep, 'the retry budget', 'the row drops what a revision must preserve');
+
+  // Carried is not drawn: the panel must put all three on screen.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  assert.ok(/r\.lens \? ` \[\$\{r\.lens\}\]`/.test(chat), 'the label does not show the lens');
+  for (const f of ['cite', 'keep']) {
+    assert.ok(new RegExp(`'${f}'[^\\n]*r\\.${f}`).test(chat),
+      `the row body never draws \`${f}\` — the shaper carries it and nothing paints it`);
+  }
+});
