@@ -22,6 +22,9 @@ export class Companion implements vscode.Disposable {
   private setup: activity.Setup = {};
   /** What to call the person, when something renamed them. Empty means nobody has. */
   get you(): string | undefined { return this.setup.user; }
+
+  /** What this companion is running on, as the last status reply said. */
+  get facts(): activity.Setup { return this.setup; }
   /**
    * The conversation the poll asks about.
    *
@@ -66,6 +69,9 @@ export class Companion implements vscode.Disposable {
   }
 
   private capsSeen: Set<string> | null = null;
+  private built = '';
+  /** Which build is answering, as `about` says. Empty until the handshake has happened. */
+  get version(): string { return this.built; }
 
   /**
    * What this daemon says it answers.
@@ -79,6 +85,9 @@ export class Companion implements vscode.Disposable {
     if (this.capsSeen) return this.capsSeen;
     const about = await this.ask('about');
     if (!about?.ok) return new Set();       // not cached: we could not ask, and that may change
+    // The build this companion is running. Kept from the same handshake rather than asked for
+    // again: it cannot change without the process restarting, and a restart re-reads this anyway.
+    this.built = (about.version ?? '').trim();
     this.capsSeen = new Set(about.caps ?? []);
     return this.capsSeen;
   }

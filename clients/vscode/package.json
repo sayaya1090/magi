@@ -113,6 +113,21 @@
         "category": "magi"
       },
       {
+        "command": "magi.chooseBackend",
+        "title": "Choose the backend",
+        "category": "magi"
+      },
+      {
+        "command": "magi.updateCore",
+        "title": "Update this companion",
+        "category": "magi"
+      },
+      {
+        "command": "magi.restartDaemon",
+        "title": "Restart this companion",
+        "category": "magi"
+      },
+      {
         "command": "magi.choosePermission",
         "title": "Choose the approval mode",
         "category": "magi"

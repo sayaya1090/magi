@@ -156,6 +156,50 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
      * and a person who reads "compact" as "tidy up" would not expect the companion to forget the
      * middle of the work. So it asks first.
      */
+    /**
+     * Put this companion on a newer build, and on the build it just fetched.
+     *
+     * The door does both halves: it swaps the binary and then restarts, and its answer says which
+     * of the two happened ("updated A → B — restarting", or "already up to date"). So this shows
+     * the daemon's own sentence rather than inventing one — a client that said "updated" would be
+     * guessing at the half it cannot see.
+     *
+     * It asks first, for the reason `magi.compact` does: restarting ends whatever turn is running,
+     * and a person who reads "update" as "check for updates" would not expect that.
+     *
+     * ⚠ Same-machine only, by the core's design: `update`, `restart` and `shutdown` are refused
+     * across the network door on purpose, so this is only ever the companion for this workspace.
+     */
+    reg('magi.updateCore', async () => {
+      const ok = await vscode.window.showWarningMessage(
+        'Update this companion? A running turn ends when it restarts.',
+        { modal: true }, 'Update');
+      if (ok !== 'Update') return;
+      const r = await call('update');
+      // The daemon's own words: it knows whether anything changed and whether it can restart.
+      if (r) void vscode.window.showInformationMessage(`magi: ${r.out || 'already up to date'}`);
+    }),
+
+    /** Start this companion again on the build it already has. Ends a running turn — so it asks. */
+    reg('magi.restartDaemon', async () => {
+      const ok = await vscode.window.showWarningMessage(
+        'Restart this companion? A running turn ends with it.',
+        { modal: true }, 'Restart');
+      if (ok !== 'Restart') return;
+      if (await call('restart')) void vscode.window.showInformationMessage('magi: restarting.');
+    }),
+
+    /** Change which backend answers. The daemon lists them; nothing here invents a name. */
+    reg('magi.chooseBackend', async () => {
+      const r = await call('profiles');
+      if (!r) return;
+      const list = r.profiles ?? [];
+      if (!list.length) { void vscode.window.showWarningMessage('magi: this companion lists no backends.'); return; }
+      const pick = await vscode.window.showQuickPick(
+        list.map((p) => ({ label: p.name ?? '', description: p.tier })), { title: 'Backend' });
+      if (pick && await call('use-backend', { name: pick.label })) void companion.refresh();
+    }),
+
     reg('magi.compact', async () => {
       // No capability for this door — see `has`. Ask the person, then let the daemon answer.
       const ok = await vscode.window.showWarningMessage(

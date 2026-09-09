@@ -524,3 +524,38 @@ test('the retry waits, grows, and stops growing', () => {
   // A caller that starts at -1 must not get a negative or a zero wait.
   assert.equal(retryAfter(-1), 1_000);
 });
+
+/**
+ * Only the newest attempt to open a stream gets to be the stream.
+ *
+ * `openStream` waits twice — for the session list, then for the connection — and two things can
+ * happen in between: a person picks another conversation, and the reattach timer calls in on its
+ * own. If the slower attempt still installs itself, the panel streams a conversation nobody asked
+ * for while `this.sid` names another, and BOTH push into one `events` array, so two conversations
+ * interleave in one transcript.
+ *
+ * The reattach loop made this ordinary — before it, opening twice took a person doing two things
+ * quickly. Same shape as the status poll's guard, one level up.
+ */
+test('a stream that a newer attempt overtook does not install itself', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf('private async openStream(');
+  assert.ok(at > 0, 'openStream was not found — this guard is reading nothing');
+  const body = chat.slice(at, chat.indexOf('\n  private draw(', at));
+  assert.ok(body.length > 200, 'openStream did not cut cleanly');
+
+  assert.ok(/const mine = \+\+this\.opening/.test(body), 'the attempt takes no number, so it cannot know it was overtaken');
+
+  // Every await must be followed by the check, before anything is written or installed.
+  const awaits = [...body.matchAll(/await [^\n]*\n/g)];
+  assert.ok(awaits.length >= 2, `only ${awaits.length} awaits seen — openStream waits twice`);
+  for (const a of awaits) {
+    const after = body.slice(a.index! + a[0].length, a.index! + a[0].length + 260);
+    assert.ok(/mine !== this\.opening/.test(after),
+      `an await is not followed by the overtaken check: …${a[0].trim().slice(0, 60)}`);
+  }
+
+  // And a connection that lost the race is handed back, or the daemon keeps a subscription open.
+  assert.ok(/mine !== this\.opening\) \{ s\.close\(\); return; \}/.test(body),
+    'the losing attempt drops its socket without closing it — the daemon keeps streaming to nobody');
+});

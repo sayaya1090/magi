@@ -3,7 +3,7 @@ import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
-import { panelNote } from '../core/activity';
+import { panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText, wireRef } from '../core/refs';
 import { Edits } from './edits';
@@ -47,13 +47,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /** Open the transcript stream and keep it open. */
   private async openStream(): Promise<void> {
     if (this.stream) return;
+    // The number is taken BEFORE the first wait, not after: an attempt that cannot tell it was
+    // overtaken during its first await is not guarded, it is guarded later. A guard added to some
+    // of a function's waits is the shape that reads as covered and is not.
+    const mine = ++this.opening;
     const d = await this.companion.reach();
+    if (mine !== this.opening) return;   // a newer attempt is already under way — see `opening`
     if (!d) { this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) }); return; }
     // Which conversation. Measured against a live daemon: `status` answers permission and
     // backend and NOT a session id, so asking it for one gets an empty string and the transcript
     // streams nothing — with no error, which is how this would have shipped unnoticed. `sessions`
     // is the door that knows, newest first.
-    const mine = ++this.opening;
     let sid = this.sid;
     if (!sid) {
       const list = await this.companion.ask('sessions');
@@ -112,6 +116,32 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // The context meter rides the same stream. The door for it is a capability a daemon may not
     // have, and this number arrives every turn regardless.
     this.onUsage?.(usage(this.events));
+    this.tellInfo();
+  }
+
+  /**
+   * The facts about the companion itself, for the info card.
+   *
+   * Gathered here rather than asked for again: every one of these already arrives on the status
+   * poll (`Setup`) or on the handshake (`about`). A card that re-asked would be a second reader of
+   * one fact and would disagree with the status bar for as long as they were out of step.
+   *
+   * `state` travels as the WORD, so the card can colour by it the way the console does — the state
+   * is the class name there, and the colour is the stylesheet's business, not this file's.
+   */
+  private tellInfo(): void {
+    const s = this.companion.facts;
+    this.post({
+      kind: 'info',
+      state: this.companion.state.state,
+      label: activityLabel(this.companion.state),
+      version: this.companion.version,
+      model: s.model,
+      backend: s.backend,
+      permission: s.permission,
+      council: s.council,
+      socket: this.companion.socket,
+    });
   }
 
   /**
@@ -242,7 +272,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string }): Promise<void> {
+  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string }): Promise<void> {
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
@@ -271,6 +301,22 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'start':
         await vscode.commands.executeCommand('magi.start');
         break;
+      /**
+       * One of the editor's own commands, asked for by the info card.
+       *
+       * ⚠ **The name is checked here, not trusted from the page.** A webview is a page; letting it
+       * name any command would let anything that got script into it run whatever the extension host
+       * can. So the card may ask for these six and nothing else, and each of them is a thing the
+       * card actually offers.
+       */
+      case 'run': {
+        const allowed = new Set(['magi.chooseModel', 'magi.chooseBackend', 'magi.choosePermission',
+          'magi.compact', 'magi.restartDaemon', 'magi.updateCore']);
+        const name = String(m.command ?? '');
+        if (!allowed.has(name)) break;
+        await vscode.commands.executeCommand(name);
+        break;
+      }
       case 'drop':
         this.refs = [];
         this.draw();
@@ -370,6 +416,28 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
      it is the answer to "which one", not the argument's full text. */
   .args { color:var(--vscode-descriptionForeground); opacity:.85; }
+  /* The companion itself, folded away. A gear rather than "…": the card is what this companion is
+     RUNNING ON and what you can change about it, and a gear is the word every editor already uses
+     for that — "…" says "more of the same", which this is not. */
+  #topbar { display:flex; justify-content:flex-end; padding:2px 6px 0; }
+  #more { background:none; border:none; cursor:pointer; font-size:1.05em; line-height:1;
+    color:var(--vscode-descriptionForeground); padding:2px 4px; }
+  #more:hover, #more[aria-expanded="true"] { color:var(--vscode-foreground); }
+  #info { border:1px solid var(--vscode-panel-border); border-radius:4px; margin:4px 6px;
+    padding:6px 8px; font-size:.9em; }
+  #info .line { display:flex; align-items:center; gap:6px; margin:3px 0; }
+  #info .k { color:var(--vscode-descriptionForeground); min-width:5.5em; }
+  #info .v { flex:1; }
+  /* The traffic light. The state IS the class, the way the console does it — the colour is this
+     sheet's business and the word travels alone. */
+  #info .dot { width:.7em; height:.7em; border-radius:50%; flex:none;
+    background:var(--vscode-descriptionForeground); }
+  #info .working .dot { background:var(--vscode-testing-iconPassed); }
+  #info .waiting .dot { background:var(--vscode-editorWarning-foreground); }
+  #info .attached .dot { background:var(--vscode-textLink-foreground); }
+  #info .not-running .dot, #info .unknown .dot { background:var(--vscode-editorError-foreground); }
+  #info button { font-size:.95em; }
+  #info .acts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
   /* The subject of a permission. Monospace and scrollable: it is a command or a patch, and a
      wrapped one is a different command to read. */
   #ask pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:4px 0;
@@ -407,6 +475,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
            border:none; border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
+<div id="topbar"><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></div>
+<div id="info" hidden></div>
 <div id="rows"></div><div id="ask" hidden></div><div id="note"></div><div id="refs"></div>
 <div id="hint"></div>
 <div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
@@ -490,6 +560,57 @@ function drawAsk(a) {
   free.textContent = 'answer in the box';
   free.addEventListener('click', () => { pendingQuestion = a.callId; say.focus(); });
   askEl.append(free);
+}
+const moreEl = document.getElementById('more');
+const infoEl = document.getElementById('info');
+let info = null;
+moreEl.addEventListener('click', () => {
+  const open = infoEl.hidden;
+  infoEl.hidden = !open;
+  moreEl.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) drawInfo();
+});
+/* Run one of the editor's own commands. The NAME is chosen here and checked on the other side —
+   a webview is a page and a page must not be able to name any command it likes. */
+function act(command) { vs.postMessage({ kind: 'run', command: command }); }
+function line(k, v, cls) {
+  const d = document.createElement('div');
+  d.className = 'line' + (cls ? ' ' + cls : '');
+  if (cls) { const dot = document.createElement('span'); dot.className = 'dot'; d.append(dot); }
+  const kk = document.createElement('span'); kk.className = 'k'; kk.textContent = k;
+  const vv = document.createElement('span'); vv.className = 'v'; vv.textContent = v || 'not said';
+  d.append(kk, vv);
+  return d;
+}
+function drawInfo() {
+  if (infoEl.hidden) return;
+  infoEl.textContent = '';
+  if (!info) { infoEl.append(line('state', 'asking…')); return; }
+  /* The state word IS the class — the stylesheet paints the light, this only says which. */
+  infoEl.append(line('now', info.label, info.state));
+  infoEl.append(line('build', info.version));
+  for (const [k, v, cmd] of [['model', info.model, 'magi.chooseModel'],
+                             ['provider', info.backend, 'magi.chooseBackend'],
+                             ['approval', info.permission, 'magi.choosePermission']]) {
+    const row = line(k, v);
+    const b = document.createElement('button');
+    b.textContent = 'change';
+    b.addEventListener('click', () => act(cmd));
+    row.append(b);
+    infoEl.append(row);
+  }
+  if (info.council) infoEl.append(line('council', info.council));
+  const acts = document.createElement('div');
+  acts.className = 'acts';
+  for (const [text, cmd] of [['fold context', 'magi.compact'],
+                             ['restart', 'magi.restartDaemon'],
+                             ['update', 'magi.updateCore']]) {
+    const b = document.createElement('button');
+    b.textContent = text;
+    b.addEventListener('click', () => act(cmd));
+    acts.append(b);
+  }
+  infoEl.append(acts);
 }
 let pendingQuestion = null;
 let mentions = [];
@@ -582,6 +703,7 @@ window.addEventListener('message', (e) => {
     hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
   }
   else if (m.kind === 'state') drawState(m.state);
+  else if (m.kind === 'info') { info = m; drawInfo(); }
   else if (m.kind === 'note') noteEl.textContent = m.text || '';
 });
 function send() {
