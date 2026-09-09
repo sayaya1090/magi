@@ -158,7 +158,7 @@ A turn is not finished simply because a model stopped emitting tool calls. magi 
 
 ---
 
-## ⏪ An Inspectable and Replayable Loop
+## ⏪ Inspectable & Replayable Loop
 
 Every turn is event-sourced into an append-only JSONL log. Without a complex database, these commands operate as fast, reliable native actions:
 
@@ -225,11 +225,12 @@ flowchart TD
 
 - **Ground truth over claims**: Judges only against recorded command outputs, exit codes, and before/after file diffs—never against the agent's self-reported summary.
 - **Walk before verdict**: Members must fill in requirement rows settled by verbatim tool output (`SATISFIED` / `UNSATISFIED` / `NO-EVIDENCE`) before they are permitted to emit a final verdict.
-- **One-way clamp**: The closing call can demote a `done` decision to `continue`, but can never overturn a `continue` into `done`.
+- **One-way verification clamp**: The closing call can demote a `done` decision to `continue`, but can never overturn a `continue` into `done`.
 
 ---
 
-## 🤝 Running More Than One — Companions & Fleet
+## 🤝 Multi-Agent Collaboration — Companions & Fleet
+
 
 A magi instance bound to a workspace is called a **companion**. Declare its role in `.magi/config.toml` to collaborate across repositories:
 
