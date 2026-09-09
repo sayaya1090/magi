@@ -63,8 +63,10 @@ pass along; the seam decides neither. A plugin author writes the prompt, the too
 are the brief, and magi passes them through without rewriting a byte. magi ships no agent at all;
 `plugins/examples/crew` shows what writing one looks like, and is not installed.
 
-**What independent measurements say, including where they disagree with this.** None of them
-measured magi, and the basis for the paragraph above is still this tree's own defect log. They are
+<details>
+<summary><b>Independent measurements and background research (whether sub-agents help)</b></summary>
+
+None of them measured magi, and the basis for the paragraph above is still this tree's own defect log. They are
 here because the question "would subagents have helped?" deserves an answer that is not only ours.
 
 The strongest result *against* the choice above: on search-heavy tasks (GAIA), orchestration beats
@@ -146,6 +148,8 @@ section claiming vindication as much as against the orchestration papers claimin
 [small]: https://arxiv.org/pdf/2601.11327
 [scaf]: https://arxiv.org/pdf/2604.03515
 [amrs]: https://www.anthropic.com/engineering/multi-agent-research-system
+
+</details>
 
 ---
 
