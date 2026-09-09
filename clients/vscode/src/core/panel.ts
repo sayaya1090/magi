@@ -127,6 +127,32 @@ export function carrying(r: { waiting?: number; handling?: boolean }): string {
   return [r.handling ? 'busy' : '', q > 0 ? `${q} queued` : ''].filter(Boolean).join(', ');
 }
 
+/**
+ * What this companion is FOR, in the words it advertises.
+ *
+ * The core says why these travel at all: "Does NAMES those things… **a name is enough to pick a
+ * companion out of a roster**, and what each one actually means is fetched from the machine that
+ * has it when somebody wants to know". This row IS that roster — it is what a person reads before
+ * handing work over.
+ *
+ * Measured against a live machine (2026-09-10): three companions drew as `word · idle · sonnet`,
+ * `excel · idle · sonnet`, `powerpoint · idle · sonnet` — indistinguishable — while each row
+ * carried `does: ["document-structure", "editing", "tables-and-review"]` unread.
+ *
+ * ⚠ **`can` is not `does.length`.** The core carries the count separately because the list is a
+ * SAMPLE past `MaxDoes`: "A SAMPLE when there are more than MaxDoes, which is why Can is carried
+ * separately rather than being len(Does)." So a row that shows three names out of seven has to say
+ * so, or it reads as the whole of what that companion offers.
+ */
+export function offers(r: { can?: number; does?: string[] }, show = 3): string {
+  const named = (r.does ?? []).filter(Boolean);
+  if (!named.length) return '';
+  const head = named.slice(0, show);
+  // More than we drew, whether the daemon sampled or we clipped.
+  const rest = Math.max(r.can ?? named.length, named.length) - head.length;
+  return head.join(', ') + (rest > 0 ? ` +${rest}` : '');
+}
+
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
   const rows = resp.roster ?? [];
@@ -139,6 +165,7 @@ export function fleet(resp: Response | null): string[] {
     sayState(r.state),
     carrying(r),
     r.model,
+    offers(r),
     // Whether it is actually there — and this is where the sentence above was not being kept.
     //
     // Two things were wrong. `live` is `omitempty`, so a FALSE one is never sent and `live === false`
