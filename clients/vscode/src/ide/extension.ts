@@ -85,9 +85,14 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   void openIfAsked(companion, chat);
 
-  // Offer the editor's own tools. Failure is not fatal and not shouted about: the companion may not
-  // be running yet, and a second window on the same workspace is refused by design.
-  void hand.offer().catch((e) => console.warn('magi: the editor hand did not start —', e));
+  // Offer the editor's own tools. Failure is not fatal and not shouted about — the companion may
+  // not be running yet, and a second window on the same workspace is refused by design — but it is
+  // not silent either: the outcome lands in the plan panel, which is where a person goes to ask
+  // what this companion is doing.
+  hand.told = (why) => plan.showHand(why);
+  void hand.offer()
+    .catch((e) => console.warn('magi: the editor hand did not start —', e))
+    .finally(() => plan.showHand(hand.handWhy()));
 
   // Only when asked for by environment. It is a test surface, not a feature, and a command in the
   // palette that runs a self-check is a thing to press by accident.

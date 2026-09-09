@@ -80,6 +80,15 @@ export interface Response {
   ok: boolean;
   error?: string;
   out?: string;
+  /**
+   * The tool names a roster carries — `tools`, and also `mcp-attach`, which answers with what the
+   * server it just attached offers (`answerMCPAttach` returns `Response{OK: true, Tools: names}`).
+   *
+   * Undeclared until now, so the attach answer's most useful half could not be read at all: the
+   * screen could say "attached" and never what was attached. The JetBrains client has read this
+   * field since it grew the same button.
+   */
+  tools?: string[];
   /** `about` only: the daemon's wire version and what it will answer. */
   proto?: number;
   caps?: string[];

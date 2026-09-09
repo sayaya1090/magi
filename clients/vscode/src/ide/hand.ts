@@ -26,14 +26,49 @@ export class EditorHand implements Ide, vscode.Disposable {
    * notification for it would fire on every second window.
    */
   async offer(): Promise<void> {
-    if (!(await this.companion.caps()).has('tool-servers')) return;
-    if (!this.server) this.server = await Hand.start(this);
+    if (!(await this.companion.caps()).has('tool-servers')) {
+      this.why = 'this companion cannot take an editor hand (no tool-servers door)';
+      return;
+    }
+    if (!this.server) {
+      try {
+        this.server = await Hand.start(this);
+      } catch (e) {
+        // No loopback port. Its own outcome, not a kind of refusal: NOT BEING the hand and BEING
+        // BROKEN are different events, and a person who cannot tell them apart cannot act on
+        // either. (The JetBrains client says the same thing in its own words, and has said it
+        // since it grew this button.)
+        this.why = `could not open a loopback port — ${(e as Error).message}`;
+        throw e;
+      }
+    }
     const r = await this.companion.ask('mcp-attach', {
       name: HAND_NAME, url: this.server.url, headers: this.server.headers,
     });
     this.attached = r?.ok === true;
+    this.why = this.attached
+      ? `attached — ${r?.tools?.join(', ') || 'this editor answers for its own files'}`
+      : `refused — ${r?.error ?? 'no answer'}`;
     if (!this.attached) console.warn(`magi: the editor's tools were refused — ${r?.error ?? 'no answer'}`);
+    this.told?.(this.why);
   }
+
+  /**
+   * What became of the offer, in one sentence — for a screen to draw.
+   *
+   * Three things can happen and, until this existed, a person could tell none of them apart: the
+   * daemon does not advertise `tool-servers` and `offer` returned in silence; no loopback port was
+   * free; the attach was refused because another window on this workspace is already the hand.
+   * All three ended in `console.warn` at best — the extension-host log, which nobody opens — so
+   * the symptom of every one of them was the same: the agent does not use the editor, and there is
+   * nowhere to find out why.
+   *
+   * Empty until `offer` has run. Empty is "not yet", which the panel draws as such.
+   */
+  private why = '';
+  handWhy(): string { return this.why; }
+  /** Called when the sentence changes, so a panel can redraw without polling. */
+  told?: (why: string) => void;
 
   /** Open a file and put the cursor on a line. */
   async show(path: string, line?: number): Promise<string> {

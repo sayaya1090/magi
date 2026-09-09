@@ -64,13 +64,28 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       fleet: fleet === null ? null : fleetOf(fleet).join('\n'),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
+      hand: this.hand,
       plan: this.plan,
     });
   }
 
   private handed = '';
+  private hand = '';
   private plan = '';
   private usage = '';
+
+  /**
+   * What became of this editor's own tools. Three outcomes, one sentence — see `EditorHand.handWhy`.
+   *
+   * In the panel rather than a popup: nothing is broken when a second window is refused, and a
+   * notification would fire on every one of them. But it has to be SOMEWHERE, and the panel is
+   * where a person already goes to ask what this companion is doing.
+   */
+  showHand(line: string): void {
+    if (line === this.hand) return;
+    this.hand = line;
+    void this.refresh();
+  }
 
   /** How full the window is, from the stream. Transient, so a reattached window has none until a turn runs. */
   showUsage(line: string): void {
@@ -148,6 +163,7 @@ window.addEventListener('message', (e) => {
   section('scheduled', m.cron);
   section('fleet', m.fleet);
   section('handed over', m.handed);
+  section("this editor's tools", m.hand);
 });
 vs.postMessage({ kind: 'ready' });
 </script></body></html>`;
