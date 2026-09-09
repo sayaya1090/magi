@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { State, label } from '../core/activity';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -83,4 +84,44 @@ test('the manual extractor sees both shapes a feature takes', () => {
     { section: '5.', item: '커밋 메시지 생성' },   // the "magi: " prefix is stripped
     { section: '2.3', item: '`@` 멘션' },          // the trailing period is stripped
   ], 'the extractor must read table rows and bullets, strip the prefix, and skip §1a');
+});
+
+/**
+ * ★ Every status string the manual advertises is one this client can actually produce.
+ *
+ * The manual said `magi: idle` and glossed it "붙었고, 노는 중" — attached and idling. That word was
+ * removed from the code earlier because the daemon never says it: the branch is reached when
+ * `status` carries neither `waiting` nor `doing`, and that is what an ordinary running turn looks
+ * like. The label is `attached` — "it answered and did not say more than that".
+ *
+ * The code was fixed and the manual was not, so the document went on teaching the exact misreading
+ * the fix exists to prevent — worse than a missing sentence, because a person who reads it learns
+ * to see "idle" where the screen says something else.
+ *
+ * Derived, not remembered: the strings come from `label()`, so a renamed state fails here rather
+ * than leaving the manual to rot.
+ */
+test('the manual advertises only status words this client can say', () => {
+  const manual = fs.readFileSync(path.join(__dirname, '..', '..', 'docs', 'MANUAL.ko.md'), 'utf8');
+  const advertised = [...manual.matchAll(/`(?:\$\([\w~-]+\) )?magi: ([a-z ]+?)(?: ·|`)/g)]
+    .map((m) => m[1].trim());
+  assert.ok(advertised.length >= 5,
+    `only ${advertised.length} status words read from the manual — the extraction is broken, and a ` +
+    'broken extraction reports no drift at all');
+
+  // What the code can actually say, for every state and both shapes of the two that take a tail.
+  const sayable = new Set<string>();
+  for (const st of Object.values(State)) {
+    sayable.add(label({ state: st as State }));
+    sayable.add(label({ state: st as State, doing: 'x' }).replace(/ · x$/, ''));
+    sayable.add(label({ state: st as State, asking: 'x' }).replace(/ · x$/, ''));
+  }
+  assert.ok(sayable.has('attached') && sayable.has('cannot say'),
+    'the label table is not where this guard thinks it is');
+
+  for (const word of new Set(advertised)) {
+    assert.ok(sayable.has(word),
+      `the manual advertises "magi: ${word}" and no state produces it — the document is teaching a ` +
+      `screen that does not exist. This client can say: ${[...sayable].sort().join(', ')}`);
+  }
 });
