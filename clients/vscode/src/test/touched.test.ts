@@ -127,8 +127,11 @@ test('a permission carries what it is allowing', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const at = chat.indexOf("if (a.kind === 'permission') {");
   const branch = chat.slice(at, chat.indexOf('return;', at));
-  assert.ok(/a\.args/.test(branch) && /a\.reason/.test(branch) && /a\.diff/.test(branch),
-    'the permission branch leaves out part of what is being decided');
+  // ⚠ Naming them is not drawing them. A mutation that emptied the loop's source array left the
+  // three names sitting in the (now dead) literal and this guard green — presence is not effect,
+  // for the eighth time in this session. So the iterated value itself is pinned.
+  assert.ok(/\[\['args', a\.args\], \['reason', a\.reason\], \['diff', a\.diff\]\]/.test(branch),
+    'the permission branch no longer walks all three parts of what is being decided');
   assert.ok(/\.append\(/.test(branch), 'it is read and never put on the screen');
   assert.ok(/!a\.args && !a\.reason && !a\.diff/.test(branch),
     'nothing came and the screen said nothing — three buttons over a blank space read as "there is nothing to it"');
