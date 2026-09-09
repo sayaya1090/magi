@@ -272,6 +272,37 @@ class SourceTextTest {
             "조각 줄이 접히는 칸이 아니다 — 한 줄 라벨이면 좁은 판에서 잘린다")
     }
 
+    /**
+     * **손에 하나를 쥔 컴패니언이 「비었다」로 읽히면 안 된다.**
+     *
+     * 코어는 `waiting` 과 `handling` 을 **함께 서명하고** 그 이유를 적어 뒀다 — *"they decide where
+     * team-addressed work goes: fleet.Resolve routes a team address to the lightest companion, and
+     * **load is Waiting + (1 if Handling)**."* 이 판은 큐만 그려서, 큐가 빈 채로 한 조각을 돌리고
+     * 있는 컴패니언이 「비었다」로 보였다 — 사람이 다음 일을 건네는 행이 바로 그 행이다.
+     *
+     * ⚠ 합이 아니라 **둘 다**인지 본다. 수 하나로 접으면 「이미 하나가 돌고 있다」가 사라지고,
+     * 손으로 고르는 사람이 알고 싶은 것이 그것이다.
+     */
+    @Test
+    fun `플릿 행이 지고 있는 일을 말한다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val cluster = File(core, "internal/core/cluster/cluster.go")
+        assertTrue(cluster.isFile, "코어의 클러스터를 못 찾았다(${cluster.absolutePath})")
+        assertTrue("load is Waiting + (1 if Handling)" in cluster.readText(),
+            "코어가 이 셈을 더는 적지 않는다 — 믿기 전에 다시 읽어라")
+
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        val at = panel.indexOf("val load = ")
+        assertTrue(at > 0, "플릿 행의 부하 자리를 못 찾았다")
+        val where = panel.substring(at, minOf(panel.length, at + 300))
+        assertTrue("r.handling" in where,
+            "큐만 그린다 — 손에 하나를 쥔 컴패니언이 「비었다」로 읽힌다")
+        assertTrue("r.waiting" in where, "큐 깊이가 사라졌다")
+        // 둘을 한 수로 접지 않았는지 — 접으면 「이미 하나가 돌고 있다」가 안 보인다.
+        assertFalse(Regex("""r\.waiting\s*\+""").containsMatchIn(where),
+            "둘을 한 수로 접었다 — 라우팅의 셈이지 사람이 읽을 말이 아니다")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서

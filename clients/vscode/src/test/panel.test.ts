@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { context, fleet, jobs, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, jobs, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -328,4 +328,39 @@ test('a switched-off schedule says so', () => {
     { name: 'nightly', schedule: '0 9 * * *', enabled: true },
   ] } as unknown as Parameters<typeof schedules>[0]);
   assert.ok(!/\boff\b/.test(soon[0].line), 'a job that is on with no next time is drawn as switched off');
+});
+
+/**
+ * ★ A companion in the middle of handed-over work read as free.
+ *
+ * The core signs `waiting` and `handling` together and states the arithmetic: "they decide where
+ * team-addressed work goes: fleet.Resolve routes a team address to the lightest companion, and
+ * **load is Waiting + (1 if Handling)**". Both clients drew the queue alone (and this one drew
+ * neither, because `waiting` was declared `string` and `r.waiting > 0` would not compile).
+ *
+ * So a companion with an empty queue that is carrying one piece showed as free — on the row a
+ * person clicks to hand it another.
+ */
+test('the fleet row says what work a companion is carrying', () => {
+  const go = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'cluster', 'cluster.go'), 'utf8');
+  assert.match(go, /load is Waiting \+ \(1 if Handling\)/,
+    'the core no longer states the arithmetic this guard is built on — re-read before trusting it');
+
+  assert.equal(carrying({}), '', 'an idle companion is given something to say');
+  assert.equal(carrying({ waiting: 0 }), '', 'an empty queue is drawn as a load');
+  // ⚠ `handling` is an omitempty bool: false never arrives, so absent is the ordinary case and
+  // the busy case is the one that carries the field.
+  assert.match(carrying({ handling: true }), /busy/,
+    'a companion in the middle of handed work reads as free — the exact row somebody hands work to');
+  assert.match(carrying({ waiting: 2 }), /2 queued/, 'the queue depth is not said');
+  const both = carrying({ waiting: 2, handling: true });
+  assert.ok(/busy/.test(both) && /2 queued/.test(both),
+    'one of the two facts is dropped — the sum alone cannot say that one is already in flight');
+
+  // And the row must carry it, not just the helper: carried-and-not-drawn is the older defect here.
+  const drawn = fleet({ ok: true, roster: [
+    { socket: '/tmp/a.sock', name: 'one', state: 'working', live: true, handling: true },
+  ] } as unknown as Parameters<typeof fleet>[0]);
+  assert.match(drawn[0], /busy/, 'the fleet row does not draw what the companion is carrying');
 });

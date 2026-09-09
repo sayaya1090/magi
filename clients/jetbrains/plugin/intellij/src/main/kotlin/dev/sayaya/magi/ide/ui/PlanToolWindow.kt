@@ -832,7 +832,15 @@ class PlanToolWindow : ToolWindowFactory {
             "remote" -> MagiBundle.msg("plan.companions.remote")
             else -> r.state?.let { " — $it" }.orEmpty()
         }
-        val load = if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else ""
+        // 코어는 `waiting` 과 `handling` 을 **함께 서명하고** 그 이유를 적어 뒀다 — "they decide
+        // where team-addressed work goes… **load is Waiting + (1 if Handling)**". 큐만 그리면 손에
+        // 하나를 쥔 컴패니언이 「비었다」로 읽히고, 사람이 다음 일을 건네는 행이 바로 그 행이다.
+        // 합이 아니라 **둘 다** 적는다: 수는 라우팅이 쓰고, 손으로 고르는 사람은 「이미 하나가
+        // 돌고 있다」를 알고 싶어 한다.
+        val load = listOf(
+            if (r.handling) MagiBundle.msg("plan.companions.busy") else "",
+            if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else "",
+        ).filter { it.isNotBlank() }.joinToString("")
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
         val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds) else ""
         val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의

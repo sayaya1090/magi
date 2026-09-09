@@ -110,6 +110,23 @@ export function sayState(state: string | undefined): string {
   }
 }
 
+/**
+ * What work this companion is carrying.
+ *
+ * The core signs `waiting` and `handling` together and says why: "they decide where team-addressed
+ * work goes: fleet.Resolve routes a team address to the lightest companion, and **load is Waiting +
+ * (1 if Handling)**". A row that shows only the queue calls a companion free when it is in the
+ * middle of a handed-over piece — and this is the row a person clicks to hand it another.
+ *
+ * Both facts, not the sum. The number decides ROUTING; a person deciding by hand wants to know that
+ * one is already in flight, which "1" alone does not say. `handling` is an `omitempty` bool, so
+ * false never arrives and absent is the ordinary "not handling".
+ */
+export function carrying(r: { waiting?: number; handling?: boolean }): string {
+  const q = r.waiting ?? 0;
+  return [r.handling ? 'busy' : '', q > 0 ? `${q} queued` : ''].filter(Boolean).join(', ');
+}
+
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
   const rows = resp.roster ?? [];
@@ -120,6 +137,7 @@ export function fleet(resp: Response | null): string[] {
     // The same naming rule the hand-off list uses, so a person can match the two.
     peerLabel({ socket: r.socket ?? '', name: r.name, workdir: r.workdir }) || '?',
     sayState(r.state),
+    carrying(r),
     r.model,
     // Whether it is actually there — and this is where the sentence above was not being kept.
     //
