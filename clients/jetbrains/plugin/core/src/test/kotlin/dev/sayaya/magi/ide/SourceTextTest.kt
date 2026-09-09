@@ -1314,9 +1314,29 @@ class SourceTextTest {
         val rows = sources.first { it.name == "Rows.kt" }.readText()
         val at = rows.indexOf("data class Ctx(")
         assertTrue(at > 0, "Ctx 선언을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
-        val decl = rows.substring(at, rows.indexOf("\n    )", at))
-        val fields = Regex("""^\s{8}val (\w+):""", RegexOption.MULTILINE)
+        // 괄호 짝으로 자른다 — 끝을 「\n    )」로 찾으면 들여쓰기 한 칸에 매달리고, KDoc 안의
+        // 닫는 괄호에도 잘린다. 실측으로 밟았다: 같은 선언을 훑던 도구가 여섯 칸 중 **세 칸만**
+        // 읽고 멀쩡히 답했다.
+        val open = rows.indexOf('(', at)
+        var depth = 0; var end = -1
+        for (k in open until rows.length) {
+            if (rows[k] == '(') depth++
+            else if (rows[k] == ')') { depth--; if (depth == 0) { end = k; break } }
+        }
+        assertTrue(end > open, "Ctx 선언의 괄호 짝을 못 찾았다")
+        // 주석을 걷는다. 남는 것만 코드다.
+        val decl = rows.substring(open, end).lines()
+            .filterNot { it.trimStart().startsWith("//") || it.trimStart().startsWith("*") ||
+                it.trimStart().startsWith("/*") }
+            .joinToString("\n")
+        // 들여쓰기를 못박지 않는다 — 클래스가 한 겹 안팎으로 움직이면 훑기가 조용히 줄어든다.
+        val fields = Regex("""^\s+val (\w+)\s*:""", RegexOption.MULTILINE)
             .findAll(decl).map { it.groupValues[1] }.toList()
+        // 바닥은 기억한 숫자가 아니라 **두 번째 세기**다: 같은 몸통에서 `val` 을 따로 세어
+        // 견준다. 하나라도 어긋나면 훑기가 칸을 흘린 것이고, 그때 초록은 「깨끗함」이 아니다.
+        val counted = Regex("""\bval\s+\w+\s*:""").findAll(decl).count()
+        assertEquals(counted, fields.size,
+            "Ctx 칸을 ${fields.size}개 읽었는데 몸통에는 ${counted}개다 — 훑기가 칸을 흘린다")
         assertTrue(fields.size >= 4, "Ctx 칸을 ${fields.size}개만 읽었다 — 훑기가 죽었다")
 
         val win = sources.first { it.name == "PlanToolWindow.kt" }.readText()
