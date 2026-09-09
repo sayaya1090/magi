@@ -49,6 +49,14 @@ export interface Request {
    * write access to their own tree when a person meant to ask them something.
    */
   looking?: boolean;
+  /**
+   * `submit`/`steer`: the files this prompt attaches, as `{path, lines}` (`WireRef`).
+   *
+   * Structured, not spliced into `text`. `internal/app/refs.go` renders each excerpt inside the
+   * workspace jail, caps it, and persists it with the prompt — none of which happens for a path
+   * written into the person's own words, which is what this client used to send.
+   */
+  refs?: { path: string; lines?: string }[];
 }
 
 /** One event out of the log, as `transcript` streams it. */

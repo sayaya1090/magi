@@ -20,3 +20,29 @@ export function refText(r: Ref): string {
 export function askLead(refs: Ref[]): string {
   return refs.length ? `About ${refs.map(refText).join(', ')}: ` : '';
 }
+
+/**
+ * One attachment as the WIRE spells it (`internal/core/command/command.go`'s `FileRef`):
+ * `{path, lines}`, where lines is "12-40" or "12" and empty means the whole file.
+ *
+ * Structured, not spliced. This client used to put `path:12-40` at the head of the person's own
+ * text, which is the convention the core retired — `internal/app/refs.go` says so in its opening
+ * paragraph. What the old way cost, measured against what the core does with `refs`: the excerpt
+ * is never rendered (the agent gets a path and has to go read it, or does not), it is never
+ * resolved inside the workspace jail, never capped (16KB a ref, 64KB the lot), never persisted
+ * with the prompt — so the transcript cannot show what the agent was shown, and a replay shows
+ * nothing. And an attachment that cannot be served said nothing at all, where the core renders
+ * its refusal in place.
+ *
+ * The JetBrains client has sent this shape all along (`Wire.kt`'s `FileRef`).
+ */
+export interface WireRef {
+  path: string;
+  lines?: string;
+}
+
+/** A composer chip as the wire takes it. `lines` is omitted for a whole-file attachment. */
+export function wireRef(r: Ref): WireRef {
+  if (!r.from) return { path: r.path };
+  return { path: r.path, lines: !r.to || r.to === r.from ? `${r.from}` : `${r.from}-${r.to}` };
+}

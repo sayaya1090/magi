@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
+import { wireRef } from '../core/refs';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const PROTOCOL_GO = path.join(REPO, 'internal', 'adapter', 'daemon', 'protocol.go');
@@ -88,4 +89,47 @@ test('the permission vocabulary is the core one', () => {
   for (const w of ['allow', 'deny', 'always']) {
     assert.ok(ours.includes(`'${w}'`), `this client does not know the decision "${w}"`);
   }
+});
+
+/**
+ * An attachment reaches the door as `refs`, not as words.
+ *
+ * The defect this pins: the composer's chips were spliced into the head of the person's own text
+ * (`path:12-40\n\n` + what they typed), which is the convention `internal/app/refs.go` names in its
+ * first paragraph as the one it REPLACED. The `submit` door reads `r.Refs` and the core renders
+ * each excerpt inside the workspace jail, caps it (16KB a ref, 64KB the lot) and persists it with
+ * the prompt. None of that happens for a path written into a sentence — the agent gets a string and
+ * has to go read the file, the transcript cannot show what it was shown, and an attachment that
+ * could not be served said nothing at all. The JetBrains client sent the structured shape all
+ * along, so this was drift between the two ports, not a missing feature in the core.
+ *
+ * Read off the source rather than asserted about behaviour, for the reason the tests above are:
+ * the seam is one call in a webview message handler, and there is no daemon in this process.
+ */
+test('the composer sends its attachments as refs, not spliced into the words', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const say = chat.slice(chat.indexOf("case 'say'"), chat.indexOf("case 'start'"));
+  assert.ok(say.length > 100, 'the submit branch was not found — this guard is reading nothing');
+
+  const call = say.slice(say.indexOf("ask('submit'"));
+  assert.ok(call.includes('refs'), "submit does not carry refs — the attachment goes nowhere the core can render it");
+  assert.ok(/wireRef/.test(say), 'the chips are not converted to the wire shape ({path, lines})');
+  assert.ok(!/lead\s*\+\s*body|refText\(/.test(call),
+    'the attachment is still being spliced into the person\'s words — that is the convention refs.go replaced');
+
+  // And the door really does read the field, so this guard cannot outlive the wire it names.
+  const doors = fs.readFileSync(path.join(REPO, 'internal', 'adapter', 'daemon', 'doors.go'), 'utf8');
+  assert.ok(/Refs:\s*r\.Refs/.test(doors), 'the submit door no longer reads r.Refs — re-read this guard');
+});
+
+/**
+ * And the shape itself is the one the core parses. `sliceLines` takes "12" or "12-40", one-based
+ * and inclusive, and falls back to the WHOLE FILE on anything it cannot parse — which is a silent
+ * fallback, so a wrong spelling here reads as "attached the file" rather than as an error.
+ */
+test('a chip becomes the lines spelling the core parses', () => {
+  assert.deepEqual(wireRef({ path: 'a.ts' }), { path: 'a.ts' });
+  assert.deepEqual(wireRef({ path: 'a.ts', from: 12 }), { path: 'a.ts', lines: '12' });
+  assert.deepEqual(wireRef({ path: 'a.ts', from: 12, to: 12 }), { path: 'a.ts', lines: '12' });
+  assert.deepEqual(wireRef({ path: 'a.ts', from: 12, to: 40 }), { path: 'a.ts', lines: '12-40' });
 });

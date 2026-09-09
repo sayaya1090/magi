@@ -5,7 +5,7 @@ import { Row, rows, seat, todos } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
 import { panelNote } from '../core/activity';
 import { usage } from '../core/panel';
-import { Ref, refText } from '../core/refs';
+import { Ref, refText, wireRef } from '../core/refs';
 import { Edits } from './edits';
 import { Companion } from './workspace';
 
@@ -175,12 +175,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'say': {
         const body = (m.text ?? '').trim();
         if (!body) break;
-        // The references ride with the message as text, because that is what the daemon takes: a
-        // prompt. They are cleared once sent — a chip that outlived its message would attach the
-        // same file to every later one.
-        const lead = this.refs.length ? this.refs.map(refText).join('\n') + '\n\n' : '';
+        // The references ride as `refs`, the field the door reads — NOT spliced into the person's
+        // words. The core renders each excerpt inside the workspace jail, caps it, and persists it
+        // with the prompt, so the transcript shows what the agent was actually shown. Cleared once
+        // sent — a chip that outlived its message would attach the same file to every later one.
+        const refs = this.refs.map(wireRef);
         this.refs = [];
-        await this.companion.ask('submit', { text: lead + body });
+        await this.companion.ask('submit', refs.length ? { text: body, refs } : { text: body });
         this.draw();
         break;
       }
