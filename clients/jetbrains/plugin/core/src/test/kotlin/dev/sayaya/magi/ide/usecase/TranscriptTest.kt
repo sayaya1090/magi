@@ -243,4 +243,58 @@ class TranscriptTest {
     }
 
     private fun ev(seq: Long) = Response(ok = true, event = LogEvent(seq = seq, type = "part.appended"))
+    /**
+     * ★ **분기하는 사건 이름이 전부 진짜 사건이다.**
+     *
+     * 코틀린의 `when` 은 안 맞는 문자열을 조용히 지나친다. 그래서 사건 이름의 오타는 컴파일도
+     * 통과하고 시험도 안 건드리며, 그 갈래만 **영영 안 도는** 상태가 된다 — 이 저장소가 다른
+     * 층에서 되풀이해 값을 치른 그 모양이다(VS Code 쪽은 광고 없는 능력으로 게이팅해 명령 셋이
+     * 모든 빌드에서 죽어 있었다).
+     *
+     * 훑는 범위를 `LogEvent` 를 이름 대는 파일로 좁힌다. 플러그인 전체의 `"a.b"` 를 다 모으면
+     * `magi.plan` 같은 액션 id 가 섞여 들어와 가드가 없는 결함을 보고한다.
+     *
+     * ⚠ **점 없는 이름도 사건이다** — `compaction` 과 `error`. 이 시험을 처음 쓸 때 쓴 정규식이
+     * 점을 요구해서 그 둘을 못 봤고, 「Rows.kt 가 compaction 을 안 읽는다」는 거짓을 냈다. 그래서
+     * 자기검사에 그 둘을 못 박는다: 세는 도구가 죽으면 답은 언제나 「깨끗함」이다.
+     */
+    @Test
+    fun `분기하는 사건 이름이 전부 코어에 있는 사건이다`() {
+        val magi = java.io.File(System.getProperty("user.dir"))
+            .parentFile.parentFile.parentFile.parentFile
+        val ev = java.io.File(magi, "internal/core/event/event.go")
+        assertTrue(ev.isFile, "${ev.absolutePath} 가 없다 — 이 시험이 아무것도 안 보고 있다")
+        val known = Regex("""Type\w+\s+Type\s*=\s*"([a-z][a-z0-9.]*)"""")
+            .findAll(ev.readText()).map { it.groupValues[1] }.toSet()
+        assertTrue(known.size >= 20, "코어에서 사건 ${known.size}종만 읽었다 — 파서가 낡았다")
+
+        val src = java.io.File(System.getProperty("user.dir")).parentFile
+        val files = src.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && "/test/" !in it.path && "/build/" !in it.path }
+            .filter { "LogEvent" in it.readText() }
+            .toList()
+        assertTrue(files.size >= 2, "LogEvent 를 이름 대는 파일이 ${files.size}개뿐이다 — 훑기가 깨졌다")
+
+        val branch = Regex(""""([a-z][a-z0-9.]*)"\s*->""")
+        val named = mutableMapOf<String, String>()
+        for (f in files) {
+            val body = f.readText().lines()
+                .filterNot { it.trimStart().startsWith("//") || it.trimStart().startsWith("*") }
+                .joinToString("\n")
+            for (m in branch.findAll(body)) named[m.groupValues[1]] = f.name
+        }
+        // 자기검사: 아는 분기를 못 보면 그것부터 실패한다. 점 없는 것을 포함한다.
+        for (must in listOf("part.appended", "turn.finished", "compaction")) {
+            assertTrue(must in named, "아는 분기 $must 를 못 봤다 — 이 가드가 아무것도 안 재고 있다")
+        }
+        // part 종류(`text`·`reasoning`·`multiedit` …)는 사건이 아니라 같은 모양의 다른 어휘다.
+        // 사건 이름만 남기려면 코어가 아는 것과 견주되, **모르는 것 중 점이 있는 것**만 결함으로
+        // 본다 — 점 없는 한 낱말은 part 종류일 가능성이 높고, 둘을 섞으면 오탐이 난다.
+        val strayEvents = named.filterKeys { "." in it && it !in known }
+        assertEquals(
+            emptyMap<String, String>(), strayEvents,
+            "코어에 없는 사건 이름으로 분기한다 — 그 갈래는 영영 안 돈다",
+        )
+    }
+
 }
