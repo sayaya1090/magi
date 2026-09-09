@@ -27,6 +27,62 @@ class ManualTest {
         return f.readText()
     }
 
+    /**
+     * **매뉴얼이 인용하는 화면 글자는 번들에 실제로 있는 글자다.**
+     *
+     * VS Code 쪽에서 같은 결함을 하루 전에 잡았다: 매뉴얼이 `magi: idle` 을 광고하는데 코드는 그
+     * 낱말을 내지 않았고, 그래서 문서가 **고침이 막으려던 오독을 계속 가르치고** 있었다. 이쪽도
+     * 같았다(2026-09-10 실측) — 기어 메뉴 셋과 배너 둘과 빈 목록 문구 둘, **여섯이 전부 옛 글자**였다:
+     *
+     *   「대화 탭 열기…」        → 채팅을 탭으로 열기…
+     *   「대화 요약해 접기」      → 채팅 요약
+     *   「마지막 턴 되감기」      → 마지막 턴 되돌리기
+     *   "데몬에 못 닿는다 …"      → magi에 연결할 수 없습니다 …
+     *   "예약이 없다"            → 예약된 작업이 없습니다
+     *   "이 데몬엔 … 문이 없다"   → 이 버전의 magi에는 … 기능이 없습니다
+     *
+     * 사람은 매뉴얼이 가리키는 글자를 화면에서 찾는다. 안 맞으면 그 기능이 없는 줄 안다.
+     *
+     * **기억이 아니라 유도한다**: 화면에 서는 글자는 번들이 원천이므로, 여기 목록은 **열쇠**를
+     * 들고 값은 번들에서 읽는다. 글자를 바꾸면 매뉴얼이 썩기 전에 이 시험이 운다.
+     */
+    @Test
+    fun `매뉴얼이 인용하는 화면 글자가 번들에 있다`() {
+        // 클래스의 [root] 를 쓴다(= plugin/). 제 것을 새로 선언하면 한 칸이 어긋난다 — 실제로 그랬다.
+        val manual = read(File(root.parentFile, "docs/MANUAL.ko.md"))
+        val ko = File(root, "intellij/src/main/resources/messages/MagiBundle_ko.properties")
+        assertTrue(ko.isFile, "한국어 번들을 못 찾았다: ${ko.absolutePath}")
+        val values = ko.readLines()
+            .filter { it.contains('=') && !it.trimStart().startsWith("#") }
+            .associate { it.substringBefore('=').trim() to unescape(it.substringAfter('=').trim()) }
+        assertTrue(values.size > 250, "번들에서 ${values.size}개만 읽었다 — 훑기가 죽었다")
+
+        // 매뉴얼이 **화면 글자로 인용하는** 자리들 — 「매뉴얼이 이 글자들을 써야 한다」가 아니라
+        // 「이 글자들을 쓰고 있으니 번들과 맞아야 한다」다. 방향을 뒤집으면 매뉴얼이 언급하지도
+        // 않는 글자를 요구하게 되고, 첫 판이 그래서 `plan.companions.none` 에 걸렸다(매뉴얼은
+        // 플릿의 빈 상태를 적지 않는다 — 그건 결함이 아니라 안 적은 것이다).
+        //
+        // 매뉴얼에 화면 글자를 새로 인용하면 그 열쇠를 여기 더한다. 값은 **번들에서 읽으므로**
+        // 글자가 바뀌면 매뉴얼이 썩기 전에 이 시험이 운다 — 그것이 이 목록의 값이다.
+        val quoted = listOf(
+            "chat.menu.tabs", "chat.menu.compact", "chat.menu.rewind",
+            "plan.stale", "plan.schedule.none",
+        )
+        val missing = quoted.mapNotNull { key ->
+            val v = values[key] ?: return@mapNotNull "$key — 번들에 없다"
+            // 자리표시자가 있는 값은 앞부분만 인용되므로 그 앞까지로 자른다.
+            val head = v.substringBefore("{").trim().trimEnd('…', '.', ',')
+            if (head.length >= 4 && !manual.contains(head)) "$key — 매뉴얼이 «$head» 를 안 쓴다" else null
+        }
+        assertTrue(missing.isEmpty(),
+            "매뉴얼이 화면에 없는 글자를 인용한다. 사람은 그 글자를 찾다가 기능이 없는 줄 안다:\n  " +
+                missing.joinToString("\n  "))
+    }
+
+    /** `\uXXXX` 를 글자로. 번들은 두 표기를 섞어 쓴다. */
+    private fun unescape(v: String): String =
+        Regex("""\\u([0-9a-fA-F]{4})""").replace(v) { it.groupValues[1].toInt(16).toChar().toString() }
+
     @Test
     fun `매뉴얼은 플러그인이 광고한 기능을 전부 싣는다`() {
         val manual = read(File(root.parentFile, "docs/MANUAL.ko.md"))
