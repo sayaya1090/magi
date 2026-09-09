@@ -34,6 +34,32 @@ class RowTextTest {
      * 낱말은 **터미널의 표를 읽어서** 못박는다. 세 표면이 한 판정을 세 가지로 말하는 것이 한 층
      * 위의 같은 결함이라, 여기서 두 번째 표를 쓰지 않는다.
      */
+    /**
+     * **표가 무엇 위에 서 있는지는 화면에만 있으면 안 된다.**
+     *
+     * 셰이퍼는 처음부터 `cite` 를 날랐고 아무 화면도 안 그렸다 — 나르는 것과 그리는 것은 다르다.
+     * 코어가 기록하는 이유가 확인 가능해서이고(멤버에게 보인 자료에서 그 조각을 찾아본다), 가장
+     * 중요한 경우를 대놓고 적어 뒀다: *"an empty one on a `done` is itself worth seeing."*
+     * 아무것도 안 딛고 선 승인이 딛고 선 승인과 똑같이 보이면 안 된다.
+     *
+     * `keep` 은 **승인에도** 온다 — 남의 반대 때문에 다시 쓸 때 버려질 뻔한 것이 거기 있다.
+     */
+    @Test
+    fun `옮겨 적은 판정이 무엇 위에 섰는지와 무엇을 지킬지를 싣는다`() {
+        val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val payload = java.io.File(core, "internal/core/event/payload.go")
+        assertTrue(payload.isFile, "코어의 평결 payload 를 못 찾았다(${payload.absolutePath})")
+        val struct = payload.readText().substringAfter("type CouncilVerdictData struct").substringBefore("\n}")
+        for (f in listOf("cite", "keep"))
+            assertTrue("""json:"$f""" in struct, "와이어가 `$f` 를 더는 안 싣는다")
+
+        val r = Row(Who.Council, "reads right", member = "Melchior", round = 1, decision = "done",
+            cite = "NO-EVIDENCE", keep = "the retry budget")
+        val line = RowText.plain(r)
+        assertTrue("NO-EVIDENCE" in line, "옮겨 적은 글이 그 표가 무엇 위에 섰는지를 안 싣는다: $line")
+        assertTrue("the retry budget" in line, "옮겨 적은 글이 지킬 것을 안 싣는다: $line")
+    }
+
     @Test
     fun `카운슬 판정은 다른 표면들이 쓰는 말로 적힌다`() {
         val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile

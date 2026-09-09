@@ -1017,7 +1017,15 @@ class MagiToolWindow : ToolWindowFactory {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                         isOpaque = false
                         if (r.text.isNotBlank()) add(Look.prose(r.text))
-                        r.keep?.takeIf { it.isNotBlank() }?.let { add(Look.aside("keep: $it")) }
+                        // 이 표가 **무엇 위에 서 있나.** 셰이퍼는 처음부터 `cite` 를 날랐고 화면이
+                        // 안 그렸다 — 나르는 것과 그리는 것은 다르다. 코어가 기록하는 이유가
+                        // **확인 가능해서**이고(멤버에게 보인 자료에서 그 조각을 찾아본다), 가장
+                        // 중요한 경우를 대놓고 적어 뒀다: "an empty one on a `done` is itself worth
+                        // seeing". 아무것도 안 딛고 선 승인이 딛고 선 승인과 똑같이 보이면 안 된다.
+                        r.cite?.takeIf { it.isNotBlank() }?.let {
+                            add(Look.aside(MagiBundle.msg("chat.verdict.on", it)))
+                        }
+                        r.keep?.takeIf { it.isNotBlank() }?.let { add(Look.aside(MagiBundle.msg("chat.verdict.keep", it))) }
                         r.why?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
                     }
                     p.add(body, BorderLayout.CENTER)

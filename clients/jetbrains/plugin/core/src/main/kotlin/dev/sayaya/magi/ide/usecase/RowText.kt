@@ -99,7 +99,10 @@ object RowText {
             r.args?.takeIf { it.isNotBlank() }?.let { add(it) }
             r.out?.takeIf { it.isNotBlank() }?.let { add(it) }
             r.why?.takeIf { it.isNotBlank() }?.let { add(it) }
-            r.keep?.takeIf { it.isNotBlank() }?.let { add(it) }
+            // 옮겨 적는 글에도 같이 간다 — 화면에만 있고 붙여 넣은 글에 없으면, 그 표가
+            // 무엇 위에 서 있었는지가 대화 밖으로 못 나간다.
+            r.cite?.takeIf { it.isNotBlank() }?.let { add("on: $it") }
+            r.keep?.takeIf { it.isNotBlank() }?.let { add("keep: $it") }
         }
         return (listOf(head) + body).joinToString("\n")
     }
