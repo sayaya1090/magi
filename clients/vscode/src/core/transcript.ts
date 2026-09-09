@@ -42,6 +42,26 @@ export interface Row {
   args?: string;
   /** Tool rows only, once the result arrives. Absent means still running. */
   ok?: boolean;
+  /**
+   * Tool rows only: it DID the work and left something the agent must read.
+   *
+   * A post-edit hook's output, a language server's complaint about the file just written. Those set
+   * `isError` on purpose — that is what makes the model stop and act on them — and `isError` is
+   * also what a screen draws its glyph from, so a file that was written and then linted drew as a
+   * write that FAILED. The core measured that on a live run and split the two questions
+   * (`session.ToolResult.Advisory`): "did the work happen" and "is there something to read" are
+   * not one question. The JetBrains client has read the field since; this one had not declared it.
+   */
+  note?: boolean;
+  /**
+   * Tool rows only: WHY it failed, as the tool said it.
+   *
+   * A row that draws ✗ and nothing else tells a person the shape of the trouble and none of its
+   * content — and the transcript is where they go to find out. Kept only for a real failure: an
+   * advisory result's text is what the AGENT must act on, and putting it here would draw a
+   * successful write in the colours of a broken one.
+   */
+  out?: string;
   /** A row whose prompt has no answer yet — the screen draws a bar beside it. */
   pending?: boolean;
   /**
@@ -72,7 +92,7 @@ interface PartLike {
   /** `image` parts: where the picture is, and what it is. */
   image?: { path?: string; mime?: string };
   toolCall?: { callId?: string; name?: string; args?: unknown };
-  toolResult?: { callId?: string; content?: unknown; isError?: boolean };
+  toolResult?: { callId?: string; content?: unknown; isError?: boolean; advisory?: boolean };
   error?: string;
 }
 
@@ -149,7 +169,15 @@ export function rows(events: Event[]): Row[] {
           // The result lands ON the call's row rather than starting a new one — one call, one line.
           const call = p.toolResult.callId;
           const row = [...out].reverse().find((r) => r.who === 'tool' && r.callId === call);
-          if (row) row.ok = !p.toolResult.isError;
+          if (row) {
+            // Two questions, not one — see Row.note. An advisory result DID the work.
+            const advisory = p.toolResult.advisory === true;
+            row.ok = !p.toolResult.isError || advisory;
+            row.note = advisory;
+            // The reason travels with the failure. Read the VALUE, not its rendering: `content` is
+            // often a JSON string, and stringifying it again leaves the escapes on the screen.
+            if (p.toolResult.isError && !advisory) row.out = said(p.toolResult.content);
+          }
         } else if (p.kind === 'image' && p.image?.path) {
           // ⚠ **A part kind this fold does not name is not an empty row — it is a row that never
           // existed, with nothing anywhere saying so.** The web console hit exactly this and its
@@ -365,4 +393,11 @@ export function askedFor(args: unknown): string | undefined {
 function clip(s: string): string {
   const line = s.split('\n')[0].trim();
   return line.length > 100 ? line.slice(0, 100) + '…' : line;
+}
+
+/** A tool result's content as words. A JSON string is its own text; anything else is its JSON. */
+function said(content: unknown): string | undefined {
+  if (content === null || content === undefined) return undefined;
+  const t = typeof content === 'string' ? content : JSON.stringify(content);
+  return t && t.trim() ? clip(t) : undefined;
 }

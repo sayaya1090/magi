@@ -314,6 +314,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
      it is the answer to "which one", not the argument's full text. */
   .args { color:var(--vscode-descriptionForeground); opacity:.85; }
+  /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
+     carries, so the two cannot say different things. */
+  .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
@@ -433,6 +436,14 @@ function draw(rs) {
        runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
        the one question it exists for. Its own element so it can be dimmed and clipped without
        touching the name. */
+    /* Why it failed, under the row. The glyph says the shape of the trouble; this says what it
+       was, which is what a person opened the transcript for. */
+    if (r.who === 'tool' && r.out) {
+      const o = document.createElement('div');
+      o.className = 'out';
+      o.textContent = r.out;
+      d.append(o);
+    }
     if (r.who === 'tool' && r.args) {
       const a = document.createElement('span');
       a.className = 'args';
@@ -515,6 +526,9 @@ vs.postMessage({ kind: 'ready' });
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
 function paint(r: Row): Row & { label: string } {
   const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase() : r.who;
-  const mark = r.who === 'tool' && r.ok !== undefined ? (r.ok ? ' ✓' : ' ✗') : '';
+  // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
+  // into ✗ is the defect the core measured on a live run — a file that was written and then
+  // linted drew as a write that failed.
+  const mark = r.who !== 'tool' || r.ok === undefined ? '' : r.note ? ' ⚑' : r.ok ? ' ✓' : ' ✗';
   return { ...r, label: who + mark };
 }
