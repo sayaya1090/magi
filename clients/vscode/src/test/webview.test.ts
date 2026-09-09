@@ -173,3 +173,64 @@ test('every door a person presses looks at what came back', () => {
     'these doors can refuse and nobody would ever know: ' + swallowed.join(', ') +
     ' — either read the answer, or add the name to `excused` with the reason it cannot fail visibly.');
 });
+
+/**
+ * The info card: what this companion runs on, and the handles that change it.
+ *
+ * Asked for by the user, and built mostly out of what was already there — the model, approval and
+ * fold commands existed but were scattered in the palette. Two were new, and both of their doors
+ * were already on the wire and knocked on by nobody: `update` and `restart`.
+ *
+ * ⚠ **A webview may not name a command.** It is a page; anything that got script into it could
+ * otherwise run whatever the extension host can. So the card asks by name and the extension checks
+ * that name against a list — and this pins that the list exists, that it is a list and not a
+ * pass-through, and that every command the card offers is on it.
+ */
+test('the info card can only ask for the commands it offers', () => {
+  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+
+  const at = chat.indexOf("case 'run':");
+  assert.ok(at > 0, 'the card asks the extension to run commands and nothing receives it');
+  const branch = chat.slice(at, chat.indexOf('\n      }', at));
+  assert.ok(/new Set\(\[/.test(branch), 'the command name is taken from the page and not checked against a list');
+  assert.ok(/if \(!allowed\.has\(name\)\) break;/.test(branch),
+    'the list is built and not consulted — a page could name any command');
+
+  // Every command the card draws a button for must be on the list, or pressing it does nothing.
+  // The card names its commands in two shapes: `['model', info.model, 'magi.chooseModel']` for the
+  // rows and `['restart', 'magi.restartDaemon']` for the buttons. Read them where the card DRAWS,
+  // so a command added to one shape and not the other is still counted.
+  const draw = chat.slice(chat.indexOf('function drawInfo('), chat.indexOf('let pendingQuestion'));
+  const offered = [...draw.matchAll(/'(magi\.[a-zA-Z]+)'/g)].map((m) => m[1]);
+  assert.ok(offered.length >= 6, `only ${offered.length} commands offered by the card — the scan is reading nothing`);
+  for (const c of new Set(offered)) {
+    assert.ok(branch.includes(`'${c}'`), `the card offers ${c} and the allowlist does not have it — the button does nothing`);
+  }
+
+  // And each one is a real command of this extension, or the button throws when pressed.
+  const manifest = JSON.parse(fs.readFileSync(path.join(IDE, '..', '..', 'package.json'), 'utf8'));
+  const declared = new Set((manifest.contributes?.commands ?? []).map((c: { command: string }) => c.command));
+  for (const c of new Set(offered)) {
+    assert.ok(declared.has(c), `the card offers ${c} and the manifest does not declare it`);
+  }
+});
+
+/**
+ * The traffic light is a class, not a colour decided here.
+ *
+ * The console does it this way — the state word IS the class name and the stylesheet paints it —
+ * so the mapping from word to colour is written once instead of once per screen. Every state the
+ * core can be in needs a rule, or a companion in that state draws with the default grey and reads
+ * as "we could not ask" when it is nothing of the sort.
+ */
+test('every state the card can show has a light', () => {
+  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
+  const src = fs.readFileSync(path.join(IDE, '..', 'core', 'activity.ts'), 'utf8');
+  const states = [...src.matchAll(/^\s{2}[A-Z]\w*\s*=\s*'([a-z-]+)',/gm)].map((m) => m[1]);
+  assert.ok(states.length >= 4, `only ${states.length} states read from core — the scan is broken`);
+  for (const st of states) {
+    assert.ok(style.includes(`#info .${st} .dot`),
+      `a companion that is "${st}" draws the default grey, which is what "could not ask" looks like`);
+  }
+});
