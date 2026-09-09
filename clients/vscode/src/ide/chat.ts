@@ -649,21 +649,25 @@ function drawInfo() {
 }
 let pendingQuestion = null;
 let mentions = [];
-function drawState(st) {
+function drawState(note) {
   noteEl.textContent = '';
-  if (!st) return;
+  if (!note || !note.text) return;
   /* The words and whether to offer a way out are decided in core (panelNote), so this draws and
      decides nothing. It used to decide: not-running got a button and unknown got a bare sentence,
      which left somebody whose companion could not be reached with nothing to press.
+
+     The parameter is the NOTE, not the state. It used to be handed the state and reach for
+     st.note - and the note is a SIBLING of state in the message, not a child of it, so that
+     reach was always undefined. Nothing failed: the panel simply never drew the sentence and
+     never drew the button, which is the same screen as "everything is fine" and is exactly the
+     screen somebody with no companion running was left looking at.
      (No backticks in here: this script lives in a template literal and one would close it.) */
-  if (st.note && st.note.text) {
-    noteEl.append(st.note.text + ' ');
-    if (st.note.offerStart) {
-      const b = document.createElement('button');
-      b.textContent = 'Start one';
-      b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
-      noteEl.append(b);
-    }
+  noteEl.append(note.text + ' ');
+  if (note.offerStart) {
+    const b = document.createElement('button');
+    b.textContent = 'Start one';
+    b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
+    noteEl.append(b);
   }
   /* idle / working / waiting say nothing here: the status bar already says them, and repeating a
      line above the composer is a line in the way. */
@@ -753,7 +757,7 @@ window.addEventListener('message', (e) => {
     suggestion = m.text || '';
     hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
   }
-  else if (m.kind === 'state') drawState(m.state);
+  else if (m.kind === 'state') drawState(m.note);
   else if (m.kind === 'info') { info = m; drawInfo(); }
   else if (m.kind === 'note') noteEl.textContent = m.text || '';
 });
