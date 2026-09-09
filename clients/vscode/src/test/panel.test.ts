@@ -364,3 +364,33 @@ test('the fleet row says what work a companion is carrying', () => {
   ] } as unknown as Parameters<typeof fleet>[0]);
   assert.match(drawn[0], /busy/, 'the fleet row does not draw what the companion is carrying');
 });
+
+/**
+ * ★ A fold that names nothing has made a promise it does not keep.
+ *
+ * Compaction replaces the conversation with a summary. On its own that is a loss — but the core
+ * keeps the detail in the log and can pull a subject back with `recall_context`, and it says the
+ * naming IS the difference: the topics are "what 'the detail is not lost' means concretely, and
+ * naming them is the difference between that claim and a promise".
+ *
+ * So the count and the subjects travel together. `folded 3×` alone tells a person their
+ * conversation was replaced and nothing about what survived.
+ */
+test('a fold says what is still there', () => {
+  const go = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'app', 'context_state.go'), 'utf8');
+  assert.match(go, /Topics \[\]string\s+`json:"topics,omitempty"`/,
+    'the core no longer carries the fold subjects the way this guard reads them');
+
+  const said = context({ ok: true, context: {
+    window: 32000, used: 12000, compactions: 3, topics: ['review.ts', 'the deploy script'],
+  } } as unknown as Parameters<typeof context>[0]);
+  assert.match(said, /folded 3×/, 'the fold count is gone');
+  assert.match(said, /review\.ts/, 'the fold count went out with no subjects — the promise without the naming');
+  assert.match(said, /the deploy script/, 'only some subjects are named');
+
+  // A fold with no subjects says the count and stops — it must not invent an empty list.
+  const bare = context({ ok: true, context: { window: 32000, used: 12000, compactions: 1 } } as unknown as Parameters<typeof context>[0]);
+  assert.match(bare, /folded 1×/);
+  assert.ok(!/still there/.test(bare), 'a fold with nothing named still promises something');
+});
