@@ -84,6 +84,18 @@ class Assist(
         internal fun nearCursor(prefix: String, suffix: String): Pair<String, String> =
             prefix.takeLast(SIDE_CAP) to suffix.take(SIDE_CAP)
 
+        /**
+         * 주변 맥락으로 실어 보낼 글자 수의 상한 — 코어의 `ambientCap` 과 같은 수.
+         *
+         * 바이트 상한에 **글자**로 자른다. 글자는 바이트보다 적을 수 없으니 코어가 남길 바이트만큼은
+         * 언제나 실려 가고, 남는 조각이 같다.
+         */
+        const val AMBIENT_CAP = 8 * 1024
+
+        /** 버퍼의 **머리** — 코어가 남기는 쪽이다. 꼬리를 남기면 모델이 다른 파일을 본다. */
+        @JvmStatic
+        internal fun ambientHead(text: String): String = text.take(AMBIENT_CAP)
+
         @JvmStatic
         internal fun withoutEcho(out: String?, prefix: String): String? {
             val t = out?.replace("\r", "") ?: return out
@@ -196,7 +208,12 @@ class Assist(
      */
     fun setOpenFile(path: String, text: String): Boolean =
         call { c ->
-            val r = c.exchange(Request(method = "open-file", name = path, text = text))
+            // **머리만.** 이 문은 사람이 아무것도 안 누르는 주변 맥락이라 버퍼가 바뀔 때마다
+            // 나가는데, 코어는 그것의 머리 8KB 만 저장한다(`ambientCap`) — 그 주석이 사유를 이름
+            // 댄다: *"holding the whole of a 40MB buffer per session for the daemon's life is
+            // memory for nothing."* **저장할 때** 자르므로 코어의 메모리는 안전했고 소켓만 내내
+            // 파일 전체를 실었다. 모델이 보는 것은 안 바뀐다 — 코어가 남기는 것이 머리다.
+            val r = c.exchange(Request(method = "open-file", name = path, text = ambientHead(text)))
             note(r.error, null)
             if (r.ok) "y" else null
         } != null

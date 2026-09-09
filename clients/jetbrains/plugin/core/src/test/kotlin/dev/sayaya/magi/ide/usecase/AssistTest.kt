@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.usecase
 
 import dev.sayaya.magi.ide.transport.DaemonClient
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -278,5 +279,56 @@ class AssistTest {
     fun `없는 답은 그대로 둔다`() {
         assertNull(Assist.withoutEcho(null, "무엇이든"))
         assertEquals("   ", Assist.withoutEcho("   ", "무엇이든"))
+    }
+
+    /**
+     * ★ **주변 맥락은 버퍼의 머리만 실어 보낸다.**
+     *
+     * `open-file` 은 사람이 아무것도 안 누르는 문이라 버퍼가 바뀔 때마다 나간다. 코어는 그것의
+     * **머리 8KB** 만 저장하며 사유를 이름 댄다 — *"holding the whole of a 40MB buffer per session
+     * for the daemon's life is memory for nothing."* **저장할 때** 자르므로 코어의 메모리는
+     * 안전했고, 소켓만 내내 파일 전체를 실었다. 짝인 VS Code 도 같은 자리, 같은 웨이브에서 고쳤다.
+     *
+     * **모델이 보는 것은 안 바뀐다** — 코어가 남기는 것이 머리이고 이제 보내는 것도 머리다.
+     * 머리와 꼬리가 **구별되는** 버퍼로 잰다: 한쪽으로 균일한 글자를 쓰면 꼬리를 남겨도 통과한다.
+     */
+    @Test
+    fun `주변 맥락은 버퍼의 머리만 싣는다`() {
+        val cap = Assist.AMBIENT_CAP
+        val big = "머리" + "x".repeat(cap * 3) + "꼬리"
+        val f = Fake(listOf("""{"ok":true}""")); f.start()
+        Assist(f.opener()).setOpenFile("a.kt", big)
+        f.close()
+        val sent = Regex(""""text":"([^"]*)"""").find(f.seen[0])!!.groupValues[1]
+        assertEquals(cap, sent.length, "버퍼 전체가 소켓에 실렸다")
+        assertTrue(sent.startsWith("머리"), "꼬리를 남겼다 — 코어가 남기는 것은 머리다")
+        assertFalse(sent.contains("꼬리"), "파일 끝이 실려 갔다 — 코어는 그것을 버린다")
+    }
+
+    /** 상한 아래면 한 글자도 안 자른다 — 작은 파일은 온전히 가야 한다. */
+    @Test
+    fun `상한 아래 버퍼는 그대로 싣는다`() {
+        val f = Fake(listOf("""{"ok":true}""")); f.start()
+        Assist(f.opener()).setOpenFile("a.kt", "짧은 버퍼")
+        f.close()
+        assertTrue(f.seen[0].contains(""""text":"짧은 버퍼""""), f.seen[0])
+    }
+
+    /**
+     * 그리고 상한은 **코어의 숫자**다. 짝인 VS Code 에서 변이가 가르쳤다 — 단언이 전부 제 상수에
+     * 상대적이면 그 상수는 아무 값이나 말할 수 있다.
+     */
+    @Test
+    fun `주변 맥락 상한은 코어의 상한이다`() {
+        val core = java.io.File(System.getProperty("user.dir"))
+            .parentFile.parentFile.parentFile.parentFile
+        val go = java.io.File(core, "internal/app/complete.go")
+        assertTrue(go.isFile, "코어의 complete.go 를 못 찾았다: $go")
+        val m = Regex("""const ambientCap = (\d+)\s*<<\s*(\d+)""").find(go.readText())
+        assertTrue(m != null, "ambientCap 선언을 이 꼴로 못 읽었다 — 코어를 다시 볼 것")
+        val want = m!!.groupValues[1].toInt() shl m.groupValues[2].toInt()
+        assertTrue(want > 0, "코어에서 말이 안 되는 상한을 읽었다 — 훑기가 깨졌다")
+        assertEquals(want, Assist.AMBIENT_CAP,
+            "이 판은 ${Assist.AMBIENT_CAP} 바이트를 보내고 코어는 $want 를 남긴다")
     }
 }
