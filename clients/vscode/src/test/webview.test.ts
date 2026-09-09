@@ -234,3 +234,42 @@ test('every state the card can show has a light', () => {
       `a companion that is "${st}" draws the default grey, which is what "could not ask" looks like`);
   }
 });
+
+/**
+ * ★ A verdict's evidence is a fragment of the RECORD, and must be drawn as one.
+ *
+ * Measured by streaming a real conversation off a live daemon (95 events, 12 verdicts) through this
+ * client's own shaper: nine of the twelve `cite` values were diffs — leading minus/plus/space and
+ * all. The row drew them in the proportional reading font, in italic.
+ *
+ * This file states the rule for that kind of text a few lines above the one at fault: "Monospace
+ * and scrollable: it is a command or a patch, and a wrapped one is a different command to read."
+ * The cite is exactly that, and the core keeps it because it is CHECKABLE — magi looks the fragment
+ * up in what the member was shown. A reader can only check what is drawn as it is.
+ *
+ * `keep` is the member's own prose and stays in the reading font, so the two must not share a rule.
+ */
+test('a verdict cite is drawn as the record it quotes', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
+
+  const cite = /\.cite \{[^}]*\}/.exec(style);
+  assert.ok(cite, 'the cite has no style of its own — it cannot be told from the prose beside it');
+  assert.match(cite![0], /editor-font-family/,
+    'the cite is drawn in the reading font; a diff whose leading marks carry the meaning needs the ' +
+    'editor font, which this file already says a few rules up');
+  assert.match(cite![0], /max-height/, 'an unbounded cite pushes the round off screen');
+
+  // Shared with `keep` is how it got the wrong font: one rule for prose and for a patch.
+  assert.ok(!/\.cite,\s*\.keep/.test(style) && !/\.keep,\s*\.cite/.test(style),
+    'cite and keep share a rule — one is a fragment of the record and the other is prose');
+  const keep = /\.keep \{[^}]*\}/.exec(style);
+  assert.ok(keep, 'the keep lost its style when the two were split');
+  assert.ok(!/editor-font-family/.test(keep![0]), 'the keep is prose and is drawn as code');
+
+  // Newlines survive: the rows carry pre-wrap and the cite inherits it. Pinned because the
+  // fix would be invisible if a later rule set `white-space: normal` here.
+  assert.match(style, /\.row \{[^}]*white-space:pre-wrap/,
+    'rows no longer preserve newlines, so a multi-line cite collapses into one line');
+  assert.ok(!/\.cite \{[^}]*white-space:\s*normal/.test(style), 'the cite overrides pre-wrap away');
+});
