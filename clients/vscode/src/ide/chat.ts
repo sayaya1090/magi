@@ -148,6 +148,29 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   compose(text: string): void { this.post({ kind: 'compose', text }); }
 
   /**
+   * A send that did not land: say why, and give the person their words back.
+   *
+   * The composer empties itself the moment Enter is pressed, on purpose — the row for the message
+   * arrives on the stream a moment later, and until then the empty box is the only sign anything
+   * happened. That default is right, and it is exactly why a refusal cannot be dropped here: the
+   * sentence is already off the screen, so saying nothing reads as "sent". A daemon that went away
+   * mid-typing, a conversation that ended, a companion that moved — all of them answer, and this
+   * window threw the answer away.
+   *
+   * The JetBrains client clears its box only after `ok`, and its comment names the same trap for
+   * the chips: the core promises that no attachment vanishes, and the client was the place that
+   * promise broke. So the chips come back too — they were cleared so one could not outlive its
+   * message, and a message that never went has nothing to outlive.
+   */
+  private giveBack(text: string, refs: Ref[], why: string): void {
+    for (const r of refs) {
+      if (!this.refs.some((x) => refText(x) === refText(r))) this.refs.push(r);
+    }
+    this.post({ kind: 'note', text: `not sent — ${why}` });
+    this.compose(text);
+  }
+
+  /**
    * Which turn wrote this line, as far as this window knows.
    *
    * Only the transcript it has streamed. Saying "I do not know" is the honest answer for a line
@@ -179,14 +202,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // words. The core renders each excerpt inside the workspace jail, caps it, and persists it
         // with the prompt, so the transcript shows what the agent was actually shown. Cleared once
         // sent — a chip that outlived its message would attach the same file to every later one.
-        const refs = this.refs.map(wireRef);
+        const sent = this.refs;
+        const refs = sent.map(wireRef);
         this.refs = [];
         // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
         // names — `submit` is a new top-level request and the core wipes the plan for it, so a
         // clarification typed mid-turn would delete the plan of the turn it was clarifying.
         // The fact comes off the transcript this window streams, not from `status` (see turnOpen).
         const door = turnOpen(this.events) ? 'steer' : 'submit';
-        await this.companion.ask(door, refs.length ? { text: body, refs } : { text: body });
+        const r = await this.companion.ask(door, refs.length ? { text: body, refs } : { text: body });
+        if (!r?.ok) this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
         this.draw();
         break;
       }
@@ -202,11 +227,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // for the two to drift.
         await this.companion.ask('permission', { callId: m.callId, decision: m.decision });
         break;
-      case 'reply':
+      case 'reply': {
         // A QUESTION, not a permission. Its own door, because what it takes is a sentence and not
         // a verdict — sending "allow" to a question would answer something nobody asked.
-        await this.companion.ask('answer', { callId: m.callId, answer: m.text ?? '' });
+        const said = m.text ?? '';
+        const a = await this.companion.ask('answer', { callId: m.callId, answer: said });
+        // Same box, same rule: it emptied itself before the round trip, so a refusal has to put
+        // the words back or the answer they typed is gone with nothing said.
+        if (!a?.ok) this.giveBack(said, [], a?.error ?? 'no companion is listening on this workspace.');
         break;
+      }
       case 'mention': {
         // The file list behind `@`. It comes from the companion's own glob rather than from this
         // window's idea of the workspace: the companion is what will read the file, and what it
