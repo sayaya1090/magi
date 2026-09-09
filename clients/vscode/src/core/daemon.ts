@@ -104,3 +104,23 @@ export class Daemon {
     for (const f of this.onClose.splice(0)) f();
   }
 }
+
+/**
+ * How long to wait before the next attempt to get a stream back.
+ *
+ * A rule, not a loop, so it can be MEASURED. The window's retry lives in a webview host with a
+ * socket and a timer; a test can read its source and see that a wait exists, but not that the wait
+ * grows or stops — a mutation that returned early from the retry walked straight past a
+ * source-reading guard. So the schedule moves here, where a test can run it.
+ *
+ * Grows from a second and stops at thirty. The floor is because a daemon that just went is not
+ * coming back this millisecond and a tight loop turns one restart into a busy panel; the ceiling
+ * is because a person who starts it again should not wait minutes for the window to notice. The
+ * JetBrains client uses the same two numbers, and this is the same fact in the other language.
+ */
+export function retryAfter(attempt: number): number {
+  const first = 1_000;
+  const cap = 30_000;
+  if (attempt <= 0) return first;
+  return Math.min(first * 2 ** attempt, cap);
+}

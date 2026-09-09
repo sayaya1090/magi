@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Daemon } from '../core/daemon';
+import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
@@ -157,16 +157,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
    * person who picks another conversation is not dragged back to this one.
    */
   private async reattach(): Promise<void> {
-    let wait = 1_000;
-    while (this.view && !this.stream) {
-      await new Promise((r) => setTimeout(r, wait));
+    for (let attempt = 0; this.view && !this.stream; attempt++) {
+      // The schedule is a rule and lives in core, where a test can run it — see `retryAfter`.
+      await new Promise((r) => setTimeout(r, retryAfter(attempt)));
       if (!this.view || this.stream) return;
       this.post({ kind: 'note', text: 'reconnecting…' });
       this.showSession(this.sid);
       // showSession is async inside; give it a moment to land before deciding to wait again.
       await new Promise((r) => setTimeout(r, 200));
       if (this.stream) { this.post({ kind: 'note', text: '' }); return; }
-      wait = Math.min(wait * 2, 30_000);
     }
   }
 

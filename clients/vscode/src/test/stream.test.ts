@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import { rows, turnOpen } from '../core/transcript';
+import { retryAfter } from '../core/daemon';
 import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
 
@@ -465,4 +466,61 @@ test('a parked prompt says so, and the mark is drawn', () => {
   const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
   assert.ok(style.length > 200, 'the style block was not found — this guard is reading nothing');
   assert.ok(/\.queued\b[^{]*\{/.test(style), 'the parked class has no style — it would look like any other row');
+});
+
+/**
+ * A stream that ends is not a conversation that ended.
+ *
+ * The daemon restarts often — a self-update, a crash, somebody stopping it. Until now `whenClosed`
+ * only nulled a field: this window stopped receiving, said nothing, and looked exactly like a
+ * companion with nothing to say. Measured against the sibling, which tells the three endings apart
+ * (we closed it / the daemon went / it broke, with the reason) and reattaches on two of them.
+ *
+ * Read off the source: the seam is a socket callback and there is no daemon in this process. What
+ * is checkable here is that the ending is REPORTED, that something tries again, and that the retry
+ * backs off and stops — a loop with no wait turns one restart into a busy panel, and one that
+ * never stops drags a person back to a conversation they left.
+ */
+test('a stream that ends says so and is picked up again', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+
+  const at = chat.indexOf('s.whenClosed(');
+  assert.ok(at > 0, 'nothing watches for the stream ending — this guard is reading nothing');
+  // ⚠ Cut at the block's own end, not by a character count. A 900-char window reached into
+  // `reattach()` below, so deleting the note HERE still matched its note THERE and the mutation
+  // survived — the guard was reading the wrong function's words.
+  const closed = chat.slice(at, chat.indexOf('\n    });', at));
+  assert.ok(closed.length > 50 && closed.length < 900, `the whenClosed block did not cut cleanly (${closed.length})`);
+  assert.ok(/kind: 'note'/.test(closed), 'the stream ends and the person is told nothing');
+  assert.ok(/reattach\(/.test(closed), 'the stream ends and nothing tries to get it back');
+  // Somebody else may already have moved on. Reattaching then would drag them back.
+  assert.ok(/this\.stream !== s/.test(closed), 'an ending is reported for a stream we already replaced');
+
+  const rat = chat.indexOf('private async reattach(');
+  assert.ok(rat > 0, 'reattach is called and not defined');
+  const body = chat.slice(rat, rat + 900);
+  assert.ok(/setTimeout/.test(body), 'the retry has no wait — one restart becomes a busy panel');
+  assert.ok(/retryAfter\(/.test(body), 'the retry no longer uses the schedule the tests can run');
+  assert.ok(/this\.view/.test(body), 'the retry does not stop when the panel closes');
+  assert.ok(/reconnecting/.test(body),
+    'it retries in silence — with a backoff this long the last failure stands as the current state');
+});
+
+/**
+ * The retry schedule itself, run rather than read.
+ *
+ * The window's loop can only be read from source — a mutation that returned early from it walked
+ * straight past the guard above, which is the honest limit of reading source. So the SCHEDULE is a
+ * rule in core and this runs it: it starts at a second (a daemon that just went is not back this
+ * millisecond, and a tight loop turns one restart into a busy panel), it grows, and it stops at
+ * thirty seconds (somebody who starts it again should not wait minutes for the window to notice).
+ */
+test('the retry waits, grows, and stops growing', () => {
+  assert.equal(retryAfter(0), 1_000, 'the first retry is immediate — one restart becomes a busy panel');
+  assert.equal(retryAfter(1), 2_000);
+  assert.equal(retryAfter(2), 4_000);
+  assert.ok(retryAfter(3) > retryAfter(2), 'the wait does not grow');
+  assert.equal(retryAfter(20), 30_000, 'the wait is unbounded — a restart would go unnoticed for minutes');
+  // A caller that starts at -1 must not get a negative or a zero wait.
+  assert.equal(retryAfter(-1), 1_000);
 });
