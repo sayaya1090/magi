@@ -222,11 +222,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.refs = [];
         this.draw();
         break;
-      case 'answer':
+      case 'answer': {
         // The decision travels as the core spells it. Two vocabularies for one verdict is a place
         // for the two to drift.
-        await this.companion.ask('permission', { callId: m.callId, decision: m.decision });
+        const v = await this.companion.ask('permission', { callId: m.callId, decision: m.decision });
+        // A pressed button whose answer is thrown away is a window where nothing happens when you
+        // press it — the JetBrains client's own words for the same defect, which it fixed in the
+        // one place all four of its buttons go through. The prompt is redrawn from the stream, so
+        // without this the only thing a refusal changes on screen is nothing.
+        if (!v?.ok) this.post({ kind: 'note', text: `not sent — ${v?.error ?? 'no companion is listening on this workspace.'}` });
         break;
+      }
       case 'reply': {
         // A QUESTION, not a permission. Its own door, because what it takes is a sentence and not
         // a verdict — sending "allow" to a question would answer something nobody asked.

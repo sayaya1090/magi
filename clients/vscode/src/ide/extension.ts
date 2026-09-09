@@ -59,7 +59,15 @@ export function activate(ctx: vscode.ExtensionContext): void {
       if (!bin) { void vscode.window.showWarningMessage(NO_BINARY); return; }
       start(bin, workdir);
     }),
-    vscode.commands.registerCommand('magi.interrupt', () => void companion.ask('interrupt')),
+    // Stop. The answer is not thrown away — and it is not read as "stopped" either: the core's
+    // `Interrupt` returns nil when no turn is running, so `ok` means the request arrived, not that
+    // anything was halted. A screen saying more than the wire supports tells a person something
+    // stopped when it did not; what actually stopped shows up in the transcript. The JetBrains
+    // client carries that rule in a comment on its own Stop button.
+    vscode.commands.registerCommand('magi.interrupt', () => void (async () => {
+      const r = await companion.ask('interrupt');
+      if (!r?.ok) void vscode.window.showWarningMessage(`magi: stop did not go — ${r?.error ?? 'no companion is listening on this workspace.'}`);
+    })()),
   );
 
   // Open the conversation by itself, if the person asked for that.
