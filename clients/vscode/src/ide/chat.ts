@@ -303,6 +303,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .who { font-size:.85em; opacity:.7; margin-bottom:2px; }
   .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
   .pending { opacity:.75; }
+  /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
+     this turn ends" draw the same bar otherwise, and a person cannot tell which they typed. */
+  .queued .who::after { content:' ⏸'; }
   .abandoned { opacity:.6; text-decoration:line-through; }
   .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .error { color:var(--vscode-errorForeground); }
@@ -426,7 +429,8 @@ function draw(rs) {
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
-    d.className = 'row ' + r.who + (r.pending ? ' pending' : '') + (r.abandoned ? ' abandoned' : '');
+    d.className = 'row ' + r.who + (r.pending ? ' pending' : '')
+      + (r.queued ? ' queued' : '') + (r.abandoned ? ' abandoned' : '');
     const w = document.createElement('div');
     w.className = 'who';
     w.textContent = r.label;

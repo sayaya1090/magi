@@ -63,6 +63,16 @@ export interface Row {
   round?: number;
   decision?: string;
   /**
+   * A prompt the core PARKED: typed while a turn was running, and it will run as its own turn when
+   * this one ends (`interjection.deferred`).
+   *
+   * Distinct from `pending`, which means "asked and not answered yet". Both draw a bar, and without
+   * this the parked message looked exactly like one the agent was already working on — so a person
+   * watched a sentence sit there and could not tell whether it had been picked up or shelved. The
+   * core has a whole ledger for this state (F5) and this client read none of it.
+   */
+  queued?: boolean;
+  /**
    * Tool rows only: WHY it failed, as the tool said it.
    *
    * A row that draws ✗ and nothing else tells a person the shape of the trouble and none of its
@@ -210,6 +220,41 @@ export function rows(events: Event[]): Row[] {
         if (msg) out.push({ seq: e.seq, who: 'error', text: d.recovered ? `${msg} (recovered)` : msg });
         break;
       }
+      /**
+       * The gate's own answer — what the council DECIDED, not what one member said.
+       *
+       * Without it the transcript showed three people voting and never what came of it: the row
+       * for the conclusion simply did not exist. `note` is the outcome in words, `decision` is
+       * `done | continue`, and `feedback` is what is holding a `continue` up — which is the one
+       * thing a person reads a stalled gate to find out.
+       */
+      case 'council.decided': {
+        out.push({
+          seq: e.seq, who: 'council',
+          text: String(d.note ?? '').trim() || String(d.feedback ?? '').trim(),
+          round: Number(d.round) || undefined,
+          decision: String(d.decision ?? '').trim() || undefined,
+        });
+        break;
+      }
+      /**
+       * The core parked this prompt — see Row.queued. Not a row of its own: it is a fact ABOUT a
+       * row that is already there, and a second row would say the person typed twice.
+       */
+      case 'interjection.deferred': {
+        const id = String(d.messageId ?? '');
+        for (const r of out) if (r.who === 'user' && r.msgId === id) r.queued = true;
+        break;
+      }
+      /**
+       * The agent says its answer already covered the parked message. The bar comes down —
+       * "in its place" and "still waiting" are not the same thing, which the terminal measured.
+       */
+      case 'interjection.answered': {
+        const id = String(d.messageId ?? '');
+        for (const r of out) if (r.who === 'user' && r.msgId === id) { r.queued = false; r.pending = false; }
+        break;
+      }
       case 'council.verdict': {
         // ⚠ **A verdict always makes a row.** This used to push one only when there was prose, so a
         // member who voted with nothing to add vanished — and a council of three drew as a council
@@ -253,7 +298,7 @@ export function rows(events: Event[]): Row[] {
         const id = String(d.msgId ?? '');
         if (!id) break;
         for (const r of out) {
-          if (r.who === 'user' && r.msgId === id) { r.pending = false; r.abandoned = true; }
+          if (r.who === 'user' && r.msgId === id) { r.pending = false; r.queued = false; r.abandoned = true; }
         }
         break;
       }
