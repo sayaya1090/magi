@@ -167,7 +167,7 @@ magi 자신의 말이라 화면에서 바꾸지 않았다), 컴패니언이 **�
 | Model: … | 이 데몬이 가진 모델 중에서 고른다(`models` → `set-model`) |
 | Backend: … | `[llm.profiles.*]` 중에서, 또는 **기본 백엔드로 되돌린다**(`profiles` → `use-backend`) |
 | Approval: … | ask · auto · allow · deny |
-| magi's own settings | 데몬이 고치라고 내준 열쇠들(`config-get` → `config-set`) |
+| magi's own settings | 데몬이 고치라고 내준 열쇠들(`config-get` → `config-set`). **파싱 못 한 설정 파일이 있으면 고르기 전에 사유와 함께 말한다** — 안 그러면 오타 난 파일과 빈 파일이 같아 보이고, 고쳐도 안 먹는 이유를 알 길이 없다 |
 | Completion said nothing: … | **완성이 조용할 때만** 선다. 사유는 데몬의 열거형(`off`·`unrouted`·`nothing-asked`·`no-answer`)이고 화면은 그것을 **문장으로 바꿔** 적는다 — 낱말을 그대로 찍으면 「the companion's own reason」이라 해 놓고 컴패니언의 상수를 보이는 셈이다. 모르는 코드는 날것으로 |
 
 ⚠ **되돌릴 길을 같이 준다.** 프로필 목록만 주면 한번 게이트웨이로 옮긴 사람이 평범한 백엔드로
