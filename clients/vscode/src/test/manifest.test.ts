@@ -219,6 +219,40 @@ test('every state message carries its note', () => {
 });
 
 /**
+ * ★ And the page READS the note it was sent.
+ *
+ * The guard above measures the send. It was green for as long as the read was broken: the message
+ * puts `note` BESIDE `state`, and the page called `drawState(m.state)` while the drawing function
+ * reached for `st.note` — a property `Activity` does not have (`state`, `asking`, `doing`). Always
+ * undefined, nothing thrown, and the sentence and the "Start one" button simply never drew. That is
+ * the same screen as "everything is fine", shown to the one person for whom nothing is fine: their
+ * companion is not running and the button was the way out.
+ *
+ * Derived from `panelNote`'s own return shape rather than a remembered pair of names, so a key
+ * renamed there fails here instead of going quiet again.
+ */
+test('the panel draws the note it is sent', () => {
+  const core = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'activity.ts'), 'utf8');
+  const sig = /export function panelNote\([^)]*\):\s*\{([^}]*)\}/.exec(core);
+  assert.ok(sig, 'panelNote no longer declares what it returns — this guard cannot derive its keys');
+  const keys = [...sig[1].matchAll(/(\w+)\s*:/g)].map((m) => m[1]);
+  assert.ok(keys.length >= 2, `only ${keys.length} key(s) read off panelNote — the scan is dead`);
+
+  const body = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  // The handler hands the drawing function the NOTE, not the state beside it.
+  assert.match(body, /kind === 'state'\)\s*drawState\(m\.note\)/,
+    'the page is handed the state and reaches inside it for a note that is not there');
+  const at = body.indexOf('function drawState(');
+  assert.ok(at > 0, 'the drawing function is not where this guard looks for it');
+  const fn = body.slice(at, body.indexOf('\nfunction ', at + 1));
+  for (const k of keys) {
+    assert.ok(new RegExp(`\\.${k}\\b`).test(fn),
+      `panelNote returns \`${k}\` and the panel never reads it — it crosses to the page and dies there`);
+  }
+});
+
+/**
  * ★ Every message kind is both sent and received, in both directions, in every webview.
  *
  * A webview is a string of script: nothing type-checks the two halves against each other, and an
