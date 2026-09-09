@@ -164,5 +164,8 @@ translated pass-through would be a new contract to keep in step with the old one
 - **Whether the editors will actually adopt it.** VS Code has a working port; moving it onto the
   bridge is a second job, not a side effect of this one.
 - **Process cost** — spawn time and memory of a second core process per open window.
-- **Windows.** The bridge dials AF_UNIX like every other client, and the trap the Office client hit
-  under `%AppData%` applies here too. Not re-measured.
+- ~~**Windows.**~~ ✅ **Measured 2026-09-10.** The bridge dials AF_UNIX like every other client, and
+  the trap the Office client hit under `%AppData%` applies here too — it does. Pointing
+  `MAGI_SOCKET_DIR` outside that tree clears it, and the same held for a bridge spawned as a child
+  of the Visual Studio extension: the environment is inherited from the IDE, so the editor layer
+  has nothing of its own to do ([design §5](../clients/visualstudio/docs/DESIGN.ko.md)).
