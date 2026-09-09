@@ -379,8 +379,11 @@ class PlanToolWindow : ToolWindowFactory {
                 // 서브에이전트 — 도는 것 먼저, 그다음 **끝난 것**.
                 //
                 // 도는 것은 `jobs` 등록부가 더 잘 안다(무엇을 시켰는지, 몇 걸음인지). 끝난 것은
-                // 그 등록부에서 사라지므로 `children` 문이 답한다 — 회의가 닫히면 참가자 방이
-                // 정확히 그렇게 빠진다(ForgetSubagent). 둘을 합쳐 그리되 id 로 겹치는 것은
+                // 그 등록부가 **캡까지만** 들고 있으므로(오래된 것부터 밀린다) 목록은 `children`
+                // 문이 답한다 — 회의가 닫히면 참가자 방은 그와 별개로 즉시 빠진다(ForgetSubagent).
+                // ⚠ 여기 「끝나면 등록부에서 사라진다」고 적혀 있었는데 **틀렸다**: `finish()` 는
+                // 행을 남기고 `Err` 까지 채운다. 그 틀린 이유 때문에 실패한 자식의 사유를 아무도
+                // 안 읽고 있었다. 둘을 합쳐 그리되 id 로 겹치는 것은
                 // 도는 쪽을 남긴다.
                 //
                 // 줄은 **누를 수 있다.** 자식이 무엇을 했는지는 그 자식의 전사에 있고, 전사 문은
@@ -389,6 +392,14 @@ class PlanToolWindow : ToolWindowFactory {
                 kids.forEach { c ->
                     work.add(kidRow(project, "⛐ " + (c.task?.take(60) ?: c.id), c.id))
                 }
+                // **끝난 자식의 실패를 말한다.** 등록부는 「도는 것 **또는 방금 끝난 것**」을 들고
+                // (`subagent_jobs.go` 의 그 주석), `finish()` 가 `Err` 를 채운 채 행을 **남긴다** —
+                // 지우는 것은 회의 닫기의 `ForgetSubagent` 뿐이다. 그런데 위에서 `running` 만 걸러
+                // 쓰는 바람에 **실패한 자식이 성공한 자식과 똑같이** 그려졌다(⛒ 하나).
+                //
+                // 목록은 그대로 `children` 문의 것을 쓴다(끝난 것의 제목·origin 은 거기 있다).
+                // 등록부에서는 **id 로 사유만** 데려온다.
+                val why = j?.children.orEmpty().filter { !it.running }.associate { it.id to it.err }
                 past.filter { it.id !in running }.take(pastKids).forEach { c ->
                     // **누가 열었나**(origin)가 자식을 가른다 — 회의 방이면 "meeting". `agent` 는
                     // 모든 자식이 같은 낱말("spawn")이라 아무것도 안 가른다: 실측으로 잡았다
@@ -398,7 +409,10 @@ class PlanToolWindow : ToolWindowFactory {
                     // 받아적는 자리 — 그래서 이 줄이 「meeting」과 「minutes」를 그대로 찍으면
                     // 회의마다 두 줄이 서고 둘 다 와이어 낱말이라, 사람이 무엇이 무엇인지 모른다.
                     val who = c.origin?.ifBlank { null }?.let { Look.originWord(it) + " · " } ?: ""
-                    work.add(kidRow(project, "⛒ $who$what", c.id))
+                    val failed = why[c.id]?.takeIf { it.isNotBlank() }
+                        ?.let { " — " + MagiBundle.msg("plan.kid.failed", it.lineSequence().first().take(60)) }
+                        .orEmpty()
+                    work.add(kidRow(project, "⛒ $who$what$failed", c.id))
                 }
                 fleet.removeAll()
                 val rows = r.roster
