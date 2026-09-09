@@ -41,8 +41,17 @@ class DraftCommitAction : AnAction() {
                 draft.isNullOrBlank() -> tell(project, MagiBundle.msg("draft.empty"))
                 else -> SwingUtilities.invokeLater {
                     // 다이얼로그가 닫혔거나 사용자가 내용을 수정한 경우 생성된 초안을 알림 풍선으로 전달한다.
+                    // **상자는 사람 것이다.** 두 가지를 다 막는다: 기다리는 사이에 사람이 고친
+                    // 경우(`doc.text != before`)와, **부를 때 이미 글자가 있던 경우**. 뒤엣것을
+                    // 안 막는 동안 세 줄 써 두고 이 액션을 눌러 본 사람은 그 세 줄을 잃었다 —
+                    // 눌렀다는 것이 「지금 쓴 것을 버려라」는 뜻은 아니다.
+                    //
+                    // 짝인 VS Code 가 같은 자리에 규칙을 적어 뒀다: *"Never overwrite. If they
+                    // started typing, the draft goes to a notification instead — the box is
+                    // theirs."* 초안은 사라지지 않고 풍선으로 간다.
                     val landed = runCatching {
                         if (doc != null && doc.text != before) false
+                        else if (!before.isNullOrBlank()) false
                         else { box.setCommitMessage(draft); true }
                     }.getOrDefault(false)
                     if (!landed) tell(project, MagiBundle.msg("draft.moved", draft))

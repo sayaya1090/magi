@@ -1485,4 +1485,33 @@ class SourceTextTest {
             "문서 끝까지 읽는다 — 커서에서 먼 쪽까지 통째로 복사한다")
     }
 
+
+    /**
+     * ★ **커밋 메시지 상자는 사람 것이다 — 초안이 쓰던 글을 덮지 않는다.**
+     *
+     * 이 액션은 기다리는 사이의 변경만 막고 있었다(`doc.text != before`). 그래서 **부를 때 이미
+     * 글자가 있던 경우**는 그대로 덮었다 — 세 줄 써 두고 눌러 본 사람은 그 세 줄을 잃는다. 누른
+     * 것이 「지금 쓴 것을 버려라」는 뜻은 아니다.
+     *
+     * 짝인 VS Code 가 같은 자리에 규칙을 적어 뒀다: *"Never overwrite. If they started typing, the
+     * draft goes to a notification instead — the box is theirs."*
+     *
+     * 그리는 자리가 `intellij` 모듈이라 시험 소스셋이 없다 — 글자로 본다. **초안이 사라지지
+     * 않는지**(안 앉으면 풍선으로 가는지)까지 본다: 안 덮는 것과 잃는 것은 다른 일이다.
+     */
+    @Test
+    fun `커밋 초안은 쓰던 글을 덮지 않는다`() {
+        val src = sources.first { it.name == "DraftCommitAction.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val at = src.indexOf("val landed")
+        assertTrue(at > 0, "초안을 앉히는 자리를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val block = src.substring(at, src.indexOf("}.getOrDefault", at))
+        assertTrue("doc.text != before" in block, "기다리는 사이의 변경을 안 막는다")
+        assertTrue("before.isNullOrBlank()" in block,
+            "부를 때 이미 있던 글자를 안 본다 — 쓰던 커밋 메시지가 초안에 덮인다")
+        // 안 앉았으면 초안이 사라지지 않는다.
+        val after = src.substring(src.indexOf("}.getOrDefault", at))
+        assertTrue("if (!landed)" in after, "안 앉은 초안을 아무 데도 안 보낸다 — 그러면 초안을 잃는다")
+    }
+
 }
