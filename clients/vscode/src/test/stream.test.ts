@@ -706,3 +706,59 @@ test('a finish nobody could verify says so', () => {
   const bare = rows([{ seq: 1, type: 'turn.finished', data: { usage: {}, unverified: true } }] as unknown as Parameters<typeof rows>[0]);
   assert.ok(bare.some((r) => /Unverified/i.test(r.text)), 'a reasonless unverified finish is silent');
 });
+
+/**
+ * ★ A question answered later is pulled down to its answer — the core wrote the link for this reader.
+ *
+ * Two shapes, both about something typed WHILE a turn was running:
+ *
+ * - `resurfacedFrom` — the drain re-runs a queued interjection as its own turn by emitting a fresh
+ *   prompt with a NEW id, and this field names the original. The core: it "lets the display layer
+ *   pair the query with its answer — dropping the stranded original on replay and pulling the live
+ *   bubble down to just above the answer".
+ * - `inReplyTo` — an inline answer emits no fresh prompt at all, so this is, in the core's words,
+ *   "the only link the display layer has to pair the answer with its question".
+ *
+ * This client read neither (measured 2026-09-09): the question stayed where it was typed, minutes of
+ * transcript above its answer, still wearing a queued mark, and a resurfaced one appeared TWICE.
+ * The JetBrains shaper has done both since the fields landed.
+ */
+test('a question answered later sits with its answer, once', () => {
+  const payload = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'payload.go'), 'utf8');
+  for (const f of ['resurfacedFrom', 'inReplyTo']) {
+    assert.ok(new RegExp(`json:"${f},omitempty"`).test(payload), `the wire no longer carries \`${f}\``);
+  }
+
+  // Resurfaced: one row, at the end, not queued, and the text that came with the re-emission.
+  const re = rows([
+    { seq: 1, type: 'prompt.submitted', data: { messageId: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } },
+    { seq: 2, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'working on the build' } } },
+    { seq: 3, type: 'prompt.submitted', data: { messageId: 'q2', resurfacedFrom: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  const asked = re.filter((r) => r.who === 'user' && r.text === 'and the tests?');
+  assert.equal(asked.length, 1, 'the resurfaced question appears twice — the stranded original was not dropped');
+  assert.equal(re[re.length - 1].text, 'and the tests?', 'the question was not pulled down to where it is answered');
+  assert.ok(!asked[0].queued, 'the moved question still wears its queued mark');
+
+  // Inline: same pairing, but no fresh prompt exists at all.
+  const inline = rows([
+    { seq: 1, type: 'prompt.submitted', data: { messageId: 'q1', parts: [{ kind: 'text', text: 'why is it slow?' }] } },
+    { seq: 2, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'a moment' } } },
+    { seq: 3, type: 'part.appended', data: { messageId: 'a2', role: 'assistant', inReplyTo: 'q1', part: { kind: 'text', text: 'the cache was cold' } } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  const at = inline.findIndex((r) => r.text === 'why is it slow?');
+  const ans = inline.findIndex((r) => r.text === 'the cache was cold');
+  assert.ok(at >= 0 && ans >= 0, 'the shaper did not draw the pair this guard hands it');
+  assert.equal(ans - at, 1, 'the question is not immediately above its inline answer');
+
+  // ⚠ And an ORDINARY prompt is untouched — a mover that fires on every prompt would reorder a
+  // plain conversation, and every assertion above would still pass.
+  const plain = rows([
+    { seq: 1, type: 'prompt.submitted', data: { messageId: 'm1', parts: [{ kind: 'text', text: 'first' }] } },
+    { seq: 2, type: 'part.appended', data: { messageId: 'a1', role: 'assistant', part: { kind: 'text', text: 'ok' } } },
+    { seq: 3, type: 'prompt.submitted', data: { messageId: 'm2', parts: [{ kind: 'text', text: 'second' }] } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  assert.deepEqual(plain.map((r) => r.text), ['first', 'ok', 'second'],
+    'an ordinary conversation was reordered — the pairing fired without a link');
+});

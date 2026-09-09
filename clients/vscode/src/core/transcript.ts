@@ -191,9 +191,35 @@ export function rows(events: Event[]): Row[] {
       case 'prompt.submitted': {
         const parts = (d.parts as PartLike[] | undefined) ?? [];
         const text = parts.map((p) => p.text ?? '').join('').trim();
-        if (text) {
-          out.push({ seq: e.seq, who: 'user', text, pending: true, msgId: String(d.messageId ?? '') });
+        if (!text) break;
+        const id = String(d.messageId ?? '');
+        /**
+         * ⚠ **A resurfaced interjection is the SAME question, not a second one.**
+         *
+         * Something typed while a turn was running is queued; the drain later re-runs it as its own
+         * turn by emitting a FRESH prompt with a new id, and `resurfacedFrom` carries the id of the
+         * original. The core wrote that field for this reader — its words: it "lets the display
+         * layer pair the query with its answer — dropping the stranded original on replay and
+         * pulling the live bubble down to just above the answer".
+         *
+         * This client read neither. So the question stayed stranded far up the transcript wearing a
+         * queued mark that never cleared, a second copy of it appeared at the bottom, and nothing
+         * said they were one thing. The JetBrains client has done this since the field landed.
+         *
+         * MOVED, not deleted and re-pushed: the original row carries its own history (queued, and
+         * whatever else marked it) and re-creating it throws that away.
+         */
+        const from = String(d.resurfacedFrom ?? '');
+        if (from) {
+          const i = lastUserRow(out, from);
+          if (i >= 0) {
+            const moved = { ...out[i], text, queued: false, pending: true, msgId: id || from, seq: e.seq };
+            out.splice(i, 1);
+            out.push(moved);
+            break;
+          }
         }
+        out.push({ seq: e.seq, who: 'user', text, pending: true, msgId: id });
         break;
       }
       case 'part.appended': {
@@ -207,6 +233,20 @@ export function rows(events: Event[]): Row[] {
         // log to draw one row.
         if (role === 'assistant' || role === 'tool') {
           for (const r of out) if (r.pending && !answered.has(r.seq)) { r.pending = false; answered.add(r.seq); }
+        }
+        /**
+         * ⚠ **An inline answer pulls its question down to it.**
+         *
+         * A queued or mid-turn message can be answered INLINE — no fresh prompt is emitted, so
+         * `inReplyTo` is, in the core's own words, "the only link the display layer has to pair the
+         * answer with its question and pull the stranded question bubble down just above the
+         * answer". Without it the question sits where it was typed, minutes of transcript above the
+         * reply, still marked queued.
+         */
+        const replyTo = String(d.inReplyTo ?? '');
+        if (role === 'assistant' && replyTo) {
+          const q = lastUserRow(out, replyTo);
+          if (q >= 0) out.push({ ...out.splice(q, 1)[0], queued: false });
         }
         if (p.kind === 'text' && (p.text ?? '').trim()) {
           out.push({ seq: e.seq, who: 'agent', text: p.text!.trim() });
@@ -510,6 +550,19 @@ export function verdictWord(decision: string | undefined, silent?: boolean): { i
     case 'abstain': return { icon: '∅', word: 'abstain' };
     default: return { icon: '·', word: (decision ?? '').trim() };
   }
+}
+
+/**
+ * The last row that is this person's message with this id, or -1.
+ *
+ * Written out rather than `findLastIndex` because this package's lib target predates it, and
+ * raising the target to reach one call would change what every other file may compile against.
+ */
+function lastUserRow(out: Row[], msgId: string): number {
+  for (let i = out.length - 1; i >= 0; i--) {
+    if (out[i].who === 'user' && out[i].msgId === msgId) return i;
+  }
+  return -1;
 }
 
 export function turnOpen(events: Event[]): boolean {
