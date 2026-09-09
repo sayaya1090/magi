@@ -111,8 +111,17 @@ class MagiToolWindow : ToolWindowFactory {
                         SwingUtilities.invokeLater {
                             // 라벨-역찾기(indexOf)는 같은 라벨 둘에서 오결합한다 — 행을 든 채 고른다.
                             class Pick(val row: SessionRow) {
+                                // **언제 마지막으로 움직였나.** 실측(2026-09-10)에서 이 목록은
+                                // 대화 **241개**였고 제목과 id 여섯 자만 서 있었다 — 제목이 없는
+                                // 것도 쉰한 개다. 이백 줄을 훑는 사람이 「아까 그 대화」를 찾는
+                                // 유일한 실마리가 이 시각인데, 그것을 안 그리고 있었다.
+                                // 코어는 늘 보낸다(`lastActivity`). 짝인 VS Code 는 같은 값을
+                                // 전선의 UTC 그대로 찍고 있었다 — 같은 웨이브에서 둘 다 고쳤고
+                                // 모양도 하나로 맞췄다(오늘이면 시:분, 아니면 날짜가 앞에).
                                 override fun toString() =
-                                    (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("chat.untitled")) + "  ·" + row.id.takeLast(6)
+                                    (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("chat.untitled")) +
+                                        "  ·" + row.id.takeLast(6) +
+                                        RowText.asked(row.lastActivity).let { if (it.isEmpty()) "" else "  ·$it" }
                             }
                             com.intellij.openapi.ui.popup.JBPopupFactory.getInstance()
                                 .createPopupChooserBuilder(rows.map { Pick(it) })

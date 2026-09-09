@@ -1333,4 +1333,28 @@ class SourceTextTest {
         assertTrue("it.used" in make, "계기의 tokens 가 문의 used 에서 안 온다")
     }
 
+    /**
+     * ★ **대화를 고르는 목록은 언제 마지막으로 움직였는지 말한다.**
+     *
+     * 실측(2026-09-10, 도는 데몬): 이 워크스페이스의 대화가 **241개**였고 그중 쉰한 개는 제목도
+     * 없다. 목록은 제목과 id 여섯 자만 세웠다 — 이백 줄을 훑는 사람이 「아까 그 대화」를 찾는
+     * 실마리가 그 시각뿐인데 그리지 않았다. 코어는 `lastActivity` 를 늘 보낸다.
+     *
+     * 고르는 자리가 `intellij` 모듈이라 시험 소스셋이 없다. 값이 **말로 바뀐 뒤** 가는 것까지
+     * 본다 — 전선의 RFC3339 를 그대로 찍으면 UTC 라 이 기계의 시계와 어긋난다(짝인 VS Code 가
+     * 정확히 그러고 있었고 같은 웨이브에서 함께 고쳤다).
+     */
+    @Test
+    fun `대화를 고르는 목록은 마지막으로 움직인 때를 말한다`() {
+        val win = sources.first { it.name == "MagiToolWindow.kt" }.readText()
+        val at = win.indexOf("class Pick(val row: SessionRow)")
+        assertTrue(at > 0, "대화를 고르는 줄을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val pick = win.substring(at, win.indexOf("\n                            }", at))
+        assertTrue("row.title" in pick, "고르는 줄의 범위가 엉뚱한 곳을 잡았다")
+        assertTrue("lastActivity" in pick,
+            "목록이 마지막으로 움직인 때를 안 그린다 — 이백 줄에서 「아까 그 대화」를 찾을 실마리가 없다")
+        assertTrue("RowText.asked(" in pick,
+            "전선의 시각을 그대로 찍는다 — RFC3339 는 UTC 라 보는 사람의 시계와 어긋난다")
+    }
+
 }
