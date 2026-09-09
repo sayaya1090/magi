@@ -44,6 +44,24 @@ export function split(out: string): Look {
 }
 
 /**
+ * How much of the open buffer travels as ambient context.
+ *
+ * ⚠ **The whole buffer used to.** `open-file` goes out on every pause in typing, always — it is
+ * ambient context, not a review, so nobody presses anything for it. The core keeps only the HEAD of
+ * it (`ambientCap`, 8KB) and its comment says why in the memory it saves: *"holding the whole of a
+ * 40MB buffer per session for the daemon's life is memory for nothing."* It clamps on STORE, so its
+ * own memory was safe — and the socket still carried the whole file every 900ms while somebody typed.
+ *
+ * Cutting here changes nothing the model sees: the core keeps the head, and this is the head.
+ * Counted in CHARACTERS against a byte cap on purpose — a character is never fewer than a byte, so
+ * this always carries at least the bytes the core would keep, and the kept slice is identical.
+ */
+export const AMBIENT = 8 * 1024;
+
+/** The head of a buffer, for the ambient slot. Never more than the core will keep. */
+export function ambient(text: string): string { return text.slice(0, AMBIENT); }
+
+/**
  * The buffer as the companion is shown it: `<n><TAB><code>`, one-based, bounded.
  *
  * Numbered because the reply hangs on those numbers, and ABSOLUTE because a clipped buffer would

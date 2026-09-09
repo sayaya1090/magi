@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { split, numbered } from '../core/look';
+import { split, numbered, AMBIENT, ambient } from '../core/look';
 import { WINDOW, around, usable } from '../core/complete';
 
 test('a reply that keeps the contract hangs on its lines', () => {
@@ -115,4 +115,29 @@ test('the overlap a model repeats is not drawn twice', () => {
   assert.equal(usable('return x;', 'const f = () => ret'), 'urn x;');
   assert.equal(usable('brand new', 'nothing alike '), 'brand new');
   assert.equal(usable('   ', 'anything'), '');
+});
+
+/**
+ * ★ The ambient buffer is cut to the head, and the core keeps exactly that head.
+ *
+ * `open-file` goes out on every pause in typing — always, because it is ambient context and nobody
+ * presses anything for it. The core keeps only `ambientCap` (8KB) of the HEAD and says why in the
+ * memory it saves: "holding the whole of a 40MB buffer per session for the daemon's life is memory
+ * for nothing". It clamps on STORE, so its memory was safe while the socket carried the whole file
+ * every 900ms.
+ *
+ * Content-neutral, and that is the point: the core keeps the head, this sends the head. Counted in
+ * characters against a byte cap deliberately — a character is never fewer than a byte, so this always
+ * carries at least the bytes the core keeps and the kept slice is identical.
+ */
+test('the ambient buffer is cut to its head', () => {
+  const big = 'x'.repeat(AMBIENT * 3);
+  assert.equal(ambient(big).length, AMBIENT, 'the whole buffer travels as ambient context');
+  assert.ok(big.startsWith(ambient(big)), 'the tail was kept instead of the head — the core keeps the head');
+  // Under the cap nothing is touched: a small file must arrive whole.
+  assert.equal(ambient('short'), 'short');
+  // Never fewer bytes than the core keeps, whatever the script.
+  const ko = '한'.repeat(AMBIENT);
+  assert.ok(Buffer.byteLength(ambient(ko), 'utf8') >= AMBIENT,
+    'a multi-byte buffer is cut below what the core would keep — the model would see less');
 });

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { split, numbered, Look } from '../core/look';
+import { split, numbered, Look, ambient } from '../core/look';
 import { Companion } from './workspace';
 
 /**
@@ -48,7 +48,9 @@ export class Looking implements vscode.Disposable {
     // even when nobody asked it to look. That is ambient context, not a review.
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => {
-      void this.companion.ask('open-file', { name: doc.uri.fsPath, text: doc.getText() });
+      // The HEAD only. This goes out on every pause in typing and the core keeps 8KB of it; sending
+      // the rest put a whole file on the socket every 900ms for nothing (see `ambient`).
+      void this.companion.ask('open-file', { name: doc.uri.fsPath, text: ambient(doc.getText()) });
       if (vscode.workspace.getConfiguration('magi').get<boolean>('lookWhileTyping', false)) {
         void this.look(doc, false);
       }

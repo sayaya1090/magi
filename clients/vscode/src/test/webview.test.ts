@@ -364,3 +364,19 @@ test('the completion provider reads only the window', () => {
   assert.ok(/doc\.positionAt\(from\)/.test(src) && /doc\.positionAt\(to\)/.test(src),
     'the reader does not use the offsets it is given — its bounds are ignored');
 });
+
+/**
+ * And the ambient push actually cuts. `look.ts` imports `vscode`, so it is read as text.
+ *
+ * The same shape as the completion window one file over: a helper that exists, is tested, and is not
+ * called by the one place it was written for. That gap has been the finding four times this session.
+ */
+test('the ambient push sends only the head of the buffer', () => {
+  const src = fs.readFileSync(path.join(IDE, 'look.ts'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+  const at = src.indexOf("'open-file'");
+  assert.ok(at > 0, 'the ambient push is not where this guard looks for it');
+  const line = src.slice(src.lastIndexOf('\n', at), src.indexOf('\n', at));
+  assert.ok(/ambient\(\s*doc\.getText\(\)\s*\)/.test(line),
+    `the whole buffer goes out on every pause in typing: ${line.trim()}`);
+});
