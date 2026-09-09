@@ -99,6 +99,21 @@ export class Companion implements vscode.Disposable {
   /** Is there anything to talk to right now. Cheap: it does not dial, it looks. */
   async reachable(): Promise<boolean> { return (await this.reach()) !== null; }
 
+  /**
+   * Which reading is the newest one asked for.
+   *
+   * ⚠ **Two askers, one screen.** The poll chains itself, so it never stacks — but `refresh()` runs
+   * beside it, fired by a command that just changed something. Both ask `status` and both write the
+   * answer, and the wire does not promise they come back in the order they were asked (different
+   * connections, and one of them may be waiting on a slow daemon). So the poll's IN-FLIGHT reading,
+   * asked BEFORE the change, could land after the refresh and put the old model back — which is
+   * exactly the "the change did not work" that `refresh` exists to prevent.
+   *
+   * The JetBrains client guards the same overlap with a sequence it checks before drawing
+   * (`pollSeq`: "더 새 틱이 이미 섰다 — 낡은 그림 금지"). Same fact, same shape.
+   */
+  private asked = 0;
+
   /** Poll `status` and tell the screens. One place decides the word (core/activity). */
   watch(everyMs = 2000, idleMs = 10_000): void {
     const tick = async () => {
@@ -112,7 +127,9 @@ export class Companion implements vscode.Disposable {
         // thing a person waits on with a stopwatch.
         next = idleMs;
       } else {
+        const mine = ++this.asked;
         const st = await this.ask('status', this.session ? { session: this.session } : {});
+        if (mine !== this.asked) return;   // a newer reading already landed — no old pictures
         this.set(activity.of(st));
         this.setSetup(activity.setupOf(st));
       }
@@ -129,7 +146,9 @@ export class Companion implements vscode.Disposable {
    */
   async refresh(): Promise<void> {
     if (this.gone) return;
+    const mine = ++this.asked;
     const st = await this.ask('status', this.session ? { session: this.session } : {});
+    if (mine !== this.asked) return;   // see `asked`: an older answer must not overwrite a newer
     this.set(activity.of(st));
     this.setSetup(activity.setupOf(st));
   }
