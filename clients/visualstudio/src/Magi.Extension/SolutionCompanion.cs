@@ -74,6 +74,12 @@ internal sealed class SolutionCompanion : IDisposable
     private async Task<Companion?> ReachAsync(CancellationToken cancel)
     {
         if (_open is not null) return _open;
+        // Read before the gate, not only behind it. Dispose sets this and then disposes the gate,
+        // so a caller that arrives afterwards would otherwise wait on a disposed semaphore and get
+        // an ObjectDisposedException — thrown, on the way out of a window that is already closing.
+        // This narrows that window rather than closing it: whoever is already inside still has to
+        // be caught, and PollAsync is where that happens.
+        if (_disposed) return null;
         await _gate.WaitAsync(cancel).ConfigureAwait(false);
         try
         {

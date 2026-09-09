@@ -125,23 +125,51 @@ internal class ConversationToolWindow : ToolWindow
     /// <remarks>
     /// Polling a companion that does not exist costs a wake-up per tick and tells nobody anything —
     /// a socket appearing is not something a person is waiting on the panel to notice.
+    /// <para>
+    /// Nothing awaits this task — it is started with <c>_ =</c> — so an exception leaving it is not
+    /// reported anywhere at all: it becomes an unobserved task exception inside somebody's IDE
+    /// process, and what they see is a panel frozen on its last reading. A stopped panel showing
+    /// "idle" is indistinguishable from a companion that is idle. Hence the two catches, each with
+    /// one job.
+    /// </para>
     /// </remarks>
     private async Task PollAsync(CancellationToken cancel)
     {
-        while (!cancel.IsCancellationRequested)
+        try
         {
-            var reading = _companion is null
-                ? Activity.Unknown
-                : await _companion.ActivityAsync(cancel).ConfigureAwait(false);
-            _model.Show(reading);
-            var wait = reading.State switch
+            while (!cancel.IsCancellationRequested)
             {
-                ActivityState.NotRunning => TimeSpan.FromSeconds(10),
-                ActivityState.Unknown => TimeSpan.FromSeconds(10),
-                _ => TimeSpan.FromSeconds(2),
-            };
-            try { await Task.Delay(wait, cancel).ConfigureAwait(false); }
-            catch (OperationCanceledException) { return; }
+                Activity reading;
+                try
+                {
+                    reading = _companion is null
+                        ? Activity.Unknown
+                        : await _companion.ActivityAsync(cancel).ConfigureAwait(false);
+                }
+                catch (Exception e) when (e is not OperationCanceledException
+                                            and not ObjectDisposedException)
+                {
+                    // One question that failed is not the end of the asking. Magi.Core already
+                    // folds the expected failures into `unknown`, so anything reaching here is a
+                    // surprise — and a surprise that stops the panel for ever is worse than one
+                    // that puts its own message on the screen.
+                    reading = Activity.Unknown with { Why = e.Message };
+                }
+                _model.Show(reading);
+                var wait = reading.State switch
+                {
+                    ActivityState.NotRunning => TimeSpan.FromSeconds(10),
+                    ActivityState.Unknown => TimeSpan.FromSeconds(10),
+                    _ => TimeSpan.FromSeconds(2),
+                };
+                await Task.Delay(wait, cancel).ConfigureAwait(false);
+            }
+        }
+        catch (Exception e) when (e is OperationCanceledException or ObjectDisposedException)
+        {
+            // The window went while we were asking, or waiting. Both are the normal way this loop
+            // ends and neither is worth reporting — but they have to be caught here, because there
+            // is nowhere else they could be.
         }
     }
 
