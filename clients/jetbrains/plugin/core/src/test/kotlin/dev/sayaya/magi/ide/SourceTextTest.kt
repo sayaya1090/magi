@@ -96,6 +96,54 @@ class SourceTextTest {
             "`about` 의 판 번호를 아무 화면도 안 읽는다 — 와이어에 있는 칸이 화면까지 안 온다")
     }
 
+    /**
+     * **모델 목록이 비면 데몬이 말한 사유가 화면에 온다.**
+     *
+     * `models` 는 백엔드가 5초 안에 답을 못 하면 **`ok = true` 에 빈 목록 + `why`** 로 온다
+     * (`internal/adapter/daemon/doors.go` 의 `answerModels`: "no menu is a better answer than a
+     * stuck one"). 그래서 `ok` 만 보는 화면은 **아무 실패도 못 본다** — 고를 것 없는 콤보가
+     * 서고, 사람은 왜인지 알 길이 없다. 거절이 아니라 **성공에 담겨 오는 실패**다.
+     *
+     * 이 규칙이 계기가 된 것은 정보 카드였다(2026-09-09): 계획 판과 설정 화면은 처음부터
+     * `why` 를 읽고 있었는데 새로 만든 카드만 안 읽었다. 세 자리가 갈리지 않게 못박는다 —
+     * `models()` 를 부르는 자리는 전부 그 답의 `why` 를 읽는다.
+     */
+    @Test
+    fun `모델 목록을 묻는 화면은 못 받은 사유도 읽는다`() {
+        // **부르는 자리만.** 문을 «선언하는» `Companion.kt` 는 `fun models()` 라 점이 없고,
+        // 부르는 쪽은 언제나 `comp.models()` 다 — 그 차이로 가른다(첫 판은 선언을 부름으로 세어
+        // 스스로 걸렸다).
+        val callers = sources.filter { f ->
+            "${File.separator}main${File.separator}" in f.path && ".models()" in f.readText()
+        }
+        assertTrue(callers.size >= 3,
+            "`models()` 를 부르는 자리를 ${callers.size}곳만 찾았다 — 훑기가 죽었다")
+        // ⚠ **파일 전체에서 `why` 를 찾으면 안 된다.** 첫 판이 그랬고, 변이가 살아남았다 —
+        // `MagiToolWindow.kt` 에는 신호등의 `Mood.why` 가 따로 있어서, 카드가 사유를 통째로
+        // 버려도 파일에는 언제나 `why` 가 있었다. 살아남은 것은 변이가 약해서가 아니라 이
+        // 규칙이 **엉뚱한 자리를 보고 있어서**였다. 그래서 **부르는 자리 옆**만 본다.
+        //
+        // 창은 400자. 실측 거리는 51·62·314자다(가장 먼 것은 설정 화면 — 답을 EDT 블록 안에서
+        // 읽는다). 이 창을 넓히면 남의 `why` 가 들어오고, 좁히면 그 화면이 거짓으로 걸린다.
+        //
+        // ⚠ **주석은 걷고 잰다.** 두 번째 판이 그러지 않아 계획 판의 변이가 살아남았다 — 그
+        // 자리의 주석이 마침 "why 는 백엔드가 잠깐 죽었다는 말이라…"라고 설명하고 있어서,
+        // 코드가 사유를 통째로 버려도 낱말은 늘 거기 있었다. 이 파일의 다른 규칙이 같은 함정을
+        // 이미 이름으로 부르고 있다("설명하는 문장이 위반으로 잡힌다" — 거울상이다).
+        val window = 400
+        for (f in callers) {
+            val src = f.readText()
+                .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""//[^\n]*"""), "")
+            for (m in Regex("""\.models\(\)""").findAll(src)) {
+                val near = src.substring(m.range.last + 1, minOf(src.length, m.range.last + 1 + window))
+                assertTrue("why" in near,
+                    "${f.name} 가 `models()` 를 부르고 ${window}자 안에서 답의 `why` 를 안 읽는다 — " +
+                        "백엔드가 죽으면 빈 목록이 이유 없이 선다(`ok` 는 참이라 거절 경로도 안 탄다)")
+            }
+        }
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서

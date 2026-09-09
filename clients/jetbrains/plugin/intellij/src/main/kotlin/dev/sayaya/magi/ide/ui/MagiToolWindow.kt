@@ -1345,8 +1345,18 @@ class MagiToolWindow : ToolWindowFactory {
                     onDaemon { comp ->
                         val f = comp.facts()
                         val ver = comp.about().version
-                        val models = comp.models().let { if (it.ok) it.models.orEmpty() else emptyList() }
-                        val backs = comp.profiles().let { if (it.ok) it.profiles.orEmpty().mapNotNull { p -> p.name } else emptyList() }
+                        // 목록이 비는 데는 이유가 있고, **데몬이 그 이유를 말한다.** `models` 는
+                        // 백엔드가 5초 안에 답을 못 하면 `ok=true` 에 **빈 목록 + why** 로 온다
+                        // (`answerModels` — "no menu is a better answer than a stuck one"). ok 만
+                        // 보면 그 사유가 버려지고, 사람은 고를 것이 없는 콤보 앞에서 왜인지 모른다.
+                        val models = comp.models().let {
+                            if (it.ok && it.why == null) it.models.orEmpty() to null
+                            else emptyList<String>() to (it.why ?: it.error)
+                        }
+                        val backs = comp.profiles().let {
+                            if (it.ok) it.profiles.orEmpty().mapNotNull { p -> p.name } to null
+                            else emptyList<String>() to it.error
+                        }
                         SwingUtilities.invokeLater { showInfo(seat, f, ver, models, backs) }
                     }
                 }
@@ -1357,8 +1367,8 @@ class MagiToolWindow : ToolWindowFactory {
             under: java.awt.Component?,
             f: Companion.Facts,
             version: String?,
-            models: List<String>,
-            backends: List<String>,
+            models: Pair<List<String>, String?>,
+            backends: Pair<List<String>, String?>,
         ) {
             val m = mood
             val card = JBPanel<JBPanel<*>>(java.awt.GridBagLayout()).apply { border = Look.quiet }
@@ -1382,11 +1392,19 @@ class MagiToolWindow : ToolWindowFactory {
             /** 목록이 비면 콤보를 안 세운다 — 고를 것이 없는 콤보는 눌러도 아무 일이 없다. */
             fun picker(
                 now: String?,
-                choices: List<String>,
+                listed: Pair<List<String>, String?>,
                 draw: (String?) -> String = { it.orEmpty() },
                 send: (Companion, String) -> Response,
             ): javax.swing.JComponent {
-                if (choices.isEmpty()) return JBLabel(now?.let(draw)?.ifBlank { null } ?: MagiBundle.msg("set.unsaid"))
+                val (choices, whyNot) = listed
+                // 고를 것이 없으면 콤보를 안 세운다 — 눌러도 아무 일이 없는 콤보는 없는 것만 못하다.
+                // 대신 **왜 없는지**를 그 자리에 적는다: 데몬이 사유를 말했으면 그 말을 옮기고,
+                // 아무 말도 없었으면 지금 값만 그린다.
+                if (choices.isEmpty()) return JBLabel(
+                    (now?.let(draw)?.ifBlank { null } ?: MagiBundle.msg("set.unsaid")) +
+                        (whyNot?.lineSequence()?.first()?.take(80)?.ifBlank { null }
+                            ?.let { "  — " + MagiBundle.msg("chat.info.nolist", it) } ?: "")
+                ).apply { if (whyNot != null) foreground = Look.warn }
                 val box = Look.narrowCombo<String>()
                 // 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — 나가는 값이 프로토콜의 것이어야
                 // 한다(설정 화면이 같은 이유로 같은 모양이다).
@@ -1413,7 +1431,8 @@ class MagiToolWindow : ToolWindowFactory {
             row(MagiBundle.msg("chat.info.model"), picker(f.model, models) { comp, v -> comp.setModel(v) })
             row(MagiBundle.msg("chat.info.backend"), picker(f.backend, backends) { comp, v -> comp.useBackend(v) })
             row(MagiBundle.msg("chat.info.permission"),
-                picker(f.permission, Perms.TOKENS, Perms::label) { comp, v -> comp.setPermission(v) })
+                // 승인 모드의 목록은 프로토콜의 것이라 문에 안 묻는다 — 사유가 있을 수 없다.
+                picker(f.permission, Perms.TOKENS to null, Perms::label) { comp, v -> comp.setPermission(v) })
 
             val acts = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0))
             var popup: com.intellij.openapi.ui.popup.JBPopup? = null
