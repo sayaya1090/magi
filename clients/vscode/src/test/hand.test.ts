@@ -132,3 +132,40 @@ test('the hand has one name', () => {
   assert.equal(HAND_NAME, 'vscode');
   assert.ok(handTools().length >= 3);
 });
+
+/**
+ * ★ An optional argument the description does not mention is one the model cannot use.
+ *
+ * A tool's description is the contract the model reads. A REQUIRED argument is unavoidable — the
+ * schema forces it — but an optional one is invisible unless the words say it is there and what it
+ * does. Two were invisible (measured 2026-09-10 by comparing the two clients' hands field by field):
+ *
+ * - `apply_edit.replaceAll` — and it is not a convenience. Both hands REFUSE an edit whose `old`
+ *   appears more than once unless it is passed ("narrow it, or pass replaceAll"), so a model that
+ *   does not know the flag learns of it only by failing first.
+ * - `problems.path` — omitting it returns diagnostics for every file the editor knows. The
+ *   JetBrains hand has said so since it was written; this one did not, and the whole point of the
+ *   tool is to replace running a build and reading the words.
+ */
+test('every optional argument is explained in the tool that offers it', () => {
+  const tools = handTools();
+  assert.ok(tools.length >= 3, `only ${tools.length} tools — the hand is not where this guard looks`);
+
+  for (const t of tools) {
+    const schema = t.schema as { properties?: Record<string, unknown>; required?: string[] };
+    const props = Object.keys(schema.properties ?? {});
+    assert.ok(props.length > 0, `${t.name} offers no arguments — the scan is reading nothing`);
+    const optional = props.filter((p) => !(schema.required ?? []).includes(p));
+    for (const arg of optional) {
+      assert.ok(t.description.includes(arg),
+        `${t.name} takes an optional \`${arg}\` and never mentions it — the schema offers what the ` +
+        'words hide, and a model only uses what it is told');
+    }
+  }
+
+  // The two that were hidden, named outright so a reader sees the claim without re-deriving it.
+  const edit = tools.find((t) => t.name === 'apply_edit')!;
+  assert.match(edit.description, /replaceAll/, 'the flag that decides whether an ambiguous edit is refused');
+  const problems = tools.find((t) => t.name === 'problems')!;
+  assert.match(problems.description, /[Oo]mit path/, 'that omitting path asks for every file');
+});

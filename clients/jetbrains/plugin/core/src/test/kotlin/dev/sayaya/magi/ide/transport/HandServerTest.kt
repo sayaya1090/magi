@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import kotlinx.serialization.json.JsonArray
 import org.junit.jupiter.api.Test
 import java.net.HttpURLConnection
 import java.net.URI
@@ -54,6 +55,34 @@ class HandServerTest {
         dev.sayaya.magi.ide.model.Wire.json
             .parseToJsonElement(post(s, """{"jsonrpc":"2.0","id":$id,"method":"$method","params":$params}""").second)
             .jsonObject
+
+    /**
+     * **설명이 안 말하는 선택 인자는 모델에게 없는 기능이다.**
+     *
+     * 도구 설명은 모델이 읽는 **계약**이다. 필수 인자는 스키마가 강제하니 피할 수 없지만, 선택
+     * 인자는 **말해 주지 않으면 보이지 않는다.** 하나가 그랬다(2026-09-10, 두 클라이언트의 손을
+     * 칸 단위로 대조): `apply_edit.replaceAll` 은 편의 플래그가 아니라 **애매한 편집이 거절되느냐**를
+     * 가르는데(`old` 가 여러 번 나오면 거절하고 "narrow it, or pass replaceAll" 이라 답한다),
+     * 설명이 그 이름을 안 댔다 — 모르는 모델은 **실패한 뒤에야** 안다.
+     */
+    @Test
+    fun `선택 인자는 그것을 내놓는 도구의 설명이 말한다`() {
+        val tools = Hand(FakeIde()).tools()
+        assertTrue(tools.size >= 3, "도구를 ${tools.size}개만 찾았다 — 이 시험이 손을 못 보고 있다")
+        for (t in tools) {
+            val props = t.schema["properties"]?.jsonObject?.keys.orEmpty()
+            assertTrue(props.isNotEmpty(), "${t.name} 의 인자를 하나도 못 읽었다 — 훑기가 죽었다")
+            val required = (t.schema["required"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+                .mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.toSet()
+            for (arg in props - required) {
+                assertTrue(arg in t.description,
+                    "${t.name} 이 선택 인자 `$arg` 를 받으면서 설명이 그것을 안 말한다 — " +
+                        "스키마가 내놓는 것을 글이 감추면 모델은 안 쓴다")
+            }
+        }
+        assertTrue("replaceAll" in tools.first { it.name == "apply_edit" }.description,
+            "애매한 편집이 거절되느냐를 가르는 플래그를 설명이 안 말한다")
+    }
 
     @Test
     fun `코어가 부르는 넷을 다 견딘다`() {
