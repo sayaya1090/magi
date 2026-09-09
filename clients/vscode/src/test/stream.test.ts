@@ -324,3 +324,53 @@ test('a tool row carries what the call was asked to do', () => {
   assert.ok(/className = 'args'/.test(branch), 'the summary is drawn with no class — it would read as the name');
   assert.ok(/\.args\s*\{/.test(chat), 'the summary has no style — it would read as the name itself');
 });
+
+/**
+ * A tool result answers TWO questions, and the row draws both.
+ *
+ * The core measured this on a live run and wrote it down (`session.ToolResult.Advisory`): a
+ * post-edit hook and a language server set `isError` on purpose — that is what makes the model stop
+ * and act — and `isError` is also what every screen draws its glyph from, so a file that was
+ * written and then linted drew as a write that FAILED. The file was on disk, the model treated it
+ * as done, and both windows said ✗. The fix was to split "did the work happen" from "is there
+ * something to read"; the JetBrains client took it and this one had not even declared the field.
+ *
+ * And the second half: a row that draws ✗ with nothing else names the shape of the trouble and none
+ * of its content, which is what a person opened the transcript for.
+ */
+test('a tool result tells done-with-notes from failed, and says why it failed', () => {
+  const pair = (isError: boolean, extra: Record<string, unknown>): Event[] => [
+    { seq: seq++, type: 'part.appended',
+      data: { part: { kind: 'tool-call', toolCall: { callId: 'c9', name: 'write', args: { path: 'a.ts' } } } } },
+    { seq: seq++, type: 'part.appended',
+      data: { part: { kind: 'tool-result', toolResult: { callId: 'c9', isError, ...extra } } } },
+  ];
+
+  const plain = rows(pair(false, { content: 'wrote 12 lines' }))[0];
+  assert.equal(plain.ok, true);
+  assert.equal(plain.note, undefined, 'an ordinary success is not flagged as having something to read');
+  assert.equal(plain.out, undefined, 'a success carries a failure reason');
+
+  // The measured one: isError AND advisory. The work happened.
+  const linted = rows(pair(true, { advisory: true, content: 'a.ts:3 unused import' }))[0];
+  assert.equal(linted.ok, true, 'a written-then-linted file still draws as a write that failed');
+  assert.equal(linted.note, true, 'nothing marks it as done-with-something-to-read');
+  assert.equal(linted.out, undefined,
+    "an advisory's text is the AGENT's to act on — on the row it paints a success in failure colours");
+
+  // A real failure keeps its words.
+  const broke = rows(pair(true, { content: 'permission denied: /etc/hosts' }))[0];
+  assert.equal(broke.ok, false);
+  assert.equal(broke.out, 'permission denied: /etc/hosts', 'the failure drew ✗ and said nothing else');
+
+  // Read the VALUE, not its rendering — a JSON string stringified again leaves escapes on screen.
+  assert.equal(rows(pair(true, { content: '{"why":"no such file"}' }))[0].out, '{"why":"no such file"}');
+
+  // And the screen draws all three, with the reason under the row.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  assert.ok(/r\.note\s*\?/.test(chat), 'the glyph has two outcomes, not three');
+  const at = chat.indexOf("if (r.who === 'tool' && r.out) {");
+  assert.ok(at > 0, 'nothing draws the failure reason');
+  assert.ok(/\.append\(/.test(chat.slice(at, at + 300)), 'the reason is read and never put on the row');
+  assert.ok(/\.out\s*\{/.test(chat), 'the reason has no style — it would read as the tool name');
+});
