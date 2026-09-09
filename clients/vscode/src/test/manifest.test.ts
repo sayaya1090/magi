@@ -10,6 +10,7 @@ const manifest = JSON.parse(
   contributes: {
     viewsContainers: Record<string, { id: string }[]>;
     views: Record<string, { id: string; type?: string }[]>;
+    commands?: { command: string }[];
   };
 };
 
@@ -487,7 +488,13 @@ test('no command id is registered twice', () => {
     }
   };
   walk(dir);
-  assert.ok(seen.size >= 10, `only ${seen.size} command registrations found — the scan is dead`);
+  // The floor is DERIVED, not a number somebody remembered: every command the manifest declares is
+  // registered somewhere, so a scan that finds fewer has stopped reading a shape. The first cut of
+  // this guard read only `registerCommand(`, found the fifteen written that way, cleared a floor of
+  // ten — and was blind to all twelve in `doors.ts`, which is exactly where the doubling was.
+  for (const id of (manifest.contributes.commands ?? []).map((c) => c.command)) {
+    assert.ok(seen.has(id), `${id} is declared and no registration was found — the scan is missing a shape`);
+  }
   for (const [id, where] of seen) {
     assert.equal(where.length, 1,
       `${id} is registered ${where.length} times (${where.join(', ')}) — registering it twice throws, and the throw takes every other command with it`);
