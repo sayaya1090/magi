@@ -626,15 +626,15 @@ class MagiToolWindow : ToolWindowFactory {
          */
         private fun offerHand() {
             val server = runCatching { HandServer.start(Hand(IdeHand(project))) }.getOrNull()
-                ?: return report("손을 못 세웠다 — 루프백 포트를 못 열었다.")
+                ?: return report(MagiBundle.msg("hand.noport"))
             hand = server
             onDaemon { comp ->
                 val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
                 // 성공은 침묵 — 손이 붙었는지는 링크 점 툴팁이 안다. 거절은 그대로 보인다(§7 다섯째).
                 if (r.ok) {
                     clearNotice()
-                    handSaid("손: " + (r.tools?.joinToString(", ") ?: "붙음"))
-                } else report("손을 못 붙였다 — " + (r.error ?: MagiBundle.msg("common.noreason")))
+                    handSaid(MagiBundle.msg("hand.tools", r.tools?.joinToString(", ") ?: MagiBundle.msg("hand.attached")))
+                } else report(MagiBundle.msg("hand.failed", r.error ?: MagiBundle.msg("common.noreason")))
             }
         }
 
@@ -1123,7 +1123,7 @@ class MagiToolWindow : ToolWindowFactory {
          * 안 눌리는 것보다 나쁘다.
          */
         private fun note(p: Problems.Problem) = SwingUtilities.invokeLater {
-            val head = if (p.advisory) "· 했음(읽을 것 있음)" else "· 실패"
+            val head = MagiBundle.msg(if (p.advisory) "problems.did" else "problems.failed")
             push(problems, head, if (p.advisory) Look.warn else Look.error, bold = true)
             push(problems, " ${p.tool.orEmpty()}", Look.body)
             push(problems, "  #${p.seq}  ${p.at.orEmpty()}", Look.muted)
@@ -1139,9 +1139,9 @@ class MagiToolWindow : ToolWindowFactory {
          * 같다: 판정은 판정의 색이고 이름은 누구인지의 색이다(`console.css`).
          */
         private fun dissent(d: Problems.Dissent) = SwingUtilities.invokeLater {
-            push(problems, "· 카운슬 ", Look.faint)
+            push(problems, MagiBundle.msg("problems.council"), Look.faint)
             push(problems, d.member, Look.seat(d.member) ?: Look.faint, bold = true)
-            push(problems, " 반대", Look.body)
+            push(problems, MagiBundle.msg("problems.against"), Look.body)
             push(problems, "  #${d.seq}  ${d.at.orEmpty()}", Look.muted)
             push(problems, "\n    ${d.why}\n", Look.faint)
             problems.caretPosition = problems.document.length

@@ -268,13 +268,13 @@ class MagiConfigurable(private val project: Project) : Configurable {
         workspace.onDaemon({ tell(MagiBundle.msg("set.failed", it)) }) { comp ->
             val gripes = mutableListOf<String>()
             if (mode != null && read != null && mode != read) comp.setPermission(mode).also {
-                if (!it.ok) gripes += "승인: ${it.error ?: MagiBundle.msg("set.noreason")}"
+                if (!it.ok) gripes += MagiBundle.msg("chat.notsent", MagiBundle.msg("set.gripe.permission"), it.error ?: MagiBundle.msg("set.noreason"))
             }
             if (pick.isNotBlank()) comp.setModel(pick).also {
-                if (!it.ok) gripes += "모델: ${it.error ?: MagiBundle.msg("set.noreason")}"
+                if (!it.ok) gripes += MagiBundle.msg("chat.notsent", MagiBundle.msg("set.gripe.model"), it.error ?: MagiBundle.msg("set.noreason"))
             }
             if (prof.isNotBlank()) comp.useBackend(prof).also {
-                if (!it.ok) gripes += "백엔드: ${it.error ?: MagiBundle.msg("set.noreason")}"
+                if (!it.ok) gripes += MagiBundle.msg("chat.notsent", MagiBundle.msg("set.gripe.backend"), it.error ?: MagiBundle.msg("set.noreason"))
             }
             // 문이 준 키는 **바뀐 것만** 쓴다. 전부 쓰면 안 건드린 키가 그 층에 새로 박혀,
             // 원래 상위 층에서 오던 값이 조용히 고정된다(`source` 가 말하던 그 사실이 사라진다).
@@ -282,7 +282,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
                 val now = doorFields[item.key]?.text?.trim() ?: continue
                 if (now == item.value.orEmpty().trim()) continue
                 comp.configSet(item.key, now).also {
-                    if (!it.ok) gripes += "${item.key}: ${it.error ?: MagiBundle.msg("set.noreason")}"
+                    if (!it.ok) gripes += MagiBundle.msg("chat.notsent", item.key, it.error ?: MagiBundle.msg("set.noreason"))
                 }
             }
             pull(comp)
@@ -387,7 +387,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
             model.addItem("")
             m.models?.forEach { model.addItem(it) }
             model.selectedItem = ""
-            m.why?.let { tell("모델 목록: $it") }
+            m.why?.let { tell(MagiBundle.msg("set.models.why", it)) }
         }
     }
 

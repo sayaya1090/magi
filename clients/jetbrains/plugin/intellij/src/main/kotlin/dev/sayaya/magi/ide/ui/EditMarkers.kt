@@ -35,7 +35,7 @@ internal object EditMarkers {
             val slashed = rel.replace('\\', '/')
             val abs = if (java.nio.file.Paths.get(slashed).isAbsolute) slashed else "$base/$slashed"
             val vf = LocalFileSystem.getInstance().refreshAndFindFileByPath(abs)
-            if (vf == null) { tell(project, "그 파일을 못 찾았다 — $rel"); return@executeOnPooledThread }
+            if (vf == null) { tell(project, MagiBundle.msg("edit.notfound", rel)); return@executeOnPooledThread }
             // content 는 디스크/네트워크를 탈 수 있어 EDT 금지다(이 저장소가 이미 문 자리에서 겪었다).
             val baseText = runCatching {
                 ChangeListManager.getInstance(project).getChange(vf)?.beforeRevision?.content
@@ -58,7 +58,7 @@ internal object EditMarkers {
                         SimpleLocalLineStatusTracker.createTracker(project, doc, vf)
                     }
                 }.getOrElse {
-                    tell(project, "이 IDE 에선 변경 막대를 못 세운다 — 파일만 열었다")
+                    tell(project, MagiBundle.msg("edit.nomarkers"))
                     return@invokeLater
                 }
                 t.setBaseRevision(baseText)

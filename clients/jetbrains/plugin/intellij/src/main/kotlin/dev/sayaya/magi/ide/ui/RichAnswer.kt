@@ -166,7 +166,7 @@ internal object RichAnswer {
                 val over = px + 12 > 4000
                 val h = (px + 12).coerceIn(48, 4000)
                 if (over) javax.swing.SwingUtilities.invokeLater {
-                    holder.toolTipText = "이 답은 판보다 길다 — 아래가 더 있다(에디터로 열면 전부 보인다)"
+                    holder.toolTipText = MagiBundle.msg("answer.more")
                 }
                 javax.swing.SwingUtilities.invokeLater {
                     // 몇 픽셀 흔들림으로 다시 그리지 않는다 — 되먹임을 한 번 겪었으니

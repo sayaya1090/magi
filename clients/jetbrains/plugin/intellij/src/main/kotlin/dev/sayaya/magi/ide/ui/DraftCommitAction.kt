@@ -41,19 +41,19 @@ class DraftCommitAction : AnAction() {
         // 누른 순간의 칸(EDT). 모델 왕복은 수 초라 그동안 사람이 계속 치는 것이 보통 경로다 —
         // 착지 때 이 값과 다르면 덮지 않는다(사라지는 입력 없음 — 컴포저 제안의 그 가드).
         val before = doc?.text
-        Workspace(project).onDaemon({ why -> tell(project, "초안을 못 받았다 — $why") }) { comp ->
+        Workspace(project).onDaemon({ why -> tell(project, MagiBundle.msg("draft.notgot", why)) }) { comp ->
             val r = comp.draftCommit()
             val draft = r.out
             when {
-                !r.ok -> tell(project, "초안을 못 받았다 — ${r.error ?: "사유 없음"}")
-                draft.isNullOrBlank() -> tell(project, "데몬이 빈 초안을 줬다 — 스테이지된 변경이 없을 수 있다")
+                !r.ok -> tell(project, MagiBundle.msg("draft.notgot", r.error ?: MagiBundle.msg("common.noreason")))
+                draft.isNullOrBlank() -> tell(project, MagiBundle.msg("draft.empty"))
                 else -> SwingUtilities.invokeLater {
                     // 다이얼로그가 그새 닫혔으면(disposed) 조용히 죽는 대신 풍선으로 초안을 건넨다.
                     val landed = runCatching {
                         if (doc != null && doc.text != before) false
                         else { box.setCommitMessage(draft); true }
                     }.getOrDefault(false)
-                    if (!landed) tell(project, "칸이 그새 바뀌어 덮지 않았다. 초안:\n$draft")
+                    if (!landed) tell(project, MagiBundle.msg("draft.moved", draft))
                 }
             }
         }
