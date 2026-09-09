@@ -435,3 +435,41 @@ test('the fleet row names what a companion is for, and says when the list is a s
   ] } as unknown as Parameters<typeof fleet>[0]);
   assert.match(drawn[0], /document-structure/, 'the fleet row does not say what the companion is for');
 });
+
+/**
+ * ★ The window's make-up is drawn as shares, not token totals.
+ *
+ * The core states the rule and its reason: the breakdown is a chars/4 estimate even when `used` is
+ * the provider's measured count, so the pieces "will not sum to a measured Used. They are honest as
+ * proportions and dishonest as totals, **which is why the screen draws them as a share of their own
+ * sum and says the reading is an estimate**".
+ *
+ * Measured against a live daemon (2026-09-10): this line printed `tools 23507 · system 2824` —
+ * numbers a person adds up and compares against `used`, which is the arithmetic the core says they
+ * cannot support. Drawn as shares the same reply reads `tools 89% · system 11%`, which says the
+ * thing the totals hid: the window is mostly the tool catalog, not the conversation.
+ */
+test('the window make-up is shares of its own sum, marked as an estimate', () => {
+  const go = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'app', 'context_state.go'), 'utf8');
+  assert.match(go, /honest as proportions and dishonest as totals/,
+    'the core no longer states the rule this guard enforces — re-read before trusting it');
+
+  const said = context({ ok: true, context: {
+    window: 200000, used: 26331, estimated: true, parts: { system: 2824, tools: 23507 },
+  } } as unknown as Parameters<typeof context>[0]);
+  assert.match(said, /tools 89%/, 'the make-up is not drawn as a share of its own sum');
+  assert.match(said, /system 11%/, 'a piece is missing from the make-up');
+  assert.ok(!/23507/.test(said), 'the raw token total is still on screen — a number that cannot be added up');
+  assert.match(said, /est\./, 'the make-up does not say it is an estimate; the flag above is about `used`');
+
+  // No pieces: say nothing rather than draw an empty make-up or a 0%.
+  const bare = context({ ok: true, context: { window: 200000, used: 100 } } as unknown as Parameters<typeof context>[0]);
+  assert.ok(!/made of/.test(bare), 'a companion with no measured make-up is given one');
+
+  // ⚠ Zero is "not known", not "empty" — the core says callers must not draw it as a measurement.
+  const zero = context({ ok: true, context: {
+    window: 200000, used: 100, parts: { system: 0, tools: 50 },
+  } } as unknown as Parameters<typeof context>[0]);
+  assert.ok(!/system/.test(zero), 'a 0 piece is drawn as a measurement — the core says it means "not known"');
+});
