@@ -240,6 +240,30 @@ export function fleet(resp: Response | null): string[] {
  * passed through unchanged: a word from a newer daemon beats a blank, and an invented name sends
  * somebody to the wrong place. Same vocabulary as the JetBrains panel's `Look.originWord`.
  */
+/**
+ * A wire timestamp as a person reads it: local time, and the date when it is not today.
+ *
+ * ⚠ **The conversation list drew `lastActivity` raw.** Measured against a live daemon 2026-09-10:
+ * 241 conversations, every row captioned `2026-09-09T02:19:48Z`. That is UTC — nine hours off the
+ * clock this machine is set to — so somebody scanning for "the one I was in this morning" reads
+ * 02:19 next to a conversation they had at 11:19, and the `T`/`Z` shape is not what a person scans
+ * a list of 241 rows with anyway.
+ *
+ * Same rule and same shape as the JetBrains client's `RowText.asked`, so one fact does not get two
+ * spellings across two screens: the clock alone when it happened today, the date in front of it
+ * otherwise. Unparseable or absent stays empty — a made-up date is worse than no date.
+ */
+export function localStamp(iso: string | undefined, now: Date = new Date()): string {
+  const t = new Date((iso ?? '').trim());
+  if (!iso || Number.isNaN(t.getTime())) return '';
+  const hm = `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`;
+  const sameDay = t.getFullYear() === now.getFullYear() && t.getMonth() === now.getMonth()
+    && t.getDate() === now.getDate();
+  if (sameDay) return hm;
+  const d = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  return `${d} ${hm}`;
+}
+
 export function originWord(origin: string | undefined): string {
   switch ((origin ?? '').trim()) {
     case '': return '';

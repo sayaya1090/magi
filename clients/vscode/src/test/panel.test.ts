@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { carrying, context, fleet, jobs, offers, originWord, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, jobs, localStamp, offers, originWord, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -579,4 +579,37 @@ test('a child says who opened it, and an unknown opener is passed through', () =
  */
 test('the two seats a meeting opens do not draw the same', () => {
   assert.notEqual(originWord('meeting'), originWord('minutes'));
+});
+
+/**
+ * ★ A conversation's time is drawn in the reader's clock, not the wire's.
+ *
+ * Measured against a live daemon 2026-09-10: 241 conversations, every row captioned
+ * `2026-09-09T02:19:48Z`. That is UTC — nine hours off this machine — so somebody looking for the
+ * conversation they had this morning reads 02:19 beside one they had at 11:19. The list is how a
+ * person finds a conversation among two hundred; the timestamp is the only thing that orders it.
+ *
+ * The date comes along when it is not today, because in a list spanning weeks a bare "14:32" says
+ * nothing. Same shape as the JetBrains client's `RowText.asked`, so one fact keeps one spelling.
+ */
+test('a conversation is stamped in local time, with the date when it is not today', () => {
+  const now = new Date('2026-09-10T12:00:00Z');
+  // Built FROM now rather than written out, so this does not depend on the machine's zone.
+  const earlier = new Date(now.getTime() - 60 * 60 * 1000);
+  const hm = `${String(earlier.getHours()).padStart(2, '0')}:${String(earlier.getMinutes()).padStart(2, '0')}`;
+  assert.equal(localStamp(earlier.toISOString(), now), hm, 'today got a date, or the wrong clock');
+
+  const older = new Date(now.getTime() - 30 * 60 * 60 * 1000); // more than a day back in every zone
+  const stamped = localStamp(older.toISOString(), now);
+  assert.match(stamped, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, `an older row drew as: ${stamped}`);
+  assert.ok(!stamped.includes('T') && !stamped.includes('Z'),
+    `the wire's own shape reached the screen: ${stamped}`);
+});
+
+/** Nothing said, or unreadable, stays empty — an invented date is worse than no date. */
+test('an unreadable timestamp is not invented', () => {
+  const now = new Date('2026-09-10T12:00:00Z');
+  assert.equal(localStamp(undefined, now), '');
+  assert.equal(localStamp('', now), '');
+  assert.equal(localStamp('어제쯤', now), '');
 });

@@ -327,3 +327,18 @@ test('the children list draws who opened each child', () => {
   assert.ok(!/\bs\.agent\b/.test(block),
     'the children list keys on `agent`, which is the same word for every child — it discriminates nothing');
 });
+
+/**
+ * And the conversation list actually calls it.
+ *
+ * The third time this session that a helper was written, unit-tested, and could still have been
+ * left uncalled by the screen it was written for. `doors.ts` imports `vscode`, so it is read as text.
+ */
+test('the conversation list stamps its rows in local time', () => {
+  const src = fs.readFileSync(path.join(IDE, 'doors.ts'), 'utf8');
+  const at = src.indexOf("reg('magi.resume'");
+  assert.ok(at > 0, 'the resume command is not where this guard looks for it');
+  const block = src.slice(at, src.indexOf('\n    }),', at));
+  assert.ok(/localStamp\(\s*s\.lastActivity\s*\)/.test(block),
+    'the conversation list draws the wire timestamp raw — UTC, with the T and the Z');
+});

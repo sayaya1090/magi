@@ -3,7 +3,7 @@ import { Companion } from './workspace';
 import { Chat } from './chat';
 import { Row, turnsBack } from '../core/transcript';
 import * as activity from '../core/activity';
-import { jobs as jobsOf, schedules, originWord } from '../core/panel';
+import { jobs as jobsOf, schedules, originWord, localStamp } from '../core/panel';
 import { whyNoCompletion } from '../core/complete';
 
 /**
@@ -251,7 +251,9 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({
           label: (s.title || '(no messages)').split('\n')[0],
-          description: [s.model, s.lastActivity].filter(Boolean).join(' · '),
+          // The time in the reader's own clock. It was the wire's RFC3339 — UTC, with the T and
+          // the Z — and this list is how somebody finds the conversation they had this morning.
+          description: [s.model, localStamp(s.lastActivity)].filter(Boolean).join(' · '),
           id: s.id!,
         })),
         { title: 'magi — resume' },
