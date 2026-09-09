@@ -79,6 +79,34 @@ class ArchitectureTest {
      * 전부 전사 행이어야 한다고 하면 사실을 엉뚱한 화면으로 민다.
      */
     @Test
+    fun `3초마다 도는 폴은 폴의 인내를 쓴다`() {
+        // 인내가 하나면 **틀리는 방향이 하나뿐인 것처럼 보인다.** 모델이 지나는 문은 넉넉해야
+        // 하고(느린 로컬 모델의 정답이 시한 초과로 둔갑한다), 기억에서 답하는 문은 짧아야 한다
+        // — 이 워치독이 있는 사유가 「3초마다 두드리면 스레드가 쌓인다」인데, 2분이면 창 둘이
+        // 3초마다 두드려 첫 하나가 포기하기 전에 마흔 개가 물린다(2026-09-09 실측).
+        //
+        // 두 숫자가 실제로 다른지, 그리고 **3초 폴이 짧은 쪽을 쓰는지**를 본다. 배선은
+        // `intellij` 에 있고 거기엔 시험 소스 세트가 없어 원본을 읽는다.
+        assertTrue(
+            dev.sayaya.magi.ide.transport.DaemonClient.PATIENCE_POLL <
+                dev.sayaya.magi.ide.transport.DaemonClient.PATIENCE_ASK,
+            "폴의 인내가 모델 문의 인내보다 짧지 않다 — 하나로 두면 웨지된 데몬 앞에서 스레드가 쌓인다",
+        )
+
+        for (name in listOf("StatusBar.kt", "PlanToolWindow.kt")) {
+            val f = sources().firstOrNull { it.name == name }
+            assertTrue(f != null, "$name 을 못 찾았다 — 이 가드는 아무것도 안 읽고 있다")
+            val src = f!!.readText()
+            // 3초 시계가 있는 파일만 이 규칙의 대상이다. 없으면 이 시험이 낡은 것이다.
+            assertTrue(Regex("""Timer\(\s*3_000""") in src, "$name 에 3초 시계가 없다 — 이 시험부터 고칠 것")
+            assertTrue(
+                "onDaemonPolling(" in src,
+                "$name 의 3초 폴이 기본 인내(모델 문의 2분)로 붙는다 — 답 안 하는 데몬 앞에서 스레드가 쌓인다",
+            )
+        }
+    }
+
+    @Test
     fun `창 사용량은 문을 먼저 묻고 스트림은 낙하다`() {
         // 스트림의 `context.usage` 는 transient 라 재생이 없다 — 이미 돌고 있는 대화에 붙은 창은
         // 턴이 한 번 돌기 전까지 아무것도 못 본다. 문은 지금 답하므로 **문이 먼저**다. 문 없는
