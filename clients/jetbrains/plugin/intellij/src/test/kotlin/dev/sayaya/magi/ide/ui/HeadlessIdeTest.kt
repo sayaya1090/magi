@@ -23,7 +23,12 @@ class HeadlessIdeTest : BasePlatformTestCase() {
      */
     fun `test 우리 액션들이 등록되어 있고 이름이 있다`() {
         val am = com.intellij.openapi.actionSystem.ActionManager.getInstance()
-        for (id in listOf("magi.lookOver", "magi.attach", "magi.lookNow", "magi.wroteThis", "magi.askConsole")) {
+        for (id in listOf(
+            "magi.lookOver", "magi.attach", "magi.lookNow", "magi.wroteThis", "magi.askConsole",
+            // 데몬을 띄우는 액션. 오래 없었고, 없다는 것이 「자동 기동이 막히면 사람이 할 일이
+            // 없다」였다 — 액션 열둘 중 하나도 그 일을 안 했다.
+            "magi.startDaemon",
+        )) {
             val a = am.getAction(id)
             assertNotNull("액션 $id 가 등록되어 있지 않다", a)
         }
@@ -375,6 +380,41 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         assertEquals("모르는 origin 을 손대면 안 된다", "scout", Look.originWord("scout"))
         for (w in listOf(meeting, minutes)) {
             assertTrue("열쇠가 없어 열쇠 이름이 그대로 찍힌다: $w", !w.startsWith("plan."))
+        }
+    }
+
+    /**
+     * ★ **설정 화면의 「못 붙었다」는 맨 위에 전폭으로, 눈에 띄는 색으로 선다.**
+     *
+     * 사용자 보고(2026-09-09): 그 문장이 판 셋 아래 좁은 칸에 회색으로 서 있어 눈에 안 들어왔다.
+     * 그런데 이 화면에서 가장 중요한 사실이다 — 붙지 않았으면 **아래 칸들이 보여 주는 값이 데몬의
+     * 값이 아니고**, 사람이 그것을 모른 채 OK 를 누르면 화면이 보인 대로 저장된다.
+     *
+     * 세 가지를 잰다: 그 컴포넌트가 **첫 줄**인가(gridy 0), **두 칸을 걸치고 폭을 받나**, 그리고
+     * 색과 글자가 **한 사건**인가 — 색만 남고 문장이 지워지면 화면이 지난 사실을 계속 주장한다.
+     */
+    fun `test 설정 화면의 못 붙었다는 맨 위에 눈에 띄게 선다`() {
+        val cfg = MagiConfigurable(project)
+        val root = cfg.createComponent()!!
+        val layout = root.layout as java.awt.GridBagLayout
+        // 첫 줄에 있는 컴포넌트를 찾는다. 「맨 위」는 자리이지 이름이 아니라, 자리로 잰다.
+        val first = root.components.first { c ->
+            layout.getConstraints(c).gridy == 0
+        }
+        val c = layout.getConstraints(first)
+        assertEquals("가장 중요한 문장이 첫 줄이 아니다", 0, c.gridy)
+        assertEquals("두 칸을 안 걸친다 — 좁은 칸에 접힌다", 2, c.gridwidth)
+        assertTrue("폭을 안 받는다 — 한 줄이 여러 줄로 접힌다", c.weightx > 0.0)
+        assertEquals("폭을 안 채운다", java.awt.GridBagConstraints.HORIZONTAL, c.fill)
+
+        // 색과 글자가 한 사건. 문장을 지우면 색도 돌아와야 한다.
+        val said = first as javax.swing.JTextArea
+        cfg.reset()
+        com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+        // reset 은 데몬을 물어본다. 시험 환경에 데몬이 없으므로 못 붙었다는 문장이 서고, 그때
+        // 색이 눈에 띄는 쪽이어야 한다 — 회색이면 이 커밋이 고친 것이 되돌아간 것이다.
+        if (said.text.isNotBlank() && said.text != " ") {
+            assertEquals("못 붙었다는데 색이 회색이다", Look.warn, said.foreground)
         }
     }
 

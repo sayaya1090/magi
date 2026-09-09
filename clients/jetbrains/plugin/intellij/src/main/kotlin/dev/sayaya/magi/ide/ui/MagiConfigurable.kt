@@ -103,6 +103,18 @@ class MagiConfigurable(private val project: Project) : Configurable {
     override fun createComponent(): JComponent {
         val p = JBPanel<JBPanel<*>>(GridBagLayout()).apply { border = JBUI.Borders.empty(8, 12) }
         var y = 0
+        // **맨 위, 전폭.** 사용자 보고(2026-09-09): 「magi 에 연결할 수 없습니다」가 판 셋 아래
+        // 좁은 칸에 회색으로 서 있어 눈에 안 들어왔다. 그런데 그 문장은 이 화면에서 가장 중요한
+        // 사실이다 — 붙지 않았으면 아래 칸들이 보여 주는 값이 **데몬의 값이 아니다.** 그러니 아래
+        // 무엇보다 먼저 읽혀야 하고, 접히는 칸이라 폭도 다 받아야 한다(좁으면 한 줄이 세 줄로
+        // 접혀 더 안 읽힌다).
+        p.add(said, GridBagConstraints().apply {
+            gridx = 0; gridy = y++; gridwidth = 2
+            anchor = GridBagConstraints.LINE_START
+            fill = GridBagConstraints.HORIZONTAL
+            weightx = 1.0
+            insets = Insets(0, 0, 8, 0)
+        })
         fun head(text: String) {
             p.add(Look.gutter(text), GridBagConstraints().apply {
                 gridx = 0; gridy = y; gridwidth = 2; anchor = GridBagConstraints.LINE_START
@@ -170,10 +182,6 @@ class MagiConfigurable(private val project: Project) : Configurable {
         row(MagiBundle.msg("set.more"), Look.note(MagiBundle.msg("set.more.none"), Look.body))
         // 플릿·대기 작업은 여기 없다 — 설정보다 자주 보는 것이라 우측 magi 판이 그 자리다
         // (사용자가 세운 빈도 기준, docs/UI.ko.md §4.2).
-        p.add(said, GridBagConstraints().apply {
-            gridx = 0; gridy = y; gridwidth = 2; anchor = GridBagConstraints.LINE_START
-            insets = Insets(12, 0, 0, 0)
-        })
         return p
     }
 
@@ -282,7 +290,8 @@ class MagiConfigurable(private val project: Project) : Configurable {
             LocalPrefs.setComplete(project, autoComplete.isSelected)
             LocalPrefs.setSuggest(project, composerSuggest.isSelected)
             LocalPrefs.setAutostart(project, autostart.isSelected)
-            tell(if (gripes.isEmpty()) MagiBundle.msg("set.applied") else gripes.joinToString(" · "))
+            if (gripes.isEmpty()) tell(MagiBundle.msg("set.applied"))
+            else tell(gripes.joinToString(" · "), trouble = true)
             SwingUtilities.invokeLater { model.selectedItem = ""; backend.text = "" }
         }
     }
@@ -290,7 +299,7 @@ class MagiConfigurable(private val project: Project) : Configurable {
     override fun reset() {
         sayOutside() // 데몬을 안 기다리는 줄이 먼저다 — 못 붙는 워크스페이스에서도 이 경고는 선다
         local() // 이 화면의 스위치도 데몬을 안 기다린다 — 아래 사유
-        workspace.onDaemon({ tell(MagiBundle.msg("set.unreachable", it)) }) { comp -> pull(comp); tell(" ") }
+        workspace.onDaemon({ tell(MagiBundle.msg("set.unreachable", it), trouble = true) }) { comp -> pull(comp); tell(" ") }
     }
 
     /**
@@ -382,5 +391,19 @@ class MagiConfigurable(private val project: Project) : Configurable {
         }
     }
 
-    private fun tell(text: String) = SwingUtilities.invokeLater { said.text = text }
+    /**
+     * 이 화면의 한 문장.
+     *
+     * ⚠ **색과 글자는 한 사건이다.** 눈에 띄는 색만 남고 문장이 지워지거나 그 반대이면, 화면이
+     * 지난 사실을 계속 주장한다 — 이 트리가 되풀이해 값을 치른 그 모양이다. 그래서 둘을 같은
+     * 자리에서 정한다.
+     *
+     * 색을 쓰는 이유. 이 저장소는 색을 아껴 쓴다(대기는 오류가 아니므로 상태 표시줄은 색을 안
+     * 쓴다). 그런데 여기는 다르다: 붙지 않았으면 **아래 칸들이 보여 주는 값이 데몬의 값이 아니고**,
+     * 사람이 그것을 모른 채 OK 를 누르면 화면이 보인 대로 저장된다. 읽히지 않으면 안 되는 문장이다.
+     */
+    private fun tell(text: String, trouble: Boolean = false) = SwingUtilities.invokeLater {
+        said.text = text
+        said.foreground = if (trouble) Look.warn else Look.faint
+    }
 }
