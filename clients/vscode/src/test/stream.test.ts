@@ -374,3 +374,51 @@ test('a tool result tells done-with-notes from failed, and says why it failed', 
   assert.ok(/\.append\(/.test(chat.slice(at, at + 300)), 'the reason is read and never put on the row');
   assert.ok(/\.out\s*\{/.test(chat), 'the reason has no style — it would read as the tool name');
 });
+
+/**
+ * Every verdict makes a row, and the row says how they voted.
+ *
+ * Three defects, measured by putting the two ports' row models side by side (JetBrains carries 24
+ * fields, this one carried 14):
+ *
+ *  - a verdict with no prose pushed no row, so a member who voted with nothing to add vanished and
+ *    a council of three drew as a council of two — with nothing saying a seat was missing;
+ *  - `decision` was dropped, which is the one thing a vote IS;
+ *  - `round` was dropped, so three rounds of three members read as one block.
+ *
+ * The rule about the empty case is the sibling's, and it is written from a live report: a verdict
+ * marked `silent` arrived carrying a full rationale, and the shaper drew the fallback words instead
+ * of the ones that came. Prose that arrived is never replaced.
+ */
+test('every council verdict makes a row, and it carries the vote', () => {
+  const verdict = (d: Record<string, unknown>): Event =>
+    ({ seq: seq++, type: 'council.verdict', data: d });
+
+  const spoke = rows([verdict({ member: 'Melchior', round: 2, decision: 'continue', rationale: 'the test is blind' })])[0];
+  assert.equal(spoke.who, 'council');
+  assert.equal(spoke.text, 'the test is blind');
+  assert.equal(spoke.decision, 'continue', 'the row does not say how they voted');
+  assert.equal(spoke.round, 2, 'the row does not say which round');
+
+  // The one that used to vanish.
+  const quiet = rows([verdict({ member: 'Casper', round: 1, decision: 'abstain', silent: true })]);
+  assert.equal(quiet.length, 1, 'a verdict with nothing to say produced no row — the seat vanished');
+  assert.equal(quiet[0].decision, 'abstain');
+  assert.ok(quiet[0].text.trim(), 'the row is there and blank — nothing says why it is empty');
+
+  // Prose that arrived is never replaced by the fallback, even when `silent` is set.
+  const both = rows([verdict({ member: 'Balthasar', silent: true, rationale: 'the backend timed out twice' })])[0];
+  assert.equal(both.text, 'the backend timed out twice',
+    'a rationale that arrived was thrown away for the fallback — the live report behind this rule');
+
+  // A verdict that says nothing at all is still a row, not an absence.
+  assert.equal(rows([verdict({ member: 'Melchior' })]).length, 1);
+
+  // And the screen shows the vote. Carrying it into a field nobody paints is the same defect.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf("const vote = r.who === 'council'");
+  assert.ok(at > 0, 'the label never builds a vote — the row carries it and nothing draws it');
+  const line = chat.slice(at, at + 200);
+  assert.ok(/r\.decision/.test(line) && /r\.round/.test(line), 'the label leaves out the vote or the round');
+  assert.ok(/label: who \+ vote/.test(chat), 'the vote is built and never joined to the label');
+});
