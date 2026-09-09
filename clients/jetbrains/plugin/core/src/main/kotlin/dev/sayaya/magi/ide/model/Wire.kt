@@ -412,6 +412,15 @@ data class ContextState(
      * 그래서 총량만 보고 대화를 접는 사람은 안 줄어드는 쪽을 접는다.
      */
     val parts: ContextParts? = null,
+    /**
+     * 마지막 접기의 조각들 — 자세한 내용이 아직 로그에 남아 있는 주제들.
+     *
+     * 접기는 대화를 요약으로 바꾸는 일이라, 수만 적으면 **손실만 알린 셈**이다. 코어는 자세한
+     * 내용을 로그에 두고 `recall_context` 로 되불러 오며, 이름을 대는 것이 그 차이라고 적어
+     * 뒀다 — 토픽은 *"what «the detail is not lost» means concretely, and **naming them is the
+     * difference between that claim and a promise**"*.
+     */
+    val topics: List<String>? = null,
 )
 
 /**

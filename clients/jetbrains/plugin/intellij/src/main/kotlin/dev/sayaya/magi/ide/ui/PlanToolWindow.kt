@@ -270,7 +270,13 @@ class PlanToolWindow : ToolWindowFactory {
             ctx.text = seen?.let {
                 MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
             } ?: MagiBundle.msg("plan.usage.none")
-            ctxParts.text = makeup(seen?.parts)
+            // 무엇으로 찼나 + 접었으면 무엇이 아직 남아 있나. 접기 수만 적으면 손실만 알린
+            // 셈이고, 이름을 대는 것이 「자세한 내용은 안 잃었다」를 약속에서 사실로 만든다.
+            ctxParts.text = listOf(
+                makeup(seen?.parts),
+                seen?.topics?.takeIf { it.isNotEmpty() }
+                    ?.let { MagiBundle.msg("plan.usage.kept", it.joinToString(", ")) }.orEmpty(),
+            ).filter { it.isNotBlank() }.joinToString("\n")
             ctxParts.isVisible = ctxParts.text.isNotBlank()
             v?.modelNow()?.let { now ->
                 painting = true
@@ -300,7 +306,7 @@ class PlanToolWindow : ToolWindowFactory {
                 ctxFromDoor = asked?.takeIf { it.window > 0 }
                     ?.let {
                         dev.sayaya.magi.ide.usecase.Rows.Ctx(
-                            it.used, it.window, it.used * 100.0 / it.window, it.parts,
+                            it.used, it.window, it.used * 100.0 / it.window, it.parts, it.topics,
                         )
                     }
             }

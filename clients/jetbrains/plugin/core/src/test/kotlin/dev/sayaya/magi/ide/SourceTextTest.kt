@@ -266,8 +266,14 @@ class SourceTextTest {
         assertTrue("fun makeup(" in panel, "조각을 글로 옮기는 자리가 없다")
         for (n in names) assertTrue("p.$n" in panel, "화면이 `$n` 을 안 그린다")
         // ⚠ **제 컴포넌트로 그린다.** 총량 라벨(JBLabel)에 붙이면 개행이 안 그려져 조용히 사라진다.
-        assertTrue("ctxParts.text = makeup(" in panel,
-            "조각을 제 컴포넌트에 안 그린다 — 총량 라벨에 붙이면 화면에서 사라진다")
+        // ⚠ **정확한 식이 아니라 성질을 묻는다.** 첫 판은 그 식을 글자 그대로 찾았는데,
+        // 그 줄에 「접은 뒤 남은 주제」가 더해지자 앵커가 깨졌다 — 규칙의 뜻은 그대로인데.
+        val assign = panel.indexOf("ctxParts.text =")
+        assertTrue(assign > 0, "조각을 제 컴포넌트에 안 그린다 — 총량 라벨에 붙이면 화면에서 사라진다")
+        assertTrue("makeup(" in panel.substring(assign, minOf(panel.length, assign + 300)),
+            "제 컴포넌트에 조각이 아닌 것을 그린다 — 조각은 어디로 갔나")
+        assertFalse(Regex("ctx\\.text[^\\n]{0,80}makeup\\(").containsMatchIn(panel),
+            "조각을 총량 라벨에 붙였다 — `JBLabel` 은 개행을 안 그려 그 줄이 화면에서 사라진다")
         assertTrue(Regex("""val ctxParts = Look\.flow\(\)""").containsMatchIn(panel),
             "조각 줄이 접히는 칸이 아니다 — 한 줄 라벨이면 좁은 판에서 잘린다")
     }
@@ -301,6 +307,34 @@ class SourceTextTest {
         // 둘을 한 수로 접지 않았는지 — 접으면 「이미 하나가 돌고 있다」가 안 보인다.
         assertFalse(Regex("""r\.waiting\s*\+""").containsMatchIn(where),
             "둘을 한 수로 접었다 — 라우팅의 셈이지 사람이 읽을 말이 아니다")
+    }
+
+    /**
+     * **접었으면 무엇이 아직 남아 있는지도 말한다.**
+     *
+     * 접기는 대화를 요약으로 바꾸는 일이라 수만 적으면 손실만 알린 셈이다. 코어는 자세한 내용을
+     * 로그에 두고 `recall_context` 로 되불러 오며, **이름을 대는 것이 그 차이**라고 적어 뒀다 —
+     * 토픽은 *"what «the detail is not lost» means concretely, and naming them is the difference
+     * between that claim and a promise."*
+     *
+     * ⚠ 이 칸이 여기 없던 것은 **한쪽으로만 도는 가드** 때문이다: VS Code 의 `manual.test.ts` 는
+     * 젯브레인 매뉴얼이 이름 대는 기능을 저쪽 이식 표가 판정하게 강제하지만, **그 반대 방향은
+     * 아무도 안 잰다.** 그래서 VS Code 에 먼저 선 기능은 이쪽에서 조용히 빠진다.
+     */
+    @Test
+    fun `접은 뒤 남은 주제가 전선에서 화면까지 온다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val st = File(core, "internal/app/context_state.go")
+        assertTrue(st.isFile, "코어의 컨텍스트 상태를 못 찾았다(${st.absolutePath})")
+        assertTrue(Regex("""Topics \[\]string\s+`json:"topics,omitempty"`""").containsMatchIn(st.readText()),
+            "코어가 `topics` 를 이 규칙이 읽는 모양으로 안 싣는다")
+
+        val wire = code(sources.first { it.name == "Wire.kt" })
+        assertTrue("val topics: List<String>?" in wire, "와이어가 주제를 안 받는다 — 화면까지 올 길이 없다")
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("it.topics" in panel, "문의 답에서 주제를 안 꺼낸다")
+        assertTrue("seen?.topics" in panel, "화면이 주제를 안 그린다 — 나르는 것과 그리는 것은 다르다")
+        assertTrue("plan.usage.kept" in panel, "주제를 적을 글자가 없다")
     }
 
     @Test

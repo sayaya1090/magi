@@ -683,6 +683,8 @@ class Rows {
         val percent: Double,
         /** 창을 무엇이 채우나 — 문에서만 온다(스트림의 `context.usage` 는 총량만 싣는다). */
         val parts: dev.sayaya.magi.ide.model.ContextParts? = null,
+        /** 마지막 접기가 남겨 둔 주제들 — 문에서만 온다. */
+        val topics: List<String>? = null,
     )
 
     private fun str(e: LogEvent, key: String): String? =
