@@ -155,4 +155,13 @@ test('a question raises an ask, with its options', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   assert.ok(/a\.kind === 'permission'/.test(chat), 'the screen no longer tells the two kinds apart');
   assert.ok(/a\.options/.test(chat), "the screen never draws a question's shortcuts");
+
+  // Which of how many. The core says why it travels: a viewer "has no other way to know that
+  // answering this one leads to another", and somebody who answers the first of five otherwise
+  // believes they are done. Carried since the kind was fixed and drawn by nothing until now —
+  // the ninth time in this session that a field reached a row and no screen.
+  assert.ok(/a\.total > 1/.test(chat), 'the screen never says which of how many — and never that there are more');
+  assert.ok(/a\.index/.test(chat), 'the position is not drawn, only the count');
+  // Only when there is more than one: "(1/1)" beside a lone question is noise pretending to inform.
+  assert.ok(!/a\.total >= 1|a\.total > 0/.test(chat), 'a lone question is labelled "(1/1)"');
 });

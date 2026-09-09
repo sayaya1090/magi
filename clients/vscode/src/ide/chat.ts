@@ -323,6 +323,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     max-height:12em; overflow:auto; white-space:pre-wrap; }
   #ask pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding-left:6px; }
   #ask .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
+  /* Which of how many. Dimmer than the question — it places it, it is not it. */
+  #ask .at { color:var(--vscode-descriptionForeground); }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
@@ -368,8 +370,18 @@ function drawAsk(a) {
   const w = document.createElement('div');
   w.className = 'what';
   askEl.append(w);
+  /* Where this sits in the run the call is asking: (3/5). The core says why it travels — a viewer
+     "has no other way to know that answering this one leads to another" — and without it somebody
+     who answers the first question of five believes they are done. Only when there IS more than
+     one: "(1/1)" beside a lone question is noise pretending to be information. */
+  if (a.total > 1) {
+    const n = document.createElement('span');
+    n.className = 'at';
+    n.textContent = ' (' + a.index + '/' + a.total + ')';
+    w.append(n);
+  }
   if (a.kind === 'permission') {
-    w.textContent = 'magi wants to run: ' + a.what;
+    w.prepend('magi wants to run: ' + a.what);
     /* WHAT is being allowed, not a description of it. Without this a person presses allow knowing
        only the tool's name — the place where the most is riding on the answer was the one drawn
        with the least. The args are the thing itself; the reason is prose about why the policy
@@ -399,7 +411,7 @@ function drawAsk(a) {
     return;
   }
   /* A question wants a sentence, not a verdict. Options are shortcuts to one. */
-  w.textContent = a.what;
+  w.prepend(a.what);
   for (const opt of a.options || []) {
     const b = document.createElement('button');
     b.textContent = opt;
