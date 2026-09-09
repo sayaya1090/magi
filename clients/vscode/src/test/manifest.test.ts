@@ -245,7 +245,13 @@ test('the panel draws the note it is sent', () => {
     'the page is handed the state and reaches inside it for a note that is not there');
   const at = body.indexOf('function drawState(');
   assert.ok(at > 0, 'the drawing function is not where this guard looks for it');
-  const fn = body.slice(at, body.indexOf('\nfunction ', at + 1));
+  const whole = body.slice(at, body.indexOf('\nfunction ', at + 1));
+  // ⚠ **Past the bail-out.** Reading a key to DECIDE is not drawing it — a mutation proved it:
+  // replacing `append(note.text + ' ')` with `append('')` left `!note.text` standing in the early
+  // return, and a scan of the whole function found the name and passed while the sentence was gone.
+  const bail = whole.indexOf('return;');
+  assert.ok(bail > 0, 'the drawing function no longer bails out — re-read this guard');
+  const fn = whole.slice(bail);
   for (const k of keys) {
     assert.ok(new RegExp(`\\.${k}\\b`).test(fn),
       `panelNote returns \`${k}\` and the panel never reads it — it crosses to the page and dies there`);
