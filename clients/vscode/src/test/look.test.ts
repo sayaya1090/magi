@@ -58,9 +58,38 @@ test('the buffer is cut on a line boundary, never mid-line', () => {
 });
 
 test('a completion is asked with both sides of the cursor', () => {
-  const { prefix, suffix } = around('abcdef', 3);
+  const { prefix, suffix } = around((f, t) => 'abcdef'.slice(f, t), 3);
   assert.equal(prefix, 'abc');
   assert.equal(suffix, 'def');
+});
+
+/**
+ * ★ **Only the window is read, not the buffer.**
+ *
+ * It took the whole text, and the one caller produced that text with `doc.getText()` — the entire
+ * document, on every pause in typing, with all but the window thrown away straight after. The
+ * function's own sentence ("the file is not") was true of what it SENT and false of what was read.
+ * The core says the same thing about the cost — "the buffer travels on every pause in typing" — and
+ * the JetBrains client had the same shape in the same place, fixed in the same wave.
+ *
+ * So the reader is watched: it must be asked for two bounded slices around the cursor and nothing
+ * else. A test that only checked the returned strings could not see this — the old one passed
+ * throughout.
+ */
+test('only the window around the cursor is read', () => {
+  const asked: [number, number][] = [];
+  const { prefix, suffix } = around((f, t) => { asked.push([f, t]); return 'x'.repeat(t - f); }, 50_000, 4000);
+  assert.deepEqual(asked, [[46_000, 50_000], [50_000, 54_000]],
+    'the reader was asked for something other than the two windows');
+  assert.equal(prefix.length, 4000);
+  assert.equal(suffix.length, 4000);
+});
+
+/** At the very start there is nothing behind the cursor — and no negative offset is asked for. */
+test('the window is clamped at the start of the buffer', () => {
+  const asked: [number, number][] = [];
+  around((f, t) => { asked.push([f, t]); return ''; }, 10, 4000);
+  assert.deepEqual(asked, [[0, 10], [10, 4010]], 'a negative offset was asked for');
 });
 
 test('the overlap a model repeats is not drawn twice', () => {

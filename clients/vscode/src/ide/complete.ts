@@ -13,8 +13,13 @@ export function inlineCompletion(companion: Companion): vscode.Disposable {
   const provider: vscode.InlineCompletionItemProvider = {
     async provideInlineCompletionItems(doc, pos, _ctx, token) {
       if (!vscode.workspace.getConfiguration('magi').get<boolean>('complete', false)) return null;
-      const text = doc.getText();
-      const args = around(text, doc.offsetAt(pos));
+      // Only the window is read. `doc.getText()` with no range is the whole document — copied on
+      // every pause in typing, with all but the window thrown away straight after. `positionAt`
+      // clamps an offset past either end, so no bounds arithmetic is needed here.
+      const args = around(
+        (from, to) => doc.getText(new vscode.Range(doc.positionAt(from), doc.positionAt(to))),
+        doc.offsetAt(pos),
+      );
       if (!args.prefix.trim()) return null;
       const resp = await companion.ask('complete', { name: doc.uri.fsPath, args });
       // Cancelled means the person kept typing. Their next keystroke has already asked again, and

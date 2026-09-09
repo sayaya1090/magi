@@ -9,12 +9,36 @@ export interface CompleteArgs {
   suffix: string;
 }
 
-/** Bounded on each side. The window either side of a cursor is what helps; the file is not. */
-export function around(text: string, offset: number, budget = 4000): CompleteArgs {
-  const at = Math.max(0, Math.min(offset, text.length));
+/**
+ * How much of the buffer travels, per side.
+ *
+ * One owner for the number: the provider needs it to bound its READ, and `around` needs it to bound
+ * what it sends. Two copies would drift and the larger one would silently win.
+ */
+export const WINDOW = 4000;
+
+/**
+ * Bounded on each side. The window either side of a cursor is what helps; the file is not.
+ *
+ * ⚠ **Takes a READER, not the whole buffer.** It used to take the text, and the one caller obtained
+ * that text with `doc.getText()` — the entire document, on every pause in typing, so a 40,000-line
+ * file was copied whole and then all but 8,000 characters of it thrown away. The sentence above was
+ * true of what was SENT and false of what was read. The core makes the same point about the cost
+ * ("the buffer travels on every pause in typing"), and the JetBrains client had the same shape in
+ * the same place.
+ *
+ * A reader keeps the arithmetic here, where it is tested, and lets the caller hand over only the
+ * slice its editor can produce cheaply.
+ */
+export function around(
+  read: (from: number, to: number) => string,
+  offset: number,
+  budget = WINDOW,
+): CompleteArgs {
+  const at = Math.max(0, offset);
   return {
-    prefix: text.slice(Math.max(0, at - budget), at),
-    suffix: text.slice(at, at + budget),
+    prefix: read(Math.max(0, at - budget), at),
+    suffix: read(at, at + budget),
   };
 }
 
