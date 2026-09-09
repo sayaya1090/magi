@@ -223,6 +223,32 @@ export function fleet(resp: Response | null): string[] {
 }
 
 /** How full the window is. */
+/**
+ * Who opened a child conversation, in a word a person reads.
+ *
+ * ⚠ **`agent` does not tell children apart, and the core says so in the field's own comment:** every
+ * child records the same word ("spawn" — a constant in `internal/app/spawn.go`), and a live run
+ * proved it by bringing a meeting room back as `agent="spawn"`. `origin` is the discriminator —
+ * "meeting" for a room this companion holds as a participant, the spawning tool's actor otherwise.
+ *
+ * That difference is not cosmetic. A subagent is work THIS conversation delegated; a meeting room is
+ * a conversation somebody ELSE convened and this companion is sitting in. The list drew them
+ * identically, so the only way to tell was to open one.
+ *
+ * A meeting opens TWO children — the seat that talks and the seat that writes it down — so leaving
+ * the raw words in place would put two look-alike rows on the list per meeting. An unknown origin is
+ * passed through unchanged: a word from a newer daemon beats a blank, and an invented name sends
+ * somebody to the wrong place. Same vocabulary as the JetBrains panel's `Look.originWord`.
+ */
+export function originWord(origin: string | undefined): string {
+  switch ((origin ?? '').trim()) {
+    case '': return '';
+    case 'meeting': return 'meeting';
+    case 'minutes': return 'minutes';
+    default: return origin!.trim();
+  }
+}
+
 export function context(resp: Response | null): string {
   if (!resp?.ok) return '';
   const c = (resp.context ?? null) as

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { carrying, context, fleet, jobs, offers, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, jobs, offers, originWord, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -545,4 +545,38 @@ test('a schedule that runs a command is told apart from one that asks', () => {
   assert.match(runs.line, /\$ go build \.\/\.\.\./, `a command job drew as: ${runs.line}`);
   assert.ok(!asks.line.includes('$'), `a prompt job was marked as a command: ${asks.line}`);
   assert.match(asks.line, /저장소를 훑어 본다/);
+});
+
+/**
+ * ★ A child conversation says WHO opened it, and `agent` is not who.
+ *
+ * The core states the trap in the field's own comment: every child records the same `agent`
+ * ("spawn", a constant), and a live run proved it by bringing a meeting room back as `agent=spawn`.
+ * `origin` is the discriminator — "meeting" for a room this companion holds as a participant, the
+ * spawning tool's actor otherwise.
+ *
+ * Not cosmetic: a subagent is work THIS conversation delegated, a meeting room is a conversation
+ * somebody ELSE convened and this companion is sitting in. This client's list drew them the same,
+ * so the only way to tell was to open one. The JetBrains panel has split them since it grew the row.
+ */
+test('a child says who opened it, and an unknown opener is passed through', () => {
+  assert.equal(originWord('meeting'), 'meeting');
+  assert.equal(originWord('minutes'), 'minutes');
+  // A word from a newer daemon beats a blank, and an invented name sends somebody to the wrong
+  // place — so it is passed through, not folded into "child" or dropped.
+  assert.equal(originWord('scout'), 'scout');
+  // Nothing said stays nothing. An origin invented here would claim knowledge the reply never gave.
+  assert.equal(originWord(undefined), '');
+  assert.equal(originWord('   '), '');
+});
+
+/**
+ * And the two seats a meeting opens are told apart.
+ *
+ * A meeting opens TWO children — the seat that talks and the seat that writes it down. If both drew
+ * as one word, every meeting would put two look-alike rows on the list and neither would say which
+ * was which.
+ */
+test('the two seats a meeting opens do not draw the same', () => {
+  assert.notEqual(originWord('meeting'), originWord('minutes'));
 });

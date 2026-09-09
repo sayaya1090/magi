@@ -302,3 +302,28 @@ test('every field the ask carries is drawn on the card', () => {
       `the ask carries ${f} and the card never reads it — the field crosses the wire and dies here`);
   }
 });
+
+/**
+ * ★ The children list actually CALLS the word-maker.
+ *
+ * A lesson this session paid for twice, in the other client and then here: a function existing and
+ * being tested is not the screen using it. `originWord` can be unit-tested all day while the picker
+ * builds its rows without it, and nothing fails — the list simply goes on drawing a meeting room and
+ * a subagent identically.
+ *
+ * `doors.ts` imports `vscode`, so no test can load it. Read as text, like the JetBrains client reads
+ * its own untestable module. Scoped to the children command, so another command's use of the word
+ * cannot vouch for this one.
+ */
+test('the children list draws who opened each child', () => {
+  const src = fs.readFileSync(path.join(IDE, 'doors.ts'), 'utf8');
+  const at = src.indexOf("reg('magi.children'");
+  assert.ok(at > 0, 'the children command is not where this guard looks for it');
+  const block = src.slice(at, src.indexOf('\n    }),', at));
+  assert.ok(/originWord\(\s*s\.origin\s*\)/.test(block),
+    'the children list does not put the opener on the row — a meeting room and a subagent draw the same');
+  // And not from `agent`, which the core says tells them apart not at all: every child records the
+  // same word, and a live run brought a meeting room back as agent="spawn".
+  assert.ok(!/\bs\.agent\b/.test(block),
+    'the children list keys on `agent`, which is the same word for every child — it discriminates nothing');
+});

@@ -3,7 +3,7 @@ import { Companion } from './workspace';
 import { Chat } from './chat';
 import { Row, turnsBack } from '../core/transcript';
 import * as activity from '../core/activity';
-import { jobs as jobsOf, schedules } from '../core/panel';
+import { jobs as jobsOf, schedules, originWord } from '../core/panel';
 import { whyNoCompletion } from '../core/complete';
 
 /**
@@ -299,7 +299,13 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       if (!list.length) { void vscode.window.showInformationMessage('magi: this conversation has no children.'); return; }
       const pick = await vscode.window.showQuickPick(
         list.filter((s) => s.id).map((s) => ({
-          label: (s.title || '(no messages)').split('\n')[0], description: s.id!.slice(-6), id: s.id!,
+          label: (s.title || '(no messages)').split('\n')[0],
+          // WHO opened it, before the id. A meeting room and a subagent are different things —
+          // one is work this conversation delegated, the other a conversation somebody else
+          // convened — and this list drew them the same, so the only way to tell was to open one.
+          // `origin` is the discriminator and `agent` is not; the core's own comment says why.
+          description: [originWord(s.origin), s.id!.slice(-6)].filter(Boolean).join(' · '),
+          id: s.id!,
         })),
         { title: 'magi — child conversations' },
       );
