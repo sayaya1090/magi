@@ -697,6 +697,8 @@ class Rows {
         val parts: dev.sayaya.magi.ide.model.ContextParts? = null,
         /** 마지막 접기가 남겨 둔 주제들 — 문에서만 온다. */
         val topics: List<String>? = null,
+        /** 몇 번 접혔나 — 문에서만 온다. 0 은 「아직 안 접혔다」이고 모름이 아니다. */
+        val compactions: Int = 0,
     )
 
     private fun str(e: LogEvent, key: String): String? =

@@ -421,6 +421,16 @@ data class ContextState(
      * difference between that claim and a promise**"*.
      */
     val topics: List<String>? = null,
+    /**
+     * **몇 번 접혔나.** 코어가 이 칸에 `omitempty` 를 안 붙였다 — 물으면 언제나 온다.
+     *
+     * 안 읽고 있었다. 그래서 이 판은 접기의 **결과**(`topics`, 「아직 남아 있음: …」)만 그리고
+     * 접기가 있었다는 **사실**은 안 그렸다 — 위로만 있고 무엇에 대한 위로인지가 없었다.
+     * 코어가 왜 이것이 볼 값인지 적어 뒀다: 접기는 *"the one moment a companion silently stops
+     * knowing something"* 이고, 네 번 접힌 컴패니언은 *"one whose earlier reasoning a person
+     * should not assume is still there"* — 감독의 사실이라는 것이다.
+     */
+    val compactions: Int = 0,
 )
 
 /**

@@ -135,10 +135,16 @@ class WireConformanceTest {
         // 안 읽는 칸과 그 사유. 클래스별로 묶는다 — 사유가 같으면 한 줄이 정직하다.
         val skipped = mapOf(
             "ContextState" to setOf(
-                // 판은 띠 하나로 「얼마나 찼나」만 그린다. 무엇이 채우고 있나(parts·topics)는
-                // 콘솔의 몫이고, 여기 슬롯이 없다 — 없는 자리에 값을 끌어오면 안 그려질 뿐이다.
-                "model", "messages", "parts", "topics", "shed", "cached", "cacheReported",
-                "compactions", "lastAt", "lastBefore", "lastAfter",
+                // 모델은 상태 표시줄이 `status` 에서 받아 그린다 — 같은 사실을 두 문에서 받아
+                // 두 자리에 그리면 둘이 갈린다. 메시지 수는 이 판에 슬롯이 없다.
+                "model", "messages",
+                // 접기 **한 번의 크기**(lastBefore·lastAfter)와 **총합**(shed). 접혔다는 사실과
+                // 남은 주제는 그리고 이 셋은 안 그린다 — 좁은 판에서 숫자 셋을 더 세우면 읽히는
+                // 것이 줄고, 「얼마나 잃었나」는 전사를 여는 사람의 물음이다.
+                "shed", "lastAt", "lastBefore", "lastAfter",
+                // 백엔드 캐시. 코어가 침묵과 0 을 갈라 싣는데(이 기본 백엔드는 침묵한다) 이 판에
+                // 그 셋을 정직하게 그릴 자리가 아직 없다 — 자리를 만드는 날 같이 읽는다.
+                "cached", "cacheReported",
             ),
             // 회의(meet/meet-join)를 이 클라이언트는 아직 안 한다. 붙이는 날 이 줄이 지워진다.
             "Request" to setOf("minutes", "room", "keep", "owner"),
@@ -167,6 +173,21 @@ class WireConformanceTest {
             if (gap.isNotEmpty()) missed += "$cls: ${gap.sorted()}"
         }
         assertTrue(checked >= 10, "짝지어 본 클래스가 ${checked}개뿐이다 — 훑을 것이 없으면 이 시험은 늘 초록이다")
+
+        // ★ **면제도 늙는다.** 위 목록은 「안 읽는다」는 **주장**이고, 칸을 나중에 읽기 시작해도
+        // 줄은 그대로 남는다 — 그러면 파일에 거짓 사유가 서 있고, 무엇보다 그 칸이 **다시 안
+        // 읽히게 됐을 때** 아무도 안 운다. 면제가 조용히 면제를 넓히는 것이다.
+        //
+        // 실제로 그랬다: `parts`·`topics` 는 「콘솔의 몫이고 여기 슬롯이 없다」는 사유와 함께
+        // 적혀 있었는데, 그 사이 둘 다 선언되고 그려졌다. 이제 **읽는 칸을 면제에 적으면 운다.**
+        val stale = skipped.flatMap { (cls, names) ->
+            names.filter { it in kt[cls].orEmpty() }.map { "$cls.$it" }
+        }
+        assertTrue(
+            stale.isEmpty(),
+            "이 칸들은 「안 읽는다」고 적혀 있는데 실제로는 선언돼 있다 — 사유가 낡았고, 면제가 " +
+                "살아 있는 한 이 칸이 다시 빠져도 아무도 안 운다: ${stale.sorted()}",
+        )
         assertTrue(
             missed.isEmpty(),
             "데몬이 이 칸들을 보내는데 선언이 없어 **읽을 수가 없다** — 화면에 닿을 길이 없고 " +

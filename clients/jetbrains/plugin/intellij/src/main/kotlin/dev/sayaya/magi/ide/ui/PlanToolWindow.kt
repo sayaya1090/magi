@@ -275,6 +275,13 @@ class PlanToolWindow : ToolWindowFactory {
             // 셈이고, 이름을 대는 것이 「자세한 내용은 안 잃었다」를 약속에서 사실로 만든다.
             ctxParts.text = listOf(
                 makeup(seen?.parts),
+                // **접혔다는 사실을 먼저.** 이 줄은 오래도록 접기의 *결과*만 그렸다 — 「아직
+                // 남아 있음: …」은 위로인데, 무엇에 대한 위로인지가 화면에 없었다. 코어가 왜
+                // 이것이 볼 값인지 적어 뒀다: 접기는 컴패니언이 조용히 무언가를 그만 아는 그
+                // 한 순간이고, 네 번 접힌 컴패니언의 앞선 판단이 아직 남아 있다고 넘겨짚으면
+                // 안 된다는 것이다.
+                seen?.compactions?.takeIf { it > 0 }
+                    ?.let { MagiBundle.msg("plan.usage.folded", it) }.orEmpty(),
                 seen?.topics?.takeIf { it.isNotEmpty() }
                     ?.let { MagiBundle.msg("plan.usage.kept", it.joinToString(", ")) }.orEmpty(),
             ).filter { it.isNotBlank() }.joinToString("\n")
@@ -308,6 +315,7 @@ class PlanToolWindow : ToolWindowFactory {
                     ?.let {
                         dev.sayaya.magi.ide.usecase.Rows.Ctx(
                             it.used, it.window, it.used * 100.0 / it.window, it.parts, it.topics,
+                            it.compactions,
                         )
                     }
             }
