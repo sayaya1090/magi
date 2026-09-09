@@ -1277,4 +1277,26 @@ class SourceTextTest {
             "$name:$line 이 나이를 말로 바꾸지 않고 쓴다 — 초가 화면에 그대로 간다: ${text.trim()}")
     }
 
+    /**
+     * ★ **접기의 결과를 그리는 자리는 접혔다는 사실도 그린다.**
+     *
+     * 「아직 남아 있음: …」은 접기에 대한 위로다. 그것만 그리면 화면에 위로는 있고 무엇에 대한
+     * 위로인지는 없다 — 실제로 오래 그랬다.
+     *
+     * 그리는 자리가 `intellij` 모듈이라 시험 소스셋이 없다. 선언만 잰 시험(`WireConformanceTest`)
+     * 은 칸이 **선언됐는지**만 알고 **그려지는지**는 모른다 — 오늘 이 세션에서 그 틈에 두 번
+     * 걸렸다. 그래서 그리는 자리를 글자로 본다.
+     */
+    @Test
+    fun `접기의 결과를 그리는 자리는 접힌 횟수도 그린다`() {
+        val win = sources.first { it.name == "PlanToolWindow.kt" }.readText()
+        val at = win.indexOf("ctxParts.text = listOf(")
+        assertTrue(at > 0, "창 요약을 그리는 자리를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val block = win.substring(at, win.indexOf(").filter", at))
+        assertTrue("topics" in block, "이 자리가 접기의 결과를 안 그린다 — 범위가 엉뚱한 곳을 잡았다")
+        assertTrue("compactions" in block,
+            "접기의 결과(topics)는 그리면서 접혔다는 사실(compactions)은 안 그린다 — " +
+                "화면에 위로만 서고 무엇에 대한 위로인지가 없다")
+    }
+
 }
