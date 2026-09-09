@@ -54,6 +54,15 @@ export interface Row {
    */
   note?: boolean;
   /**
+   * Council rows only: which round, and how that member voted (`done | continue | abstain`).
+   *
+   * The decision IS the verdict — a row that carries only the prose says who spoke and what they
+   * said, and leaves out the one thing a vote is. And three rounds of three members is nine rows
+   * that look alike unless the round is on them. The JetBrains client carries both.
+   */
+  round?: number;
+  decision?: string;
+  /**
    * Tool rows only: WHY it failed, as the tool said it.
    *
    * A row that draws ✗ and nothing else tells a person the shape of the trouble and none of its
@@ -202,9 +211,23 @@ export function rows(events: Event[]): Row[] {
         break;
       }
       case 'council.verdict': {
-        const member = String(d.member ?? '');
-        const text = String(d.feedback ?? d.rationale ?? '').trim();
-        if (text) out.push({ seq: e.seq, who: 'council', text, member });
+        // ⚠ **A verdict always makes a row.** This used to push one only when there was prose, so a
+        // member who voted with nothing to add vanished — and a council of three drew as a council
+        // of two, with nothing saying a seat was missing. The core has a word for the empty case
+        // (`silent`: nobody gave this verdict — backend down, deadline, unreadable reply), and that
+        // is a fact worth a row of its own, not an absence.
+        //
+        // The prose that DID arrive is never dropped. The JetBrains client's comment records the
+        // live report behind that rule — a `silent: true` verdict arrived with a full rationale and
+        // its shaper drew the fallback words instead of the ones that came. So: rationale first
+        // whenever it is there, and the fallback only for a genuinely empty one.
+        const text = String(d.feedback ?? d.rationale ?? '').trim()
+          || (d.silent === true ? 'no answer came back' : '');
+        out.push({
+          seq: e.seq, who: 'council', text, member: String(d.member ?? ''),
+          round: Number(d.round) || undefined,
+          decision: String(d.decision ?? '').trim() || undefined,
+        });
         break;
       }
       /**

@@ -526,9 +526,14 @@ vs.postMessage({ kind: 'ready' });
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
 function paint(r: Row): Row & { label: string } {
   const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase() : r.who;
+  // A council row's label carries the vote and the round. Without them nine rows over three rounds
+  // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
+  const vote = r.who === 'council'
+    ? (r.decision ? ` ${r.decision}` : '') + (r.round ? ` r${r.round}` : '')
+    : '';
   // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.
   const mark = r.who !== 'tool' || r.ok === undefined ? '' : r.note ? ' ⚑' : r.ok ? ' ✓' : ' ✗';
-  return { ...r, label: who + mark };
+  return { ...r, label: who + vote + mark };
 }
