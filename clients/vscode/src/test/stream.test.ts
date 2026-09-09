@@ -270,3 +270,57 @@ test('the composer picks steer or submit from that fact, not from status', () =>
   assert.ok(!/resetForNewTopLevel/.test(app.slice(app.indexOf('func (a *App) Steer('),
     app.indexOf('func (a *App) Steer(') + 900)), 'Steer now resets too — the two doors stopped differing');
 });
+
+/**
+ * A tool row says WHICH call it was, not just what kind.
+ *
+ * Measured against the sibling: the JetBrains client draws the name, a status glyph and a one-line
+ * summary of the arguments, and has since it grew a tool row. This client drew the name alone — so
+ * a turn running thirty commands was thirty rows reading `bash ✓`, and the transcript could not
+ * answer the one question it exists for.
+ *
+ * The summary is bounded and it is never invented: no arguments means no summary, and the row is
+ * the bare name again — which is the truth about a call that was given none.
+ */
+test('a tool row carries what the call was asked to do', () => {
+  const call = (name: string, args: unknown): Event =>
+    ({ seq: seq++, type: 'part.appended',
+       data: { part: { kind: 'tool-call', toolCall: { callId: 'c1', name, args } } } });
+
+  const [bash] = rows([call('bash', { command: 'go test ./... -count=1' })]);
+  assert.equal(bash.text, 'bash');
+  assert.equal(bash.args, 'go test ./... -count=1', 'the row does not say which command it ran');
+
+  // The daemon may send args as a JSON string rather than an object — both are the same fact.
+  const [read] = rows([call('read', '{"path":"internal/app/app.go"}')]);
+  assert.equal(read.args, 'internal/app/app.go', 'a string-encoded argument was not read');
+
+  // Nothing recognised: keep the raw shape rather than dropping it. "No summary" is the defect.
+  const [odd] = rows([call('weird', { zork: 'frobnicate' })]);
+  assert.ok(odd.args && odd.args.includes('frobnicate'), 'an unrecognised argument vanished');
+
+  // Nothing to say stays nothing. An invented summary would be worse than a bare name.
+  assert.equal(rows([call('todowrite', {})])[0].args, undefined);
+  assert.equal(rows([call('council', null)])[0].args, undefined);
+
+  // One line, bounded — a summary that wraps is not a summary.
+  const long = rows([call('write', { path: 'a'.repeat(400) })])[0].args!;
+  assert.ok(long.length <= 101, `the summary is ${long.length} chars — it is a paragraph, not a line`);
+  assert.ok(!rows([call('bash', { command: 'one\ntwo\nthree' })])[0].args!.includes('\n'),
+    'the summary carries a newline — it will break the row it sits in');
+
+  // And the screen actually draws it.
+  //
+  // ⚠ "the source mentions r.args" is not that. The first cut of this asserted exactly that, and a
+  // mutation that disabled the branch (`if (false && r.who === 'tool' && r.args)`) walked straight
+  // through: the mention survives, the drawing does not. Same blind spot as "bound, so it must be
+  // read" and "declared, so it must be read" — presence is not effect. So the CONDITION is pinned,
+  // and the body is checked for the append that makes it visible.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf("if (r.who === 'tool' && r.args) {");
+  assert.ok(at > 0, 'the tool-row branch is gone or has been rewritten — it must test r.args and nothing else');
+  const branch = chat.slice(at, at + 400);
+  assert.ok(/\.append\(/.test(branch), 'the branch reads the summary and never puts it on the row');
+  assert.ok(/className = 'args'/.test(branch), 'the summary is drawn with no class — it would read as the name');
+  assert.ok(/\.args\s*\{/.test(chat), 'the summary has no style — it would read as the name itself');
+});
