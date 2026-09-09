@@ -20,6 +20,8 @@ export class Companion implements vscode.Disposable {
   private readonly setupChanged = new vscode.EventEmitter<activity.Setup>();
   readonly onSetup = this.setupChanged.event;
   private setup: activity.Setup = {};
+  /** What to call the person, when something renamed them. Empty means nobody has. */
+  get you(): string | undefined { return this.setup.user; }
   /**
    * The conversation the poll asks about.
    *

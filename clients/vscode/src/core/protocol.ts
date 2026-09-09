@@ -88,6 +88,8 @@ export interface Response {
    * screen could say "attached" and never what was attached. The JetBrains client has read this
    * field since it grew the same button.
    */
+  /** `status`: what to call the person, when a plugin renamed them (`magi.set_user_label`). */
+  user?: string;
   tools?: string[];
   /** `about` only: the daemon's wire version and what it will answer. */
   proto?: number;

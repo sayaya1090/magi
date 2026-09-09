@@ -98,6 +98,20 @@ export interface Setup {
   model?: string;
   backend?: string;
   permission?: string;
+  /**
+   * What to call the person, when something has renamed them.
+   *
+   * An SSO-style plugin injects the authenticated username with `magi.set_user_label`, the engine
+   * latches it, and `status` answers with it — a runtime fact, held in the memory of the process
+   * with the run and nowhere else, which is why it comes down this wire rather than out of a
+   * config file. The core's own note says an empty label is never broadcast and the UI keeps its
+   * "you" fallback, so this is present-or-absent, never blank.
+   *
+   * Unread until now: the daemon filled it, both IDE clients dropped it, and every screen called
+   * the person "user" no matter who had logged in. The ide-bridge's copy of this same function has
+   * carried it all along.
+   */
+  user?: string;
 }
 
 export function setupOf(resp: Response | null): Setup {
@@ -113,6 +127,7 @@ export function setupOf(resp: Response | null): Setup {
   put('model', resp.model);
   put('backend', resp.backend);
   put('permission', resp.permission);
+  put('user', resp.user);
   return out;
 }
 

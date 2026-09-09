@@ -85,7 +85,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private draw(): void {
     this.post({
       kind: 'rows',
-      rows: rows(this.events).map(paint),
+      rows: rows(this.events).map((r) => paint(r, this.companion.you)),
       ask: pendingAsk(this.events),
       refs: this.refs.map(refText),
     });
@@ -528,8 +528,12 @@ vs.postMessage({ kind: 'ready' });
 }
 
 /** The one place a row gets its visible label, so two screens cannot spell it differently. */
-function paint(r: Row): Row & { label: string } {
-  const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase() : r.who;
+function paint(r: Row, you?: string): Row & { label: string } {
+  // The person's own name when something has told us one. Every screen said "user" at whoever
+  // had logged in, because the field the daemon fills for exactly this was never read.
+  const who = r.who === 'council' && seat(r.member) ? r.member!.toLowerCase()
+    : r.who === 'user' && you ? you
+    : r.who;
   // A council row's label carries the vote and the round. Without them nine rows over three rounds
   // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
   const vote = r.who === 'council'
