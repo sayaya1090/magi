@@ -861,10 +861,23 @@ class PlanToolWindow : ToolWindowFactory {
             if (r.handling) MagiBundle.msg("plan.companions.busy") else "",
             if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else "",
         ).filter { it.isNotBlank() }.joinToString("")
+        // **무엇을 하는 곳인가.** 코어가 이 칸이 전선을 타는 이유를 적어 뒀다 — "Does NAMES those
+        // things… **a name is enough to pick a companion out of a roster**". 이 행이 바로 그
+        // 로스터이고, 사람이 좌클릭으로 일을 건네기 전에 읽는 자리다. 라이브 실측(2026-09-10)에서
+        // word·excel·powerpoint 세 행이 「idle · sonnet」로 **구별이 안 됐다**.
+        //
+        // ⚠ `can` 은 `does.size` 가 아니다 — 코어가 수를 따로 싣는 이유가 "A **SAMPLE** when there
+        // are more than MaxDoes" 라, 일곱 중 셋을 보인 행은 그렇다고 말해야 한다.
+        val does = r.does.orEmpty().filter { it.isNotBlank() }
+        val offers = if (does.isEmpty()) "" else {
+            val head = does.take(3)
+            val rest = maxOf(r.can, does.size) - head.size
+            "  · " + head.joinToString(", ") + (if (rest > 0) " +$rest" else "")
+        }
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
         val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds) else ""
         val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
-        return JBLabel(name + role + state + load + where + share + seen).apply {
+        return JBLabel(name + role + state + load + offers + where + share + seen).apply {
             foreground = when {
                 r.sighting -> Look.muted
                 r.state == "waiting" -> Look.primary
