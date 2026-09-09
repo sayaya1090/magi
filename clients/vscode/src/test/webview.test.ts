@@ -377,6 +377,8 @@ test('the ambient push sends only the head of the buffer', () => {
   const at = src.indexOf("'open-file'");
   assert.ok(at > 0, 'the ambient push is not where this guard looks for it');
   const line = src.slice(src.lastIndexOf('\n', at), src.indexOf('\n', at));
-  assert.ok(/ambient\(\s*doc\.getText\(\)\s*\)/.test(line),
+  // ⚠ The WHOLE argument, not merely a call somewhere in it. A mutation proved the difference:
+  // `ambient(doc.getText()) + doc.getText()` contains the call and sends the whole buffer anyway.
+  assert.ok(/text:\s*ambient\(doc\.getText\(\)\)\s*[,}]/.test(line),
     `the whole buffer goes out on every pause in typing: ${line.trim()}`);
 });
