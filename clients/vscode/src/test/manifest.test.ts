@@ -272,3 +272,47 @@ test('no webview message is sent to nobody or awaited from nobody', () => {
     }
   }
 });
+
+/**
+ * ★ Every event name this client branches on is a real event type.
+ *
+ * A `switch` on `e.type` and an `if (e.type === …)` both fall through silently on a name that does
+ * not exist: it compiles, no test touches it, and that one branch simply never runs. The JetBrains
+ * client got this guard first, for the same reason and after the same near-miss — the tool that
+ * measured it was wrong about `compaction` because its pattern required a dot.
+ *
+ * ⚠ **Names without a dot are events too** (`compaction`, `error`). They are pinned in the
+ * self-check below: a measuring tool that has died always answers "clean".
+ */
+test('every event name the client branches on exists in the core', () => {
+  const ev = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'event.go'), 'utf8');
+  const known = new Set([...ev.matchAll(/Type[A-Za-z]+\s+Type\s*=\s*"([a-z][a-z0-9.]*)"/g)].map((m) => m[1]));
+  assert.ok(known.size >= 20, `only ${known.size} event types read from the core — the parser is stale`);
+
+  const dir = path.join(__dirname, '..', '..', 'src');
+  const walk = (d: string): string[] => fs.readdirSync(d, { withFileTypes: true }).flatMap((e) =>
+    e.isDirectory() ? (e.name === 'test' ? [] : walk(path.join(d, e.name)))
+      : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);
+  const named = new Map<string, string>();
+  for (const f of walk(dir)) {
+    const body = fs.readFileSync(f, 'utf8')
+      .replace(/\/\*(?:(?!\*\/)[\s\S])*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    for (const m of body.matchAll(/e\.type (?:===|!==) '([a-z][a-z0-9.]*)'|case '([a-z][a-z0-9.]*)':/g)) {
+      const n = m[1] ?? m[2];
+      if (n) named.set(n, path.relative(dir, f));
+    }
+  }
+  // The self-check, including the two whose names carry no dot.
+  for (const must of ['part.appended', 'turn.finished', 'part.delta', 'todos.changed', 'compaction']) {
+    assert.ok(named.has(must), `the guard did not see the branch on "${must}" — it is measuring nothing`);
+  }
+
+  // Only dotted names are judged: a bare word in a `case` is as likely to be a part kind or a
+  // message kind, and mixing the vocabularies is how a guard reports a defect that is not there.
+  for (const [name, where] of named) {
+    if (!name.includes('.')) continue;
+    assert.ok(known.has(name),
+      `${where} branches on event "${name}", which the core does not have — that branch never runs`);
+  }
+});
