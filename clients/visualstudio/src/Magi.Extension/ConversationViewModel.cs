@@ -1,3 +1,4 @@
+using System.Runtime.Serialization;
 using Magi.Core;
 using Microsoft.VisualStudio.Extensibility.UI;
 
@@ -12,7 +13,20 @@ namespace Magi.Extension;
 /// or event handlers. So there is nowhere to put logic beside the view: everything the panel shows
 /// has to arrive here as a property, and everything it does has to be a command. That is not a
 /// style preference — it is what the platform leaves.
+/// <para>
+/// ⚠ <b><c>DataContract</c> and <c>DataMember</c> are not decoration.</b> The panel is drawn in
+/// Visual Studio's process against a <i>proxy</i> of this object, and the documentation is plain
+/// that "only <c>DataMember</c> properties of a serializable type can be databound to" — the
+/// attributes are what say which members to replicate into that proxy. Without them nothing is
+/// replicated and the failure is silent in the worst way: the XAML parses, the panel draws, the
+/// static text and the buttons appear, and every bound value is simply blank. Measured 2026-09-10
+/// in an experimental instance — a rendered panel with two empty lines at the top of it, and no
+/// error anywhere. A binding that resolves to nothing also takes the property's default with it:
+/// <see cref="StartVisibility"/> never arrived, so WPF used <c>Visible</c> and the panel offered to
+/// start a companion for a solution it had not asked about.
+/// </para>
 /// </remarks>
+[DataContract]
 public class ConversationViewModel : NotifyPropertyChangedObject
 {
     private string _state = ActivityState.Unknown;
@@ -24,6 +38,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     private bool _busy;
 
     /// <summary>The raw word, for anything that wants to branch on it.</summary>
+    [DataMember]
     public string State
     {
         get => _state;
@@ -31,6 +46,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     }
 
     /// <summary>The sentence a person reads. One vocabulary — see <see cref="Activity.Label"/>.</summary>
+    [DataMember]
     public string Label
     {
         get => _label;
@@ -45,6 +61,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     /// poll, the other when somebody changes a setting — and folding them makes every tick redraw a
     /// footer that did not move.
     /// </remarks>
+    [DataMember]
     public string Detail
     {
         get => _detail;
@@ -52,6 +69,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     }
 
     /// <summary>What the person is typing.</summary>
+    [DataMember]
     public string Draft
     {
         get => _draft;
@@ -67,6 +85,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     /// <c>watch</c> (<c>docs/IDE_BRIDGE</c> §5). Showing a receipt and saying so beats drawing an
     /// empty panel that looks broken.
     /// </remarks>
+    [DataMember]
     public string LastAnswer
     {
         get => _lastAnswer;
@@ -93,9 +112,11 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     /// view needs is computed here instead. The visibility is a word because WPF converts a string
     /// to the enum on the way in.
     /// </remarks>
+    [DataMember]
     public bool CanSend => !_busy;
 
     /// <summary>Drawn only when nobody is listening.</summary>
+    [DataMember]
     public string StartVisibility => State == ActivityState.NotRunning ? "Visible" : "Collapsed";
 
     /// <summary>
@@ -106,13 +127,16 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     /// the failure it guards against is silent: a companion answering perfectly well for a
     /// different directory looks exactly like the right one.
     /// </remarks>
+    [DataMember]
     public string Workspace
     {
         get => _workspace;
         set => SetProperty(ref _workspace, value);
     }
 
+    [DataMember]
     public IAsyncCommand? Send { get; set; }
+    [DataMember]
     public IAsyncCommand? StartCompanion { get; set; }
 
     /// <summary>Take one reading, and move only what moved.</summary>

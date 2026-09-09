@@ -31,7 +31,17 @@
   <ItemGroup>
     <!-- The menu name lives here, and nothing finds it by convention. Undeclared, this file is
          invisible twice over: the generator cannot check the %key% (a key that exists nowhere
-         builds clean) and the packager cannot ship it, so the menu draws the percent signs. -->
-    <Content Include="string-resources.json" />
+         builds clean) and the packager cannot ship it, so the menu draws the percent signs.
+
+         VSIXSubPath is not decoration. Declaring the file was enough to get it INTO the vsix, and
+         it landed at the package root — where the shell does not look. The documented location is
+         `.vsextension/string-resources.json` (locale folders, e.g. `.vsextension/ko/`, beside it;
+         the root one is the fallback). Measured 2026-09-10 in an experimental instance: with the
+         file at the package root the build was clean, the vsix contained it, every %key% resolved
+         against it in test — and View > Other Windows drew
+         "%Magi.OpenConversation.DisplayName%", percent signs and all. -->
+    <Content Include="string-resources.json">
+      <VSIXSubPath>.vsextension</VSIXSubPath>
+    </Content>
   </ItemGroup>
 </Project>
