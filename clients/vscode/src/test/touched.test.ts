@@ -164,4 +164,25 @@ test('a question raises an ask, with its options', () => {
   assert.ok(/a\.index/.test(chat), 'the position is not drawn, only the count');
   // Only when there is more than one: "(1/1)" beside a lone question is noise pretending to inform.
   assert.ok(!/a\.total >= 1|a\.total > 0/.test(chat), 'a lone question is labelled "(1/1)"');
+
+  // The grounds it was asked on. The core says twice why they travel: "a prompt whose grounds
+  // stayed behind is the one this exists to stop", and a decision's reasons are what somebody
+  // comes back for a month later. Both IDE clients dropped them.
+  const grounded = pendingAsk([{ seq: 1, type: 'question.requested', data: {
+    callId: 'q2', question: 'ship it?',
+    report: [{ key: 'risk', text: 'two callers untested' }, { key: 'cost', text: 'one hour' }],
+  } }])!;
+  assert.deepEqual(grounded.report,
+    [{ key: 'risk', text: 'two callers untested' }, { key: 'cost', text: 'one hour' }],
+    'the grounds stayed behind — the prompt arrives as a bare sentence');
+  // An empty ground is not a ground: a blank line above the buttons reads as a reason given.
+  assert.deepEqual(
+    pendingAsk([{ seq: 1, type: 'question.requested',
+      data: { callId: 'q3', question: 'x', report: [{ key: 'k', text: '  ' }] } }])!.report, []);
+  assert.equal(pendingAsk([{ seq: 1, type: 'question.requested',
+    data: { callId: 'q4', question: 'x' } }])!.report, undefined);
+
+  // And they are drawn, above the buttons — they are what the decision is made FROM.
+  assert.ok(/a\.report \|\| \[\]/.test(chat), 'the grounds are carried and no screen draws them');
+  assert.ok(/\.ground\b/.test(chat), 'the grounds have no style — they would read as the question');
 });
