@@ -191,6 +191,32 @@ class RowTextTest {
         assertEquals("", RowText.asked("아까", now))
     }
 
+    /**
+     * ★ **가십으로 본 줄은 그 사실이 얼마나 오래된 것인지 말한다 — 초가 아니라 말로.**
+     *
+     * 코어가 그 칸에 규칙을 적어 뒀다: 나이 없이 상태를 그리는 화면은 모르는 것을 아는 척하는
+     * 것이다. 가십이 한 시간에 걸쳐 삭으므로 이 수의 정상 범위가 0~3600 이고, 그래서 초를 날것으로
+     * 찍으면 대부분이 「3540초 전 확인」이었다. VS Code 쪽은 아예 나이를 안 그리고 있었다.
+     */
+    @Test
+    fun `본 지 얼마나 됐는지는 말로 적는다`() {
+        assertEquals("<1m", RowText.ago(0))
+        assertEquals("<1m", RowText.ago(59))
+        assertEquals("1m", RowText.ago(60))
+        assertEquals("59m", RowText.ago(3540))
+        assertEquals("1h", RowText.ago(3600))
+        assertEquals("2h 1m", RowText.ago(7260))
+        // 초가 새어 나오면 이 규칙이 없애려던 그 꼴이다.
+        assertTrue(Regex("""\d+s""").find(RowText.ago(3540)) == null, "초가 화면까지 샌다")
+    }
+
+    /** 말 안 한 나이에 신선함을 지어내지 않는다 — 「방금」은 삭은 줄을 잰 줄처럼 보이게 한다. */
+    @Test
+    fun `말 안 한 나이는 빈 글자다`() {
+        assertEquals("", RowText.ago(null))
+        assertEquals("", RowText.ago(-1))
+    }
+
     @Test
     fun `읽히는 시각은 나노초 없이 선다`() {
         val t = RowText.clock("2026-08-31T01:02:03.123456789Z")

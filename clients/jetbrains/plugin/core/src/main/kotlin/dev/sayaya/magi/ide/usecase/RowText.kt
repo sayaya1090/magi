@@ -72,6 +72,30 @@ object RowText {
         }.getOrNull()
     }.orEmpty()
 
+    /**
+     * **가십으로 본 것이 얼마나 오래된 사실인가**, 사람이 한눈에 읽는 말로.
+     *
+     * 전선이 싣는 것은 초이고, 코어가 그 칸에 규칙을 적어 뒀다 — *"A screen that shows a state
+     * without its age is claiming to know something it cannot"*. 가십은 한 시간에 걸쳐 삭으므로
+     * 이 수의 정상 범위가 0~3600 이고, 그래서 초를 날것으로 찍으면 대부분의 시간을
+     * 「3540초 전 확인」 같은 꼴로 보낸다. 실제로 그렇게 찍고 있었다.
+     *
+     * **없는 신선함을 지어내지 않는다**: 음수나 말 안 한 값은 빈 글자다. 「방금」은 삭은 줄을
+     * 잰 줄처럼 보이게 만드는 딱 하나의 주장이다.
+     */
+    fun ago(seconds: Long?): String {
+        val s = seconds ?: return ""
+        if (s < 0) return ""
+        // 「방금」이 아니라 「1분 미만」이다. 문구가 "seen {0} ago" 라 「방금」을 넣으면
+        // "seen just now ago" 가 되고, 무엇보다 이 판과 VS Code 가 같은 사실을 다른 말로 적게 된다.
+        if (s < 60) return "<1m"
+        val m = Math.round(s / 60.0)
+        if (m < 60) return "${m}m"
+        val h = m / 60
+        val rest = m % 60
+        return if (rest == 0L) "${h}h" else "${h}h ${rest}m"
+    }
+
     fun clock(at: String?): String = at?.let {
         runCatching {
             java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())

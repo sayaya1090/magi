@@ -1,5 +1,6 @@
 package dev.sayaya.magi.ide.ui
 
+import dev.sayaya.magi.ide.usecase.RowText
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
@@ -875,7 +876,9 @@ class PlanToolWindow : ToolWindowFactory {
             "  · " + head.joinToString(", ") + (if (rest > 0) " +$rest" else "")
         }
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
-        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", r.ageSeconds) else ""
+        // 초를 날것으로 찍고 있었다 — 가십은 한 시간에 걸쳐 삭으므로 이 값의 대부분이
+        // 「3540초 전」 꼴이었다. 말로 바꾸는 자리는 core 다(거기서 잰다).
+        val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", RowText.ago(r.ageSeconds)) else ""
         val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
         return JBLabel(name + role + state + load + offers + where + share + seen).apply {
             foreground = when {

@@ -153,6 +153,27 @@ export function offers(r: { can?: number; does?: string[] }, show = 3): string {
   return head.join(', ') + (rest > 0 ? ` +${rest}` : '');
 }
 
+/**
+ * How long ago a sighting was heard, in words a person reads at a glance.
+ *
+ * Seconds are what the wire carries and they are unreadable past a minute — the gossip decays over
+ * an hour, so the normal range of this number is 0 to 3600 and "seen 3540s ago" is the shape most
+ * of it takes. The JetBrains panel printed exactly that.
+ *
+ * Never invents freshness: a row with no age said (an older daemon) draws nothing rather than
+ * "just now", because "just now" is the one claim that would make a stale row look measured.
+ */
+export function seenAgo(sec: number | undefined): string {
+  if (sec === undefined || !Number.isFinite(sec) || sec < 0) return '';
+  // "<1m", not "just now": the JetBrains panel builds this out of a localised "seen {0} ago", and
+  // one fact spelled two ways across two screens is what this repository keeps one vocabulary for.
+  if (sec < 60) return 'seen <1m ago';
+  const m = Math.round(sec / 60);
+  if (m < 60) return `seen ${m}m ago`;
+  const h = Math.floor(m / 60);
+  return `seen ${h}h${m % 60 ? ` ${m % 60}m` : ''} ago`;
+}
+
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
   const rows = resp.roster ?? [];
@@ -176,6 +197,15 @@ export function fleet(resp: Response | null): string[] {
     // Said positively now, from what the wire actually asserts: elsewhere for a sighting, there for
     // a proven dial, and otherwise nothing was said.
     r.sighting ? 'elsewhere' : r.live ? '' : 'no answer',
+    // ★ A sighting's state has an AGE, and the core says why it must be drawn with one: "A screen
+    // that shows a state without its age is claiming to know something it cannot". This row drew
+    // `idle` beside `elsewhere` for a machine last heard from fifty minutes ago, and the gossip
+    // decays over an hour — so the oldest row still on screen is the one whose state is least
+    // likely to be true, and it was the one that looked exactly like the freshest.
+    //
+    // Only on sightings. A local row is a live dial with age 0, and "seen just now" beside it
+    // would be noise about the one row whose state was measured rather than remembered.
+    r.sighting ? seenAgo(r.ageSeconds) : '',
   ].filter(Boolean).join(' · '));
 }
 

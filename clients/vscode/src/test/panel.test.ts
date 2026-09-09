@@ -473,3 +473,48 @@ test('the window make-up is shares of its own sum, marked as an estimate', () =>
   } } as unknown as Parameters<typeof context>[0]);
   assert.ok(!/system/.test(zero), 'a 0 piece is drawn as a measurement — the core says it means "not known"');
 });
+
+/**
+ * ★ A sighting's state is drawn with its AGE.
+ *
+ * The core states the rule on the field itself: "A screen that shows a state without its age is
+ * claiming to know something it cannot". A sighting is a row another machine signed and this one
+ * remembered; the gossip decays over an hour, so the oldest row on screen is the one whose `idle`
+ * is least likely to still be true — and it was drawn exactly like the freshest.
+ *
+ * Words, not seconds. The normal range of this number is 0..3600, so raw seconds spend most of
+ * their life in shapes like "3540s ago" — which is what the JetBrains panel printed until the same
+ * wave fixed it.
+ */
+test('a sighting says how old the fact is, in words', () => {
+  const [fresh, old, ancient] = fleet({
+    ok: true,
+    roster: [
+      { socket: '/a/daemon-ws-1.sock', state: 'idle', sighting: true, ageSeconds: 12 },
+      { socket: '/b/daemon-ws-2.sock', state: 'idle', sighting: true, ageSeconds: 3540 },
+      { socket: '/c/daemon-ws-3.sock', state: 'idle', sighting: true, ageSeconds: 7260 },
+    ],
+  });
+  assert.match(fresh, /seen <1m ago/);
+  assert.match(old, /seen 59m ago/, `an hour-old sighting drew as: ${old}`);
+  assert.match(ancient, /seen 2h 1m ago/, `a two-hour-old sighting drew as: ${ancient}`);
+  assert.ok(!/\d+s ago/.test(old), 'raw seconds reached the screen');
+});
+
+/**
+ * A local row is a live dial, not a memory — it carries age 0, and "seen just now" beside the one
+ * row whose state was actually MEASURED would be noise pretending to be a caveat. And a row with no
+ * age said (an older daemon) gets nothing: inventing "just now" is the one claim that would make a
+ * stale row look measured.
+ */
+test('only a sighting carries an age', () => {
+  const [local, unsaid] = fleet({
+    ok: true,
+    roster: [
+      { socket: '/a/daemon-ws-1.sock', state: 'idle', live: true, ageSeconds: 0 },
+      { socket: '/b/daemon-ws-2.sock', state: 'idle', sighting: true },
+    ],
+  });
+  assert.ok(!/seen/.test(local), `a measured row was captioned as remembered: ${local}`);
+  assert.ok(!/seen/.test(unsaid), `an unsaid age was drawn as fresh: ${unsaid}`);
+});
