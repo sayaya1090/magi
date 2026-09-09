@@ -45,11 +45,22 @@ export class Daemon {
     return new Promise((resolve, reject) => {
       if (this.closed) return reject(new Error('the connection is closed'));
       const timer = setTimeout(() => {
-        // Take this waiter out rather than leaving it to catch somebody else's reply: replies come
-        // back in order, and a timed-out waiter left in the queue would hand the NEXT answer to the
-        // wrong caller — a wrong answer is worse than a slow one.
-        const i = this.waiting.indexOf(done);
-        if (i >= 0) this.waiting.splice(i, 1);
+        // ⚠ **A timeout puts the connection out of step, and nothing on it can be trusted again.**
+        //
+        // This wire is lock-step: one request, one reply, in order, and `read` hands each line to
+        // the head of the queue. The old code took the timed-out waiter OUT of the queue — and the
+        // comment there argued that leaving it would misdeliver the next answer. It is the other
+        // way round. The late reply still arrives; with its waiter gone, the queue is one short and
+        // every caller after it receives the PREVIOUS call's answer — a `status` reply read as
+        // `jobs`, for the life of the connection, with nothing failing.
+        //
+        // So hang up. The stream cannot be repaired by rearranging waiters, and both siblings do
+        // exactly this: the JetBrains client throws `DaemonGone("...끊었다")` and the ide-bridge
+        // calls `hangUp()` with the same sentence — "a reply that never came leaves the stream out
+        // of step, and reusing it would hand the next caller this call's answer".
+        //
+        // `close()` settles everyone still waiting, this one included, so nobody is left hanging.
+        this.close();
         reject(new Error(`the companion did not answer ${req.method} within ${deadlineMs}ms`));
       }, deadlineMs);
       const done = (r: Response) => { clearTimeout(timer); resolve(r); };
