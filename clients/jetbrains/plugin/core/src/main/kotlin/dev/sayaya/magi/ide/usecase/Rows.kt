@@ -377,6 +377,24 @@ class Rows {
                 )
                 if (rows[i].ok == true) noteDisk(rows[i].tool, rows[i].args)
             }
+            // ⚠ **폴드가 이름 대지 않는 part 종류는 빈 행이 아니라 애초에 없던 행이다** — 그리고
+            // 아무것도 그렇게 말하지 않는다. 웹 콘솔이 같은 것을 겪고 그 주석을 남겼다: 그림과
+            // 에러가 둘 다 로그에 닿았는데 둘 다 화면에 안 닿았다. 여기도 그 둘이 빠져 있었다.
+            "image" -> {
+                // 그림이 아니라 **경로**다. 이 층은 IDE 를 모르고(§1) 그림을 그리는 것은 화면의
+                // 일이다 — 여는 자리는 손의 `show` 가 이미 있다. 가리킬 곳이 없으면 행도 없다:
+                // 경로가 이 행의 전부다.
+                val path = part["image"]?.jsonObject?.get("path")?.jsonPrimitive?.content.orEmpty()
+                if (path.isBlank()) return false
+                rows += Row(Who.Info, "\uD83D\uDDBC $path", at = e.ts, msgId = msg)
+            }
+            "error" -> {
+                // 사건 `error` 와 **같은 어휘로** 적는다(Who.Info + ⚠). 한 사실을 두 낱말로 적으면
+                // 안 재지는 쪽이 갈린다 — 이 파일이 되풀이해 지키는 규칙이다.
+                val said = part["error"]?.jsonPrimitive?.content.orEmpty()
+                if (said.isBlank()) return false
+                rows += Row(Who.Info, "\u26A0 $said", at = e.ts, msgId = msg)
+            }
             else -> return false
         }
         return true

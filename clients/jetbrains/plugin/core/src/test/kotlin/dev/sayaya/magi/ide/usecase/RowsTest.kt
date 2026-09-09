@@ -313,4 +313,84 @@ class RowsTest {
         assertNull(d.member, "라운드 결과 행은 누구의 것도 아니다")
         assertEquals("시험을 붙일 것", d.why)
     }
+
+    /**
+     * ★ **폴드가 이름 대지 않는 part 종류는 빈 행이 아니라 애초에 없던 행이다.**
+     *
+     * 웹 콘솔이 같은 것을 겪고 주석에 남긴 문장이다 — 그림과 에러가 둘 다 로그에 닿았는데 둘 다
+     * 화면에 안 닿았다. 이 폴드에도 그 둘이 빠져 있었다: 도구가 그림으로 답하거나 조각이 에러로
+     * 오면 전사에 **아무것도** 남지 않았다. 행도, 에러도, 아무것도.
+     */
+    @Test
+    fun `도구가 돌려준 그림과 에러 조각이 행이 된다`() {
+        val r = Rows()
+        r.feed(ev("part.appended",
+            """{"messageId":"m1","role":"assistant","part":{"kind":"image","image":{"path":"/tmp/shot.png","mime":"image/png"}}}"""))
+        r.feed(ev("part.appended",
+            """{"messageId":"m1","role":"assistant","part":{"kind":"error","error":"그것이 터졌다"}}"""))
+        val rows = r.list()
+        assertEquals(2, rows.size, "그림이나 에러 조각이 행을 안 만든다: $rows")
+        assertTrue(rows[0].text.contains("/tmp/shot.png"), "그림 행이 경로를 안 싣는다: ${rows[0].text}")
+        assertEquals(Who.Info, rows[0].who)
+        assertTrue(rows[1].text.contains("그것이 터졌다"), "에러 행이 사유를 안 싣는다: ${rows[1].text}")
+        // 사건 `error` 와 **같은 어휘**로 적는다 — 한 사실을 두 낱말로 적으면 안 재지는 쪽이 갈린다.
+        assertTrue(rows[1].text.startsWith("\u26A0"), "에러 조각이 사건 error 와 다른 낱말로 적힌다: ${rows[1].text}")
+    }
+
+    /** 가리킬 곳이 없는 그림은 행이 아니다 — 경로가 그 행의 전부다. */
+    @Test
+    fun `경로 없는 그림은 행을 안 만든다`() {
+        val r = Rows()
+        r.feed(ev("part.appended",
+            """{"messageId":"m1","role":"assistant","part":{"kind":"image","image":{}}}"""))
+        assertTrue(r.list().isEmpty(), "가리킬 곳 없는 그림이 행을 만들었다: ${r.list()}")
+    }
+
+    /**
+     * ★ **코어가 로그에 넣을 수 있는 part 종류를 전부 그리거나, 일부러 안 그린다고 적었나.**
+     *
+     * 안 적으면 조용히 사라진다 — 그림과 에러가 바로 그렇게 사라져 있었다. 코어에 종류가 하나
+     * 늘면 어느 목록에도 없어 여기서 실패한다. 그래야 선택이 **침묵으로 기본값이 되지 않는다.**
+     *
+     * ⚠ 자기검사가 판정 대상을 겸하지 않는다. VS Code 쪽에서 같은 가드를 쓸 때 `image` 를
+     * 자기검사에 못 박았더니, 그 갈래를 지웠을 때 판정 문장이 아니라 「가드가 깨졌다」가 떴다 —
+     * 나중에 안 그리기로 정하면 멀쩡한 결정이 고장으로 보고된다.
+     */
+    @Test
+    fun `코어의 part 종류를 전부 그리거나 안 그린다고 적는다`() {
+        val magi = java.io.File(System.getProperty("user.dir"))
+            .parentFile.parentFile.parentFile.parentFile
+        val src = java.io.File(magi, "internal/core/session/session.go")
+        assertTrue(src.isFile, "${src.absolutePath} 가 없다 — 이 시험이 아무것도 안 보고 있다")
+        val kinds = Regex("""PartKind = "([a-z-]+)"""").findAll(src.readText())
+            .map { it.groupValues[1] }.toSet()
+        assertTrue(kinds.size >= 5, "코어에서 part 종류 ${kinds.size}개만 읽었다 — 파서가 낡았다")
+
+        // `user.dir` 은 이 모듈(`plugin/core`)이다 — 위의 네 단계 상승이 그것을 말한다.
+        val foldFile = java.io.File(
+            System.getProperty("user.dir"),
+            "src/main/kotlin/dev/sayaya/magi/ide/usecase/Rows.kt",
+        )
+        assertTrue(foldFile.isFile, "${foldFile.absolutePath} 가 없다 — 이 시험이 폴드를 안 보고 있다")
+        val fold = foldFile.readText().lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val drawn = Regex(""""([a-z-]+)"\s*->""").findAll(fold).map { it.groupValues[1] }.toSet()
+        assertTrue("text" in drawn, "가드가 제가 읽는 폴드를 못 본다")
+        // ⚠ 바닥은 **판정 대상과 겹치지 않게** 낮게 잡는다. 8 로 두었더니 그림·에러 갈래를 지운
+        // 변이가 판정 문장이 아니라 이 줄에서 걸렸다 — 자기검사가 판정을 가리면 가드는 무엇을
+        // 잡았는지 못 말한다(VS Code 쪽에서 같은 실수를 한 번 했다).
+        assertTrue(drawn.size >= 4, "폴드에서 갈래 ${drawn.size}개만 봤다 — 가드가 아무것도 안 재고 있다")
+
+        // 일부러 안 그리는 것은 사유와 함께 여기 적는다.
+        val skipped = mapOf(
+            // 이 셋은 part 종류가 아니라 **역할**의 어휘다(같은 문자열 공간을 쓴다).
+            "user" to "역할", "assistant" to "역할", "system" to "역할", "tool" to "역할",
+        )
+        val missing = kinds.filter { it !in drawn && it !in skipped }
+        assertEquals(
+            emptyList<String>(), missing,
+            "코어가 이 part 종류를 로그에 넣을 수 있는데 폴드가 이름 대지 않는다 — 그런 행은 " +
+                "애초에 없던 행이고 아무것도 그렇게 말하지 않는다. 그리거나, 사유와 함께 skipped 에 적을 것",
+        )
+    }
+
 }
