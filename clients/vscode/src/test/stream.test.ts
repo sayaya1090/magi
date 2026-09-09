@@ -777,3 +777,55 @@ test('a question answered later sits with its answer, once', () => {
   assert.deepEqual(plain.map((r) => r.text), ['first', 'ok', 'second'],
     'an ordinary conversation was reordered — the pairing fired without a link');
 });
+
+/**
+ * ★ One event type carries BOTH ends of the parked state, and this client read only the type.
+ *
+ * The core writes `interjection.deferred` twice for the same message: `resolved:false` when the
+ * prompt is queued, `resolved:true` when it LEAVES the queue — absorbed inline, routed, or
+ * abandoned. Five of the seven emit sites write `true` (`recordDeferral`, measured 2026-09-09).
+ *
+ * Reading the type alone meant every UN-parking marked the row parked. And because it arrives after
+ * whatever cleared the mark, the wrong word was the last one — the standing-claim-gone-false shape.
+ *
+ * ⚠ `Resolved` is a Go bool with `omitempty`, so FALSE never goes on the wire: the parked case is
+ * the one with no field at all. A guard written against `resolved: false` would be testing a shape
+ * the daemon never sends.
+ */
+test('leaving the queue is not the same event as joining it', () => {
+  const payload = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'payload.go'), 'utf8');
+  assert.match(payload, /Resolved\s+bool\s+`json:"resolved,omitempty"`/,
+    'the wire no longer carries `resolved` the way this guard reads it');
+
+  const ask = { seq: 1, type: 'prompt.submitted', data: { messageId: 'q1', parts: [{ kind: 'text', text: 'and the tests?' }] } };
+
+  // Parked: no `resolved` on the wire at all, because omitempty ate the false.
+  const parked = rows([ask,
+    { seq: 2, type: 'interjection.deferred', data: { messageId: 'q1' } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  assert.equal(parked.find((r) => r.msgId === 'q1')?.queued, true,
+    'a parked message does not show as parked — the common case stopped working');
+
+  // Left the queue: the SAME event type, and it must take the mark away.
+  const left = rows([ask,
+    { seq: 2, type: 'interjection.deferred', data: { messageId: 'q1' } },
+    { seq: 3, type: 'interjection.deferred', data: { messageId: 'q1', resolved: true } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  assert.ok(!left.find((r) => r.msgId === 'q1')?.queued,
+    'a message that LEFT the queue is marked as still parked — the field was ignored');
+
+  // And the order that made it permanent: cleared, then the resolved entry arrives last.
+  const after = rows([ask,
+    { seq: 2, type: 'interjection.deferred', data: { messageId: 'q1' } },
+    { seq: 3, type: 'interjection.answered', data: { messageId: 'q1' } },
+    { seq: 4, type: 'interjection.deferred', data: { messageId: 'q1', resolved: true } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  assert.ok(!after.find((r) => r.msgId === 'q1')?.queued,
+    'the resolved entry re-marked an answered message as parked — the wrong word is the last one');
+
+  // ⚠ Leaving the queue is not being answered. Clearing `pending` here would call an abandoned
+  // interjection answered; that fact belongs to `interjection.answered` and to the reply.
+  assert.equal(left.find((r) => r.msgId === 'q1')?.pending, true,
+    'leaving the queue was read as being answered');
+});

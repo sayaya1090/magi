@@ -151,7 +151,23 @@ class Rows {
             "prompt.submitted" -> prompt(e)
             "part.delta" -> delta(e)
             "part.appended" -> part(e)
-            "interjection.deferred" -> mark(str(e, "messageId")) { it.copy(queued = true) }
+            // ⚠ **한 사건 종류가 이 상태의 양 끝을 다 나른다.** 코어는 같은 메시지에 두 번 쓴다 —
+            // 대기에 들어갈 때 `resolved:false`, 나중에 큐를 **떠날 때**(인라인 흡수·라우팅·포기)
+            // `resolved:true`. 호출부 일곱 중 **다섯이 true** 다.
+            //
+            // 종류만 읽고 칸을 무시하면 **떠나는 순간마다 「대기 중」 표시가 붙는다.** 그리고 그것을
+            // 지우는 사건(`interjection.answered`, 인라인 답) 뒤에 오므로 **틀린 말이 마지막 말이
+            // 된다** — 이 트리가 되풀이해 값을 치른 「늙은 단언」 그 모양이다.
+            //
+            // ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다**: 대기하는 쪽이 «칸이
+            // 아예 없는» 경우다. 그래서 「true 가 아니다」로 묻지 「false 다」로 묻지 않는다.
+            //
+            // 움직이는 것은 `queued` 뿐이다. 큐를 떠난 것이 답을 받은 것은 아니다 — `pending` 은
+            // `interjection.answered` 와 답 자신의 것이고, 여기서 지우면 포기된 인터젝션이
+            // 답받은 것으로 읽힌다.
+            "interjection.deferred" -> mark(str(e, "messageId")) {
+                it.copy(queued = e.data?.jsonObject?.get("resolved")?.jsonPrimitive?.content != "true")
+            }
             "interjection.answered" -> answered(e)
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)

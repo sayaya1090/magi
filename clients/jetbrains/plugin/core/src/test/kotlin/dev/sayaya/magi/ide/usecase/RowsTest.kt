@@ -46,6 +46,54 @@ class RowsTest {
      * 없는 것이다. 그래서 평범한 종료가 경고를 안 다는지도 같이 못박는다 — 안 그러면 이 규칙은
      * 모든 턴에 경고를 붙이는 변경을 통과시킨다.
      */
+    /**
+     * **한 사건 종류가 대기 상태의 양 끝을 다 나른다.**
+     *
+     * 코어는 같은 메시지에 `interjection.deferred` 를 두 번 쓴다 — 대기에 들어갈 때
+     * `resolved:false`, 큐를 **떠날 때** `resolved:true`(인라인 흡수·라우팅·포기). `recordDeferral`
+     * 호출부 일곱 중 **다섯이 true** 다(2026-09-09 실측).
+     *
+     * 종류만 읽으면 떠나는 순간마다 「대기 중」이 붙고, 그것을 지우는 사건 **뒤에** 오므로 틀린
+     * 말이 마지막 말이 된다.
+     *
+     * ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 대기하는 쪽이 칸이 아예
+     * 없는 경우다. `resolved:false` 를 기다리는 시험은 오지 않는 모양을 잰다.
+     */
+    @Test
+    fun `큐를 떠나는 것은 큐에 드는 것과 같은 사건이 아니다`() {
+        val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val payload = java.io.File(core, "internal/core/event/payload.go")
+        assertTrue(payload.isFile, "코어의 payload 를 못 찾았다(${payload.absolutePath})")
+        assertTrue("""Resolved  bool   `json:"resolved,omitempty"`""" in payload.readText(),
+            "와이어가 `resolved` 를 이 규칙이 읽는 모양으로 안 싣는다")
+
+        val parked = Rows()
+        parked.feed(user("테스트는?", "q1"))
+        parked.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
+        assertTrue(parked.list().first { it.msgId == "q1" }.queued,
+            "대기하는 말이 대기로 안 보인다 — 흔한 경우가 망가졌다")
+
+        val left = Rows()
+        left.feed(user("테스트는?", "q1"))
+        left.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
+        left.feed(ev("interjection.deferred", """{"messageId":"q1","resolved":true}"""))
+        assertFalse(left.list().first { it.msgId == "q1" }.queued,
+            "큐를 **떠난** 말이 아직 대기 중으로 적힌다 — 칸을 무시했다")
+
+        // 지워진 뒤에 오는 순서 — 이것이 틀린 말을 영구히 만들던 자리다.
+        val after = Rows()
+        after.feed(user("테스트는?", "q1"))
+        after.feed(ev("interjection.deferred", """{"messageId":"q1"}"""))
+        after.feed(ev("interjection.answered", """{"messageId":"q1"}"""))
+        after.feed(ev("interjection.deferred", """{"messageId":"q1","resolved":true}"""))
+        assertFalse(after.list().first { it.msgId == "q1" }.queued,
+            "답받은 말이 다시 대기로 표시됐다 — 틀린 말이 마지막 말이 된다")
+
+        // 큐를 떠난 것이 답을 받은 것은 아니다.
+        assertTrue(left.list().first { it.msgId == "q1" }.pending,
+            "큐를 떠난 것을 답받은 것으로 읽었다")
+    }
+
     @Test
     fun `확인 못 한 채 끝난 턴은 그렇게 적힌다`() {
         val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile

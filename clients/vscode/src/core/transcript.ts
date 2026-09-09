@@ -313,8 +313,29 @@ export function rows(events: Event[]): Row[] {
        * row that is already there, and a second row would say the person typed twice.
        */
       case 'interjection.deferred': {
+        /**
+         * ⚠ **One event type carries BOTH ends of this state.**
+         *
+         * The core writes this fact twice for the same message: `resolved:false` when the prompt is
+         * queued as an interjection, and `resolved:true` when it later LEAVES the queue — absorbed
+         * inline, routed, or abandoned. Five of the seven call sites write `true`.
+         *
+         * This client read the type and ignored the field, so every un-parking marked the row
+         * PARKED. The bar arrived at the moment it should have gone, and because it arrives after
+         * whatever cleared it (`interjection.answered`, an inline answer), the wrong word is the
+         * last one — a standing claim that has gone false, which is the shape this tree keeps
+         * paying for.
+         *
+         * ⚠ `Resolved` is a Go bool with `omitempty`: FALSE NEVER GOES ON THE WIRE. The parked case
+         * is the one with no field at all, so the test is "not true", never "is false".
+         *
+         * Only `queued` moves. Leaving the queue is not being answered — `interjection.answered`
+         * and the reply itself own `pending`, and clearing it here would call an abandoned
+         * interjection answered.
+         */
         const id = String(d.messageId ?? '');
-        for (const r of out) if (r.who === 'user' && r.msgId === id) r.queued = true;
+        const parked = d.resolved !== true;
+        for (const r of out) if (r.who === 'user' && r.msgId === id) r.queued = parked;
         break;
       }
       /**
