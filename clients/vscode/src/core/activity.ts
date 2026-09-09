@@ -104,3 +104,36 @@ export function setupOf(resp: Response | null): Setup {
 export function sameSetup(a: Setup, b: Setup): boolean {
   return a.model === b.model && a.backend === b.backend && a.permission === b.permission;
 }
+
+/**
+ * What the conversation panel says when there is nothing to talk to, and whether it offers a way out.
+ *
+ * ⚠ **The offer is not tied to the verdict.** `not-running` had a "Start one" button and `unknown`
+ * had a sentence and nothing to press — so a person whose companion could not be reached for any
+ * reason we cannot name had no way forward from that panel. The JetBrains client had the same hole
+ * and it is what a live report was about: a socket file left by a dead daemon lands in "cannot say"
+ * on Windows, and every route to reviving it was closed.
+ *
+ * Starting one when a companion is actually alive is safe: the daemon claims the socket path with a
+ * lock and probes it first, so the second one refuses itself. Losing that race is ordinary, not an
+ * error — which is exactly why the offer does not need to be sure.
+ *
+ * Nothing is offered for idle/working/waiting: the status bar already says those, and a button to
+ * start a companion that is answering would be a button that does nothing.
+ */
+export function panelNote(a: Activity | null): { text: string; offerStart: boolean } {
+  if (!a) return { text: '', offerStart: false };
+  switch (a.state) {
+    case State.NotRunning:
+      return { text: 'No companion is running for this workspace.', offerStart: true };
+    case State.Unknown:
+      return {
+        text: ['Could not reach the companion.', a.asking].filter(Boolean).join(' '),
+        // Said plainly and still offered: "we could not ask" is not "it is fine", and the way out
+        // must not depend on our being sure what is wrong.
+        offerStart: true,
+      };
+    default:
+      return { text: '', offerStart: false };
+  }
+}

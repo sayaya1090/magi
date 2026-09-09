@@ -196,3 +196,23 @@ test('a scheduled job sends its schedule where the door reads it', () => {
   assert.match(call![1], /\bschedule:/, 'cron-set does not send a top-level schedule');
   assert.ok(!/\bargs:/.test(call![1]), 'cron-set still nests its fields inside args');
 });
+
+/**
+ * ★ Every `state` message carries the note the panel draws.
+ *
+ * The words and whether to offer a way out are decided in core, and the webview only draws them — so
+ * a `state` post without `note` leaves the panel with nothing to say exactly when there is something
+ * to say. A unit test cannot see this: the webview is a string of script, not a module, so the wiring
+ * is measured here. Found by mutation: removing `note:` from one of the three posts changed nothing
+ * that any test could see.
+ */
+test('every state message carries its note', () => {
+  const body = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+  const posts = [...body.matchAll(/\{\s*kind:\s*'state'[^}]*\}/g)].map((m) => m[0]);
+  assert.ok(posts.length >= 3, `only ${posts.length} state posts found — this guard is reading nothing`);
+  for (const p of posts) {
+    assert.match(p, /note:\s*panelNote\(/,
+      `a state message goes out without its note, so the panel says nothing:\n  ${p}`);
+  }
+});

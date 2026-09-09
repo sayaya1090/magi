@@ -3,6 +3,7 @@ import { Daemon } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
+import { panelNote } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText } from '../core/refs';
 import { Edits } from './edits';
@@ -31,7 +32,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly edits = new Edits();
 
   constructor(private readonly companion: Companion, private readonly extUri: vscode.Uri) {
-    this.subs.push(companion.onChanged(() => this.post({ kind: 'state', state: companion.state })));
+    this.subs.push(companion.onChanged(() => this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) })));
   }
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -47,7 +48,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private async openStream(): Promise<void> {
     if (this.stream) return;
     const d = await this.companion.reach();
-    if (!d) { this.post({ kind: 'state', state: this.companion.state }); return; }
+    if (!d) { this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) }); return; }
     // Which conversation. Measured against a live daemon: `status` answers permission and
     // backend and NOT a session id, so asking it for one gets an empty string and the transcript
     // streams nothing — with no error, which is how this would have shipped unnoticed. `sessions`
@@ -168,7 +169,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string }): Promise<void> {
     switch (m.kind) {
       case 'ready':
-        this.post({ kind: 'state', state: this.companion.state });
+        this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
         this.draw();
         break;
       case 'say': {
@@ -331,16 +332,18 @@ let mentions = [];
 function drawState(st) {
   noteEl.textContent = '';
   if (!st) return;
-  if (st.state === 'not-running') {
-    /* Not just the fact — the way out. A line saying nothing is listening, with nothing to press,
-       leaves somebody to find the command palette to learn what to do next. */
-    noteEl.append('No companion is running for this workspace. ');
-    const b = document.createElement('button');
-    b.textContent = 'Start one';
-    b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
-    noteEl.append(b);
-  } else if (st.state === 'unknown') {
-    noteEl.textContent = 'Could not reach the companion. ' + (st.asking || '');
+  /* The words and whether to offer a way out are decided in core (panelNote), so this draws and
+     decides nothing. It used to decide: not-running got a button and unknown got a bare sentence,
+     which left somebody whose companion could not be reached with nothing to press.
+     (No backticks in here: this script lives in a template literal and one would close it.) */
+  if (st.note && st.note.text) {
+    noteEl.append(st.note.text + ' ');
+    if (st.note.offerStart) {
+      const b = document.createElement('button');
+      b.textContent = 'Start one';
+      b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
+      noteEl.append(b);
+    }
   }
   /* idle / working / waiting say nothing here: the status bar already says them, and repeating a
      line above the composer is a line in the way. */

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { setupOf, sameSetup } from '../core/activity';
+import { State, panelNote, setupOf, sameSetup } from '../core/activity';
 import { noteCompletion, whyNoCompletion } from '../core/complete';
 
 /**
@@ -74,4 +74,44 @@ test('the reason a completion was empty is kept, and a good one clears it', () =
   // Empty with no reason given says nothing rather than inventing one.
   noteCompletion('', undefined);
   assert.equal(whyNoCompletion(), '');
+});
+
+/**
+ * ★ The way out must not depend on our being sure what is wrong.
+ *
+ * `not-running` had a "Start one" button and `unknown` had a bare sentence — so a person whose
+ * companion could not be reached for a reason we cannot name had nothing to press. The JetBrains
+ * client had the same hole, and it is what a live report was about: on Windows a socket file left by
+ * a dead daemon lands in "cannot say", and every route to reviving it was closed.
+ *
+ * Offering it when a companion is actually alive is safe: the daemon claims the socket with a lock
+ * and probes it first, so a second one refuses itself. Losing that race is ordinary, not an error.
+ */
+test('a companion we cannot reach still offers a way out', () => {
+  const note = panelNote({ state: State.Unknown, asking: 'the socket is there and nothing answered' });
+  assert.equal(note.offerStart, true, 'nothing to press when the companion could not be reached');
+  assert.match(note.text, /Could not reach/);
+  // The reason travels with it — "cannot say" is not "it is fine", and the reason is what a person
+  // acts on when the button does not help.
+  assert.match(note.text, /nothing answered/);
+});
+
+test('a companion that is not running offers the same way out', () => {
+  const note = panelNote({ state: State.NotRunning });
+  assert.equal(note.offerStart, true);
+  assert.match(note.text, /No companion is running/);
+});
+
+/**
+ * Nothing is offered while it is answering. A button to start a companion that is already talking
+ * would be a button that does nothing — and this panel sits above the composer, where a line in the
+ * way is a line in the way.
+ */
+test('a working companion says nothing here', () => {
+  for (const state of [State.Idle, State.Working, State.Waiting]) {
+    const note = panelNote({ state });
+    assert.equal(note.text, '', `${state} draws a note above the composer`);
+    assert.equal(note.offerStart, false, `${state} offers to start one`);
+  }
+  assert.deepEqual(panelNote(null), { text: '', offerStart: false });
 });
