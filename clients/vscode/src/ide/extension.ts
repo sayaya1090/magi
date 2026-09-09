@@ -71,6 +71,9 @@ export function activate(ctx: vscode.ExtensionContext): void {
   //
   // `preserveFocus` throughout: nothing the person did caused this, so it must not take the
   // keyboard out of the editor they were typing in.
+  // The plan comes off the conversation stream, and Chat is what holds it.
+  chat.onPlan = (list) => plan.showPlan(list);
+
   void openIfAsked(companion, chat);
 
   // Offer the editor's own tools. Failure is not fatal and not shouted about: the companion may not

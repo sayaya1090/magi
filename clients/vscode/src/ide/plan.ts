@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as activity from '../core/activity';
 import { Companion } from './workspace';
 import { context as contextOf, fleet as fleetOf, jobs as jobsOf, schedules } from '../core/panel';
+import { planLines } from '../core/transcript';
 
 /**
  * The plan and the dials, in the sidebar.
@@ -60,10 +61,25 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       fleet: fleet === null ? null : fleetOf(fleet).join('\n'),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
+      plan: this.plan,
     });
   }
 
   private handed = '';
+  private plan = '';
+
+  /**
+   * The agent's plan, from the conversation stream.
+   *
+   * Held rather than fetched: `todos.changed` is an event, and the window that already streams the
+   * transcript is the one that has it. Asking for it separately would make two readers of one fact.
+   */
+  showPlan(list: { content: string; status: string }[]): void {
+    const next = planLines(list);
+    if (next === this.plan) return;
+    this.plan = next;
+    void this.refresh();
+  }
 
   /**
    * What has been handed to other companions.
@@ -115,6 +131,7 @@ window.addEventListener('message', (e) => {
   if (m.kind !== 'plan') return;
   body.textContent = '';
   section('now', m.state);
+  section('plan', m.plan);
   section('context', m.context);
   section('jobs', m.jobs);
   section('scheduled', m.cron);

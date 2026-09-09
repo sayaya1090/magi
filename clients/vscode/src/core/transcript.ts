@@ -132,3 +132,42 @@ export function turnsBack(asked: Row[], seq: number): number {
   const i = asked.findIndex((r) => r.seq === seq);
   return i < 0 ? 0 : asked.length - i;
 }
+
+/** One item of the agent's plan. */
+export interface Todo {
+  content: string;
+  status: string;
+}
+
+/**
+ * The plan, read off the same stream the rows come from.
+ *
+ * ⚠ **The panel is called Plan and had no plan in it.** The UI design promises "todo and its state"
+ * and the panel drew now/context/jobs/scheduled/fleet — five dials and no list. The JetBrains client
+ * reads `todos.changed` for exactly this; this one ignored the event, so nothing failed and nothing
+ * appeared.
+ *
+ * The LAST event wins rather than deltas being replayed: `todos.changed` carries the whole list every
+ * time, and a reader that accumulated would be wrong from the first event. It is a FACT type, so it
+ * rides the replay — a window that reattaches learns the current plan without a door of its own,
+ * which is why no door was ever needed.
+ */
+export function todos(events: Event[]): Todo[] {
+  let out: Todo[] = [];
+  for (const e of events) {
+    if (e.type !== 'todos.changed') continue;
+    const list = ((e.data ?? {}) as { todos?: unknown[] }).todos ?? [];
+    out = list
+      .map((t) => (t ?? {}) as { content?: unknown; status?: unknown })
+      .filter((t) => typeof t.content === 'string' && t.content)
+      .map((t) => ({ content: String(t.content), status: String(t.status ?? '') }));
+  }
+  return out;
+}
+
+/** The plan as lines, with the mark a person reads the state by. */
+export function planLines(list: Todo[]): string {
+  const mark = (s: string): string =>
+    s === 'completed' ? '✓' : s === 'in_progress' ? '◐' : '☐';
+  return list.map((t) => `${mark(t.status)} ${t.content}`).join('\n');
+}
