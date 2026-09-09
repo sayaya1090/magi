@@ -1477,7 +1477,7 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
 ## 12. 콘솔 (`magi-web`)
 
 > 화면 구성·디자인 규칙·근거: [`UI.ko.md`](UI.ko.md).
-> 눌러볼 수 있는 데모(목업 데이터, 서버 없음): <https://sayaya1090.github.io/magi/>.
+> 눌러볼 수 있는 데모(목업 데이터, 서버 없음): <https://sayaya1090.github.io/magi/demo/>.
 
 이 머신의 모든 magi를 — 그리고 가리키면 다른 머신의 것까지 — 보는 웹 화면. 별도의 서비스가 아니라
 **같은 데몬 위의 두 번째 표면**입니다: 보여주는 것은 디스크에 이미 있는 이벤트 로그에서 유도하고,
@@ -1487,19 +1487,19 @@ fast-forward하며, 로컬 변경이나 remote 없음은 보고 후 건너뜀(�
 질문에 막혀 있는지, 내가 자리를 비운 사이 어느 것이 끝냈는지, 각자 무엇을 배웠는지를 보여줍니다.
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/"><img src="img/console-companions.png" alt="콘솔의 컴패니언 목록 — 두 팀, 행마다 실시간 상태와 스텝 수, 사람을 기다리는 컴패니언 둘" width="880"></a>
+<a href="https://sayaya1090.github.io/magi/demo/"><img src="img/console-companions.png" alt="콘솔의 컴패니언 목록 — 두 팀, 행마다 실시간 상태와 스텝 수, 사람을 기다리는 컴패니언 둘" width="880"></a>
 
 <sub>다른 모든 화면이 매달려 있는 목록. 나를 필요로 하는 행은 그렇다고 말하고, 둘 중 어느 종류인지도 말합니다.</sub>
 </div>
 
 <table>
 <tr>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="컴패니언 페이지 — 상태·모델·워크스페이스, 실시간 전사, 승인 대기 중인 권한 프롬프트" width="100%"></a><br><b>§12.3 — 컴패니언 하나.</b> 진짜 종료 코드가 보이는 전사와, 지금 막혀 있는 것.</td>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="작업공간 판 — 디렉토리가 펼쳐진 파일 트리와 브랜치·변경이 보이는 git 카드" width="100%"></a><br><b>작업공간 판.</b> 그 컴패니언이 보는 그대로의 트리와 git 상태가 대화 옆에.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="컴패니언 페이지 — 상태·모델·워크스페이스, 실시간 전사, 승인 대기 중인 권한 프롬프트" width="100%"></a><br><b>§12.3 — 컴패니언 하나.</b> 진짜 종료 코드가 보이는 전사와, 지금 막혀 있는 것.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="작업공간 판 — 디렉토리가 펼쳐진 파일 트리와 브랜치·변경이 보이는 git 카드" width="100%"></a><br><b>작업공간 판.</b> 그 컴패니언이 보는 그대로의 트리와 git 상태가 대화 옆에.</td>
 </tr>
 <tr>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=meet"><img src="img/console-meeting.png" alt="회의 페이지 — 컴패니언을 고르고 하나의 질문으로 방을 연다" width="100%"></a><br><b>§12.5 — 회의.</b> 여러 컴패니언을 한 질문에, 그다음 결론이 업무로 나갑니다.</td>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=skills"><img src="img/console-knowledge.png" alt="지식 화면 — 스킬과 메모리, 각각 도달 범위가 붙어 있다" width="100%"></a><br><b>지식.</b> 스킬·메모리·위키. 각각 어디까지 닿는지가 붙어 있다(§7, §8).</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="img/console-meeting.png" alt="회의 페이지 — 컴패니언을 고르고 하나의 질문으로 방을 연다" width="100%"></a><br><b>§12.5 — 회의.</b> 여러 컴패니언을 한 질문에, 그다음 결론이 업무로 나갑니다.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="img/console-knowledge.png" alt="지식 화면 — 스킬과 메모리, 각각 도달 범위가 붙어 있다" width="100%"></a><br><b>지식.</b> 스킬·메모리·위키. 각각 어디까지 닿는지가 붙어 있다(§7, §8).</td>
 </tr>
 </table>
 

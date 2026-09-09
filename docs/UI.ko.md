@@ -8,7 +8,7 @@
 컴파일된다), §6이 **터미널 UI**(`internal/adapter/tui`). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
 (§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11.
 
-> **직접 보기:** <https://sayaya1090.github.io/magi/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
+> **직접 보기:** <https://sayaya1090.github.io/magi/demo/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
 > 액션은 "무엇을 보냈을지"만 말하고 실제로 한 척하지 않으며, 읽히는 값은 전부 픽스처다 — 화면을
 > 보여줄 뿐 서버가 도는 게 아니다. `clients/web/server/` 아래가 바뀌면 `.github/workflows/pages.yml`이,
 > `web/` 아래가 바뀌면 `test-web.yml`이 배포한다 — 어느 쪽이 뜨든 사이트 전체를 짓고, 제 테스트가

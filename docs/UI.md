@@ -10,7 +10,7 @@ Both surfaces: what is on them, the design rules, and why. §1–5 are the **web
 How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Internals:
 [`ARCHITECTURE.md`](ARCHITECTURE.md) §11.
 
-> **Look at it:** <https://sayaya1090.github.io/magi/> — the real page, answered by a mock in the
+> **Look at it:** <https://sayaya1090.github.io/magi/demo/> — the real page, answered by a mock in the
 > browser. Every action there reports what it would have sent rather than pretending it happened,
 > and every reading is a fixture: it shows the screens, not a working server. Published by
 > `.github/workflows/pages.yml` on a change under `clients/web/server/` and by `test-web.yml` on a change

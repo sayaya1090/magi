@@ -9,7 +9,7 @@
 선언을 받쳐줄 수 있는지 투표합니다. 투표에 앞서 각 멤버는 과제가 요구한 것들을 한 줄씩 짚으며
 툴이 실제로 무엇을 돌려줬는지에 대어 봅니다.
 
-[English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.ko.md) · [라이브 데모](https://sayaya1090.github.io/magi/)
+[English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.ko.md) · [사이트](https://sayaya1090.github.io/magi/) · [라이브 데모](https://sayaya1090.github.io/magi/demo/)
 
 [![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
@@ -34,11 +34,11 @@
 그리고 나에게 답을 기다리는 것들:
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/">
+<a href="https://sayaya1090.github.io/magi/demo/">
   <img src="docs/img/console-companions.png" alt="웹 콘솔 — 두 팀에 걸친 컴패니언 목록, 상태·스텝 수·호스트가 실시간으로 보이고 두 행이 사람을 기다리는 중" width="900">
 </a>
 
-<sub><a href="https://sayaya1090.github.io/magi/">라이브 데모 열기</a> — 진짜 페이지에 목 데이터라, 서버가 필요 없습니다.</sub>
+<sub><a href="https://sayaya1090.github.io/magi/demo/">라이브 데모 열기</a> — 진짜 페이지에 목 데이터라, 서버가 필요 없습니다.</sub>
 </div>
 
 ---
@@ -266,7 +266,7 @@ flowchart LR
 ```
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock">
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock">
   <img src="docs/img/console-companion-detail.png" alt="컴패니언 한 대의 페이지 — 가운데에 실시간 전사, 오른쪽 기둥에 상태·모델·워크스페이스와 계획과 지금 돌고 있는 것" width="860">
 </a>
 
@@ -276,31 +276,31 @@ flowchart LR
 <table>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="작업공간 판 — 디렉토리 하나가 펼쳐진 파일 트리, 브랜치와 변경 파일이 보이는 git 카드가 대화 옆에" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="작업공간 판 — 디렉토리 하나가 펼쳐진 파일 트리, 브랜치와 변경 파일이 보이는 git 카드가 대화 옆에" width="100%"></a><br>
 <b>대화 옆의 작업공간.</b> 컴패니언이 보는 그대로의 파일 트리와 git 상태입니다. 파일을 열면 에이전트가 쓰는 줄 번호 그대로 읽을 수 있고, 그 자리에서 고칠 수도 있습니다.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 페이지 — 컴패니언 둘 이상을 골라 하나의 질문으로 방을 엽니다. 진행 중인 회의가 아래에 표시" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 페이지 — 컴패니언 둘 이상을 골라 하나의 질문으로 방을 엽니다. 진행 중인 회의가 아래에 표시" width="100%"></a><br>
 <b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자 할 일을 알게 하고, 결론을 각각 업무로 내보냅니다.
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-knowledge.png" alt="지식 화면 — 팀이 배운 스킬과 적어둔 메모리, 각각 도달 범위와 읽기/잊기 컨트롤" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge.png" alt="지식 화면 — 팀이 배운 스킬과 적어둔 메모리, 각각 도달 범위와 읽기/잊기 컨트롤" width="100%"></a><br>
 <b>지식.</b> 팀이 배운 스킬과 적어둔 메모리입니다. 각각 어디까지 닿는지가 붙어 있습니다. 이 컴패니언만, 이 팀, 아니면 여기 있는 모든 컴패니언.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="지식 화면의 위키 절반 — 마지막 편집자와 날짜가 붙은 정설 페이지들, 툼스톤으로 남은 은퇴한 페이지" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="지식 화면의 위키 절반 — 마지막 편집자와 날짜가 붙은 정설 페이지들, 툼스톤으로 남은 은퇴한 페이지" width="100%"></a><br>
 <b>공유 위키.</b> 컴패니언들이 최신 상태로 유지하는 정설 페이지입니다. 쌓이는 게 아니라 제자리에서 갱신됩니다. 은퇴한 페이지는 왜 더 이상 사실이 아닌지와 함께 읽을 수 있게 남습니다.
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=board"><img src="docs/img/console-board.png" alt="보드 — 하루의 작업이 카드로, 팀마다 한 열, 에이전트가 붙인 라벨로 묶여 있다" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=board"><img src="docs/img/console-board.png" alt="보드 — 하루의 작업이 카드로, 팀마다 한 열, 에이전트가 붙인 라벨로 묶여 있다" width="100%"></a><br>
 <b>보드.</b> 하루의 작업이 카드로. 팀마다 한 열, 에이전트가 각 조각에 붙인 라벨로 묶입니다.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/"><img src="docs/img/console-phone.png" alt="휴대폰의 콘솔 — 하단 내비게이션 바와 카드 스택, 작은 화면에서 권한 프롬프트에 답하는 모습" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/"><img src="docs/img/console-phone.png" alt="휴대폰의 콘솔 — 하단 내비게이션 바와 카드 스택, 작은 화면에서 권한 프롬프트에 답하는 모습" width="100%"></a><br>
 <b>휴대폰에서.</b> 같은 콘솔이라 승인이나 답변을 책상에 돌아올 때까지 미루지 않아도 됩니다.
 </td>
 </tr>

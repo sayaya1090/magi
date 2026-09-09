@@ -1603,7 +1603,7 @@ a dense model of the same weight, and the difference is wall-clock you spend on 
 ## 12. The console (`magi-web`)
 
 > The screens, the design rules and why each is the way it is: [`UI.md`](UI.md).
-> A clickable demo of the page (mocked data, no server): <https://sayaya1090.github.io/magi/>.
+> A clickable demo of the page (mocked data, no server): <https://sayaya1090.github.io/magi/demo/>.
 
 A web view of every magi on the machine — and, if you point it at others, on other machines. It is
 a **second surface on the same daemons**, not a service of its own: it derives what it shows from
@@ -1615,19 +1615,19 @@ shows you which of the five is blocked on a question, which finished while you w
 each of them has learned.
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/"><img src="img/console-companions.png" alt="The console's companion list: two teams, live status and step counts per row, and two companions waiting on the person" width="880"></a>
+<a href="https://sayaya1090.github.io/magi/demo/"><img src="img/console-companions.png" alt="The console's companion list: two teams, live status and step counts per row, and two companions waiting on the person" width="880"></a>
 
 <sub>The list every other screen hangs off. A row that needs you says so, and says which of the two kinds it needs.</sub>
 </div>
 
 <table>
 <tr>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="A companion's page: status, model and workspace, the live transcript, and a permission prompt awaiting approval" width="100%"></a><br><b>§12.3 — one companion.</b> The transcript with real exit codes, and anything it is blocked on.</td>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="The workspace pane: file tree with a directory expanded and the git card showing branch and changes" width="100%"></a><br><b>The workspace pane.</b> The tree and the git state as that companion sees them, beside the conversation.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-companion-detail.png" alt="A companion's page: status, model and workspace, the live transcript, and a permission prompt awaiting approval" width="100%"></a><br><b>§12.3 — one companion.</b> The transcript with real exit codes, and anything it is blocked on.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="img/console-workspace.png" alt="The workspace pane: file tree with a directory expanded and the git card showing branch and changes" width="100%"></a><br><b>The workspace pane.</b> The tree and the git state as that companion sees them, beside the conversation.</td>
 </tr>
 <tr>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=meet"><img src="img/console-meeting.png" alt="The Meetings page: choose companions, ask one question, convene a room" width="100%"></a><br><b>§12.5 — meetings.</b> Several companions on one question, then the conclusions go out as work.</td>
-<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/?v=skills"><img src="img/console-knowledge.png" alt="The Knowledge screen: skills and memories, each labelled with how far it reaches" width="100%"></a><br><b>Knowledge.</b> Skills, memories and the wiki — each labelled with how far it reaches (§7, §8).</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="img/console-meeting.png" alt="The Meetings page: choose companions, ask one question, convene a room" width="100%"></a><br><b>§12.5 — meetings.</b> Several companions on one question, then the conclusions go out as work.</td>
+<td width="50%" valign="top"><a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="img/console-knowledge.png" alt="The Knowledge screen: skills and memories, each labelled with how far it reaches" width="100%"></a><br><b>Knowledge.</b> Skills, memories and the wiki — each labelled with how far it reaches (§7, §8).</td>
 </tr>
 </table>
 

@@ -9,7 +9,7 @@ The agent has to *declare* that it is done, and three council members vote on wh
 backs that up, each reading the turn through a different lens. Before any of them may vote it
 walks the task's requirements, one line each, against what the tools actually returned.
 
-[English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Live demo](https://sayaya1090.github.io/magi/)
+[English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Site](https://sayaya1090.github.io/magi/) · [Live demo](https://sayaya1090.github.io/magi/demo/)
 
 [![CI](https://github.com/sayaya1090/magi/actions/workflows/ci.yml/badge.svg)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
 [![coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/sayaya1090/magi/badges/coverage.json)](https://github.com/sayaya1090/magi/actions/workflows/ci.yml)
@@ -34,11 +34,11 @@ The same daemons, watched from a browser. Every companion on your machines, what
 the ones that need an answer from you:
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/">
+<a href="https://sayaya1090.github.io/magi/demo/">
   <img src="docs/img/console-companions.png" alt="The web console showing a roster of companions across two teams, with live status, step counts, hosts, and two rows waiting on the person" width="900">
 </a>
 
-<sub><a href="https://sayaya1090.github.io/magi/">Open the live demo</a>. It is the real page with mocked data; no server needed.</sub>
+<sub><a href="https://sayaya1090.github.io/magi/demo/">Open the live demo</a>. It is the real page with mocked data; no server needed.</sub>
 </div>
 
 ---
@@ -268,7 +268,7 @@ no port of its own and holds no credential of its own.
 ```
 
 <div align="center">
-<a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock">
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock">
   <img src="docs/img/console-companion-detail.png" alt="One companion's page: a live transcript in the middle, and the right column carrying its status, model and workspace, the plan, and what is running now" width="860">
 </a>
 
@@ -278,31 +278,31 @@ no port of its own and holds no credential of its own.
 <table>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="The workspace pane: the file tree with a directory expanded, the git card with the branch and changed files, beside the conversation" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="The workspace pane: the file tree with a directory expanded, the git card with the branch and changed files, beside the conversation" width="100%"></a><br>
 <b>The workspace, beside the conversation.</b> The file tree and the git state as the companion sees them; open a file and read it with the agent's own line numbers, or edit it in place.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=meet"><img src="docs/img/console-meeting.png" alt="The Meetings page: pick two or more companions, ask one question, convene a room; active meetings listed below" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="docs/img/console-meeting.png" alt="The Meetings page: pick two or more companions, ask one question, convene a room; active meetings listed below" width="100%"></a><br>
 <b>Meetings.</b> Put several companions on one question until each knows what to do, then send each conclusion out as work.
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-knowledge.png" alt="The Knowledge screen: skills the team has learned and memories it keeps, each labelled with the scope it reaches and Read/Forget controls" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge.png" alt="The Knowledge screen: skills the team has learned and memories it keeps, each labelled with the scope it reaches and Read/Forget controls" width="100%"></a><br>
 <b>Knowledge.</b> The skills a team has learned and the memories it keeps, each labelled with how far it reaches — this companion, this team, or every companion here.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="The wiki half of the Knowledge screen: canonical pages with their last editor and date, and a retired page kept as a tombstone" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="The wiki half of the Knowledge screen: canonical pages with their last editor and date, and a retired page kept as a tombstone" width="100%"></a><br>
 <b>A shared wiki.</b> Canonical pages the companions keep current — updated in place, not piled up. A retired page stays readable with the reason it stopped being true.
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/?v=board"><img src="docs/img/console-board.png" alt="The Board: a day of work as cards, one column per team, grouped by the label the agent gave each piece" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/?v=board"><img src="docs/img/console-board.png" alt="The Board: a day of work as cards, one column per team, grouped by the label the agent gave each piece" width="100%"></a><br>
 <b>Board.</b> A day of work as cards, a column per team, grouped by the label the agent gave each piece.
 </td>
 <td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/"><img src="docs/img/console-phone.png" alt="The console on a phone: a bottom navigation bar and a card stack, answering a permission prompt from the smaller screen" width="100%"></a><br>
+<a href="https://sayaya1090.github.io/magi/demo/"><img src="docs/img/console-phone.png" alt="The console on a phone: a bottom navigation bar and a card stack, answering a permission prompt from the smaller screen" width="100%"></a><br>
 <b>On a phone.</b> The same console, so an approval or an answer doesn't have to wait until you are back at the desk.
 </td>
 </tr>
