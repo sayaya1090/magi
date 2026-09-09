@@ -234,6 +234,44 @@ class SourceTextTest {
             "일을 쥔 채 죽은 것과 끝나고 떠난 것이 같은 글자로 읽힌다 — 코어가 이름 댄 바로 그 해악이다")
     }
 
+    /**
+     * **창이 얼마나 찼나 옆에 무엇으로 찼나가 온다 — 그리고 화면이 그것을 실제로 그린다.**
+     *
+     * 코어의 `ContextParts` 는 다섯이고, 이 클라이언트는 그 칸을 **선언조차 안 하고 있었다** —
+     * 전선에서 여기까지 올 길이 없었다. 코어가 그 결과를 이름 대어 적어 두었다: *"A screen that
+     * shows only a total invites the wrong move… **the conversation is routinely the small half**."*
+     *
+     * ⚠ **다섯 다** 못박는다. 몇 개만 받으면 몫이 서로 안 더해지고 빠진 조각은 보이지도 않는다.
+     *
+     * ⚠ **그리는 자리까지** 본다. 처음 판은 총량 라벨에 `\n` 으로 붙였는데 `JBLabel` 은 개행을
+     * 안 그린다 — 컴파일도 시험도 초록인 채로 그 줄이 화면에 없었다. 그래서 이 규칙은 「받나」가
+     * 아니라 **「제 컴포넌트로 그리나」**를 묻는다.
+     */
+    @Test
+    fun `창을 무엇이 채우는지가 전선에서 화면까지 온다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val st = File(core, "internal/app/context_state.go")
+        assertTrue(st.isFile, "코어의 컨텍스트 상태를 못 찾았다(${st.absolutePath})")
+        val struct = st.readText().substringAfter("type ContextParts struct").substringBefore("\n}")
+        val names = Regex("""`json:"([a-z]+)""").findAll(struct).map { it.groupValues[1] }.toList()
+        assertTrue(names.size >= 5, "코어에서 조각을 ${names.size}개만 읽었다 — 훑기가 죽었다")
+        assertTrue("results" in names, "`results` 를 못 봤다 — 아무도 정하지 않았는데 자라는 그 조각이다")
+
+        val wire = code(sources.first { it.name == "Wire.kt" })
+        for (n in names) assertTrue(Regex("""val $n: Int""").containsMatchIn(wire),
+            "와이어가 `$n` 을 안 받는다 — 몫이 서로 안 더해지고 빠진 조각은 보이지도 않는다")
+        assertTrue("val parts: ContextParts?" in wire, "`ContextState` 가 조각을 안 든다")
+
+        val panel = code(sources.first { it.name == "PlanToolWindow.kt" })
+        assertTrue("fun makeup(" in panel, "조각을 글로 옮기는 자리가 없다")
+        for (n in names) assertTrue("p.$n" in panel, "화면이 `$n` 을 안 그린다")
+        // ⚠ **제 컴포넌트로 그린다.** 총량 라벨(JBLabel)에 붙이면 개행이 안 그려져 조용히 사라진다.
+        assertTrue("ctxParts.text = makeup(" in panel,
+            "조각을 제 컴포넌트에 안 그린다 — 총량 라벨에 붙이면 화면에서 사라진다")
+        assertTrue(Regex("""val ctxParts = Look\.flow\(\)""").containsMatchIn(panel),
+            "조각 줄이 접히는 칸이 아니다 — 한 줄 라벨이면 좁은 판에서 잘린다")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서
