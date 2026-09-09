@@ -18,6 +18,7 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     private string _state = ActivityState.Unknown;
     private string _label = "cannot say";
     private string _detail = "";
+    private string _workspace = "";
     private string _draft = "";
     private string _lastAnswer = "";
     private bool _busy;
@@ -97,6 +98,20 @@ public class ConversationViewModel : NotifyPropertyChangedObject
     /// <summary>Drawn only when nobody is listening.</summary>
     public string StartVisibility => State == ActivityState.NotRunning ? "Visible" : "Collapsed";
 
+    /// <summary>
+    /// The tree this panel speaks for, shown at the head of <see cref="Detail"/>.
+    /// </summary>
+    /// <remarks>
+    /// Set once, before the first reading. It is on the screen rather than only in a field because
+    /// the failure it guards against is silent: a companion answering perfectly well for a
+    /// different directory looks exactly like the right one.
+    /// </remarks>
+    public string Workspace
+    {
+        get => _workspace;
+        set => SetProperty(ref _workspace, value);
+    }
+
     public IAsyncCommand? Send { get; set; }
     public IAsyncCommand? StartCompanion { get; set; }
 
@@ -114,6 +129,9 @@ public class ConversationViewModel : NotifyPropertyChangedObject
         // The reason comes last and only when there is nothing else — a companion that is running
         // has settings worth reading, and one that is not has a reason worth reading.
         if (parts.Count == 0 && !string.IsNullOrWhiteSpace(activity.Why)) parts.Add(activity.Why!);
+        // The tree goes first, ahead of both. Which companion is being spoken for is the one thing
+        // on this line that cannot be inferred from anything else on the screen.
+        if (!string.IsNullOrEmpty(Workspace)) parts.Insert(0, Workspace);
         Detail = string.Join("  ·  ", parts);
         RaiseNotifyPropertyChangedEvent(nameof(StartVisibility));
     }

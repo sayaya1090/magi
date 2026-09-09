@@ -2,6 +2,7 @@ using Magi.Core;
 using Microsoft.VisualStudio.Extensibility;
 using Microsoft.VisualStudio.Extensibility.ToolWindows;
 using Microsoft.VisualStudio.Extensibility.UI;
+using Microsoft.VisualStudio.ProjectSystem.Query;
 using Microsoft.VisualStudio.RpcContracts.RemoteUI;
 
 namespace Magi.Extension;
@@ -67,21 +68,56 @@ internal class ConversationToolWindow : ToolWindow
     public override async Task InitializeAsync(CancellationToken cancellationToken)
     {
         await base.InitializeAsync(cancellationToken);
-        _companion = new SolutionCompanion(WorkspaceOf());
+        var found = await WorkspaceAsync(cancellationToken).ConfigureAwait(false);
+        _companion = new SolutionCompanion(found.Directory);
+        // Onto the panel, not only into the field. A bridge pointed at the wrong tree speaks for a
+        // different companion with nothing wrong anywhere on the wire — the one place that can go
+        // visibly wrong is a screen that says which tree it means.
+        _model.Workspace = found.Guessed
+            ? found.Directory + "  (no solution open — the IDE's own directory)"
+            : found.Directory;
         _polling = new CancellationTokenSource();
         _ = PollAsync(_polling.Token);
     }
 
     /// <summary>
-    /// Which tree this panel speaks for.
+    /// Which tree this panel speaks for, and whether we actually know.
     /// </summary>
     /// <remarks>
-    /// ⚠ The current directory, which is the IDE's and not necessarily the solution's. Reading the
-    /// open solution needs the Project Query API and belongs with the rest of the spine; until then
-    /// this is stated rather than hidden, because a bridge pointed at the wrong tree speaks for a
-    /// different companion with nothing wrong on the wire.
+    /// <c>ISolutionSnapshot.Directory</c>, asked through the Project Query API — the door that
+    /// answers this, and the reason the question lives up here at all: <c>Magi.Core</c> must not
+    /// know what a solution is.
+    /// <para>
+    /// The fall-back is the IDE's current directory, which is what this used to be in every case.
+    /// It is a guess, and it is labelled as one on the panel rather than quietly substituted —
+    /// with no solution open there is no better answer, and somebody who can see the path can tell
+    /// at a glance that magi is speaking for somewhere else.
+    /// </para>
+    /// <para>
+    /// ⚠ Asked once, at open. Opening a different solution in the same window leaves this pointing
+    /// at the old one; the panel goes on showing the old path, which is at least the visible kind
+    /// of wrong. Re-asking every poll would put a cross-process query on a two-second clock.
+    /// </para>
     /// </remarks>
-    private static string WorkspaceOf() => Environment.CurrentDirectory;
+    private async Task<(string Directory, bool Guessed)> WorkspaceAsync(CancellationToken cancel)
+    {
+        try
+        {
+            var solutions = await Extensibility.Workspaces()
+                .QuerySolutionAsync(query => query.With(solution => solution.Directory), cancel)
+                .ConfigureAwait(false);
+            var directory = solutions
+                .Select(solution => solution.Directory)
+                .FirstOrDefault(d => !string.IsNullOrWhiteSpace(d));
+            if (directory is not null) return (directory, false);
+        }
+        catch (Exception e) when (e is QueryExecutionException or InvalidOperationException)
+        {
+            // No solution open is not an error worth a dialog, and neither is a query the shell
+            // declined to answer. Both land on the same honest fall-back.
+        }
+        return (Environment.CurrentDirectory, true);
+    }
 
     /// <summary>
     /// Ask every couple of seconds, and slow right down when there is nothing there.
