@@ -387,3 +387,73 @@ test('every row kind the fold produces has a style', () => {
       'companion\'s own words. Style it, or add it to `body` with the reason.');
   }
 });
+
+/**
+ * ★ Every event the core writes is read by this client, or deliberately not.
+ *
+ * The mirror of the guard that checks the names we branch on exist. That one catches a branch that
+ * can never fire; this one catches the opposite and more expensive mistake — the core writes a
+ * fact, nothing here reads it, and the feature is simply absent with nothing saying so.
+ *
+ * Measured 2026-09-09 by counting the two ports' branches: the JetBrains shaper handled seventeen
+ * events, this one eight. Three of the difference were read elsewhere here (`todos.changed`,
+ * `context.usage`, `model.changed` have their own readers), and three were read NOWHERE:
+ * `council.decided` — so the transcript showed three members voting and never what was decided —
+ * and `interjection.deferred` / `interjection.answered`, so a prompt the core had parked drew
+ * exactly like one being worked on.
+ *
+ * "Read" is deliberately the whole client, not this fold: several of these belong to the plan panel
+ * or the setup line, and demanding they all be rows would push facts onto the wrong screen.
+ */
+test('every event the core writes is read somewhere, or deliberately not', () => {
+  const core = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'event.go'), 'utf8');
+  const types = new Set([...core.matchAll(/Type[A-Za-z]+\s+Type\s*=\s*"([a-z][a-z.]+)"/g)].map((m) => m[1]));
+  assert.ok(types.size >= 20, `only ${types.size} event types read from the core — the parser is stale`);
+
+  // What this client reads, anywhere under src/ (excluding the tests, which name events to build
+  // fixtures and would answer this question with themselves).
+  const read = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'test') walk(p); continue; }
+      if (!e.name.endsWith('.ts')) continue;
+      const body = fs.readFileSync(p, 'utf8')
+        .replace(/\/\*(?:(?!\*\/)[\s\S])*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+      // ⚠ **A dotless name is an event too.** `compaction` and `error` have no dot, and a pattern
+      // that required one reported both as unread — the same trap this repository already recorded
+      // in the guard one over. Match anything the core's own list can contain.
+      for (const m of body.matchAll(/'([a-z][a-z.]*)'/g)) if (types.has(m[1])) read.add(m[1]);
+    }
+  };
+  walk(path.join(__dirname, '..', '..', 'src'));
+  assert.ok(read.size >= 8, `only ${read.size} event names seen in the client — the scan is reading nothing`);
+  // Pinned because the first cut of this scan could not see them: a dotless name read as no name.
+  for (const dotless of ['compaction', 'error']) {
+    assert.ok(read.has(dotless), `the scan cannot see "${dotless}" — a dotless event name is still an event`);
+  }
+
+  // Left out on purpose, each with the reason a reader can check.
+  const skipped: Record<string, string> = {
+    'permission.requested': 'the pending ask comes from `status`, which answers with the LIVE one — a log replay would re-raise prompts already decided',
+    'permission.decided': 'read by `touched`, which is not a row: the decision itself is drawn from the ask disappearing',
+    'question.requested': 'same as permission.requested — the live one comes from `status`',
+    'question.answered': 'the answer arrives as the prompt it produced; a second row would say the person spoke twice',
+    'session.moved': 'this window follows one workspace; a companion that left is reported by the socket going quiet',
+    'labels.changed': 'nothing in this client renames people yet — the roster shows what the daemon calls them',
+    'user.label.changed': 'same as labels.changed',
+    'result.elided': 'a shed tool result is a context-window fact, not a conversation one — the row already says what the call was',
+    'workflow.phase': 'this client draws no phase strip; the plan panel shows the todos the phase moves',
+    'tool.progress': 'transient and bus-only, so it never reaches a reader of the log; the live note comes from `status.doing`',
+    'council.deliberating': 'transient, one per member per round — kept out of the transcript for the reason the core keeps it out of the log',
+    'council.convened': 'the round announces itself through the verdicts it produces, and the evidence it carries is the plan panel\'s',
+    'session.created': 'the conversation\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
+    'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-conversation gets the current model instead of replaying its history',
+  };
+  const missed: string[] = [];
+  for (const t of types) if (!read.has(t) && !(t in skipped)) missed.push(t);
+  assert.deepEqual(missed, [],
+    'the core writes these and nothing here reads them, so the feature is absent with nothing ' +
+    'saying so: ' + missed.join(', ') + ' — read them, or add each to `skipped` with its reason.');
+});

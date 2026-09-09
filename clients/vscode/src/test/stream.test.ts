@@ -422,3 +422,47 @@ test('every council verdict makes a row, and it carries the vote', () => {
   assert.ok(/r\.decision/.test(line) && /r\.round/.test(line), 'the label leaves out the vote or the round');
   assert.ok(/label: who \+ vote/.test(chat), 'the vote is built and never joined to the label');
 });
+
+/**
+ * A parked prompt is marked as parked, and the mark reaches the screen.
+ *
+ * The core parks a message typed while a turn is running and runs it as its own turn afterwards
+ * (`interjection.deferred`, the F5 ledger). Unread, the parked row drew exactly like one being
+ * worked on — same bar, same everything — so a person could not tell whether the sentence they
+ * typed had been picked up or shelved.
+ *
+ * The screen half is asserted because the field half is not the feature: a flag nobody paints is
+ * the defect with a note attached, which this session has now measured five separate times.
+ */
+test('a parked prompt says so, and the mark is drawn', () => {
+  const asked: Event[] = [{ seq: seq++, type: 'prompt.submitted',
+    data: { messageId: 'm7', parts: [{ kind: 'text', text: 'also check the windows path' }] } }];
+
+  assert.equal(rows(asked)[0].queued, undefined, 'an ordinary prompt is marked as parked');
+
+  const parked = rows([...asked, { seq: seq++, type: 'interjection.deferred', data: { messageId: 'm7' } }])[0];
+  assert.equal(parked.queued, true, 'a parked prompt draws exactly like one being worked on');
+
+  // Answered: the mark comes down, and so does the bar — "in its place" is not "still waiting".
+  const done = rows([...asked,
+    { seq: seq++, type: 'interjection.deferred', data: { messageId: 'm7' } },
+    { seq: seq++, type: 'interjection.answered', data: { messageId: 'm7' } }])[0];
+  assert.equal(done.queued, false);
+  assert.equal(done.pending, false);
+
+  // Abandoned clears it too — a parked message on a cancelled turn is not still queued.
+  const gone = rows([...asked,
+    { seq: seq++, type: 'interjection.deferred', data: { messageId: 'm7' } },
+    { seq: seq++, type: 'prompt.abandoned', data: { msgId: 'm7' } }])[0];
+  assert.equal(gone.queued, false);
+  assert.equal(gone.abandoned, true);
+
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  assert.ok(/r\.queued \? ' queued' : ''/.test(chat), 'the row carries the mark and the screen never draws it');
+  // ⚠ Look in the STYLE block, not the whole file. The first cut matched anywhere, and `r.queued`
+  // in the TypeScript contains the substring `.queued` — so deleting the CSS rule left the guard
+  // green. Presence somewhere is not a style; this reads the sheet the webview actually carries.
+  const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
+  assert.ok(style.length > 200, 'the style block was not found — this guard is reading nothing');
+  assert.ok(/\.queued\b[^{]*\{/.test(style), 'the parked class has no style — it would look like any other row');
+});
