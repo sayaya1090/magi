@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { carrying, context, fleet, jobs, sayState, schedules } from '../core/panel';
+import { carrying, context, fleet, jobs, offers, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -393,4 +393,45 @@ test('a fold says what is still there', () => {
   const bare = context({ ok: true, context: { window: 32000, used: 12000, compactions: 1 } } as unknown as Parameters<typeof context>[0]);
   assert.match(bare, /folded 1×/);
   assert.ok(!/still there/.test(bare), 'a fold with nothing named still promises something');
+});
+
+/**
+ * ★ Three companions read the same until the row says what each is FOR.
+ *
+ * Measured against a live machine (2026-09-10) by running its real `roster` reply through this very
+ * formatter: `word · idle · sonnet`, `excel · idle · sonnet`, `powerpoint · idle · sonnet` — while
+ * every row carried `does` naming exactly what told them apart.
+ *
+ * The core says these travel for this: "Does NAMES those things… a name is enough to **pick a
+ * companion out of a roster**". This row is that roster, and it is what a person reads before
+ * handing work over.
+ *
+ * ⚠ `can` is NOT `does.length`. The core carries the count separately because the list is a sample
+ * past `MaxDoes` — so a row showing three of seven must say so, or it reads as the whole offer.
+ */
+test('the fleet row names what a companion is for, and says when the list is a sample', () => {
+  const cluster = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'cluster', 'cluster.go'), 'utf8');
+  assert.match(cluster, /a name is enough to pick a\s*\n?\s*\/\/ companion out of a roster/,
+    'the core no longer states why `does` travels — re-read before trusting this rule');
+  assert.match(cluster, /A SAMPLE when there are more than MaxDoes/,
+    'the core no longer says the list may be a sample — the `+N` below may be wrong now');
+
+  assert.equal(offers({}), '', 'a companion that advertises nothing is given words');
+  assert.equal(offers({ does: [] }), '', 'an empty list is drawn as an offer');
+  assert.equal(offers({ can: 3, does: ['a', 'b', 'c'] }), 'a, b, c',
+    'a complete list is marked as if something were held back');
+  // The sample case: the count says seven, the list names three.
+  assert.equal(offers({ can: 7, does: ['a', 'b', 'c'] }), 'a, b, c +4',
+    'a sampled list reads as the whole offer — the count is carried separately for exactly this');
+  // More names than we draw: still short by the difference, even when `can` agrees with the list.
+  assert.equal(offers({ can: 5, does: ['a', 'b', 'c', 'd', 'e'] }, 3), 'a, b, c +2',
+    'names beyond the cut vanish with nothing saying so');
+
+  // And the row must carry it — a correct helper nobody calls is the older defect here.
+  const drawn = fleet({ ok: true, roster: [
+    { socket: '/tmp/w.sock', name: 'word', state: 'idle', live: true, can: 3,
+      does: ['document-structure', 'editing', 'tables-and-review'] },
+  ] } as unknown as Parameters<typeof fleet>[0]);
+  assert.match(drawn[0], /document-structure/, 'the fleet row does not say what the companion is for');
 });
