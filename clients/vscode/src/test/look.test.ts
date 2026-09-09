@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { split, numbered } from '../core/look';
-import { around, usable } from '../core/complete';
+import { WINDOW, around, usable } from '../core/complete';
 
 test('a reply that keeps the contract hangs on its lines', () => {
   const { anchored, loose } = split('12\tthis never returns\n40\tthe lock is not released');
@@ -83,6 +83,23 @@ test('only the window around the cursor is read', () => {
     'the reader was asked for something other than the two windows');
   assert.equal(prefix.length, 4000);
   assert.equal(suffix.length, 4000);
+});
+
+/**
+ * ★ And the DEFAULT window is the one that ships.
+ *
+ * The tests above pass a budget explicitly, so the default was never exercised — a mutation raising
+ * it to four million passed every one of them. The number nobody names in a call is the number every
+ * keystroke uses, so it is pinned here: bounded, and small enough that a large file is not copied.
+ */
+test('the default window is bounded and small', () => {
+  const asked: [number, number][] = [];
+  around((f, t) => { asked.push([f, t]); return ''; }, 1_000_000);
+  const [[pFrom, pTo], [sFrom, sTo]] = asked;
+  assert.equal(pTo - pFrom, WINDOW, 'the prefix window is not the declared one');
+  assert.equal(sTo - sFrom, WINDOW, 'the suffix window is not the declared one');
+  assert.ok(WINDOW > 0 && WINDOW <= 32_768,
+    `the default window is ${WINDOW} — a completion needs the code around the cursor, not the file`);
 });
 
 /** At the very start there is nothing behind the cursor — and no negative offset is asked for. */
