@@ -2,54 +2,69 @@
 
 [↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [설계](docs/DESIGN.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [이웃 조사](docs/SURVEY.ko.md) · [무엇을 어디서 재나](docs/TESTING.ko.md) · [형제: 젯브레인](../jetbrains/README.md)
 
-VS Code 가 연 폴더의 magi 컴패니언에게 말을 걸고, 그가 이 편집기를 부릴 수 있게 하는 확장.
-**새 프로토콜을 만들지 않는다** — [`docs/CLIENTS`](../../docs/CLIENTS.ko.md) 가 정본이고 이 확장은
-그 문을 두드리는 여섯 번째 클라이언트다.
+VS Code에서 연 워크스페이스의 magi 데몬과 유닉스 도메인 소켓(UDS)으로 통신하며, 에이전트 대화 및 에디터 제어를 제공하는 공식 확장입니다.
+새 통신 프로토콜을 정의하지 않고 본체 데몬의 소켓 계약([`docs/CLIENTS`](../../docs/CLIENTS.ko.md))을 그대로 준수합니다.
 
-## 지금 무엇이 되나
+---
 
-대화(패널) · 계획과 계기판(사이드바) · 상태 표시줄 · 인라인 완성 · 타이핑 중 훑어보기와 인레이 ·
-편집 표식 · 승인 답하기 · 코드 액션 · 첨부 · 커밋 메시지 초안 · 「이 줄 누가 썼나」 · 대화 바꾸기 ·
-모델·승인 고르기.
+## 1. 빌드 및 설치
 
-아직 없는 것은 [매뉴얼 §8](docs/MANUAL.ko.md) 에 있다.
-
-## 만들고 깔기
-
-```
+```sh
+# 1. 의존성 설치 및 컴파일
 npm install && npx tsc -p .
+
+# 2. VSIX 패키징
 npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository
+
+# 3. 로컬 VS Code에 설치
 code --install-extension magi-0.2.0.vsix --force
 ```
 
-## 재기
+---
 
+## 2. 제공 기능
+
+- **대화 패널 (하단 패널)**: 실시간 대화 전사 스트리밍, 승인(Approval) 요청 처리, 모델/모드 전환.
+- **사이드바 (계획/계기판)**: 에이전트 작업 목표 목록(TODOs), 세션 컨텍스트 윈도 사용량 표시.
+- **에디터 통합**: 인라인 코드 자동 완성, 실시간 편집 힌트(인레이 힌트), 파일 변경 마커 데코레이션, 코드 액션.
+- **작업 지원**: 빠른 파일 첨부, 커밋 메시지 초안 생성, 블레임(「이 줄 누가 썼나」).
+
+> 아직 구현되지 않은 기능 목록은 [사용자 매뉴얼 §8](docs/MANUAL.ko.md)을 참조하십시오.
+
+---
+
+## 3. 디렉토리 구조 (계층 분리)
+
+`vscode` 모듈 의존성을 분리하여 IDE 없이도 프로토콜과 상태 로직을 독립적으로 검증합니다 (`layering.test.ts` 불변식).
+
+| 디렉토리 | 역할 | 의존성 원칙 |
+|---|---|---|
+| `src/core/` | 데몬 소켓 프로토콜, 이벤트 파싱, 승인 상태 머신 | **Node.js 순수 환경** (`vscode` 모듈 import 금지, 단위 테스트 대상) |
+| `src/ide/` | VS Code UI 등록 (Webview 패널, 에디터 커맨드, 설정 연동) | `vscode` API 사용하는 유일한 레이어 |
+| `src/live/` | 실제 구동 중인 VS Code 인스턴스 환경 전용 테스트 하네스 | VS Code Extension Host 런타임 |
+| `src/test/` | `src/core/`의 순수 비즈니스 로직 및 와이어 프로토콜 단위 테스트 | 빠른 실행 (에디터 실행 불필요) |
+
+---
+
+## 4. 테스트 실행
+
+```sh
+# 1. 단위 테스트 (에디터 없이 순수 Node 환경에서 고속 실행)
+npx tsc -p . && node --test 'out/test/*.test.js'
+
+# 2. 실물 VS Code E2E 테스트 (실제 에디터를 띄워 매니페스트 및 뷰 등록 검증)
+npx tsc -p . && node out/live/run.js
 ```
-npx tsc -p . && node --test 'out/test/*.test.js'   # 편집기 없이
-npx tsc -p . && node out/live/run.js               # 실물 VS Code 를 띄워서
-```
 
-**둘 다 돌려야 한다.** 매니페스트의 오타는 첫째를 전부 통과하고 편집기에서 아무 일도 안 한다 —
-아무도 등록 안 한 뷰는 그냥 안 나타나서 에러도 없다. 자세한 것은
-[TESTING](docs/TESTING.ko.md).
+> **주의**: 매니페스트(`package.json`)의 오타나 뷰 등록 누락은 단위 테스트를 통과하더라도 실물 에디터에서 에러 없이 뷰만 미표시될 수 있으므로, 두 테스트를 모두 실행해야 합니다. 자세한 기준은 [TESTING.ko.md](docs/TESTING.ko.md)를 참고하십시오.
 
-## 구조
+---
 
-```
-src/core/   vscode 를 import 하지 않는다. node 만으로 돈다 → 여기서 시험된다
-src/ide/    vscode API 가 사는 유일한 자리
-src/live/   실물 편집기 안에서만 알 수 있는 것
-src/test/   core 를 잰다
-```
+## 5. 핵심 연동 규칙 및 주의사항
 
-그 갈림은 젯브레인과 같고, 이유도 같다: 프로토콜·전사·승인 어휘가 편집기 없이 재져야 한다.
-`layering.test.ts` 가 그 규칙을 붙든다.
-
-## 먼저 읽을 것
-
-- [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md) — **소켓 계약.** 워크스페이스 키가 한 글자라도
-  다르면 **에러가 안 난다.** 골든은 코어의 `WorkspaceKey` 가 직접 답한 값이고, 이 포팅을 두 번
-  잡았다(해시 상수가 표준이 아니다, `basename("/")` 이 Go 와 Node 가 다르다).
-- [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md) — **젯브레인과 정반대인 것 넷.** 설정 화면을
-  손으로 짜는 습관이 여기서는 금지다.
-- [`docs/UI.ko.md` §0](docs/UI.ko.md) — **불변식 일곱.**
+- **소켓 경로 및 워크스페이스 키 일치**: [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md)
+  - 데몬 소켓 식별자인 `WorkspaceKey` 해시가 코어 바이너리의 계산 결과와 정확히 일치해야 합니다. 불일치 시 에러 없이 통신이 단절됩니다.
+- **설정 선언 원칙**: [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md)
+  - 설정 화면을 코드로 직접 조립하지 않고 `package.json`의 `contributes.configuration` 선언형 스키마를 통해 제공합니다.
+- **UI 불변식**: [`docs/UI.ko.md` §0](docs/UI.ko.md)
+  - 웹뷰 및 UI 렌더링 시 지켜야 하는 7대 불변식 규약.
