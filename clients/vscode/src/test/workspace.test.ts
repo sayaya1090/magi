@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
 import * as path from 'path';
 import { workspaceKey, configDir, socketDir, socketPath, tooLong } from '../core/workspace';
 
@@ -74,4 +75,34 @@ test('a path the OS will refuse says so, with the length and the way out', () =>
   assert.ok(said?.includes('126'), `the length is not named: ${said}`);
   assert.ok(said?.includes('MAGI_SOCKET_DIR'), `the way out is not named: ${said}`);
   assert.ok(!said?.includes('MAGI_CONFIG_DIR'), `it still sends people to the config tree: ${said}`);
+});
+
+/**
+ * An older reading must not overwrite a newer one.
+ *
+ * Two askers write the same screen: the poll, which chains itself, and `refresh()`, fired by a
+ * command that just changed something. The wire does not promise they come back in the order they
+ * were asked — different connections, and one may be waiting on a slow daemon. So the poll's
+ * in-flight reading, asked BEFORE the change, can land after the refresh and put the old value
+ * back: the "the change did not work" that `refresh` exists to prevent.
+ *
+ * The JetBrains client guards the same overlap with a sequence checked before drawing, in its own
+ * words: "더 새 틱이 이미 섰다 — 낡은 그림 금지".
+ */
+test('a status answer that a newer one overtook is not drawn', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'workspace.ts'), 'utf8');
+
+  // Both askers take a number and both check it. One without the other is the defect with a note.
+  const takes = [...src.matchAll(/\+\+this\.asked/g)].length;
+  assert.equal(takes, 2, `${takes} askers take a sequence — the poll and refresh must both take one`);
+  const checks = [...src.matchAll(/mine !== this\.asked/g)].length;
+  assert.equal(checks, 2, `${checks} askers check it — one that takes a number and ignores it guards nothing`);
+
+  // The check must sit BETWEEN the await and the write, or it guards nothing.
+  for (const m of src.matchAll(/const mine = \+\+this\.asked;([\s\S]{0,400}?)this\.set\(/g)) {
+    const between = m[1];
+    assert.ok(/await this\.ask\('status'/.test(between), 'the number is taken but nothing is awaited after it');
+    assert.ok(/mine !== this\.asked[\s\S]*?return/.test(between),
+      'the answer is written without asking whether a newer reading already landed');
+  }
 });
