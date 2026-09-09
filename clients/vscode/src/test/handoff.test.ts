@@ -165,7 +165,13 @@ test('a local row that did not answer is not offered as a target', () => {
     roster: [
       { socket: '/a/daemon-ws-1.sock', workdir: '/a', state: 'idle', live: true },
       { socket: '/b/daemon-ws-2.sock', workdir: '/b', state: 'idle' },
-      { socket: '/over/there/daemon-ws-9.sock', workdir: '/c', sighting: true },
+      // A sighting carrying `live` is a reply the core does not send today — it says so plainly:
+      // "a sighting's liveness is exactly what nobody here can check". It is in the fixture because
+      // the filter must not LEAN on that. A mutation proved the lean: dropping `!sighting` and
+      // keeping only `live` passed every test, because no fixture had ever put the two together.
+      // The socket of a sighting is a path on a machine this window has no door to, whatever else
+      // the row says about itself.
+      { socket: '/over/there/daemon-ws-9.sock', workdir: '/c', sighting: true, live: true },
     ],
   }).map((p) => p.socket);
   assert.deepEqual(got, ['/a/daemon-ws-1.sock'],
