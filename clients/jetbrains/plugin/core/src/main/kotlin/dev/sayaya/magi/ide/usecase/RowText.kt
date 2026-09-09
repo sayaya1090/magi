@@ -15,6 +15,39 @@ object RowText {
      * 나노초를 뗀다: 전사는 행이 수백 개고, 그 자리에서 소수점 아래 아홉 자리는 읽는 사람의
      * 눈만 먹는다. 표준시간대는 이 기계의 것이다(로그가 아니라 사람이 보는 줄이다).
      */
+    /**
+     * 판정 하나를 **다른 표면들이 이미 쓰는 말**로.
+     *
+     * `council.Decision` 은 셋인데 하나가 제 뜻의 반대로 읽힌다 — `continue` 는 "not done, more
+     * work is needed" 이고 **턴을 끝내는 게이트**라 작업이 그것을 못 지나간다. 낱말을 그대로
+     * 찍으면 그 표가 작업을 통과시킨 것처럼 읽힌다.
+     *
+     * 코어는 이 값을 이미 두 번 치렀다. 터미널은 첫 판정부터 "reject" 라고 적었고
+     * (`internal/adapter/tui/render.go` 의 `councilVerdictLabel`), 웹 서버에는 이름이
+     * `TestAContinueVoteReadsAsTheRejectionItIs` 인 시험이 있다 — *"The page printed the raw word
+     * in a neutral colour, which reads as progress — the opposite of what the vote means."*
+     *
+     * [silent] 은 **넷째 결정이 아니라 넷째 결과**다: 아무도 안 준 평결이 집계에 안 세이도록
+     * `abstain` 옆에 실려 온다. 그것을 「기권」으로 그리면 백엔드 고장을 「멤버가 재보고
+     * 물러섰다」로 보고하는 셈이다.
+     *
+     * [word] 는 옮겨 적는 글의 말(이 파일의 이웃들처럼 영어 리터럴)이고, [key] 는 화면이 쓸
+     * 번들 열쇠다 — **표는 하나**이므로 둘이 갈릴 수 없다. 모르는 결정은 터미널이 쓰는 중립
+     * 표식과 함께 날것으로 지나간다.
+     */
+    data class Verdict(val icon: String, val word: String, val key: String)
+
+    fun verdict(decision: String?, silent: Boolean = false): Verdict? {
+        if (silent) return Verdict("⋯", "no answer", "chat.verdict.noanswer")
+        return when (decision?.trim()) {
+            null, "" -> null
+            "done" -> Verdict("✓", "done", "chat.verdict.done")
+            "continue" -> Verdict("✗", "reject", "chat.verdict.reject")
+            "abstain" -> Verdict("∅", "abstain", "chat.verdict.abstain")
+            else -> Verdict("·", decision.trim(), "")
+        }
+    }
+
     fun clock(at: String?): String = at?.let {
         runCatching {
             java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault())
@@ -56,7 +89,7 @@ object RowText {
                 append("council")
                 r.member?.takeIf { it.isNotBlank() }?.let { append(" ").append(it) }
                 if (r.round > 0) append(" r").append(r.round)
-                r.decision?.takeIf { it.isNotBlank() }?.let { append(" — ").append(it) }
+                verdict(r.decision, r.silent)?.let { append(" — ").append(it.word) }
             }
             Who.Info -> "info"
         }

@@ -998,8 +998,14 @@ class MagiToolWindow : ToolWindowFactory {
                 } else {
                     val name = r.member ?: MagiBundle.msg("chat.who.council")
                     val marks = buildList {
-                        r.decision?.let {
-                            add(it to when (it) { "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint })
+                        // 낱말은 **한 표**에서 온다(RowText.verdict) — 터미널·콘솔이 쓰는 그 말이다.
+                        // 색만으로는 못 가른다: 옮겨 적은 글에는 색이 없고, 색으로 뜻을 나르는
+                        // 화면은 색을 못 보는 사람에게 아무 말도 안 한 것과 같다.
+                        RowText.verdict(r.decision)?.let { v ->
+                            val word = if (v.key.isBlank()) v.word else MagiBundle.msg(v.key)
+                            add("${v.icon} $word" to when (r.decision) {
+                                "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint
+                            })
                         }
                         // 본문은 실려 온 말(rationale)이고, 「아무도 안 줬다」는 사실은 마크로
                         // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.

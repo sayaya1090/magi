@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.usecase
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -22,6 +23,54 @@ class RowTextTest {
     //
     // 화면은 색·아이콘·접힘으로 사실을 말한다. 글자로 나갈 때 그것들이 사라지면 붙여넣은 쪽은
     // **무슨 일이 있었는지 모르는 전사**를 받는다. 아래는 그 사실들이 글자에 남는지를 잰다.
+
+    /**
+     * **`continue` 는 승인이 아니라 거부다.**
+     *
+     * `council.Decision` 셋 중 하나가 제 뜻의 반대로 읽힌다. 터미널은 첫 판정부터 "reject" 라
+     * 적었고(`internal/adapter/tui/render.go`), 웹 서버에는 `TestAContinueVoteReadsAsTheRejectionItIs`
+     * 가 있다 — 이 클라이언트만 날것을 찍고 있었다.
+     *
+     * 낱말은 **터미널의 표를 읽어서** 못박는다. 세 표면이 한 판정을 세 가지로 말하는 것이 한 층
+     * 위의 같은 결함이라, 여기서 두 번째 표를 쓰지 않는다.
+     */
+    @Test
+    fun `카운슬 판정은 다른 표면들이 쓰는 말로 적힌다`() {
+        val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val tui = java.io.File(core, "internal/adapter/tui/render.go")
+        assertTrue(tui.isFile, "터미널의 표를 못 찾았다(${tui.absolutePath}) — 낱말이 근거 없이 서 있다")
+        val body = tui.readText().substringAfter("func councilVerdictLabel(").substringBefore("\n}")
+        val pairs = Regex("""case "([a-z]+)":\s*\n\s*return "([^"]*)", "([^"]+)"""")
+            .findAll(body).map { Triple(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }.toList()
+        assertTrue(pairs.size >= 3, "터미널에서 판정 낱말을 ${pairs.size}개만 읽었다 — 훑기가 죽었다")
+
+        for ((decision, icon, word) in pairs) {
+            val v = RowText.verdict(decision)
+            assertEquals(word, v?.word, "`$decision` 이 여기선 «${v?.word}», 터미널에선 «$word»")
+            assertEquals(icon, v?.icon, "`$decision` 의 표식이 터미널과 다르다")
+        }
+        // 이 규칙이 있는 이유를 표 없이도 읽히게 적어 둔다.
+        assertEquals("reject", RowText.verdict("continue")?.word,
+            "거부가 여전히 승인처럼 읽히는 낱말로 적힌다")
+
+        // 아무도 안 준 평결은 «재보고 물러선» 기권이 아니다.
+        assertEquals("no answer", RowText.verdict("abstain", silent = true)?.word)
+        assertNotEquals(RowText.verdict("abstain")?.word, RowText.verdict("abstain", silent = true)?.word,
+            "한 번도 말 안 한 멤버가 재보고 물러선 멤버와 같게 읽힌다")
+
+        assertNull(RowText.verdict(null), "결정이 없는 행은 아무 말도 안 해야 한다")
+        assertEquals("deferred", RowText.verdict("deferred")?.word, "모르는 결정이 삼켜지거나 이름이 바뀐다")
+    }
+
+    /** 그리고 **옮겨 적는 글**이 그 말을 실제로 쓴다 — 옳은 함수를 아무도 안 쓰는 것이 옛 결함이다. */
+    @Test
+    fun `옮겨 적은 카운슬 행이 날것을 안 싣는다`() {
+        val r = Row(Who.Council, "the tests do not run", member = "Melchior", round = 2,
+            decision = "continue")
+        val line = RowText.plain(r)
+        assertFalse("continue" in line, "옮겨 적은 글이 프로토콜 낱말을 그대로 싣는다: $line")
+        assertTrue("reject" in line, "옮겨 적은 글에 판정이 없다: $line")
+    }
 
     @Test
     fun `실패한 툴은 글자에서도 실패로 보인다`() {
