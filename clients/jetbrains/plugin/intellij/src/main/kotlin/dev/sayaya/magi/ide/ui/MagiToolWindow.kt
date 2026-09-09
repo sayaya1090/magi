@@ -988,7 +988,7 @@ class MagiToolWindow : ToolWindowFactory {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                         isOpaque = false
                         if (r.text.isNotBlank()) add(Look.prose(r.text))
-                        r.lens?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
+                        r.rule?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
                         // 증거는 **접어 둔다.** 전사는 흐르는 화면이고, 펼쳐진 증거 한 라운드가
                         // 대화를 덮는다. 옮겨 적을 것이라 고정폭이다(툴 행의 그 규칙 그대로).
                         if (open) add(Look.code(r.evidence.orEmpty()))
@@ -997,6 +997,10 @@ class MagiToolWindow : ToolWindowFactory {
                     if (has) foldable(p, r)
                 } else {
                     val name = r.member ?: MagiBundle.msg("chat.who.council")
+                    // **어느 렌즈가 말하는가.** 카운슬에 자리가 셋인 이유가 그것이라, 이름만 그리면
+                    // 한 라운드의 판정 셋이 서로 바꿔 놔도 같은 글이다. 실려 오는데 안 그리고
+                    // 있었다 — 그 칸이 「라운드의 규칙」과 한 자리를 쓰고 있어서, 규칙만 그려졌다.
+                    val lens = r.lens?.takeIf { it.isNotBlank() }?.let { " [$it]" }.orEmpty()
                     val marks = buildList {
                         // 낱말은 **한 표**에서 온다(RowText.verdict) — 터미널·콘솔이 쓰는 그 말이다.
                         // 색만으로는 못 가른다: 옮겨 적은 글에는 색이 없고, 색으로 뜻을 나르는
@@ -1011,7 +1015,7 @@ class MagiToolWindow : ToolWindowFactory {
                         // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.
                         if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
-                    p.add(Look.rowHead("⚖ $name", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at)),
+                    p.add(Look.rowHead("⚖ $name$lens", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at)),
                         BorderLayout.NORTH)
                     val body = JBPanel<JBPanel<*>>().apply {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)

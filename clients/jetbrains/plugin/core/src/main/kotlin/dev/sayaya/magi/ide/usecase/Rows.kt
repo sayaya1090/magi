@@ -49,7 +49,19 @@ data class Row(
     val member: String? = null,
     val round: Int = 0,
     val decision: String? = null,
+    /**
+     * 이 자리가 **무엇으로 판단하는가**(`correctness`·`verification`·`completeness`).
+     * 카운슬에 자리가 셋인 이유가 이것이라, 없으면 한 라운드의 판정 셋이 서로 바꿔 놔도 같은 글이다.
+     */
     val lens: String? = null,
+    /**
+     * 라운드가 **무엇으로 갈리는가**(`majority`·`unanimous`·`veto:…`). 라운드가 열린 행의 것이다.
+     *
+     * ⚠ 한동안 이 값을 [lens] 에 담고 있었다 — 한 칸이 행에 따라 「자리의 렌즈」와 「라운드의 규칙」
+     * 두 가지를 뜻했고, 그래서 화면이 **열린 행의 규칙만** 그리고 **멤버의 렌즈는 안 그렸다**.
+     * 한 사실은 한 칸에 둔다(이 트리가 되풀이해 적는 규칙).
+     */
+    val rule: String? = null,
     val why: String? = null,
     val keep: String? = null,
     val cite: String? = null,
@@ -543,7 +555,7 @@ class Rows {
             members.joinToString(", "),
             at = e.ts,
             round = round,
-            lens = d["rule"]?.jsonPrimitive?.content,
+            rule = d["rule"]?.jsonPrimitive?.content,
             evidence = seen.ifBlank { null },
             opened = true,
         )
