@@ -223,3 +223,42 @@ test('every door we call, we declare the answer of', () => {
     'these doors are called and their answer carries a field this client does not declare, so it ' +
     'cannot be read at all and nothing fails: ' + missing.join(', '));
 });
+
+/**
+ * ★ The wire is TYPED, so an invented name cannot compile.
+ *
+ * The durable half of three measured defects. While `Response` said `unknown` for its nested
+ * shapes, each reader cast it to a shape of its own and got names wrong — `handover.state` and
+ * `handover.error` were never on this wire, so both of their branches were dead and a handover
+ * that died read as "working" for the life of the window. Tests then fed the same invented names
+ * and stayed green about behaviour that could not happen, three separate times.
+ *
+ * Most of the enforcement is now the compiler's: untyping a field a reader touches breaks the
+ * build. This guard covers what the compiler cannot — a field NOBODY reads yet, which is exactly
+ * the state every one of those three was in before somebody wrote the first reader for it.
+ */
+test('no door we call answers into an untyped hole', () => {
+  const proto = fs.readFileSync(OURS, 'utf8');
+  const body = proto.slice(proto.indexOf('export interface Response'));
+  // ONE scan, used for both the verdict and the check on it. Written as a function because the
+  // first cut checked itself with a SECOND regex — so breaking the real one left the self-check
+  // green and the verdict silently empty, which is the shape every guard here exists to prevent.
+  const scan = (text: string): string[] =>
+    [...text.matchAll(/^ {2}([a-zA-Z]+)\?:\s*unknown(\[\])?;/gm)].map((m) => m[1]);
+
+  assert.deepEqual(scan('interface X {\n  a?: unknown;\n  b?: unknown[];\n  c?: string;\n}'), ['a', 'b'],
+    'the scan cannot find an untyped field in a sample that has two — it would report none for any reason');
+
+  const holes = scan(body);
+
+  assert.deepEqual(holes, [],
+    'these answer into `unknown`, so a reader will cast them to a shape of its own and a wrong ' +
+    'name will read as undefined with nothing failing: ' + holes.join(', '));
+
+  // `Request.args` is deliberately open — a TOOL's arguments, spelled by that tool's own schema,
+  // which this client neither knows nor should. The scan finds it and this rule does not report it,
+  // because the rule is about the ANSWERS: it reads from `Response` down.
+  assert.ok(scan(proto).includes('args'), 'the scan no longer sees the one field that stays open');
+  assert.ok(/roster\?: RosterRow\[\]/.test(body), 'the roster went back to being untyped');
+  assert.ok(/handover\?: \{/.test(body), 'the handover went back to being untyped');
+});
