@@ -891,7 +891,12 @@ class MagiToolWindow : ToolWindowFactory {
                         if (r.abandoned) add(MagiBundle.msg("chat.mark.dropped") to Look.muted)
                         if (r.pending) add(MagiBundle.msg("chat.mark.working") to Look.faint)
                     }
-                    val name = if (r.who == Who.User) MagiBundle.msg("chat.who.you") else MagiBundle.msg("chat.who.magi")
+                    // 사람 이름은 **데몬이 말해 주면 그것**이다 — SSO 류 플러그인이
+                    // `magi.set_user_label` 로 심고 `status` 가 답한다. 안 읽던 동안에는 누가
+                    // 로그인했든 이 자리가 늘 낙하 낱말이었다. 빈 값은 코어가 아예 안 보내므로,
+                    // 있으면 그것이고 없으면 낙하다.
+                    val name = if (r.who == Who.User) (youName ?: MagiBundle.msg("chat.who.you"))
+                    else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
                     p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at)), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
@@ -1350,7 +1355,11 @@ class MagiToolWindow : ToolWindowFactory {
          * 여기 들어올 이름이 없다 — 세는 것으로 붙들던 때는 자리 수가 그대로인 채 하나가 조용히
          * 사건으로 바뀔 수 있었다.
          */
+        /** 데몬이 말해 준 사람 이름. 아무도 안 바꿨으면 null 이고, 그때는 낙하 낱말을 쓴다. */
+        @Volatile private var youName: String? = null
+
         private fun redraw(comp: Companion) {
+            youName = comp.facts().user
             val w = comp.waiting()
             SwingUtilities.invokeLater { drawPrompt(w) }
             say(if (w == null) Level.Attached else Level.Waiting)

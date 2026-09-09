@@ -267,6 +267,7 @@ class Companion(
             waiting = it.waiting,
             model = it.model?.takeIf { m -> m.isNotBlank() },
             backend = it.backend?.takeIf { b -> b.isNotBlank() },
+            user = it.user?.takeIf { u -> u.isNotBlank() },
         )
     }
 
@@ -285,6 +286,18 @@ class Companion(
         val model: String?,
         /** 요청이 나가는 곳(base URL), 데몬이 말했으면. */
         val backend: String?,
+        /**
+         * 사람을 뭐라고 부를지 — 무언가 이름을 바꿔 줬으면.
+         *
+         * SSO 류 플러그인이 인증된 이름을 `magi.set_user_label` 로 심고, 엔진이 그것을 들고,
+         * `status` 가 답한다. 런타임 사실이라 설정 파일이 아니라 이 전선으로만 온다. 코어는
+         * **빈 라벨을 아예 안 보내고**(그때 화면은 제 낙하 낱말을 쓴다), 그래서 이 칸은
+         * 있거나 없거나이지 빈 문자열이 되지 않는다.
+         *
+         * 안 읽고 있었다(2026-09-09 실측). 와이어에는 칸이 있었는데 여기까지 안 날라서, 누가
+         * 로그인했든 전사의 사람 행은 늘 "You" 였다.
+         */
+        val user: String?,
     )
 
     /**
