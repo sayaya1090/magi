@@ -406,6 +406,25 @@ class SourceTextTest {
         assertTrue("offers" in row!!, "무엇을 하는지 만들어 놓고 행에 안 붙인다: $row")
     }
 
+    /**
+     * **멤버의 렌즈가 화면까지 온다.**
+     *
+     * 실려 오는데 안 그리고 있었다 — 그리는 자리가 「라운드가 열린 행」 갈래에만 있었고, 그 칸이
+     * 규칙과 한 자리를 쓰는 바람에 규칙만 그려졌다. 나르는 것과 그리는 것은 다르다.
+     */
+    @Test
+    fun `카운슬 판정 행이 어느 렌즈인지 말한다`() {
+        val panel = code(sources.first { it.name == "MagiToolWindow.kt" })
+        assertTrue("r.rule" in panel, "라운드의 규칙을 제 칸에서 안 읽는다")
+        assertTrue(Regex("""val lens = r\.lens""").containsMatchIn(panel),
+            "멤버의 렌즈를 안 읽는다 — 한 라운드의 판정 셋이 서로 바꿔 놔도 같은 글이다")
+        // 만드는 것과 붙이는 것은 다르다 — 머리글 문자열 자체를 본다.
+        val d = "$"   // 원시 문자열 안의 `$`는 보간이라 글자로 쓰려면 한 번 돌린다
+        val head = Regex("""rowHead\("⚖ \${d}name[^"]*"""").find(panel)?.value
+        assertTrue(head != null, "판정 행의 머리글을 못 찾았다")
+        assertTrue("${d}lens" in head!!, "렌즈를 만들어 놓고 머리글에 안 붙인다: ${d}head")
+    }
+
     @Test
     fun `달러를 글자로 박아 두면 화면에 템플릿 원문이 찍힌다`() {
         // 코틀린에서 달러를 `'$'` 리터럴로 감싼 템플릿 표현은 **달러 한 글자**로 평가된다. 그래서

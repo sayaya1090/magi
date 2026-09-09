@@ -71,6 +71,33 @@ class RowsTest {
      * (「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어 **유일하게 눈에 띌
      * 값이 있는 결과가 숨는다.**
      */
+    /**
+     * **자리의 렌즈와 라운드의 규칙은 다른 사실이라 다른 칸에 담는다.**
+     *
+     * 코어에서 둘은 따로다(`CouncilConvenedData.Rule` 과 `CouncilVerdictData.Lens`). 이 셰이퍼가
+     * 한동안 둘을 한 칸에 담았고, 그래서 화면은 열린 행의 **규칙만** 그리고 멤버의 **렌즈는 안
+     * 그렸다** — 판정 셋이 서로 바꿔 놔도 같은 글이 됐다. 카운슬에 자리가 셋인 이유가 그 렌즈인데.
+     *
+     * 라이브 전사를 이 셰이퍼에 통과시켜 찾았다: 열린 행이 `lens=majority` 로 나왔다.
+     */
+    @Test
+    fun `자리의 렌즈와 라운드의 규칙은 다른 칸이다`() {
+        val r = Rows()
+        r.feed(user("고쳐줘", "m1"))
+        r.feed(ev("council.convened",
+            """{"round":1,"members":["Melchior","Balthasar"],"rule":"majority","task":"t"}"""))
+        r.feed(ev("council.verdict",
+            """{"round":1,"member":"Melchior","lens":"correctness","decision":"done"}"""))
+        val rows = r.list().filter { it.who == Who.Council }
+        val opened = rows.first { it.opened }
+        val verdict = rows.first { !it.opened }
+
+        assertEquals("majority", opened.rule, "라운드의 규칙이 제 칸에 없다")
+        assertNull(opened.lens, "라운드의 규칙이 렌즈 칸에 들어갔다 — 한 칸이 두 뜻을 지면 하나는 안 그려진다")
+        assertEquals("correctness", verdict.lens, "멤버의 렌즈가 사라졌다")
+        assertNull(verdict.rule, "판정 행에 라운드 규칙이 붙었다")
+    }
+
     @Test
     fun `접기는 줄인 양을 적고, 커진 경우를 숨기지 않는다`() {
         val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
@@ -364,7 +391,9 @@ class RowsTest {
         assertTrue(opened.opened, "평결과 갈리는 표가 행에 남는다")
         assertEquals(2, opened.round)
         assertEquals("Melchior, Balthasar, Casper", opened.text, "누가 앉았는지가 본문이다")
-        assertEquals("any veto continues", opened.lens)
+        // 규칙은 제 칸으로 온다 — 한동안 `lens` 에 담겨 있었고, 그 겹침 때문에 화면이
+        // 규칙만 그리고 멤버의 렌즈는 안 그렸다.
+        assertEquals("any veto continues", opened.rule)
         assertEquals(2, r.councilRound, "라운드는 세션의 사실로도 선다")
         // 멤버가 **무엇을 보고** 판단했는지 — 코어가 실어 보낸 순서대로.
         assertTrue(opened.evidence!!.startsWith("task: add the idempotency key"),
