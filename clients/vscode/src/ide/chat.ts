@@ -453,8 +453,18 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
-        .cite, .keep { font-size:.9em; opacity:.75; margin-top:2px; }
-        .cite { font-style:italic; }
+  /* What a verdict stands on, and what it says to keep — two different kinds of text.
+     ⚠ No backticks in this block: it is inside a template literal and one closes it.
+     The cite is a FRAGMENT OF THE RECORD: measured against a live run, nine of twelve were diffs,
+     leading minus/plus/space and all. This file states the rule for that a few lines up —
+     "Monospace and scrollable: it is a command or a patch, and a wrapped one is a different
+     command to read" — and it applies here for the same reason: the core keeps this checkable
+     (magi looks the fragment up in what the member was shown), and a reader can only check what
+     is drawn as it is. Capped, because one member's evidence must not push the round off screen.
+     The keep is the member's own prose, so it stays in the reading font. */
+  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.75; margin-top:2px;
+    max-height:9em; overflow:auto; }
+  .keep { font-size:.9em; opacity:.75; margin-top:2px; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
