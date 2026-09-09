@@ -144,7 +144,17 @@ export interface Response {
   /** `config-get`: the settings it will let a client change — a whitelist held by the engine. */
   config?: {
     key?: string; value?: string; source?: string; tier?: string; file?: string;
-    applies?: string; doc?: string; profile?: boolean; unreadable?: boolean;
+    applies?: string; doc?: string; profile?: boolean;
+    /**
+     * A config layer that would not PARSE, and the reason — a string, not a flag.
+     *
+     * ⚠ Declared `boolean` here until 2026-09-10, which is a shape the daemon never sends and which
+     * could not have carried the reason even if something had drawn it. The core says what the
+     * silence costs: "A file with a typo in it and a file that says nothing are the same absence to
+     * a reader who is only shown values… A read that cannot say 'your global file is broken' is the
+     * third silence."
+     */
+    unreadable?: string;
   }[];
   /** `roster`: the companions this machine can name. */
   roster?: RosterRow[];

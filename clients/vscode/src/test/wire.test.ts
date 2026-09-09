@@ -279,7 +279,9 @@ test('no door we call answers into an untyped hole', () => {
  */
 test('the roster fields are declared with the shapes the daemon sends', () => {
   const go = fs.readFileSync(
-    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'roster.go'), 'utf8');
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'roster.go'), 'utf8')
+    + fs.readFileSync(
+      path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
   const at = go.indexOf('type RosterRow struct');
   assert.ok(at > 0, 'the core no longer has the roster row this guard reads');
   const struct = go.slice(at, go.indexOf('\n}', at));
@@ -290,6 +292,19 @@ test('the roster fields are declared with the shapes the daemon sends', () => {
   assert.ok(goType.size >= 20, `only ${goType.size} roster fields read from the core — the parser is stale`);
 
   const ts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
+  // ⚠ **Inline declarations count too.** The first cut of this guard read only `export interface X`,
+  // and `ConfigItem` is declared inline inside `Response` — so `unreadable` sat declared as
+  // `boolean` for a wire `string` and this test said the shapes were fine. A guard that can only see
+  // half the declarations answers "clean" about the half it cannot see.
+  {
+    const cfg = ts.slice(ts.indexOf('config?: {'), ts.indexOf('}[];', ts.indexOf('config?: {')));
+    assert.ok(cfg.length > 40, 'the inline config declaration is not where this guard looks');
+    const goCfg = go.slice(go.indexOf('type ConfigItem struct'), go.indexOf('\n}', go.indexOf('type ConfigItem struct')));
+    assert.ok(goCfg.includes('Unreadable string'),
+      'the core no longer sends `unreadable` as a string — re-read before trusting the shape below');
+    assert.match(cfg, /unreadable\?: string;/,
+      '`unreadable` is declared with a shape the daemon does not send — a boolean cannot carry the reason');
+  }
   // ⚠ Anchor on the DECLARATION, not the first mention. The first cut used `indexOf('RosterRow')`
   // and landed on a usage above it, so the parser read five fields and the guard said so.
   const start = ts.search(/export (?:interface|type) RosterRow\b/);

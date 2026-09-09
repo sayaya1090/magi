@@ -255,3 +255,38 @@ test('every kind of empty completion the core names is said as a sentence', () =
   assert.equal(sayWhyEmpty('rate-limited'), 'rate-limited',
     'an unknown reason is swallowed or renamed — the daemon said something and nobody hears it');
 });
+
+/**
+ * ★ A settings file that would not PARSE drew exactly like one that says nothing.
+ *
+ * `ConfigItem.Unreadable` names a config layer that failed to parse, and carries the reason. The
+ * core states the harm outright: "A file with a typo in it and a file that says nothing are the
+ * same absence to a reader who is only shown values… A read that cannot say 'your global file is
+ * broken' is the third silence."
+ *
+ * This client declared it as a `boolean` — a shape the daemon never sends, and one that could not
+ * have carried the reason even if something had drawn it — and drew nothing. So a person edits a
+ * setting, saves, and watches it not take effect, with the explanation sitting unread on the wire.
+ * The JetBrains settings screen has drawn it since the field landed, quoting the same reasoning.
+ */
+test('a settings file that could not be read says so', () => {
+  const go = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  const at = go.indexOf('type ConfigItem struct');
+  assert.ok(at > 0, 'the core no longer has the config item this guard reads');
+  assert.match(go.slice(at, go.indexOf('\n}', at)), /Unreadable string\s+`json:"unreadable,omitempty"`/,
+    'the wire no longer carries `unreadable` as a string with the reason');
+
+  const cmd = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const from = cmd.indexOf("reg('magi.changeSetting'");
+  assert.ok(from > 0, 'the settings command is not where this guard looks');
+  const where = cmd.slice(from, cmd.indexOf("reg('magi.", from + 10));
+  assert.ok(/\.unreadable\b/.test(where),
+    'the settings command never reads `unreadable` — a broken file draws like an empty one');
+  // Read is not shown: the reason has to reach a person, not a variable.
+  assert.ok(/showWarningMessage/.test(where) && /\$\{why\}/.test(where),
+    'the reason is read and not said — the one sentence that explains why nothing takes effect');
+  // Before the picker: it is a fact about the whole read, not about any one key.
+  assert.ok(where.indexOf('unreadable') < where.indexOf('showQuickPick'),
+    'the broken layer is reported after the picker, where it is one line among thirty');
+});

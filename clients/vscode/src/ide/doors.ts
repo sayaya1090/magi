@@ -117,8 +117,19 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       const r = await call('config-get');
       if (!r) return;
       const list = (r.config ?? []) as
-        { key?: string; value?: string; tier?: string; file?: string; applies?: string; doc?: string }[];
+        { key?: string; value?: string; tier?: string; file?: string; applies?: string; doc?: string;
+          unreadable?: string }[];
       if (!list.length) { void vscode.window.showInformationMessage('magi: this companion exposes no settings.'); return; }
+      // ⚠ **A broken config file and an empty one look identical in a list of values.** The door
+      // carries `unreadable` for exactly that: the layer would not parse, and the string is why.
+      // The core calls a read that cannot say "your global file is broken" the third silence — and
+      // it is the one that matters most here, because a person then edits a setting, saves, and
+      // watches nothing take effect.
+      //
+      // Said BEFORE the picker, not inside it: a row in the list would be one line among thirty,
+      // and this is a fact about the whole read rather than about any one key.
+      const broken = [...new Set(list.map((c) => c.unreadable).filter(Boolean))];
+      for (const why of broken) void vscode.window.showWarningMessage(`magi: a settings file could not be read — ${why}`);
       const pick = await vscode.window.showQuickPick(
         list.filter((c) => c.key).map((c) => ({
           label: c.key!,
