@@ -81,7 +81,8 @@ class Hand(private val ide: Ide) {
             name = "apply_edit",
             description = "Replace text in a file THROUGH the IDE, so undo, local history and " +
                 "inspections all see it. Prefer this over writing the file directly when the file " +
-                "is open in the editor.",
+                "is open in the editor. If old appears more than once the edit is REFUSED unless " +
+                "replaceAll is true, so pass it when you mean every occurrence.",
             schema = buildJsonObject {
                 put("type", "object")
                 put("properties", buildJsonObject {

@@ -65,7 +65,9 @@ export function handTools(): HandTool[] {
       readOnly: false,
       description:
         'Replace text in a file THROUGH the editor, so undo, the open buffer and the language ' +
-        'server all see it. Prefer this over writing the file directly when the file is open.',
+        'server all see it. Prefer this over writing the file directly when the file is open. ' +
+        'If old appears more than once the edit is REFUSED unless replaceAll is true, so pass it ' +
+        'when you mean every occurrence.',
       schema: {
         type: 'object',
         properties: { path: str, old: str, new: str, replaceAll: { type: 'boolean' } },
@@ -77,7 +79,8 @@ export function handTools(): HandTool[] {
       readOnly: true,
       description:
         "What this editor's language servers and linters say right now, as errors and warnings " +
-        'with line numbers. This is the real diagnostic, not the output of a build command.',
+        'with line numbers. This is the real diagnostic, not the output of a build command. ' +
+        'Omit path for every file the editor has diagnostics for.',
       schema: { type: 'object', properties: { path: str } },
     },
   ];
