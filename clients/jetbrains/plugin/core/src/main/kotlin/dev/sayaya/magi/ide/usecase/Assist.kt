@@ -75,6 +75,30 @@ class Assist(
         @JvmStatic
         var lastRefused: String? = null
             internal set
+
+        /**
+         * [lastEmpty] 로 올 수 있는 **코드의 전부** — 코어 `internal/app/complete.go` 의
+         * `CompleteReason` 이 정하고 여기는 옮겨 적기만 한다(`WireConformanceTest` 가 견준다).
+         *
+         * 목록이 필요한 이유는 **모르는 코드**다. 이 화면은 코드로 번들 열쇠를 지어
+         * (`set.complete.why.<코드>`) 문장을 찾는데, 새 데몬이 다섯째 코드를 보내면 그 열쇠가
+         * 없어 플랫폼 경로가 답하고 화면에는 `!set.complete.why.throttled!` 같은 **배관**이
+         * 뜬다. 사유를 알리려던 자리가 사유 대신 제 구현을 보이는 것이다.
+         *
+         * 그래서 아는 코드만 문장으로 바꾸고 **나머지는 데몬의 낱말 그대로** 보인다 — 짝인
+         * VS Code 가 같은 자리에서 정한 규칙이고("모르는 코드는 날것으로"), 이 트리가 [lastRefused]
+         * 를 따로 둔 이유와도 같다.
+         */
+        @JvmStatic
+        val emptyReasons: Set<String> = setOf("off", "unrouted", "nothing-asked", "no-answer")
+
+        /**
+         * 못 뜬 사유를 그릴 때 쓸 **번들 열쇠**, 아는 코드일 때만. 모르면 null 이고 그때 화면은
+         * 코드를 그대로 보인다.
+         */
+        @JvmStatic
+        fun emptyKey(code: String?): String? =
+            code?.takeIf { it in emptyReasons }?.let { "set.complete.why.$it" }
     }
 
     /**

@@ -365,8 +365,14 @@ class MagiConfigurable(private val project: Project) : Configurable {
             // 돌리면 없는 열쇠라 `set.complete.why.this daemon cannot…` 이 찍힌다. 코드로 오는
             // 사유(off·unrouted…)만 문장으로 바꾼다.
             val assist = dev.sayaya.magi.ide.usecase.Assist
+            // 아는 코드만 문장으로. 모르는 코드를 열쇠로 만들면 없는 열쇠라 화면에
+            // `!set.complete.why.throttled!` 같은 배관이 뜬다 — 사유를 알리려던 자리가 사유
+            // 대신 제 구현을 보인다. 모르면 데몬의 낱말 그대로(짝인 VS Code 와 같은 규칙).
             completeWhy.text = assist.lastRefused?.let { MagiBundle.msg("set.complete.refused", it) }
-                ?: assist.lastEmpty?.let { MagiBundle.msg("set.complete.why." + it, it) }.orEmpty()
+                ?: assist.lastEmpty?.let { code ->
+                    val key = dev.sayaya.magi.ide.usecase.Assist.emptyKey(code)
+                    if (key != null) MagiBundle.msg(key, code) else code
+                }.orEmpty()
             modelNow.text = f.model ?: MagiBundle.msg("set.unsaid")
             backendNow.text = f.backend ?: MagiBundle.msg("set.unsaid")
             // 모르는 모드를 **모델에 넣어 준다.** 편집 불가 콤보는 모델에 없는 값을 조용히

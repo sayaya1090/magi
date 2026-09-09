@@ -1383,4 +1383,48 @@ class SourceTextTest {
                 "보는 사람의 시계와 어긋난다")
     }
 
+
+    /**
+     * ★ **못 뜬 사유의 코드는 코어가 정한다 — 그리고 모르는 코드는 배관이 아니라 낱말로 보인다.**
+     *
+     * 설정 화면은 코드로 번들 열쇠를 짓는다(`set.complete.why.<코드>`). 코어가 다섯째 코드를
+     * 보내면 그 열쇠가 없고, 그때 화면에 서는 것은 사유가 아니라 `!set.complete.why.throttled!`
+     * 같은 **제 구현**이다. 사유를 알리려고 만든 자리가 그 자리에서 배관을 보인다.
+     *
+     * 두 가지를 함께 못박는다. 아는 코드 목록이 **코어의 열거형과 같은가**(그래야 다섯째가
+     * 생기는 날 여기가 운다), 그리고 그 코드마다 **두 언어 번들에 문장이 있는가**.
+     */
+    @Test
+    fun `못 뜬 사유의 코드는 코어와 같고 두 언어에 문장이 있다`() {
+        val core = File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val go = File(core, "internal/app/complete.go")
+        assertTrue(go.isFile, "코어의 complete.go 를 못 찾았다: $go")
+        val fromCore = Regex("""Complete\w+\s+CompleteReason\s*=\s*"([a-z-]+)"""")
+            .findAll(go.readText()).map { it.groupValues[1] }.filter { it.isNotEmpty() }.toSet()
+        assertTrue(fromCore.size >= 4, "코어에서 사유 코드를 ${fromCore.size}개만 읽었다 — 훑기가 죽었다")
+        assertEquals(fromCore, dev.sayaya.magi.ide.usecase.Assist.emptyReasons,
+            "코어가 내는 사유 코드와 이 판이 아는 목록이 다르다 — 모르는 코드는 화면에 열쇠로 뜬다")
+
+        val res = File(File(System.getProperty("user.dir")).parentFile,
+            "intellij/src/main/resources/messages")
+        for (name in listOf("MagiBundle.properties", "MagiBundle_ko.properties")) {
+            val f = File(res, name)
+            assertTrue(f.isFile, "번들을 못 찾았다: $f")
+            val text = f.readText()
+            for (code in fromCore) assertTrue("set.complete.why.$code=" in text,
+                "$name 에 `$code` 의 문장이 없다 — 그 사유가 오면 화면에 열쇠가 뜬다")
+        }
+
+        // 모르는 코드는 열쇠를 안 만든다. 만들면 없는 열쇠라 배관이 뜬다.
+        assertEquals(null, dev.sayaya.magi.ide.usecase.Assist.emptyKey("throttled"))
+        assertEquals(null, dev.sayaya.magi.ide.usecase.Assist.emptyKey(null))
+        assertEquals("set.complete.why.off", dev.sayaya.magi.ide.usecase.Assist.emptyKey("off"))
+
+        // 그리는 자리가 그 갈래를 실제로 쓰는가 — 이 모듈에는 시험 소스셋이 없다.
+        val ui = sources.first { it.name == "MagiConfigurable.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        assertTrue("Assist.emptyKey(code)" in ui,
+            "설정 화면이 코드로 열쇠를 바로 짓는다 — 모르는 코드에서 배관이 뜬다")
+    }
+
 }
