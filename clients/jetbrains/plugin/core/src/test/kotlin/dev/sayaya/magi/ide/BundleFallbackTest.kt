@@ -1,6 +1,7 @@
 package dev.sayaya.magi.ide
 
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.Locale
 import java.util.ResourceBundle
@@ -63,6 +64,51 @@ class BundleFallbackTest {
         assertEquals(
             "korean", b.getString("probe.hello"),
             "폴백을 끈 것이 번역까지 막으면 한국어팩 사용자가 영어를 본다",
+        )
+    }
+
+    /**
+     * 그리고 **번들을 지나기는 하나.** 위의 폴백 고침은 번들을 지나는 글자만 고친다 — 소스에
+     * 박힌 한국어에는 닿을 방법이 없고, 영어 IDE 에서 그대로 한국어로 뜬다. 사용자가 잡은
+     * 증상(「다른 설정은 다 영문인데 우리꺼만 한글이야」)이 그 자리에서는 그대로 남는다.
+     *
+     * 실측(2026-09-09): 플러그인 소스의 한국어 문자열 69개 중 **열일곱**이 사람이 읽는 싱크로
+     * 가고 있었다. 이 시험은 그 싱크들만 본다 — `LOG.*` 는 개발자 글자라 세지 않고, `core` 는
+     * 번들이 없는 모듈이라(플랫폼 없이 도는 것이 그 모듈의 조건) 여기서 요구하지 않는다.
+     *
+     * 목록이 아니라 **훑는다**: 새 `tell(...)` 한 줄이 늘고 아무도 목록을 안 고치면 목록형
+     * 규칙은 통과하면서 결함이 나간다.
+     */
+    @Test
+    fun `사람이 읽는 자리에 박힌 한국어가 없다`() {
+        val ui = java.io.File("../intellij/src/main/kotlin")
+        val files = ui.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        assertTrue(files.isNotEmpty(), "$ui 에서 .kt 를 하나도 못 찾았다 — 이 가드는 아무것도 안 읽고 있다")
+
+        val hangul = Regex("[가-힣]")
+        // 사람이 읽는 싱크. 이 목록이 늘어나는 것은 좋다 — 줄어들면 가드가 눈머는 것이다.
+        val sinks = Regex("""\b(tell|report|handSaid|toolTipText|push\(problems)""")
+        val offenders = mutableListOf<String>()
+        var scanned = 0
+        for (f in files) {
+            val body = f.readText()
+                .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+                .lines().map { it.replace(Regex("//.*$"), "") }
+            for ((i, line) in body.withIndex()) {
+                if (line.contains("LOG.")) continue
+                if (!sinks.containsMatchIn(line)) continue
+                scanned++
+                for (m in Regex("\"((?:[^\"\\\\]|\\\\.)*)\"").findAll(line)) {
+                    val lit = m.groupValues[1]
+                    if (hangul.containsMatchIn(lit)) offenders += "${f.name}:${i + 1}  $lit"
+                }
+            }
+        }
+        // 스캐너가 죽으면 「위반 없음」과 구별이 안 된다 — 훑은 줄이 있었는지부터 못박는다.
+        assertTrue(scanned >= 20, "사람이 읽는 자리를 $scanned 줄밖에 못 찾았다 — 스캔이 깨진 것이지 코드가 깨끗한 게 아니다")
+        assertEquals(
+            emptyList<String>(), offenders,
+            "영어 IDE 에서도 한국어로 뜬다 — MagiBundle 로 옮길 것(EN/KO 둘 다):\n" + offenders.joinToString("\n"),
         )
     }
 }
