@@ -51,9 +51,13 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
          * 그 폭을 옆 위젯들이 나눠 쓴다. 그래서 워크스페이스 밖 폴더 경고는 글자가 아니라
          * 여기 산다(가이드라인 검토 G14).
          */
+        /** 데몬이 말해 준 카운슬 스위치. **세 갈래**라 null 이면 아무 말도 안 적는다. */
+        @Volatile private var council: Boolean? = null
+
         override fun getTooltipText(): String {
             val n = unreachable()
             return MagiBundle.msg("status.tip") +
+                (council?.let { " · " + MagiBundle.msg(if (it) "status.council.on" else "status.council.off") } ?: "") +
                 (if (n > 0) " · " + MagiBundle.msg("status.outside", n) else "")
         }
 
@@ -112,7 +116,12 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             say("magi: " + MagiBundle.msg("status.nodaemon"))
         }) { comp ->
             outside = workspace.rootsOutsideWorkspace().size
-            say(label(comp.facts()))
+            val f = comp.facts()
+            // 「이 컴패니언이 무엇 위에서 도나」의 셋째. `permission`·`model` 과 같은 답에 실려
+            // 오는데 안 읽고 있었다 — 선언이 없으면 읽을 수도 없어서, 카운슬이 켜졌는지 이 IDE
+            // 에서는 알 길이 없었다. 표시줄 글자는 폭이 없으므로 툴팁이 그 자리다.
+            council = f.council
+            say(label(f))
         }
 
         /**

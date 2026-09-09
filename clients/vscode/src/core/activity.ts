@@ -112,6 +112,14 @@ export interface Setup {
    * carried it all along.
    */
   user?: string;
+  /**
+   * Whether this companion ends a working turn by declaring to a council.
+   *
+   * Kept as the word "on"/"off" rather than a boolean, because Setup is what a screen prints and
+   * every other member of it is already a string — a lone boolean here would make each reader
+   * invent its own two words for it, which is how two screens come to disagree about one fact.
+   */
+  council?: string;
 }
 
 export function setupOf(resp: Response | null): Setup {
@@ -128,6 +136,8 @@ export function setupOf(resp: Response | null): Setup {
   put('backend', resp.backend);
   put('permission', resp.permission);
   put('user', resp.user);
+  // Three-valued on the wire: an older daemon says nothing, and "it did not say" is not "off".
+  if (resp.council !== undefined) out.council = resp.council ? 'on' : 'off';
   return out;
 }
 

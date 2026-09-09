@@ -16,7 +16,7 @@ class ActivityTest {
 
     private fun facts(doing: String? = null, waiting: Waiting? = null) =
         Companion.Facts(doing = doing, permission = null, session = "s1", waiting = waiting,
-            model = null, backend = null, user = null)
+            model = null, backend = null, user = null, council = null)
 
     private val asked = Waiting(id = "c1", kind = "permission", what = "bash")
 

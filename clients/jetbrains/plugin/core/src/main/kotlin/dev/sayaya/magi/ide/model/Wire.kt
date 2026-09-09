@@ -114,6 +114,14 @@ data class Response(
      */
     val reason: String? = null,
     val user: String? = null,
+    /**
+     * 이 컴패니언이 도는 턴을 **카운슬에 선언하며** 끝내나. 런타임 사실이라 `permission`·`model`
+     * 과 같은 답에 실려 온다 — 「이 컴패니언이 무엇 위에서 도나」를 이루는 셋 중 하나다.
+     *
+     * 세 갈래다: true·false·**말 안 함**(낡은 데몬). 「안 말했다」를 「꺼져 있다」로 그리면
+     * 모르는 것을 아는 척하게 된다(§0.5-7) — 그래서 `Boolean?` 이다.
+     */
+    val council: Boolean? = null,
     val tools: List<String>? = null,
     val models: List<String>? = null,
     val why: String? = null,

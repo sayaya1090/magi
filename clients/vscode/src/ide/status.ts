@@ -40,6 +40,7 @@ export class Status implements vscode.Disposable {
       ? 'No companion is listening on this workspace. Open the conversation to start one.'
       : [`magi — ${activity.label(a)}`,
          this.setup.model && `model: ${this.setup.model}`,
+         this.setup.council && `council: ${this.setup.council}`,
          this.setup.backend && `backend: ${this.setup.backend}`,
          this.setup.permission && `approval: ${this.setup.permission}`,
          'click to change'].filter(Boolean).join('\n');

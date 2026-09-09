@@ -268,6 +268,7 @@ class Companion(
             model = it.model?.takeIf { m -> m.isNotBlank() },
             backend = it.backend?.takeIf { b -> b.isNotBlank() },
             user = it.user?.takeIf { u -> u.isNotBlank() },
+            council = it.council,
         )
     }
 
@@ -298,6 +299,11 @@ class Companion(
          * 로그인했든 전사의 사람 행은 늘 "You" 였다.
          */
         val user: String?,
+        /**
+         * 도는 턴을 카운슬에 선언하며 끝내나. **세 갈래다** — true·false·모름(낡은 데몬이 안
+         * 말함). 모름을 「꺼짐」으로 그리지 않으려고 null 을 그대로 나른다.
+         */
+        val council: Boolean?,
     )
 
     /**

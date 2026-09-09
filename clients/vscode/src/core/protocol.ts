@@ -90,6 +90,17 @@ export interface Response {
    */
   /** `status`: what to call the person, when a plugin renamed them (`magi.set_user_label`). */
   user?: string;
+  /**
+   * `status`: whether this companion ends a working turn by declaring to a council.
+   *
+   * A runtime fact, settable per companion, and it sits in the same answer as `permission` and
+   * `model` — the three things "what is this companion running on" is made of. This client read
+   * two of the three. The core put it on the wire because something outside the daemon has to be
+   * able to tell the truth about it: the gap it closes was measured when a helper's tool
+   * descriptions told a model to finish with `council{complete:true}` on a companion that had the
+   * council switched off, and the model called it and got `unknown tool: council`.
+   */
+  council?: boolean;
   tools?: string[];
   /** `about` only: the daemon's wire version and what it will answer. */
   proto?: number;
