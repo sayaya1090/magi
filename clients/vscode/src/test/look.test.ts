@@ -2,6 +2,10 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { split, numbered, AMBIENT, ambient } from '../core/look';
 import { WINDOW, around, usable } from '../core/complete';
+import * as fs from 'fs';
+import * as path from 'path';
+
+const REPO = path.join(__dirname, '..', '..', '..', '..');
 
 test('a reply that keeps the contract hangs on its lines', () => {
   const { anchored, loose } = split('12\tthis never returns\n40\tthe lock is not released');
@@ -144,4 +148,25 @@ test('the ambient buffer is cut to its head', () => {
   const ko = '한'.repeat(AMBIENT);
   assert.ok(Buffer.byteLength(ambient(ko), 'utf8') >= AMBIENT,
     'a multi-byte buffer is cut below what the core would keep — the model would see less');
+});
+
+/**
+ * ★ And the cap is the CORE's number, read from the core.
+ *
+ * A mutation raising `AMBIENT` to 8MB passed every test above — they are all relative to `AMBIENT`
+ * itself, so the constant could say anything. The same blindness as the completion window one wave
+ * ago: the number nobody checks is the number that ships.
+ *
+ * Derived rather than remembered. `ambientCap` is what the core keeps, and sending more than that is
+ * the waste this pair exists to stop; sending less would quietly show the model a smaller file than
+ * the daemon is willing to hold.
+ */
+test('the ambient cap is the core cap', () => {
+  const go = fs.readFileSync(path.join(REPO, 'internal', 'app', 'complete.go'), 'utf8');
+  const m = /const ambientCap = (\d+)\s*<<\s*(\d+)/.exec(go);
+  assert.ok(m, 'ambientCap is no longer declared the way this guard reads it — re-read the core');
+  const core = Number(m[1]) * 2 ** Number(m[2]);
+  assert.ok(core > 0, 'read a nonsense cap out of the core — the scan is broken');
+  assert.equal(AMBIENT, core,
+    `this client sends ${AMBIENT} bytes of ambient context and the core keeps ${core}`);
 });
