@@ -71,16 +71,35 @@ test('a switched-off schedule is drawn as off', () => {
 });
 
 /** A dead companion is a fact. Drawing it as live is how somebody sends work to nobody. */
-test('the fleet says which companions are gone', () => {
+/**
+ * The fleet says which rows this window can actually reach.
+ *
+ * ⚠ **This test used to feed a value the wire never sends.** It set `live: false`, and `Live` is
+ * `omitempty` — a false one is not encoded at all. So the branch it exercised (`live === false`)
+ * could not run against a real daemon, and the mark it asserted never drew. Third test in this
+ * session found asserting on a shape the daemon does not produce.
+ *
+ * The wire has three cases and they are three different facts: a dial proved somebody is listening
+ * (`live`); a row another machine signed, whose liveness nobody here can check (`sighting` — the
+ * core calls it "visible, not commandable"); and a local row where nothing was said. This function's
+ * own comment already had the rule — "drawing it as live is how somebody sends work to nobody" —
+ * and the code was breaking it for two of the three.
+ */
+test('the fleet tells reachable from elsewhere from unanswered', () => {
   const lines = fleet({
     ok: true,
-    roster: [{ name: 'web', state: 'idle', model: 'sonnet', live: true, workdir: '/w' },
-             { socket: '/x/daemon-word-1.sock', live: false }],
+    roster: [
+      { name: 'web', state: 'idle', model: 'sonnet', live: true, workdir: '/w' },
+      { socket: '/x/daemon-word-1.sock' },
+      { socket: '/over/there/daemon-ws-9.sock', sighting: true },
+    ],
   });
-  assert.equal(lines.length, 2);
-  assert.ok(!lines[0].includes('gone'));
+  assert.equal(lines.length, 3);
+  assert.ok(!/elsewhere|no answer/.test(lines[0]), 'a proven dial was marked as unreachable');
   assert.match(lines[1], /daemon-word-1\.sock/);
-  assert.match(lines[1], /gone/);
+  assert.match(lines[1], /no answer/, 'nothing was said and it drew like a companion that answered');
+  assert.match(lines[2], /elsewhere/,
+    'a row from another machine drew like one this window can talk to — the socket is a path over there');
 });
 
 /**

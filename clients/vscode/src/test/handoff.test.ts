@@ -113,3 +113,24 @@ test('a refused roster yields nobody', () => {
   assert.deepEqual(peers({ ok: false, error: 'no' }), []);
   assert.deepEqual(peers(null), []);
 });
+
+/**
+ * The hand-off list offers only companions this window can dial.
+ *
+ * ⚠ A socket string is not a door. A sighting is a row another machine signed and its socket is a
+ * path over THERE — the core says "visible, not commandable — its socket is a path on a machine
+ * this caller has no door to". The filter asked only whether the string was present, so the picker
+ * offered companions on other machines; handing work to one reached nothing, and the receipt was
+ * then polled until the window closed (the very failure `handState`'s comment is about).
+ *
+ * The JetBrains client asks for both halves in one breath: `it.live && !it.sighting`.
+ */
+test('a companion on another machine is not offered as a hand-off target', () => {
+  const list = peers({ ok: true, roster: [
+    { socket: '/here/daemon-web-1.sock', workdir: '/w' },
+    { socket: '/over/there/daemon-ws-9.sock', workdir: '/x', sighting: true },
+    { workdir: '/no-socket' },
+  ] });
+  assert.equal(list.length, 1, 'the picker offers somebody this window cannot reach');
+  assert.equal(list[0].socket, '/here/daemon-web-1.sock');
+});

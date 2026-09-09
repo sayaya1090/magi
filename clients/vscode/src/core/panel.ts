@@ -76,7 +76,8 @@ export function schedules(resp: Response | null): Schedule[] {
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
   const rows = (resp.roster ?? []) as
-    { name?: string; socket?: string; state?: string; workdir?: string; model?: string; live?: boolean }[];
+    { name?: string; socket?: string; state?: string; workdir?: string; model?: string;
+      live?: boolean; sighting?: boolean }[];
   // Rows with no socket are kept: the fleet section says what the roster says, and a companion this
   // window cannot dial is still a fact about the machine. Only the HAND-OFF list drops them, because
   // there the socket is the thing being used.
@@ -85,9 +86,16 @@ export function fleet(resp: Response | null): string[] {
     peerLabel({ socket: r.socket ?? '', name: r.name, workdir: r.workdir }) || '?',
     r.state,
     r.model,
-    // Whether it is actually there. A row for a dead one is a fact too, and drawing it as live is
-    // how somebody sends work to nobody.
-    r.live === false ? 'gone' : '',
+    // Whether it is actually there — and this is where the sentence above was not being kept.
+    //
+    // Two things were wrong. `live` is `omitempty`, so a FALSE one is never sent and `live === false`
+    // never happened: the "gone" mark could not draw. And a sighting — a row another machine signed,
+    // whose liveness nobody here can check — carries no `live` either, so it drew exactly like a
+    // companion this window can talk to. Both readings said "reachable" about something that is not.
+    //
+    // Said positively now, from what the wire actually asserts: elsewhere for a sighting, there for
+    // a proven dial, and otherwise nothing was said.
+    r.sighting ? 'elsewhere' : r.live ? '' : 'no answer',
   ].filter(Boolean).join(' · '));
 }
 
