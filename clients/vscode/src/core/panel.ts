@@ -157,7 +157,7 @@ export function context(resp: Response | null): string {
   if (!resp?.ok) return '';
   const c = (resp.context ?? null) as
     { window?: number; used?: number; estimated?: boolean; messages?: number;
-      compactions?: number; parts?: Record<string, number> } | null;
+      compactions?: number; parts?: Record<string, number>; topics?: string[] } | null;
   if (!c || !c.window) return '';
   const pct = Math.round(((c.used ?? 0) / c.window) * 100);
   const parts = Object.entries(c.parts ?? {})
@@ -167,7 +167,14 @@ export function context(resp: Response | null): string {
   return [
     `${c.used ?? 0} / ${c.window} (${pct}%)${c.estimated ? ' estimated' : ''}`,
     c.messages !== undefined ? `${c.messages} messages` : '',
-    c.compactions ? `folded ${c.compactions}×` : '',
+    // A fold says the conversation was replaced by a summary. On its own that is a loss; the core
+    // keeps the detail in the log and can pull a subject back with `recall_context`, and says the
+    // naming IS the difference: these are "what 'the detail is not lost' means concretely, and
+    // naming them is the difference between that claim and a promise". So the count and the
+    // subjects travel together — a count alone makes the promise without keeping it.
+    c.compactions
+      ? `folded ${c.compactions}×` + (c.topics?.length ? ` — still there: ${c.topics.join(', ')}` : '')
+      : '',
     parts,
   ].filter(Boolean).join('\n');
 }

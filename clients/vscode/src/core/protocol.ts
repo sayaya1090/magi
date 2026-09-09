@@ -192,7 +192,17 @@ export interface Response {
   context?: {
     model?: string; window?: number; used?: number; estimated?: boolean; messages?: number;
     cached?: number; cacheReported?: boolean; compactions?: number; shed?: number;
-    lastAt?: string; lastBefore?: number; lastAfter?: number; topics?: unknown;
+    lastAt?: string; lastBefore?: number; lastAfter?: number;
+    /**
+     * The last fold's shards — the subjects whose full detail is still in the log.
+     *
+     * ⚠ Typed `unknown` here until 2026-09-10, which reads like caution and behaves like the wrong
+     * type: nothing can iterate it, so nothing did. The core says what the silence costs — these
+     * are "what 'the detail is not lost' means concretely, and **naming them is the difference
+     * between that claim and a promise**". A panel that says "folded 3×" and nothing else has made
+     * the promise without the naming.
+     */
+    topics?: string[];
     parts?: Record<string, number>;
   };
   /**

@@ -293,17 +293,49 @@ test('the roster fields are declared with the shapes the daemon sends', () => {
 
   const ts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
   // ⚠ **Inline declarations count too.** The first cut of this guard read only `export interface X`,
-  // and `ConfigItem` is declared inline inside `Response` — so `unreadable` sat declared as
+  // and the nested shapes are declared inline inside `Response` — so `unreadable` sat declared as
   // `boolean` for a wire `string` and this test said the shapes were fine. A guard that can only see
   // half the declarations answers "clean" about the half it cannot see.
+  //
+  // ⚠ **`unknown` is a wrong shape too.** It reads like caution and behaves like a mistake: nothing
+  // can iterate it, so nothing does. `topics` sat `unknown` and the fold count went out with no
+  // subjects beside it. Judged here like any other mismatch.
   {
-    const cfg = ts.slice(ts.indexOf('config?: {'), ts.indexOf('}[];', ts.indexOf('config?: {')));
-    assert.ok(cfg.length > 40, 'the inline config declaration is not where this guard looks');
-    const goCfg = go.slice(go.indexOf('type ConfigItem struct'), go.indexOf('\n}', go.indexOf('type ConfigItem struct')));
-    assert.ok(goCfg.includes('Unreadable string'),
-      'the core no longer sends `unreadable` as a string — re-read before trusting the shape below');
-    assert.match(cfg, /unreadable\?: string;/,
-      '`unreadable` is declared with a shape the daemon does not send — a boolean cannot carry the reason');
+    const pair: Record<string, string> = {
+      config: 'ConfigItem', profiles: 'ProfileChoice', cron: 'CronRow',
+      handover: 'Handover', jobs: 'Jobs', context: 'ContextState',
+    };
+    const want: Record<string, string> = {
+      string: 'string', int: 'number', int64: 'number', float64: 'number',
+      bool: 'boolean', '[]string': 'string[]',
+    };
+    let judged = 0;
+    for (const [key, goName] of Object.entries(pair)) {
+      const at = ts.indexOf(`  ${key}?: {`);
+      if (at < 0) continue;
+      let depth = 0, end = at;
+      for (let k = ts.indexOf('{', at); k < ts.length; k++) {
+        if (ts[k] === '{') depth++;
+        else if (ts[k] === '}' && --depth === 0) { end = k; break; }
+      }
+      const body = ts.slice(at, end);
+      const gAt = go.indexOf(`type ${goName} struct`);
+      if (gAt < 0) continue;
+      const gBody = go.slice(gAt, go.indexOf('\n}', gAt));
+      const gTypes = new Map<string, string>();
+      for (const m of gBody.matchAll(/^\t\w+\s+(\**\[?\]?[\w.[\]]+)\s+`json:"([a-z][a-zA-Z]*)/gm)) {
+        gTypes.set(m[2], m[1].replace(/^\*/, ''));
+      }
+      for (const m of body.matchAll(/(\w+)\??:\s*([\w[\]]+)\s*[;,]/g)) {
+        const gt = gTypes.get(m[1]);
+        if (!gt || !want[gt]) continue;
+        judged++;
+        assert.equal(m[2], want[gt],
+          `${key}.${m[1]} is declared \`${m[2]}\` and the daemon sends \`${gt}\``);
+      }
+    }
+    // A parser that matched nothing would pass every assertion above without making one.
+    assert.ok(judged >= 20, `only ${judged} inline fields judged — the parser is reading nothing`);
   }
   // ⚠ Anchor on the DECLARATION, not the first mention. The first cut used `indexOf('RosterRow')`
   // and landed on a usage above it, so the parser read five fields and the guard said so.
