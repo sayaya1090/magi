@@ -356,3 +356,34 @@ test('every part kind the core has is drawn or deliberately not', () => {
       'nothing says so. Draw it, or add it to `skipped` with the reason.');
   }
 });
+
+/**
+ * ★ Every row vocabulary the fold produces reaches the screen.
+ *
+ * A `who` with no rule renders as body text: the fold distinguishes it and the screen does not, so a
+ * note about the conversation ("the conversation was folded here") reads as something the companion
+ * said. Measured after adding `system` for the fold row — it had no rule at all, while the JetBrains
+ * client draws the same rows small, italic and faint.
+ *
+ * `agent` is the exception and is named here: it IS the body, so having no rule of its own is the
+ * whole point. Anything else without one is a vocabulary that stops at the fold.
+ */
+test('every row kind the fold produces has a style', () => {
+  const fold = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'transcript.ts'), 'utf8');
+  const made = new Set([...fold.matchAll(/who: '([a-z]+)'/g)].map((m) => m[1]));
+  assert.ok(made.size >= 4, `only ${made.size} row kinds seen in the fold — this guard is reading nothing`);
+
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const css = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
+  assert.ok(css.length > 100, 'the stylesheet is not where this guard looks');
+  const styled = new Set([...css.matchAll(/\.([a-z][a-z-]*)/g)].map((m) => m[1]));
+
+  // Deliberately unstyled, with the reason.
+  const body: Record<string, string> = { agent: 'it IS the body text — a rule of its own would say nothing' };
+  for (const who of made) {
+    if (who in body) continue;
+    assert.ok(styled.has(who),
+      `the fold makes a "${who}" row and the panel has no rule for it, so it reads as the ` +
+      'companion\'s own words. Style it, or add it to `body` with the reason.');
+  }
+});

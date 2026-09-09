@@ -264,6 +264,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .abandoned { opacity:.6; text-decoration:line-through; }
   .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .error { color:var(--vscode-errorForeground); }
+  /* A note about the conversation, not something the companion said — a fold, a recovered error.
+     It had no rule at all, so it read as the agent's own words with a small label beside it. The
+     JetBrains client draws the same rows small, italic and faint; this is that, in this editor's
+     tokens. */
+  .system { color:var(--vscode-descriptionForeground); font-style:italic; font-size:.9em; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
