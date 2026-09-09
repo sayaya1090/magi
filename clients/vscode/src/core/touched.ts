@@ -112,6 +112,24 @@ export interface Ask {
   kind: 'permission' | 'question';
   callId: string;
   what: string;
+  /**
+   * A permission's SUBJECT — what is actually being decided.
+   *
+   * ⚠ The screen drew `magi wants to run: bash` and nothing else, so a person pressed allow without
+   * the command, or approved an edit without what it changes. The core wrote the field for exactly
+   * this and said why: the rest of the request rides along "so a viewer draws the prompt rather
+   * than a description of it" — a tool NAME is the description, not the request. The JetBrains
+   * client carries it and its comment calls the gap by its name: you press without knowing what
+   * you are allowing, and the treatment was inverted against the stakes — the one place where the
+   * most is riding on it was the quiet one.
+   *
+   * `args` is the thing itself and is shown verbatim; `reason` is prose about why the policy
+   * stopped here. Kept apart, because a screen that merges them cannot say which it is drawing.
+   */
+  args?: string;
+  reason?: string;
+  /** What approving would change, computed once by the core and never recomputed by a viewer. */
+  diff?: string;
   /** A question's shortcuts to an answer (`QuestionRequestedData.Options`). */
   options?: string[];
   /** Where this question sits in the run its call is asking: 3 of 5. */
@@ -134,7 +152,16 @@ export function pendingAsk(events: Event[]): Ask | null {
     if (e.type === 'permission.requested') {
       // `name` is the tool, as PermissionRequestedData spells it. Guessed field names are the
       // silent kind of wrong here: JSON hands back undefined and the row says "a tool" for ever.
-      open = { kind: 'permission', callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool') };
+      const raw = d.args;
+      open = {
+        kind: 'permission', callId: String(d.callId ?? ''), what: String(d.name ?? 'a tool'),
+        // The value, not its rendering: `args` is often a JSON string, and stringifying it twice
+        // leaves the escapes on screen.
+        args: raw === undefined || raw === null ? undefined
+          : (typeof raw === 'string' ? raw : JSON.stringify(raw)) || undefined,
+        reason: String(d.reason ?? '').trim() || undefined,
+        diff: String(d.diff ?? '').trim() || undefined,
+      };
     } else if (e.type === 'question.requested') {
       open = {
         kind: 'question', callId: String(d.callId ?? ''), what: String(d.question ?? ''),

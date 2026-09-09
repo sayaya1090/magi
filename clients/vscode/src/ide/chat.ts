@@ -317,6 +317,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
      it is the answer to "which one", not the argument's full text. */
   .args { color:var(--vscode-descriptionForeground); opacity:.85; }
+  /* The subject of a permission. Monospace and scrollable: it is a command or a patch, and a
+     wrapped one is a different command to read. */
+  #ask pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:4px 0;
+    max-height:12em; overflow:auto; white-space:pre-wrap; }
+  #ask pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding-left:6px; }
+  #ask .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
@@ -364,6 +370,25 @@ function drawAsk(a) {
   askEl.append(w);
   if (a.kind === 'permission') {
     w.textContent = 'magi wants to run: ' + a.what;
+    /* WHAT is being allowed, not a description of it. Without this a person presses allow knowing
+       only the tool's name — the place where the most is riding on the answer was the one drawn
+       with the least. The args are the thing itself; the reason is prose about why the policy
+       stopped here; the diff is what approving would change. */
+    for (const [cls, text] of [['args', a.args], ['reason', a.reason], ['diff', a.diff]]) {
+      if (!text) continue;
+      const p = document.createElement('pre');
+      p.className = cls;
+      p.textContent = text;      /* textContent, never innerHTML: this is workspace input */
+      askEl.append(p);
+    }
+    /* Nothing came. Say so — three buttons over a blank space read as "there is nothing to it",
+       and that is the reading this must not allow. */
+    if (!a.args && !a.reason && !a.diff) {
+      const u = document.createElement('div');
+      u.className = 'unstated';
+      u.textContent = 'the companion did not say what this would do';
+      askEl.append(u);
+    }
     /* The three words the core spells. One vocabulary, so the two cannot drift. */
     for (const d of ['allow', 'deny', 'always']) {
       const b = document.createElement('button');

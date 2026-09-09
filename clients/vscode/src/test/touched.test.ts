@@ -84,8 +84,54 @@ test('an edit still running is not counted', () => {
  */
 test('a permission stands until it is decided, and says it is a permission', () => {
   const asked: Event = { seq: 1, type: 'permission.requested', data: { callId: 'p1', name: 'bash' } };
-  assert.deepEqual(pendingAsk([asked]), { kind: 'permission', callId: 'p1', what: 'bash' });
+  assert.deepEqual(pendingAsk([asked]), {
+    kind: 'permission', callId: 'p1', what: 'bash',
+    args: undefined, reason: undefined, diff: undefined,
+  });
   assert.equal(pendingAsk([asked, { seq: 2, type: 'permission.decided', data: {} }]), null);
+});
+
+/**
+ * A permission says WHAT is being allowed, not just which tool.
+ *
+ * The screen drew `magi wants to run: bash` and nothing else, so a person pressed allow without the
+ * command — or approved an edit without seeing what it changes. The core carries the rest of the
+ * request for exactly this reason, in its own words: "so a viewer draws the prompt rather than a
+ * description of it". A tool name is the description.
+ *
+ * The JetBrains client calls the gap by its name — you press without knowing what you are allowing
+ * — and notes that the treatment was inverted against the stakes: the place with the most riding on
+ * it was the quiet one. It also fixed the empty case, which is the second half here: three buttons
+ * over a blank space read as "there is nothing to it".
+ */
+test('a permission carries what it is allowing', () => {
+  const ask = (d: Record<string, unknown>): Event =>
+    ({ seq: 1, type: 'permission.requested', data: { callId: 'p1', name: 'bash', ...d } });
+
+  const cmd = pendingAsk([ask({ args: '{"command":"rm -rf build"}' })])!;
+  assert.equal(cmd.args, '{"command":"rm -rf build"}', 'the thing being allowed is not carried');
+
+  // The VALUE, not its rendering — an object is stringified once, a string is already text.
+  assert.equal(pendingAsk([ask({ args: { command: 'ls' } })])!.args, '{"command":"ls"}');
+
+  const why = pendingAsk([ask({ reason: 'writes outside the workspace', diff: '- a\n+ b' })])!;
+  assert.equal(why.reason, 'writes outside the workspace');
+  assert.equal(why.diff, '- a\n+ b', 'the change is computed by the core and dropped here');
+
+  // Blank is not a subject: an empty string must not draw as an empty line beside three buttons.
+  const blank = pendingAsk([ask({ reason: '   ', diff: '' })])!;
+  assert.equal(blank.reason, undefined);
+  assert.equal(blank.diff, undefined);
+
+  // And the screen draws all three, and says so when none came.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf("if (a.kind === 'permission') {");
+  const branch = chat.slice(at, chat.indexOf('return;', at));
+  assert.ok(/a\.args/.test(branch) && /a\.reason/.test(branch) && /a\.diff/.test(branch),
+    'the permission branch leaves out part of what is being decided');
+  assert.ok(/\.append\(/.test(branch), 'it is read and never put on the screen');
+  assert.ok(/!a\.args && !a\.reason && !a\.diff/.test(branch),
+    'nothing came and the screen said nothing — three buttons over a blank space read as "there is nothing to it"');
 });
 
 test('a question raises an ask, with its options', () => {
