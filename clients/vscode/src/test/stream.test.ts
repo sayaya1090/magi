@@ -829,3 +829,42 @@ test('leaving the queue is not the same event as joining it', () => {
   assert.equal(left.find((r) => r.msgId === 'q1')?.pending, true,
     'leaving the queue was read as being answered');
 });
+
+/**
+ * ★ Not every `prompt.submitted` is the person's.
+ *
+ * The core signs each one, and this client read none of the signature — so anything the daemon
+ * submitted came out wearing the person's name. Measured by streaming a real conversation off a
+ * live daemon (2026-09-10): two prompts, one `actor.kind: "user"` and one
+ * `actor.kind: "system", id: "orchestrator"` carrying "You stopped without saying you are
+ * finished". The transcript showed the person saying that. They never typed it.
+ *
+ * Three kinds, three treatments — the JetBrains shaper has split them since it was written:
+ * an `agent` prompt is a subagent's report injected back (its body lives in that child's own
+ * transcript), a `system` prompt is a planner or council note worth exactly one line, and the rest
+ * is somebody typing.
+ */
+test('a prompt the daemon submitted is not drawn as the person', () => {
+  const ev = [
+    { seq: 1, type: 'prompt.submitted', actor: { kind: 'user', id: 'cli' },
+      data: { messageId: 'm1', parts: [{ kind: 'text', text: 'rewrite the landing copy' }] } },
+    { seq: 2, type: 'prompt.submitted', actor: { kind: 'system', id: 'orchestrator' },
+      data: { messageId: 'm2', parts: [{ kind: 'text', text: 'You stopped without saying you are finished\nsecond line' }] } },
+    { seq: 3, type: 'prompt.submitted', actor: { kind: 'agent', id: 'spawn' },
+      data: { messageId: 'm3', parts: [{ kind: 'text', text: 'the child reports back' }] } },
+  ] as unknown as Parameters<typeof rows>[0];
+  const drawn = rows(ev);
+
+  const mine = drawn.filter((r) => r.who === 'user');
+  assert.equal(mine.length, 1, 'a prompt the person did not type is drawn as theirs');
+  assert.match(mine[0].text, /rewrite the landing copy/, 'the person\'s own message went missing');
+
+  const note = drawn.find((r) => r.who === 'system');
+  assert.ok(note, 'the daemon\'s note is dropped — this window then shows less than the headless printer');
+  assert.match(note!.text, /orchestrator/, 'the note does not say who made it');
+  assert.ok(!/second line/.test(note!.text),
+    'the whole note is drawn — one line only, or a note pushes the conversation out');
+
+  assert.ok(!drawn.some((r) => /child reports back/.test(r.text)),
+    'a subagent report is repeated here — its body belongs to that child\'s own transcript');
+});
