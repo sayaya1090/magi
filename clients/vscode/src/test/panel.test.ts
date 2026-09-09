@@ -272,4 +272,18 @@ test('every companion state the core names is said as a phrase', () => {
   assert.equal(sayState(undefined), '', 'a row with no state must say nothing, not guess');
   assert.equal(sayState('hibernating'), 'hibernating',
     'an unknown state is swallowed or renamed — the daemon said something and nobody hears it');
+
+  // ⚠ **And the row must actually call it.** The first cut of this guard tested `sayState` alone,
+  // and the mutation that mattered most — putting `r.state` back in the row — sailed through with
+  // a perfectly correct function nobody used. Go through the seam the panel really goes through.
+  const drawn = fleet({ ok: true, roster: [
+    { socket: '/tmp/a.sock', name: 'one', state: 'abandoned', live: true },
+    { socket: '/tmp/b.sock', name: 'two', state: 'stopped', live: true },
+  ] } as unknown as Parameters<typeof fleet>[0]);
+  assert.equal(drawn.length, 2, 'the fleet formatter did not draw the rows this guard hands it');
+  for (const [i, st] of ['abandoned', 'stopped'].entries()) {
+    assert.ok(!new RegExp(`\\b${st}\\b`).test(drawn[i]),
+      `the fleet row prints the token "${st}" — ${drawn[i]}`);
+    assert.ok(drawn[i].includes(sayState(st)), `the fleet row does not carry the phrase for "${st}"`);
+  }
 });
