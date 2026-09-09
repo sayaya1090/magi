@@ -395,3 +395,31 @@ test('the look-over reply is placed before it is stored', () => {
   assert.ok(/place\(split\([^)]*\),\s*doc\.lineCount\)/.test(src),
     'the reply is stored unplaced — a finding past the end of the file is lost silently');
 });
+
+/**
+ * ★ A lead-in does not delete what the person was typing.
+ *
+ * `compose` carries two things: a lead-in for a question the person is about to type, and their own
+ * words handed back after a send that did not land. It ASSIGNED, so somebody mid-sentence who
+ * reached for "ask about this code" lost the sentence — the very thing the caller's own comment says
+ * they are meant to write ("The lead only. The person types the question").
+ *
+ * The same rule this repository applies to the commit message box one client over: the box is theirs.
+ * After a send the box is already empty, so prepending is what assigning was for that caller — one
+ * shape serves both, and neither loses anything.
+ *
+ * The page is a string of script, so this is read as text.
+ */
+test('a lead-in is prepended to the composer, never assigned over it', () => {
+  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const at = chat.indexOf("m.kind === 'compose'");
+  assert.ok(at > 0, 'the compose branch is not where this guard looks for it');
+  const branch = chat.slice(at, chat.indexOf("else if (m.kind === 'mentions')", at))
+    .split('\n').filter((l) => !l.trim().startsWith('/*') && !l.trim().startsWith('*')).join('\n');
+  assert.ok(/say\.value\s*=\s*lead\s*\+\s*say\.value/.test(branch),
+    'the composer is assigned over — a sentence being typed is destroyed by a lead-in');
+  assert.ok(!/say\.value\s*=\s*m\.text/.test(branch), 'the old assignment is still there');
+  // The caret lands at the end of the LEAD, so typing continues after it rather than before.
+  assert.ok(/setSelectionRange\(lead\.length, lead\.length\)/.test(branch),
+    'the caret is not put after the lead — the person types in front of it');
+});

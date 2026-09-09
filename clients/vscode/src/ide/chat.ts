@@ -746,8 +746,20 @@ window.addEventListener('message', (e) => {
     draw(m.rows); drawAsk(m.ask); drawRefs(m.refs);
     if (noteEl.textContent === 'sending…') noteEl.textContent = '';
   }
-  else if (m.kind === 'compose') { say.value = m.text || ''; say.focus();
-    say.setSelectionRange(say.value.length, say.value.length); }
+  else if (m.kind === 'compose') {
+    /* PREPENDED, never assigned. This carries two things: a lead-in for a question the person is
+       about to type, and their own words handed back after a send that did not land. Assigning
+       destroyed whatever was in the box — so somebody mid-sentence who reached for "ask about this
+       code" lost the sentence, which is the very thing the caller's own comment says they are meant
+       to write ("The person types the question"). The box is theirs.
+       After a send the box is already empty, so prepending is what assigning was for that caller.
+       The caret goes to the end of what arrived: the lead reads first and typing continues after
+       it, and on an empty box that is the end of everything. */
+    const lead = m.text || '';
+    say.value = lead + say.value;
+    say.focus();
+    say.setSelectionRange(lead.length, lead.length);
+  }
   else if (m.kind === 'mentions') {
     mentions = m.files || [];
     hint.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
