@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The only project that knows Visual Studio exists (DESIGN §4). Everything measurable lives in
+       Magi.Core, because this editor has no first-party way to drive a real extension in a test
+       (DESIGN §6) — so what is up here is what is NOT covered, and it is kept thin for that reason.
+
+       net8.0-windows8.0 is the framework the VisualStudio.Extensibility SDK builds against, not a
+       choice. It is also why Magi.Core targets net8.0. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>12</LangVersion>
+    <NeutralLanguage>en-US</NeutralLanguage>
+    <RootNamespace>Magi.Extension</RootNamespace>
+    <AssemblyName>Magi.Extension</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Extensibility.Sdk" Version="17.14.40608" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Extensibility.Build" Version="17.14.40608" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Magi.Core/Magi.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Remote UI hands the XAML to Visual Studio as text; it is not compiled into this assembly.
+         So it ships as an embedded resource and must NOT go through the normal Page pipeline. -->
+    <Page Remove="ConversationControl.xaml" />
+    <EmbeddedResource Include="ConversationControl.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The menu name lives here, and nothing finds it by convention. Undeclared, this file is
+         invisible twice over: the generator cannot check the %key% (a key that exists nowhere
+         builds clean) and the packager cannot ship it, so the menu draws the percent signs. -->
+    <Content Include="string-resources.json" />
+  </ItemGroup>
+</Project>

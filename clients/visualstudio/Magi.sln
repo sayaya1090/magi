@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Magi.Core", "src\Magi.Core\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Magi.Core.Tests", "test\Magi.Core.Tests\Magi.Core.Tests.csproj", "{E346F908-69AF-4292-BD02-87094A5EDD26}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Magi.Extension", "src\Magi.Extension\Magi.Extension.csproj", "{C739F67D-1765-42E1-A361-E794497E5FC0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -43,6 +45,18 @@ Global
 		{E346F908-69AF-4292-BD02-87094A5EDD26}.Release|x64.Build.0 = Release|Any CPU
 		{E346F908-69AF-4292-BD02-87094A5EDD26}.Release|x86.ActiveCfg = Release|Any CPU
 		{E346F908-69AF-4292-BD02-87094A5EDD26}.Release|x86.Build.0 = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|x64.Build.0 = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Debug|x86.Build.0 = Debug|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|x64.ActiveCfg = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|x64.Build.0 = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|x86.ActiveCfg = Release|Any CPU
+		{C739F67D-1765-42E1-A361-E794497E5FC0}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -50,5 +64,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{A726F38C-711E-42B2-9E47-D55F07732A19} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{E346F908-69AF-4292-BD02-87094A5EDD26} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{C739F67D-1765-42E1-A361-E794497E5FC0} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

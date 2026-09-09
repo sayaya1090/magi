@@ -1,0 +1,53 @@
+<DataTemplate xmlns="http://schemas.microsoft.com/visualstudio/extensibility/2022/xaml"
+              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- No colours are set here on purpose. Visual Studio themes what it draws, and the platform
+       guidance says to write the UI expecting that. This is the one place the Remote UI model is
+       kinder than the VS Code webview, where every token had to be matched by hand. -->
+  <Grid Margin="8">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- What it is doing, in the one word every client uses, decided by the bridge. -->
+    <TextBlock Grid.Row="0" Text="{Binding Label}" FontWeight="Bold" TextWrapping="Wrap" />
+
+    <!-- What it is running on, or why nothing could be asked. Empty most of the time. -->
+    <TextBlock Grid.Row="1" Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,2,0,8" Opacity="0.8" />
+
+    <Grid Grid.Row="2">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+
+      <!-- Shown only when nobody is listening. A button offering to start a second companion on a
+           tree that already has one is the failure the socket derivation exists to avoid. -->
+      <!-- Bound to a word rather than through a converter: nothing here may reference a type from
+           this extension's assembly, and a StaticResource that is not in Visual Studio's own scope
+           fails at parse time in the IDE's process, where this project's build says nothing. -->
+      <Button Grid.Row="0" Content="Start the companion for this solution"
+              Command="{Binding StartCompanion}"
+              Visibility="{Binding StartVisibility}"
+              HorizontalAlignment="Left" Margin="0,0,0,8" />
+
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <TextBlock Text="{Binding LastAnswer}" TextWrapping="Wrap" FontFamily="Consolas" />
+      </ScrollViewer>
+    </Grid>
+
+    <Grid Grid.Row="3" Margin="0,8,0,0">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <TextBox Grid.Column="0" Text="{Binding Draft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+               AcceptsReturn="True" TextWrapping="Wrap" MinLines="2" MaxLines="6"
+               VerticalScrollBarVisibility="Auto" />
+      <Button Grid.Column="1" Content="Send" Command="{Binding Send}" IsEnabled="{Binding CanSend}"
+              Margin="8,0,0,0" VerticalAlignment="Bottom" />
+    </Grid>
+  </Grid>
+</DataTemplate>

@@ -4,7 +4,10 @@
        Magi.Core.Tests 의 LayeringTests 가 참조가 새면 실패한다. 이 편집기에는 실물 확장을 자동으로
        재는 1급 길이 없으므로(DESIGN §6), 여기 담긴 것이 많을수록 잰 것이 많다. -->
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <!-- net8.0 because Magi.Extension targets net8.0-windows8.0 — the framework the
+         VisualStudio.Extensibility SDK builds against — and a net9.0 library cannot be referenced
+         from it. The floor is set by the IDE, not by preference. -->
+    <TargetFramework>net8.0</TargetFramework>
     <AssemblyName>Magi.Core</AssemblyName>
     <RootNamespace>Magi.Core</RootNamespace>
     <Nullable>enable</Nullable>
