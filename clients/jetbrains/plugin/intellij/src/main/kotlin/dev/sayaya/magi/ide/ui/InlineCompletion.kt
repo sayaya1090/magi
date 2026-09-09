@@ -46,10 +46,15 @@ class MagiInlineCompletion : InlineCompletionProvider {
         val doc = request.document
         val offset = request.endOffset
         // 문서 텍스트 스냅샷의 일관성을 위해 ReadAction 내에서 접두사 및 접미사를 획득한다.
+        // 커서 근처만 읽는다. 통째로 읽으면 4만 줄 파일에서 **타건이 멈출 때마다** 버퍼 전체가
+        // ReadAction 안에서 복사되고 그대로 소켓에 실리는데, 코어는 한쪽 24KB 만 쓰고 나머지를
+        // 버린다(`internal/app/complete.go` 의 `completeCap`, 그 주석이 이 비용을 이름 댄다).
+        val cap = dev.sayaya.magi.ide.usecase.Assist.SIDE_CAP
         val (prefix, suffix, path) = readAction {
             Triple(
-                doc.getText(com.intellij.openapi.util.TextRange(0, offset)),
-                doc.getText(com.intellij.openapi.util.TextRange(offset, doc.textLength)),
+                doc.getText(com.intellij.openapi.util.TextRange(maxOf(0, offset - cap), offset)),
+                doc.getText(com.intellij.openapi.util.TextRange(
+                    offset, minOf(doc.textLength, offset + cap))),
                 request.file.virtualFile?.path ?: request.file.name,
             )
         }

@@ -230,6 +230,49 @@ class AssistTest {
         assertEquals("(x: Int): Int {", got, "앞의 꼬리가 그대로 남아 회색 글씨에 두 번 선다")
     }
 
+    /**
+     * ★ **커서에서 먼 쪽은 소켓에 싣지 않는다.**
+     *
+     * 이 판은 버퍼를 **통째로** 보냈다 — `TextRange(0, offset)` 과 `TextRange(offset, textLength)`.
+     * 코어는 한쪽 24KB 만 쓰고 나머지를 버리면서 그 비용을 이름 대어 적어 뒀다: *"A person can open
+     * a 40,000-line file in the console and **the buffer travels on every pause in typing**; an
+     * unbounded prompt here is somebody's context window and their bill."* 자르는 쪽이 코어이므로
+     * 그보다 많이 보내는 것은 **버려질 바이트를 소켓에 싣는 일**이고, 그것을 타건이 멈출 때마다 한다.
+     *
+     * 짝인 VS Code 는 처음부터 커서 양쪽을 잘라 보냈다("The window either side of a cursor is what
+     * helps; the file is not").
+     *
+     * **버리는 쪽은 먼 쪽**이다: 앞은 꼬리를 남기고 뒤는 머리를 남긴다. 반대로 자르면 완성에 쓰이는
+     * 바로 그 글자가 사라진다.
+     */
+    @Test
+    fun `커서에서 먼 쪽은 안 싣는다`() {
+        val cap = Assist.SIDE_CAP
+        val far = "먼".repeat(cap)
+        val f = Fake(listOf("""{"ok":true,"out":"x"}""")); f.start()
+        Assist(f.opener()).completeCode("a.kt", far + "가까운앞", "가까운뒤" + far)
+        f.close()
+        val sent = f.seen[0]
+        // 상한 안에 들어오는지 — 넘겨 준 것은 상한의 두 배가 넘는다.
+        val pre = Regex(""""prefix":"([^"]*)"""").find(sent)!!.groupValues[1]
+        val suf = Regex(""""suffix":"([^"]*)"""").find(sent)!!.groupValues[1]
+        assertTrue(pre.length <= cap, "앞을 ${pre.length} 자 실었다 — 상한은 $cap")
+        assertTrue(suf.length <= cap, "뒤를 ${suf.length} 자 실었다 — 상한은 $cap")
+        // 그리고 남은 것이 **가까운 쪽**이다.
+        assertTrue(pre.endsWith("가까운앞"), "앞에서 커서에 가까운 꼬리를 버렸다")
+        assertTrue(suf.startsWith("가까운뒤"), "뒤에서 커서에 가까운 머리를 버렸다")
+    }
+
+    /** 상한 안이면 한 글자도 안 버린다 — 안 넘치는 것을 자르면 문맥을 잃는다. */
+    @Test
+    fun `상한 안이면 그대로 싣는다`() {
+        val f = Fake(listOf("""{"ok":true,"out":"x"}""")); f.start()
+        Assist(f.opener()).completeCode("a.kt", "짧은앞", "짧은뒤")
+        f.close()
+        assertTrue(f.seen[0].contains(""""prefix":"짧은앞""""), f.seen[0])
+        assertTrue(f.seen[0].contains(""""suffix":"짧은뒤""""), f.seen[0])
+    }
+
     /** 없는 답과 빈 답은 그대로. 지어내지 않는다. */
     @Test
     fun `없는 답은 그대로 둔다`() {

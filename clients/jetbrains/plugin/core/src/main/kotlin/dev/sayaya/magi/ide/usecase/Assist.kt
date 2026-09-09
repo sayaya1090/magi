@@ -31,7 +31,9 @@ class Assist(
     val inFlight: Int get() = flight.get()
 
     /** 코드 완성. 커서 앞뒤를 준다. 양쪽이 다 비면 부르지 않는다 — 콘솔도 그 자리에서 끊는다. */
-    fun completeCode(path: String, prefix: String, suffix: String): String? {
+    fun completeCode(path: String, rawPrefix: String, rawSuffix: String): String? {
+        // 부르는 자리가 버퍼를 통째로 줘도 소켓에는 커서 근처만 간다 — 코어가 어차피 자른다.
+        val (prefix, suffix) = nearCursor(rawPrefix, rawSuffix)
         if ((prefix.trim() + suffix.trim()).isEmpty()) return null
         // 커서 양쪽은 args 에 JSON 으로 간다. Text 하나로는 한쪽밖에 못 싣는다는 것이
         // internal/adapter/daemon/client.go 의 CompleteCode 주석이 밝히는 사유다.
@@ -64,6 +66,24 @@ class Assist(
          * 꼬리를 200자로 끊는 것도 같은 판의 규칙이다 — 그보다 긴 되뱉음은 완성이 아니라 파일을
          * 다시 쓰는 것이고, 온 버퍼를 훑는 값은 그 드문 경우에 비해 비싸다.
          */
+        /**
+         * 커서 한쪽에 실어 보낼 글자 수의 상한.
+         *
+         * 코어가 완성 프롬프트를 한쪽 **24KB** 로 자르고 그 사유를 적어 뒀다 —
+         * *"A person can open a 40,000-line file in the console and the buffer travels on every
+         * pause in typing; an unbounded prompt here is somebody's context window and their bill."*
+         * 자르는 것은 코어이므로 그보다 많이 보내는 것은 **버려질 바이트를 소켓에 싣는 일**이다.
+         *
+         * 바이트가 아니라 글자로 센다. 코어의 자는 바이트라 한글이 섞이면 코어가 한 번 더 조이지만,
+         * 여기서 막으려는 것은 「무한」이라 그 차이는 상관없다.
+         */
+        const val SIDE_CAP = 24 * 1024
+
+        /** [SIDE_CAP] 을 넘는 만큼은 **커서에서 먼 쪽**을 버린다 — 완성에 쓰이는 것은 가까운 쪽이다. */
+        @JvmStatic
+        internal fun nearCursor(prefix: String, suffix: String): Pair<String, String> =
+            prefix.takeLast(SIDE_CAP) to suffix.take(SIDE_CAP)
+
         @JvmStatic
         internal fun withoutEcho(out: String?, prefix: String): String? {
             val t = out?.replace("\r", "") ?: return out
