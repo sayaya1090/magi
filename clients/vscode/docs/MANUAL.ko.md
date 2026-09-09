@@ -200,7 +200,7 @@ code --install-extension magi-0.2.0.vsix --force
 | Look over this file now | 현재 활성 파일을 검토합니다 | §7 |
 | Add this code to the conversation | 선택한 코드를 대화 참조 칩으로 첨부합니다 | §7 |
 | Add these files to the conversation | **탐색기에서 선택한 복수 파일**을 한 번에 첨부합니다 | §7 |
-| Ask about this code | 선택한 코드에 대해 질의합니다 | §7 |
+| Ask about this code | 선택한 코드를 붙이고 **머리말만** 입력줄에 넣는다 — 물음은 사람이 쓴다. 치던 글이 있으면 **지우지 않고 그 앞에** 머리말이 들어가고, 캐럿은 머리말 끝에 선다 | §7 |
 | Which turn wrote this line | 현재 라인을 작성한 작업 턴을 조회합니다 | §6 |
 | Explain this output | 진단 또는 터미널 선택 출력을 설명합니다 | §7 |
 | Draft a commit message | 변경 사항 기반 커밋 메시지 초안을 생성합니다 | §7 |
