@@ -189,6 +189,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `DaemonClientTimeoutTest` | 시한 안에 답하면 워치독이 물러난다 |
 | `GoldenTest` | 코어와 같은 바이트를 주고받나 |
 | `HandServerTest`·`HandInteropTest` | 손의 서버와 코어와의 맞물림. **`readOnlyHint` 를 싣는지도** — 안 실으면 프로토콜 기본값(쓰기)으로 잡혀 `show` 가 「이 턴이 그 파일을 고쳤다」로 코어 기록에 오른다. 변이 셋으로 확인(애노테이션 제거·`show` 의 readOnly 제거·`problems` 의 readOnly 제거). **`problems` 는 없던 도구다** — 경로를 안 주면 열린 파일 전부라는 것까지 계약으로 걸었다 |
+| `RowTextTest`·`SourceTextTest`(물음 카드) | **서 있는 물음이 언제 선 것인지 말한다.** `Waiting.since` 는 그 구조체에서 `omitempty` 가 없는 **유일한 칸**이라 늘 실려 오는데 안 읽고 있었다. 시각 자체를 재고(오늘/오늘 아님, 못 읽는 값에 「방금」 안 지어내기 — 시각은 `now` 에서 만들어 표준시간대에 안 걸린다), 그리는 자리는 소스를 글자로 읽어 잰다(그 모듈에 시험 소스셋이 없다). 목록은 와이어 선언에서 읽고 **`subject`·`ask` 같은 파생 속성을 따라간다** — 접는 자리가 칸을 떨어뜨려도 운다. 안 그리는 둘(`id`·`kind`)은 사유와 함께 적혀 있다 |
 | `HandServerTest`(선택 인자) | **설명이 안 말하는 선택 인자는 모델에게 없는 기능이다.** 스키마는 필수 인자를 강제하지만 선택 인자는 강제하지 않으니, 말해 주지 않으면 안 보인다. `apply_edit.replaceAll` 이 그랬다 — 이 판의 구현은 **여러 번 나오는 글자를 만나면 편집을 거절하고** 그때서야 그 이름을 대므로, 모델은 한 번 실패해야 배웠다. **실물 도구 목록의 스키마를 읽어** 판정하니 도구가 늘어도 따라오고, 인자를 하나도 못 읽으면 그것부터 운다. 짝은 VS Code `hand.test.ts` |
 | `ConfigDirProbeTest` | 설정 디렉토리 해석 |
 | `LiveDaemonTest` | ⏸ 진짜 데몬에 붙어 핸드셰이크(청해야 돈다) |
