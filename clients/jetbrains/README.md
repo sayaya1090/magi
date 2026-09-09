@@ -2,6 +2,15 @@
 
 [↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [무엇을 어디서 재나](docs/TESTING.ko.md) · [형제: 문서 에이전트](../powerpoint/DESIGN.md)
 
+> **TL;DR (1분 요약)**
+> - **역할**: JetBrains IDE(IDEA, PyCharm, WebStorm, GoLand 등 공통 IntelliJ Platform)에서 연 프로젝트의 magi 데몬과 통신하는 공식 플러그인입니다.
+> - **양방향 구조**: 데몬 상태와 대화 전사를 읽는 **뷰어(Viewer)** 역할(유닉스 도메인 소켓)과, 에이전트가 에디터와 버퍼를 제어할 수 있도록 도구를 노출하는 **손(Hand)** 역할(내장 MCP 서버 `mcp__ide__*`)을 동시에 수행합니다.
+> - **빌드 & 검증**:
+>   - 단위 테스트: `cd clients/jetbrains/plugin && ./gradlew :core:test` (SDK 없이 순수 JVM 고속 검증)
+>   - 플러그인 빌드: `cd clients/jetbrains/plugin && ./gradlew :intellij:buildPlugin`
+>
+> ---
+>
 > **이 클라이언트의 현행 레퍼런스.** 코드와 어긋나면 코드가 이기고, 어긋난 것을 발견하면 여기를
 > 고친다. magi 본체의 계약을 서술하는 자리에서는 `docs/ARCHITECTURE.md` 가 이긴다 — 여기 적힌
 > 데몬 패키지(`internal/adapter/daemon`) 인용은 그 계약을 **이 클라이언트가 어떻게 쓰는지**를 말할 뿐이다.
