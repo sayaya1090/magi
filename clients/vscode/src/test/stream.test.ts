@@ -419,7 +419,12 @@ test('every council verdict makes a row, and it carries the vote', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const at = chat.indexOf("const v = r.who === 'council' ? verdictWord(");
   assert.ok(at > 0, 'the label never builds a vote — the row carries it and nothing draws it');
-  const line = chat.slice(at, at + 260);
+  // ⚠ **To the next statement, not a byte count.** A fixed window made this guard depend on how
+  // long the comments in between are — adding one pushed `r.round` out of view and the guard
+  // reported a defect that was not there.
+  const end = chat.indexOf('const mark', at);
+  assert.ok(end > at, 'the label no longer builds a mark after the vote — this slice is unbounded');
+  const line = chat.slice(at, end);
   // ⚠ The vote must go through the wording, not straight from the field: `r.decision` in the label
   // IS the defect one test over — the raw `continue` reading as approval.
   assert.ok(/verdictWord\(r\.decision, r\.silent\)/.test(line),

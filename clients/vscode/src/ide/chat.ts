@@ -453,6 +453,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
+        .cite, .keep { font-size:.9em; opacity:.75; margin-top:2px; }
+        .cite { font-style:italic; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
@@ -674,6 +676,22 @@ function draw(rs) {
       o.textContent = r.out;
       d.append(o);
     }
+    /* What the verdict rests on, and what it says a revision must keep.
+       ⚠ No backticks in here: this whole script is a template literal, and one closes it.
+       The cite is the fragment magi can look up in the material the member was shown, and the core
+       says the case that matters — an empty one on an approval is itself worth seeing, so a done
+       standing on nothing must not draw the same as one standing on the record. The keep arrives on
+       approvals too, and that is exactly when it is worth reading: it is what a rewrite forced by
+       somebody else's objection would otherwise drop. */
+    if (r.who === 'council') {
+      for (const [cls, label, text] of [['cite', 'on', r.cite], ['keep', 'keep', r.keep]]) {
+        if (!text) continue;
+        const el = document.createElement('div');
+        el.className = String(cls);
+        el.textContent = label + ': ' + text;
+        d.append(el);
+      }
+    }
     if (r.who === 'tool' && r.args) {
       const a = document.createElement('span');
       a.className = 'args';
@@ -764,8 +782,10 @@ function paint(r: Row, you?: string): Row & { label: string } {
   // A council row's label carries the vote and the round. Without them nine rows over three rounds
   // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
   const v = r.who === 'council' ? verdictWord(r.decision, r.silent) : { icon: '', word: '' };
+  // The lens goes with the name because it IS the seat: three verdicts without it are three
+  // interchangeable names, and "two said done" then says nothing about what was examined.
   const vote = r.who === 'council'
-    ? (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '')
+    ? (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '')
     : '';
   // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
   // into ✗ is the defect the core measured on a live run — a file that was written and then

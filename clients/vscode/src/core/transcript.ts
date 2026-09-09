@@ -72,6 +72,28 @@ export interface Row {
    */
   silent?: boolean;
   /**
+   * The judging lens this seat holds — `correctness`, `verification`, `completeness`.
+   *
+   * It is WHY a council has three seats. Without it three verdicts in a round are interchangeable
+   * names, and "two said done" carries no information about what was and was not examined.
+   */
+  lens?: string;
+  /**
+   * The fragment of the record this verdict says it rests on, or `NO-EVIDENCE`.
+   *
+   * The core records it because it is CHECKABLE — magi looks the fragment up in the material the
+   * member was shown — and says the part a reader needs most plainly: "an empty one on a `done` is
+   * itself worth seeing". A screen that drops it turns a vote standing on nothing into a vote.
+   */
+  cite?: string;
+  /**
+   * What this member says a revision must preserve.
+   *
+   * Emitted regardless of the decision, and the core says why: an APPROVING member's keep is
+   * "precisely what a rewrite forced by another member's objection would otherwise drop".
+   */
+  keep?: string;
+  /**
    * A prompt the core PARKED: typed while a turn was running, and it will run as its own turn when
    * this one ends (`interjection.deferred`).
    *
@@ -282,6 +304,9 @@ export function rows(events: Event[]): Row[] {
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
           silent: d.silent === true || undefined,
+          lens: String(d.lens ?? '').trim() || undefined,
+          cite: String(d.cite ?? '').trim() || undefined,
+          keep: String(d.keep ?? '').trim() || undefined,
         });
         break;
       }
