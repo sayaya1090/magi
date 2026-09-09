@@ -2,9 +2,11 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { rows } from '../core/transcript';
+import { rows, turnOpen } from '../core/transcript';
 import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
+
+const REPO = path.join(__dirname, '..', '..', '..', '..');
 
 let seq = 0;
 const delta = (messageId: string, kind: string, text: string): Event =>
@@ -223,4 +225,48 @@ test('an error part still draws as an error', () => {
     data: { role: 'assistant', part: { kind: 'error', error: 'it broke' } } }]);
   assert.equal(got[0].who, 'error');
   assert.equal(got[0].text, 'it broke');
+});
+
+/**
+ * Which door the composer knocks on, and where it learns that.
+ *
+ * The defect: this client always sent `submit`. `submit` is a NEW top-level request, so the core
+ * runs `resetForNewTopLevel` — it empties the plan and winds back the turn notes and the completion
+ * gate. Typed during a running turn that means a person who added one clarifying sentence has just
+ * deleted the plan of the turn they were clarifying. `steer` is the door for that, and it exists.
+ *
+ * And the fact is here, not on `status`: the `status` door has no field meaning "a turn is running"
+ * (`answerStatus`), `waiting` means blocked on a person, and `doing` is a progress note that
+ * exactly one builtin tool file out of fifty writes. The JetBrains client asked `status` and so
+ * answered "idle" for nearly every running turn — the same defect wearing a working mechanism.
+ */
+test('a turn is open while a question stands unanswered under it', () => {
+  const asked = [
+    { seq: 1, type: 'prompt.submitted', data: { messageId: 'm1', parts: [{ kind: 'text', text: 'go' }] } },
+  ];
+  assert.equal(turnOpen(asked), true, 'a prompt with no answer and no turn.finished is an open turn');
+
+  const answered = [...asked, { seq: 2, type: 'turn.finished', data: {} }];
+  assert.equal(turnOpen(answered), false, 'the turn ended — the next thing typed is a new request');
+
+  assert.equal(turnOpen([]), false, 'an empty conversation is not a running turn');
+
+  // And an abandoned prompt is not an open turn either: nobody is working on it.
+  const dropped = [...asked, { seq: 2, type: 'prompt.abandoned', data: { msgId: 'm1' } }];
+  assert.equal(turnOpen(dropped), false, 'an abandoned prompt left the turn open');
+});
+
+test('the composer picks steer or submit from that fact, not from status', () => {
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const say = chat.slice(chat.indexOf("case 'say'"), chat.indexOf("case 'start'"));
+  assert.ok(say.length > 100, 'the submit branch was not found — this guard is reading nothing');
+  assert.ok(/turnOpen\(/.test(say), 'the composer does not ask whether a turn is open');
+  assert.ok(/'steer'/.test(say), "the composer never sends steer — a mid-turn word wipes that turn's plan");
+  assert.ok(!/ask\('submit'/.test(say), 'the door is still hardcoded to submit');
+  // The core must still treat the two differently, or this whole choice means nothing.
+  const app = fs.readFileSync(path.join(REPO, 'internal', 'app', 'app.go'), 'utf8');
+  const submit = app.slice(app.indexOf('func (a *App) Submit('), app.indexOf('func (a *App) Steer('));
+  assert.ok(/resetForNewTopLevel/.test(submit), 'Submit no longer resets the turn — re-read this guard');
+  assert.ok(!/resetForNewTopLevel/.test(app.slice(app.indexOf('func (a *App) Steer('),
+    app.indexOf('func (a *App) Steer(') + 900)), 'Steer now resets too — the two doors stopped differing');
 });

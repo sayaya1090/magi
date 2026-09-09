@@ -297,3 +297,24 @@ export function sizeNote(before: number, after: number): string {
   const pct = before > 0 ? Math.round((freed * 100) / before) : 0;
   return `−${freed}, −${pct}%`;
 }
+
+/**
+ * Is a turn open right now — the fact the composer needs to pick its door.
+ *
+ * `submit` and `steer` are not two spellings of one door. `submit` is a NEW top-level request, so
+ * the core runs `resetForNewTopLevel`: the plan is emptied, the turn notes and the completion gate
+ * are wound back. Doing that to a turn already running means a person who typed one clarifying
+ * sentence has just deleted that turn's plan.
+ *
+ * Read off the transcript this client is already streaming, because that is where the fact is.
+ * The `status` door has no field meaning "a turn is running" — `waiting` means blocked on a person
+ * and `doing` is a minutes-long tool's progress note, which exactly one builtin tool file out of
+ * fifty ever writes (`wait_for`, measured 2026-09-09). Asking it would answer "idle" for nearly
+ * every running turn.
+ *
+ * The rule is the one the screen already draws with: a user row still marked `pending` is a
+ * question with no answer under an unfinished turn.
+ */
+export function turnOpen(events: Event[]): boolean {
+  return rows(events).some((r) => r.pending);
+}

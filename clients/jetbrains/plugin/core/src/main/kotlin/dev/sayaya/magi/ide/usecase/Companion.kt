@@ -40,12 +40,17 @@ class Companion(
     /**
      * 사람이 친 것을 보낸다.
      *
-     * 턴이 돌고 있으면 `steer`, 아니면 `submit` 이다. **부르는 쪽이 고르지 않는다** — 데몬에게
-     * 지금 무엇을 하는지 물어서 정한다. 화면이 기억한 상태로 고르면, 그 사이 다른 뷰어가
-     * 인터럽트했거나 턴이 끝났을 때 조용히 틀린 메서드를 부른다.
+     * 턴이 돌고 있으면 `steer`, 아니면 `submit` 이다. 둘은 같은 문의 두 철자가 아니다 —
+     * `submit` 은 **새 최상위 요청**이라 코어가 `resetForNewTopLevel` 을 돌린다(계획을 비우고,
+     * 턴 노트와 선언 게이트를 되돌린다). 도는 턴에 그것을 하면 사람이 한 마디 거들었을 뿐인데
+     * 그 턴의 계획이 사라진다.
+     *
+     * [turnOpen] 은 **전사를 흘려보고 있는 쪽이 아는 사실**이다(`Rows.open` — 답 없는
+     * `prompt.submitted` 가 서 있나). 그것을 아는 부르는 쪽은 넘기고, 모르는 쪽은 null 로 두면
+     * [turnIsOpen] 이 데몬에게 물어본다 — 다만 그 물음은 **켜졌을 때만 참**이다(아래).
      */
-    fun say(text: String, refs: List<FileRef> = emptyList()): Response {
-        val method = if (turnIsOpen()) "steer" else "submit"
+    fun say(text: String, refs: List<FileRef> = emptyList(), turnOpen: Boolean? = null): Response {
+        val method = if (turnOpen ?: turnIsOpen()) "steer" else "submit"
         return send(Request(
             method = method, session = session, text = text,
             refs = refs.takeIf { it.isNotEmpty() },
@@ -283,9 +288,19 @@ class Companion(
     )
 
     /**
-     * 턴이 열려 있나. `doing` 은 도는 툴이 자기에 대해 마지막으로 말한 것이라, 값이 있으면 무언가
-     * 돌고 있다는 뜻이다. 사람을 기다리는 중(`waiting`)도 턴 안이므로 열린 것으로 센다 — 그때
-     * 보낸 말은 새 대화가 아니라 지금 턴에 얹혀야 한다.
+     * 전사를 안 보는 부르는 쪽을 위한 **떨어진 탐침**. 참이면 확실히 열려 있고, **거짓은
+     * 「모른다」다.**
+     *
+     * 한 방향으로만 맞는다. `waiting` 은 사람을 기다린다는 뜻이고 `doing` 은 **분 단위로 도는
+     * 툴이 남긴 진행 쪽지**라, 값이 있으면 무언가 돌고 있는 것은 맞다. 그런데 그 쪽지를 남기는
+     * 자리를 세어 봤다 — 빌트인 도구 파일 50개 중 **하나**(`wait_for`)와, 접기·카운슬·넘기기·
+     * 재시도 같은 예외 경로들뿐이다. `read`·`bash`·`edit` 로 착실히 도는 평범한 턴은 둘 다
+     * 비어 있으므로, 이 탐침은 **도는 턴 대부분을 놓친다**. `status` 문에는 「턴이 돌고 있다」를
+     * 뜻하는 칸이 아예 없다(`answerStatus`).
+     *
+     * 그래서 거짓일 때 `submit` 으로 떨어지는 것은 계산된 선택이다: 모를 때 새 턴을 여는 쪽이,
+     * 안 도는 대화에 `steer` 를 걸어 **앞 턴의 계획과 게이트를 물려받는** 쪽보다 낫다.
+     * 아는 부르는 쪽은 [say] 의 `turnOpen` 으로 사실을 넘긴다.
      */
     private fun turnIsOpen(): Boolean {
         val s = status()

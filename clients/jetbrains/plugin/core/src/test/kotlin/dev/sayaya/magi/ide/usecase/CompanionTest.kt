@@ -285,6 +285,43 @@ class CompanionTest {
     }
 
     @Test
+    fun `전사를 보는 쪽이 아는 사실이 탐침을 이긴다`() {
+        // 이 줄 위의 시험은 **기전**을 재고 이 시험은 **입력이 오나**를 잰다. 둘이 갈라져 있던
+        // 것이 결함이었다: 위 시험은 `doing` 이 차 있는 status 를 먹여 초록이었는데, 현장에서
+        // 그 칸을 채우는 것은 빌트인 도구 50개 중 하나뿐이라(`wait_for`) 평범하게 도는 턴에서는
+        // 늘 비어 있었다. 그래서 실물은 항상 submit 을 불렀고 — 도는 턴의 계획이 지워졌다.
+        //
+        // 전사를 흘려보는 창은 그 사실을 이미 안다(`Rows.open`). 넘기면 status 를 **묻지도 않는다**.
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            comp.say("도는 중에 거든 말", turnOpen = true)
+            comp.say("쉴 때 시킨 일", turnOpen = false)
+        }
+        fake.close()
+
+        assertEquals(2, fake.seen.size, "사실을 받았으면 status 를 물을 이유가 없다: ${fake.seen}")
+        assertTrue(fake.seen[0].contains("\"method\":\"steer\""),
+            "창이 「열려 있다」고 했는데 steer 가 아니다: ${fake.seen[0]}")
+        assertTrue(fake.seen[1].contains("\"method\":\"submit\""),
+            "창이 「닫혀 있다」고 했는데 submit 이 아니다: ${fake.seen[1]}")
+    }
+
+    @Test
+    fun `평범하게 도는 턴에서 탐침은 열린 것을 못 본다 — 그래서 사실을 넘겨야 한다`() {
+        // 결함의 재현. status 가 도는 턴에 대해 실제로 답하는 모양(waiting 없음, doing 없음)을
+        // 그대로 먹인다. 탐침만 믿으면 submit 이 나가고, 코어는 그것을 새 최상위 요청으로 읽어
+        // 도는 턴의 계획을 비운다(`resetForNewTopLevel`).
+        val fake = FakeDaemon(listOf("""{"ok":true}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { Companion(it, "s_1").say("도는 중에 거든 말") }
+        fake.close()
+        assertTrue(fake.seen[1].contains("\"method\":\"submit\""),
+            "탐침이 못 보는 것을 본 척하면 안 된다 — 모를 때는 submit 이 계산된 선택이다: ${fake.seen[1]}")
+    }
+
+    @Test
     fun `사람을 기다리는 중이면 그것도 열린 턴이다`() {
         val fake = FakeDaemon(listOf(
             """{"ok":true,"waiting":{"id":"c1","kind":"permission","what":"bash","reason":"rm"}}""",

@@ -1406,7 +1406,10 @@ class MagiToolWindow : ToolWindowFactory {
                         if (!go) return@onDaemon
                     }
                 }
-                val r = comp.say(text, carry)
+                // 턴이 열려 있나는 **이 창이 아는 사실**이다 — 전사를 흘려보며 답 없는
+                // prompt.submitted 가 서 있는지 세고 있다(`Rows.open`). 데몬에게 묻는
+                // 탐침은 도는 턴 대부분을 놓치므로(Companion.turnIsOpen 주석) 여기서 준다.
+                val r = comp.say(text, carry, shaper.open)
                 if (r.ok) {
                     clearNotice()
                     SwingUtilities.invokeLater {

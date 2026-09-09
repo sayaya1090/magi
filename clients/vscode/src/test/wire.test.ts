@@ -111,7 +111,10 @@ test('the composer sends its attachments as refs, not spliced into the words', (
   const say = chat.slice(chat.indexOf("case 'say'"), chat.indexOf("case 'start'"));
   assert.ok(say.length > 100, 'the submit branch was not found — this guard is reading nothing');
 
-  const call = say.slice(say.indexOf("ask('submit'"));
+  // The door is chosen at runtime now (steer while a turn runs, submit otherwise), so this reads
+  // the ask() call by its shape rather than by the literal method name.
+  const call = say.slice(say.indexOf('ask(door'));
+  assert.ok(call.length > 20, 'the ask() call was not found — this guard is reading nothing');
   assert.ok(call.includes('refs'), "submit does not carry refs — the attachment goes nowhere the core can render it");
   assert.ok(/wireRef/.test(say), 'the chips are not converted to the wire shape ({path, lines})');
   assert.ok(!/lead\s*\+\s*body|refText\(/.test(call),

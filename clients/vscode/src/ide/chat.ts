@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Daemon } from '../core/daemon';
 import { Event } from '../core/protocol';
-import { Row, rows, seat, todos } from '../core/transcript';
+import { Row, rows, seat, todos, turnOpen } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
 import { panelNote } from '../core/activity';
 import { usage } from '../core/panel';
@@ -181,7 +181,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // sent — a chip that outlived its message would attach the same file to every later one.
         const refs = this.refs.map(wireRef);
         this.refs = [];
-        await this.companion.ask('submit', refs.length ? { text: body, refs } : { text: body });
+        // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
+        // names — `submit` is a new top-level request and the core wipes the plan for it, so a
+        // clarification typed mid-turn would delete the plan of the turn it was clarifying.
+        // The fact comes off the transcript this window streams, not from `status` (see turnOpen).
+        const door = turnOpen(this.events) ? 'steer' : 'submit';
+        await this.companion.ask(door, refs.length ? { text: body, refs } : { text: body });
         this.draw();
         break;
       }
