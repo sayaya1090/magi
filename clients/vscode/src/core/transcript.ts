@@ -344,6 +344,29 @@ export function rows(events: Event[]): Row[] {
         break;
       }
       case 'turn.finished':
+        /**
+         * ⚠ **A turn that could not be verified is not a turn that finished.**
+         *
+         * The core sets `unverified` when the execution-evidence gate could not confirm the outcome:
+         * a top-level turn changed a deliverable and no independent run passed for the CURRENT
+         * version, so the declared result — success OR "impossible" — is not backed by execution.
+         * Its own words for why the flag exists: the turn is "labeled UNVERIFIED rather than
+         * laundered into a confident success".
+         *
+         * This client laundered it. The turn ended, the pending mark cleared, and a finish nobody
+         * could confirm drew exactly like one that was — which is the whole thing the flag is for.
+         * The terminal has surfaced it since the flag landed (`⚠ Unverified`, `model_view.go`).
+         *
+         * A row rather than a mark on the last row: the fact belongs to the TURN, and the last row
+         * may be a tool call or a council seat that had nothing to do with the deliverable. `reason`
+         * carries the short cause and is written when there is one — without it the receipt says
+         * something is wrong and gives no handle on what.
+         */
+        if (d.unverified === true) {
+          const why = String(d.reason ?? '').trim();
+          out.push({ seq: e.seq, who: 'system',
+            text: '⚠ Unverified — nothing ran to confirm this' + (why ? `: ${why}` : '') });
+        }
         // Not a row. It ends the turn, and the screen reads that from the LAST row's pending mark.
         for (const r of out) r.pending = false;
         // ⚠ **Sweep the orphan drafts.** There are several paths where the core streams chunks and

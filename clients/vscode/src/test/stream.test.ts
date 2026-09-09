@@ -666,3 +666,43 @@ test('a verdict carries its lens, what it stands on, and what it would keep', ()
       `the row body never draws \`${f}\` — the shaper carries it and nothing paints it`);
   }
 });
+
+/**
+ * ★ A turn that could not be VERIFIED is not a turn that finished.
+ *
+ * `TurnFinishedData.Unverified` marks a finish the execution-evidence gate could not confirm: a
+ * top-level turn changed a deliverable and no independent run passed for the current version, so
+ * the declared outcome — success OR "impossible" — is not backed by execution. The core says
+ * plainly why the flag exists: the turn is "labeled UNVERIFIED rather than laundered into a
+ * confident success".
+ *
+ * This client laundered it (measured 2026-09-09). `turn.finished` cleared the pending marks and
+ * made no row, so a finish nobody could confirm drew exactly like one that was. The terminal has
+ * surfaced it since the flag landed; the web console does not, and neither did either IDE client.
+ */
+test('a finish nobody could verify says so', () => {
+  const payload = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'core', 'event', 'payload.go'), 'utf8');
+  const at = payload.indexOf('type TurnFinishedData struct');
+  assert.ok(at > 0, 'the core no longer has the turn payload this guard reads');
+  const struct = payload.slice(at, payload.indexOf('\n}', at));
+  assert.match(struct, /Unverified bool\s+`json:"unverified,omitempty"`/,
+    'the wire no longer carries `unverified` the way this guard reads it');
+  // ⚠ omitempty on a Go bool: FALSE never goes on the wire, so the ordinary finish is the ABSENT
+  // one. A guard that expected `unverified: false` would be testing a shape that never arrives.
+  const ok = rows([{ seq: 1, type: 'turn.finished', data: { usage: {} } }] as unknown as Parameters<typeof rows>[0]);
+  assert.equal(ok.filter((r) => /Unverified/i.test(r.text)).length, 0,
+    'an ordinary finish is reported as unverified — the common case now carries a warning');
+
+  const bad = rows([
+    { seq: 1, type: 'turn.finished', data: { usage: {}, unverified: true, reason: 'the build was never run' } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  const said = bad.find((r) => /Unverified/i.test(r.text));
+  assert.ok(said, 'a finish the evidence gate could not confirm draws exactly like one that was');
+  assert.ok(said!.text.includes('the build was never run'),
+    'the reason is dropped — the row says something is wrong and gives no handle on what');
+
+  // And with no reason it still says the finish was unconfirmed, rather than saying nothing.
+  const bare = rows([{ seq: 1, type: 'turn.finished', data: { usage: {}, unverified: true } }] as unknown as Parameters<typeof rows>[0]);
+  assert.ok(bare.some((r) => /Unverified/i.test(r.text)), 'a reasonless unverified finish is silent');
+});
