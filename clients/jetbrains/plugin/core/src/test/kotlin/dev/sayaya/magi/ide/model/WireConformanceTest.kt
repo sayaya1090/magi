@@ -75,7 +75,10 @@ class WireConformanceTest {
         val serial = Regex("""@SerialName\("([^"]+)"\)""")
         // `val x` 는 어노테이션과 **같은 줄**에 오기도 한다(`@SerialName("ageSeconds") val ageSeconds`).
         // 줄머리만 보면 그 줄을 필드로 못 세고, 그때 아래의 새는 일이 시작된다.
-        val prop = Regex("""(?:^|\s)val (\w+)""")
+        // `(` 바로 뒤에 붙은 것도 필드다 — `Actor(val kind: …)` 처럼 한 줄로 적은 데이터 클래스가
+        // 그렇다. `(?:^|\s)` 만 보면 그 첫 필드가 **통째로 안 보이고**, 이름 대조도 그 칸은 한
+        // 번도 안 했다. 이 시험의 짝(아래, 데몬이 보내는 칸을 다 읽나)을 붙이다 드러났다.
+        val prop = Regex("""(?:^|[\s(])val (\w+)""")
         var name: String? = null
         // 「앞줄에 선 @SerialName」. 클래스가 열리거나 닫힐 때 반드시 지운다 — 안 지우면 한 클래스의
         // 마지막 어노테이션이 **다음 클래스의 첫 필드 이름**이 된다. 처음 이 시험을 돌렸을 때
@@ -106,6 +109,68 @@ class WireConformanceTest {
             }
         }
         return out
+    }
+
+    /**
+     * ★ **그 반대 — 데몬이 보내는데 플러그인이 선언 안 한 칸.**
+     *
+     * 위 시험은 「우리가 읽는 이름이 전선에 있나」를 본다. 이건 짝이고 **더 비싼 쪽**이다:
+     * 선언이 없으면 `@Serializable` 이 그 칸을 아예 안 읽으므로, 데몬이 보내는 사실이 화면에
+     * 닿을 길이 없고 컴파일도 통과하고 아무것도 안 터진다.
+     *
+     * 이 부류로 한 세션에서 다섯을 잃었다(전부 VS Code 쪽에서 실측): `tools`(무엇이 붙었나) ·
+     * `user`(로그인한 사람 이름) · `council`(카운슬 스위치) · `report`(물음의 근거) ·
+     * `context`(창이 얼마나 찼나). 마지막 둘은 이 클라이언트도 같이 놓치고 있었다.
+     *
+     * 안 읽는 칸은 **사유와 함께** 적는다. 「아직 그 기능이 없다」도 사유이고, 그것을 적어 두는
+     * 것과 조용히 빠뜨리는 것의 차이가 이 시험의 전부다.
+     */
+    @Test
+    fun `데몬이 보내는 칸을 전부 읽거나, 안 읽는다고 적었다`() {
+        val go = goTags()
+        val kt = ktProps()
+        assertTrue(kt.size >= 10, "Kotlin 클래스를 ${kt.size}개밖에 못 읽었다 — 스캔이 깨졌다")
+
+        // 안 읽는 칸과 그 사유. 클래스별로 묶는다 — 사유가 같으면 한 줄이 정직하다.
+        val skipped = mapOf(
+            "ContextState" to setOf(
+                // 판은 띠 하나로 「얼마나 찼나」만 그린다. 무엇이 채우고 있나(parts·topics)는
+                // 콘솔의 몫이고, 여기 슬롯이 없다 — 없는 자리에 값을 끌어오면 안 그려질 뿐이다.
+                "model", "messages", "parts", "topics", "shed", "cached", "cacheReported",
+                "compactions", "lastAt", "lastBefore", "lastAfter",
+            ),
+            // 회의(meet/meet-join)를 이 클라이언트는 아직 안 한다. 붙이는 날 이 줄이 지워진다.
+            "Request" to setOf("minutes", "room", "keep", "owner"),
+            "Response" to setOf("minutes"),
+            // 플릿 행에 그 슬롯이 없다. 코어가 이 칸들을 로스터에 실은 사유는 「콘솔이 빈칸을
+            // 그리고 못 보여 준 값을 바꾸라고 내놓던」 것인데, 이 판은 그 자리를 안 그린다 —
+            // 슬롯을 만드는 날 같이 읽는다.
+            "RosterRow" to setOf("permission", "backend", "model", "user"),
+            // `session-new` 에 이름을 실어 여는 클라이언트만 쓰는 칸(「문서 X의 대화」). 이쪽은
+            // 이름 없이 열므로 늘 비어 있고, 비어 있는 것을 목록에 그리면 빈 칸만 는다.
+            "SessionRow" to setOf("for"),
+            // 소켓 옆의 공표 레코드. 이 플러그인이 읽는 것은 **어느 대화에 붙을지**뿐이고
+            // (`SocketPath.Published` — 「최신 세션」으로 넘겨짚지 않으려고 있다), 아래는 플릿
+            // 가십이 쓰는 칸이라 이 창에 그릴 자리가 없다.
+            "Published" to setOf("can", "does", "waiting", "handling", "addr", "account"),
+        )
+
+        val missed = mutableListOf<String>()
+        var checked = 0
+        for ((cls, props) in kt) {
+            val tags = go[renamed[cls] ?: cls] ?: continue
+            checked++
+            // seq·ts 는 봉투의 것이고 이 표의 대상이 아니다.
+            // `-` 는 「전선에 안 실린다」는 뜻이지 칸 이름이 아니다.
+            val gap = tags - props - setOf("seq", "ts", "-") - skipped[cls].orEmpty()
+            if (gap.isNotEmpty()) missed += "$cls: ${gap.sorted()}"
+        }
+        assertTrue(checked >= 10, "짝지어 본 클래스가 ${checked}개뿐이다 — 훑을 것이 없으면 이 시험은 늘 초록이다")
+        assertTrue(
+            missed.isEmpty(),
+            "데몬이 이 칸들을 보내는데 선언이 없어 **읽을 수가 없다** — 화면에 닿을 길이 없고 " +
+                "아무것도 안 터진다: $missed. 읽거나, 사유와 함께 skipped 에 적을 것.",
+        )
     }
 
     @Test
