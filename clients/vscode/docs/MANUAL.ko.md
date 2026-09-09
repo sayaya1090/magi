@@ -262,7 +262,7 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 | Fold this conversation | **먼저 묻는다** | §7.1 |
 | Go back to an earlier point | **먼저 묻는다** | §7.1 |
 | Stop a background job | | §7.2 |
-| Show child conversations | 읽기만 | §7.1 |
+| Show child conversations | 읽기만. 줄마다 **누가 열었나**가 먼저 선다 — 서브에이전트는 이 대화가 시킨 일이고, 「meeting」·「minutes」는 남이 소집한 회의에 이 컴패니언이 앉은 자리다(회의는 자식을 둘 연다) | §7.1 |
 | Scheduled work | | §7.2 |
 | Ask another companion to do something | | §7.1.5 |
 
