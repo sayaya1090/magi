@@ -73,7 +73,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     const s = await Daemon.connect(this.companion.socket).catch(() => null);
     if (!s) return;
     this.stream = s;
-    s.whenClosed(() => { if (this.stream === s) this.stream = null; });
+    s.whenClosed(() => {
+      if (this.stream !== s) return;   // we moved on, or the panel closed — not an ending to report
+      this.stream = null;
+      // ⚠ **A stream that ends is not a conversation that ended.** The daemon restarts often — a
+      // self-update, a crash, somebody stopping it — and until now this window just stopped
+      // receiving: no new rows, no word, and a panel that looks like a companion with nothing to
+      // say. The JetBrains client tells the three endings apart and reattaches on two of them.
+      this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
+      void this.reattach();
+    });
     this.events = [];
     s.stream({ method: 'transcript', session: sid }, (r) => {
       if (r.event) { this.events.push(r.event); this.draw(); }
@@ -135,6 +144,31 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
    * dropped turns until the next restart.
    */
   reload(): void { this.showSession(this.sid); }
+
+  /**
+   * Get the stream back after the far side went away.
+   *
+   * Backs off rather than spinning: a daemon that is down stays down for a while, and a retry loop
+   * with no wait turns one restart into a busy panel. Says it is trying, because the backoff grows
+   * to half a minute and without a word the last failure would stand as "the current state" for
+   * that whole time — the sibling's reason, in its own comment.
+   *
+   * Stops when the panel closes or when somebody else has already attached (`this.stream`), so a
+   * person who picks another conversation is not dragged back to this one.
+   */
+  private async reattach(): Promise<void> {
+    let wait = 1_000;
+    while (this.view && !this.stream) {
+      await new Promise((r) => setTimeout(r, wait));
+      if (!this.view || this.stream) return;
+      this.post({ kind: 'note', text: 'reconnecting…' });
+      this.showSession(this.sid);
+      // showSession is async inside; give it a moment to land before deciding to wait again.
+      await new Promise((r) => setTimeout(r, 200));
+      if (this.stream) { this.post({ kind: 'note', text: '' }); return; }
+      wait = Math.min(wait * 2, 30_000);
+    }
+  }
 
   /** Put references above the composer. The person still writes the message. */
   attach(refs: Ref[]): void {
