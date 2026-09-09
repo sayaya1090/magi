@@ -62,9 +62,11 @@ npx tsc -p . && node out/live/run.js
 
 ## 5. 핵심 연동 규칙 및 주의사항
 
-- **소켓 경로 및 워크스페이스 키 일치**: [`docs/DESIGN.ko.md` §5](docs/DESIGN.ko.md)
+- **소켓 경로 및 워크스페이스 키 일치**: [`docs/DESIGN.ko.md` §5](../../docs/DESIGN.ko.md)
   - 데몬 소켓 식별자인 `WorkspaceKey` 해시가 코어 바이너리의 계산 결과와 정확히 일치해야 합니다. 불일치 시 에러 없이 통신이 단절됩니다.
 - **설정 선언 원칙**: [`docs/PLATFORM.ko.md` §9](docs/PLATFORM.ko.md)
   - 설정 화면을 코드로 직접 조립하지 않고 `package.json`의 `contributes.configuration` 선언형 스키마를 통해 제공합니다.
-- **UI 불변식**: [`docs/UI.ko.md` §0](docs/UI.ko.md)
+- **UI 불변식**: [`docs/UI.ko.md` §0](../../docs/UI.ko.md)
   - 웹뷰 및 UI 렌더링 시 지켜야 하는 7대 불변식 규약.
+
+

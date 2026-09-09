@@ -27,7 +27,7 @@
 > `clients/web/ui/console.css`를 읽는다. §1–5의 **파일 이름**(`page.html`·`page.js`·node DOM 하네스)은
 > 사료다. 오늘 손댈 것은 `clients/web/ui` 아래의 모듈이고, 화면↔모듈 대응은
 > [`../clients/web/ui/README.md`](../clients/web/ui/README.md)에 있다. 컷오버 자체 — 무엇과 무엇을 맞대어 재었고
-> 그때 무엇이 열린 채였는지 — 는 [`../web/README.md`](../web/README.md)의 기록이다.
+> 그때 무엇이 열린 채였는지 — 는 [`../clients/web/README.md`](../clients/web/README.md)의 기록이다.
 >
 > TUI는 `internal/adapter/tui`이고, 렌더링·마우스·폭 계산에 각각의 테스트가 있다. §6은 바뀐 것이
 > 없다.

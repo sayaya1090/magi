@@ -31,7 +31,7 @@ How to run them: [`MANUAL.md`](MANUAL.md) (§4 the TUI, §12 the console). Inter
 > DOM harness) are historical: what to touch today is a module under `clients/web/ui`, and the map from
 > screen to module is in [`../clients/web/ui/README.md`](../clients/web/ui/README.md). The cutover itself — what was
 > compared against what, and what was still open when it happened — is recorded in
-> [`../web/README.md`](../web/README.md).
+> [`../clients/web/README.md`](../clients/web/README.md).
 >
 > The TUI lives in `internal/adapter/tui`, with its own tests for rendering, mouse handling and
 > width measurement; nothing in §6 changed.

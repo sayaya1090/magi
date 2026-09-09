@@ -1,6 +1,7 @@
 # clients/jetbrains/ — JetBrains IDE 플러그인 (IDE 안의 코딩 에이전트)
 
-[↑ 저장소](../../README.md) · [사용자 매뉴얼](docs/MANUAL.ko.md) · [화면 설계](docs/UI.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [무엇을 어디서 재나](docs/TESTING.ko.md) · [형제: 문서 에이전트](../powerpoint/DESIGN.md)
+[↑ 저장소](../../README.md) · [사용자 매뉴얼](../../docs/MANUAL.ko.md) · [화면 설계](../../docs/UI.ko.md) · [플랫폼 규약 대조표](docs/PLATFORM.ko.md) · [무엇을 어디서 재나](docs/TESTING.ko.md) · [형제: 문서 에이전트](../powerpoint/DESIGN.md)
+
 
 > **TL;DR (1분 요약)**
 > - **역할**: JetBrains IDE(IDEA, PyCharm, WebStorm, GoLand 등 공통 IntelliJ Platform)에서 연 프로젝트의 magi 데몬과 통신하는 공식 플러그인입니다.

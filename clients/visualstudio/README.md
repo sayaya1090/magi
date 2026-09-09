@@ -89,7 +89,8 @@ VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하�
 
 ## 5. 주요 기술 문서
 
-- [설계 문서 (`docs/DESIGN.ko.md`)](docs/DESIGN.ko.md): 프로세스 외(Out-of-Process) 확장 모델 선정 배경 및 브리지 계약, §10 띄워 보고 나서 남은 것.
+- [설계 문서 (`docs/DESIGN.ko.md`)](../../docs/DESIGN.ko.md): 프로세스 외(Out-of-Process) 확장 모델 선정 배경 및 브리지 계약, §10 띄워 보고 나서 남은 것.
 - [플랫폼 규약 (`docs/PLATFORM.ko.md`)](docs/PLATFORM.ko.md): Remote UI 요구사항, 선언형 설정 구성 및 VS Code/JetBrains 대비 플랫폼 특성 비교.
 - [편집기 제안서 (`docs/proposals/EDITORS.ko.md`)](../../docs/proposals/EDITORS.ko.md): 3대 IDE 클라이언트 개발 타당성 및 브리지 추출 전략.
 - [IDE 브리지 사양 (`docs/IDE_BRIDGE.ko.md`)](../../docs/IDE_BRIDGE.ko.md): 공통 브리지 프로세스 프로토콜 규격.
+

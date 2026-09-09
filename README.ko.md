@@ -4,7 +4,7 @@
 
 ### 창을 닫아도, 도구를 바꿔도 작업이 끊기지 않는 상주형 코딩 에이전트
 
-**Go 기반 단일 정적 바이너리 AI 코딩 에이전트**. 워크스페이스마다 독립된 데몬으로 상주하며, 터미널 TUI·웹 콘솔·IDE(VS Code·JetBrains·Visual Studio) 어디서든 소켓으로 붙고 떨어질 수 있습니다.
+**Go 기반 단일 정적 바이너리 AI 코딩 에이전트**. 워크스페이스마다 독립된 데몬으로 상주하며, 터미널 TUI·웹 콘솔·IDE(VS Code·JetBrains·Visual Studio) 어디서든 로컬 소켓으로 붙고 떨어질 수 있습니다.
 모든 작업과 결정은 추가 전용(append-only) JSONL 로그로 이벤트 소싱되어 언제든 턴을 되돌리거나(`/rewind`) 분기(`/fork`)할 수 있으며, 3인 카운슬 검증 게이트가 거짓 완료를 걸러냅니다.
 
 [English](README.md) · [한국어](README.ko.md) · [매뉴얼](docs/MANUAL.ko.md) · [사이트](https://sayaya1090.github.io/magi/) · [라이브 데모](https://sayaya1090.github.io/magi/demo/)
@@ -19,202 +19,226 @@
 
 ---
 
-## 어떻게 생겼나
+## ⚡ 빠른 시작 (Quick Start)
 
-터미널에서 턴 하나가 돌아가는 모습입니다. 에이전트가 읽고, 고치고, 테스트를 돌린 다음, 세 명이
-그걸로 끝난 것인지 투표합니다.
+### 설치 (Installation)
+
+```sh
+# 미리 빌드된 바이너리 (macOS / Linux)
+curl -fsSL https://raw.githubusercontent.com/sayaya1090/magi/main/scripts/install.sh | bash
+
+# 또는 Homebrew
+brew install sayaya1090/tap/magi
+
+# 소스 빌드 (Go 1.26+ 필요, CGO 없음)
+git clone https://github.com/sayaya1090/magi.git && cd magi && make build
+```
+
+### 실행 (Running)
+
+OpenAI 호환 엔드포인트라면 무엇이든 지원합니다. [Ollama](https://ollama.com) 무료 클라우드 티어나 로컬 모델과 바로 연동됩니다:
+
+```sh
+# 터미널 대화형 TUI 바로 시작
+./magi
+
+# 원하는 모델 지정 (로컬 또는 원격)
+./magi --model qwen3-coder:30b
+
+# 백그라운드 상주 데몬으로 실행 (창을 닫아도 유지)
+./magi --daemon --detach
+
+# 실행 중인 데몬에 터미널 TUI 붙이기 (언제든 탈착 가능)
+./magi --attach
+
+# 브라우저 웹 콘솔 열기 (127.0.0.1:7777)
+./magi-web
+```
+
+---
+
+## 🌟 왜 magi인가? (Why magi?)
+
+```mermaid
+flowchart TB
+    subgraph host [내 머신 — 워크스페이스]
+        subgraph daemon ["magi --daemon &nbsp;(상주 데몬)"]
+            APP["에이전트 루프 & 도구 실행"]
+            LOG[("이벤트 소싱 로그<br/>추가 전용 JSONL")]
+            APP --> LOG
+        end
+        TUI["터미널 TUI<br/><i>magi --attach</i>"] <-->|유닉스 소켓| daemon
+        IDE["IDE 확장<br/><i>VS Code · JetBrains · VS</i>"] <-->|유닉스 소켓| daemon
+        WEB["웹 콘솔<br/><i>magi-web</i>"] <-->|유닉스 소켓| daemon
+    end
+    daemon <-->|HTTP| LLM[["OpenAI 호환 백엔드<br/>Ollama · vLLM · 호스팅 API"]]
+
+    style daemon fill:#fff9f0,stroke:#e8820c
+    style LOG fill:#f5f2ec,stroke:#8a8178
+    style host fill:#fcfcfc,stroke:#ddd
+```
+
+### 1. 🖥️ 창을 닫아도 끊기지 않는 상주 데몬 (Resident Daemon)
+대부분의 코딩 에이전트는 터미널 창을 닫으면 작업과 맥락이 사라집니다. magi는 **워크스페이스마다 독립 데몬이 상주**합니다:
+- **어디서든 자유로운 접속**: 터미널 TUI, 웹 콘솔, VS Code, JetBrains 어디서든 소켓으로 붙었다가 자유롭게 떨어질 수 있습니다.
+- **장기 실행 안정성**: 무거운 빌드나 긴 테스트를 걸어두고 IDE를 닫아도, 데몬은 백그라운드에서 묵묵히 작업을 완수합니다.
+
+### 2. ⏪ 로그가 곧 상태다 — 이벤트 소싱 타임머신 (Event-Sourced Time Travel)
+모든 턴과 도구 호출 결과는 추가 전용(append-only) JSONL 파일에 이벤트로 기록됩니다.
+- 복잡한 DB 없이도 **`/rewind` (마지막 턴 되돌리기)**, **`/fork` (새로운 시도를 위한 세션 분기)**, **`/replay`**가 로그 줄 수만 다루는 가벼운 조작으로 완벽하게 동작합니다.
+- 예기치 않게 프로세스가 죽더라도 이벤트 로그 재생을 통해 1초 만에 이전 상태를 복구합니다.
+
+### 3. ⚖️ 3인 카운슬 — 거짓 완료 차단 게이트 (Council Consensus Gate)
+모델이 도구 호출을 멈췄다고 해서 과제가 실제로 끝난 것은 아닙니다. magi는 에이전트가 `council{complete: true}`로 종료를 선언해야 하며, 독립된 세 멤버가 실제 기록을 대조 검증합니다:
+- **Melchior (정확성)**: 과제의 글자 그대로 요구사항 충족 여부 검증
+- **Balthasar (검증성)**: 테스트와 코드가 실제로 빌드되고 정상 실행되었는지 검증
+- **Casper (완전성)**: 요구사항 중 빠뜨린 세부 항목이 없는지 전수 검증
+> 위원들의 피드백은 거부 시 다음 턴의 명확한 지시문이 되어 에이전트의 헛바퀴 루프를 끊습니다.
+
+### 4. 🌐 인프라 없는 플릿 & 컴패니언 (Zero-Infra Fleet & Companions)
+- 중앙 레지스트리 서버나 복잡한 포트 설정 없이, 데몬이 로컬 소켓 옆에 기록하는 파일만으로 서로를 발견합니다.
+- 머신을 건너갈 때도 기존 ssh 통로를 그대로 활용하므로 외부 포트를 열지 않습니다.
+- **`hand_off`**: 전문화된 다른 워크스페이스 컴패니언에게 비동기로 작업을 넘기고, 내 턴은 멈춤 없이 계속 진행할 수 있습니다.
+
+---
+
+## 📸 어떻게 생겼나 (What It Looks Like)
 
 <div align="center">
-<img src="docs/img/tui-turn.png" alt="magi 터미널 UI — --dry-run 플래그를 요청하고, 에이전트의 read/edit/bash 호출이 각각 실제 결과와 함께 한 줄씩, 그 뒤로 Melchior·Balthasar·Casper가 각자 done에 투표하고 'council round 1: done — 3 done / 0 continue' 집계 줄" width="900">
+<img src="docs/img/tui-turn.png" alt="magi 터미널 UI — 에이전트의 도구 호출과 카운슬 투표 화면" width="900">
+<p><sub>터미널 TUI: 실시간 도구 실행 결과와 카운슬 3인의 투표 집계</sub></p>
 </div>
-
-같은 데몬들을 브라우저에서 본 모습입니다. 내 머신 위의 모든 컴패니언, 각자 지금 무엇을 하는지,
-그리고 나에게 답을 기다리는 것들:
 
 <div align="center">
 <a href="https://sayaya1090.github.io/magi/demo/">
-  <img src="docs/img/console-companions.png" alt="웹 콘솔 — 두 팀에 걸친 컴패니언 목록, 상태·스텝 수·호스트가 실시간으로 보이고 두 행이 사람을 기다리는 중" width="900">
+  <img src="docs/img/console-companions.png" alt="웹 콘솔 — 머신 내 모든 컴패니언 현황 목록" width="900">
 </a>
-
-<sub><a href="https://sayaya1090.github.io/magi/demo/">라이브 데모 열기</a> — 진짜 페이지에 목 데이터라, 서버가 필요 없습니다.</sub>
+<p><sub>웹 콘솔 (<a href="https://sayaya1090.github.io/magi/demo/">라이브 데모</a>): 여러 워크스페이스의 컴패니언 상태와 진행 작업을 한눈에 감독</sub></p>
 </div>
+
+<div align="center">
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock">
+  <img src="docs/img/console-companion-detail.png" alt="컴패니언 상세 화면 — 실시간 전사와 승인 대기 명령" width="860">
+</a>
+<p><sub>컴패니언 상세: 진짜 종료 코드가 보이는 실시간 전사와 권한 승인 인터페이스</sub></p>
+</div>
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="작업공간 판" width="100%"></a><br>
+<b>대화 옆의 작업공간.</b> 컴패니언이 보는 파일 트리와 git 상태를 실시간 확인하고 직접 편집합니다.
+</td>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 화면" width="100%"></a><br>
+<b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자 할 일을 조율하고 업무를 자동 분배합니다.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge.png" alt="지식 화면" width="100%"></a><br>
+<b>지식.</b> 팀이 배운 스킬과 기억(Memory)의 도달 범위(컴패니언/팀/전역)를 한눈에 관리합니다.
+</td>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="공유 위키" width="100%"></a><br>
+<b>공유 위키.</b> 컴패니언들이 작성하고 유지하는 정설 문서입니다. 변경 이력과 은퇴 사유가 보존됩니다.
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/?v=board"><img src="docs/img/console-board.png" alt="칸반 보드" width="100%"></a><br>
+<b>보드.</b> 하루 동안 진행된 작업들이 팀별 열과 상태 라벨 카드로 정리됩니다.
+</td>
+<td width="50%" valign="top">
+<a href="https://sayaya1090.github.io/magi/demo/"><img src="docs/img/console-phone.png" alt="모바일 뷰" width="100%"></a><br>
+<b>모바일 대응.</b> 자리 밖에서도 스마트폰으로 알림을 받고 위험한 명령 승인과 답변을 처리합니다.
+</td>
+</tr>
+</table>
 
 ---
 
-## 이 프로젝트가 붙잡고 있는 문제
+## ⏪ 루프는 열어볼 수 있는 객체다 (Inspectable & Replayable Loop)
 
-에이전트 루프에는 어려운 질문이 하나 있습니다. **턴은 언제 진짜로 끝나는가?**
-
-이 답을 암묵에 맡기면, 그러니까 모델이 툴 호출을 멈추면 턴이 끝나는 방식으로 두면, 생각하다 만 턴과
-정말로 끝낸 턴이 똑같아 보입니다. 그래서 두 가지 실패가 함께 나옵니다. 4분의 3쯤에서 멈추는
-에이전트, 그리고 영영 멈추지 않는 에이전트.
-
-magi는 종료를 **정당화가 필요한 행위**로 만듭니다.
+모든 턴이 추가 전용 JSONL 로그로 이벤트 소싱됩니다. 복잡한 데이터베이스 없이도 아래 네 명령이 평범한 조작으로 완벽하게 동작합니다:
 
 ```mermaid
 flowchart LR
-    P([당신의 요청]) --> S[에이전트가 한 스텝<br/>읽기 · 편집 · 실행]
-    S --> T{호출할 툴이<br/>더 있나?}
-    T -->|있다| S
-    T -->|없다| D[에이전트가 선언<br/>council: complete]
-    D --> R[[magi가 기록을 모은다:<br/>무엇이 실행됐고 실제 종료가 무엇이며<br/>디스크에서 무엇이 바뀌었는지]]
-    R --> V[[각 멤버가 그 기록에 대어<br/>요구사항을 한 줄씩 짚는다]]
-    V --> C{{카운슬 투표<br/>done · reject · abstain}}
-    C -->|미승인| F[피드백이 다음<br/>지시가 된다] --> S
-    C -->|승인| E([턴 종료])
-
-    style D fill:#fff3e0,stroke:#e8820c
-    style C fill:#e8f4ff,stroke:#2c7fb8
-    style E fill:#e8f6ec,stroke:#2f9e44
+    L[(추가 전용 JSONL<br/>이벤트 한 줄씩)] --> RW["/rewind<br/>마지막 턴 되돌리기"]
+    L --> FK["/fork<br/>세션 분기 (원본 보존)"]
+    L --> RP["/replay<br/>분기에서 턴 재생"]
+    L --> LD["/loopdiff<br/>분기 간 차이 비교"]
+    style L fill:#f5f2ec,stroke:#8a8178
 ```
 
-정작 볼 만한 것은 그 게이트가 완료를 **거부하는** 장면입니다:
-
-```text
-you ▸ deploy 명령에 --dry-run 플래그 추가해줘
-
-  … 에이전트가 cmd/deploy.go를 읽고 편집, go build 실행 …
-
-  ⚙ council {complete: true}          에이전트가 끝났다고 말한다
-
-  ⚖ 카운슬이 기록을 읽는다
-     ── MAGI가 관찰한 것
-        변경: cmd/deploy.go
-        정상 실행: go build ./...
-     ── 지금 이 순간의 워크스페이스 (기록이 아니라 방금 읽은 것)
-        cmd/deploy.go — 4,102 바이트, 12초 전 수정
-
-     ● Balthasar [verification]  새 플래그를 실행해 보는 것이 없다 — `go test ./cmd`는 돈 적이 없다
-     → 승인하지 않음. 에이전트는 계속 일한다
-
-  … 에이전트가 테스트를 추가하고 go test 실행 …
-
-  ⚙ council {complete: true}   →   승인   ✓ 턴 종료
-```
-
-magi의 나머지 부분에 특별한 것은 없습니다. 전부 이 결정이 딛고 설 바닥을 만들기 위해 있습니다.
-실제로 무슨 일이 있었는지에 대한 기록, 들여다보고 다시 돌릴 수 있는 루프, 그리고 여러 에이전트를
-한꺼번에 돌리며 감독하는 방법입니다.
+| 명령 | 무엇을 주는가 |
+|---|---|
+| `/loop` | 루프 지도 — 턴 · 스텝 · 카운슬 라운드를 한눈에 파악 |
+| `/context` | 컨텍스트 윈도우를 채우고 있는 토큰 비율 및 압축 현황 |
+| `/rewind` | 실패하거나 원치 않는 마지막 사용자 턴(들)을 깨끗이 되돌림 |
+| `/fork` | 다른 해결책을 시도하기 위해 세션을 분기 (원본 세션은 보존) |
+| `/replay` | 분기된 세션에서 마지막 턴을 다시 실행 |
+| `/loopdiff` | 분기된 세션을 원래 갈라져 나온 지점과 비교 |
 
 ---
 
-## 카운슬
+## ⚖️ 3인 카운슬과 검증 게이트 (The Council & Verification Gate)
 
-루프가 그냥 끝났을 지점에서 각 멤버가 **done**·**reject**·**abstain** 중 하나에 투표하고, 순수
-집계 함수가 그 표를 하나의 결정으로 바꿉니다. 기본 세 명의 이름은 MAGI에서 따왔습니다. 셋은 같은
-기록을 읽습니다. 다른 것은 판정하는 **렌즈**와 그 기록을 훑는 **경로** — 어디부터 보는가입니다.
-
-| 멤버 | 렌즈 | 먼저 훑는 것 |
-|---|---|---|
-| **Melchior** | `correctness` | 과제의 글자 그대로 — 정확한 값·형식·이름. 그다음 작업이 딛고 선 전제, 그다음 보고된 수가 대상이 인정하는 수인지 |
-| **Balthasar** | `verification` | 동작들 — 돌아야 하는 것 하나하나에 대해 그것이 실제로 돌아간 순간과 돌아온 출력 |
-| **Casper** | `completeness` | 부분들 — 과제가 요구한 서로 다른 것 전부. 지나가듯 한 번 불리고 다시 언급되지 않은 것까지 |
-
-경로는 **관할이 아니라 탐색 순서**입니다. 셋 다 여전히 과제 전체를 판정하므로, 한 멤버가 지나친
-결함을 다른 멤버가 만날 수 있습니다. 과제를 멤버끼리 나눠 갖는 편이 경로가 아예 없는 것보다
-나쁩니다. 한 멤버의 몫에 들어앉은 결함은 아무것도 모르는 done 둘에 continue 하나로 맞서게 되고,
-과반이 그대로 통과시킵니다.
-
-멤버는 판정을 말하기 전에 요구사항을 훑어 적습니다. 과제가 요구한 것 하나에 한 줄씩,
-**SATISFIED** 또는 **UNSATISFIED**를 붙이고, 툴이 돌려준 것에서 그대로 떼어 온 조각으로
-결론짓습니다. 근거가 없으면 `NO-EVIDENCE`라고 적는데, 이것도 하나의 답입니다. 이 훑기는 멤버가
-채우는 양식에서 판정보다 **앞**에 놓입니다. 그래야 이미 내려놓은 결론에 맞춰 읽기를 거꾸로 조립할
-수 없습니다. 한 줄을 결론짓는 것은 magi가 기록한 결과여야 하고, 에이전트가 스스로 한 말은 아무것도
-결론짓지 못합니다.
+에이전트가 "다 끝났다"고 선언할 때, 세 멤버가 각자의 렌즈로 실제 실행 기록을 대조 검증합니다.
 
 ```mermaid
 flowchart TD
-    subgraph read [세 명이 같은 기록을 훑는다]
-        M[Melchior<br/>correctness]
-        B[Balthasar<br/>verification]
-        K[Casper<br/>completeness]
+    subgraph read [세 멤버가 동일한 실행 기록을 각자의 렌즈로 검증]
+        M[Melchior<br/>정확성 · Correctness]
+        B[Balthasar<br/>검증성 · Verification]
+        K[Casper<br/>완전성 · Completeness]
     end
-    M --> TA[집계 규칙]
+    M --> TA[투표 집계 규칙<br/>Tally Rule]
     B --> TA
     K --> TA
-    TA --> CL[닫는 호출<br/>세 훑기를 모두 읽는다]
-    CL --> Q{결과}
-    Q -->|과반이 done<br/>이고 닫는 호출도 동의| DONE([종료])
-    Q -->|동점 · 투표자 없음 · 오류| CONT([계속])
-    Q -->|하나라도 reject| CONT
-    Q -->|닫는 호출이 반대| CONT
+    TA --> CL[닫는 호출 Closing Call<br/>세 위원 워크 전수 교차 검토]
+    CL --> Q{최종 결과}
+    Q -->|과반 찬성 &<br/>닫는 호출 승인| DONE([종료 완료 Finish])
+    Q -->|동점 · 기권 · 오류| CONT([계속 작업 Continue])
+    Q -->|단 1명이라도 거부| CONT
+    Q -->|닫는 호출 반대| CONT
 
     style DONE fill:#e8f6ec,stroke:#2f9e44
     style CONT fill:#fff3e0,stroke:#e8820c
 ```
 
-집계 규칙은 설정할 수 있습니다. 그리고 **모호한 결과는 전부 '완료'가 아니라 '계속'으로
-떨어집니다**:
+| 멤버 | 검증 렌즈 | 최우선 탐색 경로 |
+|---|---|---|
+| **Melchior** | `correctness` (정확성) | 요구사항의 글자 그대로의 수치, 파일명, 규격 충족 여부 |
+| **Balthasar** | `verification` (검증성) | 코드가 실제로 빌드되고 테스트가 정상 통과했는지의 실행 증거 |
+| **Casper** | `completeness` (완전성) | 요구사항 중 지나치기 쉬운 부가 지시나 에지 케이스 누락 여부 |
+
+### 투표 집계 규칙
 
 | 규칙 | 언제 끝나는가 |
 |---|---|
-| `majority` *(기본)* | 투표한 멤버의 과반이 done. 동점이면 계속 |
-| `unanimous` | 전원이 done |
-| `quorum:k` | 최소 *k* 명이 done |
-| `weighted:θ` | done 가중치 비율이 임계값 θ 이상 |
-| `veto:Name` | 지목된 멤버가 혼자서 어떤 완료든 거부할 수 있습니다 |
+| `majority` *(기본)* | 투표한 멤버의 과반이 done. 동점이면 계속 진행 |
+| `unanimous` | 전원이 done이어야 종료 |
+| `quorum:k` | 최소 *k* 명이 done이어야 종료 |
+| `weighted:θ` | done 가중치 비율이 임계값 θ 이상일 때 종료 |
+| `veto:Name` | 지목된 특정 멤버가 거부권을 행사할 수 있음 |
 
-오류가 났거나, 시간이 초과했거나, 읽을 수 없는 답을 준 멤버는 게이트를 막는 대신 **기권**합니다.
-그래서 불안정한 모델은 투표를 약하게 만들 뿐 루프를 얼리지는 못합니다. 라운드에는 상한이 있고,
-무진전 감지가 같은 지적의 되풀이를 끊습니다.
-
-> 집계는 `internal/core/council`에 순수 도메인 코드로 들어 있습니다. I/O도 LLM도 없어서 단독으로
-> 단위 테스트가 됩니다. "한 모델이 아니라 카운슬이 결정한다"가 프롬프트에 적힌 문장이 아니라
-> **테스트할 수 있는 성질**이 되는 건 이 분리 덕분입니다.
-
-집계는 세 개의 읽기를 더한 것이고, 더하기 전까지 셋을 다 읽은 사람은 아무도 없습니다. 그래서 표가
-모이면 닫는 호출이 그 일을 합니다. 모든 멤버의 훑기와 판정을 한자리에서 받아, 그 자리에서만 보이는
-것을 찾습니다. 두 멤버가 서로 모순되는 말을 했는지, 어느 훑기도 덮지 않은 요구사항이 있는지, 그
-자체로 틀린 수가 있는지. 이 호출의 결론은 **한 방향으로만** 묶여 있습니다. done을 continue로 바꿀
-수는 있지만, continue를 done으로 바꿀 수는 없습니다. 의견 하나를 더 붙여 끝내게 만들 수 있는
-게이트는 게이트가 아닙니다. 멤버들이 같은 백엔드를 쓰면 패널 전체 — 훑기 셋과 판정 셋 — 가 한 번의
-호출로 도착하므로, 닫는 호출까지 합쳐도 네 번이 아니라 두 번입니다.
-
-묻는 것과 선언하는 것은 별개입니다. `council{question}`은 확신이 안 서는 것에 대해 멤버들의 읽기를
-받아올 뿐, 아무것도 끝내지 않습니다.
+- **주장이 아닌 기록 검증**: 에이전트의 자체 설명이 아니라, 실제로 실행된 셸 명령 종료 코드와 파일 수정 디프(diff)만을 근거로 삼습니다.
+- **워크시트 선작성**: 위원들은 판정을 내리기 전에 요구사항마다 충족 여부와 툴 출력 증거(`SATISFIED` / `UNSATISFIED` / `NO-EVIDENCE`)를 반드시 먼저 기재해야 합니다.
+- **단방향 클램프**: 닫는 호출(Closing call)은 합의된 `done`을 `continue`로 바꿀 수는 있어도, 반대로 미완료 상태를 `done`으로 바꿀 수는 없습니다.
 
 ---
 
-## 투표가 딛고 서는 기록
+## 🤝 하나 이상 돌리기 — 컴패니언과 플릿 (Companions & Fleet)
 
-멤버들은 에이전트가 스스로 요약한 작업을 보고 판정하지 않습니다. 애초에 모든 툴 호출을 승인하는 게
-magi 자신이니, **magi가 기록한 것**에 에이전트의 보고를 대어 판정합니다:
-
-- 실행된 모든 명령과 그것이 **실제로** 어떻게 끝났는지. 파이프의 어느 단계가 실패했는지까지 남습니다.
-- 이번 턴에 에이전트가 한 편집을 파일별 before → after 디프로.
-- 완료를 선언하는 시점에 워크스페이스를 새로 읽은 결과. 과제 시작 이후 수정된 파일, 아직 살아 있는
-  백그라운드 작업, 그리고 **기록에는 썼다는데 디스크에 없는 경로**입니다.
-
-그 기록 위에 **어떻게 읽어야 하는가**의 규칙이 얹힙니다. 멤버는 판정을 말하기 전에 먼저 **워크**를
-씁니다. 과제가 요구한 것 하나에 한 줄씩, SATISFIED인지 UNSATISFIED인지, 그리고 그것을 결정지은 툴
-결과의 **원문 조각**을 적습니다. 없으면 `NO-EVIDENCE`인데, 이것은 조용히 넘어가도 되는 빈칸이 아니라
-**기록된 답**입니다. 이 항목은 멤버가 채우는 스키마에서 판정보다 *앞*에 놓입니다. 이미 내린 결론에서
-거꾸로 근거를 짜맞추지 못하게 하려는 배치입니다. 한 줄을 결정지을 수 있는 것은 툴이 돌려준 것이고,
-에이전트가 자기 작업을 어떻게 설명했는지는 아무것도 결정하지 못합니다.
-
-셋이 투표한 뒤에는 **닫는 호출** 하나가 세 워크를 함께 읽습니다. 같은 출력을 놓고 두 멤버가 서로
-어긋나게 읽었는지, 어느 워크도 다루지 않은 요구사항이 있는지, 값 자체가 대놓고 틀렸는지 — 이것들은
-그 자리에서만 보입니다. 그 결론은 한쪽으로만 조입니다. `done` 집계를 *계속*으로 뒤집을 수는 있어도
-그 반대는 없습니다. 이 카운슬의 측정된 실패 모드는 **과다 승인**이라, 막고 있는 집계를 뒤집을 수 있는
-결론은 첫 번째 관문을 검사하는 게 아니라 완료로 가는 두 번째 길이 되기 때문입니다.
-
-미리 써둔
-검사는 작업에 대해 틀릴 수 있지만, 무엇을 승인했는지의 기록은 무엇이 실행됐는지에 대해 틀릴 수
-없습니다.
-
----
-
-## 하나 이상 돌리기
-
-워크스페이스 하나에 묶인 magi 하나를 **컴패니언**이라고 부릅니다. 저장소 자신의 설정에 이름과 역할을
-적어 두면, 그때부터 "무엇을 위한 것인지"로 부를 수 있습니다:
+워크스페이스 하나에 묶인 magi 인스턴스를 **컴패니언**이라고 부릅니다. `.magi/config.toml`에 이름과 역할을 선언하면 동료 컴패니언들과 협동할 수 있습니다:
 
 ```toml
-# .magi/config.toml — 저장소와 함께 따라다닙니다
+# .magi/config.toml — 저장소에 커밋되어 함께 공유됩니다
 [companion]
 name = "design"
 role = "디자인 시스템: 컴포넌트 스펙과 시각 리뷰"
-team = "frontend"     # 선택
+team = "frontend"
 ```
 
 ```mermaid
@@ -223,269 +247,77 @@ flowchart LR
         D1[design<br/>frontend]
         D2[api<br/>backend]
     end
-    subgraph studio [studio · ssh로 닿는다]
+    subgraph studio [studio · ssh로 연결]
         D3[ops]
     end
-    W[magi-web 콘솔] -.지켜본다.-> D1 & D2 & D3
+    W[magi-web 콘솔] -.감독.-> D1 & D2 & D3
     D1 -- hand_off --> D2
-    D2 -- 답변 --> D1
-    D1 & D2 & D3 --- REC[(소켓 옆의 레코드<br/>= 멤버십 목록)]
+    D2 -- 결과 전달 --> D1
+    D1 & D2 & D3 --- REC[(소켓 옆의 레코드 파일<br/>= 무인프라 멤버십)]
 
     style W fill:#e8f4ff,stroke:#2c7fb8
     style REC fill:#f5f2ec,stroke:#8a8178
 ```
 
-- **`companions`** — 다른 컴패니언들을 나열합니다. 각 워크스페이스가 무엇을 *배웠는지*까지 함께
-  나오는데, 전문가가 나머지 눈에 띄게 되는 통로가 이것입니다.
-- **`companion_can`** — 그중 하나에게 실제로 무엇을 할 수 있는지 물어봅니다.
-- **`hand_off`** — 하나에게 작업의 일부를 넘기고 내 일을 계속합니다. 요청에는 목적과 함께 답이 돌아와야
-  할 형식이 실리고, 답은 끝났을 때 내 대화에 도착합니다. 컴패니언은 한 번에 한 턴만 돌고 그동안 들어온
-  것은 큐에 쌓는데, 얼마나 쌓였는지가 자기 레코드에 공개됩니다. 그래서 맡길 사람을 고르는 쪽에서 누가
-  한가한지 볼 수 있습니다.
-- **회의** — 여러 컴패니언을 하나의 질문에 붙여 놓고, 읽기 전용으로, 각자 무엇을 할지 알게 될 때까지
-  이야기하게 합니다.
-
-레지스트리도, 게이트웨이도, 열린 포트도 없습니다. 데몬마다 자기 소켓 옆에 레코드를 쓰고 **그 디렉토리가
-곧 멤버십 목록**입니다. 머신을 넘어갈 때도 같은 레코드를 ssh로 주고받습니다. `magi --join-cluster
-<host>`를 한 번 실행하면 그다음부터는 데몬들이 서로를 최신으로 유지하고, 한 시간 넘게 못 본 상대는
-잊습니다. 작업도 같은 길로 건너가기 때문에 magi는 자기 포트를 열지 않고 자기 자격증명도 갖지 않습니다.
+- **`companions`**: 클러스터 내의 모든 컴패니언 목록과 각자가 학습한 스킬을 탐색합니다.
+- **`companion_can`**: 특정 컴패니언의 세부 전문 능력과 지원 가능한 태스크를 조회합니다.
+- **`hand_off`**: 전문 영역의 컴패니언에게 하위 작업을 비동기로 위임하고, 내 워크스페이스 작업은 멈춤 없이 계속 진행합니다.
+- **중앙 서버 불필요**: 별도 레지스트리 데몬 없이, 로컬 유닉스 소켓 옆의 상태 파일만으로 클러스터를 구성하며 ssh 통로를 그대로 사용합니다.
 
 ---
 
-## 콘솔
+## 🛠️ 설정 (Configuration)
 
-```sh
-./magi --daemon      # UI 없는 엔진. 아무도 안 보고 있어도 계속 일합니다
-./magi --daemon --detach   # 같은 것을, 제 세션에서. 이 명령이 끝나도 살아 있습니다
-./magi --attach      # 이 워크스페이스의 데몬에 터미널 UI를 붙입니다
-./magi --agents      # 이 머신의 모든 magi와 각자 하는 일
-./magi-web           # 같은 것을 브라우저에서, 127.0.0.1:7777
-./magi-web -exposed  # 인증 프록시 뒤에서: 셸 없음, MCP 쓰기 없음, 모든 변경 기록
-```
-
-<div align="center">
-<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock">
-  <img src="docs/img/console-companion-detail.png" alt="컴패니언 한 대의 페이지 — 가운데에 실시간 전사, 오른쪽 기둥에 상태·모델·워크스페이스와 계획과 지금 돌고 있는 것" width="860">
-</a>
-
-<sub>컴패니언 하나: 진짜 종료 코드가 보이는 실시간 전사와, 승인을 기다리는 위험한 명령.</sub>
-</div>
-
-<table>
-<tr>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/?d=%2Fdemo%2Fdesign.sock"><img src="docs/img/console-workspace.png" alt="작업공간 판 — 디렉토리 하나가 펼쳐진 파일 트리, 브랜치와 변경 파일이 보이는 git 카드가 대화 옆에" width="100%"></a><br>
-<b>대화 옆의 작업공간.</b> 컴패니언이 보는 그대로의 파일 트리와 git 상태입니다. 파일을 열면 에이전트가 쓰는 줄 번호 그대로 읽을 수 있고, 그 자리에서 고칠 수도 있습니다.
-</td>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/?v=meet"><img src="docs/img/console-meeting.png" alt="회의 페이지 — 컴패니언 둘 이상을 골라 하나의 질문으로 방을 엽니다. 진행 중인 회의가 아래에 표시" width="100%"></a><br>
-<b>회의.</b> 여러 컴패니언을 하나의 질문에 붙여 각자 할 일을 알게 하고, 결론을 각각 업무로 내보냅니다.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge.png" alt="지식 화면 — 팀이 배운 스킬과 적어둔 메모리, 각각 도달 범위와 읽기/잊기 컨트롤" width="100%"></a><br>
-<b>지식.</b> 팀이 배운 스킬과 적어둔 메모리입니다. 각각 어디까지 닿는지가 붙어 있습니다. 이 컴패니언만, 이 팀, 아니면 여기 있는 모든 컴패니언.
-</td>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/?v=skills"><img src="docs/img/console-knowledge-wiki.png" alt="지식 화면의 위키 절반 — 마지막 편집자와 날짜가 붙은 정설 페이지들, 툼스톤으로 남은 은퇴한 페이지" width="100%"></a><br>
-<b>공유 위키.</b> 컴패니언들이 최신 상태로 유지하는 정설 페이지입니다. 쌓이는 게 아니라 제자리에서 갱신됩니다. 은퇴한 페이지는 왜 더 이상 사실이 아닌지와 함께 읽을 수 있게 남습니다.
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/?v=board"><img src="docs/img/console-board.png" alt="보드 — 하루의 작업이 카드로, 팀마다 한 열, 에이전트가 붙인 라벨로 묶여 있다" width="100%"></a><br>
-<b>보드.</b> 하루의 작업이 카드로. 팀마다 한 열, 에이전트가 각 조각에 붙인 라벨로 묶입니다.
-</td>
-<td width="50%" valign="top">
-<a href="https://sayaya1090.github.io/magi/demo/"><img src="docs/img/console-phone.png" alt="휴대폰의 콘솔 — 하단 내비게이션 바와 카드 스택, 작은 화면에서 권한 프롬프트에 답하는 모습" width="100%"></a><br>
-<b>휴대폰에서.</b> 같은 콘솔이라 승인이나 답변을 책상에 돌아올 때까지 미루지 않아도 됩니다.
-</td>
-</tr>
-</table>
-
----
-
-## 무엇이 들어 있나
-
-| | 기능 | 실제로 무슨 뜻인가 |
-|---|---|---|
-| 🗳️ | **합의 기반 종료** | 세 멤버가 *done / reject / abstain*에 투표하고, 단위 테스트된 순수 규칙이 집계합니다. reject가 나오면 그들의 피드백이 합쳐져 다음 지시가 됩니다. |
-| 🔒 | **판정 앞에 놓인 워크** | 멤버는 스키마상 판정을 말하기 *전에* 과제가 요구한 것마다 한 줄씩 씁니다. 충족인지 아닌지, 그리고 그것을 결정지은 툴 결과의 원문 조각 또는 `NO-EVIDENCE`. 그다음 닫는 호출 하나가 세 워크를 함께 읽는데, 집계를 조일 수만 있고 풀 수는 없습니다. |
-| 🧾 | **주장이 아니라 기록** | magi가 모든 툴 호출을 승인하므로, 어떤 명령이 돌았고 실제로 어떻게 끝났는지(파이프의 어느 단계가 실패했는지 포함), 어떤 파일에 썼는지를 압니다. 완료 선언마다 워크스페이스를 새로 읽는 것은 별도. |
-| 🖥️ | **여러 에이전트를 위한 콘솔** | 내 머신들의 모든 컴패니언을 브라우저에서 감독합니다. 중단·질문 답변·명령 승인·배운 것 읽기, 그리고 하나가 막히면 휴대폰으로 알림이 옵니다. |
-| ✨ | **에디터 자동완성과 프롬프트 제안** | 웹 에디터의 고스트 텍스트 완성, 그리고 두 입력창의 다음 지시 제안입니다. 내가 과거에 쓴 프롬프트에서 배웁니다. 각각 내가 지정한 빠른 프로파일 위의 얇은 호출이라, 키 입력이 턴 기계장치를 기다릴 일이 없습니다. *룩오버*를 켜면 편집하는 동안 모델이 어깨 너머로 읽고 최대 세 개의 지적을 정확한 줄에 붙여 줍니다. |
-| 🔄 | **스스로 최신을 유지하는 함대** | 인스턴스끼리 버전과 능력을 주고받고, 콘솔은 각 컴패니언의 빌드를 보여주며, 데몬은 스스로 갱신합니다. 체크섬을 검증해 받고, 새 빌드가 안 돌면 **롤백**하는 예비 점검을 거친 뒤, 대화를 유지한 채 제자리에서 재시작합니다. 머신을 넘어가지 않고, 직접 만든 소스 빌드는 절대 덮어쓰지 않습니다. |
-| 🤝 | **컴패니언과 핸드오프** | 워크스페이스에 이름과 역할을 주고 그것이 무엇인지로 부릅니다. `hand_off`는 전문가에게 작업 조각을 넘기고 내 일을 계속하게 해 주며, 답은 끝났을 때 내 대화에 도착합니다. |
-| 🗣️ | **회의** | 여러 컴패니언이 하나의 질문을 읽기 전용으로 논의해 각자 할 일을 알게 되고, 그다음 작업이 배분됩니다. |
-| ⏮️ | **들여다볼 수 있는 루프** | 모든 턴이 추가 전용 JSONL로 이벤트 소싱되므로 `/rewind`·`/fork`·`/replay`·`/loopdiff`가 따로 만들어야 할 기능이 아니라 평범한 조작이 됩니다. |
-| 📦 | **자기완결 바이너리** | 순수 Go, CGO 없음. 에이전트와 선택적 콘솔이 각각 정적 바이너리 하나입니다. [Ollama](https://ollama.com)를 로컬로 쓰거나 무료 클라우드 티어로, 또는 OpenAI 호환 엔드포인트라면 무엇이든. |
-
----
-
-## 루프는 열어볼 수 있는 객체다
-
-모든 턴이 추가 전용 JSONL 로그로 이벤트 소싱됩니다. 아래 네 명령이 특별한 기능이 아니라 평범한
-조작인 이유가 그것입니다:
-
-```mermaid
-flowchart LR
-    L[(추가 전용 JSONL<br/>이벤트 한 줄씩)] --> RW["/rewind<br/>마지막 턴을 버린다"]
-    L --> FK["/fork<br/>분기, 원본은 유지"]
-    L --> RP["/replay<br/>분기에서 턴을 다시 돌린다"]
-    L --> LD["/loopdiff<br/>분기와 원점을 비교"]
-    style L fill:#f5f2ec,stroke:#8a8178
-```
-
-| 명령 | 무엇을 주는가 |
-|---|---|
-| `/loop` | 루프 지도 — 턴 · 스텝 · 카운슬 라운드를 한눈에 |
-| `/context` | 컨텍스트 윈도우를 정확히 무엇이 채우고 있는지 (사용량 · 압축) |
-| `/rewind` | 마지막 사용자 턴(들)을 되돌립니다 |
-| `/fork` | 다른 시도를 위해 세션을 분기합니다. 원본은 그대로 남습니다 |
-| `/replay` | 분기에서 마지막 턴을 다시 돌립니다 |
-| `/loopdiff` | 분기를 갈라져 나온 지점과 비교합니다 |
-
----
-
-## 빠른 시작
-
-### 필요한 것
-
-- 빌드하려면 **Go 1.26+**.
-- **OpenAI 호환 LLM 백엔드.** [Ollama](https://ollama.com)가 가장 손이 덜 갑니다. 기본 모델
-  `gpt-oss:120b-cloud`는 Ollama 무료 클라우드 티어에서 돌아가므로 GPU가 필요 없고, 한 번 로그인하면
-  됩니다:
-
-  ```sh
-  ollama signin            # 무료 티어. 기본 모델은 Ollama 클라우드에서 돈다
-  ```
-
-  전부 내 머신에서 돌리고 싶다면 로컬 모델을 받아 그쪽을 가리키면 됩니다:
-
-  ```sh
-  ollama pull qwen3-coder:30b
-  ./magi --model qwen3-coder:30b        # 또는 MAGI_MODEL=…
-  ```
-
-  > 로컬 모델 고르기에 대해: 에이전트 루프에서 중요한 것은 *토큰*을 얼마나 빨리 뽑느냐이고, 그것은
-  > 파일 크기가 아니라 **활성** 파라미터 수를 따릅니다. 활성 3B쯤인 MoE 모델이 같은 크기의 덴스 27B보다
-  > 몇 배 빠릅니다. 아주 작은 모델(`llama3.1:8b` 부류)은 인사를 할 때도 툴 호출 JSON을 뱉곤 해서,
-  > 속도와 무관하게 잘 맞지 않습니다.
-
-  vLLM·LiteLLM·호스팅 API 등 OpenAI 호환 엔드포인트라면 무엇이든 됩니다. 설정 절을 참고하세요.
-
-### 설치
-
-```sh
-# 미리 빌드된 바이너리
-curl -fsSL https://raw.githubusercontent.com/sayaya1090/magi/main/scripts/install.sh | bash
-
-# Homebrew
-brew install sayaya1090/tap/magi
-```
-
-### 소스에서 빌드
-
-```sh
-make build        # CGO_ENABLED=0, 버전 주입 → ./magi
-make web          # 브라우저 콘솔 → ./magi-web
-# 또는 직접:
-CGO_ENABLED=0 go build -o magi     ./cmd/magi
-CGO_ENABLED=0 go build -o magi-web ./clients/web/server
-```
-
-순수 Go에 CGo가 없어서 결과물은 정적 바이너리 하나입니다. `magi`가 에이전트(TUI와 데몬)이고,
-`magi-web`은 선택적 콘솔입니다. 아무 데나 복사해서 실행하면 됩니다.
-
-### 실행
-
-```sh
-./magi                         # 대화형 TUI
-./magi -p "explain main.go"    # 헤드리스 1회 실행 (--output json이면 JSONL 이벤트 스트림)
-./magi --version               # 버전 출력
-./magi --update                # 바이너리와 관리되는 플러그인 갱신 (체크섬 검증)
-```
-
-TUI에서는 **Enter**로 보내고, **Esc**로 실행 중인 턴을 멈추고, **Ctrl+Q** 또는 `/quit`으로
-나갑니다. 위험한 툴(`write`·`edit`·`bash`)은 먼저 물어봅니다 — `y` 허용, `a` 항상, `n` 거부.
-마크다운과 문법 강조는 터미널의 다크/라이트를 따라갑니다. `/`를 치면 명령 팔레트가 열립니다.
-
----
-
-## 설정
-
-첫 실행 때 주석이 달린 `config.toml`이 만들어지고, 그 뒤로는 덮어쓰지 않습니다. 우선순위는
-**플래그 > 환경변수 > 설정파일 > 기본값** 순입니다.
+첫 실행 시 주석이 포함된 `config.toml`이 자동 생성됩니다. 우선순위는 **CLI 플래그 > 환경 변수 > 설정 파일 > 기본값** 순입니다.
 
 | 플래그 | 환경변수 | 기본값 | 용도 |
 |---|---|---|---|
-| `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | 모델 id (Ollama 무료 클라우드 티어. `ollama signin`) |
-| `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 base URL |
-| `--permission` | `MAGI_PERMISSION` | TUI `ask` / 헤드리스 `allow` | `ask` \| `auto` \| `allow` \| `deny` |
-| `--output` | — | `text` | `text` \| `json` (헤드리스) |
-| — | `MAGI_API_KEY` | *(없음)* | 원격 백엔드용 키 (Ollama는 불필요) |
+| `--model` | `MAGI_MODEL` | `gpt-oss:120b-cloud` | 모델 ID (Ollama 무료 클라우드 또는 로컬 모델) |
+| `--base-url` | `MAGI_BASE_URL` | `http://localhost:11434/v1` | OpenAI 호환 엔드포인트 Base URL |
+| `--permission` | `MAGI_PERMISSION` | TUI `ask` / 헤드리스 `allow` | 도구 권한 (`ask` \| `auto` \| `allow` \| `deny`) |
+| `--output` | — | `text` | 헤드리스 출력 형식 (`text` \| `json`) |
+| — | `MAGI_API_KEY` | *(없음)* | API 인증 키 (로컬 Ollama는 불필요) |
 
-이름 붙인 백엔드를 쓰면 잡일에는 싼 모델을, 중요한 데는 강한 모델을 둘 수 있습니다. 프로파일을
-정의한 뒤 서브에이전트(`/subagents`)나 카운슬 멤버, 자동완성 헬퍼를 그쪽으로 가리키면 됩니다:
+비용 절감을 위해 서브에이전트나 카운슬 멤버별로 서로 다른 모델 프로파일을 매핑할 수 있습니다:
 
 ```toml
-[llm.profiles.fast]          # ${ENV}가 확장되므로 키는 파일 밖에 둔다
+[llm.profiles.fast]
 base_url = "https://fast.gateway/v1"
 api_key  = "${FAST_KEY}"
 model    = "gpt-oss:20b"
 ```
 
-전체 레퍼런스는 [매뉴얼](docs/MANUAL.ko.md#3-설정)에 있습니다.
+자세한 설정 옵션은 [매뉴얼](docs/MANUAL.ko.md#3-설정)을 참고하세요.
 
 ---
 
-## 툴과 확장
+## 🧰 도구와 확장 (Tools & Extensions)
 
-**내장 툴:** `read` · `write` · `edit` · `multiedit` · `grep` · `glob` · `list` · `bash`
-(타임아웃 · 종료 코드 · `background`) · `bash_output` · `bash_input` · `bash_kill` · `wait_for` ·
-`port_owner` · `recall_context` · `recall_memory` · `webfetch` · `websearch` · `todowrite` ·
-`council` (읽기를 청하거나, 끝났다고 선언) · `remember` (공유 메모리와 위키) · `skill` ·
-`companions` · `companion_can` · `hand_off` · `ask_user`와 `route_interjection` (대화형 전용).
-
-편집한 뒤에는 진단 피드백(gofmt · go vet · py_compile · LSP)이 되돌아와서 에이전트가 스스로 고칠 수
-있습니다. 읽기 전용 툴은 한 턴 안에서 병렬로 돕니다.
-
-- **기본은 에이전트 하나.** 켜기 전에는 둘째가 스폰되지 않습니다. 서브에이전트는 플러그인에서 오고, magi는 하나도 번들하지
-  않습니다. 설치한 것을 켜는 자리가 `/subagents`입니다.
-  플러그인의 자식들은 충돌할 수 없을 때 병렬로 돌 수 있습니다: 읽기 전용 자식이거나, 각자 자기 체크아웃을
-  받는 쓰기 자식(`isolated_children` — 자식마다 git 클론, 셸은 거기 갇히고, 호출자가 말할 때만 커밋
-  범위로 병합됩니다). [EXTENDING](docs/EXTENDING.ko.md)을 참고하세요.
-- **프로젝트 메모리.** `AGENTS.md`(그리고 `.magi/AGENTS.md`와 전역 파일)는 **압축을 견디는** 지속
-  컨텍스트입니다.
-- **컨텍스트 인식 압축.** 모델 윈도우의 약 80%를 넘으면 오래된 턴이 요약되고 최근 것은 남습니다.
-  헤더에 `ctx 42%` 미터가 있습니다.
-- **공유 경험.** 팀이 함께 쓰는 git 기반 스킬·메모리·위키 저장소입니다. `remember`가 쓰고
-  `recall_memory`가 읽습니다.
-- **Lua 플러그인.** `<config>/plugins/`에 `plugin.toml`과 `init.lua`를 넣으면 자동 로드·핫 리로드·
-  샌드박스. [plugins/examples/wordcount](plugins/examples/wordcount) 참고.
-- **MCP 서버.** `config.toml`에 선언해 두면 시작할 때 그 툴들이 등록됩니다.
-- **무인 작업.** `schedule`과 `[cron]`이 아무도 안 볼 때 작업을 돌립니다.
+- **핵심 도구군**: `read`, `write`, `edit`, `multiedit`, `grep`, `glob`, `list`, `bash` (백그라운드 실행 및 입출력 제어 지원), `wait_for`, `webfetch`, `websearch`.
+- **협업 & 카운슬 도구**: `council` (조언 요청 또는 종료 선언), `companions`, `companion_can`, `hand_off`, `ask_user`.
+- **기억 & 위키**: `remember`, `recall_memory`, `recall_context`.
+- **Lua 플러그인**: `<config>/plugins/`에 `plugin.toml`과 `init.lua`를 두어 핫 리로드 가능한 확장 도구를 추가할 수 있습니다.
+- **MCP (Model Context Protocol)**: `config.toml`에 MCP 서버를 등록하여 표준 도구를 바로 연동합니다.
+- **백그라운드 스케줄링**: `schedule` 및 `[cron]` 설정을 통해 무인 자동화 작업을 정기 실행합니다.
 
 ---
 
-## 아키텍처
+## 🏗️ 아키텍처 (Architecture)
 
-magi는 포트와 어댑터 구조입니다. 코어 도메인은 UI도, LLM도, 플러그인도 모르고, 의존성 방향은 늘
-안쪽을 향합니다.
+magi는 클린 헥사고날(Ports & Adapters) 아키텍처를 엄격히 준수합니다. 코어 도메인은 UI, LLM 어댑터, 외부 플러그인에 일절 의존하지 않습니다.
 
 ```mermaid
 flowchart TD
-    subgraph adapters [어댑터 — 갈아끼울 수 있는 것]
+    subgraph adapters [어댑터 — 교체 가능한 입출력 계층]
         TUI[tui/bubbletea]
         WEB[clients/web/server]
         LLM[llm/openai]
         LUA[plugin/lua · mcp]
         DMN[daemon · fleet]
     end
-    subgraph inside [안쪽 — 아무것에도 의존하지 않는다]
-        PORT[internal/port<br/>인터페이스]
-        CORE[internal/core<br/>도메인 · 순수 카운슬]
+    subgraph inside [내부 — 외부 의존성이 전혀 없는 순수 계층]
+        PORT[internal/port<br/>포트 인터페이스]
+        CORE[internal/core<br/>도메인 엔티티 · 순수 카운슬 규칙]
     end
     TUI --> PORT
     WEB --> PORT
@@ -499,41 +331,40 @@ flowchart TD
 ```
 
 ```
-cmd/magi            진입점 (와이어링)
-clients/web/server  콘솔의 서버 — 같은 데몬들 위의 읽기 위주 웹 뷰
-clients/web/ui      콘솔 자신: 화면마다 하나씩인 GWT 모듈, 한 페이지로 조립됩니다
-clients/web/e2e     조립된 콘솔을 진짜 데몬 앞에서 브라우저로 눌러 보는 시험
-internal/core       도메인 — 어떤 어댑터에도 의존하지 않습니다 (순수 카운슬 포함)
-internal/port       포트(인터페이스) — LLM, Store, Council, ToolServers …
-internal/adapter    어댑터 — llm/openai · tui/bubbletea · plugin/lua · mcp · council/llm ·
-                    daemon (소켓 위의 엔진) · fleet (모든 magi가 무엇을 하는지)
-plugins/examples    예제 Lua 플러그인
-docs                ARCHITECTURE · DESIGN · SPEC · MANUAL · UI · EXTENDING · DIAGRAMS · BENCHMARK
+cmd/magi            진입점 및 런타임 와이어링
+clients/web/server  웹 콘솔 서버 (데몬 소켓 통신)
+clients/web/ui      웹 프론트엔드 UI 모듈 (GWT 구조)
+internal/core       순수 도메인 로직 (이벤트 소싱 세션, 카운슬 규칙)
+internal/port       핵심 인터페이스 정의 (LLM, Store, Council 등)
+internal/adapter    구체적 어댑터 구현체 (Bubble Tea TUI, OpenAI LLM, 데몬 소켓 등)
+plugins/examples    Lua 플러그인 예제
+docs                설계, 아키텍처, 매뉴얼 및 벤치마크 상세 문서
 ```
 
-| 선택 | 이유 |
+| 기술 선택 | 도입 이유 |
 |---|---|
-| **Go** | 정적 바이너리 하나, 손쉬운 크로스 컴파일, 간단한 자기 갱신, 고루틴 동시성 |
-| **Bubble Tea (Charm)** | 다듬어진 TUI의 표준. 마크다운·코드 렌더링이 기본 제공 |
-| **Lua (gopher-lua)** | 순수 Go 임베드라 빌드가 CGo 없이 유지되고, 핫 리로드와 샌드박스가 자연스럽습니다 |
-| **이벤트 소싱 JSONL** | 관찰 가능하고, 재생 가능하고, 분기 가능한 루프 |
-| **OpenAI 호환 LLM** | 프로토콜 어댑터 하나로 로컬(Ollama·vLLM)과 호스팅 엔드포인트 양쪽에 닿습니다 |
+| **Go (단일 바이너리)** | CGO 없는 정적 바이너리 배포, 손쉬운 크로스 컴파일, 가벼운 고루틴 동시성 |
+| **Bubble Tea** | 터미널 친화적이고 안정적인 TUI 렌더링 프레임워크 |
+| **Lua (gopher-lua)** | CGO 없이 바이너리에 내장되는 안전한 스크립팅 및 핫 리로드 지원 |
+| **이벤트 소싱 JSONL** | 투명한 추적성, 무손실 세션 재생, 가벼운 타임머신 분기 구현 |
+| **OpenAI 호환 프로토콜** | 단일 어댑터로 Ollama, vLLM, 클라우드 호스팅 모델 전반 지원 |
 
-더 읽을 것: [ARCHITECTURE](docs/ARCHITECTURE.ko.md) · [UI](docs/UI.ko.md) ·
-[DESIGN](docs/DESIGN.ko.md) · [EXTENDING](docs/EXTENDING.ko.md) · [SPEC](docs/SPEC.ko.md) ·
-[DIAGRAMS](docs/DIAGRAMS.ko.md) ·
-[BENCHMARK](docs/BENCHMARK.ko.md) — magi가 Terminal-Bench 2.1에서 받는 점수, 그리고 직접 돌리는 법.
+더 자세한 내용은 [ARCHITECTURE](docs/ARCHITECTURE.ko.md) 및 [DESIGN](docs/DESIGN.ko.md) 문서를 참고하세요.
 
 ---
 
-## 보안
+## 🔒 보안 (Security)
 
-magi는 내 파일을 읽고, 고치고, 명령을 실행합니다. 모델과 내 기계 사이에 서 있는 것은 deny 바닥, 서로
-독립인 두 축, 그리고 `--permission allow`에서도 발화하는 스캔입니다. [SECURITY.ko.md](SECURITY.ko.md)가 그것을 한자리에 적은 문서입니다. 툴 게이트, 신뢰 경계로서의
-워크스페이스, 콘솔이 무엇을 인증하고 무엇을 인증하지 않는지, 그리고 두 번 읽을 값이 있는 절 — 무엇을 일부러
-막지 않는지.
+magi는 로컬 시스템의 파일을 읽고 수정하며 셸 명령을 실행합니다. 안전한 실행을 위해 다층 방어 체계를 갖추고 있습니다:
+- 기본 deny 보안 정책과 워크스페이스 격리 경계
+- 고위험 도구(`write`, `edit`, `bash`) 실행 전 사용자 확인 프롬프트 (`--permission ask`)
+- `--permission allow` 상태에서도 위험 명령 패턴을 실시간 탐지하는 가드 스캐너 내장
 
-## 라이선스
+상세한 보안 모델 및 설정은 [SECURITY.ko.md](SECURITY.ko.md)에서 확인하실 수 있습니다.
 
-**Apache-2.0** — [LICENSE](LICENSE) 참고. 서드파티 코드를 재사용할 때는 `NOTICE`와
-`THIRD_PARTY_LICENSES` 파일을 그대로 유지할 것.
+---
+
+## 📄 라이선스 (License)
+
+**Apache-2.0** — 자세한 내용은 [LICENSE](LICENSE)를 참고하세요.
+외부 오픈소스 라이브러리 라이선스는 `NOTICE` 및 `THIRD_PARTY_LICENSES`에 명시되어 있습니다.
