@@ -53,9 +53,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // backend and NOT a session id, so asking it for one gets an empty string and the transcript
     // streams nothing — with no error, which is how this would have shipped unnoticed. `sessions`
     // is the door that knows, newest first.
+    const mine = ++this.opening;
     let sid = this.sid;
     if (!sid) {
       const list = await this.companion.ask('sessions');
+      if (mine !== this.opening) return;   // somebody asked for another conversation while we waited
       const first = (list?.sessions ?? [])[0];
       sid = first?.id ?? '';
       this.sid = sid;
@@ -72,6 +74,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // sharing it with the status poll would make every poll wait behind a conversation.
     const s = await Daemon.connect(this.companion.socket).catch(() => null);
     if (!s) return;
+    // A newer attempt started while this one was connecting. Hand this socket back rather than
+    // letting two streams feed one transcript — see `opening`.
+    if (mine !== this.opening) { s.close(); return; }
     this.stream = s;
     s.whenClosed(() => {
       if (this.stream !== s) return;   // we moved on, or the panel closed — not an ending to report
@@ -108,6 +113,21 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // have, and this number arrives every turn regardless.
     this.onUsage?.(usage(this.events));
   }
+
+  /**
+   * Which attempt to open a stream is the current one.
+   *
+   * ⚠ **`openStream` waits twice** — for the session list, then for the connection — and until now
+   * it came back and used `this.sid` as if nothing could have happened meanwhile. Two things can:
+   * a person picks another conversation, and the reattach timer calls in on its own. Then the
+   * slower attempt lands last and the panel streams a conversation nobody asked for, while
+   * `this.sid` names a different one — and BOTH streams push into `this.events`, so two
+   * conversations interleave in one transcript.
+   *
+   * The reattach loop is what made this ordinary: before it, opening twice needed a person doing
+   * two things quickly. Same guard as the status poll's, one level up.
+   */
+  private opening = 0;
 
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
   showSession(sid: string): void {
