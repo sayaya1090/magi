@@ -121,3 +121,55 @@ test('a refusal on the composer path is said, not swallowed', () => {
   assert.ok(/kind: 'note'/.test(body), 'nothing is said to the person');
   assert.ok(/this\.compose\(/.test(body), 'the words are not put back in the box');
 });
+
+/**
+ * Every door a person PRESSES looks at the answer. Swept, not listed.
+ *
+ * The list form of this guard would rot: a new button is added, nobody adds its name here, and the
+ * rule passes while the defect ships. So it reads the source, finds the `ask(...)` calls itself,
+ * and asks of each one whether its answer is READ.
+ *
+ * ⚠ Read, not bound. The first cut of this guard accepted "the answer is assigned to a name", and
+ * a mutation walked straight through it: `const v = await ask(...); void v;` binds the answer,
+ * looks at nothing, and the defect is fully back. It survived, so the guard was blind — the rule
+ * is now that the bound name is tested (`.ok`), returned, or handed to something else.
+ *
+ * Three names are exempt, each with its reason written down. An exemption is a decision — the
+ * JetBrains client's comment on the same defect calls a swallowed answer "a window where nothing
+ * happens when you press it" — so it has to be argued, not assumed.
+ */
+test('every door a person presses looks at what came back', () => {
+  const excused: Record<string, string> = {
+    'mcp-detach': 'teardown on dispose; nobody is watching and "there was nothing to remove" is the wanted answer',
+    'open-file': 'a background note about which file is open — not a thing a person did',
+    'tool': 'the @-mention glob; an empty list IS the failure the caller already handles',
+    'suggest': 'ghost text; no suggestion is a normal answer and drawing a warning for it would nag',
+  };
+  const files = ['chat.ts', 'extension.ts', 'hand.ts', 'look.ts', 'choose.ts', 'handoff.ts', 'complete.ts'];
+  const swallowed: string[] = [];
+  let seen = 0;
+  for (const f of files) {
+    const src = fs.readFileSync(path.join(IDE, f), 'utf8');
+    for (const m of src.matchAll(/(.{0,60})\.(?:ask|exchange)\(\s*(door|'[a-z-]+')/g)) {
+      seen++;
+      const door = m[2].replace(/'/g, '');
+      if (door in excused) continue;
+      const before = m[1].replace(/(?:await\s+)?[\w.]*$/, '').trimEnd();
+      // Used in place — a condition, an argument, a return. Nothing to follow up.
+      if (/[(?:,[]$|\breturn$|&&$|\|\|$/.test(before)) continue;
+      // Bound to a name: then that name has to be READ before the branch ends.
+      const bind = before.match(/(?:const|let|var)\s+([\w]+)\s*=$/);
+      if (bind) {
+        const after = src.slice(m.index! + m[0].length, m.index! + m[0].length + 500);
+        const used = new RegExp(`\\b${bind[1]}\\s*(?:\\?\\.|\\.|\\))|\\b${bind[1]}\\b\\s*[,)]`).test(after);
+        if (used) continue;
+      }
+      swallowed.push(`${f}: ${door}`);
+    }
+  }
+  // The scanner is checked before its verdict is believed: reading nothing reports nothing.
+  assert.ok(seen >= 15, `only ${seen} door calls found — the scan is broken, not the code clean`);
+  assert.deepEqual(swallowed, [],
+    'these doors can refuse and nobody would ever know: ' + swallowed.join(', ') +
+    ' — either read the answer, or add the name to `excused` with the reason it cannot fail visibly.');
+});
