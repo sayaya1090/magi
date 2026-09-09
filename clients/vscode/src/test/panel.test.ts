@@ -287,3 +287,45 @@ test('every companion state the core names is said as a phrase', () => {
     assert.ok(drawn[i].includes(sayState(st)), `the fleet row does not carry the phrase for "${st}"`);
   }
 });
+
+/**
+ * ★ A schedule somebody switched OFF drew exactly like one whose next run is unknown.
+ *
+ * `CronRow.Enabled` is a plain Go bool with `omitempty`, so FALSE NEVER GOES ON THE WIRE. Measured
+ * by marshalling the row: on → `{"name":…,"enabled":true,"next":…}`, off → `{"name":…}` — no
+ * `enabled`, and no `next` either, because the core says "Next is RFC3339, and empty when the job
+ * never runs — switched off, or Problem says why".
+ *
+ * So `r.enabled === false` was never true, the cell fell through to an empty string, and the one
+ * thing a person opens this panel to check — is it on? — was the thing it would not say.
+ *
+ * The REQUEST side of the same switch is a `*bool`, and the core's comment says why: "the switch is
+ * three-valued on the wire: absent must mean 'leave it alone'". The distinction was known exactly
+ * where it was needed and lost exactly where it was read.
+ */
+test('a switched-off schedule says so', () => {
+  const wire = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  const at = wire.indexOf('type CronRow struct');
+  assert.ok(at > 0, 'the core no longer has the cron row this guard reads');
+  assert.match(wire.slice(at, wire.indexOf('\n}', at)), /Enabled\s+bool\s+`json:"enabled,omitempty"`/,
+    'the wire no longer carries `enabled` as an omitempty bool — the reasoning here may not hold');
+
+  // Off is the ABSENT shape, which is the whole point. Never write `enabled: false` in a fixture
+  // here: the daemon cannot send it, so a test that passes on it proves nothing.
+  const off = schedules({ ok: true, cron: [{ name: 'nightly', schedule: '0 9 * * *' }] } as unknown as Parameters<typeof schedules>[0]);
+  assert.equal(off.length, 1, 'the formatter did not draw the row this guard hands it');
+  assert.match(off[0].line, /\boff\b/, 'a switched-off schedule does not say it is off');
+
+  const on = schedules({ ok: true, cron: [
+    { name: 'nightly', schedule: '0 9 * * *', enabled: true, next: '2026-09-11T09:00:00Z' },
+  ] } as unknown as Parameters<typeof schedules>[0]);
+  assert.ok(!/\boff\b/.test(on[0].line), 'a running schedule is reported as off');
+  assert.match(on[0].line, /next 2026-09-11/, 'a running schedule does not say when it next runs');
+
+  // On, but the daemon did not say when — that is not the same as off, and must not read as it.
+  const soon = schedules({ ok: true, cron: [
+    { name: 'nightly', schedule: '0 9 * * *', enabled: true },
+  ] } as unknown as Parameters<typeof schedules>[0]);
+  assert.ok(!/\boff\b/.test(soon[0].line), 'a job that is on with no next time is drawn as switched off');
+});

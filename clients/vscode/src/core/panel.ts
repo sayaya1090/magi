@@ -64,7 +64,16 @@ export function schedules(resp: Response | null): Schedule[] {
     line: [
       r.name,
       r.schedule,
-      r.enabled === false ? 'off' : r.next ? `next ${r.next}` : '',
+      // ⚠ **`enabled` is a Go bool with `omitempty`, so FALSE NEVER GOES ON THE WIRE.** A switched
+      // off job arrives as `{"name":"nightly"}` — no `enabled`, and no `next` either, because the
+      // core says "Next is RFC3339, and empty when the job never runs — switched off, or Problem
+      // says why" (measured by marshalling the row: on → `enabled:true`, off → the field is gone).
+      //
+      // So `=== false` was never true and the cell fell through to an empty string: a schedule
+      // somebody switched OFF drew exactly like one whose next run is merely unknown. The request
+      // side of this same switch is a `*bool` and the core's comment says why — "the switch is
+      // three-valued on the wire" — so the distinction was known where it was needed and lost here.
+      r.enabled !== true ? 'off' : r.next ? `next ${r.next}` : '',
       r.problem ? `⚠ ${r.problem}` : '',
       (r.prompt ?? r.command ?? '').split('\n')[0].slice(0, 40),
     ].filter(Boolean).join(' · '),
