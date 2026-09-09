@@ -131,9 +131,13 @@ test('the overlap a model repeats is not drawn twice', () => {
  * carries at least the bytes the core keeps and the kept slice is identical.
  */
 test('the ambient buffer is cut to its head', () => {
-  const big = 'x'.repeat(AMBIENT * 3);
+  // ⚠ The head and the tail must be TELLABLE APART. A mutation proved why: with a uniform
+  // 'x'.repeat() buffer, `slice(-AMBIENT)` — the tail — has the same length and still passes
+  // `startsWith`, so keeping the wrong end read as correct.
+  const big = 'HEAD' + 'x'.repeat(AMBIENT * 3) + 'TAIL';
   assert.equal(ambient(big).length, AMBIENT, 'the whole buffer travels as ambient context');
-  assert.ok(big.startsWith(ambient(big)), 'the tail was kept instead of the head — the core keeps the head');
+  assert.ok(ambient(big).startsWith('HEAD'), 'the tail was kept instead of the head — the core keeps the head');
+  assert.ok(!ambient(big).includes('TAIL'), 'the end of the buffer travelled — the core would throw it away');
   // Under the cap nothing is touched: a small file must arrive whole.
   assert.equal(ambient('short'), 'short');
   // Never fewer bytes than the core keeps, whatever the script.
