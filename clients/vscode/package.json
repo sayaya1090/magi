@@ -143,11 +143,6 @@
         "category": "magi"
       },
       {
-        "command": "magi.chooseBackend",
-        "title": "Choose the backend",
-        "category": "magi"
-      },
-      {
         "command": "magi.changeSetting",
         "title": "Change one of magi's own settings",
         "category": "magi"

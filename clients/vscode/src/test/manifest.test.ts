@@ -488,11 +488,20 @@ test('no command id is registered twice', () => {
     }
   };
   walk(dir);
+  // ⚠ **The manifest is a list, and it doubled too.** The same wave that registered the command
+  // twice also declared it twice in `contributes.commands`, so the Command Palette listed "magi:
+  // Choose the backend" twice — and the first cut of this guard could not see it, because it read
+  // the declarations only to look ids up. A `Set` was hiding one duplicate while the test next to
+  // it was written about another.
+  const declared = (manifest.contributes.commands ?? []).map((c) => c.command);
+  const twice = declared.filter((id, i) => declared.indexOf(id) !== i);
+  assert.deepEqual(twice, [], `declared more than once: ${twice.join(', ')} — the palette lists it twice`);
+
   // The floor is DERIVED, not a number somebody remembered: every command the manifest declares is
   // registered somewhere, so a scan that finds fewer has stopped reading a shape. The first cut of
   // this guard read only `registerCommand(`, found the fifteen written that way, cleared a floor of
   // ten — and was blind to all twelve in `doors.ts`, which is exactly where the doubling was.
-  for (const id of (manifest.contributes.commands ?? []).map((c) => c.command)) {
+  for (const id of declared) {
     assert.ok(seen.has(id), `${id} is declared and no registration was found — the scan is missing a shape`);
   }
   for (const [id, where] of seen) {
