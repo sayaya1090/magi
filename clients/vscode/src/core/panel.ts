@@ -187,10 +187,27 @@ export function context(resp: Response | null): string {
       compactions?: number; parts?: Record<string, number>; topics?: string[] } | null;
   if (!c || !c.window) return '';
   const pct = Math.round(((c.used ?? 0) / c.window) * 100);
-  const parts = Object.entries(c.parts ?? {})
-    .sort((a, b) => b[1] - a[1])
-    .map(([k, v]) => `${k} ${v}`)
-    .join(' · ');
+  /**
+   * ⚠ **Shares of their own sum, not token totals.**
+   *
+   * The core states the rule and the reason: the breakdown is a chars/4 estimate even when `used`
+   * is the provider's measured count, so the pieces "will not sum to a measured Used. They are
+   * honest as proportions and dishonest as totals, **which is why the screen draws them as a share
+   * of their own sum and says the reading is an estimate**".
+   *
+   * This line printed `tools 23507 · system 2824` — measured against a live daemon 2026-09-10 — four
+   * numbers a person naturally adds up and compares against `used`, which is exactly the arithmetic
+   * the core says they cannot support. The JetBrains panel has drawn shares since the field landed.
+   *
+   * The `estimated` flag on the line above is about `used`; these are estimates regardless, so the
+   * marker belongs here too.
+   */
+  const named = Object.entries(c.parts ?? {}).filter(([, v]) => v > 0);
+  const sum = named.reduce((n, [, v]) => n + v, 0);
+  const parts = sum > 0
+    ? 'made of (est.) ' + named.sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k} ${Math.round((v * 100) / sum)}%`).join(' · ')
+    : '';
   return [
     `${c.used ?? 0} / ${c.window} (${pct}%)${c.estimated ? ' estimated' : ''}`,
     c.messages !== undefined ? `${c.messages} messages` : '',
