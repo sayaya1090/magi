@@ -2,13 +2,10 @@
 
 # magi
 
-### A terminal coding agent that isn't allowed to declare itself finished.
+### A persistent coding agent that never drops work when you close the window or switch tools.
 
-**A single-binary Go AI coding agent** that runs in the terminal (TUI), web console, IDEs (VS Code, JetBrains, Visual Studio), and Office.
-In most agent loops the turn ends when the model stops calling tools. magi ends it differently.
-The agent has to *declare* that it is done, and three council members vote on whether the record
-backs that up, each reading the turn through a different lens. Before any of them may vote it
-walks the task's requirements, one line each, against what the tools actually returned.
+**A single-binary Go AI coding agent**. Runs as an independent resident daemon per workspace, allowing terminal TUIs, web consoles, and IDEs (VS Code, JetBrains, Visual Studio) to attach and detach seamlessly over local sockets.
+Every turn and decision is event-sourced into an append-only JSONL log—making `/rewind` and `/fork` natural operations—while a 3-member council consensus gate prevents premature and unverified completion.
 
 [English](README.md) · [한국어](README.ko.md) · [Manual](docs/MANUAL.md) · [Site](https://sayaya1090.github.io/magi/) · [Live demo](https://sayaya1090.github.io/magi/demo/)
 
