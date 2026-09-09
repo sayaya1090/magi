@@ -342,3 +342,25 @@ test('the conversation list stamps its rows in local time', () => {
   assert.ok(/localStamp\(\s*s\.lastActivity\s*\)/.test(block),
     'the conversation list draws the wire timestamp raw — UTC, with the T and the Z');
 });
+
+/**
+ * ★ The completion provider reads the WINDOW, not the document.
+ *
+ * A mutation proved this needs its own guard: putting `() => doc.getText()` back — the whole
+ * document, on every pause in typing — compiles and passes every other test. `around` is handed a
+ * reader now, and a reader that ignores its bounds is indistinguishable from the old code by any
+ * test that only looks at the strings that come back.
+ *
+ * `complete.ts` imports `vscode`, so no test can load it. Read as text, the way the JetBrains client
+ * reads its own untestable module for the same fix in the same wave.
+ */
+test('the completion provider reads only the window', () => {
+  const src = fs.readFileSync(path.join(IDE, 'complete.ts'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+  assert.ok(/around\(/.test(src), 'the provider no longer builds its window here — re-read this guard');
+  // A reader that uses its bounds. `getText()` with nothing in the parentheses is the whole buffer.
+  assert.ok(!/doc\.getText\(\s*\)/.test(src),
+    'the whole document is read on every keystroke, and all but the window thrown away');
+  assert.ok(/doc\.positionAt\(from\)/.test(src) && /doc\.positionAt\(to\)/.test(src),
+    'the reader does not use the offsets it is given — its bounds are ignored');
+});
