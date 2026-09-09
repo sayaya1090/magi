@@ -108,7 +108,7 @@ test('a companion that is not running offers the same way out', () => {
  * way is a line in the way.
  */
 test('a working companion says nothing here', () => {
-  for (const state of [State.Idle, State.Working, State.Waiting]) {
+  for (const state of [State.Attached, State.Working, State.Waiting]) {
     const note = panelNote({ state });
     assert.equal(note.text, '', `${state} draws a note above the composer`);
     assert.equal(note.offerStart, false, `${state} offers to start one`);

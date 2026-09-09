@@ -14,9 +14,23 @@ import { Response } from './protocol';
 export enum State {
   /** Nobody is listening on this workspace's socket. */
   NotRunning = 'not-running',
-  /** It answered and it is not busy. */
-  Idle = 'idle',
-  /** A turn is running. */
+  /**
+   * It answered, and it did not say more than that.
+   *
+   * ⚠ **Not "it is idle".** This branch is reached when `status` carries no `waiting` and no
+   * `doing`, and that is what an ordinary running turn looks like: `doing` is a long-running
+   * tool's progress note, written by exactly ONE builtin tool file out of fifty (`wait_for`) plus
+   * a few exceptional paths (compaction, council, handover, a retry). A turn spending its minutes
+   * in `read`/`bash`/`edit` fills neither field, and the `status` door has no field that means "a
+   * turn is running" at all (`answerStatus`).
+   *
+   * So the old name was a claim the daemon never made — and the screen said "idle" at a companion
+   * that was working. The JetBrains client hit this first and wrote down the rule it broke: the
+   * branch carries "the daemon did not say", not "it is not running", and this file's own opening
+   * paragraph is about exactly that confusion one state over (`Unknown` vs idle).
+   */
+  Attached = 'attached',
+  /** A turn is running, and something said so. */
   Working = 'working',
   /** It is blocked on a person: a permission or a question. */
   Waiting = 'waiting',
@@ -53,14 +67,16 @@ export function of(resp: Response | null): Activity {
   }
   const doing = (resp.doing ?? '').trim();
   if (doing) return { state: State.Working, doing };
-  return { state: State.Idle };
+  // Say only what is known. Reaching here means it answered and said nothing further — see
+  // State.Attached for why that is not "idle".
+  return { state: State.Attached };
 }
 
 /** The one-line label every screen shows for a state. One vocabulary, so two screens cannot drift. */
 export function label(a: Activity): string {
   switch (a.state) {
     case State.NotRunning: return 'not running';
-    case State.Idle: return 'idle';
+    case State.Attached: return 'attached';
     case State.Working: return a.doing ? `working · ${a.doing}` : 'working';
     case State.Waiting: return a.asking ? `waiting on you · ${a.asking}` : 'waiting on you';
     case State.Unknown: return 'cannot say';
