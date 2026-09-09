@@ -273,7 +273,9 @@ class PlanToolWindow : ToolWindowFactory {
         // 끄고, 못 붙음의 보고는 상태 표시줄이 이미 한다.
         fun poll() {
             val my = pollSeq.incrementAndGet()
-            workspace.onDaemon({ if (my == pollSeq.get()) SwingUtilities.invokeLater { stale.isVisible = true } }) { comp ->
+            // 3초마다 도는 폴 — 인내는 폴의 것. 여기 모델 문의 2분을 두면 답 안 하는 데몬
+            // 앞에서 이 창과 표시줄이 함께 스레드를 쌓는다.
+            workspace.onDaemonPolling({ if (my == pollSeq.get()) SwingUtilities.invokeLater { stale.isVisible = true } }) { comp ->
             val jr = comp.jobs()
             val j = jr.jobs
             val r = comp.roster()

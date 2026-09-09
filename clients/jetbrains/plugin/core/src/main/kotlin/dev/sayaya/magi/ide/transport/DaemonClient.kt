@@ -116,7 +116,26 @@ class DaemonClient private constructor(
          * AF_UNIX 는 어디서나 쓴다. 윈도우도 마찬가지이고 거기서는 담긴 디렉토리의 ACL 이
          * 권한을 정한다(listen_windows.go 의 `listenOwnerOnly`).
          */
-        fun connect(socket: Path, patienceMs: Long = 120_000): DaemonClient {
+        /**
+         * 모델이 지나는 문의 인내. 초안·제안·완성이 이 문을 지나므로 넉넉해야 한다 — 짧게
+         * 잡으면 느린 로컬 모델의 **정답이 시한 초과로 둔갑한다.**
+         */
+        const val PATIENCE_ASK = 120_000L
+
+        /**
+         * 기억에서 답하는 문의 인내 — 폴이 쓴다.
+         *
+         * 인내를 하나로 두면 **틀리는 방향이 하나뿐인 것처럼 보인다.** 이 워치독이 있는 사유가
+         * 이 주석 위에 적혀 있다: 「우측 독 폴이 그 소켓을 3초마다 두드리면 스레드가 쌓인다」.
+         * 무한 대기는 그렇게 없앴는데, **2분도 3초 폴 앞에서는 마흔 개가 쌓인다** — 창 둘이
+         * 각각 3초마다 두드리므로 첫 하나가 포기하기 전에 그만큼이 물린다(2026-09-09 실측).
+         *
+         * 그래서 폴은 짧게 든다. 기억에서 답하는 문이 30초를 넘기면 그건 느린 것이 아니라
+         * **웨지된 것**이다. 형제(VS Code)가 같은 사실을 같은 숫자로 적었다(`deadlineFor`).
+         */
+        const val PATIENCE_POLL = 30_000L
+
+        fun connect(socket: Path, patienceMs: Long = PATIENCE_ASK): DaemonClient {
             val ch = SocketChannel.open(StandardProtocolFamily.UNIX)
             try {
                 ch.connect(UnixDomainSocketAddress.of(socket))

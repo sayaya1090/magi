@@ -87,6 +87,19 @@ internal class Workspace(private val project: Project) {
         connect(null, needChat = false, trouble, work)
 
     /**
+     * 3초마다 도는 폴의 문. **인내가 짧다.**
+     *
+     * 기본 인내는 모델이 지나는 문의 것(2분)이고, 폴은 기억에서 답하는 문만 두드린다. 하나로
+     * 두면 웨지된 데몬 앞에서 스레드가 쌓인다 — 이 워치독이 존재하는 사유가 정확히 그것인데
+     * (`DaemonClient` 주석), 2분이면 3초 폴에서 마흔 개가 물린다.
+     *
+     * **이름 있는 오버로드다.** 꼬리에 기본값 인자를 붙이면 트레일링 람다를 빼앗는다 — 이
+     * 파일이 [onDaemon] 에서 이미 그렇게 한 번 깨졌다.
+     */
+    fun onDaemonPolling(trouble: (String) -> Unit, work: (Companion) -> Unit) =
+        connect(null, needChat = false, trouble, work, DaemonClient.PATIENCE_POLL)
+
+    /**
      * [at] 를 주면 공표된 현재 대신 **그 대화**에 붙는다 — 고정 탭의 문이다. 기본형과 오버로드로
      * 가른 이유: 꼬리의 기본값 인자는 트레일링 람다를 빼앗는다(람다는 **마지막** 파라미터에만
      * 붙는다) — 실제로 `onDaemon({}) { … }` 호출 전부가 깨졌다.
@@ -99,6 +112,7 @@ internal class Workspace(private val project: Project) {
         needChat: Boolean,
         trouble: (String) -> Unit,
         work: (Companion) -> Unit,
+        patienceMs: Long = DaemonClient.PATIENCE_ASK,
     ) {
         val sock = socket() ?: return trouble(MagiBundle.msg("chat.noworkspace"))
         ApplicationManager.getApplication().executeOnPooledThread {
@@ -109,7 +123,7 @@ internal class Workspace(private val project: Project) {
                 // 없다 — 그래서 꺼져 있는 데몬이 늘 대화 공표 탓으로 보고됐다. 아래 catch 가
                 // 「안 켰다 / 죽었다 / 끊겼다」를 가려 주는데, 그 자리에 닿지를 못했다.
                 // 확인하기 전에 원인을 대지 않는다.
-                DaemonClient.connect(sock).use { client ->
+                DaemonClient.connect(sock, patienceMs).use { client ->
                     // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로
                     // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(publish.go 의 사유).
                     // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는

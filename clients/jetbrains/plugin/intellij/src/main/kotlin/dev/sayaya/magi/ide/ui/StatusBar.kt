@@ -99,7 +99,9 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
 
         override fun dispose() = timer.stop()
 
-        private fun poll() = workspace.onDaemon({
+        // 3초마다 도는 폴이다 — 인내는 폴의 것을 쓴다. 모델 문의 2분을 여기 두면 웨지된
+        // 데몬 앞에서 스레드가 쌓인다(이 워치독이 존재하는 사유 그 자체).
+        private fun poll() = workspace.onDaemonPolling({
             outside = workspace.rootsOutsideWorkspace().size
             // 실패만 남긴다. 매 3초 성공을 찍으면 로그가 이것만으로 찬다. 그리고 이 한 줄이 없으면
             // 화면에는 "데몬 없음" 넉 자뿐이라 사람이 원인을 볼 길이 없다 — 이 위젯의 결함 하나가
@@ -109,7 +111,7 @@ class MagiStatusBarFactory : StatusBarWidgetFactory {
             // 첫 기동), 그동안 「실행되지 않음」만 서 있으면 사람은 아무 일도 안 일어났다고 읽는다
             // — 실제로 그렇게 읽혔다(2026-09-01). 우리가 방금 뭘 했는지는 우리가 말해야 한다.
             workspace.socket()?.let { sock ->
-                if (StartDaemon.startingNow(sock)) return@onDaemon say("magi: " + MagiBundle.msg("status.starting"))
+                if (StartDaemon.startingNow(sock)) return@onDaemonPolling say("magi: " + MagiBundle.msg("status.starting"))
             }
             // 접두는 **코드 한 곳에서만** 붙인다 — 넷 중 하나만 값 안에 품고 있어서 같은 자리의
             // 규칙이 두 벌이었다(G15). 밖의 폴더 수는 툴팁의 몫이다.
