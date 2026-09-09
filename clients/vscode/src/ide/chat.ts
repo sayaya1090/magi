@@ -311,6 +311,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
      JetBrains client draws the same rows small, italic and faint; this is that, in this editor's
      tokens. */
   .system { color:var(--vscode-descriptionForeground); font-style:italic; font-size:.9em; }
+  /* What a tool was asked to do, beside its name. Dimmer than the name and clipped to one line:
+     it is the answer to "which one", not the argument's full text. */
+  .args { color:var(--vscode-descriptionForeground); opacity:.85; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
@@ -426,6 +429,16 @@ function draw(rs) {
     w.textContent = r.label;
     const b = document.createElement('div');
     b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
+    /* A tool row names the call AND what it was asked to do. Without the second half a turn that
+       runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
+       the one question it exists for. Its own element so it can be dimmed and clipped without
+       touching the name. */
+    if (r.who === 'tool' && r.args) {
+      const a = document.createElement('span');
+      a.className = 'args';
+      a.textContent = r.args;
+      b.append(' ', a);
+    }
     d.append(w, b);
     rowsEl.append(d);
   }

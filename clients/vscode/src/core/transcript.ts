@@ -28,6 +28,18 @@ export interface Row {
   text: string;
   /** Tool rows only: the call this row is about, so its result can land on it. */
   callId?: string;
+  /**
+   * Tool rows only: what the call was ASKED to do, in one line.
+   *
+   * The name alone is not a row. A turn that runs thirty commands drew thirty rows reading
+   * `bash ✓` — same glyph, same word, nothing saying which command, which file, which edit. The
+   * transcript is the place a person answers "what did it just do", and it could not.
+   *
+   * The JetBrains client has carried this since it grew a tool row: it draws the name, a status
+   * glyph, and a one-line summary of the arguments, with the full text a fold away. This is the
+   * one-line half — the same fact, in the shape this screen has room for.
+   */
+  args?: string;
   /** Tool rows only, once the result arrives. Absent means still running. */
   ok?: boolean;
   /** A row whose prompt has no answer yet — the screen draws a bar beside it. */
@@ -59,7 +71,7 @@ interface PartLike {
   text?: string;
   /** `image` parts: where the picture is, and what it is. */
   image?: { path?: string; mime?: string };
-  toolCall?: { callId?: string; name?: string };
+  toolCall?: { callId?: string; name?: string; args?: unknown };
   toolResult?: { callId?: string; content?: unknown; isError?: boolean };
   error?: string;
 }
@@ -131,7 +143,8 @@ export function rows(events: Event[]): Row[] {
         } else if (p.kind === 'reasoning' && (p.text ?? '').trim()) {
           out.push({ seq: e.seq, who: 'thinking', text: p.text!.trim(), folded: true });
         } else if (p.kind === 'tool-call' && p.toolCall) {
-          out.push({ seq: e.seq, who: 'tool', text: p.toolCall.name ?? 'tool', callId: p.toolCall.callId });
+          out.push({ seq: e.seq, who: 'tool', text: p.toolCall.name ?? 'tool',
+            callId: p.toolCall.callId, args: askedFor(p.toolCall.args) });
         } else if (p.kind === 'tool-result' && p.toolResult) {
           // The result lands ON the call's row rather than starting a new one — one call, one line.
           const call = p.toolResult.callId;
@@ -317,4 +330,39 @@ export function sizeNote(before: number, after: number): string {
  */
 export function turnOpen(events: Event[]): boolean {
   return rows(events).some((r) => r.pending);
+}
+
+/**
+ * A tool call's arguments as one line, for the row that names the call.
+ *
+ * The fields a person recognises come first — `path`, `command`, `pattern`, `id` are what every
+ * builtin's schema calls the thing it acts on — and anything else falls back to the raw JSON,
+ * clipped. Clipped rather than dropped: a call whose argument is a whole file's contents still has
+ * a first line worth reading, and "no summary" is the state this exists to end.
+ *
+ * Nothing is invented. An empty object summarises to nothing, and the row is then the bare name
+ * again — which is the truth about a call that was given no arguments.
+ */
+export function askedFor(args: unknown): string | undefined {
+  if (args === null || args === undefined) return undefined;
+  let o: Record<string, unknown>;
+  if (typeof args === 'string') {
+    try { o = JSON.parse(args) as Record<string, unknown>; } catch { return clip(args); }
+  } else if (typeof args === 'object') {
+    o = args as Record<string, unknown>;
+  } else {
+    return clip(String(args));
+  }
+  for (const k of ['path', 'command', 'pattern', 'query', 'id', 'name']) {
+    const v = o[k];
+    if (typeof v === 'string' && v.trim()) return clip(v.trim());
+  }
+  const rest = JSON.stringify(o);
+  return rest && rest !== '{}' ? clip(rest) : undefined;
+}
+
+/** One line, bounded. A row is a line — a summary that wraps is not a summary. */
+function clip(s: string): string {
+  const line = s.split('\n')[0].trim();
+  return line.length > 100 ? line.slice(0, 100) + '…' : line;
 }
