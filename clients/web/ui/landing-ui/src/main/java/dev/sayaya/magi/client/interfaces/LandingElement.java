@@ -88,7 +88,7 @@ public class LandingElement {
     // ── 본문 ─────────────────────────────────────────────────────────────────
     private HTMLElement main(Tongue t) {
         HTMLElement main = el("main");
-        main.append(hero(t), problem(t), council(t), record(t), fleet(t), features(t), start(t));
+        main.append(hero(t), problem(t), council(t), record(t), fleet(t), clients(t), features(t), start(t));
         return main;
     }
 
@@ -227,6 +227,42 @@ public class LandingElement {
             shots.append(fig);
         }
         sec.append(shots);
+        return sec;
+    }
+
+    /**
+     * 사람이 앉는 자리들. 사진이 있는 자리에는 사진이 서고, 없는 자리는 글만 선다 — 비슷하게
+     * 생긴 남의 사진으로 칸을 채우면 그 자리가 실제로 어떤지에 대해 거짓을 말하게 된다.
+     */
+    private HTMLElement clients(Tongue t) {
+        HTMLElement sec = head(t, "clients");
+        HTMLElement seats = el("div");
+        seats.className = "seats";
+        for (int i = 0; i < Page.SEATS.length; i++) {
+            String one = Page.SEATS[i];
+            HTMLElement card = el("article");
+            card.className = "seat";
+            if (!Page.SEAT_IMG[i].isEmpty()) {
+                HTMLElement img = el("img");
+                img.setAttribute("src", Page.SEAT_IMG[i]);
+                img.setAttribute("alt", word(t, "seat." + one + ".t"));
+                img.setAttribute("loading", "lazy");
+                card.append(img);
+            }
+            HTMLElement line = el("h3");
+            HTMLElement name = el("span");
+            name.textContent = word(t, "seat." + one + ".t");
+            HTMLElement chip = el("span");
+            chip.className = "chip " + Page.SEAT_STATUS[i];
+            chip.textContent = word(t, "seat." + Page.SEAT_STATUS[i]);
+            line.append(name, chip);
+            card.append(line);
+            HTMLElement says = el("p");
+            says.innerHTML = word(t, "seat." + one + ".b");
+            card.append(says);
+            seats.append(card);
+        }
+        sec.append(seats);
         return sec;
     }
 

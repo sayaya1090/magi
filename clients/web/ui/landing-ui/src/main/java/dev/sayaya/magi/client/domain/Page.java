@@ -17,7 +17,7 @@ public final class Page {
     private Page() {}
 
     /** 위 띠의 문들 — 순서가 곧 화면의 순서다(각 항목이 제 절의 id 이기도 하다). */
-    public static final String[] NAV = {"what", "council", "record", "fleet", "start"};
+    public static final String[] NAV = {"what", "council", "record", "fleet", "clients", "start"};
 
     /** 카운슬 위원 — 이름은 번역하지 않는다(사람 이름이다). 렌즈와 경로만 말이 있다. */
     public static final String[] MEMBERS = {"melchior", "balthasar", "casper"};
@@ -32,8 +32,30 @@ public final class Page {
     /** 컴패니언 절의 네 줄 — 앞의 셋은 툴 이름이라 제목을 번역하지 않는다. */
     public static final String[] FLEET = {"fleet.1", "fleet.2", "fleet.3", "fleet.4"};
 
-    /** 무엇을 얻나 — 카드 여섯. */
-    public static final String[] FEATURES = {"termination", "walk", "record", "console", "loop", "binaries"};
+    /** 무엇을 얻나. */
+    public static final String[] FEATURES = {
+        "termination", "walk", "record", "console", "companions", "knowledge",
+        "tools", "guard", "complete", "loop", "update", "binaries",
+    };
+
+    /**
+     * 사람이 앉는 자리 — 같은 컴패니언에 붙는 바깥 프로그램들(docs/CLIENTS).
+     *
+     * 그림이 있는 자리와 없는 자리가 있다. 없는 것은 저장소에 아직 사진이 없다는 뜻이라 빈
+     * 문자열로 두고, 카드는 글만 세운다 — 남의 그림을 빌려다 채우면 그 자리가 실제로 어떻게
+     * 생겼는지에 대해 거짓을 말하게 된다.
+     */
+    public static final String[] SEATS = {
+        "terminal", "console", "jetbrains", "vscode", "visualstudio", "powerpoint", "excel", "word",
+    };
+    public static final String[] SEAT_IMG = {
+        "img/tui-turn.png", "img/console-workspace.png", "img/seat-jetbrains.png", "",
+        "", "img/seat-powerpoint.png", "", "",
+    };
+    /** 지어진 것인가, 짓고 있는 것인가 — 상태를 적지 않으면 목록이 약속으로 읽힌다. */
+    public static final String[] SEAT_STATUS = {
+        "shipped", "shipped", "shipped", "shipped", "building", "shipped", "shipped", "shipped",
+    };
 
     /** 콘솔 그림 넷과 그것이 가리키는 데모의 자리. */
     public static final String[] SHOTS = {"companions", "detail", "meeting", "board"};
@@ -122,6 +144,12 @@ public final class Page {
             all.add("feature." + one + ".b");
         }
         for (String one : SHOTS) all.add("shot." + one + ".cap");
+        for (String one : SEATS) {
+            all.add("seat." + one + ".t");
+            all.add("seat." + one + ".b");
+        }
+        all.add("seat.shipped");
+        all.add("seat.building");
         return all;
     }
 }

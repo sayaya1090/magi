@@ -19,8 +19,8 @@ internal class LandingPageTest : GwtTestSpec({
         When("페이지가 그려지면") {
             Then("절이 순서대로 서고, 위 띠가 그 절들을 가리킨다") {
                 page.locator("#page > #top").count() shouldBe 1
-                page.locator("#top .doors a").count() shouldBe 5
-                page.locator("main > section").count() shouldBe 7
+                page.locator("#top .doors a").count() shouldBe 6
+                page.locator("main > section").count() shouldBe 8
                 page.locator("#hero h1").textContent() shouldBe "magi"
             }
             Then("카운슬은 셋이고, 저마다 제 색의 클래스를 입는다") {
@@ -37,8 +37,18 @@ internal class LandingPageTest : GwtTestSpec({
             Then("기록 셋·컴패니언 넷·카드 여섯·그림 넷") {
                 page.locator("#record .knows li").count() shouldBe 3
                 page.locator("#fleet .fleetlist li").count() shouldBe 4
-                page.locator("#features .cards .note").count() shouldBe 6
+                page.locator("#features .cards .note").count() shouldBe 12
                 page.locator("#fleet .shots .shot img").count() shouldBe 4
+            }
+            Then("자리 여덟이 서고, 사진이 있는 자리에만 사진이 선다") {
+                page.locator("#clients .seat").count() shouldBe 8
+                // 저장소에 사진이 있는 자리는 넷(터미널·콘솔·젯브레인·파워포인트)이다. 나머지 넷을
+                // 비슷한 그림으로 채우지 않는다 — 그래서 이 수는 카드 수보다 작아야 맞다.
+                page.locator("#clients .seat img").count() shouldBe 4
+            }
+            Then("다 된 것과 짓는 중인 것이 낱말로 갈린다 — 목록이 약속으로 읽히지 않게") {
+                page.locator("#clients .chip.building").count() shouldBe 1
+                page.locator("#clients .chip.shipped").count() shouldBe 7
             }
             Then("데모로 가는 문은 사이트 안의 부속 페이지다 — 저장소가 아니라") {
                 page.locator("#hero .acts a").last().getAttribute("href") shouldBe "demo/"

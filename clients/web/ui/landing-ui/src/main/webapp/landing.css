@@ -45,6 +45,7 @@
   --magi-ref-melchior: #FFB454;
   --magi-ref-balthasar: #5CD8E6;
   --magi-ref-casper: #D8B4FE;
+  --magi-ref-warn: #FFD479;
   --magi-ref-bg: #14110d;
   --magi-ref-fg: #E8E2D8;
   --magi-ref-surface-container-lowest: #0F0D0A;
@@ -215,6 +216,39 @@ p { margin: 0 0 1rem; }
 .tally code { color: var(--magi-ref-primary); font-size: .85rem; }
 .note:last-child, p.note { color: var(--magi-ref-muted); }
 p.note { max-width: var(--measure); border: 0; padding: 0; background: none; }
+
+/* ── 자리 ──────────────────────────────────────────────────────────────── */
+.seats {
+  display: grid; gap: 1rem; margin: 2rem 0 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(22rem, 100%), 1fr));
+  /* 카드마다 제 높이 — 사진이 없는 자리가 옆칸의 사진 높이만큼 빈 상자로 늘어나지 않게.
+     격자의 기본(stretch)이 그 빈 상자를 만든다(실측: VS Code 칸이 파워포인트 세로 사진을
+     따라 세 배가 됐다). */
+  align-items: start;
+}
+.seat {
+  display: flex; flex-direction: column; gap: .6rem;
+  padding: 1.25rem; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--magi-ref-surface-container-low);
+}
+/* 사진은 있는 자리에만 — 그래서 카드마다 높이가 다르고, 그것이 사실이다. */
+.seat img {
+  /* 세로로 긴 사진(작업창)과 가로로 긴 사진(IDE)이 한 줄에 서므로 위를 보여 주고 자른다 —
+     자리마다 무엇인지는 위쪽에 있다. */
+  width: 100%; height: auto; max-height: 17rem; object-fit: cover; object-position: top center;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft); background: var(--magi-ref-surface-container-lowest);
+}
+.seat h3 { display: flex; align-items: center; gap: .6rem; margin: 0; }
+.seat p { color: var(--magi-ref-muted); margin: 0; }
+.chip {
+  font-family: var(--magi-ref-mono); font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .15rem .5rem; border-radius: 28px; border: 1px solid var(--line);
+  color: var(--magi-ref-muted); font-weight: 400;
+}
+/* 지어진 것과 짓는 중인 것은 다른 낱말이 아니라 다른 색이어야 한 눈에 갈린다. */
+.chip.shipped { color: var(--magi-ref-accent); border-color: color-mix(in srgb, var(--magi-ref-accent) 30%, transparent); }
+.chip.building { color: var(--magi-ref-warn); border-color: color-mix(in srgb, var(--magi-ref-warn) 30%, transparent); }
 
 /* ── 기록 · 컴패니언 ───────────────────────────────────────────────────── */
 .knows, .fleetlist { margin: 1.5rem 0 0; padding: 0; list-style: none; }
