@@ -59,6 +59,47 @@ class RowsTest {
      * ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 대기하는 쪽이 칸이 아예
      * 없는 경우다. `resolved:false` 를 기다리는 시험은 오지 않는 모양을 잰다.
      */
+    /**
+     * **접기는 줄인 양을 적는다 — 사람이 빼게 두지 않는다.**
+     *
+     * 코어가 이 문장의 정본을 들고 있고(`CompactionData.SizeNote`), 그 주석이 용도를 적는다:
+     * *"backs the human-facing … line in **both the headless printer and the TUI**, so the size
+     * difference is stated explicitly rather than **left for the reader to subtract**."*
+     * 터미널·헤드리스·VS Code 가 다 적는데 이 판만 두 수를 던져 놓고 있었다(2026-09-10 실측).
+     *
+     * ⚠ **요약이 원본보다 커지는 갈래를 먼저 가른다.** 코어의 `Reduction()` 은 음수를 0으로 누르는데
+     * (「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어 **유일하게 눈에 띌
+     * 값이 있는 결과가 숨는다.**
+     */
+    @Test
+    fun `접기는 줄인 양을 적고, 커진 경우를 숨기지 않는다`() {
+        val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val payload = java.io.File(core, "internal/core/event/payload.go")
+        assertTrue(payload.isFile, "코어의 payload 를 못 찾았다(${payload.absolutePath})")
+        val note = payload.readText().substringAfter("func (d CompactionData) SizeNote()").substringBefore("\n}")
+        assertTrue("LARGER than what it replaced" in note,
+            "코어가 커진 갈래를 더는 안 가른다 — 이 규칙의 근거가 사라졌으니 다시 읽어라")
+
+        val r = Rows()
+        r.feed(user("하이", "m1"))
+        r.feed(ev("compaction", """{"summary":"s","tokensBefore":1000,"tokensAfter":250}"""))
+        val folded = r.list().first { "접었다" in it.text }
+        assertTrue("−750" in folded.text, "줄인 양을 안 적는다 — 사람이 빼야 한다: ${folded.text}")
+        assertTrue("−75%" in folded.text, "몫을 안 적는다: ${folded.text}")
+
+        // 커진 경우: 「−0, −0%」로 숨으면 안 된다.
+        val g = Rows()
+        g.feed(user("하이", "m2"))
+        g.feed(ev("compaction", """{"summary":"s","tokensBefore":100,"tokensAfter":180}"""))
+        val grew = g.list().first { "접었다" in it.text }
+        assertTrue("+80" in grew.text, "요약이 커진 것을 안 적는다: ${grew.text}")
+        assertFalse("−0" in grew.text, "커진 결과가 「−0」으로 숨었다: ${grew.text}")
+
+        // 못 읽은 수는 0이 아니다 — 아무 말도 안 한다.
+        assertNull(Rows().sizeNote(null, 10), "모르는 값을 셈에 넣었다")
+        assertNull(Rows().sizeNote(10, null), "모르는 값을 셈에 넣었다")
+    }
+
     @Test
     fun `큐를 떠나는 것은 큐에 드는 것과 같은 사건이 아니다`() {
         val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile

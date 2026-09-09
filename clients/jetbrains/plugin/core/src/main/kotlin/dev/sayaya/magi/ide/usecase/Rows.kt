@@ -468,10 +468,34 @@ class Rows {
         // 지우지 않는다. 컴팩션이 접는 것은 모델에게 보낼 창이지 사람의 기록이 아니다 — 사람
         // 뷰를 모델 뷰에서 읽으면 읽던 스크롤백이 제 요약으로 바뀐다(`reconstructWhole` 의 교훈).
         val d = e.data?.jsonObject ?: return false
-        val before = d["tokensBefore"]?.jsonPrimitive?.content ?: "?"
-        val after = d["tokensAfter"]?.jsonPrimitive?.content ?: "?"
-        rows += Row(Who.Info, "↯ 컨텍스트를 접었다: ~$before→$after tok", at = e.ts)
+        val before = d["tokensBefore"]?.jsonPrimitive?.content?.toIntOrNull()
+        val after = d["tokensAfter"]?.jsonPrimitive?.content?.toIntOrNull()
+        // **줄어든 양을 적는다 — 사람이 빼게 두지 않는다.** 코어가 이 문장의 정본을 들고 있고
+        // (`CompactionData.SizeNote`), 그것이 "backs the human-facing … line in **both the headless
+        // printer and the TUI**, so the size difference is stated explicitly rather than **left for
+        // the reader to subtract**" 라고 적혀 있다. 이 판만 두 수를 던져 놓고 있었다.
+        //
+        // ⚠ **요약이 원본보다 커지는 경우가 있다.** 코어의 `Reduction()` 은 음수를 0으로 눌러
+        // 두는데(「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어
+        // **유일하게 눈에 띌 값이 있는 결과가 숨는다.** 그래서 그 갈래를 먼저 가른다 — 코어의
+        // `SizeNote` 가 정확히 그 순서로 되어 있다.
+        rows += Row(Who.Info, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
+            (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts)
         return true
+    }
+
+    /**
+     * 접기가 줄인 양 — 코어 `CompactionData.SizeNote` 의 짝.
+     *
+     * 둘 중 하나라도 못 읽으면 **아무 말도 안 한다**: 모르는 것을 0으로 그리지 않는다는 이 파일의
+     * 규칙 그대로다. 커진 경우를 먼저 가르는 것도 코어와 같은 순서다.
+     */
+    internal fun sizeNote(before: Int?, after: Int?): String? {
+        if (before == null || after == null) return null
+        if (after > before) return "+${after - before}, 요약이 원본보다 큽니다"
+        val freed = before - after
+        val pct = if (before > 0) (freed * 100 + before / 2) / before else 0
+        return "−$freed, −$pct%"
     }
 
     private fun finished(): Boolean {
