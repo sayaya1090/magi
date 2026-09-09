@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -177,4 +178,52 @@ func TestMCPURLCarriesTheDeck(t *testing.T) {
 	if q := Word.MCPURL(3000, "a b&c=d"); !strings.Contains(q, "deck=a+b%26c%3Dd") {
 		t.Errorf("덱 이름을 안 감쌌다: %s", q)
 	}
+}
+
+// 이름은 넷이 아니라 **일곱**이다 — 셋이 Go 밖에 있어서 안 세고 있었다.
+//
+// 위 시험이 세는 넷은 매니페스트 안에 있다. 그런데 같은 번호를 **따로** 들고 있는 자리가 셋 더
+// 있고, 셋 다 다른 언어라 어느 시험도 안 봤다: 설치기(`$port`), Office 안에 로드되는 COM 추가
+// 기능(`HelperPort`), 그리고 2021 편집용 어댑터의 기본 `--helper` URL.
+//
+// 실측(2026-09-09): 3000 을 옮기면서 셌더니 그 셋이 각자 숫자를 들고 있었다. 하나만 안 고치면
+// 증상은 「애드인이 안 붙는다」 하나로 뭉치는데, 위 시험은 매니페스트만 보므로 **초록이다.**
+// 그래서 여기서 같이 센다. 이 시험이 없으면 다음에 번호를 옮기는 사람이 정확히 그 함정을 밟는다.
+func TestThePortIsOneNumberOutsideGoToo(t *testing.T) {
+	// 파일마다 「그 안의 루프백 포트는 전부 이 번호여야 한다」. 경로는 저장소 뿌리 기준이다.
+	files := []string{
+		filepath.Join("..", "install.ps1"),
+		filepath.Join("..", "addin-com", "src", "Starter.cs"),
+		filepath.Join("..", "..", "powerpoint", "hand-com", "src", "Program.cs"),
+	}
+	want := DefaultPort
+	// URL 안의 포트와, 숫자만 적힌 자리(`$port = N`, `const int HelperPort = N`) 둘 다 본다.
+	inURL := regexp.MustCompile(`https?://(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)`)
+	bare := regexp.MustCompile(`(?:\$port\s*=\s*|HelperPort\s*=\s*)(\d+)`)
+	seen := 0
+	for _, f := range files {
+		body, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("%s 를 못 읽었다 — 파일이 옮겨졌으면 이 시험부터 고칠 것: %v", f, err)
+		}
+		hits := append(inURL.FindAllStringSubmatch(string(body), -1),
+			bare.FindAllStringSubmatch(string(body), -1)...)
+		if len(hits) == 0 {
+			t.Errorf("%s 에서 포트를 하나도 못 찾았다 — 「다 같다」가 아니라 「볼 것이 없었다」다", f)
+			continue
+		}
+		for _, h := range hits {
+			seen++
+			if got, _ := strconv.Atoi(h[1]); got != want {
+				t.Errorf("%s 가 포트 %d 를 들고 있다. 하나의 번호는 %d 다", f, got, want)
+			}
+		}
+	}
+	// 훑어서 「전부 같다」를 묻는 모양은 훑을 것이 없을 때도 초록이다(위 시험의 규칙 그대로).
+	// 바닥은 **판정 아래**에 둔다. 처음에 5 를 적었더니 실측 넷에서 자기검사가 먼저 터져,
+	// 「번호가 어긋났다」는 판정 문장이 안 나왔다 — 이 저장소가 세 번 밟은 그 무늬다.
+	if seen < 3 {
+		t.Fatalf("Go 밖에서 포트를 %d 개밖에 못 찾았다 — 스캔이 깨진 것이지 코드가 깨끗한 게 아니다", seen)
+	}
+	t.Logf("Go 밖의 세 파일에서 포트 %d 개를 찾아 %d 와 견줬다", seen, want)
 }

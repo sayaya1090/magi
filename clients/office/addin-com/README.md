@@ -29,7 +29,7 @@ M365 에 없으면 헬퍼를 사람이 띄웁니다.
   `Software\Microsoft\Office\<PowerPoint|Excel|Word>\Addins\Magi.Office.Start` 의 `LoadBehavior = 3`.
 - 헬퍼의 명령줄은 설치기가 DLL 옆 `helper-args.txt` 에 적어 둡니다 — 설정·소켓 자리는 머신마다 다르고, 그것을 아는 것은
   설치기입니다.
-- 이미 떠 있으면(포트 3000 이 열려 있으면) 아무것도 안 합니다. 프로그램 셋을 한꺼번에 켜도 헬퍼는 하나입니다
+- 이미 떠 있으면(포트 26411 이 열려 있으면) 아무것도 안 합니다. 프로그램 셋을 한꺼번에 켜도 헬퍼는 하나입니다
   (`Local\magi-office-start` 뮤텍스).
 - **무슨 일이 있어도 안 던집니다.** 추가 기능이 던지면 Office 가 `LoadBehavior` 를 2 로 내려 다음부터 아예 안 부릅니다.
   사유는 DLL 옆 `start.log` 에 적습니다.

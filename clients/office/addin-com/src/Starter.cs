@@ -32,7 +32,7 @@ public sealed class Starter : IDTExtensibility2, ICustomQueryInterface
     public const string ProgIdName = "Magi.Office.Start";
 
     /// <summary>헬퍼가 듣는 자리. 매니페스트·인증서와 같은 한 문자열이다.</summary>
-    public const int HelperPort = 3000;
+    public const int HelperPort = 26411;
 
     private const int S_OK = 0;
     private const int E_NOTIMPL = unchecked((int)0x80004001);

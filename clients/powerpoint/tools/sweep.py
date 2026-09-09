@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""48개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:3000/ppt)에 붙은 **첫 덱**에 순서대로 다 불러 보고 표로 낸다.
+"""48개 도구 전수 스윕 — 헬퍼(https://127.0.0.1:26411/ppt)에 붙은 **첫 덱**에 순서대로 다 불러 보고 표로 낸다.
 
   python3 clients/powerpoint/tools/sweep.py [--deck <pid-deck-…>] [--image <png>]
 
@@ -8,7 +8,7 @@
 실측 2026-09-05: 48/48 · 57호출 · 오류 0 · 약 1초.
 """
 import json, ssl, urllib.request, os, base64, sys, time, re, argparse
-ap=argparse.ArgumentParser(); ap.add_argument('--deck', default=''); ap.add_argument('--image', default=''); ap.add_argument('--origin', default='https://127.0.0.1:3000')
+ap=argparse.ArgumentParser(); ap.add_argument('--deck', default=''); ap.add_argument('--image', default=''); ap.add_argument('--origin', default='https://127.0.0.1:26411')
 opt=ap.parse_args()
 S=os.path.dirname(os.path.abspath(__file__))
 ctx=ssl.create_default_context(); ctx.check_hostname=False; ctx.verify_mode=ssl.CERT_NONE
@@ -28,7 +28,7 @@ if not os.path.exists(IMG):
 rows=[]; done=set()
 def call(name, args, note=''):
     body=json.dumps({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}}).encode()
-    req=urllib.request.Request(f'https://127.0.0.1:3000/ppt/mcp?deck={DECK}', data=body, headers={'authorization':'Bearer '+TOK,'content-type':'application/json'}, method='POST')
+    req=urllib.request.Request(f'https://127.0.0.1:26411/ppt/mcp?deck={DECK}', data=body, headers={'authorization':'Bearer '+TOK,'content-type':'application/json'}, method='POST')
     t0=time.time()
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=120) as r: resp=json.loads(r.read())

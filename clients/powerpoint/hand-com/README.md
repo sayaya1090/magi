@@ -138,8 +138,8 @@ M365 를 지우고 이 머신에 2021 을 깔아 같은 훑기를 한 번 더 �
 
 ```
 cd clients/powerpoint/hand-com/src
-dotnet run -- --helper https://127.0.0.1:3000/ppt      # Windows: 열린 덱 전부를 맡는다(헬퍼가 이렇게 띄운다)
-dotnet run -- --helper https://127.0.0.1:3000/ppt --presentation "C:\덱\a.pptx"   # 그 덱 하나에만 붙는다(진단용)
+dotnet run -- --helper https://127.0.0.1:26411/ppt      # Windows: 열린 덱 전부를 맡는다(헬퍼가 이렇게 띄운다)
+dotnet run -- --helper https://127.0.0.1:26411/ppt --presentation "C:\덱\a.pptx"   # 그 덱 하나에만 붙는다(진단용)
 dotnet run -- --fake                                   # 어디서나: 메모리 덱으로 규약만 돈다
 cd ../tests && dotnet test                             # 규약 시험 21
 ```

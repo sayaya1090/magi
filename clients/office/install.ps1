@@ -3,7 +3,7 @@
   magi Office 플러그인(파워포인트·엑셀·워드)을 이 계정에 설치한다 — 빌드, 인증서, 애드인 등록, 헬퍼 기동까지 한 번에.
 
 .DESCRIPTION
-  헬퍼는 하나다: magi.exe 의 `magi office` 가 포트 3000 에서 /ppt·/xl·/word 세 판을 내준다(clients/office/helper).
+  헬퍼는 하나다: magi.exe 의 `magi office` 가 포트 26411 에서 /ppt·/xl·/word 세 판을 내준다(clients/office/helper).
   그래서 인증서(office-helper-cert.pem)·자동 시작·신뢰 카탈로그 키가 전부 하나다. 이 파일을 돌리면:
     1. Office 판을 읽어(Microsoft 365 인가 볼륨 판/LTSC 인가) 등록 길을 고른다. 그리고 **사람이 먼저 해야 하는 것**이 있으면
        하라고 말하고 멈춰서 기다린다 — 볼륨 판이면 카탈로그 폴더의 진짜 공유(New-SmbShare, 관리자 한 번), -FromSource 면 Go 와 .NET 9 SDK.
@@ -106,7 +106,7 @@ $startClsid = '{38162D7F-4C03-4B36-9F55-15D83EEA5EF3}'
 $startProgId = 'Magi.Office.Start'
 $configDir = if ($env:MAGI_CONFIG_DIR) { $env:MAGI_CONFIG_DIR } else { Join-Path $env:APPDATA 'magi' }
 $socketDir = if ($env:MAGI_SOCKET_DIR) { $env:MAGI_SOCKET_DIR } else { Join-Path $env:USERPROFILE '.magi' }
-$port = 3000
+$port = 26411
 $helperUrl = "https://127.0.0.1:$port"
 $helperName = 'magi'   # 헬퍼도 magi.exe 다 — `magi office`
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

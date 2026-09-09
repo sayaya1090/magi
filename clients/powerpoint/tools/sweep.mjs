@@ -1,6 +1,6 @@
 // 48개 도구 전수 스윕 — sweep.py 와 같은 일을 **Node 로** 한다(python3 이 없는 Windows 판을 위해; 2021 실물이 그랬다).
 //
-//   node clients/powerpoint/tools/sweep.mjs [--deck <pid-…>] [--image <png>] [--origin https://127.0.0.1:3000/ppt]
+//   node clients/powerpoint/tools/sweep.mjs [--deck <pid-…>] [--image <png>] [--origin https://127.0.0.1:26411/ppt]
 //   (--origin 은 앱의 뿌리 — /ppt 까지. sweep.py 의 --origin 은 헬퍼 뿌리라 뜻이 다르다.)
 //
 // 헬퍼에 붙은 첫 덱(또는 --deck)에 읽기·쓰기를 전부 실제로 부른다. 장 3~4개를 만들고 끝에 지운다 — 1장만 남는다.
@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const here = dirname(fileURLToPath(import.meta.url));
-const opt = { deck: '', image: '', origin: 'https://127.0.0.1:3000/ppt' };
+const opt = { deck: '', image: '', origin: 'https://127.0.0.1:26411/ppt' };
 for (let i = 2; i < process.argv.length; i += 2) { const k = process.argv[i].replace(/^--/, ''); if (k in opt) opt[k] = process.argv[i + 1] ?? ''; }
 const page = await (await fetch(opt.origin + '/taskpane.html')).text();
 const m = page.match(/token[^a-zA-Z0-9]{1,6}([A-Za-z0-9_-]{16,})/);

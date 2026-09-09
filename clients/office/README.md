@@ -60,7 +60,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 go build -o magi ./cmd/magi
 ./magi office -cert-hint         # <config>/office-helper-cert.pem 을 신뢰 저장소에 — 한 번
-./magi office                    # 127.0.0.1:3000 — /ppt·/xl·/word 세 판
+./magi office                    # 127.0.0.1:26411 — /ppt·/xl·/word 세 판
 ./magi office -allow-rules=xl    # 그 프로그램의 읽기 도구 허용 규칙(config.toml 에 붙여 넣는다)
 ```
 
