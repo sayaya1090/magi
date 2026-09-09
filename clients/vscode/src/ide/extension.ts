@@ -73,6 +73,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   // keyboard out of the editor they were typing in.
   // The plan comes off the conversation stream, and Chat is what holds it.
   chat.onPlan = (list) => plan.showPlan(list);
+  chat.onUsage = (line) => plan.showUsage(line);
 
   void openIfAsked(companion, chat);
 

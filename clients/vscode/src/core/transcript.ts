@@ -135,6 +135,23 @@ export function rows(events: Event[]): Row[] {
         if (text) out.push({ seq: e.seq, who: 'council', text, member });
         break;
       }
+      /**
+       * The conversation was folded here.
+       *
+       * ⚠ Without this row the transcript just STOPS earlier than a person remembers, with nothing
+       * saying why. The fold replaces everything up to a point with a summary, and a reader scrolling
+       * back finds a gap and no explanation of it.
+       *
+       * The size is stated the way the core states it, `SizeNote`'s own form — including the case
+       * that reads backwards: a summary can come out LARGER than what it replaced, and saying
+       * "−0, −0%" there would hide the one outcome worth noticing.
+       */
+      case 'compaction': {
+        const before = Number(d.tokensBefore ?? 0);
+        const after = Number(d.tokensAfter ?? 0);
+        out.push({ seq: e.seq, who: 'system', text: `↯ folded the conversation: ~${before}→${after} tok (${sizeNote(before, after)})` });
+        break;
+      }
       case 'turn.finished':
         // Not a row. It ends the turn, and the screen reads that from the LAST row's pending mark.
         for (const r of out) r.pending = false;
@@ -218,4 +235,18 @@ export function planLines(list: Todo[]): string {
   const mark = (s: string): string =>
     s === 'completed' ? '✓' : s === 'in_progress' ? '◐' : '☐';
   return list.map((t) => `${mark(t.status)} ${t.content}`).join('\n');
+}
+
+/**
+ * How much a fold shed, in the core's own words (`CompactionData.SizeNote`).
+ *
+ * The larger-than-before case is stated rather than clamped: a summary that came out bigger than
+ * what it replaced is the one outcome a person should see, and rendering it as "−0, −0%" would hide
+ * it. The percent rounds to nearest the way the core rounds it.
+ */
+export function sizeNote(before: number, after: number): string {
+  if (after > before) return `+${after - before}, the summary is LARGER than what it replaced`;
+  const freed = Math.max(0, before - after);
+  const pct = before > 0 ? Math.round((freed * 100) / before) : 0;
+  return `−${freed}, −${pct}%`;
 }

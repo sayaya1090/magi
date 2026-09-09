@@ -57,7 +57,10 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
       // and reading `out` drew three empty sections on every build, without failing: an absent field
       // is an empty string, and an empty string is what "nothing to report" looks like.
       jobs: jobs === null ? null : jobLines(jobs),
-      context: ctx === null ? null : contextOf(ctx),
+      // The door first, because it says more (what is filling the window, not just how much). The
+      // stream is the fallback, and it is the only source on a daemon without that capability —
+      // measured on one that has nine and not this.
+      context: ctx === null ? (this.usage || null) : (contextOf(ctx) || this.usage),
       fleet: fleet === null ? null : fleetOf(fleet).join('\n'),
       cron: cron === null ? null : schedules(cron).map((r) => r.line).join('\n'),
       handed: this.handed,
@@ -67,6 +70,14 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private handed = '';
   private plan = '';
+  private usage = '';
+
+  /** How full the window is, from the stream. Transient, so a reattached window has none until a turn runs. */
+  showUsage(line: string): void {
+    if (line === this.usage) return;
+    this.usage = line;
+    void this.refresh();
+  }
 
   /**
    * The agent's plan, from the conversation stream.

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { rows } from '../core/transcript';
+import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
 
 let seq = 0;
@@ -82,4 +83,63 @@ test('the pending bar comes down when the first chunk lands', () => {
 test('empty and unknown chunks make no row', () => {
   assert.deepEqual(rows([delta('m1', 'text', '')]), []);
   assert.deepEqual(rows([delta('m1', 'tool-call', 'x')]), []);
+});
+
+const usageEv = (tokens: number, window: number, percent?: number): Event =>
+  ({ seq: seq++, type: 'context.usage', data: { tokens, window, percent } });
+const folded = (before: number, after: number): Event =>
+  ({ seq: seq++, type: 'compaction', data: { tokensBefore: before, tokensAfter: after, summary: 's' } });
+
+/**
+ * ★ A fold leaves a gap, and the gap needs a reason.
+ *
+ * Without this row the transcript simply stops earlier than a person remembers: the fold replaces
+ * everything up to a point with a summary, and scrolling back finds nothing that explains it.
+ */
+test('a fold says so where it happened', () => {
+  const got = rows([folded(40000, 12000)]);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].who, 'system');
+  assert.match(got[0].text, /40000→12000/);
+  assert.match(got[0].text, /−28000, −70%/);
+});
+
+/**
+ * ⚠ A summary can come out LARGER than what it replaced, and that is the one outcome worth seeing.
+ * Rendering it as "−0, −0%" — which clamping would — hides it.
+ */
+test('a fold that made things bigger says that', () => {
+  assert.match(rows([folded(1000, 1500)])[0].text, /\+500, the summary is LARGER/);
+});
+
+test('a fold of nothing does not divide by zero', () => {
+  assert.match(rows([folded(0, 0)])[0].text, /−0, −0%/);
+});
+
+/**
+ * ★ The window meter comes off the STREAM, because the door for it is a capability a daemon may not
+ * have — measured on a live one advertising nine capabilities and not that one.
+ */
+test('how full the window is comes off the stream', () => {
+  assert.match(usage([usageEv(35103, 200000)]), /35103 \/ 200000 \(18%\)/);
+});
+
+/** The core's own percent wins when it sends one — it knows what it counted. */
+test('the percent the core sent is the percent shown', () => {
+  assert.match(usage([usageEv(1, 200000, 42)]), /\(42%\)/);
+});
+
+/** The LAST reading wins: this is a meter, not a log. */
+test('a later reading replaces an earlier one', () => {
+  assert.match(usage([usageEv(10, 100), usageEv(80, 100)]), /80 \/ 100 \(80%\)/);
+});
+
+/**
+ * ⚠ It is transient, so a reattached window has none until a turn runs — and that unknown must not
+ * draw as 0%. An empty window and an unmeasured one look nothing alike to somebody deciding whether
+ * to fold.
+ */
+test('no reading says nothing rather than zero percent', () => {
+  assert.equal(usage([]), '');
+  assert.equal(usage([{ seq: 1, type: 'context.usage', data: { tokens: 5 } }]), '');
 });

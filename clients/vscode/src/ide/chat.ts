@@ -3,6 +3,7 @@ import { Daemon } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
+import { usage } from '../core/panel';
 import { Ref, refText } from '../core/refs';
 import { Edits } from './edits';
 import { Companion } from './workspace';
@@ -93,6 +94,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // The plan rides this same stream. A second connection for it would be a second reader of one
     // fact, and the panel would disagree with the conversation for as long as they were out of step.
     this.onPlan?.(todos(this.events));
+    // The context meter rides the same stream. The door for it is a capability a daemon may not
+    // have, and this number arrives every turn regardless.
+    this.onUsage?.(usage(this.events));
   }
 
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
@@ -107,6 +111,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   /** Told the plan whenever the stream moves. Set by the extension, which owns both views. */
   onPlan: ((list: { content: string; status: string }[]) => void) | null = null;
+  /** Told how full the window is, from the stream rather than the door. */
+  onUsage: ((line: string) => void) | null = null;
 
   /** Which conversation this panel is on, for the doors that act on one. */
   get session(): string { return this.sid; }

@@ -1,5 +1,6 @@
 import { Response } from './protocol';
 import { peerLabel } from './handoff';
+import { Event } from './protocol';
 
 /**
  * The panel's facts, read from the fields the daemon actually fills.
@@ -108,4 +109,31 @@ export function context(resp: Response | null): string {
     c.compactions ? `folded ${c.compactions}×` : '',
     parts,
   ].filter(Boolean).join('\n');
+}
+
+/**
+ * How full the window is, read off the STREAM instead of the door.
+ *
+ * The `context` door is a capability a daemon may not have — measured on a live one that advertises
+ * nine capabilities and not that one, so the panel's context section read "this companion does not
+ * answer that" while every turn was broadcasting the number anyway. `context.usage` is on the bus,
+ * and a client already streaming the transcript has it for nothing.
+ *
+ * ⚠ **It is TRANSIENT, so it is not replayed.** A window that reattaches does not know until the next
+ * turn runs — and that unknown must not be drawn as 0%: an empty window and an unmeasured one look
+ * nothing alike to a person deciding whether to fold. Empty means "nothing to say", not "0%".
+ */
+export function usage(events: Event[]): string {
+  type Usage = { tokens?: number; window?: number; percent?: number; outTokens?: number };
+  let last: Usage | null = null;
+  for (const e of events) {
+    if (e.type !== 'context.usage') continue;
+    last = (e.data ?? {}) as Usage;
+  }
+  if (!last?.window) return '';
+  const pct = last.percent !== undefined
+    ? Math.round(last.percent)
+    : Math.round(((last.tokens ?? 0) / last.window) * 100);
+  return [`${last.tokens ?? 0} / ${last.window} (${pct}%)`,
+    last.outTokens ? `out ${last.outTokens}` : ''].filter(Boolean).join(' · ');
 }
