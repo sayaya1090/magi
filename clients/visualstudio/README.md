@@ -5,14 +5,14 @@
 Visual Studio에서 연 솔루션의 magi 데몬과 통신하여 대화창 및 IDE 제어 기능을 제공하는 공식 확장입니다.
 새 프로토콜을 만들지 않고 본체 데몬의 소켓 계약([`docs/CLIENTS`](../../docs/CLIENTS.ko.md))을 준수하며, C# 구현 중복을 최소화하기 위해 공통 로직을 처리하는 `magi ide-bridge` 프로세스를 중계자로 사용합니다.
 
-> **현재 상태**: 띄웠다. 패널이 그려지고, 컴패니언에게 말을 걸고, 무엇을 하는 중인지 그립니다.
+> **현재 상태**: 구현 및 실물 기동 완료. 대화 패널 렌더링, 컴패니언 연동, 상태 표시가 정상 동작합니다.
 >
-> `src/Magi.Core`는 브리지와 말하고 IDE를 모르며, 그 위의 `src/Magi.Extension`이 대화 툴 윈도를 냅니다 (`dotnet test`로 36개 단위 테스트 통과, `dotnet build`로 VSIX 패키징 완료).
+> `src/Magi.Core`는 브리지와 통신하며 IDE 종속성이 전혀 없는 순수 .NET 라이브러리이고, 그 상위의 `src/Magi.Extension`이 대화 툴 윈도를 제공합니다 (`dotnet test` 기준 36개 단위 테스트 전원 통과, `dotnet build` 기준 VSIX 패키징 완료).
 >
-> ✅ **2026-09-10, 실험 인스턴스에 얹었다**(VS Community 2022 **17.14.40**). 오른쪽에 붙은 판이 컴패니언의 상태를 한 단어로 그리고, 없으면 띄우겠다고 묻습니다. 짐작으로 남겨 두었던 넷 중 셋(리소스 VSIXSubPath 누락, XAML 기본 xmlns, Remote UI `[DataMember]` 누락)이 빌드 경고 없이 조용히 틀려 있던 것을 실측하고 해결했습니다 ([설계 §10](docs/DESIGN.ko.md)).
+> ✅ **2026-09-10, 실험 인스턴스 기동 검증 완료**(VS Community 2022 **17.14.40**). 우측 도킹 패널에서 컴패니언의 상태를 단일 단어로 표시하며, 미실행 상태일 때는 기동 여부를 묻는 버튼을 표시합니다. 사전 짐작으로 남겨 두었던 4개 항목 중 3건(리소스 VSIXSubPath 누락, XAML 기본 xmlns 네임스페이스 오류, Remote UI `[DataMember]` 누락)이 빌드 경고 없이 런타임 결함을 유발하던 것을 실측을 통해 규명하고 해결했습니다 ([설계 §10](docs/DESIGN.ko.md)).
 >
-> **다음은 전사다.** 판은 아직 마지막 답 한 통만 보여 줍니다 — 전사는 스트림이고 브리지의 전달 문은 한 요청에 한 답이라, `watch`가 생기기 전까지 건널 것이 없습니다 ([IDE_BRIDGE §5](../../docs/IDE_BRIDGE.ko.md)).
-> ※ Visual Studio 확장은 Windows 환경에서만 빌드됩니다 (Mac용 Visual Studio는 2024년 단종).
+> **향후 과제: 대화 전사(Transcript) 스트리밍 연동.** 현재 패널은 마지막 단일 응답만 표시합니다. 대화 전사는 지속적인 이벤트 스트림이며 현재 브리지의 전달 문(`daemon`)은 1회성 단일 요청/단일 응답 방식이므로, 향후 `watch` 스트림 메서드가 도입된 후 전사 표시를 연동할 예정입니다 ([IDE_BRIDGE §5](../../docs/IDE_BRIDGE.ko.md)).
+> ※ Visual Studio 확장은 Windows 환경에서만 빌드됩니다 (Mac용 Visual Studio는 2024년 공식 단종되었습니다).
 
 ---
 
@@ -89,7 +89,7 @@ VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하�
 
 ## 5. 주요 기술 문서
 
-- [설계 문서 (`docs/DESIGN.ko.md`)](../../docs/DESIGN.ko.md): 프로세스 외(Out-of-Process) 확장 모델 선정 배경 및 브리지 계약, §10 띄워 보고 나서 남은 것.
+- [설계 문서 (`docs/DESIGN.ko.md`)](docs/DESIGN.ko.md): 프로세스 외(Out-of-Process) 확장 모델 선정 배경 및 브리지 계약, §10 띄워 보고 나서 남은 것.
 - [플랫폼 규약 (`docs/PLATFORM.ko.md`)](docs/PLATFORM.ko.md): Remote UI 요구사항, 선언형 설정 구성 및 VS Code/JetBrains 대비 플랫폼 특성 비교.
 - [편집기 제안서 (`docs/proposals/EDITORS.ko.md`)](../../docs/proposals/EDITORS.ko.md): 3대 IDE 클라이언트 개발 타당성 및 브리지 추출 전략.
 - [IDE 브리지 사양 (`docs/IDE_BRIDGE.ko.md`)](../../docs/IDE_BRIDGE.ko.md): 공통 브리지 프로세스 프로토콜 규격.

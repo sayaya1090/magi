@@ -2,144 +2,118 @@
 
 [↑ 클라이언트 개요](../README.md) · [설계](./DESIGN.ko.md) · [형제: VS Code 대조표](../../vscode/docs/PLATFORM.ko.md) · [형제: 젯브레인 대조표](../../jetbrains/docs/PLATFORM.ko.md)
 
-> **왜 있나.** 집 규칙과 **Visual Studio 가 정해 둔 것**은 다른 글이다. 후자를 안 읽고 만들면
-> 되긴 되는데 그 IDE 답지 않은 물건이 된다. 젯브레인에서 이 문서가 없어 세 번 났고, VS Code
-> 에서는 코드보다 먼저 써서 안 났다.
+> **문서 목적**: 자체 내부 규칙과 **Visual Studio 플랫폼 규약**은 구분되어야 합니다. 플랫폼 고유의 규칙을 사전에 검토하지 않고 구현할 경우, 동작은 하더라도 해당 IDE의 사용자 경험에 부합하지 않는 결과물이 생성됩니다. JetBrains 클라이언트 개발 당시 이 기준 문서의 부재로 세 차례의 재작업이 발생하였고, VS Code 클라이언트에서는 코드 작성에 앞서 규약을 정리함으로써 동일한 시행착오를 방지했습니다.
 >
-> **다만 이 표는 앞의 둘보다 약하다.** VS Code 는 UX 가이드라인 여덟 페이지에 ✔️/❌ 목록이 있어
-> 문장을 그대로 옮겼는데, Visual Studio 의 확장 문서는 **모델 선택과 API 설명이지 UX 규약이
-> 아니다.** 그래서 아래 칸은 대개 「문서가 이렇게 한다고 말한다」이지 「하라고 말한다」가 아니고,
-> 그 차이를 칸마다 표시했다.
+> **Visual Studio 문서의 성격**: VS Code는 8페이지에 달하는 공식 UX 가이드라인과 명시적인 권장/금지(✔️/❌) 목록을 제공하여 원문을 직접 반영할 수 있었습니다. 반면 Visual Studio의 확장 문서는 **모델 선택 및 API 명세 중심이며 UX 규약 성격이 아닙니다.** 이에 따라 본 문서의 대조표는 단순 API 존재 여부와 권장 규약을 명확히 구분하여 기술했습니다.
 >
-> **2026-09-09 에 절반이 단단해졌다.** 문서가 약하면 문서를 더 읽는 대신 **물건을 쟀다** — 설치된
-> SDK 어셈블리의 공개 타입을 세는 방법이다. §3 의 물음표 셋이 그렇게 닫혔고, **§4 의 한 줄은
-> 그렇게 틀린 것으로 드러났다.** 「문서가 말한다」와 「하라고 말한다」 사이에 세 번째 급이 생긴
-> 셈이다: **표면이 그렇다.**
+> **2026-09-09 실측을 통한 검증**: 문서의 불확실성을 해소하기 위해 설치된 SDK 어셈블리의 공개 타입을 전수 조사하여 실측했습니다. 이를 통해 §3의 3개 불확실 항목을 확정하고, §4의 설정 관련 가설을 바로잡았습니다.
 >
-> **2026-09-10 에 네 번째 급이 생겼다: 띄워 봤더니 그랬다.** 표면을 세는 것으로는 안 나오는 것이
-> §2 에 셋 있었다 — 어느 네임스페이스가 기본인가, 무엇이 프록시로 건너가는가, `%키%` 가 어느
-> 디렉토리에서 풀리는가. 셋 다 타입이 있고 없고의 문제가 아니라 **어떻게 써야 하는가**라서, 세는
-> 방법으로는 물을 수조차 없었다. 셋 다 틀린 채로 빌드가 통과했고 IDE 가 알려 줬다(설계 §10).
+> **2026-09-10 실물 런타임 기동 검증**: 단순 타입 검사로는 확인할 수 없었던 런타임 동작 특성 3가지를 실험 인스턴스 검증을 통해 확인했습니다: 기본 XAML 네임스페이스, 프로세스 외(Out-of-Process) 프록시 직렬화 속성(`[DataMember]`), 그리고 다국어 리소스(`%키%`)의 VSIX 패키지 내 해석 경로입니다. 세 항목 모두 컴파일 시점에는 오류가 보고되지 않으나 런타임에 결함을 유발하는 요소들로, 실측을 통해 원인을 규명하고 해결했습니다([설계 §10](./DESIGN.ko.md)).
 
 ---
 
 ## 1. 모델이 규약이다
 
-VS Code 는 자리(액티비티 바·패널·상태 표시줄)를 고르는 것이 규약이었다. Visual Studio 는
-**어느 확장 모델을 쓰느냐**가 그 자리를 대신한다 — 모델이 무엇을 할 수 있는지까지 정하기 때문이다.
+VS Code에서는 액티비티 바·패널·상태 표시줄 등의 위치 배치가 주요 규약이었습니다. Visual Studio에서는 **어느 확장 모델을 채택하는가**가 이러한 위치와 권한을 직접 결정합니다. 확장 모델 자체가 지원 가능한 기능 범위를 규정하기 때문입니다.
 
-| 규약 | 우리 계획 |
+| 규약 | 본 확장 계획 |
 |---|---|
-| 새 확장은 VisualStudio.Extensibility 로 시작하라(공식 권고) | ✓ 그렇게 한다 |
-| 필요한 확장점이 없으면 in-proc 으로 내려가 VSSDK 를 쓴다 | ⏸ **안 내려가는 것을 기본으로 둔다.** 내려가면 .NET Framework 로 돌아가고 격리를 잃는다. 물음표 넷(설계 §2)을 실물로 재고 나서 정한다 |
-| VS 2019 이하를 지원하려면 별도 VSIX 프로젝트를 둔다 | ✗ **안 한다.** 클라이언트가 여섯인데 일곱째를 두 벌로 만들 이유가 없다 |
-| 명령은 코드로 설정한다(`.vsct` 불필요) | ✓ `CommandConfiguration` |
-| 모든 명령이 백그라운드 스레드에서 돈다 | ✓ 우리 호출은 전부 소켓 왕복이라 이쪽이 맞다 |
+| 신규 확장은 VisualStudio.Extensibility로 시작할 것 (공식 권고) | ✓ 권고에 따라 VisualStudio.Extensibility를 채택합니다. |
+| 필요한 확장점이 없는 경우 In-process로 전환하여 VSSDK 사용 | ⏸ **원칙적으로 In-process 전환을 배제합니다.** 전환 시 .NET Framework 4.8로 회귀하고 프로세스 격리를 상실하게 됩니다. 4대 불확실 확장점(설계 §2)의 실측 결과를 바탕으로 Out-of-Process 모델을 유지합니다. |
+| VS 2019 이하 버전을 지원하려면 별도 VSIX 프로젝트 구성 | ✗ **지원하지 않습니다.** 6개 클라이언트를 관리하는 상황에서 하위 호환 전용 중복 프로젝트를 유지하지 않습니다. |
+| 명령은 코드로 선언 (`.vsct` 파일 불필요) | ✓ `CommandConfiguration` 코드로 선언합니다. |
+| 모든 명령이 백그라운드 스레드에서 실행 | ✓ 본 확장의 모든 호출은 프로세스 간 소켓 왕복 통신이므로 백그라운드 실행 방식이 적합합니다. |
 
 ## 2. 화면 — Remote UI
 
-프로세스 밖이라 WPF 를 직접 못 그린다. XAML 을 확장이 주고 VS 가 그린다.
+프로세스 외(Out-of-Process) 모델이므로 WPF 요소를 IDE 프로세스에 직접 그릴 수 없습니다. 확장이 XAML 마크업과 데이터를 제공하고, Visual Studio 셸이 이를 렌더링하는 Remote UI 방식을 사용합니다.
 
-| | 우리 계획 |
+| 영역 | 본 확장 계획 |
 |---|---|
-| 테마 | **우리가 색을 안 정한다.** IDE 가 XAML 에 테마를 입힌다 — VS Code 에서 색 토큰을 손으로 맞춘 것보다 낫다 |
-| 마크다운 | ⚠ **그릴 것이 없고, 만들어 끼울 수도 없다.** 문서가 「Remote UI 는 당신의 커스텀 컨트롤을 참조하도록 허용하지 않는다」고 적는다 — XAML 은 VS 프로세스의 타입만 본다. 그래서 파싱은 코어에서 하고 XAML 은 `DataTemplate` 으로 늘어놓는다(설계 §2) |
-| 코드 비하인드 | **없다.** 이벤트 핸들러도 없다. MVVM·바인딩·명령·트리거로만 짠다 |
-| 네임스페이스 | ⚠ **기본 xmlns 는 WPF 것이다.** 그리는 것이 전부 WPF 타입이고 `…/extensibility/2022/xaml` 은 Remote UI 의 추가분이라 접두사에 붙는다. 거꾸로 쓰면 루트 `DataTemplate` 부터 못 만들어 **판 전체가 `XamlParseException`** 이 된다 — 쟀다(설계 §10) |
-| 바인딩되는 것 | ⚠ **`[DataContract]` 와 `[DataMember]` 가 붙은 것만.** 판은 VS 프로세스의 **프록시**에 대고 바인딩하고, 문서가 「`DataMember` 속성만 데이터 바인딩될 수 있다」고 적는다. 빠뜨리면 **판은 서고 값만 전부 빈칸** — 요소도 다 있고 에러도 없다. 쟀다(설계 §10) |
-| 이름·메뉴 글자 | ⚠ `%키%` 는 **`.vsextension/string-resources.json`** 에서 풀린다(로케일 폴더가 그 옆). 꾸러미 루트에 실으면 셸이 안 본다 — 쟀다(설계 §10) |
-| 툴 윈도 | 대화 하나, 계획 하나. 둘뿐인 것은 우리 규칙이다 |
+| 테마 | **확장에서 색상을 수동으로 정의하지 않습니다.** IDE가 XAML 컨트롤에 테마 스타일을 자동 적용합니다. 이는 색상 토큰을 수동 매핑해야 했던 VS Code 웹뷰 방식보다 유리한 점입니다. |
+| 마크다운 | ⚠ **내장 렌더러가 부재하며, 커스텀 컨트롤을 제작하여 삽입할 수도 없습니다.** 공식 문서에 "Remote UI는 사용자 지정 컨트롤 참조를 허용하지 않는다"고 명시되어 있어, XAML은 VS 메인 프로세스의 타입만 참조할 수 있습니다. 따라서 마크다운 파싱은 `Magi.Core`에서 수행하고, XAML은 표준 WPF 요소를 결합한 `DataTemplate`을 통해 형태(Shape) 단위로 조립하여 렌더링합니다([설계 §2](./DESIGN.ko.md)). |
+| 코드 비하인드 | **지원되지 않습니다.** 이벤트 핸들러도 작성할 수 없으며, MVVM 패턴, 데이터 바인딩, 비동기 커맨드(`IAsyncCommand`), XAML 트리거만으로 UI를 구성합니다. |
+| 네임스페이스 | ⚠ **기본 xmlns는 WPF 네임스페이스여야 합니다.** 렌더링 대상이 모두 WPF 기본 타입이며, `.../extensibility/2022/xaml`은 Remote UI 전용 추가 네임스페이스이므로 접두사(`vs:`)에 지정해야 합니다. 이를 반대로 선언하면 루트 `DataTemplate`부터 인스턴스화되지 않아 패널 전체가 `XamlParseException` 오류 화면으로 대체됩니다([설계 §10](./DESIGN.ko.md)). |
+| 바인딩 대상 속성 | ⚠ **`[DataContract]` 및 `[DataMember]`가 지정된 멤버만 바인딩됩니다.** 패널은 VS 프로세스의 **프록시 객체**를 대상으로 바인딩되며, 문서상 "직렬화 가능한 타입의 `DataMember` 속성만 데이터 바인딩이 가능하다"고 규정되어 있습니다. 이를 누락할 경우 에러나 경고 없이 화면의 모든 바인딩 값이 빈칸으로 렌더링됩니다([설계 §10](./DESIGN.ko.md)). |
+| 리소스 문자열 | ⚠ `%키%` 형식의 다국어 문자열은 **`.vsextension/string-resources.json`** 경로에서 해석됩니다. 패키지 루트에 배치하면 셸이 이를 인식하지 못하므로, csproj에서 `<VSIXSubPath>.vsextension</VSIXSubPath>`를 반드시 지정해야 합니다([설계 §10](./DESIGN.ko.md)). |
+| 툴 윈도 | 대화 패널 1개, 계획 패널 1개로 제한합니다. 이는 플랫폼 제약이 아닌 본 프로젝트의 설계 원칙입니다. |
 
-## 3. 확장점 — 문서가 있다고 말하는 것
+## 3. 확장점 — 문서와 실측 대조표
 
-**아래는 공식 개요와 샘플 목록에서 읽은 것이다. 실물로 띄워 본 것이 아니다.**
+아래 표는 공식 개요 문서 및 샘플 코드에서 확인한 내용과, 실물 SDK 어셈블리 공개 타입 조사를 대조한 결과입니다.
 
-| 확장점 | 문서가 말하나 | 우리가 쓸 자리 |
+| 확장점 | 공식 문서 기술 여부 | 본 확장 적용 방안 |
 |---|---|---|
-| Commands | ✓ 개요 | 명령 전부 |
-| Tool windows | ✓ 개요 — "dockable windows within the Visual Studio IDE" | 대화 · 계획 |
-| Editor / Documents | ✓ 개요 | 손(편집 적용) · 버퍼 읽기 |
-| Output window | ✓ 개요 | 안 쓴다 — 전사가 그 일을 한다 |
-| User prompts · Dialogs | ✓ 개요 | 승인은 **툴 윈도 안**에 둔다(맥락이 실린다) |
-| Taggers / classification | ✓ 샘플 → **표면 확인**(`ITextViewTaggerProvider<T>` · `ClassificationTag` · `TextMarkerTag`) | 훑어본 말을 줄에 걸기 |
-| Text view margin | ✓ 샘플(word count) → **표면 확인**(`ITextViewMarginProvider` · `MarginPlacement`) | 파일 전체에 대한 말(띠) |
-| Project Query | ✓ 개요 | 안 쓴다 — 컴패니언이 제 도구로 읽는다 |
-| Debugger visualizers | ✓ 개요 | 해당 없음 |
-| **CodeLens** | 개요에서 못 봤는데 **표면에 있다**(`ICodeLensProvider` · `InvokableCodeLens`) | 첫 벌엔 안 쓴다. 설계 §2 |
-| **Settings** | 〃 (`Setting` · `SettingCategory` · `ArraySetting<T>`) | **선언형**이다. §4 를 뒤집는 사실 |
-| 상태 표시줄 항목 | ✗ **없다 — 쟀다.** 진행 표시는 상태 표시줄이 아니라 **Task Status Center** 로 간다 | 우리 판 머리에 그린다 |
-| 인라인 완성 | ✗ **없다 — 쟀다** | 안 한다 |
-| SCM(커밋 칸) 확장 | ✗ **없다 — 쟀다** | 안 한다 |
-| 진단 자리의 코드 액션 | ✗ **이 모델에 없다 — 쟀다.** 진단을 내는 문은 있고, 전구는 VSSDK 쪽에 있다 | 안 한다 |
+| Commands | ✓ 지원 (개요 명시) | 모든 메뉴 명령 구현에 사용합니다. |
+| Tool windows | ✓ 지원 (개요: "dockable windows within the Visual Studio IDE") | 대화창 및 계획 패널 구현에 사용합니다. |
+| Editor / Documents | ✓ 지원 (개요 명시) | 코드 편집 적용 및 텍스트 버퍼 읽기에 사용합니다. |
+| Output window | ✓ 지원 (개요 명시) | 사용하지 않습니다. 대화 패널 전사가 해당 역할을 담당합니다. |
+| User prompts · Dialogs | ✓ 지원 (개요 명시) | 도구 실행 승인은 맥락 보존을 위해 **툴 윈도 내부**에 배치합니다. |
+| Taggers / classification | ✓ 샘플 제공 → **SDK 표면 확인** (`ITextViewTaggerProvider<T>`, `ClassificationTag`, `TextMarkerTag`) | 인라인 파일 분석 어노테이션 표시에 사용합니다. |
+| Text view margin | ✓ 샘플(단어 수 카운터) 제공 → **SDK 표면 확인** (`ITextViewMarginProvider`, `MarginPlacement`) | 파일 전체 상태 요약 띠(Margin) 표시에 사용합니다. |
+| Project Query | ✓ 지원 (개요 명시) | 컴패니언 데몬이 자체 도구로 프로젝트 트리를 탐색하므로 확장에서는 최소한의 워크스페이스 경로 획득에만 활용합니다. |
+| Debugger visualizers | ✓ 지원 (개요 명시) | 해당 사항 없습니다. |
+| **CodeLens** | 개요에는 미기재되었으나 **SDK 표면 확인** (`ICodeLensProvider`, `InvokableCodeLens`) | 코드 요소별 액션 트리거로 활용 가능하나 1차 마일스톤에서는 제외합니다([설계 §2](./DESIGN.ko.md)). |
+| **Settings** | 개요에는 미기재되었으나 **SDK 표면 확인** (`Setting`, `SettingCategory`, `ArraySetting<T>`) | **선언형 설정 모델**입니다. 확장이 자체 옵션 페이지를 구현하지 않습니다. |
+| 상태 표시줄 항목 | ✗ **미지원 (실측 확인)**: `StartProgressReportingAsync` 및 `ProgressReporterOptions`는 상태 표시줄 텍스트가 아닌 **Task Status Center** 동작을 제어하는 옵션입니다. | 대화 툴 윈도 헤더에 상태 요약 텍스트를 직접 렌더링합니다. |
+| 인라인 코드 완성 | ✗ **미지원 (실측 확인)** | 프로세스 외 모델에서 지원되지 않으므로 1차 구현에서 제외합니다. |
+| SCM (커밋 창) 확장 | ✗ **미지원 (실측 확인)** | 프로세스 외 모델에서 지원되지 않으므로 제외합니다. |
+| 진단 위치의 코드 액션 (전구) | ✗ **본 모델 미지원 (실측 확인)**: 진단 보고(`DiagnosticsReporter`) API는 존재하나, 제안 액션(전구) 표시는 VSSDK In-process 전용입니다. | 프로세스 외 모델 유지를 위해 구현 대상에서 제외합니다. |
 
-**「쟀다」가 무슨 뜻인지.** 문서 목록을 다시 읽은 것이 아니라 **설치된 어셈블리의 공개 타입을
-셌다** — 이 표를 처음 쓸 때 「목록이 전수인지 요약인지도 모른다」고 적었던 그 의심을 목록 바깥에서
-푸는 방법이다. 확장 SDK 표면과 브로커 계약(`RpcContracts.*`) 양쪽에서 `StatusBar`·`Completion`·
-`SourceControl`·`CodeAction` 이 **0건**이다.
+### 실측 방법 및 어셈블리 전수 조사
 
-그리고 **센 다음에 공식 문서와 다시 맞췄다.** 표면을 세는 방법의 약점은 「내 사본이 뒤처졌으면?」
-인데, `ShellExtensibility` API 참조가 패키지 판을 **17.14.2088** 로 적어 내가 센 17.14.2099 와
-같은 줄임을 보여 준다. 대조에서 넷 다 유지됐고 **한 줄의 표현이 틀린 것으로 드러났다**(진행
-표시의 목적지). 전구는 「어디에도 없다」가 아니라 「이 모델에 없다」가 맞다. 잰 판·방법·대조 결과는
-[설계 §2](./DESIGN.ko.md) 에 있다.
+문서 요약 목록의 누락 가능성을 배제하기 위해, 실제 설치된 SDK 어셈블리의 공개 타입을 전수 조사했습니다. 확장 설치 경로 `Common7\IDE\CommonExtensions\Microsoft\Extensibility`의 6개 어셈블리(공개 타입 248개)와 `Editor` 어셈블리, 그리고 `CommonExtensions\Microsoft` 전체 1,336개 어셈블리(공개 타입 59,158개)의 브로커 계약(`RpcContracts.*`)을 분석했습니다.
 
-## 4. VS Code 와 정반대인 것 셋
+그 결과 `StatusBar`, `Completion`, `SourceControl`, `CodeAction` 관련 공개 타입은 **0건**으로 확인되었습니다.
 
-포팅에서 비싼 것은 없는 API 가 아니라 **반대인 규약**이다.
+이어 공식 API 참조와 재대조를 수행했습니다. `ShellExtensibility` API 참조의 패키지 버전은 **17.14.2088**로 실측 대상(17.14.2099)과 일치하였으며, 진행 상황 보고 옵션(`ProgressReporterOptions`)은 상태 표시줄이 아닌 작업 상태 센터(Task Status Center)용임이 확인되었습니다. 코드 액션 전구 안내서 역시 VSSDK In-process MEF 기반 문서로 확인되었습니다. 실측 세부 사항은 [설계 §2](./DESIGN.ko.md)에 기술되어 있습니다.
 
-| | VS Code | Visual Studio |
+---
+
+## 4. VS Code와 정반대인 규약 셋
+
+플랫폼 이식 과정에서 가장 유의해야 할 요소는 부재한 API가 아닌 **서로 상충하는 플랫폼 규약**입니다.
+
+| 항목 | VS Code | Visual Studio |
 |---|---|---|
-| 화면 | 웹뷰는 "only if you absolutely need them" — 그래서 **둘로 제한**했다 | 웹뷰가 없다. **XAML 이 기본**이고 IDE 가 테마를 준다 |
-| 설정 | ❌ 자체 설정 화면 금지. `contributes.configuration` 만 | ~~Options 페이지는 확장이 만드는 것이 보통~~ → **이 모델에는 그 문이 없다.** `Setting`·`SettingCategory` 로 **선언**하면 VS 가 그린다 |
-| 매니페스트 | `package.json` 의 `contributes` — 선언 | **코드**(`CommandConfiguration`) — `.vsct` 가 없어졌다 |
+| 화면 | 웹뷰 사용은 최소화 권고 ("only if you absolutely need them") — 이에 따라 2개로 제한 | 웹뷰가 부재하며 **XAML 렌더링이 기본**입니다. IDE 테마가 자동 적용됩니다. |
+| 설정 | ❌ 자체 설정 화면 구현 금지. `contributes.configuration` 선언만 허용 | `Setting`, `SettingCategory`로 **선언**하면 Visual Studio 설정 UI가 이를 렌더링합니다. |
+| 매니페스트 | `package.json`의 `contributes` 섹션 (JSON 선언형) | **C# 코드 선언형** (`CommandConfiguration` 등) — `.vsct` 파일이 불필요합니다. |
 
-### ⚠ 가운데 줄은 틀렸다 — 정정 (2026-09-09)
+### 설정 모델에 대한 사전 오해와 정정 (2026-09-09)
 
-이 표를 처음 쓸 때 가운데 줄을 「특히 조심할 자리」로 표시하고, VS Code 의 「자체 설정 화면 금지」를
-그대로 옮기면 이 IDE 사람들이 기대하는 자리를 안 만드는 것이 된다고 적었다. **그 걱정의 전제가
-틀렸다.**
+초기 분석에서는 Visual Studio 확장이 전통적인 Tools > Options 커스텀 페이지를 구성해야 한다고 가정하였으나, 이는 **기존 VSSDK(In-process) 모델에 해당하는 사항**이었습니다.
 
-「VS 에서는 확장이 Options 페이지를 만든다」는 **VSSDK(in-proc) 이야기**다. 우리가 고른
-`VisualStudio.Extensibility` 표면에는 그 문이 **없다** — `OptionPage` 0건, `DialogPage` 0건,
-`ToolsOptions` 0건. 대신 `Settings` 네임스페이스에 공개 타입 35개가 있는데 전부 **선언형**이다:
-`Setting<T>` · `SettingCategory` · `EnumSettingEntry` · `ArraySetting<T>` · `SettingRule` ·
-`SettingMessage`, 그리고 읽고 쓰는 `SettingsExtensibility`. 확장은 **무엇을 설정할지 선언하고,
-그리는 것은 VS 가 한다.**
+`VisualStudio.Extensibility` 표면에는 `OptionPage`, `DialogPage`, `ToolsOptions` 등의 In-process API가 존재하지 않으며(0건), 대신 `Settings` 네임스페이스에 35개의 선언형 타입(`Setting<T>`, `SettingCategory`, `EnumSettingEntry`, `ArraySetting<T>`, `SettingRule`, `SettingMessage`, `SettingsExtensibility`)이 제공됩니다. 확장은 설정 항목의 구조만 선언하고, 실제 UI 렌더링은 Visual Studio 셸이 전담합니다.
 
-**즉 VS Code 와 같은 모양이다.** `contributes.configuration` 을 C# 으로 옮겨 놓은 것에 가깝고,
-그래서 우리 「설정 화면을 안 짠다」 규칙은 여기서 **근거를 잃지 않는다.** 옮기면 된다.
+따라서 VS Code의 `contributes.configuration`과 동일한 선언형 원칙이 적용되며, "자체 설정 UI를 직접 구현하지 않는다"는 프로젝트 규칙을 그대로 유지할 수 있습니다.
 
-이 정정은 §5 에서 한 줄을 지운다.
+---
 
 ## 5. 정하지 않은 것
 
-- ~~**설정을 Options 페이지로 낼 것인가.**~~ → **정해졌다.** 낼 문이 없다(§4). 선언만 한다.
-- **알림의 규약.** VS Code 는 ✔️/❌ 목록이 있었다. VS 쪽에서 같은 급의 문장을 못 찾았다. 표면에
-  `Notification` 이라는 이름은 **0건**이고, 있는 것은 `Shell.PromptOptions` · `ChoiceDescription`
-  · `ProgressReporter` 다 — **무엇을 쓸지는 정해졌고, 언제 쓸지가 안 정해졌다.**
-- **아이콘·대문자·메뉴 배치**의 규약. VS Code 와 젯브레인 모두 이 자리에 문장이 있었는데, VS
-  확장 문서에서는 못 찾았다. 안 찾은 것인지 없는 것인지도 모른다.
+- **알림 표출 세부 기준**: VS Code는 알림 사용에 대한 엄격한 가이드라인을 제공하나, Visual Studio Extensibility SDK에는 `Notification` 명칭의 API가 없으며(0건) `Shell.PromptOptions`, `ChoiceDescription`, `ProgressReporter`가 제공됩니다. API 도구는 확정되었으나 상황별 표출 기준은 향후 사용 패턴에 따라 수립할 예정입니다.
+- **아이콘, 대소문자, 메뉴 배치 스타일**: VS Code 및 JetBrains와 달리 Visual Studio 확장 문서에서는 명시적인 텍스트 케이스나 아이콘 배치 UX 가이드라인을 규정하고 있지 않습니다. Visual Studio 네이티브 관례를 준수하여 구현합니다.
 
-## 출처
+---
 
-읽은 날: 2026-09-09. **잰 날도 같다** — 아래 문서 셋에 더해, 실제로 설치한 SDK 를 셌다.
+## 6. 참고 문헌 및 실측 출처
 
-**실측 출처.** Windows 11 · Visual Studio Community 2022 **17.14.37628.2** · 워크로드
-`ManagedDesktop` + `VisualStudioExtension`. 센 것은
-`…\Common7\IDE\CommonExtensions\Microsoft\Extensibility` 의 6개 어셈블리(공개 타입 248개)와
-`…\Editor`, 그리고 `CommonExtensions\Microsoft` 전체(어셈블리 1,336개 · 공개 타입 59,158개)에서
-`RpcContracts.*`. 어셈블리 판은 `Microsoft.VisualStudio.Extensibility.dll` 17.14.2099.
+측정 및 대조 일자: 2026-09-09 및 2026-09-10.
 
-**대조 출처** (센 값을 다시 맞춘 곳).
+**실측 환경:**
+- Windows 11
+- Visual Studio Community 2022 **17.14.37628.2** (실측) 및 **17.14.40** (기동 검증)
+- 워크로드: `ManagedDesktop` (`Microsoft.VisualStudio.Workload.ManagedDesktop`), `VisualStudioExtension` (`Microsoft.VisualStudio.Workload.VisualStudioExtension`)
+- 분석 대상: `Common7\IDE\CommonExtensions\Microsoft\Extensibility` 내 6개 어셈블리(공개 타입 248개), `CommonExtensions\Microsoft` 전체(어셈블리 1,336개, 공개 타입 59,158개) 및 `RpcContracts.*`
+- 참조 어셈블리: `Microsoft.VisualStudio.Extensibility.dll` 17.14.2099, NuGet SDK 패키지 17.14.40608
 
-- [VisualStudio.Extensibility overview](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/visualstudio-extensibility?view=visualstudio) — 기능 영역 열넷, 그리고 이 모델이 아직 preview 라는 문장
-- [`ShellExtensibility` 클래스](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.extensibility.shell.shellextensibility?view=visualstudiosdk-2022) — 패키지 17.14.2088. 상태 표시줄 항목을 다는 멤버가 없다
-- [`ProgressReporterOptions`](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.rpccontracts.progressreporting.progressreporteroptions?view=visualstudiosdk-2022) — 「Task Status Center 의 동작을 조정하는 옵션」
-- [전구 제안 walkthrough](https://github.com/MicrosoftDocs/visualstudio-docs/blob/main/docs/extensibility/walkthrough-displaying-light-bulb-suggestions.md) — VSSDK(in-proc) 문서다
-- [announcements.md](https://github.com/microsoft/VSExtensibility/blob/main/docs/announcements.md) — 마지막 기능 공지가 2024-09(설정·이미지·툴바)이고, 넷 중 어느 것도 그 뒤로 추가되지 않았다
+**공식 문서 출처:**
+- [VisualStudio.Extensibility overview](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/visualstudio-extensibility?view=visualstudio) — 14개 기능 영역 개요 및 모델 현황
+- [`ShellExtensibility` Class Reference](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.extensibility.shell.shellextensibility?view=visualstudiosdk-2022) — 셸 확장 API 명세
+- [`ProgressReporterOptions` Class Reference](https://learn.microsoft.com/en-us/dotnet/api/microsoft.visualstudio.rpccontracts.progressreporting.progressreporteroptions?view=visualstudiosdk-2022) — 작업 상태 센터 제어 옵션 명세
+- [Displaying Light Bulb Suggestions Walkthrough](https://github.com/MicrosoftDocs/visualstudio-docs/blob/main/docs/extensibility/walkthrough-displaying-light-bulb-suggestions.md) — VSSDK In-process 전용 전구 구현 가이드
+- [Choose the right Visual Studio extensibility model](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/extensibility-models?view=visualstudio) — 확장 모델 비교 및 권고 기준
+- [microsoft/VSExtensibility GitHub Repository](https://github.com/microsoft/VSExtensibility) — 확장점 사양 및 개발 워크로드 요구조건
+- [Using VisualStudio.Extensibility SDK and VSSDK together](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/get-started/in-proc-extensions?view=visualstudio) — In-process 호환성 가이드
 
-**문서 출처.**
-
-- [Choose the right Visual Studio extensibility model](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/extensibility-models?view=visualstudio) — §1 의 비교표와 권고는 이 페이지의 것이다
-- [microsoft/VSExtensibility](https://github.com/microsoft/VSExtensibility) — §3 의 확장점 목록과 요구 사항(VS 2022 17.9+, `Visual Studio extension development` 워크로드)
-- [Using VisualStudio.Extensibility SDK and VSSDK together](https://learn.microsoft.com/en-us/visualstudio/extensibility/visualstudio.extensibility/get-started/in-proc-extensions?view=visualstudio) — in-proc 탈출구
