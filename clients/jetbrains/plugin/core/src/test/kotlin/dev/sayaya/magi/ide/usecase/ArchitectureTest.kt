@@ -63,6 +63,62 @@ class ArchitectureTest {
         )
     }
 
+    /**
+     * ★ **코어가 쓰는 사건을 전부 읽나, 아니면 안 읽는다고 사유와 함께 적었나.**
+     *
+     * 「분기하는 이름이 코어에 있나」의 **거울상**이고 더 비싼 쪽이다. 앞의 것은 못 도는 갈래를
+     * 잡는데, 이건 **기능이 통째로 없는 것**을 잡는다 — 코어가 사실을 쓰는데 아무도 안 읽으면
+     * 컴파일도 통과하고 아무것도 안 터지고 화면에만 없다.
+     *
+     * 실측(2026-09-09): 이 클라이언트는 27 중 25 를 읽고 있었고 진짜 구멍은 **없었다**. VS Code
+     * 쪽에 같은 자를 대었더니 셋이 나왔다(`council.decided` 로 카운슬이 무엇을 결정했는지가
+     * 전사에 없었고, `interjection.deferred`/`answered` 로 파킹된 프롬프트가 도는 중처럼
+     * 보였다). 지금 이쪽이 깨끗한 것은 **규칙이 있어서가 아니라 우연**이므로 규칙을 둔다.
+     *
+     * 「읽는다」는 이 셰이퍼가 아니라 **클라이언트 전체**다 — 여럿은 계획 판이나 표시줄의 몫이고,
+     * 전부 전사 행이어야 한다고 하면 사실을 엉뚱한 화면으로 민다.
+     */
+    @Test
+    fun `코어가 쓰는 사건을 전부 읽거나, 안 읽는다고 적었다`() {
+        val repo = generateSequence(File(".").absoluteFile) { it.parentFile }
+            .firstOrNull { File(it, ".git").exists() }
+        assertTrue(repo != null, "저장소 뿌리를 못 찾았다 — 이 가드는 아무것도 안 읽고 있다")
+        val eventGo = File(repo, "internal/core/event/event.go")
+        assertTrue(eventGo.exists(), "$eventGo 가 없다 — 코어가 옮겨졌으면 이 시험부터 고칠 것")
+
+        val types = Regex("""Type[A-Za-z]+\s+Type\s*=\s*"([a-z][a-z.]*)"""")
+            .findAll(eventGo.readText()).map { it.groupValues[1] }.toSet()
+        assertTrue(types.size >= 20, "코어에서 사건 이름을 ${types.size} 개밖에 못 읽었다 — 파서가 낡았다")
+
+        val read = mutableSetOf<String>()
+        for (f in sources()) {
+            val body = f.readText()
+                .replace(Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL), "")
+                .lines().joinToString("\n") { it.replace(Regex("//.*$"), "") }
+            // **점 없는 이름도 사건이다**(`compaction`·`error`). 점을 요구하는 정규식은 그 둘을
+            // 「안 읽는 사건」으로 보고한다 — VS Code 쪽에서 실제로 그렇게 틀렸다.
+            for (m in Regex("\"([a-z][a-z.]*)\"").findAll(body)) {
+                if (m.groupValues[1] in types) read += m.groupValues[1]
+            }
+        }
+        assertTrue(read.size >= 15, "클라이언트에서 사건 이름을 ${read.size} 개밖에 못 봤다 — 스캔이 깨졌다")
+        for (dotless in listOf("compaction", "error")) {
+            assertTrue(dotless in read, "스캔이 \"$dotless\" 를 못 본다 — 점 없는 이름도 사건이다")
+        }
+
+        // 일부러 안 읽는 것. 사유는 읽는 사람이 확인할 수 있어야 한다.
+        val skipped = mapOf(
+            "labels.changed" to "이 클라이언트는 아직 일에 이름을 안 붙인다 — 붙이는 화면이 생기면 그때 읽는다",
+            "result.elided" to "덜어낸 툴 결과는 **컨텍스트 창의 사실**이지 대화의 사실이 아니다. 그 행은 이미 무엇을 불렀는지 적고 있고, 「모델에게 안 보인다」는 계획 판의 컨텍스트 띠가 말한다",
+        )
+        val missed = (types - read - skipped.keys).sorted()
+        assertEquals(
+            emptyList<String>(), missed,
+            "코어가 이것들을 쓰는데 아무도 안 읽는다 — 기능이 없는데 아무도 안 운다: " +
+                missed.joinToString(", ") + ". 읽거나, 사유와 함께 skipped 에 적을 것.",
+        )
+    }
+
     @Test
     fun `usecase 는 transport 를 import 하지 않는다`() {
         val offenders = usecase.listFiles { f -> f.name.endsWith(".kt") }.orEmpty()
