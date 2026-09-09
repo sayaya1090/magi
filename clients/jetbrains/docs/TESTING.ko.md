@@ -153,6 +153,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `ActivityTest` | 「도는 중」과 「데몬이 안 말함」의 갈림 |
 | `RestartsTest` | 데몬을 다시 띄워도 되나 — 횟수와 간격 |
 | `MarkdownTest`·`MarkupTest` | 답을 펴는 것과 남의 글자를 거르는 것 |
+| `SocketReachTest` | 붙어 보고 만난 것을 갈래로 가르는 것 — **진짜 소켓으로**. 2026-09-09 에 한 갈래를 고쳤다: 윈도우의 시체 소켓은 `ConnectException` 이 아니라 WSAEINVAL 이라 「모름」으로 떨어졌고, 자동 기동은 모름에서 일부러 안 띄우므로 되살아날 길이 전부 막혔다. 이제 **권한만 모름**이고 나머지는 「아무도 안 듣는다」다. 매핑을 함수로 빼서 잰다 — 규칙만 재고 그 규칙을 쓰는지는 안 재던 시험이 변이를 통과시켰다 |
 | `McpNameTest` | 손의 이름은 고정이다 |
 | `WireConformanceTest` | **플러그인이 읽는 필드 이름이 데몬이 보내는 이름인가** — `ignoreUnknownKeys` 라 어긋나면 예외가 아니라 기본값이고, 화면은 「없다」고 말한 뒤 아무것도 실패하지 않는다. Go 소스를 읽어 대조하고, 짝을 너무 적게 찾으면 그것부터 실패한다(안 짚고 통과하는 것을 막는다) |
 | `SchedulesTest` | 예약 편집기가 무엇을 보내나 — **묻거나 돈다, 하나다**(잠긴 칸에 남은 글자를 같이 보내면 데몬이 「둘 다」로 읽고 거부한다) |

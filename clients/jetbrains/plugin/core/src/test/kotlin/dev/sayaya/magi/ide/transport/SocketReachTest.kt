@@ -100,4 +100,51 @@ class SocketReachTest {
             dir.toFile().setExecutable(true, false)
         }
     }
+    /**
+     * ★ **윈도우의 시체 소켓은 `ConnectException` 이 아니다.**
+     *
+     * 실사용 보고(2026-09-09): 윈도우에서 데몬이 죽고 소켓 파일만 남으면 플러그인이 아무것도 못
+     * 했다. 그 커널은 남은 AF_UNIX 파일에 붙을 때 **WSAEINVAL**("An invalid argument was supplied")
+     * 를 주고 — 코어의 `listen_windows.go` 가 그 사실을 적어 두고 있다 — 자바는 그것을
+     * `SocketException` 으로 낸다. 그래서 그 갈래가 `CouldNotAsk` 로 떨어졌고, 자동 기동은
+     * `CouldNotAsk` 에서 **일부러 안 띄운다**(모름을 없음으로 읽지 않으려고). 판정 하나 때문에
+     * 되살아날 길이 전부 막혔다.
+     *
+     * **이 기계(macOS)에서는 그 커널을 못 만든다.** 그래서 재는 것은 갈래를 정하는 규칙 자체다:
+     * 권한 아닌 실패는 「아무도 안 듣는다」이고, 권한만 「모른다」로 남는다.
+     */
+    @Test
+    fun `권한이 아닌 실패는 아무도 안 듣는 것이다 — 커널이 어떤 낱말로 말하든`() {
+        // 윈도우가 시체 소켓에 주는 그 문장.
+        // 매핑 자체를 잰다. 규칙만 재고 「그 규칙을 쓰는지」를 안 재면 매핑을 통째로 옛 결함으로
+        // 되돌린 변이가 초록으로 통과한다 — 실제로 그랬다.
+        assertEquals(
+            Reach.Refused,
+            DaemonClient.reachAfterFailedConnect(java.net.SocketException("An invalid argument was supplied")),
+            "WSAEINVAL 을 모름으로 읽으면 시체 소켓에서 영영 안 띄운다",
+        )
+        assertEquals(Reach.Refused, DaemonClient.reachAfterFailedConnect(java.io.IOException("Broken pipe")))
+        assertEquals(Reach.Refused, DaemonClient.reachAfterFailedConnect(java.net.ConnectException("refused")))
+    }
+
+    /**
+     * 권한만 「모름」으로 남는다. 권한이 없어 못 붙는 것은 데몬이 살았는지에 대해 아무 말도 하지
+     * 않고, 그 자리에서 새로 띄우면 같은 이유로 또 못 붙어 기동 예산만 태운다.
+     */
+    @Test
+    fun `권한 때문에 못 붙은 것은 모름으로 남는다`() {
+        assertInstanceOf(
+            Reach.CouldNotAsk::class.java,
+            DaemonClient.reachAfterFailedConnect(java.nio.file.AccessDeniedException("/x/s.sock")),
+        )
+        assertInstanceOf(
+            Reach.CouldNotAsk::class.java,
+            DaemonClient.reachAfterFailedConnect(java.net.SocketException("Permission denied")),
+        )
+        assertInstanceOf(
+            Reach.CouldNotAsk::class.java,
+            DaemonClient.reachAfterFailedConnect(java.io.IOException("Access is denied")),
+        )
+    }
+
 }

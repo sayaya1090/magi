@@ -149,6 +149,49 @@ class DaemonClient private constructor(
          * 거짓말이었다. **접는 자리를 없애는 것이 고침이다** — 펴는 쪽을 고치면 다음 부르는
          * 쪽에서 같은 일이 또 일어난다.
          */
+        /**
+         * 붙지 못한 사유가 **권한**인가.
+         *
+         * 이것만 「모름」으로 남긴다. 권한이 없어 못 붙는 것은 데몬이 살았는지 죽었는지에 대해
+         * 아무 말도 하지 않고, 그 자리에서 새로 띄우면 같은 이유로 또 못 붙는다 — 예산만 태운다.
+         *
+         * 낱말로 가른다. 자바는 이 자리에서 errno 를 내주지 않고(`SocketException` 하나에 다
+         * 담긴다), 커널마다 문장이 다르다. 낱말 판정이 좋진 않지만 대안은 **모든 실패를 모름으로
+         * 두는 것**이고, 그것이 지금 보고된 결함이다.
+         */
+        /**
+         * 붙기가 실패했을 때 그것을 어느 갈래로 볼 것인가.
+         *
+         * ⚠ **윈도우의 시체 소켓은 `ConnectException` 이 아니다.** 실사용 보고(2026-09-09):
+         * 윈도우에서 데몬이 죽고 소켓 파일만 남으면 플러그인이 아무것도 못 했다. 그 커널은 남은
+         * AF_UNIX 파일에 붙을 때 **WSAEINVAL**("An invalid argument was supplied")를 주고 — 코어의
+         * `listen_windows.go` 가 그 사실을 적어 두고 있다 — 자바는 그것을 `SocketException` 으로
+         * 낸다. 그래서 그 갈래가 `CouldNotAsk` 로 떨어졌고, 자동 기동은 `CouldNotAsk` 에서
+         * **일부러 안 띄운다**(모름을 없음으로 읽지 않으려고). 판정 하나 때문에 되살아날 길이
+         * 전부 막혔다.
+         *
+         * 여기 온 것이 무엇을 뜻하는지가 답이다. 부르는 쪽에서 이미 **파일이 있고**(notExists
+         * 아님) **확실히 소켓이 아닌 것도 아니다**를 확인했다. 그 자리에 붙지 못했다면 아무도 안
+         * 듣는 것이고, 커널이 그 사실을 어떤 낱말로 말하든 같다.
+         *
+         * **함수로 뺐다.** 이 매핑을 `reach` 안에 묻어 두었더니 변이 검사가 그것을 못 봤다 —
+         * 시험이 규칙(`deniedByPermission`)만 재고 **그 규칙을 쓰는지**는 안 재고 있어서, 매핑을
+         * 통째로 옛 결함으로 되돌린 변이가 초록으로 통과했다. 잴 수 없는 자리에 판단을 두지 않는다.
+         */
+        internal fun reachAfterFailedConnect(e: Exception): Reach = when {
+            // 유닉스에서 「아무도 안 듣는다」를 뜻하는 예외.
+            e is ConnectException -> Reach.Refused
+            // 권한만 「모름」으로 남는다 — 데몬에 대해 아무 말도 하지 않는 유일한 실패다.
+            deniedByPermission(e) -> Reach.CouldNotAsk("${e.javaClass.simpleName}: ${e.message}")
+            else -> Reach.Refused
+        }
+
+        internal fun deniedByPermission(e: Exception): Boolean {
+            if (e is java.nio.file.AccessDeniedException) return true
+            val m = (e.message ?: "").lowercase()
+            return "permission denied" in m || "access is denied" in m || "access denied" in m
+        }
+
         fun reach(socket: Path): Reach {
             // 확실히 없는 것만 없다고 한다. `exists` 가 아니라 `notExists` 인 이유는 [Reach.Absent].
             if (Files.notExists(socket)) return Reach.Absent
@@ -170,11 +213,8 @@ class DaemonClient private constructor(
             if (surelyNotSocket) return Reach.CouldNotAsk("not a socket: $socket")
             return try {
                 connect(socket).use { Reach.Listening }
-            } catch (e: ConnectException) {
-                // 유일하게 "아무도 안 듣는다"를 뜻하는 예외. 나머지는 아래로 간다.
-                Reach.Refused
             } catch (e: Exception) {
-                Reach.CouldNotAsk("${e.javaClass.simpleName}: ${e.message}")
+                reachAfterFailedConnect(e)
             }
         }
     }
