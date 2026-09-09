@@ -229,6 +229,10 @@
                 저장한다. 버퍼와 디스크가 갈리면 "에이전트가 본 것"으로 틀린 글자가 남는다.
             -->
             <action id="magi.attach" class="dev.sayaya.magi.ide.ui.AttachToChatAction"/>
+            <!-- 사람이 데몬을 띄우는 자리. 자동 기동이 안 되는 자리(꺼 둠·예산 소진·판정이
+                 「모름」·바이너리를 미룸)에서 사람이 할 수 있는 일이 없었다. -->
+            <action id="magi.startDaemon" class="dev.sayaya.magi.ide.ui.StartDaemonAction"/>
+
             <action id="magi.lookNow" class="dev.sayaya.magi.ide.ui.LookNowAction"/>
             <action id="magi.wroteThis" class="dev.sayaya.magi.ide.ui.WroteThisAction"/>
         </group>

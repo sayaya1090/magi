@@ -75,6 +75,38 @@ internal object StartDaemon {
     fun enabled(project: Project): Boolean =
         !ApplicationManager.getApplication().isUnitTestMode && LocalPrefs.autostart(project)
 
+    /**
+     * 사람이 눌러서 띄우는 자리.
+     *
+     * ⚠ **[enabled] 와 기동 예산을 안 본다.** 그 둘은 **저절로** 띄우는 것을 막기 위한 장치다 —
+     * 자동 기동을 꺼 둔 사람에게 창 열 때마다 프로세스를 띄우지 않고, 계속 실패하는 자리에서
+     * 무한히 재시도하지 않기 위한 것. 사람이 방금 눌렀다면 둘 다 해당하지 않는다: 그 사람이
+     * 지금 원한다고 말했고, 예산으로 그 요청을 거절하면 **눌렀는데 아무 일도 안 나는 단추**가
+     * 된다 — 이 트리가 「없는 메뉴보다 나쁘다」고 적어 둔 그것이다.
+     *
+     * 단위 시험 가드는 남긴다. 시험이 남의 기계에 프로세스를 남기는 것은 시험이 아니다.
+     *
+     * 살아 있는 데몬을 죽은 줄 알고 눌러도 안전하다: `Listen` 이 경로를 flock 으로 선점하고
+     * dial 로 먼저 확인해 「another magi is already listening」으로 거절한다. 기동 경쟁에서
+     * 지는 것은 예외가 아니라 정상이다.
+     */
+    fun byHand(project: Project) {
+        if (ApplicationManager.getApplication().isUnitTestMode) return
+        val base = project.basePath ?: return
+        val sock = Workspace(project).socket() ?: return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            if (project.isDisposed) return@executeOnPooledThread
+            // 이미 듣고 있으면 띄우지 않는다 — 그리고 그렇게 말한다. 조용히 성공하면 사람은
+            // 자기가 방금 무엇을 했는지 모른다.
+            if (DaemonClient.reach(sock) is Reach.Listening) {
+                tell(project, MagiBundle.msg("start.already"))
+                return@executeOnPooledThread
+            }
+            com.intellij.openapi.util.Disposer.register(project) { starting.remove(sock.toString()) }
+            ensureBinaryThenStart(project, base, sock)
+        }
+    }
+
     fun ifAbsent(project: Project) {
         if (!enabled(project)) return
         val base = project.basePath ?: return
