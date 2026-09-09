@@ -5,14 +5,11 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 
 /**
- * 타이핑 중 훑어보기의 **귀를 여는 자리**.
+ * 타이핑 중 코드 검토(LookWhileTyping) 리스너 등록 및 프로젝트 시작 초기화 작업([ProjectActivity]).
  *
- * 처음엔 파일 선택 이벤트에 귀를 달았는데, 그러면 **이미 열려 있던 파일**은 탭을 한 번
- * 갈아타기 전까지 아무도 안 듣는다 — 라이브에서 그 모양으로 배너가 안 떴다(문은 정상이었다).
- * 그래서 문서 멀티캐스터 하나에 붙는다: 프로젝트가 열리는 순간부터 모든 편집을 듣고,
- * 프로젝트가 닫히면 같이 죽는다(고아 리스너 금지).
- *
- * 여기서 **스트라이프 글자도 덮는다** — 사유는 아래.
+ * 파일 선택 이벤트(FileEditorManagerListener) 대신 EditorFactory 이벤트 멀티캐스터(eventMulticaster)에 등록하여,
+ * 프로젝트 오픈 시점에 이미 열려 있던 기존 에디터 버퍼의 편집 이벤트가 누락되는 현상을 방지한다.
+ * 리스너는 프로젝트 범위의 Disposable 스코프에 등록되어 프로젝트 종료 시 자동 해제된다.
  */
 internal class LookStartup : ProjectActivity {
     override suspend fun execute(project: Project) {
@@ -20,20 +17,15 @@ internal class LookStartup : ProjectActivity {
             LookWhileTyping.Ears(project), LookWhileTyping.scope(project),
         )
         stripes(project)
-        // 워크스페이스가 정해졌으니 데몬도 있어야 한다 — 없으면 띄운다(스위치가 켜져 있을 때).
+        // 프로젝트 워크스페이스가 초기화되었으므로 자동 기동 옵션 확인 후 필요 시 데몬을 기동한다.
         StartDaemon.ifAbsent(project)
     }
 
     /**
-     * 도구창 버튼의 글자를 **[MagiBundle] 의 규칙으로** 다시 세운다.
+     * 도구 창 스트라이프(Stripe) 버튼 타이틀을 [MagiBundle] 번들 리소스로 명시적 갱신한다.
      *
-     * `plugin.xml` 의 `toolwindow.stripe.<id>` 는 플랫폼이 제 로케일로 읽는데, 그 로케일은
-     * 언어팩이 없을 때 JVM 기본으로 샌다 — 이 저장소가 액션 글자에서 이미 데인 그 함정이고,
-     * 액션은 `update()` 가 덮어서 빠져나온다. 스트라이프에는 그런 덮개가 없어서 영어 IDE 의
-     * 오른쪽 독에 「magi 계획」이 뜰 수 있다(리뷰 R5). 그래서 여기 덮개를 둔다.
-     *
-     * 번들의 열쇠는 **그대로 남긴다**: 이 활동이 돌기 전(프로젝트 열리는 순간)에도 버튼은
-     * 서 있고, 그때 id 가 날것으로 보이는 것보다 번역된 글자가 낫다.
+     * `plugin.xml`의 `toolwindow.stripe.<id>` 키는 언어팩 미설치 환경에서 플랫폼 기본 로케일(JVM fallback)로 인해
+     * 영문 IDE 환경에서 한국어 타이틀이 표출되는 현상(리뷰 R5)을 방지하기 위해 런타임에 동기화한다.
      */
     private fun stripes(project: Project) {
         val mgr = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)

@@ -213,6 +213,23 @@ class AssistTest {
         assertEquals("return x + y", Assist.withoutEcho("return x + y", "    fun add(x: Int) {\n        "))
     }
 
+    /**
+     * ★ **그리고 `completeCode` 가 실제로 그것을 벗겨서 준다.**
+     *
+     * 변이가 잡았다. 위 시험들은 [Assist.withoutEcho] 를 **직접** 부르므로, `completeCode` 에서
+     * 그 호출을 떼고 데몬의 답을 날것으로 돌려줘도 전부 초록이었다. 함수를 재는 것과 **부르는
+     * 자리를 재는 것**은 다른 사실이다.
+     *
+     * 그래서 가짜 데몬에 앞을 되뱉는 답을 물리고 **왕복의 결과**를 본다.
+     */
+    @Test
+    fun `완성은 앞을 되뱉은 만큼 벗겨서 준다`() {
+        val f = Fake(listOf("""{"ok":true,"out":"add(x: Int): Int {"}""")); f.start()
+        val got = Assist(f.opener()).completeCode("a.kt", "    fun add", "")
+        f.close()
+        assertEquals("(x: Int): Int {", got, "앞의 꼬리가 그대로 남아 회색 글씨에 두 번 선다")
+    }
+
     /** 없는 답과 빈 답은 그대로. 지어내지 않는다. */
     @Test
     fun `없는 답은 그대로 둔다`() {

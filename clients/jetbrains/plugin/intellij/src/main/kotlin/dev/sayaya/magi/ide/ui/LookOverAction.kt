@@ -15,31 +15,20 @@ import dev.sayaya.magi.ide.usecase.Assist
 import javax.swing.SwingUtilities
 
 /**
- * 열어 둔 파일을 컴패니언에게 훑어보게 한다 — 콘솔의 `/look` 이 하는 그 일이고, 부르는 메서드도
- * 같다(`internal/adapter/daemon/client.go` 의 `Client.LookOver`).
+ * 현재 열려 있는 에디터 버퍼의 코드를 컴패니언에게 검토 요청하는 액션.
  *
- * **저장 안 한 내용을 보낸다.** 디스크가 아니라 편집기 버퍼를 읽는 이유는, 방금 고친 것을 봐 달라는
- * 것이 이 동작의 전부이기 때문이다. `read` 툴에게 시키면 디스크를 읽어 낡은 내용을 훑는다.
- *
- * 결과는 하단 독의 **둘째 탭**으로 간다. 풍선 알림에 넣지 않는 이유는 이것이 여러 문단짜리 글이고,
- * 읽는 중에 사라지면 다시 부르는 수밖에 없어서다.
+ * 디스크가 아닌 에디터의 실시간 문서 버퍼 텍스트를 전달하여 미저장 변경사항까지 검토 대상에 포함한다.
+ * 검토 결과는 알림 풍선 대신 하단 도구 창의 보조 탭으로 표출하여 긴 텍스트의 가독성과 보존성을 확보한다.
  */
 class LookOverAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
-    // 메뉴에 넷이 나란히 서는데 하나만 아이콘이 있으면 나머지 셋이 빈칸처럼 보인다(사용자
-    // 실측 2026-09-01). 훑어본다 — 눈. 옆의 「지금 훑어보기」가 미리보기 아이콘을 쓰므로 겹치지 않는다.
-    //
-    // XML 이 아니라 여기서 준다. `icon="AllIcons.X.Y"` 는 이름이 틀려도 런타임 경고 한 줄이고,
-    // 그 경고를 보는 사람은 없다 — 아이콘이 안 뜨는 것으로만 드러난다. 코드면 컴파일이 잡는다.
+    // 팝업 메뉴 내 시각적 일관성을 확보하고 리소스 키 오타를 컴파일 타임에 검증하기 위해 코드에서 직접 아이콘을 지정한다 (2026-09-01 실측 피드백).
     init { templatePresentation.icon = com.intellij.icons.AllIcons.General.InspectionsEye }
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 
-    /** 편집기와 파일이 있을 때만 보인다. 눌러서 아무 일도 안 나는 메뉴는 없는 메뉴보다 나쁘다. */
+    /** 에디터 및 가상 파일이 유효한 경우에만 액션을 활성화한다. */
     override fun update(e: AnActionEvent) {
-        // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
-        // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
-        // 정하므로, 한 규칙으로 통일한다.
         e.presentation.text = MagiEditorMenu.item(e, "action.magi.lookOver.text")
         e.presentation.description = MagiBundle.msg("action.magi.lookOver.description")
         e.presentation.isEnabledAndVisible =
@@ -57,16 +46,15 @@ class LookOverAction : AnAction(), com.intellij.openapi.project.DumbAware {
         ApplicationManager.getApplication().executeOnPooledThread {
             val said = runCatching { Assist({ DaemonClient.connect(sock) }).lookOver(file.path, text) }
                 .getOrElse { MagiBundle.msg("chat.unreachable", it.message ?: MagiBundle.msg("common.noreason")) }
-            // 빈 답과 못 물은 것을 가른다. 모델이 할 말이 없는 것과 데몬에 못 닿은 것은 다른 사건이다.
+            // 모델의 지적 사항 부재(정상)와 데몬 연결 실패를 명확히 분기하여 표출
             show(project, said?.takeIf { it.isNotBlank() } ?: MagiBundle.msg("chat.look.nothing"))
         }
     }
 
     companion object {
         /**
-         * 훑어본 글이 서는 자리 — 하단 독의 둘째 탭. 우클릭 액션과 **타이핑 중 훑어보기**가
-         * 같은 자리를 쓴다(한 규칙, 한 벌): 같은 종류의 글이 두 자리에 서면 사람이 어디를
-         * 봐야 하는지 배워야 한다.
+         * 검토 결과 표출용 도구 창 탭.
+         * 우클릭 액션과 [LookWhileTyping]의 '전체 보기' 액션이 동일 탭을 공유하여 사용자 혼선을 방지한다.
          */
         fun show(project: Project, body: String) = SwingUtilities.invokeLater {
             val tw = ToolWindowManager.getInstance(project).getToolWindow("magi") ?: return@invokeLater
@@ -79,10 +67,7 @@ class LookOverAction : AnAction(), com.intellij.openapi.project.DumbAware {
             tw.activate(null)
         }
 
-        /**
-         * 탭 이름 — **번들에서 온다.** 여기 박아 두면 영어 IDE 의 하단 독에 한국어 탭 하나가
-         * 선다(가이드라인 검토 G5). `const` 를 뗀 것은 그 사유다: 값이 로케일에 달렸다.
-         */
+        /** 동적 다국어 로케일을 지원하는 검토 탭 타이틀 (가이드라인 검토 G5). */
         val TAB: String get() = MagiBundle.msg("chat.look.tab")
     }
 }

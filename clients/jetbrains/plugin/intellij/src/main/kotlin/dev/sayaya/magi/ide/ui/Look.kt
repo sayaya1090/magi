@@ -19,31 +19,28 @@ import javax.swing.BorderFactory
 import javax.swing.JComponent
 
 /**
- * 이 플러그인이 칠하는 것. 콘솔의 설계 언어(`docs/UI.md` §3)를 IDE 로 옮긴 자리다.
+ * 플러그인 UI 테마 및 스타일링 유틸리티. 콘솔 디자인 시스템(`docs/UI.md` §3)을 IDE 환경에 맞추어 통합합니다.
  *
- * ### 한 가지를 일부러 다르게 한다 (§6a 는 어긴 것을 적으라고 한다)
+ * ### IDE 테마 통합 원칙 (`docs/UI.md` §6a)
  *
- * **판은 IDE 테마가 칠하고, 글자는 팔레트가 칠한다.** 콘솔은 배경까지 자기 팔레트로 그리는데
- * 여기서 그러면 사람이 고른 테마 한가운데에 남의 색 판이 하나 서고, §5 의 첫 규칙("IDE 와
- * 겹치는 것은 만들지 않는다")을 색으로 어기게 된다. 툴윈도는 Run·Terminal 옆에 서는 자리라
- * 거기만 다른 회색이면 그건 예쁜 것이 아니라 **덜 붙은 것**으로 보인다.
+ * **배경은 IDE 플랫폼 테마를 따르고, 텍스트 및 시맨틱 강조는 전용 팔레트를 따릅니다.**
+ * 콘솔과 달리 IDE 플러그인에서는 패널 배경색을 커스텀 팔레트로 강제할 경우 사용자가 설정한 에디터 테마와 충돌하여
+ * §5의 첫 번째 원칙("IDE 고유 환경과 겹치거나 이질적인 UI를 만들지 않는다")을 위배하게 됩니다.
+ * Run, Terminal 등 인접한 플랫폼 도구 창들과 동일한 배경 톤을 유지하여 자연스러운 통합감을 제공합니다.
  *
- * 뜻이 있는 색은 반대다. 실패의 붉음, 카운슬 세 자리, 「눌러서 갈 수 있음」의 청록은 **같은
- * 물건에 대한 같은 약속**이라 터미널·웹과 갈리면 안 된다. 그래서 그 색만 [Palette] 에서
- * 그대로 온다(그 값이 원본과 같다는 것은 `PaletteTest` 가 붙든다).
+ * 반면 의미론적(Semantic) 색상은 일관성을 유지합니다:
+ * 실행 에러의 적색, 카운슬 3인의 심의 좌석 색상, 탐색 가능한 링크(청록)는 웹 콘솔 및 CLI와 동일한 시각적 약속을 공유해야 하므로
+ * [Palette]의 기준 색상을 공유합니다(`PaletteTest`로 정합성 검증).
  *
- * 그러니 여기서 배경을 칠하는 함수는 없다. 있으면 다음 사람이 쓴다.
+ * 따라서 이 모듈에는 인위적인 배경색 지정 함수를 두지 않고 IDE 테마에 위임합니다.
  */
 internal object Look {
 
     private fun of(ink: Palette.Ink) = JBColor(Color.decode(ink.light), Color.decode(ink.dark))
 
     /**
-     * 자식을 연 이(origin)를 사람 말로. 모르는 낱말은 **그대로 둔다** — 와이어의 말이라도
-     * 없는 것보다는 낫고, 지어낸 이름은 사람을 엉뚱한 자리로 보낸다.
-     *
-     * 아는 것은 회의가 여는 둘뿐이다: 말하는 자리와 받아적는 자리. 그 둘을 안 가르면 회의마다
-     * 판에 같은 모양 두 줄이 서고, 어느 쪽이 무엇인지 누를 때까지 알 수 없다.
+     * 서브에이전트 생성 출처(origin)를 사용자 친화적 텍스트로 변환합니다. 미지의 식별자는 원문을 유지합니다.
+     * 회의 세션의 경우 발화 룸(meeting)과 서기 룸(minutes)을 명확히 구분하여 표기합니다.
      */
     fun originWord(origin: String): String = when (origin) {
         "meeting" -> MagiBundle.msg("plan.kid.meeting")
@@ -51,30 +48,25 @@ internal object Look {
         else -> origin
     }
 
-    /** 답을 기다리는 것. 지금 사람이 손대야 하는 자리에만 쓴다. */
+    /** 사용자 입력 또는 승인을 대기 중인 상태를 강조하는 기본 색상. */
     val primary = of(Palette.primary)
 
-    /** 눌러서 갈 수 있는 것 — 경로와 줄 번호. */
+    /** 클릭 가능한 파일 경로 및 라인 링크 강조 색상. */
     val accent = of(Palette.accent)
 
     /**
-     * 본문 — 그리고 아래 회색 셋. **IDE 의 대응 롤에서 오고, 팔레트는 폴백이다.**
-     *
-     * M3 의 색은 팔레트가 아니라 「배경 X 위에는 on-X」라는 **짝**이고, 짝이 대비를 보장한다
-     * (스킬 §1 의 판정). 이 창의 배경은 IDE 테마가 칠하므로 — §6a 에 기록된 그 이탈 — 짝을
-     * 보장할 수 있는 것도 테마뿐이다: 회색 계열을 팔레트 고정값으로 얹으면 낯선 테마에서
-     * 대비가 미검증이 된다. 그래서 **뜻이 있는 색만** 팔레트에서 오고(아래 primary·자리색·
-     * error 들 — 세 화면이 공유하는 약속), 뜻 없는 회색은 테마의 손에 맡긴다.
+     * 일반 본문 텍스트 색상.
+     * Material Design 3의 On-Surface 대비 규칙을 준수하기 위해 IDE 플랫폼 테마 롤(`Label.foreground`)을 우선 사용하고 전용 팔레트를 폴백으로 지정합니다.
      */
     val body = JBColor.namedColor("Label.foreground", of(Palette.onSurface))
 
-    /** 읽히되 앞에 안 나서는 것 — 일련번호, 시각, 창이 스스로 하는 말. */
+    /** 보조 안내 텍스트 (시각, 인덱스, 시스템 메시지 등). */
     val faint = JBColor.namedColor("Label.infoForeground", of(Palette.onSurfaceVariant))
 
-    /** 그보다 더 뒤로. */
+    /** 비활성 또는 배경 수준의 약한 텍스트. */
     val muted = JBColor.namedColor("Component.infoForeground", of(Palette.muted))
 
-    /** 구역을 가르는 실선. */
+    /** 영역 구분선 색상. */
     val edge = JBColor.namedColor("Separator.separatorColor", of(Palette.outlineVariant))
 
     val error = of(Palette.error)
@@ -82,14 +74,8 @@ internal object Look {
     val success = of(Palette.success)
 
     /**
-     * 카운슬 자리 셋의 색. **그 셋 말고는 아무도 색을 못 받는다.**
-     *
-     * 색은 뜻이다. 아무 이름에나 색을 돌려 주면 화면이 「이 둘은 다른 종류다」라고 말하게 되는데,
-     * 이 창은 그 사실을 모른다 — 전사에 실린 것은 이름뿐이다. 콘솔도 같은 선을 긋는다
-     * (`Rows.java` 의 `m-melchior`/`m-balthasar`/`m-casper`, 그 밖은 없음).
-     *
-     * 카스퍼가 보라인 사유는 `console.css` 에 실측으로 적혀 있다 — 붉은 계열이면 「누가 말했나」를
-     * 적는 자리가 거절과 구별이 안 된다.
+     * 카운슬 3인의 고유 심의 좌석 색상을 반환합니다.
+     * 멜키오르, 발타자르, 카스퍼 3인에게만 고유 색상을 부여하며, 카스퍼는 거절/에러 붉은색과의 혼동을 방지하기 위해 보라색 톤을 사용합니다(`console.css`).
      */
     fun seat(who: String?): JBColor? = when (who?.lowercase()) {
         "melchior" -> of(Palette.melchior)
@@ -99,19 +85,12 @@ internal object Look {
     }
 
     /**
-     * 기계가 말하고 한 것을 적는 글꼴. §3.3: "거기 한 줄 한 줄이 기계가 말했거나 한 것이고,
-     * 세리프는 증거에 옷을 입히는 것이다."
-     *
-     * **사람이 고른 편집기 글꼴을 그대로 쓴다.** 우리가 이름으로 고르면 IDE 안에서 코드와 전사가
-     * 서로 다른 고정폭이 되고, 그건 같은 창에서 두 벌을 배우게 하는 것이다. 게으르게 묻는다 —
-     * 테마를 바꾸면 다음에 그리는 것부터 따라간다.
+     * 코드 및 트랜스크립트 출력용 모노스페이스 글꼴을 반환합니다(`docs/UI.md` §3.3).
+     * 사용자가 에디터에 설정한 글꼴 구성을 동적으로 반영합니다.
      */
     fun mono(): Font = EditorColorsManager.getInstance().globalScheme.getFont(EditorFontType.PLAIN)
 
-    /**
-     * 구역 이름표. §3.1a 의 도랑에 서는 작은 대문자 라벨을 옮긴 것 — 한국어에 작은 대문자가
-     * 없으므로 크기와 흐림으로만 나타낸다.
-     */
+    /** 섹션 헤더 라벨(`docs/UI.md` §3.1a 도랑 표기). */
     fun gutter(text: String): JBLabel = JBLabel(text).apply {
         font = JBFont.small()
         foreground = faint
@@ -139,12 +118,12 @@ internal object Look {
         border = JBUI.Borders.empty(8, 10)
     }
 
-    /** 답을 기다리는 물음에 세우는 왼쪽 막대. 콘솔의 `.row.pending .txt` 를 그대로 옮긴 것이다. */
+    /** 답변 대기 중인 항목 좌측에 표시하는 인디케이터 테두리. 웹 콘솔의 `.row.pending .txt` 스타일과 동일하게 좌측 2px primary 테두리를 부여한다. */
     fun pending(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
         BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10)
     )
 
-    /** 구역을 가르는 실선 한 줄. */
+    /** 구역 분할을 위한 1px 구분선 컴포넌트. */
     fun rule(): JComponent = JBPanel<JBPanel<*>>().apply {
         background = edge
         preferredSize = Dimension(1, 1)
@@ -152,22 +131,15 @@ internal object Look {
         minimumSize = Dimension(1, 1)
     }
 
-    // ── 전사 행의 붓들. 무엇을 적을지는 셰이퍼가 정하고(`MagiToolWindow.renderRow`), 여기는
-    // 행 하나가 어떻게 서는지만 안다 — 텍스트 판 하나에 다 밀어 넣던 동안 전사가 여백 없는
-    // 로그 덤프로 읽혔다(사용자 실측). 색·글꼴 규칙은 위 것들을 그대로 쓴다.
+    // ── 트랜스크립트 행 렌더링 컴포넌트 팩토리.
+    // 출력 내용은 MagiToolWindow.renderRow에서 결정하며, 본 객체는 행 단위 레이아웃과 서식을 담당한다.
+    // 단일 텍스트 패널에 모든 내용을 집적할 경우 발생하는 시인성 저하(로그 덤프화)를 방지하기 위해
+    // 개별 행 컴포넌트 분리 및 여백/색상/글꼴 규칙을 적용한다.
 
     /**
-     * 드롭다운의 폭을 **항목에서 떼어낸다.**
-     *
-     * 스윙 콤보는 선호 폭을 가장 긴 항목에서 뽑는다. 대화 제목처럼 긴 값이 들어오면 그 한
-     * 줄이 판 전체를 벌리고, 우측 독이 쓸데없이 넓어진다(사용자 실측: "걔 때문에 패널 폭이
-     * 넓어진다"). 그래서 견본 값을 하나 박아 폭을 고정하고, 긴 값은 잘라 그리되 **툴팁에
-     * 원문을 준다** — 줄여 보이는 것과 감추는 것은 다르다.
-     */
-    /**
-     * 말풍선 하나를 옮겨 적는 단추. **늘 보인다** — 마우스를 얹어야 나타나는 단추는 있는 줄을
-     * 모르면 영영 안 쓰인다(이 집이 스트라이프 아이콘에서 이미 겪었다). 대신 흐리게 둬서
-     * 글을 읽는 눈을 안 뺏는다.
+     * 말풍선 내용 복사 버튼.
+     * 마우스 호버 시에만 노출할 경우 발견 가능성(discoverability)이 저하되므로 항상 노출하되,
+     * 본문 가독성을 방해하지 않도록 절제된 스타일을 적용한다.
      */
     fun copyButton(tip: String, onClick: () -> Unit): JComponent =
         JBLabel(com.intellij.icons.AllIcons.Actions.Copy).apply {
@@ -181,30 +153,26 @@ internal object Look {
         }
 
     /**
-     * 고른 칸의 바탕. **플랫폼 목록의 선택색을 그대로 쓴다** — 우리가 색을 하나 더 정하면
-     * 테마를 바꾼 날 이 칸만 남의 색으로 남는다. 포커스 없는 쪽(false)을 쓰는 이유는 전사에서
-     * 고른 것은 「지금 키보드가 있는 자리」가 아니라 **표시**라서다.
+     * 선택 항목 배경색.
+     * 테마 전환 시 색상 불일치를 방지하기 위해 플랫폼 UI의 목록 선택 배경색(`UIUtil.getListSelectionBackground(false)`)을 직접 참조한다.
+     * 트랜스크립트 선택은 입력 포커스가 아닌 상태 표시 목적이므로 비포커스(false) 상태의 배경색을 사용한다.
      */
     val selection: Color get() = com.intellij.util.ui.UIUtil.getListSelectionBackground(false)
 
-    /** 글자 수를 픽셀 상한으로 — 폰트에서 **매번 다시 잰다**(테마·글꼴이 바뀌면 같이 바뀐다). */
+    /** 글자 수 기준 픽셀 상한 계산. 테마 및 글꼴 변경에 동적으로 대응하기 위해 현재 폰트 메트릭(`charWidth('M')`)을 기준으로 매번 계산한다. */
     private fun cap(c: java.awt.Component, chars: Int) =
         c.getFontMetrics(c.font).charWidth('M') * chars + JBUI.scale(8)
 
     /**
-     * **폭을 요구하지 않는 라벨.**
+     * 레이아웃 폭을 강제 확장하지 않는 텍스트 라벨.
      *
-     * [note] 가 설명문에서 막은 것과 같은 기전이 **값을 적는 라벨**에서 무방비였다. 스윙 라벨의
-     * 최소 폭은 글자 전체를 한 줄로 편 길이라, 긴 값 하나가 판 전체의 바닥을 올린다 — 그리고
-     * 그 바닥은 창을 다시 좁힐 때까지 안 내려간다.
+     * Swing JLabel의 기본 최소 폭은 텍스트 전체를 한 줄로 펼친 길이이므로, 긴 텍스트가 표시될 경우 패널 전체의 최소 폭이 불필요하게 확장된다.
      *
-     * 실측(2026-09-01, 설정 판): 쉴 때 **616px**. 여기에 데몬이 준 에러 한 줄이 앉으니
-     * **2295px** 가 됐다(그 라벨 하나가 1256px). 사람이 「설정창 크기가 안 줄어든다」로 잡은
-     * 그 자리다. 콤보를 먼저 고쳤는데 그건 둘째 바닥이었다.
+     * 실측(2026-09-01, 설정 패널): 유휴 시 616px이었으나 데몬 오류 메시지(1256px) 표시 시 2295px까지 확장되어
+     * 사용자가 창 크기를 줄일 수 없는 결함이 확인되었다.
      *
-     * [note] 처럼 접지 않고 **자르는** 이유는 이것이 값이기 때문이다 — 상태 한 줄이 세 줄로
-     * 늘면 아래가 다 밀린다. 스윙이 잘린 라벨에 「…」를 붙여 주므로, 잘렸다는 것은 보인다.
-     * 그리고 **원문은 툴팁으로 준다** — 줄여 보이는 것과 감추는 것은 다르다([narrow] 와 같은 손).
+     * 상태나 식별자 등 단일 행 값은 여러 줄로 줄바꿈될 경우 하단 레이아웃을 밀어내므로 텍스트를 절단(ellipsis) 처리하고,
+     * 전문은 툴팁으로 제공한다.
      */
     fun wide(chars: Int = 36): JBLabel = object : JBLabel(" ") {
         @Suppress("UNUSED_PARAMETER")
@@ -214,28 +182,23 @@ internal object Look {
         }
         override fun setText(text: String?) {
             super.setText(text)
-            // HTML 도 그대로 준다 — 툴팁은 HTML 을 그린다.
+            // 툴팁에는 원본 텍스트(HTML 포함)를 전달한다.
             toolTipText = text?.takeIf { it.isNotBlank() && it != " " }
         }
     }.apply { putClientProperty(DYN, true) }
 
     /**
-     * 「데몬이 글을 앉히는 칸」 표. 시험이 이 표만 보고 긴 글을 먹인다 — 판을 훑어 **빈 라벨
-     * 전부**에 먹이면 정적인 자리(빈 이름 칸)까지 물들어 재는 값이 1003px 만큼 부풀었다.
-     * 계측이 자기 부작용을 재고 있으면 고친 뒤에도 숫자가 안 내려간다.
+     * 데몬 동적 텍스트 주입 대상 식별 프로퍼티 키.
+     * UI 스트레스 테스트 시 정적 레이블(빈 라벨 등)을 제외하고 동적 변경 필드만을 정확히 식별하기 위해 사용한다.
      */
     const val DYN = "magi.dynamicText"
 
     /**
-     * **접히는 메시지 칸** — [wide] 의 짝.
+     * 자동 줄바꿈을 지원하는 가변 메시지 영역 ([wide]와 상호 보완).
      *
-     * 둘 다 폭을 안 요구하지만 **자르는 것과 접는 것**은 다른 자리에 쓴다. 값(무엇을 하는 중,
-     * 권한, 대화 id)은 자른다 — 한 줄이 세 줄로 늘면 아래가 다 밀린다. 메시지(에러, 워크스페이스
-     * 밖 경로 목록)는 접는다 — 자르면 정작 읽어야 할 사유가 「…」 뒤로 숨는다. 404 한 줄을
-     * 36자로 자르면 남는 것은 `llm: not found — check -model and -ba…` 뿐이다.
-     *
-     * 접어도 되는 이유는 이 둘이 **아래를 안 미는 자리**라서다: 사유는 판의 맨 끝이고, 밖 경로는
-     * 원래도 여러 줄이었다.
+     * 상태값이나 식별자는 절단 처리([wide])하지만, 에러 메시지나 작업 영역 외부 경로 목록과 같은 메시지는
+     * 생략 없이 전체 내용을 전달해야 하므로 자동 줄바꿈을 적용한다.
+     * 메시지 영역은 주로 패널 최하단이나 목록 말단에 위치하므로 줄바꿈으로 인한 높이 확장이 전체 레이아웃을 교란하지 않는다.
      */
     fun flow(hue: Color = faint): javax.swing.JTextArea =
         javax.swing.JTextArea().apply {
@@ -246,14 +209,14 @@ internal object Look {
             border = null
             foreground = hue
             font = JBUI.Fonts.label()
-            // 최소 폭을 글자에서 떼어 낸다 — 접히는 칸이라도 한 줄 폭을 요구하면 소용없다.
+            // 패널 폭 축소를 차단하지 않도록 최소 폭을 글자 수와 분리하여 최소치로 지정한다.
             minimumSize = Dimension(JBUI.scale(80), 0)
             putClientProperty(DYN, true)
         }
 
     /**
-     * **폭을 요구하지 않는 체크박스.** 라벨과 같은 기전이고, 이 집의 체크박스는 글자가 길다
-     * (「Start the magi engine for this project when it is not running」). 실측: 407px.
+     * 긴 레이블로 인한 레이아웃 확장을 방지하는 체크박스.
+     * 최소 폭을 [FLOOR]로 제한하며, 전문은 툴팁으로 제공한다 (실측: 407px 길이 레이블 등 대응).
      */
     fun check(text: String, chars: Int = 44): javax.swing.JCheckBox =
         object : javax.swing.JCheckBox(text) {
@@ -264,26 +227,17 @@ internal object Look {
         }.apply { toolTipText = text }
 
     /**
-     * **폭을 요구하지 않는 콤보를 만든다.**
+     * 레이아웃 폭을 강제 확장하지 않는 콤보박스를 생성한다.
      *
-     * [narrow] 만으로는 모자랐다. 프로토타입은 콤보가 **그리는** 폭을 정하지만, 판이 못 좁혀지게
-     * 막는 것은 **최소 폭**이고 그쪽은 안 잡힌다. 실측(2026-09-01, 긴 모델 이름 하나를 넣고
-     * 최소 폭을 다시 잼):
+     * 콤보박스의 프로토타입 값은 렌더링 기준 폭을 정하지만, Swing의 기본 getMinimumSize()는 항목 길이에 따라 확장될 수 있다.
+     * 실측(2026-09-01, 긴 모델 식별자 설정 시 최소 폭 재측정):
+     * - 편집 불가/프로토타입 없음(권한): 95px → 451px
+     * - 편집 가능/프로토타입 있음(모델): 300px → 428px (편집 가능 콤보박스의 최소 폭은 에디터 컴포넌트 기준)
      *
-     * - 편집 불가·프로토타입 없음(권한): **95 → 451**
-     * - 편집 가능·프로토타입 있음(모델): **300 → 428** — 프로토타입이 있는데도 커진다.
-     *   편집 가능한 콤보의 최소 폭은 항목이 아니라 **편집칸**에서 나온다.
+     * 최소 폭이 비대해지면 창을 다시 좁힐 수 없는 현상이 발생하므로 최소 폭을 [FLOOR]로 제한한다.
      *
-     * 그래서 사람이 본 것이 「한번 커진 드롭다운은 다시 작아지지 않는다」였다. `fill=HORIZONTAL`
-     * 이라 넓어지는 것은 늘 되지만, 되돌아올 바닥이 같이 올라가 있었다.
-     *
-     * 상한은 글자 수로 정하고 **폰트에서 매번 다시 잰다** — 값을 한 번 박아 두면 테마나 IDE
-     * 글꼴이 바뀐 날 그 상한만 옛 글꼴로 남는다.
-     *
-     * [prototype] 은 **평소에도** 그 폭을 요구할지다. 항목이 으레 긴 것(모델 이름, 대화 제목)은
-     * 켠다 — 그래야 목록이 늦게 도착해도 판이 안 흔들린다. 항목이 짧고 **드물게만** 긴 것(권한
-     * 토큰: 아는 넷은 다 짧고, 데몬이 모르는 값을 줄 때만 길어진다)은 끈다. 켜면 쉬는 폭까지
-     * 프로토타입만큼 벌어져서, 상한을 씌우려다 도리어 넓히게 된다(실측: 95 → 164).
+     * [prototype] 설정은 유휴 상태에서도 지정 글자 폭을 확보할지 여부를 결정한다. 모델명이나 세션 제목처럼 일반적으로 긴 항목은
+     * 목록 로딩 지연 시 UI 흔들림을 방지하기 위해 true로 두고, 권한 토큰처럼 평소에는 짧은 항목은 기본 폭 확장(95px → 164px)을 막기 위해 false로 둔다.
      */
     fun <T> narrowCombo(chars: Int = 18, prototype: Boolean = true): javax.swing.JComboBox<T> =
         object : javax.swing.JComboBox<T>() {
@@ -294,21 +248,16 @@ internal object Look {
         }.also { if (prototype) narrow(it, chars) }
 
     /**
-     * **평소 폭과 최소 폭은 다른 값이다.**
+     * 컴포넌트 축소 한계 기본 최소 폭 (90px).
      *
-     * 처음 고칠 때 둘 다 [narrowCombo] 의 `chars` 로 잡았다. 그래서 24자짜리 모델 칸은 296px
-     * **아래로 영영 안 내려갔다** — 사용자가 바로 잡았다(2026-09-01): 「창은 좁혀지는데
-     * 텍스트필드와 드롭다운이 안 작아진다」. 상한을 씌운다면서 바닥을 같이 올린 것이다.
-     *
-     * `chars` 는 「이만큼이면 편하다」이고 이 값은 「여기까지는 줄어들 수 있다」다. 칸이
-     * 90px 이면 글자는 몇 자 안 보이지만, 그때 사람은 **판을 좁히는 중**이지 그 칸을 읽는
-     * 중이 아니다. 읽을 때 넓어지는 것은 `fill=HORIZONTAL` 이 해 준다.
+     * 선호 폭(chars 기준)과 최소 폭(FLOOR)을 분리하여, 사용자가 패널을 좁힐 때 콤보박스 및 텍스트 필드가
+     * 레이아웃 축소를 차단하지 않고 유연하게 축소될 수 있도록 보장한다 (2026-09-01 실측 피드백 반영).
      */
     private val FLOOR: Int get() = JBUI.scale(90)
 
     /**
-     * 같은 이유로 입력칸도. `JTextField` 의 최소 폭은 columns 이 0 이면 **든 글자 전체**라,
-     * 긴 값을 한 번 받으면 그만큼이 판의 바닥이 된다.
+     * 긴 텍스트 입력 시 패널 최소 폭이 확장되는 현상을 방지하는 텍스트 입력 필드.
+     * Swing JTextField의 columns가 0일 경우 입력 텍스트 전체 길이가 최소 폭이 되는 특성을 방어한다.
      */
     fun narrowField(): com.intellij.ui.components.JBTextField =
         object : com.intellij.ui.components.JBTextField() {
@@ -335,12 +284,10 @@ internal object Look {
     }
 
     /**
-     * 설명문 라벨 — **폭을 요구하지 않는다.**
+     * 자동 줄바꿈 안내문 텍스트 영역.
      *
-     * [narrow] 가 드롭다운에서 막은 것과 같은 기전이 라벨에서 무방비였다: 스윙 라벨의 선호
-     * 폭은 글자 전체를 한 줄로 편 길이라, 긴 설명 한 줄이 설정 판을 통째로 벌린다. 폭 상한을
-     * 박는 대신(그건 이 집에서 반려된 손이다) **접히게** 만든다 — 그러면 폭을 정하는 것이
-     * 글자가 아니라 판이 된다.
+     * JLabel의 기본 가로 확장 문제를 방지하기 위해 JTextArea의 자동 줄바꿈(lineWrap)을 활용한다.
+     * columns=46을 지정하여 초기 선호 폭을 글자 수 기준으로 제한하고, 세로 방향으로 자연스럽게 확장되도록 한다.
      */
     fun note(text: String, hue: Color = faint): JComponent =
         javax.swing.JTextArea(text).apply {
@@ -349,20 +296,13 @@ internal object Look {
             isOpaque = false
             lineWrap = true
             wrapStyleWord = true
-            // **폭을 여기서 정한다.** 접히게만 만들었더니 판이 좁혀질 수는 있는데 처음 열릴 때의
-            // 폭은 그대로 글자 길이였다 — 사용자 실측: "가로로 쭉 늘어남". 접힘은 판이 이미
-            // 좁아졌을 때만 발동하니, 접히는 것과 좁게 서는 것은 다른 일이다.
-            //
-            // 스윙 라벨의 HTML 접힘 대신 텍스트 영역을 쓴다: `columns` 가 선호 폭을 **글자 수로**
-            // 못박고 높이는 줄 수로 자란다 — [narrow] 가 콤보에 쓰는 그 손이고, 이 집이 이미
-            // 받아들인 규칙이다("견본 값으로 폭 고정"). 덤으로 마크업이 아예 없으니 남의 글자가
-            // 태그로 먹힐 자리도 사라진다.
+            // columns 지정을 통해 초기 렌더링 선호 폭을 글자 수 기준으로 고정하고 패널 가로 확장을 방지한다.
             columns = 46
             font = JBFont.small().deriveFont(Font.ITALIC)
             foreground = hue
         }
 
-    /** 행들이 쌓이는 열. 뷰포트 폭을 따라가야 본문이 접힌다 — 전사에 가로 스크롤은 없다. */
+    /** 트랜스크립트 행 배치용 수직 패널. 가로 스크롤 발생을 방지하고 본문 자동 줄바꿈을 유도하기 위해 Scrollable.tracksViewportWidth를 true로 설정한다. */
     fun column(): JBPanel<JBPanel<*>> =
         object : JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false)),
             javax.swing.Scrollable {
@@ -373,15 +313,15 @@ internal object Look {
             override fun getScrollableTracksViewportHeight() = false
         }
 
-    /** 행 하나의 여백. 사이가 없으면 대화가 로그로 읽힌다. */
+    /** 트랜스크립트 행 기본 여백 (상하 8px, 좌우 12px). */
     fun row(): javax.swing.border.Border = JBUI.Borders.empty(8, 12)
 
-    /** 답을 기다리는 행 — [pending] 의 왼쪽 막대를 행 판에 두른 것. */
+    /** 답변 대기 중인 트랜스크립트 행 테두리. 좌측에 [pending] 인디케이터를 포함한다. */
     fun pendingRow(): javax.swing.border.Border = BorderFactory.createCompoundBorder(
         BorderFactory.createMatteBorder(0, 2, 0, 0, primary), JBUI.Borders.empty(6, 10, 6, 12),
     )
 
-    /** 말 행의 머리 — 누가, 표시들, 오른끝에 시각. */
+    /** 메시지 발신 헤더 컴포넌트 (발신자명, 마크/배지 목록, 타임스탬프). */
     fun rowHead(name: String, hue: Color, marks: List<Pair<String, Color>>, time: String): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
@@ -396,7 +336,7 @@ internal object Look {
             if (time.isNotEmpty()) add(JBLabel(time).apply { font = JBFont.small(); foreground = muted })
         }
 
-    /** 도구 행의 머리 — `· 이름 ✓  인자…`. 인자는 뒤로 물러난 한 줄이다. */
+    /** 도구 호출 헤더 컴포넌트 (도구명, 실행 상태 글리프, 인자 요약, 타임스탬프). */
     fun toolHead(name: String, glyph: String, hue: Color, args: String, time: String): JComponent =
         JBPanel<JBPanel<*>>().apply {
             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.X_AXIS)
@@ -413,16 +353,13 @@ internal object Look {
         }
 
     /**
-     * 본문. 접히고(줄 단위), 고르지 않고, **UI 글꼴**을 쓴다. 폭은 판을 따른다 —
-     * M3 의 40–60자 상한을 입혀 봤다가 하루 만에 걷었다(사용자 실측: "하단 슬롯이라 칸이
-     * 넓은데 중간에 지멋대로 개행함"). 집 규칙 「새 화면에 max-width 금지」가 이 자리에선
-     * M3 의 measure 예외를 이긴다 — 전사는 문서가 아니라 대화고, 대화는 칸을 쓴다.
+     * 산문 본문 텍스트 컴포넌트.
      *
-     * §3.3(기계의 말은 고정폭)을 여기서 **일부러 어긴다**(§6a: 어긴 것은 적는다). 행 구조를
-     * 컴포넌트로 바꾸고도 화면이 "예전 로그와 똑같다"고 읽힌 실측이 있었고, 남은 원인이
-     * 이것이었다 — 한국어 산문이 고정폭 한 색이면 구조를 어떻게 짜도 덤프로 보인다. 고정폭이
-     * 증거의 옷인 것은 **옮겨 적을 것**(도구 이름·인자·경로)의 이야기라 그쪽([toolHead],
-     * [code])에 남긴다. 본문은 사람이 읽는 글이다.
+     * UI 기본 글꼴을 사용하며, 패널 폭에 맞춰 자연스럽게 줄바꿈된다.
+     * M3의 40~60자 너비 제한은 하단 독 슬롯 특성상 임의 개행으로 인한 가독성 저하를 유발하므로 적용하지 않는다.
+     *
+     * 또한 §3.3 규정의 고정폭 글꼴 원칙에 대해, 산문 본문 영역은 예외(§6a)로 일반 UI 글꼴을 채택한다.
+     * 고정폭 글꼴은 도구 식별자·경로·인자 등 기술적 증거 영역([toolHead], [code])에 집중 적용하여 가독성을 최적화한다.
      */
     fun prose(text: String): JComponent = javax.swing.JTextArea(text).apply {
         isEditable = false
@@ -431,11 +368,11 @@ internal object Look {
         wrapStyleWord = true
         font = JBFont.regular()
         foreground = body
-        // 머리줄 아래로 들여 — 이름 기둥과 본문 기둥이 갈리면 눈이 대화의 차례를 탄다.
+        // 헤더 발신자명과의 시각적 구분을 위해 좌측 14px 들여쓰기 적용
         border = JBUI.Borders.empty(3, 14, 0, 0)
     }
 
-    /** 곁말 — 생각의 첫 줄, keep, 창이 하는 말. 앞에 안 나선다. */
+    /** 보조 안내 텍스트 컴포넌트 (사고 과정 첫 줄, keep 알림, 시스템 안내 등 이탤릭 서식 적용). */
     fun aside(text: String, hue: Color = faint): JComponent = asideArea(text, hue)
 
     private fun asideArea(text: String, hue: Color): javax.swing.JTextArea = javax.swing.JTextArea(text).apply {
@@ -449,11 +386,9 @@ internal object Look {
     }
 
     /**
-     * 모델 답의 리치 본문 — 마크다운 **원문**을 받아 [Markup.markdown] 이 편 것을 IDE
-     * 글꼴로 그린다. 편 HTML 을 받지 않고 원문을 받는 이유가 있다: 라벨에 남의 글자를 잇는
-     * 자리는 거르는 함수를 거쳐야 하고(소스 글자 시험이 이 규칙을 잰다), 거르기를 콜사이트로
-     * 올리면 새 콜사이트가 생기는 날 그물 밖으로 샌다. 원문은 사실로 남고 이것은 붓이다 —
-     * 제대로 된 렌더(머메이드까지)는 행의 「md ↗」 가 IDE 마크다운 에디터로 연다.
+     * 마크다운 서식 본문 컴포넌트.
+     * 원본 마크다운 텍스트를 전달받아 [Markup.markdown] 변환 후 HTML 에디터 패널로 렌더링한다.
+     * HTML 파싱 단계에서 XSS 및 불필요한 태그 주입을 방어하기 위해 원본 텍스트 유효성 검증을 거친다.
      */
     fun rich(md: String): JComponent = javax.swing.JEditorPane(
         "text/html", "<html><body>" + Markup.markdown(md) + "</body></html>",
@@ -467,10 +402,9 @@ internal object Look {
     }
 
     /**
-     * 펼친 도구 행의 본문 — 인자·출력 원문. 옮겨 적을 것이라 고정폭이고(§3.3) **산문 상한도
-     * 안 입는다**(60ch 에서 접힌 스택트레이스·경로는 다친 증거다). 실패 원문은 [error] 색을
-     * 얹는다 — 한동안 출력이 이탤릭 곁말 옷을 입어 「고정폭이다」 주석이 거짓말을 하고
-     * 있었다(리뷰 2회 적발).
+     * 도구 호출 상세 본문 (인자 및 출력 원본 데이터).
+     * 증거 데이터의 정확한 전달을 위해 고정폭 폰트(§3.3)를 적용하며, 임의의 너비 상한을 두지 않는다.
+     * 실행 실패 시에는 [error] 색상을 적용하여 실패 맥락을 명확히 구분한다.
      */
     fun code(text: String, hue: Color = muted): JComponent = javax.swing.JTextArea(text).apply {
         isEditable = false
@@ -482,7 +416,7 @@ internal object Look {
         border = JBUI.Borders.empty(2, 14, 0, 0)
     }
 
-    /** 이름표를 이고 있는 구역. 전사와 문제 판이 각자 무엇인지 말하게 한다. */
+    /** 헤더 구분선과 거터 레이블이 포함된 섹션 패널 래퍼. */
     fun titled(name: String, content: JComponent): JBPanel<JBPanel<*>> =
         JBPanel<JBPanel<*>>(BorderLayout()).apply {
             val head = JBPanel<JBPanel<*>>(BorderLayout()).apply {

@@ -9,41 +9,34 @@ import java.util.ResourceBundle
 private const val PATH = "messages.MagiBundle"
 
 /**
- * 화면 글자의 한 자리. **IDE 가 정한 언어를 따른다** — 기본은 영어, 한국어 언어팩이 깔린
- * IDE 만 한국어.
+ * 플러그인 UI 리소스 번들의 진입점. IDE가 지정한 언어 설정을 준수한다 (기본 영문, 한국어 언어팩 활성화 시 한국어).
  *
- * **자바의 폴백 규칙을 그대로 두면 안 된다.** `ResourceBundle` 의 기본 컨트롤은 청한 로케일에서
- * 못 찾으면 **`Locale.getDefault()` 로** 한 번 더 간다. 이 기계의 JVM 기본이 `ko_KR` 이라,
- * 영어를 청해도 `_ko` 파일이 있으면 그것이 뽑혔다 — IDE 의 나머지 화면은 전부 영어인데 우리
- * 판만 한국어였다(사용자 지적: "다른 설정은 다 영문인데 우리꺼만 한글이야"). 인텔리제이 자체
- * 번들은 `_ko` 를 안 실어서 그 함정에 안 걸린다. 그래서 `getNoFallbackControl` 을 쓴다 —
- * **이 기전은 `BundleFallbackTest` 가 잰다**(두 컨트롤의 차이로).
+ * 자바 `ResourceBundle`의 기본 폴백 메커니즘을 그대로 적용할 경우, 요청된 로케일에서 키를 찾지 못하면
+ * `Locale.getDefault()`(호스트 시스템 JVM 로케일)로 재차 폴백한다. 시스템 JVM 기본값이 `ko_KR`인 환경에서는
+ * IDE 로케일이 영문으로 설정되어 있어도 `_ko` 번들이 우선 선택되어 UI 텍스트가 한국어로 노출되는 결함이 발생했다
+ * (실측 사용자 피드백: "다른 설정은 다 영문인데 우리꺼만 한글이야"). 플랫폼 내장 번들은 `_ko` 리소스를 포함하지
+ * 않아 이 문제가 발생하지 않았으므로, 본 플러그인에서는 `ResourceBundle.Control.getNoFallbackControl()`을 지정하여
+ * JVM 기본값으로의 의도치 않은 누출을 차단한다. 해당 동작은 `BundleFallbackTest`를 통해 검증된다.
  *
- * **언어팩 갈래는 걷어냈다.** 한동안 원인을 「언어팩이 없으면 IDE 로케일이 JVM 기본으로
- * 샌다」로 적고 `DynamicBundle.LanguageBundleEP` 로 갈래를 냈는데, 둘이 겹쳐 무너졌다:
- *  - 라이브 로그가 전제를 뒤집었다 — `magi: UI language = en (language pack: 3)`. 팩이 셋
- *    있는 기계에서 IDE 로케일은 정확히 `en` 이었다. 그 갈래는 여기서 한 번도 안 탔다.
- *  - 그 EP 는 **내부 API** 라 `verifyPlugin` 이 릴리스 레인에서 막는다(실측: INTERNAL_API_USAGES).
+ * 과거 언어팩 부재 시 로케일 누출 방지를 위해 `DynamicBundle.LanguageBundleEP`를 사용하던 갈래는 제거되었다:
+ * 1. 라이브 로그 실측(`magi: UI language = en (language pack: 3)`) 결과, 언어팩이 설치된 환경에서도 IDE 로케일은 정확히 `en`으로 보고되어 해당 갈래가 호출되지 않았다.
+ * 2. 해당 확장점은 IntelliJ 내부 API(Internal API)로 분류되어 릴리스 검증 단계(`verifyPlugin`)에서 `INTERNAL_API_USAGES` 위반으로 차단된다.
+ * 따라서 플랫폼 공식 API인 `DynamicBundle.getLocale()`을 따르고 번들 레벨의 폴백 차단(`getNoFallbackControl`)에 일원화한다.
  *
- * 근거가 없는 갈래를 내부 API 를 써 가며 세워 둘 이유가 없다. 지금은 IDE 가 정한 로케일을
- * 그대로 쓰고, 새는 자리는 [bundle] 의 폴백 차단이 막는다 — 그쪽은 시험이 있다.
- *
- * 상속이 아니라 위임인 이유는 JetBrains 권장(플랫폼 규약 대조표 §2).
+ * 클래스 상속 대신 [DynamicBundle] 인스턴스에 대한 위임(Delegation) 방식을 취하는 것은 JetBrains 공식 권장 사항이다 (플랫폼 규약 대조표 §2).
  */
 object MagiBundle {
 
     private val delegate = DynamicBundle(MagiBundle::class.java, PATH)
 
-    /** IDE 가 정한 로케일. 못 물으면 영어 — 모를 때 JVM 기본으로 떨어지는 것이 이 결함이었다. */
-    /** 이 IDE 가 그리는 언어. 화면 글자만이 아니라 **모델에게 답할 언어를 말할 때**도 쓴다. */
+    /** IDE 환경에 설정된 현재 로케일을 반환한다. 조회가 실패할 경우 영문(Locale.ENGLISH)을 기본값으로 사용한다. */
     fun locale(): Locale =
         runCatching { DynamicBundle.getLocale() }.getOrDefault(Locale.ENGLISH)
 
     private val LOG = com.intellij.openapi.diagnostic.Logger.getInstance(MagiBundle::class.java)
 
     private val bundle: ResourceBundle? by lazy {
-        // 어느 언어로 그리는지 한 번 적어 둔다 — 「왜 한글이지?」를 화면만 보고는 못 가른다
-        // (언어팩 때문인지 JVM 기본이 샌 것인지). 사용자가 그 질문을 실제로 했다.
+        // 런타임 언어 결정 원인 추적을 위해 로케일 정보를 로깅한다.
         LOG.info("magi: UI language = " + locale().toLanguageTag() +
             " (IDE locale; JVM default is " + Locale.getDefault().toLanguageTag() + ")")
         runCatching {
@@ -57,11 +50,11 @@ object MagiBundle {
     @Nls
     fun msg(@PropertyKey(resourceBundle = PATH) key: String, vararg params: Any): String {
         val raw = runCatching { bundle?.getString(key) }.getOrNull()
-            ?: return delegate.getMessage(key, *params) // 못 찾으면 플랫폼 경로가 답하게 둔다
-        // **인자 유무로 갈리지 않는다.** 갈라 두면 값 안의 홑따옴표가 「인자를 받는 값이냐」에
-        // 따라 뜻을 바꾸고, 그 규칙은 파일 어디에도 안 적힌다 — 누가 기존 값에 `{0}` 을 하나
-        // 넣는 순간 옆에 있던 `magi's` 의 따옴표가 그 자리표시자를 조용히 먹는다(리뷰 R10).
-        // 한 규칙으로 못박는다: 값은 언제나 MessageFormat 을 지나고, 따옴표는 두 번 적는다.
+            ?: return delegate.getMessage(key, *params) // 조회 실패 시 플랫폼 번들 처리 경로로 위임
+        // 인자 존재 여부와 무관하게 모든 텍스트에 MessageFormat을 일관되게 적용한다.
+        // 인자 유무에 따라 포맷팅 경로를 분기할 경우 홑따옴표(')의 이스케이프 해석 규칙이 달라져, 향후 매개변수({0})
+        // 추가 시 기존 텍스트(예: magi's)의 홑따옴표가 파라미터를 무효화하는 결함이 발생할 수 있다 (리뷰 R10).
+        // 따라서 모든 리소스 텍스트는 일관되게 MessageFormat 규약(홑따옴표는 ''로 이스케이프)을 준수한다.
         return java.text.MessageFormat.format(raw, *params)
     }
 }

@@ -16,79 +16,61 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * 프로젝트가 열릴 때 **이 워크스페이스의 데몬이 없으면 띄운다**(사용자 결정).
+ * 프로젝트 오픈 시 워크스페이스 데몬이 미실행 상태이면 자동으로 기동합니다.
  *
- * 근거는 사용자의 문장 그대로다: IDE 가 프로젝트를 열었다는 것은 워크스페이스가 이미 정해졌다는
- * 뜻이고, 그 자리에 데몬이 없으면 켜 주는 것이 맞다. 그전에는 사람이 터미널에서 켜야 했고,
- * 그때까지 플러그인은 「실행되지 않았습니다」만 반복했다.
+ * 자동 기동 정책:
+ * IDE에서 프로젝트가 열렸다는 것은 워크스페이스가 확정되었음을 의미하므로, 백그라운드 엔진이 없으면 자동으로 기동합니다.
  *
- * **안 켜는 자리를 분명히 한다.**
- *  - 이미 듣고 있으면 안 켠다(당연).
- *  - 「물어볼 수 없었다」면 안 켠다 — 모르는 것을 없는 것으로 읽고 둘째 데몬을 띄우면, 한
- *    워크스페이스에 엔진 둘이 같은 스토어를 쓴다. 모름은 없음이 아니다.
- *  - 스위치가 꺼져 있으면 안 켠다.
+ * 기동 제외 조건:
+ * - 이미 데몬이 소켓을 바인딩하고 있는 경우
+ * - 데몬 상태를 확인할 수 없는 경우(`Reach.CouldNotAsk`) — 미확인 상태를 미기동으로 간주하여 이중 기동하는 충돌을 방지합니다.
+ * - 프로젝트 설정에서 자동 기동(`LocalPrefs.autostart`)이 비활성화된 경우
  *
- * **경합은 데몬이 정리한다.** 창을 둘 열면 둘 다 여기 오는데, 데몬의 `Listen` 이 경로를
- * 선점하므로(`claimPath`) 하나만 서고 나머지는 「이미 듣고 있다」로 거절당한다. 그 거절은
- * 실패가 아니므로 화면에 안 싣는다 — 사람이 할 일이 없는 소식은 소식이 아니다.
+ * 프로세스 경합 제어:
+ * 여러 IDE 창이 동시에 열리더라도 데몬의 소켓 바인딩 단계(`claimPath`, flock 기반)에서 경로가 선점되므로 단일 데몬만 기동에 성공합니다.
  */
 internal object StartDaemon {
 
     private val LOG = Logger.getInstance(StartDaemon::class.java)
 
     /**
-     * 프로젝트마다 되살리기 예산. **한 번만 시도하던 것을 고친 자리다** — 그 한 번이 실패하거나
-     * 떴다가 나중에 죽으면 되살릴 길이 없었다(백오프 재접속은 붙기만 하지 띄우지 않는다).
-     * 라이브에서 데몬이 2분 반 만에 나갔고, 그 뒤 10분 동안 아무도 다시 띄우지 않았다.
+     * 프로젝트별 재기동 예산 관리 모델([Restarts]).
+     * 데몬이 비정상 종료된 후 영구 미기동 상태로 방치되는 문제를 해결하기 위해 지수 백오프 기반 재시도 예산을 관리합니다.
      */
     private val budget = java.util.Collections.synchronizedMap(mutableMapOf<String, Restarts>())
 
-    /** 방금 띄운 워크스페이스들 — 화면이 「띄우는 중」이라고 말할 수 있게. */
+    /** 기동 진행 중인 워크스페이스 타임스탬프 맵 (상태 표시줄의 '시작하는 중' 상태 표현용). */
     private val starting = java.util.Collections.synchronizedMap(mutableMapOf<String, Long>())
 
     /**
-     * 이 워크스페이스를 방금 띄웠고 아직 안 붙었나. 상태 표시줄이 이것을 물어 「실행되지 않음」
-     * 대신 「시작하는 중」을 그린다 — **띄워 놓고 화면이 아무 말도 안 하면**, 사람은 아무 일도
-     * 안 일어났다고 읽는다(라이브 실측: 7초 동안 「실행되지 않음」이었다).
+     * 현재 워크스페이스 데몬이 기동 진행 중인지 여부를 반환합니다.
+     * 상태 표시줄에서 '실행되지 않음' 대신 '시작하는 중' 상태를 표시하기 위해 사용됩니다(첫 기동 실측 7초 소요 반영).
      */
     fun startingNow(sock: java.nio.file.Path): Boolean {
         val at = starting[sock.toString()] ?: return false
         return System.currentTimeMillis() - at < STARTING_WINDOW
     }
 
-    /** 뜨는 데 걸리는 시간의 상한. 실측 7초(진짜 설정, 첫 기동) — 넉넉히 잡는다. */
+    /** 데몬 기동 타임아웃 상한 (30초, 콜드 스타트 실측 7초 기준 안전 여유폭 확보). */
     private const val STARTING_WINDOW = 30_000L
 
-    /** 갱신 재시작이 같은 경로에 다시 서는 데 주는 말미. 그 창은 짧다(exec 한 번). */
+    /** 코어 자동 업데이트 재시작 대기 유예 시간 (5초, `syscall.Exec` 소켓 재생성 대기). */
     private const val RESTART_GRACE = 5_000L
 
     /**
-     * 지금 띄워도 되나. **시험 안에서는 안 된다.**
-     *
-     * 헤드리스 시험은 프로젝트를 만들고 열므로 이 활동이 그대로 돈다 — 그래서 `:intellij:test`
-     * 를 돌릴 때마다 임시 워크스페이스마다 **진짜 데몬이 하나씩 떴다**(실측: 설정 디렉토리에
-     * `daemon-unitTest_…` 로그가 열 개 넘게 쌓였다). CI 에서도 돈다. 시험이 남의 기계에
-     * 프로세스를 남기는 것은 시험이 아니다.
-     *
-     * 판정을 함수로 뺀 이유: 가드를 코드에 묻어 두면 그 가드가 도는지를 잴 자리가 없다.
+     * 데몬 자동 기동 허용 여부를 판정합니다.
+     * 단위 테스트 모드(`isUnitTestMode`)에서는 테스트 환경 오염 및 불필요한 프로세스 생성을 방지하기 위해 기동을 차단합니다.
      */
     fun enabled(project: Project): Boolean =
         !ApplicationManager.getApplication().isUnitTestMode && LocalPrefs.autostart(project)
 
     /**
-     * 사람이 눌러서 띄우는 자리.
+     * 사용자가 명시적 액션(메뉴 등)으로 데몬을 기동할 때 호출됩니다.
      *
-     * ⚠ **[enabled] 와 기동 예산을 안 본다.** 그 둘은 **저절로** 띄우는 것을 막기 위한 장치다 —
-     * 자동 기동을 꺼 둔 사람에게 창 열 때마다 프로세스를 띄우지 않고, 계속 실패하는 자리에서
-     * 무한히 재시도하지 않기 위한 것. 사람이 방금 눌렀다면 둘 다 해당하지 않는다: 그 사람이
-     * 지금 원한다고 말했고, 예산으로 그 요청을 거절하면 **눌렀는데 아무 일도 안 나는 단추**가
-     * 된다 — 이 트리가 「없는 메뉴보다 나쁘다」고 적어 둔 그것이다.
-     *
-     * 단위 시험 가드는 남긴다. 시험이 남의 기계에 프로세스를 남기는 것은 시험이 아니다.
-     *
-     * 살아 있는 데몬을 죽은 줄 알고 눌러도 안전하다: `Listen` 이 경로를 flock 으로 선점하고
-     * dial 로 먼저 확인해 「another magi is already listening」으로 거절한다. 기동 경쟁에서
-     * 지는 것은 예외가 아니라 정상이다.
+     * 수동 기동 특성:
+     * 자동 기동 방지용 설정([enabled])과 재시도 예산 제약을 적용하지 않고 즉시 기동을 시도합니다.
+     * 단, 단위 테스트 모드 가드는 그대로 유지됩니다.
+     * 이미 실행 중인 경우 안내 메시지를 표시하고 종료합니다.
      */
     fun byHand(project: Project) {
         if (ApplicationManager.getApplication().isUnitTestMode) return
@@ -96,8 +78,7 @@ internal object StartDaemon {
         val sock = Workspace(project).socket() ?: return
         ApplicationManager.getApplication().executeOnPooledThread {
             if (project.isDisposed) return@executeOnPooledThread
-            // 이미 듣고 있으면 띄우지 않는다 — 그리고 그렇게 말한다. 조용히 성공하면 사람은
-            // 자기가 방금 무엇을 했는지 모른다.
+            // 이미 소켓이 활성화되어 있으면 중복 기동하지 않고 안내합니다.
             if (DaemonClient.reach(sock) is Reach.Listening) {
                 tell(project, MagiBundle.msg("start.already"))
                 return@executeOnPooledThread
@@ -115,29 +96,22 @@ internal object StartDaemon {
             if (project.isDisposed) return@executeOnPooledThread
             when (val r = DaemonClient.reach(sock)) {
                 is Reach.Listening -> {
-                    // 붙었으면 예산을 되돌린다 — 오래 도는 IDE 에서 「예전에 실패함」이 영구
-                    // 금지가 되면 안 된다.
+                    // 정상 연결 확인 시 재기동 예산 복구
                     budget[base]?.ok()
                     starting.remove(sock.toString())
                 }
-                // **모름은 없음이 아니다.** 여기서 「해 봤다」를 안 찍는 것도 그래서다 — 일시적
-                // 사정으로 못 물어본 것을 영구 포기로 바꾸지 않는다(리뷰 R6).
-                is Reach.CouldNotAsk -> LOG.info("magi: 데몬을 물어볼 수 없어 안 띄운다 — ${r.why}")
+                // 데몬 상태 확인 실패 시 이중 기동 방지를 위해 기동을 보류합니다 (모름 != 없음).
+                is Reach.CouldNotAsk -> LOG.info("magi: 데몬 상태 확인 불가로 기동 보류 — ${r.why}")
                 is Reach.Absent, is Reach.Refused -> {
-                    // **잠깐 기다렸다 다시 본다.** 코어의 자동 업데이트는 유휴에 스스로
-                    // 재시작하는데, 유닉스에서는 `syscall.Exec` 라 소켓이 잠깐 사라졌다 **같은
-                    // 경로에** 다시 선다(프로세스는 한 번도 안 죽는다). 그 창을 죽음으로 읽으면
-                    // 갱신할 때마다 헛기동을 한 번씩 한다. 여기 온 것은 어차피 데몬이 없을
-                    // 때뿐이라 몇 초 기다리는 값이 싸다.
+                    // 코어 자체 업데이트 유예 시간 대기:
+                    // 유닉스 환경에서 `syscall.Exec`를 통한 자가 업데이트 시 소켓이 일시 재생성되므로 유예 시간 후 재확인합니다.
                     Thread.sleep(RESTART_GRACE)
                     if (DaemonClient.reach(sock) is Reach.Listening) {
-                        LOG.info("magi: 잠깐 사이에 다시 섰다 — 갱신 재시작으로 보인다")
+                        LOG.info("magi: 유예 시간 내 데몬 재연결 확인 (업데이트 재시작 감지)")
                         budget[base]?.ok()
                         return@executeOnPooledThread
                     }
-                    // 「해 봤다」는 **실제로 띄우기로 정한 자리**에서만 찍는다. 앞에서 찍으면
-                    // 못 물어봤든 사람이 미뤘든 네트워크가 끊겼든 그 IDE 내내 기능이 죽고,
-                    // 되살릴 다른 경로가 없다(백오프 재접속은 붙기만 하지 띄우지 않는다).
+                    // 실제 기동 결정 시점에만 재기동 예산을 차감합니다.
                     val b = budget.getOrPut(base) { Restarts() }
                     if (!b.take(System.currentTimeMillis())) return@executeOnPooledThread
                     com.intellij.openapi.util.Disposer.register(project) { budget.remove(base); starting.remove(sock.toString()) }
@@ -177,25 +151,21 @@ internal object StartDaemon {
     }
 
     private fun askAndFetch(project: Project, flight: java.util.concurrent.CompletableFuture<Path?>) {
-        // 아래 `invokeLater` 는 이 프로젝트가 닫히면 **안 돈다**. 그러면 비행이 끝나지 않고
-        // 자리도 안 비워져, 남은 창들이 영영 못 받는다. 닫히는 것도 이 비행의 끝으로 친다
-        // (이미 끝났으면 no-op 이다).
+        // 프로젝트 종료 시 다운로드 Future를 취소 완료 처리합니다.
         com.intellij.openapi.util.Disposer.register(project) { flight.complete(null) }
-        // **받을 판을 여기서 정한다.** 핀은 바닥일 뿐이다 — 먼저 옛 판을 받아 놓고 데몬이
-        // 스스로 갱신하기를 기다리는 것은, 처음 쓰는 사람에게 두 번 기다리라는 말이다.
-        // 이 자리는 이미 풀 스레드라 목록 한 번 물어보는 것이 화면을 안 막는다.
+        // 다운로드 대상 바이너리 버전 결정:
+        // 풀 스레드에서 최신 호환 버전을 조회하여 초기 사용자의 중복 업데이트 대기 시간을 방지합니다.
         val pick = CoreBinary.resolve()
         val rel = pick.release
         val asset = rel.asset(
             System.getProperty("os.name").orEmpty(), System.getProperty("os.arch").orEmpty(),
         )
         val host = asset?.let { rel.host(it) } ?: return run {
-            LOG.info("magi: 이 기계에 맞는 코어 자산이 없거나 받을 주소가 없다 — 안 묻는다")
+            LOG.info("magi: 현재 아키텍처에 맞는 코어 바이너리 또는 다운로드 URL 부재 — 다운로드 요청 생략")
             flight.complete(null)
         }
-        // **묻는다.** 네트워크에서 실행 파일을 받아 돌리는 일을 조용히 하지 않는다. 그리고
-        // **어디서** 받는지를 보인다 — 미러로 갈아 끼울 수 있다는 것이 이 설계의 자랑인데,
-        // 갈아 끼운 사실이 사람에게 안 보이면 자랑이 아니다(리뷰 R7).
+        // 바이너리 다운로드 전 사용자 명시적 동의 확인:
+        // 신뢰성 확보를 위해 다운로드 대상 호스트 미러 주소를 다이얼로그에 명시합니다(리뷰 R7).
         ApplicationManager.getApplication().invokeLater({
             val yes = Messages.showYesNoDialog(
                 project,
@@ -212,13 +182,10 @@ internal object StartDaemon {
             object : Task.Backgroundable(project, MagiBundle.msg("core.get.title"), true) {
                 override fun run(indicator: ProgressIndicator) {
                     val bin = runCatching { CoreBinary.download(indicator, pick) }.getOrElse { e ->
-                        // 취소는 실패가 아니다. 플랫폼 계약상 이 예외는 삼키면 안 되고, 삼키면
-                        // 사람이 누른 「취소」가 에러 풍선으로 돌아온다(리뷰 R4).
-                        // 취소도 이 비행의 끝이다. 자리를 안 비우고 던지면 그 자리는 이 IDE 가
-                        // 사는 동안 남고, 어느 창도 다시 받아올 수 없다.
+                        // 사용자의 취소 동작은 정상 중단으로 처리하며 플랫폼 계약에 따라 ProcessCanceledException을 재전파합니다(리뷰 R4).
                         flight.complete(null)
                         if (e is com.intellij.openapi.progress.ProcessCanceledException) throw e
-                        LOG.warn("magi: 코어를 못 받았다", e)
+                        LOG.warn("magi: 코어 바이너리 다운로드 실패", e)
                         tell(project, MagiBundle.msg("core.get.failed", e.message ?: MagiBundle.msg("common.noreason")))
                         flight.complete(null)
                         return
@@ -230,26 +197,22 @@ internal object StartDaemon {
     }
 
     private fun start(project: Project, bin: Path, base: String, sock: Path) {
-        // 자식이 남기는 말이 서는 자리. 데몬 **자신의** 출력은 코어가 `<소켓>.log` 로 보내므로
-        // 여기 담기는 것은 띄우는 명령의 말이다(성공 한 줄, 또는 왜 못 섰는지).
+        // 기동 프로세스 로그 파일 (`<소켓>.ide.log`). 데몬 자체 런타임 로그(`<소켓>.log`)와 분리하여 초기 기동 성공/실패 메시지만 기록합니다.
         val log = java.io.File(sock.toString() + ".ide.log")
         starting[sock.toString()] = System.currentTimeMillis()
         val detached = run(bin, base, log, detach = true)
         val outcome = when {
-            detached == null -> null // 못 띄웠다 — run 이 이미 말했다
+            detached == null -> null // 프로세스 기동 실패
             detached == 0 -> 0
-            // **옛 코어에는 그 플래그가 없다.** 플러그인이 받아오는 것은 릴리스이고, `--detach`
-            // 보다 앞선 판이 얼마든지 깔려 있을 수 있다. 그때 Go 의 flag 는 2 로 끝나며
-            // "not defined" 를 적는다 — 그 한 경우만 옛 방식으로 되돌린다(그때 데몬은 IDE 와
-            // 함께 죽는다. 매뉴얼이 그 갈림을 적는다).
+            // 하위 호환성 처리: `--detach` 플래그를 지원하지 않는 구버전 바이너리는 "not defined" 에러(종료 코드 2) 발생 시 레거시 방식으로 폴백 기동합니다.
             tail(log).contains("not defined") -> {
-                LOG.info("magi: 이 코어에는 --detach 가 없다 — 옛 방식으로 띄운다(IDE 와 함께 죽는다)")
+                LOG.info("magi: 코어 바이너리가 --detach 미지원 — 레거시 방식으로 기동합니다 (IDE 수명에 바인딩)")
                 run(bin, base, log, detach = false)
             }
             else -> detached
         }
         if (outcome == 0) {
-            LOG.info("magi: 데몬이 섰다 — $bin (로그 $log)")
+            LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
             return
         }
         starting.remove(sock.toString())

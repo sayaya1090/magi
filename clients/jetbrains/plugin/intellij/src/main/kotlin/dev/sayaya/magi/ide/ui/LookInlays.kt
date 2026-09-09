@@ -12,13 +12,12 @@ import java.awt.Graphics
 import java.awt.Rectangle
 
 /**
- * 훑어본 말을 **그 줄 끝에 회색 글씨로** 붙인다 — 웹 콘솔이 같은 말을 줄 옆에 그리는 그
- * 모양이고(사용자 지시), IDE 에서 그 자리는 인레이다. 코어가 `<줄><TAB><지적>` 꼴로 주므로
- * (`internal/app/git.go` 의 LookOver 계약) 줄에 걸 수 있다 — 못 거는 말은 여기 오지 않고
- * 편집기 위 띠로 간다([LookBanner]).
+ * 코드 검토(LookOver) 피드백을 에디터 행 끝 인라인 인레이(Inlay)로 렌더링한다.
  *
- * 우리 것만 지운다: 인레이를 손에 들고 있다가 지우지, 그 줄의 인레이를 쓸지 않는다 —
- * 남의 힌트(파라미터 이름, 타입)를 우리가 치우면 그건 남의 화면을 부수는 것이다.
+ * 코어 데몬의 LookOver 출력 계약(`<line>\t<comment>`, `internal/app/git.go`)에 따라 특정 라인 끝에 요소를 배치하며,
+ * 행 위치 매핑이 불가능하거나 에디터가 열려 있지 않은 피드백은 반환되어 [LookBanner] 상단 알림 배너로 전달된다.
+ *
+ * 플러그인이 생성한 인레이 인스턴스만을 추적([mine])하여 해제함으로써 타 플러그인이나 IDE 기본 인레이(매개변수 힌트, 타입 어노테이션 등)와의 충돌을 방지한다.
  */
 internal object LookInlays {
 
@@ -27,8 +26,8 @@ internal object LookInlays {
     private fun key(project: Project, file: VirtualFile) = project.locationHash + " " + file.path
 
     /**
-     * EDT 에서 부른다. **못 건 말을 돌려준다** — 줄이 그새 사라졌거나 편집기가 없으면 걸 자리가
-     * 없는데, 조용히 버리면 「할 말 없음」과 화면에서 같아진다. 부르는 쪽이 그것을 띠로 올린다.
+     * EDT에서 호출된다.
+     * 문서 변경으로 라인이 유실되었거나 에디터 인스턴스가 없어 인레이를 부착하지 못한 피드백 목록을 반환한다 (호출부에서 배너로 폴백 처리).
      */
     fun show(project: Project, file: VirtualFile, notes: List<Pair<Int, String>>): List<String> {
         clear(project, file)
@@ -51,8 +50,7 @@ internal object LookInlays {
             if (!placed) missed += "${line}행: $text"
         }
         if (kept.isNotEmpty()) mine[key(project, file)] = kept
-        // 몇 개를 어디에 걸었는지 적는다 — 「안 뜬다」와 「안 왔다」와 「걸 자리가 없었다」는
-        // 화면에서 같아 보이고, 그 셋은 사람이 할 일이 다르다.
+        // 인레이 부착 상태 로깅 (전체 수, 부착 성공 수, 미배치 수, 에디터 수)
         LOG.info("magi: 훑어본 말 ${notes.size} — 줄에 건 것 ${kept.size}, 못 건 것 ${missed.size}, 편집기 ${editors.size}")
         return missed
     }
@@ -63,7 +61,7 @@ internal object LookInlays {
         mine.remove(key(project, file))?.forEach { runCatching { com.intellij.openapi.util.Disposer.dispose(it) } }
     }
 
-    /** 회색 이탤릭 한 줄. 편집기 글꼴을 그대로 쓴다 — 코드 옆에 선 글은 코드처럼 보여야 한다. */
+    /** 에디터 폰트 기반 이탤릭 텍스트 렌더러. 코드와의 조화를 위해 현재 에디터 폰트 설정을 계승한다. */
     private class Ghost(private val text: String) : EditorCustomElementRenderer {
         private fun shown() = "  " + text.trim()
 
@@ -75,17 +73,15 @@ internal object LookInlays {
         override fun paint(inlay: Inlay<*>, g: Graphics, r: Rectangle, attrs: TextAttributes) {
             val ed = inlay.editor
             g.font = font(ed)
-            // **테마가 정한 힌트 색을 쓴다.** 처음엔 문서화 색을 집었는데 어두운 테마에서
-            // 배경에 묻혔다(사용자 실측: "회색이 너무 어두워서 잘 안 보인다"). 인레이의 색은
-            // 테마가 이미 정해 둔 롤이 있다 — 파라미터 힌트가 쓰는 그것이고, 어느 테마든
-            // 그 테마가 「읽히되 앞에 안 나서는」 값으로 고른 색이다. 우리가 회색을 짐작하지
-            // 않는다: 짐작한 회색은 다음 테마에서 다시 묻힌다.
+            // 에디터 테마의 인레이 전경색을 사용한다.
+            // 어두운 테마에서 문서화 주석 색상이 배경에 묻히는 실측 문제(2026-09-01)를 해결하기 위해
+            // 플랫폼 테마가 보장하는 파라미터 힌트/인레이 기본 롤 색상을 우선 적용한다.
             g.color = scheme(ed) ?: attrs.foregroundColor ?: ed.colorsScheme.defaultForeground
             val fm = g.fontMetrics
             g.drawString(shown(), r.x, r.y + (r.height - fm.height) / 2 + fm.ascent)
         }
 
-        /** 테마의 인레이 색 — 힌트 롤 먼저, 없으면 인레이 기본 롤. */
+        /** 에디터 테마의 인레이 전경색 조회 (INLINE_PARAMETER_HINT 우선, 부재 시 INLAY_DEFAULT 폴백). */
         private fun scheme(ed: Editor): java.awt.Color? {
             val s = ed.colorsScheme
             return s.getAttributes(

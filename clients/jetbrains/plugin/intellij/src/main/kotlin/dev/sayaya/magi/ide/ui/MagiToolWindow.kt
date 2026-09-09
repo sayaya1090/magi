@@ -46,42 +46,41 @@ import javax.swing.text.SimpleAttributeSet
 import javax.swing.text.StyleConstants
 
 /**
- * 대화 — 컴패니언에게 말을 걸고, 그가 묻는 것에 답하는 창. **하단 독**에 산다.
+ * 대화형 인터페이스 — magi 컴패니언과 상호작용하고 질문 및 승인 요청에 응답하는 창입니다. **하단 도구 창(Bottom Dock)**에 배치됩니다.
  *
- * 콘솔에서는 대화가 가운데다(`docs/UI.md` §2.2). IDE 에서 가운데는 **고치는 것**의 자리라 그대로
- * 옮기면 §5 의 첫 규칙("IDE 와 겹치는 것은 만들지 않는다")을 배치로 어긴다. 그리고 계속 흘러내리는
- * 글을 IntelliJ 가 두는 자리는 아래다 — Run, Terminal, Build 가 전부 거기 있다. 사실 판은 설정 화면 안으로 접혔다([MagiConfigurable] — 사용자 결정 2026-08-29, 상시 수준은 상태 표시줄이 잇는다).
+ * 콘솔 환경에서는 대화 뷰가 중앙에 위치하지만(`docs/UI.md` §2.2), IDE 환경에서 중앙은 코드 편집의 영역이므로
+ * §5의 첫 번째 원칙("IDE와 겹치는 기능은 만들지 않는다")에 따라 하단 독에 배치합니다.
+ * IntelliJ에서 지속적인 출력 스트림을 다루는 Run, Terminal, Build 창과 일관된 배치입니다.
+ * 런타임 상세 상태는 설정 화면([MagiConfigurable] — 2026-08-29 사용자 결정) 안으로 분리되었으며, 상시 상태는 상태 표시줄이 담당합니다.
  *
- * 전사는 데몬의 `transcript` 문에서 이벤트로 오고, 셰이퍼([Rows])가 행으로 편다 — 무엇이
- * 행이 되는지는 `docs/TRANSCRIPT.ko.md` 의 표가 정하고, 이 창은 그 행을 붓질만 한다
- * ([renderRow]). 한동안 이 창은 `#seq type (actor)` 만 적었고 사람이 친 글도 답도 화면에
- * 없었다 — 살아 있는 샌드박스에서 실측한 구멍이라, 몸통이 행에 서는 것부터 골든이 붙든다.
+ * 트랜스크립트는 데몬의 `transcript` 문에서 이벤트 스트림으로 수신되며, 셰이퍼([Rows])가 화면 행 단위로 가공합니다.
+ * 행 변환 규칙은 `docs/TRANSCRIPT.ko.md`의 명세를 따르며, 이 창은 해당 행을 렌더링([renderRow])합니다.
+ * 초기 구현에서는 `#seq type (actor)` 메타데이터만 표기되어 사용자가 입력한 메시지와 답변 본문이 표시되지 않던 누락이 실측되어,
+ * 행 본문이 정상 구성되는지 골든 테스트로 검증하고 있습니다.
  *
- * 소켓 입출력은 전부 풀 스레드에서 돈다. EDT 에서 소켓을 잡으면 데몬이 느린 동안 IDE 가 선다.
+ * 소켓 입출력은 모두 백그라운드 스레드 풀에서 실행됩니다. EDT(Event Dispatch Thread)에서 소켓을 점유하면 데몬 응답 지연 시 IDE 전체가 블로킹됩니다.
  */
 class MagiToolWindow : ToolWindowFactory {
     /**
-     * 이 프로젝트에 이 창이 해당하나 — 규약이 요구하는 판정이다(UI Guidelines · Tool window:
+     * 이 프로젝트에 해당 도구 창이 유효한지 판정합니다(UI Guidelines · Tool window:
      * "don't display the button when the window doesn't apply to the project setup").
      *
-     * **얕게 본다.** 「데몬이 살아 있나」로 재면 데몬을 나중에 켜는 보통 흐름에서 버튼이
-     * 영영 안 서고, 그러면 켜러 갈 자리도 없다. 워크스페이스가 될 수 있는 자리인가(=경로가
-     * 있나)까지만 묻는다 — 웰컴 화면이나 경로 없는 임시 프로젝트에서만 안 선다.
+     * **가벼운 검사만 수행합니다.** 「데몬 생존 여부」로 판정하면 데몬을 나중에 기동하는 일반적인 사용 흐름에서
+     * 버튼이 영구적으로 나타나지 않아 기동 액션에 접근할 수 없게 됩니다. 워크스페이스가 될 수 있는 디렉터리 경로가
+     * 존재하는지만 확인하며, 웰컴 화면이나 프로젝트 경로가 없는 임시 창에서만 비활성화됩니다.
      */
     override fun shouldBeAvailable(project: Project) = project.basePath != null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val view = View(project)
-        // 수준이 서는 자리. 라벨이었을 때는 거의 안 변하는 큰 한 줄이 전사 위 판 하나를 먹었다
-        // (사용자 실측: "왜 이렇게 커? 변하는 데이터도 없네") — 창이 무엇인지 말하는 자리는
-        // 제목표시줄이고, 항상 보여야 하는 쪽은 상태 표시줄이 이미 한다(docs/UI.ko.md §3.1).
-        // 행동의 동사들은 기어 메뉴로(설정 화면은 남는 상태의 자리다 — docs/UI.ko.md §5). 결과는
-        // 전사로 보고된다: 사건은 라벨이 아니라 전사라는 그 규칙이 여기도 그대로다.
-        // 세우기는 제목줄로 — 도는 턴을 세우는 손은 늘 보이되 앞자리를 안 먹는다(TUI 의 esc 와
-        // 같은 급). 보내기 옆에 쌍둥이로 서 있던 동안 매 턴의 동사처럼 읽혔다(사용자 실측).
-        // 정보 카드는 **제목줄**에 접힌다(사용자 요청: 오피스처럼 줄여 놓고 빠르게). 기어 메뉴가
-        // 아니라 아이콘인 것은, 카드가 동사 목록이 아니라 **읽는 자리**이기 때문이다 — 메뉴는
-        // 신호등도 판 번호도 못 그린다.
+        // 상태 표시 위치 설계:
+        // 과거 라벨 컴포넌트 시절에는 변경 빈도가 낮은 한 줄 텍스트가 전사 위쪽 영역을 크게 점유했습니다
+        // (사용자 실측 피드백: "변하는 데이터도 없는데 너무 넓은 공간을 차지함").
+        // 도구 창의 정체성은 제목 표시줄에서 나타내고, 상시 가시성이 필요한 상태는 상태 표시줄이 담당합니다(`docs/UI.ko.md` §3.1).
+        // 제어 액션들은 기어 메뉴로 이동하고(설정 창은 영속 구성의 공간임 — `docs/UI.ko.md` §5), 처리 결과는 전사 로그로 보고됩니다.
+        // 실행 중지(Stop) 버튼은 제목 표시줄 타이틀 액션으로 배치하여, 실행 중인 턴을 언제든 중지할 수 있으면서도 전송 버튼 옆 공간을 낭비하지 않도록 했습니다(TUI의 Esc 키와 동급).
+        // 정보 카드는 **제목 표시줄** 아이콘으로 접어 둡니다(사용자 요구: Office 리본처럼 축소하여 빠른 접근 지원).
+        // 기어 메뉴 대신 팝업 아이콘을 사용하는 이유는 단순 액션 목록이 아닌 상태 정보(상태 인디케이터 및 버전 번호)를 표시하는 전용 UI이기 때문입니다.
         toolWindow.setTitleActions(listOf(view.infoAction(), object : com.intellij.openapi.actionSystem.AnAction(
             MagiBundle.msg("chat.stop"), MagiBundle.msg("chat.stop.tip"), com.intellij.icons.AllIcons.Actions.Suspend) {
             override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
@@ -109,15 +108,13 @@ class MagiToolWindow : ToolWindowFactory {
                         }
                         if (rows.isEmpty()) { balloon(MagiBundle.msg("chat.sessions.none")); return@onDaemonWithoutChat }
                         SwingUtilities.invokeLater {
-                            // 라벨-역찾기(indexOf)는 같은 라벨 둘에서 오결합한다 — 행을 든 채 고른다.
+                            // 라벨 기반 역조회(indexOf)는 동일 라벨 중복 시 오매핑 위험이 있으므로 SessionRow 객체를 직접 보유하여 선택합니다.
                             class Pick(val row: SessionRow) {
-                                // **언제 마지막으로 움직였나.** 실측(2026-09-10)에서 이 목록은
-                                // 대화 **241개**였고 제목과 id 여섯 자만 서 있었다 — 제목이 없는
-                                // 것도 쉰한 개다. 이백 줄을 훑는 사람이 「아까 그 대화」를 찾는
-                                // 유일한 실마리가 이 시각인데, 그것을 안 그리고 있었다.
-                                // 코어는 늘 보낸다(`lastActivity`). 짝인 VS Code 는 같은 값을
-                                // 전선의 UTC 그대로 찍고 있었다 — 같은 웨이브에서 둘 다 고쳤고
-                                // 모양도 하나로 맞췄다(오늘이면 시:분, 아니면 날짜가 앞에).
+                                // 마지막 활동 시각 표시:
+                                // 실측(2026-09-10) 기준 대화 목록이 241개에 달했고, 제목과 6자리 ID만으로는
+                                // 제목이 없는 51개 세션을 포함해 원하는 대화를 탐색하기 어려웠습니다.
+                                // 코어 데몬이 항상 전송하는 `lastActivity` 필드를 활용하여,
+                                // VS Code 클라이언트와의 정합성을 맞춰 당일 활동은 시:분, 이전 활동은 날짜를 접두어로 표시합니다.
                                 override fun toString() =
                                     (row.title?.take(40)?.ifBlank { null } ?: MagiBundle.msg("chat.untitled")) +
                                         "  ·" + row.id.takeLast(6) +
@@ -139,17 +136,16 @@ class MagiToolWindow : ToolWindowFactory {
             view.verb(MagiBundle.msg("chat.menu.rewind")) { it.rewind(1) },
         ))
         MagiWindows.put(project, view)
-        // 창의 수명에 건다. 이걸 안 걸면 창이 닫혀도 스트림·손·등록이 그대로 남는다.
+        // 도구 창의 생명주기에 바인딩합니다. 등록 해제 누락 시 창이 닫힌 후에도 소켓 스트림 및 리소스가 잔류하게 됩니다.
         Disposer.register(toolWindow.disposable, view)
-        // 두 판은 좌우가 아니라 **탭**이다. 분할이던 동안 문제 판이 거의 빈 채로 폭의 35%를
-        // 먹었고(사용자 실측), 한 창에 이름 다른 글 두 벌을 두는 IDE 의 어휘가 탭이다 — Run 창이
-        // 프로세스마다 탭이지 분할이 아니다(§0-5).
+        // 채팅 뷰와 지적 사항(Problems) 뷰는 분할(Split) 레이아웃 대신 탭(Tab)으로 분리합니다.
+        // 분할 레이아웃 사용 시 빈 문제 패널이 가로 폭의 35%를 상시 점유하던 문제를 개선하고,
+        // 프로세스별 탭 구조를 따르는 Run 창 등 IDE 표준 레이아웃 관례(`docs/UI.ko.md` §0-5)를 준수합니다.
         val make = ContentFactory.getInstance()
-        // **못 닫게 못박는다.** content 의 `isCloseable` 기본값은 true 이고, 창의
-        // `canCloseContents="true"` 는 그 게이트를 **창 전체**에 연다 — 세션 탭 하나가 아니다.
-        // 이 둘이 닫히면 `createToolWindowContent` 는 창당 한 번뿐이라 되돌릴 길이 없고,
-        // 뷰는 content 가 아니라 창의 disposable 에 걸려 있어 **화면만 사라지고 스트림은 산다**
-        // (리뷰 R1 — 고치려던 누수와 같은 모양의 새 누수였다).
+        // 기본 탭 닫기 방지:
+        // Content의 `isCloseable` 기본값은 true이며, 도구 창 선언의 `canCloseContents="true"`는 창 전체의 탭 닫기를 허용합니다.
+        // 기본 탭이 닫힐 경우 `createToolWindowContent`는 재호출되지 않아 UI 복구가 불가능해지고,
+        // View는 Content가 아닌 ToolWindow Disposable에 바인딩되어 있어 UI만 닫히고 스트림은 살아 있는 리소스 누수가 발생합니다(리뷰 R1).
         toolWindow.contentManager.addContent(
             make.createContent(view.root, MagiBundle.msg("chat.tab.chat"), false).apply { isCloseable = false },
         )
@@ -161,38 +157,37 @@ class MagiToolWindow : ToolWindowFactory {
     }
 
     /**
-     * [pinned] 가 있으면 이 판은 **그 대화에 고정**된다(세션 탭 — docs/UI.ko.md §4.2b): 공표를
-     * 안 따르고, session.moved 에도 안 움직이며, 입력은 그 대화로 간다(계약: submit/steer 는
-     * 이름 댄 세션에 턴을 연다). null 이면 공표를 따르는 주 판이다.
+     * [pinned] 파라미터가 지정되면 해당 대화 세션에 고정된 독립 탭으로 동작합니다(`docs/UI.ko.md` §4.2b):
+     * 전역 공표 상태나 `session.moved` 이벤트를 따르지 않으며, 입력 메시지를 지정된 세션 ID로만 라우팅합니다(계약: submit/steer는 대상 세션의 턴을 시작함).
+     * null인 경우 전역 활성 세션을 추종하는 메인 패널로 동작합니다.
      */
     internal class View(private val project: Project, private val pinned: String? = null) : Disposable {
         private val workspace = Workspace(project)
         val root = JBPanel<JBPanel<*>>(BorderLayout())
-        /** 수준을 제목표시줄에 쓰는 손. 창을 만든 쪽이 채운다 — 여기서는 IDE 를 모른다. */
+        /** 도구 창 제목 표시줄에 상태 텍스트를 업데이트하는 핸들러. ToolWindow 구성부에서 주입합니다. */
         var title: (String) -> Unit = {}
         private val prompt = JBLabel(" ").apply { border = Look.quiet }
         private val buttons = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 8, 4))
             .apply { border = JBUI.Borders.empty(0, 8, 6, 8) }
         private val input = JBTextArea(1, 40).apply { border = JBUI.Borders.empty(8, 10) }
         private val hint = JBLabel(" ").apply {
-            // 빈 줄이 자리를 먹지 않는다(사용자 실측: "채팅 섹션 아래 여백이 넓은데") —
-            // 알림·힌트는 있을 때만 선다. 나타날 때 판이 한 줄 자라는 것은 감수한다:
-            // 상시 죽은 띠보다 낫다.
+            // 빈 공간 점유 방지(사용자 실측 피드백: 입력란 하단 과도한 여백 방지):
+            // 알림 및 힌트가 존재할 때만 가시화하여 상시 레이아웃 낭비를 최소화합니다.
             isVisible = false
             foreground = Look.faint
             border = JBUI.Borders.empty(2, 12, 6, 12)
         }
-        /** 마지막으로 받은 제안. 탭으로 받아들인다. */
+        /** 마지막으로 수신된 입력 자동완성 제안. Tab 키 입력 시 적용됩니다. */
         private var suggestion: String? = null
         private val debounce = javax.swing.Timer(400) { askSuggestion() }.apply { isRepeats = false }
 
         /**
-         * 전사. **연결을 단독으로 소유한다** — 스트림은 락스텝이 아니라 연결을 통째로 넘겨받으므로
-         * 다른 교환과 겸할 수 없다(설계 문서 §3 「스트리밍」).
+         * 트랜스크립트 뷰 컴포넌트.
+         * 스트리밍 프로토콜은 단일 연결을 전용 점유하므로 일반 요청/응답 채널과 공유하지 않습니다(설계 문서 §3 「스트리밍」).
          */
         private val column = Look.column()
 
-        /** 전사를 옮겨 적는 손 — 말풍선 하나씩, 그리고 끌어서 여러 개(`Copying`). */
+        /** 트랜스크립트 복사 액션 핸들러(단일 말풍선 복사 및 범위 선택 복사 지원). */
         private val copying = Copying().also { c ->
             c.rows { shaper.list() }
             c.popup(column) { shaper.list() }
@@ -202,44 +197,41 @@ class MagiToolWindow : ToolWindowFactory {
             horizontalScrollBarPolicy = javax.swing.ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
         }
 
-        /** 전사 셰이퍼. 이벤트는 워커 스레드에서 먹고, 그리는 것은 EDT 가 스냅샷으로 한다. */
+        /** 트랜스크립트 셰이퍼. 이벤트 파싱은 워커 스레드에서 수행하며, 렌더링은 EDT에서 스냅샷 기반으로 실행합니다. */
         private val shaper = Rows()
 
         /**
-         * 전사에 한 번이라도 붙었나 — 계획 판의 「모른다/없다」 갈림이 여기 걸린다.
+         * 트랜스크립트 연결 수신 이력 플래그. 계획(Plan) 뷰의 "알 수 없음/없음" 상태 분기 판정에 사용됩니다.
          *
-         * **`init` 보다 위에 선다**([dirty] 와 같은 함정, 리뷰가 실측): `follow` 는 워커 기동
-         * 전에 `began` 을 동기로 부르므로 init 중에 true 가 쓰이는데, 선언이 init 뒤면
-         * 초기화자가 그 값을 도로 false 로 덮는다 — 계획 판이 보통 경로에서 영영 "모른다"였다.
+         * **클래스 초기화 순서 주의 (`init` 블록보다 먼저 선언 필요)**:
+         * `follow` 호출 시 워커 스레드 기동 전 `began` 콜백이 동기 호출되어 true가 기록되는데,
+         * 필드 선언이 `init` 블록 뒤에 위치하면 생성자 초기화 코드에 의해 false로 덮어써지는 버그가 실측되었습니다.
          */
         @Volatile private var everBegan = false
 
         /**
-         * 지금 따르는 대화. `session.moved` 의 낡음 판정이 여기 걸린다 — 그 사실은 떠난 세션
-         * 로그에 영속이라 재생마다 다시 오고, 공표된 현재와 이 값이 같으면 그것은 역사다.
+         * 현재 추종 중인 세션 ID.
+         * `session.moved` 이벤트의 만료 여부를 판정하는 기준이 됩니다(이전 세션 로그에 영속화되어 재생 시 재수신될 수 있음).
          */
         @Volatile private var followedSid: String? = null
 
-        /** [follow] 와 moved-재접속이 같은 자물쇠를 잡는다 — 진 쪽 스트림이 안 닫힌 채 남으면 안 된다. */
+        /** [follow]와 moved 이벤트 처리 간의 상호 배제 동기화 락. 스트림 누수를 방지합니다. */
         private val followLock = Any()
 
         /**
-         * 연결의 점. "— 전사에 붙었다" 같은 문장 행이 대화 사이에 끼는 대신(사용자 실측: 읽기를
-         * 끊는다) 색 하나로 선다 — 웹이 그렇게 한다. 사유는 툴팁에.
+         * 연결 상태 인디케이터.
+         * "전사 연결됨" 등의 인라인 텍스트 행이 대화 흐름을 방해하지 않도록 색상 및 글리프로 간결하게 표현합니다. 세부 사유는 툴팁에 표시됩니다.
          */
-        // 초기값도 두-지표 규칙 안에 있다(리뷰: ●-muted 는 붙음-success 와 색만 달랐다) — 안
-        // 붙은 상태의 글리프는 ◌ 다.
+        // 초기 상태 글리프 설정: 비연결 상태는 ◌ 글리프를 사용합니다(Material Design 접근성 가이드라인 준수).
         private val link = JBLabel("◌").apply { foreground = Look.muted; toolTipText = MagiBundle.msg("chat.link.none") }
 
-        // 상태는 **두 지표**로 말한다(M3 상호작용 규칙 — 웹 감사가 "연결 점 세 상태가 색만"으로
-        // 정확히 이 자리를 잡았었다): 색 + 글리프. ● 붙음 · ↻ 다시 붙는 중 · ✕ 끊김 · ◌ 끊었다.
-        // 그리고 스트림의 수준과 손(hand)의 수준은 **딴 사실**이라 딴 필드에 산다 — 한 칸에
-        // 실으면 다음 스트림 이벤트가 손 정보를 지운다(결함 모양 「한 변수가 두 사실」).
+        // 상태 표현 설계 (Material Design 3 접근성 지침 준수):
+        // 색상뿐만 아니라 글리프를 함께 제공하여 구분합니다(● 연결됨, ↻ 재연결 중, ✕ 끊김, ◌ 비연결).
+        // 스트림 연결 상태와 도구 어댑터(Hand) 상태는 생명주기가 상이하므로 별도 상태로 분리하여 관리합니다.
         /**
-         * 붙음의 상태 — 색·글리프·사유가 **한 값**이다. 셋을 따로 들고 있던 동안, 쓰는 쪽이
-         * 스트림 싱크 하나뿐이라 우연히 안 찢겼다. 다시 붙기 루프가 풀 스레드에서 같은 셋을
-         * 쓰기 시작하자 대입 셋 사이에 남의 사건이 낄 자리가 생겼고, 그러면 EDT 가 「초록 ●」
-         * 에 「연결이 끊겼습니다」를 붙여 그린다(리뷰 R6). 한 사실은 한 자리에 둔다.
+         * 연결 상태 불변 데이터 모델 — 색상, 글리프, 상태 메시지를 원자적 단위로 묶어 관리합니다.
+         * 개별 필드를 분리하여 관리할 경우 재연결 루프와 스트림 싱크 간의 경쟁 상태로 인해
+         * "녹색 점에 연결 끊김 문구"와 같은 UI 상태 불일치가 발생하는 문제를 방지합니다(리뷰 R6).
          */
         private data class Mood(val colour: Color, val glyph: String, val why: String)
 
@@ -251,7 +243,7 @@ class MagiToolWindow : ToolWindowFactory {
         }
         private fun handSaid(t: String?) { handWhy = t; paintLink() }
         private fun paintLink() = SwingUtilities.invokeLater {
-            val m = mood // 한 번만 읽는다 — 세 줄이 서로 다른 상태를 그리지 않게
+            val m = mood // 상태 불일치 방지를 위해 로컬 스냅샷을 1회만 참조합니다
             link.text = m.glyph
             link.foreground = m.colour
             link.toolTipText = m.why + (handWhy?.let { " · $it" } ?: "")
@@ -358,73 +350,64 @@ class MagiToolWindow : ToolWindowFactory {
                         }
                         return
                     }
-                    // 판을 비우는 것은 여기가 아니라 [began] 이다. 사유는 그쪽에 적었다.
-                    // 조각에는 줄을 안 준다. 같은 말이 `part.appended` 사실로 뒤따르고, 재생에는
-                    // 그 사실만 실린다 — 안 가리면 붙어 있던 창과 나중에 다시 붙은 창이 같은
-                    // 대화를 다르게 그린다(사유는 `Transcript.echoesFact`).
-                    // 조각(part.delta)은 **행을 새로 쌓지 않고** 같은 줄을 고쳐 쓴다 —
-                    // 셰이퍼가 초안 행으로 받고, 사실이 오면 그 자리에서 사실로 덮인다.
-                    // echoesFact 는 여전히 「조각은 사실의 메아리」라 말하지만, 그 말은
-                    // **새 줄을 주지 말라**는 뜻이지 그리지 말라는 뜻이 아니다(§8 타자기).
-                    // 그리는 삯은 다르다: 토큰마다 판을 다시 지으면 무거우니 초안 갱신은
-                    // 120ms 로 묶는다.
+                    // 화면 초기화는 이벤트 수신부가 아닌 [began] 콜백에서 수행합니다.
+                    // 스트리밍 델타(part.delta)와 사실(part.appended) 이벤트 처리:
+                    // 재생(Replay) 시에는 영속화된 fact 이벤트만 전달되므로, 실시간 스트림과 재생 스트림이 동일한 대화 전사를 그리도록 정합성을 맞춥니다(사유: `Transcript.echoesFact`).
+                    // 스트리밍 델타(`part.delta`)는 새 행을 추가하지 않고 동일 행의 초안을 갱신합니다(설계 문서 §8 타자기 방식).
+                    // 토큰마다 전체 뷰를 다시 그리는 부하를 방지하기 위해 초안 갱신은 120ms 디바운스(`redrawSoon`)로 배치 처리합니다.
                     if (e.type == "part.delta") {
                         if (shaper.feed(e)) redrawSoon()
                     } else if (!Transcript.echoesFact(e) && shaper.feed(e)) redrawLog()
-                    refreshDisk() // 컴패니언이 고친 디스크를 IDE 가 다시 보게(사유는 Rows.drainDisk)
-                    if (e.seq > lastSeq) lastSeq = e.seq // 사실만 커서가 된다(전이는 seq==0)
-                    // 문제는 전사에서 갈라 나온다. 두 번째 스트림을 열지 않는 이유는 §3 의 "창 하나에
-                    // 스트림 하나" 그대로다 — 같은 프레임을 두 번 파싱하게 된다.
+                    refreshDisk() // 컴패니언이 수정한 디스크 변경사항을 IDE VFS에 동기화(사유: Rows.drainDisk)
+                    if (e.seq > lastSeq) lastSeq = e.seq // 영속 사실 이벤트만 커서로 추적(과도기 전이 이벤트는 seq == 0)
+                    // 지적 사항(Problems)은 트랜스크립트 스트림에서 파생 추출합니다.
+                    // 설계 문서 §3 원칙("도구 창당 단일 스트림 점유")에 따라 별도 스트림을 개설하지 않고 동일 프레임 중복 파싱을 방지합니다.
                     authors.feed(e)
                     Problems.of(e)?.let { note(it) }
-                    // 물음이 움직였으면 다시 묻는다. 물음 자체(`*.requested`)는 전이라 로그에 안
-                    // 실려서, 이 신호가 없으면 창을 연 뒤에 올라온 물음은 단추가 영영 안 생긴다 —
-                    // 로그에 줄 하나 뜨고 끝이었다(사유는 `Transcript.movesPrompt`).
+                    // 프롬프트 및 승인 상태 갱신 신호 처리:
+                    // 질문 요청(`*.requested`)은 과도기적 전이 이벤트이므로 로그에 영속화되지 않습니다.
+                    // 이 신호를 수신할 때 프롬프트를 갱신하지 않으면 창 오픈 후 유입된 질문의 승인 버튼이 생성되지 않습니다(사유: `Transcript.movesPrompt`).
                     //
-                    // **여기서 `e` 를 읽지 않는다.** 넷이 다 전이인 것은 아니다 —
-                    // `permission.decided` 는 사실이라 저장되고, 다시 붙을 때마다 재생으로 또 온다
-                    // (실측도 그쪽에 적었다). 신호로만 쓰고 그릴 값은 데몬에게 새로 물으니 옛
-                    // 프레임이 불러도 지금 값이 그려진다. 이 줄이 `e` 를 보기 시작하면 재생이
-                    // 지나간 물음을 지금 것으로 그린다.
+                    // **이벤트 페이로드(`e`)를 직접 뷰에 투영하지 않습니다.**
+                    // `permission.decided`와 같은 영속 사실 이벤트는 재생(Replay) 시에도 재수신됩니다.
+                    // 이벤트를 갱신 트리거 신호로만 사용하고 실제 표시 데이터는 데몬에 새로 질의(refresh)하여, 재생 시 과거 질문이 최신 질문으로 잘못 렌더링되는 문제를 방지합니다.
                     if (Transcript.movesPrompt(e)) refresh()
                     Problems.dissentOf(e)?.let { dissent(it) }
                 }
-                // 데몬이 이벤트보다 **먼저** 보내는 말이다. 이미 그린 것을 지워야 한다는 뜻이라
-                // 눈에 띄게 적는다 — 조용히 흘리면 화면이 거짓말을 한 채로 남는다.
+                // 데몬 측의 커서 재동기화 통보(이벤트 스트림보다 먼저 전달되는 사전 알림):
+                // 이미 렌더링된 내용을 초기화해야 하므로 명시적으로 처리합니다. 무시할 경우 UI에 불일치한 상태가 잔류하게 됩니다.
                 override fun note(why: String) {
-                    // 커서를 못 믿겠다는 통보 — 이벤트보다 먼저 오는 것이 계약이라, 이미 그린 것을
-                    // 지우고 전량 재생을 새로 받는 자세로 돌아간다.
+                    // 데몬이 클라이언트의 커서(lastSeq)를 신뢰할 수 없을 때 발생하는 통보입니다.
+                    // 계약에 따라 기존 렌더링 버퍼를 클리어하고 전체 로그를 재생받는 상태로 전환합니다.
                     lastSeq = 0
                     authors.forget()
                     shaper.clear()
                     SwingUtilities.invokeLater { problems.text = "" }
-                    // ↻ 는 「다시 붙는 중」의 글리프다 — 여기는 붙어 **있는** 채 커서만 거절된
-                    // 자리라, 영구 ↻ 는 거짓이 된다(리뷰). 붙음 글리프에 경고색+사유로.
+                    // ↻ 글리프는 '재연결 중' 상태를 의미하므로, 소켓은 연결되어 있으나 커서만 거절된 현재 상태에서는
+                    // 연결 상태(●)에 경고 색상(Look.warn)과 사유를 표기하여 의미적 정확성을 유지합니다(코드 리뷰 지적 사항 반영).
                     mood(Look.warn, "●", why)
                     redrawLog()
                 }
                 /**
-                 * **누가 끝냈는지로 갈린다.** 사람이 닫았으면 그걸로 끝이고, 데몬이 닫았거나
-                 * 끊겼으면 다시 붙는다 — 안 그러면 창은 살아 보이는데 아무것도 안 오고, 물음을
-                 * 다시 그리던 신호(`Transcript.movesPrompt`)가 그 스트림을 타고 오므로 **답할
-                 * 단추가 같이 죽는다.**
+                 * 스트림 종료 원인별 분기 처리.
+                 * 클라이언트가 의도적으로 종료한 경우(ByUs)를 제외하고, 데몬 측 종료나 연결 끊김 시에는
+                 * 자동 재연결(`reattach()`)을 수행하여 프롬프트 신호 및 승인 버튼이 비활성화되는 현상을 방지합니다.
                  */
                 override fun ended(end: End) = when (end) {
                     End.ByUs -> mood(Look.muted, "◌", MagiBundle.msg("chat.link.closed"))
-                    // 손의 소식도 여기서 거둔다(리뷰): 손은 저 데몬에 붙었던 것이라 스트림이 죽으면
-                    // 그 사실도 죽는다 — 안 거두면 새 데몬이 모르는 "손: …"을 툴팁이 영구 주장한다.
+                    // 도구 어댑터(Hand) 상태 정리(코드 리뷰 지적 사항):
+                    // 스트림이 끊어지면 데몬에 등록되었던 어댑터 정보도 무효화되므로 툴팁 정보를 초기화합니다.
                     End.ByDaemon -> { handSaid(null); mood(Look.warn, "↻", MagiBundle.msg("chat.link.lost")); reattach() }
                     is End.Broken -> { handSaid(null); mood(Look.error, "✕", MagiBundle.msg("chat.link.broken", end.why)); reattach() }
                 }
             }
 
-        /** 대기 프롬프트가 서는 윗판. **물음이 없으면 통째로 숨는다** — 빈 라벨과 빈 단추 줄이
-         *  여백으로 남아 탭과 전사 사이에 죽은 띠를 만들었다(사용자 실측). */
+        /** 대기 프롬프트 및 승인 요청 패널. 요청이 없을 때는 숨김 처리하여 불필요한 빈 여백을 제거합니다(사용자 실측 피드백 반영). */
         private lateinit var head: JBPanel<JBPanel<*>>
 
         /**
-         * 보낼 첨부들 — 본문이 아니라 **참조**다(경로+줄범위). 발췌는 코어가 렌더·영속하므로
-         * (docs/CLIENTS §2) 여기는 이름표 칩만 세운다. [say] 가 싣고 비운다.
+         * 첨부 참조 목록 — 파일 본문이 아닌 참조 정보(경로 + 라인 범위)입니다.
+         * 본문 발췌 및 영속화는 코어 데몬이 담당하므로(`docs/CLIENTS.ko.md` §2), 클라이언트 UI는 칩(Chip) 형태의 라벨만 표시합니다.
          */
         private val refs = java.util.Collections.synchronizedList(mutableListOf<FileRef>())
         private val chips = JBPanel<JBPanel<*>>(FlowLayout(FlowLayout.LEFT, 6, 2)).apply {
@@ -433,8 +416,8 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 입력창에 물음의 시작을 앉힌다 — Alt+Enter 인텐션이 부른다. **비어 있을 때만**: 사람이
-         * 치던 글 위에 얹으면 그 글이 사라진 것처럼 보인다(사라지는 입력 없음). 커서는 끝으로.
+         * 에디터 인텐션(Alt+Enter) 등에서 입력창에 초기 프롬프트를 주입합니다.
+         * 사용자 작성 내용 유실을 방지하기 위해 입력창이 비어 있을 때만 주입하며 커서를 맨 끝으로 배치합니다.
          */
         fun prefill(text: String) = SwingUtilities.invokeLater {
             if (input.text.isBlank()) {
@@ -549,75 +532,58 @@ class MagiToolWindow : ToolWindowFactory {
             // **보통의 차례**인데, 그때 `.session` 이 아직 없어 [Published.of] 가 null 을
             // 주고 [follow] 는 false 로 돌아온다. 그 false 를 아무도 안 읽었다: 화면에
             // 한 줄도 안 나가고, [reattach] 는 [ended] 에서만 불리는데 스트림이 선 적이
-            // 없으므로 [ended] 도 영영 안 온다. **창은 그대로 죽어 있고 데몬을 띄워도 안
-            // 살아난다** — 사람이 툴윈도를 닫았다 여는 수밖에 없다.
+            // 초기 연결 분기 및 상태 고지:
+            // 트랜스크립트 스트림이 연결되지 않았을 때 [ended] 콜백이 수신되지 않아 UI가 멈춘 채 잔류하는 현상을 방지합니다.
+            // 빈 전사에 정상 연결된 상태와 아예 연결되지 못한 상태를 구분하기 위해 [Attach] sealed 인터페이스로 구체적 사유를 분류합니다.
             //
-            // 빈 전사에 붙은 것과 못 붙은 것이 **똑같이 빈 화면**이었다. `began` 이 그
-            // 둘을 갈랐고(위), 이 줄이 못 붙은 쪽에 말과 재시도를 준다.
+            // 분기별 대응 조치:
+            // 1. Attach.NoWorkspace: 프로젝트 디렉터리 경로 오류 (프로젝트 설정 확인 필요)
+            // 2. Attach.NoSession: 데몬 미기동 상태 (IDE를 먼저 띄우고 데몬을 나중에 띄우는 일반적인 흐름)
+            // 3. Attach.Failed: 데몬 프로세스는 존재하나 소켓 통신 오류 발생
             //
-            // **사유를 댄다.** 예전엔 안 댔고 그게 맞기도 했다 — [follow] 가 셋을 불리언 하나로
-            // 접어 돌려줬으니 여기서 「데몬이 없다」고 쓰면 모르는 것을 아는 척하는 것이었다.
-            // 접힌 사유를 화면에서 펴지 않는 것은 지금도 규칙이고, 그래서 편 것이 아니라
-            // **안 접게 했다**([Attach]). 셋은 사람이 할 일이 서로 다르다: 자리가 없는 것은
-            // 프로젝트 문제고, `.session` 이 없는 것은 데몬을 띄우면 되고, 던진 것은 데몬이
-            // 있는데 말이 안 통하는 것이다. 가장 흔한 차례(IDE 를 먼저 열고 데몬을 나중에)가
-            // 하필 가운데다.
-            //
-            // `else` 를 안 쓴다. 넷째 갈래가 생기는 날 컴파일러가 울어야 한다 — 안 그러면 새
-            // 사유가 옛 문장 뒤에 조용히 숨는다.
+            // 컴파일 타임 전수 검사(Exhaustive check)를 보장하기 위해 `else` 절을 사용하지 않고 모든 분기를 명시합니다.
             when (val a = follow()) {
                 Attach.Ok -> {}
                 Attach.NoWorkspace -> lost(MagiBundle.msg("chat.noworkspace"))
                 Attach.NoSession -> lost(MagiBundle.msg("chat.nodaemon"))
                 is Attach.Failed -> lost(MagiBundle.msg("chat.unreachable", a.why))
             }
-            // 손은 프로젝트당 하나 — 탭마다 세우면 루프백 포트가 탭 수만큼 열리고, 붙이기는
-            // 고정 이름 충돌("jetbrains is already attached")로 탭마다 거절 공지가 선다(리뷰).
+            // MCP 도구 어댑터(Hand)는 프로젝트 단위로 1개만 등록합니다.
+            // 세션 탭마다 개별 서버를 기동할 경우 루프백 포트 낭비 및 고정 식별자 충돌("jetbrains is already attached")로 거절 알림이 발생합니다(코드 리뷰 반영).
             if (pinned == null) offerHand()
         }
 
         /**
-         * 창이 닫히면 내놓은 것을 도로 거둔다.
+         * 도구 창 종료 시 등록된 리소스 및 스트림을 해제합니다.
          *
-         * 이 자리가 통째로 비어 있었다. 창은 전사 스트림 하나와 루프백 서버 하나를 세우고
-         * **아무것도 안 거뒀다.** 창을 닫아도 스트림 스레드가 계속 돌고, 손 포트가 계속 열려
-         * 있고, 무엇보다 **데몬은 손이 붙어 있다고 계속 믿는다** — 컴패니언이 편집을 죽은 창으로
-         * 보낸다.
+         * 해제 누락 방지 계약:
+         * 트랜스크립트 스트림 스레드, HandServer 루프백 포트, 데몬 측의 어댑터 등록을 순서대로 정리합니다.
+         * 이를 정리하지 않으면 창이 닫힌 후에도 백그라운드 스레드가 유지되고, 데몬이 종료된 IDE 창을 유효한 도구 어댑터로 인식하여
+         * 파일 편집 요청을 닫힌 창으로 라우팅하는 문제가 발생합니다.
          *
-         * 그 계약은 이미 두 곳에 적혀 있었다 — [hand] 필드 주석이 창이 사는 동안만 손이 산다고 하고,
-         * `Companion.kt` 는 "창이 닫히거나 IDE 가 나갈 때 — 안 떼면 데몬이 죽은 주소를 계속 들고 있는다"
-         * 고 적어 뒀다. 둘 다 적어 두기만 하고 **부르는 자리를 안 만들었다.** 주석이 약속한 것을 코드가
-         * 안 지키면 다음 사람은 지켜지는 줄 알고 그 위에 쌓는다.
-         *
-         * **문을 먼저 닫고 그다음에 뗀다.** 떼는 것은 소켓 왕복이라 늦을 수 있고 그동안에도 편집이
-         * 들어오면 안 된다. 못 떼도 포트는 이미 닫혔으니 죽은 창을 고치는 일은 없다 — 데몬이 죽은
-         * 주소를 잠깐 들고 있을 뿐이고, 그건 다음 `mcp-attach` 가 정리한다.
+         * 해제 순서:
+         * 1. 로컬 루프백 소켓을 먼저 닫아 인바운드 편집 요청을 즉시 차단합니다.
+         * 2. 이후 데몬으로 `detachHand` 요청을 비동기 전송합니다. 소켓 지연 등으로 전송에 실패하더라도 로컬 포트가 이미 닫혀 있으므로 오작동을 방지할 수 있습니다.
          */
         override fun dispose() {
-            // 마크다운 브라우저와 편집 화면 막대는 **주 판**의 것이다 — 고정 탭이 닫힐 때
-            // 놓아 버리면 살아 있는 주 판의 것을 죽인다(리뷰 F5, hand/등록과 같은 함정).
+            // 마크다운 브라우저 및 에디터 변경 마커는 메인 패널(pinned == null)의 전유 리소스입니다.
+            // 고정 세션 탭이 닫힐 때 메인 패널의 리소스가 함께 해제되는 것을 방지합니다(리뷰 F5).
             //
-            // **dispose 는 클래스를 처음 로드하는 자리가 되면 안 된다.** 이 자리는 IDE 가
-            // 나갈 때도 돌고, 그때 우리 플러그인 클래스로더는 이미 닫혀 있을 수 있다 — 이
-            // 세션에서 한 번도 안 쓴 클래스는 그 순간 못 불려 온다. 라이브에서 그대로 났다:
+            // **dispose 시점의 클래스 지연 로딩(Lazy Loading) 방지**:
+            // IDE 종료 시점에 dispose가 호출될 때 플러그인 클래스로더가 이미 닫혀 있을 수 있습니다.
+            // 런타임에 한 번도 참조되지 않은 클래스에 접근할 경우 NoClassDefFoundError가 발생하여 아래의 핵심 정리 로직이 누락되는 문제가 있었습니다:
             //   SEVERE ObjectTree — NoClassDefFoundError: …/RichAnswer
             //     at MagiToolWindow$View.dispose
-            // 리치 답을 한 번도 안 그린 창(=`RichAnswer` 를 한 번도 안 건드린 창)을 닫으면
-            // 거기서 터졌고, 터진 dispose 는 **그 아래 정리를 통째로 걸렀다** — 스트림도 손도
-            // 안 거둬진다. 못 거두는 것보다 나쁜 것은 못 거두면서 나머지까지 데려가는 것이다.
-            //
-            // `EditMarkers` 쪽만 감싸 있었다. 같은 부재를 옆에서 다르게 적어 두면 안 감싼
-            // 쪽이 터진다 — 두 줄을 같은 모양으로 맞춘다.
+            // 이에 따라 각 리소스 해제 호출부를 `runCatching`으로 개별 격리하여 단일 실패가 전체 정리를 중단시키지 않도록 방어합니다.
             if (pinned == null) {
                 runCatching { RichAnswer.forget() }
                 runCatching { EditMarkers.release() }
             }
 
-            // 먼저 세운다. 아래에서 스트림을 닫으면 `ended` 가 도는데, 그때 이미 서 있어야 안 되살아난다.
+            // 스트림 닫기 전 closing 플래그를 먼저 설정하여 ended 콜백에서의 자동 재연결 트리거를 차단합니다.
             closing.set(true)
-            // 주 판만 거둔다(리뷰 F1·F2): 등록과 손은 주 판의 것이라, 고정 탭의 dispose 가
-            // 이것들을 만지면 탭 하나 닫는 행위가 상태 표시줄·계획판·액션 전부와 **주 판의
-            // 손**을 부순다 — 데몬에 붙어 있는 mcp 이름은 하나뿐이다.
+            // 메인 패널만 전역 레지스트리와 도구 어댑터를 해제합니다(리뷰 F1·F2):
+            // 고정 세션 탭에서 이를 해제하면 메인 패널, 상태 표시줄, 계획 뷰 전체의 도구 어댑터 연결이 파괴됩니다.
             if (pinned == null) runCatching { MagiWindows.remove(project) }
             debounce.stop()
             runCatching { following?.close() }
@@ -625,16 +591,16 @@ class MagiToolWindow : ToolWindowFactory {
             val server = hand ?: return
             hand = null
             runCatching { server.close() }
-            // 떼는 것은 best-effort 다. 사유를 화면에 안 싣는다 — 그 화면이 지금 사라지는 중이다.
+            // 데몬 측 어댑터 해제 요청은 Best-effort 방식으로 처리합니다.
             if (pinned == null) runCatching { workspace.onDaemon({ }, { it.detachHand() }) }
         }
 
         /**
-         * 손을 세우고 컴패니언에게 준다.
+         * 도구 어댑터(HandServer)를 기동하고 magi 데몬에 등록합니다.
          *
-         * 거절을 **그대로 보인다.** 같은 워크스페이스를 IDE 둘로 열면 먼저 붙은 쪽만 손이 되고
-         * 둘째는 거절을 받는데, 그때 조용하면 둘째 IDE 의 사람은 자기 편집 도구가 왜 안 쓰이는지
-         * 알 길이 없다 — §7 의 다섯째 시나리오가 그것이다. 손이 아닌 것과 고장난 것은 다른 사건이다.
+         * 등록 거절 사유 가시화:
+         * 동일 워크스페이스를 여러 IDE 인스턴스로 열 경우 첫 번째 인스턴스만 등록에 성공하고 두 번째는 거절됩니다.
+         * 거절 사유를 명시하지 않으면 사용자가 편집 도구 미작동 원인을 파악할 수 없으므로 상태 알림을 명확히 표시합니다(`docs/UI.ko.md` §7 시나리오 5).
          */
         private fun offerHand() {
             val server = runCatching { HandServer.start(Hand(IdeHand(project))) }.getOrNull()
@@ -642,7 +608,7 @@ class MagiToolWindow : ToolWindowFactory {
             hand = server
             onDaemon { comp ->
                 val r = comp.attachHand(server.url, mapOf("X-Magi-Hand" to server.token))
-                // 성공은 침묵 — 손이 붙었는지는 링크 점 툴팁이 안다. 거절은 그대로 보인다(§7 다섯째).
+                // 성공 시 별도 알림 없이 인디케이터 툴팁에 표시하며, 거절 시 사유를 사용자에게 보고합니다.
                 if (r.ok) {
                     clearNotice()
                     handSaid(MagiBundle.msg("hand.tools", r.tools?.joinToString(", ") ?: MagiBundle.msg("hand.attached")))
@@ -883,8 +849,8 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 행 하나를 붓질한다. **무엇을 적을지는 셰이퍼가 정했고 여기는 자리와 색만 안다** —
-         * 반대로 하면 행 규칙이 판 수만큼 생긴다(`docs/TRANSCRIPT.ko.md` §0).
+         * 단일 행 렌더링.
+         * 텍스트 구성 및 데이터 모델링은 셰이퍼([Rows])가 담당하며, 이 뷰 컴포넌트는 레이아웃과 스타일링만 수행합니다(`docs/TRANSCRIPT.ko.md` §0 단일 책임 원칙).
          */
         private fun renderRow(r: Row): JBPanel<JBPanel<*>> = rowPanel(r)
 
@@ -892,9 +858,8 @@ class MagiToolWindow : ToolWindowFactory {
             val p = JBPanel<JBPanel<*>>(BorderLayout(0, 2))
             p.border = if (r.pending) Look.pendingRow() else Look.row()
             p.isOpaque = false
-            // 말풍선 하나를 그대로 옮겨 적는 단추(사용자 요청: 「TUI 처럼 한 개 단위로」).
-            // 화면이 색으로 말하던 것 — 누구 말인지, 툴이 됐는지 — 은 `RowText.plain` 이 글자로
-            // 옮긴다. 안 그러면 붙여넣은 쪽은 무슨 일이 있었는지 모르는 전사를 받는다.
+            // 개별 말풍선 텍스트 복사 버튼:
+            // 시각적 스타일(발화자, 실행 상태 등)은 `RowText.plain`을 통해 표준 텍스트 서식으로 직렬화하여 클립보드에 전달합니다.
             p.add(Look.copyButton(MagiBundle.msg("chat.copy.one")) { copying.copyOne(r) }, BorderLayout.EAST)
             when (r.who) {
                 Who.User, Who.Agent -> {
@@ -903,30 +868,26 @@ class MagiToolWindow : ToolWindowFactory {
                         if (r.abandoned) add(MagiBundle.msg("chat.mark.dropped") to Look.muted)
                         if (r.pending) add(MagiBundle.msg("chat.mark.working") to Look.faint)
                     }
-                    // 사람 이름은 **데몬이 말해 주면 그것**이다 — SSO 류 플러그인이
-                    // `magi.set_user_label` 로 심고 `status` 가 답한다. 안 읽던 동안에는 누가
-                    // 로그인했든 이 자리가 늘 낙하 낱말이었다. 빈 값은 코어가 아예 안 보내므로,
-                    // 있으면 그것이고 없으면 낙하다.
+                    // 사용자 표시명 결정:
+                    // SSO 플러그인 등이 `magi.set_user_label`로 등록한 값이 데몬 `status` 응답에 존재하면 우선 사용하고, 없으면 기본 라벨을 적용합니다.
                     val name = if (r.who == Who.User) (youName ?: MagiBundle.msg("chat.who.you"))
                     else MagiBundle.msg("chat.who.magi")
                     val hue = if (r.who == Who.User) Look.primary else Look.accent
                     p.add(Look.rowHead(name, hue, marks, RowText.clock(r.at)), BorderLayout.NORTH)
                     if (r.who == Who.Agent) {
-                        // 답은 마크다운으로 온다 — **누르지 않아도** 그려진다(사용자 교정:
-                        // 「일일이 눌러야 하면 불편해서 쓰겠나」). 펜스·표·링크처럼 부분집합
-                        // 렌더가 틀리게 그리는 답만 IDE 마크다운 엔진(머메이드 포함)으로,
-                        // 나머지는 가벼운 부분집합 렌더로 — 브라우저 하나가 프로세스 하나다.
+                        // 에이전트 마크다운 답변 렌더링:
+                        // 코드 블록, 테이블, 링크, 다이어그램 등 리치 서식이 필요한 경우에만 IDE 임베디드 브라우저 엔진([RichAnswer])을 활성화하고,
+                        // 일반 텍스트는 경량 Swing 컴포넌트로 렌더링하여 프로세스 메모리를 절약합니다.
                         val rich = if (pinned == null && RichAnswer.needsRich(r.text)) {
                             RichAnswer.panel(project, r.text, RowText.richKey(r), this@View)
                         } else null
-                        // 흐르는 중인 줄은 그렇게 보인다 — 반쪽 답이 다 쓰인 답과 똑같이
-                        // 생기면 사람이 잘린 글을 완성된 글로 읽는다(리뷰 F11).
+                        // 스트리밍 중인 초안은 커서 글리프(" ▌")를 붙여 완료된 텍스트와 구별합니다(리뷰 F11).
                         p.add(rich ?: Look.rich(r.text + if (r.draft) " ▌" else ""), BorderLayout.CENTER)
                     } else {
                         p.add(Look.prose(r.text), BorderLayout.CENTER)
                     }
                 }
-                // 생각은 기본 접힘 — 웹이 그렇다. 클릭이 펴고, 펼침은 리드로우를 살아남는다([opened]).
+                // 추론 과정(Thinking)은 기본 접힘 상태로 렌더링하며 클릭 시 토글됩니다. 펼침 상태는 재렌더링 시에도 [opened] 집합으로 유지됩니다.
                 Who.Thinking -> {
                     val long = r.text.contains('\n') || r.text.length > 120
                     val open = RowText.foldKey(r) in opened
@@ -951,14 +912,13 @@ class MagiToolWindow : ToolWindowFactory {
                         if (open) "⌃" else RowText.oneLine(r.args.orEmpty(), 100) + "  ⌄", RowText.clock(r.at)),
                         BorderLayout.NORTH)
                     if (open) {
-                        // 펼침: 인자 원문과 결과 원문 — 옮겨 적을 것이라 고정폭이다.
+                        // 펼침 상태: 도구 호출 인자 및 실행 결과 원문을 모노스페이스 폰트로 표시합니다.
                         val body = JBPanel<JBPanel<*>>().apply {
                             layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                             isOpaque = false
                             r.args?.let { add(Look.code(it)) }
                             r.out?.let { add(Look.code(it, Look.error)) }
-                            // 지나간 편집도 같은 규칙으로 나란히-보기 — 인자의 old/new 원문 두 면,
-                            // 앵커·replaceAll 은 제외(승인 diff 와 같은 「인자가 전체 진실」 집합).
+                            // 파일 수정 도구 호출의 경우 이전/이후 변경 내역을 IDE Diff 뷰어로 확인할 수 있는 버튼을 제공합니다.
                             RowText.diffSides(r)?.let { (path2, old2, new2) ->
                                 add(JButton(MagiBundle.msg("chat.diff.view")).apply {
                                     addActionListener {
@@ -977,15 +937,14 @@ class MagiToolWindow : ToolWindowFactory {
                         }
                         p.add(body, BorderLayout.CENTER)
                     } else {
-                        // 접힘: 실패의 첫 줄만. 전문과 파일:줄 앵커는 문제 탭의 몫이다.
+                        // 접힘 상태: 에러 발생 시 첫 줄 메시지만 요약 표기합니다.
                         r.out?.let { p.add(Look.code("↳ " + it.lineSequence().firstOrNull().orEmpty(), Look.error),
                             BorderLayout.CENTER) }
                     }
                     foldable(p, r)
                 }
                 Who.Council -> if (r.opened) {
-                    // 라운드가 열렸다. 평결과 **다른 모양**으로 그린다 — 같은 모양이면 판이
-                    // 열린 것과 한 멤버가 답한 것이 화면에서 같은 말이 된다.
+                    // 카운슬 세션 라운드 개시 헤더: 개별 멤버 판정과 시각적으로 구별되도록 렌더링합니다.
                     val has = !r.evidence.isNullOrBlank()
                     val open = has && RowText.foldKey(r) in opened
                     val head = MagiBundle.msg("chat.council.round", r.round)
@@ -998,30 +957,24 @@ class MagiToolWindow : ToolWindowFactory {
                         isOpaque = false
                         if (r.text.isNotBlank()) add(Look.prose(r.text))
                         r.rule?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
-                        // 증거는 **접어 둔다.** 전사는 흐르는 화면이고, 펼쳐진 증거 한 라운드가
-                        // 대화를 덮는다. 옮겨 적을 것이라 고정폭이다(툴 행의 그 규칙 그대로).
+                        // 증거 자료(Evidence)는 대화 흐름을 가리지 않도록 기본 접힘 처리하며, 펼침 시 모노스페이스로 렌더링합니다.
                         if (open) add(Look.code(r.evidence.orEmpty()))
                     }
                     p.add(body, BorderLayout.CENTER)
                     if (has) foldable(p, r)
                 } else {
                     val name = r.member ?: MagiBundle.msg("chat.who.council")
-                    // **어느 렌즈가 말하는가.** 카운슬에 자리가 셋인 이유가 그것이라, 이름만 그리면
-                    // 한 라운드의 판정 셋이 서로 바꿔 놔도 같은 글이다. 실려 오는데 안 그리고
-                    // 있었다 — 그 칸이 「라운드의 규칙」과 한 자리를 쓰고 있어서, 규칙만 그려졌다.
+                    // 카운슬 멤버의 평가 관점([lens])을 표시하여 3인의 심의 기준을 구별합니다.
                     val lens = r.lens?.takeIf { it.isNotBlank() }?.let { " [$it]" }.orEmpty()
                     val marks = buildList {
-                        // 낱말은 **한 표**에서 온다(RowText.verdict) — 터미널·콘솔이 쓰는 그 말이다.
-                        // 색만으로는 못 가른다: 옮겨 적은 글에는 색이 없고, 색으로 뜻을 나르는
-                        // 화면은 색을 못 보는 사람에게 아무 말도 안 한 것과 같다.
+                        // 판정 결과 텍스트는 `RowText.verdict`의 공통 어휘를 사용하며, 접근성을 위해 아이콘과 텍스트를 함께 표기합니다.
                         RowText.verdict(r.decision)?.let { v ->
                             val word = if (v.key.isBlank()) v.word else MagiBundle.msg(v.key)
                             add("${v.icon} $word" to when (r.decision) {
                                 "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint
                             })
                         }
-                        // 본문은 실려 온 말(rationale)이고, 「아무도 안 줬다」는 사실은 마크로
-                        // 남는다 — 둘 중 하나만 그리면 TUI·웹이 지키는 구별이 여기서만 사라진다.
+                        // 멤버의 의견 미제시 상태는 무응답 마크로 명시합니다.
                         if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
                     p.add(Look.rowHead("⚖ $name$lens", Look.seat(name) ?: Look.body, marks, RowText.clock(r.at)),
@@ -1030,11 +983,8 @@ class MagiToolWindow : ToolWindowFactory {
                         layout = javax.swing.BoxLayout(this, javax.swing.BoxLayout.Y_AXIS)
                         isOpaque = false
                         if (r.text.isNotBlank()) add(Look.prose(r.text))
-                        // 이 표가 **무엇 위에 서 있나.** 셰이퍼는 처음부터 `cite` 를 날랐고 화면이
-                        // 안 그렸다 — 나르는 것과 그리는 것은 다르다. 코어가 기록하는 이유가
-                        // **확인 가능해서**이고(멤버에게 보인 자료에서 그 조각을 찾아본다), 가장
-                        // 중요한 경우를 대놓고 적어 뒀다: "an empty one on a `done` is itself worth
-                        // seeing". 아무것도 안 딛고 선 승인이 딛고 선 승인과 똑같이 보이면 안 된다.
+                        // 심의 판정의 근거 인용(`cite`), 준수 사항(`keep`), 상세 이유(`why`)를 표시합니다:
+                        // 증거 없이 승인된 판정과 근거가 명시된 판정을 시각적으로 검증할 수 있도록 지원합니다.
                         r.cite?.takeIf { it.isNotBlank() }?.let {
                             add(Look.aside(MagiBundle.msg("chat.verdict.on", it)))
                         }
@@ -1049,12 +999,11 @@ class MagiToolWindow : ToolWindowFactory {
         }
 
         /**
-         * 접었다 폈다 — 클릭 하나. 판은 리드로우마다 새로 서므로 상태는 [opened] 가 든다.
+         * 패널 접기/펼치기 클릭 이벤트 핸들러를 등록합니다. 상태는 [opened] 세트에 영속화됩니다.
          *
-         * **자식까지 같은 리스너를 단다**(리뷰 실측): 본문이 JTextArea 라 그 위 클릭은 텍스트
-         * 컴포넌트가 소비하고 판까지 안 올라온다 — 스윙은 버블링이 없다. 접힌 생각 행의 보이는
-         * 전부가 그 텍스트였으니, 안 달면 글자를 눌러도 안 펴진다. 드래그 선택은 mouseClicked
-         * 가 안 울리므로(누른 자리=뗀 자리일 때만) 복사와 안 싸운다.
+         * Swing 이벤트 전파 처리:
+         * JTextArea 등 텍스트 컴포넌트가 마우스 클릭을 소비하므로, 자식 컴포넌트 전체에 재귀적으로 리스너를 바인딩합니다.
+         * 마우스 드래그를 통한 텍스트 선택 동작과 충돌하지 않도록 순수 클릭(누른 위치==뗀 위치)만 처리합니다.
          */
         private fun foldable(p: JBPanel<JBPanel<*>>, r: Row) {
             val flip = object : java.awt.event.MouseAdapter() {
@@ -1065,8 +1014,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
             }
             fun hook(c: java.awt.Component) {
-                // 단추 서브트리는 접기 그물 밖이다(리뷰 F1): 같은 클릭이 diff 를 열면서 행을
-                // 접으면, 연 것이 눈앞에서 사라진다 — 단추는 제 일 하나만 한다.
+                // 내부 버튼 컴포넌트(예: Diff 보기)는 접기 이벤트 대상에서 제외합니다(리뷰 F1).
                 if (c is javax.swing.AbstractButton) return
                 c.addMouseListener(flip)
                 c.cursor = java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR)
@@ -1344,22 +1292,17 @@ class MagiToolWindow : ToolWindowFactory {
         fun contextNow(): Rows.Ctx? = shaper.context
 
         /**
-         * 「이 컴패니언이 무엇 위에서 도는가」와 그것을 바꾸는 손잡이 — 웹 콘솔의 「정보」 카드와
-         * 같은 것을, 채팅 판에서 한 번에 닿는 자리에 둔다(사용자 요청).
+         * 컴패니언 런타임 환경 조회 및 전환 액션.
+         * 웹 콘솔의 컴패니언 정보 카드와 동일한 기능을 도구 창 타이틀 바에서 바로 접근할 수 있도록 제공합니다.
          *
-         * **접어 두는 것이 요구의 절반이다.** 이 창은 전에 전사 위에 늘 서 있는 한 줄을 뒀다가
-         * "왜 이렇게 커? 변하는 데이터도 없네"를 들었다(이 파일 머리의 주석). 그래서 늘 보이는
-         * 것은 이미 있는 것 둘로 족하다 — 판 안의 신호등 글리프와 상태 표시줄 — 이고, 나머지는
-         * 제목줄 아이콘 뒤에 접힌다. 눌러야 뜨는 자리는 폭을 안 먹는다.
+         * 공간 최적화 설계:
+         * 과거 전사 패널 상단에 상시 배치되던 고정 라벨이 화면 공간을 불필요하게 점유하던 문제를 개선하여,
+         * 상시 표시는 상태 표시줄 및 연결 인디케이터로 최소화하고 상세 정보와 제어 기능은 타이틀 바 팝업 액션으로 접어 두었습니다.
          *
-         * 카드가 **읽어서** 그리는 것은 넷이다: 수준(신호등과 같은 색), 판(`about` 의 `version`
-         * — 와이어에 칸이 있는데 이 플러그인의 어느 화면도 안 그리고 있었다, 2026-09-09 실측),
-         * 모델, 백엔드. 바꾸는 것은 셋(모델·백엔드·승인)이고 전부 **데몬이 준 목록에서** 고른다 —
-         * 이름을 지어내면 틀린 답을 보낸다(설정 화면이 같은 이유로 그렇게 한다).
-         *
-         * ⚠ **세우는 둘은 물어보고 한다.** `restart` 와 `update` 는 도는 턴을 끝낸다. 되돌릴 수
-         * 있는 것들(모델을 바꾸는 일) 옆에 되돌릴 수 없는 것을 말없이 두지 않는다. `shutdown` 은
-         * 아예 안 붙였다 — 끄고 나면 이 창에서 다시 켤 손이 없다.
+         * 카드 표시 및 제어 항목:
+         * - 읽기: 연결 상태(인디케이터 색상 및 글리프), 버전(`about`의 `version` 필드, 2026-09-09 실측 반영), 모델, 백엔드.
+         * - 쓰기: 모델, 백엔드, 승인 모드 전환(데몬이 반환한 유효 목록 기반 선택).
+         * - 파괴적 액션 보호: `restart`, `update`, `compact` 등 진행 중인 턴을 중단시킬 수 있는 명령은 실행 전 확인 다이얼로그를 거칩니다.
          */
         fun infoAction(): com.intellij.openapi.actionSystem.AnAction =
             object : com.intellij.openapi.actionSystem.AnAction(
@@ -1367,15 +1310,14 @@ class MagiToolWindow : ToolWindowFactory {
                 com.intellij.icons.AllIcons.Actions.Properties) {
                 override fun actionPerformed(e: com.intellij.openapi.actionSystem.AnActionEvent) {
                     val seat = e.inputEvent?.component
-                    // 문 넷을 한 왕복에 묻는다. 창을 띄우고 나서 하나씩 물으면 콤보가 빈 채로
-                    // 떴다가 채워지고, 그 사이에 사람이 고르면 목록이 갈아치우며 그 선택을 먹는다.
+                    // 필요한 4개 상태(facts, about, models, profiles)를 단일 비동기 블록에서 일괄 조회합니다.
+                    // UI 오픈 후 비동기로 개별 수신할 경우 콤보박스가 깜빡이며 사용자의 선택을 덮어쓰는 레이스 컨디션을 방지합니다.
                     onDaemon { comp ->
                         val f = comp.facts()
                         val ver = comp.about().version
-                        // 목록이 비는 데는 이유가 있고, **데몬이 그 이유를 말한다.** `models` 는
-                        // 백엔드가 5초 안에 답을 못 하면 `ok=true` 에 **빈 목록 + why** 로 온다
-                        // (`answerModels` — "no menu is a better answer than a stuck one"). ok 만
-                        // 보면 그 사유가 버려지고, 사람은 고를 것이 없는 콤보 앞에서 왜인지 모른다.
+                        // 모델 목록 타임아웃 처리:
+                        // 코어 백엔드가 5초 내 응답하지 못할 경우 `ok=true`와 함께 빈 목록 및 `why` 사유가 반환됩니다("no menu is a better answer than a stuck one").
+                        // 단순 `ok` 여부만 확인할 경우 실패 사유가 유실되므로 `why` 메시지를 추출하여 콤보박스 자리에 표시합니다.
                         val models = comp.models().let {
                             if (it.ok && it.why == null) it.models.orEmpty() to null
                             else emptyList<String>() to (it.why ?: it.error)
@@ -1389,7 +1331,7 @@ class MagiToolWindow : ToolWindowFactory {
                 }
             }
 
-        /** 카드를 세운다. 값은 이미 다 읽혀 있고 여기서는 그리기만 한다 — EDT 에서 문을 안 두드린다. */
+        /** 정보 팝업 카드를 생성하고 표시합니다. 조회된 데이터를 기반으로 EDT에서 순수 렌더링만 수행합니다. */
         private fun showInfo(
             under: java.awt.Component?,
             f: Companion.Facts,
@@ -1410,13 +1352,12 @@ class MagiToolWindow : ToolWindowFactory {
                 card.add(right, c)
                 c.gridy++
             }
-            // 신호등 — 판 안의 글리프와 **같은 사실**을 쓴다. 두 자리가 색을 따로 정하면
-            // 언젠가 갈라지고, 그러면 어느 쪽이 맞는지 사람이 알 길이 없다.
+            // 연결 상태 표시 — 도구 창 인디케이터와 동일한 Mood 스냅샷을 사용하여 일관성을 유지합니다.
             row(MagiBundle.msg("chat.info.state"), JBLabel(m.glyph + "  " + m.why).apply { foreground = m.colour })
-            // 판. 데몬이 안 말하면 빈칸이 아니라 「안 말했다」 — 모름을 값으로 그리지 않는다(§0.5-7).
+            // 버전 표시 — 데몬 응답이 누락된 경우 임의 추정 대신 미수신 안내 문구를 표시합니다(`docs/UI.ko.md` §0.5-7).
             row(MagiBundle.msg("chat.info.version"), JBLabel(version?.ifBlank { null } ?: MagiBundle.msg("set.unsaid")))
 
-            /** 목록이 비면 콤보를 안 세운다 — 고를 것이 없는 콤보는 눌러도 아무 일이 없다. */
+            /** 선택 가능한 목록이 있을 때 콤보박스를 구성하고, 비어 있을 때는 사유 라벨을 표시합니다. */
             fun picker(
                 now: String?,
                 listed: Pair<List<String>, String?>,
@@ -1424,23 +1365,19 @@ class MagiToolWindow : ToolWindowFactory {
                 send: (Companion, String) -> Response,
             ): javax.swing.JComponent {
                 val (choices, whyNot) = listed
-                // 고를 것이 없으면 콤보를 안 세운다 — 눌러도 아무 일이 없는 콤보는 없는 것만 못하다.
-                // 대신 **왜 없는지**를 그 자리에 적는다: 데몬이 사유를 말했으면 그 말을 옮기고,
-                // 아무 말도 없었으면 지금 값만 그린다.
+                // 선택 가능한 목록이 없는 경우 비활성 콤보박스 대신 사유를 명시합니다.
                 if (choices.isEmpty()) return JBLabel(
                     (now?.let(draw)?.ifBlank { null } ?: MagiBundle.msg("set.unsaid")) +
                         (whyNot?.lineSequence()?.first()?.take(80)?.ifBlank { null }
                             ?.let { "  — " + MagiBundle.msg("chat.info.nolist", it) } ?: "")
                 ).apply { if (whyNot != null) foreground = Look.warn }
                 val box = Look.narrowCombo<String>()
-                // 모델은 **토큰**을 담고 렌더러만 사람 말로 바꾼다 — 나가는 값이 프로토콜의 것이어야
-                // 한다(설정 화면이 같은 이유로 같은 모양이다).
+                // 모델 식별자 토큰을 데이터로 보유하고 표시는 렌더러를 통해 사용자 친화 텍스트로 변환합니다.
                 box.renderer = com.intellij.ui.SimpleListCellRenderer.create<String> { label, value, _ ->
                     label.text = draw(value)
                 }
-                // 데몬이 말한 지금 값이 목록에 없으면 **자리를 만들어 준다.** 편집 불가 콤보는
-                // 모델에 없는 값을 조용히 거부하고 첫 항목으로 되돌리는데, 그 되돌림이 리스너를
-                // 깨워 사람이 안 고른 값을 보낸다(설정 화면이 같은 결함을 겪었다 — 리뷰 R6).
+                // 현재 설정된 값이 목록에 없는 경우 임시 항목으로 추가하여,
+                // Swing ComboBox가 첫 번째 항목으로 강제 재설정되며 의도치 않은 변경 요청을 전송하는 결함을 방지합니다(리뷰 R6).
                 (choices + listOfNotNull(now?.takeIf { it.isNotBlank() && it !in choices })).forEach { box.addItem(it) }
                 box.selectedItem = now
                 var painting = true
@@ -1458,12 +1395,12 @@ class MagiToolWindow : ToolWindowFactory {
             row(MagiBundle.msg("chat.info.model"), picker(f.model, models) { comp, v -> comp.setModel(v) })
             row(MagiBundle.msg("chat.info.backend"), picker(f.backend, backends) { comp, v -> comp.useBackend(v) })
             row(MagiBundle.msg("chat.info.permission"),
-                // 승인 모드의 목록은 프로토콜의 것이라 문에 안 묻는다 — 사유가 있을 수 없다.
+                // 승인 모드 목록은 프로토콜 상수이므로 데몬 질의 없이 정적 정의를 사용합니다.
                 picker(f.permission, Perms.TOKENS to null, Perms::label) { comp, v -> comp.setPermission(v) })
 
             val acts = JBPanel<JBPanel<*>>(java.awt.FlowLayout(java.awt.FlowLayout.LEFT, 6, 0))
             var popup: com.intellij.openapi.ui.popup.JBPopup? = null
-            /** 카드의 단추 하나. [confirm] 이 있으면 먼저 묻는다 — 도는 턴을 끝내는 것들이다. */
+            /** 카드 액션 버튼. [confirm] 메시지가 정의된 경우 실행 전 확인 다이얼로그를 띄웁니다. */
             fun act(label: String, confirm: String?, door: (Companion) -> Response) {
                 acts.add(JButton(label).apply {
                     addActionListener {
@@ -1472,7 +1409,7 @@ class MagiToolWindow : ToolWindowFactory {
                         popup?.cancel()
                         onDaemon { comp ->
                             val r = door(comp)
-                            // 데몬 자신의 말을 옮긴다 — 무엇이 바뀌었는지 아는 것은 저쪽이다.
+                            // 처리 결과 메시지는 데몬 응답 본문을 반영합니다.
                             if (r.ok) report(r.out?.lineSequence()?.first()?.take(120)?.ifBlank { null } ?: label)
                             else report(MagiBundle.msg("chat.notsent", label, r.error ?: MagiBundle.msg("common.noreason")))
                         }

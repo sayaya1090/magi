@@ -5,38 +5,30 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import dev.sayaya.magi.ide.model.FileRef
 
 /**
- * 편집기에서 **참조를 뜨는 한 자리**.
+ * 에디터 내 파일 및 라인 참조([FileRef]) 생성 유틸리티.
  *
- * 세 곳이 이 일을 각자 적고 있었다 — 우클릭 액션, Alt+Enter 의 「물어보기」, Alt+Enter 의
- * 「추가」. 그 안에는 리뷰로 산 교훈이 하나 들어 있다: **발췌는 코어가 디스크에서 읽으므로**
- * (`internal/app/refs.go` 의 `renderRef`) 붙이기 전에 저장해야 한다. 안 그러면 버퍼로 센
- * 줄번호가 저장 안 한 디스크와 갈려, 다른 텍스트가 "에이전트가 본 것"으로 영속된다.
- * 그 교훈이 세 곳에 흩어져 있으면 한 곳만 고치는 날이 온다.
- *
- * **다만 셋이 똑같지는 않았다.** 「선택이 없을 때」에서 갈렸고, 그건 실수가 아니라 자리마다
- * 옳은 답이 달라서다 — 우클릭은 파일을 겨누고, Alt+Enter 는 캐럿이 선 줄을 겨눈다. 합치면서
- * 그 갈림을 감추지 않고 [WhenBare] 로 **이름을 붙여** 부르는 쪽이 고르게 한다.
+ * 우클릭 팝업 메뉴, Alt+Enter 인텐션 등에서 공통으로 호출된다.
+ * 코어 데몬이 디스크에서 파일을 판독(`internal/app/refs.go`의 `renderRef`)하므로,
+ * 버퍼 상의 라인 번호와 디스크 내용 간의 불일치를 방지하기 위해 참조 생성 전 문서를 디스크에 선반영한다.
+ * 선택 영역 부재 시의 동작 정책은 [WhenBare] 열거형으로 지정한다.
  */
 internal object Attach {
 
-    /** 고른 것이 없을 때 무엇을 붙이나. */
+    /** 선택 영역 부재 시 참조 생성 전략. */
     enum class WhenBare {
-        /** 파일 전체 — 우클릭 「채팅에 추가」. 손이 파일을 겨누고 있다. */
+        /** 파일 전체 참조 — 에디터 우클릭 컨텍스트 메뉴 등. */
         WholeFile,
 
-        /** 캐럿이 선 줄들 — Alt+Enter. 「이 코드」가 가리키는 것은 지금 그 줄이다. */
+        /** 현재 캐럿이 위치한 라인 참조 — Alt+Enter 인텐션 액션 등. */
         CaretLines,
 
-        /** 아무것도 — 고른 것이 있을 때만 서는 자리. */
+        /** 참조 미생성 (빈 목록). */
         Nothing,
     }
 
     /**
-     * [editor] 에서 참조를 뜬다. **문서를 먼저 저장한다**(위 사유).
-     *
-     * 캐럿마다 하나다. 멀티캐럿 선택의 나머지가 소리 없이 빠지면 「사라지는 첨부 없음」이
-     * 클라이언트에서 깨진다. 줄은 에디터 셈법(1-기준 포함)이고, 계약의 낱말 그대로다
-     * ([FileRef] 의 `lines`).
+     * [editor]로부터 파일 참조 목록을 생성한다. 미저장 문서는 디스크에 선저장된다.
+     * 멀티캐럿 선택 영역을 모두 수집하며, 에디터 기준 1-based 라인 번호를 적용한다.
      */
     fun refs(editor: Editor, path: String, whenBare: WhenBare): List<FileRef> {
         FileDocumentManager.getInstance().saveDocument(editor.document)
@@ -50,9 +42,9 @@ internal object Attach {
         }
         return picked.map { c ->
             val from = doc.getLineNumber(c.selectionStart) + 1
-            // 선택 끝이 줄머리에 걸치면 그 줄은 실제로 안 골라진 것이다.
+            // 선택 영역 끝이 라인 첫 오프셋에 걸치는 경우 해당 라인은 선택 범위에서 제외
             val to = doc.getLineNumber((c.selectionEnd - 1).coerceAtLeast(c.selectionStart)) + 1
-            // 한 줄이면 "5" — 세 자리가 같은 표기라야 같은 줄의 칩이 중복으로 안 선다.
+            // 단일 라인인 경우 "5", 다중 라인인 경우 "5-10" 형식으로 일관되게 표기
             FileRef(path, if (from == to) "$from" else "$from-$to")
         }
     }

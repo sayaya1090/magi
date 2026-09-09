@@ -14,40 +14,27 @@ import dev.sayaya.magi.ide.usecase.DaemonLifecycle
 import java.nio.file.Paths
 
 /**
- * 이 프로젝트의 데몬에 닿는 길. 창 둘이 같이 쓴다.
+ * 프로젝트별 백엔드 데몬 소켓 경로 및 워크스페이스 연결 관리자.
  *
- * 창이 둘이 된 것은 배치 때문이다(설계 문서 §5 "어디에 놓나") — 대화는 하단 독, 사실 판은 우측.
- * 그 전에는 이 배선이 창 하나 안에 있었고, 둘째 창을 만들면서 복사하면 **같은 규칙이 두 곳에**
- * 생긴다. 이 트리가 오늘 하루 종일 고친 것이 그 결함이라 여기로 뺀다.
+ * 하단 도구 창(MagiToolWindow, 대화)과 우측 도구 창(PlanToolWindow, 계획/현황)이 공통으로 참조한다 (설계 문서 §5).
+ * 데몬 소켓 해석, 워크스페이스 경계 검사, 생명주기 진단 로직의 중복을 방지하고 일관된 통신 인터페이스를 제공한다.
  */
 internal class Workspace(private val project: Project) {
 
-    /** 이 프로젝트의 소켓. 심링크를 푸는 자리는 SocketPath 안이다(§2). */
     /**
-     * 이 워크스페이스의 소켓. 설정 디렉토리는 **사람의 셸이 아는 값**으로 정한다([Shell]) —
-     * IDE 의 environ 으로 정하면 셸에서 `MAGI_CONFIG_DIR` 을 쓰는 사람의 데몬을 영영 못 찾는다.
+     * 작업 영역 데몬 소켓 파일 경로를 반환한다.
+     * 환경 변수(`MAGI_CONFIG_DIR`) 불일치를 방지하기 위해 사용자 로그인 셸 환경을 우선 조회한다 ([Shell.configDir]).
      */
     fun socket() = project.basePath?.let { SocketPath.of(Shell.configDir(), Paths.get(it)) }
 
     /**
-     * 컴패니언이 **못 만지는** 컨텐트 루트들. 없으면 빈 목록.
+     * 프로젝트 모듈 컨텐트 루트 중 데몬 작업 디렉토리([Project.getBasePath]) 외부에 위치한 경로 목록을 반환한다.
      *
-     * magi 의 워크스페이스는 디렉토리 하나이고 파일 툴이 거기 갇힌다 — 밖을 짚으면
-     * `"%s is outside this workspace"` 로 거절한다(`internal/app/query.go`). 그런데 IntelliJ 의
-     * 컨텐트 루트는 `basePath` 밖에 있을 수 있다. 실측했다(§8): `.iml` 둘짜리 프로젝트에서 하나가
-     * `basePath` 아래, 하나가 완전히 밖이었다.
+     * 데몬의 파일 작업 도구는 보안을 위해 `basePath` 디렉토리 내부로 제한되며, 외부는 거절 처리된다 (`internal/app/query.go`).
+     * IntelliJ 프로젝트 구성에 따라 모듈 컨텐트 루트가 프로젝트 베이스 외부에 존재할 수 있으므로 (§8 실측),
+     * 사용자가 IDE 상에서는 보이지만 에이전트가 수정할 수 없는 파일에 대해 혼선을 겪지 않도록 사전에 안내한다 (§0.5-7).
      *
-     * 그러면 사람은 Project 뷰에서 그 파일을 **보면서** 컴패니언에게 시킬 수 없고, 거절 문장은
-     * IDE 가 왜 그것을 보여 주는지 설명하지 않는다. 화면과 에이전트가 서로 다른 워크스페이스를
-     * 믿는 상태다. **거절이 오기 전에 말하는 것**이 §0.5-7 이 요구하는 모양이라 여기서 센다.
-     *
-     * **부를 때마다 센다.** 컨텐트 루트는 세션 중에 바뀐다(Project Structure 에서 더하고 뺀다).
-     * 그리고 읽기 락 안에서 세므로 **어느 스레드에서 불러도 된다** — 이건 편의가 아니라 자물쇠다.
-     * 풀 스레드에서 못 부르면 부르는 쪽이 "그럼 열 때 한 번 세어 필드에 두자"로 가고, 그렇게 적어
-     * 둔 값은 사람이 루트를 고쳐도 안 변한다. 실제로 두 자리가 그 모양이었다.
-     *
-     * 경로 비교로만 판정한다 — 심링크는 풀지 않는다. 이 목록은 사람에게 보여 줄 말이지 툴 게이트가
-     * 아니고, 진짜 판정은 코어가 자기 규칙으로 한다. 여기서 흉내내면 **두 번째 표현**이 생긴다.
+     * 모듈 설정 변경을 반영하기 위해 매 호출 시 ReadAction 컨텍스트에서 동적으로 수집한다.
      */
     fun rootsOutsideWorkspace(): List<String> {
         val base = project.basePath ?: return emptyList()
@@ -60,49 +47,37 @@ internal class Workspace(private val project: Project) {
                 .map { it.toString() }
                 .distinct()
                 .sorted()
-        }
+                }
     }
 
     /**
-     * 데몬에 한 번 붙어 무언가 하고 끊는다. 연결을 들고 있지 않는 이유는 스트림이 아직 없어서다 —
-     * 전사 문이 생기면 그때 스트림 하나를 usecase 가 단독으로 소유한다(§3).
-     *
-     * 못 붙으면 [trouble] 로 **말한다.** 빈 화면은 "할 일 없음"처럼 보이는데 사실은 "모른다"이고,
-     * 이 트리는 그 둘을 구분한다(§0.5-7).
+     * 데몬에 연결하여 지정된 작업을 실행한 후 연결을 종료한다.
+     * 연결 또는 세션 오류 발생 시 [trouble] 콜백으로 오류 진단 메시지를 전달한다.
      */
     fun onDaemon(trouble: (String) -> Unit, work: (Companion) -> Unit) = onDaemon(null, trouble, work)
 
     /**
-     * **대화를 안 고르고** 붙는다 — 목록·새 대화·갈아타기처럼 대화가 없어도 되는 일들.
+     * 활성 대화 세션 유무와 무관하게 데몬에 연결한다 (세션 목록 조회, 새 세션 시작 등 대화 세션 미지정 작업용).
      *
-     * 이 자리가 없어서 「대화 탭 열기」가 정작 필요한 순간에 안 됐다(사용자 실측): 데몬이 아직
-     * 대화를 공표하지 않았으면 [onDaemon] 이 붙기도 전에 거절했고, 화면에는 **목록을 청했는데
-     * 대화 얘기**가 떴다 — "Could not get the chat list — magi has not said which chat it is in".
-     * 목록은 「어느 대화인지 모를 때」 부르는 문이다. 그것을 「어느 대화인지 알아야」 열게 두면
-     * 필요한 순간에만 잠긴다.
-     *
-     * 여기서 나온 컴패니언은 **대화 문을 못 쓴다** — `Companion.send` 가 사유를 실어 거절한다.
+     * 공표된 활성 세션이 없는 초기 상태에서도 세션 목록 조회가 정상 동작하도록 보장한다.
+     * 본 메서드로 획득한 [Companion]은 대화 전송 API 호출이 제한된다.
      */
     fun onDaemonWithoutChat(trouble: (String) -> Unit, work: (Companion) -> Unit) =
         connect(null, needChat = false, trouble, work)
 
     /**
-     * 3초마다 도는 폴의 문. **인내가 짧다.**
+     * 3초 주기 상태 폴링용 연결.
      *
-     * 기본 인내는 모델이 지나는 문의 것(2분)이고, 폴은 기억에서 답하는 문만 두드린다. 하나로
-     * 두면 웨지된 데몬 앞에서 스레드가 쌓인다 — 이 워치독이 존재하는 사유가 정확히 그것인데
-     * (`DaemonClient` 주석), 2분이면 3초 폴에서 마흔 개가 물린다.
-     *
-     * **이름 있는 오버로드다.** 꼬리에 기본값 인자를 붙이면 트레일링 람다를 빼앗는다 — 이
-     * 파일이 [onDaemon] 에서 이미 그렇게 한 번 깨졌다.
+     * 대화 추론 대기 타임아웃(2분) 대신 단기 타임아웃([DaemonClient.PATIENCE_POLL])을 적용하여,
+     * 데몬 무응답 시 폴링 작업자 스레드가 백그라운드 풀에 누적되는 것을 방지한다.
+     * 트레일링 람다 문법 호환성을 유지하기 위해 독립 메서드 오버로드로 제공한다.
      */
     fun onDaemonPolling(trouble: (String) -> Unit, work: (Companion) -> Unit) =
         connect(null, needChat = false, trouble, work, DaemonClient.PATIENCE_POLL)
 
     /**
-     * [at] 를 주면 공표된 현재 대신 **그 대화**에 붙는다 — 고정 탭의 문이다. 기본형과 오버로드로
-     * 가른 이유: 꼬리의 기본값 인자는 트레일링 람다를 빼앗는다(람다는 **마지막** 파라미터에만
-     * 붙는다) — 실제로 `onDaemon({}) { … }` 호출 전부가 깨졌다.
+     * 특정 대화 세션 식별자([at])를 지정하여 연결한다 (고정 탭 작업용).
+     * 기본형과 파라미터를 분리하여 트레일링 람다 문법을 유지한다.
      */
     fun onDaemon(at: String?, trouble: (String) -> Unit, work: (Companion) -> Unit) =
         connect(at, needChat = true, trouble, work)
@@ -118,16 +93,10 @@ internal class Workspace(private val project: Project) {
         ApplicationManager.getApplication().executeOnPooledThread {
             SocketPath.tooLong(sock)?.let { return@executeOnPooledThread trouble(it) }
             try {
-                // **붙어 보고 나서 진단한다.** 전에는 공표 파일이 없으면 붙기도 전에
-                // 「어느 대화인지 안 알려 줬다」로 끝냈는데, 데몬이 아예 안 돌 때도 공표 파일은
-                // 없다 — 그래서 꺼져 있는 데몬이 늘 대화 공표 탓으로 보고됐다. 아래 catch 가
-                // 「안 켰다 / 죽었다 / 끊겼다」를 가려 주는데, 그 자리에 닿지를 못했다.
-                // 확인하기 전에 원인을 대지 않는다.
+                // 공표 파일 유무로 판단하지 않고 실제 소켓 연결을 먼저 시도하여
+                // 데몬 미기동, 비정상 종료, 연결 해제 상태를 정확히 진단한다.
                 DaemonClient.connect(sock, patienceMs).use { client ->
-                    // 세션 id 는 데몬이 공표한 것을 그대로 쓴다. "이 워크스페이스의 최신"으로
-                    // 고르면 며칠 도는 데몬에서 그사이 누가 연 대화를 연다(publish.go 의 사유).
-                    // at 를 이미 이름 댄 경로(고정 탭)는 공표를 안 본다 — 「넘겨짚지 않는다」는
-                    // 자리를 모를 때의 규칙이지, 이름 댄 자리를 막는 규칙이 아니다(리뷰).
+                    // 세션 ID는 데몬이 공표한 현재 세션을 참조하되, 명시적 세션(at)이 지정된 경우 이를 우선 적용한다.
                     val sid = at ?: Published.of(sock)?.session
                     if (needChat && sid.isNullOrBlank()) {
                         trouble(MagiBundle.msg("chat.nosession"))
@@ -138,8 +107,7 @@ internal class Workspace(private val project: Project) {
             } catch (e: Exception) {
                 val v = DaemonLifecycle(sock, start = {}, daemons = SocketDaemons).verdict()
                 trouble(
-                    // `else` 를 안 쓴다. 판정이 하나 늘면 여기서 컴파일이 서는 것이, 새 갈래가
-                    // 옛 문장 뒤에 조용히 숨는 것보다 싸다.
+                    // 누락 방지를 위해 when 구문의 모든 분기를 명시적으로 매핑한다.
                     when (v) {
                         is DaemonLifecycle.Verdict.Left -> MagiBundle.msg("chat.daemon.left")
                         is DaemonLifecycle.Verdict.Killed -> MagiBundle.msg("chat.daemon.killed")

@@ -20,18 +20,17 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 /**
- * 데몬 소켓 하나에 붙은 연결.
+ * 데몬 도메인 소켓 클라이언트 연결 세션.
  *
- * 프레이밍은 한 줄에 JSON 객체 하나다(protocol.go 의 `Request`, "One object per line"). 그 이상이 필요 없고 `nc` 로 사람이 읽을
- * 수 있다.
+ * 프레이밍은 라인 단위 단일 JSON 객체 교환 방식이다 (`internal/adapter/daemon/protocol.go`의 `Request`, "One object per line").
  *
- * **이 연결은 락스텝이다.** 요청 한 줄을 쓰고 다음 한 줄을 그 요청의 답으로 읽는다. 그래서
- * 교환 전체가 한 자물쇠 안에 있어야 하고, 청하지 않은 프레임이 끼어들면 그 뒤 모든 교환이 한
- * 칸씩 밀린다. 데몬이 그 불변식을 주석으로 적어 두었고 `watch` 만 예외인 이유가 연결을 통째로
- * 넘겨받기 때문이다(internal/adapter/daemon/serve.go 의 `serveConn`). 스트림이 필요하면 [openStream] 으로 **다른 연결**을 판다.
+ * 이 연결은 **락스텝(Lockstep)** 프로토콜로 동작한다. 하나의 요청 라인을 전송하고 즉시 단일 응답 라인을 수신하므로,
+ * 전체 트랜잭션이 단일 뮤텍스([lock]) 내에서 원자적으로 보호되어야 한다. 요청하지 않은 프레임이 중간에 유입될 경우
+ * 이후 모든 요청-응답 쌍의 순서가 어긋나는 결함이 발생한다 (`internal/adapter/daemon/serve.go`의 `serveConn`).
+ * 지속적인 이벤트 수신이 필요한 스트림의 경우 [stream] 메서드를 통해 독립적인 전용 연결을 생성하여 사용한다.
  *
- * 느린 모델 호출을 이 연결로 보내지 말 것. 콘솔과 TUI 가 같은 이유로 일회용 연결을 따로
- * 판다(`clients/web/server/main.go` 의 `server.alone`, `cmd/magi/attach.go` 의 `attached.sock`).
+ * 실행 시간이 긴 모델 추론 요청을 공용 폴링 연결로 전송해서는 안 된다. 웹 콘솔 및 TUI 역시 동일한 이유로
+ * 일회용 전용 소켓 연결을 분리하여 사용한다 (`clients/web/server/main.go`의 `server.alone`, `cmd/magi/attach.go`의 `attached.sock`).
  */
 class DaemonClient private constructor(
     private val channel: SocketChannel,
@@ -43,19 +42,17 @@ class DaemonClient private constructor(
     private val lock = ReentrantLock()
 
     /**
-     * 한 번의 요청과 그 답. 락스텝이므로 통째로 잠근다.
+     * 단일 요청 전송 및 응답 수신을 원자적으로 수행한다 (락스텝 프로토콜 보호).
      *
-     * **시한이 있다.** `readLine` 은 무한 대기라, 연결은 받되 답하지 않는(웨지된) 데몬 하나가
-     * 부른 스레드를 영영 세웠다 — 우측 독 폴이 그 소켓을 3초마다 두드리면 스레드가 쌓인다(리뷰
-     * 실측 잔여의 승격). AF_UNIX 채널엔 읽기 SO_TIMEOUT 이 없어 **워치독이 연결을 닫는** 것으로
-     * 시한을 만든다: 락스텝 연결은 답이 밀린 순간 이미 못 쓰는 물건이라, 닫는 것이 곧 정직한
-     * 실패다. 기본 시한이 넉넉한 이유(2분)는 이 문으로 모델 호출(초안·제안)이 지나가서다 —
-     * 짧게 잡으면 느린 로컬 모델의 정답이 시한 초과로 둔갑한다.
+     * `readLine()`은 소켓이 닫히지 않는 한 무한 블록되므로, 응답이 지연되거나 무응답(wedge) 상태에 빠진 데몬 소켓을
+     * 우측 독이 3초 주기로 폴링할 경우 워커 스레드가 고갈되는 결함이 발생한다.
+     * AF_UNIX 소켓 채널은 네이티브 SO_TIMEOUT을 지원하지 않으므로, 백그라운드 워치독 타이머([reaper])를 통해
+     * 타임아웃 발생 시 소켓 채널을 강제 종료(`channel.close()`)하는 방식으로 안전망을 구축한다.
+     * 락스텝 연결에서는 응답 순서가 한 번이라도 어긋나면 세션을 복구할 수 없으므로 채널을 즉시 닫고 실패를 반환하는 것이 안전하다.
      */
     override fun exchange(request: Request): Response = lock.withLock {
-        // 워치독은 **쓰기보다 먼저** 무장한다(리뷰 실측): AF_UNIX 버퍼는 8KB 라, 받기만 하고
-        // 안 읽는 상대에 큰 요청(열린 버퍼 전문, look-over)을 쓰면 flush 가 무한 블록이다 —
-        // 뒤에 무장하면 이 유닛이 죽이려던 hang 이 write 쪽으로 그대로 남는다.
+        // AF_UNIX 송신 버퍼(8KB)가 가득 차서 flush() 단계에서 블록되는 상황을 방지하기 위해
+        // 워치독은 쓰기 작업 개시 전에 미리 무장(arm)한다 (큰 페이로드 전송 시 블로킹 방어).
         val hung = java.util.concurrent.atomic.AtomicBoolean(false)
         val watchdog = reaper.schedule({
             hung.set(true)
@@ -70,10 +67,9 @@ class DaemonClient private constructor(
             if (hung.get()) throw DaemonGone("응답 시한(${patienceMs}ms)을 넘겨 연결을 끊었다: ${request.method}")
             throw e
         } finally {
-            // 답이 정확히 시한 언저리에 오면 cancel 이 이미 도는 리퍼를 못 막아, 이번 답은
-            // 정상 반환하고 **연결만** 닫히는 µs 창이 있다(리뷰 F2) — 같은 연결의 다음 교환이
-            // "끊겼다"로 오귀속된다. 락스텝 연결은 시한을 스친 순간 어차피 사망 선고가 맞아
-            // 창을 없애는 대신 여기 적는다.
+            // 응답 수신이 타임아웃 경계선과 거의 동시에 발생할 경우, cancel()이 이미 트리거된 리퍼 스레드를
+            // 막지 못해 응답 자체는 정상 반환되나 채널만 닫히는 마이크로초 단위 경합(Race Condition)이 존재할 수 있다 (리뷰 F2).
+            // 락스텝 연결에서는 시한에 임박한 경우 후속 트랜잭션의 신뢰성이 떨어지므로 안전하게 취소 처리한다.
             watchdog.cancel(false)
         }
         line ?: run {
@@ -84,19 +80,17 @@ class DaemonClient private constructor(
     }
 
     /**
-     * 요청 한 줄을 쓰고 그 뒤로 오는 것을 전부 넘긴다.
+     * 스트리밍 요청을 전송하고 연속되는 응답 라인을 콜백으로 전달한다.
      *
-     * **락을 잡지 않는다.** `exchange` 가 잡는 락은 "요청 하나에 답 하나"를 지키려는 것인데
-     * 스트림은 그 계약을 쓰지 않는다 — 이 연결은 이제 스트림의 것이고, 다른 교환은 애초에 오면
-     * 안 된다. 락을 잡으면 스트림이 사는 내내 그 연결이 잠겨 같은 결과를 **에러 대신 교착**으로
-     * 만든다.
+     * 이 연결은 스트리밍 전용으로 전환되므로 [exchange]와 같은 뮤텍스 락을 획득하지 않는다.
+     * 락을 획득할 경우 스트림 세션이 유지되는 동안 공용 연결이 블록되어 데드락이 발생할 수 있다.
      */
     override fun stream(request: Request, each: (Response) -> Boolean) {
         writer.write(Wire.json.encodeToString(Request.serializer(), request))
         writer.write("\n")
         writer.flush()
         while (true) {
-            val line = reader.readLine() ?: return // 데몬이 닫았다 — 깨끗한 끝이지 에러가 아니다
+            val line = reader.readLine() ?: return // 소켓 정상 종료 (정상 스트림 완료)
             if (!each(Wire.json.decodeFromString(Response.serializer(), line))) return
         }
     }
@@ -105,33 +99,20 @@ class DaemonClient private constructor(
         runCatching { channel.close() }
     }
 
-    /** 데몬이 사라진 것과 요청이 거절당한 것은 다른 사건이라 타입을 나눈다. */
+    /** 데몬 비정상 종료(소켓 끊김)와 비즈니스 요청 거절을 명확히 구분하기 위한 I/O 예외. */
     class DaemonGone(message: String) : java.io.IOException(message)
 
     companion object {
         /**
-         * 붙는다. 못 붙으면 예외이고, **그 예외가 곧 "내가 데몬이 될 차례"라는 답**이다
-         * (파일이 없는 것과 있는데 아무도 안 듣는 것을 구분하지 않는 이유는 설계 문서 §2).
-         *
-         * AF_UNIX 는 어디서나 쓴다. 윈도우도 마찬가지이고 거기서는 담긴 디렉토리의 ACL 이
-         * 권한을 정한다(listen_windows.go 의 `listenOwnerOnly`).
-         */
-        /**
-         * 모델이 지나는 문의 인내. 초안·제안·완성이 이 문을 지나므로 넉넉해야 한다 — 짧게
-         * 잡으면 느린 로컬 모델의 **정답이 시한 초과로 둔갑한다.**
+         * 모델 추론을 수반하는 요청의 대기 시한 (120초).
+         * 초안, 제안, 인라인 완성 등 LLM 백엔드를 경유하는 요청이므로 로컬 저사양 모델의 정상 응답이 타임아웃되지 않도록 넉넉하게 설정한다.
          */
         const val PATIENCE_ASK = 120_000L
 
         /**
-         * 기억에서 답하는 문의 인내 — 폴이 쓴다.
-         *
-         * 인내를 하나로 두면 **틀리는 방향이 하나뿐인 것처럼 보인다.** 이 워치독이 있는 사유가
-         * 이 주석 위에 적혀 있다: 「우측 독 폴이 그 소켓을 3초마다 두드리면 스레드가 쌓인다」.
-         * 무한 대기는 그렇게 없앴는데, **2분도 3초 폴 앞에서는 마흔 개가 쌓인다** — 창 둘이
-         * 각각 3초마다 두드리므로 첫 하나가 포기하기 전에 그만큼이 물린다(2026-09-09 실측).
-         *
-         * 그래서 폴은 짧게 든다. 기억에서 답하는 문이 30초를 넘기면 그건 느린 것이 아니라
-         * **웨지된 것**이다. 형제(VS Code)가 같은 사실을 같은 숫자로 적었다(`deadlineFor`).
+         * 인메모리 상태 폴링 요청의 대기 시한 (30초).
+         * 3초 주기로 동작하는 UI 폴러가 데몬 무응답 상태에서 120초 시한을 사용할 경우 최대 40개의 대기 스레드가 누적되는 결함이 발생했다
+         * (2026-09-09 실측). 단순 인메모리 조회가 30초를 초과하는 것은 데몬이 교착 상태에 빠진 것으로 판단한다 (VS Code 확장 `deadlineFor`와 동등).
          */
         const val PATIENCE_POLL = 30_000L
 
@@ -161,46 +142,25 @@ class DaemonClient private constructor(
         }
 
         /**
-         * 붙어 보고 **무엇을 만났는지**. 갈래의 뜻과 실측 표는 [Reach].
+         * 소켓 접속 시도 결과를 정밀 판정하여 [Reach] 상태로 매핑한다.
          *
-         * 예전엔 `alive(): Boolean` 이었고 `runCatching { … }.getOrDefault(false)` 로 예외를
-         * 전부 접었다. 접힌 것을 부르는 쪽이 "죽었다"로 폈으므로, 여기서 접는 것이 곧 저기서
-         * 거짓말이었다. **접는 자리를 없애는 것이 고침이다** — 펴는 쪽을 고치면 다음 부르는
-         * 쪽에서 같은 일이 또 일어난다.
+         * 단순히 불리언(`alive(): Boolean`)으로 예외를 은폐할 경우, 권한 부족으로 인한 접속 실패와
+         * 프로세스 부재로 인한 거절이 동일하게 "데몬 죽음"으로 오판되어 무한 재기동 루프에 빠질 수 있다.
          */
         /**
-         * 붙지 못한 사유가 **권한**인가.
+         * 소켓 연결 실패 예외를 분석하여 상태를 분류한다.
          *
-         * 이것만 「모름」으로 남긴다. 권한이 없어 못 붙는 것은 데몬이 살았는지 죽었는지에 대해
-         * 아무 말도 하지 않고, 그 자리에서 새로 띄우면 같은 이유로 또 못 붙는다 — 예산만 태운다.
-         *
-         * 낱말로 가른다. 자바는 이 자리에서 errno 를 내주지 않고(`SocketException` 하나에 다
-         * 담긴다), 커널마다 문장이 다르다. 낱말 판정이 좋진 않지만 대안은 **모든 실패를 모름으로
-         * 두는 것**이고, 그것이 지금 보고된 결함이다.
-         */
-        /**
-         * 붙기가 실패했을 때 그것을 어느 갈래로 볼 것인가.
-         *
-         * ⚠ **윈도우의 시체 소켓은 `ConnectException` 이 아니다.** 실사용 보고(2026-09-09):
-         * 윈도우에서 데몬이 죽고 소켓 파일만 남으면 플러그인이 아무것도 못 했다. 그 커널은 남은
-         * AF_UNIX 파일에 붙을 때 **WSAEINVAL**("An invalid argument was supplied")를 주고 — 코어의
-         * `listen_windows.go` 가 그 사실을 적어 두고 있다 — 자바는 그것을 `SocketException` 으로
-         * 낸다. 그래서 그 갈래가 `CouldNotAsk` 로 떨어졌고, 자동 기동은 `CouldNotAsk` 에서
-         * **일부러 안 띄운다**(모름을 없음으로 읽지 않으려고). 판정 하나 때문에 되살아날 길이
-         * 전부 막혔다.
-         *
-         * 여기 온 것이 무엇을 뜻하는지가 답이다. 부르는 쪽에서 이미 **파일이 있고**(notExists
-         * 아님) **확실히 소켓이 아닌 것도 아니다**를 확인했다. 그 자리에 붙지 못했다면 아무도 안
-         * 듣는 것이고, 커널이 그 사실을 어떤 낱말로 말하든 같다.
-         *
-         * **함수로 뺐다.** 이 매핑을 `reach` 안에 묻어 두었더니 변이 검사가 그것을 못 봤다 —
-         * 시험이 규칙(`deniedByPermission`)만 재고 **그 규칙을 쓰는지**는 안 재고 있어서, 매핑을
-         * 통째로 옛 결함으로 되돌린 변이가 초록으로 통과했다. 잴 수 없는 자리에 판단을 두지 않는다.
+         * Windows 플랫폼의 잔여 소켓 파일 대응 (2026-09-09 실측 반영):
+         * Windows에서 데몬이 비정상 종료되고 남은 잔여 AF_UNIX 소켓 파일에 연결을 시도할 경우,
+         * 커널은 `ConnectException`이 아닌 `WSAEINVAL`("An invalid argument was supplied")을 반환하며,
+         * 자바는 이를 일반 `SocketException`으로 래핑한다 (`listen_windows.go` 참조).
+         * 이를 권한 오류(`CouldNotAsk`)로 오판하면 데몬 자동 기동이 억제되므로, 사전에 소켓 파일 존재 및
+         * 비소켓 파일 여부를 검증한 상태라면 연결 거절([Reach.Refused])로 정확히 판정한다.
          */
         internal fun reachAfterFailedConnect(e: Exception): Reach = when {
-            // 유닉스에서 「아무도 안 듣는다」를 뜻하는 예외.
+            // 플랫폼 표준 연결 거절 예외
             e is ConnectException -> Reach.Refused
-            // 권한만 「모름」으로 남는다 — 데몬에 대해 아무 말도 하지 않는 유일한 실패다.
+            // 접근 권한 부족(Permission Denied)은 데몬의 실제 생존 여부를 알 수 없으므로 CouldNotAsk로 보존한다.
             deniedByPermission(e) -> Reach.CouldNotAsk("${e.javaClass.simpleName}: ${e.message}")
             else -> Reach.Refused
         }
@@ -212,20 +172,13 @@ class DaemonClient private constructor(
         }
 
         fun reach(socket: Path): Reach {
-            // 확실히 없는 것만 없다고 한다. `exists` 가 아니라 `notExists` 인 이유는 [Reach.Absent].
+            // 소켓 파일의 완전한 부재는 즉시 Absent로 판정한다.
             if (Files.notExists(socket)) return Reach.Absent
-            // **소켓인지 먼저 본다.** 갈래를 errno 로만 가르면 커널마다 답이 갈린다: 소켓이
-            // 아닌 보통 파일에 붙어 보면 macOS 는 `ENOTSOCK`(→ CouldNotAsk)인데 리눅스는
-            // `ECONNREFUSED` 를, 즉 **죽은 데몬과 똑같은 말**을 준다. 그래서 이 판정이
-            // macOS 에서만 맞았고, CI(우분투)에서 하루 넘게 빨갛게 서 있었다.
-            //
-            // 무는 것은 시험만이 아니다. 리눅스에서 소켓 자리에 엉뚱한 파일이 있으면 화면이
-            // 「소켓은 있는데 아무도 안 듣는다 — 죽은 것으로 보인다」고 말한다. 데몬이었던
-            // 적이 없는 파일에 대해 죽었다고 말하는 것이고, 그 판정에는 재기동이 달려 있다.
-            //
-            // 파일 **종류**는 커널을 안 탄다. 소켓·FIFO·장치는 `isOther` 이고, 보통 파일과
-            // 디렉토리는 아니다 — 확실히 소켓이 아닌 것만 여기서 거른다. 못 보면(권한) 판단을
-            // 안 하고 아래로 보낸다: 모르는 것을 아는 척하지 않는다.
+            // 파일 유형 사전 검사:
+            // 소켓이 아닌 일반 파일에 연결 시도 시 macOS는 ENOTSOCK(CouldNotAsk)을 반환하나,
+            // Linux는 ECONNREFUSED(데몬 프로세스 부재와 동일한 에러)를 반환하는 커널 간 차이가 존재한다.
+            // 일반 파일/디렉토리에 대해 "데몬 사망"으로 오판단하여 잘못된 재기동을 시도하지 않도록,
+            // 파일 속성([BasicFileAttributes.isOther])을 통해 특수 파일(소켓/FIFO)이 아닌 경우 사전에 배제한다.
             val surelyNotSocket = runCatching {
                 !Files.readAttributes(socket, BasicFileAttributes::class.java).isOther
             }.getOrDefault(false)

@@ -11,41 +11,25 @@ import javax.swing.JComponent
 import javax.swing.SwingUtilities
 
 /**
- * **전사를 옮겨 적는 손** — 말풍선 하나씩, 그리고 여러 개를 끌어서.
+ * 트랜스크립트 행 드래그 선택 및 복사 제어기 (개별 말풍선 복사 및 복수 행 범위 복사 지원).
  *
- * 사용자 요청(2026-09-01): 「챗창 전체 드래그로 복사 안 되냐」, 「TUI 처럼 말풍선 한 개 단위로
- * 복사하는 버튼도」. 둘 다 지금은 안 됐다. 이 판은 말풍선마다 **따로 선 컴포넌트**라(창의
- * `column` 에 행 패널을 하나씩 얹는다) 스윙의 글자 선택이 그 사이를 못 잇는다 — 한 말풍선
- * 안에서는 끌리는데 다음 말풍선으로 넘어가는 순간 끊긴다. 이건 고장이 아니라 스윙이 원래
- * 그렇다: 선택은 텍스트 컴포넌트 **하나**의 것이다.
+ * Swing 텍스트 컴포넌트는 개별 컴포넌트 경계를 넘어선 텍스트 선택을 지원하지 않으므로 (말풍선별 독립 패널 구조),
+ * 행([Row]) 단위의 범위 선택 모델을 제공한다 (2026-09-01 사용자 실측 피드백 반영).
  *
- * 그래서 선택을 우리가 든다. 다만 **글자 단위가 아니라 행 단위**다 — 행 사이를 잇는 글자
- * 모델이 없는데 글자 단위인 척하면, 끌어 놓고 복사했을 때 어중간하게 잘린 것이 나온다.
- * 행 단위면 「2번 말풍선부터 5번까지」가 정확히 그대로 나온다. 한 말풍선 **안에서** 일부만
- * 고르는 것은 지금도 되고, 그건 건드리지 않는다.
- *
- * ### 순번이 아니라 열쇠로 잡는다
- *
- * 전사는 이벤트가 올 때마다 `removeAll()` 하고 통째로 다시 그린다. 선택을 순번으로 들면
- * **답이 흐르는 동안 매 프레임 선택이 다른 행으로 옮겨 다닌다.** 그래서 [RowText.foldKey] 로
- * 잡는다 — 그 행이 사라지면 선택도 같이 사라지는 것이 맞다.
- *
- * ### 누른 것만으로는 안 고른다
- *
- * 생각·툴 행은 **클릭이 접었다 편다**. 누르는 순간 선택이 서면 펴려던 사람이 매번 파란 칸을
- * 얻는다. 그래서 [dragged] 가 서기 전에는 아무것도 안 고른다 — 끈 것과 누른 것은 다른 뜻이다.
+ * 스트리밍 재렌더링 시 선택 영역이 어긋나지 않도록 행 순번 대신 [RowText.foldKey]를 기준으로 앵커와 포커스를 추적하며,
+ * 단순 클릭(사고 과정 접기/펼치기)과의 간섭을 방지하기 위해 실제 마우스 드래그([dragged])가 발생한 시점에만 선택 영역을 활성화한다.
  */
 internal class Copying {
 
     private var anchor: String? = null
     private var focus: String? = null
     private var dragged = false
-    /** 이번 판에 선 행들. 다시 그릴 때마다 비운다 — 지나간 패널을 들고 있으면 안 보이는 것을 칠한다. */
+    /** 현재 렌더링 주기에 배치된 행 패널 맵. */
     private val painted = LinkedHashMap<String, JComponent>()
 
     fun beginBuild() = painted.clear()
 
-    /** 지금 고른 것이 있나. 없으면 「전부」가 뜻이 되는 자리들이 있다(오른쪽 단추의 복사). */
+    /** 현재 선택된 행 범위 존재 여부. */
     fun any(): Boolean = anchor != null && focus != null
 
     fun clear() {
@@ -61,8 +45,7 @@ internal class Copying {
     }
 
     /**
-     * 고른 행들. 열쇠가 하나라도 지금 목록에 없으면 **빈 것**을 준다 — 반쯤 남은 선택으로
-     * 엉뚱한 구간을 복사하느니 아무것도 안 주는 것이 낫다.
+     * 선택된 행 목록 반환. 키가 목록에 존재하지 않는 경우 불완전 복사를 방지하기 위해 빈 목록을 반환한다.
      */
     fun selected(rows: List<Row>): List<Row> {
         val a = anchor ?: return emptyList()
@@ -73,20 +56,20 @@ internal class Copying {
         return rows.subList(minOf(ia, ifo), maxOf(ia, ifo) + 1).toList()
     }
 
-    /** 클립보드로. 고른 것이 없으면 [fallback] — 오른쪽 단추의 「전부 복사」가 그 길이다. */
+    /** 선택된 행(또는 전체)을 시스템 클립보드에 복사. */
     fun copy(rows: List<Row>, fallback: Boolean = false) {
         val take = selected(rows).ifEmpty { if (fallback) rows else emptyList() }
         if (take.isEmpty()) return
         CopyPasteManager.getInstance().setContents(StringSelection(RowText.plain(take)))
     }
 
-    /** 한 행만. 말풍선의 단추가 부르는 자리 — 선택과 무관하다. */
+    /** 단일 행 클립보드 복사. */
     fun copyOne(r: Row) =
         CopyPasteManager.getInstance().setContents(StringSelection(RowText.plain(r)))
 
     /**
-     * 행 패널에 손을 단다. 자식까지 훑어 다는 이유는 **글자 판이 마우스를 먹기 때문**이다 —
-     * 패널에만 달면 말풍선 본문 위에서 끈 것은 여기까지 못 온다.
+     * 행 패널 및 자식 컴포넌트 전체에 마우스 이벤트 리스너를 부착한다.
+     * 내부 텍스트 영역 컴포넌트가 마우스 이벤트를 가로채는 현상을 방어하기 위해 계층 구조를 재귀 순회하여 리스너를 연결한다.
      */
     fun install(panel: JComponent, r: Row, rows: () -> List<Row>) {
         val key = RowText.foldKey(r)
@@ -100,7 +83,7 @@ internal class Copying {
             }
             override fun mouseDragged(e: MouseEvent) {
                 if (!SwingUtilities.isLeftMouseButton(e)) return
-                // 끌린 지점 아래에 있는 행을 찾는다 — 자식 좌표를 열 좌표로 옮겨서.
+                // 드래그 지점 하위의 대상 행 패널을 컨테이너 좌표계로 변환하여 탐색
                 val at = SwingUtilities.convertPoint(e.component, e.point, panel.parent ?: return)
                 val over = panel.parent.getComponentAt(at) as? JComponent ?: return
                 val k = painted.entries.firstOrNull { it.value === over }?.key ?: return
@@ -118,7 +101,7 @@ internal class Copying {
         arm(panel)
     }
 
-    /** 고른 칸을 칠한다. 안 고른 것은 **투명으로 되돌린다** — 안 지우면 지난 선택이 남는다. */
+    /** 선택 상태에 따라 행 패널 배경색 및 불투명도를 갱신한다. */
     private fun paint(panel: JComponent, key: String, rows: List<Row>) {
         val on = dragged && selected(rows).any { RowText.foldKey(it) == key }
         if (panel is JBPanel<*>) {
@@ -128,12 +111,8 @@ internal class Copying {
     }
 
     /**
-     * 오른쪽 단추 메뉴와 ⌘C·⌘A.
-     *
-     * 끌어서 고를 수 있게 만들어도 **복사하는 길이 없으면 소용이 없다.** 그리고 그 길은 하나로
-     * 안 된다: 한 말풍선 안에서 글자를 고른 사람은 스윙이 이미 ⌘C 를 처리하고, 행을 끌어서 고른
-     * 사람은 우리가 처리해야 한다. 그래서 우리 것은 **고른 행이 있을 때만** 나선다 — 없으면
-     * 글자 판이 하던 일을 뺏지 않는다.
+     * 컨텍스트 팝업 메뉴 및 단축키(⌘C, ⌘A, ESC) 등록.
+     * 개별 텍스트 필드의 인라인 복사와 충돌하지 않도록 행 단위 선택 영역이 활성화된 경우에만 단축키 처리를 수행한다.
      */
     fun popup(target: JComponent, rows: () -> List<Row>) {
         val menu = javax.swing.JPopupMenu()
@@ -146,8 +125,7 @@ internal class Copying {
         menu.addSeparator()
         item("chat.copy.selall") { all(rows()); dragged = true; repaint() }
         menu.addPopupMenuListener(object : javax.swing.event.PopupMenuListener {
-            // 고른 것이 없으면 「고른 것 복사」는 할 일이 없다 — 눌러도 아무 일 없는 항목을
-            // 내밀지 않는다(이 집이 권한 단추에서 배운 것).
+            // 선택된 행이 없는 경우 '선택 복사' 항목을 비활성화한다.
             override fun popupMenuWillBecomeVisible(e: javax.swing.event.PopupMenuEvent) {
                 sel.isEnabled = selected(rows()).isNotEmpty()
             }

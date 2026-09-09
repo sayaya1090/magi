@@ -9,11 +9,9 @@ import java.util.function.Function
 import javax.swing.JComponent
 
 /**
- * 타이핑 중 훑어보기가 **할 말이 있을 때만** 서는 띠. 편집기 위, IDE 가 원래 이런 말을 세우는
- * 자리다(§0-5: IDE 에 있는 것은 만들지 않는다).
+ * 타이핑 중 코드 검토(LookWhileTyping) 피드백이 존재할 때 에디터 상단에 표시되는 알림 배너 ([EditorNotificationProvider]).
  *
- * 할 말이 없으면 아무것도 안 선다 — 침묵이 이 기능의 절반이다. 「닫기」는 그 말을 지우고,
- * 다음에 손을 멈출 때 다시 묻는다.
+ * 지적 사항이 없는 경우 배너를 노출하지 않으며, '닫기' 클릭 시 해당 파일의 캐시된 피드백을 제거하고 다음 입력 시 재검토를 수행한다.
  */
 internal class LookBanner : EditorNotificationProvider {
     override fun collectNotificationData(

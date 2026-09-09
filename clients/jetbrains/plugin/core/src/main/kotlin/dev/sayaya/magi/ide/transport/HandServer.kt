@@ -18,19 +18,14 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 
 /**
- * 손을 내놓는 HTTP 서버 — MCP 를 말한다.
+ * IDE 플랫폼 도구(Hand)를 데몬에 노출하는 루프백 HTTP MCP(Model Context Protocol) 서버.
  *
- * **루프백에만 바인드한다.** 이 서버는 이 머신의 데몬 하나만 부르면 되고, 그 밖의 누구에게도
- * 열려 있을 이유가 없다. 소켓과 같은 규율이다(§6: 소켓은 0600 이라 호출자가 곧 머신 주인).
- * 다만 **소켓만큼 좁지는 않다** — 루프백 포트는 이 머신의 다른 프로세스도 닿는다. 그래서 붙일 때
- * 토큰을 헤더로 주고(`AttachMCP` 가 헤더를 받는다) 그것을 확인한다.
- *
- * **SSE 를 안 쓴다.** 코어의 HTTP 전송이 `application/json` 단일 응답과 `text/event-stream` 을
- * 둘 다 받는데(`http_transport.go`), 이쪽이 흘려보낼 것이 없으므로 단일 응답만 낸다. 안 쓰는 길을
- * 구현하면 안 도는 코드가 생기고, 그것은 첫 사용자가 쓸 때 처음 깨진다.
- *
- * 말하는 메서드는 **넷**이다: `initialize` · `notifications/initialized` · `tools/list` ·
- * `tools/call`. 코어 클라이언트가 그 넷만 부른다(`internal/adapter/mcp/client.go`).
+ * 1. 로컬 루프백 인터페이스(127.0.0.1)에만 바인딩한다. 동일 머신의 데몬 프로세스만 호출하면 되므로 외부 네트워크에 노출하지 않는다 (§6).
+ *    루프백 포트는 동일 머신의 타 프로세스도 접근 가능하므로, 기동 시 난수 UUID 토큰을 생성하여 `X-Magi-Hand` 요청 헤더를 검증한다.
+ * 2. SSE(Server-Sent Events) 대신 단일 HTTP JSON 응답 방식을 채택한다 (`http_transport.go`).
+ *    IDE 도구 호출은 요청-응답 쌍으로 완결되며 역방향 스트리밍이 불필요하므로 불필요한 복잡성을 배제한다.
+ * 3. 코어 클라이언트가 호출하는 4개 메서드만 구현한다 (`internal/adapter/mcp/client.go`):
+ *    `initialize`, `notifications/initialized`, `tools/list`, `tools/call`.
  */
 class HandServer private constructor(
     private val http: HttpServer,
@@ -60,29 +55,17 @@ class HandServer private constructor(
     private fun handle(hand: Hand, ex: HttpExchange) {
         try {
             if (ex.requestMethod != "POST") return send(ex, 405, "")
-            // 토큰을 먼저 본다. 루프백이라도 이 머신의 다른 프로세스가 닿는다.
+            // 보안 검증: 루프백 포트 접근 프로세스의 인증 헤더 확인
             if (ex.requestHeaders.getFirst("X-Magi-Hand") != token) return send(ex, 403, "")
             val body = ex.requestBody.readBytes().decodeToString()
             val req = Wire.json.parseToJsonElement(body).jsonObject
             val id = req["id"]
             val answer = dispatch(hand, req["method"]?.jsonPrimitive?.content.orEmpty(), req["params"])
             if (id == null || id is JsonNull) {
-                // 알림에는 답이 없다. 몸을 실어 보내면 클라이언트가 짝 없는 응답을 읽는다.
-                //
-                // **204 다. 202 도 지금은 붙는다 — 바꿀 이유가 없어 두는 것이다.**
-                //
-                // 처음엔 202 를 냈다. MCP 명세가 받아들여진 알림에 지정하는 코드이고, 명세는 그것을
-                // MUST 로 적는다. 그런데 당시 코어의 전송은 200 과 204 만 받아 202 를 에러로 읽었고,
-                // 그래서 이 서버를 204 로 내렸다 — 명세가 아니라 상대에 맞춘 것이다.
-                //
-                // 그 판단의 전제는 틀렸다. 어긴 쪽은 명세를 따른 서버가 아니라 그것을 거절하던
-                // 클라이언트였다. 코어가 고쳤고(`http_transport.go` 의 `notify` 가 이제
-                // `StatusAccepted` 를 받는다), 202·200·204 셋 다 붙는다.
-                //
-                // 그래도 204 로 둔다. 셋 다 붙는 마당에 되돌리면 근거 없는 diff 만 하나 는다.
-                //
-                // 남길 것은 이것이다 — **이 건은 진짜 클라이언트로 붙여 보고서야 나왔다.** 제 시험이
-                // 제가 옮긴 대화를 걸었다면 202 도 204 도 영영 통과했을 것이다.
+                // 알림(Notification) 메시지는 응답 바디를 반환하지 않는다.
+                // HTTP 상태 코드 204 유지 배경:
+                // 과거 MCP 명세에 따라 202 Accepted를 반환했으나 초기 코어 클라이언트가 200/204만 허용하여 204로 조정한 이력이 있음.
+                // 현재는 코어(`http_transport.go`의 `notify`)가 200, 202, 204를 모두 정상 수용하므로 안정성이 검증된 204 응답을 유지한다.
                 return send(ex, 204, "")
             }
             send(ex, 200, Wire.json.encodeToString(JsonElement.serializer(), buildJsonObject {
@@ -91,7 +74,8 @@ class HandServer private constructor(
                 put("result", answer)
             }))
         } catch (e: Exception) {
-            // 프로토콜 오류는 HTTP 오류가 아니다 — 500 을 내면 클라이언트가 전송 고장으로 읽는다.
+            // JSON-RPC 프로토콜 에러는 HTTP 레벨(500)이 아닌 200 OK 내의 JSON-RPC 에러 객체로 응답하여
+            // 클라이언트가 전송 계층 장애로 오인하지 않도록 처리한다.
             send(ex, 200, """{"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":${
                 Wire.json.encodeToString(kotlinx.serialization.serializer(), e.message ?: "internal error")
             }}}""")
@@ -110,9 +94,8 @@ class HandServer private constructor(
                 hand.tools().forEach { t ->
                     add(buildJsonObject {
                         put("name", t.name); put("description", t.description); put("inputSchema", t.schema)
-                        // 코어가 읽는 선언. 안 실으면 프로토콜 기본값(쓰기)으로 잡혀 `show` 가
-                        // 「이 턴이 그 파일을 고쳤다」로 기록에 오른다 — 그리고 창이 닫힐 때 다시
-                        // 부를 수 있는 결과를 덜어내는 쪽도 이 값을 읽는다.
+                        // 코어가 참조하는 도구 속성 선언. 생략 시 기본값(쓰기 작업)으로 간주되어
+                        // 단순 조회(show) 작업조차 변경 턴으로 기록되는 부작용을 방지하기 위해 readOnlyHint를 명시한다.
                         put("annotations", buildJsonObject { put("readOnlyHint", t.readOnly) })
                     })
                 }
@@ -131,7 +114,7 @@ class HandServer private constructor(
                 put("isError", a.error)
             }
         }
-        // 모르는 메서드를 조용히 빈 결과로 답하지 않는다 — 부른 쪽이 성공으로 읽는다.
+        // 지원하지 않는 메서드 호출 시 예외를 발생시켜 JSON-RPC 프로토콜 에러로 응답한다 (무응답 성공 방지).
         else -> throw IllegalArgumentException("this server does not speak \"$method\"")
     }
 

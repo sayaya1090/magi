@@ -8,31 +8,20 @@ import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.openapi.wm.ToolWindowManager
 
 /**
- * 이 줄을 어느 턴이 썼고, 그 턴은 무엇을 하라는 요청이었나.
+ * 현재 캐럿이 위치한 라인을 수정한 에이전트 턴(Turn) 및 해당 턴의 사용자 요청 프롬프트를 추적하는 액션.
  *
- * IDE 의 blame 과 다른 질문이다 — 커밋 하나에 턴이 여럿 들어 있고, 커밋 안 된 편집에는 blame 이
- * 답하지 않는다.
- *
- * **못 짚으면 못 짚는다고 말한다.** 소리 나게 답할 수 있는 것은 마지막 편집이 `at`/`to` 로 짚은
- * 범위뿐이다 — 그 뒤에 아무것도 안 왔으므로 줄이 안 밀렸다는 것이 확실한 유일한 경우다. 그 밖에는
- * **파일을 건드린 턴 목록**을 대신 내놓는다. 좁은 답을 넓게 말하면 틀린 줄을 가리키게 되고,
- * §5-5 가 그것을 금한다.
+ * VCS Git Blame과 달리 커밋되지 않은 세션 내 편집 내역을 추적한다.
+ * 마지막 편집 작업의 명시적 범위(`at`/`to`) 내에 위치하여 라인 밀림이 없는 것이 확실한 경우 정확한 턴을 특정하고,
+ * 그 외의 경우에는 해당 파일 전체를 수정한 턴 목록을 폴백으로 안내한다 (§5-5).
  */
 class WroteThisAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
-    // 메뉴에 넷이 나란히 서는데 하나만 아이콘이 있으면 나머지 셋이 빈칸처럼 보인다(사용자
-    // 실측 2026-09-01). 이 줄을 누가 썼나 — 내력. 이 액션이 실제로 묻는 것이 그것이다.
-    //
-    // XML 이 아니라 여기서 준다. `icon="AllIcons.X.Y"` 는 이름이 틀려도 런타임 경고 한 줄이고,
-    // 그 경고를 보는 사람은 없다 — 아이콘이 안 뜨는 것으로만 드러난다. 코드면 컴파일이 잡는다.
+    // 팝업 메뉴 내 시각적 일관성을 확보하고 리소스 키 오타를 컴파일 타임에 검증하기 위해 코드에서 직접 아이콘을 지정한다 (2026-09-01 실측 피드백).
     init { templatePresentation.icon = com.intellij.icons.AllIcons.Vcs.History }
 
     override fun getActionUpdateThread() = ActionUpdateThread.EDT
 
     override fun update(e: AnActionEvent) {
-        // 글자는 **여기서** 못박는다: plugin.xml 의 번들 경로는 언어팩이 없을 때
-        // JVM 기본 로케일로 새어 한국어가 뜬다(실측). MagiBundle 은 언어팩 유무로
-        // 정하므로, 한 규칙으로 통일한다.
         e.presentation.text = MagiEditorMenu.item(e, "action.magi.wroteThis.text")
         e.presentation.description = MagiBundle.msg("action.magi.wroteThis.description")
         e.presentation.isEnabledAndVisible =
@@ -48,10 +37,8 @@ class WroteThisAction : AnAction(), com.intellij.openapi.project.DumbAware {
 
     companion object {
         /**
-         * 「이 줄을 누가 썼나」에 답할 글. **아는 만큼을 내놓고 모르는 자리를 이름 붙여 말한다** —
-         * 줄을 못 짚는다고 아무 말도 안 하는 것이 이 액션이 없애려던 그 침묵이다.
-         *
-         * 액션과 인텐션(Alt+Enter)이 같은 글을 쓴다. 두 벌로 적으면 한쪽만 고치는 날이 온다.
+         * 라인 수정 작성자 및 관련 턴 정보 리포트 문자열 생성.
+         * 우클릭 팝업 액션과 Alt+Enter 인텐션 액션이 공통으로 사용한다.
          */
         fun report(project: com.intellij.openapi.project.Project, path: String, line: Int): String {
             val view = MagiWindows.of(project) ?: return MagiBundle.msg("chat.wrote.nowindow")

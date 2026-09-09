@@ -25,34 +25,32 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 
 /**
- * 우측 독 — 계획과 계기판. 자리 기준은 사용자가 문장으로 세웠다(2026-08-29): **설정보다 자주
- * 쓰지만 채팅보다 덜 쓰는 컨트롤의 집.** 위에서 아래로 — 계획, 대기·작업, 플릿, 예약 자리,
- * 계기(컨텍스트), 컨트롤(대화 드롭다운·새 대화·모델·컴팩트).
+ * 우측 도구 창 — 작업 계획 및 상태 모니터링 패널입니다.
+ * UI 배치 기준(2026-08-29 결정): 설정 창보다는 자주 접근하지만 메인 대화 창보다는 빈도가 낮은 보조 제어 컴포넌트들을 배치합니다.
+ * 상단부터 순서대로 작업 계획(Plan), 활성 작업(Tasks), 변경된 파일(Changes), 플릿(Fleet), 타 컴패니언 요청(Requests),
+ * 예약 실행(Schedule), 컨텍스트 사용량(Usage), 세션/모델 제어(Controls)를 표시합니다.
  *
- * 원천이 갈린다. 계기는 전사 스트림([Rows]: 계획·모델은 사실이라 재생되고, 컨텍스트는 전이라
- * 다시 붙으면 모른다 — 그 모름을 0% 로 그리지 않는다). 목록과 동사는 데몬 문(`jobs`·`roster`·
- * `sessions`·`session-new`·`set-model`·`compact`). 다시 묻는 종 둘(보이는 동안 3초 + 펴는
- * 순간)은 옛 사실 판이 실측으로 산 그대로다.
+ * 데이터 소스는 이원화되어 있습니다:
+ * - 트랜스크립트 스트림([Rows]): 계획, 모델, 컨텍스트 사용량 정보(과도기 전이 이벤트는 재연결 시 0%로 추정하지 않고 대기 상태로 유지).
+ * - 데몬 HTTP 엔드포인트(`jobs`, `roster`, `sessions`, `session-new`, `set-model`, `compact`): 외부 작업 및 세션 제어.
+ * - 폴링 정책: 도구 창 가시화 중 3초 간격 주기적 폴링 + 패널 확장 시 즉시 갱신을 수행합니다.
  */
 class PlanToolWindow : ToolWindowFactory {
     /**
-     * 이 프로젝트에 이 창이 해당하나 — 규약이 요구하는 판정이다(UI Guidelines · Tool window:
+     * 프로젝트별 도구 창 유효성을 검사합니다(UI Guidelines · Tool window:
      * "don't display the button when the window doesn't apply to the project setup").
      *
-     * **얕게 본다.** 「데몬이 살아 있나」로 재면 데몬을 나중에 켜는 보통 흐름에서 버튼이
-     * 영영 안 서고, 그러면 켜러 갈 자리도 없다. 워크스페이스가 될 수 있는 자리인가(=경로가
-     * 있나)까지만 묻는다 — 웰컴 화면이나 경로 없는 임시 프로젝트에서만 안 선다.
+     * 가벼운 검사만 수행합니다:
+     * 데몬 실행 여부를 기준으로 삼으면 IDE 기동 후 데몬을 실행하는 일반적인 흐름에서 도구 창 버튼이 노출되지 않는 문제가 발생합니다.
+     * 유효한 워크스페이스 디렉터리 경로가 존재하는지만 확인합니다.
      */
     override fun shouldBeAvailable(project: Project) = project.basePath != null
 
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
         val workspace = Workspace(project)
-        // 세로로 쌓는 판 — **정렬을 컨테이너가 강제한다.** BoxLayout Y축은 자식을 alignmentX
-        // 로 눕히는데 기본이 0.5(가운데)라, 판보다 좁은 자식(JBLabel 은 max=pref 라 안
-        // 늘어난다)이 가운데로 밀려 왼쪽에 유령 마진이 선다(사용자 실측: "대기작업부터
-        // 컨트롤까지 좌측에 이상한 마진"). 정렬 스윕을 재구축 자리마다 한 줄씩 두는 판은
-        // 다음 구역이 또 빠뜨린다(리뷰 실측: controls 만 쓸었고 계획 판에 같은 기전이
-        // 남아 있었다) — 자식이 언제 서든 add 가 정렬을 세우면 빠뜨릴 자리가 없다.
+        // 수직 박스 레이아웃 패널 — 자식 컴포넌트의 좌측 정렬(alignmentX = 0f)을 강제합니다.
+        // BoxLayout(Y_AXIS)의 기본 alignmentX가 0.5(중앙 정렬)여서 폭이 고정된 컴포넌트(JBLabel 등)가 중앙으로 밀려
+        // 좌측에 불필요한 공백 마진이 발생하던 문제를 방지하기 위해 `addImpl`에서 좌측 정렬을 일괄 강제합니다(사용자 실측 피드백 및 리뷰 반영).
         fun stack(top: Int, side: Int): JBPanel<JBPanel<*>> = object : JBPanel<JBPanel<*>>() {
             init {
                 layout = BoxLayout(this, BoxLayout.Y_AXIS)
@@ -71,21 +69,16 @@ class PlanToolWindow : ToolWindowFactory {
         val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
         /**
-         * 창을 무엇이 채우나 — **제 줄**로 둔다.
-         *
-         * ⚠ 처음엔 위 라벨에 `\n` 으로 붙였는데, `JBLabel` 은 개행을 안 그린다. 컴파일도 되고
-         * 시험도 초록인 채로 **그 줄이 화면에 아예 없었다** — 이 트리가 되풀이해 잡는 「나르는데
-         * 아무도 안 그린다」를 만들 뻔했다. 접히는 칸이라 [Look.flow] 로 감싼다.
+         * 컨텍스트 토큰 구성 요소 렌더링.
+         * JBLabel은 줄바꿈 문자(\n)를 처리하지 않으므로, 다중 행 텍스트 유실을 방지하기 위해 [Look.flow] 패널로 감싸 개별 라벨로 표시합니다.
          */
         val ctxParts = Look.flow().apply { border = JBUI.Borders.empty(0, 12, 2, 12) }
-        // 폭을 항목에서 뗀다 — 긴 대화 제목 하나가 판을 벌리지 않게(Look.narrow 주석).
+        // 긴 세션 제목으로 인해 도구 창 가로 폭이 비정상적으로 확장되지 않도록 제한된 너비 콤보박스를 사용합니다.
         val talk = Look.narrowCombo<String>()
         val model = Look.narrowCombo<String>(16)
-        // 사건 라벨 하나 — 뒤 사건이 앞 사건을 덮는 그 무늬인 것을 알고 둔다(리뷰 지적). 수준이
-        // 안 섞여 원판(사유가 수준에 지워짐)보다 약하고, 유닛2의 상태점 재편에서 자리째 재론한다.
+        // 비동기 작업 알림 라벨.
         val said = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
-        // 낡음을 지금인 양 두지 않는다(결함 모양 #10 「낡았는데 자신만만」): 폴이 실패하면 판을
-        // 지우는 대신 — 마지막 값은 여전히 값이다 — 그 사실을 말로 세운다.
+        // 만료된 데이터 경고 라벨: 폴링 실패 시 기존 캐시된 데이터를 완전히 지우지 않고 유지하되, 데이터가 최신이 아님을 사용자에게 명시합니다.
         val stale = JBLabel(MagiBundle.msg("plan.stale")).apply {
             foreground = Look.warn
             border = JBUI.Borders.empty(2, 12)
@@ -93,39 +86,31 @@ class PlanToolWindow : ToolWindowFactory {
         }
         fun tell(t: String) = SwingUtilities.invokeLater { said.text = t }
 
-        // 사람이 고른 것과 판이 다시 채우는 것을 가른다 — 가르지 않으면 리프레시마다 동사가 나간다.
+        // UI 렌더링 중 발생하는 콤보박스 선택 변경 이벤트가 백엔드 API를 재호출하지 않도록 차단하는 가드 플래그입니다.
         var painting = false
-        // 늦게 온 완료를 버린다(리뷰: 느린 성공 틱이 빠른 실패 틱의 낡음-배너를 지우고 죽기 전
-        // 값을 지금인 양 세웠다). 각 틱이 번호를 들고, 자기보다 새 틱이 있으면 그리지 않는다.
+        // 폴링 응답 정합성 시퀀스 번호: 네트워크 지연으로 인해 지연 수신된 이전 폴링 응답이 최신 폴링 결과를 덮어쓰지 않도록 검증합니다(리뷰 반영).
         val pollSeq = java.util.concurrent.atomic.AtomicLong()
 
         /**
-         * 이 창에서 다른 컴패니언에게 건넨 일들 — 접수증과 함께. 조종은 계약 경계 그대로
-         * **그 컴패니언의 소켓**으로 간다(hand/hand-state — docs/CLIENTS §2). 창이 사는 동안만
-         * 기억한다: 접수증의 원본은 저쪽 데몬이고, 여기는 물어볼 열쇠만 든다.
+         * 외부 컴패니언에 위임한 요청 및 접수증 관리 모델.
+         * 제어 요청은 대상 컴패니언의 유닉스 도메인 소켓으로 직접 전달됩니다(`docs/CLIENTS.ko.md` §2).
          */
         class Asked(val socket: String, val who: String, val receipt: String, val ask: String) {
-            /** 마지막으로 알게 된 문장 — 종결 후에도 폴 없이 그린다. */
+            /** 마지막으로 수신된 상태 메시지 (종료 후에도 캐시된 값 표시). */
             @Volatile var line: String? = null
-            /** 더 안 물어본다: done/over, 또는 저쪽이 접수증을 모른다(재시작·만료 — Handed 계약). */
+            /** 추가 상태 질의 중단 플래그 (작업 완료 또는 접수증 만료 시 true). */
             @Volatile var over = false
-            /**
-             * 답을 받고 끝났나. **색이 이 사실에 달렸다** — 전에는 그려진 글자에 번역된
-             * 「답: 」이 들었는지로 판정했고, 그 판정은 그 키에 자리표시자가 생기는 순간
-             * 조용히 거짓이 된다. 사실은 글자에서 되읽지 않고 사실로 들고 다닌다.
-             */
+            /** 응답 수신 완료 여부 플래그 (텍스트 파싱 대신 명시적 불리언 필드로 상태를 추적하여 다국어 변경 시 오작동 방지). */
             @Volatile var answered = false
         }
         val asked = java.util.Collections.synchronizedList(mutableListOf<Asked>())
-        // 국소함수는 전방 참조가 안 된다 — 단추 리스너(위)가 목록 새로고침(아래)을 불러야
-        // 해서 손잡이로 잇는다. 선언 뒤에 실체가 앉는다.
+        // 내부 함수 순환 참조 연결 핸들러.
         var refreshTalks: () -> Unit = {}
-        // 아래 둘도 같은 무늬의 지역 var 다 — 클래스 프로퍼티로 두면 **팩토리가 애플리케이션
-        // 싱글턴**이라(플랫폼: ToolWindowEP 가 한 번 만들어 캐시) 두 프로젝트가 서로의 판을
-        // 그리고 서로의 이름으로 hand 를 보낸다(리뷰 F2 — Project 누수까지).
+        // 인텔리제이 플랫폼의 `ToolWindowFactory`는 애플리케이션 싱글톤이므로,
+        // 상태 변수를 클래스 필드로 선언하면 멀티 프로젝트 환경에서 데이터 간섭 및 Project 리소스 누수가 발생합니다(리뷰 F2). 따라서 로컬 변수로 스코프를 제한합니다.
         var askOf: (RosterRow) -> Unit = {}
         var paintAsked: (Long) -> Unit = {}
-        /** 콤보의 「제목 (s_…끝6)」 표시에서 id 를 되찾는 지도. 렌더된 문장에서 파내지 않는다. */
+        /** 세션 표시 문자열("제목 (s_…id6)")에서 실제 세션 ID를 매핑하는 역조회 테이블. */
         var talkIds: Map<String, String> = emptyMap()
 
         model.addActionListener {
@@ -271,15 +256,13 @@ class PlanToolWindow : ToolWindowFactory {
             ctx.text = seen?.let {
                 MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
             } ?: MagiBundle.msg("plan.usage.none")
-            // 무엇으로 찼나 + 접었으면 무엇이 아직 남아 있나. 접기 수만 적으면 손실만 알린
-            // 셈이고, 이름을 대는 것이 「자세한 내용은 안 잃었다」를 약속에서 사실로 만든다.
+            // 컨텍스트 구성비([makeup]) 및 요약 압축 이력 표시:
+            // 단순 압축 횟수뿐만 아니라 보존된 핵심 토픽 목록을 함께 표시하여,
+            // 대화가 압축되었을 때 유지되고 있는 맥락을 사용자가 명확히 인지할 수 있도록 지원합니다.
             ctxParts.text = listOf(
                 makeup(seen?.parts),
-                // **접혔다는 사실을 먼저.** 이 줄은 오래도록 접기의 *결과*만 그렸다 — 「아직
-                // 남아 있음: …」은 위로인데, 무엇에 대한 위로인지가 화면에 없었다. 코어가 왜
-                // 이것이 볼 값인지 적어 뒀다: 접기는 컴패니언이 조용히 무언가를 그만 아는 그
-                // 한 순간이고, 네 번 접힌 컴패니언의 앞선 판단이 아직 남아 있다고 넘겨짚으면
-                // 안 된다는 것이다.
+                // 요약 압축 횟수 및 보존된 토픽 정보:
+                // 다회 압축된 세션의 경우 초기 판단 컨텍스트가 생략되었을 수 있으므로 압축 사실을 먼저 명시합니다.
                 seen?.compactions?.takeIf { it > 0 }
                     ?.let { MagiBundle.msg("plan.usage.folded", it) }.orEmpty(),
                 seen?.topics?.takeIf { it.isNotEmpty() }
@@ -295,22 +278,20 @@ class PlanToolWindow : ToolWindowFactory {
             plan.revalidate(); plan.repaint()
         }
 
-        // 데몬 왕복들 — EDT 밖에서 묻고 EDT 로 그린다. 실패는 조용히: 3초마다 우는 판은 사람이
-        // 끄고, 못 붙음의 보고는 상태 표시줄이 이미 한다.
+        // 데몬 HTTP 폴링 루틴 — 스레드 풀에서 비동기 조회하고 EDT에서 렌더링합니다.
+        // 연결 장애 시 반복적인 팝업 알림으로 인한 방해를 방지하기 위해 폴링 실패는 상시 상태 표시줄에 위임하고 도구 창에는 경고 라벨만 노출합니다.
         fun poll() {
             val my = pollSeq.incrementAndGet()
-            // 3초마다 도는 폴 — 인내는 폴의 것. 여기 모델 문의 2분을 두면 답 안 하는 데몬
-            // 앞에서 이 창과 표시줄이 함께 스레드를 쌓는다.
+            // 3초 주기 폴링: 장기 블로킹 방지를 위해 짧은 타임아웃을 적용하여 비응답 데몬으로 인한 스레드 적체를 방지합니다.
             workspace.onDaemonPolling({ if (my == pollSeq.get()) SwingUtilities.invokeLater { stale.isVisible = true } }) { comp ->
             val jr = comp.jobs()
             val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
-            // 광고가 있을 때만 두드린다 — 없는 문을 부르면 거절이 오고, 그 거절은 여기서
-            // 할 말이 아니다(판은 「모른다」를 그리면 된다).
+            // 기능 지원 여부(Capability)가 확인된 경우에만 해당 엔드포인트를 호출합니다.
             if (canAskContext) {
                 val asked = runCatching { comp.context() }.getOrNull()?.takeIf { it.ok }?.context
-                // 창이 0 이면 잰 것이 아니다 — 모름을 0% 로 그리지 않는다는 규칙이 여기서도 같다.
+                // 윈도우 크기가 0인 경우는 미측정 상태이므로 0%로 추정 렌더링하지 않습니다.
                 ctxFromDoor = asked?.takeIf { it.window > 0 }
                     ?.let {
                         dev.sayaya.magi.ide.usecase.Rows.Ctx(
@@ -319,35 +300,28 @@ class PlanToolWindow : ToolWindowFactory {
                         )
                     }
             }
-            // 한 번만 읽고 기억한다 — 데몬이 도는 동안 능력은 안 바뀐다.
+            // 데몬 런타임 기능(Capabilities)은 1회만 조회하여 캐시합니다.
             if (!capsRead) {
                 val caps = comp.about().caps.orEmpty()
                 capsRead = true
                 canEditCron = caps.contains("cron-set")
                 canAskContext = caps.contains("context")
             }
-            // 끝난 자식은 등록부에 없다 — 로그가 아는 것을 문에 묻는다. 문 없는 데몬은 null 을
-            // 주고, 그때 이 판은 도는 것만 그린다(모름을 없음으로 그리지 않는다는 그 규칙).
+            // 완료된 서브에이전트 목록 조회 (하위 호환성: 해당 엔드포인트를 미지원하는 구버전 데몬에서는 실행 중인 작업만 표시).
             val past = comp.children().children.orEmpty()
             SwingUtilities.invokeLater {
-                if (my != pollSeq.get()) return@invokeLater // 더 새 틱이 이미 섰다 — 낡은 그림 금지
+                if (my != pollSeq.get()) return@invokeLater // 이전 폴링 주기의 지연 응답은 폐기합니다
                 stale.isVisible = false
                 work.removeAll()
                 val queued = j?.queued.orEmpty()
                 val bgRunning = j?.background.orEmpty().filter { it.running }
-                // **깨끗하지 않게 끝난 것.** 도는 것만 그리는 동안 실패한 배경 명령은 판에서
-                // 그냥 사라졌다 — 컴패니언이 돌린 명령이 죽었는데 화면에는 아무 말도 안 남는다.
-                // 코어는 그러라고 `killed`·`exit` 를 싣고(이 판은 둘 다 선언만 하고 안 읽었다),
-                // 짝인 VS Code 는 끝난 잡마다 그 끝을 적는다.
-                //
-                // **깨끗이 끝난 것은 안 그린다.** 이 판은 좁고, 성공한 명령은 할 말이 없다.
-                // 바로 아래 자식 줄이 쓰는 규칙과 같다 — 끝난 것은 적되 실패했으면 사유를 붙인다.
+                // 비정상 종료된 백그라운드 명령 필터링:
+                // 성공한 명령은 공간 절약을 위해 생략하고, 강제 종료되었거나 0이 아닌 종료 코드로 끝난 실패 작업(`killed || exit != 0`)만 원인과 함께 표시합니다.
                 val bgBad = j?.background.orEmpty()
                     .filter { !it.running && (it.killed || it.exit != 0) }.take(pastKids)
                 val kids = j?.children.orEmpty().filter { it.running }
-                // 모름과 없음을 가른다(§0-3, 리뷰 실측): 문 없는 옛 데몬은 jobs 가 아예 안 온다 —
-                // 그것을 MagiBundle.msg("plan.tasks.none")으로 그리면 화면이 모르는 것을 아는 척한다. 현행 데몬은
-                // 빈 목록이라도 Jobs 를 실어 보낸다(answerJobs) — null 은 정확히 버전 스큐다.
+                // 구버전 데몬 버전 스큐(Version skew) 분기:
+                // jobs 엔드포인트를 지원하지 않는 데몬(j == null)과 지원하나 실행 중인 작업이 없는 빈 상태를 구별하여 렌더링합니다.
                 if (j == null) {
                     work.add(JBLabel(MagiBundle.msg("plan.tasks.nodoor") +
                         (jr.error?.let { " — " + it.lineSequence().first().take(80) } ?: "")).apply {
@@ -358,7 +332,7 @@ class PlanToolWindow : ToolWindowFactory {
                     work.add(JBLabel(MagiBundle.msg("plan.tasks.none")).apply { foreground = Look.faint })
                 }
                 queued.forEach { q ->
-                    // 사람 말 먼저, 그다음 건넨 일 — 차례는 데몬이 정했고 여기는 그대로 그린다.
+                    // 사용자 요청 우선, 이후 위임된 작업(handover) 순으로 렌더링합니다.
                     val head = if (q.kind == "handover") "↤ ${q.from ?: MagiBundle.msg("plan.someone")}: " else "· "
                     work.add(JBLabel(head + (q.text?.lineSequence()?.firstOrNull() ?: "")).apply {
                         foreground = if (q.kind == "handover") Look.accent else Look.body
@@ -373,7 +347,7 @@ class PlanToolWindow : ToolWindowFactory {
                     })
                 }
                 bgRunning.forEach { b ->
-                    // 도는 잡 옆의 ✕ — job-kill 문. removed=false 는 이미-없음이라 조용히 지나간다.
+                    // 실행 중인 백그라운드 작업 중단 버튼 (job-kill 엔드포인트 연동).
                     work.add(JBPanel<JBPanel<*>>(BorderLayout(6, 0)).apply {
                         isOpaque = false
                         add(JBLabel("⚙ ${b.command?.take(56) ?: b.id}").apply { foreground = Look.faint },
@@ -384,16 +358,8 @@ class PlanToolWindow : ToolWindowFactory {
                             addActionListener {
                                 workspace.onDaemon({ tell(MagiBundle.msg("common.failed", it)) }) { c2 ->
                                     val kr = c2.killJob(b.id)
-                                    // `ok` 는 두 끝을 못 가른다. 데몬은 어느 쪽인지 알고 그것을
-                                    // `removed` 로 말한다 — 참이면 이 호출이 세운 것이고, 없으면
-                                    // 세울 것이 이미 없었다(`answerJobKill`: "pressed twice must
-                                    // read 'already gone', not 'failure'").
-                                    //
-                                    // 성공은 여전히 안 적는다 — 행이 다음 폴에서 사라지는 것이
-                                    // 증거다. **이미 없던 경우만** 적는다: 그때도 행은 똑같이
-                                    // 사라지므로, 아무 말이 없으면 이 단추가 세운 줄로 읽힌다.
-                                    // 그리고 이 단추가 눌리는 가장 흔한 자리가 바로 그 자리다 —
-                                    // 행은 잡이 끝난 뒤에도 폴 한 번만큼 더 서 있다.
+                                    // 중단 요청 결과 처리(`answerJobKill` 계약: 중복 클릭 시 에러가 아닌 "already gone"으로 응답):
+                                    // 정상 종료 시 다음 폴링에서 항목이 제거되며, 이미 완료된 작업이었을 경우에만 안내 메시지를 표시합니다.
                                     when {
                                         !kr.ok -> tell(MagiBundle.msg("common.notsent", kr.error ?: MagiBundle.msg("common.noreason")))
                                         !kr.removed -> tell(MagiBundle.msg("plan.kill.gone", b.id))
@@ -403,38 +369,21 @@ class PlanToolWindow : ToolWindowFactory {
                         }, BorderLayout.EAST)
                     })
                 }
-                // 서브에이전트 — 도는 것 먼저, 그다음 **끝난 것**.
-                //
-                // 도는 것은 `jobs` 등록부가 더 잘 안다(무엇을 시켰는지, 몇 걸음인지). 끝난 것은
-                // 그 등록부가 **캡까지만** 들고 있으므로(오래된 것부터 밀린다) 목록은 `children`
-                // 문이 답한다 — 회의가 닫히면 참가자 방은 그와 별개로 즉시 빠진다(ForgetSubagent).
-                // ⚠ 여기 「끝나면 등록부에서 사라진다」고 적혀 있었는데 **틀렸다**: `finish()` 는
-                // 행을 남기고 `Err` 까지 채운다. 그 틀린 이유 때문에 실패한 자식의 사유를 아무도
-                // 안 읽고 있었다. 둘을 합쳐 그리되 id 로 겹치는 것은
-                // 도는 쪽을 남긴다.
-                //
-                // 줄은 **누를 수 있다.** 자식이 무엇을 했는지는 그 자식의 전사에 있고, 전사 문은
-                // 자식 id 도 받는다 — 여기 없던 것은 문이 아니라 누를 자리였다.
+                // 서브에이전트 목록 표시: 실행 중인 작업 우선, 이후 최근 종료된 작업 표시.
+                // 실행 중인 세부 상태는 `jobs` 등록부를 참조하고, 종료된 작업의 제목과 메타데이터는 `children` 엔드포인트를 참조합니다.
+                // 중복 항목은 실행 중인 상태를 우선하여 병합합니다.
+                // 각 서브에이전트 행은 클릭 시 해당 서브에이전트의 전사 탭을 바로 열 수 있는 링크 컴포넌트로 구성됩니다.
                 val running = kids.map { it.id }.toSet()
                 kids.forEach { c ->
                     work.add(kidRow(project, "⛐ " + (c.task?.take(60) ?: c.id), c.id))
                 }
-                // **끝난 자식의 실패를 말한다.** 등록부는 「도는 것 **또는 방금 끝난 것**」을 들고
-                // (`subagent_jobs.go` 의 그 주석), `finish()` 가 `Err` 를 채운 채 행을 **남긴다** —
-                // 지우는 것은 회의 닫기의 `ForgetSubagent` 뿐이다. 그런데 위에서 `running` 만 걸러
-                // 쓰는 바람에 **실패한 자식이 성공한 자식과 똑같이** 그려졌다(⛒ 하나).
-                //
-                // 목록은 그대로 `children` 문의 것을 쓴다(끝난 것의 제목·origin 은 거기 있다).
-                // 등록부에서는 **id 로 사유만** 데려온다.
+                // 종료된 서브에이전트의 실패 사유 가시화:
+                // `subagent_jobs.go`의 `finish()` 계약에 따라 실패 시 `Err` 필드가 기록되어 유지되므로,
+                // 종료된 자식 작업 중 실패한 항목은 에러 메시지를 함께 렌더링합니다.
                 val why = j?.children.orEmpty().filter { !it.running }.associate { it.id to it.err }
                 past.filter { it.id !in running }.take(pastKids).forEach { c ->
-                    // **누가 열었나**(origin)가 자식을 가른다 — 회의 방이면 "meeting". `agent` 는
-                    // 모든 자식이 같은 낱말("spawn")이라 아무것도 안 가른다: 실측으로 잡았다
-                    // (판에 `spawn · A meeting is being called…` 두 줄이 나란히 섰다).
                     val what = c.title?.take(52)?.ifBlank { null } ?: c.id.takeLast(6)
-                    // 아는 origin 은 사람 말로 옮긴다. 회의는 자식을 **둘** 연다 — 말하는 자리와
-                    // 받아적는 자리 — 그래서 이 줄이 「meeting」과 「minutes」를 그대로 찍으면
-                    // 회의마다 두 줄이 서고 둘 다 와이어 낱말이라, 사람이 무엇이 무엇인지 모른다.
+                    // 생성 출처(origin)를 사용자 친화적인 용어로 변환(회의/회의록 등 구분).
                     val who = c.origin?.ifBlank { null }?.let { Look.originWord(it) + " · " } ?: ""
                     val failed = why[c.id]?.takeIf { it.isNotBlank() }
                         ?.let { " — " + MagiBundle.msg("plan.kid.failed", it.lineSequence().first().take(60)) }
@@ -861,15 +810,10 @@ class PlanToolWindow : ToolWindowFactory {
     private fun fleetRow(r: RosterRow, crowded: Boolean = false): JBLabel {
         val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
         val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
-        // 상태는 **낱말 열거형**이다(`internal/adapter/fleet/fleet.go` 의 `State`, 여섯). 셋만
-        // 옮기고 나머지를 `else` 로 흘리면 사람이 「— abandoned」·「— stopped」를 나란히 읽는데,
-        // 코어가 `Abandoned` 위에 적어 둔 것이 정확히 그 해악이다: "nobody is listening and a turn
-        // was left open — a crash, a kill, a closed laptop. **Every other view renders this
-        // identically to a finished session, which is why it is here.**" 끝나고 떠난 것과 일을 쥔
-        // 채 죽은 것을 코어가 애써 갈라 두었는데 화면이 도로 붙이면 안 된다.
-        //
-        // 모르는 것은 날것으로 — 이 빌드보다 새 데몬이 일곱째를 이름 댈 수 있고, 그때는 저쪽
-        // 낱말이 지어낸 문장보다 낫다(모르는 승인 모드에 쓰는 그 규칙).
+        // 컴패니언 상태 열거형 처리 (`internal/adapter/fleet/fleet.go`의 `State` 6종 대응):
+        // 코어 설계 원칙: "nobody is listening and a turn was left open — a crash, a kill, a closed laptop. Every other view renders this identically to a finished session, which is why it is here."
+        // 정상 종료(stopped)와 작업 처리 중 비정상 중단(abandoned)을 명확히 구분하여 렌더링합니다.
+        // 미지의 신규 상태값이 전달될 경우 임의 추정 대신 원문 문자열을 그대로 노출합니다.
         val state = when (r.state) {
             "waiting" -> MagiBundle.msg("plan.companions.waiting")
             "working" -> MagiBundle.msg("plan.companions.working")
@@ -879,22 +823,17 @@ class PlanToolWindow : ToolWindowFactory {
             "remote" -> MagiBundle.msg("plan.companions.remote")
             else -> r.state?.let { " — $it" }.orEmpty()
         }
-        // 코어는 `waiting` 과 `handling` 을 **함께 서명하고** 그 이유를 적어 뒀다 — "they decide
-        // where team-addressed work goes… **load is Waiting + (1 if Handling)**". 큐만 그리면 손에
-        // 하나를 쥔 컴패니언이 「비었다」로 읽히고, 사람이 다음 일을 건네는 행이 바로 그 행이다.
-        // 합이 아니라 **둘 다** 적는다: 수는 라우팅이 쓰고, 손으로 고르는 사람은 「이미 하나가
-        // 돌고 있다」를 알고 싶어 한다.
+        // 컴패니언 작업 부하(Load) 표시:
+        // 코어 로드 산정 공식: "they decide where team-addressed work goes… load is Waiting + (1 if Handling)".
+        // 대기 큐(`waiting`)뿐만 아니라 현재 작업 처리 중(`handling`) 여부를 함께 표기하여 수동 작업 위임 시 판단 근거를 제공합니다.
         val load = listOf(
             if (r.handling) MagiBundle.msg("plan.companions.busy") else "",
             if (r.waiting > 0) MagiBundle.msg("plan.companions.queue", r.waiting) else "",
         ).filter { it.isNotBlank() }.joinToString("")
-        // **무엇을 하는 곳인가.** 코어가 이 칸이 전선을 타는 이유를 적어 뒀다 — "Does NAMES those
-        // things… **a name is enough to pick a companion out of a roster**". 이 행이 바로 그
-        // 로스터이고, 사람이 좌클릭으로 일을 건네기 전에 읽는 자리다. 라이브 실측(2026-09-10)에서
-        // word·excel·powerpoint 세 행이 「idle · sonnet」로 **구별이 안 됐다**.
-        //
-        // ⚠ `can` 은 `does.size` 가 아니다 — 코어가 수를 따로 싣는 이유가 "A **SAMPLE** when there
-        // are more than MaxDoes" 라, 일곱 중 셋을 보인 행은 그렇다고 말해야 한다.
+        // 컴패니언 수행 가능 역할(does) 및 전체 지원 수(can) 가시화:
+        // 코어 설계 의도: "Does NAMES those things… a name is enough to pick a companion out of a roster".
+        // 라이브 실측(2026-09-10)에서 다중 컴패니언이 동일 모델('idle · sonnet')로 표시되어 식별 불가능하던 문제를 해결합니다.
+        // `can`은 전체 기능 개수이고 `does`는 대표 샘플(최대 3개, `MaxDoes`)이므로 잔여 개수가 존재할 경우 '+N' 형식으로 표기합니다.
         val does = r.does.orEmpty().filter { it.isNotBlank() }
         val offers = if (does.isEmpty()) "" else {
             val head = does.take(3)
@@ -902,10 +841,9 @@ class PlanToolWindow : ToolWindowFactory {
             "  · " + head.joinToString(", ") + (if (rest > 0) " +$rest" else "")
         }
         val where = r.workdir?.takeIf { it.isNotBlank() }?.let { "  (" + it.substringAfterLast('/') + ")" }.orEmpty()
-        // 초를 날것으로 찍고 있었다 — 가십은 한 시간에 걸쳐 삭으므로 이 값의 대부분이
-        // 「3540초 전」 꼴이었다. 말로 바꾸는 자리는 core 다(거기서 잰다).
+        // 가십 프로토콜 기반 마지막 목격 시각(초 단위 값을 자연어 경과 시간으로 변환).
         val seen = if (r.sighting) MagiBundle.msg("plan.companions.seen", RowText.ago(r.ageSeconds)) else ""
-        val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 같은 워크스페이스에 둘 이상 — 충돌 주의
+        val share = if (crowded) MagiBundle.msg("plan.companions.same") else "" // 동일 워크스페이스에 둘 이상 기동 시 파일 수정 충돌 주의 경고
         return JBLabel(name + role + state + load + offers + where + share + seen).apply {
             foreground = when {
                 r.sighting -> Look.muted

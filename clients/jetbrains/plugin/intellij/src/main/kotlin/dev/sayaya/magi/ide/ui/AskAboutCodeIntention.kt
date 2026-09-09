@@ -8,13 +8,10 @@ import com.intellij.psi.PsiFile
 import dev.sayaya.magi.ide.model.FileRef
 
 /**
- * Alt+Enter 의 「magi에게 물어보기」 — 이웃들의 인라인 프롬프트가 서는 그 자리에, 우리 몸에
- * 맞는 모양으로: 선택(또는 캐럿 줄)을 **참조로 첨부**하고 컴포저에 물음의 시작을 앉힌다.
- * 지시는 사람이 마저 쓰고 Enter — 편집은 컴패니언 손이 하고 diff 는 전사·승인 프롬프트가
- * 보인다(SURVEY §3 채택: 인라인 편집의 1단).
+ * 에디터 컨텍스트 액션(Alt+Enter)용 'magi에게 물어보기' 인텐션 액션.
  *
- * 발췌 정확성의 규칙은 [AttachToChatAction] 과 같다 — 코어가 디스크에서 읽으므로 붙이기 전에
- * 저장한다. 그쪽이 리뷰로 산 교훈을 여기서 다시 사지 않는다.
+ * 선택된 코드 블록(또는 캐럿 라인)을 파일 참조([FileRef])로 첨부하고, 하단 도구 창 입력 필드에 질문 접두사를 프리필한다 (SURVEY §3).
+ * 참조 정확성을 보장하기 위해 코어 데몬이 디스크에서 읽기 전 미저장 버퍼를 플러시한다 ([AttachToChatAction] 동일 원칙).
  */
 class AskAboutCodeIntention : IntentionAction {
 
@@ -22,13 +19,11 @@ class AskAboutCodeIntention : IntentionAction {
     override fun getFamilyName() = MagiBundle.msg("intention.magi.family")
     override fun startInWriteAction() = false
 
-    /** 창 유무는 안 본다 — 툴윈도는 게으르고(plugin.xml 의 실측), 안 뜨는 항목은 배울 수도
-     *  없다. 창이 없으면 [invoke] 가 열어 주고 멈춘다(이웃 [AttachToChatAction] 의 갈래). */
+    /** 도구 창 지연 생성 특성을 고려하여 에디터와 파일이 유효하면 항상 사용 가능으로 노출한다. */
     override fun isAvailable(project: Project, editor: Editor?, file: PsiFile?): Boolean =
         editor != null && file?.virtualFile != null
 
-    /** 프리뷰는 없음 — 부수효과(첨부·창 열기)가 프리뷰 사본에서 안 도는 것을 요행이 아니라
-     *  계약으로. */
+    /** 사이드 이펙트(창 활성화 및 첨부 칩 추가)를 수반하므로 인텐션 프리뷰는 비활성화한다. */
     override fun generatePreview(
         project: Project, editor: Editor, file: PsiFile,
     ): com.intellij.codeInsight.intention.preview.IntentionPreviewInfo =
@@ -40,13 +35,12 @@ class AskAboutCodeIntention : IntentionAction {
         val window = ToolWindowManager.getInstance(project).getToolWindow("magi")
         val view = MagiWindows.of(project)
         if (view == null) {
-            window?.show() // 창이 서면 다음 Alt+Enter 가 통한다 — 허공에 참조를 쌓지 않는다
+            window?.show() // 도구 창이 미생성 상태인 경우 창을 활성화한다.
             return
         }
-        // 고른 것이 없으면 **캐럿이 선 줄**이다 — 「이 코드」가 가리키는 것은 지금 그 줄이지
-        // 파일 전체가 아니다(우클릭 쪽은 반대로 고른다 — [Attach.WhenBare] 가 그 갈림을 적는다).
+        // 선택 영역이 없는 경우 현재 캐럿이 위치한 라인을 기본 참조로 지정한다 ([Attach.WhenBare.CaretLines]).
         Attach.refs(editor, path, Attach.WhenBare.CaretLines).forEach(view::attach)
-        // activate 의 콜백에서 채운다 — show 의 비동기 완료 전에 포커스를 청하면 안 앉는다(리뷰).
+        // 도구 창 활성화 비동기 완료 시점에 프리필 텍스트를 주입하고 포커스를 부여한다.
         val start = MagiBundle.msg("chat.prefill.code")
         window?.activate({ view.prefill(start) }, true) ?: view.prefill(start)
     }
