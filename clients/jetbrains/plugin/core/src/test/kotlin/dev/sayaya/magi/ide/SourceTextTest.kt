@@ -1427,4 +1427,35 @@ class SourceTextTest {
             "설정 화면이 코드로 열쇠를 바로 짓는다 — 모르는 코드에서 배관이 뜬다")
     }
 
+
+    /**
+     * ★ **깨끗하지 않게 끝난 배경 명령은 판에 남는다.**
+     *
+     * 이 판은 배경 잡을 `it.running` 으로 걸러 도는 것만 그렸다. 컴패니언이 돌린 명령이 죽어도
+     * ⚙ 한 줄이 조용히 사라질 뿐이고, 그 화면은 「잘 끝났다」와 똑같이 생긴다. 코어는 그러라고
+     * `killed` 와 `exit` 를 싣는데 이 판은 둘 다 **선언만 하고 안 읽었다**.
+     *
+     * 그리는 자리가 `intellij` 모듈이라 시험 소스셋이 없다. 그래서 글자로 본다 — 걸러 내는 식이
+     * 그 둘을 읽는지, 그리고 **「할 일 없음」 판정이 그 목록을 함께 보는지**(안 보면 실패한
+     * 명령이 서 있는데 판이 「없음」이라 적는다).
+     */
+    @Test
+    fun `깨끗하지 않게 끝난 배경 명령은 판에 남는다`() {
+        val win = sources.first { it.name == "PlanToolWindow.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val at = win.indexOf("val bgBad")
+        assertTrue(at > 0, "끝난 배경 잡을 고르는 자리가 없다 — 죽은 명령이 판에서 사라진다")
+        val pick = win.substring(at, at + 240)
+        assertTrue("it.killed" in pick, "세운 잡을 안 가른다 — 코어가 `killed` 를 싣는 이유가 그것이다")
+        assertTrue("it.exit" in pick, "종료 코드를 안 본다 — 실패가 성공과 같아 보인다")
+        assertTrue("!it.running" in pick, "도는 잡까지 끝난 것으로 그린다")
+        // 「할 일 없음」이 그 목록을 함께 본다.
+        // ⚠ 조건의 끝은 여는 중괄호까지다. `substringBefore(")")` 로 자르면 **첫 괄호**인
+        // `bgRunning.isEmpty()` 에서 잘려 나머지 조건을 못 본다 — 이 가드가 처음에 그렇게 죽었다.
+        val none = win.substring(win.indexOf("bgRunning.isEmpty()")).substringBefore("{")
+        assertTrue("kids.isEmpty()" in none, "「할 일 없음」 조건을 끝까지 못 읽었다 — 훑기가 잘렸다")
+        assertTrue("bgBad.isEmpty()" in none,
+            "실패한 명령이 서 있는데 판이 「할 일 없음」이라 적는다")
+    }
+
 }
