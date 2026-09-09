@@ -136,3 +136,82 @@ test('a chip becomes the lines spelling the core parses', () => {
   assert.deepEqual(wireRef({ path: 'a.ts', from: 12, to: 12 }), { path: 'a.ts', lines: '12' });
   assert.deepEqual(wireRef({ path: 'a.ts', from: 12, to: 40 }), { path: 'a.ts', lines: '12-40' });
 });
+
+/**
+ * ★ Every door this client CALLS, it declares the fields of.
+ *
+ * Undeclared is unreadable. TypeScript hands back `undefined` for a field the interface does not
+ * name, so the answer arrives, the screen reads nothing, and nothing fails — which is how three
+ * separate facts were lost in one session: `tools` (mcp-attach answers with what it attached, so
+ * the screen could only ever say "attached"), `user` (an SSO plugin's username, so every row said
+ * "user"), and `council` (whether this companion declares to a council, so it was unknowable).
+ *
+ * Scoped to doors this client actually calls. A field of a door nobody knocks on is not a defect,
+ * and demanding it would grow this type with wire we do not speak.
+ */
+test('every door we call, we declare the answer of', () => {
+  const daemon = fs.readFileSync(
+    path.join(REPO, 'internal', 'adapter', 'daemon', 'protocol.go'), 'utf8');
+  const doorsGo = fs.readFileSync(
+    path.join(REPO, 'internal', 'adapter', 'daemon', 'doors.go'), 'utf8');
+
+  // Response's Go field name → its json tag.
+  const struct = /type Response struct \{([\s\S]*?)\n\}/.exec(daemon);
+  assert.ok(struct, 'the Response struct was not found — this guard is reading nothing');
+  const tag = new Map<string, string>();
+  for (const line of struct![1].split('\n')) {
+    const m = /^\s*([A-Z]\w*)\s+\S.*?json:"([^",]+)/.exec(line);
+    if (m) tag.set(m[1], m[2]);
+  }
+  assert.ok(tag.size >= 25, `only ${tag.size} Response fields read from the core — the parser is stale`);
+
+  // door → the answer function that serves it.
+  const door = new Map<string, string>();
+  for (const m of doorsGo.matchAll(/"([a-z][a-z-]*)":\s*\{[^}]*run:\s*(answer\w+)/g)) door.set(m[1], m[2]);
+  assert.ok(door.size >= 20, `only ${door.size} doors read from the core — the parser is stale`);
+
+  const fills = (fn: string): string[] => {
+    const body = new RegExp(`^func ${fn}\\([\\s\\S]*?\\n\\}`, 'm').exec(doorsGo);
+    if (!body) return [];
+    // ⚠ Only fields of the RESPONSE. A `Field:` anywhere in the function also matches a nested
+    // struct's — `answerJobs` builds `BackgroundJob{Exit: …}`, and reading that as `Response.exit`
+    // reported a field this client reads perfectly well (inline, in panel.ts). So: assignments to
+    // `resp.X`, plus keys inside a `Response{…}` literal, and nothing else.
+    const literals = [...body[0].matchAll(/Response\{([^{}]*)\}/g)].map((m) => m[1]).join(',');
+    const out: string[] = [];
+    for (const [F, t] of tag) {
+      if (t === 'ok' || t === 'error') continue;
+      if (new RegExp(`\\bresp\\.${F}\\s*=`).test(body[0]) || new RegExp(`\\b${F}:\\s`).test(literals)) out.push(t);
+    }
+    return out;
+  };
+  assert.ok(fills('answerMCPAttach').includes('tools'),
+    'the fill-scan cannot see that mcp-attach answers with `tools` — it is reading nothing');
+
+  // What this client calls, and what it declares.
+  const src = (p: string): string => fs.readFileSync(path.join(__dirname, '..', '..', 'src', p), 'utf8');
+  const calls = new Set<string>();
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== 'test') walk(p); continue; }
+      if (!e.name.endsWith('.ts')) continue;
+      const body = fs.readFileSync(p, 'utf8');
+      for (const m of body.matchAll(/\.(?:ask|exchange)\(\s*'([a-z-]+)'/g)) calls.add(m[1]);
+      for (const m of body.matchAll(/method:\s*'([a-z-]+)'/g)) calls.add(m[1]);
+    }
+  };
+  walk(path.join(__dirname, '..', '..', 'src'));
+  assert.ok(calls.size >= 15, `only ${calls.size} doors called — the scan is reading nothing`);
+
+  const declared = new Set([...src('core/protocol.ts').matchAll(/^ {2}([a-zA-Z]+)\??:/gm)].map((m) => m[1]));
+  const missing: string[] = [];
+  for (const d of [...calls].sort()) {
+    const fn = door.get(d);
+    if (!fn) continue;
+    for (const t of fills(fn)) if (!declared.has(t)) missing.push(`${d} → ${t}`);
+  }
+  assert.deepEqual(missing, [],
+    'these doors are called and their answer carries a field this client does not declare, so it ' +
+    'cannot be read at all and nothing fails: ' + missing.join(', '));
+});
