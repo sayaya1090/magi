@@ -258,7 +258,7 @@ VS Code 의 터미널은 xterm 이라 선택 영역만 얻을 수 있다. 그래
 | Show what magi is running | 모델·백엔드·승인·카운슬을 한 자리에 | §5.1 |
 | Change one of magi's own settings | 데몬만 아는 설정. 목록·기록되는 자리·언제 듣는지 전부 **데몬이 준다**. 못 읽는 설정 파일이 있으면 목록 **앞에** 그 사실이 먼저 뜬다 | §5.1 |
 | Start a new conversation | | §7.1 |
-| Resume a conversation | | §7.1 |
+| Resume a conversation | 줄마다 모델과 **마지막으로 움직인 때**(이 기계의 시계, 오늘이 아니면 날짜까지) | §7.1 |
 | Fold this conversation | **먼저 묻는다** | §7.1 |
 | Go back to an earlier point | **먼저 묻는다** | §7.1 |
 | Stop a background job | | §7.2 |
