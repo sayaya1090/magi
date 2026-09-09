@@ -319,6 +319,18 @@ data class Waiting(
      * 한 번 계산해 싣는 것이 계약이다(`change.EditDiff`). 그 외 호출에선 빈 값.
      */
     val diff: String? = null,
+    /**
+     * 물음이 **무엇을 근거로** 나왔나. 결정보고 스킬이 모아 그 차례대로 묻는다.
+     *
+     * 코어가 이 칸이 전선을 타는 사유를 적어 뒀다 — 선택지와 같은 이유다: *"a console in another
+     * process draws the prompt, and **a prompt whose grounds stayed behind is the one this exists
+     * to stop**"*. 그리고 왜 사실로 기록하는지도 — 결정의 사유는 한 달 뒤에 「왜 그렇게 갔지」를
+     * 물으러 오는 사람이 찾는 부분이다.
+     *
+     * 안 읽고 있었다(2026-09-09 실측). 근거를 실어 보낸 물음이 **맨 문장 하나와 단추 몇 개**로
+     * 도착했다.
+     */
+    val report: List<Ground>? = null,
     val index: Int = 0,
     val total: Int = 0,
     val since: String? = null,
@@ -373,6 +385,10 @@ data class Waiting(
         return if (a == null && r == null) Subject.Unstated else Subject.Stated(a, r)
     }
 }
+
+/** 물음의 근거 한 줄 — 코어 `report.Filled` 의 짝(`key`·`text`). */
+@Serializable
+data class Ground(val key: String = "", val text: String = "")
 
 /** [Waiting.subject] 의 결과. */
 sealed interface Subject {

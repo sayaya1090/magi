@@ -638,6 +638,10 @@ class SourceTextTest {
                 "sub.reason?.let { Markup.text(it) }",
             ),
         ),
+        "MagiToolWindow.kt:grounds" to Safe(
+            "바로 위에서 조각마다 Markup.text 로 지어 붙인 것이다 — 물음의 근거(키·본문 둘 다)",
+            listOf("Markup.text(it.key)", "Markup.text(it.text)"),
+        ),
         "MagiToolWindow.kt:why" to Safe(
             "바로 위에서 `Markup.text` 로 지어 붙인 조각이다",
             listOf("?.why?.let { \"<br/><i>\${Markup.text(it)}</i>\" }"),

@@ -87,6 +87,8 @@ tasks.test {
         "internal/adapter/daemon",
         "internal/core/command/command.go",
         "internal/core/event/event.go",
+        // 물음의 근거(`report.Filled`)가 사는 곳. 와이어를 타는데 목록에 없어서 짝이 안 잡혔다.
+        "internal/core/report",
     ).map { rootProject.projectDir.resolve("../../../$it").canonicalFile }
     inputs.files(wireOrigins).withPropertyName("wireOrigins").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.wire.origins", wireOrigins.joinToString(File.pathSeparator) { it.absolutePath })

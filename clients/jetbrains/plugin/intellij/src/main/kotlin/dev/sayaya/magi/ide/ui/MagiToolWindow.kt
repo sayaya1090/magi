@@ -1456,6 +1456,11 @@ class MagiToolWindow : ToolWindowFactory {
                 prompt.text = " "
             } else {
                 val at = if (w.total > 1) " (${w.index}/${w.total})" else ""
+                // **무엇을 근거로 묻는지 같이 보인다.** 결정보고 스킬이 모은 것이고, 근거가 뒤에
+                // 남은 프롬프트를 막으려고 전선을 타는 값이다(코어 `Waiting.Report` 주석).
+                val grounds = w.report.orEmpty()
+                    .filter { it.text.isNotBlank() }
+                    .joinToString("") { "<br/><b>${Markup.text(it.key)}:</b> ${Markup.text(it.text)}" }
                 val ask = w.ask
                 val why = (ask as? Ask.Undrawable)?.why?.let { "<br/><i>${Markup.text(it)}</i>" }.orEmpty()
                 // **무엇을 정하는지를 보인다.** 도구 이름은 요청의 설명이지 요청이 아니다 —
@@ -1469,7 +1474,7 @@ class MagiToolWindow : ToolWindowFactory {
                     // 보고 누르고, 창이 무엇을 덜 받았는지는 영영 안 나온다.
                     Subject.Unstated -> "<i>" + Markup.text(MagiBundle.msg("chat.perm.unknown")) + "</i>"
                 }
-                prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$why</html>"
+                prompt.text = "<html><b>${Markup.text(w.what)}</b>$at<br/>$subject$grounds$why</html>"
                 when (ask) {
                     is Ask.Permission -> {
                         add(MagiBundle.msg("chat.perm.allow")) { it.allow(w.id) }

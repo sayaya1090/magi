@@ -24,7 +24,12 @@ import org.junit.jupiter.api.Test
 class WireConformanceTest {
 
     /** Kotlin 클래스 → 그 짝인 Go 구조체. 이름이 같으면 안 적는다. */
-    private val renamed = mapOf("Published" to "Info", "LogEvent" to "Event")
+    private val renamed = mapOf(
+        "Published" to "Info", "LogEvent" to "Event",
+        // 물음의 근거 한 줄. 코어 이름은 `report.Filled` 이고 이쪽은 쓰이는 자리에서 읽히게
+        // `Ground` 다 — 「채워진 무엇」보다 「무엇을 근거로」가 이 창에서 하는 일이다.
+        "Ground" to "Filled",
+    )
 
     private fun goSources(): List<File> {
         val listed = System.getProperty("magi.wire.origins").orEmpty()

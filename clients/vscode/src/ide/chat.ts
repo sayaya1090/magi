@@ -325,6 +325,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #ask .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
   /* Which of how many. Dimmer than the question — it places it, it is not it. */
   #ask .at { color:var(--vscode-descriptionForeground); }
+  /* What the question was asked on. Denser than the question and above the buttons —
+     it is what the decision is made FROM, so it must be read before they are pressed. */
+  #ask .ground { font-size:.9em; margin:2px 0; }
+  #ask .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
@@ -412,6 +416,17 @@ function drawAsk(a) {
   }
   /* A question wants a sentence, not a verdict. Options are shortcuts to one. */
   w.prepend(a.what);
+  /* The grounds it was asked on. The decision-report skill gathers these and asks in their order,
+     and a prompt whose grounds stayed behind is exactly what carrying them exists to stop — the
+     person would be deciding from a bare sentence while the reasons sat in another process. */
+  for (const g of a.report || []) {
+    const row = document.createElement('div');
+    row.className = 'ground';
+    const k = document.createElement('b');
+    k.textContent = g.key + ': ';
+    row.append(k, g.text);   /* text as a node, never innerHTML: the model wrote it */
+    askEl.append(row);
+  }
   for (const opt of a.options || []) {
     const b = document.createElement('button');
     b.textContent = opt;

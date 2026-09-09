@@ -130,6 +130,19 @@ export interface Ask {
   reason?: string;
   /** What approving would change, computed once by the core and never recomputed by a viewer. */
   diff?: string;
+  /**
+   * The GROUNDS a question was asked on — what the person is meant to decide from.
+   *
+   * The decision-report skill gathers these and asks in their order, and the core carries them for
+   * the same reason it carries the options: a console in another process draws the prompt, and "a
+   * prompt whose grounds stayed behind is the one this exists to stop". It also says why they are
+   * recorded rather than transient — a decision's reasons are the part somebody comes back to a
+   * month later asking why the fleet went the way it did.
+   *
+   * Both IDE clients dropped them, so a question raised with its grounds arrived as a bare
+   * sentence and three buttons.
+   */
+  report?: { key: string; text: string }[];
   /** A question's shortcuts to an answer (`QuestionRequestedData.Options`). */
   options?: string[];
   /** Where this question sits in the run its call is asking: 3 of 5. */
@@ -166,6 +179,11 @@ export function pendingAsk(events: Event[]): Ask | null {
       open = {
         kind: 'question', callId: String(d.callId ?? ''), what: String(d.question ?? ''),
         options: Array.isArray(d.options) ? d.options.map(String) : undefined,
+        report: Array.isArray(d.report)
+          ? (d.report as Record<string, unknown>[])
+              .map((r) => ({ key: String(r?.key ?? ''), text: String(r?.text ?? '') }))
+              .filter((r) => r.text.trim())
+          : undefined,
         index: Number(d.index) || undefined,
         total: Number(d.total) || undefined,
       };
