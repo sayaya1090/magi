@@ -63,6 +63,15 @@ export interface Row {
   round?: number;
   decision?: string;
   /**
+   * This verdict was never given — backend down, deadline, an unreadable reply.
+   *
+   * It rides beside `decision: "abstain"` so a surface can say "no answer" where a member never
+   * spoke, instead of reporting a failure as a considered abstention (the core's own words). The
+   * row TEXT already used it; the row LABEL did not, so the label said `abstain` — a claim about
+   * deliberation that never happened.
+   */
+  silent?: boolean;
+  /**
    * A prompt the core PARKED: typed while a turn was running, and it will run as its own turn when
    * this one ends (`interjection.deferred`).
    *
@@ -272,6 +281,7 @@ export function rows(events: Event[]): Row[] {
           seq: e.seq, who: 'council', text, member: String(d.member ?? ''),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
+          silent: d.silent === true || undefined,
         });
         break;
       }
@@ -424,6 +434,36 @@ export function sizeNote(before: number, after: number): string {
  * The rule is the one the screen already draws with: a user row still marked `pending` is a
  * question with no answer under an unfinished turn.
  */
+/**
+ * A council verdict as the other surfaces already say it.
+ *
+ * `council.Decision` is three words, and one of them reads as its own opposite: `continue` means
+ * "not done, more work is needed", and a row that prints it says the vote let the work proceed.
+ * It is the gate on ending the turn — the work cannot pass it.
+ *
+ * The core found this and fixed it TWICE somewhere else. The terminal has said "reject" since it
+ * drew its first verdict (`internal/adapter/tui/render.go`, `councilVerdictLabel`), and the web
+ * console carries a test named `TestAContinueVoteReadsAsTheRejectionItIs` whose comment reads:
+ * "The page printed the raw word in a neutral colour, which reads as progress — the opposite of
+ * what the vote means." This client printed the raw word.
+ *
+ * `silent` is a fourth OUTCOME and not a fourth decision: a verdict nobody gave arrives as
+ * `abstain` so the tally does not count it, and drawing that as an abstention reports a backend
+ * failure as a member weighing the work and declining.
+ *
+ * ⚠ An unknown decision passes through raw, with the neutral mark the terminal uses.
+ */
+export function verdictWord(decision: string | undefined, silent?: boolean): { icon: string; word: string } {
+  if (silent) return { icon: '⋯', word: 'no answer' };
+  switch ((decision ?? '').trim()) {
+    case '': return { icon: '', word: '' };
+    case 'done': return { icon: '✓', word: 'done' };
+    case 'continue': return { icon: '✗', word: 'reject' };
+    case 'abstain': return { icon: '∅', word: 'abstain' };
+    default: return { icon: '·', word: (decision ?? '').trim() };
+  }
+}
+
 export function turnOpen(events: Event[]): boolean {
   return rows(events).some((r) => r.pending);
 }

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { rows, turnOpen } from '../core/transcript';
+import { rows, turnOpen, verdictWord } from '../core/transcript';
 import { retryAfter } from '../core/daemon';
 import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
@@ -417,10 +417,15 @@ test('every council verdict makes a row, and it carries the vote', () => {
 
   // And the screen shows the vote. Carrying it into a field nobody paints is the same defect.
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
-  const at = chat.indexOf("const vote = r.who === 'council'");
+  const at = chat.indexOf("const v = r.who === 'council' ? verdictWord(");
   assert.ok(at > 0, 'the label never builds a vote — the row carries it and nothing draws it');
-  const line = chat.slice(at, at + 200);
-  assert.ok(/r\.decision/.test(line) && /r\.round/.test(line), 'the label leaves out the vote or the round');
+  const line = chat.slice(at, at + 260);
+  // ⚠ The vote must go through the wording, not straight from the field: `r.decision` in the label
+  // IS the defect one test over — the raw `continue` reading as approval.
+  assert.ok(/verdictWord\(r\.decision, r\.silent\)/.test(line),
+    'the label does not word the verdict, or does not pass `silent` — no-answer then reads as abstain');
+  assert.ok(/v\.word/.test(line) && /r\.round/.test(line), 'the label leaves out the vote or the round');
+  assert.ok(!/`\s*\$\{r\.decision\}/.test(line), 'the label puts the raw decision on screen again');
   assert.ok(/label: who \+ vote/.test(chat), 'the vote is built and never joined to the label');
 });
 
@@ -558,4 +563,58 @@ test('a stream that a newer attempt overtook does not install itself', () => {
   // And a connection that lost the race is handed back, or the daemon keeps a subscription open.
   assert.ok(/mine !== this\.opening\) \{ s\.close\(\); return; \}/.test(body),
     'the losing attempt drops its socket without closing it — the daemon keeps streaming to nobody');
+});
+
+/**
+ * ★ A `continue` vote is a REJECTION, and this client printed the word as it arrived.
+ *
+ * `council.Decision` is three words and one reads as its own opposite: `continue` means "not done,
+ * more work is needed". It is the gate on ending the turn — the work cannot pass it — so a row that
+ * says "melchior continue" tells the reader the vote let the work proceed.
+ *
+ * The core has already paid for this twice elsewhere. The terminal has said "reject" since it drew
+ * its first verdict (`councilVerdictLabel`), and the web server carries a test called
+ * `TestAContinueVoteReadsAsTheRejectionItIs` whose comment is exact: "The page printed the raw word
+ * in a neutral colour, which reads as progress — the opposite of what the vote means."
+ *
+ * The words are pinned against the TERMINAL's table, not written twice: three surfaces saying one
+ * verdict three ways is the same defect one level up.
+ */
+test('a council verdict is worded the way the other surfaces word it', () => {
+  const tui = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'tui', 'render.go'), 'utf8');
+  const at = tui.indexOf('func councilVerdictLabel(');
+  assert.ok(at > 0, 'the terminal no longer has the table this guard copies — the words are unanchored');
+  const table = tui.slice(at, tui.indexOf('\n}', at));
+  const pairs = [...table.matchAll(/case "([a-z]+)":\s*\n\s*return "([^"]*)", "([^"]+)"/g)];
+  assert.ok(pairs.length >= 3, `only ${pairs.length} verdict words read from the terminal — the parser is stale`);
+
+  for (const [, decision, icon, word] of pairs) {
+    const got = verdictWord(decision);
+    assert.equal(got.word, word, `"${decision}" reads as "${got.word}" here and "${word}" in the terminal`);
+    assert.equal(got.icon, icon, `"${decision}" is marked "${got.icon}" here and "${icon}" in the terminal`);
+  }
+  // The one this guard exists for, stated outright so a reader sees the claim without the table.
+  assert.equal(verdictWord('continue').word, 'reject',
+    'a rejection is still worded as the word that reads like approval');
+
+  // A verdict nobody gave is not a considered abstention. `silent` rides beside `abstain` so the
+  // tally does not count it; drawing it as abstain reports a backend failure as deliberation.
+  assert.equal(verdictWord('abstain', true).word, 'no answer');
+  assert.notEqual(verdictWord('abstain', true).word, verdictWord('abstain').word,
+    'a member that never spoke reads the same as one that weighed the work and declined');
+
+  assert.equal(verdictWord(undefined).word, '', 'a row with no decision must say nothing, not guess');
+  assert.equal(verdictWord('deferred').word, 'deferred', 'an unknown decision is swallowed or renamed');
+});
+
+/** And the row must actually use it — a correct function nobody calls is the older defect here. */
+test('the council row carries the verdict wording and the silence', () => {
+  const drawn = rows([
+    { seq: 1, type: 'council.verdict', data: { member: 'Melchior', round: 2, decision: 'continue', rationale: 'the tests do not run' } },
+    { seq: 2, type: 'council.verdict', data: { member: 'Casper', round: 2, decision: 'abstain', silent: true } },
+  ] as unknown as Parameters<typeof rows>[0]);
+  assert.equal(drawn.length, 2, 'the shaper did not draw the verdicts this guard hands it');
+  assert.equal(drawn[0].decision, 'continue', 'the row no longer carries the core word it was given');
+  assert.equal(drawn[1].silent, true, 'the row drops `silent`, so the label cannot tell no-answer from abstain');
 });

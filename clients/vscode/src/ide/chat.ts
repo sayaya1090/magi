@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
-import { Row, rows, seat, todos, turnOpen } from '../core/transcript';
+import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcript';
 import { touched, pendingAsk } from '../core/touched';
 import { panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
@@ -763,8 +763,9 @@ function paint(r: Row, you?: string): Row & { label: string } {
     : r.who;
   // A council row's label carries the vote and the round. Without them nine rows over three rounds
   // read as one undifferentiated block, and the one thing a verdict IS — how they voted — is absent.
+  const v = r.who === 'council' ? verdictWord(r.decision, r.silent) : { icon: '', word: '' };
   const vote = r.who === 'council'
-    ? (r.decision ? ` ${r.decision}` : '') + (r.round ? ` r${r.round}` : '')
+    ? (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '')
     : '';
   // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
   // into ✗ is the defect the core measured on a live run — a file that was written and then
