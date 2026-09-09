@@ -156,6 +156,31 @@ class Rows {
             "prompt.abandoned" -> mark(str(e, "msgId")) { it.copy(abandoned = true, queued = false, pending = false) }
             "compaction" -> compaction(e)
             "turn.finished" -> {
+                // ⚠ **확인 못 한 채 끝난 턴은 끝난 턴이 아니다.**
+                //
+                // 코어는 실행-증거 게이트가 확인하지 못했을 때 `unverified` 를 세운다 — 최상위
+                // 턴이 산출물을 바꿨는데 **지금 판으로 통과한 독립 실행이 없다**는 뜻이라,
+                // 선언된 결과가 성공이든 「불가능」이든 실행으로 뒷받침되지 않았다. 플래그를
+                // 두는 이유를 코어가 제 말로 적어 두었다: "labeled UNVERIFIED rather than
+                // **laundered into a confident success**".
+                //
+                // 이 창이 그것을 세탁하고 있었다 — 대기 표시만 지우고 아무 말도 안 했다.
+                // 터미널은 플래그가 선 뒤로 줄곧 그려 왔다(`⚠ Unverified`).
+                //
+                // ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 평범한 종료는
+                // 칸이 아예 없는 것이고, `false` 를 기다리면 오지 않는 모양을 재게 된다.
+                //
+                // 어휘는 `error` 갈래와 같다(Who.Info + ⚠) — 한 사실을 두 낱말로 적으면 안 재지는
+                // 쪽이 갈린다는 이 파일의 규칙 그대로다. 마지막 행의 표식이 아니라 제 행인 것은,
+                // 이 사실이 **턴**의 것이고 마지막 행은 산출물과 무관한 툴 호출일 수 있어서다.
+                e.data?.jsonObject?.let { d ->
+                    if (d["unverified"]?.jsonPrimitive?.content == "true") {
+                        val why = d["reason"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                        rows += Row(Who.Info,
+                            "\u26A0 확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
+                                (why?.let { ": $it" } ?: ""), at = e.ts)
+                    }
+                }
                 // **턴이 끝나면 고아 초안을 쓴다.** 코어에는 조각만 흘리고 사실을 안 쓰는 길이
                 // 여럿이다(스핀 가드가 버린 응답, 본문으로 온 툴콜, 중단·프로바이더 에러,
                 // 실패한 인터젝션 미니턴 — 리뷰가 다섯을 짚었다). 안 쓸면 붙어 있던 창에만

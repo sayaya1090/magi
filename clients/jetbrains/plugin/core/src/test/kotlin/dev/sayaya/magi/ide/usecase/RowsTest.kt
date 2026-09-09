@@ -34,6 +34,47 @@ class RowsTest {
     private fun answer(text: String, id: String = "a1") =
         ev("part.appended", """{"messageId":"$id","role":"assistant","part":{"kind":"text","text":"$text"}}""")
 
+    /**
+     * **확인 못 한 채 끝난 턴은 끝난 턴이 아니다.**
+     *
+     * `TurnFinishedData.Unverified` 는 실행-증거 게이트가 확인하지 못한 종료다 — 최상위 턴이
+     * 산출물을 바꿨는데 **지금 판으로 통과한 독립 실행이 없다**. 코어가 그 플래그를 두는 이유를
+     * 제 말로 적어 두었다: *"labeled UNVERIFIED rather than laundered into a confident success."*
+     * 이 셰이퍼가 그것을 세탁하고 있었다 — 대기 표시만 지우고 아무 말도 안 했다(2026-09-09 실측).
+     *
+     * ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다**: 평범한 종료는 칸이 아예
+     * 없는 것이다. 그래서 평범한 종료가 경고를 안 다는지도 같이 못박는다 — 안 그러면 이 규칙은
+     * 모든 턴에 경고를 붙이는 변경을 통과시킨다.
+     */
+    @Test
+    fun `확인 못 한 채 끝난 턴은 그렇게 적힌다`() {
+        val core = java.io.File(System.getProperty("user.dir")).parentFile.parentFile.parentFile.parentFile
+        val payload = java.io.File(core, "internal/core/event/payload.go")
+        assertTrue(payload.isFile, "코어의 턴 payload 를 못 찾았다(${payload.absolutePath})")
+        assertTrue("""Unverified bool   `json:"unverified,omitempty"`""" in payload.readText(),
+            "와이어가 `unverified` 를 이 규칙이 읽는 모양으로 안 싣는다")
+
+        val ok = Rows()
+        ok.feed(user("하이", "m1"))
+        ok.feed(ev("turn.finished", """{"usage":{"in":1,"out":2}}"""))
+        assertTrue(ok.list().none { "확인 못 함" in it.text },
+            "평범한 종료가 확인 못 한 것으로 적힌다 — 흔한 경우에 경고가 붙었다")
+
+        val bad = Rows()
+        bad.feed(user("고쳐줘", "m2"))
+        bad.feed(ev("turn.finished",
+            """{"usage":{},"unverified":true,"reason":"빌드를 한 번도 안 돌렸다"}"""))
+        val said = bad.list().firstOrNull { "확인 못 함" in it.text }
+        assertTrue(said != null, "확인 못 한 종료가 확인된 종료와 똑같이 그려진다")
+        assertTrue("빌드를 한 번도 안 돌렸다" in said!!.text,
+            "사유가 버려졌다 — 무언가 잘못됐다고만 말하고 손잡이를 안 준다")
+
+        val bare = Rows()
+        bare.feed(user("고쳐줘", "m3"))
+        bare.feed(ev("turn.finished", """{"usage":{},"unverified":true}"""))
+        assertTrue(bare.list().any { "확인 못 함" in it.text }, "사유 없는 미확인 종료가 조용하다")
+    }
+
     @Test
     fun `몸통 — 사람이 친 글과 컴패니언의 답이 행에 있다`() {
         val r = Rows()
