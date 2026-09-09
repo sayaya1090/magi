@@ -1349,12 +1349,18 @@ class SourceTextTest {
         val win = sources.first { it.name == "MagiToolWindow.kt" }.readText()
         val at = win.indexOf("class Pick(val row: SessionRow)")
         assertTrue(at > 0, "대화를 고르는 줄을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        // ⚠ **주석을 먼저 걷어낸다.** 안 걷으면 이 규칙이 코드가 아니라 **산문**에 걸린다 —
+        // 변이가 그것을 보여 줬다: 그리는 식을 통째로 빈 글자로 바꿨는데도 바로 위 주석의
+        // 「코어는 늘 보낸다(lastActivity)」가 그 낱말을 대신 물고 통과시켰다.
         val pick = win.substring(at, win.indexOf("\n                            }", at))
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
         assertTrue("row.title" in pick, "고르는 줄의 범위가 엉뚱한 곳을 잡았다")
-        assertTrue("lastActivity" in pick,
-            "목록이 마지막으로 움직인 때를 안 그린다 — 이백 줄에서 「아까 그 대화」를 찾을 실마리가 없다")
-        assertTrue("RowText.asked(" in pick,
-            "전선의 시각을 그대로 찍는다 — RFC3339 는 UTC 라 보는 사람의 시계와 어긋난다")
+        // 한 식으로 못박는다. 둘을 따로 물으면 「값은 있는데 딴 데 쓴다」와 「말로 바꾸긴
+        // 하는데 딴 값을 바꾼다」가 둘 다 통과한다.
+        assertTrue("RowText.asked(row.lastActivity)" in pick,
+            "목록이 마지막으로 움직인 때를 **말로 바꿔** 그리지 않는다 — 안 그리면 이백 줄에서 " +
+                "「아까 그 대화」를 찾을 실마리가 없고, 전선 값을 그대로 찍으면 RFC3339 는 UTC 라 " +
+                "보는 사람의 시계와 어긋난다")
     }
 
 }
