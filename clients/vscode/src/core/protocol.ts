@@ -237,7 +237,7 @@ export interface RosterRow {
   name?: string;
   role?: string;
   team?: string;
-  hub?: string;
+  hub?: boolean;
   workdir?: string;
   account?: string;
   state?: string;
@@ -246,10 +246,30 @@ export interface RosterRow {
   addr?: string;
   started?: string;
   by?: string;
-  can?: string[];
-  does?: string;
-  waiting?: string;
-  handling?: number;
+  /**
+   * ⚠ **These five drifted out of step with the struct.** Measured against `RosterRow`
+   * (`internal/adapter/daemon/roster.go`) 2026-09-10: `hub` was `string` for a bool, `can` was
+   * `string[]` for an int, `does` was `string` for a `[]string`, `waiting` was `string` for an int,
+   * `handling` was `number` for a bool.
+   *
+   * A wrong type here is not cosmetic and TypeScript cannot catch it — JSON crosses the boundary as
+   * `unknown` and this declaration is a promise nobody checks. What it DOES do is block the correct
+   * read: `r.waiting > 0` was rejected with "Operator '>' cannot be applied to types 'string' and
+   * 'number'", so the one screen that wants the queue depth could not compile it.
+   *
+   * `can` is a COUNT of what a companion can take, not a list; `does` is the list.
+   */
+  can?: number;
+  does?: string[];
+  waiting?: number;
+  /**
+   * In the middle of a piece of handed-over work when last seen.
+   *
+   * Not a spare fact: the core signs it beside `waiting` because together they decide routing —
+   * "fleet.Resolve routes a team address to the lightest companion, and **load is Waiting + (1 if
+   * Handling)**". A row that shows only the queue calls a companion free when it is carrying one.
+   */
+  handling?: boolean;
   session?: string;
   permission?: string;
   backend?: string;

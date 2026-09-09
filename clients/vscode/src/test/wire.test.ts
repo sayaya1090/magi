@@ -262,3 +262,56 @@ test('no door we call answers into an untyped hole', () => {
   assert.ok(/roster\?: RosterRow\[\]/.test(body), 'the roster went back to being untyped');
   assert.ok(/handover\?: \{/.test(body), 'the handover went back to being untyped');
 });
+
+/**
+ * ★ The declared TYPE of a wire field, not just its name.
+ *
+ * `wire.test.ts` already checks that the names this client reads are names the daemon writes. It did
+ * not check what SHAPE they arrive in, and five fields on `RosterRow` had drifted out of step with
+ * the struct (measured 2026-09-10): `hub` was `string` for a bool, `can` was `string[]` for an int,
+ * `does` was `string` for a `[]string`, `waiting` was `string` for an int, `handling` was `number`
+ * for a bool.
+ *
+ * TypeScript cannot catch this on its own — JSON crosses the boundary as `unknown`, so the
+ * declaration is a promise nobody checks. What a wrong type does do is block the CORRECT read:
+ * `r.waiting > 0` was rejected with "Operator '>' cannot be applied to types 'string' and 'number'",
+ * which is how a field ends up declared, unread, and quietly absent from the screen.
+ */
+test('the roster fields are declared with the shapes the daemon sends', () => {
+  const go = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'roster.go'), 'utf8');
+  const at = go.indexOf('type RosterRow struct');
+  assert.ok(at > 0, 'the core no longer has the roster row this guard reads');
+  const struct = go.slice(at, go.indexOf('\n}', at));
+  const goType = new Map<string, string>();
+  for (const m of struct.matchAll(/^\t\w+\s+(\**\[?\]?[\w.[\]]+)\s+`json:"([a-z][a-zA-Z]*)/gm)) {
+    goType.set(m[2], m[1].replace(/^\*/, ''));
+  }
+  assert.ok(goType.size >= 20, `only ${goType.size} roster fields read from the core — the parser is stale`);
+
+  const ts = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
+  // ⚠ Anchor on the DECLARATION, not the first mention. The first cut used `indexOf('RosterRow')`
+  // and landed on a usage above it, so the parser read five fields and the guard said so.
+  const start = ts.search(/export (?:interface|type) RosterRow\b/);
+  assert.ok(start >= 0, 'the roster declaration is not where this guard looks');
+  const decl = ts.slice(start, ts.indexOf('\n}', start));
+  const tsType = new Map<string, string>();
+  for (const m of decl.matchAll(/^\s{2}(\w+)\??:\s*([\w[\]]+);/gm)) tsType.set(m[1], m[2]);
+  assert.ok(tsType.size >= 15, `only ${tsType.size} fields read from the declaration — the parser is stale`);
+
+  const want: Record<string, string> = {
+    string: 'string', int: 'number', int64: 'number', float64: 'number',
+    bool: 'boolean', '[]string': 'string[]',
+  };
+  // Pinned so a broken parser cannot answer "all fine": these are the shapes that were wrong.
+  for (const [f, t] of [['waiting', 'number'], ['handling', 'boolean'], ['can', 'number'], ['does', 'string[]']]) {
+    assert.equal(tsType.get(f), t, `\`${f}\` is declared \`${tsType.get(f)}\`, and the daemon sends \`${t}\``);
+  }
+  for (const [name, gt] of goType) {
+    const declared = tsType.get(name);
+    if (!declared || !want[gt]) continue;   // not read here, or a shape this guard cannot judge
+    assert.equal(declared, want[gt],
+      `\`${name}\` is declared \`${declared}\` and the daemon sends \`${gt}\` — a wrong shape here ` +
+      'blocks the correct read rather than failing loudly');
+  }
+});
