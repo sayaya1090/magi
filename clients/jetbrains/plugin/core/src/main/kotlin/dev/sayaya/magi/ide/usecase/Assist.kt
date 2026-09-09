@@ -44,11 +44,37 @@ class Assist(
             // 왜 빈손인지를 **기억한다.** 매 타건마다 말하면 잡음이라 설정 화면이 읽는다 —
             // 고치는 자리가 거기이기 때문이다(라우팅 키가 같은 화면에 서 있다).
             note(r.error, if (r.out.isNullOrEmpty()) r.reason else null)
-            r.out
+            withoutEcho(r.out, prefix)
         }
     }
 
     companion object {
+        /**
+         * 모델이 **커서 앞을 다시 뱉은 만큼**을 벗긴다.
+         *
+         * 완성기는 커서 앞뒤를 다 받고 가운데만 말하기로 돼 있는데, 앞의 꼬리를 같이 되뱉는 일이
+         * 있다. 그대로 그리면 회색 글씨에 이미 화면에 있는 글자가 한 번 더 서고, **받아들이면
+         * 그 글자가 실제로 두 번 들어간다.** 짝인 VS Code 는 그 사실을 관측해 벗기고 있었고
+         * (*"It sometimes re-emits the tail of the prefix"*), 이 판은 아무것도 안 벗겼다.
+         * 코어도 안 벗긴다 — 코드 펜스만 걷고 그대로 준다(`internal/app/complete.go`).
+         *
+         * **가장 긴 겹침**을 벗긴다: 짧은 쪽부터 끊으면 남은 앞부분이 다시 중복이 된다. 완성이
+         * 앞의 꼬리와 통째로 같으면 남는 것이 없고, 그건 아무 말도 안 한 것이라 빈 값이 맞다.
+         *
+         * 꼬리를 200자로 끊는 것도 같은 판의 규칙이다 — 그보다 긴 되뱉음은 완성이 아니라 파일을
+         * 다시 쓰는 것이고, 온 버퍼를 훑는 값은 그 드문 경우에 비해 비싸다.
+         */
+        @JvmStatic
+        internal fun withoutEcho(out: String?, prefix: String): String? {
+            val t = out?.replace("\r", "") ?: return out
+            if (t.isBlank()) return t
+            val tail = prefix.takeLast(200)
+            for (n in minOf(tail.length, t.length) downTo 1) {
+                if (tail.endsWith(t.take(n))) return t.drop(n)
+            }
+            return t
+        }
+
         /**
          * 마지막 완성이 빈손이었던 사유, 있으면.
          *

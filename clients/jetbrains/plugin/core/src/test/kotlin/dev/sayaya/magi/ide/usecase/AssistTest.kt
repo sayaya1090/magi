@@ -173,4 +173,50 @@ class AssistTest {
                 "${call.first} 이 거부당했는데 아무 데도 안 남았다")
         }
     }
+
+    /**
+     * ★ **모델이 커서 앞을 다시 뱉은 만큼은 벗긴다.**
+     *
+     * 완성기는 커서 앞뒤를 다 받고 가운데만 말하기로 돼 있는데 앞의 꼬리를 같이 되뱉는 일이 있다.
+     * 그대로 그리면 회색 글씨에 이미 화면에 있는 글자가 한 번 더 서고, **받아들이면 그 글자가
+     * 실제로 두 번 들어간다.** 짝인 VS Code 는 그 사실을 관측해 벗기고 있었고("It sometimes
+     * re-emits the tail of the prefix"), 이 판은 아무것도 안 벗겼다 — 코어도 코드 펜스만 걷고
+     * 그대로 준다(`internal/app/complete.go`).
+     */
+    @Test
+    fun `앞을 되뱉은 만큼 벗긴다`() {
+        assertEquals(
+            "(x: Int): Int {",
+            Assist.withoutEcho("fun add(x: Int): Int {", "    fun add"),
+            "앞의 꼬리가 그대로 남아 두 번 들어간다",
+        )
+    }
+
+    /**
+     * **가장 긴 겹침**이다. 짧은 쪽부터 끊으면 남은 앞부분이 다시 중복이 된다 — 앞이 `xxabab` 로
+     * 끝나는데 완성이 `ababcd` 면 두 글자만 벗겨서는 `abcd` 가 남아 `ab` 가 두 번 들어간다.
+     */
+    @Test
+    fun `겹침은 가장 긴 것으로 벗긴다`() {
+        assertEquals("cd", Assist.withoutEcho("ababcd", "xxabab"))
+    }
+
+    /** 앞의 꼬리와 통째로 같으면 아무 말도 안 한 것이다 — 남는 것이 없어야 한다. */
+    @Test
+    fun `앞을 그대로 되뱉으면 남는 것이 없다`() {
+        assertEquals("", Assist.withoutEcho("fun add", "    fun add"))
+    }
+
+    /** 안 겹치면 한 글자도 안 벗긴다 — 안 겹치는 것을 벗기면 답을 잘라 먹는다. */
+    @Test
+    fun `안 겹치면 한 글자도 안 벗긴다`() {
+        assertEquals("return x + y", Assist.withoutEcho("return x + y", "    fun add(x: Int) {\n        "))
+    }
+
+    /** 없는 답과 빈 답은 그대로. 지어내지 않는다. */
+    @Test
+    fun `없는 답은 그대로 둔다`() {
+        assertNull(Assist.withoutEcho(null, "무엇이든"))
+        assertEquals("   ", Assist.withoutEcho("   ", "무엇이든"))
+    }
 }
