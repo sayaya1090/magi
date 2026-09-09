@@ -48,16 +48,23 @@ pwsh clients/visualstudio/tools/smoke.ps1
 
 VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하면서 발생하는 공통 로직 중복을 방지하기 위해 `magi ide-bridge`를 설계했습니다:
 
-- **브리지가 전담하는 공통 8대 로직**:
-  1. 소켓 경로 계산 (`WorkspaceKey` 해싱)
-  2. 줄 단위 JSON 파싱
-  3. 대화 전사(Transcript) 조립
-  4. 상태 추적 (현재 진행 중인 작업 표시)
-  5. 권한/승인(Approval) 어휘 및 상태 머신
-  6. 인레이/어노테이션 텍스트 가공
-  7. 인라인 완성(Completion) 처리
-  8. 백엔드/모델 선택 처리
+**브리지가 맡기로 한 공통 여덟** ([설계 §3](docs/DESIGN.ko.md) · [계약](../../docs/IDE_BRIDGE.ko.md)).
+⚠ **맡기로 한 것과 지어진 것은 다릅니다** — 이 빌드가 답하는 메서드는 `about`·`activity`·`daemon`
+셋이고, 여덟 중 셋이 그 안에 들어와 있습니다. 나머지는 편집기 층이 아직 제 손으로 합니다.
+
+| | 공통 여덟 | 브리지에 |
+|---|---|---|
+| 1 | 소켓 경로 유도 (`WorkspaceKey` · FNV 상수) | ✅ `about` 이 유도해서 되돌려줍니다 |
+| 2 | 줄 단위 JSON 왕복과 스트림 (전선) | ✅ |
+| 3 | 전사 → 행 | ⏳ `watch` 와 함께 옵니다 |
+| 4 | 「무엇을 하는 중인가」 한 단어 | ✅ `activity` |
+| 5 | 승인 어휘 (`allow` · `deny` · `always`) | ⏳ |
+| 6 | 훑어본 말 가르기 (줄에 걸리는 것과 아닌 것) | ⏳ `look` |
+| 7 | 완성의 창과 겹침 제거 | ⏳ `complete` — **두 이식본이 이미 갈라진 그 자리입니다** |
+| 8 | 판 고르기와 받기 | ⏳ 그나마 반만 — 코어를 받아야 브리지가 생기므로 **첫 사본을 받아오는 일은 편집기 층에 남습니다** |
+
 - 따라서 `Magi.Core`는 복잡한 FNV 해시나 소켓 경로 계산 없이, 브리지 프로세스와 표준 입출력/파이프로 소통하며 화면 렌더링에만 집중합니다.
+- 표는 늙고 광고는 안 늙습니다 — `about` 이 이 빌드가 답하는 메서드를 스스로 말하므로, 클라이언트가 위 표를 믿을 필요는 없습니다.
 
 ---
 
@@ -84,5 +91,5 @@ VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하�
 
 - [설계 문서 (`docs/DESIGN.ko.md`)](docs/DESIGN.ko.md): 프로세스 외(Out-of-Process) 확장 모델 선정 배경 및 브리지 계약, §10 띄워 보고 나서 남은 것.
 - [플랫폼 규약 (`docs/PLATFORM.ko.md`)](docs/PLATFORM.ko.md): Remote UI 요구사항, 선언형 설정 구성 및 VS Code/JetBrains 대비 플랫폼 특성 비교.
-- [편집기 제안서 (`docs/proposals/EDITORS.ko.md`)](file:///Users/sayaya/IdeaProjects/magi/docs/proposals/EDITORS.ko.md): 3대 IDE 클라이언트 개발 타당성 및 브리지 추출 전략.
+- [편집기 제안서 (`docs/proposals/EDITORS.ko.md`)](../../docs/proposals/EDITORS.ko.md): 3대 IDE 클라이언트 개발 타당성 및 브리지 추출 전략.
 - [IDE 브리지 사양 (`docs/IDE_BRIDGE.ko.md`)](../../docs/IDE_BRIDGE.ko.md): 공통 브리지 프로세스 프로토콜 규격.
