@@ -285,6 +285,25 @@ class CompanionTest {
     }
 
     @Test
+    fun `사람 이름은 데몬이 말해 준 것을 쓴다`() {
+        // 진짜 생산자가 있다: SSO 류 플러그인이 인증된 이름을 `magi.set_user_label` 로 심고
+        // (엔진이 세션 전이면 래치했다가 적용한다 — 「첫 턴에 이름이 없던」 결함의 그 고침),
+        // `status` 가 답한다. 런타임 사실이라 이 전선으로만 온다.
+        //
+        // 이 칸을 [Companion.Facts] 가 안 날라서 화면까지 갈 길이 없었고, 사람 행은 누가
+        // 로그인했든 늘 낙하 낱말이었다. 코어는 **빈 라벨을 아예 안 보내므로** 있으면 그것이고
+        // 없으면 낙하다 — 빈 문자열이 이름 자리에 서면 안 된다.
+        val fake = FakeDaemon(listOf("""{"ok":true,"user":"jiyoung@corp"}""", """{"ok":true,"user":"   "}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            assertEquals("jiyoung@corp", comp.facts().user, "데몬이 말해 준 이름을 안 나른다")
+            assertNull(comp.facts().user, "빈 이름이 이름 자리에 섰다 — 그때는 화면이 낙하해야 한다")
+        }
+        fake.close()
+    }
+
+    @Test
     fun `전사를 보는 쪽이 아는 사실이 탐침을 이긴다`() {
         // 이 줄 위의 시험은 **기전**을 재고 이 시험은 **입력이 오나**를 잰다. 둘이 갈라져 있던
         // 것이 결함이었다: 위 시험은 `doing` 이 차 있는 status 를 먹여 초록이었는데, 현장에서

@@ -154,3 +154,32 @@ test('a daemon that said nothing is not called idle', () => {
     assert.ok(!/['"`]idle['"`]/.test(src), `${f} still hands a screen the word "idle"`);
   }
 });
+
+/**
+ * The person's own name, when the daemon has one.
+ *
+ * There is a real producer: an SSO-style plugin injects the authenticated username with
+ * `magi.set_user_label`, the engine latches it (so a plugin that logs in during startup does not
+ * write it under an empty session id — that was the "username missing on the first turn" bug), and
+ * `status` answers with it. It is a runtime fact and comes down this wire and nowhere else.
+ *
+ * Both IDE clients dropped it, so every screen called whoever had logged in "user". The
+ * ide-bridge's copy of `setupOf` carried it all along — two of the three copies were wrong.
+ *
+ * Empty is never sent by the core, so this is present-or-absent and never blank; a screen that
+ * received one anyway must still fall back rather than draw a nameless row.
+ */
+test('the person is called what the daemon calls them', () => {
+  assert.equal(setupOf({ ok: true, user: 'jiyoung@corp' }).user, 'jiyoung@corp');
+  assert.ok(!('user' in setupOf({ ok: true })), 'an unsaid name is stored as a key with nothing in it');
+  assert.ok(!('user' in setupOf({ ok: true, user: '   ' })), 'a blank name became a nameless label');
+
+  // Declared on the wire — without that it cannot be read at all, which is how it was lost.
+  const proto = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
+  assert.ok(/^\s{2}user\?:/m.test(proto), 'Response does not declare `user` — status fills it');
+
+  // And it reaches the label. A name read into a field nobody paints is the same defect.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  assert.ok(/r\.who === 'user' && you \? you/.test(chat), "the user row's label ignores the name");
+  assert.ok(/paint\(r, this\.companion\.you\)/.test(chat), 'the name is never handed to the painter');
+});
