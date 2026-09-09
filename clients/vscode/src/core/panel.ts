@@ -75,7 +75,20 @@ export function schedules(resp: Response | null): Schedule[] {
       // three-valued on the wire" — so the distinction was known where it was needed and lost here.
       r.enabled !== true ? 'off' : r.next ? `next ${r.next}` : '',
       r.problem ? `⚠ ${r.problem}` : '',
-      (r.prompt ?? r.command ?? '').split('\n')[0].slice(0, 40),
+      // ★ **Which KIND of job it is, not just its words.** The two are exclusive on the wire and
+      // the core says why they are different things: a command job "모델을 안 부르고 도구 권한
+      // 관문도 안 지난다(설정에 적은 것이 곧 승인)" — it runs a shell command on this machine
+      // unattended, with no permission prompt, because being written in the config IS the approval.
+      //
+      // Measured against a live daemon 2026-09-10: `go build ./...` every five minutes and "저장소를
+      // 훑어 본다" at 3am drew as the same shape of row, so the one row on the list that runs
+      // commands behind nobody's back looked exactly like the one that asks the model a question.
+      // The daemon's own sentence tells them apart ("runs a command" / "asks"); this line did not.
+      //
+      // `$` is the mark, because that is what the JetBrains panel already uses for this exact fact
+      // ("도는 잡은 `$` 로 시작해 한눈에 갈린다"). One vocabulary, so two screens cannot drift.
+      r.command ? `$ ${r.command.split('\n')[0].slice(0, 40)}`
+        : (r.prompt ?? '').split('\n')[0].slice(0, 40),
     ].filter(Boolean).join(' · '),
   }));
 }

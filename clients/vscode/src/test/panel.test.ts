@@ -518,3 +518,31 @@ test('only a sighting carries an age', () => {
   assert.ok(!/seen/.test(local), `a measured row was captioned as remembered: ${local}`);
   assert.ok(!/seen/.test(unsaid), `an unsaid age was drawn as fresh: ${unsaid}`);
 });
+
+/**
+ * ★ A schedule that RUNS A COMMAND is marked as one.
+ *
+ * `prompt` and `command` are exclusive on the wire, and the core says why the difference matters:
+ * a command job "모델을 안 부르고 도구 권한 관문도 안 지난다(설정에 적은 것이 곧 승인)" — it runs
+ * a shell command on this machine unattended, with no permission prompt, because being written in
+ * the config IS the approval. The daemon's own sentence tells them apart ("runs a command" /
+ * "asks"); this line printed both the same way.
+ *
+ * Measured against a live daemon (2026-09-10): two real rows written through `cron-set` and read
+ * back through `cron`, then run through this function. `$` is the mark because the JetBrains panel
+ * already uses it for this fact — one vocabulary, so two screens cannot drift.
+ */
+test('a schedule that runs a command is told apart from one that asks', () => {
+  const [runs, asks] = schedules({
+    ok: true,
+    cron: [
+      { name: 'build', schedule: '*/5 * * * *', enabled: true, next: '2026-09-09T20:25:00Z',
+        command: 'go build ./...', timeout: '10m' },
+      { name: 'nightly', schedule: '0 3 * * *', enabled: true, next: '2026-09-10T18:00:00Z',
+        prompt: '저장소를 훑어 본다' },
+    ],
+  });
+  assert.match(runs.line, /\$ go build \.\/\.\.\./, `a command job drew as: ${runs.line}`);
+  assert.ok(!asks.line.includes('$'), `a prompt job was marked as a command: ${asks.line}`);
+  assert.match(asks.line, /저장소를 훑어 본다/);
+});
