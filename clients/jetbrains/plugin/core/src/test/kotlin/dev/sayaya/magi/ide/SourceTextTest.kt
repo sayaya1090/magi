@@ -1299,4 +1299,38 @@ class SourceTextTest {
                 "화면에 위로만 서고 무엇에 대한 위로인지가 없다")
     }
 
+    /**
+     * ★ **계기의 칸은 문이 준 값에서 온다 — 자리만 채운 상수가 아니라.**
+     *
+     * 변이가 잡았다. 앞 시험은 그리는 자리가 `compactions` 를 **이름 대는지**만 보는데, 문에서
+     * 판으로 값을 옮기는 줄에서 `it.compactions` 를 `0` 으로 바꿔도 컴파일되고 아무도 안 울었다 —
+     * 화면은 그 칸을 그리는 코드를 그대로 들고 영원히 「접힌 적 없음」을 그린다.
+     *
+     * 그래서 [Rows.Ctx] 의 칸을 **선언에서 읽어** 하나씩 본다: 만드는 자리가 같은 이름의 값을
+     * 문에서 가져오는가. 칸이 늘면 따라오고, 하나도 못 읽으면 그것부터 운다.
+     */
+    @Test
+    fun `계기의 칸은 문이 준 값에서 온다`() {
+        val rows = sources.first { it.name == "Rows.kt" }.readText()
+        val at = rows.indexOf("data class Ctx(")
+        assertTrue(at > 0, "Ctx 선언을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val decl = rows.substring(at, rows.indexOf("\n    )", at))
+        val fields = Regex("""^\s{8}val (\w+):""", RegexOption.MULTILINE)
+            .findAll(decl).map { it.groupValues[1] }.toList()
+        assertTrue(fields.size >= 4, "Ctx 칸을 ${fields.size}개만 읽었다 — 훑기가 죽었다")
+
+        val win = sources.first { it.name == "PlanToolWindow.kt" }.readText()
+        val from = win.indexOf("Rows.Ctx(")
+        assertTrue(from > 0, "계기를 만드는 자리를 못 찾았다")
+        val make = win.substring(from, win.indexOf(")", win.indexOf("it.window", from)) + 1)
+
+        // `percent` 는 문에 그 이름의 칸이 없다 — used/window 로 여기서 셈한다.
+        for (f in fields - setOf("percent", "tokens")) {
+            assertTrue("it.$f" in make,
+                "계기의 `$f` 가 문이 준 값에서 안 온다 — 자리는 채워지고 값은 영영 기본값이다: $make")
+        }
+        // tokens 는 이름이 다르다(문의 `used`). 이름이 다르다는 것 자체를 여기서 못박는다.
+        assertTrue("it.used" in make, "계기의 tokens 가 문의 used 에서 안 온다")
+    }
+
 }
