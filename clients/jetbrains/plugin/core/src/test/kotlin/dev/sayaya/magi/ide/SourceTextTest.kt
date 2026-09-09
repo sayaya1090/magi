@@ -366,10 +366,14 @@ class SourceTextTest {
             "끝난 자식의 행을 등록부에서 안 꺼낸다 — 실패 사유가 거기에만 있다")
         assertTrue("plan.kid.failed" in panel, "실패를 적을 글자가 없다")
         // 사유를 꺼내 놓고 안 그리면 같은 결함이다.
-        val at = panel.indexOf("⛒ ")
-        assertTrue(at > 0, "끝난 자식의 행을 못 찾았다")
-        assertTrue("failed" in panel.substring(maxOf(0, at - 300), at + 60),
-            "사유를 읽어 놓고 행에 안 붙인다 — 나르는 것과 그리는 것은 다르다")
+        //
+        // ⚠ **행 자체를 본다.** 첫 판은 `⛒` 앞뒤 창을 봤는데, 그 창에 사유를 «만드는» 줄
+        // (`plan.kid.failed` 를 부르는 자리)이 들어 있어서 **행에서 빼도 통과했다** — 변이가
+        // 그대로 살아남아 드러났다. 만드는 것과 붙이는 것은 다르다.
+        val row = Regex("""kidRow\(project, "⛒ [^"]*"""").find(panel)?.value
+        assertTrue(row != null, "끝난 자식의 행을 못 찾았다")
+        assertTrue("\$failed" in row!!,
+            "사유를 읽어 놓고 행에 안 붙인다 — 나르는 것과 그리는 것은 다르다: $row")
     }
 
     @Test
