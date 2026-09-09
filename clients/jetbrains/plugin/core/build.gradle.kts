@@ -89,6 +89,10 @@ tasks.test {
         "internal/core/event/event.go",
         // 물음의 근거(`report.Filled`)가 사는 곳. 와이어를 타는데 목록에 없어서 짝이 안 잡혔다.
         "internal/core/report",
+        // `context` 문의 답. **파일을 댄다** — 이 타입은 엔진 패키지(`internal/app`)에 사는데
+        // 그 패키지는 전선이 아니라 엔진이라, 통째로 대면 와이어와 무관한 구조체가 이름으로
+        // 짝지어질 수 있다. 위의 「패키지를 대라」는 규칙은 **전선 패키지**에 대한 것이다.
+        "internal/app/context_state.go",
     ).map { rootProject.projectDir.resolve("../../../$it").canonicalFile }
     inputs.files(wireOrigins).withPropertyName("wireOrigins").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.wire.origins", wireOrigins.joinToString(File.pathSeparator) { it.absolutePath })

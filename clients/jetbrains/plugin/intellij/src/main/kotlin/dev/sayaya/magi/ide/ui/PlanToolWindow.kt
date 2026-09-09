@@ -253,7 +253,11 @@ class PlanToolWindow : ToolWindowFactory {
                     }
                 }
             }
-            ctx.text = v?.contextNow()?.let {
+            // **문을 먼저 묻는다.** 같은 사실이 스트림의 `context.usage` 로도 오지만 그것은
+            // transient 라 재생이 없다 — 도는 대화에 붙은 창은 턴이 한 번 돌기 전까지 아무것도
+            // 못 봤다. 문은 지금 답한다. 스트림은 낙하이고, 문 없는 데몬에서는 그것이 유일한
+            // 원천이다. (모름을 0% 로 그리지 않는다는 규칙은 그대로다 — 둘 다 없으면 안 적는다.)
+            ctx.text = (ctxFromDoor ?: v?.contextNow())?.let {
                 MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
             } ?: MagiBundle.msg("plan.usage.none")
             v?.modelNow()?.let { now ->
@@ -274,11 +278,20 @@ class PlanToolWindow : ToolWindowFactory {
             val j = jr.jobs
             val r = comp.roster()
             val cr = comp.cron()
+            // 광고가 있을 때만 두드린다 — 없는 문을 부르면 거절이 오고, 그 거절은 여기서
+            // 할 말이 아니다(판은 「모른다」를 그리면 된다).
+            if (canAskContext) {
+                val asked = runCatching { comp.context() }.getOrNull()?.takeIf { it.ok }?.context
+                // 창이 0 이면 잰 것이 아니다 — 모름을 0% 로 그리지 않는다는 규칙이 여기서도 같다.
+                ctxFromDoor = asked?.takeIf { it.window > 0 }
+                    ?.let { dev.sayaya.magi.ide.usecase.Rows.Ctx(it.used, it.window, it.used * 100.0 / it.window) }
+            }
             // 한 번만 읽고 기억한다 — 데몬이 도는 동안 능력은 안 바뀐다.
             if (!capsRead) {
                 val caps = comp.about().caps.orEmpty()
                 capsRead = true
                 canEditCron = caps.contains("cron-set")
+                canAskContext = caps.contains("context")
             }
             // 끝난 자식은 등록부에 없다 — 로그가 아는 것을 문에 묻는다. 문 없는 데몬은 null 을
             // 주고, 그때 이 판은 도는 것만 그린다(모름을 없음으로 그리지 않는다는 그 규칙).
@@ -644,6 +657,10 @@ class PlanToolWindow : ToolWindowFactory {
      */
     private var canEditCron = false
     private var capsRead = false
+    /** 이 데몬이 `context` 문을 답하나. 광고 없는 문은 두드리지 않는다. */
+    private var canAskContext = false
+    /** 문이 답한 창 사용량. EDT 밖에서 채우고 EDT 에서 읽으므로 volatile 이다. */
+    @Volatile private var ctxFromDoor: dev.sayaya.magi.ide.usecase.Rows.Ctx? = null
 
     /**
      * 예약 하나를 고치는 판 — [job] 이 null 이면 새로 만든다.

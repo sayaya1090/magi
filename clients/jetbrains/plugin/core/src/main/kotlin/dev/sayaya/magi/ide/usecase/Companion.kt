@@ -207,6 +207,15 @@ class Companion(
     /** 예약들. 고장 먼저 그다음 임박순 — 차례는 데몬이 정했다. */
     fun cron(): Response = send(Request(method = "cron"))
 
+    /**
+     * 이 대화의 창이 얼마나 찼나 — **지금** 묻는다.
+     *
+     * 같은 사실이 스트림의 `context.usage` 로도 오지만 그것은 transient 라 재생이 없다. 도는
+     * 대화에 붙은 창은 턴이 한 번 돌기 전까지 그 값을 못 본다 — 문은 그 자리에서 답한다.
+     * 광고(`context`)가 있는 데몬에만 물을 것.
+     */
+    fun context(): Response = send(Request(method = "context", session = session))
+
     /** 도는 백그라운드 하나를 세운다. removed=false 는 실패가 아니라 이미-없음이다. */
     fun killJob(id: String): Response =
         send(Request(method = "job-kill", name = id))

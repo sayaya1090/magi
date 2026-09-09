@@ -122,6 +122,14 @@ data class Response(
      * 모르는 것을 아는 척하게 된다(§0.5-7) — 그래서 `Boolean?` 이다.
      */
     val council: Boolean? = null,
+    /**
+     * `context` 문의 답 — 이 대화의 창이 얼마나 찼나.
+     *
+     * 스트림의 `context.usage` 로도 같은 사실이 오지만 그것은 **transient** 다(버스 전용, 로그에
+     * 안 쓰이고 재생도 안 됨). 그래서 도는 대화에 붙은 창은 **턴이 한 번 돌기 전까지 아무것도
+     * 모른다.** 이 문은 지금 답한다.
+     */
+    val context: ContextState? = null,
     val tools: List<String>? = null,
     val models: List<String>? = null,
     val why: String? = null,
@@ -385,6 +393,15 @@ data class Waiting(
         return if (a == null && r == null) Subject.Unstated else Subject.Stated(a, r)
     }
 }
+
+/** `context` 문의 답(`app.ContextState`). 화면이 쓰는 것만 든다 — 나머지는 안 그린다. */
+@Serializable
+data class ContextState(
+    val window: Int = 0,
+    val used: Int = 0,
+    /** 잰 것이 아니라 어림이면 true. 화면은 그때 그렇다고 말해야 한다(모름을 아는 척 금지). */
+    val estimated: Boolean = false,
+)
 
 /** 물음의 근거 한 줄 — 코어 `report.Filled` 의 짝(`key`·`text`). */
 @Serializable
