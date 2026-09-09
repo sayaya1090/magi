@@ -285,6 +285,25 @@ class CompanionTest {
     }
 
     @Test
+    fun `카운슬 스위치는 세 갈래로 나른다`() {
+        // 「이 컴패니언이 무엇 위에서 도나」는 셋이다 — permission·model·council. 셋이 같은 답에
+        // 실려 오는데 이 클라이언트는 둘만 읽고 있었다(2026-09-09 실측). 선언이 없으면 읽을 수도
+        // 없어서, 카운슬이 켜졌는지 이 IDE 에서는 알 길이 없었다.
+        //
+        // **모름을 꺼짐으로 그리지 않는다**(§0.5-7). 낡은 데몬은 이 칸을 아예 안 보내고, 그때
+        // null 을 false 로 접으면 화면이 모르는 것을 아는 척한다.
+        val fake = FakeDaemon(listOf("""{"ok":true,"council":true}""", """{"ok":true,"council":false}""", """{"ok":true}"""))
+        fake.start()
+        DaemonClient.connect(fake.path).use { c ->
+            val comp = Companion(c, "s_1")
+            assertEquals(true, comp.facts().council, "켜졌다고 했는데 안 나른다")
+            assertEquals(false, comp.facts().council, "꺼졌다고 했는데 안 나른다")
+            assertNull(comp.facts().council, "안 말한 것이 꺼짐으로 접혔다 — 모름은 모름이다")
+        }
+        fake.close()
+    }
+
+    @Test
     fun `사람 이름은 데몬이 말해 준 것을 쓴다`() {
         // 진짜 생산자가 있다: SSO 류 플러그인이 인증된 이름을 `magi.set_user_label` 로 심고
         // (엔진이 세션 전이면 래치했다가 적용한다 — 「첫 턴에 이름이 없던」 결함의 그 고침),

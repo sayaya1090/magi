@@ -183,3 +183,31 @@ test('the person is called what the daemon calls them', () => {
   assert.ok(/r\.who === 'user' && you \? you/.test(chat), "the user row's label ignores the name");
   assert.ok(/paint\(r, this\.companion\.you\)/.test(chat), 'the name is never handed to the painter');
 });
+
+/**
+ * "What is this companion running on" is three facts, and the screen carried two.
+ *
+ * `permission`, `model` and `council` arrive in the same `status` answer. This client declared the
+ * first two and not the third, so whether the companion ends its turns by declaring to a council
+ * was unknowable from the editor. Undeclared means unreadable — the same way `tools` and `user`
+ * were lost, measured twice more in this session.
+ *
+ * Three-valued on purpose: on, off, and NOT SAID. An older daemon sends nothing, and drawing that
+ * as "off" claims to know something. The rule is this repository's own (§0.5-7) and the reason the
+ * core put the field on the wire is written down: a helper's tool descriptions told a model to
+ * finish with `council{complete:true}` on a companion that had it switched off, and the model
+ * called it and got `unknown tool: council`.
+ */
+test('whether the council is on is a fact the screen can show', () => {
+  assert.equal(setupOf({ ok: true, council: true }).council, 'on');
+  assert.equal(setupOf({ ok: true, council: false }).council, 'off');
+  assert.ok(!('council' in setupOf({ ok: true })),
+    'a daemon that did not say drew as "off" — that is a claim, not a reading');
+
+  const proto = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
+  assert.ok(/^\s{2}council\?:/m.test(proto), 'Response does not declare `council` — status fills it');
+
+  // And it reaches a surface. The tooltip is where the other two already stand.
+  const status = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'status.ts'), 'utf8');
+  assert.ok(/setup\.council/.test(status), 'the fact is read into Setup and no screen shows it');
+});
