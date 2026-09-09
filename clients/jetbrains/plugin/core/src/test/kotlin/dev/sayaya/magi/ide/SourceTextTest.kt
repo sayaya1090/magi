@@ -1256,4 +1256,25 @@ class SourceTextTest {
         }
     }
 
+    /**
+     * ★ **초는 화면까지 가지 않는다.**
+     *
+     * 변이가 잡았다. `RowText.ago` 를 시험이 잰다고 해서 **창이 그것을 부른다는 뜻은 아니다** —
+     * 창에서 그 호출을 떼고 `r.ageSeconds` 를 그대로 문구에 넣어도 core 시험은 전부 초록이었다.
+     * 부르는 자리가 `intellij` 모듈이고 그 모듈에는 시험 소스셋이 없다.
+     *
+     * 그래서 **나이가 글자가 되는 모든 자리**를 소스에서 본다: `ageSeconds` 를 읽는 줄은 반드시
+     * `RowText.ago(` 를 지난다. 한 자리도 못 찾으면 그것부터 실패한다.
+     */
+    @Test
+    fun `가십의 나이는 말로 바뀐 뒤에야 화면에 간다`() {
+        val uses = sources
+            .filter { "${File.separator}main${File.separator}" in it.path }
+            .flatMap { f -> f.readText().lines().mapIndexed { n, l -> Triple(f.name, n + 1, l) } }
+            .filter { (name, _, l) -> "ageSeconds" in l && name != "Wire.kt" }
+        assertTrue(uses.isNotEmpty(), "나이를 쓰는 자리를 한 곳도 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        for ((name, line, text) in uses) assertTrue("RowText.ago(" in text,
+            "$name:$line 이 나이를 말로 바꾸지 않고 쓴다 — 초가 화면에 그대로 간다: ${text.trim()}")
+    }
+
 }
