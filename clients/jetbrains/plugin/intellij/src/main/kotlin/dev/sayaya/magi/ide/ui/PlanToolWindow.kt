@@ -69,6 +69,14 @@ class PlanToolWindow : ToolWindowFactory {
         val cronPane = stack(0, 12)
         val askedPane = stack(0, 12)
         val ctx = JBLabel(" ").apply { foreground = Look.faint; border = JBUI.Borders.empty(2, 12) }
+        /**
+         * 창을 무엇이 채우나 — **제 줄**로 둔다.
+         *
+         * ⚠ 처음엔 위 라벨에 `\n` 으로 붙였는데, `JBLabel` 은 개행을 안 그린다. 컴파일도 되고
+         * 시험도 초록인 채로 **그 줄이 화면에 아예 없었다** — 이 트리가 되풀이해 잡는 「나르는데
+         * 아무도 안 그린다」를 만들 뻔했다. 접히는 칸이라 [Look.flow] 로 감싼다.
+         */
+        val ctxParts = Look.flow().apply { border = JBUI.Borders.empty(0, 12, 2, 12) }
         // 폭을 항목에서 뗀다 — 긴 대화 제목 하나가 판을 벌리지 않게(Look.narrow 주석).
         val talk = Look.narrowCombo<String>()
         val model = Look.narrowCombo<String>(16)
@@ -173,6 +181,7 @@ class PlanToolWindow : ToolWindowFactory {
             add(cronPane)
             add(Look.gutter(MagiBundle.msg("plan.usage")))
             add(ctx)
+            add(ctxParts)
             add(Look.gutter(MagiBundle.msg("plan.controls")))
             add(JBPanel<JBPanel<*>>(BorderLayout(8, 0)).apply {
                 border = JBUI.Borders.empty(2, 12)
@@ -257,9 +266,12 @@ class PlanToolWindow : ToolWindowFactory {
             // transient 라 재생이 없다 — 도는 대화에 붙은 창은 턴이 한 번 돌기 전까지 아무것도
             // 못 봤다. 문은 지금 답한다. 스트림은 낙하이고, 문 없는 데몬에서는 그것이 유일한
             // 원천이다. (모름을 0% 로 그리지 않는다는 규칙은 그대로다 — 둘 다 없으면 안 적는다.)
-            ctx.text = (ctxFromDoor ?: v?.contextNow())?.let {
+            val seen = ctxFromDoor ?: v?.contextNow()
+            ctx.text = seen?.let {
                 MagiBundle.msg("plan.usage.ctx", "%.0f%%  (%s/%s)".format(it.percent, k(it.tokens), k(it.window)))
             } ?: MagiBundle.msg("plan.usage.none")
+            ctxParts.text = makeup(seen?.parts)
+            ctxParts.isVisible = ctxParts.text.isNotBlank()
             v?.modelNow()?.let { now ->
                 painting = true
                 if ((0 until model.itemCount).none { model.getItemAt(it) == now }) model.addItem(now)
@@ -286,7 +298,11 @@ class PlanToolWindow : ToolWindowFactory {
                 val asked = runCatching { comp.context() }.getOrNull()?.takeIf { it.ok }?.context
                 // 창이 0 이면 잰 것이 아니다 — 모름을 0% 로 그리지 않는다는 규칙이 여기서도 같다.
                 ctxFromDoor = asked?.takeIf { it.window > 0 }
-                    ?.let { dev.sayaya.magi.ide.usecase.Rows.Ctx(it.used, it.window, it.used * 100.0 / it.window) }
+                    ?.let {
+                        dev.sayaya.magi.ide.usecase.Rows.Ctx(
+                            it.used, it.window, it.used * 100.0 / it.window, it.parts,
+                        )
+                    }
             }
             // 한 번만 읽고 기억한다 — 데몬이 도는 동안 능력은 안 바뀐다.
             if (!capsRead) {
@@ -766,6 +782,35 @@ class PlanToolWindow : ToolWindowFactory {
      * 플릿 한 행. 목격담은 흐리게+나이, 사람 기다리면 강조 — 그리고 **저쪽에 쌓인 대기**가
      * 있으면 센다(`waiting`): 남에게 청한 일이 어디서 기다리는지가 이 판의 절반이다.
      */
+    /**
+     * 창을 **무엇이** 채우나 — 총량 옆의 한 줄.
+     *
+     * 총량만 그리는 화면이 왜 문제인지는 코어가 적어 두었다: *"somebody looking at a nearly-full
+     * bar reaches for the conversation, and on this harness **the conversation is routinely the
+     * small half**."* 도구 카탈로그만으로 기본 로스터에서 6~7k 이라 대개 대화보다 크고, 그래서
+     * 총량만 보고 대화를 접는 사람은 안 줄어드는 쪽을 접는다.
+     *
+     * **제 합에 대한 몫으로 그린다.** 다섯은 어림(chars/4)이라 `used` 와 안 더해진다 — 비율로는
+     * 정직하고 총량으로는 아니다. 창의 %로 그리면 그 부정직을 화면에 옮기게 된다.
+     *
+     * 조각이 없거나(옛 데몬·스트림 낙하) 합이 0이면 **아무 말도 안 한다** — 모름을 0%로 그리지
+     * 않는다는 이 판의 규칙 그대로다.
+     */
+    private fun makeup(p: dev.sayaya.magi.ide.model.ContextParts?): String {
+        val sum = p?.sum() ?: 0
+        if (p == null || sum <= 0) return ""
+        val share = listOf(
+            MagiBundle.msg("plan.usage.part.tools") to p.tools,
+            MagiBundle.msg("plan.usage.part.results") to p.results,
+            MagiBundle.msg("plan.usage.part.talk") to p.talk,
+            MagiBundle.msg("plan.usage.part.calls") to p.calls,
+            MagiBundle.msg("plan.usage.part.system") to p.system,
+        ).filter { it.second > 0 }
+            .sortedByDescending { it.second }
+            .joinToString("  ") { "${it.first} ${it.second * 100 / sum}%" }
+        return if (share.isBlank()) "" else MagiBundle.msg("plan.usage.makeup", share)
+    }
+
     private fun fleetRow(r: RosterRow, crowded: Boolean = false): JBLabel {
         val name = r.name?.takeIf { it.isNotBlank() } ?: r.socket.substringAfterLast('/')
         val role = r.role?.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()

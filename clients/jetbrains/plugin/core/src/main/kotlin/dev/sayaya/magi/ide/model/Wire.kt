@@ -401,7 +401,39 @@ data class ContextState(
     val used: Int = 0,
     /** 잰 것이 아니라 어림이면 true. 화면은 그때 그렇다고 말해야 한다(모름을 아는 척 금지). */
     val estimated: Boolean = false,
+    /**
+     * 창을 **무엇이** 채우고 있나. [used] 는 얼마나 찼는지를 답하고 이쪽은 무엇으로 찼는지를
+     * 답한다 — 같은 컴패니언에 대한 **다른 물음**이다.
+     *
+     * 이 칸을 여기 안 두는 동안 이 판은 총량만 그렸고, 코어가 그 결과를 이름 대어 적어 두었다:
+     * *"A screen that shows only a total invites the wrong move: somebody looking at a nearly-full
+     * bar reaches for the conversation, and on this harness **the conversation is routinely the
+     * small half**."* 도구 카탈로그만으로 기본 로스터에서 6~7k 이고, 그것이 대개 대화보다 크다 —
+     * 그래서 총량만 보고 대화를 접는 사람은 안 줄어드는 쪽을 접는다.
+     */
+    val parts: ContextParts? = null,
 )
+
+/**
+ * 창을 채우는 다섯 조각(코어 `internal/app/context_state.go` 의 `ContextParts`).
+ *
+ * ⚠ **다섯 다 받는다.** 몇 개만 받으면 화면의 몫이 서로 안 더해지고, 빠진 조각은 **보이지도
+ * 않는다** — 부분만 그리는 것이 안 그리는 것보다 나쁜 자리다. 특히 [results] 가 코어의 말로
+ * "the part that grows without anybody deciding it should" 다.
+ *
+ * ⚠ **어림이다.** `used` 가 프로바이더의 실측일 때도 이 다섯은 chars/4 어림이라 합이 `used` 와
+ * 안 맞는다 — 비율로는 정직하고 총량으로는 아니다. 그래서 화면은 **제 합에 대한 몫**으로 그린다.
+ */
+@Serializable
+data class ContextParts(
+    val system: Int = 0,
+    val tools: Int = 0,
+    val talk: Int = 0,
+    val calls: Int = 0,
+    val results: Int = 0,
+) {
+    fun sum(): Int = system + tools + talk + calls + results
+}
 
 /** 물음의 근거 한 줄 — 코어 `report.Filled` 의 짝(`key`·`text`). */
 @Serializable

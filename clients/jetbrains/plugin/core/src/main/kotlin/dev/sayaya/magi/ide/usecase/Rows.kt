@@ -653,7 +653,13 @@ class Rows {
     data class Todo(val content: String, val status: String)
 
     /** 컨텍스트 계기 한 벌 — 코어 `ContextUsageData` 의 셋. */
-    data class Ctx(val tokens: Int, val window: Int, val percent: Double)
+    data class Ctx(
+        val tokens: Int,
+        val window: Int,
+        val percent: Double,
+        /** 창을 무엇이 채우나 — 문에서만 온다(스트림의 `context.usage` 는 총량만 싣는다). */
+        val parts: dev.sayaya.magi.ide.model.ContextParts? = null,
+    )
 
     private fun str(e: LogEvent, key: String): String? =
         e.data?.jsonObject?.get(key)?.jsonPrimitive?.content
