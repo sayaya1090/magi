@@ -72,6 +72,35 @@ export function schedules(resp: Response | null): Schedule[] {
 }
 
 /** The other companions on this machine, as lines. */
+/**
+ * A companion's state as a phrase, because `state` is an ENUM and not prose.
+ *
+ * `fleet.State` (`internal/adapter/fleet/fleet.go`) is six words, and this row was printing whichever
+ * one arrived. Two of them are the reason the enum exists at all, and the core says so on
+ * `Abandoned`: "nobody is listening and a turn was left open — a crash, a kill, a closed laptop.
+ * **Every other view renders this identically to a finished session, which is why it is here.**"
+ *
+ * So the core went to the trouble of separating "it finished and went away" from "it died holding
+ * work", and this screen printed `stopped` next to `abandoned` and left the person to know which
+ * was which. They are one letter apart in tone and nothing apart on screen.
+ *
+ * ⚠ **An unknown state passes through raw.** A daemon newer than this build may name a seventh, and
+ * its word beats an invented sentence or a blank — the rule this client already applies to a
+ * permission mode and to a completion reason it does not know.
+ */
+export function sayState(state: string | undefined): string {
+  switch ((state ?? '').trim()) {
+    case '': return '';
+    case 'working': return 'working';
+    case 'idle': return 'idle';
+    case 'waiting': return 'waiting for a person';
+    case 'abandoned': return 'left holding work — nobody is listening';
+    case 'stopped': return 'finished and not running';
+    case 'remote': return 'on another machine';
+    default: return (state ?? '').trim();
+  }
+}
+
 export function fleet(resp: Response | null): string[] {
   if (!resp?.ok) return [];
   const rows = resp.roster ?? [];
@@ -81,7 +110,7 @@ export function fleet(resp: Response | null): string[] {
   return rows.map((r) => [
     // The same naming rule the hand-off list uses, so a person can match the two.
     peerLabel({ socket: r.socket ?? '', name: r.name, workdir: r.workdir }) || '?',
-    r.state,
+    sayState(r.state),
     r.model,
     // Whether it is actually there — and this is where the sentence above was not being kept.
     //

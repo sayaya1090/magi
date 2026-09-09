@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { context, fleet, jobs, schedules } from '../core/panel';
+import { context, fleet, jobs, sayState, schedules } from '../core/panel';
 import { Row, turnsBack } from '../core/transcript';
 
 /**
@@ -234,4 +234,42 @@ test('stopping a job tells "stopped it" apart from "it had already finished"', (
   assert.ok(said >= 3, `only ${said} pieces of a two-ending answer found — the scan is reading nothing`);
   assert.ok(/\?[\s\S]{0,160}:/.test(where),
     '`removed` is read but only one sentence exists — the person is told the same thing either way');
+});
+
+/**
+ * ★ `state` is an ENUM, and the fleet row was printing the token.
+ *
+ * `fleet.State` (`internal/adapter/fleet/fleet.go`) is six words. This row printed whichever one
+ * arrived, so a person read `abandoned` and `stopped` side by side with nothing saying which is the
+ * bad one — and the core wrote down that this is exactly the harm the state exists to prevent:
+ * "nobody is listening and a turn was left open — a crash, a kill, a closed laptop. Every other
+ * view renders this identically to a finished session, which is why it is here."
+ *
+ * The words are read out of the CORE, so a seventh landing there fails here rather than reaching
+ * the panel as a bare token.
+ */
+test('every companion state the core names is said as a phrase', () => {
+  const core = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'fleet', 'fleet.go'), 'utf8');
+  const states = [...core.matchAll(/^\t(\w+)\s+State\s*=\s*"([a-z]+)"/gm)].map((m) => m[2]);
+  assert.ok(states.length >= 6,
+    `only ${states.length} fleet states read from the core — a stale parser here answers "all said" for ever`);
+  for (const must of ['abandoned', 'stopped']) {
+    assert.ok(states.includes(must), `the scan cannot see "${must}" — the pair this guard exists for`);
+  }
+
+  for (const st of states) {
+    const said = sayState(st).trim();
+    assert.ok(said, `"${st}" says nothing at all`);
+    // A phrase, not the token. Length alone is not phrase-ness — `'idle '` would pass that.
+    if (st === 'working' || st === 'idle') continue; // one plain word is already the plain meaning
+    assert.notEqual(said, st, `"${st}" reaches the person as the protocol word itself`);
+    assert.ok(said.split(/\s+/).length >= 2, `"${st}" → "${said}" is a token, not a phrase`);
+  }
+  // The two the core separated must not read the same.
+  assert.notEqual(sayState('abandoned'), sayState('stopped'),
+    'a companion that died holding work reads the same as one that finished — the exact harm the core names');
+  assert.equal(sayState(undefined), '', 'a row with no state must say nothing, not guess');
+  assert.equal(sayState('hibernating'), 'hibernating',
+    'an unknown state is swallowed or renamed — the daemon said something and nobody hears it');
 });
