@@ -61,7 +61,10 @@ runs:
         mkdir -p ./_site/font ./_site/vendor ./_site/img
         cp clients/web/server/fonts/*.woff2 ./_site/font/
         cp clients/web/server/vendor/rxjs.js ./_site/vendor/
-        cp docs/img/console-*.png ./_site/img/
+        cp docs/img/console-*.png docs/img/tui-turn.png ./_site/img/
+        # 자리마다 그 자리의 사진 — 클라이언트의 문서에 사는 것을 사이트 이름으로 옮겨 온다.
+        cp clients/jetbrains/docs/img/01-overview.png ./_site/img/seat-jetbrains.png
+        cp clients/powerpoint/docs/img/07-council.png ./_site/img/seat-powerpoint.png
         # 파비콘의 단일 원천은 internal/webassets이고, 그것을 파일로 꺼내는 것은 데모 에미터다
         # — 앞 단계가 이미 꺼내 두었으니 그 사본을 뿌리에도 둔다.
         cp ./_site/demo/icon.svg ./_site/icon.svg
