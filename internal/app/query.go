@@ -620,8 +620,26 @@ func insideWorkdir(workdir, path string) (string, error) {
 		return "", err
 	}
 	abs := filepath.Clean(filepath.Join(base, path))
-	if filepath.IsAbs(path) {
+	switch {
+	case filepath.IsAbs(path):
 		abs = filepath.Clean(path)
+	case !filepath.IsLocal(path):
+		// ⚠ **Not every path that fails IsAbs is relative.** On Windows a path can be ROOTED and
+		// still have no volume — `/etc/hosts`, `\Windows\System32\…` — and `filepath.IsAbs` says
+		// false for both. Joining them to the workspace produces `C:\ws\etc\hosts`, which is
+		// inside it, so this check passed them; and then the caller hands the ORIGINAL string to
+		// git or to the OS, which resolves it against the current drive as `C:\etc\hosts`. The
+		// path that was checked and the path that was opened were two different files.
+		//
+		// Measured 2026-09-10: TestGitDiffRefusesAPathOutsideTheWorkspace, "GitDiffOf read
+		// /etc/hosts from outside the workspace". Two of this function's five callers throw the
+		// resolved path away and use the caller's spelling, so the mismatch is reachable — and
+		// /diff is read-classified, which is what a console, a relay or a peer can ask for.
+		//
+		// IsLocal is the question actually being asked: does this path stay inside the directory
+		// it is used in, whatever the platform thinks "absolute" means. It refuses the rooted
+		// forms above and `../x` alike, and lets an ordinary relative path through.
+		return "", fmt.Errorf("%s is outside this workspace", path)
 	}
 	rel, rerr := filepath.Rel(base, abs)
 	if rerr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
