@@ -61,7 +61,7 @@ internal class LandingPageTest : GwtTestSpec({
         }
         When("말 고르개를 누르면") {
             Then("페이지가 한국어로 다시 서고, 문서의 lang 도 따라간다") {
-                page.locator("#hero .tagline").textContent() shouldContain "declare itself finished"
+                page.locator("#hero .tagline").textContent() shouldContain "never drops work"
                 page.locator("#tongue").click()
                 page.waitForCondition {
                     page.evaluate("document.documentElement.getAttribute('lang')") == "ko"
