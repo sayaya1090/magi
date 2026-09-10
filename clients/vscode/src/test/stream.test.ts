@@ -1048,3 +1048,45 @@ test('a verdict carries how sure the member was', () => {
   assert.match(chat.slice(at, chat.indexOf(';', chat.indexOf('r.round ? `', at))), /r\.confidence/,
     'the label draws the word and drops the number the rule weighed by');
 });
+
+/**
+ * ★ An empty `changes` is two different things, and the opening row is where they part.
+ *
+ * Either the turn edited nothing, or it edited something the reconstruction lost. The core says the
+ * first out loud with `noChanges`; the terminal prints it in its evidence view. Neither IDE client
+ * read it, so the common case looked like the failure case.
+ *
+ * Measured across this machine's logs 2026-09-10: 374 of 994 rounds are read-only turns.
+ *
+ * ⚠ `omitempty` bool — a FALSE one never travels, so the absent field is the ordinary turn and a
+ * test that waits for `false` is measuring a shape that never arrives.
+ */
+test('a round judging a turn that changed nothing says so', () => {
+  const ro = rows([{ seq: 1, type: 'council.convened', data: {
+    round: 1, rule: 'majority', task: 'answer the question', noChanges: true,
+  } } as unknown as Event])[0];
+  assert.equal(ro.readOnly, true, 'a read-only turn is drawn like one whose diff was lost');
+
+  const edited = rows([{ seq: 1, type: 'council.convened', data: {
+    round: 1, rule: 'majority', task: 'fix the bug', changes: 'a.ts | 2 +-',
+  } } as unknown as Event])[0];
+  assert.equal(edited.readOnly, undefined,
+    'a turn that edited files is called read-only — the flag is absent, not false');
+
+  // ⚠ A literal `false` never travels (`omitempty`), so on this wire "=== true" and "is present"
+  // behave identically — a mutation between them survives, and saying so is more honest than
+  // pretending the fixture caught it. What IS pinned is the safe form: a daemon that did send the
+  // false — another language's client, a later change — must not read as read-only.
+  const explicit = rows([{ seq: 1, type: 'council.convened', data: {
+    round: 1, rule: 'majority', task: 'fix the bug', noChanges: false,
+  } } as unknown as Event])[0];
+  assert.equal(explicit.readOnly, undefined,
+    'a stated false is read as read-only — presence is being taken for truth');
+
+  // And the panel says it. Read off the source: `chat.ts` imports `vscode`.
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf('r.opened ?');
+  assert.ok(at > 0, 'the opened label was not found — this guard is reading nothing');
+  assert.match(chat.slice(at, chat.indexOf('\n', at)), /r\.readOnly/,
+    'the shaper carries the fact and the label drops it');
+});

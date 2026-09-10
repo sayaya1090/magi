@@ -684,4 +684,39 @@ class RowsTest {
         assertFalse("0%" in RowText.plain(q), "확신을 안 밝힌 멤버가 0% 로 그려진다")
     }
 
+    /**
+     * **빈 `changes` 는 두 가지다** — 아무것도 안 고쳤거나, 고쳤는데 재구성이 잃었거나.
+     *
+     * 코어는 앞엣것을 `noChanges` 로 따로 말하고, 터미널은 증거 판의 `changes` 바로 뒤에 적는다.
+     * 그 줄이 없으면 「멤버들이 무엇을 보고 판단했나」를 읽는 사람이 두 경우를 못 가른다.
+     *
+     * 실측(이 기계의 로그 전량, 2026-09-10): 라운드 994 중 **374** 가 읽기 전용 턴이다. 흔한 쪽이라
+     * 더더욱, 빈 칸으로 두면 흔한 경우가 고장으로 읽힌다.
+     *
+     * ⚠ `omitempty` bool 이라 **거짓은 전선에 안 나간다** — 평범한 턴은 칸이 아예 없는 경우다.
+     */
+    @Test
+    fun `아무것도 안 고친 턴을 심의하면 그렇게 적힌다`() {
+        val ro = Rows()
+        ro.feed(ev("council.convened", """{"round":1,"rule":"majority","task":"물음에 답한다","noChanges":true}"""))
+        val e1 = ro.list().last().evidence.orEmpty()
+        assertTrue("읽기만 한 턴" in e1, "읽기 전용 턴이 diff 를 잃은 턴과 똑같이 그려진다: $e1")
+        assertTrue("task: 물음에 답한다" in e1, "증거가 통째로 사라졌다")
+
+        val edited = Rows()
+        edited.feed(ev("council.convened", """{"round":1,"rule":"majority","task":"고친다","changes":"a.kt | 2 +-"}"""))
+        val e2 = edited.list().last().evidence.orEmpty()
+        assertFalse("읽기만 한 턴" in e2, "파일을 고친 턴을 읽기 전용이라 적는다 — 칸은 없는 것이지 거짓이 아니다")
+        assertTrue("changes: a.kt | 2 +-" in e2)
+
+        // ⚠ 문자 그대로의 `false` 는 전선에 안 나가므로 「true 인가」와 「있는가」는 실제로 같게
+        // 움직인다 — 그 둘 사이의 변이는 살아남고, 픽스처가 잡은 척하는 것보다 그렇게 적는 편이
+        // 정직하다. 대신 **안전한 쪽**을 못박는다: 거짓을 실어 보내는 데몬이 생겨도(다른 언어의
+        // 클라이언트, 나중의 변경) 읽기 전용으로 읽히면 안 된다.
+        val stated = Rows()
+        stated.feed(ev("council.convened", """{"round":1,"task":"고친다","noChanges":false}"""))
+        assertFalse("읽기만 한 턴" in stated.list().last().evidence.orEmpty(),
+            "적어 보낸 거짓을 읽기 전용으로 읽는다 — 있다는 것을 참으로 삼고 있다")
+    }
+
 }

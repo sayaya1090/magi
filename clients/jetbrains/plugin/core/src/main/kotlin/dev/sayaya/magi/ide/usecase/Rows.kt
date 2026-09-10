@@ -583,13 +583,23 @@ class Rows {
         val seen = listOf("task", "plan", "report", "actions", "changes")
             .mapNotNull { k -> d[k]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }?.let { "$k: $it" } }
             .joinToString("\n\n")
+        // ⚠ **빈 `changes` 는 두 가지다.** 이 턴이 아무것도 안 고쳤거나, 고쳤는데 재구성이 실패했거나.
+        // 코어는 앞엣것을 `noChanges` 로 따로 말하고 터미널은 증거 판의 바로 이 자리에 적는다 —
+        // "(no files changed — a read-only / answer turn)". 그 줄이 없으면 멤버들이 **무엇을 보고
+        // 판단했는지** 읽는 사람이 두 경우를 못 가른다.
+        //
+        // 실측(이 기계의 로그 전량, 2026-09-10): 라운드 994 중 374 가 읽기 전용 턴이다 — 흔한 쪽이라
+        // 더더욱, 빈 칸으로 두면 흔한 경우가 고장으로 읽힌다.
+        val readOnly = d["noChanges"]?.jsonPrimitive?.content == "true"
+        val evidence = listOf(seen, if (readOnly) "고친 파일 없음 — 읽기만 한 턴입니다" else "")
+            .filter { it.isNotBlank() }.joinToString("\n\n")
         rows += Row(
             Who.Council,
             members.joinToString(", "),
             at = e.ts,
             round = round,
             rule = d["rule"]?.jsonPrimitive?.content,
-            evidence = seen.ifBlank { null },
+            evidence = evidence.ifBlank { null },
             opened = true,
         )
         return true

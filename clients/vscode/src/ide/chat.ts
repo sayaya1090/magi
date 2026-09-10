@@ -851,7 +851,7 @@ function paint(r: Row, you?: string): Row & { label: string } {
   // mean different things under "majority" and under "unanimous", and until now this client drew
   // neither the opening nor the rule.
   const vote = r.who !== 'council' ? ''
-    : r.opened ? ` opened${r.rule ? ` · ${r.rule}` : ''}${r.round ? ` r${r.round}` : ''}`
+    : r.opened ? ` opened${r.rule ? ` · ${r.rule}` : ''}${r.readOnly ? ' · read-only turn' : ''}${r.round ? ` r${r.round}` : ''}`
     : (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '')
       // How sure, in the shape the terminal uses. The tally weighs by it, so the word alone
       // shows the vote and hides what the rule did with it.

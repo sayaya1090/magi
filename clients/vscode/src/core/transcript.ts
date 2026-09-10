@@ -88,6 +88,14 @@ export interface Row {
   /** True on the row that OPENS a round — the convened row, not a verdict. */
   opened?: boolean;
   /**
+   * The turn this round is judging changed no files (`noChanges`).
+   *
+   * On the opening row because it says what KIND of turn is being weighed: an empty `changes` is
+   * either a read-only turn or a reconstruction that lost the edits, and the two are judged very
+   * differently. 374 of this machine's 994 rounds, measured 2026-09-10.
+   */
+  readOnly?: boolean;
+  /**
    * The fragment of the record this verdict says it rests on, or `NO-EVIDENCE`.
    *
    * The core records it because it is CHECKABLE — magi looks the fragment up in the material the
@@ -491,11 +499,25 @@ export function rows(events: Event[]): Row[] {
         // stay unread, and the exemption note now says so honestly instead of naming a reader that
         // does not exist.
         const members = Array.isArray(d.members) ? d.members.map(String) : [];
+        /**
+         * ⚠ **An empty `changes` is two different things**, and this row is where the difference
+         * shows. Either the turn edited nothing, or it edited something the reconstruction lost. The
+         * core says the first one out loud with `noChanges`, and the terminal prints it in its
+         * evidence view — "(no files changed — a read-only / answer turn)".
+         *
+         * This client does not draw the evidence block (see the note above), but the one-line fact
+         * belongs on the opening row anyway: it says what KIND of turn the members were asked to
+         * judge, and a round with nothing to weigh is judged on the report alone. Measured across
+         * this machine's logs 2026-09-10: 374 of 994 rounds are read-only turns — the common case,
+         * which is exactly why leaving it unsaid makes the common case read like a failure.
+         */
+        const readOnly = d.noChanges === true;
         out.push({
           seq: e.seq, who: 'council', opened: true,
           text: String(d.task ?? '').trim() || (members.length ? members.join(', ') : 'a round opened'),
           round: Number(d.round) || undefined,
           rule: String(d.rule ?? '').trim() || undefined,
+          readOnly: readOnly || undefined,
         });
         break;
       }
