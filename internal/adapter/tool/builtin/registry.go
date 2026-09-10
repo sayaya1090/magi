@@ -67,8 +67,10 @@ func Default() *Registry {
 	r.Register(BashOutput{})
 	r.Register(BashKill{})
 	r.Register(BashInput{})
+	// Withdrawn where neither /proc nor lsof can answer — see withheldHere, which is the other half
+	// of this branch and must stay its exact complement.
 	if portOwnerSupported {
-		r.Register(PortOwner{}) // withdrawn where neither /proc nor lsof can answer
+		r.Register(PortOwner{})
 	}
 	r.Register(TodoWrite{})
 	r.Register(Label{})
@@ -111,6 +113,20 @@ func RegisterOrchestration(r *Registry, headless bool) {
 //
 // Only built-ins are listed. Plugin and MCP tools register at runtime under names this package
 // cannot know, so absence here means "not a built-in", not "not a tool".
+// ⚠ **This answers "is there a tool by that name", not "is one registered here".** They are
+// different questions and this one is deliberately the wider: a policy literal is checked against
+// it, and `port_owner` is withdrawn where neither /proc nor lsof can answer (registry above). On
+// those platforms the registered set does not hold it — and a check built on the registered set
+// then reports a correct, deliberate decision as a stale literal. Measured 2026-09-11 on Windows:
+// `"port_owner" names no tool`, about a tool this binary has and chose not to offer.
+//
+// Which is the right reading for the callers: a policy that says port_owner is dangerous is not
+// wrong on a machine that withholds it, it is simply not consulted there. What the check is for is
+// a name NOTHING answers to anywhere — a rename left behind, a typo — and that is still caught,
+// because a withheld tool is listed here and a misspelt one is listed nowhere.
+//
+// Whether a tool is offered on this machine is `Default().List()`, and TestDefaultRegistry asks
+// that separately.
 func KnownNames() map[string]bool {
 	r := Default()
 	RegisterOrchestration(r, false)
@@ -118,5 +134,21 @@ func KnownNames() map[string]bool {
 	for _, t := range r.List() {
 		out[t.Name()] = true
 	}
+	for _, t := range withheldHere() {
+		out[t.Name()] = true
+	}
 	return out
+}
+
+// withheldHere is the tools this binary has and this platform does not register.
+//
+// The exact complement of the conditional branch in Default: a tool named in both would be offered
+// AND reported as withheld, and one named in neither would vanish from KnownNames the moment its
+// platform stopped registering it — which is the bug this pair exists to close. A test holds the
+// two against each other rather than trusting that whoever edits one remembers the other.
+func withheldHere() []port.Tool {
+	if portOwnerSupported {
+		return nil
+	}
+	return []port.Tool{PortOwner{}}
 }
