@@ -321,12 +321,40 @@ func (s *Store) warmCacheLocked(sid session.SessionID) {
 }
 
 // locate finds a session's log on disk when the in-memory index has never seen it.
+//
+// ⚠ **Read, do not glob.** `filepath.Glob` takes the WHOLE path as a pattern, so the data directory
+// standing in front of the `*` is a pattern too. A person whose path holds a `[` — an account name,
+// a MAGI_DATA_DIR of their own choosing — gets a character class where they wrote a directory, and
+// the answer is no match and no error. On Windows there is no escape for it either, because
+// filepath disables escaping there.
+//
+// What that costs is exactly what this function is for. The index is built at New, so a viewer that
+// started before the daemon it is watching reaches here for every session created since — and got
+// back "no such log", which Read turns into `nil, nil`: an empty conversation rather than one it
+// could not find. Measured 2026-09-11 with a data directory named `user[1]`: the log was written,
+// the viewer read zero events, and nothing anywhere said why.
+//
+// ReadDir also makes the session id exact rather than a pattern, which is the same mistake one
+// level in.
+//
+// index() next door already walks with ReadDir. This was the copy that did not.
 func (s *Store) locate(sid session.SessionID) (string, bool) {
-	matches, err := filepath.Glob(filepath.Join(s.projectsDir(), "*", string(sid)+".jsonl"))
-	if err != nil || len(matches) == 0 {
+	base := s.projectsDir()
+	dirs, err := os.ReadDir(base) // sorted, as Glob was — the first match stays the same one
+	if err != nil {
 		return "", false
 	}
-	return matches[0], true
+	name := string(sid) + ".jsonl"
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		path := filepath.Join(base, d.Name(), name)
+		if fi, serr := os.Stat(path); serr == nil && !fi.IsDir() {
+			return path, true
+		}
+	}
+	return "", false
 }
 
 // fileSize is the log's length in bytes, or 0 if it cannot be stat'd.
