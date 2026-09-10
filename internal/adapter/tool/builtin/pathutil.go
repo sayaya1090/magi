@@ -33,9 +33,32 @@ func resolvePath(workdir, p string) (string, error) {
 	base := filepath.Clean(workdir)
 
 	var abs string
-	if filepath.IsAbs(p) {
+	switch {
+	case filepath.IsAbs(p):
 		abs = filepath.Clean(p)
-	} else {
+	case p != "" && !filepath.IsLocal(p):
+		// ⚠ **A path that is not absolute is not therefore relative.** On Windows a path can be
+		// ROOTED and carry no volume — `/etc/passwd`, `\Windows\System32\…` — and `filepath.IsAbs`
+		// answers false for both. They then fall into the join below and land INSIDE the workdir,
+		// so the jail is happy and the caller is told the thing it asked for happened.
+		//
+		// Nothing escapes; something worse does. The tool reports the caller's spelling: measured
+		// 2026-09-10, `write /etc/profile.d/sqlite.sh` answered "wrote 2 bytes to
+		// /etc/profile.d/sqlite.sh" while creating `<workdir>\etc\profile.d\sqlite.sh`, and
+		// `list /etc` answered with the contents of `<workdir>\etc` as if it were the system's. A
+		// model reading that believes it has written a machine-wide profile script. It has not,
+		// and it will believe the same thing about the next one.
+		//
+		// A caller that writes `/etc/passwd` means `/etc/passwd`. The honest answer is the jail's
+		// own refusal, which names the boundary and the way past it — not a different file with a
+		// success message on top.
+		//
+		// IsLocal is the question this always meant to ask: does this path stay inside the
+		// directory it is evaluated in. It refuses the rooted forms and `../x` alike, passes `.`
+		// and every ordinary relative path, and on Windows also refuses the reserved device names
+		// (`CON`, `NUL`) — where a "write" goes to the console instead of a file.
+		return "", outsideWorkdir(base, p)
+	default:
 		abs = filepath.Clean(filepath.Join(base, p))
 	}
 
