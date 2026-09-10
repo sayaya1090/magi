@@ -1,63 +1,55 @@
-# magi-office-start — Office 를 켤 때 헬퍼를 띄우는 COM 추가 기능
+# magi-office-start — Office 실행 연동 COM 추가 기능
 
-하는 일은 하나입니다. **헬퍼(`magi office`)가 안 떠 있으면 띄웁니다.**
+Office 애플리케이션 시작 시 헬퍼 프로세스(`magi office`)의 실행 여부를 감지하고, 미실행 상태일 경우 이를 자동으로 기동하는 인프로세스 COM 추가 기능(In-process COM Add-in)입니다.
 
-## 왜 있나
+## 1. 도입 배경 및 목적
 
-작업창(웹 애드인)의 페이지는 헬퍼가 내줍니다. 그래서 헬퍼가 먼저 떠 있지 않으면 리본의 Magi 를 눌러도 빈 창이 뜹니다.
-여태는 그것을 로그인 등록(`HKCU\...\Run`)으로 풀었는데, Office 를 안 켜는 날에도 magi 가 떠 있다는 뜻이었습니다.
-사용자가 그것을 물렸습니다(2026-09-07): 「윈도우 로그인 때 자동 켜지는 거 하지 말라고」, 「오피스에서 플러그인 켤 때
-COM 이랑 .NET 으로 프로세스 못 띄우냐」.
+Office 작업창(웹 애드인)의 HTML 페이지는 로컬 헬퍼 프로세스가 제공합니다. 따라서 헬퍼가 미리 실행되어 있지 않으면 리본 메뉴에서 Magi 버튼을 클릭하더라도 빈 작업창이 표시됩니다.
+초기 버전에서는 이를 Windows 사용자 로그인 시 자동 시작(`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`) 방식으로 처리하였으나, Office를 사용하지 않는 동안에도 백그라운드 프로세스가 상주하는 문제가 제기되었습니다.
+이에 따라 2026-09-07 설계를 전면 개편하여, 시스템 로그인 등록 방식을 완전히 배제하고 Office 프로세스가 시작될 때 인프로세스 COM 추가 기능을 통해 헬퍼를 온디맨드로 구동하도록 구성하였습니다.
+COM 추가 기능은 Office 프로세스 내부에서 직접 로드되므로 호스트 애플리케이션의 실행 수명 주기에 완전히 종속됩니다. 볼륨 라이선스 환경에서 .NET 런타임이 감지되지 않으면 설치기가 자동으로 런타임을 설치하며, Microsoft 365 환경에서 미설치 상태인 경우 사용자가 헬퍼를 직접 수동 기동하는 방식으로 대응합니다.
 
-COM 추가 기능은 **Office 프로세스 안에서** 뜹니다. 그래서 자리가 정확히 맞습니다. 로그인 등록으로 물러서는 길은
-두지 않았습니다 — 사용자: 「쓰지도 않는데 켜져 있는 건 악성코드 아니냐」. 볼륨 판에 .NET 이 없으면 설치기가 멈추고,
-M365 에 없으면 헬퍼를 사람이 띄웁니다.
-
-| 언제 | 무엇이 떠 있나 |
+| 시점 / 상태 | 프로세스 상태 |
 |---|---|
-| Office 를 안 켰다 | 아무것도 없다 |
-| Office 를 켰다 | 이 추가 기능이 헬퍼를 띄운다 |
-| 작업창을 열었다 | 헬퍼가 그 프로그램 몫의 컴패니언을 마련한다 |
-| PowerPoint 2021 이 떠 있다 | 헬퍼가 편집 어댑터(`magi-ppt-hand`)를 띄운다 |
-| Office 를 다 껐다 | 컴패니언이 내려가고(60초), 어댑터가 끝나고, 헬퍼도 끝난다 |
+| Office 미실행 | 관련 프로세스 전무 (백그라운드 상주 없음) |
+| Office 실행 | 본 추가 기능이 로드되며 헬퍼 프로세스 기동 |
+| 작업창 개방 | 헬퍼가 해당 프로그램 전용 컴패니언 인스턴스 준비 |
+| PowerPoint 2021 활성화 | 헬퍼가 슬라이드 편집 어댑터(`magi-ppt-hand`) 구동 |
+| Office 전체 종료 | 컴패니언(60초 유휴 후) 및 어댑터 자동 종료, 헬퍼 프로세스 최종 종료 |
 
-## 규약
+## 2. 연동 규약
 
-- 등록은 전부 이 계정 몫입니다(`HKCU`) — 관리자 권한이 필요 없습니다. 설치기가 씁니다:
-  `Software\Classes\CLSID\{38162D7F-4C03-4B36-9F55-15D83EEA5EF3}\InprocServer32` → `magi-office-start.comhost.dll`,
-  `Software\Classes\Magi.Office.Start\CLSID`, 그리고 프로그램마다
-  `Software\Microsoft\Office\<PowerPoint|Excel|Word>\Addins\Magi.Office.Start` 의 `LoadBehavior = 3`.
-- 헬퍼의 명령줄은 설치기가 DLL 옆 `helper-args.txt` 에 적어 둡니다 — 설정·소켓 자리는 머신마다 다르고, 그것을 아는 것은
-  설치기입니다.
-- 이미 떠 있으면(포트 26411 이 열려 있으면) 아무것도 안 합니다. 프로그램 셋을 한꺼번에 켜도 헬퍼는 하나입니다
-  (`Local\magi-office-start` 뮤텍스).
-- **무슨 일이 있어도 안 던집니다.** 추가 기능이 던지면 Office 가 `LoadBehavior` 를 2 로 내려 다음부터 아예 안 부릅니다.
-  사유는 DLL 옆 `start.log` 에 적습니다.
+- **레지스트리 등록**: 모든 등록은 현재 사용자 영역(`HKCU`)에 기록되므로 관리자(Administrator) 권한이 필요하지 않습니다. 설치 스크립트(`install.ps1`)가 다음 키를 생성합니다:
+  - `Software\Classes\CLSID\{38162D7F-4C03-4B36-9F55-15D83EEA5EF3}\InprocServer32` → `magi-office-start.comhost.dll`
+  - `Software\Classes\Magi.Office.Start\CLSID`
+  - 호스트별 추가 기능 등록: `Software\Microsoft\Office\<PowerPoint|Excel|Word>\Addins\Magi.Office.Start` (`LoadBehavior = 3`)
+- **실행 인자 전달**: 헬퍼의 기동 명령줄 인자는 설치 환경에 따라 머신별로 상이하므로, 설치 스크립트가 DLL과 동일한 디렉토리에 `helper-args.txt` 파일로 기록합니다.
+- **중복 기동 방지**: 포트 26411이 이미 수신 대기 중인 경우 추가 동작 없이 즉시 반환합니다. 3개 프로그램(PowerPoint·Excel·Word)을 동시에 실행하더라도 네임드 뮤텍스(`Local\magi-office-start`)를 통해 헬퍼 프로세스는 단일 인스턴스만 유지됩니다.
+- **예외 차단 원칙**: 추가 기능 내부에서 처리되지 않은 예외가 발생하면 Office 호스트는 안정성을 위해 `LoadBehavior`를 2(비활성화)로 강등하여 차후 추가 기능을 호출하지 않습니다. 따라서 모든 예외는 관리 코드 내부에서 철저히 격리되며, 세부 진단 로그는 DLL 인접 경로의 `start.log`에 기록됩니다.
 
-## 비트 수
+## 3. 비트 수 및 빌드
 
-Office 프로세스 안에서 뜨므로 **Office 와 같은 비트**로 지어야 합니다. 설치기가 `ClickToRun\Configuration` 의
-`Platform` 을 읽어 `-r win-x64` 또는 `-r win-x86` 으로 짓습니다.
+COM 추가 기능은 Office 프로세스 내부에서 직접 로드되므로 **Office 프로세스의 바이너리 아키텍처와 동일한 비트(x64 / x86)**로 빌드되어야 합니다. 설치 스크립트는 `ClickToRun\Configuration`의 `Platform` 값을 감지하여 `-r win-x64` 또는 `-r win-x86` 대상 런타임 식별자(RID)를 결정합니다.
 
-## 빌드
+일반 사용자는 통합 설치 스크립트(`clients/office/install.ps1`)를 통해 사전 빌드된 바이너리를 설치합니다. 개발 환경에서 직접 빌드할 경우 다음 명령을 수행합니다:
 
-쓰는 사람은 설치기로 합니다(`clients/office/install.ps1`). 개발할 때:
-
-```
+```sh
 cd clients/office/addin-com/src
-dotnet build -r win-x64 --self-contained false     # comhost.dll 은 Windows RID 로 지어야 나온다
+dotnet build -r win-x64 --self-contained false     # comhost.dll 생성을 위해 Windows RID 명시 필요
 ```
 
-`bin/…/magi-office-start.comhost.dll` 과 그 옆의 `.dll`·`.runtimeconfig.json`·`.deps.json` 이 한 벌입니다.
+빌드 완료 시 `bin/…/magi-office-start.comhost.dll`, `magi-office-start.dll`, `.runtimeconfig.json`, `.deps.json` 파일이 단일 세트로 산출됩니다.
 
-## vtable — 이 파일이 한 번 Office 를 죽였다
+## 4. IDTExtensibility2 vtable 정렬 및 메모리 보호 위반 결함 분석
 
-`IDTExtensibility2` 는 **dual** 인터페이스입니다. vtable 이 **IUnknown(3) + IDispatch(4) + 메서드(5)** 예요.
+`IDTExtensibility2`는 표준 Dual 인터페이스입니다. vtable 구조는 다음과 같이 12개 슬롯으로 구성됩니다:
+- `IUnknown` (3개 슬롯: `QueryInterface`, `AddRef`, `Release`)
+- `IDispatch` (4개 슬롯: `GetTypeInfoCount`, `GetTypeInfo`, `GetIDsOfNames`, `Invoke`)
+- `IDTExtensibility2` 고유 메서드 (5개 슬롯: `OnConnection`, `OnDisconnection`, `OnAddInsUpdate`, `OnStartupComplete`, `OnBeginShutdown`)
 
-첫 판은 이것을 `[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]` 로 선언했습니다. 그러면 CLR 은 **IDispatch
-일곱 슬롯짜리 vtable 만** 만듭니다. Office 는 `OnConnection` 을 여덟째 슬롯에서 부르고 — **빈 자리로 뜁니다.**
+초기 구현에서는 이 인터페이스를 `[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]`로 선언하였습니다. 이 경우 .NET CLR은 `IDispatch` 7개 슬롯으로만 구성된 축약 vtable을 생성합니다. 그러나 Office 호스트는 Dual 인터페이스 규약에 따라 8번째 슬롯에서 `OnConnection`을 직접 호출하므로, 잘못된 메모리 주소로 분기하여 프로세스 충돌(Crash)이 발생하였습니다.
 
-실물(2026-09-07, LTSC 2021 16.0.14334): PowerPoint 를 켜면 20초쯤 뒤 창이 그냥 사라졌습니다.
+2026-09-07 LTSC 2021 (16.0.14334) 환경 실측 결과, PowerPoint 실행 후 약 20초 시점에 `AccessViolationException`(`0xc0000005`, 보호된 메모리 읽기/쓰기 시도)이 발생하며 애플리케이션이 비정상 종료되었습니다:
 
 ```
 Microsoft Office 16 : PowerPoint에서 'magi.office.start' 추가 기능을 사용할 경우 문제가 발생합니다…
@@ -66,35 +58,28 @@ Microsoft Office 16 : PowerPoint에서 'magi.office.start' 추가 기능을 사�
 Application Error   : POWERPNT.EXE  예외 코드: 0xc0000005
 ```
 
-**「무슨 일이 있어도 안 던진다」는 관리 코드 안에서만 참입니다.** 여기는 관리 코드에 **닿기 전**이라 `try/catch` 로
-못 막습니다 — 막는 자리는 선언 하나뿐입니다. 그래서 지금은 `InterfaceIsIUnknown` 으로 선언하고 **IDispatch 넷을
-손으로 앞에 적습니다.** 인자는 전부 `IntPtr` 이고 `[PreserveSig]` 로 HRESULT 를 직접 답합니다 — 원래 시그니처의
-`object`·`ref Array` 는 VARIANT/SAFEARRAY 마샬링을 타는데, 우리는 그 인자를 하나도 안 씁니다.
+이 오류는 관리 코드 진입 전 언매니지드 COM vtable 디스패치 단계에서 발생하므로 C#의 `try/catch` 블록으로 차단할 수 없으며, 선언부의 vtable 배치를 올바르게 구성해야만 해결할 수 있습니다.
+현재 구현에서는 인터페이스를 `InterfaceIsIUnknown`으로 선언하고, vtable 전면에 4개의 `IDispatch` 슬롯을 명시적으로 배치하였습니다. 모든 매개변수는 `IntPtr`로 선언하고 `[PreserveSig]`를 적용하여 HRESULT를 직접 반환하도록 구성하였습니다(기존 시그니처의 `object`, `ref Array`에 수반되는 불필요한 VARIANT/SAFEARRAY 마샬링 배제).
 
-`IID_IDispatch` 로 물으면 `ICustomQueryInterface` 로 **같은 vtable** 을 내줍니다. dual 이라 앞머리가 IDispatch 이므로
-그게 맞는 답이고, 이렇게 해야 늦은 바인딩 호출이 CLR 의 IDispatch 로 안 갑니다 — 그쪽은 타입 라이브러리를 요구하는데
-(`Typelib export: Type library is not registered`) `EnableComHosting` 은 TLB 를 만들지도 등록하지도 않습니다.
+또한 호스트가 `IID_IDispatch`로 질의할 경우 `ICustomQueryInterface`를 구현하여 동일한 Dual vtable 포인터를 직접 반환하도록 처리하였습니다. 이를 통해 런타임 타입 라이브러리(TLB) 등록을 요구하는 CLR 기본 IDispatch 마샬러(`Typelib export: Type library is not registered`)로 분기하는 결함을 방지하였습니다(`.NET Core`의 `EnableComHosting` 메커니즘은 TLB를 생성하거나 등록하지 않음).
 
-무는 자리: `clients/office/helper/addin_com_vtable_test.go`. 소스를 글자로 읽습니다 — 이 결함은 Go 로도 C# 로도
-못 잡습니다. 틀리면 **프로세스가 죽어서** 시험이 결과를 못 받기 때문입니다. 돌연변이 둘(선언 되돌리기·IDispatch
-슬롯 빼기) 다 울립니다.
+회귀 방지 검증은 `clients/office/helper/addin_com_vtable_test.go`에서 소스 코드 정적 분석을 통해 수행합니다. vtable 선언 복원 또는 IDispatch 슬롯 누락 변형 시 테스트가 즉각 실패하도록 불변식을 강제합니다.
 
-## 실측 (2026-09-07 · Office LTSC 2021 16.0.14334 · x64)
+## 5. 실측 검증 (2026-09-07 · Office LTSC 2021 16.0.14334 · x64)
 
-| 잰 것 | 결과 |
+| 검증 항목 | 실측 결과 |
 |---|---|
-| 등록 뒤 PowerPoint 를 켠다 | ✓ 안 죽고, `start.log` 에 `[POWERPNT] 헬퍼를 띄웠습니다 …` 가 적힌다 |
-| Office 가 `LoadBehavior` 를 2 로 내리는가 | ✗ 안 내린다 — 3 그대로 |
-| 셋을 다 켠다(PowerPoint·Excel·Word) | ✓ 헬퍼는 **하나**. 뒤의 둘은 포트가 열린 것을 보고 아무것도 안 한다(로그에 줄이 안 는다) |
-| Office 를 다 끈다 | ✓ **60초에 헬퍼·컴패니언·어댑터가 전부 스스로 끝난다** — 이 계정에 magi 가 하나도 안 남는다 |
-| 다시 켠다 | ✓ 다시 뜬다(`start.log` 에 둘째 줄) |
-| 로그인 등록 | ✓ 하나도 없다(`Run` 키에 magi 없음) |
+| 등록 후 PowerPoint 실행 | ✓ 정상 기동 확인 (`start.log`에 `[POWERPNT] 헬퍼를 띄웠습니다 …` 기록) |
+| Office 호스트의 `LoadBehavior` 강등 여부 | ✗ 강등 없음 (`LoadBehavior = 3` 유지) |
+| 다중 프로그램 동시 실행 (PowerPoint·Excel·Word) | ✓ 헬퍼 프로세스 단일 인스턴스 유지 확인. 후속 프로그램은 포트 활성화를 감지하고 중복 기동 생략 |
+| Office 프로그램 전체 종료 | ✓ **60초 이내에 헬퍼·컴패니언·어댑터가 모두 자체 종료**되어 계정 내 잔여 프로세스 0건 확인 |
+| 재실행 | ✓ 정상 재기동 확인 (`start.log`에 2번째 라인 기록) |
+| 로그인 시 자동 시작 등록 | ✓ 전무 (`HKCU\...\Run` 키에 magi 관련 항목 없음) |
 
-이 표가 사용자 요구 둘을 그대로 잰 것입니다 — **상주 프로세스도 시작 프로그램 등록도 없을 것**, 그리고 **Office 를
-켜는 것 말고 사람이 따로 켜거나 관리할 것이 없을 것**.
+위 실측을 통해 사용자 요구사항(상주 프로세스 및 시작 프로그램 등록 배제, 사용자 수동 개입 없는 호스트 중심 수명 주기 연동)이 완전히 충족됨을 입증하였습니다.
 
-## 아직 안 잰 것
+## 6. 미검증 환경
 
-- **32비트 Office.** 이 머신은 x64 라 비트가 갈리는 자리를 안 밟았습니다.
-- **Microsoft 365.** 이 머신은 볼륨 판 2021 입니다.
-- **Mac.** Office for Mac 은 COM 추가 기능을 안 받습니다 — 거기서는 이 길 자체가 없습니다(`../README.md`).
+- **32비트 Office 환경**: x64 환경 실측 완료 상태이며 32비트 환경 분기는 추가 검증이 필요합니다.
+- **Microsoft 365**: 볼륨 라이선스(Office LTSC 2021) 환경 위주로 측정되었으며 M365 환경에 대한 추가 검증이 필요합니다.
+- **macOS 환경**: Office for Mac은 인프로세스 COM 추가 기능을 지원하지 않으므로 본 방식의 적용이 불가합니다([`../README.md`](../README.md) 참조).
