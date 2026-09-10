@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.transport
 
 import dev.sayaya.magi.ide.usecase.Hand
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -9,6 +10,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import kotlinx.serialization.json.JsonArray
 import org.junit.jupiter.api.Test
 import java.net.HttpURLConnection
@@ -180,5 +183,40 @@ class HandServerTest {
             assertEquals(listOf("b.kt", "x", "y", "false"), ide.edit,
                 "안 준 깃발은 거짓이다 — 기본이 「전부」면 한 군데만 고치라는 말을 할 수가 없다")
         }
+    }
+
+    /**
+     * ★ **빈 `old` 는 편집기에 닿기 전에 거절된다 — 닿으면 파일이 갈린다.**
+     *
+     * JVM 실측(2026-09-10): `"abc".replace("", "X")` 는 `XaXbXcX` 다 — 글자 **사이마다** 끼워
+     * 넣는다. 그리고 `"abc".split("").size - 1` 은 2 이므로 빈 `old` 의 `hits` 는 「길이 - 1」이
+     * 되어, `replaceAll` 이 참이면 다중-발견 가드도 **안 걸린다.** 그 조합이 파일을 통째로 갈아
+     * 버리고, 도구는 「N 군데 바꿨다」고 **성공을 보고한다.**
+     *
+     * 스키마가 `old` 를 필수로 두지만 **빈 문자열은 필수를 통과한다.** 그래서 값의 검사가 따로
+     * 있어야 한다. 짝인 VS Code 는 같은 자리에서 같은 말로 거절한다.
+     */
+    @Test
+    fun `빈 old 는 편집기에 닿지 않는다`() {
+        val ide = FakeIde()
+        val a = Hand(ide).call("apply_edit", buildJsonObject {
+            put("path", JsonPrimitive("a.kt")); put("old", JsonPrimitive(""))
+            put("new", JsonPrimitive("X")); put("replaceAll", JsonPrimitive("true"))
+        })
+        assertTrue(a.error, "빈 old 가 오류로 돌아오지 않았다: ${a.text}")
+        assertTrue("old is empty" in a.text, "짝과 다른 말로 거절한다: ${a.text}")
+        assertNull(ide.edit, "빈 old 가 편집기까지 갔다 — 그 자리에서 파일이 갈린다")
+    }
+
+    /** 그리고 멀쩡한 `old` 는 그대로 지나간다 — 검사가 문을 닫아 버리면 안 된다. */
+    @Test
+    fun `멀쩡한 old 는 편집기로 간다`() {
+        val ide = FakeIde()
+        val a = Hand(ide).call("apply_edit", buildJsonObject {
+            put("path", JsonPrimitive("a.kt")); put("old", JsonPrimitive("y!!"))
+            put("new", JsonPrimitive("y ?: z")); put("replaceAll", JsonPrimitive("false"))
+        })
+        assertFalse(a.error, a.text)
+        assertEquals(listOf("a.kt", "y!!", "y ?: z", "false"), ide.edit)
     }
 }

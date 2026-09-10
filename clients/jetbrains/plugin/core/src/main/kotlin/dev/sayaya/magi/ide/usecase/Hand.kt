@@ -141,12 +141,25 @@ class Hand(private val ide: Ide) {
         when (name) {
             "show" -> Answer(ide.show(str(args, "path"), args["line"]?.jsonPrimitive?.content?.toIntOrNull()))
             "problems" -> Answer(ide.problems(args["path"]?.jsonPrimitive?.content))
-            "apply_edit" -> Answer(
-                ide.replace(
-                    str(args, "path"), str(args, "old"), str(args, "new"),
-                    args["replaceAll"]?.jsonPrimitive?.content == "true",
+            // ⚠ **빈 `old` 는 여기서 막는다.** JVM 실측(2026-09-10): `"abc".replace("", "X")` 는
+            // `XaXbXcX` 다 — 글자 **사이마다** 끼워 넣는다. 그리고 `"abc".split("").size - 1` 은
+            // 2 이므로 빈 old 의 `hits` 는 「길이 - 1」이 되어, `replaceAll` 이 참이면 다중-발견
+            // 가드도 안 걸린다. 그 조합이 파일을 통째로 갈아 버리고 도구는 「N 군데 바꿨다」고
+            // **성공을 보고한다.** 짝인 VS Code 는 같은 자리에서 거절한다("old is empty — nothing
+            // to find") — 같은 말을 쓴다.
+            //
+            // 스키마는 `old` 를 **필수**로 두지만 빈 문자열은 필수를 통과한다. 그래서 값의 검사가
+            // 따로 있어야 한다.
+            "apply_edit" -> {
+                val old = str(args, "old")
+                if (old.isEmpty()) Answer("old is empty — nothing to find", error = true)
+                else Answer(
+                    ide.replace(
+                        str(args, "path"), old, str(args, "new"),
+                        args["replaceAll"]?.jsonPrimitive?.content == "true",
+                    )
                 )
-            )
+            }
             else -> Answer("this IDE has no tool called \"$name\"", error = true)
         }
     } catch (e: Exception) {
