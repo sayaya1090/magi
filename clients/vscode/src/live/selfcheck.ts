@@ -50,8 +50,14 @@ export async function selfCheck(): Promise<string[]> {
     `the plan container is not in the secondary sidebar (found: ${Object.keys(where).join(', ')})`);
 
   // Settings are real settings, not a webview.
+  //
+  // ⚠ **No count here.** This said "expected four settings" and there were six by 2026-09-10 — a
+  // sentence that ages, which is the failure this repository keeps paying for. What only a running
+  // editor can tell us is that the settings reached it at all; whether the declared set matches the
+  // set the code reads is measured exactly, in `manifest.test.ts`, against the source. Repeating a
+  // number here would be a second copy of a fact that already has an owner.
   const props = Object.keys(ext?.packageJSON?.contributes?.configuration?.properties ?? {});
-  say(props.length >= 4, `expected four settings, found ${props.length}`);
+  say(props.length > 0, 'the running extension exposes no settings at all');
 
   // The panel opens. This is the one that catches a view whose provider throws on resolve.
   try {
