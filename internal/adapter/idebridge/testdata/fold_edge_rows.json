@@ -1,0 +1,78 @@
+[
+  {
+    "seq": 4,
+    "who": "user",
+    "text": "first question, again",
+    "msgId": "q3"
+  },
+  {
+    "seq": 3,
+    "who": "user",
+    "text": "second",
+    "msgId": "q2"
+  },
+  {
+    "seq": 6,
+    "who": "agent",
+    "text": "answering the second"
+  },
+  {
+    "seq": 8,
+    "who": "user",
+    "text": "third",
+    "abandoned": true,
+    "msgId": "q4"
+  },
+  {
+    "seq": 12,
+    "who": "council",
+    "text": "accepted",
+    "round": 2,
+    "decision": "done"
+  },
+  {
+    "seq": 13,
+    "who": "council",
+    "text": "judge the fix",
+    "round": 2,
+    "opened": true
+  },
+  {
+    "seq": 14,
+    "who": "council",
+    "text": "a round opened",
+    "opened": true
+  },
+  {
+    "seq": 15,
+    "who": "tool",
+    "text": "tool",
+    "callId": "c9",
+    "args": "{\"nothing\":\"here\"}"
+  },
+  {
+    "seq": 16,
+    "who": "agent",
+    "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBBBB"
+  },
+  {
+    "seq": 17,
+    "who": "tool",
+    "text": "grep",
+    "callId": "c10",
+    "args": "not json at all"
+  },
+  {
+    "seq": 18,
+    "who": "council",
+    "text": "",
+    "round": 2,
+    "decision": "continue",
+    "member": "balthasar"
+  },
+  {
+    "seq": 19,
+    "who": "system",
+    "text": "↯ folded the conversation: ~100→150 tok (+50, the summary is LARGER than what it replaced)"
+  }
+]

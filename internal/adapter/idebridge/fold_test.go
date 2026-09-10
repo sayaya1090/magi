@@ -64,6 +64,63 @@ func TestTheGoldenExercisesEveryRowKind(t *testing.T) {
 	}
 }
 
+// The branches the first golden never walks.
+//
+// TestTheGoldenExercisesEveryRowKind covers the row KINDS; it says nothing about the rules that
+// move rows around instead of making them. Measured after writing it: `resurfacedFrom`,
+// `inReplyTo`, both ends of `interjection.deferred`, `interjection.answered` and
+// `prompt.abandoned` were not walked once by that fixture — five of the subtlest rules in the fold,
+// all of them about a bar that must come down, and none of them guarded.
+//
+// Verified the same way and on the same day: the same events through the TypeScript original and
+// through this port, 12 rows, every field equal.
+func TestTheFoldAgreesWithTheGoldenOnTheAwkwardOnes(t *testing.T) {
+	var events []event.Event
+	read(t, "fold_edges.json", &events)
+	var want []Row
+	read(t, "fold_edge_rows.json", &want)
+	got := Rows(events)
+	if len(got) != len(want) {
+		t.Fatalf("행 갯수가 %d, 골든은 %d\n%s", len(got), len(want), show(t, got))
+	}
+	for i := range want {
+		if show(t, got[i]) != show(t, want[i]) {
+			t.Errorf("[%d]\n  got  %s\n  want %s", i, show(t, got[i]), show(t, want[i]))
+		}
+	}
+}
+
+// A question that was asked twice is one question, and it ends up next to its answer.
+//
+// Named apart from the golden because the golden would still pass if this came out in the original
+// order with a second copy beside it — the ORDER is the fact here. A resurfaced interjection is a
+// fresh prompt with a new id carrying `resurfacedFrom`, and reading neither leaves the question
+// stranded far up the transcript wearing a queued mark that never clears, with a duplicate at the
+// bottom and nothing saying they are one thing.
+func TestAResurfacedQuestionMovesRatherThanRepeating(t *testing.T) {
+	var events []event.Event
+	read(t, "fold_edges.json", &events)
+	got := Rows(events)
+
+	var users []Row
+	for _, r := range got {
+		if r.Who == WhoUser {
+			users = append(users, r)
+		}
+	}
+	for _, r := range users {
+		if r.MsgID == "q1" {
+			t.Errorf("되살아난 질문의 원본이 그대로 남아 있다: %s", show(t, r))
+		}
+		if r.Queued {
+			t.Errorf("큐에서 나온 줄이 아직 큐 표시를 달고 있다: %s", show(t, r))
+		}
+	}
+	if len(users) != 3 {
+		t.Fatalf("사람 줄이 %d 개다 — 되살아난 질문이 두 번 실렸을 수 있다: %s", len(users), show(t, users))
+	}
+}
+
 // A log with nothing in it is no rows, not one empty row.
 func TestAnEmptyLogFoldsToNothing(t *testing.T) {
 	if got := Rows(nil); len(got) != 0 {

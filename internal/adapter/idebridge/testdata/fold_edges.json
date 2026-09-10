@@ -1,0 +1,23 @@
+[
+ {"seq":1,"type":"prompt.submitted","actor":{"kind":"user","id":"u"},"data":{"messageId":"q1","parts":[{"text":"first question"}]}},
+ {"seq":2,"type":"interjection.deferred","actor":{"kind":"system","id":"s"},"data":{"messageId":"q1"}},
+ {"seq":3,"type":"prompt.submitted","actor":{"kind":"user","id":"u"},"data":{"messageId":"q2","parts":[{"text":"second"}]}},
+ {"seq":4,"type":"prompt.submitted","actor":{"kind":"user","id":"u"},"data":{"messageId":"q3","resurfacedFrom":"q1","parts":[{"text":"first question, again"}]}},
+ {"seq":5,"type":"interjection.deferred","actor":{"kind":"system","id":"s"},"data":{"messageId":"q3","resolved":true}},
+ {"seq":6,"type":"part.appended","actor":{"kind":"agent","id":"a"},"data":{"role":"assistant","inReplyTo":"q2","part":{"kind":"text","text":"answering the second"}}},
+ {"seq":7,"type":"interjection.answered","actor":{"kind":"system","id":"s"},"data":{"messageId":"q3"}},
+ {"seq":8,"type":"prompt.submitted","actor":{"kind":"user","id":"u"},"data":{"messageId":"q4","parts":[{"text":"third"}]}},
+ {"seq":9,"type":"prompt.abandoned","actor":{"kind":"system","id":"s"},"data":{"msgId":"q4"}},
+ {"seq":10,"type":"part.appended","actor":{"kind":"agent","id":"a"},"data":{"role":"tool","part":{"kind":"tool-result","toolResult":{"callId":"nope","content":"orphan","isError":true}}}},
+ {"seq":11,"type":"part.delta","actor":{"kind":"agent","id":"a"},"data":{"messageId":"z","kind":"audio","text":"ignored"}},
+ {"seq":12,"type":"council.decided","actor":{"kind":"system","id":"s"},"data":{"round":2,"decision":"done","note":"accepted"}},
+ {"seq":13,"type":"council.convened","actor":{"kind":"system","id":"s"},"data":{"round":2,"task":"  judge the fix  "}},
+ {"seq":14,"type":"council.convened","actor":{"kind":"system","id":"s"},"data":{}},
+ {"seq":15,"type":"part.appended","actor":{"kind":"agent","id":"a"},"data":{"role":"assistant","part":{"kind":"tool-call","toolCall":{"callId":"c9","args":{"nothing":"here"}}}}},
+ {"seq":16,"type":"part.appended","actor":{"kind":"agent","id":"a"},"data":{"role":"assistant","part":{"kind":"text","text":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBBBB"}}},
+ {"seq":17,"type":"part.appended","actor":{"kind":"agent","id":"a"},"data":{"role":"assistant","part":{"kind":"tool-call","toolCall":{"callId":"c10","name":"grep","args":"not json at all"}}}},
+ {"seq":18,"type":"council.verdict","actor":{"kind":"system","id":"s"},"data":{"round":2,"member":"balthasar","decision":"continue","confidence":0}},
+ {"seq":19,"type":"compaction","actor":{"kind":"system","id":"s"},"data":{"tokensBefore":100,"tokensAfter":150}},
+ {"seq":20,"type":"part.delta","actor":{"kind":"agent","id":"a"},"data":{"messageId":"orph","kind":"text","text":"half an answer"}},
+ {"seq":21,"type":"turn.finished","actor":{"kind":"system","id":"s"},"data":{}}
+]
