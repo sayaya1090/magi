@@ -169,3 +169,31 @@ test('every optional argument is explained in the tool that offers it', () => {
   const problems = tools.find((t) => t.name === 'problems')!;
   assert.match(problems.description, /[Oo]mit path/, 'that omitting path asks for every file');
 });
+
+/**
+ * ★ An empty `old` is refused before the editor sees it.
+ *
+ * The schema makes `old` required and an empty string satisfies required — `need` is what rejects
+ * it, by treating an empty string as missing. Nothing said so, and the rule was ALSO written in the
+ * editor layer where it could never run.
+ *
+ * It is pinned here because of what it prevents, measured on the JVM for the sibling client (which
+ * had no check at all): an empty needle "matches" between every character, so a replaceAll with it
+ * rewrites the file with the new text wedged between every character — and the tool reports that as
+ * a success. A change to `need` that let an empty string through would open exactly that.
+ */
+test('an empty old never reaches the editor', async () => {
+  const ide = new FakeIde();
+  const r = await callHand(ide, 'apply_edit', { path: 'a.ts', old: '', new: 'X', replaceAll: true });
+  assert.equal(r.error, true, `an empty old was not refused: ${r.text}`);
+  assert.match(r.text, /old is required/);
+  assert.equal(ide.replaced, null, 'an empty old reached the editor — that is where the file is shredded');
+});
+
+/** Empty, not blank: replacing four spaces with a tab is a real edit. */
+test('a whitespace-only old is not refused', async () => {
+  const ide = new FakeIde();
+  const r = await callHand(ide, 'apply_edit', { path: 'a.ts', old: '    ', new: '\t', replaceAll: true });
+  assert.ok(!r.error, `an indentation edit was refused: ${r.text}`);
+  assert.deepEqual(ide.replaced, ['a.ts', '    ', '\t', true]);
+});

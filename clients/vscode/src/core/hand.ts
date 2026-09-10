@@ -110,6 +110,15 @@ export async function callHand(ide: Ide, name: string, args: Record<string, unkn
           : typeof args.line === 'string' ? Number.parseInt(args.line, 10) : undefined;
         return { text: await ide.show(need('path'), Number.isFinite(line) ? line : undefined) };
       }
+      // ⚠ **`need` is what stops an empty `old`, and that matters more than it looks.** The schema
+      // makes `old` required and an empty string satisfies required — but `need` rejects an empty
+      // string as missing, so it never reaches the editor. Measured on the JVM for the sibling
+      // client, which had no such check: an empty needle "matches" between every character, so a
+      // replaceAll with it rewrites the file with the new text wedged between every character, and
+      // the tool reports that as a success. `hand.test.ts` pins this refusal for that reason.
+      //
+      // Empty, not blank: `need` passes four spaces through, and replacing them with a tab is a
+      // real edit.
       case 'apply_edit':
         return { text: await ide.replace(need('path'), need('old'), String(args.new ?? ''), args.replaceAll === true) };
       case 'problems':

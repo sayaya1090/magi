@@ -91,7 +91,6 @@ export class EditorHand implements Ide, vscode.Disposable {
     const doc = await vscode.workspace.openTextDocument(uri);
     const body = doc.getText();
     const hits = body.split(old).length - 1;
-    if (!old) return 'old is empty — nothing to find';
     if (hits === 0) return `that text is not in ${uri.fsPath}`;
     if (hits > 1 && !all) {
       return `that text appears ${hits} times in ${uri.fsPath} — narrow it, or pass replaceAll`;
