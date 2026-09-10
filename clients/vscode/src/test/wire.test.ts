@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { wireRef } from '../core/refs';
+import { wireRef, globQuote } from '../core/refs';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const PROTOCOL_GO = path.join(REPO, 'internal', 'adapter', 'daemon', 'protocol.go');
@@ -361,4 +361,56 @@ test('the roster fields are declared with the shapes the daemon sends', () => {
       `\`${name}\` is declared \`${declared}\` and the daemon sends \`${gt}\` — a wrong shape here ` +
       'blocks the correct read rather than failing loudly');
   }
+});
+
+/**
+ * ★ The `@` in the box finds the same files here as it does on the other two surfaces.
+ *
+ * A typed `@page[1` is a filename, not a character class. Measured against a running daemon
+ * (2026-09-10): the tool answers `ok:false, "invalid glob pattern: syntax error in pattern"`, and
+ * this client's mention popup reads `out` without ever looking at `ok`, so the refusal arrives as
+ * an empty list — the same shape as "no such file". A CLOSED bracket is worse: `pa[nl]el` is valid,
+ * so it searches for something nobody typed and presents the result as the answer.
+ *
+ * The escaped set is read out of `files.go` rather than written here, because three surfaces
+ * agreeing today is not the claim — the claim is that they cannot drift apart. A list copied into
+ * this language is exactly the thing that goes stale.
+ */
+test('a typed mention escapes the same glob characters the console escapes', () => {
+  const files = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', 'web', 'server', 'files.go'), 'utf8');
+  // strings.ContainsRune(`*?[]\`, r) — the backquoted set inside globQuote.
+  const set = /func globQuote[\s\S]*?ContainsRune\(`([^`]+)`/.exec(files)?.[1];
+  assert.ok(set, 'globQuote was not found in files.go — this guard is reading nothing');
+  assert.ok(set.length >= 4, `only ${set.length} characters read from globQuote — the scan is broken`);
+
+  for (const ch of set) {
+    assert.equal(globQuote(ch), '\\' + ch, `${ch} reaches the tool unescaped and means itself to the glob`);
+  }
+  // And the wrapping wildcards the caller adds are NOT the ones being escaped: an ordinary word
+  // must come through untouched, or every mention would search for a literal backslash.
+  assert.equal(globQuote('panel'), 'panel');
+  assert.equal(globQuote('page[1'), 'page\\[1');
+});
+
+/**
+ * ★ And the mention actually calls it.
+ *
+ * A quoting function nobody calls quotes nothing. Measured: deleting `globQuote` from the call site
+ * (and its now-unused import) left all 204 tests green, because the test above only asks what the
+ * function returns. Testing a function and testing the place that calls it are different facts, and
+ * this repository has paid for that difference more than once.
+ *
+ * Read off the source: `chat.ts` imports `vscode`, so no test in this process can load it and press
+ * the seam. What can be checked is that the pattern is built from the quoted token.
+ */
+test('the mention builds its pattern from the quoted token', () => {
+  const chat = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf("name: 'glob'");
+  assert.ok(at > 0, 'the mention call was not found — this guard is reading nothing');
+  // To the end of that statement, so the check is on the pattern and not on the whole file.
+  const call = chat.slice(at, chat.indexOf('});', at));
+  assert.match(call, /pattern:[^\n]*globQuote\(/,
+    'the mention sends the typed token straight to the glob — a bracket in a filename refuses');
 });

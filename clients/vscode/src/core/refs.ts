@@ -46,3 +46,26 @@ export function wireRef(r: Ref): WireRef {
   if (!r.from) return { path: r.path };
   return { path: r.path, lines: !r.to || r.to === r.from ? `${r.from}` : `${r.from}-${r.to}` };
 }
+
+/**
+ * Make the glob metacharacters in a typed query mean themselves.
+ *
+ * Somebody typing `@page[1` is naming a file, not writing a character class. Measured against a
+ * running daemon on 2026-09-10: `**` + `/*page[1*` comes back `ok:false, "invalid glob pattern:
+ * syntax error in pattern"`, and the mention popup — which reads `out` and never looks at `ok` —
+ * turns that into an empty list. A CLOSED bracket is worse than the error: `pa[nl]el` is a valid
+ * character class, so it quietly searches for something the person did not type and shows the
+ * results as if they were the answer.
+ *
+ * The web console has done this since `globQuote` (`clients/web/server/files.go`) and the JetBrains
+ * plugin since its mention popup; the same five characters, so that the same `@` finds the same
+ * files on all three. The wildcards NOT escaped here are the ones the caller wraps the query in.
+ */
+export function globQuote(q: string): string {
+  let out = '';
+  for (const ch of q) {
+    if ('*?[]\\'.includes(ch)) out += '\\';
+    out += ch;
+  }
+  return out;
+}

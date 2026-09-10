@@ -5,7 +5,7 @@ import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcrip
 import { touched, pendingAsk } from '../core/touched';
 import { panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
-import { Ref, refText, wireRef } from '../core/refs';
+import { Ref, refText, wireRef, globQuote } from '../core/refs';
 import { Edits } from './edits';
 import { Companion } from './workspace';
 
@@ -347,7 +347,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // window's idea of the workspace: the companion is what will read the file, and what it
         // can reach is the answer that matters.
         const r = await this.companion.ask('tool', { name: 'glob',
-          args: { pattern: `**/*${(m.text ?? '').trim()}*` } });
+          args: { pattern: `**/*${globQuote((m.text ?? '').trim())}*` } });
         let files: string[] = [];
         try { files = JSON.parse(r?.out ?? '[]') as string[]; } catch { files = []; }
         this.post({ kind: 'mentions', files: files.slice(0, 20) });
