@@ -380,6 +380,29 @@ export function rows(events: Event[]): Row[] {
         for (const r of out) if (r.who === 'user' && r.msgId === id) { r.queued = false; r.pending = false; }
         break;
       }
+      case 'session.moved': {
+        // ⚠ **This was skipped too, and its reason was not true either.** The note said a companion
+        // that left "is reported by the socket going quiet". It is not: the core writes this fact
+        // INTO the conversation being left, on the same daemon and the same socket, and says why —
+        // "what a reader of it needs is the reason its transcript stops". Nothing goes quiet except
+        // this transcript.
+        //
+        // The core also says what the silence costs: without the line "the conversation simply
+        // stopped — indistinguishable from a daemon that died, which is the reading somebody would
+        // act on". The terminal draws it and the JetBrains client draws it; this window said nothing.
+        //
+        // Said, not followed. The terminal offers the move and lets a person stay, and switching a
+        // panel out from under somebody mid-read is not this row's business — the id is in the text
+        // so the resume picker can be used deliberately.
+        const to = String(d.to ?? '').trim();
+        out.push({
+          seq: e.seq, who: 'system',
+          text: to
+            ? `\u21e2 the companion moved to ${to} — this conversation ends here`
+            : '\u21e2 the companion moved to another conversation — this one ends here',
+        });
+        break;
+      }
       case 'council.convened': {
         // ⚠ **This was skipped, and the reason given for skipping it was not true.** The note said
         // the round "announces itself through the verdicts it produces, and the evidence it carries

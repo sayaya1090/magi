@@ -906,3 +906,35 @@ test('a round with no task still says it opened', () => {
   assert.ok(opened!.text.trim(), 'the row is blank — a blank row reads as nothing happening');
   assert.equal(opened!.round, 2);
 });
+
+/**
+ * ★ A companion that left says so, because a transcript that just stops reads as a death.
+ *
+ * The core writes `session.moved` INTO the conversation being left — same daemon, same socket — and
+ * names the reason: "what a reader of it needs is the reason its transcript stops". It also names
+ * what the silence costs: without the line "the conversation simply stopped — indistinguishable
+ * from a daemon that died, which is the reading somebody would act on".
+ *
+ * This client skipped it, and the reason recorded for skipping said a companion that left "is
+ * reported by the socket going quiet". Nothing goes quiet: the daemon is still there, answering in
+ * another conversation. The terminal draws this line and the JetBrains client draws it and follows
+ * it; only this window said nothing (measured 2026-09-10).
+ */
+test('a companion that moved to another conversation says where it went', () => {
+  const out = rows([
+    { seq: 1, type: 'part.appended',
+      data: { part: { kind: 'text', text: 'working on it' } } } as unknown as Event,
+    { seq: 2, type: 'session.moved', data: { to: 's_9f3c' } } as unknown as Event,
+  ]);
+  const moved = out.filter((r) => r.text.includes('s_9f3c'));
+  assert.equal(moved.length, 1, 'the move is not drawn — the transcript just stops');
+  assert.equal(moved[0].who, 'system', 'the move is drawn as somebody talking');
+  assert.match(moved[0].text, /ends here/, 'the row does not say this conversation is over');
+
+  // Where it went is the point: "ctrl+g to follow it" in the terminal, the resume picker here. A
+  // row that says only "it moved" leaves a person with nowhere to go.
+  const blind = rows([{ seq: 1, type: 'session.moved', data: {} } as unknown as Event]);
+  assert.equal(blind.length, 1, 'a move with no destination is dropped entirely');
+  assert.match(blind[0].text, /another conversation/,
+    'a move with no destination invents one or says nothing');
+});

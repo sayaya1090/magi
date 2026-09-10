@@ -536,7 +536,6 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
   const skipped: Record<string, string> = {
     'permission.decided': 'not a row — it CLOSES the ask (pendingAsk and touched both read it); the decision itself shows as the ask disappearing',
     'question.answered': 'not a row — it CLOSES the ask (pendingAsk reads it); the answer arrives as the prompt it produced, and a second row would say the person spoke twice',
-    'session.moved': 'this window follows one workspace; a companion that left is reported by the socket going quiet',
     // ⚠ These two had each other's reasons. `labels.changed` carries the SESSION's subject labels
     // (`LabelsChangedData.Labels`, "what the agent says this session's work is about", the whole set
     // each time); `user.label.changed` carries the person's display name. The note here described
