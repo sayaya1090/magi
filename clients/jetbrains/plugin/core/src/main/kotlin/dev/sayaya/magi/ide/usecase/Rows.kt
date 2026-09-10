@@ -65,6 +65,18 @@ data class Row(
     val why: String? = null,
     val keep: String? = null,
     val cite: String? = null,
+    /**
+     * 이 멤버가 얼마나 확신했나. 0..1, 코어가 적는 대로 **자기 보고**이고 **가중된다**.
+     *
+     * 장식이 아니다. 집계의 `doneWeight`/`contWeight` 가 확신으로 가중한 합이라, 0.2 짜리 `done` 과
+     * 0.95 짜리 `done` 은 같게 세이지 않는다. 낱말만 그리면 표는 보이고 **규칙이 그것으로 무엇을
+     * 했는지는 가려진다**.
+     *
+     * 실측(이 기계의 로그 전량, 2026-09-10): 평결 2938 중 2879 에 실려 오고 값은 0.1~0.95 로 퍼져
+     * 있다. `omitempty` 라 없으면 멤버가 아무 말도 안 한 것 — 0% 로 그리면 반대를 확신한 멤버로
+     * 읽히므로 그때는 아무것도 안 그린다.
+     */
+    val confidence: Double? = null,
     /** 코어가 「아무도 안 준 평결」이라 표시한 것 — 본문(rationale)은 그래도 그린다. */
     val silent: Boolean = false,
     /** 이 행이 **라운드가 열렸다**는 것인가(평결이 아니라). */
@@ -615,6 +627,7 @@ class Rows {
             lens = d["lens"]?.jsonPrimitive?.content,
             keep = d["keep"]?.jsonPrimitive?.content,
             cite = d["cite"]?.jsonPrimitive?.content,
+            confidence = d["confidence"]?.jsonPrimitive?.content?.toDoubleOrNull()?.takeIf { it > 0 },
             silent = silent,
         )
         return true

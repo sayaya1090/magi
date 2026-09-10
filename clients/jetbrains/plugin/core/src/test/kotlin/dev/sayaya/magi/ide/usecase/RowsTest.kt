@@ -655,4 +655,33 @@ class RowsTest {
         assertFalse("debated" in say(null), "반박이 없던 라운드가 논쟁했다고 적힌다")
     }
 
+    /**
+     * **얼마나 확신했나는 낱말이 아니라 수다 — 그리고 집계가 그 수로 가중한다.**
+     *
+     * `doneWeight`/`contWeight` 는 확신으로 가중한 합이라 0.2 짜리 `done` 과 0.95 짜리 `done` 은 같게
+     * 세이지 않는다. 낱말만 그리면 표는 보이고 규칙이 그것으로 무엇을 했는지는 가려진다.
+     *
+     * 실측(이 기계의 로그 전량, 2026-09-10): 평결 2938 중 **2879** 에 실려 오고 값은 0.1~0.95 로
+     * 퍼져 있다. 터미널은 줄곧 그려 왔고 두 IDE 클라이언트만 버렸다.
+     *
+     * ⚠ `omitempty` 라 없으면 멤버가 아무 말도 안 한 것이다. 0% 로 그리면 **반대를 확신한 멤버**로
+     * 읽히므로 그때는 아무것도 안 그린다.
+     */
+    @Test
+    fun `평결은 얼마나 확신했는지까지 나른다`() {
+        val r = Rows()
+        r.feed(ev("council.verdict", """{"round":1,"member":"Melchior","lens":"correctness",""" +
+            """"decision":"done","confidence":0.62,"rationale":"괜찮다"}"""))
+        val v = r.list().last()
+        assertEquals(0.62, v.confidence)
+        assertTrue("62%" in RowText.plain(v), "옮겨 적는 글에 확신이 안 실린다: ${RowText.plain(v)}")
+
+        // 안 실려 오면 아무 말도 안 한다 — 0% 는 반대를 확신한 멤버로 읽힌다.
+        val quiet = Rows()
+        quiet.feed(ev("council.verdict", """{"round":1,"member":"Casper","decision":"done"}"""))
+        val q = quiet.list().last()
+        assertEquals(null, q.confidence, "말하지 않은 확신을 0 으로 지어낸다")
+        assertFalse("0%" in RowText.plain(q), "확신을 안 밝힌 멤버가 0% 로 그려진다")
+    }
+
 }

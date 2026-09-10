@@ -852,7 +852,11 @@ function paint(r: Row, you?: string): Row & { label: string } {
   // neither the opening nor the rule.
   const vote = r.who !== 'council' ? ''
     : r.opened ? ` opened${r.rule ? ` · ${r.rule}` : ''}${r.round ? ` r${r.round}` : ''}`
-    : (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '');
+    : (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '')
+      // How sure, in the shape the terminal uses. The tally weighs by it, so the word alone
+      // shows the vote and hides what the rule did with it.
+      + (r.confidence ? ` ${Math.round(r.confidence * 100)}%` : '')
+      + (r.round ? ` r${r.round}` : '');
   // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.

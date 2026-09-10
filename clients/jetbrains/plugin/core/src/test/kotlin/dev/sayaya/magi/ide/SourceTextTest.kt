@@ -1564,4 +1564,25 @@ class SourceTextTest {
             "셰이퍼에 먹이기 전에 돌아간다 — 고정 탭과 다시 연 대화에서 전사가 말없이 끝난다")
     }
 
+    /**
+     * **확신은 화면에도 선다.**
+     *
+     * [dev.sayaya.magi.ide.usecase.RowsTest] 가 행이 그 수를 나르는지와 옮겨 적는 글에 실리는지를 재고,
+     * 여기서는 **평결 카드가 그것을 그리는지**를 본다. 행이 나르는데 아무도 안 그리면 안 나르는 것과 같다 —
+     * 이 저장소가 되풀이해 값을 치른 그 모양이다.
+     */
+    @Test
+    fun `평결 카드는 확신을 그린다`() {
+        val src = sources.first { it.name == "MagiToolWindow.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        // ⚠ `val marks = buildList {` 는 **둘**이다(사용자 행과 평결 카드). 이름으로 집으면 첫째가
+        // 걸리고, 이 규칙은 평결 카드가 아니라 남의 블록을 보고 실패한다 — 첫 판이 정확히 그랬다.
+        // 평결 카드에만 있는 것으로 앵커를 잡는다.
+        val at = src.indexOf("RowText.verdict(r.decision)?.let")
+        assertTrue(at > 0, "평결 카드의 표식 목록을 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val block = src.substring(at, src.indexOf("Look.rowHead", at))
+        assertTrue("chat.mark.noanswer" in block, "평결 카드가 아닌 블록을 보고 있다")
+        assertTrue("r.confidence" in block, "확신이 카드에 안 선다 — 표는 보이고 규칙이 그것으로 무엇을 했는지는 가려진다")
+    }
+
 }

@@ -138,6 +138,9 @@ object RowText {
                 r.member?.takeIf { it.isNotBlank() }?.let { append(" ").append(it) }
                 if (r.round > 0) append(" r").append(r.round)
                 verdict(r.decision, r.silent)?.let { append(" — ").append(it.word) }
+                // 얼마나 확신했나. 집계가 이 수로 가중하므로, 낱말만 옮겨 적으면 규칙이
+                // 그것으로 무엇을 했는지가 붙여 넣은 글에서 사라진다.
+                r.confidence?.let { append(" ").append(Math.round(it * 100)).append("%") }
             }
             Who.Info -> "info"
         }

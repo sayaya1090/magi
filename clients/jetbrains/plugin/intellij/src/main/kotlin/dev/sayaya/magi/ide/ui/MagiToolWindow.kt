@@ -978,6 +978,9 @@ class MagiToolWindow : ToolWindowFactory {
                                 "done" -> Look.success; "continue" -> Look.warn; else -> Look.faint
                             })
                         }
+                        // 얼마나 확신했나 — 터미널과 같은 모양(`62%`). 집계가 이 수로 가중하므로
+                        // 낱말만 그리면 표는 보이고 규칙이 그것으로 무엇을 했는지가 가려집니다.
+                        r.confidence?.let { add("${Math.round(it * 100)}%" to Look.faint) }
                         // 멤버의 의견 미제시 상태는 무응답 마크로 명시합니다.
                         if (r.silent) add(MagiBundle.msg("chat.mark.noanswer") to Look.faint)
                     }
