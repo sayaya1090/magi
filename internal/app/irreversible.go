@@ -157,7 +157,21 @@ func needsCouncilBeforeRunningSince(workdir, cmd string, mine func(string) bool,
 // path is being talked about.
 func absTarget(workdir, target string) string {
 	t := strings.Trim(target, `"'`)
-	if !filepath.IsAbs(t) {
+	// ⚠ **A target that is not absolute is not therefore relative to the workspace.**
+	//
+	// `filepath.IsAbs` asks whether a path is complete, and on Windows a path can be ROOTED without
+	// being complete: `/server`, `\Windows\System32`. It has no volume, so IsAbs says false — and
+	// joining it to the workdir turns somebody else's tree into a subdirectory of ours.
+	//
+	// What that switched off, measured 2026-09-10: `rm -rf /server` and `rm -rf /server/index.html`
+	// were both read as in-tree and the irreversible-delete gate never opened. The shell resolves
+	// them against the current drive, so the command deletes `C:\server` — the exact case the gate
+	// exists for, and the one shape a model writes without thinking, because it is how the command
+	// is written everywhere else.
+	//
+	// IsLocal is the question: does this stay inside the directory it is evaluated in. Only then is
+	// joining it the right reading; a rooted path is left as it is and judged where it points.
+	if !filepath.IsAbs(t) && filepath.IsLocal(t) {
 		t = filepath.Join(workdir, t)
 	}
 	return filepath.Clean(t)
@@ -190,9 +204,27 @@ func isScratchPath(workdir, target string) bool {
 // scratchRoots names the temp areas, TMPDIR included so a run with its own temp is covered.
 func scratchRoots() []string {
 	roots := []string{"/tmp", "/var/tmp"}
-	if t := strings.TrimSpace(os.Getenv("TMPDIR")); t != "" {
-		roots = append(roots, filepath.Clean(t))
+	add := func(p string) {
+		p = filepath.Clean(strings.TrimSpace(p))
+		if p == "" || p == "." {
+			return
+		}
+		for _, have := range roots {
+			if have == p {
+				return
+			}
+		}
+		roots = append(roots, p)
 	}
+	if t := os.Getenv("TMPDIR"); t != "" {
+		add(t)
+	}
+	// And whatever THIS platform calls its temp area. TMPDIR is the Unix spelling; Windows uses
+	// TEMP/TMP and os.TempDir is what reads them. Without it the exemption never matched there, so
+	// a path in the run's own scratch space was judged as somebody else's and gated — the safe
+	// direction, but the gate costs a council call and a turn, and it was spending them on the one
+	// place this file says nobody else owns.
+	add(os.TempDir())
 	return roots
 }
 
@@ -222,11 +254,10 @@ func outsideWorkspace(workdir, target string) bool {
 	if t == "~" || strings.HasPrefix(t, "~/") {
 		return true // home is not the workspace even when the workspace is under it
 	}
-	abs := t
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(workdir, t)
-	}
-	rel, err := filepath.Rel(workdir, filepath.Clean(abs))
+	// Through absTarget, not a second copy of it. This function had its own inline version of the
+	// same three lines, so the rooted-path reading had to be fixed twice or stay half fixed — and
+	// the half that governs `rm -rf` is this one.
+	rel, err := filepath.Rel(filepath.Clean(workdir), absTarget(workdir, t))
 	return err != nil || escapesTree(rel)
 }
 
