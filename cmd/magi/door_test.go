@@ -81,7 +81,7 @@ func TestTheFleetDoorCarriesThreeMethodsAndRefusesTheRest(t *testing.T) {
 	t.Cleanup(stop)
 
 	var in bytes.Buffer
-	in.WriteString(`{"socket":"` + sock + `"}` + "\n")
+	in.WriteString(doorOpening(sock))
 	for _, m := range []string{"about", "hand", "hand-state", "submit", "shell", "set-model"} {
 		b, _ := json.Marshal(daemon.Request{Method: m})
 		in.Write(append(b, '\n'))
@@ -178,7 +178,7 @@ func TestTheDoorStreamsAWatch(t *testing.T) {
 	t.Cleanup(stop)
 
 	var in bytes.Buffer
-	in.WriteString(`{"socket":"` + sock + `"}` + "\n")
+	in.WriteString(doorOpening(sock))
 	b, _ := json.Marshal(daemon.Request{Method: "watch", Name: "r1"})
 	in.Write(append(b, '\n'))
 	var out, errOut bytes.Buffer
@@ -217,7 +217,7 @@ func TestTheDoorOnlyOpensCompanionsThisAccountPublished(t *testing.T) {
 	defer ln.Close()
 
 	var out, errOut bytes.Buffer
-	code := fleetDoor(strings.NewReader(`{"socket":"`+other+`"}`+"\n"), &out, &errOut, cfg)
+	code := fleetDoor(strings.NewReader(doorOpening(other)), &out, &errOut, cfg)
 	if code == 0 {
 		t.Error("the door opened a socket nobody published")
 	}
@@ -273,4 +273,27 @@ func TestACrossingIsMadeThroughTheDoor(t *testing.T) {
 	if strings.Contains(string(src), "relayTo(ctx, host, socket)") {
 		t.Error("handAcross still opens the wide relay")
 	}
+}
+
+// doorOpening is the first line a caller sends, built the way a caller builds it.
+//
+// ⚠ **A socket path cannot be pasted into a JSON string literal.** These fixtures used to write
+// `{"socket":"` + sock + `"}`, which is fine as long as the path holds nothing JSON escapes — and
+// every POSIX socket path is such a path, so it read as correct for as long as this suite only ran
+// on Linux. A Windows path is not: `C:\Users\…` carries `\U`, `\v`, `\A`, and json.Unmarshal
+// refuses the line as an invalid escape sequence before the door has looked at anything.
+//
+// The three tests that opened a door this way then all failed with the same sentence — `a fleet
+// door opens with {"socket":"…"} naming a companion here` — which is the door's answer to a
+// MALFORMED opening. So they were not testing the door at all: whatever the door does with a
+// Windows companion, none of it was reached, and the refusal that came back looked enough like a
+// deliberate one to read as a real failure.
+//
+// Marshalled here, once, because that is what the client on the other side does.
+func doorOpening(sock string) string {
+	b, err := json.Marshal(doorOpen{Socket: sock})
+	if err != nil { // a string always marshals; if it ever does not, the fixture is the bug
+		panic(err)
+	}
+	return string(b) + "\n"
 }
