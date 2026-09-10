@@ -85,6 +85,12 @@ type pushState struct {
 
 // storedSub is one subscription on disk. The endpoint is a credential — anyone holding it can send
 // to that browser — so this file is written 0600 and never rendered into a page.
+//
+// ⚠ **0600 is a promise this platform may not keep.** Windows has no POSIX mode: Chmod there
+// toggles the read-only attribute and nothing else, so the file reads back 0666 and is protected by
+// whatever ACL the directory happens to carry — which nothing here sets. The same holds for the
+// private key beside it. Said out loud because the sentence above reads as unconditional, and on
+// that platform it is not: anyone who can read the config directory can read both.
 type storedSub struct {
 	webpush.Subscription
 	Added string `json:"added"`

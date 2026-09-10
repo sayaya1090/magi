@@ -123,3 +123,49 @@ var (
 	execBitOnce sync.Once
 	execBitErr  error
 )
+
+// NeedRestrictivePermissions skips where the filesystem cannot keep a file to its owner.
+//
+// A private key and a push endpoint are written 0600 because anybody holding them can send to that
+// browser. Windows has no POSIX mode: Chmod there toggles the read-only attribute and nothing else,
+// so a file written 0600 reads back 0666 and is protected by whatever the directory's ACL happens
+// to be — which magi does not set.
+//
+// ⚠ **The skip is not "this does not matter here".** It is "this platform does not make that
+// promise, and nothing else in magi makes it either". A test that fails says the code is wrong; a
+// test that passes would say the file is protected. Neither is true on Windows, so it says so out
+// loud and stops — and the message is the record that the gap exists.
+//
+// Measured 2026-09-11 as `subscriptions are mode 666; the endpoint is a credential`.
+func NeedRestrictivePermissions(t *testing.T) {
+	t.Helper()
+	permOnce.Do(func() {
+		d, err := os.MkdirTemp("", "permprobe")
+		if err != nil {
+			permErr = err
+			return
+		}
+		defer os.RemoveAll(d)
+		p := filepath.Join(d, "secret")
+		if permErr = os.WriteFile(p, []byte("x"), 0o600); permErr != nil {
+			return
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			permErr = err
+			return
+		}
+		if got := fi.Mode().Perm(); got&0o077 != 0 {
+			permErr = fmt.Errorf("0600 을 썼는데 %v 로 읽힌다", got)
+		}
+	})
+	if permErr != nil {
+		t.Skipf("이 파일시스템은 파일을 주인에게만 둘 수 없다 — 여기서는 그 약속이 성립하지 않고, "+
+			"magi 도 대신할 ACL 을 세우지 않는다: %v", permErr)
+	}
+}
+
+var (
+	permOnce sync.Once
+	permErr  error
+)

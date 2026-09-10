@@ -833,7 +833,10 @@ func TestTheApprovalModeIsReadAndSetOverTheSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, a := range list {
-		if a.Socket == sock {
+		// 같은 소켓의 다른 철자는 같은 소켓이다 — 목록의 철자는 이 콘솔이 발행한 것이고
+		// `sock` 은 픽스처가 적은 것이다. 제품이 daemon.SamePath 로 견주는 자리를 시험이
+		// 날 문자열로 물으면, 답이 빈 값으로 와도 「모드가 안 실렸다」로 읽힌다.
+		if daemon.SamePath(a.Socket, sock) {
 			seen = a.Permission
 		}
 	}

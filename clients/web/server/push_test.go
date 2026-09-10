@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"github.com/sayaya1090/magi/internal/adapter/fleet"
 	"github.com/sayaya1090/magi/internal/core/webpush"
 )
@@ -121,19 +123,26 @@ func TestASubscriptionIsKeptAndCanBeWithdrawn(t *testing.T) {
 
 	// On disk, and readable only by its owner: the endpoint is a credential, since anyone who holds
 	// it can send to that browser.
+	//
+	// Its own subtest, so the platform that cannot make that promise skips THIS and still runs the
+	// rest — that the subscriptions are kept, withdrawn, and survive a restart is not a claim about
+	// permissions, and losing it would be a worse trade than the one being made here.
 	f := filepath.Join(dir, "push-subscriptions.json")
-	st, err := os.Stat(f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if m := st.Mode().Perm(); m != 0o600 {
-		t.Errorf("subscriptions are mode %o; the endpoint is a credential", m)
-	}
-	if st2, err := os.Stat(filepath.Join(dir, "push-key")); err != nil {
-		t.Error(err)
-	} else if m := st2.Mode().Perm(); m != 0o600 {
-		t.Errorf("the private key is mode %o", m)
-	}
+	t.Run("readable only by its owner", func(t *testing.T) {
+		testenv.NeedRestrictivePermissions(t)
+		st, err := os.Stat(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m := st.Mode().Perm(); m != 0o600 {
+			t.Errorf("subscriptions are mode %o; the endpoint is a credential", m)
+		}
+		if st2, err := os.Stat(filepath.Join(dir, "push-key")); err != nil {
+			t.Error(err)
+		} else if m := st2.Mode().Perm(); m != 0o600 {
+			t.Errorf("the private key is mode %o", m)
+		}
+	})
 
 	// And it survives a restart. A console that forgot its subscriptions on restart would go quiet
 	// with nothing to show for it.
