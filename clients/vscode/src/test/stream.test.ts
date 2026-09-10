@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import { rows, turnOpen, verdictWord } from '../core/transcript';
+import { pendingAsk } from '../core/touched';
 import { retryAfter } from '../core/daemon';
 import { usage } from '../core/panel';
 import { Event } from '../core/protocol';
@@ -1089,4 +1090,35 @@ test('a round judging a turn that changed nothing says so', () => {
   assert.ok(at > 0, 'the opened label was not found — this guard is reading nothing');
   assert.match(chat.slice(at, chat.indexOf('\n', at)), /r\.readOnly/,
     'the shaper carries the fact and the label drops it');
+});
+
+/**
+ * ★ Attaching to a conversation empties the panel, whether or not anything is in it.
+ *
+ * Clearing the event list is invisible on its own — the webview keeps whatever rows it was last
+ * handed, and the redraw lives inside the frame callback. A conversation with nothing in it sends
+ * no frames, and the core is explicit that it also sends no opening note: `answerable` returns ""
+ * for `since <= 0`, so a plain attach is silent until something happens.
+ *
+ * The result was the previous conversation's rows standing under the new one's name — with its ask,
+ * its plan and its context meter. The JetBrains client clears before its reader thread starts and
+ * writes down why: attachment is already true at that line, and deferring it leaves the order
+ * against the first frame up to luck.
+ *
+ * Two facts, so two checks: the shaper gives nothing for nothing, and the call site draws at the
+ * moment it empties. `chat.ts` imports `vscode`, so the second is read off the source.
+ */
+test('attaching draws the empty conversation instead of leaving the last one up', () => {
+  assert.deepEqual(rows([]), [], 'an empty conversation shapes into something');
+  assert.equal(pendingAsk([]), null, 'an empty conversation carries the previous one\'s open ask');
+  assert.equal(usage([]), '', 'an empty conversation carries the previous one\'s context meter');
+
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const at = chat.indexOf('this.events = [];\n    this.draw();');
+  assert.ok(at > 0,
+    'the panel is emptied without being redrawn — the rows on screen are the last conversation\'s');
+  // Before the stream opens, not after: a frame that lands between the two would be drawn and then
+  // wiped by a redraw that follows it.
+  assert.ok(at < chat.indexOf("s.stream({ method: 'transcript'"),
+    'the redraw happens after the stream is opened — a frame landing between the two is lost');
 });

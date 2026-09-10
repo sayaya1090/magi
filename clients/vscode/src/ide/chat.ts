@@ -93,7 +93,25 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
       void this.reattach();
     });
+    /**
+     * ⚠ **The panel is emptied here, not when the first frame lands.**
+     *
+     * Clearing `events` alone changes nothing a person can see: the webview keeps the rows it was
+     * last handed, and `draw()` runs only inside the frame callback. A conversation with no events
+     * sends no frames — and the core makes that explicit: the stream's opening note goes out only
+     * when a tail was clipped (`answerable` returns "" for `since <= 0`), so a plain attach is
+     * silent until something happens.
+     *
+     * So opening a brand-new conversation, or resuming one nothing has been said in, left the
+     * PREVIOUS conversation's rows on screen under the new one's name — the ask, the plan and the
+     * context meter with them.
+     *
+     * The JetBrains client says the same thing in its own words and puts the clear before the
+     * worker thread starts: attachment "is already true on this line, and deferring it leaves the
+     * order against the first frame up to luck".
+     */
     this.events = [];
+    this.draw();
     s.stream({ method: 'transcript', session: sid }, (r) => {
       if (r.event) { this.events.push(r.event); this.draw(); }
       else if (r.error) this.post({ kind: 'note', text: r.error });
