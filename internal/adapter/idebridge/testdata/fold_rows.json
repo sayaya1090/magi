@@ -1,0 +1,110 @@
+[
+  {
+    "seq": 1,
+    "who": "user",
+    "text": "fix the failing test",
+    "msgId": "m1"
+  },
+  {
+    "seq": 5,
+    "who": "thinking",
+    "text": "let me look",
+    "folded": true
+  },
+  {
+    "seq": 6,
+    "who": "agent",
+    "text": "Looking now."
+  },
+  {
+    "seq": 7,
+    "who": "tool",
+    "text": "bash",
+    "callId": "c1",
+    "args": "go test ./...",
+    "ok": false,
+    "out": "boom"
+  },
+  {
+    "seq": 9,
+    "who": "tool",
+    "text": "write",
+    "callId": "c2",
+    "args": "a.go",
+    "ok": true,
+    "note": true
+  },
+  {
+    "seq": 11,
+    "who": "image",
+    "text": "/tmp/shot.png"
+  },
+  {
+    "seq": 12,
+    "who": "error",
+    "text": "bad"
+  },
+  {
+    "seq": 13,
+    "who": "error",
+    "text": "provider blew up (recovered)"
+  },
+  {
+    "seq": 14,
+    "who": "council",
+    "text": "melchior, balthasar",
+    "round": 1,
+    "rule": "majority",
+    "opened": true,
+    "readOnly": true
+  },
+  {
+    "seq": 15,
+    "who": "council",
+    "text": "looks right",
+    "round": 1,
+    "decision": "done",
+    "lens": "correctness",
+    "cite": "NO-EVIDENCE",
+    "keep": "the guard",
+    "confidence": 0.8,
+    "member": "melchior"
+  },
+  {
+    "seq": 16,
+    "who": "council",
+    "text": "no answer came back",
+    "round": 1,
+    "decision": "abstain",
+    "silent": true,
+    "member": "casper"
+  },
+  {
+    "seq": 17,
+    "who": "council",
+    "text": "not accepted — 1 done / 1 continue / 1 abstain / 1 no answer — debated: 2-1→3-0, 1 member moved",
+    "round": 1,
+    "decision": "continue",
+    "silent": true
+  },
+  {
+    "seq": 18,
+    "who": "system",
+    "text": "⟳ orchestrator note: You stopped"
+  },
+  {
+    "seq": 20,
+    "who": "system",
+    "text": "⇢ the companion moved to s_02 — this conversation ends here"
+  },
+  {
+    "seq": 21,
+    "who": "system",
+    "text": "↯ folded the conversation: ~1000→250 tok (−750, −75%)"
+  },
+  {
+    "seq": 22,
+    "who": "system",
+    "text": "⚠ Unverified — nothing ran to confirm this: no run"
+  }
+]

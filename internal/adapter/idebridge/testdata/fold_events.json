@@ -1,0 +1,358 @@
+[
+ {
+  "seq": 1,
+  "type": "prompt.submitted",
+  "actor": {
+   "kind": "user",
+   "id": "u1"
+  },
+  "data": {
+   "messageId": "m1",
+   "parts": [
+    {
+     "text": "fix the "
+    },
+    {
+     "text": "failing test"
+    }
+   ]
+  }
+ },
+ {
+  "seq": 2,
+  "type": "part.delta",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "kind": "reasoning",
+   "text": "let me look"
+  }
+ },
+ {
+  "seq": 3,
+  "type": "part.delta",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "kind": "text",
+   "text": "Looking"
+  }
+ },
+ {
+  "seq": 4,
+  "type": "part.delta",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "kind": "text",
+   "text": " now."
+  }
+ },
+ {
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "role": "assistant",
+   "part": {
+    "kind": "reasoning",
+    "text": "  let me look  "
+   }
+  },
+  "seq": 5
+ },
+ {
+  "seq": 6,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "role": "assistant",
+   "part": {
+    "kind": "text",
+    "text": "  Looking now.  "
+   }
+  }
+ },
+ {
+  "seq": 7,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "messageId": "r1",
+   "role": "assistant",
+   "part": {
+    "kind": "tool-call",
+    "toolCall": {
+     "callId": "c1",
+     "name": "bash",
+     "args": {
+      "command": "go test ./...",
+      "cwd": "/x"
+     }
+    }
+   }
+  }
+ },
+ {
+  "seq": 8,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "role": "tool",
+   "part": {
+    "kind": "tool-result",
+    "toolResult": {
+     "callId": "c1",
+     "content": "boom\nsecond line",
+     "isError": true
+    }
+   }
+  }
+ },
+ {
+  "seq": 9,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "role": "tool",
+   "part": {
+    "kind": "tool-call",
+    "toolCall": {
+     "callId": "c2",
+     "name": "write",
+     "args": "{\"path\":\"a.go\"}"
+    }
+   }
+  }
+ },
+ {
+  "seq": 10,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "role": "tool",
+   "part": {
+    "kind": "tool-result",
+    "toolResult": {
+     "callId": "c2",
+     "content": "lint says x",
+     "isError": true,
+     "advisory": true
+    }
+   }
+  }
+ },
+ {
+  "seq": 11,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "role": "assistant",
+   "part": {
+    "kind": "image",
+    "image": {
+     "path": "/tmp/shot.png"
+    }
+   }
+  }
+ },
+ {
+  "seq": 12,
+  "type": "part.appended",
+  "actor": {
+   "kind": "agent",
+   "id": "a"
+  },
+  "data": {
+   "role": "assistant",
+   "part": {
+    "kind": "error",
+    "error": "  bad  "
+   }
+  }
+ },
+ {
+  "seq": 13,
+  "type": "error",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "message": "provider blew up",
+   "recovered": true
+  }
+ },
+ {
+  "seq": 14,
+  "type": "council.convened",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "round": 1,
+   "rule": "majority",
+   "noChanges": true,
+   "members": [
+    "melchior",
+    "balthasar"
+   ]
+  }
+ },
+ {
+  "seq": 15,
+  "type": "council.verdict",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "round": 1,
+   "member": "melchior",
+   "decision": "done",
+   "lens": "correctness",
+   "cite": "NO-EVIDENCE",
+   "keep": "the guard",
+   "confidence": 0.8,
+   "rationale": "looks right"
+  }
+ },
+ {
+  "seq": 16,
+  "type": "council.verdict",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "round": 1,
+   "member": "casper",
+   "decision": "abstain",
+   "silent": true
+  }
+ },
+ {
+  "seq": 17,
+  "type": "council.decided",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "round": 1,
+   "decision": "continue",
+   "note": "not accepted",
+   "tally": {
+    "done": 1,
+    "continue": 1,
+    "abstain": 2,
+    "silent": 1,
+    "voters": 0
+   },
+   "debate": {
+    "changed": 1,
+    "before": "2-1",
+    "after": "3-0"
+   }
+  }
+ },
+ {
+  "seq": 18,
+  "type": "prompt.submitted",
+  "actor": {
+   "kind": "system",
+   "id": "orchestrator"
+  },
+  "data": {
+   "messageId": "m2",
+   "parts": [
+    {
+     "text": "You stopped\nwithout saying"
+    }
+   ]
+  }
+ },
+ {
+  "seq": 19,
+  "type": "prompt.submitted",
+  "actor": {
+   "kind": "agent",
+   "id": "child"
+  },
+  "data": {
+   "messageId": "m3",
+   "parts": [
+    {
+     "text": "subagent report"
+    }
+   ]
+  }
+ },
+ {
+  "seq": 20,
+  "type": "session.moved",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "to": "s_02"
+  }
+ },
+ {
+  "seq": 21,
+  "type": "compaction",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "tokensBefore": 1000,
+   "tokensAfter": 250
+  }
+ },
+ {
+  "seq": 22,
+  "type": "turn.finished",
+  "actor": {
+   "kind": "system",
+   "id": "s"
+  },
+  "data": {
+   "unverified": true,
+   "reason": "no run"
+  }
+ }
+]
