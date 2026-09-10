@@ -103,6 +103,18 @@ jobs:
       - name: build
         run: go build ./...
 
+      - name: windows cross-build and vet
+        # The lane above is ubuntu-latest and nothing else, so until this step existed every
+        # `//go:build windows` file in the tree was never compiled by CI at all. Fifteen of them,
+        # and four with a windows-only test beside them. `internal/atomicfile/rename_windows.go` went
+        # in at ninety-two lines with neither: "CI is green" said nothing whatever about it.
+        #
+        # Cross-compiling is what a ubuntu runner can honestly do here: `go test` needs to RUN the
+        # binary and cannot. So this measures compilation and vet only — which was zero.
+        run: |
+          GOOS=windows go build ./...
+          GOOS=windows go vet ./...
+
       - name: test (race + coverage)
         # Live Ollama Cloud E2E tests are skipped (-skip E2E), so CI stays hermetic.
         #

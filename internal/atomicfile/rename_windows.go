@@ -81,6 +81,20 @@ func ReadFile(path string) ([]byte, error) {
 // `errors.Is(err, fs.ErrPermission)` is false for it. Checking only the mapped errors made the
 // retry never fire at all, which is exactly as visible as no retry: the same 704 failures, to the
 // count. Named as numbers because the syscall package does not export them.
+//
+// ⚠ **"Not there" is NOT one of these, and putting it here cost a fifth of a second per absent
+// file.** It was here defensively — a replacement surely has a window where the destination is
+// gone — and that window does not exist: os.Rename on Windows is MoveFileEx with REPLACE_EXISTING,
+// which swaps the name rather than unlinking it first. Measured 2026-09-11, a reader spinning on a
+// file through three seconds of continuous replacement: 16,498 whole reads, 613 sharing/lock
+// violations, and ENOENT **zero** times.
+//
+// What it did cost is on the other side. A missing file is an ORDINARY state for the records this
+// package reads — daemon.List draws a socket with no record as a row saying "(unknown — no
+// record)", because something is listening there either way — and every one of those rows was
+// spending the whole 200ms budget waiting for a file nobody was writing. Measured: 204ms through
+// ReadFile against 606µs through os.ReadFile, per absent record, on a list the TUI refreshes every
+// two seconds.
 const (
 	errSharingViolation = syscall.Errno(32)
 	errLockViolation    = syscall.Errno(33)
@@ -88,5 +102,5 @@ const (
 
 func transient(err error) bool {
 	return errors.Is(err, errSharingViolation) || errors.Is(err, errLockViolation) ||
-		errors.Is(err, fs.ErrPermission) || errors.Is(err, fs.ErrNotExist)
+		errors.Is(err, fs.ErrPermission)
 }
