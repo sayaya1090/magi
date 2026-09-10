@@ -982,3 +982,35 @@ test('a round nobody voted in is not drawn as a rejection', () => {
     'a fact with no tally is given one');
   assert.equal(bare.silent, undefined);
 });
+
+/**
+ * ★ A tally taken after a rebuttal says so, or it claims an agreement that never happened.
+ *
+ * A rebuttal round only runs when the independent vote SPLIT, and the tally recorded beside it is
+ * the one taken afterwards. So a 3-0 that started 2-1 reads as unanimity unless the round is named.
+ * The core says it, and adds why a rebuttal that moved nobody is worth saying too: "that the members
+ * heard each other and did not budge is the more interesting outcome".
+ *
+ * The field exists because nothing observed it: the adapter computed the outcome "for observability"
+ * and no surface read it, so "whether the round changes anything was therefore unanswerable from a
+ * run — which is the only way to know if it earns its three extra calls". The terminal and the web
+ * console draw it; measured 2026-09-10, neither IDE client did.
+ */
+test('a rebuttal round is named, including one that moved nobody', () => {
+  const say = (debate: unknown): string => rows([{ seq: 1, type: 'council.decided', data: {
+    round: 1, decision: 'done', note: 'the council accepts',
+    tally: { done: 3, continue: 0, voters: 3 }, debate,
+  } } as unknown as Event])[0].text;
+
+  assert.match(say({ before: 'continue', after: 'done', changed: 2 }),
+    /debated: continue→done, 2 members moved/,
+    'a 3-0 that started 2-1 is drawn as agreement that was never there');
+  assert.match(say({ before: 'done', after: 'done', changed: 1 }), /debated: done held, 1 member moved/,
+    'one member is called "1 members"');
+  assert.match(say({ before: 'continue', after: 'continue', changed: 0 }), /debated, no one moved/,
+    'a rebuttal nobody moved on is silent — the more interesting outcome of the two');
+
+  // ⚠ Absent on the common case. A "not debated" on every round would drown the one that matters.
+  assert.doesNotMatch(say(undefined), /debated/,
+    'a round with no rebuttal says it was debated');
+});

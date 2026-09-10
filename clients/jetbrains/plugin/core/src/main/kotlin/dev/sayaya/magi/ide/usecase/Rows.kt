@@ -651,10 +651,35 @@ class Rows {
             if (said > 0) "$said abstain" else "",
             if (n("silent") > 0) "${n("silent")} 답 없음" else "",
         ).filter { it.isNotBlank() }.joinToString(" / ")
+        // ⚠ **반박 라운드 옆의 집계는 그 «뒤에» 잰 것이다.**
+        //
+        // 반박은 독립 투표가 갈렸을 때만 돈다. 그래서 2-1로 시작한 3-0이 여기서는 처음부터 없던
+        // 합의로 읽힌다 — 코어가 그렇게 적고, 아무도 안 움직인 반박도 말해야 하는 이유를 덧붙였다:
+        // *"that the members heard each other and did not budge is the more interesting outcome"*.
+        //
+        // 이 칸이 왜 생겼는지도 코어가 적어 두었다. 어댑터는 줄곧 "for observability" 로 계산했고
+        // 아무도 안 봤다 — 그래서 "whether the round changes anything was therefore unanswerable
+        // from a run — which is the only way to know if it earns its three extra calls". 터미널과 웹
+        // 콘솔은 그려 왔고, 두 IDE 클라이언트만 안 읽었다.
+        //
+        // 흔한 경우(독립 투표가 이미 만장일치이거나 논쟁이 꺼짐)에는 안 실려 오므로 그때는 아무 말도
+        // 안 한다 — 매 라운드에 「논쟁 없음」이 서면 정작 중요한 줄이 묻힌다.
+        val db = d["debate"]?.jsonObject
+        val debated = db?.let {
+            val changed = it["changed"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+            val moved = if (changed == 1) "1 member" else "$changed members"
+            val before = it["before"]?.jsonPrimitive?.content.orEmpty()
+            val after = it["after"]?.jsonPrimitive?.content.orEmpty()
+            when {
+                changed == 0 -> "debated, no one moved"
+                before != after -> "debated: $before\u2192$after, $moved moved"
+                else -> "debated: $after held, $moved moved"
+            }
+        }.orEmpty()
         val note = d["note"]?.jsonPrimitive?.content.orEmpty()
         rows += Row(
             Who.Council,
-            listOf(note, counts).filter { it.isNotBlank() }.joinToString(" — "),
+            listOf(note, counts, debated).filter { it.isNotBlank() }.joinToString(" — "),
             at = e.ts,
             round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
             decision = d["decision"]?.jsonPrimitive?.content,

@@ -622,4 +622,37 @@ class RowsTest {
         assertFalse(b.silent)
     }
 
+    /**
+     * **반박 뒤에 잰 집계는 그렇다고 말해야 한다.** 안 그러면 없던 합의를 주장한다.
+     *
+     * 반박 라운드는 독립 투표가 **갈렸을 때만** 돈다. 그리고 옆에 적히는 집계는 그 뒤에 잰 것이다.
+     * 그래서 2-1로 시작한 3-0이 이름을 안 붙이면 만장일치로 읽힌다. 코어가 그렇게 적고, 아무도 안
+     * 움직인 반박도 말해야 하는 이유를 덧붙였다 — 서로 듣고도 안 움직인 쪽이 더 흥미로운 결과다.
+     *
+     * 이 칸은 **아무도 안 봐서** 생겼다: 어댑터는 줄곧 계산했고 어느 화면도 안 읽어서, 그 라운드가
+     * 무엇을 바꾸는지를 실행에서 물을 수 없었다 — 모델 호출 셋을 더 쓸 값이 있는지 알 유일한 길인데도.
+     * 터미널과 웹 콘솔은 그려 왔고, 두 IDE 클라이언트만 안 읽었다(2026-09-10 실측).
+     */
+    @Test
+    fun `반박 라운드는 아무도 안 움직였을 때도 이름이 붙는다`() {
+        fun say(debate: String?): String {
+            val r = Rows()
+            r.feed(ev("council.decided", """{"round":1,"decision":"done","note":"받아들였다",""" +
+                """"tally":{"done":3,"continue":0,"voters":3}""" +
+                (debate?.let { ""","debate":$it""" } ?: "") + "}"))
+            return r.list().last().text
+        }
+        assertTrue("debated: continue\u2192done, 2 members moved" in
+            say("""{"before":"continue","after":"done","changed":2}"""),
+            "2-1로 시작한 3-0이 처음부터 있던 합의로 읽힌다")
+        assertTrue("debated: done held, 1 member moved" in
+            say("""{"before":"done","after":"done","changed":1}"""), "하나를 «1 members» 라 부른다")
+        assertTrue("debated, no one moved" in
+            say("""{"before":"continue","after":"continue","changed":0}"""),
+            "아무도 안 움직인 반박이 통째로 사라진다 — 둘 중 더 흥미로운 결과다")
+
+        // ⚠ 흔한 경우에는 안 실려 온다. 매 라운드에 「논쟁 없음」이 서면 정작 중요한 줄이 묻힌다.
+        assertFalse("debated" in say(null), "반박이 없던 라운드가 논쟁했다고 적힌다")
+    }
+
 }

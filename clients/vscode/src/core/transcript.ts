@@ -363,10 +363,38 @@ export function rows(events: Event[]): Row[] {
           said > 0 ? `${said} abstain` : '',
           n('silent') > 0 ? `${n('silent')} no answer` : '',
         ].filter(Boolean).join(' / ') : '';
+        /**
+         * ⚠ **The tally beside a rebuttal is the one taken AFTER it.**
+         *
+         * A rebuttal round only runs when the independent vote split, so a 3-0 that started 2-1
+         * reads here as agreement that was never there — the core says exactly that, and adds why
+         * a rebuttal that moved NOBODY is worth saying too: "that the members heard each other and
+         * did not budge is the more interesting outcome".
+         *
+         * The core also says why the field exists at all: the adapter computed this "for
+         * observability" and nothing observed it, so "whether the round changes anything was
+         * therefore unanswerable from a run — which is the only way to know if it earns its three
+         * extra calls". The terminal and the web console have both drawn it; neither IDE client did.
+         *
+         * Absent on the common case (the independent vote was already unanimous, or debate is off),
+         * so nothing is said then rather than "not debated" — a line on every round would drown the
+         * one that matters.
+         */
+        const db = (typeof d.debate === 'object' && d.debate) ? d.debate as Record<string, unknown> : null;
+        let debated = '';
+        if (db) {
+          const changed = Number(db.changed) || 0;
+          const moved = changed === 1 ? '1 member' : `${changed} members`;
+          const before = String(db.before ?? '').trim();
+          const after = String(db.after ?? '').trim();
+          debated = changed === 0 ? 'debated, no one moved'
+            : before !== after ? `debated: ${before}→${after}, ${moved} moved`
+              : `debated: ${after} held, ${moved} moved`;
+        }
         const note = String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
-          text: [note, counts].filter(Boolean).join(' — '),
+          text: [note, counts, debated].filter(Boolean).join(' — '),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
           // Nobody weighed it. Same word the individual verdicts use for the same fact, so one
