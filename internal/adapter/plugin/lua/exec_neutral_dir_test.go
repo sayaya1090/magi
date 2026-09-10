@@ -56,13 +56,29 @@ magi.log("neutral=" .. b.stdout:gsub("%s+$", ""))`)
 	if plain == neutral {
 		t.Fatalf("neutral_dir ran in the workspace anyway: %q", neutral)
 	}
-	// Named per plugin, so one backend's CLI cannot leave a file that lands in another's context.
-	if !strings.HasSuffix(neutral, filepath.Join("neutral", "x")) {
-		t.Errorf("neutral dir = %q, want it to end in neutral/x under the data dir", neutral)
+	// ⚠ **The child spells paths in its own dialect, and it is not always Go's.**
+	//
+	// `neutral` is whatever `pwd` printed inside the child. On Windows that shell is very often the
+	// one Git ships, and it answers in MSYS form: the same directory Go calls
+	// `C:\Users\…\Temp\…\001\neutral\x` comes back as `/tmp/…/001/neutral/x`. Measured
+	// 2026-09-10 — the directory was there, correct, and this test failed anyway, because it
+	// compared the child's spelling against a Go path and then tried to open it.
+	//
+	// So the two questions are asked of whoever can answer them. That the child RAN somewhere else
+	// is the child's to say, and `plain != neutral` above says it in any dialect. Where the
+	// directory is and what is in it are the filesystem's, and Go asks the filesystem.
+	//
+	// The suffix is still checked against what the child said, because that is the link between
+	// the two halves — with separators folded, which is the one part of the dialect that matters
+	// here.
+	if !strings.HasSuffix(filepath.ToSlash(neutral), "neutral/x") {
+		t.Errorf("neutral dir = %q, want it to end in neutral/x", neutral)
 	}
-	entries, err := os.ReadDir(neutral)
+	// Named per plugin, so one backend's CLI cannot leave a file that lands in another's context.
+	want := filepath.Join(data, "neutral", "x")
+	entries, err := os.ReadDir(want)
 	if err != nil {
-		t.Fatalf("the neutral directory was not created: %v", err)
+		t.Fatalf("the neutral directory was not created under the data dir: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("the neutral directory is not empty: %v", entries)
