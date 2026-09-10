@@ -723,3 +723,48 @@ test('the settings screen asks the way the door says to ask', () => {
   assert.match(profileBranch, /call\('profiles'\)[\s\S]{0,500}showQuickPick/,
     'the profile-shaped key is not offered the profiles the daemon actually has');
 });
+
+/**
+ * ★ A door that refuses without a conversation named is asked with one.
+ *
+ * `answerContext` reads `req.Session` and answers "no session named" when it is empty. There is no
+ * fallback to whatever is current, and the dispatcher never fills the field — the core's own client
+ * passes `Session: sid` at every call site that needs it. This client asked bare, so the plan
+ * panel's context section drew nothing on every poll, on every build, and said nothing about it
+ * (`panel.context` returns '' on a refusal).
+ *
+ * Measured 2026-09-10 against a freshly built daemon in an isolated config: bare `context` answers
+ * `ok:false, "no session named"`; the same call carrying the session answers with `model`, `window`,
+ * `used` and `parts`. The JetBrains client has sent it since the door landed.
+ *
+ * The list of such doors is DERIVED, not written here: an answerer that reads `req.Session` and
+ * refuses is the shape, and a second door growing that shape tomorrow must fail here rather than
+ * join the first one in silence.
+ */
+test('every door that refuses without a session is called with one', () => {
+  const doors = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'daemon', 'doors.go'), 'utf8');
+  const byFn = new Map<string, string>();
+  for (const m of doors.matchAll(/"([a-z][a-z0-9-]*)":\s*\{[^}]*?run:\s*(answer[A-Za-z]+)/gs)) {
+    byFn.set(m[2], m[1]);
+  }
+  assert.ok(byFn.size >= 15, `only ${byFn.size} doors mapped to answerers — the scan is broken`);
+
+  const strict: string[] = [];
+  for (const m of doors.matchAll(
+    /func (answer[A-Za-z]+)\(ctx context\.Context, eng Engine, req Request\) Response \{([\s\S]*?)\n\}\n/g)) {
+    if (/req\.Session/.test(m[2]) && /no session/i.test(m[2]) && byFn.has(m[1])) strict.push(byFn.get(m[1])!);
+  }
+  assert.ok(strict.length >= 1, 'no session-strict door found in the core — the scan is dead');
+
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'plan.ts'), 'utf8');
+  for (const door of strict) {
+    const at = src.indexOf(`ask('${door}'`);
+    assert.ok(at > 0, `${door} is not asked from the plan panel — has it moved? this guard is reading nothing`);
+    // The call, to its closing paren: the session has to be IN it, not merely nearby.
+    const call = src.slice(at, src.indexOf(')', src.indexOf('{', at)));
+    assert.match(call, /session:/,
+      `${door} is asked without naming the conversation, and the core refuses that outright — ` +
+      'the section draws nothing, on every poll, with nothing saying why');
+  }
+});

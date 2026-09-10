@@ -45,7 +45,25 @@ export class Plan implements vscode.WebviewViewProvider, vscode.Disposable {
     const caps = await this.companion.caps();
     const [jobs, ctx, fleet, cron] = await Promise.all([
       caps.has('job-kill') ? this.companion.ask('jobs') : null,
-      caps.has('context') ? this.companion.ask('context') : null,
+      /**
+       * ⚠ **This door needs the conversation named, and asking without one is refused outright.**
+       *
+       * `answerContext` reads `req.Session` and returns "no session named" when it is empty — no
+       * fallback to whatever is current, and the dispatcher never fills the field (the core's own
+       * client passes `Session: sid` at every call site that needs it). This asked bare, so the
+       * context section drew nothing on every poll, on every build, with `panel.context` returning
+       * '' on the refusal and the panel saying nothing about it.
+       *
+       * Measured 2026-09-10 against a freshly built daemon in an isolated config: bare `context`
+       * answers `ok:false, "no session named"`; the same call carrying the session answers with
+       * `model`, `window`, `used`, `parts`. The JetBrains client has sent it all along.
+       *
+       * No session yet means no window to report, so it is not asked — a conversation that has not
+       * started has nothing to be full of.
+       */
+      caps.has('context') && this.companion.session
+        ? this.companion.ask('context', { session: this.companion.session })
+        : null,
       caps.has('roster') ? this.companion.ask('roster') : null,
       caps.has('cron') ? this.companion.ask('cron') : null,
     ]);
