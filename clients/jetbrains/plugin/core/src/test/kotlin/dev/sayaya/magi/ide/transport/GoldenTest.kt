@@ -41,7 +41,7 @@ class GoldenTest {
         pairsOf("shortHash").forEach { (i, want) -> assertEquals(want, SocketPath.shortHash(i), "$i\n${why()}") }
         pairsOf("sanitize").forEach { (i, want) -> assertEquals(want, SocketPath.sanitize(i), "$i\n${why()}") }
         pairsOf("socketPath").forEach { (dir, wd, want) ->
-            assertEquals(want, SocketPath.of(Paths.get(dir), Paths.get(wd)).toString(), why())
+            assertEquals(want, SocketPath.of(Paths.get(dir), Paths.get(wd), env = { null }).toString(), why())
         }
     }
 

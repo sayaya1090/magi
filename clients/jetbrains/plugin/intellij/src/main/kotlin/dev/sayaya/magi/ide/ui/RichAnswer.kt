@@ -130,18 +130,19 @@ internal object RichAnswer {
         com.intellij.openapi.util.Disposer.register(browser, query)
         var answered = false
         query.addHandler { said ->
-            answered = true
-            said.trim().toIntOrNull()?.let { px ->
-                // 단일 트랜스크립트 스크롤바 원칙을 유지하기 위해 높이 상한을 4000px로 설정한다.
-                // 4000px를 초과하여 내용이 절단될 경우 사용자 툴팁(answer.more)을 통해 안내한다 (리뷰 F8).
-                val over = px + 12 > 4000
-                val h = (px + 12).coerceIn(48, 4000)
-                if (over) javax.swing.SwingUtilities.invokeLater {
-                    holder.toolTipText = MagiBundle.msg("answer.more")
+            if (said.startsWith("wheel:")) {
+                said.removePrefix("wheel:").toDoubleOrNull()?.takeIf { it.isFinite() }?.let { delta ->
+                    javax.swing.SwingUtilities.invokeLater {
+                        val scroll = javax.swing.SwingUtilities.getAncestorOfClass(javax.swing.JScrollPane::class.java, holder)
+                            as? javax.swing.JScrollPane
+                        scroll?.verticalScrollBar?.let { bar -> bar.value += kotlin.math.round(delta).toInt() }
+                    }
                 }
+            } else said.trim().toIntOrNull()?.takeIf { it > 0 }?.let { px ->
+                answered = true
+                val h = (px.toLong() + holder.insets.top + holder.insets.bottom).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 javax.swing.SwingUtilities.invokeLater {
-                    // 미세한 픽셀 변동으로 인한 불필요한 레이아웃 재계산 루프를 방지하기 위해 6px 문턱값(hysteresis)을 적용한다.
-                    if (kotlin.math.abs(holder.preferredSize.height - h) > 6) {
+                    if (holder.preferredSize.height != h) {
                         holder.preferredSize = java.awt.Dimension(0, h)
                         holder.maximumSize = java.awt.Dimension(Integer.MAX_VALUE, h)
                         holder.revalidate()
@@ -151,17 +152,37 @@ internal object RichAnswer {
             }
             null
         }
-        // 이중 스크롤바 방지를 위해 스크롤바는 CSS로 숨기되 overflow:hidden은 사용하지 않는다.
-        // overflow:hidden 적용 시 scrollHeight가 잘린 높이를 반환하여 재측정 시마다 높이가 12px씩 계속 부푸는
-        // 피드백 루프 결함이 실측되었으므로, 실제 내용 전체 높이를 온전히 측정할 수 있도록 유지한다.
-        val js = "(function(){" +
-            "var s=document.getElementById('magi-nobars');" +
-            "if(!s){s=document.createElement('style');s.id='magi-nobars';" +
-            "s.textContent='html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none}';" +
-            "document.head.appendChild(s);}" +
-            "var h=Math.ceil(Math.max(document.body.scrollHeight," +
-            "document.documentElement.scrollHeight,document.body.offsetHeight));" +
-            query.inject("String(h)") + "})();"
+        // Measure the content, not the viewport: viewport scrollHeight feeds the previous
+        // Swing height back into the next measurement and prevents shrinking after a resize.
+        val js = """
+            (function(){
+                if (!document.body) return;
+                if (window.__magiMeasure) { window.__magiMeasure(); return; }
+                const style = document.createElement('style');
+                style.textContent = 'html,body{height:auto!important;min-height:0!important;overflow:hidden!important}' +
+                    'pre{max-height:none!important}';
+                document.head.appendChild(style);
+                let last = -1;
+                const measure = window.__magiMeasure = function() {
+                    const body = document.body;
+                    const css = getComputedStyle(body);
+                    const h = Math.ceil(Math.max(0,
+                        ...Array.from(body.children).map(e => e.getBoundingClientRect().bottom + window.scrollY)) +
+                        (parseFloat(css.paddingBottom) || 0) + (parseFloat(css.marginBottom) || 0));
+                    if (h > 0 && h !== last) { last = h; ${query.inject("String(h)")} }
+                };
+                new ResizeObserver(measure).observe(document.body);
+                new MutationObserver(measure).observe(document.body, {childList:true,subtree:true,characterData:true});
+                document.addEventListener('load', measure, true);
+                document.addEventListener('wheel', function(e) {
+                    if (!e.deltaY || e.ctrlKey) return;
+                    e.preventDefault();
+                    const delta = e.deltaY * (e.deltaMode === 1 ? 20 : e.deltaMode === 2 ? window.innerHeight : 1);
+                    ${query.inject("'wheel:' + String(delta)")}
+                }, {passive:false,capture:true});
+                measure();
+            })();
+        """.trimIndent()
         // 단일 타이머 세트를 재사용하여 스트리밍 갱신 시 타이머 인스턴스 과다 생성(EDT 포화)을 방지한다 (리뷰 F6).
         val ask = { runCatching { browser.cefBrowser.executeJavaScript(js, browser.cefBrowser.url, 0) } }
         val soon = javax.swing.Timer(350) { ask() }.apply { isRepeats = false }
@@ -174,20 +195,21 @@ internal object RichAnswer {
         // 브라우저 문서 로드 완료 이벤트(onLoadEnd) 발생 시 응답 미수신 상태이면 즉시 높이 측정을 재수행한다.
         browser.jbCefClient.addLoadHandler(object : org.cef.handler.CefLoadHandlerAdapter() {
             override fun onLoadEnd(b: org.cef.browser.CefBrowser?, f: org.cef.browser.CefFrame?, code: Int) {
-                if (!answered) ask()
+                ask()
             }
         }, browser.cefBrowser)
-        return { soon.restart(); later.restart(); audit.restart() }
+        Disposer.register(browser) { soon.stop(); later.stop(); audit.stop() }
+        return { answered = false; soon.restart(); later.restart(); audit.restart() }
     }
 
     /**
      * 브라우저 실제 측정 전 사용할 초기 패널 높이 추정치 계산.
-     * 렌더링되지 않는 코드 펜스 행을 제외하고 블록 여백을 가산하여 72~420px 범위로 제한한다.
+     * 렌더링되지 않는 코드 펜스 행을 제외하고 블록 여백을 가산하여 최소 72px를 확보한다. 응답 길이에 따른 높이 상한은 두지 않는다.
      */
     private fun height(md: String): Int {
         val drawn = md.lineSequence().count { !it.trimStart().startsWith("```") }
         val blocks = md.lineSequence().count { it.trimStart().startsWith("```") } / 2
-        return ((drawn + blocks) * 20 + 24).coerceIn(72, 420)
+        return ((drawn + blocks) * 20 + 24).coerceAtLeast(72)
     }
 
     private val live = java.util.concurrent.ConcurrentHashMap<String, Held>()

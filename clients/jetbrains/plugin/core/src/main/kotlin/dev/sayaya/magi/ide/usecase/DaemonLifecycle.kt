@@ -86,3 +86,33 @@ class DaemonLifecycle(
         data class Unreachable(val reason: String) : Outcome
     }
 }
+
+/** Owns only the process this IDE project started. Closing never targets a discovered daemon. */
+class DaemonProcess(private val terminate: (Process) -> Unit = { it.destroy() }) : AutoCloseable {
+    private var closed = false
+    private var process: Process? = null
+
+    @get:Synchronized
+    val running: Boolean get() = process?.isAlive == true
+
+    @Synchronized
+    fun launch(start: () -> Process): Process? {
+        if (closed || process?.isAlive == true) return null
+        return start().also { process = it }
+    }
+
+    @Synchronized
+    fun stop(child: Process) {
+        if (process === child) {
+            terminate(child)
+            process = null
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        closed = true
+        process?.let(terminate)
+        process = null
+    }
+}

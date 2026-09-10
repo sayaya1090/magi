@@ -20,6 +20,65 @@ import kotlin.random.Random
  * 실패**하는 것이 문제다.
  */
 class DaemonLifecycleTest {
+    private class Child : Process() {
+        var alive = true
+        var stops = 0
+        override fun isAlive() = alive
+        override fun destroy() { stops++; alive = false }
+        override fun waitFor() = 0
+        override fun exitValue() = if (alive) throw IllegalThreadStateException() else 0
+        override fun getInputStream() = java.io.InputStream.nullInputStream()
+        override fun getErrorStream() = java.io.InputStream.nullInputStream()
+        override fun getOutputStream() = java.io.OutputStream.nullOutputStream()
+    }
+
+    @Test
+    fun `closing stops owned process and refuses late download completion`() {
+        val owner = DaemonProcess()
+        val child = Child()
+        assertEquals(child, owner.launch { child })
+        assertEquals(null, owner.launch { error("duplicate launch") })
+        owner.close()
+        owner.close()
+        assertEquals(1, child.stops)
+        assertEquals(null, owner.launch { error("project already closed") })
+    }
+
+    @Test
+    fun `failed child can retry and stale cleanup cannot stop its successor`() {
+        val owner = DaemonProcess()
+        val first = Child()
+        owner.launch { first }
+        first.alive = false
+        val next = Child()
+        assertEquals(next, owner.launch { next })
+        owner.stop(first)
+        assertTrue(next.alive)
+        owner.close()
+        assertEquals(1, next.stops)
+    }
+
+    @Test
+    fun `close racing a launch still terminates the child`() {
+        val owner = DaemonProcess()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(2)
+        val child = Child()
+        try {
+            val start = pool.submit<Process?> { owner.launch {
+                entered.countDown()
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                child
+            } }
+            assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS))
+            val close = pool.submit { owner.close() }
+            release.countDown()
+            assertEquals(child, start.get(5, java.util.concurrent.TimeUnit.SECONDS))
+            close.get(5, java.util.concurrent.TimeUnit.SECONDS)
+            assertEquals(1, child.stops)
+        } finally { release.countDown(); owner.close(); pool.shutdownNow() }
+    }
 
     private val sock: Path = Paths.get("/tmp/does-not-matter.sock")
 

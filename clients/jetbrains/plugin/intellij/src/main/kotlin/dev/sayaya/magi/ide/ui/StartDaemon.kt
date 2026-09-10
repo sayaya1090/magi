@@ -12,6 +12,9 @@ import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Reach
 import dev.sayaya.magi.ide.usecase.Restarts
+import dev.sayaya.magi.ide.usecase.DaemonProcess
+import com.intellij.openapi.components.Service
+import com.intellij.openapi.Disposable
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -76,6 +79,9 @@ internal object StartDaemon {
         if (ApplicationManager.getApplication().isUnitTestMode) return
         val base = project.basePath ?: return
         val sock = Workspace(project).socket() ?: return
+        val lifecycle = project.getService(OwnedCompanion::class.java)
+        lifecycle.socket = sock
+        val owner = lifecycle.process
         ApplicationManager.getApplication().executeOnPooledThread {
             if (project.isDisposed) return@executeOnPooledThread
             // 이미 소켓이 활성화되어 있으면 중복 기동하지 않고 안내합니다.
@@ -84,18 +90,22 @@ internal object StartDaemon {
                 return@executeOnPooledThread
             }
             com.intellij.openapi.util.Disposer.register(project) { starting.remove(sock.toString()) }
-            ensureBinaryThenStart(project, base, sock)
+            ensureBinaryThenStart(project, base, sock, owner, manual = true)
         }
     }
 
     fun ifAbsent(project: Project) {
-        if (!enabled(project)) return
+        if (project.isDisposed || !enabled(project)) return
         val base = project.basePath ?: return
         val sock = Workspace(project).socket() ?: return
+        val lifecycle = project.getService(OwnedCompanion::class.java)
+        lifecycle.socket = sock
+        val owner = lifecycle.process
         ApplicationManager.getApplication().executeOnPooledThread {
             if (project.isDisposed) return@executeOnPooledThread
             when (val r = DaemonClient.reach(sock)) {
                 is Reach.Listening -> {
+                    lifecycle.external = !owner.running
                     // 정상 연결 확인 시 재기동 예산 복구
                     budget[base]?.ok()
                     starting.remove(sock.toString())
@@ -103,6 +113,7 @@ internal object StartDaemon {
                 // 데몬 상태 확인 실패 시 이중 기동 방지를 위해 기동을 보류합니다 (모름 != 없음).
                 is Reach.CouldNotAsk -> LOG.info("magi: 데몬 상태 확인 불가로 기동 보류 — ${r.why}")
                 is Reach.Absent, is Reach.Refused -> {
+                    if (lifecycle.external) return@executeOnPooledThread
                     // 코어 자체 업데이트 유예 시간 대기:
                     // 유닉스 환경에서 `syscall.Exec`를 통한 자가 업데이트 시 소켓이 일시 재생성되므로 유예 시간 후 재확인합니다.
                     Thread.sleep(RESTART_GRACE)
@@ -111,11 +122,12 @@ internal object StartDaemon {
                         budget[base]?.ok()
                         return@executeOnPooledThread
                     }
+                    if (project.isDisposed) return@executeOnPooledThread
                     // 실제 기동 결정 시점에만 재기동 예산을 차감합니다.
                     val b = budget.getOrPut(base) { Restarts() }
                     if (!b.take(System.currentTimeMillis())) return@executeOnPooledThread
                     com.intellij.openapi.util.Disposer.register(project) { budget.remove(base); starting.remove(sock.toString()) }
-                    ensureBinaryThenStart(project, base, sock)
+                    ensureBinaryThenStart(project, base, sock, owner)
                 }
             }
         }
@@ -136,17 +148,21 @@ internal object StartDaemon {
      */
     private val fetching = dev.sayaya.magi.ide.usecase.OnceAcross<Path?>()
 
-    private fun ensureBinaryThenStart(project: Project, base: String, sock: Path) {
-        CoreBinary.found()?.let { return start(project, it, base, sock) }
+    private fun ensureBinaryThenStart(project: Project, base: String, sock: Path, owner: DaemonProcess, manual: Boolean = false) {
+        CoreBinary.found()?.let { return start(project, it, base, sock, owner) }
         // 한 번 미룬 사람에게 프로젝트마다·재시작마다 모달을 들이밀지 않는다(리뷰 R11).
         // 이 기억은 앱 수준이다 — 거절은 이 프로젝트가 아니라 그 사람의 뜻이다.
-        if (com.intellij.ide.util.PropertiesComponent.getInstance().getBoolean(DECLINED, false)) return
+        if (!manual && com.intellij.ide.util.PropertiesComponent.getInstance().getBoolean(DECLINED, false)) return
         // 기다린 창도 **제 데몬을 띄운다.** 소켓은 워크스페이스마다 다르니 그쪽은 나뉘는 것이
         // 맞고, 물러나 버리면 그 창은 이 IDE 가 사는 동안 데몬을 못 띄운다(백오프 재접속은
         // 붙기만 하지 띄우지 않는다).
         fetching.join { flight -> askAndFetch(project, flight) }
-            .whenComplete { bin, _ ->
-                if (bin != null && !project.isDisposed) start(project, bin, base, sock)
+            .whenComplete { bin, error ->
+                if (error != null) {
+                    LOG.warn("magi: 코어 준비 실패", error)
+                    tell(project, MagiBundle.msg("core.get.failed", error.message ?: "unknown"))
+                }
+                if (bin != null && !project.isDisposed) start(project, bin, base, sock, owner)
             }
     }
 
@@ -179,6 +195,7 @@ internal object StartDaemon {
                 flight.complete(null)
                 return@invokeLater
             }
+            com.intellij.ide.util.PropertiesComponent.getInstance().setValue(DECLINED, false)
             object : Task.Backgroundable(project, MagiBundle.msg("core.get.title"), true) {
                 override fun run(indicator: ProgressIndicator) {
                     val bin = runCatching { CoreBinary.download(indicator, pick) }.getOrElse { e ->
@@ -196,69 +213,59 @@ internal object StartDaemon {
         }, project.disposed)
     }
 
-    private fun start(project: Project, bin: Path, base: String, sock: Path) {
-        // 기동 프로세스 로그 파일 (`<소켓>.ide.log`). 데몬 자체 런타임 로그(`<소켓>.log`)와 분리하여 초기 기동 성공/실패 메시지만 기록합니다.
+    private fun start(project: Project, bin: Path, base: String, sock: Path, owner: DaemonProcess) {
+        if (project.isDisposed) return
         val log = java.io.File(sock.toString() + ".ide.log")
         starting[sock.toString()] = System.currentTimeMillis()
-        val detached = run(bin, base, log, detach = true)
-        val outcome = when {
-            detached == null -> null // 프로세스 기동 실패
-            detached == 0 -> 0
-            // 하위 호환성 처리: `--detach` 플래그를 지원하지 않는 구버전 바이너리는 "not defined" 에러(종료 코드 2) 발생 시 레거시 방식으로 폴백 기동합니다.
-            tail(log).contains("not defined") -> {
-                LOG.info("magi: 코어 바이너리가 --detach 미지원 — 레거시 방식으로 기동합니다 (IDE 수명에 바인딩)")
-                run(bin, base, log, detach = false)
+        var child: Process? = null
+        try {
+            SocketPath.tooLong(sock)?.let { throw java.io.IOException(it) }
+            Files.createDirectories(sock.parent)
+            child = owner.launch {
+                ProcessBuilder(bin.toString(), "--daemon")
+                    .directory(java.io.File(base))
+                    .apply { environment().putAll(Shell.env()) }
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
+                    .start()
+            } ?: return
+            child.outputStream.close()
+            val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
+            while (!project.isDisposed && child.isAlive && System.nanoTime() < deadline) {
+                val published = dev.sayaya.magi.ide.transport.Published.of(sock)
+                if (published?.pid?.toLong() == child.pid() && DaemonClient.reach(sock) is Reach.Listening) {
+                    LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
+                    return
+                }
+                Thread.sleep(100)
             }
-            else -> detached
+            if (project.isDisposed) {
+                owner.stop(child)
+                return
+            }
+            if (!child.isAlive && DaemonClient.reach(sock) is Reach.Listening) return
+            val reason = if (child.isAlive) "startup timed out after 30s" else "exit ${child.exitValue()}"
+            owner.stop(child)
+            tell(project, MagiBundle.msg("core.start.died", reason, tail(log)))
+        } catch (e: Exception) {
+            child?.let { owner.stop(it) }
+            if (e is InterruptedException) Thread.currentThread().interrupt()
+            LOG.warn("magi: 데몬 기동 실패", e)
+            tell(project, MagiBundle.msg("core.start.died", e.message ?: "start failed", tail(log)))
+        } finally {
+            starting.remove(sock.toString())
         }
-        if (outcome == 0) {
-            LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
-            return
-        }
-        starting.remove(sock.toString())
-        val tail = tail(log)
-        // **경합은 소식이 아니다.** 창을 둘 열거나 사람이 터미널에서 켜는 것과 겹치면 기동이
-        // 거절되는데, 그건 사람이 할 일이 없는 일이다.
-        if (RACE.containsMatchIn(tail)) {
-            LOG.info("magi: 다른 magi 가 이미 이 워크스페이스를 쥐고 있다 — 그대로 둔다")
-            return
-        }
-        if (outcome != null) tell(project, MagiBundle.msg("core.start.died", outcome.toString(), tail))
-    }
-
-    /**
-     * 한 번 띄운다. **끝날 때까지 기다린다** — `--detach` 는 소켓이 답할 때 돌아오므로
-     * exit 0 은 「띄웠다」가 아니라 **「서 있다」**다. 그래서 3초 짐작이 필요 없어졌고,
-     * 먼저 죽으면 그 사유가 자식의 마지막 말로 온다.
-     *
-     * 못 띄운 것(바이너리가 없다 등)과 띄웠는데 실패한 것은 다른 사건이라 갈라 돌려준다:
-     * null 은 앞엣것이고, 그때는 여기서 말한다.
-     */
-    private fun run(bin: Path, base: String, log: java.io.File, detach: Boolean): Int? {
-        val argv = mutableListOf(bin.toString(), "--daemon")
-        if (detach) argv += "--detach"
-        val p = runCatching {
-            ProcessBuilder(argv)
-                .directory(java.io.File(base))
-                .apply { environment().putAll(Shell.env()) }
-                .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
-                .start()
-        }.getOrElse { e ->
-            LOG.warn("magi: 데몬을 못 띄웠다", e)
-            return null
-        }
-        // 넉넉히 기다린다: 진짜 설정의 첫 기동이 실측 7초였다. 안 끝나면 죽이지 않는다 —
-        // 서는 중일 수 있고, 서면 상태 표시줄이 알아챈다.
-        return if (p.waitFor(90, java.util.concurrent.TimeUnit.SECONDS)) p.exitValue() else null
     }
 
     private fun tail(log: java.io.File): String = runCatching {
-        Files.readAllLines(log.toPath()).takeLast(3).joinToString(" / ")
+        java.io.RandomAccessFile(log, "r").use { f ->
+            val size = minOf(f.length(), 8192L).toInt()
+            f.seek(f.length() - size)
+            val bytes = ByteArray(size)
+            f.readFully(bytes)
+            String(bytes, Charsets.UTF_8).lineSequence().filter { it.isNotBlank() }.toList().takeLast(3).joinToString(" / ")
+        }
     }.getOrDefault("")
-
-    /** 데몬이 「이미 누가 쥐고 있다」로 끝난 것. 문구는 `daemon.Listen` 과 `claim_unix.go` 의 것. */
-    private val RACE = Regex("already (listening|starting or running)")
 
     private const val DECLINED = "magi.core.download.declined"
 
@@ -270,5 +277,48 @@ internal object StartDaemon {
             .getNotificationGroup("magi")
             .createNotification(text, NotificationType.WARNING)
             .notify(project)
+    }
+}
+
+/** Project disposal covers closing the project, IDE exit and plugin unload. */
+@Service(Service.Level.PROJECT)
+internal class OwnedCompanion : Disposable {
+    @Volatile var socket: Path? = null
+    val process = DaemonProcess { child ->
+        val address = socket
+        // A bounded worker lets project disposal proceed while the daemon drains its log.
+        Thread({
+            try {
+                if (address != null && child.isAlive &&
+                    dev.sayaya.magi.ide.transport.Published.of(address)?.pid?.toLong() == child.pid()) {
+                    DaemonClient.connect(address, 1_000).use {
+                        it.exchange(dev.sayaya.magi.ide.model.Request(method = "shutdown"))
+                    }
+                    child.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+                }
+            } catch (e: Exception) {
+                if (e is InterruptedException) Thread.currentThread().interrupt()
+            } finally {
+                if (child.isAlive) {
+                    child.destroy()
+                    if (!child.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) child.destroyForcibly()
+                }
+            }
+        }, "magi-companion-stop").start()
+    }
+    @Volatile var external = false
+    private var retry: java.util.concurrent.ScheduledFuture<*>? = null
+
+    fun watch(project: Project) {
+        if (retry != null || com.intellij.openapi.application.ApplicationManager.getApplication().isUnitTestMode) return
+        retry = com.intellij.util.concurrency.AppExecutorUtil.getAppScheduledExecutorService()
+            .scheduleWithFixedDelay({
+                if (!project.isDisposed && !external) StartDaemon.ifAbsent(project)
+            }, 15, 15, java.util.concurrent.TimeUnit.SECONDS)
+    }
+
+    override fun dispose() {
+        retry?.cancel(false)
+        process.close()
     }
 }

@@ -14,6 +14,17 @@ import java.nio.file.Paths
  * macOS 에서 `/tmp` 는 `/private/tmp` 로 풀리므로 해싱된 문자열은 `/private/tmp/ws1` 이다.
  */
 class SocketPathTest {
+    @Test
+    fun `socket override moves only sockets and blank falls back`() {
+        val config = Paths.get("config")
+        val workspace = Paths.get("workspace")
+        val plain = SocketPath.of(config, workspace, env = { null })
+        assertEquals(Paths.get("short"), SocketPath.of(config, workspace, env = { " short " }).parent)
+        assertEquals(plain.fileName, SocketPath.of(config, workspace, env = { "short" }).fileName)
+        assertEquals(plain, SocketPath.of(config, workspace, env = { "  " }))
+        assertEquals(config, SocketPath.configDir(env = { if (it == "MAGI_CONFIG_DIR") "config" else "short" }))
+    }
+
 
     @Test
     fun `해시는 돌던 데몬이 낸 이름과 같다`() {
@@ -52,7 +63,7 @@ class SocketPathTest {
 
     @Test
     fun `소켓 이름은 베이스와 해시를 이어 붙인다`() {
-        val socket = SocketPath.of(Paths.get("/tmp/mw1"), Paths.get("/private/tmp/ws1"))
+        val socket = SocketPath.of(Paths.get("/tmp/mw1"), Paths.get("/private/tmp/ws1"), env = { null })
         assertEquals("daemon-ws1-b1lp9vc8.sock", socket.fileName.toString())
         assertEquals(
             "/tmp/mw1/daemon-ws1-b1lp9vc8.sock.session",

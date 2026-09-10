@@ -25,7 +25,7 @@ internal class Workspace(private val project: Project) {
      * 작업 영역 데몬 소켓 파일 경로를 반환한다.
      * 환경 변수(`MAGI_CONFIG_DIR`) 불일치를 방지하기 위해 사용자 로그인 셸 환경을 우선 조회한다 ([Shell.configDir]).
      */
-    fun socket() = project.basePath?.let { SocketPath.of(Shell.configDir(), Paths.get(it)) }
+    fun socket() = project.basePath?.let { SocketPath.of(Shell.configDir(), Paths.get(it), env = { name -> Shell.env()[name] }) }
 
     /**
      * 프로젝트 모듈 컨텐트 루트 중 데몬 작업 디렉토리([Project.getBasePath]) 외부에 위치한 경로 목록을 반환한다.

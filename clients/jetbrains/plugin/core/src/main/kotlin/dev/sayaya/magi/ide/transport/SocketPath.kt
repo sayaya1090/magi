@@ -85,8 +85,8 @@ object SocketPath {
     }
 
     /** `publish.go`의 `SocketPath`에 대응한다. */
-    fun of(configDir: Path, workdir: Path): Path =
-        configDir.resolve("daemon-" + workspaceKey(workdir) + ".sock")
+    fun of(configDir: Path, workdir: Path, env: (String) -> String? = { System.getenv(it) }): Path =
+        (env("MAGI_SOCKET_DIR")?.trim()?.takeIf { it.isNotEmpty() }?.let { Paths.get(it) } ?: configDir).resolve("daemon-" + workspaceKey(workdir) + ".sock")
 
     /** 데몬이 활성 세션 정보를 기록하는 메타데이터 파일 경로 (`publish.go`의 `SessionFile`). */
     fun sessionFile(socket: Path): Path = Paths.get(socket.toString() + ".session")
