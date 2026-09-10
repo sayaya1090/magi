@@ -145,7 +145,24 @@ export function retryAfter(attempt: number): number {
  */
 const THINKS = new Set([
   'complete', 'suggest', 'git-msg', 'look-over', 'pr-msg', 'git-pr', 'meet', 'meet-join',
+  // ⚠ **Folding is a generation, and the biggest one this client asks for.** The core says so in
+  // `App.Compact`: manual compaction "replaces the whole conversation with a real model-written
+  // brief (same summarizer the auto-compaction path uses)" — so the prompt is the ENTIRE
+  // conversation, on somebody else's hardware, and it sat on the 30s deadline. What that costs is
+  // written four lines down: a late reply does not merely go missing, it hangs up the socket under
+  // whatever else was in flight. The JetBrains client has given it two minutes all along — its
+  // `connect()` defaults to `PATIENCE_ASK` and only the pollers opt into 30s.
+  'compact',
 ]);
+
+/**
+ * ⚠ **This list is written out, and there is nothing to derive it from.** Measured 2026-09-10: the
+ * closest thing on the wire is which doors need the core's `Reviewer`, and that is a different set
+ * — it groups doors by the engine capability they need, not by whether they generate. `open-file`
+ * needs `Reviewer` and answers instantly (asked a running daemon; it returns before the round trip
+ * is worth timing), and `meet` generates without needing it. So the list is judged door by door,
+ * and `daemon.test.ts` pins the one claim that IS checkable: that the core still generates there.
+ */
 
 /**
  * How long to wait for one door's answer.

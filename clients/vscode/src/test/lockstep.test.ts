@@ -89,7 +89,13 @@ test('the deadline belongs to the door, not to the wire', () => {
     assert.equal(deadlineFor(m), 30_000, `${m} answers from memory and should not hold a poll for minutes`);
   }
   // Slow: a generation has to run first.
-  for (const m of ['complete', 'suggest', 'git-msg', 'look-over']) {
+  //
+  // ★ `compact` is one of them and was on the short deadline until 2026-09-10. Folding is the
+  // BIGGEST generation this client asks for — the core's `App.Compact` says manual compaction
+  // "replaces the whole conversation with a real model-written brief", so the prompt is the entire
+  // conversation. Thirty seconds of that, then the socket hangs up under whatever else was in
+  // flight. The JetBrains client's `connect()` has defaulted to its two-minute patience all along.
+  for (const m of ['complete', 'suggest', 'git-msg', 'look-over', 'compact']) {
     assert.ok(deadlineFor(m) >= 120_000,
       `${m} waits on the model — a slow local one's correct answer would read as a timeout`);
   }
@@ -110,4 +116,27 @@ test('the deadline belongs to the door, not to the wire', () => {
   for (const m of ['complete', 'suggest', 'git-msg', 'look-over', 'pr-msg', 'git-pr', 'meet', 'meet-join']) {
     assert.ok(known.has(m), `the deadline table names "${m}" and the daemon has no such door`);
   }
+});
+
+/**
+ * ★ And the reason a door is on the slow list is a CHECKABLE claim, so it is checked.
+ *
+ * `compact` earns two minutes because the core generates there. That is prose in a comment, and
+ * prose does not fail — but this particular sentence names a function, and whether that function
+ * still calls the summariser is a fact in the Go source. If the core ever folds without the model,
+ * the long deadline stops being justified and this says so instead of ageing quietly.
+ *
+ * ⚠ Nothing on the wire marks a door as generating. Measured: the nearest signal is which doors
+ * need the core's `Reviewer`, and it is the wrong set — `open-file` needs it and answers instantly.
+ * So the list is a judgement, and this pins the one entry whose justification can be read.
+ */
+test('the door that folds the conversation still generates in the core', () => {
+  const app = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'app', 'app.go'), 'utf8');
+  const at = app.indexOf('func (a *App) Compact(');
+  assert.ok(at > 0, 'App.Compact was not found — this guard is reading nothing');
+  const body = app.slice(at, app.indexOf('\n}\n', at));
+  assert.ok(body.length > 200, 'the body of App.Compact was not read — this guard is reading nothing');
+  assert.match(body, /summarizeViaLLM/,
+    'folding no longer runs the model, so the two-minute deadline on `compact` has lost its reason');
 });
