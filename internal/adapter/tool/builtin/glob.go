@@ -47,7 +47,10 @@ func (Glob) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 		if seg == "**" {
 			continue
 		}
-		if _, err := filepath.Match(filepath.FromSlash(seg), ""); err != nil {
+		// path.Match, not filepath.Match: a segment carries no separator by construction, and only
+		// path.Match reads `\` as an escape on every platform (see matchSegs). The check has to use
+		// the same matcher it is checking FOR, or a pattern accepted here is refused there.
+		if _, err := path.Match(seg, ""); err != nil {
 			return errResult("", "invalid glob pattern: "+err.Error()), nil
 		}
 	}
@@ -199,7 +202,16 @@ func matchSegs(pat, name []string) bool {
 		if len(name) == 0 {
 			return false
 		}
-		ok, _ := filepath.Match(filepath.FromSlash(pat[0]), filepath.FromSlash(name[0]))
+		// ⚠ **path.Match, not filepath.Match.** Both sides were split on "/" above, so a segment holds
+		// no separator and the two functions can only differ in one way — and they do, badly:
+		// filepath.Match DISABLES escaping on Windows and reads `\` as a separator instead. So a
+		// pattern quoting a literal bracket (`page\[1\]`, which is the only way to ask for a file
+		// named that) matched nothing there, silently, and the console's name search answered "no
+		// such file" about a file sitting in the workspace. Measured 2026-09-10.
+		//
+		// There is no other spelling: Go's Match has no character-class form for a literal `[`
+		// (`[[]` is a syntax error), so on Windows filepath.Match cannot match one at all.
+		ok, _ := path.Match(pat[0], name[0])
 		if !ok {
 			return false
 		}
