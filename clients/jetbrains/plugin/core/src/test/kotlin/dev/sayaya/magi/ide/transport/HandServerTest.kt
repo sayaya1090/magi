@@ -208,6 +208,24 @@ class HandServerTest {
         assertNull(ide.edit, "빈 old 가 편집기까지 갔다 — 그 자리에서 파일이 갈린다")
     }
 
+    /**
+     * **빈 것만 막는다 — 공백만인 것은 아니다.**
+     *
+     * 변이가 잡았다: `isEmpty` 를 `isBlank` 으로 바꿔도 초록이었다. 공백 네 칸을 탭으로 바꾸는
+     * 것은 **정당한 편집**이고, 그것까지 막으면 검사가 문을 닫아 버린다. 빈 것은 파일을 갈지만
+     * 공백은 찾을 것이 있는 글자다.
+     */
+    @Test
+    fun `공백만인 old 는 막지 않는다`() {
+        val ide = FakeIde()
+        val a = Hand(ide).call("apply_edit", buildJsonObject {
+            put("path", JsonPrimitive("a.kt")); put("old", JsonPrimitive("    "))
+            put("new", JsonPrimitive("\t")); put("replaceAll", JsonPrimitive("true"))
+        })
+        assertFalse(a.error, "들여쓰기를 바꾸는 편집을 막았다: ${a.text}")
+        assertEquals(listOf("a.kt", "    ", "\t", "true"), ide.edit)
+    }
+
     /** 그리고 멀쩡한 `old` 는 그대로 지나간다 — 검사가 문을 닫아 버리면 안 된다. */
     @Test
     fun `멀쩡한 old 는 편집기로 간다`() {
