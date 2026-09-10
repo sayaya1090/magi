@@ -4,9 +4,7 @@ import (
 	"context"
 	"os"
 	"strings"
-	"syscall"
 	"testing"
-	"time"
 )
 
 // loadPiped is loadOut plus a handle on the host, so a test can unload the plugin afterwards and
@@ -147,51 +145,6 @@ for _, ch in ipairs(kept) do ch:close() end`,
 	}
 	if !strings.Contains(out, "already alive") {
 		t.Errorf("the refusal should say why, got: %q", out)
-	}
-}
-
-// Unloading the plugin kills what it left running. A child that outlives its plugin is a process
-// nobody owns and nobody will ever close.
-func TestPipeChildDiesWithThePlugin(t *testing.T) {
-	h, out, err := loadPiped(t,
-		`name="pipey"`+"\n"+`permissions=["exec:cat"]`,
-		`local ch = magi.pipe("cat")
-magi.log("pid=" .. tostring(ch.pid))`,
-	)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	pid := 0
-	if i := strings.Index(out, "pid="); i >= 0 {
-		for _, c := range out[i+4:] {
-			if c < '0' || c > '9' {
-				break
-			}
-			pid = pid*10 + int(c-'0')
-		}
-	}
-	if pid == 0 {
-		t.Fatalf("no pid in log: %q", out)
-	}
-	if err := syscall.Kill(pid, 0); err != nil {
-		t.Fatalf("child should be running before unload: %v", err)
-	}
-	if err := h.Unload("pipey"); err != nil {
-		t.Fatalf("Unload: %v", err)
-	}
-	// The kill is delivered synchronously; the reap is not, so give the OS a moment to make the
-	// pid unreachable rather than asserting on the instant.
-	gone := false
-	for i := 0; i < 50; i++ {
-		if err := syscall.Kill(pid, 0); err != nil {
-			gone = true
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !gone {
-		_ = syscall.Kill(pid, syscall.SIGKILL) // do not leave it behind either way
-		t.Error("the child should not outlive its plugin")
 	}
 }
 

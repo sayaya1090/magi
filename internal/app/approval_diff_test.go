@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/testenv"
 	"time"
 )
 
@@ -72,6 +74,7 @@ func TestWriteApprovalDiffShowsATruncationAsRemovals(t *testing.T) {
 // preview must refuse it too, or it reads jail-refused bytes onto approval screens for a write
 // that cannot happen.
 func TestWriteApprovalDiffRefusesASymlinkOutOfTheJail(t *testing.T) {
+	testenv.NeedSymlink(t)
 	wd, outside := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "secret"), []byte("s3cret\n"), 0o600); err != nil {
 		t.Fatal(err)

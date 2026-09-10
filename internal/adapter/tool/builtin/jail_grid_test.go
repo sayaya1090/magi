@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"github.com/sayaya1090/magi/internal/port"
 )
 
@@ -19,6 +21,7 @@ import (
 //
 // A leak here is a real one — the sentinel is the content of a file outside the workspace.
 func TestPathJailHoldsAcrossEveryFileTool(t *testing.T) {
+	testenv.NeedSymlink(t)
 	const sentinel = "TOPSECRET_TOKEN=abc123"
 	root := t.TempDir()
 	work := filepath.Join(root, "work")

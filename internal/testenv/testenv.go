@@ -18,7 +18,12 @@
 // in several files.
 package testenv
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+)
 
 // steering is what points a magi at a particular installation, as opposed to the knobs that only
 // change how one behaves (MAGI_DEBUG, MAGI_TOP_K and the rest).
@@ -38,3 +43,37 @@ func Isolate() {
 		os.Unsetenv(k)
 	}
 }
+
+// NeedSymlink skips the calling test when this machine will not let it make a symlink.
+//
+// Windows grants the privilege only to an elevated process or with Developer Mode on, and without
+// it `os.Symlink` returns "A required privilege is not held by the client". Six tests took that as
+// a failure — and three of them are the jail tests, which are exactly the ones somebody looks at to
+// answer "does the boundary hold". A red test that is red because the OS declined to create a
+// fixture answers nothing, and it teaches the reader to skim past red.
+//
+// Eight sibling tests already skip on the same error, in four different wordings. The rule was
+// here; it was applied to some of the copies. Measured 2026-09-10.
+//
+// Probed once. The answer cannot change while the binary runs, and a probe per test is a file
+// created and removed for every one of them.
+func NeedSymlink(t *testing.T) {
+	t.Helper()
+	symlinkOnce.Do(func() {
+		d, err := os.MkdirTemp("", "symprobe")
+		if err != nil {
+			symlinkErr = err
+			return
+		}
+		defer os.RemoveAll(d)
+		symlinkErr = os.Symlink(filepath.Join(d, "target"), filepath.Join(d, "link"))
+	})
+	if symlinkErr != nil {
+		t.Skipf("이 기계는 심볼릭 링크를 못 만든다: %v", symlinkErr)
+	}
+}
+
+var (
+	symlinkOnce sync.Once
+	symlinkErr  error
+)

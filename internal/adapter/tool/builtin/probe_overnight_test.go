@@ -19,6 +19,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -50,6 +52,7 @@ func oneline(s string) string {
 }
 
 func TestOvernightProbe(t *testing.T) {
+	testenv.NeedSymlink(t)
 	// ---------- Family A: path-jail escape attempts ----------
 	t.Run("A_pathjail", func(t *testing.T) {
 		dir := t.TempDir()

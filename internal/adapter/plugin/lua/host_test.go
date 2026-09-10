@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -214,6 +216,7 @@ func TestExamplePlugin(t *testing.T) {
 // repo can ship one) is refused, because os.ReadFile would otherwise follow it. Reverting the
 // EvalSymlinks re-check lets the read through.
 func TestFsResolveRejectsASymlinkOutOfTheWorkdir(t *testing.T) {
+	testenv.NeedSymlink(t)
 	dir := writePlugin(t,
 		`name="peek3"`+"\n"+`capabilities=["tool"]`+"\n"+`permissions=["fs:read:."]`,
 		`magi.register_tool{name="peek3", execute=function(a)

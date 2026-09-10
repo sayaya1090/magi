@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/testenv"
 	"time"
 )
 
@@ -20,6 +22,7 @@ import (
 //
 // Thinking arrives as reasoning_content, and usage (with cache reads) closes the stream.
 func TestAntigravityShimStreamsAndKeepsOneChildPerConversation(t *testing.T) {
+	testenv.NeedSymlink(t)
 	root, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "plugins", "antigravity"))
 	if err != nil {
 		t.Fatal(err)
