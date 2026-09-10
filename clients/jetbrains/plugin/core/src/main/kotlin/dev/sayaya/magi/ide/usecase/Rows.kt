@@ -218,6 +218,27 @@ class Rows {
                 if (unknownDisk) { broadPending = true; unknownDisk = false }
                 finished() || sweptDraft
             }
+            // ⚠ **떠난 대화는 떠났다고 적는다.** 코어는 이 사실을 **떠나는 쪽** 대화에 적고 사유를
+            // 함께 적어 두었다 — "what a reader of it needs is the reason its transcript stops".
+            // 그리고 그 침묵의 값도: 이 줄이 없으면 「대화가 그냥 멈춘 것이고, 데몬이 죽은 것과
+            // 구별되지 않는다 — 사람이 그 읽기대로 행동한다」.
+            //
+            // 이 창은 갈아타기를 **따라간다**(툴윈도가 다시 붙는다). 그런데 못 따라가는 자리가
+            // 둘이다: **고정 탭**은 그 대화를 계속 보는 것이 존재 이유라 안 움직이고, 나중에 그
+            // 대화를 다시 열면 재생으로 이 사실이 또 온다. 두 자리 모두 아무 말도 없이 끝나고
+            // 있었다 — 실제 전사 하나를 두 클라이언트의 셰이퍼에 통과시켜 쟀다(2026-09-10):
+            // 짝은 한 행, 이쪽은 0행.
+            //
+            // 어휘와 화살표는 터미널·짝과 같다. 한 사실을 세 낱말로 적으면 어느 것이 안 재지는지
+            // 갈린다는 이 파일의 규칙 그대로다.
+            "session.moved" -> {
+                val to = str(e, "to")?.takeIf { it.isNotBlank() }
+                rows += Row(Who.Info,
+                    "\u21E2 " + (to?.let { "컴패니언이 $it (으)로 옮겨 갔습니다" }
+                        ?: "컴패니언이 다른 대화로 옮겨 갔습니다") + " — 이 대화는 여기서 끝납니다",
+                    at = e.ts)
+                true
+            }
             "session.created" -> {
                 model = e.data?.jsonObject?.get("model")?.jsonObject?.get("model")?.jsonPrimitive?.content
                 false

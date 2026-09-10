@@ -552,4 +552,37 @@ class RowsTest {
         )
     }
 
+    /**
+     * **떠난 대화는 떠났다고 적는다.**
+     *
+     * 코어는 이 사실을 떠나는 쪽 대화에 적고 사유를 함께 적어 두었다 — 읽는 이에게 필요한 것은
+     * 「전사가 왜 멈추는가」다. 그리고 그 침묵의 값도 적어 두었다: 이 줄이 없으면 대화가 그냥 멈춘
+     * 것이고, **데몬이 죽은 것과 구별되지 않는다**.
+     *
+     * 이 창은 갈아타기를 따라가지만 못 따라가는 자리가 둘이다 — **고정 탭**과 나중에 다시 연 대화
+     * (재생). 두 자리 모두 아무 말도 없이 끝나고 있었다. 실제 전사 하나를 두 클라이언트의 셰이퍼에
+     * 통과시켜 쟀다(2026-09-10): 짝은 한 행, 이쪽은 0행. 지금은 둘 다 한 행이다.
+     *
+     * 툴윈도가 셰이퍼에 먹인 뒤에 움직이는지는 [dev.sayaya.magi.ide.SourceTextTest] 가 따로 본다 —
+     * 행을 만드는 것과 그 행을 만들 기회를 주는 것은 다른 사실이다.
+     */
+    @Test
+    fun `옮겨 간 대화는 어디로 갔는지 적는다`() {
+        val r = Rows()
+        r.feed(user("고쳐줘", "m1"))
+        assertTrue(r.feed(ev("session.moved", """{"to":"s_9f3c"}""")),
+            "옮겨 간 사실이 화면을 안 바꾼다 — 그리라고 알리지 않으면 그려지지 않는다")
+        val said = r.list().firstOrNull { "s_9f3c" in it.text }
+        assertTrue(said != null, "전사가 그냥 멈춘다 — 데몬이 죽은 것과 구별되지 않는다")
+        assertEquals(Who.Info, said!!.who, "옮겨 간 사실이 누군가의 말로 그려진다")
+        assertTrue("끝납니다" in said.text, "이 대화가 끝났다는 말이 없다")
+
+        // 어디로 갔는지가 요점이다. 그것이 없으면 따라갈 데가 없다 — 그래도 **말은 한다**.
+        val blind = Rows()
+        blind.feed(ev("session.moved", "{}"))
+        val vague = blind.list().firstOrNull()
+        assertTrue(vague != null, "목적지 없는 갈아타기는 통째로 사라진다")
+        assertTrue("다른 대화" in vague!!.text, "목적지가 없는데 지어내거나 아무 말도 안 한다")
+    }
+
 }

@@ -1542,4 +1542,26 @@ class SourceTextTest {
             "글자 접두사로 가둔다 — `/x/proj` 기준으로 `/x/proj-notes/…` 가 통과한다")
     }
 
+    /**
+     * **갈아타기는 적고 나서 움직인다.**
+     *
+     * 툴윈도는 `session.moved` 를 받으면 옛 스트림을 끊고 새 대화에 다시 붙는다. 그 분기가 셰이퍼에
+     * 먹이기 **전에** 돌아가고 있었고, 그래서 못 따라가는 자리(고정 탭·나중에 다시 연 대화)에서는
+     * 전사가 아무 말 없이 끝났다.
+     *
+     * [dev.sayaya.magi.ide.usecase.RowsTest] 가 행을 만드는 쪽을 재고, 여기서는 **그 행을 만들 기회를
+     * 주는지**를 본다. 셰이퍼가 그릴 줄 아는데 아무도 안 먹이면 안 그리는 것과 같다.
+     */
+    @Test
+    fun `갈아타기는 셰이퍼에 먹인 뒤에 움직인다`() {
+        val src = sources.first { it.name == "MagiToolWindow.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val at = src.indexOf("""if (e.type == "session.moved")""")
+        assertTrue(at > 0, "갈아타기 분기를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val fed = src.indexOf("shaper.feed(e)", at)
+        val left = src.indexOf("return", at)
+        assertTrue(fed in (at + 1) until left,
+            "셰이퍼에 먹이기 전에 돌아간다 — 고정 탭과 다시 연 대화에서 전사가 말없이 끝난다")
+    }
+
 }
