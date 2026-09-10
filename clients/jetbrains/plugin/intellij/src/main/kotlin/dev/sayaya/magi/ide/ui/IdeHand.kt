@@ -96,7 +96,11 @@ class IdeHand(private val project: Project) : Hand.Ide {
         val abs = if (Paths.get(path).isAbsolute) path else "${project.basePath}/$path"
         val f = LocalFileSystem.getInstance().refreshAndFindFileByPath(abs) ?: return null
         val base = project.basePath ?: return null
-        return f.takeIf { it.path.startsWith(base) }
+        // 글자 접두사가 아니라 마디로 견준다 — `startsWith(base)` 는 `/x/proj` 기준으로
+        // `/x/proj-notes/…` 를 통과시켰고, 이 함수의 KDoc 은 그때도 「외부 파일 접근 차단」이라
+        // 적고 있었다. 판정은 `usecase.inside` 하나로 모은다(시험 가능한 층이고, VS Code 쪽과
+        // 같은 규칙이다).
+        return f.takeIf { dev.sayaya.magi.ide.usecase.inside(base, it.path) }
     }
 
     /**

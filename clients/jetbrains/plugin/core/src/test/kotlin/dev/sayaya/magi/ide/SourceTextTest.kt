@@ -1514,4 +1514,32 @@ class SourceTextTest {
         assertTrue("if (!landed)" in after, "안 앉은 초안을 아무 데도 안 보낸다 — 그러면 초안을 잃는다")
     }
 
+    /**
+     * **손의 가두기는 판정을 한 곳에서 빌려 온다.**
+     *
+     * `IdeHand.find` 는 에이전트가 대는 경로를 가상 파일로 바꾸는 자리다. 그 뒤에 `show` 와
+     * `replace` 와 `problems` 가 있고, 가운데 것은 **문서를 고친다**. 여기서 가두기가 새면 옆
+     * 프로젝트의 파일이 고쳐진다.
+     *
+     * 그 자리가 `path.startsWith(base)` 였다(2026-09-10 실측). 접두사 비교는 `/x/proj` 를 기준으로
+     * `/x/proj-notes/…` 를 통과시키고, 그 함수의 KDoc 은 그때도 「작업 영역 외부 파일 접근 차단」이라
+     * 적고 있었다 — 산문이 맞고 코드가 틀린 부류다.
+     *
+     * [InsideTest] 가 판정 자체를 재고, 여기서는 **그 판정을 실제로 부르는지**를 본다. 함수를 재는
+     * 것과 부르는 자리를 재는 것은 다른 사실이다: 짝인 VS Code 에서 인용 함수를 시험해 두고 호출부의
+     * 인용을 지웠더니 205개가 전부 초록이었다.
+     */
+    @Test
+    fun `손은 작업 영역을 마디로 견준다`() {
+        val src = sources.first { it.name == "IdeHand.kt" }.readText()
+            .lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n")
+        val at = src.indexOf("private fun find(")
+        assertTrue(at > 0, "경로를 가상 파일로 바꾸는 자리를 못 찾았다 — 이 규칙이 아무것도 안 보고 있다")
+        val block = src.substring(at, src.indexOf("\n    }", at))
+        assertTrue("inside(base," in block,
+            "손이 판정을 빌려 오지 않는다 — 가두기가 이 파일 안에서 다시 쓰이면 규칙이 둘로 갈린다")
+        assertFalse("startsWith(base)" in block,
+            "글자 접두사로 가둔다 — `/x/proj` 기준으로 `/x/proj-notes/…` 가 통과한다")
+    }
+
 }

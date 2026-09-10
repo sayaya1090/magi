@@ -25,6 +25,29 @@ import kotlinx.serialization.json.put
  * 유일한 수단이 사람이 써 둔 allow 규칙인데, 그 규칙은 이름에 걸린다. 실행마다 이름이 바뀌면
  * 하나뿐인 완화책이 재시작마다 무효가 된다.
  */
+/**
+ * 경로가 이 작업 영역 **안**인가.
+ *
+ * 글자 접두사로 견주면 안 된다. `/x/proj` 를 기준으로 `/x/proj-notes/secret.txt` 가 접두사를 만족하고,
+ * 그 옆 디렉터리는 대개 같은 사람의 다른 프로젝트다. 손은 파일을 **고치는** 자리라 그 한 글자가
+ * 값을 가진다 — 2026-09-10 실측으로 `IdeHand.find` 가 정확히 그 모양이었고, 제 KDoc 에는
+ * 「작업 영역 외부 파일 접근 차단」이라 적혀 있었다.
+ *
+ * 그래서 **정규화한 뒤 마디 단위로** 견준다. `..` 로 걸어 나가는 것도 그 자리에서 막힌다.
+ * VS Code 쪽 `inside()` 와 같은 규칙이라, 한 사실이 두 화면에서 다르게 판정되지 않는다.
+ *
+ * ⚠ 심링크는 풀지 않는다. 안쪽에서 밖을 가리키는 링크는 통과한다 — 파일 시스템을 봐야 하는 일이고,
+ * 이것은 시험이 판정할 수 있는 순수한 결정으로 남긴다. 같은 한계를 형제 클라이언트도 적어 두고 있다.
+ */
+fun inside(base: String, target: String): Boolean {
+    if (base.isBlank()) return false
+    val root = java.nio.file.Paths.get(base).toAbsolutePath().normalize()
+    val abs = java.nio.file.Paths.get(target).let {
+        if (it.isAbsolute) it else root.resolve(it)
+    }.normalize()
+    return abs == root || abs.startsWith(root)
+}
+
 class Hand(private val ide: Ide) {
 
     /** IDE 가 실제로 할 수 있는 일. 구현은 `intellij` 모듈에 있다. */
