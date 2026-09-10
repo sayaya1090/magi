@@ -414,3 +414,57 @@ test('the mention builds its pattern from the quoted token', () => {
   assert.match(call, /pattern:[^\n]*globQuote\(/,
     'the mention sends the typed token straight to the glob — a bracket in a filename refuses');
 });
+
+/**
+ * ★ And it exists on the RIGHT struct.
+ *
+ * The check above asks whether a name appears anywhere in the daemon package. That is the floor,
+ * and it is lower than it looks: `callId`, `text` and `done` are all real wire names — on `Request`,
+ * on `Request`, and on `Handover` — so declaring them on `Response` and on `Waiting` sailed through
+ * while meaning nothing. Measured 2026-09-10, all three were there:
+ *
+ *   - `Waiting.callId` — the core spells it `id`; an answer built from it would carry `undefined`
+ *   - `Waiting.text` — no `Waiting` has ever had one, and it sat in the middle of a fallback chain
+ *   - `Response.done` — a second, empty copy of `Handover.done`, sitting where a reader looks first
+ *
+ * A name on the wrong struct is worse than an invented one: it survives the check that exists to
+ * catch invented names.
+ *
+ * Struct by struct, and the mapping is derived — an interface here is compared against the Go type
+ * of the same name, and the count of pairs is asserted so that renaming a type into invisibility
+ * fails rather than passing.
+ */
+test('every field we declare exists on the struct we declare it on', () => {
+  const dir = path.dirname(PROTOCOL_GO);
+  let go = '';
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith('.go') && !f.endsWith('_test.go')) go += fs.readFileSync(path.join(dir, f), 'utf8');
+  }
+  assert.ok(go.length > 5000, 'the daemon package was not read — this guard is reading nothing');
+
+  const ts = fs.readFileSync(OURS, 'utf8');
+  let pairs = 0;
+  for (const m of ts.matchAll(/export interface (\w+) \{/g)) {
+    const name = m[1];
+    const struct = new RegExp('^type ' + name + ' struct \\{([\\s\\S]*?)^\\}', 'm').exec(go);
+    if (!struct) continue; // ours alone (e.g. a shape the console never sends) — the check above covers those
+    pairs++;
+    const have = new Set([...struct[1].matchAll(/json:"(\w+)/g)].map((t) => t[1]));
+    assert.ok(have.size >= 3, `${name}: only ${have.size} tags read from the Go struct — the scan is broken`);
+    // Top-level members only: a nested object literal is checked where the core declares it.
+    const open = ts.indexOf('{', m.index);
+    let d = 0, k = open;
+    for (; k < ts.length; k++) {
+      if (ts[k] === '{') d++;
+      else if (ts[k] === '}' && --d === 0) break;
+    }
+    const declared = [...ts.slice(open, k).matchAll(/^ {2}(\w+)\??:/gm)].map((f) => f[1]);
+    assert.ok(declared.length > 0, `${name}: no members parsed — the scan is broken`);
+    for (const f of declared) {
+      assert.ok(have.has(f),
+        `${name}.${f} is not a field of the daemon's ${name} — it reads undefined for ever, and the ` +
+        'package-wide check above cannot see it because the name exists on some other struct');
+    }
+  }
+  assert.ok(pairs >= 4, `only ${pairs} interfaces paired with a Go struct — the mapping is broken`);
+});

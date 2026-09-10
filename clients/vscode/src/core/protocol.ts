@@ -69,11 +69,24 @@ export interface Event {
 }
 
 export interface Waiting {
+  /**
+   * The call id an answer must carry.
+   *
+   * ⚠ The core spells it `id` (`Waiting.ID`, `json:"id"`). This declared it `callId` — the name the
+   * REQUEST side uses — so anything reading it would have got `undefined` for ever, and the answer
+   * built from it would have gone to nobody. Nothing read it yet, which is the only reason this
+   * cost nothing; the JetBrains client has had `id` since it grew the type.
+   */
+  id?: string;
   /** "permission" | "question" — the core's own two words. */
   kind: string;
-  callId?: string;
   what?: string;
-  text?: string;
+  /** Why the policy stopped, for a permission; the grounds of a question. */
+  reason?: string;
+  /** The picks a question offers. */
+  options?: string[];
+  /** What approving would change — computed once in the app and carried, never recomputed here. */
+  diff?: string;
 }
 
 export interface Response {
@@ -228,7 +241,12 @@ export interface Response {
   /** `job-kill` / `mcp-detach`: whether anything was actually removed. */
   removed?: boolean;
   models?: string[];
-  done?: boolean;
+  /**
+   * ⚠ There was a `done?: boolean` here until 2026-09-10, and no door has ever filled one. `Done`
+   * is a field of `Handover` — which this file declares separately and which `handoff.ts` reads
+   * correctly — so the top-level name was a second, empty copy of a real fact, sitting where a
+   * reader would find it first.
+   */
 }
 
 /** A door this build advertises in `about`. Read the advertisement; never call an absent door. */

@@ -63,7 +63,9 @@ export function of(resp: Response | null): Activity {
   if (!resp) return cannotSay();
   if (!resp.ok) return cannotSay();
   if (resp.waiting) {
-    return { state: State.Waiting, asking: resp.waiting.what || resp.waiting.text || resp.waiting.kind };
+    // `what` names the call, `reason` says why the policy stopped — the two the core actually
+    // sends. The middle of this chain used to be `text`, a field no `Waiting` has ever carried.
+    return { state: State.Waiting, asking: resp.waiting.what || resp.waiting.reason || resp.waiting.kind };
   }
   const doing = (resp.doing ?? '').trim();
   if (doing) return { state: State.Working, doing };
