@@ -1,3 +1,9 @@
+//go:build !windows
+
+// 이 파일이 재는 것은 유닉스의 것이다 — detachTTY 는 Setsid 를 세우고,
+// syscall.SysProcAttr.Setsid 는 윈도우에 없는 필드다. 형제 열한 개는 태그를
+// 달고 있는데 이것만 빠져 있어서, 패키지 전체가 윈도우에서 컴파일조차 되지
+// 않았다 — 시험 82개가 통째로 안 도는데 그 이유는 이 한 줄이다.
 package builtin
 
 import (
