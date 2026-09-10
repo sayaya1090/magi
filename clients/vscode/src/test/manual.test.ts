@@ -147,3 +147,62 @@ test('the manual names every command the palette offers', () => {
       `the palette offers "${c.title}" and the manual never says those words — it cannot be looked up`);
   }
 });
+
+/**
+ * ★ A ported row may not name a command that is not there.
+ *
+ * The porting table opens by saying it "is not written by hand — it is verified automatically". The
+ * automation checks that every feature the sibling manual NAMES appears in the table. It never checks
+ * whether a ✓ is true, and four rows carried claims that were not: a dedicated row-copy command, the
+ * `(failed)`/`(running)` words in copied text, folded blocks unfolding on copy, and a diff viewer
+ * opened through `vscode.diff`. This client has no copy path at all and calls no diff command.
+ *
+ * Only command-shaped literals are checked, and that is a deliberate limit measured rather than
+ * guessed: of the 18 backticked literals in ✓/↷ rows, a general check flags five and three of those
+ * are fine — an API constant reached through the typed API (`quickfix`), a sibling's class name. The
+ * four command-shaped ones flag exactly the one that is wrong. A guard with three false alarms in
+ * five would be turned off; this one has none.
+ */
+test('a ported row names no command this client does not have', () => {
+  const design = fs.readFileSync(DESIGN, 'utf8');
+  const rows = design.split('\n').filter((l) => l.startsWith('|') && (l.includes('✓') || l.includes('↷')));
+  assert.ok(rows.length >= 20, `only ${rows.length} ported rows read — the scan is dead`);
+  // ⚠ `__dirname` is `out/test` at runtime, so `..` is the COMPILED tree and holds no `.ts` at all.
+  // The first cut of this guard read nothing and still passed its floor — the floor counts claims
+  // from the document, not source — and it took a real failure to notice. Read the source tree.
+  const srcDir = path.join(__dirname, '..', '..', 'src');
+  const manifest = fs.readFileSync(path.join(__dirname, '..', '..', 'package.json'), 'utf8');
+  const src = readAll(srcDir) + manifest;
+  assert.ok(src.length > 50_000, `only ${src.length} characters of source read — the scan is dead`);
+  const claims: [string, string][] = [];
+  for (const row of rows) {
+    const what = row.split('|')[1].trim();
+    for (const m of row.matchAll(/`([a-z][a-zA-Z]*\.[a-zA-Z][\w.]*)`/g)) claims.push([what, m[1]]);
+  }
+  assert.ok(claims.length >= 3, `only ${claims.length} command claims found — the scan is dead`);
+  for (const [what, cmd] of claims) {
+    // `contributes.x` names a MANIFEST section, not a command — checked against the manifest's own
+    // keys rather than as a string somebody would have typed.
+    if (cmd.startsWith('contributes.')) {
+      const key = cmd.slice('contributes.'.length);
+      const has = (JSON.parse(manifest) as { contributes?: Record<string, unknown> }).contributes ?? {};
+      assert.ok(key in has,
+        `the porting table says "${what}" is done through \`${cmd}\`, and the manifest has no such section`);
+      continue;
+    }
+    assert.ok(src.includes(cmd),
+      `the porting table says "${what}" is done through \`${cmd}\`, and nothing in this client names it`);
+  }
+});
+
+/** Read every non-test source file under a directory, for guards that ask "is this anywhere". */
+function readAll(dir: string): string {
+  let out = '';
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'test') continue;
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) out += readAll(p);
+    else if (e.name.endsWith('.ts')) out += fs.readFileSync(p, 'utf8');
+  }
+  return out;
+}
