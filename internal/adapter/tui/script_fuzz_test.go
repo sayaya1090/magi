@@ -54,6 +54,11 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 	// — which is every tick. Steps are counted as they are checked, so a subtest that fails early
 	// does not get credited with the ones it never reached.
 	var checked atomic.Int64
+	// How long the transcript actually got. Printed rather than described, for the reason the
+	// comment above gives and the reason the one on fuzzSteps had to be rewritten: a measurement
+	// written into prose is true of the run that took it and of nothing afterwards. This one is
+	// taken by every run.
+	var peakBlocks atomic.Int64
 	t.Cleanup(func() {
 		n := checked.Load()
 		if n <= 0 || t.Failed() {
@@ -74,7 +79,10 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 		}
 		t.Logf("%d seeds x up to %d steps = %d checked steps; zero failures bounds the per-step "+
 			"rate at p < %.1e (95%%, rule of three). Per step of THIS vocabulary: a defect no step "+
-			"reaches is not in the bound.", len(seeds), fuzzSteps(t), n, 3/float64(n))
+			"reaches is not in the bound. The longest transcript any seed reached was %d blocks — the "+
+			"per-step check re-renders a 40-block tail every step and the whole history every 25th, so "+
+			"that number is what the walk costs.",
+			len(seeds), fuzzSteps(t), n, 3/float64(n), peakBlocks.Load())
 	})
 	for _, seed := range seeds {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
@@ -529,6 +537,11 @@ func TestRandomSessionsKeepTheViewCoherent(t *testing.T) {
 				pick := steps[rng.Intn(len(steps))]
 				pick.do()
 				checked.Add(1)
+				for n := int64(len(s.m.blocks)); n > peakBlocks.Load(); {
+					if peakBlocks.CompareAndSwap(peakBlocks.Load(), n) {
+						break
+					}
+				}
 				raw := s.rawView()
 				where := fmt.Sprintf("seed %d, step %d (%s)", seed, step, pick.what)
 
@@ -776,10 +789,34 @@ func fuzzDark(t *testing.T) bool {
 }
 
 // fuzzSteps reads MAGI_FUZZ_STEPS — how many actions each seed walks — defaulting to the 500 that
-// every sweep so far has used. It buys ORDERINGS, not depth: the walk's compaction step clears the
-// transcript, so length does not accumulate blocks. Measured on seed 67013 — 500 steps ends at 11
-// blocks, 6000 steps at 34. Reaching a thousand-block transcript needs a walk that does not
-// compact, which this is not; do not read a long run as a load test.
+// every sweep so far has used.
+//
+// ⚠ **Raising it costs more than proportionally, and this comment used to say the opposite.** It
+// read: "the walk's compaction step clears the transcript, so length does not accumulate blocks.
+// Measured on seed 67013 — 500 steps ends at 11 blocks, 6000 steps at 34 … do not read a long run
+// as a load test."
+//
+// Every clause of that is false, and the first one is why the rest were believed. The compaction
+// step does not clear anything: TypeCompaction APPENDS a one-line milestone (model_event.go) and
+// leaves the transcript alone, which is the right behaviour — a user scrolling back is reading the
+// conversation, not the model's context — and TheTranscriptSurvivesACompaction now holds it there.
+// Re-measured on the very seed that figure names: 500 steps ends at 144 blocks, 2000 at 283.
+//
+// The old numbers date from the era when every seed was dying at about step 34 of 500 — the picker
+// step skipped for want of a session list, and t.Skip ends the whole subtest. ci.yml carries the
+// same era's other figure with a correction written under it; this one was left behind. Eleven
+// blocks is what this walk holds at step 100, which is about where those runs stopped.
+//
+// So the cost. The per-step check re-renders a 40-block tail every step and the WHOLE history
+// every 25th, and the history is what grows — which makes the walk roughly quadratic in steps
+// rather than linear. Measured 2026-09-11, seed 67013, one core, no -race:
+//
+//	250 steps 4.7s · 500 steps 11.9s · 1000 steps 23.2s · 2000 steps 63.9s
+//
+// Eight times the steps, thirteen and a half times the wall clock. A long run IS partly a load
+// test, and MAGI_FUZZ_STEPS is not a free dial: what it buys is orderings, and past a few hundred
+// it buys them at a rising price. The run prints what it actually reached (see the Cleanup at the
+// top of this file) so this paragraph cannot go stale the way the last one did.
 //
 // Malformed FAILS, for the same reason MAGI_FUZZ_SEEDS does.
 func fuzzSteps(t *testing.T) int {

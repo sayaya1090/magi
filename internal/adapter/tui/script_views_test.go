@@ -184,3 +184,52 @@ func TestTheTranscriptScrollsBehindAPermissionPrompt(t *testing.T) {
 	}
 	s.renders("the prompt after scrolling behind it", "bash")
 }
+
+// A compaction does NOT shed the transcript — it adds one line saying it happened.
+//
+// ⚠ **The comment on fuzzSteps used to assert the opposite, and everything it concluded rested on
+// that.** It read "the walk's compaction step clears the transcript, so length does not accumulate
+// blocks … do not read a long run as a load test", and from there MAGI_FUZZ_STEPS looked like a
+// free dial. It is not: the transcript accumulates, and the walk's per-step check re-renders a
+// tail every step and the whole history every 25th, so the cost rises with it. Measured
+// 2026-09-11 on the very seed that comment names — 500 steps ends at 144 blocks, not the 11 it
+// claimed, and 2000 steps takes 63.9s against 250 steps' 4.7s.
+//
+// Appending is the RIGHT behaviour and that is why this pins it rather than fixing it. Compaction
+// sheds the model's context, not the user's scrollback: somebody scrolling up is reading the
+// conversation, and deleting it under them because the model no longer needs it would be the
+// screen lying about what happened. What was wrong was only a sentence about it.
+//
+// So the fact is held here, where a change to it fails a test instead of quietly making a
+// paragraph elsewhere false again.
+func TestTheTranscriptSurvivesACompaction(t *testing.T) {
+	s := newScript(t)
+	s.steer("r1", "a long task")
+	s.assistantText("an answer worth keeping")
+	s.toolCall("read", "c1")
+	s.toolResult("c1", "some bytes")
+	before := append([]block(nil), s.m.blocks...)
+	if len(before) < 3 {
+		t.Fatalf("the fixture must build a transcript to survive; it has %d blocks", len(before))
+	}
+
+	s.emit(event.TypeCompaction, event.CompactionData{
+		Summary: "earlier work summarized", ReplacesUpToSeq: 40, TokensBefore: 52428, TokensAfter: 18000,
+	})
+
+	if got, want := len(s.m.blocks), len(before)+1; got != want {
+		t.Fatalf("a compaction left %d blocks, want %d — it must add its milestone and take nothing",
+			got, want)
+	}
+	for i, b := range before {
+		if s.m.blocks[i].kind != b.kind || s.m.blocks[i].text != b.text {
+			t.Errorf("block %d changed under the compaction: %v %q → %v %q",
+				i, b.kind, b.text, s.m.blocks[i].kind, s.m.blocks[i].text)
+		}
+	}
+	// And the one it added says what moved, which is the other half of why it is a block at all.
+	last := s.m.blocks[len(s.m.blocks)-1]
+	if last.kind != blockInfo || !strings.Contains(last.text, "compacted") {
+		t.Errorf("the milestone is %v %q", last.kind, last.text)
+	}
+}
