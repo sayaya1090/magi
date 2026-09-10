@@ -506,10 +506,24 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
   // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are
   // skipped because `status` answers the same fact on every poll. If that read goes away the
   // exemption becomes a false statement, and nothing else in this file would notice.
+  // The fields come from the REASONS, not from a list written here: a reason that says
+  // "`status.model`" or "(Setup.user)" is making a claim about a specific read, and this finds every
+  // such claim and checks it. Emptying a hand-written list was how the first cut of this went blind —
+  // a mutation set it to `[]` and nothing failed.
   const setup = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'activity.ts'), 'utf8');
-  for (const field of ['model', 'user']) {
-    assert.ok(new RegExp(`put\\('${field}', resp\\.${field}\\)`).test(setup),
-      `three events are skipped because \`status.${field}\` is read live, and it is not read`);
+  const claimed = new Set<string>();
+  for (const why of Object.values(skipped)) {
+    for (const m of why.matchAll(/`status\.(\w+)`|\(Setup\.(\w+)\)/g)) claimed.add(m[1] ?? m[2]);
+  }
+  assert.ok(claimed.size >= 2,
+    `only ${claimed.size} live-read claim(s) found in the reasons — the scan is dead`);
+  // Read off the REPLY, wherever that lands: `model` and `user` go into Setup, `doing` into the
+  // Activity itself. The claim is "this comes live off `status`", and `resp.<field>` is that claim in
+  // code — a Setup-shaped check missed `doing` and said so, which is how this scan proved it reads
+  // more than the two keys I had in mind.
+  for (const field of claimed) {
+    assert.ok(new RegExp(`resp\\.${field}\\b`).test(setup),
+      `an event is skipped because \`status.${field}\` is read live, and nothing reads it`);
   }
 
   const missed: string[] = [];
