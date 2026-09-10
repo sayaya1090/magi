@@ -25,6 +25,46 @@ function minorFloor(range: string): number {
 }
 
 /**
+ * Strip comments from a TypeScript source before scanning it for code shapes.
+ *
+ * Only a block comment that OPENS A LINE counts. Stripping every opener anywhere was measured to
+ * eat working code: `chat.ts` builds a glob inside a template literal, and the slash-star in the
+ * middle of that string opened a comment the strip closed hundreds of lines later. Everything
+ * between went unseen — and a scan that reads nothing passes every check it makes, silently, for
+ * as long as nobody looks (2026-09-10). Writing that glob into this very sentence would end the
+ * comment here, which is the same fact from the other side.
+ */
+export function withoutComments(src: string): string {
+  return src.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, '').replace(/^[ \t]*\/\/.*$/gm, '');
+}
+
+/**
+ * ★ The strip keeps code that merely looks like a comment opener.
+ *
+ * This is the guard on the guards: two scans below decide what this client reads and what it gates
+ * on, and both were blind the same way. The fixture is the real shape from `chat.ts` — a glob in a
+ * template literal — with a capability check and a settings read after it, which is exactly what
+ * used to disappear.
+ */
+test('a comment opener inside a string does not swallow the code after it', () => {
+  const poisoned = [
+    '/** a doc block that really is one */',
+    'const g = `**/*${name}*`;',
+    "if (caps.has('roster')) ok();",
+    "const v = vscode.workspace.getConfiguration('magi').get<boolean>('suggest', true);",
+    // A later doc block is what gives the poison something to close on. Without one the runaway
+    // comment never terminates and the naive strip removes nothing — which is how a first draft of
+    // this fixture passed under the very mutation it exists to catch.
+    '/** and a later doc block, as every real file has */',
+    "const w = caps.has('transcript');",
+  ].join('\n');
+  const out = withoutComments(poisoned);
+  assert.ok(!out.includes('a doc block that really is one'), 'the line-opening block comment survived');
+  assert.match(out, /caps\.has\('roster'\)/, 'the capability check after the glob was eaten');
+  assert.match(out, /getConfiguration\('magi'\)/, 'the settings read after the glob was eaten');
+});
+
+/**
  * A container declared in a place the declared floor does not have.
  *
  * This is not a style rule. `secondarySidebar` landed in 1.106, and in builds below it the key is
@@ -110,11 +150,20 @@ test('the settings the code reads are exactly the settings declared', () => {
   const read = new Set<string>();
   for (const f of src) {
     // Comments stripped for the same reason: a sentence ABOUT a setting is not a read of one.
-    const body = fs.readFileSync(f, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    // ⚠ Only a block comment that OPENS A LINE is stripped. Stripping every `/*` was measured to
+    // eat working code: `chat.ts` builds a glob `**/*<text>*`, and that mid-line `/*` opened a
+    // comment the strip closed hundreds of lines later — every setting read below it went unseen,
+    // in both directions, and the guard stayed green while blind (2026-09-10).
+    const raw = fs.readFileSync(f, 'utf8');
+    const body = withoutComments(raw);
     // getConfiguration('magi') … .get<T>('key' …) — the two halves can sit apart, so the section
     // is checked per file rather than per expression.
-    if (!/getConfiguration\(['"]magi['"]\)/.test(body)) continue;
+    const opens = /getConfiguration\(['"]magi['"]\)/;
+    // The strip is not allowed to remove the very thing being counted. Without this the blindness
+    // above is invisible: a file that reads settings simply stops being a file that reads settings.
+    assert.equal(opens.test(body), opens.test(raw),
+      `stripping comments changed whether ${path.basename(f)} reads settings — the strip is eating code`);
+    if (!opens.test(body)) continue;
     for (const m of body.matchAll(/\.get(?:<[^>]*>)?\(\s*['"]([A-Za-z.]+)['"]/g)) read.add(`magi.${m[1]}`);
   }
   assert.ok(read.size > 0, 'no settings reads found — this guard is reading nothing');
@@ -158,9 +207,17 @@ test('every capability the client checks is one the daemon advertises', () => {
     e.isDirectory() ? (e.name === 'test' ? [] : walk(path.join(d, e.name)))
       : e.name.endsWith('.ts') ? [path.join(d, e.name)] : []);
   const checked = new Map<string, string>();
+  // Not a /g regex: `.test` on a global one carries `lastIndex` from call to call, so the second
+  // of the two presence checks below would start mid-file and could answer either way by accident.
+  const gate = /(?:caps\.has|\bhas)\(\s*'[a-z][a-z0-9-]*'/;
   for (const f of walk(dir)) {
-    const body = fs.readFileSync(f, 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+    const raw = fs.readFileSync(f, 'utf8');
+    // Line-opening block comments only — see the note in the settings guard above. A mid-line
+    // `/*` inside a glob string swallows the rest of the file, and a scan that reads nothing
+    // passes every check it makes.
+    const body = withoutComments(raw);
+    assert.equal(gate.test(body), gate.test(raw),
+      `stripping comments changed whether ${path.basename(f)} checks a capability — the strip is eating code`);
     // caps.has('x'), and the `has('x', …)` helper in doors.ts.
     for (const m of body.matchAll(/(?:caps\.has|\bhas)\(\s*'([a-z][a-z0-9-]*)'/g)) {
       checked.set(m[1], path.relative(dir, f));

@@ -355,6 +355,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       }
       case 'suggest': {
         // The composer's ghost text — the same door the console uses for its own.
+        // ⚠ This asks the model every time typing pauses, so it is switchable like the other two
+        // typing-time doors (`magi.complete`, `magi.lookWhileTyping`). The JetBrains plugin and the
+        // web console have carried that switch all along; this client fired the door unconditionally.
+        // The default is on, which is what this client did before and what the other two default to.
+        if (!vscode.workspace.getConfiguration('magi').get<boolean>('suggest', true)) {
+          this.post({ kind: 'suggestion', text: '' });
+          break;
+        }
         const r = await this.companion.ask('suggest', { text: m.text ?? '' });
         this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '' });
         break;

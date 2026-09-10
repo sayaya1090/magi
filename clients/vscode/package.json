@@ -395,6 +395,11 @@
           "default": false,
           "markdownDescription": "Suggest a completion at the cursor. Which model answers is magi's own `[autocomplete]` profile — this switch only decides whether to ask."
         },
+        "magi.suggest": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suggest how to finish what you are typing in the conversation box. Asks the companion while you type, like the JetBrains plugin and the web console do."
+        },
         "magi.showEditMarks": {
           "type": "boolean",
           "default": true,
