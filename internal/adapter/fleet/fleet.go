@@ -1227,7 +1227,7 @@ func stateHeard(s string) State {
 // daemon from before the door answers with a refusal this treats the same as silence. Either way
 // the caller falls back to reading the directory itself — the path this console always took.
 func rosterSources(configDir string, now time.Time) ([]daemon.Info, []cluster.Member, bool) {
-	socks, err := filepath.Glob(filepath.Join(daemon.SocketDir(configDir), "daemon-*.sock"))
+	socks, err := daemon.SocketsIn(daemon.SocketDir(configDir), ".sock")
 	if err != nil {
 		return nil, nil, false
 	}

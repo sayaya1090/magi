@@ -3,7 +3,9 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	osuser "os/user"
@@ -437,7 +439,7 @@ const probeTimeout = 700 * time.Millisecond
 // Matched against the published set rather than parsed from the parameter: the path arrives from a
 // page, and a path from a page must not become a path this process dials.
 func Find(configDir, socket string) (Info, error) {
-	socks, err := filepath.Glob(filepath.Join(SocketDir(configDir), "daemon-*.sock"))
+	socks, err := SocketsIn(SocketDir(configDir), ".sock")
 	if err != nil {
 		return Info{}, fmt.Errorf("daemon: listing: %w", err)
 	}
@@ -504,7 +506,7 @@ func normalPath(p string) string {
 // corpse is more useful than the entry silently missing — but it is marked.
 func List(configDir string) ([]Info, error) {
 	dir := SocketDir(configDir)
-	socks, err := filepath.Glob(filepath.Join(dir, "daemon-*.sock"))
+	socks, err := SocketsIn(dir, ".sock")
 	if err != nil {
 		return nil, fmt.Errorf("daemon: listing: %w", err)
 	}
@@ -576,4 +578,41 @@ func Probe(out []Info) []Info {
 	}
 	wg.Wait()
 	return out
+}
+
+// SocketsIn lists the socket-shaped files in one directory, newest name order.
+//
+// ⚠ **Not filepath.Glob, and the directory is the reason.** Glob takes the WHOLE path as a pattern,
+// so a config or socket directory whose name contains a glob character is read as a character class
+// rather than as a name — and on Windows there is no escape for it, because filepath disables
+// escaping there. A person whose path holds a `[` gets an empty list and no error: every companion
+// they are running becomes invisible, everywhere this is called. Measured 2026-09-10 with a
+// directory named `user[1]`: a socket sitting in it globbed to nothing.
+//
+// That path is not exotic. MAGI_SOCKET_DIR exists precisely so somebody can point the sockets
+// somewhere of their own choosing, and a Windows account name goes into the default one.
+//
+// It also answers the weakness List already had a comment about: Glob cannot say it could not look.
+// A directory that exists and cannot be read globbed to nothing, which every caller drew as "no
+// companions" rather than "could not say". ReadDir says which. A directory that is not there is
+// still an empty list rather than an error — that one IS "nobody is running", and it is the
+// ordinary case on a machine that has never started a daemon.
+func SocketsIn(dir, suffix string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(entries))
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, "daemon-") && strings.HasSuffix(name, suffix) {
+			out = append(out, filepath.Join(dir, name))
+		}
+	}
+	// Glob answered in sorted order and callers were written against that.
+	sort.Strings(out)
+	return out, nil
 }

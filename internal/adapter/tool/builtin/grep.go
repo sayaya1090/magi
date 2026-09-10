@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	gopath "path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -75,7 +76,12 @@ func grepGlobMatch(globs, workdir, path, base string) bool {
 		if !isASCIIOnly(g) { // fold an NFD filename to the NFC glob (see matchGlob)
 			gg, bb = norm.NFC.String(g), norm.NFC.String(base)
 		}
-		if ok, _ := filepath.Match(gg, bb); ok {
+		// path.Match: `g` has no "/" (checked above) and `base` is a bare name, so the two matchers
+		// can only differ in how they read `\` — and filepath.Match reads it as a separator on
+		// Windows instead of as an escape. A filter naming a literal glob character there matched
+		// nothing, silently. The path-shaped branch above already goes through matchGlob, which was
+		// moved for the same reason; this was the other half of the same function.
+		if ok, _ := gopath.Match(gg, bb); ok {
 			return true
 		}
 	}

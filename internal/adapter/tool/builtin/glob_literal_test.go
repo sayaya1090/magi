@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"os"
 	"path"
 	"path/filepath"
 	"testing"
@@ -85,4 +86,44 @@ func mustMatch(t *testing.T, pattern, name string) bool {
 		t.Fatalf("path.Match(%q, %q): %v", pattern, name, err)
 	}
 	return ok
+}
+
+// grep's `glob` filter is the same rule, and its two branches used two matchers.
+//
+// A filter containing "/" goes through matchGlob; one that is a bare name did not — it called
+// filepath.Match directly, so on Windows an escaped glob character in a FILENAME filter matched
+// nothing while the same character in a path-shaped filter matched fine. One function, two
+// readings, and the difference invisible: grep just reports no hits.
+func TestTheGrepFilterReadsAnEscapeTheSameWayInBothBranches(t *testing.T) {
+	const file = "page[1].txt"
+	for name, filter := range map[string]string{
+		"a bare name":   `page\[1\].txt`,
+		"path-shaped":   `**/page\[1\].txt`,
+		"contains form": `*page\[1\]*`,
+	} {
+		if !globFilterMatches(t, filter, file) {
+			t.Errorf("%s (%q): %q 를 걸러 냈다 — grep 이 이 파일을 아예 안 본다", name, filter, file)
+		}
+	}
+	// And the escape is still an escape, not a wildcard.
+	if globFilterMatches(t, `page\[1\].txt`, "page1.txt") {
+		t.Error("인용한 대괄호가 문자 클래스처럼 굴었다")
+	}
+}
+
+// globFilterMatches asks grep's own filter, through the exported tool rather than an internal, so
+// the test measures what a caller gets.
+func globFilterMatches(t *testing.T, filter, name string) bool {
+	t.Helper()
+	// The file goes in the directory runJSON makes, not one of our own — the tool searches its
+	// workdir, and seeding somewhere else measures nothing.
+	out, isErr := runJSON(t, Grep{}, grepArgs{Pattern: "needle", Glob: filter}, func(dir string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("needle\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if isErr {
+		t.Fatalf("grep refused %q: %v", filter, out)
+	}
+	return len(out) > 0
 }
