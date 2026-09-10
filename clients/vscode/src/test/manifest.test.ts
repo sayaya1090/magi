@@ -502,6 +502,16 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     'session.created': 'the conversation\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
     'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-conversation gets the current model instead of replaying its history',
   };
+  // ★ The exemptions that claim a fact arrives LIVE are checked against the code that reads it.
+  // A reason is prose and prose does not fail — but THIS reason is a checkable claim: three keys are
+  // skipped because `status` answers the same fact on every poll. If that read goes away the
+  // exemption becomes a false statement, and nothing else in this file would notice.
+  const setup = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'activity.ts'), 'utf8');
+  for (const field of ['model', 'user']) {
+    assert.ok(new RegExp(`put\\('${field}', resp\\.${field}\\)`).test(setup),
+      `three events are skipped because \`status.${field}\` is read live, and it is not read`);
+  }
+
   const missed: string[] = [];
   for (const t of types) if (!read.has(t) && !(t in skipped)) missed.push(t);
   assert.deepEqual(missed, [],
