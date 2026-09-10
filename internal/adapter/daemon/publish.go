@@ -441,7 +441,6 @@ func Find(configDir, socket string) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("daemon: listing: %w", err)
 	}
-	want := normalPath(socket)
 	for _, s := range socks {
 		// Compared normalised, opened as globbed. Those are two different things and the split is
 		// the point: `!=` on the raw string refuses the SAME file spelled another way — a slash
@@ -453,7 +452,7 @@ func Find(configDir, socket string) (Info, error) {
 		// ⚠ What must not move is the reason the comparison exists: the path arrives from a page,
 		// and a path from a page must not become a path this process dials. Matching loosely is
 		// safe because the thing dialled below is still `s`, which came out of Glob.
-		if normalPath(s) != want {
+		if !SamePath(s, socket) {
 			continue
 		}
 		in, perr := Published(s)
@@ -466,6 +465,18 @@ func Find(configDir, socket string) (Info, error) {
 	return Info{}, fmt.Errorf("no daemon at %s — it is not one of the %d published under %s",
 		socket, len(socks), configDir)
 }
+
+// SamePath says whether two paths name the same file, for callers that hold two spellings of one
+// socket and have to decide if they are one thing.
+//
+// Exported because there is more than one place that asks. `Find` asks it about the published set;
+// the fleet asks it about `here` — the caller's own socket against a record's — and getting THAT
+// one wrong is worse than a bad lookup: `Here` is what refuses a companion handing work to itself,
+// so a spelling difference turns the loop guard off. Two callers, one rule, or the rule drifts.
+//
+// ⚠ Names only. It says nothing about whether the caller may touch either path — Find answers that
+// separately, by only ever opening a path that came out of Glob.
+func SamePath(a, b string) bool { return normalPath(a) == normalPath(b) }
 
 // normalPath is one spelling for one file, for COMPARING two paths and nothing else.
 //

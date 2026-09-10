@@ -54,6 +54,57 @@ func shortTempDir(t *testing.T) string {
 	return d
 }
 
+// "That is you" must survive the socket being spelled another way.
+//
+// `Here` is the flag that stops a companion handing work to itself, and it was `in.Socket == here`
+// — the record's spelling against the caller's. Those come from different places: the record's
+// comes back from `filepath.Glob`, and `here` comes from whoever started the process. One `/` where
+// the OS writes `\` and the guard is simply off, with nothing saying so: the refusal
+// ("that is you. Do it yourself, or name somebody else") never fires and a companion dispatches to
+// itself. Measured 2026-09-10 on Windows, where a fixture joining with a slash was enough.
+//
+// The loop is the point. A wrong lookup answers "no such daemon" and somebody reads it; a companion
+// that takes its own errand answers itself.
+func TestTheSelfGuardSurvivesAnotherSpellingOfTheSameSocket(t *testing.T) {
+	f := newFleetFixture(t)
+	sock := f.daemonAt("/w/solo", "s_solo", true)
+
+	for name, here := range map[string]string{
+		"as published":       sock,
+		"with a slash":       filepath.ToSlash(sock),
+		"with a doubled sep": filepath.Dir(sock) + string(filepath.Separator) + string(filepath.Separator) + filepath.Base(sock),
+	} {
+		list, err := fleet.List(context.Background(), f.reader, f.cfgDir, here)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		var mine *fleet.Agent
+		for i := range list {
+			if list[i].Session == "s_solo" {
+				mine = &list[i]
+			}
+		}
+		if mine == nil {
+			t.Fatalf("%s: 발행해 둔 컴패니언이 목록에 없다", name)
+		}
+		if !mine.Here {
+			t.Errorf("%s (%s): 자기 자신인데 Here 가 안 섰다 — 자기에게 일을 넘기는 것을 못 막는다", name, here)
+		}
+	}
+
+	// And a neighbour is still a neighbour: loosening the spelling must not make everybody "you".
+	other := f.daemonAt("/w/other", "s_other", true)
+	list, err := fleet.List(context.Background(), f.reader, f.cfgDir, other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range list {
+		if a.Session == "s_solo" && a.Here {
+			t.Error("남의 소켓을 건넸는데 이쪽이 「나」로 읽혔다")
+		}
+	}
+}
+
 func newFleetFixture(t *testing.T) *fleetFixture {
 	t.Helper()
 	cfg, data := shortTempDir(t), t.TempDir()

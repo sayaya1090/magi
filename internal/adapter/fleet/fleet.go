@@ -336,7 +336,7 @@ func ListCached(ctx context.Context, r Reader, configDir, here string, cache *Ca
 			Version: in.Version,
 			Does:    in.Does, Can: in.Can, Waiting: in.Waiting, Handling: in.Handling,
 			Permission: in.Permission, Backend: in.Backend, User: in.User,
-			Live: in.Live, Here: here != "" && in.Socket == here,
+			Live: in.Live, Here: here != "" && daemon.SamePath(in.Socket, here),
 			Idle: -1,
 		}
 		sid := session.SessionID(in.Session)
@@ -1319,7 +1319,9 @@ func ListLight(configDir, here string) ([]Agent, error) {
 	out := make([]Agent, 0, len(locals)+len(members))
 	for _, in := range locals {
 		a := lightRow(in)
-		a.Here = here != "" && in.Socket == here
+		// 같은 소켓의 다른 철자는 같은 소켓이다. 여기서 놓치면 Here 가 안 서고,
+		// Here 가 안 서면 컴패니언이 자기 자신에게 일을 넘기는 것을 막지 못한다.
+		a.Here = here != "" && daemon.SamePath(in.Socket, here)
 		out = append(out, a)
 	}
 	out = append(out, elsewhereRows(members, configDir, now, out)...)
