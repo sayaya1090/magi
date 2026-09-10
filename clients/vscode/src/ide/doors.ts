@@ -5,6 +5,7 @@ import { Row, turnsBack } from '../core/transcript';
 import * as activity from '../core/activity';
 import { jobs as jobsOf, schedules, originWord, localStamp } from '../core/panel';
 import { whyNoCompletion } from '../core/complete';
+import { Response } from '../core/protocol';
 
 /**
  * The doors the JetBrains client opens and this one did not.
@@ -117,8 +118,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       const r = await call('config-get');
       if (!r) return;
       const list = (r.config ?? []) as
-        { key?: string; value?: string; tier?: string; file?: string; applies?: string; doc?: string;
-          unreadable?: string }[];
+        NonNullable<Response['config']>;
       if (!list.length) { void vscode.window.showInformationMessage('magi: this companion exposes no settings.'); return; }
       // ⚠ **A broken config file and an empty one look identical in a list of values.** The door
       // carries `unreadable` for exactly that: the layer would not parse, and the string is why.
@@ -133,17 +133,53 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
       const pick = await vscode.window.showQuickPick(
         list.filter((c) => c.key).map((c) => ({
           label: c.key!,
-          description: c.value ? `= ${c.value}` : '(unset)',
+          // ⚠ **Where the value came from is not where a write would go.** `tier` is the file this
+          // screen would edit; `source` is the layer the CURRENT value comes from, and the core says
+          // it can be "env". An environment variable beats every file, so editing one that came from
+          // `env` writes something and changes nothing a person can see — the same silence the
+          // `unreadable` warning above exists to break. This screen showed neither, so the two cases
+          // were one line. The JetBrains settings screen has drawn the source since the field landed.
+          description: c.value ? `= ${c.value}${c.source ? ` (from ${c.source})` : ''}` : '(unset)',
           detail: [c.doc, c.applies && `applies ${c.applies}`, c.tier].filter(Boolean).join(' · '),
           key: c.key!, value: c.value ?? '', tier: c.tier ?? '',
+          source: c.source ?? '', profile: c.profile === true,
         })),
         { title: 'magi — settings', matchOnDetail: true },
       );
       if (!pick) return;
-      const value = await vscode.window.showInputBox({
-        title: `magi — ${pick.key}`, value: pick.value,
-        prompt: 'Empty clears it.', ignoreFocusOut: true,
-      });
+      // An env var wins over whatever this writes. Said before the box rather than after the save:
+      // afterwards it is an explanation for something that already looked broken.
+      if (pick.source === 'env') {
+        void vscode.window.showWarningMessage(
+          `magi: ${pick.key} comes from the environment, which beats the file this writes to — `
+          + 'the new value takes effect only where that variable is unset.');
+      }
+      /**
+       * ⚠ **A key whose value must NAME a profile is asked with the list, not with a text box.**
+       *
+       * The core carries `profile` for exactly this and says why it is on the wire rather than left
+       * to each client: "Every client that hardcodes which keys are profile-shaped is a copy of a
+       * list that lives here." A free-text box takes any word, and a name that is not a profile is
+       * accepted and then does nothing — the setting reads as changed and the behaviour does not.
+       *
+       * The empty entry stays: clearing is how a person goes back to the default, and a picker with
+       * no way out would make that unsayable (the same reason `magi.chooseBackend` offers one).
+       */
+      let value: string | undefined;
+      if (pick.profile) {
+        const known = await call('profiles');
+        const names = (known?.profiles ?? []).map((p) => p.name).filter((n): n is string => !!n);
+        const chosen = await vscode.window.showQuickPick(
+          [{ label: '(unset)', name: '' }, ...names.map((n) => ({ label: n, name: n }))],
+          { title: `magi — ${pick.key}`, placeHolder: pick.value || '(unset)' },
+        );
+        value = chosen?.name;
+      } else {
+        value = await vscode.window.showInputBox({
+          title: `magi — ${pick.key}`, value: pick.value,
+          prompt: 'Empty clears it.', ignoreFocusOut: true,
+        });
+      }
       if (value === undefined) return;
       const set = await call('config-set', { name: pick.key, text: value, tier: pick.tier });
       if (set) void vscode.window.showInformationMessage(`magi: ${pick.key} is now ${value || '(unset)'}.`);

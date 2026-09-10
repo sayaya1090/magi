@@ -673,3 +673,53 @@ test('no command id is registered twice', () => {
       `${id} is registered ${where.length} times (${where.join(', ')}) — registering it twice throws, and the throw takes every other command with it`);
   }
 });
+
+/**
+ * ★ The settings screen reads the two fields that say HOW to ask and WHETHER the answer will stick.
+ *
+ * `config-get` carries both and the core says why each is on the wire rather than known by each
+ * client:
+ *
+ *  - `profile` marks a key whose value must NAME an `[llm.profiles.*]`. The core's own words:
+ *    "Every client that hardcodes which keys are profile-shaped is a copy of a list that lives
+ *    here." A free-text box takes any word, and a name that is not a profile is accepted and then
+ *    does nothing — the setting reads as changed and the behaviour does not.
+ *  - `source` is the layer the CURRENT value comes from, and it can be **"env"**. An environment
+ *    variable beats the file this screen writes, so editing one that came from `env` changes
+ *    nothing a person can see — the same silence the `unreadable` warning beside it exists to break.
+ *
+ * Measured 2026-09-10 against a running daemon: five settings came back, two set (`source: global`)
+ * and three unset, and one of the two is `autocomplete.code_profile` — a profile-shaped key this
+ * screen was asking for as free text. The JetBrains settings screen has drawn both since the fields
+ * landed (`MagiConfigurable`: a combo when `item.profile`, and "from <source>" beside the value).
+ *
+ * ⚠ The screen lost them by RE-DECLARING the reply narrower than `protocol.ts` already types it —
+ * a local cast that listed seven of the nine fields. Nothing failed: the two names simply were not
+ * there to read. So this pins the shape it reads as the protocol's own.
+ */
+test('the settings screen asks the way the door says to ask', () => {
+  const doors = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'doors.ts'), 'utf8');
+  const at = doors.indexOf("call('config-get')");
+  assert.ok(at > 0, 'the settings command was not found — this guard is reading nothing');
+  const block = doors.slice(at, doors.indexOf("reg('magi.newConversation'", at));
+  assert.ok(block.length > 500, 'the settings command body was not read — this guard is reading nothing');
+
+  assert.match(block, /NonNullable<Response\['config'\]>/,
+    're-declares the reply shape locally — a narrower copy silently drops fields protocol.ts types');
+  // The DESCRIPTION line, not merely a mention of the field. `c.source` also appears where the
+  // picked item is built, and a first cut of this assertion matched that instead — the mutation
+  // that removed the source from what a person reads walked straight past it.
+  const shown = block.slice(block.indexOf('description:'), block.indexOf('detail:'));
+  assert.ok(shown.length > 20, 'the description line was not found — this guard is reading nothing');
+  assert.match(shown, /c\.source/, 'the value is shown without saying which layer it came from');
+  assert.match(block, /=== 'env'/,
+    'a value from the environment is edited as if the file would win — it will not');
+  assert.match(block, /c\.profile === true/,
+    'a profile-shaped key is asked for as free text, so a name that is not a profile is accepted');
+  // Asked for, then offered: the door is called and its answer becomes the picker. Matching them
+  // in this order is the point — a `showQuickPick` with a list from anywhere else would be the
+  // hardcoded copy the core says not to keep.
+  const profileBranch = block.slice(block.indexOf('c.profile === true'));
+  assert.match(profileBranch, /call\('profiles'\)[\s\S]{0,500}showQuickPick/,
+    'the profile-shaped key is not offered the profiles the daemon actually has');
+});
