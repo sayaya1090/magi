@@ -44,11 +44,24 @@ func writeApprovalDiff(workdir string, args json.RawMessage) (string, bool) {
 	// on every status viewer as the preview of a write the real jail was going to refuse anyway.
 	base := filepath.Clean(workdir)
 	abs := filepath.Clean(a.Path)
-	if !filepath.IsAbs(abs) {
+	switch {
+	case filepath.IsAbs(a.Path):
+	case !filepath.IsLocal(a.Path):
+		// ⚠ **The mirror had drifted from what it mirrors.** resolvePath refuses a path that is
+		// rooted without being absolute — `/etc/passwd`, `\Windows\System32\…`, which IsAbs calls
+		// relative on Windows — because folding it into the workdir names a different file than the
+		// caller asked for. This copy still folded it, so the preview read `<workdir>\etc\passwd`
+		// and put it on every approval screen labelled as `/etc/passwd`.
+		//
+		// That is the failure this function was written for, one spelling over: bytes the real jail
+		// would never have served, shown before anyone approved anything. Refuse, as the original
+		// does — a preview that cannot honestly name what it is showing shows nothing.
+		return "", false
+	default:
 		abs = filepath.Clean(filepath.Join(base, a.Path))
 	}
 	rel, err := filepath.Rel(base, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	if err != nil || escapesTree(rel) {
 		return "", false
 	}
 	if st, serr := os.Stat(abs); serr != nil || !st.Mode().IsRegular() || st.Size() > approvalReadCap {

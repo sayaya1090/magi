@@ -40,3 +40,23 @@ func escapesTree(rel string) bool {
 func underTree(path, rel string) bool {
 	return path == rel || strings.HasPrefix(path, rel+string(filepath.Separator))
 }
+
+// absAsGiven resolves a tool-supplied path against a base, without folding a rooted one into it.
+//
+// The question here is "which file does this name", not "may this be touched" — the callers
+// reconstruct what a command changed, and a command naming `/etc/foo` changed `/etc/foo`.
+//
+// ⚠ `filepath.IsAbs` alone gets that wrong on Windows. `/etc/foo` and `\Windows\x` are rooted and
+// carry no volume, so IsAbs says false and a plain join turns them into `<base>\etc\foo` — a
+// different file, quietly. The change record then describes a file nobody wrote. Bash paths reach
+// these callers without passing the file tools' jail, so a rooted path really does arrive here.
+//
+// A path that is rooted is returned as it is, which is where it points. A path that stays inside
+// the base is joined to it. Nothing is refused: that decision belongs to the jails, and this is not
+// one — see resolvePath and writeApprovalDiff, which mirror it and must refuse.
+func absAsGiven(base, path string) string {
+	if !filepath.IsAbs(path) && filepath.IsLocal(path) {
+		return filepath.Clean(filepath.Join(base, path))
+	}
+	return filepath.Clean(path)
+}

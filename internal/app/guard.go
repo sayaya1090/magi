@@ -1002,10 +1002,7 @@ func absUnder(workdir, path string) string {
 }
 
 func pathExists(workdir, path string) bool {
-	abs := path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(workdir, path)
-	}
+	abs := absAsGiven(workdir, path)
 	_, err := os.Stat(abs)
 	return err == nil
 }
@@ -1018,10 +1015,7 @@ const changeReadCap = 256 << 10
 // readForChange reads (a capped prefix of) the file at a tool-supplied path, relative to
 // workdir, for before/after change capture. "" on any error (e.g. a new or deleted file).
 func readForChange(workdir, path string) (string, bool) {
-	abs := path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(workdir, path)
-	}
+	abs := absAsGiven(workdir, path)
 	// A DIRECTORY is not readable content, and os.Open opens one happily — the read then yields
 	// nothing and the path compares equal to itself before and after. Observed live:
 	// `rm -rf boot …` had `boot` extracted as its destination, both reads came back empty, and the
@@ -1069,10 +1063,7 @@ func readForChange(workdir, path string) (string, bool) {
 
 // relForChange maps a tool path to a workdir-relative display path for change headers.
 func relForChange(workdir, path string) string {
-	abs := path
-	if !filepath.IsAbs(abs) {
-		abs = filepath.Join(workdir, path)
-	}
+	abs := absAsGiven(workdir, path)
 	if rel, err := filepath.Rel(workdir, abs); err == nil && !strings.HasPrefix(rel, "..") {
 		return filepath.ToSlash(rel)
 	}
