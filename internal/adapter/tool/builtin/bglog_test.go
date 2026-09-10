@@ -29,7 +29,7 @@ import (
 func TestABackgroundLogTakesWhatAChildWrites(t *testing.T) {
 	// `printf` on purpose: on Windows it comes from the MSYS install, which is the runtime the
 	// handle broke. A shell builtin would have passed either way and measured nothing.
-	name, args := shell(`printf 'magi-bg-probe\n'`)
+	name, args := Shell(`printf 'magi-bg-probe\n'`)
 
 	through, perr := exec.Command(name, args...).CombinedOutput()
 	if perr != nil || !strings.Contains(string(through), "magi-bg-probe") {

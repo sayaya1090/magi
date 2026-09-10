@@ -123,7 +123,7 @@ type bgManager struct {
 var bg = &bgManager{procs: map[string]*bgProc{}}
 
 func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, command string, usePTY bool) (*bgProc, error) {
-	name, args := shell(command)
+	name, args := Shell(command)
 	if argv, wrapped := sandboxArgv(sb, command); wrapped {
 		name, args = argv[0], argv[1:]
 	}

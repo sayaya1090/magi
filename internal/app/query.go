@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/sayaya1090/magi/internal/adapter/tool/builtin"
 	"github.com/sayaya1090/magi/internal/core/council"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -269,7 +270,16 @@ func (a *App) RunShell(ctx context.Context, workdir, cmd string) (out string, ex
 	}
 	// Cap capture at the source so an unbounded producer (`!yes`, `!cat /dev/zero`)
 	// can't grow the buffer to OOM before the caller trims it for display.
-	res, e := a.plat.Exec(ctx, port.Cmd{Path: "/bin/sh", Args: []string{"-c", cmd}, Dir: workdir, MaxOutput: shellCaptureCap})
+	// ⚠ **`/bin/sh` was written here as if it were "the shell".** On Windows it is not a worse
+	// shell, it is not a shell at all: the call came back
+	// `exec: "/bin/sh": executable file not found in %PATH%`, so the `!` inline shell — and the
+	// same door over the socket, RunShellHere — could not run one command on that platform.
+	//
+	// The bash tool had already answered this: powershell there, bash where the machine has it,
+	// /bin/sh otherwise, each branch with a measured reason. Asking it rather than writing a second
+	// answer, because a second answer is one that drifts.
+	name, args := builtin.Shell(cmd)
+	res, e := a.plat.Exec(ctx, port.Cmd{Path: name, Args: args, Dir: workdir, MaxOutput: shellCaptureCap})
 	if e != nil {
 		return "", -1, e
 	}

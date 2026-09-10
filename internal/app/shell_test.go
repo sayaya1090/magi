@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -30,7 +31,16 @@ func TestRunShell(t *testing.T) {
 	}
 
 	// stderr is folded into the combined output, and a non-zero exit is surfaced.
-	out, exit, err = a.RunShell(context.Background(), dir, "echo oops >&2; exit 3")
+	// The CONTRACT is the same everywhere — stderr folded into the combined output, the real exit
+	// code surfaced — and the two shells spell it differently. `echo oops >&2` is sh; PowerShell,
+	// which is what this platform's shell is (builtin.Shell), writes to the error stream through
+	// the console object. Asserting the sh spelling everywhere measured which shell was running,
+	// not what RunShell promises.
+	shoutAndFail := "echo oops >&2; exit 3"
+	if runtime.GOOS == "windows" {
+		shoutAndFail = "[Console]::Error.WriteLine('oops'); exit 3"
+	}
+	out, exit, err = a.RunShell(context.Background(), dir, shoutAndFail)
 	if err != nil {
 		t.Fatalf("RunShell exit3: %v", err)
 	}

@@ -162,7 +162,7 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	cctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	name, args := shell(a.Command)
+	name, args := Shell(a.Command)
 	// OS-level confinement (sandbox axis): wrap the command so writes
 	// stay in the workspace and the network is off, when the platform supports it.
 	// Falls back to unconfined transparently — the policy layer's command scan and
@@ -518,7 +518,13 @@ func readHeadTail(path string, cap int64) (data []byte, whole bool) {
 //
 // Nothing else changes: no `pipefail`, no `errexit`. A command's exit status is what it always was,
 // because the agent reads that number and a shell that quietly redefines it would be lying to it.
-func shell(command string) (string, []string) {
+//
+// Exported because there is a second caller: `App.RunShell` — the `!` inline shell, and the same
+// door over the socket as RunShellHere. That one hard-coded `/bin/sh`, so on Windows it did not
+// pick a worse shell, it picked one that is not there: "exec: \"/bin/sh\": executable file not
+// found in %PATH%". One definition, because two would drift and this one already carries a
+// measured reason for every branch.
+func Shell(command string) (string, []string) {
 	if runtime.GOOS == "windows" {
 		return "powershell", []string{"-NoProfile", "-Command", command}
 	}

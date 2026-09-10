@@ -193,7 +193,7 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	cctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
-	name, args := shell(condition)
+	name, args := Shell(condition)
 	if argv, wrapped := sandboxArgv(env.Sandbox, condition); wrapped {
 		name, args = argv[0], argv[1:]
 	}
