@@ -13,11 +13,9 @@ import (
 	"testing"
 )
 
-// 화면이 묻는 길은 목이 답해야 한다 — 하나라도 빠지면 그 판은 배포된 데모에서 빈 채로 뜬다.
-//
-// 목이 화면마다 있던 시절의 검사(모듈마다 Demo* 구현을 요구)를 대신한다. 이제 목은 회선의
-// 이음매에 걸린 모듈 하나이고, 답하는 단위도 화면이 아니라 <b>경로</b>다. 그래서 여기서
-// 재는 것도 경로다: 화면들이 부르는 길을 소스에서 캐고, demo-ui가 그 길에 답하는지 본다.
+// 화면 모듈이 요청하는 모든 API 경로는 정적 데모 mock에서 응답을 제공해야 합니다.
+// 누락된 경로가 존재할 경우 배포된 정적 데모 사이트에서 해당 패널이 빈 상태로 렌더링됩니다.
+// 화면 소스 코드에서 Console 호출 경로를 정규식으로 추출하고, demo-ui 모듈이 해당 경로에 대응하는지 검증합니다.
 func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
 	asked := map[string]string{} // 경로 → 그 길을 부르는 모듈
 	answers := map[string]bool{} // 목이 답하는 경로
@@ -25,10 +23,7 @@ func TestTheMockAnswersEveryPathTheScreensAsk(t *testing.T) {
 	// which still resolved — clients/web/server/../../web/ui IS clients/web/ui — so it was right
 	// for a reason that stops being true the moment either half of the tree moves again.
 	root := filepath.Join("..", "ui")
-	// 부르는 모양을 하나라도 빠뜨리면 이 검사는 통과하면서 아무것도 안 본다. postText와
-	// postSaid가 빠져 있던 동안 /suggest·/complete·/git-msg·/git-pr·/pr-msg 다섯이 이 눈
-	// 밖에 있었고, 그 중 /suggest는 공개 데모에서 501이었다(실측). 그러니 이름을 열거하지
-	// 말고 Console의 <b>모든</b> 부름을 본다 — 다음에 늘어나는 이름도 저절로 들어온다.
+	// Console API 호출 패턴 전체를 검사하여 누락된 경로 없이 전수 감사를 수행합니다.
 	call := regexp.MustCompile(`Console\.[a-zA-Z]+\("(/[a-zA-Z0-9_-]+)`)
 	// 목이 답하는 모양 둘: switch의 case와, 길 하나만 보는 자리의 equals(스트림이 그렇다).
 	answered := regexp.MustCompile(`(?:case "(/[a-zA-Z0-9_-]+)"|"(/[a-zA-Z0-9_-]+)"\.equals\()`)

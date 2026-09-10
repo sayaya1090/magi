@@ -1,397 +1,190 @@
-# clients/web/ui — 새 콘솔의 UI 개발문서
+# clients/web/ui — 웹 콘솔 UI 개발 문서
 
-상위 [`web/README.md`](../README.md)가 무엇을 왜 하는지(스트랭글러 좌표·대조표·컷오버 기록)를
-말한다면, 이 문서는 어떻게 하는지다: 모듈이 어떻게 나뉘고, 셸과 화면이 무슨 계약으로 만나고,
-화면 하나를 이식할 때 어디를 만지는지. 여기가 정본이다 — 기존 콘솔은 없어졌고(`web/server`
-프록시도 함께), `clients/web/server`이 내주는 것이 이 디렉토리의 조립본이다.
+상위 [`web/README.md`](../README.md)가 프로젝트의 배경 및 의도(스트랭글러 패턴 적용 좌표, 대조표, 컷오버 기록)를 설명한다면, 본 문서는 구체적인 아키텍처 및 구현 방식을 설명합니다: 모듈 분할 구조, 셸(Shell)과 각 화면 간의 연동 규약, 그리고 신규 화면을 이식할 때 준수해야 할 개발 절차를 다룹니다. 기존 단일 페이지 콘솔 및 개발용 프록시(`web/server`)는 완전히 제거되었으며, 현재 `clients/web/server`가 제공하는 정적 자산은 본 디렉토리의 빌드 산출물입니다.
 
 ## 지도
 
 ```
-console.html                     ← magi-web(7777)이 / 에서 서빙
+console.html                     ← magi-web(7777)이 / 경로에서 서빙
 └── /ui/shell/shell.nocache.js   셸(shell-ui): 레일·마스트헤드·라우팅·모듈 주입
-    ├── /ui/fleet/fleet.nocache.js       화면 모듈 — 필요할 때 셸이 주입
+    ├── /ui/fleet/fleet.nocache.js       화면 모듈 — 필요 시 셸이 동적 주입
     ├── /ui/companion/… (예정)
-    └── window 브리지(console-bridge)    셸↔화면의 유일한 만남
+    └── window 브리지(console-bridge)    셸과 화면 간 유일한 연동 접점
 ```
 
-모듈 열셋. 의존은 `화면 모듈 → console-bridge ← shell-ui` 한 방향이고, 화면끼리는 서로를
-모른다. 마지막 하나(`landing-ui`)는 화면이 아니라 **사이트**다 — 셸 없이 제 주소로 뜨고,
-콘솔 자산에는 실리지 않는다.
+총 13개 모듈로 구성됩니다. 의존성 방향은 `화면 모듈 → console-bridge ← shell-ui` 단방향이며, 개별 화면 모듈 간에는 상호 직접 의존이 존재하지 않습니다. 마지막 모듈(`landing-ui`)은 콘솔 내부 화면이 아닌 **독립 사이트**입니다(셸 없이 자체 URL로 기동되며, 콘솔 배포 자산에는 포함되지 않습니다).
 
-| 모듈 | 무엇 | 산출물 |
+| 모듈 | 설명 | 빌드 산출물 |
 |---|---|---|
-| `console-bridge` | 셸↔화면 계약: 창 브리지(Render·Roster)·와이어 DTO(FleetAgent)·언어 팩(Labels)·HTTP 관용구(Console) | 소스 실린 jar (GWT 라이브러리 규약) |
-| `ui-components` | 공용 위젯 자리 — 지금은 모듈 선언(`UiComponents.gwt.xml`)만 | 소스 실린 jar |
-| `shell-ui` | 셸: 드로어(1단+2단)·마스트헤드·Navigation(Place)·RenderStore·RosterStore·타입 카탈로그(CompanionType)·ScriptModuleLoader | `shell/shell.nocache.js` + console.html + shell.css |
-| ~~`fleet-ui`~~ | 목록 화면이 **컴패니언 목적지의 것**이 되면서 companion-ui로 들어갔다(513e26c6). 디렉토리는 남아 있지만 빌드 표(settings.gradle.kts)에 없다 — 참고용이고, 새 화면의 본은 companion-ui/knowledge-ui다 | — |
-| `companion-ui` | 컴패니언이라는 목적지의 주인 — **목록**과 **상세 레이아웃**(위 사실판·오른쪽 판), 가운데·왼쪽은 자식에게 내준다 | `companion/companion.nocache.js` + companion.css |
-| `coding-agent-ui` | 타입 1(코딩 에이전트)의 자식 UI — 가운데(대화·컴포저)와 왼쪽(워크스페이스: 트리·git) | `coding/coding.nocache.js` + coding.css |
-| `knowledge-ui` | 지식 화면(경험·위키·서버) — 주소 v=skills, 모듈 이름도 skills | `skills/skills.nocache.js` |
-| `board-ui` | 보드 — 문 없는 주소(v=board): 레일은 컴패니언 문, 진입은 플릿의 .toview | `board/board.nocache.js` |
-| `map-ui` | 맵 — 문 없는 주소(v=map): 머신·계정 상자와 오간 것의 와이어 | `map/map.nocache.js` |
-| `access-ui` | 접근 제어(v=access) — 레일의 셋째 문, admin 게이트 | `access/access.nocache.js` |
-| `meeting-ui` | 회의(v=meet) — 방 목록과 방 하나 | `meeting/meeting.nocache.js` |
-| `settings-ui` | 환경설정(v=settings) — 이 브라우저의 것과 데몬이 읽는 것 | `prefs/prefs.nocache.js` |
-| `demo-ui` | **화면이 아니다** — 정적 데모에서만 실리는 목. 경로로 답하고 회선의 이음매에 걸린다 | `demo/demo.nocache.js` (운영 자산에는 없다) |
-| `landing-ui` | **화면이 아니다** — GitHub Pages 의 랜딩 페이지(사이트 뿌리). 셸도 회선도 없고, 브리지에서 드는 것은 이 브라우저가 고른 말(`Prefs`의 `lang`)과 회선(`Console.raw`)뿐이다. 말은 콘솔과 같은 방식으로 **팩**이다 — 다만 제 팩(`i18n/landing.{en,ko}.json`)을 **상대 경로로** 읽는다(프로젝트 사이트 아래라 `/i18n/…` 은 도메인 뿌리로 샌다) | `index.html` + `landing.css` + `i18n/landing.{en,ko}.json` + `landing/landing.nocache.js` (`assembleLanding`, 운영 자산에는 없다) |
+| `console-bridge` | 셸↔화면 연동 규약: 브라우저 창 브리지(Render·Roster), 와이어 DTO(FleetAgent), 언어 팩(Labels), HTTP 유틸리티(Console) | 소스가 포함된 jar (GWT 라이브러리 규약) |
+| `ui-components` | 공용 위젯 저장소 (모듈 선언 `UiComponents.gwt.xml`) | 소스가 포함된 jar |
+| `shell-ui` | 셸: 드로어(1단+2단), 마스트헤드, 라우팅(Place), RenderStore, RosterStore, 타입 카탈로그(CompanionType), ScriptModuleLoader | `shell/shell.nocache.js` + `console.html` + `shell.css` |
+| ~~`fleet-ui`~~ | 목록 화면이 컴패니언 목적지로 통합되어 `companion-ui`로 이관되었습니다(`513e26c6`). 디렉토리는 참고용으로 유지되며 `settings.gradle.kts` 빌드 대상에서는 제외되었습니다. 새 화면 구현의 레퍼런스는 `companion-ui` 및 `knowledge-ui`를 참조합니다. | — |
+| `companion-ui` | 컴패니언 상세 및 목록 화면의 기본 컨테이너 — **목록** 및 **상세 레이아웃**(상단 정보판, 우측 패널)을 제공하고, 중앙 및 좌측 영역은 자식 타입 UI에 위임합니다. | `companion/companion.nocache.js` + `companion.css` |
+| `coding-agent-ui` | 타입 1(코딩 에이전트) 전용 자식 UI — 중앙(대화·컴포저) 및 좌측(워크스페이스: 파일 트리·Git) 영역을 담당합니다. | `coding/coding.nocache.js` + `coding.css` |
+| `knowledge-ui` | 지식 관리 화면(경험·위키·MCP 서버) — URL 파라미터 `v=skills`, 모듈 식별자 `skills` | `skills/skills.nocache.js` |
+| `board-ui` | 작업 보드 — 전용 레일 버튼이 없는 URL(`v=board`): 컴패니언 레일 선택 상태 유지, 진입은 플릿의 `.toview`를 통해 처리 | `board/board.nocache.js` |
+| `map-ui` | 에이전트 토폴로지 맵 — `v=map`: 머신 및 계정 컨테이너 간 상호작용 와이어 시각화 | `map/map.nocache.js` |
+| `access-ui` | 접근 제어(`v=access`) — 레일의 3번째 메뉴, 관리자(admin) 권한 게이트 적용 | `access/access.nocache.js` |
+| `meeting-ui` | 회의실(`v=meet`) — 회의실 목록 및 단일 회의 룸 | `meeting/meeting.nocache.js` |
+| `settings-ui` | 환경설정(`v=settings`) — 브라우저 로컬 설정 및 데몬 구성 관리 | `prefs/prefs.nocache.js` |
+| `demo-ui` | **화면이 아님** — 정적 데모 사이트 전용 mock 계층. 경로별 응답을 처리하고 통신 어댑터에 결합됩니다(운영 자산에는 미포함). | `demo/demo.nocache.js` |
+| `landing-ui` | **화면이 아님** — GitHub Pages 프로젝트 랜딩 페이지. 셸 및 백엔드 의존성이 없으며, 브리지에서 브라우저 언어 설정(`Prefs.lang`)과 저수준 통신(`Console.raw`)만 사용합니다. 독립 언어 팩(`i18n/landing.{en,ko}.json`)을 **상대 경로**로 조회합니다. | `index.html` + `landing.css` + `i18n/landing.{en,ko}.json` + `landing/landing.nocache.js` (`assembleLanding`) |
 
 ## 셸과 화면의 계약 (console-bridge)
 
-계약은 전부 window 전역이다. GWT 모듈은 각자 딴 이름공간으로 컴파일되므로, 만나는 자리는
-창밖에 없다.
+모든 인터페이스 계약은 `window` 전역 객체를 통해 체결됩니다. 개별 GWT 모듈은 서로 독립된 네임스페이스로 컴파일되므로, 런타임 통신은 브라우저 최상위 창(Window) 객체를 공유하는 구조입니다.
 
-- **렌더** (`__magi_render`): 셸이 수신자를 걸고(RenderSharing.register), 화면 모듈이
-  로드 끝에 렌더 — 프레임 엘리먼트를 받아 그리는 함수 — 를 민다(RenderSharing.next).
-  렌더에는 주인이 안 실리므로 셸의 RenderStore가 "지금 로드 중인 목적지"(expect)를
-  주인으로 적고 목적지별로 캐시한다. 재방문은 스크립트 재주입 없이 캐시로 다시 그린다.
-- **명단** (`__magi_roster_subscribe` / `__magi_roster_refresh`): 창당 1스트림 규칙의
-  기전. 셸의 RosterStore가 `/fleet`+`/events`(SSE)의 유일한 소유자로 두 문을 걸고
-  (RosterSharing.host), 화면은 구독만 한다 — 자기 EventSource를 열지 않는다. 셸 없이
-  단독으로 뜬 화면(테스트 페이지)은 hosted()가 거짓이라 제 회선으로 폴백한다.
-- **전사** (`__magi_transcript_subscribe` / `__magi_turn_subscribe`): 컴패니언에 조준된
-  같은 회선의 기본 프레임(전사 행 전체 배열)과 turn 프레임을 셸이 받아 이 문으로 흘린다.
-  전사의 null은 "아직/못 읽음" — 새 컴패니언으로 조준이 옮겨질 때도 null이 먼저 흘러
-  이전 대화가 새 화면에 비치지 않는다.
-- **컨텍스트** (`__magi_companion_subscribe`): 지금 보는 컴패니언(CompanionContext:
-  socket·peer·type). type은 셸이 타입 카탈로그로 이미 해석한 키다 — 화면 모듈은 읽기만.
-- **이동** (`__magi_go` / `__magi_go_view` / `__magi_go_past` / `__magi_go_sub`): 화면이
-  셸에 이동을 청하는 문들 — 컴패니언으로(플릿의 행), 카탈로그 화면으로(플릿의 .toview),
-  지난 일 층위로(?past= — null=지금 대화, ""=목록, 값=그 세션), 그리고 자식 하나로
-  (?sub=<id> — 그 컴패니언이 낳은 아이의 전사). 지난 일과 자식은 **같은 자리**를 대신하고
-  함께 서지 않는다. 주소(pushState)는 셸의 것이라 화면이 만지지 않는다.
-- **HTTP**: Console.fetchList는 거부(HTTP 에러)·불통·깨진 본문을 전부 null로 접되
-  console.warn에 원문을 남기고, Console.post는 대상을 `?d=<socket>&p=<peer>`로 지목한다
-  (성공=빈 문자열, 거부=사유). 기존 page.js의 fetchList/post 이식이다.
-- **말** (`__magi_labels` / `__magi_labels_stream` / `__magi_labels_v`): Labels — 기존
-  콘솔과 같은 `/i18n/language.{en,ko}.json`.
-  팩도 창에 하나다: 먼저 읽은 모듈이 창에 올리고 뒤에 오는 모듈은 그것을 든다. 이게
-  없으면 **모듈 수만큼** 받는다(static은 모듈마다다) — 게다가 렌더는 마운트마다 불려서
-  이동할 때마다 한 번씩 더 샜다(실측: 부팅 2회 + 이동마다 1회 → 지금 창당 1회). tr()은 키 폴백("번역
-  빠짐"이 보이게), stateWord()는 원어 상태어 폴백(행에 "state.gone"을 안 적으려고).
-  팩은 **흐름**이다(운영 labels$과 같은 계약): 화면이 `Labels.onPack(this::render)` 한 줄로
-  듣고, 사람이 언어를 갈면 그 자리에서 다시 칠한다. 모듈마다 제 사본을 들고 있어서
-  갈렸다는 사실은 창이 센다(`__magi_labels_v`) — 이게 없으면 이미 한 번 읽은 모듈이 옛말을
-  계속 든다(실측: 설정 화면만 한국어가 되고 마스트헤드·레일은 영어였다). 고른 언어는
-  운영과 같은 자리(localStorage `lang`)에서 읽고, 팩이 아닌 것(배열·오류 페이지)은 앉히지
-  않으며, 못 읽으면 영어로 물러선다.
-- **와이어**: FleetAgent — `/fleet` 행의 JsType DTO. 필드명은 `internal/adapter/fleet`의
-  json 태그와 일대일이고, omitempty 필드는 JS에서 undefined라 읽는 쪽이 가드를 진다.
+- **렌더 등록 (`__magi_render`)**: 셸이 수신 리스너를 등록하고(`RenderSharing.register`), 화면 모듈이 스크립트 로드 완료 시 프레임 엘리먼트를 수신하여 렌더링하는 함수를 전달합니다(`RenderSharing.next`). 렌더 함수에는 식별자가 직접 포함되지 않으므로, 셸의 `RenderStore`가 "현재 로드 중인 대상(`expect`)"을 소유자로 매핑하여 목적지별로 캐싱합니다. 재방문 시에는 추가 스크립트 주입 없이 캐시된 렌더러로 즉시 재출력합니다.
+- **명단 동기화 (`__magi_roster_subscribe` / `__magi_roster_refresh`)**: 창당 단일 스트림 원칙을 준수합니다. 셸의 `RosterStore`가 `/fleet` 및 `/events`(SSE) 연결의 유일한 소유자로서 두 인터페이스를 호스팅하고(`RosterSharing.host`), 각 화면은 이를 구독하기만 합니다(개별 화면이 독자적인 `EventSource`를 생성하지 않습니다). 셸 없이 독립 실행되는 테스트 페이지 환경에서는 `hosted()`가 false를 반환하여 자체 통신 회선으로 폴백합니다.
+- **전사 로그 (`__magi_transcript_subscribe` / `__magi_turn_subscribe`)**: 선택된 컴패니언에 대한 전사 레코드 전체 배열 및 턴(turn) 이벤트 스트림을 셸이 수신하여 브리지 채널로 중계합니다. 전사 데이터가 `null`인 경우는 "미수신 또는 읽기 실패"를 나타내며, 새 컴패니언으로 전환될 때도 `null`이 선행 송출되어 이전 대화 내용이 새 화면에 잔상으로 남지 않도록 보장합니다.
+- **컨텍스트 (`__magi_companion_subscribe`)**: 현재 활성화된 컴패니언 정보(`CompanionContext`: socket, peer, type)를 전달합니다. `type` 속성은 셸이 타입 카탈로그를 통해 사전 해석한 결과 키이며, 화면 모듈은 이를 읽기 전용으로 소비합니다.
+- **화면 이동 (`__magi_go` / `__magi_go_view` / `__magi_go_past` / `__magi_go_sub`)**: 화면 모듈이 셸에 URL 및 뷰 전환을 요청하는 인터페이스입니다. 컴패니언 전환(플릿 행 선택), 카탈로그 뷰 전환(플릿 `.toview`), 과거 세션 이력 층위(`?past=` — null은 현재 대화, 빈 문자열은 목록, 특정 ID는 해당 세션), 서브에이전트 단일 뷰(`?sub=<id>`) 요청을 지원합니다. 브라우저 히스토리(`pushState`) 조작 권한은 셸이 독점하며 하위 화면은 직접 변경하지 않습니다.
+- **HTTP 통신**: `Console.fetchList`는 HTTP 오류, 연결 두절, 본문 손상 시 모두 `null`로 안전하게 폴백하면서 `console.warn`에 진단 로그를 기록합니다. `Console.post`는 대상을 `?d=<socket>&p=<peer>` 쿼리로 지정하여 호출합니다.
+- **다국어 레이블 (`__magi_labels` / `__magi_labels_stream` / `__magi_labels_v`)**: `/i18n/language.{en,ko}.json` 리소스를 관리합니다. 브라우저 창 내에서 단일 팩으로 관리되어 최초 로드 모듈이 창 객체에 등록하고 후속 모듈은 이를 재사용함으로써 중복 다운로드를 방지합니다. 언어 변경 시 `__magi_labels_v` 버전 카운터를 증가시켜 모든 화면 모듈이 즉시 새 언어로 리렌더링되도록 처리합니다. 누락된 키는 키 자체를 폴백으로 노출(`tr()`)하여 즉시 결함을 확인할 수 있도록 설계되었습니다.
+- **와이어 모델**: `FleetAgent`는 `/fleet` 응답의 JsType DTO입니다. 필드명은 백엔드 Go 구조체(`internal/adapter/fleet`)의 JSON 태그와 일대일로 일치하며, 누락 가능한 필드는 JavaScript 환경에서 `undefined`로 전달되므로 프론트엔드 수신부에서 가드 처리를 수행합니다.
 
 ## 셸의 흐름
 
-주소가 원본이다. 카탈로그 화면은 `?v=<id>`, 컴패니언은 `?d=<socket>`(&p=) — 기존
-콘솔의 그 주소라 옛 링크가 같은 곳에 닿는다. Navigation이 이를 Place(어느 문 + 어느
-컴패니언)로 읽고, 문 클릭·행 클릭·뒤로가기가 같은 settle로 모인다. ShellInitializer는:
-레일 select(컴패니언이어도 그 문이 켜져 있다) → 스트림 조준(RosterStore.aim: 전사·턴이
-같은 회선에 실리고 컨텍스트가 흐른다) → 모듈 결정: 카탈로그 화면이면 목적지 id,
-컴패니언이면 **타입 카탈로그**(CompanionType: 명단 행의 type 선언, 무선언·미지는 1 =
-코딩 에이전트 = companion-ui — 빈 화면 금지) → RenderStore 캐시 조회 → 없으면 expect +
-ModuleLoader.ensure(`/ui/<name>/<name>.nocache.js`, 모듈당 한 번) → 렌더를 프레임에
-mount. 경로는 `/ui/` 절대다 — 상대경로는 프록시(BFF)로 새 나간다(관통 때 실측한 결함).
-새 타입 = CompanionType 한 줄 + 오퍼레이터가 설치한 모듈 하나(디자인·인프라 관리·
-리서처가 후보로 이름만 있다).
+모든 상태의 원본은 URL 주소입니다. 카탈로그 화면은 `?v=<id>`, 컴패니언 상세는 `?d=<socket>`(&p=) 형태로 표현되며, 기존 콘솔과의 하위 호환성을 유지합니다. `Navigation`이 이를 `Place`(목적지 메뉴 + 대상 컴패니언)로 파싱하며, 메뉴 클릭, 행 클릭, 브라우저 뒤로가기 이벤트가 동일한 `settle` 처리 파이프라인으로 수렴합니다. `ShellInitializer`의 동작 흐름은 다음과 같습니다:
 
-드로어는 메뉴 레일+툴 레일(handbook의 번역)이다. **메뉴 레일**이 목적지 전부(컴패니언
-포함)의 집이고, 열리면 라벨·문장도 메뉴 레일이 말한다 — 개폐는 운영 콘솔과 같은
-2속성(nav=open 폭 + nav-wide 모양, 닫힘은 모양이 250ms 늦게): console.css의 펼친
-배치가 nav-wide를 읽는다. **툴 레일**은
-도구가 2개 이상인 문에서만 선다 — 속이 비면 펼쳐지지 않는다(handbook 규칙): 접힌
-드로어에선 메뉴 기둥을 **대신해** 기둥이 되고(아이콘, 손끝이 레일 위면 라벨 피크, 첫
-항목 ←는 메뉴 레일로 복귀 — 선택 유지), 열린 드로어에선 1단 오른쪽의 둘째 기둥이다.
-규칙은 domain/RailModes(순수 — JVM 테스트), 사실 수집은 usecase/RailMode, 결과는
-#rail의 menu/tool 속성으로 적혀 shell.css가 읽는다. 도구는 usecase/ToolList.provide로
-문별 등록 — **아직 부르는 곳이 없다**(용례 대기): 오늘의 화면은 메뉴 기둥뿐이다.
-마스트헤드와 레일 배지는 RosterStore에서 읽는다 — 그리는 곳이 늘어도 요청은 늘지 않는다.
+1. **레일 선택**: 컴패니언 상세 화면이어도 해당 상위 메뉴 선택 상태를 유지합니다.
+2. **스트림 조준 (`RosterStore.aim`)**: 전사 및 턴 이벤트가 동일 회선에 결합되어 컨텍스트 스트림을 송출합니다.
+3. **모듈 결정**: 카탈로그 화면이면 목적지 id, 컴패니언 화면이면 **타입 카탈로그**(`CompanionType`: 명단 행의 type 선언, 미지정 시 1 = 코딩 에이전트 = `companion-ui`)를 조회합니다.
+4. **RenderStore 캐시 조회**: 캐시 미적중 시 `expect` 설정 후 `ModuleLoader.ensure("/ui/<name>/<name>.nocache.js")`를 모듈당 1회 수행합니다.
+5. **렌더 마운트**: 수신된 렌더 함수를 메인 프레임에 마운트합니다. 모듈 경로는 `/ui/` 절대 경로를 사용하여 프록시 환경의 경로 왜곡을 방지합니다.
+
+드로어는 **메뉴 레일**과 **툴 레일**로 나뉩니다:
+- **메뉴 레일**: 모든 목적지 메뉴의 기본 컨테이너이며, 드로어가 펼쳐지면 레이블과 텍스트를 함께 표시합니다. 개폐 상태는 2개 속성(`nav=open` 폭, `nav-wide` 시각 스타일 — 닫힐 때는 250ms 딜레이 적용)으로 제어되어 `console.css`와 정확히 연동됩니다.
+- **툴 레일**: 활성 도구가 2개 이상인 메뉴에서만 동적으로 활성화되며, 비어 있는 상태에서는 펼쳐지지 않습니다. 접힌 상태에서는 기본 메뉴 기둥을 대체(아이콘, 마우스 오버 시 레이블 피크, 상단 복귀 버튼)하고, 열린 상태에서는 1단 레일 우측의 보조 기둥으로 배치됩니다.
 
 ## 클린 아키텍처 규칙 (모든 화면 모듈 공통)
 
-`interfaces → usecase → domain` 한 방향. knowledge-ui가 한 화면의 레퍼런스이고(포트 하나·
-스토어 하나·판 셋), companion-ui는 목적지의 주인이 어떻게 자식에게 자리를 내주는지의 본이다.
+의존성 규칙은 `interfaces → usecase → domain` 단방향을 엄격히 준수합니다. `knowledge-ui`는 단일 화면의 표준 레퍼런스(단일 포트, 단일 스토어, 3개 패널 구조)이며, `companion-ui`는 컨테이너 모듈이 자식 타입 모듈에 슬롯을 위임하는 레퍼런스 모델입니다.
 
-- `client/domain` — 순수 규칙, DOM 무지. JVM 단위 테스트가 여기 붙는다. 단, 테스트
-  파일은 `client/` 밖(`dev/sayaya/magi/domain/`)에 둔다: client/ 안은 GWT source path라
-  gwtCompile이 JUnit까지 컴파일하려 든다.
-- `client/usecase` — 포트와 스토어. 스토어는 **흐름 그 자체**다(handbook의 그 관용구:
-  `@Delegate BehaviorSubject`): 구독하면 지금 값이 즉시 오고, 같은 값이 두 번 오는 일은
-  스토어에서 끊는다. "무언가 달라졌다"만 나르던 여덟은 공용 밑감 하나로 모았다
-  (`bridge/Told`). RxJS는 창의 `rxjs`를 쓰고(페이지가 셸보다 먼저 올린다), 그 바인딩은
-  dev.sayaya.rx다.
-- **조각을 내려보낸다.** 큰 스토어가 전부를 흘리면 받는 판마다 "내 것이 바뀌었나"를 제
-  손으로 따져야 하고, 한 곳이라도 빠뜨리면 아무 소식 없는 판이 초당 한 번 다시 선다.
-  그래서 스토어가 잘라서 내려보낸다: `RosterStore.of(socket, peer)`(그 컴패니언의 행),
-  `CompanionStore.aimed()`·`alive()`, `WorkspaceStore.treeFacts()`·`gitFacts()`,
-  `Told.when(그리는 것)`. 비교에서 **도는 숫자는 뺀다** — 매 초 달라지는 값을 넣으면
-  "바뀌었다"가 늘 참이라 거른다는 말에 뜻이 없다(실측: 사실판이 12초에 1402번 →
-  0번, 전사 49번 → 7번, 지도 70 → 8, 우측 판 30 → 0).
-- `client/interfaces` — DOM과 HTTP 어댑터. 마크업의 id·클래스는 기존 page.js와 동일하게
-  간다 — console.css가 읽는 계약이다.
-- Dagger가 포트에 구현을 묶고(FleetModule), 테스트는 같은 자리에 페이크를 묶는다
-  (FleetTestModule). HTTP 목 없이 화면을 검증할 수 있는 이유다.
+- `client/domain` — 순수 비즈니스 규칙을 다루며 DOM에 의존하지 않습니다. JVM 단위 테스트가 결합되는 계층이며, 테스트 코드는 GWT 컴파일 경로(`client/`) 밖인 `dev/sayaya/magi/domain/`에 배치합니다.
+- `client/usecase` — 포트 인터페이스 및 스토어 구현을 담당합니다. 스토어는 상태 스트림(`@Delegate BehaviorSubject`)으로 동작하며, 구독 즉시 최신 상태를 방출하고 동일한 상태의 중복 송출을 차단합니다.
+- **슬라이스 단위 상태 송출**: 거대 스토어가 전체 상태를 매번 브로드캐스트하면 하위 뷰에서 불필요한 렌더링이 발생합니다. 따라서 스토어는 세분화된 슬라이스 단위로 데이터를 공급합니다(`RosterStore.of(socket, peer)`, `CompanionStore.aimed()`, `alive()`, `WorkspaceStore.treeFacts()`, `gitFacts()`). 상태 비교 시 매초 변하는 유휴 시간 카운터는 제외하여 불필요한 리렌더링 폭증을 방지합니다.
+- `client/interfaces` — DOM 조작 및 HTTP 어댑터를 처리합니다. 마크업의 id 및 class 속성은 기존 스타일 규약(`console.css`)을 엄격히 따릅니다.
+- Dagger 바인딩: 운영 환경에서는 `FleetModule`이 포트에 구현체를 바인딩하고, 테스트 환경에서는 `FleetTestModule`이 mock/fake 객체를 바인딩하여 HTTP 네트워크 모의 없이 순수 화면 로직을 검증합니다.
 
 ## 화면 하나 이식하기
 
-1. 모듈 디렉토리 + `<Name>.gwt.xml`을 만들고(빌드 스크립트는 모듈에 두지 않는다 — 루트 표에 한 줄)
-   `settings.gradle.kts`에 include.
-2. domain → usecase → interfaces 순으로 이식한다. 마크업 id·클래스는 기존 콘솔 그대로.
-3. EntryPoint에서 RenderSharing.next로 렌더를 등록한다 — 프레임을 받아 Labels.load 뒤
-   mount하는 함수(FleetApplication 참조).
-4. 문을 단다: Destination.doors()/all()에 한 줄(문 없는 주소는 all()에만, `section()`이
-   레일의 문을 답한다). 능력이 필요한 문은 `may`를 달면 셸의 MayStore가 접는다 —
-   게이트는 늘 서버가 지고, 이건 눌러서 거절에 닿는 문을 없애는 것뿐이다 — 아이콘 패스는 기존 콘솔의 그 드로잉. 문은
-   이식이 끝난 화면에만 단다. 빈 화면으로 가는 문은 없는 문보다 나쁘다.
-5. 테스트: 도메인 JVM 단위 + Playwright 브라우저 스펙(kotest GwtTestSpec, 전용 테스트
-   html). webPort는 모듈마다 하나씩 — fleet 18090, shell 18091, companion 18092, knowledge
-   18093, board 18094, map 18095, access 18096, 다음은 18097.
-   **화면 동작은 여기서 잰다** — 목을 상대로, 결정적으로, 화면 옆에서. `clients/web/e2e`는
-   목에게 못 묻는 것만 맡는다(회선을 몇 번 썼나, 누른 것이 데몬에 닿았나, 데몬이 실제로 실은
-   값인가, 합쳐 놓은 한 벌에서 이 화면이 서나).
-6. 타입 전용 UI라면 문 대신 카탈로그다: Destination이 아니라 CompanionType에 한 줄 —
-   화면 계약은 같다(렌더 등록 + CompanionContext·전사·턴 구독). companion-ui가 레퍼런스.
-7. `../README.md` 대조표의 그 행을 갱신한다.
+1. 모듈 디렉토리와 `<Name>.gwt.xml`을 생성하고, `settings.gradle.kts`에 모듈을 추가합니다.
+2. `domain → usecase → interfaces` 순서로 구현을 진행하며, 마크업 구조는 기존 CSS 계약과 동일하게 유지합니다.
+3. `EntryPoint`에서 `RenderSharing.next`로 렌더링 함수를 등록합니다.
+4. `Destination.doors()` 및 `all()`에 라우트 진입점을 추가합니다. 권한이 필요한 경우 `may` 제약을 지정하여 게이트웨이 정책에 따라 메뉴 표시를 제어합니다.
+5. 테스트 구성: 도메인 계층 JVM 단위 테스트와 Playwright 기반 브라우저 스펙(`GwtTestSpec`, 독립 테스트 포트 할당: 18090~)을 작성하여 화면 동작을 검증합니다.
+6. 타입 전용 UI인 경우 `CompanionType` 카탈로그에 신규 타입을 등록합니다.
+7. 상위 `../README.md` 대조표의 해당 항목을 갱신합니다.
 
 ## 스타일 원칙: 기능은 늘려도 모양은 운영을 따른다
 
-**대조는 눈이 아니라 수치로.** `scratchpad/cssdiff*.mjs`가 두 콘솔을 같은 뷰포트로 열어
-계산 스타일과 rect를 항목별로 비교한다(커서·배지 부모/좌표·그리드·여백·아이콘 렌더 방식).
-이 방식으로 잡은 실제 결함 넷: 행의 href 소실(커서가 default였다), 배지가 열린 드로어에서
-재부모화되지 않음, `--dock` 미설정으로 main 하단 여백 160px(운영 32px), 요약 칩의 상태
-마크 부재. 눈으로는 "비슷해 보였다".
+스타일 정합성은 시각적 육안 검사가 아닌 **수치 실측(`scratchpad/cssdiff*.mjs`)**으로 검증합니다. 두 콘솔을 동일한 뷰포트 크기로 띄워 계산된 CSS 스타일(`getComputedStyle`) 및 엘리먼트 경계 사각형(`getBoundingClientRect`)을 전수 비교합니다.
 
-새 구조물이라도 스타일은 운영 콘솔의 것부터 쓴다 — 같은 일을 하는 요소는 운영의
-id·클래스 계약을 그대로 입어(console.css가 공짜로 입힌다: 전사 .row/.txt, 컴포저
-.composer+#t, 턴바 #turnwrap/#turnbar/#turnfor, 레일 .raili), 정말 새로운 뼈대만 모듈
-css에 적되 토큰(--magi-ref-*·--magi-sys-*·--md-sys-typescale-*)으로만 조립한다.
-새 색·새 그림자·새 애니메이션을 지어내지 않는다 — 컷오버 때 두 콘솔이 같아 보여야
-대조가 성립한다.
+신규 컴포넌트를 구현할 때도 기존 운영 콘솔의 클래스 및 id 네이밍 계약을 최우선으로 재사용하며, 고유한 구조가 필요한 경우에만 디자인 시스템 CSS 토큰(`--magi-ref-*`, `--magi-sys-*`, `--md-sys-typescale-*`)을 조합하여 정의합니다.
 
-## 아이콘: 굽는 곳은 하나, 빌려 쓰는 곳은 둘
+## 아이콘 관리 원칙
 
-그림(Font Awesome Pro)은 라이선스상 파일로 재배포하지 않으므로 구 콘솔이 빌드 타임에
-페이지 안에 굽는다(`icons.go`의 `#isprite`). 새 콘솔은 제 사본을 만들지 않고 부팅 때 그
-페이지에서 한 번 가져와 문서에 심는다(`Icons.borrow` — 개발 서버에선 `/`, 정적 데모에선
-`../`). 그 뒤 `Icons.dress`가 `data-i`를 단 도형을 스프라이트 그림으로 갈아입히고,
-`Icons.of/orGlyph`가 새로 그리는 자리에서 같은 규칙을 쓴다. **스프라이트가 없는 빌드도
-정상**이다 — 그때는 늘 그리던 제 도형이 남는다(운영 `icon()`의 그 계약).
+폰트 어썸 프로(Font Awesome Pro) 자산은 라이선스 제약으로 인해 독립 파일로 배포하지 않으며, 빌드 타임에 인라인 SVG 스프라이트 형태로 임베드됩니다(`icons.go`의 `#isprite`). 새 콘솔은 런타임 초기화 시점에 호스트 페이지의 스프라이트를 참조(`Icons.borrow`)하여 렌더링합니다. 스프라이트가 미포함된 빌드 환경에서도 깨짐 없이 기본 내장 벡터 도형으로 안전하게 폴백(`Icons.shape`)하도록 보장합니다.
 
 ## 단일 원천 복사 (스냅샷 드리프트 없음)
 
-기존 콘솔과 새 콘솔이 다른 팔레트·다른 번들을 갖는 순간 대조가 무의미해지므로, 아래는
-빌드마다 원천에서 복사한다:
+두 구현체 간 팔레트 및 라이브러리 버전 불일치로 인한 드리프트를 방지하기 위해 다음 핵심 자산은 빌드 시마다 단일 원천에서 동기화 복사됩니다:
 
-| 무엇 | 원천 | 어디로 |
+| 자산명 | 단일 원천 경로 | 배포 대상 경로 |
 |---|---|---|
-| console.css | `clients/web/server/page.css` | assembleConsole → `build/console/` · 각 테스트 webapp `css/` |
-| material.js | `clients/web/server/vendor/material.js` | 테스트 webapp `js/` (프로덕션은 BFF `/vendor/` 프록시 — 두 콘솔이 한 번들) |
-| rxjs.js | `clients/web/server/vendor/rxjs.js` | 테스트 webapp `js/` · 데모 `vendor/` (스토어가 그 위에 산다 — 페이지가 셸보다 먼저 `window.rxjs`에 올린다) |
-| shell.css | `shell-ui/src/main/webapp/shell.css` (원천이 여기) | assembleConsole · 테스트 webapp `css/` |
-| companion.css | `companion-ui/src/main/webapp/companion.css` (원천이 여기 — 모듈이 스스로 <link>를 단다) | assembleConsole · 테스트 webapp `css/` |
+| `console.css` | `clients/web/server/page.css` | `assembleConsole` → `build/console/`, 각 테스트 webapp `css/` |
+| `material.js` | `clients/web/server/vendor/material.js` | 테스트 webapp `js/` (운영 환경은 BFF `/vendor/` 서빙) |
+| `rxjs.js` | `clients/web/server/vendor/rxjs.js` | 테스트 webapp `js/`, 데모 `vendor/` |
+| `shell.css` | `shell-ui/src/main/webapp/shell.css` | `assembleConsole`, 테스트 webapp `css/` |
+| `companion.css` | `companion-ui/src/main/webapp/companion.css` | `assembleConsole`, 테스트 webapp `css/` |
 
-assembleConsole은 모든 모듈의 `src/main/webapp`을 함께 나른다 — 화면 모듈 자신의
-자산(css)은 제 모듈에 둔다. 그래서 `src/test/webapp/` 아래 `js/`·`css/`와 GWT 컴파일
-산출 디렉토리(`fleet/`·`fleettest/`·`shell/`·`shelltest/`·`companion/`…)는 전부
-생성물이고 gitignore다. 거기서 소스는
-테스트 페이지 html뿐이다.
-
-## 정적 데모 (Pages의 사이트 루트)
-
-`go run ./clients/web/server -console build/console -emit-demo <dir>` — 조립된 콘솔을 자답(自答)
-정적 사이트로 쓴다(리포지토리 루트에서: `-console clients/web/ui/build/console`).
-
-목은 **화면이 아니라 회선의 이음매**에 걸린다. 모듈마다 `Demo*Source`를 싣던 방식(11개,
-1193줄)은 운영 번들에 데모를 함께 실었고, 화면이 실제로 쓰는 회선 코드(경로 조립·스트림
-열기·프레임 파싱·쓰기)는 데모에서 한 번도 돌지 않았다. 지금은 `demo-ui` 모듈 하나가
-경로로 답하고 `Console.raw`/`Console.stream`이 그 답을 건넨다(프록시). 화면 모듈은 살아
-있는 소스 하나만 갖고 데모를 모른다.
-
-`window.fetch`를 갈아끼우지 않는 이유는 그대로다: GWT 모듈은 제 프레임에서 돌아 그
-프레임의 fetch를 쓴다 — 페이지가 제 창의 것을 갈아도 닿지 않는다. 창을 건너는 것은
-**속성**이라(DomGlobal.window는 호스트 창) 목을 그 자리에 걸어 둔다.
-
-밟은 함정 셋(전부 실측): elemental2의 `EventListener`는 @JsFunction이 아니라 native
-@JsType이라 자바 람다가 **객체로** 건너온다 — `handleEvent`를 떼어내 부르면 this가 사라진다.
-흉내 낸 평범한 객체 대신 **진짜 MessageEvent**를 건네야 한다. 그리고 목은 회선보다 빨라선
-안 된다 — 같은 틱에 알리면 아직 마운트되지 않은 화면에 말을 건다(50ms 뒤에 연다).
-
-빌드가 갈라 놓는다: `assembleConsole`은 `demo/**`를 빼고(운영 자산에 데모는 없다),
-`assembleDemoMock`이 목만 따로 싣고, `-emit-demo`가 그것을 페이지 옆에 놓고 **먼저**
-로드한다(페이지가 `window.__magi_demo_mock`을 기다린다). 회귀 가드는
-`TestTheMockAnswersEveryPathTheScreensAsk` — 화면이 부르는 모든 경로를 목이 답하는지 본다.
-
-루트절대 자산 경로(/ui/·/vendor/)는 상대로 고쳐 하위 경로에서도 산다 — 구콘솔 demo.go에서
-물려받은 수법이고, 데모가 사이트 루트로 옮겨 온 지금도 남긴다(하위 경로에 얹을 수 있다는
-성질이 없어질 이유가 없다). CI에선 `.github/actions/pages-site`(복합 액션)가 데모(루트)와
-벤치 보고서(`bench/`)를 한 사이트로 짓고, pages.yml(코어 변경)과 test-web.yml(웹 변경)이
-같은 조리법을 쓴다 — deploy-pages는 사이트를 통째로 갈아끼우므로 누가 내보내든 전부를
-내보낸다.
-
-## 부모가 진다 — 자식이 지켜야 할 계약을 줄이는 것이 이 층의 일
-
-층이 셋이다(셸 → 컴패니언 패널 → 타입 UI). 아래층이 화면을 그리려고 **알아야 하는 것**은
-위층이 하나씩 걷어 간다. 잊으면 조용히 어긋나는 것들이라서다:
-
-| 무엇 | 누가 지는가 | 자식에게 시켰다면 |
-|---|---|---|
-| 언어 팩이 도착한 뒤에 그리기 | 부르는 쪽(`FrameElement.mount`) | 잊은 화면이 `field.facts`를 그대로 그린다(실측) |
-| 그 팩을 제 모듈에 들이기 | `Labels.tr()`이 스스로 창에서 든다 | 모듈마다 static이 따로라 부모가 들여도 자식은 빈손 |
-| 스타일시트 걸기 | 스크립트를 들이는 쪽(`ModuleLoader.ensure(module, styles)`) | 잊은 화면이 민얼굴로 뜬다 |
-| 기둥 여닫이·도크·`--dock` 실측 | 컴패니언 패널(`Arrangement`) | 자식이 `body[files]`와 창 바닥 상자를 알아야 한다 |
-| 자리의 옷(id·격자·높이) | 부모가 입혀서 건넨다 | 자식이 운영 CSS의 이름 계약을 외워야 한다 |
-| 그 컴패니언의 행이 바뀌었나 | 스토어가 조각을 잘라 준다(`aimed()`·`drawn()`) | 판마다 제 서명을 손으로 쓰고, 하나 빠뜨리면 초당 한 번 다시 선다(실측 1402회) |
-| 나이가 흐르나 | 창에 하나뿐인 시계(`component.Ages`) | 나이 칸이 프레임에 매달려, 아무 일도 없는 동안 — 볼 이유가 있는 바로 그동안 — 얼어붙는다(실측) |
-| 낱말이 갈렸나 | 팩이 흐름이다(`Labels.onPack`) | 마운트 때 한 번 읽고 언어를 갈아도 옛말을 든다(실측: 설정만 바뀌었다) |
-| 뒤에 데몬이 없을 때 답하기 | 회선의 이음매(`demo-ui`) | 화면마다 목을 싣고, 운영 번들이 데모를 함께 나른다(1193줄) |
-
-선언은 **카탈로그**에 있다: `Destination.styles`(화면), `CompanionType.styles`(타입 UI).
-자식 코드에는 그 이름이 하나도 없다.
-
-## 나이는 창의 시계로 센다 (운영과 어긋나게 고친 첫 자리)
-
-명단 프레임은 쉰 시간을 **초**로 싣는다. 그래서 그 바이트는 아무 일이 없어도 매초 달라지고,
-서버는 그 프레임을 일부러 보내지 않는다 — 프레임을 가르는 열쇠에서 `Idle`만 빠져 있고
-(`clients/web/server/main.go`의 `fleetKey`), 거기 적힌 계약이 그 절반을 화면에 맡긴다:
-
-> The counter is drawn from the row when it lands and ticks on the page's own clock.
-
-**그 시계가 어느 콘솔에도 없었다.** 이 콘솔에는 `setInterval`이 셋뿐이었고(데모 티커, 회의
-스토어 폴, 턴 바) 그중 무엇도 나이 칸에 닿지 않았다. 운영도 마찬가지다 — `page.js`의 유일한
-`setInterval`은 턴 바이고, `cardSig`는 `a.idle`을 넣어 두었지만 그 프레임이 오지 않는다.
-
-값이 가장 필요한 자리에서 값이 얼었다는 것이 이 결함의 모양이다. 일을 마치고 쉬러 들어간 행은
-그 순간 **상태가 바뀌어** 프레임을 한 번 받고, 그 프레임의 쉰 시간은 0에 가깝다. 세 시간을
-놀아도 화면은 "방금"이라고 적는다. 나이를 보는 이유가 곧 아무 일도 안 일어났다는 것인데,
-"다음 진짜 변화 때 다시 그린다"는 그 자리에서만 오지 않는다.
-
-얼어 있던 자리 넷: 카드의 나이 칸, 상세판의 `field.last_activity`, 맵의 노드 나이, 그리고 맵의
-"소식 없음" 문장. 문은 **영**이었다.
-
-고친 자리는 프레임이 아니라 슬롯이다(`ui-components`의 `component.Ages`, `bridge.Tips`와 같은
-모양 — 화면은 속성만 적고 그리는 것은 창이 한다):
-
-- 낱말을 이고 있는 요소가 `data-since`에 **마지막 소식의 순간**을 진다. 프레임이 싣는 것이
-  타임스탬프가 아니라 초라서 이 환산이 가능하다 — 데몬 시계와 브라우저 시계가 합의할 필요가
-  없다(턴 바가 이미 같은 이유로 같은 일을 한다).
-- 창에 하나뿐인 1초 시계가 `[data-since]`를 걸어 다니며 글자만 고쳐 쓴다. **낱말이 달라질
-  때만** 쓴다(`textContent`는 글자 노드를 갈아치우므로, 같은 말을 다시 쓰는 것은 무동작이
-  아니다 — 관찰자와 스크린리더에는 매번 새 일이다).
-- 나이를 인 자리가 하나도 없으면 시계는 스스로 선다. 탭 수명만큼 도는 타이머는 아무도 보지
-  않는 일을 위한 웨이크업이다.
-- 문장 **안에** 든 나이는 감싸는 키까지 걸어 둔다(`Ages.in(el, sec, "map.unseen", "ago")`).
-
-이래야 **서명에서 쉰 시간을 빼는 것이 옳아진다.** 카드 서명과 스토어의 `same()`은 매초 달라지는
-값을 넣으면 거르는 뜻이 없어져서 뺐는데, 시계가 없는 동안 그 뺌은 거르기가 아니라 멈춤이었다.
-지금은 서 있던 노드를 그대로 두는 것과 그 노드의 나이가 흐르는 것이 함께 참이다 — 스펙이 그
-둘을 한 자리에서 잰다(행에 표를 꽂아 두고, 나이가 자란 뒤에도 그 표가 붙어 있는지 본다).
-
-## 컴패니언 화면의 뼈대는 운영 콘솔의 이름이다
-
-`#agentview` · `#filecol` · `#stream` · `#sidecol` · `#dock .bay` — 새 이름을 지었더니
-console.css의 배치 기계가 통째로 비켜갔다(실측: 1024px 창에서 대화 224px, 전사는 4천 픽셀로
-자라 잘림, 컴포저는 페이지와 함께 흘러감). 규칙 셋이 그 이름에 걸려 있다:
-
-- `body[at=agent] main { height:calc(100dvh - shelltop) }` → 기둥이 창 높이에 물리고 전사만
-  스크롤한다. 그래서 셸은 마스트헤드 높이를 실측해 `--magi-comp-shelltop`에 넣는다.
-- `body[files|side]=shut` → 그 기둥의 폭이 **0**이다. 기본이 닫힘이라 처음 온 사람에게 이
-  화면은 대화다. 손잡이는 마스트헤드에 선다(`ChromeSharing` — 셸이 자리를 내주고 화면이 민다).
-- `#dock .bay` → 컴포저는 창 바닥의 고정 상자 안이고, 그 높이가 `--dock`으로 본문 바닥이 된다.
-
-자식은 이 중 무엇도 모른다. 부모가 `display:contents` 껍데기(`.cfill`)로 자리를 건네므로,
-자식이 넣은 것이 곧 기둥의 직계가 된다 — 사이에 상자가 하나라도 끼면 높이 사슬이 거기서 끊긴다.
-
-## 브라우저로 재는 것 (scratchpad/uitest)
-
-단위·모듈 테스트가 초록인데도 브라우저에서만 드러나는 것들이 있다 — 실제로 이렇게 잡았다:
-폰에서 컴패니언 화면의 **유일한 출구가 사라진 것**(크럼의 .up/.leaf 미표시), 폰에서
-**사실판·워크스페이스에 닿을 길이 없던 것**(판 탭 부재), 데모의 404 셋(글꼴·/console·
-/context), 좁은 열에서 뭉개진 컨트롤.
-
-다섯 라운드를 돌린다(`node scratchpad/uitest/<이름>.mjs`, 데스크톱 1500×950과 폰 390×844):
-
-| 라운드 | 무엇을 재나 |
-|---|---|
-| `round` | 화면마다 한 바퀴 — 목록·지식·보드·맵·접근·상세·이력, 가로 오버플로 0, 폰 탭 |
-| `deep` | 상호작용 — 필터·행→상세·크럼·뒤로가기·사실판 접기·워크스페이스 쓰기(실데몬) |
-| `soak` | 오래 켜 둔 화면 — 화면을 돌고 와도 한 벌씩만 그려지는가, 스트림이 화면을 갉지 않는가 |
-| `a11y` | 이름 없는 아이콘 컨트롤 0, 제목 존재, 흐린 글씨 3:1, 라이트·다크 |
-| `demo` | 정적 데모에서 쓰기까지 — 다이얼로그·라벨 좁히기·능력 필터·스테이지 |
-
-그리고 **두 콘솔을 나란히 놓고 수치로 견주는** 라운드가 하나 더 있다. 눈으로 "비슷"한
-것들이 여기서 갈렸다: `widths`(7화면 × 8폭의 자리), `controls`(보이는 컨트롤의 이름),
-`iconsweep`(버튼마다 어느 그림), `demodiff2`(데모 두 벌의 rect), `churnsweep`(초당 몇 번
-다시 그리나 — 이 콘솔에서 가장 많이 잡아낸 검사다). 데모 비교는 `-emit-demo`로 낸 두
-디렉토리를 각각 정적 서버로 띄워 쓴다.
-
-⚠ 데모 두 벌은 **각자의 시계**로 돈다(픽스처가 같아도 상태가 같은 순간이 아니다) —
-`screensweep`처럼 순간의 컨트롤 목록을 견주는 검사는 그래서 구조 차이와 시각 차이를
-가리지 못한다. 자리(rect)를 재는 `demodiff2`가 그 자리를 대신한다.
-
-⚠ 브라우저 스펙의 함정은 스킬(`web_ui_module_dev`)에 모아 두었다 — hover 노출 컨트롤,
-폭 트랜지션, `matchMedia` change가 한 방향만 오는 것.
-
-## 빌드 스크립트는 모듈마다 있지 않다
-
-안쪽도 모듈로 나뉘므로 같은 스크립트를 아홉 번 베끼는 대신, 루트 `build.gradle.kts`가
-표 하나로 전부 구성한다 — **모듈 디렉토리에 build.gradle.kts는 없다**. 모듈이 대는 것은
-제 이름 두 개(GWT 모듈, 테스트 모듈)뿐이고 의존성·GWT 설정·테스트 포트(표의 순서로
-18090부터)·테스트 자산 복사는 규약이다. 새 화면을 더할 때 고칠 곳은 그 표 한 줄과
-`settings.gradle.kts`의 include 한 곳이다.
-
-⚠ 루트는 GWT 플러그인을 적용하지 않으므로 확장의 타입이 없다 — `withGroovyBuilder`로
-이름으로 설정한다. 오타를 컴파일이 잡아 주지 않으니, 검증은 `./gradlew build`가 전 모듈을
-실제로 컴파일·테스트하는 것으로 한다.
-
-## 빌드·실행
+## 정적 데모 (Pages 사이트 배포)
 
 ```sh
-cd clients/web/ui && ./gradlew build      # 컴파일 + 전체 테스트 (Gradle 9.3 / Java 25)
-./gradlew assembleConsole         # build/console/ 에 서빙 루트 집결
+go run ./clients/web/server -console clients/web/ui/build/console -emit-demo <output_dir>
+```
+
+정적 데모 모드에서는 화면 컴포넌트 내부에 모의 코드를 삽입하지 않고, 통신 회선 어댑터 계층(`demo-ui`)에서 가상 네트워크 응답을 주입합니다. 이를 통해 실제 운영 화면 코드와 100% 동일한 실행 경로를 거치도록 보장합니다.
+
+## 계층별 책임 분리 (상위 컨테이너 책임 원칙)
+
+셸 → 컴패니언 패널 → 타입 전용 UI로 이어지는 3단 계층 구조에서, 화면 렌더링에 필요한 환경 설정과 상태 관리는 상위 컨테이너가 책임을 지고 하위 컴포넌트의 부담을 경감합니다:
+
+| 관리 항목 | 담당 계층 | 하위 컴포넌트에 위임했을 때의 결함 위험 |
+|---|---|---|
+| 언어 팩 로드 대기 | 마운트 주체 (`FrameElement.mount`) | 번역 팩 미수신 상태에서 원시 키(`field.facts`) 노출 |
+| 모듈별 언어 팩 공유 | 전역 브리지 (`Labels.tr()`) | 모듈 간 독립 static 영역으로 인한 번역 미반영 |
+| 스타일시트 주입 | 스크립트 로더 (`ModuleLoader.ensure`) | 스타일 미적용 기본 마크업 노출 |
+| 패널 너비 및 독 여백 실측 | 컴패니언 패널 (`Arrangement`) | 하위 화면이 셸 레이아웃 구조를 직접 계산해야 함 |
+| 컨테이너 프레임 계약 | 상위 컨테이너가 마크업 제공 | 운영 CSS 네이밍 계약 불일치 발생 |
+| 컴패니언 변경 감지 | 스토어 슬라이스 (`aimed()`, `drawn()`) | 패널별 수동 서명 계산 누락 시 초당 수천 회 리렌더링 폭증 |
+| 경과 시간 갱신 | 브라우저 단일 1초 타이머 (`component.Ages`) | 패널 정체 시 경과 시간 텍스트가 과거 시점에 고정 |
+| 언어 변경 실시간 반영 | 언어 스트림 (`Labels.onPack`) | 화면 전환 전까지 이전 언어가 잔류 |
+| 오프라인 응답 제공 | 네트워크 어댑터 (`demo-ui`) | 화면마다 데모 분기 코드가 침투 |
+
+## 경과 시간(Age) 클라이언트 타이머 갱신 기전
+
+명단 스트림은 유휴 시간을 초 단위 정수로 전달하며, 서버는 상태 변화가 없는 단순 시간 경과에 대해 불필요한 네트워크 프레임을 반복 송출하지 않습니다. 과거에는 이로 인해 컴패니언이 유휴 상태에 진입한 직후의 시간("방금")에 텍스트가 영구 고정되는 결함이 존재했습니다.
+
+현재는 프레임 재송출 방식 대신 클라이언트 슬롯 바인딩(`component.Ages`) 방식을 사용합니다:
+- 엘리먼트의 `data-since` 속성에 최종 수신 시점의 절대 타임스탬프를 기록합니다.
+- 창 전체에서 단 하나만 동작하는 1초 주기 타이머가 `[data-since]` 속성을 순회하며, **표시 텍스트가 실제로 변경되는 순간에만** DOM 텍스트 노드를 갱신합니다.
+- 화면 내에 대상 엘리먼트가 없으면 타이머는 자동으로 대기 상태로 전환됩니다.
+
+## 컴패니언 레이아웃 뼈대 규약
+
+`#agentview`, `#filecol`, `#stream`, `#sidecol`, `#dock .bay` 등 핵심 영역의 식별자는 `console.css`의 3열 그리드 배치 기계와 긴밀히 결합되어 있습니다:
+- `body[at=agent] main { height: calc(100dvh - shelltop) }`: 뷰포트 높이에 맞추고 전사 영역만 스크롤하도록 제어합니다.
+- `body[files|side]=shut`: 좌측 워크스페이스 또는 우측 정보 패널의 너비를 0으로 축소하여 닫힘 상태를 처리합니다.
+- `#dock .bay`: 하단 고정 컴포저 입력 영역을 담당하며 `--dock` CSS 변수로 본문 스크롤 영역 하단 마진을 자동 조정합니다.
+- 자식 UI 모듈은 `display: contents` 기반 래퍼(`.cfill`)를 통해 컨테이너 계층에 직접 요소를 투영하여 높이 계산 사슬이 단절되지 않도록 구성합니다.
+
+## 브라우저 자동화 검증 스위트 (scratchpad/uitest)
+
+단위 테스트를 통과하더라도 브라우저 레이아웃 환경에서만 드러나는 시각적/동작적 회귀를 차단하기 위해 5가지 검증 라운드를 운용합니다:
+
+| 라운드 | 주요 검증 범위 |
+|---|---|
+| `round` | 전체 화면 순회 (가로 스크롤 오버플로 0, 모바일 탭 네비게이션) |
+| `deep` | 심층 상호작용 (필터, 상세 이동, 히스토리 뒤로가기, 패널 토글, 워크스페이스 조작) |
+| `soak` | 장시간 실행 안정성 (화면 재방문 시 중복 인스턴스 누적 방지, 메모리 누수 점검) |
+| `a11y` | 웹 접근성 (무명 아이콘 버튼 0, 텍스트 대비율 3:1 충족, 라이트/다크 테마 점검) |
+| `demo` | 정적 데모 상호작용 (다이얼로그, 필터, Git 작업 상태 반영) |
+
+추가로 두 콘솔 간의 픽셀 단위 렌더링을 교차 검증하는 `widths`, `controls`, `iconsweep`, `demodiff2`, `churnsweep` 비교 도구를 함께 활용합니다.
+
+## 빌드 구성 및 실행 방법
+
+```sh
+# 전체 모듈 컴파일 및 테스트 실행 (Gradle 9.3 / Java 25 환경)
+cd clients/web/ui && ./gradlew build
+
+# 콘솔 배포 번들 조립 (build/console/ 디렉토리로 집결)
+./gradlew assembleConsole
+
+# 로컬 개발 서버 기동 (조립된 정적 자산 서빙)
 cd ../.. && go run ./clients/web/server -console clients/web/ui/build/console
-# → http://127.0.0.1:7777/
+# 접속 주소: http://127.0.0.1:7777/
 ```
 
-- 의존성은 `gradle/libs.versions.toml` 한 곳 — handbook의 sayaya-web 번들 미러.
-  dagger가 아니라 **dagger-gwt**다: GWT 모듈 xml이 그쪽 아티팩트에 실려 있고, 일반
-  dagger를 넣으면 gwtCompile이 "Unable to find dagger/Dagger.gwt.xml"로 죽는다(실측).
-- sayaya-ui 등은 GitHub Packages에서 온다. 자격증명은 `~/.gradle/gradle.properties`의
-  `github_username`/`github_password` 또는 `GITHUB_USERNAME`/`GITHUB_TOKEN` 환경변수 —
-  이 디렉토리의 `gradle.properties`는 gitignore라 커밋에 실리지 않는다.
-- `-console`은 디렉토리를 **요청마다 다시 읽는다**. `assembleConsole`을 다시 돌리고
-  새로고침하면 끝이고, 복사도 재빌드도 없다. 앞에 프록시를 하나 더 세우던 시절
-  (`web/server`, 7778)이 있었지만 그것은 오리진이 달라 same-site 가드에 걸렸고, 무엇보다
-  운영과 다른 코드였다. 플래그는 프로세스보다 작고, 운영에서 벗어날 수가 없다 —
-  **그것이 운영이 도는 그 코드**이기 때문이다.
+- `-console` 옵션은 지정된 디렉토리의 자산을 **요청마다 디스크에서 직접 다시 읽어 서빙**하므로, UI 재컴파일 후 별도의 서버 재기동 없이 브라우저 새로고침만으로 즉시 변경 사항을 확인할 수 있습니다.
+- 모든 서브프로젝트의 Gradle 설정은 루트 `build.gradle.kts`에서 일괄 관리되며, 신규 모듈 추가 시 루트 파일의 모듈 목록 테이블과 `settings.gradle.kts`만 수정하면 빌드 환경 구성이 완료됩니다.
 
-## 컴패니언 화면은 두 겹이다 (셸의 그 관계를 한 번 더)
-
-셸이 화면에게 프레임을 내주듯, **컴패니언 패널은 자식에게 자리를 내준다**:
+## 컴패니언 화면의 이중 슬롯 위임 구조
 
 ```
-companion (범용)                     coding (타입 1의 자식)
-├── #detail   위: 사실판             ├── centre 슬롯 → 대화(전사·컴포저)
+companion (공통 프레임)              coding (타입 1 코딩 에이전트 전용)
+├── #detail   상단: 공통 상태 패널  ├── centre 슬롯 → 전사 대화 및 컴포저
 ├── #cstage
-│   ├── #cleft   왼쪽 슬롯(들) ◀────┤ left 슬롯 → 워크스페이스(트리·git)
-│   ├── #cframe  가운데       ◀─────┘
-│   └── #side    오른쪽: 계획·건넨 일(잔여)·예약(잔여)
-└── 목록(?d= 없을 때)  ← 같은 모듈의 다른 얼굴
+│   ├── #cleft   좌측 슬롯들 ◀──────┤ left 슬롯 → 워크스페이스 (트리, Git)
+│   ├── #cframe  중앙 슬롯   ◀──────┘
+│   └── #side    우측: 계획 및 예약 작업
+└── 컴패니언 목록 뷰 (URL에 ?d= 파라미터가 없을 때 활성화)
 ```
 
-- **왜 이렇게**: 위와 오른쪽은 타입이 무엇이든 같은 것을 답한다(무엇이고, 무엇을 하는
-  중이고, 무엇을 하기로 했나). 가운데와 왼쪽은 타입의 것이다 — 코딩 에이전트에게 가운데는
-  대화이고 왼쪽은 워크스페이스지만, 다른 타입에겐 다른 것이다.
-- **문**: `PaneSharing`(`__magi_pane`) — 자식이 `next("centre"|"left", render)`로 민다.
-  왼쪽은 여럿 밀면 순서대로 쌓인다. 부모는 무엇이 오는지 모른다.
-- **자식을 들이는 것도 부모**: 셸이 컨텍스트에 실어 보낸 이름(`ctx.ui`)을 `ModuleInject`가
-  한 창에 한 번 넣는다. 이름은 **카탈로그가 푼 것**이지 컴패니언이 댄 경로가 아니다.
-- 목록도 이 모듈의 것이다(주소에 `?d=`가 없을 때) — 표에서는 어떤 타입이든 같은 것을
-  답하기 때문이다.
-
-## 컴패니언 타입별 UI (기전 가동 중)
-
-컴패니언 화면은 고정 모듈이 아니라 타입으로 해석된다: 명단 행의 type 선언 →
-CompanionType 카탈로그 → 모듈. 지금 카탈로그는 타입 1(코딩 에이전트) = companion-ui
-하나이고, 무선언·미지 타입도 1로 푼다 — 오늘의 magi 컴패니언은 전부 코딩 에이전트다.
-타입 전용 모듈도 계약은 같다 — 렌더 등록 + CompanionContext(socket·peer·type)·전사·턴
-구독. companion-ui가 그 계약의 레퍼런스 구현이다.
-불변 규칙 하나: 오퍼레이터가 설치한 모듈만 로드한다. 컴패니언이나 워크스페이스가 실어
-보낸 스크립트를 감독자 콘솔에 로드하는 일은 없다 — `.magi/plugins`(SECURITY)와 같은
-신뢰 경계다.
+- **상단 및 우측 패널**: 컴패니언의 종류(Type)와 무관하게 동일한 정보(에이전트 신원, 실행 상태, 계획 진행률)를 제공합니다.
+- **중앙 및 좌측 슬롯**: 각 컴패니언 타입의 고유한 도메인 UI에 위임됩니다(코딩 에이전트의 경우 대화 및 코드 워크스페이스를 표시).
+- 슬롯 통신은 `PaneSharing`(`__magi_pane`) 브리지를 사용하며, 자식 컴포넌트가 `next("centre"|"left", renderFn)`을 호출하여 동적으로 마운트합니다.
+- **신뢰 경계 불변식**: 셸 및 부모 컨테이너는 시스템 오퍼레이터가 사전에 빌드하고 설치한 모듈만 로드합니다. 대상 컴패니언 워크스페이스가 임의로 전송한 스크립트를 관리자 웹 콘솔 영역에 주입하는 것은 보안 정책상 엄격히 차단됩니다.

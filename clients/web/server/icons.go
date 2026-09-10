@@ -8,8 +8,8 @@ import (
 
 //go:generate go run gen_icons.go
 
-// 스프라이트는 공용 자리(internal/webassets)에 있다 — 두 콘솔이 같은 그림을 그려야 하고,
-// 옛 콘솔이 사라져도 새 콘솔이 그것을 잃지 않아야 한다. 빈 값도 정상이다(위 주석 참고).
+// 스프라이트는 공용 패키지(internal/webassets)에서 관리됩니다. 신구 콘솔이 일관된 벡터 이미지를 사용하도록 보장하며,
+// 스프라이트가 미포함된 빌드 환경에서도 빈 문자열로 안전하게 처리됩니다.
 
 // spriteMarker is where the sprite goes: immediately inside <body>, so a <use> anywhere below it
 // resolves. Left in the markup when there is no sprite, it would be a comment nobody reads, so it

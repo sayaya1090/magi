@@ -1,20 +1,18 @@
-# 이 디렉토리에는 조립된 콘솔이 들어온다
+# 콘솔 빌드 산출물 배포 디렉토리
 
-빈 채로 커밋되어 있다. 여기 실리는 것은 `clients/web/ui`를 GWT로 컴파일한 산출물이고, 그것을 만드는
-데는 JDK와 gradle이 필요하다 — Go 저장소를 클론한 사람이 그것까지 갖춰야 빌드가 되는 것은
-`go build`가 지켜 온 약속을 깨는 일이라, 조립은 **CI가 한다**.
+본 디렉토리는 기본적으로 빈 상태로 커밋되어 유지됩니다. 여기에 배치되는 파일은 `clients/web/ui`를 GWT로 컴파일한 웹 콘솔 정적 자산이며, 빌드에는 JDK 및 Gradle 환경이 필요합니다. Go 기반 저장소를 클론한 사용자가 별도의 Java 도구체인 없이도 바이너리를 빌드할 수 있도록 콘솔 정적 자산 조립은 **CI 파이프라인에서 수행**합니다.
 
-    cd clients/web/ui && ./gradlew assembleConsole
-    cp -R clients/web/ui/build/console/. clients/web/server/console/
+```sh
+cd clients/web/ui && ./gradlew assembleConsole
+cp -R clients/web/ui/build/console/. clients/web/server/console/
+```
 
-그렇게 채운 뒤 `go build ./clients/web/server` 하면 콘솔이 바이너리 안으로 들어간다. 채우지 않고
-빌드해도 **성공한다** — 그 바이너리는 BFF로서 온전히 동작하고, `/`만이 "이 빌드에는 콘솔이
-들어 있지 않다"고 제 입으로 말한다. 비어 있는 것은 실패가 아니라 지원되는 상태다(같은 규칙이
-`internal/webassets`의 아이콘 스프라이트에도 걸린다).
+위와 같이 산출물을 복사한 후 `go build ./clients/web/server`를 실행하면 콘솔 자산이 바이너리 내에 임베드됩니다. 산출물을 배치하지 않고 빌드해도 **성공적으로 빌드**되며, 바이너리는 독립 BFF(Backend For Frontend) 서버로 온전히 동작합니다. 콘솔 자산이 없는 경우 `/` 접근 시 콘솔이 미포함된 빌드임을 안내합니다. 자산이 비어 있는 상태는 오류가 아니며 정상적으로 지원되는 모드입니다(`internal/webassets`의 아이콘 스프라이트 정책과 동일).
 
-개발 중이라면 조립본을 굽지 말고 디스크에서 바로 서빙하는 편이 빠르다:
+로컬 개발 환경에서는 콘솔을 바이너리에 매번 임베드하지 않고 디스크 경로에서 직접 서빙하는 방식을 권장합니다:
 
-    magi-web -console clients/web/ui/build/console
+```sh
+magi-web -console clients/web/ui/build/console
+```
 
-이 README 자신은 `go:embed`가 디렉토리를 실을 수 있게 하는 자리지기이기도 하다. Go는 빈
-디렉토리를 임베드하지 못하고, 파일이 하나도 없으면 **빌드가 깨진다**.
+본 README 파일은 Go의 `go:embed` 지시자가 빈 디렉토리를 임베드하지 못해 발생하는 빌드 실패를 방지하는 자리지기(placeholder) 역할도 겸합니다.

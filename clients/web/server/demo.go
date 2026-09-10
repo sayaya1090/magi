@@ -33,25 +33,21 @@ import (
 	"github.com/sayaya1090/magi/internal/webassets"
 )
 
-// 이 데모에는 페이지가 갈아끼우는 목이 없다 — 위 주석의 그 이유. 여기서 넣는 것은 "지금은
-// 데모다"라는 사실 하나와, 그것을 사람에게 알리는 띠뿐이다.
+// 정적 데모 모드에서는 런타임 mock 컴포넌트를 주입하지 않고, 페이지에 데모 실행 상태 플래그와
+// 안내 배너만을 제공합니다.
 const demoShim = `
 <script>window.MAGI_DEMO = true;</script>
 <style>
-  /* 창을 가로지르는 띠, 흐름 밖에. 흐름 안에 두면 페이지의 내용이 시작되는 자리(레일의 거터
-     다음)에서 시작해, 드로어가 넓어질 때 그 밑으로 미끄러져 들어간다. 페이지 전체에 대한
-     알림은 페이지 전체를 가로지른다. */
+  /* 화면 상단 고정 안내 배너 스타일입니다. 페이지 레이아웃 흐름에 영향을 주지 않도록 fixed로 배치합니다. */
   .demo-banner {
     position:fixed; inset:0 0 auto 0; z-index:60; padding:.55rem 1.2rem;
     background:var(--magi-ref-primaryContainer); color:var(--magi-ref-fg);
     font:600 var(--md-sys-typescale-label-small-size)/1.5 var(--magi-ref-mono);
     letter-spacing:.06em; border-bottom:1px solid var(--magi-ref-outlineVariant);
   }
-  /* 창 위에 고정되는 것은 전부 이 띠 아래에서 시작해야 한다 — body의 padding은 흐름만 움직이고
-     fixed·sticky는 움직이지 않는다. :has()로 띠 없는 페이지는 이 규칙에 닿지 않는다. */
+  /* 상단 고정 헤더와 사이드 레일이 안내 배너 높이만큼 밀려나도록 CSS 변수(--demo-banner)를 적용합니다. */
   body:has(.demo-banner) header { top:var(--demo-banner, 0px); }
-  /* 레일이 창 <b>위</b>에 붙는 폭에서만. 600px 아래에서 레일은 발치의 바이고, 거기에 top을
-     주면 바가 화면을 덮는 시트가 된다(구 데모가 밟은 그 결함). */
+  /* 데스크톱 너비(600px 이상)에서만 상단 레일에 오프셋을 적용합니다. */
   @media (min-width:37.5em) {
     body:has(.demo-banner) #rail {
       top:var(--demo-banner, 0px);
@@ -60,16 +56,13 @@ const demoShim = `
   }
 </style>
 <script>
-  // 데모의 띠 — "이건 진짜 페이지이고, 답하는 쪽이 목이다". 페이지가 제 안에 이 알림에 대한
-  // 규칙을 갖지 않도록, 자리를 밀어 주는 일도 여기서 한다.
+  // 정적 데모 안내 배너를 동적으로 생성하고, 레이아웃 오프셋을 계산하여 CSS 변수에 반영합니다.
   (function () {
     var banner = document.createElement('div');
     banner.className = 'demo-banner';
     banner.textContent = 'demo — the real page, answered by a mock. Nothing here is a running agent, ' +
       'and every action reports what it would have sent.';
-    // 그 마지막 절은 이 띠가 혼자 지키는 약속이 아니다: 목(demo-ui의 Banner)이 아래 클래스
-    // 이름으로 이 자리를 찾아 글자를 갈아 끼운다. 클래스 이름 하나가 계약의 전부이고 양쪽
-    // 주석에 적혀 있다 — 띠가 없는 페이지(테스트 하네스)에서 목은 조용히 지나간다.
+    // demo-ui 모듈의 Banner 컨트롤러가 demo-banner 클래스를 참조하여 동작 상태 메시지를 동적으로 갱신합니다.
     var was = 0;
     function push() {
       var h = Math.ceil(banner.getBoundingClientRect().height);
