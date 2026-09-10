@@ -172,10 +172,16 @@ func TestTheDomainLayersDependOnNothingAboveThem(t *testing.T) {
 // deciding that it should, which is the whole value: the decision becomes visible instead of
 // arriving inside an unrelated change.
 var appReachesIntoAdapters = map[string]bool{
-	"internal/app/background.go":   true,
-	"internal/app/diagnose.go":     true,
-	"internal/app/guard.go":        true,
-	"internal/app/observed.go":     true,
+	"internal/app/background.go": true,
+	"internal/app/diagnose.go":   true,
+	"internal/app/guard.go":      true,
+	"internal/app/observed.go":   true,
+	// 일곱째. `App.RunShell` 이 «어느 셸을 어떻게 부르는가»를 `builtin.Shell` 하나에서 가져온다.
+	// 그 자리가 `Path: "/bin/sh"` 를 박아 써서 윈도우에서는 더 나쁜 셸이 아니라 «셸이 아닌 것»을
+	// 골랐고(`exec: "/bin/sh": executable file not found in %PATH%`), 그 판정이 도구 쪽에
+	// 이미 있었다(1d6cb3b3). 정의를 두 벌 두면 갈리고, 갈리는 쪽은 언제나 덜 불리는 쪽이다 —
+	// 여섯이 여기 있는 것과 같은 이유이고, 그래서 일곱째로 «결정해서» 넣는다.
+	"internal/app/query.go":        true,
 	"internal/app/shellcmd.go":     true,
 	"internal/app/tool_outcome.go": true,
 }
