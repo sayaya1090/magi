@@ -620,16 +620,47 @@ class Rows {
         return true
     }
 
+    /**
+     * ⚠ **`note` 만으로는 반려와 「아무도 못 닿은 카운슬」을 못 가른다.**
+     *
+     * 코어의 `note` 는 완료를 받아들였는지로 고르는 **고정 문장 둘**뿐이라 누가 투표했는지 말하지
+     * 않는다. 그래서 셋이 읽고 반대한 라운드와 셋 다 안 닿은 라운드가 같은 문장에 같은 `continue`
+     * 로 와서 양쪽 다 「반려」로 그려졌다. 이슈 #182 가 정확히 두 번째 상태에 갇힌 실행이다 —
+     * 매 라운드 3× 침묵 기권.
+     *
+     * 코어가 집계를 싣는 이유와 뭉갤 때의 값을 적어 두었다: *"a round nobody voted in is NOT a
+     * rejection … saying 'reject' claims the members read the work and turned it down — the exact
+     * opposite of what happened, and the reader's next move is different: fix the backend, not the
+     * work."* 터미널은 집계가 생긴 뒤로 줄곧 갈라 그려 왔고, 이 창은 한 번도 안 읽었다.
+     *
+     * `silent` 은 **고른 기권이 아니라 실패한 기권**이라 말한 기권은 `abstain - silent` 다 — 둘 다
+     * 날로 적으면 죽은 멤버를 두 번 센다.
+     *
+     * ⚠ 집계가 실제로 있을 때만 적는다. 한 갈래(글자까지 같은 재선언)는 집계 없이 이 사실을
+     * 보내고, 그 밑의 「0 done / 0 continue」는 아무도 안 센 수다.
+     */
     private fun decided(e: LogEvent): Boolean {
         val d = e.data?.jsonObject ?: return false
         councilRound = null // 합의가 라운드를 닫는다
         councilAsking = null
+        val t = d["tally"]?.jsonObject
+        fun n(k: String) = t?.get(k)?.jsonPrimitive?.content?.toIntOrNull() ?: 0
+        val said = n("abstain") - n("silent")
+        val counts = if (t == null) "" else listOf(
+            "${n("done")} done", "${n("continue")} continue",
+            if (said > 0) "$said abstain" else "",
+            if (n("silent") > 0) "${n("silent")} 답 없음" else "",
+        ).filter { it.isNotBlank() }.joinToString(" / ")
+        val note = d["note"]?.jsonPrimitive?.content.orEmpty()
         rows += Row(
             Who.Council,
-            d["note"]?.jsonPrimitive?.content.orEmpty(),
+            listOf(note, counts).filter { it.isNotBlank() }.joinToString(" — "),
             at = e.ts,
             round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0,
             decision = d["decision"]?.jsonPrimitive?.content,
+            // 아무도 안 쟀다. 평결 하나가 쓰는 그 낱말을 그대로 쓴다 — 한 사실을 한 화면에서 두
+            // 낱말로 적지 않는다.
+            silent = t != null && n("voters") == 0 && n("silent") > 0,
             // continue 를 지금 붙들고 있는 반대가 무엇인지. 항목 필드가 아니라 why 에 싣는 것은
             // 1판의 축약이다 — 어휘에는 feedback 이 따로 있다(docs/TRANSCRIPT.ko.md §2).
             why = d["feedback"]?.jsonPrimitive?.content,

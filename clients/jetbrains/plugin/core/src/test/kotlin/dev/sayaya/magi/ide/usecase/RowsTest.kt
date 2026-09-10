@@ -585,4 +585,41 @@ class RowsTest {
         assertTrue("다른 대화" in vague!!.text, "목적지가 없는데 지어내거나 아무 말도 안 한다")
     }
 
+    /**
+     * **아무도 못 닿은 카운슬은 「아니오」라고 말한 카운슬이 아니다.**
+     *
+     * 코어의 `note` 는 완료를 받아들였는지로 고르는 고정 문장 둘뿐이라 누가 투표했는지 말하지 않는다.
+     * 그래서 셋이 읽고 반대한 라운드와 셋 다 안 닿은 라운드가 같은 문장에 같은 `continue` 로 와서
+     * 둘 다 「반려」로 그려졌다. 이슈 #182(2026-09-10)가 정확히 두 번째 상태에 갇힌 실행이다.
+     *
+     * 코어가 뭉갤 때의 값을 적어 두었다: 반려라고 말하면 멤버들이 읽고 물리쳤다고 주장하는 것이고,
+     * 읽는 이의 다음 행동이 다르다 — 작업이 아니라 백엔드를 고쳐야 한다.
+     */
+    @Test
+    fun `아무도 투표 안 한 라운드는 반려로 그려지지 않는다`() {
+        val dead = Rows()
+        dead.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"받아들이지 않았다",""" +
+            """"tally":{"done":0,"continue":0,"abstain":3,"silent":3,"voters":0}}"""))
+        val r = dead.list().last()
+        assertTrue(r.silent, "아무도 못 닿은 카운슬이 숙고한 반려로 그려진다")
+        assertTrue("3 답 없음" in r.text, "아무도 답 안 했다는 말이 없다")
+        assertFalse("3 abstain" in r.text, "말도 못 한 멤버를 기권으로도 센다 — 같은 실패를 두 번")
+        assertEquals("no answer", RowText.verdict(r.decision, r.silent)?.word)
+
+        val real = Rows()
+        real.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"받아들이지 않았다",""" +
+            """"tally":{"done":1,"continue":2,"abstain":1,"voters":3}}"""))
+        val g = real.list().last()
+        assertFalse(g.silent, "투표한 멤버가 있는 라운드가 답 없음으로 그려진다")
+        assertTrue("1 done / 2 continue / 1 abstain" in g.text, "집계가 안 적힌다: ${g.text}")
+        assertFalse("답 없음" in g.text)
+
+        // ⚠ 한 갈래는 집계 없이 이 사실을 보낸다. 거기서 0 을 세면 아무도 안 센 수다.
+        val bare = Rows()
+        bare.feed(ev("council.decided", """{"round":1,"decision":"continue","note":"또 그대로 선언했다"}"""))
+        val b = bare.list().last()
+        assertEquals("또 그대로 선언했다", b.text, "집계 없는 사실에 집계를 지어 붙인다")
+        assertFalse(b.silent)
+    }
+
 }

@@ -938,3 +938,47 @@ test('a companion that moved to another conversation says where it went', () => 
   assert.match(blind[0].text, /another conversation/,
     'a move with no destination invents one or says nothing');
 });
+
+/**
+ * ★ A council nobody reached is not a council that said no.
+ *
+ * `note` is one of two fixed sentences the core picks by whether the finish was accepted; it never
+ * says who voted. So three members reading the work and objecting, and three members being
+ * unreachable, arrived here as the same sentence with the same `continue` — drawn `✗ reject` both
+ * times. Issue #182 (2026-09-10) is a run stuck in the second state: every round 3× silent-abstain,
+ * eight minutes of wall clock each, for ever.
+ *
+ * The core carries `tally.silent` for exactly this and says what collapsing it costs: "a round
+ * nobody voted in is NOT a rejection … the reader's next move is different: fix the backend, not
+ * the work." The terminal has split them since the tally landed.
+ */
+test('a round nobody voted in is not drawn as a rejection', () => {
+  const dead = rows([{ seq: 1, type: 'council.decided', data: {
+    round: 1, decision: 'continue', note: 'the council does not accept it yet',
+    tally: { done: 0, continue: 0, abstain: 3, silent: 3, voters: 0 },
+  } } as unknown as Event])[0];
+  assert.equal(dead.silent, true, 'a council nobody reached is drawn as a considered rejection');
+  assert.match(dead.text, /3 no answer/, 'the round does not say nobody answered');
+  assert.doesNotMatch(dead.text, /3 abstain/,
+    'a member that never spoke is counted as an abstention too — the same failure twice');
+  assert.equal(verdictWord(dead.decision, dead.silent).word, 'no answer');
+
+  // A real rejection keeps reading as one, and its abstention is the said kind.
+  const real = rows([{ seq: 1, type: 'council.decided', data: {
+    round: 1, decision: 'continue', note: 'the council does not accept it yet',
+    tally: { done: 1, continue: 2, abstain: 1, voters: 3 },
+  } } as unknown as Event])[0];
+  assert.equal(real.silent, undefined, 'a round with voters is drawn as unanswered');
+  assert.match(real.text, /1 done \/ 2 continue \/ 1 abstain/);
+  assert.doesNotMatch(real.text, /no answer/);
+  assert.equal(verdictWord(real.decision, real.silent).word, 'reject');
+
+  // ⚠ One path emits this fact with no tally at all. Counting to zero there would be a count
+  // nobody took.
+  const bare = rows([{ seq: 1, type: 'council.decided', data: {
+    round: 1, decision: 'continue', note: 'declared finished again without changing anything',
+  } } as unknown as Event])[0];
+  assert.equal(bare.text, 'declared finished again without changing anything',
+    'a fact with no tally is given one');
+  assert.equal(bare.silent, undefined);
+});

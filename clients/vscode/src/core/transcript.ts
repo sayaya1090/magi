@@ -333,11 +333,45 @@ export function rows(events: Event[]): Row[] {
        * thing a person reads a stalled gate to find out.
        */
       case 'council.decided': {
+        /**
+         * ⚠ **The note alone cannot tell a rejection from a council nobody reached.**
+         *
+         * `note` is one of two fixed sentences the core picks by whether the finish was accepted —
+         * it never mentions who voted. So a round where three members read the work and objected and
+         * a round where all three were unreachable arrived here as the same sentence with the same
+         * `continue`, drawn `✗ reject` either way. Issue #182 is a run stuck in exactly the second
+         * state: every round 3× silent-abstain, for ever.
+         *
+         * The core carries the tally for this, and says what collapsing it costs: "a round nobody
+         * voted in is NOT a rejection … saying 'reject' claims the members read the work and turned
+         * it down — the exact opposite of what happened, and the reader's next move is different:
+         * fix the backend, not the work." The terminal has split them since the tally landed; this
+         * client never read it.
+         *
+         * `silent` is the abstentions that were FAILURES rather than choices, so the said-abstain
+         * count is `abstain - silent` — printing both raw would count a dead member twice.
+         *
+         * ⚠ Only when a tally is actually there. One path (`council_advice.go`, the byte-identical
+         * re-declaration) emits this fact with no tally at all, and "0 done / 0 continue" under it
+         * would be a count nobody took.
+         */
+        const t = (typeof d.tally === 'object' && d.tally) ? d.tally as Record<string, unknown> : null;
+        const n = (k: string): number => Number(t?.[k]) || 0;
+        const said = n('abstain') - n('silent');
+        const counts = t ? [
+          `${n('done')} done`, `${n('continue')} continue`,
+          said > 0 ? `${said} abstain` : '',
+          n('silent') > 0 ? `${n('silent')} no answer` : '',
+        ].filter(Boolean).join(' / ') : '';
+        const note = String(d.note ?? '').trim() || String(d.feedback ?? '').trim();
         out.push({
           seq: e.seq, who: 'council',
-          text: String(d.note ?? '').trim() || String(d.feedback ?? '').trim(),
+          text: [note, counts].filter(Boolean).join(' — '),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
+          // Nobody weighed it. Same word the individual verdicts use for the same fact, so one
+          // thing is not spelled two ways across one screen.
+          silent: t !== null && n('voters') === 0 && n('silent') > 0 ? true : undefined,
         });
         break;
       }
