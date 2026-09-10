@@ -180,8 +180,7 @@ func isScratchPath(workdir, target string) bool {
 		if abs == root {
 			return false // the whole temp area, not one thing inside it
 		}
-		if rel, err := filepath.Rel(root, abs); err == nil && rel != ".." &&
-			!strings.HasPrefix(rel, "../") && rel != "." {
+		if rel, err := filepath.Rel(root, abs); err == nil && !escapesTree(rel) && rel != "." {
 			return true
 		}
 	}
@@ -228,7 +227,7 @@ func outsideWorkspace(workdir, target string) bool {
 		abs = filepath.Join(workdir, t)
 	}
 	rel, err := filepath.Rel(workdir, filepath.Clean(abs))
-	return err != nil || rel == ".." || strings.HasPrefix(rel, "../")
+	return err != nil || escapesTree(rel)
 }
 
 // arrivalHolds reports whether anything the workspace held on arrival lives at or under target.
@@ -243,14 +242,14 @@ func arrivalHolds(workdir, target string, arrival fileIndex) bool {
 	// which gated everything.
 	abs := absTarget(workdir, target)
 	rel, err := filepath.Rel(filepath.Clean(workdir), abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if err != nil || escapesTree(rel) {
 		return true // cannot place it; the safe reading is that it holds something
 	}
 	if rel == "." {
 		return len(arrival) > 0
 	}
 	for p := range arrival {
-		if p == rel || strings.HasPrefix(p, rel+"/") {
+		if underTree(p, rel) {
 			return true
 		}
 	}

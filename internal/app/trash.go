@@ -119,7 +119,7 @@ func keepBeforeEditing(workdir, path string, turn time.Time, mine func(string) b
 	if abs == root || strings.HasPrefix(abs, trash+string(filepath.Separator)) {
 		return "", false, nil
 	}
-	if rel, rerr := filepath.Rel(root, abs); rerr != nil || rel == ".." || strings.HasPrefix(rel, "../") {
+	if rel, rerr := filepath.Rel(root, abs); rerr != nil || escapesTree(rel) {
 		return "", false, nil // outside the tree is not this mechanism's business
 	}
 	// The RESOLVED file, because an atomic write follows a symlink and replaces what it points

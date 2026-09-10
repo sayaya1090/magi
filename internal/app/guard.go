@@ -249,8 +249,7 @@ func (g *runGuard) didCreate(abs string) bool {
 		if made == abs {
 			return true
 		}
-		if rel, err := filepath.Rel(made, abs); err == nil && rel != ".." &&
-			!strings.HasPrefix(rel, "../") && rel != "." {
+		if rel, err := filepath.Rel(made, abs); err == nil && !escapesTree(rel) && rel != "." {
 			return true
 		}
 	}
