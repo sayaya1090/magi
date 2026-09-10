@@ -147,8 +147,29 @@ export async function callHand(ide: Ide, name: string, args: Record<string, unkn
       //
       // Empty, not blank: `need` passes four spaces through, and replacing them with a tab is a
       // real edit.
-      case 'apply_edit':
-        return { text: await ide.replace(need('path'), need('old'), String(args.new ?? ''), args.replaceAll === true) };
+      /**
+       * ⚠ **A model that writes `"true"` means true.** This read `args.replaceAll === true`, so a
+       * JSON string went through as FALSE — and silently: the edit then changed one occurrence,
+       * and where `old` appears more than once this tool's own rule REFUSES it. So the call that
+       * asked for every occurrence came back as a refusal, and nothing said why.
+       *
+       * Measured 2026-09-10 by driving this server over its own HTTP with each shape:
+       * `true`→true, `"true"`→**false**, `"True"`→false, `1`→false. The JetBrains hand compares the
+       * primitive's text (`content == "true"`), so the same call works there — one model, two
+       * editors, two outcomes.
+       *
+       * Tolerant in ONE direction only: anything that is not the word true stays false. A number,
+       * a blank, an absent field — none of them is somebody asking for every occurrence, and this
+       * is the flag that decides whether an edit touches one line or all of them.
+       *
+       * The sibling argument on this line is already tolerant — `line` accepts a string — so the
+       * strictness here was an inconsistency inside one function rather than a decision.
+       */
+      case 'apply_edit': {
+        const all = args.replaceAll === true
+          || (typeof args.replaceAll === 'string' && args.replaceAll.trim().toLowerCase() === 'true');
+        return { text: await ide.replace(need('path'), need('old'), String(args.new ?? ''), all) };
+      }
       case 'problems':
         return { text: await ide.problems(typeof args.path === 'string' ? args.path : undefined) };
       default:

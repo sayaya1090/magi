@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Hand } from '../core/mcpserver';
 import { Ide, callHand, handTools, inside, HAND_NAME } from '../core/hand';
 
@@ -231,4 +233,53 @@ test('a path outside the workspace is not inside it', () => {
 test('a sibling whose name starts the same is not inside', () => {
   assert.equal(inside('/w', '/workspace-other/a.ts'), false);
   assert.equal(inside('/home/me/proj', '/home/me/project2/a.ts'), false);
+});
+
+/**
+ * ★ A model that writes `"true"` means true, and the two editors must agree about that.
+ *
+ * This read `args.replaceAll === true`, so a JSON string went through as FALSE — silently. The edit
+ * then changed one occurrence, and where `old` appears more than once this tool's own rule REFUSES
+ * it, so a call that asked for every occurrence came back as a refusal with nothing saying why.
+ *
+ * Measured 2026-09-10 by driving the real server over its own HTTP: `true`→true, `"true"`→**false**,
+ * `"True"`→false, `1`→false. The JetBrains hand compares the primitive's text, so the same call
+ * worked there — one model, two editors, two outcomes.
+ *
+ * Tolerant in ONE direction: anything that is not the word true stays false. This flag decides
+ * whether an edit touches one line or all of them, and guessing "yes" from a number would be the
+ * expensive way to be wrong.
+ */
+test('replaceAll takes the word true in either shape, and nothing else', async () => {
+  const ide = new FakeIde();
+  const cases: [unknown, boolean][] = [
+    [true, true], ['true', true], ['True', true], ['  true  ', true],
+    [false, false], ['false', false], ['1', false], [1, false], [undefined, false], ['yes', false],
+  ];
+  for (const [sent, want] of cases) {
+    const args: Record<string, unknown> = { path: 'a.ts', old: 'a', new: 'b' };
+    if (sent !== undefined) args.replaceAll = sent;
+    await callHand(ide, 'apply_edit', args);
+    assert.equal(ide.replaced?.[3], want,
+      `replaceAll ${JSON.stringify(sent)} reached the editor as ${ide.replaced?.[3]}, not ${want}`);
+  }
+});
+
+/**
+ * ★ And the sibling reads it the same way, so one model does not get two answers.
+ *
+ * Read off the Kotlin rather than restated here: the rule is "the primitive's text is the word
+ * true", and a copy of that sentence in this language would drift with the thing it is meant to
+ * match. If the sibling ever tightens to a JSON-only boolean, this says so instead of leaving the
+ * two editors quietly different.
+ */
+test('the JetBrains hand reads the same flag the same way', () => {
+  const kt = fs.readFileSync(path.join(
+    __dirname, '..', '..', '..', 'jetbrains', 'plugin', 'core', 'src', 'main', 'kotlin',
+    'dev', 'sayaya', 'magi', 'ide', 'usecase', 'Hand.kt'), 'utf8');
+  const at = kt.indexOf('"apply_edit" ->');
+  assert.ok(at > 0, 'the sibling apply_edit branch was not found — this guard is reading nothing');
+  const block = kt.slice(at, kt.indexOf('"problems"', at));
+  assert.match(block, /replaceAll[\s\S]{0,80}==\s*"true"/,
+    'the sibling no longer takes the WORD true — the two editors now answer one model differently');
 });
