@@ -111,6 +111,18 @@ export interface Row {
    */
   keep?: string;
   /**
+   * What this member was THINKING before it answered — the provider's reasoning stream.
+   *
+   * ⚠ **Never a vote.** Every other field on this row is read out of the member's JSON reply; this
+   * one comes off a separate channel of the same stream and never passes through the parser. A
+   * model thinking out loud must not be able to become a verdict.
+   *
+   * It exists for the SILENT ones. A reply that arrived as reasoning alone drew as "no answer came
+   * back", with no trace of the thousands of characters that did — this is the only account of why
+   * there was nothing to count.
+   */
+  thought?: string;
+  /**
    * How sure this member was, 0..1 as the core spells it — self-reported, and WEIGHED.
    *
    * Not decoration: the tally's `doneWeight`/`contWeight` are confidence-weighted sums, so a `done`
@@ -542,6 +554,7 @@ export function rows(events: Event[]): Row[] {
           lens: String(d.lens ?? '').trim() || undefined,
           cite: String(d.cite ?? '').trim() || undefined,
           keep: String(d.keep ?? '').trim() || undefined,
+          thought: String(d.thought ?? '').trim() || undefined,
           confidence: Number(d.confidence) > 0 ? Number(d.confidence) : undefined,
         });
         break;

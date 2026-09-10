@@ -66,6 +66,17 @@ data class Row(
     val keep: String? = null,
     val cite: String? = null,
     /**
+     * 이 멤버가 답하기 전에 **한 생각** — 프로바이더의 추론 흐름이다.
+     *
+     * ⚠ **표가 아니다.** 이 행의 다른 칸은 전부 멤버가 낸 JSON 을 읽어서 채워지는데, 이것은
+     * 같은 스트림의 **다른 채널**에서 파서를 안 거치고 온다(코어 `drain`). 모델이 소리내어
+     * 생각한 것이 표가 되면 안 되고, 갈라 둔 이유가 그것이다.
+     *
+     * 있는 이유는 **[silent] 인 표** 때문이다. 회신이 추론으로만 온 멤버는 「답이 없었다」로
+     * 그려졌고, 실제로 온 수천 자는 어디에도 남지 않았다 — 왜 답이 없었는지의 유일한 증거다.
+     */
+    val thought: String? = null,
+    /**
      * 이 멤버가 얼마나 확신했나. 0..1, 코어가 적는 대로 **자기 보고**이고 **가중된다**.
      *
      * 장식이 아니다. 집계의 `doneWeight`/`contWeight` 가 확신으로 가중한 합이라, 0.2 짜리 `done` 과
@@ -636,6 +647,7 @@ class Rows {
             decision = d["decision"]?.jsonPrimitive?.content,
             lens = d["lens"]?.jsonPrimitive?.content,
             keep = d["keep"]?.jsonPrimitive?.content,
+            thought = d["thought"]?.jsonPrimitive?.content,
             cite = d["cite"]?.jsonPrimitive?.content,
             confidence = d["confidence"]?.jsonPrimitive?.content?.toDoubleOrNull()?.takeIf { it > 0 },
             silent = silent,

@@ -609,6 +609,11 @@ public class ConversationElement {
             // 수정이 <b>잃으면 안 되는 것</b>. 만들어지고, 자리마다 기록되고, 모델에게 되먹여지는데
             // 어디에도 그려지지 않았다 — 끝난 일을 지키는 그 한 줄만 아무도 못 읽고 있었다.
             section(body, "detail.keep", str(vote, "keep"), false);
+            // 그리고 이 위원이 답하기 전에 <b>한 생각</b>. 표가 아니다 — 파서를 지나오지 않았고
+            // 집계에도 안 들어간다. 있는 이유는 <b>답이 없던 표</b> 때문이다: 회신이 추론으로만
+            // 온 위원은 「답이 없었다」로 그려졌고, 실제로 온 수천 자는 어디에도 없었다.
+            // pre 로 그린다 — 모델이 줄을 나눠 생각한 것을 한 문단으로 뭉치면 읽을 수가 없다.
+            section(body, "detail.thought", str(vote, "thought"), true);
             // 근거는 없는 두 경우까지 말한다: 보고의 내용으로 판단했다고 밝힌 표(NO-EVIDENCE)와,
             // 아무 것도 대지 않은 표. 아무 것도 딛지 않은 "done"은 그 자체가 봐야 할 사실이다.
             String cite = str(vote, "cite").trim();

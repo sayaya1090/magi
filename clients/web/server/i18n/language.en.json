@@ -156,6 +156,7 @@
   "detail.grounds": "Grounds",
   "detail.judged_on_report": "none observed — judged on the report's substance",
   "detail.keep": "Keep — the revision must not lose this",
+  "detail.thought": "What this member was thinking (never counted as a vote)",
   "detail.loading": "reading…",
   "detail.next": "Next step",
   "detail.no_changes": "No files changed — a read-only turn.",

@@ -156,6 +156,7 @@
   "detail.grounds": "인용",
   "detail.judged_on_report": "관측된 것 없음 — 보고 내용으로 판단",
   "detail.keep": "유지 항목 — 수정 시에도 반드시 보존할 요건",
+  "detail.thought": "\uc774 \uc704\uc6d0\uc774 \ud55c \uc0dd\uac01 \u2014 \ud45c\ub85c \uc138\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4",
   "detail.loading": "읽는 중…",
   "detail.next": "다음 단계",
   "detail.no_changes": "파일 변경 없음 — 읽기 전용 턴.",

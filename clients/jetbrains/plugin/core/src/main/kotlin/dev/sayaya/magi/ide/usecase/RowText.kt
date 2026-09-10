@@ -154,6 +154,9 @@ object RowText {
             // 무엇 위에 서 있었는지가 대화 밖으로 못 나간다.
             r.cite?.takeIf { it.isNotBlank() }?.let { add("on: $it") }
             r.keep?.takeIf { it.isNotBlank() }?.let { add("keep: $it") }
+            // 생각도 간다. 화면이 접어 두는 것이지 없는 사실이 아니고, [plain] 은 접힘을 안 본다
+            // — 이 파일 맨 위의 규칙 그대로다. 「표가 아니다」를 붙여 넣은 글에서도 말해야 한다.
+            r.thought?.takeIf { it.isNotBlank() }?.let { add("thought (not a vote): $it") }
         }
         return (listOf(head) + body).joinToString("\n")
     }

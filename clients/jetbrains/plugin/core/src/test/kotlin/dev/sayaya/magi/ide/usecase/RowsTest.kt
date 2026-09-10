@@ -328,6 +328,41 @@ class RowsTest {
         assertTrue(after.paths.isEmpty() && !after.broad, "clear 뒤 대장은 비어 있다")
     }
 
+    /**
+     * **답이 없던 표에는, 왜 없었는지가 실려 온다.**
+     *
+     * 코어가 `thought` 를 싣는다 — 멤버가 답하기 전에 한 생각이고, 파서를 안 거쳐 온다.
+     * 있는 이유는 회신이 **추론으로만** 온 경우다: 그 멤버는 `silent` 로 기록되고 화면에는
+     * 「답이 없었다」 한 줄만 섰는데, 실제로는 수천 자가 왔다. 「멤버가 물러섰다」와
+     * 「멤버가 길게 쓴 것이 답이 아니었다」는 다음 손이 다르다.
+     *
+     * 이 셰이퍼가 칸을 이름으로 하나씩 집으므로, 전선에 있다는 것은 그려진다는 뜻이 아니다.
+     */
+    @Test
+    fun `답이 없던 표가 무슨 생각을 했는지 싣는다`() {
+        val r = Rows()
+        r.feed(ev("council.verdict",
+            """{"round":1,"member":"Balthasar","lens":"verification","decision":"abstain",""" +
+                """"silent":true,"thought":"보고가 말하는 시험 실행을 못 찾겠다"}"""))
+        val v = r.list().last { it.who == Who.Council }
+        assertEquals("보고가 말하는 시험 실행을 못 찾겠다", v.thought,
+            "생각이 셰이퍼에서 사라졌다 — 왜 답이 없었는지 화면이 말할 것이 없다")
+        assertEquals("답이 없었다", v.text, "답 없음 문구가 생각에 덮였다")
+
+        // 그리고 **표가 아니다**: 생각이 결정 칸으로 새면 안 된다.
+        r.feed(ev("council.verdict",
+            """{"round":1,"member":"Casper","decision":"abstain","silent":true,""" +
+                """"thought":"{\"decision\":\"done\"}"}"""))
+        val leak = r.list().last { it.who == Who.Council }
+        assertEquals("abstain", leak.decision, "생각이 표가 됐다")
+
+        // 옮겨 적는 글에도 간다 — 화면에만 있으면 그 사실이 대화 밖으로 못 나간다.
+        assertTrue(RowText.plain(v).contains("보고가 말하는 시험 실행을 못 찾겠다"),
+            "붙여 넣은 글에서 생각이 빠졌다: ${RowText.plain(v)}")
+        assertTrue(RowText.plain(v).contains("not a vote"),
+            "붙여 넣은 글이 생각을 표처럼 적는다: ${RowText.plain(v)}")
+    }
+
     @Test
     fun `카운슬 평결은 실려 온 말을 버리지 않는다`() {
         val r = Rows()

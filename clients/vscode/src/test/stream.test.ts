@@ -1122,3 +1122,59 @@ test('attaching draws the empty conversation instead of leaving the last one up'
   assert.ok(at < chat.indexOf("s.stream({ method: 'transcript'"),
     'the redraw happens after the stream is opened — a frame landing between the two is lost');
 });
+
+/**
+ * A member that answered with NOTHING BUT reasoning must still say what it was thinking.
+ *
+ * The core carries `thought` on the verdict — the provider's reasoning stream, never parsed and
+ * never a vote. It exists for the silent ones: such a member is recorded "a verdict nobody gave",
+ * and before this the row drew "no answer came back" over thousands of characters the model had in
+ * fact produced. "The member declined" and "the member wrote at length and none of it was an
+ * answer" need different next moves, and nothing on screen could tell them apart.
+ *
+ * Two things are measured, because the shaper hand-picks fields by name: that it reaches the row at
+ * all, and that it does NOT become the row's text — the verdict's own words win, as everywhere else
+ * in this file.
+ */
+test('a verdict carries what the member was thinking, without it becoming the verdict', () => {
+  const verdict = (d: Record<string, unknown>): Event =>
+    ({ seq: seq++, type: 'council.verdict', data: d });
+
+  const quiet = rows([verdict({ member: 'Casper', round: 1, decision: 'abstain', silent: true,
+    thought: 'I cannot find the test run the report names' })])[0];
+  assert.equal(quiet.thought, 'I cannot find the test run the report names',
+    'the thought did not reach the row — nothing on screen says why there was no answer');
+  assert.equal(quiet.text, 'no answer came back',
+    'the thought was drawn as the verdict itself');
+
+  // A member that DID answer keeps both.
+  const spoke = rows([verdict({ member: 'Melchior', round: 1, decision: 'done',
+    rationale: 'the suite covers it', thought: 'weighing the two readings' })])[0];
+  assert.equal(spoke.text, 'the suite covers it', 'the thought displaced the rationale');
+  assert.equal(spoke.thought, 'weighing the two readings');
+
+  // Absent stays absent: an empty string on every row would draw an empty line under every seat.
+  assert.equal(rows([verdict({ member: 'Balthasar', round: 1, decision: 'done' })])[0].thought,
+    undefined, 'a verdict with no thought grew one');
+});
+
+/**
+ * And the chat view draws it — as its own kind of line, not as one more piece of evidence.
+ *
+ * `src/ide/chat.ts` imports `vscode`, so this file cannot load it; the rule is read off the source
+ * the way the sibling client's guards read Kotlin. What is pinned is narrow: the loop that draws
+ * the cite and the keep also draws the thought, and it is labelled as not being a vote — this is
+ * the one line in that block that never went through the parser.
+ */
+test('the chat view draws a member thought, labelled as not a vote', () => {
+  const src = fs.readFileSync(path.join(REPO, 'clients/vscode/src/ide/chat.ts'), 'utf8');
+  const at = src.indexOf("['cite', 'on', r.cite]");
+  assert.ok(at > 0, 'the council evidence loop is gone — this rule is reading nothing');
+  const block = src.slice(at, at + 400);
+  assert.ok(block.includes('r.thought'),
+    'the chat view does not draw the thought: a silent member is one line saying nothing came back');
+  assert.ok(block.includes('not a vote'),
+    'the thought is drawn with the same weight as the grounds above it — it never went through the parser');
+  assert.ok(/\.thought \{[^}]*white-space:pre-wrap/.test(src),
+    'reasoning is drawn run together — a model that thought in steps is unreadable that way');
+});

@@ -496,6 +496,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.75; margin-top:2px;
     max-height:9em; overflow:auto; }
   .keep { font-size:.9em; opacity:.75; margin-top:2px; }
+  /* Reasoning keeps its line breaks — a model that thought in steps is unreadable run together —
+     and is capped like the cite so one member's thinking cannot push the round off screen. */
+  .thought { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.6;
+    margin-top:2px; white-space:pre-wrap; max-height:9em; overflow:auto; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
@@ -752,7 +756,13 @@ function draw(rs) {
        approvals too, and that is exactly when it is worth reading: it is what a rewrite forced by
        somebody else's objection would otherwise drop. */
     if (r.who === 'council') {
-      for (const [cls, label, text] of [['cite', 'on', r.cite], ['keep', 'keep', r.keep]]) {
+      /* The thought is last and dimmest, because it is the one line here that is NOT a vote: it
+         never went through the parser, and reading it with the same weight as the grounds above
+         would be reading a model's musing as a finding. It is drawn at all for the silent
+         members — a reply that came as reasoning alone left "no answer came back" and nothing
+         else, over thousands of characters of work. */
+      for (const [cls, label, text] of [['cite', 'on', r.cite], ['keep', 'keep', r.keep],
+        ['thought', 'thought (not a vote)', r.thought]]) {
         if (!text) continue;
         const el = document.createElement('div');
         el.className = String(cls);

@@ -1017,6 +1017,14 @@ class MagiToolWindow : ToolWindowFactory {
                         }
                         r.keep?.takeIf { it.isNotBlank() }?.let { add(Look.aside(MagiBundle.msg("chat.verdict.keep", it))) }
                         r.why?.takeIf { it.isNotBlank() }?.let { add(Look.aside(it)) }
+                        // 답하기 전에 한 생각. **표가 아니라서** 다른 줄들과 색을 나눈다 —
+                        // 파서를 안 거쳐 온 글이라 위의 근거·유지 항목과 같은 무게로 읽히면 안 된다.
+                        //
+                        // 이것이 가장 필요한 자리는 `silent` 인 표다: 회신이 추론으로만 온 멤버는
+                        // 「답이 없었다」한 줄로 그려졌고, 실제로 온 수천 자는 어디에도 없었다.
+                        r.thought?.takeIf { it.isNotBlank() }?.let {
+                            add(Look.aside(MagiBundle.msg("chat.verdict.thought", it), Look.muted))
+                        }
                     }
                     p.add(body, BorderLayout.CENTER)
                 }

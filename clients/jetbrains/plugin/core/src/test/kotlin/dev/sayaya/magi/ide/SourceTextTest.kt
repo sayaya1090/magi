@@ -46,6 +46,34 @@ class SourceTextTest {
     }
 
     /**
+     * **실려 온 생각은 그려져야 한다.**
+     *
+     * 셰이퍼가 `thought` 를 읽는 것은 `RowsTest` 가 붙든다. 그런데 이 창은 카운슬 행의 칸을
+     * **이름으로 하나씩** 꺼내 그리므로(근거·유지 항목·사유), 행에 있다는 것과 화면에 선다는
+     * 것은 다른 사실이다 — 이 트리가 되풀이해 겪은 「실려 오지만 안 그려짐」이 그것이다.
+     *
+     * `intellij` 에는 시험 소스셋이 없어서 화면을 세워 볼 수가 없다. 그래서 글자로 재되,
+     * **무엇을 재는지는 좁힌다**: 카운슬 몸통을 짓는 그 자리에 `r.thought` 가 있는가.
+     */
+    @Test
+    fun `카운슬 행이 멤버의 생각을 그린다`() {
+        val f = sources.first { it.name == "MagiToolWindow.kt" }
+        val src = code(f)
+        // ⚠ 닻은 **유일해야 한다.** 처음엔 몸통을 여는 `add(Look.prose(r.text))` 로 잘랐는데 그
+        // 줄은 이 파일에 두 번 있고(라운드가 열린 행과 평결 행), 첫 번째를 집어 카운슬이 아닌
+        // 블록을 재고 있었다. `Who.Council` 분기 자체에서 시작한다.
+        val body = src.substringAfter("Who.Council -> if (r.opened)", "")
+        assertTrue(body.isNotEmpty(), "카운슬 분기를 못 찾았다 — 이 규칙이 빈 글을 보고 초록이 된다")
+        val block = body.substringBefore("Who.Info ->")
+        assertTrue("r.cite" in block, "닻으로 삼은 근거 줄이 이 블록에 없다 — 자른 자리가 틀렸다")
+        assertTrue("r.thought" in block,
+            "멤버의 생각이 카운슬 행에 안 그려진다. 답이 없던 표는 「답이 없었다」 한 줄로만 " +
+                "남고, 왜 없었는지는 화면 밖이다")
+        assertTrue("chat.verdict.thought" in block,
+            "생각을 번들 없이 그린다 — 화면 글자는 번들에서 온다(영어 IDE 가 한국어를 본다)")
+    }
+
+    /**
      * **빈 전사는 무엇이든 말해야 한다.**
      *
      * 창을 처음 열면 판이 비고, 그동안 화면이 말하던 것은 제목표시줄의 수준과 12픽셀짜리
