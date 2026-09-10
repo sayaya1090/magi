@@ -15,6 +15,7 @@ import * as activity from '../core/activity';
  */
 export class Companion implements vscode.Disposable {
   private conn: Daemon | null = null;
+  private connecting: Promise<Daemon | null> | null = null;
   private readonly changed = new vscode.EventEmitter<activity.Activity>();
   readonly onChanged = this.changed.event;
   private readonly setupChanged = new vscode.EventEmitter<activity.Setup>();
@@ -50,20 +51,29 @@ export class Companion implements vscode.Disposable {
    * different fact and must not be drawn as the first one (invariant 0-3).
    */
   async reach(): Promise<Daemon | null> {
+    if (this.gone) return null;
     if (this.conn) return this.conn;
+    if (!this.connecting) this.connecting = this.connect().finally(() => { this.connecting = null; });
+    return this.connecting;
+  }
+
+  private async connect(): Promise<Daemon | null> {
     const p = this.socket;
     const long = tooLong(p);
     if (long) { this.set({ state: activity.State.Unknown, asking: long }); return null; }
     if (!fs.existsSync(p)) { this.set(activity.notRunning()); return null; }
     try {
       const d = await Daemon.connect(p);
-      d.whenClosed(() => { if (this.conn === d) this.conn = null; });
+      if (this.gone) { d.close(); return null; }
+      d.whenClosed(() => {
+        if (this.conn === d) { this.conn = null; this.capsSeen = null; this.built = ''; }
+      });
       this.conn = d;
       return d;
-    } catch {
+    } catch (e) {
       // The socket file is there and nothing answered. That is a corpse, not an absence — but for
       // the person the useful word is still "not running", because there is nothing to talk to.
-      this.set(activity.notRunning());
+      if (!this.gone) this.set({ state: activity.State.Unknown, asking: e instanceof Error ? e.message : String(e) });
       return null;
     }
   }

@@ -11,7 +11,10 @@ import { chooseCommands } from './choose';
 import { doorCommands } from './doors';
 import { EditorHand } from './hand';
 import { HandOff } from './handoff';
-import { found, start, NO_BINARY, offerToStart } from './start';
+import { found, NO_BINARY, offerToStart } from './start';
+import { OwnedCompanion } from '../core/lifecycle';
+
+let owned: OwnedCompanion | undefined;
 
 export function activate(ctx: vscode.ExtensionContext): void {
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -20,6 +23,15 @@ export function activate(ctx: vscode.ExtensionContext): void {
   if (!folder) return;
   const workdir = folder.uri.fsPath;
 
+  const owner = owned = new OwnedCompanion(workdir);
+  const reported = new Set<string>();
+  const report = (e: unknown) => {
+    const message = e instanceof Error ? e.message : String(e);
+    if (!reported.has(message)) {
+      reported.add(message);
+      void vscode.window.showWarningMessage(`magi: ${message}`);
+    }
+  };
   const companion = new Companion(workdir);
   const status = new Status();
   const chat = new Chat(companion, ctx.extensionUri);
@@ -33,7 +45,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
   const handoff = new HandOff(companion, folder.name);
 
   ctx.subscriptions.push(
-    companion, status, chat, plan, looking, hand, handoff,
+    owner, companion, status, chat, plan, looking, hand, handoff,
     companion.onChanged((a) => status.draw(a)),
     companion.onSetup((s) => status.show(s)),
 
@@ -54,10 +66,10 @@ export function activate(ctx: vscode.ExtensionContext): void {
     handoff.onChanged((w) => plan.showHanded(w)),
 
     vscode.commands.registerCommand('magi.focusChat', () => chat.reveal()),
-    vscode.commands.registerCommand('magi.start', () => {
+    vscode.commands.registerCommand('magi.start', async () => {
       const bin = found();
       if (!bin) { void vscode.window.showWarningMessage(NO_BINARY); return; }
-      start(bin, workdir);
+      try { await owner.start(bin, true); } catch (e) { report(e); }
     }),
     // Stop. The answer is not thrown away — and it is not read as "stopped" either: the core's
     // `Interrupt` returns nil when no turn is running, so `ok` means the request arrived, not that
@@ -108,11 +120,13 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
   // Silently. A window opening is not a moment worth a notification, and the bar the guidelines
   // set for one is "absolutely necessary".
-  void offerToStart(workdir);
+  const retry = setInterval(() => { void offerToStart(owner).catch(report); }, 15_000);
+  ctx.subscriptions.push({ dispose: () => clearInterval(retry) });
+  void offerToStart(owner).catch(report);
   companion.watch();
 }
 
-export function deactivate(): void { /* everything is on ctx.subscriptions */ }
+export async function deactivate(): Promise<void> { await owned?.close(); owned = undefined; }
 
 /**
  * The `magi.openConversation` setting, applied once at startup.

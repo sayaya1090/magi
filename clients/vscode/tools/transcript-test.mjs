@@ -1,0 +1,31 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
+const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
+const { chromium } = require('playwright');
+const source = await readFile(new URL('../src/ide/chat.ts', import.meta.url), 'utf8');
+const start = source.indexOf('    const nonce =', source.indexOf('private html('));
+const end = source.indexOf('</script></body></html>`;', start) + '</script></body></html>`;'.length;
+assert.ok(start > 0 && end > start);
+const html = new Function('w', source.slice(start, end))({ cspSource: "'self'" });
+await writeFile('/tmp/magi-vscode-webview.js', html.match(/<script[^>]*>([\s\S]*?)<\/script>/)[1]);
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: 420, height: 600 } });
+  page.on('pageerror', (e) => console.error(e.message));
+  page.on('console', (m) => { if(m.type() === 'error') console.error(m.text()); });
+  await page.addInitScript(() => { window.acquireVsCodeApi = () => ({ postMessage() {}, getState() {}, setState() {} }); });
+  await page.route('http://magi.test/', (route) => route.fulfill({ contentType: 'text/html', body: html }));
+  await page.goto('http://magi.test/');
+  await page.evaluate(() => window.postMessage({ kind: 'rows', rows: [{who:'agent', label:'magi', text:'long answer\n'.repeat(1000)}] }, '*'));
+  await page.waitForSelector('.row.agent');
+  const bounds = await page.locator('.row.agent').evaluate((el) => ({ height: el.clientHeight, scroll: el.scrollHeight }));
+  assert.ok(bounds.height > 10000);
+  assert.equal(bounds.height, bounds.scroll);
+  await page.locator('#rows').evaluate((el) => { el.scrollTop = 0; });
+  await page.mouse.move(200, 250); await page.mouse.wheel(0, 500);
+  await page.waitForFunction(() => document.querySelector('#rows').scrollTop > 0);
+  await page.setViewportSize({ width: 280, height: 400 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight), true);
+  console.log('PASS: full long answer, outer wheel scrolling, narrow viewport');
+} finally { await browser.close(); }

@@ -1,4 +1,7 @@
 import * as net from 'net';
+import { Duplex } from 'stream';
+import { spawn } from 'child_process';
+import { found } from './binary';
 import { Request, Response } from './protocol';
 
 /**
@@ -13,14 +16,14 @@ import { Request, Response } from './protocol';
  * the write half open while you read is half the stream contract (`docs/CLIENTS`).
  */
 export class Daemon {
-  private sock: net.Socket;
+  private sock: Duplex;
   private buf = '';
   private waiting: ((r: Response) => void)[] = [];
   private onFrame: ((r: Response) => void) | null = null;
   private closed = false;
   private onClose: (() => void)[] = [];
 
-  private constructor(sock: net.Socket) {
+  private constructor(sock: Duplex) {
     this.sock = sock;
     sock.setEncoding('utf8');
     sock.on('data', (chunk: string) => this.take(chunk));
@@ -29,6 +32,7 @@ export class Daemon {
   }
 
   static connect(path: string, connectMs = 5000): Promise<Daemon> {
+    if (process.platform === 'win32') return Daemon.bridge(path, connectMs);
     return new Promise((resolve, reject) => {
       const sock = net.createConnection({ path });
       const timer = setTimeout(() => {
@@ -38,6 +42,24 @@ export class Daemon {
       sock.once('connect', () => { clearTimeout(timer); resolve(new Daemon(sock)); });
       sock.once('error', (e) => { clearTimeout(timer); reject(e); });
     });
+  }
+
+  /** Go owns AF_UNIX on Windows; Node's path transport uses named pipes there. */
+  static async bridge(path: string, connectMs = 5000, binary = found()): Promise<Daemon> {
+    if (!binary) throw new Error('magi.exe is needed to connect on Windows; put it on PATH.');
+    const child = spawn(binary, ['ide-bridge', '--raw-socket', path], { windowsHide: true, stdio: 'pipe' });
+    const sock = Duplex.from({ readable: child.stdout, writable: child.stdin });
+    let why = '';
+    child.stderr.on('data', (b: Buffer) => { why = (why + b.toString()).slice(-4096); });
+    child.on('error', (e) => sock.destroy(e));
+    child.on('exit', () => sock.destroy());
+    sock.once('close', () => { child.kill(); });
+    const d = new Daemon(sock);
+    try {
+      const hello = await d.exchange({ method: 'about' }, connectMs);
+      if (!hello.ok) throw new Error(why.trim() || hello.error || 'the bridge could not connect');
+      return d;
+    } catch (e) { d.close(); throw e; }
   }
 
   /** One question, one answer. */

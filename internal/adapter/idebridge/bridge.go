@@ -52,9 +52,13 @@ func Methods() []string { return []string{"about", "activity", "daemon"} }
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("magi ide-bridge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	rawSocket := fs.String("raw-socket", "", "relay stdin/stdout to this daemon socket")
 	workspace := fs.String("workspace", "", "the project directory whose companion to speak for (default: the working directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	if *rawSocket != "" {
+		return relay(*rawSocket, stdin, stdout, stderr)
 	}
 	wd := *workspace
 	if wd == "" {

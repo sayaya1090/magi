@@ -428,7 +428,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   body { margin:0; font-family:var(--vscode-font-family); font-size:var(--vscode-font-size);
          color:var(--vscode-foreground); background:var(--vscode-panel-background);
          display:flex; flex-direction:column; height:100vh; }
-  #rows { flex:1; overflow-y:auto; padding:8px 10px; }
+  #rows { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
   .who { font-size:.85em; opacity:.7; margin-bottom:2px; }
   .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
