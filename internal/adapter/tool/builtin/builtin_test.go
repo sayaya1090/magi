@@ -12,6 +12,7 @@ import (
 
 	"net/http"
 	"net/http/httptest"
+	"sort"
 
 	"github.com/sayaya1090/magi/internal/port"
 )
@@ -261,15 +262,55 @@ func runJSON(t *testing.T, tool port.Tool, args any, setup func(dir string)) ([]
 }
 
 // ---- Registry ----
+//
+// The default registry is exactly this set — no more, so a tool added without a word here is
+// caught, and no fewer.
+//
+// ⚠ **`port_owner` is not on every platform, and that is deliberate.** It is withdrawn where
+// neither /proc nor lsof can answer, because "advertising a tool that refuses every call is how an
+// agent spends steps discovering a door is painted on" (registry.go). The test listed it
+// unconditionally and asserted a flat 24, so on Windows it reported the tool as MISSING and the
+// registry as the wrong size — describing a deliberate decision as a defect. Measured 2026-09-10.
+//
+// The count is derived from the list rather than written again as a number. Two spellings of one
+// fact drift, and the number was the half that could not say which tool it meant: "registry size =
+// 23, want 24" names nothing.
 func TestDefaultRegistry(t *testing.T) {
-	r := Default()
-	for _, name := range []string{"read", "write", "edit", "multiedit", "grep", "glob", "list", "bash", "bash_output", "bash_kill", "bash_input", "port_owner", "wait_for", "todowrite", "label", "webfetch", "websearch", "remember", "skill", "recall_context", "recall_memory", "search_sessions", "schedule", "council"} {
-		if _, ok := r.Get(name); !ok {
-			t.Errorf("default registry missing tool %q", name)
-		}
+	want := []string{
+		"read", "write", "edit", "multiedit", "grep", "glob", "list",
+		"bash", "bash_output", "bash_kill", "bash_input", "wait_for",
+		"todowrite", "label", "webfetch", "websearch", "remember", "skill",
+		"recall_context", "recall_memory", "search_sessions", "schedule", "council",
 	}
-	if len(r.List()) != 24 {
-		t.Errorf("registry size = %d, want 24", len(r.List()))
+	if portOwnerSupported {
+		want = append(want, "port_owner")
+	}
+	sort.Strings(want)
+
+	r := Default()
+	var got []string
+	for _, tool := range r.List() {
+		got = append(got, tool.Name())
+	}
+	sort.Strings(got)
+
+	if !reflect.DeepEqual(got, want) {
+		for _, name := range want {
+			if _, ok := r.Get(name); !ok {
+				t.Errorf("default registry is missing %q", name)
+			}
+		}
+		have := map[string]bool{}
+		for _, name := range got {
+			have[name] = true
+		}
+		for _, name := range want {
+			delete(have, name)
+		}
+		for name := range have {
+			t.Errorf("default registry carries %q, which this test does not name — say what it is for", name)
+		}
+		t.Errorf("registry = %v, want %v", got, want)
 	}
 }
 

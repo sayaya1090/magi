@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -18,16 +19,36 @@ import (
 // (large-scale-text-editing, 2026-07-30): `timeout:5` with `background:true`, and the job was
 // still running when the agent gave up and killed it at 2m18s.
 func TestBashSaysWhichArgumentItDidNotApply(t *testing.T) {
+	// ⚠ **A background job outlives the call — including the one that made it.**
+	//
+	// This test starts `sleep 30` detached, twice, to check what the tool SAYS about a timeout it
+	// did not apply. Saying it is the whole point, so the jobs are real and they keep running after
+	// Execute returns. Nothing stopped them: two sleepers per run, holding the workdir the test is
+	// about to delete.
+	//
+	// On Unix that is invisible — a directory unlinks with handles still open in it. On Windows the
+	// removal fails, and it fails in Cleanup, so the test's own assertions all pass and the test
+	// still reports FAIL with a message about `unlinkat`. Measured 2026-09-10.
+	//
+	// So whatever is started here is stopped here, by the door the message itself names.
+	env := port.ToolEnv{Workdir: t.TempDir()}
 	run := func(args map[string]any) string {
 		t.Helper()
 		b, _ := json.Marshal(args)
-		res, err := Bash{}.Execute(context.Background(), b, port.ToolEnv{Workdir: t.TempDir()})
+		res, err := Bash{}.Execute(context.Background(), b, env)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var s string
 		if json.Unmarshal(res.Content, &s) != nil {
-			return string(res.Content)
+			s = string(res.Content)
+		}
+		for _, m := range regexp.MustCompile(`bg_\d+`).FindAllString(s, -1) {
+			id := m
+			t.Cleanup(func() {
+				_, _ = BashKill{}.Execute(context.Background(),
+					json.RawMessage(`{"id":"`+id+`"}`), env)
+			})
 		}
 		return s
 	}
