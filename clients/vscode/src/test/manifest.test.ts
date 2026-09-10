@@ -582,6 +582,38 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
       `an event is skipped because \`status.${field}\` is read live, and nothing reads it`);
   }
 
+  /**
+   * ★ And the exemptions that claim a type is TRANSIENT are checked against the core's own map.
+   *
+   * Two reasons here rest on "bus-only, never persisted": if such a type were ever promoted to a
+   * fact, the exemption would become a false statement and nothing else would notice. That is not
+   * hypothetical in this repository — the core says `model.changed` "was declared as a transient for
+   * most of its life and this const block is where that mistake was visible", and names what the
+   * mistake cost: "three documents copied the header rather than the behaviour, and told outside
+   * clients not to expect this line".
+   *
+   * Read from `transientTypes` rather than from a list here, for the reason the sibling check reads
+   * `status.X` off the code: a copy of the answer drifts with the thing it is supposed to catch.
+   */
+  const trans = new Set<string>();
+  {
+    const map = /transientTypes = map\[Type\]bool\{([\s\S]*?)\n\}/.exec(core)?.[1] ?? '';
+    assert.ok(map, 'the core\'s transient map was not found — this check is reading nothing');
+    for (const m of map.matchAll(/(Type[A-Za-z]+):/g)) {
+      const v = new RegExp(m[1] + '\\s+Type\\s*=\\s*"([a-z][\\w.]*)"').exec(core);
+      if (v) trans.add(v[1]);
+    }
+    assert.ok(trans.size >= 5, `only ${trans.size} transient types resolved — the scan is broken`);
+  }
+  const saysTransient = Object.entries(skipped).filter(([, why]) => why.includes('transient'));
+  assert.ok(saysTransient.length >= 2,
+    `only ${saysTransient.length} transience claim(s) found in the reasons — the scan is dead`);
+  for (const [t] of saysTransient) {
+    assert.ok(trans.has(t),
+      `${t} is skipped because it is "transient", and the core does not list it as one — the ` +
+      'reason has aged into a false statement, which is how `model.changed` sat in the wrong block');
+  }
+
   const missed: string[] = [];
   for (const t of types) if (!read.has(t) && !(t in skipped)) missed.push(t);
   assert.deepEqual(missed, [],
