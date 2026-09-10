@@ -440,3 +440,20 @@ test('the editor hand refuses a path outside the workspace', () => {
     'the resolver opens whatever path the companion names — the workspace boundary is not kept here');
   assert.ok(/throw/.test(fn), 'the check is made and not acted on');
 });
+
+/**
+ * ★ And the page draws the round's threshold, not just carries it.
+ *
+ * A mutation proved this needs its own line: emptying the opened-row label leaves the fold's tests
+ * green — they measure the Row, and the Row was right. The sixth time this session that a fact
+ * reached a shaper and stopped there.
+ */
+test('an opened council round draws its rule', () => {
+  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const at = chat.indexOf('const vote =');
+  assert.ok(at > 0, 'the council label is not where this guard looks for it');
+  const branch = chat.slice(at, chat.indexOf(';\n', chat.indexOf('r.round', at)));
+  assert.ok(/r\.opened\s*\?/.test(branch), 'an opened round is labelled like a verdict');
+  assert.ok(/r\.rule/.test(branch),
+    'the round opens without its threshold — two continue and one done mean different things under majority and unanimous');
+});
