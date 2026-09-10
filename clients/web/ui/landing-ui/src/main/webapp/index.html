@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>magi — a coding agent that is not allowed to declare itself finished</title>
-<meta name="description" content="A terminal coding agent whose turn ends only when the agent declares it is done and three council members accept that declaration by reading the record of what actually ran.">
+<title>magi — a persistent coding agent that never drops work when you close the window or switch tools</title>
+<meta name="description" content="A persistent Go AI coding agent that runs as an independent resident daemon per workspace. Connect seamlessly from terminal TUIs, web consoles, and IDEs with event-sourced logs and council consensus verification.">
 <meta property="og:title" content="magi">
-<meta property="og:description" content="A coding agent that is not allowed to declare itself finished. Three council members read the record — not the agent's summary — before a turn may end.">
+<meta property="og:description" content="A persistent Go AI coding agent that never drops work when you close the window or switch tools. Independent resident daemons, event-sourced time travel, and 3-member council consensus verification.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://sayaya1090.github.io/magi/">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -28,13 +28,9 @@
        있는지. 크롤러가 읽는 것도 이 글이다. -->
   <noscript id="plain">
     <h1>magi</h1>
-    <p>A coding agent that is not allowed to declare itself finished.</p>
-    <p>In most agent loops the turn ends when the model stops calling tools. magi ends it
-      differently: the agent has to declare that it is done, and three council members read the
-      record — what actually ran, how it really exited, what changed on disk — before that
-      declaration is accepted.</p>
-    <p>스스로 「다 했다」고 말할 수 없는 코딩 에이전트. 에이전트가 끝났다고 선언해야 하고, 세
-      위원이 기록을 읽은 뒤에야 그 선언이 받아들여진다.</p>
+    <p>A persistent coding agent that never drops work when you close the window or switch tools.</p>
+    <p>Runs as an independent resident daemon per workspace, allowing terminal TUIs, web consoles, and IDEs (VS Code, JetBrains, Visual Studio) to attach and detach seamlessly over local sockets. Every turn is event-sourced into an append-only JSONL log, while a 3-member council consensus gate prevents premature and unverified completion.</p>
+    <p>창을 닫아도, 도구를 바꿔도 작업이 끊기지 않는 상주형 코딩 에이전트. 워크스페이스마다 독립 데몬으로 상주하며 터미널, 웹 콘솔, IDE 어디서든 소켓으로 자유롭게 연결됩니다. 모든 작업은 추가 전용 JSONL 로그로 이벤트 소싱되며, 3인 카운슬 검증 게이트가 거짓 완료를 원천 차단합니다.</p>
     <p><a href="https://github.com/sayaya1090/magi">GitHub</a> ·
        <a href="https://github.com/sayaya1090/magi/blob/main/docs/MANUAL.md">Manual</a> ·
        <a href="demo/">Console demo</a></p>
