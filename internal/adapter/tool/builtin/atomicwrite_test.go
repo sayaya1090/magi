@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/testenv"
 )
 
 // atomicWriteFile replaces content and leaves no temp file behind.
@@ -37,6 +39,7 @@ func TestAtomicWriteFileReplacesContent(t *testing.T) {
 
 // An existing file keeps its permission bits across the rename.
 func TestAtomicWriteFilePreservesMode(t *testing.T) {
+	testenv.NeedExecutableBit(t)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "script.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {

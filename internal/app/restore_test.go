@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/port"
@@ -240,6 +242,7 @@ func (f *writingChildLLM) StreamChat(context.Context, port.ChatRequest) (<-chan 
 // "permission denied" on a file somebody has already checked. In a recovery path that is the worst
 // kind of lie — the next round proceeds believing the tree is as it was.
 func TestARestoredFileKeepsItsPermissions(t *testing.T) {
+	testenv.NeedExecutableBit(t)
 	dir := t.TempDir()
 	script := filepath.Join(dir, "run.sh")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho original\n"), 0o755); err != nil {

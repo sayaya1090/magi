@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +141,13 @@ func TestProbeLandingRefusesAReadAsIfItWereWork(t *testing.T) {
 // land 없이 끝난 턴은 **되부른다** — 설정에 소켓이 있으면 `magi --relay <소켓>` 으로 데몬에 사용자 메시지를
 // 넣고, 한 대화에 두 번까지다. 여기서는 PATH 앞에 가짜 magi 를 두어 무엇을 보냈는지 잰다.
 func TestProbeLandingNudgesAnUnlandedTurnThroughTheRelay(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// 기존 관례와 같은 이유(internal/update/unpack_test.go): 대역 바이너리가 셸 스크립트다.
+		// 확장자 없는 `magi` 에 `#!/bin/sh` 를 넣어 PATH 앞에 두는 방식은 이 플랫폼에서
+		// 실행 파일이 아니고, 되부르기는 조용히 아무 데도 안 간다 — 빈 got.txt 가 「상한이
+		// 틀렸다」로 보고된다.
+		t.Skip("the stand-in binary is a shell script")
+	}
 	bin := t.TempDir()
 	got := filepath.Join(bin, "got.txt")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + got + "\ncat >> " + got + "\nprintf '{\"ok\":true}\\n'\n"

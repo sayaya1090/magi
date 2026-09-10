@@ -19,6 +19,7 @@
 package testenv
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -76,4 +77,49 @@ func NeedSymlink(t *testing.T) {
 var (
 	symlinkOnce sync.Once
 	symlinkErr  error
+)
+
+// NeedExecutableBit skips the calling test where the filesystem has no executable bit to preserve.
+//
+// Windows has no POSIX mode. Go's Chmod there toggles one thing — the read-only attribute — and a
+// file written 0755 reads back 0666. Two tests assert that a mode SURVIVES a write or a restore,
+// which is a real and important promise on Unix (a restored script that lost its bit will not run)
+// and is not a promise this platform can make at all.
+//
+// They were reporting failure for it. "This filesystem has no executable bit" and "magi dropped the
+// executable bit" are different facts, and only the second one is a defect — measured 2026-09-10 as
+// `mode = 666, want 755`.
+//
+// Probed rather than assumed from GOOS: a Unix filesystem mounted without permissions behaves the
+// same way, and the question is about the filesystem the test will actually write to.
+func NeedExecutableBit(t *testing.T) {
+	t.Helper()
+	execBitOnce.Do(func() {
+		d, err := os.MkdirTemp("", "modeprobe")
+		if err != nil {
+			execBitErr = err
+			return
+		}
+		defer os.RemoveAll(d)
+		p := filepath.Join(d, "s")
+		if execBitErr = os.WriteFile(p, []byte("#!/bin/sh\n"), 0o755); execBitErr != nil {
+			return
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			execBitErr = err
+			return
+		}
+		if fi.Mode().Perm()&0o111 == 0 {
+			execBitErr = fmt.Errorf("0755 를 썼는데 %v 로 읽힌다", fi.Mode().Perm())
+		}
+	})
+	if execBitErr != nil {
+		t.Skipf("이 파일시스템에는 지킬 실행 비트가 없다: %v", execBitErr)
+	}
+}
+
+var (
+	execBitOnce sync.Once
+	execBitErr  error
 )
