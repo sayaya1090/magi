@@ -480,8 +480,20 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     'permission.decided': 'not a row — it CLOSES the ask (pendingAsk and touched both read it); the decision itself shows as the ask disappearing',
     'question.answered': 'not a row — it CLOSES the ask (pendingAsk reads it); the answer arrives as the prompt it produced, and a second row would say the person spoke twice',
     'session.moved': 'this window follows one workspace; a companion that left is reported by the socket going quiet',
-    'labels.changed': 'nothing in this client renames people yet — the roster shows what the daemon calls them',
-    'user.label.changed': 'same as labels.changed',
+    // ⚠ These two had each other's reasons. `labels.changed` carries the SESSION's subject labels
+    // (`LabelsChangedData.Labels`, "what the agent says this session's work is about", the whole set
+    // each time); `user.label.changed` carries the person's display name. The note here described
+    // renaming people and was filed under the labels key, and the second key then pointed at it
+    // ("same as labels.changed") — so the only reason recorded for either was a statement about the
+    // other. A reason that describes the wrong field vouches for a skip nobody has actually judged.
+    'labels.changed': 'the session\'s own subject labels. Nothing here draws them: a conversation is '
+      + 'named by its title in the list, and `SessionRow.labels` is unread for the same reason',
+    // And this one is now exempted for the OPPOSITE reason to the one it used to carry: the client
+    // does follow the person's name — `status.user` is read on every poll (Setup.user) — so replaying
+    // the event would be a second source for a fact already arriving live. Same rule as
+    // `model.changed` and `session.created` above.
+    'user.label.changed': 'the person\'s display name, answered LIVE by `status` (Setup.user), so a '
+      + 'window attaching mid-conversation gets the current name instead of replaying its history',
     'result.elided': 'a shed tool result is a context-window fact, not a conversation one — the row already says what the call was',
     'workflow.phase': 'this client draws no phase strip; the plan panel shows the todos the phase moves',
     'tool.progress': 'transient and bus-only, so it never reaches a reader of the log; the live note comes from `status.doing`',
