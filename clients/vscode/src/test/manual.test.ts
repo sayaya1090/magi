@@ -206,3 +206,28 @@ function readAll(dir: string): string {
   }
   return out;
 }
+
+/**
+ * ★ The two code actions keep their kinds, because the porting table describes them by kind.
+ *
+ * The table said "ask about this code" was registered as `quickfix`. It is not — it is
+ * `CodeActionKind.Empty`, and `QuickFix` belongs to the action that explains a DIAGNOSTIC. The kinds
+ * are not interchangeable: a quick fix is offered against a diagnostic, and an Empty-kind action is
+ * a plain entry in the lightbulb. The row named the wrong one.
+ *
+ * ⚠ What the sibling guard cannot see. `a ported row names no command this client does not have`
+ * only checks command-shaped literals, and `quickfix` is a KIND. Widening it to any dotted
+ * identifier was measured and rejected: it flags `Daemon.exchange`, where the class and the method
+ * both exist and only the spelling `Daemon.exchange` does not — one false alarm out of five. And it
+ * would not have caught this one anyway, because `QuickFix` does appear in the file, on the other
+ * action. So the coupling is made here instead: pin the kinds, and the table's words stay true.
+ */
+test('the diagnostic action is a quick fix and the ask action is not', () => {
+  // ⚠ `__dirname` is `out/test`, so the source tree is two levels up and then `src` — see the
+  // note above the sibling scan. Reading `../ide` finds the COMPILED `.js` at best, never the `.ts`.
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'entrypoints.ts'), 'utf8');
+  assert.match(src, /explain[^\n]*CodeActionKind\.QuickFix/,
+    'explaining a diagnostic is no longer a quick fix — it is what the lightbulb offers against an error');
+  assert.match(src, /'magi: ask about this code',\s*vscode\.CodeActionKind\.Empty/,
+    'the ask action changed kind — the porting table describes it as Empty, and a quick fix is offered against a diagnostic instead');
+});
