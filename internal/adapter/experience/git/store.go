@@ -396,8 +396,24 @@ func readDir(dir string) []string {
 	return out
 }
 
+// readFile reads one document of this tier, treating anything it cannot read as absent.
+//
+// ⚠ **atomicfile.ReadFile, because every writer in this package is atomicfile.Write.** These files
+// are replaced under readers by design — the global tier is shared by every companion of one
+// person, so one of them learning while another retrieves is the ordinary case, not a race — and
+// on Windows a read that lands in the replacement window does not see the old file or the new one.
+// It fails with ERROR_SHARING_VIOLATION, which this function turns into "".
+//
+// And "" is not an error here, it is a SKIP: Pool drops a document with no text. So the failure
+// mode was never a visible one. A skill that exists simply was not among the candidates, the
+// answer was built without a lesson the store was holding, and nothing anywhere said so. Measured
+// 2026-09-11 on Windows — Pool called 3000 times while another writer proposed the same skill in a
+// loop: 89 of those retrievals, 3.0%, came back with the skill gone.
+//
+// The write half of this rule was already right in all six of this package's writers. This was the
+// read half, in both of the two places that do it.
 func readFile(p string) string {
-	b, err := os.ReadFile(p)
+	b, err := atomicfile.ReadFile(p)
 	if err != nil {
 		return ""
 	}

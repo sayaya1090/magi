@@ -330,7 +330,9 @@ func (s *Store) WikiTouch(titles []string) {
 
 func (s *Store) readWikiUsage() map[string]string {
 	u := map[string]string{}
-	data, err := os.ReadFile(filepath.Join(s.dir, "wiki", ".usage"))
+	// atomicfile.ReadFile: this file is replaced by atomicfile.Write a few lines up, and on Windows
+	// a read landing in that window fails rather than seeing either version. See readFile in store.go.
+	data, err := atomicfile.ReadFile(filepath.Join(s.dir, "wiki", ".usage"))
 	if err != nil {
 		return u
 	}
