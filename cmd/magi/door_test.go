@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/shortdir"
+
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
@@ -247,7 +249,7 @@ func TestTheDoorAsksWhoIsWantedBeforeItConnects(t *testing.T) {
 // a t.TempDir() under a long test name gets close.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "magidoor")
+	d, err := shortdir.Make("magidoor")
 	if err != nil {
 		t.Fatal(err)
 	}

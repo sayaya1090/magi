@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/shortdir"
+
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
@@ -77,7 +79,7 @@ func TestListLightFallbackAndHonestError(t *testing.T) {
 	// A short home, because a unix socket path has a hard length limit (~104 bytes on macOS) and
 	// the default temp name spends most of it. (The package's own shortTempDir lives in the
 	// external test package and cannot be reached from here.)
-	home, herr := os.MkdirTemp("/tmp", "flt")
+	home, herr := shortdir.Make("flt")
 	if herr != nil {
 		t.Fatal(herr)
 	}

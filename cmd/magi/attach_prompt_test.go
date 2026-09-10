@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/shortdir"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -90,7 +92,7 @@ func (p *promptEngine) RespondPermission(_ context.Context, c command.RespondPer
 // serveEngine runs a daemon on a short socket path and returns a client attached to it.
 func serveEngine(t *testing.T, eng daemon.Engine) *daemon.Client {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "attachp")
+	dir, err := shortdir.Make("attachp")
 	if err != nil {
 		t.Fatal(err)
 	}

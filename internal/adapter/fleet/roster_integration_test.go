@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/shortdir"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -57,7 +59,7 @@ func (stillEngine) Doing(session.SessionID) (string, bool)                      
 // shortHome is a config directory short enough to hold a unix socket path on darwin.
 func shortHome(t *testing.T) string {
 	t.Helper()
-	home, err := os.MkdirTemp("/tmp", "mgi")
+	home, err := shortdir.Make("mgi")
 	if err != nil {
 		t.Fatal(err)
 	}

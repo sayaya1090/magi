@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/shortdir"
+
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
@@ -14,7 +16,7 @@ import (
 // would: a record on disk and a project config beside it.
 func publishWorkspace(t *testing.T, cfgDir, sid string, id daemon.Identity, projectTOML string) string {
 	t.Helper()
-	wd, err := os.MkdirTemp("/tmp", "magijoin")
+	wd, err := shortdir.Make("magijoin")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +44,7 @@ func publishWorkspace(t *testing.T, cfgDir, sid string, id daemon.Identity, proj
 // A newcomer starts knowing nothing the team agreed on. Joining says what they share — and applies
 // none of it, because an [mcp] entry is a command this process would later run.
 func TestJoinProposesWhatTheTeamSharesAndAppliesNothing(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoincfg")
+	cfg, err := shortdir.Make("magijoincfg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +69,7 @@ env = ["FIGMA_TOKEN=secret-value-nobody-should-copy"]
 event = "PostToolUse"
 command = "true"
 `)
-	mine, err := os.MkdirTemp("/tmp", "magijoinme")
+	mine, err := shortdir.Make("magijoinme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +126,7 @@ command = "true"
 
 // Joining a name nobody has answers with who is there — the next thing anybody does is name one.
 func TestJoinNamesWhoIsThereWhenNobodyMatches(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoincfg")
+	cfg, err := shortdir.Make("magijoincfg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +149,7 @@ func TestJoinNamesWhoIsThereWhenNobodyMatches(t *testing.T) {
 // A team name matching several is the ordinary case, and the newcomer has to say whose setup it
 // means to copy.
 func TestJoiningATeamOfSeveralAsksWhichOne(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoincfg")
+	cfg, err := shortdir.Make("magijoincfg")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,13 +171,13 @@ func TestJoiningATeamOfSeveralAsksWhichOne(t *testing.T) {
 // A companion that shares nothing says so, rather than handing over an empty file that reads as a
 // failure.
 func TestJoiningSomebodyWhoSharesNothingSaysSo(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoincfg")
+	cfg, err := shortdir.Make("magijoincfg")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(cfg)
 	publishWorkspace(t, cfg, "s", daemon.Identity{Name: "solo"}, "[companion]\nname = \"solo\"\n")
-	mine, err := os.MkdirTemp("/tmp", "magijoinme")
+	mine, err := shortdir.Make("magijoinme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +209,7 @@ func TestJoiningSomebodyWhoSharesNothingSaysSo(t *testing.T) {
 // ENDPOINT is not copied — it may name a host only their machine can reach, and a key is never
 // copied by this file at all.
 func TestJoinCarriesTheEmbeddingModelAndNotItsEndpoint(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoinembed")
+	cfg, err := shortdir.Make("magijoinembed")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +224,7 @@ api_key = "sk-theirs"
 name = "design"
 team = "frontend"
 `)
-	mine, err := os.MkdirTemp("/tmp", "magijoinembedme")
+	mine, err := shortdir.Make("magijoinembedme")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,14 +262,14 @@ team = "frontend"
 // The mcp_peers paragraph and the team/name/role block are both about the same section, and the
 // first attempt at this emitted a header for each.
 func TestTheProposalHasOneCompanionSection(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoinsec")
+	cfg, err := shortdir.Make("magijoinsec")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(cfg)
 	publishWorkspace(t, cfg, "s", daemon.Identity{Name: "design", Team: "frontend"},
 		"[companion]\nname = \"design\"\nteam = \"frontend\"\n")
-	mine, err := os.MkdirTemp("/tmp", "magijoinme2")
+	mine, err := shortdir.Make("magijoinme2")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -298,7 +300,7 @@ func TestTheProposalHasOneCompanionSection(t *testing.T) {
 // "did we write much" — and the first paragraph added above it would have turned every such join
 // into a page that lists their standing instructions and then says they share nothing.
 func TestAnAgentsFileCountsAsSomethingShared(t *testing.T) {
-	cfg, err := os.MkdirTemp("/tmp", "magijoinag")
+	cfg, err := shortdir.Make("magijoinag")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,7 +309,7 @@ func TestAnAgentsFileCountsAsSomethingShared(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(wd, ".magi", "AGENTS.md"), []byte("# how we work\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	mine, err := os.MkdirTemp("/tmp", "magijoinme3")
+	mine, err := shortdir.Make("magijoinme3")
 	if err != nil {
 		t.Fatal(err)
 	}

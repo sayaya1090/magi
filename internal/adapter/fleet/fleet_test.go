@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/shortdir"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -44,7 +46,7 @@ type fleetFixture struct {
 // writing this test, which is also why daemon.tooLong exists.
 func shortTempDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "magiweb")
+	d, err := shortdir.Make("magiweb")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,6 +21,8 @@ import (
 
 	"golang.org/x/sys/unix"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/shortdir"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -40,12 +42,12 @@ func TestADetachedDaemonOutlivesItsStarter(t *testing.T) {
 	}
 	// Short roots on both: a unix socket path caps near 100 bytes and the config dir is most of a
 	// socket path on its own.
-	cfg, err := os.MkdirTemp("/tmp", "mgd")
+	cfg, err := shortdir.Make("mgd")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(cfg) })
-	ws, err := os.MkdirTemp("/tmp", "mgw")
+	ws, err := shortdir.Make("mgw")
 	if err != nil {
 		t.Fatal(err)
 	}

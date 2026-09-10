@@ -11,6 +11,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/shortdir"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
@@ -119,7 +121,7 @@ func (*heard) Doing(session.SessionID) (string, bool)                         { 
 
 func shortDir(t *testing.T) string {
 	t.Helper()
-	d, err := os.MkdirTemp("/tmp", "magicomp")
+	d, err := shortdir.Make("magicomp")
 	if err != nil {
 		t.Fatal(err)
 	}
