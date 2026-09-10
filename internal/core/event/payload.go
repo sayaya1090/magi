@@ -368,6 +368,13 @@ type CouncilVerdictData struct {
 	// read. It rides beside decision "abstain" so a surface can say "no answer" where a member
 	// never spoke, instead of reporting a failure as a considered abstention.
 	Silent bool `json:"silent,omitempty"`
+	// Thought is the member's reasoning stream — what it thought before it answered. Carried so a
+	// surface can show WHY a member said nothing: a reply that arrived as reasoning alone used to
+	// draw as a silent abstention with no trace of the thousands of characters that did come.
+	//
+	// ⚠ Never parsed as a verdict. It reaches the adapter on a separate channel from the reply
+	// (`drain`), and every field above it comes from the parsed JSON instead.
+	Thought string `json:"thought,omitempty"`
 }
 
 // CouncilDecidedData — TypeCouncilDecided (the tallied outcome). Feedback is set

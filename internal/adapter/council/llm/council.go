@@ -295,8 +295,11 @@ func peerDigest(vs []council.Verdict, self string) string {
 }
 
 // poll asks one member and returns its verdict.
-func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) council.Verdict {
-	v := council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
+// ⚠ The result is NAMED because a deferred assignment below writes to it. With an unnamed result
+// `return v` copies first and the defer then edits a local nobody reads — which is a silent no-op,
+// not a compile error.
+func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m council.Member) (v council.Verdict) {
+	v = council.Verdict{Member: m.Name, Lens: m.Lens, Weight: m.Weight}
 
 	// Model: the member's pin, else the request's default (session model), else the
 	// adapter's fallback. Provider: the member's named backend, else default.
@@ -320,7 +323,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	sys := memberSystem(m, req.Task, req.Keep)
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
-	ask := func(userMsg string) (memberReply, string, bool, error) {
+	ask := func(userMsg string) (memberReply, string, string, bool, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model:  model,
 			System: sys,
@@ -329,7 +332,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			Params: map[string]any{"temperature": 0.0},
 		})
 		if err != nil {
-			return memberReply{}, "", false, err
+			return memberReply{}, "", "", false, err
 		}
 		var b strings.Builder
 		text, reasoning, cut := drain(stream)
@@ -341,10 +344,18 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		if !ok {
 			noteUnparsed("a council member's verdict (recorded as an abstain)", b.String())
 		}
-		return r, b.String(), ok, nil
+		// The thought rides out beside the reply and never through it. `parseReply` has already
+		// run on `b` alone above; this value has not been near it.
+		return r, b.String(), clipThought(reasoning), ok, nil
 	}
 
-	r, raw, ok, err := ask(user)
+	r, raw, thought, ok, err := ask(user)
+	// ⚠ **Every exit below is one of the exits this field exists for.** The thought is assigned
+	// here, before the failure branches, rather than beside `fill` at the bottom — the first
+	// version put it there and the reasoning was dropped on precisely the paths that had nothing
+	// else to show. A member that returns from one of these is recorded silent, and if it thought
+	// at length before falling over, that is the entire account of the round.
+	defer func() { v.Thought = thought }()
 	if err != nil {
 		v.Decision, v.Silent = council.Abstain, true
 		v.Rationale = "council member unavailable: " + err.Error()
@@ -355,7 +366,13 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		// with the remaining minority. Give it one focused retry — naming the actual defect, since
 		// "strip the prose" is useless advice to a model whose object was bare but malformed — before
 		// abstaining. The same remedy the planner already applies to its own JSON replies.
-		r, _, ok, err = ask(user + councilRetryReminder(raw))
+		var retried string
+		r, _, retried, ok, err = ask(user + councilRetryReminder(raw))
+		// The retry's thinking replaces the first attempt's only when it produced some: a second
+		// silence should not erase the evidence the first one left.
+		if retried != "" {
+			thought = retried
+		}
 		if err != nil {
 			v.Decision, v.Silent = council.Abstain, true
 			v.Rationale = "council member unavailable: " + err.Error()
@@ -398,6 +415,15 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 // rebuttal can only refine consensus, never lose a vote to a flaky re-poll.
 // clipWalk bounds the walk written to the log. The walk is an audit record, not the verdict, and a
 // member that enumerates thirty requirements should not push the rest of the run out of the log.
+// clipThought bounds a member's reasoning before it becomes a fact.
+//
+// Unlike the walk, this one goes into the transcript, so every surface and every replay pays for
+// its length — and reasoning is the longest thing a provider sends. The bound is the walk's, for
+// the same reason: enough to see what the member was working on, not the whole of it.
+func clipThought(s string) string {
+	return clipWalk(strings.TrimSpace(s))
+}
+
 func clipWalk(s string) string {
 	const n = 1200
 	if len(s) <= n {
@@ -458,6 +484,10 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	// seeing (council_view), which made "no grounds given" indistinguishable from "grounds
 	// discarded in transit".
 	v.Cite = strings.TrimSpace(string(r.Cite))
+	// The thought travels too, and for the same reason Cite's comment gives: this is the second
+	// place a verdict is built, and a field assigned only in the first one vanishes for EVERY
+	// member the moment a debate round happens.
+	v.Thought = clipThought(reasoning)
 	return v
 }
 

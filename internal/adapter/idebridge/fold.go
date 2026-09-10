@@ -402,7 +402,8 @@ func verdictRow(seq int64, d map[string]any) *Row {
 		Silent:   silent,
 		Lens:     strings.TrimSpace(str(d, "lens")),
 		Cite:     strings.TrimSpace(str(d, "cite")),
-		Keep:     strings.TrimSpace(str(d, "keep"))}
+		Keep:     strings.TrimSpace(str(d, "keep")),
+		Thought:  strings.TrimSpace(str(d, "thought"))}
 	if c := num(d, "confidence"); c > 0 {
 		row.Confidence = &c
 	}

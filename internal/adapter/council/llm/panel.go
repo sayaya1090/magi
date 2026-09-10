@@ -337,6 +337,18 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	user := evidence(req)
 	sys = withLangNote(sys, req.Task)
 
+	// thought holds the reasoning of the LAST call `send` made.
+	//
+	// ⚠ **In this shape the reasoning belongs to the panel, not to a member.** One model answers
+	// for every lens in one reply, so writing it onto each verdict would say three times that
+	// this lens thought this — and cost the transcript three copies of the same 1,200 bytes.
+	// It is used below only where the panel produced NO readable verdicts: there every lens
+	// becomes a silent abstain, and this is the only evidence of what was going on. Where the
+	// verdicts arrived, each one carries its own rationale and needs no thought beside it.
+	//
+	// The per-member path (`poll`) is different and does carry it always: there the reasoning is
+	// that member's own.
+	var thought string
 	send := func(msgs []session.Message) (string, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model: model, System: sys,
@@ -350,6 +362,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		if cut != nil {
 			cutOff("a council panel reply", text, reasoning, cut)
 		}
+		thought = clipThought(reasoning)
 		return text, nil
 	}
 	msg := func(role session.Role, text string) session.Message {
@@ -393,6 +406,12 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 			prose := strings.TrimSpace(raw)
 			if prose == "" {
 				prose = strings.TrimSpace(first)
+			}
+			// Nothing readable came back, so every lens below is about to be a silent abstain.
+			// What the model was thinking is the only account of why — and on a reply that was
+			// reasoning-only, it is the only thing that came back at all.
+			for i := range out {
+				out[i].Thought = thought
 			}
 			return out, panelClose{Rationale: prose}
 		}

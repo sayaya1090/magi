@@ -83,6 +83,20 @@ type Verdict struct {
 	// are different facts about a round, and a reader who cannot tell them apart reads an
 	// unreachable council as a council that considered the work and shrugged.
 	Silent bool `json:"silent,omitempty"`
+	// Thought is what the member reasoned before it answered — the provider's reasoning stream,
+	// kept apart from everything above it.
+	//
+	// ⚠ **It is never parsed, and it is never a verdict.** Everything else in this struct comes
+	// out of the member's JSON reply; this comes from a different channel of the same stream and
+	// reaches the adapter without passing through the parser. A model thinking out loud must not
+	// be able to become a vote — that is the whole reason the two are collected separately (see
+	// `drain` in the llm adapter).
+	//
+	// It exists because a reply that arrived as reasoning ALONE used to leave every surface with
+	// nothing to show: a silent abstention, and a log line saying 0 bytes came back, about a
+	// member that had produced thousands of characters. What it was thinking is the only evidence
+	// of why there was no answer.
+	Thought string `json:"thought,omitempty"`
 }
 
 // Breakdown is the counted result of a tally — kept on the Deliberation so the

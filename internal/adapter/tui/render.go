@@ -659,6 +659,22 @@ func (m *Model) renderBlockAs(blk block, asstName string, asstColor color.Color)
 				note(v.Member, "  ⊙ "+v.Member+" keep: ", k)
 			}
 		}
+		// And what a member was THINKING before it answered.
+		//
+		// The gate is not the same as for the rest of the reasoning in this transcript. A member
+		// that answered has a rationale, so its thought is one more piece of thinking and hides
+		// under ctrl+t with everything else. A SILENT member has no rationale by definition —
+		// nobody gave that verdict — and this is then the only account of what happened, so it
+		// shows without being asked for. Hiding it there would reproduce exactly the reading this
+		// field was added to end: a member that produced thousands of characters, drawn as a
+		// considered shrug.
+		for _, v := range blk.councilVerdicts {
+			t := strings.TrimSpace(v.Thought)
+			if t == "" || (!m.showThink && !v.Silent) {
+				continue
+			}
+			note(v.Member, "  ✻ "+v.Member+" thought: ", t)
+		}
 		if len(reasons) > 0 {
 			return row + "\n" + strings.Join(reasons, "\n")
 		}

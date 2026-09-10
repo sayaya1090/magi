@@ -125,6 +125,13 @@ type Row struct {
 	// Keep is what this member says a revision must preserve — emitted regardless of the decision,
 	// because an approving member's keep is what a rewrite forced by somebody else would drop.
 	Keep string `json:"keep,omitempty"`
+	// Thought is what this member was thinking before it answered — the provider's reasoning
+	// stream, never parsed and never a vote.
+	//
+	// It matters most where there is nothing else: a member whose reply arrived as reasoning ALONE
+	// is recorded silent, and without this the surface draws a considered shrug over thousands of
+	// characters of work. Folded like every other reasoning row.
+	Thought string `json:"thought,omitempty"`
 	// Confidence is how sure the member was, 0..1, self-reported and WEIGHED: the tally is a
 	// confidence-weighted sum, so a done at 0.2 and a done at 0.95 do not count the same. A
 	// pointer because absent and 0 are different.
