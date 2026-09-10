@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Ide } from '../core/hand';
+import { Ide, inside } from '../core/hand';
 import { Hand, } from '../core/mcpserver';
 import { HAND_NAME } from '../core/hand';
 import { Companion } from './workspace';
@@ -142,6 +142,9 @@ export class EditorHand implements Ide, vscode.Disposable {
 
   /** Relative paths are this workspace's. An absolute one is taken as given. */
   private resolve(path: string): vscode.Uri {
+    // Refused before it becomes a Uri: the companion names this path, and the workspace is a trust
+    // boundary. The sibling client keeps the same line (`find` returns null outside the project).
+    if (!inside(this.workdir, path)) throw new Error(`${path} is outside this workspace`);
     return path.startsWith('/') ? vscode.Uri.file(path) : vscode.Uri.joinPath(vscode.Uri.file(this.workdir), path);
   }
 

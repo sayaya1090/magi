@@ -423,3 +423,20 @@ test('a lead-in is prepended to the composer, never assigned over it', () => {
   assert.ok(/setSelectionRange\(lead\.length, lead\.length\)/.test(branch),
     'the caret is not put after the lead — the person types in front of it');
 });
+
+/**
+ * And the hand's own resolver refuses before it builds a Uri.
+ *
+ * `hand.ts` imports `vscode`, so it is read as text. The decision is pure and tested next door; what
+ * is checked here is that the door actually consults it.
+ */
+test('the editor hand refuses a path outside the workspace', () => {
+  const src = fs.readFileSync(path.join(IDE, 'hand.ts'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('//') && !l.trim().startsWith('*')).join('\n');
+  const at = src.indexOf('private resolve(');
+  assert.ok(at > 0, 'the resolver is not where this guard looks for it');
+  const fn = src.slice(at, src.indexOf('\n  }', at));
+  assert.ok(/inside\(this\.workdir, path\)/.test(fn),
+    'the resolver opens whatever path the companion names — the workspace boundary is not kept here');
+  assert.ok(/throw/.test(fn), 'the check is made and not acted on');
+});

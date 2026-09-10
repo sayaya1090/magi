@@ -15,6 +15,34 @@
  */
 
 /** What the editor can actually do. Implemented in `ide/`. */
+import * as nodePath from 'path';
+
+/**
+ * Is this path inside the workspace?
+ *
+ * ⚠ **Nothing asked.** The editor hand resolved a path the COMPANION named — absolute as given,
+ * relative against the workspace — and opened it. An absolute path reached any file on the machine,
+ * and a relative one with `..` walked out of the workspace, for `show`, for `apply_edit`, and for
+ * the diagnostics of `problems`.
+ *
+ * The workspace is a trust boundary in this tree, and the sibling client keeps it: its `find`
+ * resolves and then refuses anything not under the project ("no such file in this project"). The
+ * daemon confines the companion too — and a confinement somebody else enforces is not this window's.
+ * The editor hand is a second door into the same machine, opened by the same agent.
+ *
+ * Compared on RESOLVED paths, so `..` cannot walk out, and by path segments rather than string
+ * prefix, so `/a/bc` is not "inside" `/a/b`.
+ *
+ * ⚠ Symlinks are NOT resolved: a link inside the workspace pointing out of it still passes. Saying
+ * so rather than implying otherwise — following links needs the filesystem, and this stays a pure
+ * decision the tests can make.
+ */
+export function inside(workdir: string, target: string): boolean {
+  const root = nodePath.resolve(workdir);
+  const rel = nodePath.relative(root, nodePath.resolve(root, target));
+  return rel === '' || (!rel.startsWith('..' + nodePath.sep) && rel !== '..' && !nodePath.isAbsolute(rel));
+}
+
 export interface Ide {
   /** Open a file and put the cursor on a line. Changes what a person is looking at. */
   show(path: string, line?: number): Promise<string>;

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { Hand } from '../core/mcpserver';
-import { Ide, callHand, handTools, HAND_NAME } from '../core/hand';
+import { Ide, callHand, handTools, inside, HAND_NAME } from '../core/hand';
 
 class FakeIde implements Ide {
   shown: [string, number | undefined] | null = null;
@@ -196,4 +196,39 @@ test('a whitespace-only old is not refused', async () => {
   const r = await callHand(ide, 'apply_edit', { path: 'a.ts', old: '    ', new: '\t', replaceAll: true });
   assert.ok(!r.error, `an indentation edit was refused: ${r.text}`);
   assert.deepEqual(ide.replaced, ['a.ts', '    ', '\t', true]);
+});
+
+/**
+ * ★ The workspace is a trust boundary, and the editor hand is a door into it.
+ *
+ * The hand resolved whatever path the COMPANION named — absolute as given, relative against the
+ * workspace — and opened it. So `show` could open any file on the machine, `apply_edit` could
+ * rewrite one, and `problems` could read the diagnostics of one.
+ *
+ * The sibling client keeps this line and says so: its `find` resolves and then refuses anything not
+ * under the project. The daemon confines the companion as well — and a confinement somebody else
+ * enforces is not this window's. Two doors into one machine, opened by the same agent.
+ */
+test('a path outside the workspace is not inside it', () => {
+  assert.equal(inside('/w', '/w/src/a.ts'), true);
+  assert.equal(inside('/w', 'src/a.ts'), true);
+  assert.equal(inside('/w', '.'), true, 'the workspace itself is inside itself');
+  // Absolute, elsewhere.
+  assert.equal(inside('/w', '/etc/hosts'), false);
+  // Relative, walking out.
+  assert.equal(inside('/w', '../secrets.env'), false);
+  assert.equal(inside('/w', 'src/../../secrets.env'), false);
+  assert.equal(inside('/w', '..'), false);
+});
+
+/**
+ * Compared by path SEGMENTS, not string prefix.
+ *
+ * A sibling directory whose name merely begins with the workspace's is a different place, and a
+ * `startsWith` check would call it inside. That is the classic way this kind of guard is written and
+ * the classic way it leaks.
+ */
+test('a sibling whose name starts the same is not inside', () => {
+  assert.equal(inside('/w', '/workspace-other/a.ts'), false);
+  assert.equal(inside('/home/me/proj', '/home/me/project2/a.ts'), false);
 });
