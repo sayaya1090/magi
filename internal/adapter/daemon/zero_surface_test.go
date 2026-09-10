@@ -64,6 +64,66 @@ func TestFindMatchesOnlyThePublishedSet(t *testing.T) {
 	}
 }
 
+// The SAME socket spelled another way is the same socket.
+//
+// Find matched with `!=` on the raw string, and the path it is handed comes from somewhere else —
+// a page, a config file, another process's idea of the separator. Every one of these names the
+// file that was just published, and every one of them was refused with "it is not one of the N
+// published", which reads as "that daemon is gone" when the daemon is right there.
+//
+// Windows is where it bites without trying: the caller joins with a slash somewhere and
+// `filepath.Glob` answers with backslashes, so a companion that IS running reports as one that is
+// not — measured 2026-09-10, and it took a whole package of red tests to notice
+// ("nobody here is called X. There is: billing", with X published).
+//
+// ⚠ What must NOT change is why the comparison exists at all: the path arrives from a page, so
+// only a path that came out of Glob may be dialled. Matching loosely is safe; dialling the
+// caller's spelling is not — so the match is normalised and the thing opened is still `s`.
+func TestTheSameSocketSpeltAnotherWayIsTheSameSocket(t *testing.T) {
+	home := t.TempDir()
+	sock := filepath.Join(home, "daemon-b.sock")
+	if err := os.WriteFile(sock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Publish(sock, "/w/b", "s_b", Identity{}); err != nil {
+		t.Fatal(err)
+	}
+
+	spellings := map[string]string{
+		"as published":         sock,
+		"with a slash":         filepath.ToSlash(sock),
+		"through a dot":        filepath.Join(home, ".", "daemon-b.sock"),
+		"with a doubled sep":   home + string(filepath.Separator) + string(filepath.Separator) + "daemon-b.sock",
+		"through a parent hop": filepath.Join(home, "x", "..", "daemon-b.sock"),
+	}
+	for name, spelling := range spellings {
+		in, err := Find(home, spelling)
+		if err != nil {
+			t.Errorf("%s (%s): %v", name, spelling, err)
+			continue
+		}
+		if in.Workdir != "/w/b" {
+			t.Errorf("%s: resolved to %+v", name, in)
+		}
+		// Whatever was asked, what comes back — and what gets dialled — is the published path.
+		if in.Socket != sock {
+			t.Errorf("%s: 돌려준 경로가 발행된 것이 아니다: %q", name, in.Socket)
+		}
+	}
+
+	// And loosening the match must not loosen the gate.
+	for name, bad := range map[string]string{
+		"never published":  filepath.Join(home, "daemon-nope.sock"),
+		"another director": filepath.Join(home, "..", "daemon-b.sock"),
+		"a directory up":   home,
+		"empty":            "",
+	} {
+		if _, err := Find(home, bad); err == nil {
+			t.Errorf("%s (%s) 를 받아 줬다 — 발행된 집합 밖은 거절해야 한다", name, bad)
+		}
+	}
+}
+
 // A receipt is the handle handed-over work is asked about by: minted at once, positioned when the
 // work starts, and unknown when expired or invented.
 func TestReceiptsRoundTrip(t *testing.T) {

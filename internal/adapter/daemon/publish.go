@@ -8,6 +8,7 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -440,8 +441,19 @@ func Find(configDir, socket string) (Info, error) {
 	if err != nil {
 		return Info{}, fmt.Errorf("daemon: listing: %w", err)
 	}
+	want := normalPath(socket)
 	for _, s := range socks {
-		if s != socket {
+		// Compared normalised, opened as globbed. Those are two different things and the split is
+		// the point: `!=` on the raw string refuses the SAME file spelled another way — a slash
+		// where the OS uses a backslash, a doubled separator, a `.` hop — and the refusal reads
+		// "it is not one of the N published", which a person acts on as "that daemon is gone".
+		// Windows hits it without trying, because a caller joins with `/` somewhere and Glob
+		// answers with `\`.
+		//
+		// ⚠ What must not move is the reason the comparison exists: the path arrives from a page,
+		// and a path from a page must not become a path this process dials. Matching loosely is
+		// safe because the thing dialled below is still `s`, which came out of Glob.
+		if normalPath(s) != want {
 			continue
 		}
 		in, perr := Published(s)
@@ -453,6 +465,24 @@ func Find(configDir, socket string) (Info, error) {
 	}
 	return Info{}, fmt.Errorf("no daemon at %s — it is not one of the %d published under %s",
 		socket, len(socks), configDir)
+}
+
+// normalPath is one spelling for one file, for COMPARING two paths and nothing else.
+//
+// filepath.Clean folds away the differences that are not differences — `/` where this OS writes
+// `\`, a doubled separator, a `.` or a `x/..` hop. The case fold is Windows only and it is not
+// cosmetic there: NTFS is case-insensitive, so `C:\Users\…` and `c:\users\…` are the same file and
+// refusing one of them refuses a daemon that is running. On Linux and macOS they are two files and
+// folding case would let one name answer for another.
+//
+// ⚠ Not for deciding what to open. It normalises a name; it does not check that the name is one
+// this process may touch. Find answers that separately, by only ever opening a path Glob returned.
+func normalPath(p string) string {
+	c := filepath.Clean(p)
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(c)
+	}
+	return c
 }
 
 // List returns every daemon that has published under configDir, newest first.

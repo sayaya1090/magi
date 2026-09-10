@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,16 @@ func TestSocketDirCanBeSplitFromTheConfigDir(t *testing.T) {
 	if err := os.WriteFile(sock, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(SessionFile(sock), []byte(`{"socket":"`+sock+`","workdir":"/w/proj","session":"s_1"}`), 0o600); err != nil {
+	// Marshalled, not glued. A path pasted into a JSON string literal is fine until the path has
+	// backslashes in it: `C:\Users\…` puts `\U` in the document, which is not a legal escape, so
+	// the record does not parse and List reports "(unknown — no record)" about a companion whose
+	// file is sitting right there. Nothing says "your JSON was invalid" — the reading is simply
+	// empty, which is the shape of every path bug on this platform.
+	rec, err := json.Marshal(map[string]string{"socket": sock, "workdir": "/w/proj", "session": "s_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SessionFile(sock), rec, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	infos, err := List(cfg)
