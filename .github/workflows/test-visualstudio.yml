@@ -1,0 +1,120 @@
+# The Visual Studio extension's own test lane.
+#
+# ⚠ windows-latest, and it is the only lane that is. The extension builds on Windows only — VS for
+# Mac was discontinued in 2024 (DESIGN §8) — so the vsix cannot be produced anywhere else. The
+# runner already carries what that needs: `actions/runner-images` ships VS Enterprise 2022 with
+# both `Microsoft.VisualStudio.Workload.VisualStudioExtension` and `…Workload.ManagedDesktop`, so
+# nothing installs a workload here (DESIGN §7, checked against the image manifest).
+#
+# Two steps, and they mean different things.
+#
+# `dotnet test` is the one that matters most, and it needs no Visual Studio at all: Magi.Core is
+# plain .NET by design (DESIGN §4), so the socket key, the wire names and the activity vocabulary
+# are all checked against the bridge's Go source in seconds. It runs first for that reason — when
+# this port breaks it is almost always there.
+#
+# `dotnet build` on the solution is the other half: that the extension still compiles against the
+# Extensibility SDK and still packages into a vsix. It is slower and it is the part that requires
+# the workload.
+#
+# **Why this lane exists at all.** This editor has no first-party way to drive a real extension in
+# a test (DESIGN §6), so what is not in Magi.Core is not measured — and four of these tests exist
+# because the real IDE failed while the build said nothing: a resource file packaged where the
+# shell does not look, a XAML default namespace that took the whole panel down, a view model whose
+# every binding drew blank, and an activity word the bridge had stopped saying (DESIGN §10). Those
+# four were written by hand after watching them fail by hand. Leaving them to be RUN by hand is
+# how they rot.
+#
+# smoke.ps1 is not run here on purpose: it needs a magi binary on PATH and dials a real bridge,
+# and CI has neither. Its syntax is already parsed by ci.yml's "powershell parses" step, which
+# walks every tracked .ps1.
+name: test-visualstudio
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients/visualstudio/**"
+      - ".github/workflows/test-visualstudio.yml"
+      # The C# side reads these to check its own spelling against them. A rename over there is a
+      # silent default over here, which is the whole point of WireTests — so a change to the
+      # bridge has to run this lane too.
+      - "internal/adapter/idebridge/**"
+  pull_request:
+    paths:
+      - "clients/visualstudio/**"
+      - ".github/workflows/test-visualstudio.yml"
+      - "internal/adapter/idebridge/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Both, and not one: the test project is net9.0 and everything it exercises is net8.0
+      # (net8.0-windows8.0 for the extension, which is the SDK's framework rather than a choice).
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+
+      # The contract, without the IDE. WireTests reads internal/adapter/idebridge/*.go from the
+      # checkout, so this fails here if the bridge renamed a field or a state word.
+      - name: core (no Visual Studio)
+        run: >
+          dotnet test clients/visualstudio/test/Magi.Core.Tests
+          --nologo
+          --logger "trx;LogFileName=results.trx"
+          --results-directory ${{ runner.temp }}/trx
+
+      # And that the extension still assembles: the SDK resolves, the generated extension.json is
+      # produced, the vsix packages.
+      - name: extension and vsix
+        run: dotnet build clients/visualstudio/Magi.sln -c Debug --nologo
+
+      - name: the vsix carries what the shell looks for
+        shell: pwsh
+        run: |
+          # A build that succeeds and a package the shell can read are different facts — this is
+          # the failure that shipped once (DESIGN §10). The unit test guards the csproj; this
+          # guards the artefact it actually produced.
+          $vsix = Get-ChildItem clients/visualstudio/src/Magi.Extension/bin/Debug -Recurse -Filter *.vsix |
+            Select-Object -First 1
+          if (-not $vsix) { Write-Host "no vsix was produced"; exit 1 }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($vsix.FullName)
+          try {
+            $names = $zip.Entries | ForEach-Object { $_.FullName }
+          } finally {
+            $zip.Dispose()
+          }
+          foreach ($want in @(".vsextension/extension.json", ".vsextension/string-resources.json")) {
+            if ($names -notcontains $want) {
+              Write-Host "$($vsix.Name) has no $want"
+              Write-Host "it carries: $(($names | Where-Object { $_ -notlike '*.dll' }) -join ', ')"
+              exit 1
+            }
+          }
+          Write-Host "$($vsix.Name): .vsextension/ carries the manifest and the strings"
+
+      - name: what the tests said
+        if: always()
+        shell: pwsh
+        run: |
+          "## Visual Studio extension" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          $trx = Get-ChildItem "${{ runner.temp }}/trx" -Filter *.trx -ErrorAction SilentlyContinue
+          if (-not $trx) {
+            "- no test results — the run did not get that far" |
+              Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+            exit 0
+          }
+          foreach ($f in $trx) {
+            $c = ([xml](Get-Content $f.FullName)).TestRun.ResultSummary.Counters
+            "- ``$($f.BaseName)`` — $($c.total) tests, $($c.failed) failed, $($c.notExecuted) skipped" |
+              Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+          }
