@@ -51,8 +51,11 @@ const hardLogCap = 8 << 20 // 8 MiB
 
 // rotateIfHuge truncates p's log to zero when it exceeds hardLogCap and rewinds
 // the read offset to 0, returning the number of bytes dropped (0 if not rotated).
-// Safe because the log fd is O_APPEND: after truncation the child's next write
-// lands at offset 0, so no sparse hole forms and absolute offsets restart cleanly.
+// Clean where the log fd is O_APPEND — after truncation the child's next write lands at offset 0,
+// so no sparse hole forms and absolute offsets restart cleanly. That is every platform but
+// Windows, where the handle cannot be an append handle without breaking the MSYS coreutils
+// outright (openBackgroundLog). There a rotation can leave one NUL-padded gap in a log that was
+// just truncated anyway, which is the smaller of the two costs and is written down at that seam.
 func rotateIfHuge(p *bgProc) int64 {
 	fi, err := os.Stat(p.logPath)
 	if err != nil || fi.Size() < hardLogCap {
@@ -133,16 +136,16 @@ func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, comm
 	name, args, psPath := withPipeStatus(name, args, tmpDir)
 	// Combined stdout+stderr go to a real file so the process is not tethered to an
 	// os.Pipe that would close (and SIGPIPE the child) when magi exits. The file is
-	// opened O_APPEND so that when rotateIfHuge truncates it to bound disk, the
-	// child's next write lands cleanly at offset 0 (append seeks to EOF) instead of
-	// leaving a sparse hole full of NUL bytes at its old, now-past-EOF fd offset.
+	// opened by openBackgroundLog, which decides the append question per platform: appending keeps
+	// a rotation clean, and on Windows an append handle is one the MSYS coreutils cannot write to
+	// at all. The reasoning and what each choice costs live at that seam.
 	tmp, err := os.CreateTemp("", "magi-bg-*.log")
 	if err != nil {
 		return nil, err
 	}
 	logName := tmp.Name()
 	_ = tmp.Close()
-	f, err := os.OpenFile(logName, os.O_WRONLY|os.O_APPEND, 0o600)
+	f, err := openBackgroundLog(logName)
 	if err != nil {
 		_ = os.Remove(logName)
 		return nil, err
