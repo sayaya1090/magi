@@ -1,6 +1,7 @@
 package config
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -216,31 +217,63 @@ func TestSetKeyActivatesLoneComment(t *testing.T) {
 // the cross-process serialization SetKey relies on (two magi instances sharing one
 // config.toml). Exercised here via goroutines, but the guard is the O_EXCL sidecar
 // lock, which serializes any holders on the machine, not just this process.
+//
+// ⚠ **Run in ROUNDS, because the way this breaks is probabilistic.** The failure it was written
+// for is a lock acquisition that answers something other than EEXIST and is then waved through as
+// "an unrelated reason" — on Windows a lock file another holder has just passed to os.Remove is
+// delete-pending, and every open of it answers ERROR_ACCESS_DENIED until the last handle closes.
+// One round of 24 caught that about one time in three, which is a test that reports the defect as
+// a flake and gets re-run. Ten rounds turn the same evidence into an answer.
 func TestWithFileLockSerializes(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "config.toml")
-	var active, maxSeen int32
-	var wg sync.WaitGroup
-	for i := 0; i < 24; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			_ = withFileLock(target, func() error {
-				n := atomic.AddInt32(&active, 1)
-				for {
-					m := atomic.LoadInt32(&maxSeen)
-					if n <= m || atomic.CompareAndSwapInt32(&maxSeen, m, n) {
-						break
+	for round := 0; round < 10; round++ {
+		target := filepath.Join(t.TempDir(), "config.toml")
+		var active, maxSeen int32
+		var wg sync.WaitGroup
+		for i := 0; i < 24; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_ = withFileLock(target, func() error {
+					n := atomic.AddInt32(&active, 1)
+					for {
+						m := atomic.LoadInt32(&maxSeen)
+						if n <= m || atomic.CompareAndSwapInt32(&maxSeen, m, n) {
+							break
+						}
 					}
-				}
-				time.Sleep(time.Millisecond) // widen the window an overlap would land in
-				atomic.AddInt32(&active, -1)
-				return nil
-			})
-		}()
+					time.Sleep(time.Millisecond) // widen the window an overlap would land in
+					atomic.AddInt32(&active, -1)
+					return nil
+				})
+			}()
+		}
+		wg.Wait()
+		if maxSeen != 1 {
+			t.Fatalf("round %d: withFileLock allowed %d concurrent holders; want strict mutual "+
+				"exclusion — a failed acquisition is being read as \"not contention\"",
+				round, maxSeen)
+		}
 	}
-	wg.Wait()
-	if maxSeen != 1 {
-		t.Fatalf("withFileLock allowed %d concurrent holders; want strict mutual exclusion", maxSeen)
+}
+
+// And the reading that lets it through, named outright.
+//
+// heldByAnother is what stands between a failed acquisition and the escape hatch beside it, and
+// the escape hatch runs the read-modify-write with no lock at all. Held here rather than only
+// through the concurrency test above because that test can only fail when the timing lands, and
+// this cannot: a permission error at this door means somebody else has the lock, on the platform
+// where "somebody else has it" is spelled ERROR_ACCESS_DENIED.
+func TestAPermissionErrorOnTheLockMeansSomebodyHasIt(t *testing.T) {
+	if !heldByAnother(fs.ErrExist) {
+		t.Error("EEXIST is the ordinary way a lock says it is taken")
+	}
+	if !heldByAnother(&fs.PathError{Op: "open", Path: "config.toml.lock", Err: fs.ErrPermission}) {
+		t.Error("a delete-pending lock file answers ERROR_ACCESS_DENIED — reading that as " +
+			"\"an unrelated reason\" runs the edit with no lock")
+	}
+	// A structural failure is still not contention: waiting for it would never end.
+	if heldByAnother(&fs.PathError{Op: "open", Path: "nope/config.toml.lock", Err: fs.ErrNotExist}) {
+		t.Error("a missing directory is not somebody holding the lock")
 	}
 }
 

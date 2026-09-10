@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,9 +71,22 @@ func TestCapListNamesEveryCapability(t *testing.T) {
 }
 
 // CompanionDir is keyed by the same string the socket is.
+//
+// ⚠ **Asked with filepath.Join, not with a "/" spelled into the assertion.** CompanionDir returns
+// a native path, so on Windows it is `\cfg\companions\daemon-abc` and a suffix check against
+// "companions/daemon-abc" fails about a function that is behaving correctly. The prefix half had
+// the same problem: filepath.Join("/cfg", …) is `\cfg\…` there. What is under test is that the
+// directory hangs off the config dir under the door's key — that, and not which separator this
+// machine writes.
 func TestCompanionDirKeyedLikeTheSocket(t *testing.T) {
-	got := CompanionDir("/cfg", "daemon-abc")
-	if !strings.HasSuffix(got, "companions/daemon-abc") || !strings.HasPrefix(got, "/cfg") {
-		t.Fatalf("settings live under the config dir, keyed by the door: %q", got)
+	root := filepath.Join(string(filepath.Separator), "cfg")
+	got := CompanionDir(root, "daemon-abc")
+	want := filepath.Join(root, "companions", "daemon-abc")
+	if got != want {
+		t.Fatalf("settings live under the config dir, keyed by the door: got %q, want %q", got, want)
+	}
+	// And the key is the LAST element, so two doors never share a settings directory.
+	if other := CompanionDir(root, "daemon-xyz"); other == got {
+		t.Errorf("two doors got one settings directory: %q", got)
 	}
 }

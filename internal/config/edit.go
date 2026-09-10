@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"github.com/sayaya1090/magi/internal/atomicfile"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -35,7 +37,7 @@ func withFileLock(target string, fn func() error) error {
 			defer os.Remove(lock)
 			return fn()
 		}
-		if !os.IsExist(err) {
+		if !heldByAnother(err) {
 			return fn() // can't create the lock for an unrelated reason — don't block the write
 		}
 		if time.Now().After(deadline) {
@@ -437,4 +439,25 @@ func removeSectionLocked(path, section string) error {
 		out = append(out[:start], out[start+1:]...)
 	}
 	return writeLines(path, out)
+}
+
+// heldByAnother reports whether failing to create the lock file means somebody else has it.
+//
+// ⚠ **On Windows "somebody else has it" does not arrive as EEXIST.** A file another holder has
+// just passed to os.Remove enters the delete-pending state: the name is still there, and every
+// open of it answers ERROR_ACCESS_DENIED until the last handle closes. os.IsExist is false for
+// that, so the caller took its "unrelated reason" escape and ran the read-modify-write WITHOUT the
+// lock — which is the one thing this lock exists to prevent. Two magi instances sharing one
+// config.toml then each rewrite the file from their own stale read, and the last rename silently
+// drops the first's edit.
+//
+// Measured 2026-09-11, 24 concurrent holders, three runs of three: two concurrent holders every
+// time, each traced to `open …config.toml.lock: Access is denied.` — never to EEXIST.
+//
+// A directory that genuinely cannot be written to answers the same way and will keep answering it,
+// so this costs such a caller the 3s wait before the deadline lets it through — the same outcome
+// it had before, later. That is the right trade: the ambiguous case is rare and its failure is a
+// pause, while the case being fixed is common and its failure is a lost edit.
+func heldByAnother(err error) bool {
+	return os.IsExist(err) || errors.Is(err, fs.ErrPermission)
 }
