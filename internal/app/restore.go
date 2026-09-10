@@ -181,7 +181,18 @@ func restoreOne(ctx context.Context, workdir, rel string, e journalEntry, git bo
 	}
 
 	// It existed and magi could NOT read it — a directory, or larger than it compares. git can
-	// still put a tracked file back exactly; nothing else here can.
+	// still put a tracked file back; nothing else here can.
+	//
+	// ⚠ **"Back" is what git would check out, which is not always the committed bytes.** Under
+	// `core.autocrlf` — on by default in the Git for Windows installer — a checkout rewrites LF to
+	// CRLF, so a file committed with `\n` comes back with `\r\n`. Measured 2026-09-11: a file
+	// written "committed\n" was restored as "committed\r\n".
+	//
+	// Not overridden, and deliberately. That setting is the person's, it governs every other
+	// checkout in that tree, and a restore that alone ignored it would put back a file their next
+	// `git status` calls modified. What is wrong is only the word "exactly", which this sentence
+	// used to carry: the file is returned to the state git holds for it, and if the tree converts
+	// line endings then so does this.
 	if git {
 		if err := gitCheckoutPath(ctx, workdir, rel); err == nil {
 			return RestoreOutcome{Path: rel, Restored: true, How: "git"}

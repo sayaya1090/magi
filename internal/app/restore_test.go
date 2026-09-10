@@ -108,6 +108,19 @@ func TestGitRecoversATrackedFileAndLeavesTheRestAlone(t *testing.T) {
 	git("init", "-q")
 	git("config", "user.email", "t@example.com")
 	git("config", "user.name", "t")
+	// ⚠ **This test asserts exact bytes, so it has to own the conversion.**
+	//
+	// `core.autocrlf` is on by default in the Git for Windows installer — at the SYSTEM level, so a
+	// repository this test makes inherits it — and a checkout then rewrites LF to CRLF. The
+	// assertion below came back "committed\r\n" for a file written "committed\n", which reads as
+	// "git did not put the file back" when git put it back exactly as that machine's git is
+	// configured to.
+	//
+	// Pinned here rather than worked around in the assertion: what is under test is whether magi
+	// asks git for the file, not what somebody's git installation does with line endings. The
+	// restore itself does NOT override this — see restore.go, where the reason is written down.
+	git("config", "core.autocrlf", "false")
+	git("config", "core.eol", "lf")
 	write(t, dir, "tracked.bin", "committed\n")
 	git("add", "tracked.bin")
 	git("commit", "-qm", "base")
