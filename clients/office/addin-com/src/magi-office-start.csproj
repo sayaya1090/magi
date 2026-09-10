@@ -1,10 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Office 안에서 뜨는 COM 추가 기능. 하는 일은 하나 — **헬퍼가 안 떠 있으면 띄운다**.
-       그래서 로그인 때 뜨는 등록(Run 키)이 필요 없다: Office 를 켤 때 이것이 Office 프로세스 안에서 뜨고,
-       Office 를 안 켜면 아무것도 안 뜬다(사용자, 2026-09-07: 「윈도우 로그인 때 자동 켜지는 거 하지 말라고」).
-
-       COM 호스팅(comhost.dll)은 Windows RID 로 빌드해야 나온다 — 설치기가 `-r win-x64` 로 짓는다.
-       Office 비트가 32 이면 x86 으로 지어야 한다(설치기가 보고 말한다). -->
+  <!-- Office 실행 연동 COM 추가 기능. 헬퍼 프로세스 미실행 시 자동으로 기동합니다.
+       시스템 시작 프로그램(Run 키) 등록 없이 Office 프로세스 수명 주기에 종속되어 동작합니다.
+       COM 호스팅(comhost.dll) 생성을 위해 Windows RID(-r win-x64 또는 -r win-x86) 빌드가 필요합니다. -->
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <AssemblyName>magi-office-start</AssemblyName>

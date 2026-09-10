@@ -40,7 +40,7 @@
   <ProviderName>magi</ProviderName>
   <DefaultLocale>ko-KR</DefaultLocale>
   <DisplayName DefaultValue="Magi(AI Assistant)" />
-  <Description DefaultValue="열려 있는 덱을 읽고, 말로 시킨 편집을 수행하고, 무엇을 바꿨는지 말합니다." />
+  <Description DefaultValue="열려 있는 프레젠테이션을 읽고, 사용자가 지시한 편집을 수행하며, 변경 사항을 안내합니다." />
   <!--
     아이콘 주소의 /v N/ 칸은 **캐시 깨기**다. Office 는 애드인 자원을 주소의 해시로 캐시한다
     (%LOCALAPPDATA%/Microsoft/Office/16.0/Wef/Resources/<해시>) — 같은 주소면 서버가 새 그림을 내도
@@ -149,7 +149,7 @@
         <bt:String id="GetStarted.Title" DefaultValue="Magi(AI Assistant)가 설치됐습니다" />
       </bt:ShortStrings>
       <bt:LongStrings>
-        <bt:String id="Button.Tooltip" DefaultValue="채팅창을 엽니다. 도형을 잡고 「선택 인용」을 누르면 인용부호로 담깁니다." />
+        <bt:String id="Button.Tooltip" DefaultValue="대화창을 엽니다. 도형을 선택하고 「선택 인용」을 누르면 인용부호로 담깁니다." />
         <bt:String id="GetStarted.Description" DefaultValue="홈 탭 「AI Assistant」의 「Magi」 단추로 창을 엽니다." />
       </bt:LongStrings>
     </Resources>

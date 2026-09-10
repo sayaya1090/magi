@@ -22,43 +22,33 @@ import (
 	"github.com/sayaya1090/magi/internal/version"
 )
 
-// magi-word — Excel 애드인의 헬퍼(파워포인트 판 DESIGN.md §5 와 같은 구조).
+// magi office — PowerPoint·Excel·Word 애드인을 위한 통합 헬퍼 서비스입니다.
 //
-// 여기는 **조립만** 한다. 무엇이 무엇인지 아는 자리는 이 파일뿐이고, 안쪽은 서로를 인터페이스로만
-// 안다 — 애드인의 `main.js` 가 같은 규율을 지키는 그 자리다.
+// 3개 오피스 호스트(PowerPoint, Excel, Word)에 대한 로컬 웹 서버, SSE 조작 스트림,
+// MCP 도구 서버, 컴패니언 데몬 관리 기능을 단일 프로세스로 통합하여 제공합니다.
 //
-//coverage:ignore — 프로세스 진입점. 아래 조각들은 각자 시험이 있다.
+//coverage:ignore — 프로세스 진입점. 하위 세부 모듈 단위로 독립 테스트를 수행합니다.
 
-// run 은 두 곳에 쓴다. **물어본 것에 답하는 것은 `out`(stdout), 진단은 `log`(stderr)** 다.
-//
-// 한 곳이었고, 그 한 곳이 stderr 였다. 그래서 매뉴얼 §7 이 시키는 대로 규칙을 받으려고
-// `magi-word -allow-rules > config.toml` 을 하면 **빈 파일이 조용히 생겼다** — 화면에는 규칙이
-// 보이므로 사람은 받은 줄 안다. 2026-09-04 에 실제로 두 번 겪고 고친다.
-//
-// 가르는 축은 「긴가 짧은가」가 아니라 **「사람이 물어본 것인가」**다. `-version`·`-allow-rules`
-// ·`-cert-hint` 는 물음에 대한 답이라 파이프로 받을 수 있어야 하고, 기동 배너·실패 사유는
-// 서버가 도는 동안 흘리는 말이라 stderr 가 맞다. 그래서 `fs.SetOutput` 도 `log` 그대로다 —
-// 플래그 오류는 답이 아니다.
-// Run 은 `magi office` — 프로그램 셋의 헬퍼를 한 프로세스·한 인증서·한 포트로 띄운다.
+// Run은 CLI 명령줄 입력을 파싱하고 헬퍼 서비스를 기동합니다.
+// 조회 결과는 out(stdout)으로 전달하고, 런타임 진단 및 오류 로그는 log(stderr)로 출력합니다.
 func Run(args []string, out, log io.Writer) int {
 	fs := flag.NewFlagSet("magi office", flag.ContinueOnError)
 	fs.SetOutput(log)
 	var (
 		port = fs.Int("port", DefaultPort,
-			"애드인이 붙을 포트. **매니페스트의 <SourceLocation> 과 같은 값이어야 한다** — 못 잡으면 다른 번호로 안 흘러간다(§5.5.1)")
+			"애드인이 연결할 HTTP 포트. 매니페스트의 <SourceLocation>과 일치해야 합니다.")
 		cfgDir = fs.String("config-dir", "",
-			"magi 설정 디렉토리(기본값: 플랫폼 것, MAGI_CONFIG_DIR 존중). 여기서 컴패니언 명단을 읽고 인증서를 둔다")
+			"magi 전역 설정 디렉토리(기본값: 플랫폼 표준, MAGI_CONFIG_DIR 환경변수 준수). 컴패니언 명단 및 인증서 위치로 사용됩니다.")
 		sockDir = fs.String("socket-dir", "",
-			"소켓과 명단 파일을 두는 디렉토리(기본값: 설정 디렉토리, MAGI_SOCKET_DIR 존중). Windows 의 %APPDATA% 는 유닉스 주소 100바이트를 넘기 쉬워 짧은 자리(~/.magi)를 준다 — 설정은 그대로 %APPDATA%\\magi 를 읽는다")
+			"소켓 및 명단 파일을 배치할 디렉토리(기본값: 설정 디렉토리, MAGI_SOCKET_DIR 환경변수 준수). Windows 환경의 AF_UNIX 108바이트 주소 제한 방지용으로 분리 지정 가능합니다.")
 		clients = fs.String("clients", "",
-			"애드인 소스가 든 clients 디렉토리(기본값: 이 바이너리 옆이나 저장소의 clients). 그 아래 powerpoint/addin·excel/addin·word/addin 을 본다")
+			"애드인 소스 디렉토리(기본값: 실행 바이너리 인접 또는 저장소 clients). 하위 powerpoint/addin, excel/addin, word/addin 경로를 참조합니다.")
 		showRules = fs.String("allow-rules", "",
-			"그 프로그램(ppt·xl·word)의 문서를 고치지 않는 도구의 허용 규칙을 찍고 나간다(§6). config.toml 에 그대로 붙여 넣는다")
-		showVer  = fs.Bool("version", false, "판본을 찍고 나간다")
-		showCert = fs.Bool("cert-hint", false, "인증서를 신뢰 저장소에 넣는 법을 찍고 나간다")
-		// Office 가 하나도 안 떠 있으면 헬퍼는 스스로 끝난다 — Office 를 켤 때 COM 추가 기능이 다시 띄우기 때문이다.
-		// 개발할 때는 Office 없이 띄워 두고 싶으므로 그 자동 종료를 끄는 자리를 둔다.
-		keepRunning = fs.Bool("keep-running", false, "Office 가 하나도 안 떠 있어도 안 끝낸다(개발용)")
+			"해당 프로그램(ppt·xl·word)의 읽기 전용 도구 허용 규칙(TOML)을 출력하고 종료합니다.")
+		showVer  = fs.Bool("version", false, "버전 정보를 출력하고 종료합니다.")
+		showCert = fs.Bool("cert-hint", false, "인증서 신뢰 저장소 등록 안내를 출력하고 종료합니다.")
+		// Office 프로세스가 실행 중이지 않아도 헬퍼 프로세스를 유지할 수 있도록 개발 전용 옵션을 제공합니다.
+		keepRunning = fs.Bool("keep-running", false, "Office 프로세스가 실행 중이지 않아도 종료하지 않고 유지합니다(개발 전용).")
 	)
 	if err := fs.Parse(args); err != nil {
 		return 2
