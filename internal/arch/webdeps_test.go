@@ -36,6 +36,13 @@ var consoleSurface = map[string]bool{
 	// Windows 에서 콘솔 없는 데몬이 검은 창을 남기지 않게 하는 조각. platform·tool/builtin·app 이
 	// 이미 실어 나르므로 콘솔이 데몬을 다시 띄우는 길에 같이 간다(2026-09-06, daemon(Windows) 커밋).
 	"internal/quietconsole": true,
+	// 경로가 «뿌리에서 시작하는가»를 두 플랫폼의 철자 모두로 답하는 잎 하나. 표준 라이브러리의
+	// `IsAbs`/`IsLocal` 은 도는 플랫폼의 답을 주는데, 판정 대상은 부르는 쪽이 «어느 OS인지 생각하지
+	// 않고» 쓴 글자다 — 그래서 같은 가드가 윈도우에서만 거절하고 리눅스에서는 통과했다(2026-09-10).
+	// 콘솔이 이미 싣는 `tool/builtin` 과 `app` 이 이것을 쓰므로 같이 간다. 의존이 없는 잎이라
+	// 표면이 넓어지는 것은 이름 하나뿐이고, 사본을 두 벌 두는 쪽이 더 비싸다(이 저장소가 그것을
+	// 이미 한 번 치렀다 — 되돌릴 수 없는 삭제의 문이 제 사본을 들고 반만 고쳐져 있었다).
+	"internal/pathx":        true,
 	"internal/config":       true,
 	"internal/core/auth":    true,
 	"internal/core/bus":     true,

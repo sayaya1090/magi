@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/pathx"
 	"os"
 	"path/filepath"
 	"sort"
@@ -623,7 +624,7 @@ func insideWorkdir(workdir, path string) (string, error) {
 	switch {
 	case filepath.IsAbs(path):
 		abs = filepath.Clean(path)
-	case !filepath.IsLocal(path):
+	case pathx.Rooted(path) || !filepath.IsLocal(path):
 		// ⚠ **Not every path that fails IsAbs is relative.** On Windows a path can be ROOTED and
 		// still have no volume — `/etc/hosts`, `\Windows\System32\…` — and `filepath.IsAbs` says
 		// false for both. Joining them to the workspace produces `C:\ws\etc\hosts`, which is

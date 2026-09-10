@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/pathx"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -171,7 +172,7 @@ func absTarget(workdir, target string) string {
 	//
 	// IsLocal is the question: does this stay inside the directory it is evaluated in. Only then is
 	// joining it the right reading; a rooted path is left as it is and judged where it points.
-	if !filepath.IsAbs(t) && filepath.IsLocal(t) {
+	if !filepath.IsAbs(t) && !pathx.Rooted(t) && filepath.IsLocal(t) {
 		t = filepath.Join(workdir, t)
 	}
 	return filepath.Clean(t)

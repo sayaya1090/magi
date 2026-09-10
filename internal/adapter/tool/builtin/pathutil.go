@@ -5,6 +5,7 @@ package builtin
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/pathx"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -36,7 +37,7 @@ func resolvePath(workdir, p string) (string, error) {
 	switch {
 	case filepath.IsAbs(p):
 		abs = filepath.Clean(p)
-	case p != "" && !filepath.IsLocal(p):
+	case pathx.Rooted(p) || (p != "" && !filepath.IsLocal(p)):
 		// ⚠ **A path that is not absolute is not therefore relative.** On Windows a path can be
 		// ROOTED and carry no volume — `/etc/passwd`, `\Windows\System32\…` — and `filepath.IsAbs`
 		// answers false for both. They then fall into the join below and land INSIDE the workdir,

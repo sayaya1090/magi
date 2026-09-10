@@ -28,8 +28,8 @@ class RowTextTest {
      * **`continue` 는 승인이 아니라 거부다.**
      *
      * `council.Decision` 셋 중 하나가 제 뜻의 반대로 읽힌다. 터미널은 첫 판정부터 "reject" 라
-     * 적었고(`internal/adapter/tui/render.go`), 웹 서버에는 `TestAContinueVoteReadsAsTheRejectionItIs`
-     * 가 있다 — 이 클라이언트만 날것을 찍고 있었다.
+     * 적었고(`internal/adapter/tui/render.go`), 웹 서버에는 `clients/web/server/handlers_test.go` 의
+     * `TestAContinueVoteReadsAsTheRejectionItIs` 가 있다 — 이 클라이언트만 날것을 찍고 있었다.
      *
      * 낱말은 **터미널의 표를 읽어서** 못박는다. 세 표면이 한 판정을 세 가지로 말하는 것이 한 층
      * 위의 같은 결함이라, 여기서 두 번째 표를 쓰지 않는다.
