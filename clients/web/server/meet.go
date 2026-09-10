@@ -796,13 +796,25 @@ func (s *server) companionName(r *http.Request, socket string) string {
 // new is fetched: fleet.Abilities renders the same sample-and-count the fleet screens draw.
 func (s *server) companionSeat(r *http.Request, socket string) (meeting.Speaker, bool) {
 	for _, a := range s.published(r) {
-		if a.Socket != socket || a.Elsewhere {
+		// ⚠ **The two sides are spelled by different hands.** `socket` arrives in a form field —
+		// whatever the page had — and `a.Socket` comes back from the glob that lists what is
+		// published, in the OS's own separator. `!=` on those refuses a companion this console can
+		// see: measured 2026-09-10, twelve meeting tests answered
+		// "this console has no companion you may convene at …\magiwebNNN/daemon-d.sock", one
+		// forward slash into a path the rest of which is backslashes.
+		//
+		// `daemon.Find`, two hundred lines up this same file, already goes through the normalising
+		// door. This was the copy that did not.
+		if !daemon.SamePath(a.Socket, socket) || a.Elsewhere {
 			continue
 		}
 		if !s.seen(r, a.Name, a.Peer) {
 			return meeting.Speaker{}, false
 		}
-		return meeting.Speaker{Name: a.Name, Socket: socket,
+		// The PUBLISHED spelling, not the caller's. Matching loosely is safe because what is
+		// carried onward is the path this console published — a seat dials it, and a form field
+		// must not become the thing this process opens.
+		return meeting.Speaker{Name: a.Name, Socket: a.Socket,
 			Role: a.Role, Does: fleet.Abilities(a)}, true
 	}
 	return meeting.Speaker{}, false
