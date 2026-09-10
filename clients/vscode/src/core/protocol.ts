@@ -213,11 +213,16 @@ export interface Response {
    */
   children?: SessionRow[];
   /**
-   * `complete` and `suggest`: why the answer was empty, when it was.
+   * `complete`: why the answer was empty, when it was.
    *
    * The door answers ok with nothing rather than failing — a completer with nothing to say is the
    * ordinary case. So the only way to tell "switched off" from "the model had nothing" is this
    * field, and dropping it makes "why is completion silent" unanswerable.
+   *
+   * ⚠ `suggest` does NOT fill it, though this said it did until 2026-09-10. `answerSuggest` returns
+   * `Response{OK: true, Out: out}` and nothing else; measured against a running daemon, an empty
+   * suggestion comes back as bare `{"ok":true}`. So for the composer's hint the only fact on the
+   * wire is `error` — a refusal — and silence with `ok` means exactly nothing was said.
    */
   reason?: string;
   /** `job-kill` / `mcp-detach`: whether anything was actually removed. */

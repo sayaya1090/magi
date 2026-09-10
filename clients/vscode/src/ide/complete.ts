@@ -24,7 +24,10 @@ export function inlineCompletion(companion: Companion): vscode.Disposable {
       const resp = await companion.ask('complete', { name: doc.uri.fsPath, args });
       // Cancelled means the person kept typing. Their next keystroke has already asked again, and
       // drawing this one would put a suggestion under a cursor that has moved.
-      if (token.isCancellationRequested || !resp?.ok) return null;
+      if (token.isCancellationRequested) return null;
+      // A refusal is recorded before it is dropped. Returning here without noting it is what made
+      // "why is completion silent" unanswerable in the one case the daemon answered it.
+      if (!resp?.ok) { noteCompletion('', undefined, resp?.error ?? 'the companion did not answer'); return null; }
       const out = usable(resp.out ?? '', args.prefix);
       // Remember why nothing came back. Not shown here — a message per keystroke is noise — but
       // `magi.setup` reads it, which is where a person looks when completion is silent.

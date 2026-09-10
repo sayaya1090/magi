@@ -6,6 +6,7 @@ import { touched, pendingAsk } from '../core/touched';
 import { panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText, wireRef, globQuote } from '../core/refs';
+import { noteCompletion } from '../core/complete';
 import { Edits } from './edits';
 import { Companion } from './workspace';
 
@@ -364,6 +365,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           break;
         }
         const r = await this.companion.ask('suggest', { text: m.text ?? '' });
+        // The same sink as the completer's: these two doors hang off one interface in the core, so
+        // a refusal on either is the answer to "why is there never a hint". Ghost text cannot say
+        // it here — a message per keystroke is noise — so `magi.setup` is where it surfaces.
+        noteCompletion(r?.ok ? (r.out ?? '') : '', r?.reason, r?.ok ? undefined : (r?.error ?? undefined));
         this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '' });
         break;
       }

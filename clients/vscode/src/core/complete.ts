@@ -73,11 +73,40 @@ export function usable(out: string, prefix: string): string {
  */
 let lastEmpty = '';
 
-export function noteCompletion(text: string, reason: string | undefined): void {
-  lastEmpty = text.trim() ? '' : (reason ?? '').trim();
+/**
+ * And why the door REFUSED, if it did — a different fact in a different field.
+ *
+ * A door that cannot do the work says so in `error` ("this daemon cannot complete code", or a
+ * backend that will not answer); a completer that simply had nothing to say answers ok and puts a
+ * code in `reason`. This client read only the second, and the provider returned on `!ok` BEFORE
+ * recording anything — so in the one case where the daemon actually explained itself, the screen a
+ * person opens when completion is silent had nothing to show. Measured against a running daemon
+ * (2026-09-10): `complete` answered `ok:false` with `Post "http://127.0.0.1:65352/…": connection
+ * refused`, which names the problem exactly, and it went nowhere.
+ *
+ * The JetBrains client keeps the same two slots and its comment names the same trap: while it read
+ * only `reason`, its settings screen "could never draw a refusal".
+ *
+ * One slot for all four of these doors, because they hang off one interface in the core
+ * (`Reviewer`): if one refuses, all four do.
+ */
+let lastRefused = '';
+
+/**
+ * Record how the last round trip came back empty.
+ *
+ * `error` wins when it is there — a refusal is the more specific fact, and it is the one a person
+ * can act on. A round trip that produced text clears both: a reason left standing while things work
+ * is a sentence that has aged.
+ */
+export function noteCompletion(text: string, reason: string | undefined, error?: string): void {
+  const bad = (error ?? '').trim();
+  if (text.trim()) { lastEmpty = ''; lastRefused = ''; return; }
+  lastRefused = bad;
+  lastEmpty = bad ? '' : (reason ?? '').trim();
 }
 
-export function whyNoCompletion(): string { return sayWhyEmpty(lastEmpty); }
+export function whyNoCompletion(): string { return lastRefused || sayWhyEmpty(lastEmpty); }
 
 /** The raw code, for a caller that wants to branch on it rather than read it. */
 export function whyCodeNoCompletion(): string { return lastEmpty; }

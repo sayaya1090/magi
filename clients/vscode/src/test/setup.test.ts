@@ -290,3 +290,62 @@ test('a settings file that could not be read says so', () => {
   assert.ok(where.indexOf('unreadable') < where.indexOf('showQuickPick'),
     'the broken layer is reported after the picker, where it is one line among thirty');
 });
+
+/**
+ * ★ A refusal is a different fact from "nothing to say", and it is the one worth showing.
+ *
+ * `this daemon cannot complete code` arrives in `error`; a completer with nothing to offer answers
+ * ok and puts a code in `reason`. Measured against a running daemon (2026-09-10) the refusal is not
+ * hypothetical and it is not vague: `complete` came back `ok:false` with `Post
+ * "http://127.0.0.1:65352/…": connection refused`, which names the whole problem. This client threw
+ * it away — the provider returned on `!ok` before recording anything — so the row a person opens
+ * when completion is silent was empty in exactly the case the daemon had explained itself.
+ *
+ * The JetBrains client keeps the same two slots, and its comment names the same trap: while it read
+ * only `reason`, its settings screen could never draw a refusal.
+ */
+test('a refusal is what gets shown, not the reason it did not come with', () => {
+  noteCompletion('', undefined, 'this daemon cannot complete code');
+  assert.match(whyNoCompletion(), /cannot complete code/,
+    'the door refused and the screen has nothing to show');
+
+  // A refusal is not run through the empty-reason vocabulary: it is already a sentence, and putting
+  // it through `sayWhyEmpty` would hand back the raw text anyway while claiming to translate it.
+  noteCompletion('', undefined, 'off');
+  assert.equal(whyNoCompletion(), 'off');
+
+  // The two do not stack. A refusal replaces a stale "nothing to say", and a working round trip
+  // clears BOTH — a reason left up while things work is the aged sentence this file guards against.
+  noteCompletion('', 'unrouted');
+  assert.match(whyNoCompletion(), /no code profile is routed/);
+  noteCompletion('', undefined, 'the companion did not answer');
+  assert.equal(whyNoCompletion(), 'the companion did not answer',
+    'the old empty-reason outlived the refusal that replaced it');
+  noteCompletion('const x = 1;', undefined);
+  assert.equal(whyNoCompletion(), '', 'a working completion did not clear the refusal');
+});
+
+/**
+ * ★ And both doors that can refuse write to it.
+ *
+ * `complete` and `suggest` hang off one interface in the core (`Reviewer`), so a refusal on either
+ * is the answer to "why is there never a hint" — the JetBrains client notes them in one place for
+ * that reason. The composer's ghost text cannot say it where it happens (a message per keystroke is
+ * noise), so it has to reach the same sink or it reaches nobody.
+ *
+ * Read off the source: both call sites import `vscode`, so no test here can press them.
+ */
+test('both the completer and the composer record what came back', () => {
+  const complete = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'src', 'ide', 'complete.ts'), 'utf8');
+  const at = complete.indexOf('!resp?.ok');
+  assert.ok(at > 0, 'the refusal branch was not found — this guard is reading nothing');
+  assert.match(complete.slice(at, at + 200), /noteCompletion\(/,
+    'the completer drops a refusal on the floor before anything can read it');
+
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const sug = chat.indexOf("ask('suggest'");
+  assert.ok(sug > 0, 'the suggest call was not found — this guard is reading nothing');
+  assert.match(chat.slice(sug, sug + 400), /noteCompletion\(/,
+    'the composer asks and says nothing about a refusal, so the hint is silent with no reason');
+});
