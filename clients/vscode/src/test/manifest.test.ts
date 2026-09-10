@@ -498,7 +498,7 @@ test('every event the core writes is read somewhere, or deliberately not', () =>
     'workflow.phase': 'this client draws no phase strip; the plan panel shows the todos the phase moves',
     'tool.progress': 'transient and bus-only, so it never reaches a reader of the log; the live note comes from `status.doing`',
     'council.deliberating': 'transient, one per member per round — kept out of the transcript for the reason the core keeps it out of the log',
-    'council.convened': 'the round announces itself through the verdicts it produces, and the evidence it carries is the plan panel\'s',
+
     'session.created': 'the conversation\'s opening facts. The model on it is answered LIVE by `status` (Setup.model), and a transcript that began at a replayed session.created would name the model it started on rather than the one answering now',
     'model.changed': 'same source, same reason: `status.model` is read on every poll, so a window attaching mid-conversation gets the current model instead of replaying its history',
   };

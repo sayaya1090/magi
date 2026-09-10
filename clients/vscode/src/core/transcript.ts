@@ -79,6 +79,15 @@ export interface Row {
    */
   lens?: string;
   /**
+   * The round's own threshold, from `council.convened` — "majority", "unanimous", and so on.
+   *
+   * Kept apart from `lens`, which belongs to a SEAT: the rule governs how the seats add up, and one
+   * field for both would make a verdict look as if it carried the threshold.
+   */
+  rule?: string;
+  /** True on the row that OPENS a round — the convened row, not a verdict. */
+  opened?: boolean;
+  /**
    * The fragment of the record this verdict says it rests on, or `NO-EVIDENCE`.
    *
    * The core records it because it is CHECKABLE — magi looks the fragment up in the material the
@@ -369,6 +378,28 @@ export function rows(events: Event[]): Row[] {
       case 'interjection.answered': {
         const id = String(d.messageId ?? '');
         for (const r of out) if (r.who === 'user' && r.msgId === id) { r.queued = false; r.pending = false; }
+        break;
+      }
+      case 'council.convened': {
+        // ⚠ **This was skipped, and the reason given for skipping it was not true.** The note said
+        // the round "announces itself through the verdicts it produces, and the evidence it carries
+        // is the plan panel's" — and nothing in this client reads `council.convened` at all: not the
+        // transcript, and not the plan panel the reason points at. Measured by folding a live
+        // conversation through both clients' shapers: 54 rows here against 59 there, and every one of
+        // the five missing was this event.
+        //
+        // What is dropped with it is the round's THRESHOLD. Three verdicts arrive — two `continue`,
+        // one `done` — and without the rule a reader cannot tell whether that outcome needed a
+        // majority or all three. The event carries `task`, `members`, `plan` and `changes` too; those
+        // stay unread, and the exemption note now says so honestly instead of naming a reader that
+        // does not exist.
+        const members = Array.isArray(d.members) ? d.members.map(String) : [];
+        out.push({
+          seq: e.seq, who: 'council', opened: true,
+          text: String(d.task ?? '').trim() || (members.length ? members.join(', ') : 'a round opened'),
+          round: Number(d.round) || undefined,
+          rule: String(d.rule ?? '').trim() || undefined,
+        });
         break;
       }
       case 'council.verdict': {

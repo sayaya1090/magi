@@ -833,9 +833,13 @@ function paint(r: Row, you?: string): Row & { label: string } {
   const v = r.who === 'council' ? verdictWord(r.decision, r.silent) : { icon: '', word: '' };
   // The lens goes with the name because it IS the seat: three verdicts without it are three
   // interchangeable names, and "two said done" then says nothing about what was examined.
-  const vote = r.who === 'council'
-    ? (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '')
-    : '';
+  // The row that OPENS a round carries the threshold instead of a vote — nobody has voted yet, and
+  // the rule is what the votes about to arrive will be counted against. Two `continue` and one `done`
+  // mean different things under "majority" and under "unanimous", and until now this client drew
+  // neither the opening nor the rule.
+  const vote = r.who !== 'council' ? ''
+    : r.opened ? ` opened${r.rule ? ` · ${r.rule}` : ''}${r.round ? ` r${r.round}` : ''}`
+    : (r.lens ? ` [${r.lens}]` : '') + (v.word ? ` ${v.icon} ${v.word}` : '') + (r.round ? ` r${r.round}` : '');
   // Three outcomes, not two: done, done-with-something-to-read, failed. Folding the middle one
   // into ✗ is the defect the core measured on a live run — a file that was written and then
   // linted drew as a write that failed.

@@ -868,3 +868,41 @@ test('a prompt the daemon submitted is not drawn as the person', () => {
   assert.ok(!drawn.some((r) => /child reports back/.test(r.text)),
     'a subagent report is repeated here — its body belongs to that child\'s own transcript');
 });
+
+/**
+ * ★ The round that opens is drawn, and it carries the rule.
+ *
+ * `council.convened` was skipped, and the reason recorded for skipping it was not true: it said the
+ * evidence "is the plan panel's", and nothing in this client reads the event — not the transcript,
+ * not the plan panel. Measured by folding a live 95-event conversation through both clients' shapers:
+ * 54 rows here against 59 there, and all five missing rows were this event.
+ *
+ * What went with it is the round's THRESHOLD. Three verdicts arrive — two `continue`, one `done` —
+ * and without the rule a reader cannot tell whether that needed a majority or all three.
+ */
+test('the round that opens is a row, with its rule', () => {
+  const out = rows([
+    { seq: 1, type: 'prompt.submitted', actor: { kind: 'user' }, data: { text: 'go', messageId: 'm1' } },
+    { seq: 2, type: 'council.convened',
+      data: { round: 1, rule: 'majority', members: ['Melchior', 'Balthasar'], task: 'finish the landing copy' } },
+    { seq: 3, type: 'council.verdict', data: { round: 1, member: 'Melchior', decision: 'done', lens: 'correctness' } },
+  ]);
+  const opened = out.filter((r) => r.who === 'council' && r.opened);
+  assert.equal(opened.length, 1, 'the round that opened is not a row');
+  assert.equal(opened[0].rule, 'majority', 'the threshold the votes are counted against is dropped');
+  assert.match(opened[0].text, /finish the landing copy/, 'the round does not say what it is deciding');
+  // A verdict is not an opening, and it carries no rule — the rule belongs to the round.
+  const verdict = out.find((r) => r.who === 'council' && !r.opened);
+  assert.ok(verdict, 'the verdict row vanished');
+  assert.equal(verdict!.rule, undefined, 'a verdict was given the round\'s threshold');
+  assert.equal(verdict!.lens, 'correctness');
+});
+
+/** With no task named, the row still says a round opened rather than drawing empty. */
+test('a round with no task still says it opened', () => {
+  const out = rows([{ seq: 1, type: 'council.convened', data: { round: 2, rule: 'unanimous' } }]);
+  const opened = out.find((r) => r.who === 'council' && r.opened);
+  assert.ok(opened, 'the round vanished when it named no task');
+  assert.ok(opened!.text.trim(), 'the row is blank — a blank row reads as nothing happening');
+  assert.equal(opened!.round, 2);
+});
