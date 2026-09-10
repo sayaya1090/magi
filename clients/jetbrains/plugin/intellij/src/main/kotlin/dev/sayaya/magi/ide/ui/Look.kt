@@ -302,6 +302,37 @@ internal object Look {
             foreground = hue
         }
 
+    /**
+     * 빈 전사가 서 있는 동안 그 자리를 채우는 인사.
+     *
+     * **이것이 없을 때 창은 아무 말도 안 했다.** 처음 연 창은 빈 판이고, 지금 무슨 일이
+     * 벌어지는지는 제목표시줄의 수준과 12픽셀짜리 글리프(`◌`)의 **툴팁**에만 있었다 —
+     * 사용자가 직접 말한 결함이다("뜨는중인지 무슨 문제가 있는지 불안해"). 붙는 중인 창과
+     * 데몬이 없어 못 붙은 창이 화면에서 똑같이 생겼다.
+     *
+     * [status] 는 부르는 쪽이 글리프와 **같은 자리**(`mood.why`)에서 꺼내 온다. 두 군데서
+     * 따로 만들면 「초록 점에 연결 끊김 문구」가 돌아온다 — 이 파일의 R6 가 이미 겪은 그것이다.
+     *
+     * TUI 의 시작 화면과 같은 규칙을 쓴다: 워드마크 + 흐린 상태 한 줄, 그리고 첫 행이 서면
+     * 사라진다(부르는 쪽이 빈 목록일 때만 세운다).
+     */
+    fun welcome(title: String, status: String, hue: Color, hint: String): JComponent =
+        JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 6, true, false)).apply {
+            isOpaque = false
+            border = JBUI.Borders.empty(28, 16, 8, 16)
+            add(JBLabel(title).apply {
+                foreground = primary
+                font = JBFont.h2()
+                horizontalAlignment = javax.swing.SwingConstants.CENTER
+            })
+            add(JBLabel(status).apply {
+                foreground = hue
+                font = JBFont.small()
+                horizontalAlignment = javax.swing.SwingConstants.CENTER
+            })
+            add(note(hint))
+        }
+
     /** 트랜스크립트 행 배치용 수직 패널. 가로 스크롤 발생을 방지하고 본문 자동 줄바꿈을 유도하기 위해 Scrollable.tracksViewportWidth를 true로 설정한다. */
     fun column(): JBPanel<JBPanel<*>> =
         object : JBPanel<JBPanel<*>>(VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false)),

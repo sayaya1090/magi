@@ -247,6 +247,9 @@ class MagiToolWindow : ToolWindowFactory {
             link.text = m.glyph
             link.foreground = m.colour
             link.toolTipText = m.why + (handWhy?.let { " · $it" } ?: "")
+            // 인사는 이 상태를 글로 적고 있다. 글리프만 갈고 판을 안 다시 그리면 「연결 중…」이
+            // 붙은 뒤에도 남는다 — 안심시키려고 세운 줄이 거짓말이 되는 자리다.
+            if (shaper.list().isEmpty()) redrawLog()
         }
 
         /**
@@ -546,6 +549,10 @@ class MagiToolWindow : ToolWindowFactory {
             // 3. Attach.Failed: 데몬 프로세스는 존재하나 소켓 통신 오류 발생
             //
             // 컴파일 타임 전수 검사(Exhaustive check)를 보장하기 위해 `else` 절을 사용하지 않고 모든 분기를 명시합니다.
+            // 첫 프레임부터 인사가 서 있어야 한다. [paintLink] 가 상태가 **바뀔 때** 다시
+            // 그리므로, 아무 상태도 아직 안 바뀐 이 순간을 그것만으로는 못 덮는다 — 붙기를
+            // 시도하기 전의 빈 판이 바로 사용자가 불안해한 그 화면이다.
+            redrawLog()
             when (val a = follow()) {
                 Attach.Ok -> {}
                 Attach.NoWorkspace -> lost(MagiBundle.msg("chat.noworkspace"))
@@ -832,7 +839,20 @@ class MagiToolWindow : ToolWindowFactory {
                 // 다시 그릴 때마다 선택의 손도 새 패널을 잡는다 — 지나간 패널을 들고 있으면
                 // 안 보이는 것을 칠한다. 고른 것 자체는 행 열쇠로 들고 있어 살아남는다.
                 copying.beginBuild()
-                shaper.list().forEach { r ->
+                val rows = shaper.list()
+                // 빈 전사는 **아무 말도 안 하던 자리**였다. 창을 처음 열면 판이 비고, 지금
+                // 붙는 중인지 데몬이 없어 못 붙었는지는 제목표시줄의 수준과 `link` 글리프의
+                // 툴팁에만 있었다 — 사용자 실측("뜨는중인지 무슨 문제가 있는지 불안해").
+                // 사유는 [mood] 에서 꺼낸다: 글리프와 한 자리라 둘이 어긋날 수가 없다(R6).
+                if (rows.isEmpty()) column.add(
+                    Look.welcome(
+                        MagiBundle.msg("chat.welcome.title"),
+                        mood.why,
+                        mood.colour,
+                        MagiBundle.msg("chat.welcome.hint"),
+                    ),
+                )
+                rows.forEach { r ->
                     val panel = rowPanel(r)
                     copying.install(panel, r) { shaper.list() }
                     column.add(panel)

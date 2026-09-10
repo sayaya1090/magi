@@ -46,6 +46,50 @@ class SourceTextTest {
     }
 
     /**
+     * **빈 전사는 무엇이든 말해야 한다.**
+     *
+     * 창을 처음 열면 판이 비고, 그동안 화면이 말하던 것은 제목표시줄의 수준과 12픽셀짜리
+     * 글리프의 **툴팁**뿐이었다. 붙는 중인 창과 데몬이 없어 못 붙은 창이 똑같이 생겼다 —
+     * 사용자가 그 자리를 직접 짚었다("뜨는중인지 무슨 문제가 있는지 불안해").
+     *
+     * 재는 것 셋:
+     *
+     * 1. 행이 없으면 인사를 세운다. 이걸 지워도 컴파일은 되고 화면도 «잘» 그려진다 — 빈 판이
+     *    빈 판인 것은 오류가 아니라서, 이 규칙 말고는 아무도 안 본다.
+     * 2. 인사의 상태 줄은 [MagiToolWindow] 의 `mood` 에서 온다. 새 문자열을 그 자리에서
+     *    지어내면 글리프와 두 군데가 되고, 그러면 「초록 점에 연결 끊김 문구」가 돌아온다
+     *    (그 파일의 R6 가 이미 한 번 겪었다).
+     * 3. 상태가 바뀌면 빈 판을 다시 그린다. 안 그리면 「연결 중…」이 붙은 뒤에도 남는다 —
+     *    안심시키려고 세운 줄이 거짓말이 되는, 이 변경이 만들 수 있는 최악의 결과다.
+     */
+    @Test
+    fun `빈 전사에 인사가 서고, 그 인사는 연결 상태를 따라간다`() {
+        val f = sources.first { it.name == "MagiToolWindow.kt" }
+        val src = code(f)
+
+        val draw = src.substringAfter("private fun redrawLog() {", "")
+        assertTrue(draw.isNotEmpty(), "`redrawLog` 를 못 찾았다 — 아래 규칙들이 빈 글을 보고 초록이 된다")
+        val greet = draw.substringBefore("private fun ")
+        assertTrue("rows.isEmpty()" in greet && "Look.welcome(" in greet,
+            "전사가 비었을 때 세우는 인사가 `redrawLog` 에 없다. 빈 판은 붙는 중인지 못 붙은 " +
+                "것인지 말하지 않는다 — 그것이 사용자가 짚은 결함이다")
+        assertTrue("mood.why" in greet && "mood.colour" in greet,
+            "인사의 상태 줄을 `mood` 말고 다른 데서 만들고 있다. 글리프와 두 자리가 되면 " +
+                "둘이 어긋난다(R6 — 초록 점에 연결 끊김 문구)")
+
+        val paint = src.substringAfter("private fun paintLink() =", "")
+        assertTrue(paint.isNotEmpty(), "`paintLink` 를 못 찾았다 — 아래 규칙이 빈 글을 본다")
+        // ⚠ **다음 `private fun` 까지 자르면 안 된다.** `paintLink` 다음에 오는 것은 `private val`
+        // 이라, 그렇게 자른 창은 250줄 아래 꼬리 타이머(`private val tail = Timer(130) { redrawLog() }`)
+        // 까지 삼킨다 — 여기서 이 호출을 통째로 지운 변이가 그 남의 것을 읽고 **살아남았다**(실측).
+        // 종류를 안 가리고 다음 선언에서 끊는다.
+        val body = paint.split(Regex("""private (val|fun|var)|@Volatile""")).first()
+        assertTrue("redrawLog()" in body,
+            "상태가 바뀌어도 빈 판을 다시 안 그린다. 「연결 중…」이 붙은 뒤에도 남아, " +
+                "안심시키려고 세운 줄이 거짓말이 된다")
+    }
+
+    /**
      * **카드의 되돌릴 수 없는 동사는 물어보고 한다.**
      *
      * 정보 카드는 모델 콤보 옆에 「다시 시작」과 「업데이트」를 세운다. 앞의 것은 되돌릴 수 있고
