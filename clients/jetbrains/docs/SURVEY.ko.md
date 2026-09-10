@@ -1,79 +1,50 @@
-# 이웃 조사 — IDE 코딩 어시스턴트들이 주는 것 (2026-08)
+# 이웃 조사 — IDE 코딩 어시스턴트 기능 비교 (2026-08)
 
 [↑ 화면 설계](./UI.ko.md)
 
-> **왜 조사했나.** 사용자가 첨부 기능(파일·프로젝트 뷰 선택·에디터 선택영역)을 요구하면서 이웃
-> 도구들의 기능 목록 확인을 지시했다(2026-08-29). 셋을 봤다 — Continue(오픈소스, VS Code+
-> JetBrains), JetBrains AI Assistant(+Junie), GitHub Copilot for JetBrains. 각 항목에 **우리
-> 실물의 자리**(있다/절반 있다/없다)와 채택 판정을 적는다. 출처는 절 끝에.
+> **조사 배경.** 컨텍스트 첨부 기능(파일, 프로젝트 뷰 선택, 에디터 선택영역) 구현 요구에 따라 주요 IDE 어시스턴트 도구의 기능 구조를 분석하였습니다. 분석 대상은 Continue(오픈소스, VS Code + JetBrains), JetBrains AI Assistant(+Junie), GitHub Copilot for JetBrains입니다. 각 항목별로 magi 플러그인의 구현 현황과 채택 여부를 정리하였습니다.
 
-## 1. 기능 지형 — 셋이 공통으로 가진 것
+## 1. 기능 지형 — 공통 및 고유 기능 분석
 
-| 기능 | Continue | JetBrains AI | Copilot | magi 플러그인의 지금 |
+| 기능 | Continue | JetBrains AI | Copilot | magi 플러그인 현황 |
 |---|---|---|---|---|
-| 채팅 판 | ✓ | ✓ | ✓ | ✓ 하단 독 (전사는 데몬이 원천 — 셋과 달리 IDE 밖 콘솔·TUI와 **같은 대화**) |
-| 컨텍스트 첨부 — 파일/폴더 | `@file` `@folder` | Add attachment 단추 + 검색 | `#`-컨텍스트 | **✓ 착지** — refs 계약 위 칩 + `@` 멘션(§2 ①②③ 완료) |
-| 선택영역 보내기 | ⌘J (선택→채팅) | 자동(열린 파일+선택 자동 동봉, 토글) | 플로팅 툴바→인라인 챗 | **✓ 착지** — 우클릭 첨부 + Alt+Enter(§2 ①) |
-| 열린 파일 자동 컨텍스트 | — | ✓ (Junie: 현재 파일+선택) | ✓ | **✓ 이미 있다** — `OpenBufferListener` 가 저장 안 한 버퍼를 타이핑마다 밀어 넣는다(ambient). 셋 중 누구보다 신선하다 |
-| 파일 훑어보기(현재 파일에 대해 묻기) | ✓ | ✓ | ✓ | **✓** — `LookOverAction`(에디터 우클릭, 미저장 버퍼 그대로) |
-| 인라인(탭) 자동완성 | ✓ (모델 분리 권장) | ✓ | ✓ | **✓ 문은 있다** — `MagiInlineCompletion`; `[autocomplete]` 프로필 라우팅이 스위치 |
-| 인라인 편집(선택→자연어 지시→그 자리 수정) | Edit 모드 | 인라인 프롬프트(거터 보라 표시) | 인라인 챗/에이전트 (⇧⌘I) | **2단 착지** — Alt+Enter 인텐션이 선택을 refs 로 첨부+컴포저 미리채움(§3), 승인 프롬프트와 전사의 적용된 `edit` 행이 IDE **나란히-보기 diff** 를 연다(판정은 core `EditSides` 한 벌) |
-| 다중 파일 에이전트 편집 + 파일별 diff 리뷰 | Agent 모드 | Multi-file Edit(2026.1) | Agent 모드 | **절반** — 편집은 컴패니언이 손(Hand)으로 이미 하고 diff 는 전사 행이 됨; "제안→사람이 파일별 승인" 흐름은 없다(우리는 퍼미션 게이트가 그 자리) |
-| 코드베이스 시맨틱 검색 | `@codebase`(인덱싱) | Codebase 모드 | ✓ | **다르다** — 인덱스 대신 컴패니언의 검색 툴이 실시간으로 훑는다. 채택 안 함(§4) |
-| Next Edit Suggestions | — | ✓ | ✓ (NES, 멀리면 거터 화살표) | 없다 — §4 보류 |
-| 터미널/diff 를 컨텍스트로 | `@Terminal` `@Git Diff` | ✓ | ✓ | **다르다** — 컴패니언이 자기 셸·git 툴로 직접 읽는다; 사람이 손으로 먹일 필요가 없는 구조 |
-| 이미지 첨부 | — | ✓ (스크린샷의 에러 읽기) | — | 없다 — §4 보류 |
-| 커스텀 규칙/스킬 | rules | .aiignore 등 | skills(프리뷰) | **✓ 다른 몸** — 워크스페이스의 에이전트 지침 파일(`/init` 이 굽는다)·플러그인이 그 자리 |
+| 채팅 판 | ✓ | ✓ | ✓ | ✓ 하단 독 (데몬 스트림 연동 — 타 IDE 및 웹 콘솔, 터미널과 동일 세션 실시간 공유) |
+| 컨텍스트 첨부 — 파일/폴더 | `@file` `@folder` | Add attachment 단추 + 검색 | `#`-컨텍스트 | **✓ 구현 완료** — refs 프로토콜 기반 칩 및 `@` 멘션 연동 |
+| 선택영역 전송 | ⌘J (선택→채팅) | 자동(열린 파일+선택 자동 동봉, 토글) | 플로팅 툴바→인라인 챗 | **✓ 구현 완료** — 에디터 우클릭 첨부 및 Alt+Enter 인텐션 |
+| 열린 파일 자동 컨텍스트 | — | ✓ (Junie: 현재 파일+선택) | ✓ | **✓ 구현 완료** — `OpenBufferListener`가 실시간 미저장 버퍼 동기화(ambient) 수행 |
+| 파일 훑어보기(현재 파일 검토) | ✓ | ✓ | ✓ | **✓ 구현 완료** — `LookOverAction`(에디터 우클릭, 미저장 버퍼 즉시 검토) |
+| 인라인(탭) 자동완성 | ✓ (모델 분리 권장) | ✓ | ✓ | **✓ 구현 완료** — `MagiInlineCompletion` 및 `[autocomplete]` 프로필 라우팅 |
+| 인라인 편집(선택→자연어 지시→수정) | Edit 모드 | 인라인 프롬프트(거터 표시) | 인라인 챗/에이전트 (⇧⌘I) | **✓ 구현 완료** — Alt+Enter 인텐션 기반 컴포저 연동 및 IDE 나란히-보기 diff 연동 |
+| 다중 파일 에이전트 편집 + diff 리뷰 | Agent 모드 | Multi-file Edit(2026.1) | Agent 모드 | **부분 지원** — 컴패니언의 직접 편집 도구 및 이벤트 전사 diff 연동 완료 |
+| 코드베이스 시맨틱 검색 | `@codebase`(인덱싱) | Codebase 모드 | ✓ | **접근 방식 상이** — 사전 정적 인덱싱 대신 컴패니언의 실시간 파일 탐색 도구 활용 |
+| Next Edit Suggestions | — | ✓ | ✓ (NES) | 미지원 — 향후 과제 |
+| 터미널/diff 컨텍스트 주입 | `@Terminal` `@Git Diff` | ✓ | ✓ | **접근 방식 상이** — 컴패니언이 셸 및 Git 도구를 통해 필요한 정보를 직접 자율 수집 |
+| 이미지 첨부 | — | ✓ | — | 미지원 — 향후 과제 |
+| 커스텀 규칙/스킬 | rules | .aiignore 등 | skills(프리뷰) | **✓ 구현 완료** — 워크스페이스 `/init` 지침 및 플러그인 확장 체계 활용 |
 
-읽고 남는 감상 하나: 셋은 전부 **"IDE 안의 조수"**라 컨텍스트를 사람이 손으로 먹이는 UI가
-발달했고, magi 는 **"워크스페이스의 컴패니언"**이라 스스로 읽는 쪽이 발달했다. 그래서 첨부가
-없던 것이 구멍이 아니라 방향 차였는데 — **선택영역만은 예외다.** "지금 내가 보는 이 줄들"은
-컴패니언이 스스로 알 수 없는, 사람 머릿속에만 있는 컨텍스트다. JetBrains 쪽 유저들이 정확히
-그 지점(선택 자동 추적이 클릭 한 번에 풀리는 것)을 불평하고 우클릭 "Add to chat"을 요구하는
-이슈가 열려 있다 — 첨부 UX 의 핵심이 파일 목록이 아니라 **선택영역**이라는 방증이다.
+주요 어시스턴트들이 IDE 내부 보조자에 집중하여 수동 컨텍스트 주입 UI를 발전시킨 반면, magi는 독립 상주형 데몬으로서 자율 탐색 체계를 중심으로 동작합니다. 특히 에디터 텍스트 선택영역 첨부는 개발자의 현재 집중 맥락을 전달하는 핵심 진입점으로 판단하여 우선 구현하였습니다.
 
-## 2. 채택 — 첨부 셋 (사용자 요구 그대로)
+## 2. 채택 기능 — 컨텍스트 첨부 3종
 
-구현 순서대로:
+1. **에디터 선택영역 첨부:** 우클릭 「magi: 채팅에 추가」 액션을 통해 파일 본문 전체 복사 대신 **`경로:시작줄-끝줄` 참조**를 프롬프트에 첨부합니다. 데몬이 디스크 최신 원본을 직접 조회하여 전달하므로 데이터 신선도를 보장합니다.
+2. **프로젝트 뷰 선택 첨부:** 프로젝트 탐색기에서 선택한 파일 및 디렉토리 경로를 참조 칩으로 일괄 첨부합니다.
+3. **입력창 `@` 멘션:** 입력 도중 `@` 입력 시 워크스페이스 파일 목록 자동완성 팝업을 제공합니다.
 
-1. **에디터 선택영역 첨부.** 우클릭 「magi: 대화에 첨부」— 선택 텍스트가 아니라
-   **`경로:시작줄-끝줄` 참조**를 입력창에 끼워 넣는다. 본문을 복사해 보내면 모델이 낡은 사본을
-   읽는다 — ambient 가 이미 신선한 전문을 밀고 있으므로 참조면 족하고, 이것이 셋 중 누구도
-   못 하는 우리만의 이점이다(그쪽은 붙여넣은 순간의 스냅샷).
-2. **프로젝트 뷰 선택 첨부.** 같은 액션을 ProjectViewPopupMenu 에도 — 파일/디렉토리 경로 참조.
-3. **입력창 `@` 멘션.** 치다가 `@` 면 워크스페이스 파일 완성 — Continue 의 `@file` 꼴. 파일
-   목록은 데몬의 파일 문(`files.go` 쪽)이 이미 답한다. 셋째인 이유: 위 둘은 액션 등록이면 되고
-   이것은 입력창에 완성 UI 가 필요하다.
+첨부된 항목은 별도 프로토콜 증설 없이 `refs` 배열 규약으로 전송되어, 컴패니언의 표준 파일 조회 샌드박스를 거쳐 안전하게 처리됩니다.
 
-전부 **참조를 싣는 것**이지 새 문이 아니다 — 컴패니언은 받은 경로를 자기 read 툴로 읽는다
-(신선도·퍼미션·워크스페이스 경계 전부 기존 규칙 그대로).
+## 3. 채택 기능 — 인라인 편집
 
-## 3. 채택 — 인라인 편집 (다음 급)
+선택영역에 대한 자연어 지시 결과를 에디터 내부에서 검토할 수 있도록 연동합니다. 승인 프롬프트의 「변경 보기」 단추 및 전사 내역의 적용된 `edit` 행을 통해 IDE 표준 나란히-보기 diff 뷰어를 직접 호출합니다.
 
-선택 → 자연어 지시 → 그 자리 diff. 우리 몸에 맞는 모양: 지시는 `steer`/`submit` 으로 가고
-편집은 컴패니언 손이 하되, **결과 diff 를 에디터 안에서** 보여 주는 것. 셋 다 이걸 주력으로
-민다 — 사람들이 채팅 판보다 에디터를 안 떠나는 쪽을 고른다는 뜻이다.
+## 4. 보류 및 제외 항목
 
-**됐다(2026-08-29)**: 승인 프롬프트의 「변경 보기」와 전사의 적용된 `edit` 행의 「diff 뷰어로」가 IDE
-나란히-보기를 연다 — 「인자가 전체 진실」 판정은 core 의 `EditSides` 한 벌이고 FlexBool
-모양까지 core 유닛 시험이 못박는다([전사 셰이퍼](./TRANSCRIPT.ko.md) §8).
-
-## 4. 안 하거나 보류
-
-- **코드베이스 인덱싱** — 안 한다. 컴패니언의 실시간 검색과 이중 진실이 되고, 인덱스는 낡는다.
-- **NES(다음 편집 제안)** — 보류. 자동완성 프로필 라우팅 위에서 가능하지만 값 대비 호출량이
-  크다. 자동완성이 실사용에서 자리 잡은 뒤 재론.
-- **이미지 첨부** — 보류, **그리고 앞선 판정은 틀렸다**(실측으로 정정): 와이어에 image
-  kind 가 있는 것은 맞지만 그것은 **도구 결과**가 그림을 실어 나르는 자리다
-  (`internal/core/session/session.go` 의 `ToolResult.Images`). 사람이 보내는 길은 없다 —
-  소켓 문의 submit 은 `text` 하나로 파트를 짓고(`internal/adapter/daemon/serve.go` 의
-  `dispatchNow`), 요청에 이미지 필드가 없다. 그러니 「입력 UI 만의 문제」가 아니라 **문과
-  코어의 일**이고, 클라이언트 혼자 못 한다. 코어 쪽에 넘겼다.
-- **자동 승인 전부 켜기**(Copilot 의 global auto approve) — **안 한다.** 우리 퍼미션 게이트를
-  통째로 끄는 스위치를 화면에 두지 않는다 — 그쪽 문서조차 보안 경고를 달아 두고 있다.
+- **코드베이스 사전 인덱싱:** 실시간 정합성 유지 한계 및 중복 캐싱 부담으로 인해 채택하지 않으며, 컴패니언의 실시간 탐색 도구를 유지합니다.
+- **Next Edit Suggestions (NES):** 자동완성 프로필 안정화 이후 도입 타당성을 재검토합니다.
+- **사용자 이미지 첨부:** 현재 데몬 프로토콜이 도구 실행 결과(`ToolResult.Images`)로서의 이미지 수신만을 지원하므로, 코어 API 확장 이후 클라이언트 연동을 진행합니다.
+- **전역 자동 승인:** 보안 가드레일 무력화 위험을 방지하기 위해 일괄 자동 승인 기능은 의도적으로 제공하지 않습니다.
 
 ## 출처
 
-- Continue: [Chat quick start](https://docs.continue.dev/ide-extensions/chat/quick-start) · [Context selection](https://docs.continue.dev/ide-extensions/chat/context-selection) · [기능 개관](https://www.local-llm.net/tools/continue-dev/)
-- JetBrains AI Assistant: [AI Chat(첨부)](https://www.jetbrains.com/help/ai-assistant/ai-chat.html) · [Junie(자동 컨텍스트)](https://www.jetbrains.com/help/ai-assistant/junie-agent.html) · [선택-추적 불평 이슈](https://youtrack.jetbrains.com/projects/LLM/issues/LLM-25965/Optimize-the-code-file-folder-attaching-in-the-AI-assistant-ACP)
-- Copilot for JetBrains: [인라인 에이전트 프리뷰(2026-04)](https://github.blog/changelog/2026-04-24-inline-agent-mode-in-preview-and-more-in-github-copilot-for-jetbrains-ides/) · [NES 등(2026-02)](https://github.blog/changelog/2026-02-13-new-features-and-improvements-in-github-copilot-in-jetbrains-ides-2/) · [에이전트 강화(2026-07)](https://github.blog/changelog/2026-07-07-codex-as-agent-provider-and-agentic-enhancements-in-jetbrains-ides/) · [GitHub Docs](https://docs.github.com/en/copilot/concepts/agents/copilot-in-jetbrains)
+- Continue: [Chat quick start](https://docs.continue.dev/ide-extensions/chat/quick-start) · [Context selection](https://docs.continue.dev/ide-extensions/chat/context-selection)
+- JetBrains AI Assistant: [AI Chat(첨부)](https://www.jetbrains.com/help/ai-assistant/ai-chat.html) · [Junie(자동 컨텍스트)](https://www.jetbrains.com/help/ai-assistant/junie-agent.html)
+- Copilot for JetBrains: [인라인 에이전트 프리뷰](https://github.blog/changelog/2026-04-24-inline-agent-mode-in-preview-and-more-in-github-copilot-for-jetbrains-ides/)

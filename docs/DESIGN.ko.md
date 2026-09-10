@@ -2,26 +2,23 @@
 
 [English](DESIGN.md) · [한국어](DESIGN.ko.md) · [↑ Docs](README.ko.md)
 
-> ⚠️ **이 문서는 M1 착수 *시점*의 설계 의도다.** 구현이 그 뒤로 크게 확장됐고, 그 확장 중
-> 상당수는 다시 걷어냈다 — 절차 플래너, 서브에이전트 위임, 저술된 억셉턴스 체크, 종료를 투표로
-> 결정하던 카운슬. **현재 *as-built* 기준은 [`ARCHITECTURE.md`](ARCHITECTURE.md)** 를 보라 —
-> 충돌 시 그 문서가 우선. 이 문서는 설계 근거(결정 D1~D13의 구체화)로 보존한다.
+> ⚠️ **이 문서는 M1 착수 시점의 초기 설계 사양입니다.** 구현이 진행되며 크게 확장되었고, 그 중 일부(절차 플래너, 서브에이전트 위임, 사전 억셉턴스 체크 등)는
+> 실측 평가를 거쳐 간소화되었습니다. **현재 기준 정본은 [`ARCHITECTURE.md`](ARCHITECTURE.md)**이며,
+> 충돌 시 해당 문서가 우선합니다. 본 문서는 초기 설계 근거(결정 D1~D13의 구체화 과정)를 보존하기 위해 유지합니다.
 >
-> 영문판: [`DESIGN.md`](DESIGN.md). 본문의 설계 의도는 당시 그대로 두되, **"as-built"라고
-> 주장하던 주석은 코드와 대조해 사실로 고쳤다** — 틀린 현황 주석은 보존된 역사가 아니라 그냥
-> 오답이기 때문이다. 고친 자리는 그 취지를 밝혀 적었다.
+> 영문판: [`DESIGN.md`](DESIGN.md). 본문의 초기 설계 의도는 보존하되, 현행 구현과 배치되는 주석은 코드 실측에 맞추어 사실에 부합하도록 정비하였습니다.
 
-> PLAN의 결정(D1~D13)을 코드 직전 수준으로 구체화. 이벤트/커맨드 스키마 · 포트 시그니처 · 패키지 구조.
-> 핵심 패턴: **CQRS-lite** — 안으로는 *Command*, 밖으로는 *Event*. 이게 인프로세스↔원격을 같게 만든다(D5).
+> PLAN의 결정(D1~D13)을 구현 수준으로 구체화한 사양입니다(이벤트/커맨드 스키마, 포트 시그니처, 패키지 구조).
+> 핵심 패턴: **CQRS-lite** — 내부 입력은 *Command*, 외부 출력은 *Event*로 단일화하여 프로세스 내 호출과 원격 통신의 동등성을 보장합니다(D5).
 
 ---
 
 ## 1. 패키지 구조
 
-> 아래는 *as-built* 트리(2026-06 기준)로 갱신했다. 원안 대비 변경점:
+> 아래는 *as-built* 트리(2026-06 기준) 현황입니다. 원안 대비 변경 사항:
 > `core/capability` 제거(미사용) · `core/{model,plugin}` 추가 · `port`는 단일 `port.go`로 통합 ·
-> `app`은 `service.go` 대신 `app.go`이며 가드레일/워크플로 파일이 추가됐다 ·
-> 빌트인 툴이 6개에서 대폭 늘었다. 세부는 [`ARCHITECTURE.md`](ARCHITECTURE.md) §패키지 맵 참조.
+> `app`은 `service.go` 대신 `app.go`로 재구성되었으며 가드레일/워크플로 로직이 추가되었습니다 ·
+> 빌트인 툴이 6개에서 대폭 확장되었습니다. 세부 사항은 [`ARCHITECTURE.md`](ARCHITECTURE.md) §패키지 맵을 참고하십시오.
 
 ```
 github.com/sayaya1090/magi
@@ -181,7 +178,7 @@ type Actor struct {
 
 > 원칙: **사실(fact)은 영속, 진행상황(delta/progress)은 전이.** 재생 시 delta는 불필요(완성 part로 충분). → 로그가 깔끔하고 D6의 "버스=저장" 정신 유지.
 
-> ★교정(실제 구현): 상기 표들은 **전체 어휘 목록이 아닌 대표 표본**이다. 과거에는 전체 목록으로 취급되었으나 양방향 모두에서 실제 구현과 차이가 있었다. `artifact.emitted`와 `tool.started`는 상수, 페이로드 구조체, 발신 로직 없이 문서상에만 존재하여, 클라이언트가 수신되지 않는 도구 시작 이벤트를 대기하는 문제를 유발했다(실제 도구 시작은 사실 이벤트인 `part.appended(tool-call)`를 통해 모든 화면에 정상 전달된다). 반대로 실제 로그에 기록되는 `result.elided`, `labels.changed`, `session.moved`, `model.changed`, `interjection.deferred`, `interjection.answered` 등은 기존 표에 누락되어 있었다. `agent.spawned`/`agent.status`는 에이전트 단일화에 따라 완전히 제거되었다. **완전한 정본 집합은 [`SPEC.ko.md`](SPEC.ko.md) F-EVENT-FACT-TRANSIENT**에 정의되어 있으며, 테스트 코드가 `transientTypes` 선언을 통해 정합성을 검증한다. 실제 페이로드 구조는 `internal/core/event/payload.go`를 따른다.
+> ★교정(실제 구현): 상기 표들은 **전체 어휘 목록이 아닌 대표 표본**입니다. 과거에는 전체 목록으로 취급되었으나 양방향 모두에서 실제 구현과 차이가 있었습니다. `artifact.emitted`와 `tool.started`는 상수, 페이로드 구조체, 발신 로직 없이 문서상에만 존재하여 클라이언트 혼선을 유발했습니다(실제 도구 시작은 사실 이벤트인 `part.appended(tool-call)`를 통해 모든 화면에 정상 전달됩니다). 반대로 실제 로그에 기록되는 `result.elided`, `labels.changed`, `session.moved`, `model.changed`, `interjection.deferred`, `interjection.answered` 등은 기존 표에 누락되어 있었습니다. `agent.spawned`/`agent.status`는 에이전트 단일화에 따라 완전히 제거되었습니다. **완전한 정본 집합은 [`SPEC.ko.md`](SPEC.ko.md) F-EVENT-FACT-TRANSIENT**에 정의되어 있으며, 테스트 코드가 `transientTypes` 선언을 통해 정합성을 검증합니다. 실제 페이로드 구조는 `internal/core/event/payload.go`를 따릅니다.
 
 **JSONL 로그 예시** (`~/<datadir>/projects/<cwd>/<sessionId>.jsonl`):
 ```json

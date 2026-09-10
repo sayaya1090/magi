@@ -1,174 +1,94 @@
-# 전사 셰이퍼 — 이벤트 스트림을 행으로
+# 전사 셰이퍼 — 이벤트 스트림을 행으로 변환
 
 [↑ 화면 설계](./UI.ko.md)
 
-> **무엇을 정하는 문서인가.** [화면 설계](./UI.ko.md) §2.1 이 「행은 이 클라이언트가 짓는다」로
-> 정했다. 이 문서는 그 셰이퍼 하나를 구현 수준으로 정한다 — 입력 스트림의 실측, 행 모델의 어휘,
-> 이벤트→행 매핑, 그리고 골든이 무엇을 붙드는가. 아래 매핑의 근거는 전부 두 원본의 실측이다:
-> 터미널(`internal/adapter/tui/model_event.go` 의 `onPartAppended` 와 그 이웃)과 웹의 셰이퍼
-> (`clients/web/server/main.go` 의 `renderMessages`).
+> **문서 목적.** [화면 설계](./UI.ko.md) §2.1에 따라 대화 행 데이터의 구성 책임을 클라이언트 계층에 둡니다. 본 문서는 이벤트 스트림을 UI 행 목록으로 가공하는 전사 셰이퍼(Transcript Shaper)의 상세 사양을 정의합니다. 터미널 TUI(`internal/adapter/tui/model_event.go`) 및 웹 콘솔(`clients/web/server/main.go`)의 실제 구현 실측을 바탕으로 작성되었습니다.
 
 ---
 
-## 0. 원칙
+## 0. 설계 원칙
 
-- **얕게 짓는다.** 셰이퍼는 이벤트를 행 데이터로 펼 뿐, 문장을 짓지 않는다. 문장은 화면의 붓이다.
-- **어휘는 웹 `line` 의 것이다.** 필드로 나르고, 렌더된 문장에서 도로 파내지 않는다.
-- **문은 스트림이다.** 로그 파일을 재유도하지 않는다. 스트림이 안 싣는 것은 이 문서의 §7에
-  적히고, 데몬에 요청할 일이 생기면 그 항목으로 한다.
+- **경량 변환 계층:** 셰이퍼는 이벤트를 구조화된 행 데이터로 투영하는 역할에 집중하며, 시각 서술 문장을 임의로 조합하지 않습니다. 표출 문장은 UI 렌더러가 담당합니다.
+- **표준 어휘 공유:** 웹 콘솔의 `line` 필드 명명 규칙을 준용하여 정형화된 필드로 상태를 전달합니다.
+- **스트리밍 단일 원천:** 파일시스템 로그를 우회 재해석하지 않고 소켓 이벤트 스트림만을 신뢰 원천으로 삼습니다.
 
-## 1. 입력 — `transcript` 스트림의 실측
+## 1. 입력 사양 — `transcript` 스트림 실측
 
-봉투는 `Wire.kt` 의 `LogEvent` 다: `seq · type · actor(kind,name) · ts · data`. `data` 는
-타입마다 모양이 다르고, 그것을 파는 것이 셰이퍼의 일이다(같은 층의 `Problems.of` 가 선례).
+이벤트 봉투(Envelope)는 `Wire.kt`의 `LogEvent` 구조를 따릅니다: `seq · type · actor(kind,name) · ts · data`.
 
-**사실만 재생된다.** 코어가 이벤트를 둘로 가른다(`internal/core/event/event.go` 의
-`transientTypes`) — 사실은 저장되고 재생되며, 전이(`part.delta` · `tool.progress` ·
-`permission.requested` · `question.requested` · `context.usage` · `workflow.phase` ·
-`council.deliberating` · `question.answered` · `user.label.changed` — 9종, 거울 시험이
-코어와 대조한다)는 라이브로 붙어 있는 동안만 온다. 따라서:
+**사실(Fact) 이벤트 영속 및 재생 원칙:** 코어 엔진은 이벤트를 영속 사실과 전이(Transient) 상태로 구분합니다(`internal/core/event/event.go`의 `transientTypes`). 사실 이벤트는 영속화되어 재접속 시 재생되며, 전이 이벤트(`part.delta`, `tool.progress`, `permission.requested`, `question.requested`, `context.usage`, `workflow.phase`, `council.deliberating`, `question.answered`, `user.label.changed` 등 9종)는 실시간 세션 중에만 송출됩니다.
 
-- **같은 말이 두 번 온다.** `part.delta` 조각들 뒤에 같은 `messageId` 의 `part.appended`
-  사실이 온다. 조각에 행을 주면 답이 두 벌 쌓이고, 재생분에는 조각이 없어 **다시 붙은 창과
-  붙어 있던 창이 갈린다**. 그래서 조각은 행이 아니다 — `Transcript.kt` 의 `echoesFact` 가
-  이 술어다. **다만 「새 줄을 주지 말라」와 「그리지 말라」는 다른 말이다**: 조각은 같은
-  messageId 의 **초안 행을 고쳐 쓰고**, 사실이 오면 그 자리에서 사실로 덮인다(라이브
-  타자기 — 답이 완성된 뒤에야 한 번에 뜨던 것을 사용자가 잡았다). 재생에는 조각이 없으니
-  다시 붙은 창은 사실 한 줄만 보고, 붙어 있던 창도 끝나면 같은 한 줄이 된다.
-  같은 결 하나 더(라이브 QA 실측 → 리뷰가 생산자 전수로 판정): 라이브 버스는 사실-타입
-  프레임을 seq 0 으로도 싣는다 — 결함이 아니라 **설계된 라이브 전용 신호**다.
-  `council.verdict` 는 반박 전 프리뷰(사실은 반박 후 세트라 내용이 다를 수 있다),
-  `turn.finished` 는 사실 뒤의 런 은퇴 신호. 계약은 **저장 계약**이다: 사실=seq>0 은
-  jsonl 저장 경로의 실보장이고, 버스의 seq 0 얹기는 그 밖이다. 그래서 `echoesFact` 는
-  seq 0 인데 전이 타입이 아닌 프레임에 행 몫을 주지 않는다.
-  ⚠ 트레이드오프(기록): 이 필터로 붙어 있는 창의 카운슬 **프리뷰가 침묵**한다 — 심의가
-  끝나야 판정 행이 선다(TUI 는 프리뷰를 그린다). 프리뷰를 살리려면 §8 타자기처럼
-  (round,member) 열쇠의 임시 행을 사실로 덮는 렌더가 필요하고, 코어가 프리뷰를 별도
-  전이 타입으로 분리하는 안이 논의 중이다 — 그때 opt-in 으로 되살린다.
-- **물음은 행이 아니라 신호다.** `permission.requested` 류 넷(`Transcript.kt` 의
-  `movesPrompt`)은 이벤트 내용으로 그리지 않고 「프롬프트를 다시 물어라」로만 쓴다 — 재생이
-  지나간 물음을 지금 것으로 그리는 사고를 막는 근거가 그 술어의 주석에 있다. 기존 그대로다.
-- **커서.** 마지막 사실의 seq 를 `since` 로 보내 증분만 받는다 — 컴팩션이 seq 를 보존하므로
-  커서는 믿어도 된다(docs/CLIENTS §2 명문화). 세션이 바뀌면 0, 데몬의 거절(`note`)은 이벤트보다
-  먼저 오므로 그때 비우고 전량을 다시 받는다. `since` 없음=전량은 스토어 규칙 그대로
-  (`internal/adapter/store/jsonl/jsonl.go` 의 `filterFrom`).
+- **실시간 조각과 확정본의 정합성:** 실시간 스트리밍 중에는 `part.delta` 조각들이 수신된 후 동일한 `messageId`를 갖는 `part.appended` 확정본 이벤트가 도착합니다. 조각마다 독립된 행을 생성할 경우 메시지가 중복 누적되므로, `part.delta`는 초안 행을 실시간 갱신하고 확정본 수신 시 최종 내용으로 완전히 치환합니다.
+- **질의성 이벤트의 성격:** `permission.requested` 등의 질의 이벤트는 전사 본문 행이 아닌 상태 알림 신호로 취급하여 입력창 상단에 바인딩합니다.
+- **시퀀스 커서(`since`):** 마지막 처리한 사실 이벤트의 `seq`를 커서로 전달하여 증분 데이터만 수신합니다.
 
-## 2. 행 모델
+## 2. 행 모델 (Row Model)
 
-웹 `line` 의 어휘를 코틀린으로 옮긴다. usecase 층의 데이터 클래스 하나:
+웹 콘솔의 규약을 코틀린 데이터 클래스로 매핑합니다:
 
 ```kotlin
 data class Row(
     val who: Who,            // User | Agent | Thinking | Tool | Council | Info
-    val text: String,        // 본문 (tool 이면 이름, council 이면 판정 요지)
-    val at: String? = null,  // 이벤트 ts — 웹처럼 행마다 싣는다
-    // tool 행
+    val text: String,        // 본문 (tool인 경우 도구명, council인 경우 판정 요지)
+    val at: String? = null,  // 이벤트 발생 시각 (ISO 8601)
+    // tool 행 전용 속성
     val tool: String? = null, val args: String? = null,
-    val ok: Boolean? = null,  // null = 아직 결과 없음
-    val note: Boolean = false, // 됐고 읽을 것이 있음(advisory) — 실패가 아니다
-    val out: String? = null,   // 실패한 호출이 말한 것 — args 를 덮지 않는다
-    // user 행 표시
+    val ok: Boolean? = null,  // null = 실행 진행 중
+    val note: Boolean = false, // 성공 완료 및 권고사항(advisory) 존재 여부
+    val out: String? = null,   // 도구 실행 실패 상세 출력
+    // user 행 상태 표식
     val pending: Boolean = false, val queued: Boolean = false, val abandoned: Boolean = false,
-    // council 행
+    // council 판정 속성
     val member: String? = null, val round: Int = 0, val decision: String? = null,
     val lens: String? = null, val why: String? = null, val keep: String? = null,
     val cite: String? = null,
-    // 셰이퍼 내부 짝맞춤 열쇠 — 화면은 안 읽는다
+    // 셰이퍼 내부 식별자
     val msgId: String = "", val callId: String = "",
 )
 ```
 
-웹에 있는데 1판에서 빼는 것과 그 사유: `diff`(웹은 서버가 호출 인자에서 지어 보냈다 — 여기선
-지을 자가 이 클라이언트뿐이고, IDE 는 diff 뷰어를 이미 가졌으니 §8 에서 그 뷰어로 연다),
-`confidence`·`feedback`·`by`(그릴 자리를 아직 안 정했다 — 어휘에는 있고 행에는 나중에 얹는다).
+## 3. 이벤트 → 행 매핑 규칙
 
-## 3. 이벤트 → 행 매핑
-
-| 이벤트 | 행 | 근거(원본 실측) |
+| 이벤트 타입 | 생성 행 | 매핑 상세 |
 |---|---|---|
-| `prompt.submitted` (actor=user) | **User 행 추가.** `parts` 의 텍스트를 합친다 | 웹·TUI 공통 |
-| `prompt.submitted` (actor=agent) | 없음 — 서브에이전트 보고 주입은 소음 | TUI 가 삼킨다 |
-| `prompt.submitted` (actor=system) | **Info 행** — `⟳ <actor> note: <첫 줄>` | TUI: 플래너·카운슬 노트를 안 그리면 화면이 헤드리스보다 덜 보여 준다 |
-| `prompt.submitted` + `resurfacedFrom` | **재배치** — 그 id 의 User 행을 끝으로 옮기고 본문 갱신, queued 해제 | TUI: 물음이 답 위에 서는 짝 |
-| `part.delta` | **초안 행 고쳐 쓰기** — 같은 `messageId` 의 한 줄이 자라고, 사실이 그 자리를 대신한다(고아 초안은 턴 끝에 쓸린다) | 라이브에서만 온다(재생 없음) |
-| `part.appended` kind=`text` | **Agent 행 추가.** `inReplyTo` 가 있으면 그 User 행을 이 답 위로 재배치 | TUI `onPartAppended` |
-| `part.appended` kind=`reasoning` | **Thinking 행 추가** — 화면이 접어 그린다 | 웹 `who:"thinking"` |
-| `part.appended` kind=`tool-call` | **Tool 행 추가** — 이름·인자·callId | 호출과 결과는 한 행의 절반 |
-| `part.appended` kind=`tool-result` | **새 행 없음** — callId 로 Tool 행을 찾아 `ok`(advisory 면 참 — 일은 일어났다), `note=advisory`, 실패면 `out` 채움 | 웹: 갈라 그리면 "됐나"를 찾아 열어야 안다. `ok` 만은 웹의 원식(`!isError`)에서 한 발 더 갔다 — advisory 를 실패로 그린 것이 그 원식의 실측 결함이었다 |
-| `permission.*` · `question.*` | 행 없음 — 다시 묻는 신호(§1) | `movesPrompt` |
-| `interjection.deferred` | 그 User 행에 **queued 표시** | TUI 의 대기 글리프 |
-| `interjection.answered` | 그 User 행을 마지막 Agent 행 위로 **재배치**, queued 해제 | TUI: 이미 제자리여도 글리프는 거둔다 |
-| `prompt.abandoned` | 그 User 행에 **abandoned 표시** — 행 추가가 아니라 표시 | 취소된 요청이 무시된 질문으로 읽히면 안 된다 |
-| `compaction` | **Info 행** — `↯ context compacted ~전→후 tok`. **지우지 않는다** (§4) | TUI 의 한 줄 + `reconstructWhole` 의 교훈 |
-| `turn.finished` | 행 없음 — 턴 닫힘(§5), usage 는 상태 표시줄 몫 | |
-| `error` | **Info 행** — `recovered` 면 그렇게 말한다. 회복된 에러는 끝이 아니다 | 코어의 「recovered ≠ ending」 |
-| `council.verdict` | **Council 행 추가** — member·decision·rationale·keep·cite. 본문은 **rationale 이 있으면 항상 rationale**(코어는 silent 일 때도 사유 문장을 거기 싣는다); "답이 없었다"는 rationale 이 빈 silent 에만 — 플래그만 보고 실려 온 말을 버리던 판이 라이브에서 잡혔다. **말한 기권**(`abstain`, silent 아님 — 일은 봤는데 판정을 안 한 멤버)과 **무응답**(`silent`)은 다른 행이다: 앞은 판정 마크만, 뒤는 「⋯ 답 없음」이 함께 선다(골든이 못박는다) | 자리색 셋 밖은 색 없음(`Look.seat`) |
-| `council.decided` | **Council 행 추가** — 라운드 결과·tally·note, continue 면 feedback 줄들 | `CouncilDecidedData` 의 `FeedbackLines` 가 양 화면 공용으로 산다 |
-| `council.convened` | 행 없음 — 라운드 고유 정보가 없다 | TUI 가 같은 사유로 지웠다 |
-| `todos.changed` `labels.changed` `model.changed` `session.moved` `context.usage` `tool.progress` `workflow.phase` `result.elided` `user.label.changed` `session.created` | 행 없음 — 전사가 아니라 다른 자리의 사실 | |
+| `prompt.submitted` (actor=user) | **User 행 추가** | `parts`의 텍스트를 병합하여 본문 구성 |
+| `prompt.submitted` (actor=agent) | 행 미생성 | 서브에이전트 중간 보고는 전사 오염 방지를 위해 생략 |
+| `prompt.submitted` (actor=system) | **Info 행** | `⟳ <actor> note: <첫 줄>` 형태로 내부 노트 표출 |
+| `prompt.submitted` + `resurfacedFrom` | **재배치** | 해당 ID의 User 행을 최하단으로 이전하고 본문 갱신 및 대기 해제 |
+| `part.delta` | **초안 갱신** | 동일 `messageId`의 초안 행 본문을 스트리밍 갱신 |
+| `part.appended` kind=`text` | **Agent 행 추가** | 확정 본문 반영 (필요 시 `inReplyTo` 대상 사용자 행 재배치) |
+| `part.appended` kind=`reasoning` | **Thinking 행 추가** | 모델의 추론 블록으로 기본 접힘 상태 렌더링 |
+| `part.appended` kind=`tool-call` | **Tool 행 추가** | 호출 도구명, 인자 요약, callId 기록 |
+| `part.appended` kind=`tool-result` | **행 갱신** | callId로 선행 Tool 행을 탐색하여 성공 여부(`ok`), 권고사항(`note`), 에러 출력(`out`) 확정 |
+| `permission.*` · `question.*` | 행 미생성 | 승인 및 질의 카드 표출 신호로 처리 |
+| `interjection.deferred` | 상태 표식 | 대상 User 행에 대기(queued) 표식 설정 |
+| `interjection.answered` | 상태 표식 | 대상 User 행을 응답 위치로 재배치하고 대기 표식 해제 |
+| `prompt.abandoned` | 상태 표식 | 사용자 취소 요청에 대해 취소선 표식 반영 |
+| `compaction` | **Info 행** | `↯ context compacted` 요약 정보 표출 (기존 로그 보존) |
+| `turn.finished` | 행 미생성 | 턴 종료 신호로 수신하여 상태 표시줄에 지표 반영 |
+| `error` | **Info 행** | 오류 안내 표출 (`recovered` 여부 구분 명시) |
+| `council.verdict` | **Council 행 추가** | 위원별 판정 결과, 검토 렌즈, 근거(`cite`), 유지 요구사항(`keep`) 표출 |
+| `council.decided` | **Council 행 추가** | 라운드 합의 의결 결과 및 후속 피드백 내역 표출 |
 
-**카운슬에 splice 가 없다** (화면 설계 문서의 옛 §8-2 의 답): 웹이 끼워 맞춘 이유는 입력이 **메시지로
-재구성된 로그**라 카운슬 마크를 따로 읽었기 때문이다(`spliceCouncil`). 이 스트림은 사실을
-**일어난 차례대로** 싣고 카운슬 이벤트도 그 안에 있다 — 제자리에 온다.
+## 4. 이벤트 영속성 및 증분 갱신
 
-## 4. 지우는 사건은 없다 (옛 §8-1 의 답)
+컴팩션(Context Compaction)은 모델 컨텍스트 윈도우를 최적화할 뿐 과거 이벤트 로그를 삭제하지 않습니다. 전사 셰이퍼는 완전한 이벤트 기록을 기반으로 동작하므로 사용자의 스크롤백 내역이 임의로 소실되지 않습니다. 재접속 시에는 `Sink.began` 신호에 따라 목록을 초기화한 후 전량을 안전하게 복원합니다.
 
-실측: **컴팩션은 이벤트를 지우지 않는다.** 로그는 전부 남고, 모델에게 보낼 창만 접힌다 —
-`internal/app/reconstruct.go` 의 `reconstructWhole` 주석이 그 결함의 기록이다: 사람 뷰를 모델
-뷰(`reconstruct`)에서 읽으면 **읽는 중이던 스크롤백이 컴팩션 순간 제 요약으로 바뀐다**(라이브
-콘솔 보고). 사람 뷰는 접지 않는다. 이 셰이퍼는 사람 뷰다.
+## 5. 턴 생명주기 및 대기 상태
 
-그래서 증분 셰이퍼가 안전하다. 스트림이 시키는 변이는 다섯뿐이고 전부 목록 안 제자리 수정이다:
-재배치 둘(재부상, 인라인 답), 표시 둘(queued·abandoned), 접붙임 하나(tool-result). 통짜 재생성이
-필요한 것은 **스트림 자체가 다시 시작할 때**(재접속 전량 재생, 세션 이동)뿐이다 — 그때는 행
-목록을 비우고 처음부터 짓는다. `Sink.began` 이 그 신호다.
+- **턴 활성 상태:** `prompt.submitted`(user) 수신 후 해당 턴의 `turn.finished`가 도착하기 전까지를 활성 상태로 판정합니다. 경과 시간은 로컬 클라이언트 시계 기준으로 계측합니다.
+- **Pending 표식:** 응답 대기 중인 마지막 User 행 및 실행 중인 Tool 행에 진행 인디케이터를 활성화합니다.
 
-## 5. 턴과 pending
+## 6. 계층 구조 및 모듈 책임
 
-- **턴 열림** = 마지막 `prompt.submitted`(user) 뒤에 `turn.finished` 가 아직 없다. 경과는 그
-  이벤트의 `ts` 부터 IDE 시계로 센다 — 두 기계의 시계 비교는 하지 않는다.
-- **pending** = 웹 `markPending` 의 규칙: 턴이 열려 있을 때, 답 없는 마지막 User 행과 결과
-  없는 Tool 행. 행의 사실이므로 행에 싣는다. 턴 경과는 세션의 사실이므로 행에 안 싣는다
-  (마지막 행이 무엇이냐에 따라 뜻이 달라진다 — 웹이 프레임을 가른 사유).
+셰이퍼는 `plugin/core` usecase 계층의 순수한 상태 머신으로 동작합니다. `LogEvent` 프레임을 수신하여 불변 `List<Row>` 목록을 생성하고 변경 시 UI 컴포넌트에 통지합니다. 소켓 스트림은 `Transcript` 컴포넌트가 단독 관리하며, UI는 `Sink` 인터페이스를 통해 구독합니다.
 
-## 6. 어디 살고 누가 부르나
+## 7. 골든 테스트 검증 항목
 
-셰이퍼는 `plugin/core` usecase 층의 순수 클래스다 — `LogEvent` 를 받아 `List<Row>` 를 유지하고,
-바뀌면 화면에 통짜 목록을 준다(행 수가 수백이고 Swing 재그리기가 밀리초라 diff 통지는 §8 전까지
-필요 없다). 스트림 소유권은 지금 그대로 — `Transcript` 가 단독 소유, 화면은 `Sink` 로 구독.
-셰이퍼는 그 `Sink` 와 화면 사이에 선다: `frame` 을 먹고, `began` 에 비우고, 목록을 내놓는다.
+실제 세션 로그 픽스처를 기반으로 다음 핵심 불변식을 상시 검증합니다:
 
-`MagiToolWindow.entry` 는 이 목록을 그리는 코드로 바뀐다 — `#seq type` 을 적는 지금 몸은
-없어진다. 문제 판(`Problems.of`)은 같은 스트림을 계속 따로 읽는다 — 출처가 다른 두 글이라는
-구분(전부 /  사람이 손댈 것)은 그대로다.
-
-## 7. 골든이 붙드는 것
-
-이벤트 JSONL 픽스처(실제 세션 저장분 `~/.magi/sessions` 에서 추려 익명화)를 넣고 행 목록을
-견준다. 최소 다섯 벌:
-
-1. **몸통.** user 프롬프트와 agent 답이 행에 있다 — 지금 화면이 `#seq type` 만 적어도 초록인
-   그 구멍을 막는 시험이 첫째다.
-2. **호출+결과 한 행.** 병렬 호출이 순서 밖으로 완료돼도 callId 짝이 맞고, advisory 는
-   `ok=true·note=true` 다.
-3. **delta 무행.** 조각 여럿 + 사실 하나 = 행 하나.
-4. **재부상 재배치.** 재부상·인라인 답·abandoned 가 행을 늘리지 않고 옮기거나 표시한다.
-5. **컴팩션 비삭제.** compaction 이벤트 앞의 행들이 그대로 있고 Info 행 하나가 는다.
-
-## 8. 나중
-
-- ~~접기~~ **됐다**: 생각·도구 행은 기본 접힘, 클릭이 편다(웹과 같게 — 사용자 결정). 창의
-  혼잣말(`— 붙었다/보냈다`)은 행이 아니라 **연결 점+실패 공지**로 갔다 — 문장 행이 대화 사이에
-  끼는 것이 읽기를 끊는다는 같은 결정.
-- ~~라이브 타자기~~ **됐다**: `part.delta` 가 같은 `messageId` 의 **초안 행**을 고쳐 쓰고,
-  사실이 오면 그 자리를 대신한다(답이 완성된 뒤에야 한 번에 뜨던 것을 사용자가 잡았다).
-  고아 초안 — 코어가 조각만 흘리고 사실을 안 쓰는 길(스핀 가드가 버린 응답, 본문으로 온
-  툴콜, 중단·에러, 실패한 인터젝션) — 은 **턴 끝과 에러에서 쓸린다**: 안 쓸면 붙어 있던
-  창에만 반쪽 답이 남아 §1 이 금지한 갈림이 된다. 흐르는 줄은 끝에 ▌로 표가 난다.
-- ~~diff~~ **됐다**: 펼친 `edit` 행(builtin 철자 그대로일 때만 — 별칭 철자는 정직한 미표시)
-  중 **적용된 것**(✗ 행에 「이전/이후」는 일어나지 않은 이후의 주장)에 「diff 뷰어로」 —
-  인자의 old/new 원문 두 면을 IDE 나란히-보기로. 「인자가 전체 진실」 판정은 승인 diff 와
-  **같은 함수 한 벌**(`Rows.kt` 의 `EditSides` — 데몬 FlexBool 의 참 모양들까지 core 유닛
-  시험이 못박음)이라 갈라질 자리가 없다.
-- **`confidence`·`feedback`·`by`** 를 행에 얹기, `result.elided` 표시.
-- **diff 통지** — 목록이 커져 통짜 재그리기가 보이는 지연이 되면 그때.
+1. **대화 본문 보존:** 사용자의 프롬프트와 에이전트 응답이 누락 없이 행으로 변환되는지 검증합니다.
+2. **도구 호출-결과 결합:** 병렬 실행 및 비동기 수신 환경에서도 callId를 기준으로 단일 행에 정확히 매핑되는지 검증합니다.
+3. **스트리밍 조각 단일화:** 다수의 delta 청크 수신 후 확정본이 도착했을 때 단일 행으로 정확히 치환되는지 검증합니다.
+4. **인터젝션 재배치:** 사용자 인터젝션 및 취소 처리가 기존 대화 순서를 훼손하지 않고 올바르게 반영되는지 검증합니다.
+5. **컴팩션 무결성:** 컨텍스트 압축 이벤트 수신 시 선행 대화 행이 삭제되지 않고 요약 안내 행이 안전하게 추가되는지 검증합니다.
