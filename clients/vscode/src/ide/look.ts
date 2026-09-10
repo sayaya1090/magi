@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { split, numbered, Look, ambient, place } from '../core/look';
+import { inside } from '../core/hand';
 import { Companion } from './workspace';
 
 /**
@@ -38,8 +39,28 @@ export class Looking implements vscode.Disposable {
   /** Look now, whatever the automatic switch says — the person asked. */
   async now(ed: vscode.TextEditor): Promise<void> { await this.look(ed.document, true); }
 
+  /**
+   * Whether this buffer belongs to the companion's workspace.
+   *
+   * ⚠ **Nothing checked this, so anything open went out.** The two automatic paths below send a
+   * file's text on every pause in typing, and VS Code will happily have a file from another project
+   * — or `~/Documents/…`, or a library source — as the active editor. The daemon does not stop it:
+   * measured 2026-09-10 against a running daemon, `open-file` with `/etc/hosts` answers `ok:true`,
+   * and `look-over` with the same path goes to the model rather than refusing.
+   *
+   * So the confinement is this window's to keep. The JetBrains client has kept it since its own
+   * typing watcher landed, in one line and with the same reasoning in its comment.
+   *
+   * Only the AUTOMATIC paths. `now()` is a person pointing at the file in front of them and saying
+   * "this one" — the same call the sibling makes without re-checking.
+   */
+  private mine(doc: vscode.TextDocument): boolean {
+    return inside(this.companion.workdir, doc.uri.fsPath);
+  }
+
   private typed(doc: vscode.TextDocument): void {
     if (doc.uri.scheme !== 'file') return;
+    if (!this.mine(doc)) return;
     // Only the file they are looking at. A change in a background document — a formatter, another
     // extension, a search-and-replace — is not somebody typing, and sending it would spend a model
     // call on a buffer nobody is reading.

@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import { split, numbered, AMBIENT, ambient, place } from '../core/look';
 import { WINDOW, around, usable } from '../core/complete';
+import { inside } from '../core/hand';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -202,4 +203,43 @@ test('findings inside the file are left alone', () => {
   const out = place({ anchored: good, loose: '' }, 3);
   assert.deepEqual(out.anchored, good);
   assert.equal(out.loose, '');
+});
+
+/**
+ * ★ A buffer that is not in this workspace is not sent anywhere.
+ *
+ * Two automatic paths push a file's text on every pause in typing: the ambient `open-file`, which
+ * goes out unconditionally, and the `look-over` behind `magi.lookWhileTyping`. VS Code will have a
+ * file from another project — or `~/Documents/…`, or a decompiled library source — as the active
+ * editor whenever somebody opens one, and neither path asked whose file it was.
+ *
+ * The daemon does not stop it. Measured 2026-09-10 against a running daemon: `open-file` with
+ * `/etc/hosts` answers `ok:true`, and `look-over` with the same path goes to the model rather than
+ * refusing. So the confinement is the client's, and this one was not keeping it. The JetBrains
+ * client has kept it since its typing watcher landed, in one line.
+ *
+ * The manual `magi.lookNow` is deliberately NOT gated: that is a person pointing at the file in
+ * front of them. The sibling makes the same distinction.
+ */
+test('a file outside the workspace is not what the typing watcher sends', () => {
+  const work = '/home/p/proj';
+  assert.equal(inside(work, '/home/p/proj/src/a.ts'), true);
+  assert.equal(inside(work, '/etc/hosts'), false, 'a system file counts as this workspace');
+  assert.equal(inside(work, '/home/p/other/b.ts'), false, 'another project counts as this workspace');
+  // `/a/bc` is not inside `/a/b` — a string prefix would say it is, and the neighbouring project
+  // whose name starts with this one's is the case that would leak.
+  assert.equal(inside(work, '/home/p/proj-notes/c.md'), false, 'a sibling directory shares the prefix');
+
+  // And the automatic paths actually ask. Read off the source: `look.ts` imports `vscode`, so no
+  // test in this process can load it — and a check nothing calls confines nothing.
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'look.ts'), 'utf8');
+  const typed = src.slice(src.indexOf('private typed('), src.indexOf('private async look('));
+  assert.ok(typed.length > 100, 'the typing watcher was not found — this guard is reading nothing');
+  // The whole statement, not just the call. `if (!this.mine(doc) && false) return;` still CALLS it
+  // and still sends everything — a first draft of this guard matched the call alone and passed that
+  // mutation. What is being asserted is that the answer turns the watcher back.
+  assert.match(typed, /if \(!this\.mine\(doc\)\)\s*\{?\s*return;/,
+    'the ambient push sends whatever is on screen, including files from another project');
+  assert.match(src.slice(src.indexOf('private mine(')), /inside\(this\.companion\.workdir/,
+    'the workspace check does not compare against the companion\'s own workdir');
 });
