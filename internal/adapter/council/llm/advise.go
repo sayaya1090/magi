@@ -3,7 +3,6 @@ package llm
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -59,7 +58,7 @@ func (c *Council) Advise(ctx context.Context, req port.AdviceRequest) (string, e
 	if err != nil {
 		return "", err
 	}
-	text, cut := drain(stream)
+	text, reasoning, cut := drain(stream)
 	if cut != nil && strings.TrimSpace(text) == "" {
 		return "", cut
 	}
@@ -67,7 +66,7 @@ func (c *Council) Advise(ctx context.Context, req port.AdviceRequest) (string, e
 		// The caller decides on this prose, and the prompt asks for yes/no FIRST — so a reply cut
 		// mid-qualification reads as an unqualified yes. Every other reader in this package logs
 		// its cut; this one returned the fragment as if it were whole.
-		fmt.Fprintf(os.Stderr, "magi: an advisory answer was cut off after %d chars: %v\n", len(text), cut)
+		cutOff("an advisory answer", text, reasoning, cut)
 	}
 	return strings.TrimSpace(text), nil
 }

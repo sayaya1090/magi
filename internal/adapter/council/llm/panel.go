@@ -346,9 +346,9 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 		if err != nil {
 			return "", err
 		}
-		text, cut := drain(stream)
+		text, reasoning, cut := drain(stream)
 		if cut != nil {
-			fmt.Fprintf(os.Stderr, "magi: a council panel reply was cut off after %d chars: %v\n", len(text), cut)
+			cutOff("a council panel reply", text, reasoning, cut)
 		}
 		return text, nil
 	}

@@ -332,10 +332,10 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 			return memberReply{}, "", false, err
 		}
 		var b strings.Builder
-		text, cut := drain(stream)
+		text, reasoning, cut := drain(stream)
 		b.WriteString(text)
 		if cut != nil {
-			fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
+			cutOff("a council reply", text, reasoning, cut)
 		}
 		r, ok := parseReply(b.String())
 		if !ok {
@@ -437,10 +437,10 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 		return prior
 	}
 	var b strings.Builder
-	text, cut := drain(stream)
+	text, reasoning, cut := drain(stream)
 	b.WriteString(text)
 	if cut != nil {
-		fmt.Fprintf(os.Stderr, "magi: a council reply was cut off after %d chars: %v\n", len(text), cut)
+		cutOff("a council reply", text, reasoning, cut)
 	}
 	r, ok := parseReply(b.String())
 	if !ok {
@@ -866,21 +866,60 @@ func decisionOf(s string) council.Decision {
 // member became an abstain the tally cannot tell from "no opinion", and the revision judge — which
 // fails OPEN — waved a rewrite through. The partial text is still returned so a lenient parse can
 // still succeed on it; the cut is reported separately.
-func drain(stream <-chan port.ProviderEvent) (string, error) {
-	var b strings.Builder
-	var cut error
+// drain collects a reply, keeping what the model SAID apart from what it thought.
+//
+// ⚠ **Reasoning is returned, and it is never parsed.** Only `ProviderText` was collected here, and
+// on a reply that arrived as reasoning alone that left this function returning the empty string —
+// which the callers then reported as "0 bytes" while the stream guard, which counts BOTH kinds
+// toward its repetition and byte caps (`internal/app/provider_guard.go`), had just aborted a
+// 46-byte loop it saw plenty of. One side of the same stream saw thousands of characters and the
+// other saw none, and the log said the model had answered in prose.
+//
+// So the second return is for the OPERATOR, not for the parser. Feeding it to `parseReply` would
+// let a model's thinking-out-loud become a verdict — the thing the split exists to prevent — and
+// the callers below pass it only to the lines a person reads.
+func drain(stream <-chan port.ProviderEvent) (text, reasoning string, cut error) {
+	var said, thought strings.Builder
 	for ev := range stream {
 		switch ev.Type {
 		case port.ProviderText:
-			b.WriteString(ev.Text)
+			said.WriteString(ev.Text)
+		case port.ProviderReasoning:
+			thought.WriteString(ev.Text)
 		case port.ProviderError:
 			cut = ev.Err
 		}
 	}
-	return b.String(), cut
+	return said.String(), thought.String(), cut
 }
 
+// cutOff is the one sentence every reader of a cut reply prints.
+//
+// It names the reasoning because that is the fact that was missing: "cut off after 0 chars" about a
+// model that had produced four thousand characters of thinking is a true sentence that leads
+// somebody to look for a transport failure. Only when there is nothing else to say — an answer came
+// through — is the reasoning left out, because then it explains nothing the reader needs.
+func cutOff(what, text, reasoning string, cut error) {
+	if strings.TrimSpace(text) == "" && reasoning != "" {
+		fmt.Fprintf(os.Stderr, "magi: %s was cut off after %d chars (%d chars of reasoning came first, none of it an answer): %v\n",
+			what, len(text), len(reasoning), cut)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "magi: %s was cut off after %d chars: %v\n", what, len(text), cut)
+}
+
+// noteUnparsed says why a reply could not be read.
+//
+// ⚠ **Nothing is not prose.** `jsonx.Diagnose("")` answers "no JSON object or array in the reply
+// (the model answered in prose)" — true of an empty string only in the sense that it contains no
+// JSON, and read by an operator as "the model wrote sentences instead". Measured 2026-09-11: that
+// is exactly what the log said about a reply of 0 bytes. The two cases lead to different next
+// moves — reword the prompt, or go and look at why nothing came back — so they are said apart.
 func noteUnparsed(what, text string) {
+	if strings.TrimSpace(text) == "" {
+		fmt.Fprintf(os.Stderr, "magi: %s could not be parsed: nothing came back to parse (%d bytes)\n", what, len(text))
+		return
+	}
 	fmt.Fprintf(os.Stderr, "magi: %s could not be parsed (%d bytes): %s\n", what, len(text), jsonx.Report(text))
 }
 
