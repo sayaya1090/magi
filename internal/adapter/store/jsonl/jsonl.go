@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -558,7 +559,9 @@ func archiveThenReplace(path, tmp, archive string) error {
 			return rerr
 		}
 	}
-	return os.Rename(tmp, path)
+	// Read by anything following this conversation, so the same replace rule applies — see
+	// atomicfile.Replace for why Windows needs more than a rename.
+	return atomicfile.Replace(tmp, path)
 }
 
 func writeAll(path string, evs []event.Event) error {

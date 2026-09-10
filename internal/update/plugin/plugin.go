@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/atomicfile"
+
 	"github.com/BurntSushi/toml"
 )
 
@@ -226,7 +228,10 @@ func gitRev(ctx context.Context, dir string) string {
 }
 
 func readManifest(dir string) (manifestMeta, bool) {
-	b, err := os.ReadFile(filepath.Join(dir, "plugin.toml"))
+	// atomicfile.ReadFile: the manifest is replaced under readers when a plugin materialises or
+	// updates, and on Windows a read landing mid-replacement fails outright instead of seeing one
+	// version or the other.
+	b, err := atomicfile.ReadFile(filepath.Join(dir, "plugin.toml"))
 	if err != nil {
 		return manifestMeta{}, false
 	}

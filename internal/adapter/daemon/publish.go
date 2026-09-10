@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/version"
 )
@@ -267,7 +268,10 @@ func writeRecord(socketPath string, in Info) error {
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, f); err != nil {
+	// atomicfile.Replace, not os.Rename: this record is read by every viewer and every fleet
+	// listing, and on Windows a destination somebody has open cannot be renamed over. The rule
+	// and the reason live in one place.
+	if err := atomicfile.Replace(tmp, f); err != nil {
 		os.Remove(tmp)
 		return err
 	}
@@ -401,7 +405,9 @@ func primaryAddr() string {
 
 // Published reads what a daemon published.
 func Published(socketPath string) (Info, error) {
-	b, err := os.ReadFile(SessionFile(socketPath))
+	// atomicfile.ReadFile: this record is replaced under readers by design, and on Windows a read
+	// that lands mid-replacement fails outright rather than seeing one version or the other.
+	b, err := atomicfile.ReadFile(SessionFile(socketPath))
 	if err != nil {
 		return Info{}, fmt.Errorf("daemon: nothing published at %s — is a daemon running there? %w",
 			SessionFile(socketPath), err)

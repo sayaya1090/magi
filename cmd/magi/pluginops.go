@@ -185,7 +185,7 @@ func materializeEmbedded(pfs fs.FS, name, dir string) error {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
-		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, b) {
+		if cur, err := atomicfile.ReadFile(dst); err == nil && bytes.Equal(cur, b) {
 			return nil // already current — don't rewrite (no spurious watcher event)
 		}
 		return writeAtomic(dst, b)

@@ -66,7 +66,9 @@ func Write(path string, data []byte, perm os.FileMode) error {
 		os.Remove(name)
 		return err
 	}
-	if err := os.Rename(name, path); err != nil {
+	// replace, not os.Rename: on Windows a destination somebody is reading cannot be renamed over,
+	// and a reader is the state this package is written for. See rename_windows.go.
+	if err := Replace(name, path); err != nil {
 		os.Remove(name)
 		return err
 	}

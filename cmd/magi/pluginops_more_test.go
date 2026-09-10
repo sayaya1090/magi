@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/atomicfile"
 	"testing/fstest"
 	"time"
 )
@@ -118,7 +120,11 @@ func TestMaterializeEmbeddedIsNeverReadableHalfWritten(t *testing.T) {
 
 	var bad string
 	for i := 0; i < 20000 && bad == ""; i++ {
-		b, err := os.ReadFile(target)
+		// The reader here stands in for magi's own, so it reads through the door magi reads
+		// through. On Windows a read that lands mid-replacement does not see the old file or the
+		// new one — it fails with a sharing violation, and atomicfile.ReadFile is where that is
+		// waited out. Reading with os.ReadFile would measure the platform, not the write.
+		b, err := atomicfile.ReadFile(target)
 		if err != nil {
 			bad = "the file disappeared mid-replace: " + err.Error()
 			break
