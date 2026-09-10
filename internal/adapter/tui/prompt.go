@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/sayaya1090/magi/internal/prompt"
 )
@@ -418,9 +419,24 @@ func RunPrompt(s prompt.Spec) (map[string]any, error) {
 	return fm.answers(), nil
 }
 
+// isInteractive reports whether there is a real terminal on both ends to draw a form on.
+//
+// ⚠ **`os.ModeCharDevice` is not "is a terminal".** It is set for /dev/null and for Windows' NUL —
+// the two canonical spellings of "there is nobody here" — so the check this used to make answered
+// TRUE for exactly the input that means no. RunPrompt then handed the spec to bubbletea, which on
+// Windows does not read the terminal through stdin at all: it opens the console directly, enters
+// the alternate screen, and waits for a keypress that is never coming. Measured 2026-09-11:
+// TestRunPromptRefusesAPipeStdin, whose whole subject is that refusal, held the console for 6m46s
+// and took the package past its timeout with it. In a headless run — a service, a CI step, `magi
+// < /dev/null` — that is a daemon that stops answering and repaints somebody's terminal on its way
+// out. A refusal is the only honest answer, and it was one probe away.
+//
+// The question is asked the way the other four places in this tree ask it: term.IsTerminal, on
+// BOTH ends. Stdout is not incidental — a form drawn into a pipe is escape sequences in somebody's
+// output, which is the same defect pointed the other way. cmd/magi's own drawsTUI has required
+// both since it was written; this was the one copy that had drifted.
 func isInteractive() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(os.Stdin.Fd()) && term.IsTerminal(os.Stdout.Fd())
 }
 
 func wrap(i, n int) int {
