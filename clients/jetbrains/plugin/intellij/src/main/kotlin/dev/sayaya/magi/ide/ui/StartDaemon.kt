@@ -68,6 +68,15 @@ internal object StartDaemon {
     private val RESTART_GRACE = Launches().graceMs
 
     /**
+     * 워크스페이스마다, 준비 확인에서 데몬이 댄 **소유 계보**.
+     *
+     * 「소켓이 유예 안에 돌아왔나」는 교체를 **추론**하는 것이고, 이것은 그것을 **사실**로 만든다 —
+     * 같은 계보를 알리는 후계는 이 창의 데몬이 스스로 갱신한 것이고, 다른 계보는 남의 것이다.
+     * 계보를 안 싣는 코어에서는 비어 있고, 그때는 예전처럼 유예로만 판단한다.
+     */
+    private val lineage = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
      * 데몬 자동 기동 허용 여부를 판정합니다.
      * 단위 테스트 모드(`isUnitTestMode`)에서는 테스트 환경 오염 및 불필요한 프로세스 생성을 방지하기 위해 기동을 차단합니다.
      */
@@ -137,6 +146,13 @@ internal object StartDaemon {
                         LOG.info("magi: 유예 시간 내 데몬 재연결 확인 (업데이트 재시작 감지)")
                         // 사람이 시킨 갱신 교체는 **실패가 아니다** — 프로세스가 바뀐 것은 맞지만
                         // 아무것도 안 깨졌다. 그렇다고 예산을 지우지도 않는다: 아직 붙어 있기만 하다.
+                        // 남의 데몬이 그 자리를 차지한 것이면 교체가 아니다 — 계보가 그것을
+                        // 가른다. 계보를 모르는 코어에서는 판단하지 않고 예전대로 교체로 센다.
+                        if (dev.sayaya.magi.ide.usecase.Generation.foreign(
+                                dev.sayaya.magi.ide.transport.Published.of(sock), lineage[base]) == true) {
+                            LOG.info("magi: 그 자리에 선 것은 다른 계보의 데몬이다 — 교체로 세지 않는다")
+                            return@executeOnPooledThread
+                        }
                         budget.getOrPut(base) { Launches() }.replaced(System.currentTimeMillis())
                         return@executeOnPooledThread
                     }
@@ -272,7 +288,18 @@ internal object StartDaemon {
             val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
             while (!project.isDisposed && child.isAlive && System.nanoTime() < deadline) {
                 val published = dev.sayaya.magi.ide.transport.Published.of(sock)
-                if (published?.pid?.toLong() == child.pid() && DaemonClient.reach(sock) is Reach.Listening) {
+                // ⚠ **「누군가 듣는다」는 「내가 띄운 자식이 답한다」가 아니다.** 기록의 pid 는
+                // **기록이** 우리 자식을 가리킨다는 말이고, 소켓에 답하는 것이 그 기록의
+                // 프로세스라는 말은 아무도 안 했다 — 둘은 갈릴 수 있다(앞 데몬의 기록이 남음 ·
+                // 교체가 도는 중 · 같은 경로를 푼 남의 컴패니언). 답하는 쪽에 직접 묻는다.
+                val hello = runCatching {
+                    DaemonClient.connect(sock).use { it.exchange(
+                        dev.sayaya.magi.ide.model.Request(method = "about")) }
+                }.getOrNull()
+                if (dev.sayaya.magi.ide.usecase.Generation.same(published, hello, child.pid())) {
+                    // 확인한 계보를 붙든다. 계보는 자기 갱신을 건너 물려받으므로, 핸들이 죽은
+                    // 후계도 같은 계보를 알리면 이 창의 데몬이다.
+                    hello?.owner?.takeIf { it.isNotBlank() }?.let { lineage[base] = it }
                     LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
                     // 떴다. **아직 아무것도 용서하지 않는다** — 그 판정은 붙은 채로 안정 구간을
                     // 넘겼을 때 [Launches.connected] 가 한다.

@@ -115,6 +115,38 @@ class SourceTextTest {
      * 2. 띄우기 전에 정책에 묻는다.
      * 3. 유예를 제 상수로 따로 적지 않는다. 두 벌이던 5초가 이 규칙이 생긴 이유다.
      */
+    /**
+     * **준비 판정이 「누군가 듣는다」로 끝나지 않는다.**
+     *
+     * 옛 판정은 `기록의 pid == 내 자식 && reach is Listening` 이었다. 앞의 것은 **기록이** 우리
+     * 자식을 가리킨다는 말이고 뒤의 것은 아무 프로세스나 거기 있다는 말이라, 둘 다 참이면서
+     * 답하는 것이 남의 데몬일 수 있다. 규칙은 `Generation` 이 들고 시험도 거기 있지만, **규칙이
+     * 옳은 것과 창이 그것을 부르는 것은 다른 사실**이라 부르는 자리를 따로 붙든다.
+     *
+     * 낱말이 아니라 **문장**을 못박는다 — 물어보고 답을 버리는 변이는 낱말을 다 남긴다.
+     */
+    @Test
+    fun `준비 판정이 답하는 프로세스에게 직접 묻는다`() {
+        val f = sources.first { it.name == "StartDaemon.kt" }
+        val src = code(f)
+        assertTrue(
+            Regex("""Generation\.same\(published, hello, child\.pid\(\)\)""").containsMatchIn(src),
+            "준비 판정이 세대를 안 본다 — 「누군가 듣는다」로 준비를 선언하면 남의 데몬을 제 것으로 들인다",
+        )
+        assertTrue(
+            Regex("""method = "about"""").containsMatchIn(src),
+            "답하는 쪽에 직접 묻지 않는다 — 기록만 읽으면 파일과 프로세스가 갈렸을 때 못 본다",
+        )
+        assertTrue(
+            Regex("""lineage\[base\] = it""").containsMatchIn(src),
+            "확인한 계보를 안 붙든다 — 핸들이 죽은 후계를 남의 데몬으로 읽게 된다",
+        )
+        assertTrue(
+            Regex("""Generation\.foreign\(""").containsMatchIn(src),
+            "교체 판정이 여전히 「소켓이 돌아왔나」뿐이다 — 그 자리에 선 남의 데몬도 교체로 센다",
+        )
+    }
+
     @Test
     fun `창이 기동을 정책에 묻고, 제 규칙을 따로 쓰지 않는다`() {
         val f = sources.first { it.name == "StartDaemon.kt" }
