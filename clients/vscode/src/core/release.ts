@@ -237,3 +237,34 @@ function archOf(arch: string): string | null {
     default: return null;
   }
 }
+
+/**
+ * What a person is asked before this extension fetches an executable onto their machine.
+ *
+ * ⚠ **It names the host.** Swapping in an internal mirror is a feature of this design, and a feature
+ * nobody can see is not one — the person agreeing has to know where the file is coming from.
+ *
+ * ⚠ **And it says what `core.insecure` costs, when it is on.** Not "certificates are not checked",
+ * which sounds like a detail: the checksums arrive over the same connection, so nothing here can tell
+ * a published build from a substituted one. A consent dialog that hides that is not consent.
+ *
+ * Returns null when there is nothing to ask about — no configuration, or no build for this machine.
+ */
+export function fetchOffer(r: CoreRelease, platform = process.platform, arch = process.arch):
+  { message: string; detail: string } | null {
+  if (!r.configured) return null;
+  const asset = r.asset(platform, arch);
+  if (!asset) return null;
+  const host = r.host(asset);
+  if (!host) return null;
+  const lines = [`magi ${r.version} for ${platform}/${arch} (${asset}), about ${host}.`];
+  lines.push(r.verifies
+    ? 'Its SHA-256 will be checked against the checksums published beside it.'
+    : 'Certificate checking is off for this address (core.insecure), so the checksums would arrive '
+      + 'over the same connection as the file. Nothing here can tell a published build from a '
+      + 'substituted one — the download will NOT be verified.');
+  return {
+    message: `Download magi ${r.version} from ${host}?`,
+    detail: lines.join(' '),
+  };
+}

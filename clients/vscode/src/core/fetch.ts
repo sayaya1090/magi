@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as https from 'https';
 import * as os from 'os';
 import * as path from 'path';
-import { CoreRelease, checksums } from './release';
+import { CoreRelease, checksums, pickLatest } from './release';
 
 /**
  * Everything this file needs from the network, as two methods — so the fetching can be measured
@@ -190,4 +190,37 @@ export function findFile(root: string, name: string): string | null {
     } else if (entry.name === name) return p;
   }
   return null;
+}
+
+/**
+ * Which version to fetch, asked of the network in the order the configuration lays out.
+ *
+ * `core.latest` first — one line of text, no rate limit, no JSON, and above all **no lane to pick**:
+ * this repository publishes three release trains (`v*`, `web-v*`, `jetbrains-v*`) and GitHub's
+ * "latest" points at whichever is newest by date, which was `web-v0.2.0` on 2026-08-31 (with no core
+ * asset, so a 404). The releases listing is the fallback, and the pinned version is the floor.
+ *
+ * Every failure falls through rather than stopping: being offline or rate-limited should cost the
+ * newest build, not the installation. Pinned configurations skip all of it.
+ */
+export async function resolveLatest(r: CoreRelease, net: Wire): Promise<CoreRelease> {
+  if (!r.tracksLatest) return r;
+  const line = r.latestUrl();
+  if (line) {
+    try {
+      const v = r.readLatest(await net.text(line));
+      if (v) return r.at(v);
+    } catch { /* fall through to the listing */ }
+  }
+  const listing = r.releasesUrl();
+  if (!listing) return r;
+  try {
+    const v = pickLatest(await net.text(listing), r.tagPattern());
+    // ⚠ **Whatever the listing says, not `max(listing, pinned)`** — deliberately the same as the
+    // JetBrains side (`CoreBinary.resolve`). The two clients read one configuration file and should
+    // not answer differently from it; a listing older than the floor would be a release having been
+    // withdrawn, which is a situation to notice rather than to paper over on one client only.
+    if (v) return r.at(v);
+  } catch { /* the floor below */ }
+  return r;
 }

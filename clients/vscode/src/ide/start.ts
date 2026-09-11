@@ -35,6 +35,10 @@ export const UNHELD_PIPE = (why: string): string =>
 
 export async function offerToStart(owner: OwnedCompanion): Promise<void> {
   if (!vscode.workspace.getConfiguration('magi').get<boolean>('startCompanion', true)) return;
+  // ⚠ **Silent when there is no core, and that is on purpose here.** A window opening is not a
+  // moment a person asked for anything, and a modal download dialog on every fresh install would be
+  // one. `magi.start` — a command somebody ran — is where the offer belongs, and `magi.getCore` is
+  // there for a person who wants it without starting anything.
   const bin = found();
   if (!bin) return;
   await owner.start(bin);

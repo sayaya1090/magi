@@ -4,8 +4,8 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { CoreRelease } from '../core/release';
-import { cachedAt, fetchCore, findFile, sha256, unpack, Wire } from '../core/fetch';
+import { CoreRelease, fetchOffer } from '../core/release';
+import { cachedAt, fetchCore, findFile, resolveLatest, sha256, unpack, Wire } from '../core/fetch';
 
 /**
  * Fetching the core, measured **without a network and with real archives**.
@@ -148,4 +148,85 @@ test('a corrupt archive fails at unpacking rather than landing', { skip: !hasTar
   const bad = path.join(dir, 'magi_linux_amd64.tar.gz');
   fs.writeFileSync(bad, 'not a gzip stream at all');
   await assert.rejects(unpack(bad, dir), /could not unpack/);
+});
+
+/** Answers a scripted body per URL, and counts what was asked. */
+function answering(bodies: Record<string, string | Error>): Wire & { asked: string[] } {
+  const w = {
+    asked: [] as string[],
+    async text(url: string) {
+      w.asked.push(url);
+      const b = bodies[url];
+      if (b === undefined) throw new Error(`nothing scripted for ${url}`);
+      if (b instanceof Error) throw b;
+      return b;
+    },
+    async file() { throw new Error('not used'); },
+  };
+  return w;
+}
+
+const tracking = conf({
+  'core.track': 'latest',
+  'core.latest': 'https://example.invalid/core-latest.txt',
+  'core.releases': 'https://example.invalid/releases',
+  'core.tag': '^v(\\d+(?:\\.\\d+)*)$',
+});
+
+test("the core's own version line is asked first", async () => {
+  const net = answering({ 'https://example.invalid/core-latest.txt': 'v9.10.0\n' });
+  const got = await resolveLatest(new CoreRelease(tracking), net);
+  assert.equal(got.version, '9.10.0');
+  assert.deepEqual(net.asked, ['https://example.invalid/core-latest.txt'],
+    'the releases listing was asked as well — that is a rate limit spent for nothing');
+});
+
+test('a missing version line falls through to the listing, not to a failure', async () => {
+  const net = answering({
+    'https://example.invalid/core-latest.txt': new Error('404'),
+    'https://example.invalid/releases': JSON.stringify([
+      { tag_name: 'web-v9.9.9' }, { tag_name: 'v9.10.0' }, { tag_name: 'v9.2.0' },
+    ]),
+  });
+  const got = await resolveLatest(new CoreRelease(tracking), net);
+  assert.equal(got.version, '9.10.0', 'either it gave up, or another release train won');
+});
+
+test('offline leaves the pinned floor rather than stopping the installation', async () => {
+  const net = answering({
+    'https://example.invalid/core-latest.txt': new Error('offline'),
+    'https://example.invalid/releases': new Error('offline'),
+  });
+  const got = await resolveLatest(new CoreRelease(tracking), net);
+  assert.equal(got.version, '9.9.9', 'a network outage took the whole installation with it');
+});
+
+test('a pinned configuration asks nothing at all', async () => {
+  // ⚠ The addresses are present and only `core.track` says pinned. Asserting this against a
+  // configuration with no addresses would pass for the wrong reason — there would be nothing to ask
+  // either way, and removing the check entirely still looked right (measured).
+  const net = answering({ 'https://example.invalid/core-latest.txt': 'v9.99.0\n' });
+  const pinned = { ...tracking, 'core.track': 'pinned' };
+  const got = await resolveLatest(new CoreRelease(pinned), net);
+  assert.equal(got.version, '9.9.9', 'a pinned install moved itself onto the latest release');
+  assert.deepEqual(net.asked, [], 'a pinned install went to the network anyway');
+});
+
+test('what a person is asked names the host and how it will be checked', () => {
+  const offer = fetchOffer(new CoreRelease(conf()), 'linux', 'x64')!;
+  assert.ok(offer.message.includes('example.invalid'), `the host is not in the question: ${offer.message}`);
+  assert.ok(offer.message.includes('9.9.9'), offer.message);
+  assert.ok(/SHA-256/.test(offer.detail), offer.detail);
+});
+
+test('with verification off, the question says what that costs', () => {
+  const offer = fetchOffer(new CoreRelease(conf({ 'core.insecure': 'true' })), 'linux', 'x64')!;
+  assert.ok(/NOT be verified/.test(offer.detail), `the dialog hid what insecure costs: ${offer.detail}`);
+  assert.ok(/same connection/.test(offer.detail), offer.detail);
+  assert.ok(!/SHA-256 will be checked/.test(offer.detail), 'it claims a check it is not doing');
+});
+
+test('there is nothing to ask when there is nothing to fetch', () => {
+  assert.equal(fetchOffer(new CoreRelease({}), 'linux', 'x64'), null);
+  assert.equal(fetchOffer(new CoreRelease(conf()), 'sunos', 'x64'), null);
 });

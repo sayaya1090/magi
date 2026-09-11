@@ -11,7 +11,8 @@ import { chooseCommands } from './choose';
 import { doorCommands } from './doors';
 import { EditorHand } from './hand';
 import { HandOff } from './handoff';
-import { found, NO_BINARY, offerToStart } from './start';
+import { NO_BINARY, offerToStart } from './start';
+import { getCore } from './getcore';
 import { OwnedCompanion } from '../core/lifecycle';
 
 let owned: OwnedCompanion | undefined;
@@ -67,9 +68,16 @@ export function activate(ctx: vscode.ExtensionContext): void {
 
     vscode.commands.registerCommand('magi.focusChat', () => chat.reveal()),
     vscode.commands.registerCommand('magi.start', async () => {
-      const bin = found();
+      // Somebody ran this, so this is the moment to offer to fetch a core if there is none — and the
+      // only moment: a window opening is not a request (see offerToStart). A refusal leaves the
+      // sentence that was here before, which says how to install one by hand.
+      const bin = await getCore();
       if (!bin) { void vscode.window.showWarningMessage(NO_BINARY); return; }
       try { await owner.start(bin, true); } catch (e) { report(e); }
+    }),
+    vscode.commands.registerCommand('magi.getCore', async () => {
+      const bin = await getCore();
+      if (bin) void vscode.window.showInformationMessage(`magi is at ${bin}.`);
     }),
     // Stop. The answer is not thrown away — and it is not read as "stopped" either: the core's
     // `Interrupt` returns nil when no turn is running, so `ok` means the request arrived, not that

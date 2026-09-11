@@ -65,6 +65,11 @@
         "category": "magi"
       },
       {
+        "command": "magi.getCore",
+        "title": "magi: Download the magi core",
+        "category": "magi"
+      },
+      {
         "command": "magi.interrupt",
         "title": "Stop what the companion is doing",
         "category": "magi",
