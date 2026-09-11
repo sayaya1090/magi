@@ -5,6 +5,7 @@ import { Daemon } from './daemon';
 import { features } from './binary';
 import { socketPath, tooLong } from './workspace';
 import { Launches } from './launches';
+import { OwnerChannel, ownerChannel } from './owner';
 
 /**
  * How long after asking for a replacement an ending still counts as that replacement.
@@ -71,6 +72,14 @@ export class OwnedCompanion {
    * extension host holds. `theirs` is where that distinction is made.
    */
   private ownsSuccessor = false;
+  /**
+   * The write end of the owner pipe, when this window made it itself.
+   *
+   * Held here rather than left to `child.stdin`, which belongs to `child_process` and is destroyed
+   * the moment the child exits — see `ownerChannel`. Closed by `close()`, so letting go of the
+   * window reaches even a successor this window holds no handle for.
+   */
+  private channel?: OwnerChannel;
   readonly socket: string;
 
   /**
@@ -177,15 +186,24 @@ export class OwnedCompanion {
     // existing — and that one cannot be prevented, only cleaned up.
     const owned = (await this.ask(binary)).has('owned-daemon-v1');
     if (this.closed) return;
+    // The owner's pipe, and the only thing that carries lifetime authority: this window holds the
+    // write end and hands it to nobody, so the daemon goes when this window does — even if the
+    // extension host is killed and no `deactivate` ever runs. Without the mode, stdin stays ignored
+    // and the lifetime is exactly what it was.
+    //
+    // ⚠ **`'pipe'` does not keep that promise, and on Windows it turned an update into a kill** —
+    // `child_process` owns what it makes and destroys `child.stdin` when the child exits, so the
+    // successor of a restart read EOF and stopped itself (R2; see `ownerChannel`). The same closed
+    // check as above: this await is a second chance for `close()` to finish first.
+    const channel = owned ? await ownerChannel(path.basename(this.socket)) : undefined;
+    if (this.closed) { channel?.close(); return; }
+    this.channel?.close();
+    this.channel = channel;
     let child: ChildProcess;
     try {
       child = spawn(binary, owned ? ['--daemon', '--client-owned'] : ['--daemon'], {
         cwd: this.workdir, env: process.env, windowsHide: true,
-        // The owner's pipe, and the only thing that carries lifetime authority: this window holds
-        // the write end and hands it to nobody, so the daemon goes when this window does — even if
-        // the extension host is killed and no `deactivate` ever runs. Without the mode, stdin stays
-        // ignored and the lifetime is exactly what it was.
-        stdio: [owned ? 'pipe' : 'ignore', fd, fd],
+        stdio: [channel ? channel.stdin : 'ignore', fd, fd],
       });
     } finally { fs.closeSync(fd); }
     this.child = child;
@@ -266,7 +284,13 @@ export class OwnedCompanion {
   close(): Promise<void> {
     if (this.closing) return this.closing;
     this.closed = true;
-    this.closing = this.child ? this.stop(this.child) : Promise.resolve();
+    // ⚠ **Let go of the pipe AFTER the handle, and unconditionally.** `stop` talks to the daemon on
+    // the socket and then kills the process this window spawned; after a replacement that process is
+    // already gone and the daemon answering is a successor with no handle here. Dropping the owner
+    // pipe is what reaches that one — it is the whole point of the mode — and it must happen whether
+    // or not there was still a child to stop.
+    this.closing = (this.child ? this.stop(this.child) : Promise.resolve())
+      .finally(() => { this.channel?.close(); this.channel = undefined; });
     return this.closing;
   }
   dispose(): void { void this.close(); }

@@ -136,28 +136,39 @@ Both clients now call `Launches`, and JetBrains reports readiness and launch fai
 | R1 | **landed** | `179169f8` | The feature probe is an `await`, and `close()` could FINISH inside it — with no child yet to stop, close returned having stopped nothing, and the spawn after the probe left a daemon nobody owns. Re-checked after the probe, and again right after the handle is stored (clearing it there too). The probe is **injectable**, so the test reproduces the order without sleeping. The second check cannot be reached today (nothing awaits in between) and the code says so, and says it is therefore not covered by a test. |
 | R3 | **landed** | `07c0f509` | JetBrains still launched plain `--daemon` and closed the child's stdin **immediately**. In the owned mode that close means "the owner has gone". It now asks for the feature, launches owned when it is there, and holds the pipe for the life of the window; `dispose` releases the pipe **first**. |
 | R4 | **landed** | `07c0f509` | **Nobody ever added one** to the consecutive-failure count. A daemon that misses the ready deadline, or dies on the way up, was never connected — so `lost` does not count it either, the window empties after a minute, and it retries forever without reaching `Blocked`. |
-| R2 | open — **taken by the Windows session** (2026-09-11) | | See the section below |
+| R2 | **landed** | `PLACEHOLDER` | The write end the window held had the CHILD's lifetime — `stdio: 'pipe'` is made and owned by `child_process`, which destroys it the moment the child exits. Windows has no execve, so an update's successor inherits the same read end and read EOF while its window was open and had closed nothing. A pipe the window makes ITSELF leaves `child.stdin` null, so that destroy path never runs — and the daemon is still handed an inherited handle, never an address. Measurements in the section below. |
 | R5 | **landed** | `61ded932` | With a core that lacks the owned mode, VS Code started a plain `--daemon` **silently**. §4's "block" applies to a launch that REQUIRES the mode, and the sentence right after it forbids falling back silently — the case that truly requires it, the Windows relay, is already blocked by `whyNoRelay` (`73a1a313`). A plain start is the lifetime that existed before the mode and which §4 preserves, so instead of blocking it **says so once**: the window still stops its child on close, but an extension host that is KILLED runs no `deactivate` and the companion survives — and here is what to do about it. Once per start, because a window polls every fifteen seconds and a warning on every poll is noise, which is how a real warning stops being read. |
 
-### R2 — the owner channel breaks on a single update (handed to the Windows session)
+### R2 — the owner channel broke on a single update (landed)
 
-**Symptom.** On Windows an owned daemon sees its owner's EOF, and ends, **from its own update alone**. Confirmed on real Windows (Windows 11, 2026-09-11): the owned child exits **27ms** after the `restart` door answers, and the daemon log ends with "the owner closed its pipe" right as the successor comes up — **the owner was alive and closed nothing.**
+**Symptom.** On Windows an owned daemon read owner EOF and ended **from its own update alone**. Confirmed on real Windows (Windows 11, 2026-09-11): the owned child exited **27ms** after the `restart` door answered, and the line straight after the successor came up was this — **while the owner was running and had closed nothing.**
 
-**Mechanism, in three pieces.**
+    magi: daemon on ...sock (session s_ddbd...) — attach with `magi --attach` in this directory
+    magi: daemon on ...sock stopped — the owner closed its pipe
 
-1. `reexec` in `internal/graceful/graceful_windows.go` passes `cmd.Stdin = os.Stdin`, so the successor **inherits the same read end**. Windows has no `execve`, so the successor is a new process.
-2. Node destroys a child's stdin — the **write end the owner holds** — the moment that child exits. Not Windows-specific: measured here on macOS, Node v24.4.1, owner alive with `stdin.destroyed = true` and the heir seeing EOF.
-3. It cannot happen on unix: `syscall.Exec` replaces the image, so the child never "exits".
+**The mechanism, in three pieces.**
 
-**The fix belongs to the client.** What gets torn down is the write end held by the extension host; the core only ever has the read end, so nothing the core does can prevent it.
+1. `reexec` in `internal/graceful/graceful_windows.go` passes `cmd.Stdin = os.Stdin`, **handing the successor the same read end**, because Windows has no `execve` and the successor is a new process.
+2. Node destroys a child's stdin — the **write end the owner holds** — the moment that child exits. This is platform-independent.
+3. It does not happen on Unix: `syscall.Exec` replaces the image, so the child never "exits".
 
-**Three options, with what each costs.**
+**The fix is in the client, and the core did not change by a line.** What breaks is the write end held by the extension host; the core only ever has the read end, so nothing the core does can prevent it.
 
-1. **Drop stdin for a channel the owner listens on.** The extension host opens a local socket (a named pipe on Windows) and the core connects with `--owner-channel <addr>`. The successor reconnects on its own because the address is in argv/env, so there is no fd to inherit. ⚠ **Cost**: the pipe's authority is that it cannot be guessed or copied; an address can be. Covering that with a token in the environment puts authority into the environment — the opposite of what §4 says about the ids (tracking, never authority).
-2. **Use an OS mechanism on Windows only** — a job object with kill-on-close. The most native answer, and it needs a native module in VS Code.
-3. **Accept one death per update.** The window restarts it under the policy — the smallest change, and `c5373a08` already wired "a restart the person asked for is not a failure" so that death is not counted against the budget. What is lost is continuity for those few seconds.
+**The option taken — a fourth one.** Instead of the three in the handover (① a socket plus a token, ② a job object, ③ accept one death per update), **stdin stays and only the pipe changes hands**: the window opens a named pipe, connects to it itself, and gives the child that **connected socket** as stdin (`clients/vscode/src/core/owner.ts`). Node did not make it, so `child.stdin` is null and there is nothing for the exit path to destroy. Option ①'s cost does not follow: the daemon receives an **inherited handle, never an address**, and the successor inherits that handle exactly as it does today, so nothing has to travel in argv or the environment. The window **stops listening the instant it has its one connection**, so no free instance is left waiting — the name stays visible while the connection lives, but that is merely how Windows lists pipes, and `owner.test.ts` asks whether it can be *dialled*, not whether it can be seen.
 
-**Acceptance.** Whichever is chosen has to be checked on a real Windows install: does the owned daemon survive one update, does it still go when the IDE is force-killed, and are those two told apart by **the same signal**.
+⚠ **Unix deliberately keeps `'pipe'`.** The handover is what breaks and Unix has none, so changing it there would mean altering the one thing that stops daemons leaking, on a platform with nothing to fix.
+
+**Acceptance — all three measured on real Windows, through the product class (`OwnedCompanion`).**
+
+| Question | Answer |
+|---|---|
+| Is the owned daemon still alive after one update? | **Yes.** The successor appears in the published record and is still alive three seconds later — before, it ended the instant it came up. |
+| Does it go when the window lets go? | **Yes.** The successor ends after `close()`. This pipe is the only thing that reaches a successor the window holds **no handle** for. |
+| And if the extension host is **killed**? | **Yes, in 100ms.** Neither `deactivate` nor `close()` ran; the kernel closes the write end. |
+
+All three turn on the **same signal**: the write end closing, and the only thing that closes it is the owner going away.
+
+⚠ **A pipe that cannot be made falls back to today's `'pipe'`.** The name carries the window's pid and eight random hex digits, so the realistic failure is somebody taking that name first — and refusing to start the companion over that would simply hand them the outage. The fallback's lifetime is exactly what it was before this change.
 
 ⚠ R1 was fixed by **another session first**. Two sessions took the same finding, and the rebase collided; theirs was kept — an injectable probe does not depend on timing, and only theirs cleared the handle. Recorded because it is what happens when one review's findings are split across a shared checkout.
 
