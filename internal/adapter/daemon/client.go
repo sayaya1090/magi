@@ -771,8 +771,15 @@ func (c *Client) Restart() error { return c.call(Request{Method: "restart"}) }
 // returns the daemon's one-line account (what it did, or "already up to date"), or an error when the
 // update failed and rolled back. It blocks for the download; on a successful update the connection
 // then drops as the daemon drains to restart, which is not an error.
-func (c *Client) Update() (string, error) {
-	resp, err := c.exchange(Request{Method: "update"})
+func (c *Client) Update() (string, error) { return c.UpdateWhen("") }
+
+// UpdateWhen is Update with a say in WHEN the daemon restarts onto the new build: "idle" waits for
+// nothing to be in flight, anything else (including "") restarts at once.
+//
+// Two spellings of one door rather than a second door: a client that does not know about waiting
+// sends no `when` and gets exactly the behaviour it always had.
+func (c *Client) UpdateWhen(when string) (string, error) {
+	resp, err := c.exchange(Request{Method: "update", Name: when})
 	if err != nil {
 		return "", err
 	}

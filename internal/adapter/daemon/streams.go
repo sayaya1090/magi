@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/session"
 )
@@ -133,10 +134,20 @@ func streamRestart(ctx context.Context, eng Engine, req Request, w wire) after {
 // socket and anything the operator has deliberately piped to it (--relay over their own ssh) — the
 // same boundary shutdown has.
 //
-// The restart here is IMMEDIATE, unlike the auto loop's idle-gated one, and that asymmetry is
-// chosen: this is an operator pressing a button and watching, and holding their reply hostage to an
-// idle moment that may be minutes away would read as a hang. A restart mid-turn costs the in-flight
-// step; the log keeps the rest and the session resumes.
+// **When** it restarts is the caller's to choose, in `Name`:
+//
+//   - "idle" — commit now, restart when nothing is in flight. What a client offers by default: a
+//     person updating a companion is not asking to throw away the turn it is running.
+//   - anything else (including omitted) — restart at once. The old behaviour, kept as the default on
+//     the wire so every existing caller and older client is unchanged, and offered by a client as
+//     the deliberate "end what is running".
+//
+// Either way the reply goes out immediately and says which was done: holding an operator's reply
+// hostage to an idle moment that may be minutes away would read as a hang.
+//
+// ⚠ **"idle" is a poll, not a reservation.** The daemon can accept a turn between the check and the
+// restart (see Busy), so this narrows the window rather than closing it — CLIENT_LIFECYCLE §9.3
+// wants the safe-point decision and the closing of the door to be atomic, and that is still owed.
 func streamUpdate(ctx context.Context, eng Engine, req Request, w wire) after {
 	u, ok := eng.(Updater)
 	if !ok {
@@ -153,12 +164,27 @@ func streamUpdate(ctx context.Context, eng Engine, req Request, w wire) after {
 		return next
 	}
 	if res.Updated && w.restart != nil {
+		later := req.Name == "idle" && busyNow(eng)
+		how := " — restarting (or on the next start, if this daemon is already stopping)"
+		if later {
+			how = " — it will restart when nothing is running (something is in flight now)"
+		}
 		// "or on the next start": Restart refuses when a w.stop is already draining (w.stop wins),
 		// and this reply has already gone out by then — so it must not promise more than the
 		// binary being on disk guarantees.
-		wrote := w.enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To +
-			" — restarting (or on the next start, if this daemon is already stopping)"}) == nil
-		w.restart()
+		wrote := w.enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To + how}) == nil
+		if later {
+			// Outlives this connection on purpose: the person who asked has their answer, and the
+			// thing they asked for happens when it can. The same shape the auto-update loop uses.
+			go func() {
+				for busyNow(eng) {
+					time.Sleep(idlePoll)
+				}
+				w.restart()
+			}()
+		} else {
+			w.restart()
+		}
 		if !wrote {
 			return done
 		}
@@ -178,6 +204,17 @@ func streamUpdate(ctx context.Context, eng Engine, req Request, w wire) after {
 		return done
 	}
 	return next
+}
+
+// idlePoll is how often a deferred update looks again for a quiet moment. A var so a test does not
+// wait on a real clock.
+var idlePoll = 10 * time.Second
+
+// busyNow asks an engine whether work is in flight, treating one that cannot say as not busy — which
+// is what every caller assumed before Busy existed.
+func busyNow(eng Engine) bool {
+	b, ok := eng.(Busy)
+	return ok && b.Busy()
 }
 
 // streamWatch turns this connection into a stream.

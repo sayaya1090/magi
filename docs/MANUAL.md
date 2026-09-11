@@ -509,6 +509,13 @@ A refused build is still tried again when **a person asks**: `magi -update`, or 
 button, clears the mark. Stopping a daemon **on purpose** inside that window is not a build falling
 over — it is an ordinary thing to do, and reading it as a crash would undo good updates.
 
+**The update button need not throw away what is running.** The `update` door takes a **when**: with
+`idle`, the download and the replacement happen now and the restart waits for nothing to be in
+flight (the reply still comes back at once, saying which it did). Sent without one it restarts
+immediately, exactly as before — so every older client is unchanged, and a newer one offers that as
+the deliberate "end what is running". ⚠ `idle` **asks once; it does not reserve** — a turn can arrive
+between the check and the restart. It narrows the window rather than closing it.
+
 **One binary is replaced once.** When several daemons share one executable — the usual shape on a
 machine with several companions — only the one holding the OS lock on `<binary>.update.lock` does the
 replacing. The others neither queue nor steal: they **carry on with their own work**, and the next

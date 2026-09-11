@@ -964,6 +964,19 @@ type Updater interface {
 	Update(ctx context.Context) (UpdateResult, error)
 }
 
+// Busy is an optional Engine capability: whether work is in flight right now.
+//
+// It exists for one caller — the `update` door, deciding whether to restart onto a new build at once
+// or to wait. Optional like the others: a test double has no turns, and an engine without this is
+// treated as never busy, which is the behaviour every caller had before this existed.
+//
+// ⚠ **It reports, it does not reserve.** A daemon that answers false can accept a turn the next
+// instant; CLIENT_LIFECYCLE §9.3 asks for the safe-point decision and the closing of the door to new
+// work to be one atomic step, and this is not that. What it buys is the ordinary case — a person
+// pressing "update" while a turn runs no longer throws that turn away — and the auto-update loop has
+// polled the same way since it existed. The atomic version is still owed.
+type Busy interface{ Busy() bool }
+
 // UpdateResult is what a self-update did: Updated with From→To when a new build was committed, or a
 // Message ("already up to date") when nothing changed. On a failed pre-flight the update rolled back
 // and Update returns an error instead.

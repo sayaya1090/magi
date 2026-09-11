@@ -1329,12 +1329,7 @@ func run() int {
 			// running() is true while any session has a turn in flight — App.Running returns the
 			// running session and a bool; only the bool matters here — OR a meeting round is being
 			// composed, which the run states deliberately do not cover (MeetingActive).
-			busy := func() bool {
-				if _, ok := a.Running(); ok {
-					return true
-				}
-				return a.MeetingActive()
-			}
+			busy := func() bool { return busyNow(a) }
 			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, serving.Restart)
 		}
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
@@ -2796,6 +2791,16 @@ func sanitizeTeam(name string) string {
 // terminal running beside its own files and wrong over a socket — the caller is somewhere else, and
 // the answer it wants is what the command does in this workspace, as this user, beside the files
 // the agent is editing.
+// busyNow is the one answer to "is this companion in the middle of something" — asked by the
+// auto-update loop before it restarts, and by the `update` door before it does. Two spellings would
+// let the scheduled update and the pressed button disagree about what is worth waiting for.
+func busyNow(a *app.App) bool {
+	if _, ok := a.Running(); ok {
+		return true
+	}
+	return a.MeetingActive()
+}
+
 type daemonEngine struct {
 	*app.App
 	workdir string
@@ -3008,6 +3013,15 @@ func (d daemonEngine) About() string {
 // process that IS this version reports it, rather than a caller inferring it — the point of the
 // handshake is that a peer can then negotiate against what this daemon actually speaks.
 func (d daemonEngine) Version() string { return version.Version }
+
+// Busy satisfies daemon.Busy: is this companion in the middle of something.
+//
+// The `update` door asks before restarting onto a new build, so a person updating does not lose the
+// turn that was running. The same two facts the auto-update loop waits on, and deliberately the same
+// function — a second spelling of "busy" would let the button and the loop disagree about what is
+// worth waiting for. MeetingActive is separate because the run states do not cover a meeting round
+// being composed.
+func (d daemonEngine) Busy() bool { return busyNow(d.App) }
 
 // Update satisfies daemon.Updater: download the latest release and put it on disk with rollback
 // (update.RunCommit — pre-flight + restore-on-failure), from the same source every self-update path
