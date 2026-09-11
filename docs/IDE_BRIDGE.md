@@ -1,6 +1,6 @@
 # `magi ide-bridge` — one copy of what every editor client needs
 
-[한국어](IDE_BRIDGE.ko.md) · [client contract](CLIENTS.md) · [VS Code](../clients/vscode/README.md) · [JetBrains](../clients/jetbrains/README.md) · [Visual Studio design](../clients/visualstudio/docs/DESIGN.ko.md)
+[English](IDE_BRIDGE.md) · [한국어](IDE_BRIDGE.ko.md) · [↑ Docs](README.md) · [client contract](CLIENTS.md) · [VS Code](../clients/vscode/README.md) · [JetBrains](../clients/jetbrains/README.md) · [Visual Studio design](../clients/visualstudio/docs/DESIGN.ko.md)
 
 ## 1. Why this exists — measured, not argued
 
@@ -100,7 +100,7 @@ an array — `null` could not be told apart from "this field is not implemented 
 because this line is answered without a daemon at all. Feature names carry their own version suffix
 because features arrive and are replaced one at a time.
 
-Named in docs/CLIENT_LIFECYCLE §4. `owned-daemon-v1` is there too and is now built, so it is
+Named in [CLIENT_LIFECYCLE.md](CLIENT_LIFECYCLE.md) §4. `owned-daemon-v1` is there too and is now built, so it is
 advertised — but by `cmd/magi` rather than by this package, because the thing behind it (the
 `--client-owned` flag on `--daemon`) lives there and there is no predicate here that could ask about
 it. The name is tied to the behaviour by a live test that starts the binary and checks the mode is
@@ -181,7 +181,7 @@ translated pass-through would be a new contract to keep in step with the old one
 
 - **The daemon protocol.** No new door. The bridge is a client of the same socket the editors dial
   today, so a client that would rather dial it directly still can.
-- **`docs/CLIENTS`** stays the canon for what the doors are. This file is about who derives what
+- **[`CLIENTS.md`](CLIENTS.md)** stays the canon for what the doors are. This file is about who derives what
   from them.
 
 ## 7. What is left, and where it has to happen
