@@ -1,6 +1,6 @@
 # JetBrains 플러그인 — 화면 설계
 
-[↑ clients/jetbrains](../README.md)
+[↑ clients/jetbrains](../README.md) · [사용자 매뉴얼](./MANUAL.ko.md) · [테스트 안내](./TESTING.ko.md) · [플랫폼 규약](./PLATFORM.ko.md)
 
 > **문서 목적.** magi의 사용자 인터페이스는 웹 콘솔, 터미널 TUI, 그리고 본 IDE 플러그인 3종으로 구성됩니다.
 > 본 문서는 JetBrains 플러그인이 대화 세션을 IDE 플랫폼 상의 어떤 위치에 어떻게 렌더링할지 정의합니다.
