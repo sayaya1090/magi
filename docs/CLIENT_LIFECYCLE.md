@@ -35,13 +35,20 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 |---|---|---|
 | `magi ide-bridge --features` | **landed** | `da67e068` |
 | `instance` in the published record and `about` | **landed** | `4485de3c` |
-| `ownerId` | held — reason ① | |
-| `magi --daemon --client-owned` (owner pipe, EOF) | not started | |
-| Handing the pipe and ownerId to a Windows successor | not started (depends on the above) | |
+| `ownerId` | **landed** | `3b29a98e` |
+| `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `3b29a98e` |
+| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `3b29a98e` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
 | §5's policy values (budgets, grace, jitter) | not started | |
 
-### ① `ownerId` — not a name to ship ahead of the owned mode
+### ① `ownerId` — settled (it went in with the owned mode)
+
+Exactly as recorded: **in the same commit as the owned mode.** The reasoning is kept below because
+the next name in the same position gets the same treatment.
+
+<details><summary>the reasoning at the time</summary>
+
+
 
 The design generates `ownerId` and `instanceId` together, but right now they mean different things.
 `instanceId` says "this process" regardless of ownership, so it is true with no owned mode at all —
@@ -52,6 +59,23 @@ The cost of shipping a name ahead of its thing was measured once already: if `--
 advertised `owned-daemon-v1`, a client would start a mode this binary does not understand and read
 the failure as a broken install. For the same reason `ownerId` lands **in the same commit as the
 owned mode**.
+
+</details>
+
+### ③ The Windows successor — the lineage crosses, the pipe does not yet
+
+`ownerId` crosses. `graceful.Reexec` hands the successor `os.Environ()` and `AdoptOwner`
+**re-exports** what it inherited, so a chain of updates stays one lineage (measured in a child
+process).
+
+What is left is handing over the **pipe itself**. §4 asks that the successor get the same read end,
+that two generations never serve requests at once, and that a predecessor closing the pipe is not
+mistaken for the owner's EOF — and that has a different shape on unix (`exec`, same process, fds
+kept) than on Windows (a new process). It cannot be made honest without a Windows machine to measure
+on, so it is **left to the Windows session**.
+
+As it stands, a unix successor inherits stdin and keeps the lineage; on Windows that guarantee is
+not yet there.
 
 ### ② `<socket>.lifecycle` — it runs straight into this tree's own invariant
 

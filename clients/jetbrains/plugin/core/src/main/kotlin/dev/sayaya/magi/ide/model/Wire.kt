@@ -151,6 +151,18 @@ data class Response(
      * 추적용이고 권한이 아니다 — 이 값을 안다고 무엇이 허락되지 않는다.
      */
     val instance: String? = null,
+    /**
+     * `about`: **소유 계보** — 이 창이 띄운 데몬과, 그것을 교체한 모든 후계.
+     *
+     * [instance] 와 달리 자기 갱신을 건너 물려받는다. 그 차이가 요점이다 — 계보는 같고 프로세스만
+     * 다르면 **제 데몬이 스스로 갱신한 것**이고, 계보가 다르면 남의 것이다.
+     *
+     * ⚠ **없음은 「아무도 소유하지 않는다」**(터미널에서 띄운 데몬)이지 「내가 못 보는 누가
+     * 소유한다」가 아니다. 창은 제가 안 띄운 데몬을 제 것으로 들이지도, 끝내지도 않는다.
+     *
+     * 추적용이고 권한이 아니다 — 수명 제어는 소유자가 쥔 파이프로만 간다.
+     */
+    val owner: String? = null,
     /** 전사 프레임 하나. `transcript` 스트림에서만 실린다. */
     val event: LogEvent? = null,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
@@ -540,6 +552,8 @@ data class Published(
      * ⚠ 없음은 「모른다」이고, 그것을 불일치로 읽으면 안 된다.
      */
     val instance: String? = null,
+    /** 이 데몬을 소유한 계보. 없으면 아무도 소유하지 않는다 — `about` 의 같은 칸과 짝이다. */
+    val owner: String? = null,
 )
 
 /**

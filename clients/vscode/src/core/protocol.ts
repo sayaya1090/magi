@@ -135,6 +135,20 @@ export interface Response {
    * Tracking, not authority: knowing it permits nothing.
    */
   instance?: string;
+  /**
+   * `about`: the owning LINEAGE — this window's daemon and every successor that replaced it.
+   *
+   * Inherited across a self-update, unlike `instance`, and that difference is the point: a
+   * daemon answering with the same owner and a new instance updated itself; one answering with a
+   * different owner is somebody else's.
+   *
+   * ⚠ **Absent means nobody owns it** — a daemon started from a terminal — which is a different
+   * fact from "owned by someone I cannot see". A window must not adopt a daemon it did not start,
+   * and must not kill one either.
+   *
+   * Tracking, not authority: lifetime control travels only along the pipe the owner holds.
+   */
+  owner?: string;
   /** `status`: absent when the engine is not blocked on anybody. */
   waiting?: Waiting;
   /** `status`: the latest progress note from a tool still running. Empty most of the time. */
