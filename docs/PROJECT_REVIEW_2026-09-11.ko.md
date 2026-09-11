@@ -1,6 +1,6 @@
 # magi 프로젝트 평가 — 2026-09-11
 
-[English](PROJECT_REVIEW_2026-09-11.md)
+[English](PROJECT_REVIEW_2026-09-11.md) · [↑ Docs](README.ko.md)
 
 이 문서는 JetBrains·VS Code 수정과 카운슬 Think 전달 경로를 검토한 뒤, 사용자의 요청으로 남긴 Codex의 의견입니다. 평가 근거는 당시 읽은 코드와 실제 수정·검증 범위입니다. 전체 저장소 감사나 Windows IDE 실기 검증을 완료했다는 뜻은 아닙니다. 아래 우선순위는 제안이며 확정된 개발 계획은 아닙니다.
 
