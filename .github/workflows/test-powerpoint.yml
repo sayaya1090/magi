@@ -1,0 +1,59 @@
+# The PowerPoint hand's own test lane.
+#
+# It had none. `clients/powerpoint/**` is in ci.yml's paths-ignore — correctly, since nothing here
+# is Go — and no other workflow named it, so a change to this client triggered NOTHING: not a
+# build, not the 24 xunit tests that were already sitting in hand-com/tests. Measured 2026-09-11:
+# `dotnet test clients/powerpoint/hand-com/tests` is 24 passed in 2s, and had never run in CI.
+#
+# windows-latest, and not ubuntu, even though the projects target plain net9.0 and a linux-x64
+# build succeeds with zero errors. What the hand does is drive PowerPoint through COM; the interop
+# members are `[SupportedOSPlatform("windows")]` and the analyzer says so on four lines of the test
+# file. A lane on a platform where those paths throw at run time would be measuring the runner.
+name: test-powerpoint
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients/powerpoint/**"
+      - ".github/workflows/test-powerpoint.yml"
+  pull_request:
+    paths:
+      - "clients/powerpoint/**"
+      - ".github/workflows/test-powerpoint.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: test
+        run: >
+          dotnet test clients/powerpoint/hand-com/tests
+          --nologo
+          --logger "trx;LogFileName=results.trx"
+          --results-directory ${{ runner.temp }}/trx
+
+      - name: the run actually ran something
+        shell: pwsh
+        # `dotnet test` exits 0 when its filter matches no test, and "passed with nothing to do" is
+        # how a suite goes unread — clients/vscode's npm script spent its life reporting `tests 0`
+        # with exit code 0 for exactly that reason. So the count is read back from the trx rather
+        # than trusted from the exit code.
+        run: |
+          $trx = Get-ChildItem "${{ runner.temp }}/trx" -Filter *.trx | Select-Object -First 1
+          if (-not $trx) { Write-Error "no trx was written — the run produced no record"; exit 1 }
+          [xml]$x = Get-Content $trx.FullName
+          $total = [int]$x.TestRun.ResultSummary.Counters.total
+          Write-Host "ran $total tests"
+          if ($total -lt 20) {
+            Write-Error "only $total tests ran; this project has 24 — the filter matched (almost) nothing"
+            exit 1
+          }
