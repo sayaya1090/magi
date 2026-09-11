@@ -26,165 +26,18 @@ A companion is the daemon executing work for a workspace. Its owner is the clien
 
 Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not become “daemon absent.” When a shorter path is necessary, explain where to configure it and show the effective path. A client must not silently choose a different path from an existing daemon.
 
-## 2.5 Where this stands, and what is held (2026-09-11)
+## 2.5 Current status and remaining work (2026-09-11)
 
-**A (the core lifetime contract)** from §7 is landing in layers. Below is what is in, and *why* the
-rest is waiting. "Held" does not mean hard — it means something has to be decided first.
-
-| Item | State | Commit |
-|---|---|---|
-| `magi ide-bridge --features` | **landed** | `da67e068` |
-| `instance` in the published record and `about` | **landed** | `55ead8ac` |
-| `ownerId` | **landed** | `6f6ce97f` |
-| `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `6f6ce97f` |
-| VS Code gates the owned mode and the relay on the feature probe | **landed** | `73a1a313` |
-| Clients actually calling the reconnect backoff | **landed** — with jitter, both clients | `a2402cf8` |
-| §6 previews replaced by the final fact (three surfaces) | **landed** — the same measured defect was in all three | `bbeb8834` · `43f45f1c` |
-| The web console's SSE reconnect uses the contract backoff | **landed** — the third client | `e0fa16ab` |
-| §6 "mark what is on screen as stale while reconnecting" (web) | **landed** | `44857463` |
-| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` · `07358567` |
-| `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
-| §5's policy values (budget, grace, jitter, backoff) | **landed** — shared contract + both implementations | `5fca85b7` |
-| Clients actually calling that policy (budget) | **landed** — both JetBrains and VS Code | `e592da8a` |
-| Not counting a user-pressed restart as a crash (`replaced`) | **landed** — VS Code | `c5373a08` |
-
-### ① `ownerId` — settled (it went in with the owned mode)
-
-Exactly as recorded: **in the same commit as the owned mode.** The reasoning is kept below because
-the next name in the same position gets the same treatment.
-
-<details><summary>the reasoning at the time</summary>
-
-
-
-The design generates `ownerId` and `instanceId` together, but right now they mean different things.
-`instanceId` says "this process" regardless of ownership, so it is true with no owned mode at all —
-and it alone makes §4's readiness check possible. `ownerId` names "the same owning lineage", and
-**with no owner there is no lineage to point at.**
-
-The cost of shipping a name ahead of its thing was measured once already: if `--features`
-advertised `owned-daemon-v1`, a client would start a mode this binary does not understand and read
-the failure as a broken install. For the same reason `ownerId` lands **in the same commit as the
-owned mode**.
-
-</details>
-
-### ③ The Windows successor — the pipe crosses too. What is left is the readiness check
-
-`ownerId` crosses. `graceful.Reexec` hands the successor `os.Environ()` and `AdoptOwner`
-**re-exports** what it inherited, so a chain of updates stays one lineage (measured in a child
-process).
-
-**The pipe crosses too.** Windows `reexec` passes `cmd.Stdin = os.Stdin`, so the same read end was
-being handed over all along; the successor still saw EOF because the **write end** was destroyed —
-a defect closed in R2 and measured on real Windows (a successor still alive three seconds after an
-update). "Two generations never serve requests at once" holds as well: the predecessor releases its
-listener and workspace lock **before** starting the successor.
-
-**What is left is the readiness check.** `reexec` calls `os.Exit(0)` the moment `cmd.Start()`
-succeeds. So of §4's "confirm successor readiness before the predecessor exits; if an update fails,
-preserve the previous generation or report replacement failure", **only a start failure is ever
-reported** — a successor that comes up and dies is seen by nobody. Unix does not have the question
-at all (`syscall.Exec`). This cannot be made honest without a Windows machine to measure on, so it
-is **left to the Windows session**.
-
-### ② `<socket>.lifecycle` — it runs straight into this tree's own invariant
-
-§4 writes the shutdown reason to `<socket>.lifecycle` and, in the same paragraph, says it is **"not
-a permission proof and does not replace checking for the socket file"**. So it is a diagnostic file.
-
-But invariant 3 in the [JetBrains README](../clients/jetbrains/README.md) §0.5 reads: **a value that
-can be computed at runtime is not written to a file, and a state that cannot be read live is treated
-as not existing — the history of introducing `<socket>.stopped` and then removing it is the
-evidence.**
-
-The two cases split:
-
-- **For a live daemon**, ask `about`. The file becomes a second place the truth lives, and a day
-  comes when the two disagree — a shape this tree has paid for repeatedly.
-- **For a dead one**, there is nobody to ask. Whether it shut down cleanly, was replaced by an
-  update, or crashed is unknowable unless something was left behind. That is the one branch that
-  could justify an exception to invariant 3.
-
-**So it is a person's call.** Three options:
-
-1. Write the file **only for a dead daemon's reason**, and keep `about` the sole authority on a live
-   one's state. Argue the exception to invariant 3 explicitly in the docs.
-2. Do not write it, and give up the shutdown reason — clients say "reason unknown".
-3. Write it all as designed, and rewrite invariant 3, recording why the reason `<socket>.stopped`
-   was abandoned does not apply here.
-
-Until that is settled, A goes **only as far as it does without this file**. The owner pipe and EOF
-shutdown do not depend on the decision, so they can go first.
-
-### The contract file is the authority on the policy
-
-**Review decision (2026-09-11):** Accept the implementer feedback and choose option 2 above. Withdraw the §4 requirement to create `<socket>.lifecycle`; section 4 now follows this decision. Use handshake and `about` for current state and report unobserved exit reasons as unknown. The §9 update journal is only for file-replacement recovery, not current daemon liveness or ownership. Windows transfer is already explicitly unfinished in the implementer's account. The [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) adds acceptance evidence and call-site findings.
-
-Both clients now call the policy, and the core's owned mode and feature advertisement are built. §4's "interfaces to add" section **carries a state per paragraph** (updated 2026-09-11) — do not read that section as target design throughout.
-
-Policy calls in both clients, core owned mode and its feature advertisement are implemented. The unimplemented descriptions in §4 refer to an earlier snapshot. JetBrains still needs readiness/failure reporting and owned-mode launch integration.
-
-§5's table is the target; the **cases** are in `clients/contract/lifecycle-policy.json`, and both
-editors' tests read that file (`LaunchesTest`, `launches.test.ts`). Writing the cases separately in
-each client gives "both green, different rules" — which is where this policy actually was on
-2026-09-11: VS Code counted spawns in a rolling 60s window, JetBrains allowed three ever with a 60s
-gap. Both defensible, not the same rule.
-
-The contract caught a defect immediately: **neither side counted a loss before the stable window as
-a failure.** A daemon that comes up and dies two seconds later never misses the ready deadline, so
-it was never counted, and it retried forever.
-
-Both clients now call `Launches`, and JetBrains reports readiness and launch failure too (follow-up review R4). Policy-class tests and actual call-site acceptance are still separate things to verify — the call sites are held by a source guard; injecting three real launch failures needs a running IDE.
-
-**Follow-up review, where each finding stands (2026-09-11)**
-
-| ID | State | Commit | What was wrong |
-|---|---|---|---|
-| R1 | **landed** | `179169f8` | The feature probe is an `await`, and `close()` could FINISH inside it — with no child yet to stop, close returned having stopped nothing, and the spawn after the probe left a daemon nobody owns. Re-checked after the probe, and again right after the handle is stored (clearing it there too). The probe is **injectable**, so the test reproduces the order without sleeping. The second check cannot be reached today (nothing awaits in between) and the code says so, and says it is therefore not covered by a test. |
-| R3 | **landed** | `07c0f509` | JetBrains still launched plain `--daemon` and closed the child's stdin **immediately**. In the owned mode that close means "the owner has gone". It now asks for the feature, launches owned when it is there, and holds the pipe for the life of the window; `dispose` releases the pipe **first**. |
-| R4 | **landed** | `07c0f509` | **Nobody ever added one** to the consecutive-failure count. A daemon that misses the ready deadline, or dies on the way up, was never connected — so `lost` does not count it either, the window empties after a minute, and it retries forever without reaching `Blocked`. |
-| R2 | **landed** | `07358567` | The write end the window held had the CHILD's lifetime — `stdio: 'pipe'` is made and owned by `child_process`, which destroys it the moment the child exits. Windows has no execve, so an update's successor inherits the same read end and read EOF while its window was open and had closed nothing. A pipe the window makes ITSELF leaves `child.stdin` null, so that destroy path never runs — and the daemon is still handed an inherited handle, never an address. Measurements in the section below. |
-| R5 | **landed** | `61ded932` | With a core that lacks the owned mode, VS Code started a plain `--daemon` **silently**. §4's "block" applies to a launch that REQUIRES the mode, and the sentence right after it forbids falling back silently — the case that truly requires it, the Windows relay, is already blocked by `whyNoRelay` (`73a1a313`). A plain start is the lifetime that existed before the mode and which §4 preserves, so instead of blocking it **says so once**: the window still stops its child on close, but an extension host that is KILLED runs no `deactivate` and the companion survives — and here is what to do about it. Once per start, because a window polls every fifteen seconds and a warning on every poll is noise, which is how a real warning stops being read. |
-
-### R2 — the owner channel broke on a single update (landed)
-
-**Symptom.** On Windows an owned daemon read owner EOF and ended **from its own update alone**. Confirmed on real Windows (Windows 11, 2026-09-11): the owned child exited **27ms** after the `restart` door answered, and the line straight after the successor came up was this — **while the owner was running and had closed nothing.**
-
-    magi: daemon on ...sock (session s_ddbd...) — attach with `magi --attach` in this directory
-    magi: daemon on ...sock stopped — the owner closed its pipe
-
-**The mechanism, in three pieces.**
-
-1. `reexec` in `internal/graceful/graceful_windows.go` passes `cmd.Stdin = os.Stdin`, **handing the successor the same read end**, because Windows has no `execve` and the successor is a new process.
-2. Node destroys a child's stdin — the **write end the owner holds** — the moment that child exits. This is platform-independent.
-3. It does not happen on Unix: `syscall.Exec` replaces the image, so the child never "exits".
-
-**The fix is in the client, and the core did not change by a line.** What breaks is the write end held by the extension host; the core only ever has the read end, so nothing the core does can prevent it.
-
-**The option taken — a fourth one.** Instead of the three in the handover (① a socket plus a token, ② a job object, ③ accept one death per update), **stdin stays and only the pipe changes hands**: the window opens a named pipe, connects to it itself, and gives the child that **connected socket** as stdin (`clients/vscode/src/core/owner.ts`). Node did not make it, so `child.stdin` is null and there is nothing for the exit path to destroy. Option ①'s cost does not follow: the daemon receives an **inherited handle, never an address**, and the successor inherits that handle exactly as it does today, so nothing has to travel in argv or the environment. The window **stops listening the instant it has its one connection**, so no free instance is left waiting — the name stays visible while the connection lives, but that is merely how Windows lists pipes, and `owner.test.ts` asks whether it can be *dialled*, not whether it can be seen.
-
-⚠ **Unix deliberately keeps `'pipe'`.** The handover is what breaks and Unix has none, so changing it there would mean altering the one thing that stops daemons leaking, on a platform with nothing to fix.
-
-**Acceptance — all three measured on real Windows, through the product class (`OwnedCompanion`).**
-
-| Question | Answer |
+| Area | Current state and evidence |
 |---|---|
-| Is the owned daemon still alive after one update? | **Yes.** The successor appears in the published record and is still alive three seconds later — before, it ended the instant it came up. |
-| Does it go when the window lets go? | **Yes.** The successor ends after `close()`. This pipe is the only thing that reaches a successor the window holds **no handle** for. |
-| And if the extension host is **killed**? | **Yes, in 100ms.** Neither `deactivate` nor `close()` ran; the kernel closes the write end. |
+| Core contract | Feature discovery, instance identity, owned mode and EOF shutdown implemented: `da67e068`, `55ead8ac`, `6f6ce97f` |
+| IDE launch and recovery | Shared policy and backoff connected. R1 close race and R3/R4 JetBrains integration corrected: `179169f8`, `07c0f509` |
+| Windows owner channel | VS Code supplies its own pipe as child stdin: `07358567`. Channel lifetime is independent of Node child-exit handling. The implementer reports real Windows core checks for successor survival, close and forced host termination. Channel setup failures remain in follow-up R8. |
+| Transcript and web | Preview replacement, draft persistence, SSE backoff and disconnection indication implemented: `bbeb8834`, `43f45f1c`, `14f8dd93`, `e0fa16ab`, `44857463` |
 
-All three turn on the **same signal**: the write end closing, and the only thing that closes it is the owner going away.
+**Current decisions:** Do not create `<socket>.lifecycle`. The implementer's duplicated-state concern was accepted. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve only file-replacement recovery. Advertise feature names together with their implementation.
 
-⚠ **A pipe that cannot be made falls back to today's `'pipe'`.** The name carries the window's pid and eight random hex digits, so the realistic failure is somebody taking that name first — and refusing to start the companion over that would simply hand them the outage. The fallback's lifetime is exactly what it was before this change.
-
-⚠ R1 was fixed by **another session first**. Two sessions took the same finding, and the rebase collided; theirs was kept — an injectable probe does not depend on timing, and only theirs cleared the handle. Recorded because it is what happens when one review's findings are split across a shared checkout.
-
-### Keeping the doc and the code from drifting
-
-§4's "interfaces to add" now separates what has landed from what has not, name by name. Every time
-something lands, that section and this table change together — the moment target design reads as
-implementation status, this document has aged.
+**Remaining work:** Client generation/owner-lineage verification, successor readiness, §9 update transactions and rollback, and actual IDE acceptance. Compare shared policy against `clients/contract/lifecycle-policy.json`; policy-function tests do not replace call-site acceptance. Current defects and the R5 compatibility decision are in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md). Implementation completion does not establish whole-product acceptance.
 
 ## 3. State and responsibility
 
