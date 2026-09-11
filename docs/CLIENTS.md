@@ -2,6 +2,8 @@
 
 [한국어](CLIENTS.ko.md) · [↑ Docs](README.md)
 
+**Lifecycle stabilization target:** use [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) for implementation of installation, connection, recovery and shutdown in the primary IDEs and local web. Its new ownership interfaces and acceptance criteria are targets, distinct from current functionality described here.
+
 Three words carry the whole picture.
 
 - **A companion** is one running magi: one process, the owner of one workspace, with a name and an

@@ -22,6 +22,12 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [CLIENTS](CLIENTS.md) · [한국어](CLIENTS.ko.md) | **Client Platform Integrations**: Architecture and socket contracts for terminal, web console, JetBrains, Visual Studio, and Office add-ins. |
 | [EXTENDING](EXTENDING.md) · [한국어](EXTENDING.ko.md) | **Extensibility Guide**: Practical integration steps for external tools (MCP) and shared team memory/skills. |
 
+## Implementation handoff designs
+
+| Document | Description |
+|---|---|
+| [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages and installed-environment acceptance. Not an as-built specification. |
+
 ## Design History & Archived Records
 
 Preserved to record early architectural decisions and rationales. These are historical records; where they conflict with current code or the ARCHITECTURE/MANUAL documents, the active documentation takes precedence.

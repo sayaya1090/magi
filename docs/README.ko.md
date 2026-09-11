@@ -22,6 +22,12 @@
 | [CLIENTS](CLIENTS.ko.md) · [English](CLIENTS.md) | **클라이언트 플랫폼 연동**: 터미널, 웹 콘솔, JetBrains 플러그인, Visual Studio 확장, Office 애드인의 역할과 소켓 계약. |
 | [EXTENDING](EXTENDING.ko.md) · [English](EXTENDING.md) | **확장 개발 가이드**: 외부 도구(MCP) 및 팀 공유 지식/스킬 저장소 연동 절차. |
 
+## 구현 인계 설계
+
+| 문서 | 설명 |
+|---|---|
+| [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.ko.md) · [English](CLIENT_LIFECYCLE.md) | **대표 클라이언트 안정화 목표**: 소유권, 상태 전이, 호환성, 담당 범위와 설치 환경 인수 매트릭스. 구현 완료 문서가 아닙니다. |
+
 ## 설계 이력 & 보존 문서
 
 초기 아키텍처 결정 배경을 추적하기 위한 보존 문서다. 현행 참조 기준이 아니며, 최신 코드나 ARCHITECTURE/MANUAL과 내용이 상충할 경우 최신 문서를 우선한다.
