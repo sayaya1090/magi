@@ -39,6 +39,7 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 | `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `6f6ce97f` |
 | VS Code gates the owned mode and the relay on the feature probe | **landed** | `73a1a313` |
 | Clients actually calling the reconnect backoff | **landed** — with jitter, both clients | `a2402cf8` |
+| §6 previews replaced by the final fact (both clients) | **landed** — a measured defect | `bbeb8834` |
 | Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
 | §5's policy values (budget, grace, jitter, backoff) | **landed** — shared contract + both implementations | `5fca85b7` |
