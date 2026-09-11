@@ -1,5 +1,7 @@
 # Benchmarking magi on Terminal-Bench 2.1
 
+[한국어](BENCHMARK.ko.md) · [↑ Docs](README.md)
+
 What this measures, how to run it yourself, and what the numbers are.
 
 [Terminal-Bench](https://www.tbench.ai) gives an agent a real terminal in a Docker container and a
