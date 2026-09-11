@@ -23,10 +23,13 @@ func TestEveryAdvertisedFeatureIsOneThisBinaryActuallyHas(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
-	exe := filepath.Join(t.TempDir(), "magi")
-	if out, err := exec.Command("go", "build", "-o", exe, "github.com/sayaya1090/magi/cmd/magi").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	// ⚠ **Through buildMagi, which is the only place that knows what an executable is called.**
+	// This built its own at `<dir>/magi`, and Windows does not consider a file without an extension
+	// executable at all — so the very next line failed with "executable file not found in %PATH%"
+	// for a file it was looking straight at, and this guard has been dead on that platform for as
+	// long as it has existed. The helper beside it has carried the suffix, and a check that the
+	// built binary actually RUNS, the whole time.
+	exe := buildMagi(t, t.TempDir())
 	line, err := exec.Command(exe, "ide-bridge", "--features").Output()
 	if err != nil {
 		t.Fatalf("--features: %v", err)
