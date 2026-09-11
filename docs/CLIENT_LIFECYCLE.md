@@ -1,8 +1,8 @@
 # Stabilizing the primary client lifecycle
 
-[한국어](CLIENT_LIFECYCLE.ko.md) · [Documentation map](README.md)
+[English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.md) · [Review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md)
 
-Status: **target design for implementation handoff, 2026-09-11.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. `docs/DESIGN` records the initial design; this document governs the lifecycle stabilization work.
+Status: **target design for implementation handoff, 2026-09-11.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
 
 ## 1. Scope and completion
 
