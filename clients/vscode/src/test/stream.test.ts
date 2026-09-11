@@ -526,14 +526,23 @@ test('a stream that ends says so and is picked up again', () => {
  * millisecond, and a tight loop turns one restart into a busy panel), it grows, and it stops at
  * thirty seconds (somebody who starts it again should not wait minutes for the window to notice).
  */
-test('the retry waits, grows, and stops growing', () => {
-  assert.equal(retryAfter(0), 1_000, 'the first retry is immediate — one restart becomes a busy panel');
-  assert.equal(retryAfter(1), 2_000);
-  assert.equal(retryAfter(2), 4_000);
-  assert.ok(retryAfter(3) > retryAfter(2), 'the wait does not grow');
-  assert.equal(retryAfter(20), 30_000, 'the wait is unbounded — a restart would go unnoticed for minutes');
+test('the retry waits, grows, stops growing, and is not in lockstep', () => {
+  // ⚠ **Exact values stopped being right when the jitter arrived.** The schedule is the shared
+  // contract's now (`clients/contract/lifecycle-policy.json`), and it spreads each step by ±20% so
+  // that several windows on one machine do not all retry on the same instant. The edges are fed
+  // directly rather than rolled, so these are bounds and not samples.
+  assert.equal(retryAfter(0, 0), 800, 'the first retry is immediate — one restart becomes a busy panel');
+  assert.equal(retryAfter(0, 1), 1_200);
+  assert.equal(retryAfter(1, 0), 1_600);
+  assert.equal(retryAfter(2, 0), 3_200);
+  assert.ok(retryAfter(3, 0) > retryAfter(2, 1), 'the wait does not grow');
+  assert.equal(retryAfter(20, 1), 30_000, 'the wait is unbounded — a restart would go unnoticed for minutes');
+  assert.ok(retryAfter(20, 0) < 30_000, 'the cap swallowed the jitter — every window retries together');
   // A caller that starts at -1 must not get a negative or a zero wait.
-  assert.equal(retryAfter(-1), 1_000);
+  assert.ok(retryAfter(-1, 0) >= 800, 'a negative attempt gives a wait that is not a wait');
+  // And the default really does vary: a fixed rand would put every window back in lockstep.
+  const rolled = new Set(Array.from({ length: 40 }, () => retryAfter(4)));
+  assert.ok(rolled.size > 1, 'every call returns the same wait — the jitter is not being rolled');
 });
 
 /**

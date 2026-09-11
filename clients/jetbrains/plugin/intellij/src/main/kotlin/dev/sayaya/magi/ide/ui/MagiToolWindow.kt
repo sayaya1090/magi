@@ -32,6 +32,7 @@ import dev.sayaya.magi.ide.usecase.Level
 import dev.sayaya.magi.ide.usecase.Problems
 import dev.sayaya.magi.ide.usecase.Row
 import dev.sayaya.magi.ide.usecase.RowText
+import dev.sayaya.magi.ide.usecase.Backoff
 import dev.sayaya.magi.ide.usecase.Rows
 import dev.sayaya.magi.ide.usecase.Who
 import dev.sayaya.magi.ide.usecase.Transcript
@@ -715,15 +716,20 @@ class MagiToolWindow : ToolWindowFactory {
             if (closing.get()) return
             runCatching {
                 ApplicationManager.getApplication().executeOnPooledThread {
-                    var wait = 1_000L
+                    // ⚠ **기다리는 시간은 공유 계약의 것이다.** 여기 1초·배증·30초가 손으로 적혀
+                    // 있었고 VS Code 에도 같은 두 수가 따로 적혀 있었다 — 게다가 **지터가 없어서**
+                    // 창이 여럿인 기계에서는 전부 같은 순간에 몰렸다. 계약의 ±20% 가 그것을 흩는다
+                    // (`clients/contract/lifecycle-policy.json`, `docs/CLIENT_LIFECYCLE` §5).
+                    var attempt = 1
                     while (!closing.get()) {
+                        val wait = Backoff.delayMs(attempt, Math.random())
                         try { Thread.sleep(wait) } catch (e: InterruptedException) { return@executeOnPooledThread }
                         if (closing.get()) return@executeOnPooledThread
                         // 시도하는 중이라고 말한다. 백오프가 30초까지 벌어지므로, 이 말이
                         // 없으면 마지막 실패 사유가 30초 동안 「지금 상태」인 척 서 있는다.
                         mood(Look.faint, "↻", MagiBundle.msg("chat.link.connecting"))
                         if (follow() == Attach.Ok) return@executeOnPooledThread refresh()
-                        wait = (wait * 2).coerceAtMost(30_000L)
+                        attempt++
                     }
                 }
             }

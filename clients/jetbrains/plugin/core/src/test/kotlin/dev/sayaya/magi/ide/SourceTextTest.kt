@@ -46,6 +46,30 @@ class SourceTextTest {
     }
 
     /**
+     * **다시 붙기까지 기다리는 시간도 계약의 것이다.**
+     *
+     * 여기 1초·배증·30초가 손으로 적혀 있었고 VS Code 에도 같은 두 수가 따로 적혀 있었다.
+     * 게다가 둘 다 **지터가 없어서**, 창을 여럿 연 기계에서는 전부 같은 순간에 다시 붙으러
+     * 갔다 — 계약의 ±20% 가 그것을 흩으려고 있는 것이다.
+     *
+     * 좁게 잰다: 재접속 고리가 `Backoff` 를 지나는가, 그리고 제 숫자를 다시 들지 않는가.
+     */
+    @Test
+    fun `다시 붙는 간격을 계약에서 가져온다`() {
+        val f = sources.first { it.name == "MagiToolWindow.kt" }
+        val src = code(f)
+        val at = src.indexOf("private fun reattach()")
+        assertTrue(at > 0, "`reattach` 를 못 찾았다 — 이 규칙이 빈 글을 본다")
+        val body = src.substring(at, minOf(at + 1200, src.length))
+        assertTrue("Backoff.delayMs(" in body,
+            "재접속이 제 백오프를 쓴다 — 지터가 없으면 창 여럿이 같은 순간에 몰린다")
+        assertTrue(
+            Regex("""30_000|1_000""").find(body) == null,
+            "재접속이 제 숫자를 다시 들고 있다 — 계약의 값과 갈린다",
+        )
+    }
+
+    /**
      * **기동 예산은 정책이 정한다 — 창이 제 규칙을 따로 쓰지 않는다.**
      *
      * 예산·유예·「언제 용서하나」가 `clients/contract/lifecycle-policy.json` 으로 옮겨 갔는데,
