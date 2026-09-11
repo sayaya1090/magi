@@ -149,6 +149,36 @@ internal object CoreBinary {
         }
     }
 
+    /**
+     * 이 바이너리가 무엇을 할 수 있는지 — **띄워 보기 전에 묻는다.**
+     *
+     * `magi ide-bridge --features` 는 데몬에 안 붙고 한 줄 JSON 으로 답한다(docs/IDE_BRIDGE §5).
+     * 구형 바이너리는 그 옵션을 **거절**하고 0 이 아닌 코드로 끝나며, 그것이 「이 빌드엔 그
+     * 기능이 없다」의 유일한 근거다 — 도움말 글자에서 낱말을 찾는 것은 추측이다.
+     *
+     * 어떤 실패든 빈 집합이다(거절·깨진 줄·시한 초과). 부르는 쪽에게 셋은 같은 뜻이다: 이
+     * 바이너리에 새 모드를 쓰지 마라.
+     *
+     * 계약의 5초를 여기서도 지킨다. 탐침이 답을 안 주면 그 바이너리는 어차피 안 될 것이다.
+     */
+    fun features(bin: Path): Set<String> = runCatching {
+        val p = ProcessBuilder(bin.toString(), "ide-bridge", "--features")
+            .redirectErrorStream(false).start()
+        val line = p.inputStream.bufferedReader(Charsets.UTF_8).use { it.readLine() }.orEmpty()
+        if (!p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+            p.destroyForcibly()
+            return emptySet()
+        }
+        if (p.exitValue() != 0) return emptySet()
+        val got = kotlinx.serialization.json.Json.parseToJsonElement(line)
+            .let { it as? kotlinx.serialization.json.JsonObject } ?: return emptySet()
+        val list = got["features"] as? kotlinx.serialization.json.JsonArray ?: return emptySet()
+        list.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.toSet()
+    }.getOrElse {
+        LOG.info("magi: 기능 조회 실패 — 새 모드 없이 간다 (${it.message})")
+        emptySet()
+    }
+
     private fun read(url: String): String = request(url).readString()
 
     /**

@@ -127,6 +127,26 @@ class SourceTextTest {
         assertTrue(".may(" in src && ".spawned(" in src,
             "띄우기 전에 정책에 묻지 않거나, 띄운 것을 안 알린다 — 이동 구간이 셀 것이 없다")
         assertTrue(".lost(" in src, "손실을 정책에 안 알린다 — 유예도 연속 실패도 안 선다")
+        // ⚠ **연속 실패에 아무도 1을 안 더하고 있었다**(설계 검토 R4). 준비 시한을 넘기거나
+        // 뜨자마자 죽는 데몬은 **붙은 적이 없어** `lost` 로도 안 세인다 — 그러면 1분마다 예산이
+        // 돌아와 같은 실패를 무한히 되풀이하고 `Blocked` 에 영영 못 닿는다.
+        assertTrue(".failed(" in src,
+            "기동 실패를 정책에 안 알린다 — 연속 실패가 안 쌓여 크래시 루프가 영원히 재시도된다")
+        assertTrue(".ready(" in src,
+            "준비됐다는 것을 정책에 안 알린다 — 안정 구간의 시계가 안 선다")
+
+        // ⚠ **소유 모드는 파이프를 쥐는 것이 전부다**(설계 검토 R3). 이 창은 코어에 소유 모드가
+        // 생긴 뒤에도 그냥 `--daemon` 으로 띄우고 자식 stdin 을 **곧바로 닫고** 있었다. 소유
+        // 모드에서 그 닫힘은 「소유자가 떠났다」라, 데몬이 뜨자마자 스스로 끝낸다.
+        assertTrue("owned-daemon-v1" in src,
+            "소유 모드를 쓸 수 있는지 묻지 않는다 — 코어에 있는 수명 계약이 창에 안 닿는다")
+        assertTrue("--client-owned" in src, "소유 모드로 띄우지 않는다")
+        assertTrue(".hold(" in src,
+            "소유자의 파이프를 아무도 안 쥔다 — 열어 두는 것이 이 모드의 전부다")
+        assertTrue(
+            Regex("""if \(owned\)[\s\S]{0,400}?outputStream\.close\(\)""").containsMatchIn(src),
+            "구형 코어에서 stdin 을 안 닫는다 — 옛 수명이 그대로여야 한다",
+        )
         // ⚠ 유예는 정책에서 온다. 창이 제 숫자를 들면 둘 중 하나만 고치는 날이 온다.
         assertTrue(
             Regex("""RESTART_GRACE\s*=\s*\d""").find(src) == null,

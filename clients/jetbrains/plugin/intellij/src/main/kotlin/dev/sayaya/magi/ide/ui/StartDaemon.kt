@@ -241,20 +241,42 @@ internal object StartDaemon {
         try {
             SocketPath.tooLong(sock)?.let { throw java.io.IOException(it) }
             Files.createDirectories(sock.parent)
+            // ⚠ **쓰기 전에 묻는다.** 소유 모드가 없는 코어는 그 플래그를 거절하고 2로 끝나며,
+            // 창은 멀쩡한 바이너리를 두고 「기동 실패」를 알린다 — 설계 §4 가 적은 그대로 구형
+            // 코어에는 옛 수명을 그대로 준다.
+            val owned = CoreBinary.features(bin).contains("owned-daemon-v1")
             child = owner.launch {
-                ProcessBuilder(bin.toString(), "--daemon")
+                ProcessBuilder(
+                    if (owned) listOf(bin.toString(), "--daemon", "--client-owned")
+                    else listOf(bin.toString(), "--daemon"),
+                )
                     .directory(java.io.File(base))
                     .apply { environment().putAll(Shell.env()) }
                     .redirectErrorStream(true)
                     .redirectOutput(ProcessBuilder.Redirect.appendTo(log))
                     .start()
             } ?: return
-            child.outputStream.close()
+            if (owned) {
+                // ⚠ **이 스트림을 닫으면 안 된다 — 그것이 소유자의 파이프다.**
+                //
+                // 옛 코드는 여기서 곧바로 `child.outputStream.close()` 했다. 소유 모드에서 그것은
+                // 「소유자가 떠났다」는 신호라, 데몬이 뜨자마자 스스로 끝낸다. 창이 사는 동안
+                // 열어 두는 것이 이 모드의 전부다(설계 검토 R3).
+                //
+                // 자바는 Node 와 달리 자식이 죽을 때 이 스트림을 대신 닫아 주지 않는다 — 그것이
+                // 검토의 R2 가 VS Code 쪽에서 잡은 함정이고, 이쪽에는 그 함정이 없다.
+                lifecycleOf(project).hold(child.outputStream)
+            } else {
+                child.outputStream.close()
+            }
             val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(30)
             while (!project.isDisposed && child.isAlive && System.nanoTime() < deadline) {
                 val published = dev.sayaya.magi.ide.transport.Published.of(sock)
                 if (published?.pid?.toLong() == child.pid() && DaemonClient.reach(sock) is Reach.Listening) {
                     LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
+                    // 떴다. **아직 아무것도 용서하지 않는다** — 그 판정은 붙은 채로 안정 구간을
+                    // 넘겼을 때 [Launches.connected] 가 한다.
+                    budget[base]?.ready(System.currentTimeMillis())
                     return
                 }
                 Thread.sleep(100)
@@ -266,16 +288,26 @@ internal object StartDaemon {
             if (!child.isAlive && DaemonClient.reach(sock) is Reach.Listening) return
             val reason = if (child.isAlive) "startup timed out after 30s" else "exit ${child.exitValue()}"
             owner.stop(child)
+            // ⚠ **안 세면 영영 다시 시도한다.** 이동 구간(60초에 3회)은 시간이 지우고, 연속
+            // 실패는 안 지운다 — 그런데 그 셈에 **아무도 1을 안 더하고 있었다.** 준비 시한을
+            // 넘기거나 뜨자마자 죽는 데몬은 붙은 적이 없어 [Launches.lost] 로도 안 세이므로,
+            // 1분이 지나면 예산이 돌아와 같은 실패를 무한히 되풀이한다(설계 검토 R4).
+            budget[base]?.failed(System.currentTimeMillis())
             tell(project, MagiBundle.msg("core.start.died", reason, tail(log)))
         } catch (e: Exception) {
             child?.let { owner.stop(it) }
             if (e is InterruptedException) Thread.currentThread().interrupt()
             LOG.warn("magi: 데몬 기동 실패", e)
+            budget[base]?.failed(System.currentTimeMillis())
             tell(project, MagiBundle.msg("core.start.died", e.message ?: "start failed", tail(log)))
         } finally {
             starting.remove(sock.toString())
         }
     }
+
+    /** 이 프로젝트의 수명 서비스. 파이프를 맡길 자리가 거기다. */
+    private fun lifecycleOf(project: Project): OwnedCompanion =
+        project.getService(OwnedCompanion::class.java)
 
     private fun tail(log: java.io.File): String = runCatching {
         java.io.RandomAccessFile(log, "r").use { f ->
@@ -304,6 +336,20 @@ internal object StartDaemon {
 @Service(Service.Level.PROJECT)
 internal class OwnedCompanion : Disposable {
     @Volatile var socket: Path? = null
+    /**
+     * 소유자의 파이프. **창이 사는 동안 열려 있어야 한다.**
+     *
+     * 쥐고 있는 것이 곧 「이 창이 아직 있다」이고, 놓는 것이 곧 「갔다」이다 — IDE 가 강제로
+     * 죽어 `dispose` 가 안 돌아도 OS 가 마지막 쓰기 끝을 닫아 주므로 데몬이 그것을 본다.
+     * 손잡이를 끊는 것과 달리 이 신호는 **못 놓칠 수가 없다**.
+     */
+    @Volatile private var ownerPipe: java.io.OutputStream? = null
+
+    fun hold(pipe: java.io.OutputStream) {
+        ownerPipe?.let { runCatching { it.close() } } // 앞 세대의 것이 남아 있으면 먼저 놓는다
+        ownerPipe = pipe
+    }
+
     val process = DaemonProcess { child ->
         val address = socket
         // A bounded worker lets project disposal proceed while the daemon drains its log.
@@ -339,6 +385,10 @@ internal class OwnedCompanion : Disposable {
 
     override fun dispose() {
         retry?.cancel(false)
+        // 파이프를 **먼저** 놓는다. 소유 데몬은 그 EOF 로 스스로 풀리므로, 아래 `close()` 의
+        // 소켓 종료·강제 종료는 그것이 안 통할 때를 위한 둘째 줄이 된다.
+        ownerPipe?.let { runCatching { it.close() } }
+        ownerPipe = null
         process.close()
     }
 }
