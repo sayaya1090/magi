@@ -1,5 +1,5 @@
 {
-  "total": 141,
+  "total": 142,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -31,6 +31,7 @@
     "internal/adapter/tool/builtin/lsppool.go": 2,
     "internal/adapter/tool/builtin/pathutil.go": 1,
     "internal/adapter/tool/builtin/sandbox_linux.go": 1,
+    "internal/adapter/tool/builtin/sandbox_windows.go": 1,
     "internal/adapter/tui/console_windows.go": 2,
     "internal/adapter/tui/framedump.go": 1,
     "internal/adapter/tui/image.go": 1,
