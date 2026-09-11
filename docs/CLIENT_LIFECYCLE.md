@@ -38,7 +38,7 @@ Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not
 
 **Current decisions:** Do not create `<socket>.lifecycle`. The implementer's duplicated-state concern was accepted. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve only file-replacement recovery. Advertise feature names together with their implementation.
 
-**Remaining work:** Client generation/owner-lineage verification, successor readiness, and actual IDE acceptance. §9's confirmation, locking and interrupted-transaction recovery are the last row of the table above; what cannot be measured here is the real-Windows acceptance. §9's confirmation and readiness-failure rollback are the last row of the table above. Compare shared policy against `clients/contract/lifecycle-policy.json`; policy-function tests do not replace call-site acceptance. Current defects and the R5 compatibility decision are in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md). Implementation completion does not establish whole-product acceptance.
+**Remaining work:** Generation/owner-lineage verification, successor readiness, actual IDE acceptance and update transaction coordination. Backup retention, journaling and replacement-phase locking exist, but concurrent daemon starts and confirmation before readiness remain unresolved. Address R8–R11 in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) before completing §9 acceptance.
 
 ## 3. State and responsibility
 
