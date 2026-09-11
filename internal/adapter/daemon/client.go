@@ -44,7 +44,7 @@ func (c *Client) Hello() (PeerInfo, error) {
 	if !resp.OK {
 		return PeerInfo{}, errors.New(resp.Err)
 	}
-	p := PeerInfo{Version: resp.Version, Proto: resp.Proto, Caps: resp.Caps}
+	p := PeerInfo{Version: resp.Version, Proto: resp.Proto, Caps: resp.Caps, Instance: resp.Instance}
 	c.mu.Lock()
 	c.peer = &p
 	c.mu.Unlock()
@@ -193,6 +193,9 @@ type PeerInfo struct {
 	Version string
 	Proto   int
 	Caps    []string
+	// Instance is which PROCESS answered — empty from a daemon older than the field, which a
+	// caller must read as "cannot tell", never as "not the one I started".
+	Instance string
 }
 
 // Supports reports whether the far side advertised a capability in its handshake.

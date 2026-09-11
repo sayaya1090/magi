@@ -773,6 +773,15 @@ type Response struct {
 	Version string   `json:"version,omitempty"`
 	Proto   int      `json:"proto,omitempty"`
 	Caps    []string `json:"caps,omitempty"`
+	// Instance is which PROCESS is answering — the same value the published record carries (see
+	// InstanceID). It is on the handshake because the record and the socket can disagree: the
+	// record is a file written a moment ago, and a client confirming that the daemon it started is
+	// the one now listening has to hear it from the process that is listening.
+	//
+	// ⚠ **Tracking, not authority.** It says which process this is; it does not say the asker may
+	// do anything to it. docs/CLIENT_LIFECYCLE §4 keeps the two apart on purpose — lifetime control
+	// travels only by an inherited pipe, never by knowing an id.
+	Instance string `json:"instance,omitempty"`
 	// Event is one frame of a transcript: the log's own event, whole and unrenamed.
 	//
 	// Whole rather than a diff, and the same shape the store holds rather than a rendering. A

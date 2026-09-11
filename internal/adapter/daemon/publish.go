@@ -171,7 +171,14 @@ type Info struct {
 	// Wrong in one direction only, by construction: a daemon that loses track of a piece clears
 	// this rather than leaving it set. Saying "free" when busy costs an asker a wait it did not
 	// expect; saying "busy" forever would push every asker away from a companion that is fine.
-	Handling bool   `json:"handling,omitempty"`
+	Handling bool `json:"handling,omitempty"`
+	// Instance is which PROCESS this record was written by — see InstanceID.
+	//
+	// Beside PID rather than instead of it: the number is what a person reads in `ps` and what a
+	// client holds onto for its own child, and this is what says whether the thing answering now
+	// is still that process or a successor that replaced it. An older daemon writes no such field,
+	// so a client must treat absent as "cannot tell", never as "not a match".
+	Instance string `json:"instance,omitempty"`
 	PID      int    `json:"pid"`
 	Started  string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
@@ -288,7 +295,7 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	err := writeRecord(socketPath, Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
-		PID: os.Getpid(), Started: time.Now().UTC().Format(time.RFC3339),
+		PID: os.Getpid(), Instance: InstanceID(), Started: time.Now().UTC().Format(time.RFC3339),
 		Host: host, Addr: primaryAddr(), Account: account(), Version: version.Version,
 	})
 	recordMu.Unlock()

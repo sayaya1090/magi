@@ -587,7 +587,10 @@ func answerAbout(ctx context.Context, eng Engine, req Request) Response {
 	// The rendered description as before, plus the structured handshake so a caller can negotiate:
 	// the wire protocol and capabilities this build speaks, and — when the engine carries it — the
 	// binary version. All additive and omitempty, so an older client that only reads Out is unaffected.
-	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: capsOf(eng)}
+	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: capsOf(eng),
+		// Which process is answering. A client that started this daemon compares it against the
+		// published record to tell "the child I spawned is listening" from "something else is".
+		Instance: InstanceID()}
 	if v, ok := eng.(Versioner); ok {
 		resp.Version = v.Version()
 	}
