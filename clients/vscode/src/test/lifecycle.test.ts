@@ -93,3 +93,48 @@ test('a window that closed during the feature probe starts nothing it does not s
   assert.equal(child, undefined,
     'a companion was started after close() had already returned — nothing will ever stop it');
 });
+
+/**
+ * Starting a companion this window cannot own is not a failure — but it is not silent either.
+ *
+ * docs/CLIENT_LIFECYCLE §4 blocks a new launch that REQUIRES the owned mode and, in the next
+ * sentence, forbids falling back silently. A plain `--daemon` start is the lifetime this tree had
+ * before the mode existed, and §4 preserves it; what it loses is the one thing a process handle
+ * cannot do — an extension host that is KILLED runs no `deactivate`, and the daemon outlives the
+ * window. A person is owed that difference (follow-up review R5).
+ *
+ * Once per start, because a window polls every fifteen seconds and a warning on every poll is
+ * noise — which is how a real warning stops being read.
+ */
+test('a core that cannot be owned is reported once, not swallowed', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-unowned-'));
+  const old = new OwnedCompanion(dir, async () => new Set(['raw-socket-v1']));
+  await old.start(path.join(dir, 'no-such-magi')).catch(() => { /* a stand-in never comes up */ });
+  assert.equal(old.unowned(), true, '소유할 수 없는 코어로 띄웠는데 아무 말이 없다');
+  assert.equal(old.unowned(), false, '폴마다 되풀이한다 — 경고가 소음이 되면 안 읽힌다');
+  await old.close();
+
+  // A core that CAN be owned says nothing: there is nothing to tell.
+  const now = new OwnedCompanion(dir, async () => new Set(['owned-daemon-v1']));
+  await now.start(path.join(dir, 'no-such-magi')).catch(() => { /* same */ });
+  assert.equal(now.unowned(), false, '소유 모드로 띄웠는데 경고가 뜬다');
+  await now.close();
+});
+
+/**
+ * And the window actually says it. `src/ide/start.ts` imports `vscode`, so it cannot be loaded
+ * here — the call site is read off the source the way the JetBrains guards read Kotlin.
+ *
+ * ⚠ Pinned as the whole statement, not just the call: a version that asked `unowned()` and threw
+ * the answer away would keep every word a looser check looks for.
+ */
+test('the start path shows the unowned-core warning', () => {
+  const repo = path.join(__dirname, '..', '..', '..', '..');
+  const src = fs.readFileSync(path.join(repo, 'clients/vscode/src/ide/start.ts'), 'utf8');
+  assert.ok(/if \(owner\.unowned\(\)\)[^\n]*showWarningMessage\(/.test(src),
+    'a core that cannot be owned is started and nobody is told — §4 forbids a silent fall-back');
+  assert.ok(src.includes('UNOWNED_CORE'), 'the warning has no text of its own');
+  // The sentence has to say what is LOST, or it is a notice nobody can act on.
+  assert.ok(/killed/.test(src) && /Update magi/.test(src),
+    'the warning does not say what the weaker lifetime costs, or what to do about it');
+});

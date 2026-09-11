@@ -23,6 +23,20 @@ export class OwnedCompanion {
    */
   private readonly budget = new Launches();
   private external = false;
+  /**
+   * Set when this window started a daemon that it CANNOT own — a core without `owned-daemon-v1`.
+   *
+   * ⚠ **The point is not to hide it.** docs/CLIENT_LIFECYCLE §4 says to block a new launch that
+   * REQUIRES the owned mode and, in the very next sentence, never to fall back silently. A plain
+   * `--daemon` start is not a blocked case: the window still stops its own child on close, and that
+   * is the lifetime this tree had before the mode existed and which §4 preserves. What it loses is
+   * the one thing a handle cannot do — an extension host that is KILLED runs no `deactivate`, and
+   * the daemon then outlives the window. That is a smaller guarantee, not a failure, and a person
+   * is owed the difference rather than a silent downgrade.
+   *
+   * Read once by whoever draws it (see `unowned`), so the notice does not repeat on every poll.
+   */
+  private unownedStart = false;
   readonly socket: string;
 
   /**
@@ -100,6 +114,9 @@ export class OwnedCompanion {
       });
     } finally { fs.closeSync(fd); }
     this.child = child;
+    // Recorded where `owned` is actually known, and only for a start this window made: connecting
+    // to somebody else's daemon says nothing about what this binary can do for us.
+    this.unownedStart = !owned;
     // ⚠ **Nothing awaits between the check above and this line, and that is the only reason this
     // is not a second race.** `spawn` returns synchronously and the fd work around it is sync too,
     // so `closed` cannot flip in between — one `await` introduced there and the window reopens,
@@ -136,6 +153,18 @@ export class OwnedCompanion {
     const reason = failure?.message ?? (alive(child) ? 'timed out after 30s' : `exit ${child.exitCode ?? child.signalCode}`);
     await this.stop(child);
     throw new Error(`Companion failed to start: ${reason}. Log: ${log}`);
+  }
+
+  /**
+   * Did this window start a daemon it cannot own, and has nobody been told yet?
+   *
+   * Answers true ONCE per such start. A window polls every fifteen seconds; a notice that repeated
+   * on every poll would be noise, and noise is how a real warning stops being read.
+   */
+  unowned(): boolean {
+    if (!this.unownedStart) return false;
+    this.unownedStart = false;
+    return true;
   }
 
   private publishedPID(): number | undefined {
