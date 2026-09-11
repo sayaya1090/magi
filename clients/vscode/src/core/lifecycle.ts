@@ -17,6 +17,15 @@ import { OwnerChannel, ownerChannel } from './owner';
  */
 export const REPLACE_BY_MS = 5_000;
 
+/**
+ * The same, for a replacement the daemon will make when it is next idle (`update` with `idle`).
+ *
+ * Not a guess at how long a turn runs — it is a ceiling on how long a latch may pardon an ending. The
+ * ending itself clears it (see `ended`), so this only matters when the replacement never happens at
+ * all, and then the question is how long a stale pardon may stand rather than how long work takes.
+ */
+export const DEFERRED_REPLACE_BY_MS = 60 * 60 * 1_000;
+
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const alive = (p: ChildProcess) => p.pid !== undefined && p.exitCode === null && p.signalCode === null;
 
@@ -117,6 +126,22 @@ export class OwnedCompanion {
    * it describes.
    */
   replacing(now = Date.now()): void { this.replaceBy = now + REPLACE_BY_MS; }
+
+  /**
+   * The same request, deferred: the daemon will replace itself **when nothing is running**, which may
+   * be minutes from now.
+   *
+   * ⚠ **A deadline is the wrong shape for this one.** `replacing` gives the ending five seconds
+   * because that is what an immediate restart takes; a deferred one waits for a quiet moment nobody
+   * can predict, and the window would then count the person's own update as a crash — the defect
+   * `c5373a08` fixed for the other path, arriving through the new door. So this is a LATCH, cleared
+   * by the first ending, which is the ending it describes.
+   *
+   * Bounded anyway. A latch that never cleared would pardon a real crash on a flag nobody can see,
+   * so it expires after an hour: long enough that a companion working through a long turn still gets
+   * its restart counted as one, short enough that a forgotten latch is not permanent.
+   */
+  replacingWhenIdle(now = Date.now()): void { this.replaceBy = now + DEFERRED_REPLACE_BY_MS; }
 
   /**
    * What the owned process ending means to the budget.

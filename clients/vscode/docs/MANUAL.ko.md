@@ -238,7 +238,7 @@ code --install-extension magi-0.2.0.vsix --force
 | Draft a commit message | 변경 사항 기반 커밋 메시지 초안을 생성합니다 | §7 |
 | Choose the model | 질의를 수행할 모델을 선택합니다 | §3.6a · §5.1 |
 | Choose the backend | 사용할 백엔드 프로파일을 선택합니다 | §3.6a · §5.1 |
-| Update this companion | 최신 빌드로 업데이트 후 데몬을 재기동합니다 (확인 대화상자 선행) | §3.6a |
+| Update this companion | 최신 빌드로 업데이트합니다. 확인 대화상자가 **둘을 고르게 합니다** — **Update, restart when idle**(기본으로 먼저 놓임: 새 빌드는 지금 디스크에 놓고 재기동은 컴패니언이 조용해질 때)와 **Update and restart now**(지금 돌아가는 턴을 끝내고 갈아치움). 어느 쪽이 일어났는지는 데몬이 제 말로 답합니다 | §3.6a |
 | Restart this companion | 데몬 프로세스를 재시작합니다 (확인 대화상자 선행) | §3.6a |
 | Choose the approval mode | 승인 모드를 변경합니다 (ask · auto · allow · deny) | §3.6a · §5.1 |
 | Open another conversation | 타 대화 세션을 읽기 전용으로 조회합니다 | §7.1 |

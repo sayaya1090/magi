@@ -4,7 +4,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { OwnedCompanion, REPLACE_BY_MS } from '../core/lifecycle';
+import { DEFERRED_REPLACE_BY_MS, OwnedCompanion, REPLACE_BY_MS } from '../core/lifecycle';
 import { Daemon } from '../core/daemon';
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -236,6 +236,7 @@ test('the start path shows the unowned-core warning', () => {
 
 type Inner = {
   replacing(now?: number): void;
+  replacingWhenIdle(now?: number): void;
   ended(now: number, child?: ChildProcess): void;
   theirs(): boolean;
   budget: { may(now: number, manual?: boolean): string; ready(now: number): void };
@@ -294,6 +295,36 @@ test('a replacement that never came is not a pardon for what crashes later', () 
   c.ended(REPLACE_BY_MS + 1);     // what died later died on its own
   assert.equal(c.theirs(), true,
     'an ending past the shutdown budget was treated as the replacement that never happened');
+});
+
+/**
+ * A replacement that waits for a quiet moment is still the person's own button.
+ *
+ * ⚠ **Five seconds is the wrong window for this one.** `update` with `idle` puts the build on disk
+ * now and restarts when the companion next goes quiet — which is minutes away if a turn is running,
+ * and that is exactly the case somebody chooses it for. Counted against the immediate window, the
+ * ending that finally arrives is read as a crash: the defect `c5373a08` fixed for the other path,
+ * coming back through the new door.
+ */
+test('an update that waits for a quiet moment is not a crash when it finally lands', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-replace-idle-'));
+  const c = window_(dir);
+  c.budget.ready(0);
+  c.replacingWhenIdle(0);
+  // Four minutes of turn, then the companion goes quiet and the deferred restart happens.
+  c.ended(4 * 60_000);
+  assert.equal(c.theirs(), false,
+    'the deferred restart was counted as a crash — three of those and this window stops starting it');
+});
+
+/** And that latch is still bounded: a replacement that never came pardons nothing a day later. */
+test('a deferred replacement that never came is not a pardon forever', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-replace-never-'));
+  const c = window_(dir);
+  c.budget.ready(0);
+  c.replacingWhenIdle(0);
+  c.ended(DEFERRED_REPLACE_BY_MS + 1);
+  assert.equal(c.theirs(), true, 'a stale latch pardoned a real crash');
 });
 
 /**

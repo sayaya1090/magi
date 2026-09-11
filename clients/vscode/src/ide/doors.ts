@@ -219,16 +219,27 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
      * across the network door on purpose, so this is only ever the companion for this workspace.
      */
     reg('magi.updateCore', async () => {
+      // Two answers, and waiting is the one offered first — a person updating a companion is not
+      // asking to throw away the turn it is running. The other is there because sometimes that IS
+      // what they want, and a button that only ever waits would have them hunting for a way to say
+      // so. Which one happened is in the daemon's own reply.
+      const wait = 'Update, restart when idle';
+      const now = 'Update and restart now';
       const ok = await vscode.window.showWarningMessage(
-        'Update this companion? A running turn ends when it restarts.',
-        { modal: true }, 'Update');
-      if (ok !== 'Update') return;
+        'Update this companion?',
+        { modal: true, detail: 'Restarting ends whatever turn is running. It can wait for a quiet '
+          + 'moment instead — the new build is put on disk either way.' },
+        wait, now);
+      if (ok !== wait && ok !== now) return;
       // ⚠ **Before the door, and this is the only moment it can be said.** On Windows the update's
       // restart ENDS the process this window owns — no execve there, so the daemon spawns a
       // successor and exits (measured: the owned child was gone 27ms after the door answered). The
       // window's exit handler would otherwise count the person's own button as a crash.
-      owner.replacing();
-      const r = await call('update');
+      //
+      // The deferred one gets a latch rather than the five-second window: its ending arrives when
+      // the companion next goes quiet, which may be minutes away (see `replacingWhenIdle`).
+      if (ok === wait) owner.replacingWhenIdle(); else owner.replacing();
+      const r = await call('update', ok === wait ? { name: 'idle' } : {});
       // The daemon's own words: it knows whether anything changed and whether it can restart.
       if (r) void vscode.window.showInformationMessage(`magi: ${r.out || 'already up to date'}`);
     }),
