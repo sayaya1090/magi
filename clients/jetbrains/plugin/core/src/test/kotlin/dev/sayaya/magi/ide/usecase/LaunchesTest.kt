@@ -65,6 +65,7 @@ class LaunchesTest {
                     }
                     s.containsKey("spawned") -> l.spawned(s["spawned"]!!.jsonPrimitive.long)
                     s.containsKey("ready") -> l.ready(s["ready"]!!.jsonPrimitive.long)
+                    s.containsKey("connected") -> l.connected(s["connected"]!!.jsonPrimitive.long)
                     s.containsKey("stable") -> l.stable(s["stable"]!!.jsonPrimitive.long)
                     s.containsKey("lost") -> l.lost(s["lost"]!!.jsonPrimitive.long)
                     s.containsKey("failed") -> l.failed(s["failed"]!!.jsonPrimitive.long)

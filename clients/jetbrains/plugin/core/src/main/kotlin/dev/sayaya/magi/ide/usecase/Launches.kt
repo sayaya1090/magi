@@ -3,7 +3,7 @@ package dev.sayaya.magi.ide.usecase
 /**
  * 자동 기동을 언제 허락하는가 — **한 워크스페이스의 예산**.
  *
- * [Restarts] 를 대신한다. 둘 다 「폭주를 막는다」를 하려 했는데 규칙이 달랐다: 이쪽 판은
+ * 옛 `Restarts` 를 대신하고 그것은 지웠다. 둘 다 「폭주를 막는다」를 하려 했는데 규칙이 달랐다: 이쪽 판은
  * 「평생 3회, 60초 간격」이었고 VS Code 는 「60초 이동 구간에 3회」였다(2026-09-11 실측).
  * 둘 다 말이 되고 **같은 규칙이 아니다**, 그게 문제다. 이제 계약이 한 곳에 있다 —
  * `clients/contract/lifecycle-policy.json`, 그리고 `docs/CLIENT_LIFECYCLE` §5.
@@ -20,7 +20,12 @@ class Launches(
     private val windowMs: Long = 60_000,
     private val spawnsPerWindow: Int = 3,
     private val failuresToBlock: Int = 3,
-    private val graceMs: Long = 5_000,
+    /**
+     * 끊긴 뒤 새 프로세스를 안 띄우는 시간. **부르는 쪽이 실제로 기다리는 시간과 같은 값이어야
+     * 한다** — 그래서 `private` 이 아니다. 화면 쪽이 제 상수로 따로 5초를 적고 있었고, 둘 중
+     * 하나만 고치는 날이 이 계약이 막으려는 그 날이다.
+     */
+    val graceMs: Long = 5_000,
     private val stableMs: Long = 60_000,
 ) {
     /** 왜 안 되는지까지 말한다 — 「안 됨」 하나로 접으면 화면이 사람에게 할 말이 없다. */
@@ -84,6 +89,18 @@ class Launches(
     @Synchronized
     fun stable(now: Long) {
         clear()
+    }
+
+    /**
+     * 폴이 「붙어 있다」를 보았다. 처음이면 [ready], 안정 구간을 넘겼으면 [stable].
+     *
+     * 클라이언트는 사건이 아니라 **폴**로 연결을 안다 — 그래서 「얼마나 붙어 있었나」의 판정을
+     * 화면 쪽에 맡기면 두 편집기가 각자 제 「안정」을 지어낸다. 정책이 스스로 정한다.
+     */
+    @Synchronized
+    fun connected(now: Long) {
+        val since = readyAt
+        if (since == null) ready(now) else if (now - since >= stableMs) stable(now)
     }
 
     /** 끊겼다. 유예가 여기서 시작한다 — 죽어 가는 데몬과 새 데몬이 소켓을 두고 다투지 않게. */

@@ -33,6 +33,7 @@ test('every case in the shared contract passes', () => {
         assert.equal(got, s.want, `«${c.name}» at ${s.ask}ms`);
       } else if ('spawned' in s) l.spawned(s.spawned);
       else if ('ready' in s) l.ready(s.ready);
+      else if ('connected' in s) l.connected(s.connected);
       else if ('stable' in s) l.stable(s.stable);
       else if ('lost' in s) l.lost(s.lost);
       else if ('failed' in s) l.failed(s.failed);

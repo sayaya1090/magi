@@ -69,6 +69,17 @@ export class Launches {
   /** Connected for the whole stable window. The only thing that clears the counts. */
   stable(_now: number): void { this.clear(); }
 
+  /**
+   * A poll saw a connection. First sight is `ready`; past the stable window it is `stable`.
+   *
+   * A client learns it is connected by POLLING, not by one event, so leaving "how long has it been
+   * up" to the UI layer means both editors invent their own idea of stable. The policy decides.
+   */
+  connected(now: number): void {
+    if (this.readyAt === null) this.ready(now);
+    else if (now - this.readyAt >= this.p.stableMs) this.stable(now);
+  }
+
   /** The connection went away. The grace starts here, so a dying daemon and a new one do not fight
    * over the socket. */
   lost(now: number): void {

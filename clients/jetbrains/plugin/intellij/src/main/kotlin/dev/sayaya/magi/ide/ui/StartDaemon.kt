@@ -11,7 +11,7 @@ import com.intellij.openapi.ui.Messages
 import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Reach
-import dev.sayaya.magi.ide.usecase.Restarts
+import dev.sayaya.magi.ide.usecase.Launches
 import dev.sayaya.magi.ide.usecase.DaemonProcess
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.Disposable
@@ -37,10 +37,10 @@ internal object StartDaemon {
     private val LOG = Logger.getInstance(StartDaemon::class.java)
 
     /**
-     * 프로젝트별 재기동 예산 관리 모델([Restarts]).
+     * 프로젝트별 재기동 예산 관리 모델([Launches]).
      * 데몬이 비정상 종료된 후 영구 미기동 상태로 방치되는 문제를 해결하기 위해 지수 백오프 기반 재시도 예산을 관리합니다.
      */
-    private val budget = java.util.Collections.synchronizedMap(mutableMapOf<String, Restarts>())
+    private val budget = java.util.Collections.synchronizedMap(mutableMapOf<String, Launches>())
 
     /** 기동 진행 중인 워크스페이스 타임스탬프 맵 (상태 표시줄의 '시작하는 중' 상태 표현용). */
     private val starting = java.util.Collections.synchronizedMap(mutableMapOf<String, Long>())
@@ -58,7 +58,14 @@ internal object StartDaemon {
     private const val STARTING_WINDOW = 30_000L
 
     /** 코어 자동 업데이트 재시작 대기 유예 시간 (5초, `syscall.Exec` 소켓 재생성 대기). */
-    private const val RESTART_GRACE = 5_000L
+    /**
+     * 갱신 재시작을 기다려 주는 시간 — **정책의 유예와 같은 값이다.**
+     *
+     * 예전엔 여기 5초가 따로 적혀 있었다. [Launches.graceMs] 도 5초라 우연히 맞았을 뿐이고,
+     * 둘 중 하나만 고치면 이 잠이 끝난 직후 정책이 「아직 유예 중」이라며 거절하거나(안 뜬다),
+     * 정책이 허락하는데 아직 죽어 가는 데몬과 소켓을 다투게 된다. 한 곳에서 온다.
+     */
+    private val RESTART_GRACE = Launches().graceMs
 
     /**
      * 데몬 자동 기동 허용 여부를 판정합니다.
@@ -106,8 +113,12 @@ internal object StartDaemon {
             when (val r = DaemonClient.reach(sock)) {
                 is Reach.Listening -> {
                     lifecycle.external = !owner.running
-                    // 정상 연결 확인 시 재기동 예산 복구
-                    budget[base]?.ok()
+                    // ⚠ **붙었다고 곧바로 용서하지 않는다.** 예전엔 여기서 예산을 통째로 되돌렸는데,
+                    // 그러면 떴다가 2초 만에 죽기를 되풀이하는 데몬이 매 폴마다 용서받아 영원히
+                    // 재시도된다 — 준비 시한을 넘긴 적이 없으니 실패로 한 번도 안 세인다.
+                    // [Launches.connected] 가 「붙은 채로 얼마나 지났나」를 스스로 세고, 안정 구간을
+                    // 넘겼을 때만 지운다(`clients/contract/lifecycle-policy.json`).
+                    budget.getOrPut(base) { Launches() }.connected(System.currentTimeMillis())
                     starting.remove(sock.toString())
                 }
                 // 데몬 상태 확인 실패 시 이중 기동 방지를 위해 기동을 보류합니다 (모름 != 없음).
@@ -116,16 +127,25 @@ internal object StartDaemon {
                     if (lifecycle.external) return@executeOnPooledThread
                     // 코어 자체 업데이트 유예 시간 대기:
                     // 유닉스 환경에서 `syscall.Exec`를 통한 자가 업데이트 시 소켓이 일시 재생성되므로 유예 시간 후 재확인합니다.
+                    // ⚠ **손실은 여기서 적는다 — 잠들기 전에.** 유예는 「끊긴 뒤 5초는 새로 안
+                    // 띄운다」이고, 잠든 뒤에 적으면 그 5초가 방금 시작한 것이 되어 [Launches.may]
+                    // 가 언제나 유예로 거절한다(이 배선의 첫 판이 그랬다). 아래 `Thread.sleep` 이
+                    // 바로 그 5초를 실제로 보내므로, 시각을 여기 박아 두면 둘이 같은 창을 말한다.
+                    budget.getOrPut(base) { Launches() }.lost(System.currentTimeMillis())
                     Thread.sleep(RESTART_GRACE)
                     if (DaemonClient.reach(sock) is Reach.Listening) {
                         LOG.info("magi: 유예 시간 내 데몬 재연결 확인 (업데이트 재시작 감지)")
-                        budget[base]?.ok()
+                        // 사람이 시킨 갱신 교체는 **실패가 아니다** — 프로세스가 바뀐 것은 맞지만
+                        // 아무것도 안 깨졌다. 그렇다고 예산을 지우지도 않는다: 아직 붙어 있기만 하다.
+                        budget.getOrPut(base) { Launches() }.replaced(System.currentTimeMillis())
                         return@executeOnPooledThread
                     }
                     if (project.isDisposed) return@executeOnPooledThread
                     // 실제 기동 결정 시점에만 재기동 예산을 차감합니다.
-                    val b = budget.getOrPut(base) { Restarts() }
-                    if (!b.take(System.currentTimeMillis())) return@executeOnPooledThread
+                    val b = budget.getOrPut(base) { Launches() }
+                    val now = System.currentTimeMillis()
+                    if (b.may(now) != Launches.Verdict.Allow) return@executeOnPooledThread
+                    b.spawned(now)
                     com.intellij.openapi.util.Disposer.register(project) { budget.remove(base); starting.remove(sock.toString()) }
                     ensureBinaryThenStart(project, base, sock, owner)
                 }

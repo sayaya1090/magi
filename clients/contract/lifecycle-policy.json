@@ -112,6 +112,28 @@
       ]
     },
     {
+      "name": "polling sees a connection, and only a minute of it forgives",
+      "$why": [
+        "A client learns it is connected by polling, not by a single event, so the policy takes",
+        "`connected` repeatedly and decides for itself when enough of it has passed. Written as a",
+        "case because both clients poll and both would otherwise invent their own idea of 'stable'.",
+        "Blocked rather than budget-spent on purpose: the stable window and the rolling window are",
+        "both a minute, so by the time one elapses the other has slid and a budget case could not",
+        "tell which rule did the forgiving."
+      ],
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001}, {"failed": 65001},
+        {"ask": 70002, "want": "allow"}, {"spawned": 70002}, {"failed": 100002},
+        {"ask": 200000, "want": "blocked"},
+        {"connected": 200000},
+        {"connected": 230000},
+        {"ask": 230000, "want": "blocked"},
+        {"connected": 260000},
+        {"ask": 260000, "want": "allow"}
+      ]
+    },
+    {
       "name": "a shutdown the person asked for stops the automatic starts",
       "$why": "docs/CLIENT_LIFECYCLE §5: 사용자가 명시적으로 종료한 소유 데몬은 Blocked 에 두고 자동 기동을 중지한다. Reviving it is arguing with the person.",
       "steps": [
