@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Daemon } from './daemon';
+import { features } from './binary';
 import { socketPath, tooLong } from './workspace';
 import { Launches } from './launches';
 
@@ -59,10 +60,20 @@ export class OwnedCompanion {
     const log = this.socket + '.log';
     fs.mkdirSync(path.dirname(log), { recursive: true });
     const fd = fs.openSync(log, 'a', 0o600);
+    // ⚠ **Ask before using it.** A build without the owned mode refuses the flag and exits 2, and
+    // the window would report "Companion failed to start" for a binary that is perfectly fine —
+    // docs/CLIENT_LIFECYCLE §4: an old core keeps the old lifetime rather than being handed a mode
+    // it does not understand.
+    const owned = (await features(binary)).has('owned-daemon-v1');
     let child: ChildProcess;
     try {
-      child = spawn(binary, ['--daemon'], {
-        cwd: this.workdir, env: process.env, windowsHide: true, stdio: ['ignore', fd, fd],
+      child = spawn(binary, owned ? ['--daemon', '--client-owned'] : ['--daemon'], {
+        cwd: this.workdir, env: process.env, windowsHide: true,
+        // The owner's pipe, and the only thing that carries lifetime authority: this window holds
+        // the write end and hands it to nobody, so the daemon goes when this window does — even if
+        // the extension host is killed and no `deactivate` ever runs. Without the mode, stdin stays
+        // ignored and the lifetime is exactly what it was.
+        stdio: [owned ? 'pipe' : 'ignore', fd, fd],
       });
     } finally { fs.closeSync(fd); }
     this.child = child;

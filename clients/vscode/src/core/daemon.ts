@@ -1,7 +1,7 @@
 import * as net from 'net';
 import { Duplex } from 'stream';
 import { spawn } from 'child_process';
-import { found } from './binary';
+import { features, found, whyNoRelay } from './binary';
 import { Request, Response } from './protocol';
 
 /**
@@ -47,6 +47,18 @@ export class Daemon {
   /** Go owns AF_UNIX on Windows; Node's path transport uses named pipes there. */
   static async bridge(path: string, connectMs = 5000, binary = found()): Promise<Daemon> {
     if (!binary) throw new Error('magi.exe is needed to connect on Windows; put it on PATH.');
+    // ⚠ **Ask whether this build can relay before spawning one that cannot.**
+    //
+    // A core older than `--raw-socket` refuses the flag and exits 2, and everything downstream then
+    // reports a connection that "nothing answered" — a sentence about the daemon, for a problem in
+    // the executable beside it. docs/CLIENT_LIFECYCLE §2 names this gap for the Windows transport:
+    // "구형 코어의 relay 지원 여부를 연결 전에 확인".
+    //
+    // Costs one short probe per connection on Windows only: it contacts no daemon and touches no
+    // disk, and an answer that does not come inside the contract's five seconds is a binary that
+    // was not going to work anyway.
+    const refusal = whyNoRelay(await features(binary), binary);
+    if (refusal) throw new Error(refusal);
     const child = spawn(binary, ['ide-bridge', '--raw-socket', path], { windowsHide: true, stdio: 'pipe' });
     const sock = Duplex.from({ readable: child.stdout, writable: child.stdin });
     let why = '';

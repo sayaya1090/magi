@@ -6,6 +6,7 @@ import {
   Launches, Policy, Verdict, backoffMs,
   BACKOFF_JITTER, BACKOFF_STEPS_MS, BACKOFF_CAP_MS, DEFAULT_POLICY,
 } from '../core/launches';
+import { whyNoRelay } from '../core/binary';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const contract = JSON.parse(
@@ -150,4 +151,48 @@ test('the owned companion asks the policy instead of keeping its own rule', () =
   // ⚠ The numbers live in the contract. A literal here is a second copy that only one person edits.
   assert.ok(!/60_000|30_000\s*\)/.test(src.replace(/Date\.now\(\) \+ 30_000/g, '')),
     'a policy number is written in the window again — it belongs to the contract');
+});
+
+/**
+ * Windows cannot dial the daemon's socket at all, so the extension spawns `magi ide-bridge
+ * --raw-socket` as a relay — and a core too old for that flag exits 2, leaving every layer above to
+ * report "nothing answered" about a daemon that is fine (docs/CLIENT_LIFECYCLE §2).
+ *
+ * ⚠ **Measured by calling the decision, not by reading the source for it.** The first guard here
+ * looked for the words `features(` and `raw-socket-v1` in `bridge()`, and a mutation that kept
+ * every one of those words while switching the check off (`… && false`) passed it. So the decision
+ * is its own function and this calls it.
+ */
+test('a binary that cannot relay is refused before anything is spawned', () => {
+  assert.equal(whyNoRelay(new Set(['raw-socket-v1']), 'magi.exe'), null,
+    'a build that CAN relay is refused — Windows would never connect');
+  const why = whyNoRelay(new Set(['owned-daemon-v1']), 'C:/old/magi.exe');
+  assert.ok(why, 'a build with no relay is allowed through — the failure reads as a dead daemon');
+  assert.ok(why!.includes('C:/old/magi.exe'), `the refusal does not say which binary: ${why}`);
+  assert.ok(why!.includes('raw-socket-v1'), `the refusal does not say what is missing: ${why}`);
+  // An empty answer is what every probe failure looks like — refused flag, bad JSON, timeout — and
+  // all of them mean the same thing here.
+  assert.ok(whyNoRelay(new Set(), 'magi'), 'an unanswerable probe is treated as "it can relay"');
+});
+
+/**
+ * And the relay actually asks. The call site is source-read because `bridge()` spawns a process.
+ */
+test('the Windows relay calls that decision before spawning', () => {
+  const src = fs.readFileSync(path.join(REPO, 'clients/vscode/src/core/daemon.ts'), 'utf8');
+  const at = src.indexOf('static async bridge(');
+  assert.ok(at > 0, 'the relay is gone — this rule is reading nothing');
+  const body = src.slice(at, at + 2000);
+  const spawnAt = body.indexOf('spawn(');
+  assert.ok(spawnAt > 0, 'the relay no longer spawns — the anchor is wrong');
+  const before = body.slice(0, spawnAt);
+  assert.ok(before.includes('whyNoRelay('),
+    'the relay spawns before asking whether this build has one');
+  // ⚠ **Asking is not refusing.** Pinned as the whole statement: a mutation that kept the call and
+  // dropped the throw (`void refusal;`) passed a guard that only looked for the call — the same
+  // shape this tree has been caught by before.
+  // ⚠ `[^)]*` cannot cross the inner `features(binary)` call — the first spelling of this rejected
+  // the real code. `[\s\S]*?` up to the statement's own semicolon.
+  assert.ok(/const refusal = whyNoRelay\([\s\S]*?\);\s*if \(refusal\) throw new Error\(refusal\);/.test(before),
+    'the relay asks and then ignores the answer — an old binary is spawned anyway');
 });

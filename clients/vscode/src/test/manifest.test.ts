@@ -224,10 +224,36 @@ test('every capability the client checks is one the daemon advertises', () => {
     }
   }
   assert.ok(checked.size >= 5, `only ${checked.size} capability checks found — this guard is not reading them`);
+
+  // ⚠ **Two vocabularies, not one.** A daemon CAPABILITY is negotiated over the socket (`caps` in
+  // the `about` handshake); a binary FEATURE is what `magi ide-bridge --features` answers about the
+  // executable itself, without any daemon at all — `raw-socket-v1`, `owned-daemon-v1`. They look
+  // identical at a `.has('…')` call site, and reading one list for both made this guard report a
+  // correct feature check as a dead capability.
+  //
+  // Both are still read from the Go source, so a name gated on and advertised by NOBODY is caught
+  // exactly as before. What changed is only which list a name is allowed to be in.
+  const bridge = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'internal', 'adapter', 'idebridge', 'bridge.go'), 'utf8');
+  const entry = bridge.slice(bridge.indexOf('var features = '), bridge.indexOf('func featuresOf'));
+  const binaryFeatures = new Set<string>();
+  for (const m of entry.matchAll(/\{"([a-z][a-z0-9-]*)",/g)) binaryFeatures.add(m[1]);
+  // The binary also names features the bridge package cannot derive — the modes that live in
+  // `cmd/magi`, handed to `idebridge.Run` as extra arguments.
+  const cmd = fs.readFileSync(
+    path.join(__dirname, '..', '..', '..', '..', 'cmd', 'magi', 'main.go'), 'utf8');
+  const call = cmd.slice(cmd.indexOf('idebridge.Run('));
+  for (const m of call.slice(0, call.indexOf(')')).matchAll(/"([a-z][a-z0-9-]*-v\d+)"/g)) {
+    binaryFeatures.add(m[1]);
+  }
+  assert.ok(binaryFeatures.size >= 2,
+    `only ${binaryFeatures.size} binary features found in the Go source — this guard is not reading them`);
+
   for (const [cap, where] of checked) {
-    assert.ok(advertised.has(cap),
-      `${where} gates on capability "${cap}", which the daemon never advertises — that command is ` +
-      'dead on every build. Call the door instead and show the daemon\'s own refusal.');
+    assert.ok(advertised.has(cap) || binaryFeatures.has(cap),
+      `${where} gates on "${cap}", which neither the daemon advertises as a capability nor the ` +
+      'binary answers as a feature — that branch is dead on every build. Call the door and show ' +
+      'the daemon\'s own refusal, or name the feature where it is answered.');
   }
 });
 
