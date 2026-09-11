@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Daemon } from './daemon';
 import { socketPath, tooLong } from './workspace';
+import { Launches } from './launches';
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const alive = (p: ChildProcess) => p.pid !== undefined && p.exitCode === null && p.signalCode === null;
@@ -13,7 +14,13 @@ export class OwnedCompanion {
   private pending?: Promise<void>;
   private closing?: Promise<void>;
   private closed = false;
-  private attempts: number[] = [];
+  /**
+   * The launch budget, as the shared contract states it — `clients/contract/lifecycle-policy.json`.
+   *
+   * It used to be a bare array of timestamps here and a different rule again in the JetBrains
+   * client, which is how two editors ended up green on two policies (measured 2026-09-11).
+   */
+  private readonly budget = new Launches();
   private external = false;
   readonly socket: string;
 
@@ -37,13 +44,17 @@ export class OwnedCompanion {
     if (long) throw new Error(long);
     if (await this.reachable()) {
       this.external = !this.child || !alive(this.child);
-      this.attempts = [];
+      // ⚠ **Being reachable forgives nothing on its own.** This used to clear the whole budget, so
+      // a daemon that came up and died every few seconds was pardoned on every poll and retried
+      // forever — it never missed the ready deadline, so nothing ever counted it as a failure.
+      // `connected` counts how long it has actually held, and only a minute of it clears anything.
+      this.budget.connected(Date.now());
       return;
     }
     if (this.closed || (this.child && alive(this.child))) return;
-    this.attempts = this.attempts.filter((t) => Date.now() - t < 60_000);
-    if (!manual && this.attempts.length >= 3) return;
-    this.attempts.push(Date.now());
+    const now = Date.now();
+    if (this.budget.may(now, manual) !== 'allow') return;
+    this.budget.spawned(now);
     this.external = false;
     const log = this.socket + '.log';
     fs.mkdirSync(path.dirname(log), { recursive: true });
@@ -57,13 +68,24 @@ export class OwnedCompanion {
     this.child = child;
     let failure: Error | undefined;
     child.on('error', (e) => { failure = e; });
+    // The moment of loss, recorded where it happens rather than where the next start is decided.
+    // Putting it beside `may` would be recording a loss and then asking whether the grace has
+    // passed in the same breath — the answer is always no, and nothing ever starts again.
+    child.on('exit', () => { if (!this.closed) this.budget.lost(Date.now()); });
     const end = Date.now() + 30_000;
     while (!this.closed && !failure && alive(child) && Date.now() < end) {
-      if (this.publishedPID() === child.pid && await this.reachable()) return;
+      if (this.publishedPID() === child.pid && await this.reachable()) {
+        this.budget.ready(Date.now());
+        return;
+      }
       await pause(100);
     }
     if (this.closed) return;
     if (!failure && await this.reachable()) { this.external = true; return; }
+    // Missed the ready deadline, or died on the way up. Counted apart from the rolling window: a
+    // window slides and forgives, a run of failures must not — otherwise a crashloop is pardoned
+    // once a minute, forever.
+    this.budget.failed(Date.now());
     const reason = failure?.message ?? (alive(child) ? 'timed out after 30s' : `exit ${child.exitCode ?? child.signalCode}`);
     await this.stop(child);
     throw new Error(`Companion failed to start: ${reason}. Log: ${log}`);

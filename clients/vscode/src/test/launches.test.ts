@@ -125,3 +125,29 @@ test('the backoff ladder is the contract', () => {
   assert.equal(BACKOFF_CAP_MS, contract.policy.backoffCapMs,
     'the cap this client applies is not the contract\'s');
 });
+
+/**
+ * The policy being right is not the same as the window using it.
+ *
+ * `OwnedCompanion` had its own rule — a bare array of spawn timestamps — and the contract tests
+ * above would stay green forever while the extension kept the old one. So the CALL SITE is pinned
+ * too. `lifecycle.ts` imports `vscode`-free code but `OwnedCompanion` spawns processes, so this
+ * reads the source the way the JetBrains side reads its Kotlin.
+ */
+test('the owned companion asks the policy instead of keeping its own rule', () => {
+  const src = fs.readFileSync(path.join(REPO, 'clients/vscode/src/core/lifecycle.ts'), 'utf8');
+  assert.ok(src.includes('new Launches('),
+    'the window does not use the shared policy at all — the contract never reaches the screen');
+  assert.ok(!/this\.attempts/.test(src),
+    'the old timestamp array is still there — two rules in one file is how they drift');
+  assert.ok(src.includes('.connected('),
+    'nothing tells the policy the daemon is up, so the stable window is never counted and the '
+    + 'budget never comes back');
+  assert.ok(src.includes('.may(') && src.includes('.spawned('),
+    'it spawns without asking, or spawns without saying so — the rolling window counts nothing');
+  assert.ok(src.includes('.failed(') && src.includes('.lost('),
+    'a failed start or a lost daemon is never reported, so a crashloop is never blocked');
+  // ⚠ The numbers live in the contract. A literal here is a second copy that only one person edits.
+  assert.ok(!/60_000|30_000\s*\)/.test(src.replace(/Date\.now\(\) \+ 30_000/g, '')),
+    'a policy number is written in the window again — it belongs to the contract');
+});
