@@ -169,3 +169,58 @@ var (
 	permOnce sync.Once
 	permErr  error
 )
+
+// BlockWrites arranges for writes to path to fail while reads still succeed, and skips the test
+// where this machine cannot arrange it. The arrangement is undone when the test ends.
+//
+// ⚠ **"Make the directory read-only" is a POSIX sentence, and Windows does not speak it.** Chmod
+// there toggles one thing — the read-only attribute — and on a DIRECTORY that attribute does not
+// stop anybody creating, replacing or deleting the files inside it. So a test that set 0500 and
+// then expected the write to fail got a write that succeeded, and asserted about a refusal that
+// never happened. Measured 2026-09-11 as `a token that could not be spent must not admit anybody:
+// "lee" true` — a security test reporting a breach, about a token that was spent correctly because
+// the directory it was told to protect was never protected.
+//
+// The second arrangement is the one Windows does make: Go's os.Open does not ask for
+// FILE_SHARE_DELETE, so a file somebody holds open cannot be deleted or renamed over, while
+// reading it stays fine. That is the same platform fact internal/atomicfile is built around, used
+// here to state a precondition instead of to survive one.
+//
+// Both are PROBED, never assumed from GOOS — the first on a scratch file in the directory, the
+// second on a sibling — because the question is what this filesystem does, and a test that trusts
+// its own setup is a test that can pass without ever reaching what it is for.
+func BlockWrites(t *testing.T, dir, path string) {
+	t.Helper()
+	// 1. Take write permission off the directory, and check that it took.
+	if err := os.Chmod(dir, 0o500); err == nil {
+		probe := filepath.Join(dir, ".writeprobe")
+		f, perr := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o600)
+		if perr != nil {
+			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+			return
+		}
+		f.Close()
+		_ = os.Remove(probe)
+		_ = os.Chmod(dir, 0o700) // it did not take; do not leave the directory altered
+	}
+	// 2. Hold the file open. Verified on a sibling so the target is never at risk.
+	sibling := filepath.Join(dir, ".deleteprobe")
+	if err := os.WriteFile(sibling, []byte("x"), 0o600); err != nil {
+		t.Skipf("이 디렉터리에 쓸 수가 없어 전제를 세울 수 없다: %v", err)
+	}
+	sf, err := os.Open(sibling)
+	if err != nil {
+		t.Skipf("전제를 세울 수 없다: %v", err)
+	}
+	rerr := os.Remove(sibling)
+	sf.Close()
+	_ = os.Remove(sibling)
+	if rerr == nil {
+		t.Skip("이 플랫폼은 쓰기를 막을 방법이 없다: 디렉터리를 읽기전용으로 해도, 핸들을 열어 둬도 쓰기가 된다")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Skipf("막을 대상을 열 수 없다: %v", err)
+	}
+	t.Cleanup(func() { f.Close() })
+}

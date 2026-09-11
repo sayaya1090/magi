@@ -3,6 +3,8 @@ package identity
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/sayaya1090/magi/internal/testenv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -115,16 +117,26 @@ func TestAnInvitationMintedDuringAJoinIsNotLost(t *testing.T) {
 }
 
 // A file that cannot be written says so, instead of reporting the invitation as never open.
+//
+// ⚠ **The precondition is the whole test, and it used to be a POSIX sentence.** `os.Chmod(dir,
+// 0o500)` makes a directory unwritable on Unix and does nothing of the kind on Windows, where that
+// attribute does not stop anything being created, replaced or deleted inside. So the write
+// succeeded, Redeem spent the token correctly, and the assertion below fired — a security test
+// announcing that an unspendable invitation admitted somebody, about an invitation that was
+// perfectly spendable. Measured 2026-09-11 as `"lee" true`.
+//
+// testenv.BlockWrites states the precondition in whatever way this machine actually honours, and
+// skips out loud where it cannot. That matters more here than in most places: this is the one
+// check standing between a failed write and a door that opens anyway, and a skip says so while a
+// false red teaches the reader to skim past it.
 func TestAnUnspendableInvitationReportsWhy(t *testing.T) {
 	dir := t.TempDir()
 	tok, err := Mint(dir, "lee")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cerr := os.Chmod(dir, 0o500); cerr != nil { // readable, not writable
-		t.Skip("cannot make the directory read-only here")
-	}
-	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	testenv.BlockWrites(t, dir, filepath.Join(dir, TokenFile))
+
 	label, ok, rerr := Redeem(dir, tok)
 	if ok || label != "" {
 		t.Fatalf("a token that could not be spent must not admit anybody: %q %v", label, ok)
