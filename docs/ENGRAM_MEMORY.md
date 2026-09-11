@@ -97,7 +97,9 @@ Project/team/global become namespace scopes and bindings rather than authoritati
 
 SQLite is **local-disk only**. Do not share a WAL database over a network filesystem. Following the [SQLite WAL documentation](https://www.sqlite.org/wal.html), network workspaces keep logs/databases in local config and only export views into the workspace. exp-sync does not replicate database files.
 
-**Use `modernc.org/sqlite`.** Preserve [.goreleaser.yaml](../.goreleaser.yaml)'s `CGO_ENABLED=0` and all six darwin/linux/windows × amd64/arm64 targets. CGO-free is mandatory; this design selects [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite). Work package A pins a compatible version and its libc dependency, builds all six targets, and tests database opening, FTS5 and recovery on each OS. Do not enable CGO or remove release targets to accommodate the driver.
+**CGO-free is mandatory; `modernc.org/sqlite` is the driver adoption candidate.** [.goreleaser.yaml](../.goreleaser.yaml) specifies `CGO_ENABLED=0` and all six darwin/linux/windows × amd64/arm64 combinations, with no ignores. Work package A first builds and runs **windows/arm64**, checking database opening, FTS5 and recovery, then validates the other five combinations before finalizing the driver/libc versions. Candidate selection does not establish six-target support. A failure blocks adoption and requires design review; do not enable CGO or remove targets.
+
+The driver-introduction commit must regenerate [THIRD_PARTY_LICENSES](../THIRD_PARTY_LICENSES) through `make licenses`. The [generator](../scripts/gen_licenses.sh) uses `go list -deps ./cmd/magi`; compare attribution against actual module dependencies for all six targets instead of trusting the host result alone. If dependencies differ, update generation to cover their union. M11 also checks that the release archive includes the regenerated file.
 
 ### 3.2 Concrete JSON and local database shape
 
@@ -276,6 +278,10 @@ Initial policy: **retain active canonical content/evidence; superseded bodies be
 
 GC creates an admin-signed checkpoint containing active objects, required evidence, aliases, minimal tombstones, the covered operation-set Merkle root, deletion hashes and replication epoch. Commit only after all admitted replicas durably acknowledge it or an administrator revokes unresponsive devices. Elapsed time is not acknowledgment. Validate pre-checkpoint parents through its certified operation set without requesting old bodies. New/rejoining revoked devices bootstrap from the current checkpoint and cannot reintroduce earlier-epoch operations.
 
+**Offline replicas deliberately delay GC by default.** A laptop offline for a month can block body GC for at least that month. The 30/90-day intervals establish eligibility, not deletion-completion deadlines. Never revoke admitted devices automatically based on age. An administrator may need to restore connectivity or explicitly revoke a device. Before revocation, explain possible loss of unsynced changes and mandatory bootstrap from the current checkpoint on rejoining.
+
+The GC view shows blocking devices, last contact, checkpoint acknowledgment time, pending body size and the reason for waiting. Send a first administrator reminder after seven days, then a weekly consolidated reminder; reminders never revoke devices or reduce quorum. Storage pressure does not force GC: pause new learning records at quota and report it, while preserving reads, withdrawals and recovery.
+
 After durably committing the checkpoint, remove targeted operation files, unreferenced blobs, old snapshots, generated views, embeddings and indexed bodies. **Never redact signed operations in place.** If a file also contains active objects, preserve their necessary state in the checkpoint before deleting the whole file. The checkpoint must not retain targeted bodies either. A staged GC journal resumes cleanup after interruption and prevents reindexing deleted material. Test local SQLite cleanup including WAL/freelist storage; ordinary deletion is not an SSD forensic-erasure guarantee.
 
 Keep minimal resurrection-prevention tombstones (object_id, withdrawal operation ID, epoch and authorization proof) without default expiration. Retain no original body, summary or sensitive reason. Restoration requiring old bodies is unavailable after grace-period expiry; earlier restoration guarantees apply only to retained revisions. Managed backups have a maximum 30-day rolling retention, and restoration applies the latest GC manifest before serving content. Show deletion as “live-store cleanup complete / managed-backup expiry pending / unverified external copies.” External exports and unauthorized copies are outside erasure guarantees.
@@ -333,7 +339,7 @@ Unify readers before ending engram's multiple writes. Use the manifest to preven
 | M08 Authorization | Reject wrong namespace, forged actor, revoked key, ACL escalation, malicious paths and modified hashes. Old peers cannot bypass tombstones. |
 | M09 Scale | Initial target: warm local candidate search p95 200 ms for 10,000 objects. Report remote embedding time separately and enforce the 3,000-token recall budget. |
 | M10 Migration | Repeated imports, regenerated views, human edits and rollback preserve content/provenance without relearning duplicates. |
-| M11 Release | Build all six targets with CGO_ENABLED=0 and pass SQLite/FTS5/recovery tests on each OS. |
+| M11 Release | Validate windows/arm64 first, then all six CGO_ENABLED=0 builds and SQLite/FTS5/recovery execution; verify union-of-target dependency attribution and archived THIRD_PARTY_LICENSES. |
 | M12 Personal recovery | Database loss, new devices, reinstall and lost keys never silently unhide knowledge; resume automatic shared recall only after recovery or explicit reset. |
 | M13 Body GC | Verify retention and non-resurrection across grace expiry, unresponsive/revoked/rejoining peers, crashes at GC boundaries and database/WAL/backup restoration. |
 | M14 Merged evidence | A={X,Y}, B={Y,Z} yields three observations after merge/replay/remerge; conflicting evidence payloads under one ID remain conflicts. |
@@ -341,16 +347,6 @@ Unify readers before ending engram's multiple writes. Use the manifest to preven
 Release reports include canonical/duplicate/conflict counts, incorrect automatic merges, post-withdrawal reappearance, scope leaks, retrieval misses and propagation latency. Fewer sentences alone do not establish success. M01–M08 and M10–M14 are mandatory; report hardware, model and corpus for M09 performance.
 
 
-## 10. Implementer review (2026-09-12)
+## 10. Implementer review incorporated (2026-09-12)
 
-Only what was actually checked in this repository. There is no real acceptance yet; the below comes from reading the code and the configuration.
-
-**§3.1's driver pin is the right call, and the evidence is measured.** I read [.goreleaser.yaml](../.goreleaser.yaml): `CGO_ENABLED=0`, `goos: [darwin, linux, windows]` × `goarch: [amd64, arm64]`, **with no ignores**. So all six targets really are built, **windows/arm64 included**. A cgo driver kills that lane outright.
-
-Which is why the first thing to check before M11 is **windows/arm64**. That is the combination where five of six work and one does not, and "pinned" is a candidate rather than a decision until that one is confirmed. Better to order it that way.
-
-**⚠ The pin drags one more thing with it — `THIRD_PARTY_LICENSES`.** This repository ships that file inside the release archive (`files:` in `.goreleaser.yaml`), and `make licenses` generates it from `go list -deps ./cmd/magi`. `modernc.org/sqlite` pulls in several modules including `modernc.org/libc`, so the commit that introduces the driver has to regenerate that file **with it**. Otherwise a release ships code whose attribution is missing — the quiet kind of breakage, so it is worth being an acceptance item.
-
-**The other three of the four points I raised are settled in this revision (`2b4a7eb2`).** Losing `state.sqlite` (§3.3 — "an empty DB is not read as 'nothing hidden'", plus M12), ledger retention and content deletion (§6.1 and M13), and the evidence key after a merge (canonical-id union, and M14's A={X,Y}, B={Y,Z} → 3). All three go further than what I asked.
-
-**§6.1's GC quorum carries one operational cost.** "Commit only after every approved replica has confirmed it durably stored the checkpoint, or an administrator has evicted the unresponsive device" is a safe rule, but **one laptop switched off for a month blocks GC for that month.** If that is the intended default it is better said out loud — "content deletion may need an administrator to move" — and if it is not, offline devices need a deadline. As written it reads as though GC proceeds on its own.
+Incorporated review `4d58fee3`. Personal-state recovery, log retention and merged evidence are addressed by §3.3, §6.1 and M12–M14. Driver adoption now starts with windows/arm64 validation; attribution regeneration is required by §3.1/M11. Section 6.1 explicitly permits offline-device GC delays until administrator action and specifies reminders and capacity handling. Actual driver adoption and acceptance tests remain outstanding.
