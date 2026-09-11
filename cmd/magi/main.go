@@ -52,7 +52,6 @@ import (
 	coremodel "github.com/sayaya1090/magi/internal/core/model"
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/envflag"
-	"github.com/sayaya1090/magi/internal/graceful"
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/update"
 	"github.com/sayaya1090/magi/internal/version"
@@ -198,11 +197,10 @@ func main() {
 		if restartSession != "" {
 			os.Setenv(restartSessionEnv, restartSession)
 		}
-		// Does not return on success (the image is replaced). If it fails, the update simply did not
-		// take effect this time — log and exit with run()'s code rather than hang.
-		if err := graceful.Reexec(); err != nil {
-			fmt.Fprintln(os.Stderr, "magi: restart:", err)
-		}
+		// Does not return on success (the image is replaced, or on Windows the successor is serving
+		// and this process leaves). What comes back is a relaunch that did not start or — Windows
+		// only — a successor that did not come up, and relaunchOnExit decides what that means.
+		code = relaunchOnExit(code)
 	}
 	os.Exit(code)
 }
@@ -1073,6 +1071,9 @@ func run() int {
 
 	ctx := context.Background()
 	sockPath := daemon.SocketPath(plat.ConfigDir(), wd)
+	// Where a successor will be looked for, if this daemon ends by relaunching. Set before any of the
+	// three places below that can ask for a relaunch, so none of them can leave it empty.
+	restarting.socket, restarting.workdir, restarting.owned = sockPath, wd, *clientOwned
 
 	// A daemon claims its workspace HERE, before it creates a session or publishes anything.
 	//

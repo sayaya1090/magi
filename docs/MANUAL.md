@@ -509,6 +509,24 @@ A refused build is still tried again when **a person asks**: `magi -update`, or 
 button, clears the mark. Stopping a daemon **on purpose** inside that window is not a build falling
 over — it is an ordinary thing to do, and reading it as a crash would undo good updates.
 
+**On Windows a candidate that dies on its first line is seen too.** Windows has no in-place replace
+(execve), so a restart **starts a new process and the old one leaves** — and the old one used to
+leave the moment it had started the new one, so a candidate that died on its first line was seen by
+nobody and the companion quietly vanished. Now the old daemon stays until the new one is **actually
+serving (up to thirty seconds)**; if it dies before that, the old one says so, puts the previous
+build back and comes up on it:
+
+```
+magi: restart: the successor (pid 12345) exited with code 2 before it was serving
+magi: restart: v0.31.0 did not come up — v0.30.2 is back on disk, and v0.31.0 will not be taken again on its own (`magi -update` retries it)
+```
+
+If the window (IDE) closed meanwhile, only the file is restored and nothing is relaunched. A new
+daemon that is merely slow is **not killed** — an antivirus holding a freshly replaced executable is
+the usual reason, and from there the sixty-second check above decides. With no previous build to go
+back to, or if that one will not come up either, it ends with an error code and says how to start it
+by hand (`magi --daemon`).
+
 **The update button need not throw away what is running.** The `update` door takes a **when**: with
 `idle`, the download and the replacement happen now and the restart waits for nothing to be in
 flight (the reply still comes back at once, saying which it did). Sent without one it restarts

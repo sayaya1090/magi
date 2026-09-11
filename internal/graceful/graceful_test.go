@@ -10,7 +10,7 @@ import (
 // test the failure path deliberately: the success path replaces the process image, which would end
 // the test binary itself.)
 func TestReexecOnAMissingBinaryReturnsWithoutReplacingTheProcess(t *testing.T) {
-	err := reexec("/nonexistent/definitely/not/a/real/binary", []string{"magi"}, os.Environ())
+	err := reexec("/nonexistent/definitely/not/a/real/binary", []string{"magi"}, os.Environ(), nil)
 	if err == nil {
 		t.Fatal("reexec on a missing binary returned nil — a failed relaunch must surface as an error, " +
 			"not silently succeed")

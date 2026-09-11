@@ -341,6 +341,60 @@ func LeftCleanly(target string) error {
 	return writeLedger(abs, l)
 }
 
+// SuccessorFailed is the previous generation saying it WATCHED the candidate fail: it started a
+// successor on the build now at target, and that process ended before it was ever serving.
+//
+// This is the failure Resume says it cannot see (⚠ on Resume: "a build that dies before Resume runs
+// never increments anything"). On Windows there is a process that can: the old generation spawns
+// its successor instead of replacing its own image, so it is still there, holding the successor's
+// handle, when the successor falls over. CLIENT_LIFECYCLE §4 — "a successor that dies right after it
+// starts, nobody sees" — is exactly this gap, and §9.3's step 6 says what to do in it: put the previous
+// build back and refuse the candidate, so the automatic path does not walk into it again (U05).
+//
+// Called by the build being replaced, so from is that build's version — the half of the record it
+// can vouch for. Three ways this leaves everything alone, each for the reason Resume leaves it:
+//
+//   - nothing pending, or the pending transaction is not a replacement OF from — a plain restart
+//     onto the same build is not evidence about any update, and somebody else's transaction is
+//     not this process's to judge.
+//   - a confirm that was under way — that build already lasted its window.
+//   - another generation holds the watch and is still running — the candidate is up in another
+//     workspace, so this one falling over is not the candidate failing (review R9). A watch held by
+//     the successor itself is the opposite: it is the process that just died.
+//
+// ⚠ It only moves the FILE. The running image is still the previous build, which is what the
+// caller wants to relaunch — and whether to relaunch at all is the other half of §9.3's step 6 ("only while
+// the owner is still alive"), which this package cannot see.
+func SuccessorFailed(target, from string, successor int) (Recovery, error) {
+	abs := resolveInstall(target)
+	release, got := takeInstall(abs)
+	if !got {
+		return Recovery{}, errInstallHeld(abs)
+	}
+	defer release()
+	l, err := readLedger(abs)
+	if err != nil || l.Pending == nil {
+		return Recovery{}, err
+	}
+	p := l.Pending
+	if p.From != from || p.Stage == stageConfirming {
+		return Recovery{}, nil
+	}
+	if p.Starts >= 1 && p.Watcher != successor {
+		if alive, known := watcherAlive(p.Watcher); alive || !known {
+			return Recovery{}, nil
+		}
+	}
+	if err := restorePrevious(abs); err != nil {
+		return Recovery{From: p.From, To: p.To}, err
+	}
+	l.Pending, l.Refused = nil, p.To
+	if err := writeLedger(abs, l); err != nil {
+		return Recovery{From: p.From, To: p.To}, err
+	}
+	return Recovery{RolledBack: true, From: p.From, To: p.To}, nil
+}
+
 // Salvage recovers from a replacement that was interrupted before it was recorded.
 //
 // Commit writes the backup, replaces the binary, pre-flights it, and only then writes the journal.
