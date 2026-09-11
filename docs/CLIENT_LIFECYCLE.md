@@ -112,6 +112,10 @@ shutdown do not depend on the decision, so they can go first.
 
 ### The contract file is the authority on the policy
 
+**Review decision (2026-09-11):** Accept the implementer feedback and choose option 2 above. Withdraw the §4 requirement to create `<socket>.lifecycle`; section 4 now follows this decision. Use handshake and `about` for current state and report unobserved exit reasons as unknown. The §9 update journal is only for file-replacement recovery, not current daemon liveness or ownership. Windows transfer is already explicitly unfinished in the implementer's account. The [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) adds acceptance evidence and call-site findings.
+
+Policy calls in both clients, core owned mode and its feature advertisement are implemented. The unimplemented descriptions in §4 refer to an earlier snapshot. JetBrains still needs readiness/failure reporting and owned-mode launch integration.
+
 §5's table is the target; the **cases** are in `clients/contract/lifecycle-policy.json`, and both
 editors' tests read that file (`LaunchesTest`, `launches.test.ts`). Writing the cases separately in
 each client gives "both green, different rules" — which is where this policy actually was on
@@ -122,9 +126,7 @@ The contract caught a defect immediately: **neither side counted a loss before t
 a failure.** A daemon that comes up and dies two seconds later never misses the ready deadline, so
 it was never counted, and it retried forever.
 
-What is left is the **call sites**. `Launches` is pure, reads no clock, and nobody uses it yet —
-`StartDaemon` (B) and `OwnedCompanion` (C) each have to swap their own retry loop for it, and that
-is the first step of both.
+Both clients now call `Launches`. JetBrains still lacks readiness and launch-failure reporting. Verify policy-class tests and actual call-site acceptance separately (follow-up review R4).
 
 ### Keeping the doc and the code from drifting
 
@@ -192,13 +194,13 @@ At startup the core generates `ownerId`, stable across its owned lineage, and `i
 
 Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
 
-Atomically record normal shutdown and replacement in a local `<socket>.lifecycle` record. Proposed fields are `ownerId`, `instanceId`, `state` (`running`, `replacing`, `stopped`), `reason` (`requested-shutdown`, `owner-closed`, `update`) and `at`. Interpret only matching lineage/generation records; a new launch replaces the record. A crash that could not write its reason remains unknown. This record is not authorization and does not replace socket probing. Retain the exit-reason record until the next launch after removing socket/session publication.
+Do not create an exit-reason file. Following the review decision in §2.5, use handshake and `about` for current state. Report unobserved exit reasons as unknown and use §5 policy to decide whether to restart.
 
 On Windows, transfer the same pipe read end and ownerId to the successor. The predecessor first stops accepting requests and releases its listener/workspace lock, then starts the successor. The generations must not serve requests concurrently. Confirm successor readiness before the predecessor exits; closing the predecessor's copy must not be mistaken for owner EOF. If an update fails, either preserve the previous generation or report replacement failure. A client must not adopt a newly discovered PID as its own child.
 
 Closing the IDE's write end must also stop a successor. Forced extension-host termination is handled through the same EOF. In owned mode, the core must cancel work, stop listeners and clean publication within five seconds of EOF. Do not block the IDE UI thread. If shutdown stalls, the IDE may force-stop only the still-live original child for which it holds a handle. The core guarantees successor shutdown. Existing lifetimes in other modes remain unchanged.
 
-Allow connections to old daemons while disabling unsupported features. Block new launches requiring Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Automatic download requires separate design and verification; it is not a prerequisite for this stabilization phase.
+Allow connections to old daemons while disabling unsupported features. Block new launches requiring Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
 
 ## 5. Recovery and shutdown policy
 
@@ -265,3 +267,57 @@ Record OS/product builds, core/extension versions, logs, final PID/socket state 
 | L13 | Install ZIP/VSIX and roll back to an earlier version | History/settings preserved; unsupported feature explained; exact installed combination recorded |
 
 Record core/policy unit tests, actual-daemon integration tests, actual renderer tests and installed-IDE verification separately. Source-field checks or mocks alone cannot close L03–L13. Run every case for both IDEs and local web on Windows x64, and all applicable cases on macOS/Linux. Any excluded environment must be explicit in acceptance evidence and reduce the declared completion scope.
+
+## 9. Automatic updates — included in this phase
+
+### 9.1 Current behavior and target
+
+The core already has an [automatic update loop](../cmd/magi/autoupdate.go), [release/checksum discovery](../internal/update/github.go) and [replacement with executable preflight](../internal/update/rollback.go). The loop checks release builds every six hours by default, replaces the file, then waits for idle before restarting. Current `Commit` rollback checks the new executable with `--version` and discards the previous copy after success. Its in-process mutex does not coordinate different daemon processes.
+
+The target is to **confirm actual daemon readiness and a stable period before committing an update**. Separate first-install downloads from updating an installed core. Initial installation automation may remain separate; automatic core updates and recovery are part of this acceptance scope.
+
+### 9.2 Responsibility and user control
+
+| Target | Update executor | Client responsibility |
+|---|---|---|
+| Core | One installation coordinator extending the existing core updater | Display status and request explicit check/apply/retry; never compete to replace the binary |
+| JetBrains plugin / VS Code extension | IDE update manager | Compatibility guidance, restart-required indication, lifecycle cleanup on disable/reload |
+| Web console server | Installation/deployment manager | Display core status; a tab refresh does not replace the server binary |
+
+Respect existing `[update] auto` and update-check opt-outs. Disabling automatic updates prevents automatic checks, downloads and application, including a candidate already downloaded. Explicit manual updates remain available but do not imply force-restarting active work. Explain that IDE-extension and core update settings are independent. Do not automatically overwrite development builds or installations owned by external package managers. Unknown installation ownership requires a manual management path.
+
+Do not duplicate core settings in each client. Distinguish running version, next-launch version on disk, candidate version, automatic setting, last check, deferral reason, failure and rollback outcome. Status must exclude authentication secrets. Advertise any additional status interface through core capabilities; older clients retain existing connections and work.
+
+### 9.3 Update transaction
+
+The sequence is **check → download → verify → await safe point → replace → verify readiness → verify stability → commit**. Record failures with their transaction stage.
+
+1. **Check/download:** retain the six-hour default and distributed jitter. Processes sharing the same resolved installation path elect one coordinator with an OS file lock. Never steal a live lock based only on file age. Waiters continue their work and query status. Download to temporary storage with a ten-minute attempt deadline. Owner shutdown or disabling updates cancels the attempt.
+2. **Verify:** select the core release lane through `core-latest.txt`, pin the exact tag/OS/architecture archive and that release's `checksums.txt`. Verify SHA-256 of the entire archive before extraction, then preflight executable version/features. Missing/mismatched checksums or wrong architecture preserve the installed file. Do not describe checksum verification as signature verification.
+3. **Safe point:** defer while a turn, tool, council, approval/question wait or queued executable request is active. Background work without a stop/recovery contract also prevents application. Check safety and stop accepting new work atomically in the core; a new request must not race an earlier idle observation. Do not cancel work to manufacture an idle window.
+4. **Replace:** retain the verified candidate, previous executable, transaction stage and target version per installation. Keep the previous version on the same filesystem and replace atomically. Windows executable locks or temporary antivirus contention receive bounded retries, then a failure report; do not force-stop the working previous version. Preserve logs, settings and sessions.
+5. **Restart/commit:** preserve lineage and the ownership channel from §4. Verify successor workspace, ownerId, instance, handshake and required features within 30 seconds; commit after 60 stable seconds. A successful `--version` does not authorize backup deletion. Clients refresh capabilities/transcript state on generation changes and restore drafts. Never automatically resend previously submitted work.
+6. **Rollback:** readiness failure or unexpected exit during the stable period restores the previous executable and relaunches it only while the owner remains alive. If the IDE has closed, restore files without resurrecting a process. Block automatic reapplication of the same failed candidate at that installation until a new candidate or explicit retry. Log candidate/restored versions and cause. If the previous version also fails, remain `Blocked` with manual recovery instructions.
+
+Retain the installation lock through transaction completion; other daemons continue their own work during the 60-second stable period. Daemons sharing a binary may have different running and on-disk versions. Each restarts at its own safe point and must not launch a candidate that has since been rolled back. Check the installation coordinator's generation to prevent that race.
+
+If a process or machine stops mid-transaction, the next startup reconciles the journal and files to restore the last known-good version. Automatically reversible releases must preserve record/settings readability by the previous version. Exclude releases requiring irreversible migrations from automatic application and provide explicit migration instructions.
+
+**Node ownership-pipe constraint:** Node closes a `ChildProcess`'s default stdin stream when the original child exits. Simply inheriting that stdin in a Windows successor therefore does not preserve the owner channel. Implementers must select a separate pipe manager/broker or equivalent OS-handle arrangement that lives for the client lifetime and supply execution evidence distinguishing predecessor exit from actual owner exit. The owned-update path is incomplete without that arrangement.
+
+### 9.4 Ownership and acceptance
+
+Package A also owns the core updater, installation lock, journal and rollback. B/C own IDE settings/status, owner-channel continuity and reconnection; D owns web status and independence from tab lifetime. E verifies U01–U08 below as well as L01–L13. Agree on core API fixtures first and release core support before clients depend on it.
+
+| ID | Condition | Pass condition |
+|---|---|---|
+| U01 | Automatic setting off, development build, externally managed installation | No automatic download/replacement; manual path explained |
+| U02 | Candidate arrives during turn/tool/council/approval wait | Existing work preserved, deferral explained, safe-point race prevented |
+| U03 | Offline, slow/interrupted download, checksum mismatch, wrong architecture | Existing process/files preserved; bounded attempts and stage-specific causes |
+| U04 | Multiple daemons and a manual action update one binary | One replacement, intact known-good backup, inter-process lock verified |
+| U05 | Version preflight succeeds but successor is unready or crashes within 60 seconds | Previous version restored; no failed-candidate retry loop |
+| U06 | Windows predecessor exit, IDE close or forced host exit during update | Predecessor exit preserves successor; actual owner exit cleans it up |
+| U07 | Process/machine interruption at each stage, irreversible migration candidate | Consistent next-start recovery, data retained, unsupported automatic application refused |
+| U08 | IDE-extension update, core update and web refresh overlap | Session/draft/ownership preserved, no duplicate submission, running/candidate/restored versions distinguished |
+
+U04–U07 use real file replacement and processes. Without an actual Windows installation/update/rollback run, record those results as not run.
