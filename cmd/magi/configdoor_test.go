@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sayaya1090/magi/internal/testenv"
+
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 	"github.com/sayaya1090/magi/internal/config"
 )
@@ -204,7 +206,15 @@ func TestAnUntrustedWorkspaceValueIsNotReported(t *testing.T) {
 }
 
 // The project tier's directory is a directory in somebody's repository, not a private one.
+//
+// ⚠ **A promise only a filesystem with modes can make.** Windows has none: Chmod there toggles the
+// read-only attribute and nothing else, and `.magi` comes back -rwxrwxrwx no matter what magi asks
+// for. Reported flat, that reads as magi creating a world-writable directory in a repository,
+// which is a serious thing to say and is not what happened — measured 2026-09-11 as `.magi was
+// created -rwxrwxrwx`. The skip is the record that the promise does not hold here and that magi
+// sets no ACL in its place.
 func TestTheWorkspaceConfigDirIsGroupReadable(t *testing.T) {
+	testenv.NeedRestrictivePermissions(t)
 	d, _, wd := settingsEngine(t)
 	if err := os.RemoveAll(filepath.Join(wd, ".magi")); err != nil {
 		t.Fatal(err)

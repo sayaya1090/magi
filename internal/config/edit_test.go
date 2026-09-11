@@ -8,6 +8,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+
+	"github.com/sayaya1090/magi/internal/testenv"
 	"time"
 )
 
@@ -404,13 +406,9 @@ func TestACheckedWriteRestoresAndTellsThemApart(t *testing.T) {
 	if err := SetKeyChecked(path, "", "embed_model", "b\avalue", loads); err == nil {
 		t.Fatal("a value that breaks the file was accepted")
 	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if fi.Mode().Perm() != 0o600 {
-		t.Errorf("the restore left the file %v", fi.Mode().Perm())
-	}
+	// The mode half of this scenario is TestARefusedWriteDoesNotWidenTheFile: it needs a
+	// filesystem that keeps a file to its owner, and the guard for that skips — which would take
+	// everything below it down too.
 	if b, _ := os.ReadFile(path); string(b) != sound {
 		t.Fatalf("the restore left %q", b)
 	}
@@ -420,5 +418,51 @@ func TestACheckedWriteRestoresAndTellsThemApart(t *testing.T) {
 	}
 	if c, lerr := Load(dir); lerr != nil || c.EmbedModel != "after" {
 		t.Fatalf("the good write did not land: %+v %v", c, lerr)
+	}
+}
+
+// A refused write does not widen the file.
+//
+// config.toml holds provider keys. Somebody who tightened it to 0600 did so on purpose, and a
+// write that was REFUSED — the value would have broken the file, so nothing was published — must
+// leave that decision alone. The restore path had exactly this trap once: os.WriteFile keeps an
+// existing file's mode, so putting the bytes back looked like putting the file back, and the mode
+// came from whatever the temp file happened to be.
+//
+// ⚠ **Its own test, because the guard on it skips and skipping ends the whole test.** Windows has
+// no POSIX mode — Chmod there toggles the read-only attribute and nothing else, so a file written
+// 0600 reads back 0666. Sitting inside TestACheckedWriteRestoresAndTellsThemApart this reported
+// `the restore left the file -rw-rw-rw-`, which is a fact about the filesystem and not about the
+// restore, and it was the only red in that test while its three scenarios all passed.
+//
+// (A SUCCESSFUL write normalises the mode. That is SetKey's own long-standing behaviour and not
+// this wrapper's to change — what is under test here is the refusal path.)
+func TestARefusedWriteDoesNotWidenTheFile(t *testing.T) {
+	testenv.NeedRestrictivePermissions(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	sound := "embed_model = \"before\"\n"
+	if err := os.WriteFile(path, []byte(sound), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// WriteFile keeps an existing file's mode, so the tightening has to be said outright — the
+	// same trap the restore path itself had.
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loads := func() error { _, err := Load(dir); return err }
+	if err := SetKeyChecked(path, "", "embed_model", "b\avalue", loads); err == nil {
+		t.Fatal("a value that breaks the file was accepted")
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("the restore left the file %v — a refusal widened a file holding provider keys",
+			fi.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(path); string(b) != sound {
+		t.Fatalf("the restore left %q", b)
 	}
 }

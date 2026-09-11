@@ -34,7 +34,19 @@ func TestReadCmdlineIsProcBound(t *testing.T) {
 }
 
 // killOwner sends the named signal to exactly one pid — our own child here, which dies of it.
+//
+// ⚠ **Skipped where killOwner cannot be asked at all.** port_owner is withdrawn on platforms where
+// neither /proc nor lsof can answer (see registry.go and withheldHere), and killOwner is that
+// tool's other half — on Windows it returns "port_owner is not supported on this platform", which
+// this test then reported as the precise kill failing. It is a deliberate absence, not a defect,
+// and the `sleep 30` below is not a command that exists there either.
+//
+// portOwnerSupported rather than a GOOS check, because it is the same constant the registration
+// branch reads: one fact, one spelling.
 func TestKillOwnerSignalsOnePid(t *testing.T) {
+	if !portOwnerSupported {
+		t.Skip("이 플랫폼은 port_owner 를 내주지 않는다 — killOwner 는 그 도구의 다른 반쪽이다")
+	}
 	cmd := exec.Command("sleep", "30")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
