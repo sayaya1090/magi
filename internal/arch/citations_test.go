@@ -23,66 +23,112 @@ import (
 //
 // 그래서 42 개가 지금 정직하다는 사실을 붙든다. 새 인용이 허공을 가리키면 여기서 운다.
 //
-// 번호만 본다 — 어느 문서의 §5.5 인지까지는 묻지 않는다. 주석이 문서 이름을 같이 적는 경우가
-// 드물고, 그것을 요구하면 이 시험이 재는 것이 「인용이 풀리는가」에서 「인용을 어떻게 적는가」로
-// 바뀐다. 뒤엣것은 이 시험이 정할 일이 아니다.
+// 인용이 문서를 대면 **그 문서에서** 묻는다.
+//
+// ⚠ **처음 판은 번호만 봤고, 그래서 엉뚱한 문서로 풀려도 통과했다.** 153 개 인용 중 31 개는
+// `DESIGN.md §5.5`·`CLIENT_LIFECYCLE §5` 처럼 문서를 함께 댄다. 번호만 보는 검사는 그 이름을
+// 버리므로, `DESIGN.md §11` 처럼 **그 문서에 없고 다른 문서에만 있는** 절을 가리켜도 초록이다 —
+// 2026-09-11 실측: certs.go 의 `DESIGN.md §5.5` 를 `DESIGN.md §11` 로 바꿔도 이 시험이 통과했다
+// (§11 은 excel MANUAL·CAPABILITIES 에 산다). 인용이 풀린다고 보고하면서 실제로는 다른 문서를
+// 짚은 것이라, 이 시험이 잡으라고 있는 그 무늬 그대로다.
+//
+// 이름이 같은 문서가 여럿인 것은 흠이 아니다 — `DESIGN.md` 는 저장소에 여럿이고, 주석은 제
+// 옆의 것을 뜻한다. 그래서 **이름이 맞는 문서 중 하나라도** 그 절을 가지면 통과다. 어느
+// 디렉토리의 것인지까지 따지려면 인용이 경로를 대야 하고, 그것은 이 시험이 정할 규약이 아니다.
+//
+// 이름을 안 댄 122 개는 번호만으로 묻는다. 그것이 그 인용에 대해 물을 수 있는 가장 센 물음이다.
 func TestEverySectionCitedFromSourceExists(t *testing.T) {
 	root := repoRootDir(t)
 
-	// 모든 마크다운의 번호 붙은 제목.
+	// 문서별로 제목을 든다. 「어디에든 있나」와 「그 문서에 있나」를 둘 다 물어야 하므로
+	// 합집합만으로는 모자란다.
 	heading := regexp.MustCompile(`^#{1,6}\s+(\d+(?:\.\d+)*)[.\s]`)
-	have := map[string]bool{}
+	byDoc := map[string]map[string]bool{} // 문서 경로 -> 절 집합
+	anywhere := map[string]bool{}
 	docs := 0
-	walk(t, root, ".md", func(_ string, body []byte) {
+	walk(t, root, ".md", func(p string, body []byte) {
 		docs++
+		set := map[string]bool{}
 		for _, line := range strings.Split(string(body), "\n") {
 			if m := heading.FindStringSubmatch(line); m != nil {
-				have[m[1]] = true
+				set[m[1]] = true
+				anywhere[m[1]] = true
 			}
 		}
+		byDoc[p] = set
 	})
-	if docs < 20 || len(have) < 40 {
+	if docs < 20 || len(anywhere) < 40 {
 		t.Fatalf("문서 %d 개에서 번호 붙은 제목을 %d 개밖에 못 찾았다 — 스캔이 깨진 것이지 "+
-			"인용이 맞는 게 아니다", docs, len(have))
+			"인용이 맞는 게 아니다", docs, len(anywhere))
 	}
 
-	// 소스가 쓰는 인용.
-	cite := regexp.MustCompile(`§(\d+(?:\.\d+)*)`)
-	where := map[string]map[string]bool{}
-	// 시험 파일은 뺀다. 이 파일의 설명문이 바로 그 두 번호를 **예시로** 적고 있고, 그것까지
-	// 세면 시험이 저를 물어 이유를 적어 두는 일을 벌한다 — wave 25 의 grep 가드가 같은 함정을
-	// 밟았다. 산문은 인용의 사용이 아니다.
-	walk(t, root, ".go", func(path string, body []byte) {
-		if strings.HasSuffix(path, "_test.go") {
+	// 인용. 앞의 30자를 같이 잡아 문서 이름이 붙었는지 본다.
+	//
+	// 시험 파일은 뺀다. 이 파일의 설명문이 바로 그 번호들을 **예시로** 적고 있고, 그것까지 세면
+	// 시험이 저를 물어 이유를 적어 두는 일을 벌한다 — wave 25 의 grep 가드가 같은 함정을 밟았다.
+	cite := regexp.MustCompile(`(.{0,30})§(\d+(?:\.\d+)*)`)
+	named := regexp.MustCompile(`([A-Z][A-Za-z_]*)(?:\.md)?\s*$`)
+	type use struct{ doc, sec, file string }
+	var uses []use
+	walk(t, root, ".go", func(p string, body []byte) {
+		if strings.HasSuffix(p, "_test.go") {
 			return
 		}
 		for _, m := range cite.FindAllStringSubmatch(string(body), -1) {
-			if where[m[1]] == nil {
-				where[m[1]] = map[string]bool{}
+			u := use{sec: m[2], file: p}
+			if d := named.FindStringSubmatch(m[1]); d != nil {
+				u.doc = d[1]
 			}
-			where[m[1]][path] = true
+			uses = append(uses, u)
 		}
 	})
-	if len(where) < 30 {
-		t.Fatalf("소스에서 절 인용을 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(where))
+	if len(uses) < 100 {
+		t.Fatalf("소스에서 절 인용을 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(uses))
 	}
 
-	var bad []string
-	for sec := range where {
-		if !have[sec] {
-			files := make([]string, 0, len(where[sec]))
-			for f := range where[sec] {
-				files = append(files, f)
+	bad := map[string]bool{}
+	strong := 0
+	for _, u := range uses {
+		if u.doc == "" {
+			if !anywhere[u.sec] {
+				bad["§"+u.sec+" ("+u.file+") — 그런 제목이 어느 문서에도 없다"] = true
 			}
-			sort.Strings(files)
-			bad = append(bad, "§"+sec+" ("+strings.Join(files, ", ")+")")
+			continue
+		}
+		strong++
+		// 이름이 맞는 문서 중 하나라도 그 절을 가지면 된다. 같은 이름의 문서가 여럿인 것은
+		// 이 나무의 보통 모양이고(DESIGN.md 는 여럿이다), 주석은 제 옆의 것을 뜻한다.
+		found, exists := false, false
+		for p, secs := range byDoc {
+			base := filepath.Base(p)
+			base = strings.TrimSuffix(strings.TrimSuffix(base, ".md"), ".ko")
+			if base != u.doc {
+				continue
+			}
+			exists = true
+			if secs[u.sec] {
+				found = true
+				break
+			}
+		}
+		switch {
+		case !exists:
+			bad[u.doc+" §"+u.sec+" ("+u.file+") — 그 이름의 문서가 없다"] = true
+		case !found:
+			bad[u.doc+" §"+u.sec+" ("+u.file+") — 그 문서에 그 절이 없다"] = true
 		}
 	}
-	sort.Strings(bad)
-	for _, b := range bad {
-		t.Errorf("이 절을 가리키는 주석이 있는데 그런 제목이 어느 문서에도 없다: %s", b)
+
+	var list []string
+	for b := range bad {
+		list = append(list, b)
 	}
-	t.Logf("소스가 인용하는 절 %d 개를 문서 %d 개의 제목 %d 개와 견줬다", len(where), docs, len(have))
+	sort.Strings(list)
+	for _, b := range list {
+		t.Errorf("인용이 풀리지 않는다: %s", b)
+	}
+	t.Logf("인용 %d 개를 견줬다 — 문서를 댄 %d 개는 그 문서에서, 나머지는 번호로. "+
+		"문서 %d 개, 제목 %d 개.", len(uses), strong, docs, len(anywhere))
 }
 
 // walk hands every file under root with the given suffix to fn, skipping what is not ours.
