@@ -168,6 +168,61 @@ test('a core that cannot be owned is reported once, not swallowed', async () => 
  * ⚠ Pinned as the whole statement, not just the call: a version that asked `unowned()` and threw
  * the answer away would keep every word a looser check looks for.
  */
+/**
+ * The OTHER weaker lifetime: the core HAS the owned mode, and this window could not take a pipe of
+ * its own.
+ *
+ * ⚠ **Nobody was reading `held`.** `ownerChannel` falls back to Node's `'pipe'` when it cannot serve
+ * one — deliberately, because refusing to start over a pipe name somebody else took would hand that
+ * person the outage — but the lifetime it falls back TO is exactly the one R2 fixed: on Windows an
+ * update alone ends the companion while its window is still open. `OwnerChannel.held` was declared
+ * and had no reader anywhere in the client, so the question could be asked and nobody asked it
+ * (issue #189, review R8).
+ *
+ * Once per start, for the reason the unowned-core notice is: a window polls every fifteen seconds,
+ * and a warning on every poll is how a real warning stops being read.
+ *
+ * The channel is injected, not squatted. `owner.test.ts` produces the real failure against a name
+ * taken first; what is under test HERE is whether this class carries the reason out, and a window
+ * that draws eight random hex digits cannot be made to fail on cue.
+ */
+test('a window that could not take its own owner pipe says so once', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-unpiped-'));
+  const owned = async () => new Set(['owned-daemon-v1']);
+
+  // A start that DID take its pipe has nothing to say.
+  const held = new OwnedCompanion(dir, owned,
+    async () => ({ stdin: 'pipe' as const, held: true, why: '', close() {} }));
+  await held.start(path.join(dir, 'no-such-magi.exe')).catch(() => { /* a stand-in never comes up */ });
+  assert.equal(held.unpiped(), '', '파이프를 쥐었는데 경고가 뜬다');
+  await held.close();
+
+  // And one that could not.
+  const taken = 'could not listen on \\\\.\\pipe\\magi-owner-x: listen EADDRINUSE';
+  const fell = new OwnedCompanion(dir, owned,
+    async () => ({ stdin: 'pipe' as const, held: false, why: taken, close() {} }));
+  await fell.start(path.join(dir, 'no-such-magi.exe')).catch(() => { /* same */ });
+  assert.equal(fell.unpiped(), taken,
+    '노드의 파이프로 물러섰는데 아무 말이 없다 — 다음 업데이트가 컴패니언을 끝낸다');
+  assert.equal(fell.unpiped(), '', '폴마다 되풀이한다 — 경고가 소음이 되면 안 읽힌다');
+  await fell.close();
+});
+
+/**
+ * And the start path actually draws it. Measured from source for the reason the unowned-core guard
+ * below is: `start.ts` imports `vscode`, so this suite cannot call it.
+ */
+test('the start path shows the unheld-pipe warning', () => {
+  const repo = path.join(__dirname, '..', '..', '..', '..');
+  const src = fs.readFileSync(path.join(repo, 'clients/vscode/src/ide/start.ts'), 'utf8');
+  assert.match(src, /owner\.unpiped\(\)/,
+    'nothing reads why the window fell back — the companion is on the old lifetime in silence');
+  assert.match(src, /UNHELD_PIPE/, 'the warning has no text of its own');
+  // The sentence has to say what is LOST, or it is a notice nobody can act on.
+  assert.match(src, /END it/,
+    'the warning does not say that updating or restarting will end this companion');
+});
+
 test('the start path shows the unowned-core warning', () => {
   const repo = path.join(__dirname, '..', '..', '..', '..');
   const src = fs.readFileSync(path.join(repo, 'clients/vscode/src/ide/start.ts'), 'utf8');

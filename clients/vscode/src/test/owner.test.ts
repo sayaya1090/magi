@@ -5,7 +5,7 @@ import * as net from 'net';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ownerChannel } from '../core/owner';
+import { ownerChannel, ownerPipeName } from '../core/owner';
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const win = process.platform === 'win32';
@@ -122,4 +122,90 @@ test('POSIX is left exactly as it was', { skip: win ? 'this is the POSIX half' :
   assert.equal(channel.stdin, 'pipe');
   assert.equal(channel.held, false, 'POSIX grew a channel of its own — nothing there was broken');
   channel.close();
+});
+
+
+/**
+ * A fallback always says why, on every platform.
+ *
+ * ⚠ **Four ways to fail all answered the same nothing.** `net.createServer`, `listen`, the dial and
+ * the accept sat in one `try` under a bare `catch { return nodes; }` — same value, no trace, on the
+ * one platform where the fallback costs the companion its life on the next update (issue #189,
+ * review R8). POSIX falls back too, by design, and it owes the same sentence: a reader asking "why
+ * is this companion on the old lifetime" must get an answer and not a shrug.
+ */
+test('a channel that is not held says why, and one that is held has nothing to explain', async () => {
+  const held = await ownerChannel('explains');
+  try {
+    if (held.held) {
+      assert.equal(held.why, '', 'a channel this window holds has nothing to apologise for');
+    } else {
+      assert.notEqual(held.why.trim(), '', 'fell back to Node’s pipe and said nothing about it');
+    }
+  } finally { held.close(); }
+});
+
+/**
+ * A name somebody else took is a fallback, not a failure — and it says which step gave up.
+ *
+ * ⚠ **Four ways to fail answered one bare `catch { return nodes; }`.** `createServer`, `listen`, the
+ * dial and the accept all produced the same value and left no trace, on the one platform where the
+ * fallback costs the companion its life on the next update (issue #189, review R8).
+ *
+ * Injected rather than imagined: a squatter takes the name first, which is the realistic failure
+ * this fallback exists for — the name carries this window's pid and eight random hex digits, so
+ * somebody holding it already is the way it actually goes wrong.
+ *
+ * ⚠ **What this does NOT claim.** The dial and the accept cannot be made to fail from a test: both
+ * ends are this process, and a name this window just bound is one it can always dial. Their cleanup
+ * is structural instead — every step registers its undo before the next one can throw — and the
+ * accept carries a deadline so the unreachable branch cannot hang a window instead of failing it.
+ * Measured, not assumed, on the reachable one: Node closes its own failed bind (the stray handle is
+ * gone within 50ms without anyone asking), so there is nothing here for a resource count to catch
+ * and a count would be a test that cannot fail.
+ */
+test('a taken pipe name falls back, and names the step that gave up', { skip: !win ? 'Windows only: named pipes' : false }, async () => {
+  const name = ownerPipeName('squatted');
+  const squatter = net.createServer();
+  await new Promise<void>((resolve, reject) => {
+    squatter.once('error', reject);
+    squatter.listen(name, () => resolve());
+  });
+  try {
+    const fell = await ownerChannel('squatted', name);
+    try {
+      assert.equal(fell.held, false, 'the name was already taken — this window cannot have held it');
+      assert.equal(fell.stdin, 'pipe', 'the fallback must be the channel that still works');
+      assert.match(fell.why, /listen/i,
+        `the reason does not name the step that gave up: ${JSON.stringify(fell.why)}`);
+    } finally { fell.close(); }
+  } finally {
+    await new Promise<void>((resolve) => squatter.close(() => resolve()));
+  }
+});
+
+/**
+ * And a channel that IS held gives everything back when it is closed.
+ *
+ * The success path is the one that runs on every start of every window, so a socket it forgot would
+ * accumulate for as long as a person keeps reloading. Counted after the loop has settled, because
+ * Node tears its own handles down a turn or two late and a sample taken too early measures the
+ * teardown rather than what survives it.
+ */
+test('opening and closing the channel a hundred times leaves nothing behind', { skip: !win ? 'Windows only: POSIX never opens one' : false }, async () => {
+  const settle = async () => { for (let i = 0; i < 10; i++) await pause(20); };
+  const live = () => process.getActiveResourcesInfo().filter((r) => r.includes('Pipe')).length;
+
+  (await ownerChannel('cycle')).close();   // warm
+  await settle();
+  const before = live();
+  for (let i = 0; i < 100; i++) {
+    const c = await ownerChannel('cycle');
+    assert.equal(c.held, true, `attempt ${i}: the window failed to take a pipe of its own — ${c.why}`);
+    c.close();
+  }
+  await settle();
+  assert.ok(live() <= before + 1,
+    `a hundred open/close cycles left ${live() - before} pipe handles alive — close() is not ` +
+    'giving back everything the open took');
 });

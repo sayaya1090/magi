@@ -80,16 +80,25 @@ export class OwnedCompanion {
    * window reaches even a successor this window holds no handle for.
    */
   private channel?: OwnerChannel;
+  /** Why the last start fell back to Node's pipe, until somebody has been told. See `unpiped`. */
+  private unheldWhy = '';
   readonly socket: string;
 
   /**
-   * How this window asks a binary what it can do — the real probe, or a test's.
+   * Two seams, both there because the interesting moment cannot be produced any other way.
    *
-   * Injected rather than imported straight, because the defect this seam exists for lives in the
-   * WAIT: `close()` can finish while the probe is still in flight. Reaching that window from a test
-   * means controlling when the probe answers, and a direct import cannot be made to wait.
+   * `ask` is how this window asks a binary what it can do — the real probe, or a test's. Injected
+   * rather than imported straight, because the defect it exists for lives in the WAIT: `close()` can
+   * finish while the probe is still in flight, and a direct import cannot be made to wait.
+   *
+   * `pipe` is how this window takes an owner pipe. Injected for the same kind of reason: the
+   * interesting answer is the one where taking it FAILED, and the real one cannot be made to fail on
+   * demand — its name carries eight random hex digits precisely so that nobody can take it first.
+   * What a test needs to reach here is not the failure itself (`owner.test.ts` produces that against
+   * a squatted name) but what this class DOES with it, which had no reader at all (issue #189).
    */
-  constructor(readonly workdir: string, private readonly ask: typeof features = features) {
+  constructor(readonly workdir: string, private readonly ask: typeof features = features,
+              private readonly pipe: typeof ownerChannel = ownerChannel) {
     this.socket = socketPath(workdir);
   }
 
@@ -192,10 +201,14 @@ export class OwnedCompanion {
     // `child_process` owns what it makes and destroys `child.stdin` when the child exits, so the
     // successor of a restart read EOF and stopped itself (R2; see `ownerChannel`). The same closed
     // check as above: this await is a second chance for `close()` to finish first.
-    const channel = owned ? await ownerChannel(path.basename(this.socket)) : undefined;
+    const channel = owned ? await this.pipe(path.basename(this.socket)) : undefined;
     if (this.closed) { channel?.close(); return; }
     this.channel?.close();
     this.channel = channel;
+    // A channel that could not be taken leaves this companion on the lifetime R2 is about, and
+    // §4 forbids arriving there in silence. Recorded here — where whether it was held is actually
+    // known — and read once by whoever draws it.
+    this.unheldWhy = channel && !channel.held ? channel.why : "";
     // ⚠ **The log fd is opened AFTER the last await, and that placement is the fix.** It used to be
     // opened at the top of this function, before the feature probe — and the two `closed` checks
     // added for R1 both return between there and the `finally` that closes it, so every launch that
@@ -264,6 +277,24 @@ export class OwnedCompanion {
     if (!this.unownedStart) return false;
     this.unownedStart = false;
     return true;
+  }
+
+  /**
+   * Why this window could not take an owner pipe of its own — once, then empty.
+   *
+   * ⚠ **The fallback lands on exactly the lifetime R2 fixed.** A core WITH the owned mode, started
+   * on Node's own `'pipe'`, is a companion an update alone kills on Windows. `ownerChannel` falls
+   * back on purpose — refusing to start over a taken pipe name would hand an outage to whoever took
+   * it — but §4's next sentence is that a weaker lifetime is never arrived at quietly, and there was
+   * no reader for `held` at all (issue #189, review R8).
+   *
+   * Same one-shot as `unowned` and for the same reason: fifteen-second polls turn a repeated notice
+   * into noise.
+   */
+  unpiped(): string {
+    const why = this.unheldWhy;
+    this.unheldWhy = '';
+    return why;
   }
 
   private publishedPID(): number | undefined {
