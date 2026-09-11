@@ -1,6 +1,6 @@
 # magi project review — 2026-09-11
 
-[한국어](PROJECT_REVIEW_2026-09-11.ko.md)
+[한국어](PROJECT_REVIEW_2026-09-11.ko.md) · [↑ Docs](README.md)
 
 This is Codex's assessment, recorded at the user's request after work on the JetBrains and VS Code clients and the council Think delivery path. It draws on the code inspected and the fixes verified during that work. It is not a full repository audit or a completed test on a Windows IDE. The priorities below are recommendations, not an agreed development plan.
 
