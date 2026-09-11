@@ -1,6 +1,6 @@
 # Visual Studio 플랫폼 규약 — 대조표
 
-[↑ 클라이언트 개요](../README.md) · [설계](./DESIGN.ko.md) · [형제: VS Code 대조표](../../vscode/docs/PLATFORM.ko.md) · [형제: 젯브레인 대조표](../../jetbrains/docs/PLATFORM.ko.md)
+[↑ 클라이언트 개요](../README.md) · [설계](./DESIGN.ko.md) · [클라이언트 계약 정본](../../../docs/CLIENTS.ko.md) · [형제: VS Code 대조표](../../vscode/docs/PLATFORM.ko.md) · [형제: 젯브레인 대조표](../../jetbrains/docs/PLATFORM.ko.md)
 
 > **문서 목적**: 자체 내부 규칙과 **Visual Studio 플랫폼 규약**은 구분되어야 합니다. 플랫폼 고유의 규칙을 사전에 검토하지 않고 구현할 경우, 동작은 하더라도 해당 IDE의 사용자 경험에 부합하지 않는 결과물이 생성됩니다. JetBrains 클라이언트 개발 당시 이 기준 문서의 부재로 세 차례의 재작업이 발생하였고, VS Code 클라이언트에서는 코드 작성에 앞서 규약을 정리함으로써 동일한 시행착오를 방지했습니다.
 >
