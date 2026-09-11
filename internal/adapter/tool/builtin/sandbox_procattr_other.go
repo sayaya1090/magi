@@ -25,6 +25,12 @@ func killCmdTree(cmd *exec.Cmd) error {
 // wrapper (sandbox-exec / bwrap) instead of a process token.
 func sandboxProcAttr(spec port.SandboxSpec) *syscall.SysProcAttr { return nil }
 
+// releaseSandbox has nothing to release off Windows. Confinement here is an argv wrapper
+// (sandbox-exec, bwrap) and sandboxProcAttr returns nil, so no kernel handle is ever minted. It
+// exists so the three spawn paths carry ONE spelling of "let go of the token" rather than a
+// Windows-only branch at each — the shape that let the leak sit unnoticed on one platform.
+func releaseSandbox(*syscall.SysProcAttr) {}
+
 // detachTTY makes the command run in a new session with no controlling terminal, so a
 // program that tries to read from /dev/tty (git credential prompt, ssh host-key
 // confirmation, apt, a pager) fails fast instead of hanging until the timeout. It augments

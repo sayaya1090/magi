@@ -187,6 +187,9 @@ func (Bash) Execute(ctx context.Context, raw json.RawMessage, env port.ToolEnv) 
 	armCancel(cmd)
 	// Windows confinement is applied as a process token (no CLI wrapper exists).
 	sboxAttr := sandboxProcAttr(env.Sandbox)
+	defer releaseSandbox(sboxAttr)
+	// The token is a kernel handle this process keeps — os/exec reads it and hands it back. Let go
+	// once the launch is over, confined or retried-unconfined alike; see releaseSandbox.
 	// Run in a new session with no controlling terminal (Unix), so a command that tries to
 	// prompt by reading /dev/tty — git credentials, ssh host-key confirmation, sudo, a pager
 	// — gets no tty and fails fast instead of hanging until the timeout. stdin is already

@@ -88,6 +88,31 @@ func sandboxProcAttr(spec port.SandboxSpec) *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Token: syscall.Token(tok)}
 }
 
+// releaseSandbox closes the restricted token in attr, once the process it was made for has been
+// started — or has failed to start.
+//
+// ⚠ **Nobody was closing it, and it is a kernel handle.** `sandboxProcAttr` mints one per confined
+// launch — every bash call, every background process, every wait-for probe — and `os/exec` does not
+// take ownership of `SysProcAttr.Token`: CreateProcessAsUser reads it and the caller keeps the
+// handle. Measured 2026-09-11 on Windows 11: two hundred confined launches raised this process's
+// handle count by exactly two hundred, and not one came back. A daemon is long-lived and runs shell
+// commands for a living, so that count only ever goes one way — and nothing fails while it climbs,
+// which is why it had to be measured rather than noticed.
+//
+// Safe the moment the child exists: a primary token is assigned at creation and the child is
+// unaffected by this handle closing. Safe when the start FAILED too — nothing is holding it at all
+// then, which is exactly the case the unconfined retry below leaves behind.
+//
+// Zeroed after closing so a second release cannot close a handle Windows has since handed to
+// somebody else.
+func releaseSandbox(attr *syscall.SysProcAttr) {
+	if attr == nil || attr.Token == 0 {
+		return
+	}
+	_ = attr.Token.Close()
+	attr.Token = 0
+}
+
 func restrictedSelfToken() (windows.Token, error) {
 	var cur windows.Token
 	if err := windows.OpenProcessToken(windows.CurrentProcess(),

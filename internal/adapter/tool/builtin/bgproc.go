@@ -186,7 +186,13 @@ func (m *bgManager) start(sid, workdir, tmpDir string, sb port.SandboxSpec, comm
 	} else {
 		// New session: own process group, no controlling terminal. Detaches the child
 		// from magi's group and makes killGroup(pid) reach any workers it forks.
-		cmd.SysProcAttr = detachTTY(sandboxProcAttr(sb))
+		//
+		// Held in a variable rather than passed straight through, because on Windows it carries a
+		// kernel token this process has to let go of — and the release has to survive the two early
+		// returns below as well as the success path. See releaseSandbox.
+		sboxAttr := sandboxProcAttr(sb)
+		defer releaseSandbox(sboxAttr)
+		cmd.SysProcAttr = detachTTY(sboxAttr)
 		cmd.Stdout, cmd.Stderr = f, f
 		// Keep stdin open so bash_input can drive an interactive process (REPL, line
 		// debugger). Must be obtained BEFORE Start; closed when the process exits.

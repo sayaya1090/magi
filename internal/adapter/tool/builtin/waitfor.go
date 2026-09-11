@@ -207,6 +207,9 @@ func waitForProbe(ctx context.Context, env port.ToolEnv, condition string, deadl
 	cmd.Dir = env.Workdir
 	cmd.WaitDelay = 2 * time.Second
 	sboxAttr := sandboxProcAttr(env.Sandbox)
+	// A wait-for runs this probe on every tick, so a token left open here climbs fastest of the
+	// three — see releaseSandbox.
+	defer releaseSandbox(sboxAttr)
 	cmd.SysProcAttr = detachTTY(sboxAttr)
 	out, _, _, err := runCapture(cmd, "")
 	// Token-confined launch (Windows) that never started: retry unconfined so
