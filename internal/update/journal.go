@@ -3,6 +3,7 @@ package update
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sayaya1090/magi/internal/procalive"
 	"os"
 	"path/filepath"
 	"time"
@@ -55,7 +56,15 @@ type pendingUpdate struct {
 	// in — without it, "a `.prev` beside a pending record" means both "roll this back" and "finish
 	// throwing this away", and those are opposite actions.
 	Stage string `json:"stage,omitempty"`
-	Since string `json:"since"`
+	// Watcher is the pid of the generation that took the one watched start, and Since is when.
+	//
+	// ⚠ **Without it, `Starts` conflates daemons.** The journal is per INSTALL — one binary — and a
+	// machine ordinarily runs several companions from it, one per workspace. A second workspace's
+	// daemon starting is not evidence that the first one fell over, but it increments the same
+	// count, and the second start then rolled a perfectly good build back (review R9). What makes a
+	// start evidence is that the generation which was watching is GONE without having confirmed.
+	Watcher int    `json:"watcher,omitempty"`
+	Since   string `json:"since"`
 }
 
 const (
@@ -241,6 +250,14 @@ func Resume(target, running string) (Recovery, error) {
 	if p.To != running {
 		return Recovery{}, nil
 	}
+	// Somebody else's daemon is already watching this candidate and is still running. This start is
+	// another workspace's companion on the same binary, not the failure of that one — leave the
+	// transaction to the generation that owns it (review R9).
+	if p.Starts >= 1 {
+		if alive, known := watcherAlive(p.Watcher); alive || !known {
+			return Recovery{}, nil
+		}
+	}
 	if p.Starts >= 1 {
 		if err := restorePrevious(abs); err != nil {
 			return Recovery{From: p.From, To: p.To}, err
@@ -252,15 +269,23 @@ func Resume(target, running string) (Recovery, error) {
 		return Recovery{RolledBack: true, From: p.From, To: p.To}, nil
 	}
 	p.Starts++
+	p.Watcher = os.Getpid()
 	if err := writeLedger(abs, l); err != nil {
 		return Recovery{}, err
 	}
 	return Recovery{Watching: true, From: p.From, To: p.To}, nil
 }
 
-// Confirm closes the transaction: the candidate stayed up, so the build it replaced is dropped and
-// the record goes away. Idempotent — a second call with nothing pending is not an error.
-func Confirm(target string) error {
+// Confirm closes the transaction THIS process was watching: the candidate stayed up, so the build it
+// replaced is dropped and the record goes away. Idempotent — a second call with nothing pending is
+// not an error.
+//
+// ⚠ **It names the transaction it is confirming, and checks.** The caller arms a timer and comes
+// back a minute later, and a minute is long enough for the record on disk to be a DIFFERENT
+// transaction — a newer candidate installed and watched by somebody else. Confirming that one drops
+// a backup for a build this process never ran and never watched (review R11). Both halves are
+// checked: the candidate's version, and that the watched start recorded here is this process's.
+func Confirm(target, candidate string) error {
 	abs := resolveInstall(target)
 	// ⚠ **This one DELETES the backup.** A Commit starting beside it writes a new `.prev` for its own
 	// transaction, and an unsynchronised Confirm removes it — leaving that replacement with nothing
@@ -273,6 +298,12 @@ func Confirm(target string) error {
 	l, err := readLedger(abs)
 	if err != nil || l.Pending == nil {
 		return err
+	}
+	if l.Pending.To != candidate {
+		return fmt.Errorf("not confirming %s: the pending transaction is now %s", candidate, l.Pending.To)
+	}
+	if w := l.Pending.Watcher; w != 0 && w != os.Getpid() {
+		return fmt.Errorf("not confirming %s: it is being watched by pid %d, not this process", candidate, w)
 	}
 	// Say what is about to happen before doing it. Removing the backup first and clearing the record
 	// second would leave "a .prev with no record" on an interruption — which is the very state that
@@ -355,6 +386,20 @@ func Salvage(target string) (string, error) {
 		return "", err
 	}
 	return abs, nil
+}
+
+// watcherAlive is "is the generation that took the watched start still running".
+//
+// ⚠ **A pid nobody recorded is treated as gone, and that is the older record's shape**, not an
+// unknown process: a transaction written before this field existed has no watcher, and reading it as
+// "still watched" would leave a build that really did fall over unrolled-back forever. An unknown
+// ANSWER (the pid exists but cannot be asked about) is the other way — not evidence, so nothing is
+// undone on it.
+func watcherAlive(pid int) (alive, known bool) {
+	if pid <= 0 {
+		return false, true
+	}
+	return procalive.Alive(pid)
 }
 
 // restorePrevious swaps <target>.prev back over target and removes it.

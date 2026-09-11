@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"github.com/sayaya1090/magi/internal/procalive"
 	"strings"
 	"time"
 )
@@ -33,7 +34,7 @@ func heldBy(path string) string {
 	fmt.Fprintf(&b, "another magi holds %s", path)
 	if in.PID > 0 {
 		fmt.Fprintf(&b, " — pid %d", in.PID)
-		if alive, known := processAlive(in.PID); known && !alive {
+		if alive, known := procalive.Alive(in.PID); known && !alive {
 			// The lock is held and the recorded pid is gone. Both are true and they are about
 			// different processes: the record is from an earlier daemon, and the holder is
 			// somebody newer who has not published yet. Say so rather than inviting the delete.

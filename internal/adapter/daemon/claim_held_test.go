@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/sayaya1090/magi/internal/procalive"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -84,13 +85,13 @@ func TestAClaimWithNoRecordSaysTheHolderIsStarting(t *testing.T) {
 // The direction that matters is the second: a live holder called dead is what sends somebody to
 // the lock file. Anything the check cannot answer comes back as "not known" rather than dead.
 func TestProcessAliveDoesNotCallALiveProcessGone(t *testing.T) {
-	if alive, known := processAlive(os.Getpid()); !known || !alive {
+	if alive, known := procalive.Alive(os.Getpid()); !known || !alive {
 		t.Errorf("this very process reports alive=%v known=%v", alive, known)
 	}
-	if _, known := processAlive(0); known {
+	if _, known := procalive.Alive(0); known {
 		t.Error("pid 0 came back as a knowable answer")
 	}
-	if _, known := processAlive(-1); known {
+	if _, known := procalive.Alive(-1); known {
 		t.Error("a negative pid came back as a knowable answer")
 	}
 }

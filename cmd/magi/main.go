@@ -1182,6 +1182,9 @@ func run() int {
 		// SECOND start on the same candidate is the failure this exists to catch — the first one did
 		// not last that long, so the previous build goes back on disk and the candidate is refused.
 		daemonExe, _ := os.Executable()
+		// The candidate this process is on trial for, empty when it is not. Read where readiness is
+		// declared, further down — see the note there.
+		watching := ""
 		if daemonExe != "" {
 			// First, a replacement nobody got to record — a process or machine that died between
 			// writing the backup and writing the journal. The binary at that path is then either
@@ -1213,15 +1216,11 @@ func run() int {
 				// A deliberate stop inside the window is not a build falling over. Without this,
 				// stopping a daemon a minute after an update would undo it on the next start.
 				defer func() { _ = update.LeftCleanly(daemonExe) }()
-				go func() {
-					select {
-					case <-ctx.Done():
-					case <-time.After(update.StableWindow):
-						if cerr := update.Confirm(daemonExe); cerr != nil {
-							fmt.Fprintln(os.Stderr, "magi: could not confirm the update:", cerr)
-						}
-					}
-				}()
+				// ⚠ **The clock does NOT start here.** This is before the socket is bound and before
+				// the record is published — a build that never manages to serve would still sit out
+				// its sixty seconds and be confirmed, which is the opposite of what the window is
+				// for (review R11). It starts below, once this daemon is actually listening.
+				watching = rec.To
 			}
 		}
 		// Join the owning lineage BEFORE publishing: the record is written once, right below, and
@@ -1245,6 +1244,20 @@ func run() int {
 		defer stop()
 		fmt.Fprintf(os.Stderr, "magi: daemon on %s (session %s) — attach with `magi --attach` in this directory\n",
 			sockPath, sid)
+		// The stable window, started from READINESS rather than from process start: the socket is
+		// bound and the record is published, so what this measures is a daemon that came up and
+		// stayed up rather than one that merely got this far (review R11).
+		if watching != "" {
+			go func(candidate string) {
+				select {
+				case <-dctx.Done():
+				case <-time.After(update.StableWindow):
+					if cerr := update.Confirm(daemonExe, candidate); cerr != nil {
+						fmt.Fprintln(os.Stderr, "magi: could not confirm the update:", cerr)
+					}
+				}
+			}(watching)
+		}
 		// Scheduled work starts here and nowhere else.
 		//
 		// This is the only call to RunCron in the tree, and the placement is the feature: three

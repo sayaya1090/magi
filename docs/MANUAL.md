@@ -516,6 +516,13 @@ immediately, exactly as before — so every older client is unchanged, and a new
 the deliberate "end what is running". ⚠ `idle` **asks once; it does not reserve** — a turn can arrive
 between the check and the restart. It narrows the window rather than closing it.
 
+**Several companions on one machine do not undo each other's updates.** The journal is about one
+BINARY, so the daemon watching a new build is the first one up on it. A second workspace's daemon
+starting is not evidence that the first fell over, and is left alone — the rollback happens only when
+**the generation that was watching is gone without having confirmed**. A confirmation closes only its
+own transaction too: if the record on disk became a newer candidate during that minute, it belongs to
+somebody else and is not touched.
+
 **One binary is replaced once.** When several daemons share one executable — the usual shape on a
 machine with several companions — only the one holding the OS lock on `<binary>.update.lock` does the
 replacing. The others neither queue nor steal: they **carry on with their own work**, and the next

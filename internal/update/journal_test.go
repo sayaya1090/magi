@@ -12,9 +12,39 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+// gone returns a pid that is certainly not running: a real process, started and reaped. Made rather
+// than invented, because "a number nothing is using" is a guess and the whole point of the check is
+// that it is not one.
+func gone(t *testing.T) int {
+	t.Helper()
+	c := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := c.Process.Pid
+	_ = c.Wait()
+	return pid
+}
+
+// crashed rewrites the pending record so the generation that took the watched start is gone — what
+// a daemon that came up and then died leaves behind. The same shape a live one leaves, minus the
+// process, which is exactly the distinction Resume has to make (review R9).
+func crashed(t *testing.T, target string) {
+	t.Helper()
+	l, err := readLedger(resolveInstall(target))
+	if err != nil || l.Pending == nil {
+		t.Fatalf("no pending record to age: %v", err)
+	}
+	l.Pending.Watcher = gone(t)
+	if err := writeLedger(resolveInstall(target), l); err != nil {
+		t.Fatal(err)
+	}
+}
 
 // install writes a target binary with a saved previous copy beside it and a pending transaction, the
 // state Commit leaves behind: the candidate is in place and the build it replaced is recoverable.
@@ -47,7 +77,7 @@ func TestFirstGenerationIsWatchedAndConfirmClosesIt(t *testing.T) {
 		t.Error("the previous build was dropped before the window elapsed")
 	}
 
-	if err := Confirm(target); err != nil {
+	if err := Confirm(target, "v2.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(target + ".prev"); !os.IsNotExist(err) {
@@ -78,7 +108,8 @@ func TestASecondStartOnTheSameCandidateRollsBack(t *testing.T) {
 
 	if _, err := Resume(target, "v2.0.0"); err != nil { // came up…
 		t.Fatal(err)
-	} // …and died before the window: no Confirm.
+	}
+	crashed(t, target) // …and died before the window: no Confirm, and the watcher is gone.
 
 	got, err := Resume(target, "v2.0.0")
 	if err != nil {
@@ -112,6 +143,7 @@ func TestTheAutomaticPathSkipsARefusedBuildUntilRetry(t *testing.T) {
 	if _, err := Resume(target, "v2.0.0"); err != nil {
 		t.Fatal(err)
 	}
+	crashed(t, target)
 	if _, err := Resume(target, "v2.0.0"); err != nil { // rolls back, refuses v2.0.0
 		t.Fatal(err)
 	}
@@ -191,6 +223,7 @@ func TestRollbackWithoutASavedBuildIsAnError(t *testing.T) {
 	if _, err := Resume(target, "v2.0.0"); err != nil {
 		t.Fatal(err)
 	}
+	crashed(t, target)
 	if err := os.Remove(target + ".prev"); err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +374,7 @@ func TestAConfirmInterruptedMidWayIsFinishedNotUndone(t *testing.T) {
 	// The machine dies exactly as the backup is being dropped.
 	was := removePrev
 	removePrev = func(string) error { return errors.New("power cut") }
-	cerr := Confirm(target)
+	cerr := Confirm(target, "v2.0.0")
 	removePrev = was
 	if cerr == nil {
 		t.Fatal("the interruption did not happen, so nothing below is about one")
@@ -372,5 +405,116 @@ func TestAConfirmInterruptedMidWayIsFinishedNotUndone(t *testing.T) {
 	}
 	if _, serr := os.Stat(journalOf(target)); !os.IsNotExist(serr) {
 		t.Error("the transaction is still open after being finished")
+	}
+}
+
+// Two workspaces, one binary — the ordinary shape on a machine with several companions. The second
+// daemon starting is NOT evidence that the first fell over, and reading it that way rolled a build
+// back that was running perfectly (review R9).
+func TestASecondWorkspaceStartingIsNotAFailedCandidate(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	candidate, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := Resume(target, "v2.0.0") // workspace A comes up and watches
+	if err != nil || !first.Watching {
+		t.Fatalf("the first start did not take the watch: %+v %v", first, err)
+	}
+	// Workspace B starts on the same binary while A is still running — this test process IS the
+	// watcher, so "still running" is true by construction.
+	second, err := Resume(target, "v2.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.RolledBack {
+		t.Fatal("a second workspace's companion rolled back a build the first one is running")
+	}
+	if second.Watching {
+		t.Error("two generations both think they are the one watching — one of them will confirm early")
+	}
+	on, rerr := os.ReadFile(target)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, candidate) {
+		t.Error("the candidate was replaced while a daemon was running it")
+	}
+	if r := Refused(target); r != "" {
+		t.Errorf("a build nobody rejected was recorded as refused: %q", r)
+	}
+}
+
+// A record written before the watcher was recorded still has to be able to roll back — otherwise an
+// update that fell over on the old shape is watched forever and never undone.
+func TestAPendingRecordWithNoWatcherStillRollsBack(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	l, err := readLedger(resolveInstall(target))
+	if err != nil || l.Pending == nil {
+		t.Fatal(err)
+	}
+	l.Pending.Starts = 1 // a generation started, on a build that did not record who
+	l.Pending.Watcher = 0
+	if werr := writeLedger(resolveInstall(target), l); werr != nil {
+		t.Fatal(werr)
+	}
+	got, rerr := Resume(target, "v2.0.0")
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !got.RolledBack {
+		t.Fatal("a transaction with no recorded watcher is watched forever and never undone")
+	}
+}
+
+// A minute is long enough for the record on disk to become a DIFFERENT transaction. Confirming that
+// one drops the backup for a build this process never ran (review R11).
+func TestConfirmRefusesATransactionItIsNotWatching(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	if _, err := Resume(target, "v2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	// While the window runs, a newer candidate is installed over it and watched by somebody else.
+	if err := Began(target, Versions{From: "v2.0.0", To: "v3.0.0"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target+".prev", []byte("#!/bin/sh\necho 'magi v2'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Confirm(target, "v2.0.0"); err == nil {
+		t.Fatal("it confirmed a transaction it was not watching — the newer build lost its rollback")
+	}
+	if _, err := os.Stat(target + ".prev"); err != nil {
+		t.Error("the newer transaction's backup was dropped by the older generation's timer")
+	}
+	l, err := readLedger(resolveInstall(target))
+	if err != nil || l.Pending == nil || l.Pending.To != "v3.0.0" {
+		t.Errorf("the newer transaction was closed by somebody else's confirm: %+v", l.Pending)
+	}
+}
+
+// And the other half: a transaction being watched by a live process elsewhere is not this one's to
+// close, even when the version matches.
+func TestConfirmRefusesWhenAnotherProcessHoldsTheWatch(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	l, err := readLedger(resolveInstall(target))
+	if err != nil || l.Pending == nil {
+		t.Fatal(err)
+	}
+	l.Pending.Starts, l.Pending.Watcher = 1, os.Getpid()+100000 // somebody else's watch
+	if werr := writeLedger(resolveInstall(target), l); werr != nil {
+		t.Fatal(werr)
+	}
+	if cerr := Confirm(target, "v2.0.0"); cerr == nil {
+		t.Fatal("it closed a transaction another generation was watching")
+	}
+	if _, serr := os.Stat(target + ".prev"); serr != nil {
+		t.Error("the other generation's backup was dropped")
 	}
 }

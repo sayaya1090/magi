@@ -100,7 +100,7 @@ func TestCommitRollsBackABadBuildAndKeepsAGoodOne(t *testing.T) {
 		t.Error("no update journal was written, so nothing records that a rollback is possible")
 	}
 	// And confirming is what ends it.
-	if err := Confirm(target); err != nil {
+	if err := Confirm(target, "v2.0.0"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(target + ".prev"); !os.IsNotExist(err) {
