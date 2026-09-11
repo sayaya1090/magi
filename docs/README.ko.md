@@ -26,6 +26,7 @@
 
 | 문서 | 설명 |
 |---|---|
+| [ENGRAM_MEMORY](ENGRAM_MEMORY.ko.md) · [English](ENGRAM_MEMORY.md) | **기억 정리·공유 목표 설계**: 정본 ID, 병합·정정·망각, 데몬 복제·권한, 이행 및 인수 조건. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.ko.md) · [English](CLIENT_LIFECYCLE.md) | **대표 클라이언트 안정화 목표**: 소유권, 상태 전이, 호환성, 담당 범위와 설치 환경 인수 매트릭스. 구현 완료 문서가 아닙니다. |
 | [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.ko.md) · [English](PROJECT_REVIEW_2026-09-11.md) | **프로젝트 평가 (2026-09-11)**: 카운슬 추론 전달 경로 및 클라이언트 연동 현황 평가와 안정화 우선순위 제안. |
 

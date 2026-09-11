@@ -26,6 +26,7 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 
 | Document | Description |
 |---|---|
+| [ENGRAM_MEMORY](ENGRAM_MEMORY.md) · [한국어](ENGRAM_MEMORY.ko.md) | **Memory consolidation and sharing target**: canonical IDs, merging, correction, forgetting, daemon replication, authorization and acceptance. |
 | [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages, and installed-environment acceptance. Not an as-built specification. |
 | [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.md) · [한국어](PROJECT_REVIEW_2026-09-11.ko.md) | **Project Assessment (2026-09-11)**: Evaluation of council thought propagation, client integrations, and stabilization priorities. |
 
