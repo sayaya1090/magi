@@ -135,8 +135,28 @@ Both clients now call `Launches`, and JetBrains reports readiness and launch fai
 | R1 | **landed** | `179169f8` | The feature probe is an `await`, and `close()` could FINISH inside it — with no child yet to stop, close returned having stopped nothing, and the spawn after the probe left a daemon nobody owns. Re-checked after the probe, and again right after the handle is stored (clearing it there too). The probe is **injectable**, so the test reproduces the order without sleeping. The second check cannot be reached today (nothing awaits in between) and the code says so, and says it is therefore not covered by a test. |
 | R3 | **landed** | `07c0f509` | JetBrains still launched plain `--daemon` and closed the child's stdin **immediately**. In the owned mode that close means "the owner has gone". It now asks for the feature, launches owned when it is there, and holds the pipe for the life of the window; `dispose` releases the pipe **first**. |
 | R4 | **landed** | `07c0f509` | **Nobody ever added one** to the consecutive-failure count. A daemon that misses the ready deadline, or dies on the way up, was never connected — so `lost` does not count it either, the window empties after a minute, and it retries forever without reaching `Blocked`. |
-| R2 | open — a design choice | | Node closes a child's stdin when that child exits. A Windows successor inheriting the same read end therefore sees the owner's EOF **from an update alone**. It needs a channel independent of the original child's lifetime, and that is a design decision rather than a fix. **Confirmed on real Windows** (Windows 11, 2026-09-11): the owned child exited 27ms after the `restart` door answered, and the daemon log ends with "the owner closed its pipe" one line after the successor came up — while the owner was still running and had closed nothing. The review had only a macOS stand-in for this. |
+| R2 | open — **taken by the Windows session** (2026-09-11) | | See the section below |
 | R5 | **landed** | `61ded932` | With a core that lacks the owned mode, VS Code started a plain `--daemon` **silently**. §4's "block" applies to a launch that REQUIRES the mode, and the sentence right after it forbids falling back silently — the case that truly requires it, the Windows relay, is already blocked by `whyNoRelay` (`73a1a313`). A plain start is the lifetime that existed before the mode and which §4 preserves, so instead of blocking it **says so once**: the window still stops its child on close, but an extension host that is KILLED runs no `deactivate` and the companion survives — and here is what to do about it. Once per start, because a window polls every fifteen seconds and a warning on every poll is noise, which is how a real warning stops being read. |
+
+### R2 — the owner channel breaks on a single update (handed to the Windows session)
+
+**Symptom.** On Windows an owned daemon sees its owner's EOF, and ends, **from its own update alone**. Confirmed on real Windows (Windows 11, 2026-09-11): the owned child exits **27ms** after the `restart` door answers, and the daemon log ends with "the owner closed its pipe" right as the successor comes up — **the owner was alive and closed nothing.**
+
+**Mechanism, in three pieces.**
+
+1. `reexec` in `internal/graceful/graceful_windows.go` passes `cmd.Stdin = os.Stdin`, so the successor **inherits the same read end**. Windows has no `execve`, so the successor is a new process.
+2. Node destroys a child's stdin — the **write end the owner holds** — the moment that child exits. Not Windows-specific: measured here on macOS, Node v24.4.1, owner alive with `stdin.destroyed = true` and the heir seeing EOF.
+3. It cannot happen on unix: `syscall.Exec` replaces the image, so the child never "exits".
+
+**The fix belongs to the client.** What gets torn down is the write end held by the extension host; the core only ever has the read end, so nothing the core does can prevent it.
+
+**Three options, with what each costs.**
+
+1. **Drop stdin for a channel the owner listens on.** The extension host opens a local socket (a named pipe on Windows) and the core connects with `--owner-channel <addr>`. The successor reconnects on its own because the address is in argv/env, so there is no fd to inherit. ⚠ **Cost**: the pipe's authority is that it cannot be guessed or copied; an address can be. Covering that with a token in the environment puts authority into the environment — the opposite of what §4 says about the ids (tracking, never authority).
+2. **Use an OS mechanism on Windows only** — a job object with kill-on-close. The most native answer, and it needs a native module in VS Code.
+3. **Accept one death per update.** The window restarts it under the policy — the smallest change, and `c5373a08` already wired "a restart the person asked for is not a failure" so that death is not counted against the budget. What is lost is continuity for those few seconds.
+
+**Acceptance.** Whichever is chosen has to be checked on a real Windows install: does the owned daemon survive one update, does it still go when the IDE is force-killed, and are those two told apart by **the same signal**.
 
 ⚠ R1 was fixed by **another session first**. Two sessions took the same finding, and the rebase collided; theirs was kept — an injectable probe does not depend on timing, and only theirs cleared the handle. Recorded because it is what happens when one review's findings are split across a shared checkout.
 
