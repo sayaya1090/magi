@@ -2,6 +2,7 @@ package idebridge
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"strings"
 
@@ -32,6 +33,11 @@ func Rows(events []event.Event) []Row {
 	// fact when it arrives rather than added to — the appended part carries the whole text, so
 	// keeping both would show the answer twice.
 	drafts := map[string]*Row{}
+	// How many councils this stream has opened, and where each member's verdict sits in `out` — so
+	// the fact can land on its preview's place rather than beside it. See the note at the verdict
+	// case on why the round number cannot be the key.
+	convene := 0
+	verdictAt := map[string]int{}
 	dropDraft := func(key string) {
 		row, ok := drafts[key]
 		if !ok {
@@ -217,9 +223,35 @@ func Rows(events []event.Event) []Row {
 
 		case event.TypeCouncilConvened:
 			out = append(out, convenedRow(e.Seq, d))
+			// A new convene. Every council opens at round 1, so the round number alone cannot tell
+			// two of them apart — this is what keys a verdict to the round it belongs to.
+			convene++
 
 		case event.TypeCouncilVerdict:
-			out = append(out, verdictRow(e.Seq, d))
+			row := verdictRow(e.Seq, d)
+			// ⚠ **A preview and the fact it becomes are ONE row, not two.**
+			//
+			// The core shows a round as it lands — `publishTransient` puts each verdict on the bus
+			// the moment it arrives, so nobody stares at "3 of 3 answered" for ninety seconds — and
+			// then writes the same verdicts as facts. Transient events carry no seq, so appending
+			// both drew a council of three as **six rows**, every member twice. Measured 2026-09-11
+			// through this shaper; the two editor clients had it too and were fixed in the same
+			// shape (docs/CLIENT_LIFECYCLE §6).
+			//
+			// The fact lands on the preview's PLACE, decision included: a rebuttal round can move a
+			// vote, and a preview left standing beside it shows the council disagreeing with itself.
+			//
+			// A preview arriving after the fact (seq 0 with one already recorded) is dropped — it
+			// cannot be newer than what the log holds.
+			key := fmt.Sprintf("%d/%d/%s", convene, row.Round, row.Member)
+			if at, seen := verdictAt[key]; seen {
+				if e.Seq > 0 {
+					*out[at] = *row
+				}
+			} else {
+				verdictAt[key] = len(out)
+				out = append(out, row)
+			}
 
 		case event.TypeCompaction:
 			// ⚠ Without this row the transcript just STOPS earlier than a person remembers, with
