@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Launches, Policy, Verdict, backoffMs, BACKOFF_JITTER } from '../core/launches';
+import {
+  Launches, Policy, Verdict, backoffMs,
+  BACKOFF_JITTER, BACKOFF_STEPS_MS, BACKOFF_CAP_MS, DEFAULT_POLICY,
+} from '../core/launches';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const contract = JSON.parse(
@@ -72,4 +75,53 @@ test('the JetBrains client reads the same contract file', () => {
     'utf8');
   assert.ok(kt.includes('clients/contract/lifecycle-policy.json'),
     'the JetBrains test no longer reads the shared contract — the two rules can drift again');
+});
+
+/**
+ * The numbers this client ACTUALLY runs with are the contract's.
+ *
+ * ⚠ **Every case above is run against `contract.policy`, not against what ships.** `new Launches()`
+ * takes `DEFAULT_POLICY`, and nothing compared the two — so the cases proved that the ALGORITHM
+ * obeys the contract while saying nothing about the numbers fed to it in production. Measured
+ * 2026-09-11: setting `DEFAULT_POLICY` to `windowMs: 1, spawnsPerWindow: 99, failuresToBlock: 99,
+ * graceMs: 0, stableMs: 1` left the whole suite green.
+ *
+ * That is the same shape the contract exists to end, one level over. The sibling has it too —
+ * `LaunchesTest.policy()` builds its Launches from the contract and the Kotlin defaults
+ * (`windowMs: Long = 60_000`, …) are equally unread.
+ *
+ * Field by field rather than a deep-equal, so a mismatch names which number drifted.
+ */
+test('the shipped defaults are the contract', () => {
+  const p = contract.policy as Record<string, number>;
+  for (const k of ['windowMs', 'spawnsPerWindow', 'failuresToBlock', 'graceMs', 'stableMs'] as const) {
+    assert.equal(DEFAULT_POLICY[k], p[k],
+      `DEFAULT_POLICY.${k} is ${DEFAULT_POLICY[k]}, the contract says ${p[k]} — a client running ` +
+      'this obeys a rule its own tests never measured');
+  }
+  // And every key the type carries is checked: adding a field to Policy without adding it here
+  // would leave the new number in the same unread position the five above were in.
+  assert.deepEqual(Object.keys(DEFAULT_POLICY).sort(),
+    ['failuresToBlock', 'graceMs', 'spawnsPerWindow', 'stableMs', 'windowMs'],
+    'Policy grew a field — add it to the loop above, or it ships unmeasured');
+});
+
+/**
+ * The backoff the client runs is the contract's ladder, not a copy that happens to look like it.
+ *
+ * `BACKOFF_STEPS_MS` is six long and the contract lists eight attempts — the last steps repeat, and
+ * the function clamps past the end. So the ladder is compared where it is defined rather than by
+ * length: every attempt the contract names must land in the band the contract names for it, which
+ * the cases above already do — what was missing is that the STEPS themselves are the contract's.
+ */
+test('the backoff ladder is the contract', () => {
+  const want = contract.policy.backoffMs as number[];
+  for (let i = 0; i < want.length; i++) {
+    const attempt = i + 1;
+    const got = BACKOFF_STEPS_MS[Math.min(attempt, BACKOFF_STEPS_MS.length) - 1];
+    assert.equal(got, want[i],
+      `attempt ${attempt} steps to ${got}ms, the contract says ${want[i]}ms`);
+  }
+  assert.equal(BACKOFF_CAP_MS, contract.policy.backoffCapMs,
+    'the cap this client applies is not the contract\'s');
 });
