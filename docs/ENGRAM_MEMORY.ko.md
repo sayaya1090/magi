@@ -57,9 +57,132 @@ flowchart LR
 
 호스트 API는 `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(plan, expectedHeadsById)`, `Withdraw(id, heads, reason)`, `Recall(query, principal, budget)`로 구분합니다. 반환에는 operation_id·현재 heads·로컬 반영 상태·공유 전파 상태를 포함합니다. stale-head·permission-denied·evidence-rejected·pending-dependencies는 구별된 결과이며 성공으로 삼키지 않습니다. 이 이름은 제안된 포트 계약입니다.
 
+### 3.1 저장 위치와 파일 역할
+
+**권장안은 로컬 JSON 연산 원장 + SQLite 인덱스 + Markdown 보기 파일입니다.** 외부 벡터 DB나 Git 서버 없이 시작합니다. 모든 namespace의 정본은 플랫폼이 해석한 기존 `<config>` 아래에 둡니다. 프로젝트 저장소에는 namespace 연결 정보와 명시적으로 내보낸 보기만 둬, 자동 생성된 개인 기억이 실수로 Git에 올라가는 일을 줄입니다.
+
+```text
+<config>/knowledge/v2/
+  namespaces/<namespace-uuid>/
+    manifest.json
+    operations/<sha256-prefix>/<operation-sha256>.json
+    blobs/<sha256-prefix>/<blob-sha256>
+    snapshots/<snapshot-sha256>.json
+    quarantine/
+    incoming/
+    views/objects/<object-uuid>.md
+  local/
+    state.sqlite
+    index.sqlite
+    locks/<namespace-uuid>.lock
+<workspace>/.magi/knowledge.json
+<workspace>/.claude/skills/<slug>/SKILL.md
+<workspace>/SESSION_SUMMARY.md
+```
+
+| 위치 | 내용·복제 여부 |
+|---|---|
+| manifest.json | namespace UUID, schema, 현재 권한 정책 연산의 head를 가리키는 재생성 가능한 보기입니다. 서명된 정책 연산이 정본이며 이 파일 편집으로 권한을 얻지 않습니다. |
+| operations/ | 하나의 변경 트랜잭션을 담은 불변 JSON입니다. 정본이며 권한 있는 peer에 복제합니다. 정정·철회도 여기에 남습니다. |
+| blobs/ | 64KiB 연산에 직접 넣기 어려운 본문·첨부의 해시 청크입니다. 연산이 참조하는 것만 같은 ACL로 복제합니다. 원문 대화 자동 첨부는 금지합니다. |
+| snapshots/ | 특정 연산 집합에서 계산한 heads·상태의 검증 가능한 checkpoint입니다. 보관 정책 충족 전 연산 원장을 대체하거나 지우지 않습니다. |
+| quarantine/, incoming/ | 권한·해시 검증 전 파일과 불완전한 batch입니다. 검색·보기·다른 peer 재전송에서 제외합니다. |
+| views/ | 객체 ID로 생성한 Markdown입니다. 사람이 읽는 용도이며 망가져도 원장에서 복구합니다. |
+| local/state.sqlite | 로컬 pin·숨김·실제 사용 시각·import manifest·동기화 acknowledgment 등 기기 상태입니다. 복제하지 않으며 로컬 백업 대상입니다. 검색 캐시처럼 삭제하면 안 됩니다. |
+| local/index.sqlite | 현재 객체, 검색 토큰·n-gram, 임베딩 캐시입니다. 재구축 가능하고 복제하지 않습니다. |
+| .magi/knowledge.json | workspace→project namespace UUID 및 연결한 team namespace UUID 목록입니다. 자격 증명은 넣지 않습니다. 공유 저장소에서 받은 연결 정보만으로 접근을 승인하지 않습니다. |
+
+project/team/global은 파일 경로 계층 대신 namespace의 범위와 연결 관계입니다. 프로젝트 연결 파일을 Git으로 받아도 그 namespace의 가입 승인은 별도입니다. 일반 사용자는 자신의 `<config>`와 로컬 DB를 가지며, 다른 OS 사용자나 기기는 파일을 같이 열지 않고 daemon API로 통신합니다.
+
+SQLite는 **로컬 디스크 전용**입니다. SQLite WAL은 네트워크 파일시스템에서 공유하는 방식으로 사용하지 않습니다. [SQLite WAL 문서](https://www.sqlite.org/wal.html)를 근거로, 네트워크 workspace도 원장·DB는 로컬 config에 두고 보기 export만 그 workspace에 둡니다. DB 파일 복제는 exp-sync의 역할이 아닙니다.
+
+Go SQLite 드라이버는 구현 A에서 FTS5 지원, Windows/macOS/Linux 패키징, 현재 빌드 도구와의 호환을 검증한 뒤 고정합니다. 이 문서는 검증하지 않은 드라이버 도입을 완료로 취급하지 않습니다.
+
+### 3.2 JSON과 로컬 DB의 구체 형태
+
+아래는 저장 연산의 **형태 예시**입니다. UUID·해시·서명 자리표시는 실제 값이 아닙니다. 예시의 verified도 호스트가 제공하고 검증한 경우에만 허용합니다.
+
+```json
+{
+  "schema": "magi.knowledge.operation.v2",
+  "operation_id": "<UUID>",
+  "namespace_id": "<namespace-UUID>",
+  "actor_id": "<registered-key-ID>",
+  "type": "propose",
+  "parents": [],
+  "expected_heads": {},
+  "changes": [
+    {
+      "object_id": "<object-UUID>",
+      "kind": "procedure",
+      "state": "active",
+      "claim": "Wait for a feature probe with a bounded deadline before reading its output.",
+      "applies_when": {
+        "os": [
+          "windows",
+          "macos",
+          "linux"
+        ],
+        "component": "core-feature-probe",
+        "version_range": null
+      },
+      "excludes": [
+        "interactive child process"
+      ],
+      "procedure": [
+        "Start the probe.",
+        "Bound its completion time.",
+        "Read the completed output."
+      ],
+      "verification": [
+        "A silent probe returns within the deadline."
+      ],
+      "evidence": [
+        {
+          "observation_id": "<stable-observation-UUID>",
+          "outcome": "verified",
+          "source_ref": "<opaque-source-ID>",
+          "observed_at": "2026-09-11T00:00:00Z"
+        }
+      ],
+      "visibility": {
+        "policy_id": "<namespace-policy-ID>",
+        "policy_revision": "<policy-hash>"
+      },
+      "authored_by": "automatic",
+      "derived_from": []
+    }
+  ],
+  "reason": "verified observation",
+  "signature": {
+    "algorithm": "<negotiated-algorithm>",
+    "key_id": "<registered-key-ID>",
+    "value": "<signature>"
+  }
+}
+```
+
+한 변경 연산의 파일 해시는 `signature`를 제외한 전체 payload의 정규 직렬화 바이트에 SHA-256을 적용합니다. 서명도 같은 바이트를 대상으로 합니다. JSON은 UTF-8, 중복 키 금지, 객체 키 정렬, 정수만 허용하며 큰 숫자는 schema가 정한 문자열로 보냅니다. 집합 필드(parents·대상 ID 등)는 정렬하고, procedure처럼 순서가 의미 있는 배열은 유지합니다. 문자열 내용은 해시 단계에서 정규화하지 않습니다. 정규 직렬화의 골든 바이트 fixture를 Go와 모든 생산자에서 공유합니다.
+
+객체 revision_id는 해당 changes 항목과 그 객체의 부모 revision을 정규 직렬화한 해시입니다. operation_id는 재전송 시 유지하는 UUID이고 파일 해시와 역할이 다릅니다. evidence가 늘어날 때 과거 증거 전체를 매번 복사하지 않고 reinforce 연산에 신규 observation만 넣어 조회 시 합칩니다. 최신 보기에는 집계와 출처 포인터를 표시합니다.
+
+`index.sqlite`의 초기 schema는 다음 논리 테이블로 고정합니다. 여러 namespace를 담으므로 모든 키·질의에 namespace_id가 포함됩니다.
+
+| 테이블 | 핵심 열·제약 |
+|---|---|
+| objects | (namespace_id, object_id) PK; heads_digest, kind, state, policy_id, current_payload, exact_fingerprint |
+| aliases | (namespace_id, alias_id) PK; canonical_id. 순환은 수신·적용 시 거절합니다. |
+| evidence | (namespace_id, object_id, observation_id) UNIQUE; source_ref, outcome |
+| search_text | 객체의 claim/conditions/procedure/verification에 대한 FTS5 인덱스입니다. |
+| search_grams | namespace_id, object_id, field, gram, count. 한국어 짧은 질의와 식별자 조각 후보 검색용입니다. |
+| embeddings | (namespace_id, object_id, revision_id, model_digest, dimensions, input_digest) PK; float32 vector |
+| indexed_operations | (namespace_id, operation_hash) PK. 재시작 시 원장과 대조해 누락분만 재생합니다. |
+
+인덱스의 반영 완료와 성공 응답을 구분합니다. 로컬 쓰기 직후의 조회는 그 operation의 인덱싱을 기다리거나 원장 overlay로 답해 “저장됐지만 아직 안 보임”을 막습니다. ACL·철회 변경은 인덱스 갱신 전에도 최종 권한·상태 검사에 즉시 반영합니다.
+
 ## 4. 병합 규칙
 
-1. scope·ACL·kind·적용 조건으로 후보를 좁힙니다. 같은 팀 이름만으로 같은 namespace라고 보지 않습니다.
+1. scope·ACL로 접근 가능한 후보를 좁히고 kind·적용 조건을 비교 항목으로 보관합니다. 같은 팀 이름만으로 같은 namespace라고 보지 않습니다.
 2. Unicode 정규화와 토큰 검색, 선택적 임베딩으로 후보 최대 20개를 찾습니다. 임베딩 미설정·장애에서도 한국어/영어 검색과 정확 중복 처리는 동작해야 합니다.
 3. 같은 observation_id는 no-op, 의미 필드가 정확히 같은 기록은 정본에 근거만 추가합니다. 출처·시각은 정확 내용 비교에서 제외하되 증거로 보존합니다.
 4. 유사도만 높은 기록은 분석기가 duplicate/refinement/contradiction/related/independent와 근거 구간을 제안합니다. 0.93 같은 점수 하나로 삭제하거나 덮어쓰지 않습니다.
@@ -68,6 +191,44 @@ flowchart LR
 7. 적용 직전 heads를 재검사합니다. 바뀌면 새 내용으로 다시 판단하고, 최대 3회 후 보류합니다. 후보 계획의 수명은 10분이며 수동 승인도 최신 diff를 대상으로 합니다.
 
 병합은 결과 revision과 원본들의 superseded 연결을 **하나의 연산**으로 기록합니다. 조회는 같은 정본을 한 번만 반환합니다. 자동 의미 요약 병합은 첫 릴리스에서 제안만 하고, 사람이 고른 판정 사례로 오류율을 검증한 뒤 확대합니다.
+
+### 4.1 유사도 판별 파이프라인
+
+**권장 조합은 정확 fingerprint → BM25·문자 n-gram·임베딩 후보 검색 → 구조 비교 → 모델의 관계 제안입니다.** 자동 병합은 정확 동등성 검사만 통과시킵니다. 임베딩은 의미상 가까운 후보를 놓치지 않기 위한 선택 기능이며, 점수가 높다는 이유로 기존 기억을 버리지 않습니다.
+
+| 단계 | 구체 방식 | 초기값·결과 |
+|---|---|---|
+| 입력 정규화 | 자연어는 NFC, 공백 정리, 검색용 영문 case-fold를 적용합니다. 원문과 정규화본을 따로 둡니다. 코드·명령·경로·버전·숫자·부정 표현은 보존합니다. | 정규화 규칙에 version을 부여합니다. NFKC로 코드 의미를 바꾸거나 stopword 처리로 “않음/not”을 지우지 않습니다. |
+| 정확 비교 | kind·claim·적용/제외 조건·procedure·verification·visibility의 보수적 정규화 JSON을 SHA-256으로 묶습니다. 자연어 case-fold·동의어 치환은 정확 fingerprint에 사용하지 않습니다. | 같은 namespace와 ACL 안에서 fingerprint가 같고 의미 필드 재비교도 같으면 근거만 추가합니다. |
+| 어휘 후보 | FTS5 unicode61 BM25를 claim/conditions/procedure/verification 필드에 적용합니다. 초기 필드 가중치는 5/3/2/2입니다. | 상위 40개. 짧은 식별자·오류 코드 exact match를 별도 보존합니다. |
+| 한국어·부분 일치 | Unicode 문자 2-gram·3-gram 역색인에서 weighted Jaccard로 비교합니다. 숫자·영문 식별자는 별도 토큰도 만듭니다. | 상위 40개. “메모리/메모리를”, 두 글자 질의를 처리하며 형태소 분석기 의존은 첫 배포에서 두지 않습니다. |
+| 의미 후보 | 기존 Embedder에 조건·주장·절차·검증을 포함한 고정 template을 보내고 정규화된 float32 벡터의 cosine으로 순위를 냅니다. | 같은 모델·차원·template만 비교해 상위 40개. 모델 장애 시 어휘 경로로 진행합니다. |
+| 순위 합치기 | 각 후보에 `Σ 1/(60 + rank)`를 더하는 RRF를 사용합니다(rank는 1부터). | BM25·Jaccard·cosine 원점수를 더하지 않습니다. 합친 뒤 상위 20개를 구조 비교에 넘깁니다. |
+| 관계 판정 | 조건·명령·검증 diff와 원문 근거를 함께 분석합니다. | equivalent/refinement/contradiction/related/independent/uncertain. unknown 조건이나 불충분한 근거는 uncertain입니다. |
+
+SQLite FTS5가 unicode61 토큰화와 BM25를 제공한다는 점은 [공식 FTS5 문서](https://www.sqlite.org/fts5.html)로 확인했습니다. 한국어 조사·두 글자 검색은 unicode61만으로 해결된다고 가정하지 않고 별도 n-gram 경로를 둡니다. 위의 가중치·후보 수·RRF 상수는 프로젝트의 초기 설계값이며 현재 측정된 최적값이 아닙니다.
+
+적용 조건은 후보의 관계를 설명하는 데 사용합니다. OS가 다르다는 이유로 관련 반례를 후보에서 모두 제거하지 않습니다. **접근 권한은 검색 전에 강제 필터링**하고, kind·조건은 정확 병합 허용 여부와 후보 분류에 반영합니다. 같은 namespace에서도 권한이 다른 문서 본문·임베딩을 후보 분석기로 보내지 않습니다.
+
+weighted Jaccard는 두 문서의 gram 가중치에 대해 `Σ min(wA,wB) / Σ max(wA,wB)`로 계산합니다. 희귀 gram에 더 큰 IDF 가중치를 주되 한 글자 입력은 무제한 전체 검색 대신 명시적 짧은 질의 경로로 제한합니다. 명령의 플래그, 수치, “금지/허용” 차이는 별도 구조 diff에 남겨 n-gram이 비슷하다는 이유로 사라지지 않게 합니다.
+
+첫 배포의 벡터 검색은 namespace·ACL로 허용된 active/cold 후보의 **정확 cosine 순회**로 시작합니다. 1만 개의 768차원 float32 벡터 원본은 약 30.7MB(메타데이터 제외)입니다. 현재 corpus에서 M09를 못 지킬 때 ANN 인덱스를 도입하고, 같은 정답 집합 대비 candidate recall을 측정합니다. 원문 전부를 매번 임베딩하지 않고 revision/model/template 해시 캐시를 재사용합니다. 768은 용량 예시이며 모델 차원을 고정하는 계약이 아닙니다.
+
+### 4.2 최종 판정과 튜닝 기준
+
+관계 판정 결과는 `relation, target_ids, compared_heads, matched_spans, unique_conditions, contradictory_spans, proposed_changes, reason`을 반환합니다. 모델이 보고한 confidence는 진단 정보로만 남기고 자동 적용 권한을 주지 않습니다. 기존 §4의 duplicate 표기는 이 계약의 equivalent와 같은 뜻입니다.
+
+| 관찰 예시 | 결정 |
+|---|---|
+| 같은 내용·조건·명령, 서로 다른 턴 | reinforce. 독립 observation을 추가하고 기억 개수는 늘리지 않습니다. |
+| 같은 목적이지만 명령이 더 구체적 | refinement 후보. 고유 절차를 비교한 diff를 승인받기 전까지 기존 내용을 유지합니다. |
+| “5초 안에 끝남” / “5초로는 부족함” | 같은 환경이면 contradiction, 환경 정보가 없으면 uncertain. |
+| 한국어와 영어로 같은 교훈 | 임베딩 또는 다국어 후보 검색으로 찾은 뒤 equivalent 제안. 첫 배포는 자동 의미 병합하지 않습니다. |
+| 같은 도구를 언급하지만 해결하는 문제가 다름 | related. 별도 정본으로 남깁니다. |
+
+배포 전 최소 200개 사람 판정 쌍을 준비합니다. 정확 중복·의역·반례·조건 추가·독립 사례를 각 40개로 구성하고 한국어/영어, 부정, OS·버전·숫자·명령 차이를 포함합니다. 작업/출처 단위로 train/dev/test를 나눠 같은 사건의 의역이 양쪽에 섞이지 않게 합니다. 후보 recall@20 초기 목표는 95%이며, 관계 분류의 클래스별 precision/recall과 고유 조건 손실을 별도로 보고합니다.
+
+자동 적용은 정확 비교 경로만 열고, 그 경로의 반례 fixture에서 잘못된 병합 0건을 필수로 합니다. 200쌍 통과만으로 미래의 무오류를 보장하지 않습니다. 모델·template·정규화·가중치 변경 때 고정 holdout을 다시 평가합니다. 후보 recall이 낮으면 후보 수나 어휘 처리를 개선하며, 중복이 남는다는 이유로 의미 판정 기준을 느슨하게 해 데이터 손실을 허용하지 않습니다.
 
 ### 예시
 
