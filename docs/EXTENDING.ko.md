@@ -82,7 +82,7 @@ MCP 서버는 **stdio 또는 HTTP 전송(Streamable HTTP)**으로 연결되고, 
 ### 1.1 선언
 
 `config.toml`에 `[mcp.<name>]` 블록을 추가합니다. `<name>`은 관리용 라벨이자 **툴 이름의 네임스페이스**
-(`mcp__<name>__<원격툴명>`)로 쓰이므로, 짧고 툴 이름 문자셋([A-Za-z0-9_-])에 맞는 이름이 좋다(그 외 문자는 `_`로 치환).
+(`mcp__<name>__<원격툴명>`)로 쓰이므로, 짧고 툴 이름 문자셋([A-Za-z0-9_-])에 맞는 이름이 좋습니다(그 외 문자는 `_`로 치환).
 
 **stdio 전송** (로컬 프로세스 spawn):
 ```toml
@@ -266,8 +266,8 @@ flowchart TD
 ⚠ **한 기계의** 디렉토리입니다. 한 팀에 기계가 둘이면 서로 만나지 않는 스토어가 둘 생깁니다.
 [`UI.ko.md`](UI.ko.md) §7 참조.
 
-회수는 세 층을 **하나의** 예산 안에서 합친다 — 층을 늘려도 주입 컨텍스트가 넓어지지 않습니다.
-기여는 `Scope`로 라우팅되고 기본은 **project**다(좁은 쪽). global로 올린 사실은 한 프로젝트의
+회수는 세 층을 **하나의** 예산 안에서 합칩니다 — 층을 늘려도 주입 컨텍스트가 넓어지지 않습니다.
+기여는 `Scope`로 라우팅되고 기본은 **project**(더 좁은 범위)입니다. global로 올린 사실은 한 프로젝트의
 진실을 다른 프로젝트의 프롬프트에 흘리고, 몇 주 뒤엔 아무도 원인을 못 찾기 때문입니다.
 
 ### 2.1 디렉터리 만들기
@@ -329,13 +329,13 @@ experience_dir = "/path/to/team-experience"   # 생략 시 <config>/experience
   cd "$EXPDIR" && git log --stat        # 무엇을 언제 배웠나
   ```
   또는 콘솔(MANUAL §12)에서 — 모든 컴패니언의 세 층을 도달 범위와 함께 나열하고, 잊게 할 수 있습니다.
-- 🔒 **`remember`는 시크릿을 저장하면 안 된다** — 툴 설명에 명시돼 있고, 기여는 평문 .md로
-  남아 git에 박힙니다. 토큰/키/비밀번호는 절대 넣지 말 것.
+- 🔒 **`remember`는 시크릿을 저장하면 안 됩니다** — 툴 설명에 명시되어 있으며, 기여는 평문 .md로
+  남아 git에 기록됩니다. 토큰/키/비밀번호는 절대 넣지 마십시오.
 
 ### 2.5 팀 공유
 
 `experience_dir`를 git repo로 두고 팀이 **pull로 받고, 리뷰 후 push**합니다. magi는 기여 시
-best-effort `git commit`만 한다(자동 push/pull은 안 함) — pull/push는 팀 워크플로에 맡깁니다.
+best-effort `git commit`만 수행합니다(자동 push/pull은 제외) — pull/push는 팀 워크플로에 맡깁니다.
 
 ### 2.6 트러블슈팅
 
@@ -381,7 +381,7 @@ flowchart LR
 
 `config.toml` 선언 외에, **Lua 플러그인**이 런타임에 직접 MCP 서버나 Context Provider(RAG)를
 등록할 수 있습니다. 플러그인 호스트가 MCP 매니저·컨텍스트 레지스트리·런타임 정보를 주입받았을 때만
-활성화된다(`cmd/magi/main.go`).
+활성화됩니다(`cmd/magi/main.go`).
 
 ### 3.1 `magi.register_mcp` — HTTP MCP 서버 등록
 
@@ -409,15 +409,15 @@ magi.register_mcp{
 
 > **정적 vs 동적**: 테이블이면 헤더가 고정(`AddHTTP`), 함수면 **요청마다 호출**(`AddHTTPDynamic`)됩니다.
 > 함수는 플러그인 Lua 락 아래에서 직렬 실행되어 동시성에 안전합니다. 시각/모델/토큰처럼 매 요청
-> 바뀌는 값에 함수를 쓰라.
+> 바뀌는 값에 함수를 사용합니다.
 
 런타임 정보 API: `magi.model()`, `magi.platform()`, `magi.time()`, `magi.workdir()`.
 
 > **`magi.register_declaration_gate{ check = fn }`** — 모델이 턴 완료를 선언할 때, 카운슬이 소집되기
 > **전에** `fn()` 이 돕니다(`magi.turn_steps()` 가 답합니다). `nil` 이면 통과, 문자열이면 거절이고 그
-> 문장이 모델에게 그대로 갑니다(카운슬 거절 횟수에 안 셉니다). **`magi.council_enabled()`** 는 이 판에서
-> 카운슬이 선언을 심사하는지 — 끝내는 문이 따로 있는 플러그인(landing 의 `land`)은 그때 문 대신 게이트를
-> 겁니다: 문은 하나.
+> 문장이 모델에게 그대로 전달됩니다(카운슬 거절 횟수에 포함되지 않습니다). **`magi.council_enabled()`** 는 이 판에서
+> 카운슬이 선언을 심사하는지 여부를 반환합니다 — 끝내는 문이 따로 있는 플러그인(landing의 `land`)은 그때 문 대신 게이트를
+> 겁니다: 문은 하나여야 합니다.
 >
 > **`magi.turn_steps()`** — 툴 호출 안에서만: 이 호출이 속한 턴의 툴 호출들을 오래된 순으로
 > `{name=, args=(디코드됨), failed=, output=, output_bytes=}` 로 돌려줍니다. `output` 은 결과 본문으로, 실패한 호출은 통째로, 성공한 호출은 6 KB 에서 잘립니다(문이 성공 답에 실린 ⚠ 를 읽는 자리입니다). 지금
@@ -426,13 +426,13 @@ magi.register_mcp{
 
 > 🔐 **`magi.nonce(nbytes?)`** — `nbytes`(기본 16) 바이트의 암호학적 난수를 hex 문자열로 반환
 > (`crypto/rand`). 샌드박스의 `math.random`은 **결정론적으로 시드**되므로(os 제거로 시계 시드 불가)
-> OAuth/PKCE `state`·CSRF 토큰·요청 ID 같은 **보안 값엔 절대 `math.random`을 쓰지 말고 `magi.nonce`를 써라.**
+> OAuth/PKCE `state`·CSRF 토큰·요청 ID 같은 **보안 값에는 절대 `math.random`을 쓰지 말고 `magi.nonce`를 사용하십시오.**
 
 ### 3.2 `magi.register_context_provider` — RAG 컨텍스트 주입
 
-등록한 provider는 **최상위 에이전트의 매 스텝에서 호출**되어, 반환한 chunk가 시스템 프롬프트의
-`# Retrieved context` 섹션으로 주입된다(provider당 5초 타임아웃, 합산 8KB 예산으로 cap, 실패한
-provider는 턴을 막지 않고 무시). 서브에이전트는 집중 프롬프트라 호출하지 않습니다.
+등록한 provider는 **최상위 에이전트의 매 스텝에서 호출**되어, 반환한 청크가 시스템 프롬프트의
+`# Retrieved context` 섹션으로 주입됩니다(provider당 5초 타임아웃, 합산 8KB 예산으로 제한, 실패한
+provider는 턴을 중단하지 않고 무시). 서브에이전트는 집중 프롬프트이므로 호출하지 않습니다.
 
 ```lua
 magi.register_context_provider{
@@ -451,11 +451,11 @@ magi.register_context_provider{
 
 ### 3.3 `magi.register_command` — TUI 슬래시 커맨드 등록
 
-플러그인이 `/login`, `/logout` 같은 슬래시 커맨드를 직접 등록한다(capability `"command"`).
+플러그인이 `/login`, `/logout` 같은 슬래시 커맨드를 직접 등록합니다(capability `"command"`).
 TUI가 내장 커맨드에 없는 슬래시를 받으면 플러그인 커맨드로 위임하고, 팔레트·자동완성에도
 동적으로 노출됩니다. `name`은 슬래시 없이 지정하고(`"login"` → `/login`), `execute`는 커맨드
 이후 토큰 배열을 받습니다. **비어 있지 않은 문자열을 반환하면 에러 메시지**로 처리되고, `nil`이면
-성공이다(스낵바에 `✓`).
+성공으로 간주됩니다(스낵바에 `✓`).
 
 ```lua
 magi.register_command{
