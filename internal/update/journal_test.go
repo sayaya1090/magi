@@ -1,8 +1,14 @@
+// 이 시험들은 진짜 셸 스크립트를 바이너리 자리에 세워 프리플라이트와 기동을 재므로 유닉스에서만
+// 컴파일된다 — rollback_test.go 와 같은 이유이고, 그 파일의 writeExec 를 같이 쓴다. 윈도우의
+// 교체는 모양이 달라(도는 이미지를 못 덮는다) 재는 자리가 그 플랫폼에 따로 있어야 한다.
+//go:build !windows
+
 package update
 
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -217,4 +223,152 @@ func (c countingSource) Latest(context.Context) (Release, error) {
 func (c countingSource) Download(context.Context, string) ([]byte, error) {
 	*c.downloads++
 	return c.body, nil
+}
+
+// Two daemons share one binary — the ordinary shape on a machine with several companions. Without an
+// OS lock each holds its own process mutex, sees nothing of the other, and one saves the OTHER's new
+// build as "previous".
+func TestOnlyOneProcessReplacesAnInstall(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "magi")
+	writeExec(t, target, goodBinary)
+
+	// Somebody else holds the install lock. Taken the way another process would take it — a separate
+	// open of the same file — because that is what the lock has to survive.
+	held, ok := holdInstall(target)
+	if !ok {
+		t.Fatal("could not take the install lock at all")
+	}
+
+	err := Commit([]byte("#!/bin/sh\necho 'magi other'\n"), target, Versions{From: "v1.0.0", To: "v2.0.0"})
+	if !errors.Is(err, ErrInstallBusy) {
+		t.Fatalf("a second replacement went ahead while another process held the install: %v", err)
+	}
+	on, rerr := os.ReadFile(target)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, goodBinary) {
+		t.Error("the binary was replaced by a process that did not hold the lock")
+	}
+	if _, serr := os.Stat(target + ".prev"); serr == nil {
+		t.Error("the blocked process still saved a previous copy — that is the file the two would fight over")
+	}
+
+	// And once it is free, the same call goes through.
+	held()
+	if err := Commit([]byte("#!/bin/sh\necho 'magi other'\n"), target, Versions{From: "v1.0.0", To: "v2.0.0"}); err != nil {
+		t.Fatalf("the lock was not released: %v", err)
+	}
+}
+
+// A replacement interrupted BEFORE it was recorded: a `.prev` and no journal. The binary on disk is
+// either the original or one that never finished its pre-flight, and nothing says which.
+func TestAnInterruptedReplacementIsPutBack(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "magi")
+	writeExec(t, target, []byte("#!/bin/sh\necho 'magi half-installed'\n"))
+	previous := []byte("#!/bin/sh\necho 'magi v1'\n")
+	if err := os.WriteFile(target+".prev", previous, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	put, err := Salvage(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if put == "" {
+		t.Fatal("an interrupted replacement was left in place")
+	}
+	on, rerr := os.ReadFile(target)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, previous) {
+		t.Errorf("the previous build was not put back:\n%s", on)
+	}
+	// Nothing to do the second time, and a clean install is left alone.
+	if again, aerr := Salvage(target); aerr != nil || again != "" {
+		t.Errorf("salvage ran twice on one interruption: (%q, %v)", again, aerr)
+	}
+}
+
+// A RECORDED transaction is not an interrupted replacement, and Salvage must keep its hands off it —
+// the build being watched is exactly a `.prev` beside a journal, and restoring it would undo every
+// update one start after it landed.
+func TestSalvageLeavesAWatchedUpdateAlone(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	candidate, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	put, serr := Salvage(target)
+	if serr != nil || put != "" {
+		t.Fatalf("salvage took over a recorded transaction: (%q, %v)", put, serr)
+	}
+	on, rerr := os.ReadFile(target)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, candidate) {
+		t.Error("a watched update was rolled back by the interrupted-replacement path")
+	}
+}
+
+// Confirm has two destructive steps, and this asks about the ORDER it does them in — by stopping
+// between them for real.
+//
+// Interrupted there, the disk shows a `.prev` beside a pending record, which is ALSO what a build
+// still being watched looks like. The stage is what tells them apart. Write the record second
+// instead of first and the interruption instead leaves a `.prev` with NO record — indistinguishable
+// from a replacement that died before it was recorded, whose recovery is to put the backup back.
+// That would undo a build which had already proven itself.
+func TestAConfirmInterruptedMidWayIsFinishedNotUndone(t *testing.T) {
+	dir := t.TempDir()
+	target := install(t, dir, "v1.0.0", "v2.0.0")
+	candidate, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rerr := Resume(target, "v2.0.0"); rerr != nil { // came up, and lasted its window
+		t.Fatal(rerr)
+	}
+
+	// The machine dies exactly as the backup is being dropped.
+	was := removePrev
+	removePrev = func(string) error { return errors.New("power cut") }
+	cerr := Confirm(target)
+	removePrev = was
+	if cerr == nil {
+		t.Fatal("the interruption did not happen, so nothing below is about one")
+	}
+
+	// The next start, in the order the daemon does it: salvage an unrecorded replacement, then
+	// resume a recorded one.
+	if put, serr := Salvage(target); serr != nil || put != "" {
+		t.Fatalf("an interrupted confirm was taken for an interrupted replacement — %q was put back "+
+			"over a build that had already proven itself", put)
+	}
+	got, rerr := Resume(target, "v2.0.0")
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if got.RolledBack {
+		t.Fatal("an interrupted confirm was read as a build that could not stay up")
+	}
+	on, oerr := os.ReadFile(target)
+	if oerr != nil {
+		t.Fatal(oerr)
+	}
+	if !bytes.Equal(on, candidate) {
+		t.Error("the confirmed build was replaced by the one it had already beaten")
+	}
+	if _, serr := os.Stat(target + ".prev"); !os.IsNotExist(serr) {
+		t.Error("the confirm was not finished — the backup is still there")
+	}
+	if _, serr := os.Stat(journalOf(target)); !os.IsNotExist(serr) {
+		t.Error("the transaction is still open after being finished")
+	}
 }

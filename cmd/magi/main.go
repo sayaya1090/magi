@@ -1183,6 +1183,18 @@ func run() int {
 		// not last that long, so the previous build goes back on disk and the candidate is refused.
 		daemonExe, _ := os.Executable()
 		if daemonExe != "" {
+			// First, a replacement nobody got to record — a process or machine that died between
+			// writing the backup and writing the journal. The binary at that path is then either
+			// the original or a build that never finished its pre-flight, and putting the backup
+			// back is right either way (update.Salvage).
+			if put, serr := update.Salvage(daemonExe); serr != nil {
+				fmt.Fprintln(os.Stderr, "magi: an interrupted update could not be undone:", serr)
+			} else if put != "" {
+				fmt.Fprintf(os.Stderr, "magi: an update was interrupted before it was recorded — "+
+					"the previous build is back at %s. Restarting onto it.\n", put)
+				restartOnExit = true
+				return 0
+			}
 			rec, rerr := update.Resume(daemonExe, version.Version)
 			switch {
 			case rerr != nil:

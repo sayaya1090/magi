@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -126,6 +127,12 @@ func RunCommit(ctx context.Context, src Source, currentVersion, execPath string)
 		return Result{}, err
 	}
 	if err := Commit(bin, execPath, Versions{From: currentVersion, To: rel.Version}); err != nil {
+		// Somebody else holds this install's lock. Not news and not a failure — the other process is
+		// doing exactly this, and §9.3 says a waiter carries on with its own work rather than
+		// queueing or stealing. Next cycle finds the binary already new and skips on version.
+		if errors.Is(err, ErrInstallBusy) {
+			return Result{Skipped: "another process is updating this install", From: currentVersion, To: rel.Version}, nil
+		}
 		return Result{}, err
 	}
 	return Result{Updated: true, From: currentVersion, To: rel.Version}, nil

@@ -509,6 +509,18 @@ A refused build is still tried again when **a person asks**: `magi -update`, or 
 button, clears the mark. Stopping a daemon **on purpose** inside that window is not a build falling
 over — it is an ordinary thing to do, and reading it as a crash would undo good updates.
 
+**One binary is replaced once.** When several daemons share one executable — the usual shape on a
+machine with several companions — only the one holding the OS lock on `<binary>.update.lock` does the
+replacing. The others neither queue nor steal: they **carry on with their own work**, and the next
+cycle finds the binary already new and skips it on version. The kernel drops the lock however its
+holder dies, so a daemon killed mid-update leaves no lock nobody can take.
+
+**An update interrupted by a dead process or machine is recovered.** Cut off before it was recorded,
+it leaves a `.prev` and no journal — and the binary on disk is then either the original (the
+replacement had not happened yet) or a new build that never finished its pre-flight, with nothing to
+say which. Putting the previous build back is right for both: the first writes the same bytes again,
+the second undoes an unverified replacement. The next start does that and restarts onto it.
+
 Details that matter:
 
 - `[update] auto = false` in config turns the auto path off for that companion; the

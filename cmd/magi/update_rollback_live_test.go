@@ -231,3 +231,63 @@ func waitForDaemonUp(t *testing.T, sock string, p *os.Process) {
 	_ = p.Kill()
 	t.Fatal("the daemon never came up, so nothing was on trial")
 }
+
+// A replacement interrupted before anything recorded it — a `.prev` and no journal, which is what a
+// process or machine killed inside `update.Commit` leaves. The daemon has to undo it on the way up,
+// BEFORE it publishes anything, because the binary it is running may be one that never finished its
+// pre-flight.
+func TestAnUnrecordedReplacementIsUndoneOnTheNextStart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the binary")
+	}
+	cfg, err := shortdir.Make("mgi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(cfg) })
+	ws, err := shortdir.Make("mgj")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ws) })
+	t.Cleanup(func() {
+		rows, _ := daemon.List(cfg)
+		for _, r := range rows {
+			if r.PID != 0 {
+				_ = syscall.Kill(r.PID, syscall.SIGTERM)
+			}
+		}
+	})
+
+	exe := buildMagi(t, cfg)
+	previous := []byte("#!/bin/sh\necho 'the restored build is running'\nexit 0\n")
+	if err := os.WriteFile(exe+".prev", previous, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately no journal: that absence IS the case under test.
+
+	tctx, tcancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer tcancel()
+	start := exec.CommandContext(tctx, exe, "--daemon")
+	start.Dir = ws
+	start.Env = append(os.Environ(), "MAGI_CONFIG_DIR="+cfg)
+	out, _ := start.CombinedOutput()
+	if tctx.Err() != nil {
+		t.Fatalf("it served on a binary that may never have passed its pre-flight:\n%s", out)
+	}
+	said := string(out)
+
+	if !strings.Contains(said, "interrupted before it was recorded") {
+		t.Errorf("the start said nothing about the interrupted replacement:\n%s", said)
+	}
+	if !strings.Contains(said, "the restored build is running") {
+		t.Errorf("it did not restart onto the restored build:\n%s", said)
+	}
+	on, rerr := os.ReadFile(exe)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, previous) {
+		t.Error("the binary on disk is not the one that was put back")
+	}
+}

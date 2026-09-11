@@ -3,6 +3,7 @@ package update
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -147,6 +148,19 @@ func Commit(newBin []byte, target string, v Versions) error {
 	if resolved, rerr := filepath.EvalSymlinks(abs); rerr == nil {
 		abs = resolved
 	}
+	// ⚠ **The mutex above is a process's own opinion.** Two daemons sharing one binary — the ordinary
+	// shape on a machine with several companions — each hold their own `commitMu` and neither sees
+	// the other, so both save a ".prev", both Apply, and one saves the OTHER's new build as the
+	// previous. CLIENT_LIFECYCLE §9.3 asks for an OS lock on the install unit, and this is it.
+	//
+	// A waiter does not block, retry in a loop, or steal: it says so and carries on with its work,
+	// and the next cycle finds the update already done (the idempotent check just below). "Do not
+	// take a live lock by looking at the lock file's timestamp" is the same paragraph.
+	release, got := holdInstall(abs)
+	if !got {
+		return ErrInstallBusy
+	}
+	defer release()
 	// Idempotent: a second updater queued on the mutex (the auto loop and a console press racing)
 	// arrives after the first already installed these exact bytes. Without this it would save the
 	// NEW build as ".prev" and re-verify — and a transiently failing second Verify then "rolled
@@ -189,6 +203,10 @@ func Commit(newBin []byte, target string, v Versions) error {
 	}
 	return nil
 }
+
+// ErrInstallBusy says another process holds this install's update lock. Not a failure: the other
+// one is doing the work, and this process should keep serving and look again next cycle.
+var ErrInstallBusy = errors.New("another process is updating this install")
 
 // RolledBackError says a downloaded build was installed, refused by the pre-flight, and undone.
 //

@@ -47,9 +47,27 @@ type pendingUpdate struct {
 	// Starts counts generations that began on this candidate without confirming it. One is the
 	// generation we expect — the restart the update triggered. Two means the first one did not
 	// survive its window, which is the failure this whole record exists to catch.
-	Starts int    `json:"starts"`
-	Since  string `json:"since"`
+	Starts int `json:"starts"`
+	// Stage is what this record was in the middle of. Two values, and the second exists only so an
+	// interruption is legible: `trial` is a build being watched, `confirming` is one that already
+	// proved itself and is having its backup dropped. Confirm writes `confirming` BEFORE removing
+	// anything, so a process killed in that half-second leaves a record that says which half it was
+	// in — without it, "a `.prev` beside a pending record" means both "roll this back" and "finish
+	// throwing this away", and those are opposite actions.
+	Stage string `json:"stage,omitempty"`
+	Since string `json:"since"`
 }
+
+const (
+	stageTrial      = "trial"
+	stageConfirming = "confirming"
+)
+
+// removePrev drops the backup. A package variable because the ORDER of Confirm's two destructive
+// steps is the thing worth testing, and the only way to ask about an order is to stop between them.
+// A test that sets the stage by hand measures the branch that reads it, not the code that writes it
+// — measured: writing the record second instead of first survived such a test untouched.
+var removePrev = os.Remove
 
 // journalOf is the ledger path for an install. Beside the binary, not in the config directory: two
 // magi installs on one machine are two transactions, and a config directory is shared by both.
@@ -116,7 +134,8 @@ func Began(target string, v Versions) error {
 	if err != nil {
 		return err
 	}
-	l.Pending = &pendingUpdate{To: v.To, From: v.From, Since: time.Now().UTC().Format(time.RFC3339)}
+	l.Pending = &pendingUpdate{To: v.To, From: v.From, Stage: stageTrial,
+		Since: time.Now().UTC().Format(time.RFC3339)}
 	return writeLedger(target, l)
 }
 
@@ -179,6 +198,16 @@ func Resume(target, running string) (Recovery, error) {
 		return Recovery{}, err
 	}
 	p := l.Pending
+	// A confirm that was interrupted. The build already lasted its window — that is what got it
+	// here — so finishing means dropping the backup, never restoring it. This branch runs whatever
+	// is running now, because the question is not "who am I" but "what was left half-done".
+	if p.Stage == stageConfirming {
+		if err := os.Remove(abs + ".prev"); err != nil && !os.IsNotExist(err) {
+			return Recovery{}, err
+		}
+		l.Pending = nil
+		return Recovery{}, writeLedger(abs, l)
+	}
 	if p.To != running {
 		return Recovery{}, nil
 	}
@@ -207,14 +236,20 @@ func Confirm(target string) error {
 	if err != nil || l.Pending == nil {
 		return err
 	}
-	l.Pending = nil
+	// Say what is about to happen before doing it. Removing the backup first and clearing the record
+	// second would leave "a .prev with no record" on an interruption — which is the very state that
+	// means "a replacement was interrupted before it was recorded, put the old build back" (see
+	// Salvage). The two would be indistinguishable, and the recovery for one is the opposite of the
+	// recovery for the other.
+	l.Pending.Stage = stageConfirming
 	if err := writeLedger(abs, l); err != nil {
 		return err
 	}
-	if err := os.Remove(abs + ".prev"); err != nil && !os.IsNotExist(err) {
+	if err := removePrev(abs + ".prev"); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return nil
+	l.Pending = nil
+	return writeLedger(abs, l)
 }
 
 // LeftCleanly says this generation is shutting down on purpose before its window elapsed, so the next
@@ -228,6 +263,38 @@ func LeftCleanly(target string) error {
 	}
 	l.Pending.Starts--
 	return writeLedger(abs, l)
+}
+
+// Salvage recovers from a replacement that was interrupted before it was recorded.
+//
+// Commit writes the backup, replaces the binary, pre-flights it, and only then writes the journal.
+// A process or machine that dies inside that sequence leaves a `.prev` and NO record — and the
+// binary at target is then one of two things, with nothing on disk to say which: the original (the
+// replacement had not happened yet) or a new build that never finished its pre-flight.
+//
+// Putting the backup back is right for both. In the first case it writes the same bytes that are
+// already there; in the second it undoes an unverified replacement. CLIENT_LIFECYCLE §9.3: "even if
+// the process or machine is interrupted, the next start reconciles the journal against the files and
+// recovers the last good version."
+//
+// Returns the path it restored, or "" when there was nothing to do.
+func Salvage(target string) (string, error) {
+	abs := resolveInstall(target)
+	prev := abs + ".prev"
+	if _, err := os.Stat(prev); err != nil {
+		return "", nil // no interrupted replacement here
+	}
+	l, err := readLedger(abs)
+	if err != nil {
+		return "", err
+	}
+	if l.Pending != nil {
+		return "", nil // a recorded transaction; Resume owns it, not this
+	}
+	if err := restorePrevious(abs); err != nil {
+		return "", err
+	}
+	return abs, nil
 }
 
 // restorePrevious swaps <target>.prev back over target and removes it.
