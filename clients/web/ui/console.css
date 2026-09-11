@@ -3789,7 +3789,12 @@
   #meet { display:block; max-width:var(--magi-sys-page); }
   /* 대화와 회의록이 나란히. 왼쪽이 남는 폭을 갖고, 회의록은 읽을 만한 폭에서 멈춘다 —
      문서가 화면 반을 차지하면 대화가 못 읽을 만큼 좁아진다. */
-  .meetpair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,26rem); gap:var(--magi-sys-space-400); align-items:start; }
+  /* ⚠ **26rem 은 좁은 화면을 지키던 값인데 넓은 화면에서도 그대로였다.** 회의록이 화면 반을
+     가지면 대화가 못 읽을 만큼 좁아진다 — 그게 상한을 둔 사유이고, 그건 폭이 모자랄 때의
+     이야기다. 화면이 넓으면 둘 다 넉넉할 수 있는데 문서만 416px 에 묶여 있었다(사용자 실측:
+     「화면이 넓으면 펼쳐지면 좋겠다」). 비율로 자라되 읽을 만한 폭에서 멈춘다 — 좁으면 아래
+     칸이 받고, 넓으면 왼쪽이 여전히 3분의 2다. */
+  .meetpair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,clamp(24rem,32%,40rem)); gap:var(--magi-sys-space-400); align-items:start; }
   /* 좁으면 아래로. 「상시 표시」는 옆이 아니라 **항상 있다**는 뜻이고, 한 칸에서 옆은 없다. */
   @media (max-width:60rem) { .meetpair { grid-template-columns:minmax(0,1fr); } }
   /* 판은 카드다 — 이 콘솔의 다른 판(#cron·컴패니언 사실판)이 md-outlined-card 인 것과 같이,
@@ -3802,12 +3807,26 @@
     position:sticky; top:calc(var(--magi-comp-appbar-h, 64px) + var(--magi-sys-space-200));
     background:var(--magi-ref-surface); border:1px solid var(--magi-ref-outlineVariant);
     border-radius:var(--magi-sys-shape-m); padding:var(--magi-sys-space-200);
+    /* ⚠ **판 자체가 뷰포트에 맞아야 안쪽 스크롤이 하나로 산다.** 안쪽 본문만 `70vh` 로 묶여
+       있었고 판에는 상한이 없었다 — 앱바(64px)와 붙는 자리의 여백과 제목 줄이 그 위에 얹혀
+       판이 화면보다 커졌고, 붙어 있는 카드의 아래쪽이 잘린 채 안쪽 막대만 움직였다(사용자
+       실측: 「스크롤이 이상하다」). 판을 화면에 맞추고 본문이 남는 만큼 갖는다. */
+    display:flex; flex-direction:column;
+    max-height:calc(100dvh - var(--magi-comp-appbar-h, 64px) - var(--magi-sys-space-400));
   }
   .meetminutesbody {
     display:grid; gap:var(--magi-sys-space-50); font:var(--magi-sys-body-s) var(--magi-ref-display);
-    max-height:70vh; overflow:auto; overflow-wrap:anywhere;
+    /* `min-height:0` 이 없으면 flex 칸은 제 내용보다 안 줄어들고, 위의 상한이 아무것도 안 한다. */
+    flex:1 1 auto; min-height:0; overflow:auto; overflow-wrap:anywhere;
   }
-  .meetminutesline { padding:var(--magi-sys-space-50) 0; }
+  /* ⚠ **간격이 두 번 붙고 있었다.** 위의 `gap` 4px 에 이 줄의 위아래 패딩 4px 씩이 더해져
+     불릿 사이가 12px 이었다 — 목록이 아니라 문단처럼 읽힌다(사용자 실측: 「간격이 너무 넓다」).
+     간격은 `gap` 하나가 정하고, 여기서는 갓 바뀐 줄의 배경이 글자에 붙지 않을 만큼만 옆으로
+     둔다. 음수 여백으로 되돌려 글자 자리는 그대로다. */
+  .meetminutesline {
+    padding-inline:var(--magi-sys-space-50);
+    margin-inline:calc(-1 * var(--magi-sys-space-50));
+  }
   .meetminuteswait { color:var(--magi-ref-muted); }
   /* 바뀐 줄만. 배경만 잠깐 물들고 자리는 안 움직인다 — 레이아웃에 거는 전환은 사람이 읽던
      자리를 밀어내고, 이 트리는 스크롤 애니메이션에서 이미 한 번 그것으로 데었다.

@@ -2,6 +2,7 @@ package dev.sayaya.magi
 
 import dev.sayaya.gwt.test.GwtHtml
 import dev.sayaya.gwt.test.GwtTestSpec
+import io.kotest.matchers.doubles.shouldBeGreaterThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 
@@ -286,6 +287,54 @@ internal class MeetingScreenTest : GwtTestSpec({
             }
             Then("첫 그림에서는 아무것도 안 번쩍인다 — 견줄 앞판이 없다") {
                 page.locator("#meet .meetminutesline.fresh").count() shouldBe 0
+            }
+            // ⚠ 아래 셋은 **그려진 것을 재는 것**이지 CSS 글자를 읽는 것이 아니다. 규칙은
+            // 여러 곳에서 오고(컨테이너 질의, 미디어 질의, 토큰), 파일에서 한 줄 찾는 검사는
+            // 마지막에 이긴 값을 모른다.
+            Then("불릿 사이가 문단처럼 벌어지지 않는다") {
+                // 실측(2026-09-11): `gap` 4px 에 줄의 위아래 패딩 4px 씩이 더해져 12px 이었다.
+                // 간격은 `gap` 하나가 정한다 — 위아래 패딩은 0 이어야 한다.
+                val pad = page.evaluate(
+                    "(() => { const e = document.querySelector('#meet .meetminutesline');" +
+                        " const s = getComputedStyle(e);" +
+                        " return parseFloat(s.paddingTop) + parseFloat(s.paddingBottom); })()")
+                (pad as Number).toDouble() shouldBe 0.0
+            }
+            Then("붙어 있는 판이 화면보다 크지 않다 — 스크롤 막대가 하나다") {
+                // 실측: 안쪽 본문만 70vh 로 묶여 있고 판에는 상한이 없어, 앱바와 여백과 제목이
+                // 얹히며 판이 화면을 넘었다. 붙어 있는 카드의 아래가 잘린 채 안쪽만 움직였다.
+                //
+                // ⚠ **짧은 문서로는 못 잰다.** 첫 판은 픽스처의 네 줄로 쟀고, 상한을 통째로 빼는
+                // 변이가 살아남았다 — 네 줄짜리 판은 상한이 없어도 화면에 들어간다. 넘칠 만큼
+                // 긴 회의록을 넣어야 그 상한이 하는 일이 보인다.
+                val long = (1..80).joinToString("|") { "- a line that has to go somewhere $it" }
+                page.evaluate("window.__magi_test_room('minutes:## Decided|$long')")
+                page.waitForCondition {
+                    page.locator("#meet .meetminutes .meetminutesline").count() > 40
+                }
+                val fits = page.evaluate(
+                    "(() => { const e = document.querySelector('#meet .meetminutes');" +
+                        " return e.getBoundingClientRect().height <= window.innerHeight + 1; })()")
+                // ⚠ 다음 시험이 이 방의 회의록을 이어서 본다. 넣은 것을 **되돌려 놓고** 나간다 —
+                // 안 그러면 이 시험이 그 시험을 깨뜨리고, 실패는 저쪽 이름으로 뜬다(실측).
+                page.evaluate(
+                    "window.__magi_test_room('minutes:## Decided|- postgres|## Still open|- the retry budget')")
+                page.waitForCondition {
+                    page.locator("#meet .meetminutes .meetminutesline").count() == 4
+                }
+                fits shouldBe true
+            }
+            Then("화면이 넓으면 회의록도 같이 넓어진다") {
+                // 실측: 26rem(416px)에 묶여 있어, 화면이 아무리 넓어도 문서만 좁았다.
+                page.setViewportSize(1100, 900)
+                val narrow = page.evaluate(
+                    "document.querySelector('#meet .meetminutes').getBoundingClientRect().width") as Number
+                page.setViewportSize(1900, 900)
+                page.waitForTimeout(120.0)
+                val wide = page.evaluate(
+                    "document.querySelector('#meet .meetminutes').getBoundingClientRect().width") as Number
+                wide.toDouble() shouldBeGreaterThan narrow.toDouble()
+                page.setViewportSize(1100, 900)
             }
         }
         When("한 줄이 늘고 한 줄이 바뀌면") {
