@@ -410,7 +410,7 @@
   },
   "scripts": {
     "build": "tsc -p .",
-    "test": "tsc -p . && node --test 'out/test/*.test.js'",
+    "test": "tsc -p . && node --test out/test/*.test.js",
     "package": "npx --yes @vscode/vsce package --no-dependencies",
     "test:live": "tsc -p . && node out/live/run.js"
   },

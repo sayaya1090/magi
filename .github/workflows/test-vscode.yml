@@ -1,0 +1,60 @@
+# The VS Code extension's own test lane.
+#
+# It had none, and its tests had been running nowhere. There are sixteen files and 223 tests under
+# clients/vscode/src/test — the transcript fold, the wire vocabulary, the workspace key that must
+# agree with the daemon's — and no workflow ran any of them. ci.yml does trigger on a change here
+# (it ignores paths rather than listing them), but every step it runs is Go — gofmt, go vet, go
+# build, go test. Nothing anywhere ran `npm test`.
+#
+# ⚠ **And `npm test` was reporting success having run nothing.** The script was
+# `node --test 'out/test/*.test.js'`. npm runs scripts through cmd.exe on Windows, which does not
+# strip single quotes — node then received the literal `'out/test/*.test.js'`, matched no file, and
+# printed `tests 0` with exit code 0. Measured 2026-09-11: 0 tests on Windows, 223 on a shell that
+# strips the quotes. So this lane checks the COUNT as well as the result: a run that passes because
+# it did nothing is the failure mode this whole lane exists to end, and "green" does not tell the
+# two apart.
+name: test-vscode
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "clients/vscode/**"
+      - ".github/workflows/test-vscode.yml"
+  pull_request:
+    paths:
+      - "clients/vscode/**"
+      - ".github/workflows/test-vscode.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/vscode
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install
+        run: npm ci --no-audit --no-fund
+      - name: test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt
+      - name: the run actually ran something
+        # The count, not just the exit code. A runner handed a pattern that matches no file exits 0,
+        # and that is exactly how these tests spent their life unread. The floor is deliberately
+        # near the real number rather than at 1: losing a whole file is the same defect in a smaller
+        # size, and it would sail past `> 0`.
+        run: |
+          n=$(sed -n 's/^ℹ tests \([0-9]*\)$/\1/p' test-output.txt | tail -1)
+          echo "ran ${n:-0} tests"
+          if [ "${n:-0}" -lt 200 ]; then
+            echo "::error::only ${n:-0} tests ran; this suite has over 220 — the runner was handed a pattern that matched (almost) nothing"
+            exit 1
+          fi
