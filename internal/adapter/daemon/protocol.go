@@ -782,6 +782,9 @@ type Response struct {
 	// do anything to it. docs/CLIENT_LIFECYCLE §4 keeps the two apart on purpose — lifetime control
 	// travels only by an inherited pipe, never by knowing an id.
 	Instance string `json:"instance,omitempty"`
+	// Owner is the owning lineage when a client owns this daemon (see OwnerID). Same rule as
+	// Instance: tracking only, and absent is "nobody owns it", not "owned by someone else".
+	Owner string `json:"owner,omitempty"`
 	// Event is one frame of a transcript: the log's own event, whole and unrenamed.
 	//
 	// Whole rather than a diff, and the same shape the store holds rather than a rendering. A

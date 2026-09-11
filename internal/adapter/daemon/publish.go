@@ -179,8 +179,12 @@ type Info struct {
 	// is still that process or a successor that replaced it. An older daemon writes no such field,
 	// so a client must treat absent as "cannot tell", never as "not a match".
 	Instance string `json:"instance,omitempty"`
-	PID      int    `json:"pid"`
-	Started  string `json:"started"` // RFC3339
+	// Owner is the owning LINEAGE, when a client owns this daemon — see OwnerID. Absent means
+	// nobody owns it (a terminal start), which is a different fact from "owned by somebody I
+	// cannot see": a window must not adopt a daemon it did not start.
+	Owner   string `json:"owner,omitempty"`
+	PID     int    `json:"pid"`
+	Started string `json:"started"` // RFC3339
 	// Host and Addr say WHERE this is running. Everything in one config directory is on one
 	// machine, so on a laptop they are the same for every entry and read as noise — until you are
 	// looking at three browser tabs forwarded from three hosts over ssh, which is the arrangement
@@ -295,8 +299,9 @@ func Publish(socketPath, workdir, sid string, id Identity) (func(), error) {
 	err := writeRecord(socketPath, Info{
 		Socket: socketPath, Workdir: workdir, Session: sid,
 		Name: id.Name, Role: id.Role, Team: id.Team, Hub: id.Hub, Can: id.Can, Does: id.Does,
-		PID: os.Getpid(), Instance: InstanceID(), Started: time.Now().UTC().Format(time.RFC3339),
-		Host: host, Addr: primaryAddr(), Account: account(), Version: version.Version,
+		PID: os.Getpid(), Instance: InstanceID(), Owner: OwnerID(),
+		Started: time.Now().UTC().Format(time.RFC3339),
+		Host:    host, Addr: primaryAddr(), Account: account(), Version: version.Version,
 	})
 	recordMu.Unlock()
 	if err != nil {

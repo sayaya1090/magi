@@ -590,7 +590,7 @@ func answerAbout(ctx context.Context, eng Engine, req Request) Response {
 	resp := Response{OK: true, Out: d.About(), Proto: ProtoVersion, Caps: capsOf(eng),
 		// Which process is answering. A client that started this daemon compares it against the
 		// published record to tell "the child I spawned is listening" from "something else is".
-		Instance: InstanceID()}
+		Instance: InstanceID(), Owner: OwnerID()}
 	if v, ok := eng.(Versioner); ok {
 		resp.Version = v.Version()
 	}

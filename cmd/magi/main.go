@@ -326,6 +326,7 @@ func run() int {
 		doctor      = flag.Bool("doctor", false, "check the environment (LLM endpoint, optional tools, sandbox, config) and exit")
 		daemonMode  = flag.Bool("daemon", false, "run the engine with no UI and listen for attachments; it keeps working while nothing is watching")
 		detachMode  = flag.Bool("detach", false, "with --daemon: start it in a session of its own, so it outlives this command, and return once it is listening")
+		clientOwned = flag.Bool("client-owned", false, "with --daemon: this daemon belongs to whoever started it — stdin is the owner's pipe, and its EOF stops the daemon")
 		attachMode  = flag.Bool("attach", false, "attach a terminal UI to the daemon already running in this workspace")
 		joinTo      = flag.String("join", "", "read what another companion's workspace shares with its team and write it beside this workspace's config as a proposal; nothing is applied")
 		listAgents  = flag.Bool("agents", false, "list every magi daemon running on this machine, and what each is doing, then exit")
@@ -407,6 +408,24 @@ func run() int {
 	// says what it needs instead of failing thirty seconds later on a timeout.
 	if *detachMode && !*daemonMode {
 		fmt.Fprintln(os.Stderr, "magi: --detach starts a daemon — use it with --daemon")
+		return 2
+	}
+	// --client-owned says WHO this daemon belongs to, and the answer is "the process holding the
+	// other end of stdin". Both refusals below are about that sentence being true.
+	if *clientOwned && !*daemonMode {
+		fmt.Fprintln(os.Stderr, "magi: --client-owned is a way to run a daemon — use it with --daemon")
+		return 2
+	}
+	// ⚠ **Detaching is exactly what an owner must not do.** --detach puts the daemon in a session
+	// of its own so it outlives the command that started it; --client-owned says it must NOT
+	// outlive the client that started it. Accepting both would have to pick one silently, and
+	// either choice is a lie to the caller: a client that asked for an owned daemon would get one
+	// that survives it, or a person who asked for a detached one would get a daemon that dies with
+	// a pipe they did not know was load-bearing. docs/CLIENT_LIFECYCLE §4 names the first of those
+	// ("몰래 detached 모드로 실행하지 않습니다").
+	if *clientOwned && *detachMode {
+		fmt.Fprintln(os.Stderr, "magi: --client-owned and --detach mean opposite things — "+
+			"an owned daemon dies with its owner, a detached one outlives the command that started it")
 		return 2
 	}
 
@@ -1144,6 +1163,13 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
+		// Join the owning lineage BEFORE publishing: the record is written once, right below, and
+		// the owner id has to be in it. A client reads the record to learn whether the daemon it
+		// found is the one it owns, and a field filled in afterwards would be absent exactly
+		// during the window that client is looking.
+		if *clientOwned {
+			daemon.AdoptOwner()
+		}
 		howMany, whatOf := countCan(store, wd)
 		unpublish, perr := daemon.Publish(sockPath, wd, string(sid),
 			daemon.Identity{Name: cfg.Companion.Name, Role: cfg.Companion.Role,
@@ -1203,6 +1229,34 @@ func run() int {
 		})
 		serving := bound
 		bound = nil // Serve owns the socket from here, including releasing the claim
+		// ⚠ **The owner's pipe, and the only thing in this tree that carries lifetime authority.**
+		//
+		// The client that started this daemon holds the write end of its stdin and hands it to
+		// nobody. When that process goes — closed, crashed, its extension host killed — the
+		// operating system closes the last write end and this read sees EOF. Nothing else produces
+		// that: a pipe cannot be guessed, copied out of a file, or read off another process's
+		// environment, which is why the ids beside it (owner, instance) are tracking only.
+		//
+		// Stop() rather than a new ending, so an owner going away unwinds down the SAME path as
+		// the `shutdown` door — one spelling of "this daemon is stopping", including the flag that
+		// records it as asked for rather than as a signal.
+		//
+		// Nothing else reads stdin in this mode: resolvePrompt touches it only for `-p -`, which a
+		// daemon does not take. A daemon started WITHOUT this flag never gets here, so every
+		// non-owned lifetime is exactly what it was.
+		if *clientOwned {
+			go func() {
+				// Every ending of this read means the same thing — the owner is no longer holding
+				// the other end — so the daemon stops either way. The error is still named: a pipe
+				// that FAILED and one that closed are different events to whoever reads the log
+				// afterwards, and a daemon that stopped for an I/O fault with nothing said about it
+				// looks exactly like a window that was closed.
+				if _, err := io.Copy(io.Discard, os.Stdin); err != nil {
+					fmt.Fprintln(os.Stderr, "magi: the owner's pipe failed:", err)
+				}
+				serving.StopBecause("the owner closed its pipe")
+			}()
+		}
 		// The daemon's self-update loop: on a schedule it picks up a new release, commits it with
 		// rollback, and restarts onto it once idle. --daemon only, so a headless bench never reaches
 		// it; and only when [update] auto is on and the operator has not opted out. Same lifetime as

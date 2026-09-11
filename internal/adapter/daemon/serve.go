@@ -58,6 +58,12 @@ type Daemon struct {
 	// a daemon that died three times in one session left three startup lines and no ending at all,
 	// so the last thing its log said was that it was serving.
 	asked atomic.Bool
+	// said is a specific reason for the stop, when the caller has one that "over the socket" would
+	// misreport. Measured 2026-09-11: an owned daemon whose owner closed its pipe printed "asked to
+	// stop over the socket" — nobody had asked over the socket, and a person reading that log goes
+	// looking for a client that does not exist. Empty for the ordinary endings, which Ending()
+	// already words correctly.
+	said atomic.Value // string
 	// conns are the connections currently being served. Stop closes them as well as the listener:
 	// closing a listener does not touch what has already been accepted, and Serve waits for its
 	// handlers — so a client that asked to shut down and then sat there holding the connection open
@@ -230,6 +236,20 @@ func (d *Daemon) Stop() {
 		}
 		d.connMu.Unlock()
 	})
+}
+
+// StopBecause ends Serve like [Stop], recording WHY for the line the daemon prints on its way out.
+//
+// For a caller whose reason the ordinary wording would get wrong. The owner's pipe closing is one:
+// it unwinds down the same path as the socket's `shutdown` — deliberately, so there is one spelling
+// of "this daemon is stopping" — and that path's sentence names the socket, which nobody used.
+//
+// The reason is recorded before the stop so it cannot lose a race with Serve returning.
+func (d *Daemon) StopBecause(why string) {
+	if why != "" {
+		d.said.Store(why)
+	}
+	d.Stop()
 }
 
 // Restart drains the daemon exactly like Stop, but marks that the process should relaunch onto the
@@ -494,6 +514,8 @@ func (d *Daemon) Ending() string {
 	switch {
 	case d.restart.Load():
 		return "restarting onto the binary on disk"
+	case d.said.Load() != nil && d.said.Load().(string) != "":
+		return d.said.Load().(string)
 	case d.asked.Load():
 		return "asked to stop over the socket"
 	default:

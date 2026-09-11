@@ -121,3 +121,70 @@ func TestInstanceIDHelperProcess(t *testing.T) {
 	}
 	fmt.Printf("%s%s\n", instanceProbeMark, InstanceID())
 }
+
+// The owning lineage survives a replacement; the instance does not. That difference is the point.
+//
+// A self-update re-executes the daemon, and the window that started it never stopped owning it — so
+// the owner id has to cross that boundary while the instance id must not. A client reading both
+// then tells "my daemon updated itself" from "my daemon is gone", which is the pair of facts a PID
+// alone cannot separate (docs/CLIENT_LIFECYCLE §4).
+func TestTheOwningLineageCrossesAReplacementAndTheInstanceDoesNot(t *testing.T) {
+	// ⚠ Nobody owns a daemon started from a terminal, and claiming a lineage there would be the
+	// same defect as advertising a feature that is not built.
+	if OwnerID() != "" {
+		t.Fatalf("아무도 안 부른 채 계보가 있다: %q", OwnerID())
+	}
+
+	t.Setenv(OwnerEnv, "")
+	minted := AdoptOwner()
+	if minted == "" {
+		t.Fatal("계보를 못 만들었다")
+	}
+	// Exported, or the lineage ends at the first replacement: graceful.Reexec hands the successor
+	// os.Environ() and nothing else.
+	if os.Getenv(OwnerEnv) != minted {
+		t.Errorf("환경에 안 실었다 (%q) — 후계가 물려받을 길이 없다", os.Getenv(OwnerEnv))
+	}
+	if OwnerID() != minted {
+		t.Errorf("OwnerID = %q, 방금 만든 것은 %q", OwnerID(), minted)
+	}
+	// And it is NOT the instance: one is inherited, the other never is.
+	if minted == InstanceID() {
+		t.Error("계보와 프로세스가 같은 값이다 — 교체를 연속과 못 가른다")
+	}
+}
+
+// A successor adopts the lineage it inherited, and passes it on again.
+//
+// Run in a child so the package-level once is fresh: the adoption happens at startup exactly once,
+// and a test that called it twice in one process would measure the cache, not the rule.
+func TestASuccessorKeepsTheLineageItInherited(t *testing.T) {
+	if os.Getenv(instanceProbeEnv) != "" {
+		return
+	}
+	const handed = "abc123handedlineage"
+	cmd := exec.Command(os.Args[0], "-test.run=TestOwnerHelperProcess")
+	cmd.Env = append(os.Environ(), instanceProbeEnv+"=1", OwnerEnv+"="+handed)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper: %v\n%s", err, out)
+	}
+	_, got, ok := strings.Cut(string(out), ownerProbeMark)
+	if !ok {
+		t.Fatalf("helper 가 계보를 안 찍었다:\n%s", out)
+	}
+	got, _, _ = strings.Cut(got, "\n")
+	if strings.TrimSpace(got) != handed {
+		t.Errorf("물려받은 계보를 버렸다: %q, 준 것은 %q", strings.TrimSpace(got), handed)
+	}
+}
+
+const ownerProbeMark = "owner-id="
+
+// TestOwnerHelperProcess is not a test — see TestInstanceIDHelperProcess.
+func TestOwnerHelperProcess(t *testing.T) {
+	if os.Getenv(instanceProbeEnv) == "" {
+		t.Skip("helper process")
+	}
+	fmt.Printf("%s%s\n", ownerProbeMark, AdoptOwner())
+}

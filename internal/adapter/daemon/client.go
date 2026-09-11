@@ -44,7 +44,7 @@ func (c *Client) Hello() (PeerInfo, error) {
 	if !resp.OK {
 		return PeerInfo{}, errors.New(resp.Err)
 	}
-	p := PeerInfo{Version: resp.Version, Proto: resp.Proto, Caps: resp.Caps, Instance: resp.Instance}
+	p := PeerInfo{Version: resp.Version, Proto: resp.Proto, Caps: resp.Caps, Instance: resp.Instance, Owner: resp.Owner}
 	c.mu.Lock()
 	c.peer = &p
 	c.mu.Unlock()
@@ -196,6 +196,8 @@ type PeerInfo struct {
 	// Instance is which PROCESS answered — empty from a daemon older than the field, which a
 	// caller must read as "cannot tell", never as "not the one I started".
 	Instance string
+	// Owner is the owning lineage, empty when nobody owns this daemon.
+	Owner string
 }
 
 // Supports reports whether the far side advertised a capability in its handshake.
