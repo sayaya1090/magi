@@ -95,6 +95,46 @@ test('a window that closed during the feature probe starts nothing it does not s
 });
 
 /**
+ * The same race, asked about what it LEAVES BEHIND.
+ *
+ * ⚠ **Losing the race used to cost a file handle each time.** The log fd was opened at the top of
+ * `launch`, before the feature probe — and the `closed` checks that R1 added return between that
+ * open and the `finally` that closes it. Nothing failed; the count only went one way, in an
+ * extension host that lives as long as the window and races this every reload
+ * (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11, R7).
+ *
+ * Counted, not inspected: the one honest question is whether this process holds more open
+ * descriptors afterwards, and /dev/fd answers it. POSIX only — Windows has no such directory, and
+ * the leak is not platform-specific, so measuring it on one platform is enough.
+ */
+test('a launch that loses the close race leaves no file handle behind',
+  { skip: !fs.existsSync('/dev/fd') }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-lifecycle-'));
+  const open = () => fs.readdirSync('/dev/fd').length;
+
+  // One full race first, so anything one-off (the directory, module state) is already paid for.
+  const once = async () => {
+    let answer!: (f: Set<string>) => void;
+    const held = new Promise<Set<string>>((resolve) => { answer = resolve; });
+    const c = new OwnedCompanion(dir, () => held);
+    const started = c.start(path.join(dir, 'no-such-magi.exe'));
+    await pause(20);
+    await c.close();
+    answer(new Set());
+    await started;
+  };
+  await once();
+
+  const before = open();
+  for (let i = 0; i < 8; i++) await once();
+  const after = open();
+
+  assert.ok(after <= before + 1,
+    `eight lost races left ${after - before} more open descriptors — each one opened the daemon log ` +
+    'and returned before the close');
+});
+
+/**
  * Starting a companion this window cannot own is not a failure — but it is not silent either.
  *
  * docs/CLIENT_LIFECYCLE §4 blocks a new launch that REQUIRES the owned mode and, in the next

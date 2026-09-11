@@ -164,9 +164,6 @@ export class OwnedCompanion {
     this.external = false;
     // A child of this window's own again, so the successor rule below goes back to asking about it.
     this.ownsSuccessor = false;
-    const log = this.socket + '.log';
-    fs.mkdirSync(path.dirname(log), { recursive: true });
-    const fd = fs.openSync(log, 'a', 0o600);
     // ⚠ **Ask before using it.** A build without the owned mode refuses the flag and exits 2, and
     // the window would report "Companion failed to start" for a binary that is perfectly fine —
     // docs/CLIENT_LIFECYCLE §4: an old core keeps the old lifetime rather than being handed a mode
@@ -199,6 +196,15 @@ export class OwnedCompanion {
     if (this.closed) { channel?.close(); return; }
     this.channel?.close();
     this.channel = channel;
+    // ⚠ **The log fd is opened AFTER the last await, and that placement is the fix.** It used to be
+    // opened at the top of this function, before the feature probe — and the two `closed` checks
+    // added for R1 both return between there and the `finally` that closes it, so every launch that
+    // lost the close race leaked one file handle (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11, R7). An
+    // extension host is long-lived and a window can race a launch as often as a user reloads it.
+    // Nothing between here and the spawn awaits, so no return can slip in front of the finally.
+    const log = this.socket + '.log';
+    fs.mkdirSync(path.dirname(log), { recursive: true });
+    const fd = fs.openSync(log, 'a', 0o600);
     let child: ChildProcess;
     try {
       child = spawn(binary, owned ? ['--daemon', '--client-owned'] : ['--daemon'], {
