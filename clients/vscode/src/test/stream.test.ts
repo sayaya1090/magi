@@ -1187,3 +1187,56 @@ test('the chat view draws a member thought, labelled as not a vote', () => {
   assert.ok(/\.thought \{[^}]*white-space:pre-wrap/.test(src),
     'reasoning is drawn run together — a model that thought in steps is unreadable that way');
 });
+
+/**
+ * A preview and the fact it becomes are ONE row.
+ *
+ * The core shows a council as it lands — each verdict goes on the bus the moment it arrives, so a
+ * person is not staring at "3 of 3 answered" for ninety seconds — and then writes the same verdicts
+ * as facts. Transient events carry no seq. **Measured 2026-09-11: a council of three drew as six
+ * rows**, every member twice, in this shaper and in the JetBrains one.
+ *
+ * docs/CLIENT_LIFECYCLE §6 states the rule: the final fact replaces the same logical row, including
+ * a decision that changed, and the key needs the convene — not the round number, which repeats.
+ */
+test('a council draws once, even though every verdict arrives twice', () => {
+  const verdict = (seq: number, member: string, decision: string, extra: Record<string, unknown> = {}): Event =>
+    ({ seq, type: 'council.verdict', data: { round: 1, member, decision, rationale: 'r', ...extra } });
+  const convened = (seq: number): Event =>
+    ({ seq, type: 'council.convened', data: { round: 1, members: ['Melchior', 'Balthasar'], rule: 'majority' } });
+
+  const live = rows([
+    convened(10),
+    verdict(0, 'Melchior', 'done'), verdict(0, 'Balthasar', 'continue'),
+    verdict(11, 'Melchior', 'done'), verdict(12, 'Balthasar', 'continue'),
+  ]).filter((r) => r.who === 'council' && !r.opened);
+  assert.equal(live.length, 2, `a council of two drew ${live.length} rows`);
+  assert.deepEqual(live.map((r) => r.seq), [11, 12], 'the previews outlived the facts they became');
+
+  // The fact wins when it disagrees: a rebuttal round moves votes, and a preview left standing
+  // beside the fact would show the council disagreeing with itself.
+  const moved = rows([
+    convened(10),
+    verdict(0, 'Melchior', 'continue'),
+    verdict(11, 'Melchior', 'done', { rationale: 'peers are right' }),
+  ]).filter((r) => r.who === 'council' && !r.opened);
+  assert.equal(moved.length, 1);
+  assert.equal(moved[0].decision, 'done', 'the preview overruled the fact');
+  assert.equal(moved[0].text, 'peers are right');
+
+  // ⚠ Two convenes in one conversation both open at round 1. Keyed on the round alone they would
+  // collapse into each other — one council swallowing the other's verdicts.
+  const twice = rows([
+    convened(10), verdict(11, 'Melchior', 'done'),
+    convened(20), verdict(21, 'Melchior', 'continue'),
+  ]).filter((r) => r.who === 'council' && !r.opened);
+  assert.equal(twice.length, 2, 'the second council landed on the first one — round 1 is not a key');
+  assert.deepEqual(twice.map((r) => r.decision), ['done', 'continue']);
+
+  // And a preview that arrives after its fact cannot un-decide it.
+  const late = rows([
+    convened(10), verdict(11, 'Melchior', 'done'), verdict(0, 'Melchior', 'continue'),
+  ]).filter((r) => r.who === 'council' && !r.opened);
+  assert.equal(late.length, 1, 'a late preview made a second row');
+  assert.equal(late[0].decision, 'done', 'a late preview overwrote the fact');
+});

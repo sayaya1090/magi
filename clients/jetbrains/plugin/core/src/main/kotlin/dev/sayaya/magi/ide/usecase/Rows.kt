@@ -125,6 +125,12 @@ class Rows {
      */
     @Volatile var councilRound: Int? = null
 
+    /** 이 흐름이 연 소집의 수. 평결은 가장 최근 것에 속한다 — 사유는 [verdict] 의 주석. */
+    private var convene = 0
+
+    /** 멤버별 평결이 [rows] 의 어디에 있나. 사실이 프리뷰 **옆이 아니라 자리에** 내려앉게 한다. */
+    private val verdictAt = mutableMapOf<String, Int>()
+
     /**
      * 지금 누구에게 묻고 있는가 — `council.deliberating` 이 말하는 것.
      *
@@ -164,6 +170,10 @@ class Rows {
         openedAt = null
         councilRound = null
         councilAsking = null
+        // 소집 셈과 평결 자리도 처음부터 — 안 지우면 새 대화의 첫 평결이 옛 대화의 행 자리에
+        // 내려앉는다(이 함수의 `touched` 와 같은 사유).
+        convene = 0
+        verdictAt.clear()
         todos = emptyList()
         context = null
         model = null
@@ -586,6 +596,9 @@ class Rows {
         val d = e.data?.jsonObject ?: return false
         val round = d["round"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0
         if (round > 0) councilRound = round
+        // 새 소집. 카운슬은 언제나 1회차로 열리므로 회차 번호만으로는 둘을 못 가른다 —
+        // 평결을 제 라운드에 매다는 열쇠가 이것이다.
+        convene += 1
         val members = (d["members"] as? kotlinx.serialization.json.JsonArray)
             ?.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }
             .orEmpty()
@@ -631,7 +644,7 @@ class Rows {
         val silent = d["silent"]?.jsonPrimitive?.content == "true"
         // 답이 왔으면 그 멤버는 더 이상 「묻는 중」이 아니다.
         if (councilAsking == d["member"]?.jsonPrimitive?.content) councilAsking = null
-        rows += Row(
+        val row = Row(
             Who.Council,
             // 실려 온 말은 버리지 않는다(라이브 실측: 사용자가 "왜 다 '답이 없었다'야?" —
             // silent:true 인데 rationale 이 온전한 평결이 왔고, 셰이퍼가 말을 버리고 낙하
@@ -652,6 +665,30 @@ class Rows {
             confidence = d["confidence"]?.jsonPrimitive?.content?.toDoubleOrNull()?.takeIf { it > 0 },
             silent = silent,
         )
+        // ⚠ **프리뷰와 그것이 되는 사실은 한 행이다.**
+        //
+        // 코어는 라운드를 **오는 대로** 보여 준다 — 평결이 도착할 때마다 버스에 올려서, 사람이
+        // 「3 중 3 답함」을 90초 동안 보고 있지 않게 한다 — 그러고 나서 같은 평결을 사실로 쓴다.
+        // 전이 사건에는 seq 가 없으므로, 둘 다 쌓는 셰이퍼는 3인 카운슬을 **6행**으로 그렸다
+        // (실측 2026-09-11, 이 셰이퍼와 VS Code 셰이퍼 둘 다 6행).
+        //
+        // 사실이 프리뷰 **자리에** 내려앉는다. 결정까지 바뀐다 — 반박 라운드가 표를 움직이므로
+        // 프리뷰를 옆에 남겨 두면 카운슬이 저 자신과 안 맞는 것으로 보인다
+        // (`docs/CLIENT_LIFECYCLE` §6).
+        //
+        // ⚠ **열쇠는 회차가 아니라 소집이다.** 회차 번호는 되풀이된다 — 카운슬은 언제나 1회차로
+        // 열린다 — 그래서 한 대화의 두 소집이 서로에게 내려앉는다. [convene] 은 이 흐름이 연
+        // 소집의 수이고, 전선이 안 실어도 흐름이 아는 사실이다.
+        val key = "$convene/${row.round}/${row.member}"
+        val seen = verdictAt[key]
+        when {
+            seen != null && e.seq > 0 -> rows[seen] = row
+            seen == null -> {
+                verdictAt[key] = rows.size
+                rows += row
+            }
+            // 사실 뒤에 온 프리뷰(seq 0)는 버린다 — 로그가 든 것보다 새로울 수가 없다.
+        }
         return true
     }
 

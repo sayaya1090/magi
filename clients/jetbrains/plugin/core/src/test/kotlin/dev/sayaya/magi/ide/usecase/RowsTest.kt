@@ -363,6 +363,70 @@ class RowsTest {
             "붙여 넣은 글이 생각을 표처럼 적는다: ${RowText.plain(v)}")
     }
 
+    /**
+     * **프리뷰와 그것이 되는 사실은 한 행이다.**
+     *
+     * 코어는 라운드를 오는 대로 보여 준다(평결마다 버스에 올린다). 그러고 나서 같은 평결을
+     * 사실로 쓴다. 전이 사건에는 seq 가 없으므로 둘 다 쌓으면 **3인 카운슬이 6행**이 된다 —
+     * 실측 2026-09-11, 이 셰이퍼와 VS Code 셰이퍼 둘 다 6행이었다.
+     */
+    @Test
+    fun `카운슬은 평결이 두 번 와도 한 번만 그려진다`() {
+        fun v(seq: Long, member: String, decision: String, why: String = "r") = ev(
+            "council.verdict",
+            """{"round":1,"member":"$member","decision":"$decision","rationale":"$why"}""",
+        ).copy(seq = seq)
+        fun opened() = ev("council.convened",
+            """{"round":1,"members":["Melchior","Balthasar"],"rule":"majority"}""")
+
+        val r = Rows()
+        r.feed(opened())
+        r.feed(v(0, "Melchior", "done")); r.feed(v(0, "Balthasar", "continue"))
+        r.feed(v(11, "Melchior", "done")); r.feed(v(12, "Balthasar", "continue"))
+        val live = r.list().filter { it.who == Who.Council && !it.opened }
+        assertEquals(2, live.size, "2인 카운슬이 ${live.size} 행으로 그려졌다")
+
+        // 사실이 이긴다: 반박 라운드가 표를 움직이므로, 프리뷰를 옆에 남기면 카운슬이 저 자신과
+        // 안 맞는 것으로 보인다.
+        val m = Rows()
+        m.feed(opened())
+        m.feed(v(0, "Melchior", "continue"))
+        m.feed(v(11, "Melchior", "done", "peers are right"))
+        val moved = m.list().filter { it.who == Who.Council && !it.opened }
+        assertEquals(1, moved.size)
+        assertEquals("done", moved.first().decision, "프리뷰가 사실을 덮었다")
+        assertEquals("peers are right", moved.first().text)
+
+        // ⚠ 한 대화의 두 소집은 둘 다 1회차로 열린다. 회차만으로 열쇠를 삼으면 서로에게 내려앉는다.
+        val t = Rows()
+        t.feed(opened()); t.feed(v(11, "Melchior", "done"))
+        t.feed(opened()); t.feed(v(21, "Melchior", "continue"))
+        val twice = t.list().filter { it.who == Who.Council && !it.opened }
+        assertEquals(2, twice.size, "둘째 소집이 첫째 위에 내려앉았다 — 1회차는 열쇠가 아니다")
+        assertEquals(listOf("done", "continue"), twice.map { it.decision })
+
+        // 사실 뒤에 온 프리뷰는 아무것도 못 한다.
+        val l = Rows()
+        l.feed(opened()); l.feed(v(11, "Melchior", "done")); l.feed(v(0, "Melchior", "continue"))
+        val late = l.list().filter { it.who == Who.Council && !it.opened }
+        assertEquals(1, late.size, "늦은 프리뷰가 행을 하나 더 만들었다")
+        assertEquals("done", late.first().decision, "늦은 프리뷰가 사실을 덮었다")
+
+        // ⚠ **비우면 자리 기억도 비어야 한다.**
+        //
+        // 겨누는 것은 **소집 사건 없이 붙는 창**이다 — 꼬리만 남기고 접힌 대화, 라운드 한가운데서
+        // 붙은 창. 그런 흐름은 소집 셈이 0 인 채로 평결을 받으므로, 대화를 갈아탄 뒤 같은 일이
+        // 또 일어나면 **같은 열쇠**가 다시 나온다. 자리 기억을 안 지웠다면 그 열쇠가 가리키는
+        // 것은 방금 비운 목록의 **없는 칸**이다.
+        val mid = Rows()
+        mid.feed(v(41, "Melchior", "done"))
+        mid.clear()
+        mid.feed(v(51, "Melchior", "continue"))
+        val after = mid.list().filter { it.who == Who.Council && !it.opened }
+        assertEquals(1, after.size, "비운 뒤 첫 평결이 안 그려졌다 — 옛 자리 기억이 남았다")
+        assertEquals("continue", after.first().decision)
+    }
+
     @Test
     fun `카운슬 평결은 실려 온 말을 버리지 않는다`() {
         val r = Rows()

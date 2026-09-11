@@ -196,6 +196,12 @@ interface PartLike {
  */
 export function rows(events: Event[]): Row[] {
   const out: Row[] = [];
+  // How many councils this stream has opened. A verdict belongs to the newest one — see the note
+  // at `council.verdict` on why the round number cannot do this job.
+  let convene = 0;
+  // Where each member's verdict sits in `out`, so the fact can land on its preview's place rather
+  // than beside it.
+  const verdicts = new Map<string, number>();
   const answered = new Set<number>();
   // Streaming chunks, keyed by the message and kind they belong to. A draft is REPLACED by the fact
   // when it arrives rather than added to — the appended part carries the whole text, so keeping both
@@ -531,6 +537,9 @@ export function rows(events: Event[]): Row[] {
           rule: String(d.rule ?? '').trim() || undefined,
           readOnly: readOnly || undefined,
         });
+        // A new convene. Every council opens at round 1, so the round number alone cannot tell two
+        // of them apart — this is what keys a verdict to the round it belongs to.
+        convene += 1;
         break;
       }
       case 'council.verdict': {
@@ -546,7 +555,7 @@ export function rows(events: Event[]): Row[] {
         // whenever it is there, and the fallback only for a genuinely empty one.
         const text = String(d.feedback ?? d.rationale ?? '').trim()
           || (d.silent === true ? 'no answer came back' : '');
-        out.push({
+        const row: Row = {
           seq: e.seq, who: 'council', text, member: String(d.member ?? ''),
           round: Number(d.round) || undefined,
           decision: String(d.decision ?? '').trim() || undefined,
@@ -556,7 +565,33 @@ export function rows(events: Event[]): Row[] {
           keep: String(d.keep ?? '').trim() || undefined,
           thought: String(d.thought ?? '').trim() || undefined,
           confidence: Number(d.confidence) > 0 ? Number(d.confidence) : undefined,
-        });
+        };
+        // ⚠ **A preview and the fact it becomes are ONE row, not two.**
+        //
+        // The core shows a round as it lands — `publishTransient` puts each verdict on the bus the
+        // moment it arrives, so a person watching does not stare at "3 of 3 answered" for ninety
+        // seconds — and then writes the same verdicts as facts. Transient events carry no seq, so a
+        // shaper that appends both drew a council of three as **six rows**, every member twice.
+        // Measured 2026-09-11 against this shaper and the JetBrains one: six, in both.
+        //
+        // The final fact replaces the preview, including its DECISION: the rebuttal round can move
+        // a vote, and a preview left standing beside it would show the council disagreeing with
+        // itself (docs/CLIENT_LIFECYCLE §6).
+        //
+        // ⚠ **Keyed by convene, not by round number.** A round number repeats — every council opens
+        // at round 1 — so two convenes in one conversation would collapse into each other. `convene`
+        // counts the rounds this stream has opened, which is a fact the stream carries and the wire
+        // does not have to.
+        const key = `${convene}/${row.round ?? 0}/${row.member}`;
+        const seen = verdicts.get(key);
+        if (seen !== undefined && e.seq > 0) {
+          out[seen] = row; // the fact lands on the preview's place, keeping the round's order
+        } else if (seen === undefined) {
+          verdicts.set(key, out.length);
+          out.push(row);
+        }
+        // A preview arriving after the fact (seq 0 with one already recorded) is dropped: it cannot
+        // be newer than what the log holds.
         break;
       }
       /**
