@@ -513,8 +513,10 @@ over — it is an ordinary thing to do, and reading it as a crash would undo goo
 `idle`, the download and the replacement happen now and the restart waits for nothing to be in
 flight (the reply still comes back at once, saying which it did). Sent without one it restarts
 immediately, exactly as before — so every older client is unchanged, and a newer one offers that as
-the deliberate "end what is running". ⚠ `idle` **asks once; it does not reserve** — a turn can arrive
-between the check and the restart. It narrows the window rather than closing it.
+the deliberate "end what is running". `idle` **shuts the door in the step that finds it open** — admission of new work is closed in the
+same step that finds nothing running, and only then does it restart. Asking and then acting leaves a
+turn able to arrive in between, to be thrown away by a restart that had just concluded there was
+none; there is no such gap.
 
 **Several companions on one machine do not undo each other's updates.** The journal is about one
 BINARY, so the daemon watching a new build is the first one up on it. A second workspace's daemon

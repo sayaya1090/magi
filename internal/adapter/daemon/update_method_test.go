@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -240,5 +241,118 @@ func TestUpdateWithoutWaitingRestartsEvenWhileBusy(t *testing.T) {
 	}
 	if !d.Restarting() {
 		t.Error("it ended, but as a stop rather than a relaunch")
+	}
+}
+
+// quiescingEngine can shut the door, and records whether it was asked to.
+type quiescingEngine struct {
+	updaterEngine
+	mu      sync.Mutex
+	working bool
+	held    bool
+	holds   int
+}
+
+func (q *quiescingEngine) HoldForUpdate() (func(), bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.working || q.held {
+		return nil, false
+	}
+	q.held, q.holds = true, q.holds+1
+	return func() { q.mu.Lock(); q.held = false; q.mu.Unlock() }, true
+}
+
+// start reports whether a turn could begin — which is the question the hold exists to answer.
+func (q *quiescingEngine) start() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.held {
+		return false
+	}
+	q.working = true
+	return true
+}
+
+func (q *quiescingEngine) stop() { q.mu.Lock(); q.working = false; q.mu.Unlock() }
+
+// The gap Busy leaves: a turn arriving between "nothing is running" and the restart is thrown away by
+// a decision that had just concluded there was none. An engine that can hold closes the door in the
+// same step it finds it quiet (CLIENT_LIFECYCLE §9.3).
+func TestADeferredUpdateShutsTheDoorInTheStepThatFindsItQuiet(t *testing.T) {
+	was := idlePoll
+	idlePoll = 5 * time.Millisecond
+	defer func() { idlePoll = was }()
+
+	eng := &quiescingEngine{
+		updaterEngine: updaterEngine{fakeEngine: &fakeEngine{}, res: UpdateResult{Updated: true, From: "v1", To: "v2"}},
+		working:       true, // a turn is in flight when the button is pressed
+	}
+	sock := filepath.Join(shortDir(t), "daemon-u.sock")
+	d, err := Listen(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := make(chan error, 1)
+	go func() { restarted <- d.Serve(context.Background(), eng) }()
+	var cl *Client
+	for i := 0; i < 100; i++ {
+		if c, derr := Dial(sock); derr == nil {
+			cl = c
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if cl == nil {
+		t.Fatal("daemon never came up")
+	}
+	defer cl.Close()
+
+	if _, uerr := cl.UpdateWhen("idle"); uerr != nil {
+		t.Fatal(uerr)
+	}
+	select {
+	case <-restarted:
+		t.Fatal("it restarted while a turn was in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	eng.stop() // the turn ends; the next poll may take the hold
+	select {
+	case <-restarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("it never restarted after the work finished")
+	}
+	if eng.holds == 0 {
+		t.Fatal("it restarted without ever taking the hold — the door was open the whole time")
+	}
+	// ⚠ **And it let go.** Restart refuses when a stop is already draining, so the restart is not
+	// guaranteed to end this process — a hold left on after it would be a daemon that keeps serving
+	// and silently answers nothing.
+	eng.mu.Lock()
+	stillHeld := eng.held
+	eng.mu.Unlock()
+	if stillHeld {
+		t.Error("the door was left shut after the restart — a daemon that survives it accepts no work")
+	}
+	// And while it was held, nothing could have started. Asked of the same lock a run would take.
+	if !d.Restarting() {
+		t.Error("it ended as a stop rather than a relaunch")
+	}
+}
+
+// The hold really does refuse a turn — the property the whole thing rests on.
+func TestAHeldEngineRefusesToStartWork(t *testing.T) {
+	eng := &quiescingEngine{updaterEngine: updaterEngine{fakeEngine: &fakeEngine{}}}
+	release, ok := eng.HoldForUpdate()
+	if !ok {
+		t.Fatal("could not take the hold on an idle engine")
+	}
+	if eng.start() {
+		t.Fatal("a turn started while the door was held shut")
+	}
+	release()
+	if !eng.start() {
+		t.Error("the door never reopened")
 	}
 }

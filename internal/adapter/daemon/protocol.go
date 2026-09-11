@@ -977,6 +977,20 @@ type Updater interface {
 // polled the same way since it existed. The atomic version is still owed.
 type Busy interface{ Busy() bool }
 
+// Quiescer is an optional Engine capability: confirm nothing is in flight AND shut the door against
+// new work, **in one step**.
+//
+// This is what Busy cannot do. Busy reports; between its answer and the caller acting on it, a turn
+// can arrive — and the caller's action is a restart, so that turn is thrown away by a decision that
+// had just concluded there was none. CLIENT_LIFECYCLE §9.3 asks for the judgement and the closing to
+// be atomic, and an engine that implements this provides it.
+//
+// The release reopens the door. An engine without this is polled through Busy instead, which is the
+// behaviour every caller had before — narrower, not broken.
+type Quiescer interface {
+	HoldForUpdate() (release func(), ok bool)
+}
+
 // UpdateResult is what a self-update did: Updated with From→To when a new build was committed, or a
 // Message ("already up to date") when nothing changed. On a failed pre-flight the update rolled back
 // and Update returns an error instead.

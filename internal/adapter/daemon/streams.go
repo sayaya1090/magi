@@ -145,9 +145,9 @@ func streamRestart(ctx context.Context, eng Engine, req Request, w wire) after {
 // Either way the reply goes out immediately and says which was done: holding an operator's reply
 // hostage to an idle moment that may be minutes away would read as a hang.
 //
-// ⚠ **"idle" is a poll, not a reservation.** The daemon can accept a turn between the check and the
-// restart (see Busy), so this narrows the window rather than closing it — CLIENT_LIFECYCLE §9.3
-// wants the safe-point decision and the closing of the door to be atomic, and that is still owed.
+// ⚠ **"idle" closes the door in the same step it finds it quiet** when the engine can (Quiescer) —
+// CLIENT_LIFECYCLE §9.3's atomic safe point. An engine that only reports (Busy) is polled instead,
+// which leaves the gap it always had: a turn arriving between the answer and the restart.
 func streamUpdate(ctx context.Context, eng Engine, req Request, w wire) after {
 	u, ok := eng.(Updater)
 	if !ok {
@@ -164,26 +164,51 @@ func streamUpdate(ctx context.Context, eng Engine, req Request, w wire) after {
 		return next
 	}
 	if res.Updated && w.restart != nil {
-		later := req.Name == "idle" && busyNow(eng)
+		// "when idle" and "now" are the same thing when it already is idle, and deciding that is the
+		// same step as taking the hold — ask once, act on that answer.
+		atOnce, release := req.Name != "idle", func() {}
+		if !atOnce {
+			if q, ok := eng.(Quiescer); ok {
+				// Atomic: the door shuts in the step that finds it quiet, so the turn that would
+				// have been thrown away cannot start (§9.3).
+				if r, held := q.HoldForUpdate(); held {
+					atOnce, release = true, r
+				}
+			} else if !busyNow(eng) {
+				// No such capability: the old poll, with the gap it always had. An engine that can
+				// only report is restarted on a report.
+				atOnce = true
+			}
+		}
 		how := " — restarting (or on the next start, if this daemon is already stopping)"
-		if later {
+		if !atOnce {
 			how = " — it will restart when nothing is running (something is in flight now)"
 		}
 		// "or on the next start": Restart refuses when a w.stop is already draining (w.stop wins),
 		// and this reply has already gone out by then — so it must not promise more than the
 		// binary being on disk guarantees.
 		wrote := w.enc.Encode(Response{OK: true, Out: "updated " + res.From + " → " + res.To + how}) == nil
-		if later {
+		if atOnce {
+			w.restart()
+			release()
+		} else {
 			// Outlives this connection on purpose: the person who asked has their answer, and the
 			// thing they asked for happens when it can. The same shape the auto-update loop uses.
 			go func() {
-				for busyNow(eng) {
+				for {
+					if q, ok := eng.(Quiescer); ok {
+						if r, held := q.HoldForUpdate(); held {
+							w.restart()
+							r()
+							return
+						}
+					} else if !busyNow(eng) {
+						w.restart()
+						return
+					}
 					time.Sleep(idlePoll)
 				}
-				w.restart()
 			}()
-		} else {
-			w.restart()
 		}
 		if !wrote {
 			return done

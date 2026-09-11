@@ -65,6 +65,10 @@ type App struct {
 	mu     sync.Mutex
 	wg     sync.WaitGroup // tracks run + dispatch goroutines for graceful Close
 	closed bool           // set by Close: no new run/dispatch goroutines (no Add after Wait)
+	// holding is set while an update is being applied: nothing is running and nothing new may start.
+	// Distinct from closed because it is temporary and the process is still serving — see
+	// HoldForUpdate for why the two facts cannot share a flag.
+	holding bool
 	// bg is the lifetime of work that must outlive the turn that started it, and bgStop ends it.
 	// See bgContext.
 	bg     context.Context
@@ -516,6 +520,42 @@ func (a *App) observeTurnFinished(ctx context.Context, sid session.SessionID) {
 	})
 }
 
+// HoldForUpdate answers "is nothing in flight" and shuts the door against new work **in one step**.
+//
+// ⚠ **Asking and then acting is not the same thing, and the gap is the defect.** The update door
+// used to poll Busy and then restart; a turn arriving between those two lines was thrown away by the
+// restart that had just decided nothing would be. CLIENT_LIFECYCLE §9.3 asks for exactly this: the
+// safe-point judgement and the closing of the door are one atomic step, under the same lock that
+// admits a run.
+//
+// Returns false when something is running — the caller waits and asks again — and otherwise a
+// release that reopens the door. Held for the instant between the decision and the restart, not for
+// the length of an update: a hold that outlived its caller would be a daemon that quietly stops
+// answering.
+func (a *App) HoldForUpdate() (func(), bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed || a.holding {
+		return nil, false
+	}
+	for _, st := range a.states {
+		if st != nil && st.cancel != nil {
+			return nil, false
+		}
+	}
+	// A meeting round being composed is work the run states deliberately do not cover, and the
+	// auto-update loop has always waited on it too. One definition of busy, not two.
+	if a.meetingRounds.Load() > 0 {
+		return nil, false
+	}
+	a.holding = true
+	return func() {
+		a.mu.Lock()
+		a.holding = false
+		a.mu.Unlock()
+	}, true
+}
+
 // startRun launches the agent loop for a session unless one is already running
 // (single run goroutine per session). After the loop ends it re-checks, under
 // the lock, for a user message that was steered in during the exit window and
@@ -527,9 +567,11 @@ func (a *App) startRun(ctx context.Context, sid session.SessionID) {
 	a.ensureDeferredHydrated(ctx, sid)
 	a.mu.Lock()
 	st := a.stateLocked(sid)
-	if a.closed || st.cancel != nil {
+	if a.closed || a.holding || st.cancel != nil {
 		a.mu.Unlock()
-		return // shutting down, or already running (the loop picks up steered input on re-read)
+		// Shutting down, already running (the loop picks up steered input on re-read), or held for
+		// an update that is about to restart this process — the successor reopens this conversation.
+		return
 	}
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	st.cancel = cancel
