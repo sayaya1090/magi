@@ -51,8 +51,15 @@ jobs:
         # and that is exactly how these tests spent their life unread. The floor is deliberately
         # near the real number rather than at 1: losing a whole file is the same defect in a smaller
         # size, and it would sail past `> 0`.
+        #
+        # ⚠ **Both of node's spellings.** It writes `ℹ tests 278` to a terminal and `# tests 278`
+        # to a pipe, and this step read only the first — so on CI, where it is always a pipe, it
+        # read 0 every time and failed every time. Measured 2026-09-11: `# tests 278 / # pass 272 /
+        # # fail 0` in the log, and this step under it saying "only 0 tests ran". The guard against
+        # a suite that runs nothing had itself never run, which is the same defect it exists to
+        # catch, one floor up.
         run: |
-          n=$(sed -n 's/^ℹ tests \([0-9]*\)$/\1/p' test-output.txt | tail -1)
+          n=$(grep -E '^(ℹ|#) tests [0-9]+$' test-output.txt | tail -1 | grep -oE '[0-9]+$')
           echo "ran ${n:-0} tests"
           if [ "${n:-0}" -lt 200 ]; then
             echo "::error::only ${n:-0} tests ran; this suite has over 220 — the runner was handed a pattern that matched (almost) nothing"
