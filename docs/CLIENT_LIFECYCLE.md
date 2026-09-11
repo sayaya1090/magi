@@ -26,6 +26,68 @@ A companion is the daemon executing work for a workspace. Its owner is the clien
 
 Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not become “daemon absent.” When a shorter path is necessary, explain where to configure it and show the effective path. A client must not silently choose a different path from an existing daemon.
 
+## 2.5 Where this stands, and what is held (2026-09-11)
+
+**A (the core lifetime contract)** from §7 is landing in layers. Below is what is in, and *why* the
+rest is waiting. "Held" does not mean hard — it means something has to be decided first.
+
+| Item | State | Commit |
+|---|---|---|
+| `magi ide-bridge --features` | **landed** | `da67e068` |
+| `instance` in the published record and `about` | **landed** | `4485de3c` |
+| `ownerId` | held — reason ① | |
+| `magi --daemon --client-owned` (owner pipe, EOF) | not started | |
+| Handing the pipe and ownerId to a Windows successor | not started (depends on the above) | |
+| `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
+| §5's policy values (budgets, grace, jitter) | not started | |
+
+### ① `ownerId` — not a name to ship ahead of the owned mode
+
+The design generates `ownerId` and `instanceId` together, but right now they mean different things.
+`instanceId` says "this process" regardless of ownership, so it is true with no owned mode at all —
+and it alone makes §4's readiness check possible. `ownerId` names "the same owning lineage", and
+**with no owner there is no lineage to point at.**
+
+The cost of shipping a name ahead of its thing was measured once already: if `--features`
+advertised `owned-daemon-v1`, a client would start a mode this binary does not understand and read
+the failure as a broken install. For the same reason `ownerId` lands **in the same commit as the
+owned mode**.
+
+### ② `<socket>.lifecycle` — it runs straight into this tree's own invariant
+
+§4 writes the shutdown reason to `<socket>.lifecycle` and, in the same paragraph, says it is **"not
+a permission proof and does not replace checking for the socket file"**. So it is a diagnostic file.
+
+But invariant 3 in the [JetBrains README](../clients/jetbrains/README.md) §0.5 reads: **a value that
+can be computed at runtime is not written to a file, and a state that cannot be read live is treated
+as not existing — the history of introducing `<socket>.stopped` and then removing it is the
+evidence.**
+
+The two cases split:
+
+- **For a live daemon**, ask `about`. The file becomes a second place the truth lives, and a day
+  comes when the two disagree — a shape this tree has paid for repeatedly.
+- **For a dead one**, there is nobody to ask. Whether it shut down cleanly, was replaced by an
+  update, or crashed is unknowable unless something was left behind. That is the one branch that
+  could justify an exception to invariant 3.
+
+**So it is a person's call.** Three options:
+
+1. Write the file **only for a dead daemon's reason**, and keep `about` the sole authority on a live
+   one's state. Argue the exception to invariant 3 explicitly in the docs.
+2. Do not write it, and give up the shutdown reason — clients say "reason unknown".
+3. Write it all as designed, and rewrite invariant 3, recording why the reason `<socket>.stopped`
+   was abandoned does not apply here.
+
+Until that is settled, A goes **only as far as it does without this file**. The owner pipe and EOF
+shutdown do not depend on the decision, so they can go first.
+
+### Keeping the doc and the code from drifting
+
+§4's "interfaces to add" now separates what has landed from what has not, name by name. Every time
+something lands, that section and this table change together — the moment target design reads as
+implementation status, this document has aged.
+
 ## 3. State and responsibility
 
 Store connection state, process ownership and work state separately. `Ready` means communication is available, not that work has finished. Display connection state and the time of the last known work-state observation separately.
