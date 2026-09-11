@@ -281,9 +281,22 @@ func minutesPrompt(who, topic, minutes, said string, room []meeting.Seat) string
 		"a decision says what the room agreed, an action item says who does it next.\n" +
 		"- \"In the room\" is given to you filled in. Carry it through exactly; do not add or " +
 		"remove a name.\n" +
-		"- Under \"Action items\", write only what somebody took on in their own words, and your " +
-		"own. Never assign work to a name that did not accept it — that is a promise they do not " +
-		"know they made.\n" +
+		// ⚠ **"only" was read as a SIZE and not as a SOURCE.** The rule below used to say "write
+		// only what somebody took on in their own words" in a prompt whose one piece of speech is
+		// WHAT <who> JUST SAID — so "somebody" read as this speaker, and "write only" read as
+		// "this section contains only that". Reported from a live meeting: the minutes came out
+		// holding the last speaker's action item and nobody else's. The carry-through rule above
+		// is general and did not win, because a rule written under the section's own heading reads
+		// as the rule FOR that section. So the two are said apart here, and the carry is said
+		// first — not reproduced in this tree (it needs a live room), so the ground for this change
+		// is the contradiction in the text rather than a run.
+		"- \"Action items\" accumulate. Every action item already in the document stays, word for " +
+		"word, however many speakers ago it was taken on — you are adding to a list, not replacing " +
+		"it with this round's. A section that loses lines each round ends the meeting with one.\n" +
+		"- What you ADD under \"Action items\" is only work somebody took on in their own words. " +
+		"Never assign work to a name that did not accept it — that is a promise they do not know " +
+		"they made. This is about where an item may come from, not about how many the section may " +
+		"hold.\n" +
 		"- Answer with the document and nothing else. No preamble, no explanation of what you " +
 		"changed.\n")
 	return b.String()
@@ -427,7 +440,23 @@ func preparePrompt(who, topic, work string, room []meeting.Seat) string {
 	}
 	b.WriteString("THE QUESTION\n" + strings.TrimSpace(topic) + "\n\n")
 	if seats := roomNote(who, room); seats != "" {
-		b.WriteString("WHO ELSE IS IN THE ROOM\n" + seats + "\n\n")
+		// ⚠ **They cannot see what you see, and being named together suggests otherwise.**
+		//
+		// Each participant is a companion in its OWN workspace, reading its own files; the list
+		// above gives names, roles and what each can do, which reads like a team that shares a
+		// project. Reported from a live meeting: participants spoke as though the others could
+		// look at the same code — a reference to "the handler we changed" means nothing to a room
+		// where nobody else has that file.
+		//
+		// Said here rather than in the round prompt because it changes what the PREPARATION
+		// produces: what you bring is only useful if it can be understood by someone who cannot
+		// go and look.
+		b.WriteString("WHO ELSE IS IN THE ROOM\n" + seats + "\n" +
+			"Each of them is working in a DIFFERENT workspace and cannot read yours — not your " +
+			"files, not your changes, not what you are looking at right now. They came in having " +
+			"read something else entirely. So anything you tell the room has to carry its own " +
+			"background: name the thing, say what it does and why it matters here, rather than " +
+			"referring to it as though they had it open.\n\n")
 	}
 	if work != "" {
 		b.WriteString("YOUR WORKSPACE RIGHT NOW, read for you\n" + work + "\n\n")

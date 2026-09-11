@@ -534,3 +534,67 @@ func TestTheSpeakerIsGivenTheMinutesAsMaterialNotAsAForm(t *testing.T) {
 		t.Errorf("the closing turn cannot see what the room settled:\n%s", c)
 	}
 }
+
+// The minutes ACCUMULATE, and the prompt has to say so where the section says it.
+//
+// Reported from a live meeting: the record came out holding the last speaker's action item and
+// nobody else's. The document-wide "carry every line through UNCHANGED" was already there and did
+// not win — a rule written under a section's own heading reads as the rule FOR that section, and
+// that one said "write only what somebody took on in their own words" in a prompt whose one piece
+// of speech is WHAT <who> JUST SAID. "Only" read as a size; it was meant as a source.
+//
+// ⚠ **Not reproduced in this tree** — it needs a live room and a model. What is measured here is
+// the text: the two rules are said apart, and the one that keeps earlier items comes first.
+func TestTheMinutesPromptSaysActionItemsAccumulate(t *testing.T) {
+	p := minutesPrompt("Balthasar", "ship it?", "## Action items\n- Melchior: write the test [not started]",
+		"I will take the docs.", []meeting.Seat{{Name: "Melchior"}, {Name: "Balthasar"}})
+
+	keep := strings.Index(p, "\"Action items\" accumulate")
+	if keep < 0 {
+		t.Fatal("행을 지켜 나른다는 말이 없다 — 회의가 끝나면 마지막 한 줄만 남는다")
+	}
+	source := strings.Index(p, "What you ADD under \"Action items\"")
+	if source < 0 {
+		t.Fatal("어디서 온 것만 더할 수 있는지를 안 말한다")
+	}
+	if keep > source {
+		t.Error("출처 규칙이 지켜 나르기보다 먼저 나온다 — 「only」가 다시 크기로 읽힌다")
+	}
+	// The old wording is the defect, so it must not come back.
+	if strings.Contains(p, "write only what somebody took on") {
+		t.Error("「write only what somebody took on」이 돌아왔다 — 이 절이 크기 제한으로 읽힌다")
+	}
+	// And the section must not be described only by its shape: the shape is elsewhere.
+	if !strings.Contains(p, "- Melchior: write the test [not started]") {
+		t.Error("서 있던 문서를 프롬프트가 안 싣는다")
+	}
+}
+
+// A participant does not know the others cannot see its workspace, and the room list suggests they
+// can: names, roles and what each can do read like a team sharing one project.
+//
+// Reported from a live meeting: participants spoke as though the others had the same files open.
+// Said in the PREPARATION prompt because it changes what that turn produces — what you bring is
+// only worth bringing if somebody who cannot go and look can use it.
+func TestPreparationTellsAParticipantTheOthersCannotSeeItsWorkspace(t *testing.T) {
+	p := preparePrompt("Melchior", "ship it?", "some files",
+		[]meeting.Seat{{Name: "Melchior"}, {Name: "Balthasar", Role: "verification"}})
+	if !strings.Contains(p, "cannot read yours") {
+		t.Error("다른 참가자가 내 워크스페이스를 못 본다는 말이 없다")
+	}
+	if !strings.Contains(p, "carry its own") {
+		t.Error("배경을 실어 말하라는 지시가 없다 — 「우리가 고친 그 핸들러」는 아무에게도 안 통한다")
+	}
+	// It has to be attached to the room list: that list is what creates the wrong impression.
+	seats := strings.Index(p, "WHO ELSE IS IN THE ROOM")
+	warn := strings.Index(p, "cannot read yours")
+	if seats < 0 || warn < seats || warn-seats > 600 {
+		t.Errorf("경고가 참가자 목록에 안 붙어 있다 (목록 %d, 경고 %d)", seats, warn)
+	}
+	// A meeting with nobody else in it has no such list, and must not grow a warning about people
+	// who are not there.
+	alone := preparePrompt("Melchior", "ship it?", "", []meeting.Seat{{Name: "Melchior"}})
+	if strings.Contains(alone, "cannot read yours") {
+		t.Error("아무도 없는 방에 다른 참가자 경고가 붙는다")
+	}
+}
