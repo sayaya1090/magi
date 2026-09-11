@@ -161,7 +161,7 @@ Diagnostics include phase, execution location, workspace, actual executable/vers
 |---|---|---|---|
 | A. Core lifecycle | `cmd/magi`, `internal/graceful`, daemon publication, `idebridge` feature discovery | Feature fixtures, ownership-pipe/replacement/EOF tests, legacy-mode compatibility evidence | None |
 | B. JetBrains manager | Launch, transport, subscription and disposal in `clients/jetbrains/plugin` | Shared transitions applied (`Phase`/`Progress` — §3's table and generation) and actual IDE shutdown evidence | Develop against A's fixture, accept against A's implementation |
-| C. VS Code manager | `clients/vscode/src/core` and `src/ide` | Windows relay detection, owned mode, retry/webview/deactivation evidence | Develop against A's fixture, accept against A's implementation |
+| C. VS Code manager | `clients/vscode/src/core` and `src/ide` | Windows relay detection, owned mode, retry/webview evidence. The closing contract (order, cleanup despite a failed step, repeated calls) has tests; **running the native `deactivate` itself is real-editor acceptance** | Develop against A's fixture, accept against A's implementation |
 | D. Web recovery | `clients/web/server` and the web shell's stream owner | Refresh, tab close, SSE recovery and preview replacement evidence | Can start with the existing transcript contract |
 | E. Release acceptance | Client packaging and relevant CI | Matrix results below and installable artifacts | A–D |
 

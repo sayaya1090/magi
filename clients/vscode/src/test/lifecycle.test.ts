@@ -235,6 +235,8 @@ test('the start path shows the unowned-core warning', () => {
 });
 
 type Inner = {
+  close(): Promise<void>;
+  start(binary: string, manual?: boolean): Promise<void>;
   replacing(now?: number): void;
   replacingWhenIdle(now?: number): void;
   ended(now: number, child?: ChildProcess): void;
@@ -450,4 +452,73 @@ test('the ready path keeps the lineage the daemon named',
       'the window reached ready and forgot which lineage it had confirmed — a successor it never ' +
       'spawned is then read as somebody else\'s daemon');
   } finally { await c.close(); }
+});
+
+/**
+ * Closing is an ORDER, and a step that fails does not cancel the rest of it.
+ *
+ * docs/CLIENT_LIFECYCLE §5: block new work → cancel launches and retries → try to release the
+ * editor hand → clean up subscriptions and connections → close the owner pipe → confirm. "A failed
+ * release does not skip the remaining cleanup", and "closing must give the same result when called
+ * twice".
+ *
+ * ⚠ **The pipe is the step that matters most and the one easiest to skip.** `stop` talks to the
+ * socket and then kills the process this window spawned — but after a replacement that process is
+ * already gone and the daemon answering is a successor this window holds no handle for. The owner
+ * pipe is the only thing that reaches THAT one. A `stop` that throws must not take it with it.
+ */
+test('a failing stop still closes the owner pipe', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-closing-'));
+  let closed = 0;
+  const channel = { stdin: 'pipe' as const, held: true, close() { closed++; } };
+  const c = window_(dir) as unknown as {
+    close(): Promise<void>; child?: unknown; channel?: unknown; stop(child: unknown): Promise<void>;
+  };
+  c.channel = channel;
+  c.child = { pid: 1 };
+  c.stop = () => Promise.reject(new Error('the daemon would not answer and the kill failed'));
+
+  // It SETTLES. A rejection here is an error VS Code reports about a shutdown that went fine — and
+  // the rejected promise is cached, so every later close rejects again with nobody awaiting it.
+  await c.close();
+  assert.equal(closed, 1,
+    'the owner pipe was left open because stopping failed — after a replacement that pipe is the ' +
+    'only thing that reaches the daemon, so it would keep running with nobody to end it');
+  assert.match(String((c as unknown as { closeTrouble?: Error }).closeTrouble?.message),
+    /would not answer/, 'the trouble was swallowed without a trace — nobody can say what went wrong');
+});
+
+/** And closing twice is the same as closing once — `dispose` is called more than once. */
+test('closing twice settles the same way', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-closing-twice-'));
+  let closed = 0;
+  let stops = 0;
+  const c = window_(dir) as unknown as {
+    close(): Promise<void>; channel?: unknown; child?: unknown; stop(child: unknown): Promise<void>;
+  };
+  c.channel = { stdin: 'pipe' as const, held: true, close() { closed++; } };
+  // ⚠ **With no child, a second close has nothing left to do and looks idempotent either way** —
+  // measured: removing the guard entirely left this green. The child is what makes the repeat
+  // visible: stopping twice means talking to a socket and killing a pid that is already gone.
+  c.child = { pid: 1 };
+  c.stop = () => { stops++; return Promise.resolve(); };
+
+  await Promise.all([c.close(), c.close()]);
+  await c.close();
+  assert.equal(stops, 1, 'closing ran the shutdown again — dispose is called more than once');
+  assert.equal(closed, 1, 'each close let go of the pipe again — the second one has nothing to let go of');
+});
+
+/**
+ * And after closing, nothing starts. A window that has closed has no child, and a start that
+ * slipped through would leave a daemon nobody stops (the R1 shape, asked at the other end).
+ */
+test('a closed window starts nothing', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-closed-start-'));
+  const c = window_(dir) as unknown as {
+    close(): Promise<void>; start(b: string, m?: boolean): Promise<void>; child?: unknown;
+  };
+  await c.close();
+  await c.start(path.join(dir, 'no-such-magi'), true);
+  assert.equal(c.child, undefined, 'a closed window spawned a companion nothing will ever stop');
 });

@@ -68,6 +68,11 @@ export class OwnedCompanion {
    * holds no handle for.
    */
   private lineage?: string;
+  /** What went wrong while stopping, if anything. Kept rather than thrown — see `close`. */
+  private trouble?: Error;
+
+  /** Why the last close had trouble, or undefined. For a caller that wants to say so. */
+  get closeTrouble(): Error | undefined { return this.trouble; }
   /**
    * The launch budget, as the shared contract states it — `clients/contract/lifecycle-policy.json`.
    *
@@ -423,7 +428,16 @@ export class OwnedCompanion {
     // already gone and the daemon answering is a successor with no handle here. Dropping the owner
     // pipe is what reaches that one — it is the whole point of the mode — and it must happen whether
     // or not there was still a child to stop.
+    //
+    // ⚠ **And closing SETTLES, whatever stopping did.** `stop` talks to a socket and kills a
+    // process, and both of those fail for ordinary reasons — the daemon already gone, a kill
+    // refused. `.finally` ran the cleanup but let the failure through, so `close()` rejected: at
+    // window close that is an error VS Code reports about a shutdown that went fine, and the
+    // rejected promise is cached in `this.closing`, so every later `close()` — `dispose` is called
+    // more than once — rejects again with nobody awaiting it. §5 asks for confirmation of shutdown,
+    // not for its success.
     this.closing = (this.child ? this.stop(this.child) : Promise.resolve())
+      .catch((e) => { this.trouble = e instanceof Error ? e : new Error(String(e)); })
       .finally(() => { this.channel?.close(); this.channel = undefined; });
     return this.closing;
   }
