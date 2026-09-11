@@ -39,13 +39,14 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 | `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `6f6ce97f` |
 | VS Code gates the owned mode and the relay on the feature probe | **landed** | `73a1a313` |
 | Clients actually calling the reconnect backoff | **landed** — with jitter, both clients | `a2402cf8` |
-| §6 previews replaced by the final fact (both clients) | **landed** — a measured defect | `bbeb8834` |
+| §6 previews replaced by the final fact (three surfaces) | **landed** — the same measured defect was in all three | `bbeb8834` · `43f45f1c` |
 | The web console's SSE reconnect uses the contract backoff | **landed** — the third client | `e0fa16ab` |
-| §6 "mark what is on screen as stale while reconnecting" (web) | **landed** | `de89c802` |
-| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` |
+| §6 "mark what is on screen as stale while reconnecting" (web) | **landed** | `44857463` |
+| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` · `07358567` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
 | §5's policy values (budget, grace, jitter, backoff) | **landed** — shared contract + both implementations | `5fca85b7` |
 | Clients actually calling that policy (budget) | **landed** — both JetBrains and VS Code | `e592da8a` |
+| Not counting a user-pressed restart as a crash (`replaced`) | **landed** — VS Code | `c5373a08` |
 
 ### ① `ownerId` — settled (it went in with the owned mode)
 
@@ -68,20 +69,24 @@ owned mode**.
 
 </details>
 
-### ③ The Windows successor — the lineage crosses, the pipe does not yet
+### ③ The Windows successor — the pipe crosses too. What is left is the readiness check
 
 `ownerId` crosses. `graceful.Reexec` hands the successor `os.Environ()` and `AdoptOwner`
 **re-exports** what it inherited, so a chain of updates stays one lineage (measured in a child
 process).
 
-What is left is handing over the **pipe itself**. §4 asks that the successor get the same read end,
-that two generations never serve requests at once, and that a predecessor closing the pipe is not
-mistaken for the owner's EOF — and that has a different shape on unix (`exec`, same process, fds
-kept) than on Windows (a new process). It cannot be made honest without a Windows machine to measure
-on, so it is **left to the Windows session**.
+**The pipe crosses too.** Windows `reexec` passes `cmd.Stdin = os.Stdin`, so the same read end was
+being handed over all along; the successor still saw EOF because the **write end** was destroyed —
+a defect closed in R2 and measured on real Windows (a successor still alive three seconds after an
+update). "Two generations never serve requests at once" holds as well: the predecessor releases its
+listener and workspace lock **before** starting the successor.
 
-As it stands, a unix successor inherits stdin and keeps the lineage; on Windows that guarantee is
-not yet there.
+**What is left is the readiness check.** `reexec` calls `os.Exit(0)` the moment `cmd.Start()`
+succeeds. So of §4's "confirm successor readiness before the predecessor exits; if an update fails,
+preserve the previous generation or report replacement failure", **only a start failure is ever
+reported** — a successor that comes up and dies is seen by nobody. Unix does not have the question
+at all (`syscall.Exec`). This cannot be made honest without a Windows machine to measure on, so it
+is **left to the Windows session**.
 
 ### ② `<socket>.lifecycle` — it runs straight into this tree's own invariant
 
@@ -115,6 +120,8 @@ shutdown do not depend on the decision, so they can go first.
 ### The contract file is the authority on the policy
 
 **Review decision (2026-09-11):** Accept the implementer feedback and choose option 2 above. Withdraw the §4 requirement to create `<socket>.lifecycle`; section 4 now follows this decision. Use handshake and `about` for current state and report unobserved exit reasons as unknown. The §9 update journal is only for file-replacement recovery, not current daemon liveness or ownership. Windows transfer is already explicitly unfinished in the implementer's account. The [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) adds acceptance evidence and call-site findings.
+
+Both clients now call the policy, and the core's owned mode and feature advertisement are built. §4's "interfaces to add" section **carries a state per paragraph** (updated 2026-09-11) — do not read that section as target design throughout.
 
 Policy calls in both clients, core owned mode and its feature advertisement are implemented. The unimplemented descriptions in §4 refer to an earlier snapshot. JetBrains still needs readiness/failure reporting and owned-mode launch integration.
 
@@ -225,27 +232,27 @@ An independent daemon explicitly started through the web is managed with an expl
 3. Launch only when startup is enabled and absence is established. Use single-flight within a window and the existing core workspace lock between windows. A losing launcher attaches to the winner as an observer.
 4. Declare readiness only when the published process generation matches the handshake. Creating a process or a file is insufficient.
 
-### Interfaces to add — one has landed, the rest have not
+### Interfaces to add — each paragraph carries its state
 
-**`magi ide-bridge --features` is built (2026-09-11).** It answers one JSON line without contacting a daemon and writes nothing to disk. Measured output: `{"features":["raw-socket-v1"],"protocol":1,"version":"…"}`. The existing `ide-bridge` protocol and `--raw-socket` behavior are unchanged. An old binary answers by refusing the option — exit code 2, nothing on stdout — and that is the only ground for concluding "unsupported". Do not infer support by searching prose output. The contract and its reasons are in [IDE_BRIDGE §5](IDE_BRIDGE.md#asking-what-this-binary-can-do).
+**`magi ide-bridge --features` is built (2026-09-11).** It answers one JSON line without contacting a daemon and writes nothing to disk. Measured output: `{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1,"version":"…"}` (re-measured 2026-09-11). The existing `ide-bridge` protocol and `--raw-socket` behavior are unchanged. An old binary answers by refusing the option — exit code 2, nothing on stdout — and that is the only ground for concluding "unsupported". Do not infer support by searching prose output. The contract and its reasons are in [IDE_BRIDGE §5](IDE_BRIDGE.md#asking-what-this-binary-can-do).
 
-⚠ **The `owned-daemon-v1` from this design's example is NOT advertised.** The owned mode below does not exist yet, and a test holds that floor — a name shipped ahead of its thing sends a client to start a mode this binary does not understand, and the failure reads as a broken install. The feature list is derived from the implementation rather than written down, so the name arrives when the mode does.
+`owned-daemon-v1` is advertised too now, because **the mode arrived** (`6f6ce97f`). This spot once read "NOT advertised", and the reason was that a name shipped ahead of its thing sends a client to start a mode this binary does not understand, whose failure reads as a broken install. The feature list is **derived from the implementation** rather than written down, so the two cannot drift, and the tests hold both floors — everything advertised is real, and every mode this binary knows is advertised.
 
-Everything below is still target design, not built.
+Each paragraph below carries its state. **Landed** means it runs in this repo; **not yet** means target design.
 
-With `owned-daemon-v1`, an IDE starts the **proposed** `magi --daemon --client-owned` mode. The IDE exclusively retains the write end of a dedicated child-stdin pipe and does not pass it to other children. The core interprets EOF on the read end as owner termination. IDs in process environments or public records are for correlation, not proof of shutdown authority.
+**Landed (`6f6ce97f`).** With `owned-daemon-v1`, an IDE starts the `magi --daemon --client-owned` mode. The IDE exclusively retains the write end of a dedicated child-stdin pipe and does not pass it to other children. The core interprets EOF on the read end as owner termination. IDs in process environments or public records are for correlation, not proof of shutdown authority.
 
-At startup the core generates `ownerId`, stable across its owned lineage, and `instanceId`, changed on every process replacement. Add these as optional fields in local publication and `about`. They distinguish PID reuse and update replacement. Lifecycle authority travels only through the inherited pipe. The existing user `shutdown` command's authorization contract remains unchanged.
+**Landed (`55ead8ac`, `6f6ce97f`).** At startup the core generates `ownerId`, stable across its owned lineage, and `instanceId`, changed on every process replacement. Add these as optional fields in local publication and `about`. They distinguish PID reuse and update replacement. Lifecycle authority travels only through the inherited pipe. The existing user `shutdown` command's authorization contract remains unchanged.
 
-Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
+**Not yet — this half is the client's.** The core puts both IDs in publication and in `about`, but today **no client reads either** (measured: zero references to `instanceId` or `ownerId` anywhere under `clients/`). Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
 
-Do not create an exit-reason file. Following the review decision in §2.5, use handshake and `about` for current state. Report unobserved exit reasons as unknown and use §5 policy to decide whether to restart.
+**Decided — no file.** Do not create an exit-reason file. Following the review decision in §2.5, use handshake and `about` for current state. Report unobserved exit reasons as unknown and use §5 policy to decide whether to restart.
 
-On Windows, transfer the same pipe read end and ownerId to the successor. The predecessor first stops accepting requests and releases its listener/workspace lock, then starts the successor. The generations must not serve requests concurrently. Confirm successor readiness before the predecessor exits; closing the predecessor's copy must not be mistaken for owner EOF. If an update fails, either preserve the previous generation or report replacement failure. A client must not adopt a newly discovered PID as its own child.
+**Half landed (`6f6ce97f`, `07358567`).** On Windows, transfer the same pipe read end and ownerId to the successor — both cross, and the defect where a successor saw EOF while the window was still alive was closed and measured on real Windows in R2. The predecessor first stops accepting requests and releases its listener/workspace lock, then starts the successor, which `graceful_windows.go` also does. **What is left is the readiness check**: the predecessor leaves as soon as `Start()` returns, so a successor that dies on the way up is seen by nobody. Confirm successor readiness before the predecessor exits; closing the predecessor's copy must not be mistaken for owner EOF. If an update fails, either preserve the previous generation or report replacement failure. A client must not adopt a newly discovered PID as its own child.
 
-Closing the IDE's write end must also stop a successor. Forced extension-host termination is handled through the same EOF. In owned mode, the core must cancel work, stop listeners and clean publication within five seconds of EOF. Do not block the IDE UI thread. If shutdown stalls, the IDE may force-stop only the still-live original child for which it holds a handle. The core guarantees successor shutdown. Existing lifetimes in other modes remain unchanged.
+**Landed (`6f6ce97f`, `07c0f509`, `07358567`).** Closing the IDE's write end must also stop a successor. Forced extension-host termination is handled through the same EOF. In owned mode, the core must cancel work, stop listeners and clean publication within five seconds of EOF. Do not block the IDE UI thread. If shutdown stalls, the IDE may force-stop only the still-live original child for which it holds a handle. The core guarantees successor shutdown. Existing lifetimes in other modes remain unchanged.
 
-Allow connections to old daemons while disabling unsupported features. Block new launches requiring Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
+**Landed (`73a1a313`, `61ded932`).** Allow connections to old daemons while disabling unsupported features. Block new launches requiring Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
 
 ## 5. Recovery and shutdown policy
 
