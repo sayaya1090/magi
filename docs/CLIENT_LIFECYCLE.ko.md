@@ -162,7 +162,7 @@ seq=0 프리뷰는 영속 커서를 전진시키지 않습니다. 최종 사실�
 | A. 코어 수명 계약 | `cmd/magi`, `internal/graceful`, daemon 공개 정보, `idebridge` 기능 조회 | 버전 기능 fixture, 소유 파이프·교체·EOF 테스트, 구형 모드 호환 증거 | 없음 |
 | B. JetBrains 관리자 | `clients/jetbrains/plugin`의 기동·전송·구독·dispose | 공통 상태 전이 적용(`Phase`·`Progress` — §3 의 전이표와 세대), native IDE 종료 증거 | A의 계약 fixture 후 개발, 실제 A로 인수 |
 | C. VS Code 관리자 | `clients/vscode/src/core`와 `src/ide` | Windows relay 판별, 소유 모드, 재시도·웹뷰 검증. 닫기 계약(순서·실패해도 나머지 정리·중복 호출)은 시험이 있고, **네이티브 `deactivate` 실행은 실물 편집기 몫**입니다 | A의 계약 fixture 후 개발, 실제 A로 인수 |
-| D. 웹 복구 | `clients/web/server`, 웹 셸의 스트림 소유자 | 새로고침·탭 종료·SSE 복구·프리뷰 교체 증거 | 기존 전사 계약으로 시작 가능 |
+| D. 웹 복구 | `clients/web/server`, 웹 셸의 스트림 소유자 | 새로고침·탭 종료는 `clients/web/e2e/tests/lifetime.spec.mjs` 가 **공개 기록의 pid·instance 로** 잽니다. SSE 복구·프리뷰 교체·입력 보존은 착지했고, **서버 재시작(L12 의 셋째)은 아직**입니다 | 기존 전사 계약으로 시작 가능 |
 | E. 배포 인수 | 클라이언트 패키징 및 관련 CI | 아래 매트릭스 결과와 설치 가능한 아티팩트 | A–D |
 
 공유 fixture는 동작 계약을 담고 특정 구현의 소스 문자열을 요구하지 않습니다. 담당자는 소유한 경로 밖의 변경을 먼저 조율하고 다른 담당자의 변경을 되돌리지 않습니다. 코어 기능을 먼저 배포한 뒤 클라이언트가 사용하도록 순서를 고정합니다. CI 추가와 실제 배포는 구분합니다.
