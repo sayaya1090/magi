@@ -137,6 +137,20 @@ data class Response(
     val version: String? = null,
     val proto: Int? = null,
     val caps: List<String>? = null,
+    /**
+     * `about`: **어느 프로세스**가 답하고 있는가. 프로세스마다 새로 나고 물려받지 않는다.
+     *
+     * PID 로는 못 가리는 둘이 있다 — 데몬이 자기를 갱신하고 재실행해 **다른 프로세스가 같은
+     * 컴패니언을 이어받은 것**과, 데몬이 죽고 OS 가 그 번호를 엉뚱한 것에 준 것. 숫자를 들고
+     * 있는 창에게 둘은 똑같이 생겼다(`internal/adapter/daemon/instance.go`,
+     * `docs/CLIENT_LIFECYCLE` §4).
+     *
+     * ⚠ **없음은 「모른다」이지 「아니다」가 아니다.** 이 칸보다 오래된 데몬은 아무것도 안 싣고,
+     * 그것을 불일치로 읽으면 모든 창이 제 컴패니언을 남으로 판정한다.
+     *
+     * 추적용이고 권한이 아니다 — 이 값을 안다고 무엇이 허락되지 않는다.
+     */
+    val instance: String? = null,
     /** 전사 프레임 하나. `transcript` 스트림에서만 실린다. */
     val event: LogEvent? = null,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
@@ -516,6 +530,16 @@ data class Published(
     val host: String? = null,
     val state: String? = null,
     val version: String? = null,
+    /**
+     * 이 기록을 **어느 프로세스**가 썼는가. `about` 의 같은 칸과 짝이다.
+     *
+     * 둘 다 보는 이유가 있다 — 기록은 방금 쓴 **파일**이고 `about` 은 **지금 듣고 있는
+     * 프로세스**가 답한다. 창이 띄운 데몬이 준비됐는지는 띄운 자식 PID·해석한 워크스페이스·이
+     * 두 값의 일치를 다 물어야 한다(`docs/CLIENT_LIFECYCLE` §4).
+     *
+     * ⚠ 없음은 「모른다」이고, 그것을 불일치로 읽으면 안 된다.
+     */
+    val instance: String? = null,
 )
 
 /**

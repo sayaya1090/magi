@@ -119,6 +119,22 @@ export interface Response {
   proto?: number;
   caps?: string[];
   version?: string;
+  /**
+   * `about`: which PROCESS is answering — fresh per process, never inherited.
+   *
+   * It is how a window tells the daemon it started from one that replaced it. A PID cannot: an
+   * update re-executes the daemon, so the number stops matching something that is still the same
+   * companion, and a dead daemon's number can be handed to a stranger. Both look identical to a
+   * client holding a number, and the core carries this so they need not (see `InstanceID` in
+   * `internal/adapter/daemon/instance.go`, docs/CLIENT_LIFECYCLE §4).
+   *
+   * ⚠ **Absent means "cannot tell", never "not a match."** A daemon older than the field sends
+   * nothing, and reading that as a mismatch would make every window decide its own companion is a
+   * stranger.
+   *
+   * Tracking, not authority: knowing it permits nothing.
+   */
+  instance?: string;
   /** `status`: absent when the engine is not blocked on anybody. */
   waiting?: Waiting;
   /** `status`: the latest progress note from a tool still running. Empty most of the time. */
