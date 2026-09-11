@@ -1,8 +1,8 @@
 # 대표 클라이언트 수명주기 안정화 설계
 
-[English](CLIENT_LIFECYCLE.md) · [문서 지도](README.ko.md)
+[English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.ko.md) · [후속 검토](CLIENT_LIFECYCLE_REVIEW_2026-09-11.ko.md)
 
-상태: **구현 인계용 목표 설계, 2026-09-11.** [프로젝트 평가](PROJECT_REVIEW_2026-09-11.ko.md)의 첫 번째 제안을 구체화합니다. 아래 MUST에 해당하는 요구사항과 인수 조건은 개발 목표이며, 구현 완료를 선언하지 않습니다. 현재 구현 근거는 §2에 구분합니다. `docs/DESIGN`은 초기 설계 이력이므로 이번 작업의 구현 기준은 이 문서입니다.
+상태: **구현 인계용 목표 설계, 2026-09-11.** [프로젝트 평가](PROJECT_REVIEW_2026-09-11.ko.md)의 첫 번째 제안을 구체화합니다. 아래 MUST에 해당하는 요구사항과 인수 조건은 개발 목표이며, 구현 완료를 선언하지 않습니다. 현재 구현 근거는 §2에 구분합니다. [`docs/DESIGN.ko.md`](DESIGN.ko.md)은 초기 설계 이력이므로 이번 작업의 구현 기준은 이 문서입니다.
 
 ## 1. 범위와 완료의 의미
 
