@@ -4,7 +4,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { OwnedCompanion } from '../core/lifecycle';
+import { OwnedCompanion, REPLACE_BY_MS } from '../core/lifecycle';
 import { Daemon } from '../core/daemon';
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -137,4 +137,87 @@ test('the start path shows the unowned-core warning', () => {
   // The sentence has to say what is LOST, or it is a notice nobody can act on.
   assert.ok(/killed/.test(src) && /Update magi/.test(src),
     'the warning does not say what the weaker lifetime costs, or what to do about it');
+});
+
+type Inner = {
+  replacing(now?: number): void;
+  ended(now: number, child?: ChildProcess): void;
+  theirs(): boolean;
+  budget: { may(now: number, manual?: boolean): string; ready(now: number): void };
+};
+/** One window, reached at the seam. Not an intersection: a private field would reduce it to never. */
+const window_ = (dir: string): Inner =>
+  new OwnedCompanion(dir, async () => new Set()) as unknown as Inner;
+
+/**
+ * The Restart button is not a crash.
+ *
+ * ⚠ **On Windows it looked exactly like one.** `magi.updateCore` and `magi.restartDaemon` make the
+ * daemon restart itself, and Windows has no execve — `internal/graceful/graceful_windows.go` spawns
+ * a successor and ends this process. So the child this window owns EXITS, and the exit handler
+ * counted `lost`: a consecutive failure, three of which are `failuresToBlock`. Three presses of
+ * Restart inside one stable window and the companion is Blocked, with this window refusing to start
+ * it automatically ever again — for a button the person pressed on purpose. On Unix the image is
+ * replaced in place and the PID never changes, so none of this was visible there.
+ *
+ * Measured 2026-09-11 on Windows 11 against the real binary: the owned child exited 27ms after the
+ * `restart` door answered `{"ok":true}`.
+ *
+ * The contract has had the case the whole time — "an update replacement the person asked for is not
+ * a failure" — and `Launches.replaced` was dead code: nothing in this client called it.
+ *
+ * Driven through `ended` rather than a live daemon on purpose. What is under test is what an ending
+ * MEANS, and reaching it through a process would need the one platform where the process is the
+ * thing that goes away.
+ */
+test('three replacements the person asked for do not block, three losses do', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-replace-'));
+  const asked = window_(dir);
+  const crashed = window_(dir);
+
+  // Three of each, every one of them an ending of a daemon that had connected.
+  for (let i = 0; i < 3; i++) {
+    const t = i * 10_000;
+    asked.budget.ready(t); asked.replacing(t); asked.ended(t + 30);
+    crashed.budget.ready(t); crashed.ended(t + 30);
+  }
+  assert.equal(crashed.budget.may(100_000, false), 'blocked',
+    'three unexplained endings must still block — the pardon has to be for the button, not for everything');
+  assert.equal(asked.budget.may(100_000, false), 'allow',
+    'the person pressed Restart three times and this window now refuses to start their companion');
+});
+
+/**
+ * And the pardon expires. `update` answers "already up to date" without restarting anything, so an
+ * arm that outlived the door would hand the next real crash a free life — on a flag nobody can see.
+ */
+test('a replacement that never came is not a pardon for what crashes later', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-replace-late-'));
+  const c = window_(dir);
+  c.budget.ready(0);
+  c.replacing(0);                 // asked, and the daemon said "already up to date"
+  c.ended(REPLACE_BY_MS + 1);     // what died later died on its own
+  assert.equal(c.theirs(), true,
+    'an ending past the shutdown budget was treated as the replacement that never happened');
+});
+
+/**
+ * A successor this window asked for is still this window's companion.
+ *
+ * ⚠ **`!this.child` was standing in for "somebody else's daemon", and after a replacement it is
+ * neither.** On Windows the successor is a process this window never spawned and holds no handle
+ * for — but it inherited the owner pipe this extension host holds, so it is not a pre-existing
+ * companion belonging to its caller. Read as external, `launch` returns at its first line for
+ * anything not manual: the window would never start this workspace's companion again, and `close()`
+ * would leave it to the pipe alone.
+ */
+test('the window does not disown the companion it just asked to replace itself', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-replace-own-'));
+  const c = window_(dir);
+  assert.equal(c.theirs(), true, 'with no child and nothing asked for, a live socket IS somebody else’s');
+  c.budget.ready(0);
+  c.replacing(0);
+  c.ended(30);
+  assert.equal(c.theirs(), false,
+    'the window disowned the daemon it had just asked for — nothing automatic will ever start it again');
 });

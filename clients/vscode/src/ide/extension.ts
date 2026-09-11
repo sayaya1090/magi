@@ -61,7 +61,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     inlineCompletion(companion),
     ...entryPoints(companion, chat, looking),
     ...chooseCommands(companion, chat),
-    ...doorCommands(companion, chat),
+    ...doorCommands(companion, chat, owner),
     ...handoff.commands(),
     handoff.onChanged((w) => plan.showHanded(w)),
 

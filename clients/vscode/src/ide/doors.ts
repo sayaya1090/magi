@@ -6,6 +6,7 @@ import * as activity from '../core/activity';
 import { jobs as jobsOf, schedules, originWord, localStamp } from '../core/panel';
 import { whyNoCompletion } from '../core/complete';
 import { Response } from '../core/protocol';
+import { OwnedCompanion } from '../core/lifecycle';
 
 /**
  * The doors the JetBrains client opens and this one did not.
@@ -20,7 +21,7 @@ import { Response } from '../core/protocol';
  * advertisement means the command says "this companion does not do that" instead of showing a
  * person a refusal they cannot act on.
  */
-export function doorCommands(companion: Companion, chat: Chat): vscode.Disposable[] {
+export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompanion): vscode.Disposable[] {
   const reg = (id: string, run: () => Promise<void>): vscode.Disposable =>
     vscode.commands.registerCommand(id, () => void run());
 
@@ -222,6 +223,11 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
         'Update this companion? A running turn ends when it restarts.',
         { modal: true }, 'Update');
       if (ok !== 'Update') return;
+      // ⚠ **Before the door, and this is the only moment it can be said.** On Windows the update's
+      // restart ENDS the process this window owns — no execve there, so the daemon spawns a
+      // successor and exits (measured: the owned child was gone 27ms after the door answered). The
+      // window's exit handler would otherwise count the person's own button as a crash.
+      owner.replacing();
       const r = await call('update');
       // The daemon's own words: it knows whether anything changed and whether it can restart.
       if (r) void vscode.window.showInformationMessage(`magi: ${r.out || 'already up to date'}`);
@@ -233,6 +239,7 @@ export function doorCommands(companion: Companion, chat: Chat): vscode.Disposabl
         'Restart this companion? A running turn ends with it.',
         { modal: true }, 'Restart');
       if (ok !== 'Restart') return;
+      owner.replacing();   // same reason as `magi.updateCore` — see there.
       if (await call('restart')) void vscode.window.showInformationMessage('magi: restarting.');
     }),
 

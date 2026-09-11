@@ -7,6 +7,7 @@ import {
   BACKOFF_JITTER, BACKOFF_STEPS_MS, BACKOFF_CAP_MS, DEFAULT_POLICY,
 } from '../core/launches';
 import { whyNoRelay } from '../core/binary';
+import { REPLACE_BY_MS } from '../core/lifecycle';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const contract = JSON.parse(
@@ -195,4 +196,18 @@ test('the Windows relay calls that decision before spawning', () => {
   // the real code. `[\s\S]*?` up to the statement's own semicolon.
   assert.ok(/const refusal = whyNoRelay\([\s\S]*?\);\s*if \(refusal\) throw new Error\(refusal\);/.test(before),
     'the relay asks and then ignores the answer — an old binary is spawned anyway');
+});
+
+/**
+ * The replacement window is the contract's `shutdownMs`, not a number that looks like it.
+ *
+ * `REPLACE_BY_MS` decides how long after asking for an update or a restart an ending still counts
+ * as that replacement rather than as a crash. It is the same question the contract answers with
+ * `shutdownMs` — what a daemon asked to end is given to end — and a copy of a number is exactly
+ * what `clients/contract/lifecycle-policy.json` exists to stop.
+ */
+test('the replacement window is the contract’s shutdown budget', () => {
+  assert.equal(REPLACE_BY_MS, contract.policy.shutdownMs,
+    `REPLACE_BY_MS is ${REPLACE_BY_MS} and the contract's shutdownMs is ${contract.policy.shutdownMs} — ` +
+    'a pardon that outlives the shutdown budget forgives crashes nobody asked for');
 });

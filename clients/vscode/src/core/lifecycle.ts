@@ -6,6 +6,16 @@ import { features } from './binary';
 import { socketPath, tooLong } from './workspace';
 import { Launches } from './launches';
 
+/**
+ * How long after asking for a replacement an ending still counts as that replacement.
+ *
+ * The shared contract's `shutdownMs` (`clients/contract/lifecycle-policy.json`) — what a daemon
+ * asked to end is given to end. It has to be bounded: `update` answers "already up to date" without
+ * restarting anything, and an arm that never expired would hand the next real crash a free pardon,
+ * on a flag nobody could see. `launches.test.ts` holds this number against the contract file.
+ */
+export const REPLACE_BY_MS = 5_000;
+
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const alive = (p: ChildProcess) => p.pid !== undefined && p.exitCode === null && p.signalCode === null;
 
@@ -37,6 +47,30 @@ export class OwnedCompanion {
    * Read once by whoever draws it (see `unowned`), so the notice does not repeat on every poll.
    */
   private unownedStart = false;
+  /**
+   * Until when an ending is the replacement the person asked for, rather than a crash.
+   *
+   * ⚠ **On Windows the owned child EXITS for `magi.updateCore` and `magi.restartDaemon`.** Windows
+   * has no execve, so the daemon's own restart spawns a successor and ends this process
+   * (`internal/graceful/graceful_windows.go`); on Unix the image is replaced and the PID stays, so
+   * nothing here ever hears about it. Without this, the handler below reads the person's own button
+   * as a crash — and the contract's case "an update replacement the person asked for is not a
+   * failure" had no caller anywhere in this client, so `Launches.replaced` was dead code.
+   *
+   * Measured on Windows 11, 2026-09-11, against the real binary: the owned child exited 27ms after
+   * the `restart` door answered `{"ok":true}`. Three presses of Restart inside one stable window is
+   * then three consecutive failures, and `failuresToBlock` is three — the companion goes to Blocked
+   * and this window stops starting it automatically, for a button the person pressed on purpose.
+   */
+  private replaceBy = 0;
+  /**
+   * A replacement this window asked for has happened, and the daemon now listening is still ours.
+   *
+   * There is no handle for it — on Windows the successor is a different process this window never
+   * spawned — but it is not somebody else's companion either: it inherited the owner pipe this
+   * extension host holds. `theirs` is where that distinction is made.
+   */
+  private ownsSuccessor = false;
   readonly socket: string;
 
   /**
@@ -57,6 +91,45 @@ export class OwnedCompanion {
     return this.pending;
   }
 
+  /**
+   * The person asked this companion to replace itself — `magi.updateCore`, `magi.restartDaemon`.
+   *
+   * Called BEFORE the door, not after: `restart` answers and then ends the process, and on Windows
+   * the exit lands within tens of milliseconds. Arming afterwards would be arming after the event
+   * it describes.
+   */
+  replacing(now = Date.now()): void { this.replaceBy = now + REPLACE_BY_MS; }
+
+  /**
+   * What the owned process ending means to the budget.
+   *
+   * Named rather than written inline in the handler so it can be measured: reaching it through a
+   * live daemon would need one, and on the platform where it matters the process it needs is the
+   * one that just exited.
+   */
+  private ended(now: number, child?: ChildProcess): void {
+    if (this.closed) return;
+    if (now > this.replaceBy) { this.budget.lost(now); return; }
+    this.replaceBy = 0;
+    this.ownsSuccessor = true;
+    if (child && this.child === child) this.child = undefined;
+    this.budget.replaced(now);
+  }
+
+  /**
+   * Whether the companion answering on this socket belongs to somebody else.
+   *
+   * ⚠ **"No live child of mine" is not the same question.** After a replacement this window has no
+   * handle at all, and reading that as "a pre-existing companion" disowned the very daemon this
+   * window had just asked for: `launch` returns at its first line for anything not manual, so the
+   * window would never start it again — and `close()` would leave it to be stopped by the pipe
+   * alone.
+   */
+  private theirs(): boolean {
+    if (this.ownsSuccessor) return false;
+    return !this.child || !alive(this.child);
+  }
+
   private async reachable(): Promise<boolean> {
     try { const d = await Daemon.connect(this.socket, 1000); d.close(); return true; }
     catch { return false; }
@@ -67,7 +140,7 @@ export class OwnedCompanion {
     const long = tooLong(this.socket);
     if (long) throw new Error(long);
     if (await this.reachable()) {
-      this.external = !this.child || !alive(this.child);
+      this.external = this.theirs();
       // ⚠ **Being reachable forgives nothing on its own.** This used to clear the whole budget, so
       // a daemon that came up and died every few seconds was pardoned on every poll and retried
       // forever — it never missed the ready deadline, so nothing ever counted it as a failure.
@@ -80,6 +153,8 @@ export class OwnedCompanion {
     if (this.budget.may(now, manual) !== 'allow') return;
     this.budget.spawned(now);
     this.external = false;
+    // A child of this window's own again, so the successor rule below goes back to asking about it.
+    this.ownsSuccessor = false;
     const log = this.socket + '.log';
     fs.mkdirSync(path.dirname(log), { recursive: true });
     const fd = fs.openSync(log, 'a', 0o600);
@@ -135,7 +210,7 @@ export class OwnedCompanion {
     // The moment of loss, recorded where it happens rather than where the next start is decided.
     // Putting it beside `may` would be recording a loss and then asking whether the grace has
     // passed in the same breath — the answer is always no, and nothing ever starts again.
-    child.on('exit', () => { if (!this.closed) this.budget.lost(Date.now()); });
+    child.on('exit', () => this.ended(Date.now(), child));
     const end = Date.now() + 30_000;
     while (!this.closed && !failure && alive(child) && Date.now() < end) {
       if (this.publishedPID() === child.pid && await this.reachable()) {
