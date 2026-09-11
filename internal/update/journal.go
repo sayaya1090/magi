@@ -129,7 +129,24 @@ func writeLedger(target string, l ledger) error {
 // Began records that a candidate has been installed over target and the build it replaced is beside
 // it. Commit calls this in the same breath as the replacement — a separate step would leave a window
 // where the new binary is in place and nothing says the old one is recoverable.
+// Began records that a candidate has been installed over target and the build it replaced is beside
+// it, taking the install lock for the write — the same arbitration every other step of a transaction
+// now uses (review R10).
 func Began(target string, v Versions) error {
+	abs := resolveInstall(target)
+	release, got := takeInstall(abs)
+	if !got {
+		return errInstallHeld(abs)
+	}
+	defer release()
+	return beganHeld(abs, v)
+}
+
+// ⚠ **Unexported and lock-free on purpose.** Commit calls this while it HOLDS the install lock, so
+// taking it again here would be a process deadlocking against itself — both platforms' locks are
+// per-handle, and a second handle from the same process conflicts exactly like another process's.
+// Everything else that touches this ledger goes through the exported wrappers below, which lock.
+func beganHeld(target string, v Versions) error {
 	l, err := readLedger(target)
 	if err != nil {
 		return err
@@ -153,6 +170,11 @@ func Refused(target string) string {
 // asking for it calls this: §9.3 blocks the automatic path until a new candidate or an explicit retry.
 func Retry(target string) error {
 	abs := resolveInstall(target)
+	release, got := takeInstall(abs)
+	if !got {
+		return errInstallHeld(abs)
+	}
+	defer release()
 	l, err := readLedger(abs)
 	if err != nil {
 		return err
@@ -193,6 +215,14 @@ type Recovery struct {
 // not a replacement for it.
 func Resume(target, running string) (Recovery, error) {
 	abs := resolveInstall(target)
+	// ⚠ **Held across the read AND the decision.** This reads a count, may restore a file over the
+	// binary, and writes the count back — three steps a concurrent replacement can land between, and
+	// the file it restores is the one that replacement is writing.
+	release, got := takeInstall(abs)
+	if !got {
+		return Recovery{}, errInstallHeld(abs)
+	}
+	defer release()
 	l, err := readLedger(abs)
 	if err != nil || l.Pending == nil {
 		return Recovery{}, err
@@ -232,6 +262,14 @@ func Resume(target, running string) (Recovery, error) {
 // the record goes away. Idempotent — a second call with nothing pending is not an error.
 func Confirm(target string) error {
 	abs := resolveInstall(target)
+	// ⚠ **This one DELETES the backup.** A Commit starting beside it writes a new `.prev` for its own
+	// transaction, and an unsynchronised Confirm removes it — leaving that replacement with nothing
+	// to roll back to, which is the state its whole journal exists to prevent (review R10).
+	release, got := takeInstall(abs)
+	if !got {
+		return errInstallHeld(abs)
+	}
+	defer release()
 	l, err := readLedger(abs)
 	if err != nil || l.Pending == nil {
 		return err
@@ -257,6 +295,13 @@ func Confirm(target string) error {
 // after an update — an ordinary thing to do — would roll that update back on the next start.
 func LeftCleanly(target string) error {
 	abs := resolveInstall(target)
+	// Read, decrement, write — a lost update here is a generation that either never counted or
+	// counted twice, and counting twice is what rolls a good build back.
+	release, got := takeInstall(abs)
+	if !got {
+		return errInstallHeld(abs)
+	}
+	defer release()
 	l, err := readLedger(abs)
 	if err != nil || l.Pending == nil || l.Pending.Starts == 0 {
 		return err
@@ -280,6 +325,21 @@ func LeftCleanly(target string) error {
 // Returns the path it restored, or "" when there was nothing to do.
 func Salvage(target string) (string, error) {
 	abs := resolveInstall(target)
+	// ⚠ **A `.prev` means two opposite things, and the lock is what tells them apart.** Commit writes
+	// the backup, replaces the binary, pre-flights it, and only THEN writes the journal — so for the
+	// whole length of a pre-flight there is a backup on disk with no record beside it, which is
+	// exactly the state this function is built to act on. Measured with two processes: without this,
+	// a daemon starting in that window restored the old build over the new one and deleted the
+	// backup, so the update was undone mid-flight AND its rollback source was gone (review R10).
+	//
+	// Waiting rather than skipping, and the ordering below is why it needs nothing else: by the time
+	// the lock is free the replacement has written its journal, so the `l.Pending != nil` check just
+	// below sends this away on its own.
+	release, got := takeInstall(abs)
+	if !got {
+		return "", errInstallHeld(abs)
+	}
+	defer release()
 	prev := abs + ".prev"
 	if _, err := os.Stat(prev); err != nil {
 		return "", nil // no interrupted replacement here

@@ -198,7 +198,7 @@ func Commit(newBin []byte, target string, v Versions) error {
 	// and "do not drop the backup on `--version` alone". If the journal cannot be written the install
 	// still stands — it is verified and in place — but say so, because an unrecorded transaction is
 	// one nobody can roll back.
-	if jerr := Began(abs, v); jerr != nil {
+	if jerr := beganHeld(abs, v); jerr != nil {
 		return fmt.Errorf("installed %s but could not record the update (rollback will not be automatic): %w", abs, jerr)
 	}
 	return nil
