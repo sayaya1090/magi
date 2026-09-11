@@ -191,17 +191,29 @@ var (
 // its own setup is a test that can pass without ever reaching what it is for.
 func BlockWrites(t *testing.T, dir, path string) {
 	t.Helper()
+	// Every error here is reported rather than discarded. This helper's whole job is to establish
+	// a precondition, so a step of it that quietly failed would leave the test asserting about a
+	// write that was never blocked — which is the exact defect it was written to end, one level up.
+	restore := func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Errorf("전제를 걷어내지 못했다 — 디렉터리가 읽기전용으로 남는다: %v", err)
+		}
+	}
 	// 1. Take write permission off the directory, and check that it took.
 	if err := os.Chmod(dir, 0o500); err == nil {
 		probe := filepath.Join(dir, ".writeprobe")
 		f, perr := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY, 0o600)
 		if perr != nil {
-			t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+			t.Cleanup(restore)
 			return
 		}
-		f.Close()
-		_ = os.Remove(probe)
-		_ = os.Chmod(dir, 0o700) // it did not take; do not leave the directory altered
+		if cerr := f.Close(); cerr != nil {
+			t.Fatalf("탐침 파일을 닫지 못했다: %v", cerr)
+		}
+		if rerr := os.Remove(probe); rerr != nil {
+			t.Fatalf("탐침 파일이 남았다 — 부르는 쪽 디렉터리를 더럽힌다: %v", rerr)
+		}
+		restore() // it did not take; do not leave the directory altered
 	}
 	// 2. Hold the file open. Verified on a sibling so the target is never at risk.
 	sibling := filepath.Join(dir, ".deleteprobe")
@@ -212,15 +224,23 @@ func BlockWrites(t *testing.T, dir, path string) {
 	if err != nil {
 		t.Skipf("전제를 세울 수 없다: %v", err)
 	}
-	rerr := os.Remove(sibling)
-	sf.Close()
-	_ = os.Remove(sibling)
-	if rerr == nil {
+	held := os.Remove(sibling) // must fail while the handle is open
+	if cerr := sf.Close(); cerr != nil {
+		t.Fatalf("탐침 핸들을 닫지 못했다: %v", cerr)
+	}
+	if rerr := os.Remove(sibling); rerr != nil && !os.IsNotExist(rerr) {
+		t.Fatalf("탐침 파일이 남았다: %v", rerr)
+	}
+	if held == nil {
 		t.Skip("이 플랫폼은 쓰기를 막을 방법이 없다: 디렉터리를 읽기전용으로 해도, 핸들을 열어 둬도 쓰기가 된다")
 	}
 	f, err := os.Open(path)
 	if err != nil {
 		t.Skipf("막을 대상을 열 수 없다: %v", err)
 	}
-	t.Cleanup(func() { f.Close() })
+	t.Cleanup(func() {
+		if cerr := f.Close(); cerr != nil {
+			t.Errorf("막아 두었던 핸들을 닫지 못했다: %v", cerr)
+		}
+	})
 }
