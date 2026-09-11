@@ -1,8 +1,6 @@
 package atomicfile
 
 import (
-	"errors"
-	"io/fs"
 	"os"
 	"syscall"
 	"time"
@@ -74,33 +72,20 @@ func ReadFile(path string) ([]byte, error) {
 	}
 }
 
-// transient is how a replacement in flight shows up to whoever is on the other side of it.
+// The raw errors a Windows file in use answers with, named as numbers because the syscall package
+// does not export them.
 //
 // ⚠ **A sharing violation is not a permission error to Go.** ERROR_SHARING_VIOLATION (32) — "The
 // process cannot access the file because it is being used by another process" — stays a raw errno;
 // `errors.Is(err, fs.ErrPermission)` is false for it. Checking only the mapped errors made the
 // retry never fire at all, which is exactly as visible as no retry: the same 704 failures, to the
-// count. Named as numbers because the syscall package does not export them.
+// count.
 //
-// ⚠ **"Not there" is NOT one of these, and putting it here cost a fifth of a second per absent
-// file.** It was here defensively — a replacement surely has a window where the destination is
-// gone — and that window does not exist: os.Rename on Windows is MoveFileEx with REPLACE_EXISTING,
-// which swaps the name rather than unlinking it first. Measured 2026-09-11, a reader spinning on a
-// file through three seconds of continuous replacement: 16,498 whole reads, 613 sharing/lock
-// violations, and ENOENT **zero** times.
-//
-// What it did cost is on the other side. A missing file is an ORDINARY state for the records this
-// package reads — daemon.List draws a socket with no record as a row saying "(unknown — no
-// record)", because something is listening there either way — and every one of those rows was
-// spending the whole 200ms budget waiting for a file nobody was writing. Measured: 204ms through
-// ReadFile against 606µs through os.ReadFile, per absent record, on a list the TUI refreshes every
-// two seconds.
+// The judgement that uses these is in transient.go, which every platform compiles — see the note
+// there for why that matters more than it looks.
 const (
 	errSharingViolation = syscall.Errno(32)
 	errLockViolation    = syscall.Errno(33)
 )
 
-func transient(err error) bool {
-	return errors.Is(err, errSharingViolation) || errors.Is(err, errLockViolation) ||
-		errors.Is(err, fs.ErrPermission)
-}
+func init() { contentionErrnos = []error{errSharingViolation, errLockViolation} }
