@@ -25,7 +25,16 @@ export class OwnedCompanion {
   private external = false;
   readonly socket: string;
 
-  constructor(readonly workdir: string) { this.socket = socketPath(workdir); }
+  /**
+   * How this window asks a binary what it can do — the real probe, or a test's.
+   *
+   * Injected rather than imported straight, because the defect this seam exists for lives in the
+   * WAIT: `close()` can finish while the probe is still in flight. Reaching that window from a test
+   * means controlling when the probe answers, and a direct import cannot be made to wait.
+   */
+  constructor(readonly workdir: string, private readonly ask: typeof features = features) {
+    this.socket = socketPath(workdir);
+  }
 
   start(binary: string, manual = false): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -64,7 +73,21 @@ export class OwnedCompanion {
     // the window would report "Companion failed to start" for a binary that is perfectly fine —
     // docs/CLIENT_LIFECYCLE §4: an old core keeps the old lifetime rather than being handed a mode
     // it does not understand.
-    const owned = (await features(binary)).has('owned-daemon-v1');
+    // ⚠ **`close()` can finish while this await is in flight, and then nobody owns what comes
+    // next.** The check at the top of this function ran before the probe; `close()` stops
+    // `this.child`, and during the wait there is no child to stop — so it returns having stopped
+    // nothing, its promise resolves, the window is gone, and the spawn below still happens. The
+    // daemon it starts belongs to nobody: no `deactivate` will run again, and the owner pipe's
+    // write end is held by an extension host that has finished with this companion.
+    //
+    // Measured 2026-09-11 (docs/CLIENT_LIFECYCLE_REVIEW R1): start → probe waits → `close()`
+    // resolves → probe answers, and a child appeared with nothing left to stop it.
+    //
+    // Checked twice on purpose. Here, so the ordinary case costs nothing; and again after the
+    // spawn, because `close()` can also land in the gap between this line and the process actually
+    // existing — and that one cannot be prevented, only cleaned up.
+    const owned = (await this.ask(binary)).has('owned-daemon-v1');
+    if (this.closed) return;
     let child: ChildProcess;
     try {
       child = spawn(binary, owned ? ['--daemon', '--client-owned'] : ['--daemon'], {
@@ -77,6 +100,19 @@ export class OwnedCompanion {
       });
     } finally { fs.closeSync(fd); }
     this.child = child;
+    // ⚠ **Nothing awaits between the check above and this line, and that is the only reason this
+    // is not a second race.** `spawn` returns synchronously and the fd work around it is sync too,
+    // so `closed` cannot flip in between — one `await` introduced there and the window reopens,
+    // with no test able to see it. Kept as the cleanup that would be needed then: whoever loses
+    // stops the process and forgets it, because a window that has closed has no child.
+    //
+    // Deliberately not covered by a test. The order cannot be produced today, and a test that
+    // cannot fail is worse than none — it reads as proof.
+    if (this.closed) {
+      await this.stop(child);
+      if (this.child === child) this.child = undefined;
+      return;
+    }
     let failure: Error | undefined;
     child.on('error', (e) => { failure = e; });
     // The moment of loss, recorded where it happens rather than where the next start is decided.
