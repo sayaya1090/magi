@@ -4,19 +4,19 @@
 
 > **현행 참조.** 두 표면 — 각 화면의 구성, 지키는 디자인 규칙, 그리고 왜인가.
 
-두 표면의 구성·디자인 규칙·판단 근거. §1–5가 **웹 콘솔**(`clients/web/server`이 내주고 `clients/web/ui`에서
-컴파일된다), §6이 **터미널 UI**(`internal/adapter/tui`). 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
-(§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11.
+두 표면의 구성·디자인 규칙·판단 근거입니다. §1–5는 **웹 콘솔**(`clients/web/server`가 제공하고 `clients/web/ui`에서
+컴파일됩니다)을 다루고, §6은 **터미널 UI**(`internal/adapter/tui`)를 다룹니다. 사용법은 [`MANUAL.ko.md`](MANUAL.ko.md)
+(§4 TUI · §12 콘솔), 내부 구조는 [`ARCHITECTURE.ko.md`](ARCHITECTURE.ko.md) §11을 참고하십시오.
 
-> **직접 보기:** <https://sayaya1090.github.io/magi/demo/> — 진짜 페이지에 브라우저 안의 목업을 물린 것.
-> 액션은 "무엇을 보냈을지"만 말하고 실제로 한 척하지 않으며, 읽히는 값은 전부 픽스처다 — 화면을
-> 보여줄 뿐 서버가 도는 게 아니다. `clients/web/server/` 아래가 바뀌면 `.github/workflows/pages.yml`이,
-> `web/` 아래가 바뀌면 `test-web.yml`이 배포한다 — 어느 쪽이 뜨든 사이트 전체를 짓고, 제 테스트가
-> 통과한 뒤에만 배포한다. 푸시는 main에서만 게시하고, 손으로 돌리면 그 브랜치에서
-> 게시한다 — github-pages 환경이 그 브랜치를 허용한 경우에 한해서(Settings → Environments →
+> **직접 보기:** <https://sayaya1090.github.io/magi/demo/> — 실제 페이지에 브라우저 내부 목업을 연동한 라이브 데모입니다.
+> 액션은 "무엇을 전송했을지"만 안내하고 실제로 동작한 척 가장하지 않으며, 표시되는 값은 전부 픽스처입니다 — 화면 구성을
+> 보여줄 뿐 백엔드 서버가 직접 구동되는 것은 아닙니다. `clients/web/server/` 하위가 변경되면 `.github/workflows/pages.yml`이,
+> `web/` 하위가 변경되면 `test-web.yml`이 배포합니다 — 어느 경로가 트리거되든 사이트 전체를 빌드하고, 자체 테스트가
+> 통과한 뒤에만 배포합니다. 푸시는 main 브랜치에서만 게시하고, 수동 실행 시 지정한 브랜치에서
+> 게시합니다 — github-pages 환경이 해당 브랜치를 허용한 경우에 한합니다(Settings → Environments →
 > github-pages → Deployment branches).
 
-> 이 문서는 **as-built**이되, 프론트엔드에 한 가지 단서가 붙는다. 아래가 적고 있는 콘솔은
+> 이 문서는 **as-built** 레퍼런스이되, 프론트엔드에 한 가지 전제 조건이 있습니다. 아래에 기술된 콘솔은
 > 오랫동안 단일 파일(`clients/web/server/page.go`, HTML+CSS+JS를 포함한 Go 문자열) 구조였습니다. §1–5는 당시 구현을 기준으로 작성되었으며 Node.js 기반 실제 JS 런타임 테스트를 통해 규칙을 검증했습니다. 해당 웹 콘솔은 2026-08-29에 `clients/web/ui`의 GWT 모듈들로 **대체되었습니다.** 각 모듈은 화면 단위로 기존 기능과 동등하게 구현되었으며 대체 직전 철저한 비교 검증을 거쳤습니다.
 >
 > 아래 기술된 **설계 규칙**은 현재도 동일하게 유효합니다. 이식 과정에서 엄격히 준수한 기준들이며, 테스트로 보장되는 항목은 현재도 동일하게 검증됩니다 — 팔레트 및 명도대비 가드(`clients/web/server/*_test.go`)는 현재 `clients/web/ui/console.css`를 참조합니다. §1–5에 언급된 구 파일 경로(`page.html`·`page.js`·node DOM 하네스)는 역사적 기록입니다. 현행 모듈은 `clients/web/ui` 하위에 위치하며, 화면과 모듈 간의 대응 관계는 [`../clients/web/ui/README.md`](../clients/web/ui/README.md)에 기술되어 있습니다. 컷오버 당시의 상세 비교 및 검증 내역은 [`../clients/web/README.md`](../clients/web/README.md)를 참고하십시오.

@@ -1,6 +1,6 @@
 # magi office — 파워포인트·엑셀·워드 애드인의 헬퍼, 단일 통합 프로세스
 
-[파워포인트 매뉴얼](../powerpoint/docs/MANUAL.ko.md) · [엑셀 매뉴얼](../excel/docs/MANUAL.ko.md) · [워드 매뉴얼](../word/docs/MANUAL.ko.md) · [클라이언트 연동 계약](../../docs/CLIENTS.ko.md)
+[↑ 저장소](../../README.md) · [파워포인트 매뉴얼](../powerpoint/docs/MANUAL.ko.md) · [엑셀 매뉴얼](../excel/docs/MANUAL.ko.md) · [워드 매뉴얼](../word/docs/MANUAL.ko.md) · [클라이언트 연동 계약](../../docs/CLIENTS.ko.md)
 
 `magi office`는 `magi` 바이너리의 하위 명령입니다. 2026-09-06 이전까지 개별 프로세스로 분리되어 있던 세 헬퍼(`magi-ppt`·`magi-xl`·`magi-word`)를 단일 프로세스로 통합하였습니다. 이를 통해 사용자 시스템의 신뢰 저장소에 등록되는 인증서, 자동 시작 구성, 볼륨 라이선스 판 Excel의 신뢰할 수 있는 카탈로그 레지스트리 키, 배포 바이너리(`magi`)를 각각 단 하나로 일원화하였습니다.
 

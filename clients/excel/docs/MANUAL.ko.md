@@ -1,6 +1,6 @@
 # magi Excel 애드인 — 사용자 매뉴얼
 
-[무엇을 어디서 재나](./TESTING.ko.md) · [구조](./ARCHITECTURE.ko.md) · [도구 하나하나](./TOOLS.ko.md) · [설치](./INSTALL.ko.md) · [헬퍼](../helper/README.md) · [애드인](../addin/README.md) · [파워포인트 판 설계](../../powerpoint/DESIGN.md)
+[무엇을 어디서 재나](./TESTING.ko.md) · [구조](./ARCHITECTURE.ko.md) · [도구 하나하나](./TOOLS.ko.md) · [설치](./INSTALL.ko.md) · [통합 오피스 헬퍼](../../office/README.md) · [애드인](../addin/README.md) · [클라이언트 계약 정본](../../../docs/CLIENTS.ko.md) · [파워포인트 판 설계](../../powerpoint/DESIGN.md)
 
 > **이 문서가 무엇인가.** 구현된 기능 전부를 **쓰는 사람의 눈**으로 적는다 — 목적, 사용 방법, 화면.
 > 왜 이렇게 설계했는지는 파워포인트 판의 [`DESIGN.md`](../../powerpoint/DESIGN.md)가 말한다 — 엑셀 판은

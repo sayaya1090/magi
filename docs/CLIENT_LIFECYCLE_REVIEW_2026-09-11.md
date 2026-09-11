@@ -1,5 +1,7 @@
 # Client lifecycle follow-up review — 2026-09-11
 
+[English](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) · [한국어](CLIENT_LIFECYCLE_REVIEW_2026-09-11.ko.md) · [↑ Docs](README.md) · [Lifecycle design](CLIENT_LIFECYCLE.md)
+
 Scope: lifecycle and updater changes in `2f71c779..525afe53`. R5 policy clarification, R6 probe timeout and R7 log-fd cleanup are implemented (`e0b36923`, `e0e15473`, `59230ae6`). Superseded findings are omitted. R8 has landed too (`ca79c0f9`): per-step reasons, cleanup of partial creation and the degradation notice are in; "block the unsafe update path" was **judged against** — see [design §4](CLIENT_LIFECYCLE.md#4-launch-compatibility-and-ownership-contract). R10 has landed too (`55ec9458`): the lock was taken by `Commit` alone and all six steps now take it. `Commit` still does **not** wait, per §9.3; the other five are finishing a transaction that already exists and so they **do** wait, capped at thirty seconds. Reproduced and confirmed with two processes on Windows: an unlocked `Salvage` overwrote a live `Commit` and deleted the `.prev` that Commit's own rollback depends on.
 
 ## Remaining findings

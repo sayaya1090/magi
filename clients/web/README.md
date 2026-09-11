@@ -1,5 +1,7 @@
 # web/ — 웹 콘솔 아키텍처 및 컷오버 기록
 
+[↑ 저장소](../../README.md) · [화면 설계](../../docs/UI.ko.md) · [UI 모듈 상세](ui/README.md) · [클라이언트 계약](../../docs/CLIENTS.ko.md)
+
 기존 단일 페이지 기반 웹 콘솔은 2026년 8월 29일 자로 완전히 대체되었습니다. 과거 `clients/web/server`가 서빙하던 레거시 자산(`page.html`, `page.js`, `page.css`) 및 개발용 프록시 서버는 제거되었으며, 현재 `clients/web/server`는 BFF(Backend For Frontend) 역할을 전담하고 본 디렉토리의 멀티모듈 산출물을 `/` 루트 경로에서 서빙합니다.
 
 GWT 컴파일에는 JDK와 Gradle 도구체인이 필요하므로, Go 개발자가 불필요한 Java 빌드 환경에 종속되지 않도록 정적 자산 조립은 **CI 파이프라인에서 전담**합니다(`release-web.yml`, `test-web.yml`). 저장소의 `clients/web/server/console/`에는 자리지기 README만 커밋되어 있습니다. 콘솔 정적 자산이 포함되지 않은 상태로 빌드된 바이너리도 독립 BFF 서버로서 모든 API 경로에 정상 응답하며, `/` 접근 시 콘솔 자산이 미포함된 빌드임을 명확히 안내합니다. 로컬 개발 시에는 `magi-web -console clients/web/ui/build/console` 명령을 통해 디스크에 조립된 번들을 매 요청마다 즉시 다시 읽어 서빙할 수 있습니다.
