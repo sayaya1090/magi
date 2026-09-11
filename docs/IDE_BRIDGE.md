@@ -73,6 +73,37 @@ $ magi ide-bridge -workspace /path/to/project
 
 One bridge per workspace, because there is one companion per workspace.
 
+### Asking what this binary can do
+
+Before a client trusts a `magi` it found, it can ask what that build supports — without starting
+anything:
+
+```
+$ magi ide-bridge --features
+{"features":["raw-socket-v1"],"protocol":1,"version":"magi 0.30.0 (…)"}
+```
+
+One line, no daemon, nothing written to disk. The caller is often asking *because* nothing is
+running — it is deciding whether to start something — so a probe that waits on a socket would answer
+the wrong question slowly.
+
+**An older binary answers by refusing the flag: exit code 2 and nothing on stdout.** That is the
+contract, and it is the only thing a client may read to conclude "no features here". Searching the
+help text for a word is guessing.
+
+The list is derived from the implementation, never written down: each name is paired with a
+predicate that asks this build (`raw-socket-v1` is present exactly while the `--raw-socket` flag is
+registered), and a name whose predicate says no is dropped rather than printed. `features` is always
+an array — `null` could not be told apart from "this field is not implemented in this build".
+
+`protocol` is the shape of THIS line, not the daemon's wire version; the two move independently
+because this line is answered without a daemon at all. Feature names carry their own version suffix
+because features arrive and are replaced one at a time.
+
+Named in docs/CLIENT_LIFECYCLE §4. `owned-daemon-v1` appears there too and is **not** built, so it
+is not advertised — a test holds that floor, because advertising it would send a client to start a
+mode this binary does not understand.
+
 ### Methods
 
 **Built** as of 2026-09-09 (`internal/adapter/idebridge`):

@@ -48,14 +48,92 @@ type request struct {
 // daemon's own handshake makes the same promise for the same reason.
 func Methods() []string { return []string{"about", "activity", "daemon"} }
 
+// features is what a client may ASK this binary before it trusts it with anything.
+//
+// ⚠ **The list is derived, never written down.** A hand-kept list is a second place the truth
+// lives, and the failure it produces is the worst kind: a client reads the name, calls the thing,
+// and the thing is not there — which is indistinguishable from a broken install. So each entry
+// pairs its name with a predicate that asks the IMPLEMENTATION, and `featuresOf` drops any whose
+// predicate says no. Adding a name without wiring the thing produces an absent feature, not a lie.
+//
+// Feature names are not version numbers. `protocol` says what SHAPE this output has; a feature
+// name carries its own version suffix because features arrive and are replaced one at a time —
+// `raw-socket-v2` would be a different thing from `raw-socket-v1`, not a newer protocol.
+var features = []struct {
+	name string
+	// has is asked of this build. It must observe the thing itself — a flag that is registered, a
+	// function that is reachable — and never repeat a constant from elsewhere in this file.
+	has func(fs *flag.FlagSet) bool
+}{
+	// The Windows transport. Node reads a unix socket path as a named pipe, so the extension cannot
+	// dial AF_UNIX at all and goes through this relay instead: a client with no way to ask would
+	// have to spawn it and watch it fail.
+	{"raw-socket-v1", func(fs *flag.FlagSet) bool { return fs.Lookup("raw-socket") != nil }},
+}
+
+// featuresOf asks every candidate whether this build actually has it.
+//
+// Returns a non-nil empty slice when none qualify: `[]` and `null` are different answers on the
+// wire, and a client that gets `null` cannot tell "this build has no features" from "this field is
+// not implemented here".
+func featuresOf(fs *flag.FlagSet) []string {
+	out := []string{}
+	for _, f := range features {
+		if f.has(fs) {
+			out = append(out, f.name)
+		}
+	}
+	return out
+}
+
+// featuresProtocol is the shape of the --features line, not the daemon's wire version.
+//
+// Separate from daemon.ProtoVersion on purpose. They are free to move independently: this line is
+// answered without a daemon at all, so tying it to the socket protocol's number would make a
+// client re-read this probe for a change that cannot affect it.
+const featuresProtocol = 1
+
+// answerFeatures writes the one line a client reads before it trusts this binary.
+//
+// ⚠ **It must not dial, and it must not need a workspace.** The caller is deciding whether this
+// binary can be used AT ALL — possibly because no daemon is running, possibly because it is about
+// to start one — so a probe that waits on a socket answers the wrong question slowly. Nothing here
+// touches the filesystem or the network, which is also how it keeps the five-second bound in
+// docs/CLIENT_LIFECYCLE §4 without a timeout of its own.
+//
+// One line, so a caller can read it with a single ReadString('\n') and not have to know when to
+// stop. An older binary has no such flag and its flag package refuses the argument, which is the
+// answer "this build does not support features" — a client must read THAT, not scan this text.
+func answerFeatures(fs *flag.FlagSet, stdout io.Writer) int {
+	line, err := json.Marshal(map[string]any{
+		"protocol": featuresProtocol,
+		"features": featuresOf(fs),
+		// The acceptance record in docs/CLIENT_LIFECYCLE §8 has to name the exact binary a run
+		// used, and this is the only probe that answers with no daemon up — so the version rides
+		// here rather than making a caller start something to learn it.
+		"version": version.String(),
+	})
+	if err != nil {
+		return 1
+	}
+	fmt.Fprintln(stdout, string(line))
+	return 0
+}
+
 // Run speaks the bridge protocol on stdin/stdout until stdin closes.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("magi ide-bridge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rawSocket := fs.String("raw-socket", "", "relay stdin/stdout to this daemon socket")
+	askFeatures := fs.Bool("features", false, "print what this binary supports as one line of JSON, and exit")
 	workspace := fs.String("workspace", "", "the project directory whose companion to speak for (default: the working directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2
+	}
+	// Answered before anything else, including --raw-socket. This is a question ABOUT the binary,
+	// so it cannot be conditional on the binary doing its job first.
+	if *askFeatures {
+		return answerFeatures(fs, stdout)
 	}
 	if *rawSocket != "" {
 		return relay(*rawSocket, stdin, stdout, stderr)

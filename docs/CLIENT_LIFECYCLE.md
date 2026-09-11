@@ -72,9 +72,13 @@ An independent daemon explicitly started through the web is managed with an expl
 3. Launch only when startup is enabled and absence is established. Use single-flight within a window and the existing core workspace lock between windows. A losing launcher attaches to the winner as an observer.
 4. Declare readiness only when the published process generation matches the handshake. Creating a process or a file is insufficient.
 
-### Interfaces to add — not currently available commands
+### Interfaces to add — one has landed, the rest have not
 
-The core implementer first adds `magi ide-bridge --features`. It must return one JSON line without contacting a daemon and exit within five seconds. Example: `{"protocol":1,"features":["raw-socket-v1","owned-daemon-v1"]}`. Preserve the existing `ide-bridge` protocol and `--raw-socket` behavior. An old binary rejecting the option or returning invalid output lacks the new feature. Do not infer support by searching prose output.
+**`magi ide-bridge --features` is built (2026-09-11).** It answers one JSON line without contacting a daemon and writes nothing to disk. Measured output: `{"features":["raw-socket-v1"],"protocol":1,"version":"…"}`. The existing `ide-bridge` protocol and `--raw-socket` behavior are unchanged. An old binary answers by refusing the option — exit code 2, nothing on stdout — and that is the only ground for concluding "unsupported". Do not infer support by searching prose output. The contract and its reasons are in [IDE_BRIDGE §5](IDE_BRIDGE.md#asking-what-this-binary-can-do).
+
+⚠ **The `owned-daemon-v1` from this design's example is NOT advertised.** The owned mode below does not exist yet, and a test holds that floor — a name shipped ahead of its thing sends a client to start a mode this binary does not understand, and the failure reads as a broken install. The feature list is derived from the implementation rather than written down, so the name arrives when the mode does.
+
+Everything below is still target design, not built.
 
 With `owned-daemon-v1`, an IDE starts the **proposed** `magi --daemon --client-owned` mode. The IDE exclusively retains the write end of a dedicated child-stdin pipe and does not pass it to other children. The core interprets EOF on the read end as owner termination. IDs in process environments or public records are for correlation, not proof of shutdown authority.
 
