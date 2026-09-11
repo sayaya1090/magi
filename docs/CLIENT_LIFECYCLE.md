@@ -126,7 +126,19 @@ The contract caught a defect immediately: **neither side counted a loss before t
 a failure.** A daemon that comes up and dies two seconds later never misses the ready deadline, so
 it was never counted, and it retried forever.
 
-Both clients now call `Launches`. JetBrains still lacks readiness and launch-failure reporting. Verify policy-class tests and actual call-site acceptance separately (follow-up review R4).
+Both clients now call `Launches`, and JetBrains reports readiness and launch failure too (follow-up review R4). Policy-class tests and actual call-site acceptance are still separate things to verify — the call sites are held by a source guard; injecting three real launch failures needs a running IDE.
+
+**Follow-up review, where each finding stands (2026-09-11)**
+
+| ID | State | Commit | What was wrong |
+|---|---|---|---|
+| R1 | **landed** | `179169f8` | The feature probe is an `await`, and `close()` could FINISH inside it — with no child yet to stop, close returned having stopped nothing, and the spawn after the probe left a daemon nobody owns. Re-checked after the probe, and again right after the handle is stored (clearing it there too). The probe is **injectable**, so the test reproduces the order without sleeping. The second check cannot be reached today (nothing awaits in between) and the code says so, and says it is therefore not covered by a test. |
+| R3 | **landed** | `07c0f509` | JetBrains still launched plain `--daemon` and closed the child's stdin **immediately**. In the owned mode that close means "the owner has gone". It now asks for the feature, launches owned when it is there, and holds the pipe for the life of the window; `dispose` releases the pipe **first**. |
+| R4 | **landed** | `07c0f509` | **Nobody ever added one** to the consecutive-failure count. A daemon that misses the ready deadline, or dies on the way up, was never connected — so `lost` does not count it either, the window empties after a minute, and it retries forever without reaching `Blocked`. |
+| R2 | open — a design choice | | Node closes a child's stdin when that child exits. A Windows successor inheriting the same read end therefore sees the owner's EOF **from an update alone**. It needs a channel independent of the original child's lifetime, and that is a design decision rather than a fix. |
+| R5 | open | | With a core that lacks the owned mode, VS Code starts a plain `--daemon` anyway. §4 says to block a new start that requires the owned mode and point at an update instead — connecting to an EXISTING daemon and starting a NEW one have to be told apart. |
+
+⚠ R1 was fixed by **another session first**. Two sessions took the same finding, and the rebase collided; theirs was kept — an injectable probe does not depend on timing, and only theirs cleared the handle. Recorded because it is what happens when one review's findings are split across a shared checkout.
 
 ### Keeping the doc and the code from drifting
 
