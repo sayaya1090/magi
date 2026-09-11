@@ -6,36 +6,105 @@ import { wireRef, globQuote } from '../core/refs';
 
 const REPO = path.join(__dirname, '..', '..', '..', '..');
 const PROTOCOL_GO = path.join(REPO, 'internal', 'adapter', 'daemon', 'protocol.go');
-const EVENT_GO = path.join(REPO, 'internal', 'core', 'event', 'event.go');
 const OURS = path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts');
+
+/**
+ * The packages whose types cross the door, and what each one carries.
+ *
+ * ⚠ **Three of these four were not being read.** The scan named the daemon package and two event
+ * files, and stopped there — so a field whose tag lives anywhere else could not be verified, and
+ * eleven of this client's fields were in that position: the whole `context` block
+ * (`internal/app/context_state.go`, returned by the daemon's ContextState door as an
+ * `app.ContextState`) and `refs[].lines` (`internal/core/command/command.go`, the `WireRef`
+ * a submit carries). None of them was wrong — they were simply unverifiable, which reads the same
+ * as verified and is not.
+ *
+ * Packages rather than files, for the reason written on packageTags: naming files ages, and the
+ * JetBrains side of this same check learned it when a daemon file split into six. Naming packages
+ * ages more slowly but still ages — so a name this client reads and none of these declares fails
+ * LOUDLY below rather than being skipped, and that failure is how a fifth package announces itself.
+ */
+const WIRE_GO = [
+  path.join(REPO, 'internal', 'adapter', 'daemon'), // the door: requests, responses, records
+  path.join(REPO, 'internal', 'core', 'event'), //   the transcript: events and payloads
+  path.join(REPO, 'internal', 'app'), //                  what the doors return (ContextState, …)
+  path.join(REPO, 'internal', 'core', 'command'), // what a submit carries (WireRef, …)
+];
 
 /** Every `json:"name"` tag in a Go file, minus its options. */
 function tags(file: string): Set<string> {
-  const src = fs.readFileSync(file, 'utf8');
+  const src = fs.readFileSync(file, "utf8");
   const out = new Set<string>();
   for (const m of src.matchAll(/json:"([^",]+)/g)) out.add(m[1]);
   return out;
 }
 
-/** Every field name our TypeScript interfaces declare. */
-function ourFields(): Set<string> {
-  const src = fs.readFileSync(OURS, 'utf8');
+/**
+ * Every json tag in a package, test files excluded.
+ *
+ * A package and not a file, and now several packages and not one — see WIRE_GO below for what
+ * each carries.
+ */
+function packageTags(dir: string): Set<string> {
   const out = new Set<string>();
-  // Underscores included. Without them the scanner cannot see `call_id`, which is exactly the
-  // shape a wrong name takes — and a scanner that cannot see the defect reports none. Measured:
-  // with `[A-Za-z0-9]*` a planted `call_id` passed this test untouched.
-  for (const m of src.matchAll(/^\s{2}([A-Za-z][A-Za-z0-9_]*)\??:/gm)) out.add(m[1]);
+  for (const f of fs.readdirSync(dir)) {
+    if (f.endsWith(".go") && !f.endsWith("_test.go")) for (const t of tags(path.join(dir, f))) out.add(t);
+  }
+  return out;
+}
+
+/**
+ * Every field name our TypeScript interfaces declare.
+ *
+ * ⚠ **This used to see 79 of 122, and the 43 it could not see were the nested ones.** The pattern
+ * was anchored at exactly two spaces of indent, so a field inside a nested object type — every
+ * field of `jobs.background`, `cron`, `context` — was invisible, and so was any field that
+ * shared a line with the one before it (`lastAt?: string; lastBefore?: number;` yielded only the
+ * first). The scanner's own self-check passed throughout: it tested `callId`, `call_id` and
+ * `ok`, all at two spaces, on their own lines.
+ *
+ * That is the shape this whole test exists to prevent, turned on the test itself — a scanner that
+ * cannot see the defect reports none. Measured 2026-09-11: 79 names checked, 43 unchecked, and
+ * renaming any of those 43 in Go would have blanked a panel with nothing failing anywhere.
+ *
+ * Comments are stripped first, because prose in a docstring holds things shaped like fields
+ * (`OK: true`, `Tools: …`) and counting them would put names into this set that no interface
+ * declares.
+ */
+function ourFields(): Set<string> {
+  const src = fs.readFileSync(OURS, "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^[ \t]*\/\/.*$/gm, "");
+  const out = new Set<string>();
+  const field = /(?:^\s+|[{;,]\s*)([A-Za-z][A-Za-z0-9_]*)\??:\s*(?=[A-Za-z{\[(])/gm;
+  for (const m of src.matchAll(field)) out.add(m[1]);
   return out;
 }
 
 /** And the field scanner is checked, because a scanner that reads nothing reports nothing. */
 test('the field scanner sees the shapes a wrong name takes', () => {
-  const sample = ['interface X {', '  callId?: string;', '  call_id?: string;', '  ok: boolean;', '}'].join('\n');
+  // ⚠ **Including the shapes it could not see.** This sample used to be three fields at two
+  // spaces on their own lines — which the old pattern read perfectly while being blind to every
+  // nested field and every second field on a line. A self-check built only from what the scanner
+  // already handles cannot notice it going blind.
+  const sample = [
+    'interface X {',
+    '  callId?: string;',
+    '  call_id?: string;',
+    '  ok: boolean;',
+    '  // a comment that says OK: true and must not become a field',
+    '  pair?: string; sibling?: number;',
+    '  nested?: { deep?: string; deeper?: { deepest?: number } };',
+    '}',
+  ].join('\n');
   const seen = new Set<string>();
-  for (const m of sample.matchAll(/^\s{2}([A-Za-z][A-Za-z0-9_]*)\??:/gm)) seen.add(m[1]);
-  for (const want of ['callId', 'call_id', 'ok']) {
+  const stripped = sample.replace(/^[ \t]*\/\/.*$/gm, "");
+  const field = /(?:^\s+|[{;,]\s*)([A-Za-z][A-Za-z0-9_]*)\??:\s*(?=[A-Za-z{\[(])/gm;
+  for (const m of stripped.matchAll(field)) seen.add(m[1]);
+  for (const want of ['callId', 'call_id', 'ok', 'pair', 'sibling', 'nested', 'deep', 'deeper', 'deepest']) {
     assert.ok(seen.has(want), `the scanner does not see ${want} — it would miss a renamed field`);
   }
+  assert.ok(!seen.has('OK'), 'the scanner counted prose in a comment as a field');
 });
 
 /**
@@ -50,25 +119,20 @@ test('the field scanner sees the shapes a wrong name takes', () => {
  * supposed to catch drifting.
  */
 test('every field we read exists on the daemon wire', () => {
-  assert.ok(fs.existsSync(PROTOCOL_GO), `the daemon protocol is not at ${PROTOCOL_GO}`);
-  // ⚠ **The PACKAGE, not one file.** This named `protocol.go` alone, and `RosterRow` lives in
-  // `roster.go` — so twenty-six wire names were invisible to this guard, and declaring any of them
-  // was reported as "written by nobody". Naming files ages: the JetBrains side of this same check
-  // learned it the hard way when a daemon file split into six and its release went red.
-  const dir = path.dirname(PROTOCOL_GO);
-  const daemon = new Set<string>();
-  for (const f of fs.readdirSync(dir)) {
-    if (f.endsWith('.go') && !f.endsWith('_test.go')) for (const t of tags(path.join(dir, f))) daemon.add(t);
+  const known = new Set<string>();
+  for (const dir of WIRE_GO) {
+    assert.ok(fs.existsSync(dir), `a wire package is not at ${dir} — this scan is reading nothing`);
+    for (const t of packageTags(dir)) known.add(t);
   }
-  const events = tags(path.join(REPO, 'internal', 'core', 'event', 'payload.go'));
-  const known = new Set([...daemon, ...events, ...tags(EVENT_GO)]);
 
   // The walk asserts it found a wire at all. Reading zero tags and reporting zero mismatches is
   // the shape this whole test exists to prevent.
-  assert.ok(known.size >= 40, `only ${known.size} json tags found in the daemon — the scan is broken`);
+  assert.ok(known.size >= 200, `only ${known.size} json tags found across the wire packages — the scan is broken`);
 
   const ours = ourFields();
-  assert.ok(ours.size >= 15, `only ${ours.size} fields parsed from protocol.ts — the scan is broken`);
+  // The floor is near the real number, not at 1. It was 15 while the scanner saw 79 of 122 names,
+  // which is a floor that cannot notice the scanner going blind.
+  assert.ok(ours.size >= 110, `only ${ours.size} fields parsed from protocol.ts — the scan is broken`);
 
   // Ours that the daemon does not have. `data` is ours: the core carries the event payload as
   // json.RawMessage under that name in the Event struct, and it has no tag of its own to find.
