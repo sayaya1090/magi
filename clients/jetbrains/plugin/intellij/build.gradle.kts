@@ -144,3 +144,11 @@ intellijPlatform {
             FailureLevel.SCHEDULED_FOR_REMOVAL_API_USAGES
     }
 }
+
+// 코어를 어디서 어느 판으로 받아오는가는 **한 파일에만** 적힌다 — `clients/contract/` 에 있고,
+// VS Code 확장도 같은 파일을 읽는다. 플러그인 리소스에 사본을 두면 언젠가 둘이 갈리고, 갈린
+// 뒤에는 두 편집기가 서로 다른 판을 받아 온다. 이 저장소가 이미 값을 치른 무늬다(카운슬
+// 프리뷰가 셰이퍼 셋에서 각자 틀렸던 건). 빌드가 옮겨 싣는다.
+tasks.named<ProcessResources>("processResources") {
+    from(rootProject.file("../../contract/core-release.properties")) { into("magi") }
+}

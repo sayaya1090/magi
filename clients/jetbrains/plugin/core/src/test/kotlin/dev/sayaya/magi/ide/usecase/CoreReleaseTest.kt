@@ -13,11 +13,17 @@ import java.util.Properties
  */
 class CoreReleaseTest {
 
-    /** 플러그인에 실제로 실리는 그 파일. 시험이 짐작한 값이 아니라 배포되는 값을 본다. */
+    /**
+     * 실제로 실리는 그 파일. 시험이 짐작한 값이 아니라 배포되는 값을 본다.
+     *
+     * `clients/contract/` 에 있고 **VS Code 확장도 같은 파일을 읽는다.** 편집기마다 사본을 두면
+     * 둘이 갈리고, 갈린 뒤에는 두 편집기가 서로 다른 코어를 받아 온다. 빌드가 플러그인 리소스로
+     * 옮겨 싣는다(`intellij/build.gradle.kts`).
+     */
     private val shipped: Map<String, String> by lazy {
         val f = File(
-            File(System.getProperty("user.dir")).parentFile,
-            "intellij/src/main/resources/magi/core-release.properties",
+            File(System.getProperty("user.dir")).parentFile.parentFile.parentFile,
+            "contract/core-release.properties",
         )
         assertTrue(f.isFile, "${f.absolutePath} 가 없다 — 이 시험이 아무것도 안 보고 있다")
         Properties().apply { f.inputStream().use { load(it) } }

@@ -38,10 +38,14 @@ jobs:
         run: |
           set -o pipefail
           npm install
-          npx tsc -p .
-          # The unit tests, which need no editor. The live check does need one and does not run
-          # here — see clients/vscode/docs/TESTING.ko.md for what that leaves unmeasured on CI.
-          node --test 'out/test/*.test.js'
+          # `npm test`, not a bare `tsc` + `node --test`: the scripts also copy
+          # clients/contract/core-release.properties into the extension root, and a step that spells
+          # the build out by hand skips that — the VSIX would then ship without the file that says
+          # where to fetch the core from, and nothing here would notice.
+          #
+          # The unit tests need no editor. The live check does need one and does not run here — see
+          # clients/vscode/docs/TESTING.ko.md for what that leaves unmeasured on CI.
+          npm test
 
       - name: package
         working-directory: clients/vscode
@@ -53,7 +57,7 @@ jobs:
             d.version = process.argv[1];
             fs.writeFileSync(p, JSON.stringify(d, null, 2) + "\n");
           ' "${{ steps.v.outputs.version }}"
-          npx --yes @vscode/vsce package --no-dependencies --allow-missing-repository
+          npm run package -- --allow-missing-repository
           ls -l ./*.vsix
 
       - name: release
