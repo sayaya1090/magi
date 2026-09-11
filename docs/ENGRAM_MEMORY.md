@@ -339,3 +339,18 @@ Unify readers before ending engram's multiple writes. Use the manifest to preven
 | M14 Merged evidence | A={X,Y}, B={Y,Z} yields three observations after merge/replay/remerge; conflicting evidence payloads under one ID remain conflicts. |
 
 Release reports include canonical/duplicate/conflict counts, incorrect automatic merges, post-withdrawal reappearance, scope leaks, retrieval misses and propagation latency. Fewer sentences alone do not establish success. M01–M08 and M10–M14 are mandatory; report hardware, model and corpus for M09 performance.
+
+
+## 10. Implementer review (2026-09-12)
+
+Only what was actually checked in this repository. There is no real acceptance yet; the below comes from reading the code and the configuration.
+
+**§3.1's driver pin is the right call, and the evidence is measured.** I read [.goreleaser.yaml](../.goreleaser.yaml): `CGO_ENABLED=0`, `goos: [darwin, linux, windows]` × `goarch: [amd64, arm64]`, **with no ignores**. So all six targets really are built, **windows/arm64 included**. A cgo driver kills that lane outright.
+
+Which is why the first thing to check before M11 is **windows/arm64**. That is the combination where five of six work and one does not, and "pinned" is a candidate rather than a decision until that one is confirmed. Better to order it that way.
+
+**⚠ The pin drags one more thing with it — `THIRD_PARTY_LICENSES`.** This repository ships that file inside the release archive (`files:` in `.goreleaser.yaml`), and `make licenses` generates it from `go list -deps ./cmd/magi`. `modernc.org/sqlite` pulls in several modules including `modernc.org/libc`, so the commit that introduces the driver has to regenerate that file **with it**. Otherwise a release ships code whose attribution is missing — the quiet kind of breakage, so it is worth being an acceptance item.
+
+**The other three of the four points I raised are settled in this revision (`2b4a7eb2`).** Losing `state.sqlite` (§3.3 — "an empty DB is not read as 'nothing hidden'", plus M12), ledger retention and content deletion (§6.1 and M13), and the evidence key after a merge (canonical-id union, and M14's A={X,Y}, B={Y,Z} → 3). All three go further than what I asked.
+
+**§6.1's GC quorum carries one operational cost.** "Commit only after every approved replica has confirmed it durably stored the checkpoint, or an administrator has evicted the unresponsive device" is a safe rule, but **one laptop switched off for a month blocks GC for that month.** If that is the intended default it is better said out loud — "content deletion may need an administrator to move" — and if it is not, offline devices need a deadline. As written it reads as though GC proceeds on its own.
