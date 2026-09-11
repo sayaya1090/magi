@@ -98,7 +98,7 @@ Each paragraph below carries its state. **Landed** means it runs in this repo; *
 
 **Landed (`55ead8ac`, `6f6ce97f`).** At startup the core generates `ownerId`, stable across its owned lineage, and `instanceId`, changed on every process replacement. Add these as optional fields in local publication and `about`. They distinguish PID reuse and update replacement. Lifecycle authority travels only through the inherited pipe. The existing user `shutdown` command's authorization contract remains unchanged.
 
-**Not yet — this half is the client's.** The core puts both IDs in publication and in `about`, but today **no client reads either** (measured: zero references to `instanceId` or `ownerId` anywhere under `clients/`). Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
+**Half landed — VS Code reads them.** The core puts both IDs in publication and in `about`, and VS Code's readiness check requires the record's instance and `about`'s to agree, keeping the confirmed owner as the lineage. JetBrains does not read them yet. Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
 
 **Decided — no file.** Do not create an exit-reason file. Following the review decision in §2.5, use handshake and `about` for current state. Report unobserved exit reasons as unknown and use §5 policy to decide whether to restart.
 

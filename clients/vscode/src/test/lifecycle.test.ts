@@ -4,7 +4,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DEFERRED_REPLACE_BY_MS, OwnedCompanion, REPLACE_BY_MS } from '../core/lifecycle';
+import { DEFERRED_REPLACE_BY_MS, OwnedCompanion, REPLACE_BY_MS, sameGeneration } from '../core/lifecycle';
 import { Daemon } from '../core/daemon';
 
 const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -346,4 +346,108 @@ test('the window does not disown the companion it just asked to replace itself',
   c.ended(30);
   assert.equal(c.theirs(), false,
     'the window disowned the daemon it had just asked for — nothing automatic will ever start it again');
+});
+
+/**
+ * "Something answered" is not "the child I started answered".
+ *
+ * ⚠ **Both ids were on the wire, and in this client's own `Response` type, the whole time — and
+ * nothing read either.** docs/CLIENT_LIFECYCLE §4 asks readiness to require the child pid, the
+ * resolved workspace AND a matching instance in the record and in `about`; this client matched the
+ * pid and then asked only whether *anybody* was reachable. The record beside a socket and the
+ * process on it can disagree: a previous daemon's record outliving it, a replacement mid-flight,
+ * somebody else's companion on a path this window also resolved.
+ *
+ * Measured as a function rather than through a live daemon on purpose — producing "the record says
+ * one generation and the socket answers another" with real processes means racing a replacement,
+ * and the rule is what is under test.
+ */
+test('readiness needs the record and the socket to name one generation', () => {
+  const child = 4242;
+  // The ordinary case: our child, and the process answering is the one in the record.
+  assert.equal(sameGeneration({ pid: child, instance: 'i-1' }, { instance: 'i-1' }, child), true);
+  // The case this exists for: the record is ours, and something ELSE is answering.
+  assert.equal(sameGeneration({ pid: child, instance: 'i-1' }, { instance: 'i-2' }, child), false,
+    'a different process answered and the window called itself ready');
+  // Nobody answered at all.
+  assert.equal(sameGeneration({ pid: child, instance: 'i-1' }, null, child), false);
+  // Somebody else's daemon, whatever it says about itself.
+  assert.equal(sameGeneration({ pid: 9, instance: 'i-1' }, { instance: 'i-1' }, child), false);
+  assert.equal(sameGeneration(null, { instance: 'i-1' }, child), false);
+});
+
+/** An older core writes no instance. It keeps the lifetime it always had rather than being failed. */
+test('a core that names no generation still gets ready on the pid', () => {
+  assert.equal(sameGeneration({ pid: 7 }, {}, 7), true);
+  assert.equal(sameGeneration({ pid: 7, instance: 'i-1' }, {}, 7), true,
+    'the record names one and the daemon does not — an old client cannot be held to a new field');
+  assert.equal(sameGeneration({ pid: 8 }, {}, 7), false, 'the pid still has to be ours');
+});
+
+/**
+ * And the lineage answers "is this still mine" for a successor this window never spawned.
+ *
+ * On Windows an update replaces the process, so the window holds a handle to something that has
+ * exited. `ownsSuccessor` was a local flag standing in for that; the owner id is the same fact
+ * taken from the wire, and it survives however many times the daemon replaces itself.
+ */
+test('a daemon publishing the lineage this window confirmed is not somebody else\'s', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-lineage-'));
+  const c = window_(dir) as unknown as {
+    theirs(): boolean; lineage?: string; ownsSuccessor: boolean; socket: string;
+  };
+  const record = (owner?: string) =>
+    fs.writeFileSync(c.socket + '.session', JSON.stringify({ pid: 1, owner }));
+  fs.mkdirSync(path.dirname(c.socket), { recursive: true });
+
+  c.lineage = 'own-1';
+  record('own-1');
+  assert.equal(c.theirs(), false, 'the companion this window owns was disowned after it replaced itself');
+  record('own-2');
+  assert.equal(c.theirs(), true, 'a different lineage is somebody else\'s daemon');
+  // No owner published at all: the old rule, unchanged.
+  record(undefined);
+  c.ownsSuccessor = true;
+  assert.equal(c.theirs(), false);
+});
+
+/**
+ * And the ready path really keeps it.
+ *
+ * ⚠ **A test that sets `lineage` by hand measures the branch that reads it, not the code that
+ * writes it** — measured: deleting the line that remembers the lineage left every assertion above
+ * green. So this drives the whole ready path with a real child and a fixture that behaves the way a
+ * daemon does: publish a record, then answer `about` naming the same generation.
+ *
+ * POSIX only — the stand-in binary is a shell script.
+ */
+test('the ready path keeps the lineage the daemon named',
+  { skip: process.platform === 'win32' }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-ready-'));
+  const bin = path.join(dir, 'fake-magi');
+  fs.writeFileSync(bin, '#!/bin/sh\nsleep 5\n', { mode: 0o755 });
+
+  // Not an intersection with the class: a private field reduces that to `never` (the same reason
+  // `Inner` above is a plain shape).
+  type Ready = { start(b: string, m?: boolean): Promise<void>; close(): Promise<void>;
+                 lineage?: string; child?: ChildProcess; socket: string };
+  let c!: Ready;
+  const published = () => {
+    // What a daemon does on the way up, in the order it does it: write the record, then answer for
+    // the same generation. The pid is the child's, because that is the fact the record carries.
+    const pid = c.child?.pid;
+    if (pid) {
+      fs.mkdirSync(path.dirname(c.socket), { recursive: true });
+      fs.writeFileSync(c.socket + '.session', JSON.stringify({ pid, instance: 'i-7', owner: 'own-7' }));
+    }
+    return Promise.resolve({ instance: 'i-7', owner: 'own-7' });
+  };
+  c = new OwnedCompanion(dir, async () => new Set(), undefined, published) as unknown as Ready;
+
+  try {
+    await c.start(bin, true);
+    assert.equal(c.lineage, 'own-7',
+      'the window reached ready and forgot which lineage it had confirmed — a successor it never ' +
+      'spawned is then read as somebody else\'s daemon');
+  } finally { await c.close(); }
 });

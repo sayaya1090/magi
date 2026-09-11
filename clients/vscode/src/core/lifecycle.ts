@@ -26,6 +26,31 @@ export const REPLACE_BY_MS = 5_000;
  */
 export const DEFERRED_REPLACE_BY_MS = 60 * 60 * 1_000;
 
+/** The record beside the socket, as the core writes it (`internal/adapter/daemon/publish.go`). */
+export type Published = { pid?: number; instance?: string; owner?: string };
+
+/** What `about` says about the process answering. */
+export type Hello = { instance?: string; owner?: string };
+
+/**
+ * Is the daemon answering the socket the child this window started?
+ *
+ * Three facts, not one. The pid says the record describes our child; the instance says the process
+ * ANSWERING is the one the record describes. Reachability alone says neither — it says somebody is
+ * there, and the case this exists for is somebody else being there.
+ *
+ * ⚠ **A core that publishes no instance falls back to the pid**, which is exactly what this client
+ * did before. docs/CLIENT_LIFECYCLE §4: an old core keeps the lifetime it always had rather than
+ * being failed for lacking a field it never wrote. The stricter check applies as soon as both sides
+ * name a generation.
+ */
+export function sameGeneration(record: Published | null, hello: Hello | null, childPid?: number): boolean {
+  if (!record || !hello) return false;
+  if (childPid === undefined || record.pid !== childPid) return false;
+  if (record.instance && hello.instance) return record.instance === hello.instance;
+  return true;
+}
+
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const alive = (p: ChildProcess) => p.pid !== undefined && p.exitCode === null && p.signalCode === null;
 
@@ -35,6 +60,14 @@ export class OwnedCompanion {
   private pending?: Promise<void>;
   private closing?: Promise<void>;
   private closed = false;
+  /**
+   * The owning lineage this window confirmed at readiness, when the core publishes one.
+   *
+   * Inherited across the daemon's own updates, unlike the instance — which is the whole point: it
+   * answers "is the thing on this socket still mine" for a successor this window never spawned and
+   * holds no handle for.
+   */
+  private lineage?: string;
   /**
    * The launch budget, as the shared contract states it — `clients/contract/lifecycle-policy.json`.
    *
@@ -107,7 +140,12 @@ export class OwnedCompanion {
    * a squatted name) but what this class DOES with it, which had no reader at all (issue #189).
    */
   constructor(readonly workdir: string, private readonly ask: typeof features = features,
-              private readonly pipe: typeof ownerChannel = ownerChannel) {
+              private readonly pipe: typeof ownerChannel = ownerChannel,
+              // Injected for the same reason the probe is: what the ready path DOES with the answer
+              // — keeping the lineage — cannot be measured by a function that only returns a verdict,
+              // and reaching it through a real daemon needs one that can be made to disagree with
+              // its own record.
+              private readonly hello: () => Promise<Hello | null> = () => Promise.resolve(null)) {
     this.socket = socketPath(workdir);
   }
 
@@ -169,8 +207,35 @@ export class OwnedCompanion {
    * alone.
    */
   private theirs(): boolean {
+    // The wire answers this better than a local flag can: a daemon publishing the lineage this
+    // window confirmed is this window's, however many times it has replaced itself and whether or
+    // not a handle survived. `ownsSuccessor` stays for cores that publish no owner at all.
+    const owner = this.published()?.owner;
+    if (owner && this.lineage) return owner !== this.lineage;
     if (this.ownsSuccessor) return false;
     return !this.child || !alive(this.child);
+  }
+
+  /**
+   * Who is answering this socket, from the daemon's own mouth.
+   *
+   * ⚠ **"Something answered" is not "the child I started answered."** The record beside the socket
+   * and the process on it can disagree — a previous daemon's record outliving it, a replacement
+   * mid-flight, somebody else's companion on a socket path this window also resolved. The two ids
+   * were on the wire and in this client's own types the whole time, and nothing read either
+   * (docs/CLIENT_LIFECYCLE §4: readiness requires the child pid, the workspace AND a matching
+   * instance in the record and in `about`).
+   */
+  private async identify(): Promise<Hello | null> {
+    const injected = await this.hello();
+    if (injected) return injected;
+    try {
+      const d = await Daemon.connect(this.socket, 1000);
+      try {
+        const r = await d.exchange({ method: 'about' }, 1000);
+        return r.ok ? { instance: r.instance, owner: r.owner } : null;
+      } finally { d.close(); }
+    } catch { return null; }
   }
 
   private async reachable(): Promise<boolean> {
@@ -275,7 +340,12 @@ export class OwnedCompanion {
     child.on('exit', () => this.ended(Date.now(), child));
     const end = Date.now() + 30_000;
     while (!this.closed && !failure && alive(child) && Date.now() < end) {
-      if (this.publishedPID() === child.pid && await this.reachable()) {
+      const hello = await this.identify();
+      if (sameGeneration(this.published(), hello, child.pid)) {
+        // The lineage this window confirmed. A later generation answering with it is this window's
+        // companion having replaced itself; one answering with a different owner is somebody
+        // else's, whatever handle this process happens to hold.
+        if (hello?.owner) this.lineage = hello.owner;
         this.budget.ready(Date.now());
         return;
       }
@@ -322,10 +392,12 @@ export class OwnedCompanion {
     return why;
   }
 
-  private publishedPID(): number | undefined {
-    try { return JSON.parse(fs.readFileSync(this.socket + '.session', 'utf8')).pid; }
-    catch { return undefined; }
+  private published(): Published | null {
+    try { return JSON.parse(fs.readFileSync(this.socket + '.session', 'utf8')) as Published; }
+    catch { return null; }
   }
+
+  private publishedPID(): number | undefined { return this.published()?.pid; }
 
   private async stop(child: ChildProcess): Promise<void> {
     if (!alive(child)) return;
