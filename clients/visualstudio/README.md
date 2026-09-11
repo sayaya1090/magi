@@ -1,6 +1,6 @@
 # clients/visualstudio/ — Visual Studio 확장
 
-[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: VS Code](../vscode/README.md) · [형제: 젯브레인](../jetbrains/README.md)
+[↑ 저장소](../../README.md) · [설계](docs/DESIGN.ko.md) · [플랫폼 규약](docs/PLATFORM.ko.md) · [클라이언트 계약 정본](../../docs/CLIENTS.ko.md) · [편집기 셋 타당성](../../docs/proposals/EDITORS.ko.md) · [형제: VS Code](../vscode/README.md) · [형제: 젯브레인](../jetbrains/README.md)
 
 Visual Studio에서 연 솔루션의 magi 데몬과 통신하여 대화창 및 IDE 제어 기능을 제공하는 공식 확장입니다.
 새 프로토콜을 만들지 않고 본체 데몬의 소켓 계약([`docs/CLIENTS`](../../docs/CLIENTS.ko.md))을 준수하며, C# 구현 중복을 최소화하기 위해 공통 로직을 처리하는 `magi ide-bridge` 프로세스를 중계자로 사용합니다.
@@ -48,7 +48,7 @@ pwsh clients/visualstudio/tools/smoke.ps1
 
 VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하면서 발생하는 공통 로직 중복을 방지하기 위해 `magi ide-bridge`를 도입했습니다:
 
-**브리지 이관 계획과 현재 구현 상태** ([설계 §3](../../docs/DESIGN.ko.md) · [프로토콜 사양](../../docs/IDE_BRIDGE.ko.md)):
+**브리지 이관 계획과 현재 구현 상태** ([설계 §3](docs/DESIGN.ko.md) · [프로토콜 사양](../../docs/IDE_BRIDGE.ko.md)):
 공통 8대 기능 중 현재 빌드에서는 `about`, `activity`, `daemon` 3개 메서드가 브리지에 구현되어 있습니다. 나머지 기능은 추후 단계적으로 이관되며 현재는 확장 플러그인이 직접 처리합니다.
 
 | | 공통 8대 기능 | 브리지 지원 여부 | 비고 |
@@ -73,7 +73,7 @@ VS Code, JetBrains에 이어 세 번째 에디터 클라이언트를 구현하�
 
 | 규칙 | 어기면 발생하는 장애 |
 |---|---|
-| `Magi.Core`가 `Microsoft.VisualStudio*`를 참조하지 않는다 | Visual Studio Extensibility SDK 참조 시 단위 테스트 환경에서 실행 불가. 순수 .NET 클래스 라이브러리로 유지해야 독립 테스트 가능 ([설계 §6](../../docs/DESIGN.ko.md)) |
+| `Magi.Core`가 `Microsoft.VisualStudio*`를 참조하지 않는다 | Visual Studio Extensibility SDK 참조 시 단위 테스트 환경에서 실행 불가. 순수 .NET 클래스 라이브러리로 유지해야 독립 테스트 가능 ([설계 §6](docs/DESIGN.ko.md)) |
 | 소켓 경로를 확장에서 유도하지 않는다 (FNV 상수가 소스에 없음) | 소켓 경로 계산 불일치 시 에러 없이 데몬 연결 실패. 이미 실행 중인 데몬을 감지하지 못하고 중복 실행 시도 |
 | 와이어 필드명이 브리지의 Go 소스 선언과 일치한다 | 역직렬화 예외 없이 기본값으로 처리되어 화면에 데이터가 누락됨 |
 | ★ 활동 어휘가 양쪽으로 브리지 사양과 정확히 일치한다 | 브리지의 상태 어휘와 매핑되지 않는 값 수신 시 UI 상태 매핑이 누락되어 원시 문자열 노출 |
