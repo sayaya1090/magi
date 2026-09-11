@@ -268,7 +268,16 @@ class Companion(
      * 저쪽이다.
      */
     fun restart(): Response = send(Request(method = "restart"))
-    fun update(): Response = send(Request(method = "update"))
+    /**
+     * 자기 갱신. [whenTo] 가 `"idle"` 이면 **받아서 디스크에 놓는 것은 지금**, 재기동은 컴패니언이
+     * 다음에 조용해질 때다 — 갱신하겠다는 것이 돌고 있는 턴을 버리겠다는 뜻은 아니기 때문이다.
+     * 비워 두면 예전처럼 **즉시** 재기동한다(사람이 그것을 고른 경우, 그리고 구형 코어에서).
+     *
+     * 구형 코어는 이 낱말을 모르지만 **모르는 필드를 조용히 버리므로** 즉시 재기동으로 떨어진다 —
+     * 그것이 그 코어가 늘 하던 일이라 잃는 것이 없다.
+     */
+    fun update(whenTo: String = ""): Response =
+        send(Request(method = "update", name = whenTo.ifBlank { null }))
 
     fun compact(): Response = send(Request(method = "compact", session = session))
     fun rewind(n: Int = 1): Response =

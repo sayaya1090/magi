@@ -1459,7 +1459,30 @@ class MagiToolWindow : ToolWindowFactory {
             }
             act(MagiBundle.msg("chat.menu.compact"), MagiBundle.msg("chat.info.compact.ask")) { it.compact() }
             act(MagiBundle.msg("chat.info.restart"), MagiBundle.msg("chat.info.restart.ask")) { it.restart() }
-            act(MagiBundle.msg("chat.info.update"), MagiBundle.msg("chat.info.update.ask")) { it.update() }
+            // 갱신만 단추가 아니라 **갈래**다. 기다리는 쪽이 먼저다 — 컴패니언을 갱신하겠다는
+            // 것이 지금 돌고 있는 턴을 버리겠다는 뜻은 아니다. 다른 쪽도 둔다: 가끔은 그게 바로
+            // 원하는 것이고, 기다리기만 하는 단추는 그것을 말할 방법을 찾아 헤매게 만든다.
+            // 어느 쪽이 일어났는지는 데몬이 제 말로 답하므로 화면이 지어내지 않는다.
+            acts.add(JButton(MagiBundle.msg("chat.info.update")).apply {
+                addActionListener {
+                    val idle = MagiBundle.msg("chat.info.update.idle")
+                    val now = MagiBundle.msg("chat.info.update.now")
+                    val pick = com.intellij.openapi.ui.Messages.showDialog(
+                        project, MagiBundle.msg("chat.info.update.ask"),
+                        MagiBundle.msg("chat.info.update"),
+                        arrayOf(idle, now, MagiBundle.msg("common.cancel")), 0, null,
+                    )
+                    if (pick != 0 && pick != 1) return@addActionListener
+                    popup?.cancel()
+                    onDaemon { comp ->
+                        val r = comp.update(if (pick == 0) "idle" else "")
+                        if (r.ok) report(r.out?.lineSequence()?.first()?.take(120)?.ifBlank { null }
+                            ?: MagiBundle.msg("chat.info.update"))
+                        else report(MagiBundle.msg("chat.notsent", MagiBundle.msg("chat.info.update"),
+                            r.error ?: MagiBundle.msg("common.noreason")))
+                    }
+                }
+            })
             c.gridx = 0; c.gridwidth = 2; c.weightx = 1.0
             c.fill = java.awt.GridBagConstraints.HORIZONTAL
             card.add(acts, c)

@@ -252,14 +252,31 @@ class SourceTextTest {
         val buttons = Regex("""act\(([^\n]*?)\)\s*\{ it\.(\w+)\(\) \}""")
             .findAll(card).map { it.groupValues[1] to it.groupValues[2] }.toList()
         val doors = buttons.map { it.second }
-        assertTrue(doors.size >= 3, "카드의 단추를 ${doors.size}개만 찾았다 — 훑기가 죽었다")
-        assertTrue("restart" in doors && "update" in doors,
-            "세우는 문 둘이 카드에 없다(찾은 것: $doors) — 이 규칙이 딴 자리를 보고 있다")
+        assertTrue(doors.size >= 2, "카드의 단추를 ${doors.size}개만 찾았다 — 훑기가 죽었다")
+        assertTrue("restart" in doors,
+            "세우는 문이 카드에 없다(찾은 것: $doors) — 이 규칙이 딴 자리를 보고 있다")
         for ((args, door) in buttons) assertTrue(
             Regex("""MagiBundle\.msg\("[^"]+"\)\s*,\s*MagiBundle\.msg\("[^"]+"\)""").containsMatchIn(args),
             "`$door` 단추가 확인 문구 없이 선다 — 누르는 순간 돈다(인자: $args)")
         assertTrue(card.contains(".yesNo(label, confirm).ask(project)"),
             "확인 문구를 들고만 있고 묻지는 않는다 — 사람은 대화가 뜰 줄 알고 누른다")
+
+        // 업데이트는 예/아니오가 아니라 **갈래**라 위 접기를 안 쓴다(기다릴지 지금 할지). 규칙은
+        // 같다 — 묻고 나서 두드린다 — 이므로 그 블록만 따로, **순서까지** 본다: 물음이 먼저 서고,
+        // 고르지 않으면 돌아가고, 그 다음에야 문을 두드린다. 셋의 자리를 재는 이유는 낱말만
+        // 세는 검사가 「물어보고 답을 버리는」 변이를 통과시키기 때문이다.
+        val up = card.substringAfter("JButton(MagiBundle.msg(\"chat.info.update\"))", "")
+            .substringBefore("c.gridx = 0")
+        assertTrue(up.isNotEmpty(), "업데이트 단추를 못 찾았다 — 이 규칙이 빈 글을 본다")
+        val asked = up.indexOf("Messages.showDialog(")
+        val bailed = up.indexOf("return@addActionListener")
+        val knocked = up.indexOf("comp.update(")
+        assertTrue(asked >= 0, "업데이트 단추가 아무것도 안 묻는다 — 누르는 순간 돈다")
+        assertTrue(bailed in (asked + 1) until knocked && knocked > 0,
+            "묻기($asked)·돌아가기($bailed)·두드리기($knocked)의 순서가 어긋났다 — " +
+                "답을 받고도 그냥 진행하면 물어본 것이 아니다")
+        assertTrue("\"idle\"" in up,
+            "갱신이 한가할 때를 고를 수 없다 — 두 선택지 중 기본이던 쪽이 사라졌다")
     }
 
     /**
