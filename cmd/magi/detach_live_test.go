@@ -66,10 +66,7 @@ func TestADetachedDaemonOutlivesItsStarter(t *testing.T) {
 		}
 	})
 
-	exe := filepath.Join(cfg, "magi")
-	if out, berr := exec.Command("go", "build", "-o", exe, "github.com/sayaya1090/magi/cmd/magi").CombinedOutput(); berr != nil {
-		t.Fatalf("could not build magi: %v\n%s", berr, out)
-	}
+	exe := buildMagi(t, cfg)
 
 	start := exec.Command(exe, "--daemon", "--detach")
 	start.Dir = ws

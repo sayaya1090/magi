@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -19,10 +18,7 @@ func TestTheOwnedFlagRefusesWhatWouldMakeItALie(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
-	exe := filepath.Join(t.TempDir(), "magi")
-	if out, err := exec.Command("go", "build", "-o", exe, "github.com/sayaya1090/magi/cmd/magi").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	exe := buildMagi(t, t.TempDir())
 	for _, c := range []struct {
 		name, want string
 		args       []string
