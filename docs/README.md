@@ -22,11 +22,12 @@ A sitemap of all documents under `docs/`. Every document carries a standard head
 | [CLIENTS](CLIENTS.md) · [한국어](CLIENTS.ko.md) | **Client Platform Integrations**: Architecture and socket contracts for terminal, web console, JetBrains, Visual Studio, and Office add-ins. |
 | [EXTENDING](EXTENDING.md) · [한국어](EXTENDING.ko.md) | **Extensibility Guide**: Practical integration steps for external tools (MCP) and shared team memory/skills. |
 
-## Implementation handoff designs
+## Implementation Handoff & Reviews
 
 | Document | Description |
 |---|---|
-| [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages and installed-environment acceptance. Not an as-built specification. |
+| [CLIENT_LIFECYCLE](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) | **Primary-client stabilization target**: ownership, transitions, compatibility, work packages, and installed-environment acceptance. Not an as-built specification. |
+| [PROJECT_REVIEW_2026-09-11](PROJECT_REVIEW_2026-09-11.md) · [한국어](PROJECT_REVIEW_2026-09-11.ko.md) | **Project Assessment (2026-09-11)**: Evaluation of council thought propagation, client integrations, and stabilization priorities. |
 
 ## Design History & Archived Records
 
