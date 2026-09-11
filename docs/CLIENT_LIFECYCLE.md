@@ -41,6 +41,7 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 | Clients actually calling the reconnect backoff | **landed** — with jitter, both clients | `a2402cf8` |
 | §6 previews replaced by the final fact (both clients) | **landed** — a measured defect | `bbeb8834` |
 | The web console's SSE reconnect uses the contract backoff | **landed** — the third client | `e0fa16ab` |
+| §6 "mark what is on screen as stale while reconnecting" (web) | **landed** | `de89c802` |
 | Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
 | §5's policy values (budget, grace, jitter, backoff) | **landed** — shared contract + both implementations | `5fca85b7` |
