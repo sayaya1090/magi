@@ -68,7 +68,7 @@ data class Row(
 | `compaction` | **Info 행** | `↯ context compacted` 요약 정보 표출 (기존 로그 보존) |
 | `turn.finished` | 행 미생성 | 턴 종료 신호로 수신하여 상태 표시줄에 지표 반영 |
 | `error` | **Info 행** | 오류 안내 표출 (`recovered` 여부 구분 명시) |
-| `council.verdict` | **Council 행 추가** | 위원별 판정 결과, 검토 렌즈, 근거(`cite`), 유지 요구사항(`keep`), 생각(`thought`) 표출 |
+| `council.verdict` | **Council 행 추가** | 위원별 판정 결과, 검토 렌즈, 근거(`cite`), 유지 요구사항(`keep`), 위원 추론(`thought`) 표출 |
 | `council.decided` | **Council 행 추가** | 라운드 합의 의결 결과 및 후속 피드백 내역 표출 |
 
 ## 4. 이벤트 영속성 및 증분 갱신
