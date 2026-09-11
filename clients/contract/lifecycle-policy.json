@@ -1,0 +1,159 @@
+{
+  "$comment": [
+    "The launch policy every client obeys, as behaviour rather than as source text.",
+    "docs/CLIENT_LIFECYCLE §5 states these as targets; this file states them as cases, so two",
+    "implementations in two languages can be measured against ONE contract instead of against each",
+    "other. They had already drifted when this was written (2026-09-11): VS Code counted spawns in a",
+    "rolling 60s window, JetBrains allowed three ever with a 60s gap and never let time restore any.",
+    "Both are defensible and they are not the same rule, which is the whole problem.",
+    "Times are milliseconds. `at` is a virtual clock: no test here may sleep."
+  ],
+  "policy": {
+    "handshakeMs": 5000,
+    "readyMs": 30000,
+    "graceMs": 5000,
+    "windowMs": 60000,
+    "spawnsPerWindow": 3,
+    "failuresToBlock": 3,
+    "stableMs": 60000,
+    "backoffMs": [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000],
+    "jitterFraction": 0.2,
+    "backoffCapMs": 30000,
+    "shutdownMs": 5000
+  },
+  "cases": [
+    {
+      "name": "a cold start is allowed",
+      "steps": [{"ask": 0, "want": "allow"}]
+    },
+    {
+      "name": "three spawns fill the window and the fourth waits",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0},
+        {"ask": 1000, "want": "allow"}, {"spawned": 1000},
+        {"ask": 2000, "want": "allow"}, {"spawned": 2000},
+        {"ask": 3000, "want": "budget"}
+      ]
+    },
+    {
+      "name": "the window slides and the budget comes back",
+      "$why": "A budget that only time can restore is a daemon nobody can bring back after a bad minute.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0},
+        {"ask": 1000, "want": "allow"}, {"spawned": 1000},
+        {"ask": 2000, "want": "allow"}, {"spawned": 2000},
+        {"ask": 3000, "want": "budget"},
+        {"ask": 61000, "want": "allow"}
+      ]
+    },
+    {
+      "name": "a person asking by hand is never refused for budget",
+      "$why": "The budget exists to stop a loop nobody asked for. A person asking IS somebody asking.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0},
+        {"ask": 1000, "want": "allow"}, {"spawned": 1000},
+        {"ask": 2000, "want": "allow"}, {"spawned": 2000},
+        {"ask": 3000, "want": "budget"},
+        {"ask": 3000, "manual": true, "want": "allow"}
+      ]
+    },
+    {
+      "name": "nothing is spawned inside the grace after a loss",
+      "$why": "A daemon that died a moment ago may still be unwinding, and the second one then fights the first for the socket.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"ready": 100},
+        {"lost": 1000},
+        {"ask": 2000, "want": "grace"},
+        {"ask": 5999, "want": "grace"},
+        {"ask": 6000, "want": "allow"}
+      ]
+    },
+    {
+      "name": "three failures in a row block, and time alone does not unblock",
+      "$why": "docs/CLIENT_LIFECYCLE §5: 시간 경과만으로 연속 실패를 지우지 않는다. A crashloop that the window forgives is a crashloop forever.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001}, {"failed": 65001},
+        {"ask": 70002, "want": "allow"}, {"spawned": 70002}, {"failed": 100002},
+        {"ask": 200000, "want": "blocked"},
+        {"ask": 999999, "want": "blocked"}
+      ]
+    },
+    {
+      "name": "a person can unblock by asking",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001}, {"failed": 65001},
+        {"ask": 70002, "want": "allow"}, {"spawned": 70002}, {"failed": 100002},
+        {"ask": 100003, "want": "blocked"},
+        {"ask": 100003, "manual": true, "want": "allow"}
+      ]
+    },
+    {
+      "name": "a momentary connection does not forgive a failure",
+      "$why": "docs/CLIENT_LIFECYCLE §5: 순간 handshake 성공으로 초기화하지 않는다. A daemon that comes up and dies in two seconds has not proved anything.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001},
+        {"ready": 36000}, {"lost": 38000},
+        {"ask": 43001, "want": "allow"}, {"spawned": 43001}, {"failed": 73001},
+        {"ask": 200000, "want": "blocked"}
+      ]
+    },
+    {
+      "name": "a minute of connection forgives everything",
+      "$why": "The one signal that the daemon is actually fine. Shorter than a minute is the case above.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001}, {"failed": 65001},
+        {"ask": 70002, "want": "allow"}, {"spawned": 70002},
+        {"ready": 71000}, {"stable": 131000},
+        {"ask": 132000, "want": "allow"}
+      ]
+    },
+    {
+      "name": "a shutdown the person asked for stops the automatic starts",
+      "$why": "docs/CLIENT_LIFECYCLE §5: 사용자가 명시적으로 종료한 소유 데몬은 Blocked 에 두고 자동 기동을 중지한다. Reviving it is arguing with the person.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"ready": 100},
+        {"userStopped": 1000},
+        {"ask": 10000, "want": "blocked"},
+        {"ask": 10000, "manual": true, "want": "allow"}
+      ]
+    },
+    {
+      "name": "an update replacement the person asked for is not a failure",
+      "$why": "docs/CLIENT_LIFECYCLE §5: 사용자가 요청한 업데이트 교체는 실패 횟수에 넣지 않되, 교체 실패는 포함한다.",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"ready": 100},
+        {"replaced": 1000}, {"replaced": 2000}, {"replaced": 3000},
+        {"ask": 10000, "want": "allow"}
+      ]
+    },
+    {
+      "name": "a replacement that failed is a failure",
+      "steps": [
+        {"ask": 0, "want": "allow"}, {"spawned": 0}, {"failed": 30000},
+        {"ask": 35001, "want": "allow"}, {"spawned": 35001}, {"failed": 65001},
+        {"ask": 70002, "want": "allow"}, {"spawned": 70002}, {"replaceFailed": 71000},
+        {"ask": 200000, "want": "blocked"}
+      ]
+    }
+  ],
+  "backoff": {
+    "$comment": [
+      "Attempt 1 is the first reconnect after a loss. The jitter is applied and THEN the cap, so no",
+      "delay may exceed backoffCapMs — a ±20% jitter on the 30s step would otherwise reach 36s."
+    ],
+    "steps": [
+      {"attempt": 1, "min": 800, "max": 1200},
+      {"attempt": 2, "min": 1600, "max": 2400},
+      {"attempt": 3, "min": 3200, "max": 4800},
+      {"attempt": 4, "min": 6400, "max": 9600},
+      {"attempt": 5, "min": 12800, "max": 19200},
+      {"attempt": 6, "min": 24000, "max": 30000},
+      {"attempt": 7, "min": 24000, "max": 30000},
+      {"attempt": 99, "min": 24000, "max": 30000}
+    ]
+  }
+}
