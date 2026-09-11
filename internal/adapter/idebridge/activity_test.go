@@ -177,7 +177,15 @@ func TestBothCopiesSpeakOneVocabulary(t *testing.T) {
 	if len(got) < 3 {
 		t.Fatalf("타입스크립트에서 낱말을 %d 개밖에 못 찾았다 — 스캔이 깨진 것이지 어휘가 맞는 게 아니다", len(got))
 	}
-	want := map[string]bool{NotRunning: true, Attached: true, Working: true, Waiting: true, Unknown: true}
+	// The Go side is READ, not restated. A literal here could only ever hold the words somebody
+	// remembered to type into it — see declaredWords for what that cost.
+	want := map[string]bool{}
+	for _, v := range declaredWords(t, "activity.go") {
+		want[v] = true
+	}
+	if len(want) < 3 {
+		t.Fatalf("activity.go 에서 낱말을 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(want))
+	}
 	for w := range want {
 		if !got[w] {
 			t.Errorf("이 패키지는 %q 를 말하는데 타입스크립트 사본에는 없다", w)

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -66,7 +67,18 @@ func TestTheRowVocabularyMatchesTheTypeScriptCopy(t *testing.T) {
 
 // Vocabulary() must name every constant the package declares, or `about`-style advertisement lies.
 func TestTheVocabularyListNamesEveryWordTheRowsUse(t *testing.T) {
-	declared := []string{WhoUser, WhoAgent, WhoTool, WhoThinking, WhoCouncil, WhoSystem, WhoError, WhoImage}
+	// The constants are READ from rows.go, not restated here. Restating them made this a check of
+	// one hand-written list against another: a Who constant added to the file and forgotten in
+	// Vocabulary() was absent from BOTH sides and so agreed perfectly. See declaredWords.
+	declared := []string{}
+	for name, v := range declaredWords(t, "rows.go") {
+		if strings.HasPrefix(name, "Who") {
+			declared = append(declared, v)
+		}
+	}
+	if len(declared) < 5 {
+		t.Fatalf("rows.go 에서 Who 상수를 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(declared))
+	}
 	got := append([]string(nil), Vocabulary()...)
 	want := append([]string(nil), declared...)
 	sort.Strings(got)
@@ -81,6 +93,7 @@ func TestTheVocabularyListNamesEveryWordTheRowsUse(t *testing.T) {
 		}
 		seen[w] = true
 	}
+	t.Logf("선언된 낱말 %d 개를 Vocabulary() 와 견줬다", len(declared))
 }
 
 // The wire NAMES of the row fields, both ways.
