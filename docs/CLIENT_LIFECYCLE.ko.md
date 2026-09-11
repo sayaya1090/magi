@@ -33,10 +33,10 @@
 | 항목 | 상태 | 커밋 |
 |---|---|---|
 | `magi ide-bridge --features` | **착지** | `da67e068` |
-| 공개 기록·`about` 의 `instance` | **착지** | `4485de3c` |
-| `ownerId` | **착지** | `3b29a98e` |
-| `magi --daemon --client-owned` (소유 파이프·EOF) | **착지** | `3b29a98e` |
-| 윈도우 후계에 파이프·ownerId 인계 | 반만 착지 — 사유 ③ | `3b29a98e` |
+| 공개 기록·`about` 의 `instance` | **착지** | `55ead8ac` |
+| `ownerId` | **착지** | `6f6ce97f` |
+| `magi --daemon --client-owned` (소유 파이프·EOF) | **착지** | `6f6ce97f` |
+| 윈도우 후계에 파이프·ownerId 인계 | 반만 착지 — 사유 ③ | `6f6ce97f` |
 | `<socket>.lifecycle` 종료 사유 레코드 | 보류 — 사유 ② | |
 | §5 의 정책 값들 (예산·유예·지터) | 미착수 | |
 

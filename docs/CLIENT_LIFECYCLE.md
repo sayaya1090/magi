@@ -34,10 +34,10 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 | Item | State | Commit |
 |---|---|---|
 | `magi ide-bridge --features` | **landed** | `da67e068` |
-| `instance` in the published record and `about` | **landed** | `4485de3c` |
-| `ownerId` | **landed** | `3b29a98e` |
-| `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `3b29a98e` |
-| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `3b29a98e` |
+| `instance` in the published record and `about` | **landed** | `55ead8ac` |
+| `ownerId` | **landed** | `6f6ce97f` |
+| `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `6f6ce97f` |
+| Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
 | §5's policy values (budgets, grace, jitter) | not started | |
 
