@@ -93,15 +93,25 @@ public class FetchRosterSource implements RosterSource {
     }
 
     private void reopen() {
+        // 사람이 조준을 바꾼 것이지 회선이 깨진 것이 아니다 — 앞 회선의 실패 이력을 들고 가면
+        // 새 조준이 30초를 기다리며 시작한다.
+        attempt = 0;
         generation++;
         if (es != null) { es.close(); es = null; }
         if (listener != null) open();
     }
 
+    /** 이 회선이 이어서 실패한 횟수 — 물러서는 시간을 정한다. 붙으면 0 으로 돌아간다. */
+    private int attempt = 0;
+
     private void open() {
         final int mine = ++generation;
         es = dev.sayaya.magi.bridge.Console.stream("/events" + q());
-        es.addEventListener("open", evt -> listener.link(true));
+        es.addEventListener("open", evt -> {
+            // 붙었다 — 다음 끊김은 다시 1초부터다. 안 지우면 한참 뒤의 첫 끊김이 30초를 기다린다.
+            attempt = 0;
+            listener.link(true);
+        });
         es.addEventListener("fleet", evt -> {
             MessageEvent<String> me = Js.uncheckedCast(evt);
             try { listener.roster(Js.uncheckedCast(Global.JSON.parse(me.data))); }
@@ -137,7 +147,16 @@ public class FetchRosterSource implements RosterSource {
             EventSource gone = es;
             if (gone != null) gone.close();
             es = null;
-            DomGlobal.setTimeout(a -> { if (es == null && generation == mine) open(); }, 1500);
+            // ⚠ **고정 1.5초로 무한히 두드리고 있었다.** 지터도 물러섬도 없어서, 서버가 한 번
+            // 재시작하면 열려 있던 **모든 탭이 같은 순간에** 몰렸다 — SSE 는 탭마다 회선 하나라
+            // 그 쏠림이 편집기보다 크다. 이제 두 편집기와 같은 계약을 쓴다
+            // (`clients/contract/lifecycle-policy.json`, `docs/CLIENT_LIFECYCLE` §5).
+            //
+            // 세대가 어긋나면 셈도 버린다: 다른 회선을 조준한 것이라 이 회선의 실패 이력은
+            // 그 회선의 것이 아니다.
+            attempt++;
+            int wait = dev.sayaya.magi.bridge.Backoff.delayMs(attempt, Math.random());
+            DomGlobal.setTimeout(a -> { if (es == null && generation == mine) open(); }, wait);
         });
     }
 
