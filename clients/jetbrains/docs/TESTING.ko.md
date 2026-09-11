@@ -182,6 +182,7 @@ MAGI_IDE_CONFORMANCE=1 ./gradlew :core:test --tests '*ModelConformance*' --rerun
 | `SocketPathTest` | 소켓 이름·길이 한계·심링크(`DotDotTest`·`EvalSymlinksTest`·`NestedSymlinkTest`·`PublishedTest` 포함) |
 | `SocketReachTest` | 붙어 보고 만난 것을 어느 갈래로 — **파일 종류로 가른다** |
 | `DaemonClientTimeoutTest` | 시한 안에 답하면 워치독이 물러난다 |
+| `CoreProbeTest` | **기능 조회의 기한이 진짜 기한인지 — 진짜 프로세스로**(R6). 창 쪽 구현은 `readLine()` 을 부른 **뒤에** `waitFor(5초)` 를 불렀다. 읽기는 줄이 오거나 파이프가 닫힐 때까지 막히므로, stdout 을 열어 두고 아무것도 안 쓰는 탐침 앞에서 그 5초는 **한 번도 도달되지 않는다** — 기동이 무기한 멈춘다. 순서를 뒤집고(`CoreProbe`, SDK 를 모르는 `core` 로 뺐다) 여섯을 잰다: 알린 이름 · **줄을 안 보내는 탐침도 기한 안에 답하는가** · **시한 초과한 자식을 남기지 않는가**(살아 있으면 계속 갱신하는 흔적 파일로) · 말은 하면서 거절한 바이너리(종료 코드가 이긴다 — 빈 stdout 으로만 재면 코드를 안 보는 구현도 통과한다) · 깨진 줄 · 없는 바이너리. ⚠ 막힐 수 있는 둘은 `assertTimeoutPreemptively` 로 감싼다 — 안 감싸면 **실패가 정지로 나타난다**(변이로 확인: 빌드가 멈춘 채 남았다) |
 | `GoldenTest` | 코어와 같은 바이트를 주고받나 |
 | `HandServerTest`·`HandInteropTest` | 손의 서버와 코어와의 맞물림. **`readOnlyHint` 를 싣는지도** — 안 실으면 프로토콜 기본값(쓰기)으로 잡혀 `show` 가 「이 턴이 그 파일을 고쳤다」로 코어 기록에 오른다. 변이 셋으로 확인(애노테이션 제거·`show` 의 readOnly 제거·`problems` 의 readOnly 제거). **`problems` 는 없던 도구다** — 경로를 안 주면 열린 파일 전부라는 것까지 계약으로 걸었다 |
 | `HandServerTest`(빈 old) | ★ **빈 `old` 로 부른 `apply_edit` 이 파일을 갈아 버렸다.** JVM 실측: `"abc".replace("", "X")` 는 `XaXbXcX` — 글자 **사이마다** 끼워 넣고, `split("").size - 1` 이 「길이-1」이라 `replaceAll` 이 참이면 다중-발견 가드도 안 걸린다. 그러고도 도구는 「N 군데 바꿨다」고 **성공을 보고한다.** 스키마는 `old` 를 필수로 두지만 **빈 문자열은 필수를 통과한다** — 값의 검사가 따로 있어야 한다. 편집기에 **닿기 전** 디스패치에서 막고, 시험은 ①빈 것이 안 닿는지 ②**공백만인 것은 지나가는지**(들여쓰기 치환은 정당한 편집 — 변이가 이 경계를 요구했다) ③거절이 오류로 표시되는지를 본다 |

@@ -4,6 +4,7 @@ import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.util.io.Decompressor
 import dev.sayaya.magi.ide.transport.SocketPath
+import dev.sayaya.magi.ide.usecase.CoreProbe
 import dev.sayaya.magi.ide.usecase.CoreRelease
 import java.nio.file.Files
 import java.nio.file.Path
@@ -161,23 +162,8 @@ internal object CoreBinary {
      *
      * 계약의 5초를 여기서도 지킨다. 탐침이 답을 안 주면 그 바이너리는 어차피 안 될 것이다.
      */
-    fun features(bin: Path): Set<String> = runCatching {
-        val p = ProcessBuilder(bin.toString(), "ide-bridge", "--features")
-            .redirectErrorStream(false).start()
-        val line = p.inputStream.bufferedReader(Charsets.UTF_8).use { it.readLine() }.orEmpty()
-        if (!p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
-            p.destroyForcibly()
-            return emptySet()
-        }
-        if (p.exitValue() != 0) return emptySet()
-        val got = kotlinx.serialization.json.Json.parseToJsonElement(line)
-            .let { it as? kotlinx.serialization.json.JsonObject } ?: return emptySet()
-        val list = got["features"] as? kotlinx.serialization.json.JsonArray ?: return emptySet()
-        list.mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.toSet()
-    }.getOrElse {
-        LOG.info("magi: 기능 조회 실패 — 새 모드 없이 간다 (${it.message})")
-        emptySet()
-    }
+    fun features(bin: Path): Set<String> =
+        CoreProbe.features(listOf(bin.toString(), "ide-bridge", "--features"))
 
     private fun read(url: String): String = request(url).readString()
 
