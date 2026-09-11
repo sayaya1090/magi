@@ -76,14 +76,14 @@ var features = []struct {
 // Returns a non-nil empty slice when none qualify: `[]` and `null` are different answers on the
 // wire, and a client that gets `null` cannot tell "this build has no features" from "this field is
 // not implemented here".
-func featuresOf(fs *flag.FlagSet) []string {
+func featuresOf(fs *flag.FlagSet, alsoHas ...string) []string {
 	out := []string{}
 	for _, f := range features {
 		if f.has(fs) {
 			out = append(out, f.name)
 		}
 	}
-	return out
+	return append(out, alsoHas...)
 }
 
 // featuresProtocol is the shape of the --features line, not the daemon's wire version.
@@ -104,10 +104,10 @@ const featuresProtocol = 1
 // One line, so a caller can read it with a single ReadString('\n') and not have to know when to
 // stop. An older binary has no such flag and its flag package refuses the argument, which is the
 // answer "this build does not support features" — a client must read THAT, not scan this text.
-func answerFeatures(fs *flag.FlagSet, stdout io.Writer) int {
+func answerFeatures(fs *flag.FlagSet, stdout io.Writer, alsoHas ...string) int {
 	line, err := json.Marshal(map[string]any{
 		"protocol": featuresProtocol,
-		"features": featuresOf(fs),
+		"features": featuresOf(fs, alsoHas...),
 		// The acceptance record in docs/CLIENT_LIFECYCLE §8 has to name the exact binary a run
 		// used, and this is the only probe that answers with no daemon up — so the version rides
 		// here rather than making a caller start something to learn it.
@@ -121,7 +121,14 @@ func answerFeatures(fs *flag.FlagSet, stdout io.Writer) int {
 }
 
 // Run speaks the bridge protocol on stdin/stdout until stdin closes.
-func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+//
+// `alsoHas` is what the CALLER knows and this package cannot see. A feature of the binary as a
+// whole — `--daemon --client-owned` lives in `cmd/magi`, not here — has no predicate to ask from
+// inside this file, so the command that owns the flag names it and a live test ties the name to the
+// behaviour: `TestEveryAdvertisedFeatureIsOneThisBinaryActuallyHas` starts the binary and checks
+// that the mode is really accepted. A name with nothing behind it fails there rather than sending a
+// client to start something this build does not understand.
+func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, alsoHas ...string) int {
 	fs := flag.NewFlagSet("magi ide-bridge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rawSocket := fs.String("raw-socket", "", "relay stdin/stdout to this daemon socket")
@@ -133,7 +140,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// Answered before anything else, including --raw-socket. This is a question ABOUT the binary,
 	// so it cannot be conditional on the binary doing its job first.
 	if *askFeatures {
-		return answerFeatures(fs, stdout)
+		return answerFeatures(fs, stdout, alsoHas...)
 	}
 	if *rawSocket != "" {
 		return relay(*rawSocket, stdin, stdout, stderr)

@@ -100,9 +100,12 @@ an array — `null` could not be told apart from "this field is not implemented 
 because this line is answered without a daemon at all. Feature names carry their own version suffix
 because features arrive and are replaced one at a time.
 
-Named in docs/CLIENT_LIFECYCLE §4. `owned-daemon-v1` appears there too and is **not** built, so it
-is not advertised — a test holds that floor, because advertising it would send a client to start a
-mode this binary does not understand.
+Named in docs/CLIENT_LIFECYCLE §4. `owned-daemon-v1` is there too and is now built, so it is
+advertised — but by `cmd/magi` rather than by this package, because the thing behind it (the
+`--client-owned` flag on `--daemon`) lives there and there is no predicate here that could ask about
+it. The name is tied to the behaviour by a live test that starts the binary and checks the mode is
+really accepted, and the same test holds the floor in both directions: nothing advertised that is
+absent, nothing present that goes unadvertised.
 
 ### Methods
 

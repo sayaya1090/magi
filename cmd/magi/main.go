@@ -180,7 +180,12 @@ func main() {
 	// (internal/adapter/idebridge). 소켓 경로 유도·전선·전사 조립처럼 편집기마다 다시 쓰던 것을
 	// 여기 한 벌로 둔다 — 두 벌이 이미 갈렸다(docs/IDE_BRIDGE).
 	if len(os.Args) > 1 && os.Args[1] == "ide-bridge" {
-		os.Exit(idebridge.Run(os.Args[2:], os.Stdin, os.Stdout, os.Stderr))
+		// `owned-daemon-v1` is named HERE because the thing behind it lives here: the
+		// `--client-owned` flag on `--daemon`, a few hundred lines down. The bridge package has no
+		// way to ask whether this binary has it, so the command that owns the flag says so — and
+		// `TestEveryAdvertisedFeatureIsOneThisBinaryActuallyHas` starts this binary and checks the
+		// mode is really accepted, so the name cannot outlive the thing.
+		os.Exit(idebridge.Run(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, "owned-daemon-v1"))
 	}
 	code := run()
 	if restartOnExit {
