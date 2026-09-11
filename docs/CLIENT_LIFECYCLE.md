@@ -106,7 +106,16 @@ Each paragraph below carries its state. **Landed** means it runs in this repo; *
 
 **Landed (`6f6ce97f`, `07c0f509`, `07358567`).** Closing the IDE's write end must also stop a successor. Forced extension-host termination is handled through the same EOF. In owned mode, the core must cancel work, stop listeners and clean publication within five seconds of EOF. Do not block the IDE UI thread. If shutdown stalls, the IDE may force-stop only the still-live original child for which it holds a handle. The core guarantees successor shutdown. Existing lifetimes in other modes remain unchanged.
 
-**Landed (`73a1a313`, `61ded932`).** Allow connections to old daemons while disabling unsupported features. Block new launches requiring Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
+**Landed (`73a1a313`, `61ded932`).** Allow connections to old daemons while disabling unsupported features. Block new launches **requiring** Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
+
+**What "requiring" means, written down (follow-up R5).** That one word is where blocking and warning-then-proceeding part company, and from outside the two look like the same situation. The split is **the shutdown guarantee**.
+
+| | With a core that lacks the owned mode | Outcome | Why |
+|---|---|---|---|
+| A launch that needs the Windows relay | The transport itself cannot stand up | **Blocked** | It cannot connect at all; starting one only leaves a daemon nobody can use (`whyNoRelay`) |
+| An ordinary launch | Exactly the lifetime it had before the owned mode existed | **Warned, then proceeds** | Closing the window stops the child. If the extension host is **killed**, the companion survives — and that difference is said once per launch (`61ded932`) |
+
+So the owned mode is **not a precondition for launching; it is a grade of shutdown guarantee.** The "existing lifetimes in other modes remain unchanged" a line above is that same lifetime, and blocking it would take the companion away from anyone on an older core. The relay is the opposite case: there is no lifetime to preserve in the first place.
 
 ## 5. Recovery and shutdown policy
 
