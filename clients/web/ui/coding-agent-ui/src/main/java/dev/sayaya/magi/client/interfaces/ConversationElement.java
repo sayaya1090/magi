@@ -100,7 +100,13 @@ public class ConversationElement {
         // 이름은 명단 조각에서 온다 — 그 행이 같은 말을 다시 하면 스토어가 흘리지 않는다.
         // 세션과 상태가 이 조각에서 온다 — 컴패니언이 다른 대화로 떠나거나 일을 시작하면
         // 컴포저가 말하는 것도 달라져야 한다.
-        store.aimed().subscribe(row -> { aimed = row; reach(); });
+        store.aimed().subscribe(row -> {
+            aimed = row;
+            reach();
+            // 대화가 정해졌으니 그 대화의 초안이 있으면 되살린다 — 열쇠가 세션이라, 이 줄
+            // 앞에서는 어느 초안을 되살릴지 알 수가 없다.
+            restoreDraft();
+        });
         store.onRows(this::paintRows);
         // 창 위에 닿는 것이 더 달라는 말이다 — 두 상자 모두에, passive 로.
         DomGlobal.window.addEventListener("scroll", evt -> reachedUp(), passive());
@@ -470,6 +476,9 @@ public class ConversationElement {
             evt.preventDefault();
             send();
         });
+        // 치는 동안 남긴다. `input` 이라야 한 글자마다 온다 — `change` 는 칸을 떠날 때 한 번이고,
+        // 새로고침은 칸을 떠나는 일이 아니다. 저장 자리와 사유는 [rememberDraft].
+        field.addEventListener("input", evt -> rememberDraft());
         return form;
     }
 
@@ -492,8 +501,12 @@ public class ConversationElement {
         }
         // 비우고, 거부되면 되돌린다 — 타이핑을 잃는 쪽이 늘 더 나쁘다(기존 콘솔 규칙).
         value("");
+        rememberDraft(); // 빈 값이므로 저장된 초안도 같이 지워진다
         store.submit(v, why -> {
-            if (why != null && !why.isEmpty() && value().trim().isEmpty()) value(v);
+            if (why != null && !why.isEmpty() && value().trim().isEmpty()) {
+                value(v);
+                rememberDraft(); // 되돌린 글도 새로고침을 넘겨야 한다
+            }
         });
     }
 
@@ -744,6 +757,58 @@ public class ConversationElement {
     }
 
     private void value(String v) { Js.asPropertyMap(field).set("value", v); }
+
+    /**
+     * 치다 만 말은 새로고침을 넘겨야 한다.
+     *
+     * 실측(2026-09-11): 이 콘솔은 입력창의 글을 어디에도 안 남겼다. 새로고침 한 번이면 쓰던
+     * 질문이 사라지고, 그 질문은 대개 방금 읽은 전사를 보고 쓰던 것이라 다시 쓰려면 다시 읽어야
+     * 한다. `docs/CLIENT_LIFECYCLE` §6 이 이 자리를 이름 댄다.
+     *
+     * ⚠ **`sessionStorage` 이고 `localStorage` 가 아니다.** 탭마다 따로여야 한다 — 같은 콘솔을
+     * 두 탭에 열어 두 대화를 보는 것이 이 화면의 평범한 쓰임이고, 저장 자리를 나누면 한쪽에서
+     * 친 글이 다른 쪽 입력창에 나타난다. 같은 사유로 **대화마다** 열쇠가 다르다: 대화를 갈아탄
+     * 뒤 남의 말이 내 입력창에 서 있으면 그건 보존이 아니라 사고다.
+     *
+     * 못 쓰는 환경(사생활 보호 모드, 저장 거부)에서는 조용히 아무 일도 안 한다 — 초안 보존은
+     * 편의이지 이 화면이 서는 조건이 아니다.
+     */
+    private String draftKey() {
+        String sid = aimed == null || aimed.session == null ? "" : aimed.session;
+        return sid.isEmpty() ? "" : "magi.draft." + sid;
+    }
+
+    private void rememberDraft() {
+        String key = draftKey();
+        if (key.isEmpty()) return;
+        String v = value();
+        if (v.trim().isEmpty()) {
+            dropStored(key);
+            return;
+        }
+        putStored(key, v);
+    }
+
+    /** 이 대화의 초안을 되살린다. **이미 뭔가 쳐 둔 칸은 안 건드린다** — 되살리기가 지금 치는
+     * 사람의 글을 덮는 것은 잃는 것의 방향만 바꾼 것이다. */
+    private void restoreDraft() {
+        String key = draftKey();
+        if (key.isEmpty() || !value().trim().isEmpty()) return;
+        String v = getStored(key);
+        if (v != null && !v.isEmpty()) value(v);
+    }
+
+    private static native String getStored(String key) /*-{
+        try { return $wnd.sessionStorage.getItem(key); } catch (e) { return null; }
+    }-*/;
+
+    private static native void putStored(String key, String value) /*-{
+        try { $wnd.sessionStorage.setItem(key, value); } catch (e) {}
+    }-*/;
+
+    private static native void dropStored(String key) /*-{
+        try { $wnd.sessionStorage.removeItem(key); } catch (e) {}
+    }-*/;
 
 
 

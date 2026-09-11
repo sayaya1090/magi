@@ -163,6 +163,36 @@ internal class CodingScreenTest : GwtTestSpec({
             page.evaluate("window.localStorage.removeItem('suggest')")
             page.locator("#dock .composer #t textarea").fill("")
         }
+        // ⚠ 새로고침을 실제로 돌리지 않는다 — 이 시험은 한 판을 여러 절이 이어서 쓰므로, 여기서
+        // 다시 그리면 뒤의 절들이 제 전제를 잃는다. 새로고침이 실제로 하는 일은 **저장된 것만
+        // 남고 화면 상태는 사라지는 것**이라, 저장 자리를 직접 읽고 지우고 되살려서 그것과
+        // 같은 조건을 만든다.
+        When("컴포저에 치다 말고 떠나면") {
+            page.locator("#dock .composer #t textarea").fill("half a question")
+            Then("탭 안에, 대화마다 남는다 — 새로고침이 그것을 지우지 못한다") {
+                page.waitForCondition {
+                    (page.evaluate(
+                        "(() => { const k = Object.keys(sessionStorage)" +
+                            ".filter(k => k.startsWith('magi.draft.'));" +
+                            " return k.length === 1 ? sessionStorage.getItem(k[0]) : null; })()"
+                    ) as? String) == "half a question"
+                }
+                // ⚠ **`localStorage` 가 아니다.** 같은 콘솔을 두 탭에 열어 두 대화를 보는 것이
+                // 이 화면의 평범한 쓰임이고, 저장 자리를 나누면 한쪽에서 친 글이 다른 쪽
+                // 입력창에 나타난다.
+                page.evaluate(
+                    "Object.keys(localStorage).filter(k => k.startsWith('magi.draft.')).length"
+                ) shouldBe 0
+            }
+            Then("비우면 남은 것도 지워진다 — 안 지우면 다음 새로고침이 죽은 초안을 되살린다") {
+                page.locator("#dock .composer #t textarea").fill("")
+                page.waitForCondition {
+                    (page.evaluate(
+                        "Object.keys(sessionStorage).filter(k => k.startsWith('magi.draft.')).length"
+                    ) as Int) == 0
+                }
+            }
+        }
         When("컴포저에 한 마디 적어 보내면") {
             page.locator("#dock .composer #t textarea").fill("keep going")
             page.locator("#dock .composer #send").click()
