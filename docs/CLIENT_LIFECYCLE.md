@@ -39,7 +39,8 @@ rest is waiting. "Held" does not mean hard — it means something has to be deci
 | `magi --daemon --client-owned` (owner pipe, EOF) | **landed** | `6f6ce97f` |
 | Handing the pipe and ownerId to a Windows successor | half landed — reason ③ | `6f6ce97f` |
 | `<socket>.lifecycle` shutdown-reason record | held — reason ② | |
-| §5's policy values (budgets, grace, jitter) | not started | |
+| §5's policy values (budget, grace, jitter, backoff) | **landed** — shared contract + both implementations | `ed0b8002` |
+| Clients actually calling that policy | not started — B and C | |
 
 ### ① `ownerId` — settled (it went in with the owned mode)
 
@@ -105,6 +106,22 @@ The two cases split:
 
 Until that is settled, A goes **only as far as it does without this file**. The owner pipe and EOF
 shutdown do not depend on the decision, so they can go first.
+
+### The contract file is the authority on the policy
+
+§5's table is the target; the **cases** are in `clients/contract/lifecycle-policy.json`, and both
+editors' tests read that file (`LaunchesTest`, `launches.test.ts`). Writing the cases separately in
+each client gives "both green, different rules" — which is where this policy actually was on
+2026-09-11: VS Code counted spawns in a rolling 60s window, JetBrains allowed three ever with a 60s
+gap. Both defensible, not the same rule.
+
+The contract caught a defect immediately: **neither side counted a loss before the stable window as
+a failure.** A daemon that comes up and dies two seconds later never misses the ready deadline, so
+it was never counted, and it retried forever.
+
+What is left is the **call sites**. `Launches` is pure, reads no clock, and nobody uses it yet —
+`StartDaemon` (B) and `OwnedCompanion` (C) each have to swap their own retry loop for it, and that
+is the first step of both.
 
 ### Keeping the doc and the code from drifting
 
