@@ -130,6 +130,12 @@ func runCoreUpdate() int {
 		return 1
 	}
 	fmt.Println("checking for updates…")
+	// A person typing this is exactly what §9.3 calls an "explicit retry": if this install rolled a build back before,
+	// the automatic path refuses it forever, and this is the door that unblocks it. Best-effort —
+	// failing to clear a refusal is no reason to refuse to check for updates.
+	if rerr := update.Retry(exe); rerr != nil {
+		fmt.Fprintln(os.Stderr, "magi: could not clear the earlier rollback:", rerr)
+	}
 	// RunCommit, not Run: the user-facing update gets the same rollback the daemon's does — a
 	// --version pre-flight on the new binary, the previous build restored if it fails — so a broken
 	// release cannot land on disk from here either. (Run survives only for the startup force-install
@@ -1168,6 +1174,44 @@ func run() int {
 	// A daemon: no UI, and it stays up. The work continues while nothing is watching, which is the
 	// whole point — a UI attaches later, or several do, or none ever does.
 	if *daemonMode {
+		// An update this daemon may still be on trial for, settled BEFORE anything is published or
+		// bound — a rollback here costs nothing, and after the socket is up it costs a client.
+		//
+		// CLIENT_LIFECYCLE §9.3: a candidate is confirmed only once it has come up AND stayed up, so
+		// the generation the update restarted into keeps the build it replaced for StableWindow. A
+		// SECOND start on the same candidate is the failure this exists to catch — the first one did
+		// not last that long, so the previous build goes back on disk and the candidate is refused.
+		daemonExe, _ := os.Executable()
+		if daemonExe != "" {
+			rec, rerr := update.Resume(daemonExe, version.Version)
+			switch {
+			case rerr != nil:
+				// Not fatal: an unsettled journal is a worse update story, not a reason to refuse
+				// to serve. Said out loud because silence here is how a stuck transaction survives.
+				fmt.Fprintln(os.Stderr, "magi: the update journal could not be settled:", rerr)
+			case rec.RolledBack:
+				fmt.Fprintf(os.Stderr, "magi: %s came up but did not stay up — %s is back on disk. "+
+					"Restarting onto it; it will not be taken again on its own (`magi -update` retries it).\n",
+					rec.To, rec.From)
+				// The FILE is the previous build now; this process is still the image of the one
+				// that fell over, so the only way onto the restored build is to re-exec.
+				restartOnExit = true
+				return 0
+			case rec.Watching:
+				// A deliberate stop inside the window is not a build falling over. Without this,
+				// stopping a daemon a minute after an update would undo it on the next start.
+				defer func() { _ = update.LeftCleanly(daemonExe) }()
+				go func() {
+					select {
+					case <-ctx.Done():
+					case <-time.After(update.StableWindow):
+						if cerr := update.Confirm(daemonExe); cerr != nil {
+							fmt.Fprintln(os.Stderr, "magi: could not confirm the update:", cerr)
+						}
+					}
+				}()
+			}
+		}
 		// Join the owning lineage BEFORE publishing: the record is written once, right below, and
 		// the owner id has to be in it. A client reads the record to learn whether the daemon it
 		// found is the one it owns, and a field filled in afterwards would be absent exactly
@@ -1269,7 +1313,7 @@ func run() int {
 		if cfg.Update.AutoOn() && !*noUpdateCheck {
 			// The loop refuses a dev build and an unknown exe path itself (and says so once); the
 			// error is deliberately not fatal — a daemon that cannot self-update still serves.
-			exe, _ := os.Executable()
+			exe := daemonExe
 			// running() is true while any session has a turn in flight — App.Running returns the
 			// running session and a bool; only the bool matters here — OR a meeting round is being
 			// composed, which the run states deliberately do not cover (MeetingActive).
@@ -2974,6 +3018,11 @@ func (d daemonEngine) Update(ctx context.Context) (daemon.UpdateResult, error) {
 	// with no deadline, and a wedged download would otherwise hold its handler goroutine forever.
 	uctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
+	// Somebody pressed a button, so this is an explicit retry (§9.3) — a build this install rolled
+	// back before is allowed again from here, unlike from the six-hourly loop.
+	if rerr := update.Retry(exe); rerr != nil {
+		fmt.Fprintln(os.Stderr, "magi: could not clear the earlier rollback:", rerr)
+	}
 	res, err := update.RunCommit(uctx, newReleaseSource(), version.Version, exe)
 	if err != nil {
 		return daemon.UpdateResult{}, err

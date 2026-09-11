@@ -123,8 +123,9 @@ func writeBinary(dest string, b []byte) error {
 // Commit applies newBin over target, then verifies the result actually runs; if it does not, it
 // restores the binary that was there before and returns the error. The on-disk binary is therefore
 // only ever left as one that has PASSED the pre-flight — a bad build never becomes the one the daemon
-// would restart into. On success the previous copy is discarded and the caller may restart (see
-// internal/graceful). This is the rollback the self-update relies on.
+// would restart into. On success the previous copy is KEPT and a journal entry records the pending
+// transaction, so the caller may restart and confirm only once the new build has stayed up (see
+// journal.go: Resume, StableWindow, Confirm). This is the rollback the self-update relies on.
 // commitMu serializes Commit. Two updates can genuinely race in one daemon — the auto loop and a
 // console button press, or two console tabs — and unserialized they fight over the one .prev file:
 // one's discard deletes the other's rollback source mid-rollback, and one's KeepPrevious can save the
@@ -132,7 +133,7 @@ func writeBinary(dest string, b []byte) error {
 // ever self-updates one binary; the second caller waits the seconds the first takes.
 var commitMu sync.Mutex
 
-func Commit(newBin []byte, target string) error {
+func Commit(newBin []byte, target string, v Versions) error {
 	commitMu.Lock()
 	defer commitMu.Unlock()
 	// One absolute path for every step. Verify was handed the caller's raw string, and a bare name
@@ -176,7 +177,16 @@ func Commit(newBin []byte, target string) error {
 		discard()
 		return &RolledBackError{Err: err}
 	}
-	discard()
+	// The saved copy STAYS, and a journal entry says why. This used to be `discard()` — the pre-flight
+	// passed, so the only build known to work was deleted and the daemon then restarted onto a build
+	// that had answered `--version` and nothing more. CLIENT_LIFECYCLE §9.3 asks for the opposite
+	// order: confirm after the successor has come up and stayed up (Resume, StableWindow, Confirm),
+	// and "do not drop the backup on `--version` alone". If the journal cannot be written the install
+	// still stands — it is verified and in place — but say so, because an unrecorded transaction is
+	// one nobody can roll back.
+	if jerr := Began(abs, v); jerr != nil {
+		return fmt.Errorf("installed %s but could not record the update (rollback will not be automatic): %w", abs, jerr)
+	}
 	return nil
 }
 

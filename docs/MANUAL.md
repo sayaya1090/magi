@@ -493,6 +493,22 @@ network every six hours is one people learn to skip past. Until 2026-09-08 the l
 three the same and said nothing for any of them, which is how a release that could not run was
 retried four times a day in silence.
 
+**Passing the pre-flight is not the end of it.** `--version` answers only "this file runs" — a build
+that starts, prints a version and then cannot *serve* passes it. So a replacement now begins
+**unconfirmed**: the build it replaced stays beside it at `<binary>.prev`, the transaction is written
+to `<binary>.update.json`, and the daemon restarts. If the daemon that comes up on it **lasts sixty
+seconds**, the update is confirmed and `.prev` is dropped. If it does not — a **second** start on the
+same candidate is the evidence — the next start puts `.prev` back, restarts onto it, and records the
+candidate as refused so the automatic path stops taking it:
+
+```
+magi: dev came up but did not stay up — v0.0.1 is back on disk. Restarting onto it; it will not be taken again on its own (`magi -update` retries it).
+```
+
+A refused build is still tried again when **a person asks**: `magi -update`, or the console's update
+button, clears the mark. Stopping a daemon **on purpose** inside that window is not a build falling
+over — it is an ordinary thing to do, and reading it as a crash would undo good updates.
+
 Details that matter:
 
 - `[update] auto = false` in config turns the auto path off for that companion; the

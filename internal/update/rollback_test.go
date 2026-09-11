@@ -71,7 +71,7 @@ func TestCommitRollsBackABadBuildAndKeepsAGoodOne(t *testing.T) {
 	writeExec(t, target, goodBinary) // the currently-running, known-good binary
 
 	// A bad new build: Commit applies it, the pre-flight fails, and the good one comes back.
-	if err := Commit(badBinary, target); err == nil {
+	if err := Commit(badBinary, target, Versions{From: "v1.0.0", To: "v2.0.0"}); err == nil {
 		t.Error("Commit accepted a binary that fails pre-flight")
 	}
 	if got, _ := os.ReadFile(target); !bytes.Equal(got, goodBinary) {
@@ -84,16 +84,27 @@ func TestCommitRollsBackABadBuildAndKeepsAGoodOne(t *testing.T) {
 		t.Error("the saved-previous copy was left behind after rollback")
 	}
 
-	// A good new build: Commit takes it, and nothing is left behind.
+	// A good new build: Commit takes it, and the build it replaced STAYS until the new one has been
+	// seen to stay up (journal.go). Passing the pre-flight is not the end of the transaction.
 	newGood := []byte("#!/bin/sh\necho 'magi test v10'\nexit 0\n")
-	if err := Commit(newGood, target); err != nil {
+	if err := Commit(newGood, target, Versions{From: "v1.0.0", To: "v2.0.0"}); err != nil {
 		t.Errorf("Commit rejected a good build: %v", err)
 	}
 	if got, _ := os.ReadFile(target); !bytes.Equal(got, newGood) {
 		t.Error("after a good update the on-disk binary is not the new one")
 	}
+	if _, err := os.Stat(target + ".prev"); err != nil {
+		t.Error("the build that was replaced was thrown away before the new one proved it stays up")
+	}
+	if _, err := os.Stat(journalOf(target)); err != nil {
+		t.Error("no update journal was written, so nothing records that a rollback is possible")
+	}
+	// And confirming is what ends it.
+	if err := Confirm(target); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := os.Stat(target + ".prev"); !os.IsNotExist(err) {
-		t.Error("the saved-previous copy was left behind after a successful update")
+		t.Error("the saved-previous copy was left behind after the update was confirmed")
 	}
 }
 

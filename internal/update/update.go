@@ -99,6 +99,14 @@ func RunCommit(ctx context.Context, src Source, currentVersion, execPath string)
 	if !IsNewer(currentVersion, rel.Version) {
 		return Result{Skipped: "already up to date", From: currentVersion, To: rel.Version}, nil
 	}
+	// A build this install already ran and could not keep is not tried again on its own. Without
+	// this, a release that answers `--version` and then falls over is downloaded, installed, rolled
+	// back and downloaded again every cycle, forever — CLIENT_LIFECYCLE §9.3: "the same candidate is
+	// not re-applied automatically; a new candidate or the user's explicit retry (Retry) unblocks it".
+	if r := Refused(execPath); r != "" && r == rel.Version {
+		return Result{Skipped: "this build was rolled back on this install; run an explicit update to try it again",
+			From: currentVersion, To: rel.Version}, nil
+	}
 	bin, err := src.Download(ctx, rel.URL)
 	if err != nil {
 		return Result{}, err
@@ -117,7 +125,7 @@ func RunCommit(ctx context.Context, src Source, currentVersion, execPath string)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := Commit(bin, execPath); err != nil {
+	if err := Commit(bin, execPath, Versions{From: currentVersion, To: rel.Version}); err != nil {
 		return Result{}, err
 	}
 	return Result{Updated: true, From: currentVersion, To: rel.Version}, nil
