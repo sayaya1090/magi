@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { workspaceKey, configDir, socketDir, socketPath, tooLong } from '../core/workspace';
 
@@ -17,26 +18,32 @@ import { workspaceKey, configDir, socketDir, socketPath, tooLong } from '../core
  * this port agrees with the daemon — the acceptance environment the lifecycle work names first
  * (docs/CLIENT_LIFECYCLE §1, L02: spaces, Hangul, long paths must identify one workspace).
  *
- * The Windows goldens were printed the same way, by the core, for paths that do not exist on any
- * machine: a path that IS there resolves through its real name and the answer stops being a
- * function of the string alone. What they pin is the part that is portable — resolve, basename,
- * sanitize by rune, hash the bytes — which is where a port drifts.
+ * ⚠ **Both tables use paths that exist on no machine, and that is the load-bearing part.** A path
+ * that IS there resolves through its real name, so the answer stops being a function of the string:
+ * `/tmp` is a link to `/private/tmp` on macOS and a real directory on Linux, and its key is
+ * therefore different on the two. This table once held `/tmp`, `/etc`, `/var/log` and `/tmp/café`,
+ * printed on a Mac — so `test-vscode` was red on every CI run from the day it landed, saying
+ * `tmp-d6rgiolj !== tmp-pstqlaw1` about a port that was correct. A golden that is not the same on
+ * two machines is not a golden. What these pin is the portable part — resolve, basename, sanitize
+ * by rune, hash the bytes — which is where a port drifts.
  */
 const posixGoldens: Record<string, string> = {
-  '/tmp': 'tmp-pstqlaw1',
-  '/usr': 'usr-a74ztgfv',
-  '/Users': 'Users-cghuwblp',
-  '/var/log': 'log-clkllm93',
-  '/etc': 'etc-ydppqbth',
+  '/magi-golden/repo': 'repo-58blxov5',
+  '/magi-golden': 'magi-golden-8ubiljdj',
+  // A space, the ordinary case L02 names.
+  '/magi-golden/with space': 'with-space-b5xwsad5',
   // The root. basename("/") is "/", which sanitizes to "-", so the name opens with two dashes —
-  // the case a port written around "the basename will be empty" gets wrong.
+  // the case a port written around "the basename will be empty" gets wrong. The one existing path
+  // here, and the one whose resolution is the same everywhere.
   '/': '--ov1j1jmu',
   // Non-ASCII, and not decoration. This user's paths are Korean, and latin1-vs-utf8 is invisible
   // on every ASCII golden above — a port that hashed the wrong bytes would pass all of them and
   // fail on the first real workspace. Note the name: sanitize walks RUNES, so three Hangul
   // syllables become three dashes, not nine.
   '/프로젝트/마기': '---qeqa8hvh',
-  '/tmp/café': 'caf--4y7p2jz0',
+  '/magi-golden/프로젝트': '-----op09n61k',
+  '/magi-golden/café': 'caf--tdiwwzm6',
+  '/magi-golden/日本語': '----bpwhz3ji',
   '/nowhere/日本語': '----5xmmh9oj',
 };
 
@@ -68,15 +75,46 @@ test('symlinks are resolved, which on macOS is the ordinary case', (t) => {
   // differently and the goldens above would not match — so this asserts the same fact from the
   // other side, in case someone "fixes" the golden instead of the code.
   //
-  // Skipped where those two paths are not the same directory. On Windows they are not paths at
-  // all: both resolve under the current volume and neither is there, so the two keys differ for a
-  // reason that has nothing to do with symlink resolution.
-  if (process.platform === 'win32') {
-    t.skip('/tmp and /private/tmp are not this platform\'s paths — the symlink rule is asserted by the goldens');
+  // Skipped where those two paths are not the same directory — asked of the filesystem rather than
+  // of the platform name. On Windows neither is a path at all; on Linux `/tmp` is a real directory
+  // and `/private/tmp` is nothing, so the two keys differ for a reason that has nothing to do with
+  // symlink resolution. Naming platforms here is how this test came to fail on CI while being right.
+  if (!samePlace('/tmp', '/private/tmp')) {
+    t.skip('/tmp and /private/tmp are not one directory here — the symlink rule is asserted by the goldens');
     return;
   }
   assert.equal(workspaceKey('/tmp'), workspaceKey('/private/tmp'));
 });
+
+/**
+ * Symlink resolution, pinned on **a link this test makes** rather than on one the machine happens to
+ * have.
+ *
+ * ⚠ **The goldens above cannot carry this.** They are paths that exist nowhere, so `realpathSync`
+ * fails on every one of them and a port that skipped resolution entirely would still match all of
+ * them — measured: dropping the resolution left the whole table green. `/tmp` carried it before, and
+ * that is exactly why it was in the table and why the table was red on Linux. Made here, the fact is
+ * the same on every machine that can make a link.
+ */
+test('a directory reached through a link keys the same as the directory', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-link-'));
+  const real = path.join(root, 'real');
+  const link = path.join(root, 'link');
+  fs.mkdirSync(real);
+  try { fs.symlinkSync(real, link, 'dir'); } catch {
+    t.skip('this machine will not make a symlink (Windows without the privilege)');
+    return;
+  }
+  try {
+    assert.equal(workspaceKey(link), workspaceKey(real),
+      'one directory got two keys — the daemon and the extension would look at different sockets');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+/** Whether two paths name one directory on this machine. Answered by the filesystem, not guessed. */
+function samePlace(a: string, b: string): boolean {
+  try { return fs.realpathSync(a) === fs.realpathSync(b); } catch { return false; }
+}
 
 test('a path that is not there still gets a name', () => {
   assert.match(workspaceKey('/nowhere-at-all-1234/deep'), /^deep-[0-9a-z]{8}$/);
