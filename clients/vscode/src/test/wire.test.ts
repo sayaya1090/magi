@@ -9,26 +9,30 @@ const PROTOCOL_GO = path.join(REPO, 'internal', 'adapter', 'daemon', 'protocol.g
 const OURS = path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts');
 
 /**
- * The packages whose types cross the door, and what each one carries.
+ * Where the wire's names live.
  *
- * ⚠ **Three of these four were not being read.** The scan named the daemon package and two event
- * files, and stopped there — so a field whose tag lives anywhere else could not be verified, and
- * eleven of this client's fields were in that position: the whole `context` block
+ * ⚠ **Three of these were not being read at all.** The scan named the daemon package and two event
+ * files and stopped — so a field whose tag lives anywhere else could not be verified, and eleven of
+ * this client's fields were in that position: the whole `context` block
  * (`internal/app/context_state.go`, returned by the daemon's ContextState door as an
- * `app.ContextState`) and `refs[].lines` (`internal/core/command/command.go`, the `WireRef`
- * a submit carries). None of them was wrong — they were simply unverifiable, which reads the same
- * as verified and is not.
+ * `app.ContextState`) and `refs[].lines` (`internal/core/command`, the `WireRef` a submit carries).
+ * None of them was wrong — they were unverifiable, which reads the same as verified and is not.
  *
- * Packages rather than files, for the reason written on packageTags: naming files ages, and the
- * JetBrains side of this same check learned it when a daemon file split into six. Naming packages
- * ages more slowly but still ages — so a name this client reads and none of these declares fails
- * LOUDLY below rather than being skipped, and that failure is how a fifth package announces itself.
+ * ⚠ **A package where the package IS the wire; a file where it is not.** Naming files ages — the
+ * JetBrains side of this same check died in a release when one daemon file split into six — so a
+ * wire package is named whole. `internal/app` is not a wire package: it is the engine, and
+ * `ContextState` lives there because that is what the door happens to return. Naming it whole adds
+ * 51 tags that never cross the door, and each one is a name this check would then accept from a
+ * typo. The JetBrains build says this in the same words (`core/build.gradle.kts`, wireOrigins),
+ * and that list is what this one was reconciled against — including `internal/core/report`, which
+ * carries the ground an answer cites.
  */
 const WIRE_GO = [
-  path.join(REPO, 'internal', 'adapter', 'daemon'), // the door: requests, responses, records
-  path.join(REPO, 'internal', 'core', 'event'), //   the transcript: events and payloads
-  path.join(REPO, 'internal', 'app'), //                  what the doors return (ContextState, …)
-  path.join(REPO, 'internal', 'core', 'command'), // what a submit carries (WireRef, …)
+  path.join(REPO, 'internal', 'adapter', 'daemon'), //       the door: requests, responses, records
+  path.join(REPO, 'internal', 'core', 'event'), //           the transcript: events and payloads
+  path.join(REPO, 'internal', 'core', 'command'), //         what a submit carries (WireRef, …)
+  path.join(REPO, 'internal', 'core', 'report'), //          what an answer is grounded in (Filled, …)
+  path.join(REPO, 'internal', 'app', 'context_state.go'), // the context door's answer — the FILE
 ];
 
 /** Every `json:"name"` tag in a Go file, minus its options. */
@@ -40,15 +44,19 @@ function tags(file: string): Set<string> {
 }
 
 /**
- * Every json tag in a package, test files excluded.
+ * Every json tag under one origin, test files excluded.
  *
- * A package and not a file, and now several packages and not one — see WIRE_GO below for what
- * each carries.
+ * A directory or a single file, because WIRE_GO holds both and for a reason it writes down: a wire
+ * package is named whole so a struct moving between its files does not break this, and a wire type
+ * that lives in a package which is NOT the wire is named by its file so the rest of that package
+ * does not widen what this check accepts. The JetBrains build's wireOrigins takes both for the same
+ * two reasons.
  */
-function packageTags(dir: string): Set<string> {
+function originTags(origin: string): Set<string> {
   const out = new Set<string>();
-  for (const f of fs.readdirSync(dir)) {
-    if (f.endsWith(".go") && !f.endsWith("_test.go")) for (const t of tags(path.join(dir, f))) out.add(t);
+  if (!fs.statSync(origin).isDirectory()) return tags(origin);
+  for (const f of fs.readdirSync(origin)) {
+    if (f.endsWith('.go') && !f.endsWith('_test.go')) for (const t of tags(path.join(origin, f))) out.add(t);
   }
   return out;
 }
@@ -120,14 +128,14 @@ test('the field scanner sees the shapes a wrong name takes', () => {
  */
 test('every field we read exists on the daemon wire', () => {
   const known = new Set<string>();
-  for (const dir of WIRE_GO) {
-    assert.ok(fs.existsSync(dir), `a wire package is not at ${dir} — this scan is reading nothing`);
-    for (const t of packageTags(dir)) known.add(t);
+  for (const origin of WIRE_GO) {
+    assert.ok(fs.existsSync(origin), `a wire origin is not at ${origin} — this scan is reading nothing`);
+    for (const t of originTags(origin)) known.add(t);
   }
 
   // The walk asserts it found a wire at all. Reading zero tags and reporting zero mismatches is
   // the shape this whole test exists to prevent.
-  assert.ok(known.size >= 200, `only ${known.size} json tags found across the wire packages — the scan is broken`);
+  assert.ok(known.size >= 180, `only ${known.size} json tags found across the wire origins (199 at last count) — the scan is broken`);
 
   const ours = ourFields();
   // The floor is near the real number, not at 1. It was 15 while the scanner saw 79 of 122 names,
