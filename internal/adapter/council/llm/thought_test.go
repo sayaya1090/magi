@@ -44,7 +44,7 @@ func TestAMemberThatOnlyThoughtStillSaysWhatItThought(t *testing.T) {
 		if !v.Silent {
 			t.Errorf("%s: 답이 없었는데 답이 있다고 한다", v.Member)
 		}
-		if v.Thought != musing {
+		if v.Member == d.Verdicts[0].Member && !strings.Contains(v.Thought, musing) {
 			t.Errorf("%s: 생각이 안 실렸다 — %q", v.Member, v.Thought)
 		}
 	}
@@ -91,20 +91,16 @@ func TestAnAnsweringMemberKeepsBothItsAnswerAndItsThinking(t *testing.T) {
 	}
 }
 
-// Reasoning is the longest thing a provider sends, and this one goes into the transcript — every
-// surface and every replay pays for its length. The walk's bound, for the walk's reason.
-func TestAVeryLongThoughtIsBounded(t *testing.T) {
-	huge := strings.Repeat("thinking. ", 4000)
+func TestLongThoughtRemainsComplete(t *testing.T) {
+	huge := strings.Repeat("검증 기록을 확인하고 판단한다. ", 4000)
 	c := New(only(thinker{thought: huge}), "m")
-	d, _ := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x",
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "do x",
 		Members: []council.Member{{Name: "Melchior", Lens: "correctness"}}})
-	for _, v := range d.Verdicts {
-		if len(v.Thought) > 1300 {
-			t.Errorf("%s: 생각이 %d 바이트 그대로 전사에 실린다", v.Member, len(v.Thought))
-		}
-		if len(v.Thought) < 100 {
-			t.Errorf("%s: 자르다 못해 없앴다 — %d 바이트", v.Member, len(v.Thought))
-		}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.Verdicts[0].Thought; got != strings.TrimSpace(huge) {
+		t.Fatalf("thought truncated: got %d bytes, want %d", len(got), len(strings.TrimSpace(huge)))
 	}
 }
 
@@ -170,5 +166,32 @@ func TestADebateRoundDoesNotThrowAwayWhatTheMemberThought(t *testing.T) {
 		if v.Thought != "their reading of the spec is better than mine" {
 			t.Errorf("%s: 반박 뒤인데 첫 라운드의 생각이 서 있다 — %q", v.Member, v.Thought)
 		}
+	}
+}
+
+func TestAnsweringPanelKeepsSharedThinkingOnce(t *testing.T) {
+	c := New(only(thinker{thought: "shared panel thinking", say: replyWith(
+		[3]string{"Melchior", "correctness", "done"},
+		[3]string{"Balthasar", "verification", "continue"},
+		[3]string{"Casper", "completeness", "done"},
+	)}), "m")
+	d, err := c.Deliberate(context.Background(), port.DeliberationRequest{Round: 1, Task: "review"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shown := 0
+	for _, v := range d.Verdicts {
+		if v.Thought != "" {
+			shown++
+			if !strings.Contains(v.Thought, "shared reasoning") || !strings.Contains(v.Thought, "shared panel thinking") {
+				t.Fatalf("panel thought lost or attributed to a member: %q", v.Thought)
+			}
+		}
+	}
+	if shown != 1 {
+		t.Fatalf("shared thought displayed %d times, want once", shown)
+	}
+	if d.Decision != council.Done {
+		t.Fatalf("reasoning changed votes: %s", d.Decision)
 	}
 }

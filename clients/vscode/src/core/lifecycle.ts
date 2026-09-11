@@ -64,8 +64,9 @@ export class OwnedCompanion {
     }
     if (this.closed) return;
     if (!failure && await this.reachable()) { this.external = true; return; }
+    const reason = failure?.message ?? (alive(child) ? 'timed out after 30s' : `exit ${child.exitCode ?? child.signalCode}`);
     await this.stop(child);
-    throw new Error(`Companion failed to start: ${failure?.message ?? (alive(child) ? 'timed out' : `exit ${child.exitCode ?? child.signalCode}`)}. Log: ${log}`);
+    throw new Error(`Companion failed to start: ${reason}. Log: ${log}`);
   }
 
   private publishedPID(): number | undefined {

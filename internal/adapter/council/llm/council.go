@@ -346,7 +346,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		}
 		// The thought rides out beside the reply and never through it. `parseReply` has already
 		// run on `b` alone above; this value has not been near it.
-		return r, b.String(), clipThought(reasoning), ok, nil
+		return r, b.String(), thoughtText(reasoning), ok, nil
 	}
 
 	r, raw, thought, ok, err := ask(user)
@@ -415,14 +415,9 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 // rebuttal can only refine consensus, never lose a vote to a flaky re-poll.
 // clipWalk bounds the walk written to the log. The walk is an audit record, not the verdict, and a
 // member that enumerates thirty requirements should not push the rest of the run out of the log.
-// clipThought bounds a member's reasoning before it becomes a fact.
-//
-// Unlike the walk, this one goes into the transcript, so every surface and every replay pays for
-// its length — and reasoning is the longest thing a provider sends. The bound is the walk's, for
-// the same reason: enough to see what the member was working on, not the whole of it.
-func clipThought(s string) string {
-	return clipWalk(strings.TrimSpace(s))
-}
+// thoughtText preserves the complete provider reasoning for transcript replay.
+// Log summaries remain bounded separately by clipWalk.
+func thoughtText(s string) string { return strings.TrimSpace(s) }
 
 func clipWalk(s string) string {
 	const n = 1200
@@ -487,7 +482,7 @@ func (c *Council) pollRebut(ctx context.Context, req port.DeliberationRequest, m
 	// The thought travels too, and for the same reason Cite's comment gives: this is the second
 	// place a verdict is built, and a field assigned only in the first one vanishes for EVERY
 	// member the moment a debate round happens.
-	v.Thought = clipThought(reasoning)
+	v.Thought = thoughtText(reasoning)
 	return v
 }
 

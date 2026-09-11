@@ -23,9 +23,9 @@ func TestEachVerdictIsShownWhenItLandsWithoutChangingTheRecord(t *testing.T) {
 		Round: 1, Decision: council.Done,
 		Breakdown: council.Breakdown{Done: 3, Voters: 3, Rule: council.RuleMajority},
 		Verdicts: []council.Verdict{
-			{Member: "Melchior", Lens: "correctness", Decision: council.Done},
-			{Member: "Balthasar", Lens: "verification", Decision: council.Done},
-			{Member: "Casper", Lens: "completeness", Decision: council.Done},
+			{Member: "Melchior", Lens: "correctness", Decision: council.Done, Thought: "member reasoning"},
+			{Member: "Balthasar", Lens: "verification", Decision: council.Done, Thought: "member reasoning"},
+			{Member: "Casper", Lens: "completeness", Decision: council.Done, Thought: "member reasoning"},
 		},
 	}}}
 	a, sid, _ := newWorkflowApp(t, nil, &scriptPlatform{}, Config{Permission: "allow", Council: fc})
@@ -59,10 +59,10 @@ func TestEachVerdictIsShownWhenItLandsWithoutChangingTheRecord(t *testing.T) {
 	if fc.lastReq.OnVerdict == nil {
 		t.Fatal("no OnVerdict was handed to the council, so nothing can be shown before the batch")
 	}
-	fc.lastReq.OnVerdict(council.Verdict{Member: "Melchior", Lens: "correctness", Decision: council.Done})
+	fc.lastReq.OnVerdict(council.Verdict{Member: "Melchior", Lens: "correctness", Decision: council.Done, Thought: "live reasoning"})
 	select {
 	case got := <-live:
-		if got.Member != "Melchior" || got.Decision != string(council.Done) {
+		if got.Member != "Melchior" || got.Decision != string(council.Done) || got.Thought != "live reasoning" {
 			t.Errorf("the live verdict is wrong: %+v", got)
 		}
 	case <-time.After(2 * time.Second):
@@ -82,6 +82,9 @@ func TestEachVerdictIsShownWhenItLandsWithoutChangingTheRecord(t *testing.T) {
 		var d event.CouncilVerdictData
 		if json.Unmarshal(e.Data, &d) == nil {
 			seen[d.Member]++
+			if d.Thought != "member reasoning" {
+				t.Errorf("stored thought lost: %+v", d)
+			}
 		}
 	}
 	if len(seen) != 3 {

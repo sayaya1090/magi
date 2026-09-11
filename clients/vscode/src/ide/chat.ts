@@ -496,10 +496,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.75; margin-top:2px;
     max-height:9em; overflow:auto; }
   .keep { font-size:.9em; opacity:.75; margin-top:2px; }
-  /* Reasoning keeps its line breaks — a model that thought in steps is unreadable run together —
-     and is capped like the cite so one member's thinking cannot push the round off screen. */
+  /* Keep reasoning in the outer transcript flow, including its original line breaks. */
   .thought { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.6;
-    margin-top:2px; white-space:pre-wrap; max-height:9em; overflow:auto; }
+    margin-top:2px; white-space:pre-wrap; }
   /* An image row carries a path, not the picture — the same font as a tool row, because that is
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
@@ -808,7 +807,7 @@ window.addEventListener('message', (e) => {
   else if (m.kind === 'suggestion') {
     /* Ghost text for the composer. Tab takes it — the same key the terminal uses. */
     suggestion = m.text || '';
-    hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
+    hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\\n')[0].slice(0, 60) : '';
   }
   else if (m.kind === 'state') drawState(m.note);
   else if (m.kind === 'info') { info = m; drawInfo(); }
@@ -850,7 +849,7 @@ say.addEventListener('input', () => {
   /* An @name at the start of a word asks the companion which files match. Two characters at
      least, because one matches everything and the list would be the whole workspace.
      (No backticks in here: this script lives in a template literal and one would close it.) */
-  const at = /(^|\s)@([^\s@]{2,})$/.exec(v);
+  const at = /(^|\\s)@([^\\s@]{2,})$/.exec(v);
   typing = setTimeout(() => {
     if (at) vs.postMessage({ kind: 'mention', text: at[2] });
     else if (v.trim().length > 3) vs.postMessage({ kind: 'suggest', text: v });

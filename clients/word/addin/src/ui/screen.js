@@ -479,7 +479,7 @@ export function councilHead(r) {
 export function councilBody(r) {
   const c = r?.council;
   if (!c) return '';
-  if (c.stage === 'verdict') return c.rationale ?? '';
+  if (c.stage === 'verdict') return [c.rationale, c.thought ? `생각 (판정 아님)\n${c.thought}` : ''].filter(Boolean).join('\n\n');
   if (c.stage === 'decided') return [c.note, c.feedback].filter(Boolean).join('\n');
   return '';
 }

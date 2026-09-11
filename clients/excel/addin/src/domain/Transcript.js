@@ -354,6 +354,7 @@ export class Transcript {
           && r.council.round === c.round && r.council.member === c.member && r.council.decision === c.decision);
         if (same) {
           if (ev?.seq > 0 && ev.seq > same.seq) same.seq = ev.seq;
+          if (c.thought) same.council.thought = c.thought;
           if (c.rationale && !same.council.rationale) same.council.rationale = c.rationale;
           return same;
         }
@@ -545,6 +546,7 @@ function councilOf(ev, type) {
     lens: typeof d.lens === 'string' ? d.lens : '',
     decision: typeof d.decision === 'string' ? d.decision : '',
     rationale: typeof d.rationale === 'string' ? d.rationale : '',
+    thought: typeof d.thought === 'string' ? d.thought : '',
     // **말 없는 표를 「기권했다」로 적지 않는다**(`CouncilVerdictData.Silent`) — 백엔드가
     // 죽었거나 답을 못 읽은 것이라, 판단한 기권과 다른 사실이다.
     silent: d.silent === true,
