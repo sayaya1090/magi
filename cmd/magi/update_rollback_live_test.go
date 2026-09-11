@@ -71,7 +71,7 @@ func TestABuildThatDoesNotStayUpIsRolledBackOnTheNextStart(t *testing.T) {
 	if err := one.Process.Kill(); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = one.Process.Wait()
+	_ = one.Wait()
 
 	// Generation two: the same candidate, started again. That is the evidence — the first one did
 	// not last its window.
@@ -161,7 +161,7 @@ func TestADeliberateStopInsideTheWindowIsNotARollback(t *testing.T) {
 	if err := one.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	_, _ = one.Process.Wait()
+	_ = one.Wait()
 	// Its socket goes with it, so the wait below cannot be satisfied by the one that just left.
 	for i := 0; i < 100; i++ {
 		if _, serr := os.Stat(sock); os.IsNotExist(serr) {
@@ -182,8 +182,13 @@ func TestADeliberateStopInsideTheWindowIsNotARollback(t *testing.T) {
 	// Watch for the daemon coming up AND for it leaving, because leaving is exactly the defect: a
 	// start that rolls the update back exits instead of serving, and waiting only for a socket would
 	// report that as "never came up" — true, and the wrong sentence to hand whoever reads it.
+	//
+	// ⚠ **`cmd.Wait`, not `Process.Wait`.** The buffer below is filled by the goroutines `exec` starts
+	// to copy the child's output, and only `cmd.Wait` joins them. Reaping the PID directly leaves them
+	// running, so reading the buffer races the copy — which is what `-race` said on CI (and only
+	// there: a local run without `-race` passed every time).
 	left := make(chan struct{})
-	go func() { _, _ = two.Process.Wait(); close(left) }()
+	go func() { _ = two.Wait(); close(left) }()
 	deadline := time.After(30 * time.Second)
 	up := false
 	for !up {
