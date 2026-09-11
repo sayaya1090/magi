@@ -46,6 +46,38 @@ class SourceTextTest {
     }
 
     /**
+     * **에디터 폰트로 직접 그리면 한글이 두부가 된다.**
+     *
+     * `Graphics.drawString` 은 **주어진 폰트 하나로만** 그린다 — 스윙 라벨이나 플랫폼 인레이가
+     * 알아서 하는 폰트 폴백이 거기엔 없다. 그리고 IDE 의 기본 에디터 폰트인 JetBrains Mono 에는
+     * 한글 글리프가 **하나도** 없다.
+     *
+     * 실측(2026-09-11, IDE 배포판이 번들한 `JetBrainsMono-Italic.ttf` 를 직접 열어서):
+     *
+     *     Font.canDisplayUpTo("한글이 깨진다") = 0      ← 첫 글자부터 못 그린다
+     *
+     * 사용자 보고와 맞는다 — 「에이전트 의견」이 한국어면 통째로 네모였다. 맥의 **시스템**
+     * 폰트는 자바가 합성해 주므로 이 기계의 화면으로는 재현되지 않는다.
+     *
+     * 폭과 그림이 **같은 폰트**여야 하는 것도 같이 붙든다: 하나만 바꾸면 인레이가 제 글자보다
+     * 좁거나 넓게 자리를 잡는다.
+     */
+    @Test
+    fun `인레이가 글리프 없는 글자를 대체 폰트로 넘긴다`() {
+        val f = sources.first { it.name == "LookInlays.kt" }
+        val src = code(f)
+        assertTrue("drawString" in src, "인레이가 글자를 안 그린다 — 이 규칙이 없는 것을 잰다")
+        assertTrue("getFontWithFallback" in src,
+            "에디터 폰트를 그대로 drawString 에 준다 — JetBrains Mono 에 한글 글리프가 없어 두부가 된다")
+        assertEquals(
+            1, Regex("""private fun font\(""").findAll(src).count(),
+            "폰트를 고르는 자리가 여럿이다 — 폭과 그림이 다른 폰트를 쓰게 된다",
+        )
+        val uses = Regex("""font\(ed\)""").findAll(src).count()
+        assertTrue(uses >= 2, "폭이나 그림 중 하나가 그 폰트를 안 쓴다 (font(ed) $uses 곳)")
+    }
+
+    /**
      * **다시 붙기까지 기다리는 시간도 계약의 것이다.**
      *
      * 여기 1초·배증·30초가 손으로 적혀 있었고 VS Code 에도 같은 두 수가 따로 적혀 있었다.

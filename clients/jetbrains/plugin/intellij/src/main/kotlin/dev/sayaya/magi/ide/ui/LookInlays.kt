@@ -92,7 +92,30 @@ internal object LookInlays {
                 )?.foregroundColor
         }
 
-        private fun font(ed: Editor) =
-            ed.colorsScheme.getFont(com.intellij.openapi.editor.colors.EditorFontType.ITALIC)
+        /**
+         * 에디터의 이탤릭 폰트 — **글리프가 없는 글자는 대체 폰트로 넘긴다.**
+         *
+         * ⚠ **에디터 폰트를 그대로 [Graphics.drawString] 에 주면 한글이 두부(□)가 된다.**
+         * `drawString` 은 주어진 폰트 하나로만 그린다 — 스윙의 라벨이나 플랫폼의 인레이가
+         * 자동으로 하는 폰트 폴백이 여기엔 없다. 그리고 IDE 의 기본 에디터 폰트인 JetBrains
+         * Mono 에는 한글 글리프가 아예 없다.
+         *
+         * 실측(2026-09-11, IDE 배포판이 번들한 `jbr/.../fonts/JetBrainsMono-Italic.ttf` 를 직접
+         * 열어서):
+         *
+         *     Font.canDisplayUpTo("한글이 깨진다") = 0
+         *
+         * 0 은 **첫 글자부터** 못 그린다는 뜻이다. 그래서 「에이전트 의견」이 한국어면 통째로
+         * 네모가 됐다(사용자 보고). 맥의 **시스템** 폰트(Menlo 등)는 자바가 합성해 주므로 이
+         * 기계에서 화면으로는 재현되지 않는다 — 번들 폰트 파일을 직접 재야 보인다.
+         *
+         * [UIUtil.getFontWithFallback] 이 플랫폼이 같은 문제에 쓰는 그 손이다.
+         *
+         * ⚠ 폭과 그림이 **같은 폰트**여야 한다. 하나만 바꾸면 인레이가 제 글자보다 좁거나 넓게
+         * 자리를 잡고, 옆 글자를 덮거나 빈칸을 남긴다.
+         */
+        private fun font(ed: Editor) = com.intellij.util.ui.UIUtil.getFontWithFallback(
+            ed.colorsScheme.getFont(com.intellij.openapi.editor.colors.EditorFontType.ITALIC),
+        )
     }
 }
