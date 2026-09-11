@@ -53,7 +53,7 @@ flowchart LR
 
 본문 해시가 같아도 독립된 증거는 추가할 수 있습니다. 반대로 같은 observation_id를 재전송해도 사용·성공 횟수를 늘리지 않습니다. 조회·로딩·사용·검증 성공을 다른 지표로 저장합니다. 같은 스킬을 로드한 턴이 성공했다는 사실만으로 스킬의 인과적 기여를 확정하지 않습니다.
 
-연산은 propose, reinforce, merge, correct, withdraw, restore입니다. 모든 변경은 actor·사유·부모를 남깁니다. 로컬 숨김·보관·pin은 자동 공유하지 않습니다. 자동 공유 범위 확대는 금지합니다.
+연산은 propose, reinforce, merge, correct, withdraw, restore입니다. 모든 변경은 actor·사유·부모를 남깁니다. 숨김·pin은 개인 복구 원장으로 본인 기기에만 전파하며, 자동 보관은 기기별로 유지합니다(§3.3). 자동 공유 범위 확대는 금지합니다.
 
 호스트 API는 `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(plan, expectedHeadsById)`, `Withdraw(id, heads, reason)`, `Recall(query, principal, budget)`로 구분합니다. 반환에는 operation_id·현재 heads·로컬 반영 상태·공유 전파 상태를 포함합니다. stale-head·permission-denied·evidence-rejected·pending-dependencies는 구별된 결과이며 성공으로 삼키지 않습니다. 이 이름은 제안된 포트 계약입니다.
 
@@ -71,6 +71,7 @@ flowchart LR
     quarantine/
     incoming/
     views/objects/<object-uuid>.md
+  private/<user-id>/operations/
   local/
     state.sqlite
     index.sqlite
@@ -88,7 +89,7 @@ flowchart LR
 | snapshots/ | 특정 연산 집합에서 계산한 heads·상태의 검증 가능한 checkpoint입니다. 보관 정책 충족 전 연산 원장을 대체하거나 지우지 않습니다. |
 | quarantine/, incoming/ | 권한·해시 검증 전 파일과 불완전한 batch입니다. 검색·보기·다른 peer 재전송에서 제외합니다. |
 | views/ | 객체 ID로 생성한 Markdown입니다. 사람이 읽는 용도이며 망가져도 원장에서 복구합니다. |
-| local/state.sqlite | 로컬 pin·숨김·실제 사용 시각·import manifest·동기화 acknowledgment 등 기기 상태입니다. 복제하지 않으며 로컬 백업 대상입니다. 검색 캐시처럼 삭제하면 안 됩니다. |
+| local/state.sqlite | 로컬 pin·숨김·실제 사용 시각·import manifest·동기화 acknowledgment 등 기기 상태입니다. DB 파일은 복제하지 않습니다. 숨김·pin의 개인 원장은 본인 기기 간 복구하며 기기 관측은 로컬 백업합니다(§3.3). |
 | local/index.sqlite | 현재 객체, 검색 토큰·n-gram, 임베딩 캐시입니다. 재구축 가능하고 복제하지 않습니다. |
 | .magi/knowledge.json | workspace→project namespace UUID 및 연결한 team namespace UUID 목록입니다. 자격 증명은 넣지 않습니다. 공유 저장소에서 받은 연결 정보만으로 접근을 승인하지 않습니다. |
 
@@ -96,7 +97,7 @@ project/team/global은 파일 경로 계층 대신 namespace의 범위와 연결
 
 SQLite는 **로컬 디스크 전용**입니다. SQLite WAL은 네트워크 파일시스템에서 공유하는 방식으로 사용하지 않습니다. [SQLite WAL 문서](https://www.sqlite.org/wal.html)를 근거로, 네트워크 workspace도 원장·DB는 로컬 config에 두고 보기 export만 그 workspace에 둡니다. DB 파일 복제는 exp-sync의 역할이 아닙니다.
 
-Go SQLite 드라이버는 구현 A에서 FTS5 지원, Windows/macOS/Linux 패키징, 현재 빌드 도구와의 호환을 검증한 뒤 고정합니다. 이 문서는 검증하지 않은 드라이버 도입을 완료로 취급하지 않습니다.
+**드라이버는 `modernc.org/sqlite`로 고정합니다.** [.goreleaser.yaml](../.goreleaser.yaml)의 `CGO_ENABLED=0`, darwin/linux/windows × amd64/arm64 여섯 타깃을 유지해야 합니다. CGO-free는 필수 제약이며, 이 설계에서는 [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite)를 선택합니다. 구현 A는 호환 버전과 해당 버전의 libc 의존성을 고정하고 여섯 타깃의 빌드, 각 OS의 DB 열기·FTS5·복구 시험을 수행합니다. 드라이버 도입을 위해 CGO를 켜거나 릴리스 타깃을 줄이지 않습니다.
 
 ### 3.2 JSON과 로컬 DB의 구체 형태
 
@@ -172,13 +173,23 @@ Go SQLite 드라이버는 구현 A에서 FTS5 지원, Windows/macOS/Linux 패키
 |---|---|
 | objects | (namespace_id, object_id) PK; heads_digest, kind, state, policy_id, current_payload, exact_fingerprint |
 | aliases | (namespace_id, alias_id) PK; canonical_id. 순환은 수신·적용 시 거절합니다. |
-| evidence | (namespace_id, object_id, observation_id) UNIQUE; source_ref, outcome |
+| evidence | (namespace_id, canonical_object_id, observation_id) UNIQUE; source_ref, outcome; evidence_sources (§3.3) |
 | search_text | 객체의 claim/conditions/procedure/verification에 대한 FTS5 인덱스입니다. |
 | search_grams | namespace_id, object_id, field, gram, count. 한국어 짧은 질의와 식별자 조각 후보 검색용입니다. |
 | embeddings | (namespace_id, object_id, revision_id, model_digest, dimensions, input_digest) PK; float32 vector |
 | indexed_operations | (namespace_id, operation_hash) PK. 재시작 시 원장과 대조해 누락분만 재생합니다. |
 
 인덱스의 반영 완료와 성공 응답을 구분합니다. 로컬 쓰기 직후의 조회는 그 operation의 인덱싱을 기다리거나 원장 overlay로 답해 “저장됐지만 아직 안 보임”을 막습니다. ACL·철회 변경은 인덱스 갱신 전에도 최종 권한·상태 검사에 즉시 반영합니다.
+
+### 3.3 개인 상태 복구와 병합 evidence
+
+**숨김은 사용자 의도이고 사용 시각은 기기 관측입니다.** 둘을 분리합니다. 기본 숨김·pin·명시적 해제는 사용자 전용 preference 연산으로 기록하고 본인이 승인한 기기에만 암호화해 복제합니다. 팀에는 보내지 않습니다. 자동 cold/archive·사용 시각·동기화 cursor는 기기별 상태로 유지합니다. 사용자가 명시적으로 “이 기기에서만 숨김”을 고른 경우에는 이동하지 않는다고 표시합니다.
+
+`state.sqlite`는 개인 preference 원장의 로컬 투영과 기기별 관측을 보관합니다. 개인 원장은 `<config>/knowledge/v2/private/<user-id>/operations/`에 두며 공유 namespace와 분리합니다. namespace_id·원본 object_id를 참조하고 병합 alias를 따라 숨김을 적용합니다. 서로 다른 사용자의 숨김은 합치지 않습니다. 같은 사용자의 동시 hide/unhide에서는 hide가 우선하며, 명시적 unhide는 관찰한 hide 연산을 부모로 지정합니다.
+
+새 기기·재설치는 본인 기기 또는 암호화된 백업에서 preference 원장과 복구 키를 받아 DB를 재구축한 뒤 공유 지식의 자동 회상을 켭니다. 복구가 끝나지 않으면 `preferences-unavailable`로 표시하고 공유 지식의 자동 주입만 보류합니다. 빈 DB를 “숨긴 항목 없음”으로 해석하지 않습니다. 기존 기기·백업·키가 전부 없으면 복원이 불가능함을 표시하며, 사용자가 명시적으로 개인 상태 초기화를 선택해야 재개합니다. 최초 가입도 새 상태 생성을 명시적으로 기록합니다. DB를 잃어도 숨김이 조용히 풀리지 않는 것이 인수 조건입니다.
+
+**병합 evidence의 키는 정본 ID로 해석합니다.** A와 B를 C로 병합하면 `(namespace_id, canonical_object_id, observation_id)`의 합집합으로 집계하고, 같은 observation은 한 번만 셉니다. 두 객체가 각각 관찰 X,Y와 Y,Z를 가지면 C는 세 관찰입니다. 원본 객체·revision별 출처 연결은 별도 `evidence_sources` 테이블에 보존합니다. 같은 observation_id인데 outcome·source payload가 다르면 덮어쓰지 않고 증거 충돌로 보류하며 성공 횟수에 넣지 않습니다. alias 변경과 evidence 투영은 같은 인덱스 트랜잭션에서 갱신하고, 재생·반복 병합에도 수가 증가하지 않아야 합니다.
 
 ## 4. 병합 규칙
 
@@ -259,6 +270,16 @@ cold/archive는 기기별 사용 이력으로 계산하며 다른 사용자의 �
 
 복제본의 물리 삭제나 상대의 외부 백업 삭제까지 보장하지 않습니다. 화면은 “로컬 반영 / 공유 전파 대기 / 확인한 기기 수”를 구분합니다. 영구 삭제의 tombstone은 모든 승인 복제본의 확인 또는 미응답 기기 철회 전까지 제거하지 않습니다. 철회된 기기의 재가입은 최신 snapshot을 받아야 합니다. Git export는 내용 삭제 전파의 보장 범위 밖입니다.
 
+### 6.1 원장 보존·압축·본문 삭제
+
+초기 보존 정책은 **활성 정본과 근거는 유지, superseded 본문은 90일 뒤 압축 후보, withdrawn 본문은 30일 복구 유예 뒤 삭제 후보**입니다. cold/archive만으로 원본을 삭제하지 않습니다. namespace 관리자가 정책을 명시적으로 활성화해야 실제 본문 GC가 돌며, 기본은 후보와 예상 회수량만 표시합니다. 수동 영구 삭제는 30일 유예를 생략할 수 있지만 권한·복제 확인은 생략하지 않습니다. 사용자에게 철회(즉시 회상 차단)와 본문 삭제(별도 완료 상태)를 구분합니다.
+
+GC는 관리자 서명 checkpoint에 활성 정본·필요한 근거·alias·최소 tombstone과 포함된 연산 집합의 Merkle root, GC 대상 해시, 복제 epoch를 기록합니다. 모든 승인 복제본이 checkpoint를 내구 저장했다고 확인하거나 미응답 기기를 관리자가 철회한 뒤 commit합니다. 단순히 시각이 지났다는 이유로 확인을 가정하지 않습니다. checkpoint 이전 parent는 해당 checkpoint가 보증한 집합으로 검증하며, 예전 연산을 다시 받으라고 요구하지 않습니다. 새 기기·철회 후 재가입 기기는 최신 checkpoint에서 시작하고 이전 epoch의 연산을 재주입하지 못합니다.
+
+commit된 checkpoint를 fsync한 뒤 대상 원장 파일·미참조 blob·옛 snapshot·생성 보기·임베딩·검색 캐시의 본문을 제거합니다. **서명된 연산을 부분 수정하지 않습니다.** 삭제할 본문이 다른 활성 객체와 같은 연산 파일에 있으면 필요한 활성 상태를 checkpoint에 보존한 뒤 파일 전체를 제거합니다. checkpoint도 삭제 대상 본문을 담지 않아야 합니다. stage별 GC journal로 중단 후 이어서 정리하며, 재기동이 GC 대상 파일을 다시 인덱싱하지 않게 합니다. SQLite의 WAL·freelist를 포함한 로컬 저장 정리도 시험하고, 일반 파일 삭제를 SSD의 포렌식 소거 보장으로 표시하지 않습니다.
+
+부활 방지를 위한 최소 tombstone(object_id·철회 연산 ID·epoch·권한 증명)은 기본적으로 만료시키지 않습니다. 원문·요약·민감한 reason은 남기지 않습니다. 옛 원장 본문이 필요한 복원은 유예 종료 뒤에는 지원하지 않습니다. 복구 가능하다는 기존 설명은 보존 중인 판에 한정됩니다. 관리 백업은 최대 30일 순환 보존으로 두고, 복원 전에 최신 GC manifest를 적용해 삭제한 본문을 서비스에 되살리지 않습니다. 따라서 삭제 상태는 “실행 저장소 정리 완료 / 관리 백업 만료 대기 / 확인하지 못한 외부 사본”으로 표시합니다. 외부 export·권한 없는 사본의 삭제는 보장하지 않습니다.
+
 ## 7. 데몬 간 공유
 
 기존 TLS fleet door와 기기 인증을 재사용해 experience-v2 capability를 추가합니다. 실시간 변경 알림 후 batch 전송하고, 기존 5분 anti-entropy로 누락을 복구합니다. 네트워크가 없어도 로컬 저장은 완료하고 공유 상태만 pending으로 둡니다.
@@ -312,5 +333,9 @@ v1 peer에는 v2가 관리하는 객체를 내보내지 않습니다. tombstone�
 | M08 권한 | 다른 namespace·위조 actor·철회 키·ACL 확대·악성 경로·해시 변조를 거절합니다. 구형 peer가 tombstone을 우회하지 못합니다. |
 | M09 규모 | 1만 객체에서 warm 로컬 후보 검색 p95 200ms를 초기 목표로 측정합니다. 임베딩 원격 시간은 따로 보고하며 회상 3000토큰을 지킵니다. |
 | M10 이행 | import 2회·보기 재생성·사용자 편집·롤백에서 원문과 출처를 잃거나 재학습 중복을 만들지 않습니다. |
+| M11 릴리스 | CGO_ENABLED=0으로 여섯 타깃 빌드 및 각 OS의 SQLite·FTS5·복구 시험을 통과합니다. |
+| M12 개인 복구 | state.sqlite 삭제·새 기기·재설치·키 유실에서 숨김이 조용히 풀리지 않으며, 복구 또는 명시적 초기화 뒤에만 공유 자동 회상을 재개합니다. |
+| M13 본문 GC | 유예 전후, peer 미응답·철회·재가입, GC 단계 강제 종료, DB/WAL·백업 복원에서 본문 보존 기한과 비부활을 확인합니다. |
+| M14 병합 근거 | A={X,Y}, B={Y,Z} 병합·재생·재병합 후 관측은 3개이며, 같은 ID의 서로 다른 evidence payload는 충돌로 남습니다. |
 
-출시 보고는 정본/중복 후보/충돌 수, 자동 병합 오류, 철회 후 재등장, 범위 밖 노출, 검색 누락, 전파 지연을 기록합니다. 문장 수 감소만으로 성공을 판단하지 않습니다. M01–M08·M10은 필수이며, M09 성능은 하드웨어·모델·코퍼스를 함께 명시합니다.
+출시 보고는 정본/중복 후보/충돌 수, 자동 병합 오류, 철회 후 재등장, 범위 밖 노출, 검색 누락, 전파 지연을 기록합니다. 문장 수 감소만으로 성공을 판단하지 않습니다. M01–M08·M10–M14는 필수이며, M09 성능은 하드웨어·모델·코퍼스를 함께 명시합니다.

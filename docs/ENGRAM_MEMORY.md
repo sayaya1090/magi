@@ -53,7 +53,7 @@ flowchart LR
 
 Identical content may have additional independent evidence. Replaying an observation_id must not increase usage/success counts. Track retrieval, loading, application and verified success separately. A successful turn that loaded a skill does not by itself prove the skill caused success.
 
-Operations are propose, reinforce, merge, correct, withdraw and restore. Every change records actor, reason and parents. Local hiding, archiving and pins are not automatically shared. Automatic widening of visibility is prohibited.
+Operations are propose, reinforce, merge, correct, withdraw and restore. Every change records actor, reason and parents. Hide/pin preferences replicate only to personal devices through the recovery log; automatic archiving remains device-local (§3.3). Automatic widening of visibility is prohibited.
 
 Proposed host ports are `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(plan, expectedHeadsById)`, `Withdraw(id, heads, reason)` and `Recall(query, principal, budget)`. Return operation_id, current heads, local completion and propagation state. Distinguish stale-head, permission-denied, evidence-rejected and pending-dependencies instead of reporting success. These are proposed interfaces.
 
@@ -71,6 +71,7 @@ Proposed host ports are `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(
     quarantine/
     incoming/
     views/objects/<object-uuid>.md
+  private/<user-id>/operations/
   local/
     state.sqlite
     index.sqlite
@@ -88,7 +89,7 @@ Proposed host ports are `Propose(observation)`, `PlanMerge(ids, heads)`, `Apply(
 | snapshots/ | Verifiable heads/state checkpoints over a specified operation set. Do not replace/delete the log before retention requirements are met. |
 | quarantine/, incoming/ | Unverified files and incomplete batches. Exclude from retrieval, views and forwarding. |
 | views/ | Object-ID Markdown for people; rebuildable from the log. |
-| local/state.sqlite | Local pins, hiding, actual-use timestamps, import manifest and sync acknowledgments. Not replicated; requires local backup and must not be discarded as a cache. |
+| local/state.sqlite | Local pins, hiding, actual-use timestamps, import manifest and sync acknowledgments. Do not replicate the database file. Recover the private hide/pin log across personal devices; back up device observations locally (§3.3). |
 | local/index.sqlite | Current objects, search tokens/n-grams and embedding cache. Rebuildable and not replicated. |
 | .magi/knowledge.json | Workspace→project namespace UUID and connected team namespace UUIDs. Contains no credentials; received bindings do not authorize access. |
 
@@ -96,7 +97,7 @@ Project/team/global become namespace scopes and bindings rather than authoritati
 
 SQLite is **local-disk only**. Do not share a WAL database over a network filesystem. Following the [SQLite WAL documentation](https://www.sqlite.org/wal.html), network workspaces keep logs/databases in local config and only export views into the workspace. exp-sync does not replicate database files.
 
-Work package A selects and pins a Go SQLite driver after verifying FTS5, Windows/macOS/Linux packaging and build compatibility. An untested driver choice is not a completed dependency decision.
+**Use `modernc.org/sqlite`.** Preserve [.goreleaser.yaml](../.goreleaser.yaml)'s `CGO_ENABLED=0` and all six darwin/linux/windows × amd64/arm64 targets. CGO-free is mandatory; this design selects [modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite). Work package A pins a compatible version and its libc dependency, builds all six targets, and tests database opening, FTS5 and recovery on each OS. Do not enable CGO or remove release targets to accommodate the driver.
 
 ### 3.2 Concrete JSON and local database shape
 
@@ -172,13 +173,23 @@ The initial logical `index.sqlite` schema follows. Every key/query includes name
 |---|---|
 | objects | (namespace_id, object_id) PK; heads_digest, kind, state, policy_id, current_payload, exact_fingerprint |
 | aliases | (namespace_id, alias_id) PK; canonical_id. Reject cycles on receipt/application. |
-| evidence | (namespace_id, object_id, observation_id) UNIQUE; source_ref, outcome |
+| evidence | (namespace_id, canonical_object_id, observation_id) UNIQUE; source_ref, outcome; evidence_sources (§3.3) |
 | search_text | FTS5 over claim/conditions/procedure/verification. |
 | search_grams | namespace_id, object_id, field, gram, count; short Korean queries and identifier-fragment candidate search. |
 | embeddings | (namespace_id, object_id, revision_id, model_digest, dimensions, input_digest) PK; float32 vector |
 | indexed_operations | (namespace_id, operation_hash) PK; replay missing operations after restart. |
 
 Distinguish commit acknowledgment from indexing completion. Read-after-write waits for that operation's indexing or uses a log overlay. Apply ACL/withdrawal changes immediately in final state/permission checks even before indexing catches up.
+
+### 3.3 Personal-state recovery and merged evidence
+
+**Hiding is user intent; usage time is a device observation.** Separate them. Default hide/pin/explicit-unhide actions become private preference operations, encrypted and replicated only to the user's admitted devices, never to the team. Automatic cold/archive status, usage time and sync cursors remain device-local. An explicit “hide on this device only” option must explain that it does not migrate.
+
+`state.sqlite` contains the local projection of private preference operations and device observations. Store the private log at `<config>/knowledge/v2/private/<user-id>/operations/`, separate from shared namespaces. Preferences reference namespace_id/original object_id and follow merge aliases. Never combine different users' preferences. Concurrent hide/unhide by one user favors hide; explicit unhide names the observed hide operations as parents.
+
+On a new device/reinstall, recover the preference log and recovery keys from an admitted personal device or encrypted backup, rebuild the database, then enable automatic shared-knowledge recall. Until recovery completes, show `preferences-unavailable` and suspend only automatic injection of shared knowledge. An empty database does not mean “nothing hidden.” If all devices, backups and keys are lost, report unrecoverability and require explicit personal-state reset before resuming. First enrollment also explicitly records fresh-state creation. Database loss must not silently unhide content.
+
+**Resolve evidence keys through canonical identity.** Merging A and B into C aggregates the union of `(namespace_id, canonical_object_id, observation_id)`, counting each observation once. X,Y on A and Y,Z on B yield three observations on C. Preserve source-object/revision links in a separate `evidence_sources` table. Conflicting outcome/source payloads under one observation_id become evidence conflicts, not overwrites or successes. Update aliases and evidence projections in one index transaction; replay and repeated merges must not inflate counts.
 
 ## 4. Consolidation rules
 
@@ -259,6 +270,16 @@ After sharing, cancellation propagates withdrawal to the original, managed views
 
 Do not promise physical erasure of peer copies or external backups. Show local completion, pending propagation and acknowledged-device count separately. Retain deletion tombstones until all admitted replicas acknowledge or unresponsive devices are revoked. Rejoining revoked devices must bootstrap from a current snapshot. Git exports are outside deletion-propagation guarantees.
 
+### 6.1 Log retention, compaction and body deletion
+
+Initial policy: **retain active canonical content/evidence; superseded bodies become compaction candidates after 90 days; withdrawn bodies become deletion candidates after a 30-day recovery window.** Cold/archive alone does not delete originals. Actual body GC requires namespace-admin policy activation; the default shows candidates and reclaimable size only. Explicit permanent deletion may skip the grace period, never authorization or replica acknowledgment. Distinguish withdrawal (immediate recall exclusion) from completed body deletion.
+
+GC creates an admin-signed checkpoint containing active objects, required evidence, aliases, minimal tombstones, the covered operation-set Merkle root, deletion hashes and replication epoch. Commit only after all admitted replicas durably acknowledge it or an administrator revokes unresponsive devices. Elapsed time is not acknowledgment. Validate pre-checkpoint parents through its certified operation set without requesting old bodies. New/rejoining revoked devices bootstrap from the current checkpoint and cannot reintroduce earlier-epoch operations.
+
+After durably committing the checkpoint, remove targeted operation files, unreferenced blobs, old snapshots, generated views, embeddings and indexed bodies. **Never redact signed operations in place.** If a file also contains active objects, preserve their necessary state in the checkpoint before deleting the whole file. The checkpoint must not retain targeted bodies either. A staged GC journal resumes cleanup after interruption and prevents reindexing deleted material. Test local SQLite cleanup including WAL/freelist storage; ordinary deletion is not an SSD forensic-erasure guarantee.
+
+Keep minimal resurrection-prevention tombstones (object_id, withdrawal operation ID, epoch and authorization proof) without default expiration. Retain no original body, summary or sensitive reason. Restoration requiring old bodies is unavailable after grace-period expiry; earlier restoration guarantees apply only to retained revisions. Managed backups have a maximum 30-day rolling retention, and restoration applies the latest GC manifest before serving content. Show deletion as “live-store cleanup complete / managed-backup expiry pending / unverified external copies.” External exports and unauthorized copies are outside erasure guarantees.
+
 ## 7. Daemon sharing
 
 Reuse the TLS fleet door and device identity with an experience-v2 capability. Notify on changes, transfer batches and retain five-minute anti-entropy for repair. Local writes finish offline; sharing remains pending.
@@ -312,5 +333,9 @@ Unify readers before ending engram's multiple writes. Use the manifest to preven
 | M08 Authorization | Reject wrong namespace, forged actor, revoked key, ACL escalation, malicious paths and modified hashes. Old peers cannot bypass tombstones. |
 | M09 Scale | Initial target: warm local candidate search p95 200 ms for 10,000 objects. Report remote embedding time separately and enforce the 3,000-token recall budget. |
 | M10 Migration | Repeated imports, regenerated views, human edits and rollback preserve content/provenance without relearning duplicates. |
+| M11 Release | Build all six targets with CGO_ENABLED=0 and pass SQLite/FTS5/recovery tests on each OS. |
+| M12 Personal recovery | Database loss, new devices, reinstall and lost keys never silently unhide knowledge; resume automatic shared recall only after recovery or explicit reset. |
+| M13 Body GC | Verify retention and non-resurrection across grace expiry, unresponsive/revoked/rejoining peers, crashes at GC boundaries and database/WAL/backup restoration. |
+| M14 Merged evidence | A={X,Y}, B={Y,Z} yields three observations after merge/replay/remerge; conflicting evidence payloads under one ID remain conflicts. |
 
-Release reports include canonical/duplicate/conflict counts, incorrect automatic merges, post-withdrawal reappearance, scope leaks, retrieval misses and propagation latency. Fewer sentences alone do not establish success. M01–M08 and M10 are mandatory; report hardware, model and corpus for M09 performance.
+Release reports include canonical/duplicate/conflict counts, incorrect automatic merges, post-withdrawal reappearance, scope leaks, retrieval misses and propagation latency. Fewer sentences alone do not establish success. M01–M08 and M10–M14 are mandatory; report hardware, model and corpus for M09 performance.
