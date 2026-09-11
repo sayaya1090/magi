@@ -849,7 +849,7 @@ type Trigger struct {
 	Args json.RawMessage
 }
 
-// ---- Platform (cross-platform abstraction; §9.5) ----
+// ---- Platform (cross-platform abstraction) ----
 
 // Platform abstracts OS-specific behavior so the core stays OS-agnostic.
 type Platform interface {

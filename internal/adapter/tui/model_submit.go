@@ -194,7 +194,7 @@ func (m *Model) sendPrompt(display, send string) tea.Cmd {
 	m.blocks = append(m.blocks, block{kind: blockUser, text: display, ts: time.Now()})
 	m.running = true
 	m.awaitingTurnReqID = true // the next ActorUser prompt.submitted owns this turn's spinner
-	m.turnStart = time.Now()   // §8.1: start the elapsed/token meter
+	m.turnStart = time.Now()   // start the elapsed/token meter
 	m.turnIn, m.turnOut, m.turnDur = 0, 0, 0
 	m.turnSteps, m.turnCouncil, m.turnFiles = 0, 0, map[string]bool{}
 	m.turnUnverified = false

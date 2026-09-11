@@ -308,7 +308,7 @@ type Scheduler interface { // D12: Tier1 ticker(M5), Tier2 OS(Later)
     Schedule(spec ScheduleSpec, target Trigger) (id string, err error)
     Cancel(id string) error
 }
-type Platform interface { // 크로스플랫폼 추상화(§9.5)
+type Platform interface { // 크로스플랫폼 추상화
     Exec(ctx context.Context, cmd Cmd) (ExecResult, error)
     ConfigDir() string
     DataDir() string

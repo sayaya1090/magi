@@ -1044,7 +1044,7 @@ func (m *Model) collapseReviewedReport() {
 }
 
 // turnMeter renders elapsed + token usage, e.g. "3m49s · ↑28.1k ↓10.4k". Token
-// parts are omitted when unknown (a backend that reports no usage). (§8.1)
+// parts are omitted when unknown (a backend that reports no usage).
 func turnMeter(d time.Duration, in, out int) string {
 	s := fmtDur(d)
 	if in > 0 {

@@ -201,7 +201,7 @@ func (m *Model) applyEvent(e event.Event) {
 			m.ctxPct = d.Percent
 			m.ctxTokens = d.Tokens  // used, for the persistent footer gauge (survives turn reset)
 			m.ctxWindow = d.Window  // max window (0 = unknown), for the footer gauge
-			m.turnIn = d.Tokens     // ↑ current context (§8.1)
+			m.turnIn = d.Tokens     // ↑ current context
 			m.turnOut = d.OutTokens // ↓ cumulative output so far
 		}
 
@@ -453,7 +453,7 @@ func (m *Model) applyEvent(e event.Event) {
 		m.councilMember = ""
 		m.councilPhase = ""
 		m.reviewFoldNext = false   // an errored turn's revision never lands — keep the report
-		if !m.turnStart.IsZero() { // freeze the meter too (mirror panes) (§8.1)
+		if !m.turnStart.IsZero() { // freeze the meter too (mirror panes)
 			m.turnDur = time.Since(m.turnStart)
 		}
 		// An error ends the turn as surely as a finish does, and a bubble still flagged queued is
@@ -677,7 +677,7 @@ func (m *Model) onTurnFinished(e event.Event) {
 			}
 		}
 	}
-	// Freeze the turn meter from the cumulative usage (§8.1).
+	// Freeze the turn meter from the cumulative usage.
 	if !m.turnStart.IsZero() {
 		m.turnDur = time.Since(m.turnStart)
 	}

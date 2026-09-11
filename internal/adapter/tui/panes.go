@@ -42,7 +42,7 @@ type agentPane struct {
 	doneAt time.Time
 	fade   float64
 
-	// per-subagent meter (§8.1): elapsed + tokens, shown as the pane's total
+	// per-subagent meter: elapsed + tokens, shown as the pane's total
 	started time.Time
 	dur     time.Duration
 	in, out int
@@ -310,7 +310,7 @@ func wrapLines(s string, width int) []string {
 	return strings.Split(wrapped, "\n")
 }
 
-// paneStatus is the trailing status glyph + the subagent's meter (§8.1).
+// paneStatus is the trailing status glyph + the subagent's meter.
 // paneStatus renders the spinner/✓ + the time/token meter.
 func (m *Model) paneStatus(p *agentPane) string {
 	glyph := styleToolName.Render(m.sp.View())

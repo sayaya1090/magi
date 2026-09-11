@@ -14,7 +14,7 @@ import (
 // zero means the CPU-active extension is inert on these hosts — the lease judge
 // decides as before. That is acceptable because the benchmark/production workers
 // run on Linux and Windows, where the real CPU-delta signal is available; reading
-// /proc-equivalents via cgo would break the cross-compile invariant (§9.5).
+// /proc-equivalents via cgo would break the cross-compile invariant.
 func (OS) ProcessCPUTime(pid int) (time.Duration, bool) {
 	if pid <= 0 {
 		return 0, false

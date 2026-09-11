@@ -343,7 +343,7 @@ type Scheduler interface { // D12: tier 1 ticker (M5), tier 2 OS (later)
     Schedule(spec ScheduleSpec, target Trigger) (id string, err error)
     Cancel(id string) error
 }
-type Platform interface { // the cross-platform abstraction (§9.5)
+type Platform interface { // the cross-platform abstraction
     Exec(ctx context.Context, cmd Cmd) (ExecResult, error)
     ConfigDir() string
     DataDir() string

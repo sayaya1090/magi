@@ -1,6 +1,6 @@
 // Package platform implements port.Platform, abstracting OS-specific behavior
 // (exec, config/data dirs, terminal capability detection) so the core stays
-// OS-agnostic. Pure Go, no CGo — preserves cross-compilation (§9.5).
+// OS-agnostic. Pure Go, no CGo — preserves cross-compilation.
 package platform
 
 import (

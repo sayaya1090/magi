@@ -457,7 +457,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 		}
 		text, reasoning := res.text, res.reasoning
 		toolCalls, usage, textConsumed := res.toolCalls, res.usage, res.textConsumed
-		// Accumulate this step's usage into the turn totals (§8.1).
+		// Accumulate this step's usage into the turn totals.
 		if usage != nil {
 			cumOut += usage.Out
 			if usage.In > 0 {
@@ -550,7 +550,7 @@ func (a *App) runLoop(ctx context.Context, s session.Session, agent AgentSpec, d
 			toolCalls = a.callsAfterDeclaring(ctx, sid, toolCalls, &ts)
 		}
 		if len(toolCalls) == 0 {
-			// Turn-cumulative usage (§8.1): out/cost summed across steps, in = last.
+			// Turn-cumulative usage: out/cost summed across steps, in = last.
 			u := turnUsage(a, sid, usageAtStart, lastIn, cumOut, cumCost)
 			switch a.finishTurn(ctx, tc, step, turnTask, lastText, evs, usedTools, handledUserPrompts, u, &ts) {
 			case loopContinue:
@@ -913,7 +913,7 @@ func (a *App) buildStepRequest(ctx context.Context, tc turnCtx, evs []event.Even
 }
 
 // publishContextUsage emits a live context meter for the UI (M6/context mgmt).
-// outTokens is the turn's cumulative output so far, for the live ↓ readout (§8.1).
+// outTokens is the turn's cumulative output so far, for the live ↓ readout.
 func (a *App) publishContextUsage(sid session.SessionID, actor event.Actor, modelID, sys string,
 	msgs []session.Message, specs []port.ToolSpec, outTokens int) {
 	window := a.contextWindow(modelID)

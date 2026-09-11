@@ -9,7 +9,7 @@ import (
 )
 
 // Pure-stdlib access to kernel32 (no golang.org/x/sys dependency, so the
-// cross-compile invariant §9.5 holds). GetProcessTimes reports a process's
+// cross-compile invariant holds). GetProcessTimes reports a process's
 // cumulative kernel+user CPU time as two FILETIMEs in 100-ns units.
 var (
 	kernel32               = syscall.NewLazyDLL("kernel32.dll")

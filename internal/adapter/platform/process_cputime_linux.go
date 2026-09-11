@@ -11,7 +11,7 @@ import (
 // clockTick is the kernel's USER_HZ: utime/stime in /proc/<pid>/stat are counted
 // in these ticks. It is 100 on effectively every Linux the worker runs on; reading
 // it via cgo (sysconf(_SC_CLK_TCK)) would break the pure-Go cross-compile invariant
-// (§9.5), so we assume the standard 100. A wrong constant only rescales the delta,
+// so we assume the standard 100. A wrong constant only rescales the delta,
 // which the lease gate compares against a tolerant threshold, so it is not sensitive.
 const clockTick = 100
 

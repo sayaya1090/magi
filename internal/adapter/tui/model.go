@@ -200,7 +200,7 @@ type Model struct {
 	ctxWindow       int       // model's context window in tokens (0 = unknown), for the footer gauge
 	plannerMode     string    // last planner decision (solo | parallel N) shown in the header
 
-	turnStart      time.Time                           // wall-clock start of the current turn (§8.1 elapsed)
+	turnStart      time.Time                           // wall-clock start of the current turn (elapsed)
 	turnSteps      int                                 // tool calls this turn (the step budget actually spent)
 	turnFiles      map[string]bool                     // unique files touched by write/edit/multiedit this turn
 	turnCouncil    int                                 // highest council round decided this turn
