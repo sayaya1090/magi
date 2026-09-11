@@ -4,14 +4,14 @@ Scope: lifecycle and updater changes in `2f71c779..525afe53`. R5 policy clarific
 
 ## Remaining findings
 
-- **R9 / P1 — Healthy concurrent starts trigger rollback:** `internal/update/journal.go:Resume` treats install-wide `Starts >= 1` as failure. Workspace B starting while A runs the candidate normally triggers rollback. Distinguish generations using liveness/readiness evidence and test two concurrent workspaces.
-- **R11 / P1 — Confirmation timer starts before readiness:** `cmd/magi/main.go` starts its 60-second timer before the listener starts. `Confirm` deletes the current journal's backup without checking candidate identity, generation or readiness. Delayed readiness or a later transaction can confirm an unverified candidate. Start the stable interval after readiness and require transaction identity when confirming.
+R9 and R11 are addressed as well (`b568d3e3`).
 
-The remaining R9 and R11 do **not** need Windows: they are platform-neutral Go in `internal/update`, and measuring them means two workspaces contending as two processes. R10 was measured on Windows, where the same race goes wrong in two ways — the restore lands and the update is silently undone, or it fails with `Access is denied` because the pre-flight is executing the target — and one lock removes both.
+- **R9** — what counts as evidence moved from "a start happened" to **"the generation that was watching is gone without having confirmed"**. That generation's pid is recorded; while it is alive, a start belongs to another workspace and the transaction is left alone. An older record with no pid is read as gone (otherwise a build that really did fall over is never undone). An **unknown** liveness answer is not evidence, so nothing is rolled back on it. The liveness check moved out of `adapter/daemon` into `internal/procalive` so there is one spelling.
+- **R11** — the stable window now starts **after the listener is bound and the record published**, and `Confirm` checks both the candidate version and the watcher. A minute is long enough for the record on disk to be a newer transaction, and confirming that one drops the backup for a build this process never ran and never watched.
 
-⚠ That also uncovered the fact that this package measured **none** of the transaction on Windows: `journal_test.go` and `rollback_test.go` are `!windows` because they stand shell scripts in for binaries. `internal/update/lockscope_test.go` fills that gap by standing the test binary itself in the install's place, so it runs everywhere.
+Five mutations hold it (ignore a live watcher; never record one; read "no pid" as still-watched; confirm without checking the candidate; confirm without checking the watcher). ⚠ Three tests were faking a crash by calling `Resume` twice in one process, which is no longer a crash — they now use a **really dead pid** (a process started and reaped), because "a number nothing is likely to use" is a guess and not being a guess is the point of the check.
 
-Section 9 is partially implemented. Recovery from an early startup failure depends on another execution; safe-point handling, readiness and multi-daemon coordination still require acceptance. Windows execution is not the only remaining work.
+§9 is still partial. What remains is the **atomic safe point** (today it polls, so a turn can arrive between the check and the restart), successor readiness (Windows), and real acceptance.
 
 ## Verification
 
