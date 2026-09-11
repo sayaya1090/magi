@@ -23,6 +23,9 @@ export class HelperChat extends ChatPort {
 export class HelperStatus extends StatusPort {
   constructor(api) { super(); this.api = api; }
 
+  /** 컴패니언을 (다시) 마련해 달라는 물음 — WatchPrompt 가 죽은 데몬을 보면 부른다. */
+  own() { return this.api.own(); }
+
   async status() {
     const st = await this.api.status();
     // **못 닿은 것과 「묻는 게 없다」를 안 뭉갠다**(§5.7). 헬퍼가 그 둘을 갈라 실어 보낸다.
