@@ -160,7 +160,7 @@ seq=0 프리뷰는 영속 커서를 전진시키지 않습니다. 최종 사실�
 | 작업 | 변경 책임 | 인계 산출물 | 의존 |
 |---|---|---|---|
 | A. 코어 수명 계약 | `cmd/magi`, `internal/graceful`, daemon 공개 정보, `idebridge` 기능 조회 | 버전 기능 fixture, 소유 파이프·교체·EOF 테스트, 구형 모드 호환 증거 | 없음 |
-| B. JetBrains 관리자 | `clients/jetbrains/plugin`의 기동·전송·구독·dispose | 공통 상태 전이 적용, native IDE 종료 증거 | A의 계약 fixture 후 개발, 실제 A로 인수 |
+| B. JetBrains 관리자 | `clients/jetbrains/plugin`의 기동·전송·구독·dispose | 공통 상태 전이 적용(`Phase`·`Progress` — §3 의 전이표와 세대), native IDE 종료 증거 | A의 계약 fixture 후 개발, 실제 A로 인수 |
 | C. VS Code 관리자 | `clients/vscode/src/core`와 `src/ide` | Windows relay 판별, 소유 모드, 재시도·웹뷰·deactivate 검증 | A의 계약 fixture 후 개발, 실제 A로 인수 |
 | D. 웹 복구 | `clients/web/server`, 웹 셸의 스트림 소유자 | 새로고침·탭 종료·SSE 복구·프리뷰 교체 증거 | 기존 전사 계약으로 시작 가능 |
 | E. 배포 인수 | 클라이언트 패키징 및 관련 CI | 아래 매트릭스 결과와 설치 가능한 아티팩트 | A–D |

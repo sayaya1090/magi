@@ -125,6 +125,34 @@ class SourceTextTest {
      *
      * 낱말이 아니라 **문장**을 못박는다 — 물어보고 답을 버리는 변이는 낱말을 다 남긴다.
      */
+    /**
+     * **§3 의 상태가 문서에만 있지 않다.**
+     *
+     * 전이표가 옳은 것과 창이 그것을 쓰는 것은 다른 사실이다 — 아무도 안 부르는 상태 기계는
+     * 문서를 한 벌 더 쓴 것과 같다. 그래서 부르는 자리를 붙든다: 떠나면서 **세대를 들고 가고**,
+     * 돌아와서 그것이 아직 제 것인지 묻고, 준비·실패·닫힘을 그 타입에 옮긴다.
+     *
+     * ⚠ 세대가 필요한 이유는 `project.isDisposed` 로 안 되기 때문이다. 이 창의 맵들은 창 사이에
+     * **공유되고** 워크스페이스 경로로 키를 잡는다 — 닫히고 다시 열린 창은 「살아 있다」로 답하고,
+     * 떠났던 비동기가 돌아와 새 창의 상태에 옛 결과를 쓴다.
+     */
+    @Test
+    fun `창이 §3 의 상태를 실제로 옮긴다`() {
+        val f = sources.first { it.name == "StartDaemon.kt" }
+        val src = code(f)
+        assertTrue(Regex("""val mine = phase\.generation""").containsMatchIn(src),
+            "떠나면서 세대를 안 들고 간다 — 돌아와서 제 것인지 물을 근거가 없다")
+        assertTrue(Regex("""if \(!phase\.still\(mine\)\) return""").containsMatchIn(src),
+            "돌아와서 세대를 안 묻는다 — 닫히고 다시 열린 창에 옛 결과를 쓴다")
+        assertTrue(Regex("""phase\.on\(Move\.Answered\)""").containsMatchIn(src),
+            "준비를 상태로 안 옮긴다")
+        assertTrue(Regex("""phase\.on\(Move\.LaunchFailed\)""").containsMatchIn(src),
+            "기동 실패를 상태로 안 옮긴다")
+        assertTrue(Regex("""Disposer\.register\(project\) \{ phase\.on\(Move\.Close\) \}""")
+            .containsMatchIn(src),
+            "창이 닫힐 때 상태를 안 닫는다 — 세대가 안 올라 떠났던 일이 제 것이라고 믿는다")
+    }
+
     @Test
     fun `준비 판정이 답하는 프로세스에게 직접 묻는다`() {
         val f = sources.first { it.name == "StartDaemon.kt" }

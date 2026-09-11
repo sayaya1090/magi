@@ -12,6 +12,8 @@ import dev.sayaya.magi.ide.transport.DaemonClient
 import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Reach
 import dev.sayaya.magi.ide.usecase.Launches
+import dev.sayaya.magi.ide.usecase.Move
+import dev.sayaya.magi.ide.usecase.Progress
 import dev.sayaya.magi.ide.usecase.DaemonProcess
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.Disposable
@@ -75,6 +77,18 @@ internal object StartDaemon {
      * 계보를 안 싣는 코어에서는 비어 있고, 그때는 예전처럼 유예로만 판단한다.
      */
     private val lineage = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /**
+     * 워크스페이스마다 이 창이 어느 상태에 있나 — `docs/CLIENT_LIFECYCLE` §3 을 [Progress] 로.
+     *
+     * ⚠ **여기 필요한 것은 `project.isDisposed` 가 아니다.** 이 맵들은 **창 사이에 공유된다**
+     * (오브젝트 수준이고 워크스페이스 경로로 키를 잡는다). 그래서 「이 창이 아직 살아 있나」로는
+     * 닫히고 다시 열린 창을 못 가른다 — 떠났던 비동기가 돌아와 **새 창의 상태에 옛 결과를
+     * 쓴다.** §3 이 닫힘에 세대를 묶어 둔 이유가 그것이고, 떠나는 쪽이 번호를 들고 간다.
+     */
+    private val progress = java.util.concurrent.ConcurrentHashMap<String, Progress>()
+
+    private fun progressOf(base: String): Progress = progress.computeIfAbsent(base) { Progress() }
 
     /**
      * 데몬 자동 기동 허용 여부를 판정합니다.
@@ -251,6 +265,11 @@ internal object StartDaemon {
 
     private fun start(project: Project, bin: Path, base: String, sock: Path, owner: DaemonProcess) {
         if (project.isDisposed) return
+        val phase = progressOf(base)
+        // 떠나면서 들고 가는 번호. 돌아왔을 때 이것이 낡았으면 이 일의 결과는 남의 창 것이다.
+        val mine = phase.generation
+        phase.on(Move.Absent)
+        com.intellij.openapi.util.Disposer.register(project) { phase.on(Move.Close) }
         val log = java.io.File(sock.toString() + ".ide.log")
         starting[sock.toString()] = System.currentTimeMillis()
         var child: Process? = null
@@ -296,10 +315,12 @@ internal object StartDaemon {
                     DaemonClient.connect(sock).use { it.exchange(
                         dev.sayaya.magi.ide.model.Request(method = "about")) }
                 }.getOrNull()
+                if (!phase.still(mine)) return
                 if (dev.sayaya.magi.ide.usecase.Generation.same(published, hello, child.pid())) {
                     // 확인한 계보를 붙든다. 계보는 자기 갱신을 건너 물려받으므로, 핸들이 죽은
                     // 후계도 같은 계보를 알리면 이 창의 데몬이다.
                     hello?.owner?.takeIf { it.isNotBlank() }?.let { lineage[base] = it }
+                    phase.on(Move.Answered)
                     LOG.info("magi: 데몬 정상 기동 완료 — $bin (로그: $log)")
                     // 떴다. **아직 아무것도 용서하지 않는다** — 그 판정은 붙은 채로 안정 구간을
                     // 넘겼을 때 [Launches.connected] 가 한다.
@@ -319,6 +340,7 @@ internal object StartDaemon {
             // 실패는 안 지운다 — 그런데 그 셈에 **아무도 1을 안 더하고 있었다.** 준비 시한을
             // 넘기거나 뜨자마자 죽는 데몬은 붙은 적이 없어 [Launches.lost] 로도 안 세이므로,
             // 1분이 지나면 예산이 돌아와 같은 실패를 무한히 되풀이한다(설계 검토 R4).
+            phase.on(Move.LaunchFailed)
             budget[base]?.failed(System.currentTimeMillis())
             tell(project, MagiBundle.msg("core.start.died", reason, tail(log)))
         } catch (e: Exception) {
