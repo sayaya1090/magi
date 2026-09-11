@@ -588,6 +588,7 @@
   "state.idle": "Idle",
   "state.live": "Live",
   "state.lost": "Not connected",
+  "state.stale": "Not connected — you are reading what arrived before the connection dropped.",
   "state.reconnecting": "Reconnecting…",
   "state.remote": "Elsewhere",
   "state.stopped": "Stopped",

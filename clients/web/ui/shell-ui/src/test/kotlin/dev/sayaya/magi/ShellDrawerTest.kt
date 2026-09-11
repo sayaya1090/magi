@@ -131,6 +131,32 @@ internal class ShellDrawerTest : GwtTestSpec({
                 page.locator("#crumbs .up").count() shouldBe 0
             }
         }
+        // ⚠ **점은 회선을 말하지 화면을 말하지 않는다.** 연결 점은 「회선이 끊겼다」를 말하는데
+        // 사람이 읽고 있는 것은 **그 전에 받은 행들**이고, 둘은 다른 사실이다. 앞엣것만 말하면
+        // 낡은 대화가 지금 것처럼 읽힌다 — `docs/CLIENT_LIFECYCLE` §6. 게다가 재연결이 계약의
+        // 백오프로 옮겨 가며 그 침묵이 최대 30초로 늘었다.
+        When("회선이 끊기면") {
+            page.evaluate("window.__magi_test_link(false)")
+            Then("지금 보는 것이 그 전 것이라고 적는다 — 점 하나로는 안 된다") {
+                page.waitForSelector("#masthead #stale:not([hidden])")
+                // 팩이 없는 페이지라 키가 곧 문구다.
+                page.locator("#masthead #stale").textContent() shouldBe "state.stale"
+            }
+            Then("화면을 비우지는 않는다 — 마지막 대화는 그대로 둔다") {
+                // §6: 연결되지 않았다는 이유만으로 빈 대화를 만들지 않는다.
+                page.locator("#masthead").count() shouldBe 1
+                page.locator("#crumbs #back").count() shouldBe 1
+            }
+            page.evaluate("window.__magi_test_link(true)")
+            Then("돌아오면 곧바로 걷힌다 — 다음 프레임이 화면을 지금 것으로 만든다") {
+                // ⚠ `waitForSelector` 의 기본은 **visible** 이라 `[hidden]` 을 기다리면 영영
+                // 안 온다 — 첫 판이 30초를 그렇게 기다리다 죽었다. 숨는 것은 조건으로 잰다.
+                page.waitForCondition {
+                    page.locator("#masthead #stale[hidden]").count() == 1
+                }
+                page.locator("#masthead #stale").textContent() shouldBe ""
+            }
+        }
         When("멈춘 컴패니언(명단에 있고 답하지 않는다) 곁에 서면") {
             page.evaluate("window.__magi_go('/tmp/gone.sock', '')")
             page.waitForCondition { page.url().contains("gone.sock") }

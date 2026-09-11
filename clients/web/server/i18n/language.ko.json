@@ -588,6 +588,7 @@
   "state.idle": "유휴",
   "state.live": "연결됨",
   "state.lost": "연결 끊김",
+  "state.stale": "\uc5f0\uacb0\ub418\uc9c0 \uc54a\uc74c \u2014 \ub04a\uae30\uae30 \uc804\uc5d0 \ubc1b\uc740 \ub0b4\uc6a9\uc744 \ubcf4\uace0 \uc788\uc2b5\ub2c8\ub2e4.",
   "state.reconnecting": "재연결 중…",
   "state.remote": "다른 인스턴스",
   "state.stopped": "정지",

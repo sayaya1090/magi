@@ -3778,6 +3778,20 @@
   }
   /* Switched off reads as switched off, and never-runs reads as wrong — by more than colour, since
      a state told only in colour is a state some readers are not told. */
+  /* ── 회선이 끊긴 동안 「지금 보는 것은 그 전 것」이라고 적는 띠 ─────────────────────
+     연결 점(#state)은 **회선**을 말하고 이 띠는 **화면의 내용**을 말한다. 둘은 다른 사실이고,
+     앞엣것만 말하면 낡은 대화가 지금 것처럼 읽힌다(docs/CLIENT_LIFECYCLE §6). 점은 색이
+     전부이기도 하다 — 색만으로 말해진 상태는 어떤 독자에게는 말해지지 않은 것이다.
+     경고색 위에 그 롤의 글자를 얹는다: 컨테이너를 깔고 대비를 컨테이너에 맡기면 다크에서
+     본문색이 그 위에 남는다(이 파일이 카운슬 강조에서 이미 한 번 겪었다). */
+  #stale {
+    grid-column:1 / -1; order:99;
+    background:var(--magi-ref-warnContainer, var(--magi-ref-primaryContainer));
+    color:var(--magi-ref-on-warn-container, var(--magi-ref-on-primary-container));
+    font:var(--magi-sys-body-s) var(--magi-ref-display);
+    padding:var(--magi-sys-space-50) var(--magi-sys-space-200);
+    border-radius:var(--magi-sys-shape-xs);
+  }
   #cron .job.off .jname { color:var(--magi-ref-muted); text-decoration:line-through; }
   #cron .job.broken .jnext { color:var(--magi-ref-error); }
 

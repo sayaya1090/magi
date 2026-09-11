@@ -40,6 +40,25 @@ public class MastheadElement {
     // 때도 같은 요소여야 두 상태가 같은 계단으로 읽힌다(운영도 <a>다).
     private final HTMLElement deep = el("a");
     private final HTMLElement state = el("span");
+    /**
+     * 회선이 끊긴 동안 **화면의 내용이 낡았다**고 적는 띠.
+     *
+     * ⚠ **점은 회선을 말하지 화면을 말하지 않는다.** 여기엔 이미 연결 점(`#state`)이 있는데,
+     * 그것이 하는 말은 「회선이 끊겼다」이고 사람이 읽고 있는 것은 **그 전에 받은 행들**이다.
+     * 둘은 다른 사실이고, 앞엣것만 말하면 낡은 대화가 지금 것처럼 읽힌다 —
+     * `docs/CLIENT_LIFECYCLE` §6 이 「연결 복구 중 … 오래된 내용임을 표시한다」고 적은 자리다.
+     *
+     * 게다가 그 점은 색이 전부다(보조 기술에는 `aria-label` 이 있지만 보는 사람에게는 색 변화
+     * 하나다). 그리고 재연결이 계약의 백오프로 옮겨 가며(`e0fa16ab`) 그 침묵이 **최대 30초**로
+     * 늘었다.
+     *
+     * 화면을 비우지는 않는다. §6 은 마지막 대화와 치던 입력을 **유지하라**고 적는다 — 낡은
+     * 것을 지우는 것은 알려 주는 것이 아니라 잃는 것이다.
+     *
+     * 셸에 두는 이유는 스트림의 주인이 셸이기 때문이다. 모듈마다 문을 내면 화면 수만큼 같은
+     * 규칙이 생기고, 그중 하나만 고치는 날이 온다.
+     */
+    private final HTMLElement stale = el("div");
     // 지나가는 말이 가는 자리 — 위의 수(#state)와 <b>따로</b>다. 그 줄은 명단 프레임마다 다시
     // 세워지므로 거기 적은 말은 다음 프레임까지밖에 못 산다(운영이 그 자리에서 배운 것).
     private final HTMLElement note = el("span");
@@ -216,7 +235,11 @@ public class MastheadElement {
         palBtn.innerHTML = "<svg data-i=\"#i-sl-magnifying-glass\" viewBox=\"0 0 24 24\" width=\"22\" height=\"22\" aria-hidden=\"true\">"
                 + "<circle cx=\"11\" cy=\"11\" r=\"6.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/>"
                 + "<path d=\"M15.6 15.6 20 20\" stroke=\"currentColor\" stroke-width=\"1.8\" stroke-linecap=\"round\"/></svg>";
-        header.append(mark, whereami, crumbs, state, note, say, chrome, palBtn, gear);
+        stale.id = "stale";
+        stale.setAttribute("role", "status");
+        stale.setAttribute("aria-live", "polite");
+        stale.setAttribute("hidden", "");
+        header.append(mark, whereami, crumbs, state, note, say, chrome, palBtn, gear, stale);
         measureBar();
         // 그림이 구워져 있으면 지금 갈아입는다(스프라이트는 셸이 들여놓은 뒤에 온다).
         Icons.dress(header);
@@ -267,6 +290,15 @@ public class MastheadElement {
         // 그리고 어느 쪽인지 말한다 — 컴패니언 곁에서 이 줄은 점 하나가 전부다(수는 목록의
         // 몫이라 걷힌다). 말을 안 달면 연결은 색으로만 말해진다.
         state.setAttribute("aria-label", tr(lost ? "state.lost" : "state.live"));
+        // 그리고 **화면의 내용**에 대해 말한다 — 회선이 끊긴 동안 보고 있는 것은 그 전에 받은
+        // 것이다. 회선이 돌아오면 곧바로 걷힌다: 다음 프레임이 화면을 지금 것으로 만든다.
+        if (linkUp) {
+            stale.setAttribute("hidden", "");
+            stale.textContent = "";
+        } else {
+            stale.textContent = tr("state.stale");
+            stale.removeAttribute("hidden");
+        }
     }
 
     /**

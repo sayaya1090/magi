@@ -24,7 +24,15 @@ public class FakeRosterSource implements RosterSource {
     public void start(Listener l) {
         listener = l;
         l.link(true);
+        // 시험이 회선을 내렸다 올릴 손. 진짜 회선은 SSE 가 끊길 때 이것을 하는데, 브라우저
+        // 시험에서 서버를 정말로 죽일 수는 없다 — 재는 것은 **끊겼을 때 화면이 무엇을 말하는가**
+        // 이지 왜 끊겼는가가 아니다.
+        Js.asPropertyMap(DomGlobal.window).set("__magi_test_link",
+                (LinkFn) up -> { if (listener != null) listener.link(up); });
     }
+
+    @jsinterop.annotations.JsFunction
+    public interface LinkFn { void call(boolean up); }
 
     /** 회의 조준 — 걸리면 방 프레임 한 벌이 흐른다(가짜는 그 한 벌이면 족하다). */
     @Override
