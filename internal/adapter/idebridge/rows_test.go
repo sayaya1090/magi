@@ -182,9 +182,31 @@ func TestTheRowFieldsMatchTheTypeScriptCopy(t *testing.T) {
 		mine[name] = true
 	}
 
+	// 이 문에만 있는 칸. **사유와 함께 적고, 사유가 낡으면 운다** — 젯브레인 쪽 와이어 가드가 쓰는
+	// 그 모양이다(선언만 해 두고 아무도 안 채우면 그 사본은 늘 빈 칸을 나른다).
+	goOnly := map[string]string{
+		"summary": "이 문의 칸이다. 본문을 통째로 나르기로 하면서(전문이 정본) 한 줄 요약이 갈 곳이 " +
+			"필요해졌고, 얕은 클라이언트(슬라이드 애드인·상태 줄)가 그것을 읽는다. 이쪽 사본의 " +
+			"셰이퍼는 본문을 직접 그리므로 채울 이유가 없다 — 이 사본이 문으로 옮겨 가는 날 " +
+			"셰이퍼가 사라지고 이 줄도 사라진다.",
+	}
 	for f := range mine {
-		if !got[f] {
-			t.Errorf("Row 가 %q 를 싣는데 타입스크립트 사본에는 그 필드가 없다", f)
+		if got[f] {
+			continue
+		}
+		if why, ok := goOnly[f]; ok {
+			if why == "" {
+				t.Errorf("%q 가 사유 없이 면제돼 있다", f)
+			}
+			continue
+		}
+		t.Errorf("Row 가 %q 를 싣는데 타입스크립트 사본에는 그 필드가 없다", f)
+	}
+	// ★ **면제도 늙는다.** 사본이 그 칸을 선언하기 시작하면 이 줄은 거짓이 되고, 무엇보다 그때부터
+	// **두 사본이 갈려도 아무도 안 운다** — 면제가 조용히 면제를 넓히는 것이다.
+	for f := range goOnly {
+		if got[f] {
+			t.Errorf("%q 가 이제 타입스크립트 사본에도 있다 — 면제를 지울 것(면제가 남으면 그 칸의 드리프트를 아무도 안 잡는다)", f)
 		}
 	}
 	for f := range got {

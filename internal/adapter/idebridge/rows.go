@@ -163,4 +163,17 @@ type Row struct {
 	Member string `json:"member,omitempty"`
 	// Folded marks rows shut by default — reasoning, tool bodies.
 	Folded bool `json:"folded,omitempty"`
+
+	// Summary is this row as ONE line, for a screen that draws a list.
+	//
+	// ⚠ **It exists because the bodies are now whole.** The arguments a call was made with and the
+	// reason a call failed used to arrive clipped — first line, 100 UTF-16 units — and that is a loss
+	// no reader can undo: a client handed the first line of a three-line command cannot get the
+	// command back. It is the same argument the vocabulary above makes ("richer is recoverable,
+	// collapsed is not"), applied to the text rather than to the words.
+	//
+	// So the clip did not disappear, it moved here. A shallow client (a slide add-in, a status line)
+	// draws this; a client that shows the conversation draws the bodies. Neither has to parse anything
+	// to get the other, which is the whole point of deciding it once.
+	Summary string `json:"summary,omitempty"`
 }

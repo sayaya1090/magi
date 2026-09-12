@@ -25,6 +25,17 @@ import (
 // Compare with keys sorted and empty values dropped: the TypeScript writes `pending:false` because
 // a JS object has no omitempty, and this side omits it. Same fact, two spellings — a byte compare
 // would fail on that and on key order while the rows agree completely.
+//
+// ⚠ **Two things in this golden did NOT come from that comparison**, and saying so is the difference
+// between a golden and a snapshot of whatever the code did:
+//
+//   - `summary` is this fold's own one-line rendering. The TypeScript copy has no such field (it draws
+//     the bodies), so there was nothing to compare it against. What holds it up instead is
+//     TestWhatARowLoses: one line, bounded, and present wherever a row has a body.
+//   - `out` on the failed `bash` row grew from `"boom"` to `"boom\nsecond line"` (2026-09-13). That is
+//     the fix, not a drift: the body used to be clipped to its first line, so this fixture — written
+//     with a two-line failure on purpose — was losing the second line, and the golden recorded the
+//     loss. The bodies are whole now; the clip moved into `summary`.
 func TestTheFoldAgreesWithTheGolden(t *testing.T) {
 	var events []event.Event
 	read(t, "fold_events.json", &events)

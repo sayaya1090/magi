@@ -23,6 +23,32 @@ import (
 //
 // **Draw shallowly.** What to SAY is the daemon's decision. A client that parses payloads to
 // compose sentences composes them once per client, and there are six clients.
+// summarise fills Row.Summary for every row — one line, bounded, from whatever body the row carries.
+//
+// Done in one pass at the end rather than at each of the twelve places a row is built: a summary
+// derived per-site is a rule with twelve copies, and this tree has paid for that shape often enough
+// to know how it ends. The bodies are the fact; this is a rendering of them.
+func summarise(rows []Row) {
+	for i := range rows {
+		r := &rows[i]
+		// The order is what a person reads first: what was said, then what was asked, then what came
+		// back. A tool row's Text is the tool's NAME, so the arguments join it rather than replace it.
+		line := clip(r.Text)
+		if r.Who == WhoTool {
+			if a := clip(r.Args); a != "" {
+				line = strings.TrimSpace(line + " " + a)
+			} else if o := clip(r.Out); o != "" {
+				line = strings.TrimSpace(line + " " + o)
+			}
+			line = clip(line)
+		}
+		if line == "" {
+			line = clip(r.Out)
+		}
+		r.Summary = line
+	}
+}
+
 func Rows(events []event.Event) []Row {
 	// Pointers, not values. The rule reaches back and marks rows that are already out — a reply
 	// clears the bar on the prompt above it, a tool result lands ON its call's row, a resurfaced
@@ -310,6 +336,7 @@ func Rows(events []event.Event) []Row {
 	for _, r := range out {
 		flat = append(flat, *r)
 	}
+	summarise(flat)
 	return flat
 }
 
@@ -525,10 +552,19 @@ func SizeNote(before, after float64) string {
 	return "−" + itoa(freed) + ", −" + itoa(pct) + "%"
 }
 
-// AskedFor is a tool call's arguments as one line, for the row that names the call.
+// AskedFor is a tool call's arguments, WHOLE.
 //
 // Nothing is invented. An empty object summarises to nothing, and the row is then the bare name
 // again — which is the truth about a call that was given no arguments.
+//
+// ⚠ **It used to clip to one line and 100 units, and that is a loss no reader can undo.** The fold
+// is becoming the one place rows are built, and a client handed a clipped argument cannot get the
+// command back — the same reason the row vocabulary is eight words and not six ("richer is
+// recoverable, collapsed is not", rows.go). A `bash` call whose command spans three lines is exactly
+// the call somebody is trying to read.
+//
+// The one-line form did not disappear: Row.Summary carries it, built by Summarise, so a screen that
+// draws a list still has one line to draw and a screen that shows the call has the call.
 func AskedFor(args any) string {
 	if args == nil {
 		return ""
@@ -537,7 +573,7 @@ func AskedFor(args any) string {
 	switch v := args.(type) {
 	case string:
 		if err := json.Unmarshal([]byte(v), &o); err != nil {
-			return clip(v)
+			return strings.TrimSpace(v)
 		}
 	case map[string]any:
 		o = v
@@ -546,18 +582,18 @@ func AskedFor(args any) string {
 		if err != nil {
 			return ""
 		}
-		return clip(string(b))
+		return string(b)
 	}
 	for _, k := range []string{"path", "command", "pattern", "query", "id", "name"} {
 		if s, ok := o[k].(string); ok && strings.TrimSpace(s) != "" {
-			return clip(strings.TrimSpace(s))
+			return strings.TrimSpace(s)
 		}
 	}
 	b, err := json.Marshal(o)
 	if err != nil || len(b) == 0 || string(b) == "{}" {
 		return ""
 	}
-	return clip(string(b))
+	return string(b)
 }
 
 // said is a tool result's content as words. A JSON string is its own text; anything else is its JSON.
@@ -576,7 +612,10 @@ func said(content any) string {
 	if strings.TrimSpace(t) == "" {
 		return ""
 	}
-	return clip(t)
+	// ⚠ **Whole.** This is what a failed call said, and it used to arrive clipped to one line — so a
+	// stack trace or a compiler's three lines reached a screen as its first line, with the part a
+	// person needs cut off. Row.Summary carries the one-line form for lists.
+	return strings.TrimSpace(t)
 }
 
 // clip is one line, bounded. A row is a line — a summary that wraps is not a summary.
