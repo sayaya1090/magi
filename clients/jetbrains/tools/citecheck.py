@@ -14,7 +14,7 @@
 검사하는 것 넷.
   1. 줄 번호 인용이 돌아오지 않았는가        (본문에 한해서 — 규칙 자체를 적는 머리말은 예외)
   2. `파일` 의 `심볼`  → 그 파일에 그 식별자가 있는가
-  3. `파일`, ... "문장"  → 그 파일에 그 문장이 **한 줄로** 들어 있는가
+  3. `파일`, ... "문장"  → 그 파일에 그 문장이 들어 있는가 (말줄임표는 각 조각 검사)
   4. 맨몸 파일 이름이 저장소에서 하나로 풀리는가 (`.js`/`.mjs` 는 예외 — `BARE` 주석)
 
 세 번째가 한 줄이어야 하는 이유는 grep 이 줄 단위이기 때문이다. 네 번째가 있는 이유는 이 검사기
@@ -204,8 +204,16 @@ def check(doc, where, bad, unchecked):
                 bad.append(f"{where}: {problem}")
             continue
         quotes += 1
-        if quote not in read(path):
-            bad.append(f'{where}: {name} 에 이 문장이 한 줄로 없다: "{quote[:60]}"')
+        if "…" in quote or "..." in quote:
+            parts = [p.strip() for p in re.split(r"…|\.\.\.", quote) if p.strip()]
+            ok = len(parts) > 0 and all(p in read(path) for p in parts)
+        else:
+            ok = quote in read(path)
+        if not ok:
+            if "…" in quote or "..." in quote:
+                bad.append(f'{where}: {name} 에 이 인용 조각이 없다: "{quote[:60]}"')
+            else:
+                bad.append(f'{where}: {name} 에 이 문장이 한 줄로 없다: "{quote[:60]}"')
 
     # 검사에서 빠진 파일 언급을 센다. 0 이 "다 봤다"는 뜻이 되게 하는 부분이다.
     mentioned = {m.group(1) for m in MENTION.finditer(doc)}
