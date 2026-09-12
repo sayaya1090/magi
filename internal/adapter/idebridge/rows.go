@@ -17,7 +17,7 @@ package idebridge
 //
 // **Eight, not six.** A client that wants six can fold `system`, `error` and `image` into one; a
 // client handed six cannot get the picture back. Richer is recoverable, collapsed is not.
-// Decided 2026-09-10, and Kotlin was brought into alignment to eight on 2026-09-11 and held by
+// Decided 2026-09-10, and Kotlin was brought into alignment to eight on 2026-09-12 (ee9176ff) and held by
 // TestTheRowVocabularyMatchesTheKotlinCopy.
 
 // Who is the kind of speaker a row carries, and the whole set of them.
