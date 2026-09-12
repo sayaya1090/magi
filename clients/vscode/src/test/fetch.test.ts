@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { CoreRelease, fetchOffer } from '../core/release';
-import { cachedAt, fetchCore, findFile, resolveLatest, sha256, unpack, Wire } from '../core/fetch';
+import { cachedAt, fetchCore, findFile, resolveLatest, sha256, tarExe, unpack, Wire } from '../core/fetch';
 
 /**
  * Fetching the core, measured **without a network and with real archives**.
@@ -15,8 +15,24 @@ import { cachedAt, fetchCore, findFile, resolveLatest, sha256, unpack, Wire } fr
  * and the file really landing where the resolver will find it.
  */
 
+/**
+ * 이 파일시스템이 실행 비트를 들고 있는가 — 플랫폼 이름이 아니라 파일시스템에 묻는다.
+ *
+ * NTFS 에는 POSIX 의 실행 비트가 없다. `chmodSync(0o755)` 는 읽기 전용 플래그만 건드리고
+ * `statSync().mode` 는 `0o111` 을 돌려주지 않는다 — 윈도우에서 실행 가능성을 정하는 것은 확장자다.
+ * 그래서 「받은 것이 실행 가능한가」라는 단언은 그 비트가 붙는 곳에서만 뜻이 있다.
+ */
+const modeBitsStick = (() => {
+  try {
+    const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'magi-mode-')), 'x');
+    fs.writeFileSync(f, 'x');
+    fs.chmodSync(f, 0o755);
+    return (fs.statSync(f).mode & 0o111) !== 0;
+  } catch { return false; }
+})();
+
 const hasTar = (() => {
-  try { execFileSync('tar', ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
+  try { execFileSync(tarExe(), ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
 })();
 
 /** A release archive, the shape the core actually publishes: one executable inside. */
@@ -26,7 +42,10 @@ function archive(dir: string, body = "#!/bin/sh\necho 'magi test'\n"): string {
   fs.writeFileSync(path.join(stage, 'magi'), body, { mode: 0o755 });
   fs.writeFileSync(path.join(stage, 'README.md'), 'not the binary\n');
   const out = path.join(dir, 'magi_linux_amd64.tar.gz');
-  execFileSync('tar', ['-czf', out, '-C', stage, 'magi', 'README.md']);
+  // The same tar the product will use — on Windows a bare `tar` may be Git's MSYS one, which cannot
+  // even WRITE to a C: path (it reads the drive as a remote host). A fixture that failed there said
+  // nothing about the product.
+  execFileSync(tarExe(), ['-czf', out, '-C', stage, 'magi', 'README.md']);
   return out;
 }
 
@@ -72,7 +91,9 @@ test('a verified archive lands where the resolver looks for it', { skip: !hasTar
 
   assert.equal(got, cachedAt(cfg, '9.9.9', 'linux'), 'it did not land in the per-version cache');
   assert.ok(fs.existsSync(got), 'nothing is there');
-  assert.ok(fs.statSync(got).mode & 0o111, 'the fetched core is not executable');
+  // Only where the filesystem carries the bit — see modeBitsStick. The product chmods either way;
+  // on NTFS that call is about the read-only flag and executability comes from the extension.
+  if (modeBitsStick) assert.ok(fs.statSync(got).mode & 0o111, 'the fetched core is not executable');
   assert.equal(fs.readFileSync(got, 'utf8'), "#!/bin/sh\necho 'magi test'\n", 'the wrong file was taken out');
   // The checksums were asked for BEFORE the archive: nothing is fetched that nobody vouched for.
   assert.deepEqual(net.texts, ['https://example.invalid/download/v9.9.9/checksums.txt']);

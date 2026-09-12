@@ -155,6 +155,28 @@ export function sha256(file: string): Promise<string> {
 }
 
 /**
+ * The `tar` this means — **the system's own**, which on Windows has to be said by path.
+ *
+ * ⚠ **A bare `tar` is whatever PATH answers, and on Windows that is often the wrong one.** Git for
+ * Windows ships an MSYS tar and its installer offers to put those Unix tools on PATH; that tar reads
+ * `C:\…` as a REMOTE HOST and fails with `Cannot connect to C: resolve failed`. Measured on this
+ * machine, 2026-09-12, same archive and same destination:
+ *
+ *	C:\Windows\System32\tar.exe  → extracted
+ *	<git>\usr\bin\tar            → Cannot connect to C: resolve failed
+ *
+ * So the download of the core would fail for a developer who took that installer option, with a
+ * message that never mentions tar. The comment below always meant the Windows-provided bsdtar; this
+ * names it instead of hoping PATH agrees. Absent (pre-1803) it falls back to the bare name, which is
+ * the pre-existing behaviour and then hits the PowerShell path below for zips.
+ */
+export function tarExe(): string {
+  if (process.platform !== 'win32') return 'tar';
+  const bsd = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'tar.exe');
+  return fs.existsSync(bsd) ? bsd : 'tar';
+}
+
+/**
  * Extract an archive, with the system's own `tar`.
  *
  * ⚠ **Deliberately not a bundled parser.** This extension ships with no runtime dependencies, and
@@ -166,7 +188,7 @@ export function unpack(archive: string, into: string): Promise<void> {
   const zip = archive.endsWith('.zip');
   const args = zip ? ['-xf', archive, '-C', into] : ['-xzf', archive, '-C', into];
   return new Promise((resolve, reject) => {
-    execFile('tar', args, { timeout: requestTimeoutMs }, (err) => {
+    execFile(tarExe(), args, { timeout: requestTimeoutMs }, (err) => {
       if (!err) return resolve();
       if (!zip) return reject(new Error(`could not unpack ${path.basename(archive)}: ${err.message}`));
       // Windows before 1803 has no tar. PowerShell has read zip since 5.0.

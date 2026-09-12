@@ -33,9 +33,19 @@ import { Daemon, deadlineFor } from '../core/daemon';
  * leaves a corpse at the head of a queue that never drains if the daemon answers nothing at all,
  * and both siblings hang up instead.
  */
-test('a timed-out call does not hand its answer to the next caller', async () => {
+test('a timed-out call does not hand its answer to the next caller', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-lockstep-'));
   const sock = path.join(dir, 'd.sock');
+  // ⚠ **Node cannot put a listening socket at a filesystem path on Windows.** `listen(path)` there
+  // means a NAMED PIPE, and a path like `C:\…\d.sock` is not a pipe name — the bind fails with
+  // EACCES (measured 2026-09-12; the failure had been standing in this suite on this platform).
+  // Which is also why nothing in the product dials a socket path there: Windows transport goes
+  // through `ide-bridge --raw-socket` over stdio (see core/daemon.ts, DESIGN §2). Asked of the
+  // platform rather than of the filesystem because the answer is Node's, not the volume's.
+  if (process.platform === 'win32') {
+    t.skip('Node listens on named pipes here, not on socket paths — the Windows transport is the relay');
+    return;
+  }
   const late: net.Socket[] = [];
   const server = net.createServer((c) => {
     late.push(c);
