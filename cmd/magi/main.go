@@ -89,7 +89,58 @@ var (
 // GitHub Enterprise source via update.NewGitHubSource(owner, repo, update.WithAPIBase(…),
 // update.WithToken(…)) or an entirely custom update.Source) without editing any call
 // site. Default is the public release repo.
-var newReleaseSource = func() update.Source { return update.NewGitHubSource(ghOwner, ghRepo) }
+var newReleaseSource = func() update.Source {
+	if base := releaseAPIBase(); base != "" {
+		return update.NewGitHubSource(ghOwner, ghRepo, update.WithAPIBase(base))
+	}
+	return update.NewGitHubSource(ghOwner, ghRepo)
+}
+
+// releaseAPIBaseEnv points every self-update path at a different REST API root.
+//
+// # Why an environment variable and not a build tag
+//
+// The capability is already a PRODUCT one — `update.WithAPIBase` exists for GitHub Enterprise and
+// private forks — and what was missing was a way to say it at RUNTIME. Until now the comment above
+// told a fork to reassign the seam "in an init()", which means: fork the repository and rebuild.
+// Saying it in the environment lets those users run the binary we ship.
+//
+// It also lets a test drive the daemon's own update loop end to end (check → download → verify →
+// safe point → replace → restart) against a local server. The alternative on the table was a
+// test-only build tag that installs the seam, and that was refused: the failure is asymmetric —
+// a tag left on in a release build points EVERY self-update path at a fake source, silently, and
+// the only thing standing between that and a shipped binary is one line of goreleaser config.
+//
+// # ⚠ This is a security-relevant switch, so it is not silent
+//
+// Three rules travel with it, and none of them is optional:
+//
+//  1. **It says so.** A non-default source is announced wherever an update is about to happen
+//     (announceReleaseSource) — where a build comes from is not something a person should have to
+//     guess.
+//  2. **It changes the SOURCE and nothing else.** The checksum contract is untouched: a release is
+//     still refused unless `checksums.txt` carries a line for the asset (GitHubSource.checksumOf),
+//     and the asset name is still the one this build asks for. Pointing somewhere else does not buy
+//     a weaker check — TestTheEnvDoorDoesNotWeakenTheChecksumRule holds that.
+//  3. **It is askable.** `magi -version` prints it, so "where would an update come from" has an
+//     answer that does not require reading the environment of a running process.
+const releaseAPIBaseEnv = "MAGI_RELEASE_API_BASE"
+
+// releaseAPIBase is the configured root, or "" for the public API.
+//
+// Blank and whitespace read as unset rather than as an empty base: an exported-but-empty variable is
+// the shape a shell script leaves behind, and treating it as a base would send every update lookup
+// to a relative URL.
+func releaseAPIBase() string { return strings.TrimSpace(os.Getenv(releaseAPIBaseEnv)) }
+
+// announceReleaseSource writes the one line rule 1 above requires. Silent for the default source:
+// saying "updates come from GitHub" every time teaches people to skim the line that matters.
+func announceReleaseSource(w io.Writer) {
+	if base := releaseAPIBase(); base != "" {
+		fmt.Fprintf(w, "magi: updates come from %s (%s), not the public GitHub API — %s is set\n",
+			base, ghOwner+"/"+ghRepo, releaseAPIBaseEnv)
+	}
+}
 
 // onInteractiveStart holds hooks run once, in order, right after the startup update
 // check when an interactive session boots (never in headless/bench/pipe runs, which
@@ -128,6 +179,7 @@ func runCoreUpdate() int {
 		fmt.Fprintln(os.Stderr, "magi: locate executable:", err)
 		return 1
 	}
+	announceReleaseSource(os.Stdout)
 	fmt.Println("checking for updates…")
 	// A person typing this is exactly what §9.3 calls an "explicit retry": if this install rolled a build back before,
 	// the automatic path refuses it forever, and this is the door that unblocks it. Best-effort —
@@ -452,6 +504,9 @@ func run() int {
 
 	if *showVersion {
 		fmt.Println(version.String())
+		// Rule 3 of releaseAPIBaseEnv: "where would an update come from" must have an answer a person
+		// can ask for. Silent on the default, so the line only appears when it says something.
+		announceReleaseSource(os.Stdout)
 		return 0
 	}
 	// `-p` given at all (even empty) means headless: an explicit empty prompt should

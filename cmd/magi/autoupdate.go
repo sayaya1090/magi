@@ -85,6 +85,9 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 			continue // this daemon's own recent restart already checked; do not hammer the network
 		}
 		touchStamp(stamp)
+		// Rule 1 again, on the path a person is NOT watching. A daemon that quietly takes builds from
+		// somewhere else is the shape this announcement exists to prevent.
+		announceReleaseSource(os.Stderr)
 		cctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 		res, err := update.RunCommit(cctx, latestSource(), current, exe)
 		cancel()
@@ -201,6 +204,10 @@ func maybeUpdateOnStartup(ctx context.Context, configDir, current, exe string, o
 	if !updateCheckDue(stamp, updateCheckTTL, time.Now()) {
 		return false
 	}
+	// Rule 1 of releaseAPIBaseEnv: an update that is about to happen says where it comes from. Before
+	// the lookup, not after — if the far side is slow or wrong, the line a person needs is the one
+	// naming who was asked.
+	announceReleaseSource(out)
 	src := latestSource()
 	lctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	rel, err := src.Latest(lctx)

@@ -654,6 +654,7 @@ Flags and environment variables (precedence: flag > env > default):
 | `--no-harness` | — | (off = harness on) | disable the built-in harness (format/diagnostics/Stop hooks) |
 | `--output` | — | `text` | `text`\|`json` (headless) |
 | `--time-budget` | `MAGI_TIME_BUDGET` | `0` (off) | soft wall-clock budget shown to the agent as guidance (e.g. `20m`); **advisory, never a hard stop**. See §Time & step budget. Kept **off** for leaderboard/comparison runs |
+| — | `MAGI_RELEASE_API_BASE` | (unset = public GitHub API) | **Where self-update takes releases from.** For forks and Enterprise (running the binary we ship), and for exercising the update loop for real. ⚠ **It moves the SOURCE only** — the `checksums.txt` line and the asset name are still demanded, and a non-default source is ANNOUNCED (on `--version` and wherever an update is about to happen). Where a build comes from is not something to guess |
 | `--workflow` | `MAGI_WORKFLOW` | (off) | drive the task through the deterministic localize→implement→verify→review pipeline |
 | `--verify-cmd` | `MAGI_VERIFY_CMD` | (auto) | workflow verification command; auto-detected (go/cargo/npm/pytest markers) when empty |
 | `--http-timeout` | `MAGI_HTTP_TIMEOUT` | `0` (unbounded) | max wait for LLM response headers (e.g. `120s`) |

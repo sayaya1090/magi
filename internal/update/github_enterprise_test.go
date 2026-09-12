@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -126,5 +127,29 @@ func TestGitHubOptionEdgeCases(t *testing.T) {
 	}
 	if NewGitHubSource("o", "r").apiBase() != defaultGitHubAPIBase {
 		t.Errorf("no option must keep the public default %q", defaultGitHubAPIBase)
+	}
+}
+
+// **A non-default API base does not buy a weaker check.**
+//
+// ⚠ The runtime door for this (`MAGI_RELEASE_API_BASE`, read in cmd/magi) exists so a fork — or a
+// test — can point every self-update path at another host. The rule that keeps it from being a way
+// to install whatever that host offers is this one: the release is refused unless `checksums.txt`
+// carries a line for the asset this build asked for. Pointing somewhere else moves the SOURCE only.
+func TestANonDefaultBaseStillDemandsAChecksum(t *testing.T) {
+	asset := AssetName() + ".tar.gz"
+	// A release with the asset and NO checksums.txt, served from an Enterprise-shaped base.
+	body := fmt.Sprintf(`{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":"http://x/pub"}]}`, asset)
+	g := NewGitHubSource("o", "r", WithAPIBase("https://local.test/api/v3"))
+	g.HTTP = &http.Client{Transport: rtFunc(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasPrefix(r.URL.String(), "https://local.test/api/v3") {
+			return nil, fmt.Errorf("asked %s — the base did not travel", r.URL)
+		}
+		return cannedResp(http.StatusOK, body), nil
+	})}
+	if _, err := g.Latest(context.Background()); err == nil {
+		t.Fatal("a release with no checksums.txt was accepted from a non-default base")
+	} else if !strings.Contains(err.Error(), checksumsAsset) {
+		t.Errorf("the refusal does not name what was missing: %v", err)
 	}
 }

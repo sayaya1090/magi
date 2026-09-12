@@ -498,6 +498,7 @@ flowchart LR
 | `--no-harness` | — | (꺼짐=하네스 켜짐) | 내장 하네스(포맷/진단/Stop 훅) 비활성화 |
 | `--output` | — | `text` | `text`\|`json` (헤드리스) |
 | `--time-budget` | `MAGI_TIME_BUDGET` | `0` (꺼짐) | 에이전트에게 가이드로 보여주는 소프트 벽시계 예산(예: `20m`). **권고일 뿐 하드 중단 아님**. §시간 예산 참고. 리더보드/비교 런에선 **끔** |
+| — | `MAGI_RELEASE_API_BASE` | (없음=공개 GitHub API) | **자기갱신이 어디서 릴리스를 받나.** 포크·엔터프라이즈(우리 바이너리를 그대로 쓰면서)와 갱신 루프 실물 시험용. ⚠ **출처만 바뀝니다** — `checksums.txt` 대조와 자산 이름 검증은 그대로이고, 기본이 아닌 출처는 **말합니다**(`--version` 과 갱신이 일어나는 자리마다 한 줄). 「어디서 받는가」를 추측하게 두지 않습니다 |
 | `--workflow` | `MAGI_WORKFLOW` | (꺼짐) | 결정론적 localize→implement→verify→review 파이프라인으로 구동 |
 | `--verify-cmd` | `MAGI_VERIFY_CMD` | (자동) | 워크플로 검증 명령; 비우면 자동 감지(go/cargo/npm/pytest 마커) |
 | `--http-timeout` | `MAGI_HTTP_TIMEOUT` | `0` (무제한) | LLM 응답 헤더 최대 대기(예: `120s`) |
