@@ -63,12 +63,21 @@ class SocketPathTest {
 
     @Test
     fun `소켓 이름은 베이스와 해시를 이어 붙인다`() {
-        val socket = SocketPath.of(Paths.get("/tmp/mw1"), Paths.get("/private/tmp/ws1"), env = { null })
-        assertEquals("daemon-ws1-b1lp9vc8.sock", socket.fileName.toString())
-        assertEquals(
-            "/tmp/mw1/daemon-ws1-b1lp9vc8.sock.session",
-            SocketPath.sessionFile(socket).toString(),
-        )
+        // ⚠ **이름의 규칙은 문자열에 대한 것이라 문자열로 잰다.** 한동안 이 줄은
+        // `Paths.get("/private/tmp/ws1")` 를 넘겼는데, 윈도우에서 그것은 **현재 드라이브 기준
+        // 경로**가 되어 `toAbsolutePath()` 가 `C:` 를 붙이고 해시 입력이 갈린다(실측: 골든
+        // `b1lp9vc8` 대신 `hfw91v7l`). 재려던 것은 「베이스와 해시를 이어 붙이는가」이고 그것은
+        // 플랫폼과 무관하다 — 경로를 거치면 무관한 이유로 빨개진다.
+        assertEquals("ws1-b1lp9vc8", SocketPath.keyOf("/private/tmp/ws1"))
+
+        // 그리고 그 이름이 실제로 소켓 파일 이름이 되고, 레코드가 그 옆에 선다. 여기서는 **이 판의
+        // 철자로** 견준다 — 기대값도 같은 방식으로 짓는다(하드코딩한 `/` 는 한쪽 플랫폼의 철자다).
+        val dir = Paths.get("mw1")
+        val socket = SocketPath.of(dir, Paths.get("ws-x"), env = { null })
+        assertEquals(dir, socket.parent)
+        assertTrue(socket.fileName.toString().startsWith("daemon-"), "이름이 접두를 잃었다: $socket")
+        assertTrue(socket.fileName.toString().endsWith(".sock"), "이름이 확장자를 잃었다: $socket")
+        assertEquals(socket.toString() + ".session", SocketPath.sessionFile(socket).toString())
     }
 
     @Test
@@ -186,14 +195,21 @@ class PublishedTest {
     fun `레코드에서 세션과 워크디렉토리를 읽는다`() {
         val dir = java.nio.file.Files.createTempDirectory("magi-rec")
         val sock = dir.resolve("daemon-ws1-b1lp9vc8.sock")
+        // ⚠ **경로를 JSON 에 날로 끼워 넣지 않는다.** 이 줄은 한동안 `"socket":"$sock"` 이었고,
+        // 윈도우의 임시 경로가 오면 `\U`·`\m` 처럼 **불법 이스케이프**가 되어 읽기가 깨졌다 —
+        // 재려던 것(레코드의 칸을 읽는가)과 무관한 이유로 빨개지는 픽스처다. 문자열은 인코더에게
+        // 맡긴다.
+        val quoted = kotlinx.serialization.json.JsonPrimitive(sock.toString()).toString()
         java.nio.file.Files.writeString(
             SocketPath.sessionFile(sock),
-            """{"socket":"$sock","workdir":"/tmp/ws1","session":"s_abc","pid":42,"unknown":"무시된다"}""",
+            """{"socket":$quoted,"workdir":"/tmp/ws1","session":"s_abc","pid":42,"unknown":"무시된다"}""",
         )
         val rec = Published.of(sock)
         assertEquals("s_abc", rec?.session)
         assertEquals("/tmp/ws1", rec?.workdir)
         assertEquals(42, rec?.pid)
+        // 그리고 그 칸도 읽는지 본다 — 위 결함이 숨어 있던 이유가 아무도 이 칸을 안 봐서다.
+        assertEquals(sock.toString(), rec?.socket)
     }
 
     @Test

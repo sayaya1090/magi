@@ -215,7 +215,11 @@ class ArchitectureTest {
         val onDisk = plugin.walkTopDown()
             .filter { it.isFile && it.extension == "kt" }
             .filterNot { f -> generateSequence(f) { it.parentFile }.any { it.name == "build" || it.name == ".intellijPlatform" } }
-            .map { it.relativeTo(repo).path }
+            // ⚠ **`git ls-files` 는 `/` 로 답하고 `relativeTo` 는 이 플랫폼의 구분자로 답한다.**
+            // 윈도우에서 그대로 견주면 **소스 백여 개가 전부 「미추적」으로 읽힌다**(실제로는 전부
+            // 실려 있다) — 위반이 없는데 이 가드가 통째로 빨개지고, 영구 빨강은 사람에게 「이
+            // 수트는 원래 빨갛다」를 가르친다. git 의 철자로 맞춘다.
+            .map { it.relativeTo(repo).path.replace(File.separatorChar, '/') }
             .toList()
         assertTrue(onDisk.size > 50, "디스크에서 찾은 소스가 ${onDisk.size}개다 — 이 가드가 아무것도 안 잰다")
         assertEquals(
