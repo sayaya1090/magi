@@ -1,6 +1,6 @@
 # Stabilizing the primary client lifecycle
 
-[English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.md) · [Review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md)
+[English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.md)
 
 Status: **implementation contracts and acceptance criteria, 2026-09-12.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
 
@@ -14,7 +14,7 @@ A companion is the daemon executing work for a workspace. Its owner is the clien
 
 ## 2. Current implementation and remaining work
 
-Reviewed through `01d3c060`, 2026-09-12. The [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) records fixing commits and verification history. This document retains the implementation contracts and acceptance criteria.
+Reviewed through `01d3c060`, 2026-09-12. Follow-up review findings are resolved. This document retains the implementation contracts and acceptance criteria.
 
 | Area | Current implementation | Remaining verification |
 |---|---|---|
@@ -30,7 +30,7 @@ Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not
 
 Do not create `<socket>.lifecycle`. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve file-replacement recovery only. Advertise features with their implementation.
 
-The code findings identified in this review are resolved; platform acceptance remains. This is not a claim that no other defects exist. The follow-up review records revisions and scope for the reviewer's Go, VS Code and JetBrains test runs. Distinguish implementer-reported Windows live runs from reviewer runs on macOS. Completion requires actual IDE/browser acceptance, native `deactivate`, L12 server restart and E's deployment evidence.
+The code findings identified in this review are resolved; platform acceptance remains. This is not a claim that no other defects exist. Revisions and scope for the reviewer's Go, VS Code and JetBrains test runs are preserved in git history. Distinguish implementer-reported Windows live runs from reviewer runs on macOS. Completion requires actual IDE/browser acceptance, native `deactivate`, L12 server restart and E's deployment evidence.
 
 ## 3. State and responsibility
 

@@ -69,7 +69,7 @@ test('owned companion, byte relay, external owner and shutdown races', { skip: !
  * gone, and a daemon started anyway. Nothing was left to stop it: no `deactivate` runs twice, and
  * the owner pipe's write end belongs to an extension host that has finished with this companion.
  *
- * Measured 2026-09-11 (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11, R1): start → the probe waits →
+ * Measured 2026-09-11 (docs/CLIENT_LIFECYCLE.md, R1): start → the probe waits →
  * `close()` resolves → the probe answers, and a child appeared with nothing left to stop it. This
  * test reproduces that order exactly, by holding the probe open until close has returned.
  *
@@ -101,7 +101,7 @@ test('a window that closed during the feature probe starts nothing it does not s
  * `launch`, before the feature probe — and the `closed` checks that R1 added return between that
  * open and the `finally` that closes it. Nothing failed; the count only went one way, in an
  * extension host that lives as long as the window and races this every reload
- * (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11, R7).
+ * (docs/CLIENT_LIFECYCLE.md, R7).
  *
  * Counted, not inspected: the one honest question is whether this process holds more open
  * descriptors afterwards, and /dev/fd answers it. POSIX only — Windows has no such directory, and

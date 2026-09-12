@@ -19,7 +19,7 @@ import * as net from 'net';
  *     magi: daemon on ...sock stopped — the owner closed its pipe
  *
  * two lines apart, while the owner was running and had closed nothing. This is review item R2
- * (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11), which had only a macOS stand-in until then.
+ * (docs/CLIENT_LIFECYCLE.md), which had only a macOS stand-in until then.
  *
  * So the window makes the pipe itself and hands the child a stream Node did not create: `child.stdin`
  * is then null, the destroy-on-exit path never runs, and the write end lives exactly as long as this

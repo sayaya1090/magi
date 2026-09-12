@@ -284,7 +284,7 @@ export class OwnedCompanion {
     // daemon it starts belongs to nobody: no `deactivate` will run again, and the owner pipe's
     // write end is held by an extension host that has finished with this companion.
     //
-    // Measured 2026-09-11 (docs/CLIENT_LIFECYCLE_REVIEW R1): start → probe waits → `close()`
+    // Measured 2026-09-11 (docs/CLIENT_LIFECYCLE.md R1): start → probe waits → `close()`
     // resolves → probe answers, and a child appeared with nothing left to stop it.
     //
     // Checked twice on purpose. Here, so the ordinary case costs nothing; and again after the
@@ -312,7 +312,7 @@ export class OwnedCompanion {
     // ⚠ **The log fd is opened AFTER the last await, and that placement is the fix.** It used to be
     // opened at the top of this function, before the feature probe — and the two `closed` checks
     // added for R1 both return between there and the `finally` that closes it, so every launch that
-    // lost the close race leaked one file handle (docs/CLIENT_LIFECYCLE_REVIEW_2026-09-11, R7). An
+    // lost the close race leaked one file handle (docs/CLIENT_LIFECYCLE.md, R7). An
     // extension host is long-lived and a window can race a launch as often as a user reloads it.
     // Nothing between here and the spawn awaits, so no return can slip in front of the finally.
     const log = this.socket + '.log';
