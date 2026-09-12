@@ -35,7 +35,7 @@ func summarise(rows []Row) {
 		// back. A tool row's Text is the tool's NAME, so the arguments join it rather than replace it.
 		line := clip(r.Text)
 		if r.Who == WhoTool {
-			if a := clip(r.Args); a != "" {
+			if a := askedLine(r.Args); a != "" {
 				line = strings.TrimSpace(line + " " + a)
 			} else if o := clip(r.Out); o != "" {
 				line = strings.TrimSpace(line + " " + o)
@@ -386,11 +386,19 @@ func appendPart(out *[]*Row, seq int64, p map[string]any) {
 			if advisory {
 				r.Note = true
 			}
-			if isTrue(res, "isError") && !advisory {
-				// The reason travels with the failure. Read the VALUE, not its rendering: content
-				// is often a JSON string, and stringifying it again leaves the escapes on screen.
-				r.Out = said(res["content"])
-			}
+			// ⚠ **The body is kept for every result, not only for failures.** It used to be filled
+			// only when `isError && !advisory`, which folded two different decisions into one: whether
+			// the body is PRESERVED and whether a screen shows it by default. A client moved onto this
+			// row could then never expand a successful call — the output existed in the log and not on
+			// the row, so the screen would have to go and parse the log again, which is the drift this
+			// package exists to end.
+			//
+			// What a screen draws by default is said elsewhere and stays said: Ok tells failure from
+			// success, Note marks an advisory result, Folded marks bodies shut until asked for.
+			//
+			// Read the VALUE, not its rendering: content is often a JSON string, and stringifying it
+			// again leaves the escapes on screen.
+			r.Out = said(res["content"])
 			return
 		}
 	case "image":
@@ -584,16 +592,39 @@ func AskedFor(args any) string {
 		}
 		return string(b)
 	}
-	for _, k := range []string{"path", "command", "pattern", "query", "id", "name"} {
-		if s, ok := o[k].(string); ok && strings.TrimSpace(s) != "" {
-			return strings.TrimSpace(s)
-		}
-	}
+	// ⚠ **No picking here.** This used to return the FIRST of path/command/pattern/… that was present,
+	// so `{path, old_string, new_string}` arrived as the path alone — the two strings that say what the
+	// edit actually was were dropped. One representative field is a summary, not the arguments, and a
+	// client handed the summary cannot get the call back. The pick lives in askedLine, for Row.Summary.
 	b, err := json.Marshal(o)
 	if err != nil || len(b) == 0 || string(b) == "{}" {
 		return ""
 	}
 	return string(b)
+}
+
+// askedLine is a tool call's arguments as ONE line — the representative field if the call has one,
+// the whole thing clipped otherwise.
+//
+// This is the rule AskedFor used to be. It reads the rendered arguments back rather than taking the
+// original value, so there is one representation of a call's arguments on the row and one place that
+// summarises it.
+func askedLine(args string) string {
+	if strings.TrimSpace(args) == "" {
+		return ""
+	}
+	var o map[string]any
+	if err := json.Unmarshal([]byte(args), &o); err != nil {
+		return clip(args)
+	}
+	// The order is what a person scanning a list reads first: where, then what was run, then what was
+	// looked for.
+	for _, k := range []string{"path", "command", "pattern", "query", "id", "name"} {
+		if s, ok := o[k].(string); ok && strings.TrimSpace(s) != "" {
+			return clip(strings.TrimSpace(s))
+		}
+	}
+	return clip(args)
 }
 
 // said is a tool result's content as words. A JSON string is its own text; anything else is its JSON.

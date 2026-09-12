@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -36,6 +37,10 @@ import (
 //     the fix, not a drift: the body used to be clipped to its first line, so this fixture — written
 //     with a two-line failure on purpose — was losing the second line, and the golden recorded the
 //     loss. The bodies are whole now; the clip moved into `summary`.
+//   - `args` became the whole object and `out` appeared on the advisory `write` row (2026-09-13, the
+//     same contract). This fixture had a `cwd` beside the command and `"lint says x"` on that result,
+//     and both were being dropped — one by a picker that returned the first field it recognised, the
+//     other by filling the body only for real failures. The golden had recorded those losses too.
 func TestTheFoldAgreesWithTheGolden(t *testing.T) {
 	var events []event.Event
 	read(t, "fold_events.json", &events)
@@ -171,8 +176,13 @@ func TestAToolCallWithNoResultYetHasNoVerdict(t *testing.T) {
 	if got[0].Ok != nil {
 		t.Errorf("아직 안 끝난 도구 호출에 판정이 붙었다: %v", *got[0].Ok)
 	}
-	if got[0].Args != "sleep 60" {
+	// 무엇을 시켰는지는 **통째로** 실리고, 한 줄은 요약이 든다(전문 보존 계약, 2026-09-13). 이 줄은
+	// 한동안 `Args != "sleep 60"` 이었는데, 그 기대가 곧 대표 칸 하나만 남기던 그 규칙이었다.
+	if !strings.Contains(got[0].Args, "sleep 60") {
 		t.Errorf("무엇을 시켰는지가 %q 로 실렸다", got[0].Args)
+	}
+	if got[0].Summary != "bash sleep 60" {
+		t.Errorf("한 줄 요약이 %q 다 — 이름과 대표 칸이어야 한다", got[0].Summary)
 	}
 }
 
@@ -198,7 +208,9 @@ func TestSizeNoteSaysWhenTheFoldMadeThingsBigger(t *testing.T) {
 
 // AskedFor invents nothing: a call given no arguments summarises to nothing and the row is the
 // bare name again, which is the truth about it.
-func TestAskedForSaysOnlyWhatWasAsked(t *testing.T) {
+// 무엇을 시켰는지는 **아무 칸도 안 버리고** 실린다. 이 시험은 한동안 반대를 못박고 있었다 —
+// 대표 칸 하나를 골라 돌려주는 것이 옳다고. 그 골라내기는 사라지지 않고 `askedLine` 으로 갔다(아래).
+func TestAskedForKeepsEveryField(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		args any
@@ -206,13 +218,30 @@ func TestAskedForSaysOnlyWhatWasAsked(t *testing.T) {
 	}{
 		{"nothing at all", nil, ""},
 		{"an empty object", map[string]any{}, ""},
-		{"the path it names", map[string]any{"path": "a.go", "mode": "w"}, "a.go"},
-		{"a JSON string is parsed, not printed", `{"command":"go test"}`, "go test"},
+		{"every field, not the first one recognised", map[string]any{"path": "a.go", "mode": "w"},
+			`{"mode":"w","path":"a.go"}`},
+		{"a JSON string is parsed and re-rendered whole", `{"command":"go test","cwd":"/x"}`,
+			`{"command":"go test","cwd":"/x"}`},
 		{"a string that is not JSON is itself", "just words", "just words"},
 		{"anything else is its JSON", map[string]any{"depth": 2.0}, `{"depth":2}`},
 	} {
 		if got := AskedFor(c.args); got != c.want {
 			t.Errorf("%s: AskedFor(%v) = %q, 원하는 것은 %q", c.name, c.args, got, c.want)
+		}
+	}
+}
+
+// 그리고 한 줄로 줄이는 규칙은 그대로 산다 — 목록을 훑는 사람이 먼저 읽는 칸을 고른다.
+func TestAskedLinePicksWhatAPersonScansFor(t *testing.T) {
+	for _, c := range []struct{ name, args, want string }{
+		{"nothing", "", ""},
+		{"the path it names", `{"path":"a.go","mode":"w"}`, "a.go"},
+		{"then the command", `{"command":"go test","cwd":"/x"}`, "go test"},
+		{"no representative field: the whole thing, clipped", `{"depth":2}`, `{"depth":2}`},
+		{"not JSON: itself", "just words", "just words"},
+	} {
+		if got := askedLine(c.args); got != c.want {
+			t.Errorf("%s: askedLine(%q) = %q, 원하는 것은 %q", c.name, c.args, got, c.want)
 		}
 	}
 }

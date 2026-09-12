@@ -24,7 +24,7 @@
   "who": "tool",
   "text": "bash",
   "callId": "c1",
-  "args": "go test ./...",
+  "args": "{\"command\":\"go test ./...\",\"cwd\":\"/x\"}",
   "ok": false,
   "out": "boom\nsecond line",
   "summary": "bash go test ./..."
@@ -34,9 +34,10 @@
   "who": "tool",
   "text": "write",
   "callId": "c2",
-  "args": "a.go",
+  "args": "{\"path\":\"a.go\"}",
   "ok": true,
   "note": true,
+  "out": "lint says x",
   "summary": "write a.go"
  },
  {

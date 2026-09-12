@@ -80,11 +80,16 @@ type Row struct {
 	// CallID is the tool call this row is about, so its result can land on it.
 	CallID string `json:"callId,omitempty"`
 
-	// Args is what the call was ASKED to do, in one line.
+	// Args is what the call was ASKED to do — the whole arguments.
 	//
 	// The name alone is not a row: a turn that runs thirty commands draws thirty rows reading
 	// "bash ✓" — same glyph, same word, nothing saying which command or which file. The transcript
 	// is where a person answers "what did it just do".
+	//
+	// ⚠ **It used to be one representative field.** The rendering picked the first of
+	// path/command/pattern/… that the call had, so an edit's `{path, old_string, new_string}` arrived
+	// as the path alone — and the two strings that say what the edit WAS are the reason somebody opens
+	// that row. One field is a summary; Summary carries it.
 	Args string `json:"args,omitempty"`
 
 	// Ok is a tool result. Absent means still running, which is why it is a pointer.
@@ -143,9 +148,17 @@ type Row struct {
 	// draw a bar, and without the difference a parked message looks like one being worked on.
 	Queued bool `json:"queued,omitempty"`
 
-	// Out is why a tool failed, as the tool said it. Kept only for a real failure: an advisory
-	// result's text is what the AGENT must act on, and putting it here would draw a successful
-	// write in the colours of a broken one.
+	// Out is what the tool answered, as the tool said it — for every result, not only failures.
+	//
+	// ⚠ **Preserving the body and showing it are two different decisions**, and they used to be one:
+	// this was filled only for a real failure, so a client reading rows could never expand what a
+	// successful call returned — the output was in the log and not on the row, and the screen would
+	// have to go parse the log again. That is the drift this package exists to end.
+	//
+	// What a screen draws by default is said by the fields around it, and none of that changed: Ok
+	// tells failure from success, Note marks an advisory result (whose text is what the AGENT must act
+	// on, so drawing it like a failure would colour a successful write as a broken one), and Folded
+	// marks bodies shut until somebody asks.
 	Out string `json:"out,omitempty"`
 
 	// Pending is a prompt with no answer yet — the screen draws a bar beside it.
