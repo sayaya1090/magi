@@ -10,10 +10,12 @@
    "messageId": "m1",
    "parts": [
     {
-     "text": "fix the "
+     "text": "fix the ",
+     "kind": "text"
     },
     {
-     "text": "failing test"
+     "text": "failing test",
+     "kind": "text"
     }
    ]
   }
@@ -299,7 +301,8 @@
    "messageId": "m2",
    "parts": [
     {
-     "text": "You stopped\nwithout saying"
+     "text": "You stopped\nwithout saying",
+     "kind": "text"
     }
    ]
   }
@@ -315,7 +318,8 @@
    "messageId": "m3",
    "parts": [
     {
-     "text": "subagent report"
+     "text": "subagent report",
+     "kind": "text"
     }
    ]
   }

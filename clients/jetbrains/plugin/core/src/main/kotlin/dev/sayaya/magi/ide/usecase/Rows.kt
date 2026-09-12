@@ -250,7 +250,13 @@ class Rows {
                 e.data?.jsonObject?.let { d ->
                     if (d["unverified"]?.jsonPrimitive?.content == "true") {
                         val why = d["reason"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                        rows += Row(Who.Error,
+                        // ⚠ **`system` 이다, `error` 가 아니다.** 정본(`idebridge.Rows`)이 이 행을
+                        // `WhoSystem` 으로 짓는다 — 확인 못 한 끝맺음은 **실패가 아니라 끝맺음에
+                        // 대한 말**이고, 실패로 적으면 정말 터진 것과 같은 색으로 그려진다.
+                        // 어휘를 여덟로 맞춘 커밋이 이 한 자리를 `Error` 로 옮겨 정본과 갈라 놓았다
+                        // (같은 픽스처를 두 접기에 통과시켜 실측, 2026-09-12) — 낱말이 같아진 것과
+                        // 같은 낱말을 **같은 사건에** 붙이는 것은 다른 사실이다.
+                        rows += Row(Who.System,
                             "확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
                                 (why?.let { ": $it" } ?: ""), at = e.ts)
                     }
@@ -334,10 +340,14 @@ class Rows {
         // 서브에이전트 보고 주입은 소음이다 — 본문은 그 자식의 자리에 있다(터미널이 삼키는 그대로).
         if (e.actor?.kind == "agent") return false
         val d = e.data?.jsonObject ?: return false
+        // ⚠ **조각은 이어 쓴 것이지 줄이 아니다.** 한 메시지의 `parts` 는 스트리밍이 쪼갠 조각이라
+        // (`"fix the "` + `"failing test"`), 개행으로 이으면 사람이 안 쓴 줄바꿈이 생긴다. 정본
+        // (`idebridge.partsText`)은 붙여 쓴다 — 같은 픽스처를 두 접기에 통과시켜 실측했다
+        // (2026-09-12): 이쪽만 「fix the ⏎failing test」였다.
         val text = d["parts"]?.jsonArray.orEmpty()
             .mapNotNull { it.jsonObject.takeIf { p -> p["kind"]?.jsonPrimitive?.content == "text" } }
             .mapNotNull { it["text"]?.jsonPrimitive?.content }
-            .joinToString("\n")
+            .joinToString("")
         if (e.actor?.kind == "system") {
             // 플래너·카운슬 노트. 안 그리면 이 화면이 헤드리스보다 덜 보여 준다(터미널의 실측).
             // 첫 줄만 — 전문은 로그에 있고, 노트가 대화를 밀어내면 안 된다.

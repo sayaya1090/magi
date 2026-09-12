@@ -247,6 +247,29 @@ class RowsTest {
         assertTrue(r.list().first { it.msgId == "m2" }.abandoned)
     }
 
+    /**
+     * **조각은 이어 쓴 것이지 줄이 아니다.**
+     *
+     * 한 프롬프트의 `parts` 는 스트리밍이 쪼갠 조각이다(코어가 `"fix the "` 와 `"failing test"` 를
+     * 따로 싣는다). 개행으로 이으면 **사람이 안 쓴 줄바꿈**이 그 사람의 말 안에 생기고, 화면에서는
+     * 그것이 그가 엔터를 눌렀다는 뜻으로 읽힌다.
+     *
+     * 실측으로 찾았다(2026-09-12): 정본 접기(`internal/adapter/idebridge`)의 픽스처를 이 셰이퍼에
+     * 통과시켰더니 이쪽만 「fix the ⏎failing test」였다. 아무도 두 접기에 같은 사건을 넣어 본 적이
+     * 없어서, 같은 사람의 같은 말이 두 화면에서 다르게 서 있었다.
+     */
+    @Test
+    fun `한 말의 조각들은 줄바꿈 없이 이어진다`() {
+        val r = Rows()
+        r.feed(ev("prompt.submitted",
+            """{"messageId":"m1","parts":[{"kind":"text","text":"fix the "},{"kind":"text","text":"failing test"}]}""",
+            Actor(kind = "user")))
+        val said = r.list().single()
+        assertEquals(Who.User, said.who)
+        assertEquals("fix the failing test", said.text,
+            "조각 사이에 무언가를 끼워 넣었다 — 사람이 안 쓴 줄바꿈은 그가 엔터를 눌렀다는 뜻으로 읽힌다")
+    }
+
     @Test
     fun `컴팩션은 지우지 않는다 — 접힘 한 줄이 늘 뿐이다`() {
         val r = Rows()
