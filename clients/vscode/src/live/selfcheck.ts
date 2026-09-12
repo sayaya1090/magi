@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import { socketPath } from '../core/workspace';
+import { socketPath, socketThere } from '../core/workspace';
 
 /**
  * What this extension can only find out from inside a running VS Code.
@@ -89,9 +88,16 @@ export async function selfCheck(): Promise<string[]> {
   }
 
   // And the socket this window computes is the one the daemon actually made.
+  //
+  // ⚠ **Two Windows-only defects hid behind this one line**, and only a real editor could show
+  // either (both measured 2026-09-12, Windows 11): the fsPath VS Code hands over spells the drive
+  // letter lowercase and the key is a hash of the string, so the window looked for a different
+  // socket than its daemon made; and `fs.existsSync` — what this asked with — answers false about a
+  // live AF_UNIX socket on Windows, because it stats and Windows refuses to stat one. Either alone
+  // makes every window on the platform say "not running" about a workspace that has a companion.
   const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   const p = socketPath(dir);
-  say(fs.existsSync(p), `no daemon socket at the path this window computes: ${p}`);
+  say(socketThere(p), `no daemon socket at the path this window computes: ${p}`);
 
   return fail;
 }

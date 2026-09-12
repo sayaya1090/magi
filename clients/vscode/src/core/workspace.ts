@@ -28,7 +28,31 @@ export function workspaceKey(workdir: string): string {
     // Not there is not a reason to refuse: the key is a name, not a claim that the directory
     // exists. The core does the same — a failed symlink walk leaves the path as it was.
   }
+  // Cased once, and everything below reads the cased string: the name carries the base directory
+  // and the hash carries the whole path, and a key whose two halves disagreed about the spelling
+  // would be a third answer again — a workspace opened at a drive root is exactly where that shows.
+  abs = driveCased(abs);
   return sanitize(baseName(abs)) + '-' + shortHash(abs);
+}
+
+/**
+ * The drive letter, spelled the way the core spells it.
+ *
+ * ⚠ **VS Code hands this extension a lowercase drive letter, and the hash is over the string.**
+ * `Uri.fsPath` answers `c:\Users\…` where every other path on the machine reads `C:\Users\…`, and
+ * neither `path.resolve` nor `fs.realpathSync` changes it — Node keeps the case it was given.
+ * Go's `filepath.EvalSymlinks`, which the core uses, canonicalises it to the uppercase form. So the
+ * two sides hashed two different strings for one directory: measured 2026-09-12 in a real VS Code
+ * on Windows, the window looked for `daemon-magi-dwj5mk5h.sock` while its daemon was on
+ * `daemon-magi-x7wu42uu.sock`.
+ *
+ * That failure is silent by construction and it is the one this whole function exists to avoid:
+ * the window finds no socket, says "not running" about a workspace that has a companion, and offers
+ * to start a second one on it. Only a real editor produces the lowercase spelling — a unit test
+ * passing its own string gets the uppercase one out of `path.resolve` and agrees with the core.
+ */
+function driveCased(p: string): string {
+  return /^[a-z]:/.test(p) ? p[0].toUpperCase() + p.slice(1) : p;
 }
 
 /**
@@ -111,6 +135,35 @@ export function socketDir(env: NodeJS.ProcessEnv = process.env, cfg: string = co
 /** The socket this workspace's companion listens on. */
 export function socketPath(workdir: string, env: NodeJS.ProcessEnv = process.env): string {
   return path.join(socketDir(env), 'daemon-' + workspaceKey(workdir) + '.sock');
+}
+
+/**
+ * Is a socket file there — asked in the one way Windows will answer.
+ *
+ * ⚠ **`fs.existsSync` says NO about a live socket on Windows.** It is `stat` underneath, and
+ * Windows refuses to stat an AF_UNIX socket file: measured 2026-09-12 against a running daemon,
+ * `existsSync` → `false`, `statSync` and `lstatSync` → `EACCES`, while `accessSync(F_OK)` → ok and
+ * `readdir` lists the name. So the check every discovery path used could not see any companion on
+ * this platform at all.
+ *
+ * What that cost: `ide/workspace.ts` draws "not running" from a missing socket file — a fact, and
+ * the one place it is allowed to conclude that without asking. On Windows the answer was always
+ * "missing", so a window never dialled, always said the workspace had no companion, and offered to
+ * start a second one on a tree that had one. That is exactly the failure workspaceKey's comment
+ * above describes, arrived at from the other side.
+ *
+ * `access(F_OK)` asks the directory entry rather than the file's attributes, which is the question
+ * being asked anyway: is the name there. A socket whose owner is gone leaves the file behind too,
+ * and telling those apart is the dial's job, not this one's (CLIENT_LIFECYCLE §4.2 — never judge by
+ * the file alone).
+ */
+export function socketThere(p: string): boolean {
+  try {
+    fs.accessSync(p, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const MAX_SOCKET_PATH = 100;

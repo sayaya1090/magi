@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { workspaceKey, configDir, socketDir, socketPath, tooLong } from '../core/workspace';
+import { workspaceKey, configDir, socketDir, socketPath, socketThere, tooLong } from '../core/workspace';
 
 /**
  * The keys below were printed by the CORE's own `daemon.WorkspaceKey`, not worked out here and not
@@ -67,6 +67,33 @@ test('the workspace key is the one the core computes', () => {
   const golden = process.platform === 'win32' ? windowsGoldens : posixGoldens;
   for (const [dir, want] of Object.entries(golden)) {
     assert.equal(workspaceKey(dir), want, `${dir} must key the same as the daemon`);
+  }
+});
+
+/**
+ * ⚠ **The drive letter is part of the string being hashed, and VS Code spells it lowercase.**
+ *
+ * `Uri.fsPath` answers `c:\Users\…` where the rest of the machine reads `C:\Users\…`, and Node keeps
+ * whatever case it was given — `path.resolve` and `fs.realpathSync` both. Go's `EvalSymlinks`, which
+ * the core uses, canonicalises to the uppercase form. So the window hashed one string and its daemon
+ * another, for one directory.
+ *
+ * Measured in a real VS Code on Windows 11 (2026-09-12): the live self-check failed with `no daemon
+ * socket at the path this window computes: …\daemon-magi-dwj5mk5h.sock` while the daemon for that
+ * very workspace was on `…\daemon-magi-x7wu42uu.sock`. Nothing above could see it — a test that
+ * writes its own path gets the uppercase form out of `path.resolve` and agrees with the core. Only
+ * the editor produces the other spelling.
+ */
+test('a lowercase drive letter is the same workspace', (t) => {
+  if (process.platform !== 'win32') {
+    t.skip('drive letters are a Windows spelling');
+    return;
+  }
+  for (const dir of Object.keys(windowsGoldens)) {
+    if (!/^[A-Z]:/.test(dir)) continue;
+    const lower = dir[0].toLowerCase() + dir.slice(1);
+    assert.equal(workspaceKey(lower), workspaceKey(dir),
+      `${lower} and ${dir} are one directory; two keys means the window starts a second companion`);
   }
 });
 
@@ -191,4 +218,58 @@ test('a status answer that a newer one overtook is not drawn', () => {
     assert.ok(/mine !== this\.asked[\s\S]*?return/.test(between),
       'the answer is written without asking whether a newer reading already landed');
   }
+});
+
+/**
+ * ⚠ **`fs.existsSync` answers NO about a live socket on Windows**, which is what every discovery
+ * path used to ask.
+ *
+ * It is `stat` underneath and Windows refuses to stat an AF_UNIX socket file. Measured 2026-09-12
+ * against a running daemon: `existsSync` false, `statSync`/`lstatSync` EACCES, `accessSync(F_OK)`
+ * ok, `readdir` lists the name. So a window on this platform saw no companion ever — it drew "not
+ * running" without dialling and offered to start a second one on a tree that had one.
+ *
+ * Measured here against a socket this test binds, not against a platform name: the question is what
+ * the filesystem answers, and a test that branched on `process.platform` would be asserting the
+ * belief rather than the behaviour.
+ */
+test('a socket that is there is found', async (t) => {
+  const net = await import('net');
+  // Somewhere the platform will let AF_UNIX bind — and on Windows there is nowhere, because Node
+  // maps `listen(path)` to a NAMED PIPE there and a filesystem path is not a pipe name (EACCES).
+  // So this half runs on POSIX, and the Windows half is carried by the live self-check, which asks
+  // the same helper about a socket a real daemon made (src/live/selfcheck.ts).
+  const roots = [os.tmpdir(), os.homedir(), process.cwd()];
+  let p = '';
+  let server: import('net').Server | null = null;
+  for (const root of roots) {
+    const dir = fs.mkdtempSync(path.join(root, 'magi-sockcheck-'));
+    const candidate = path.join(dir, 's.sock');
+    try {
+      server = await new Promise<import('net').Server>((ok, no) => {
+        const s = net.createServer();
+        s.on('error', no);
+        s.listen(candidate, () => ok(s));
+      });
+      p = candidate;
+      break;
+    } catch {
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* nothing to clean */ }
+    }
+  }
+  if (!server) {
+    t.skip('nothing here accepts an AF_UNIX bind (on Windows Node listens on named pipes) — the live self-check carries this');
+    return;
+  }
+  try {
+    assert.equal(socketThere(p), true, 'a bound socket must be found, or the window never dials');
+  } finally {
+    await new Promise<void>((ok) => server!.close(() => ok()));
+    try { fs.rmSync(path.dirname(p), { recursive: true, force: true }); } catch { /* gone already */ }
+  }
+});
+
+/** And a name nothing made is still absent — the other half, or "found" would mean nothing. */
+test('a socket that is not there is not found', () => {
+  assert.equal(socketThere(path.join(os.tmpdir(), 'magi-nothing-here-' + Date.now() + '.sock')), false);
 });
