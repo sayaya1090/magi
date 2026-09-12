@@ -1133,6 +1133,46 @@ test('attaching draws the empty conversation instead of leaving the last one up'
 });
 
 /**
+ * **An empty panel meant two things, and this one is drawn where it is the only one that shows.**
+ *
+ * The transcript stream is a live tail with nothing between replay and live, so a panel with no rows
+ * looked identical whether the conversation had not arrived yet or nothing was ever said in it. The
+ * core now marks the end of the replay (`live` on an event-less frame, 2026-09-12) and this client
+ * reads it.
+ *
+ * Three facts, because three things can each be wrong on their own:
+ *   - the field is DECLARED (an undeclared name reads as `undefined` and nothing fails),
+ *   - it is read on the stream, and said only when there is nothing to show,
+ *   - nothing is claimed when the marker never comes — an older daemon does not send it, and a panel
+ *     that waited for it would be worse than the ambiguity it was meant to fix.
+ */
+test('the end of the replay is drawn exactly where an empty panel is ambiguous', () => {
+  const proto = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'protocol.ts'), 'utf8');
+  /* ⚠ Scoped to the Response block, and that is not fussiness: this file declares `live` TWICE — the
+     other is a fleet row's liveness on `RosterRow`. The first version of this check scanned the whole
+     file, matched that one, and passed a mutation that changed the shape of the field it meant to
+     pin. A scan that can match a different declaration is a scan that measures nothing. */
+  const response = proto.slice(proto.indexOf('export interface Response {'));
+  const body = response.slice(0, response.indexOf('\n}'));
+  assert.match(body, /\blive\?: boolean;/,
+    'Response does not declare live as a boolean — an undeclared or wrong-shaped wire name reads as '
+    + 'undefined and nothing fails');
+
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const arm = chat.match(/else if \(r\.live[^)]*\) \{[^}]*\}/);
+  assert.ok(arm, 'the marker is not read — an event-less frame falls through and is dropped in silence');
+  assert.match(arm[0], /this\.events\.length === 0/,
+    'it speaks even with rows on screen — the rows are the evidence there, and notes have one line');
+  assert.match(arm[0], /kind: 'note'/, 'it is read and then nothing is said');
+
+  // The other direction: the arms that DO carry a payload are still ahead of it, so a real event or a
+  // refusal is never swallowed by the caught-up branch.
+  const order = ['if (r.event)', 'r.error', 'r.why', 'r.live'].map((k) => chat.indexOf(k));
+  assert.deepEqual(order, [...order].sort((x, y) => x - y),
+    'the caught-up branch is ahead of a frame that carries something — that frame would be lost');
+});
+
+/**
  * A member that answered with NOTHING BUT reasoning must still say what it was thinking.
  *
  * The core carries `thought` on the verdict — the provider's reasoning stream, never parsed and

@@ -116,6 +116,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       if (r.event) { this.events.push(r.event); this.draw(); }
       else if (r.error) this.post({ kind: 'note', text: r.error });
       else if (r.why) this.post({ kind: 'note', text: r.why });
+      /* The replay is over. Drawn ONLY when there is nothing to show, because that is the only place
+         it changes what a person sees: an empty panel is identical whether the conversation has not
+         arrived yet or nothing was ever said in it. With rows on screen the rows are the evidence,
+         and a note on every attach would be noise in the one line notes have.
+         Nothing is claimed when the marker does not come: an older daemon never sends it, and a panel
+         that waited for it would be worse than the ambiguity it was meant to fix. */
+      else if (r.live && this.events.length === 0) {
+        this.post({ kind: 'note', text: 'Caught up — nothing has been said in this conversation yet.' });
+      }
     });
   }
 

@@ -171,6 +171,15 @@ export interface Response {
   event?: Event;
   /** A stream's opening note — e.g. that a tail was asked for and a whole conversation is coming. */
   why?: string;
+  /**
+   * `transcript`: **the replay ends here** — what follows is happening as it happens.
+   *
+   * Arrives on a frame with no event, which is what this stream already uses to talk about itself
+   * (`why` does). Before it existed a reader could not tell "still catching up" from "caught up and
+   * nothing is happening", and the place that hurts is an EMPTY conversation: a panel with no rows
+   * looks identical whether the replay has not arrived or nothing was ever said in it.
+   */
+  live?: boolean;
   session?: string;
   /**
    * `sessions` / `children`: one conversation, as `daemon.SessionRow` spells it.
