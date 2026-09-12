@@ -315,7 +315,10 @@ class MagiToolWindow : ToolWindowFactory {
          * 전사를 화면으로 옮기는 자리. **연결에 안 매인다** — 다시 붙을 때마다 새로 만들면
          * 같은 규칙이 매번 다시 쓰이고, 그중 한 벌만 고치는 날이 온다.
          */
-        private val sink = object : Transcript.Sink {
+        // `internal` 인 이유는 **헤드리스 시험이 들어오는 입구**다. 이 판의 글자는 사람이 IDE 를
+        // 띄워 봐야만 확인되던 것이고(그래서 「그리는 코드가 있나」를 소스로 재고 있었다), 여기로
+        // 들어오면 진짜 IntelliJ 위에서 **판에 선 글자**를 물을 수 있다. 바깥 모듈은 못 본다.
+        internal val sink = object : Transcript.Sink {
                 /**
                  * 붙었다. [ended] 가 말을 하므로 이쪽도 한다 — 다만 문장 행이 아니라 **점**이다
                  * (혼잣말이 대화 사이에 끼는 것이 읽기를 끊는다는 사용자 실측).
@@ -342,10 +345,11 @@ class MagiToolWindow : ToolWindowFactory {
                  * 아니라 새 결함이다.
                  */
                 override fun caughtUp() {
+                    // 다시 그리기는 여기 없다 — [paintLink] 가 이미 「판이 비었으면 다시 그린다」를
+                    // 하고 그 사유도 거기 적혀 있다. 한동안 이 줄이 여기 있었는데, 헤드리스 시험에
+                    // 대고 변이를 돌리니 **지워도 아무도 안 울었다**: 아무 일도 안 하는 줄이었다.
+                    // 같은 일을 두 자리에서 하면 한쪽만 고치는 날이 온다.
                     mood(Look.success, "●", MagiBundle.msg("chat.link.live"))
-                    // 빈 판은 사유를 글자로 들고 있으므로 다시 그려야 새 말이 선다. 행이 있으면
-                    // 이 다시 그리기는 같은 행을 같은 자리에 세운다(판정은 [shaper] 가 들고 있다).
-                    redrawLog()
                 }
 
                 override fun frame(e: LogEvent) {

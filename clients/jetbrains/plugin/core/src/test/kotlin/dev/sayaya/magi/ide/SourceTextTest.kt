@@ -239,6 +239,12 @@ class SourceTextTest {
      *
      * ⚠ **기본 상태는 안 건드린다.** `began` 이 계속 「연결됨」이라 말해야 한다. 기본을 「불러오는
      * 중」으로 돌려 놓으면 표를 모르는 구형 데몬에 붙은 창이 영원히 불러오는 중이 된다.
+     *
+     * ⚠ 한동안 이 규칙이 `redrawLog()` 도 못박았다. 그 줄은 **아무 일도 안 하고 있었다** —
+     * `paintLink` 가 이미 「판이 비었으면 다시 그린다」를 한다. 헤드리스 시험(`intellij` 의
+     * `HeadlessIdeTest`)에 대고 변이를 돌려서 알았다: 지워도 아무도 안 울었다. 그래서 줄과 그 줄을
+     * 못박던 단언을 같이 걷었다 — **글자를 재는 규칙은 필요 없는 줄까지 굳힐 수 있다.**
+     * 판에 그 말이 실제로 서는지는 이제 헤드리스가 잰다.
      */
     @Test
     fun `재생이 끝났다는 표를 판이 그린다`() {
@@ -248,8 +254,6 @@ class SourceTextTest {
         val block = body.substringBefore("}")
         assertTrue("chat.link.live" in block,
             "받고도 아무 말을 안 한다 — 받는 것과 그리는 것은 다른 사실이다")
-        assertTrue("redrawLog()" in block,
-            "빈 판은 사유를 글자로 들고 있어 다시 그려야 새 말이 선다 — 안 그리면 다음 이벤트까지 옛 말이 서 있다")
         assertTrue("""mood(Look.success, "●", MagiBundle.msg("chat.link.connected"))""" in src,
             "기본 상태가 「연결됨」이 아니게 됐다 — 표를 모르는 데몬에 붙은 창이 영원히 그 상태에 갇힌다")
     }

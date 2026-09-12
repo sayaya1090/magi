@@ -418,4 +418,53 @@ class HeadlessIdeTest : BasePlatformTestCase() {
         }
     }
 
+    /**
+     * **빈 판이 「아직 안 온 대화」와 「정말 빈 대화」를 가르는가 — 판에 선 글자로.**
+     *
+     * 이 줄을 지키던 것은 `core` 의 `SourceTextTest` 였고, 그것이 재는 것은 「그리는 코드가 있나」다.
+     * 코드가 있는 것과 **그 화면이 그렇게 서는 것**은 다른 사실이고, 이 트리는 그 차이로 여러 번
+     * 값을 치렀다(안 뜨는 액션, 판을 벌리는 라벨). 여기서는 진짜 IntelliJ 위에 판을 세우고 글자를
+     * 묻는다.
+     *
+     * ⚠ **먼저 없다는 것부터 잰다.** 그 문장이 처음부터 서 있으면 이 시험은 아무것도 안 재고 초록이다.
+     */
+    fun `test 재생이 끝나면 빈 판이 최신까지 받았다고 말한다`() {
+        val view = MagiToolWindow.View(project)
+        try {
+            com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+            val caught = MagiBundle.msg("chat.link.live")
+            assertFalse(
+                "붙기 전부터 「최신까지 받았다」가 서 있다 — 그러면 이 규칙은 아무것도 안 재고 초록이다",
+                shown(view.root).contains(caught),
+            )
+
+            // 데몬이 재생의 끝을 댔다. 스트림이 자기 이야기를 하는 그 프레임이고, 배선이 없으면
+            // 조용히 버려진다(그 침묵이 이 커밋들의 주제였다).
+            view.sink.caughtUp()
+            com.intellij.util.ui.UIUtil.dispatchAllInvocationEvents()
+
+            val text = shown(view.root)
+            assertTrue(
+                "재생이 끝났는데 빈 판이 아무 말도 안 한다 — 아직 안 온 대화와 정말 빈 대화가 같은 그림이다: $text",
+                text.contains(caught),
+            )
+            // 그리고 그 자리가 환영 안내다 — 제목이 같이 서야 사람이 무엇을 보는지 안다.
+            assertTrue("환영 안내가 아니라 다른 자리에 적혔다: $text", text.contains(MagiBundle.msg("chat.welcome.title")))
+        } finally {
+            com.intellij.openapi.util.Disposer.dispose(view)
+        }
+    }
+
+    /** 세운 판에 실제로 보이는 글자를 전부 모은다 — 라벨이든 텍스트 영역이든. */
+    private fun shown(c: java.awt.Component): String = buildString {
+        fun walk(x: java.awt.Component) {
+            when (x) {
+                is javax.swing.JLabel -> append(x.text.orEmpty()).append('\n')
+                is javax.swing.text.JTextComponent -> append(x.text.orEmpty()).append('\n')
+                else -> {}
+            }
+            if (x is java.awt.Container) x.components.forEach { walk(it) }
+        }
+        walk(c)
+    }
 }
