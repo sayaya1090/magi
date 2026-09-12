@@ -3,21 +3,22 @@ package idebridge
 // The shape of a conversation row, decided in ONE place.
 //
 // This is the third of the eight (docs/IDE_BRIDGE §3) and the largest: "행을 짓는 규칙은 한 벌"
-// is the invariant, and it is the one this repository has most visibly failed to hold. The two
-// existing copies are 806 lines of Kotlin and 808 of TypeScript, and measured 2026-09-10 they do
-// not agree on what a row even IS:
+// is the invariant, and it was the one this repository had most visibly struggled to hold. The two
+// older copies were 806 lines of Kotlin and 808 of TypeScript, and measured 2026-09-10 they did
+// not agree on what a row even was:
 //
 //	TypeScript  user · agent · tool · thinking · council · system · error · image   (eight)
 //	Kotlin      User · Agent · Tool · Thinking · Council · Info                     (six)
 //
-// One image attachment is `image` carrying a bare path on one screen and `Info` carrying
-// "🖼 <path>" on the other; an error is `error` on one and `Info` + ⚠ on the other, which the
-// Kotlin source says out loud. That is the same defect as the activity vocabulary one layer up —
-// two copies, one fact, two words — and it is why this file exists before any of the rule does.
+// One image attachment was `image` carrying a bare path on one screen and `Info` carrying
+// "🖼 <path>" on the other; an error was `error` on one and `Info` + ⚠ on the other. That was
+// the same defect as the activity vocabulary one layer up — two copies, one fact, two words —
+// and it is why this file exists before any of the rule does.
 //
-// **Eight, not six.** A client that wants Kotlin's six can fold `system`, `error` and `image` into
-// one; a client handed six cannot get the picture back. Richer is recoverable, collapsed is not.
-// Decided 2026-09-10.
+// **Eight, not six.** A client that wants six can fold `system`, `error` and `image` into one; a
+// client handed six cannot get the picture back. Richer is recoverable, collapsed is not.
+// Decided 2026-09-10, and Kotlin was brought into alignment to eight on 2026-09-11 and held by
+// TestTheRowVocabularyMatchesTheKotlinCopy.
 
 // Who is the kind of speaker a row carries, and the whole set of them.
 //

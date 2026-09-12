@@ -61,6 +61,10 @@ func TestSocketDirCanBeSplitFromTheConfigDir(t *testing.T) {
 // silently into advice that causes the incident SocketDir exists because of: moving the whole config
 // tree somewhere short leaves the companions reading a config.toml the person's usual magi never
 // wrote. A person following this sentence would do exactly that.
+//
+// Furthermore, Windows 11 measured that %AppData% blocks AF_UNIX connects (WSAEINVAL 10022) and socket
+// unlinking entirely (clients/visualstudio/docs/DESIGN §5), making MAGI_SOCKET_DIR pointing outside
+// %AppData% (e.g. to Temp) doubly load-bearing on Windows.
 func TestTheWayOutOfALongPathIsTheSocketDir(t *testing.T) {
 	err := TooLong(strings.Repeat("x", maxSocketPath+1))
 	if err == nil {

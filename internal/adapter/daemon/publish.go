@@ -35,8 +35,14 @@ func SocketPath(configDir, workdir string) string {
 // %AppData%\magi under a long user name is past it, so the Office installer had to put the
 // companions' config tree somewhere short — and then the companions read a config.toml the
 // person's usual magi never wrote, and a plugin that injects the backend at run time was not
-// there. With the sockets alone moved, one config tree serves every magi on the account and the
-// fleet still sees everyone: every lister goes through this function.
+// there.
+//
+// Windows 11 also revealed a second reason (measured 2026-09-09 during Visual Studio client
+// development; clients/visualstudio/docs/DESIGN §5): regardless of path length, AF_UNIX sockets
+// placed under the %AppData% tree fail to connect (WSAEINVAL 10022) and cannot be deleted (ERROR 1920)
+// due to filesystem filter drivers. Only %LocalAppData%\Temp or locations outside %AppData% work cleanly.
+// With the sockets alone moved to MAGI_SOCKET_DIR, one config tree serves every magi on the account,
+// AF_UNIX connects reliably, and the fleet still sees everyone: every lister goes through this function.
 func SocketDir(configDir string) string {
 	if d := strings.TrimSpace(os.Getenv("MAGI_SOCKET_DIR")); d != "" {
 		return d

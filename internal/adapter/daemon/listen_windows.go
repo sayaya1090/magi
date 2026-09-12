@@ -41,6 +41,10 @@ func secureSocket(string) error { return nil }
 //
 // Opening it with FILE_FLAG_OPEN_REPARSE_POINT and FILE_FLAG_DELETE_ON_CLOSE deletes it on the
 // handle's close — one open, no second syscall to get wrong.
+//
+// ⚠ Under %AppData%, even FILE_FLAG_OPEN_REPARSE_POINT fails with ERROR_CANT_ACCESS_FILE (1920)
+// due to filesystem filter drivers (measured 2026-09-09; clients/visualstudio/docs/DESIGN §5).
+// Sockets must reside outside %AppData% (e.g. in %LocalAppData%\Temp via MAGI_SOCKET_DIR).
 func removeSocket(path string) error {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
