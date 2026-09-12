@@ -1,30 +1,34 @@
-# Lifecycle follow-up implementation review — 2026-09-11
+# Lifecycle follow-up implementation review
 
 [English](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) · [한국어](CLIENT_LIFECYCLE_REVIEW_2026-09-11.ko.md) · [↑ Docs](README.md) · [Lifecycle design](CLIENT_LIFECYCLE.md)
 
-Scope: lifecycle and update changes after `2f71c779`. Each finding below is **struck through once closed, naming the commit that closed it.** Only what is still open carries no line.
+Updated 2026-09-12, reviewed through `6abe8fbc`. Scope: lifecycle, updates and transcript delivery after `2f71c779`. Resolved findings are condensed below; their implementation history remains in Git. Closure means the reviewed code addresses the finding. Platform acceptance is recorded separately.
 
-## First pass (R5–R11)
+## Open finding
 
-- ~~**R5** — state in §4 the policy that warns and then starts anyway.~~ `e0b36923` — what "requiring" means, as a table. The split is **the shutdown guarantee**: the relay cannot stand up at all, so it is blocked; an ordinary launch is the lifetime §4 says to preserve, so it is said once per launch.
-- ~~**R6** — the feature probe does not bound reading the output.~~ `e0e15473` — `readLine()` sat BEFORE `waitFor`, so those five seconds were never reached. Order reversed, cleanup added, and moved into the SDK-free `core` so it can be measured without an editor.
-- ~~**R7** — the log fd survives a close race.~~ `59230ae6` — the open moved past the last `await`. Counted against `/dev/fd` rather than inspected.
-- ~~**R8** — owner-channel failures are swallowed and it falls back to `'pipe'` silently.~~ `ca79c0f9` (#189) — per-step reasons, partial-setup cleanup, degradation reported. "Block the unsafe update path" was **decided against** ([design §4](CLIENT_LIFECYCLE.md#4-launch-compatibility-and-ownership-contract)).
-- ~~**R9** — healthy concurrent starts are read as a failure.~~ `b568d3e3` — evidence moved from "a start happened" to **"the generation that was watching is gone without confirming"**. The watcher's pid is recorded; while it lives, a start belongs to another workspace. The liveness check moved into `internal/procalive` so there is one spelling.
-- ~~**R10** — transaction arbitration was on `Commit` alone.~~ `55ec9458` — all six take it. `Commit` does not wait (§9.3); the other five are finishing a transaction that already exists, so they do (30s cap). Reproduced with two processes on Windows: an unlocked `Salvage` overwrote a live `Commit` and deleted its `.prev`.
-- ~~**R11** — the confirmation clock starts before readiness.~~ `b568d3e3` — the stable window starts after the listener is bound and the record published, and `Confirm` checks both the candidate and the watcher.
+**P1 — bridge `about` can still wait indefinitely.** In [bridge.go](../internal/adapter/idebridge/bridge.go), `about` uses `b.dial()` and then `Hello()`. The cached connection is created with `daemon.Dial`, without a connect or exchange timeout. A peer that accepts but never answers prevents the bridge from processing later requests. `6abe8fbc` fixes this for `rows` only.
 
-## Second pass (2026-09-12, six commits)
+Use a separate bounded connection for `about`, or support per-request deadlines. Do not impose a short timeout on the cached connection shared with `forward`: a forwarded model request may legitimately take minutes. Acceptance: a silent handshake produces a bounded failure and the next bridge request completes; a long-running forwarded request retains its intended timeout policy.
 
-- ~~**① the automatic update has no atomic wait wired.**~~ `ee92a23b` — `3f693903` fixed only the pressed button; the six-hourly loop still polled and then restarted. **The other half of that very gap.** The loop takes and releases the hold, and the test pins that `running` is never consulted when a hold exists.
-- ~~**② starting a meeting bypasses the update hold.**~~ `ee92a23b` — `HoldForUpdate` looked at the meeting counter, but nothing looked at the hold, and the counter was raised outside the lock. `beginMeetingRound` reads both under one lock.
-- ~~**③ JetBrains readiness can be delayed by 120s.**~~ `ee92a23b` — bounded by the remaining ready time (250ms–5s). The same shape as R6: **the deadline has to come first to be a deadline**.
-- ~~**④ a one-sided generation id still passes readiness.**~~ `ee92a23b` — the record's writer and the process answering are the same daemon, so only one side naming a generation means **something else answered**. The pid fallback applies only when neither does, and JetBrains now also checks `hello.ok`.
-- ~~**⑤ the state machine's call sites are incompletely wired.**~~ this commit — `Lost`, `Retry`, `Exhausted` and `Settled` are each attached to their moment, and **the transition verdict is used** (a window that is closing does not launch). ⚠ One `Progress` per workspace is **kept deliberately** — a workspace has one state, and one per path would let the two drift.
-- ~~**L12's test proves nothing about process liveness from file comparison alone.**~~ this commit — `kill(pid, 0)` asks the kernel. Verified by reverting: leaving the record untouched and `SIGKILL`ing the daemon fails with "that pid no longer runs — only the record is left".
+## Resolved findings
 
-## Verification (as of 2026-09-12)
+| Area | Current result and fixing commits |
+|---|---|
+| Earlier R5–R11 | Compatibility policy, feature-probe timeout, log descriptor cleanup and owner-channel failure reporting: `e0b36923`, `e0e15473`, `59230ae6`, `ca79c0f9`. Watcher-based failure detection and readiness-based confirmation: `b568d3e3`. Transaction locking: `55ec9458`; Windows lock contention coverage: `acd66b05`. Policy remains in design §§4 and 9.3. |
+| Update admission | The automatic loop takes the hold (`ee92a23b`). Both `MeetingSayIn` and `MeetingWriteUp` admit work under the same lock (`3dfafa43`); the earlier claim that the meeting fix was complete in `ee92a23b` was premature. |
+| JetBrains startup and retry | Readiness queries respect the remaining startup time (`ee92a23b`). State transitions control launch (`2ed05cc2`); reopening replaces a closed state and manual retry leaves Backoff/Blocked (`3dfafa43`). Launch exceptions now send `LaunchFailed` (`33f0ce4b`). |
+| Generation identity | Clients reject a generation ID present on only one side, and JetBrains checks `hello.ok` (`ee92a23b`). The successor readiness check follows the same rule (`5953ce99`). |
+| Successor failure | Failure to start now enters rollback recovery, retries the previous build once while its owner remains, and returns failure when recovery cannot proceed (`37e21536`, #190). This applies to Unix and Windows. |
+| Windows rollback | Process liveness uses the process handle's signalled state. Restoring `.prev` uses `Apply` to move a running image aside (`8d84ad27`). Windows live tests cover rollback, owned pipes and detached processes (`8d84ad27`, `5953ce99`, `035112df`). |
+| Transcript completion | The bridge exposes shared `rows`, and the daemon names the end of replay (`dd06f762`). An up-to-date cursor receives the marker; a head-read error is reported; History bounds silence to 15s and checks deadline-setting errors (`a09cb01e`, `d91508ec`). `rows` bounds connection to 2s and handshake to 5s (`6abe8fbc`). |
+| Client display and web lifetime | JetBrains row vocabulary matches the core (`ee9176ff`). Replay completion reaches JetBrains and VS Code (`036800cb`, `1be5496b`). Web lifetime tests query process liveness instead of relying only on records (`2ed05cc2`). |
 
-`gofmt` silent · `go vet ./...` (and `GOOS=windows`) silent · `go test ./... -count=1` with no failures · the packages touched today also pass under `-race` · VS Code 283 passed / 0 failed / 3 skipped · JetBrains `:core:test` rc=0 · the web e2e `lifetime.spec.mjs` 2 passed.
+## Verification and limits
 
-⚠ **All of that says is that tests pass.** Real Windows IDE, JetBrains IDE and browser acceptance were not re-run — §8's L01–L13, §9's U01–U08, the native `deactivate` and L12's server restart are where that lives. The findings above came from reading code paths, and a struck-through line means **the fix landed and the test measuring it was verified by mutation**, not that it was seen on the real thing.
+Reviewer runs on macOS, 2026-09-12:
+
+- Targeted Go tests for transcript/history, update recovery, relaunch and locks passed through `0a4ca485`. The full `internal/adapter/idebridge` package was rerun at `6abe8fbc`.
+- VS Code: 284 passed, 0 failed, 5 skipped through `0a4ca485`.
+- JetBrains core: `PhasesTest`, `SourceTextTest`, `TranscriptTest` and `WireConformanceTest` passed at `036800cb`. No later Kotlin changes were included in this review.
+
+Windows live tests were reviewed as code; the implementers report successful Windows runs. The reviewer did not repeat those runs or real IDE/browser acceptance. Earlier whole-repository, race and mutation-test reports are not fresh verification of this revision. `0a4ca485` records an intermittent test failure whose cause was not established; do not attribute it to a specific subsystem without a reproducer. Lifecycle design §§8–9 remain the platform acceptance checklist.
