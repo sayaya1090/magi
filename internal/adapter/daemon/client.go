@@ -145,6 +145,10 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 	}
 	// Two bounds, for two different ways this can fail to end, and neither replaces the other.
 	if c.nc != nil {
+		// The reset on the way out is the one discard here, and it is deliberate: this call is
+		// finishing, and a connection whose deadline could not be cleared is one the next caller will
+		// fail on with its own error. Failing HERE would replace a completed read's answer with a
+		// complaint about cleanup.
 		defer func() { _ = c.nc.SetReadDeadline(time.Time{}) }()
 	}
 	for {
@@ -152,7 +156,13 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 			// Reset per frame: the bound is on SILENCE, not on the size of the conversation. A relay
 			// pipe has no deadline to set (nc is nil), and there the caller's bound is the process it
 			// spawned — the same split c.deadline already documents.
-			_ = c.nc.SetReadDeadline(time.Now().Add(historyIdle))
+			//
+			// ⚠ **Not discarded.** A deadline that failed to set is a read with NO bound, which is
+			// precisely what this method exists to prevent — swallowing it would leave the promise in
+			// the comment and take the behaviour away.
+			if err := c.nc.SetReadDeadline(time.Now().Add(historyIdle)); err != nil {
+				return nil, fmt.Errorf("daemon: cannot bound this read: %w", err)
+			}
 		}
 		if !c.sc.Scan() {
 			break
