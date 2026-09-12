@@ -174,3 +174,34 @@ func sameJSON(t *testing.T, a, b []byte) bool {
 	by, _ := json.Marshal(y)
 	return string(ax) == string(by)
 }
+
+// **A companion that accepts and then says nothing must not hold this door.**
+//
+// ⚠ The silence bound inside History cannot help here: there is no stream yet. This is the step
+// BEFORE it — connect, then ask `about` — and it was unbounded, so a peer that took the connection
+// and went quiet held the bridge for ever. The bridge answers requests in order, so the request after
+// this one waited too; that is the shape of the 202s hang this whole door has been about.
+func TestTheRowsDoorDoesNotWaitForEverOnASilentCompanion(t *testing.T) {
+	quiet := make(chan struct{})
+	t.Cleanup(func() { close(quiet) })
+	d := listen(t, func(string) string {
+		<-quiet // accepted, and never a word back
+		return ""
+	})
+
+	done := make(chan []map[string]any, 1)
+	go func() { done <- run(t, d.path, `{"id":9,"method":"rows","session":"s_1"}`) }()
+	var got []map[string]any
+	select {
+	case got = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("말없이 받아만 놓은 데몬에 걸려 답이 안 온다 — 브리지는 요청을 차례로 처리하므로 " +
+			"뒤의 요청도 이 하나에 함께 멈춘다")
+	}
+	if got[0]["ok"] != false {
+		t.Fatalf("한 마디도 안 한 데몬에게서 대화를 받았다고 답한다: %v", got[0])
+	}
+	if why, _ := got[0]["error"].(string); why == "" {
+		t.Error("거절이 사유를 안 나른다")
+	}
+}

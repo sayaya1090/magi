@@ -3,8 +3,16 @@ package idebridge
 import (
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
+)
+
+// How long the two steps before the read may take. Separate from History's silence bound, which
+// cannot apply until the stream exists: these cover connecting and the handshake.
+const (
+	rowsConnect = 2 * time.Second
+	rowsAsk     = 5 * time.Second
 )
 
 // rows answers a conversation as the lines a screen shows.
@@ -36,7 +44,15 @@ func (b *bridge) rows(req request) {
 		b.fail(req.ID, "the rows method needs a session: {\"method\":\"rows\",\"session\":\"s_…\"}")
 		return
 	}
-	c, err := daemon.Dial(b.socket)
+	// ⚠ **The bound has to start at the dial, not after the handshake.** A companion that accepts the
+	// connection and then never answers `about` held this door for ever — the silence bound inside
+	// History does not exist yet at that point, and the bridge answers requests in order, so every
+	// later request waited behind it. Two different failures, two bounds: a socket file whose owner is
+	// gone in a way that leaves connect hanging, and a peer that accepted and went quiet.
+	//
+	// Short, because both steps are local and neither waits on a model: the daemon either has the
+	// workspace open or it does not. A person is waiting on this reply.
+	c, err := daemon.DialWithin(b.socket, rowsConnect, rowsAsk)
 	if err != nil {
 		b.fail(req.ID, err.Error())
 		return
