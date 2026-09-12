@@ -13,6 +13,26 @@ import java.nio.file.Paths
  * `daemon-ws1-b1lp9vc8.sock` 이 서 있었고 그 레코드의 workdir 가 `/tmp/ws1` 이었다.
  * macOS 에서 `/tmp` 는 `/private/tmp` 로 풀리므로 해싱된 문자열은 `/private/tmp/ws1` 이다.
  */
+
+/**
+ * 심링크를 **만들어 보고** 판단한다 — 못 만드는 기계는 사유와 함께 건너뛴다.
+ *
+ * ⚠ **윈도우에서 심링크 생성은 권한이다**(`SeCreateSymbolicLinkPrivilege`): 관리자이거나 개발자
+ * 모드여야 한다. 아니면 `클라이언트가 필요한 권한을 가지고 있지 않습니다` 로 던지고, 그 여섯 개가
+ * 그 플랫폼에서 영구 빨강이 된다(실측 2026-09-13, Windows 11 Home build 22000 — #195). 영구 빨강은
+ * 사람에게 「이 수트는 원래 빨갛다」를 가르치고, 그러면 진짜 결함도 같은 색으로 묻힌다.
+ *
+ * 플랫폼 이름을 묻지 않는다. 만들어 보고 되면 재고, 안 되면 **잴 것이 없다고 적는다** — 개발자
+ * 모드가 켜진 윈도우에서는 그대로 재인다. 짝인 VS Code 가 같은 방식이다(`workspace.test.ts`:
+ * 「this machine will not make a symlink (Windows without the privilege)」).
+ */
+private fun link(from: java.nio.file.Path, to: java.nio.file.Path): java.nio.file.Path = try {
+    java.nio.file.Files.createSymbolicLink(from, to)
+} catch (e: java.io.IOException) {
+    org.junit.jupiter.api.Assumptions.abort(
+        "이 기계는 심링크를 못 만든다 — 잴 것이 없다(권한 없는 윈도우가 그 자리다): ${e.message}")
+}
+
 class SocketPathTest {
     @Test
     fun `socket override moves only sockets and blank falls back`() {
@@ -129,27 +149,32 @@ class SocketPathTest {
     fun `심링크는 실제로 푼다`() {
         val base = java.nio.file.Files.createTempDirectory("magi-link")
         val real = java.nio.file.Files.createDirectory(base.resolve("real"))
-        val link = java.nio.file.Files.createSymbolicLink(base.resolve("link"), real)
+        val link = link(base.resolve("link"), real)
         assertEquals(real.fileName.toString(), SocketPath.evalSymlinks(link).fileName.toString())
     }
 
     @Test
     fun `설정 디렉토리는 MAGI_CONFIG_DIR 이 이긴다`() {
         val dir = SocketPath.configDir(env = { if (it == "MAGI_CONFIG_DIR") "/tmp/mw1" else null })
-        assertEquals("/tmp/mw1", dir.toString())
+        // ⚠ **글자가 아니라 경로로 견준다.** 재는 것은 「환경이 말한 자리를 고르는가」이고, 그 자리를
+        // 이 판이 어떻게 적는지는 다른 사실이다 — 윈도우는 `\tmp\mw1` 이라 적는다(실측 #195).
+        // 기대값을 같은 방식으로 지으면 플랫폼 분기도 골든 표 둘도 필요 없다.
+        assertEquals(Paths.get("/tmp/mw1"), dir)
     }
 
     @Test
     fun `설정 디렉토리는 플랫폼마다 다른 자리를 본다`() {
+        // 같은 이유로 여기도 경로로 견준다 — 재는 것은 **어느 마디를 어느 순서로 붙이는가**이고,
+        // 그것이 플랫폼마다 다른 자리를 보는 규칙의 내용이다.
         val mac = SocketPath.configDir(env = { null }, os = "Mac OS X", home = "/Users/x")
-        assertEquals("/Users/x/Library/Application Support/magi", mac.toString())
+        assertEquals(Paths.get("/Users/x").resolve("Library/Application Support/magi"), mac)
         val linux = SocketPath.configDir(env = { null }, os = "Linux", home = "/home/x")
-        assertEquals("/home/x/.config/magi", linux.toString())
+        assertEquals(Paths.get("/home/x").resolve(".config/magi"), linux)
         val xdg = SocketPath.configDir(
             env = { if (it == "XDG_CONFIG_HOME") "/home/x/cfg" else null },
             os = "Linux", home = "/home/x",
         )
-        assertEquals("/home/x/cfg/magi", xdg.toString())
+        assertEquals(Paths.get("/home/x/cfg").resolve("magi"), xdg)
     }
 
     /**
@@ -227,7 +252,7 @@ class EvalSymlinksTest {
     fun `꼬리가 없으면 입력을 그대로 돌려준다`() {
         val base = java.nio.file.Files.createTempDirectory("magi-ev")
         val real = java.nio.file.Files.createDirectory(base.resolve("real"))
-        val link = java.nio.file.Files.createSymbolicLink(base.resolve("link"), real)
+        val link = link(base.resolve("link"), real)
         val missing = link.resolve("아직없음")
         // 반쯤 푼 것(.../real/아직없음)을 내면 Go 와 갈린다.
         assertEquals(missing, SocketPath.evalSymlinks(missing))
@@ -236,7 +261,7 @@ class EvalSymlinksTest {
     @Test
     fun `끊어진 심링크도 입력 그대로다`() {
         val base = java.nio.file.Files.createTempDirectory("magi-ev2")
-        val dangling = java.nio.file.Files.createSymbolicLink(base.resolve("link"), base.resolve("nope"))
+        val dangling = link(base.resolve("link"), base.resolve("nope"))
         assertEquals(dangling, SocketPath.evalSymlinks(dangling))
     }
 }
@@ -250,8 +275,8 @@ class NestedSymlinkTest {
     fun `절대 타깃 안쪽의 링크도 푼다`() {
         val tmp = java.nio.file.Files.createTempDirectory("magi-nest")
         val real = java.nio.file.Files.createDirectories(tmp.resolve("real/x"))
-        java.nio.file.Files.createSymbolicLink(tmp.resolve("hop"), tmp.resolve("real"))
-        val entry = java.nio.file.Files.createSymbolicLink(tmp.resolve("entry"), tmp.resolve("hop/x"))
+        link(tmp.resolve("hop"), tmp.resolve("real"))
+        val entry = link(tmp.resolve("entry"), tmp.resolve("hop/x"))
 
         val got = SocketPath.evalSymlinks(entry)
         // 이어 걷기 판본은 여기서 .../hop/x 를 냈다 — hop 도, tmp 앞의 링크도 안 푼 답.
@@ -271,7 +296,7 @@ class DotDotTest {
         java.nio.file.Files.createDirectories(t.resolve("Cellar/x/bin"))
         java.nio.file.Files.createFile(t.resolve("Cellar/x/bin/foo"))
         java.nio.file.Files.createDirectories(t.resolve("usr/local/bin"))
-        val link = java.nio.file.Files.createSymbolicLink(
+        val link = link(
             t.resolve("usr/local/bin/foo"), java.nio.file.Paths.get("../../../Cellar/x/bin/foo"))
         assertEquals(t.resolve("Cellar/x/bin/foo").toRealPath(), SocketPath.evalSymlinks(link))
     }
@@ -280,7 +305,7 @@ class DotDotTest {
     fun `입력의 상위 참조는 해소된 자리에서 되감는다`() {
         val t = java.nio.file.Files.createTempDirectory("magi-dd2")
         java.nio.file.Files.createDirectories(t.resolve("b/c"))
-        val link = java.nio.file.Files.createSymbolicLink(t.resolve("alink"), t.resolve("b/c"))
+        val link = link(t.resolve("alink"), t.resolve("b/c"))
         // 어휘적 처리라면 t 가 나온다. Go 는 b 를 낸다.
         assertEquals(t.resolve("b").toRealPath(), SocketPath.evalSymlinks(link.resolve("..")))
     }

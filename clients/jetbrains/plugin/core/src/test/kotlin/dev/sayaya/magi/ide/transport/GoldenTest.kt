@@ -2,6 +2,7 @@ package dev.sayaya.magi.ide.transport
 
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.Test
@@ -38,8 +39,21 @@ class GoldenTest {
 
     @Test
     fun `순수 함수는 골든과 같은 답을 낸다`() {
-        pairsOf("shortHash").forEach { (i, want) -> assertEquals(want, SocketPath.shortHash(i), "$i\n${why()}") }
-        pairsOf("sanitize").forEach { (i, want) -> assertEquals(want, SocketPath.sanitize(i), "$i\n${why()}") }
+        var strings = 0
+        pairsOf("shortHash").forEach { (i, want) -> strings++; assertEquals(want, SocketPath.shortHash(i), "$i\n${why()}") }
+        pairsOf("sanitize").forEach { (i, want) -> strings++; assertEquals(want, SocketPath.sanitize(i), "$i\n${why()}") }
+        // ⚠ **바닥은 「재고 있다」의 유일한 증거다.** 아래 경로 묶음은 골든의 출신 플랫폼에서만 재는데,
+        // 그 문이 위로 올라가면 이 문자열 규칙들이 **조용히 안 재인다** — 그리고 그 일은 골든과 다른
+        // 플랫폼에서만 일어나므로, 골든을 만든 기계에서는 아무도 못 본다. 그래서 문 **앞에서** 센다.
+        assertTrue(strings >= 6, "문자열 골든을 $strings 쌍밖에 안 쟀다 — 플랫폼 문이 이 규칙들 위로 올라갔다")
+        // ⚠ **앞 둘은 문자열 규칙이라 어디서나 재고, 이 셋째만 경로다.** 골든의 기대값은 **그것을
+        // 만든 기계의 철자**로 적혀 있어서(`/tmp/mw1`), 다른 철자를 쓰는 판에서는 규칙이 맞아도
+        // 빨개진다 — 윈도우 실측(#195)에서 이 시험이 그 이유로 빨갰다. 위의 `경로 해소` 시험이 이미
+        // 같은 사유로 플랫폼을 묻고 있으므로(골든이 제 출신을 싣는다) 같은 문을 쓴다.
+        //
+        // 이름 규칙 자체는 플랫폼과 무관하게 재인다 — `SocketPathTest` 가 `keyOf` 로 잰다.
+        val platform = golden["platform"]!!.jsonPrimitive.content
+        if (platform != goName()) return
         pairsOf("socketPath").forEach { (dir, wd, want) ->
             assertEquals(want, SocketPath.of(Paths.get(dir), Paths.get(wd), env = { null }).toString(), why())
         }
