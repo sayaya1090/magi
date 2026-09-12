@@ -140,6 +140,27 @@ func TestASlowSuccessorIsLeftToComeUp(t *testing.T) {
 	}
 }
 
+// 세대 비교는 클라이언트가 이미 고친 규칙이다(`ee92a23b`). 코어의 준비 판정에 같은 구멍이 남아
+// 있었다 — 한쪽만 세대를 대는 것을 구형 호환으로 흘려보내고 있었고, 그것이 이 검사가 막으려던 바로
+// 그 경우다(재기동 틈에 다른 데몬이 워크스페이스를 차지한 것).
+func TestOnlyNeitherSideNamingAGenerationFallsBackToThePid(t *testing.T) {
+	if !sameGeneration("", "") {
+		t.Error("둘 다 구형이면 pid 로 떨어져야 한다")
+	}
+	if !sameGeneration("i-1", "i-1") {
+		t.Error("같은 세대를 다르다고 했다")
+	}
+	if sameGeneration("i-1", "i-2") {
+		t.Error("다른 세대를 같다고 했다")
+	}
+	if sameGeneration("i-1", "") {
+		t.Error("기록은 세대를 대는데 답이 안 댔다 — 답한 것은 다른 프로세스다")
+	}
+	if sameGeneration("", "i-1") {
+		t.Error("답은 세대를 대는데 기록이 안 댔다 — 그 기록은 다른 프로세스의 것이다")
+	}
+}
+
 // A relaunch that never started keeps the old rule: say so and end with run()'s own code.
 func TestARelaunchThatNeverStartedKeepsRunsCode(t *testing.T) {
 	s := &seen{}

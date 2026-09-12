@@ -38,9 +38,7 @@ func successorReady(socket, workdir, owner string) graceful.Ready {
 }
 
 // serving reads the record on socket and checks it against a handshake: the daemon that answers is
-// the one the record says. An instance missing on either side is an older build, which is "cannot
-// tell" and not "a different process" (daemon.PeerInfo.Instance), so only two present values that
-// differ fail it.
+// the one the record says.
 func serving(socket string) (daemon.Info, bool) {
 	rec, err := daemon.Published(socket)
 	if err != nil {
@@ -55,10 +53,28 @@ func serving(socket string) (daemon.Info, bool) {
 	if err != nil {
 		return daemon.Info{}, false
 	}
-	if rec.Instance != "" && peer.Instance != "" && rec.Instance != peer.Instance {
+	if !sameGeneration(rec.Instance, peer.Instance) {
 		return daemon.Info{}, false
 	}
 	return rec, true
+}
+
+// sameGeneration compares the process generation the record names with the one the handshake names.
+//
+// ⚠ **One side naming a generation and the other not is NOT an old core.** The record's writer and
+// the process answering are the same daemon, so a record that carries an instance came from one that
+// answers with it too. Only one of them present means something ELSE answered — and letting that
+// through as backward compatibility waves through the very case this check exists for, which here is
+// a daemon that took the workspace during the restart gap. The fallback is for when NEITHER names
+// one; then the pid the caller already matched is all there is.
+//
+// The same rule the clients settled on (`ee92a23b`): `Generation.same` in JetBrains,
+// `sameGeneration` in VS Code. It was left one-sided here.
+func sameGeneration(record, peer string) bool {
+	if record == "" && peer == "" {
+		return true
+	}
+	return record != "" && record == peer
 }
 
 // afterRelaunch is what the previous generation does with what its successor did. Separate from the
