@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -527,5 +528,228 @@ func TestHistoryIsAdvertisedExactlyWhenTheReplayEndIsNamed(t *testing.T) {
 	// The other direction: a daemon that cannot read a transcript at all must not claim either name.
 	if plain := capsOf(&fakeEngine{}); hasCap(plain, "history") || hasCap(plain, "transcript") {
 		t.Errorf("전사를 못 읽는 데몬이 그 이름들을 광고한다: %v", plain)
+	}
+}
+
+// **A cursor of 0 draws no note**, which is what makes History's reading of a note unambiguous.
+//
+// History always asks with 0, so the only thing a note can mean on its stream is "the end could not
+// be named". That is a reading, and a reading needs something holding it up: this is it. If a
+// since-0 stream ever starts carrying other notes, History's early return becomes wrong and this test
+// is where it is caught.
+func TestAnAnswerableZeroCursorIsSilent(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{}, log: []event.Event{ev(1, "one"), ev(2, "two")}}
+	for _, since := range []int64{0, -1, -99} {
+		if got, note := answerable(context.Background(), eng, "s1", since); note != "" {
+			t.Errorf("since=%d 에 안내가 붙었다(%q) — History 는 안내를 「끝을 못 댄다」로 읽는다", since, note)
+		} else if got != since {
+			t.Errorf("since=%d 가 %d 로 바뀌었다", since, got)
+		}
+	}
+}
+
+// **The end could not be read, so it is SAID — not left silent.**
+//
+// ⚠ My own two decisions contradicted each other: the door's comment said an unreadable head "costs
+// the marker, not the stream", and History was written to wait for that marker. Together they made a
+// one-shot read that never returns — and the bridge serves requests in order, so every later request
+// waits behind it. The fix is that the stream says so, in the way it already talks about itself.
+func TestHistoryFailsWhenTheDaemonCannotNameTheReplayEnd(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{},
+		log:    []event.Event{ev(1, "one")},
+		newErr: context.DeadlineExceeded}
+	c := start(t, eng)
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = c.History("s1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("끝을 못 읽었는데 아무 말도 안 해서 읽기가 안 끝난다 — 브리지는 요청을 차례로 처리하므로 " +
+			"뒤의 요청까지 이 하나에 걸린다")
+	}
+	if err == nil {
+		t.Fatal("끝을 못 댄 스트림을 완전한 읽기로 받았다")
+	}
+	if !strings.Contains(err.Error(), "cannot say where the replay stops") {
+		t.Errorf("실패가 사유를 안 나른다: %v", err)
+	}
+}
+
+// **A reconnect that is already up to date gets the marker too.**
+//
+// The first version only said it for an EMPTY log, and missed the ordinary case: a client whose cursor
+// is at the end has nothing to replay, so the loop that would have sent the marker never runs. The
+// screen then stays on "catching up" until somebody types — which is exactly the ambiguity the marker
+// was added to remove, surviving in the most common path.
+
+// **A reconnect that is already up to date gets the marker too.**
+//
+// The first version said it only for an EMPTY log and missed the ordinary case: a client whose cursor
+// sits at the end has nothing to replay, so the loop that would have sent the marker never runs. The
+// screen then stays on "catching up" until somebody types — the very ambiguity the marker was added to
+// remove, surviving in the most common path.
+//
+// ⚠ Read at the wire, because the marker is what is being measured. The first version of this test
+// asserted "no events arrived and no note", and both are true with the fix REMOVED — it passed for the
+// wrong reason. The first frame on this stream must BE the marker.
+func TestTheMarkerComesWhenTheCursorIsAlreadyAtTheEnd(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{}, log: []event.Event{ev(1, "one"), ev(2, "two")}}
+	c := start(t, eng)
+
+	first := make(chan string, 1)
+	go func() {
+		raw, err := c.Raw([]byte(`{"method":"transcript","session":"s1","since":2}`))
+		if err != nil {
+			first <- "!" + err.Error()
+			return
+		}
+		first <- string(raw)
+	}()
+	select {
+	case got := <-first:
+		if strings.HasPrefix(got, "!") {
+			t.Fatalf("재접속 스트림이 거절했다: %s", got[1:])
+		}
+		var resp Response
+		if err := json.Unmarshal([]byte(got), &resp); err != nil {
+			t.Fatalf("첫 프레임이 JSON 이 아니다: %s", got)
+		}
+		if resp.Event != nil {
+			t.Fatalf("재생할 것이 없는데 사건이 왔다: %s", got)
+		}
+		if !resp.Live {
+			t.Errorf("끝에 있는 커서로 다시 붙었는데 재생의 끝을 안 댄다 — 화면은 누가 입력할 때까지 "+
+				"「불러오는 중」에 머문다: %s", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("재접속 스트림이 프레임 하나도 안 준다 — 그것이 이 결함의 증상 그대로다")
+	}
+}
+
+// **A companion that goes quiet without a word must not hold the caller for ever.**
+//
+// ⚠ The marker removes this for daemons from this build, and the note removes it for one that cannot
+// read its log head — neither covers a peer that simply stops talking: an older build, a wedged
+// engine, a relay that lost its far side. The connection stays OPEN, so nothing ends the read.
+//
+// This is the bound that was missing when the first rows door hung for 202s. The mutation that
+// removed it survived every other guard here, because their fakes all hang up.
+func TestHistoryDoesNotWaitForEverOnAQuietStream(t *testing.T) {
+	was := historyIdle
+	historyIdle = 200 * time.Millisecond
+	t.Cleanup(func() { historyIdle = was })
+
+	dir, err := os.MkdirTemp(shortRoot(), "mgq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	held := make(chan struct{})
+	go func() {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		// Held open on purpose: one good frame, then silence. Closing here would end the read through
+		// the scanner instead, which is the path the other tests already cover.
+		defer func() { <-held; conn.Close() }()
+		sc := bufio.NewScanner(conn)
+		if !sc.Scan() {
+			return
+		}
+		_, _ = io.WriteString(conn, `{"ok":true,"event":{"seq":1,"session":"s1","type":"part.appended","data":{"text":"one"}}}`+"\n")
+		select {} // never another word
+	}()
+	t.Cleanup(func() { close(held) })
+
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	done := make(chan struct{})
+	go func() {
+		_, err = c.History("s1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("조용해진 스트림에 걸려 안 돌아온다 — 브리지가 요청을 차례로 처리하므로 뒤의 요청도 함께 멈춘다")
+	}
+	if err == nil {
+		t.Fatal("한 프레임만 오고 조용해진 스트림을 완전한 읽기로 받았다")
+	}
+	if !strings.Contains(err.Error(), "never declared over") {
+		t.Errorf("실패가 무엇을 기다렸는지 안 말한다: %v", err)
+	}
+}
+
+// **The bound is on silence, not on the size of the conversation.**
+//
+// ⚠ A deadline set ONCE would cut off a long or slow replay mid-read, and every fixture here delivers
+// instantly — so that mutation survived until this test existed. The failure it would cause is the
+// worst kind for a transcript: a conversation that draws its first half and stops, with an error that
+// blames the network.
+//
+// The gaps are each under the bound and the total is over it: the only way to pass is to reset.
+func TestTheSilenceBoundDoesNotCutOffASlowReplay(t *testing.T) {
+	was := historyIdle
+	historyIdle = 250 * time.Millisecond
+	t.Cleanup(func() { historyIdle = was })
+
+	dir, err := os.MkdirTemp(shortRoot(), "mgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	const frames = 6 // 6 × 100ms = 600ms of streaming against a 250ms silence bound
+	go func() {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		defer conn.Close()
+		sc := bufio.NewScanner(conn)
+		if !sc.Scan() {
+			return
+		}
+		for i := 1; i <= frames; i++ {
+			time.Sleep(100 * time.Millisecond)
+			if _, werr := io.WriteString(conn, `{"ok":true,"event":{"seq":`+strconv.Itoa(i)+
+				`,"session":"s1","type":"part.appended","data":{"text":"x"}}}`+"\n"); werr != nil {
+				return
+			}
+		}
+		_, _ = io.WriteString(conn, `{"ok":true,"live":true}`+"\n")
+	}()
+
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	got, err := c.History("s1")
+	if err != nil {
+		t.Fatalf("천천히 오는 재생이 끊겼다 — 한도가 침묵이 아니라 읽기 전체에 걸려 있다: %v", err)
+	}
+	if len(got) != frames {
+		t.Errorf("사건 %d 개를 받았다, %d 개여야 한다 — 전사가 앞 절반만 그려진다", len(got), frames)
 	}
 }

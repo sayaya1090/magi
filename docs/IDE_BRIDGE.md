@@ -141,7 +141,13 @@ frame on an existing stream, not a door). `transcript` is a **live tail** with n
 and live; the door's own note says the peer hanging up is the only thing that ends a quiet one. So
 anything wanting the conversation ONCE could not know when to stop: measured 2026-09-12, a reader on
 a finished session waited 202s and was killed. Now one frame, `{"ok":true,"live":true}`, follows the
-last replayed event. An event-less frame is what this stream already uses to talk about itself (the
+last replayed event — **and comes when there is nothing to replay at all**: an empty log, and a cursor
+already at the end, which is the ordinary reconnect (missed at first, so the most common path left a
+screen on "catching up" until somebody typed). When the log's end cannot be read the stream sends a
+**reason** (`why`) instead of the marker: omitting it silently turns "we could not name the end" into a
+read that never returns, and the bridge serves requests in order, so every later request waits behind
+it. A one-shot read also carries a **silence bound** (15s, reset per frame — it bounds silence, not the
+size of the conversation), because a peer that simply stops talking sends neither marker nor reason. An event-less frame is what this stream already uses to talk about itself (the
 refused-cursor `why`), so a client built before the field ignores it exactly as it ignores that one.
 The daemon advertises the ability as `history`, and the bridge asks for **`history`, not
 `transcript`** — an older daemon speaks the latter and will never send the marker, so gating on the

@@ -335,7 +335,10 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 	// Where the log ends right now, so the boundary between replay and live can be named. Asked with
 	// 0 this is the highest seq the log holds (0 for a session with none) and it is a binary search
 	// over a cached tail, so asking costs about as much as not asking — NewSince's own words.
-	// An error is not fatal here: it costs the marker, not the stream.
+	//
+	// ⚠ An error here costs the MARKER and not the stream — but going quiet about it is not the same
+	// thing. A reader taking the conversation once waits for that marker, so a silent omission turns
+	// "we could not name the end" into a read that never returns. It is said out loud below.
 	head, _, headErr := tr.NewSince(ctx, sid, 0)
 	// The peer hanging up is the only thing that ends a transcript nothing is happening
 	// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
@@ -361,11 +364,29 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 		unsubscribe()
 		return done
 	}
-	// A log that holds nothing is already caught up, and saying so BEFORE the wait is the whole
-	// point: this is the shape a reader most needs the news in, because nothing will arrive to
-	// prompt it. A session whose head we could not read gets no marker rather than a false one.
-	caught := headErr != nil
-	if !caught && head <= 0 {
+	// Nothing to replay is ALREADY caught up, and saying so before the wait is the whole point: this
+	// is the shape a reader most needs the news in, because nothing will arrive to prompt it.
+	//
+	// Two ways to be there, and the second was missed: a log that holds nothing (a born-lazy current
+	// session), and **a cursor already at the end** — the ordinary reconnect, where the client is up
+	// to date and the loop below therefore never runs. A screen waiting for the marker there stayed
+	// on "catching up" until somebody typed.
+	//
+	// A head we could not read gets no marker, and a SENTENCE instead of silence: `why` is how this
+	// stream already talks about itself, and a one-shot reader can fail on it rather than wait for a
+	// frame nobody is going to send.
+	caught := false
+	switch {
+	case headErr != nil:
+		caught = true
+		if w.enc.Encode(Response{OK: true, Why: "this daemon could not read the end of " + string(sid) +
+			"'s log (" + headErr.Error() + "), so it cannot say where the replay stops — the events " +
+			"still follow"}) != nil {
+			hungUp()
+			unsubscribe()
+			return done
+		}
+	case head <= 0 || since >= head:
 		caught = true
 		if w.enc.Encode(Response{OK: true, Live: true}) != nil {
 			hungUp()

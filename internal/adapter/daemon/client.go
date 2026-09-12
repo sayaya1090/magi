@@ -117,6 +117,16 @@ func (c *Client) Watch(receipt string, each func(Handover) bool) error {
 // daemon would not honour the cursor and is sending the whole conversation instead: a caller that
 // is appending to something must throw that away first, or it stitches the beginning of the session
 // onto the end of what it is already showing. nil is fine for a caller that asked for everything.
+// historyIdle bounds silence on a one-shot transcript read.
+//
+// Not the whole read: every frame resets it, so a long conversation streams for as long as it takes.
+// It bounds the case the marker was meant to remove and cannot fully — a daemon that goes quiet
+// without saying the replay is over. A one-shot caller is somebody waiting for an answer, and the
+// bridge serves requests in order, so a read that never returns takes every later request with it.
+// A var rather than a const purely so the test that measures SILENCE can shrink it. Not a knob: no
+// caller sets it, and a test that waited the real fifteen seconds would be a test nobody runs.
+var historyIdle = 15 * time.Second
+
 // History reads one conversation out ONCE and returns when the replay is over.
 //
 // The stream it reads is the same live tail Transcript gives, and the difference is the marker:
@@ -133,7 +143,20 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: 0}); err != nil {
 		return nil, fmt.Errorf("daemon: send: %w", err)
 	}
-	for c.sc.Scan() {
+	// Two bounds, for two different ways this can fail to end, and neither replaces the other.
+	if c.nc != nil {
+		defer func() { _ = c.nc.SetReadDeadline(time.Time{}) }()
+	}
+	for {
+		if c.nc != nil {
+			// Reset per frame: the bound is on SILENCE, not on the size of the conversation. A relay
+			// pipe has no deadline to set (nc is nil), and there the caller's bound is the process it
+			// spawned — the same split c.deadline already documents.
+			_ = c.nc.SetReadDeadline(time.Now().Add(historyIdle))
+		}
+		if !c.sc.Scan() {
+			break
+		}
 		var resp Response
 		if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
 			return nil, fmt.Errorf("daemon: malformed reply: %w", err)
@@ -146,16 +169,26 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 			return nil, Refused{Why: why}
 		}
 		if resp.Event == nil {
-			// The stream talking about itself. Live is the end of the replay; anything else here is
-			// the cursor note, which cannot arrive for since 0.
+			// The stream talking about itself. Live is the end of the replay.
 			if resp.Live {
 				return out, nil
+			}
+			// ⚠ Anything else here is the daemon saying it CANNOT name the end — the only note a
+			// since-0 stream can carry, because `answerable` is silent for a cursor of 0 (and
+			// TestAnAnswerableZeroCursorIsSilent holds that, so this reading cannot rot). Waiting on
+			// after it is waiting for a frame nobody is going to send.
+			if resp.Why != "" {
+				return nil, fmt.Errorf("daemon: %s", resp.Why)
 			}
 			continue
 		}
 		out = append(out, *resp.Event)
 	}
 	if err := c.sc.Err(); err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			return nil, fmt.Errorf("daemon: nothing arrived for %s and the replay was never "+
+				"declared over — this companion may predate that marker", historyIdle)
+		}
 		return nil, err
 	}
 	// The connection ended without the marker. Returning what arrived would be indistinguishable
