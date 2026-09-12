@@ -208,6 +208,29 @@ class SourceTextTest {
             "수동 기동이 상태를 안 묻거나 거절을 버린다 — 유예·바닥난 예산에서 단추가 조용히 아무것도 안 한다")
     }
 
+    /**
+     * **예산과 상태는 한 짝이다 — 한쪽만 적은 갈래가 있었다.**
+     *
+     * 실패를 정책에만 알리고 상태 기계에 안 알리면 상태가 `Starting` 에 갇히고, 그러면 자동
+     * 기동의 `Absent` 도 사람이 시킨 기동도 「이미 기동 중」으로 거절된다 — IDE 를 다시 켜야
+     * 풀린다. 예외 갈래가 정확히 그랬다: 시한을 넘긴 갈래는 둘을 나란히 적는데
+     * `ProcessBuilder.start()` 가 던지는 갈래는 예산만 적었다.
+     *
+     * ⚠ **자리를 짚지 않고 짝을 센다.** 「catch 안에 있나」로 재면 갈래가 하나 더 생길 때 다시
+     * 비고, 이 결함은 바로 그렇게 생겼다. 실패를 정책에 알리는 자리가 n 곳이면 상태 전이도 n 곳
+     * 이상이어야 한다 — 셋째 갈래가 생겨도 규칙이 따라간다.
+     */
+    @Test
+    fun `기동 실패를 정책에 알리는 자리마다 상태도 옮긴다`() {
+        val src = code(sources.first { it.name == "StartDaemon.kt" })
+        val toldPolicy = Regex("""budget\[[^\]]+\]\?\.failed\(""").findAll(src).count()
+        val movedPhase = Regex("""phase\.on\(Move\.LaunchFailed\)""").findAll(src).count()
+        assertTrue(toldPolicy > 0, "기동 실패를 정책에 알리는 자리가 없다 — 스캔이 깨진 것이지 규칙이 지켜진 게 아니다")
+        assertTrue(movedPhase >= toldPolicy,
+            "실패를 정책엔 $toldPolicy 곳에서 알리고 상태는 $movedPhase 곳에서만 옮긴다 — " +
+                "안 뜬 것이 뜨는 중으로 남고, 그 창은 IDE 를 다시 켜야 데몬을 띄운다")
+    }
+
     @Test
     fun `창이 기동을 정책에 묻고, 제 규칙을 따로 쓰지 않는다`() {
         val f = sources.first { it.name == "StartDaemon.kt" }

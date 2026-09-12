@@ -192,4 +192,29 @@ class PhasesTest {
         gone.on(Move.Close); gone.on(Move.Settled)
         assertFalse(Phases.asked(gone), "닫힌 창이 데몬을 띄운다")
     }
+
+    /**
+     * **기동이 던진 뒤 원인을 고치고 다시 시키면 뜬다.**
+     *
+     * 안 뜬 것이 「뜨는 중」으로 남으면 그 창은 IDE 를 다시 켜야 데몬을 띄운다 — `Starting` 에서는
+     * 자동 기동의 `Absent` 도, 사람이 시킨 기동도 갈 곳이 없다. 그래서 실패는 **반드시 적혀야**
+     * 하고, 적힌 뒤에는 사람이 되돌릴 수 있어야 한다. 이 규칙은 그 왕복을 한 줄로 잰다.
+     */
+    @Test
+    fun `기동이 던져도 실패를 적으면 사람이 되돌릴 수 있다`() {
+        val p = Progress()
+        assertTrue(p.on(Move.Absent))
+        assertEquals(Phase.Starting, p.phase)
+
+        // 실패를 안 적으면 여기서 끝이다 — 사람이 시켜도 갈 곳이 없다.
+        assertFalse(Phases.asked(p), "뜨는 중인 창에서 수동 기동이 통하면 중복 기동이다")
+
+        assertTrue(p.on(Move.LaunchFailed), "기동 실패를 적을 자리가 없다")
+        assertEquals(Phase.Backoff, p.phase)
+        assertTrue(Phases.asked(p), "실패를 적었는데도 사람이 되돌릴 수 없다 — IDE 를 다시 켜야 한다")
+        assertEquals(Phase.Discovering, p.phase)
+        assertTrue(p.on(Move.Absent), "되돌아왔는데 띄우지 못한다")
+        assertTrue(p.on(Move.Answered), "두 번째 기동이 붙지 못한다")
+        assertEquals(Phase.Ready, p.phase)
+    }
 }

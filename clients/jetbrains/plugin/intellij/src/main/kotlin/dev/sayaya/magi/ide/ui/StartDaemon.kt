@@ -400,6 +400,12 @@ internal object StartDaemon {
             child?.let { owner.stop(it) }
             if (e is InterruptedException) Thread.currentThread().interrupt()
             LOG.warn("magi: 데몬 기동 실패", e)
+            // ⚠ **예산과 상태는 한 짝인데 이 갈래에 한쪽만 있었다.** 위의 실패 갈래는 둘을 나란히
+            // 적는데 여기는 예산만 적어서, `ProcessBuilder.start()` 가 던지면(실행 권한·바이너리
+            // 없음) 상태가 `Starting` 에 **갇혔다** — 그러면 자동 기동의 `Absent` 도 사람이 시킨
+            // 기동도 「이미 기동 중」으로 거절되고, IDE 를 다시 켜야 풀린다. 안 뜬 것이 뜨는 중으로
+            // 남는 것이 이 결함의 전부다.
+            phase.on(Move.LaunchFailed)
             budget[base]?.failed(System.currentTimeMillis())
             tell(project, MagiBundle.msg("core.start.died", e.message ?: "start failed", tail(log)))
         } finally {
