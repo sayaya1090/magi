@@ -567,13 +567,23 @@ func TestTheCronWriteDoorsAreSerialised(t *testing.T) {
 // screen that never appears and never explains why — the call is not made, so there is no refusal
 // to read either. Nothing checked that the promise had a door behind it.
 //
-// Four names are not methods, and each is here with its reason rather than as a blanket exemption:
-// two are dispatched before the method table (they take the connection over), and two are group
-// names covering several methods. A fifth would have to be added deliberately, which is the point.
+// Some advertised names are not methods, and each is listed with its reason rather than under a
+// blanket exemption: some are dispatched before the method table (they take the connection over),
+// some are group names covering several methods, and some are properties of a stream or of the build
+// itself. Adding one is a deliberate line here, which is the point.
+//
+// ⚠ The count used to be in this sentence ("four names", "a fifth would have to be added") and the
+// map had six entries. A comment that counts what is beside it is a second copy of the list, and it
+// is the copy nobody updates.
 func TestEveryAdvertisedCapabilityHasSomethingBehindIt(t *testing.T) {
 	notMethods := map[string]string{
-		"roster":       "answered before the method table — read from the listener's home directory",
-		"transcript":   "turns the connection into a stream, so it is dispatched before the table",
+		"roster":     "answered before the method table — read from the listener's home directory",
+		"transcript": "turns the connection into a stream, so it is dispatched before the table",
+		// Not a door either, and not a group: it says that stream NAMES the end of its replay
+		// (Response.Live), which is what lets a reader take the conversation once and stop. Its own
+		// name because the alternative for a caller is a read that never returns — an older daemon
+		// speaks "transcript" and will never send the marker.
+		"history":      "a property of the transcript stream: it says where the replay ends",
 		"settings":     "the group name for config-get / config-set / profiles",
 		"tool-servers": "the group name for mcp-attach / mcp-detach",
 		// Not a door at all: it marks a build whose `about` carries proto and caps, which is what

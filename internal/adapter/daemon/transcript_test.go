@@ -1,9 +1,14 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -362,5 +367,165 @@ func TestTheHandshakeAdvertisesTheTranscript(t *testing.T) {
 	}
 	if !strings.Contains(acceptedMethods(), "transcript") {
 		t.Errorf("transcript missing from the accepted methods: %s", acceptedMethods())
+	}
+}
+
+// **The stream says where the replay ends, and History stops there.**
+//
+// ⚠ This stream is a live tail: its own note says the peer hanging up is the only thing that ends a
+// quiet one. So a reader wanting the conversation ONCE had nothing to stop at — measured 2026-09-12,
+// the bridge's first rows door read a finished session for 202s and was killed. The marker is a frame
+// with no event, which is what this stream already uses to talk about itself.
+func TestHistoryStopsWhereTheReplayEnds(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{},
+		log:     []event.Event{ev(1, "one"), ev(2, "two"), ev(3, "three")},
+		pending: []event.Event{ev(4, "live, and must NOT be waited for")}}
+	c := start(t, eng)
+
+	done := make(chan struct{})
+	var got []event.Event
+	var err error
+	go func() {
+		got, err = c.History("s1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("History 가 안 끝난다 — 끝을 대는 표가 없으면 이 읽기는 대화가 끝난 세션에서도 영원하다")
+	}
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if !sameSeqs(got, 1, 2, 3) {
+		t.Errorf("기록을 %v 로 받았다 — 로그가 든 셋이어야 하고, 생중계는 기다리지 않아야 한다", seqs(got))
+	}
+}
+
+// An empty log is ALREADY caught up, and that is the case most in need of being told: nothing will
+// arrive to prompt it. A born-lazy current session looks exactly like this.
+func TestHistoryOfAnEmptyLogEndsAtOnce(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{}}
+	c := start(t, eng)
+	done := make(chan struct{})
+	var got []event.Event
+	var err error
+	go func() {
+		got, err = c.History("s1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("빈 로그에서 History 가 안 끝난다 — 아무것도 안 올 자리라 표가 유일한 소식이다")
+	}
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("빈 로그에서 사건 %d 개를 받았다", len(got))
+	}
+}
+
+// The marker comes AFTER the event that reached the end, never before it.
+//
+// A reader that stops at the marker would otherwise lose the newest line of the conversation it just
+// asked for — and the loss is invisible, because every row it did get is correct.
+func TestTheReplayMarkerFollowsTheLastEventItCovers(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{}, log: []event.Event{ev(1, "one"), ev(2, "two")}}
+	c := start(t, eng)
+	got, err := c.History("s1")
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if !sameSeqs(got, 1, 2) {
+		t.Fatalf("기록이 %v — 표가 마지막 사건보다 먼저 나오면 그 줄이 조용히 사라진다", seqs(got))
+	}
+}
+
+// **A stream that ends without the marker is an error, not a short conversation.**
+//
+// This is the older companion seen from the wire: it answers the transcript request, writes the
+// events, and closes — a clean end, and every frame valid. Returning what arrived would be
+// indistinguishable from a complete read, so a screen would draw a truncated conversation as the
+// whole one and nothing anywhere would say otherwise.
+//
+// ⚠ The first version of this test closed the CLIENT's connection instead, and the scanner's own
+// error answered before the branch it meant to measure was reached — it passed with the check
+// removed. A fake that hangs up on its own side is what actually exercises it.
+func TestHistoryRefusesAStreamThatEndedWithoutSayingSo(t *testing.T) {
+	dir, err := os.MkdirTemp(shortRoot(), "mgh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "d.sock")
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		conn, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		defer conn.Close()
+		sc := bufio.NewScanner(conn)
+		if !sc.Scan() {
+			return
+		}
+		// Two perfectly good frames and a clean hang-up. No marker, because this build has none.
+		_, _ = io.WriteString(conn, `{"ok":true,"event":{"seq":1,"session":"s1","type":"part.appended","data":{"text":"one"}}}`+"\n")
+		_, _ = io.WriteString(conn, `{"ok":true,"event":{"seq":2,"session":"s1","type":"part.appended","data":{"text":"two"}}}`+"\n")
+	}()
+
+	c, err := Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	got, err := c.History("s1")
+	if err == nil {
+		t.Errorf("표 없이 끝난 스트림을 완전한 읽기로 받았다(사건 %d 개) — 잘린 대화가 전부인 것처럼 그려진다", len(got))
+	}
+	if got != nil {
+		t.Errorf("실패한 읽기가 행을 지을 사건을 함께 돌려줬다 — 부르는 쪽이 오류를 흘리면 그것이 화면에 선다: %v", seqs(got))
+	}
+}
+
+// **The advertisement and the marker are one fact, so one test holds both.**
+//
+// ⚠ A mutation removing the `history` capability survived every other guard: the bridge's own tests
+// dial a FAKE daemon whose caps are hand-written, so nothing there can notice the real one going
+// quiet. And the cost of that drift is not a missing feature — it is a client that reads
+// `transcript`, calls a read that waits for a marker nobody sends, and never returns. So the name
+// and the behaviour are pinned together, in the direction a client uses them: advertised, therefore
+// a read that ends.
+func TestHistoryIsAdvertisedExactlyWhenTheReplayEndIsNamed(t *testing.T) {
+	eng := &transcriptEngine{fakeEngine: &fakeEngine{}, log: []event.Event{ev(1, "one")}}
+	if !hasCap(capsOf(eng), "history") {
+		t.Fatal("전사를 읽어 주는 데몬이 `history` 를 안 광고한다 — 클라이언트는 `transcript` 만 보고 " +
+			"끝을 기다리다 영영 안 돌아온다")
+	}
+	c := start(t, eng)
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = c.History("s1")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("`history` 를 광고하면서 재생의 끝을 안 댄다 — 광고가 거짓이면 그것을 믿은 쪽이 매달린다")
+	}
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+
+	// The other direction: a daemon that cannot read a transcript at all must not claim either name.
+	if plain := capsOf(&fakeEngine{}); hasCap(plain, "history") || hasCap(plain, "transcript") {
+		t.Errorf("전사를 못 읽는 데몬이 그 이름들을 광고한다: %v", plain)
 	}
 }

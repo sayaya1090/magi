@@ -332,6 +332,11 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 		}
 	}
 	since, note := answerable(ctx, tr, sid, req.Since)
+	// Where the log ends right now, so the boundary between replay and live can be named. Asked with
+	// 0 this is the highest seq the log holds (0 for a session with none) and it is a binary search
+	// over a cached tail, so asking costs about as much as not asking — NewSince's own words.
+	// An error is not fatal here: it costs the marker, not the stream.
+	head, _, headErr := tr.NewSince(ctx, sid, 0)
 	// The peer hanging up is the only thing that ends a transcript nothing is happening
 	// in, exactly as for watch: with no reader for the hang-up, a stream whose link died
 	// holds a goroutine until the daemon stops, because there is nothing to write and so
@@ -356,10 +361,31 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 		unsubscribe()
 		return done
 	}
+	// A log that holds nothing is already caught up, and saying so BEFORE the wait is the whole
+	// point: this is the shape a reader most needs the news in, because nothing will arrive to
+	// prompt it. A session whose head we could not read gets no marker rather than a false one.
+	caught := headErr != nil
+	if !caught && head <= 0 {
+		caught = true
+		if w.enc.Encode(Response{OK: true, Live: true}) != nil {
+			hungUp()
+			unsubscribe()
+			return done
+		}
+	}
 	for e := range evs {
 		frame := e
 		if w.enc.Encode(Response{OK: true, Event: &frame}) != nil {
 			break // the peer is gone
+		}
+		// Said AFTER the event that reached the end, not before: a reader that stops at the marker
+		// must have been handed that last event first, or it drops the newest line of the
+		// conversation it just asked for.
+		if !caught && frame.Seq >= head {
+			caught = true
+			if w.enc.Encode(Response{OK: true, Live: true}) != nil {
+				break
+			}
 		}
 	}
 	hungUp()

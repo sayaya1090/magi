@@ -117,6 +117,52 @@ func (c *Client) Watch(receipt string, each func(Handover) bool) error {
 // daemon would not honour the cursor and is sending the whole conversation instead: a caller that
 // is appending to something must throw that away first, or it stitches the beginning of the session
 // onto the end of what it is already showing. nil is fine for a caller that asked for everything.
+// History reads one conversation out ONCE and returns when the replay is over.
+//
+// The stream it reads is the same live tail Transcript gives, and the difference is the marker:
+// this stops at the frame that says the log has all crossed (Response.Live). A daemon that does not
+// send it — an older build, or one whose log head could not be read — never ends this call, so
+// callers must gate on the "history" capability from the handshake rather than on "transcript". The
+// bridge's rows door does, and says so in words when the capability is absent.
+//
+// Its own connection for the same reason Transcript wants one: the mutex is held for the whole read.
+func (c *Client) History(sid string) ([]event.Event, error) {
+	var out []event.Event
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: 0}); err != nil {
+		return nil, fmt.Errorf("daemon: send: %w", err)
+	}
+	for c.sc.Scan() {
+		var resp Response
+		if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
+			return nil, fmt.Errorf("daemon: malformed reply: %w", err)
+		}
+		if !resp.OK {
+			why := resp.Err
+			if why == "" {
+				why = "the daemon refused without saying why"
+			}
+			return nil, Refused{Why: why}
+		}
+		if resp.Event == nil {
+			// The stream talking about itself. Live is the end of the replay; anything else here is
+			// the cursor note, which cannot arrive for since 0.
+			if resp.Live {
+				return out, nil
+			}
+			continue
+		}
+		out = append(out, *resp.Event)
+	}
+	if err := c.sc.Err(); err != nil {
+		return nil, err
+	}
+	// The connection ended without the marker. Returning what arrived would be indistinguishable
+	// from a complete read, and a screen would draw a truncated conversation as the whole one.
+	return nil, fmt.Errorf("daemon: the transcript stream ended before it said the replay was over")
+}
+
 func (c *Client) Transcript(sid string, since int64, restart func(why string), each func(event.Event) bool) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

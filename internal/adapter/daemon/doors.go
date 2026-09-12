@@ -910,6 +910,12 @@ func capsOf(eng Engine) []string {
 	// that does not know it from an engine that will not do it.
 	if _, ok := eng.(Transcriber); ok {
 		caps = append(caps, "transcript")
+		// "history": the same stream now NAMES the end of the replay (Response.Live), so a reader
+		// can take the conversation once and stop. Its own name because the alternative for a
+		// client is a read that never returns — an older daemon speaks "transcript" and will never
+		// send the marker, and a caller gated on the wrong name waits for ever instead of saying
+		// this companion is older.
+		caps = append(caps, "history")
 	}
 	// The rest is read off the door table rather than written here a second time. That second copy
 	// is what this function's own history is about: a door would land dispatched and unadvertised,

@@ -46,7 +46,7 @@ type request struct {
 // Advertised from one list rather than written twice: a bridge that answers a method it does not
 // name, or names one it does not answer, teaches a client to call a door that is not there. The
 // daemon's own handshake makes the same promise for the same reason.
-func Methods() []string { return []string{"about", "activity", "daemon"} }
+func Methods() []string { return []string{"about", "activity", "rows", "daemon"} }
 
 // features is what a client may ASK this binary before it trusts it with anything.
 //
@@ -211,6 +211,8 @@ func (b *bridge) dispatch(req request) {
 		b.about(req)
 	case "activity":
 		b.activity(req)
+	case "rows":
+		b.rows(req)
 	case "daemon":
 		b.forward(req)
 	default:

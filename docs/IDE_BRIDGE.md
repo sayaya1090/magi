@@ -53,7 +53,7 @@ The eight, as counted in the Visual Studio design after two ports were in hand.
 |---|---|
 | 1. socket path | deriving `workspaceKey` and the socket path. Two ports each re-implemented a non-standard FNV constant and `Base("/")`, and both got it wrong first |
 | 2. the wire | line-delimited JSON, keeping the write half open, matching replies to requests |
-| 3. transcript → rows | 601 lines of Kotlin, 114 of TypeScript, for the same log |
+| 3. transcript → rows | 601 lines of Kotlin, 114 of TypeScript, for the same log. **Rule and door are both in (`rows`, 2026-09-12).** All three copies now agree on eight row kinds (`ee9176ff`); moving the clients onto it is still to do |
 | 4. one word for "what is it doing" | including that `unknown` is not `attached`, and that `attached` is not `idle` |
 | 5. approval vocabulary | `allow` · `deny` · `always`, refused here if misspelled instead of silently ignored |
 | 6. splitting a look-over | which remarks hang on a line and which do not — including that the separator is not only a tab |
@@ -124,10 +124,36 @@ absent, nothing present that goes unadvertised.
 |---|---|
 | `about` | the bridge's version, the methods it answers, and what the daemon advertises (`proto`, `caps`) |
 | `activity` | **one word for what the companion is doing** — `not-running` · `attached` · `working` · `waiting` · `unknown` — plus what it is running on |
+| `rows` | **answers one conversation as the lines a screen shows**, through the one fold (`idebridge.Rows`). Needs a `session`; replies with `rows` and with `events`, the number of events read |
 | `daemon` | **forwards `req` to the companion verbatim and returns its reply verbatim** |
 
 `about` names the methods this build answers, so a client never has to guess from this table — the
 table ages, the advertisement does not.
+
+**`rows` is the door for the third of the eight (transcript → rows).** The rule itself has been in
+this package since 2026-09-10 — 700 lines, checked row-for-row against the TypeScript original — and
+**nothing could ask for it**: `Methods()` answered `about`, `activity` and `daemon`, so the one copy
+sat unreachable while two clients went on deriving it separately in 856 lines of TypeScript and 868
+of Kotlin. A rule nobody can call looks exactly like no rule at all.
+
+Opening it added one thing to the socket contract (§6's "no new daemon endpoint" holds — this is a
+frame on an existing stream, not a door). `transcript` is a **live tail** with nothing between replay
+and live; the door's own note says the peer hanging up is the only thing that ends a quiet one. So
+anything wanting the conversation ONCE could not know when to stop: measured 2026-09-12, a reader on
+a finished session waited 202s and was killed. Now one frame, `{"ok":true,"live":true}`, follows the
+last replayed event. An event-less frame is what this stream already uses to talk about itself (the
+refused-cursor `why`), so a client built before the field ignores it exactly as it ignores that one.
+The daemon advertises the ability as `history`, and the bridge asks for **`history`, not
+`transcript`** — an older daemon speaks the latter and will never send the marker, so gating on the
+wrong name waits for ever instead of answering.
+
+⚠ **The door takes no cursor.** The fold reaches BACKWARDS — a reply clears the waiting mark on the
+prompt above it, a tool result lands on its call's row, a resurfaced interjection moves its original —
+so folding a tail is not the tail of folding everything, and a `since` would return rows that are
+wrong in a way no client could detect: every row looks right, the marks are missing.
+`TestTheFoldIsWholeLogAndTheDoorSaysSo` measures that difference instead of trusting this paragraph.
+A screen appending while a turn runs keeps folding its own live frames; what it gets here is the one
+thing both clients rebuild by hand — replay when a window opens.
 
 **`activity` is the first derivation to move in.** It is the fourth of the eight, and it was about
 to be written a third time: the rule lives in TypeScript in `core/activity.ts`, and the Visual

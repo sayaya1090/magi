@@ -754,6 +754,21 @@ type Response struct {
 	// Why carries a reason with an otherwise-empty answer — the backend refused, or timed out —
 	// so a caller can tell "nothing to offer" from "could not ask".
 	Why string `json:"why,omitempty"`
+	// Live says, on a transcript stream, that everything the log held has now crossed and what
+	// follows is happening as it happens.
+	//
+	// ⚠ **There was no way to ask.** Subscribe replays the persisted events and then streams live
+	// ones with nothing between them, and this door's own note says the peer hanging up is the only
+	// thing that ends a quiet stream — so a reader could not tell "still catching up" from "caught
+	// up and nothing is happening", and anything wanting the conversation ONCE could not know when
+	// to stop reading. Measured 2026-09-12: a reader draining the stream for a finished session
+	// waited 202s and was killed.
+	//
+	// Carried on a frame with no Event, which is what this stream already uses to talk ABOUT itself
+	// (Why does it for a refused cursor), so a client built before this field ignores it exactly as
+	// it ignores that one. The cost of being wrong in the other direction is what picked this shape:
+	// a reader that never learns it is caught up shows "replaying…" for ever.
+	Live bool `json:"live,omitempty"`
 	// Session is the conversation an answer was produced in, when the caller has a use for it.
 	//
 	// The meeting methods and session-new set it, and the use is one the screen has: a participant speaks from
