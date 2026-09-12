@@ -21,7 +21,19 @@ import kotlinx.serialization.json.jsonPrimitive
  * `reconstructWhole` — 사람 뷰는 전부 보존한다), 스트림이 시키는 변이는 재배치 둘·표시 둘·
  * 접붙임 하나뿐이다. 통째로 다시 짓는 것은 스트림 자체가 다시 시작할 때([clear])뿐이다.
  */
-enum class Who { User, Agent, Thinking, Tool, Council, Info }
+/**
+ * 한 행이 나르는 말하는 이.
+ *
+ * ⚠ **여덟이고, 여섯이 아니다.** 이 열거는 오래 여섯이었고 `Info` 하나가 셋을 겸했다 — 세션이
+ * 저에 대해 하는 말, **실패**, 그리고 붙은 그림. 그 셋은 화면이 다르게 그려야 하는 것이라(사람이
+ * 문제를 찾을 때 훑는 것은 그중 하나뿐이다) 한 낱말에 접어 두면 **되돌릴 수가 없다** — 여덟에서
+ * 여섯으로는 접히지만 여섯에서 여덟로는 못 펴진다.
+ *
+ * 코어의 `internal/adapter/idebridge/rows.go` 가 여덟을 정본으로 적고 있고(2026-09-10 결정),
+ * VS Code 도 여덟이다. 그 두 벌만 서로를 붙들고 이 열거는 밖에 있었다 —
+ * `PROJECT_REVIEW` 가 「각 클라이언트가 이벤트를 따로 해석하는 양을 줄이라」고 적은 그 자리다.
+ */
+enum class Who { User, Agent, Thinking, Tool, Council, System, Error, Image }
 
 /**
  * 행 하나. 웹 `line` 의 어휘를 옮긴 순수 데이터다 — 자세한 필드 사전은 `docs/TRANSCRIPT.ko.md` §2.
@@ -231,14 +243,15 @@ class Rows {
                 // ⚠ `omitempty` 가 붙은 Go bool 이라 **거짓은 전선에 안 나간다** — 평범한 종료는
                 // 칸이 아예 없는 것이고, `false` 를 기다리면 오지 않는 모양을 재게 된다.
                 //
-                // 어휘는 `error` 갈래와 같다(Who.Info + ⚠) — 한 사실을 두 낱말로 적으면 안 재지는
-                // 쪽이 갈린다는 이 파일의 규칙 그대로다. 마지막 행의 표식이 아니라 제 행인 것은,
+                // 어휘는 `error` 갈래와 같다 — 한 사실을 두 낱말로 적으면 안 재지는 쪽이 갈린다는
+                // 이 파일의 규칙 그대로다. 글자에 표식을 박지 않는다: **무엇인지는 행이 나르고,
+                // 어떻게 보이는지는 그리는 쪽이 정한다.** 마지막 행의 표식이 아니라 제 행인 것은,
                 // 이 사실이 **턴**의 것이고 마지막 행은 산출물과 무관한 툴 호출일 수 있어서다.
                 e.data?.jsonObject?.let { d ->
                     if (d["unverified"]?.jsonPrimitive?.content == "true") {
                         val why = d["reason"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                        rows += Row(Who.Info,
-                            "\u26A0 확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
+                        rows += Row(Who.Error,
+                            "확인 못 함 — 이 판으로 통과한 실행이 없습니다" +
                                 (why?.let { ": $it" } ?: ""), at = e.ts)
                     }
                 }
@@ -266,7 +279,7 @@ class Rows {
             // 갈린다는 이 파일의 규칙 그대로다.
             "session.moved" -> {
                 val to = str(e, "to")?.takeIf { it.isNotBlank() }
-                rows += Row(Who.Info,
+                rows += Row(Who.System,
                     "\u21E2 " + (to?.let { "컴패니언이 $it (으)로 옮겨 갔습니다" }
                         ?: "컴패니언이 다른 대화로 옮겨 갔습니다") + " — 이 대화는 여기서 끝납니다",
                     at = e.ts)
@@ -329,7 +342,7 @@ class Rows {
             // 플래너·카운슬 노트. 안 그리면 이 화면이 헤드리스보다 덜 보여 준다(터미널의 실측).
             // 첫 줄만 — 전문은 로그에 있고, 노트가 대화를 밀어내면 안 된다.
             val who = e.actor.id ?: "system"
-            rows += Row(Who.Info, "⟳ $who note: ${text.lineSequence().firstOrNull().orEmpty()}", at = e.ts)
+            rows += Row(Who.System, "⟳ $who note: ${text.lineSequence().firstOrNull().orEmpty()}", at = e.ts)
             return true
         }
         val id = d["messageId"]?.jsonPrimitive?.content.orEmpty()
@@ -493,14 +506,14 @@ class Rows {
                 // 경로가 이 행의 전부다.
                 val path = part["image"]?.jsonObject?.get("path")?.jsonPrimitive?.content.orEmpty()
                 if (path.isBlank()) return false
-                rows += Row(Who.Info, "\uD83D\uDDBC $path", at = e.ts, msgId = msg)
+                rows += Row(Who.Image, path, at = e.ts, msgId = msg)
             }
             "error" -> {
-                // 사건 `error` 와 **같은 어휘로** 적는다(Who.Info + ⚠). 한 사실을 두 낱말로 적으면
-                // 안 재지는 쪽이 갈린다 — 이 파일이 되풀이해 지키는 규칙이다.
+                // 사건 `error` 와 **같은 어휘로** 적는다. 한 사실을 두 낱말로 적으면 안 재지는
+                // 쪽이 갈린다 — 이 파일이 되풀이해 지키는 규칙이다.
                 val said = part["error"]?.jsonPrimitive?.content.orEmpty()
                 if (said.isBlank()) return false
-                rows += Row(Who.Info, "\u26A0 $said", at = e.ts, msgId = msg)
+                rows += Row(Who.Error, said, at = e.ts, msgId = msg)
             }
             else -> return false
         }
@@ -545,7 +558,7 @@ class Rows {
         // 두는데(「줄인 양」이라는 이름에는 맞다) 그것으로 문장을 지으면 「−0, −0%」가 되어
         // **유일하게 눈에 띌 값이 있는 결과가 숨는다.** 그래서 그 갈래를 먼저 가른다 — 코어의
         // `SizeNote` 가 정확히 그 순서로 되어 있다.
-        rows += Row(Who.Info, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
+        rows += Row(Who.System, "↯ 컨텍스트를 접었다: ~${before ?: "?"}→${after ?: "?"} tok" +
             (sizeNote(before, after)?.let { " ($it)" } ?: ""), at = e.ts)
         return true
     }
@@ -576,7 +589,7 @@ class Rows {
         val msg = d["message"]?.jsonPrimitive?.content.orEmpty()
         // 회복된 에러는 끝이 아니다 — 그렇게 읽은 독자 여섯이 런을 죽였던 결함이 코어에 기록돼
         // 있다. 여기서는 갈래를 글자에 싣는 것까지만 한다.
-        rows += Row(Who.Info, if (recovered) "⚠ (회복됨) $msg" else "⚠ $msg", at = e.ts)
+        rows += Row(Who.Error, if (recovered) "(회복됨) $msg" else msg, at = e.ts)
         return true
     }
 

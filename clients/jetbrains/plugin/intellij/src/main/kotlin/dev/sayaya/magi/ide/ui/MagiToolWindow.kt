@@ -1034,7 +1034,14 @@ class MagiToolWindow : ToolWindowFactory {
                     }
                     p.add(body, BorderLayout.CENTER)
                 }
-                Who.Info -> p.add(Look.aside(r.text), BorderLayout.CENTER)
+                Who.System -> p.add(Look.aside(r.text), BorderLayout.CENTER)
+                // ⚠ **실패는 색으로 말한다.** 예전에는 이것이 `Info` 였고 글자 앞의 ⚠ 하나가 그
+                // 몫을 겸했다 — 회색 줄 사이의 회색 줄이라, 문제를 찾아 훑는 사람 눈에 안 걸린다.
+                // 무엇인지는 행이 나르고 어떻게 보이는지는 여기가 정한다.
+                Who.Error -> p.add(Look.aside(r.text, Look.error), BorderLayout.CENTER)
+                // 붙은 그림. 행은 **경로만** 나르므로(글자에 박힌 글리프가 아니라) 그림을 실제로
+                // 그리는 것은 이 자리가 할 수 있는 일이고, 아직은 경로를 보여 준다.
+                Who.Image -> p.add(Look.aside(r.text, Look.muted), BorderLayout.CENTER)
             }
             return p
         }

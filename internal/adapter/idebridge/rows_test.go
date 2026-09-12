@@ -33,6 +33,55 @@ func transcriptTS(t *testing.T) string {
 	return string(body)
 }
 
+// transcriptKT is the Kotlin copy's enum, read the same way and for the same reason.
+//
+// ⚠ **This copy was OUTSIDE the guard while the guard existed**, and it was the copy the decision
+// was made about: Go and TypeScript held each other to eight while Kotlin quietly kept six, with one
+// `Info` doing the work of three. A guard that covers two of three copies is a guard whose whole
+// subject can drift.
+func transcriptKT(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "clients", "jetbrains", "plugin", "core", "src", "main",
+		"kotlin", "dev", "sayaya", "magi", "ide", "usecase", "Rows.kt")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("코틀린 사본을 못 읽었다 — 옮겨졌으면 이 시험부터 고칠 것: %v", err)
+	}
+	return string(body)
+}
+
+// `enum class Who { … }` is read as a set of words, lower-cased to meet the wire's spelling.
+func TestTheRowVocabularyMatchesTheKotlinCopy(t *testing.T) {
+	body := transcriptKT(t)
+	decl := regexp.MustCompile(`enum class Who \{([^}]+)\}`).FindStringSubmatch(body)
+	if decl == nil {
+		t.Fatal("Rows.kt 에서 `enum class Who` 를 못 찾았다 — 스캔이 깨진 것이지 어휘가 맞는 게 아니다")
+	}
+	got := map[string]bool{}
+	for _, w := range strings.Split(decl[1], ",") {
+		if n := strings.ToLower(strings.TrimSpace(w)); n != "" {
+			got[n] = true
+		}
+	}
+	if len(got) < 3 {
+		t.Fatalf("코틀린에서 낱말을 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(got))
+	}
+	mine := map[string]bool{}
+	for _, w := range Vocabulary() {
+		mine[w] = true
+	}
+	for w := range mine {
+		if !got[w] {
+			t.Errorf("코틀린 사본에 `%s` 가 없다 — 한 사실을 두 낱말로 적으면 안 재지는 쪽이 갈린다", w)
+		}
+	}
+	for w := range got {
+		if !mine[w] {
+			t.Errorf("코틀린 사본에만 `%s` 가 있다 — 이쪽이 모르는 낱말은 화면에 안 그려진다", w)
+		}
+	}
+}
+
 // The union `export type Who = 'a' | 'b' | …` is read as a set of words.
 func TestTheRowVocabularyMatchesTheTypeScriptCopy(t *testing.T) {
 	body := transcriptTS(t)

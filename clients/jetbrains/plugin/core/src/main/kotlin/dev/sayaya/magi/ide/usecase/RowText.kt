@@ -142,7 +142,10 @@ object RowText {
                 // 그것으로 무엇을 했는지가 붙여 넣은 글에서 사라진다.
                 r.confidence?.let { append(" ").append(Math.round(it * 100)).append("%") }
             }
-            Who.Info -> "info"
+            Who.System -> "info"
+            // 실패는 제 낱말이다 — 사람이 문제를 찾을 때 훑는 것이 이것 하나다.
+            Who.Error -> "error"
+            Who.Image -> "image"
         }
         val body = buildList {
             if (r.text.isNotBlank()) add(r.text)

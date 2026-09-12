@@ -244,13 +244,44 @@ class SourceTextTest {
         // 블록을 재고 있었다. `Who.Council` 분기 자체에서 시작한다.
         val body = src.substringAfter("Who.Council -> if (r.opened)", "")
         assertTrue(body.isNotEmpty(), "카운슬 분기를 못 찾았다 — 이 규칙이 빈 글을 보고 초록이 된다")
-        val block = body.substringBefore("Who.Info ->")
+        // ⚠ **없어진 낱말로 자르면 자르지 않은 것과 같다.** 이 줄은 `Who.Info ->` 로 잘랐는데
+        // 그 낱말이 어휘를 여덟으로 넓히며 사라졌고, `substringBefore` 는 못 찾은 구분자를
+        // **말없이 전체로** 돌려준다 — 규칙은 카운슬 블록이 아니라 파일 끝까지를 재며 초록이었다.
+        // 그래서 자리가 아니라 **다음 분기가 있다는 것 자체**를 먼저 못박는다.
+        val end = "Who.System ->"
+        assertTrue(end in body, "카운슬 다음 분기($end)를 못 찾았다 — 자를 자리가 없으면 이 규칙은 파일 전체를 본다")
+        val block = body.substringBefore(end)
         assertTrue("r.cite" in block, "닻으로 삼은 근거 줄이 이 블록에 없다 — 자른 자리가 틀렸다")
         assertTrue("r.thought" in block,
             "멤버의 생각이 카운슬 행에 안 그려진다. 답이 없던 표는 「답이 없었다」 한 줄로만 " +
                 "남고, 왜 없었는지는 화면 밖이다")
         assertTrue("chat.verdict.thought" in block,
             "생각을 번들 없이 그린다 — 화면 글자는 번들에서 온다(영어 IDE 가 한국어를 본다)")
+    }
+
+    /**
+     * **실패한 행은 실패처럼 보인다.**
+     *
+     * 행 어휘가 여섯에서 여덟로 넓어지며 `Info` 하나가 겸하던 셋(세션이 저에 대해 하는 말 ·
+     * **실패** · 붙은 그림)이 갈라졌다. 그때까지 실패를 알리던 것은 글자 앞의 `⚠` 하나였다.
+     * 표식을 글자에 박으면 두 가지가 망가진다: 그리는 쪽이 색을 못 고르고, 사용자가 지운
+     * 글자를 복사하면 사실도 같이 사라진다.
+     *
+     * 그래서 **무엇인지는 행이 나르고, 어떻게 보이는지는 그리는 쪽이 정한다**. 그 계약의
+     * 값어치는 전부 그리는 자리에 있다 — 낱말이 갈렸는데 셋을 똑같이 그리면 이 트리가
+     * 되풀이해 겪은 「실려 오지만 안 그려짐」이고, 갈랐다는 사실만 남고 화면은 그대로다.
+     * 회색 줄 사이의 회색 줄은 문제를 찾아 훑는 눈에 안 걸린다.
+     */
+    @Test
+    fun `갈라진 세 낱말을 서로 다르게 그린다`() {
+        val src = code(sources.first { it.name == "MagiToolWindow.kt" })
+        val draw = mapOf(
+            "Who.System" to Regex("""Who\.System -> [^\n]*Look\.aside\(r\.text\)"""),
+            "Who.Error" to Regex("""Who\.Error -> [^\n]*Look\.aside\(r\.text, Look\.error\)"""),
+            "Who.Image" to Regex("""Who\.Image -> [^\n]*Look\.aside\(r\.text, Look\.muted\)"""),
+        )
+        for ((who, want) in draw) assertTrue(want.containsMatchIn(src),
+            "$who 을 그리는 자리가 없거나 다른 낱말과 똑같이 그린다 — 어휘만 갈라지고 화면은 그대로다")
     }
 
     /**

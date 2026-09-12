@@ -257,7 +257,7 @@ class RowsTest {
         val rows = r.list()
         assertEquals(before.map { it.who to it.text }, rows.dropLast(1).map { it.who to it.text },
             "컴팩션이 접는 것은 모델의 창이지 사람의 기록이 아니다")
-        assertEquals(Who.Info, rows.last().who)
+        assertEquals(Who.System, rows.last().who)
         assertTrue("9000" in rows.last().text && "800" in rows.last().text)
     }
 
@@ -589,10 +589,14 @@ class RowsTest {
         val rows = r.list()
         assertEquals(2, rows.size, "그림이나 에러 조각이 행을 안 만든다: $rows")
         assertTrue(rows[0].text.contains("/tmp/shot.png"), "그림 행이 경로를 안 싣는다: ${rows[0].text}")
-        assertEquals(Who.Info, rows[0].who)
+        assertEquals(Who.Image, rows[0].who, "그림이 세션이 저에 대해 하는 말과 같은 낱말로 적힌다")
         assertTrue(rows[1].text.contains("그것이 터졌다"), "에러 행이 사유를 안 싣는다: ${rows[1].text}")
         // 사건 `error` 와 **같은 어휘**로 적는다 — 한 사실을 두 낱말로 적으면 안 재지는 쪽이 갈린다.
-        assertTrue(rows[1].text.startsWith("\u26A0"), "에러 조각이 사건 error 와 다른 낱말로 적힌다: ${rows[1].text}")
+        //
+        // ⚠ 그 어휘는 이제 **낱말**이지 글자가 아니다. 예전엔 `Who.Info` 에 `⚠` 를 붙여 구별했는데,
+        // 표식을 글자에 박으면 그리는 쪽이 색을 못 고르고 훑는 눈은 회색 줄 사이의 회색 줄을 놓친다.
+        assertEquals(Who.Error, rows[1].who, "에러 조각이 사건 error 와 다른 낱말로 적힌다")
+        assertFalse(rows[1].text.startsWith("\u26A0"), "표식을 글자에 박았다 — 무엇인지는 행이 나르고 어떻게 보이는지는 그리는 쪽이 정한다")
     }
 
     /** 가리킬 곳이 없는 그림은 행이 아니다 — 경로가 그 행의 전부다. */
@@ -673,7 +677,7 @@ class RowsTest {
             "옮겨 간 사실이 화면을 안 바꾼다 — 그리라고 알리지 않으면 그려지지 않는다")
         val said = r.list().firstOrNull { "s_9f3c" in it.text }
         assertTrue(said != null, "전사가 그냥 멈춘다 — 데몬이 죽은 것과 구별되지 않는다")
-        assertEquals(Who.Info, said!!.who, "옮겨 간 사실이 누군가의 말로 그려진다")
+        assertEquals(Who.System, said!!.who, "옮겨 간 사실이 누군가의 말로 그려진다")
         assertTrue("끝납니다" in said.text, "이 대화가 끝났다는 말이 없다")
 
         // 어디로 갔는지가 요점이다. 그것이 없으면 따라갈 데가 없다 — 그래도 **말은 한다**.
