@@ -4,12 +4,46 @@
 
 ## 지도
 
-```
-console.html                     ← magi-web(7777)이 / 경로에서 서빙
-└── /ui/shell/shell.nocache.js   셸(shell-ui): 레일·마스트헤드·라우팅·모듈 주입
-    ├── /ui/fleet/fleet.nocache.js       화면 모듈 — 필요 시 셸이 동적 주입
-    ├── /ui/companion/… (예정)
-    └── window 브리지(console-bridge)    셸과 화면 간 유일한 연동 접점
+```mermaid
+flowchart TB
+    subgraph Backend ["백엔드 (magi-web :7777 / BFF)"]
+        HTML["/ (console.html)"]
+        Static["/ui/* 정적 자산 서빙"]
+        FleetAPI["/fleet (HTTP GET/POST)"]
+        EventsSSE["/events (Server-Sent Events)"]
+    end
+
+    subgraph Browser ["브라우저 런타임 (Window)"]
+        subgraph ShellUI ["셸 모듈 (shell-ui)"]
+            RailMast["레일 · 마스트헤드 · 내비게이션"]
+            RosterStore["RosterStore<br/><i>(단일 SSE 스트림 소유자)</i>"]
+            ModuleLoader["ScriptModuleLoader<br/><i>(화면 모듈 동적 주입)</i>"]
+            RenderStore["RenderStore<br/><i>(마운트 함수 캐시)</i>"]
+        end
+
+        Bridge[("window 전역 브리지 (console-bridge)<br/><code>__magi_render</code> · <code>__magi_roster_*</code><br/><code>__magi_transcript_*</code> · <code>__magi_go_*</code> · <code>__magi_labels_*</code>")]
+
+        subgraph ScreenModules ["독립 화면 모듈 (GWT 독립 네임스페이스)"]
+            Companion["companion-ui<br/><i>(목록 · 상세 컨테이너)</i>"]
+            Coding["coding-agent-ui<br/><i>(타입1 자식: 대화/트리)</i>"]
+            Knowledge["knowledge-ui<br/><i>(경험 · 위키 · MCP)</i>"]
+            OtherScreens["board · map · access · meeting · settings …"]
+        end
+    end
+
+    HTML --> Browser
+    Static -.->|"스크립트 주입"| ModuleLoader
+    EventsSSE -->|"단일 SSE 회선"| RosterStore
+    FleetAPI <-->|"HTTP 조회/변경"| RosterStore
+
+    ShellUI <-->|"호스팅 & 상태 발행"| Bridge
+    ScreenModules <-->|"구독 & 렌더 등록"| Bridge
+    Companion -.->|"슬롯 위임"| Coding
+
+    style Bridge fill:#fdf6e2,stroke:#b58900,stroke-width:2px
+    style ShellUI fill:#e8f4ff,stroke:#2c7fb8
+    style ScreenModules fill:#f0fff4,stroke:#38a169
+    style Backend fill:#f7fafc,stroke:#718096
 ```
 
 총 13개 모듈로 구성됩니다. 의존성 방향은 `화면 모듈 → console-bridge ← shell-ui` 단방향이며, 개별 화면 모듈 간에는 상호 직접 의존이 존재하지 않습니다. 마지막 모듈(`landing-ui`)은 콘솔 내부 화면이 아닌 **독립 사이트**입니다(셸 없이 자체 URL로 기동되며, 콘솔 배포 자산에는 포함되지 않습니다).
