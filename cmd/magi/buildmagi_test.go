@@ -29,13 +29,19 @@ import (
 // So the name is decided once, here, and the build is checked by RUNNING what it produced. A
 // fixture that cannot produce a runnable binary says that about itself instead of letting the next
 // assertion phrase it as a defect in the product.
-func buildMagi(t *testing.T, dir string) string {
+// flags are extra `go build` flags, for a test that needs two builds it can tell apart — the only
+// use so far is `-ldflags` naming a version, so a rollback can be shown to have ended on the OTHER
+// build rather than merely on other bytes. They go through here rather than into a second `go build`
+// beside the test, which is what TestOnlyBuildMagiBuildsMagi refuses and rightly: the executable
+// suffix and the does-it-actually-start check live here.
+func buildMagi(t *testing.T, dir string, flags ...string) string {
 	t.Helper()
 	exe := filepath.Join(dir, "magi")
 	if runtime.GOOS == "windows" {
 		exe += ".exe"
 	}
-	if out, err := exec.Command("go", "build", "-o", exe, "github.com/sayaya1090/magi/cmd/magi").CombinedOutput(); err != nil {
+	args := append([]string{"build", "-o", exe}, flags...)
+	if out, err := exec.Command("go", append(args, "github.com/sayaya1090/magi/cmd/magi")...).CombinedOutput(); err != nil {
 		t.Fatalf("could not build magi: %v\n%s", err, out)
 	}
 	// Asked of the path the tests will use, not of the file on disk: what matters is that

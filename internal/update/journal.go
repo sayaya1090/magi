@@ -457,13 +457,26 @@ func watcherAlive(pid int) (alive, known bool) {
 }
 
 // restorePrevious swaps <target>.prev back over target and removes it.
+//
+// ⚠ **Through Apply, because here the target may be the RUNNING image.** Every caller of this is
+// startup recovery — Resume, Salvage, SuccessorFailed — and the build being undone is the one the
+// process asking is running, or was just started from. Windows does not let a rename replace a
+// mapped executable, and a plain rename (writeBinary) therefore failed with "Access is denied": the
+// daemon said so and carried on serving the build that had just fallen over. Measured 2026-09-12
+// with a real daemon on Windows 11, in both shapes — a candidate that did not stay up
+// (`TestABuildThatDoesNotStayUpIsRolledBackOnWindows`) and a replacement nobody recorded
+// (`TestAnUnrecordedReplacementIsUndoneOnWindows`). Apply's Windows branch renames the target aside
+// first, which a running image does allow, so it is the one path that works from here.
+//
+// KeepPrevious's own restore stays on writeBinary on purpose and says why: the target THERE is the
+// just-rejected new binary, which nothing is running.
 func restorePrevious(target string) error {
 	prev := target + ".prev"
 	b, err := os.ReadFile(prev)
 	if err != nil {
 		return fmt.Errorf("no saved build to roll back to at %s: %w", prev, err)
 	}
-	if err := writeBinary(target, b); err != nil {
+	if err := Apply(b, target); err != nil {
 		return err
 	}
 	return os.Remove(prev)
