@@ -186,6 +186,28 @@ class SourceTextTest {
         )
     }
 
+    /**
+     * **다시 열기와 사람이 시킨 기동이 판정을 부르는가.**
+     *
+     * 판정 둘은 `Phases` 에 있고 `PhasesTest` 가 실제로 굴려 잰다 — 여기서 재는 것은 **그것을
+     * 부르는가**다. 이 트리가 되풀이해 겪은 결함이 정확히 그 틈에 있다: 판정을 만들고 아무도
+     * 안 부르면 판정이 없던 때와 화면이 같다(상태 기계 자체가 그 이유로 배선 검토를 받았다).
+     *
+     * ⚠ **더 나쁜 쪽은 「고쳐서 생긴 결함」이다.** 닫힘을 배선한 커밋이 `Closed` 를 맵에 남겨,
+     * 같은 경로를 다시 연 창은 첫 전이가 거절되어 데몬이 **영영** 안 떴다 — 배선이 없던 때보다
+     * 나쁘다. 그래서 옛 길(`computeIfAbsent`)이 남아 있지 않은지도 함께 본다.
+     */
+    @Test
+    fun `다시 연 창과 사람이 시킨 기동이 판정을 거친다`() {
+        val src = code(sources.first { it.name == "StartDaemon.kt" })
+        assertTrue(Regex("""Phases\.reopened\(""").containsMatchIn(src),
+            "닫힌 상태를 그대로 물려준다 — 같은 경로를 다시 열면 데몬이 영영 안 뜬다")
+        assertTrue("progress.computeIfAbsent" !in src,
+            "옛 길이 남아 있다 — `computeIfAbsent` 는 닫힌 것도 그대로 돌려준다")
+        assertTrue(Regex("""if \(!Phases\.asked\(""").containsMatchIn(src),
+            "수동 기동이 상태를 안 묻거나 거절을 버린다 — 유예·바닥난 예산에서 단추가 조용히 아무것도 안 한다")
+    }
+
     @Test
     fun `창이 기동을 정책에 묻고, 제 규칙을 따로 쓰지 않는다`() {
         val f = sources.first { it.name == "StartDaemon.kt" }

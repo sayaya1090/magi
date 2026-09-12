@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/sayaya1090/magi/internal/core/session"
@@ -111,5 +112,48 @@ func TestABegunRoundRefusesTheHold(t *testing.T) {
 	a.endMeetingRound()
 	if _, ok := a.HoldForUpdate(); !ok {
 		t.Error("the door stayed shut after the round ended")
+	}
+}
+
+// A turn is TWO halves, and the second one is the one that is kept.
+//
+// ⚠ This measures the DOORS, not beginMeetingRound. The guard above proves the lock refuses; it
+// cannot notice a door that never asks it — and that is exactly what happened: MeetingSayIn asked
+// while MeetingWriteUp went on incrementing the counter beside the lock. So the fix is only real at
+// the call sites, and the call sites are what this pins.
+//
+// The context is cancelled so a door that does NOT ask fails fast instead of reaching a model: a
+// mutant that hangs the build for ten minutes is not a mutant that was caught.
+func TestBothHalvesOfAMeetingTurnRefuseUnderTheHold(t *testing.T) {
+	a := newTestApp(t)
+	release, ok := a.HoldForUpdate()
+	if !ok {
+		t.Fatal("an idle companion refused the hold")
+	}
+	defer release()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	const child = session.SessionID("s-meeting")
+
+	doors := map[string]func() error{
+		"MeetingSayIn": func() error {
+			_, err := a.MeetingSayIn(ctx, child, "design", "topic", "", "", false)
+			return err
+		},
+		"MeetingWriteUp": func() error {
+			_, err := a.MeetingWriteUp(ctx, child, "design", "topic", "", "said", nil)
+			return err
+		},
+	}
+	for name, knock := range doors {
+		err := knock()
+		if err == nil {
+			t.Errorf("%s ran a round while an update held the door shut", name)
+			continue
+		}
+		if !strings.Contains(err.Error(), "settling an update") {
+			t.Errorf("%s did not refuse for the hold — it got as far as %v, so the restart takes the round with it", name, err)
+		}
 	}
 }

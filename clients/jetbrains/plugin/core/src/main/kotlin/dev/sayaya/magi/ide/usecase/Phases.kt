@@ -74,6 +74,43 @@ object Phases {
         if (move == Move.Close) return Phase.Closing
         return table[from to move]
     }
+
+    /**
+     * 다시 열린 창에 줄 상태. [had] 가 닫혔으면 **새것**이다.
+     *
+     * ⚠ **닫는 것은 고쳤는데 닫힌 뒤를 안 고쳤다.** `Closed` 가 아무 전이도 안 받는 것은 옳고,
+     * 창의 상태 맵이 창보다 오래 사는 것도 옳다(늦게 끝난 비동기가 제 번호를 견줄 수 있다).
+     * 둘이 겹치면 같은 경로를 **다시 연** 창의 첫 전이가 거절당하고 데몬이 영영 안 뜬다.
+     *
+     * §3 이 답을 적어 두었다 — 「`Closed` 에서 같은 인스턴스를 재사용하지 않습니다. 새 창은 새
+     * 소유자입니다」. 옛 창의 비동기들은 떠날 때 인스턴스 자체를 들고 갔으므로 이 교체가 그들이
+     * 버린 일을 되살리지 않는다: 그들은 계속 옛 번호를 옛 인스턴스에 견준다.
+     */
+    fun reopened(had: Progress?): Progress =
+        if (had == null || had.phase == Phase.Closed) Progress() else had
+
+    /**
+     * 사람이 직접 시켰다. 발견으로 돌아갈 길을 내고, 났으면 참.
+     *
+     * ⚠ **`Blocked --> Discovering: explicit retry` 는 표에 있고 아무도 안 보내고 있었다.**
+     * 그래서 수동 기동이 유예에 걸린 창이나 예산이 바닥난 창에서 조용히 아무것도 안 했다 —
+     * 사용자가 직접 누른 단추가 로그 한 줄만 남기는 것은, 전이를 정의하고 아무도 안 쓰는
+     * 이 트리의 되풀이되는 결함(「실려 오지만 안 그려짐」)의 또 한 얼굴이다.
+     *
+     * 없는 전이를 지어내지 않는다. 표에 있는 것만 쓴다:
+     * - `Ready` 인데 부르는 쪽이 소켓을 못 찾았다 → 전선이 끊긴 것이므로 그 사실(`Lost`)부터 적는다.
+     * - `Backoff` → `Retry`. 사람이 물은 것이 §3 의 `retry permitted` 다.
+     * - `Blocked` → `Asked`.
+     *
+     * 거짓이면 지금은 띄울 자리가 아니다 — 닫는 중이거나 이미 기동 중이다. **여기서 거짓을
+     * 버리면 아무도 끄지 않는 데몬이 남는다.**
+     */
+    fun asked(phase: Progress): Boolean {
+        if (phase.phase == Phase.Ready) phase.on(Move.Lost)
+        if (phase.phase == Phase.Blocked) phase.on(Move.Asked)
+        if (phase.phase == Phase.Backoff) phase.on(Move.Retry)
+        return phase.phase == Phase.Discovering
+    }
 }
 
 /**

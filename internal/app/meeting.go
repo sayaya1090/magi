@@ -162,8 +162,16 @@ func (a *App) MeetingWriteUp(ctx context.Context, child session.SessionID, who, 
 	if strings.TrimSpace(string(child)) == "" {
 		return "", fmt.Errorf("this participant has no minutes session")
 	}
-	a.meetingRounds.Add(1)
-	defer a.meetingRounds.Add(-1)
+	// ⚠ **Two halves of one turn, and only one of them asked.** MeetingSayIn went through
+	// beginMeetingRound; this one incremented the counter beside the lock instead of inside it, so a
+	// write-up could start the instant after an update took the hold — which is the one thing the
+	// hold exists to prevent. It is the same defect the hold was built for, left in the half that
+	// does not speak: the minutes are what survives the meeting, and a restart mid-write loses the
+	// round's record while its utterance is already in the transcript.
+	if !a.beginMeetingRound() {
+		return "", fmt.Errorf("this companion is settling an update — try again in a moment")
+	}
+	defer a.endMeetingRound()
 	s := a.sessionInfo(ctx, child)
 	if err := a.appendPromptText(ctx, child,
 		event.Actor{Kind: event.ActorUser, ID: meeting.MinutesOrigin},

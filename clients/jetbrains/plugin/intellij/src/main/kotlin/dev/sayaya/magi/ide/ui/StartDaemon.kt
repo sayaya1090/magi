@@ -14,6 +14,7 @@ import dev.sayaya.magi.ide.usecase.Reach
 import dev.sayaya.magi.ide.usecase.Launches
 import dev.sayaya.magi.ide.usecase.Move
 import dev.sayaya.magi.ide.usecase.Phase
+import dev.sayaya.magi.ide.usecase.Phases
 import dev.sayaya.magi.ide.usecase.Progress
 import dev.sayaya.magi.ide.usecase.DaemonProcess
 import com.intellij.openapi.components.Service
@@ -89,7 +90,22 @@ internal object StartDaemon {
      */
     private val progress = java.util.concurrent.ConcurrentHashMap<String, Progress>()
 
-    private fun progressOf(base: String): Progress = progress.computeIfAbsent(base) { Progress() }
+    /**
+     * 이 워크스페이스에 대한 지금 상태. **닫힌 것은 돌려주지 않는다.**
+     *
+     * ⚠ 맵이 창보다 오래 사는 덕에 늦게 끝난 비동기가 제 번호를 견줄 수 있는데(위), 그 같은
+     * 오래 살기가 **다시 열기를 막고 있었다**: `Closed` 는 아무 전이도 안 받으므로 같은 경로를
+     * 다시 연 창의 `Absent` 가 거절당하고 데몬이 영영 안 떴다. 닫는 것은 고쳤는데 **닫힌 뒤를
+     * 안 고친 것**이다.
+     *
+     * §3 이 그 답을 이미 적어 두었다 — 「`Closed` 에서 같은 인스턴스를 재사용하지 않습니다.
+     * 새 창은 새 소유자입니다」. 그래서 여기서 갈아 끼운다. 옛 창의 비동기들은 떠날 때 **인스턴스
+     * 자체를 들고 갔으므로**(`val phase = progressOf(base)`) 이 교체가 그들이 버린 일을
+     * 되살리지 않는다 — 그들은 계속 옛 번호를 옛 인스턴스에 견준다.
+     */
+    private fun progressOf(base: String): Progress = progress.compute(base) { _, had ->
+        Phases.reopened(had)
+    }!!
 
     /**
      * 데몬 자동 기동 허용 여부를 판정합니다.
@@ -121,6 +137,10 @@ internal object StartDaemon {
                 return@executeOnPooledThread
             }
             com.intellij.openapi.util.Disposer.register(project) { starting.remove(sock.toString()) }
+            if (!Phases.asked(progressOf(base))) {
+                LOG.info("magi: 이 상태(${progressOf(base).phase})에서는 수동 기동도 하지 않는다")
+                return@executeOnPooledThread
+            }
             ensureBinaryThenStart(project, base, sock, owner, manual = true)
         }
     }
