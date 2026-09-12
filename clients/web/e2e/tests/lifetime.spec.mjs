@@ -12,6 +12,11 @@ import { join } from 'node:path';
  * 그래서 <b>공개 기록을 읽는다</b>. 데몬이 소켓 옆에 적어 둔 pid·instance 가 탭을 열고 닫고
  * 새로고침하는 동안 그대로여야 한다. 하네스가 제 설정 디렉토리를 적어 두므로 그 파일들을 직접
  * 볼 수 있다(fixtures 의 `harness()`).
+ *
+ * ⚠ <b>파일 비교만으로는 프로세스가 살아 있음을 증명하지 못한다.</b> 기록은 데몬이 죽어도 그
+ * 자리에 남는다 — 같은 pid 가 같은 파일에 적혀 있는 것과 그 pid 가 도는 것은 다른 사실이다.
+ * 그래서 `kill(pid, 0)` 로 실제 생존까지 묻는다: 신호를 안 보내고 커널에 그 프로세스가 있는지만
+ * 묻는, 이 저장소의 Go 쪽 `procalive` 와 같은 방법이다.
  */
 function daemons() {
   const { config } = harness();
@@ -20,10 +25,16 @@ function daemons() {
     if (!name.endsWith('.sock.session')) continue;
     try {
       const r = JSON.parse(readFileSync(join(config, name), 'utf8'));
-      out.set(name, { pid: r.pid, instance: r.instance ?? null });
+      out.set(name, { pid: r.pid, instance: r.instance ?? null, alive: alive(r.pid) });
     } catch { /* 아직 쓰는 중인 기록은 다음 읽기에 보인다 */ }
   }
   return out;
+}
+
+/** 그 pid 가 실제로 도는가. 신호는 안 보내고 존재만 묻는다. */
+function alive(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
 /** 두 기록이 같은 세대를 가리키나 — 수가 아니라 프로세스를 견준다. */
@@ -36,6 +47,8 @@ function same(before, after) {
     if (was.instance && now.instance && now.instance !== was.instance) {
       return `${name} 의 instance 가 바뀌었다 — 프로세스가 갈렸다`;
     }
+    // 기록은 죽은 데몬 자리에도 남는다. 같은 글자가 적혀 있는 것과 그것이 도는 것은 다른 사실이다.
+    if (!now.alive) return `${name} 의 pid ${now.pid} 가 더 이상 돌지 않는다 — 기록만 남았다`;
   }
   return null;
 }
@@ -45,6 +58,8 @@ test('새로고침은 컴패니언을 만들지도 끝내지도 않는다', asyn
   const before = daemons();
   expect(before.size, '하네스가 세운 컴패니언이 안 보인다 — 이 시험이 아무것도 안 재고 있다')
     .toBeGreaterThan(1);
+  // 바닥: 시작부터 죽어 있었으면 아래 비교는 「그대로다」로 통과한다.
+  expect([...before.values()].every(d => d.alive), '시작부터 도는 컴패니언이 없다').toBe(true);
 
   await page.reload();
   await expect(page.locator('#fleet a.card[data-socket]').first()).toBeVisible({ timeout: 20_000 });

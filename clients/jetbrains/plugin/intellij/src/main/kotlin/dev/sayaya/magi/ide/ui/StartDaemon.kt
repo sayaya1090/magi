@@ -13,6 +13,7 @@ import dev.sayaya.magi.ide.transport.SocketPath
 import dev.sayaya.magi.ide.usecase.Reach
 import dev.sayaya.magi.ide.usecase.Launches
 import dev.sayaya.magi.ide.usecase.Move
+import dev.sayaya.magi.ide.usecase.Phase
 import dev.sayaya.magi.ide.usecase.Progress
 import dev.sayaya.magi.ide.usecase.DaemonProcess
 import com.intellij.openapi.components.Service
@@ -142,6 +143,7 @@ internal object StartDaemon {
                     // [Launches.connected] 가 「붙은 채로 얼마나 지났나」를 스스로 세고, 안정 구간을
                     // 넘겼을 때만 지운다(`clients/contract/lifecycle-policy.json`).
                     budget.getOrPut(base) { Launches() }.connected(System.currentTimeMillis())
+                    progressOf(base).on(Move.Answered)
                     starting.remove(sock.toString())
                 }
                 // 데몬 상태 확인 실패 시 이중 기동 방지를 위해 기동을 보류합니다 (모름 != 없음).
@@ -155,6 +157,8 @@ internal object StartDaemon {
                     // 가 언제나 유예로 거절한다(이 배선의 첫 판이 그랬다). 아래 `Thread.sleep` 이
                     // 바로 그 5초를 실제로 보내므로, 시각을 여기 박아 두면 둘이 같은 창을 말한다.
                     budget.getOrPut(base) { Launches() }.lost(System.currentTimeMillis())
+                    // 끊긴 것을 상태에도 적는다. 예산만 아는 사실은 화면과 갈릴 수 있다.
+                    progressOf(base).on(Move.Lost)
                     Thread.sleep(RESTART_GRACE)
                     if (DaemonClient.reach(sock) is Reach.Listening) {
                         LOG.info("magi: 유예 시간 내 데몬 재연결 확인 (업데이트 재시작 감지)")
@@ -174,7 +178,21 @@ internal object StartDaemon {
                     // 실제 기동 결정 시점에만 재기동 예산을 차감합니다.
                     val b = budget.getOrPut(base) { Launches() }
                     val now = System.currentTimeMillis()
-                    if (b.may(now) != Launches.Verdict.Allow) return@executeOnPooledThread
+                    val verdict = b.may(now)
+                    if (verdict == Launches.Verdict.Blocked) progressOf(base).on(Move.Exhausted)
+                    if (verdict != Launches.Verdict.Allow) return@executeOnPooledThread
+                    // 유예를 지나 다시 보는 것이 §3 의 `Retry` 다. 없는 전이면 이 창은 그 상태에서
+                    // 다시 볼 자리가 아니고(닫는 중이거나 이미 닫혔다), 그때는 띄우지 않는다 —
+                    // 반환값을 버리면 상태 기계는 적어 두기만 하고 아무것도 통제하지 않는다.
+                    val phase = progressOf(base)
+                    if (phase.phase == Phase.Backoff && !phase.on(Move.Retry)) {
+                        LOG.info("magi: 이 상태(${phase.phase})에서는 다시 보지 않는다")
+                        return@executeOnPooledThread
+                    }
+                    if (phase.phase == Phase.Closing || phase.phase == Phase.Closed) {
+                        LOG.info("magi: 창이 닫히는 중이라 기동하지 않는다")
+                        return@executeOnPooledThread
+                    }
                     b.spawned(now)
                     com.intellij.openapi.util.Disposer.register(project) { budget.remove(base); starting.remove(sock.toString()) }
                     ensureBinaryThenStart(project, base, sock, owner)
@@ -268,8 +286,18 @@ internal object StartDaemon {
         val phase = progressOf(base)
         // 떠나면서 들고 가는 번호. 돌아왔을 때 이것이 낡았으면 이 일의 결과는 남의 창 것이다.
         val mine = phase.generation
-        phase.on(Move.Absent)
-        com.intellij.openapi.util.Disposer.register(project) { phase.on(Move.Close) }
+        // ⚠ **반환값을 쓴다.** 닫는 중이거나 이미 닫힌 상태에서 `Absent` 는 없는 전이이고, 그때
+        // 띄우면 아무도 끄지 않는 데몬이 남는다. 적어 두기만 하는 상태 기계는 문서를 한 벌 더 쓴
+        // 것이라는 말이 여기에도 그대로 적용된다.
+        if (!phase.on(Move.Absent)) {
+            LOG.info("magi: 이 상태(${phase.phase})에서는 기동하지 않는다")
+            return
+        }
+        com.intellij.openapi.util.Disposer.register(project) {
+            // 닫힘은 두 걸음이다 — 들어가고(세대가 오른다), 정리가 끝나면 닫힌다.
+            phase.on(Move.Close)
+            phase.on(Move.Settled)
+        }
         val log = java.io.File(sock.toString() + ".ide.log")
         starting[sock.toString()] = System.currentTimeMillis()
         var child: Process? = null

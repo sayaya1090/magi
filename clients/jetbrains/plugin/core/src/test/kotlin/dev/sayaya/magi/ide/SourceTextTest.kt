@@ -148,9 +148,20 @@ class SourceTextTest {
             "준비를 상태로 안 옮긴다")
         assertTrue(Regex("""phase\.on\(Move\.LaunchFailed\)""").containsMatchIn(src),
             "기동 실패를 상태로 안 옮긴다")
-        assertTrue(Regex("""Disposer\.register\(project\) \{ phase\.on\(Move\.Close\) \}""")
-            .containsMatchIn(src),
+        assertTrue(Regex("""phase\.on\(Move\.Close\)""").containsMatchIn(src),
             "창이 닫힐 때 상태를 안 닫는다 — 세대가 안 올라 떠났던 일이 제 것이라고 믿는다")
+        assertTrue(Regex("""phase\.on\(Move\.Settled\)""").containsMatchIn(src),
+            "닫힘이 끝난 것을 안 적는다 — `Closing` 에 영원히 머무는 상태는 닫힌 것과 구별되지 않는다")
+
+        // ⚠ **적어 두기만 하는 상태 기계는 문서를 한 벌 더 쓴 것이다.** 그림의 나머지 화살표도
+        // 실제 순간에 걸려 있어야 하고(끊김·다시 보기·예산 바닥), 무엇보다 **전이 실패를 써야**
+        // 한다 — 반환값을 버리면 상태는 기록일 뿐 아무것도 통제하지 않는다.
+        for (m in listOf("Lost", "Retry", "Exhausted")) {
+            assertTrue(Regex("""Move\.$m\b""").containsMatchIn(src),
+                "§3 의 `$m` 이 창의 어느 순간에도 안 걸려 있다 — 그림의 그 화살표는 문서에만 있다")
+        }
+        assertTrue(Regex("""if \(!phase\.on\(Move\.Absent\)\)""").containsMatchIn(src),
+            "전이 실패를 버린다 — 닫는 중에도 기동이 그대로 진행되면 아무도 끄지 않는 데몬이 남는다")
     }
 
     @Test
