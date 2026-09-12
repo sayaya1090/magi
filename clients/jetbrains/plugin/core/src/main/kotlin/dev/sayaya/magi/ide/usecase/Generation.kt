@@ -26,11 +26,17 @@ object Generation {
     /** 기록과 답이 같은 세대를 가리키나. */
     fun same(record: Published?, hello: Response?, childPid: Long?): Boolean {
         if (record == null || hello == null || childPid == null) return false
+        // 답이 실패면 답이 아니다. `ok=false` 를 세대 판정에 넣으면 「거절했다」가 「모른다」로 섞인다.
+        if (!hello.ok) return false
         if (record.pid.toLong() != childPid) return false
-        val a = record.instance
-        val b = hello.instance
-        if (!a.isNullOrBlank() && !b.isNullOrBlank()) return a == b
-        return true
+        val a = record.instance?.takeIf { it.isNotBlank() }
+        val b = hello.instance?.takeIf { it.isNotBlank() }
+        // ⚠ **한쪽만 대는 것은 구형 코어가 아니다.** 기록을 쓴 것도 답하는 것도 같은 프로세스라,
+        // 기록에 세대가 적혀 있으면 그 데몬은 `about` 에서도 그것을 댄다. 한쪽만 있다는 것은
+        // **다른 프로세스가 답했다**는 뜻이고, 그것을 구형 호환으로 흘려보내면 이 검사가 막으려던
+        // 바로 그 경우를 통과시킨다. 둘 다 없을 때만 pid 로 떨어진다.
+        if (a == null && b == null) return true
+        return a != null && b != null && a == b
     }
 
     /**

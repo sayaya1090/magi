@@ -311,8 +311,13 @@ internal object StartDaemon {
                 // **기록이** 우리 자식을 가리킨다는 말이고, 소켓에 답하는 것이 그 기록의
                 // 프로세스라는 말은 아무도 안 했다 — 둘은 갈릴 수 있다(앞 데몬의 기록이 남음 ·
                 // 교체가 도는 중 · 같은 경로를 푼 남의 컴패니언). 답하는 쪽에 직접 묻는다.
+                // ⚠ **남은 준비 시간으로 묶는다.** 기본 인내심은 120초라, 소켓이 연결만 받고
+                // 답하지 않으면 이 한 번의 조회가 바깥의 30초 기한을 그대로 넘긴다 — 기한을 건
+                // 쪽이 먼저 서야 기한이라는, 검토 R6 에서 배운 그 규칙이다.
+                val left = java.util.concurrent.TimeUnit.NANOSECONDS
+                    .toMillis(deadline - System.nanoTime()).coerceIn(250L, 5_000L)
                 val hello = runCatching {
-                    DaemonClient.connect(sock).use { it.exchange(
+                    DaemonClient.connect(sock, left).use { it.exchange(
                         dev.sayaya.magi.ide.model.Request(method = "about")) }
                 }.getOrNull()
                 if (!phase.still(mine)) return

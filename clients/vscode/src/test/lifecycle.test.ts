@@ -379,11 +379,21 @@ test('readiness needs the record and the socket to name one generation', () => {
 });
 
 /** An older core writes no instance. It keeps the lifetime it always had rather than being failed. */
-test('a core that names no generation still gets ready on the pid', () => {
+test('only a core where NEITHER side names a generation falls back to the pid', () => {
   assert.equal(sameGeneration({ pid: 7 }, {}, 7), true);
-  assert.equal(sameGeneration({ pid: 7, instance: 'i-1' }, {}, 7), true,
-    'the record names one and the daemon does not — an old client cannot be held to a new field');
   assert.equal(sameGeneration({ pid: 8 }, {}, 7), false, 'the pid still has to be ours');
+});
+
+/**
+ * ⚠ **One side naming a generation and the other not is not an old core.** The record's writer and
+ * the process answering are the same daemon: a record carrying an instance came from one that answers
+ * with it. Only one present means something ELSE answered, and letting that through as backward
+ * compatibility waves through the very case this check exists for.
+ */
+test('one side naming a generation means a different process answered', () => {
+  assert.equal(sameGeneration({ pid: 7, instance: 'i-1' }, {}, 7), false,
+    'the record is from a build that names generations and the answer did not name one');
+  assert.equal(sameGeneration({ pid: 7 }, { instance: 'i-1' }, 7), false);
 });
 
 /**

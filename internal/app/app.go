@@ -556,6 +556,27 @@ func (a *App) HoldForUpdate() (func(), bool) {
 	}, true
 }
 
+// beginMeetingRound counts a meeting round as work, refusing while an update holds the door.
+//
+// ⚠ **HoldForUpdate looked at the meeting counter; nothing looked at the hold.** A round starting
+// the instant after the hold was taken was invisible to it — the restart then threw away exactly the
+// work the hold exists to protect. Both directions have to go through the same lock, and the
+// increment has to happen inside it rather than beside it.
+//
+// Returns false when the caller must not start: the door is held, or this App is closing.
+func (a *App) beginMeetingRound() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.closed || a.holding {
+		return false
+	}
+	a.meetingRounds.Add(1)
+	return true
+}
+
+// endMeetingRound is the other half. Separate so the pair reads as one fact at the call site.
+func (a *App) endMeetingRound() { a.meetingRounds.Add(-1) }
+
 // startRun launches the agent loop for a session unless one is already running
 // (single run goroutine per session). After the loop ends it re-checks, under
 // the lock, for a user message that was steered in during the exit window and

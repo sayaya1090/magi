@@ -49,7 +49,8 @@ var (
 // TTL, so a machine's daemons stagger rather than all check together. The stamp file carries the
 // same per-daemon suffix: shared, one daemon's check silenced every other's for the whole TTL, and
 // the others then never restarted onto a build the first had already committed.
-func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string, running func() bool, restart func()) {
+func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string, running func() bool,
+	hold func() (func(), bool), restart func()) {
 	if !update.SelfUpdatable(current) {
 		fmt.Fprintf(os.Stderr, "magi: auto-update off: %q is not a release build\n", current)
 		return
@@ -107,7 +108,23 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 			continue // offline or already current — try again next cycle
 		}
 		// A new build is committed to disk; wait for an idle moment, then restart onto it.
-		for running() {
+		//
+		// ⚠ **The same atomic safe point the pressed button uses.** Polling `running()` and then
+		// restarting leaves a turn able to start between the two lines, to be thrown away by a
+		// restart that had just concluded there was none — CLIENT_LIFECYCLE §9.3 asks for the
+		// judgement and the closing of the door to be one step, and this loop was the other half of
+		// the fix that only reached the door (3f693903). `hold` shuts it in the step that finds it
+		// quiet; a caller that has none falls back to the poll, which is what this always did.
+		var release func()
+		for {
+			if hold != nil {
+				var held bool
+				if release, held = hold(); held {
+					break
+				}
+			} else if !running() {
+				break
+			}
 			select {
 			case <-ctx.Done():
 				return
@@ -117,9 +134,15 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 		// The daemon may have begun stopping while we polled (Restart itself refuses after a stop
 		// has begun, but respect our own ctx too rather than racing it).
 		if ctx.Err() != nil {
+			if release != nil {
+				release()
+			}
 			return
 		}
 		restart()
+		if release != nil {
+			release()
+		}
 		return
 	}
 }

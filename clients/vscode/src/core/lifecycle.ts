@@ -47,7 +47,12 @@ export type Hello = { instance?: string; owner?: string };
 export function sameGeneration(record: Published | null, hello: Hello | null, childPid?: number): boolean {
   if (!record || !hello) return false;
   if (childPid === undefined || record.pid !== childPid) return false;
-  if (record.instance && hello.instance) return record.instance === hello.instance;
+  // ⚠ **One side naming a generation and the other not is NOT an old core.** The record's writer and
+  // the process answering are the same daemon, so a record that carries an instance came from one
+  // that answers with it too. Only one of them present means something ELSE answered — treating
+  // that as backward compatibility waves through the very case this check exists for. The pid
+  // fallback is for when NEITHER names one.
+  if (record.instance || hello.instance) return record.instance === hello.instance;
   return true;
 }
 

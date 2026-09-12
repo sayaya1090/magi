@@ -39,14 +39,28 @@ class GenerationTest {
     }
 
     @Test
-    fun `세대를 안 대는 구형 코어는 예전처럼 pid 로 떨어진다`() {
+    fun `둘 다 세대를 안 대는 구형 코어만 pid 로 떨어진다`() {
         assertTrue(Generation.same(rec(7), said(), 7L))
-        assertTrue(
-            Generation.same(rec(7, "i-1"), said(), 7L),
-            "한 번도 쓴 적 없는 칸이 없다고 실패시키면 모든 창이 제 컴패니언을 남으로 본다",
-        )
-        assertTrue(Generation.same(rec(7), said("i-1"), 7L))
         assertFalse(Generation.same(rec(8), said(), 7L), "그래도 pid 는 우리 것이어야 한다")
+    }
+
+    /**
+     * ⚠ **한쪽만 대는 것은 구형 코어가 아니다.** 기록을 쓴 것도 답하는 것도 같은 프로세스라,
+     * 기록에 세대가 적혀 있으면 그 데몬은 `about` 에서도 그것을 댄다 — 한쪽만 있다는 것은 다른
+     * 프로세스가 답했다는 뜻이고, 구형 호환으로 흘려보내면 이 검사가 막으려던 그 경우가 통과한다.
+     */
+    @Test
+    fun `한쪽만 세대를 대면 다른 프로세스가 답한 것이다`() {
+        assertFalse(Generation.same(rec(7, "i-1"), said(), 7L), "기록은 신형인데 답이 세대를 안 댄다")
+        assertFalse(Generation.same(rec(7), said("i-1"), 7L), "답은 신형인데 기록이 세대를 안 댄다")
+        assertFalse(Generation.same(rec(7, "  "), said("i-1"), 7L), "빈 칸은 「안 댄 것」이다")
+    }
+
+    /** 답이 실패면 답이 아니다 — 「거절했다」를 「모른다」로 섞으면 안 된다. */
+    @Test
+    fun `실패한 답으로는 준비가 아니다`() {
+        assertFalse(Generation.same(rec(7, "i-1"), Response(ok = false, instance = "i-1"), 7L))
+        assertFalse(Generation.same(rec(7), Response(ok = false), 7L))
     }
 
     @Test

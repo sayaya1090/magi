@@ -80,3 +80,36 @@ func TestOnlyOneHoldAtATime(t *testing.T) {
 	}
 	release()
 }
+
+// A meeting round starting the instant after the hold was taken is invisible to it — and the restart
+// then throws away exactly the work the hold exists to protect. Both directions go through one lock.
+func TestAMeetingRoundCannotBeginUnderTheHold(t *testing.T) {
+	a := newTestApp(t)
+	release, ok := a.HoldForUpdate()
+	if !ok {
+		t.Fatal("an idle companion refused the hold")
+	}
+	if a.beginMeetingRound() {
+		t.Fatal("a meeting round began while the door was held shut — the restart discards it")
+	}
+	release()
+	if !a.beginMeetingRound() {
+		t.Fatal("rounds never resumed after the hold was released")
+	}
+	a.endMeetingRound()
+}
+
+// And the counter is raised INSIDE the lock, so the hold cannot be taken beside it.
+func TestABegunRoundRefusesTheHold(t *testing.T) {
+	a := newTestApp(t)
+	if !a.beginMeetingRound() {
+		t.Fatal(false)
+	}
+	if _, ok := a.HoldForUpdate(); ok {
+		t.Fatal("the door was held shut while a meeting round was being composed")
+	}
+	a.endMeetingRound()
+	if _, ok := a.HoldForUpdate(); !ok {
+		t.Error("the door stayed shut after the round ended")
+	}
+}

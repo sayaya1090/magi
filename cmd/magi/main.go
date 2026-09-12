@@ -1344,7 +1344,7 @@ func run() int {
 			// running session and a bool; only the bool matters here — OR a meeting round is being
 			// composed, which the run states deliberately do not cover (MeetingActive).
 			busy := func() bool { return busyNow(a) }
-			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, serving.Restart)
+			go daemonAutoUpdate(cronCtx, plat.ConfigDir(), version.Version, exe, sockPath, busy, a.HoldForUpdate, serving.Restart)
 		}
 		// Wrapped, so the engine the socket talks to can run a command HERE. The workspace is
 		// closed over rather than taken from the request: a method that let a caller name the

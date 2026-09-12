@@ -119,8 +119,13 @@ func (a *App) MeetingSayIn(ctx context.Context, child session.SessionID, who, to
 	}
 	// Counted as activity for MeetingActive: these turns stay outside the run states on purpose,
 	// which made a mid-round daemon invisible to Running() — and restartable under it (see App).
-	a.meetingRounds.Add(1)
-	defer a.meetingRounds.Add(-1)
+	// ⚠ **Asked, not just counted.** An update that has taken the safe-point hold is about to
+	// restart this process; starting a round under it throws that round away. The counter and the
+	// hold are read under one lock (App.beginMeetingRound).
+	if !a.beginMeetingRound() {
+		return meeting.Utterance{}, fmt.Errorf("this companion is settling an update — try again in a moment")
+	}
+	defer a.endMeetingRound()
 	s := a.sessionInfo(ctx, child)
 	if err := a.appendPromptText(ctx, child, event.Actor{Kind: event.ActorUser, ID: meeting.Origin},
 		meetingPrompt(who, topic, transcript, minutes, closing)); err != nil {

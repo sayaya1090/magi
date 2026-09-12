@@ -534,7 +534,9 @@ immediately, exactly as before — so every older client is unchanged, and a new
 the deliberate "end what is running". `idle` **shuts the door in the step that finds it open** — admission of new work is closed in the
 same step that finds nothing running, and only then does it restart. Asking and then acting leaves a
 turn able to arrive in between, to be thrown away by a restart that had just concluded there was
-none; there is no such gap.
+none; there is no such gap. **The six-hourly automatic update uses the same door**, so a scheduled
+update and a pressed one do not behave differently. A meeting round asked for while the door is shut
+is told the companion is settling an update, and is accepted again a moment later.
 
 **Several companions on one machine do not undo each other's updates.** The journal is about one
 BINARY, so the daemon watching a new build is the first one up on it. A second workspace's daemon

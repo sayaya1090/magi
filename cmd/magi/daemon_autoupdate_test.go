@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,12 +46,19 @@ var goodBin = []byte("#!/bin/sh\necho 'magi test v9'\nexit 0\n")
 // real data race — measured at ~5% failures under -race, and a cross-test hazard besides (the leaked
 // goroutine kept reading globals the NEXT test reassigns).
 func runLoop(t *testing.T, dir, current, exe string, running func() bool, restart func()) (cancel func()) {
+	return runLoopHolding(t, dir, current, exe, running, nil, restart)
+}
+
+// runLoopHolding is runLoop with the atomic safe point wired, for the tests that are about it. A nil
+// hold is the older shape — the loop then polls `running`, exactly as it did before there was one.
+func runLoopHolding(t *testing.T, dir, current, exe string, running func() bool,
+	hold func() (func(), bool), restart func()) (cancel func()) {
 	t.Helper()
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		daemonAutoUpdate(ctx, dir, current, exe, "sock-"+t.Name(), running, restart)
+		daemonAutoUpdate(ctx, dir, current, exe, "sock-"+t.Name(), running, hold, restart)
 	}()
 	return func() { stop(); <-done }
 }
@@ -284,4 +292,76 @@ func (errSource) Latest(context.Context) (update.Release, error) {
 }
 func (errSource) Download(context.Context, string) ([]byte, error) {
 	return nil, errors.New("dial tcp: no route to host")
+}
+
+// The loop gets the same atomic safe point the pressed button does.
+//
+// ⚠ **Polling and then restarting leaves a gap, and this loop was the half the fix did not reach.**
+// A turn arriving between `running()` answering false and the restart is thrown away by a decision
+// that had just concluded there was none (CLIENT_LIFECYCLE §9.3). When a hold is available the loop
+// must take it — and it must let go, or a daemon that survives the restart accepts no work.
+func TestDaemonAutoUpdateTakesTheHoldRatherThanPolling(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "magi")
+	if err := os.WriteFile(exe, goodBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	was, wasTTL := latestSource, daemonAutoUpdateTTL
+	latestSource = func() update.Source {
+		return binSource{rel: update.Release{Version: "v99.0.0", URL: "x"}, bin: goodBin}
+	}
+	daemonAutoUpdateTTL = 30 * time.Millisecond
+	defer func() { latestSource, daemonAutoUpdateTTL = was, wasTTL }()
+
+	var mu sync.Mutex
+	busy, holds, released := true, 0, 0
+	hold := func() (func(), bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if busy {
+			return nil, false
+		}
+		holds++
+		return func() { mu.Lock(); released++; mu.Unlock() }, true
+	}
+	restarted := make(chan struct{})
+	restart := func() { close(restarted) }
+	// `running` must never be consulted when a hold is available: a report is what left the gap.
+	polled := 0
+	running := func() bool { mu.Lock(); polled++; mu.Unlock(); return true }
+
+	wasPoll := daemonIdleCheckInterval
+	daemonIdleCheckInterval = 5 * time.Millisecond
+	defer func() { daemonIdleCheckInterval = wasPoll }()
+
+	join := runLoopHolding(t, dir, "v0.1.0", exe, running, hold, restart)
+	defer join()
+
+	select {
+	case <-restarted:
+		t.Fatal("it restarted while the hold was refused — that is the turn thrown away")
+	case <-time.After(60 * time.Millisecond):
+	}
+	mu.Lock()
+	busy = false
+	mu.Unlock()
+
+	select {
+	case <-restarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("it never restarted after the door could be held")
+	}
+	join()
+	mu.Lock()
+	defer mu.Unlock()
+	if holds == 0 {
+		t.Error("it restarted without ever taking the hold — the door was open the whole time")
+	}
+	if released != holds {
+		t.Errorf("took the hold %d times and let go %d — a daemon that survives the restart takes no work", holds, released)
+	}
+	if polled != 0 {
+		t.Errorf("it polled `running` %d times although a hold was available — a report is the gap", polled)
+	}
 }
