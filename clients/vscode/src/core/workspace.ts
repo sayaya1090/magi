@@ -164,8 +164,9 @@ export function socketThere(p: string): SocketLook {
   } catch (e) {
     const code = (e as NodeJS.ErrnoException)?.code;
     // ENOENT (and ENOTDIR, which is a missing name one level up) is the FACT this helper is allowed
-    // to report: nothing of that name is there.
-    if (code === 'ENOENT' || code === 'ENOTDIR') return { there: false };
+    // to report: nothing of that name is there — **once the directory it would be in has actually
+    // been looked at.**
+    if (code === 'ENOENT' || code === 'ENOTDIR') return couldList(path.dirname(p)) ? { there: false } : notLooked(p);
     // Anything else is "we could not look" — a refused directory, an I/O error, a path that is not
     // ours to read. Folding that into "no companion" is the same mistake one state over: the caller
     // then draws a FACT ("this workspace has nothing running") out of a failure to ask, and offers
@@ -173,6 +174,38 @@ export function socketThere(p: string): SocketLook {
     // a shrug` — core/activity says it about the same confusion.
     return { there: false, why: `cannot tell whether a companion is there: ${code ?? (e as Error)?.message ?? e}` };
   }
+}
+
+/**
+ * Could the directory this socket would be in actually be read?
+ *
+ * ⚠ **On Windows, a name inside an unreadable directory answers ENOENT** — the same word a name that
+ * is genuinely not there answers. Measured 2026-09-12 with the directory's read/traverse denied by
+ * ACL (#196):
+ *
+ *	readdir(dir)          → EPERM      (the refusal is real)
+ *	access(dir, F_OK)     → ok         (the NAME of the directory is still visible)
+ *	access(dir/d.sock)    → ENOENT     ← indistinguishable from "no companion"
+ *	stat, open            → ENOENT
+ *
+ * So the third answer this helper exists for — "could not look" — was **unreachable on the platform
+ * that paid for the confusion** (`df51c3a9`: every window said "not running" about a live daemon).
+ * The parent is asked only when the child came back absent, which is the one case where the answer
+ * could be a lie; a socket that IS there never reaches this.
+ *
+ * A parent that is itself absent is an honest absence: nobody has made the socket directory yet.
+ */
+function couldList(dir: string): boolean {
+  try {
+    fs.readdirSync(dir);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === 'ENOENT';
+  }
+}
+
+function notLooked(p: string): SocketLook {
+  return { there: false, why: `cannot tell whether a companion is there: ${path.dirname(p)} cannot be read` };
 }
 
 /**

@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -370,5 +371,56 @@ test('the discovery paths ask about a socket only through the helper', () => {
   assert.ok(/accessSync\(/.test(helper), 'the helper no longer asks the directory entry — the one question Windows answers');
   for (const wrong of ['existsSync', 'lstatSync']) {
     assert.ok(!helper.includes(wrong), `the helper fell back to ${wrong}`);
+  }
+});
+
+/**
+ * 같은 갈래를, 그 플랫폼의 권한 모형으로 (#196).
+ *
+ * ⚠ **윈도우에서 `chmod` 로는 이 상황을 만들 수 없다.** Node 는 거기서 쓰기 비트만 바꾸므로 위의
+ * 시험은 잴 것이 없다고 말하며 건너뛴다 — 그리고 그러면 **「못 봤다」가 이 플랫폼에서 한 번도 안
+ * 재인다.** 값이 가장 큰 곳에서 안 재이는 셈이다: `existsSync` 가 살아 있는 AF_UNIX 소켓을
+ * 「없다」고 답해 모든 창이 두 번째 데몬을 띄우자고 한 것이 바로 여기였다(`df51c3a9`).
+ *
+ * 거절은 ACL 로 만든다 — 현재 사용자에게 읽기·traverse 를 거부하면 그 아래 이름을 물을 수 없다.
+ * 소유자라도 DACL 이 막는다(소유자가 할 수 있는 것은 ACL 을 되돌리는 것이고, 그것이 정리 단계다).
+ *
+ * 플랫폼 이름으로 갈래를 정하지 않는다: `icacls` 를 걸어 보고 **거절이 정말 났는지 파일시스템에
+ * 물어본** 뒤에만 단언한다. 안 났으면 사유를 적고 건너뛴다 — 이 파일의 다른 건너뛰기들과 같다.
+ */
+test('an ACL-refused path is not reported as an empty workspace', (t) => {
+  const who = process.env.USERNAME;
+  if (process.platform !== 'win32' || !who) {
+    t.skip('ACL 로 거절을 만드는 것은 윈도우의 모양이다 — POSIX 쪽은 위의 chmod 시험이 잰다');
+    return;
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-noacl-'));
+  const inner = path.join(dir, 'inner');
+  fs.mkdirSync(inner);
+  const p = path.join(inner, 'd.sock');
+  let denied = false;
+  try {
+    try {
+      execFileSync('icacls', [inner, '/inheritance:r', '/deny', `${who}:(RX)`], { stdio: 'ignore' });
+      denied = true;
+    } catch { /* icacls 를 못 걸었다 — 아래에서 건너뛴다 */ }
+    let refused = false;
+    try { fs.readdirSync(inner); } catch { refused = true; }
+    if (!refused) {
+      t.skip('이 파일시스템은 ACL 거부 뒤에도 읽게 해 준다 — 여기서는 잴 거절이 없다');
+      return;
+    }
+
+    const look = socketThere(p);
+    assert.equal(look.there, false, '못 본 소켓을 찾았다고 했다');
+    assert.ok(look.why, 'ACL 이 거절한 디렉터리가 그냥 부재로 왔다 — 창은 못 본 것에서 '
+      + '「컴패니언이 없다」는 사실을 만들어 낸다');
+    assert.match(look.why!, /cannot tell/, '사유가 무슨 일이 있었는지 말하지 않는다');
+  } finally {
+    if (denied) {
+      try { execFileSync('icacls', [inner, '/remove:d', who], { stdio: 'ignore' }); } catch { /* 지울 수 없으면 아래가 실패한다 */ }
+      try { execFileSync('icacls', [inner, '/grant', `${who}:(F)`], { stdio: 'ignore' }); } catch { /* 같다 */ }
+    }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* 남으면 임시 폴더다 */ }
   }
 });
