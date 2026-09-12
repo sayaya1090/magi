@@ -3118,6 +3118,12 @@ func (d daemonEngine) Update(ctx context.Context) (daemon.UpdateResult, error) {
 	if rerr := update.Retry(exe); rerr != nil {
 		fmt.Fprintln(os.Stderr, "magi: could not clear the earlier rollback:", rerr)
 	}
+	// Rule 1 of releaseAPIBaseEnv, on the path a BUTTON starts. This was the one path that applied
+	// the env and said nothing — and the guard missed it because it counted announcements per file
+	// instead of asking every path that builds a source. It goes to the log rather than into the
+	// result: the result field carries what became of the update, and provenance is a different fact
+	// (the same split the daemon loop makes).
+	announceReleaseSource(os.Stderr)
 	res, err := update.RunCommit(uctx, newReleaseSource(), version.Version, exe)
 	if err != nil {
 		return daemon.UpdateResult{}, err

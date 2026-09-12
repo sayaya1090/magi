@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,24 +160,62 @@ func TestABlankEnvIsTheDefaultSource(t *testing.T) {
 	}
 }
 
-// And every path that updates says it — the loop a person is not watching included. A scan, because
-// the alternative is standing up three real update runs to read their output.
-func TestEveryUpdatePathAnnouncesTheSource(t *testing.T) {
-	for _, f := range []string{"main.go", "autoupdate.go"} {
-		body, err := os.ReadFile(f)
+// **Every path that BUILDS a release source announces it — asked of the paths, not of the files.**
+//
+// ⚠ This guard replaces one that counted `announceReleaseSource(` occurrences per file, and that
+// count is exactly why it missed `daemonEngine.Update` — the console's button applied the environment
+// and said nothing, while the file it lives in had plenty of announcements elsewhere. A guard that
+// counts is a guard that can be satisfied by the wrong lines.
+//
+// So the question is asked of the SYNTAX: every function that calls the factory (or `latestSource`,
+// which delegates to it) must also announce inside that same function. The two definitions of those
+// seams are not callers and are skipped by name.
+func TestEveryPathThatBuildsASourceAnnouncesIt(t *testing.T) {
+	const announce = "announceReleaseSource"
+	builders := map[string]bool{"newReleaseSource": true, "latestSource": true}
+	checked := 0
+	for _, name := range []string{"main.go", "autoupdate.go"} {
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), "announceReleaseSource(") {
-			t.Errorf("%s never announces the source", f)
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			var builds, says bool
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				call, ok := n.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+				id, ok := call.Fun.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				if builders[id.Name] {
+					builds = true
+				}
+				if id.Name == announce {
+					says = true
+				}
+				return true
+			})
+			if !builds {
+				continue
+			}
+			checked++
+			if !says {
+				t.Errorf("%s: %s builds a release source and never announces it — a person updating from "+
+					"here is not told the build comes from somewhere else", name, fn.Name.Name)
+			}
 		}
 	}
-	body, err := os.ReadFile("autoupdate.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The daemon's own loop and the interactive startup check are different paths; both must say it.
-	if n := strings.Count(string(body), "announceReleaseSource("); n < 2 {
-		t.Errorf("autoupdate.go announces on %d of its two update paths", n)
+	// ⚠ The floor is the only evidence this measured anything: a parser change or a rename would
+	// otherwise leave it green with nothing inspected.
+	if checked < 3 {
+		t.Fatalf("only %d functions build a source — the scan is broken, not the code", checked)
 	}
 }
