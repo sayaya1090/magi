@@ -20,8 +20,17 @@
 
 코어 바이너리의 서브커맨드(`magi ide-bridge`)로 제공됩니다. 에디터 클라이언트가 이를 자식 프로세스로 실행하고, stdin/stdout 파이프를 통해 줄바꿈 구분 JSON(line-delimited JSON)으로 통신합니다. 데몬과의 소켓 통신은 **브리지가 전담**하며, 에디터는 유닉스 소켓을 직접 제어하지 않습니다.
 
-```
-에디터  ──stdin/stdout, 줄 단위 JSON──▶  magi ide-bridge  ──유닉스 소켓──▶  데몬
+```mermaid
+flowchart LR
+    Editor["에디터 클라이언트<br/><i>(VS Code · JetBrains · Visual Studio)</i>"]
+    Bridge["magi ide-bridge<br/><i>(자식 프로세스, 워크스페이스당 하나)</i>"]
+    Daemon["magi --daemon<br/><i>(상주 컴패니언)</i>"]
+
+    Editor <-->|"stdio 파이프<br/>(줄 단위 JSON Lines)"| Bridge
+    Bridge <-->|"유닉스 도메인 소켓<br/>(AF_UNIX)"| Daemon
+
+    style Bridge fill:#e8f4ff,stroke:#2c7fb8
+    style Daemon fill:#fff9f0,stroke:#e8820c
 ```
 
 **소켓 대신 stdio를 사용하는 이유.** 별도의 IPC 소켓을 추가할 경우 해당 소켓의 파일 경로 유도 로직이 추가로 필요해지며, 경로 유도 로직이야말로 본 브리지를 통해 제거하려는 8가지 중복 과제 중 첫 번째 항목입니다. stdio 파이프는 별도의 감시(supervisor) 프로세스 없이도 브리지 프로세스의 수명 주기를 부모 에디터 프로세스에 자연스럽게 결속시킵니다.
@@ -120,6 +129,39 @@ $ magi ide-bridge --features
 → {"id":3,"method":"watch"}
 ← {"id":3,"ok":true,"sub":1}
 ← {"sub":1,"rows":[{"seq":8,"who":"agent","text":"시험을 봅니다…"}]}
+```
+
+위 3가지 대표 호출의 상호작용 흐름은 다음과 같습니다:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Editor as 에디터
+    participant Bridge as magi ide-bridge
+    participant Daemon as 컴패니언 데몬
+
+    rect rgb(240, 248, 255)
+    Note over Editor,Bridge: 1. 단일 질의 RPC (about, activity)
+    Editor->>Bridge: {"id":1, "method":"about"}
+    Bridge-->>Editor: {"id":1, "ok":true, "version":"...", "caps":[...]}
+    end
+
+    rect rgb(255, 248, 240)
+    Note over Editor,Daemon: 2. 무변환 프록시 (daemon pass-through)
+    Editor->>Bridge: {"id":2, "method":"daemon", "req":{"method":"submit", ...}}
+    Bridge->>Daemon: {"method":"submit", ...}
+    Daemon-->>Bridge: {"ok":true, "session":"s_01..."}
+    Bridge-->>Editor: {"id":2, "ok":true, "resp":{...}}
+    end
+
+    rect rgb(240, 255, 240)
+    Note over Editor,Daemon: 3. 비동기 스트림 구독 (watch)
+    Editor->>Bridge: {"id":3, "method":"watch"}
+    Bridge->>Daemon: transcript / event 스트림 연결
+    Bridge-->>Editor: {"id":3, "ok":true, "sub":1}
+    Daemon-->>Bridge: 이벤트 발생 (JSONL 로그 스트림)
+    Bridge-->>Editor: {"sub":1, "rows":[{"seq":8, "who":"agent", ...}]}
+    end
 ```
 
 ## 6. 이것이 바꾸지 않는 것
