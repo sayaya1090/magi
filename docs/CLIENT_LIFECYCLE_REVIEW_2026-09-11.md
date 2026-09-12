@@ -4,11 +4,9 @@
 
 Updated 2026-09-12, reviewed through `6abe8fbc`. Scope: lifecycle, updates and transcript delivery after `2f71c779`. Resolved findings are condensed below; their implementation history remains in Git. Closure means the reviewed code addresses the finding. Platform acceptance is recorded separately.
 
-## Open finding
+## Open
 
-**P1 — bridge `about` can still wait indefinitely.** In [bridge.go](../internal/adapter/idebridge/bridge.go), `about` uses `b.dial()` and then `Hello()`. The cached connection is created with `daemon.Dial`, without a connect or exchange timeout. A peer that accepts but never answers prevents the bridge from processing later requests. `6abe8fbc` fixes this for `rows` only.
-
-Use a separate bounded connection for `about`, or support per-request deadlines. Do not impose a short timeout on the cached connection shared with `forward`: a forwarded model request may legitimately take minutes. Acceptance: a silent handshake produces a bounded failure and the next bridge request completes; a long-running forwarded request retains its intended timeout policy.
+None. The unbounded `about` this review left open was filed as `#192` and has moved into the table below.
 
 ## Resolved findings
 
@@ -21,6 +19,7 @@ Use a separate bounded connection for `about`, or support per-request deadlines.
 | Successor failure | Failure to start now enters rollback recovery, retries the previous build once while its owner remains, and returns failure when recovery cannot proceed (`37e21536`, #190). This applies to Unix and Windows. |
 | Windows rollback | Process liveness uses the process handle's signalled state. Restoring `.prev` uses `Apply` to move a running image aside (`8d84ad27`). Windows live tests cover rollback, owned pipes and detached processes (`8d84ad27`, `5953ce99`, `035112df`). |
 | Transcript completion | The bridge exposes shared `rows`, and the daemon names the end of replay (`dd06f762`). An up-to-date cursor receives the marker; a head-read error is reported; History bounds silence to 15s and checks deadline-setting errors (`a09cb01e`, `d91508ec`). `rows` bounds connection to 2s and handshake to 5s (`6abe8fbc`). |
+| The bridge's two patiences | `about` and `activity` ask over their own bounded connection (2s to connect, 5s for one exchange); the cached connection stays patient and is `forward`'s alone (`#192`). One test holds all three acceptance facts together — a silent handshake fails inside the bound, **the request behind it is answered**, and a forward slower than that bound still succeeds. ⚠ Without the third, nothing says the obvious fix is wrong: one short deadline on the cached connection cuts off a turn that is merely thinking. |
 | Client display and web lifetime | JetBrains row vocabulary matches the core (`ee9176ff`). Replay completion reaches JetBrains and VS Code (`036800cb`, `1be5496b`). Web lifetime tests query process liveness instead of relying only on records (`2ed05cc2`). |
 
 ## Verification and limits

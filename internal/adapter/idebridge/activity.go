@@ -101,7 +101,10 @@ func (b *bridge) reach() (*daemon.Client, activity) {
 	if _, err := os.Stat(b.socket); err != nil {
 		return nil, activity{State: NotRunning, Why: "no socket at " + b.socket}
 	}
-	c, err := b.dial()
+	// Bounded, and its own connection — see bridge.ask. This door's whole contract is that a
+	// companion which cannot be asked comes back as a WORD rather than as an exception ("Unknown is
+	// an answer, not a shrug"), and on the patient shared connection it came back as neither: it hung.
+	c, err := b.ask()
 	if err != nil {
 		return nil, activity{State: NotRunning, Why: err.Error() + hint(b.socket)}
 	}
@@ -114,11 +117,12 @@ func (b *bridge) activity(req request) {
 		b.answerActivity(req.ID, bad)
 		return
 	}
+	defer c.Close()
 	st, err := c.Status(req.Session)
 	if err != nil {
-		// The connection is the suspect: a reply that never came leaves the stream out of step, and
-		// reusing it would hand the next caller this call's answer.
-		b.hangUp()
+		// Nothing to hang up on any more — this connection is this call's and closes with it, which is
+		// the same conclusion the old comment reached the long way round (a reply that never came
+		// leaves the stream out of step, so it must not be reused).
 		b.answerActivity(req.ID, activity{State: Unknown, Why: err.Error()})
 		return
 	}

@@ -205,3 +205,82 @@ func TestTheRowsDoorDoesNotWaitForEverOnASilentCompanion(t *testing.T) {
 		t.Error("거절이 사유를 안 나른다")
 	}
 }
+
+// **The acceptance for issue #192, as the review wrote it: three facts, and the third is the reason
+// the fix could not be one number.**
+//
+//  1. a silent handshake fails inside the bound,
+//  2. the request AFTER it is answered — which is the whole cost of an unbounded one, since this
+//     bridge answers in order,
+//  3. a forwarded request that legitimately takes longer than that bound still succeeds.
+//
+// ⚠ Without (3) the obvious fix is wrong and nothing says so: one short deadline on the cached
+// connection bounds `about` and cuts off a `submit` that is merely thinking. This repository has
+// already paid for a bound set too low — the council's own patience note says a slow local model's
+// correct answer came back disguised as a timeout.
+func TestTheBridgeKeepsTwoPatiences(t *testing.T) {
+	wasConnect, wasAsk := rowsConnect, rowsAsk
+	rowsConnect, rowsAsk = 500*time.Millisecond, 500*time.Millisecond
+	t.Cleanup(func() { rowsConnect, rowsAsk = wasConnect, wasAsk })
+
+	quiet := make(chan struct{})
+	t.Cleanup(func() { close(quiet) })
+	d := listen(t, func(raw string) string {
+		switch {
+		case strings.Contains(raw, `"method":"about"`):
+			<-quiet // accepted, and never a word back
+			return ""
+		case strings.Contains(raw, `"method":"status"`):
+			// Silent here too, and that is deliberate: `activity` exists to turn "we could not ask"
+			// into a WORD rather than an exception, and on the patient connection it turned it into a
+			// hang instead. A fake that answers this promptly cannot tell the two apart — the mutation
+			// putting this door back on the shared connection survived until it did not.
+			<-quiet
+			return ""
+		default:
+			// A forwarded request that is merely slow: longer than the bridge's own patience, and it
+			// must still be answered.
+			time.Sleep(2 * time.Second)
+			return `{"ok":true,"out":"the model finally answered"}`
+		}
+	})
+
+	done := make(chan []map[string]any, 1)
+	go func() {
+		done <- run(t, d.path,
+			`{"id":1,"method":"about"}`,
+			`{"id":2,"method":"activity"}`,
+			`{"id":3,"method":"daemon","req":{"method":"submit","text":"think hard"}}`)
+	}()
+	var got []map[string]any
+	select {
+	case got = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("말없이 받아만 놓은 데몬에 걸렸다 — 브리지가 요청을 차례로 처리하므로 뒤의 둘도 함께 멈춘다")
+	}
+	if len(got) != 3 {
+		t.Fatalf("답이 %d 개다 — 셋이어야 한다: %v", len(got), got)
+	}
+
+	// (1) The handshake said what it could not do, inside the bound.
+	if why, _ := got[0]["why"].(string); why == "" {
+		t.Errorf("침묵하는 핸드셰이크가 사유 없이 지나갔다: %v", got[0])
+	}
+	if got[0]["daemon"] != nil {
+		t.Errorf("한 마디도 안 한 데몬에 대해 무언가를 알아냈다고 답한다: %v", got[0])
+	}
+	// (2) And the one behind it was answered at all — the fact an unbounded wait destroys. This door's
+	// contract is a word plus the reason, so both are checked: "unknown" alone would leave the person
+	// with nothing to act on, which is what its own source says it is for.
+	if got[1]["state"] != Unknown {
+		t.Errorf("뒤의 요청이 답을 못 받았거나 상태를 안 댄다(%v 여야 한다): %v", Unknown, got[1])
+	}
+	if why, _ := got[1]["why"].(string); why == "" {
+		t.Errorf("「물을 수 없었다」를 낱말만 주고 사유 없이 답한다: %v", got[1])
+	}
+	// (3) The slow forward kept its own patience.
+	resp, _ := json.Marshal(got[2]["resp"])
+	if got[2]["ok"] != true || !strings.Contains(string(resp), "finally answered") {
+		t.Errorf("이 브리지의 인내심이 전달된 요청에까지 걸렸다 — 생각 중인 턴이 시한 초과로 둔갑한다: %v", got[2])
+	}
+}

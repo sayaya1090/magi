@@ -8,9 +8,13 @@ import (
 	"github.com/sayaya1090/magi/internal/adapter/daemon"
 )
 
-// How long the two steps before the read may take. Separate from History's silence bound, which
-// cannot apply until the stream exists: these cover connecting and the handshake.
-const (
+// How long the bridge's OWN questions may take: connecting, and one exchange. Separate from
+// History's silence bound, which cannot apply until the stream exists.
+//
+// Vars rather than consts purely so the test that proves the two patiences are separate can shrink
+// them. Not knobs: nothing outside the tests assigns them, and a test that waited the real seconds
+// would be a test nobody runs.
+var (
 	rowsConnect = 2 * time.Second
 	rowsAsk     = 5 * time.Second
 )

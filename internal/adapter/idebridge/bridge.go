@@ -238,15 +238,15 @@ func (b *bridge) about(req request) {
 		"socket":    b.socket,
 		"daemon":    nil,
 	}
-	c, err := b.dial()
+	c, err := b.ask()
 	if err != nil {
 		resp["why"] = err.Error()
 		b.reply(resp)
 		return
 	}
+	defer c.Close()
 	peer, err := c.Hello()
 	if err != nil {
-		b.hangUp()
 		resp["why"] = err.Error()
 		b.reply(resp)
 		return
@@ -289,6 +289,23 @@ func (b *bridge) forward(req request) {
 	b.reply(map[string]any{"id": req.ID, "ok": true, "resp": json.RawMessage(raw)})
 }
 
+// ask dials a connection for ONE of this bridge's own questions, bounded and not cached.
+//
+// ⚠ **Two doors on one connection needed two different patiences** (issue #192). `forward` carries
+// whatever the editor sends, including a `submit` that legitimately runs for minutes, so its
+// connection must be patient — and it is the same cached connection `about` and `activity` were
+// using, where patience is the wrong answer: a companion that accepts and never replies held the
+// handshake for ever, and the bridge answers requests in order, so every later request waited behind
+// it. This repository has already paid for a bound set too low (the council's patience note: a slow
+// local model's correct answer disguised as a timeout), so the fix is not one number for both.
+//
+// Not cached, and a connect per call is what that costs: a unix connect is microseconds, and these
+// two doors are the ones that must answer while something is wrong.
+func (b *bridge) ask() (*daemon.Client, error) {
+	return daemon.DialWithin(b.socket, rowsConnect, rowsAsk)
+}
+
+// dial is the PATIENT connection, cached, for forwarding whatever the editor asked.
 func (b *bridge) dial() (*daemon.Client, error) {
 	if b.conn != nil {
 		return b.conn, nil
