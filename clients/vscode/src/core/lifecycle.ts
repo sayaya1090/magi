@@ -284,7 +284,7 @@ export class OwnedCompanion {
     // daemon it starts belongs to nobody: no `deactivate` will run again, and the owner pipe's
     // write end is held by an extension host that has finished with this companion.
     //
-    // Measured 2026-09-11 (docs/CLIENT_LIFECYCLE.md R1): start → probe waits → `close()`
+    // Measured 2026-09-11 (fixed in commit 179169f8; docs/CLIENT_LIFECYCLE.md §4): start → probe waits → `close()`
     // resolves → probe answers, and a child appeared with nothing left to stop it.
     //
     // Checked twice on purpose. Here, so the ordinary case costs nothing; and again after the
@@ -299,20 +299,20 @@ export class OwnedCompanion {
     //
     // ⚠ **`'pipe'` does not keep that promise, and on Windows it turned an update into a kill** —
     // `child_process` owns what it makes and destroys `child.stdin` when the child exits, so the
-    // successor of a restart read EOF and stopped itself (R2; see `ownerChannel`). The same closed
+    // successor of a restart read EOF and stopped itself (commit 07358567; see `ownerChannel`). The same closed
     // check as above: this await is a second chance for `close()` to finish first.
     const channel = owned ? await this.pipe(path.basename(this.socket)) : undefined;
     if (this.closed) { channel?.close(); return; }
     this.channel?.close();
     this.channel = channel;
-    // A channel that could not be taken leaves this companion on the lifetime R2 is about, and
+    // A channel that could not be taken leaves this companion on the unheld fallback lifetime (commit 07358567), and
     // §4 forbids arriving there in silence. Recorded here — where whether it was held is actually
     // known — and read once by whoever draws it.
     this.unheldWhy = channel && !channel.held ? channel.why : "";
     // ⚠ **The log fd is opened AFTER the last await, and that placement is the fix.** It used to be
     // opened at the top of this function, before the feature probe — and the two `closed` checks
-    // added for R1 both return between there and the `finally` that closes it, so every launch that
-    // lost the close race leaked one file handle (docs/CLIENT_LIFECYCLE.md, R7). An
+    // (commit 179169f8) both return between there and the `finally` that closes it, so every launch that
+    // lost the close race leaked one file handle (fixed in commit 59230ae6). An
     // extension host is long-lived and a window can race a launch as often as a user reloads it.
     // Nothing between here and the spawn awaits, so no return can slip in front of the finally.
     const log = this.socket + '.log';
