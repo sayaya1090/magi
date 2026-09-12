@@ -73,10 +73,15 @@ func (e *NotReady) Error() string {
 // which an update has already overwritten — carrying the same arguments and environment. It does not
 // return on success (on Unix the image is replaced; on Windows a successor is spawned, this process
 // waits until ready says it is serving, and then exits). It returns an error when the relaunch could
-// not be started — the caller is still running and should carry on: an update that cannot restart
-// is a reason to log and keep serving the old build, not to die — and, on Windows only, a
-// *SuccessorDied or *NotReady when the successor did not come up. A nil ready means "do not wait",
-// which is the old behaviour and the only one Unix has.
+// not be started, and — on Windows only — a *SuccessorDied or *NotReady when the successor did not
+// come up. A nil ready means "do not wait", which is the old behaviour and the only one Unix has.
+//
+// ⚠ **A caller that gets an error back is not still serving anything** (issue #190). This used to
+// say it was — "log and keep serving the old build, not to die" — and that described a design where
+// Reexec was called from inside the serving loop. cmd/magi calls it from main(), AFTER run() has
+// returned and its deferred unpublish and socket release have run, precisely so nothing is left to
+// hand over. So a relaunch that fails leaves NO daemon, on either platform, and the caller's job is
+// to recover and report rather than to carry on.
 func Reexec(ready Ready) error {
 	exe, err := os.Executable()
 	if err != nil {

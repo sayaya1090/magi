@@ -9,14 +9,18 @@ import (
 	"github.com/sayaya1090/magi/internal/update"
 )
 
-// 이전 세대가 후계의 결과를 받아 무엇을 하는가 — CLIENT_LIFECYCLE §4 「후계 준비 확인」과 §9.3.6 을
-// 한 줄씩 옮긴 표다. 데몬 없이 재는 것은 판단이고, 판단이 부르는 셋(재기동·저널·파이프)은 각자의
+// 이전 세대가 후계의 결과를 받아 무엇을 하는가 — CLIENT_LIFECYCLE §4 「후계 준비 확인」을
+// 한 줄씩 옮긴 표다(§9.3 6번 포함). 데몬 없이 재는 것은 판단이고, 판단이 부르는 셋(재기동·저널·파이프)은 각자의
 // 패키지에서 실물로 잰다(graceful 은 시험 바이너리를 후계로 띄워, update 는 파일로).
 
 type seen struct {
 	relaunched int
-	failedFor  int
-	said       strings.Builder
+	// failedCalls counts the trips to the journal and failedFor is the pid the last one named. Both,
+	// because "never had a successor" passes pid 0 — and a count is the only thing that tells that
+	// from "the journal was never told at all".
+	failedCalls int
+	failedFor   int
+	said        strings.Builder
 }
 
 type world struct {
@@ -34,6 +38,7 @@ func (w world) run(t *testing.T, first error) (int, *seen) {
 		relaunch:    func() error { s.relaunched++; return w.second },
 		someoneElse: func() (int, bool) { return w.other, w.other != 0 },
 		failed: func(pid int) (update.Recovery, error) {
+			s.failedCalls++
 			s.failedFor = pid
 			return w.journal, w.jerr
 		},
@@ -51,8 +56,8 @@ func died(code int) error { return &graceful.SuccessorDied{PID: 4242, Code: code
 // build comes up again, and nothing about it is silent.
 func TestAFallenSuccessorPutsThePreviousBuildBackAndRelaunchesIt(t *testing.T) {
 	code, s := world{journal: rolledBack}.run(t, died(2))
-	if s.failedFor != 4242 {
-		t.Fatalf("the journal was not told which successor died: %d", s.failedFor)
+	if s.failedCalls != 1 || s.failedFor != 4242 {
+		t.Fatalf("the journal was told %d times, last about pid %d", s.failedCalls, s.failedFor)
 	}
 	if s.relaunched != 1 {
 		t.Fatalf("the previous build was relaunched %d times, want exactly once", s.relaunched)
@@ -71,7 +76,7 @@ func TestAFallenSuccessorPutsThePreviousBuildBackAndRelaunchesIt(t *testing.T) {
 // already closed, restore the file and do not revive the process."
 func TestAClosedWindowGetsItsFileBackButNoProcess(t *testing.T) {
 	code, s := world{journal: rolledBack, gone: true}.run(t, died(2))
-	if s.failedFor == 0 {
+	if s.failedCalls != 1 {
 		t.Fatal("the file was not restored")
 	}
 	if s.relaunched != 0 {
@@ -86,8 +91,8 @@ func TestAClosedWindowGetsItsFileBackButNoProcess(t *testing.T) {
 // arrived — ends before it serves too. That is not the candidate failing.
 func TestAStopOnPurposeIsNotAFailedUpdate(t *testing.T) {
 	code, s := world{journal: rolledBack}.run(t, died(0))
-	if s.failedFor != 0 || s.relaunched != 0 {
-		t.Fatalf("a deliberate stop rolled the update back (journal=%d relaunch=%d)", s.failedFor, s.relaunched)
+	if s.failedCalls != 0 || s.relaunched != 0 {
+		t.Fatalf("a deliberate stop rolled the update back (journal=%d relaunch=%d)", s.failedCalls, s.relaunched)
 	}
 	if code != 0 {
 		t.Errorf("a deliberate stop ended with %d", code)
@@ -98,7 +103,7 @@ func TestAStopOnPurposeIsNotAFailedUpdate(t *testing.T) {
 // punish the build for a timing accident.
 func TestLosingTheWorkspaceToAnotherDaemonIsNotAFailedUpdate(t *testing.T) {
 	code, s := world{journal: rolledBack, other: 7}.run(t, died(1))
-	if s.failedFor != 0 || s.relaunched != 0 {
+	if s.failedCalls != 0 || s.relaunched != 0 {
 		t.Fatal("rolled back an update because another daemon took the workspace")
 	}
 	if code != 0 || !strings.Contains(s.said.String(), "pid 7") {
@@ -132,7 +137,7 @@ func TestThePreviousBuildFailingTooStopsAndSaysHow(t *testing.T) {
 // Slow is not dead: left to come up, and the process leaves cleanly (graceful.NotReady).
 func TestASlowSuccessorIsLeftToComeUp(t *testing.T) {
 	code, s := world{journal: rolledBack}.run(t, &graceful.NotReady{PID: 4242})
-	if s.failedFor != 0 || s.relaunched != 0 {
+	if s.failedCalls != 0 || s.relaunched != 0 {
 		t.Fatal("a successor that was only slow was treated as a failure")
 	}
 	if code != 0 {
@@ -161,17 +166,41 @@ func TestOnlyNeitherSideNamingAGenerationFallsBackToThePid(t *testing.T) {
 	}
 }
 
-// A relaunch that never started keeps the old rule: say so and end with run()'s own code.
-func TestARelaunchThatNeverStartedKeepsRunsCode(t *testing.T) {
-	s := &seen{}
-	code := afterRelaunch{
-		relaunch:    func() error { s.relaunched++; return nil },
-		someoneElse: func() (int, bool) { return 0, false },
-		failed:      func(int) (update.Recovery, error) { s.failedFor = 1; return update.Recovery{}, nil },
-		ownerGone:   func() bool { return false },
-		say:         &s.said,
-	}.run(errors.New("exec: file not found"), 5)
-	if code != 5 || s.failedFor != 0 || s.relaunched != 0 {
-		t.Fatalf("code %d, journal %d, relaunch %d", code, s.failedFor, s.relaunched)
-	}
+// 이슈 #190. 후계를 **아예 못 띄운** 갱신은 실패다.
+//
+// 옛 계약은 `run()` 의 코드를 그대로 돌려줬고 그것은 보통 0 이었다 — 「이번엔 갱신이 안 먹었을
+// 뿐」이라는 주석과 함께. 그 문장이 참이려면 이 프로세스 뒤에 데몬이 남아 있어야 하는데, 재기동은
+// `run()` 이 **반환한 뒤** main() 에서 일어난다: 공개 기록도 소켓도 이미 놓았다. 어느 플랫폼에서도
+// 컴패니언은 없고, 종료 코드만 괜찮다고 말한다.
+func TestARelaunchThatNeverStartedIsAFailure(t *testing.T) {
+	t.Run("되돌릴 판이 있으면 그것으로 살린다", func(t *testing.T) {
+		code, s := world{journal: rolledBack}.run(t, errors.New("fork/exec: access is denied"))
+		if s.failedCalls != 1 || s.failedFor != 0 {
+			t.Errorf("저널을 %d 번 불렀고 pid %d 를 댔다 — 한 번, 0 이어야 한다", s.failedCalls, s.failedFor)
+		}
+		if s.relaunched != 1 {
+			t.Fatalf("이전 판으로 %d 번 띄웠다 — 한 번이어야 한다", s.relaunched)
+		}
+		if code != 0 {
+			t.Errorf("컴패니언이 돌아왔는데 %d 로 끝났다", code)
+		}
+		if !strings.Contains(s.said.String(), "could not be started") {
+			t.Errorf("못 띄웠다는 말이 없다:\n%s", s.said.String())
+		}
+	})
+	t.Run("되돌릴 판이 없으면 실패 코드로 끝난다", func(t *testing.T) {
+		code, s := world{journal: update.Recovery{}}.run(t, errors.New("fork/exec: access is denied"))
+		if code == 0 {
+			t.Error("컴패니언이 사라졌는데 성공으로 끝났다 — 설치기·감시기가 정상 종료로 읽는다")
+		}
+		if s.relaunched != 0 {
+			t.Error("디스크에 새것이 없는데 다시 띄웠다 — 그것이 U05 가 막는 루프다")
+		}
+	})
+	t.Run("그 틈에 남이 워크스페이스를 가져갔으면 실패가 아니다", func(t *testing.T) {
+		code, s := world{journal: rolledBack, other: 11}.run(t, errors.New("fork/exec: access is denied"))
+		if code != 0 || s.failedCalls != 0 || s.relaunched != 0 {
+			t.Fatalf("code %d, journal %d, relaunch %d", code, s.failedCalls, s.relaunched)
+		}
+	})
 }

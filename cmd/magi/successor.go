@@ -105,9 +105,21 @@ func (a afterRelaunch) run(err error, code int) int {
 		fmt.Fprintln(a.say, "magi: restart:", slow)
 		return 0
 	case !errors.As(err, &died):
-		// It never started. The update simply did not take effect this time.
-		fmt.Fprintln(a.say, "magi: restart:", err)
-		return code
+		// It never started at all — the binary could not be executed: quarantined by a scanner,
+		// access refused, a rename that did not take.
+		//
+		// ⚠ **This used to return run()'s own code, which is 0** (issue #190). The comment beside it
+		// said "the update simply did not take effect this time", and that sentence described a
+		// design this one no longer is: the relaunch happens in main(), AFTER run() has returned and
+		// its deferred unpublish and socket release have run. There is no daemon behind this process
+		// on any platform — the issue reads unix as "still serving", and it is not. So a companion
+		// that could not be relaunched is gone, silently, while the exit code tells an installer or a
+		// service wrapper that all is well.
+		//
+		// It is the same failure as one that started and fell over, minus the corpse, so it takes the
+		// same path: tell the journal, put the previous build back, and try that once.
+		fmt.Fprintln(a.say, "magi: restart: the successor could not be started:", err)
+		return a.recover(0)
 	}
 	fmt.Fprintln(a.say, "magi: restart:", died)
 	// Stopped on purpose — its owner closed the pipe, somebody asked it to shut down. Ending before
@@ -115,6 +127,16 @@ func (a afterRelaunch) run(err error, code int) int {
 	if died.Code == 0 {
 		return 0
 	}
+	return a.recover(died.PID)
+}
+
+// recover is what to do once the relaunch is known to have failed: work out whether the candidate is
+// to blame, put the previous build back if it is, and get a companion running again if anything can.
+//
+// successor is the pid that failed, or 0 when there never was one — the journal reads it only to tell
+// "the generation watching this candidate is the one that just died" from "somebody else's daemon is
+// running it fine".
+func (a afterRelaunch) recover(successor int) int {
 	// Somebody else took the workspace in the gap between this generation letting go and the
 	// successor binding. The successor lost that race; the candidate did not fail. Rolling it back
 	// would be undoing an update because of a timing accident.
@@ -123,7 +145,7 @@ func (a afterRelaunch) run(err error, code int) int {
 			"not reading that as the new build failing\n", pid)
 		return 0
 	}
-	rec, ferr := a.failed(died.PID)
+	rec, ferr := a.failed(successor)
 	switch {
 	case ferr != nil:
 		fmt.Fprintln(a.say, "magi: restart: the update journal could not be settled:", ferr)
@@ -139,15 +161,16 @@ func (a afterRelaunch) run(err error, code int) int {
 	fmt.Fprintf(a.say, "magi: restart: %s did not come up — %s is back on disk, and %s will not be "+
 		"taken again on its own (`magi -update` retries it)\n", rec.To, rec.From, rec.To)
 	// CLIENT_LIFECYCLE §9.3, step 6: relaunch the previous build only while its owner is still there.
-	// A window that has closed gets its file back and no process — a companion coming back for a window that is gone
-	// is exactly the survivor the owner's pipe exists to prevent.
+	// A window that has closed gets its file back and no process — a companion coming back for a
+	// window that is gone is exactly the survivor the owner's pipe exists to prevent.
 	if a.ownerGone() {
 		fmt.Fprintln(a.say, "magi: restart: its window has closed, so the previous build is not relaunched")
 		return 1
 	}
 	// Once. The build going back up is the one that was serving a moment ago, and if it will not come
 	// up either there is nothing left on disk to try.
-	err = a.relaunch()
+	err := a.relaunch()
+	var slow *graceful.NotReady
 	switch {
 	case err == nil:
 		return 0
