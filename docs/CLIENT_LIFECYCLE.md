@@ -2,7 +2,7 @@
 
 [English](CLIENT_LIFECYCLE.md) · [한국어](CLIENT_LIFECYCLE.ko.md) · [↑ Docs](README.md) · [Review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md)
 
-Status: **target design for implementation handoff, 2026-09-11.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
+Status: **implementation contracts and acceptance criteria, 2026-09-12.** This develops the first recommendation in the [project review](PROJECT_REVIEW_2026-09-11.md). Requirements and acceptance criteria describe work to implement, not completed behavior. Section 2 identifies current implementation evidence. [`docs/DESIGN.md`](DESIGN.md) records the initial design; this document governs the lifecycle stabilization work.
 
 ## 1. Scope and completion
 
@@ -12,35 +12,25 @@ This scope excludes a new Visual Studio transcript, Office feature expansion, br
 
 A companion is the daemon executing work for a workspace. Its owner is the client instance that launched it to manage its lifetime. A window discovering an existing daemon is an observer. Knowing a socket path or PID does not confer ownership. Browser tabs are observers.
 
-## 2. Implementation evidence and gaps
+## 2. Current implementation and remaining work
 
-| Area | Current evidence | Required change |
+Reviewed through `01d3c060`, 2026-09-12. The [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) records fixing commits and verification history. This document retains the implementation contracts and acceptance criteria.
+
+| Area | Current implementation | Remaining verification |
 |---|---|---|
-| VS Code launch | [OwnedCompanion](../clients/vscode/src/core/lifecycle.ts): foreground process, 30-second readiness wait, single-flight launch per window, shutdown through a process handle | Preserve ownership across replacement processes; define a stable period for retry-budget reset |
-| VS Code binary | [binary.ts](../clients/vscode/src/core/binary.ts): process PATH and existing cache lookup | Automatic download is absent. Provide installation guidance and actual executable/version diagnostics; verify GUI launch environments |
-| Windows transport | [daemon.ts](../clients/vscode/src/core/daemon.ts), [relay.go](../internal/adapter/idebridge/relay.go): `ide-bridge --raw-socket` | Check relay support before connecting; verify an installed Windows client |
-| JetBrains launch | [StartDaemon](../clients/jetbrains/plugin/intellij/src/main/kotlin/dev/sayaya/magi/ide/ui/StartDaemon.kt), [Restarts](../clients/jetbrains/plugin/core/src/main/kotlin/dev/sayaya/magi/ide/usecase/Restarts.kt) | Converge on the policy below; reconcile the README's restart descriptions with the actual service during acceptance |
-| Process replacement | [Windows reexec](../internal/graceful/graceful_windows.go): starts a successor, confirms it is ready, then exits | Remove dependence on retaining only the original process handle |
-| Web and transcript | [client contract](CLIENTS.md), [VS Code Chat](../clients/vscode/src/ide/chat.ts) | Separate connection recovery from resubmitting work; unify acceptance for facts, previews and session changes |
-| Verification | [VS Code daemon test](../clients/vscode/src/test/lifecycle.test.ts), [webview test](../clients/vscode/tools/transcript-test.mjs) | Extend to package installation, actual IDE shutdown, forced termination and update replacement |
+| IDE launch and ownership | Feature discovery, ownership pipes, EOF shutdown, generation matching and retry policy are connected. JetBrains reopening, manual retry and launch-exception transitions are corrected. | Installed products, GUI path resolution, IDE shutdown, disable and forced termination |
+| Core updates | The automatic loop and both meeting entry points use the hold. Installation locks, journals, readiness-based stability checks, Windows rollback and successor-start failure recovery are implemented. | U01–U08 for actual product and installation combinations |
+| Transcript and web | Preview replacement, draft preservation, reconnection and replay-completion signals are implemented. Bridge `rows` limits connection to 2s, handshake to 5s and replay silence to 15s. | L10–L12, including rendering and server restart |
+| Bridge diagnostics | `about` and `activity` use separate connections with 2s connect and 5s exchange limits. `forward` retains its cached connection for long requests. | Regress silent peers followed by another request, and successful long-running forwarding. |
+| Binary and release | VS Code searches PATH and its cache. Automatic first-install download is separate work. | Installation guidance, executable/version diagnostics, ZIP/VSIX installation and downgrade |
 
-Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not become “daemon absent.” When a shorter path is necessary, explain where to configure it and show the effective path. A client must not silently choose a different path from an existing daemon.
+Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not become “daemon absent.” Explain how to configure a shorter path and show the effective path; clients must not silently choose a different address from an existing daemon.
 
-## 2.5 Current status and remaining work (2026-09-12)
+### 2.5 Decisions and verification status
 
-| Area | Current state and evidence |
-|---|---|
-| Core contract | Feature discovery, instance identity, owned mode and EOF shutdown implemented: `da67e068`, `55ead8ac`, `6f6ce97f` |
-| IDE launch and recovery | Shared policy and backoff connected. R1 close race and R3/R4 JetBrains integration corrected: `179169f8`, `07c0f509` |
-| Windows owner channel | VS Code supplies its own pipe as child stdin: `07358567`. Channel lifetime is independent of Node child-exit handling. Those three — successor survival, close, and a force-killed owner — are now measured by Windows live tests in this repository (`cmd/magi/owned_live_windows_test.go`), where the line used to be the implementer's report. The channel-creation failure path has landed too (R8, `ca79c0f9`) — see §4. |
-| Transcript and web | Preview replacement, draft persistence, SSE backoff and disconnection indication implemented: `bbeb8834`, `43f45f1c`, `14f8dd93`, `e0fa16ab`, `44857463` |
-| Core update confirmation | A replacement now begins unconfirmed (`838d6c3c`, `ba68fe32`, `b568d3e3`). §9.3 step 3's **atomic safe point** is in as well — an `idle` update closes admission of new work in the step that finds nothing running, so a turn arriving in between is not thrown away: `.prev` and `<binary>.update.json` are kept, a daemon that lasts 60s on the new build confirms it, and a SECOND start on the same candidate is read as the first generation not lasting — the previous build goes back and that version is refused. A deliberate stop is not counted as falling over, and a refusal is cleared by an explicit user retry. One replacement per install unit is enforced by an OS lock on `<binary>.update.lock` (a process that cannot take it neither queues nor steals — it carries on with its own work), and a replacement cut off before it was recorded is put back from `.prev` on the next start. ⚠ **That rollback was blocked twice over on Windows** (measured and fixed 2026-09-12): restoring wrote over the running image and failed with "Access is denied", and a liveness check that answered "cannot tell" for an ended process meant the stable-window rollback never fired at all. Both are fixed, and the unix-only live test now has a Windows counterpart (`cmd/magi/update_rollback_live_windows_test.go`). ⚠ That closing of admission was asking at ONE door: a meeting turn is two halves, speaking and writing the minutes, and the second counted itself BESIDE the lock rather than inside it — so it could still begin after the safe point had passed. The minutes are what survives a meeting, so the utterance would be in the transcript while the round's record left with the restart. Both halves now go through the same lock. |
+Do not create `<socket>.lifecycle`. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve file-replacement recovery only. Advertise features with their implementation.
 
-**Current decisions:** Do not create `<socket>.lifecycle`. The implementer's duplicated-state concern was accepted. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve only file-replacement recovery. Advertise feature names together with their implementation.
-
-**What remains is mostly acceptance rather than code.** Client-side generation/owner-lineage verification and successor readiness (Windows) have landed — see §4. What is left needs the real thing: §8's L01–L13 and §9's U01–U08, running the native `deactivate`, L12's third case (the server restart), and E (deployment) after them.
-
-R8–R11 in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) are all addressed — owner-channel failure reporting (`ca79c0f9`), locking across the whole transaction (`55ec9458`), the misread concurrent start and confirmation before readiness (`b568d3e3`). Nothing in §9 remains as code.
+The code findings identified in this review are resolved; platform acceptance remains. This is not a claim that no other defects exist. The follow-up review records revisions and scope for the reviewer's Go, VS Code and JetBrains test runs. Distinguish implementer-reported Windows live runs from reviewer runs on macOS. Completion requires actual IDE/browser acceptance, native `deactivate`, L12 server restart and E's deployment evidence.
 
 ## 3. State and responsibility
 
@@ -88,56 +78,39 @@ An independent daemon explicitly started through the web is managed with an expl
 3. Launch only when startup is enabled and absence is established. Use single-flight within a window and the existing core workspace lock between windows. A losing launcher attaches to the winner as an observer.
 4. Declare readiness only when the published process generation matches the handshake. Creating a process or a file is insufficient.
 
-### Interfaces to add — each paragraph carries its state
+### Implemented interfaces and ownership
 
-**`magi ide-bridge --features` is built (2026-09-11).** It answers one JSON line without contacting a daemon and writes nothing to disk. Measured output: `{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1,"version":"…"}` (re-measured 2026-09-11). The existing `ide-bridge` protocol and `--raw-socket` behavior are unchanged. An old binary answers by refusing the option — exit code 2, nothing on stdout — and that is the only ground for concluding "unsupported". Do not infer support by searching prose output. The contract and its reasons are in [IDE_BRIDGE §5](IDE_BRIDGE.md#asking-what-this-binary-can-do).
+`magi ide-bridge --features` returns one JSON line without contacting a daemon or writing to disk. Check `raw-socket-v1` and `owned-daemon-v1`; distinguish an old binary rejecting the option (exit code 2, empty stdout). Do not infer support from prose output. [IDE_BRIDGE](IDE_BRIDGE.md) defines the detailed contract.
 
-`owned-daemon-v1` is advertised too now, because **the mode arrived** (`6f6ce97f`). This spot once read "NOT advertised", and the reason was that a name shipped ahead of its thing sends a client to start a mode this binary does not understand, whose failure reads as a broken install. The feature list is **derived from the implementation** rather than written down, so the two cannot drift, and the tests hold both floors — everything advertised is real, and every mode this binary knows is advertised.
+With `owned-daemon-v1`, an IDE launches `magi --daemon --client-owned` and exclusively retains the dedicated child-stdin pipe's write end. Do not pass that end to other children. The core treats EOF as owner termination. Publication and `about` expose an `ownerId` stable across the lineage and an `instanceId` that changes per process. IDs support correlation; the inherited pipe grants lifecycle authority. Preserve the existing user `shutdown` command's authorization.
 
-Each paragraph below carries its state. **Landed** means it runs in this repo; **not yet** means target design.
+Initial readiness requires the launched child PID, workspace and matching generation in publication and `about`. Reject a generation ID present on only one side; use the PID fallback only when both sides lack it. Retain the confirmed owner to identify later replacements. Unobserved exit reasons remain unknown.
 
-**Landed (`6f6ce97f`).** With `owned-daemon-v1`, an IDE starts the `magi --daemon --client-owned` mode. The IDE exclusively retains the write end of a dedicated child-stdin pipe and does not pass it to other children. The core interprets EOF on the read end as owner termination. IDs in process environments or public records are for correlation, not proof of shutdown authority.
+### Successor and failure recovery
 
-**Landed (`55ead8ac`, `6f6ce97f`).** At startup the core generates `ownerId`, stable across its owned lineage, and `instanceId`, changed on every process replacement. Add these as optional fields in local publication and `about`. They distinguish PID reuse and update replacement. Lifecycle authority travels only through the inherited pipe. The existing user `shutdown` command's authorization contract remains unchanged.
+Windows transfers the same pipe read end and owner to its successor. The predecessor stops admission and releases its listener and workspace lock before launching. For up to 30s, verify that publication names the successor PID, workspace and lineage and that the handshake's generation matches.
 
-**Landed.** The core puts both IDs in publication and in `about`, and **both editors read them** — readiness requires the record's instance and `about`'s to agree, and the confirmed owner is kept as the lineage. JetBrains also uses that lineage to judge a replacement (a different lineage standing there is not one). An older core falls back to the PID in both, as before. Initial readiness requires the launched child PID, resolved workspace and matching instanceId in publication and `about`. Retain the confirmed ownerId in that owner's memory. Verify later generations through the same ownership-pipe lineage and ownerId, not PID alone.
+| Outcome | Action |
+|---|---|
+| Ready | The predecessor exits. |
+| Exits before readiness | Exit code 0 and another daemon taking the workspace are not candidate failures. Otherwise call `SuccessorFailed` to attempt rollback and refuse the candidate. |
+| Cannot start | Windows `Start()` and Unix `Exec()` failures use the same recovery path with successor PID 0. The old listener is already closed; do not report success. |
+| Alive but unready after 30s | Report `NotReady` and leave the successor running when the predecessor exits. The journal handles subsequent stability checks. |
 
-**Decided — no file.** Do not create an exit-reason file. Following the review decision in §2.5, use handshake and `about` for current state. Report unobserved exit reasons as unknown and use §5 policy to decide whether to restart.
+After rollback, relaunch the previous build once for an unowned daemon or while its owner remains alive. If the owning IDE has closed, restore only the file. If no rollback is available or the previous build also fails, return an error code and manual recovery instructions. Do not loop. On Windows, inspect owner liveness with `PeekNamedPipe` without consuming the successor's input. A successful Unix image replacement leaves no predecessor to monitor it.
 
-**Landed — including successor readiness.** On Windows, transfer the same pipe read end and ownerId to the successor (`6f6ce97f`, `07358567`) — both cross, and the defect where a successor saw EOF while the window was still alive was closed and measured on real Windows in R2. The predecessor first stops accepting requests and releases its listener/workspace lock, then starts the successor (`graceful_windows.go`). This paragraph used to read "half landed", with the readiness check left: the predecessor left the moment `Start()` returned, so a successor that died on the way up was seen by nobody. Nor by the journal — a start that never reaches `Resume` counts nothing — and a daemon nobody owns has nobody to start it again, so the companion simply vanished.
+### Shutdown and old-core compatibility
 
-**The predecessor now stays until its successor is ready.** Ready is §4's discovery-and-launch step 4 exactly: the record on the workspace's socket was written by **that child pid**, for the same workspace and lineage, and a handshake reaches the instance the record names. A file appearing is not enough on its own, and neither is a socket answering — another magi taking the workspace in the gap answers just as well. Within §5's thirty seconds it is one of three:
+Closing the IDE's write end and forcibly terminating the extension host must produce EOF and stop successors too. The core must cancel work, stop listeners and clean publication within 5s of EOF. Never wait on the IDE UI thread. If force is needed, the IDE may target only the original child for which it holds a handle; the core guarantees successor shutdown.
 
-- **Ready** → it leaves.
-- **Died before ready** → the log gets the pid and exit code. Code 0 (the owner closed the pipe, a shutdown) is not a failure, and neither is another daemon taking the workspace in the gap. Otherwise it tells the journal what it saw (`update.SuccessorFailed` — the gap `Resume` cannot see), which restores the previous build and refuses the candidate (U05), then relaunches the previous build once **only while the owner still holds the pipe** (§9.3, step 6). If the window has closed, only the file is restored. With nothing to go back to (a restart onto the same build, or the candidate running fine in another workspace), or if the previous build will not come up either, it ends with an error code and says how to start it by hand. There is no retry loop.
-- **Not ready after thirty seconds** → it leaves **without killing it** and says so. An antivirus holding a freshly replaced executable is the likeliest cause, and killing a build for being slow would turn a pause into a failed update. The journal's sixty-second window judges it from there.
+If VS Code cannot create its independent ownership channel, clean partial resources and launch with Node's default `'pipe'`. Once per launch, report the failed step, cause and potential disconnection during update/restart. Keep the policy allowing updates in this degraded state. An update-related disconnection is not a consecutive failure; recover by launching a fresh companion. Acceptance must distinguish actual owner termination from the original child's exit.
 
-The predecessor's copy of the pipe cannot become the successor's EOF while it waits — EOF needs every write end closed, and the only write end is the owner's. Whether the owner is still there is judged by **peeking** at the pipe (`PeekNamedPipe`), not reading it: a read would take what was meant for the successor. On Unix the image is replaced in place, so there is no predecessor left to watch and none of this applies.
+| Launch condition | Action |
+|---|---|
+| Required Windows relay unsupported by the core | Block with update instructions. Do not launch through an unusable transport. |
+| Ordinary launch with only owned mode unsupported | Warn and preserve the previous lifetime. Explain that closing the window stops the child but forcibly killing the host may leave the daemon running. |
 
-The generation comparison is the rule the clients settled on (`ee92a23b`): **one side naming a generation and the other not is not an old core but a different process answering**, and only neither naming one falls back to the pid. The core's readiness check still had that hole.
-
-**Measured (Windows 11, 2026-09-12).** Start a daemon, put a candidate that dies on its first line at the install path, and have it restart (`TestASuccessorThatDiesOnItsFirstLineIsSeenAndUndone`). Reverted to the old behaviour the test fails with "the successor's death was not reported"; now the death is reported with its code, the previous build is back on disk, and it is serving again as a new process. The decisions are measured separately as a table; all twelve mutations are caught.
-
-⚠ **The report travels as the log and the exit code.** The VS Code window does not read the predecessor's exit code today — it counts the ending as a replacement when a person asked for one and as a crash otherwise (`c5373a08`). And the rule stands that a client must not adopt a newly discovered PID as its own child.
-
-**Landed (`6f6ce97f`, `07c0f509`, `07358567`).** Closing the IDE's write end must also stop a successor. Forced extension-host termination is handled through the same EOF. In owned mode, the core must cancel work, stop listeners and clean publication within five seconds of EOF. Do not block the IDE UI thread. If shutdown stalls, the IDE may force-stop only the still-live original child for which it holds a handle. The core guarantees successor shutdown. Existing lifetimes in other modes remain unchanged.
-
-**Landed (`ca79c0f9`) — when that pipe cannot be made.** The window falls back to Node's `'pipe'`. Falling back is the right call: the name carries the window's pid and eight random hex digits, so the realistic failure is somebody taking it first, and refusing to start over that would hand them the outage. What was wrong was not SAYING so, and not cleaning up what had already been made (issue #189, review R8). Three fixes. ① `createServer`, `listen`, the dial and the accept all met one `catch { return nodes; }`, returned the same value and left no trace; the step that gave up and what it said now travel in `why`. ② Every step registers its own undo *before* the next one can throw — the success path stops listening the instant it has one connection (that is what makes the pipe undialable) and the failure path was quietly the exception; the accept had no deadline either, so a promise nobody settles could leave a window starting for ever, which has no symptom at all. ③ `OwnerChannel.held` was declared and had **no reader**; it now goes through the shape R5 built, once per start, carrying what is lost (an update or restart will END this companion) and what to do (reopen the window and it draws a fresh name).
-
-⚠ **The update path is NOT blocked on the fallback — that is a judgement.** The review asked for it to be blocked when the successor's lifetime cannot be guaranteed. Blocking would hand an update outage to whoever took the pipe name, and a taken name is precisely the realistic failure. Since `c5373a08` that death is not counted as a consecutive failure and the window starts a fresh companion within fifteen seconds, so what is lost is those seconds — and those seconds are now disclosed in advance instead. If evidence arrives that blocking is better, that is the moment to change it.
-
-**Acceptance — on real Windows, through the product class (`OwnedCompanion`).** Started with the name taken: the companion **comes up**, the reason carries `listen EADDRINUSE` and arrives **once** (the second ask is empty), and `close()` still ends the companion — by the child handle, since the pipe is not held. R2's three acceptance answers were re-run and are unchanged.
-
-**Landed (`73a1a313`, `61ded932`).** Allow connections to old daemons while disabling unsupported features. Block new launches **requiring** Windows relay or owned mode with an update instruction when the core lacks support. Never silently fall back to detached execution. Separate initial installation automation from updating an installed core. Section 9 defines required automatic-update behavior and recovery.
-
-**What "requiring" means, written down (follow-up R5).** That one word is where blocking and warning-then-proceeding part company, and from outside the two look like the same situation. The split is **the shutdown guarantee**.
-
-| | With a core that lacks the owned mode | Outcome | Why |
-|---|---|---|---|
-| A launch that needs the Windows relay | The transport itself cannot stand up | **Blocked** | It cannot connect at all; starting one only leaves a daemon nobody can use (`whyNoRelay`) |
-| An ordinary launch | Exactly the lifetime it had before the owned mode existed | **Warned, then proceeds** | Closing the window stops the child. If the extension host is **killed**, the companion survives — and that difference is said once per launch (`61ded932`) |
-
-So the owned mode is **not a precondition for launching; it is a grade of shutdown guarantee.** The "existing lifetimes in other modes remain unchanged" a line above is that same lifetime, and blocking it would take the companion away from anyone on an older core. The relay is the opposite case: there is no lifetime to preserve in the first place.
+Allow connections to older daemons and disable unsupported features. Never silently switch to detached execution. Separate initial installation automation from installed-core updates, which follow §9.
 
 ## 5. Recovery and shutdown policy
 
@@ -162,6 +135,8 @@ A request timeout invalidates its connection. If a response to `submit`, editing
 Shutdown order is: reject new work, cancel launch/retry, attempt editor-hand detach, close subscriptions/connections, close the ownership pipe, confirm exit. A failed detach must not skip remaining cleanup. Shutdown is idempotent.
 
 ## 6. Transcript and visible outcomes
+
+Replay completion is an event-free `live:true` frame. Empty logs and up-to-date cursors complete immediately; other replays signal after their last event. A failed log-head query reports a reason and ends a one-shot `History` read with an error. Do not infer completion from older cores that lack the marker. Bound connection, handshake and replay reads separately; the 15s replay limit measures silence and resets per frame.
 
 For the same session and process generation, reconnect after the last confirmed seq. If the cursor is rejected, clear the cache and replay in full. An existing full-replay implementation may first prove atomic display replacement without duplication or loss, then move to incremental recovery.
 
@@ -189,11 +164,11 @@ Record OS/product builds, core/extension versions, logs, final PID/socket state 
 
 | ID | Reproduction | Pass condition |
 |---|---|---|
-| L01 | Missing core, old core, malformed feature response | Actionable installation/update instruction; no incorrect spawn or infinite retry |
+| L01 | Missing core, old core, malformed feature response, silent handshake | Actionable installation/update instruction; no incorrect spawn or infinite retry |
 | L02 | Spaces, Korean and long paths; GUI-launched IDE; socket override present/absent | Same workspace identity; path/permission failures identify cause and remedy |
 | L03 | Two IDE windows start the same workspace together | One daemon and one owner; loser attaches as observer |
 | L04 | Two IDEs and web attach to an external daemon, then close independently | External daemon survives; only each client's connections and hand are removed |
-| L05 | Normal owned IDE close, extension disable, forced host termination | Owned daemon and socket/session publication removed within five seconds (exit-reason record retained); other daemons survive |
+| L05 | Normal owned IDE close, extension disable, forced host termination | Owned daemon and socket/session publication removed within five seconds (no exit-reason record); other daemons survive |
 | L06 | Close IDE during Windows self-update; fail the update | No orphan successor or unrelated PID termination; failure outcome observable |
 | L07 | Close just before readiness or after connection; duplicate dispose | No late spawn/connection/subscription; no accumulating handles or timers |
 | L08 | Repeated child crashes, explicit shutdown, permission errors | Budget and grace respected; `Blocked` cause visible; no unwanted resurrection |
@@ -205,11 +180,13 @@ Record OS/product builds, core/extension versions, logs, final PID/socket state 
 
 Record core/policy unit tests, actual-daemon integration tests, actual renderer tests and installed-IDE verification separately. Source-field checks or mocks alone cannot close L03–L13. Run every case for both IDEs and local web on Windows x64, and all applicable cases on macOS/Linux. Any excluded environment must be explicit in acceptance evidence and reduce the declared completion scope.
 
+L01 also covers a peer that accepts but never answers. L10 includes empty logs, up-to-date cursors and log-head errors: distinguish completion from failure, and bound silence.
+
 ## 9. Automatic updates — included in this phase
 
 ### 9.1 Current behavior and target
 
-The core already has an [automatic update loop](../cmd/magi/autoupdate.go), [release/checksum discovery](../internal/update/github.go) and [replacement with executable preflight](../internal/update/rollback.go). The loop checks release builds every six hours by default, replaces the file, then waits for idle before restarting. `Commit` no longer decides on `--version` alone: a replacement that passes the pre-flight is written to `<binary>.update.json` as an **unconfirmed transaction** with the previous copy kept at `.prev`. A daemon that comes up on it and lasts `StableWindow` (60s) confirms it; a SECOND start on the same candidate — the first generation did not last — puts the previous build back and refuses that version, which only an explicit retry (`magi -update`, the console button) clears. An **install-unit lock** now sits above the in-process mutex (§9.3 step 1): only one of the daemons sharing an executable replaces it, and the others carry on with their own work.
+The core already has an [automatic update loop](../cmd/magi/autoupdate.go), [release/checksum discovery](../internal/update/github.go) and [replacement with executable preflight](../internal/update/rollback.go). The loop checks release builds every six hours by default, replaces the file, then waits for idle before restarting. `Commit` no longer decides on `--version` alone: a replacement that passes the pre-flight is written to `<binary>.update.json` as an **unconfirmed transaction** with the previous copy kept at `.prev`. A daemon that comes up on it and lasts `StableWindow` (60s) confirms it; a restart after the candidate’s watcher died abnormally without confirming restores the previous build and refuses that version. A healthy concurrent workspace start is not a failure. Only an explicit retry (`magi -update`, the console button) clears the refusal. An **install-unit lock** now sits above the in-process mutex (§9.3 step 1): only one of the daemons sharing an executable replaces it, and the others carry on with their own work.
 
 The target is to **confirm actual daemon readiness and a stable period before committing an update**. Separate first-install downloads from updating an installed core. Initial installation automation may remain separate; automatic core updates and recovery are part of this acceptance scope.
 
@@ -252,7 +229,7 @@ Package A also owns the core updater, installation lock, journal and rollback. B
 | U02 | Candidate arrives during turn/tool/council/approval wait | Existing work preserved, deferral explained, safe-point race prevented |
 | U03 | Offline, slow/interrupted download, checksum mismatch, wrong architecture | Existing process/files preserved; bounded attempts and stage-specific causes |
 | U04 | Multiple daemons and a manual action update one binary | One replacement, intact known-good backup, inter-process lock verified |
-| U05 | Version preflight succeeds but successor is unready or crashes within 60 seconds | Previous version restored; no failed-candidate retry loop |
+| U05 | Successor cannot start, fails readiness after successful preflight, or crashes within 60 seconds | Previous version restored; no failed-candidate retry loop |
 | U06 | Windows predecessor exit, IDE close or forced host exit during update | Predecessor exit preserves successor; actual owner exit cleans it up |
 | U07 | Process/machine interruption at each stage, irreversible migration candidate | Consistent next-start recovery, data retained, unsupported automatic application refused |
 | U08 | IDE-extension update, core update and web refresh overlap | Session/draft/ownership preserved, no duplicate submission, running/candidate/restored versions distinguished |
