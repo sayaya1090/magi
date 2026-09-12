@@ -97,7 +97,10 @@ export async function selfCheck(): Promise<string[]> {
   // makes every window on the platform say "not running" about a workspace that has a companion.
   const dir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
   const p = socketPath(dir);
-  say(socketThere(p), `no daemon socket at the path this window computes: ${p}`);
+  // The reason, when there is one, rather than "no socket": on this machine a refused directory and
+  // an empty one are the same picture, and the self-check exists to tell a person which.
+  const look = socketThere(p);
+  say(look.there, look.why ?? `no daemon socket at the path this window computes: ${p}`);
 
   return fail;
 }

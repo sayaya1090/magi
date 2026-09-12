@@ -262,7 +262,7 @@ test('a socket that is there is found', async (t) => {
     return;
   }
   try {
-    assert.equal(socketThere(p), true, 'a bound socket must be found, or the window never dials');
+    assert.equal(socketThere(p).there, true, 'a bound socket must be found, or the window never dials');
   } finally {
     await new Promise<void>((ok) => server!.close(() => ok()));
     try { fs.rmSync(path.dirname(p), { recursive: true, force: true }); } catch { /* gone already */ }
@@ -271,7 +271,58 @@ test('a socket that is there is found', async (t) => {
 
 /** And a name nothing made is still absent — the other half, or "found" would mean nothing. */
 test('a socket that is not there is not found', () => {
-  assert.equal(socketThere(path.join(os.tmpdir(), 'magi-nothing-here-' + Date.now() + '.sock')), false);
+  const look = socketThere(path.join(os.tmpdir(), 'magi-nothing-here-' + Date.now() + '.sock'));
+  assert.equal(look.there, false);
+  assert.equal(look.why, undefined, 'a plain absence must not arrive with a reason — that is the OTHER answer');
+});
+
+/**
+ * **"Nothing is there" and "I could not look" are different answers, and one of them is not a fact.**
+ *
+ * ⚠ The helper folded every error into `false`, so a refused directory or an I/O error read as an
+ * empty workspace — and the caller draws a CONCLUSION from that: it says "not running" about a tree
+ * it never managed to see, and offers to start a second companion on it. This is the same confusion
+ * one state over that `core/activity` was written for: *"Unknown is a real answer and not a shrug."*
+ *
+ * Measured against a directory this test makes unreadable, not against a platform name — the question
+ * is what the filesystem answers. Root can read anything, so the case only exists for a normal user.
+ */
+test('a path that cannot be looked at is not reported as an empty workspace', (t) => {
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    t.skip('root can read a directory with no permissions — there is no refusal to measure here');
+    return;
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-noaccess-'));
+  const inner = path.join(dir, 'inner');
+  fs.mkdirSync(inner);
+  const p = path.join(inner, 'd.sock');
+  try {
+    fs.chmodSync(inner, 0o000);
+    const look = socketThere(p);
+    assert.equal(look.there, false, 'it claimed to have found a socket it could not look for');
+    assert.ok(look.why, 'a refused directory came back as a plain absence — the window then states a '
+      + 'fact about a companion out of a failure to look');
+    assert.match(look.why!, /cannot tell/, 'the reason does not say what happened');
+  } finally {
+    try { fs.chmodSync(inner, 0o700); } catch { /* nothing to restore */ }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* gone already */ }
+  }
+});
+
+/**
+ * And the callers act on the difference. A source scan, because the branch is inside a poll loop and
+ * a class that needs a live socket and a webview to instantiate — what must be pinned is that the
+ * two answers reach two different states, which is exactly what a scan can see.
+ */
+test('the discovery paths draw unknown, not not-running, from a failure to look', () => {
+  const code = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'workspace.ts'), 'utf8');
+  const arms = code.match(/if \(!look\.there\) \{[\s\S]*?\n {4,6}\}/g) ?? [];
+  assert.ok(arms.length >= 2, `expected both discovery paths to branch on the look, found ${arms.length}`);
+  for (const arm of arms) {
+    assert.match(arm, /look\.why/,
+      'this path reports "not running" whatever the reason — a refused directory then reads as an empty workspace');
+    assert.match(arm, /State\.Unknown/, 'the failure to look does not reach the unknown state');
+  }
 });
 
 /**

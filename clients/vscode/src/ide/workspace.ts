@@ -60,7 +60,13 @@ export class Companion implements vscode.Disposable {
     const p = this.socket;
     const long = tooLong(p);
     if (long) { this.set({ state: activity.State.Unknown, asking: long }); return null; }
-    if (!socketThere(p)) { this.set(activity.notRunning()); return null; }
+    const look = socketThere(p);
+    if (!look.there) {
+      // A refused or unreadable path is not an empty workspace. Saying "not running" there is a
+      // claim about the companion made out of a failure to look at the directory.
+      this.set(look.why ? { state: activity.State.Unknown, asking: look.why } : activity.notRunning());
+      return null;
+    }
     try {
       const d = await Daemon.connect(p);
       if (this.gone) { d.close(); return null; }
@@ -138,8 +144,9 @@ export class Companion implements vscode.Disposable {
       if (this.gone) return;
       const p = this.socket;
       let next = everyMs;
-      if (!socketThere(p)) {
-        this.set(activity.notRunning());
+      const look = socketThere(p);
+      if (!look.there) {
+        this.set(look.why ? { state: activity.State.Unknown, asking: look.why } : activity.notRunning());
         // Nothing there to ask. Checking a missing file every two seconds for the life of a window
         // costs a wake-up each time and tells nobody anything — the socket appearing is not a
         // thing a person waits on with a stopwatch.

@@ -157,14 +157,33 @@ export function socketPath(workdir: string, env: NodeJS.ProcessEnv = process.env
  * and telling those apart is the dial's job, not this one's (CLIENT_LIFECYCLE §4.2 — never judge by
  * the file alone).
  */
-export function socketThere(p: string): boolean {
+export function socketThere(p: string): SocketLook {
   try {
     fs.accessSync(p, fs.constants.F_OK);
-    return true;
-  } catch {
-    return false;
+    return { there: true };
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException)?.code;
+    // ENOENT (and ENOTDIR, which is a missing name one level up) is the FACT this helper is allowed
+    // to report: nothing of that name is there.
+    if (code === 'ENOENT' || code === 'ENOTDIR') return { there: false };
+    // Anything else is "we could not look" — a refused directory, an I/O error, a path that is not
+    // ours to read. Folding that into "no companion" is the same mistake one state over: the caller
+    // then draws a FACT ("this workspace has nothing running") out of a failure to ask, and offers
+    // to start a second daemon on a tree it never managed to see. `Unknown is a real answer and not
+    // a shrug` — core/activity says it about the same confusion.
+    return { there: false, why: `cannot tell whether a companion is there: ${code ?? (e as Error)?.message ?? e}` };
   }
 }
+
+/**
+ * What the filesystem said, and whether it said anything.
+ *
+ * Two fields rather than a boolean because there are three answers, and the third one was folded
+ * into "absent": there, absent, and **could not look**. A caller that reads only `there` behaves
+ * exactly as before, which is what keeps this change small; a caller that draws a conclusion from
+ * absence must read `why` first.
+ */
+export type SocketLook = { there: boolean; why?: string };
 
 export const MAX_SOCKET_PATH = 100;
 
