@@ -54,6 +54,8 @@ class TranscriptTest {
         override fun began() { begins++; synchronized(seen) { seen += "began" } }
         override fun frame(e: LogEvent) { synchronized(seen) { seen += "e${e.seq}" } }
         override fun note(why: String) { synchronized(seen) { seen += "note:$why" } }
+        // 같은 줄에 쌓는 이유가 여기서도 같다: 재생의 끝은 **어느 사건 뒤에** 왔는지가 요점이다.
+        override fun caughtUp() { synchronized(seen) { seen += "live" } }
         override fun ended(end: End) { this.end = end; done.countDown() }
     }
 
@@ -70,6 +72,33 @@ class TranscriptTest {
         val (sink, _) = run(listOf(ev(1), ev(2), ev(3)))
         assertEquals(listOf("began", "e1", "e2", "e3"), sink.seen)
         assertEquals(End.ByDaemon, sink.end, "데몬이 닫은 것은 고장이 아니다")
+    }
+
+    /**
+     * **재생의 끝은 마지막 재생 사건 뒤에, 한 번, 그 자리에서 보인다.**
+     *
+     * 이 프레임은 사건이 없어서, 배선이 없으면 `else` 로 **조용히 버려진다** — 실제로 그랬고,
+     * 코어가 이 표를 보내기 시작한 날 이 창은 아무것도 달라지지 않았다. 그 침묵의 대가는 빈 판에서
+     * 가장 크다: 「아직 안 온 대화」와 「정말 빈 대화」가 같은 그림이다.
+     */
+    @Test
+    fun `재생의 끝이 그 자리에서 보인다`() {
+        val (sink, _) = run(listOf(ev(1), ev(2), Response(ok = true, live = true), ev(3)))
+        assertEquals(listOf("began", "e1", "e2", "live", "e3"), sink.seen,
+            "재생의 끝이 제자리에 안 선다 — 앞에 서면 못 받은 줄이 있고, 뒤에 서면 이미 생중계다")
+        assertEquals(End.ByDaemon, sink.end, "재생의 끝을 스트림의 끝으로 읽었다 — 그 뒤가 생중계다")
+    }
+
+    /**
+     * **표가 없으면 예전 그대로다.** 구형 데몬은 이 표를 모른다.
+     *
+     * 이 짝이 없으면 「표를 기다리며 영원히 불러오는 중」인 창을 못 잡는다 — 그것은 고친 것이
+     * 아니라 새 결함이고, 붙는 쪽이 아무 말도 안 하므로 증상이 「그냥 느리다」로 읽힌다.
+     */
+    @Test
+    fun `표를 안 보내는 데몬에게는 아무 말도 지어내지 않는다`() {
+        val (sink, _) = run(listOf(ev(1), ev(2)))
+        assertTrue("live" !in sink.seen, "아무도 안 보낸 재생의 끝을 지어냈다: ${sink.seen}")
     }
 
     @Test

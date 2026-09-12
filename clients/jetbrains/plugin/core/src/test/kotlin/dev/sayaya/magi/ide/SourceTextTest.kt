@@ -231,6 +231,29 @@ class SourceTextTest {
                 "안 뜬 것이 뜨는 중으로 남고, 그 창은 IDE 를 다시 켜야 데몬을 띄운다")
     }
 
+    /**
+     * **재생이 끝났다는 표를 화면이 실제로 그리는가.**
+     *
+     * 전선에 칸이 늘고 셰이퍼가 받기까지 해도, 그리는 자리가 없으면 화면은 그대로다 — 이 트리가
+     * 되풀이해 겪은 「실려 오지만 안 그려짐」이고, 이번엔 그 칸을 **내가** 코어에 넣었다.
+     *
+     * ⚠ **기본 상태는 안 건드린다.** `began` 이 계속 「연결됨」이라 말해야 한다. 기본을 「불러오는
+     * 중」으로 돌려 놓으면 표를 모르는 구형 데몬에 붙은 창이 영원히 불러오는 중이 된다.
+     */
+    @Test
+    fun `재생이 끝났다는 표를 판이 그린다`() {
+        val src = code(sources.first { it.name == "MagiToolWindow.kt" })
+        val body = src.substringAfter("override fun caughtUp() {", "")
+        assertTrue(body.isNotEmpty(), "재생의 끝을 받는 자리가 없다 — 사건 없는 프레임은 조용히 버려진다")
+        val block = body.substringBefore("}")
+        assertTrue("chat.link.live" in block,
+            "받고도 아무 말을 안 한다 — 받는 것과 그리는 것은 다른 사실이다")
+        assertTrue("redrawLog()" in block,
+            "빈 판은 사유를 글자로 들고 있어 다시 그려야 새 말이 선다 — 안 그리면 다음 이벤트까지 옛 말이 서 있다")
+        assertTrue("""mood(Look.success, "●", MagiBundle.msg("chat.link.connected"))""" in src,
+            "기본 상태가 「연결됨」이 아니게 됐다 — 표를 모르는 데몬에 붙은 창이 영원히 그 상태에 갇힌다")
+    }
+
     @Test
     fun `창이 기동을 정책에 묻고, 제 규칙을 따로 쓰지 않는다`() {
         val f = sources.first { it.name == "StartDaemon.kt" }

@@ -332,6 +332,22 @@ class MagiToolWindow : ToolWindowFactory {
                     mood(Look.success, "●", MagiBundle.msg("chat.link.connected"))
                 }
 
+                /**
+                 * **재생이 끝났다.** 빈 판이 이 사실을 가장 필요로 한다 — 그 자리에서 「아직 안 온
+                 * 대화」와 「정말 빈 대화」가 같은 그림이었다(빈 판은 [mood] 의 사유를 그대로 그린다).
+                 *
+                 * ⚠ **기본 상태를 바꾸지 않는다.** [began] 은 그대로 「연결됨」이라 말하고, 이 신호는
+                 * 그 위에 더 강한 말을 얹는다. 구형 데몬은 이 표를 안 보내므로, 기본을 「불러오는 중」
+                 * 으로 돌려 놓으면 그런 데몬에 붙은 창이 **영원히 불러오는 중**이 된다 — 고친 것이
+                 * 아니라 새 결함이다.
+                 */
+                override fun caughtUp() {
+                    mood(Look.success, "●", MagiBundle.msg("chat.link.live"))
+                    // 빈 판은 사유를 글자로 들고 있으므로 다시 그려야 새 말이 선다. 행이 있으면
+                    // 이 다시 그리기는 같은 행을 같은 자리에 세운다(판정은 [shaper] 가 들고 있다).
+                    redrawLog()
+                }
+
                 override fun frame(e: LogEvent) {
                     // 죽어 가는 스트림의 마지막 프레임 가드(리뷰): close 의 stopped 는 다음
                     // 콜백에서야 검사되므로, 갈아탄 직후 옛 세션 프레임 하나가 착지할 수 있다 —

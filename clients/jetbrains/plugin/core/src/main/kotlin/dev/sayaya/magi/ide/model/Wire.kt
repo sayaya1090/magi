@@ -165,6 +165,14 @@ data class Response(
     val owner: String? = null,
     /** 전사 프레임 하나. `transcript` 스트림에서만 실린다. */
     val event: LogEvent? = null,
+    /**
+     * **재생이 여기서 끝났다** — 뒤에 오는 것은 지금 일어나는 일이다(`transcript` 스트림만).
+     *
+     * 이 칸이 없던 동안 이 창은 「불러오는 중」과 「따라잡았고 조용하다」를 **못 갈랐다.** 빈 판이
+     * 그 자리를 가장 아프게 보여 준다 — 아직 안 온 대화와 정말 빈 대화가 같은 그림이었다.
+     * 사건이 없는 프레임에 실려 오므로, 이 칸을 모르는 사본은 거절 안내(`why`)와 똑같이 무시한다.
+     */
+    val live: Boolean = false,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
     val roster: List<RosterRow>? = null,
     /** 작업 — `jobs` 문의 답(`internal/adapter/daemon/protocol.go` 의 `Jobs`). */
