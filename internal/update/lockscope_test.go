@@ -1,6 +1,8 @@
 package update
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -158,5 +160,62 @@ func TestSalvageDoesNotRobALiveCommit(t *testing.T) {
 	}
 	if _, err := os.Stat(prev); err != nil {
 		t.Errorf("the live transaction's backup is gone (%v) — a rollback now has nothing to go back to", err)
+	}
+}
+
+// §9.3 이 못 쥔 쪽에 요구하는 것: 기다리지도, 빼앗지도 말고 제 일을 계속하라(U04).
+//
+// 유닉스 쪽에도 같은 물음이 있지만(journal_test.go) 거기서는 설치 자리에 셸 스크립트를 세우므로 그
+// 플랫폼에만 있다 — 그리고 **쓰고 있는 파일을 바꾸는 일이 어려운 쪽은 윈도우다.** 여기 두면 양쪽에서
+// 돈다.
+func TestAReplacementThatCannotTakeTheInstallDoesNotWaitOrSteal(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, exeName("magi-install"))
+	was := selfAs(t, target)
+
+	// 남이 쥔 것처럼 쥔다 — 같은 파일을 따로 여는 것. 두 플랫폼 다 잠금이 **핸들 단위**라, 같은
+	// 프로세스의 두 번째 핸들도 다른 프로세스와 똑같이 충돌한다.
+	held, ok := holdInstall(target)
+	if !ok {
+		t.Fatal("설치 잠금을 아예 못 쥐었다")
+	}
+	freed := false
+	defer func() {
+		if !freed {
+			held()
+		}
+	}()
+
+	start := time.Now()
+	err := Commit(append(was, '\n'), target, Versions{From: "v1.0.0", To: "v2.0.0"})
+	took := time.Since(start)
+	if !errors.Is(err, ErrInstallBusy) {
+		t.Fatalf("남이 설치를 쥐고 있는데 교체가 그냥 진행됐다: %v", err)
+	}
+	// 줄 서지 않는다. `installWait`(30초)는 **정착 단계**에게 허락된 기다림이지 교체에게가 아니다 —
+	// 필요도 없는 갱신을 하려고 줄 서 있는 데몬은 제 일을 안 하는 데몬이다.
+	if took > 5*time.Second {
+		t.Errorf("못 쥔 교체가 %v 를 기다렸다 — 말하고 제 일을 계속해야 한다", took)
+	}
+	on, rerr := os.ReadFile(target)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if !bytes.Equal(on, was) {
+		t.Error("잠금을 못 쥔 프로세스가 바이너리를 갈아치웠다")
+	}
+	// 빼앗지도 않는다: 두 프로세스가 다툴 파일을 미리 만들어 두지 않는다.
+	if _, serr := os.Stat(target + ".prev"); serr == nil {
+		t.Error("못 쥔 쪽이 이전 사본을 남겼다 — 그 파일이 바로 둘이 다투게 되는 자리다")
+	}
+	if _, serr := os.Stat(journalOf(target)); serr == nil {
+		t.Error("하지도 않은 트랜잭션을 기록했다")
+	}
+
+	// 그리고 놓이면 같은 호출이 통과한다 — 거절이 잠금 때문이었다는 증거다.
+	held()
+	freed = true
+	if err := Commit(append(was, '\n'), target, Versions{From: "v1.0.0", To: "v2.0.0"}); err != nil {
+		t.Fatalf("잠금이 풀렸는데도 교체가 안 됐다: %v", err)
 	}
 }

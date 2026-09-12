@@ -258,3 +258,5 @@ Package A also owns the core updater, installation lock, journal and rollback. B
 | U08 | IDE-extension update, core update and web refresh overlap | Session/draft/ownership preserved, no duplicate submission, running/candidate/restored versions distinguished |
 
 U04–U07 use real file replacement and processes. Without an actual Windows installation/update/rollback run, record those results as not run.
+
+**As of 2026-09-12 some of them do run on Windows** — as tests in this repository: install-lock contention (U04 — the one that cannot take it neither queues nor steals, `internal/update/lockscope_test.go`), successor readiness failure and rollback (U05, `cmd/magi/successor_live_windows_test.go` and `update_rollback_live_windows_test.go`), predecessor exit and a force-killed owner (U06, `cmd/magi/owned_live_windows_test.go`), and a replacement cut off before it was recorded (one branch of U07). **What is left needs hands** — the manual update button, an interruption that takes the machine down, an irreversible-migration candidate, and a real IDE installation.
