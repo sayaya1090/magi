@@ -25,8 +25,17 @@ what is genuinely its own.
 A subcommand of the core binary. The editor spawns it as a child process and talks to it over
 stdin/stdout in line-delimited JSON. The bridge dials the companion's socket; the editor never does.
 
-```
-editor  ──stdin/stdout, line JSON──▶  magi ide-bridge  ──unix socket──▶  daemon
+```mermaid
+flowchart LR
+    Editor["Editor Client<br/><i>(VS Code · JetBrains · Visual Studio)</i>"]
+    Bridge["magi ide-bridge<br/><i>(child process, one per workspace)</i>"]
+    Daemon["magi --daemon<br/><i>(companion daemon)</i>"]
+
+    Editor <-->|"stdio pipe<br/>(line JSON)"| Bridge
+    Bridge <-->|"Unix domain socket<br/>(AF_UNIX)"| Daemon
+
+    style Bridge fill:#e8f4ff,stroke:#2c7fb8
+    style Daemon fill:#fff9f0,stroke:#e8820c
 ```
 
 **Why stdio rather than a socket.** A second socket would need a second path derivation, and
@@ -175,6 +184,39 @@ translated pass-through would be a new contract to keep in step with the old one
 → {"id":3,"method":"watch"}
 ← {"id":3,"ok":true,"sub":1}
 ← {"sub":1,"rows":[{"seq":8,"who":"agent","text":"Looking at the test…"}]}
+```
+
+The interaction flow across these three representative patterns:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Editor as Editor Client
+    participant Bridge as magi ide-bridge
+    participant Daemon as Companion Daemon
+
+    rect rgb(240, 248, 255)
+    Note over Editor,Bridge: 1. Single Query RPC (about, activity)
+    Editor->>Bridge: {"id":1, "method":"about"}
+    Bridge-->>Editor: {"id":1, "ok":true, "version":"...", "caps":[...]}
+    end
+
+    rect rgb(255, 248, 240)
+    Note over Editor,Daemon: 2. Transparent Proxy (daemon pass-through)
+    Editor->>Bridge: {"id":2, "method":"daemon", "req":{"method":"submit", ...}}
+    Bridge->>Daemon: {"method":"submit", ...}
+    Daemon-->>Bridge: {"ok":true, "session":"s_01..."}
+    Bridge-->>Editor: {"id":2, "ok":true, "resp":{...}}
+    end
+
+    rect rgb(240, 255, 240)
+    Note over Editor,Daemon: 3. Async Stream Subscription (watch)
+    Editor->>Bridge: {"id":3, "method":"watch"}
+    Bridge->>Daemon: connect transcript / event stream
+    Bridge-->>Editor: {"id":3, "ok":true, "sub":1}
+    Daemon-->>Bridge: event emitted (JSONL log stream)
+    Bridge-->>Editor: {"sub":1, "rows":[{"seq":8, "who":"agent", ...}]}
+    end
 ```
 
 ## 6. What this does not change
