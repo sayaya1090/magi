@@ -34,6 +34,14 @@ const (
 	ownsLogEnv = "MAGI_TEST_OWNS_LOG"
 )
 
+// testRoles are the other things this binary can be, added by platform files.
+//
+// A role is for a question that cannot be asked from inside the test process — being killed without
+// getting to close anything, or asking the operating system about a console this process must not
+// have. Each looks at the environment, does its job and exits; one that is not asked for returns.
+// Registered rather than written here because some of them are one platform's only.
+var testRoles []func()
+
 // 이 시험들은 제 설정 디렉토리를 짓는다. 주변 환경이 그것을 무르게 두면
 // 사람의 진짜 magi 를 읽고 쓰게 된다 — 이유는 testenv 에 있다.
 func TestMain(m *testing.M) {
@@ -42,6 +50,9 @@ func TestMain(m *testing.M) {
 	}
 	if exe := os.Getenv(ownsEnv); exe != "" {
 		ownUntilKilled(exe)
+	}
+	for _, role := range testRoles {
+		role()
 	}
 	testenv.Isolate()
 	os.Exit(m.Run())

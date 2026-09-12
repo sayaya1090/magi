@@ -129,6 +129,11 @@ var procPeekNamedPipe = windows.NewLazySystemDLL("kernel32.dll").NewProc("PeekNa
 // (2026-09-06, LTSC 2021 machine: conhost titled C:\...\magi\ppt\magi.exe, born the moment the daemon
 // restarted). So without a console the successor is started DETACHED_PROCESS, exactly as
 // cmd/magi/detach.go starts the first daemon — no console, stdout/stderr still the inherited log file.
+//
+// The flags below are compared by a test next door; whether Windows then gave the successor a console
+// anyway is a different question, and `TestTheSuccessorOfADetachedDaemonHasNoConsoleEither`
+// (cmd/magi) is the one that asks it — it restarts a real detached daemon and asks the operating
+// system, through AttachConsole, what the successor ended up with.
 func reexecAttr() *syscall.SysProcAttr {
 	flags := uint32(syscall.CREATE_NEW_PROCESS_GROUP)
 	if !quietconsole.HasConsole() {
