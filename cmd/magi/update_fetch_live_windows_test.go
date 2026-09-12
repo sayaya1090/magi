@@ -381,3 +381,113 @@ func TestTheConsoleButtonInstallsAndComesUpOnTheNewBuild(t *testing.T) {
 		t.Errorf("되돌릴 이전 빌드를 안 남겼다: %v", err)
 	}
 }
+
+// #190 의 방아쇠를 실제로 당긴다 — **후계를 못 띄우는 순간.**
+//
+// 그 복구 정책은 착지했지만(`37e21536`), 「`cmd.Start()` 가 진짜로 실패하는 그 찰나」는 만들어 본
+// 적이 없었다(#193 의 마지막 줄). 윈도우에서는 만들 수 있다: 실행 권한만 ACL 로 떼면 **이미 도는
+// 이미지는 계속 살고 새 spawn 만** 거부된다. 검사기가 갓 쓴 파일을 쥔 순간이 밖에서 보면 이 모양이다.
+//
+// 순서가 이 시험의 전부다:
+//
+//  1. 데몬이 **이전 판**으로 돈다.
+//  2. 다른 프로세스가 후보를 설치한다(`-update-core`). 디스크는 이제 새 판이고 `.prev` 와 저널이 있다.
+//  3. 그 새 파일의 **실행 권한을 뗀다.**
+//  4. 데몬에게 재기동을 시킨다 → 후계를 띄우다 거부당한다.
+//
+// 그러면 §9.3 6번이 시작된다: 저널에 알리고, 이전 판을 디스크에 되돌리고, **소유자가 없으니**(이
+// 데몬은 소유 모드가 아니다) 이전 판으로 한 번 다시 띄운다. 되돌린 파일은 rename 으로 새로 생긴
+// 것이라 부모의 ACL 을 물려받아 — 거부 ACE 는 `.old` 쪽에 남고 — 실행된다.
+func TestASuccessorThatCannotBeStartedRollsBackAndComesUpOnThePreviousBuild(t *testing.T) {
+	who := os.Getenv("USERNAME")
+	if who == "" {
+		t.Skip("사용자 이름이 없어 ACL 을 걸 수 없다")
+	}
+	w := fetchSetup(t)
+	rs := serveRelease(t, liveTag, w.newBin, trueDigest)
+	ws, err := shortdir.Make("mgs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ws) })
+	t.Cleanup(func() {
+		rows, _ := daemon.List(w.cfg)
+		for _, r := range rows {
+			if r.PID != 0 {
+				if p, ferr := os.FindProcess(r.PID); ferr == nil {
+					_ = p.Kill()
+				}
+			}
+		}
+	})
+
+	logPath := w.cfg + string(os.PathSeparator) + "nostart.log"
+	log, err := os.Create(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	old := exec.Command(w.exe, "--daemon", "--no-update-check")
+	old.Dir = ws
+	old.Env = append(os.Environ(), "MAGI_CONFIG_DIR="+w.cfg, "MAGI_SOCKET_DIR="+w.cfg)
+	old.Stdout, old.Stderr = log, log
+	if err := old.Start(); err != nil {
+		t.Fatal(err)
+	}
+	sock := daemon.SocketPath(w.cfg, ws)
+	waitServing(t, sock, old.Process.Pid, logPath)
+
+	// 2. 후보를 설치한다 — 도는 데몬과 **다른 프로세스**가. 윈도우는 도는 exe 를 옆으로 옮긴 뒤 쓴다.
+	if said, code := w.update(t, rs.URL); code != 0 {
+		t.Fatalf("후보 설치가 %d 로 끝났다:\n%s", code, said)
+	}
+	if update.Refused(w.exe) != "" {
+		t.Fatalf("전제가 깨졌다 — 설치 전에 이미 거절된 판이 있다")
+	}
+
+	// 3. 실행 권한만 뗀다. 읽기·쓰기는 남겨 둔다 — 되돌리기가 그 자리에 파일을 써야 한다.
+	if out, derr := exec.Command("icacls", w.exe, "/deny", who+":(X)").CombinedOutput(); derr != nil {
+		t.Skipf("이 기계에서 실행 권한을 뗄 수 없다: %v\n%s", derr, out)
+	}
+	t.Cleanup(func() { _, _ = exec.Command("icacls", w.exe, "/remove:d", who).CombinedOutput() })
+	if out, xerr := exec.Command(w.exe, "--version").CombinedOutput(); xerr == nil {
+		t.Skipf("거부를 걸었는데도 실행된다 — 여기서는 이 순간을 만들 수 없다:\n%s", out)
+	}
+
+	// 4. 재기동을 시킨다. 이전 세대는 후계를 띄우려다 거부당한다.
+	c, err := daemon.DialWithin(sock, 2*time.Second, 30*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Restart()
+	c.Close()
+	done := make(chan struct{})
+	go func() { _ = old.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Minute):
+		t.Fatalf("이전 세대가 결정을 못 끝냈다:\n%s", readLog(logPath))
+	}
+	said := readLog(logPath)
+
+	// 그 순간을 봤다고 말해야 한다 — 조용히 성공 코드로 끝나던 것이 #190 이었다.
+	if !strings.Contains(said, "could not be started") {
+		t.Errorf("후계를 못 띄웠다는 말이 없다:\n%s", said)
+	}
+	// ⚠ 여기서는 **0 이 맞다.** 실측으로 배운 자리다: 처음에 0 이 아니어야 한다고 단언했는데 나머지
+	// 단언이 다 초록인 채로 이것만 빨갰다 — 복구가 끝까지 성공했기 때문이다. 컴패니언이 다시 도는
+	// 종료를 실패로 보고하면 감시기가 살아 있는 것을 되살리려 든다. 실패 코드는 **아무것도 못 살렸을
+	// 때**의 계약이고(되돌릴 판이 없거나 이전 판도 못 뜰 때), 그 갈래는 결정 표가 잰다.
+	if code := old.ProcessState.ExitCode(); code != 0 {
+		t.Errorf("이전 판으로 복구했는데 %d 로 끝났다 — 감시기가 살아 있는 컴패니언을 되살리려 든다\n%s",
+			code, said)
+	}
+	// 되돌렸고, 그 판을 거절했다.
+	if r := update.Refused(w.exe); r != liveTag {
+		t.Errorf("못 띄운 후보가 거절로 기록되지 않았다: %q\n%s", r, said)
+	}
+	// 그리고 이전 판이 다시 **서비스한다** — 파일만 되돌린 것이 아니다.
+	if rec := waitVersion(t, sock, baseTag, said); rec.PID == 0 {
+		t.Fatalf("이전 판으로 서비스하는 데몬이 없다:\n%s", said)
+	}
+}
