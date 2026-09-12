@@ -36,6 +36,44 @@ Visual Studio 확장은 세 가지 아키텍처 모델 중 하나를 선택할 �
 
 다만 본 모델의 기능 지원 범위는 아직 확장 중(⏳)입니다. 필요한 확장점이 지원되지 않을 경우 In-process 모델로의 전환을 검토해야 합니다. 지원 가능 여부는 §2에서 실측합니다.
 
+Out-of-Process 모델 기반의 프로세스 격리 및 통신 토폴로지는 다음과 같습니다:
+
+```mermaid
+flowchart LR
+    subgraph IDE ["Visual Studio 프로세스 (devenv.exe)"]
+        UI["Remote UI 렌더러<br/><i>(XAML · 네이티브 테마 자동 적용)</i>"]
+        Margin["에디터 마진 · 태거 · CodeLens"]
+    end
+
+    subgraph ExtHost ["Out-of-Process 확장 호스트 (dotnet.exe)"]
+        subgraph ExtPkg ["src/Magi.Extension"]
+            ExtAPI["VisualStudio.Extensibility SDK<br/><i>(도구 창 · 명령어 · 수명주기)</i>"]
+        end
+        subgraph CorePkg ["src/Magi.Core"]
+            CoreLib["순수 .NET 도메인/와이어 라이브러리<br/><i>(IDE 비의존 독립 검증)</i>"]
+        end
+    end
+
+    subgraph BridgeProc ["브리지 자식 프로세스"]
+        Bridge["magi ide-bridge<br/><i>(8대 공통 로직 전담)</i>"]
+    end
+
+    subgraph DaemonProc ["상주 컴패니언 프로세스"]
+        Daemon["magi --daemon<br/><i>(작업 워크스페이스 세션)</i>"]
+    end
+
+    UI <-->|"ServiceHub IPC<br/>(Remote UI 데이터 바인딩)"| ExtAPI
+    Margin <-->|"ServiceHub IPC<br/>(RPC 브로커)"| ExtAPI
+    ExtAPI --> CoreLib
+    CoreLib <-->|"stdio 파이프<br/>(줄 단위 JSON Lines)"| Bridge
+    Bridge <-->|"유닉스 도메인 소켓<br/>(AF_UNIX: Temp 디렉토리)"| Daemon
+
+    style IDE fill:#f3f0ff,stroke:#6f42c1
+    style ExtHost fill:#e8f4ff,stroke:#2c7fb8
+    style BridgeProc fill:#fff9f0,stroke:#e8820c
+    style DaemonProc fill:#f0fff4,stroke:#38a169
+```
+
 ---
 
 ## 2. 기능 대조 — 무엇이 되고 무엇이 아직인가
