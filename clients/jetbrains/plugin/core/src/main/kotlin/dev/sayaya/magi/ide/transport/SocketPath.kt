@@ -26,9 +26,47 @@ object SocketPath {
     fun workspaceKey(workdir: Path): String {
         val abs = runCatching { workdir.toAbsolutePath() }.getOrDefault(workdir)
         val real = evalSymlinks(abs)
-        val s = real.toString()
+        return keyOf(real.toString())
+    }
+
+    /**
+     * 경로 **문자열**에서 열쇠를 짓는다 — 규칙 전체가 여기 있고, 여기만 있다.
+     *
+     * ⚠ **이음매인 이유가 측정이다.** 위쪽은 `Paths.get` 을 거치는데, darwin 에서 `c:\\Users\\…` 는
+     * 드라이브가 아니라 **파일 이름 하나**다(역슬래시가 평범한 글자다) — `toAbsolutePath()` 가 앞에
+     * 작업 디렉터리를 붙여 버려서, 윈도우의 그 철자를 이 기계에서는 `workspaceKey` 로 만들 수가 없다.
+     * 규칙은 순수한 문자열 계산이니 문자열을 받는 자리를 열어 두면 **어느 플랫폼에서든** 재인다.
+     *
+     * 한 번만 맞추고 아래 둘이 **같은 글자를 읽는다**: 이름은 기준 디렉터리를, 해시는 경로 전체를
+     * 나르므로 두 반쪽이 철자에 대해 다른 의견을 가지면 그것이 또 세 번째 답이다(드라이브 뿌리에
+     * 열린 워크스페이스가 정확히 그 자리다).
+     */
+    internal fun keyOf(path: String): String {
+        val s = driveCased(path)
         return sanitize(baseName(s)) + "-" + shortHash(s)
     }
+
+    /**
+     * 드라이브 문자를 **코어가 적는 대로** 적는다.
+     *
+     * ⚠ **해시는 문자열에 대한 것이고, 호스트가 주는 철자는 믿을 수 없다.** 윈도우의 Go
+     * `filepath.EvalSymlinks` 는 드라이브 문자를 대문자로 정규화한다 — 실측 2026-09-12,
+     * `c:\Users\…` → `C:\Users\…`. 짝인 VS Code 클라이언트는 `Uri.fsPath` 에서 **소문자**를
+     * 받았고(Node 의 `path.resolve` 도 `realpathSync` 도 받은 대소문자를 그대로 둔다), 그래서 한
+     * 디렉터리를 두 문자열로 해싱했다: 창은 `daemon-magi-dwj5mk5h.sock` 을 찾고 그 워크스페이스의
+     * 데몬은 `daemon-magi-x7wu42uu.sock` 에 있었다(실물 VS Code, 같은 날). 그 실패는 **설계상
+     * 조용하다** — 창은 소켓을 못 찾고, 컴패니언이 있는 트리에 대해 「안 돌고 있다」고 말하고,
+     * 두 번째를 띄우자고 한다.
+     *
+     * 이 판이 오늘 그 철자를 받는다는 증거는 없다(이 기계는 darwin 이고, IntelliJ 가 무엇을 주는지
+     * 안 쟀다). 그래서 고치는 이유는 증상이 아니라 **계약**이다: 열쇠는 「코어가 적는 대로의 경로」에
+     * 대한 것이고, 받은 대로 흘려보내는 것은 호스트가 코어와 같은 철자를 준다는 **운에 기대는** 일이다.
+     * 바로 그 운이 짝에서 떨어졌다.
+     *
+     * POSIX 는 안 스친다 — 절대 경로가 `/` 로 시작하므로 이 규칙이 맞을 자리가 없다.
+     */
+    internal fun driveCased(p: String): String =
+        if (p.length >= 2 && p[0] in 'a'..'z' && p[1] == ':') p[0].uppercaseChar() + p.substring(1) else p
 
     /**
      * Go 표준 라이브러리 `filepath.EvalSymlinks`의 동작을 재현한다.

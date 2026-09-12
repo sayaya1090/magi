@@ -142,6 +142,39 @@ class SocketPathTest {
         )
         assertEquals("/home/x/cfg/magi", xdg.toString())
     }
+
+    /**
+     * **드라이브 문자 하나가 한 디렉터리를 두 열쇠로 갈랐다.**
+     *
+     * 짝인 VS Code 에서 실물로 났다(2026-09-12, Windows 11): `Uri.fsPath` 가 `c:\\Users\\…` 를 주고
+     * Node 는 받은 대소문자를 그대로 두는데, 코어의 Go `EvalSymlinks` 는 드라이브를 대문자로
+     * 정규화한다. 창은 `daemon-magi-dwj5mk5h.sock` 을 찾고 그 데몬은 `…-x7wu42uu.sock` 에 있었다 —
+     * 컴패니언이 있는 트리에 대해 「안 돌고 있다」고 말하고 두 번째를 띄우자고 한다.
+     *
+     * ⚠ **이 판이 그 철자를 받는지는 안 쟀다**(이 기계는 darwin 이고 IntelliJ 가 무엇을 주는지 모른다).
+     * 그래서 재는 것은 증상이 아니라 **규칙**이다: 열쇠는 「코어가 적는 대로의 경로」에 대한 것이므로
+     * 철자가 달라도 같은 열쇠여야 한다. 이 규칙은 순수한 문자열 계산이라 **어느 플랫폼에서든** 재인다 —
+     * 그것이 이 시험이 윈도우를 기다리지 않는 이유다.
+     */
+    @Test
+    fun `드라이브 문자의 대소문자가 열쇠를 가르지 않는다`() {
+        // ⚠ `workspaceKey` 가 아니라 `keyOf` 다. 이 기계에서 `Paths.get("c:\\…")` 는 드라이브가 아니라
+        // **파일 이름 하나**이고(역슬래시가 평범한 글자다) `toAbsolutePath()` 가 앞에 작업 디렉터리를
+        // 붙여 버려, 윈도우의 그 철자를 여기서는 만들 수가 없다. 규칙은 문자열 계산이라 그 자리에서 잰다.
+        val lower = SocketPath.keyOf("c:\\Users\\velve\\Workspace\\magi")
+        val upper = SocketPath.keyOf("C:\\Users\\velve\\Workspace\\magi")
+        assertEquals(upper, lower,
+            "같은 디렉터리가 두 열쇠를 낸다 — 창은 제 컴패니언의 소켓을 못 찾고 두 번째를 띄우자고 한다")
+
+        // 규칙은 드라이브에만 닿는다. 경로의 나머지는 코어가 대소문자를 보존하므로 여기서도 보존한다 —
+        // 둘 다 손대면 대소문자를 구별하는 파일시스템에서 다른 두 디렉터리가 한 열쇠가 된다.
+        assertTrue(
+            SocketPath.driveCased("c:\\Users\\CaseDir") == "C:\\Users\\CaseDir",
+            "드라이브 밖의 글자까지 건드렸다",
+        )
+        // POSIX 는 안 스친다: 절대 경로가 `/` 로 시작하므로 이 규칙이 맞을 자리가 없다.
+        assertEquals("/private/tmp/ws1", SocketPath.driveCased("/private/tmp/ws1"))
+    }
 }
 
 /**
