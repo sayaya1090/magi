@@ -298,6 +298,21 @@ test('a path that cannot be looked at is not reported as an empty workspace', (t
   const p = path.join(inner, 'd.sock');
   try {
     fs.chmodSync(inner, 0o000);
+    // ⚠ **`chmod` 는 플랫폼마다 같은 일을 하지 않는다.** 윈도우에서 Node 는 쓰기 비트만 바꾸므로
+    // (Node 문서: "only the write permission bit"), 이 디렉터리는 여전히 읽힌다 — 그러면 없는
+    // `d.sock` 조회가 ENOENT 가 되어 이 시험은 「사유가 없다」로 실패한다. 그것은 결함이 아니라
+    // **이 시험이 잴 것이 없다는 뜻**이다.
+    //
+    // 그래서 플랫폼 이름을 묻지 않고 **파일시스템에 실제로 물어본다**(이 파일의 다른 건너뛰기들과
+    // 같은 방식이다): 거절이 정말 났는지 확인하고, 안 났으면 사유를 적고 건너뛴다. 윈도우의 ACL 로
+    // 같은 상황을 만드는 것은 따로 할 일이다.
+    let refused = false;
+    try { fs.readdirSync(inner); } catch { refused = true; }
+    if (!refused) {
+      t.skip('this filesystem still lets us in after chmod 000 (on Windows Node changes only the write bit) '
+        + '— the refusal case needs an ACL-based test');
+      return;
+    }
     const look = socketThere(p);
     assert.equal(look.there, false, 'it claimed to have found a socket it could not look for');
     assert.ok(look.why, 'a refused directory came back as a plain absence — the window then states a '
