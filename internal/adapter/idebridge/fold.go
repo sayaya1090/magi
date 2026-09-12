@@ -12,9 +12,10 @@ import (
 // Rows folds a conversation's log into the lines a screen shows.
 //
 // This is the rule itself — the third of the eight, and the one two clients wrote separately. It
-// is ported from `clients/vscode/src/core/transcript.ts` deliberately and not merged with the
-// Kotlin one: where they disagree the TypeScript reading was chosen (rows.go says why), and every
-// place the two differed is a comment there rather than a silent pick here.
+// was ported from `clients/vscode/src/core/transcript.ts` deliberately and not merged with the
+// Kotlin one: where they had historically disagreed the TypeScript reading was chosen (rows.go
+// explains the six-vs-eight vocabulary history and subsequent alignment), and every place the two
+// differed is documented there rather than silently picked here.
 //
 // Not every event becomes a row, and the ones that do not are as deliberate as the ones that do:
 // `context.usage` and `todos.changed` are facts for other screens, and putting them in the

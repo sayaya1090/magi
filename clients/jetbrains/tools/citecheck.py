@@ -152,7 +152,7 @@ def documents():
 
 
 FENCE = re.compile(r"^```.*?^```", re.S | re.M)
-BAREJS = re.compile(r'(?<![\w:/])([A-Za-z_][A-Za-z_.-]*\.(?:js|mjs))(?![\w])')
+BAREJS = re.compile(r'(?<![\w:/.-])([A-Za-z_][A-Za-z_.-]*\.(?:js|mjs))(?![\w])')
 
 
 def check(doc, where, bad, unchecked):
