@@ -109,7 +109,13 @@ type fetchWorld struct {
 	newBin   []byte
 }
 
-const liveTag = "v9.9.9-fetchlive"
+// 판번호는 **정확한 태그**여야 한다 — 숫자 셋, 접미사 없음. `update.SelfUpdatable` 이 그렇게 읽고,
+// 그러지 않으면 데몬의 문이 「소스 빌드는 자기갱신을 안 한다」며 거절한다(의도된 안전장치이고,
+// 실측으로 배웠다: `dev` 도 `v0.0.1-fetchbase` 도 그 거절에 걸려 이 시험의 첫 두 판이 빨갰다).
+const (
+	baseTag = "v0.0.1"
+	liveTag = "v9.9.9"
+)
 
 func fetchSetup(t *testing.T) fetchWorld {
 	t.Helper()
@@ -121,7 +127,8 @@ func fetchSetup(t *testing.T) fetchWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.RemoveAll(cfg) })
-	exe := buildMagi(t, cfg)
+	exe := buildMagi(t, cfg,
+		"-ldflags=-X github.com/sayaya1090/magi/internal/version.Version="+baseTag)
 	other, err := shortdir.Make("mgn")
 	if err != nil {
 		t.Fatal(err)
@@ -297,5 +304,80 @@ func TestARefusedReleaseIsTakenAgainWhenAPersonAsks(t *testing.T) {
 	}
 	if r := update.Refused(w.exe); r != "" {
 		t.Errorf("재시도 뒤에도 거절 기록이 남았다: %q", r)
+	}
+}
+
+// 콘솔 단추 — 받아서 설치하고, **안 바쁠 때** 그 위로 재기동한다.
+//
+// `-update-core` 는 프로세스 하나가 설치만 하고 끝나는 경로다. 이 문은 **도는 데몬**이 제 자리에서
+// 하는 일이라, 앞의 시험들이 못 보는 뒷 절반이 여기 붙는다: 교체한 뒤 스스로 재기동하고, 그
+// 후계가 준비될 때까지 이전 세대가 기다리고(`graceful`), 새 판이 실제로 **서비스한다.**
+//
+// `when=idle` 은 「아무것도 안 돈다」를 찾은 **그 단계에서** 접수를 막고 재기동한다(§9.3 의 원자적
+// 안전 시점). 이 시험의 데몬은 아무 일도 안 하고 있으므로 그 자리를 즉시 지나간다 — 턴이 도는 중의
+// 보류(U02)는 모델 백엔드가 있어야 재는 것이고 단위(`internal/app` 의 hold)가 그쪽을 붙든다.
+func TestTheConsoleButtonInstallsAndComesUpOnTheNewBuild(t *testing.T) {
+	w := fetchSetup(t)
+	rs := serveRelease(t, liveTag, w.newBin, trueDigest)
+	ws, err := shortdir.Make("mgb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ws) })
+	t.Cleanup(func() {
+		rows, _ := daemon.List(w.cfg)
+		for _, r := range rows {
+			if r.PID != 0 {
+				if p, ferr := os.FindProcess(r.PID); ferr == nil {
+					_ = p.Kill()
+				}
+			}
+		}
+	})
+
+	logPath := w.cfg + string(os.PathSeparator) + "button.log"
+	log, err := os.Create(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer log.Close()
+	// 루프는 끈다 — 첫 확인이 최대 1.5시간 지터라 이 시험과 섞일 일이 없지만, 재는 것이 **문**이지
+	// 루프가 아니라는 것을 환경에도 적어 둔다.
+	cmd := exec.Command(w.exe, "--daemon", "--no-update-check")
+	cmd.Dir = ws
+	cmd.Env = append(os.Environ(),
+		"MAGI_CONFIG_DIR="+w.cfg,
+		"MAGI_SOCKET_DIR="+w.cfg,
+		"MAGI_RELEASE_API_BASE="+rs.URL)
+	cmd.Stdout, cmd.Stderr = log, log
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	sock := daemon.SocketPath(w.cfg, ws)
+	waitServing(t, sock, cmd.Process.Pid, logPath)
+
+	c, err := daemon.DialWithin(sock, 2*time.Second, 5*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.UpdateWhen("idle")
+	c.Close()
+	if err != nil {
+		t.Fatalf("문이 거절했다: %v\n%s", err, readLog(logPath))
+	}
+	if !strings.Contains(out, liveTag) {
+		t.Errorf("답이 무엇으로 갔는지 말하지 않는다: %q", out)
+	}
+
+	// 그리고 뒷 절반: 새 판이 **서비스한다.** 세대가 바뀌었고(PID 도 판번호도), 붙어서 확인한다.
+	rec := waitVersion(t, sock, liveTag, readLog(logPath))
+	if rec.PID == 0 {
+		t.Fatalf("새 판으로 서비스하는 데몬이 없다:\n%s", readLog(logPath))
+	}
+	if rec.PID == cmd.Process.Pid {
+		t.Error("재기동 없이 판번호가 바뀌었다고 한다 — 기록이 이전 세대를 가리킨다")
+	}
+	if _, err := os.Stat(w.exe + ".prev"); err != nil {
+		t.Errorf("되돌릴 이전 빌드를 안 남겼다: %v", err)
 	}
 }
