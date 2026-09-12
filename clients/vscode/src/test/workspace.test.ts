@@ -273,3 +273,36 @@ test('a socket that is there is found', async (t) => {
 test('a socket that is not there is not found', () => {
   assert.equal(socketThere(path.join(os.tmpdir(), 'magi-nothing-here-' + Date.now() + '.sock')), false);
 });
+
+/**
+ * **And nobody asks that question the old way again.**
+ *
+ * ⚠ The fix above is one helper, and the defect was that the WRONG question was asked in several
+ * places. A helper does not stop the next discovery path from reaching for `fs.existsSync` — it is
+ * the obvious call, it reads correctly, and on POSIX it even works. The failure only appears on the
+ * platform nobody develops on, and it appears as "this workspace has no companion", which reads like
+ * a fact rather than a bug.
+ *
+ * So the files that decide whether a companion is THERE must ask through the helper and must not
+ * stat. Comments are stripped first: the files explain the trap in prose, and a scan that matched
+ * prose would fail on the very explanation that keeps the rule legible.
+ */
+test('the discovery paths ask about a socket only through the helper', () => {
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const askers = ['ide/workspace.ts', 'live/selfcheck.ts'];
+  for (const rel of askers) {
+    const code = strip(fs.readFileSync(path.join(__dirname, '..', '..', 'src', rel), 'utf8'));
+    assert.ok(code.includes('socketThere'),
+      `${rel} decides whether a companion is there without the helper — on Windows stat says no about a live socket`);
+    for (const wrong of ['existsSync', 'statSync', 'lstatSync']) {
+      assert.ok(!code.includes(wrong),
+        `${rel} asks the filesystem with ${wrong} — Windows refuses that about an AF_UNIX socket, so the answer is always "no companion"`);
+    }
+  }
+  // And the helper itself must not be built on the call it exists to replace.
+  const helper = strip(fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'workspace.ts'), 'utf8'));
+  assert.ok(/accessSync\(/.test(helper), 'the helper no longer asks the directory entry — the one question Windows answers');
+  for (const wrong of ['existsSync', 'lstatSync']) {
+    assert.ok(!helper.includes(wrong), `the helper fell back to ${wrong}`);
+  }
+});
