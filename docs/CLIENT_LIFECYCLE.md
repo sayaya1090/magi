@@ -26,7 +26,7 @@ A companion is the daemon executing work for a workspace. Its owner is the clien
 
 Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not become “daemon absent.” When a shorter path is necessary, explain where to configure it and show the effective path. A client must not silently choose a different path from an existing daemon.
 
-## 2.5 Current status and remaining work (2026-09-11)
+## 2.5 Current status and remaining work (2026-09-12)
 
 | Area | Current state and evidence |
 |---|---|
@@ -38,7 +38,9 @@ Test Windows without `MAGI_SOCKET_DIR` too. A long or inaccessible path must not
 
 **Current decisions:** Do not create `<socket>.lifecycle`. The implementer's duplicated-state concern was accepted. Use handshake and `about` for current state; unobserved exit reasons are unknown. Update journals serve only file-replacement recovery. Advertise feature names together with their implementation.
 
-**Remaining work:** actual IDE acceptance. Client-side generation/owner-lineage verification and successor readiness (Windows) have landed — see §4. R8–R11 in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) are all addressed — owner-channel failure reporting (`ca79c0f9`), locking across the whole transaction (`55ec9458`), the misread concurrent start and confirmation before readiness (`b568d3e3`). Nothing in §9 remains as code; what remains is **acceptance**.
+**What remains is mostly acceptance rather than code.** Client-side generation/owner-lineage verification and successor readiness (Windows) have landed — see §4. What is left needs the real thing: §8's L01–L13 and §9's U01–U08, running the native `deactivate`, L12's third case (the server restart), and E (deployment) after them.
+
+R8–R11 in the [follow-up review](CLIENT_LIFECYCLE_REVIEW_2026-09-11.md) are all addressed — owner-channel failure reporting (`ca79c0f9`), locking across the whole transaction (`55ec9458`), the misread concurrent start and confirmation before readiness (`b568d3e3`). Nothing in §9 remains as code.
 
 ## 3. State and responsibility
 
