@@ -278,6 +278,26 @@ test('a socket that is not there is not found', () => {
 });
 
 /**
+ * **A socket directory that does not exist yet is an HONEST absence.**
+ *
+ * ⚠ This is the state of every machine before the first daemon runs, and it goes through the same
+ * branch as a refusal: `5dc6d12a` asks the parent whenever the child answers absent, because on
+ * Windows an unreadable directory makes its children answer ENOENT. If that parent question ever
+ * reads "missing" as "could not look", a fresh install stops saying "no companion" and starts saying
+ * "cannot tell" — about a machine where nothing is wrong.
+ *
+ * Measured here because it is platform-independent: a path whose parent was never made. The mutation
+ * that returns false for a missing parent survives every other test on this machine.
+ */
+test('a socket under a directory that does not exist yet is plainly absent', () => {
+  const nowhere = path.join(os.tmpdir(), 'magi-never-made-' + Date.now(), 'deeper', 'd.sock');
+  const look = socketThere(nowhere);
+  assert.equal(look.there, false);
+  assert.equal(look.why, undefined,
+    'a machine that has never started a companion is told we cannot tell — nothing is wrong there');
+});
+
+/**
  * **"Nothing is there" and "I could not look" are different answers, and one of them is not a fact.**
  *
  * ⚠ The helper folded every error into `false`, so a refused directory or an I/O error read as an
