@@ -130,7 +130,13 @@ test('a directory reached through a link keys the same as the directory', (t) =>
   const link = path.join(root, 'link');
   fs.mkdirSync(real);
   try { fs.symlinkSync(real, link, 'dir'); } catch {
-    t.skip('this machine will not make a symlink (Windows without the privilege)');
+    // ⚠ **Not the end of it — look at Developer Mode before believing this skip.** Creating a
+    // symlink on Windows needs `SeCreateSymbolicLinkPrivilege` OR Developer Mode, and measured on
+    // this machine 2026-09-14: with Developer Mode ON, Node makes the link and this test runs and
+    // passes (so does the JetBrains sibling's set of six). PowerShell 5.1 still refuses under the
+    // same setting, because the unprivileged path needs the caller to pass a flag — so a shell probe
+    // saying "no" does not mean this test is unreachable here.
+    t.skip('this machine will not make a symlink (Windows without the privilege — check Developer Mode)');
     return;
   }
   try {

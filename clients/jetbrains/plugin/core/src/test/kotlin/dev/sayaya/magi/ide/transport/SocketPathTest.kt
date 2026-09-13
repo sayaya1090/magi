@@ -25,6 +25,22 @@ import java.nio.file.Paths
  * 플랫폼 이름을 묻지 않는다. 만들어 보고 되면 재고, 안 되면 **잴 것이 없다고 적는다** — 개발자
  * 모드가 켜진 윈도우에서는 그대로 재인다. 짝인 VS Code 가 같은 방식이다(`workspace.test.ts`:
  * 「this machine will not make a symlink (Windows without the privilege)」).
+ *
+ * **그 「그대로 재인다」가 2026-09-14 에 실측됐다.** 이 기계에서 개발자 모드를 켜니 여섯이 돌고
+ * 여섯이 초록이다(코어 건너뜀 12 → 6) — 심링크를 지난 경로가 Go 와 같은 열쇠를 낸다는 것이 이
+ * 플랫폼에서 처음 확인된 것이고, 제품 결함은 없었다.
+ *
+ * ⚠ **개발자 모드가 모든 호출자에게 닿는 것은 아니다.** 무권한 생성은 호출자가
+ * `SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE` 를 넘겨야 열린다. 같은 기계, 같은 순간에 잰 것:
+ *
+ * | 호출자 | 개발자 모드 켠 뒤 |
+ * |---|---|
+ * | JDK 21 `Files.createSymbolicLink` | 만든다 |
+ * | Node(짝인 VS Code 레인) | 만든다 |
+ * | PowerShell 5.1 `New-Item -ItemType SymbolicLink` | 여전히 `Administrator privilege required` |
+ *
+ * 그러니 이 건너뜀을 본 사람은 **껐다고 단정하지 말고 개발자 모드를 먼저 보라** — 그리고 셸로
+ * 확인했다가 「안 켜졌다」고 결론 내리지 말 것. 이 JVM 이 답이다.
  */
 private fun link(from: java.nio.file.Path, to: java.nio.file.Path): java.nio.file.Path = try {
     java.nio.file.Files.createSymbolicLink(from, to)
