@@ -43,6 +43,19 @@ func name(rows []Row) {
 	}
 }
 
+// body is a whole text, or "" when there is nothing in it.
+//
+// ⚠ **Trimming decides whether there is a body; it does not produce one.** These bodies used to be
+// stored trimmed, and for a tool's output that is a real loss: `"    return x\n"` became `"return x"`,
+// so the indentation — which in code output IS the content — was gone by the time any screen saw it.
+// A blank body is still nothing (a row with nothing to draw), and that one case stays.
+func body(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
+}
+
 // summarise fills Row.Summary for every row — one line, bounded, from whatever body the row carries.
 //
 // Done in one pass at the end rather than at each of the twelve places a row is built: a summary
@@ -142,7 +155,8 @@ func Rows(events []event.Event) []Row {
 			row.Text += text
 
 		case event.TypePromptSubmitted:
-			text := strings.TrimSpace(partsText(d))
+			// Whole: a pasted snippet's indentation is part of what the person said.
+			text := body(partsText(d))
 			if text == "" {
 				break
 			}
@@ -371,11 +385,11 @@ func Rows(events []event.Event) []Row {
 func appendPart(out *[]*Row, seq int64, p map[string]any) {
 	switch str(p, "kind") {
 	case "text":
-		if t := strings.TrimSpace(str(p, "text")); t != "" {
+		if t := body(str(p, "text")); t != "" {
 			*out = append(*out, &Row{Seq: seq, Who: WhoAgent, Text: t})
 		}
 	case "reasoning":
-		if t := strings.TrimSpace(str(p, "text")); t != "" {
+		if t := body(str(p, "text")); t != "" {
 			*out = append(*out, &Row{Seq: seq, Who: WhoThinking, Text: t, Folded: true})
 		}
 	case "tool-call":
@@ -664,13 +678,11 @@ func said(content any) string {
 		}
 		t = string(b)
 	}
-	if strings.TrimSpace(t) == "" {
-		return ""
-	}
-	// ⚠ **Whole.** This is what a failed call said, and it used to arrive clipped to one line — so a
-	// stack trace or a compiler's three lines reached a screen as its first line, with the part a
-	// person needs cut off. Row.Summary carries the one-line form for lists.
-	return strings.TrimSpace(t)
+	// ⚠ **Whole, and not even trimmed.** This is what a tool said. It used to arrive clipped to one
+	// line — so a stack trace or a compiler's three lines reached a screen as its first line — and
+	// then, after that was fixed, still trimmed: `"    return x\n"` became `"return x"`, and in code
+	// output the indentation IS the content. Row.Summary carries the one-line form for lists.
+	return body(t)
 }
 
 // clip is one line, bounded. A row is a line — a summary that wraps is not a summary.

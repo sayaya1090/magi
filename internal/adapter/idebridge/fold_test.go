@@ -37,6 +37,12 @@ import (
 //     the fix, not a drift: the body used to be clipped to its first line, so this fixture — written
 //     with a two-line failure on purpose — was losing the second line, and the golden recorded the
 //     loss. The bodies are whole now; the clip moved into `summary`.
+//   - the reasoning and the answer kept their padding — `"let me look"` became `"  let me look  "`
+//     (2026-09-13). The fixture wrote them padded on purpose and the fold was trimming; whitespace is
+//     content (indentation in code output is the content), so trimming now only decides WHETHER there
+//     is a body. ⚠ This is also the difference the Kotlin comparison flagged first: that copy kept the
+//     padding and this one did not, and the note written then guessed the Kotlin side was the odd one.
+//     It was not — see CanonicalFoldTest.
 //   - `args` became the whole object and `out` appeared on the advisory `write` row (2026-09-13, the
 //     same contract). This fixture had a `cwd` beside the command and `"lint says x"` on that result,
 //     and both were being dropped — one by a picker that returned the first field it recognised, the

@@ -270,6 +270,93 @@ func same(t *testing.T, what string, replay, live []event.Event) {
 	}
 }
 
+// **Whitespace is content.**
+//
+// ⚠ The bodies were whole but still trimmed, and for a tool's output that is a loss with teeth:
+// `"    return x\n"` arrived as `"return x"`, so the indentation — which in code output IS the
+// content — was gone before any screen saw it. Trimming may decide WHETHER there is a body; it must
+// not produce one.
+//
+// The blank case is the one deliberate exception: a body of nothing but spaces is nothing to draw, and
+// the row says so by having no body at all.
+func TestWhitespaceIsContent(t *testing.T) {
+	code := "    return x\n"
+	indented := "\tif err != nil {\n\t\treturn err\n\t}\n"
+
+	rows := Rows([]event.Event{
+		mk(1, "prompt.submitted", map[string]any{
+			"messageId": "m1", "parts": []any{map[string]any{"kind": "text", "text": code}},
+		}, map[string]any{"kind": "user", "id": "u1"}),
+		mk(2, "part.appended", map[string]any{
+			"messageId": "m1", "role": "assistant",
+			"part": map[string]any{"kind": "text", "text": indented},
+		}, nil),
+		mk(3, "part.appended", map[string]any{
+			"messageId": "m1", "role": "assistant",
+			"part": map[string]any{"kind": "reasoning", "text": code},
+		}, nil),
+		mk(4, "part.appended", map[string]any{
+			"messageId": "m1", "role": "assistant",
+			"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{
+				"callId": "c1", "name": "bash", "args": map[string]any{"command": "go build"},
+			}},
+		}, nil),
+		mk(5, "part.appended", map[string]any{
+			"messageId": "m1", "role": "tool",
+			"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{
+				"callId": "c1", "content": indented,
+			}},
+		}, nil),
+	})
+	if len(rows) != 4 {
+		t.Fatalf("행이 %d 개다: %s", len(rows), show(t, rows))
+	}
+	exact := func(what, got, want string) {
+		if got != want {
+			t.Errorf("%s: 공백이 깎였다\n  들어간 것: %q\n  나온 것:   %q", what, want, got)
+		}
+	}
+	exact("사람이 붙여 넣은 코드", rows[0].Text, code)
+	exact("답의 들여쓰기", rows[1].Text, indented)
+	exact("생각의 들여쓰기", rows[2].Text, code)
+	exact("도구가 답한 것", rows[3].Out, indented)
+
+	// 그리고 요약은 여전히 한 줄이다 — 정리는 거기서 한다.
+	for i, r := range rows {
+		if strings.Contains(r.Summary, "\n") || strings.HasPrefix(r.Summary, " ") {
+			t.Errorf("[%d] 요약이 정리되지 않았다: %q", i, r.Summary)
+		}
+	}
+
+	// 공백만 있는 본문은 그릴 것이 없다 — 행이 본문을 아예 안 갖는 것으로 그렇게 말한다.
+	blank := Rows([]event.Event{
+		mk(1, "part.appended", map[string]any{
+			"messageId": "m9", "role": "assistant",
+			"part": map[string]any{"kind": "text", "text": "   \n\t "},
+		}, nil),
+		mk(2, "part.appended", map[string]any{
+			"messageId": "m9", "role": "assistant",
+			"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{
+				"callId": "c9", "name": "bash", "args": map[string]any{"command": "true"},
+			}},
+		}, nil),
+		mk(3, "part.appended", map[string]any{
+			"messageId": "m9", "role": "tool",
+			"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{
+				"callId": "c9", "content": "  \n ",
+			}},
+		}, nil),
+	})
+	for _, r := range blank {
+		if r.Who == WhoAgent {
+			t.Errorf("공백만 있는 답이 행이 됐다: %s", show(t, r))
+		}
+		if r.Who == WhoTool && r.Out != "" {
+			t.Errorf("공백만 있는 결과가 본문으로 실렸다: %q", r.Out)
+		}
+	}
+}
+
 // **Can a later frame NAME the row it changes?**
 //
 // The fold reaches back: a reply clears the bar on the prompt above it, a tool result lands on its
