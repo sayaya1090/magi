@@ -30,6 +30,24 @@ class WireConformanceTest {
         // 물음의 근거 한 줄. 코어 이름은 `report.Filled` 이고 이쪽은 쓰이는 자리에서 읽히게
         // `Ground` 다 — 「채워진 무엇」보다 「무엇을 근거로」가 이 창에서 하는 일이다.
         "Ground" to "Filled",
+        // 브리지가 답하는 행과 그 변화. 이름 앞에 `Bridge` 를 붙인 것은 **어느 프로세스가 하는 말인지**
+        // 가 읽히게 하려는 것이다 — 이 창은 데몬과도 브리지와도 말하고, 같은 낱말(`Row`)이 두 전선에
+        // 다른 모양으로 있으면 부르는 자리에서 구별이 안 된다.
+        "BridgeRow" to "Row", "BridgeOp" to "Op",
+    )
+
+    /**
+     * 짝지을 구조체가 **없는** 것과 그 사유.
+     *
+     * ⚠ 짝이 없다는 것은 이 모양을 **아무도 대조하지 않는다**는 뜻이고, 그래서 적어 둔다. 비워 두면
+     * 「없는 줄 몰랐다」가 되고, 그것이 이 파일의 모든 표가 있는 이유다.
+     */
+    private val unpairable = mapOf(
+        "BridgeFrame" to "브리지는 문의 답을 `map[string]any` 로 쓴다 — `reply`·`fail` 이 그 관용이고 " +
+            "네 문이 다 그렇게 답한다. 그래서 프레임 세 종류(첫 답·차이·끝)에 짝지을 구조체가 없고, " +
+            "그 모양을 붙들고 있는 것은 그 문의 시험뿐이다. 타입으로 바꾸는 것은 브리지 전체의 관용을 " +
+            "바꾸는 일이라 이 조각에 안 넣었다 — 한 구조체로 셋을 덮으면 omitempty 아래에서 " +
+            "`events:0` 같은 정직한 0 이 사라진다.",
     )
 
     private fun goSources(): List<File> {
@@ -68,45 +86,54 @@ class WireConformanceTest {
     }
 
     /** Kotlin 클래스 이름 → 그 클래스가 읽는 이름들(@SerialName 이 있으면 그쪽). */
+    /**
+     * 이 창이 전선 모양을 선언하는 파일들. **하나가 아니다** — 데몬의 전선(`Wire.kt`)과 브리지의
+     * 전선(`BridgeWire.kt`)은 서로 다른 프로세스가 하는 말이라 따로 서 있고, 이 시험이 한쪽만 읽으면
+     * 다른 쪽은 대조 없이 자란다(방금 정본 쪽에서 같은 모양을 봤다: 필드 가드가 세 사본 중 둘만 읽고
+     * 있었고, 그래서 시간이 사라질 뻔했다 — 2026-09-14).
+     */
+    private fun wireFiles(): List<File> {
+        val dir = File(System.getProperty("user.dir"), "src/main/kotlin/dev/sayaya/magi/ide/model")
+        val files = listOf("Wire.kt", "BridgeWire.kt").map { File(dir, it) }
+        files.forEach { assertTrue(it.isFile, "${it.name} 을 못 찾았다: $it") }
+        return files
+    }
+
     private fun ktProps(): Map<String, Set<String>> {
-        val src = File(System.getProperty("user.dir"), "src/main/kotlin/dev/sayaya/magi/ide/model/Wire.kt")
-        assertTrue(src.isFile, "Wire.kt 를 못 찾았다: $src")
         val out = mutableMapOf<String, MutableSet<String>>()
         val open = Regex("""^(?:data )?class (\w+)\(""")
         val serial = Regex("""@SerialName\("([^"]+)"\)""")
         // `val x` 는 어노테이션과 **같은 줄**에 오기도 한다(`@SerialName("ageSeconds") val ageSeconds`).
-        // 줄머리만 보면 그 줄을 필드로 못 세고, 그때 아래의 새는 일이 시작된다.
-        // `(` 바로 뒤에 붙은 것도 필드다 — `Actor(val kind: …)` 처럼 한 줄로 적은 데이터 클래스가
-        // 그렇다. `(?:^|\s)` 만 보면 그 첫 필드가 **통째로 안 보이고**, 이름 대조도 그 칸은 한
-        // 번도 안 했다. 이 시험의 짝(아래, 데몬이 보내는 칸을 다 읽나)을 붙이다 드러났다.
+        // 줄머리만 보면 그 줄을 필드로 못 세고, 그때 아래의 새는 일이 시작된다. `(` 바로 뒤에 붙은
+        // 것도 필드다 — `Actor(val kind: …)` 처럼 한 줄로 적은 데이터 클래스가 그렇다.
         val prop = Regex("""(?:^|[\s(])val (\w+)""")
-        var name: String? = null
-        // 「앞줄에 선 @SerialName」. 클래스가 열리거나 닫힐 때 반드시 지운다 — 안 지우면 한 클래스의
-        // 마지막 어노테이션이 **다음 클래스의 첫 필드 이름**이 된다. 처음 이 시험을 돌렸을 때
-        // 실제로 그랬고, Jobs 와 Waiting 두 곳에서 있지도 않은 드리프트를 보고했다.
-        var renameNext: String? = null
-        for (line in src.readLines()) {
-            val m = open.find(line)
-            if (m != null) {
-                name = m.groupValues[1]
-                renameNext = null
-                val props = out.getOrPut(name!!) { mutableSetOf() }
-                // 한 줄에 다 적힌 클래스 — `data class Actor(val kind: String = "", …)`. 여는 줄이
-                // 곧 닫는 줄이라 아래의 `startsWith(")")` 를 영영 못 만나고, 그대로 두면 이 클래스가
-                // **다음 클래스의 필드를 통째로 삼킨다**(Actor 가 ConfigItem 아홉 칸을 먹었다).
-                if (line.count { it == '(' } == line.count { it == ')' }) {
-                    prop.findAll(line).forEach { props.add(it.groupValues[1]) }
-                    name = null
+        for (src in wireFiles()) {
+            var name: String? = null
+            // 「앞줄에 선 @SerialName」. 클래스가 열리거나 닫힐 때 반드시 지운다 — 안 지우면 한 클래스의
+            // 마지막 어노테이션이 **다음 클래스의 첫 필드 이름**이 된다(Jobs·Waiting 에서 실제로 그랬다).
+            var renameNext: String? = null
+            for (line in src.readLines()) {
+                val m = open.find(line)
+                if (m != null) {
+                    name = m.groupValues[1]
+                    renameNext = null
+                    val props = out.getOrPut(name!!) { mutableSetOf() }
+                    // 한 줄에 다 적힌 클래스는 여는 줄이 곧 닫는 줄이라 아래의 `startsWith(")")` 를
+                    // 영영 못 만나고, 그대로 두면 **다음 클래스의 필드를 통째로 삼킨다**.
+                    if (line.count { it == '(' } == line.count { it == ')' }) {
+                        prop.findAll(line).forEach { props.add(it.groupValues[1]) }
+                        name = null
+                    }
+                    continue
                 }
-                continue
-            }
-            if (name == null) continue
-            if (line.startsWith(")")) { name = null; renameNext = null; continue }
-            val here = serial.find(line)?.groupValues?.get(1)
-            val p = prop.find(line)
-            when {
-                p != null -> { out[name]!!.add(here ?: renameNext ?: p.groupValues[1]); renameNext = null }
-                here != null -> renameNext = here
+                if (name == null) continue
+                if (line.startsWith(")")) { name = null; renameNext = null; continue }
+                val here = serial.find(line)?.groupValues?.get(1)
+                val p = prop.find(line)
+                when {
+                    p != null -> { out[name]!!.add(here ?: renameNext ?: p.groupValues[1]); renameNext = null }
+                    here != null -> renameNext = here
+                }
             }
         }
         return out
@@ -217,17 +244,17 @@ class WireConformanceTest {
 
     /** Kotlin 클래스 이름 → (프로퍼티 → 선언된 타입). */
     private fun ktTypes(): Map<String, Map<String, String>> {
-        val src = File(System.getProperty("user.dir"), "src/main/kotlin/dev/sayaya/magi/ide/model/Wire.kt")
-        assertTrue(src.isFile, "Wire.kt 를 못 찾았다: $src")
         val out = mutableMapOf<String, MutableMap<String, String>>()
-        var name: String? = null
         val open = Regex("""^(?:data )?class (\w+)\(""")
         val prop = Regex("""^\s+val (\w+):\s*([\w<>?]+)""")
-        for (line in src.readLines()) {
-            open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
-            if (name == null) continue
-            if (line.startsWith(")")) { name = null; continue }
-            prop.find(line)?.let { out[name]!![it.groupValues[1]] = it.groupValues[2] }
+        for (src in wireFiles()) {
+            var name: String? = null
+            for (line in src.readLines()) {
+                open.find(line)?.let { name = it.groupValues[1]; out.getOrPut(name!!) { mutableMapOf() } }
+                if (name == null) continue
+                if (line.startsWith(")")) { name = null; continue }
+                prop.find(line)?.let { out[name]!![it.groupValues[1]] = it.groupValues[2] }
+            }
         }
         return out
     }
@@ -302,7 +329,12 @@ class WireConformanceTest {
         for ((cls, props) in kt) {
             val twin = renamed[cls] ?: cls
             val tags = go[twin]
-            if (tags == null) { unpaired += "$cls(→$twin)"; continue }
+            if (tags == null) {
+                // 사유와 함께 적힌 것은 짝이 없어도 된다. 사유가 없으면 운다.
+                val why = unpairable[cls]
+                if (why.isNullOrBlank()) unpaired += "$cls(→$twin)"
+                continue
+            }
             val only = props - tags
             if (only.isNotEmpty()) drift += "$cls: ${only.sorted()} — Go 의 $twin 은 이 이름을 안 보낸다"
         }
@@ -312,5 +344,11 @@ class WireConformanceTest {
         assertTrue(unpaired.isEmpty(),
             "Go 짝을 못 찾은 클래스가 있다 — 원천 파일이 목록에서 빠졌거나 구조체 이름이 바뀌었다. " +
                 "이름이 다르면 renamed 에 적을 것: $unpaired")
+        // ★ 면제도 늙는다. 정본이 그 모양을 타입으로 내면 이 줄은 거짓이 되고, 그때부터 **그 모양이
+        // 갈려도 아무도 안 운다**.
+        val nowPaired = unpairable.keys.filter { go.containsKey(renamed[it] ?: it) }
+        assertTrue(nowPaired.isEmpty(),
+            "이 클래스들은 「짝지을 구조체가 없다」고 적혀 있는데 이제 있다 — 사유를 지우고 대조에 " +
+                "넣을 것(면제가 살아 있는 한 그 모양의 드리프트를 아무도 안 잡는다): $nowPaired")
     }
 }

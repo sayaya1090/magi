@@ -93,6 +93,10 @@ tasks.test {
         // 그 패키지는 전선이 아니라 엔진이라, 통째로 대면 와이어와 무관한 구조체가 이름으로
         // 짝지어질 수 있다. 위의 「패키지를 대라」는 규칙은 **전선 패키지**에 대한 것이다.
         "internal/app/context_state.go",
+        // 브리지가 답하는 **행과 그 변화**(`BridgeRow`·`BridgeOp`). 파일을 댄다 — 이 패키지에는
+        // 문의 내부 구조체도 살고(구독·프레임), 통째로 대면 그것들이 이름으로 짝지어질 수 있다.
+        "internal/adapter/idebridge/rows.go",
+        "internal/adapter/idebridge/live.go",
     ).map { rootProject.projectDir.resolve("../../../$it").canonicalFile }
     inputs.files(wireOrigins).withPropertyName("wireOrigins").withPathSensitivity(PathSensitivity.RELATIVE)
     systemProperty("magi.wire.origins", wireOrigins.joinToString(File.pathSeparator) { it.absolutePath })
