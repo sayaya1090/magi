@@ -173,3 +173,63 @@ func TestMaybeUpdateOfflineStampsAndContinues(t *testing.T) {
 		t.Fatalf("offline check should still stamp the attempt: %v", err)
 	}
 }
+
+// 링크 시점 일정 override — **말하고, 말도 안 되는 것은 거절한다**(daemonUpdateEvery 의 두 규칙).
+//
+// 이 변수의 값은 셋이 아니라 둘을 정한다: 데몬이 실제로 지키는 주기와, 그것을 사람이 알 수 있는가.
+// 둘째가 없으면 문서에 없는 주기로 바깥에 손을 뻗는 데몬을 **시간을 재서야** 알아낼 수 있다.
+func TestTheScheduleOverrideIsSaidOrRefusedButNeverSilent(t *testing.T) {
+	for _, c := range []struct {
+		spec  string
+		want  time.Duration
+		bad   bool
+		says  []string
+		quiet bool
+	}{
+		{spec: "", quiet: true},
+		{spec: "   ", quiet: true}, // 셸이 남기는 모양 — export 만 하고 값을 안 준 것
+		{spec: "3s", want: 3 * time.Second, says: []string{"3s", "6h0m0s", updateEveryVar}},
+		{spec: " 90m ", want: 90 * time.Minute, says: []string{"1h30m0s"}},
+		{spec: "yesterday", bad: true, says: []string{`"yesterday"`, "not a duration", "6h0m0s"}},
+		{spec: "250ms", bad: true, says: []string{"250ms", "floor", "1s"}},
+		{spec: "0", bad: true, says: []string{"floor"}},
+		{spec: "-5m", bad: true, says: []string{"floor"}},
+	} {
+		t.Run(c.spec, func(t *testing.T) {
+			got, err := updateEvery(c.spec)
+			switch {
+			case c.bad && err == nil:
+				t.Fatalf("%q 를 받아들였다 (%v) — 데몬이 그 주기로 돈다", c.spec, got)
+			case !c.bad && err != nil:
+				t.Fatalf("%q 를 거절했다: %v", c.spec, err)
+			case !c.bad && got != c.want:
+				t.Fatalf("%q 가 %v 로 읽혔다, %v 여야 한다", c.spec, got, c.want)
+			}
+			// 거절은 **0** 을 돌려줘야 한다. 호출자는 그것을 「설정 안 됨」으로 읽어 상수를 쓰므로,
+			// 거절하면서 값을 함께 돌려주면 거절이 통과가 된다.
+			if c.bad && got != 0 {
+				t.Errorf("거절하면서 %v 를 돌려줬다 — 호출자가 그것을 쓸 수 있다", got)
+			}
+
+			old := daemonUpdateEvery
+			daemonUpdateEvery = c.spec
+			defer func() { daemonUpdateEvery = old }()
+			var said bytes.Buffer
+			announceUpdateSchedule(&said)
+			if c.quiet {
+				if said.Len() != 0 {
+					t.Errorf("기본인데 한 줄을 냈다: %q — 늘 나오는 줄은 아무도 안 읽는다", said.String())
+				}
+				return
+			}
+			if said.Len() == 0 {
+				t.Fatalf("%q 로 지어졌는데 아무 말도 안 한다 — 시간을 재야 알 수 있는 일정이 된다", c.spec)
+			}
+			for _, want := range c.says {
+				if !strings.Contains(said.String(), want) {
+					t.Errorf("낸 줄에 %q 가 없다: %q", want, said.String())
+				}
+			}
+		})
+	}
+}

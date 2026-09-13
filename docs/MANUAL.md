@@ -486,6 +486,15 @@ new binary's `--version` as a pre-flight — **rolling back to the previous buil
 fails** — and then restarts onto it once nothing is running (no turn in flight, no
 meeting round being composed). The restart reopens the conversation the daemon was on.
 
+**Those 6 hours are a constant, changeable only at build time.** Not an environment variable —
+`[update] auto` and `--no-update-check` turn the loop off, and how often it runs when on is not a
+knob an operator is asking for. A binary built with
+`go build -ldflags "-X main.daemonUpdateEvery=3s"` keeps that schedule instead (1s is the floor;
+anything shorter or unreadable is **refused, out loud**) and **says so** — in `magi -version` and
+in one line when the daemon's loop starts. Nothing we ship carries it. It exists so the loop
+itself can be measured live: the first check is up to 1.5 hours away, so the default schedule
+cannot be waited on.
+
 A build that installs and then fails that pre-flight is **reported**, once per cycle:
 `auto-update: update rolled back, the previous build is restored: … — staying on <version>`.
 Being offline or already current says nothing — those are the weather, and a line about the

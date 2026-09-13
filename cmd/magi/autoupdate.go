@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/update"
@@ -25,6 +26,79 @@ var (
 	daemonAutoUpdateTTL     = 6 * time.Hour
 	daemonIdleCheckInterval = 10 * time.Second
 )
+
+// daemonUpdateEvery replaces the six-hour schedule above in a binary built with
+//
+//	go build -ldflags "-X main.daemonUpdateEvery=3s"
+//
+// and is empty in everything we ship. It exists because the LOOP — not the update, the loop — had no
+// way to be measured: `daemonAutoUpdateTTL` is a var a unit test can shrink, and the loop's risk is
+// not in a unit. What it does unattended (notice a release, install it, wait for a quiet moment,
+// restart onto it, come up as the new build) only happens in a real daemon in its own process, and
+// that process's first check is up to 1.5 hours away.
+//
+// # Why a link-time string and not an environment variable
+//
+// `MAGI_RELEASE_API_BASE` (main.go) is an environment variable because pointing at a different
+// release server is a PRODUCT capability — GitHub Enterprise, a private fork — that was merely
+// unsayable at runtime. A check schedule is not: [update] auto turns the loop off, and how often it
+// runs when on is this project's decision, not a knob an operator is asking for. Adding an
+// environment variable for it would ship a switch nobody wants in order to let a test run.
+//
+// The same comment refused a test-only BUILD TAG for the release source, and the reason applies here
+// unchanged: a tag left on in a release build changes every self-update path silently. A linker
+// substitution is narrower than both — it must name this one variable, it cannot be flipped on a
+// binary that is already built, and a release build that never passes it gets the schedule in the
+// constant above.
+//
+// Two rules travel with it:
+//
+//  1. **It says so**, on the daemon's own stream when the loop starts and in `magi -version`
+//     (announceUpdateSchedule). A daemon reaching out on a schedule nobody documented should not
+//     have to be timed to be found out.
+//  2. **It is refused when it is nonsense**, out loud, and the constant stands — a build asked for a
+//     schedule and quietly given a different one is worse than one that says no.
+var daemonUpdateEvery string
+
+// updateEveryVar is the linker's name for the variable above, used in the lines that mention it so
+// the text a person reads is the text they would type.
+const updateEveryVar = "main.daemonUpdateEvery"
+
+// updateEveryFloor is the shortest schedule accepted. A cycle downloads, verifies, and installs with
+// a ten-minute timeout, so anything under a second is not a schedule — it is a typo that would have
+// the daemon spend itself on a release server.
+const updateEveryFloor = time.Second
+
+// updateEvery reads the override. (0, nil) means "not set — use the constant"; an error means it was
+// set to something this build will not honour, phrased for the line that says so.
+func updateEvery(spec string) (time.Duration, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(spec)
+	if err != nil {
+		return 0, fmt.Errorf("%s is %q, which is not a duration", updateEveryVar, spec)
+	}
+	if d < updateEveryFloor {
+		return 0, fmt.Errorf("%s is %v, shorter than the %v floor", updateEveryVar, d, updateEveryFloor)
+	}
+	return d, nil
+}
+
+// announceUpdateSchedule writes rule 1's line: what this build's schedule actually is, when it is not
+// the documented one. Silent otherwise — for the same reason announceReleaseSource is silent on the
+// default source: a line that always appears is a line people learn to skip past.
+func announceUpdateSchedule(w io.Writer) {
+	d, err := updateEvery(daemonUpdateEvery)
+	switch {
+	case err != nil:
+		fmt.Fprintf(w, "magi: auto-update: %v — the %v schedule stands\n", err, daemonAutoUpdateTTL)
+	case d > 0:
+		fmt.Fprintf(w, "magi: auto-update: this build checks every %v, not %v — it was built with %s set\n",
+			d, daemonAutoUpdateTTL, updateEveryVar)
+	}
+}
 
 // daemonAutoUpdate is the daemon's self-update loop. On a schedule, if a newer release exists it
 // downloads and commits it with rollback (update.RunCommit), then — once the daemon is idle —
@@ -62,7 +136,15 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 	h := fnv.New64a()
 	h.Write([]byte(sock)) //nolint:errcheck // hash.Hash never errors
 	stamp := filepath.Join(configDir, fmt.Sprintf(".daemon-update-check-%016x", h.Sum64()))
-	quarter := daemonAutoUpdateTTL / 4
+	// Rule 1 of daemonUpdateEvery: the schedule this daemon is actually keeping is said before it
+	// starts keeping it. Resolved from the same function that said it, so the line and the timer can
+	// never disagree; a refused override has already been reported and leaves the constant standing.
+	ttl := daemonAutoUpdateTTL
+	announceUpdateSchedule(os.Stderr)
+	if over, err := updateEvery(daemonUpdateEvery); err == nil && over > 0 {
+		ttl = over
+	}
+	quarter := ttl / 4
 	// A 64-bit hash modulo the window. The two obvious 32-bit spellings are both wrong: a uint32
 	// read directly as a Duration is at most ~4.3 SECONDS of nanoseconds (so `sum32 % quarter` was a
 	// no-op), and scaling as `quarter*sum32>>32` overflows uint64 at any quarter past ~4.3s — which
@@ -80,8 +162,15 @@ func daemonAutoUpdate(ctx context.Context, configDir, current, exe, sock string,
 			return
 		case <-timer.C:
 		}
-		timer.Reset(daemonAutoUpdateTTL)
-		if !updateCheckDue(stamp, daemonAutoUpdateTTL-time.Minute, time.Now()) {
+		timer.Reset(ttl)
+		// A minute of slack, so a restart's own check a moment ago counts — but never more slack than
+		// a quarter of the window, or a short schedule would hand its whole window away and this gate
+		// would be deciding by arithmetic sign rather than by policy.
+		slack := time.Minute
+		if q := ttl / 4; slack > q {
+			slack = q
+		}
+		if !updateCheckDue(stamp, ttl-slack, time.Now()) {
 			continue // this daemon's own recent restart already checked; do not hammer the network
 		}
 		touchStamp(stamp)

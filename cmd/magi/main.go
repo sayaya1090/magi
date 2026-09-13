@@ -507,6 +507,10 @@ func run() int {
 		// Rule 3 of releaseAPIBaseEnv: "where would an update come from" must have an answer a person
 		// can ask for. Silent on the default, so the line only appears when it says something.
 		announceReleaseSource(os.Stdout)
+		// And rule 1 of daemonUpdateEvery, on the same door: an override is baked into the binary, so
+		// unlike the source it cannot be read out of a running process's environment — asking the
+		// binary is the only way. Silent unless this build carries one.
+		announceUpdateSchedule(os.Stdout)
 		return 0
 	}
 	// `-p` given at all (even empty) means headless: an explicit empty prompt should
