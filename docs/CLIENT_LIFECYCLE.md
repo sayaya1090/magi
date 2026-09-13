@@ -84,6 +84,8 @@ An independent daemon explicitly started through the web is managed with an expl
 
 With `owned-daemon-v1`, an IDE launches `magi --daemon --client-owned` and exclusively retains the dedicated child-stdin pipe's write end. Do not pass that end to other children. The core treats EOF as owner termination. Publication and `about` expose an `ownerId` stable across the lineage and an `instanceId` that changes per process. IDs support correlation; the inherited pipe grants lifecycle authority. Preserve the existing user `shutdown` command's authorization.
 
+⚠ **This EOF is reliable on Windows — unlike a socket close (measured 2026-09-14).** On the same machine on the same day, AF_UNIX lost a close that followed a write in 12 of 600 rounds (which is why streams now SAY they are over, `Response.Over`), and a pipe did not: with the parent closing the write end, the child's stdin reached EOF in all 300 rounds. The paragraph above's "do not pass that end to other children" was checked in both runtimes too — creating the pipe, then starting an UNRELATED process, then closing the write end, the owned daemon reached EOF in 60 of 60 rounds under the JVM and 60 of 60 under Node (both runtimes prevent that inheritance on their own). So there is no case for stacking further defences here.
+
 Initial readiness requires the launched child PID, workspace and matching generation in publication and `about`. Reject a generation ID present on only one side; use the PID fallback only when both sides lack it. Retain the confirmed owner to identify later replacements. Unobserved exit reasons remain unknown.
 
 ### Successor and failure recovery
