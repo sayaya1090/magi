@@ -356,16 +356,41 @@ func TestARetryDoesNotShowTheOldFailure(t *testing.T) {
 // 켜도 헬퍼는 그대로라 안 낫는다. 리뷰가 짚은 블로커다(2026-09-02).
 func TestAJobThatNeverReturnsDoesNotTrapEveryonePane(t *testing.T) {
 	stuck := make(chan struct{})
-	defer close(stuck)
+	// blocked 는 **그 일이 진짜로 그 자리에 걸렸다**는 신호다. 앞 판본은 첫 두드림이 `working` 을
+	// 답하는 것만 보고 넘어갔는데, 그것은 고루틴이 떴다는 말일 뿐 탐침에 닿았다는 말이 아니다 —
+	// `-race` 아래(느리다)에서는 그 고루틴이 탐침에 닿기 전에 아래의 깃발이 서서 **걸리지 않고
+	// 지나갔다**. 그러면 이 시험이 세운 전제가 없어진 것이고, 실측 3/3 빨강이었다.
+	blocked := make(chan struct{}, 1)
 	// **손을 갈아 끼우지 않고 스위치를 켠다.** 첫 두드림이 띄운 마련 고루틴이 `Own.Alive` 를 읽는
 	// 시점은 시험이 모른다 — 필드를 다시 대입하면 그 읽기와 경합한다(-race 가 CI 에서 잡았다,
 	// 2026-09-06). 같은 함수가 원자 깃발을 보고 갈린다.
 	var release atomic.Bool
+	// ⚠ **시계도 필드 대입이 아니라 깃발로 돌린다.** 앞 판본은 첫 두드림이 고루틴을 띄운 뒤에
+	// `Work.now` 를 대입했는데, 그 고루틴이 같은 필드를 읽으므로 `Own.Alive` 와 똑같은 경합이다.
+	// 함수는 고루틴이 생기기 전에 한 번만 놓고, 안에서 원자 깃발을 본다.
+	var ahead atomic.Bool
+	// ⚠ 세는 자리는 **명단 읽기**다. `Alive` 로 세면 마련 수가 안 나온다 — 마련이 끝난 뒤 판을
+	// 묶는 두드림도 같은 탐침을 쓰므로 마련 하나가 둘로 세인다(처음 그렇게 셌다). 명단은 마련
+	// 하나가 한 번 읽는다.
+	var provisions atomic.Int64
 	rig := ownFixture(t, func(a *API, _ *ownRig) {
+		was := a.ReadFleet
+		a.ReadFleet = func(dir string) ([]Companion, error) {
+			provisions.Add(1)
+			return was(dir)
+		}
+		a.Work.now = func() time.Time {
+			if ahead.Load() {
+				// 실물에서 3분을 기다리는 시험은 아무도 안 돌린다.
+				return time.Now().Add(stuckAfter + time.Second)
+			}
+			return time.Now()
+		}
 		a.Own.Alive = func(string) bool { // 깃발이 서기 전에는 영영 안 돌아온다
 			if release.Load() {
 				return true
 			}
+			blocked <- struct{}{}
 			<-stuck
 			return true
 		}
@@ -373,14 +398,44 @@ func TestAJobThatNeverReturnsDoesNotTrapEveryonePane(t *testing.T) {
 	if got := rig.poke(t); got.Phase != OwnWorking {
 		t.Fatalf("첫 두드림이 일하는 중이 아니다: %+v", got)
 	}
-	// 시계를 앞으로 돌린다 — 실물에서 3분을 기다리는 시험은 아무도 안 돌린다.
-	rig.api.Work.now = func() time.Time { return time.Now().Add(stuckAfter + time.Second) }
+	<-blocked // 그 일이 그 자리에 걸릴 때까지. 이 줄이 이 시험의 전제다.
 
-	// 이번엔 되는 손으로 다시 두드린다.
+	// 이번엔 되는 손으로 다시 두드린다 — 이 한 번만 시계가 앞에 있다.
 	release.Store(true)
+	ahead.Store(true)
 	rig.poke(t)
+	ahead.Store(false)
 	if got := rig.settle(t); got.Phase != OwnReady {
 		t.Fatalf("걸린 일을 넘겨받지 못했다 — 사람이 갇힌다: %+v", got)
+	}
+	// ⚠ **넘겨받기는 한 번이다.** 판은 이 자리를 1초마다 두드리고, `Begin` 은 넘겨받을 때
+	// `began` 을 지금으로 다시 세운다 — 그래서 실물에서는 걸린 일 하나가 마련을 하나 낳는다.
+	//
+	// 앞 판본은 시계를 **끝까지** 앞에 세워 두었으므로 `settle` 의 폴마다 그 일이 다시 「걸린 것」
+	// 으로 읽혀 마련 고루틴이 셋 떴다(실측). 그중 마지막 것들은 시험이 끝난 뒤에 `Ensure` 의
+	// `MkdirAll` 에 닿으므로, `t.TempDir()` 청소가 지운 작업 폴더를 **다시 만든다** — 전체 수트를
+	// 병렬로 돌리던 2026-09-13 에 `TempDir RemoveAll cleanup: directory not empty` 로 한 번 터졌다.
+	// 그 증상은 부하에 달려 있어 따로 재현하지 못했고, 여기서 못박는 것은 원인인 **마련 수**다.
+	if n := provisions.Load(); n != 1 {
+		t.Errorf("걸린 일을 넘겨받는 마련이 %d 개 떴다 — 하나여야 한다. 폴링이 마련을 낳으면 "+
+			"시험이 끝난 뒤에도 그 고루틴들이 작업 폴더를 만들고, 실물에서는 데몬을 여럿 띄운다", n)
+	}
+
+	// **걸렸던 일을 풀고, 끝나는 것을 보고 나간다.**
+	//
+	// ⚠ 이 기다림을 지우는 변이는 **빨개지지 않는다**(2026-09-13 실측). 증상이 전체 수트를 병렬로
+	// 돌릴 때의 청소 경합이라 따로 재현하지 못했고, 자기 단언을 지우는 변이는 원래 실패할 것이
+	// 없다. 그러니 이 줄은 「잡힌 것」이 아니라 누출을 없앤 것으로 읽을 것. 풀린 그 고루틴은 명단을 한 번 더 읽고
+	// 기록만 남기고 끝난다 — `Ensure` 의 유일한 파일 쓰기(`MkdirAll`)는 탐침 **앞**이라 이미
+	// 지났다. 그것을 안 기다리면 시험이 끝난 뒤 도는 고루틴이 남고, 이 묶음이 값을 치른 자리가
+	// 바로 그것이다.
+	close(stuck)
+	for deadline := time.Now().Add(2 * time.Second); provisions.Load() < 2; {
+		if time.Now().After(deadline) {
+			t.Error("풀어 준 일이 끝나지 않았다 — 시험 뒤에 도는 고루틴이 남는다")
+			break
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
