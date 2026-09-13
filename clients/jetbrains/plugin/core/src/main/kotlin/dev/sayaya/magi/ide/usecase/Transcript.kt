@@ -200,6 +200,10 @@ class Transcript(
                         // — 실제로 그랬고, 코어가 이 표를 보내기 시작한 그날 이 창은 아무것도 안
                         // 달라졌다. 전선에 실리는 것과 화면에 서는 것은 다른 사실이다.
                         r.live -> { sink.caughtUp(); true }
+                        // 스트림이 끝났다고 **말한** 프레임. 여기서 멈추면 아래 `finish(End.ByDaemon)`
+                        // 이 곧바로 돌아 화면이 다시 붙는다. 이 갈래가 없으면 닫힘을 기다리는데,
+                        // 윈도우에서 그 닫힘은 이따금 오지 않는다([Response.over]).
+                        r.over -> false
                         !r.error.isNullOrBlank() -> { finish(End.Broken(r.error)); false }
                         else -> true
                     }

@@ -173,6 +173,20 @@ data class Response(
      * 사건이 없는 프레임에 실려 오므로, 이 칸을 모르는 사본은 거절 안내(`why`)와 똑같이 무시한다.
      */
     val live: Boolean = false,
+    /**
+     * **이 스트림은 끝났다** — 더 올 프레임이 없고 연결이 곧 닫힌다(`live` 의 형제).
+     *
+     * ⚠ **소켓이 닫히는 것은 믿을 수 있는 소식이 아니다.** 윈도우 AF_UNIX 는 쓰기 직후의 닫힘을
+     * 이따금 잃는다 — magi 없이 순수 소켓으로 재서 600회 중 12회(2026-09-13, 코어의
+     * `Response.Over` 에 표가 있다). 데이터는 도착하고 **파일 끝만** 안 온다.
+     *
+     * 그 값이 이 창에서 무엇인가: [Transcript.follow] 의 워커는 스트림이 끝나야
+     * `End.ByDaemon` 을 말하고, 그 말이 **다시 붙기**를 정한다. 닫힘을 잃으면 워커는 영원히 읽고
+     * 있고, 창은 살아 보이는데 아무것도 안 온다 — [End] 의 주석이 막으려는 바로 그 모양이다.
+     * 그래서 끝을 문장으로 받는다. 기한으로는 못 지킨다: 조용한 스트림이 정상이라 침묵과 잃어버린
+     * 닫힘이 같은 얼굴이다.
+     */
+    val over: Boolean = false,
     /** 플릿 — `roster` 문의 답(`internal/adapter/daemon/roster.go` 의 `RosterRow`). */
     val roster: List<RosterRow>? = null,
     /** 작업 — `jobs` 문의 답(`internal/adapter/daemon/protocol.go` 의 `Jobs`). */

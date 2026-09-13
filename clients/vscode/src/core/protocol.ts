@@ -180,6 +180,20 @@ export interface Response {
    * looks identical whether the replay has not arrived or nothing was ever said in it.
    */
   live?: boolean;
+  /**
+   * A stream is **finished** — no further frame is coming and the connection is about to close.
+   * `live`'s sibling, for the other end of the same problem.
+   *
+   * ⚠ **The closing of a socket is not reliable news on Windows.** AF_UNIX there loses a close that
+   * follows a write too closely: measured with no magi code involved, 12 of 600 rounds (2026-09-13;
+   * the core's `Response.Over` carries the whole table). The data arrives and the end-of-file does
+   * not, so a reader that waits for the socket waits for ever. A deadline is no defence — a quiet
+   * transcript stream is normal, so silence and a lost close look the same.
+   *
+   * Arrives on a frame with no event, like `live` and `why`, so a reader that ignores it behaves
+   * exactly as it did before: it goes back to waiting for the close.
+   */
+  over?: boolean;
   session?: string;
   /**
    * `sessions` / `children`: one conversation, as `daemon.SessionRow` spells it.

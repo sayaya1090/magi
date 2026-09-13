@@ -67,6 +67,48 @@ class TranscriptTest {
         return sink to fake
     }
 
+
+    /**
+     * **프레임을 주고 나서 닫힘이 오지 않는 소켓** — 윈도우 AF_UNIX 가 이따금 하는 짓이다.
+     *
+     * magi 없이 순수 소켓으로 재서 600회 중 12회, 쓰기 직후에 닫으면 상대가 파일 끝을 잃는다
+     * (2026-09-13, 코어의 `Response.Over`). 데이터는 도착하고 끝만 안 온다. 그래서 [Scripted] 처럼
+     * 「프레임이 떨어지면 돌아오는」 가짜로는 이 결함을 **못 잰다** — 그 가짜에서는 닫힘이 언제나
+     * 온다.
+     */
+    private class LostClose(private val frames: List<Response>) : Daemon {
+        private val shut = CountDownLatch(1)
+        var closed = false
+        override fun exchange(request: Request) = Response(ok = true)
+        override fun stream(request: Request, each: (Response) -> Boolean) {
+            for (f in frames) if (!each(f)) return
+            shut.await() // 닫힘이 오지 않는다
+            throw java.io.IOException("socket closed")
+        }
+        override fun close() { closed = true; shut.countDown() }
+    }
+
+    /**
+     * **끝났다고 말한 스트림은 끝난다 — 닫힘을 기다리지 않는다.**
+     *
+     * 이 창이 다시 붙는 것은 [End.ByDaemon] 이 정하고, 그 말은 워커가 읽기를 마쳐야 나온다. 닫힘을
+     * 잃으면 워커는 영원히 읽고 있고 창은 살아 보이는데 아무것도 안 온다 — [End] 의 주석이 막으려는
+     * 그 모양이다. 코어가 그 끝을 문장으로 보내고(`over`), 여기서 그것을 듣는다.
+     *
+     * 기한으로는 못 지킨다: 조용한 전사 스트림이 정상이라 침묵과 잃어버린 닫힘이 같은 얼굴이다.
+     */
+    @Test
+    fun `끝났다고 말한 스트림은 닫힘 없이도 끝난다`() {
+        val fake = LostClose(listOf(ev(1), Response(ok = true, over = true)))
+        val sink = Collect()
+        val handle = Transcript({ fake }, "s_1").follow(sink)
+        assertTrue(sink.done.await(5, TimeUnit.SECONDS),
+            "끝났다는 프레임을 받고도 안 끝났다 — 이 창은 닫힘을 기다리고 있고, 윈도우에서 그 닫힘은 안 올 수 있다")
+        assertEquals(End.ByDaemon, sink.end, "데몬이 끝낸 것은 고장이 아니다 — 다시 붙어야 한다")
+        assertEquals(listOf("began", "e1"), sink.seen, "끝 프레임이 화면의 줄로 새어 나갔다")
+        handle.close()
+    }
+
     @Test
     fun `보낸 차례 그대로 온다 — 재생이 먼저면 재생이 먼저 보인다`() {
         val (sink, _) = run(listOf(ev(1), ev(2), ev(3)))

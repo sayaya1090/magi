@@ -83,16 +83,28 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // letting two streams feed one transcript — see `opening`.
     if (mine !== this.opening) { s.close(); return; }
     this.stream = s;
-    s.whenClosed(() => {
+    // ⚠ **A stream that ends is not a conversation that ended.** The daemon restarts often — a
+    // self-update, a crash, somebody stopping it — and until now this window just stopped
+    // receiving: no new rows, no word, and a panel that looks like a companion with nothing to
+    // say. The JetBrains client tells the three endings apart and reattaches on two of them.
+    const ended = () => {
       if (this.stream !== s) return;   // we moved on, or the panel closed — not an ending to report
       this.stream = null;
-      // ⚠ **A stream that ends is not a conversation that ended.** The daemon restarts often — a
-      // self-update, a crash, somebody stopping it — and until now this window just stopped
-      // receiving: no new rows, no word, and a panel that looks like a companion with nothing to
-      // say. The JetBrains client tells the three endings apart and reattaches on two of them.
       this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
       void this.reattach();
-    });
+    };
+    // Two ways to learn it, and the socket is the less reliable one.
+    //
+    // ⚠ **On Windows the closing of a socket is not reliable news.** AF_UNIX there loses a close
+    // that follows a write too closely — measured with no magi code involved, 12 of 600 rounds
+    // (2026-09-13; the core's `Response.Over` carries the table). The frame arrives and the close
+    // does not, so a panel waiting for `whenClosed` waits for ever: alive-looking, and nothing
+    // coming. That is the shape the paragraph above says was fixed. A deadline is no defence
+    // either — a quiet transcript stream is normal, so silence and a lost close look the same.
+    //
+    // So the daemon SAYS the stream is over (`over`), and this reads it. Whichever arrives first
+    // wins; the guard above makes the second one a no-op.
+    s.whenClosed(ended);
     /**
      * ⚠ **The panel is emptied here, not when the first frame lands.**
      *
@@ -122,6 +134,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
          and a note on every attach would be noise in the one line notes have.
          Nothing is claimed when the marker does not come: an older daemon never sends it, and a panel
          that waited for it would be worse than the ambiguity it was meant to fix. */
+      else if (r.over) ended();
       else if (r.live && this.events.length === 0) {
         this.post({ kind: 'note', text: 'Caught up — nothing has been said in this conversation yet.' });
       }

@@ -495,17 +495,30 @@ test('a parked prompt says so, and the mark is drawn', () => {
 test('a stream that ends says so and is picked up again', () => {
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
 
-  const at = chat.indexOf('s.whenClosed(');
+  const at = chat.indexOf('const ended = () => {');
   assert.ok(at > 0, 'nothing watches for the stream ending — this guard is reading nothing');
   // ⚠ Cut at the block's own end, not by a character count. A 900-char window reached into
   // `reattach()` below, so deleting the note HERE still matched its note THERE and the mutation
   // survived — the guard was reading the wrong function's words.
-  const closed = chat.slice(at, chat.indexOf('\n    });', at));
-  assert.ok(closed.length > 50 && closed.length < 900, `the whenClosed block did not cut cleanly (${closed.length})`);
+  const closed = chat.slice(at, chat.indexOf('\n    };', at));
+  assert.ok(closed.length > 50 && closed.length < 900, `the ending block did not cut cleanly (${closed.length})`);
   assert.ok(/kind: 'note'/.test(closed), 'the stream ends and the person is told nothing');
   assert.ok(/reattach\(/.test(closed), 'the stream ends and nothing tries to get it back');
   // Somebody else may already have moved on. Reattaching then would drag them back.
   assert.ok(/this\.stream !== s/.test(closed), 'an ending is reported for a stream we already replaced');
+
+  // TWO ways in, and the socket is the less reliable one.
+  //
+  // ⚠ **On Windows the closing of a socket is not reliable news.** AF_UNIX there loses a close that
+  // follows a write too closely — 12 of 600 rounds, measured with no magi code in the picture
+  // (2026-09-13; the core's `Response.Over` carries the table). The frame arrives, the close does
+  // not, and a panel waiting only for `whenClosed` waits for ever: alive-looking, nothing coming —
+  // the very shape the paragraph above says was fixed. A deadline is no defence either, because a
+  // quiet transcript stream is normal and silence looks the same as a lost close.
+  assert.ok(/s\.whenClosed\(ended\)/.test(chat), 'the socket closing no longer reports the ending');
+  assert.ok(/r\.over\b[^\n]*ended\(\)/.test(chat),
+    'the daemon SAYS when a stream is over and this panel ignores it — on Windows the close it waits ' +
+    'for instead can be lost, and then the panel never reconnects');
 
   const rat = chat.indexOf('private async reattach(');
   assert.ok(rat > 0, 'reattach is called and not defined');
