@@ -127,6 +127,9 @@ type Row struct {
 	ReadOnly bool `json:"readOnly,omitempty"`
 	// Cite is the fragment of the record this verdict rests on, or NO-EVIDENCE. It is CHECKABLE,
 	// and an empty one on a "done" is itself worth seeing.
+	//
+	// Kept exactly as it came, whitespace and all: it is a QUOTE, and a trimmed quote no longer
+	// matches the thing it is quoting — which is the one property this field exists for.
 	Cite string `json:"cite,omitempty"`
 	// Keep is what this member says a revision must preserve — emitted regardless of the decision,
 	// because an approving member's keep is what a rewrite forced by somebody else would drop.
@@ -136,7 +139,8 @@ type Row struct {
 	//
 	// It matters most where there is nothing else: a member whose reply arrived as reasoning ALONE
 	// is recorded silent, and without this the surface draws a considered shrug over thousands of
-	// characters of work. Folded like every other reasoning row.
+	// characters of work. Folded like every other reasoning row — and kept whole like one, since a
+	// reasoning stream one layer up is not trimmed either.
 	Thought string `json:"thought,omitempty"`
 	// Confidence is how sure the member was, 0..1, self-reported and WEIGHED: the tally is a
 	// confidence-weighted sum, so a done at 0.2 and a done at 0.95 do not count the same. A
@@ -159,6 +163,11 @@ type Row struct {
 	// tells failure from success, Note marks an advisory result (whose text is what the AGENT must act
 	// on, so drawing it like a failure would colour a successful write as a broken one), and Folded
 	// marks bodies shut until somebody asks.
+	//
+	// ⚠ **Including a body with no words in it.** A result of `"  \n "` is carried as `"  \n "`: this
+	// row belongs to a CALL, so nothing here has to earn it by being non-empty, and "the file holds
+	// three spaces" is a different answer from "the tool returned nothing". Summary is empty for such a
+	// body, which is how a list says there is nothing to read without the fact being gone.
 	Out string `json:"out,omitempty"`
 
 	// Pending is a prompt with no answer yet — the screen draws a bar beside it.

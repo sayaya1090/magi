@@ -328,7 +328,13 @@ func TestWhitespaceIsContent(t *testing.T) {
 		}
 	}
 
-	// 공백만 있는 본문은 그릴 것이 없다 — 행이 본문을 아예 안 갖는 것으로 그렇게 말한다.
+	// ⚠ **공백만 있는 본문에서 두 갈래가 갈린다.**
+	//
+	// 본문이 곧 행인 자리(사람이 한 말, 답, 생각)에서는 공백뿐이면 **행을 안 만든다** — 그릴 것이
+	// 없는 행을 세우는 것이므로. 행이 다른 이유로 이미 있는 자리(도구 결과는 **호출**의 행에
+	// 앉는다)에서는 **그대로 싣는다**: 「이 파일에 공백 셋이 들어 있다」와 「도구가 아무것도 안
+	// 답했다」는 다른 답이고, 둘을 한 글자로 합치는 것은 깎기와 같은 손실의 한 단계 작은 판이다
+	// (리뷰가 짚었다, 2026-09-13 — 이 시험의 앞 판본이 그 합침을 못박고 있었다).
 	blank := Rows([]event.Event{
 		mk(1, "part.appended", map[string]any{
 			"messageId": "m9", "role": "assistant",
@@ -347,13 +353,76 @@ func TestWhitespaceIsContent(t *testing.T) {
 			}},
 		}, nil),
 	})
+	tools := 0
 	for _, r := range blank {
 		if r.Who == WhoAgent {
 			t.Errorf("공백만 있는 답이 행이 됐다: %s", show(t, r))
 		}
-		if r.Who == WhoTool && r.Out != "" {
-			t.Errorf("공백만 있는 결과가 본문으로 실렸다: %q", r.Out)
+		if r.Who != WhoTool {
+			continue
 		}
+		tools++
+		if r.Out != "  \n " {
+			t.Errorf("공백만 있는 결과가 그대로 안 실렸다: %q — 「공백뿐인 답」과 「빈 답」이 "+
+				"한 글자로 합쳐지면 어느 화면도 둘을 못 가른다", r.Out)
+		}
+		// 그리고 그것이 **목록에 글자를 올리지는 않는다** — 보존과 기본 표시는 다른 결정이다.
+		if r.Summary != "bash true" {
+			t.Errorf("공백뿐인 본문이 요약에 올라왔다: %q", r.Summary)
+		}
+	}
+	if tools != 1 {
+		t.Fatalf("도구 행이 %d 개다 — 이 갈래를 재고 있지 않다", tools)
+	}
+
+	// **진짜 빈 답과는 다르다.** 같은 호출에 내용이 없으면 본문도 없다.
+	empty := Rows([]event.Event{
+		mk(1, "part.appended", map[string]any{
+			"messageId": "m8", "role": "assistant",
+			"part": map[string]any{"kind": "tool-call", "toolCall": map[string]any{
+				"callId": "c8", "name": "bash", "args": map[string]any{"command": "true"},
+			}},
+		}, nil),
+		mk(2, "part.appended", map[string]any{
+			"messageId": "m8", "role": "tool",
+			"part": map[string]any{"kind": "tool-result", "toolResult": map[string]any{
+				"callId": "c8", "content": "",
+			}},
+		}, nil),
+	})
+	if len(empty) != 1 || empty[0].Out != "" {
+		t.Errorf("빈 결과가 빈 본문이 아니다: %s", show(t, empty))
+	}
+
+	// **평결의 본문들도 같다** — 투표가 만든 행에 얹혀 오므로 온 대로 싣는다.
+	verdict := Rows([]event.Event{
+		mk(1, "council.verdict", map[string]any{
+			"member": "alpha", "round": 1, "decision": " done ", "lens": " correctness ",
+			"rationale": "    the diff keeps the guard\n", "cite": "    if err != nil {\n",
+			"keep": "  the guard  ", "thought": "  weighing it  ",
+		}, nil),
+	})
+	if len(verdict) != 1 {
+		t.Fatalf("평결이 한 행이 아니다: %s", show(t, verdict))
+	}
+	v := verdict[0]
+	for _, c := range []struct{ what, got, want string }{
+		{"rationale", v.Text, "    the diff keeps the guard\n"},
+		{"cite", v.Cite, "    if err != nil {\n"},
+		{"keep", v.Keep, "  the guard  "},
+		{"thought", v.Thought, "  weighing it  "},
+	} {
+		if c.got != c.want {
+			t.Errorf("평결의 %s 가 깎였다: %q (원문 %q)", c.what, c.got, c.want)
+		}
+	}
+	// 토큰은 반대다 — 「 done 」과 「done」은 같은 상태여야 한다.
+	if v.Decision != "done" || v.Lens != "correctness" {
+		t.Errorf("토큰이 깎이지 않았다: decision=%q lens=%q — 공백이 붙은 낱말을 다른 상태로 "+
+			"읽으면 화면이 없는 판정을 그린다", v.Decision, v.Lens)
+	}
+	if strings.Contains(v.Summary, "\n") || strings.TrimSpace(v.Summary) != v.Summary {
+		t.Errorf("요약이 한 줄이 아니거나 공백을 안고 있다: %q", v.Summary)
 	}
 }
 

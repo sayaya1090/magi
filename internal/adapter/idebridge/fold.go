@@ -43,12 +43,27 @@ func name(rows []Row) {
 	}
 }
 
-// body is a whole text, or "" when there is nothing in it.
+// body is a whole text, or "" when there is nothing but whitespace in it.
 //
 // ⚠ **Trimming decides whether there is a body; it does not produce one.** These bodies used to be
 // stored trimmed, and for a tool's output that is a real loss: `"    return x\n"` became `"return x"`,
 // so the indentation — which in code output IS the content — was gone by the time any screen saw it.
-// A blank body is still nothing (a row with nothing to draw), and that one case stays.
+//
+// ⚠ **And it is only for the places where the body IS the row.** A prompt, an assistant part, a
+// member's rationale: there the text is the row's whole reason to exist, so whitespace-only means
+// nothing was said and the row is not made (or the fallback words are). Where the row exists for
+// another reason — a tool result lands on its CALL's row, a verdict's reasoning rides beside a vote
+// that was cast — the body is kept exactly as it came, whitespace-only included: "this file holds
+// three spaces" and "the tool returned nothing" are different answers, and collapsing them is the
+// same loss as the trim, one step smaller (the review named it, 2026-09-13).
+//
+// What stays trimmed on purpose, because it is not a body:
+//
+//   - **tokens** — a decision, a lens, a rule, a session id, a vote tally. A provider that writes
+//     `" done "` means the same word as `done`, and comparing those as different states is a bug.
+//   - **pieces of a sentence this fold composes** — an error's message (it gets " (recovered)"
+//     appended), a council note joined with " — ". Those are renderings, and a rendering that keeps a
+//     trailing newline in the middle of a sentence is just broken.
 func body(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return ""
@@ -494,9 +509,12 @@ func convenedRow(seq int64, d map[string]any) *Row {
 // a seat was missing. The prose that DID arrive is never dropped either: a silent verdict has
 // arrived carrying a full rationale, and a shaper that drew the fallback words instead lost them.
 func verdictRow(seq int64, d map[string]any) *Row {
-	text := strings.TrimSpace(str(d, "feedback"))
+	// A rationale is a body: kept whole, because a member quoting three indented lines of a diff is
+	// saying something with that indentation. Blank still means "no prose", which is what the
+	// fallback below answers.
+	text := body(str(d, "feedback"))
 	if text == "" {
-		text = strings.TrimSpace(str(d, "rationale"))
+		text = body(str(d, "rationale"))
 	}
 	silent := isTrue(d, "silent")
 	if text == "" && silent {
@@ -507,9 +525,13 @@ func verdictRow(seq int64, d map[string]any) *Row {
 		Decision: strings.TrimSpace(str(d, "decision")),
 		Silent:   silent,
 		Lens:     strings.TrimSpace(str(d, "lens")),
-		Cite:     strings.TrimSpace(str(d, "cite")),
-		Keep:     strings.TrimSpace(str(d, "keep")),
-		Thought:  strings.TrimSpace(str(d, "thought"))}
+		// Bodies, not tokens — and they ride on a row the VOTE made, so they are kept as they came.
+		// A cite is a fragment of the record and meant to be checkable against it; a trimmed quote no
+		// longer matches what it quotes. Thought is the provider's reasoning stream, the same fact as
+		// a reasoning part one layer up, which is kept whole there.
+		Cite:    str(d, "cite"),
+		Keep:    str(d, "keep"),
+		Thought: str(d, "thought")}
 	if c := num(d, "confidence"); c > 0 {
 		row.Confidence = &c
 	}
@@ -678,11 +700,15 @@ func said(content any) string {
 		}
 		t = string(b)
 	}
-	// ⚠ **Whole, and not even trimmed.** This is what a tool said. It used to arrive clipped to one
-	// line — so a stack trace or a compiler's three lines reached a screen as its first line — and
-	// then, after that was fixed, still trimmed: `"    return x\n"` became `"return x"`, and in code
-	// output the indentation IS the content. Row.Summary carries the one-line form for lists.
-	return body(t)
+	// ⚠ **Whole, not trimmed, and not blanked.** This is what a tool said, and this row exists because
+	// a CALL was made — so nothing here has to earn the row by being non-empty. It used to arrive
+	// clipped to one line (a stack trace reached a screen as its first line), then trimmed
+	// (`"    return x\n"` became `"return x"`, and in code output the indentation IS the content), and
+	// then blanked when it was whitespace ALONE — which made "this file holds three spaces"
+	// indistinguishable from "the tool returned nothing". Preserving the body and deciding what a
+	// screen shows are two decisions; Ok, Note and Folded make the second one, and Row.Summary carries
+	// the one line a list draws — empty, for a body with no words in it.
+	return t
 }
 
 // clip is one line, bounded. A row is a line — a summary that wraps is not a summary.
