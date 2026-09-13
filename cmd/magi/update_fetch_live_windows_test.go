@@ -491,3 +491,106 @@ func TestASuccessorThatCannotBeStartedRollsBackAndComesUpOnThePreviousBuild(t *t
 		t.Fatalf("이전 판으로 서비스하는 데몬이 없다:\n%s", said)
 	}
 }
+
+// U03 의 검증 갈래 — **못 받았거나, 내 것이 아니거나, 중간에 끊긴 것은 아무것도 설치하지 않는다.**
+//
+// 앞의 시험들이 「받아서 설치한다」와 「체크섬이 틀리면 안 한다」이고, 이것은 그 사이의 세 갈래다. 셋 다
+// 같은 것을 단언한다: 기존 설치가 **그대로**이고, 거절의 이유가 **그 갈래의 이름**으로 나온다. 이유가
+// 뭉개지면 오프라인인 사람과 아키텍처가 틀린 사람이 같은 문장을 읽는다.
+func TestARefusedDownloadChangesNothing(t *testing.T) {
+	t.Run("아무도 없는 주소", func(t *testing.T) {
+		w := fetchSetup(t)
+		was := w.versionOnDisk(t)
+		// 열려 있던 포트를 닫아 **확실히 아무도 없는** 주소를 만든다. 임의의 번호를 고르면 남이 쓰고
+		// 있을 수 있고, 그때 이 시험은 다른 것을 잰다.
+		dead := httptest.NewServer(http.NotFoundHandler())
+		base := dead.URL
+		dead.Close()
+
+		said, code := w.update(t, base)
+		if code == 0 {
+			t.Errorf("닿지도 못했는데 성공으로 끝났다:\n%s", said)
+		}
+		if got := w.versionOnDisk(t); got != was {
+			t.Errorf("못 받았는데 판이 바뀌었다: %q → %q", was, got)
+		}
+		if _, err := os.Stat(w.exe + ".prev"); err == nil {
+			t.Error("받지도 못한 교체의 백업이 남았다")
+		}
+	})
+
+	t.Run("내 아키텍처의 자산이 없다", func(t *testing.T) {
+		w := fetchSetup(t)
+		was := w.versionOnDisk(t)
+		// 릴리스는 있고, 그 안에 이 기계의 자산만 없다 — 포크가 한 플랫폼만 굽거나, 빌드가 하나
+		// 실패했을 때의 모양이다.
+		mux := http.NewServeMux()
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		mux.HandleFunc("/repos/sayaya1090/magi/releases/latest", func(wr http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintf(wr, `{"tag_name":%q,"assets":[{"name":"magi_plan9_mips.tar.gz",`+
+				`"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
+				liveTag, srv.URL+"/dl/a", srv.URL+"/dl/sums")
+		})
+		mux.HandleFunc("/dl/sums", func(wr http.ResponseWriter, _ *http.Request) {
+			fmt.Fprint(wr, "0000  magi_plan9_mips.tar.gz\n")
+		})
+
+		said, code := w.update(t, srv.URL)
+		if code == 0 {
+			t.Errorf("내 것이 없는데 성공으로 끝났다:\n%s", said)
+		}
+		if !strings.Contains(said, update.AssetName()) {
+			t.Errorf("무엇을 찾다 없었는지 말하지 않는다:\n%s", said)
+		}
+		if got := w.versionOnDisk(t); got != was {
+			t.Errorf("설치할 것이 없는데 판이 바뀌었다: %q → %q", was, got)
+		}
+	})
+
+	t.Run("전송이 중간에 끊긴다", func(t *testing.T) {
+		w := fetchSetup(t)
+		was := w.versionOnDisk(t)
+		full := tarGz(t, w.newBin)
+		mux := http.NewServeMux()
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		asset := update.AssetName() + ".tar.gz"
+		mux.HandleFunc("/repos/sayaya1090/magi/releases/latest", func(wr http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintf(wr, `{"tag_name":%q,"assets":[{"name":%q,"browser_download_url":%q},`+
+				`{"name":"checksums.txt","browser_download_url":%q}]}`,
+				liveTag, asset, srv.URL+"/dl/a", srv.URL+"/dl/sums")
+		})
+		// 체크섬은 **온전한** 아카이브의 것이다 — 서버가 거짓말을 해서가 아니라, 받은 것이 다르기
+		// 때문에 걸린다.
+		//
+		// ⚠ **이 회차가 잰 것은 「아무것도 설치되지 않는다」이고, 「체크섬이 그것을 잡는다」가 아니다.**
+		// 변이로 `RunCommit` 의 체크섬 검사를 꺼도 이 회차는 초록이다 — 찢어진 gzip 이 압축 해제에서
+		// 걸리기 때문이다(가드가 둘 있는 셈이고, 그것이 나쁜 일은 아니다). 체크섬이 실제로 그 일을
+		// 하는지는 **온전한 아카이브에 틀린 digest** 를 붙인 위의 시험이 잡고, 그 변이는 거기서 네
+		// 자리로 빨개진다. 처음에 이 주석은 반대로 적혀 있었다.
+		mux.HandleFunc("/dl/sums", func(wr http.ResponseWriter, _ *http.Request) {
+			fmt.Fprintf(wr, "%s  %s\n", trueDigest(full), asset)
+		})
+		mux.HandleFunc("/dl/a", func(wr http.ResponseWriter, _ *http.Request) {
+			half := full[:len(full)/2]
+			// 길이를 온전한 것으로 알리고 절반만 보낸다 — 끊긴 전송이 밖에서 보이는 모양이다.
+			wr.Header().Set("Content-Length", fmt.Sprint(len(full)))
+			_, _ = wr.Write(half)
+			if f, ok := wr.(http.Flusher); ok {
+				f.Flush()
+			}
+		})
+
+		said, code := w.update(t, srv.URL)
+		if code == 0 {
+			t.Errorf("절반만 받았는데 성공으로 끝났다:\n%s", said)
+		}
+		if got := w.versionOnDisk(t); got != was {
+			t.Errorf("절반을 설치했다: %q → %q", was, got)
+		}
+		if _, err := os.Stat(w.exe + ".prev"); err == nil {
+			t.Error("실패한 교체의 백업이 남았다 — 다음 기동이 그것을 끊긴 교체로 읽는다")
+		}
+	})
+}
