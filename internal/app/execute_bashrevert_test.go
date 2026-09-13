@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,6 +17,59 @@ import (
 	"github.com/sayaya1090/magi/internal/core/event"
 	"github.com/sayaya1090/magi/internal/core/session"
 )
+
+// ⚠ **이 둘은 진짜 셸에 진짜 명령을 먹인다** — 그게 요점이다(결함이 이음매에 있었고, 가드만 단위로
+// 재면 고침 전에도 초록이었다). 그래서 픽스처가 **플랫폼의 셸로** 말해야 한다. 윈도우의 `bash` 도구는
+// `powershell -NoProfile -Command` 이고(`builtin.Shell`), Windows PowerShell 5.1 에는 `&&` 가 없다 —
+// 픽스처가 POSIX 로 적혀 있어서 이 기계에서는 셸의 **구문 오류**를 재고 있었다(실측 2026-09-13:
+// `'&&' 토큰은 이 버전에서 올바른 문 구분 기호가 아닙니다`).
+//
+// 번역기를 쓰지 않고 **쓰는 모양마다 두 벌**을 적는다. 일반 번역은 이 시험이 안 쓰는 경우까지 떠안고,
+// 틀리면 제품이 아니라 그 번역을 재게 된다.
+//
+// 되돌리기 왕복이 **바이트까지 같은 상태로** 돌아가야 이 시험이 성립한다(가드가 내용을 견준다).
+// `Get-Content`/`Set-Content` 는 줄 끝을 CRLF 로 통일하지만, 그 통일이 양쪽 방향에 같이 걸리므로
+// A→B→A 는 처음 바이트열로 정확히 돌아온다. 백업 사본은 바이트 복사라 그쪽도 그대로다.
+type shellSays struct{ posix, powershell string }
+
+func (s shellSays) cmd() string {
+	if runtime.GOOS == "windows" {
+		return s.powershell
+	}
+	return s.posix
+}
+
+// swap is the one shape both tests lean on: an in-place substitution, written so that the two
+// directions of a restore loop are DIFFERENT command texts — an identical text is not a new mutation
+// at all and never reaches the content comparison the tests are about.
+func swap(file, from, to string) shellSays {
+	return shellSays{
+		posix:      "sed -i.tmp 's/" + from + "/" + to + "/' " + file + " && rm -f " + file + ".tmp",
+		powershell: "(Get-Content " + file + ") -replace '" + from + "','" + to + "' | Set-Content " + file,
+	}
+}
+
+// The other shapes, each written twice for the same reason.
+func copyFile(from, to string) shellSays {
+	return shellSays{posix: "cp " + from + " " + to, powershell: "Copy-Item " + from + " " + to}
+}
+
+func writeLine(text, file string) shellSays {
+	return shellSays{
+		posix:      "printf '" + text + "\\n' > " + file,
+		powershell: "Set-Content " + file + " '" + text + "'",
+	}
+}
+
+// removeTree names a path that is NOT there — that is the whole subject of the second test. The
+// PowerShell spelling has to say so out loud: without -ErrorAction the cmdlet writes an error for a
+// missing path, which is fine for the assertion but noise in the log of a test about saying nothing.
+func removeTree(path string) shellSays {
+	return shellSays{
+		posix:      "rm -rf " + path,
+		powershell: "Remove-Item -Recurse -Force -ErrorAction SilentlyContinue " + path,
+	}
+}
 
 // TestBashRestoreLoopKeepsTheProgressWindowClimbing drives REAL bash commands through executeTool,
 // because the guard machinery this relies on was already correct and merely unreachable from the
@@ -46,13 +100,13 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 		}, guard, "")
 	}
 
-	run("cp heap.c heap.c.bak")
+	run(copyFile("heap.c", "heap.c.bak").cmd())
 	if guard.mutationEpoch() == 0 {
 		t.Fatal("precondition: a cp must register as a bash mutation")
 	}
 	// The first patch is REAL progress — a state this file has never held — so it earns a fresh
 	// window. That is the baseline the loop then has to climb away from.
-	run("sed -i.tmp 's/original/patched/' heap.c && rm -f heap.c.tmp")
+	run(swap("heap.c", "original", "patched").cmd())
 	guard.mu.Lock()
 	since0 := guard.sinceProgress
 	guard.mu.Unlock()
@@ -66,8 +120,8 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 	// from the threshold forever and burned its whole budget here. The content read is what sees it,
 	// so the windows must now CLIMB straight through the loop.
 	for i := 0; i < 18; i++ {
-		run("cp heap.c.bak heap.c")
-		run("sed -i.tmp 's/original/patched/' heap.c && rm -f heap.c.tmp")
+		run(copyFile("heap.c.bak", "heap.c").cmd())
+		run(swap("heap.c", "original", "patched").cmd())
 	}
 
 	guard.mu.Lock()
@@ -79,7 +133,7 @@ func TestBashRestoreLoopKeepsTheProgressWindowClimbing(t *testing.T) {
 
 	// The control, in the same run: a bash edit to a state the file has never held IS progress and
 	// restarts the window, so this cannot be mistaken for "bash mutations stopped counting".
-	run("sed -i.tmp 's/patched/brand-new/' heap.c && rm -f heap.c.tmp")
+	run(swap("heap.c", "patched", "brand-new").cmd())
 	guard.mu.Lock()
 	since = guard.sinceProgress
 	guard.mu.Unlock()
@@ -128,17 +182,18 @@ func TestRemovingAPathThatNeverExistedSaysNothing(t *testing.T) {
 		return last
 	}
 
-	// A real file must still register, so the epoch is armed exactly as it was live.
+	// A real file must still register, so the epoch is armed exactly as it was live. `echo … > file`
+	// is the one line here that both shells read the same way, so it stays as it is.
 	run("echo hi > kept.txt")
-	if out := run("rm -rf _build"); strings.Contains(out, "self-edit check") {
+	if out := run(removeTree("_build").cmd()); strings.Contains(out, "self-edit check") {
 		t.Errorf("removing a path that never existed is not a rewrite of anything:\n%s", out)
 	}
 	// The check still fires for what it exists to catch: a mutation whose net effect returns a file
 	// to a state this turn already held. (An IDENTICAL command text is not a new mutation at all, so
 	// it never reaches the content comparison — the swing has to be written two different ways.)
-	run("printf 'A\\n' > f.txt")
-	run("sed -i.tmp 's/A/B/' f.txt && rm -f f.txt.tmp")
-	if out := run("sed -i.bak 's/B/A/' f.txt && rm -f f.txt.bak"); !strings.Contains(out, "self-edit check") {
+	run(writeLine("A", "f.txt").cmd())
+	run(swap("f.txt", "A", "B").cmd())
+	if out := run(swap("f.txt", "B", "A").cmd()); !strings.Contains(out, "self-edit check") {
 		t.Errorf("a mutation that restores a state the turn already held must be reported:\n%s", out)
 	}
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -59,9 +60,24 @@ func TestTheIgnoredArgumentNoteSaysWhetherTheCallRan(t *testing.T) {
 	}
 
 	// The succeeding shape is unchanged: the result is real, just narrower than what was asked.
+	//
+	// ⚠ **The path is MARSHALLED, not pasted.** Spliced into a JSON literal it was valid until the
+	// workdir contained a backslash, and on Windows `t.TempDir()` gives
+	// `C:\Users\…\TestTheIgnored…` — so `\U` became an invalid escape, the call failed at argument
+	// parsing, and this half measured "write refuses broken JSON" while its name promised something
+	// else. Measured 2026-09-13: `invalid arguments: invalid escape sequence \U in string`.
+	//
+	// The product is fine on the path a model actually takes: a model that writes the backslashes
+	// unescaped is repaired before the tool sees it (jsonx.RepairCandidates — asked, and the second
+	// candidate recovers exactly this shape). It was only this fixture that could not say the path.
+	okArgs, err := json.Marshal(map[string]string{
+		"path": filepath.Join(s.Workdir, "x.txt"), "content": "hello", "mode": "append",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	a.executeTool(context.Background(), s, AgentSpec{Name: "coder"}, 0, actor,
-		&session.ToolCall{CallID: "ok", Name: "write",
-			Args: json.RawMessage(`{"path":"` + s.Workdir + `/x.txt","content":"hello","mode":"append"}`)}, g, "")
+		&session.ToolCall{CallID: "ok", Name: "write", Args: okArgs}, g, "")
 	body = resultBody(t, a, sid, "ok")
 	if !strings.Contains(body, "mode") {
 		t.Fatalf("the dropped argument is not named, so nothing here is under test:\n%s", body)

@@ -23,12 +23,12 @@ func TestE2ELanguageLockKorean(t *testing.T) {
 	if base == "" {
 		base = "http://localhost:11434/v1"
 	}
-	if base == "disabled" || !reachable(base) {
-		t.Skipf("ollama not reachable at %s", base)
-	}
 	model := os.Getenv("MAGI_E2E_OLLAMA_MODEL")
 	if model == "" {
 		model = "qwen3-coder:30b"
+	}
+	if base == "disabled" || !serves(base, model) {
+		t.Skipf("ollama does not serve %s at %s", model, base)
 	}
 	store, _ := jsonl.New(t.TempDir())
 	a := New(store, openai.New(base, os.Getenv("MAGI_E2E_API_KEY")), builtin.Default(), bus.New(), platform.New(), Config{

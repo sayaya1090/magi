@@ -225,6 +225,41 @@ var fileMutateVerbs = map[string]bool{
 	"unzip": true, "gunzip": true, "bunzip2": true, "unxz": true, "zstd": true,
 }
 
+// windowsFileMutateVerbs is the same set in the OTHER language this tree's shell speaks.
+//
+// ⚠ **The whole paragraph above was unreachable on Windows.** The `bash` tool runs
+// `powershell -NoProfile -Command` there (builtin.Shell) and the system prompt SAYS so, so the model
+// writes `Copy-Item`, `Set-Content`, `Remove-Item` — and none of them was here. The consequence is
+// the one the comment above already names, on a platform where it was the normal case rather than an
+// edge: a fix cycle registers NO progress, the builds between fixes read as identical no-progress
+// repeats, and the loop guard blocks the third build of a tree that changed every time.
+//
+// Measured 2026-09-13: `Copy-Item heap.c heap.c.bak` through executeTool left mutationEpoch at 0.
+// Found by giving two POSIX-shaped fixtures the shell this platform actually has — which is why they
+// are worth repairing rather than skipping. The list is one shared table and not a `runtime.GOOS`
+// branch, because what is read here is the command TEXT: these words mean the same thing wherever
+// they are written, and `pwsh` exists off Windows too.
+//
+// Kept as small and CLOSED as its POSIX counterpart: the cmdlets that write files, plus the DOS
+// verbs a model reaches for out of habit. Matched case-insensitively because PowerShell is —
+// `copy-item` and `Copy-Item` are one command, and a set that knew only one spelling would be a
+// coin flip.
+var windowsFileMutateVerbs = map[string]bool{
+	"copy-item": true, "move-item": true, "remove-item": true, "rename-item": true,
+	"new-item": true, "set-content": true, "add-content": true, "clear-content": true,
+	"out-file": true, "set-itemproperty": true,
+	"expand-archive": true, "compress-archive": true,
+	// The DOS-era spellings cmd.exe users type and PowerShell keeps as aliases. `copy`/`move`/`del`
+	// are not POSIX commands, so they cost nothing on the other platforms.
+	"del": true, "erase": true, "copy": true, "move": true, "ren": true, "rename": true,
+	"rd": true, "md": true, "xcopy": true, "robocopy": true,
+}
+
+// mutatingVerb reports whether this verb's success mutates the filesystem, in either shell.
+func mutatingVerb(verb string) bool {
+	return fileMutateVerbs[verb] || windowsFileMutateVerbs[strings.ToLower(verb)]
+}
+
 // mutatingSubcommands maps a tool to the subcommands that mutate the worktree or the
 // environment (as opposed to its read-only queries: `git status`, `go vet`, `npm ls`).
 var mutatingSubcommands = map[string]map[string]bool{
@@ -267,7 +302,7 @@ func mutatesFiles(cmd string) bool {
 			continue
 		}
 		verb := leadingVerb(seg)
-		if fileMutateVerbs[verb] {
+		if mutatingVerb(verb) {
 			return true
 		}
 		switch verb {
@@ -424,6 +459,110 @@ func dropRedirects(fields []string) []string {
 	return out
 }
 
+// powershellSwitches are the parameters in the cmdlets below that take NO value. Everything else
+// does, and that asymmetry is the whole reason this list exists — see powershellArgs.
+var powershellSwitches = map[string]bool{
+	"-force": true, "-recurse": true, "-confirm": true, "-whatif": true, "-passthru": true,
+	"-nonewline": true, "-append": true, "-verbose": true,
+}
+
+// powershellArgs splits a PowerShell segment's arguments into positional operands and named
+// parameters, lowercasing the names (PowerShell is case-insensitive).
+//
+// ⚠ **An unrecognised `-parameter` EATS the next token.** In PowerShell a parameter usually takes a
+// value, and reading that value as an operand is the dangerous direction here: `Remove-Item -Force
+// -ErrorAction SilentlyContinue _build` would name a file called `SilentlyContinue` and the content
+// check would then compare the wrong file — which is exactly what bashWritePaths' own rule forbids
+// ("a wrong path compares the wrong file's content"). Consuming it can only LOSE a path, and losing
+// one means no revert check for that command, which is the safe direction the same paragraph names.
+func powershellArgs(fields []string) (positional []string, named map[string]string) {
+	named = map[string]string{}
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if !strings.HasPrefix(f, "-") {
+			positional = append(positional, f)
+			continue
+		}
+		key := strings.ToLower(f)
+		if powershellSwitches[key] {
+			continue
+		}
+		if i+1 < len(fields) {
+			i++
+			if _, had := named[key]; !had {
+				named[key] = fields[i]
+			}
+		}
+	}
+	return positional, named
+}
+
+// pathParam returns the first of these named parameters that is present — the spellings PowerShell
+// uses for "the file this acts on".
+func pathParam(named map[string]string, names ...string) string {
+	for _, n := range names {
+		if v := named[n]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// powershellWritePaths is bashWritePaths' other language: the file a PowerShell cmdlet writes, when
+// the command text names it unambiguously. verb is already lowercased; fields excludes the verb.
+//
+// Narrow on purpose, by the same rule as the POSIX cases. `New-Item` is absent because `mkdir` is —
+// a directory has no content to compare — and so is anything whose destination lives inside a
+// payload (`Expand-Archive`).
+func powershellWritePaths(verb string, fields []string) []string {
+	pos, named := powershellArgs(fields)
+	switch verb {
+	case "set-content", "add-content", "clear-content", "out-file":
+		// The path is the FIRST positional operand; the second is the value being written
+		// (`Set-Content f.txt 'A'`), so only one is taken. Piped input leaves the path first too.
+		if p := pathParam(named, "-path", "-filepath", "-literalpath"); p != "" {
+			return []string{p}
+		}
+		if len(pos) > 0 {
+			return []string{pos[0]}
+		}
+	case "copy-item", "move-item":
+		if p := pathParam(named, "-destination"); p != "" {
+			return []string{p}
+		}
+		if len(pos) == 2 { // one source, one destination — the same rule `cp`/`mv` gets above
+			return []string{pos[1]}
+		}
+	case "remove-item":
+		// A delete is a real content state (""), exactly as for `rm`.
+		if p := pathParam(named, "-path", "-literalpath"); p != "" {
+			return []string{p}
+		}
+		return pos
+	}
+	return nil
+}
+
+// powershellMoveSources is bashMoveSources' other language: what a cmdlet moves or deletes AWAY.
+func powershellMoveSources(verb string, fields []string) []string {
+	pos, named := powershellArgs(fields)
+	switch verb {
+	case "move-item":
+		if p := pathParam(named, "-path", "-literalpath"); p != "" {
+			return []string{p}
+		}
+		if len(pos) == 2 {
+			return []string{pos[0]}
+		}
+	case "remove-item":
+		if p := pathParam(named, "-path", "-literalpath"); p != "" {
+			return []string{p}
+		}
+		return pos
+	}
+	return nil
+}
+
 // bashWritePaths names the files a mutating bash command writes, so a bash mutation can go
 // through the SAME content-level self-revert check (noteEdit) that write/edit already do.
 // It is deliberately NARROWER than redirectsToFile/mutatesFiles, which only have to answer
@@ -519,6 +658,11 @@ func bashWritePaths(cmd string) []string {
 					add(f)
 				}
 			}
+		default:
+			// The same question in PowerShell, which is the shell this tree runs on Windows.
+			for _, p := range powershellWritePaths(strings.ToLower(leadingVerb(seg)), fields[1:]) {
+				add(p)
+			}
 		}
 	}
 	return out
@@ -556,6 +700,10 @@ func bashMoveSources(cmd string) []string {
 		}
 		verb := leadingVerb(seg)
 		if verb != "mv" && verb != "rm" {
+			// The same question in PowerShell (Move-Item, Remove-Item) — see powershellMoveSources.
+			for _, p := range powershellMoveSources(strings.ToLower(verb), fields[1:]) {
+				add(p)
+			}
 			continue
 		}
 		var operands []string
