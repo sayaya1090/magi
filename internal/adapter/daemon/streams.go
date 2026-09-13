@@ -283,6 +283,12 @@ func streamWatch(ctx context.Context, eng Engine, req Request, w wire) after {
 		// where it was going anyway. Checking it would be a check with one outcome.
 		_ = w.enc.Encode(Response{Err: werr.Error()})
 	}
+	// And when it ends WITHOUT a refusal, say so — for the reason Response.Over carries: the closing
+	// of this socket is not reliable news on Windows, and a reader waiting for it can wait for ever.
+	// Same best effort as the line above, and for the same reason.
+	if werr == nil {
+		_ = w.enc.Encode(Response{OK: true, Over: true})
+	}
 	return done // this connection was a stream; it ends with it
 }
 

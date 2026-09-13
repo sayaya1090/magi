@@ -95,6 +95,11 @@ func (c *Client) Watch(receipt string, each func(Handover) bool) error {
 			}
 			return Refused{Why: why}
 		}
+		// The daemon says when it is finished, and that is read before waiting for the socket to
+		// close — on Windows that close can be lost (Response.Over). Same rule as Follow's.
+		if resp.Over {
+			return nil
+		}
 		if resp.Handover == nil {
 			continue
 		}
