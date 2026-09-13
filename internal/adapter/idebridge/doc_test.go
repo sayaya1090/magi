@@ -23,7 +23,7 @@ func TestBothContractDocsListExactlyWhatIsBuilt(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
-		built := builtSection(t, name, string(body))
+		built := methodTable(t, name, builtSection(t, name, string(body)))
 		listed := map[string]bool{}
 		// Rows of the built table: | `method` | what it does |
 		for _, m := range regexp.MustCompile("(?m)^\\|\\s*`([a-z-]+)`\\s*\\|").FindAllStringSubmatch(built, -1) {
@@ -68,4 +68,34 @@ func builtSection(t *testing.T, name, body string) string {
 	}
 	t.Fatalf("%s: no 'not built yet' heading — the two tables cannot be told apart", name)
 	return ""
+}
+
+// methodTable is the FIRST table of the built section — the one whose rows are methods.
+//
+// ⚠ **"Every table in the section" was too wide.** The live-rows contract (2026-09-13) documents its
+// six words in a table of the same shape, in the same section, and this guard read `reset`, `add`,
+// `grow`, `patch`, `drop` and `move` as doors this build fails to answer. A guard that cannot tell a
+// method from a word in a neighbouring table reports the document as wrong when it is right, and the
+// cheapest way to make it green would have been to delete the paragraph it misread.
+//
+// So: the rows of one table, ending at the blank line that ends it. If the section ever stops opening
+// with the method table, this fails rather than guessing.
+func methodTable(t *testing.T, name, section string) string {
+	t.Helper()
+	lines := strings.Split(section, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "|") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("%s: the built section has no table at all", name)
+	}
+	end := start
+	for end < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[end]), "|") {
+		end++
+	}
+	return strings.Join(lines[start:end], "\n")
 }

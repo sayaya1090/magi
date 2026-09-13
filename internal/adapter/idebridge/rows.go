@@ -205,10 +205,20 @@ type Row struct {
 	// which is the key the fold already uses internally to find it (`drafts`). One rule, and the name a
 	// client holds is the name the fold knows the row by.
 	//
-	// ⚠ **Still open**: when the fact arrives, this fold drops the draft and appends the fact, so a
-	// live contract built on these ids says "drop d:m1:text, add 3" where a screen would rather hear
-	// "row d:m1:text became this" — the Kotlin copy states the intent as "조각은 새 줄이 아니라 같은
-	// 줄의 고쳐 쓰기". Whether the fact inherits the draft's id is a decision for the live contract, not
-	// something to settle by accident here.
+	// **Decided 2026-09-13: a fact does NOT inherit its draft's name.** The question was whether the
+	// arriving fact should keep `d:m1:text` so a live frame could say "that row became this" instead of
+	// "drop that, add this" — the Kotlin copy states the intent as "조각은 새 줄이 아니라 같은 줄의
+	// 고쳐 쓰기". It must not, and the reason is that a name has to be a function of the ROW, never of
+	// the path a client took to it: the same row would then be called `d:m1:text` by a client that
+	// watched it stream and `3` by one that opened the window afterwards — and by the FIRST client
+	// again after any reconnect, which resets from the fold. A name that changes on reconnect produces
+	// exactly the duplicated row that inheriting it was meant to prevent.
+	//
+	// So the transition is said as what it is (live.go): the draft is dropped and the fact added. What
+	// a screen loses by that is not the row, it is the row's own UI state — a reasoning draft somebody
+	// had expanded folds shut when the fact lands. Closing THAT needs the fold to say which draft a
+	// fact supersedes (a `replaces` on the add), which needs the fact row to carry its message id.
+	// Unbuilt on purpose: no client draws rows live yet, and a field nothing draws is the shape this
+	// tree has paid for four times.
 	ID string `json:"id,omitempty"`
 }

@@ -161,6 +161,67 @@ wrong in a way no client could detect: every row looks right, the marks are miss
 A screen appending while a turn runs keeps folding its own live frames; what it gets here is the one
 thing both clients rebuild by hand — replay when a window opens.
 
+### Live rows — how a later frame changes a line already drawn
+
+`rows` answers a conversation ONCE. Staying open is a different problem: the fold reaches backwards,
+so a screen cannot fold the tail and append it, and resending the whole conversation per streamed
+chunk would cost the answer's length times the number of chunks. So the shape is:
+
+    fold the whole log  →  diff against what that client last saw  →  send the difference
+
+The fold stays the single rule; the difference is **derived from its output**, so there is no second
+fold to keep in step. `internal/adapter/idebridge/live.go` holds the words and both sides of it
+(`Diff` on the daemon, `Apply` written here so each client copy has something to be checked against).
+
+**Six words, measured rather than invented** (2026-09-13 — every prefix of the canonical fixture and
+of the three backwards-reaching paths was folded and compared with the prefix before it):
+
+| word | means | what produces it |
+|---|---|---|
+| `reset` | the whole list | the first frame, and the safety valve below |
+| `add` | a row that was not there, `after` the row it follows | 34 of the measured changes |
+| `grow` | append text to a row already drawn | a draft, once its first line is complete |
+| `patch` | a row changed some other way; carries the whole row | 15 — including a draft whose FIRST line is still growing, because the summary changes with it |
+| `drop` | a row is gone | a draft superseded by its fact; a question that moved under a new name |
+| `move` | a row is still there, in a different place, `after` a named row | a queued question answered inline, with a row after it |
+
+⚠ **The first measurement said there were three words.** `move` was missing because neither the
+fixture nor the first synthetic case had a row BETWEEN the moved question and the end of the list, so
+"moved to the bottom" and "was already at the bottom" produced the same list. A case that cannot tell
+two outcomes apart reports the one it can see.
+
+**`grow` exists for its cost, not for its clarity.** Measured on an 8.8KB answer arriving in 200
+chunks: 8756 bytes of text as `grow` frames, against 884356 as whole-row patches — **101×**.
+
+**Positions are named, never numbered.** An index means "the list you had when I sent this", and a
+client that missed a frame would edit the wrong line with no way to notice. A name a client does not
+know is the one forgiving rule here: put the row at the END and carry on. A row in the wrong place is
+recoverable by the next `reset`; a row silently replacing another is not.
+
+**Two rows with one name send the whole list instead.** A patch is aimed by name, so a duplicate would
+land an edit on some other row with nothing downstream able to notice. `Diff` answers `reset`. The fold
+does not produce such a list today (`TestWhetherARowCanBeNamed`); this is about what happens if it ever
+does.
+
+**A fact does not inherit its draft's name.** When a streamed answer ends, the frame says `drop
+d:m1:text` and `add 7` rather than "that row became this". The reason is that a name has to be a
+function of the row, never of the path a client took to it — otherwise the same row is `d:m1:text` to a
+client that watched it stream, `7` to one that opened the window afterwards, and `7` to the first client
+again after any reconnect, which resets from the fold. A name that changes on reconnect produces exactly
+the duplicated row that inheriting it was meant to prevent. What a screen loses is the row's own UI
+state (an expanded reasoning draft folds shut when the fact lands); closing that needs the fold to say
+which draft a fact supersedes, and is deliberately unbuilt — see §7.
+
+The guarantee that holds all of this up is one test, on every prefix of five event streams:
+`Apply(held, Diff(before, after))` equals `Rows(after)` field for field —
+`TestApplyingTheWordsRebuildsTheFold`. A live screen and a screen that just opened show the same
+conversation, which is the same promise `TestALiveStreamEndsWhereAReplayDoes` makes one layer down.
+
+⚠ **Built as a contract, not yet as a door.** `Diff`/`Apply` and their proof are in the tree; no
+method streams frames yet and no client draws them. That order is deliberate — the migration plan
+is to design live delivery BEFORE moving any client, so that a client moved onto the shared fold does
+not have to be moved again when live arrives.
+
 **`activity` is the first derivation to move in.** It is the fourth of the eight, and it was about
 to be written a third time: the rule lives in TypeScript in `core/activity.ts`, and the Visual
 Studio client needed it in C#. Two rules travel with it because they are the same question wearing
