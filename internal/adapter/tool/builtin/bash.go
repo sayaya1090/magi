@@ -16,6 +16,7 @@ import (
 	"github.com/sayaya1090/magi/internal/core/session"
 	"github.com/sayaya1090/magi/internal/core/text"
 	"github.com/sayaya1090/magi/internal/port"
+	"github.com/sayaya1090/magi/internal/wintext"
 )
 
 // Bash runs a shell command in the working directory and returns its combined
@@ -439,7 +440,7 @@ func runCapture(cmd *exec.Cmd, logsDir string) (out []byte, logPath string, whol
 			out, werr := cmd.CombinedOutput()
 			// Unbounded, so it is everything the command wrote — and with no capture file there
 			// is no line to say so on.
-			return out, "", true, werr
+			return wintext.ToUTF8(out), "", true, werr
 		}
 	}
 	name := f.Name()
@@ -464,7 +465,14 @@ func runCapture(cmd *exec.Cmd, logsDir string) (out []byte, logPath string, whol
 	if !keep {
 		name = ""
 	}
-	return data, name, whole, werr
+	// What a Windows program wrote in the machine's code page, made readable (wintext.ToUTF8 — a
+	// no-op elsewhere, and on Windows a no-op for output that is already UTF-8 or is binary).
+	//
+	// ⚠ **Here, and not on the capture FILE.** The file holds what the command actually wrote; a
+	// later step greps it, and rewriting it would be this process claiming the command said something
+	// in bytes it never used. So the reading is converted and the record is not — with the cost
+	// named: a `grep` of logPath on such a machine still sees the original encoding.
+	return wintext.ToUTF8(data), name, whole, werr
 }
 
 // captureCap bounds how much of a command's output runCapture retains in memory. It sits

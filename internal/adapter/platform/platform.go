@@ -12,6 +12,7 @@ import (
 
 	"github.com/sayaya1090/magi/internal/port"
 	"github.com/sayaya1090/magi/internal/quietconsole"
+	"github.com/sayaya1090/magi/internal/wintext"
 )
 
 // OS implements port.Platform for the host operating system.
@@ -44,9 +45,14 @@ func (OS) Exec(ctx context.Context, c port.Cmd) (port.ExecResult, error) {
 	cmd.Stderr = stderr
 
 	err := cmd.Run()
+	// Text a Windows program wrote in the machine's code page, made readable — the same conversion
+	// the bash tool's capture does, for the same reason: this is the other door commands come
+	// through (the `!` inline shell via App.RunShell, the workflow shells, `git`), and on a machine
+	// whose code page is not UTF-8 everything non-ASCII arrived as U+FFFD. A no-op elsewhere, and on
+	// Windows a no-op for output that already reads as UTF-8 or is binary (internal/wintext).
 	res := port.ExecResult{
-		Stdout: stdout.buf,
-		Stderr: stderr.buf,
+		Stdout: wintext.ToUTF8(stdout.buf),
+		Stderr: wintext.ToUTF8(stderr.buf),
 	}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
