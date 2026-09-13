@@ -16,17 +16,35 @@ import java.time.Duration
  */
 class CoreProbeTest {
 
-    private fun script(body: String): List<String> {
-        val f = Files.createTempFile("probe", ".sh").toFile()
-        f.writeText("#!/bin/sh\n$body\n")
-        f.setExecutable(true)
-        f.deleteOnExit()
-        return listOf(f.absolutePath)
+    /**
+     * 대역은 **이 JVM 자신**이다.
+     *
+     * ⚠ 앞 판본은 `#!/bin/sh` 파일을 써서 그것을 띄웠다. 그 픽스처가 윈도우에서 안 돌아 이 묶음의
+     * 한 시험이 그 플랫폼에서 **영구 빨강**이었다(#195). 재려는 것은 파이프의 성질이지 셸이 아니므로,
+     * 대역도 셸일 이유가 없다 — 이 저장소의 Go 쪽에 선례가 있다(`lockscope_test.go` 는 시험 바이너리
+     * 자신을 복사해 어느 플랫폼에서나 돌 대역을 세운다).
+     *
+     * 실행 파일은 **지금 도는 JVM 에게 묻는다**. `java.home` 으로 조립하면 런처 이름이 플랫폼마다
+     * 다른 것을 우리가 알아야 하고, 그 앎은 늙는다.
+     */
+    private fun stand(vararg args: String): List<String> {
+        val java = ProcessHandle.current().info().command().orElse(null)
+            ?: File(File(System.getProperty("java.home"), "bin"), "java").absolutePath
+        return listOf(java, "-cp", System.getProperty("java.class.path"), ProbeStandIn::class.java.name) + args
     }
+
+    /**
+     * JVM 을 하나 띄우는 값이 있으므로 **기한은 그 값보다 넉넉해야 한다.**
+     *
+     * ⚠ 앞 판본의 300ms 를 그대로 두면 이 시험들은 「자식이 stdout 을 열어 둔 채 조용하다」가 아니라
+     * **「JVM 이 300ms 안에 안 뜬다」**를 재게 된다 — 둘 다 빈 집합을 내므로 초록도 같다. 자식이 확실히
+     * 서고 나서 기한이 지나가야 이 규칙이 재이는 것이 맞다.
+     */
+    private val patience = 2_000L
 
     @Test
     fun `알린 이름을 그대로 읽는다`() {
-        val got = CoreProbe.features(script("""echo '{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1}'"""))
+        val got = CoreProbe.features(stand("print", """{"features":["raw-socket-v1","owned-daemon-v1"],"protocol":1}"""))
         assertEquals(setOf("raw-socket-v1", "owned-daemon-v1"), got)
     }
 
@@ -36,17 +54,17 @@ class CoreProbeTest {
      */
     @Test
     fun `줄을 안 보내는 탐침도 기한 안에 답한다`() {
-        val hangs = script("sleep 30")
+        val hangs = stand("hang")
         val began = System.nanoTime()
         // ⚠ 타입 인자를 적어야 한다. `assertTimeoutPreemptively` 에는 값을 안 돌려주는
         // `Executable` 판이 같이 있고, 안 적으면 코틀린이 그쪽을 골라 `got` 이 **Unit** 이 된다 —
         // 그러면 아래 비교는 조회 결과가 아니라 Unit 을 빈 집합과 견준다.
         val got = assertTimeoutPreemptively<Set<String>>(Duration.ofSeconds(10)) {
-            CoreProbe.features(hangs, timeoutMs = 300)
+            CoreProbe.features(hangs, timeoutMs = patience)
         }
         val tookMs = (System.nanoTime() - began) / 1_000_000
         assertEquals(emptySet<String>(), got)
-        assertTrue(tookMs < 5_000, "기한 300ms 인데 ${tookMs}ms 걸렸다 — 기한이 읽기 뒤에 서 있다")
+        assertTrue(tookMs < 8_000, "기한 ${patience}ms 인데 ${tookMs}ms 걸렸다 — 기한이 읽기 뒤에 서 있다")
     }
 
     /** 그리고 남기지 않는다: 시한 초과한 자식은 죽어 있어야 한다. */
@@ -59,9 +77,10 @@ class CoreProbeTest {
         // 안 감싸면 실패가 정지로 나타난다 — 기한이 읽기 뒤에 선 판으로 돌려 봤더니 이 줄이
         // 끝없이 도는 자식 앞에서 영영 안 돌아왔고, 빌드가 멈춘 채로 남았다(2026-09-11 실측).
         assertTimeoutPreemptively<Set<String>>(Duration.ofSeconds(10)) {
-            CoreProbe.features(script("while true; do date +%s%N > ${marker.absolutePath}; sleep 0.05; done"), timeoutMs = 300)
+            CoreProbe.features(stand("spin", marker.absolutePath), timeoutMs = patience)
         }
         val first = File(marker.absolutePath).readText()
+        assertTrue(first.isNotBlank(), "대역이 기한 안에 한 번도 안 썼다 — 기다림이 JVM 기동보다 짧다")
         Thread.sleep(600)
         assertEquals(first, File(marker.absolutePath).readText(),
             "조회가 끝난 뒤에도 자식이 살아서 쓰고 있다 — 시한 초과에 아무도 안 치웠다")
@@ -74,13 +93,13 @@ class CoreProbeTest {
      */
     @Test
     fun `말은 하지만 거절한 바이너리는 빈 집합이다`() {
-        val refuses = script("""echo '{"features":["raw-socket-v1"]}'; exit 2""")
+        val refuses = stand("refuse", """{"features":["raw-socket-v1"]}""")
         assertEquals(emptySet<String>(), CoreProbe.features(refuses))
     }
 
     @Test
     fun `깨진 줄은 빈 집합이다`() {
-        assertEquals(emptySet<String>(), CoreProbe.features(script("echo 'not json at all'")))
+        assertEquals(emptySet<String>(), CoreProbe.features(stand("print", "not json at all")))
     }
 
     @Test
