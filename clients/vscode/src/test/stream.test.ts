@@ -501,11 +501,23 @@ test('a stream that ends says so and is picked up again', () => {
   // `reattach()` below, so deleting the note HERE still matched its note THERE and the mutation
   // survived — the guard was reading the wrong function's words.
   const closed = chat.slice(at, chat.indexOf('\n    };', at));
-  assert.ok(closed.length > 50 && closed.length < 900, `the ending block did not cut cleanly (${closed.length})`);
+  assert.ok(closed.length > 50 && closed.length < 1600, `the ending block did not cut cleanly (${closed.length})`);
   assert.ok(/kind: 'note'/.test(closed), 'the stream ends and the person is told nothing');
   assert.ok(/reattach\(/.test(closed), 'the stream ends and nothing tries to get it back');
   // Somebody else may already have moved on. Reattaching then would drag them back.
   assert.ok(/this\.stream !== s/.test(closed), 'an ending is reported for a stream we already replaced');
+  // ⚠ **Letting go of the reference is not closing the socket.** Of the two endings, `whenClosed`
+  // fires on a socket that is already gone — but the `over` frame arrives on one that is still OPEN,
+  // and that is the path this client prefers because on Windows the close is the unreliable half. Not
+  // closing it there leaks the connection and, on Windows, the `--raw-socket` relay process behind it:
+  // one per daemon restart, for as long as the window stays open (review, 2026-09-14).
+  assert.ok(/s\.close\(\)/.test(closed),
+    'the stream ends and the socket is not closed — on the `over` path it is still open, so the ' +
+    'connection and its relay process leak once per daemon restart');
+  // And closed AFTER the reference is dropped, or the close it triggers reports an ending we are
+  // already handling.
+  assert.ok(closed.indexOf('this.stream = null') < closed.indexOf('s.close()'),
+    'the socket is closed before the reference is dropped, so its own close handler reports this ending again');
 
   // TWO ways in, and the socket is the less reliable one.
   //

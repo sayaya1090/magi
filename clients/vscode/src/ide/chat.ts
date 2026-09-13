@@ -90,6 +90,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     const ended = () => {
       if (this.stream !== s) return;   // we moved on, or the panel closed — not an ending to report
       this.stream = null;
+      // ⚠ **Dropping the reference is not closing the socket**, and which of the two endings arrived
+      // decides whether that matters. `whenClosed` fires on a socket that is already gone; the `over`
+      // frame arrives on one that is still OPEN — and that is the path this client now prefers,
+      // precisely because on Windows the close is the unreliable half. Letting go of it there leaks
+      // the connection and, on Windows, the `ide-bridge --raw-socket` relay process behind it: one
+      // per daemon restart, for as long as the window stays open (review, 2026-09-14).
+      //
+      // Closed AFTER the reference is dropped, so the `whenClosed` handler this triggers finds
+      // `this.stream !== s` and stays a no-op — the same guard that already makes the two endings
+      // idempotent.
+      s.close();
       this.post({ kind: 'note', text: 'lost the conversation — reconnecting…' });
       void this.reattach();
     };
