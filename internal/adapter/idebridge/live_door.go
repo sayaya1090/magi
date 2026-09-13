@@ -17,11 +17,19 @@ import (
 // be a test nobody runs, and the batch interval below is the one number that decides what a live
 // surface costs.
 var (
-	// rowsReplay bounds the wait for the end-of-replay frame. The live phase after it is deliberately
-	// unbounded — a quiet conversation is the ordinary case for a tail — but before it a person is
-	// waiting for a first picture, and a companion that accepted and then went quiet must produce a
-	// sentence rather than a subscription that never answers.
-	rowsReplay = 20 * time.Second
+	// rowsSilence bounds SILENCE during the replay, not the replay.
+	//
+	// Before the first picture a person is waiting, and a companion that accepted and then went quiet
+	// must produce a sentence rather than a subscription that never answers. But the bound has to be
+	// per frame, exactly as the one-shot read's is (`historyIdle`): a long conversation legitimately
+	// takes a while to replay, and a deadline on the WHOLE of it fails a stream that is arriving
+	// perfectly well — measured by the review, 2026-09-14, when this was a single 20s timer that no
+	// arriving event reset. It bounds silence, not the size of the conversation.
+	//
+	// The live phase after the replay is deliberately unbounded: a conversation where nothing is
+	// happening is the ordinary case for a tail, and that is the whole reason the daemon says `over`
+	// instead of letting a reader time out (#197).
+	rowsSilence = 20 * time.Second
 	// rowsBatch is how long arriving events are gathered before the difference is sent.
 	//
 	// ⚠ **This is the cost bound, and it is a measured decision rather than a preference.** Folding a
@@ -101,7 +109,10 @@ func (b *bridge) rowsLive(req request) {
 
 	frames := make(chan liveFrame, 256)
 	go func() {
+		// Read and written only in this goroutine, before the frame that carries it is sent.
+		over := false
 		err := c.Follow(req.Session, 0, daemon.Tail{
+			Over: func() { over = true },
 			Each: func(e event.Event) bool {
 				select {
 				case frames <- liveFrame{event: &e}:
@@ -126,7 +137,7 @@ func (b *bridge) rowsLive(req request) {
 		// the companion had gone, which is the half of the promise that matters. The scanner ending is
 		// itself the fact; it just has no error to carry it.
 		select {
-		case frames <- liveFrame{done: true, why: whyEnded(err, sub.stop)}:
+		case frames <- liveFrame{done: true, why: whyEnded(err, sub.stop, over)}:
 		case <-sub.stop:
 		}
 		close(frames)
@@ -156,7 +167,7 @@ func (b *bridge) pump(req request, sub *rowsSub, frames <-chan liveFrame) {
 		sent   []Row
 		live   bool
 		dirty  bool
-		replay = time.NewTimer(rowsReplay)
+		quiet  = time.NewTimer(rowsSilence)
 		gather = time.NewTicker(rowsBatch)
 		// ⚠ **Every way out of this loop says the subscription is over, and says it once.**
 		//
@@ -186,7 +197,7 @@ func (b *bridge) pump(req request, sub *rowsSub, frames <-chan liveFrame) {
 			dirty = false
 		}
 	)
-	defer replay.Stop()
+	defer quiet.Stop()
 	defer gather.Stop()
 
 	for {
@@ -216,7 +227,7 @@ func (b *bridge) pump(req request, sub *rowsSub, frames <-chan liveFrame) {
 				return
 			case f.caughtUp:
 				live = true
-				replay.Stop()
+				quiet.Stop()
 				rows := Rows(events)
 				if rows == nil {
 					rows = []Row{}
@@ -226,6 +237,11 @@ func (b *bridge) pump(req request, sub *rowsSub, frames <-chan liveFrame) {
 					"rows": rows, "events": len(events)})
 			default:
 				events = append(events, *f.event)
+				// The replay is arriving, so the silence bound starts over. Without this a long
+				// conversation dies at the bound while it is streaming perfectly well.
+				if !live {
+					quiet.Reset(rowsSilence)
+				}
 				// Before the replay ends there is nothing to be a difference FROM, and the events are
 				// what the first frame is built out of.
 				if live {
@@ -236,10 +252,10 @@ func (b *bridge) pump(req request, sub *rowsSub, frames <-chan liveFrame) {
 			if live && dirty {
 				flushed()
 			}
-		case <-replay.C:
+		case <-quiet.C:
 			if !live {
-				b.fail(req.ID, "this companion has not said where the replay ends after "+
-					rowsReplay.String()+" — it accepted the connection and went quiet")
+				b.fail(req.ID, "nothing arrived from this companion for "+rowsSilence.String()+
+					" and it never said where the replay ends — it accepted the connection and went quiet")
 				return
 			}
 		case <-sub.stop:
@@ -310,7 +326,7 @@ func (b *bridge) endSubs() {
 // Named rather than left inline in the reader because the two halves cannot be told apart from
 // outside — which of them happens on a real stop is a race — and a rule that can only be measured by
 // winning a race is a rule nothing measures.
-func whyEnded(err error, stopped <-chan struct{}) string {
+func whyEnded(err error, stopped <-chan struct{}, over bool) string {
 	if err != nil {
 		return err.Error()
 	}
@@ -318,7 +334,16 @@ func whyEnded(err error, stopped <-chan struct{}) string {
 	case <-stopped:
 		return ""
 	default:
-		return "the companion closed the transcript stream — its daemon stopped, or it is no " +
-			"longer serving this conversation"
 	}
+	// ⚠ **The companion ENDING a stream and the companion going away are different news**, and the
+	// clients act on the difference: both editor windows read the daemon's `over` frame as "ended by
+	// the daemon" and reattach on it, where a vanished companion is something a person is told about.
+	// Saying one sentence for both would make a normal ending look like a crash, or a crash look
+	// routine — and this bridge is the one place that decides what is SAID.
+	if over {
+		return "the companion ended this stream — the conversation is still there; subscribe again " +
+			"to keep following it"
+	}
+	return "the companion closed the transcript stream without saying why — its daemon stopped, or " +
+		"it is no longer serving this conversation"
 }

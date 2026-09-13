@@ -238,8 +238,11 @@ Three things about it are decisions rather than mechanics:
 - **The reply waits for the replay to end.** A subscription whose first frame was a difference would
   be a difference against nothing, so the daemon's end-of-replay marker is what the first frame is
   built on — the same marker the one-shot door stops at, now handed to a reader that keeps going
-  (`daemon.Tail.CaughtUp`). It is bounded (20s): a companion that accepts and goes quiet must produce
-  a sentence, not a subscription that never speaks.
+  (`daemon.Tail.CaughtUp`). The wait is bounded — but it bounds SILENCE (20s per frame), not the
+  replay: a companion that accepts and goes quiet must produce a sentence rather than a subscription
+  that never speaks, while a long conversation that is arriving steadily must not be failed for being
+  long. That difference was a defect first (review, 2026-09-14) and is the same bound the one-shot read
+  already uses (`historyIdle`).
 - **A stream that dies says so.** `done` carries the reason. A subscription that simply stops is
   indistinguishable from a conversation where nothing is happening, and the screen would go on
   claiming to be live — the asymmetric lie this tree has paid for before.

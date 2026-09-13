@@ -165,7 +165,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, alsoHas ...st
 		socket:    daemon.SocketPath(platform.OS{}.ConfigDir(), wd),
 		out:       stdout,
 	}
-	defer b.hangUp()
+	defer b.shutdown()
 	return b.serve(stdin, stderr)
 }
 
@@ -340,13 +340,26 @@ func (b *bridge) dial() (*daemon.Client, error) {
 	return c, nil
 }
 
+// hangUp drops the SHARED request connection. Nothing else.
+//
+// ⚠ **This is not "the bridge is going away", and conflating the two cost a regression** (review,
+// 2026-09-14). `endSubs` was put in here when live subscriptions arrived, so a single failed `daemon`
+// forward — whose own comment two paragraphs up says the suspect is the CONNECTION, not the request —
+// tore down every live subscription on the process. One editor action that got an error would blank
+// every open panel. Subscriptions hold connections of their own precisely so they do not share this
+// one's fate.
 func (b *bridge) hangUp() {
-	// Subscriptions first: each holds a connection of its own, and their senders write to `out`.
-	b.endSubs()
 	if b.conn != nil {
 		b.conn.Close()
 		b.conn = nil
 	}
+}
+
+// shutdown is the bridge going away: the subscriptions first, because each holds a connection of its
+// own and their senders write to `out`, then the shared one.
+func (b *bridge) shutdown() {
+	b.endSubs()
+	b.hangUp()
 }
 
 func (b *bridge) fail(id int, why string) {

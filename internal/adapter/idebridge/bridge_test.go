@@ -78,7 +78,7 @@ func run(t *testing.T, sock string, lines ...string) []map[string]any {
 	b := &bridge{workspace: "/ws", socket: sock}
 	var out strings.Builder
 	b.out = &out
-	defer b.hangUp()
+	defer b.shutdown()
 	if code := b.serve(strings.NewReader(strings.Join(lines, "\n")+"\n"), io.Discard); code != 0 {
 		t.Fatalf("serve = %d, want 0", code)
 	}

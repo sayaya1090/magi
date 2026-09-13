@@ -224,6 +224,16 @@ type Tail struct {
 	// Restart is the daemon saying it could not honour the cursor, so the caller should read again
 	// from the beginning. Optional.
 	Restart func(why string)
+	// Over is the daemon saying this stream is FINISHED — it ends the read, and the caller is meant to
+	// decide whether to open another one.
+	//
+	// ⚠ Distinct from the read simply ending, and that distinction is the whole point of the frame: on
+	// Windows a close right after a write is sometimes lost (measured with no magi code involved, 12
+	// of 600), so a reader waiting for EOF waits for ever — and a transcript that sits quiet for hours
+	// is normal, which makes silence and a lost close the same face. A caller that hears this knows the
+	// stream ended ON PURPOSE; one that only sees the read finish cannot tell that from a companion
+	// that went away. Optional.
+	Over func()
 	// CaughtUp is the end of the REPLAY: everything before it was history, everything after is live.
 	//
 	// ⚠ Without this a live reader cannot tell the two apart, and that is not a detail — a screen
@@ -268,6 +278,9 @@ func (c *Client) Follow(sid string, since int64, t Tail) error {
 			// involved (Response.Over). Waiting for the EOF instead is a read that sometimes never
 			// returns, and a stream meant to sit quiet cannot tell that from silence.
 			if resp.Over {
+				if t.Over != nil {
+					t.Over()
+				}
 				return nil
 			}
 			if resp.Live {
