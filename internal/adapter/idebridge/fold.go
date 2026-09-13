@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/sayaya1090/magi/internal/core/event"
 )
@@ -41,6 +42,19 @@ func name(rows []Row) {
 		}
 		r.ID = strconv.FormatInt(r.Seq, 10)
 	}
+}
+
+// stampOf is an event's time as a row carries it, or "" when the log did not say.
+//
+// RFC3339 with nanoseconds, which is what the log writes — the same string the other copies read off
+// the wire, so a row folded here and a row folded there say the same instant the same way. A zero time
+// is no time: absent and "the epoch" are different facts, and a screen drawing 1970 beside a message
+// from today is the kind of wrong that looks like a bug in the clock.
+func stampOf(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339Nano)
 }
 
 // body is a whole text, or "" when there is nothing but whitespace in it.
@@ -180,6 +194,11 @@ func fold(events []event.Event) ([]Row, foldStats) {
 	}
 
 	for _, e := range events {
+		// New rows get this event's time, stamped after the switch. Done in ONE place rather than at
+		// each of the twelve sites a row is built: a field filled per-site is a rule with twelve
+		// copies, and the site somebody forgets is the one nobody notices — which is how this door
+		// came to carry no time at all while the Kotlin copy put one on every row (2026-09-14).
+		before := len(out)
 		d := payload(e.Data)
 		switch e.Type {
 		case event.TypePartDelta:
@@ -430,6 +449,16 @@ func fold(events []event.Event) ([]Row, foldStats) {
 				dropDraft(key)
 			}
 		}
+		// ⚠ First stamp wins, so a row MOVED by a later event keeps the time it was made — a
+		// resurfaced question still says when it was asked, which is what a person scrolling back to
+		// it is reading. `before` can exceed len(out) when an event removed rows, hence the guard.
+		if at := stampOf(e.TS); at != "" && before <= len(out) {
+			for _, r := range out[before:] {
+				if r.At == "" {
+					r.At = at
+				}
+			}
+		}
 	}
 
 	// Values on the way out. The pointers are this fold's own machinery, and handing them to a
@@ -546,9 +575,20 @@ func convenedRow(seq int64, d map[string]any) *Row {
 	// fact belongs on the opening row because it says what KIND of turn was judged. Measured
 	// 2026-09-10: 374 of 994 rounds are read-only turns — the common case, which is exactly why
 	// leaving it unsaid makes the common case read like a failure.
+	// ⚠ **The evidence, whole and in the core's own order.** Picking which of these to carry would
+	// turn "what the members saw" into "what we decided to show", and a verdict is checkable only
+	// against the first. This row used to keep the task as its text and drop the other four, so the one
+	// thing that makes a council answer auditable never reached a screen (2026-09-14).
+	var seen []string
+	for _, k := range []string{"task", "plan", "report", "actions", "changes"} {
+		if v := str(d, k); strings.TrimSpace(v) != "" {
+			seen = append(seen, k+": "+v)
+		}
+	}
 	return &Row{Seq: seq, Who: WhoCouncil, Opened: true, Text: text,
 		Round:    int(num(d, "round")),
 		Rule:     strings.TrimSpace(str(d, "rule")),
+		Evidence: strings.Join(seen, "\n\n"),
 		ReadOnly: isTrue(d, "noChanges")}
 }
 

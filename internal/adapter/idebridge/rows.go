@@ -64,6 +64,18 @@ func Vocabulary() []string {
 // Draw shallowly (invariant 0-2): what to SAY is the daemon's decision. A client that parses
 // payloads to compose sentences composes them once per client, and there are six clients.
 type Row struct {
+	// At is when the event that made this row happened, as the log wrote it.
+	//
+	// ⚠ **The Kotlin copy has put this on every row since it had rows, and this door had nowhere for
+	// it.** Nothing noticed, because the cross-copy field guard compared this struct against the
+	// TypeScript one — which does not carry a time either — so two copies agreed and the third was not
+	// read (TestTheRowFieldsMatchTheKotlinCopy now reads it, 2026-09-14). A client moved onto these
+	// rows would have lost every timestamp it draws today.
+	//
+	// First stamp wins: a row that is MOVED later — a resurfaced question — keeps the time it was
+	// asked, which is the fact a person is reading when they scroll back to it.
+	At string `json:"at,omitempty"`
+
 	// Seq is the event that put this row here, so a later frame can find it again.
 	Seq int64 `json:"seq"`
 
@@ -125,6 +137,21 @@ type Row struct {
 	// ReadOnly says the turn this round judges changed no files. On the opening row because it
 	// says what KIND of turn is being weighed.
 	ReadOnly bool `json:"readOnly,omitempty"`
+	// Evidence is what the members were given to judge — the whole of it, in the order the core sent
+	// it: the task, the plan, the report, the actions, the changes.
+	//
+	// ⚠ **Not a selection.** Picking which of those to carry would turn "what the members saw" into
+	// "what we decided to show", and a verdict is checkable only against the first. This door carried
+	// none of it until 2026-09-14: the task became the row's text and the other four were dropped, so
+	// the one thing that makes a council's answer auditable did not reach a screen at all.
+	//
+	// ⚠ **Whether it is drawn open is not said here, and Folded is not the place either.** Folded marks
+	// a row whose WHOLE content is secondary (reasoning); this row's text is the task being judged and
+	// belongs on screen. A body a screen shuts until asked is the shape a tool result already has, and
+	// this fold does not mark those folded either — the clients fold both by kind, and the Kotlin copy
+	// already folds this one ("전사는 흐르는 화면이라 증거가 펼쳐진 채 서면 대화를 덮는다"). Saying it
+	// with the one flag there is would hide the task as well, which is a different claim.
+	Evidence string `json:"evidence,omitempty"`
 	// Cite is the fragment of the record this verdict rests on, or NO-EVIDENCE. It is CHECKABLE,
 	// and an empty one on a "done" is itself worth seeing.
 	//

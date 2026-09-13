@@ -188,6 +188,11 @@ func TestTheRowFieldsMatchTheTypeScriptCopy(t *testing.T) {
 		"id": "이 문의 칸이다. 뒤의 프레임이 고칠 행을 지목할 이름 — 접기가 뒤로 손을 뻗는 것을 " +
 			"전선으로 나르려면 필요하고, 한 프로세스 안에서는 포인터가 그 일을 한다. 이쪽 사본은 " +
 			"제 셰이퍼가 제 목록을 들고 있어 이름이 필요 없다 — 문으로 옮겨 가는 날 필요해진다.",
+		"at": "시간. **타입스크립트 사본이 안 나르는 사실이고, 코틀린 사본은 모든 행에 나른다** — " +
+			"그래서 이 칸은 이 문이 지어낸 것이 아니라 세 사본 중 둘이 빠뜨린 것이다. 이 사본이 " +
+			"문으로 옮겨 오는 날 그리기 시작하면 이 줄을 지운다.",
+		"evidence": "멤버들이 판단 근거로 받은 것 전부(task·plan·report·actions·changes). 코틀린 " +
+			"사본은 이것을 나르고 타입스크립트 사본은 안 나른다 — 같은 이유로 여기 적는다.",
 		"summary": "이 문의 칸이다. 본문을 통째로 나르기로 하면서(전문이 정본) 한 줄 요약이 갈 곳이 " +
 			"필요해졌고, 얕은 클라이언트(슬라이드 애드인·상태 줄)가 그것을 읽는다. 이쪽 사본의 " +
 			"셰이퍼는 본문을 직접 그리므로 채울 이유가 없다 — 이 사본이 문으로 옮겨 가는 날 " +
@@ -251,5 +256,98 @@ func TestAnEmptyRowCarriesOnlyWhatWasSaid(t *testing.T) {
 	}
 	if v, ok := back["ok"]; !ok || v != false {
 		t.Errorf("실패한 도구 호출의 ok=false 가 사라졌다 — 도는 중과 구별이 안 된다: %s", line)
+	}
+}
+
+// **And the Kotlin copy's fields, which nothing was comparing.**
+//
+// ⚠ **The field guard above reads two of the three copies.** It holds this Row against the TypeScript
+// one both ways, and that is exactly half the job: the Kotlin shaper carries facts neither of the
+// others does, so a fact this door drops is invisible — TypeScript does not carry it either, and the
+// guard sees two copies agreeing. Measured 2026-09-14, moving a client onto this door was about to
+// lose the event TIME, which the Kotlin copy puts on every row and nothing here had a place for.
+//
+// The asymmetry is not itself a defect — three shapers are being replaced by one, and a client shaper
+// may legitimately hold something the door does not. What must not happen is that nobody KNOWS.
+func TestTheRowFieldsMatchTheKotlinCopy(t *testing.T) {
+	body := transcriptKT(t)
+	m := regexp.MustCompile(`(?ms)^data class Row\((.*?)^\)`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("Rows.kt 에서 `data class Row(` 를 못 찾았다 — 스캔이 깨진 것이지 모양이 맞는 게 아니다")
+	}
+	// Declaration lines only (`    val name: Type…`). The doc comments between them quote these very
+	// names, which is why this reads declarations rather than text — the same reason the TypeScript
+	// scan above matches on the shape of a declaration.
+	got := map[string]bool{}
+	for _, f := range regexp.MustCompile(`(?m)^    val ([a-zA-Z_][a-zA-Z0-9_]*)\s*:`).FindAllStringSubmatch(m[1], -1) {
+		got[f[1]] = true
+	}
+	if len(got) < 10 {
+		t.Fatalf("코틀린 Row 에서 필드를 %d 개밖에 못 찾았다 — 스캔이 깨졌다", len(got))
+	}
+
+	mine := map[string]bool{}
+	rt := reflect.TypeOf(Row{})
+	for i := 0; i < rt.NumField(); i++ {
+		name := strings.Split(rt.Field(i).Tag.Get("json"), ",")[0]
+		if name != "" && name != "-" {
+			mine[name] = true
+		}
+	}
+
+	// 이 문에만 있는 칸, 사유와 함께. 위 표와 같은 규칙이다.
+	doorOnly := map[string]string{
+		"id": "뒤의 프레임이 고칠 행을 지목할 이름. 이쪽 셰이퍼는 제 목록을 들고 있어 필요 없다 — " +
+			"문으로 옮겨 가는 날 필요해진다.",
+		"summary": "얕은 클라이언트가 읽는 한 줄. 이 창은 본문을 마크다운으로 그리므로 채울 이유가 없다.",
+		"folded": "기본으로 접을지 — 이 문이 정하고 클라이언트가 따르는 결정. 이쪽 셰이퍼는 그리는 " +
+			"코드가 종류를 보고 스스로 정한다(생각·도구 본문).",
+		"seq": "행을 만든 사건. 이쪽 셰이퍼는 목록의 자리로 같은 일을 한다.",
+		"readOnly": "라운드가 판단하는 턴이 파일을 안 고쳤다는 사실. 이쪽 사본은 그것을 " +
+			"`evidence` 문장 안에 넣는다 — 같은 사실, 다른 모양.",
+	}
+	// 이쪽 사본에만 있는 칸도 사유와 함께. **이 절반이 없어서 시간이 사라질 뻔했다.**
+	copyOnly := map[string]string{
+		"tool": "도구 이름을 따로 든다. 이 문은 그것을 `text` 에 싣는다(도구 행의 본문이 이름이다) — " +
+			"사실은 가 있고 모양만 다르다.",
+		"why": "카운슬의 결론 행에서 `continue` 를 붙들고 있는 반대. 이 문은 그것을 결론 행의 " +
+			"`text` 에 이어 붙인다 — 사실은 가 있고, 따로 뽑아 그릴지는 화면의 결정이다.",
+	}
+	for f := range mine {
+		if got[f] {
+			continue
+		}
+		if why, ok := doorOnly[f]; ok {
+			if strings.TrimSpace(why) == "" {
+				t.Errorf("%q 가 사유 없이 면제돼 있다", f)
+			}
+			continue
+		}
+		t.Errorf("이 문이 %q 를 싣는데 코틀린 사본에는 그 필드가 없다", f)
+	}
+	for f := range got {
+		if mine[f] {
+			continue
+		}
+		if why, ok := copyOnly[f]; ok {
+			if strings.TrimSpace(why) == "" {
+				t.Errorf("코틀린 사본이 %q 를 싣는데 이 문에는 없고, 사유도 없다 — 이 창을 문으로 "+
+					"옮기면 그 사실이 사라진다", f)
+			}
+			continue
+		}
+		t.Errorf("코틀린 사본이 %q 를 싣는데 이 문에는 그 칸이 없다 — 이 창을 문으로 옮기면 "+
+			"그 사실이 사라진다", f)
+	}
+	// ★ 면제도 늙는다, 양쪽 다.
+	for f := range doorOnly {
+		if got[f] {
+			t.Errorf("%q 가 이제 코틀린 사본에도 있다 — 면제를 지울 것", f)
+		}
+	}
+	for f := range copyOnly {
+		if mine[f] {
+			t.Errorf("%q 가 이제 이 문에도 있다 — 면제를 지울 것", f)
+		}
 	}
 }

@@ -1,143 +1,158 @@
 [
- {
-  "seq": 1,
-  "who": "user",
-  "text": "fix the failing test",
-  "msgId": "m1",
-  "summary": "fix the failing test",
-  "id": "1"
- },
- {
-  "seq": 5,
-  "who": "thinking",
-  "text": "  let me look  ",
-  "folded": true,
-  "summary": "let me look",
-  "id": "5"
- },
- {
-  "seq": 6,
-  "who": "agent",
-  "text": "  Looking now.  ",
-  "summary": "Looking now.",
-  "id": "6"
- },
- {
-  "seq": 7,
-  "who": "tool",
-  "text": "bash",
-  "callId": "c1",
-  "args": "{\"command\":\"go test ./...\",\"cwd\":\"/x\"}",
-  "ok": false,
-  "out": "boom\nsecond line",
-  "summary": "bash go test ./...",
-  "id": "7"
- },
- {
-  "seq": 9,
-  "who": "tool",
-  "text": "write",
-  "callId": "c2",
-  "args": "{\"path\":\"a.go\"}",
-  "ok": true,
-  "note": true,
-  "out": "lint says x",
-  "summary": "write a.go",
-  "id": "9"
- },
- {
-  "seq": 11,
-  "who": "image",
-  "text": "/tmp/shot.png",
-  "summary": "/tmp/shot.png",
-  "id": "11"
- },
- {
-  "seq": 12,
-  "who": "error",
-  "text": "bad",
-  "summary": "bad",
-  "id": "12"
- },
- {
-  "seq": 13,
-  "who": "error",
-  "text": "provider blew up (recovered)",
-  "summary": "provider blew up (recovered)",
-  "id": "13"
- },
- {
-  "seq": 14,
-  "who": "council",
-  "text": "melchior, balthasar",
-  "round": 1,
-  "rule": "majority",
-  "opened": true,
-  "readOnly": true,
-  "summary": "melchior, balthasar",
-  "id": "14"
- },
- {
-  "seq": 15,
-  "who": "council",
-  "text": "looks right",
-  "round": 1,
-  "decision": "done",
-  "lens": "correctness",
-  "cite": "NO-EVIDENCE",
-  "keep": "the guard",
-  "confidence": 0.8,
-  "member": "melchior",
-  "summary": "looks right",
-  "id": "15"
- },
- {
-  "seq": 16,
-  "who": "council",
-  "text": "no answer came back",
-  "round": 1,
-  "decision": "abstain",
-  "silent": true,
-  "member": "casper",
-  "summary": "no answer came back",
-  "id": "16"
- },
- {
-  "seq": 17,
-  "who": "council",
-  "text": "not accepted — 1 done / 1 continue / 1 abstain / 1 no answer — debated: 2-1→3-0, 1 member moved",
-  "round": 1,
-  "decision": "continue",
-  "silent": true,
-  "summary": "not accepted — 1 done / 1 continue / 1 abstain / 1 no answer — debated: 2-1→3-0, 1 member moved",
-  "id": "17"
- },
- {
-  "seq": 18,
-  "who": "system",
-  "text": "⟳ orchestrator note: You stopped",
-  "summary": "⟳ orchestrator note: You stopped",
-  "id": "18"
- },
- {
-  "seq": 20,
-  "who": "system",
-  "text": "⇢ the companion moved to s_02 — this conversation ends here",
-  "summary": "⇢ the companion moved to s_02 — this conversation ends here",
-  "id": "20"
- },
- {
-  "seq": 21,
-  "who": "system",
-  "text": "↯ folded the conversation: ~1000→250 tok (−750, −75%)",
-  "summary": "↯ folded the conversation: ~1000→250 tok (−750, −75%)",
-  "id": "21"
- },
- {
-  "seq": 22,
-  "who": "system",
-  "text": "⚠ Unverified — nothing ran to confirm this: no run",
-  "summary": "⚠ Unverified — nothing ran to confirm this: no run",
-  "id": "22"
- }
+  {
+    "at": "2026-09-14T10:00:00Z",
+    "seq": 1,
+    "who": "user",
+    "text": "fix the failing test",
+    "msgId": "m1",
+    "summary": "fix the failing test",
+    "id": "1"
+  },
+  {
+    "seq": 5,
+    "who": "thinking",
+    "text": "  let me look  ",
+    "folded": true,
+    "summary": "let me look",
+    "id": "5"
+  },
+  {
+    "seq": 6,
+    "who": "agent",
+    "text": "  Looking now.  ",
+    "summary": "Looking now.",
+    "id": "6"
+  },
+  {
+    "at": "2026-09-14T10:00:06Z",
+    "seq": 7,
+    "who": "tool",
+    "text": "bash",
+    "callId": "c1",
+    "args": "{\"command\":\"go test ./...\",\"cwd\":\"/x\"}",
+    "ok": false,
+    "out": "boom\nsecond line",
+    "summary": "bash go test ./...",
+    "id": "7"
+  },
+  {
+    "at": "2026-09-14T10:00:08Z",
+    "seq": 9,
+    "who": "tool",
+    "text": "write",
+    "callId": "c2",
+    "args": "{\"path\":\"a.go\"}",
+    "ok": true,
+    "note": true,
+    "out": "lint says x",
+    "summary": "write a.go",
+    "id": "9"
+  },
+  {
+    "at": "2026-09-14T10:00:10Z",
+    "seq": 11,
+    "who": "image",
+    "text": "/tmp/shot.png",
+    "summary": "/tmp/shot.png",
+    "id": "11"
+  },
+  {
+    "at": "2026-09-14T10:00:11Z",
+    "seq": 12,
+    "who": "error",
+    "text": "bad",
+    "summary": "bad",
+    "id": "12"
+  },
+  {
+    "at": "2026-09-14T10:00:12Z",
+    "seq": 13,
+    "who": "error",
+    "text": "provider blew up (recovered)",
+    "summary": "provider blew up (recovered)",
+    "id": "13"
+  },
+  {
+    "at": "2026-09-14T10:00:13Z",
+    "seq": 14,
+    "who": "council",
+    "text": "make the fold say the time",
+    "round": 1,
+    "rule": "majority",
+    "opened": true,
+    "readOnly": true,
+    "evidence": "task: make the fold say the time\n\nplan: 1. read both copies\n2. add the field\n\nreport: rows.go and fold.go touched",
+    "summary": "make the fold say the time",
+    "id": "14"
+  },
+  {
+    "at": "2026-09-14T10:00:14Z",
+    "seq": 15,
+    "who": "council",
+    "text": "looks right",
+    "round": 1,
+    "decision": "done",
+    "lens": "correctness",
+    "cite": "NO-EVIDENCE",
+    "keep": "the guard",
+    "confidence": 0.8,
+    "member": "melchior",
+    "summary": "looks right",
+    "id": "15"
+  },
+  {
+    "at": "2026-09-14T10:00:15Z",
+    "seq": 16,
+    "who": "council",
+    "text": "no answer came back",
+    "round": 1,
+    "decision": "abstain",
+    "silent": true,
+    "member": "casper",
+    "summary": "no answer came back",
+    "id": "16"
+  },
+  {
+    "at": "2026-09-14T10:00:16Z",
+    "seq": 17,
+    "who": "council",
+    "text": "not accepted — 1 done / 1 continue / 1 abstain / 1 no answer — debated: 2-1→3-0, 1 member moved",
+    "round": 1,
+    "decision": "continue",
+    "silent": true,
+    "summary": "not accepted — 1 done / 1 continue / 1 abstain / 1 no answer — debated: 2-1→3-0, 1 member moved",
+    "id": "17"
+  },
+  {
+    "at": "2026-09-14T10:00:17Z",
+    "seq": 18,
+    "who": "system",
+    "text": "⟳ orchestrator note: You stopped",
+    "summary": "⟳ orchestrator note: You stopped",
+    "id": "18"
+  },
+  {
+    "at": "2026-09-14T10:00:19Z",
+    "seq": 20,
+    "who": "system",
+    "text": "⇢ the companion moved to s_02 — this conversation ends here",
+    "summary": "⇢ the companion moved to s_02 — this conversation ends here",
+    "id": "20"
+  },
+  {
+    "at": "2026-09-14T10:00:20Z",
+    "seq": 21,
+    "who": "system",
+    "text": "↯ folded the conversation: ~1000→250 tok (−750, −75%)",
+    "summary": "↯ folded the conversation: ~1000→250 tok (−750, −75%)",
+    "id": "21"
+  },
+  {
+    "at": "2026-09-14T10:00:21Z",
+    "seq": 22,
+    "who": "system",
+    "text": "⚠ Unverified — nothing ran to confirm this: no run",
+    "summary": "⚠ Unverified — nothing ran to confirm this: no run",
+    "id": "22"
+  }
 ]
