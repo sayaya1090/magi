@@ -48,8 +48,8 @@ var consoleSurface = map[string]bool{
 	// 한쪽이 산 프로세스를 죽었다고 결론 내린다 — 그 결론 위의 행동이 양쪽 다 파괴적이다(청구를
 	// 지우거나, 멀쩡한 빌드를 되돌리거나). 표면이 넓어지는 것은 이름 하나뿐이고 실리는 코드는
 	// 그대로다.
-	"internal/procalive":    true,
-	"internal/pathx":        true,
+	"internal/procalive": true,
+	"internal/pathx":     true,
 	// Windows 에서 콘솔 프로그램이 비-UTF8(CP949 등)로 쓴 출력을 UTF-8 로 복원하는 잎.
 	// tool/builtin 과 platform 이 이미 싣고 있으므로 콘솔이 도구 실행을 싣는 길에 같이 간다(2026-09-13).
 	// 의존 없는 잎이고 비-Windows 에서는 no-op 이다.
