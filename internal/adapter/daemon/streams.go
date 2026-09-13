@@ -409,6 +409,10 @@ func streamTranscript(ctx context.Context, eng Engine, req Request, w wire) afte
 			}
 		}
 	}
+	// Say that it is over before closing, because the closing itself is not reliable news — see
+	// Response.Over for the measurement. Best effort: a peer already gone is the ordinary reason this
+	// fails, and it is the case that needs nothing said to it.
+	_ = w.enc.Encode(Response{OK: true, Over: true})
 	hungUp()
 	unsubscribe()
 	return done // this connection was a stream; it ends with it

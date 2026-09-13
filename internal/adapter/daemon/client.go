@@ -256,7 +256,15 @@ func (c *Client) Follow(sid string, since int64, t Tail) error {
 		}
 		if resp.Event == nil {
 			// A frame with no event is the daemon saying something about the stream rather than
-			// carrying a piece of it: the replay ended, or the cursor was refused.
+			// carrying a piece of it: the replay ended, the stream is over, or the cursor was refused.
+			//
+			// Over is checked FIRST and ends the read here rather than waiting for the connection to
+			// close, because on Windows that close is not reliable news — measured with no magi code
+			// involved (Response.Over). Waiting for the EOF instead is a read that sometimes never
+			// returns, and a stream meant to sit quiet cannot tell that from silence.
+			if resp.Over {
+				return nil
+			}
 			if resp.Live {
 				if t.CaughtUp != nil {
 					t.CaughtUp()

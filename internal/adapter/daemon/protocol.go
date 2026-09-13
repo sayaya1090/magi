@@ -769,6 +769,25 @@ type Response struct {
 	// it ignores that one. The cost of being wrong in the other direction is what picked this shape:
 	// a reader that never learns it is caught up shows "replaying…" for ever.
 	Live bool `json:"live,omitempty"`
+	// Over says, on a stream, that this one is FINISHED — no further frame will come and the
+	// connection is about to close. Live's sibling, for the other end of the same problem.
+	//
+	// ⚠ **The closing of the socket is not reliable news on Windows, and this was measured with no
+	// magi code in the picture** (2026-09-13). A plain AF_UNIX server that writes a line and then
+	// closes leaves the reader's NEXT read hanging for ever: 12 of 600 rounds lost it. A 20ms gap
+	// before the close made it 0 of 600, and `CloseWrite` before the close 1 of 600 — so it is a race
+	// between the write and the close inside afunix.sys, and there is no server-side spelling of
+	// "close" that fixes it. The DATA arrives; only the end-of-file does not.
+	//
+	// That is what surfaced as an intermittent hang in this door's own test (#197): the daemon had
+	// answered, ended the stream and closed, and the client sat in a read that would never return.
+	// A reader cannot defend itself with a deadline either — a transcript stream is MEANT to sit
+	// quiet for hours waiting for live events, so silence and a lost EOF look the same.
+	//
+	// So the end is SAID, on an event-less frame, exactly as Live is — and for the same reason it is
+	// safe: a client built before this field ignores it and goes on waiting for the EOF it used to
+	// wait for. Clients that read it stop on the sentence instead of on the silence.
+	Over bool `json:"over,omitempty"`
 	// Session is the conversation an answer was produced in, when the caller has a use for it.
 	//
 	// The meeting methods and session-new set it, and the use is one the screen has: a participant speaks from
