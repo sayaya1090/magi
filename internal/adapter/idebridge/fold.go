@@ -98,12 +98,33 @@ func summarise(rows []Row) {
 }
 
 func Rows(events []event.Event) []Row {
+	rows, _ := fold(events)
+	return rows
+}
+
+// foldStats is what the fold DID, for the tests that ask whether it did too much.
+//
+// ⚠ A seam, not a knob, and it exists because the alternative was a clock. The property worth holding
+// is "clearing the waiting marks costs the number of MARKS, not the length of the conversation", and a
+// timing test cannot hold it: measured 2026-09-13, the quadratic shape and the linear one were 36×
+// and 24× on the same 16×-longer log — 1.5 apart, with allocator and GC effects that size. Counting
+// the work is exact, needs no clock, and fails the same way on a busy machine as on an idle one.
+type foldStats struct {
+	// pendingVisits is how many rows the two mark-clearing loops looked at, in total.
+	pendingVisits int
+}
+
+func fold(events []event.Event) ([]Row, foldStats) {
+	var stats foldStats
 	// Pointers, not values. The rule reaches back and marks rows that are already out — a reply
 	// clears the bar on the prompt above it, a tool result lands ON its call's row, a resurfaced
 	// interjection MOVES its original. With values, `drafts` would hold copies and every one of
 	// those marks would be written to something nobody draws.
 	var out []*Row
 	answered := map[int64]bool{}
+	// pending is the rows that carry a waiting mark. Held apart from `out` because clearing the mark
+	// is the one thing this fold does OFTEN and to FEW rows — see answerPending.
+	var pending []*Row
 	// Streaming chunks, keyed by the message and kind they belong to. A draft is REPLACED by the
 	// fact when it arrives rather than added to — the appended part carries the whole text, so
 	// keeping both would show the answer twice.
@@ -129,13 +150,33 @@ func Rows(events []event.Event) []Row {
 	// Any assistant part answers the prompts above it. The mark travels on the ROW rather than
 	// being recomputed at draw time: a screen that re-derived it would have to hold the whole log
 	// to draw one row.
+	//
+	// ⚠ **Only the rows that carry the mark, not every row so far.** This used to walk `out`, and
+	// `out` grows: an answer arrives, the walk is the length of the conversation, and there is an
+	// answer per assistant part. Measured 2026-09-13 on synthetic logs — 200 events 1.5ms, 20000
+	// events 786ms, and 53% of that in this one closure. Quadratic, and the `rows` door pays it on
+	// every call: three quarters of a second to answer one question about a long conversation, and a
+	// live surface that re-folds per event could not keep up at all. Nothing here is a cache — the
+	// list IS the set this loop was looking for, and the predicate below is unchanged.
 	answerPending := func() {
-		for _, r := range out {
-			if r.Pending && !answered[r.Seq] {
+		kept := pending[:0]
+		stats.pendingVisits += len(pending)
+		for _, r := range pending {
+			switch {
+			case !r.Pending:
+				// Cleared by another path (abandoned, answered in place). It is no longer waiting,
+				// so it is no longer a candidate.
+			case answered[r.Seq]:
+				// ⚠ Already answered under this seq, so the mark STAYS — the old walk did the same
+				// thing by skipping it. A resurfaced prompt is the case that matters: it moves with
+				// a new seq, and then it is a candidate again.
+				kept = append(kept, r)
+			default:
 				r.Pending = false
 				answered[r.Seq] = true
 			}
 		}
+		pending = kept
 	}
 
 	for _, e := range events {
@@ -209,6 +250,8 @@ func Rows(events []event.Event) []Row {
 						moved := out[i]
 						out = append(out[:i], out[i+1:]...)
 						moved.Text, moved.Queued, moved.Pending, moved.Seq = text, false, true, e.Seq
+						// 다시 기다리는 중이 됐으니 다시 후보다 — 새 seq 로는 아직 답이 없다.
+						pending = append(pending, moved)
 						if id != "" {
 							moved.MsgID = id
 						} else {
@@ -218,7 +261,9 @@ func Rows(events []event.Event) []Row {
 						break
 					}
 				}
-				out = append(out, &Row{Seq: e.Seq, Who: WhoUser, Text: text, Pending: true, MsgID: id})
+				row := &Row{Seq: e.Seq, Who: WhoUser, Text: text, Pending: true, MsgID: id}
+				out = append(out, row)
+				pending = append(pending, row)
 			}
 
 		case event.TypePartAppended:
@@ -368,9 +413,14 @@ func Rows(events []event.Event) []Row {
 				out = append(out, &Row{Seq: e.Seq, Who: WhoSystem, Text: text})
 			}
 			// Not a row. It ends the turn, and the screen reads that from the pending marks.
-			for _, r := range out {
+			//
+			// Same reason as answerPending: only the rows that carry the mark can lose it, and
+			// walking the whole conversation once per TURN is the other half of the quadratic.
+			stats.pendingVisits += len(pending)
+			for _, r := range pending {
 				r.Pending = false
 			}
+			pending = pending[:0]
 			// ⚠ Sweep the orphan drafts. There are several paths where the core streams chunks and
 			// never writes the fact — a reply the spin guard discarded, a tool call that arrived as
 			// text, an interrupt, a provider error, a failed interjection mini-turn. Left standing,
@@ -390,7 +440,7 @@ func Rows(events []event.Event) []Row {
 	}
 	name(flat)
 	summarise(flat)
-	return flat
+	return flat, stats
 }
 
 // appendPart is the part-kind fold, kept apart because it is the one place a MISSING branch is

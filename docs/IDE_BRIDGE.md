@@ -190,6 +190,16 @@ fixture nor the first synthetic case had a row BETWEEN the moved question and th
 "moved to the bottom" and "was already at the bottom" produced the same list. A case that cannot tell
 two outcomes apart reports the one it can see.
 
+**What one frame costs, measured 2026-09-13.** Folding a synthetic conversation: 200 events 1.5ms,
+1000 events 8ms, 5000 events 41ms, 20000 events 157ms — proportional to the conversation. It was
+quadratic until that day (20000 events took 786ms, 53% of it in one closure that walked every row
+built so far each time an answer arrived), which the `rows` door was paying on every call and a live
+surface could not have paid at all. The diff of two folds is the other half: ~1ms at 150 rows, 88ms at
+15000. So a live sender folds and diffs per BATCH of arriving events, not per event, and that batch
+interval is what bounds the cost — a decision for the door, recorded here because the number is what
+makes it a decision rather than a preference. `TestClearingTheMarksCostsTheMarksNotTheConversation`
+holds the shape by counting the work rather than timing it.
+
 **`grow` exists for its cost, not for its clarity.** Measured on an 8.8KB answer arriving in 200
 chunks: 8756 bytes of text as `grow` frames, against 884356 as whole-row patches — **101×**.
 
