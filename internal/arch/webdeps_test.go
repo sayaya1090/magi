@@ -50,6 +50,10 @@ var consoleSurface = map[string]bool{
 	// 그대로다.
 	"internal/procalive":    true,
 	"internal/pathx":        true,
+	// Windows 에서 콘솔 프로그램이 비-UTF8(CP949 등)로 쓴 출력을 UTF-8 로 복원하는 잎.
+	// tool/builtin 과 platform 이 이미 싣고 있으므로 콘솔이 도구 실행을 싣는 길에 같이 간다(2026-09-13).
+	// 의존 없는 잎이고 비-Windows 에서는 no-op 이다.
+	"internal/wintext":      true,
 	"internal/config":       true,
 	"internal/core/auth":    true,
 	"internal/core/bus":     true,
