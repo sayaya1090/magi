@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/sayaya1090/magi/internal/core/event"
@@ -23,6 +24,25 @@ import (
 //
 // **Draw shallowly.** What to SAY is the daemon's decision. A client that parses payloads to
 // compose sentences composes them once per client, and there are six clients.
+// name fills Row.ID — the one place the rule lives, so a client's name for a row is the fold's.
+//
+// A fact is named by the event that made it. A draft has no event to be named by (chunks are written
+// with seq 0), so it is named by what it is a draft of — the same key the fold finds it with.
+func name(rows []Row) {
+	for i := range rows {
+		r := &rows[i]
+		if r.Draft {
+			kind := "text"
+			if r.Who == WhoThinking {
+				kind = "reasoning"
+			}
+			r.ID = "d:" + r.MsgID + ":" + kind
+			continue
+		}
+		r.ID = strconv.FormatInt(r.Seq, 10)
+	}
+}
+
 // summarise fills Row.Summary for every row — one line, bounded, from whatever body the row carries.
 //
 // Done in one pass at the end rather than at each of the twelve places a row is built: a summary
@@ -109,7 +129,10 @@ func Rows(events []event.Event) []Row {
 				if kind == "reasoning" {
 					who, folded = WhoThinking, true
 				}
-				row = &Row{Seq: e.Seq, Who: who, Draft: true, Folded: folded}
+				// MsgID travels on the draft too. Without it the row cannot be NAMED: a draft is named
+				// by the message and kind it is a draft of, and two messages streaming text at once
+				// would otherwise share one name and one screen row.
+				row = &Row{Seq: e.Seq, Who: who, Draft: true, Folded: folded, MsgID: str(d, "messageId")}
 				drafts[key] = row
 				out = append(out, row)
 				// A chunk is an answer to whatever is above it, the same as any assistant part.
@@ -336,6 +359,7 @@ func Rows(events []event.Event) []Row {
 	for _, r := range out {
 		flat = append(flat, *r)
 	}
+	name(flat)
 	summarise(flat)
 	return flat
 }

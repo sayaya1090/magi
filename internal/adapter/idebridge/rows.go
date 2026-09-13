@@ -189,4 +189,26 @@ type Row struct {
 	// draws this; a client that shows the conversation draws the bodies. Neither has to parse anything
 	// to get the other, which is the whole point of deciding it once.
 	Summary string `json:"summary,omitempty"`
+
+	// ID names this row so a later frame can say which row it changed.
+	//
+	// ⚠ **Seq cannot do it.** The fold reaches BACKWARDS — a reply clears the bar on the prompt above
+	// it, a tool result lands on its call's row, a resurfaced interjection moves its original — and
+	// inside one process that is a pointer. On a wire it needs a name, or a live contract can only
+	// resend the whole list. Seq is the obvious candidate and it is almost enough: measured over the
+	// fixture, every fact has its own. But a streaming chunk is NOT a fact and is written with seq 0,
+	// so one message's reasoning draft and text draft both claim 0 — the two rows a screen is most
+	// actively redrawing are exactly the two seq cannot tell apart
+	// (TestWhetherARowCanBeNamed, 2026-09-13).
+	//
+	// So: a fact's row is named by its seq, and a draft by the message and kind it is a draft OF —
+	// which is the key the fold already uses internally to find it (`drafts`). One rule, and the name a
+	// client holds is the name the fold knows the row by.
+	//
+	// ⚠ **Still open**: when the fact arrives, this fold drops the draft and appends the fact, so a
+	// live contract built on these ids says "drop d:m1:text, add 3" where a screen would rather hear
+	// "row d:m1:text became this" — the Kotlin copy states the intent as "조각은 새 줄이 아니라 같은
+	// 줄의 고쳐 쓰기". Whether the fact inherits the draft's id is a decision for the live contract, not
+	// something to settle by accident here.
+	ID string `json:"id,omitempty"`
 }

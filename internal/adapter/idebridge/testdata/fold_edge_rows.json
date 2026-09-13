@@ -4,20 +4,23 @@
   "who": "user",
   "text": "first question, again",
   "msgId": "q3",
-  "summary": "first question, again"
+  "summary": "first question, again",
+  "id": "4"
  },
  {
   "seq": 3,
   "who": "user",
   "text": "second",
   "msgId": "q2",
-  "summary": "second"
+  "summary": "second",
+  "id": "3"
  },
  {
   "seq": 6,
   "who": "agent",
   "text": "answering the second",
-  "summary": "answering the second"
+  "summary": "answering the second",
+  "id": "6"
  },
  {
   "seq": 8,
@@ -25,7 +28,8 @@
   "text": "third",
   "abandoned": true,
   "msgId": "q4",
-  "summary": "third"
+  "summary": "third",
+  "id": "8"
  },
  {
   "seq": 12,
@@ -33,7 +37,8 @@
   "text": "accepted",
   "round": 2,
   "decision": "done",
-  "summary": "accepted"
+  "summary": "accepted",
+  "id": "12"
  },
  {
   "seq": 13,
@@ -41,14 +46,16 @@
   "text": "judge the fix",
   "round": 2,
   "opened": true,
-  "summary": "judge the fix"
+  "summary": "judge the fix",
+  "id": "13"
  },
  {
   "seq": 14,
   "who": "council",
   "text": "a round opened",
   "opened": true,
-  "summary": "a round opened"
+  "summary": "a round opened",
+  "id": "14"
  },
  {
   "seq": 15,
@@ -56,13 +63,15 @@
   "text": "tool",
   "callId": "c9",
   "args": "{\"nothing\":\"here\"}",
-  "summary": "tool {\"nothing\":\"here\"}"
+  "summary": "tool {\"nothing\":\"here\"}",
+  "id": "15"
  },
  {
   "seq": 16,
   "who": "agent",
   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaBBBB",
-  "summary": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+  "summary": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+  "id": "16"
  },
  {
   "seq": 17,
@@ -70,7 +79,8 @@
   "text": "grep",
   "callId": "c10",
   "args": "not json at all",
-  "summary": "grep not json at all"
+  "summary": "grep not json at all",
+  "id": "17"
  },
  {
   "seq": 18,
@@ -78,12 +88,14 @@
   "text": "",
   "round": 2,
   "decision": "continue",
-  "member": "balthasar"
+  "member": "balthasar",
+  "id": "18"
  },
  {
   "seq": 19,
   "who": "system",
   "text": "↯ folded the conversation: ~100→150 tok (+50, the summary is LARGER than what it replaced)",
-  "summary": "↯ folded the conversation: ~100→150 tok (+50, the summary is LARGER than what it replaced)"
+  "summary": "↯ folded the conversation: ~100→150 tok (+50, the summary is LARGER than what it replaced)",
+  "id": "19"
  }
 ]

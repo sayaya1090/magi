@@ -269,3 +269,88 @@ func same(t *testing.T, what string, replay, live []event.Event) {
 		}
 	}
 }
+
+// **Can a later frame NAME the row it changes?**
+//
+// The fold reaches back: a reply clears the bar on the prompt above it, a tool result lands on its
+// call's row, a resurfaced interjection moves its original. Inside one process that is a pointer. On a
+// wire it needs a name — and a live contract that sends changes instead of the whole list is
+// impossible without one.
+//
+// So this asks the rows that exist today whether they carry one. It is written to report what IS
+// rather than to assert a design: if two rows share a name, that is the finding, and the contract has
+// to supply identity before the door can carry live changes.
+func TestWhetherARowCanBeNamed(t *testing.T) {
+	var events []event.Event
+	read(t, "fold_events.json", &events)
+	rows := Rows(events)
+	if len(rows) < 10 {
+		t.Fatalf("픽스처에서 행을 %d 개밖에 못 얻었다 — 잴 것이 없다", len(rows))
+	}
+
+	// Seq is the event that put the row there, which is the only candidate the row already carries.
+	bySeq := map[int64][]int{}
+	for i, r := range rows {
+		bySeq[r.Seq] = append(bySeq[r.Seq], i)
+	}
+	clashes := 0
+	for seq, at := range bySeq {
+		if len(at) > 1 {
+			clashes++
+			kinds := make([]string, 0, len(at))
+			for _, i := range at {
+				kinds = append(kinds, string(rows[i].Who))
+			}
+			t.Logf("seq %d 를 행 %v 가 나눠 쓴다(%v)", seq, at, kinds)
+		}
+	}
+	if clashes > 0 {
+		t.Errorf("%d 개의 seq 가 여러 행에 걸린다 — seq 로는 뒤의 프레임이 고칠 행을 지목할 수 없다", clashes)
+	}
+
+	// And the live case the batch fixture cannot show: two drafts of ONE message. Deltas are written
+	// with seq 0, so a reasoning draft and a text draft of the same message both claim 0.
+	live := Rows([]event.Event{
+		mk(0, "part.delta", map[string]any{"messageId": "m1", "kind": "reasoning", "text": "thinking"}, nil),
+		mk(0, "part.delta", map[string]any{"messageId": "m1", "kind": "text", "text": "answering"}, nil),
+	})
+	if len(live) != 2 {
+		t.Fatalf("두 초안이 두 행이 아니다: %s", show(t, live))
+	}
+	// seq 로는 못 가른다 — 그것이 이 칸이 있는 이유다. 이름으로 가른다.
+	if live[0].Seq != live[1].Seq {
+		t.Errorf("조각이 seq 를 갖게 됐다(%d, %d) — 그러면 이 규칙의 근거가 바뀐 것이니 여기부터 고칠 것",
+			live[0].Seq, live[1].Seq)
+	}
+	if live[0].ID == live[1].ID || live[0].ID == "" {
+		t.Errorf("한 메시지의 두 초안이 같은 이름을 쓴다(%q, %q) — 실시간에서 고칠 행을 지목할 수 없다",
+			live[0].ID, live[1].ID)
+	}
+
+	// ⚠ **그리고 메시지가 둘일 때.** 이 규칙의 첫 판은 초안 행에 메시지 id 를 안 실어서 이름이
+	// `d::text` 였다 — 한 메시지만 쓰는 위 짝으로는 통과하고, 두 메시지가 동시에 흐르면 남의 행을
+	// 고친다. 시험이 한 메시지만 보면 그 구멍이 안 보인다.
+	two := Rows([]event.Event{
+		mk(0, "part.delta", map[string]any{"messageId": "m1", "kind": "text", "text": "one"}, nil),
+		mk(0, "part.delta", map[string]any{"messageId": "m2", "kind": "text", "text": "two"}, nil),
+	})
+	if len(two) != 2 {
+		t.Fatalf("두 메시지의 초안이 두 행이 아니다: %s", show(t, two))
+	}
+	if two[0].ID == two[1].ID {
+		t.Errorf("두 메시지의 초안이 같은 이름을 쓴다(%q) — 이름에 메시지가 빠졌다", two[0].ID)
+	}
+
+	// 그리고 사실의 행들도 서로 다른 이름을 갖는다. 이름이 겹치면 뒤의 프레임이 남의 행을 고친다.
+	seen := map[string]int{}
+	for i, r := range rows {
+		if r.ID == "" {
+			t.Errorf("[%d] %s 행에 이름이 없다 — 뒤의 프레임이 이 행을 지목할 수 없다", i, r.Who)
+			continue
+		}
+		if j, dup := seen[r.ID]; dup {
+			t.Errorf("행 %d 와 %d 가 이름 %q 를 나눠 쓴다", j, i, r.ID)
+		}
+		seen[r.ID] = i
+	}
+}
