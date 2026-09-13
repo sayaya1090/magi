@@ -119,12 +119,14 @@ func (b *bridge) rowsLive(req request) {
 		})
 		// The reason the stream ended travels with the last frame. A subscription that just stops is
 		// indistinguishable from a quiet conversation, and a screen would go on claiming to be live.
-		why := ""
-		if err != nil {
-			why = err.Error()
-		}
+		//
+		// ⚠ **A clean end is not a reasonless end.** Measured against a real daemon on 2026-09-14:
+		// killing it closed the socket without an error, so `Follow` returned nil and the frame went
+		// out as a bare `{"done":true}` — the screen was told the subscription was over and not that
+		// the companion had gone, which is the half of the promise that matters. The scanner ending is
+		// itself the fact; it just has no error to carry it.
 		select {
-		case frames <- liveFrame{done: true, why: why}:
+		case frames <- liveFrame{done: true, why: whyEnded(err, sub.stop)}:
 		case <-sub.stop:
 		}
 		close(frames)
@@ -291,5 +293,32 @@ func (b *bridge) endSubs() {
 	b.smu.Unlock()
 	for _, s := range subs {
 		s.end()
+	}
+}
+
+// whyEnded is what to tell a screen when the stream stops.
+//
+// ⚠ **A clean end is not a reasonless end.** Measured against a real daemon on 2026-09-14: killing it
+// closed the socket without an error, so the read simply finished and the frame went out as a bare
+// `{"done":true}`. The screen was told the subscription was over and NOT that the companion had gone,
+// which is the half of the promise that matters — "it ended" is indistinguishable from a conversation
+// where nothing is happening.
+//
+// ⚠ And the other way is a lie of its own: when the CLIENT asked to stop, the same clean end must say
+// nothing, or every deliberate stop reports a daemon that did not die.
+//
+// Named rather than left inline in the reader because the two halves cannot be told apart from
+// outside — which of them happens on a real stop is a race — and a rule that can only be measured by
+// winning a race is a rule nothing measures.
+func whyEnded(err error, stopped <-chan struct{}) string {
+	if err != nil {
+		return err.Error()
+	}
+	select {
+	case <-stopped:
+		return ""
+	default:
+		return "the companion closed the transcript stream — its daemon stopped, or it is no " +
+			"longer serving this conversation"
 	}
 }

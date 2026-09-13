@@ -3,6 +3,7 @@ package idebridge
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -311,6 +312,13 @@ func TestAStreamThatDiesSaysSo(t *testing.T) {
 	if f["done"] != true {
 		t.Fatalf("스트림이 죽었는데 끝났다고 말하지 않는다: %v", f)
 	}
+	// ⚠ **사유까지 와야 한다.** 실물에서 데몬을 죽여 보니(2026-09-14) 소켓이 오류 없이 닫혀
+	// `{"done":true}` 만 갔다 — 화면은 「구독이 끝났다」는 듣고 「컴패니언이 사라졌다」는 못 듣는다.
+	// 끝났다는 말만으로는 조용한 대화와 구별되지 않는다는 것이 이 문의 약속이었고, 그 약속의
+	// 나머지 절반이 이 줄이다.
+	if why, _ := f["why"].(string); strings.TrimSpace(why) == "" {
+		t.Errorf("스트림이 죽었는데 사유가 없다: %v", f)
+	}
 }
 
 // **An older companion is refused with a sentence, not a subscription that never speaks.**
@@ -482,5 +490,25 @@ func TestASubscriptionSaysDoneEvenIfItsReaderVanishes(t *testing.T) {
 	// 그리고 두 번 말하지 않는다 — 나가는 길이 셋인데 말은 하나여야 한다.
 	if n := strings.Count(out.String(), `"done":true`); n != 1 {
 		t.Errorf("끝났다는 말이 %d 번 나왔다", n)
+	}
+}
+
+// **What a screen is told when the stream stops, both ways.**
+//
+// The door has two clean ends and they must say different things: the companion went away, and the
+// client asked to stop. Which of them happens first on a real stop is a race, so this asks the rule
+// directly rather than trying to win one.
+func TestWhatAScreenIsToldWhenTheStreamStops(t *testing.T) {
+	open := make(chan struct{})
+	if why := whyEnded(nil, open); strings.TrimSpace(why) == "" {
+		t.Errorf("컴패니언이 조용히 사라졌는데 할 말이 없다 — 화면은 「끝났다」만 듣고 조용한 대화와 못 가른다")
+	}
+	closed := make(chan struct{})
+	close(closed)
+	if why := whyEnded(nil, closed); why != "" {
+		t.Errorf("일부러 멈춘 구독에 %q 라고 말한다 — 죽지 않은 데몬의 부고다", why)
+	}
+	if why := whyEnded(errors.New("boom"), closed); why != "boom" {
+		t.Errorf("진짜 오류가 %q 로 바뀐다 — 사유는 있는 그대로 간다", why)
 	}
 }
