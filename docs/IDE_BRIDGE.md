@@ -124,7 +124,8 @@ absent, nothing present that goes unadvertised.
 |---|---|
 | `about` | the bridge's version, the methods it answers, and what the daemon advertises (`proto`, `caps`) |
 | `activity` | **one word for what the companion is doing** — `not-running` · `attached` · `working` · `waiting` · `unknown` — plus what it is running on |
-| `rows` | **answers one conversation as the lines a screen shows**, through the one fold (`idebridge.Rows`). Needs a `session`; replies with `rows` and with `events`, the number of events read |
+| `rows` | **answers one conversation as the lines a screen shows**, through the one fold (`idebridge.Rows`). Needs a `session`; replies with `rows` and with `events`, the number of events read. With `"live":true` it keeps answering: the same reply plus a `sub`, then frames of differences (below) |
+| `stop` | **ends a live subscription** (`{"method":"stop","sub":1}`). Without it a panel leaks a connection per conversation it looks at |
 | `daemon` | **forwards `req` to the companion verbatim and returns its reply verbatim** |
 
 `about` names the methods this build answers, so a client never has to guess from this table — the
@@ -227,10 +228,28 @@ The guarantee that holds all of this up is one test, on every prefix of five eve
 `TestApplyingTheWordsRebuildsTheFold`. A live screen and a screen that just opened show the same
 conversation, which is the same promise `TestALiveStreamEndsWhereAReplayDoes` makes one layer down.
 
-⚠ **Built as a contract, not yet as a door.** `Diff`/`Apply` and their proof are in the tree; no
-method streams frames yet and no client draws them. That order is deliberate — the migration plan
-is to design live delivery BEFORE moving any client, so that a client moved onto the shared fold does
-not have to be moved again when live arrives.
+**The door** (2026-09-13). `{"method":"rows","session":"s_…","live":true}` answers with the fold —
+byte for byte what the one-shot form answers — plus a `sub` number, and then sends
+`{"sub":1,"ops":[…]}` as the conversation changes, ending with `{"sub":1,"done":true}` and a `why`
+when there was one. `{"method":"stop","sub":1}` ends it.
+
+Three things about it are decisions rather than mechanics:
+
+- **The reply waits for the replay to end.** A subscription whose first frame was a difference would
+  be a difference against nothing, so the daemon's end-of-replay marker is what the first frame is
+  built on — the same marker the one-shot door stops at, now handed to a reader that keeps going
+  (`daemon.Tail.CaughtUp`). It is bounded (20s): a companion that accepts and goes quiet must produce
+  a sentence, not a subscription that never speaks.
+- **A stream that dies says so.** `done` carries the reason. A subscription that simply stops is
+  indistinguishable from a conversation where nothing is happening, and the screen would go on
+  claiming to be live — the asymmetric lie this tree has paid for before.
+- **Each subscription owns its connection**, because the stream belongs to whoever keeps reading it,
+  and `stop` closes it. A flag alone would not: the reader is parked in a socket read no flag
+  interrupts, so a panel that switches conversations would leak one connection per switch.
+
+⚠ **No client draws these frames yet.** The clients still shape their own rows; moving them over is
+the next step, and it is deliberately after this one — a client moved onto the shared fold before
+live delivery existed would have had to be moved twice.
 
 **`activity` is the first derivation to move in.** It is the fourth of the eight, and it was about
 to be written a third time: the rule lives in TypeScript in `core/activity.ts`, and the Visual

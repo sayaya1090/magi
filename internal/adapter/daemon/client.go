@@ -206,12 +206,42 @@ func (c *Client) History(sid string) ([]event.Event, error) {
 	return nil, fmt.Errorf("daemon: the transcript stream ended before it said the replay was over")
 }
 
+// Tail is what a reader of the transcript stream wants to be told.
+//
+// A struct rather than three parameters because the stream talks about ITSELF as well as carrying
+// events, and the kinds of thing it says have grown twice already — the refused cursor, then the end
+// of the replay. Each is a different fact and they must not share a sink: a reader that learned
+// "the replay is over" from the same callback as "your cursor was refused" would restart on a normal
+// catch-up, which is the shape this tree has paid for elsewhere (report vs level, one sink).
+type Tail struct {
+	// Each is one event. Returning false ends the read.
+	Each func(event.Event) bool
+	// Restart is the daemon saying it could not honour the cursor, so the caller should read again
+	// from the beginning. Optional.
+	Restart func(why string)
+	// CaughtUp is the end of the REPLAY: everything before it was history, everything after is live.
+	//
+	// ⚠ Without this a live reader cannot tell the two apart, and that is not a detail — a screen
+	// that redraws per event would redraw the whole conversation once per historical event while
+	// catching up, and a client folding rows cannot know when its first picture is complete. The
+	// daemon sends the frame (`{"ok":true,"live":true}`) and `History` already stops on it; this is
+	// the same fact handed to a reader that means to keep going. Optional.
+	CaughtUp func()
+}
+
+// Transcript reads the stream with the two callbacks that predate Tail.
 func (c *Client) Transcript(sid string, since int64, restart func(why string), each func(event.Event) bool) error {
+	return c.Follow(sid, since, Tail{Each: each, Restart: restart})
+}
+
+// Follow reads the transcript stream: replay, the frame that says the replay ended, then live.
+func (c *Client) Follow(sid string, since int64, t Tail) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.enc.Encode(Request{Method: "transcript", Session: sid, Since: since}); err != nil {
 		return fmt.Errorf("daemon: send: %w", err)
 	}
+	restart, each := t.Restart, t.Each
 	for c.sc.Scan() {
 		var resp Response
 		if err := json.Unmarshal(c.sc.Bytes(), &resp); err != nil {
@@ -226,10 +256,19 @@ func (c *Client) Transcript(sid string, since int64, restart func(why string), e
 		}
 		if resp.Event == nil {
 			// A frame with no event is the daemon saying something about the stream rather than
-			// carrying a piece of it — today, only that the cursor was refused.
+			// carrying a piece of it: the replay ended, or the cursor was refused.
+			if resp.Live {
+				if t.CaughtUp != nil {
+					t.CaughtUp()
+				}
+				continue
+			}
 			if resp.Why != "" && restart != nil {
 				restart(resp.Why)
 			}
+			continue
+		}
+		if each == nil {
 			continue
 		}
 		if !each(*resp.Event) {

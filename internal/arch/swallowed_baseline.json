@@ -1,5 +1,5 @@
 {
-  "total": 142,
+  "total": 143,
   "files": {
     "clients/office/helper/attach.go": 2,
     "clients/office/helper/claim.go": 1,
@@ -16,6 +16,7 @@
     "cmd/magi/relay.go": 1,
     "internal/adapter/daemon/streams.go": 2,
     "internal/adapter/experience/git/store.go": 1,
+    "internal/adapter/idebridge/live_door.go": 1,
     "internal/adapter/mcp/manager.go": 1,
     "internal/adapter/plugin/lua/bridge_config.go": 1,
     "internal/adapter/plugin/lua/bridge_net.go": 4,

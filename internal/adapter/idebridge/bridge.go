@@ -35,6 +35,13 @@ type request struct {
 	ID     int             `json:"id"`
 	Method string          `json:"method"`
 	Req    json.RawMessage `json:"req,omitempty"`
+	// Live asks a question to keep being answered: `rows` with it streams differences (live.go)
+	// instead of answering once. A bool rather than a separate method name because it is the same
+	// question — what does this conversation look like — and the first frame of the live form is
+	// byte for byte what the one-shot form answers.
+	Live bool `json:"live,omitempty"`
+	// Sub names a live subscription, for the request that ends one.
+	Sub int `json:"sub,omitempty"`
 	// Session names the conversation a question is about. Optional, and its absence is not a
 	// default: `status` fills the model only when the request carries one, so a poll that omits it
 	// gets an answer with no model — which means "nobody said which conversation", not "no model".
@@ -46,7 +53,7 @@ type request struct {
 // Advertised from one list rather than written twice: a bridge that answers a method it does not
 // name, or names one it does not answer, teaches a client to call a door that is not there. The
 // daemon's own handshake makes the same promise for the same reason.
-func Methods() []string { return []string{"about", "activity", "rows", "daemon"} }
+func Methods() []string { return []string{"about", "activity", "rows", "stop", "daemon"} }
 
 // features is what a client may ASK this binary before it trusts it with anything.
 //
@@ -176,6 +183,15 @@ type bridge struct {
 	// connection state (which conversation this caller is on), and a fresh connection each time
 	// would silently be a fresh caller. nil until the first request needs it.
 	conn *daemon.Client
+
+	// subs are the live row subscriptions, each with a connection and a goroutine of its own.
+	//
+	// ⚠ Guarded separately from `out`. Holding the WRITE lock while dialing a socket would stop every
+	// other reply for as long as a connect takes, which is exactly the shape the two patiences above
+	// exist to avoid.
+	smu     sync.Mutex
+	subs    map[int]*rowsSub
+	nextSub int
 }
 
 func (b *bridge) serve(stdin io.Reader, stderr io.Writer) int {
@@ -212,7 +228,13 @@ func (b *bridge) dispatch(req request) {
 	case "activity":
 		b.activity(req)
 	case "rows":
+		if req.Live {
+			b.rowsLive(req)
+			break
+		}
 		b.rows(req)
+	case "stop":
+		b.stopSub(req)
 	case "daemon":
 		b.forward(req)
 	default:
@@ -319,6 +341,8 @@ func (b *bridge) dial() (*daemon.Client, error) {
 }
 
 func (b *bridge) hangUp() {
+	// Subscriptions first: each holds a connection of its own, and their senders write to `out`.
+	b.endSubs()
 	if b.conn != nil {
 		b.conn.Close()
 		b.conn = nil
