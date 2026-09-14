@@ -6,6 +6,7 @@ package llm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -323,6 +324,9 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 	sys := memberSystem(m, req.Task, req.Keep)
 	// The raw reply travels back with the parse outcome: the retry has to be able to name WHICH way
 	// the previous one failed, and that is only knowable from the text it failed on.
+	// lastCut is how the most recent stream ended, when magi ended it. The retry below consults it —
+	// a captured var rather than a sixth return value, which this signature already strains under.
+	var lastCut error
 	ask := func(userMsg string) (memberReply, string, string, bool, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model:  model,
@@ -336,6 +340,7 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		}
 		var b strings.Builder
 		text, reasoning, cut := drain(stream)
+		lastCut = cut // why THIS stream ended, for the retry decision below (worthRetrying)
 		b.WriteString(text)
 		if cut != nil {
 			cutOff("a council reply", text, reasoning, cut)
@@ -361,7 +366,12 @@ func (c *Council) poll(ctx context.Context, req port.DeliberationRequest, m coun
 		v.Rationale = "council member unavailable: " + err.Error()
 		return v
 	}
-	if !ok {
+	if !ok && !worthRetrying(lastCut) {
+		// Nothing to gain: magi ended that stream for a model running away, and the same prompt to
+		// the same backend runs away again. Said out loud, because "abstained" with no line about it
+		// reads as a backend that answered badly rather than one magi stopped (#182).
+		noteNoRetry("a council member", lastCut)
+	} else if !ok {
 		// An unreadable reply would silently drop this member's vote from quorum and skew the tally
 		// with the remaining minority. Give it one focused retry — naming the actual defect, since
 		// "strip the prose" is useless advice to a model whose object was bare but malformed — before
@@ -931,6 +941,29 @@ func cutOff(what, text, reasoning string, cut error) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "magi: %s was cut off after %d chars: %v\n", what, len(text), cut)
+}
+
+// worthRetrying reports whether asking the same backend again could get a readable reply.
+//
+// It cannot, when magi itself ended the stream for a model that was running away: the retry sends
+// the same evidence to the same backend, and the guard cuts it the same way. Measured for #182 — a
+// backend that only thought, repeating one 46-byte unit, made the panel ask twice and lost both; in
+// the wild the second call spent eight minutes before failing with a deadline.
+//
+// A stream that ended any other way IS worth one retry, and that is most of them: a reply that
+// arrived whole and malformed (the case the reminder was written for), a dropped connection, and — on
+// purpose — a backend that went SILENT, because a hung backend can come back and the retry is how
+// that is found out. Only the runaway is hopeless, and the guard now says which it saw
+// (port.ErrStreamRunaway).
+//
+// One function for both callers: the single-member path and the panel both retry, and two copies of
+// this judgement would drift with nothing failing.
+func worthRetrying(cut error) bool { return !errors.Is(cut, port.ErrStreamRunaway) }
+
+// noteNoRetry says that the retry was skipped and why, in the same place every other reason this
+// round could not read a reply is said.
+func noteNoRetry(what string, cut error) {
+	fmt.Fprintf(os.Stderr, "magi: %s is not being asked again — %v\n", what, cut)
 }
 
 // noteUnparsed says why a reply could not be read.

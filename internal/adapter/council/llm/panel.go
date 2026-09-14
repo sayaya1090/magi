@@ -345,6 +345,9 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 			out[0].Thought = "Council panel (shared reasoning, not this member's vote):\n" + thought
 		}
 	}()
+	// lastCut is how the most recent stream ended, when magi ended it. The retry below consults it —
+	// see worthRetrying (#182): a model that was running away runs away again.
+	var lastCut error
 	send := func(msgs []session.Message) (string, error) {
 		stream, err := provider.StreamChat(ctx, port.ChatRequest{
 			Model: model, System: sys,
@@ -355,6 +358,7 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 			return "", err
 		}
 		text, reasoning, cut := drain(stream)
+		lastCut = cut // why THIS stream ended, for the retry decision below (worthRetrying)
 		if cut != nil {
 			cutOff("a council panel reply", text, reasoning, cut)
 		}
@@ -382,7 +386,12 @@ func (c *Council) pollPanel(ctx context.Context, req port.DeliberationRequest, m
 	if !ok {
 		noteUnparsed("the council panel's verdicts (every lens recorded as an abstain)", raw)
 		first := raw
-		if retry, rerr := ask(user + councilRetryReminderFor(raw, panelShapeAsk)); rerr == nil {
+		if !worthRetrying(lastCut) {
+			// Nothing to gain: magi ended that stream for a model running away, and the same evidence
+			// to the same backend runs away again. This is the eight minutes #182 reported — the
+			// retry's own deadline, spent on a call that could not succeed.
+			noteNoRetry("the council panel", lastCut)
+		} else if retry, rerr := ask(user + councilRetryReminderFor(raw, panelShapeAsk)); rerr == nil {
 			raw = retry
 			vs, ok = parsePanel(raw)
 		} else {

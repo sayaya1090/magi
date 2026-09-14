@@ -209,13 +209,16 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 		// rides the message: the guard's own evidence used to die with the stream — the deltas are
 		// transient and the reply is never appended — leaving a log that says a loop happened and
 		// cannot say what looped.
-		abort := func(why string, unit []byte) {
+		// The sentinel says whether asking again could help: port.ErrStreamRunaway for a model that is
+		// repeating itself or never completing, plain port.ErrStreamAborted for a backend that went
+		// quiet and may come back. One caller retries on that difference (#182).
+		abort := func(sentinel error, why string, unit []byte) {
 			if u := strings.TrimSpace(string(unit)); u != "" {
 				why += " — the repeated unit was " + strconv.Quote(text.Clip(u, 200))
 			}
 			select {
 			case out <- port.ProviderEvent{Type: port.ProviderError,
-				Err: fmt.Errorf("%w: %s", port.ErrStreamAborted, why)}:
+				Err: fmt.Errorf("%w: %s", sentinel, why)}:
 			case <-ctx.Done():
 			}
 			cancel()
@@ -244,7 +247,7 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 				}
 				if byteCap > 0 && streamed > byteCap {
 					fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a runaway generation (%d bytes, no completion — likely a reasoning spin)\n", streamed)
-					abort(fmt.Sprintf("a runaway generation (%d bytes streamed with no completion — likely a reasoning spin)", streamed), nil)
+					abort(port.ErrStreamRunaway, fmt.Sprintf("a runaway generation (%d bytes streamed with no completion — likely a reasoning spin)", streamed), nil)
 					return
 				}
 				if repCap && len(ev.Text) > 0 {
@@ -256,7 +259,7 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 						sinceRepCheck = 0
 						if p := degenerateRepeat(tail); p > 0 {
 							fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a degenerate repetition loop (a %d-byte unit repeated)\n", p)
-							abort(fmt.Sprintf("a degenerate repetition loop (a %d-byte unit repeated)", p), tail[len(tail)-p:])
+							abort(port.ErrStreamRunaway, fmt.Sprintf("a degenerate repetition loop (a %d-byte unit repeated)", p), tail[len(tail)-p:])
 							return
 						}
 					}
@@ -264,7 +267,7 @@ func (g guardedProvider) StreamChat(ctx context.Context, req port.ChatRequest) (
 			case now := <-t.C:
 				if idle > 0 && now.Sub(last) >= idle {
 					fmt.Fprintf(os.Stderr, "magi: stream-guard aborted a silent stream (no data for %s — hung backend)\n", now.Sub(last).Round(time.Second))
-					abort(fmt.Sprintf("a silent stream (no data for %s — hung backend)", now.Sub(last).Round(time.Second)), nil)
+					abort(port.ErrStreamAborted, fmt.Sprintf("a silent stream (no data for %s — hung backend)", now.Sub(last).Round(time.Second)), nil)
 					return
 				}
 			case <-ctx.Done():

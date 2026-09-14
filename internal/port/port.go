@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/sayaya1090/magi/internal/core/council"
@@ -124,6 +125,22 @@ var ErrStreamCut = errors.New("the model stream ended without finishing")
 // seconds into the first reply and the task was lost whole). What was streamed before the abort
 // is a prefix, exactly as with ErrStreamCut, so the loop treats the two the same way.
 var ErrStreamAborted = errors.New("magi stopped the model stream")
+
+// ErrStreamRunaway narrows ErrStreamAborted to the aborts where **asking again will meet the same
+// thing**: the model was repeating itself, or generating without ever completing. It wraps
+// ErrStreamAborted, so a caller that only cares that magi ended the stream still matches with
+// errors.Is and needs no change.
+//
+// ⚠ **The distinction exists because one caller retries.** A silent stream is a hung backend and can
+// recover, so the retry is worth its cost there. A repetition loop is the model's state for THAT
+// prompt: the retry sends the same evidence to the same backend and the guard cuts it the same way.
+//
+// Measured 2026-09-14 (#182, `council/llm/loop_live_test.go`): a backend streaming only reasoning,
+// repeating one 46-byte unit, made the council panel ask **twice** — the guard cut both, `drain` came
+// back empty both times, and all three lenses abstained. In the wild the second call is what spent
+// eight minutes before failing with a deadline. The reproduction takes 0.05s because the mock loops
+// fast; a real model loops slowly, and that is the whole cost.
+var ErrStreamRunaway = fmt.Errorf("%w (asking again will meet the same thing)", ErrStreamAborted)
 
 // ProviderEvent is one normalized item from an LLM stream.
 type ProviderEvent struct {
