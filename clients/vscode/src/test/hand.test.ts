@@ -3,7 +3,7 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Hand } from '../core/mcpserver';
-import { Ide, callHand, handTools, inside, HAND_NAME } from '../core/hand';
+import { Ide, callHand, handTools, inside, replaceText, resolvePath, HAND_NAME } from '../core/hand';
 
 class FakeIde implements Ide {
   shown: [string, number | undefined] | null = null;
@@ -283,3 +283,136 @@ test('the JetBrains hand reads the same flag the same way', () => {
   assert.match(block, /replaceAll[\s\S]{0,80}==\s*"true"/,
     'the sibling no longer takes the WORD true — the two editors now answer one model differently');
 });
+
+/**
+ * Literal replacement must not interpret JavaScript replacement patterns ($&, $$, $`, $', $n).
+ * Single replacement and replaceAll must preserve the exact text verbatim.
+ */
+test('literal replacement preserves $, backslashes, Korean, and newlines verbatim', () => {
+  const cases = [
+    ['$&', 'before $& after'],
+    ['$$', 'before $$ after'],
+    ['$`', 'before $` after'],
+    ["$'", "before $' after"],
+    ['$1 and $2', 'before $1 and $2 after'],
+    ['\\path\\to\\file.ts', 'before \\path\\to\\file.ts after'],
+    ['한글 치환 및 특수기호 $& $$', 'before 한글 치환 및 특수기호 $& $$ after'],
+    ['line1\nline2\n\tline3', 'before line1\nline2\n\tline3 after'],
+  ];
+
+  for (const [replacement, expected] of cases) {
+    // Single replacement
+    const single = replaceText('before TOKEN after', 'TOKEN', replacement, false);
+    assert.equal(single, expected, `single replacement of TOKEN with ${replacement} failed`);
+
+    // All replacement
+    const all = replaceText('before TOKEN after', 'TOKEN', replacement, true);
+    assert.equal(all, expected, `all replacement of TOKEN with ${replacement} failed`);
+  }
+
+  // Single replacement touches only the first occurrence
+  assert.equal(
+    replaceText('TOKEN and TOKEN', 'TOKEN', '$&', false),
+    '$& and TOKEN'
+  );
+
+  // All replacement replaces all occurrences with literal string
+  assert.equal(
+    replaceText('TOKEN and TOKEN', 'TOKEN', '$&', true),
+    '$& and $&'
+  );
+
+  // When old is not found, body is returned unchanged
+  assert.equal(replaceText('hello world', 'missing', '$&', false), 'hello world');
+  assert.equal(replaceText('hello world', 'missing', '$&', true), 'hello world');
+});
+
+/**
+ * Verify EditorHand adapter wiring: EditorHand.replace must use replaceText rather than body.replace(old, text).
+ * And EditorHand.resolve must use resolvePath.
+ */
+test('EditorHand adapter uses replaceText and resolvePath', () => {
+  const ideHandSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'hand.ts'), 'utf8');
+  assert.match(ideHandSrc, /replaceText\s*\(\s*body\s*,\s*old\s*,\s*text\s*,\s*all\s*\)/,
+    'EditorHand.replace must use replaceText helper to avoid JavaScript replacement patterns');
+  assert.ok(!/body\.replace\s*\(\s*old\s*,\s*text\s*\)/.test(ideHandSrc),
+    'EditorHand.replace still uses body.replace(old, text) — JavaScript replacement syntax is interpreted');
+  assert.match(ideHandSrc, /resolvePath\s*\(\s*this\.workdir\s*,\s*path\s*\)/,
+    'EditorHand.resolve must use resolvePath helper');
+  assert.ok(!/path\.startsWith\s*\(\s*'\/'\s*\)/.test(ideHandSrc),
+    'EditorHand.resolve still uses path.startsWith("/") — Windows absolute paths will be mangled');
+});
+
+/**
+ * Path resolution under POSIX rules.
+ */
+test('POSIX path resolution handles relative and absolute paths within workspace', () => {
+  const posix = path.posix;
+  const workdir = '/workspace';
+
+  // Relative path
+  assert.equal(resolvePath(workdir, 'src/main.ts', posix), '/workspace/src/main.ts');
+  assert.equal(resolvePath(workdir, './src/main.ts', posix), '/workspace/src/main.ts');
+
+  // Absolute path within workspace
+  assert.equal(resolvePath(workdir, '/workspace/src/main.ts', posix), '/workspace/src/main.ts');
+
+  // Korean and spaces
+  assert.equal(resolvePath(workdir, '문서/설정 파일.json', posix), '/workspace/문서/설정 파일.json');
+  assert.equal(resolvePath(workdir, '/workspace/문서/설정 파일.json', posix), '/workspace/문서/설정 파일.json');
+
+  // Traversal out is rejected
+  assert.throws(() => resolvePath(workdir, '../secret.env', posix), /is outside this workspace/);
+  assert.throws(() => resolvePath(workdir, 'src/../../secret.env', posix), /is outside this workspace/);
+
+  // External absolute path is rejected
+  assert.throws(() => resolvePath(workdir, '/etc/hosts', posix), /is outside this workspace/);
+
+  // Sibling with common prefix is rejected
+  assert.throws(() => resolvePath(workdir, '/workspace-other/main.ts', posix), /is outside this workspace/);
+});
+
+/**
+ * Path resolution under Windows rules (path.win32).
+ */
+test('Windows path resolution handles drive absolute, relative, UNC, spaces, and Korean', () => {
+  const win32 = path.win32;
+  const workdir = 'C:\\work';
+
+  // Relative path with backslashes
+  assert.equal(resolvePath(workdir, 'src\\main.ts', win32), 'C:\\work\\src\\main.ts');
+  assert.equal(resolvePath(workdir, '.\\src\\main.ts', win32), 'C:\\work\\src\\main.ts');
+
+  // Relative path with forward slashes (common from models)
+  assert.equal(resolvePath(workdir, 'src/main.ts', win32), 'C:\\work\\src\\main.ts');
+
+  // Windows drive absolute path
+  assert.equal(resolvePath(workdir, 'C:\\work\\src\\main.ts', win32), 'C:\\work\\src\\main.ts');
+  assert.equal(resolvePath(workdir, 'C:/work/src/main.ts', win32), 'C:\\work\\src\\main.ts');
+
+  // Spaces and Korean
+  assert.equal(resolvePath(workdir, '작업 문서\\테스트 파일.ts', win32), 'C:\\work\\작업 문서\\테스트 파일.ts');
+  assert.equal(resolvePath(workdir, 'C:\\work\\작업 문서\\테스트 파일.ts', win32), 'C:\\work\\작업 문서\\테스트 파일.ts');
+
+  // UNC paths
+  const uncWorkdir = '\\\\server\\share\\work';
+  assert.equal(resolvePath(uncWorkdir, 'sub\\main.ts', win32), '\\\\server\\share\\work\\sub\\main.ts');
+  assert.equal(resolvePath(uncWorkdir, '\\\\server\\share\\work\\sub\\main.ts', win32), '\\\\server\\share\\work\\sub\\main.ts');
+
+  // Traversal out is rejected
+  assert.throws(() => resolvePath(workdir, '..\\secret.env', win32), /is outside this workspace/);
+  assert.throws(() => resolvePath(workdir, 'src\\..\\..\\secret.env', win32), /is outside this workspace/);
+
+  // Different drive is rejected
+  assert.throws(() => resolvePath(workdir, 'D:\\other\\file.ts', win32), /is outside this workspace/);
+
+  // System folder is rejected
+  assert.throws(() => resolvePath(workdir, 'C:\\Windows\\system32', win32), /is outside this workspace/);
+
+  // UNC outside is rejected
+  assert.throws(() => resolvePath(uncWorkdir, '\\\\other-server\\share\\file.ts', win32), /is outside this workspace/);
+
+  // Sibling with common prefix is rejected
+  assert.throws(() => resolvePath(workdir, 'C:\\work-other\\main.ts', win32), /is outside this workspace/);
+});
+

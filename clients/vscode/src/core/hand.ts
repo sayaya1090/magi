@@ -37,10 +37,39 @@ import * as nodePath from 'path';
  * so rather than implying otherwise — following links needs the filesystem, and this stays a pure
  * decision the tests can make.
  */
-export function inside(workdir: string, target: string): boolean {
-  const root = nodePath.resolve(workdir);
-  const rel = nodePath.relative(root, nodePath.resolve(root, target));
-  return rel === '' || (!rel.startsWith('..' + nodePath.sep) && rel !== '..' && !nodePath.isAbsolute(rel));
+export function inside(workdir: string, target: string, pathLib: typeof nodePath = nodePath): boolean {
+  const root = pathLib.resolve(workdir);
+  const rel = pathLib.relative(root, pathLib.resolve(root, target));
+  return rel === '' || (!rel.startsWith('..' + pathLib.sep) && rel !== '..' && !pathLib.isAbsolute(rel));
+}
+
+/**
+ * Resolve an absolute path within the workspace boundary.
+ *
+ * Refused before it becomes a Uri: the companion names this path, and the workspace is a trust boundary.
+ * Resolves both relative and platform-specific absolute paths (POSIX and Windows) consistently.
+ */
+export function resolvePath(workdir: string, target: string, pathLib: typeof nodePath = nodePath): string {
+  if (!inside(workdir, target, pathLib)) {
+    throw new Error(`${target} is outside this workspace`);
+  }
+  const root = pathLib.resolve(workdir);
+  return pathLib.resolve(root, target);
+}
+
+/**
+ * Replace text in a body string with strict literal replacement.
+ *
+ * Invariant: `text` is treated as a literal string. Special replacement patterns
+ * (such as $&, $$, $`, $', and $n) are never interpreted.
+ */
+export function replaceText(body: string, old: string, text: string, all: boolean): string {
+  if (all) {
+    return body.split(old).join(text);
+  }
+  const idx = body.indexOf(old);
+  if (idx === -1) return body;
+  return body.slice(0, idx) + text + body.slice(idx + old.length);
 }
 
 export interface Ide {

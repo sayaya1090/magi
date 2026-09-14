@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { Ide, inside } from '../core/hand';
+import { Ide, inside, replaceText, resolvePath } from '../core/hand';
 import { Hand, } from '../core/mcpserver';
 import { HAND_NAME } from '../core/hand';
 import { Companion } from './workspace';
@@ -96,7 +96,7 @@ export class EditorHand implements Ide, vscode.Disposable {
       return `that text appears ${hits} times in ${uri.fsPath} — narrow it, or pass replaceAll`;
     }
     const edit = new vscode.WorkspaceEdit();
-    const next = all ? body.split(old).join(text) : body.replace(old, text);
+    const next = replaceText(body, old, text, all);
     edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(body.length)), next);
     if (!(await vscode.workspace.applyEdit(edit))) return `the editor refused the edit to ${uri.fsPath}`;
     return `replaced ${all ? hits : 1} occurrence(s) in ${uri.fsPath} — in the editor, so undo and ` +
@@ -145,7 +145,7 @@ export class EditorHand implements Ide, vscode.Disposable {
     // Refused before it becomes a Uri: the companion names this path, and the workspace is a trust
     // boundary. The sibling client keeps the same line (`find` returns null outside the project).
     if (!inside(this.workdir, path)) throw new Error(`${path} is outside this workspace`);
-    return path.startsWith('/') ? vscode.Uri.file(path) : vscode.Uri.joinPath(vscode.Uri.file(this.workdir), path);
+    return vscode.Uri.file(resolvePath(this.workdir, path));
   }
 
   dispose(): void {
