@@ -518,7 +518,24 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #ask-body .at { color:var(--vscode-descriptionForeground); font-weight:normal; }
   #ask-body pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:6px 0;
     white-space:pre-wrap; word-break:break-word; }
-  #ask-body pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding-left:6px; }
+  #ask-body pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding:0; margin:6px 0;
+    background:var(--vscode-editor-background, rgba(0,0,0,0.02)); border-radius:2px; }
+  .diff-line { padding:1px 6px; min-height:1.25em; white-space:pre-wrap; word-break:break-word; }
+  .diff-added { background:var(--vscode-diffEditor-insertedLineBackground, rgba(46, 160, 67, 0.18));
+    color:var(--vscode-editor-foreground, inherit); }
+  .diff-deleted { background:var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, 0.18));
+    color:var(--vscode-editor-foreground, inherit); }
+  .diff-context { color:var(--vscode-editor-foreground, inherit); }
+  .diff-file-header { font-weight:600;
+    background:var(--vscode-sideBarSectionHeader-background, rgba(128, 128, 128, 0.15));
+    color:var(--vscode-sideBarSectionHeader-foreground, var(--vscode-editor-foreground, inherit));
+    border-top:1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+    margin-top:6px; padding-top:3px; padding-bottom:3px; }
+  .diff-file-header:first-child { border-top:none; margin-top:0; }
+  .diff-hunk-header { color:var(--vscode-descriptionForeground, #8b949e); font-weight:500;
+    margin:4px 0 2px 0; padding-top:2px; padding-bottom:2px;
+    background:var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.08)); }
+  .diff-plain { color:var(--vscode-editor-foreground, inherit); }
   #ask-body .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
   #ask-body .ground { font-size:.9em; margin:4px 0; white-space:pre-wrap; word-break:break-word; }
   #ask-body .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
@@ -617,6 +634,64 @@ function askedAt(iso) {
     && d.getDate() === now.getDate();
   return sameDay ? clock : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + clock;
 }
+function renderDiff(container, text) {
+  if (!text) return;
+  const lines = text.split('\\n');
+  let inHunk = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (i === lines.length - 1 && lines[i] === '' && text.endsWith('\\n')) break;
+    const rawLine = lines[i];
+    const lineWithNl = rawLine + (i < lines.length - 1 || text.endsWith('\\n') ? '\\n' : '');
+
+    let cls = 'diff-plain';
+    const isHunkHeader = /^@@\\s+-\\d+(?:,\\d+)?\\s+\\+\\d+(?:,\\d+)?\\s+@@/.test(rawLine) || /^@@\\s+[^@]+@@/.test(rawLine);
+    const isGitHeader = rawLine.startsWith('diff --git ') || rawLine.startsWith('Index: ');
+    const isFileHeaderStart = inHunk && (
+      rawLine.startsWith('diff --git ') ||
+      (rawLine.startsWith('--- ') && lines[i + 1] && lines[i + 1].startsWith('+++ ') && (rawLine.startsWith('--- a/') || rawLine.startsWith('--- /dev/null')))
+    );
+    if (isGitHeader || isFileHeaderStart) {
+      inHunk = false;
+    }
+    const isFileMeta = !inHunk && (
+      rawLine.startsWith('--- ') ||
+      rawLine.startsWith('+++ ') ||
+      rawLine.startsWith('index ') ||
+      rawLine.startsWith('new file mode ') ||
+      rawLine.startsWith('deleted file mode ') ||
+      rawLine.startsWith('similarity index ') ||
+      rawLine.startsWith('rename from ') ||
+      rawLine.startsWith('rename to ') ||
+      rawLine.startsWith('old mode ') ||
+      rawLine.startsWith('new mode ') ||
+      rawLine.startsWith('Binary files ')
+    );
+
+    if (isGitHeader || isFileMeta) {
+      cls = 'diff-file-header';
+    } else if (isHunkHeader) {
+      inHunk = true;
+      cls = 'diff-hunk-header';
+    } else if (inHunk) {
+      if (rawLine.startsWith('+')) {
+        cls = 'diff-added';
+      } else if (rawLine.startsWith('-')) {
+        cls = 'diff-deleted';
+      } else if (rawLine.startsWith(' ') || rawLine === '') {
+        cls = 'diff-context';
+      } else if (rawLine.startsWith('\\\\')) {
+        cls = 'diff-context';
+      } else {
+        cls = 'diff-plain';
+      }
+    }
+
+    const row = document.createElement('div');
+    row.className = 'diff-line ' + cls;
+    row.textContent = lineWithNl;
+    container.append(row);
+  }
+}
 function drawAsk(a) {
   if (!a) {
     if (pendingQuestion) exitAnswerMode();
@@ -696,7 +771,11 @@ function drawAsk(a) {
       if (!text) continue;
       const p = document.createElement('pre');
       p.className = cls;
-      p.textContent = text;      /* textContent, never innerHTML: this is workspace input */
+      if (cls === 'diff') {
+        renderDiff(p, text);
+      } else {
+        p.textContent = text;      /* textContent, never innerHTML: this is workspace input */
+      }
       askBodyEl.append(p);
     }
     /* Nothing came. Say so — three buttons over a blank space read as "there is nothing to it",

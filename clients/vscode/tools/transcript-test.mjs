@@ -596,4 +596,126 @@ try {
   }, '*'), attemptB);
 
   console.log('PASS: A failure -> B resend -> A stale re-arrival preserves B lock, draft, and input mode');
+
+  // Condition 19: Diff syntax highlighting & preservation (IDE_UI_DIFF.ko.md)
+  const complexDiff = [
+    'diff --git a/src/math.cpp b/src/math.cpp',
+    'index e69de29..4b825dc 100644',
+    '--- a/src/math.cpp',
+    '+++ b/src/math.cpp',
+    '@@ -1,7 +1,7 @@',
+    ' void calc() {',
+    '   int x = 10;',
+    '---x;',
+    '+++x;',
+    '',
+    '-  <div id="unescaped-old">old html</div>',
+    '+  <div id="unescaped-new">new html</div>',
+    ' }',
+    '\\ No newline at end of file',
+    'diff --git a/src/util.py b/src/util.py',
+    '--- a/src/util.py',
+    '+++ b/src/util.py',
+    '@@ -1,2 +1,2 @@',
+    '-old_code()',
+    '+new_code()'
+  ].join('\n');
+
+  await page.evaluate((diffText) => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-diff-test',
+      what: 'git apply',
+      args: 'patch.diff',
+      reason: 'apply math and util updates',
+      diff: diffText
+    }
+  }, '*'), complexDiff);
+
+  await page.waitForSelector('#ask-body pre.diff .diff-line');
+
+  // 1. 분류 검증: 파일 헤더, 변경 구간 헤더, 추가, 삭제, 문맥
+  const fileHeaders = await page.locator('#ask-body pre.diff .diff-file-header').allInnerTexts();
+  assert.ok(fileHeaders.length >= 6);
+  assert.ok(fileHeaders[0].includes('diff --git a/src/math.cpp'));
+  assert.ok(fileHeaders[2].includes('--- a/src/math.cpp'));
+  assert.ok(fileHeaders[3].includes('+++ b/src/math.cpp'));
+  assert.ok(fileHeaders[4].includes('diff --git a/src/util.py'));
+
+  const hunkHeaders = await page.locator('#ask-body pre.diff .diff-hunk-header').allInnerTexts();
+  assert.equal(hunkHeaders.length, 2);
+  assert.ok(hunkHeaders[0].includes('@@ -1,7 +1,7 @@'));
+  assert.ok(hunkHeaders[1].includes('@@ -1,2 +1,2 @@'));
+
+  // 2. +++ / --- 본문 줄이 파일 헤더로 오인되지 않고 추가/삭제로 분류되는지 확인
+  const deletedLines = await page.locator('#ask-body pre.diff .diff-deleted').allInnerTexts();
+  assert.ok(deletedLines.some(t => t.includes('---x;')), '---x; is classified as diff-deleted, not file header');
+  assert.ok(deletedLines.some(t => t.includes('<div id="unescaped-old">')), 'deleted html line is diff-deleted');
+  assert.ok(deletedLines.some(t => t.includes('old_code()')));
+
+  const addedLines = await page.locator('#ask-body pre.diff .diff-added').allInnerTexts();
+  assert.ok(addedLines.some(t => t.includes('+++x;')), '+++x; is classified as diff-added, not file header');
+  assert.ok(addedLines.some(t => t.includes('<div id="unescaped-new">')), 'added html line is diff-added');
+  assert.ok(addedLines.some(t => t.includes('new_code()')));
+
+  const contextLines = await page.locator('#ask-body pre.diff .diff-context').allInnerTexts();
+  assert.ok(contextLines.some(t => t.includes('void calc()')));
+  assert.ok(contextLines.some(t => t.includes('\\ No newline at end of file')));
+
+  // 3. 원문 보존 검증: textContent가 원문과 완전히 일치하는지 확인
+  const renderedText = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
+  assert.equal(renderedText, complexDiff, 'diff textContent exactly equals the input raw diff');
+
+  // 4. HTML 이스케이프 안전성: HTML 태그가 DOM 노드로 주입되지 않았는지 확인
+  const unescapedDiv = await page.locator('#unescaped-old').count();
+  assert.equal(unescapedDiv, 0, 'HTML tag inside diff was not executed/injected as a DOM element');
+
+  // 5. 세로 스크롤바 없음 (자체 높이 제한 없이 펼쳐짐)
+  const diffScrollBounds = await page.locator('#ask-body pre.diff').evaluate((el) => ({ height: el.clientHeight, scroll: el.scrollHeight }));
+  assert.equal(diffScrollBounds.height, diffScrollBounds.scroll, 'diff has no separate vertical scrollbar');
+
+  // 6. 테마 스타일 검증 (Dark/Light 배경 구분 및 대비)
+  const addedBg = await page.locator('#ask-body pre.diff .diff-added').first().evaluate(el => getComputedStyle(el).backgroundColor);
+  const deletedBg = await page.locator('#ask-body pre.diff .diff-deleted').first().evaluate(el => getComputedStyle(el).backgroundColor);
+  assert.notEqual(addedBg, 'rgba(0, 0, 0, 0)', 'added line has non-transparent background');
+  assert.notEqual(deletedBg, 'rgba(0, 0, 0, 0)', 'deleted line has non-transparent background');
+  assert.notEqual(addedBg, deletedBg, 'added and deleted backgrounds are visually distinct');
+
+  // 7. 후행 줄바꿈이 없는 입력에서도 원문 100% 일치 확인
+  const noTrailingNlDiff = 'diff --git a/f b/f\n@@ -1 +1 @@\n-old\n+new';
+  await page.evaluate((diffText) => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-no-nl',
+      what: 'test',
+      diff: diffText
+    }
+  }, '*'), noTrailingNlDiff);
+  await page.waitForSelector('#ask-body pre.diff .diff-line');
+  const noNlRendered = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
+  assert.equal(noNlRendered, noTrailingNlDiff, 'diff without trailing newline matches textContent exactly');
+
+  // 8. 해석할 수 없는 내용 원문 표시 확인
+  const unparsedDiff = 'Custom raw patch metadata without diff markers\nsome random text';
+  await page.evaluate((diffText) => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-unparsed',
+      what: 'test',
+      diff: diffText
+    }
+  }, '*'), unparsedDiff);
+  await page.waitForSelector('#ask-body pre.diff .diff-plain');
+  const unparsedRendered = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
+  assert.equal(unparsedRendered, unparsedDiff, 'unparsed text preserved in raw form');
+
+  // Allow button click to dismiss
+  await page.locator('#ask-controls button:text("allow")').click();
+  console.log('PASS: diff syntax highlighting, classification, raw text preservation, and unparsed fallback');
 } finally { await browser.close(); }
