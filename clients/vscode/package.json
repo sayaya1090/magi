@@ -414,10 +414,10 @@
     }
   },
   "scripts": {
-    "build": "npm run contract && tsc -p .",
-    "test": "npm run contract && tsc -p . && node --test out/test/*.test.js",
-    "package": "npm run contract && npx --yes @vscode/vsce package --no-dependencies",
-    "test:live": "tsc -p . && node out/live/run.js",
+    "build": "npm run contract && tsc -p . && node tools/build-webview-assets.mjs",
+    "test": "npm run contract && tsc -p . && node tools/build-webview-assets.mjs && node --test out/test/*.test.js",
+    "package": "npm run contract && tsc -p . && node tools/build-webview-assets.mjs && npx --yes @vscode/vsce package --no-dependencies",
+    "test:live": "tsc -p . && node tools/build-webview-assets.mjs && node out/live/run.js",
     "contract": "node -e \"require('fs').copyFileSync('../contract/core-release.properties','core-release.properties')\""
   },
   "devDependencies": {

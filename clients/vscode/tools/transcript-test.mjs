@@ -22,7 +22,13 @@ try {
       setState() {}
     });
   });
-  await page.route('http://magi.test/', (route) => route.fulfill({ contentType: 'text/html; charset=utf-8', body: html }));
+  await page.route('http://magi.test/**', async (route) => {
+    if (route.request().url().includes('out/web/answer_state.js')) {
+      const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
+      return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+    }
+    return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+  });
   await page.goto('http://magi.test/');
   await page.evaluate(() => window.postMessage({ kind: 'rows', rows: [{who:'agent', label:'magi', text:'long answer\n'.repeat(1000)}, {who:'council', label:'Council', text:'review', thought:'council think\n'.repeat(1000)}], refs: [] }, '*'));
   await page.waitForSelector('.row.agent');

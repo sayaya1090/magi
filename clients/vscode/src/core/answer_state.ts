@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as path from 'path';
-
 /**
  * Answer and draft state manager for chat webview.
  *
@@ -94,33 +91,240 @@ export interface AnswerStateManager {
   onReplyResult(m: ReplyResultEvent, currentActiveAsk?: AskEvent | null): ReplyResultOutcome;
 }
 
-/**
- * Loads the createAnswerState factory directly from chat.ts to ensure identical execution
- * between the real webview and node test suites without duplicate code or extra bundlers.
- */
-export const createAnswerState: () => AnswerStateManager = (() => {
-  const candidates = [
-    path.join(__dirname, '..', 'ide', 'chat.ts'),
-    path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'),
-    path.join(__dirname, '..', '..', 'clients', 'vscode', 'src', 'ide', 'chat.ts'),
-  ];
-  let chatSrc = '';
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      chatSrc = fs.readFileSync(c, 'utf8');
-      break;
+export function createAnswerState(): AnswerStateManager {
+  let pendingQuestion: string | null = null;
+  let generalDraft = '';
+  const questionDrafts: Record<string, string> = {};
+  const inFlightReplies: Record<string, InFlightReply> = {};
+  const draftVersions: Record<string, number> = {};
+  const failedDrafts: Record<string, string[]> = {};
+  let replyAttemptSeq = 0;
+
+  function getState(): AnswerStateSnapshot {
+    return {
+      pendingQuestion,
+      generalDraft,
+      questionDrafts: Object.assign({}, questionDrafts),
+      draftVersions: Object.assign({}, draftVersions),
+      failedDrafts: Object.assign({}, failedDrafts),
+      inFlightReplies: Object.assign({}, inFlightReplies),
+      replyAttemptSeq
+    };
+  }
+
+  function getPendingQuestion(): string | null {
+    return pendingQuestion;
+  }
+
+  function getGeneralDraft(): string {
+    return generalDraft;
+  }
+
+  function getQuestionDraft(callId: string): string {
+    return questionDrafts[callId] || '';
+  }
+
+  function isInFlight(callId: string): boolean {
+    return !!inFlightReplies[callId];
+  }
+
+  function getInFlight(callId: string): InFlightReply | undefined {
+    return inFlightReplies[callId];
+  }
+
+  function getDraftVersion(callId: string): number {
+    return draftVersions[callId] || 0;
+  }
+
+  function getFailedDrafts(callId: string): string[] {
+    return failedDrafts[callId] ? failedDrafts[callId].slice() : [];
+  }
+
+  function enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult {
+    if (currentInputText === undefined) currentInputText = '';
+    if (pendingQuestion !== callId) {
+      if (!pendingQuestion) {
+        generalDraft = currentInputText;
+      } else {
+        questionDrafts[pendingQuestion] = currentInputText;
+      }
+      pendingQuestion = callId;
     }
+    return {
+      enterAnswerMode: true,
+      callId,
+      label: label || callId,
+      nextInputText: questionDrafts[callId] || '',
+      clearAutoCompletion: true
+    };
   }
-  if (!chatSrc) {
-    throw new Error('chat.ts not found for answer state loader');
+
+  function exitAnswerMode(currentInputText?: string): ModeChangeResult {
+    if (currentInputText === undefined) currentInputText = '';
+    if (pendingQuestion) {
+      questionDrafts[pendingQuestion] = currentInputText;
+      pendingQuestion = null;
+    }
+    return {
+      exitAnswerMode: true,
+      nextInputText: generalDraft,
+      clearAutoCompletion: true
+    };
   }
-  const startTag = '/* START createAnswerState */';
-  const endTag = '/* END createAnswerState */';
-  const start = chatSrc.indexOf(startTag);
-  const end = chatSrc.indexOf(endTag, start);
-  if (start < 0 || end < 0) {
-    throw new Error('createAnswerState boundaries not found in chat.ts');
+
+  function onAskChange(a: AskEvent | null | undefined, currentInputText?: string): ModeChangeResult {
+    if (currentInputText === undefined) currentInputText = '';
+    if (!a) {
+      if (pendingQuestion) {
+        return exitAnswerMode(currentInputText);
+      }
+      return { clearAutoCompletion: false };
+    }
+    if (a.kind === 'permission') {
+      if (pendingQuestion) {
+        return exitAnswerMode(currentInputText);
+      }
+      return { clearAutoCompletion: false };
+    }
+    if (pendingQuestion && pendingQuestion !== a.callId) {
+      return exitAnswerMode(currentInputText);
+    }
+    return { clearAutoCompletion: false };
   }
-  const fnCode = chatSrc.slice(start + startTag.length, end).trim();
-  return new Function(fnCode + '\nreturn createAnswerState;')() as () => AnswerStateManager;
-})();
+
+  function onInputChange(text: string): { target: string } {
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = text;
+      return { target: pendingQuestion };
+    }
+    generalDraft = text;
+    return { target: 'general' };
+  }
+
+  function onTabAccept(suggestion: string, currentInputText: string): { nextInputText: string; target: string } {
+    const v = currentInputText + suggestion;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = v;
+      return { nextInputText: v, target: pendingQuestion };
+    }
+    generalDraft = v;
+    return { nextInputText: v, target: 'general' };
+  }
+
+  function onCompose(lead: string, currentInputText: string): { nextInputText: string; leadLength: number; target: string } {
+    const v = lead + currentInputText;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = v;
+      return { nextInputText: v, leadLength: lead.length, target: pendingQuestion };
+    }
+    generalDraft = v;
+    return { nextInputText: v, leadLength: lead.length, target: 'general' };
+  }
+
+  function submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult {
+    const t = (text || '').trim();
+    if (!t) return { ok: false, error: 'empty' };
+    if (inFlightReplies[callId]) {
+      return { ok: false, error: 'in_flight', message: 'reply already in flight…' };
+    }
+    const attemptId = ++replyAttemptSeq;
+    const ver = isChoice ? (draftVersions[callId] || 0) + 1 : (draftVersions[callId] || 0);
+    if (isChoice) draftVersions[callId] = ver;
+    const finalText = isChoice ? text : t;
+    inFlightReplies[callId] = { attemptId, text: finalText, version: ver };
+    questionDrafts[callId] = finalText;
+
+    const wasAnswering = pendingQuestion === callId;
+    if (wasAnswering) {
+      pendingQuestion = null;
+    }
+
+    return {
+      ok: true,
+      action: 'reply',
+      callId,
+      text: finalText,
+      attemptId,
+      exitAnswerMode: wasAnswering,
+      nextInputText: generalDraft,
+      clearAutoCompletion: true
+    };
+  }
+
+  function submitSay(text: string): SubmitResult {
+    const t = (text || '').trim();
+    if (!t) return { ok: false, error: 'empty' };
+    generalDraft = '';
+    return {
+      ok: true,
+      action: 'say',
+      text: t,
+      nextInputText: '',
+      clearAutoCompletion: true
+    };
+  }
+
+  function onReplyResult(m: ReplyResultEvent, currentActiveAsk?: AskEvent | null): ReplyResultOutcome {
+    if (typeof m.attemptId !== 'number') {
+      return { handled: false, reason: 'missing_or_invalid_attempt_id' };
+    }
+    const inFlight = inFlightReplies[m.callId];
+    if (!inFlight || inFlight.attemptId !== m.attemptId) {
+      return { handled: false, reason: 'mismatched_attempt_id' };
+    }
+    delete inFlightReplies[m.callId];
+
+    const currentVer = draftVersions[m.callId] || 0;
+    if (m.ok) {
+      if (inFlight.version === currentVer) {
+        delete questionDrafts[m.callId];
+        delete failedDrafts[m.callId];
+      }
+      return { handled: true, ok: true, callId: m.callId };
+    }
+
+    if (!failedDrafts[m.callId]) failedDrafts[m.callId] = [];
+    failedDrafts[m.callId].push(m.text || '');
+
+    const modifiedSinceAttempt = currentVer > inFlight.version;
+    if (!modifiedSinceAttempt) {
+      questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
+      if (currentActiveAsk && currentActiveAsk.callId === m.callId) {
+        enterAnswerMode(m.callId, currentActiveAsk.what, generalDraft);
+        return {
+          handled: true,
+          ok: false,
+          callId: m.callId,
+          reenterAnswerMode: true,
+          targetLabel: currentActiveAsk.what || m.callId,
+          nextInputText: questionDrafts[m.callId],
+          clearAutoCompletion: true
+        };
+      }
+    }
+    return { handled: true, ok: false, callId: m.callId, restoredInStoreOnly: true };
+  }
+
+  return {
+    getState,
+    getPendingQuestion,
+    getGeneralDraft,
+    getQuestionDraft,
+    isInFlight,
+    getInFlight,
+    getDraftVersion,
+    getFailedDrafts,
+    enterAnswerMode,
+    exitAnswerMode,
+    onAskChange,
+    onInputChange,
+    onTabAccept,
+    onCompose,
+    submitReply,
+    submitSay,
+    onReplyResult
+  };
+}
