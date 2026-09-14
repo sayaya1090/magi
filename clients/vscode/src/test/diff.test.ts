@@ -205,6 +205,120 @@ test('ApprovalSnapshots protects open pinned tabs when cache capacity is exceede
   assert.equal(cache.size, 0);
 });
 
+test('ApprovalSnapshots.protectTemp protects both left and right sides during creation (limit 1 + 1 pinned)', () => {
+  const pinned = new Set<string>(['uri://existing1']);
+  // Limit 1, and 1 existing pinned document
+  const cache = new ApprovalSnapshots(1, (k) => pinned.has(k));
+  cache.put('uri://existing1', 'existing-content');
+
+  // Without protectTemp:
+  // Storing left then right would evict left before it can even be opened
+  const unprotect = cache.protectTemp(['uri://new-left', 'uri://new-right']);
+  try {
+    cache.put('uri://new-left', 'left-content');
+    cache.put('uri://new-right', 'right-content');
+
+    // Both sides must be present in cache simultaneously for vscode.diff
+    assert.equal(cache.get('uri://new-left'), 'left-content', 'left side must not be evicted before diff opens');
+    assert.equal(cache.get('uri://new-right'), 'right-content', 'right side must be present');
+    assert.equal(cache.get('uri://existing1'), 'existing-content', 'existing pinned document protected');
+
+    // Simulate successful open in editor: both are now pinned
+    pinned.add('uri://new-left');
+    pinned.add('uri://new-right');
+  } finally {
+    unprotect();
+  }
+
+  // After unprotect, both remain because they are now in pinned set
+  assert.equal(cache.get('uri://new-left'), 'left-content');
+  assert.equal(cache.get('uri://new-right'), 'right-content');
+});
+
+test('ApprovalSnapshots.protectTemp protects both sides under default limit 100 with 100 pinned documents', () => {
+  const pinned = new Set<string>();
+  const cache = new ApprovalSnapshots(100, (k) => pinned.has(k));
+
+  // Fill with 100 pinned documents
+  for (let i = 0; i < 100; i++) {
+    const k = `uri://pinned-${i}`;
+    pinned.add(k);
+    cache.put(k, `content-${i}`);
+  }
+  assert.equal(cache.size, 100);
+
+  // New diff arrives
+  const leftKey = 'uri://new-left-100';
+  const rightKey = 'uri://new-right-100';
+  const unprotect = cache.protectTemp([leftKey, rightKey]);
+  try {
+    cache.put(leftKey, 'left-100');
+    cache.put(rightKey, 'right-100');
+
+    assert.equal(cache.get(leftKey), 'left-100', 'new left side preserved under 100 pinned docs');
+    assert.equal(cache.get(rightKey), 'right-100', 'new right side preserved under 100 pinned docs');
+  } finally {
+    unprotect();
+  }
+});
+
+test('ApprovalSnapshots.protectTemp does not leak temporary protection on failure', () => {
+  const pinned = new Set<string>();
+  const cache = new ApprovalSnapshots(1, (k) => pinned.has(k));
+  cache.put('uri://pinned-only', 'pinned-content');
+  pinned.add('uri://pinned-only');
+
+  const leftKey = 'uri://fail-left';
+  const rightKey = 'uri://fail-right';
+
+  const unprotect = cache.protectTemp([leftKey, rightKey]);
+  assert.equal(cache.tempPinnedSize, 2);
+
+  try {
+    cache.put(leftKey, 'fail-left-content');
+    cache.put(rightKey, 'fail-right-content');
+    throw new Error('Simulated vscode.diff launch failure');
+  } catch {
+    // caught failure
+  } finally {
+    unprotect();
+  }
+
+  // Temporary protection must be completely released
+  assert.equal(cache.tempPinnedSize, 0, 'no temporary protection leaked on error');
+  // Excess entries pruned back to maxEntries (1)
+  assert.equal(cache.has('uri://pinned-only'), true);
+  assert.equal(cache.size, 1, 'unpinned failed entries pruned after unprotect');
+});
+
+test('ApprovalSnapshots.evictExcess prunes closed documents without needing new puts', () => {
+  const pinned = new Set<string>(['uri://tabA', 'uri://tabB', 'uri://tabC']);
+  const cache = new ApprovalSnapshots(1, (k) => pinned.has(k));
+
+  cache.put('uri://tabA', 'contentA');
+  cache.put('uri://tabB', 'contentB');
+  cache.put('uri://tabC', 'contentC');
+
+  assert.equal(cache.size, 3, 'all 3 pinned tabs preserved despite maxEntries=1');
+
+  // User closes tabA: document close event occurs
+  pinned.delete('uri://tabA');
+  const evictedCount = cache.evictExcess();
+
+  assert.equal(evictedCount, 1, 'evictExcess immediately prunes tabA');
+  assert.equal(cache.has('uri://tabA'), false, 'tabA evicted without waiting for a new put');
+  assert.equal(cache.has('uri://tabB'), true);
+  assert.equal(cache.has('uri://tabC'), true);
+
+  // User closes tabB and tabC
+  pinned.delete('uri://tabB');
+  pinned.delete('uri://tabC');
+  cache.evictExcess();
+
+  assert.equal(cache.size, 1, 'pruned back down to maxEntries=1');
+  assert.equal(cache.has('uri://tabC'), true, 'newest tab remains within capacity');
+});
+
 test('AskStore associates asks with companion and session at arrival time', () => {
   const store = new AskStore(3);
   const ask1 = {

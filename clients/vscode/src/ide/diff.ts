@@ -22,13 +22,54 @@ import {
 export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.Disposable {
   static readonly scheme = 'magi-diff';
   private readonly snapshots: ApprovalSnapshots;
+  private readonly subs: vscode.Disposable[] = [];
 
   constructor(maxEntries: number = 100) {
-    this.snapshots = new ApprovalSnapshots(maxEntries, (key: string) => {
-      return vscode.workspace.textDocuments.some(
+    this.snapshots = new ApprovalSnapshots(maxEntries, (key: string) => this.isOpen(key));
+
+    this.subs.push(
+      vscode.workspace.onDidCloseTextDocument((doc) => {
+        if (doc.uri.scheme === DiffProvider.scheme) {
+          this.prune();
+        }
+      })
+    );
+
+    try {
+      if (vscode.window.tabGroups) {
+        this.subs.push(
+          vscode.window.tabGroups.onDidChangeTabs(() => {
+            this.prune();
+          })
+        );
+      }
+    } catch {}
+  }
+
+  private isOpen(key: string): boolean {
+    if (
+      vscode.workspace.textDocuments.some(
         (doc) => doc.uri.scheme === DiffProvider.scheme && doc.uri.toString() === key
-      );
-    });
+      )
+    ) {
+      return true;
+    }
+    try {
+      if (vscode.window.tabGroups) {
+        for (const group of vscode.window.tabGroups.all) {
+          for (const tab of group.tabs) {
+            const input = tab.input;
+            if (input instanceof vscode.TabInputTextDiff) {
+              if (input.original?.scheme === DiffProvider.scheme && input.original.toString() === key) return true;
+              if (input.modified?.scheme === DiffProvider.scheme && input.modified.toString() === key) return true;
+            } else if (input instanceof vscode.TabInputText) {
+              if (input.uri?.scheme === DiffProvider.scheme && input.uri.toString() === key) return true;
+            }
+          }
+        }
+      }
+    } catch {}
+    return false;
   }
 
   provideTextDocumentContent(uri: vscode.Uri): string {
@@ -49,7 +90,17 @@ export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.
     return this.snapshots.get(key);
   }
 
+  prune(): number {
+    return this.snapshots.evictExcess();
+  }
+
+  protectTemp(uris: (vscode.Uri | string)[]): () => void {
+    const keys = uris.map((u) => (typeof u === 'string' ? u : u.toString()));
+    return this.snapshots.protectTemp(keys);
+  }
+
   dispose(): void {
+    for (const s of this.subs) s.dispose();
     this.snapshots.clear();
   }
 }
@@ -63,6 +114,7 @@ export class DiffProvider implements vscode.TextDocumentContentProvider, vscode.
  *  - If only a raw unified diff is present, opens the patch in a read-only document.
  *  - Does NOT mutate any file on disk or auto-approve the request.
  *  - Uses deterministic URIs so repeated clicks reuse the existing tab.
+ *  - Protects both sides during creation so left is not evicted before diff is opened.
  *  - Returns true if opened, false if not eligible for diff view.
  */
 export async function openApprovalDiff(
@@ -80,12 +132,17 @@ export async function openApprovalDiff(
     const leftUri = vscode.Uri.parse(approvalDiffUri(companionId, sessionId, ask.callId, 'before', basename));
     const rightUri = vscode.Uri.parse(approvalDiffUri(companionId, sessionId, ask.callId, 'after', basename));
 
-    provider.put(leftUri, sides.old);
-    provider.put(rightUri, sides.new);
+    const unprotect = provider.protectTemp([leftUri, rightUri]);
+    try {
+      provider.put(leftUri, sides.old);
+      provider.put(rightUri, sides.new);
 
-    const title = approvalDiffTitle(basename, true);
-    await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, { preview: true });
-    return true;
+      const title = approvalDiffTitle(basename, true);
+      await vscode.commands.executeCommand('vscode.diff', leftUri, rightUri, title, { preview: true });
+      return true;
+    } finally {
+      unprotect();
+    }
   }
 
   if (kind === 'patch' && ask.diff && ask.diff.trim()) {
@@ -100,11 +157,16 @@ export async function openApprovalDiff(
     const patchName = `magi-승인-${basename}-${ask.callId.slice(-6)}.diff`;
     const patchUri = vscode.Uri.parse(approvalDiffUri(companionId, sessionId, ask.callId, 'patch', patchName));
 
-    provider.put(patchUri, ask.diff);
+    const unprotect = provider.protectTemp([patchUri]);
+    try {
+      provider.put(patchUri, ask.diff);
 
-    const doc = await vscode.workspace.openTextDocument(patchUri);
-    await vscode.window.showTextDocument(doc, { preview: true });
-    return true;
+      const doc = await vscode.workspace.openTextDocument(patchUri);
+      await vscode.window.showTextDocument(doc, { preview: true });
+      return true;
+    } finally {
+      unprotect();
+    }
   }
 
   return false;

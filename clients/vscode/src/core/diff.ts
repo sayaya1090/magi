@@ -120,11 +120,26 @@ export function approvalDiffTitle(filename: string, isSides: boolean): string {
 export class ApprovalSnapshots {
   private readonly store = new Map<string, string>();
   private readonly order: string[] = [];
+  private readonly tempPinned = new Set<string>();
 
   constructor(
     private readonly maxEntries: number = 100,
     private readonly isPinned?: (key: string) => boolean
   ) {}
+
+  /**
+   * Temporarily protects keys (e.g. both before and after sides of an impending diff)
+   * from eviction until the editor opens the document or fails.
+   *
+   * Returns a dispose function to release protection and evict excess entries.
+   */
+  protectTemp(keys: string[]): () => void {
+    for (const k of keys) this.tempPinned.add(k);
+    return () => {
+      for (const k of keys) this.tempPinned.delete(k);
+      this.evictExcess();
+    };
+  }
 
   put(key: string, content: string): boolean {
     if (this.store.has(key)) {
@@ -135,15 +150,39 @@ export class ApprovalSnapshots {
     this.store.set(key, content);
 
     while (this.order.length > this.maxEntries) {
-      const evictIndex = this.order.slice(0, -1).findIndex(k => !this.isPinned?.(k));
+      const evictIndex = this.order.slice(0, -1).findIndex(k => !this.isProtected(k));
       if (evictIndex < 0) {
-        // All older entries are currently pinned (open in tabs); protect them and allow limit to be exceeded
+        // All older entries are currently protected; allow limit to be exceeded
         break;
       }
       const [evicted] = this.order.splice(evictIndex, 1);
       this.store.delete(evicted);
     }
     return true;
+  }
+
+  /**
+   * Evaluates protection status and prunes unpinned entries if cache size exceeds maxEntries.
+   * Called when documents/tabs close, or when temporary protection is released.
+   */
+  evictExcess(): number {
+    let count = 0;
+    while (this.order.length > this.maxEntries) {
+      const evictIndex = this.order.findIndex(k => !this.isProtected(k));
+      if (evictIndex < 0) {
+        // All tracked entries are currently pinned (open in tabs or in-flight diff); protect them
+        break;
+      }
+      const [evicted] = this.order.splice(evictIndex, 1);
+      this.store.delete(evicted);
+      count++;
+    }
+    return count;
+  }
+
+  private isProtected(key: string): boolean {
+    if (this.tempPinned.has(key)) return true;
+    return this.isPinned ? this.isPinned(key) : false;
   }
 
   get(key: string): string | undefined {
@@ -157,6 +196,7 @@ export class ApprovalSnapshots {
   delete(key: string): boolean {
     const idx = this.order.indexOf(key);
     if (idx >= 0) this.order.splice(idx, 1);
+    this.tempPinned.delete(key);
     return this.store.delete(key);
   }
 
@@ -164,9 +204,14 @@ export class ApprovalSnapshots {
     return this.store.size;
   }
 
+  get tempPinnedSize(): number {
+    return this.tempPinned.size;
+  }
+
   clear(): void {
     this.store.clear();
     this.order.length = 0;
+    this.tempPinned.clear();
   }
 }
 
