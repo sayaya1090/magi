@@ -120,7 +120,7 @@ export function approvalDiffTitle(filename: string, isSides: boolean): string {
 export class ApprovalSnapshots {
   private readonly store = new Map<string, string>();
   private readonly order: string[] = [];
-  private readonly tempPinned = new Set<string>();
+  private readonly tempPinned = new Map<string, number>();
 
   constructor(
     private readonly maxEntries: number = 100,
@@ -131,12 +131,29 @@ export class ApprovalSnapshots {
    * Temporarily protects keys (e.g. both before and after sides of an impending diff)
    * from eviction until the editor opens the document or fails.
    *
-   * Returns a dispose function to release protection and evict excess entries.
+   * Supports nested/concurrent protections of the same keys using reference counting,
+   * ensuring that the completion/failure of one operation does not prematurely unprotect
+   * the other operation's documents.
+   *
+   * Returns an idempotent release function safe against multiple calls.
    */
   protectTemp(keys: string[]): () => void {
-    for (const k of keys) this.tempPinned.add(k);
+    for (const k of keys) {
+      const current = this.tempPinned.get(k) ?? 0;
+      this.tempPinned.set(k, current + 1);
+    }
+    let released = false;
     return () => {
-      for (const k of keys) this.tempPinned.delete(k);
+      if (released) return; // Idempotent: multiple calls do nothing
+      released = true;
+      for (const k of keys) {
+        const count = this.tempPinned.get(k) ?? 0;
+        if (count <= 1) {
+          this.tempPinned.delete(k);
+        } else {
+          this.tempPinned.set(k, count - 1);
+        }
+      }
       this.evictExcess();
     };
   }

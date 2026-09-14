@@ -291,6 +291,44 @@ test('ApprovalSnapshots.protectTemp does not leak temporary protection on failur
   assert.equal(cache.size, 1, 'unpinned failed entries pruned after unprotect');
 });
 
+test('ApprovalSnapshots.protectTemp supports nested concurrent protections with ref-counting and idempotent release', () => {
+  const pinned = new Set<string>();
+  const cache = new ApprovalSnapshots(1, (k) => pinned.has(k));
+  cache.put('uri://pinned-base', 'base-content');
+  pinned.add('uri://pinned-base');
+
+  const leftKey = 'uri://shared-left';
+  const rightKey = 'uri://shared-right';
+
+  // Operation 1 starts and protects left/right
+  const unprotect1 = cache.protectTemp([leftKey, rightKey]);
+  cache.put(leftKey, 'left-data');
+  cache.put(rightKey, 'right-data');
+
+  // Operation 2 starts concurrently on the exact same request
+  const unprotect2 = cache.protectTemp([leftKey, rightKey]);
+
+  // Operation 1 completes or fails first, releasing its protection
+  unprotect1();
+
+  // left and right MUST remain protected because Operation 2 is still in-flight
+  assert.equal(cache.get(leftKey), 'left-data', 'left side preserved despite Op 1 release');
+  assert.equal(cache.get(rightKey), 'right-data', 'right side preserved despite Op 1 release');
+
+  // Duplicate call to unprotect1 must be idempotent and not affect ref-count
+  unprotect1();
+  assert.equal(cache.get(leftKey), 'left-data', 'idempotent release does not decrement below remaining holder');
+
+  // Operation 2 finishes: now both are pinned in editor
+  pinned.add(leftKey);
+  pinned.add(rightKey);
+  unprotect2();
+
+  assert.equal(cache.get(leftKey), 'left-data');
+  assert.equal(cache.get(rightKey), 'right-data');
+  assert.equal(cache.tempPinnedSize, 0, 'temporary protection map completely empty after all holders release');
+});
+
 test('ApprovalSnapshots.evictExcess prunes closed documents without needing new puts', () => {
   const pinned = new Set<string>(['uri://tabA', 'uri://tabB', 'uri://tabC']);
   const cache = new ApprovalSnapshots(1, (k) => pinned.has(k));
