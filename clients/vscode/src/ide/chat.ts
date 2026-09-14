@@ -455,13 +455,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     // inline script would be a place for whatever the model wrote to become code.
     const csp = `default-src 'none'; style-src ${w.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';`;
     return `<!DOCTYPE html><html><head>
+<meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
   /* Every colour is the editor's. Nothing here picks one. */
   body { margin:0; font-family:var(--vscode-font-family); font-size:var(--vscode-font-size);
          color:var(--vscode-foreground); background:var(--vscode-panel-background);
          display:flex; flex-direction:column; height:100vh; }
-  #rows { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
+  #rows { margin:0; padding:0; }
+  #scroll { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
   .who { font-size:.85em; opacity:.7; margin-bottom:2px; }
   .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
@@ -502,18 +504,33 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #info .not-running .dot, #info .unknown .dot { background:var(--vscode-editorError-foreground); }
   #info button { font-size:.95em; }
   #info .acts { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
-  /* The subject of a permission. Monospace and scrollable: it is a command or a patch, and a
-     wrapped one is a different command to read. */
-  #ask pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:4px 0;
-    max-height:12em; overflow:auto; white-space:pre-wrap; }
-  #ask pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding-left:6px; }
-  #ask .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
-  /* Which of how many. Dimmer than the question — it places it, it is not it. */
-  #ask .at { color:var(--vscode-descriptionForeground); }
-  /* What the question was asked on. Denser than the question and above the buttons —
-     it is what the decision is made FROM, so it must be read before they are pressed. */
-  #ask .ground { font-size:.9em; margin:2px 0; }
-  #ask .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
+  /* The question/permission body sits at the end of the scroll container (#scroll), after the conversation rows.
+     No vertical max-height: reports and permission diffs flow naturally with the transcript scroll.
+     Long lines wrap with pre-wrap/break-word to prevent breaking panel width. */
+  #ask-body { border-top:1px solid var(--vscode-panel-border); margin-top:12px; padding-top:8px; }
+  #ask-body .what { font-weight:600; margin-bottom:6px; white-space:pre-wrap; word-break:break-word; }
+  #ask-body .at { color:var(--vscode-descriptionForeground); font-weight:normal; }
+  #ask-body pre { font-family:var(--vscode-editor-font-family); font-size:.9em; margin:6px 0;
+    white-space:pre-wrap; word-break:break-word; }
+  #ask-body pre.diff { border-left:2px solid var(--vscode-textLink-foreground); padding-left:6px; }
+  #ask-body .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
+  #ask-body .ground { font-size:.9em; margin:4px 0; white-space:pre-wrap; word-break:break-word; }
+  #ask-body .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
+  #ask-body ol.choices { margin:6px 0 6px 20px; padding:0; font-size:.9em; }
+  #ask-body ol.choices li { margin:2px 0; white-space:pre-wrap; word-break:break-word; }
+  /* The response controls stay outside the scroll container, fixed directly above the composer.
+     Capped at 35vh with its own overflow-y so extensive option lists do not dominate the panel.
+     Buttons flex-wrap in narrow sidebars. */
+  #ask-controls { border-top:1px solid var(--vscode-panel-border); padding:6px 10px;
+    max-height:35vh; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
+  #ask-controls .summary-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85em; }
+  #ask-controls .summary-text { color:var(--vscode-descriptionForeground); overflow:hidden;
+    text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #ask-controls .jump-btn { background:none; border:none; color:var(--vscode-textLink-foreground);
+    cursor:pointer; padding:0; font-size:inherit; flex:none; text-decoration:none; }
+  #ask-controls .jump-btn:hover { text-decoration:underline; }
+  #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; }
+  #ask-controls .acts button { flex:0 1 auto; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
@@ -537,9 +554,6 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
   #note { padding:6px 10px; opacity:.8; font-size:.9em; }
-  #ask { padding:8px 10px; border-top:1px solid var(--vscode-panel-border); }
-  #ask .what { margin-bottom:6px; }
-  #ask button { margin-right:6px; }
   #hint { padding:0 10px 4px; font-size:.85em; opacity:.7; font-family:var(--vscode-editor-font-family); }
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
   .chip { font-size:.85em; padding:1px 6px; border-radius:9px;
@@ -556,19 +570,23 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 </style></head><body>
 <div id="topbar"><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></div>
 <div id="info" hidden></div>
-<div id="rows"></div><div id="ask" hidden></div><div id="note"></div><div id="refs"></div>
+<div id="scroll"><div id="rows"></div><div id="ask-body" hidden></div></div>
+<div id="ask-controls" hidden></div><div id="note"></div><div id="refs"></div>
 <div id="hint"></div>
 <div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
 <script nonce="${nonce}">
 const vs = acquireVsCodeApi();
+const scrollEl = document.getElementById('scroll');
 const rowsEl = document.getElementById('rows');
+const askBodyEl = document.getElementById('ask-body');
+const askControlsEl = document.getElementById('ask-controls');
 const noteEl = document.getElementById('note');
 const say = document.getElementById('say');
-const askEl = document.getElementById('ask');
 const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
 let suggestion = '';
 let typing = null;
+let currentAskCallId = null;
 function askedAt(iso) {
   if (!iso) return '';
   const d = new Date(iso);
@@ -580,12 +598,27 @@ function askedAt(iso) {
   return sameDay ? clock : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + clock;
 }
 function drawAsk(a) {
-  askEl.textContent = '';
-  askEl.hidden = !a;
-  if (!a) return;
+  if (!a) {
+    if (pendingQuestion === currentAskCallId) pendingQuestion = null;
+    currentAskCallId = null;
+    askBodyEl.hidden = true;
+    askBodyEl.textContent = '';
+    askControlsEl.hidden = true;
+    askControlsEl.textContent = '';
+    return;
+  }
+  if (currentAskCallId === a.callId) return;
+  if (pendingQuestion && pendingQuestion !== a.callId) pendingQuestion = null;
+  currentAskCallId = a.callId;
+
+  askBodyEl.textContent = '';
+  askControlsEl.textContent = '';
+  askBodyEl.hidden = false;
+  askControlsEl.hidden = false;
+
   const w = document.createElement('div');
   w.className = 'what';
-  askEl.append(w);
+  askBodyEl.append(w);
   /* Where this sits in the run the call is asking: (3/5). The core says why it travels — a viewer
      "has no other way to know that answering this one leads to another" — and without it somebody
      who answers the first question of five believes they are done. Only when there IS more than
@@ -609,6 +642,27 @@ function drawAsk(a) {
     t.textContent = ' asked ' + when;
     w.append(t);
   }
+
+  const sumRow = document.createElement('div');
+  sumRow.className = 'summary-row';
+  const sumText = document.createElement('span');
+  sumText.className = 'summary-text';
+  const countTag = a.total > 1 ? ' (' + a.index + '/' + a.total + ')' : '';
+  const labelPrefix = a.kind === 'permission' ? '승인 대기: ' : '답변 대기: ';
+  sumText.textContent = labelPrefix + a.what + countTag;
+  const jumpBtn = document.createElement('button');
+  jumpBtn.className = 'jump-btn';
+  jumpBtn.textContent = '질문으로 이동';
+  jumpBtn.title = '질문 본문으로 스크롤 이동';
+  jumpBtn.addEventListener('click', () => {
+    askBodyEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+  sumRow.append(sumText, jumpBtn);
+  askControlsEl.append(sumRow);
+
+  const acts = document.createElement('div');
+  acts.className = 'acts';
+
   if (a.kind === 'permission') {
     w.prepend('magi wants to run: ' + a.what);
     /* WHAT is being allowed, not a description of it. Without this a person presses allow knowing
@@ -620,7 +674,7 @@ function drawAsk(a) {
       const p = document.createElement('pre');
       p.className = cls;
       p.textContent = text;      /* textContent, never innerHTML: this is workspace input */
-      askEl.append(p);
+      askBodyEl.append(p);
     }
     /* Nothing came. Say so — three buttons over a blank space read as "there is nothing to it",
        and that is the reading this must not allow. */
@@ -628,15 +682,16 @@ function drawAsk(a) {
       const u = document.createElement('div');
       u.className = 'unstated';
       u.textContent = 'the companion did not say what this would do';
-      askEl.append(u);
+      askBodyEl.append(u);
     }
     /* The three words the core spells. One vocabulary, so the two cannot drift. */
     for (const d of ['allow', 'deny', 'always']) {
       const b = document.createElement('button');
       b.textContent = d;
       b.addEventListener('click', () => vs.postMessage({ kind: 'answer', callId: a.callId, decision: d }));
-      askEl.append(b);
+      acts.append(b);
     }
+    askControlsEl.append(acts);
     return;
   }
   /* A question wants a sentence, not a verdict. Options are shortcuts to one. */
@@ -650,18 +705,30 @@ function drawAsk(a) {
     const k = document.createElement('b');
     k.textContent = g.key + ': ';
     row.append(k, g.text);   /* text as a node, never innerHTML: the model wrote it */
-    askEl.append(row);
+    askBodyEl.append(row);
+  }
+  if ((a.options || []).length) {
+    const ol = document.createElement('ol');
+    ol.className = 'choices';
+    for (const opt of a.options) {
+      const li = document.createElement('li');
+      li.textContent = opt;
+      ol.append(li);
+    }
+    askBodyEl.append(ol);
   }
   for (const opt of a.options || []) {
     const b = document.createElement('button');
     b.textContent = opt;
+    b.title = opt;
     b.addEventListener('click', () => vs.postMessage({ kind: 'reply', callId: a.callId, text: opt }));
-    askEl.append(b);
+    acts.append(b);
   }
   const free = document.createElement('button');
   free.textContent = 'answer in the box';
   free.addEventListener('click', () => { pendingQuestion = a.callId; say.focus(); });
-  askEl.append(free);
+  acts.append(free);
+  askControlsEl.append(acts);
 }
 const moreEl = document.getElementById('more');
 const infoEl = document.getElementById('info');
@@ -755,9 +822,6 @@ function drawRefs(rs) {
   }
 }
 function draw(rs) {
-  /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
-     an older row is the single most annoying thing a live transcript does. */
-  const wasAtBottom = rowsEl.scrollHeight - rowsEl.scrollTop - rowsEl.clientHeight < 40;
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
@@ -811,12 +875,25 @@ function draw(rs) {
     d.append(w, b);
     rowsEl.append(d);
   }
-  if (wasAtBottom) rowsEl.scrollTop = rowsEl.scrollHeight;
 }
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind === 'rows') {
-    draw(m.rows); drawAsk(m.ask); drawRefs(m.refs);
+    /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
+       an older row is the single most annoying thing a live transcript does.
+       Sampled BEFORE updating rows and ask, applied AFTER both are rendered so the full new height is known. */
+    const wasAtBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40;
+    const initialScrollTop = scrollEl.scrollTop;
+    draw(m.rows);
+    drawAsk(m.ask);
+    drawRefs(m.refs);
+    if (wasAtBottom) {
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    } else {
+      scrollEl.scrollTop = initialScrollTop;
+      const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+      if (scrollEl.scrollTop > maxScroll) scrollEl.scrollTop = maxScroll;
+    }
     if (noteEl.textContent === 'sending…') noteEl.textContent = '';
   }
   else if (m.kind === 'compose') {
