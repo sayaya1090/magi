@@ -524,17 +524,18 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #ask-body ol.choices { margin:6px 0 6px 20px; padding:0; font-size:.9em; }
   #ask-body ol.choices li { margin:2px 0; white-space:pre-wrap; word-break:break-word; }
   /* The response controls stay outside the scroll container, fixed directly above the composer.
-     Capped at 35vh with its own overflow-y so extensive option lists do not dominate the panel.
+     The summary row stays permanently pinned while the button group (.acts) is capped at 25vh
+     with overflow-y:auto so extensive option lists do not dominate the panel.
      Buttons flex-wrap in narrow sidebars. */
   #ask-controls { border-top:1px solid var(--vscode-panel-border); padding:6px 10px;
-    max-height:35vh; overflow-y:auto; display:flex; flex-direction:column; gap:6px; }
-  #ask-controls .summary-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85em; }
+    display:flex; flex-direction:column; gap:6px; flex-shrink:0; }
+  #ask-controls .summary-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85em; flex-shrink:0; }
   #ask-controls .summary-text { color:var(--vscode-descriptionForeground); overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; flex:1; }
   #ask-controls .jump-btn { background:none; border:none; color:var(--vscode-textLink-foreground);
     cursor:pointer; padding:0; font-size:inherit; flex:none; text-decoration:none; }
   #ask-controls .jump-btn:hover { text-decoration:underline; }
-  #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; }
+  #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; max-height:25vh; overflow-y:auto; }
   #ask-controls .acts button { flex:0 1 auto; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
