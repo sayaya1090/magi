@@ -775,4 +775,73 @@ try {
 
   await page.locator('#ask-controls button:text("allow")').click();
   console.log('PASS: hunk line count tracking, --- a/example as deleted/added, and multi-file diff without a/ b/ prefixes');
+
+  // Condition 21: Approval panel target filename, description, ‘변경 보기’ button, and click message
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-edit-native',
+      what: 'edit',
+      args: JSON.stringify({ path: 'src/model/user.ts', old: 'const a = 1;\n', new: 'const a = 2;\n' }),
+      reason: 'update user version property'
+    }
+  }, '*'));
+
+  await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('user.ts'));
+  const sumTextNative = await page.locator('#ask-controls .summary-text').textContent();
+  assert.ok(sumTextNative.includes('user.ts'), 'summary row includes target filename');
+  assert.ok(sumTextNative.includes('edit'), 'summary row includes what');
+
+  const fileTarget = await page.locator('#ask-body .file-target').textContent();
+  assert.equal(fileTarget, '파일: src/model/user.ts', 'target file path is displayed in ask body');
+
+  const actsBtns = await page.locator('#ask-controls .acts button').allTextContents();
+  assert.deepEqual(actsBtns, ['변경 보기', 'allow', 'deny', 'always'], 'actions include 변경 보기 and approval buttons');
+
+  // Clicking '변경 보기' posts kind: 'diff' without approving or mutating
+  const postedLenBefore = await page.evaluate(() => window.__posted.length);
+  await page.locator('#ask-controls button:text("변경 보기")').click();
+  const postedAfterDiff = await page.evaluate(() => window.__posted);
+  assert.equal(postedAfterDiff.length, postedLenBefore + 1, 'posted exactly one message on diff click');
+  const lastPosted = postedAfterDiff[postedAfterDiff.length - 1];
+  assert.deepEqual(lastPosted, { kind: 'diff', callId: 'perm-edit-native' }, 'posts diff kind with callId');
+
+  // Approval was not triggered
+  assert.ok(!postedAfterDiff.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'diff click does not approve');
+
+  // Raw patch permission also shows 변경 보기
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-patch-native',
+      what: 'write',
+      args: JSON.stringify({ path: 'README.md' }),
+      diff: '--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-# Old\n+# New\n'
+    }
+  }, '*'));
+  await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('README.md'));
+  await page.locator('#ask-controls button:text("변경 보기")').click();
+  const postedPatchDiff = await page.evaluate(() => window.__posted);
+  assert.ok(postedPatchDiff.some(m => m.kind === 'diff' && m.callId === 'perm-patch-native'), 'patch shows and triggers diff');
+
+  // Permission without diff or edit sides does not show 변경 보기
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-bash-nodiff',
+      what: 'bash',
+      args: JSON.stringify({ command: 'rm -rf tmp' })
+    }
+  }, '*'));
+  await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('bash'));
+  const nodiffBtns = await page.locator('#ask-controls .acts button').allTextContents();
+  assert.deepEqual(nodiffBtns, ['allow', 'deny', 'always'], 'no 변경 보기 button when neither sides nor diff exists');
+
+  console.log('PASS: approval panel target filename, description, 변경 보기 button, and pure inspection click');
 } finally { await browser.close(); }
