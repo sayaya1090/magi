@@ -748,7 +748,7 @@ function baseName(p) {
 }
 function drawAsk(a) {
   if (!a) {
-    if (pendingQuestion) exitAnswerMode();
+    if (answerState.getPendingQuestion()) exitAnswerMode();
     currentAsk = null;
     currentAskCallId = null;
     askBodyEl.hidden = true;
@@ -758,7 +758,7 @@ function drawAsk(a) {
     return;
   }
   if (currentAskCallId === a.callId) return;
-  if (pendingQuestion && pendingQuestion !== a.callId) exitAnswerMode();
+  if (answerState.getPendingQuestion() && answerState.getPendingQuestion() !== a.callId) exitAnswerMode();
   currentAsk = a;
   currentAskCallId = a.callId;
 
@@ -825,7 +825,7 @@ function drawAsk(a) {
   acts.className = 'acts';
 
   if (a.kind === 'permission') {
-    if (pendingQuestion) exitAnswerMode();
+    if (answerState.getPendingQuestion()) exitAnswerMode();
     w.prepend('magi wants to run: ' + a.what);
     if (targetPath) {
       const fileEl = document.createElement('div');
@@ -908,25 +908,18 @@ function drawAsk(a) {
     b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
     b.title = opt;
     b.addEventListener('click', () => {
-      if (inFlightReplies[a.callId]) {
-        noteEl.textContent = 'reply already in flight…';
+      const res = answerState.submitReply(a.callId, opt, true);
+      if (!res.ok) {
+        if (res.error === 'in_flight') {
+          noteEl.textContent = 'reply already in flight…';
+        }
         return;
       }
-      const attemptId = ++replyAttemptSeq;
-      const ver = (draftVersions[a.callId] || 0) + 1;
-      draftVersions[a.callId] = ver;
-      inFlightReplies[a.callId] = { attemptId: attemptId, text: opt, version: ver };
-      questionDrafts[a.callId] = opt;
       clearAutoCompletion();
-      if (pendingQuestion === a.callId) {
-        pendingQuestion = null;
-        if (replyModeEl) replyModeEl.hidden = true;
-        if (replyTargetEl) replyTargetEl.textContent = '';
-        say.value = generalDraft;
-        say.placeholder = '';
-        document.getElementById('send').textContent = 'Send';
+      if (res.exitAnswerMode) {
+        applyGeneralModeUI(res.nextInputText);
       }
-      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt, attemptId: attemptId });
+      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt, attemptId: res.attemptId });
       noteEl.textContent = 'sending…';
       setTimeout(() => { if (noteEl.textContent === 'sending…') noteEl.textContent = ''; }, 4000);
     });
@@ -993,13 +986,246 @@ function drawInfo() {
   }
   infoEl.append(acts);
 }
-let pendingQuestion = null;
-let generalDraft = '';
-const questionDrafts = {};
-const inFlightReplies = {};
-const draftVersions = {};
-const failedDrafts = {};
-let replyAttemptSeq = 0;
+/* START createAnswerState */
+function createAnswerState() {
+  var pendingQuestion = null;
+  var generalDraft = '';
+  var questionDrafts = {};
+  var inFlightReplies = {};
+  var draftVersions = {};
+  var failedDrafts = {};
+  var replyAttemptSeq = 0;
+
+  function getState() {
+    return {
+      pendingQuestion: pendingQuestion,
+      generalDraft: generalDraft,
+      questionDrafts: Object.assign({}, questionDrafts),
+      draftVersions: Object.assign({}, draftVersions),
+      failedDrafts: Object.assign({}, failedDrafts),
+      inFlightReplies: Object.assign({}, inFlightReplies),
+      replyAttemptSeq: replyAttemptSeq
+    };
+  }
+
+  function getPendingQuestion() {
+    return pendingQuestion;
+  }
+
+  function getGeneralDraft() {
+    return generalDraft;
+  }
+
+  function getQuestionDraft(callId) {
+    return questionDrafts[callId] || '';
+  }
+
+  function isInFlight(callId) {
+    return !!inFlightReplies[callId];
+  }
+
+  function getInFlight(callId) {
+    return inFlightReplies[callId];
+  }
+
+  function getDraftVersion(callId) {
+    return draftVersions[callId] || 0;
+  }
+
+  function getFailedDrafts(callId) {
+    return failedDrafts[callId] ? failedDrafts[callId].slice() : [];
+  }
+
+  function enterAnswerMode(callId, label, currentInputText) {
+    if (currentInputText === undefined) currentInputText = '';
+    if (pendingQuestion !== callId) {
+      if (!pendingQuestion) {
+        generalDraft = currentInputText;
+      } else {
+        questionDrafts[pendingQuestion] = currentInputText;
+      }
+      pendingQuestion = callId;
+    }
+    return {
+      enterAnswerMode: true,
+      callId: callId,
+      label: label || callId,
+      nextInputText: questionDrafts[callId] || '',
+      clearAutoCompletion: true
+    };
+  }
+
+  function exitAnswerMode(currentInputText) {
+    if (currentInputText === undefined) currentInputText = '';
+    if (pendingQuestion) {
+      questionDrafts[pendingQuestion] = currentInputText;
+      pendingQuestion = null;
+    }
+    return {
+      exitAnswerMode: true,
+      nextInputText: generalDraft,
+      clearAutoCompletion: true
+    };
+  }
+
+  function onAskChange(a, currentInputText) {
+    if (currentInputText === undefined) currentInputText = '';
+    if (!a) {
+      if (pendingQuestion) {
+        return exitAnswerMode(currentInputText);
+      }
+      return { clearAutoCompletion: false };
+    }
+    if (a.kind === 'permission') {
+      if (pendingQuestion) {
+        return exitAnswerMode(currentInputText);
+      }
+      return { clearAutoCompletion: false };
+    }
+    if (pendingQuestion && pendingQuestion !== a.callId) {
+      return exitAnswerMode(currentInputText);
+    }
+    return { clearAutoCompletion: false };
+  }
+
+  function onInputChange(text) {
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = text;
+      return { target: pendingQuestion };
+    }
+    generalDraft = text;
+    return { target: 'general' };
+  }
+
+  function onTabAccept(suggestion, currentInputText) {
+    var v = currentInputText + suggestion;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = v;
+      return { nextInputText: v, target: pendingQuestion };
+    }
+    generalDraft = v;
+    return { nextInputText: v, target: 'general' };
+  }
+
+  function onCompose(lead, currentInputText) {
+    var v = lead + currentInputText;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = v;
+      return { nextInputText: v, leadLength: lead.length, target: pendingQuestion };
+    }
+    generalDraft = v;
+    return { nextInputText: v, leadLength: lead.length, target: 'general' };
+  }
+
+  function submitReply(callId, text, isChoice) {
+    var t = (text || '').trim();
+    if (!t) return { ok: false, error: 'empty' };
+    if (inFlightReplies[callId]) {
+      return { ok: false, error: 'in_flight', message: 'reply already in flight…' };
+    }
+    var attemptId = ++replyAttemptSeq;
+    var ver = isChoice ? (draftVersions[callId] || 0) + 1 : (draftVersions[callId] || 0);
+    if (isChoice) draftVersions[callId] = ver;
+    var finalText = isChoice ? text : t;
+    inFlightReplies[callId] = { attemptId: attemptId, text: finalText, version: ver };
+    questionDrafts[callId] = finalText;
+
+    var wasAnswering = pendingQuestion === callId;
+    if (wasAnswering) {
+      pendingQuestion = null;
+    }
+
+    return {
+      ok: true,
+      action: 'reply',
+      callId: callId,
+      text: finalText,
+      attemptId: attemptId,
+      exitAnswerMode: wasAnswering,
+      nextInputText: generalDraft,
+      clearAutoCompletion: true
+    };
+  }
+
+  function submitSay(text) {
+    var t = (text || '').trim();
+    if (!t) return { ok: false, error: 'empty' };
+    generalDraft = '';
+    return {
+      ok: true,
+      action: 'say',
+      text: t,
+      nextInputText: '',
+      clearAutoCompletion: true
+    };
+  }
+
+  function onReplyResult(m, currentActiveAsk) {
+    if (typeof m.attemptId !== 'number') {
+      return { handled: false, reason: 'missing_or_invalid_attempt_id' };
+    }
+    var inFlight = inFlightReplies[m.callId];
+    if (!inFlight || inFlight.attemptId !== m.attemptId) {
+      return { handled: false, reason: 'mismatched_attempt_id' };
+    }
+    delete inFlightReplies[m.callId];
+
+    var currentVer = draftVersions[m.callId] || 0;
+    if (m.ok) {
+      if (inFlight.version === currentVer) {
+        delete questionDrafts[m.callId];
+        delete failedDrafts[m.callId];
+      }
+      return { handled: true, ok: true, callId: m.callId };
+    }
+
+    if (!failedDrafts[m.callId]) failedDrafts[m.callId] = [];
+    failedDrafts[m.callId].push(m.text || '');
+
+    var modifiedSinceAttempt = currentVer > inFlight.version;
+    if (!modifiedSinceAttempt) {
+      questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
+      if (currentActiveAsk && currentActiveAsk.callId === m.callId) {
+        enterAnswerMode(m.callId, currentActiveAsk.what, generalDraft);
+        return {
+          handled: true,
+          ok: false,
+          callId: m.callId,
+          reenterAnswerMode: true,
+          targetLabel: currentActiveAsk.what || m.callId,
+          nextInputText: questionDrafts[m.callId],
+          clearAutoCompletion: true
+        };
+      }
+    }
+    return { handled: true, ok: false, callId: m.callId, restoredInStoreOnly: true };
+  }
+
+  return {
+    getState: getState,
+    getPendingQuestion: getPendingQuestion,
+    getGeneralDraft: getGeneralDraft,
+    getQuestionDraft: getQuestionDraft,
+    isInFlight: isInFlight,
+    getInFlight: getInFlight,
+    getDraftVersion: getDraftVersion,
+    getFailedDrafts: getFailedDrafts,
+    enterAnswerMode: enterAnswerMode,
+    exitAnswerMode: exitAnswerMode,
+    onAskChange: onAskChange,
+    onInputChange: onInputChange,
+    onTabAccept: onTabAccept,
+    onCompose: onCompose,
+    submitReply: submitReply,
+    submitSay: submitSay,
+    onReplyResult: onReplyResult
+  };
+}
+/* END createAnswerState */
+const answerState = createAnswerState();
 let mentions = [];
 let suggestReqId = 0;
 function clearAutoCompletion() {
@@ -1012,38 +1238,34 @@ function clearAutoCompletion() {
   mentions = [];
   hint.textContent = '';
 }
-function enterAnswerMode(callId, label) {
+function applyAnswerModeUI(label, text) {
   clearAutoCompletion();
-  if (pendingQuestion !== callId) {
-    if (!pendingQuestion) {
-      generalDraft = say.value;
-    } else {
-      questionDrafts[pendingQuestion] = say.value;
-    }
-    pendingQuestion = callId;
-    say.value = questionDrafts[callId] || '';
-  }
   if (replyModeEl) {
     replyModeEl.hidden = false;
-    if (replyTargetEl) replyTargetEl.textContent = label || callId;
+    if (replyTargetEl) replyTargetEl.textContent = label || '';
   }
   say.placeholder = '답변을 입력하세요 (Esc로 취소)…';
   document.getElementById('send').textContent = '답변';
+  if (text !== undefined) say.value = text;
   say.focus();
 }
-function exitAnswerMode() {
+function applyGeneralModeUI(text) {
   clearAutoCompletion();
-  if (pendingQuestion) {
-    questionDrafts[pendingQuestion] = say.value;
-    pendingQuestion = null;
-  }
   if (replyModeEl) {
     replyModeEl.hidden = true;
     if (replyTargetEl) replyTargetEl.textContent = '';
   }
-  say.value = generalDraft;
+  if (text !== undefined) say.value = text;
   say.placeholder = '';
   document.getElementById('send').textContent = 'Send';
+}
+function enterAnswerMode(callId, label) {
+  const res = answerState.enterAnswerMode(callId, label, say.value);
+  applyAnswerModeUI(res.label, res.nextInputText);
+}
+function exitAnswerMode() {
+  const res = answerState.exitAnswerMode(say.value);
+  applyGeneralModeUI(res.nextInputText);
 }
 if (replyCancelEl) {
   replyCancelEl.addEventListener('click', exitAnswerMode);
@@ -1172,50 +1394,26 @@ window.addEventListener('message', (e) => {
        it, and on an empty box that is the end of everything. */
     const lead = m.text || '';
     say.value = lead + say.value;
-    if (pendingQuestion) {
-      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
-      questionDrafts[pendingQuestion] = say.value;
-    } else {
-      generalDraft = say.value;
-    }
+    answerState.onInputChange(say.value);
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
   else if (m.kind === 'replyResult') {
-    if (typeof m.attemptId !== 'number') return;
-    const inFlight = inFlightReplies[m.callId];
-    if (!inFlight || inFlight.attemptId !== m.attemptId) return;
-    delete inFlightReplies[m.callId];
-
-    const currentVer = draftVersions[m.callId] || 0;
-    if (m.ok) {
-      if (inFlight.version === currentVer) {
-        delete questionDrafts[m.callId];
-        delete failedDrafts[m.callId];
-      }
-    } else {
-      if (!failedDrafts[m.callId]) failedDrafts[m.callId] = [];
-      failedDrafts[m.callId].push(m.text || '');
-
-      const modifiedSinceAttempt = currentVer > inFlight.version;
-      if (!modifiedSinceAttempt) {
-        questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
-        if (currentAsk && currentAsk.callId === m.callId) {
-          enterAnswerMode(m.callId, currentAsk.what);
-          say.value = questionDrafts[m.callId];
-        }
-      }
+    const res = answerState.onReplyResult(m, currentAsk);
+    if (!res.handled) return;
+    if (res.reenterAnswerMode) {
+      applyAnswerModeUI(res.targetLabel, res.nextInputText);
     }
   }
   else if (m.kind === 'mentions') {
-    const currentTarget = pendingQuestion || 'general';
+    const currentTarget = answerState.getPendingQuestion() || 'general';
     if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
     if (m.target !== undefined && m.target !== currentTarget) return;
     mentions = m.files || [];
     hint.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
   }
   else if (m.kind === 'suggestion') {
-    const currentTarget = pendingQuestion || 'general';
+    const currentTarget = answerState.getPendingQuestion() || 'general';
     if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
     if (m.target !== undefined && m.target !== currentTarget) return;
     suggestion = m.text || '';
@@ -1230,29 +1428,26 @@ function send() {
   if (!t) return;
   /* If a question is open and they chose to type, the box answers THAT rather than starting a new
      turn — otherwise their sentence goes somewhere nobody was waiting for it. */
-  if (pendingQuestion) {
-    const qId = pendingQuestion;
-    if (inFlightReplies[qId]) {
-      noteEl.textContent = 'reply already in flight…';
+  const pending = answerState.getPendingQuestion();
+  if (pending) {
+    const res = answerState.submitReply(pending, t, false);
+    if (!res.ok) {
+      if (res.error === 'in_flight') {
+        noteEl.textContent = 'reply already in flight…';
+      }
       return;
     }
-    const attemptId = ++replyAttemptSeq;
-    const ver = draftVersions[qId] || 0;
-    inFlightReplies[qId] = { attemptId: attemptId, text: t, version: ver };
-    questionDrafts[qId] = t;
     clearAutoCompletion();
-    vs.postMessage({ kind: 'reply', callId: qId, text: t, attemptId: attemptId });
-    pendingQuestion = null;
-    if (replyModeEl) replyModeEl.hidden = true;
-    if (replyTargetEl) replyTargetEl.textContent = '';
-    say.value = generalDraft;
-    say.placeholder = '';
-    document.getElementById('send').textContent = 'Send';
+    vs.postMessage({ kind: 'reply', callId: res.callId, text: res.text, attemptId: res.attemptId });
+    if (res.exitAnswerMode) {
+      applyGeneralModeUI(res.nextInputText);
+    }
   } else {
+    const res = answerState.submitSay(t);
+    if (!res.ok) return;
     clearAutoCompletion();
-    vs.postMessage({ kind: 'say', text: t });
-    say.value = '';
-    generalDraft = '';
+    vs.postMessage({ kind: 'say', text: res.text });
+    say.value = res.nextInputText;
   }
   hint.textContent = '';
   /* The row for this arrives on the stream a moment later. Until then the box being empty is the
@@ -1264,17 +1459,12 @@ document.getElementById('send').addEventListener('click', send);
 /* Enter sends, Shift+Enter is a newline — the terminal and the web console both do this. */
 say.addEventListener('keydown', (e) => {
   if (e.isComposing || e.keyCode === 229) return;
-  if (e.key === 'Escape' && pendingQuestion) { e.preventDefault(); exitAnswerMode(); return; }
+  if (e.key === 'Escape' && answerState.getPendingQuestion()) { e.preventDefault(); exitAnswerMode(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return; }
   if (e.key === 'Tab' && suggestion) {
     e.preventDefault();
     say.value += suggestion;
-    if (pendingQuestion) {
-      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
-      questionDrafts[pendingQuestion] = say.value;
-    } else {
-      generalDraft = say.value;
-    }
+    answerState.onInputChange(say.value);
     suggestion = '';
     hint.textContent = '';
   }
@@ -1284,14 +1474,8 @@ say.addEventListener('input', () => {
   hint.textContent = '';
   if (typing) clearTimeout(typing);
   const v = say.value;
-  const currentTarget = pendingQuestion || 'general';
+  const currentTarget = answerState.onInputChange(v).target;
   const reqId = ++suggestReqId;
-  if (pendingQuestion) {
-    draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
-    questionDrafts[pendingQuestion] = v;
-  } else {
-    generalDraft = v;
-  }
   /* An @name at the start of a word asks the companion which files match. Two characters at
      least, because one matches everything and the list would be the whole workspace.
      (No backticks in here: this script lives in a template literal and one would close it.) */
