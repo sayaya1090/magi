@@ -462,6 +462,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   body { margin:0; font-family:var(--vscode-font-family); font-size:var(--vscode-font-size);
          color:var(--vscode-foreground); background:var(--vscode-panel-background);
          display:flex; flex-direction:column; height:100vh; }
+  [hidden] { display:none !important; }
   #rows { margin:0; padding:0; }
   #scroll { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
@@ -558,6 +559,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
   .chip { font-size:.85em; padding:1px 6px; border-radius:9px;
           color:var(--vscode-badge-foreground); background:var(--vscode-badge-background); }
+  #reply-mode { display:flex; justify-content:space-between; align-items:center; padding:4px 10px;
+    font-size:.85em; background:var(--vscode-editorWidget-background, #252526);
+    border-top:1px solid var(--vscode-panel-border, #333); color:var(--vscode-descriptionForeground, #ccc); }
+  #reply-mode .reply-tag { font-weight:600; color:var(--vscode-editorWarning-foreground, #cca700); margin-right:6px; flex:none; }
+  #reply-mode .reply-target { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #reply-mode .cancel-btn { background:transparent; color:var(--vscode-textLink-foreground, #3794ff); border:none; padding:0 4px;
+    font-size:inherit; cursor:pointer; flex:none; margin-left:8px; }
+  #reply-mode .cancel-btn:hover { text-decoration:underline; }
   #bar { display:flex; gap:6px; align-items:center; padding:8px 10px;
          border-top:1px solid var(--vscode-panel-border); }
   #say { flex:1; resize:none; min-height:2.2em; max-height:8em;
@@ -573,6 +582,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 <div id="scroll"><div id="rows"></div><div id="ask-body" hidden></div></div>
 <div id="ask-controls" hidden></div><div id="note"></div><div id="refs"></div>
 <div id="hint"></div>
+<div id="reply-mode" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></div>
 <div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
 <script nonce="${nonce}">
 const vs = acquireVsCodeApi();
@@ -580,6 +590,9 @@ const scrollEl = document.getElementById('scroll');
 const rowsEl = document.getElementById('rows');
 const askBodyEl = document.getElementById('ask-body');
 const askControlsEl = document.getElementById('ask-controls');
+const replyModeEl = document.getElementById('reply-mode');
+const replyTargetEl = document.getElementById('reply-target');
+const replyCancelEl = document.getElementById('reply-cancel');
 const noteEl = document.getElementById('note');
 const say = document.getElementById('say');
 const refsEl = document.getElementById('refs');
@@ -599,7 +612,7 @@ function askedAt(iso) {
 }
 function drawAsk(a) {
   if (!a) {
-    if (pendingQuestion === currentAskCallId) pendingQuestion = null;
+    if (pendingQuestion) exitAnswerMode();
     currentAskCallId = null;
     askBodyEl.hidden = true;
     askBodyEl.textContent = '';
@@ -608,7 +621,7 @@ function drawAsk(a) {
     return;
   }
   if (currentAskCallId === a.callId) return;
-  if (pendingQuestion && pendingQuestion !== a.callId) pendingQuestion = null;
+  if (pendingQuestion && pendingQuestion !== a.callId) exitAnswerMode();
   currentAskCallId = a.callId;
 
   askBodyEl.textContent = '';
@@ -664,6 +677,7 @@ function drawAsk(a) {
   acts.className = 'acts';
 
   if (a.kind === 'permission') {
+    if (pendingQuestion) exitAnswerMode();
     w.prepend('magi wants to run: ' + a.what);
     /* WHAT is being allowed, not a description of it. Without this a person presses allow knowing
        only the tool's name — the place where the most is riding on the answer was the one drawn
@@ -717,18 +731,38 @@ function drawAsk(a) {
     }
     askBodyEl.append(ol);
   }
-  for (const opt of a.options || []) {
+  const opts = a.options || [];
+  for (let i = 0; i < opts.length; i++) {
+    const opt = opts[i];
     const b = document.createElement('button');
-    b.textContent = opt;
+    const clean = opt.replace(/^(\\d+[\\.\\)]|\\(\\d+\\))\\s*/, '');
+    const firstLine = clean.split('\\n')[0].trim();
+    const shortLabel = firstLine.length > 20 ? firstLine.slice(0, 19) + '…' : firstLine;
+    b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
     b.title = opt;
-    b.addEventListener('click', () => vs.postMessage({ kind: 'reply', callId: a.callId, text: opt }));
+    b.addEventListener('click', () => {
+      if (pendingQuestion === a.callId) {
+        delete questionDrafts[a.callId];
+        pendingQuestion = null;
+        if (replyModeEl) replyModeEl.hidden = true;
+        if (replyTargetEl) replyTargetEl.textContent = '';
+        say.value = generalDraft;
+        say.placeholder = '';
+        document.getElementById('send').textContent = 'Send';
+      }
+      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt });
+    });
     acts.append(b);
   }
   const free = document.createElement('button');
-  free.textContent = 'answer in the box';
-  free.addEventListener('click', () => { pendingQuestion = a.callId; say.focus(); });
+  free.textContent = '직접 입력';
+  free.title = '입력창에서 직접 답변 작성';
+  free.addEventListener('click', () => { enterAnswerMode(a.callId, a.what); });
   acts.append(free);
   askControlsEl.append(acts);
+  if (opts.length === 0) {
+    enterAnswerMode(a.callId, a.what);
+  }
 }
 const moreEl = document.getElementById('more');
 const infoEl = document.getElementById('info');
@@ -782,7 +816,43 @@ function drawInfo() {
   infoEl.append(acts);
 }
 let pendingQuestion = null;
+let generalDraft = '';
+const questionDrafts = {};
 let mentions = [];
+function enterAnswerMode(callId, label) {
+  if (pendingQuestion !== callId) {
+    if (!pendingQuestion) {
+      generalDraft = say.value;
+    } else {
+      questionDrafts[pendingQuestion] = say.value;
+    }
+    pendingQuestion = callId;
+    say.value = questionDrafts[callId] || '';
+  }
+  if (replyModeEl) {
+    replyModeEl.hidden = false;
+    if (replyTargetEl) replyTargetEl.textContent = label || callId;
+  }
+  say.placeholder = '답변을 입력하세요 (Esc로 취소)…';
+  document.getElementById('send').textContent = '답변';
+  say.focus();
+}
+function exitAnswerMode() {
+  if (pendingQuestion) {
+    questionDrafts[pendingQuestion] = say.value;
+    pendingQuestion = null;
+  }
+  if (replyModeEl) {
+    replyModeEl.hidden = true;
+    if (replyTargetEl) replyTargetEl.textContent = '';
+  }
+  say.value = generalDraft;
+  say.placeholder = '';
+  document.getElementById('send').textContent = 'Send';
+}
+if (replyCancelEl) {
+  replyCancelEl.addEventListener('click', exitAnswerMode);
+}
 function drawState(note) {
   noteEl.textContent = '';
   if (!note || !note.text) return;
@@ -907,6 +977,8 @@ window.addEventListener('message', (e) => {
        it, and on an empty box that is the end of everything. */
     const lead = m.text || '';
     say.value = lead + say.value;
+    if (pendingQuestion) questionDrafts[pendingQuestion] = say.value;
+    else generalDraft = say.value;
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
@@ -929,12 +1001,20 @@ function send() {
   /* If a question is open and they chose to type, the box answers THAT rather than starting a new
      turn — otherwise their sentence goes somewhere nobody was waiting for it. */
   if (pendingQuestion) {
-    vs.postMessage({ kind: 'reply', callId: pendingQuestion, text: t });
+    const qId = pendingQuestion;
+    vs.postMessage({ kind: 'reply', callId: qId, text: t });
+    delete questionDrafts[qId];
     pendingQuestion = null;
+    if (replyModeEl) replyModeEl.hidden = true;
+    if (replyTargetEl) replyTargetEl.textContent = '';
+    say.value = generalDraft;
+    say.placeholder = '';
+    document.getElementById('send').textContent = 'Send';
   } else {
     vs.postMessage({ kind: 'say', text: t });
+    say.value = '';
+    generalDraft = '';
   }
-  say.value = '';
   hint.textContent = '';
   /* The row for this arrives on the stream a moment later. Until then the box being empty is the
      only sign anything happened, and on a slow first turn that reads as a lost message. */
@@ -944,10 +1024,14 @@ function send() {
 document.getElementById('send').addEventListener('click', send);
 /* Enter sends, Shift+Enter is a newline — the terminal and the web console both do this. */
 say.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if (e.key === 'Escape' && pendingQuestion) { e.preventDefault(); exitAnswerMode(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return; }
   if (e.key === 'Tab' && suggestion) {
     e.preventDefault();
     say.value += suggestion;
+    if (pendingQuestion) questionDrafts[pendingQuestion] = say.value;
+    else generalDraft = say.value;
     suggestion = '';
     hint.textContent = '';
   }
@@ -956,6 +1040,8 @@ say.addEventListener('input', () => {
   suggestion = '';
   if (typing) clearTimeout(typing);
   const v = say.value;
+  if (pendingQuestion) questionDrafts[pendingQuestion] = v;
+  else generalDraft = v;
   /* An @name at the start of a word asks the companion which files match. Two characters at
      least, because one matches everything and the list would be the whole workspace.
      (No backticks in here: this script lives in a template literal and one would close it.) */

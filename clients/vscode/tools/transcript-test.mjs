@@ -113,7 +113,7 @@ try {
   const btn = page.locator('#ask-controls .acts button').first();
   await btn.focus();
   const focusedBefore = await page.evaluate(() => document.activeElement?.textContent);
-  assert.equal(focusedBefore, '선택 A');
+  assert.equal(focusedBefore, '1. 선택 A');
 
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
@@ -128,7 +128,7 @@ try {
     }
   }, '*'));
   const focusedAfter = await page.evaluate(() => document.activeElement?.textContent);
-  assert.equal(focusedAfter, '선택 A', 'focus was preserved on repeated ask with same callId');
+  assert.equal(focusedAfter, '1. 선택 A', 'focus was preserved on repeated ask with same callId');
 
   // Condition 7: Ask replacement and dismissal
   await page.evaluate(() => window.postMessage({
@@ -179,4 +179,74 @@ try {
   const fits = await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight);
   assert.ok(fits, 'page fits within viewport height without outer body overflow');
   console.log('PASS: narrow and short viewport layout');
+
+  // Condition 9: Free-text question auto-enters answer mode, preserves general draft
+  await page.setViewportSize({ width: 420, height: 600 });
+  // User types general draft
+  await page.locator('#say').fill('새 작업 초안 작성 중...');
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'free-q1',
+      what: '이 파일의 이름을 무엇으로 변경할까요?',
+      options: []
+    }
+  }, '*'));
+  await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+  const replyTag = await page.locator('#reply-mode .reply-target').textContent();
+  assert.match(replyTag, /이 파일의 이름을 무엇으로 변경할까요\?/);
+  const sayInAnswerMode = await page.locator('#say').inputValue();
+  assert.equal(sayInAnswerMode, '', 'input was cleared for question answer');
+  const placeholder = await page.locator('#say').getAttribute('placeholder');
+  assert.match(placeholder, /답변을 입력하세요/);
+
+  // Send answer from composer
+  await page.locator('#say').fill('user-profile.ts');
+  await page.locator('#send').click();
+  const postedAfterReply = await page.evaluate(() => window.__posted);
+  assert.ok(postedAfterReply.some((m) => m.kind === 'reply' && m.callId === 'free-q1' && m.text === 'user-profile.ts'));
+  assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode closed after send');
+  const sayRestored = await page.locator('#say').inputValue();
+  assert.equal(sayRestored, '새 작업 초안 작성 중...', 'general draft restored after answering question');
+
+  // Condition 10: Multiple-choice question, direct input button, draft retention and Esc cancel
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'choice-q2',
+      what: '배포 환경을 선택하세요',
+      options: ['스테이징 환경', '운영(프로덕션) 환경']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("1. 스테이징 환경")');
+  // Choice buttons are numbered
+  const btnTexts = await page.locator('#ask-controls .acts button').allTextContents();
+  assert.deepEqual(btnTexts, ['1. 스테이징 환경', '2. 운영(프로덕션) 환경', '직접 입력']);
+
+  // Click '직접 입력'
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  assert.equal(await page.locator('#reply-mode').isVisible(), true, 'reply mode opened via 직접 입력');
+  assert.equal(await page.locator('#say').inputValue(), '', 'input empty for new question draft');
+
+  // Type partial answer then press Escape
+  await page.locator('#say').fill('카나리 배포 10%');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode exited on Escape');
+  assert.equal(await page.locator('#say').inputValue(), '새 작업 초안 작성 중...', 'general draft restored on Escape');
+
+  // Re-enter answer mode, verify question draft was saved
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  assert.equal(await page.locator('#say').inputValue(), '카나리 배포 10%', 'question draft preserved across cancellation');
+
+  // Click choice button directly - sends choice and restores general draft
+  await page.locator('#ask-controls button:text("1. 스테이징 환경")').click();
+  const postedAfterChoice = await page.evaluate(() => window.__posted);
+  assert.ok(postedAfterChoice.some((m) => m.kind === 'reply' && m.callId === 'choice-q2' && m.text === '스테이징 환경'));
+  assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode closed after choice click');
+  assert.equal(await page.locator('#say').inputValue(), '새 작업 초안 작성 중...', 'general draft restored after choice click');
+  console.log('PASS: answer mode, draft preservation, escape cancel, and choice buttons');
 } finally { await browser.close(); }
