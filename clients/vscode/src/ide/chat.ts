@@ -638,47 +638,66 @@ function renderDiff(container, text) {
   if (!text) return;
   const lines = text.split('\\n');
   let inHunk = false;
+  let oldRemaining = 0;
+  let newRemaining = 0;
+
   for (let i = 0; i < lines.length; i++) {
     if (i === lines.length - 1 && lines[i] === '' && text.endsWith('\\n')) break;
     const rawLine = lines[i];
     const lineWithNl = rawLine + (i < lines.length - 1 || text.endsWith('\\n') ? '\\n' : '');
 
     let cls = 'diff-plain';
-    const isHunkHeader = /^@@\\s+-\\d+(?:,\\d+)?\\s+\\+\\d+(?:,\\d+)?\\s+@@/.test(rawLine) || /^@@\\s+[^@]+@@/.test(rawLine);
+    const hunkMatch = /^@@\\s+-(\\d+)(?:,(\\d+))?\\s+\\+(\\d+)(?:,(\\d+))?\\s+@@(?:$|\\s)/.exec(rawLine);
     const isGitHeader = rawLine.startsWith('diff --git ') || rawLine.startsWith('Index: ');
-    const isFileHeaderStart = inHunk && (
-      rawLine.startsWith('diff --git ') ||
-      (rawLine.startsWith('--- ') && lines[i + 1] && lines[i + 1].startsWith('+++ ') && (rawLine.startsWith('--- a/') || rawLine.startsWith('--- /dev/null')))
-    );
-    if (isGitHeader || isFileHeaderStart) {
-      inHunk = false;
-    }
-    const isFileMeta = !inHunk && (
-      rawLine.startsWith('--- ') ||
-      rawLine.startsWith('+++ ') ||
-      rawLine.startsWith('index ') ||
-      rawLine.startsWith('new file mode ') ||
-      rawLine.startsWith('deleted file mode ') ||
-      rawLine.startsWith('similarity index ') ||
-      rawLine.startsWith('rename from ') ||
-      rawLine.startsWith('rename to ') ||
-      rawLine.startsWith('old mode ') ||
-      rawLine.startsWith('new mode ') ||
-      rawLine.startsWith('Binary files ')
-    );
 
-    if (isGitHeader || isFileMeta) {
+    if (isGitHeader) {
+      inHunk = false;
+      oldRemaining = 0;
+      newRemaining = 0;
       cls = 'diff-file-header';
-    } else if (isHunkHeader) {
+    } else if (hunkMatch) {
       inHunk = true;
+      oldRemaining = hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1;
+      newRemaining = hunkMatch[4] !== undefined ? parseInt(hunkMatch[4], 10) : 1;
       cls = 'diff-hunk-header';
+      if (oldRemaining === 0 && newRemaining === 0) {
+        inHunk = false;
+      }
     } else if (inHunk) {
       if (rawLine.startsWith('+')) {
         cls = 'diff-added';
+        if (newRemaining > 0) newRemaining--;
       } else if (rawLine.startsWith('-')) {
         cls = 'diff-deleted';
+        if (oldRemaining > 0) oldRemaining--;
       } else if (rawLine.startsWith(' ') || rawLine === '') {
         cls = 'diff-context';
+        if (oldRemaining > 0) oldRemaining--;
+        if (newRemaining > 0) newRemaining--;
+      } else if (rawLine.startsWith('\\\\')) {
+        cls = 'diff-context';
+      } else {
+        cls = 'diff-plain';
+      }
+      if (oldRemaining <= 0 && newRemaining <= 0) {
+        inHunk = false;
+      }
+    } else {
+      const isFileMeta = (
+        rawLine.startsWith('--- ') ||
+        rawLine.startsWith('+++ ') ||
+        rawLine.startsWith('index ') ||
+        rawLine.startsWith('new file mode ') ||
+        rawLine.startsWith('deleted file mode ') ||
+        rawLine.startsWith('similarity index ') ||
+        rawLine.startsWith('rename from ') ||
+        rawLine.startsWith('rename to ') ||
+        rawLine.startsWith('old mode ') ||
+        rawLine.startsWith('new mode ') ||
+        rawLine.startsWith('Binary files ')
+      );
+      if (isFileMeta) {
+        cls = 'diff-file-header';
       } else if (rawLine.startsWith('\\\\')) {
         cls = 'diff-context';
       } else {

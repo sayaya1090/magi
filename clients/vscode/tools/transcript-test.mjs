@@ -718,4 +718,61 @@ try {
   // Allow button click to dismiss
   await page.locator('#ask-controls button:text("allow")').click();
   console.log('PASS: diff syntax highlighting, classification, raw text preservation, and unparsed fallback');
+
+  // Condition 20: Hunk line-count tracking & multi-file diff without a/, b/ prefixes
+  // Test case from user review:
+  // @@ -1 +1 @@
+  // --- a/example
+  // +++ b/example
+  // followed by a second file without a/, b/ prefixes:
+  // --- file2.txt
+  // +++ file2.txt
+  // @@ -1 +1 @@
+  // -foo
+  // +bar
+  const countTrackDiff = [
+    '@@ -1 +1 @@',
+    '--- a/example',
+    '+++ b/example',
+    '--- file2.txt',
+    '+++ file2.txt',
+    '@@ -1 +1 @@',
+    '-foo',
+    '+bar'
+  ].join('\n');
+
+  await page.evaluate((diffText) => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-count-diff',
+      what: 'git apply',
+      diff: diffText
+    }
+  }, '*'), countTrackDiff);
+
+  await page.waitForFunction(() => document.querySelector('#ask-body pre.diff')?.textContent.includes('--- a/example'));
+
+  // Verify '--- a/example' is diff-deleted, NOT diff-file-header
+  const countDeleted = await page.locator('#ask-body pre.diff .diff-deleted').allInnerTexts();
+  assert.ok(countDeleted.some(t => t.includes('--- a/example')), '--- a/example in hunk is classified as diff-deleted');
+  assert.ok(countDeleted.some(t => t.includes('-foo')), '-foo is classified as diff-deleted');
+
+  // Verify '+++ b/example' is diff-added, NOT diff-file-header
+  const countAdded = await page.locator('#ask-body pre.diff .diff-added').allInnerTexts();
+  assert.ok(countAdded.some(t => t.includes('+++ b/example')), '+++ b/example in hunk is classified as diff-added');
+  assert.ok(countAdded.some(t => t.includes('+bar')), '+bar is classified as diff-added');
+
+  // Verify '--- file2.txt' and '+++ file2.txt' without a/, b/ prefixes are recognized as file headers
+  const countFileHeaders = await page.locator('#ask-body pre.diff .diff-file-header').allInnerTexts();
+  assert.ok(countFileHeaders.some(t => t.includes('--- file2.txt')), '--- file2.txt recognized as file header');
+  assert.ok(countFileHeaders.some(t => t.includes('+++ file2.txt')), '+++ file2.txt recognized as file header');
+
+  // Exact raw text match
+  const countRendered = await page.locator('#ask-body pre.diff').evaluate(el => el.textContent);
+  assert.equal(countRendered, countTrackDiff, 'textContent of countTrackDiff matches input exactly');
+
+  await page.locator('#ask-controls button:text("allow")').click();
+  console.log('PASS: hunk line count tracking, --- a/example as deleted/added, and multi-file diff without a/ b/ prefixes');
 } finally { await browser.close(); }
