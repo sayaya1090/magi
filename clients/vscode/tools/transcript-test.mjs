@@ -268,14 +268,16 @@ try {
   await page.locator('#send').click();
   // While in flight, say restores general draft
   assert.equal(await page.locator('#say').inputValue(), '원래 일반 프롬프트 초안');
+  const postedReject1 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-reject').slice(-1)[0]);
   // Daemon sends refusal replyResult
-  await page.evaluate(() => window.postMessage({
+  await page.evaluate((att) => window.postMessage({
     kind: 'replyResult',
     callId: 'q-reject',
+    attemptId: att.attemptId,
     ok: false,
     error: 'companion refused to accept answer',
     text: '거절될 답변 내용'
-  }, '*'));
+  }, '*'), postedReject1);
   // Webview re-enters answer mode for q-reject and restores failed draft
   await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
   assert.equal(await page.locator('#say').inputValue(), '거절될 답변 내용', 'failed reply restored into answer mode');
@@ -288,13 +290,15 @@ try {
   await page.locator('#ask-controls button:text("직접 입력")').click();
   await page.locator('#say').fill('재시도할 답변');
   await page.locator('#send').click();
-  await page.evaluate(() => window.postMessage({
+  const postedReject2 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-reject').slice(-1)[0]);
+  await page.evaluate((att) => window.postMessage({
     kind: 'replyResult',
     callId: 'q-reject',
+    attemptId: att.attemptId,
     ok: false,
     error: 'no companion is listening on this workspace.',
     text: '재시도할 답변'
-  }, '*'));
+  }, '*'), postedReject2);
   await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
   assert.equal(await page.locator('#say').inputValue(), '재시도할 답변', 'disconnected reply restored into answer mode');
   await page.keyboard.press('Escape');
@@ -305,6 +309,7 @@ try {
   await page.locator('#ask-controls button:text("직접 입력")').click();
   await page.locator('#say').fill('구 질문 답변');
   await page.locator('#send').click();
+  const postedReject3 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-reject').slice(-1)[0]);
   // Step B: Question is replaced by q-new before q-reject failure arrives
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
@@ -320,13 +325,14 @@ try {
   await page.locator('#ask-controls button:text("직접 입력")').click();
   await page.locator('#say').fill('신규 질문에 타이핑 중인 답변');
   // Step C: Late failure for q-old arrives!
-  await page.evaluate(() => window.postMessage({
+  await page.evaluate((att) => window.postMessage({
     kind: 'replyResult',
     callId: 'q-reject',
+    attemptId: att.attemptId,
     ok: false,
     error: 'timeout',
     text: '구 질문 답변'
-  }, '*'));
+  }, '*'), postedReject3);
   // Ensure say.value is NOT overwritten by q-reject!
   assert.equal(await page.locator('#say').inputValue(), '신규 질문에 타이핑 중인 답변', 'late failure response from old question did not overwrite current question draft');
   // Cancel q-new
@@ -503,4 +509,91 @@ try {
   await page.evaluate(() => window.postMessage({ kind: 'rows', rows: [{ who: 'agent', label: 'magi', text: 'all done' }], ask: null }, '*'));
   await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
   console.log('PASS: stale failure does not overwrite fresh revision, and new attempt succeeds');
+
+  // Condition 18: A 실패 → B 재전송 → A 결과 재도착(stale duplicate) 및 ID 없는 응답 무시 테스트
+  // 검증 항목: B의 잠금(in-flight lock), 초안(questionDraft), 입력 모드(active answer mode & say.value) 유지
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'q-resend-test',
+      what: '재전송 격리 테스트 질문',
+      options: ['옵션 1', '옵션 2']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("직접 입력")');
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('답변 A');
+
+  // Step 1: 답변 A 전송
+  await page.locator('#send').click();
+  const attemptA = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-resend-test').slice(-1)[0]);
+  assert.ok(attemptA && attemptA.attemptId);
+
+  // Step 2: A 실패 응답 도착 -> 답변 모드로 복원되고 잠금 해제됨
+  await page.evaluate((att) => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-resend-test',
+    attemptId: att.attemptId,
+    ok: false,
+    error: 'initial failure',
+    text: '답변 A'
+  }, '*'), attemptA);
+  await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+  assert.equal(await page.locator('#say').inputValue(), '답변 A');
+
+  // Step 3: 답변 B로 수정 후 재전송 -> B가 in-flight 상태로 전송됨
+  await page.locator('#say').fill('답변 B');
+  await page.locator('#send').click();
+  const attemptB = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-resend-test').slice(-1)[0]);
+  assert.ok(attemptB && attemptB.attemptId > attemptA.attemptId);
+
+  // 재진입하여 B의 답변 모드 활성화 상태 확인
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  assert.equal(await page.locator('#say').inputValue(), '답변 B');
+  assert.equal(await page.locator('#reply-mode').isVisible(), true, 'answer mode active for B');
+
+  // Step 4-1: ID 없는 응답 도착 -> 즉시 무시되어야 함
+  await page.evaluate(() => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-resend-test',
+    ok: false,
+    error: 'malformed no-id response',
+    text: '오염 텍스트'
+  }, '*'));
+  assert.equal(await page.locator('#say').inputValue(), '답변 B', 'ID-less response ignored; draft preserved');
+  assert.equal(await page.locator('#reply-mode').isVisible(), true, 'answer mode preserved after ID-less response');
+
+  // Step 4-2: A 결과 재도착 (지연/중복 도착) -> attemptId 불일치로 즉시 무시되어야 함
+  await page.evaluate((att) => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-resend-test',
+    attemptId: att.attemptId, // attempt A의 ID
+    ok: false,
+    error: 'stale duplicate error for A',
+    text: '답변 A'
+  }, '*'), attemptA);
+
+  // 검증 1: B의 초안 유지
+  assert.equal(await page.locator('#say').inputValue(), '답변 B', 'draft B preserved against stale attempt A arrival');
+
+  // 검증 2: B의 입력 모드 유지
+  assert.equal(await page.locator('#reply-mode').isVisible(), true, 'reply-mode preserved against stale attempt A arrival');
+
+  // 검증 3: B의 잠금(inFlight) 유지 확인 -> 추가 전송 및 선택지 클릭 차단
+  await page.locator('#send').click();
+  assert.equal(await page.locator('#note').textContent(), 'reply already in flight…', 'lock for attempt B still active');
+  await page.locator('#ask-controls button:text("1. 옵션 1")').click();
+  assert.equal(await page.locator('#note').textContent(), 'reply already in flight…', 'choice click blocked by in-flight lock B');
+
+  // Step 5: B의 실제 성공 응답 도착 -> 정상 처리 및 잠금 해제
+  await page.evaluate((att) => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-resend-test',
+    attemptId: att.attemptId,
+    ok: true
+  }, '*'), attemptB);
+
+  console.log('PASS: A failure -> B resend -> A stale re-arrival preserves B lock, draft, and input mode');
 } finally { await browser.close(); }

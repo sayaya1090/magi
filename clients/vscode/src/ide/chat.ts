@@ -1024,14 +1024,14 @@ window.addEventListener('message', (e) => {
     say.setSelectionRange(lead.length, lead.length);
   }
   else if (m.kind === 'replyResult') {
+    if (typeof m.attemptId !== 'number') return;
     const inFlight = inFlightReplies[m.callId];
+    if (!inFlight || inFlight.attemptId !== m.attemptId) return;
+    delete inFlightReplies[m.callId];
+
     const currentVer = draftVersions[m.callId] || 0;
-    const isOurAttempt = inFlight && (m.attemptId === undefined || m.attemptId === inFlight.attemptId);
-    if (isOurAttempt) {
-      delete inFlightReplies[m.callId];
-    }
     if (m.ok) {
-      if (!inFlight || inFlight.version === currentVer) {
+      if (inFlight.version === currentVer) {
         delete questionDrafts[m.callId];
         delete failedDrafts[m.callId];
       }
@@ -1039,7 +1039,7 @@ window.addEventListener('message', (e) => {
       if (!failedDrafts[m.callId]) failedDrafts[m.callId] = [];
       failedDrafts[m.callId].push(m.text || '');
 
-      const modifiedSinceAttempt = inFlight && (currentVer > inFlight.version);
+      const modifiedSinceAttempt = currentVer > inFlight.version;
       if (!modifiedSinceAttempt) {
         questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
         if (currentAsk && currentAsk.callId === m.callId) {
