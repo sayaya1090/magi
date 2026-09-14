@@ -292,6 +292,9 @@ func fold(events []event.Event) ([]Row, foldStats) {
 			// streams reasoning and text as two drafts and only one is being written here.
 			if k := str(p, "kind"); k == "text" || k == "reasoning" {
 				dropDraft(str(d, "messageId") + ":" + k)
+				// Replacement can keep the row count unchanged. Stamp from the append
+				// position AFTER removing the draft, not the old slice length.
+				before = len(out)
 			}
 			if role == "assistant" || role == "tool" {
 				answerPending()

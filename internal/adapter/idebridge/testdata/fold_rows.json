@@ -14,14 +14,16 @@
     "text": "  let me look  ",
     "folded": true,
     "summary": "let me look",
-    "id": "5"
+    "id": "5",
+    "at": "2026-09-14T10:00:04Z"
   },
   {
     "seq": 6,
     "who": "agent",
     "text": "  Looking now.  ",
     "summary": "Looking now.",
-    "id": "6"
+    "id": "6",
+    "at": "2026-09-14T10:00:05Z"
   },
   {
     "at": "2026-09-14T10:00:06Z",

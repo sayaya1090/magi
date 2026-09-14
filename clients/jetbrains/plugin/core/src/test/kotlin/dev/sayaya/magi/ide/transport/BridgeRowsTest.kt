@@ -118,4 +118,28 @@ class BridgeRowsTest {
         assertTrue(said.log.single().startsWith("failed("), "JSON 아닌 줄을 넘겼다: ${said.log}")
         assertTrue("something went wrong" in said.log.single(), "무엇이 왔는지 안 말한다: ${said.log}")
     }
+    @Test
+    fun `구독 뒤 진단 없는 EOF 는 사용자 종료가 아니다`() {
+        val (said, _) = follow("""{"id":1,"ok":true,"sub":1,"rows":[],"events":0}""")
+        assertEquals(listOf("reset(0, 0)", "ended(브리지가 종료 통지 없이 연결을 닫았습니다)"), said.log)
+    }
+
+    @Test
+    fun `사용자 종료는 읽기를 깨워도 사유가 없고 한 번만 닫는다`() {
+        val said = Said()
+        var stops = 0
+        lateinit var c: BridgeRows
+        val reader = object : BufferedReader(StringReader("")) {
+            override fun readLine(): String? {
+                c.close()
+                return null
+            }
+        }
+        c = BridgeRows(reader, BufferedWriter(StringWriter()), { stops++ }, { "not an error" })
+        c.follow("s_1", said)
+        c.close()
+        assertEquals(listOf("ended(-)"), said.log)
+        assertEquals(1, stops)
+    }
+
 }

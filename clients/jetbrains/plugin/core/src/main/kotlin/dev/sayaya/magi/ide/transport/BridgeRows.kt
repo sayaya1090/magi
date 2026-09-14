@@ -6,8 +6,10 @@ import dev.sayaya.magi.ide.model.BridgeRow
 import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.BufferedWriter
+import java.io.IOException
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * **`magi ide-bridge` 에게 한 대화를 물어 계속 받는 것** — 공용 접기를 이 창으로 들이는 전송로.
@@ -55,6 +57,8 @@ class BridgeRows internal constructor(
         fun failed(why: String)
     }
 
+    private val closed = AtomicBoolean(false)
+
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
     /**
@@ -79,12 +83,20 @@ class BridgeRows internal constructor(
 
         var started = false
         while (true) {
-            val line = incoming.readLine()
+            val line = try {
+                incoming.readLine()
+            } catch (e: IOException) {
+                if (closed.get()) sink.ended("")
+                else if (started) sink.ended("브리지 읽기가 실패했습니다: ${e.message}")
+                else sink.failed("브리지 읽기가 실패했습니다: ${e.message}")
+                return
+            }
             if (line == null) {
                 // 파이프가 끝났다. 우리가 끝낸 것이면 할 말이 없고, 아니면 **왜인지** 말한다 —
                 // 「그냥 조용해졌다」는 화면이 고칠 수 없는 상태다.
-                val why = diagnose()
+                val why = if (closed.get()) "" else diagnose().ifBlank { "브리지가 종료 통지 없이 연결을 닫았습니다" }
                 when {
+                    closed.get() -> sink.ended("")
                     !started && why.isNotBlank() -> sink.failed(why)
                     !started -> sink.failed("브리지가 답 없이 끝났습니다")
                     else -> sink.ended(why)
@@ -111,7 +123,10 @@ class BridgeRows internal constructor(
         }
     }
 
-    override fun close() = stop()
+    override fun close() {
+        // Mark our intent before closing the pipe wakes the reader.
+        if (closed.compareAndSet(false, true)) stop()
+    }
 
     companion object {
         /**
