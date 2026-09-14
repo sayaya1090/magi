@@ -324,7 +324,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string }): Promise<void> {
+  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number }): Promise<void> {
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
@@ -388,12 +388,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // A QUESTION, not a permission. Its own door, because what it takes is a sentence and not
         // a verdict — sending "allow" to a question would answer something nobody asked.
         const said = m.text ?? '';
+        const attemptId = m.attemptId;
         const a = await this.companion.ask('answer', { callId: m.callId, answer: said });
         if (a?.ok) {
-          this.post({ kind: 'replyResult', callId: m.callId, ok: true });
+          this.post({ kind: 'replyResult', callId: m.callId, attemptId, ok: true });
         } else {
           const err = a?.error ?? 'no companion is listening on this workspace.';
-          this.post({ kind: 'replyResult', callId: m.callId, ok: false, error: err, text: said });
+          this.post({ kind: 'replyResult', callId: m.callId, attemptId, ok: false, error: err, text: said });
           this.post({ kind: 'note', text: `not sent — ${err}` });
         }
         break;
@@ -749,7 +750,16 @@ function drawAsk(a) {
     b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
     b.title = opt;
     b.addEventListener('click', () => {
+      if (inFlightReplies[a.callId]) {
+        noteEl.textContent = 'reply already in flight…';
+        return;
+      }
+      const attemptId = ++replyAttemptSeq;
+      const ver = (draftVersions[a.callId] || 0) + 1;
+      draftVersions[a.callId] = ver;
+      inFlightReplies[a.callId] = { attemptId: attemptId, text: opt, version: ver };
       questionDrafts[a.callId] = opt;
+      clearAutoCompletion();
       if (pendingQuestion === a.callId) {
         pendingQuestion = null;
         if (replyModeEl) replyModeEl.hidden = true;
@@ -758,7 +768,9 @@ function drawAsk(a) {
         say.placeholder = '';
         document.getElementById('send').textContent = 'Send';
       }
-      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt });
+      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt, attemptId: attemptId });
+      noteEl.textContent = 'sending…';
+      setTimeout(() => { if (noteEl.textContent === 'sending…') noteEl.textContent = ''; }, 4000);
     });
     acts.append(b);
   }
@@ -826,6 +838,10 @@ function drawInfo() {
 let pendingQuestion = null;
 let generalDraft = '';
 const questionDrafts = {};
+const inFlightReplies = {};
+const draftVersions = {};
+const failedDrafts = {};
+let replyAttemptSeq = 0;
 let mentions = [];
 let suggestReqId = 0;
 function clearAutoCompletion() {
@@ -998,19 +1014,38 @@ window.addEventListener('message', (e) => {
        it, and on an empty box that is the end of everything. */
     const lead = m.text || '';
     say.value = lead + say.value;
-    if (pendingQuestion) questionDrafts[pendingQuestion] = say.value;
-    else generalDraft = say.value;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = say.value;
+    } else {
+      generalDraft = say.value;
+    }
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
   else if (m.kind === 'replyResult') {
+    const inFlight = inFlightReplies[m.callId];
+    const currentVer = draftVersions[m.callId] || 0;
+    const isOurAttempt = inFlight && (m.attemptId === undefined || m.attemptId === inFlight.attemptId);
+    if (isOurAttempt) {
+      delete inFlightReplies[m.callId];
+    }
     if (m.ok) {
-      delete questionDrafts[m.callId];
+      if (!inFlight || inFlight.version === currentVer) {
+        delete questionDrafts[m.callId];
+        delete failedDrafts[m.callId];
+      }
     } else {
-      questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
-      if (currentAsk && currentAsk.callId === m.callId) {
-        enterAnswerMode(m.callId, currentAsk.what);
-        say.value = questionDrafts[m.callId];
+      if (!failedDrafts[m.callId]) failedDrafts[m.callId] = [];
+      failedDrafts[m.callId].push(m.text || '');
+
+      const modifiedSinceAttempt = inFlight && (currentVer > inFlight.version);
+      if (!modifiedSinceAttempt) {
+        questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
+        if (currentAsk && currentAsk.callId === m.callId) {
+          enterAnswerMode(m.callId, currentAsk.what);
+          say.value = questionDrafts[m.callId];
+        }
       }
     }
   }
@@ -1039,8 +1074,16 @@ function send() {
      turn — otherwise their sentence goes somewhere nobody was waiting for it. */
   if (pendingQuestion) {
     const qId = pendingQuestion;
+    if (inFlightReplies[qId]) {
+      noteEl.textContent = 'reply already in flight…';
+      return;
+    }
+    const attemptId = ++replyAttemptSeq;
+    const ver = draftVersions[qId] || 0;
+    inFlightReplies[qId] = { attemptId: attemptId, text: t, version: ver };
     questionDrafts[qId] = t;
-    vs.postMessage({ kind: 'reply', callId: qId, text: t });
+    clearAutoCompletion();
+    vs.postMessage({ kind: 'reply', callId: qId, text: t, attemptId: attemptId });
     pendingQuestion = null;
     if (replyModeEl) replyModeEl.hidden = true;
     if (replyTargetEl) replyTargetEl.textContent = '';
@@ -1048,6 +1091,7 @@ function send() {
     say.placeholder = '';
     document.getElementById('send').textContent = 'Send';
   } else {
+    clearAutoCompletion();
     vs.postMessage({ kind: 'say', text: t });
     say.value = '';
     generalDraft = '';
@@ -1067,8 +1111,12 @@ say.addEventListener('keydown', (e) => {
   if (e.key === 'Tab' && suggestion) {
     e.preventDefault();
     say.value += suggestion;
-    if (pendingQuestion) questionDrafts[pendingQuestion] = say.value;
-    else generalDraft = say.value;
+    if (pendingQuestion) {
+      draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+      questionDrafts[pendingQuestion] = say.value;
+    } else {
+      generalDraft = say.value;
+    }
     suggestion = '';
     hint.textContent = '';
   }
@@ -1080,8 +1128,12 @@ say.addEventListener('input', () => {
   const v = say.value;
   const currentTarget = pendingQuestion || 'general';
   const reqId = ++suggestReqId;
-  if (pendingQuestion) questionDrafts[pendingQuestion] = v;
-  else generalDraft = v;
+  if (pendingQuestion) {
+    draftVersions[pendingQuestion] = (draftVersions[pendingQuestion] || 0) + 1;
+    questionDrafts[pendingQuestion] = v;
+  } else {
+    generalDraft = v;
+  }
   /* An @name at the start of a word asks the companion which files match. Two characters at
      least, because one matches everything and the list would be the whole workspace.
      (No backticks in here: this script lives in a template literal and one would close it.) */

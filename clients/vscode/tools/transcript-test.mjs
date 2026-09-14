@@ -380,4 +380,127 @@ try {
   await page.keyboard.press('Tab');
   assert.equal(await page.locator('#say').inputValue(), 'myFunc', 'tab did not append answer suggestion into general draft');
   console.log('PASS: late autocompletion after mode switch is invalidated and ignored');
+
+  // Condition 15: Autocompletion cleared on send() and choice click
+  // 15A: Send from answer mode clears autocompletion so Tab in restored general mode doesn't accept answer suggestion
+  await page.locator('#say').fill('general note');
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'q-ac1',
+      what: '자동완성 테스트 질문',
+      options: ['선택 1']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("직접 입력")');
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('answering');
+  await page.waitForTimeout(500);
+  const qAc1Suggest = await page.evaluate(() => window.__posted.filter(m => m.kind === 'suggest' && m.target === 'q-ac1').slice(-1)[0]);
+  assert.ok(qAc1Suggest);
+  await page.evaluate((req) => window.postMessage({
+    kind: 'suggestion',
+    text: 'wer for q1',
+    reqId: req.reqId,
+    target: req.target
+  }, '*'), qAc1Suggest);
+  assert.equal(await page.locator('#hint').textContent(), 'Tab: wer for q1');
+
+  // Click Send to submit answer
+  await page.locator('#send').click();
+  assert.equal(await page.locator('#hint').textContent(), '');
+  assert.equal(await page.locator('#say').inputValue(), 'general note');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#say').inputValue(), 'general note', 'Tab did not insert leftover answer suggestion into general draft');
+
+  // Clear in-flight reply for q-ac1
+  const postedQAc1 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-ac1').slice(-1)[0]);
+  await page.evaluate((att) => window.postMessage({ kind: 'replyResult', callId: 'q-ac1', attemptId: att.attemptId, ok: true }, '*'), postedQAc1);
+
+  // 15B: Choice click also clears autocompletion
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('opt-draft');
+  await page.waitForTimeout(500);
+  const qAc2Suggest = await page.evaluate(() => window.__posted.filter(m => m.kind === 'suggest' && m.target === 'q-ac1').slice(-1)[0]);
+  await page.evaluate((req) => window.postMessage({
+    kind: 'suggestion',
+    text: '-completion',
+    reqId: req.reqId,
+    target: req.target
+  }, '*'), qAc2Suggest);
+  assert.equal(await page.locator('#hint').textContent(), 'Tab: -completion');
+  // Click choice button
+  await page.locator('#ask-controls button:text("1. 선택 1")').click();
+  assert.equal(await page.locator('#hint').textContent(), '');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#say').inputValue(), 'general note', 'Tab after choice click did not insert leftover suggestion');
+  console.log('PASS: autocompletion invalidated on send() and choice click');
+
+  // Condition 16 & 17: Duplicate reply prevention while in-flight and stale failure isolation with revision versioning
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'q-stale',
+      what: '버전 격리 테스트 질문',
+      options: ['옵션 Alpha', '옵션 Beta']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("직접 입력")');
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('답변 A');
+
+  // Send 답변 A -> attempt 1
+  await page.locator('#send').click();
+  const replyAttempt1 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-stale').slice(-1)[0]);
+  assert.ok(replyAttempt1);
+  assert.equal(replyAttempt1.text, '답변 A');
+  assert.ok(replyAttempt1.attemptId > 0);
+
+  // Condition 17: Duplicate reply blocked while attempt 1 is in-flight
+  // Try clicking choice button while in-flight
+  await page.locator('#ask-controls button:text("1. 옵션 Alpha")').click();
+  assert.equal(await page.locator('#note').textContent(), 'reply already in flight…');
+  // Try re-entering and clicking send while in-flight
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#send').click();
+  assert.equal(await page.locator('#note').textContent(), 'reply already in flight…');
+  console.log('PASS: duplicate reply blocked while in-flight');
+
+  // Condition 16: User edits to '수정된 답변 B' in answer mode, then late failure for attempt 1 arrives
+  await page.locator('#say').fill('수정된 답변 B');
+  // Now attempt 1 fails late!
+  await page.evaluate((att) => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-stale',
+    attemptId: att.attemptId,
+    ok: false,
+    error: 'network timeout',
+    text: '답변 A'
+  }, '*'), replyAttempt1);
+
+  // Assert: '수정된 답변 B' is NOT overwritten by '답변 A'!
+  assert.equal(await page.locator('#say').inputValue(), '수정된 답변 B', 'fresh revision B was NOT overwritten by stale failure of A');
+
+  // In-flight lock is now released, user can send '수정된 답변 B' as attempt 2
+  await page.locator('#send').click();
+  const replyAttempt2 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-stale').slice(-1)[0]);
+  assert.equal(replyAttempt2.text, '수정된 답변 B');
+  assert.ok(replyAttempt2.attemptId > replyAttempt1.attemptId, 'attemptId incremented for new attempt');
+
+  // Simulate success for attempt 2
+  await page.evaluate((att) => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-stale',
+    attemptId: att.attemptId,
+    ok: true
+  }, '*'), replyAttempt2);
+
+  // Question is answered and dismissed
+  await page.evaluate(() => window.postMessage({ kind: 'rows', rows: [{ who: 'agent', label: 'magi', text: 'all done' }], ask: null }, '*'));
+  await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+  console.log('PASS: stale failure does not overwrite fresh revision, and new attempt succeeds');
 } finally { await browser.close(); }
