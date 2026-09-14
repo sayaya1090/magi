@@ -403,7 +403,7 @@ func repairToolOrdering(msgs []session.Message) []session.Message {
 			for _, p := range orphans {
 				out = append(out, session.Message{Role: session.RoleUser, Parts: []session.Part{{
 					Kind: session.PartText,
-					Text: "[tool result] " + toolResultContent(p.ToolResult.Content),
+					Text: "[tool result] " + toolResultForModel(p.ToolResult),
 				}}})
 			}
 		default:
@@ -533,7 +533,7 @@ func convertMessages(msgs []session.Message, withImages bool) []wireMessage {
 					out = append(out, wireMessage{
 						Role:       "tool",
 						ToolCallID: p.ToolResult.CallID,
-						Content:    toolResultContent(p.ToolResult.Content),
+						Content:    toolResultForModel(p.ToolResult),
 					})
 					// And its pictures after it, as their own user message: the API gives a tool
 					// result nowhere to put one (role "tool" takes a string). The result's text
@@ -598,4 +598,17 @@ func toolResultContent(raw json.RawMessage) string {
 		return s
 	}
 	return string(raw)
+}
+
+// The chat-completions tool message has no outcome field. Preserve our outcome
+// explicitly in its content, including successful writes with follow-up diagnostics.
+func toolResultForModel(r *session.ToolResult) string {
+	body := toolResultContent(r.Content)
+	if r.Advisory {
+		return "[tool outcome: operation succeeded; follow-up attention required]\n" + body
+	}
+	if r.IsError {
+		return "[tool outcome: error; partial side effects may have occurred]\n" + body
+	}
+	return body
 }
