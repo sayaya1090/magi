@@ -783,6 +783,7 @@ try {
     ask: {
       kind: 'permission',
       callId: 'perm-edit-native',
+      diffKind: 'sides',
       what: 'edit',
       args: JSON.stringify({ path: 'src/model/user.ts', old: 'const a = 1;\n', new: 'const a = 2;\n' }),
       reason: 'update user version property'
@@ -818,6 +819,7 @@ try {
     ask: {
       kind: 'permission',
       callId: 'perm-patch-native',
+      diffKind: 'patch',
       what: 'write',
       args: JSON.stringify({ path: 'README.md' }),
       diff: '--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-# Old\n+# New\n'
@@ -835,13 +837,28 @@ try {
     ask: {
       kind: 'permission',
       callId: 'perm-bash-nodiff',
+      diffKind: 'none',
       what: 'bash',
       args: JSON.stringify({ command: 'rm -rf tmp' })
     }
   }, '*'));
   await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('bash'));
   const nodiffBtns = await page.locator('#ask-controls .acts button').allTextContents();
-  assert.deepEqual(nodiffBtns, ['allow', 'deny', 'always'], 'no 변경 보기 button when neither sides nor diff exists');
+  // Edit permission with diffKind: 'none' (e.g. replaceAll: 'TRUE') never shows phantom 변경 보기 button
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-edit-rejected',
+      diffKind: 'none',
+      what: 'edit',
+      args: JSON.stringify({ path: 'src/config.ts', old: 'a', new: 'b', replaceAll: 'TRUE' })
+    }
+  }, '*'));
+  await page.waitForFunction(() => document.querySelector('#ask-controls .summary-text')?.textContent.includes('config.ts'));
+  const rejectedBtns = await page.locator('#ask-controls .acts button').allTextContents();
+  assert.deepEqual(rejectedBtns, ['allow', 'deny', 'always'], 'no phantom 변경 보기 button when host flags diffKind as none');
 
   console.log('PASS: approval panel target filename, description, 변경 보기 button, and pure inspection click');
 } finally { await browser.close(); }

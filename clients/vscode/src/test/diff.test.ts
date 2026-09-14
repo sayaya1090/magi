@@ -5,6 +5,8 @@ import {
   approvalDiffUri,
   approvalDiffTitle,
   ApprovalSnapshots,
+  determineApprovalDiffKind,
+  AskStore,
 } from '../core/diff';
 
 test('extractEditSides identifies valid unanchored edit calls', () => {
@@ -49,9 +51,14 @@ test('extractEditSides rejects non-edit tools and non-substitution edits', () =>
   assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: '1' }), null);
   assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'unknown-mode' }), null);
 
-  // replaceAll explicitly falsy is accepted
+  // replaceAll explicitly falsy is accepted (case-insensitive and common falsy representations)
   assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'false' })?.old, 'a');
+  assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'FALSE' })?.old, 'a');
+  assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'False' })?.old, 'a');
   assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: '0' })?.old, 'a');
+  assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'no' })?.old, 'a');
+  assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: 'off' })?.old, 'a');
+  assert.equal(extractEditSides('edit', { old: 'a', new: 'b', replaceAll: '' })?.old, 'a');
 
   // Missing or non-string old/new
   assert.equal(extractEditSides('edit', { old: 123, new: 'b' }), null);
@@ -63,6 +70,67 @@ test('extractEditSides handles missing path gracefully', () => {
   const sides = extractEditSides('edit', { old: 'foo', new: 'bar' });
   assert.ok(sides);
   assert.equal(sides.path, '변경');
+});
+
+test('determineApprovalDiffKind identifies diff eligibility without phantom buttons', () => {
+  // Valid edit sides
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'edit',
+      args: { path: 'a.ts', old: 'x', new: 'y' },
+    }),
+    'sides'
+  );
+
+  // Edit with replaceAll: 'FALSE' is valid sides
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'edit',
+      args: { path: 'a.ts', old: 'x', new: 'y', replaceAll: 'FALSE' },
+    }),
+    'sides'
+  );
+
+  // Edit with replaceAll: 'TRUE' and no diff is none (never show button if host cannot diff)
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'edit',
+      args: { path: 'a.ts', old: 'x', new: 'y', replaceAll: 'TRUE' },
+    }),
+    'none'
+  );
+
+  // Anchored edit with no diff is none
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'edit',
+      args: { path: 'a.ts', old: 'x', new: 'y', at: 10 },
+    }),
+    'none'
+  );
+
+  // Write tool with unified diff is patch
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'write',
+      args: { path: 'README.md' },
+      diff: '--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-a\n+b\n',
+    }),
+    'patch'
+  );
+
+  // Bash tool without diff is none
+  assert.equal(
+    determineApprovalDiffKind({
+      what: 'bash',
+      args: { command: 'ls -la' },
+    }),
+    'none'
+  );
+
+  // Empty or null ask is none
+  assert.equal(determineApprovalDiffKind(null), 'none');
+  assert.equal(determineApprovalDiffKind(undefined), 'none');
 });
 
 test('approvalDiffUri incorporates companion, session, callId, side, and filename safely', () => {
@@ -90,26 +158,84 @@ test('approvalDiffTitle accurately labels chunk differences vs raw patch', () =>
   );
 });
 
-test('ApprovalSnapshots retains immutable snapshots and respects capacity', () => {
-  const cache = new ApprovalSnapshots(3);
-  cache.put('k1', 'content1');
-  cache.put('k2', 'content2');
-  cache.put('k3', 'content3');
+test('ApprovalSnapshots guarantees immutability across repeated writes with same key', () => {
+  const cache = new ApprovalSnapshots(5);
+  const first = cache.put('uri://doc1', 'first-content');
+  assert.equal(first, true, 'first write accepted');
+  assert.equal(cache.get('uri://doc1'), 'first-content');
 
-  assert.equal(cache.get('k1'), 'content1');
-  assert.equal(cache.get('k2'), 'content2');
+  // Second write with same key must not overwrite (truly immutable)
+  const second = cache.put('uri://doc1', 'modified-content');
+  assert.equal(second, false, 'overwrite rejected');
+  assert.equal(cache.get('uri://doc1'), 'first-content', 'original snapshot content retained');
+});
 
-  // Overwriting with same key updates without dropping
-  cache.put('k2', 'content2-updated');
-  assert.equal(cache.get('k2'), 'content2-updated');
+test('ApprovalSnapshots protects open pinned tabs when cache capacity is exceeded', () => {
+  const pinned = new Set<string>(['uri://tab1']);
+  const cache = new ApprovalSnapshots(2, (key) => pinned.has(key));
 
-  // Exceeding capacity evicts oldest key
-  cache.put('k4', 'content4');
-  assert.equal(cache.has('k1'), false, 'oldest entry evicted');
-  assert.equal(cache.get('k4'), 'content4');
+  cache.put('uri://tab1', 'content-tab1');
+  cache.put('uri://tab2', 'content-tab2');
 
+  // Adding 3rd entry exceeds capacity (2).
+  // tab1 is pinned (currently open in editor tab). tab2 is unpinned.
+  cache.put('uri://tab3', 'content-tab3');
+
+  assert.equal(cache.get('uri://tab1'), 'content-tab1', 'open tab document must be protected from eviction');
+  assert.equal(cache.has('uri://tab2'), false, 'unpinned document was evicted');
+  assert.equal(cache.get('uri://tab3'), 'content-tab3');
+
+  // If both remaining entries are pinned, neither is evicted
+  pinned.add('uri://tab3');
+  cache.put('uri://tab4', 'content-tab4');
+
+  assert.equal(cache.has('uri://tab1'), true, 'pinned tab1 retained even when capacity exceeded');
+  assert.equal(cache.has('uri://tab3'), true, 'pinned tab3 retained even when capacity exceeded');
+  assert.equal(cache.has('uri://tab4'), true, 'new entry added');
+
+  // Once tab1 is closed / unpinned, it can now be evicted
+  pinned.delete('uri://tab1');
+  cache.put('uri://tab5', 'content-tab5');
+  assert.equal(cache.has('uri://tab1'), false, 'unpinned document evicted in subsequent put');
+
+  // Delete and clear
+  cache.delete('uri://tab3');
+  assert.equal(cache.has('uri://tab3'), false);
   cache.clear();
-  assert.equal(cache.has('k2'), false);
-  assert.equal(cache.has('k3'), false);
-  assert.equal(cache.has('k4'), false);
+  assert.equal(cache.size, 0);
+});
+
+test('AskStore associates asks with companion and session at arrival time', () => {
+  const store = new AskStore(3);
+  const ask1 = {
+    kind: 'permission' as const,
+    callId: 'call-1',
+    what: 'edit',
+    args: '{"path":"a.ts","old":"x","new":"y"}',
+  };
+
+  store.record(ask1, '/workspace/project-a', 'session-100');
+  const stored1 = store.get('call-1');
+  assert.ok(stored1);
+  assert.equal(stored1.companionId, '/workspace/project-a');
+  assert.equal(stored1.sessionId, 'session-100');
+
+  // Even after session switch, stored ask retains session-100
+  assert.equal(store.get('call-1')?.sessionId, 'session-100');
+
+  // Bounded capacity: FIFO eviction
+  store.record({ kind: 'permission', callId: 'call-2', what: 'write' }, '/workspace/project-a', 'session-100');
+  store.record({ kind: 'permission', callId: 'call-3', what: 'bash' }, '/workspace/project-a', 'session-100');
+  assert.equal(store.size, 3);
+
+  // 4th ask evicts oldest (call-1)
+  store.record({ kind: 'permission', callId: 'call-4', what: 'edit' }, '/workspace/project-a', 'session-100');
+  assert.equal(store.has('call-1'), false, 'oldest ask evicted when exceeding capacity');
+  assert.equal(store.has('call-4'), true);
+
+  store.delete('call-2');
+  assert.equal(store.has('call-2'), false);
+
+  store.clear();
+  assert.equal(store.size, 0);
 });

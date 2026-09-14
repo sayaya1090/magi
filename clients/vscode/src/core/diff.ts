@@ -13,14 +13,18 @@
  * Neither mode mutates disk files or auto-approves requests.
  */
 
+import type { Ask } from './touched';
+
 export interface ApprovalDiffSides {
   path: string;
   old: string;
   new: string;
 }
 
-const TRUTHY = new Set(['true', 'True', 'yes', 'on', '1']);
-const FALSY = new Set(['false', 'False', 'no', 'off', '0', '', undefined, null]);
+export type ApprovalDiffKind = 'sides' | 'patch' | 'none';
+
+const TRUTHY = new Set(['true', 'yes', 'on', '1']);
+const FALSY = new Set(['false', 'no', 'off', '0', '', undefined, null]);
 
 /**
  * Extracts before/after substitution chunks from tool arguments.
@@ -43,13 +47,29 @@ export function extractEditSides(tool: string | undefined, args: unknown): Appro
 
   if (o.at !== undefined && String(o.at).trim() !== '') return null;
   if (o.replaceAll !== undefined) {
-    const rep = String(o.replaceAll);
+    const rep = String(o.replaceAll).toLowerCase().trim();
     if (TRUTHY.has(rep) || !FALSY.has(rep)) return null;
   }
 
   if (typeof o.old !== 'string' || typeof o.new !== 'string') return null;
   const path = typeof o.path === 'string' && o.path.trim() ? o.path.trim() : '변경';
   return { path, old: o.old, new: o.new };
+}
+
+/**
+ * Single source of truth for whether an approval request is eligible for native diff or patch view.
+ */
+export function determineApprovalDiffKind(
+  ask: { what?: string; args?: unknown; diff?: string } | null | undefined
+): ApprovalDiffKind {
+  if (!ask) return 'none';
+  if (extractEditSides(ask.what, ask.args) !== null) {
+    return 'sides';
+  }
+  if (typeof ask.diff === 'string' && ask.diff.trim().length > 0) {
+    return 'patch';
+  }
+  return 'none';
 }
 
 /**
@@ -88,24 +108,42 @@ export function approvalDiffTitle(filename: string, isSides: boolean): string {
 /**
  * Immutable snapshot cache for virtual diff documents.
  *
- * Preserves the state at the moment of approval request, without re-reading disk or
- * mutating across subsequent turns. Bounded by capacity.
+ * Preserves the state at the moment of approval request without re-reading disk or
+ * mutating across subsequent turns.
+ *
+ *  - Immutability: Once stored for a key, subsequent calls to put() with the same key
+ *    preserve the initial content rather than overwriting.
+ *  - Open Tab Protection: When capacity is exceeded, entries that are currently pinned
+ *    (e.g., active editor tabs) are preserved rather than evicted.
+ *  - Single Canonical Key: Only the canonical URI string is stored.
  */
 export class ApprovalSnapshots {
   private readonly store = new Map<string, string>();
   private readonly order: string[] = [];
 
-  constructor(private readonly maxEntries: number = 100) {}
+  constructor(
+    private readonly maxEntries: number = 100,
+    private readonly isPinned?: (key: string) => boolean
+  ) {}
 
-  put(key: string, content: string): void {
-    if (!this.store.has(key)) {
-      this.order.push(key);
-      if (this.order.length > this.maxEntries) {
-        const oldest = this.order.shift();
-        if (oldest) this.store.delete(oldest);
-      }
+  put(key: string, content: string): boolean {
+    if (this.store.has(key)) {
+      // Truly immutable: keep initial content, reject/ignore overwrite
+      return false;
     }
+    this.order.push(key);
     this.store.set(key, content);
+
+    while (this.order.length > this.maxEntries) {
+      const evictIndex = this.order.slice(0, -1).findIndex(k => !this.isPinned?.(k));
+      if (evictIndex < 0) {
+        // All older entries are currently pinned (open in tabs); protect them and allow limit to be exceeded
+        break;
+      }
+      const [evicted] = this.order.splice(evictIndex, 1);
+      this.store.delete(evicted);
+    }
+    return true;
   }
 
   get(key: string): string | undefined {
@@ -114,6 +152,79 @@ export class ApprovalSnapshots {
 
   has(key: string): boolean {
     return this.store.has(key);
+  }
+
+  delete(key: string): boolean {
+    const idx = this.order.indexOf(key);
+    if (idx >= 0) this.order.splice(idx, 1);
+    return this.store.delete(key);
+  }
+
+  get size(): number {
+    return this.store.size;
+  }
+
+  clear(): void {
+    this.store.clear();
+    this.order.length = 0;
+  }
+}
+
+/**
+ * Preserved approval request associated with the workspace companion and session
+ * at the moment the request was received.
+ */
+export interface StoredAsk {
+  ask: Ask;
+  companionId: string;
+  sessionId: string;
+}
+
+/**
+ * Bounded store of recent approval asks keyed by callId.
+ *
+ * Pins companion and session identity at ask arrival time so that late diff clicks
+ * (even after companion or session switch) open the diff under the original session.
+ */
+export class AskStore {
+  private readonly store = new Map<string, StoredAsk>();
+  private readonly order: string[] = [];
+
+  constructor(private readonly maxEntries: number = 50) {}
+
+  record(ask: Ask, companionId: string, sessionId: string): void {
+    const key = ask.callId;
+    if (!key) return;
+    if (!this.store.has(key)) {
+      this.order.push(key);
+      if (this.order.length > this.maxEntries) {
+        const oldest = this.order.shift();
+        if (oldest) this.store.delete(oldest);
+      }
+    }
+    this.store.set(key, {
+      ask,
+      companionId: companionId || 'default',
+      sessionId: sessionId || 'default',
+    });
+  }
+
+  get(callId: string): StoredAsk | undefined {
+    return this.store.get(callId);
+  }
+
+  has(callId: string): boolean {
+    return this.store.has(callId);
+  }
+
+  delete(callId: string): boolean {
+    const idx = this.order.indexOf(callId);
+    if (idx >= 0) this.order.splice(idx, 1);
+    return this.store.delete(callId);
+  }
+
+  get size(): number {
+    return this.store.size;
   }
 
   clear(): void {

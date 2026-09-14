@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { Daemon, retryAfter } from '../core/daemon';
 import { Event } from '../core/protocol';
 import { Row, rows, seat, todos, turnOpen, verdictWord } from '../core/transcript';
-import { touched, pendingAsk, Ask } from '../core/touched';
+import { touched, pendingAsk } from '../core/touched';
 import { panelNote, label as activityLabel } from '../core/activity';
 import { usage } from '../core/panel';
 import { Ref, refText, wireRef, globQuote } from '../core/refs';
@@ -10,6 +10,7 @@ import { noteCompletion } from '../core/complete';
 import { Edits } from './edits';
 import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
+import { determineApprovalDiffKind, AskStore } from '../core/diff';
 
 /**
  * The conversation, in the panel.
@@ -33,7 +34,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private readonly edits = new Edits();
   private readonly diffProvider = new DiffProvider();
-  private readonly asks = new Map<string, Ask>();
+  private readonly asks = new AskStore(50);
 
   constructor(private readonly companion: Companion, private readonly extUri: vscode.Uri) {
     this.subs.push(
@@ -160,8 +161,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   }
 
   private draw(): void {
-    const ask = pendingAsk(this.events);
-    if (ask) this.asks.set(ask.callId, ask);
+    const rawAsk = pendingAsk(this.events);
+    const ask = rawAsk ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk) } : null;
+    if (ask) this.asks.record(ask, this.companion.workdir, this.session);
     this.post({
       kind: 'rows',
       rows: rows(this.events).map((r) => paint(r, this.companion.you)),
@@ -385,9 +387,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'diff': {
         const callId = m.callId;
         if (!callId) break;
-        const ask = this.asks.get(callId) ?? (pendingAsk(this.events)?.callId === callId ? pendingAsk(this.events) : null);
-        if (ask) {
-          await openApprovalDiff(this.diffProvider, this.companion.workdir, this.session, ask);
+        const stored = this.asks.get(callId);
+        if (stored) {
+          await openApprovalDiff(this.diffProvider, stored.companionId, stored.sessionId, stored.ask);
+        } else {
+          const raw = pendingAsk(this.events);
+          if (raw && raw.callId === callId) {
+            const ask = { ...raw, diffKind: determineApprovalDiffKind(raw) };
+            await openApprovalDiff(this.diffProvider, this.companion.workdir, this.session, ask);
+          }
         }
         break;
       }
@@ -469,6 +477,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   dispose(): void {
     this.stream?.close();
     this.edits.dispose();
+    this.asks.clear();
     for (const s of this.subs) s.dispose();
   }
 
@@ -737,21 +746,6 @@ function baseName(p) {
   const winParts = last.split('\\\\');
   return winParts[winParts.length - 1] || p;
 }
-function hasEditSides(a) {
-  if (!a || a.what !== 'edit' || !a.args) return false;
-  try {
-    const o = typeof a.args === 'string' ? JSON.parse(a.args) : a.args;
-    if (!o || typeof o !== 'object') return false;
-    if (o.at !== undefined && String(o.at).trim() !== '') return false;
-    const rep = String(o.replaceAll !== undefined ? o.replaceAll : '').toLowerCase();
-    if (rep === 'true' || rep === 'yes' || rep === 'on' || rep === '1') return false;
-    if (o.replaceAll !== undefined && ['false', 'no', 'off', '0', ''].indexOf(rep) < 0) return false;
-    if (typeof o.old !== 'string' || typeof o.new !== 'string') return false;
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
 function drawAsk(a) {
   if (!a) {
     if (pendingQuestion) exitAnswerMode();
@@ -862,7 +856,7 @@ function drawAsk(a) {
       u.textContent = 'the companion did not say what this would do';
       askBodyEl.append(u);
     }
-    const canDiff = Boolean((a.diff && a.diff.trim()) || hasEditSides(a));
+    const canDiff = a.diffKind === 'sides' || a.diffKind === 'patch';
     if (canDiff) {
       const diffBtn = document.createElement('button');
       diffBtn.className = 'diff-btn';

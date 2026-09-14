@@ -128,8 +128,9 @@ export interface Ask {
    */
   args?: string;
   reason?: string;
-  /** What approving would change, computed once by the core and never recomputed by a viewer. */
   diff?: string;
+  /** Kind of native diff/editor view available: 'sides', 'patch', or 'none'. */
+  diffKind?: 'sides' | 'patch' | 'none';
   /**
    * The GROUNDS a question was asked on — what the person is meant to decide from.
    *
