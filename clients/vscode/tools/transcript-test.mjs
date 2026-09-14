@@ -249,4 +249,135 @@ try {
   assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode closed after choice click');
   assert.equal(await page.locator('#say').inputValue(), '새 작업 초안 작성 중...', 'general draft restored after choice click');
   console.log('PASS: answer mode, draft preservation, escape cancel, and choice buttons');
+
+  // Condition 11: 전송 거절 (Send rejection) - keeps question draft and doesn't pollute general draft
+  await page.locator('#say').fill('원래 일반 프롬프트 초안');
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'q-reject',
+      what: '거절 테스트 질문',
+      options: ['선택 1']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("직접 입력")');
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('거절될 답변 내용');
+  await page.locator('#send').click();
+  // While in flight, say restores general draft
+  assert.equal(await page.locator('#say').inputValue(), '원래 일반 프롬프트 초안');
+  // Daemon sends refusal replyResult
+  await page.evaluate(() => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-reject',
+    ok: false,
+    error: 'companion refused to accept answer',
+    text: '거절될 답변 내용'
+  }, '*'));
+  // Webview re-enters answer mode for q-reject and restores failed draft
+  await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+  assert.equal(await page.locator('#say').inputValue(), '거절될 답변 내용', 'failed reply restored into answer mode');
+  // Esc cancels answer mode and restores general draft without failed reply being prepended
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#say').inputValue(), '원래 일반 프롬프트 초안', 'general draft intact without failed answer prepended');
+  console.log('PASS: send rejection preserves question draft without polluting general draft');
+
+  // Condition 12: 연결 단절 (Connection disconnect)
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('재시도할 답변');
+  await page.locator('#send').click();
+  await page.evaluate(() => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-reject',
+    ok: false,
+    error: 'no companion is listening on this workspace.',
+    text: '재시도할 답변'
+  }, '*'));
+  await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+  assert.equal(await page.locator('#say').inputValue(), '재시도할 답변', 'disconnected reply restored into answer mode');
+  await page.keyboard.press('Escape');
+  console.log('PASS: connection disconnect preserves question draft');
+
+  // Condition 13: 질문 교체 뒤 늦은 실패 응답 (Late failure response after question replacement)
+  // Step A: Send answer for q-reject
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('구 질문 답변');
+  await page.locator('#send').click();
+  // Step B: Question is replaced by q-new before q-reject failure arrives
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+    ask: {
+      kind: 'question',
+      callId: 'q-new',
+      what: '새로운 질문',
+      options: ['신규 1']
+    }
+  }, '*'));
+  await page.waitForSelector('#ask-controls button:text("1. 신규 1")');
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  await page.locator('#say').fill('신규 질문에 타이핑 중인 답변');
+  // Step C: Late failure for q-old arrives!
+  await page.evaluate(() => window.postMessage({
+    kind: 'replyResult',
+    callId: 'q-reject',
+    ok: false,
+    error: 'timeout',
+    text: '구 질문 답변'
+  }, '*'));
+  // Ensure say.value is NOT overwritten by q-reject!
+  assert.equal(await page.locator('#say').inputValue(), '신규 질문에 타이핑 중인 답변', 'late failure response from old question did not overwrite current question draft');
+  // Cancel q-new
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#say').inputValue(), '원래 일반 프롬프트 초안');
+  console.log('PASS: late failure response after question replacement does not interrupt current draft');
+
+  // Condition 14: 모드 전환 뒤 늦은 자동완성 무시 (Late autocompletion after mode switch is ignored)
+  // Step A: User in general mode types, suggest request fired
+  await page.locator('#say').fill('myFunc');
+  // Wait for typing debounce (450ms)
+  await page.waitForTimeout(500);
+  const suggestMsg = await page.evaluate(() => window.__posted.filter(m => m.kind === 'suggest').slice(-1)[0]);
+  assert.ok(suggestMsg, 'suggest message was posted');
+  assert.equal(suggestMsg.target, 'general', 'suggest target was general mode');
+
+  // Step B: User switches to answer mode BEFORE suggestion arrives
+  await page.locator('#ask-controls button:text("직접 입력")').click();
+  assert.equal(await page.locator('#hint').textContent(), '', 'hint cleared on enterAnswerMode');
+  await page.locator('#say').fill('');
+
+  // Step C: Late suggestion for general mode arrives while in answer mode
+  await page.evaluate((req) => window.postMessage({
+    kind: 'suggestion',
+    text: 'tion() { return 42; }',
+    reqId: req.reqId,
+    target: req.target
+  }, '*'), suggestMsg);
+
+  // Assertion: Hint is still empty, Tab does not insert late suggestion
+  assert.equal(await page.locator('#hint').textContent(), '', 'late suggestion ignored after mode switch');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#say').inputValue(), '', 'tab did not insert suggestion from previous mode');
+
+  // Step D: User types in answer mode, exits mode, late suggestion for answer mode arrives in general mode
+  await page.locator('#say').fill('answer');
+  await page.waitForTimeout(500);
+  const answerSuggestMsg = await page.evaluate(() => window.__posted.filter(m => m.kind === 'suggest').slice(-1)[0]);
+  assert.equal(answerSuggestMsg.target, 'q-new');
+  // Exit answer mode
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('#hint').textContent(), '', 'hint cleared on exitAnswerMode');
+  // Late suggestion arrives for answer mode while now in general mode
+  await page.evaluate((req) => window.postMessage({
+    kind: 'suggestion',
+    text: 'wer to question',
+    reqId: req.reqId,
+    target: req.target
+  }, '*'), answerSuggestMsg);
+  assert.equal(await page.locator('#hint').textContent(), '', 'late suggestion for answer mode ignored in general mode');
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('#say').inputValue(), 'myFunc', 'tab did not append answer suggestion into general draft');
+  console.log('PASS: late autocompletion after mode switch is invalidated and ignored');
 } finally { await browser.close(); }

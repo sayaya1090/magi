@@ -324,7 +324,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string }): Promise<void> {
+  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string }): Promise<void> {
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
@@ -389,9 +389,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // a verdict — sending "allow" to a question would answer something nobody asked.
         const said = m.text ?? '';
         const a = await this.companion.ask('answer', { callId: m.callId, answer: said });
-        // Same box, same rule: it emptied itself before the round trip, so a refusal has to put
-        // the words back or the answer they typed is gone with nothing said.
-        if (!a?.ok) this.giveBack(said, [], a?.error ?? 'no companion is listening on this workspace.');
+        if (a?.ok) {
+          this.post({ kind: 'replyResult', callId: m.callId, ok: true });
+        } else {
+          const err = a?.error ?? 'no companion is listening on this workspace.';
+          this.post({ kind: 'replyResult', callId: m.callId, ok: false, error: err, text: said });
+          this.post({ kind: 'note', text: `not sent — ${err}` });
+        }
         break;
       }
       case 'mention': {
@@ -402,7 +406,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           args: { pattern: `**/*${globQuote((m.text ?? '').trim())}*` } });
         let files: string[] = [];
         try { files = JSON.parse(r?.out ?? '[]') as string[]; } catch { files = []; }
-        this.post({ kind: 'mentions', files: files.slice(0, 20) });
+        this.post({ kind: 'mentions', files: files.slice(0, 20), reqId: m.reqId, target: m.target });
         break;
       }
       case 'suggest': {
@@ -412,7 +416,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // web console have carried that switch all along; this client fired the door unconditionally.
         // The default is on, which is what this client did before and what the other two default to.
         if (!vscode.workspace.getConfiguration('magi').get<boolean>('suggest', true)) {
-          this.post({ kind: 'suggestion', text: '' });
+          this.post({ kind: 'suggestion', text: '', reqId: m.reqId, target: m.target });
           break;
         }
         const r = await this.companion.ask('suggest', { text: m.text ?? '' });
@@ -420,7 +424,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // a refusal on either is the answer to "why is there never a hint". Ghost text cannot say
         // it here — a message per keystroke is noise — so `magi.setup` is where it surfaces.
         noteCompletion(r?.ok ? (r.out ?? '') : '', r?.reason, r?.ok ? undefined : (r?.error ?? undefined));
-        this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '' });
+        this.post({ kind: 'suggestion', text: r?.ok ? (r.out ?? '') : '', reqId: m.reqId, target: m.target });
         break;
       }
       default:
@@ -599,6 +603,7 @@ const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
 let suggestion = '';
 let typing = null;
+let currentAsk = null;
 let currentAskCallId = null;
 function askedAt(iso) {
   if (!iso) return '';
@@ -613,6 +618,7 @@ function askedAt(iso) {
 function drawAsk(a) {
   if (!a) {
     if (pendingQuestion) exitAnswerMode();
+    currentAsk = null;
     currentAskCallId = null;
     askBodyEl.hidden = true;
     askBodyEl.textContent = '';
@@ -622,6 +628,7 @@ function drawAsk(a) {
   }
   if (currentAskCallId === a.callId) return;
   if (pendingQuestion && pendingQuestion !== a.callId) exitAnswerMode();
+  currentAsk = a;
   currentAskCallId = a.callId;
 
   askBodyEl.textContent = '';
@@ -741,8 +748,8 @@ function drawAsk(a) {
     b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
     b.title = opt;
     b.addEventListener('click', () => {
+      questionDrafts[a.callId] = opt;
       if (pendingQuestion === a.callId) {
-        delete questionDrafts[a.callId];
         pendingQuestion = null;
         if (replyModeEl) replyModeEl.hidden = true;
         if (replyTargetEl) replyTargetEl.textContent = '';
@@ -819,7 +826,19 @@ let pendingQuestion = null;
 let generalDraft = '';
 const questionDrafts = {};
 let mentions = [];
+let suggestReqId = 0;
+function clearAutoCompletion() {
+  if (typing) {
+    clearTimeout(typing);
+    typing = null;
+  }
+  suggestReqId++;
+  suggestion = '';
+  mentions = [];
+  hint.textContent = '';
+}
 function enterAnswerMode(callId, label) {
+  clearAutoCompletion();
   if (pendingQuestion !== callId) {
     if (!pendingQuestion) {
       generalDraft = say.value;
@@ -838,6 +857,7 @@ function enterAnswerMode(callId, label) {
   say.focus();
 }
 function exitAnswerMode() {
+  clearAutoCompletion();
   if (pendingQuestion) {
     questionDrafts[pendingQuestion] = say.value;
     pendingQuestion = null;
@@ -982,12 +1002,28 @@ window.addEventListener('message', (e) => {
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
+  else if (m.kind === 'replyResult') {
+    if (m.ok) {
+      delete questionDrafts[m.callId];
+    } else {
+      questionDrafts[m.callId] = m.text || questionDrafts[m.callId] || '';
+      if (currentAsk && currentAsk.callId === m.callId) {
+        enterAnswerMode(m.callId, currentAsk.what);
+        say.value = questionDrafts[m.callId];
+      }
+    }
+  }
   else if (m.kind === 'mentions') {
+    const currentTarget = pendingQuestion || 'general';
+    if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
+    if (m.target !== undefined && m.target !== currentTarget) return;
     mentions = m.files || [];
     hint.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
   }
   else if (m.kind === 'suggestion') {
-    /* Ghost text for the composer. Tab takes it — the same key the terminal uses. */
+    const currentTarget = pendingQuestion || 'general';
+    if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
+    if (m.target !== undefined && m.target !== currentTarget) return;
     suggestion = m.text || '';
     hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\\n')[0].slice(0, 60) : '';
   }
@@ -1002,8 +1038,8 @@ function send() {
      turn — otherwise their sentence goes somewhere nobody was waiting for it. */
   if (pendingQuestion) {
     const qId = pendingQuestion;
+    questionDrafts[qId] = t;
     vs.postMessage({ kind: 'reply', callId: qId, text: t });
-    delete questionDrafts[qId];
     pendingQuestion = null;
     if (replyModeEl) replyModeEl.hidden = true;
     if (replyTargetEl) replyTargetEl.textContent = '';
@@ -1038,8 +1074,11 @@ say.addEventListener('keydown', (e) => {
 });
 say.addEventListener('input', () => {
   suggestion = '';
+  hint.textContent = '';
   if (typing) clearTimeout(typing);
   const v = say.value;
+  const currentTarget = pendingQuestion || 'general';
+  const reqId = ++suggestReqId;
   if (pendingQuestion) questionDrafts[pendingQuestion] = v;
   else generalDraft = v;
   /* An @name at the start of a word asks the companion which files match. Two characters at
@@ -1047,8 +1086,8 @@ say.addEventListener('input', () => {
      (No backticks in here: this script lives in a template literal and one would close it.) */
   const at = /(^|\\s)@([^\\s@]{2,})$/.exec(v);
   typing = setTimeout(() => {
-    if (at) vs.postMessage({ kind: 'mention', text: at[2] });
-    else if (v.trim().length > 3) vs.postMessage({ kind: 'suggest', text: v });
+    if (at) vs.postMessage({ kind: 'mention', text: at[2], reqId: reqId, target: currentTarget });
+    else if (v.trim().length > 3) vs.postMessage({ kind: 'suggest', text: v, reqId: reqId, target: currentTarget });
     else hint.textContent = '';
   }, 450);
 });

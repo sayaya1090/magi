@@ -112,7 +112,8 @@ test('a refusal on the composer path is said, not swallowed', () => {
 
   const reply = chat.slice(chat.indexOf("case 'reply'"), chat.indexOf("case 'mention'"));
   assert.ok(reply.length > 100, 'the reply branch was not found — this guard is reading nothing');
-  assert.ok(/giveBack\(/.test(reply), 'a refused answer says nothing — it is the same box, same rule');
+  assert.ok(/replyResult/.test(reply), 'a refused answer returns its replyResult to the webview with its callId');
+  assert.ok(/kind: 'note'/.test(reply), 'a refused answer says so with a note');
 
   // And giveBack really does all three things. Any one of them missing is a silent half-fix.
   const back = chat.slice(chat.indexOf('private giveBack('));
