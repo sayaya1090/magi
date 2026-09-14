@@ -1,4 +1,5 @@
 import { Event } from './protocol';
+import { extractFileNav, FileNav } from './nav';
 
 /**
  * Events into rows, in ONE place.
@@ -40,6 +41,8 @@ export interface Row {
    * one-line half — the same fact, in the shape this screen has room for.
    */
   args?: string;
+  /** Tool rows only: structured file navigation extracted from confirmed tool contract. */
+  fileNav?: FileNav;
   /** Tool rows only, once the result arrives. Absent means still running. */
   ok?: boolean;
   /**
@@ -324,8 +327,10 @@ export function rows(events: Event[]): Row[] {
         } else if (p.kind === 'reasoning' && (p.text ?? '').trim()) {
           out.push({ seq: e.seq, who: 'thinking', text: p.text!.trim(), folded: true });
         } else if (p.kind === 'tool-call' && p.toolCall) {
+          const nav = extractFileNav(p.toolCall.name ?? '', p.toolCall.args);
           out.push({ seq: e.seq, who: 'tool', text: p.toolCall.name ?? 'tool',
-            callId: p.toolCall.callId, args: askedFor(p.toolCall.args) });
+            callId: p.toolCall.callId, args: askedFor(p.toolCall.args),
+            ...(nav ? { fileNav: nav } : {}) });
         } else if (p.kind === 'tool-result' && p.toolResult) {
           // The result lands ON the call's row rather than starting a new one — one call, one line.
           const call = p.toolResult.callId;

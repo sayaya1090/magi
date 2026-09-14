@@ -54,6 +54,12 @@ func Vocabulary() []string {
 	return []string{WhoUser, WhoAgent, WhoTool, WhoThinking, WhoCouncil, WhoSystem, WhoError, WhoImage}
 }
 
+// FileNav is the structured file and line navigation target for a tool call.
+type FileNav struct {
+	Path string `json:"path"`
+	Line *int   `json:"line,omitempty"`
+}
+
 // Row is one line of a conversation as a screen shows it.
 //
 // Every field is `omitempty` and that is load-bearing: absent and zero are different facts all over
@@ -103,6 +109,9 @@ type Row struct {
 	// as the path alone — and the two strings that say what the edit WAS are the reason somebody opens
 	// that row. One field is a summary; Summary carries it.
 	Args string `json:"args,omitempty"`
+
+	// FileNav is the structured file and line navigation target for a tool call.
+	FileNav *FileNav `json:"fileNav,omitempty"`
 
 	// Ok is a tool result. Absent means still running, which is why it is a pointer.
 	Ok *bool `json:"ok,omitempty"`

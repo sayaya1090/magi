@@ -11,6 +11,7 @@ import { Edits } from './edits';
 import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
+import { resolveAndOpenFile } from '../core/nav';
 
 /**
  * The conversation, in the panel.
@@ -335,7 +336,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number }): Promise<void> {
+  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number; seq?: number }): Promise<void> {
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
@@ -397,6 +398,35 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             await openApprovalDiff(this.diffProvider, this.companion.workdir, this.session, ask);
           }
         }
+        break;
+      }
+      case 'open': {
+        await resolveAndOpenFile({
+          m,
+          session: this.session,
+          companionWorkdir: this.companion.workdir,
+          companionState: this.companion.state.state,
+          asks: this.asks,
+          events: this.events,
+          postNote: (text) => this.post({ kind: 'note', text }),
+          opener: {
+            async openDocument(absPath: string, line?: number) {
+              const uri = vscode.Uri.file(absPath);
+              const doc = await vscode.workspace.openTextDocument(uri);
+              let selection: vscode.Range | undefined;
+              let actualLine: number | undefined;
+              if (line !== undefined && Number.isInteger(line) && line > 0) {
+                const lineCount = doc.lineCount;
+                const lineIdx = Math.min(line - 1, Math.max(0, lineCount - 1));
+                const pos = new vscode.Position(lineIdx, 0);
+                selection = new vscode.Range(pos, pos);
+                actualLine = lineIdx + 1;
+              }
+              await vscode.window.showTextDocument(doc, { selection, preserveFocus: false });
+              return { opened: true, line: actualLine };
+            },
+          },
+        });
         break;
       }
       case 'answer': {
@@ -567,6 +597,15 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     background:var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.08)); }
   .diff-plain { color:var(--vscode-editor-foreground, inherit); }
   #ask-body .file-target { font-size:.9em; color:var(--vscode-descriptionForeground); margin:4px 0; word-break:break-all; }
+  button.file-nav-btn { background:none; border:none; color:var(--vscode-textLink-foreground);
+    cursor:pointer; padding:0 2px; font-family:inherit; font-size:inherit;
+    text-decoration:underline; text-underline-offset:2px; display:inline; vertical-align:baseline; }
+  button.file-nav-btn:hover { color:var(--vscode-textLink-activeForeground); }
+  .file-open-tag { font-size:.85em; padding:1px 6px; margin-left:6px; border-radius:2px;
+    border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
+    color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    background:var(--vscode-button-secondaryBackground, transparent); cursor:pointer; }
+  .file-open-tag:hover { background:var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.2)); }
   #ask-body .unstated { color:var(--vscode-editorWarning-foreground); font-size:.9em; margin:4px 0; }
   #ask-body .ground { font-size:.9em; margin:4px 0; white-space:pre-wrap; word-break:break-word; }
   #ask-body .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
@@ -809,7 +848,11 @@ function drawAsk(a) {
     try {
       const parsed = typeof a.args === 'string' ? JSON.parse(a.args) : a.args;
       if (parsed && typeof parsed.path === 'string' && parsed.path.trim()) {
-        targetPath = parsed.path.trim();
+        const normWhat = (a.what || '').trim().toLowerCase().replace(/^mcp__.*?__/, '');
+        const fileTools = ['read', 'edit', 'write', 'multiedit', 'show', 'apply_edit'];
+        if (fileTools.indexOf(normWhat) >= 0) {
+          targetPath = parsed.path.trim();
+        }
       }
     } catch (e) {}
   }
@@ -834,7 +877,15 @@ function drawAsk(a) {
     if (targetPath) {
       const fileEl = document.createElement('div');
       fileEl.className = 'file-target';
-      fileEl.textContent = '파일: ' + targetPath;
+      fileEl.textContent = '파일: ';
+      const openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'file-nav-btn';
+      openBtn.textContent = targetPath;
+      openBtn.title = '파일 열기 (현재 파일)';
+      openBtn.setAttribute('aria-label', '파일 열기 (현재 파일): ' + targetPath);
+      openBtn.addEventListener('click', () => vs.postMessage({ kind: 'open', callId: a.callId }));
+      fileEl.append(openBtn);
       askBodyEl.append(fileEl);
     }
     /* WHAT is being allowed, not a description of it. Without this a person presses allow knowing
@@ -865,7 +916,8 @@ function drawAsk(a) {
       const diffBtn = document.createElement('button');
       diffBtn.className = 'diff-btn';
       diffBtn.textContent = '변경 보기';
-      diffBtn.title = 'IDE 편집창에서 변경 비교 열기';
+      diffBtn.title = '변경 보기 (승인 당시 비교 자료)';
+      diffBtn.setAttribute('aria-label', '변경 보기 (승인 당시 비교 자료)');
       diffBtn.addEventListener('click', () => vs.postMessage({ kind: 'diff', callId: a.callId }));
       acts.append(diffBtn);
     }
@@ -1118,7 +1170,20 @@ function draw(rs) {
         d.append(el);
       }
     }
-    if (r.who === 'tool' && r.args) {
+    if (r.who === 'tool' && r.fileNav) {
+      const a = document.createElement('button');
+      a.type = 'button';
+      a.className = 'file-nav-btn';
+      const loc = r.fileNav.line ? r.fileNav.path + ':' + r.fileNav.line : r.fileNav.path;
+      a.textContent = loc;
+      a.title = r.fileNav.line ? '파일 열기: ' + loc : '파일 열기: ' + r.fileNav.path;
+      a.setAttribute('aria-label', a.title);
+      a.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        vs.postMessage({ kind: 'open', seq: r.seq });
+      });
+      b.append(' ', a);
+    } else if (r.who === 'tool' && r.args) {
       const a = document.createElement('span');
       a.className = 'args';
       a.textContent = r.args;

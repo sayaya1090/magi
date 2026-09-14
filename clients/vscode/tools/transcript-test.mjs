@@ -818,6 +818,14 @@ try {
   // Approval was not triggered
   assert.ok(!postedAfterDiff.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'diff click does not approve');
 
+  // Clicking target file in approval body posts kind: 'open' without approving
+  await page.locator('#ask-body .file-target button.file-nav-btn').click();
+  const postedAfterOpen = await page.evaluate(() => window.__posted);
+  assert.equal(postedAfterOpen.length, postedAfterDiff.length + 1, 'posted exactly one message on open file click');
+  const openPosted = postedAfterOpen[postedAfterOpen.length - 1];
+  assert.deepEqual(openPosted, { kind: 'open', callId: 'perm-edit-native' }, 'posts open kind with callId');
+  assert.ok(!postedAfterOpen.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'open file click does not approve');
+
   // Raw patch permission also shows 변경 보기
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
@@ -867,4 +875,37 @@ try {
   assert.deepEqual(rejectedBtns, ['allow', 'deny', 'always'], 'no phantom 변경 보기 button when host flags diffKind as none');
 
   console.log('PASS: approval panel target filename, description, 변경 보기 button, and pure inspection click');
+
+  // Condition 22: Tool row file and line navigation
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    rows: [
+      { who: 'tool', label: 'read ✓', text: 'read', seq: 42, fileNav: { path: 'src/app.ts', line: 15 } },
+      { who: 'tool', label: 'bash ✓', text: 'bash', seq: 43, args: 'npm test' }
+    ],
+    ask: null
+  }, '*'));
+  await page.waitForSelector('#rows .row.tool');
+
+  // File row has button with path:line
+  const fileRowBtn = page.locator('#rows .row.tool button.file-nav-btn');
+  await fileRowBtn.waitFor();
+  const fileBtnText = await fileRowBtn.textContent();
+  assert.equal(fileBtnText, 'src/app.ts:15', 'tool row renders fileNav with line');
+
+  // Click tool row file button
+  const postedBeforeRowClick = await page.evaluate(() => window.__posted.length);
+  await fileRowBtn.click();
+  const postedAfterRowClick = await page.evaluate(() => window.__posted);
+  assert.equal(postedAfterRowClick.length, postedBeforeRowClick + 1, 'posted one message on tool row file click');
+  const rowPosted = postedAfterRowClick[postedAfterRowClick.length - 1];
+  assert.deepEqual(rowPosted, { kind: 'open', seq: 42 }, 'posts open kind with row seq');
+
+  // Bash row has plain args span, not a button
+  const bashArgs = await page.locator('#rows .row.tool:nth-child(2) span.args').textContent();
+  assert.equal(bashArgs, 'npm test', 'command tool renders plain args');
+  const bashBtnCount = await page.locator('#rows .row.tool:nth-child(2) button.file-nav-btn').count();
+  assert.equal(bashBtnCount, 0, 'command tool has no file-nav-btn');
+
+  console.log('PASS: tool row file and line navigation links, and command row plain args');
 } finally { await browser.close(); }

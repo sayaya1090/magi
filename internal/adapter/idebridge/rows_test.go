@@ -305,6 +305,7 @@ func TestTheRowFieldsMatchTheKotlinCopy(t *testing.T) {
 		"seq": "행을 만든 사건. 이쪽 셰이퍼는 목록의 자리로 같은 일을 한다.",
 		"readOnly": "라운드가 판단하는 턴이 파일을 안 고쳤다는 사실. 이쪽 사본은 그것을 " +
 			"`evidence` 문장 안에 넣는다 — 같은 사실, 다른 모양.",
+		"fileNav": "도구 계약에서 추출한 구조화된 파일·줄 이동 정보. VS Code 클라이언트에서 먼저 도입되었으며 젯브레인 변경은 이번 범위에서 제외됐다.",
 	}
 	// 이쪽 사본에만 있는 칸도 사유와 함께. **이 절반이 없어서 시간이 사라질 뻔했다.**
 	copyOnly := map[string]string{
