@@ -37,6 +37,7 @@ if (fs.existsSync(adapterSrc)) {
   const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
+var createSuggestController;
 var createWebviewReceiveHandlers;
 var parseHostToWebviewMessage;
 var dispatchHostMessage;
@@ -47,6 +48,7 @@ var renderMarkdown;
 ${adapterCompiled}
   createWebviewActionAdapter = exports.createWebviewActionAdapter;
   createWebviewInputAdapter = exports.createWebviewInputAdapter;
+  createSuggestController = exports.createSuggestController;
   createWebviewReceiveHandlers = exports.createWebviewReceiveHandlers;
   parseHostToWebviewMessage = exports.parseHostToWebviewMessage;
   dispatchHostMessage = exports.dispatchHostMessage;
@@ -55,6 +57,7 @@ ${adapterCompiled}
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
     window.createWebviewInputAdapter = createWebviewInputAdapter;
+    window.createSuggestController = createSuggestController;
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     window.parseHostToWebviewMessage = parseHostToWebviewMessage;
     window.dispatchHostMessage = dispatchHostMessage;
@@ -64,6 +67,7 @@ ${adapterCompiled}
   if (typeof module !== 'undefined' && module.exports) {
     module.exports.createWebviewActionAdapter = createWebviewActionAdapter;
     module.exports.createWebviewInputAdapter = createWebviewInputAdapter;
+    module.exports.createSuggestController = createSuggestController;
     module.exports.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     module.exports.parseHostToWebviewMessage = parseHostToWebviewMessage;
     module.exports.dispatchHostMessage = dispatchHostMessage;

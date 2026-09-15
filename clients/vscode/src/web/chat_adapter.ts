@@ -331,12 +331,128 @@ export interface WebviewInputElements {
   hintEl?: HTMLElement | null;
 }
 
+export interface SuggestController {
+  invalidate(): void;
+  onSessionChange(session: string): void;
+  scheduleInput(options: {
+    text: string;
+    target: string;
+    version: number;
+    actions: WebviewActionAdapter;
+    delayMs?: number;
+  }): number;
+  acceptMentions(files: string[], reqId?: number, target?: string): boolean;
+  acceptSuggestion(text: string, reqId?: number, target?: string): boolean;
+  clearSuggestion(): void;
+  getSuggestion(): string;
+  getMentions(): string[];
+  getReqId(): number;
+  getCurrentTarget(): string;
+  getCurrentSession(): string;
+  getActiveVersion(): number;
+  dispose(): void;
+}
+
+export function createSuggestController(): SuggestController {
+  let reqId = 0;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let currentSession = '';
+  let activeTarget = 'general';
+  let activeVersion = 0;
+  let activeSuggestion = '';
+  let activeMentions: string[] = [];
+
+  function invalidate(): void {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    reqId++;
+    activeSuggestion = '';
+    activeMentions = [];
+  }
+
+  function onSessionChange(session: string): void {
+    if (currentSession !== session) {
+      currentSession = session;
+      invalidate();
+      activeTarget = 'general';
+      activeVersion = 0;
+    }
+  }
+
+  function scheduleInput(options: {
+    text: string;
+    target: string;
+    version: number;
+    actions: WebviewActionAdapter;
+    delayMs?: number;
+  }): number {
+    invalidate();
+    activeTarget = options.target;
+    activeVersion = options.version;
+    const thisReqId = reqId;
+    const target = options.target;
+    const text = options.text;
+    const delay = options.delayMs ?? 450;
+
+    const at = /(^|\s)@([^\s@]{2,})$/.exec(text);
+    timer = setTimeout(() => {
+      if (at) {
+        options.actions.mention(at[2], thisReqId, target);
+      } else if (text.trim().length > 3) {
+        options.actions.suggest(text, thisReqId, target);
+      }
+    }, delay);
+
+    return thisReqId;
+  }
+
+  function acceptMentions(files: string[], rId?: number, target?: string): boolean {
+    if (rId !== undefined && rId !== reqId) return false;
+    if (target !== undefined && target !== activeTarget) return false;
+    activeMentions = files || [];
+    return true;
+  }
+
+  function acceptSuggestion(text: string, rId?: number, target?: string): boolean {
+    if (rId !== undefined && rId !== reqId) return false;
+    if (target !== undefined && target !== activeTarget) return false;
+    activeSuggestion = text || '';
+    return true;
+  }
+
+  return {
+    invalidate,
+    onSessionChange,
+    scheduleInput,
+    acceptMentions,
+    acceptSuggestion,
+    clearSuggestion(): void {
+      activeSuggestion = '';
+    },
+    getSuggestion: () => activeSuggestion,
+    getMentions: () => activeMentions,
+    getReqId: () => reqId,
+    getCurrentTarget: () => activeTarget,
+    getCurrentSession: () => currentSession,
+    getActiveVersion: () => activeVersion,
+    dispose(): void {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    },
+  };
+}
+
 export interface WebviewInputAdapter {
   enterAnswerMode(callId: string, label?: string): void;
   exitAnswerMode(): void;
   applyAnswerModeUI(label?: string, text?: string): void;
   applyGeneralModeUI(text?: string): void;
   clearAutoCompletion(): void;
+  onSessionChange(session: string): void;
   send(): void;
   submitChoice(callId: string, option: string): boolean;
   handleCompose(text: string): void;
@@ -347,28 +463,21 @@ export interface WebviewInputAdapter {
     currentAsk: Ask | null
   ): void;
   getSuggestReqId(): number;
+  getSuggestController(): SuggestController;
   dispose(): void;
 }
 
 export function createWebviewInputAdapter(
   elements: WebviewInputElements,
   actions: WebviewActionAdapter,
-  answerState: AnswerStateManager
+  answerState: AnswerStateManager,
+  suggestController?: SuggestController
 ): WebviewInputAdapter {
   const { say, sendBtn, replyModeEl, replyTargetEl, replyCancelEl, noteEl, hintEl } = elements;
-  let suggestion = '';
-  let mentions: string[] = [];
-  let typing: ReturnType<typeof setTimeout> | null = null;
-  let suggestReqId = 0;
+  const suggestCtrl = suggestController ?? createSuggestController();
 
   function clearAutoCompletion(): void {
-    if (typing) {
-      clearTimeout(typing);
-      typing = null;
-    }
-    suggestReqId++;
-    suggestion = '';
-    mentions = [];
+    suggestCtrl.invalidate();
     if (hintEl) hintEl.textContent = '';
   }
 
@@ -472,11 +581,15 @@ export function createWebviewInputAdapter(
     say.setSelectionRange(lead.length, lead.length);
   }
 
+  function onSessionChange(session: string): void {
+    suggestCtrl.onSessionChange(session);
+    if (hintEl) hintEl.textContent = '';
+  }
+
   function handleMentions(files: string[], reqId?: number, target?: string): void {
     const currentTarget = answerState.getPendingQuestion() || 'general';
-    if (reqId !== undefined && reqId !== suggestReqId) return;
-    if (target !== undefined && target !== currentTarget) return;
-    mentions = files || [];
+    if (!suggestCtrl.acceptMentions(files, reqId, target ?? currentTarget)) return;
+    const mentions = suggestCtrl.getMentions();
     if (hintEl) {
       hintEl.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
     }
@@ -484,9 +597,8 @@ export function createWebviewInputAdapter(
 
   function handleSuggestion(text: string, reqId?: number, target?: string): void {
     const currentTarget = answerState.getPendingQuestion() || 'general';
-    if (reqId !== undefined && reqId !== suggestReqId) return;
-    if (target !== undefined && target !== currentTarget) return;
-    suggestion = text || '';
+    if (!suggestCtrl.acceptSuggestion(text, reqId, target ?? currentTarget)) return;
+    const suggestion = suggestCtrl.getSuggestion();
     if (hintEl) {
       hintEl.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
     }
@@ -515,28 +627,27 @@ export function createWebviewInputAdapter(
       send();
       return;
     }
+    const suggestion = suggestCtrl.getSuggestion();
     if (e.key === 'Tab' && suggestion) {
       e.preventDefault();
       say.value += suggestion;
       answerState.onInputChange(say.value);
-      suggestion = '';
+      suggestCtrl.clearSuggestion();
       if (hintEl) hintEl.textContent = '';
     }
   };
 
   const onInput = (): void => {
-    suggestion = '';
     if (hintEl) hintEl.textContent = '';
-    if (typing) clearTimeout(typing);
     const v = say.value;
-    const currentTarget = answerState.onInputChange(v).target;
-    const reqId = ++suggestReqId;
-    const at = /(^|\s)@([^\s@]{2,})$/.exec(v);
-    typing = setTimeout(() => {
-      if (at) actions.mention(at[2], reqId, currentTarget);
-      else if (v.trim().length > 3) actions.suggest(v, reqId, currentTarget);
-      else if (hintEl) hintEl.textContent = '';
-    }, 450);
+    const target = answerState.onInputChange(v).target;
+    const version = answerState.getDraftVersion(target);
+    suggestCtrl.scheduleInput({
+      text: v,
+      target,
+      version,
+      actions,
+    });
   };
 
   const onSendClick = (): void => {
@@ -558,15 +669,17 @@ export function createWebviewInputAdapter(
     applyAnswerModeUI,
     applyGeneralModeUI,
     clearAutoCompletion,
+    onSessionChange,
     send,
     submitChoice,
     handleCompose,
     handleMentions,
     handleSuggestion,
     handleReplyResult,
-    getSuggestReqId: () => suggestReqId,
+    getSuggestReqId: () => suggestCtrl.getReqId(),
+    getSuggestController: () => suggestCtrl,
     dispose(): void {
-      if (typing) clearTimeout(typing);
+      suggestCtrl.dispose();
       say.removeEventListener('keydown', onKeyDown);
       say.removeEventListener('input', onInput);
       sendBtn.removeEventListener('click', onSendClick);
@@ -600,6 +713,7 @@ export function createWebviewReceiveHandlers(
       const boundSession = payload.session || '';
       if (options.getCurrentSession() !== boundSession) {
         options.clearExpandedCallIds();
+        options.inputAdapter.onSessionChange(boundSession);
       }
       options.setCurrentSession(boundSession);
 

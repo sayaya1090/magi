@@ -10,6 +10,7 @@ import {
   parseHostToWebviewMessage,
   createWebviewReceiveHandlers,
   createWebviewInputAdapter,
+  createSuggestController,
   classifyDiffLines,
   renderMarkdown,
   WebviewBridge,
@@ -1327,4 +1328,137 @@ test('renderDiff uses common classifyDiffLines and removes obsolete fallback par
   assert.ok(!fnBody.includes('hunkMatch'), 'obsolete duplicate fallback parser must be removed from renderDiff');
   assert.ok(!fnBody.includes('oldRemaining'), 'obsolete hunk tracking must be removed from renderDiff');
 });
+
+test('SuggestController manages debounce timer, bumps reqId on invalidate, and rejects stale/mismatched results', async () => {
+  const ctrl = createSuggestController();
+  const posted: any[] = [];
+  const mockActions = {
+    mention: (name: string, reqId: number, target: string) => posted.push({ kind: 'mention', name, reqId, target }),
+    suggest: (text: string, reqId: number, target: string) => posted.push({ kind: 'suggest', text, reqId, target }),
+  } as any;
+
+  // 1. Schedule mention
+  const r1 = ctrl.scheduleInput({
+    text: 'hello @world',
+    target: 'general',
+    version: 1,
+    actions: mockActions,
+    delayMs: 20,
+  });
+  assert.equal(r1, 1);
+  assert.equal(ctrl.getReqId(), 1);
+  assert.equal(ctrl.getCurrentTarget(), 'general');
+  assert.equal(ctrl.getActiveVersion(), 1);
+
+  // Before timer fires, schedule suggest
+  const r2 = ctrl.scheduleInput({
+    text: 'some long input text',
+    target: 'q1',
+    version: 2,
+    actions: mockActions,
+    delayMs: 20,
+  });
+  assert.equal(r2, 2, 'second schedule bumps reqId');
+  assert.equal(ctrl.getCurrentTarget(), 'q1');
+  assert.equal(ctrl.getActiveVersion(), 2);
+
+  // Wait for timer
+  await new Promise((r) => setTimeout(r, 40));
+  // r1 mention was cancelled by r2; only r2 suggest was posted
+  assert.equal(posted.length, 1);
+  assert.deepEqual(posted[0], { kind: 'suggest', text: 'some long input text', reqId: 2, target: 'q1' });
+
+  // 2. Reject stale reqId or target
+  assert.equal(ctrl.acceptSuggestion('old result', 1, 'q1'), false, 'stale reqId 1 must be rejected');
+  assert.equal(ctrl.acceptSuggestion('wrong target', 2, 'general'), false, 'wrong target general must be rejected');
+  assert.equal(ctrl.getSuggestion(), '', 'rejected suggestion must not be saved');
+
+  // Accept valid suggestion
+  assert.equal(ctrl.acceptSuggestion('valid suggestion', 2, 'q1'), true);
+  assert.equal(ctrl.getSuggestion(), 'valid suggestion');
+
+  // Clear suggestion
+  ctrl.clearSuggestion();
+  assert.equal(ctrl.getSuggestion(), '');
+
+  // Accept valid mentions
+  assert.equal(ctrl.acceptMentions(['foo.ts', 'bar.ts'], 2, 'q1'), true);
+  assert.deepEqual(ctrl.getMentions(), ['foo.ts', 'bar.ts']);
+
+  // 3. invalidate clears active state and bumps reqId
+  ctrl.invalidate();
+  assert.equal(ctrl.getReqId(), 3);
+  assert.equal(ctrl.getSuggestion(), '');
+  assert.deepEqual(ctrl.getMentions(), []);
+
+  // 4. onSessionChange invalidates and resets context
+  ctrl.scheduleInput({
+    text: 'abc def ghi',
+    target: 'q2',
+    version: 5,
+    actions: mockActions,
+    delayMs: 50,
+  });
+  ctrl.onSessionChange('session-xyz');
+  assert.equal(ctrl.getCurrentSession(), 'session-xyz');
+  assert.equal(ctrl.getCurrentTarget(), 'general');
+  assert.equal(ctrl.getActiveVersion(), 0);
+  assert.equal(ctrl.acceptSuggestion('late suggestion', 4, 'q2'), false, 'late suggestion after session change must be rejected');
+
+  ctrl.dispose();
+});
+
+test('WebviewInputAdapter and receiveHandlers unify autocompletion invalidation across edit, mode switch, submit, and session change', async () => {
+  const elements = {
+    say: { value: '', placeholder: '', focus() {}, setSelectionRange() {}, addEventListener() {}, removeEventListener() {} } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const answerState = createAnswerState();
+  const inputAdapter = createWebviewInputAdapter(elements, actions, answerState);
+  const ctrl = inputAdapter.getSuggestController();
+
+  // Mode switch invalidates
+  inputAdapter.enterAnswerMode('call-1', 'Question 1');
+  const reqIdAfterEnter = ctrl.getReqId();
+  assert.ok(reqIdAfterEnter > 0);
+
+  // Send invalidates
+  elements.say.value = 'My answer';
+  inputAdapter.send();
+  assert.ok(ctrl.getReqId() > reqIdAfterEnter, 'send must bump reqId and invalidate autocompletion');
+
+  // Session change invalidates
+  let currentSession = 'session-1';
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter,
+    answerState,
+    getCurrentAsk: () => null,
+    getCurrentSession: () => currentSession,
+    setCurrentSession: (s) => { currentSession = s; },
+    clearExpandedCallIds: () => {},
+    drawRows: () => {},
+    drawAsk: () => {},
+    drawRefs: () => {},
+    drawState: () => {},
+    drawInfo: () => {},
+    setNoteText: () => {},
+    getNoteText: () => '',
+  });
+
+  const reqIdBeforeSessionChange = ctrl.getReqId();
+  handlers.onRows!({ session: 'session-2', rows: [], ask: null, refs: [] });
+  assert.equal(currentSession, 'session-2');
+  assert.ok(ctrl.getReqId() > reqIdBeforeSessionChange, 'session change in onRows must invalidate autocompletion');
+
+  inputAdapter.dispose();
+});
+
 
