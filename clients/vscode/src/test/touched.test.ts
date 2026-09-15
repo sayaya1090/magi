@@ -124,7 +124,7 @@ test('a permission carries what it is allowing', () => {
   assert.equal(blank.diff, undefined);
 
   // And the screen draws all three, and says so when none came.
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   const at = chat.indexOf("if (a.kind === 'permission') {");
   const branch = chat.slice(at, chat.indexOf('return;', at));
   // ⚠ Naming them is not drawing them. A mutation that emptied the loop's source array left the
@@ -152,7 +152,7 @@ test('a question raises an ask, with its options', () => {
   assert.equal(pendingAsk([asked, { seq: 2, type: 'question.answered', data: {} }]), null);
 
   // And the screen tells the two apart — the branch exists and must keep its input.
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   assert.ok(/a\.kind === 'permission'/.test(chat), 'the screen no longer tells the two kinds apart');
   assert.ok(/a\.options/.test(chat), "the screen never draws a question's shortcuts");
 

@@ -318,7 +318,7 @@ test('a tool row carries what the call was asked to do', () => {
   // through: the mention survives, the drawing does not. Same blind spot as "bound, so it must be
   // read" and "declared, so it must be read" — presence is not effect. So the CONDITION is pinned,
   // and the body is checked for the append that makes it visible.
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   const at = chat.indexOf("if (r.who === 'tool' && r.args) {");
   assert.ok(at > 0, 'the tool-row branch is gone or has been rewritten — it must test r.args and nothing else');
   const branch = chat.slice(at, at + 400);
@@ -371,10 +371,11 @@ test('a tool result tells done-with-notes from failed, and says why it failed', 
   // And the screen draws all three, with the reason under the row.
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   assert.ok(/r\.note\s*\?/.test(chat), 'the glyph has two outcomes, not three');
-  const at = chat.indexOf("if (r.who === 'tool' && r.out) {");
+  const webHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
+  const at = webHtml.indexOf("if (r.who === 'tool' && r.out) {");
   assert.ok(at > 0, 'nothing draws the failure reason');
-  assert.ok(/\.append\(/.test(chat.slice(at, at + 300)), 'the reason is read and never put on the row');
-  assert.ok(/\.out\s*\{/.test(chat), 'the reason has no style — it would read as the tool name');
+  assert.ok(/\.append\(/.test(webHtml.slice(at, at + 300)), 'the reason is read and never put on the row');
+  assert.ok(/\.out\s*\{/.test(webHtml), 'the reason has no style — it would read as the tool name');
 });
 
 /**
@@ -469,7 +470,7 @@ test('a parked prompt says so, and the mark is drawn', () => {
   assert.equal(gone.queued, false);
   assert.equal(gone.abandoned, true);
 
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   assert.ok(/r\.queued \? ' queued' : ''/.test(chat), 'the row carries the mark and the screen never draws it');
   // ⚠ Look in the STYLE block, not the whole file. The first cut matched anywhere, and `r.queued`
   // in the TypeScript contains the substring `.queued` — so deleting the CSS rule left the guard
@@ -695,9 +696,10 @@ test('a verdict carries its lens, what it stands on, and what it would keep', ()
 
   // Carried is not drawn: the panel must put all three on screen.
   const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chatHtml = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   assert.ok(/r\.lens \? ` \[\$\{r\.lens\}\]`/.test(chat), 'the label does not show the lens');
   for (const f of ['cite', 'keep']) {
-    assert.ok(new RegExp(`'${f}'[^\\n]*r\\.${f}`).test(chat),
+    assert.ok(new RegExp(`'${f}'[^\\n]*r\\.${f}`).test(chatHtml),
       `the row body never draws \`${f}\` — the shaper carries it and nothing paints it`);
   }
 });
@@ -1241,7 +1243,7 @@ test('a verdict carries what the member was thinking, without it becoming the ve
  * the one line in that block that never went through the parser.
  */
 test('the chat view draws a member thought, labelled as not a vote', () => {
-  const src = fs.readFileSync(path.join(REPO, 'clients/vscode/src/ide/chat.ts'), 'utf8');
+  const src = fs.readFileSync(path.join(REPO, 'clients/vscode/src/web/chat_html.ts'), 'utf8');
   const at = src.indexOf("['cite', 'on', r.cite]");
   assert.ok(at > 0, 'the council evidence loop is gone — this rule is reading nothing');
   const block = src.slice(at, at + 400);

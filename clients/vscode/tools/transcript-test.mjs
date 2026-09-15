@@ -3,11 +3,28 @@ import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
 const { chromium } = require('playwright');
-const source = await readFile(new URL('../src/ide/chat.ts', import.meta.url), 'utf8');
-const start = source.indexOf('    const nonce =', source.indexOf('private html('));
-const end = source.indexOf('</script></body></html>`;', start) + '</script></body></html>`;'.length;
-assert.ok(start > 0 && end > start);
-const html = new Function('w', source.slice(start, end))({ cspSource: "'self'" });
+import { existsSync } from 'node:fs';
+import { renderChatHtml } from '../out/web/chat_html.js';
+
+const requiredBundles = [
+  new URL('../out/web/chat_html.js', import.meta.url),
+  new URL('../out/web/answer_state.js', import.meta.url),
+  new URL('../out/web/chat_adapter.bundle.js', import.meta.url),
+];
+for (const b of requiredBundles) {
+  if (!existsSync(b)) {
+    console.error(`Missing required webview asset bundle: ${b.pathname}\nRun 'npm run build --prefix clients/vscode' first.`);
+    process.exit(1);
+  }
+}
+
+const nonce = 'test-nonce';
+const html = renderChatHtml({
+  cspSource: "'self' http://magi.test",
+  nonce,
+  scriptUri: 'http://magi.test/out/web/answer_state.js',
+  adapterUri: 'http://magi.test/out/web/chat_adapter.bundle.js',
+});
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 420, height: 600 } });

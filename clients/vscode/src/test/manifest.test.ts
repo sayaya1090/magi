@@ -323,7 +323,8 @@ test('the panel draws the note it is sent', () => {
 
   const chatTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
   const adapterTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8');
-  const body = (chatTs + '\n' + adapterTs)
+  const chatHtmlTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
+  const body = (chatTs + '\n' + adapterTs + '\n' + chatHtmlTs)
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   // The handler hands the drawing function the NOTE, not the state beside it.
   assert.match(body, /(?:kind === 'state'|\bonState\(m\))\s*\{?\s*(?:options\.)?drawState\(m\.note\)/,
@@ -356,8 +357,13 @@ test('the panel draws the note it is sent', () => {
  */
 test('no webview message is sent to nobody or awaited from nobody', () => {
   const dir = path.join(__dirname, '..', '..', 'src', 'ide');
+  const chatHtmlSrc = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   const views = fs.readdirSync(dir).filter((f) => f.endsWith('.ts'))
-    .map((f) => ({ name: f, body: fs.readFileSync(path.join(dir, f), 'utf8') }))
+    .map((f) => {
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+      const body = f === 'chat.ts' ? src + '\n' + chatHtmlSrc : src;
+      return { name: f, body };
+    })
     .filter((v) => /<script\b/.test(v.body));
   assert.ok(views.length >= 2, `only ${views.length} webviews found — this guard is reading nothing`);
 
@@ -502,7 +508,7 @@ test('every row kind the fold produces has a style', () => {
   const made = new Set([...fold.matchAll(/who: '([a-z]+)'/g)].map((m) => m[1]));
   assert.ok(made.size >= 4, `only ${made.size} row kinds seen in the fold — this guard is reading nothing`);
 
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_html.ts'), 'utf8');
   const css = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
   assert.ok(css.length > 100, 'the stylesheet is not where this guard looks');
   const styled = new Set([...css.matchAll(/\.([a-z][a-z-]*)/g)].map((m) => m[1]));

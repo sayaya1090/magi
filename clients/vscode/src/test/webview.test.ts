@@ -19,6 +19,7 @@ import { createAnswerState } from '../core/answer_state';
 import { State, notRunning, panelNote } from '../core/activity';
 
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
+const WEB = path.join(__dirname, '..', '..', 'src', 'web');
 
 /** Comments stripped, so a rule about code is not answered by prose that mentions it. */
 function code(body: string): string {
@@ -28,13 +29,15 @@ function code(body: string): string {
 /** The HTML each webview builds, pulled out of its template literal. */
 function templates(): { file: string; body: string; src: string }[] {
   const out: { file: string; body: string; src: string }[] = [];
-  for (const f of fs.readdirSync(IDE).filter((n) => n.endsWith('.ts'))) {
-    const src = fs.readFileSync(path.join(IDE, f), 'utf8');
-    const i = src.indexOf('`<!DOCTYPE');
-    if (i < 0) continue;
-    const j = src.indexOf('</html>`', i);
-    assert.ok(j > i, `${f}: a webview template opens and never closes`);
-    out.push({ file: f, body: src.slice(i + 1, j), src });
+  for (const dir of [IDE, WEB]) {
+    for (const f of fs.readdirSync(dir).filter((n) => n.endsWith('.ts'))) {
+      const src = fs.readFileSync(path.join(dir, f), 'utf8');
+      const i = src.indexOf('`<!DOCTYPE');
+      if (i < 0) continue;
+      const j = src.indexOf('</html>`', i);
+      assert.ok(j > i, `${f}: a webview template opens and never closes`);
+      out.push({ file: f, body: src.slice(i + 1, j), src });
+    }
   }
   return out;
 }
@@ -204,6 +207,7 @@ test('every door a person presses looks at what came back', () => {
  */
 test('the info card can only ask for the commands it offers', () => {
   const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const chatHtml = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
 
   const at = chat.indexOf("case 'run':");
   assert.ok(at > 0, 'the card asks the extension to run commands and nothing receives it');
@@ -216,7 +220,7 @@ test('the info card can only ask for the commands it offers', () => {
   // The card names its commands in two shapes: `['model', info.model, 'magi.chooseModel']` for the
   // rows and `['restart', 'magi.restartDaemon']` for the buttons. Read them where the card DRAWS,
   // so a command added to one shape and not the other is still counted.
-  const draw = chat.slice(chat.indexOf('function drawInfo('), chat.indexOf('let pendingQuestion'));
+  const draw = chatHtml.slice(chatHtml.indexOf('function drawInfo('), chatHtml.indexOf('let pendingQuestion'));
   const offered = [...draw.matchAll(/'(magi\.[a-zA-Z]+)'/g)].map((m) => m[1]);
   assert.ok(offered.length >= 6, `only ${offered.length} commands offered by the card — the scan is reading nothing`);
   for (const c of new Set(offered)) {
@@ -240,7 +244,7 @@ test('the info card can only ask for the commands it offers', () => {
  * as "we could not ask" when it is nothing of the sort.
  */
 test('every state the card can show has a light', () => {
-  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
   const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
   const src = fs.readFileSync(path.join(IDE, '..', 'core', 'activity.ts'), 'utf8');
   const states = [...src.matchAll(/^\s{2}[A-Z]\w*\s*=\s*'([a-z-]+)',/gm)].map((m) => m[1]);
@@ -266,7 +270,7 @@ test('every state the card can show has a light', () => {
  * `keep` is the member's own prose and stays in the reading font, so the two must not share a rule.
  */
 test('a verdict cite is drawn as the record it quotes', () => {
-  const chat = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
   const style = chat.slice(chat.indexOf('<style>'), chat.indexOf('</style>'));
 
   const cite = /\.cite \{[^}]*\}/.exec(style);
@@ -309,7 +313,7 @@ test('every field the ask carries is drawn on the card', () => {
   const fields = [...body.matchAll(/^  (\w+)\??:/gm)].map((m) => m[1]);
   assert.ok(fields.length >= 8, `only ${fields.length} Ask fields read — the scan is dead`);
 
-  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const chat = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
   const at = chat.indexOf('function drawAsk(a) {');
   assert.ok(at > 0, 'the prompt card is not where this guard looks for it');
   const draw = chat.slice(at, chat.indexOf('\nconst moreEl', at));
@@ -1320,7 +1324,7 @@ test('host notRunning state roundtrip delivers offerStart and note to handler', 
 });
 
 test('renderDiff uses common classifyDiffLines and removes obsolete fallback parser', () => {
-  const chatSrc = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const chatSrc = fs.readFileSync(path.join(WEB, 'chat_html.ts'), 'utf8');
   const fnStart = chatSrc.indexOf('function renderDiff(');
   assert.ok(fnStart > 0, 'renderDiff not found');
   const fnBody = chatSrc.slice(fnStart, chatSrc.indexOf('\nfunction ', fnStart));

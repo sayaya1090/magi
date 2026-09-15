@@ -32,8 +32,11 @@ fs.writeFileSync(dst, wrapped, 'utf8');
 // Bundle chat_adapter.js
 const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
 const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
-if (fs.existsSync(adapterSrc)) {
-  const adapterCompiled = fs.readFileSync(adapterSrc, 'utf8');
+if (!fs.existsSync(adapterSrc)) {
+  console.error(`out/web/chat_adapter.js not found at ${adapterSrc}. Run 'tsc -p .' first.`);
+  process.exit(1);
+}
+const adapterCompiled = fs.readFileSync(adapterSrc, 'utf8');
   const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
@@ -77,5 +80,4 @@ ${adapterCompiled}
 })();
 `;
   fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
-}
 
