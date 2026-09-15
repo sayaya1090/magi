@@ -26,6 +26,7 @@ export type WebviewToHostMessage =
   | { kind: 'drop' }
   | { kind: 'diff'; session: string; callId: string }
   | { kind: 'open'; session: string; callId: string; seq?: number }
+  | { kind: 'output'; session: string; outputId: string }
   | { kind: 'answer'; callId: string; decision: string }
   | { kind: 'reply'; callId: string; text: string; attemptId: number }
   | { kind: 'mention'; text: string; reqId: number; target: string }
@@ -70,6 +71,17 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
         callId: m.callId,
         seq: typeof m.seq === 'number' ? m.seq : undefined,
       };
+
+    case 'output':
+      if (
+        typeof m.session !== 'string' ||
+        !m.session ||
+        typeof m.outputId !== 'string' ||
+        !m.outputId
+      ) {
+        return undefined;
+      }
+      return { kind: 'output', session: m.session, outputId: m.outputId };
 
     case 'answer':
       if (typeof m.callId !== 'string' || !m.callId || typeof m.decision !== 'string' || !m.decision) {

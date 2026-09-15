@@ -10,6 +10,7 @@ import { noteCompletion } from '../core/complete';
 import { Edits } from './edits';
 import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
+import { OutputProvider, openOutputDocument } from './output';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath } from '../core/nav';
 import { parseWebviewToHostMessage, HostToWebviewMessage } from '../core/webview_protocol';
@@ -37,6 +38,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private readonly subs: vscode.Disposable[] = [];
   private readonly edits = new Edits();
   private readonly diffProvider = new DiffProvider();
+  private readonly outputProvider = new OutputProvider();
   private readonly asks = new AskStore(50);
 
   constructor(private readonly companion: Companion, private readonly extUri: vscode.Uri) {
@@ -44,6 +46,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       companion.onChanged(() => this.post({ kind: 'state', state: companion.state, note: panelNote(companion.state) })),
       vscode.workspace.registerTextDocumentContentProvider(DiffProvider.scheme, this.diffProvider),
       this.diffProvider,
+      vscode.workspace.registerTextDocumentContentProvider(OutputProvider.scheme, this.outputProvider),
+      this.outputProvider,
     );
   }
 
@@ -528,6 +532,25 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         });
         break;
       }
+      case 'output': {
+        if (!m.session || !m.outputId) break;
+        if (this.session && m.session !== this.session) {
+          this.post({ kind: 'note', text: '자료를 더 이상 열 수 없음 — 세션이 일치하지 않습니다.' });
+          break;
+        }
+        const res = await openOutputDocument({
+          provider: this.outputProvider,
+          companionKey: this.companion.workdir,
+          session: m.session,
+          outputId: m.outputId,
+          events: this.events,
+          preserveFocus: false,
+        });
+        if (!res.opened) {
+          this.post({ kind: 'note', text: res.error ?? '자료를 더 이상 열 수 없음' });
+        }
+        break;
+      }
       case 'answer': {
         // The decision travels as the core spells it. Two vocabularies for one verdict is a place
         // for the two to drift.
@@ -615,6 +638,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.stream?.close();
     this.edits.dispose();
     this.asks.clear();
+    this.outputProvider.dispose();
     for (const s of this.subs) s.dispose();
   }
 
