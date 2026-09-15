@@ -10,10 +10,12 @@ import {
   parseHostToWebviewMessage,
   createWebviewReceiveHandlers,
   createWebviewInputAdapter,
+  classifyDiffLines,
   renderMarkdown,
   WebviewBridge,
 } from '../core/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
+import { State, notRunning, panelNote } from '../core/activity';
 
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
 
@@ -645,12 +647,13 @@ test('parseHostToWebviewMessage validates schema and rejects malformed payloads'
 
   // state
   assert.equal(parseHostToWebviewMessage({ kind: 'state' }), undefined, 'missing state/note rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle' }), undefined, 'missing note rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: null }), undefined, 'null note rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: { offerStart: false } }), undefined, 'missing note.text rejected');
-  assert.deepEqual(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: { text: 'ok', offerStart: true } }), {
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: { state: State.NotRunning } }), undefined, 'missing note rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'not-an-object', note: { text: 'ok', offerStart: true } }), undefined, 'string state rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: { state: State.NotRunning }, note: null }), undefined, 'null note rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: { state: State.NotRunning }, note: { offerStart: false } }), undefined, 'missing note.text rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'state', state: { state: State.Attached }, note: { text: 'ok', offerStart: true } }), {
     kind: 'state',
-    state: 'idle',
+    state: { state: State.Attached, asking: undefined, doing: undefined },
     note: { text: 'ok', offerStart: true },
   });
 
@@ -746,7 +749,7 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
   assert.equal(dispatchHostMessage({ kind: 'compose' }, handlers), false, 'malformed compose rejected');
 
   assert.equal(dispatchHostMessage({ kind: 'rows', session: 's1', rows: [], ask: null, refs: [] }, handlers), true);
-  assert.equal(dispatchHostMessage({ kind: 'state', state: 'idle', note: { text: 'ok', offerStart: false } }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'state', state: { state: State.Attached }, note: { text: 'ok', offerStart: false } }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'info', state: 'idle', label: 'idle', version: '1.0' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'compose', text: 'prefix' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'note', text: 'notice' }, handlers), true);
@@ -931,7 +934,7 @@ test('createWebviewReceiveHandlers integrates all inbound messages with typed ha
   assert.ok(sayEl.value.startsWith('prefix '));
 
   // 3. state
-  dispatchHostMessage({ kind: 'state', state: 'working', note: { text: 'running test', offerStart: false } }, handlers);
+  dispatchHostMessage({ kind: 'state', state: { state: State.Working }, note: { text: 'running test', offerStart: false } }, handlers);
   assert.equal(drawnStateNote, 'running test');
 
   // 4. info
@@ -1166,3 +1169,103 @@ test('renderMarkdown parses horizontal rule', () => {
   assert.equal(container.childNodes[1].tagName, 'HR');
   assert.equal(container.childNodes[2].tagName, 'P');
 });
+
+test('renderMarkdown preserves 3-backtick fence inside 4-backtick fence', () => {
+  const md = '````markdown\nHere is an example:\n```typescript\nconst a = 1;\n```\nDone.\n````';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const pre = container.childNodes[0] as MockElement;
+  assert.equal(pre.tagName, 'PRE');
+  assert.equal(pre.dataset.lang, 'markdown');
+  const code = pre.childNodes[0] as MockElement;
+  assert.equal(code.tagName, 'CODE');
+  const text = code.textContent;
+  assert.ok(text.includes('```typescript\nconst a = 1;\n```'));
+  assert.ok(text.includes('Here is an example:'));
+  assert.ok(text.includes('Done.'));
+});
+
+test('renderMarkdown preserves nested list hierarchy and ordered list start numbers', () => {
+  const md = '- parent 1\n  - child 1\n  - child 2\n- parent 2\n\n3. third\n4. fourth';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 2);
+
+  // Unordered nested list
+  const ul = container.childNodes[0] as MockElement;
+  assert.equal(ul.tagName, 'UL');
+  assert.equal(ul.childNodes.length, 2); // 2 parent items
+
+  const parentLi1 = ul.childNodes[0] as MockElement;
+  assert.equal(parentLi1.tagName, 'LI');
+  const childUl = parentLi1.childNodes.find(n => n.tagName === 'UL') as MockElement;
+  assert.ok(childUl, 'parent li must contain child ul');
+  assert.equal(childUl.childNodes.length, 2);
+
+  // Ordered list with start=3
+  const ol = container.childNodes[1] as MockElement;
+  assert.equal(ol.tagName, 'OL');
+  assert.equal(ol.getAttribute('start'), '3');
+  assert.equal(ol.childNodes.length, 2);
+  assert.equal(collectText(ol.childNodes[0]), 'third');
+  assert.equal(collectText(ol.childNodes[1]), 'fourth');
+});
+
+test('classifyDiffLines and renderMarkdown correctly classify hunk-internal deletions and avoid guessing diff without language', () => {
+  // Test classifyDiffLines with --- inside a hunk
+  const hunkLines = [
+    '@@ -1,3 +1,3 @@',
+    '--- a/example',
+    '+++ b/example',
+    '-old line',
+    '+new line',
+  ];
+  const classified = classifyDiffLines(hunkLines);
+  assert.equal(classified[0].cls, 'diff-hunk-header');
+  assert.equal(classified[1].cls, 'diff-deleted', '--- a/example in hunk must be classified as diff-deleted');
+  assert.equal(classified[2].cls, 'diff-added', '+++ b/example in hunk must be classified as diff-added');
+  assert.equal(classified[3].cls, 'diff-deleted');
+  assert.equal(classified[4].cls, 'diff-added');
+
+  // Markdown diff rendering
+  const diffMd = '```diff\n@@ -1,2 +1,2 @@\n--- a/example\n+++ b/example\n```';
+  const container = render(diffMd);
+  const pre = container.childNodes[0] as MockElement;
+  const code = pre.childNodes[0] as MockElement;
+  const spans = code.childNodes as MockElement[];
+  assert.ok(spans.some(s => s.className.includes('diff-deleted') && s.textContent.includes('--- a/example')));
+
+  // Code block without language starting with + or - must NOT be classified as diff
+  const nonDiffMd = '```\n+ 1\n- 2\n```';
+  const containerNonDiff = render(nonDiffMd);
+  const preNonDiff = containerNonDiff.childNodes[0] as MockElement;
+  assert.equal(preNonDiff.dataset.lang, undefined);
+  const codeNonDiff = preNonDiff.childNodes[0] as MockElement;
+  assert.equal(codeNonDiff.childNodes.length, 0); // plain text node inside code
+  assert.equal(codeNonDiff.textContent, '+ 1\n- 2');
+});
+
+test('host notRunning state roundtrip delivers offerStart and note to handler', () => {
+  const hostState = notRunning();
+  const hostNote = panelNote(hostState);
+  const rawMsg = {
+    kind: 'state',
+    state: hostState,
+    note: hostNote,
+  };
+
+  const parsed = parseHostToWebviewMessage(rawMsg);
+  assert.ok(parsed);
+  assert.equal(parsed.kind, 'state');
+  assert.equal(parsed.state.state, State.NotRunning);
+  assert.equal(parsed.note.offerStart, true);
+  assert.ok(parsed.note.text.length > 0);
+
+  let drawnNote: any = null;
+  const dummyHandlers = {
+    onState: (m: any) => { drawnNote = m; },
+  };
+  const dispatched = dispatchHostMessage(rawMsg, dummyHandlers as any);
+  assert.equal(dispatched, true);
+  assert.equal(drawnNote.note.offerStart, true);
+});
+

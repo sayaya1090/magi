@@ -226,9 +226,12 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
    * two things quickly. Same guard as the status poll's, one level up.
    */
   private opening = 0;
+  private sessionCreating: Promise<string> | null = null;
+  private generation = 0;
 
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
   showSession(sid: string): void {
+    this.generation++;
     this.stream?.close();
     this.stream = null;
     this.events = [];
@@ -359,16 +362,37 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         const refs = sent.map(wireRef);
         this.refs = [];
 
-        if (!this.sid) {
-          const created = await this.companion.ask('session-new');
-          const sid = created?.session ?? '';
-          if (!sid) {
-            this.giveBack(body, sent, created?.error ?? 'the companion could not open a conversation.');
-            break;
+        let targetSid = this.sid;
+        if (!targetSid) {
+          const gen = this.generation;
+          if (!this.sessionCreating) {
+            this.sessionCreating = (async () => {
+              const created = await this.companion.ask('session-new');
+              const sid = created?.session ?? '';
+              if (!sid) {
+                throw new Error(created?.error ?? 'the companion could not open a conversation.');
+              }
+              return sid;
+            })();
           }
-          this.sid = sid;
-          this.companion.session = sid;
-          void this.openStream();
+
+          let sid = '';
+          try {
+            sid = await this.sessionCreating;
+          } catch (e: any) {
+            this.sessionCreating = null;
+            this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
+            break;
+          } finally {
+            this.sessionCreating = null;
+          }
+
+          targetSid = sid;
+          if (this.generation === gen && !this.sid) {
+            this.sid = sid;
+            this.companion.session = sid;
+            void this.openStream();
+          }
         }
 
         // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
@@ -376,7 +400,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // clarification typed mid-turn would delete the plan of the turn it was clarifying.
         // The fact comes off the transcript this window streams, not from `status` (see turnOpen).
         const door = turnOpen(this.events) ? 'steer' : 'submit';
-        const r = await this.companion.ask(door, refs.length ? { session: this.sid, text: body, refs } : { session: this.sid, text: body });
+        const r = await this.companion.ask(door, refs.length ? { session: targetSid, text: body, refs } : { session: targetSid, text: body });
         if (!r?.ok) this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
         this.draw();
         break;
@@ -772,6 +796,17 @@ function askedAt(iso) {
 function renderDiff(container, text) {
   if (!text) return;
   const lines = text.split('\\n');
+  if (lines.length > 0 && lines[lines.length - 1] === '' && text.endsWith('\\n')) lines.pop();
+  if (typeof classifyDiffLines === 'function') {
+    const classified = classifyDiffLines(lines);
+    for (let i = 0; i < classified.length; i++) {
+      const row = document.createElement('div');
+      row.className = 'diff-line ' + classified[i].cls;
+      row.textContent = classified[i].text + (i < classified.length - 1 || text.endsWith('\\n') ? '\\n' : '');
+      container.append(row);
+    }
+    return;
+  }
   let inHunk = false;
   let oldRemaining = 0;
   let newRemaining = 0;

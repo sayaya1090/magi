@@ -142,14 +142,40 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
   if (kind === 'rows') {
     if (!Array.isArray(m.rows)) return undefined;
     const session = typeof m.session === 'string' ? m.session : '';
-    const ask = m.ask && typeof m.ask === 'object' ? (m.ask as Ask) : null;
+
+    const rows: PaintedRow[] = [];
+    for (const r of m.rows) {
+      if (!r || typeof r !== 'object') return undefined;
+      const rowObj = r as Record<string, unknown>;
+      if (
+        typeof rowObj.who !== 'string' ||
+        typeof rowObj.label !== 'string' ||
+        typeof rowObj.text !== 'string'
+      ) {
+        return undefined;
+      }
+      rows.push(r as PaintedRow);
+    }
+
+    let ask: Ask | null = null;
+    if (m.ask !== undefined && m.ask !== null) {
+      if (typeof m.ask !== 'object') return undefined;
+      const askObj = m.ask as Record<string, unknown>;
+      const hasWhat = typeof askObj.what === 'string' || typeof askObj.prompt === 'string';
+      if (typeof askObj.callId !== 'string' || !hasWhat) {
+        return undefined;
+      }
+      ask = m.ask as Ask;
+    }
+
     const refs = Array.isArray(m.refs)
-      ? (m.refs.filter((r): r is string => typeof r === 'string'))
+      ? m.refs.filter((r): r is string => typeof r === 'string')
       : [];
+
     return {
       kind: 'rows',
       session,
-      rows: m.rows as PaintedRow[],
+      rows,
       ask,
       refs,
     };
@@ -185,16 +211,24 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
       text: typeof m.text === 'string' ? m.text : undefined,
     };
   } else if (kind === 'state') {
-    if (typeof m.state !== 'string' || !m.note || typeof m.note !== 'object') {
+    if (!m.state || typeof m.state !== 'object' || !m.note || typeof m.note !== 'object') {
       return undefined;
     }
+    const sObj = m.state as Record<string, unknown>;
+    if (typeof sObj.state !== 'string') return undefined;
+    const act: Activity = {
+      state: sObj.state as any,
+      asking: typeof sObj.asking === 'string' ? sObj.asking : undefined,
+      doing: typeof sObj.doing === 'string' ? sObj.doing : undefined,
+    };
+
     const noteObj = m.note as Record<string, unknown>;
     if (typeof noteObj.text !== 'string') return undefined;
     const note: PanelNoteInfo = {
       text: noteObj.text,
       offerStart: Boolean(noteObj.offerStart),
     };
-    return { kind: 'state', state: m.state as unknown as Activity, note };
+    return { kind: 'state', state: act, note };
   } else if (kind === 'info') {
     if (
       typeof m.state !== 'string' ||
@@ -586,6 +620,84 @@ export function createWebviewReceiveHandlers(
   };
 }
 
+export interface ClassifiedDiffLine {
+  text: string;
+  cls: string;
+}
+
+export function classifyDiffLines(lines: string[]): ClassifiedDiffLine[] {
+  const result: ClassifiedDiffLine[] = [];
+  let inHunk = false;
+  let oldRemaining = 0;
+  let newRemaining = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    let cls = 'diff-plain';
+    const hunkMatch = /^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@(?:$|\s)/.exec(rawLine);
+    const isGitHeader = rawLine.startsWith('diff --git ') || rawLine.startsWith('Index: ');
+
+    if (isGitHeader) {
+      inHunk = false;
+      oldRemaining = 0;
+      newRemaining = 0;
+      cls = 'diff-file-header';
+    } else if (hunkMatch) {
+      inHunk = true;
+      oldRemaining = hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1;
+      newRemaining = hunkMatch[4] !== undefined ? parseInt(hunkMatch[4], 10) : 1;
+      cls = 'diff-hunk-header';
+      if (oldRemaining === 0 && newRemaining === 0) {
+        inHunk = false;
+      }
+    } else if (inHunk) {
+      if (rawLine.startsWith('+')) {
+        cls = 'diff-added';
+        if (newRemaining > 0) newRemaining--;
+      } else if (rawLine.startsWith('-')) {
+        cls = 'diff-deleted';
+        if (oldRemaining > 0) oldRemaining--;
+      } else if (rawLine.startsWith(' ') || rawLine === '') {
+        cls = 'diff-context';
+        if (oldRemaining > 0) oldRemaining--;
+        if (newRemaining > 0) newRemaining--;
+      } else if (rawLine.startsWith('\\')) {
+        cls = 'diff-context';
+      } else {
+        cls = 'diff-plain';
+      }
+      if (oldRemaining <= 0 && newRemaining <= 0) {
+        inHunk = false;
+      }
+    } else {
+      const isFileMeta = (
+        rawLine.startsWith('--- ') ||
+        rawLine.startsWith('+++ ') ||
+        rawLine.startsWith('index ') ||
+        rawLine.startsWith('new file mode ') ||
+        rawLine.startsWith('deleted file mode ') ||
+        rawLine.startsWith('similarity index ') ||
+        rawLine.startsWith('rename from ') ||
+        rawLine.startsWith('rename to ') ||
+        rawLine.startsWith('old mode ') ||
+        rawLine.startsWith('new mode ') ||
+        rawLine.startsWith('Binary files ')
+      );
+      if (isFileMeta) {
+        cls = 'diff-file-header';
+      } else if (rawLine.startsWith('\\')) {
+        cls = 'diff-context';
+      } else {
+        cls = 'diff-plain';
+      }
+    }
+
+    result.push({ text: rawLine, cls });
+  }
+
+  return result;
+}
+
 /**
  * Renders Markdown into a DOM container using purely safe DOM methods
  * (createElement, createTextNode, appendChild). Never touches innerHTML.
@@ -676,14 +788,17 @@ export function renderMarkdown(
   while (i < lines.length) {
     const line = lines[i];
 
-    // Fenced code block (```[lang])
-    const trimmedStart = line.trimStart();
-    if (trimmedStart.startsWith('```')) {
-      const lang = trimmedStart.slice(3).trim();
+    // Fenced code block (``` or ~~~ with length matching)
+    const fenceMatch = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    if (fenceMatch) {
+      const fenceChar = fenceMatch[2][0];
+      const fenceLen = fenceMatch[2].length;
+      const lang = fenceMatch[3].trim().split(/\s+/)[0];
       const codeLines: string[] = [];
       i++;
       while (i < lines.length) {
-        if (lines[i].trimStart().startsWith('```')) {
+        const closeRegex = new RegExp('^\\s*\\' + fenceChar + '{' + fenceLen + ',}\\s*$');
+        if (closeRegex.test(lines[i])) {
           i++;
           break;
         }
@@ -695,20 +810,14 @@ export function renderMarkdown(
         pre.dataset.lang = lang;
       }
       const code = doc.createElement('code');
-      const isDiff = lang === 'diff' || lang === 'patch' || (!lang && codeLines.some(l => l.startsWith('@@ ') || (l.startsWith('+') && !l.startsWith('+++')) || (l.startsWith('-') && !l.startsWith('---'))));
+      const isDiff = lang === 'diff' || lang === 'patch';
       if (isDiff) {
-        for (let j = 0; j < codeLines.length; j++) {
-          const cl = codeLines[j];
+        const classified = classifyDiffLines(codeLines);
+        for (let j = 0; j < classified.length; j++) {
+          const item = classified[j];
           const span = doc.createElement('span');
-          span.className = 'diff-line';
-          if (cl.startsWith('+') && !cl.startsWith('+++')) {
-            span.className += ' diff-add';
-          } else if (cl.startsWith('-') && !cl.startsWith('---')) {
-            span.className += ' diff-del';
-          } else if (cl.startsWith('@@')) {
-            span.className += ' diff-hunk';
-          }
-          span.textContent = cl + (j < codeLines.length - 1 ? '\n' : '');
+          span.className = 'diff-line ' + item.cls;
+          span.textContent = item.text + (j < classified.length - 1 ? '\n' : '');
           code.appendChild(span);
         }
       } else {
@@ -792,31 +901,98 @@ export function renderMarkdown(
       continue;
     }
 
-    // Unordered List: - item or * item
-    if (/^\s*[-*]\s+/.test(line)) {
-      const ul = doc.createElement('ul');
-      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
-        const itemText = lines[i].replace(/^\s*[-*]\s+/, '');
-        const li = doc.createElement('li');
-        renderInline(li, itemText);
-        ul.appendChild(li);
-        i++;
+    // Lists: unordered or ordered (supports nesting and start numbers)
+    const isUnordered = /^(\s*)([-*+])\s+(.*)$/.exec(line);
+    const isOrdered = /^(\s*)(\d+)\.\s+(.*)$/.exec(line);
+    if (isUnordered || isOrdered) {
+      interface RawItem {
+        indent: number;
+        isOrdered: boolean;
+        start?: number;
+        text: string;
       }
-      container.appendChild(ul);
-      continue;
-    }
+      const items: RawItem[] = [];
+      while (i < lines.length) {
+        const u = /^(\s*)([-*+])\s+(.*)$/.exec(lines[i]);
+        const o = /^(\s*)(\d+)\.\s+(.*)$/.exec(lines[i]);
+        if (u) {
+          items.push({ indent: u[1].length, isOrdered: false, text: u[3] });
+          i++;
+        } else if (o) {
+          items.push({
+            indent: o[1].length,
+            isOrdered: true,
+            start: parseInt(o[2], 10),
+            text: o[3],
+          });
+          i++;
+        } else {
+          break;
+        }
+      }
 
-    // Ordered List: 1. item
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const ol = doc.createElement('ol');
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        const itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
-        const li = doc.createElement('li');
-        renderInline(li, itemText);
-        ol.appendChild(li);
-        i++;
+      interface StackItem {
+        indent: number;
+        listEl: HTMLElement;
+        lastLi: HTMLElement;
       }
-      container.appendChild(ol);
+
+      const rootList = doc.createElement(items[0].isOrdered ? 'ol' : 'ul');
+      if (items[0].isOrdered && items[0].start !== undefined && items[0].start !== 1) {
+        rootList.setAttribute('start', String(items[0].start));
+        (rootList as HTMLOListElement).start = items[0].start;
+      }
+      const firstLi = doc.createElement('li');
+      renderInline(firstLi, items[0].text);
+      rootList.appendChild(firstLi);
+      container.appendChild(rootList);
+
+      const stack: StackItem[] = [
+        { indent: items[0].indent, listEl: rootList, lastLi: firstLi },
+      ];
+
+      for (let k = 1; k < items.length; k++) {
+        const item = items[k];
+        if (item.indent > stack[stack.length - 1].indent) {
+          const childList = doc.createElement(item.isOrdered ? 'ol' : 'ul');
+          if (item.isOrdered && item.start !== undefined && item.start !== 1) {
+            childList.setAttribute('start', String(item.start));
+            (childList as HTMLOListElement).start = item.start;
+          }
+          const li = doc.createElement('li');
+          renderInline(li, item.text);
+          childList.appendChild(li);
+          stack[stack.length - 1].lastLi.appendChild(childList);
+          stack.push({ indent: item.indent, listEl: childList, lastLi: li });
+        } else {
+          while (stack.length > 1 && stack[stack.length - 1].indent > item.indent) {
+            stack.pop();
+          }
+          const current = stack[stack.length - 1];
+          const expectedTag = item.isOrdered ? 'OL' : 'UL';
+          if (current.listEl.tagName === expectedTag) {
+            const li = doc.createElement('li');
+            renderInline(li, item.text);
+            current.listEl.appendChild(li);
+            current.lastLi = li;
+          } else {
+            const siblingList = doc.createElement(expectedTag);
+            if (item.isOrdered && item.start !== undefined && item.start !== 1) {
+              siblingList.setAttribute('start', String(item.start));
+              (siblingList as HTMLOListElement).start = item.start;
+            }
+            const li = doc.createElement('li');
+            renderInline(li, item.text);
+            siblingList.appendChild(li);
+            if (stack.length > 1) {
+              stack[stack.length - 2].lastLi.appendChild(siblingList);
+            } else {
+              container.appendChild(siblingList);
+            }
+            stack[stack.length - 1] = { indent: item.indent, listEl: siblingList, lastLi: li };
+          }
+        }
+      }
       continue;
     }
 
@@ -832,12 +1008,12 @@ export function renderMarkdown(
     while (
       i < lines.length &&
       lines[i].trim() &&
-      !lines[i].trimStart().startsWith('```') &&
+      !/^(\s*)(`{3,}|~{3,})/.test(lines[i]) &&
       !lines[i].trimStart().startsWith('>') &&
       !/^(#{1,6})\s+/.test(lines[i]) &&
       !/^(\s*[-*_]\s*){3,}$/.test(lines[i]) &&
       !(lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|') && i + 1 < lines.length && isTableDivider(lines[i + 1])) &&
-      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*[-*+]\s+/.test(lines[i]) &&
       !/^\s*\d+\.\s+/.test(lines[i])
     ) {
       if (pLineCount > 0) {

@@ -40,6 +40,7 @@ var createWebviewInputAdapter;
 var createWebviewReceiveHandlers;
 var parseHostToWebviewMessage;
 var dispatchHostMessage;
+var classifyDiffLines;
 var renderMarkdown;
 (function () {
   var exports = typeof module !== 'undefined' && module.exports ? module.exports : {};
@@ -49,6 +50,7 @@ ${adapterCompiled}
   createWebviewReceiveHandlers = exports.createWebviewReceiveHandlers;
   parseHostToWebviewMessage = exports.parseHostToWebviewMessage;
   dispatchHostMessage = exports.dispatchHostMessage;
+  classifyDiffLines = exports.classifyDiffLines;
   renderMarkdown = exports.renderMarkdown;
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
@@ -56,6 +58,7 @@ ${adapterCompiled}
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     window.parseHostToWebviewMessage = parseHostToWebviewMessage;
     window.dispatchHostMessage = dispatchHostMessage;
+    window.classifyDiffLines = classifyDiffLines;
     window.renderMarkdown = renderMarkdown;
   }
   if (typeof module !== 'undefined' && module.exports) {
@@ -64,6 +67,7 @@ ${adapterCompiled}
     module.exports.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     module.exports.parseHostToWebviewMessage = parseHostToWebviewMessage;
     module.exports.dispatchHostMessage = dispatchHostMessage;
+    module.exports.classifyDiffLines = classifyDiffLines;
     module.exports.renderMarkdown = renderMarkdown;
   }
 })();
