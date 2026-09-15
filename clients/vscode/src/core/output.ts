@@ -24,42 +24,61 @@ export interface OutputItem {
  * Creates an opaque output ID for a finalized assistant message.
  */
 export function makeAssistantOutputId(seq: number): string {
+  if (!Number.isInteger(seq) || seq <= 0) {
+    throw new Error('seq must be a positive integer');
+  }
   return `assistant:${seq}`;
 }
 
 /**
- * Creates an opaque output ID for a tool result, binding both callId and result event seq.
+ * Creates an opaque output ID for a tool result, binding both encoded callId and result event seq.
+ *
+ * Encodes callId so colons within callId do not collide with delimiters.
+ * Requires a positive integer resultSeq for exact confirmed item resolution (§3.3).
  */
-export function makeToolResultOutputId(callId: string, resultSeq?: number): string {
-  return resultSeq !== undefined ? `tool:${callId}:${resultSeq}` : `tool:${callId}`;
+export function makeToolResultOutputId(callId: string, resultSeq: number): string {
+  if (!callId || typeof callId !== 'string') {
+    throw new Error('callId must be a non-empty string');
+  }
+  if (!Number.isInteger(resultSeq) || resultSeq <= 0) {
+    throw new Error('resultSeq must be a positive integer');
+  }
+  return `tool:${encodeURIComponent(callId)}:${resultSeq}`;
 }
 
 /**
  * Parses an opaque output ID into its constituent parts.
+ *
+ * Strictly rejects extra tokens, empty seq, malformed numbers, and unencoded delimiters.
  */
 export function parseOutputId(
   outputId: string
 ):
   | { kind: 'assistant'; seq: number }
-  | { kind: 'tool-result'; callId: string; resultSeq?: number }
+  | { kind: 'tool-result'; callId: string; resultSeq: number }
   | null {
   if (typeof outputId !== 'string' || !outputId) return null;
-  if (outputId.startsWith('assistant:')) {
-    const seq = Number(outputId.slice('assistant:'.length));
-    if (!Number.isInteger(seq) || seq <= 0) return null;
+  const parts = outputId.split(':');
+  if (parts.length === 2 && parts[0] === 'assistant') {
+    const rawSeq = parts[1];
+    if (!rawSeq || !/^[1-9]\d*$/.test(rawSeq)) return null;
+    const seq = Number(rawSeq);
+    if (!Number.isInteger(seq) || seq <= 0 || String(seq) !== rawSeq) return null;
     return { kind: 'assistant', seq };
   }
-  if (outputId.startsWith('tool:')) {
-    const rest = outputId.slice('tool:'.length);
-    if (!rest) return null;
-    const parts = rest.split(':');
-    const callId = parts[0];
-    if (!callId) return null;
-    const resultSeq = parts[1] !== undefined && parts[1] !== '' ? Number(parts[1]) : undefined;
-    if (resultSeq !== undefined && (!Number.isInteger(resultSeq) || resultSeq <= 0)) {
+  if (parts.length === 3 && parts[0] === 'tool') {
+    const rawCallId = parts[1];
+    const rawSeq = parts[2];
+    if (!rawCallId || !rawSeq || !/^[1-9]\d*$/.test(rawSeq)) return null;
+    const resultSeq = Number(rawSeq);
+    if (!Number.isInteger(resultSeq) || resultSeq <= 0 || String(resultSeq) !== rawSeq) return null;
+    try {
+      const callId = decodeURIComponent(rawCallId);
+      if (!callId) return null;
+      return { kind: 'tool-result', callId, resultSeq };
+    } catch {
       return null;
     }
-    return { kind: 'tool-result', callId, resultSeq };
   }
   return null;
 }
@@ -94,24 +113,13 @@ export function resolveOutputItem(events: Event[], outputId: string): OutputItem
   }
 
   if (parsed.kind === 'tool-result') {
-    let resultEv: Event | undefined;
-    if (parsed.resultSeq !== undefined) {
-      resultEv = events.find(
-        (e) =>
-          e.seq === parsed.resultSeq &&
-          e.type === 'part.appended' &&
-          (e.data as any)?.part?.kind === 'tool-result' &&
-          (e.data as any)?.part?.toolResult?.callId === parsed.callId
-      );
-      if (!resultEv) return null;
-    } else {
-      resultEv = [...events].reverse().find(
-        (e) =>
-          e.type === 'part.appended' &&
-          (e.data as any)?.part?.kind === 'tool-result' &&
-          (e.data as any)?.part?.toolResult?.callId === parsed.callId
-      );
-    }
+    const resultEv = events.find(
+      (e) =>
+        e.seq === parsed.resultSeq &&
+        e.type === 'part.appended' &&
+        (e.data as any)?.part?.kind === 'tool-result' &&
+        (e.data as any)?.part?.toolResult?.callId === parsed.callId
+    );
     if (!resultEv) return null;
 
     const toolResult = (resultEv.data as any)?.part?.toolResult as

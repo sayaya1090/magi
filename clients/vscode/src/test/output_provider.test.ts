@@ -254,7 +254,7 @@ test('openOutputDocument handles invalid or missing requests without side effect
   provider.dispose();
 });
 
-test('openOutputDocument guarantees protection release in finally when opening fails', async () => {
+test('openOutputDocument converts openTextDocument failure to opened: false and releases protection (§3.1)', async () => {
   resetMocks();
   const provider = new OutputProvider(1);
   const events: Event[] = [
@@ -265,30 +265,63 @@ test('openOutputDocument guarantees protection release in finally when opening f
     },
   ];
 
-  // Force showTextDocument to fail
+  const origOpen = vscodeMock.workspace.openTextDocument;
+  vscodeMock.workspace.openTextDocument = async () => {
+    throw new Error('Simulated workspace open error');
+  };
+
+  try {
+    const res = await openOutputDocument({
+      provider,
+      companionKey: '/workspace',
+      session: 's1',
+      outputId: 'assistant:50',
+      events,
+    });
+    assert.equal(res.opened, false);
+    assert.match(res.error ?? '', /Simulated workspace open error/);
+  } finally {
+    vscodeMock.workspace.openTextDocument = origOpen;
+  }
+
+  // Provider's tempPinned size must be 0 (no leaked protection)
+  assert.equal((provider as any).snapshots.tempPinnedSize, 0, 'in-flight protection must be released on openTextDocument failure');
+
+  provider.dispose();
+});
+
+test('openOutputDocument converts showTextDocument failure to opened: false and releases protection (§3.1)', async () => {
+  resetMocks();
+  const provider = new OutputProvider(1);
+  const events: Event[] = [
+    {
+      seq: 50,
+      type: 'part.appended',
+      data: { role: 'assistant', part: { kind: 'text', text: 'content' } },
+    },
+  ];
+
   const origShow = vscodeMock.window.showTextDocument;
   vscodeMock.window.showTextDocument = async () => {
     throw new Error('Simulated editor window error');
   };
 
   try {
-    await assert.rejects(
-      () =>
-        openOutputDocument({
-          provider,
-          companionKey: '/workspace',
-          session: 's1',
-          outputId: 'assistant:50',
-          events,
-        }),
-      /Simulated editor window error/
-    );
+    const res = await openOutputDocument({
+      provider,
+      companionKey: '/workspace',
+      session: 's1',
+      outputId: 'assistant:50',
+      events,
+    });
+    assert.equal(res.opened, false);
+    assert.match(res.error ?? '', /Simulated editor window error/);
   } finally {
     vscodeMock.window.showTextDocument = origShow;
   }
 
   // Provider's tempPinned size must be 0 (no leaked protection)
-  assert.equal((provider as any).snapshots.tempPinnedSize, 0, 'in-flight protection must be released on failure');
+  assert.equal((provider as any).snapshots.tempPinnedSize, 0, 'in-flight protection must be released on showTextDocument failure');
 
   provider.dispose();
 });
@@ -330,7 +363,97 @@ test('OutputProvider prunes unpinned items on didCloseTextDocument', () => {
   provider.dispose();
 });
 
-test('Chat host receives output message and dispatches openOutputDocument', async () => {
+test('openOutputDocument uses document returned by setTextDocumentLanguage and retains protection during close events (§3.2)', async () => {
+  resetMocks();
+  const provider = new OutputProvider(1);
+  const events: Event[] = [
+    {
+      seq: 60,
+      type: 'part.appended',
+      data: { role: 'assistant', part: { kind: 'text', text: '# Heading\nMarkdown text' } },
+    },
+  ];
+
+  let closeEventFiredDuringLanguageSwitch = false;
+  const origSetLang = vscodeMock.languages.setTextDocumentLanguage;
+  vscodeMock.languages.setTextDocumentLanguage = async (originalDoc: any, lang: string) => {
+    // Simulate VS Code closing old document during language change
+    closeEventFiredDuringLanguageSwitch = true;
+    for (const listener of closeDocListeners) {
+      listener(originalDoc);
+    }
+    // Return a distinct new document object as VS Code does
+    return {
+      uri: originalDoc.uri,
+      languageId: lang,
+      isReplacedInstance: true,
+      lineCount: 10,
+    };
+  };
+
+  try {
+    const res = await openOutputDocument({
+      provider,
+      companionKey: '/workspace',
+      session: 's1',
+      outputId: 'assistant:60',
+      events,
+    });
+
+    assert.equal(res.opened, true);
+    assert.ok(closeEventFiredDuringLanguageSwitch);
+    assert.equal(shownDocs.length, 1);
+    // Verified that showTextDocument received the returned document object (§3.2)
+    assert.equal(shownDocs[0].doc.isReplacedInstance, true, 'showTextDocument must receive the document returned by setTextDocumentLanguage');
+    assert.equal(shownDocs[0].doc.languageId, 'markdown');
+
+    // Document must NOT have been evicted by the close event because it was temp-protected
+    assert.ok(res.uri);
+    assert.equal(provider.get(res.uri), '# Heading\nMarkdown text', 'snapshot must survive close event during language switch');
+  } finally {
+    vscodeMock.languages.setTextDocumentLanguage = origSetLang;
+    provider.dispose();
+  }
+});
+
+test('openOutputDocument handles setTextDocumentLanguage failure by opening raw document and returning warning (§3.2)', async () => {
+  resetMocks();
+  const provider = new OutputProvider(1);
+  const events: Event[] = [
+    {
+      seq: 65,
+      type: 'part.appended',
+      data: { role: 'assistant', part: { kind: 'text', text: 'plain markdown' } },
+    },
+  ];
+
+  const origSetLang = vscodeMock.languages.setTextDocumentLanguage;
+  vscodeMock.languages.setTextDocumentLanguage = async () => {
+    throw new Error('Language server not installed');
+  };
+
+  try {
+    const res = await openOutputDocument({
+      provider,
+      companionKey: '/workspace',
+      session: 's1',
+      outputId: 'assistant:65',
+      events,
+    });
+
+    // Opens successfully with verbatim content inspection
+    assert.equal(res.opened, true);
+    assert.equal(shownDocs.length, 1);
+    assert.equal(shownDocs[0].doc.uri, res.uri);
+    // Returns warning so caller can notify user without masking language setting failure
+    assert.match(res.warning ?? '', /언어 모드 설정 실패: Language server not installed/);
+  } finally {
+    vscodeMock.languages.setTextDocumentLanguage = origSetLang;
+    provider.dispose();
+  }
+});
+
+test('Chat host receives output message, dispatches open, and handles failures via note without mode changes (§3.1)', async () => {
   resetMocks();
   const companion = {
     calls: [] as any[],
@@ -362,17 +485,102 @@ test('Chat host receives output message and dispatches openOutputDocument', asyn
     },
   ];
 
-  // Valid output request for active session
+  // 1. Valid output request for active session
   await chat.fromView({ kind: 'output', session: 'sess-active', outputId: 'assistant:70' });
 
   assert.equal(openedDocs.length, 1);
   assert.equal(shownDocs.length, 1);
   assert.ok(shownDocs[0].doc.uri.toString().includes('assistant%3A70'));
 
-  // Outdated request for switched session
+  // 2. Outdated request for switched session -> posts note
+  posted.length = 0;
   await chat.fromView({ kind: 'output', session: 'sess-old-expired', outputId: 'assistant:70' });
-  const noteMsg = posted.find((m) => m.kind === 'note' && m.text?.includes('자료를 더 이상 열 수 없음 — 세션이 일치하지 않습니다.'));
-  assert.ok(noteMsg, 'mismatched session request must post warning note');
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].kind, 'note');
+  assert.match(posted[0].text, /자료를 더 이상 열 수 없음 — 세션이 일치하지 않습니다\./);
+
+  // 3. Open failure (openTextDocument throws) -> handled via note, no uncaught rejection, no mode change
+  const origOpen = vscodeMock.workspace.openTextDocument;
+  vscodeMock.workspace.openTextDocument = async () => {
+    throw new Error('Disk read fault');
+  };
+  posted.length = 0;
+  try {
+    await chat.fromView({ kind: 'output', session: 'sess-active', outputId: 'assistant:70' });
+    assert.equal(posted.length, 1, 'exactly one note must be posted on open failure');
+    assert.equal(posted[0].kind, 'note');
+    assert.match(posted[0].text, /Disk read fault/);
+    assert.ok(!posted.some((m) => m.kind === 'ask' || m.kind === 'compose' || m.kind === 'rows'), 'no input or ask mode mutation');
+  } finally {
+    vscodeMock.workspace.openTextDocument = origOpen;
+  }
+
+  // 4. Open failure (showTextDocument throws) -> handled via note, no uncaught rejection, no mode change
+  const origShow = vscodeMock.window.showTextDocument;
+  vscodeMock.window.showTextDocument = async () => {
+    throw new Error('Display window unavailable');
+  };
+  posted.length = 0;
+  try {
+    await chat.fromView({ kind: 'output', session: 'sess-active', outputId: 'assistant:70' });
+    assert.equal(posted.length, 1, 'exactly one note must be posted on show failure');
+    assert.equal(posted[0].kind, 'note');
+    assert.match(posted[0].text, /Display window unavailable/);
+    assert.ok(!posted.some((m) => m.kind === 'ask' || m.kind === 'compose' || m.kind === 'rows'), 'no input or ask mode mutation');
+  } finally {
+    vscodeMock.window.showTextDocument = origShow;
+  }
 
   chat.dispose();
+});
+
+test('Chat.dispose disposes provider, workspace registration, and companion listener exactly once (§3.3)', () => {
+  resetMocks();
+  let providerRegDisposed = 0;
+  let companionListenerDisposed = 0;
+
+  const origRegister = vscodeMock.workspace.registerTextDocumentContentProvider;
+  vscodeMock.workspace.registerTextDocumentContentProvider = (scheme: string, provider: any) => {
+    const reg = origRegister(scheme, provider);
+    return {
+      dispose() {
+        if (scheme === OutputProvider.scheme) {
+          providerRegDisposed++;
+        }
+        reg.dispose();
+      },
+    };
+  };
+
+  const companion = {
+    workdir: '/workspace/test',
+    session: 'sess-1',
+    state: { state: 'idle' as any },
+    version: '1.0.0',
+    onChanged: () => ({
+      dispose() {
+        companionListenerDisposed++;
+      },
+    }),
+    ask: async () => ({ ok: true }),
+  };
+
+  try {
+    const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+    const outputProvider = (chat as any).outputProvider;
+    let providerDisposeCalls = 0;
+    const origProviderDispose = outputProvider.dispose.bind(outputProvider);
+    outputProvider.dispose = () => {
+      providerDisposeCalls++;
+      origProviderDispose();
+    };
+
+    chat.dispose();
+
+    assert.equal(providerRegDisposed, 1, 'workspace provider registration must be disposed exactly once');
+    assert.equal(providerDisposeCalls, 1, 'outputProvider must be disposed exactly once (no double-free)');
+    assert.equal(companionListenerDisposed, 1, 'companion listener subscription must be disposed exactly once');
+  } finally {
+    vscodeMock.workspace.registerTextDocumentContentProvider = origRegister;
+  }
 });

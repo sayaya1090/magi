@@ -113,6 +113,7 @@ export interface OpenOutputOptions {
 export interface OpenOutputResult {
   opened: boolean;
   error?: string;
+  warning?: string;
   uri?: vscode.Uri;
 }
 
@@ -124,7 +125,9 @@ export interface OpenOutputResult {
  *  - Does NOT mutate any file on disk, auto-approve, or re-run tools.
  *  - Uses deterministic URIs so repeated clicks reuse the existing tab.
  *  - Protects snapshot during tab opening via try ... finally so in-flight eviction never occurs.
- *  - Returns opened: true if opened, or opened: false with error reason.
+ *  - Catches IDE API errors into { opened: false, error } rather than throwing uncaught rejections.
+ *  - Uses the updated TextDocument returned by setTextDocumentLanguage.
+ *  - If language setting fails, retains raw document inspection and returns warning without masking failure.
  */
 export async function openOutputDocument(options: OpenOutputOptions): Promise<OpenOutputResult> {
   const { provider, companionKey, session, outputId, events, preserveFocus } = options;
@@ -144,14 +147,25 @@ export async function openOutputDocument(options: OpenOutputOptions): Promise<Op
   const unprotect = provider.protectTemp([uri]);
   try {
     provider.put(uri, item.content);
-    const doc = await vscode.workspace.openTextDocument(uri);
+    let doc = await vscode.workspace.openTextDocument(uri);
+    let warning: string | undefined;
     if (item.language && vscode.languages?.setTextDocumentLanguage) {
       try {
-        await vscode.languages.setTextDocumentLanguage(doc, item.language);
-      } catch {}
+        const updatedDoc = await vscode.languages.setTextDocumentLanguage(doc, item.language);
+        if (updatedDoc) {
+          doc = updatedDoc;
+        }
+      } catch (langErr: any) {
+        warning = langErr?.message ? `언어 모드 설정 실패: ${langErr.message}` : '언어 모드 설정 실패';
+      }
     }
     await vscode.window.showTextDocument(doc, { preview: true, preserveFocus: preserveFocus ?? false });
-    return { opened: true, uri };
+    return { opened: true, uri, ...(warning ? { warning } : {}) };
+  } catch (err: any) {
+    return {
+      opened: false,
+      error: err?.message ? `편집창 열기 실패: ${err.message}` : '편집창 열기 실패',
+    };
   } finally {
     unprotect();
   }

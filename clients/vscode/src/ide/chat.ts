@@ -538,16 +538,22 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
           this.post({ kind: 'note', text: '자료를 더 이상 열 수 없음 — 세션이 일치하지 않습니다.' });
           break;
         }
-        const res = await openOutputDocument({
-          provider: this.outputProvider,
-          companionKey: this.companion.workdir,
-          session: m.session,
-          outputId: m.outputId,
-          events: this.events,
-          preserveFocus: false,
-        });
-        if (!res.opened) {
-          this.post({ kind: 'note', text: res.error ?? '자료를 더 이상 열 수 없음' });
+        try {
+          const res = await openOutputDocument({
+            provider: this.outputProvider,
+            companionKey: this.companion.workdir,
+            session: m.session,
+            outputId: m.outputId,
+            events: this.events,
+            preserveFocus: false,
+          });
+          if (!res.opened) {
+            this.post({ kind: 'note', text: res.error ?? '자료를 더 이상 열 수 없음' });
+          } else if (res.warning) {
+            this.post({ kind: 'note', text: res.warning });
+          }
+        } catch (err: any) {
+          this.post({ kind: 'note', text: err?.message ?? '자료를 더 이상 열 수 없음' });
         }
         break;
       }
@@ -638,7 +644,6 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.stream?.close();
     this.edits.dispose();
     this.asks.clear();
-    this.outputProvider.dispose();
     for (const s of this.subs) s.dispose();
   }
 

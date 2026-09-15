@@ -11,23 +11,47 @@ import {
   OutputSnapshots,
 } from '../core/output';
 
-test('makeAssistantOutputId and makeToolResultOutputId create valid IDs', () => {
+test('makeAssistantOutputId and makeToolResultOutputId create valid IDs and parseOutputId strictly validates', () => {
   assert.equal(makeAssistantOutputId(42), 'assistant:42');
-  assert.equal(makeToolResultOutputId('call_1'), 'tool:call_1');
   assert.equal(makeToolResultOutputId('call_1', 99), 'tool:call_1:99');
 
-  assert.deepEqual(parseOutputId('assistant:42'), { kind: 'assistant', seq: 42 });
-  assert.deepEqual(parseOutputId('tool:call_1'), { kind: 'tool-result', callId: 'call_1', resultSeq: undefined });
-  assert.deepEqual(parseOutputId('tool:call_1:99'), { kind: 'tool-result', callId: 'call_1', resultSeq: 99 });
+  // callId containing colons is URL-encoded so colons do not collide with delimiters (§3.3)
+  assert.equal(makeToolResultOutputId('bash:cmd:1', 123), 'tool:bash%3Acmd%3A1:123');
 
-  // Invalid IDs
+  assert.deepEqual(parseOutputId('assistant:42'), { kind: 'assistant', seq: 42 });
+  assert.deepEqual(parseOutputId('tool:call_1:99'), { kind: 'tool-result', callId: 'call_1', resultSeq: 99 });
+  assert.deepEqual(parseOutputId('tool:bash%3Acmd%3A1:123'), { kind: 'tool-result', callId: 'bash:cmd:1', resultSeq: 123 });
+
+  // Disallow missing resultSeq for tool-result (must be pinned for confirmed items)
+  assert.equal(parseOutputId('tool:call_1'), null, 'tool ID without resultSeq must be rejected');
+
+  // Invalid IDs: extra tokens, empty seq, negative numbers, floats, non-numeric strings
   assert.equal(parseOutputId(''), null);
   assert.equal(parseOutputId('assistant:'), null);
-  assert.equal(parseOutputId('assistant:abc'), null);
+  assert.equal(parseOutputId('assistant:0'), null);
   assert.equal(parseOutputId('assistant:-5'), null);
+  assert.equal(parseOutputId('assistant:1.5'), null);
+  assert.equal(parseOutputId('assistant:abc'), null);
+  assert.equal(parseOutputId('assistant:42:extra'), null, 'extra token in assistant ID rejected');
+
   assert.equal(parseOutputId('tool:'), null);
-  assert.equal(parseOutputId('tool::99'), null);
+  assert.equal(parseOutputId('tool::99'), null, 'empty callId rejected');
+  assert.equal(parseOutputId('tool:call:'), null, 'empty resultSeq rejected');
+  assert.equal(parseOutputId('tool:call:0'), null, 'zero resultSeq rejected');
+  assert.equal(parseOutputId('tool:call:-1'), null, 'negative resultSeq rejected');
+  assert.equal(parseOutputId('tool:call:1.5'), null, 'float resultSeq rejected');
+  assert.equal(parseOutputId('tool:call:abc'), null, 'non-numeric resultSeq rejected');
+  assert.equal(parseOutputId('tool:call:99:extra'), null, 'extra token in tool ID rejected');
+  assert.equal(parseOutputId('tool:%E0%A4%A:99'), null, 'malformed URI-encoded callId rejected');
   assert.equal(parseOutputId('other:123'), null);
+
+  // Constructor guards
+  assert.throws(() => makeAssistantOutputId(0), /seq must be a positive integer/);
+  assert.throws(() => makeAssistantOutputId(-1), /seq must be a positive integer/);
+  assert.throws(() => makeAssistantOutputId(1.5), /seq must be a positive integer/);
+  assert.throws(() => (makeToolResultOutputId as any)('call'), /resultSeq must be a positive integer/);
+  assert.throws(() => makeToolResultOutputId('call', 0), /resultSeq must be a positive integer/);
+  assert.throws(() => makeToolResultOutputId('', 10), /callId must be a non-empty string/);
 });
 
 test('resolveOutputItem preserves assistant raw text without trim, clip, or line-ending changes (>100 chars, newlines, trailing newline)', () => {
@@ -132,11 +156,28 @@ test('resolveOutputItem distinguishes tool call seq from tool result seq and res
   assert.equal(item.title, 'bash 결과');
   assert.equal(item.content, 'On branch main\nChanges not staged for commit:\n\tmodified: foo.ts\n');
 
-  // Resolving by callId alone also finds the tool-result event and tool name
-  const itemByCall = resolveOutputItem(events, 'tool:call_bash_1');
-  assert.ok(itemByCall);
-  assert.equal(itemByCall.title, 'bash 결과');
-  assert.equal(itemByCall.content, item.content);
+  // Resolving by callId alone without resultSeq must return null (strict resultSeq requirement §3.3)
+  assert.equal(resolveOutputItem(events, 'tool:call_bash_1'), null);
+
+  // Resolving tool result whose callId contains colons
+  const colonEvents: Event[] = [
+    {
+      seq: 30,
+      type: 'part.appended',
+      data: { role: 'assistant', part: { kind: 'tool-call', toolCall: { callId: 'bash:exec:1', name: 'bash' } } },
+    },
+    {
+      seq: 32,
+      type: 'part.appended',
+      data: { role: 'tool', part: { kind: 'tool-result', toolResult: { callId: 'bash:exec:1', content: 'hello from colon call' } } },
+    },
+  ];
+  const colonId = makeToolResultOutputId('bash:exec:1', 32);
+  assert.equal(colonId, 'tool:bash%3Aexec%3A1:32');
+  const colonItem = resolveOutputItem(colonEvents, colonId);
+  assert.ok(colonItem);
+  assert.equal(colonItem.content, 'hello from colon call');
+  assert.equal(colonItem.title, 'bash 결과');
 });
 
 test('resolveOutputItem formats structured tool results with JSON and marks (JSON) in title', () => {
