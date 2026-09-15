@@ -85,7 +85,7 @@ export function activate(ctx: vscode.ExtensionContext): void {
     // stopped when it did not; what actually stopped shows up in the transcript. The JetBrains
     // client carries that rule in a comment on its own Stop button.
     vscode.commands.registerCommand('magi.interrupt', () => void (async () => {
-      const r = await companion.ask('interrupt');
+      const r = await companion.ask('interrupt', chat.session ? { session: chat.session } : {});
       if (!r?.ok) void vscode.window.showWarningMessage(`magi: stop did not go — ${r?.error ?? 'no companion is listening on this workspace.'}`);
     })()),
   );

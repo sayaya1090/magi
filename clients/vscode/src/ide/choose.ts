@@ -25,7 +25,10 @@ export function chooseCommands(companion: Companion, chat: Chat): vscode.Disposa
       }
       const pick = await vscode.window.showQuickPick(names, { title: 'magi — model' });
       if (!pick) return;
-      const set = await companion.ask('set-model', { name: pick });
+      const set = await companion.ask('set-model', {
+        name: pick,
+        ...(chat.session ? { session: chat.session } : {}),
+      });
       if (!set?.ok) void vscode.window.showWarningMessage(`magi: ${set?.error ?? 'the model did not change'}`);
     }),
 
