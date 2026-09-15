@@ -1,5 +1,5 @@
 import { Event } from './protocol';
-import { extractFileNav, FileNav } from './nav';
+import { extractFileNav, FileNav } from './nav_tool';
 
 /**
  * Events into rows, in ONE place.
@@ -839,9 +839,13 @@ export function askedFor(args: unknown): string | undefined {
   } else {
     return clip(String(args));
   }
-  for (const k of ['path', 'command', 'pattern', 'query', 'id', 'name']) {
-    const v = o[k];
-    if (typeof v === 'string' && v.trim()) return clip(v.trim());
+  const keys = Object.keys(o);
+  if (keys.length === 0) return undefined;
+  if (keys.length === 1) {
+    for (const k of ['path', 'command', 'pattern', 'query', 'id', 'name']) {
+      const v = o[k];
+      if (typeof v === 'string' && v.trim()) return clip(v.trim());
+    }
   }
   const rest = JSON.stringify(o);
   return rest && rest !== '{}' ? clip(rest) : undefined;

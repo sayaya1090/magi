@@ -5,116 +5,16 @@ import { Event } from './protocol';
 import { rows } from './transcript';
 import { pendingAsk } from './touched';
 import { AskStore } from './diff';
+import { extractAskFilePath } from './nav_tool';
 
-/**
- * Structured file navigation extracted from tool contracts.
- *
- * Invariant: only tools with verified file paths in their schemas/contracts are navigated.
- * Directories (such as `list`), glob patterns (`glob`), commands (`bash`), and queries (`grep`)
- * are NEVER treated as files.
- *
- * Line navigation is only included when the tool contract specifies a verified start line
- * (`offset` for `read`, `at` for `edit`, `line` for `show`).
- */
-
-export interface FileNav {
-  path: string;
-  line?: number;
-}
-
-/** Supported file tools and their line parameter names. */
-const FILE_TOOLS: Record<string, string | null> = {
-  read: 'offset',
-  edit: 'at',
-  show: 'line',
-  write: null,
-  multiedit: null,
-  apply_edit: null,
-};
-
-/** Normalize tool name by stripping MCP prefix and trimming. */
-export function normalizeToolName(name: string): string {
-  const trimmed = name.trim().toLowerCase();
-  return trimmed.replace(/^mcp__.*?__/, '');
-}
-
-/** Parse a positive 1-based integer line number from number or string. */
-export function parsePositiveInteger(val: unknown): number | undefined {
-  if (typeof val === 'number') {
-    return Number.isInteger(val) && val > 0 ? val : undefined;
-  }
-  if (typeof val === 'string') {
-    const s = val.trim();
-    if (/^\d+$/.test(s)) {
-      const n = Number.parseInt(s, 10);
-      return n > 0 ? n : undefined;
-    }
-  }
-  return undefined;
-}
-
-/** Parse arguments payload (Record or JSON string) safely. */
-export function parseToolArgs(args: unknown): Record<string, unknown> | undefined {
-  if (!args) return undefined;
-  if (typeof args === 'object' && !Array.isArray(args)) {
-    return args as Record<string, unknown>;
-  }
-  if (typeof args === 'string') {
-    const s = args.trim();
-    if (!s || (!s.startsWith('{') && !s.startsWith('['))) return undefined;
-    try {
-      const parsed = JSON.parse(s);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return parsed as Record<string, unknown>;
-      }
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Extract structured file and line navigation from a tool call.
- *
- * Returns undefined if:
- * - Tool is not a recognized file tool (e.g. list, glob, bash, grep, problems)
- * - Path is missing, empty, or not a string
- */
-export function extractFileNav(toolName: string, args: unknown): FileNav | undefined {
-  const norm = normalizeToolName(toolName);
-  if (!Object.prototype.hasOwnProperty.call(FILE_TOOLS, norm)) {
-    return undefined;
-  }
-
-  const parsed = parseToolArgs(args);
-  if (!parsed) return undefined;
-
-  const rawPath = parsed.path;
-  if (typeof rawPath !== 'string') return undefined;
-  const path = rawPath.trim();
-  if (!path) return undefined;
-
-  const lineProp = FILE_TOOLS[norm];
-  const line = lineProp ? parsePositiveInteger(parsed[lineProp]) : undefined;
-
-  return line !== undefined ? { path, line } : { path };
-}
-
-/**
- * Extract target file path for an approval request (permission ask).
- * Returns undefined if what is not a file tool or has no valid path.
- */
-export function extractAskFilePath(ask: { what: string; args?: unknown }): string | undefined {
-  const nav = extractFileNav(ask.what, ask.args);
-  return nav?.path;
-}
+export * from './nav_tool';
 
 export interface FileOpener {
   openDocument(absPath: string, line?: number): Promise<{ opened: boolean; line?: number }>;
 }
 
 export interface OpenTargetRequest {
+  session?: string;
   callId?: string;
   seq?: number;
 }
@@ -138,6 +38,9 @@ export interface ResolveAndOpenOptions {
 /**
  * Validate navigation request, resolve path within workspace boundary, verify existence,
  * and navigate via opener.
+ *
+ * Invariant: Requests from old/replaced sessions or mismatched call IDs are rejected.
+ * Missing files are NEVER created. Directory paths are rejected.
  */
 export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<boolean> {
   const {
@@ -158,14 +61,35 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
     return false;
   }
 
+  if (m.session && m.session !== session) {
+    postNote('이전 세션의 요청은 현재 세션에서 열 수 없습니다.');
+    return false;
+  }
+
   let targetPath: string | undefined;
   let line: number | undefined;
   let targetWorkdir = companionWorkdir;
 
-  if (m.callId) {
+  if (m.seq !== undefined) {
+    const row = rows(events).find((r) => r.seq === m.seq);
+    if (!row) {
+      postNote('현재 세션에서 해당 행을 찾을 수 없습니다.');
+      return false;
+    }
+    if (m.callId && row.callId && row.callId !== m.callId) {
+      postNote('이전 세션의 도구 요청은 현재 세션에서 열 수 없습니다.');
+      return false;
+    }
+    if (!row.fileNav) {
+      postNote('해당 도구 행에는 파일 이동 정보가 없습니다.');
+      return false;
+    }
+    targetPath = row.fileNav.path;
+    line = row.fileNav.line;
+  } else if (m.callId) {
     const stored = asks.get(m.callId);
     if (stored) {
-      if (stored.sessionId !== session) {
+      if (stored.sessionId !== session || (m.session && m.session !== stored.sessionId)) {
         postNote('이전 세션의 승인 요청은 현재 세션에서 열 수 없습니다.');
         return false;
       }
@@ -182,18 +106,6 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
       postNote('승인 요청에서 유효한 파일 경로를 찾을 수 없습니다.');
       return false;
     }
-  } else if (m.seq !== undefined) {
-    const row = rows(events).find((r) => r.seq === m.seq);
-    if (!row) {
-      postNote('현재 세션에서 해당 행을 찾을 수 없습니다.');
-      return false;
-    }
-    if (!row.fileNav) {
-      postNote('해당 도구 행에는 파일 이동 정보가 없습니다.');
-      return false;
-    }
-    targetPath = row.fileNav.path;
-    line = row.fileNav.line;
   } else {
     return false;
   }

@@ -11,7 +11,7 @@ import { Edits } from './edits';
 import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
-import { resolveAndOpenFile } from '../core/nav';
+import { resolveAndOpenFile, extractAskFilePath } from '../core/nav';
 
 /**
  * The conversation, in the panel.
@@ -163,10 +163,13 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 
   private draw(): void {
     const rawAsk = pendingAsk(this.events);
-    const ask = rawAsk ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk) } : null;
+    const ask = rawAsk
+      ? { ...rawAsk, diffKind: determineApprovalDiffKind(rawAsk), filePath: extractAskFilePath(rawAsk) }
+      : null;
     if (ask) this.asks.record(ask, this.companion.workdir, this.session);
     this.post({
       kind: 'rows',
+      session: this.session,
       rows: rows(this.events).map((r) => paint(r, this.companion.you)),
       ask,
       refs: this.refs.map(refText),
@@ -336,7 +339,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number; seq?: number }): Promise<void> {
+  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number; seq?: number; session?: string }): Promise<void> {
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });
@@ -843,14 +846,13 @@ function drawAsk(a) {
   sumText.className = 'summary-text';
   const countTag = a.total > 1 ? ' (' + a.index + '/' + a.total + ')' : '';
   const labelPrefix = a.kind === 'permission' ? '승인 대기: ' : '답변 대기: ';
-  let targetPath = '';
-  if (a.args) {
+  let targetPath = (a.filePath || '').trim();
+  if (!targetPath && a.args) {
     try {
       const parsed = typeof a.args === 'string' ? JSON.parse(a.args) : a.args;
-      if (parsed && typeof parsed.path === 'string' && parsed.path.trim()) {
-        const normWhat = (a.what || '').trim().toLowerCase().replace(/^mcp__.*?__/, '');
-        const fileTools = ['read', 'edit', 'write', 'multiedit', 'show', 'apply_edit'];
-        if (fileTools.indexOf(normWhat) >= 0) {
+      if (parsed && typeof parsed.path === 'string') {
+        const norm = (a.what || '').trim().toLowerCase();
+        if (['read', 'edit', 'write', 'multiedit', 'show', 'apply_edit'].includes(norm)) {
           targetPath = parsed.path.trim();
         }
       }
@@ -884,7 +886,11 @@ function drawAsk(a) {
       openBtn.textContent = targetPath;
       openBtn.title = '파일 열기 (현재 파일)';
       openBtn.setAttribute('aria-label', '파일 열기 (현재 파일): ' + targetPath);
-      openBtn.addEventListener('click', () => vs.postMessage({ kind: 'open', callId: a.callId }));
+      openBtn.addEventListener('click', () => {
+        const msg = { kind: 'open', callId: a.callId };
+        if (currentSession) msg.session = currentSession;
+        vs.postMessage(msg);
+      });
       fileEl.append(openBtn);
       askBodyEl.append(fileEl);
     }
@@ -1043,6 +1049,7 @@ function drawInfo() {
   infoEl.append(acts);
 }
 const answerState = createAnswerState();
+let currentSession = '';
 let mentions = [];
 let suggestReqId = 0;
 function clearAutoCompletion() {
@@ -1180,14 +1187,21 @@ function draw(rs) {
       a.setAttribute('aria-label', a.title);
       a.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        vs.postMessage({ kind: 'open', seq: r.seq });
+        const msg = { kind: 'open', seq: r.seq };
+        if (currentSession) msg.session = currentSession;
+        if (r.callId) msg.callId = r.callId;
+        vs.postMessage(msg);
       });
       b.append(' ', a);
-    } else if (r.who === 'tool' && r.args) {
-      const a = document.createElement('span');
-      a.className = 'args';
-      a.textContent = r.args;
-      b.append(' ', a);
+    }
+    if (r.who === 'tool' && r.args) {
+      const loc = r.fileNav ? (r.fileNav.line ? r.fileNav.path + ':' + r.fileNav.line : r.fileNav.path) : '';
+      if (!r.fileNav || (r.args !== r.fileNav.path && r.args !== loc)) {
+        const a = document.createElement('span');
+        a.className = 'args';
+        a.textContent = r.args;
+        b.append(' ', a);
+      }
     }
     d.append(w, b);
     rowsEl.append(d);
@@ -1196,6 +1210,7 @@ function draw(rs) {
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind === 'rows') {
+    currentSession = m.session || '';
     /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
        an older row is the single most annoying thing a live transcript does.
        Sampled BEFORE updating rows and ask, applied AFTER both are rendered so the full new height is known. */

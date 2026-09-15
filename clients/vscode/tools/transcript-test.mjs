@@ -791,6 +791,7 @@ try {
       callId: 'perm-edit-native',
       diffKind: 'sides',
       what: 'edit',
+      filePath: 'src/model/user.ts',
       args: JSON.stringify({ path: 'src/model/user.ts', old: 'const a = 1;\n', new: 'const a = 2;\n' }),
       reason: 'update user version property'
     }
@@ -835,6 +836,7 @@ try {
       callId: 'perm-patch-native',
       diffKind: 'patch',
       what: 'write',
+      filePath: 'README.md',
       args: JSON.stringify({ path: 'README.md' }),
       diff: '--- a/README.md\n+++ b/README.md\n@@ -1 +1 @@\n-# Old\n+# New\n'
     }
@@ -867,6 +869,7 @@ try {
       callId: 'perm-edit-rejected',
       diffKind: 'none',
       what: 'edit',
+      filePath: 'src/config.ts',
       args: JSON.stringify({ path: 'src/config.ts', old: 'a', new: 'b', replaceAll: 'TRUE' })
     }
   }, '*'));
@@ -879,8 +882,9 @@ try {
   // Condition 22: Tool row file and line navigation
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
+    session: 'sess-42',
     rows: [
-      { who: 'tool', label: 'read ✓', text: 'read', seq: 42, fileNav: { path: 'src/app.ts', line: 15 } },
+      { who: 'tool', label: 'read ✓', text: 'read', seq: 42, callId: 'c-42', fileNav: { path: 'src/app.ts', line: 15 }, args: '{"limit":30,"offset":15,"path":"src/app.ts"}' },
       { who: 'tool', label: 'bash ✓', text: 'bash', seq: 43, args: 'npm test' }
     ],
     ask: null
@@ -893,13 +897,18 @@ try {
   const fileBtnText = await fileRowBtn.textContent();
   assert.equal(fileBtnText, 'src/app.ts:15', 'tool row renders fileNav with line');
 
+  // Tool row also keeps span.args accessible alongside fileNav button for offset/limit details
+  const toolArgs = await page.locator('#rows .row.tool:nth-child(1) span.args').textContent();
+  assert.ok(toolArgs.includes('limit'), 'args remains accessible alongside fileNav button');
+  assert.ok(toolArgs.includes('15'), 'offset remains accessible');
+
   // Click tool row file button
   const postedBeforeRowClick = await page.evaluate(() => window.__posted.length);
   await fileRowBtn.click();
   const postedAfterRowClick = await page.evaluate(() => window.__posted);
   assert.equal(postedAfterRowClick.length, postedBeforeRowClick + 1, 'posted one message on tool row file click');
   const rowPosted = postedAfterRowClick[postedAfterRowClick.length - 1];
-  assert.deepEqual(rowPosted, { kind: 'open', seq: 42 }, 'posts open kind with row seq');
+  assert.deepEqual(rowPosted, { kind: 'open', seq: 42, session: 'sess-42', callId: 'c-42' }, 'posts open kind with row seq, session, and callId');
 
   // Bash row has plain args span, not a button
   const bashArgs = await page.locator('#rows .row.tool:nth-child(2) span.args').textContent();

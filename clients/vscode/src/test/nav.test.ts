@@ -6,19 +6,36 @@ import * as path from 'path';
 import {
   extractFileNav,
   extractAskFilePath,
-  normalizeToolName,
   parsePositiveInteger,
   resolveAndOpenFile,
   FileOpener,
 } from '../core/nav';
 import { AskStore } from '../core/diff';
 import { Event } from '../core/protocol';
+import { rows } from '../core/transcript';
 
-test('normalizeToolName strips mcp prefix and trims', () => {
-  assert.equal(normalizeToolName('read'), 'read');
-  assert.equal(normalizeToolName('  READ  '), 'read');
-  assert.equal(normalizeToolName('mcp__vscode__show'), 'show');
-  assert.equal(normalizeToolName('mcp__server_1__apply_edit'), 'apply_edit');
+test('extractFileNav accepts verified IDE companion tools and rejects arbitrary MCP servers', () => {
+  // Verified IDE companion tools
+  assert.deepEqual(extractFileNav('mcp__vscode__show', { path: 'src/app.ts', line: '50' }), {
+    path: 'src/app.ts',
+    line: 50,
+  });
+  assert.deepEqual(extractFileNav('mcp__vscode__apply_edit', { path: 'src/app.ts' }), {
+    path: 'src/app.ts',
+  });
+  assert.deepEqual(extractFileNav('mcp__jetbrains__show', { path: 'src/app.ts', line: 20 }), {
+    path: 'src/app.ts',
+    line: 20,
+  });
+  assert.deepEqual(extractFileNav('mcp__jetbrains__apply_edit', { path: 'src/app.ts' }), {
+    path: 'src/app.ts',
+  });
+
+  // Arbitrary or unknown MCP servers must NEVER be assumed to handle local files
+  assert.equal(extractFileNav('mcp__unknown__read', { path: 'src/app.ts', offset: 10 }), undefined);
+  assert.equal(extractFileNav('mcp__github__read', { path: 'src/app.ts' }), undefined);
+  assert.equal(extractFileNav('mcp__custom__apply_edit', { path: 'src/app.ts' }), undefined);
+  assert.equal(extractFileNav('mcp__remote__edit', { path: 'src/app.ts', at: 10 }), undefined);
 });
 
 test('parsePositiveInteger handles numbers and strings', () => {
@@ -494,3 +511,94 @@ test('adapter test: multi-workspace isolation uses origin companion workdir', as
     fs.rmSync(tmpB, { recursive: true, force: true });
   }
 });
+
+test('adapter test: late tool row click from session A does not open session B file even with identical seq', async () => {
+  const tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-test-sessA-'));
+  const tmpB = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-test-sessB-'));
+  try {
+    const fileA = path.join(tmpA, 'file_a.ts');
+    fs.writeFileSync(fileA, 'content A');
+    const fileB = path.join(tmpB, 'file_b.ts');
+    fs.writeFileSync(fileB, 'content B');
+
+    // Both sessions have a tool call at seq: 1 with different files and callIds
+    const eventsB: Event[] = [
+      toolEvent(1, 'read', { path: 'file_b.ts' }),
+    ];
+
+    const opener = new FakeOpener();
+    const notes: string[] = [];
+    const asks = new AskStore(10);
+
+    // Case 1: Late click from session A carrying session identifier 'sess-A'
+    const ok1 = await resolveAndOpenFile({
+      m: { seq: 1, session: 'sess-A', callId: 'call-1' },
+      session: 'sess-B',
+      companionWorkdir: tmpB,
+      asks,
+      events: eventsB,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+
+    assert.equal(ok1, false, 'late click from session A must be rejected on session B');
+    assert.equal(opener.calls.length, 0, 'session B file must NOT be opened');
+    assert.ok(notes.some((n) => n.includes('이전 세션')), 'note explains previous session rejection');
+
+    // Case 2: Late click with mismatched callId from session A
+    notes.length = 0;
+    const ok2 = await resolveAndOpenFile({
+      m: { seq: 1, callId: 'call-different-from-session-A' },
+      session: 'sess-B',
+      companionWorkdir: tmpB,
+      asks,
+      events: eventsB,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+
+    assert.equal(ok2, false, 'click with mismatched callId must be rejected');
+    assert.equal(opener.calls.length, 0, 'session B file must NOT be opened');
+    assert.ok(notes.some((n) => n.includes('이전 세션')), 'note explains tool request rejection');
+  } finally {
+    fs.rmSync(tmpA, { recursive: true, force: true });
+    fs.rmSync(tmpB, { recursive: true, force: true });
+  }
+});
+
+test('edit old/new and read offset/limit are preserved in r.args alongside r.fileNav', () => {
+  // Edit tool with path, at, old, new
+  const editEvents: Event[] = [
+    toolEvent(1, 'edit', { path: 'src/main.ts', at: 10, old: 'const x = 1;', new: 'const x = 2;' }),
+  ];
+  const editRows = rows(editEvents);
+  assert.equal(editRows.length, 1);
+  const editRow = editRows[0];
+  assert.deepEqual(editRow.fileNav, { path: 'src/main.ts', line: 10 });
+  assert.ok(editRow.args, 'args must not be empty');
+  assert.ok(editRow.args.includes('const x = 1;'), 'args preserves old');
+  assert.ok(editRow.args.includes('const x = 2;'), 'args preserves new');
+
+  // Read tool with path, offset, limit
+  const readEvents: Event[] = [
+    toolEvent(2, 'read', { path: 'src/app.ts', offset: 15, limit: 30 }),
+  ];
+  const readRows = rows(readEvents);
+  assert.equal(readRows.length, 1);
+  const readRow = readRows[0];
+  assert.deepEqual(readRow.fileNav, { path: 'src/app.ts', line: 15 });
+  assert.ok(readRow.args, 'args must not be empty');
+  assert.ok(readRow.args.includes('15'), 'args preserves offset');
+  assert.ok(readRow.args.includes('30'), 'args preserves limit');
+
+  // Write tool with only path
+  const writeEvents: Event[] = [
+    toolEvent(3, 'write', { path: 'src/index.ts' }),
+  ];
+  const writeRows = rows(writeEvents);
+  assert.equal(writeRows.length, 1);
+  const writeRow = writeRows[0];
+  assert.deepEqual(writeRow.fileNav, { path: 'src/index.ts' });
+  assert.equal(writeRow.args, 'src/index.ts', 'single path argument is cleanly preserved');
+});
+
