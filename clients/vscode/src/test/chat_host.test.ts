@@ -229,3 +229,58 @@ test('Chat B0: first send failure restores draft and note without unhandled reje
   assert.equal((chat as any).refs.length, 1);
   assert.equal((chat as any).refs[0].label, 'foo.ts');
 });
+
+test('Chat B0: consecutive sends in empty session followed by screen switch before creation resolves routes both to created session (submit -> steer)', async () => {
+  const companion = createMockCompanion();
+  let resolveSessionNew!: (val: any) => void;
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'session-new') {
+      return new Promise((res) => { resolveSessionNew = res; });
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).post = () => {};
+  (chat as any).draw = () => {};
+  (chat as any).openStream = async () => {};
+
+  // 1. Initially on empty session
+  assert.equal(chat.session, '');
+
+  // 2. Send A and B consecutively while session is empty
+  const p1 = chat.fromView({ kind: 'say', text: 'Message A' });
+  const p2 = chat.fromView({ kind: 'say', text: 'Message B' });
+
+  // 3. Before session-new completes, user switches screen to 'sess-switched'
+  chat.showSession('sess-switched');
+  assert.equal(chat.session, 'sess-switched');
+
+  // 4. Now session-new completes with 'sess-created'
+  resolveSessionNew({ session: 'sess-created' });
+
+  await Promise.all([p1, p2]);
+
+  // 5. Active view session was not hijacked by late session-new
+  assert.equal(chat.session, 'sess-switched');
+
+  // 6. session-new was called only once
+  const sessionNewCalls = companion.calls.filter((c) => c.door === 'session-new');
+  assert.equal(sessionNewCalls.length, 1, 'session-new must only be called once');
+
+  // 7. Both messages targeted 'sess-created', first as submit, second as steer
+  const submitCall = companion.calls.find((c) => c.door === 'submit');
+  assert.equal(submitCall?.payload?.session, 'sess-created', 'first message must target created session');
+  assert.equal(submitCall?.payload?.text, 'Message A');
+
+  const steerCall = companion.calls.find((c) => c.door === 'steer');
+  assert.equal(steerCall?.payload?.session, 'sess-created', 'second message must target created session via steer');
+  assert.equal(steerCall?.payload?.text, 'Message B');
+
+  // 8. Absolutely no calls targeted 'sess-switched'
+  const switchedCalls = companion.calls.filter((c) => c.payload?.session === 'sess-switched');
+  assert.equal(switchedCalls.length, 0, 'no message must leak to switched session');
+});
+

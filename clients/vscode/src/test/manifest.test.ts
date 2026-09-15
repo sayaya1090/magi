@@ -322,7 +322,7 @@ test('the panel draws the note it is sent', () => {
   assert.ok(keys.length >= 2, `only ${keys.length} key(s) read off panelNote — the scan is dead`);
 
   const chatTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
-  const adapterTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'chat_adapter.ts'), 'utf8');
+  const adapterTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8');
   const body = (chatTs + '\n' + adapterTs)
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   // The handler hands the drawing function the NOTE, not the state beside it.
@@ -365,7 +365,7 @@ test('no webview message is sent to nobody or awaited from nobody', () => {
     const at = body.search(/<script\b/);
     const ext = body.slice(0, at);
     const webAssets = name === 'chat.ts'
-      ? fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'chat_adapter.ts'), 'utf8')
+      ? fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8')
       : '';
     const web = body.slice(at) + '\n' + webAssets;
     const kinds = (s: string, re: RegExp): Set<string> =>

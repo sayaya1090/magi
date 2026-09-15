@@ -255,6 +255,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.events = [];
     this.sid = sid;
     this.companion.session = sid;
+    this.sessionCreating = null;
     void this.openStream();
   }
 
@@ -380,9 +381,34 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         const refs = sent.map(wireRef);
         this.refs = [];
 
-        // Chain sending per chat view to preserve order and eliminate race conditions
-        const originatingSid = this.sid;
-        const activeCreating = this.sessionCreating;
+        // Pin the target session or session creation synchronously at queue registration time.
+        // If this chat view is empty (no sid yet), bind to the current or newly initiated session-new
+        // creation Promise. A subsequent message queued before creation settles shares the exact same
+        // creation Promise and will not switch to another session if the view navigates away.
+        const targetSid = this.sid;
+        const creationGen = this.generation;
+        let pendingCreation: Promise<string> | null = null;
+        if (!targetSid) {
+          if (!this.sessionCreating) {
+            const promise = (async () => {
+              const created = await this.companion.ask('session-new');
+              const sid = created?.session ?? '';
+              if (!sid) {
+                throw new Error(created?.error ?? 'the companion could not open a conversation.');
+              }
+              return sid;
+            })();
+            this.sessionCreating = promise;
+            const cleanup = () => {
+              if (this.sessionCreating === promise) {
+                this.sessionCreating = null;
+              }
+            };
+            promise.then(cleanup, cleanup);
+          }
+          pendingCreation = this.sessionCreating;
+        }
+
         const prevQueue = this.sendQueue;
         let resolveQueue!: () => void;
         this.sendQueue = new Promise<void>((res) => { resolveQueue = res; });
@@ -390,64 +416,42 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         try {
           await prevQueue;
 
-          let targetSid = originatingSid;
-          if (!targetSid && activeCreating) {
+          let resolvedSid = targetSid;
+          if (!resolvedSid && pendingCreation) {
             try {
-              targetSid = await activeCreating;
-            } catch {
-              // activeCreating failed, fall through to creating or current sid
-            }
-          }
-          if (!targetSid) targetSid = this.sid;
-
-          if (!targetSid) {
-            const gen = this.generation;
-            if (!this.sessionCreating) {
-              this.sessionCreating = (async () => {
-                const created = await this.companion.ask('session-new');
-                const sid = created?.session ?? '';
-                if (!sid) {
-                  throw new Error(created?.error ?? 'the companion could not open a conversation.');
-                }
-                return sid;
-              })();
-            }
-
-            let sid = '';
-            try {
-              sid = await this.sessionCreating;
+              resolvedSid = await pendingCreation;
             } catch (e: any) {
-              this.sessionCreating = null;
               this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
               break;
-            } finally {
-              this.sessionCreating = null;
             }
-
-            targetSid = sid;
-            if (this.generation === gen && !this.sid) {
-              this.sid = sid;
-              this.companion.session = sid;
+            if (this.generation === creationGen && !this.sid) {
+              this.sid = resolvedSid;
+              this.companion.session = resolvedSid;
               void this.openStream();
             }
+          }
+
+          if (!resolvedSid) {
+            this.giveBack(body, sent, 'the companion could not determine target session.');
+            break;
           }
 
           // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
           // names — `submit` is a new top-level request and the core wipes the plan for it, so a
           // clarification typed mid-turn would delete the plan of the turn it was clarifying.
           // The fact comes off the target session state, or the transcript this window streams (turnOpen).
-          const isTurnRunning = this.isSessionTurnOpen(targetSid) || (this.sid === targetSid && turnOpen(this.events));
+          const isTurnRunning = this.isSessionTurnOpen(resolvedSid) || (this.sid === resolvedSid && turnOpen(this.events));
           const door = isTurnRunning ? 'steer' : 'submit';
 
-          const r = await this.companion.ask(door, refs.length ? { session: targetSid, text: body, refs } : { session: targetSid, text: body });
+          const r = await this.companion.ask(door, refs.length ? { session: resolvedSid, text: body, refs } : { session: resolvedSid, text: body });
           if (!r?.ok) {
-            this.sessionActiveTurns.delete(targetSid);
+            this.sessionActiveTurns.delete(resolvedSid);
             this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
           } else {
             // Once submit succeeds, mark turn active immediately even before first stream chunk lands
-            this.sessionActiveTurns.add(targetSid);
+            this.sessionActiveTurns.add(resolvedSid);
           }
-          if (this.sid === targetSid) {
+          if (this.sid === resolvedSid) {
             this.draw();
           }
         } finally {
@@ -622,8 +626,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'answer_state.js'))
       : 'out/web/answer_state.js';
     const adapterUri = typeof this !== 'undefined' && this?.extUri && w.asWebviewUri
-      ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_adapter.js'))
-      : 'out/web/chat_adapter.js';
+      ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_adapter.bundle.js'))
+      : 'out/web/chat_adapter.bundle.js';
     return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">

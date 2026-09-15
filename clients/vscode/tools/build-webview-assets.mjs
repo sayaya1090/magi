@@ -30,11 +30,11 @@ ${compiled}
 fs.writeFileSync(dst, wrapped, 'utf8');
 
 // Bundle chat_adapter.js
-const adapterSrc = path.join(root, 'out', 'core', 'chat_adapter.js');
-const adapterDst = path.join(outDir, 'chat_adapter.js');
+const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
+const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
 if (fs.existsSync(adapterSrc)) {
   const adapterCompiled = fs.readFileSync(adapterSrc, 'utf8');
-  const adapterWrapped = `// Auto-generated from out/core/chat_adapter.js for webview. Do not edit directly.
+  const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
 var createWebviewReceiveHandlers;

@@ -11,10 +11,10 @@ import type {
   HostToWebviewMessage,
   PaintedRow,
   PanelNoteInfo,
-} from './webview_protocol';
-import type { Ask } from './touched';
-import type { Activity } from './activity';
-import type { AnswerStateManager, AskEvent } from './answer_state';
+} from '../core/webview_protocol';
+import type { Ask } from '../core/touched';
+import type { Activity } from '../core/activity';
+import type { AnswerStateManager, AskEvent } from '../core/answer_state';
 
 export interface WebviewBridge {
   postMessage(message: WebviewToHostMessage): void;

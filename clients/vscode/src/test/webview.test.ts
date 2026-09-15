@@ -13,7 +13,7 @@ import {
   classifyDiffLines,
   renderMarkdown,
   WebviewBridge,
-} from '../core/chat_adapter';
+} from '../web/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
 import { State, notRunning, panelNote } from '../core/activity';
 
@@ -426,7 +426,7 @@ test('the look-over reply is placed before it is stored', () => {
  * The page is a string of script, so this is read as text.
  */
 test('a lead-in is prepended to the composer, never assigned over it', () => {
-  const adapterSrc = fs.readFileSync(path.join(IDE, '..', 'core', 'chat_adapter.ts'), 'utf8');
+  const adapterSrc = fs.readFileSync(path.join(IDE, '..', 'web', 'chat_adapter.ts'), 'utf8');
   const at = adapterSrc.indexOf('function handleCompose(text: string)');
   assert.ok(at > 0, 'the compose handler is not where this guard looks for it');
   const branch = adapterSrc.slice(at, adapterSrc.indexOf('function handleMentions', at))
