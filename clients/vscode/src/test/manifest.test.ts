@@ -321,10 +321,12 @@ test('the panel draws the note it is sent', () => {
   const keys = [...sig[1].matchAll(/(\w+)\s*:/g)].map((m) => m[1]);
   assert.ok(keys.length >= 2, `only ${keys.length} key(s) read off panelNote — the scan is dead`);
 
-  const body = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8')
+  const chatTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'ide', 'chat.ts'), 'utf8');
+  const adapterTs = fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'chat_adapter.ts'), 'utf8');
+  const body = (chatTs + '\n' + adapterTs)
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
   // The handler hands the drawing function the NOTE, not the state beside it.
-  assert.match(body, /kind === 'state'\)\s*drawState\(m\.note\)/,
+  assert.match(body, /(?:kind === 'state'|\bonState\(m\))\s*\{?\s*(?:options\.)?drawState\(m\.note\)/,
     'the page is handed the state and reaches inside it for a note that is not there');
   const at = body.indexOf('function drawState(');
   assert.ok(at > 0, 'the drawing function is not where this guard looks for it');
@@ -363,7 +365,7 @@ test('no webview message is sent to nobody or awaited from nobody', () => {
     const at = body.search(/<script\b/);
     const ext = body.slice(0, at);
     const webAssets = name === 'chat.ts'
-      ? fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8')
+      ? fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'core', 'chat_adapter.ts'), 'utf8')
       : '';
     const web = body.slice(at) + '\n' + webAssets;
     const kinds = (s: string, re: RegExp): Set<string> =>

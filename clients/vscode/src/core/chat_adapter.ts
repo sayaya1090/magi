@@ -3,18 +3,18 @@
  *
  * Runs in the browser context of the chat webview.
  * Enforces discriminated union types for outbound messages to the host
- * and safely dispatches inbound messages from the host.
+ * and safely validates/dispatches inbound messages from the host.
  */
 
-import {
+import type {
   WebviewToHostMessage,
   HostToWebviewMessage,
   PaintedRow,
   PanelNoteInfo,
-} from '../core/webview_protocol';
-import { Ask } from '../core/touched';
-import { Activity } from '../core/activity';
-import { AnswerStateManager } from '../core/answer_state';
+} from './webview_protocol';
+import type { Ask } from './touched';
+import type { Activity } from './activity';
+import type { AnswerStateManager, AskEvent } from './answer_state';
 
 export interface WebviewBridge {
   postMessage(message: WebviewToHostMessage): void;
@@ -106,6 +106,7 @@ export interface HostMessageHandlers {
   onRows?(payload: { session: string; rows: PaintedRow[]; ask: Ask | null; refs: string[] }): void;
   onState?(payload: { state: Activity; note: PanelNoteInfo }): void;
   onInfo?(payload: {
+    kind: 'info';
     state: string;
     label: string;
     version: string;
@@ -129,46 +130,131 @@ export interface HostMessageHandlers {
 }
 
 /**
+ * Validates raw payload from host boundary into typed HostToWebviewMessage.
+ * Rejects malformed payloads without silent fallback.
+ */
+export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const m = raw as Record<string, unknown>;
+  const rawKind = m.kind;
+  const kind = typeof rawKind === 'string' ? rawKind : '';
+
+  if (kind === 'rows') {
+    if (!Array.isArray(m.rows)) return undefined;
+    const session = typeof m.session === 'string' ? m.session : '';
+    const ask = m.ask && typeof m.ask === 'object' ? (m.ask as Ask) : null;
+    const refs = Array.isArray(m.refs)
+      ? (m.refs.filter((r): r is string => typeof r === 'string'))
+      : [];
+    return {
+      kind: 'rows',
+      session,
+      rows: m.rows as PaintedRow[],
+      ask,
+      refs,
+    };
+  } else if (kind === 'compose') {
+    if (typeof m.text !== 'string') return undefined;
+    return { kind: 'compose', text: m.text };
+  } else if (kind === 'mentions') {
+    if (!Array.isArray(m.files) || typeof m.reqId !== 'number' || typeof m.target !== 'string') {
+      return undefined;
+    }
+    const files = m.files.filter((f): f is string => typeof f === 'string');
+    return { kind: 'mentions', files, reqId: m.reqId, target: m.target };
+  } else if (kind === 'suggestion') {
+    if (typeof m.text !== 'string' || typeof m.reqId !== 'number' || typeof m.target !== 'string') {
+      return undefined;
+    }
+    return { kind: 'suggestion', text: m.text, reqId: m.reqId, target: m.target };
+  } else if (kind === 'replyResult') {
+    if (
+      typeof m.callId !== 'string' ||
+      !m.callId ||
+      typeof m.attemptId !== 'number' ||
+      typeof m.ok !== 'boolean'
+    ) {
+      return undefined;
+    }
+    return {
+      kind: 'replyResult',
+      callId: m.callId,
+      attemptId: m.attemptId,
+      ok: m.ok,
+      error: typeof m.error === 'string' ? m.error : undefined,
+      text: typeof m.text === 'string' ? m.text : undefined,
+    };
+  } else if (kind === 'state') {
+    if (typeof m.state !== 'string' || !m.note || typeof m.note !== 'object') {
+      return undefined;
+    }
+    const noteObj = m.note as Record<string, unknown>;
+    if (typeof noteObj.text !== 'string') return undefined;
+    const note: PanelNoteInfo = {
+      text: noteObj.text,
+      offerStart: Boolean(noteObj.offerStart),
+    };
+    return { kind: 'state', state: m.state as unknown as Activity, note };
+  } else if (kind === 'info') {
+    if (
+      typeof m.state !== 'string' ||
+      typeof m.label !== 'string' ||
+      typeof m.version !== 'string'
+    ) {
+      return undefined;
+    }
+    return {
+      kind: 'info',
+      state: m.state,
+      label: m.label,
+      version: m.version,
+      model: typeof m.model === 'string' ? m.model : undefined,
+      backend: typeof m.backend === 'string' ? m.backend : undefined,
+      permission: typeof m.permission === 'string' ? m.permission : undefined,
+      council: typeof m.council === 'string' ? m.council : undefined,
+      socket: typeof m.socket === 'string' ? m.socket : undefined,
+    };
+  } else if (kind === 'note') {
+    if (typeof m.text !== 'string') return undefined;
+    return { kind: 'note', text: m.text };
+  }
+
+  return undefined;
+}
+
+/**
  * Validates and dispatches host messages to appropriate UI handlers.
  */
 export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers): boolean {
-  if (!raw || typeof raw !== 'object') return false;
-  const m = raw as HostToWebviewMessage;
+  const m = parseHostToWebviewMessage(raw);
+  if (!m) return false;
 
-  switch (m.kind) {
-    case 'rows':
-      handlers.onRows?.({ session: m.session, rows: m.rows, ask: m.ask, refs: m.refs });
-      return true;
-    case 'state':
-      handlers.onState?.({ state: m.state, note: m.note });
-      return true;
-    case 'info':
-      handlers.onInfo?.(m);
-      return true;
-    case 'compose':
-      handlers.onCompose?.({ text: m.text });
-      return true;
-    case 'note':
-      handlers.onNote?.({ text: m.text });
-      return true;
-    case 'replyResult':
-      handlers.onReplyResult?.({
-        callId: m.callId,
-        attemptId: m.attemptId,
-        ok: m.ok,
-        error: m.error,
-        text: m.text,
-      });
-      return true;
-    case 'mentions':
-      handlers.onMentions?.({ files: m.files, reqId: m.reqId, target: m.target });
-      return true;
-    case 'suggestion':
-      handlers.onSuggestion?.({ text: m.text, reqId: m.reqId, target: m.target });
-      return true;
-    default:
-      return false;
+  if (m.kind === 'rows') {
+    handlers.onRows?.(m);
+    return true;
+  } else if (m.kind === 'compose') {
+    handlers.onCompose?.(m);
+    return true;
+  } else if (m.kind === 'mentions') {
+    handlers.onMentions?.(m);
+    return true;
+  } else if (m.kind === 'suggestion') {
+    handlers.onSuggestion?.(m);
+    return true;
+  } else if (m.kind === 'replyResult') {
+    handlers.onReplyResult?.(m);
+    return true;
+  } else if (m.kind === 'state') {
+    handlers.onState?.(m);
+    return true;
+  } else if (m.kind === 'info') {
+    handlers.onInfo?.(m);
+    return true;
+  } else if (m.kind === 'note') {
+    handlers.onNote?.(m);
+    return true;
   }
+  return false;
 }
 
 export interface WebviewInputElements {
@@ -189,8 +275,13 @@ export interface WebviewInputAdapter {
   clearAutoCompletion(): void;
   send(): void;
   submitChoice(callId: string, option: string): boolean;
+  handleCompose(text: string): void;
   handleMentions(files: string[], reqId?: number, target?: string): void;
   handleSuggestion(text: string, reqId?: number, target?: string): void;
+  handleReplyResult(
+    m: { callId: string; attemptId: number; ok: boolean; error?: string; text?: string },
+    currentAsk: Ask | null
+  ): void;
   getSuggestReqId(): number;
   dispose(): void;
 }
@@ -309,6 +400,14 @@ export function createWebviewInputAdapter(
     return true;
   }
 
+  function handleCompose(text: string): void {
+    const lead = text || '';
+    say.value = lead + say.value;
+    answerState.onInputChange(say.value);
+    say.focus();
+    say.setSelectionRange(lead.length, lead.length);
+  }
+
   function handleMentions(files: string[], reqId?: number, target?: string): void {
     const currentTarget = answerState.getPendingQuestion() || 'general';
     if (reqId !== undefined && reqId !== suggestReqId) return;
@@ -326,6 +425,17 @@ export function createWebviewInputAdapter(
     suggestion = text || '';
     if (hintEl) {
       hintEl.textContent = suggestion ? 'Tab: ' + suggestion.split('\n')[0].slice(0, 60) : '';
+    }
+  }
+
+  function handleReplyResult(
+    m: { callId: string; attemptId: number; ok: boolean; error?: string; text?: string },
+    currentAsk: Ask | null
+  ): void {
+    const res = answerState.onReplyResult(m, currentAsk as unknown as AskEvent | null);
+    if (!res.handled) return;
+    if (res.reenterAnswerMode) {
+      applyAnswerModeUI(res.targetLabel, res.nextInputText);
     }
   }
 
@@ -386,8 +496,10 @@ export function createWebviewInputAdapter(
     clearAutoCompletion,
     send,
     submitChoice,
+    handleCompose,
     handleMentions,
     handleSuggestion,
+    handleReplyResult,
     getSuggestReqId: () => suggestReqId,
     dispose(): void {
       if (typing) clearTimeout(typing);
@@ -398,3 +510,79 @@ export function createWebviewInputAdapter(
     },
   };
 }
+
+export interface WebviewReceiveAdapterOptions {
+  inputAdapter: WebviewInputAdapter;
+  answerState: AnswerStateManager;
+  getCurrentAsk: () => Ask | null;
+  getCurrentSession: () => string;
+  setCurrentSession: (s: string) => void;
+  clearExpandedCallIds: () => void;
+  drawRows: (rows: PaintedRow[]) => void;
+  drawAsk: (ask: Ask | null) => void;
+  drawRefs: (refs: string[]) => void;
+  drawState: (note: PanelNoteInfo) => void;
+  drawInfo: (info: HostToWebviewMessage & { kind: 'info' }) => void;
+  setNoteText: (text: string) => void;
+  getNoteText: () => string;
+  scrollContainer?: HTMLElement | null;
+}
+
+export function createWebviewReceiveHandlers(
+  options: WebviewReceiveAdapterOptions
+): HostMessageHandlers {
+  return {
+    onRows(payload) {
+      const boundSession = payload.session || '';
+      if (options.getCurrentSession() !== boundSession) {
+        options.clearExpandedCallIds();
+      }
+      options.setCurrentSession(boundSession);
+
+      const scrollEl = options.scrollContainer;
+      const wasAtBottom = scrollEl
+        ? scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40
+        : false;
+      const initialScrollTop = scrollEl ? scrollEl.scrollTop : 0;
+
+      options.drawRows(payload.rows);
+      options.drawAsk(payload.ask);
+      options.drawRefs(payload.refs);
+
+      if (scrollEl) {
+        if (wasAtBottom) {
+          scrollEl.scrollTop = scrollEl.scrollHeight;
+        } else {
+          scrollEl.scrollTop = initialScrollTop;
+          const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
+          if (scrollEl.scrollTop > maxScroll) scrollEl.scrollTop = maxScroll;
+        }
+      }
+      if (options.getNoteText() === 'sending…') {
+        options.setNoteText('');
+      }
+    },
+    onCompose(payload) {
+      options.inputAdapter.handleCompose(payload.text);
+    },
+    onMentions(payload) {
+      options.inputAdapter.handleMentions(payload.files, payload.reqId, payload.target);
+    },
+    onSuggestion(payload) {
+      options.inputAdapter.handleSuggestion(payload.text, payload.reqId, payload.target);
+    },
+    onReplyResult(payload) {
+      options.inputAdapter.handleReplyResult(payload, options.getCurrentAsk());
+    },
+    onState(m) {
+      options.drawState(m.note);
+    },
+    onInfo(payload) {
+      options.drawInfo(payload);
+    },
+    onNote(payload) {
+      options.setNoteText(payload.text || '');
+    },
+  };
+}
+

@@ -1214,62 +1214,24 @@ function draw(rs) {
     }
   }
 }
+const receiveHandlers = createWebviewReceiveHandlers({
+  inputAdapter,
+  answerState,
+  getCurrentAsk: () => currentAsk,
+  getCurrentSession: () => currentSession,
+  setCurrentSession: (s) => { currentSession = s; },
+  clearExpandedCallIds: () => expandedCallIds.clear(),
+  drawRows: draw,
+  drawAsk,
+  drawRefs,
+  drawState,
+  drawInfo: (m) => { info = m; drawInfo(); },
+  setNoteText: (t) => { noteEl.textContent = t; },
+  getNoteText: () => noteEl.textContent,
+  scrollContainer: scrollEl,
+});
 window.addEventListener('message', (e) => {
-  const m = e.data;
-  if (m.kind === 'rows') {
-    const boundSession = m.session || '';
-    if (currentSession !== boundSession) {
-      expandedCallIds.clear();
-    }
-    currentSession = boundSession;
-    /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
-       an older row is the single most annoying thing a live transcript does.
-       Sampled BEFORE updating rows and ask, applied AFTER both are rendered so the full new height is known. */
-    const wasAtBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40;
-    const initialScrollTop = scrollEl.scrollTop;
-    draw(m.rows);
-    drawAsk(m.ask);
-    drawRefs(m.refs);
-    if (wasAtBottom) {
-      scrollEl.scrollTop = scrollEl.scrollHeight;
-    } else {
-      scrollEl.scrollTop = initialScrollTop;
-      const maxScroll = Math.max(0, scrollEl.scrollHeight - scrollEl.clientHeight);
-      if (scrollEl.scrollTop > maxScroll) scrollEl.scrollTop = maxScroll;
-    }
-    if (noteEl.textContent === 'sending…') noteEl.textContent = '';
-  }
-  else if (m.kind === 'compose') {
-    /* PREPENDED, never assigned. This carries two things: a lead-in for a question the person is
-       about to type, and their own words handed back after a send that did not land. Assigning
-       destroyed whatever was in the box — so somebody mid-sentence who reached for "ask about this
-       code" lost the sentence, which is the very thing the caller's own comment says they are meant
-       to write ("The person types the question"). The box is theirs.
-       After a send the box is already empty, so prepending is what assigning was for that caller.
-       The caret goes to the end of what arrived: the lead reads first and typing continues after
-       it, and on an empty box that is the end of everything. */
-    const lead = m.text || '';
-    say.value = lead + say.value;
-    answerState.onInputChange(say.value);
-    say.focus();
-    say.setSelectionRange(lead.length, lead.length);
-  }
-  else if (m.kind === 'mentions') {
-    inputAdapter.handleMentions(m.files, m.reqId, m.target);
-  }
-  else if (m.kind === 'suggestion') {
-    inputAdapter.handleSuggestion(m.text, m.reqId, m.target);
-  }
-  else if (m.kind === 'replyResult') {
-    const res = answerState.onReplyResult(m, currentAsk);
-    if (!res.handled) return;
-    if (res.reenterAnswerMode) {
-      inputAdapter.applyAnswerModeUI(res.targetLabel, res.nextInputText);
-    }
-  }
-  else if (m.kind === 'state') drawState(m.note);
-  else if (m.kind === 'info') { info = m; drawInfo(); }
-  else if (m.kind === 'note') noteEl.textContent = m.text || '';
+  dispatchHostMessage(e.data, receiveHandlers);
 });
 actions.ready();
 </script></body></html>`;

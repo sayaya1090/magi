@@ -7,9 +7,11 @@ import { parseWebviewToHostMessage, WebviewToHostMessage } from '../core/webview
 import {
   createWebviewActionAdapter,
   dispatchHostMessage,
+  parseHostToWebviewMessage,
+  createWebviewReceiveHandlers,
   createWebviewInputAdapter,
   WebviewBridge,
-} from '../web/chat_adapter';
+} from '../core/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
 
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
@@ -421,14 +423,14 @@ test('the look-over reply is placed before it is stored', () => {
  * The page is a string of script, so this is read as text.
  */
 test('a lead-in is prepended to the composer, never assigned over it', () => {
-  const chat = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
-  const at = chat.indexOf("m.kind === 'compose'");
-  assert.ok(at > 0, 'the compose branch is not where this guard looks for it');
-  const branch = chat.slice(at, chat.indexOf("else if (m.kind === 'mentions')", at))
+  const adapterSrc = fs.readFileSync(path.join(IDE, '..', 'core', 'chat_adapter.ts'), 'utf8');
+  const at = adapterSrc.indexOf('function handleCompose(text: string)');
+  assert.ok(at > 0, 'the compose handler is not where this guard looks for it');
+  const branch = adapterSrc.slice(at, adapterSrc.indexOf('function handleMentions', at))
     .split('\n').filter((l) => !l.trim().startsWith('/*') && !l.trim().startsWith('*')).join('\n');
   assert.ok(/say\.value\s*=\s*lead\s*\+\s*say\.value/.test(branch),
     'the composer is assigned over — a sentence being typed is destroyed by a lead-in');
-  assert.ok(!/say\.value\s*=\s*m\.text/.test(branch), 'the old assignment is still there');
+  assert.ok(!/say\.value\s*=\s*text/.test(branch) && !/say\.value\s*=\s*m\.text/.test(branch), 'the old assignment is still there');
   // The caret lands at the end of the LEAD, so typing continues after it rather than before.
   assert.ok(/setSelectionRange\(lead\.length, lead\.length\)/.test(branch),
     'the caret is not put after the lead — the person types in front of it');
@@ -613,6 +615,115 @@ test('createWebviewActionAdapter formats and guards outbound messages', () => {
   assert.deepEqual(posted.pop(), { kind: 'ready' });
 });
 
+test('parseHostToWebviewMessage validates schema and rejects malformed payloads', () => {
+  // Non-objects / primitives
+  assert.equal(parseHostToWebviewMessage(null), undefined);
+  assert.equal(parseHostToWebviewMessage(undefined), undefined);
+  assert.equal(parseHostToWebviewMessage(123), undefined);
+  assert.equal(parseHostToWebviewMessage('string'), undefined);
+  assert.equal(parseHostToWebviewMessage({}), undefined);
+  assert.equal(parseHostToWebviewMessage({ kind: 'unknown' }), undefined);
+
+  // rows
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows' }), undefined, 'missing rows array rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: 'not-an-array' }), undefined, 'non-array rows rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'rows', rows: [] }), {
+    kind: 'rows',
+    session: '',
+    rows: [],
+    ask: null,
+    refs: [],
+  });
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'rows', session: 's1', rows: [{ who: 'agent', label: 'magi', text: 'hi' }], ask: null, refs: ['ref1'] }), {
+    kind: 'rows',
+    session: 's1',
+    rows: [{ who: 'agent', label: 'magi', text: 'hi' }],
+    ask: null,
+    refs: ['ref1'],
+  });
+
+  // state
+  assert.equal(parseHostToWebviewMessage({ kind: 'state' }), undefined, 'missing state/note rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle' }), undefined, 'missing note rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: null }), undefined, 'null note rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: { offerStart: false } }), undefined, 'missing note.text rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'state', state: 'idle', note: { text: 'ok', offerStart: true } }), {
+    kind: 'state',
+    state: 'idle',
+    note: { text: 'ok', offerStart: true },
+  });
+
+  // info
+  assert.equal(parseHostToWebviewMessage({ kind: 'info' }), undefined, 'missing info fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'info', state: 'idle', label: 'idle' }), undefined, 'missing version rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'info', state: 'idle', label: 123, version: '1.0' }), undefined, 'invalid label type rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'info', state: 'idle', label: 'Ready', version: '0.1.0', model: 'flash' }), {
+    kind: 'info',
+    state: 'idle',
+    label: 'Ready',
+    version: '0.1.0',
+    model: 'flash',
+    backend: undefined,
+    permission: undefined,
+    council: undefined,
+    socket: undefined,
+  });
+
+  // compose
+  assert.equal(parseHostToWebviewMessage({ kind: 'compose' }), undefined, 'missing compose text rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'compose', text: 42 }), undefined, 'non-string compose text rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'compose', text: 'help with ' }), {
+    kind: 'compose',
+    text: 'help with ',
+  });
+
+  // note
+  assert.equal(parseHostToWebviewMessage({ kind: 'note' }), undefined, 'missing note text rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'note', text: 99 }), undefined, 'non-string note text rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'note', text: 'connected' }), {
+    kind: 'note',
+    text: 'connected',
+  });
+
+  // replyResult
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult' }), undefined, 'missing replyResult fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1' }), undefined, 'missing attemptId/ok rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: '', attemptId: 1, ok: true }), undefined, 'empty callId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: '1', ok: true }), undefined, 'non-number attemptId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: 'yes' }), undefined, 'non-boolean ok rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, text: 'ans' }), {
+    kind: 'replyResult',
+    callId: 'c1',
+    attemptId: 1,
+    ok: true,
+    error: undefined,
+    text: 'ans',
+  });
+
+  // mentions
+  assert.equal(parseHostToWebviewMessage({ kind: 'mentions' }), undefined, 'missing mentions fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'mentions', files: 'a.ts', reqId: 1, target: 'general' }), undefined, 'non-array files rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'mentions', files: ['a.ts'], reqId: '1', target: 'general' }), undefined, 'non-number reqId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'mentions', files: ['a.ts'], reqId: 1, target: 123 }), undefined, 'non-string target rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'mentions', files: ['a.ts', 'b.ts'], reqId: 1, target: 'general' }), {
+    kind: 'mentions',
+    files: ['a.ts', 'b.ts'],
+    reqId: 1,
+    target: 'general',
+  });
+
+  // suggestion
+  assert.equal(parseHostToWebviewMessage({ kind: 'suggestion' }), undefined, 'missing suggestion fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'suggestion', text: 123, reqId: 1, target: 'general' }), undefined, 'non-string text rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'suggestion', text: 'hi', reqId: '1', target: 'general' }), undefined, 'non-number reqId rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'suggestion', text: 'continue', reqId: 3, target: 'general' }), {
+    kind: 'suggestion',
+    text: 'continue',
+    reqId: 3,
+    target: 'general',
+  });
+});
+
 test('dispatchHostMessage validates and safely dispatches inbound host messages', () => {
   const handled: string[] = [];
   const handlers = {
@@ -629,9 +740,12 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
   assert.equal(dispatchHostMessage(null, handlers), false);
   assert.equal(dispatchHostMessage('not-an-object', handlers), false);
   assert.equal(dispatchHostMessage({ kind: 'unknown' }, handlers), false);
+  assert.equal(dispatchHostMessage({ kind: 'rows' }, handlers), false, 'malformed rows rejected');
+  assert.equal(dispatchHostMessage({ kind: 'state' }, handlers), false, 'malformed state rejected');
+  assert.equal(dispatchHostMessage({ kind: 'compose' }, handlers), false, 'malformed compose rejected');
 
   assert.equal(dispatchHostMessage({ kind: 'rows', session: 's1', rows: [], ask: null, refs: [] }, handlers), true);
-  assert.equal(dispatchHostMessage({ kind: 'state', state: { state: 'idle' }, note: { text: 'ok', offerStart: false } }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'state', state: 'idle', note: { text: 'ok', offerStart: false } }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'info', state: 'idle', label: 'idle', version: '1.0' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'compose', text: 'prefix' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'note', text: 'notice' }, handlers), true);
@@ -711,8 +825,119 @@ test('createWebviewInputAdapter controls answer mode and submits responses', () 
   assert.equal(replyModeEl.hidden, true);
   assert.equal(sendEl.textContent, 'Send');
 
-  // 4. Dispose cleans up
+  // 4. Handle compose prepends lead without losing typed input
+  sayEl.value = 'remaining question';
+  let selectionStart = -1;
+  let selectionEnd = -1;
+  (sayEl as any).setSelectionRange = (start: number, end: number) => {
+    selectionStart = start;
+    selectionEnd = end;
+  };
+  inputAdapter.handleCompose('Review: ');
+  assert.equal(sayEl.value, 'Review: remaining question');
+  assert.equal(selectionStart, 8);
+  assert.equal(selectionEnd, 8);
+
+  // 5. Dispose cleans up
   inputAdapter.dispose();
 });
 
+test('createWebviewReceiveHandlers integrates all inbound messages with typed handlers', () => {
+  const posted: WebviewToHostMessage[] = [];
+  const bridge: WebviewBridge = {
+    postMessage(msg) { posted.push(msg); },
+  };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
 
+  const createElement = (tag: string) => ({
+    tagName: tag,
+    value: '',
+    textContent: '',
+    placeholder: '',
+    hidden: false,
+    focus() {},
+    addEventListener() {},
+    removeEventListener() {},
+    setSelectionRange() {},
+  });
+
+  const sayEl = createElement('textarea') as unknown as HTMLTextAreaElement;
+  const sendEl = createElement('button') as unknown as HTMLElement;
+  const replyModeEl = createElement('div') as unknown as HTMLElement;
+  const replyTargetEl = createElement('span') as unknown as HTMLElement;
+  const replyCancelEl = createElement('button') as unknown as HTMLElement;
+  const noteEl = createElement('div') as unknown as HTMLElement;
+  const hintEl = createElement('div') as unknown as HTMLElement;
+
+  const inputAdapter = createWebviewInputAdapter(
+    { say: sayEl, sendBtn: sendEl, replyModeEl, replyTargetEl, replyCancelEl, noteEl, hintEl },
+    actions,
+    state
+  );
+
+  let currentSession = 'session-0';
+  let clearedCalls = false;
+  let drawnRowsCount = 0;
+  let drawnAskCallId = '';
+  let drawnRefsCount = 0;
+  let drawnStateNote = '';
+  let drawnInfoLabel = '';
+  let noteText = '';
+
+  const scrollEl = {
+    scrollHeight: 500,
+    scrollTop: 100,
+    clientHeight: 400,
+  } as unknown as HTMLElement;
+
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter,
+    answerState: state,
+    getCurrentAsk: () => null,
+    getCurrentSession: () => currentSession,
+    setCurrentSession: (s) => { currentSession = s; },
+    clearExpandedCallIds: () => { clearedCalls = true; },
+    drawRows: (r) => { drawnRowsCount = r.length; },
+    drawAsk: (a) => { drawnAskCallId = a ? a.callId : ''; },
+    drawRefs: (rs) => { drawnRefsCount = rs.length; },
+    drawState: (n) => { drawnStateNote = n.text; },
+    drawInfo: (i) => { drawnInfoLabel = i.label; },
+    setNoteText: (t) => { noteText = t; },
+    getNoteText: () => noteText,
+    scrollContainer: scrollEl,
+  });
+
+  // 1. rows (different session triggers clearExpandedCallIds)
+  dispatchHostMessage(
+    {
+      kind: 'rows',
+      session: 'session-1',
+      rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
+      ask: { callId: 'ask-1', prompt: 'Approve?', options: [] },
+      refs: ['ref.ts'],
+    },
+    handlers
+  );
+  assert.equal(currentSession, 'session-1');
+  assert.equal(clearedCalls, true);
+  assert.equal(drawnRowsCount, 1);
+  assert.equal(drawnAskCallId, 'ask-1');
+  assert.equal(drawnRefsCount, 1);
+
+  // 2. compose
+  dispatchHostMessage({ kind: 'compose', text: 'prefix ' }, handlers);
+  assert.ok(sayEl.value.startsWith('prefix '));
+
+  // 3. state
+  dispatchHostMessage({ kind: 'state', state: 'working', note: { text: 'running test', offerStart: false } }, handlers);
+  assert.equal(drawnStateNote, 'running test');
+
+  // 4. info
+  dispatchHostMessage({ kind: 'info', state: 'idle', label: 'Daemon Ready', version: '2.0.0' }, handlers);
+  assert.equal(drawnInfoLabel, 'Daemon Ready');
+
+  // 5. note
+  dispatchHostMessage({ kind: 'note', text: 'connecting...' }, handlers);
+  assert.equal(noteText, 'connecting...');
+});
