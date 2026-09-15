@@ -12,6 +12,7 @@ import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath } from '../core/nav';
+import { parseWebviewToHostMessage } from '../core/webview_protocol';
 
 /**
  * The conversation, in the panel.
@@ -339,7 +340,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(m: { kind: string; text?: string; callId?: string; decision?: string; command?: string; reqId?: number; target?: string; attemptId?: number; seq?: number; session?: string }): Promise<void> {
+  private async fromView(raw: unknown): Promise<void> {
+    const m = parseWebviewToHostMessage(raw);
+    if (!m) return;
     switch (m.kind) {
       case 'ready':
         this.post({ kind: 'state', state: this.companion.state, note: panelNote(this.companion.state) });

@@ -3,6 +3,8 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { parseWebviewToHostMessage } from '../core/webview_protocol';
+
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
 
 /** Comments stripped, so a rule about code is not answered by prose that mentions it. */
@@ -458,3 +460,94 @@ test('an opened council round draws its rule', () => {
   assert.ok(/r\.rule/.test(branch),
     'the round opens without its threshold — two continue and one done mean different things under majority and unanimous');
 });
+
+test('parseWebviewToHostMessage parses valid messages according to schema', () => {
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'ready' }), { kind: 'ready' });
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'start' }), { kind: 'start' });
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'drop' }), { kind: 'drop' });
+
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'say', text: 'hello' }), {
+    kind: 'say',
+    text: 'hello',
+  });
+
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'run', command: 'magi.compact' }), {
+    kind: 'run',
+    command: 'magi.compact',
+  });
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'diff', session: 's1', callId: 'c1' }),
+    { kind: 'diff', session: 's1', callId: 'c1' },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'open', session: 's1', callId: 'c1', seq: 42 }),
+    { kind: 'open', session: 's1', callId: 'c1', seq: 42 },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'open', session: 's1', callId: 'c1' }),
+    { kind: 'open', session: 's1', callId: 'c1', seq: undefined },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'answer', callId: 'c1', decision: 'allow' }),
+    { kind: 'answer', callId: 'c1', decision: 'allow' },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'reply', callId: 'c1', text: 'my answer', attemptId: 3 }),
+    { kind: 'reply', callId: 'c1', text: 'my answer', attemptId: 3 },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'mention', text: 'foo', reqId: 7, target: 'composer' }),
+    { kind: 'mention', text: 'foo', reqId: 7, target: 'composer' },
+  );
+
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'suggest', text: 'let x', reqId: 8, target: 'composer' }),
+    { kind: 'suggest', text: 'let x', reqId: 8, target: 'composer' },
+  );
+});
+
+test('parseWebviewToHostMessage strictly rejects malformed or incomplete messages at the boundary', () => {
+  // Non-object
+  assert.equal(parseWebviewToHostMessage(null), undefined);
+  assert.equal(parseWebviewToHostMessage(undefined), undefined);
+  assert.equal(parseWebviewToHostMessage('not an object'), undefined);
+  assert.equal(parseWebviewToHostMessage(123), undefined);
+
+  // Unknown kind
+  assert.equal(parseWebviewToHostMessage({ kind: 'unknown' }), undefined);
+
+  // Missing required fields on open
+  assert.equal(parseWebviewToHostMessage({ kind: 'open', callId: 'c1' }), undefined, 'missing session');
+  assert.equal(parseWebviewToHostMessage({ kind: 'open', session: 's1' }), undefined, 'missing callId');
+
+  // Missing required fields on diff
+  assert.equal(parseWebviewToHostMessage({ kind: 'diff', callId: 'c1' }), undefined, 'missing session');
+  assert.equal(parseWebviewToHostMessage({ kind: 'diff', session: 's1' }), undefined, 'missing callId');
+
+  // Missing required fields on reply
+  assert.equal(
+    parseWebviewToHostMessage({ kind: 'reply', callId: 'c1', text: 'abc' }),
+    undefined,
+    'missing attemptId',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({ kind: 'reply', text: 'abc', attemptId: 1 }),
+    undefined,
+    'missing callId',
+  );
+
+  // Missing required fields on run
+  assert.equal(parseWebviewToHostMessage({ kind: 'run' }), undefined, 'missing command');
+  assert.equal(parseWebviewToHostMessage({ kind: 'run', command: '' }), undefined, 'empty command');
+
+  // Missing required fields on answer
+  assert.equal(parseWebviewToHostMessage({ kind: 'answer', callId: 'c1' }), undefined, 'missing decision');
+  assert.equal(parseWebviewToHostMessage({ kind: 'answer', decision: 'allow' }), undefined, 'missing callId');
+});
+

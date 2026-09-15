@@ -14,6 +14,7 @@ import {
   DiffOpener,
 } from '../core/nav';
 import { AskStore } from '../core/diff';
+import { Ask } from '../core/touched';
 import { Event } from '../core/protocol';
 import { rows } from '../core/transcript';
 
@@ -723,10 +724,13 @@ test('rows and stringifyRawArgs preserve full arguments beyond 100 characters an
 });
 
 class FakeDiffOpener implements DiffOpener {
-  calls: { workdir: string; sessionId: string; ask: any }[] = [];
-  async openDiff(workdir: string, sessionId: string, ask: any): Promise<boolean> {
+  calls: { workdir: string; sessionId: string; ask: Ask }[] = [];
+  shouldSucceed = true;
+  shouldThrow?: Error;
+  async openDiff(workdir: string, sessionId: string, ask: Ask): Promise<boolean> {
     this.calls.push({ workdir, sessionId, ask });
-    return true;
+    if (this.shouldThrow) throw this.shouldThrow;
+    return this.shouldSucceed;
   }
 }
 
@@ -884,6 +888,36 @@ test('resolveAndOpenDiff shares origin validation with file nav: rejects missing
   assert.ok(origin);
   assert.equal(origin.kind, 'ask');
   assert.equal(origin.companionWorkdir, '/test');
+
+  // 9. Opener returns false -> resolveAndOpenDiff preserves false and posts note
+  notes.length = 0;
+  opener.shouldSucceed = false;
+  const ok8 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'call-diff-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok8, false, 'resolveAndOpenDiff preserves false return from opener');
+  assert.ok(notes.some((n) => n.includes('비교 화면을 열지 못했습니다')), 'posts note explaining open failure');
+
+  // 10. Opener throws error -> resolveAndOpenDiff catches exception, returns false, and posts error note
+  notes.length = 0;
+  opener.shouldThrow = new Error('mock disk error');
+  const ok9 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'call-diff-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok9, false, 'resolveAndOpenDiff catches exception and returns false');
+  assert.ok(notes.some((n) => n.includes('비교 화면 열기 실패: mock disk error')), 'posts note with error details');
 });
 
 

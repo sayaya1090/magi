@@ -3,7 +3,7 @@ import * as nodePath from 'path';
 import { inside, resolvePath } from './hand';
 import { Event } from './protocol';
 import { rows } from './transcript';
-import { pendingAsk } from './touched';
+import { pendingAsk, Ask } from './touched';
 import { AskStore } from './diff';
 import { extractAskFilePath } from './nav_tool';
 
@@ -14,7 +14,7 @@ export interface FileOpener {
 }
 
 export interface DiffOpener {
-  openDiff(workdir: string, sessionId: string, ask: any): Promise<boolean | void>;
+  openDiff(workdir: string, sessionId: string, ask: Ask): Promise<boolean>;
 }
 
 export interface ActionTargetRequest {
@@ -35,7 +35,7 @@ export interface ActionOriginOptions {
 
 export type ActionOrigin =
   | { kind: 'tool'; row: ReturnType<typeof rows>[number]; companionWorkdir: string }
-  | { kind: 'ask'; ask: any; companionWorkdir: string; sessionId: string };
+  | { kind: 'ask'; ask: Ask; companionWorkdir: string; sessionId: string };
 
 /**
  * Shared origin and session validation for file navigation and diff inspection.
@@ -214,7 +214,11 @@ export async function resolveAndOpenDiff(opts: ResolveAndOpenDiffOptions): Promi
   }
 
   try {
-    await opts.opener.openDiff(origin.companionWorkdir, origin.sessionId, origin.ask);
+    const opened = await opts.opener.openDiff(origin.companionWorkdir, origin.sessionId, origin.ask);
+    if (!opened) {
+      opts.postNote('비교 화면을 열지 못했습니다.');
+      return false;
+    }
     return true;
   } catch (err) {
     opts.postNote(`비교 화면 열기 실패: ${(err as Error).message}`);
