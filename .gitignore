@@ -17,6 +17,8 @@ token
 docs/FEATURES.md
 docs/FEATURE_CHECKLIST.md
 docs/PLAN.md
+docs/IDE_FILE_NAV.ko.md
+docs/IDE_REFACTOR_REVIEW.ko.md
 internal/eval/a-reference-agent_compare_test.go
 
 # build artifacts of the tools/ helpers
