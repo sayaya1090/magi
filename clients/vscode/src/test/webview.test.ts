@@ -1341,26 +1341,22 @@ test('SuggestController manages debounce timer, bumps reqId on invalidate, and r
   const r1 = ctrl.scheduleInput({
     text: 'hello @world',
     target: 'general',
-    version: 1,
     actions: mockActions,
     delayMs: 20,
   });
   assert.equal(r1, 1);
   assert.equal(ctrl.getReqId(), 1);
   assert.equal(ctrl.getCurrentTarget(), 'general');
-  assert.equal(ctrl.getActiveVersion(), 1);
 
   // Before timer fires, schedule suggest
   const r2 = ctrl.scheduleInput({
     text: 'some long input text',
     target: 'q1',
-    version: 2,
     actions: mockActions,
     delayMs: 20,
   });
   assert.equal(r2, 2, 'second schedule bumps reqId');
   assert.equal(ctrl.getCurrentTarget(), 'q1');
-  assert.equal(ctrl.getActiveVersion(), 2);
 
   // Wait for timer
   await new Promise((r) => setTimeout(r, 40));
@@ -1395,14 +1391,12 @@ test('SuggestController manages debounce timer, bumps reqId on invalidate, and r
   ctrl.scheduleInput({
     text: 'abc def ghi',
     target: 'q2',
-    version: 5,
     actions: mockActions,
     delayMs: 50,
   });
   ctrl.onSessionChange('session-xyz');
   assert.equal(ctrl.getCurrentSession(), 'session-xyz');
   assert.equal(ctrl.getCurrentTarget(), 'general');
-  assert.equal(ctrl.getActiveVersion(), 0);
   assert.equal(ctrl.acceptSuggestion('late suggestion', 4, 'q2'), false, 'late suggestion after session change must be rejected');
 
   ctrl.dispose();
@@ -1457,6 +1451,73 @@ test('WebviewInputAdapter and receiveHandlers unify autocompletion invalidation 
   handlers.onRows!({ session: 'session-2', rows: [], ask: null, refs: [] });
   assert.equal(currentSession, 'session-2');
   assert.ok(ctrl.getReqId() > reqIdBeforeSessionChange, 'session change in onRows must invalidate autocompletion');
+
+  inputAdapter.dispose();
+});
+
+test('Programmatic input modifications (handleCompose and Tab) invalidate in-flight autocompletion', async () => {
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const answerState = createAnswerState();
+  const inputAdapter = createWebviewInputAdapter(elements, actions, answerState);
+  const ctrl = inputAdapter.getSuggestController();
+
+  // 1. handleCompose invalidation:
+  // User types text, triggering onInput
+  elements.say.value = 'hello';
+  listeners['input']?.({});
+  const initialReqId = ctrl.getReqId();
+  assert.ok(initialReqId > 0);
+
+  // handleCompose is called (e.g. lead-in prepended)
+  inputAdapter.handleCompose('/ask ');
+  assert.equal(elements.say.value, '/ask hello');
+  assert.ok(ctrl.getReqId() > initialReqId, 'handleCompose must bump reqId and invalidate');
+  assert.equal(elements.hintEl.textContent, '', 'hint must be cleared on compose');
+
+  // Late suggestion arriving from the previous input before compose
+  inputAdapter.handleSuggestion(' world', initialReqId, 'general');
+  assert.equal(ctrl.getSuggestion(), '', 'late suggestion with old reqId must be rejected after compose');
+  assert.equal(elements.hintEl.textContent, '');
+
+  // 2. Tab acceptance invalidation:
+  // Supply a valid suggestion
+  const curReqId = ctrl.getReqId();
+  inputAdapter.handleSuggestion(' from test', curReqId, 'general');
+  assert.equal(ctrl.getSuggestion(), ' from test');
+  assert.equal(elements.hintEl.textContent, 'Tab:  from test');
+
+  // Press Tab
+  let prevented = false;
+  listeners['keydown']?.({ key: 'Tab', preventDefault: () => { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal(elements.say.value, '/ask hello from test');
+  assert.equal(elements.hintEl.textContent, '', 'hint must be cleared on Tab accept');
+  assert.ok(ctrl.getReqId() > curReqId, 'Tab accept must bump reqId and invalidate');
+  assert.equal(ctrl.getSuggestion(), '', 'active suggestion must be empty after Tab accept');
+
+  // Stale suggestion arriving with curReqId is now rejected
+  inputAdapter.handleSuggestion(' stale trailing', curReqId, 'general');
+  assert.equal(ctrl.getSuggestion(), '');
+  assert.equal(elements.hintEl.textContent, '');
 
   inputAdapter.dispose();
 });

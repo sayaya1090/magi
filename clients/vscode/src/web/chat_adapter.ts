@@ -337,7 +337,6 @@ export interface SuggestController {
   scheduleInput(options: {
     text: string;
     target: string;
-    version: number;
     actions: WebviewActionAdapter;
     delayMs?: number;
   }): number;
@@ -349,7 +348,6 @@ export interface SuggestController {
   getReqId(): number;
   getCurrentTarget(): string;
   getCurrentSession(): string;
-  getActiveVersion(): number;
   dispose(): void;
 }
 
@@ -358,7 +356,6 @@ export function createSuggestController(): SuggestController {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let currentSession = '';
   let activeTarget = 'general';
-  let activeVersion = 0;
   let activeSuggestion = '';
   let activeMentions: string[] = [];
 
@@ -377,20 +374,17 @@ export function createSuggestController(): SuggestController {
       currentSession = session;
       invalidate();
       activeTarget = 'general';
-      activeVersion = 0;
     }
   }
 
   function scheduleInput(options: {
     text: string;
     target: string;
-    version: number;
     actions: WebviewActionAdapter;
     delayMs?: number;
   }): number {
     invalidate();
     activeTarget = options.target;
-    activeVersion = options.version;
     const thisReqId = reqId;
     const target = options.target;
     const text = options.text;
@@ -436,7 +430,6 @@ export function createSuggestController(): SuggestController {
     getReqId: () => reqId,
     getCurrentTarget: () => activeTarget,
     getCurrentSession: () => currentSession,
-    getActiveVersion: () => activeVersion,
     dispose(): void {
       if (timer) {
         clearTimeout(timer);
@@ -574,6 +567,7 @@ export function createWebviewInputAdapter(
   }
 
   function handleCompose(text: string): void {
+    clearAutoCompletion();
     const lead = text || '';
     say.value = lead + say.value;
     answerState.onInputChange(say.value);
@@ -632,8 +626,7 @@ export function createWebviewInputAdapter(
       e.preventDefault();
       say.value += suggestion;
       answerState.onInputChange(say.value);
-      suggestCtrl.clearSuggestion();
-      if (hintEl) hintEl.textContent = '';
+      clearAutoCompletion();
     }
   };
 
@@ -641,11 +634,9 @@ export function createWebviewInputAdapter(
     if (hintEl) hintEl.textContent = '';
     const v = say.value;
     const target = answerState.onInputChange(v).target;
-    const version = answerState.getDraftVersion(target);
     suggestCtrl.scheduleInput({
       text: v,
       target,
-      version,
       actions,
     });
   };
