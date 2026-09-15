@@ -28,3 +28,39 @@ ${compiled}
 `;
 
 fs.writeFileSync(dst, wrapped, 'utf8');
+
+// Bundle chat_adapter.js
+const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
+if (fs.existsSync(adapterSrc)) {
+  const adapterCompiled = fs.readFileSync(adapterSrc, 'utf8');
+  const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js for webview. Do not edit directly.
+var createWebviewActionAdapter;
+var createWebviewInputAdapter;
+var dispatchHostMessage;
+(function () {
+  var exports = typeof module !== 'undefined' && module.exports ? module.exports : {};
+  var require = function (mod) {
+    if (mod.endsWith('webview_protocol') || mod.endsWith('touched') || mod.endsWith('activity') || mod.endsWith('answer_state')) {
+      return {};
+    }
+    return {};
+  };
+${adapterCompiled}
+  createWebviewActionAdapter = exports.createWebviewActionAdapter;
+  createWebviewInputAdapter = exports.createWebviewInputAdapter;
+  dispatchHostMessage = exports.dispatchHostMessage;
+  if (typeof window !== 'undefined') {
+    window.createWebviewActionAdapter = createWebviewActionAdapter;
+    window.createWebviewInputAdapter = createWebviewInputAdapter;
+    window.dispatchHostMessage = dispatchHostMessage;
+  }
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports.createWebviewActionAdapter = createWebviewActionAdapter;
+    module.exports.createWebviewInputAdapter = createWebviewInputAdapter;
+    module.exports.dispatchHostMessage = dispatchHostMessage;
+  }
+})();
+`;
+  fs.writeFileSync(adapterSrc, adapterWrapped, 'utf8');
+}
+

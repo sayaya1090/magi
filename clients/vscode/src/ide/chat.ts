@@ -12,7 +12,7 @@ import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
 import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath } from '../core/nav';
-import { parseWebviewToHostMessage } from '../core/webview_protocol';
+import { parseWebviewToHostMessage, HostToWebviewMessage } from '../core/webview_protocol';
 
 /**
  * The conversation, in the panel.
@@ -496,7 +496,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     }
   }
 
-  private post(msg: unknown): void { void this.view?.webview.postMessage(msg); }
+  private post(msg: HostToWebviewMessage): void { void this.view?.webview.postMessage(msg); }
 
   /**
    * Open the conversation.
@@ -526,6 +526,9 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     const scriptUri = typeof this !== 'undefined' && this?.extUri && w.asWebviewUri
       ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'answer_state.js'))
       : 'out/web/answer_state.js';
+    const adapterUri = typeof this !== 'undefined' && this?.extUri && w.asWebviewUri
+      ? w.asWebviewUri(vscode.Uri.joinPath(this.extUri, 'out', 'web', 'chat_adapter.js'))
+      : 'out/web/chat_adapter.js';
     return `<!DOCTYPE html><html><head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -693,8 +696,10 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
 <div id="reply-mode" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></div>
 <div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
 <script nonce="${nonce}" src="${scriptUri}"></script>
+<script nonce="${nonce}" src="${adapterUri}"></script>
 <script nonce="${nonce}">
 const vs = acquireVsCodeApi();
+const actions = createWebviewActionAdapter(vs);
 const scrollEl = document.getElementById('scroll');
 const rowsEl = document.getElementById('rows');
 const askBodyEl = document.getElementById('ask-body');
@@ -706,8 +711,6 @@ const noteEl = document.getElementById('note');
 const say = document.getElementById('say');
 const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
-let suggestion = '';
-let typing = null;
 let currentAsk = null;
 let currentAskCallId = null;
 function askedAt(iso) {
@@ -807,7 +810,7 @@ function baseName(p) {
 function drawAsk(a) {
   const boundSession = currentSession;
   if (!a) {
-    if (answerState.getPendingQuestion()) exitAnswerMode();
+    if (answerState.getPendingQuestion()) inputAdapter.exitAnswerMode();
     currentAsk = null;
     currentAskCallId = null;
     askBodyEl.hidden = true;
@@ -817,7 +820,7 @@ function drawAsk(a) {
     return;
   }
   if (currentAskCallId === a.callId) return;
-  if (answerState.getPendingQuestion() && answerState.getPendingQuestion() !== a.callId) exitAnswerMode();
+  if (answerState.getPendingQuestion() && answerState.getPendingQuestion() !== a.callId) inputAdapter.exitAnswerMode();
   currentAsk = a;
   currentAskCallId = a.callId;
 
@@ -876,7 +879,7 @@ function drawAsk(a) {
   acts.className = 'acts';
 
   if (a.kind === 'permission') {
-    if (answerState.getPendingQuestion()) exitAnswerMode();
+    if (answerState.getPendingQuestion()) inputAdapter.exitAnswerMode();
     w.prepend('magi wants to run: ' + a.what);
     if (targetPath) {
       const fileEl = document.createElement('div');
@@ -892,7 +895,7 @@ function drawAsk(a) {
         openBtn.disabled = true;
       } else {
         openBtn.addEventListener('click', () => {
-          vs.postMessage({ kind: 'open', session: boundSession, callId: a.callId });
+          actions.openFile(boundSession, a.callId);
         });
       }
       fileEl.append(openBtn);
@@ -931,7 +934,7 @@ function drawAsk(a) {
       if (!boundSession || !a.callId) {
         diffBtn.disabled = true;
       } else {
-        diffBtn.addEventListener('click', () => vs.postMessage({ kind: 'diff', session: boundSession, callId: a.callId }));
+        diffBtn.addEventListener('click', () => actions.openDiff(boundSession, a.callId));
       }
       acts.append(diffBtn);
     }
@@ -939,7 +942,7 @@ function drawAsk(a) {
     for (const d of ['allow', 'deny', 'always']) {
       const b = document.createElement('button');
       b.textContent = d;
-      b.addEventListener('click', () => vs.postMessage({ kind: 'answer', callId: a.callId, decision: d }));
+      b.addEventListener('click', () => actions.answer(a.callId, d));
       acts.append(b);
     }
     askControlsEl.append(acts);
@@ -978,31 +981,18 @@ function drawAsk(a) {
     b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
     b.title = opt;
     b.addEventListener('click', () => {
-      const res = answerState.submitReply(a.callId, opt, true);
-      if (!res.ok) {
-        if (res.error === 'in_flight') {
-          noteEl.textContent = 'reply already in flight…';
-        }
-        return;
-      }
-      clearAutoCompletion();
-      if (res.exitAnswerMode) {
-        applyGeneralModeUI(res.nextInputText);
-      }
-      vs.postMessage({ kind: 'reply', callId: a.callId, text: opt, attemptId: res.attemptId });
-      noteEl.textContent = 'sending…';
-      setTimeout(() => { if (noteEl.textContent === 'sending…') noteEl.textContent = ''; }, 4000);
+      inputAdapter.submitChoice(a.callId, opt);
     });
     acts.append(b);
   }
   const free = document.createElement('button');
   free.textContent = '직접 입력';
   free.title = '입력창에서 직접 답변 작성';
-  free.addEventListener('click', () => { enterAnswerMode(a.callId, a.what); });
+  free.addEventListener('click', () => { inputAdapter.enterAnswerMode(a.callId, a.what); });
   acts.append(free);
   askControlsEl.append(acts);
   if (opts.length === 0) {
-    enterAnswerMode(a.callId, a.what);
+    inputAdapter.enterAnswerMode(a.callId, a.what);
   }
 }
 const moreEl = document.getElementById('more');
@@ -1016,7 +1006,7 @@ moreEl.addEventListener('click', () => {
 });
 /* Run one of the editor's own commands. The NAME is chosen here and checked on the other side —
    a webview is a page and a page must not be able to name any command it likes. */
-function act(command) { vs.postMessage({ kind: 'run', command: command }); }
+function act(command) { actions.act(command); }
 function line(k, v, cls) {
   const d = document.createElement('div');
   d.className = 'line' + (cls ? ' ' + cls : '');
@@ -1059,50 +1049,15 @@ function drawInfo() {
 const answerState = createAnswerState();
 let currentSession = '';
 const expandedCallIds = new Set();
-let mentions = [];
-let suggestReqId = 0;
-function clearAutoCompletion() {
-  if (typing) {
-    clearTimeout(typing);
-    typing = null;
-  }
-  suggestReqId++;
-  suggestion = '';
-  mentions = [];
-  hint.textContent = '';
-}
-function applyAnswerModeUI(label, text) {
-  clearAutoCompletion();
-  if (replyModeEl) {
-    replyModeEl.hidden = false;
-    if (replyTargetEl) replyTargetEl.textContent = label || '';
-  }
-  say.placeholder = '답변을 입력하세요 (Esc로 취소)…';
-  document.getElementById('send').textContent = '답변';
-  if (text !== undefined) say.value = text;
-  say.focus();
-}
-function applyGeneralModeUI(text) {
-  clearAutoCompletion();
-  if (replyModeEl) {
-    replyModeEl.hidden = true;
-    if (replyTargetEl) replyTargetEl.textContent = '';
-  }
-  if (text !== undefined) say.value = text;
-  say.placeholder = '';
-  document.getElementById('send').textContent = 'Send';
-}
-function enterAnswerMode(callId, label) {
-  const res = answerState.enterAnswerMode(callId, label, say.value);
-  applyAnswerModeUI(res.label, res.nextInputText);
-}
-function exitAnswerMode() {
-  const res = answerState.exitAnswerMode(say.value);
-  applyGeneralModeUI(res.nextInputText);
-}
-if (replyCancelEl) {
-  replyCancelEl.addEventListener('click', exitAnswerMode);
-}
+const inputAdapter = createWebviewInputAdapter({
+  say,
+  sendBtn: document.getElementById('send'),
+  replyModeEl,
+  replyTargetEl,
+  replyCancelEl,
+  noteEl,
+  hintEl: hint,
+}, actions, answerState);
 function drawState(note) {
   noteEl.textContent = '';
   if (!note || !note.text) return;
@@ -1120,7 +1075,7 @@ function drawState(note) {
   if (note.offerStart) {
     const b = document.createElement('button');
     b.textContent = 'Start one';
-    b.addEventListener('click', () => vs.postMessage({ kind: 'start' }));
+    b.addEventListener('click', () => actions.start());
     noteEl.append(b);
   }
   /* idle / working / waiting say nothing here: the status bar already says them, and repeating a
@@ -1137,7 +1092,7 @@ function drawRefs(rs) {
   if ((rs || []).length) {
     const b = document.createElement('button');
     b.textContent = 'clear';
-    b.addEventListener('click', () => vs.postMessage({ kind: 'drop' }));
+    b.addEventListener('click', () => actions.drop());
     refsEl.append(b);
   }
 }
@@ -1202,7 +1157,7 @@ function draw(rs) {
       } else {
         a.addEventListener('click', (ev) => {
           ev.stopPropagation();
-          vs.postMessage({ kind: 'open', seq: r.seq, session: boundSession, callId: r.callId });
+          actions.openFile(boundSession, r.callId, r.seq);
         });
       }
       b.append(' ', a);
@@ -1299,95 +1254,24 @@ window.addEventListener('message', (e) => {
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
+  else if (m.kind === 'mentions') {
+    inputAdapter.handleMentions(m.files, m.reqId, m.target);
+  }
+  else if (m.kind === 'suggestion') {
+    inputAdapter.handleSuggestion(m.text, m.reqId, m.target);
+  }
   else if (m.kind === 'replyResult') {
     const res = answerState.onReplyResult(m, currentAsk);
     if (!res.handled) return;
     if (res.reenterAnswerMode) {
-      applyAnswerModeUI(res.targetLabel, res.nextInputText);
+      inputAdapter.applyAnswerModeUI(res.targetLabel, res.nextInputText);
     }
-  }
-  else if (m.kind === 'mentions') {
-    const currentTarget = answerState.getPendingQuestion() || 'general';
-    if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
-    if (m.target !== undefined && m.target !== currentTarget) return;
-    mentions = m.files || [];
-    hint.textContent = mentions.length ? 'files: ' + mentions.slice(0, 6).join('  ') : '';
-  }
-  else if (m.kind === 'suggestion') {
-    const currentTarget = answerState.getPendingQuestion() || 'general';
-    if (m.reqId !== undefined && m.reqId !== suggestReqId) return;
-    if (m.target !== undefined && m.target !== currentTarget) return;
-    suggestion = m.text || '';
-    hint.textContent = suggestion ? 'Tab: ' + suggestion.split('\\n')[0].slice(0, 60) : '';
   }
   else if (m.kind === 'state') drawState(m.note);
   else if (m.kind === 'info') { info = m; drawInfo(); }
   else if (m.kind === 'note') noteEl.textContent = m.text || '';
 });
-function send() {
-  const t = say.value.trim();
-  if (!t) return;
-  /* If a question is open and they chose to type, the box answers THAT rather than starting a new
-     turn — otherwise their sentence goes somewhere nobody was waiting for it. */
-  const pending = answerState.getPendingQuestion();
-  if (pending) {
-    const res = answerState.submitReply(pending, t, false);
-    if (!res.ok) {
-      if (res.error === 'in_flight') {
-        noteEl.textContent = 'reply already in flight…';
-      }
-      return;
-    }
-    clearAutoCompletion();
-    vs.postMessage({ kind: 'reply', callId: res.callId, text: res.text, attemptId: res.attemptId });
-    if (res.exitAnswerMode) {
-      applyGeneralModeUI(res.nextInputText);
-    }
-  } else {
-    const res = answerState.submitSay(t);
-    if (!res.ok) return;
-    clearAutoCompletion();
-    vs.postMessage({ kind: 'say', text: res.text });
-    say.value = res.nextInputText;
-  }
-  hint.textContent = '';
-  /* The row for this arrives on the stream a moment later. Until then the box being empty is the
-     only sign anything happened, and on a slow first turn that reads as a lost message. */
-  noteEl.textContent = 'sending…';
-  setTimeout(() => { if (noteEl.textContent === 'sending…') noteEl.textContent = ''; }, 4000);
-}
-document.getElementById('send').addEventListener('click', send);
-/* Enter sends, Shift+Enter is a newline — the terminal and the web console both do this. */
-say.addEventListener('keydown', (e) => {
-  if (e.isComposing || e.keyCode === 229) return;
-  if (e.key === 'Escape' && answerState.getPendingQuestion()) { e.preventDefault(); exitAnswerMode(); return; }
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); return; }
-  if (e.key === 'Tab' && suggestion) {
-    e.preventDefault();
-    say.value += suggestion;
-    answerState.onInputChange(say.value);
-    suggestion = '';
-    hint.textContent = '';
-  }
-});
-say.addEventListener('input', () => {
-  suggestion = '';
-  hint.textContent = '';
-  if (typing) clearTimeout(typing);
-  const v = say.value;
-  const currentTarget = answerState.onInputChange(v).target;
-  const reqId = ++suggestReqId;
-  /* An @name at the start of a word asks the companion which files match. Two characters at
-     least, because one matches everything and the list would be the whole workspace.
-     (No backticks in here: this script lives in a template literal and one would close it.) */
-  const at = /(^|\\s)@([^\\s@]{2,})$/.exec(v);
-  typing = setTimeout(() => {
-    if (at) vs.postMessage({ kind: 'mention', text: at[2], reqId: reqId, target: currentTarget });
-    else if (v.trim().length > 3) vs.postMessage({ kind: 'suggest', text: v, reqId: reqId, target: currentTarget });
-    else hint.textContent = '';
-  }, 450);
-});
-vs.postMessage({ kind: 'ready' });
+actions.ready();
 </script></body></html>`;
   }
 }

@@ -27,6 +27,10 @@ try {
       const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
       return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
     }
+    if (route.request().url().includes('out/web/chat_adapter.js')) {
+      const js = await readFile(new URL('../out/web/chat_adapter.js', import.meta.url), 'utf8');
+      return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+    }
     return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
   });
   await page.goto('http://magi.test/');

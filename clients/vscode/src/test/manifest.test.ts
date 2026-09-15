@@ -362,7 +362,10 @@ test('no webview message is sent to nobody or awaited from nobody', () => {
   for (const { name, body } of views) {
     const at = body.search(/<script\b/);
     const ext = body.slice(0, at);
-    const web = body.slice(at);
+    const webAssets = name === 'chat.ts'
+      ? fs.readFileSync(path.join(__dirname, '..', '..', 'src', 'web', 'chat_adapter.ts'), 'utf8')
+      : '';
+    const web = body.slice(at) + '\n' + webAssets;
     const kinds = (s: string, re: RegExp): Set<string> =>
       new Set([...s.matchAll(re)].map((m) => m[1]));
 

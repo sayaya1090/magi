@@ -3,7 +3,14 @@ import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { parseWebviewToHostMessage } from '../core/webview_protocol';
+import { parseWebviewToHostMessage, WebviewToHostMessage } from '../core/webview_protocol';
+import {
+  createWebviewActionAdapter,
+  dispatchHostMessage,
+  createWebviewInputAdapter,
+  WebviewBridge,
+} from '../web/chat_adapter';
+import { createAnswerState } from '../core/answer_state';
 
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
 
@@ -44,7 +51,7 @@ test('no webview script contains a backtick', () => {
 
 /** And every interpolation in there is one we meant — a stray ${ is a hole, not a value. */
 test('every interpolation in a webview is a named one', () => {
-  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri']);
+  const allowed = new Set(['nonce', 'w.cspSource', 'csp', 'scriptUri', 'adapterUri']);
   for (const { file, body } of templates()) {
     for (const m of body.matchAll(/\$\{([^}]*)\}/g)) {
       assert.ok(allowed.has(m[1].trim()), `${file}: unexpected interpolation \${${m[1]}}`);
@@ -550,4 +557,162 @@ test('parseWebviewToHostMessage strictly rejects malformed or incomplete message
   assert.equal(parseWebviewToHostMessage({ kind: 'answer', callId: 'c1' }), undefined, 'missing decision');
   assert.equal(parseWebviewToHostMessage({ kind: 'answer', decision: 'allow' }), undefined, 'missing callId');
 });
+
+test('createWebviewActionAdapter formats and guards outbound messages', () => {
+  const posted: WebviewToHostMessage[] = [];
+  const bridge: WebviewBridge = {
+    postMessage(msg) { posted.push(msg); },
+  };
+  const adapter = createWebviewActionAdapter(bridge);
+
+  // Guard checks
+  assert.equal(adapter.openFile('', 'c1'), false);
+  assert.equal(adapter.openFile('sess', ''), false);
+  assert.equal(adapter.openDiff('', 'c1'), false);
+  assert.equal(adapter.answer('', 'allow'), false);
+  assert.equal(adapter.answer('c1', ''), false);
+  assert.equal(adapter.reply('', 'txt', 1), false);
+  assert.equal(adapter.say('   '), false);
+  assert.equal(adapter.act('   '), false);
+
+  // Successful dispatches
+  assert.equal(adapter.openFile('sess1', 'call1'), true);
+  assert.deepEqual(posted.pop(), { kind: 'open', session: 'sess1', callId: 'call1' });
+
+  assert.equal(adapter.openFile('sess1', 'call1', 42), true);
+  assert.deepEqual(posted.pop(), { kind: 'open', session: 'sess1', callId: 'call1', seq: 42 });
+
+  assert.equal(adapter.openDiff('sess1', 'call1'), true);
+  assert.deepEqual(posted.pop(), { kind: 'diff', session: 'sess1', callId: 'call1' });
+
+  assert.equal(adapter.answer('call1', 'allow'), true);
+  assert.deepEqual(posted.pop(), { kind: 'answer', callId: 'call1', decision: 'allow' });
+
+  assert.equal(adapter.reply('call1', 'answer text', 2), true);
+  assert.deepEqual(posted.pop(), { kind: 'reply', callId: 'call1', text: 'answer text', attemptId: 2 });
+
+  assert.equal(adapter.say('hello companion'), true);
+  assert.deepEqual(posted.pop(), { kind: 'say', text: 'hello companion' });
+
+  assert.equal(adapter.act('magi.restartDaemon'), true);
+  assert.deepEqual(posted.pop(), { kind: 'run', command: 'magi.restartDaemon' });
+
+  assert.equal(adapter.suggest('typing...', 5, 'general'), true);
+  assert.deepEqual(posted.pop(), { kind: 'suggest', text: 'typing...', reqId: 5, target: 'general' });
+
+  assert.equal(adapter.mention('app', 6, 'general'), true);
+  assert.deepEqual(posted.pop(), { kind: 'mention', text: 'app', reqId: 6, target: 'general' });
+
+  adapter.drop();
+  assert.deepEqual(posted.pop(), { kind: 'drop' });
+
+  adapter.start();
+  assert.deepEqual(posted.pop(), { kind: 'start' });
+
+  adapter.ready();
+  assert.deepEqual(posted.pop(), { kind: 'ready' });
+});
+
+test('dispatchHostMessage validates and safely dispatches inbound host messages', () => {
+  const handled: string[] = [];
+  const handlers = {
+    onRows: () => { handled.push('rows'); },
+    onState: () => { handled.push('state'); },
+    onInfo: () => { handled.push('info'); },
+    onCompose: () => { handled.push('compose'); },
+    onNote: () => { handled.push('note'); },
+    onReplyResult: () => { handled.push('replyResult'); },
+    onMentions: () => { handled.push('mentions'); },
+    onSuggestion: () => { handled.push('suggestion'); },
+  };
+
+  assert.equal(dispatchHostMessage(null, handlers), false);
+  assert.equal(dispatchHostMessage('not-an-object', handlers), false);
+  assert.equal(dispatchHostMessage({ kind: 'unknown' }, handlers), false);
+
+  assert.equal(dispatchHostMessage({ kind: 'rows', session: 's1', rows: [], ask: null, refs: [] }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'state', state: { state: 'idle' }, note: { text: 'ok', offerStart: false } }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'info', state: 'idle', label: 'idle', version: '1.0' }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'compose', text: 'prefix' }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'note', text: 'notice' }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'mentions', files: ['a.ts'], reqId: 1, target: 'general' }, handlers), true);
+  assert.equal(dispatchHostMessage({ kind: 'suggestion', text: 'complete', reqId: 2, target: 'general' }, handlers), true);
+
+  assert.deepEqual(handled, ['rows', 'state', 'info', 'compose', 'note', 'replyResult', 'mentions', 'suggestion']);
+});
+
+test('createWebviewInputAdapter controls answer mode and submits responses', () => {
+  const posted: WebviewToHostMessage[] = [];
+  const bridge: WebviewBridge = {
+    postMessage(msg) { posted.push(msg); },
+  };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, ((e?: any) => void)[]> = {};
+  const createElement = (tag: string) => {
+    const el = {
+      tagName: tag,
+      value: '',
+      textContent: '',
+      placeholder: '',
+      hidden: false,
+      focusCalled: false,
+      focus() { el.focusCalled = true; },
+      addEventListener(evt: string, fn: any) {
+        (listeners[evt] = listeners[evt] || []).push(fn);
+      },
+      removeEventListener(evt: string, fn: any) {
+        listeners[evt] = (listeners[evt] || []).filter((f: any) => f !== fn);
+      },
+    };
+    return el as unknown as HTMLElement;
+  };
+
+  const sayEl = createElement('textarea') as HTMLTextAreaElement;
+  const sendEl = createElement('button');
+  const replyModeEl = createElement('div');
+  const replyTargetEl = createElement('span');
+  const replyCancelEl = createElement('button');
+  const noteEl = createElement('div');
+  const hintEl = createElement('div');
+
+  const inputAdapter = createWebviewInputAdapter(
+    {
+      say: sayEl,
+      sendBtn: sendEl,
+      replyModeEl,
+      replyTargetEl,
+      replyCancelEl,
+      noteEl,
+      hintEl,
+    },
+    actions,
+    state,
+  );
+
+  // 1. General say submission
+  sayEl.value = 'hello agent';
+  inputAdapter.send();
+  assert.deepEqual(posted.pop(), { kind: 'say', text: 'hello agent' });
+  assert.equal(sayEl.value, '');
+
+  // 2. Enter answer mode
+  inputAdapter.enterAnswerMode('q1', 'Confirm deployment');
+  assert.equal(replyModeEl.hidden, false);
+  assert.equal(replyTargetEl.textContent, 'Confirm deployment');
+  assert.equal(sendEl.textContent, '답변');
+
+  // 3. Submit choice
+  const choiceOk = inputAdapter.submitChoice('q1', 'yes');
+  assert.equal(choiceOk, true);
+  assert.deepEqual(posted.pop(), { kind: 'reply', callId: 'q1', text: 'yes', attemptId: 1 });
+  assert.equal(replyModeEl.hidden, true);
+  assert.equal(sendEl.textContent, 'Send');
+
+  // 4. Dispose cleans up
+  inputAdapter.dispose();
+});
+
 

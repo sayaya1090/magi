@@ -7,7 +7,14 @@
 
 import { Row } from './transcript';
 import { Ask } from './touched';
-import { Ref } from './refs';
+import { Activity } from './activity';
+
+export type PaintedRow = Row & { label: string };
+
+export interface PanelNoteInfo {
+  text: string;
+  offerStart: boolean;
+}
 
 // ── Webview to Host Messages ──
 
@@ -101,10 +108,22 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
 // ── Host to Webview Messages ──
 
 export type HostToWebviewMessage =
-  | { kind: 'state'; state: unknown; note: string }
-  | { kind: 'rows'; session: string; rows: Row[]; ask: Ask | null; refs: Ref[] }
+  | { kind: 'state'; state: Activity; note: PanelNoteInfo }
+  | {
+      kind: 'info';
+      state: string;
+      label: string;
+      version: string;
+      model?: string;
+      backend?: string;
+      permission?: string;
+      council?: string;
+      socket?: string;
+    }
+  | { kind: 'rows'; session: string; rows: PaintedRow[]; ask: Ask | null; refs: string[] }
   | { kind: 'compose'; text: string }
   | { kind: 'note'; text: string }
   | { kind: 'replyResult'; callId: string; attemptId: number; ok: boolean; error?: string; text?: string }
   | { kind: 'mentions'; files: string[]; reqId: number; target: string }
   | { kind: 'suggestion'; text: string; reqId: number; target: string };
+
