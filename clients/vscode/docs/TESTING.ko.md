@@ -173,7 +173,19 @@ node clients/vscode/tools/transcript-test.mjs --bundle=diff          # diff·파
 
 # 3. 묶음 역순 실행 (--reverse)
 node clients/vscode/tools/transcript-test.mjs --reverse
+
+# 4. 자산 경로 및 누락 검증 단독 실행 (--verify-assets)
+node clients/vscode/tools/transcript-test.mjs --verify-assets
 ```
 
 각 묶음은 브라우저 Context/Page를 독립 생성하고 `finally`에서 안전하게 닫으며, 전역 monkey-patching 없이 엄격한 프로토콜 계약(`session`, `refs`)을 검증합니다. 미등록 자산 요청 및 콘솔/페이지 에러는 즉시 테스트 실패로 수집됩니다.
+
+### 자산 경로 및 번들 선행 검증 사양 (2026-09-16)
+
+`transcript-test.mjs`는 `renderChatHtml`에 전달하는 자산 URL과 Playwright 네트워크 라우팅 허용 목록을 단일 상수(`ASSET_PATHS`, `ASSET_URLS`)로 동기화하여 검증합니다:
+
+- **정확한 경로 판정 및 거절:** `url.includes(...)` 부분 문자열 매칭과 구형 `chat_adapter.js` 별칭을 배제하고 정확한 `pathname` 일치만 허용합니다. 정상 자산(`/`, `index.html`, `answer_state.js`, `chat_adapter.bundle.js`)은 200 HTTP 응답을 반환하며, 알 수 없는 자산이나 변형된 접미사(`chat_adapter.bundle.js.broken`), 구형 별칭은 즉시 404로 거절하고 일반 시나리오 에러 로그와 분리된 격리 페이지에서 검증합니다.
+- **동적 import 및 번들 누락 사전 검사:** `renderChatHtml`을 정적으로 import하기 전에 필수 빌드 산출물(`chat_html.js`, `answer_state.js`, `chat_adapter.bundle.js`) 존재 여부를 `verifyRequiredBundles`로 먼저 검사합니다. 번들이 누락되면 누락 경로와 빌드 안내(`npm run build --prefix clients/vscode`)를 출력하고 프로세스가 비정상 종료(코드 1)합니다. 이 동작은 임시 디렉터리를 생성하여 격리 검증하므로 기존 `out/` 빌드 산출물을 삭제하거나 변형하지 않습니다.
+- **비정상 메시지 수신 시 상태 보존:** 비정상 페이로드(비배열 rows, session 누락, callId 빈 문자열인 replyResult, 미등록 kind, 원시 타입 등)를 보정 없이 브라우저 이벤트 큐에 직접 발행할 때, 기존 행·대기 질문 카드·답변 모드 및 작성 중인 초안(`say.value`)이 훼손되거나 지워지지 않고 페이지 오류(pageerror) 없이 100% 보존되는지 `postMessage` FIFO 큐 동기화로 검증합니다.
+
 

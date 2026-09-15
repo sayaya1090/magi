@@ -1,33 +1,151 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { renderChatHtml } from '../out/web/chat_html.js';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { createRowsMessage } from './transcript-fixtures.mjs';
 
 const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
 const { chromium } = require('playwright');
 
-// Pre-flight check: Ensure all required compiled assets exist before launching browser
-const requiredBundles = [
-  new URL('../out/web/chat_html.js', import.meta.url),
-  new URL('../out/web/answer_state.js', import.meta.url),
-  new URL('../out/web/chat_adapter.bundle.js', import.meta.url),
-];
-for (const b of requiredBundles) {
-  if (!existsSync(b)) {
-    console.error(`Missing required webview asset bundle: ${b.pathname}\nRun 'npm run build --prefix clients/vscode' first.`);
-    process.exit(1);
+// Single source of truth for asset routing and URL resolution (§2.1)
+export const TEST_ORIGIN = 'http://magi.test';
+export const ASSET_PATHS = {
+  document: ['/', '/index.html'],
+  answerState: '/out/web/answer_state.js',
+  adapterBundle: '/out/web/chat_adapter.bundle.js',
+};
+export const ASSET_URLS = {
+  document: `${TEST_ORIGIN}/`,
+  answerState: `${TEST_ORIGIN}${ASSET_PATHS.answerState}`,
+  adapterBundle: `${TEST_ORIGIN}${ASSET_PATHS.adapterBundle}`,
+};
+
+/**
+ * Validates existence of all required compiled assets.
+ * Can be parameterized with baseDir to test missing bundle scenarios in isolation (§2.2).
+ */
+export function verifyRequiredBundles(baseDir = new URL('../out/web/', import.meta.url)) {
+  const bundles = [
+    { name: 'chat_html.js', path: new URL('chat_html.js', baseDir) },
+    { name: 'answer_state.js', path: new URL('answer_state.js', baseDir) },
+    { name: 'chat_adapter.bundle.js', path: new URL('chat_adapter.bundle.js', baseDir) },
+  ];
+  for (const b of bundles) {
+    if (!existsSync(b.path)) {
+      console.error(`Missing required webview asset bundle: ${b.path.pathname}\nRun 'npm run build --prefix clients/vscode' first.`);
+      return false;
+    }
   }
+  return true;
 }
+
+// Pre-flight check: Ensure all required compiled assets exist before importing or launching browser (§2.2)
+if (!verifyRequiredBundles()) {
+  process.exit(1);
+}
+
+// Dynamic import evaluated strictly AFTER pre-flight check succeeds (§2.2)
+const { renderChatHtml } = await import('../out/web/chat_html.js');
 
 const nonce = 'test-nonce';
 const html = renderChatHtml({
-  cspSource: "'self' http://magi.test",
+  cspSource: `'self' ${TEST_ORIGIN}`,
   nonce,
-  scriptUri: 'http://magi.test/out/web/answer_state.js',
-  adapterUri: 'http://magi.test/out/web/chat_adapter.bundle.js',
+  scriptUri: ASSET_URLS.answerState,
+  adapterUri: ASSET_URLS.adapterBundle,
 });
+
+/**
+ * Verifies preflight missing bundle detection and exact route matching / rejection (§2.1, §2.2).
+ * Runs in an isolated browser context and temp directory without mutating test state.
+ */
+export async function verifyAssetRoutesAndPreflight(browser, compiledHtml) {
+  console.log('\n▶ Asset Route & Preflight Verification (§2.1, §2.2)');
+
+  // 1. Preflight check in an isolated temporary directory (without deleting actual out/ files)
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'magi-test-assets-'));
+  try {
+    const tempUrl = new URL(`file://${tempDir}/`);
+    // Completely empty temp dir -> should return false
+    assert.equal(verifyRequiredBundles(tempUrl), false, 'Empty dir fails bundle verification');
+
+    // Only chat_html.js -> should return false
+    await writeFile(path.join(tempDir, 'chat_html.js'), 'export const renderChatHtml = () => "";');
+    assert.equal(verifyRequiredBundles(tempUrl), false, 'Missing answer_state & adapter fails');
+
+    // chat_html.js and answer_state.js -> should return false
+    await writeFile(path.join(tempDir, 'answer_state.js'), '// answer state');
+    assert.equal(verifyRequiredBundles(tempUrl), false, 'Missing adapter bundle fails');
+
+    // All three exist -> should return true
+    await writeFile(path.join(tempDir, 'chat_adapter.bundle.js'), '// adapter bundle');
+    assert.equal(verifyRequiredBundles(tempUrl), true, 'All three bundles present succeeds');
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+  console.log('  PASS: [preflight] Isolated bundle missing checks exit/report correctly');
+
+  // 2. Exact URL and route rejection verification in an isolated browser context
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.route(`${TEST_ORIGIN}/**`, async (route) => {
+      const reqUrl = new URL(route.request().url());
+      if (reqUrl.origin === TEST_ORIGIN) {
+        if (ASSET_PATHS.document.includes(reqUrl.pathname)) {
+          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: compiledHtml });
+        }
+        if (reqUrl.pathname === ASSET_PATHS.answerState) {
+          const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
+          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+        }
+        if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
+          const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
+          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+        }
+      }
+      return route.fulfill({ status: 404, body: 'Not Found' });
+    });
+
+    const probe = async (url) => {
+      const res = await page.goto(url);
+      return { status: res ? res.status() : 0, contentType: res ? (res.headers()['content-type'] || '') : '' };
+    };
+
+    // Valid assets return 200
+    const resDoc = await probe(`${TEST_ORIGIN}/`);
+    assert.equal(resDoc.status, 200);
+    assert.ok(resDoc.contentType.includes('text/html'));
+
+    const resAnswer = await probe(ASSET_URLS.answerState);
+    assert.equal(resAnswer.status, 200);
+    assert.ok(resAnswer.contentType.includes('application/javascript'));
+
+    const resAdapter = await probe(ASSET_URLS.adapterBundle);
+    assert.equal(resAdapter.status, 200);
+    assert.ok(resAdapter.contentType.includes('application/javascript'));
+
+    // Old alias returns 404
+    const resOldAlias = await probe(`${TEST_ORIGIN}/out/web/chat_adapter.js`);
+    assert.equal(resOldAlias.status, 404, 'Old chat_adapter.js alias is rejected with 404');
+
+    // .broken suffix returns 404
+    const resBrokenAdapter = await probe(`${TEST_ORIGIN}/out/web/chat_adapter.bundle.js.broken`);
+    assert.equal(resBrokenAdapter.status, 404, 'chat_adapter.bundle.js.broken is rejected with 404');
+
+    const resBrokenAnswer = await probe(`${TEST_ORIGIN}/out/web/answer_state.js.broken`);
+    assert.equal(resBrokenAnswer.status, 404, 'answer_state.js.broken is rejected with 404');
+
+    // Non-existent path returns 404
+    const resUnknown = await probe(`${TEST_ORIGIN}/some/random/path.js`);
+    assert.equal(resUnknown.status, 404);
+  } finally {
+    await context.close();
+  }
+  console.log('  PASS: [asset_routing] Exact asset matching succeeds and old/broken URLs are rejected with 404');
+}
 
 // Define scenario suites across the 4 specified bundles (§2.3)
 const bundles = [
@@ -510,18 +628,90 @@ const bundles = [
       },
       {
         id: 'asks_malformed_payload_rejected_without_mutation',
-        name: '비정상 payload 디스패치 시 파서 거부 및 기존 DOM·입력 상태 보존',
+        name: '비정상 payload 디스패치 시 파서 거부 및 기존 DOM·질문·초안 상태 보존 (§2.3)',
         run: async (page) => {
-          await page.locator('#say').fill('보존되어야 할 입력');
+          // 1. Setup normal rows, pending ask, and active draft
+          const initialQuestion = {
+            kind: 'question',
+            callId: 'q-malformed-guard',
+            what: '보존되어야 할 질문 제목',
+            options: ['옵션 A', '옵션 B']
+          };
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [
+              { who: 'user', label: 'You', text: '이전 사용자 입력' },
+              { who: 'agent', label: 'magi', text: '이전 에이전트 답변' }
+            ],
+            ask: initialQuestion,
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('작성 중인 답변 초안');
+
+          // 2. Snapshot full DOM and state before malformed dispatch
+          const beforeState = await page.evaluate(() => ({
+            sayValue: document.getElementById('say').value,
+            replyModeVisible: !document.getElementById('reply-mode').hidden,
+            replyTarget: document.querySelector('#reply-mode .reply-target')?.textContent || '',
+            rowsCount: document.querySelectorAll('#rows .row').length,
+            rowsHtml: document.getElementById('rows').innerHTML,
+            askBodyHtml: document.getElementById('ask-body').innerHTML,
+            askControlsHtml: document.getElementById('ask-controls').innerHTML,
+          }));
+          assert.equal(beforeState.sayValue, '작성 중인 답변 초안');
+          assert.equal(beforeState.replyModeVisible, true);
+          assert.equal(beforeState.rowsCount, 2);
+
+          // 3. Dispatch malformed messages directly without fixture correction
           await page.evaluate(() => {
+            // Malformed rows (non-array)
             window.postMessage({ kind: 'rows', rows: 'invalid-non-array' }, '*');
+            // Malformed rows (missing session)
+            window.postMessage({ kind: 'rows', rows: [] }, '*');
+            // Malformed rows (non-string refs)
+            window.postMessage({ kind: 'rows', session: 's1', rows: [], refs: [123] }, '*');
+            // Malformed replyResult (empty callId)
+            window.postMessage({ kind: 'replyResult', callId: '', attemptId: 1, ok: true }, '*');
+            // Malformed state (missing note)
+            window.postMessage({ kind: 'state', state: {} }, '*');
+            // Unknown kind
             window.postMessage({ kind: 'unknown_kind_never_seen' }, '*');
+            // Primitive non-object payloads
             window.postMessage(null, '*');
             window.postMessage(12345, '*');
-            window.postMessage({ kind: 'replyResult', callId: '' }, '*');
+            window.postMessage('string payload', '*');
           });
-          assert.equal(await page.locator('#say').inputValue(), '보존되어야 할 입력', 'input composer was not cleared by malformed messages');
-          assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode was not triggered by malformed messages');
+
+          // 4. Test synchronization using postMessage FIFO ordering without arbitrary sleep
+          await page.evaluate(() => new Promise((resolve) => {
+            window.addEventListener('message', function onSync(e) {
+              if (e.data && e.data.__syncGuard) {
+                window.removeEventListener('message', onSync);
+                resolve();
+              }
+            });
+            window.postMessage({ __syncGuard: true }, '*');
+          }));
+
+          // 5. Verify full state preservation
+          const afterState = await page.evaluate(() => ({
+            sayValue: document.getElementById('say').value,
+            replyModeVisible: !document.getElementById('reply-mode').hidden,
+            replyTarget: document.querySelector('#reply-mode .reply-target')?.textContent || '',
+            rowsCount: document.querySelectorAll('#rows .row').length,
+            rowsHtml: document.getElementById('rows').innerHTML,
+            askBodyHtml: document.getElementById('ask-body').innerHTML,
+            askControlsHtml: document.getElementById('ask-controls').innerHTML,
+          }));
+          assert.deepEqual(afterState, beforeState, 'DOM, question, input composer, and draft were preserved without mutation');
+
+          // Clean up: cancel answer mode and dismiss ask
+          await page.keyboard.press('Escape');
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
         }
       }
     ]
@@ -1256,16 +1446,19 @@ const bundles = [
   }
 ];
 
-// Parse CLI arguments: --bundle=<name>, --reverse
+// Parse CLI arguments: --bundle=<name>, --reverse, --verify-assets
 const args = process.argv.slice(2);
 let selectedBundleName = null;
 let isReverse = false;
+let verifyAssetsOnly = false;
 
 for (const arg of args) {
   if (arg.startsWith('--bundle=')) {
     selectedBundleName = arg.slice('--bundle='.length).trim();
   } else if (arg === '--reverse') {
     isReverse = true;
+  } else if (arg === '--verify-assets') {
+    verifyAssetsOnly = true;
   }
 }
 
@@ -1289,6 +1482,15 @@ let totalFailed = 0;
 const failures = [];
 
 try {
+  // Always run isolated asset & preflight verification when running all bundles or when explicitly requested (§2.1, §2.2)
+  if (verifyAssetsOnly || !selectedBundleName) {
+    await verifyAssetRoutesAndPreflight(browser, html);
+    if (verifyAssetsOnly) {
+      console.log('\nSUMMARY: Asset verification passed successfully.');
+      process.exit(0);
+    }
+  }
+
   for (const bundle of runBundles) {
     console.log(`\n▶ Bundle: ${bundle.name} (${bundle.description})`);
     const context = await browser.newContext();
@@ -1312,25 +1514,27 @@ try {
         });
       });
 
-      // Strict route mapping: unknown asset requests reject with 404 and record failure
-      await page.route('http://magi.test/**', async (route) => {
-        const url = route.request().url();
-        if (url === 'http://magi.test/' || url === 'http://magi.test/index.html') {
-          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+      // Strict route mapping: exact pathname matching only; unknown requests reject with 404 and record failure (§2.1)
+      await page.route(`${TEST_ORIGIN}/**`, async (route) => {
+        const reqUrl = new URL(route.request().url());
+        if (reqUrl.origin === TEST_ORIGIN) {
+          if (ASSET_PATHS.document.includes(reqUrl.pathname)) {
+            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+          }
+          if (reqUrl.pathname === ASSET_PATHS.answerState) {
+            const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
+            return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+          }
+          if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
+            const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
+            return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+          }
         }
-        if (url.includes('out/web/answer_state.js')) {
-          const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
-          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-        }
-        if (url.includes('out/web/chat_adapter.bundle.js') || url.includes('out/web/chat_adapter.js')) {
-          const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
-          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-        }
-        routeErrors.push(`Unregistered asset requested: ${url}`);
+        routeErrors.push(`Unregistered asset requested: ${reqUrl.href}`);
         return route.fulfill({ status: 404, body: 'Not Found' });
       });
 
-      await page.goto('http://magi.test/');
+      await page.goto(`${TEST_ORIGIN}/`);
 
       for (const scenario of bundle.scenarios) {
         try {
