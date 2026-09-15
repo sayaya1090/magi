@@ -159,4 +159,21 @@ cd clients/vscode && npx tsc -p . && node out/live/run.js
 
 > ⚠ **단위 검증 범위 외 항목:** 창을 실제로 닫을 때 실행되는 VS Code 네이티브 `deactivate` 경로, Windows 환경의 Named Pipe/AF_UNIX 분기 처리, 사용자에게 표출되는 경고 배너는 본 테스트의 검증 범위에서 제외됩니다.
 
-전사 뷰 스크롤 동작은 헤드리스 브라우저 테스트 하네스로 검증합니다(`node clients/vscode/tools/transcript-test.mjs`, 사전 요구사항: `clients/web/e2e` 내 Playwright 설치). `chat.ts`에서 생성된 실제 웹뷰 번들 스크립트를 Chromium 환경에서 구동하여 대용량 응답 도착 시 대화창이 정상적으로 스크롤되는지 검증합니다. `#rows` 컨테이너가 `min-height: 0` 없이 flex 자식 요소로 배치될 경우 컨테이너가 무한히 신장되어 스크롤바가 유실되던 레이아웃 결함을 영구 방지합니다.
+전사 뷰 및 상호작용 동작은 헤드리스 브라우저 테스트 하네스로 검증합니다(`node clients/vscode/tools/transcript-test.mjs`, 사전 요구사항: `clients/web/e2e` 내 Playwright 설치). `chat.ts`가 호출하는 공통 컴파일 HTML 생성기(`renderChatHtml`)와 실제 웹뷰 번들 자산(`answer_state.js`, `chat_adapter.bundle.js`)을 Chromium 환경에서 구동하여 4개 독립 묶음(Bundle)으로 격리 검증합니다.
+
+```sh
+# 1. 전사 테스트 전체 묶음 순차 실행
+node clients/vscode/tools/transcript-test.mjs
+
+# 2. 시나리오 묶음별 단독 실행 (--bundle=<name>)
+node clients/vscode/tools/transcript-test.mjs --bundle=layout        # 레이아웃·보고서 (스크롤, 긴 답변, 뷰포트, 점프)
+node clients/vscode/tools/transcript-test.mjs --bundle=asks          # 질문·초안 (자유/선택형 질문, 답변 모드, 전송 거절/단절 복구, 시도 격리)
+node clients/vscode/tools/transcript-test.mjs --bundle=autocomplete  # 자동완성 (모드 전환 무효화, 전송/선택지 클릭 타이머 취소)
+node clients/vscode/tools/transcript-test.mjs --bundle=diff          # diff·파일 이동 (구문 강조, 변경 보기, 파일 이동 링크, 세션 바인딩)
+
+# 3. 묶음 역순 실행 (--reverse)
+node clients/vscode/tools/transcript-test.mjs --reverse
+```
+
+각 묶음은 브라우저 Context/Page를 독립 생성하고 `finally`에서 안전하게 닫으며, 전역 monkey-patching 없이 엄격한 프로토콜 계약(`session`, `refs`)을 검증합니다. 미등록 자산 요청 및 콘솔/페이지 에러는 즉시 테스트 실패로 수집됩니다.
+
