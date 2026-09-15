@@ -131,6 +131,7 @@ export interface Ask {
   diff?: string;
   /** Kind of native diff/editor view available: 'sides', 'patch', or 'none'. */
   diffKind?: 'sides' | 'patch' | 'none';
+  filePath?: string;
   /**
    * The GROUNDS a question was asked on — what the person is meant to decide from.
    *

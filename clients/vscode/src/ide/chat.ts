@@ -146,7 +146,17 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     this.events = [];
     this.draw();
     s.stream({ method: 'transcript', session: sid }, (r) => {
-      if (r.event) { this.events.push(r.event); this.draw(); }
+      if (r.event) {
+        this.events.push(r.event);
+        if (this.sid) {
+          if (turnOpen(this.events)) {
+            this.sessionActiveTurns.add(this.sid);
+          } else {
+            this.sessionActiveTurns.delete(this.sid);
+          }
+        }
+        this.draw();
+      }
       else if (r.error) this.post({ kind: 'note', text: r.error });
       else if (r.why) this.post({ kind: 'note', text: r.why });
       /* The replay is over. Drawn ONLY when there is nothing to show, because that is the only place
@@ -228,6 +238,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   private opening = 0;
   private sessionCreating: Promise<string> | null = null;
   private generation = 0;
+  private sendQueue: Promise<void> = Promise.resolve();
+  private readonly sessionActiveTurns = new Set<string>();
+
+  private isSessionTurnOpen(sid: string): boolean {
+    if (this.sessionActiveTurns.has(sid)) return true;
+    if (this.sid === sid && turnOpen(this.events)) return true;
+    return false;
+  }
 
   /** Read another conversation. The daemon is the source, so this only changes which one we ask for. */
   showSession(sid: string): void {
@@ -343,7 +361,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  private async fromView(raw: unknown): Promise<void> {
+  /* visible for testing */ async fromView(raw: unknown): Promise<void> {
     const m = parseWebviewToHostMessage(raw);
     if (!m) return;
     switch (m.kind) {
@@ -362,47 +380,79 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         const refs = sent.map(wireRef);
         this.refs = [];
 
-        let targetSid = this.sid;
-        if (!targetSid) {
-          const gen = this.generation;
-          if (!this.sessionCreating) {
-            this.sessionCreating = (async () => {
-              const created = await this.companion.ask('session-new');
-              const sid = created?.session ?? '';
-              if (!sid) {
-                throw new Error(created?.error ?? 'the companion could not open a conversation.');
-              }
-              return sid;
-            })();
+        // Chain sending per chat view to preserve order and eliminate race conditions
+        const originatingSid = this.sid;
+        const activeCreating = this.sessionCreating;
+        const prevQueue = this.sendQueue;
+        let resolveQueue!: () => void;
+        this.sendQueue = new Promise<void>((res) => { resolveQueue = res; });
+
+        try {
+          await prevQueue;
+
+          let targetSid = originatingSid;
+          if (!targetSid && activeCreating) {
+            try {
+              targetSid = await activeCreating;
+            } catch {
+              // activeCreating failed, fall through to creating or current sid
+            }
+          }
+          if (!targetSid) targetSid = this.sid;
+
+          if (!targetSid) {
+            const gen = this.generation;
+            if (!this.sessionCreating) {
+              this.sessionCreating = (async () => {
+                const created = await this.companion.ask('session-new');
+                const sid = created?.session ?? '';
+                if (!sid) {
+                  throw new Error(created?.error ?? 'the companion could not open a conversation.');
+                }
+                return sid;
+              })();
+            }
+
+            let sid = '';
+            try {
+              sid = await this.sessionCreating;
+            } catch (e: any) {
+              this.sessionCreating = null;
+              this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
+              break;
+            } finally {
+              this.sessionCreating = null;
+            }
+
+            targetSid = sid;
+            if (this.generation === gen && !this.sid) {
+              this.sid = sid;
+              this.companion.session = sid;
+              void this.openStream();
+            }
           }
 
-          let sid = '';
-          try {
-            sid = await this.sessionCreating;
-          } catch (e: any) {
-            this.sessionCreating = null;
-            this.giveBack(body, sent, e?.message ?? 'the companion could not open a conversation.');
-            break;
-          } finally {
-            this.sessionCreating = null;
-          }
+          // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
+          // names — `submit` is a new top-level request and the core wipes the plan for it, so a
+          // clarification typed mid-turn would delete the plan of the turn it was clarifying.
+          // The fact comes off the target session state, or the transcript this window streams (turnOpen).
+          const isTurnRunning = this.isSessionTurnOpen(targetSid) || (this.sid === targetSid && turnOpen(this.events));
+          const door = isTurnRunning ? 'steer' : 'submit';
 
-          targetSid = sid;
-          if (this.generation === gen && !this.sid) {
-            this.sid = sid;
-            this.companion.session = sid;
-            void this.openStream();
+          const r = await this.companion.ask(door, refs.length ? { session: targetSid, text: body, refs } : { session: targetSid, text: body });
+          if (!r?.ok) {
+            this.sessionActiveTurns.delete(targetSid);
+            this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
+          } else {
+            // Once submit succeeds, mark turn active immediately even before first stream chunk lands
+            this.sessionActiveTurns.add(targetSid);
           }
+          if (this.sid === targetSid) {
+            this.draw();
+          }
+        } finally {
+          resolveQueue();
         }
-
-        // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
-        // names — `submit` is a new top-level request and the core wipes the plan for it, so a
-        // clarification typed mid-turn would delete the plan of the turn it was clarifying.
-        // The fact comes off the transcript this window streams, not from `status` (see turnOpen).
-        const door = turnOpen(this.events) ? 'steer' : 'submit';
-        const r = await this.companion.ask(door, refs.length ? { session: targetSid, text: body, refs } : { session: targetSid, text: body });
-        if (!r?.ok) this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
-        this.draw();
         break;
       }
       case 'start':
@@ -794,90 +844,14 @@ function askedAt(iso) {
   return sameDay ? clock : d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + clock;
 }
 function renderDiff(container, text) {
-  if (!text) return;
+  if (!text || typeof classifyDiffLines !== 'function') return;
   const lines = text.split('\\n');
   if (lines.length > 0 && lines[lines.length - 1] === '' && text.endsWith('\\n')) lines.pop();
-  if (typeof classifyDiffLines === 'function') {
-    const classified = classifyDiffLines(lines);
-    for (let i = 0; i < classified.length; i++) {
-      const row = document.createElement('div');
-      row.className = 'diff-line ' + classified[i].cls;
-      row.textContent = classified[i].text + (i < classified.length - 1 || text.endsWith('\\n') ? '\\n' : '');
-      container.append(row);
-    }
-    return;
-  }
-  let inHunk = false;
-  let oldRemaining = 0;
-  let newRemaining = 0;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (i === lines.length - 1 && lines[i] === '' && text.endsWith('\\n')) break;
-    const rawLine = lines[i];
-    const lineWithNl = rawLine + (i < lines.length - 1 || text.endsWith('\\n') ? '\\n' : '');
-
-    let cls = 'diff-plain';
-    const hunkMatch = /^@@\\s+-(\\d+)(?:,(\\d+))?\\s+\\+(\\d+)(?:,(\\d+))?\\s+@@(?:$|\\s)/.exec(rawLine);
-    const isGitHeader = rawLine.startsWith('diff --git ') || rawLine.startsWith('Index: ');
-
-    if (isGitHeader) {
-      inHunk = false;
-      oldRemaining = 0;
-      newRemaining = 0;
-      cls = 'diff-file-header';
-    } else if (hunkMatch) {
-      inHunk = true;
-      oldRemaining = hunkMatch[2] !== undefined ? parseInt(hunkMatch[2], 10) : 1;
-      newRemaining = hunkMatch[4] !== undefined ? parseInt(hunkMatch[4], 10) : 1;
-      cls = 'diff-hunk-header';
-      if (oldRemaining === 0 && newRemaining === 0) {
-        inHunk = false;
-      }
-    } else if (inHunk) {
-      if (rawLine.startsWith('+')) {
-        cls = 'diff-added';
-        if (newRemaining > 0) newRemaining--;
-      } else if (rawLine.startsWith('-')) {
-        cls = 'diff-deleted';
-        if (oldRemaining > 0) oldRemaining--;
-      } else if (rawLine.startsWith(' ') || rawLine === '') {
-        cls = 'diff-context';
-        if (oldRemaining > 0) oldRemaining--;
-        if (newRemaining > 0) newRemaining--;
-      } else if (rawLine.startsWith('\\\\')) {
-        cls = 'diff-context';
-      } else {
-        cls = 'diff-plain';
-      }
-      if (oldRemaining <= 0 && newRemaining <= 0) {
-        inHunk = false;
-      }
-    } else {
-      const isFileMeta = (
-        rawLine.startsWith('--- ') ||
-        rawLine.startsWith('+++ ') ||
-        rawLine.startsWith('index ') ||
-        rawLine.startsWith('new file mode ') ||
-        rawLine.startsWith('deleted file mode ') ||
-        rawLine.startsWith('similarity index ') ||
-        rawLine.startsWith('rename from ') ||
-        rawLine.startsWith('rename to ') ||
-        rawLine.startsWith('old mode ') ||
-        rawLine.startsWith('new mode ') ||
-        rawLine.startsWith('Binary files ')
-      );
-      if (isFileMeta) {
-        cls = 'diff-file-header';
-      } else if (rawLine.startsWith('\\\\')) {
-        cls = 'diff-context';
-      } else {
-        cls = 'diff-plain';
-      }
-    }
-
+  const classified = classifyDiffLines(lines);
+  for (let i = 0; i < classified.length; i++) {
     const row = document.createElement('div');
-    row.className = 'diff-line ' + cls;
-    row.textContent = lineWithNl;
+    row.className = 'diff-line ' + classified[i].cls;
+    row.textContent = classified[i].text + (i < classified.length - 1 || text.endsWith('\\n') ? '\\n' : '');
     container.append(row);
   }
 }

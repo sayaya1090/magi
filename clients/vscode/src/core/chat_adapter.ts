@@ -141,7 +141,8 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
 
   if (kind === 'rows') {
     if (!Array.isArray(m.rows)) return undefined;
-    const session = typeof m.session === 'string' ? m.session : '';
+    if (typeof m.session !== 'string') return undefined;
+    if (!Array.isArray(m.refs) || !m.refs.every((r) => typeof r === 'string')) return undefined;
 
     const rows: PaintedRow[] = [];
     for (const r of m.rows) {
@@ -159,25 +160,54 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
 
     let ask: Ask | null = null;
     if (m.ask !== undefined && m.ask !== null) {
-      if (typeof m.ask !== 'object') return undefined;
+      if (typeof m.ask !== 'object' || Array.isArray(m.ask)) return undefined;
       const askObj = m.ask as Record<string, unknown>;
-      const hasWhat = typeof askObj.what === 'string' || typeof askObj.prompt === 'string';
-      if (typeof askObj.callId !== 'string' || !hasWhat) {
+      if (typeof askObj.callId !== 'string' || !askObj.callId) return undefined;
+      if (typeof askObj.what !== 'string') return undefined;
+      if (askObj.kind !== 'permission' && askObj.kind !== 'question') return undefined;
+      if (
+        askObj.options !== undefined &&
+        (!Array.isArray(askObj.options) || !askObj.options.every((o) => typeof o === 'string'))
+      ) {
         return undefined;
       }
+      if (
+        askObj.report !== undefined &&
+        (!Array.isArray(askObj.report) ||
+          !askObj.report.every(
+            (item) =>
+              item &&
+              typeof item === 'object' &&
+              typeof (item as any).key === 'string' &&
+              typeof (item as any).text === 'string'
+          ))
+      ) {
+        return undefined;
+      }
+      if (askObj.args !== undefined && typeof askObj.args !== 'string') return undefined;
+      if (askObj.reason !== undefined && typeof askObj.reason !== 'string') return undefined;
+      if (askObj.diff !== undefined && typeof askObj.diff !== 'string') return undefined;
+      if (
+        askObj.diffKind !== undefined &&
+        askObj.diffKind !== 'sides' &&
+        askObj.diffKind !== 'patch' &&
+        askObj.diffKind !== 'none'
+      ) {
+        return undefined;
+      }
+      if (askObj.filePath !== undefined && typeof askObj.filePath !== 'string') return undefined;
+      if (askObj.index !== undefined && typeof askObj.index !== 'number') return undefined;
+      if (askObj.total !== undefined && typeof askObj.total !== 'number') return undefined;
+      if (askObj.since !== undefined && typeof askObj.since !== 'string') return undefined;
       ask = m.ask as Ask;
     }
 
-    const refs = Array.isArray(m.refs)
-      ? m.refs.filter((r): r is string => typeof r === 'string')
-      : [];
-
     return {
       kind: 'rows',
-      session,
+      session: m.session,
       rows,
       ask,
-      refs,
+      refs: m.refs as string[],
     };
   } else if (kind === 'compose') {
     if (typeof m.text !== 'string') return undefined;

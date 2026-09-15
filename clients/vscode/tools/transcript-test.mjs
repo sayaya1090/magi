@@ -21,6 +21,14 @@ try {
       getState() {},
       setState() {}
     });
+    const origPostMessage = window.postMessage;
+    window.postMessage = function(msg, targetOrigin, transfer) {
+      if (msg && typeof msg === 'object' && msg.kind === 'rows') {
+        if (msg.session === undefined) msg.session = '';
+        if (msg.refs === undefined) msg.refs = [];
+      }
+      return origPostMessage.call(this, msg, targetOrigin, transfer);
+    };
   });
   await page.route('http://magi.test/**', async (route) => {
     if (route.request().url().includes('out/web/answer_state.js')) {

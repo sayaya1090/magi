@@ -630,18 +630,67 @@ test('parseHostToWebviewMessage validates schema and rejects malformed payloads'
   // rows
   assert.equal(parseHostToWebviewMessage({ kind: 'rows' }), undefined, 'missing rows array rejected');
   assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: 'not-an-array' }), undefined, 'non-array rows rejected');
-  assert.deepEqual(parseHostToWebviewMessage({ kind: 'rows', rows: [] }), {
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: [] }), undefined, 'missing session/refs rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1' }), undefined, 'missing refs rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: [], refs: [] }), undefined, 'missing session rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [123] }), undefined, 'non-string refs rejected');
+  assert.equal(
+    parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [], ask: { callId: 'c1', prompt: 'hi' } }),
+    undefined,
+    'ask with prompt instead of what rejected',
+  );
+  assert.equal(
+    parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [], ask: { callId: 'c1', what: 'hi' } }),
+    undefined,
+    'ask with missing kind rejected',
+  );
+  assert.equal(
+    parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [], ask: { callId: 'c1', what: 'hi', kind: 'other' } }),
+    undefined,
+    'ask with unknown kind rejected',
+  );
+  assert.equal(
+    parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [], ask: { callId: 'c1', what: 'hi', kind: 'question', options: [1] } }),
+    undefined,
+    'ask with non-string options [1] rejected',
+  );
+  assert.equal(
+    parseHostToWebviewMessage({ kind: 'rows', rows: [], session: 's1', refs: [], ask: { callId: 'c1', what: 'hi', kind: 'question', report: [{ key: 'k', text: 123 }] } }),
+    undefined,
+    'ask with invalid report item rejected',
+  );
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'rows', session: '', rows: [], refs: [] }), {
     kind: 'rows',
     session: '',
     rows: [],
     ask: null,
     refs: [],
   });
-  assert.deepEqual(parseHostToWebviewMessage({ kind: 'rows', session: 's1', rows: [{ who: 'agent', label: 'magi', text: 'hi' }], ask: null, refs: ['ref1'] }), {
+  assert.deepEqual(parseHostToWebviewMessage({
     kind: 'rows',
     session: 's1',
     rows: [{ who: 'agent', label: 'magi', text: 'hi' }],
-    ask: null,
+    ask: {
+      kind: 'question',
+      callId: 'c1',
+      what: 'proceed?',
+      options: ['yes', 'no'],
+      report: [{ key: 'status', text: 'ready' }],
+      filePath: 'src/main.ts',
+    },
+    refs: ['ref1'],
+  }), {
+    kind: 'rows',
+    session: 's1',
+    rows: [{ who: 'agent', label: 'magi', text: 'hi' }],
+    ask: {
+      kind: 'question',
+      callId: 'c1',
+      what: 'proceed?',
+      options: ['yes', 'no'],
+      report: [{ key: 'status', text: 'ready' }],
+      filePath: 'src/main.ts',
+    },
     refs: ['ref1'],
   });
 
@@ -918,7 +967,7 @@ test('createWebviewReceiveHandlers integrates all inbound messages with typed ha
       kind: 'rows',
       session: 'session-1',
       rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
-      ask: { callId: 'ask-1', prompt: 'Approve?', options: [] },
+      ask: { kind: 'question', callId: 'ask-1', what: 'Approve?', options: [] },
       refs: ['ref.ts'],
     },
     handlers
@@ -1267,5 +1316,15 @@ test('host notRunning state roundtrip delivers offerStart and note to handler', 
   const dispatched = dispatchHostMessage(rawMsg, dummyHandlers as any);
   assert.equal(dispatched, true);
   assert.equal(drawnNote.note.offerStart, true);
+});
+
+test('renderDiff uses common classifyDiffLines and removes obsolete fallback parser', () => {
+  const chatSrc = fs.readFileSync(path.join(IDE, 'chat.ts'), 'utf8');
+  const fnStart = chatSrc.indexOf('function renderDiff(');
+  assert.ok(fnStart > 0, 'renderDiff not found');
+  const fnBody = chatSrc.slice(fnStart, chatSrc.indexOf('\nfunction ', fnStart));
+  assert.ok(fnBody.includes('classifyDiffLines(lines)'), 'renderDiff must delegate to classifyDiffLines');
+  assert.ok(!fnBody.includes('hunkMatch'), 'obsolete duplicate fallback parser must be removed from renderDiff');
+  assert.ok(!fnBody.includes('oldRemaining'), 'obsolete hunk tracking must be removed from renderDiff');
 });
 
