@@ -5,10 +5,11 @@ import { promisify } from 'node:util';
 import * as path from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 const execFileAsync = promisify(execFile);
 
-test('preflight: validates Windows drive letter, spaces, and # normalization to file URL (§2.3)', async () => {
+test('preflight: foreign platform Windows drive letter path string normalization (§2.3)', async () => {
   // @ts-ignore
   const { toDirectoryUrl } = await import('../../tools/asset-preflight.mjs');
 
@@ -16,10 +17,30 @@ test('preflight: validates Windows drive letter, spaces, and # normalization to 
   assert.equal(winUrl.href, 'file:///C:/magi%20dir%231/subdir/');
   assert.equal(winUrl.pathname, '/C:/magi%20dir%231/subdir/');
   assert.equal(winUrl.hash, '');
+});
 
+test('preflight: current platform native path roundtrip and POSIX path handling (§2.3)', async () => {
+  // @ts-ignore
+  const { toDirectoryUrl } = await import('../../tools/asset-preflight.mjs');
+
+  // Native path roundtrip on current platform
+  const nativeDir = path.resolve(tmpdir(), 'magi dir#1', 'subdir');
+  const nativeUrl = toDirectoryUrl(nativeDir);
+  assert.ok(nativeUrl.href.endsWith('/'), 'Directory URL ends with trailing slash');
+  assert.equal(nativeUrl.hash, '', 'Directory URL has no hash');
+  assert.ok(nativeUrl.href.includes('%20'), 'Spaces are percent-encoded');
+  assert.ok(nativeUrl.href.includes('%23'), '# is percent-encoded');
+  const resolvedNative = fileURLToPath(nativeUrl);
+  assert.equal(path.resolve(resolvedNative), nativeDir, 'fileURLToPath roundtrips native path');
+
+  // POSIX-style path string check with platform-aware expectations
   const posixUrl = toDirectoryUrl('/tmp/magi dir#1/subdir');
-  assert.equal(posixUrl.pathname, '/tmp/magi%20dir%231/subdir/');
   assert.equal(posixUrl.hash, '');
+  if (process.platform === 'win32') {
+    assert.ok(posixUrl.pathname.endsWith('/tmp/magi%20dir%231/subdir/'), 'Windows pathToFileURL resolves drive prefix');
+  } else {
+    assert.equal(posixUrl.pathname, '/tmp/magi%20dir%231/subdir/');
+  }
 });
 
 test('preflight: child process exits with code 1 and logs missing bundle and build hint (§2.3)', async () => {

@@ -194,26 +194,99 @@ export async function verifyAssetRoutesAndPreflight(browser, compiledHtml) {
   }
   console.log('  PASS: [asset_routing] Shared exact asset router serves valid assets and rejects old/broken URLs with 404');
 
-  // 4. Browser and context lifecycle teardown verification (§2.2)
-  let closeCount = 0;
-  const mockLifecycleBrowser = {
-    close: async () => { closeCount++; },
+  // 4. Run harness lifecycle verification using real runHarness function (§2.2)
+  await verifyRunnerLifecycle();
+}
+
+/**
+ * Verifies that runHarness guarantees browser and context teardown across:
+ * 1) Normal completion
+ * 2) Early return on verifyAssetsOnly
+ * 3) Scenario exception
+ * Asserts that mock browser and context close() methods are called exactly once,
+ * and that scenario failure is not converted into success.
+ */
+export async function verifyRunnerLifecycle() {
+  // 1. Normal execution: verify context and browser close called exactly once
+  let browserCloseCalls = 0;
+  let contextCloseCalls = 0;
+  const mockContext = {
+    newPage: async () => ({
+      on: () => {},
+      addInitScript: async () => {},
+      route: async () => {},
+      goto: async () => {},
+    }),
+    close: async () => { contextCloseCalls++; },
   };
-  const runWithLifecycle = async (b, shouldThrow) => {
-    try {
-      if (shouldThrow) throw new Error('forced error');
-      return 'ok';
-    } finally {
-      await b.close();
-    }
+  const mockBrowser = {
+    newContext: async () => mockContext,
+    close: async () => { browserCloseCalls++; },
   };
-  await runWithLifecycle(mockLifecycleBrowser, false);
-  assert.equal(closeCount, 1, 'browser.close is called on normal completion');
+  const dummyBundle = {
+    name: 'mock_normal',
+    description: 'mock normal bundle',
+    scenarios: [{
+      id: 'mock_sc',
+      name: 'mock scenario',
+      run: async () => {},
+    }],
+  };
+  const normalResult = await runHarness({
+    launchBrowser: async () => mockBrowser,
+    bundles: [dummyBundle],
+    html: '<html></html>',
+    verifyAssets: false,
+    logBundle: false,
+  });
+  assert.equal(normalResult.totalPassed, 1, 'Dummy scenario passes in runHarness');
+  assert.equal(normalResult.totalFailed, 0, 'No failures in dummy scenario');
+  assert.equal(contextCloseCalls, 1, 'context.close called exactly once on normal completion');
+  assert.equal(browserCloseCalls, 1, 'browser.close called exactly once on normal completion');
+
+  // 2. Early return on verifyAssetsOnly: verify browser.close called exactly once and no context leak
+  browserCloseCalls = 0;
+  contextCloseCalls = 0;
+  let verifyFnCalls = 0;
+  const earlyResult = await runHarness({
+    launchBrowser: async () => mockBrowser,
+    bundles: [dummyBundle],
+    html: '<html></html>',
+    verifyAssets: true,
+    verifyAssetsOnly: true,
+    verifyFn: async () => { verifyFnCalls++; },
+    logBundle: false,
+  });
+  assert.equal(verifyFnCalls, 1, 'verifyFn called on verifyAssetsOnly');
+  assert.equal(earlyResult.totalPassed, 0, 'No bundle scenarios run on early return');
+  assert.equal(contextCloseCalls, 0, 'No context created on early return');
+  assert.equal(browserCloseCalls, 1, 'browser.close called exactly once on early return');
+
+  // 3. Scenario exception: verify context.close and browser.close called exactly once and exception propagates
+  browserCloseCalls = 0;
+  contextCloseCalls = 0;
+  const failingBundle = {
+    name: 'mock_fail',
+    description: 'mock failing bundle',
+    scenarios: [{
+      id: 'mock_fail_sc',
+      name: 'mock failing scenario',
+      run: async () => { throw new Error('forced scenario failure'); },
+    }],
+  };
   await assert.rejects(async () => {
-    await runWithLifecycle(mockLifecycleBrowser, true);
-  }, /forced error/);
-  assert.equal(closeCount, 2, 'browser.close is called on error thrown');
-  console.log('  PASS: [lifecycle] Browser and context teardown guaranteed via try/finally in all execution paths');
+    await runHarness({
+      launchBrowser: async () => mockBrowser,
+      bundles: [failingBundle],
+      html: '<html></html>',
+      verifyAssets: false,
+      logBundle: false,
+    });
+  }, /forced scenario failure/, 'Scenario exception is not swallowed or converted to success');
+  assert.equal(contextCloseCalls, 1, 'context.close called exactly once on scenario failure');
+  assert.equal(browserCloseCalls, 1, 'browser.close called exactly once on scenario failure');
+
+  console.log('  PASS: [lifecycle] runHarness guarantees context and browser close across normal run, early return, and error');
 }
 
 // Define scenario suites across the 4 specified bundles (§2.3)
@@ -1543,26 +1616,46 @@ if (isReverse) {
   runBundles.reverse();
 }
 
-async function main() {
-  console.log(`Starting transcript-test browser harness (bundles: ${runBundles.map(b => b.name).join(', ')})...`);
+/**
+ * Executes the transcript harness with guaranteed browser and context teardown (§2.2).
+ * Shared between main() and lifecycle verification so the exact same execution function is tested.
+ *
+ * @param {object} options
+ * @param {() => Promise<any>} [options.launchBrowser] Browser launcher factory
+ * @param {Array<any>} options.bundles Bundles to run
+ * @param {string} options.html Compiled HTML content
+ * @param {boolean} [options.verifyAssets] Whether to run preflight and asset routing checks
+ * @param {boolean} [options.verifyAssetsOnly] If true, return after asset verification
+ * @param {(browser: any, html: string) => Promise<void>} [options.verifyFn] Function to run for asset verification
+ * @param {boolean} [options.logBundle] Whether to log bundle header and scenario passes
+ * @returns {Promise<{ totalPassed: number, totalFailed: number, failures: Array<any> }>}
+ */
+export async function runHarness(options) {
+  const {
+    launchBrowser = () => chromium.launch({ headless: true }),
+    bundles = [],
+    html,
+    verifyAssets = false,
+    verifyAssetsOnly = false,
+    verifyFn = verifyAssetRoutesAndPreflight,
+    logBundle = true,
+  } = options;
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBrowser();
   let totalPassed = 0;
   let totalFailed = 0;
   const failures = [];
 
   try {
-    // Always run isolated asset & preflight verification when running all bundles or when explicitly requested (§2.1, §2.2)
-    if (verifyAssetsOnly || !selectedBundleName) {
-      await verifyAssetRoutesAndPreflight(browser, html);
+    if (verifyAssets || verifyAssetsOnly) {
+      await verifyFn(browser, html);
       if (verifyAssetsOnly) {
-        console.log('\nSUMMARY: Asset verification passed successfully.');
-        return; // Exits try block; finally { await browser.close(); } is guaranteed to run (§2.2)
+        return { totalPassed: 0, totalFailed: 0, failures: [] };
       }
     }
 
-    for (const bundle of runBundles) {
-      console.log(`\n▶ Bundle: ${bundle.name} (${bundle.description})`);
+    for (const bundle of bundles) {
+      if (logBundle) console.log(`\n▶ Bundle: ${bundle.name} (${bundle.description})`);
       const context = await browser.newContext();
       try {
         const page = await context.newPage({ viewport: { width: 420, height: 600 } });
@@ -1598,11 +1691,11 @@ async function main() {
             assert.deepEqual(errors, [], `Page error occurred in [${bundle.name}] ${scenario.id}`);
             assert.deepEqual(routeErrors, [], `Unregistered route error occurred in [${bundle.name}] ${scenario.id}`);
             totalPassed++;
-            console.log(`  PASS: [${scenario.id}] ${scenario.name}`);
+            if (logBundle) console.log(`  PASS: [${scenario.id}] ${scenario.name}`);
           } catch (err) {
             totalFailed++;
             failures.push({ bundle: bundle.name, id: scenario.id, error: err });
-            console.error(`  FAIL: [${scenario.id}] ${scenario.name}:`, err);
+            if (logBundle) console.error(`  FAIL: [${scenario.id}] ${scenario.name}:`, err);
             throw err;
           }
         }
@@ -1611,17 +1704,42 @@ async function main() {
       }
     }
 
-    console.log(`\nSUMMARY: ${totalPassed} passed, ${totalFailed} failed across ${runBundles.length} bundle(s).`);
-    if (totalFailed > 0) {
-      process.exitCode = 1;
-    }
-  } catch (err) {
-    process.exitCode = 1;
-    throw err;
+    return { totalPassed, totalFailed, failures };
   } finally {
     await browser.close();
   }
 }
 
+async function main() {
+  console.log(`Starting transcript-test browser harness (bundles: ${runBundles.map(b => b.name).join(', ')})...`);
+  const shouldVerify = verifyAssetsOnly || !selectedBundleName;
+
+  try {
+    const result = await runHarness({
+      launchBrowser: () => chromium.launch({ headless: true }),
+      bundles: runBundles,
+      html,
+      verifyAssets: shouldVerify,
+      verifyAssetsOnly,
+      verifyFn: (b, h) => verifyAssetRoutesAndPreflight(b, h),
+      logBundle: true,
+    });
+
+    if (verifyAssetsOnly) {
+      console.log('\nSUMMARY: Asset verification passed successfully.');
+      return;
+    }
+
+    console.log(`\nSUMMARY: ${result.totalPassed} passed, ${result.totalFailed} failed across ${runBundles.length} bundle(s).`);
+    if (result.totalFailed > 0) {
+      process.exitCode = 1;
+    }
+  } catch (err) {
+    process.exitCode = 1;
+    throw err;
+  }
+}
+
 await main();
+
 
