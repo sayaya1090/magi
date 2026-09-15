@@ -10,6 +10,7 @@ import {
   parseHostToWebviewMessage,
   createWebviewReceiveHandlers,
   createWebviewInputAdapter,
+  renderMarkdown,
   WebviewBridge,
 } from '../core/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
@@ -940,4 +941,228 @@ test('createWebviewReceiveHandlers integrates all inbound messages with typed ha
   // 5. note
   dispatchHostMessage({ kind: 'note', text: 'connecting...' }, handlers);
   assert.equal(noteText, 'connecting...');
+});
+
+class MockNode {
+  nodeType: number = 1;
+  textContent: string = '';
+  childNodes: MockNode[] = [];
+  parentNode: MockNode | null = null;
+  dataset: Record<string, string> = {};
+  className: string = '';
+  tagName: string = '';
+  attributes: Record<string, string> = {};
+
+  appendChild(child: MockNode): MockNode {
+    child.parentNode = this;
+    this.childNodes.push(child);
+    return child;
+  }
+  setAttribute(k: string, v: string) {
+    this.attributes[k] = v;
+  }
+  getAttribute(k: string): string | undefined {
+    return this.attributes[k];
+  }
+}
+
+class MockTextNode extends MockNode {
+  override nodeType = 3;
+  constructor(text: string) {
+    super();
+    this.textContent = text;
+  }
+}
+
+class MockElement extends MockNode {
+  get href(): string { return this.attributes['href'] || ''; }
+  set href(v: string) { this.attributes['href'] = v; }
+  get target(): string { return this.attributes['target'] || ''; }
+  set target(v: string) { this.attributes['target'] = v; }
+  get rel(): string { return this.attributes['rel'] || ''; }
+  set rel(v: string) { this.attributes['rel'] = v; }
+
+  constructor(tagName: string) {
+    super();
+    this.tagName = tagName.toUpperCase();
+  }
+}
+
+class MockDocument {
+  createElement(tag: string): MockElement {
+    return new MockElement(tag);
+  }
+  createTextNode(text: string): MockTextNode {
+    return new MockTextNode(text);
+  }
+}
+
+function render(markdown: string): MockElement {
+  const doc = new MockDocument();
+  const container = new MockElement('DIV');
+  renderMarkdown(container as any, markdown, { document: doc as any });
+  return container;
+}
+
+function collectText(node: MockNode): string {
+  if (node.nodeType === 3) return node.textContent;
+  if (node.tagName === 'BR') return '\n';
+  return node.childNodes.map(collectText).join('');
+}
+
+test('renderMarkdown clears container on empty input', () => {
+  const container = render('');
+  assert.equal(container.childNodes.length, 0);
+  assert.equal(container.textContent, '');
+});
+
+test('renderMarkdown parses headings h1 through h6', () => {
+  const container = render('# Heading 1\n## Heading 2\n### Heading 3');
+  assert.equal(container.childNodes.length, 3);
+  assert.equal(container.childNodes[0].tagName, 'H1');
+  assert.equal(collectText(container.childNodes[0]), 'Heading 1');
+  assert.equal(container.childNodes[1].tagName, 'H2');
+  assert.equal(collectText(container.childNodes[1]), 'Heading 2');
+  assert.equal(container.childNodes[2].tagName, 'H3');
+  assert.equal(collectText(container.childNodes[2]), 'Heading 3');
+});
+
+test('renderMarkdown parses closed fenced code blocks with language', () => {
+  const md = '```typescript\nconst x = 1;\nconsole.log(x);\n```';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const pre = container.childNodes[0] as MockElement;
+  assert.equal(pre.tagName, 'PRE');
+  assert.equal(pre.dataset.lang, 'typescript');
+  assert.equal(pre.childNodes.length, 1);
+  const code = pre.childNodes[0] as MockElement;
+  assert.equal(code.tagName, 'CODE');
+  assert.equal(code.textContent, 'const x = 1;\nconsole.log(x);');
+});
+
+test('renderMarkdown handles streaming unclosed code fence gracefully', () => {
+  const md = '```python\ndef greet():\n    return "hello"';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const pre = container.childNodes[0] as MockElement;
+  assert.equal(pre.tagName, 'PRE');
+  assert.equal(pre.dataset.lang, 'python');
+  const code = pre.childNodes[0] as MockElement;
+  assert.equal(code.tagName, 'CODE');
+  assert.equal(code.textContent, 'def greet():\n    return "hello"');
+});
+
+test('renderMarkdown parses diff blocks with syntax highlighting classes', () => {
+  const md = '```diff\n--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,4 @@\n-const oldVal = 1;\n+const newVal = 2;\n const keep = 3;\n```';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const pre = container.childNodes[0] as MockElement;
+  assert.equal(pre.tagName, 'PRE');
+  const code = pre.childNodes[0] as MockElement;
+  assert.equal(code.tagName, 'CODE');
+  const spans = code.childNodes as MockElement[];
+  assert.ok(spans.some(s => s.className.includes('diff-del') && s.textContent.includes('const oldVal = 1;')));
+  assert.ok(spans.some(s => s.className.includes('diff-add') && s.textContent.includes('const newVal = 2;')));
+  assert.ok(spans.some(s => s.className.includes('diff-hunk') && s.textContent.includes('@@ -1,3 +1,4 @@')));
+});
+
+test('renderMarkdown parses blockquotes', () => {
+  const md = '> Line 1\n> Line 2 with **bold**';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const bq = container.childNodes[0] as MockElement;
+  assert.equal(bq.tagName, 'BLOCKQUOTE');
+  assert.equal(collectText(bq), 'Line 1\nLine 2 with bold');
+  const strong = bq.childNodes.find(n => n.tagName === 'STRONG');
+  assert.ok(strong, 'blockquote should contain strong tag for bold');
+});
+
+test('renderMarkdown parses unordered lists', () => {
+  const md = '- item 1\n- item 2 with `code`\n* item 3';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const ul = container.childNodes[0] as MockElement;
+  assert.equal(ul.tagName, 'UL');
+  assert.equal(ul.childNodes.length, 3);
+  assert.equal(ul.childNodes[0].tagName, 'LI');
+  assert.equal(collectText(ul.childNodes[0]), 'item 1');
+  const code = ul.childNodes[1].childNodes.find(n => n.tagName === 'CODE');
+  assert.ok(code, 'li should contain code element');
+  assert.equal(code?.textContent, 'code');
+});
+
+test('renderMarkdown parses ordered lists', () => {
+  const md = '1. first\n2. second';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const ol = container.childNodes[0] as MockElement;
+  assert.equal(ol.tagName, 'OL');
+  assert.equal(ol.childNodes.length, 2);
+  assert.equal(collectText(ol.childNodes[0]), 'first');
+  assert.equal(collectText(ol.childNodes[1]), 'second');
+});
+
+test('renderMarkdown parses tables into thead, tbody, th, and td', () => {
+  const md = '| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const table = container.childNodes[0] as MockElement;
+  assert.equal(table.tagName, 'TABLE');
+  assert.equal(table.childNodes.length, 2);
+  const thead = table.childNodes[0] as MockElement;
+  assert.equal(thead.tagName, 'THEAD');
+  const tbody = table.childNodes[1] as MockElement;
+  assert.equal(tbody.tagName, 'TBODY');
+  assert.equal(tbody.childNodes.length, 2);
+});
+
+test('renderMarkdown parses inline styles: bold, italic, strikethrough, inline code, and links', () => {
+  const md = 'This has **bold**, *italic*, ***both***, ~~strike~~, `foo()`, and [Open Magi](https://github.com/sayaya1090/magi).';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 1);
+  const p = container.childNodes[0] as MockElement;
+  assert.equal(p.tagName, 'P');
+
+  const tags = p.childNodes.map(n => n.tagName).filter(Boolean);
+  assert.ok(tags.includes('STRONG'));
+  assert.ok(tags.includes('EM'));
+  assert.ok(tags.includes('DEL'));
+  assert.ok(tags.includes('CODE'));
+  assert.ok(tags.includes('A'));
+
+  const a = p.childNodes.find(n => n.tagName === 'A') as MockElement;
+  assert.equal(a.href, 'https://github.com/sayaya1090/magi');
+  assert.equal(a.target, '_blank');
+  assert.equal(a.rel, 'noreferrer noopener');
+  assert.equal(collectText(a), 'Open Magi');
+});
+
+test('renderMarkdown rejects unsafe javascript: links and preserves them as plain text', () => {
+  const md = 'Click [here](javascript:alert("pwned")) for a prize';
+  const container = render(md);
+  const p = container.childNodes[0] as MockElement;
+  const a = p.childNodes.find(n => n.tagName === 'A');
+  assert.equal(a, undefined, 'unsafe javascript: link must not create an <a> element');
+  assert.ok(collectText(p).includes('javascript:alert("pwned")'));
+});
+
+test('renderMarkdown preserves raw html tags as text nodes rather than parsing them (XSS guard)', () => {
+  const md = 'Here is some script: <script>alert(1)</script> and <img src=x onerror=alert(2)>';
+  const container = render(md);
+  const p = container.childNodes[0] as MockElement;
+  const scriptTag = p.childNodes.find(n => n.tagName === 'SCRIPT');
+  const imgTag = p.childNodes.find(n => n.tagName === 'IMG');
+  assert.equal(scriptTag, undefined, '<script> must not become a DOM element');
+  assert.equal(imgTag, undefined, '<img> must not become a DOM element');
+  assert.ok(collectText(p).includes('<script>alert(1)</script>'));
+  assert.ok(collectText(p).includes('<img src=x onerror=alert(2)>'));
+});
+
+test('renderMarkdown parses horizontal rule', () => {
+  const md = 'Intro\n\n---\n\nOutro';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 3);
+  assert.equal(container.childNodes[0].tagName, 'P');
+  assert.equal(container.childNodes[1].tagName, 'HR');
+  assert.equal(container.childNodes[2].tagName, 'P');
 });

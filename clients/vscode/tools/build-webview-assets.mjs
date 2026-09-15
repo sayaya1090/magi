@@ -40,6 +40,7 @@ var createWebviewInputAdapter;
 var createWebviewReceiveHandlers;
 var parseHostToWebviewMessage;
 var dispatchHostMessage;
+var renderMarkdown;
 (function () {
   var exports = typeof module !== 'undefined' && module.exports ? module.exports : {};
 ${adapterCompiled}
@@ -48,12 +49,14 @@ ${adapterCompiled}
   createWebviewReceiveHandlers = exports.createWebviewReceiveHandlers;
   parseHostToWebviewMessage = exports.parseHostToWebviewMessage;
   dispatchHostMessage = exports.dispatchHostMessage;
+  renderMarkdown = exports.renderMarkdown;
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
     window.createWebviewInputAdapter = createWebviewInputAdapter;
     window.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     window.parseHostToWebviewMessage = parseHostToWebviewMessage;
     window.dispatchHostMessage = dispatchHostMessage;
+    window.renderMarkdown = renderMarkdown;
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports.createWebviewActionAdapter = createWebviewActionAdapter;
@@ -61,6 +64,7 @@ ${adapterCompiled}
     module.exports.createWebviewReceiveHandlers = createWebviewReceiveHandlers;
     module.exports.parseHostToWebviewMessage = parseHostToWebviewMessage;
     module.exports.dispatchHostMessage = dispatchHostMessage;
+    module.exports.renderMarkdown = renderMarkdown;
   }
 })();
 `;

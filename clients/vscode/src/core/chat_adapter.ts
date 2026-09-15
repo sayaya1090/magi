@@ -586,3 +586,268 @@ export function createWebviewReceiveHandlers(
   };
 }
 
+/**
+ * Renders Markdown into a DOM container using purely safe DOM methods
+ * (createElement, createTextNode, appendChild). Never touches innerHTML.
+ */
+export function renderMarkdown(
+  container: HTMLElement,
+  markdown: string,
+  options?: { document?: Document }
+): void {
+  const doc = options?.document || container.ownerDocument || (typeof document !== 'undefined' ? document : null);
+  if (!doc) return;
+
+  container.textContent = '';
+  if (!markdown) return;
+
+  const lines = markdown.split(/\r?\n/);
+  let i = 0;
+
+  function renderInline(target: Node, text: string): void {
+    // 1. Code: `...`
+    // 2. Bold italic: ***...***
+    // 3. Bold: **...**
+    // 4. Italic: *...*
+    // 5. Strikethrough: ~~...~~
+    // 6. Link: [...](...)
+    const inlineRegex = /(`[^`\n]+`)|(\*\*\*[^*]+\*\*\*)|(\*\*[^*]+\*\*)|(\*[^*\s][^*]*\*)|(~~[^~]+~~)|(\[([^[\]]*)\]\(([^)]*)\))/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = inlineRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        target.appendChild(doc.createTextNode(text.slice(lastIndex, match.index)));
+      }
+      const fullMatch = match[0];
+
+      if (match[1]) {
+        const code = doc.createElement('code');
+        code.textContent = fullMatch.slice(1, -1);
+        target.appendChild(code);
+      } else if (match[2]) {
+        const strong = doc.createElement('strong');
+        const em = doc.createElement('em');
+        renderInline(em, fullMatch.slice(3, -3));
+        strong.appendChild(em);
+        target.appendChild(strong);
+      } else if (match[3]) {
+        const strong = doc.createElement('strong');
+        renderInline(strong, fullMatch.slice(2, -2));
+        target.appendChild(strong);
+      } else if (match[4]) {
+        const em = doc.createElement('em');
+        renderInline(em, fullMatch.slice(1, -1));
+        target.appendChild(em);
+      } else if (match[5]) {
+        const del = doc.createElement('del');
+        renderInline(del, fullMatch.slice(2, -2));
+        target.appendChild(del);
+      } else if (match[6]) {
+        const linkText = match[7] || '';
+        const linkHref = match[8] || '';
+        const isSafeScheme = /^(https?:|mailto:|command:|#|\/|\.)/i.test(linkHref) && !/^\s*javascript:/i.test(linkHref);
+        if (isSafeScheme) {
+          const a = doc.createElement('a');
+          a.href = linkHref;
+          a.target = '_blank';
+          a.rel = 'noreferrer noopener';
+          renderInline(a, linkText || linkHref);
+          target.appendChild(a);
+        } else {
+          target.appendChild(doc.createTextNode(fullMatch));
+        }
+      }
+      lastIndex = match.index + fullMatch.length;
+    }
+
+    if (lastIndex < text.length) {
+      target.appendChild(doc.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
+  function isTableDivider(line: string): boolean {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('|') || !trimmed.endsWith('|')) return false;
+    const parts = trimmed.slice(1, -1).split('|');
+    return parts.length > 0 && parts.every(p => /^[\s:-]+$/.test(p) && p.includes('-'));
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block (```[lang])
+    const trimmedStart = line.trimStart();
+    if (trimmedStart.startsWith('```')) {
+      const lang = trimmedStart.slice(3).trim();
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length) {
+        if (lines[i].trimStart().startsWith('```')) {
+          i++;
+          break;
+        }
+        codeLines.push(lines[i]);
+        i++;
+      }
+      const pre = doc.createElement('pre');
+      if (lang) {
+        pre.dataset.lang = lang;
+      }
+      const code = doc.createElement('code');
+      const isDiff = lang === 'diff' || lang === 'patch' || (!lang && codeLines.some(l => l.startsWith('@@ ') || (l.startsWith('+') && !l.startsWith('+++')) || (l.startsWith('-') && !l.startsWith('---'))));
+      if (isDiff) {
+        for (let j = 0; j < codeLines.length; j++) {
+          const cl = codeLines[j];
+          const span = doc.createElement('span');
+          span.className = 'diff-line';
+          if (cl.startsWith('+') && !cl.startsWith('+++')) {
+            span.className += ' diff-add';
+          } else if (cl.startsWith('-') && !cl.startsWith('---')) {
+            span.className += ' diff-del';
+          } else if (cl.startsWith('@@')) {
+            span.className += ' diff-hunk';
+          }
+          span.textContent = cl + (j < codeLines.length - 1 ? '\n' : '');
+          code.appendChild(span);
+        }
+      } else {
+        code.textContent = codeLines.join('\n');
+      }
+      pre.appendChild(code);
+      container.appendChild(pre);
+      continue;
+    }
+
+    // Horizontal rule: ---, ***, ___
+    if (/^(\s*[-*_]\s*){3,}$/.test(line)) {
+      container.appendChild(doc.createElement('hr'));
+      i++;
+      continue;
+    }
+
+    // Heading: # H1 ~ ###### H6
+    const headingMatch = /^(#{1,6})\s+(.*)$/.exec(line);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      const tag = 'h' + level;
+      const h = doc.createElement(tag);
+      renderInline(h, headingMatch[2]);
+      container.appendChild(h);
+      i++;
+      continue;
+    }
+
+    // Blockquote: > ...
+    if (line.trimStart().startsWith('>')) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && lines[i].trimStart().startsWith('>')) {
+        const qLine = lines[i].trimStart().slice(1);
+        quoteLines.push(qLine.startsWith(' ') ? qLine.slice(1) : qLine);
+        i++;
+      }
+      const bq = doc.createElement('blockquote');
+      for (let qIdx = 0; qIdx < quoteLines.length; qIdx++) {
+        if (qIdx > 0) bq.appendChild(doc.createElement('br'));
+        renderInline(bq, quoteLines[qIdx]);
+      }
+      container.appendChild(bq);
+      continue;
+    }
+
+    // Table: | col1 | col2 |
+    if (line.trim().startsWith('|') && line.trim().endsWith('|') && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
+      const headerCells = line.trim().slice(1, -1).split('|').map(s => s.trim());
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        rows.push(lines[i].trim().slice(1, -1).split('|').map(s => s.trim()));
+        i++;
+      }
+      const table = doc.createElement('table');
+      const thead = doc.createElement('thead');
+      const headerTr = doc.createElement('tr');
+      for (const hc of headerCells) {
+        const th = doc.createElement('th');
+        renderInline(th, hc);
+        headerTr.appendChild(th);
+      }
+      thead.appendChild(headerTr);
+      table.appendChild(thead);
+
+      if (rows.length > 0) {
+        const tbody = doc.createElement('tbody');
+        for (const row of rows) {
+          const tr = doc.createElement('tr');
+          for (let c = 0; c < headerCells.length; c++) {
+            const td = doc.createElement('td');
+            renderInline(td, row[c] || '');
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+      }
+      container.appendChild(table);
+      continue;
+    }
+
+    // Unordered List: - item or * item
+    if (/^\s*[-*]\s+/.test(line)) {
+      const ul = doc.createElement('ul');
+      while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+        const itemText = lines[i].replace(/^\s*[-*]\s+/, '');
+        const li = doc.createElement('li');
+        renderInline(li, itemText);
+        ul.appendChild(li);
+        i++;
+      }
+      container.appendChild(ul);
+      continue;
+    }
+
+    // Ordered List: 1. item
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const ol = doc.createElement('ol');
+      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
+        const itemText = lines[i].replace(/^\s*\d+\.\s+/, '');
+        const li = doc.createElement('li');
+        renderInline(li, itemText);
+        ol.appendChild(li);
+        i++;
+      }
+      container.appendChild(ol);
+      continue;
+    }
+
+    // Blank line
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+
+    // Paragraph: collect consecutive non-blank lines that are not special block starts
+    const p = doc.createElement('p');
+    let pLineCount = 0;
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !lines[i].trimStart().startsWith('```') &&
+      !lines[i].trimStart().startsWith('>') &&
+      !/^(#{1,6})\s+/.test(lines[i]) &&
+      !/^(\s*[-*_]\s*){3,}$/.test(lines[i]) &&
+      !(lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|') && i + 1 < lines.length && isTableDivider(lines[i + 1])) &&
+      !/^\s*[-*]\s+/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i])
+    ) {
+      if (pLineCount > 0) {
+        p.appendChild(doc.createElement('br'));
+      }
+      renderInline(p, lines[i]);
+      pLineCount++;
+      i++;
+    }
+    container.appendChild(p);
+  }
+}
+

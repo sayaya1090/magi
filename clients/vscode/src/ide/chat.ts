@@ -568,6 +568,31 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
   /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
      this turn ends" draw the same bar otherwise, and a person cannot tell which they typed. */
   .queued .who::after { content:' ⏸'; }
+  .agent { white-space:normal; }
+  .agent p { margin:0 0 6px; white-space:pre-wrap; word-break:break-word; }
+  .agent p:last-child { margin-bottom:0; }
+  .agent pre { margin:6px 0; padding:6px 8px; background:var(--vscode-editor-background);
+    border:1px solid var(--vscode-widget-border, rgba(128,128,128,0.25)); border-radius:4px;
+    overflow-x:auto; font-family:var(--vscode-editor-font-family, monospace); font-size:.9em;
+    white-space:pre; }
+  .agent code { font-family:var(--vscode-editor-font-family, monospace); font-size:.9em;
+    background:var(--vscode-editor-background); padding:1px 4px; border-radius:3px; }
+  .agent pre code { background:transparent; padding:0; }
+  .agent ul, .agent ol { margin:4px 0 6px; padding-left:20px; }
+  .agent li { margin:2px 0; }
+  .agent blockquote { margin:4px 0; padding:2px 8px; border-left:3px solid var(--vscode-focusBorder);
+    opacity:.85; }
+  .agent hr { border:none; border-top:1px solid var(--vscode-widget-border, rgba(128,128,128,0.3));
+    margin:8px 0; }
+  .agent a { color:var(--vscode-textLink-foreground); text-decoration:none; }
+  .agent a:hover { text-decoration:underline; }
+  .agent table { border-collapse:collapse; margin:6px 0; width:100%; font-size:.9em; }
+  .agent th, .agent td { border:1px solid var(--vscode-widget-border, rgba(128,128,128,0.25));
+    padding:4px 8px; text-align:left; }
+  .agent th { background:var(--vscode-editor-background); font-weight:600; }
+  .agent .diff-add { color:var(--vscode-gitDecoration-addedResourceForeground, #4ec9b0); }
+  .agent .diff-del { color:var(--vscode-gitDecoration-deletedResourceForeground, #f14c4c); }
+  .agent .diff-hunk { color:var(--vscode-gitDecoration-modifiedResourceForeground, #3794ff); opacity:.8; }
   .abandoned { opacity:.6; text-decoration:line-through; }
   .thinking, .tool { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .error { color:var(--vscode-errorForeground); }
@@ -1130,7 +1155,12 @@ function draw(rs) {
     w.className = 'who';
     w.textContent = r.label;
     const b = document.createElement('div');
-    b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
+    b.className = 'body';
+    if (r.who === 'agent' && typeof renderMarkdown === 'function') {
+      renderMarkdown(b, r.text);
+    } else {
+      b.textContent = r.text;           /* textContent, never innerHTML: the model wrote this */
+    }
     /* A tool row names the call AND what it was asked to do. Without the second half a turn that
        runs thirty commands is thirty rows reading the same word, and the transcript cannot answer
        the one question it exists for. Its own element so it can be dimmed and clipped without
