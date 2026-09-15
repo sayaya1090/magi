@@ -8,7 +8,10 @@ import {
   extractAskFilePath,
   parsePositiveInteger,
   resolveAndOpenFile,
+  resolveAndOpenDiff,
+  resolveActionOrigin,
   FileOpener,
+  DiffOpener,
 } from '../core/nav';
 import { AskStore } from '../core/diff';
 import { Event } from '../core/protocol';
@@ -718,4 +721,169 @@ test('rows and stringifyRawArgs preserve full arguments beyond 100 characters an
   assert.ok(bashRow.rawArgs.includes('line 2'), 'rawArgs preserves line 2');
   assert.ok(bashRow.rawArgs.includes('END_OF_NEW'), 'rawArgs preserves multiline END_OF_NEW to end');
 });
+
+class FakeDiffOpener implements DiffOpener {
+  calls: { workdir: string; sessionId: string; ask: any }[] = [];
+  async openDiff(workdir: string, sessionId: string, ask: any): Promise<boolean> {
+    this.calls.push({ workdir, sessionId, ask });
+    return true;
+  }
+}
+
+test('resolveAndOpenDiff shares origin validation with file nav: rejects missing session, old session, missing callId, and expired ask', async () => {
+  const opener = new FakeDiffOpener();
+  const asks = new AskStore(10);
+  const notes: string[] = [];
+  const events: Event[] = [
+    {
+      seq: 1,
+      type: 'permission.requested',
+      data: {
+        callId: 'call-diff-1',
+        name: 'edit',
+        args: '{"path":"src/main.ts","old":"old","new":"new"}',
+      },
+    },
+  ];
+
+  // 1. Missing session
+  const ok1 = await resolveAndOpenDiff({
+    m: { callId: 'call-diff-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok1, false);
+  assert.ok(notes.some((n) => n.includes('세션 식별자가 누락된')));
+  assert.equal(opener.calls.length, 0);
+
+  // 2. Old/different session
+  notes.length = 0;
+  const ok2 = await resolveAndOpenDiff({
+    m: { session: 'sess-old', callId: 'call-diff-1' },
+    session: 'sess-new',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok2, false);
+  assert.ok(notes.some((n) => n.includes('이전 세션의 요청은')));
+  assert.equal(opener.calls.length, 0);
+
+  // 3. Missing callId
+  notes.length = 0;
+  const ok3 = await resolveAndOpenDiff({
+    m: { session: 'sess-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok3, false);
+  assert.ok(notes.some((n) => n.includes('도구 호출 식별자가 누락된')));
+  assert.equal(opener.calls.length, 0);
+
+  // 4. Expired/non-existent ask
+  notes.length = 0;
+  const ok4 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'non-existent-call' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok4, false);
+  assert.ok(notes.some((n) => n.includes('만료되었거나 유효하지 않은 승인 요청')));
+  assert.equal(opener.calls.length, 0);
+
+  // 5. Valid ask from pending events
+  notes.length = 0;
+  const ok5 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'call-diff-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok5, true);
+  assert.equal(opener.calls.length, 1);
+  assert.equal(opener.calls[0].workdir, '/test');
+  assert.equal(opener.calls[0].sessionId, 'sess-1');
+  assert.equal(opener.calls[0].ask.callId, 'call-diff-1');
+  assert.equal(notes.length, 0);
+
+  // 6. Valid ask from AskStore
+  asks.record(
+    {
+      kind: 'permission',
+      callId: 'call-diff-2',
+      what: 'write test',
+      diff: '--- a/b.ts\n+++ b/b.ts\n@@ -1 +1 @@\n-1\n+2',
+    },
+    '/workdir-stored',
+    'sess-1',
+  );
+  const ok6 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'call-diff-2' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok6, true);
+  assert.equal(opener.calls.length, 2);
+  assert.equal(opener.calls[1].workdir, '/workdir-stored');
+  assert.equal(opener.calls[1].sessionId, 'sess-1');
+
+  // 7. AskStore entry with mismatched sessionId
+  notes.length = 0;
+  asks.record(
+    {
+      kind: 'permission',
+      callId: 'call-diff-old',
+      what: 'write old',
+    },
+    '/workdir-stored',
+    'sess-past',
+  );
+  const ok7 = await resolveAndOpenDiff({
+    m: { session: 'sess-1', callId: 'call-diff-old' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: (t) => notes.push(t),
+    opener,
+  });
+  assert.equal(ok7, false);
+  assert.ok(notes.some((n) => n.includes('이전 세션의 승인 요청은')));
+  assert.equal(opener.calls.length, 2);
+
+  // 8. Direct test for resolveActionOrigin
+  const origin = resolveActionOrigin({
+    m: { session: 'sess-1', callId: 'call-diff-1' },
+    session: 'sess-1',
+    companionWorkdir: '/test',
+    asks,
+    events,
+    postNote: () => {},
+  });
+  assert.ok(origin);
+  assert.equal(origin.kind, 'ask');
+  assert.equal(origin.companionWorkdir, '/test');
+});
+
 

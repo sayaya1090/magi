@@ -815,7 +815,7 @@ try {
   const postedAfterDiff = await page.evaluate(() => window.__posted);
   assert.equal(postedAfterDiff.length, postedLenBefore + 1, 'posted exactly one message on diff click');
   const lastPosted = postedAfterDiff[postedAfterDiff.length - 1];
-  assert.deepEqual(lastPosted, { kind: 'diff', callId: 'perm-edit-native' }, 'posts diff kind with callId');
+  assert.deepEqual(lastPosted, { kind: 'diff', session: 'sess-perm-native', callId: 'perm-edit-native' }, 'posts diff kind with session and callId');
 
   // Approval was not triggered
   assert.ok(!postedAfterDiff.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'diff click does not approve');
@@ -1024,4 +1024,145 @@ try {
   assert.equal(askMsg.session, 'sess-original', 'ask button click preserved bound session from render time');
   console.log('PASS: click handler binds render-time session in closure');
 
+  // Condition 26: Expansion and focus retention across redraws
+  const longText = 'k'.repeat(120);
+  await page.evaluate(({ longText }) => window.postMessage({
+    kind: 'rows',
+    session: 'sess-persisted',
+    rows: [
+      {
+        who: 'tool',
+        label: 'edit ✓',
+        text: 'edit',
+        seq: 80,
+        callId: 'c-80-persisted',
+        fileNav: { path: 'src/persist.ts' },
+        args: 'src/persist.ts {"old":"clipped..."}',
+        rawArgs: JSON.stringify({ path: 'src/persist.ts', old: longText, new: 'END_OF_NEW' })
+      }
+    ]
+  }, '*'), { longText });
+
+  await page.waitForSelector('.row.tool .args-toggle-btn[data-call-id="c-80-persisted"]');
+  const persistToggle = page.locator('.row.tool .args-toggle-btn[data-call-id="c-80-persisted"]');
+  const persistRaw = page.locator('.row.tool pre.raw-args');
+
+  // Initially hidden
+  assert.equal(await persistRaw.isHidden(), true);
+
+  // Expand and focus
+  await persistToggle.click();
+  assert.equal(await persistRaw.isVisible(), true);
+  await persistToggle.focus();
+  const focusedBeforeRedraw = await page.evaluate(() => document.activeElement?.dataset?.callId);
+  assert.equal(focusedBeforeRedraw, 'c-80-persisted', 'toggle button is focused before redraw');
+
+  // Redraw with new event added
+  await page.evaluate(({ longText }) => window.postMessage({
+    kind: 'rows',
+    session: 'sess-persisted',
+    rows: [
+      {
+        who: 'tool',
+        label: 'edit ✓',
+        text: 'edit',
+        seq: 80,
+        callId: 'c-80-persisted',
+        fileNav: { path: 'src/persist.ts' },
+        args: 'src/persist.ts {"old":"clipped..."}',
+        rawArgs: JSON.stringify({ path: 'src/persist.ts', old: longText, new: 'END_OF_NEW' })
+      },
+      {
+        who: 'tool',
+        label: 'bash ✓',
+        text: 'bash',
+        seq: 81,
+        callId: 'c-81-new',
+        args: 'echo done'
+      }
+    ]
+  }, '*'), { longText });
+
+  // Wait for new row
+  await page.waitForSelector('.row.tool:has-text("echo done")');
+
+  // Verify expansion retained
+  const persistRawAfter = page.locator('.row.tool pre.raw-args');
+  assert.equal(await persistRawAfter.isVisible(), true, 'raw-args remains visible after redraw');
+  const rawTextAfter = await persistRawAfter.textContent();
+  assert.ok(rawTextAfter.includes('END_OF_NEW'), 'raw-args still displays unclipped content to END_OF_NEW');
+
+  // Verify focus restored
+  const focusedAfterRedraw = await page.evaluate(() => document.activeElement?.dataset?.callId);
+  assert.equal(focusedAfterRedraw, 'c-80-persisted', 'focus was restored to the toggle button after redraw');
+  console.log('PASS: rawArgs expansion and button focus retained across rows redraw');
+
+  // Condition 27: Session switch isolates and clears expanded state
+  await page.evaluate(({ longText }) => window.postMessage({
+    kind: 'rows',
+    session: 'sess-brand-new',
+    rows: [
+      {
+        who: 'tool',
+        label: 'edit ✓',
+        text: 'edit',
+        seq: 80,
+        callId: 'c-80-persisted', // identical callId in new session
+        fileNav: { path: 'src/persist.ts' },
+        args: 'src/persist.ts {"old":"clipped..."}',
+        rawArgs: JSON.stringify({ path: 'src/persist.ts', old: longText, new: 'END_OF_NEW' })
+      }
+    ]
+  }, '*'), { longText });
+
+  await page.waitForSelector('.row.tool .args-toggle-btn[data-call-id="c-80-persisted"]');
+  const newSessionRaw = page.locator('.row.tool pre.raw-args');
+  const newSessionToggle = page.locator('.row.tool .args-toggle-btn[data-call-id="c-80-persisted"]');
+  assert.equal(await newSessionRaw.isHidden(), true, 'raw-args is folded again in brand new session');
+  assert.equal(await newSessionToggle.getAttribute('aria-expanded'), 'false');
+  console.log('PASS: session switch resets and isolates expanded call state');
+
+  // Condition 28: diff button session binding and unconfirmed session disablement
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    session: 'sess-diff-bound',
+    rows: [],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-diff-test',
+      diffKind: 'sides',
+      what: 'edit',
+      filePath: 'src/diff_target.ts'
+    }
+  }, '*'));
+
+  await page.waitForSelector('button.diff-btn');
+  const diffBtn = page.locator('button.diff-btn');
+  assert.equal(await diffBtn.isDisabled(), false);
+  await diffBtn.click();
+  const postedAfterDiffCond28 = await page.evaluate(() => window.__posted);
+  const diffMsg = postedAfterDiffCond28[postedAfterDiffCond28.length - 1];
+  assert.equal(diffMsg.kind, 'diff');
+  assert.equal(diffMsg.session, 'sess-diff-bound');
+  assert.equal(diffMsg.callId, 'perm-diff-test');
+
+  // Unconfirmed session on diffBtn
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    // no session
+    rows: [],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-diff-no-sess',
+      diffKind: 'sides',
+      what: 'edit'
+    }
+  }, '*'));
+
+  await page.waitForSelector('button.diff-btn:disabled');
+  const diffBtnUnconfirmed = page.locator('button.diff-btn');
+  assert.equal(await diffBtnUnconfirmed.isDisabled(), true, 'diff button is disabled when session is unconfirmed');
+  console.log('PASS: diff button binds session in postMessage and disables when session is unconfirmed');
+
 } finally { await browser.close(); }
+

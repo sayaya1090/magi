@@ -11,7 +11,7 @@ import { Edits } from './edits';
 import { Companion } from './workspace';
 import { DiffProvider, openApprovalDiff } from './diff';
 import { determineApprovalDiffKind, AskStore } from '../core/diff';
-import { resolveAndOpenFile, extractAskFilePath } from '../core/nav';
+import { resolveAndOpenFile, resolveAndOpenDiff, extractAskFilePath } from '../core/nav';
 
 /**
  * The conversation, in the panel.
@@ -389,18 +389,19 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         this.draw();
         break;
       case 'diff': {
-        const callId = m.callId;
-        if (!callId) break;
-        const stored = this.asks.get(callId);
-        if (stored) {
-          await openApprovalDiff(this.diffProvider, stored.companionId, stored.sessionId, stored.ask);
-        } else {
-          const raw = pendingAsk(this.events);
-          if (raw && raw.callId === callId) {
-            const ask = { ...raw, diffKind: determineApprovalDiffKind(raw) };
-            await openApprovalDiff(this.diffProvider, this.companion.workdir, this.session, ask);
-          }
-        }
+        await resolveAndOpenDiff({
+          m,
+          session: this.session,
+          companionWorkdir: this.companion.workdir,
+          companionState: this.companion.state.state,
+          asks: this.asks,
+          events: this.events,
+          postNote: (text) => this.post({ kind: 'note', text }),
+          opener: {
+            openDiff: (workdir, sessionId, ask) =>
+              openApprovalDiff(this.diffProvider, workdir, sessionId, ask),
+          },
+        });
         break;
       }
       case 'open': {
@@ -924,7 +925,11 @@ function drawAsk(a) {
       diffBtn.textContent = '변경 보기';
       diffBtn.title = '변경 보기 (승인 당시 비교 자료)';
       diffBtn.setAttribute('aria-label', '변경 보기 (승인 당시 비교 자료)');
-      diffBtn.addEventListener('click', () => vs.postMessage({ kind: 'diff', callId: a.callId }));
+      if (!boundSession || !a.callId) {
+        diffBtn.disabled = true;
+      } else {
+        diffBtn.addEventListener('click', () => vs.postMessage({ kind: 'diff', session: boundSession, callId: a.callId }));
+      }
       acts.append(diffBtn);
     }
     /* The three words the core spells. One vocabulary, so the two cannot drift. */
@@ -1050,6 +1055,7 @@ function drawInfo() {
 }
 const answerState = createAnswerState();
 let currentSession = '';
+const expandedCallIds = new Set();
 let mentions = [];
 let suggestReqId = 0;
 function clearAutoCompletion() {
@@ -1134,6 +1140,8 @@ function drawRefs(rs) {
 }
 function draw(rs) {
   const boundSession = currentSession;
+  const activeEl = document.activeElement;
+  const focusedCallId = (activeEl && activeEl.classList && activeEl.classList.contains('args-toggle-btn')) ? activeEl.dataset.callId : null;
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
@@ -1209,14 +1217,16 @@ function draw(rs) {
       const toggle = document.createElement('button');
       toggle.type = 'button';
       toggle.className = 'args-toggle-btn';
-      toggle.textContent = '…';
-      toggle.title = '인자 전체 펼치기';
-      toggle.setAttribute('aria-label', '인자 전체 펼치기');
-      toggle.setAttribute('aria-expanded', 'false');
+      if (r.callId) toggle.dataset.callId = r.callId;
+      const isExpanded = !!(boundSession && r.callId && expandedCallIds.has(r.callId));
+      toggle.textContent = isExpanded ? '접기' : '…';
+      toggle.title = isExpanded ? '인자 접기' : '인자 전체 펼치기';
+      toggle.setAttribute('aria-label', toggle.title);
+      toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
       const rawBox = document.createElement('pre');
       rawBox.className = 'raw-args';
       rawBox.textContent = r.rawArgs;
-      rawBox.hidden = true;
+      rawBox.hidden = !isExpanded;
       toggle.addEventListener('click', (ev) => {
         ev.stopPropagation();
         const open = rawBox.hidden;
@@ -1225,6 +1235,10 @@ function draw(rs) {
         toggle.textContent = open ? '접기' : '…';
         toggle.title = open ? '인자 접기' : '인자 전체 펼치기';
         toggle.setAttribute('aria-label', toggle.title);
+        if (boundSession && r.callId) {
+          if (open) expandedCallIds.add(r.callId);
+          else expandedCallIds.delete(r.callId);
+        }
       });
       b.append(' ', toggle);
       d.append(rawBox);
@@ -1232,11 +1246,23 @@ function draw(rs) {
     d.append(w, b);
     rowsEl.append(d);
   }
+  if (focusedCallId) {
+    const btns = rowsEl.querySelectorAll('.args-toggle-btn');
+    for (let i = 0; i < btns.length; i++) {
+      if (btns[i].dataset.callId === focusedCallId) {
+        btns[i].focus();
+        break;
+      }
+    }
+  }
 }
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind === 'rows') {
     const boundSession = m.session || '';
+    if (currentSession !== boundSession) {
+      expandedCallIds.clear();
+    }
     currentSession = boundSession;
     /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
        an older row is the single most annoying thing a live transcript does.
