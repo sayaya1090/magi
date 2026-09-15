@@ -358,12 +358,25 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         const sent = this.refs;
         const refs = sent.map(wireRef);
         this.refs = [];
+
+        if (!this.sid) {
+          const created = await this.companion.ask('session-new');
+          const sid = created?.session ?? '';
+          if (!sid) {
+            this.giveBack(body, sent, created?.error ?? 'the companion could not open a conversation.');
+            break;
+          }
+          this.sid = sid;
+          this.companion.session = sid;
+          void this.openStream();
+        }
+
         // Which door: `steer` while a turn is running, `submit` otherwise. Not one door with two
         // names — `submit` is a new top-level request and the core wipes the plan for it, so a
         // clarification typed mid-turn would delete the plan of the turn it was clarifying.
         // The fact comes off the transcript this window streams, not from `status` (see turnOpen).
         const door = turnOpen(this.events) ? 'steer' : 'submit';
-        const r = await this.companion.ask(door, refs.length ? { text: body, refs } : { text: body });
+        const r = await this.companion.ask(door, refs.length ? { session: this.sid, text: body, refs } : { session: this.sid, text: body });
         if (!r?.ok) this.giveBack(body, sent, r?.error ?? 'no companion is listening on this workspace.');
         this.draw();
         break;
@@ -439,7 +452,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       case 'answer': {
         // The decision travels as the core spells it. Two vocabularies for one verdict is a place
         // for the two to drift.
-        const v = await this.companion.ask('permission', { callId: m.callId, decision: m.decision });
+        const v = await this.companion.ask('permission', {
+          session: this.sid,
+          callId: m.callId,
+          decision: m.decision,
+        });
         // A pressed button whose answer is thrown away is a window where nothing happens when you
         // press it — the JetBrains client's own words for the same defect, which it fixed in the
         // one place all four of its buttons go through. The prompt is redrawn from the stream, so
@@ -452,7 +469,11 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // a verdict — sending "allow" to a question would answer something nobody asked.
         const said = m.text ?? '';
         const attemptId = m.attemptId;
-        const a = await this.companion.ask('answer', { callId: m.callId, answer: said });
+        const a = await this.companion.ask('answer', {
+          session: this.sid,
+          callId: m.callId,
+          answer: said,
+        });
         if (a?.ok) {
           this.post({ kind: 'replyResult', callId: m.callId, attemptId, ok: true });
         } else {
