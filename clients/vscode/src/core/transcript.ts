@@ -1,5 +1,6 @@
 import { Event } from './protocol';
 import { extractFileNav, FileNav } from './nav_tool';
+import { makeAssistantOutputId, makeToolResultOutputId } from './output';
 
 /**
  * Events into rows, in ONE place.
@@ -180,6 +181,8 @@ export interface Row {
   member?: string;
   /** Rows that are folded shut by default (reasoning, tool bodies). */
   folded?: boolean;
+  /** Read-only output document ID for finalized assistant text or tool result. Absent for drafts or unresolvable items. */
+  outputId?: string;
 }
 
 interface PartLike {
@@ -325,7 +328,12 @@ export function rows(events: Event[]): Row[] {
           if (q >= 0) out.push({ ...out.splice(q, 1)[0], queued: false });
         }
         if (p.kind === 'text' && (p.text ?? '').trim()) {
-          out.push({ seq: e.seq, who: 'agent', text: p.text!.trim() });
+          out.push({
+            seq: e.seq,
+            who: 'agent',
+            text: p.text!.trim(),
+            ...(role === 'assistant' ? { outputId: makeAssistantOutputId(e.seq) } : {}),
+          });
         } else if (p.kind === 'reasoning' && (p.text ?? '').trim()) {
           out.push({ seq: e.seq, who: 'thinking', text: p.text!.trim(), folded: true });
         } else if (p.kind === 'tool-call' && p.toolCall) {
@@ -347,6 +355,9 @@ export function rows(events: Event[]): Row[] {
             // The reason travels with the failure. Read the VALUE, not its rendering: `content` is
             // often a JSON string, and stringifying it again leaves the escapes on the screen.
             if (p.toolResult.isError && !advisory) row.out = said(p.toolResult.content);
+            if (p.toolResult.content !== undefined && p.toolResult.content !== null) {
+              row.outputId = makeToolResultOutputId(call ?? '', e.seq);
+            }
           }
         } else if (p.kind === 'image' && p.image?.path) {
           // ⚠ **A part kind this fold does not name is not an empty row — it is a row that never

@@ -23,6 +23,7 @@ export interface WebviewBridge {
 export interface WebviewActionAdapter {
   openFile(session: string, callId: string, seq?: number): boolean;
   openDiff(session: string, callId: string): boolean;
+  openOutput(session: string, outputId: string): boolean;
   answer(callId: string, decision: string): boolean;
   reply(callId: string, text: string, attemptId: number): boolean;
   say(text: string): boolean;
@@ -49,6 +50,12 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
     openDiff(session: string, callId: string): boolean {
       if (!session || !callId) return false;
       vs.postMessage({ kind: 'diff', session, callId });
+      return true;
+    },
+
+    openOutput(session: string, outputId: string): boolean {
+      if (!session || !outputId) return false;
+      vs.postMessage({ kind: 'output', session, outputId });
       return true;
     },
 
@@ -151,7 +158,8 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
       if (
         typeof rowObj.who !== 'string' ||
         typeof rowObj.label !== 'string' ||
-        typeof rowObj.text !== 'string'
+        typeof rowObj.text !== 'string' ||
+        (rowObj.outputId !== undefined && typeof rowObj.outputId !== 'string')
       ) {
         return undefined;
       }

@@ -1583,6 +1583,77 @@ const bundles = [
           const diffBtnUnconfirmed = page.locator('button.diff-btn');
           assert.equal(await diffBtnUnconfirmed.isDisabled(), true, 'diff button is disabled when session is unconfirmed');
         }
+      },
+      {
+        id: 'output_open_button_session_binding_and_action_dispatch',
+        name: '편집창에서 열기 버튼 세션 바인딩, 액션 전송 및 미확인 세션 비활성화 (§3.3, §3.4)',
+        run: async (page) => {
+          // 1. Deliver confirmed session with assistant row (with outputId), tool row (with outputId), and draft row (no outputId)
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-output-bound',
+            rows: [
+              { who: 'agent', label: 'magi', text: 'finalized assistant answer', outputId: 'assistant:42' },
+              { who: 'agent', label: 'magi', text: 'draft streaming answer', pending: true },
+              { who: 'tool', label: 'tool (read_file)', text: 'read_file', callId: 'call-read-1', outputId: 'tool:call-read-1:45' }
+            ],
+            refs: []
+          }));
+
+          await page.waitForSelector('.row.agent .output-open-btn');
+          const agentBtn = page.locator('.row.agent .output-open-btn');
+          assert.equal(await agentBtn.count(), 1, 'only finalized assistant row has output open button');
+          assert.equal(await agentBtn.textContent(), '편집창에서 열기');
+          assert.equal(await agentBtn.isDisabled(), false, 'button is enabled when session is confirmed');
+
+          await page.waitForSelector('.row.tool .output-open-btn');
+          const toolBtn = page.locator('.row.tool .output-open-btn');
+          assert.equal(await toolBtn.count(), 1, 'tool row with outputId has output open button');
+          assert.equal(await toolBtn.textContent(), '편집창에서 열기');
+          assert.equal(await toolBtn.isDisabled(), false);
+
+          // Click assistant button: verify postMessage sends kind: 'output' with exact session and outputId
+          const postedLenBefore = await page.evaluate(() => window.__posted.length);
+          await agentBtn.click();
+          const postedAfterAgent = await page.evaluate(() => window.__posted);
+          assert.equal(postedAfterAgent.length, postedLenBefore + 1, 'exactly one message dispatched');
+          const agentMsg = postedAfterAgent[postedAfterAgent.length - 1];
+          assert.deepEqual(agentMsg, {
+            kind: 'output',
+            session: 'sess-output-bound',
+            outputId: 'assistant:42'
+          }, 'correct output action payload dispatched for assistant');
+
+          // Click tool button: verify postMessage sends kind: 'output' with tool outputId
+          await toolBtn.click();
+          const postedAfterTool = await page.evaluate(() => window.__posted);
+          assert.equal(postedAfterTool.length, postedLenBefore + 2, 'second message dispatched');
+          const toolMsg = postedAfterTool[postedAfterTool.length - 1];
+          assert.deepEqual(toolMsg, {
+            kind: 'output',
+            session: 'sess-output-bound',
+            outputId: 'tool:call-read-1:45'
+          }, 'correct output action payload dispatched for tool');
+
+          // Confirm neither click touched composer or ask mode
+          const sayValue = await page.locator('#say').inputValue();
+          assert.equal(sayValue, '', 'composer input untouched');
+          const askControlsHidden = await page.locator('#ask-controls').evaluate((el) => el.hidden);
+          assert.ok(askControlsHidden, 'ask controls remain hidden');
+
+          // 2. Deliver unconfirmed session (session: '') with outputId
+          await page.evaluate(() => window.postMessage({
+            kind: 'rows',
+            session: '',
+            rows: [
+              { who: 'agent', label: 'magi', text: 'unconfirmed assistant', outputId: 'assistant:99' }
+            ],
+            refs: []
+          }, '*'));
+
+          await page.waitForSelector('.row.agent .output-open-btn:disabled');
+          const disabledBtn = page.locator('.row.agent .output-open-btn');
+          assert.equal(await disabledBtn.isDisabled(), true, 'output button is disabled when session is unconfirmed');
+        }
       }
     ]
   }

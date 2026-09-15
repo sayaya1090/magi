@@ -191,6 +191,8 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 - **브라우저 및 컨텍스트 종료 보장 (`runHarness` 라이프사이클):** 실제 실행 함수 `runHarness`를 추출하여 `main()`과 검증 스위트가 동일한 실행 코드를 공유합니다. mock browser/context를 통해 정상 완료, `--verify-assets` 조기 반환(`return`), 시나리오 예외 발생의 3개 실행 경로 모두에서 `context.close()`와 `browser.close()`가 각각 정확히 1회씩 호출되고 예외가 성공으로 은폐되지 않음을 단언합니다. (실제 `finally` 제거 시 `0 !== 1` 테스트 실패 연결 확인 완료)
 - **임시 경로 정규화 및 누락 시 종료 코드 1 실측 검증:** `node:url`의 `pathToFileURL`을 사용하여 Windows 드라이브 문자(`C:\...`), 공백, `#` 특수문자가 포함된 임시 경로를 올바른 `file:///` URL로 정규화합니다. `preflight.test.ts`에서는 외국 플랫폼 Windows 드라이브 경로 정규화와 현재 플랫폼의 네이티브 파일 경로 왕복(`fileURLToPath`), 플랫폼별 POSIX 경로 기대값을 명확히 구분하여 검증합니다. 또한 환경 비의존 `asset-preflight.mjs` 모듈을 자식 프로세스로 직접 기동하여 번들 누락 시 실제 종료 코드 1, 누락 경로, 빌드 안내 메시지가 표준 에러로 출력되는지 격리 임시 디렉터리에서 검증합니다. (Windows 경로 변환 단위 검증이며 Windows 실물 실행과는 구분됩니다)
 - **비정상 메시지 수신 시 상태 보존:** 비정상 페이로드(비배열 rows, session 누락, callId 빈 문자열인 replyResult, 미등록 kind, 원시 타입 등)를 보정 없이 브라우저 이벤트 큐에 직접 발행할 때, 기존 행·대기 질문 카드·답변 모드 및 작성 중인 초안(`say.value`)이 훼손되거나 지워지지 않고 페이지 오류(pageerror) 없이 100% 보존되는지 `postMessage` FIFO 큐 동기화로 검증합니다.
+- **읽기 전용 편집창 열기 버튼 및 액션 송출 검증 (`output_open_button_session_binding_and_action_dispatch`, §3.3–§3.4):** 확정된 모델 답변 행(`assistant:seq`) 및 도구 실행 결과 도착 행(`tool:callId:resultSeq`)에 한해 웹뷰 행 헤더(`w`)에 `편집창에서 열기`(`.output-open-btn`) 버튼이 노출되며, draft 행에는 버튼이 렌더링되지 않음을 단언합니다. 렌더 시점의 확정 세션 및 자료 ID가 클릭 핸들러 클로저에 고정되어 버튼 클릭 시 호스트로 `{ kind: 'output', session, outputId }` 메시지만 정확히 1회 발행되고, composer 입력값이나 질문 모드·초안이 훼손되지 않으며, 세션이 미확인인 경우(`session: ''`) 버튼이 비활성화(`disabled`)됨을 브라우저 실측으로 검증합니다.
+
 
 
 

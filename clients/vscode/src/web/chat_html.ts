@@ -125,6 +125,11 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
     padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; }
   .args-toggle-btn:hover { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
+  .output-open-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
+    border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
+    padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; margin-left:6px; }
+  .output-open-btn:hover:not(:disabled) { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
+  .output-open-btn:disabled { opacity:.5; cursor:not-allowed; }
   pre.raw-args { font-family:var(--vscode-editor-font-family); font-size:.85em; margin:4px 0 6px;
     padding:4px 6px; background:var(--vscode-editor-background, rgba(0, 0, 0, 0.02));
     border-left:2px solid var(--vscode-textLink-foreground); border-radius:2px;
@@ -553,6 +558,25 @@ function draw(rs) {
     const w = document.createElement('div');
     w.className = 'who';
     w.textContent = r.label;
+    if (r.outputId) {
+      const boundOutputId = r.outputId;
+      const openOutputBtn = document.createElement('button');
+      openOutputBtn.type = 'button';
+      openOutputBtn.className = 'output-open-btn';
+      openOutputBtn.textContent = '편집창에서 열기';
+      openOutputBtn.title = '편집창에서 열기 (읽기 전용)';
+      openOutputBtn.setAttribute('aria-label', '편집창에서 열기 (읽기 전용)');
+      openOutputBtn.dataset.outputId = boundOutputId;
+      if (!boundSession) {
+        openOutputBtn.disabled = true;
+      } else {
+        openOutputBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          actions.openOutput(boundSession, boundOutputId);
+        });
+      }
+      w.append(' ', openOutputBtn);
+    }
     const b = document.createElement('div');
     b.className = 'body';
     if (r.who === 'agent' && typeof renderMarkdown === 'function') {
