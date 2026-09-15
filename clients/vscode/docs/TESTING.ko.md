@@ -112,6 +112,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `answer_state.test.ts` (답변 및 초안 상태 관리) | **답변·초안 상태 전이, 전송 시도 ID 격리, 자동완성 무효화 및 복구 검증.** 일반 초안과 질문 초안의 상호 격리 및 Esc/재진입 복원, A 전송 후 B 수정 시 늦은 A 실패에 의한 B 초안 보존, A 실패 후 B 재전송 시 A 결과 재도착에 대한 시도 ID 불일치 무시 및 B 잠금·초안·모드 보존, 질문 교체 후 이전 요청 실패의 현재 입력창 비침범·ID 없는 응답 무시·중복 제출 차단, 그리고 성공 응답과 질문 종료 이벤트의 도착 순서 역전 시 일반 초안 오염 방지를 순수 상태 기계 수준에서 전수 검증합니다 |
 | `nav.test.ts` (도구 파일·줄 이동 추출 및 세션 격리) | **도구 계약 기반 파일 및 시작 줄 추출과 세션 격리 검증.** `read`(path, offset), `edit`(path, at), `show`(path, line), `write`(path), `multiedit`(path), `apply_edit`(path) 및 검증된 IDE 컴패니언 도구(`mcp__vscode__show`, `mcp__jetbrains__show` 등)의 경로 및 시작 줄 추출, 임의 MCP 서버 도구 및 비파일 도구(`list`, `glob`, `bash`, `grep`) 링크 제외, 파일 링크와 상세 인자(`old`/`new`, `offset`/`limit`)의 동시 보존 및 중복 경로 축약, 그리고 세션 교체 후 동일 `seq`를 가진 구 세션의 늦은 클릭 시 신규 세션 파일 오작동 방지를 전수 검증합니다 |
 | `chat_host.test.ts` (세션 동시성 및 호스트 전송 제어) | **세션 생성 경쟁, 직렬 전송 큐, 화면 전환 격리 및 실패 복원 호스트 검증 (B0).** 세션 없는 상태에서 연속 메시지 전송 시 `session-new` 1회 호출 및 후속 메시지의 `steer` 자동 라우팅, 세션 생성 중 화면 전환 시 활성 세션 덮어쓰기 방지 및 생성 세션으로의 메시지 정상 전송, 화면 전환 후에도 대상 세션의 턴 상태에 기반한 `submit`/`steer` 판정 격리, 세션 생성 실패 시 초안 텍스트 및 첨부 칩 복원(`giveBack`)을 호스트 레벨에서 전수 검증합니다 |
+| `preflight.test.ts` (자산 번들 선행 검사 및 파일 URL 정규화) | **웹뷰 필수 번들 선행 검사 및 파일 URL 정규화 검증.** `chat_html.js`·`answer_state.js`·`chat_adapter.bundle.js` 번들 누락 시 자식 프로세스가 종료 코드 1과 함께 누락 경로 및 빌드 안내를 표준 에러로 출력하는지 격리 임시 디렉터리에서 검증합니다. Windows 드라이브 문자(`C:\...`), 공백, `#` 특수문자가 포함된 경로가 URL 해시(#)로 잘리지 않고 `pathToFileURL`을 통해 올바른 `file:///` 경로로 정규화되는지 단위 테스트로 대조합니다. (Windows 경로 변환 단위 검증이며 Windows 실물 실행과는 구분됩니다) |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -182,10 +183,12 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 ### 자산 경로 및 번들 선행 검증 사양 (2026-09-16)
 
-`transcript-test.mjs`는 `renderChatHtml`에 전달하는 자산 URL과 Playwright 네트워크 라우팅 허용 목록을 단일 상수(`ASSET_PATHS`, `ASSET_URLS`)로 동기화하여 검증합니다:
+`transcript-test.mjs`는 `renderChatHtml`에 전달하는 자산 URL과 Playwright 네트워크 라우팅 허용 목록을 단일 상수(`ASSET_PATHS`, `ASSET_URLS`) 및 공유 라우터(`installAssetRouter`)로 동기화하여 검증합니다:
 
-- **정확한 경로 판정 및 거절:** `url.includes(...)` 부분 문자열 매칭과 구형 `chat_adapter.js` 별칭을 배제하고 정확한 `pathname` 일치만 허용합니다. 정상 자산(`/`, `index.html`, `answer_state.js`, `chat_adapter.bundle.js`)은 200 HTTP 응답을 반환하며, 알 수 없는 자산이나 변형된 접미사(`chat_adapter.bundle.js.broken`), 구형 별칭은 즉시 404로 거절하고 일반 시나리오 에러 로그와 분리된 격리 페이지에서 검증합니다.
-- **동적 import 및 번들 누락 사전 검사:** `renderChatHtml`을 정적으로 import하기 전에 필수 빌드 산출물(`chat_html.js`, `answer_state.js`, `chat_adapter.bundle.js`) 존재 여부를 `verifyRequiredBundles`로 먼저 검사합니다. 번들이 누락되면 누락 경로와 빌드 안내(`npm run build --prefix clients/vscode`)를 출력하고 프로세스가 비정상 종료(코드 1)합니다. 이 동작은 임시 디렉터리를 생성하여 격리 검증하므로 기존 `out/` 빌드 산출물을 삭제하거나 변형하지 않습니다.
+- **동일 라우터 기반 정확한 경로 판정 (`installAssetRouter`):** 실제 시나리오 실행부와 사전 검증 스위트(`verifyAssetRoutesAndPreflight`)가 동일한 라우터 함수를 공유합니다. `url.includes(...)` 부분 문자열 매칭과 구형 `chat_adapter.js` 별칭을 배제하고 정확한 `pathname` 일치만 허용하며, 미등록 요청 콜백(`onUnregistered`)만 실행 목적에 맞게 주입합니다. 정상 자산(`/`, `index.html`, `answer_state.js`, `chat_adapter.bundle.js`)은 200 HTTP 응답을 반환하며, 알 수 없는 자산이나 변형된 접미사(`chat_adapter.bundle.js.broken`), 구형 별칭은 즉시 404로 거절되고 `onUnregistered`에 수집됩니다.
+- **브라우저 종료 보장 (`try/finally`):** `--verify-assets` 단독 실행 및 전체 시나리오 실행을 `async main()`으로 감싸, 성공(`return`)과 실패 시 모두 `finally { await browser.close(); }` 블록을 통과하도록 보장합니다. 강제 `process.exit(0)`을 배제하고 실패 시 `process.exitCode = 1`을 설정하여 브라우저 리소스 누수를 원천 차단합니다.
+- **임시 경로 정규화 및 누락 시 종료 코드 1 실측 검증:** `node:url`의 `pathToFileURL`을 사용하여 Windows 드라이브 문자(`C:\...`), 공백, `#` 특수문자가 포함된 임시 경로를 올바른 `file:///` URL로 정규화합니다. 환경 비의존 `asset-preflight.mjs` 모듈을 자식 프로세스로 직접 기동하여 번들 누락 시 실제 종료 코드 1, 누락 경로, 빌드 안내 메시지가 표준 에러로 출력되는지 격리 임시 디렉터리에서 검증합니다. (Windows 경로 변환 단위 검증이며 Windows 실물 실행과는 구분됩니다)
 - **비정상 메시지 수신 시 상태 보존:** 비정상 페이로드(비배열 rows, session 누락, callId 빈 문자열인 replyResult, 미등록 kind, 원시 타입 등)를 보정 없이 브라우저 이벤트 큐에 직접 발행할 때, 기존 행·대기 질문 카드·답변 모드 및 작성 중인 초안(`say.value`)이 훼손되거나 지워지지 않고 페이지 오류(pageerror) 없이 100% 보존되는지 `postMessage` FIFO 큐 동기화로 검증합니다.
+
 
 

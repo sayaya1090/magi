@@ -1,11 +1,20 @@
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { fileURLToPath } from 'node:url';
 import { createRowsMessage } from './transcript-fixtures.mjs';
+import {
+  runPreflight,
+  toDirectoryUrl,
+  checkRequiredBundles,
+  REQUIRED_BUNDLES,
+} from './asset-preflight.mjs';
 
+const execFileAsync = promisify(execFile);
 const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
 const { chromium } = require('playwright');
 
@@ -22,29 +31,11 @@ export const ASSET_URLS = {
   adapterBundle: `${TEST_ORIGIN}${ASSET_PATHS.adapterBundle}`,
 };
 
-/**
- * Validates existence of all required compiled assets.
- * Can be parameterized with baseDir to test missing bundle scenarios in isolation (§2.2).
- */
-export function verifyRequiredBundles(baseDir = new URL('../out/web/', import.meta.url)) {
-  const bundles = [
-    { name: 'chat_html.js', path: new URL('chat_html.js', baseDir) },
-    { name: 'answer_state.js', path: new URL('answer_state.js', baseDir) },
-    { name: 'chat_adapter.bundle.js', path: new URL('chat_adapter.bundle.js', baseDir) },
-  ];
-  for (const b of bundles) {
-    if (!existsSync(b.path)) {
-      console.error(`Missing required webview asset bundle: ${b.path.pathname}\nRun 'npm run build --prefix clients/vscode' first.`);
-      return false;
-    }
-  }
-  return true;
-}
+// Re-export preflight checker for consumers
+export { checkRequiredBundles as verifyRequiredBundles };
 
 // Pre-flight check: Ensure all required compiled assets exist before importing or launching browser (§2.2)
-if (!verifyRequiredBundles()) {
-  process.exit(1);
-}
+runPreflight();
 
 // Dynamic import evaluated strictly AFTER pre-flight check succeeds (§2.2)
 const { renderChatHtml } = await import('../out/web/chat_html.js');
@@ -58,55 +49,108 @@ const html = renderChatHtml({
 });
 
 /**
+ * Installs exact asset routing on a Playwright page.
+ * Shared between verifyAssetRoutesAndPreflight and scenario runners (§2.1).
+ *
+ * @param {import('playwright').Page} page
+ * @param {object} options
+ * @param {string} options.html Compiled HTML content for root/document requests.
+ * @param {(url: string) => void} [options.onUnregistered] Callback invoked on rejected requests.
+ */
+export async function installAssetRouter(page, options = {}) {
+  const { html, onUnregistered } = options;
+  await page.route(`${TEST_ORIGIN}/**`, async (route) => {
+    const reqUrl = new URL(route.request().url());
+    if (reqUrl.origin === TEST_ORIGIN) {
+      if (ASSET_PATHS.document.includes(reqUrl.pathname)) {
+        return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
+      }
+      if (reqUrl.pathname === ASSET_PATHS.answerState) {
+        const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
+        return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+      }
+      if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
+        const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
+        return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
+      }
+    }
+    if (onUnregistered) {
+      onUnregistered(reqUrl.href);
+    }
+    return route.fulfill({ status: 404, body: 'Not Found' });
+  });
+}
+
+/**
  * Verifies preflight missing bundle detection and exact route matching / rejection (§2.1, §2.2).
  * Runs in an isolated browser context and temp directory without mutating test state.
  */
 export async function verifyAssetRoutesAndPreflight(browser, compiledHtml) {
-  console.log('\n▶ Asset Route & Preflight Verification (§2.1, §2.2)');
+  console.log('\n▶ Asset Route & Preflight Verification (§2.1, §2.2, §2.3)');
 
-  // 1. Preflight check in an isolated temporary directory (without deleting actual out/ files)
+  // 1. Path normalization verification (Windows drive letters, spaces, '#') (§2.3)
+  const winUrl = toDirectoryUrl('C:\\magi test dir#1\\assets');
+  assert.equal(winUrl.href, 'file:///C:/magi%20test%20dir%231/assets/');
+  assert.equal(winUrl.pathname, '/C:/magi%20test%20dir%231/assets/');
+  assert.equal(winUrl.hash, '');
+
+  const posixUrl = toDirectoryUrl('/tmp/magi test dir#1/assets');
+  assert.equal(posixUrl.pathname, '/tmp/magi%20test%20dir%231/assets/');
+  assert.equal(posixUrl.hash, '');
+
+  // 2. Preflight check in an isolated temporary directory asserting exit code 1, missing path, and build instruction (§2.3)
   const tempDir = await mkdtemp(path.join(tmpdir(), 'magi-test-assets-'));
+  const preflightScript = fileURLToPath(new URL('./asset-preflight.mjs', import.meta.url));
   try {
-    const tempUrl = new URL(`file://${tempDir}/`);
-    // Completely empty temp dir -> should return false
-    assert.equal(verifyRequiredBundles(tempUrl), false, 'Empty dir fails bundle verification');
+    // A) Empty temp dir: missing chat_html.js -> exit code 1
+    try {
+      await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+      assert.fail('Should have failed on empty directory');
+    } catch (err) {
+      assert.equal(err.code, 1, 'Preflight exit code is 1 when chat_html.js is missing');
+      assert.ok(err.stderr.includes('chat_html.js'), 'Reports missing chat_html.js path');
+      assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."), 'Reports build command instruction');
+    }
 
-    // Only chat_html.js -> should return false
+    // B) chat_html.js present: missing answer_state.js -> exit code 1
     await writeFile(path.join(tempDir, 'chat_html.js'), 'export const renderChatHtml = () => "";');
-    assert.equal(verifyRequiredBundles(tempUrl), false, 'Missing answer_state & adapter fails');
+    try {
+      await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+      assert.fail('Should have failed on missing answer_state.js');
+    } catch (err) {
+      assert.equal(err.code, 1, 'Preflight exit code is 1 when answer_state.js is missing');
+      assert.ok(err.stderr.includes('answer_state.js'), 'Reports missing answer_state.js path');
+      assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."), 'Reports build command instruction');
+    }
 
-    // chat_html.js and answer_state.js -> should return false
+    // C) answer_state.js present: missing chat_adapter.bundle.js -> exit code 1
     await writeFile(path.join(tempDir, 'answer_state.js'), '// answer state');
-    assert.equal(verifyRequiredBundles(tempUrl), false, 'Missing adapter bundle fails');
+    try {
+      await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+      assert.fail('Should have failed on missing chat_adapter.bundle.js');
+    } catch (err) {
+      assert.equal(err.code, 1, 'Preflight exit code is 1 when chat_adapter.bundle.js is missing');
+      assert.ok(err.stderr.includes('chat_adapter.bundle.js'), 'Reports missing chat_adapter.bundle.js path');
+      assert.ok(err.stderr.includes("Run 'npm run build --prefix clients/vscode' first."), 'Reports build command instruction');
+    }
 
-    // All three exist -> should return true
+    // D) All three bundles present -> exit code 0 and empty stderr
     await writeFile(path.join(tempDir, 'chat_adapter.bundle.js'), '// adapter bundle');
-    assert.equal(verifyRequiredBundles(tempUrl), true, 'All three bundles present succeeds');
+    const res = await execFileAsync(process.execPath, [preflightScript, `--dir=${tempDir}`]);
+    assert.equal(res.stderr, '', 'Preflight succeeds with code 0 and empty stderr when all bundles exist');
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
-  console.log('  PASS: [preflight] Isolated bundle missing checks exit/report correctly');
+  console.log('  PASS: [preflight] Isolated bundle missing checks verify exit code 1, missing path, and build instructions');
 
-  // 2. Exact URL and route rejection verification in an isolated browser context
+  // 3. Shared exact URL and route rejection verification in an isolated browser context (§2.1)
   const context = await browser.newContext();
   try {
     const page = await context.newPage();
-    await page.route(`${TEST_ORIGIN}/**`, async (route) => {
-      const reqUrl = new URL(route.request().url());
-      if (reqUrl.origin === TEST_ORIGIN) {
-        if (ASSET_PATHS.document.includes(reqUrl.pathname)) {
-          return route.fulfill({ contentType: 'text/html; charset=utf-8', body: compiledHtml });
-        }
-        if (reqUrl.pathname === ASSET_PATHS.answerState) {
-          const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
-          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-        }
-        if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
-          const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
-          return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-        }
-      }
-      return route.fulfill({ status: 404, body: 'Not Found' });
+    const rejectedUrls = [];
+    await installAssetRouter(page, {
+      html: compiledHtml,
+      onUnregistered: (url) => rejectedUrls.push(url),
     });
 
     const probe = async (url) => {
@@ -127,24 +171,49 @@ export async function verifyAssetRoutesAndPreflight(browser, compiledHtml) {
     assert.equal(resAdapter.status, 200);
     assert.ok(resAdapter.contentType.includes('application/javascript'));
 
-    // Old alias returns 404
+    // Old alias returns 404 and is recorded by onUnregistered
     const resOldAlias = await probe(`${TEST_ORIGIN}/out/web/chat_adapter.js`);
     assert.equal(resOldAlias.status, 404, 'Old chat_adapter.js alias is rejected with 404');
+    assert.ok(rejectedUrls.includes(`${TEST_ORIGIN}/out/web/chat_adapter.js`));
 
-    // .broken suffix returns 404
+    // .broken suffix returns 404 and is recorded by onUnregistered
     const resBrokenAdapter = await probe(`${TEST_ORIGIN}/out/web/chat_adapter.bundle.js.broken`);
     assert.equal(resBrokenAdapter.status, 404, 'chat_adapter.bundle.js.broken is rejected with 404');
+    assert.ok(rejectedUrls.includes(`${TEST_ORIGIN}/out/web/chat_adapter.bundle.js.broken`));
 
     const resBrokenAnswer = await probe(`${TEST_ORIGIN}/out/web/answer_state.js.broken`);
     assert.equal(resBrokenAnswer.status, 404, 'answer_state.js.broken is rejected with 404');
+    assert.ok(rejectedUrls.includes(`${TEST_ORIGIN}/out/web/answer_state.js.broken`));
 
-    // Non-existent path returns 404
+    // Non-existent path returns 404 and is recorded by onUnregistered
     const resUnknown = await probe(`${TEST_ORIGIN}/some/random/path.js`);
     assert.equal(resUnknown.status, 404);
+    assert.ok(rejectedUrls.includes(`${TEST_ORIGIN}/some/random/path.js`));
   } finally {
     await context.close();
   }
-  console.log('  PASS: [asset_routing] Exact asset matching succeeds and old/broken URLs are rejected with 404');
+  console.log('  PASS: [asset_routing] Shared exact asset router serves valid assets and rejects old/broken URLs with 404');
+
+  // 4. Browser and context lifecycle teardown verification (§2.2)
+  let closeCount = 0;
+  const mockLifecycleBrowser = {
+    close: async () => { closeCount++; },
+  };
+  const runWithLifecycle = async (b, shouldThrow) => {
+    try {
+      if (shouldThrow) throw new Error('forced error');
+      return 'ok';
+    } finally {
+      await b.close();
+    }
+  };
+  await runWithLifecycle(mockLifecycleBrowser, false);
+  assert.equal(closeCount, 1, 'browser.close is called on normal completion');
+  await assert.rejects(async () => {
+    await runWithLifecycle(mockLifecycleBrowser, true);
+  }, /forced error/);
+  assert.equal(closeCount, 2, 'browser.close is called on error thrown');
+  console.log('  PASS: [lifecycle] Browser and context teardown guaranteed via try/finally in all execution paths');
 }
 
 // Define scenario suites across the 4 specified bundles (§2.3)
@@ -1474,91 +1543,85 @@ if (isReverse) {
   runBundles.reverse();
 }
 
-console.log(`Starting transcript-test browser harness (bundles: ${runBundles.map(b => b.name).join(', ')})...`);
+async function main() {
+  console.log(`Starting transcript-test browser harness (bundles: ${runBundles.map(b => b.name).join(', ')})...`);
 
-const browser = await chromium.launch({ headless: true });
-let totalPassed = 0;
-let totalFailed = 0;
-const failures = [];
+  const browser = await chromium.launch({ headless: true });
+  let totalPassed = 0;
+  let totalFailed = 0;
+  const failures = [];
 
-try {
-  // Always run isolated asset & preflight verification when running all bundles or when explicitly requested (§2.1, §2.2)
-  if (verifyAssetsOnly || !selectedBundleName) {
-    await verifyAssetRoutesAndPreflight(browser, html);
-    if (verifyAssetsOnly) {
-      console.log('\nSUMMARY: Asset verification passed successfully.');
-      process.exit(0);
-    }
-  }
-
-  for (const bundle of runBundles) {
-    console.log(`\n▶ Bundle: ${bundle.name} (${bundle.description})`);
-    const context = await browser.newContext();
-    try {
-      const page = await context.newPage({ viewport: { width: 420, height: 600 } });
-      const errors = [];
-      const routeErrors = [];
-
-      page.on('pageerror', (e) => errors.push(e.message));
-      page.on('console', (m) => {
-        if (m.type() === 'error') errors.push(m.text());
-      });
-
-      // Strict acquireVsCodeApi mock without postMessage auto-patching (§2.1, §2.3)
-      await page.addInitScript(() => {
-        window.__posted = [];
-        window.acquireVsCodeApi = () => ({
-          postMessage(m) { window.__posted.push(m); },
-          getState() {},
-          setState() {}
-        });
-      });
-
-      // Strict route mapping: exact pathname matching only; unknown requests reject with 404 and record failure (§2.1)
-      await page.route(`${TEST_ORIGIN}/**`, async (route) => {
-        const reqUrl = new URL(route.request().url());
-        if (reqUrl.origin === TEST_ORIGIN) {
-          if (ASSET_PATHS.document.includes(reqUrl.pathname)) {
-            return route.fulfill({ contentType: 'text/html; charset=utf-8', body: html });
-          }
-          if (reqUrl.pathname === ASSET_PATHS.answerState) {
-            const js = await readFile(new URL('../out/web/answer_state.js', import.meta.url), 'utf8');
-            return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-          }
-          if (reqUrl.pathname === ASSET_PATHS.adapterBundle) {
-            const js = await readFile(new URL('../out/web/chat_adapter.bundle.js', import.meta.url), 'utf8');
-            return route.fulfill({ contentType: 'application/javascript; charset=utf-8', body: js });
-          }
-        }
-        routeErrors.push(`Unregistered asset requested: ${reqUrl.href}`);
-        return route.fulfill({ status: 404, body: 'Not Found' });
-      });
-
-      await page.goto(`${TEST_ORIGIN}/`);
-
-      for (const scenario of bundle.scenarios) {
-        try {
-          await scenario.run(page);
-          assert.deepEqual(errors, [], `Page error occurred in [${bundle.name}] ${scenario.id}`);
-          assert.deepEqual(routeErrors, [], `Unregistered route error occurred in [${bundle.name}] ${scenario.id}`);
-          totalPassed++;
-          console.log(`  PASS: [${scenario.id}] ${scenario.name}`);
-        } catch (err) {
-          totalFailed++;
-          failures.push({ bundle: bundle.name, id: scenario.id, error: err });
-          console.error(`  FAIL: [${scenario.id}] ${scenario.name}:`, err);
-          throw err;
-        }
+  try {
+    // Always run isolated asset & preflight verification when running all bundles or when explicitly requested (§2.1, §2.2)
+    if (verifyAssetsOnly || !selectedBundleName) {
+      await verifyAssetRoutesAndPreflight(browser, html);
+      if (verifyAssetsOnly) {
+        console.log('\nSUMMARY: Asset verification passed successfully.');
+        return; // Exits try block; finally { await browser.close(); } is guaranteed to run (§2.2)
       }
-    } finally {
-      await context.close();
     }
-  }
 
-  console.log(`\nSUMMARY: ${totalPassed} passed, ${totalFailed} failed across ${runBundles.length} bundle(s).`);
-  if (totalFailed > 0) {
-    process.exit(1);
+    for (const bundle of runBundles) {
+      console.log(`\n▶ Bundle: ${bundle.name} (${bundle.description})`);
+      const context = await browser.newContext();
+      try {
+        const page = await context.newPage({ viewport: { width: 420, height: 600 } });
+        const errors = [];
+        const routeErrors = [];
+
+        page.on('pageerror', (e) => errors.push(e.message));
+        page.on('console', (m) => {
+          if (m.type() === 'error') errors.push(m.text());
+        });
+
+        // Strict acquireVsCodeApi mock without postMessage auto-patching (§2.1, §2.3)
+        await page.addInitScript(() => {
+          window.__posted = [];
+          window.acquireVsCodeApi = () => ({
+            postMessage(m) { window.__posted.push(m); },
+            getState() {},
+            setState() {}
+          });
+        });
+
+        // Shared asset router: exact pathname matching only; unregistered requests invoke onUnregistered (§2.1)
+        await installAssetRouter(page, {
+          html,
+          onUnregistered: (url) => routeErrors.push(`Unregistered asset requested: ${url}`),
+        });
+
+        await page.goto(`${TEST_ORIGIN}/`);
+
+        for (const scenario of bundle.scenarios) {
+          try {
+            await scenario.run(page);
+            assert.deepEqual(errors, [], `Page error occurred in [${bundle.name}] ${scenario.id}`);
+            assert.deepEqual(routeErrors, [], `Unregistered route error occurred in [${bundle.name}] ${scenario.id}`);
+            totalPassed++;
+            console.log(`  PASS: [${scenario.id}] ${scenario.name}`);
+          } catch (err) {
+            totalFailed++;
+            failures.push({ bundle: bundle.name, id: scenario.id, error: err });
+            console.error(`  FAIL: [${scenario.id}] ${scenario.name}:`, err);
+            throw err;
+          }
+        }
+      } finally {
+        await context.close();
+      }
+    }
+
+    console.log(`\nSUMMARY: ${totalPassed} passed, ${totalFailed} failed across ${runBundles.length} bundle(s).`);
+    if (totalFailed > 0) {
+      process.exitCode = 1;
+    }
+  } catch (err) {
+    process.exitCode = 1;
+    throw err;
+  } finally {
+    await browser.close();
   }
-} finally {
-  await browser.close();
 }
+
+await main();
+
