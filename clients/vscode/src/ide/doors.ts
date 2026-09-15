@@ -102,7 +102,10 @@ export function doorCommands(companion: Companion, chat: Chat, owner: OwnedCompa
       ];
       const pick = await vscode.window.showQuickPick(items, { title: 'magi — backend' });
       if (!pick) return;
-      if (await call('use-backend', { name: pick.name })) void companion.refresh();
+      if (await call('use-backend', {
+        name: pick.name,
+        ...(chat.session ? { session: chat.session } : {}),
+      })) void companion.refresh();
     }),
 
     /**
