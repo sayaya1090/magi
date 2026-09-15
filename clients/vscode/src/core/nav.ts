@@ -61,7 +61,11 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
     return false;
   }
 
-  if (m.session && m.session !== session) {
+  if (!m.session) {
+    postNote('세션 식별자가 누락된 이동 요청은 열 수 없습니다.');
+    return false;
+  }
+  if (m.session !== session) {
     postNote('이전 세션의 요청은 현재 세션에서 열 수 없습니다.');
     return false;
   }
@@ -71,12 +75,16 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
   let targetWorkdir = companionWorkdir;
 
   if (m.seq !== undefined) {
+    if (!m.callId) {
+      postNote('도구 호출 식별자가 누락된 이동 요청은 열 수 없습니다.');
+      return false;
+    }
     const row = rows(events).find((r) => r.seq === m.seq);
     if (!row) {
       postNote('현재 세션에서 해당 행을 찾을 수 없습니다.');
       return false;
     }
-    if (m.callId && row.callId && row.callId !== m.callId) {
+    if (row.callId !== m.callId) {
       postNote('이전 세션의 도구 요청은 현재 세션에서 열 수 없습니다.');
       return false;
     }
@@ -89,7 +97,7 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
   } else if (m.callId) {
     const stored = asks.get(m.callId);
     if (stored) {
-      if (stored.sessionId !== session || (m.session && m.session !== stored.sessionId)) {
+      if (stored.sessionId !== session || m.session !== stored.sessionId) {
         postNote('이전 세션의 승인 요청은 현재 세션에서 열 수 없습니다.');
         return false;
       }
@@ -107,6 +115,7 @@ export async function resolveAndOpenFile(opts: ResolveAndOpenOptions): Promise<b
       return false;
     }
   } else {
+    postNote('도구 호출 식별자가 누락된 이동 요청은 열 수 없습니다.');
     return false;
   }
 

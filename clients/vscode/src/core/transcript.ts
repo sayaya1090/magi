@@ -41,6 +41,8 @@ export interface Row {
    * one-line half — the same fact, in the shape this screen has room for.
    */
   args?: string;
+  /** Tool rows only: full raw arguments without clipping or truncation. */
+  rawArgs?: string;
   /** Tool rows only: structured file navigation extracted from confirmed tool contract. */
   fileNav?: FileNav;
   /** Tool rows only, once the result arrives. Absent means still running. */
@@ -328,8 +330,10 @@ export function rows(events: Event[]): Row[] {
           out.push({ seq: e.seq, who: 'thinking', text: p.text!.trim(), folded: true });
         } else if (p.kind === 'tool-call' && p.toolCall) {
           const nav = extractFileNav(p.toolCall.name ?? '', p.toolCall.args);
+          const raw = stringifyRawArgs(p.toolCall.args);
           out.push({ seq: e.seq, who: 'tool', text: p.toolCall.name ?? 'tool',
             callId: p.toolCall.callId, args: askedFor(p.toolCall.args),
+            ...(raw ? { rawArgs: raw } : {}),
             ...(nav ? { fileNav: nav } : {}) });
         } else if (p.kind === 'tool-result' && p.toolResult) {
           // The result lands ON the call's row rather than starting a new one — one call, one line.
@@ -849,6 +853,41 @@ export function askedFor(args: unknown): string | undefined {
   }
   const rest = JSON.stringify(o);
   return rest && rest !== '{}' ? clip(rest) : undefined;
+}
+
+/**
+ * Full unabridged arguments for a tool call.
+ *
+ * Distinct from `askedFor`, which summarizes and clips to 100 characters for compact single-line display.
+ * This preserves the full arguments (including long strings and multiline content to the very end)
+ * so detail view can inspect them intact without truncation.
+ */
+export function stringifyRawArgs(args: unknown): string | undefined {
+  if (args === null || args === undefined) return undefined;
+  if (typeof args === 'string') {
+    const trimmed = args.trim();
+    if (!trimmed || trimmed === '{}') return undefined;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === 'object' && parsed !== null) {
+        if (Object.keys(parsed).length === 0) return undefined;
+        return JSON.stringify(parsed, null, 2);
+      }
+      return trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+  if (typeof args === 'object') {
+    if (Object.keys(args as object).length === 0) return undefined;
+    try {
+      return JSON.stringify(args, null, 2);
+    } catch {
+      return String(args);
+    }
+  }
+  const s = String(args).trim();
+  return s ? s : undefined;
 }
 
 /** One line, bounded. A row is a line — a summary that wraps is not a summary. */

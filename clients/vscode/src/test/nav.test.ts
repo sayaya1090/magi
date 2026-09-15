@@ -194,7 +194,7 @@ test('adapter test: tool row click navigates to file and line in workspace', asy
     const events: Event[] = [toolEvent(1, 'read', { path: 'src/main.ts', offset: 2 })];
 
     const ok = await resolveAndOpenFile({
-      m: { seq: 1 },
+      m: { seq: 1, session: 'sess-1', callId: 'call-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -236,7 +236,7 @@ test('adapter test: approval card click opens current workspace file', async () 
     );
 
     const ok = await resolveAndOpenFile({
-      m: { callId: 'perm-1' },
+      m: { callId: 'perm-1', session: 'sess-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -267,7 +267,7 @@ test('adapter test: non-existent file reports error and does not create file', a
     const events: Event[] = [toolEvent(1, 'read', { path: 'missing.ts' })];
 
     const ok = await resolveAndOpenFile({
-      m: { seq: 1 },
+      m: { seq: 1, session: 'sess-1', callId: 'call-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -297,7 +297,7 @@ test('adapter test: directory path is rejected', async () => {
     const events: Event[] = [toolEvent(1, 'write', { path: 'subdir' })];
 
     const ok = await resolveAndOpenFile({
-      m: { seq: 1 },
+      m: { seq: 1, session: 'sess-1', callId: 'call-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -323,7 +323,7 @@ test('adapter test: out-of-workspace boundary path is rejected', async () => {
     const events: Event[] = [toolEvent(1, 'read', { path: '../outside.ts' })];
 
     const ok = await resolveAndOpenFile({
-      m: { seq: 1 },
+      m: { seq: 1, session: 'sess-1', callId: 'call-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -363,7 +363,7 @@ test('adapter test: stale click from previous session is rejected', async () => 
 
     // Current session is sess-new
     const ok = await resolveAndOpenFile({
-      m: { callId: 'perm-old' },
+      m: { callId: 'perm-old', session: 'sess-old' },
       session: 'sess-new',
       companionWorkdir: tmp,
       asks,
@@ -386,7 +386,7 @@ test('adapter test: remote companion reports unsupported reason', async () => {
   const asks = new AskStore(10);
 
   const ok = await resolveAndOpenFile({
-    m: { seq: 1 },
+    m: { seq: 1, session: 'sess-1', callId: 'call-1' },
     session: 'sess-1',
     companionWorkdir: '/workspace',
     companionState: 'remote',
@@ -414,7 +414,7 @@ test('adapter test: line clamping beyond file length reports adjusted position',
     const events: Event[] = [toolEvent(1, 'read', { path: 'app.ts', offset: 99 })];
 
     const ok = await resolveAndOpenFile({
-      m: { seq: 1 },
+      m: { seq: 1, session: 'sess-1', callId: 'call-1' },
       session: 'sess-1',
       companionWorkdir: tmp,
       asks,
@@ -450,7 +450,7 @@ test('adapter test: Windows drive path rules with path.win32', async () => {
   };
 
   const ok = await resolveAndOpenFile({
-    m: { seq: 1 },
+    m: { seq: 1, session: 'sess-1', callId: 'call-1' },
     session: 'sess-1',
     companionWorkdir: workdir,
     asks,
@@ -493,7 +493,7 @@ test('adapter test: multi-workspace isolation uses origin companion workdir', as
 
     // Current companion is on workspace B
     const ok = await resolveAndOpenFile({
-      m: { callId: 'perm-wsA' },
+      m: { callId: 'perm-wsA', session: 'sess-common' },
       session: 'sess-common',
       companionWorkdir: tmpB,
       asks,
@@ -548,7 +548,7 @@ test('adapter test: late tool row click from session A does not open session B f
     // Case 2: Late click with mismatched callId from session A
     notes.length = 0;
     const ok2 = await resolveAndOpenFile({
-      m: { seq: 1, callId: 'call-different-from-session-A' },
+      m: { seq: 1, session: 'sess-B', callId: 'call-different-from-session-A' },
       session: 'sess-B',
       companionWorkdir: tmpB,
       asks,
@@ -600,5 +600,122 @@ test('edit old/new and read offset/limit are preserved in r.args alongside r.fil
   const writeRow = writeRows[0];
   assert.deepEqual(writeRow.fileNav, { path: 'src/index.ts' });
   assert.equal(writeRow.args, 'src/index.ts', 'single path argument is cleanly preserved');
+});
+
+test('adapter test: missing session identifier in request is explicitly rejected', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-test-nosess-'));
+  try {
+    const opener = new FakeOpener();
+    const notes: string[] = [];
+    const asks = new AskStore(10);
+    const events: Event[] = [toolEvent(1, 'read', { path: 'src/main.ts' })];
+
+    const ok = await resolveAndOpenFile({
+      m: { seq: 1, callId: 'call-1' }, // session omitted!
+      session: 'sess-1',
+      companionWorkdir: tmp,
+      asks,
+      events,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+
+    assert.equal(ok, false);
+    assert.equal(opener.calls.length, 0);
+    assert.ok(notes.some((n) => n.includes('세션 식별자가 누락된 이동 요청은 열 수 없습니다')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('adapter test: missing tool callId in request is explicitly rejected', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-test-nocall-'));
+  try {
+    const opener = new FakeOpener();
+    const notes: string[] = [];
+    const asks = new AskStore(10);
+    const events: Event[] = [toolEvent(1, 'read', { path: 'src/main.ts' })];
+
+    const ok = await resolveAndOpenFile({
+      m: { seq: 1, session: 'sess-1' }, // callId omitted!
+      session: 'sess-1',
+      companionWorkdir: tmp,
+      asks,
+      events,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+
+    assert.equal(ok, false);
+    assert.equal(opener.calls.length, 0);
+    assert.ok(notes.some((n) => n.includes('도구 호출 식별자가 누락된 이동 요청은 열 수 없습니다')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('adapter test: session replacement and same seq in new session are strictly rejected', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'magi-test-seq-'));
+  try {
+    const opener = new FakeOpener();
+    const notes: string[] = [];
+    const asks = new AskStore(10);
+    const eventsNewSession: Event[] = [toolEvent(1, 'read', { path: 'src/file_b.ts' })];
+
+    // Attempt 1: Old session id
+    const ok1 = await resolveAndOpenFile({
+      m: { seq: 1, session: 'sess-old', callId: 'call-1' },
+      session: 'sess-new',
+      companionWorkdir: tmp,
+      asks,
+      events: eventsNewSession,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+    assert.equal(ok1, false);
+    assert.ok(notes.some((n) => n.includes('이전 세션의 요청은 현재 세션에서 열 수 없습니다')));
+
+    // Attempt 2: Stamped with new session id but old callId
+    notes.length = 0;
+    const ok2 = await resolveAndOpenFile({
+      m: { seq: 1, session: 'sess-new', callId: 'call-old' },
+      session: 'sess-new',
+      companionWorkdir: tmp,
+      asks,
+      events: eventsNewSession,
+      postNote: (t) => notes.push(t),
+      opener,
+    });
+    assert.equal(ok2, false);
+    assert.ok(notes.some((n) => n.includes('이전 세션의 도구 요청은 현재 세션에서 열 수 없습니다')));
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test('rows and stringifyRawArgs preserve full arguments beyond 100 characters and multiline text up to END_OF_NEW', () => {
+  const longOld = 'a'.repeat(150);
+  const events: Event[] = [
+    toolEvent(1, 'edit', { path: 'a.ts', old: longOld, new: 'END_OF_NEW' }),
+    toolEvent(2, 'bash', { command: 'echo "line 1"\necho "line 2"\necho "END_OF_NEW"' }),
+  ];
+  const rs = rows(events);
+  assert.equal(rs.length, 2);
+
+  // Edit row: summary is clipped, rawArgs is preserved to END_OF_NEW
+  const editRow = rs[0];
+  assert.ok(editRow.args);
+  assert.ok(editRow.args.length <= 101);
+  assert.ok(!editRow.args.includes('END_OF_NEW'), 'summary args is clipped and lost END_OF_NEW');
+  assert.ok(editRow.rawArgs);
+  assert.ok(editRow.rawArgs.includes(longOld), 'rawArgs preserves 150-char old string');
+  assert.ok(editRow.rawArgs.includes('END_OF_NEW'), 'rawArgs preserves END_OF_NEW to the very end');
+
+  // Bash row: multiline command is clipped to first line in args, preserved in rawArgs
+  const bashRow = rs[1];
+  assert.equal(bashRow.args, 'echo "line 1"', 'summary args only keeps first line');
+  assert.ok(bashRow.rawArgs);
+  assert.ok(bashRow.rawArgs.includes('line 2'), 'rawArgs preserves line 2');
+  assert.ok(bashRow.rawArgs.includes('END_OF_NEW'), 'rawArgs preserves multiline END_OF_NEW to end');
 });
 

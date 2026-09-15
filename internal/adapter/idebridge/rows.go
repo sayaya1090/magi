@@ -110,6 +110,9 @@ type Row struct {
 	// that row. One field is a summary; Summary carries it.
 	Args string `json:"args,omitempty"`
 
+	// RawArgs is the full unabridged arguments for a tool call.
+	RawArgs string `json:"rawArgs,omitempty"`
+
 	// FileNav is the structured file and line navigation target for a tool call.
 	FileNav *FileNav `json:"fileNav,omitempty"`
 

@@ -785,6 +785,7 @@ try {
   // Condition 21: Approval panel target filename, description, ‘변경 보기’ button, and click message
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
+    session: 'sess-perm-native',
     rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
     ask: {
       kind: 'permission',
@@ -819,17 +820,18 @@ try {
   // Approval was not triggered
   assert.ok(!postedAfterDiff.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'diff click does not approve');
 
-  // Clicking target file in approval body posts kind: 'open' without approving
+  // Clicking target file in approval body posts kind: 'open' with bound session and callId
   await page.locator('#ask-body .file-target button.file-nav-btn').click();
   const postedAfterOpen = await page.evaluate(() => window.__posted);
   assert.equal(postedAfterOpen.length, postedAfterDiff.length + 1, 'posted exactly one message on open file click');
   const openPosted = postedAfterOpen[postedAfterOpen.length - 1];
-  assert.deepEqual(openPosted, { kind: 'open', callId: 'perm-edit-native' }, 'posts open kind with callId');
+  assert.deepEqual(openPosted, { kind: 'open', session: 'sess-perm-native', callId: 'perm-edit-native' }, 'posts open kind with session and callId');
   assert.ok(!postedAfterOpen.some(m => m.kind === 'answer' && m.callId === 'perm-edit-native'), 'open file click does not approve');
 
   // Raw patch permission also shows 변경 보기
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
+    session: 'sess-perm-native',
     rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
     ask: {
       kind: 'permission',
@@ -849,6 +851,7 @@ try {
   // Permission without diff or edit sides does not show 변경 보기
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
+    session: 'sess-perm-native',
     rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
     ask: {
       kind: 'permission',
@@ -863,6 +866,7 @@ try {
   // Edit permission with diffKind: 'none' (e.g. replaceAll: 'TRUE') never shows phantom 변경 보기 button
   await page.evaluate(() => window.postMessage({
     kind: 'rows',
+    session: 'sess-perm-native',
     rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
     ask: {
       kind: 'permission',
@@ -917,4 +921,107 @@ try {
   assert.equal(bashBtnCount, 0, 'command tool has no file-nav-btn');
 
   console.log('PASS: tool row file and line navigation links, and command row plain args');
+
+  // Condition 23: Long arguments (>100 chars, END_OF_NEW), multiline rawArgs toggle expansion
+  const longOldText = 'x'.repeat(150);
+  const rawEditArgs = JSON.stringify({ path: 'src/main.ts', old: longOldText, new: 'END_OF_NEW' }, null, 2);
+  const summaryEditArgs = '{"path":"src/main.ts","old":"' + 'x'.repeat(70) + '…';
+  await page.evaluate(({ rawArgs, summaryArgs }) => window.postMessage({
+    kind: 'rows',
+    session: 'sess-toggle-test',
+    rows: [
+      {
+        who: 'tool',
+        label: 'edit ✓',
+        text: 'edit',
+        seq: 50,
+        callId: 'c-50',
+        fileNav: { path: 'src/main.ts' },
+        args: summaryArgs,
+        rawArgs: rawArgs
+      }
+    ],
+    ask: null
+  }, '*'), { rawArgs: rawEditArgs, summaryArgs: summaryEditArgs });
+
+  await page.waitForSelector('.row.tool .args-toggle-btn');
+  const toggleBtn = page.locator('.row.tool .args-toggle-btn');
+  const rawBox = page.locator('.row.tool pre.raw-args');
+
+  // Initially folded
+  assert.equal(await rawBox.isHidden(), true, 'raw-args block is initially hidden');
+  assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'false');
+
+  // Click toggle button to expand
+  await toggleBtn.click();
+  assert.equal(await rawBox.isVisible(), true, 'raw-args block is visible after toggle click');
+  assert.equal(await toggleBtn.getAttribute('aria-expanded'), 'true');
+  const renderedRaw = await rawBox.textContent();
+  assert.ok(renderedRaw.includes(longOldText), 'raw-args preserves 150-character old argument');
+  assert.ok(renderedRaw.includes('END_OF_NEW'), 'raw-args preserves END_OF_NEW to the very end');
+
+  // No separate vertical scroll container on raw-args (scrolls with outer panel)
+  const rawBounds = await rawBox.evaluate(el => ({ height: el.clientHeight, scroll: el.scrollHeight }));
+  assert.equal(rawBounds.height, rawBounds.scroll, 'raw-args has no internal vertical scroll container');
+
+  // Click again to fold
+  await toggleBtn.click();
+  assert.equal(await rawBox.isHidden(), true, 'raw-args is folded again after second click');
+  console.log('PASS: long argument rawArgs toggle expansion, END_OF_NEW preservation, and no extra scroll container');
+
+  // Condition 24: Unconfirmed session disables file buttons, and missing filePath never creates phantom button
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    // session omitted / unconfirmed!
+    rows: [
+      { who: 'tool', label: 'edit ✓', text: 'edit', seq: 60, callId: 'c-60', fileNav: { path: 'src/test.ts' }, args: 'src/test.ts' }
+    ],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-no-filepath',
+      what: 'edit',
+      // No filePath, even if args contains path
+      args: JSON.stringify({ path: 'src/phantom.ts', old: '1', new: '2' })
+    }
+  }, '*'));
+
+  await page.waitForSelector('.row.tool button.file-nav-btn:has-text("src/test.ts")');
+  const unconfirmedToolBtn = page.locator('.row.tool button.file-nav-btn:has-text("src/test.ts")');
+  assert.equal(await unconfirmedToolBtn.isDisabled(), true, 'tool row button is disabled when session is unconfirmed');
+
+  // Approval card without filePath must NOT create a file navigation button
+  const phantomBtnCount = await page.locator('#ask-body .file-target').count();
+  assert.equal(phantomBtnCount, 0, 'webview does not create file-target when host omits filePath');
+  console.log('PASS: unconfirmed session disables buttons and missing filePath leaves no phantom button');
+
+  // Condition 25: Render-time session closure binding (does not read mutated global currentSession on click)
+  await page.evaluate(() => window.postMessage({
+    kind: 'rows',
+    session: 'sess-original',
+    rows: [
+      { who: 'tool', label: 'edit ✓', text: 'edit', seq: 70, callId: 'c-70', fileNav: { path: 'src/frozen.ts' }, args: 'src/frozen.ts' }
+    ],
+    ask: {
+      kind: 'permission',
+      callId: 'perm-frozen',
+      filePath: 'src/frozen_ask.ts',
+      what: 'edit'
+    }
+  }, '*'));
+
+  await page.waitForSelector('.row.tool button.file-nav-btn:has-text("src/frozen.ts")');
+  const frozenToolBtn = page.locator('.row.tool button.file-nav-btn:has-text("src/frozen.ts")');
+  const frozenAskBtn = page.locator('#ask-body .file-target button.file-nav-btn');
+
+  await frozenToolBtn.click();
+  const postedAfterFrozenTool = await page.evaluate(() => window.__posted);
+  const toolMsg = postedAfterFrozenTool[postedAfterFrozenTool.length - 1];
+  assert.equal(toolMsg.session, 'sess-original', 'tool button click preserved bound session from render time');
+
+  await frozenAskBtn.click();
+  const postedAfterFrozenAsk = await page.evaluate(() => window.__posted);
+  const askMsg = postedAfterFrozenAsk[postedAfterFrozenAsk.length - 1];
+  assert.equal(askMsg.session, 'sess-original', 'ask button click preserved bound session from render time');
+  console.log('PASS: click handler binds render-time session in closure');
+
 } finally { await browser.close(); }

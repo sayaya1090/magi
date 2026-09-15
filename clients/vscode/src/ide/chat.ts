@@ -604,6 +604,14 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     cursor:pointer; padding:0 2px; font-family:inherit; font-size:inherit;
     text-decoration:underline; text-underline-offset:2px; display:inline; vertical-align:baseline; }
   button.file-nav-btn:hover { color:var(--vscode-textLink-activeForeground); }
+  .args-toggle-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
+    border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
+    padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; }
+  .args-toggle-btn:hover { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
+  pre.raw-args { font-family:var(--vscode-editor-font-family); font-size:.85em; margin:4px 0 6px;
+    padding:4px 6px; background:var(--vscode-editor-background, rgba(0, 0, 0, 0.02));
+    border-left:2px solid var(--vscode-textLink-foreground); border-radius:2px;
+    white-space:pre-wrap; word-break:break-word; }
   .file-open-tag { font-size:.85em; padding:1px 6px; margin-left:6px; border-radius:2px;
     border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
     color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));
@@ -793,6 +801,7 @@ function baseName(p) {
   return winParts[winParts.length - 1] || p;
 }
 function drawAsk(a) {
+  const boundSession = currentSession;
   if (!a) {
     if (answerState.getPendingQuestion()) exitAnswerMode();
     currentAsk = null;
@@ -846,18 +855,7 @@ function drawAsk(a) {
   sumText.className = 'summary-text';
   const countTag = a.total > 1 ? ' (' + a.index + '/' + a.total + ')' : '';
   const labelPrefix = a.kind === 'permission' ? '승인 대기: ' : '답변 대기: ';
-  let targetPath = (a.filePath || '').trim();
-  if (!targetPath && a.args) {
-    try {
-      const parsed = typeof a.args === 'string' ? JSON.parse(a.args) : a.args;
-      if (parsed && typeof parsed.path === 'string') {
-        const norm = (a.what || '').trim().toLowerCase();
-        if (['read', 'edit', 'write', 'multiedit', 'show', 'apply_edit'].includes(norm)) {
-          targetPath = parsed.path.trim();
-        }
-      }
-    } catch (e) {}
-  }
+  const targetPath = (a.filePath || '').trim();
   const fileTag = targetPath ? ' · ' + baseName(targetPath) : '';
   sumText.textContent = labelPrefix + a.what + fileTag + countTag;
   const jumpBtn = document.createElement('button');
@@ -886,11 +884,13 @@ function drawAsk(a) {
       openBtn.textContent = targetPath;
       openBtn.title = '파일 열기 (현재 파일)';
       openBtn.setAttribute('aria-label', '파일 열기 (현재 파일): ' + targetPath);
-      openBtn.addEventListener('click', () => {
-        const msg = { kind: 'open', callId: a.callId };
-        if (currentSession) msg.session = currentSession;
-        vs.postMessage(msg);
-      });
+      if (!boundSession || !a.callId) {
+        openBtn.disabled = true;
+      } else {
+        openBtn.addEventListener('click', () => {
+          vs.postMessage({ kind: 'open', session: boundSession, callId: a.callId });
+        });
+      }
       fileEl.append(openBtn);
       askBodyEl.append(fileEl);
     }
@@ -1133,6 +1133,7 @@ function drawRefs(rs) {
   }
 }
 function draw(rs) {
+  const boundSession = currentSession;
   rowsEl.textContent = '';
   for (const r of rs) {
     const d = document.createElement('div');
@@ -1185,13 +1186,14 @@ function draw(rs) {
       a.textContent = loc;
       a.title = r.fileNav.line ? '파일 열기: ' + loc : '파일 열기: ' + r.fileNav.path;
       a.setAttribute('aria-label', a.title);
-      a.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        const msg = { kind: 'open', seq: r.seq };
-        if (currentSession) msg.session = currentSession;
-        if (r.callId) msg.callId = r.callId;
-        vs.postMessage(msg);
-      });
+      if (!boundSession || !r.callId) {
+        a.disabled = true;
+      } else {
+        a.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          vs.postMessage({ kind: 'open', seq: r.seq, session: boundSession, callId: r.callId });
+        });
+      }
       b.append(' ', a);
     }
     if (r.who === 'tool' && r.args) {
@@ -1203,6 +1205,30 @@ function draw(rs) {
         b.append(' ', a);
       }
     }
+    if (r.who === 'tool' && r.rawArgs && r.rawArgs !== r.args) {
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'args-toggle-btn';
+      toggle.textContent = '…';
+      toggle.title = '인자 전체 펼치기';
+      toggle.setAttribute('aria-label', '인자 전체 펼치기');
+      toggle.setAttribute('aria-expanded', 'false');
+      const rawBox = document.createElement('pre');
+      rawBox.className = 'raw-args';
+      rawBox.textContent = r.rawArgs;
+      rawBox.hidden = true;
+      toggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const open = rawBox.hidden;
+        rawBox.hidden = !open;
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        toggle.textContent = open ? '접기' : '…';
+        toggle.title = open ? '인자 접기' : '인자 전체 펼치기';
+        toggle.setAttribute('aria-label', toggle.title);
+      });
+      b.append(' ', toggle);
+      d.append(rawBox);
+    }
     d.append(w, b);
     rowsEl.append(d);
   }
@@ -1210,7 +1236,8 @@ function draw(rs) {
 window.addEventListener('message', (e) => {
   const m = e.data;
   if (m.kind === 'rows') {
-    currentSession = m.session || '';
+    const boundSession = m.session || '';
+    currentSession = boundSession;
     /* Only scroll if they were already at the bottom. Yanking somebody back down while they read
        an older row is the single most annoying thing a live transcript does.
        Sampled BEFORE updating rows and ask, applied AFTER both are rendered so the full new height is known. */
