@@ -189,6 +189,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       rows: rows(this.events).map((r) => paint(r, this.companion.you)),
       ask,
       refs: this.refs.map(refText),
+      companionKey: this.companion.workdir,
+      generation: this.generation,
     });
     // What the companion changed on disk, so the editor is not showing yesterday's file next to a
     // row that says it was rewritten. Never over a dirty buffer — see Edits.
@@ -577,16 +579,37 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         // a verdict — sending "allow" to a question would answer something nobody asked.
         const said = m.text ?? '';
         const attemptId = m.attemptId;
+        const targetSid = m.session !== undefined ? m.session : this.sid;
+        const companionKey = m.companionKey !== undefined ? m.companionKey : this.companion.workdir;
+        const generation = m.generation !== undefined ? m.generation : this.generation;
         const a = await this.companion.ask('answer', {
-          session: this.sid,
+          session: targetSid,
           callId: m.callId,
           answer: said,
         });
         if (a?.ok) {
-          this.post({ kind: 'replyResult', callId: m.callId, attemptId, ok: true });
+          this.post({
+            kind: 'replyResult',
+            callId: m.callId,
+            attemptId,
+            ok: true,
+            companionKey,
+            session: targetSid,
+            generation,
+          });
         } else {
           const err = a?.error ?? 'no companion is listening on this workspace.';
-          this.post({ kind: 'replyResult', callId: m.callId, attemptId, ok: false, error: err, text: said });
+          this.post({
+            kind: 'replyResult',
+            callId: m.callId,
+            attemptId,
+            ok: false,
+            error: err,
+            text: said,
+            companionKey,
+            session: targetSid,
+            generation,
+          });
           this.post({ kind: 'note', text: `not sent — ${err}` });
         }
         break;

@@ -855,6 +855,96 @@ const bundles = [
           }));
           await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
         }
+      },
+      {
+        id: 'asks_session_roundtrip_draft_and_autocomplete_invalidation',
+        name: '세션 전환 왕복 시 일반·질문 초안 완벽 복원 및 자동완성 무효화 (§4.5 Item 5)',
+        run: async (page) => {
+          // 1. Session 1 초기화 및 일반 초안 작성
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-roundtrip-1',
+            rows: [{ who: 'agent', label: 'magi', text: 'sess 1 started' }],
+            ask: null
+          }));
+          await page.locator('#say').fill('S1 일반 작업 메모');
+
+          // S1에 질문 도착
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-roundtrip-1',
+            rows: [{ who: 'agent', label: 'magi', text: 'sess 1 started' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-s1-roundtrip',
+              what: 'S1 전용 질문',
+              options: ['선택지 1']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('S1 질문 답변 작성 중');
+
+          // 자동완성 힌트 트리거 (입력 후 debounce 대기)
+          await page.waitForFunction(() => window.__posted.some(m => m.kind === 'suggest' && m.target === 'q-s1-roundtrip'));
+          const suggestMsg = await page.evaluate(() => window.__posted.filter(m => m.kind === 'suggest' && m.target === 'q-s1-roundtrip').slice(-1)[0]);
+          await page.evaluate((req) => window.postMessage({
+            kind: 'suggestion',
+            text: '추천 문구',
+            reqId: req.reqId,
+            target: req.target
+          }, '*'), suggestMsg);
+          await page.waitForFunction(() => document.getElementById('hint').textContent.includes('추천 문구'));
+
+          // 2. Session 2로 전환 (다른 세션)
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-roundtrip-2',
+            rows: [{ who: 'agent', label: 'magi', text: 'sess 2 started' }],
+            ask: null
+          }));
+          // 전환 시 자동완성 힌트 무효화 확인
+          assert.equal(await page.locator('#hint').textContent(), '', 'hint invalidated on session change');
+          await page.keyboard.press('Tab');
+          assert.equal(await page.locator('#say').inputValue(), '', 'tab did not insert stale suggestion from previous session');
+          // Session 2는 답변 모드가 아니며 초안이 비어 있어야 함
+          assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode inactive in S2');
+          assert.equal(await page.locator('#say').inputValue(), '', 'S2 composer starts empty');
+
+          // Session 2에서 일반 초안 작성
+          await page.locator('#say').fill('S2 일반 작업 메모');
+
+          // 3. Session 1으로 다시 전환 (S1 복원)
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-roundtrip-1',
+            rows: [{ who: 'agent', label: 'magi', text: 'sess 1 active' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-s1-roundtrip',
+              what: 'S1 전용 질문',
+              options: ['선택지 1']
+            }
+          }));
+          // S1의 질문 초안과 답변 모드가 그대로 복원되어야 함
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          assert.equal(await page.locator('#say').inputValue(), 'S1 질문 답변 작성 중', 'S1 question draft restored');
+
+          // 답변 모드 취소 시 S1의 일반 초안 복원 확인
+          await page.keyboard.press('Escape');
+          assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode exited on Escape');
+          assert.equal(await page.locator('#say').inputValue(), 'S1 일반 작업 메모', 'S1 general draft restored');
+
+          // 4. Session 2로 다시 전환 (S2 복원)
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-roundtrip-2',
+            rows: [{ who: 'agent', label: 'magi', text: 'sess 2 active' }],
+            ask: null
+          }));
+
+          await page.waitForFunction(() => document.getElementById('say').value === 'S2 일반 작업 메모');
+          assert.equal(await page.locator('#reply-mode').isVisible(), false, 'reply mode inactive in S2');
+          assert.equal(await page.locator('#say').inputValue(), 'S2 일반 작업 메모', 'S2 general draft restored');
+
+          // 정리
+          await page.locator('#say').fill('');
+        }
       }
     ]
   },

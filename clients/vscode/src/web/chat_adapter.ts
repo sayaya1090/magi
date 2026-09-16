@@ -25,7 +25,12 @@ export interface WebviewActionAdapter {
   openDiff(session: string, callId: string): boolean;
   openOutput(session: string, outputId: string): boolean;
   answer(callId: string, decision: string): boolean;
-  reply(callId: string, text: string, attemptId: number): boolean;
+  reply(
+    callId: string,
+    text: string,
+    attemptId: number,
+    context?: { companionKey?: string; session?: string; generation?: number }
+  ): boolean;
   say(text: string): boolean;
   act(command: string): boolean;
   suggest(text: string, reqId: number, target: string): boolean;
@@ -65,9 +70,18 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
       return true;
     },
 
-    reply(callId: string, text: string, attemptId: number): boolean {
+    reply(
+      callId: string,
+      text: string,
+      attemptId: number,
+      context?: { companionKey?: string; session?: string; generation?: number }
+    ): boolean {
       if (!callId || typeof attemptId !== 'number') return false;
-      vs.postMessage({ kind: 'reply', callId, text, attemptId });
+      const msg: WebviewToHostMessage = { kind: 'reply', callId, text, attemptId };
+      if (context?.companionKey !== undefined) msg.companionKey = context.companionKey;
+      if (context?.session !== undefined) msg.session = context.session;
+      if (context?.generation !== undefined) msg.generation = context.generation;
+      vs.postMessage(msg);
       return true;
     },
 
@@ -110,7 +124,14 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
 }
 
 export interface HostMessageHandlers {
-  onRows?(payload: { session: string; rows: PaintedRow[]; ask: Ask | null; refs: string[] }): void;
+  onRows?(payload: {
+    session: string;
+    rows: PaintedRow[];
+    ask: Ask | null;
+    refs: string[];
+    companionKey?: string;
+    generation?: number;
+  }): void;
   onState?(payload: { state: Activity; note: PanelNoteInfo }): void;
   onInfo?(payload: {
     kind: 'info';
@@ -131,6 +152,9 @@ export interface HostMessageHandlers {
     ok: boolean;
     error?: string;
     text?: string;
+    companionKey?: string;
+    session?: string;
+    generation?: number;
   }): void;
   onMentions?(payload: { files: string[]; reqId: number; target: string }): void;
   onSuggestion?(payload: { text: string; reqId: number; target: string }): void;
@@ -210,13 +234,16 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
       ask = m.ask as Ask;
     }
 
-    return {
+    const rowsMsg: HostToWebviewMessage = {
       kind: 'rows',
       session: m.session,
       rows,
       ask,
       refs: m.refs as string[],
     };
+    if (typeof m.companionKey === 'string') (rowsMsg as any).companionKey = m.companionKey;
+    if (typeof m.generation === 'number') (rowsMsg as any).generation = m.generation;
+    return rowsMsg;
   } else if (kind === 'compose') {
     if (typeof m.text !== 'string') return undefined;
     return { kind: 'compose', text: m.text };
@@ -240,7 +267,7 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
     ) {
       return undefined;
     }
-    return {
+    const resMsg: HostToWebviewMessage = {
       kind: 'replyResult',
       callId: m.callId,
       attemptId: m.attemptId,
@@ -248,6 +275,10 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
       error: typeof m.error === 'string' ? m.error : undefined,
       text: typeof m.text === 'string' ? m.text : undefined,
     };
+    if (typeof m.companionKey === 'string') (resMsg as any).companionKey = m.companionKey;
+    if (typeof m.session === 'string') (resMsg as any).session = m.session;
+    if (typeof m.generation === 'number') (resMsg as any).generation = m.generation;
+    return resMsg;
   } else if (kind === 'state') {
     if (!m.state || typeof m.state !== 'object' || !m.note || typeof m.note !== 'object') {
       return undefined;
@@ -454,13 +485,28 @@ export interface WebviewInputAdapter {
   applyGeneralModeUI(text?: string): void;
   clearAutoCompletion(): void;
   onSessionChange(session: string): void;
+  onContextChange(
+    companionKey: string,
+    session: string,
+    activeAsk?: Ask | null,
+    generation?: number
+  ): void;
   send(): void;
   submitChoice(callId: string, option: string): boolean;
   handleCompose(text: string): void;
   handleMentions(files: string[], reqId?: number, target?: string): void;
   handleSuggestion(text: string, reqId?: number, target?: string): void;
   handleReplyResult(
-    m: { callId: string; attemptId: number; ok: boolean; error?: string; text?: string },
+    m: {
+      callId: string;
+      attemptId: number;
+      ok: boolean;
+      error?: string;
+      text?: string;
+      companionKey?: string;
+      session?: string;
+      generation?: number;
+    },
     currentAsk: Ask | null
   ): void;
   getSuggestReqId(): number;
@@ -476,6 +522,9 @@ export function createWebviewInputAdapter(
 ): WebviewInputAdapter {
   const { say, sendBtn, replyModeEl, replyTargetEl, replyCancelEl, noteEl, hintEl } = elements;
   const suggestCtrl = suggestController ?? createSuggestController();
+  let currentCompanionKey = '';
+  let currentSession = '';
+  let currentGeneration: number | undefined = undefined;
 
   function clearAutoCompletion(): void {
     suggestCtrl.invalidate();
@@ -515,6 +564,41 @@ export function createWebviewInputAdapter(
     applyGeneralModeUI(res.nextInputText);
   }
 
+  function onContextChange(
+    companionKey: string,
+    session: string,
+    activeAsk?: Ask | null,
+    generation?: number
+  ): void {
+    const prevComp = currentCompanionKey;
+    const prevSess = currentSession;
+    const isDifferent = prevComp !== companionKey || prevSess !== session;
+
+    currentCompanionKey = companionKey || '';
+    currentSession = session || '';
+    currentGeneration = generation;
+
+    suggestCtrl.onSessionChange(currentSession);
+    clearAutoCompletion();
+
+    if (isDifferent) {
+      const res = answerState.switchContext(currentCompanionKey, currentSession, {
+        currentInputText: say.value,
+        activeAsk: activeAsk as unknown as AskEvent | null,
+        generation,
+      });
+      if (res.enterAnswerMode) {
+        applyAnswerModeUI(res.label, res.nextInputText);
+      } else {
+        applyGeneralModeUI(res.nextInputText);
+      }
+    }
+  }
+
+  function onSessionChange(session: string): void {
+    onContextChange(currentCompanionKey, session);
+  }
+
   function send(): void {
     const t = say.value.trim();
     if (!t) return;
@@ -529,7 +613,17 @@ export function createWebviewInputAdapter(
       }
       clearAutoCompletion();
       if (typeof res.attemptId === 'number') {
-        actions.reply(res.callId ?? pending, res.text ?? t, res.attemptId);
+        const comp = res.companionKey ?? currentCompanionKey;
+        const sess = res.session ?? currentSession;
+        const gen = res.generation ?? currentGeneration;
+        const ctx = (comp || sess || gen !== undefined)
+          ? {
+              companionKey: comp || undefined,
+              session: sess || undefined,
+              generation: gen,
+            }
+          : undefined;
+        actions.reply(res.callId ?? pending, res.text ?? t, res.attemptId, ctx);
       }
       if (res.exitAnswerMode) {
         applyGeneralModeUI(res.nextInputText);
@@ -563,7 +657,17 @@ export function createWebviewInputAdapter(
       applyGeneralModeUI(res.nextInputText);
     }
     if (typeof res.attemptId === 'number') {
-      actions.reply(callId, option, res.attemptId);
+      const comp = res.companionKey ?? currentCompanionKey;
+      const sess = res.session ?? currentSession;
+      const gen = res.generation ?? currentGeneration;
+      const ctx = (comp || sess || gen !== undefined)
+        ? {
+            companionKey: comp || undefined,
+            session: sess || undefined,
+            generation: gen,
+          }
+        : undefined;
+      actions.reply(callId, option, res.attemptId, ctx);
     }
     if (noteEl) {
       noteEl.textContent = 'sending…';
@@ -581,11 +685,6 @@ export function createWebviewInputAdapter(
     answerState.onInputChange(say.value);
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
-  }
-
-  function onSessionChange(session: string): void {
-    suggestCtrl.onSessionChange(session);
-    if (hintEl) hintEl.textContent = '';
   }
 
   function handleMentions(files: string[], reqId?: number, target?: string): void {
@@ -607,7 +706,16 @@ export function createWebviewInputAdapter(
   }
 
   function handleReplyResult(
-    m: { callId: string; attemptId: number; ok: boolean; error?: string; text?: string },
+    m: {
+      callId: string;
+      attemptId: number;
+      ok: boolean;
+      error?: string;
+      text?: string;
+      companionKey?: string;
+      session?: string;
+      generation?: number;
+    },
     currentAsk: Ask | null
   ): void {
     const res = answerState.onReplyResult(m, currentAsk as unknown as AskEvent | null);
@@ -669,6 +777,7 @@ export function createWebviewInputAdapter(
     applyGeneralModeUI,
     clearAutoCompletion,
     onSessionChange,
+    onContextChange,
     send,
     submitChoice,
     handleCompose,
@@ -693,7 +802,12 @@ export interface WebviewReceiveAdapterOptions {
   getCurrentAsk: () => Ask | null;
   getCurrentSession: () => string;
   setCurrentSession: (s: string) => void;
+  getCurrentCompanionKey?: () => string;
+  setCurrentCompanionKey?: (k: string) => void;
+  getCurrentGeneration?: () => number | undefined;
+  setCurrentGeneration?: (g: number | undefined) => void;
   clearExpandedCallIds: () => void;
+  resetCurrentAsk?: () => void;
   drawRows: (rows: PaintedRow[]) => void;
   drawAsk: (ask: Ask | null) => void;
   drawRefs: (refs: string[]) => void;
@@ -710,11 +824,26 @@ export function createWebviewReceiveHandlers(
   return {
     onRows(payload) {
       const boundSession = payload.session || '';
-      if (options.getCurrentSession() !== boundSession) {
+      const boundCompanion = payload.companionKey || '';
+      const currentSession = options.getCurrentSession();
+      const currentCompanion = options.getCurrentCompanionKey ? options.getCurrentCompanionKey() : '';
+      const contextChanged =
+        currentSession !== boundSession ||
+        (Boolean(options.getCurrentCompanionKey) && currentCompanion !== boundCompanion);
+
+      if (contextChanged) {
         options.clearExpandedCallIds();
-        options.inputAdapter.onSessionChange(boundSession);
+        options.resetCurrentAsk?.();
+        options.inputAdapter.onContextChange(
+          boundCompanion,
+          boundSession,
+          payload.ask,
+          payload.generation
+        );
       }
       options.setCurrentSession(boundSession);
+      options.setCurrentCompanionKey?.(boundCompanion);
+      options.setCurrentGeneration?.(payload.generation);
 
       const scrollEl = options.scrollContainer;
       const wasAtBottom = scrollEl

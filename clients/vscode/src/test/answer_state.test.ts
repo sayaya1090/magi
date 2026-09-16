@@ -240,3 +240,144 @@ test('Scenario 5: 성공 응답과 질문 종료 이벤트의 도착 순서가 �
   assert.equal(askDismissB.exitAnswerMode, undefined);
   assert.equal(stateB.getGeneralDraft(), '보존되어야 할 나의 일반 메모 B');
 });
+
+test('Scenario 6: 같은 callId의 서로 다른 세션 (S1 vs S2) 격리 검증 (§4.5)', () => {
+  const state = createAnswerState();
+
+  // 1. S1 문맥에서 q1 질문 답변 작성 및 전송
+  state.switchContext('/workdir', 'session-1');
+  state.onInputChange('S1 일반 초안');
+  assert.equal(state.getGeneralDraft(), 'S1 일반 초안');
+
+  state.enterAnswerMode('q1', '공통 질문 ID', state.getGeneralDraft());
+  state.onInputChange('S1에서 작성한 q1 답변');
+  const sub1 = state.submitReply('q1', 'S1에서 작성한 q1 답변');
+  assert.equal(sub1.ok, true);
+  assert.equal(sub1.attemptId, 1);
+  assert.equal(sub1.session, 'session-1');
+  assert.equal(state.isInFlight('q1'), true);
+
+  // 2. S2 문맥으로 전환 (동일한 callId 'q1'을 가진 질문 대기 중)
+  // 전환 전 S1의 composer 상태('S1 일반 초안')를 currentInputText로 전달
+  const res2 = state.switchContext('/workdir', 'session-2', {
+    currentInputText: 'S1 일반 초안',
+    activeAsk: { kind: 'question', callId: 'q1', what: '공통 질문 ID', options: [] }
+  });
+  // S2는 별도 문맥이므로 S1의 in-flight에 영향을 받지 않아야 함
+  assert.equal(state.getGeneralDraft(), '');
+  assert.equal(state.isInFlight('q1'), false);
+  assert.equal(state.getPendingQuestion(), 'q1');
+  assert.equal(res2.enterAnswerMode, true);
+  assert.equal(res2.callId, 'q1');
+
+  // S2에서 q1 답변 작성 및 전송
+  state.onInputChange('S2에서 작성한 q1 답변');
+  const sub2 = state.submitReply('q1', 'S2에서 작성한 q1 답변');
+  assert.equal(sub2.ok, true);
+  assert.equal(sub2.attemptId, 2);
+  assert.equal(sub2.session, 'session-2');
+  assert.equal(state.isInFlight('q1'), true);
+
+  // 3. S1의 1번 시도에 대한 지연된 실패 응답 도착 (현재 활성 세션은 S2)
+  const fail1 = state.onReplyResult(
+    { callId: 'q1', attemptId: 1, ok: false, text: 'S1에서 작성한 q1 답변', session: 'session-1', companionKey: '/workdir' },
+    { kind: 'question', callId: 'q1', what: '공통 질문 ID' }
+  );
+  assert.equal(fail1.handled, true);
+  assert.equal(fail1.ok, false);
+  // 현재 활성 세션(S2)이 아니므로 UI를 바꾸지 않고 저장소에만 복구되어야 함
+  assert.equal(fail1.restoredInStoreOnly, true);
+  assert.notEqual(fail1.reenterAnswerMode, true);
+
+  // S2의 inFlight와 상태는 온전히 유지
+  assert.equal(state.isInFlight('q1', '/workdir', 'session-2'), true);
+  assert.equal(state.getQuestionDraft('q1', '/workdir', 'session-2'), 'S2에서 작성한 q1 답변');
+
+  // S1 저장소에 실패 초안이 정상 보존되었는지 검증
+  assert.equal(state.isInFlight('q1', '/workdir', 'session-1'), false);
+  assert.equal(state.getQuestionDraft('q1', '/workdir', 'session-1'), 'S1에서 작성한 q1 답변');
+  assert.deepEqual(state.getFailedDrafts('q1', '/workdir', 'session-1'), ['S1에서 작성한 q1 답변']);
+  assert.equal(state.getGeneralDraft('/workdir', 'session-1'), 'S1 일반 초안');
+});
+
+test('Scenario 7: 동일 sessionId에 서로 다른 companionKey (C1 vs C2) 격리 검증 (§4.5)', () => {
+  const state = createAnswerState();
+
+  // C1 / session-alpha 문맥
+  state.switchContext('companion-1', 'session-alpha');
+  state.onInputChange('C1의 작업 초안');
+  state.enterAnswerMode('auth-q', '인증 질문', state.getGeneralDraft());
+  state.onInputChange('C1 인증 토큰 입력');
+
+  // C2 / session-alpha 문맥으로 전환 (sessionId는 같으나 companionKey가 다름)
+  // 전환 시점에 C1의 작성 중이던 'C1 인증 토큰 입력' 전달
+  state.switchContext('companion-2', 'session-alpha', { currentInputText: 'C1 인증 토큰 입력' });
+  assert.equal(state.getGeneralDraft(), '');
+  assert.equal(state.getPendingQuestion(), null);
+  assert.equal(state.getQuestionDraft('auth-q'), '');
+
+  // C2에서 별도 일반 초안 및 질문 초안 작성
+  state.onInputChange('C2의 작업 초안');
+  state.enterAnswerMode('auth-q', '인증 질문', state.getGeneralDraft());
+  state.onInputChange('C2 인증 토큰 입력');
+
+  // C1으로 다시 전환
+  const resBack = state.switchContext('companion-1', 'session-alpha', {
+    currentInputText: 'C2 인증 토큰 입력',
+    activeAsk: { kind: 'question', callId: 'auth-q', what: '인증 질문' }
+  });
+  // C1 문맥의 초안들이 보존되어 복원되어야 함
+  assert.equal(resBack.enterAnswerMode, true);
+  assert.equal(resBack.nextInputText, 'C1 인증 토큰 입력');
+  assert.equal(state.getGeneralDraft(), 'C1의 작업 초안');
+  assert.equal(state.getQuestionDraft('auth-q'), 'C1 인증 토큰 입력');
+
+  // C2 문맥의 초안도 독립적으로 보존되어 있어야 함
+  assert.equal(state.getGeneralDraft('companion-2', 'session-alpha'), 'C2의 작업 초안');
+  assert.equal(state.getQuestionDraft('auth-q', 'companion-2', 'session-alpha'), 'C2 인증 토큰 입력');
+});
+
+test('Scenario 8: 스냅샷 불변성 (Snapshot Immutability) 검증 (§4.5 Item 4)', () => {
+  const state = createAnswerState();
+  state.switchContext('/workspace', 'sess-immut', { currentInputText: '원래 일반 초안' });
+  state.enterAnswerMode('q-immut', '불변 질문', state.getGeneralDraft());
+  state.onInputChange('원래 질문 초안');
+
+  const sub = state.submitReply('q-immut', '원래 질문 초안');
+  assert.equal(sub.ok, true);
+
+  // 실패 기록 추가
+  state.onReplyResult({
+    callId: 'q-immut',
+    attemptId: sub.attemptId,
+    ok: false,
+    text: '원래 질문 초안'
+  });
+
+  // 1. getState() 스냅샷 변조 시도
+  const snapshot = state.getState();
+  assert.equal(snapshot.generalDraft, '원래 일반 초안');
+  assert.deepEqual(snapshot.failedDrafts['q-immut'], ['원래 질문 초안']);
+
+  // 스냅샷의 중첩 배열 및 객체 임의 수정
+  snapshot.failedDrafts['q-immut'].push('해킹된 실패 내역');
+  snapshot.questionDrafts['q-immut'] = '해킹된 질문 초안';
+  if (snapshot.inFlightReplies['q-immut']) {
+    snapshot.inFlightReplies['q-immut'].text = '해킹된 인플라이트';
+  }
+
+  // 내부 상태는 변조되지 않아야 함
+  assert.deepEqual(state.getFailedDrafts('q-immut'), ['원래 질문 초안']);
+  assert.equal(state.getQuestionDraft('q-immut'), '원래 질문 초안');
+  const freshSnapshot = state.getState();
+  assert.deepEqual(freshSnapshot.failedDrafts['q-immut'], ['원래 질문 초안']);
+  assert.equal(freshSnapshot.questionDrafts['q-immut'], '원래 질문 초안');
+
+  // 2. getInFlight() 복사본 변조 시도
+  const inFlight = state.getInFlight('q-immut');
+  if (inFlight) {
+    inFlight.text = '외부에서 변조';
+    assert.notEqual(state.getInFlight('q-immut')?.text, '외부에서 변조');
+  }
+});
+

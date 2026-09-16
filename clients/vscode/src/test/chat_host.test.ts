@@ -284,3 +284,91 @@ test('Chat B0: consecutive sends in empty session followed by screen switch befo
   assert.equal(switchedCalls.length, 0, 'no message must leak to switched session');
 });
 
+test('Chat B0 / §4.5: reply 전송 대기 중 화면 이동 및 구 웹뷰 응답 세션 격리 검증', async () => {
+  const companion = createMockCompanion();
+  let resolveAnswer!: (val: any) => void;
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'answer') {
+      return new Promise((res) => { resolveAnswer = res; });
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const posted: any[] = [];
+  (chat as any).post = (m: any) => posted.push(m);
+  (chat as any).draw = () => {};
+  (chat as any).openStream = async () => {};
+
+  // 1. Initial session S1
+  chat.showSession('sess-1');
+  assert.equal(chat.session, 'sess-1');
+
+  // 2. Webview sends reply for sess-1 with generation 1
+  const replyPromise = chat.fromView({
+    kind: 'reply',
+    callId: 'q-s1',
+    text: 'sess-1에 대한 답변',
+    attemptId: 42,
+    session: 'sess-1',
+    companionKey: '/workspace',
+    generation: 1
+  });
+
+  // 3. While answer call is still in-flight, user switches screen to sess-2
+  chat.showSession('sess-2');
+  assert.equal(chat.session, 'sess-2');
+
+  // 4. Now answer resolves
+  resolveAnswer({ ok: true });
+  await replyPromise;
+
+  // 5. Verify ask('answer') targeted sess-1
+  const answerCalls = companion.calls.filter((c) => c.door === 'answer');
+  assert.equal(answerCalls.length, 1);
+  assert.equal(answerCalls[0].payload.session, 'sess-1');
+  assert.equal(answerCalls[0].payload.callId, 'q-s1');
+  assert.equal(answerCalls[0].payload.answer, 'sess-1에 대한 답변');
+
+  // 6. Verify posted replyResult carries sess-1, generation 1, attemptId 42 (does not coerce to sess-2)
+  const replyResultMsg = posted.find((m) => m.kind === 'replyResult');
+  assert.ok(replyResultMsg, 'replyResult must be posted');
+  assert.equal(replyResultMsg.callId, 'q-s1');
+  assert.equal(replyResultMsg.attemptId, 42);
+  assert.equal(replyResultMsg.session, 'sess-1');
+  assert.equal(replyResultMsg.companionKey, '/workspace');
+  assert.equal(replyResultMsg.generation, 1);
+  assert.equal(replyResultMsg.ok, true);
+
+  // 7. Legacy caller (no session in message): pinned at start of call
+  let resolveAnswerLegacy!: (val: any) => void;
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'answer') {
+      return new Promise((res) => { resolveAnswerLegacy = res; });
+    }
+    return { ok: true };
+  };
+
+  const legacyReplyPromise = chat.fromView({
+    kind: 'reply',
+    callId: 'q-legacy',
+    text: '레거시 답변',
+    attemptId: 99
+  });
+
+  // Switch screen to sess-3 while legacy reply is in flight
+  chat.showSession('sess-3');
+  resolveAnswerLegacy({ error: 'failed' });
+  await legacyReplyPromise;
+
+  // Legacy caller was pinned to sess-2 (current session when call started)
+  const legacyResultMsg = posted.filter((m) => m.kind === 'replyResult' && m.callId === 'q-legacy')[0];
+  assert.ok(legacyResultMsg);
+  assert.equal(legacyResultMsg.session, 'sess-2');
+  assert.notEqual(legacyResultMsg.session, 'sess-3');
+});
+
+

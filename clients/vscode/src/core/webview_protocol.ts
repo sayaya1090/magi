@@ -28,7 +28,15 @@ export type WebviewToHostMessage =
   | { kind: 'open'; session: string; callId: string; seq?: number }
   | { kind: 'output'; session: string; outputId: string }
   | { kind: 'answer'; callId: string; decision: string }
-  | { kind: 'reply'; callId: string; text: string; attemptId: number }
+  | {
+      kind: 'reply';
+      callId: string;
+      text: string;
+      attemptId: number;
+      companionKey?: string;
+      session?: string;
+      generation?: number;
+    }
   | { kind: 'mention'; text: string; reqId: number; target: string }
   | { kind: 'suggest'; text: string; reqId: number; target: string };
 
@@ -89,7 +97,7 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
       }
       return { kind: 'answer', callId: m.callId, decision: m.decision };
 
-    case 'reply':
+    case 'reply': {
       if (
         typeof m.callId !== 'string' ||
         !m.callId ||
@@ -98,7 +106,17 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
       ) {
         return undefined;
       }
-      return { kind: 'reply', callId: m.callId, text: m.text, attemptId: m.attemptId };
+      const parsed: WebviewToHostMessage = {
+        kind: 'reply',
+        callId: m.callId,
+        text: m.text,
+        attemptId: m.attemptId,
+      };
+      if (typeof m.companionKey === 'string') (parsed as any).companionKey = m.companionKey;
+      if (typeof m.session === 'string') (parsed as any).session = m.session;
+      if (typeof m.generation === 'number') (parsed as any).generation = m.generation;
+      return parsed;
+    }
 
     case 'mention':
       if (typeof m.text !== 'string' || typeof m.reqId !== 'number' || typeof m.target !== 'string') {
@@ -132,10 +150,28 @@ export type HostToWebviewMessage =
       council?: string;
       socket?: string;
     }
-  | { kind: 'rows'; session: string; rows: PaintedRow[]; ask: Ask | null; refs: string[] }
+  | {
+      kind: 'rows';
+      session: string;
+      rows: PaintedRow[];
+      ask: Ask | null;
+      refs: string[];
+      companionKey?: string;
+      generation?: number;
+    }
   | { kind: 'compose'; text: string }
   | { kind: 'note'; text: string }
-  | { kind: 'replyResult'; callId: string; attemptId: number; ok: boolean; error?: string; text?: string }
+  | {
+      kind: 'replyResult';
+      callId: string;
+      attemptId: number;
+      ok: boolean;
+      error?: string;
+      text?: string;
+      companionKey?: string;
+      session?: string;
+      generation?: number;
+    }
   | { kind: 'mentions'; files: string[]; reqId: number; target: string }
   | { kind: 'suggestion'; text: string; reqId: number; target: string };
 

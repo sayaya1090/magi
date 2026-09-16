@@ -192,6 +192,20 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 - **임시 경로 정규화 및 누락 시 종료 코드 1 실측 검증:** `node:url`의 `pathToFileURL`을 사용하여 Windows 드라이브 문자(`C:\...`), 공백, `#` 특수문자가 포함된 임시 경로를 올바른 `file:///` URL로 정규화합니다. `preflight.test.ts`에서는 외국 플랫폼 Windows 드라이브 경로 정규화와 현재 플랫폼의 네이티브 파일 경로 왕복(`fileURLToPath`), 플랫폼별 POSIX 경로 기대값을 명확히 구분하여 검증합니다. 또한 환경 비의존 `asset-preflight.mjs` 모듈을 자식 프로세스로 직접 기동하여 번들 누락 시 실제 종료 코드 1, 누락 경로, 빌드 안내 메시지가 표준 에러로 출력되는지 격리 임시 디렉터리에서 검증합니다. (Windows 경로 변환 단위 검증이며 Windows 실물 실행과는 구분됩니다)
 - **비정상 메시지 수신 시 상태 보존:** 비정상 페이로드(비배열 rows, session 누락, callId 빈 문자열인 replyResult, 미등록 kind, 원시 타입 등)를 보정 없이 브라우저 이벤트 큐에 직접 발행할 때, 기존 행·대기 질문 카드·답변 모드 및 작성 중인 초안(`say.value`)이 훼손되거나 지워지지 않고 페이지 오류(pageerror) 없이 100% 보존되는지 `postMessage` FIFO 큐 동기화로 검증합니다.
 - **읽기 전용 편집창 열기 버튼 및 액션 송출 검증 (`output_open_button_session_binding_and_action_dispatch`, §3.3–§3.4):** 확정된 모델 답변 행(`assistant:seq`) 및 도구 실행 결과 도착 행(`tool:callId:resultSeq`)에 한해 웹뷰 행 헤더(`w`)에 `편집창에서 열기`(`.output-open-btn`) 버튼이 노출되며, draft 행에는 버튼이 렌더링되지 않음을 단언합니다. 렌더 시점의 확정 세션 및 자료 ID가 클릭 핸들러 클로저에 고정되어 버튼 클릭 시 호스트로 `{ kind: 'output', session, outputId }` 메시지만 정확히 1회 발행되고, composer 입력값이나 질문 모드·초안이 훼손되지 않으며, 세션이 미확인인 경우(`session: ''`) 버튼이 비활성화(`disabled`)됨을 브라우저 실측으로 검증합니다.
+- **세션 격리와 초안 왕복 복원 및 자동완성 무효화 (`asks_session_roundtrip_draft_and_autocomplete_invalidation`, §4.5):** 서로 다른 세션(S1, S2) 간 화면 이동 시 기존 작성 중이던 일반 초안과 질문 초안이 문맥별 키(`(companionKey, sessionId)`)로 완전 격리되며, 세션 왕복(S1 → S2 → S1 → S2) 후에도 각 세션의 초안과 답변 모드가 한 글자의 유실 없이 원문 그대로 복원됨을 검증합니다. 세션 변경 시 진행 중이던 인라인 자동완성 제안과 디바운스 타이머가 즉시 무효화되어 다른 세션의 힌트가 노출되거나 Tab 키로 엉뚱한 세션의 composer에 삽입되지 않음을 브라우저 상에서 실측 검증합니다.
+
+### 1차 세션 격리와 결과 귀속 검증 사양 (2026-09-16, §4.5)
+
+`answer_state.ts`, `chat.ts`, `chat_adapter.ts`에 걸쳐 화면 이동 및 결과 수신 시의 세션 격리 불변식을 순수 상태 머신, 호스트 배선, 브라우저 하네스의 3계층에서 검증합니다:
+
+1. **순수 상태 머신 (`answer_state.test.ts` Scenarios 6, 7, 8):**
+   - **동일 `callId`의 서로 다른 세션 격리 (Scenario 6):** S1과 S2에 동일한 질문 ID(`q1`)가 도착하여 각각 답변을 작성·제출했을 때, 각 세션의 in-flight 잠금과 시도 식별자(`attemptId`)가 완전히 독립적으로 발급·관리됩니다. S2가 활성 상태일 때 S1의 이전 시도에 대한 실패 결과가 뒤늦게 도착하더라도 현재 화면의 입력창이나 답변 모드를 방해하지 않고 S1 저장소에만 실패 초안을 복원(`restoredInStoreOnly: true`)하며, S2의 in-flight 잠금과 초안은 훼손되지 않습니다.
+   - **동일 `sessionId`에 서로 다른 `companionKey` 격리 (Scenario 7):** 작업 폴더 경로가 다른 두 컴패니언(C1, C2)이 우연히 같은 세션 ID를 갖더라도 복합 키(`JSON.stringify([companionKey, sessionId])`)로 분리되어 C1과 C2의 일반 초안 및 질문 초안이 상호 침범하지 않습니다.
+   - **스냅샷 불변성 보장 (Scenario 8):** `getState()`가 반환한 스냅샷의 중첩 배열(`failedDrafts`)과 객체(`questionDrafts`, `inFlightReplies`), 그리고 `getInFlight()`가 반환한 복사본을 외부에서 임의로 수정(`push`, 필드 재할당)하더라도 `AnswerStateManager` 내부의 실제 상태 및 후속 `getState()` 결과가 변조되지 않음을 단언합니다.
+2. **호스트 세션 고정 및 결과 귀속 (`chat_host.test.ts`):**
+   - **답변 전송 대기 중 화면 이동 격리:** 웹뷰가 `sess-1`에 대한 질문 답변(`reply`)을 전송한 직후 데몬 통신 지연 중에 사용자가 화면을 `sess-2`로 전환하더라도, 데몬 RPC(`companion.ask('answer')`)는 최초 전송된 `sess-1`을 대상으로 호출되며, 통신 완료 후 웹뷰로 통지되는 `replyResult` 이벤트 역시 `this.sid`로 재조회하여 오염시키지 않고 호출 시점에 확정된 `targetSid = 'sess-1'`, `generation`을 유지하여 발행합니다.
+   - **레거시 호출자 보정 및 문맥 고정:** 세션 필드가 누락된 레거시 메시지가 도착하더라도 메서드 진입 시점의 `this.sid`를 고정(`pin`)하여 비동기 처리 중간에 발생한 화면 전환이 결과 통지의 세션을 왜곡하지 않도록 방어합니다.
+
 
 
 

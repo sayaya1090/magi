@@ -497,7 +497,9 @@ function drawInfo() {
   infoEl.append(acts);
 }
 const answerState = createAnswerState();
+let currentCompanionKey = '';
 let currentSession = '';
+let currentGeneration = undefined;
 const expandedCallIds = new Set();
 const inputAdapter = createWebviewInputAdapter({
   say,
@@ -694,7 +696,12 @@ const receiveHandlers = createWebviewReceiveHandlers({
   getCurrentAsk: () => currentAsk,
   getCurrentSession: () => currentSession,
   setCurrentSession: (s) => { currentSession = s; },
+  getCurrentCompanionKey: () => currentCompanionKey,
+  setCurrentCompanionKey: (k) => { currentCompanionKey = k; },
+  getCurrentGeneration: () => currentGeneration,
+  setCurrentGeneration: (g) => { currentGeneration = g; },
   clearExpandedCallIds: () => expandedCallIds.clear(),
+  resetCurrentAsk: () => { currentAsk = null; currentAskCallId = null; },
   drawRows: draw,
   drawAsk,
   drawRefs,
