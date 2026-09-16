@@ -726,24 +726,16 @@ export function createWebviewInputAdapter(
   let activeCreationTaskId: string | null = null;
 
   function updateInFlightStatus(): void {
-    if (elements.askControlsEl || elements.getCurrentAsk || elements.sendBtn) {
-      updateInFlightUI({
-        askControlsEl: elements.askControlsEl,
-        sendBtn: elements.sendBtn,
-        getAsk: elements.getCurrentAsk || (() => null),
-        answerState,
-        getCurrentCompanionKey: () => currentCompanionKey,
-        getCurrentSession: () => currentSession,
-      });
-    }
+    const uiRes = updateInFlightUI({
+      askControlsEl: elements.askControlsEl,
+      sendBtn: elements.sendBtn,
+      getAsk: elements.getCurrentAsk || (() => null),
+      answerState,
+      getCurrentCompanionKey: () => currentCompanionKey,
+      getCurrentSession: () => currentSession,
+    });
     if (elements.onInFlightChange) {
-      const ask = elements.getCurrentAsk ? elements.getCurrentAsk() : null;
-      const inFlight = (ask && ask.kind === 'question' && ask.callId)
-        ? answerState.isInFlight(ask.callId, currentCompanionKey, currentSession)
-        : false;
-      const pendingQ = answerState.getPendingQuestion(currentCompanionKey, currentSession);
-      const answeringThisAsk = Boolean(pendingQ && ask && pendingQ === ask.callId);
-      elements.onInFlightChange({ inFlight, answeringThisAsk });
+      elements.onInFlightChange(uiRes);
     }
   }
 
@@ -771,6 +763,7 @@ export function createWebviewInputAdapter(
     if (!inRecovery) {
       say.focus();
     }
+    updateInFlightStatus();
   }
 
   function applyGeneralModeUI(text?: string): void {
@@ -782,6 +775,7 @@ export function createWebviewInputAdapter(
     if (text !== undefined) say.value = text;
     say.placeholder = '';
     sendBtn.textContent = 'Send';
+    updateInFlightStatus();
   }
 
   function enterAnswerMode(callId: string, label?: string): void {
@@ -790,7 +784,6 @@ export function createWebviewInputAdapter(
     }
     const res = answerState.enterAnswerMode(callId, label, say.value);
     applyAnswerModeUI(res.label, res.nextInputText);
-    updateInFlightStatus();
   }
 
   function exitAnswerMode(): void {
@@ -799,7 +792,6 @@ export function createWebviewInputAdapter(
     if (activeCreationTaskId && !currentSession) {
       answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, res.nextInputText || '');
     }
-    updateInFlightStatus();
   }
 
   function onContextChange(

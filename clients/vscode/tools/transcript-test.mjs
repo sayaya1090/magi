@@ -2287,6 +2287,182 @@ const bundles = [
           }));
           await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
         }
+      },
+      {
+        id: 'asks_recovery_copy_and_append_unlocks_general_send_while_in_flight',
+        name: '복구 초안 복사 및 이어 붙이기 후 일반 전송 버튼 해제 및 전송 중 격리 (§5.6)',
+        run: async (page) => {
+          // 1. 세션 및 질문 준비: 옵션이 있는 선택형 질문 수신
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-rec-inflight',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '복구 및 전송 중 검증 질문' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-rec-inflight',
+              what: '배포 대상 클러스터를 선택하세요',
+              options: ['1. 운영 클러스터', '2. 검증 클러스터']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 운영 클러스터")');
+
+          const say = page.locator('#say');
+          const sendBtn = page.locator('#send');
+          const askControls = page.locator('#ask-controls');
+          const recoveryBtn = page.locator('#recovery-btn');
+          const recoveryPanel = page.locator('#recovery-panel');
+          const replyMode = page.locator('#reply-mode');
+
+          // 2. 직접 입력으로 진입하여 첫 번째 답변 A 작성 후 전송 -> 실패 처리
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+
+          const draftA = '답변 A: 운영 배포 승인 요청';
+          await say.fill(draftA);
+
+          const postedLenBeforeA = await page.evaluate(() => window.__posted.length);
+          await sendBtn.click();
+          await page.waitForFunction((len) => window.__posted.length > len, postedLenBeforeA);
+
+          const replyA = await page.evaluate(() =>
+            window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-rec-inflight').slice(-1)[0]
+          );
+          assert.ok(replyA, 'Reply A must be posted');
+
+          // 실패 결과(replyResult ok: false) 주입 -> 복구 항목 생성 확인
+          await page.evaluate((payload) => window.postMessage(payload, '*'), createReplyResultMessage({
+            callId: 'q-rec-inflight',
+            ok: false,
+            error: 'network timeout',
+          }, replyA));
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+          assert.equal(await recoveryBtn.textContent(), '복구 초안 1');
+
+          // 3. 같은 질문에 대해 답변 B 재전송 (선택지 1 클릭) -> in-flight 진입
+          const choiceBtns = page.locator('#ask-controls button.choice-btn');
+          const postedLenBeforeB = await page.evaluate(() => window.__posted.length);
+          await choiceBtns.nth(0).click();
+          await page.waitForFunction((len) => window.__posted.length > len, postedLenBeforeB);
+
+          const replyB = await page.evaluate(() =>
+            window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-rec-inflight').slice(-1)[0]
+          );
+          assert.ok(replyB, 'Reply B must be posted');
+
+          // In-flight 상태 확인: aria-busy, ask-status, choice buttons disabled
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+          assert.equal(await choiceBtns.nth(1).isDisabled(), true);
+
+          // 4. 직접 입력으로 재진입 -> 답변 모드에서 sendBtn.disabled === true 확인
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          assert.equal(await sendBtn.textContent(), '답변');
+          assert.equal(await sendBtn.isDisabled(), true, 'composer send button must be disabled in answer mode while in-flight');
+
+          // 5. 복구 패널 열기 및 초안 A 복사 (일반 초안이 비어있는 상태)
+          await recoveryBtn.click();
+          await page.waitForFunction(() => !document.getElementById('recovery-panel').hidden);
+
+          const recoveryItem = page.locator('.recovery-item').first();
+          const copyBtn = recoveryItem.locator('.copy-btn');
+          await copyBtn.click();
+
+          // 단언 (Requirement 1):
+          // - 일반 모드로 복귀 (reply-mode hidden, sendBtn 텍스트 'Send')
+          await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
+          assert.equal(await sendBtn.textContent(), 'Send');
+          assert.equal(await say.inputValue(), draftA);
+          // - P2 결함 수정 단언: 일반 전송 버튼이 해제(enabled)되어야 함!
+          assert.equal(await sendBtn.isDisabled(), false, 'general send button must be released after copying recovery draft');
+          // - 전송 중인 질문은 계속 busy, 선택지는 disabled 유지
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+          // - 복구 원문 유지 (뱃지 카운트 1 유지)
+          assert.equal(await recoveryBtn.textContent(), '복구 초안 1');
+
+          // 6. 일반 작업 실제 클릭 전송 (Requirement 3)
+          const postedLenBeforeSay = await page.evaluate(() => window.__posted.length);
+          await sendBtn.click();
+          await page.waitForFunction((len) => window.__posted.length > len, postedLenBeforeSay);
+
+          const newPosts = await page.evaluate((len) => window.__posted.slice(len), postedLenBeforeSay);
+          const sayMsgs = newPosts.filter(m => m.kind === 'say');
+          const replyMsgs = newPosts.filter(m => m.kind === 'reply');
+          assert.equal(sayMsgs.length, 1, 'Exactly one say message posted');
+          assert.equal(sayMsgs[0].text, draftA);
+          assert.equal(replyMsgs.length, 0, 'No reply message posted for general say');
+
+          // 같은 질문 직접 입력 재진입 시 답변 전송 버튼 다시 잠금 확인
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          assert.equal(await sendBtn.textContent(), '답변');
+          assert.equal(await sendBtn.isDisabled(), true, 'send button must re-lock upon re-entering answer mode');
+
+          // 7. 일반 초안 G가 있는 상태에서 이어 붙이기 확인 (Requirement 2)
+          // 답변 모드 취소 후 일반 초안 G 작성
+          await page.keyboard.press('Escape');
+          await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
+          const draftG = '일반 초안 메모 G';
+          await say.fill(draftG);
+
+          // 다시 답변 모드 진입하여 답변 작성 중인 상태
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          assert.equal(await sendBtn.isDisabled(), true);
+          await say.fill('작성 중 임시 답변');
+
+          // 복구 패널에서 복사 클릭 -> 일반 초안 G가 있으므로 확인 상자 표시
+          if (await recoveryPanel.evaluate((el) => el.hidden)) {
+            await recoveryBtn.click();
+            await page.waitForFunction(() => !document.getElementById('recovery-panel').hidden);
+          }
+          await copyBtn.click();
+          await page.waitForSelector('.recovery-confirm-box');
+          const confirmBox = recoveryItem.locator('.recovery-confirm-box');
+
+          // A) 취소 클릭: 초안 G 및 답변 초안 보존, 답변 모드 및 잠금 유지
+          const cancelBtn = confirmBox.locator('.confirm-cancel-btn');
+          await cancelBtn.click();
+          await page.waitForFunction(() => document.querySelectorAll('.recovery-confirm-box').length === 0);
+          assert.equal(await replyMode.isVisible(), true);
+          assert.equal(await sendBtn.textContent(), '답변');
+          assert.equal(await sendBtn.isDisabled(), true);
+          assert.equal(await say.inputValue(), '작성 중 임시 답변');
+
+          // B) 다시 복사 클릭 -> 이어 붙이기 확정
+          await copyBtn.click();
+          await page.waitForSelector('.recovery-confirm-box');
+          const appendBtn = confirmBox.locator('.confirm-append-btn');
+          await appendBtn.click();
+
+          // 검증: 일반 모드로 전환, Send 활성화, G + \n\n + draftA 결합
+          const expectedCombined = draftG + '\n\n' + draftA;
+          await page.waitForFunction((exp) => document.getElementById('say').value === exp, expectedCombined);
+          assert.equal(await replyMode.evaluate((el) => el.hidden), true);
+          assert.equal(await sendBtn.textContent(), 'Send');
+          assert.equal(await sendBtn.isDisabled(), false, 'Send button enabled after confirmed append');
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+          assert.equal(await recoveryBtn.textContent(), '복구 초안 1');
+
+          // Cleanup: in-flight 해제
+          await page.evaluate((payload) => window.postMessage(payload, '*'), createReplyResultMessage({
+            callId: 'q-rec-inflight',
+            ok: true,
+          }, replyB));
+
+          await page.waitForFunction(() => !document.getElementById('ask-controls').hasAttribute('aria-busy'));
+          assert.equal(await choiceBtns.nth(0).isDisabled(), false);
+          if (!await recoveryPanel.evaluate((el) => el.hidden)) {
+            await recoveryBtn.click();
+            await page.waitForFunction(() => document.getElementById('recovery-panel').hidden);
+          }
+          await say.fill('');
+        }
       }
     ]
   },

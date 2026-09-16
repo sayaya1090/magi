@@ -4160,4 +4160,244 @@ test('§5.6: WebviewInputAdapter in-flight lifecycle integration (choice send, d
   adapter.dispose();
 });
 
+test('§5.6: recovery copy and append release general send button while question remains in-flight (P2 regression)', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const attributes: Record<string, string> = {};
+  const statusEl = { textContent: '' };
+  const choiceBtn1 = { disabled: false, className: 'choice-btn', textContent: '1. 옵션 A', title: '옵션 A 원문' };
+  const choiceBtn2 = { disabled: false, className: 'choice-btn', textContent: '2. 옵션 B', title: '옵션 B 원문' };
+  const askControlsEl = {
+    setAttribute: (k: string, v: string) => { attributes[k] = v; },
+    removeAttribute: (k: string) => { delete attributes[k]; },
+    getAttribute: (k: string) => attributes[k],
+    hasAttribute: (k: string) => k in attributes,
+    querySelector: (sel: string) => (sel === '.ask-status' ? statusEl : null),
+    querySelectorAll: (sel: string) => (sel.includes('choice-btn') ? [choiceBtn1, choiceBtn2] : []),
+  } as any;
+
+  let currentAsk: Ask | null = {
+    kind: 'question',
+    callId: 'ask-target-p2',
+    what: '배포 환경을 선택해주세요',
+    options: ['옵션 A 원문', '옵션 B 원문'],
+  };
+
+  const say = new RecoveryTestDomNode('textarea');
+  say.value = '';
+  say.placeholder = '';
+  const sendBtn = new RecoveryTestDomNode('button');
+  sendBtn.textContent = 'Send';
+  sendBtn.disabled = false;
+  const replyModeEl = new RecoveryTestDomNode('div');
+  replyModeEl.hidden = true;
+  const replyTargetEl = new RecoveryTestDomNode('span');
+  const replyCancelEl = new RecoveryTestDomNode('button');
+  const noteEl = new RecoveryTestDomNode('div');
+  const hintEl = new RecoveryTestDomNode('div');
+
+  const recoveryBtn = new RecoveryTestDomNode('button');
+  const recoveryPanel = new RecoveryTestDomNode('div');
+  recoveryPanel.hidden = true;
+  const recoveryItemsEl = new RecoveryTestDomNode('div');
+  const recoveryScopeAll = new RecoveryTestDomNode('input');
+  recoveryScopeAll.type = 'checkbox';
+  const recoveryStatus = new RecoveryTestDomNode('div');
+
+  let currentCompanionKey = '/workspace';
+  let currentSession = 'sess-p2';
+
+  const inputAdapter = createWebviewInputAdapter(
+    {
+      say: say as any,
+      sendBtn: sendBtn as any,
+      replyModeEl: replyModeEl as any,
+      replyTargetEl: replyTargetEl as any,
+      replyCancelEl: replyCancelEl as any,
+      noteEl: noteEl as any,
+      hintEl: hintEl as any,
+      askControlsEl,
+      getCurrentAsk: () => currentAsk,
+    },
+    actions,
+    state,
+  );
+
+  const recoveryController = createWebviewRecoveryController({
+    elements: {
+      recoveryBtn: recoveryBtn as any,
+      recoveryPanel: recoveryPanel as any,
+      recoveryItemsEl: recoveryItemsEl as any,
+      recoveryScopeAll: recoveryScopeAll as any,
+      recoveryStatus: recoveryStatus as any,
+      say: say as any,
+    },
+    answerState: state,
+    inputAdapter,
+    document: recoveryTestDoc as any,
+    getCurrentCompanionKey: () => currentCompanionKey,
+    getCurrentSession: () => currentSession,
+  });
+
+  inputAdapter.onContextChange(currentCompanionKey, currentSession, currentAsk, 0, 'view-1');
+  recoveryController.refresh();
+
+  // -------------------------------------------------------------
+  // Step 1: Create failed draft A -> enters recovery items
+  // -------------------------------------------------------------
+  inputAdapter.enterAnswerMode('ask-target-p2', '배포 환경을 선택해주세요');
+  assert.equal(replyModeEl.hidden, false);
+  assert.equal(sendBtn.textContent, '답변');
+  say.value = '실패 답변 A';
+
+  inputAdapter.send();
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].kind, 'reply');
+  assert.equal(posted[0].callId, 'ask-target-p2');
+  assert.equal(posted[0].text, '실패 답변 A');
+  const attemptAId = posted[0].attemptId;
+
+  inputAdapter.handleReplyResult({
+    callId: 'ask-target-p2',
+    attemptId: attemptAId,
+    ok: false,
+    error: 'connection dropped',
+    companionKey: currentCompanionKey,
+    session: currentSession,
+    generation: 0,
+    webviewId: 'view-1',
+  }, currentAsk);
+  recoveryController.refresh();
+
+  const recoveryItems = state.listRecoveryItems({ companionKey: currentCompanionKey, sessionId: currentSession });
+  assert.equal(recoveryItems.length, 1, 'Failed reply A must be recorded as recovery item');
+  const recAId = recoveryItems[0].recoveryId;
+  assert.equal(recoveryItems[0].text, '실패 답변 A');
+
+  // -------------------------------------------------------------
+  // Step 2: Resend answer B for the same question -> in-flight
+  // -------------------------------------------------------------
+  const submitChoiceOk = inputAdapter.submitChoice('ask-target-p2', '옵션 A 원문');
+  assert.equal(submitChoiceOk, true);
+  assert.equal(posted.length, 2);
+  assert.equal(posted[1].kind, 'reply');
+  assert.equal(posted[1].attemptId, 2);
+
+  // In-flight state verified:
+  assert.equal(attributes['aria-busy'], 'true');
+  assert.equal(statusEl.textContent, '답변 전송 중…');
+  assert.equal(choiceBtn1.disabled, true);
+  assert.equal(choiceBtn2.disabled, true);
+  assert.equal(sendBtn.disabled, false, 'Send button in general mode must be enabled');
+
+  // -------------------------------------------------------------
+  // Step 3: Re-enter direct input (Answer mode) -> sendBtn disabled
+  // -------------------------------------------------------------
+  inputAdapter.enterAnswerMode('ask-target-p2', '배포 환경을 선택해주세요');
+  assert.equal(replyModeEl.hidden, false);
+  assert.equal(sendBtn.textContent, '답변');
+  assert.equal(sendBtn.disabled, true, 'sendBtn in answer mode must be disabled while in-flight');
+
+  // -------------------------------------------------------------
+  // Step 4 (Requirement 1): Copy recovery draft A
+  // -------------------------------------------------------------
+  // General draft is empty; copying invokes applyRecoveryDraft then inputAdapter.applyGeneralModeUI
+  const copyOk1 = recoveryController.copyDraft(recAId);
+  assert.equal(copyOk1, true);
+
+  // Assertions for Requirement 1:
+  assert.equal(replyModeEl.hidden, true, 'replyMode must be hidden after copy to general draft');
+  assert.equal(sendBtn.textContent, 'Send');
+  assert.equal(say.value, '실패 답변 A', 'say must contain recovery draft A');
+  assert.equal(sendBtn.disabled, false, 'P2 FIX: general send button must be released after copying recovery draft');
+  assert.equal(attributes['aria-busy'], 'true', 'question must still be in-flight');
+  assert.equal(statusEl.textContent, '답변 전송 중…');
+  assert.equal(choiceBtn1.disabled, true);
+  assert.equal(choiceBtn2.disabled, true);
+  assert.ok(state.getRecoveryItem(recAId), 'recovery original item must not be deleted on copy');
+
+  // -------------------------------------------------------------
+  // Step 5 (Requirement 3): Click send in general mode -> 1 say, 0 reply
+  // -------------------------------------------------------------
+  const postedCountBeforeSend = posted.length;
+  inputAdapter.send();
+  assert.equal(posted.length, postedCountBeforeSend + 1);
+  const lastMsg = posted[posted.length - 1];
+  assert.equal(lastMsg.kind, 'say');
+  assert.equal(lastMsg.text, '실패 답변 A');
+  const newReplyMsgs = posted.slice(postedCountBeforeSend).filter(m => m.kind === 'reply');
+  assert.equal(newReplyMsgs.length, 0, 'No reply message should be sent for general say');
+
+  // Re-enter answer mode for the still-in-flight question -> sendBtn must be locked again!
+  inputAdapter.enterAnswerMode('ask-target-p2', '배포 환경을 선택해주세요');
+  assert.equal(replyModeEl.hidden, false);
+  assert.equal(sendBtn.textContent, '답변');
+  assert.equal(sendBtn.disabled, true, 'send button must re-lock when re-entering answer mode for in-flight question');
+
+  // -------------------------------------------------------------
+  // Step 6 (Requirement 2): Append confirmation with general draft G
+  // -------------------------------------------------------------
+  inputAdapter.exitAnswerMode();
+  assert.equal(replyModeEl.hidden, true);
+  assert.equal(sendBtn.textContent, 'Send');
+  say.value = '일반 초안 G';
+  state.onInputChange('일반 초안 G');
+
+  inputAdapter.enterAnswerMode('ask-target-p2', '배포 환경을 선택해주세요');
+  assert.equal(replyModeEl.hidden, false);
+  assert.equal(sendBtn.textContent, '답변');
+  assert.equal(sendBtn.disabled, true, 'sendBtn must be disabled in answer mode');
+  say.value = '답변 작성 중 내용';
+
+  // User attempts to copy recovery draft A -> requires confirm because general draft G is not empty
+  recoveryController.open();
+  const copyAttempt = recoveryController.copyDraft(recAId);
+  assert.equal(copyAttempt, true);
+  assert.equal(recoveryController.getPendingConfirmId(), recAId, 'confirm must be pending');
+
+  // A) User cancels append:
+  recoveryController.cancelConfirm(recAId);
+  assert.equal(recoveryController.getPendingConfirmId(), null);
+  assert.equal(replyModeEl.hidden, false, 'mode remains answer mode on cancel');
+  assert.equal(sendBtn.textContent, '답변');
+  assert.equal(sendBtn.disabled, true, 'sendBtn remains disabled on cancel');
+  assert.equal(say.value, '답변 작성 중 내용', 'answer draft preserved on cancel');
+  assert.equal(state.getGeneralDraft(currentCompanionKey, currentSession), '일반 초안 G', 'general draft G preserved on cancel');
+
+  // B) User re-attempts copy and confirms append:
+  recoveryController.copyDraft(recAId);
+  assert.equal(recoveryController.getPendingConfirmId(), recAId);
+  const appendOk = recoveryController.confirmAppend(recAId);
+  assert.equal(appendOk, true);
+
+  // Assertions for Requirement 2 (Approve append):
+  assert.equal(replyModeEl.hidden, true, 'mode switched to general mode on confirmed append');
+  assert.equal(sendBtn.textContent, 'Send');
+  assert.equal(sendBtn.disabled, false, 'general send button enabled after confirmed append');
+  assert.equal(say.value, '일반 초안 G\n\n실패 답변 A', 'G and recovery draft merged');
+  assert.equal(attributes['aria-busy'], 'true', 'question still in flight');
+  assert.equal(choiceBtn1.disabled, true);
+  assert.ok(state.getRecoveryItem(recAId), 'recovery item still preserved');
+
+  // Cleanup
+  inputAdapter.handleReplyResult({
+    callId: 'ask-target-p2',
+    attemptId: 2,
+    ok: true,
+    companionKey: currentCompanionKey,
+    session: currentSession,
+    generation: 0,
+    webviewId: 'view-1',
+  }, currentAsk);
+  assert.equal(attributes['aria-busy'], undefined);
+  assert.equal(choiceBtn1.disabled, false);
+
+  recoveryController.dispose();
+  inputAdapter.dispose();
+});
+
+
 

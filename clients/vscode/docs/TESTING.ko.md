@@ -660,6 +660,50 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 5. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
-   - **단위 테스트 (`npm test`):** 총 469개 테스트 전수 통과 (462 pass, 0 fail, 7 skip).
-   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 31개 시나리오 100% 통과 (pageerror 0건).
+   - **단위 테스트 (`npm test`):** 총 470개 테스트 전수 통과 (463 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
+
+---
+
+### §5.6 복구 초안 복사 및 이어 붙이기 후 일반 전송 버튼 해제 (Release General Send Button on Recovery Draft Copy)
+
+1. **결함 원인 및 모드 전환 표시 일관성 보장 (`src/web/chat_adapter.ts`):**
+   - 질문 답변 A 실패 후 B를 재전송하고 '직접 입력'으로 재진입한 상태(`answeringThisAsk === true`, `sendBtn.disabled === true`)에서, 복구 패널의 A를 일반 초안으로 복사하거나 이어 붙일 때 `recovery_controller.ts`가 `applyGeneralModeUI`를 호출하더라도 전송 상태 갱신이 누락되어 일반 모드로 복귀했음에도 `sendBtn.disabled === true`로 잠겨 일반 작업(`say`) 전송이 차단되던 결함(P2)을 해결했습니다.
+   - `applyGeneralModeUI` 및 `applyAnswerModeUI` 함수 내부에 `updateInFlightStatus()` 호출을 단일 책임 경계로 일원화하여, 모드 전환 직후 최신 저장소 상태(`answerState.getPendingQuestion()` 유무)에 따라 전송 버튼 잠금 여부가 즉각 동기화되도록 보장했습니다.
+   - `enterAnswerMode` 및 `exitAnswerMode` 호출부의 중복 `updateInFlightStatus()`를 정리하고, `updateInFlightStatus`의 `onInFlightChange` 콜백이 `updateInFlightUI`의 반환값(`InFlightUIResult: { inFlight, answeringThisAsk }`)을 직접 재사용하여 중복 연산을 제거했습니다.
+   - 복구 컨트롤러가 `sendBtn.disabled`를 직접 조작하거나 별도 pending 값을 유지하지 않고 기존 `updateInFlightUI`의 단일 조회 계약을 엄격히 준수합니다.
+
+2. **비활성화 격리 및 원문 보존 규칙:**
+   - 복구 초안 복사/이어 붙이기 후 일반 전송 버튼(`sendBtn`)만 활성화(`disabled = false`)되며, 아직 전송 중인 질문의 선택지 `disabled = true` 및 진행 문구(`'답변 전송 중…'`)는 온전히 유지됩니다.
+   - 동일 질문의 '직접 입력'으로 재진입 시 `enterAnswerMode` -> `applyAnswerModeUI` -> `updateInFlightStatus()` 경로를 거쳐 `sendBtn.disabled = true`로 다시 자동 잠깁니다.
+   - 복사 후 일반 작업 전송 시 호스트로 `say` 메시지만 정확히 1회 발행되며 질문에 대한 추가 `reply`는 0회 발생합니다.
+   - 복사 조작 시 복구 원본 항목은 삭제되지 않고 인메모리 복구 목록에 온전히 보존됩니다.
+   - 일반 초안 G가 존재하는 상태에서 이어 붙이기 확인 상자 표출 시, 취소 클릭 시에는 G와 답변 초안 및 버튼 잠금 상태가 그대로 유지되고, 승인 클릭 시에만 G와 복구 원문이 결합(`G + "\n\n" + text`)되며 일반 모드로 복귀하여 Send 버튼이 활성화됩니다.
+
+3. **자동화 검증 (`webview.test.ts` & `transcript-test.mjs`):**
+   - **단위 테스트 (`webview.test.ts`):**
+     - `§5.6: recovery copy and append release general send button while question remains in-flight (P2 regression)`:
+       - 실패 답변 A 등록 → 복구 항목 생성 확인.
+       - 선택지 제출로 답변 B 재전송 → in-flight 진입, 일반 Send 활성, 선택지 disabled 확인.
+       - 직접 입력 진입 → 답변 모드에서 `sendBtn.disabled === true` 확인.
+       - 복구 패널에서 A 복사 (`copyDraft`) → 일반 모드 복귀, `say.value === '실패 답변 A'`, `sendBtn.disabled === false` (잠금 해제), 질문 aria-busy 및 선택지 disabled 유지, 복구 항목 보존 실측 (수동 `updateInFlightStatus` 호출 없이 어댑터 자체 갱신).
+       - 일반 Send 클릭 전송 → `say` 1회 발행 및 `reply` 0회 단언.
+       - 직접 입력 재진입 → `sendBtn.disabled === true` 재잠금 단언.
+       - 일반 초안 G가 있는 상태에서 복사 시도 → `requires_confirm` 발생. 취소 시 G/답변 초안/잠금 유지 단언. 승인(`confirmAppend`) 시 G + A 결합, 일반 모드 복귀, `sendBtn.disabled === false` 활성화 단언.
+   - **브라우저 E2E 하네스 (`transcript-test.mjs` - `asks_recovery_copy_and_append_unlocks_general_send_while_in_flight`):**
+     - 실제 Chromium 웹뷰 환경에서 복구 초안 생성 → B 재전송 in-flight → 직접 입력 진입 → 복구 A 복사 → 일반 Send 활성화 실측.
+     - Send 버튼 클릭으로 일반 작업 `say` 1회 전송 및 `reply` 0회 단언.
+     - 직접 입력 재진입 시 답변 전송 버튼 재잠금 실측.
+     - 일반 초안 G 존재 시 취소/이어 붙이기 분기 및 DOM 상태 일치 실측.
+
+4. **화면 캡처 증거 및 환경 구분:**
+   - **Chromium 모의 실행 캡처:**
+     - 기존 `docs/img/ide/16_choices_in_flight_dark.png`, `17_choices_in_flight_answer_mode_dark.png`, `18_choices_in_flight_failed_restored_dark.png`와 화면 일관성 유지.
+   - **환경 구분 안내:** 본 캡처 및 E2E 테스트는 Chromium 모의 웹뷰 실행 환경 기준이며, 실제 IDE 웹뷰 및 OS 네이티브 IME 실물 인수는 별도로 진행됩니다.
+
+5. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공.
+   - **단위 테스트 (`npm test`):** 총 470개 테스트 전수 통과 (463 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
+
 
