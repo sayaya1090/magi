@@ -123,7 +123,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `webview.test.ts` (구형 파서 100% deep equality 대조 및 open.seq 비숫자 폴백) | ★ **구형 파서(`98a733aa`) 100% deep equality 대조 및 호스트 open 도달 검증 (§5.8.3).** 테스트 지원 모듈(`src/test/support/legacy_protocol_parser.ts`)로 제품 VSIX에서 격리된 원본 수동 파서와 Valibot 파서를 전수 대조합니다. `open.seq`의 누락, 명시적 `undefined`, `null`, 문자열('12'), 객체, 배열, 불리언, 유한수, 소수, 음수, NaN, Infinity 등 40여 개 경계 입력을 검증하고, 비숫자 `seq` 폴백이 실제 호스트 `resolveAndOpenFile`의 ask 분기에 정상 도달함을 검증합니다 |
 | `answer_state.property.test.ts` (fast-check 답변 및 초안 상태 속성 기반 회귀 검사) | ★ **임의 이벤트 순서에서의 초안 격리·잠금·복구 불변식 검증 (§5.8.4).** fast-check 기반 속성 테스트로 컴패니언·세션·질문 간 초안 격리, 동일 질문 중복 제출 차단(`in_flight`), A 제출 뒤 B 수정 후 A 실패 시 B 초안 보호 및 원문 A 복구 보존, A 실패 후 B 재전송 시 A 중복 결과에 대한 B 활성 잠금 보호, 문맥 전환 후 늦은 결과의 격리, 중복 결과 멱등성, 공백 거절(`empty`), `applyRecoveryDraft` 확인 및 이어 붙이기(`G + "\n\n" + text`), 40단계 무작위 명령 시퀀스 불변식을 전수 검증합니다 |
 | `recovery_state.property.test.ts` (fast-check 복구 저장소 상태 속성 기반 회귀 검사) | ★ **실패 초안 복구 모델의 등록·합산·삭제·정렬 불변식 검증 (§5.8.4).** 빈 문자열 거부 및 공백·개행·한글 원문 보존, 동일 `eventKey` 재생 멱등성(시도 횟수 불변), 동일 실패 건 합산(횟수 증가·seq 갱신·최신 오류 반영 및 stale 오류 제거), 이기종 출처·종류·원문의 엄격한 격리, 삭제된 항목의 동일 사건 재생 부활 차단 및 신규 사건 등록, 40단계 무작위 명령 시퀀스의 seq 역순 정렬 및 문맥 격리를 검증합니다 |
-| `fc_helpers.test.ts` (fast-check 지원 도구 및 재현성 검증) | ★ **fast-check 헬퍼 설정, 파라미터 파싱, 축소(shrinking) 활성화 및 재현 명령 검증 (§5.8.4).** `MAGI_FC_SEED`(엄격한 32비트 부호 있는 정수, 소수/지수/문자열 거절), `MAGI_FC_PATH`(콜론 구분 정수 인덱스 경로, seed 필수), `endOnFailure: false`를 통한 반례 축소(`numShrinks > 0`), 특수문자·따옴표 이스케이프가 포함된 셸 안전 단일 속성 재현 명령(`buildReproductionCommand`)의 자식 프로세스 실행 정합성을 검증합니다 |
+| `fc_helpers.test.ts` (fast-check 지원 도구 및 재현성 검증) | ★ **fast-check 헬퍼 설정, 파라미터 파싱, 축소(shrinking) 활성화 및 크로스 플랫폼 재현 실행 검증 (§5.8.4).** `MAGI_FC_SEED`(엄격한 32비트 부호 있는 정수, 소수/지수/문자열 거절), `MAGI_FC_PATH`(콜론 구분 정수 인덱스 경로, seed 필수), `endOnFailure: false`를 통한 반례 축소(`numShrinks > 0`), `getReproductionExecution`과 `spawnSync(shell: false)`를 통한 Windows/POSIX 공통 1회 실패 재현 및 앵커링된 단일 속성 실행 정합성을 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -964,10 +964,10 @@ UI·RxJS·프로토콜 계층과 분리된 순수 상태 모듈(`createAnswerSta
 
 - **테스트 지원 헬퍼 및 재현기 검사 (`src/test/fc_helpers.test.ts` — 5개 검사):**
   1. `assertProperty executes with default options when no env vars are set`: 기본 실행 시 100회 실행, endOnFailure: false (축소 활성화) 검증.
-  2. `parseFastCheckSeed validates 32-bit signed integer range and rejects invalid formats`: 정상 정수 통과, 소수(`1.5`), 지수(`1e3`), 문자열 접미사(`12junk`), 32비트 정수 오버플로 거절.
+  2. `parseFastCheckSeed validates 32-bit signed integer range and rejects invalid formats`: 정상 정수 통과, 소수(`1.5`), 지수(`1e3`), 문자열 접미사(`12junk`), 32비트 정수 오버플로 거절. 빈 문자열은 미지정으로 취급.
   3. `parseFastCheckPath validates colon-separated indices and requires seed`: 정상 경로(`0:1:2`) 통과, seed 없는 path 단독 지정 거절, 음수/빈 세그먼트 거절.
   4. `assertProperty enables shrinking on failure (numShrinks > 0 and minimal counterexample)`: 의도적 실패 속성 실행 시 `endOnFailure: false`로 인해 `numShrinks > 0` 및 최소 반례로 축소됨을 검증.
-  5. `buildReproductionCommand generates shell-safe command that executes target test`: 따옴표(`"`)와 정규식 특수문자가 포함된 테스트 이름의 안전한 이스케이프 및 단일 인용(`'--test-name-pattern=^...$'`)을 통해 자식 프로세스에서 대상 테스트 1개만 정확히 재현 실행됨을 실측.
+  5. `getReproductionExecution executes safely via spawnSync without shell`: `getReproductionExecution`을 통해 `process.execPath`와 `shell: false`로 자식 프로세스를 구동하여 Windows cmd.exe 문법 비호환성을 원천 배제하고, 특수문자가 포함된 의도적 실패 fixture에서 정확히 대상 1개 속성만 선택, 종료 코드 1 및 동일한 축소 반례(`[10]`) 1회 즉시 재현 검증. (POSIX 환경에서는 `displayCommand`의 셸 인용 실행 검증 병행)
 
 - **복구 저장소 속성 검사 (`src/test/recovery_state.property.test.ts` — 6개 속성):**
   1. `Empty string is never registered and whitespace is preserved verbatim in recovery_state`: 빈 문자열(`""`)은 등록 거부(`null` 반환), 공백·개행·한글·특수문자 원문은 변형 없이 보존.
@@ -986,21 +986,27 @@ UI·RxJS·프로토콜 계층과 분리된 순수 상태 모듈(`createAnswerSta
   6. `Duplicate onReplyResult is strictly idempotent`: 동일한 `ReplyResultEvent`의 중복 수신 시 복구 항목이나 실패 초안 목록이 추가로 늘어나지 않는 엄격한 멱등성 보장.
   7. `Blank and whitespace-only text is rejected by submitReply with { ok: false, error: "empty" }`: 공백/개행 전용 텍스트 제출은 즉시 거부되며 in-flight 잠금을 유발하지 않음.
   8. `applyRecoveryDraft requires confirmation when general draft exists and preserves drafts and in-flight locks`: 활성 in-flight 질문 답변 제출이 유지된 상태에서 복구 초안 적용(확인/취소) 시 in-flight 잠금 및 attemptId 불변, 기존 일반 초안이 있을 때 확인 없는 복사 거부(`requires_confirm`), 확인 시 `G + "\n\n" + text` 결합, 답변 모드에서 복사 시 작성 중이던 질문 초안 보존 보장.
-  9. `Multi-step random command sequence for answer_state maintains invariants`: 제출 시도 장부(ledger) 유지, 정상 결과는 잠금 해제 및 초안 갱신, attemptId/companionKey/sessionId 불일치 및 stale replay 거절(상태 불변), 비활성 문맥 결과 격리(`restoredInStoreOnly: true`), 전역 sequence 대신 문맥별 불변식 단언.
+  9. `Multi-step random command sequence for answer_state maintains invariants`: 제출 시도 장부(ledger) 유지, 거절·무효(mismatched ID/comp/sess) 및 stale 재생 전후 전체 상태 스냅샷(활성 입력, 문맥별 초안/모드/in-flight 잠금, 복구 항목) 불변 검증, 미해결 시도의 in-flight 존재 및 submittedText 엄격 단언, 정상 결과의 잠금 해제/초안 갱신/복구 등록 검증, 제출·정상결과·무효결과의 전수 실행 보장.
 
 ### 3. 실패 재현 및 환경 변수 실행
 fast-check 실패 발생 시 콘솔에 출력된 `MAGI_FC_SEED`와 `MAGI_FC_PATH`를 사용하여 특정 실패 사례를 단 1회 실행으로 정확히 재현할 수 있습니다:
 
 ```sh
-# 실패 발생 시 출력되는 셸 안전 단일 속성 재현 명령 (따옴표·특수문자 이스케이프 및 정확 매칭)
+# 실패 발생 시 출력되는 단일 속성 재현 명령 (POSIX sh/bash/zsh용 안전 인용)
 MAGI_FC_SEED=-1637190810 MAGI_FC_PATH='8:2:0:2:5:6:6:4:4' node --test --test-name-pattern='^§5\.8\.4 Property: Multi-step random command sequence for answer_state maintains invariants$' clients/vscode/out/test/*.property.test.js
 
 # 전체 속성 테스트 단독 실행
 node --test clients/vscode/out/test/*.property.test.js
 ```
 
+크로스 플랫폼 재현 헬퍼 (`getReproductionExecution`):
+- `executable`: `process.execPath`
+- `args`: `['--test', '--test-name-pattern=^...$', targetPattern]`
+- `env`: `{ MAGI_FC_SEED: String(seed), MAGI_FC_PATH: path }`
+- 자식 프로세스 구동 시 `spawnSync(execution.executable, execution.args, { env, cwd, shell: false })`를 사용하여 Windows/cmd.exe에서도 셸 인용 오류 없이 100% 동일하게 재현 실행됩니다.
+
 엄격한 환경 변수 검증:
-- `MAGI_FC_SEED`: 32비트 부호 있는 정수(`-2147483648` ~ `2147483647`). 소수(`1.5`), 지수(`1e3`), 문자열(`12junk`) 전달 시 `Invalid MAGI_FC_SEED environment variable: "...". Value must be a valid 32-bit signed integer.`로 즉시 중단.
+- `MAGI_FC_SEED`: 32비트 부호 있는 정수(`-2147483648` ~ `2147483647`). 소수(`1.5`), 지수(`1e3`), 문자열(`12junk`) 전달 시 `Invalid MAGI_FC_SEED environment variable: "...". Value must be a valid 32-bit signed integer.`로 즉시 중단. 빈 문자열은 미지정으로 취급.
 - `MAGI_FC_PATH`: 콜론 구분 정수 인덱스 경로(`^\d+(:d+)*$`). `MAGI_FC_SEED` 없이 path만 지정하거나 음수/문자열 전달 시 즉시 중단.
 
 ### 4. 결함 탐지력 검증 (임시 변조 테스트)
@@ -1011,4 +1017,8 @@ node --test clients/vscode/out/test/*.property.test.js
 2. **`onReplyResult` 무조건 무시 변조:**
    - **주입 내용:** `answer_state.ts`의 `onReplyResult` 시작 시 무조건 `{ handled: false }` 반환(모든 호스트 결과를 무시하도록 변조).
    - **실행 결과:** `§5.8.4 Property: Multi-step random command sequence for answer_state maintains invariants` 속성이 seed `1639689559`, path `'8:3:2:2:1:1:1:1'`에서 7회 축소 후 즉각 실패 (`AssertionError: Valid replyResult must be handled by state manager: false !== true`).
+3. **거절 결과의 초안 오염 변조 (검토자 주입 시나리오):**
+   - **주입 내용:** `onReplyResult`에서 미등록 `attemptId` 거절 직전 `currentSessionState().generalDraft = 'REVIEW_CORRUPTION'` 주입.
+   - **실행 결과:** `§5.8.4 Property: Multi-step random command sequence for answer_state maintains invariants` 속성이 seed `101006089`, path `'0:0:0:0:0:0'`에서 1회 실행(5회 축소) 후 즉각 실패:
+     `AssertionError [ERR_ASSERTION]: Initial mismatched attemptId must not corrupt state: generalDraft: 'REVIEW_CORRUPTION' !== ''`.
 - **원복:** 모든 변조 코드를 원래 계약대로 원복한 뒤 15개 속성 테스트 및 5개 헬퍼 테스트가 100% 통과함을 확인했습니다.

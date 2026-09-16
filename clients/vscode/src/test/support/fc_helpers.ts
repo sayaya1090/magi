@@ -1,20 +1,68 @@
 import * as fc from 'fast-check';
 
 /**
- * Builds a safe, shell-quoted node --test command to reproduce a property failure.
- * Quotes and escapes regex characters and shell metacharacters in propertyName so
- * property names containing quotes, braces, colons, or Korean text match exactly.
+ * Information needed to execute a property test reproduction cleanly and cross-platform
+ * via child_process.spawnSync without relying on shell syntax.
+ */
+export interface ReproductionExecution {
+  executable: string;
+  args: string[];
+  env: Record<string, string>;
+  displayCommand: string;
+}
+
+/**
+ * Escapes regex metacharacters in property names for safe --test-name-pattern anchoring.
+ */
+export function escapeRegexPattern(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Constructs cross-platform execution arguments and display command for reproducing a property failure.
+ * Works safely with process.execPath and spawnSync(..., { shell: false }) on Windows, macOS, and Linux.
+ */
+export function getReproductionExecution(
+  propertyName: string,
+  seed: number,
+  path?: string | null,
+  targetPattern = 'clients/vscode/out/test/*.property.test.js'
+): ReproductionExecution {
+  const escaped = escapeRegexPattern(propertyName);
+  const patternArg = `--test-name-pattern=^${escaped}$`;
+  const args = ['--test', patternArg, targetPattern];
+
+  const env: Record<string, string> = {
+    MAGI_FC_SEED: String(seed),
+  };
+  if (path) {
+    env.MAGI_FC_PATH = path;
+  }
+
+  // POSIX shell display format (for sh/bash/zsh)
+  const safeQuotedPattern = `'^${escaped.replace(/'/g, "'\\''")}$'`;
+  const seedPart = `MAGI_FC_SEED=${seed}`;
+  const pathPart = path ? ` MAGI_FC_PATH='${path.replace(/'/g, "'\\''")}'` : '';
+  const displayCommand = `${seedPart}${pathPart} node --test --test-name-pattern=${safeQuotedPattern} ${targetPattern}`;
+
+  return {
+    executable: process.execPath,
+    args,
+    env,
+    displayCommand,
+  };
+}
+
+/**
+ * Builds a safe, shell-quoted node --test command string for display/manual CLI execution.
  */
 export function buildReproductionCommand(
   propertyName: string,
   seed: number,
-  path: string | null | undefined
+  path: string | null | undefined,
+  targetPattern = 'clients/vscode/out/test/*.property.test.js'
 ): string {
-  const escapedPattern = propertyName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const safeQuotedPattern = `'^${escapedPattern.replace(/'/g, "'\\''")}$'`;
-  const seedPart = `MAGI_FC_SEED=${seed}`;
-  const pathPart = path ? ` MAGI_FC_PATH='${path.replace(/'/g, "'\\''")}'` : '';
-  return `${seedPart}${pathPart} node --test --test-name-pattern=${safeQuotedPattern} clients/vscode/out/test/*.property.test.js`;
+  return getReproductionExecution(propertyName, seed, path, targetPattern).displayCommand;
 }
 
 /**

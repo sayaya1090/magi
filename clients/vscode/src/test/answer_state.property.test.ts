@@ -3,9 +3,11 @@ import * as assert from 'node:assert/strict';
 import * as fc from 'fast-check';
 import {
   createAnswerState,
+  AnswerStateManager,
   AskEvent,
   ReplyResultEvent,
 } from '../core/answer_state';
+import { RecoveryItem } from '../core/recovery_state';
 import {
   assertProperty,
   arbKoreanOrAsciiString,
@@ -624,6 +626,88 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
     })
   );
 
+  interface StateSnapshot {
+    currentContext: { companionKey: string; sessionId: string; webviewId?: string };
+    currentInput: string;
+    contexts: Record<
+      string,
+      {
+        generalDraft: string;
+        pendingQuestion: string | null;
+        questionDrafts: Record<string, string>;
+        inFlightReplies: Record<string, { attemptId: number; text: string; version: number }>;
+      }
+    >;
+    recoveryItems: Array<{
+      recoveryId: string;
+      companionKey: string;
+      sessionId?: string;
+      callId?: string;
+      kind: string;
+      text: string;
+      attempts: number;
+      seq: number;
+    }>;
+  }
+
+  function captureSnapshot(
+    mgr: AnswerStateManager,
+    visitedContexts: Set<string>,
+    knownCallIds: Set<string>,
+    currentInput: string
+  ): StateSnapshot {
+    const curCtx = mgr.getCurrentContext();
+    const contexts: StateSnapshot['contexts'] = {};
+
+    for (const ctxKey of visitedContexts) {
+      const [comp, sess] = JSON.parse(ctxKey);
+      const questionDrafts: Record<string, string> = {};
+      const inFlightReplies: Record<string, { attemptId: number; text: string; version: number }> = {};
+      for (const q of knownCallIds) {
+        questionDrafts[q] = mgr.getQuestionDraft(q, comp, sess);
+        const inflight = mgr.getInFlight(q, comp, sess);
+        if (inflight) {
+          inFlightReplies[q] = {
+            attemptId: inflight.attemptId,
+            text: inflight.text,
+            version: inflight.version,
+          };
+        }
+      }
+      contexts[ctxKey] = {
+        generalDraft: mgr.getGeneralDraft(comp, sess),
+        pendingQuestion: mgr.getPendingQuestion(comp, sess),
+        questionDrafts,
+        inFlightReplies,
+      };
+    }
+
+    const recoveryItems = mgr
+      .getRecoveryState()
+      .listItems()
+      .map((item: RecoveryItem) => ({
+        recoveryId: item.recoveryId,
+        companionKey: item.companionKey,
+        sessionId: item.sessionId,
+        callId: item.callId,
+        kind: item.kind,
+        text: item.text,
+        attempts: item.attempts,
+        seq: item.seq,
+      }));
+
+    return {
+      currentContext: {
+        companionKey: curCtx.companionKey,
+        sessionId: curCtx.sessionId,
+        webviewId: curCtx.webviewId,
+      },
+      currentInput,
+      contexts,
+      recoveryItems,
+    };
+  }
+
   assertProperty(
     '§5.8.4 Property: Multi-step random command sequence for answer_state maintains invariants',
     fc.property(
@@ -636,6 +720,9 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
           callId: 'q-init',
           what: 'Initial Question',
         };
+
+        const visitedContexts = new Set<string>([JSON.stringify(['/workspace/repo-a', 'sess-1'])]);
+        const knownCallIds = new Set<string>(['q-init', 'q-alpha', 'q-beta', 'q-gamma', 'q-shared']);
 
         // Initialize with context and an active ask
         mgr.switchContext('/workspace/repo-a', 'sess-1');
@@ -661,10 +748,31 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
         ];
 
         let submitsExecuted = 1;
-        let resultsExecuted = 0;
+        let validResultsExecuted = 0;
+        let invalidResultsExecuted = 0;
+
+        // Guaranteed Step 1: Initial mismatched attemptId check with full state snapshot invariance
+        {
+          const badEvent: ReplyResultEvent = {
+            callId: 'q-init',
+            attemptId: initSub.attemptId! + 999999,
+            ok: true,
+            companionKey: '/workspace/repo-a',
+            session: 'sess-1',
+            generation: initSub.generation,
+            webviewId: initSub.webviewId,
+          };
+          const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+          const outcome = mgr.onReplyResult(badEvent, currentAsk);
+          assert.equal(outcome.handled, false, 'Initial mismatched attemptId must be rejected');
+          const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+          assert.deepEqual(snapshotAfter, snapshotBefore, 'Initial mismatched attemptId must not corrupt state');
+          invalidResultsExecuted++;
+        }
 
         for (const cmd of commands) {
           if (cmd.type === 'switch') {
+            visitedContexts.add(JSON.stringify([cmd.comp, cmd.sess]));
             const res = mgr.switchContext(cmd.comp, cmd.sess, {
               currentInputText: currentInput,
               activeAsk: currentAsk,
@@ -680,6 +788,7 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
               assert.equal(mgr.getQuestionDraft(target.target, ctx.companionKey, ctx.sessionId), cmd.text);
             }
           } else if (cmd.type === 'ask') {
+            knownCallIds.add(cmd.callId);
             currentAsk = {
               kind: 'question',
               callId: cmd.callId,
@@ -690,6 +799,7 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
               currentInput = modeRes.nextInputText;
             }
           } else if (cmd.type === 'enter') {
+            knownCallIds.add(cmd.callId);
             const modeRes = mgr.enterAnswerMode(cmd.callId, 'Title', currentInput);
             if (modeRes.nextInputText !== undefined) {
               currentInput = modeRes.nextInputText;
@@ -700,7 +810,9 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
               currentInput = modeRes.nextInputText;
             }
           } else if (cmd.type === 'submitReply') {
+            knownCallIds.add(cmd.callId);
             const ctx = mgr.getCurrentContext();
+            visitedContexts.add(JSON.stringify([ctx.companionKey, ctx.sessionId]));
             const inFlightBefore = mgr.isInFlight(cmd.callId, ctx.companionKey, ctx.sessionId);
             const isBlank = !cmd.text.trim();
 
@@ -740,9 +852,14 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
 
               if (cmd.variant === 'valid' && !target.resolved) {
                 // Must be in flight before applying valid result
-                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), true);
+                const inFlightBefore = mgr.getInFlight(target.callId, target.companionKey, target.sessionId);
+                assert.ok(inFlightBefore !== undefined, 'Attempt must be in-flight before valid result');
+                assert.equal(inFlightBefore!.attemptId, target.attemptId);
+                assert.equal(inFlightBefore!.text, target.submittedText);
+
                 const activeGeneralBefore = mgr.getGeneralDraft(ctx.companionKey, ctx.sessionId);
                 const activePendingBefore = mgr.getPendingQuestion(ctx.companionKey, ctx.sessionId);
+                const activeInputBefore = currentInput;
 
                 const event: ReplyResultEvent = {
                   callId: target.callId,
@@ -760,6 +877,16 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                 // Lock must be released
                 assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), false);
 
+                // If failed, verify submittedText is registered in recovery state for target context
+                if (!cmd.ok) {
+                  const recItems = mgr.getRecoveryState().listItems({
+                    companionKey: target.companionKey,
+                    sessionId: target.sessionId,
+                  });
+                  const found = recItems.find((r) => r.callId === target.callId && r.text === target.submittedText);
+                  assert.ok(found !== undefined, 'Failed attempt submittedText must be recorded in recoveryState');
+                }
+
                 // If result belongs to non-active context, active context must NOT be mutated
                 const isCurrent =
                   target.companionKey === ctx.companionKey && target.sessionId === ctx.sessionId;
@@ -769,14 +896,15 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   }
                   assert.equal(mgr.getGeneralDraft(ctx.companionKey, ctx.sessionId), activeGeneralBefore);
                   assert.equal(mgr.getPendingQuestion(ctx.companionKey, ctx.sessionId), activePendingBefore);
-                }
-
-                if (outcome.nextInputText !== undefined) {
-                  currentInput = outcome.nextInputText;
+                  assert.equal(currentInput, activeInputBefore);
+                } else {
+                  if (outcome.nextInputText !== undefined) {
+                    currentInput = outcome.nextInputText;
+                  }
                 }
 
                 target.resolved = true;
-                resultsExecuted++;
+                validResultsExecuted++;
               } else if (cmd.variant === 'mismatched_id') {
                 const badEvent: ReplyResultEvent = {
                   callId: target.callId,
@@ -788,11 +916,12 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   generation: target.generation,
                   webviewId: target.webviewId,
                 };
-                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
                 const outcome = mgr.onReplyResult(badEvent, currentAsk);
                 assert.equal(outcome.handled, false, 'Mismatched attemptId must be rejected');
-                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
-                resultsExecuted++;
+                const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+                assert.deepEqual(snapshotAfter, snapshotBefore, 'Mismatched attemptId must not corrupt state');
+                invalidResultsExecuted++;
               } else if (cmd.variant === 'mismatched_comp') {
                 const badEvent: ReplyResultEvent = {
                   callId: target.callId,
@@ -804,11 +933,12 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   generation: target.generation,
                   webviewId: target.webviewId,
                 };
-                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
                 const outcome = mgr.onReplyResult(badEvent, currentAsk);
                 assert.equal(outcome.handled, false, 'Mismatched companionKey must be rejected');
-                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
-                resultsExecuted++;
+                const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+                assert.deepEqual(snapshotAfter, snapshotBefore, 'Mismatched companionKey must not corrupt state');
+                invalidResultsExecuted++;
               } else if (cmd.variant === 'mismatched_sess') {
                 const badEvent: ReplyResultEvent = {
                   callId: target.callId,
@@ -820,11 +950,12 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   generation: target.generation,
                   webviewId: target.webviewId,
                 };
-                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
                 const outcome = mgr.onReplyResult(badEvent, currentAsk);
                 assert.equal(outcome.handled, false, 'Mismatched session must be rejected');
-                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
-                resultsExecuted++;
+                const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+                assert.deepEqual(snapshotAfter, snapshotBefore, 'Mismatched session must not corrupt state');
+                invalidResultsExecuted++;
               } else {
                 // If variant is stale_replay or target was already resolved:
                 if (!target.resolved) {
@@ -841,8 +972,9 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   const res = mgr.onReplyResult(resolveEvent, currentAsk);
                   assert.equal(res.handled, true, 'Initial resolution must succeed before stale replay');
                   target.resolved = true;
+                  validResultsExecuted++;
                 }
-                // Replay after resolution must be rejected
+                // Replay after resolution must be rejected without mutating state
                 const staleEvent: ReplyResultEvent = {
                   callId: target.callId,
                   attemptId: target.attemptId,
@@ -853,9 +985,12 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
                   generation: target.generation,
                   webviewId: target.webviewId,
                 };
+                const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
                 const outcome = mgr.onReplyResult(staleEvent, currentAsk);
                 assert.equal(outcome.handled, false, 'Stale replay of resolved attempt must not be handled');
-                resultsExecuted++;
+                const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+                assert.deepEqual(snapshotAfter, snapshotBefore, 'Stale replay must not corrupt state');
+                invalidResultsExecuted++;
               }
             }
           } else if (cmd.type === 'applyRecovery') {
@@ -877,19 +1012,73 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
           }
 
           // Core Invariants check after each command:
-          // 1. Check in-flight attempts have valid attemptId > 0
+          // Every unresolved attempt in ledger MUST exist in-flight with matching attemptId and submittedText!
           for (const att of ledger) {
             if (!att.resolved) {
               const inFlight = mgr.getInFlight(att.callId, att.companionKey, att.sessionId);
-              if (inFlight && inFlight.attemptId === att.attemptId) {
-                assert.ok(inFlight.attemptId > 0);
-                assert.equal(mgr.isInFlight(att.callId, att.companionKey, att.sessionId), true);
-              }
+              assert.ok(inFlight !== undefined, `Unresolved attempt ${att.attemptId} must exist in flight`);
+              assert.equal(inFlight!.attemptId, att.attemptId);
+              assert.equal(inFlight!.text, att.submittedText);
+              assert.equal(mgr.isInFlight(att.callId, att.companionKey, att.sessionId), true);
             }
           }
         }
 
-        assert.ok(submitsExecuted >= 1, 'At least 1 submit must have executed');
+        // Guaranteed Step 2: Ensure at least one unresolved attempt is resolved with valid result & stale replayed
+        const unresolved = ledger.filter((a) => !a.resolved);
+        if (unresolved.length > 0) {
+          const target = unresolved[0];
+          const ctxBefore = mgr.getCurrentContext();
+          const isCurrent = target.companionKey === ctxBefore.companionKey && target.sessionId === ctxBefore.sessionId;
+          const activeGeneralBefore = mgr.getGeneralDraft(ctxBefore.companionKey, ctxBefore.sessionId);
+          const activePendingBefore = mgr.getPendingQuestion(ctxBefore.companionKey, ctxBefore.sessionId);
+          const activeInputBefore = currentInput;
+
+          const validEvent: ReplyResultEvent = {
+            callId: target.callId,
+            attemptId: target.attemptId,
+            ok: false,
+            error: 'Guaranteed final resolution error',
+            companionKey: target.companionKey,
+            session: target.sessionId,
+            generation: target.generation,
+            webviewId: target.webviewId,
+          };
+
+          const outcome = mgr.onReplyResult(validEvent, currentAsk);
+          assert.equal(outcome.handled, true);
+          assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), false);
+
+          const recItems = mgr.getRecoveryState().listItems({
+            companionKey: target.companionKey,
+            sessionId: target.sessionId,
+          });
+          const found = recItems.find((r) => r.callId === target.callId && r.text === target.submittedText);
+          assert.ok(found !== undefined, 'Guaranteed failed resolution must record submittedText in recoveryState');
+
+          if (!isCurrent) {
+            assert.equal(outcome.restoredInStoreOnly, true);
+            assert.equal(mgr.getGeneralDraft(ctxBefore.companionKey, ctxBefore.sessionId), activeGeneralBefore);
+            assert.equal(mgr.getPendingQuestion(ctxBefore.companionKey, ctxBefore.sessionId), activePendingBefore);
+            assert.equal(currentInput, activeInputBefore);
+          } else if (outcome.nextInputText !== undefined) {
+            currentInput = outcome.nextInputText;
+          }
+          target.resolved = true;
+          validResultsExecuted++;
+
+          // Stale replay check
+          const snapshotBefore = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+          const staleOutcome = mgr.onReplyResult(validEvent, currentAsk);
+          assert.equal(staleOutcome.handled, false, 'Stale replay of final resolved attempt must be rejected');
+          const snapshotAfter = captureSnapshot(mgr, visitedContexts, knownCallIds, currentInput);
+          assert.deepEqual(snapshotAfter, snapshotBefore, 'Stale replay must not corrupt state');
+          invalidResultsExecuted++;
+        }
+
+        assert.ok(submitsExecuted >= 1, `Submits executed: ${submitsExecuted}`);
+        assert.ok(validResultsExecuted >= 1, `Valid results executed: ${validResultsExecuted}`);
+        assert.ok(invalidResultsExecuted >= 1, `Invalid results executed: ${invalidResultsExecuted}`);
       }
     )
   );
