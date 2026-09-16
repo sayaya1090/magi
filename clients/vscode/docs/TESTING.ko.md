@@ -561,16 +561,50 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - 본 검증은 OS 입력 관리자(Text Input System / TSF)를 직접 거친 실물 타건 시험이 아니며, 브라우저 합성 이벤트(Synthetic Event)에 기반한 어댑터 가드 검증입니다.
      - 실제 OS IME 검증을 위해서는 IDE/브라우저 실물 환경에서 실제 입력기를 통한 수동 타건 절차(조합 중 Enter 확정 vs 폼 제출 분리 실측 등) 또는 OS 접근성 API 기반 네이티브 하네스가 요구됩니다.
 
+---
 
+### §5.6 선택지 번호 중복 방지, CSS 목록 마커 제어 및 숫자 본문 보존
 
+1. **번호 판단 및 표시 헬퍼 (`src/web/chat_adapter.ts`):**
+   - 순수 함수 `formatChoiceOptions(options)` 및 인터페이스 `FormattedChoices`, `FormattedChoiceOption` 추가.
+   - **판정 규칙:**
+     - 목록 전체가 1부터 순서대로 시작하는 동일한 형식의 번호(`1. 내용`, `1) 내용`, `(1) 내용`)를 가진 경우에만 ‘이미 번호가 있는 목록’(`hideListMarker: true`)으로 판정합니다.
+     - 번호 뒤에는 공백 또는 탭(`[ \t]+`)이 최소 하나 필요하며, 번호를 제외한 본문도 존재해야 합니다.
+     - 항목 번호가 실제 인덱스+1과 정확히 일치해야 하며, 형식 혼합(`1. `와 `2) `), 번호 건너뜀(`1. `와 `3. `), 빈 본문(`1. `)은 번호 있는 목록에서 제외합니다.
+     - `1.5배`, `2026. 계획`, `123.txt` 등 숫자 본문은 번호 없는 일반 목록으로 취급하여 접두사를 일체 제거하지 않고 원문 그대로 보존합니다.
+     - 원본 `options` 배열과 원문 문자열을 절대 변조하지 않는 불변성(immutability)을 보장합니다.
+   - **버튼 라벨 구성:**
+     - 이미 번호가 있는 목록일 때만 확인된 번호 접두사를 제거하고, 첫 줄 기준 최대 20자 축약(`slice(0, 19) + '…'`)을 적용한 뒤 고유 순번(`(i + 1) + '. '`)을 부여합니다 (중복 번호 제거).
+     - 번호 없는 목록 또는 숫자 본문은 원문 전체를 기준으로 축약 및 순번을 부여하여 숫자가 라벨에서 누락되지 않도록 보존합니다.
+     - 버튼 `title` 및 클릭 시 전송값은 모든 경우 원문 전체를 verbatim으로 유지합니다.
 
+2. **UI 표시 및 CSS 목록 마커 제어 (`src/web/chat_html.ts`):**
+   - 본문 `ol.choices li`의 `textContent`는 모든 경우 원문 그대로 설정합니다.
+   - 이미 번호가 있는 목록에만 `#ask-body ol.choices.hide-marker { list-style: none; margin-left: 4px; }` 규칙을 적용하여 브라우저의 기본 숫자 마커를 숨김으로써 중복 표시를 제거합니다.
+   - 일반 목록은 기본 `list-style-type: decimal`을 유지하여 접근성과 시인성을 보장합니다.
+   - 버튼 `textContent`는 `formatChoiceOptions`가 생성한 `item.buttonLabel`을 설정하고, 본문과 버튼이 단일 판정기를 공유합니다.
 
+3. **자동화 검증 (`webview.test.ts` & `transcript-test.mjs`):**
+   - **단위 테스트 (`webview.test.ts`):**
+     - 세 가지 정상 번호 형식(`1. `, `1) `, `(1) `), 번호 없는 목록, 한 항목 목록(`1. `, `1) `, `(1) `, `단일`, `2. 잘못된 시작`), 긴 첫 줄·여러 줄, 공백/탭 포함 원문, `1.5배`·`2026. 계획`·`123.txt`, 혼합 형식, 번호 건너뜀, 빈 번호 본문, 배열 불변성(`Object.freeze`), null/undefined/빈 배열 전수 검증 통과.
+     - `renderChatHtml` 내 `hide-marker` CSS 선언 및 `drawAsk` 내 `formatChoiceOptions` 호출·클래스 조건부 설정 검증.
+   - **브라우저 E2E 하네스 (`transcript-test.mjs` - `asks_choice_numbering_and_numeric_body_preservation`):**
+     - 이미 번호가 있는 목록 렌더링 시 `ol.choices`의 `hide-marker` 클래스 및 computed `listStyleType === 'none'` 실측.
+     - 본문 `li` 전문과 버튼 `title`이 원문과 동일함을 단언.
+     - 버튼 텍스트에서 중복 번호(`1. 1. `) 없이 깨끗한 순번 라벨 표시 실측.
+     - 숫자 본문(`1.5배`, `2026. 계획`, `123.txt`) 렌더링 시 `hide-marker` 부재 및 computed `listStyleType !== 'none'` (decimal 마커 유지) 확인.
+     - 숫자 본문 버튼 라벨에 `1. 1.5배 성능 향상`, `2. 2026. 계획 수립`, `3. 123.txt 파일 처리`로 숫자가 온전히 유지됨을 단언.
+     - 대표 버튼 클릭 시 원문 전체를 `reply`로 정확히 1회 전송하며, `#say`에 입력된 일반 작업 초안이 오염 없이 그대로 보존됨을 검증.
+     - 320×600 및 420×700 뷰포트에서 긴 선택지의 본문 전문 접근성, `jumpBtn` → 버튼 1 → 버튼 2 → 버튼 3 → '직접 입력' 버튼까지의 Tab 순차 탐색 체인 및 `activeElement` 일치 실측.
 
+4. **화면 캡처 증거 및 환경 구분:**
+   - **Chromium 모의 실행 캡처:**
+     - `docs/img/ide/14_choices_already_numbered_dark.png`: 이미 번호가 있는 선택지 목록(중복 마커 제거 및 깨끗한 버튼 라벨).
+     - `docs/img/ide/15_choices_numeric_body_dark.png`: 숫자 본문 선택지 목록(`1.5배`, `2026. 계획` 등 숫자 보존).
+     - `docs/img/ide/02_multiple_choice_dark.png`: 개선된 선택지 레이아웃 최신 캡처 갱신.
+   - **환경 구분 안내:** 본 캡처 및 E2E 테스트는 Chromium 모의 웹뷰 실행 환경 기준이며, 실제 IDE 웹뷰 및 OS 네이티브 IME 실물 인수는 별도로 진행됩니다.
 
-
-
-
-
-
-
-
+5. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공.
+   - **단위 테스트 (`npm test`):** 총 466개 테스트 전수 통과 (459 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 30개 시나리오 100% 통과 (pageerror 0건).

@@ -1893,6 +1893,189 @@ const bundles = [
           await page.locator('#recovery-btn').click();
           await say.fill('');
         }
+      },
+      {
+        id: 'asks_choice_numbering_and_numeric_body_preservation',
+        name: '선택지 번호 판정, CSS 목록 마커 제어, 숫자 본문 보존 및 버튼 라벨/전송값 검증 (§5.6)',
+        run: async (page) => {
+          // 1. 이미 번호가 있는 목록 (Format A: `1. `, `2. `)
+          // 본문 li는 원문 그대로 유지, ol.choices는 hide-marker 클래스 부여 및 computed listStyleType === 'none'
+          // 버튼은 중복 번호 없이 순번 유지, 첫 줄 및 20자 축약, title은 원문 전체
+          const numberedOptions = [
+            '1. 첫 번째 항목\n상세한 설명 줄',
+            '2. 두 번째 일반 항목',
+            '3. 세 번째 아주아주 긴 옵션 텍스트로 버튼 라벨에서 말줄임표로 축약되는 항목입니다'
+          ];
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-choices',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '선택지 번호 검증' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-choices-numbered',
+              what: '진행 방식을 선택해주세요',
+              options: numberedOptions
+            }
+          }));
+
+          await page.waitForSelector('#ask-controls button:text("1. 첫 번째 항목")');
+          const olNumbered = page.locator('#ask-body ol.choices');
+          assert.equal(await olNumbered.evaluate((el) => el.classList.contains('hide-marker')), true, 'already-numbered ol must have hide-marker class');
+          const numberedListStyle = await olNumbered.evaluate((el) => window.getComputedStyle(el).listStyleType);
+          assert.equal(numberedListStyle, 'none', 'already-numbered ol must have listStyleType none');
+
+          // 본문 li textContent는 원문 그대로 보존
+          const liTextsNumbered = await page.locator('#ask-body ol.choices li').allTextContents();
+          assert.deepEqual(liTextsNumbered, numberedOptions, 'li textContent must match raw options verbatim');
+
+          // 버튼 라벨: 중복 번호 없이 1. 첫 번째 항목, 2. 두 번째 일반 항목, 3. 세 번째 아주아주 긴…
+          const btnTextsNumbered = await page.locator('#ask-controls .acts button').allTextContents();
+          assert.equal(btnTextsNumbered[0], '1. 첫 번째 항목');
+          assert.equal(btnTextsNumbered[1], '2. 두 번째 일반 항목');
+          assert.equal(btnTextsNumbered[2], '3. 세 번째 아주아주 긴 옵션 텍스트로…');
+          assert.equal(btnTextsNumbered[3], '직접 입력');
+
+          // 버튼 title은 원문 전체
+          const btn1Title = await page.locator('#ask-controls .acts button').nth(0).getAttribute('title');
+          const btn3Title = await page.locator('#ask-controls .acts button').nth(2).getAttribute('title');
+          assert.equal(btn1Title, numberedOptions[0]);
+          assert.equal(btn3Title, numberedOptions[2]);
+
+          // 2. 다른 정상 번호 형식 검증: paren `1) ` 및 bracket `(1) `
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-choices',
+            companionKey: '/workspace',
+            ask: {
+              kind: 'question',
+              callId: 'q-choices-paren',
+              what: '괄호 번호 선택지',
+              options: ['1) 알파 옵션', '2) 베타 옵션']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 알파 옵션")');
+          assert.equal(await page.locator('#ask-body ol.choices').evaluate((el) => el.classList.contains('hide-marker')), true);
+          assert.equal(await page.locator('#ask-body ol.choices').evaluate((el) => window.getComputedStyle(el).listStyleType), 'none');
+          assert.deepEqual(await page.locator('#ask-controls .acts button').allTextContents(), ['1. 알파 옵션', '2. 베타 옵션', '직접 입력']);
+
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-choices',
+            companionKey: '/workspace',
+            ask: {
+              kind: 'question',
+              callId: 'q-choices-bracket',
+              what: '대괄호 번호 선택지',
+              options: ['(1) 첫 번째', '(2) 두 번째']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 첫 번째")');
+          assert.equal(await page.locator('#ask-body ol.choices').evaluate((el) => el.classList.contains('hide-marker')), true);
+          assert.equal(await page.locator('#ask-body ol.choices').evaluate((el) => window.getComputedStyle(el).listStyleType), 'none');
+          assert.deepEqual(await page.locator('#ask-controls .acts button').allTextContents(), ['1. 첫 번째', '2. 두 번째', '직접 입력']);
+
+          // 3. 숫자 본문 보존: `1.5배`, `2026. 계획`, `123.txt`
+          // 번호 있는 목록으로 분류되지 않아야 하며 접두사를 제거하지 않음
+          // ol.choices는 hide-marker가 없고 listStyleType !== 'none'
+          const numericOptions = ['1.5배 성능 향상', '2026. 계획 수립', '123.txt 파일 처리'];
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-choices',
+            companionKey: '/workspace',
+            ask: {
+              kind: 'question',
+              callId: 'q-choices-numeric',
+              what: '숫자 본문 선택지',
+              options: numericOptions
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 1.5배 성능 향상")');
+          const olNumeric = page.locator('#ask-body ol.choices');
+          assert.equal(await olNumeric.evaluate((el) => el.classList.contains('hide-marker')), false, 'numeric bodies must NOT have hide-marker class');
+          const numericStyle = await olNumeric.evaluate((el) => window.getComputedStyle(el).listStyleType);
+          assert.notEqual(numericStyle, 'none', 'numeric bodies ol must preserve default decimal marker');
+
+          // li textContent 및 버튼 라벨 보존
+          const liTextsNumeric = await page.locator('#ask-body ol.choices li').allTextContents();
+          assert.deepEqual(liTextsNumeric, numericOptions);
+
+          const btnTextsNumeric = await page.locator('#ask-controls .acts button').allTextContents();
+          assert.deepEqual(btnTextsNumeric, [
+            '1. 1.5배 성능 향상',
+            '2. 2026. 계획 수립',
+            '3. 123.txt 파일 처리',
+            '직접 입력'
+          ]);
+          assert.equal(await page.locator('#ask-controls .acts button').nth(0).getAttribute('title'), '1.5배 성능 향상');
+
+          // 4. 대표 버튼 클릭 시 원문 전체 reply 전송 및 일반 초안 보존
+          await page.locator('#say').fill('보존되어야 하는 일반 작업 초안');
+          const postedLenBeforeClick = await page.evaluate(() => window.__posted.length);
+          await page.locator('#ask-controls .acts button').nth(0).click(); // Click '1. 1.5배 성능 향상'
+
+          const postedAfterClick = await page.evaluate(() => window.__posted);
+          const replyMsgs = postedAfterClick.slice(postedLenBeforeClick).filter((m) => m.kind === 'reply');
+          assert.equal(replyMsgs.length, 1, 'Exactly one reply sent on choice button click');
+          assert.equal(replyMsgs[0].callId, 'q-choices-numeric');
+          assert.equal(replyMsgs[0].text, '1.5배 성능 향상', 'Sent reply text must match verbatim option text');
+
+          // 일반 초안 보존 단언
+          assert.equal(await page.locator('#say').inputValue(), '보존되어야 하는 일반 작업 초안', 'General draft must be preserved after choice submission');
+
+          // 5. 320x600 및 420x700 뷰포트에서 긴 선택지, 직접 입력 버튼 접근, Tab 이동 및 본문 전문 접근
+          const longChoiceOptions = [
+            '1. 아주아주 긴 첫 번째 배포 전략 선택지로 상세 설명이 긴 본문입니다\n부연설명',
+            '2. 두 번째 아주아주 긴 롤백 전략 선택지',
+            '3. 세 번째 카나리 테스트 배포 옵션'
+          ];
+          for (const vp of [{ width: 320, height: 600 }, { width: 420, height: 700 }]) {
+            await page.setViewportSize(vp);
+            await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+              session: 'sess-choices',
+              companionKey: '/workspace',
+              ask: {
+                kind: 'question',
+                callId: `q-long-${vp.width}`,
+                what: `긴 선택지 뷰포트 ${vp.width}x${vp.height} 접근성 검증`,
+                options: longChoiceOptions
+              }
+            }));
+            await page.waitForFunction((expected) => {
+              const li = document.querySelector('#ask-body ol.choices li');
+              return li && li.textContent && li.textContent.includes(expected);
+            }, '아주아주 긴 첫 번째 배포 전략');
+
+            // 본문 전문 DOM 접근 확인
+            const liItems = await page.locator('#ask-body ol.choices li').allTextContents();
+            assert.deepEqual(liItems, longChoiceOptions, `li items intact at ${vp.width}x${vp.height}`);
+
+            // 직접 입력 버튼 노출 및 접근성 확인
+            const directInputBtn = page.locator('#ask-controls button:text("직접 입력")');
+            assert.equal(await directInputBtn.isVisible(), true, `direct input button visible at ${vp.width}x${vp.height}`);
+
+            // Tab 이동 검증: jumpBtn -> 버튼 1 -> 버튼 2 -> 버튼 3 -> 직접 입력
+            const jumpBtn = page.locator('#ask-controls .jump-btn');
+            await jumpBtn.focus();
+            assert.equal(await page.evaluate(() => document.activeElement.classList.contains('jump-btn')), true);
+
+            const choiceBtns = page.locator('#ask-controls .acts button');
+            const totalActsBtns = await choiceBtns.count(); // 3 choice btns + 1 직접 입력 = 4
+            assert.equal(totalActsBtns, 4);
+
+            for (let bIdx = 0; bIdx < totalActsBtns; bIdx++) {
+              await page.keyboard.press('Tab');
+              const isActive = await choiceBtns.nth(bIdx).evaluate((el) => document.activeElement === el);
+              assert.ok(isActive, `Tab at index ${bIdx} (${await choiceBtns.nth(bIdx).textContent()}) must be active at ${vp.width}x${vp.height}`);
+            }
+          }
+
+          // Reset viewport and cleanup
+          await page.setViewportSize({ width: 420, height: 700 });
+          await page.locator('#say').fill('');
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-choices',
+            companionKey: '/workspace',
+            rows: [],
+            ask: null
+          }));
+        }
       }
     ]
   },

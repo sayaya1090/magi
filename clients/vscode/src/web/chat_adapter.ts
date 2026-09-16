@@ -1640,3 +1640,108 @@ export function renderMarkdown(
   }
 }
 
+export interface FormattedChoiceOption {
+  raw: string;
+  buttonLabel: string;
+}
+
+export interface FormattedChoices {
+  hideListMarker: boolean;
+  items: FormattedChoiceOption[];
+}
+
+type NumberedFormat = 'dot' | 'paren' | 'bracket';
+
+interface ParsedChoicePrefix {
+  format: NumberedFormat;
+  prefixLen: number;
+}
+
+function parseChoiceNumberPrefix(text: string, expectedNum: number): ParsedChoicePrefix | null {
+  // Format 1: `1. 내용`
+  const dotPrefix = `${expectedNum}.`;
+  if (text.startsWith(dotPrefix)) {
+    const rest = text.slice(dotPrefix.length);
+    const m = rest.match(/^[ \t]+/);
+    if (m) {
+      const prefixLen = dotPrefix.length + m[0].length;
+      if (text.slice(prefixLen).trim().length > 0) {
+        return { format: 'dot', prefixLen };
+      }
+    }
+  }
+
+  // Format 2: `1) 내용`
+  const parenPrefix = `${expectedNum})`;
+  if (text.startsWith(parenPrefix)) {
+    const rest = text.slice(parenPrefix.length);
+    const m = rest.match(/^[ \t]+/);
+    if (m) {
+      const prefixLen = parenPrefix.length + m[0].length;
+      if (text.slice(prefixLen).trim().length > 0) {
+        return { format: 'paren', prefixLen };
+      }
+    }
+  }
+
+  // Format 3: `(1) 내용`
+  const bracketPrefix = `(${expectedNum})`;
+  if (text.startsWith(bracketPrefix)) {
+    const rest = text.slice(bracketPrefix.length);
+    const m = rest.match(/^[ \t]+/);
+    if (m) {
+      const prefixLen = bracketPrefix.length + m[0].length;
+      if (text.slice(prefixLen).trim().length > 0) {
+        return { format: 'bracket', prefixLen };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function formatChoiceOptions(options?: readonly string[] | null): FormattedChoices {
+  if (!options || !Array.isArray(options) || options.length === 0) {
+    return { hideListMarker: false, items: [] };
+  }
+
+  let alreadyNumbered = true;
+  let detectedFormat: NumberedFormat | null = null;
+  const prefixLens: number[] = [];
+
+  for (let i = 0; i < options.length; i++) {
+    const opt = options[i];
+    if (typeof opt !== 'string') {
+      alreadyNumbered = false;
+      break;
+    }
+    const parsed = parseChoiceNumberPrefix(opt, i + 1);
+    if (!parsed) {
+      alreadyNumbered = false;
+      break;
+    }
+    if (i === 0) {
+      detectedFormat = parsed.format;
+    } else if (parsed.format !== detectedFormat) {
+      alreadyNumbered = false;
+      break;
+    }
+    prefixLens.push(parsed.prefixLen);
+  }
+
+  const items: FormattedChoiceOption[] = [];
+  for (let i = 0; i < options.length; i++) {
+    const raw = options[i];
+    const clean = alreadyNumbered ? raw.slice(prefixLens[i]) : raw;
+    const firstLine = clean.split('\n')[0].trim();
+    const shortLabel = firstLine.length > 20 ? firstLine.slice(0, 19) + '…' : firstLine;
+    const buttonLabel = `${i + 1}. ${shortLabel || (alreadyNumbered ? clean.trim().slice(0, 20) : raw.slice(0, 20))}`;
+    items.push({ raw, buttonLabel });
+  }
+
+  return {
+    hideListMarker: alreadyNumbered,
+    items,
+  };
+}
+

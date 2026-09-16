@@ -179,6 +179,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #ask-body .ground { font-size:.9em; margin:4px 0; white-space:pre-wrap; word-break:break-word; }
   #ask-body .ground b { color:var(--vscode-descriptionForeground); font-weight:600; }
   #ask-body ol.choices { margin:6px 0 6px 20px; padding:0; font-size:.9em; }
+  #ask-body ol.choices.hide-marker { list-style:none; margin-left:4px; }
   #ask-body ol.choices li { margin:2px 0; white-space:pre-wrap; word-break:break-word; }
   /* The response controls stay outside the scroll container, fixed directly above the composer.
      The summary row stays permanently pinned while the button group (.acts) is capped at 25vh
@@ -484,27 +485,26 @@ function drawAsk(a) {
     row.append(k, g.text);   /* text as a node, never innerHTML: the model wrote it */
     askBodyEl.append(row);
   }
-  if ((a.options || []).length) {
+  const formattedChoices = typeof formatChoiceOptions === 'function'
+    ? formatChoiceOptions(a.options)
+    : { hideListMarker: false, items: (a.options || []).map((opt, i) => ({ raw: opt, buttonLabel: (i + 1) + '. ' + opt })) };
+  if (formattedChoices.items.length) {
     const ol = document.createElement('ol');
-    ol.className = 'choices';
-    for (const opt of a.options) {
+    ol.className = formattedChoices.hideListMarker ? 'choices hide-marker' : 'choices';
+    for (const item of formattedChoices.items) {
       const li = document.createElement('li');
-      li.textContent = opt;
+      li.textContent = item.raw;
       ol.append(li);
     }
     askBodyEl.append(ol);
   }
-  const opts = a.options || [];
-  for (let i = 0; i < opts.length; i++) {
-    const opt = opts[i];
+  for (let i = 0; i < formattedChoices.items.length; i++) {
+    const item = formattedChoices.items[i];
     const b = document.createElement('button');
-    const clean = opt.replace(/^(\\d+[\\.\\)]|\\(\\d+\\))\\s*/, '');
-    const firstLine = clean.split('\\n')[0].trim();
-    const shortLabel = firstLine.length > 20 ? firstLine.slice(0, 19) + '…' : firstLine;
-    b.textContent = (i + 1) + '. ' + (shortLabel || opt.slice(0, 20));
-    b.title = opt;
+    b.textContent = item.buttonLabel;
+    b.title = item.raw;
     b.addEventListener('click', () => {
-      inputAdapter.submitChoice(a.callId, opt);
+      inputAdapter.submitChoice(a.callId, item.raw);
     });
     acts.append(b);
   }
@@ -514,7 +514,7 @@ function drawAsk(a) {
   free.addEventListener('click', () => { inputAdapter.enterAnswerMode(a.callId, a.what); });
   acts.append(free);
   askControlsEl.append(acts);
-  if (opts.length === 0) {
+  if (formattedChoices.items.length === 0) {
     inputAdapter.enterAnswerMode(a.callId, a.what);
   }
 }

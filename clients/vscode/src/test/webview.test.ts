@@ -19,6 +19,7 @@ import {
   restoreFocus,
   classifyDiffLines,
   renderMarkdown,
+  formatChoiceOptions,
   WebviewBridge,
 } from '../web/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
@@ -3757,4 +3758,122 @@ test('§5.6: renderChatHtml defines secondary styling for inspection buttons and
   assert.ok(html.includes("'diff-btn inspect-btn'"), 'sets inspect-btn on diffBtn');
   assert.ok(html.includes("'approval-btn decision-' + d"), 'sets approval-btn on decision buttons');
 });
+
+test('§5.6: formatChoiceOptions detects numbered lists, hides markers, and preserves numeric bodies and immutability', () => {
+  // 1. Three valid numbering formats (dot, paren, bracket)
+  const dotList = ['1. 첫 번째 항목', '2. 두 번째 항목', '3. 세 번째 항목'];
+  const dotRes = formatChoiceOptions(dotList);
+  assert.equal(dotRes.hideListMarker, true, 'dot format must hide list marker');
+  assert.deepEqual(dotRes.items.map((i) => i.buttonLabel), ['1. 첫 번째 항목', '2. 두 번째 항목', '3. 세 번째 항목']);
+  assert.deepEqual(dotRes.items.map((i) => i.raw), dotList);
+
+  const parenList = ['1) 알파', '2) 베타'];
+  const parenRes = formatChoiceOptions(parenList);
+  assert.equal(parenRes.hideListMarker, true, 'paren format must hide list marker');
+  assert.deepEqual(parenRes.items.map((i) => i.buttonLabel), ['1. 알파', '2. 베타']);
+
+  const bracketList = ['(1) 항목 A', '(2) 항목 B'];
+  const bracketRes = formatChoiceOptions(bracketList);
+  assert.equal(bracketRes.hideListMarker, true, 'bracket format must hide list marker');
+  assert.deepEqual(bracketRes.items.map((i) => i.buttonLabel), ['1. 항목 A', '2. 항목 B']);
+
+  // 2. Unnumbered list
+  const unnumbered = ['사과', '바나나', '포도'];
+  const unnumberedRes = formatChoiceOptions(unnumbered);
+  assert.equal(unnumberedRes.hideListMarker, false, 'unnumbered list keeps list marker');
+  assert.deepEqual(unnumberedRes.items.map((i) => i.buttonLabel), ['1. 사과', '2. 바나나', '3. 포도']);
+  assert.deepEqual(unnumberedRes.items.map((i) => i.raw), unnumbered);
+
+  // 3. Single-item lists
+  const singleDot = formatChoiceOptions(['1. 단일 항목']);
+  assert.equal(singleDot.hideListMarker, true);
+  assert.equal(singleDot.items[0].buttonLabel, '1. 단일 항목');
+
+  const singleParen = formatChoiceOptions(['1) 단일 항목']);
+  assert.equal(singleParen.hideListMarker, true);
+  assert.equal(singleParen.items[0].buttonLabel, '1. 단일 항목');
+
+  const singleBracket = formatChoiceOptions(['(1) 단일 항목']);
+  assert.equal(singleBracket.hideListMarker, true);
+  assert.equal(singleBracket.items[0].buttonLabel, '1. 단일 항목');
+
+  const singleUnnumbered = formatChoiceOptions(['단일 항목']);
+  assert.equal(singleUnnumbered.hideListMarker, false);
+  assert.equal(singleUnnumbered.items[0].buttonLabel, '1. 단일 항목');
+
+  const singleWrongStart = formatChoiceOptions(['2. 잘못된 시작']);
+  assert.equal(singleWrongStart.hideListMarker, false, 'single item starting at 2 is not numbered');
+  assert.equal(singleWrongStart.items[0].buttonLabel, '1. 2. 잘못된 시작');
+
+  // 4. Long first line and multiline options
+  const longMultiline = [
+    '1. 첫 줄이 아주아주 길어서 이십 자를 훌쩍 넘기는 본문입니다\n두 번째 줄 상세 설명',
+    '2. 짧은 둘째 항목'
+  ];
+  const longRes = formatChoiceOptions(longMultiline);
+  assert.equal(longRes.hideListMarker, true);
+  assert.equal(longRes.items[0].buttonLabel, '1. 첫 줄이 아주아주 길어서 이십 자를…');
+  assert.equal(longRes.items[0].raw, longMultiline[0]);
+  assert.equal(longRes.items[1].buttonLabel, '2. 짧은 둘째 항목');
+
+  // 5. Options with tabs and multiple spaces
+  const whitespaceList = ['1.\t탭으로 구분된 본문', '2.   공백 세 개인 본문'];
+  const wsRes = formatChoiceOptions(whitespaceList);
+  assert.equal(wsRes.hideListMarker, true);
+  assert.equal(wsRes.items[0].buttonLabel, '1. 탭으로 구분된 본문');
+  assert.equal(wsRes.items[1].buttonLabel, '2. 공백 세 개인 본문');
+
+  // 6. Numeric bodies: 1.5배, 2026. 계획, 123.txt must NOT have prefixes stripped
+  const numericBodies = ['1.5배 속도 향상', '2026. 계획 수립', '123.txt 파일 처리'];
+  const numRes = formatChoiceOptions(numericBodies);
+  assert.equal(numRes.hideListMarker, false, 'numeric bodies must not be classified as already numbered');
+  assert.deepEqual(numRes.items.map((i) => i.buttonLabel), [
+    '1. 1.5배 속도 향상',
+    '2. 2026. 계획 수립',
+    '3. 123.txt 파일 처리'
+  ]);
+  assert.deepEqual(numRes.items.map((i) => i.raw), numericBodies);
+
+  // 7. Format mixing, number skipping, and empty content
+  const mixedFormats = ['1. 첫 번째', '2) 두 번째'];
+  assert.equal(formatChoiceOptions(mixedFormats).hideListMarker, false, 'mixed formats rejected');
+
+  const skippedNumber = ['1. 첫 번째', '3. 세 번째'];
+  assert.equal(formatChoiceOptions(skippedNumber).hideListMarker, false, 'skipped numbers rejected');
+
+  const partialNumbered = ['1. 첫 번째', '두 번째'];
+  assert.equal(formatChoiceOptions(partialNumbered).hideListMarker, false, 'partial numbers rejected');
+
+  const emptyContent = ['1. ', '2. 본문'];
+  assert.equal(formatChoiceOptions(emptyContent).hideListMarker, false, 'empty content after prefix rejected');
+
+  // 8. Immutability: input array and elements must never be modified
+  const frozen = Object.freeze(['1. 불변 항목 1', '2. 불변 항목 2']);
+  const frozenRes = formatChoiceOptions(frozen);
+  assert.equal(frozenRes.hideListMarker, true);
+  assert.equal(frozen[0], '1. 불변 항목 1');
+  assert.equal(frozen[1], '2. 불변 항목 2');
+
+  // 9. Null, undefined, empty array
+  assert.deepEqual(formatChoiceOptions(null), { hideListMarker: false, items: [] });
+  assert.deepEqual(formatChoiceOptions(undefined), { hideListMarker: false, items: [] });
+  assert.deepEqual(formatChoiceOptions([]), { hideListMarker: false, items: [] });
+});
+
+test('§5.6: renderChatHtml defines choices.hide-marker CSS and connects formatChoiceOptions in drawAsk', () => {
+  const html = renderChatHtml({
+    cspSource: "'self'",
+    nonce: 'test-nonce',
+    scriptUri: '/out/web/answer_state.js',
+    adapterUri: '/out/web/chat_adapter.bundle.js',
+  });
+
+  // Verify CSS definition
+  assert.ok(html.includes('#ask-body ol.choices.hide-marker { list-style:none; margin-left:4px; }'), 'defines hide-marker rule on choices ol');
+
+  // Verify JS usage in drawAsk
+  assert.ok(html.includes('formatChoiceOptions(a.options)'), 'drawAsk calls formatChoiceOptions with a.options');
+  assert.ok(html.includes('formattedChoices.hideListMarker ? \'choices hide-marker\' : \'choices\''), 'sets hide-marker class conditionally');
+});
+
 
