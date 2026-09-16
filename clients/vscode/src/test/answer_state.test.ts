@@ -554,3 +554,103 @@ test('Scenario 12: failCreationTask 생명주기 및 실패 자료 보존·새 �
   assert.equal(state.getCreationTask('/ws-1', 'create-2')?.status, 'pending');
 });
 
+test('§4.6.1: 단일 저장소 일원화 - getState().failedDrafts 및 getFailedDrafts의 recovery 파생과 삭제 시 즉시 반영', () => {
+  const state = createAnswerState();
+  state.switchContext('/ws-1', 's1');
+  state.enterAnswerMode('q1', '질문 1 원문 제목');
+
+  // 1. 일반 초안 작성
+  state.onInputChange('MY_ANSWER_Q1');
+  assert.equal(state.getQuestionDraft('q1'), 'MY_ANSWER_Q1');
+
+  // 2. 답변 전송 및 실패 응답
+  const sub = state.submitReply('q1', 'MY_ANSWER_Q1');
+  assert.ok(sub.ok);
+  state.onReplyResult({
+    callId: 'q1',
+    attemptId: sub.attemptId!,
+    ok: false,
+    error: 'server_500',
+    companionKey: '/ws-1',
+    session: 's1',
+    generation: 0,
+    webviewId: '',
+  });
+
+  // 단일 저장소 recovery_state에 항목 등록 확인
+  const recItems = state.listRecoveryItems({ companionKey: '/ws-1', sessionId: 's1' });
+  assert.equal(recItems.length, 1);
+  assert.equal(recItems[0].title, '질문 1 원문 제목', 'title from enterAnswerMode must be fixed to recovery item');
+  const rId = recItems[0].recoveryId;
+
+  // 호환 뷰 getState().failedDrafts 및 getFailedDrafts 확인
+  const snapshot = state.getState();
+  assert.deepEqual(snapshot.failedDrafts['q1'], ['MY_ANSWER_Q1']);
+  assert.deepEqual(state.getFailedDrafts('q1'), ['MY_ANSWER_Q1']);
+
+  // 문맥 생략 시 현재 문맥(/ws-1, s1)으로 기본 해석 (§4.6.1)
+  assert.deepEqual(state.getFailedDrafts('q1', undefined, undefined), ['MY_ANSWER_Q1']);
+  // 타 세션 조회 시 빈 배열 (타 세션 오염 방지)
+  assert.deepEqual(state.getFailedDrafts('q1', '/ws-1', 's2'), []);
+  assert.deepEqual(state.getFailedDrafts('q1', '/ws-other', 's1'), []);
+
+  // 3. 복구 항목 삭제 시 호환 조회에서도 완전 제거 (§4.6.1)
+  const delRes = state.deleteRecoveryItem(rId);
+  assert.equal(delRes, true);
+
+  // 호환 조회 즉시 반영
+  assert.deepEqual(state.getFailedDrafts('q1'), []);
+  const snapshotAfterDel = state.getState();
+  assert.equal(snapshotAfterDel.failedDrafts['q1'], undefined);
+
+  // 다른 초안(질문 초안, 일반 초안 등)은 온전히 보존 (§4.6.1)
+  assert.equal(state.getQuestionDraft('q1'), 'MY_ANSWER_Q1');
+});
+
+test('§4.6.1 & §4.6.2: 질문 B 성공 시 질문 A 실패 항목 보존 및 제목 타 세션 오염 방지', () => {
+  const state = createAnswerState();
+  state.switchContext('/ws-1', 's1');
+
+  // 세션 s1 질문 A 등록 및 실패
+  state.enterAnswerMode('qA', '세션1 질문 A');
+  const subA = state.submitReply('qA', 'ANSWER_A');
+  assert.ok(subA.ok);
+  state.onReplyResult({
+    callId: 'qA',
+    attemptId: subA.attemptId!,
+    ok: false,
+    error: 'timeout_A',
+    companionKey: '/ws-1',
+    session: 's1',
+    generation: 0,
+    webviewId: '',
+  });
+
+  // 다른 세션 s2로 이동하여 질문 등록 (s1의 제목이 오염되지 않는지 확인)
+  state.switchContext('/ws-1', 's2');
+  state.enterAnswerMode('qOther', '세션2 다른 질문');
+  state.switchContext('/ws-1', 's1');
+
+  // 세션 s1 질문 B 등록 및 성공
+  state.enterAnswerMode('qB', '세션1 질문 B');
+  const subB = state.submitReply('qB', 'ANSWER_B');
+  assert.ok(subB.ok);
+  state.onReplyResult({
+    callId: 'qB',
+    attemptId: subB.attemptId!,
+    ok: true,
+    companionKey: '/ws-1',
+    session: 's1',
+    generation: 0,
+    webviewId: '',
+  });
+
+  // 질문 B가 성공해도 질문 A의 복구 항목은 그대로 보존되어야 함 (§4.6.1)
+  const recItems = state.listRecoveryItems({ companionKey: '/ws-1', sessionId: 's1' });
+  assert.equal(recItems.length, 1);
+  assert.equal(recItems[0].callId, 'qA');
+  assert.equal(recItems[0].text, 'ANSWER_A');
+  assert.equal(recItems[0].title, '세션1 질문 A', 'title must not be polluted by session 2 questions');
+});
+
+

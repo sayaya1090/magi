@@ -2614,8 +2614,61 @@ class RecoveryTestDomNode {
     this.dispatchEvent('click', { type: 'click', target: this });
   }
 
-  focus() {}
+  focus() {
+    recoveryTestDoc.activeElement = this;
+  }
   setSelectionRange() {}
+
+  get children(): RecoveryTestDomNode[] {
+    return this.childNodes.filter((c) => c.nodeType !== 3);
+  }
+
+  get classList() {
+    return {
+      contains: (cls: string) => (this.className || '').split(/\s+/).filter(Boolean).includes(cls),
+    };
+  }
+
+  insertBefore(newChild: RecoveryTestDomNode, refChild: RecoveryTestDomNode | null): RecoveryTestDomNode {
+    if (newChild.parentNode) {
+      newChild.remove();
+    }
+    newChild.parentNode = this;
+    if (!refChild) {
+      this.childNodes.push(newChild);
+    } else {
+      const idx = this.childNodes.indexOf(refChild);
+      if (idx === -1) {
+        this.childNodes.push(newChild);
+      } else {
+        this.childNodes.splice(idx, 0, newChild);
+      }
+    }
+    return newChild;
+  }
+
+  remove(): void {
+    if (this.parentNode) {
+      const idx = this.parentNode.childNodes.indexOf(this);
+      if (idx !== -1) {
+        this.parentNode.childNodes.splice(idx, 1);
+      }
+      this.parentNode = null;
+    }
+    if (recoveryTestDoc.activeElement === this) {
+      recoveryTestDoc.activeElement = null;
+    }
+  }
+
+  contains(other: RecoveryTestDomNode | null): boolean {
+    if (!other) return false;
+    let curr: RecoveryTestDomNode | null = other;
+    while (curr) {
+      if (curr === this) return true;
+      curr = curr.parentNode;
+    }
+    return false;
+  }
 
   querySelectorAll<T = RecoveryTestDomNode>(selector: string): T[] {
     const classes = selector.split(',').map((s) => s.trim().replace(/^\./, ''));
@@ -2642,6 +2695,7 @@ class RecoveryTestDomNode {
 }
 
 const recoveryTestDoc = {
+  activeElement: null as RecoveryTestDomNode | null,
   createElement(tag: string) {
     return new RecoveryTestDomNode(tag);
   },
@@ -3067,4 +3121,128 @@ test('§4.6 UI Item 8: receiveHandlers 연동 검증 (replyResult 실패, sessio
   h.recoveryController.dispose();
   h.inputAdapter.dispose();
 });
+
+test('§4.6.3: recoveryItemsEl 노드 인스턴스 재사용 및 포커스 보존 (keyed 목록 갱신)', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'q1', 'TEXT_1', 'err1', 'Title 1');
+  h.registerReplyFailure('/workspace', 'session-1', 'q2', 'TEXT_2', 'err2', 'Title 2');
+
+  h.recoveryController.open();
+  const itemsBefore = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  assert.equal(itemsBefore.length, 2);
+  const firstItemNode = itemsBefore[0];
+  const firstCopyBtn = firstItemNode.querySelector('.copy-btn') as RecoveryTestDomNode;
+  const firstDelBtn = firstItemNode.querySelector('.delete-btn') as RecoveryTestDomNode;
+
+  // Set focus on delete button of item 1
+  firstDelBtn.focus();
+  assert.equal(recoveryTestDoc.activeElement, firstDelBtn);
+
+  // Incoming rows / refresh called
+  h.recoveryController.refresh();
+
+  const itemsAfter = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  assert.equal(itemsAfter.length, 2);
+  // Node identity must be preserved (§4.6.3)
+  assert.equal(itemsAfter[0], firstItemNode, 'item DOM node must be reused across refresh');
+  assert.equal(itemsAfter[0].querySelector('.copy-btn'), firstCopyBtn, 'button nodes must not be recreated');
+  // Focus must be preserved (§4.6.3)
+  assert.equal(recoveryTestDoc.activeElement, firstDelBtn, 'focus on button must be preserved across refresh');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6.3: 전문(full text) 열기 후 rows 수신 스트림에서도 pre 노드 유지 및 불필요한 재작성 방지', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'q1', 'PRESERVE_SELECTION_TEXT', 'err', 'Title');
+
+  h.recoveryController.open();
+  const fullBtn = h.elements.recoveryItemsEl.querySelector('.fulltext-btn') as RecoveryTestDomNode;
+  assert.ok(fullBtn);
+  fullBtn.click(); // Open full text
+
+  const preElBefore = h.elements.recoveryItemsEl.querySelector('.recovery-full-text') as RecoveryTestDomNode;
+  assert.ok(preElBefore);
+  assert.equal(preElBefore.textContent, 'PRESERVE_SELECTION_TEXT');
+
+  // Stream rows / refresh
+  h.recoveryController.refresh();
+
+  const preElAfter = h.elements.recoveryItemsEl.querySelector('.recovery-full-text') as RecoveryTestDomNode;
+  assert.equal(preElAfter, preElBefore, 'full text pre element must be retained across refresh');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6.3: 삭제 시 포커스 보존 - 다음 항목 단추로 이동, 마지막 항목 삭제 시 recoveryBtn 복귀', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'q1', 'ITEM_1', 'err', 'T1');
+  h.registerReplyFailure('/workspace', 'session-1', 'q2', 'ITEM_2', 'err', 'T2');
+
+  h.recoveryController.open();
+  const items = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  assert.equal(items.length, 2);
+
+  const delBtn1 = items[0].querySelector('.delete-btn') as RecoveryTestDomNode;
+  const delBtn2 = items[1].querySelector('.delete-btn') as RecoveryTestDomNode;
+
+  // 1. Focus on delBtn1 and click delete
+  delBtn1.focus();
+  assert.equal(recoveryTestDoc.activeElement, delBtn1);
+  delBtn1.click();
+
+  // Item 1 deleted -> focus should shift to delBtn2 of Item 2 (§4.6.3)
+  assert.equal(recoveryTestDoc.activeElement, delBtn2, 'focus must shift to next item delete button');
+
+  // 2. Focus on delBtn2 and click delete
+  delBtn2.focus();
+  assert.equal(recoveryTestDoc.activeElement, delBtn2);
+  delBtn2.click();
+
+  // All items deleted -> focus should shift to recoveryBtn (§4.6.3)
+  assert.equal(recoveryTestDoc.activeElement, h.elements.recoveryBtn, 'focus must return to recoveryBtn when list is empty');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6.3: 세션 전환 시 복사 확인 즉시 취소 (S1 확인 상자 -> S2 이동 -> S1 복귀 시 확인 상자 닫힘 및 append 방지)', () => {
+  const h = createRecoveryHarness();
+  h.setGeneralDraft('/workspace', 'session-1', 'DRAFT_S1');
+  h.elements.say.value = 'DRAFT_S1';
+  h.registerReplyFailure('/workspace', 'session-1', 'q1', 'FAIL_TEXT_S1', 'err', 'T1');
+
+  h.recoveryController.open();
+  const copyBtn = h.elements.recoveryItemsEl.querySelector('.copy-btn') as RecoveryTestDomNode;
+  assert.ok(copyBtn);
+  copyBtn.click(); // Opens confirm box in S1
+
+  assert.ok(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'), 'confirm box open in S1');
+  assert.ok(h.recoveryController.getPendingConfirmId());
+
+  // Same session rows update -> confirm box must be preserved (§4.6.3)
+  h.recoveryController.refresh();
+  assert.ok(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'), 'confirm box preserved on same session refresh');
+  assert.ok(h.recoveryController.getPendingConfirmId());
+
+  // Switch to session-2 -> confirm box immediately canceled (§4.6.3)
+  h.setContext('/workspace', 'session-2');
+  h.recoveryController.onContextChange('/workspace', 'session-2');
+  assert.equal(h.recoveryController.getPendingConfirmId(), null, 'pendingConfirmId cleared on context change');
+  assert.equal(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'), null, 'confirm box closed in S2');
+
+  // Switch back to session-1 -> confirm box remains closed, no accidental append (§4.6.3)
+  h.setContext('/workspace', 'session-1');
+  h.recoveryController.onContextChange('/workspace', 'session-1');
+  assert.equal(h.recoveryController.getPendingConfirmId(), null);
+  assert.equal(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'), null, 'confirm box not restored on returning to S1');
+  assert.equal(h.state.getGeneralDraft('/workspace', 'session-1'), 'DRAFT_S1', 'general draft untouched in storage, no append occurred');
+  assert.equal(h.elements.say.value, 'DRAFT_S1', 'say input untouched, no append occurred');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
 

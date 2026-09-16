@@ -396,3 +396,80 @@ test('§4.6.3 & §4.6.5: AnswerStateManager - 일반 초안 복사 및 이어 �
   assert.equal(resDeleted.ok, false);
   assert.equal(resDeleted.reason, 'not_found');
 });
+
+test('§4.6.2: 반복 실패 시 최신 오류 및 사유 갱신, 오류 부재 시 이전 오류 초기화', () => {
+  const rec = createRecoveryState();
+
+  // 1. 첫 번째 실패 등록 (오류 1)
+  const item1 = rec.register({
+    companionKey: '/ws',
+    sessionId: 's1',
+    callId: 'q1',
+    kind: 'reply_failed',
+    text: 'TEXT_FAIL',
+    error: 'timeout_err_1',
+    eventKey: JSON.stringify(['reply', '/ws', 's1', 'q1', 1]),
+  })!;
+  assert.equal(item1.attempts, 1);
+  assert.equal(item1.error, 'timeout_err_1');
+  assert.ok(item1.reason.includes('timeout_err_1'));
+
+  // 2. 같은 항목에 새 오류 (오류 2)로 반복 등록 -> error와 reason이 모두 오류 2로 갱신 (§4.6.2)
+  const item2 = rec.register({
+    companionKey: '/ws',
+    sessionId: 's1',
+    callId: 'q1',
+    kind: 'reply_failed',
+    text: 'TEXT_FAIL',
+    error: 'connection_refused_err_2',
+    eventKey: JSON.stringify(['reply', '/ws', 's1', 'q1', 2]),
+  })!;
+  assert.equal(item2.recoveryId, item1.recoveryId);
+  assert.equal(item2.attempts, 2);
+  assert.equal(item2.error, 'connection_refused_err_2');
+  assert.ok(item2.reason.includes('connection_refused_err_2'));
+  assert.ok(!item2.reason.includes('timeout_err_1'), 'stale error 1 must be replaced');
+
+  // 3. 새 등록에 오류가 없는 경우 -> 이전 error 비우고 고정 문구로 갱신 (§4.6.2)
+  const item3 = rec.register({
+    companionKey: '/ws',
+    sessionId: 's1',
+    callId: 'q1',
+    kind: 'reply_failed',
+    text: 'TEXT_FAIL',
+    error: undefined,
+    eventKey: JSON.stringify(['reply', '/ws', 's1', 'q1', 3]),
+  })!;
+  assert.equal(item3.recoveryId, item1.recoveryId);
+  assert.equal(item3.attempts, 3);
+  assert.equal(item3.error, undefined, 'error must be cleared when new registration has no error');
+  assert.equal(item3.reason, '답변 전송을 확인하지 못함', 'reason must revert to fixed string without stale error');
+});
+
+test('§4.6.1: 구분자 충돌 방지 (JSON 구조화 eventKey) - C="a:b", task="c" vs C="a", task="b:c"', () => {
+  const rec = createRecoveryState();
+
+  const key1 = JSON.stringify(['create_fail', 'a:b', 'c']);
+  const key2 = JSON.stringify(['create_fail', 'a', 'b:c']);
+  assert.notEqual(key1, key2, 'JSON keys must not collide across delimiter boundaries');
+
+  const item1 = rec.register({
+    companionKey: 'a:b',
+    creationTaskId: 'c',
+    kind: 'session_creation_failed',
+    text: 'DRAFT_1',
+    eventKey: key1,
+  })!;
+
+  const item2 = rec.register({
+    companionKey: 'a',
+    creationTaskId: 'b:c',
+    kind: 'session_creation_failed',
+    text: 'DRAFT_2',
+    eventKey: key2,
+  })!;
+
+  assert.notEqual(item1.recoveryId, item2.recoveryId, 'must be treated as distinct items');
+  assert.equal(rec.listItems().length, 2);
+});
+

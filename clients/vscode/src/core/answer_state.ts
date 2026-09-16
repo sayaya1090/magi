@@ -16,6 +16,7 @@ export interface InFlightReply {
   attemptId: number;
   text: string;
   version: number;
+  title?: string;
   companionKey?: string;
   session?: string;
   generation?: number;
@@ -193,7 +194,7 @@ export interface AnswerStateManager {
   onInputChange(text: string): { target: string };
   onTabAccept(suggestion: string, currentInputText: string): { nextInputText: string; target: string };
   onCompose(lead: string, currentInputText: string): { nextInputText: string; leadLength: number; target: string };
-  submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult;
+  submitReply(callId: string, text: string, isChoice?: boolean, title?: string): SubmitResult;
   submitSay(text: string): SubmitResult;
   onReplyResult(m: ReplyResultEvent, currentActiveAsk?: AskEvent | null): ReplyResultOutcome;
   getRecoveryState(): RecoveryStateManager;
@@ -208,7 +209,7 @@ interface SessionDraftState {
   pendingQuestion: string | null;
   questionDrafts: Record<string, string>;
   draftVersions: Record<string, number>;
-  failedDrafts: Record<string, string[]>;
+  questionTitles: Record<string, string>;
   inFlightReplies: Record<string, InFlightReply>;
 }
 
@@ -224,6 +225,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     companionKey: string;
     sessionId: string;
     callId: string;
+    title?: string;
     generation: number;
     webviewId: string;
   }>();
@@ -312,7 +314,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
         text: task.draft,
         error,
         reason: error ? `대화 생성 실패: ${error}` : '대화 생성 실패',
-        eventKey: `create_fail:${companionKey}:${creationTaskId}`,
+        eventKey: JSON.stringify(['create_fail', companionKey, creationTaskId]),
       });
     }
     return true;
@@ -327,7 +329,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
         pendingQuestion: null,
         questionDrafts: {},
         draftVersions: {},
-        failedDrafts: {},
+        questionTitles: {},
         inFlightReplies: {}
       };
       contexts.set(key, s);
@@ -364,9 +366,6 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
       dVersions[k] = s.draftVersions[k];
     }
     const fDrafts: Record<string, string[]> = {};
-    for (const k of Object.keys(s.failedDrafts)) {
-      fDrafts[k] = s.failedDrafts[k].slice();
-    }
     const fromRec = recovery.listItems({ companionKey: compKey, sessionId: sessId });
     for (const it of fromRec) {
       if (it.kind === 'reply_failed' && it.callId) {
@@ -440,14 +439,9 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
   }
 
   function getFailedDrafts(callId: string, companionKey?: string, sessionId?: string): string[] {
-    const fromRecovery = recovery.getFailedDrafts(callId, companionKey, sessionId);
-    if (fromRecovery.length > 0) {
-      return fromRecovery.slice();
-    }
-    const s = (companionKey !== undefined && sessionId !== undefined)
-      ? getSessionState(companionKey, sessionId)
-      : currentSessionState();
-    return s.failedDrafts[callId] ? s.failedDrafts[callId].slice() : [];
+    const comp = companionKey !== undefined ? companionKey : currentCompanionKey;
+    const sess = sessionId !== undefined ? sessionId : currentSessionId;
+    return recovery.getFailedDrafts(callId, comp, sess);
   }
 
   function switchContext(
@@ -539,6 +533,9 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
   function enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult {
     if (currentInputText === undefined) currentInputText = '';
     const s = currentSessionState();
+    if (label) {
+      s.questionTitles[callId] = label;
+    }
     if (s.pendingQuestion !== callId) {
       if (!s.pendingQuestion) {
         s.generalDraft = currentInputText;
@@ -578,6 +575,9 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
         return exitAnswerMode(currentInputText);
       }
       return { clearAutoCompletion: false };
+    }
+    if (a.kind === 'question' && a.what) {
+      s.questionTitles[a.callId] = a.what;
     }
     if (a.kind === 'permission') {
       if (s.pendingQuestion) {
@@ -663,7 +663,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
           kind: 'session_creation_conflict',
           text: task.draft,
           reason: '기존 초안과 충돌하여 별도 보관',
-          eventKey: `create_conflict:${compKey}:${creationTaskId}`,
+          eventKey: JSON.stringify(['create_conflict', compKey, creationTaskId]),
         });
       }
       return {
@@ -688,7 +688,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     };
   }
 
-  function submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult {
+  function submitReply(callId: string, text: string, isChoice?: boolean, title?: string): SubmitResult {
     const t = (text || '').trim();
     if (!t) return { ok: false, error: 'empty' };
     const s = currentSessionState();
@@ -699,10 +699,12 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     const ver = isChoice ? (s.draftVersions[callId] || 0) + 1 : (s.draftVersions[callId] || 0);
     if (isChoice) s.draftVersions[callId] = ver;
     const finalText = isChoice ? text : t;
+    const recordedTitle = title || s.questionTitles[callId] || undefined;
     const inFlightRecord: InFlightReply = {
       attemptId,
       text: finalText,
       version: ver,
+      title: recordedTitle,
       companionKey: currentCompanionKey,
       session: currentSessionId,
       generation: currentGeneration ?? 0,
@@ -714,6 +716,7 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
       companionKey: currentCompanionKey,
       sessionId: currentSessionId,
       callId,
+      title: recordedTitle,
       generation: currentGeneration ?? 0,
       webviewId: currentWebviewId,
     });
@@ -807,7 +810,6 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
     if (m.ok) {
       if (inFlight.version === currentVer) {
         delete targetState.questionDrafts[m.callId];
-        delete targetState.failedDrafts[m.callId];
       }
       return {
         handled: true,
@@ -824,15 +826,13 @@ export function createAnswerState(recoveryStateManager?: RecoveryStateManager): 
         companionKey: attemptMeta.companionKey,
         sessionId: attemptMeta.sessionId,
         callId: m.callId,
+        title: attemptMeta.title || m.callId,
         kind: 'reply_failed',
         text: inFlightText,
         error: m.error,
-        eventKey: `reply:${attemptMeta.companionKey}:${attemptMeta.sessionId}:${m.callId}:${m.attemptId}`,
+        eventKey: JSON.stringify(['reply', attemptMeta.companionKey, attemptMeta.sessionId, m.callId, m.attemptId]),
       });
     }
-
-    if (!targetState.failedDrafts[m.callId]) targetState.failedDrafts[m.callId] = [];
-    targetState.failedDrafts[m.callId].push(inFlightText);
 
     const modifiedSinceAttempt = currentVer > inFlight.version;
     if (!modifiedSinceAttempt) {

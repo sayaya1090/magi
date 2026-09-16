@@ -1121,6 +1121,196 @@ const bundles = [
           assert.equal(await recoveryPanel.evaluate((el) => el.hidden), true);
           await page.locator('#say').fill('');
         }
+      },
+      {
+        id: 'asks_recovery_node_focus_and_context_switch',
+        name: '복구 항목 DOM 노드·포커스 보존, 삭제 시 포커스 이동, 세션 전환 시 확인 즉시 취소 (§4.6.3)',
+        run: async (page) => {
+          const recoveryBtn = page.locator('#recovery-btn');
+          const recoveryPanel = page.locator('#recovery-panel');
+
+          // 1. 세션 session-focus 준비 및 2개 실패 등록
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'focus test ready' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-focus-1',
+              what: '질문 1 포커스 검증',
+              options: ['선택 1']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('포커스 첫번째 답변');
+          await page.locator('#send').click();
+
+          const postedF1 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-1').slice(-1)[0]);
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-focus-1',
+            attemptId: att.attemptId,
+            ok: false,
+            error: 'fail 1',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'session-focus',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedF1);
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+
+          // 두번째 실패 등록
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'turn 2' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-focus-2',
+              what: '질문 2 포커스 검증',
+              options: ['선택 2']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('포커스 두번째 답변');
+          await page.locator('#send').click();
+
+          const postedF2 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-2').slice(-1)[0]);
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-focus-2',
+            attemptId: att.attemptId,
+            ok: false,
+            error: 'fail 2',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'session-focus',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedF2);
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 2');
+
+          // 2. 패널 열기 및 첫번째 항목의 delete-btn에 포커스
+          await recoveryBtn.click();
+          assert.equal(await recoveryPanel.evaluate((el) => el.hidden), false);
+
+          const items = page.locator('.recovery-item');
+          assert.equal(await items.count(), 2);
+
+          // Mark first item DOM node with a property to verify node preservation
+          await page.evaluate(() => {
+            const first = document.querySelector('.recovery-item');
+            if (first) first.__marker_id = 'preserved_node_1';
+          });
+
+          // Focus on copy button of first item
+          await page.evaluate(() => {
+            const btn = document.querySelector('.recovery-item .copy-btn');
+            if (btn) btn.focus();
+          });
+          const focusedBefore = await page.evaluate(() => document.activeElement?.className);
+          assert.ok(focusedBefore.includes('copy-btn'));
+
+          // 3. Streaming rows arrives for same session -> verify node identity and focus preserved
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'streamed row 3' }],
+          }));
+          await page.waitForTimeout(50);
+
+          const marker = await page.evaluate(() => document.querySelector('.recovery-item')?.__marker_id);
+          assert.equal(marker, 'preserved_node_1', 'DOM node instance must be reused across rows updates');
+          const focusedAfter = await page.evaluate(() => document.activeElement?.className);
+          assert.ok(focusedAfter.includes('copy-btn'), 'focus must remain on copy-btn after rows updates');
+
+          // 4. Delete item 1 while focused on its delete-btn -> focus moves to item 2's delete-btn
+          await page.evaluate(() => {
+            const del = document.querySelector('.recovery-item .delete-btn');
+            if (del) del.focus();
+          });
+          await page.locator('.recovery-item').first().locator('.delete-btn').click();
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+
+          const focusedAfterDel1 = await page.evaluate(() => document.activeElement?.className);
+          assert.ok(focusedAfterDel1.includes('delete-btn'), 'focus must shift to next item delete button');
+
+          // 5. Delete remaining item -> focus returns to #recovery-btn
+          await page.locator('.recovery-item').first().locator('.delete-btn').click();
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');
+          const focusedAfterAllDel = await page.evaluate(() => document.activeElement?.id);
+          assert.equal(focusedAfterAllDel, 'recovery-btn', 'focus must return to #recovery-btn when last item deleted');
+
+          // 6. Context change cancellation:
+          // Register 1 failure in session-focus
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'turn 4' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-focus-3',
+              what: '취소 검증 질문',
+              options: ['선택']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('취소 검증 실패 답변');
+          await page.locator('#send').click();
+
+          const postedF3 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-3').slice(-1)[0]);
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-focus-3',
+            attemptId: att.attemptId,
+            ok: false,
+            error: 'fail 3',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'session-focus',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedF3);
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+
+          // Prepare general draft in session-focus
+          await page.keyboard.press('Escape');
+          await page.locator('#say').fill('세션 포커스의 일반 초안');
+
+          // Click copy -> confirm box appears
+          await page.locator('.recovery-item .copy-btn').click();
+          await page.waitForSelector('.recovery-confirm-box');
+          assert.ok(await page.locator('.recovery-confirm-box').isVisible());
+
+          // Switch context to session-other via rows
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-other',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'other session' }],
+          }));
+          await page.waitForTimeout(50);
+          assert.equal(await page.locator('.recovery-confirm-box').count(), 0, 'confirm box dismissed on switching to session-other');
+
+          // Switch back to session-focus via rows
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'back to session-focus' }],
+          }));
+          await page.waitForTimeout(50);
+          assert.equal(await page.locator('.recovery-confirm-box').count(), 0, 'confirm box not re-opened on returning to session-focus');
+          assert.equal(await page.locator('#say').inputValue(), '세션 포커스의 일반 초안', 'general draft untouched, no append occurred');
+
+          // Clean up
+          await page.locator('.recovery-item .delete-btn').click();
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');
+          await recoveryBtn.click();
+          await page.locator('#say').fill('');
+        }
       }
     ]
   },

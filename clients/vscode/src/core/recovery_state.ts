@@ -54,6 +54,20 @@ export function createRecoveryState(): RecoveryStateManager {
   let recoverySeq = 0;
   let globalSeq = 0;
 
+  function deriveReason(kind: RecoveryItemKind, error?: string, explicitReason?: string): string {
+    if (explicitReason) return explicitReason;
+    if (kind === 'reply_failed') {
+      return error ? `답변 전송을 확인하지 못함: ${error}` : '답변 전송을 확인하지 못함';
+    }
+    if (kind === 'session_creation_failed') {
+      return error ? `대화 생성 실패: ${error}` : '대화 생성 실패';
+    }
+    if (kind === 'session_creation_conflict') {
+      return '기존 초안과 충돌하여 별도 보관';
+    }
+    return '임시 보관';
+  }
+
   function register(options: RegisterRecoveryOptions): RecoveryItem | undefined {
     // 1. Empty string is not registered. Whitespace-only string with length > 0 is preserved verbatim! (§4.6.1)
     if (options.text === undefined || options.text === null || options.text.length === 0) {
@@ -89,9 +103,10 @@ export function createRecoveryState(): RecoveryStateManager {
 
     if (existing) {
       existing.attempts++;
-      if (options.error !== undefined) {
-        existing.error = options.error;
-      }
+      // "사유는 종류에 따른 고정 문구로 두고 최신 error를 별도 표시하거나, 합산 시 표시 사유도 함께 갱신합니다.
+      // 새 사건에 오류가 없다면 이전 오류를 최신 오류처럼 표시하지 않도록 비웁니다. 횟수·정렬 갱신과 중복 사건 무시는 유지합니다." (§4.6.2)
+      existing.error = options.error || undefined;
+      existing.reason = deriveReason(existing.kind, existing.error, options.reason);
       if (options.title) {
         existing.title = options.title;
       }
@@ -102,22 +117,8 @@ export function createRecoveryState(): RecoveryStateManager {
     // 4. Create new recovery item
     const recoveryId = 'rec-' + (++recoverySeq);
     const title = options.title || (callId ? callId : '새 대화 초안');
-    let reason = options.reason;
-    if (!reason) {
-      if (kind === 'reply_failed') {
-        reason = options.error
-          ? `답변 전송을 확인하지 못함: ${options.error}`
-          : '답변 전송을 확인하지 못함';
-      } else if (kind === 'session_creation_failed') {
-        reason = options.error
-          ? `대화 생성 실패: ${options.error}`
-          : '대화 생성 실패';
-      } else if (kind === 'session_creation_conflict') {
-        reason = '기존 초안과 충돌하여 별도 보관';
-      } else {
-        reason = '임시 보관';
-      }
-    }
+    const error = options.error || undefined;
+    const reason = deriveReason(kind, error, options.reason);
 
     const newItem: RecoveryItem = {
       recoveryId,
@@ -128,7 +129,7 @@ export function createRecoveryState(): RecoveryStateManager {
       kind,
       text,
       title,
-      error: options.error,
+      error,
       reason,
       attempts: 1,
       seq: ++globalSeq,

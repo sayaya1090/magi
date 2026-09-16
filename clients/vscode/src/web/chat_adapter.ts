@@ -844,7 +844,8 @@ export function createWebviewInputAdapter(
     if (!t) return;
     const pending = answerState.getPendingQuestion();
     if (pending) {
-      const res = answerState.submitReply(pending, t, false);
+      const replyTitle = (replyTargetEl?.textContent || '').trim() || undefined;
+      const res = answerState.submitReply(pending, t, false, replyTitle);
       if (!res.ok) {
         if (res.error === 'in_flight' && noteEl) {
           noteEl.textContent = 'reply already in flight…';
@@ -903,7 +904,8 @@ export function createWebviewInputAdapter(
   }
 
   function submitChoice(callId: string, option: string): boolean {
-    const res = answerState.submitReply(callId, option, true);
+    const replyTitle = (replyTargetEl?.textContent || '').trim() || undefined;
+    const res = answerState.submitReply(callId, option, true, replyTitle);
     if (!res.ok) {
       if (res.error === 'in_flight' && noteEl) {
         noteEl.textContent = 'reply already in flight…';
@@ -1103,7 +1105,24 @@ export interface RecoveryController {
   setComposing(composing: boolean): void;
   isComposing(): boolean;
   getPendingConfirmId(): string | null;
+  onContextChange(companionKey: string, sessionId: string): void;
   dispose(): void;
+}
+
+interface RenderedItemEntry {
+  root: HTMLElement;
+  metaEl: HTMLElement;
+  titleEl: HTMLElement;
+  reasonEl: HTMLElement;
+  previewEl: HTMLElement;
+  actsEl: HTMLElement;
+  fullBtn: HTMLButtonElement;
+  copyBtn: HTMLButtonElement;
+  delBtn: HTMLButtonElement;
+  fullPre: HTMLPreElement | null;
+  confirmBox: HTMLElement | null;
+  appendBtn: HTMLButtonElement | null;
+  cancelBtn: HTMLButtonElement | null;
 }
 
 export function createWebviewRecoveryController(options: RecoveryControllerOptions): RecoveryController {
@@ -1111,6 +1130,8 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
   const { recoveryBtn, recoveryPanel, recoveryItemsEl, recoveryScopeAll, recoveryStatus, say } = elements;
   const doc = options.document || (recoveryItemsEl && (recoveryItemsEl as any).ownerDocument) || (typeof document !== 'undefined' ? document : undefined);
 
+  const renderedItems = new Map<string, RenderedItemEntry>();
+  let emptyEl: HTMLElement | null = null;
   let panelOpen = false;
   let scopeAll = false;
   let isComposing = false;
@@ -1142,13 +1163,23 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
   }
 
   function updateButtonsDisabled(): void {
-    const copyBtns = recoveryItemsEl.querySelectorAll<HTMLButtonElement>('.copy-btn, .confirm-append-btn');
-    copyBtns.forEach((b) => {
-      b.disabled = isComposing;
-    });
+    for (const entry of renderedItems.values()) {
+      entry.copyBtn.disabled = isComposing;
+      if (entry.appendBtn) {
+        entry.appendBtn.disabled = isComposing;
+      }
+    }
   }
 
   function refresh(): void {
+    const currentComp = getCurrentCompanionKey();
+    const currentSess = getCurrentSession();
+
+    // Cancel pending confirm if context changed (§4.6.3)
+    if (pendingConfirmId !== null && (confirmCompanion !== currentComp || confirmSession !== currentSess)) {
+      pendingConfirmId = null;
+    }
+
     const items = getVisibleItems();
     recoveryBtn.textContent = '복구 초안 ' + items.length;
     recoveryBtn.setAttribute('aria-label', '복구 초안 ' + items.length + '개');
@@ -1164,122 +1195,219 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
 
     recoveryPanel.hidden = false;
     recoveryBtn.setAttribute('aria-expanded', 'true');
-    recoveryItemsEl.textContent = '';
 
     if (!doc) return;
 
     if (items.length === 0) {
-      const emptyEl = doc.createElement('div');
-      emptyEl.className = 'recovery-empty';
-      emptyEl.textContent = '보관 중인 복구 초안이 없습니다.';
-      recoveryItemsEl.append(emptyEl);
+      for (const entry of renderedItems.values()) {
+        entry.root.remove();
+      }
+      renderedItems.clear();
+
+      if (!emptyEl) {
+        const el = doc.createElement('div');
+        el.className = 'recovery-empty';
+        el.textContent = '보관 중인 복구 초안이 없습니다.';
+        emptyEl = el;
+      }
+      if (emptyEl && emptyEl.parentNode !== recoveryItemsEl) {
+        recoveryItemsEl.append(emptyEl);
+      }
       return;
     }
 
-    for (const item of items) {
-      const itemEl = doc.createElement('div');
-      itemEl.className = 'recovery-item';
-      itemEl.dataset.recoveryId = item.recoveryId;
+    if (emptyEl && emptyEl.parentNode) {
+      emptyEl.remove();
+    }
 
-      const metaEl = doc.createElement('div');
-      metaEl.className = 'recovery-meta';
+    // 1. Update or create entries for visible items
+    for (const item of items) {
+      let entry = renderedItems.get(item.recoveryId);
+      if (!entry) {
+        const itemEl = doc.createElement('div');
+        itemEl.className = 'recovery-item';
+        itemEl.dataset.recoveryId = item.recoveryId;
+
+        const metaEl = doc.createElement('div');
+        metaEl.className = 'recovery-meta';
+        itemEl.append(metaEl);
+
+        const titleEl = doc.createElement('div');
+        titleEl.className = 'recovery-title';
+        itemEl.append(titleEl);
+
+        const reasonEl = doc.createElement('div');
+        reasonEl.className = 'recovery-reason';
+        itemEl.append(reasonEl);
+
+        const previewEl = doc.createElement('div');
+        previewEl.className = 'recovery-preview';
+        itemEl.append(previewEl);
+
+        const actsEl = doc.createElement('div');
+        actsEl.className = 'recovery-actions';
+
+        const fullBtn = doc.createElement('button');
+        fullBtn.type = 'button';
+        fullBtn.className = 'fulltext-btn';
+        fullBtn.addEventListener('click', () => {
+          toggleFullText(item.recoveryId);
+        });
+        actsEl.append(fullBtn);
+
+        const copyBtn = doc.createElement('button');
+        copyBtn.type = 'button';
+        copyBtn.className = 'copy-btn';
+        copyBtn.textContent = '일반 초안으로 복사';
+        copyBtn.addEventListener('click', () => {
+          if (isComposing) return;
+          copyDraft(item.recoveryId);
+        });
+        actsEl.append(copyBtn);
+
+        const delBtn = doc.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'delete-btn';
+        delBtn.textContent = '삭제';
+        delBtn.addEventListener('click', () => {
+          deleteItem(item.recoveryId);
+        });
+        actsEl.append(delBtn);
+
+        itemEl.append(actsEl);
+
+        entry = {
+          root: itemEl,
+          metaEl,
+          titleEl,
+          reasonEl,
+          previewEl,
+          actsEl,
+          fullBtn,
+          copyBtn,
+          delBtn,
+          fullPre: null,
+          confirmBox: null,
+          appendBtn: null,
+          cancelBtn: null,
+        };
+        renderedItems.set(item.recoveryId, entry);
+      }
+
+      // Update text contents only if changed (to preserve selection and minimize churn)
       const originText = item.creationTaskId
         ? '생성 작업: ' + item.creationTaskId
         : '세션: ' + (item.sessionId || '미지정');
-      metaEl.textContent = originText + ' · 발생: ' + item.attempts + '회';
-      itemEl.append(metaEl);
+      const metaText = originText + ' · 발생: ' + item.attempts + '회';
+      if (entry.metaEl.textContent !== metaText) {
+        entry.metaEl.textContent = metaText;
+      }
 
-      const titleEl = doc.createElement('div');
-      titleEl.className = 'recovery-title';
-      titleEl.textContent = item.title;
-      itemEl.append(titleEl);
+      if (entry.titleEl.textContent !== item.title) {
+        entry.titleEl.textContent = item.title;
+      }
 
-      const reasonEl = doc.createElement('div');
-      reasonEl.className = 'recovery-reason';
-      reasonEl.textContent = item.reason;
-      itemEl.append(reasonEl);
+      if (entry.reasonEl.textContent !== item.reason) {
+        entry.reasonEl.textContent = item.reason;
+      }
 
-      const previewEl = doc.createElement('div');
-      previewEl.className = 'recovery-preview';
-      previewEl.textContent = item.text.length > 80 ? item.text.slice(0, 80) + '…' : item.text;
-      itemEl.append(previewEl);
+      const prevText = item.text.length > 80 ? item.text.slice(0, 80) + '…' : item.text;
+      if (entry.previewEl.textContent !== prevText) {
+        entry.previewEl.textContent = prevText;
+      }
 
+      entry.copyBtn.disabled = isComposing;
+
+      // Full text display toggle
       const isFullOpen = openFullTexts.has(item.recoveryId);
+      const fullBtnText = isFullOpen ? '전문 닫기' : '전문 보기';
+      if (entry.fullBtn.textContent !== fullBtnText) {
+        entry.fullBtn.textContent = fullBtnText;
+      }
+      entry.fullBtn.setAttribute('aria-expanded', isFullOpen ? 'true' : 'false');
+
       if (isFullOpen) {
-        const fullPre = doc.createElement('pre');
-        fullPre.className = 'recovery-full-text';
-        fullPre.textContent = item.text;
-        itemEl.append(fullPre);
+        if (!entry.fullPre) {
+          const fullPre = doc.createElement('pre');
+          fullPre.className = 'recovery-full-text';
+          fullPre.textContent = item.text;
+          entry.root.insertBefore(fullPre, entry.actsEl);
+          entry.fullPre = fullPre;
+        } else if (entry.fullPre.textContent !== item.text) {
+          entry.fullPre.textContent = item.text;
+        }
+      } else if (entry.fullPre) {
+        entry.fullPre.remove();
+        entry.fullPre = null;
       }
 
-      const actsEl = doc.createElement('div');
-      actsEl.className = 'recovery-actions';
+      // Confirm box toggle
+      const isPendingConfirm = (pendingConfirmId === item.recoveryId);
+      if (isPendingConfirm) {
+        if (!entry.confirmBox) {
+          const confirmBox = doc.createElement('div');
+          confirmBox.className = 'recovery-confirm-box';
 
-      const fullBtn = doc.createElement('button');
-      fullBtn.type = 'button';
-      fullBtn.className = 'fulltext-btn';
-      fullBtn.textContent = isFullOpen ? '전문 닫기' : '전문 보기';
-      fullBtn.setAttribute('aria-expanded', isFullOpen ? 'true' : 'false');
-      fullBtn.addEventListener('click', () => {
-        toggleFullText(item.recoveryId);
-      });
-      actsEl.append(fullBtn);
+          const msgSpan = doc.createElement('div');
+          msgSpan.className = 'recovery-confirm-msg';
+          msgSpan.textContent = '작성 중인 일반 초안이 있습니다. 이어 붙이시겠습니까?';
+          confirmBox.append(msgSpan);
 
-      const copyBtn = doc.createElement('button');
-      copyBtn.type = 'button';
-      copyBtn.className = 'copy-btn';
-      copyBtn.textContent = '일반 초안으로 복사';
-      copyBtn.disabled = isComposing;
-      copyBtn.addEventListener('click', () => {
-        if (isComposing) return;
-        copyDraft(item.recoveryId);
-      });
-      actsEl.append(copyBtn);
+          const appendBtn = doc.createElement('button');
+          appendBtn.type = 'button';
+          appendBtn.className = 'confirm-append-btn';
+          appendBtn.textContent = '이어 붙이기';
+          appendBtn.disabled = isComposing;
+          appendBtn.addEventListener('click', () => {
+            if (isComposing) return;
+            confirmAppend(item.recoveryId);
+          });
+          confirmBox.append(appendBtn);
 
-      const delBtn = doc.createElement('button');
-      delBtn.type = 'button';
-      delBtn.className = 'delete-btn';
-      delBtn.textContent = '삭제';
-      delBtn.addEventListener('click', () => {
-        deleteItem(item.recoveryId);
-      });
-      actsEl.append(delBtn);
+          const cancelBtn = doc.createElement('button');
+          cancelBtn.type = 'button';
+          cancelBtn.className = 'confirm-cancel-btn';
+          cancelBtn.textContent = '취소';
+          cancelBtn.addEventListener('click', () => {
+            cancelConfirm(item.recoveryId);
+          });
+          confirmBox.append(cancelBtn);
 
-      itemEl.append(actsEl);
-
-      if (pendingConfirmId === item.recoveryId) {
-        const confirmBox = doc.createElement('div');
-        confirmBox.className = 'recovery-confirm-box';
-
-        const msgSpan = doc.createElement('div');
-        msgSpan.className = 'recovery-confirm-msg';
-        msgSpan.textContent = '작성 중인 일반 초안이 있습니다. 이어 붙이시겠습니까?';
-        confirmBox.append(msgSpan);
-
-        const appendBtn = doc.createElement('button');
-        appendBtn.type = 'button';
-        appendBtn.className = 'confirm-append-btn';
-        appendBtn.textContent = '이어 붙이기';
-        appendBtn.disabled = isComposing;
-        appendBtn.addEventListener('click', () => {
-          if (isComposing) return;
-          confirmAppend(item.recoveryId);
-        });
-        confirmBox.append(appendBtn);
-
-        const cancelBtn = doc.createElement('button');
-        cancelBtn.type = 'button';
-        cancelBtn.className = 'confirm-cancel-btn';
-        cancelBtn.textContent = '취소';
-        cancelBtn.addEventListener('click', () => {
-          cancelConfirm(item.recoveryId);
-        });
-        confirmBox.append(cancelBtn);
-
-        itemEl.append(confirmBox);
+          entry.root.append(confirmBox);
+          entry.confirmBox = confirmBox;
+          entry.appendBtn = appendBtn;
+          entry.cancelBtn = cancelBtn;
+        } else if (entry.appendBtn) {
+          entry.appendBtn.disabled = isComposing;
+        }
+      } else if (entry.confirmBox) {
+        entry.confirmBox.remove();
+        entry.confirmBox = null;
+        entry.appendBtn = null;
+        entry.cancelBtn = null;
       }
+    }
 
-      recoveryItemsEl.append(itemEl);
+    // 2. Remove entries no longer in visible items
+    const visibleIds = new Set(items.map((it) => it.recoveryId));
+    for (const [id, entry] of renderedItems) {
+      if (!visibleIds.has(id)) {
+        entry.root.remove();
+        renderedItems.delete(id);
+      }
+    }
+
+    // 3. Ensure proper order in DOM
+    const elChildren = (recoveryItemsEl.children || (recoveryItemsEl as any).childNodes || []) as unknown as HTMLElement[];
+    for (let i = 0; i < items.length; i++) {
+      const entry = renderedItems.get(items[i].recoveryId);
+      if (entry && elChildren[i] !== entry.root) {
+        if (typeof recoveryItemsEl.insertBefore === 'function') {
+          recoveryItemsEl.insertBefore(entry.root, elChildren[i] || null);
+        } else {
+          recoveryItemsEl.append(entry.root);
+        }
+      }
     }
   }
 
@@ -1383,10 +1511,56 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
       pendingConfirmId = null;
     }
     openFullTexts.delete(recoveryId);
+
+    // §4.6.3: Focus preservation on deletion
+    const activeEl = doc ? (doc.activeElement as HTMLElement | null) : null;
+    const entryToDelete = renderedItems.get(recoveryId);
+    let targetSiblingId: string | null = null;
+    let focusRole: 'del' | 'copy' | 'full' | 'default' = 'default';
+    let shouldShiftFocus = false;
+
+    if (entryToDelete && activeEl && (activeEl === entryToDelete.root || entryToDelete.root.contains(activeEl))) {
+      shouldShiftFocus = true;
+      if (activeEl === entryToDelete.delBtn || activeEl.classList.contains('delete-btn')) {
+        focusRole = 'del';
+      } else if (activeEl === entryToDelete.copyBtn || activeEl.classList.contains('copy-btn')) {
+        focusRole = 'copy';
+      } else if (activeEl === entryToDelete.fullBtn || activeEl.classList.contains('fulltext-btn')) {
+        focusRole = 'full';
+      }
+
+      const visible = getVisibleItems();
+      const idx = visible.findIndex((it) => it.recoveryId === recoveryId);
+      if (idx !== -1) {
+        const sibling = (idx + 1 < visible.length)
+          ? visible[idx + 1]
+          : (idx - 1 >= 0 ? visible[idx - 1] : null);
+        if (sibling) {
+          targetSiblingId = sibling.recoveryId;
+        }
+      }
+    }
+
     const deleted = answerState.deleteRecoveryItem(recoveryId);
     if (deleted) {
       setStatus('복구 초안이 삭제되었습니다.');
       refresh();
+
+      if (shouldShiftFocus) {
+        if (targetSiblingId) {
+          const siblingEntry = renderedItems.get(targetSiblingId);
+          if (siblingEntry) {
+            if (focusRole === 'del') siblingEntry.delBtn.focus();
+            else if (focusRole === 'copy') siblingEntry.copyBtn.focus();
+            else if (focusRole === 'full') siblingEntry.fullBtn.focus();
+            else siblingEntry.copyBtn.focus();
+          } else {
+            recoveryBtn.focus();
+          }
+        } else {
+          recoveryBtn.focus();
+        }
+      }
     }
     return deleted;
   }
@@ -1455,6 +1629,13 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
     },
     isComposing: () => isComposing,
     getPendingConfirmId: () => pendingConfirmId,
+    onContextChange(_companionKey: string, _sessionId: string): void {
+      if (pendingConfirmId !== null) {
+        pendingConfirmId = null;
+        setStatus('문맥이 변경되어 복사가 취소되었습니다.');
+      }
+      refresh();
+    },
     dispose(): void {
       recoveryBtn.removeEventListener('click', onBtnClick);
       if (recoveryScopeAll) {
@@ -1462,6 +1643,13 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
       }
       say.removeEventListener('compositionstart', onCompositionStart);
       say.removeEventListener('compositionend', onCompositionEnd);
+      for (const entry of renderedItems.values()) {
+        entry.root.remove();
+      }
+      renderedItems.clear();
+      if (emptyEl && emptyEl.parentNode) {
+        emptyEl.remove();
+      }
     },
   };
 }
@@ -1510,6 +1698,7 @@ export function createWebviewReceiveHandlers(
       if (contextChanged) {
         options.clearExpandedCallIds();
         options.resetCurrentAsk?.();
+        options.recoveryController?.onContextChange?.(boundCompanion, boundSession);
         options.inputAdapter.onContextChange(
           boundCompanion,
           boundSession,
@@ -1568,6 +1757,7 @@ export function createWebviewReceiveHandlers(
         if (payload.webviewId && options.setCurrentWebviewId) {
           options.setCurrentWebviewId(payload.webviewId);
         }
+        options.recoveryController?.onContextChange?.(payload.companionKey, payload.session);
       }
       options.recoveryController?.refresh();
     },

@@ -342,6 +342,33 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 26개 시나리오 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
    - **미검증 범위 (Unverified Scope):** OS 네이티브 윈도우 그래픽 렌더러 및 하드웨어 키보드 IME 조합(Windows/macOS 네이티브 입력기 이벤트)은 헤드리스 Chromium 가상 이벤트로 대체 검증되었으며, 파일 시스템 영구 저장(SQLite/디스크 저장/TTL)은 본 인메모리 수명 명세 범위에 따라 포함되지 않습니다.
 
+---
+
+### §4.6 복구 저장소 일원화와 목록 갱신 보완 (P2 리뷰 반영 검증)
+
+1. **실패 자료의 단일 저장소와 문맥 조회 (§4.6.1):**
+   - **단일 출처화:** `SessionDraftState.failedDrafts` 필드를 제거하고, `getState().failedDrafts` 및 `getFailedDrafts(callId, companionKey?, sessionId?)`가 `recovery_state`만을 단일 출처로 파생 조회하도록 일원화하였습니다.
+   - **문맥 기본값 해석:** `getFailedDrafts` 호출 시 생략된 인자는 `currentCompanionKey`, `currentSessionId`로 안전하게 해석되어 타 세션이나 기본 세션의 실패 자료가 혼입되지 않습니다.
+   - **삭제 즉시 반영 및 타 초안 보존:** 복구 항목 삭제(`deleteRecoveryItem`) 시 호환 조회 뷰에서도 즉시 제거되며, 일반 초안(`generalDraft`), 질문 초안(`questionDrafts`), 진행 중 시도(`inFlightReply`) 등 다른 초안은 일체 영향받지 않고 불변으로 보존됩니다.
+   - **구조화 이벤트 키 (`JSON.stringify`):** 콜론(`:`) 구분자 문자열 대신 `JSON.stringify(['reply', comp, sess, callId, attemptId])` 및 `JSON.stringify(['create_fail'/'create_conflict', comp, taskId])` 배열 구조화 키를 적용하여, 식별자에 구분자가 포함된 경우(`C='a:b', task='c'` vs `C='a', task='b:c'`) 발생할 수 있는 키 충돌을 원천 차단했습니다.
+
+2. **반복 실패의 최신 오류와 제목 갱신 (§4.6.2):**
+   - **최신 오류 및 사유 갱신:** 동일 항목에 대해 새로운 실패가 반복 등록될 때 `attempts` 카운트 증가와 함께 최신 `error` 및 `reason`이 갱신됩니다(`deriveReason`). 새 사건에 오류가 없는 경우 이전 오류가 잔존하지 않도록 `error`를 비우고 고정 문구로 초기화합니다.
+   - **질문 제목 고정:** 답변 제출 시점(`submitReply`)에 해당 질문의 제목(`title || s.questionTitles[callId]`)을 확정하여 시도 메타에 고정하고, 실패 시 복구 항목 제목으로 기록하여 타 세션의 질문을 참조하지 않도록 보장했습니다.
+
+3. **목록 노드·포커스 보존과 복사 확인 취소 (§4.6.3):**
+   - **Keyed DOM 갱신 (전면 재생성 제거):** `recoveryItemsEl.textContent = ''` 전면 재생성을 제거하고, `renderedItems` Map(keyed by `recoveryId`) 기반 업데이트를 적용하여 기존 DOM 노드 인스턴스를 재사용합니다.
+   - **포커스 및 텍스트 선택 보존:** 스트리밍 rows 수신이나 항목 갱신 중에도 조작 버튼(`.fulltext-btn`, `.copy-btn`, `.delete-btn`)의 포커스와 전문(`.recovery-full-text`) 텍스트 드래그 선택 영역(Selection)이 초기화되지 않고 온전히 유지됩니다.
+   - **삭제 시 포커스 이동:** 삭제 대상 항목 내부(삭제 단추 등)에 활성 포커스가 있는 경우, 다음 인접 항목(없으면 이전 항목)의 대응 단추로 포커스를 안전 이동시키며, 목록의 마지막 항목 삭제 시 `#recovery-btn`으로 포커스를 복귀시킵니다.
+   - **세션 전환 시 복사 확인 즉시 취소:** 확인 상자가 열린 상태(`pendingConfirmId !== null`)에서 세션이나 컴패니언이 전환되면 확인 상태를 즉시 취소하고, 이전 세션으로 복귀하더라도 확인 상자가 닫힌 상태를 유지하여 우발적 이어 붙이기를 방지합니다. 동일 세션 내 rows 수신 시에는 확인 상자를 유지합니다.
+   - **무전송(0 postMessage) 유지:** 모든 복구 조작에서 호스트로의 `say`/`reply` 전송 0회를 엄격히 유지합니다.
+
+4. **검증 결과:**
+   - **단위 테스트 (`npm test`):** 총 452개 테스트 전수 통과 (445 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향 및 `--reverse` 역순 모두 100% 통과 (0 fail).
+   - **미검증 범위 (Unverified Scope):** OS 창 레벨 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
+
 
 
 
