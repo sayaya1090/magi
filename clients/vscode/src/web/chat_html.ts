@@ -193,7 +193,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     cursor:pointer; padding:0; font-size:inherit; flex:none; text-decoration:none; }
   #ask-controls .jump-btn:hover { text-decoration:underline; }
   #ask-controls .jump-btn:focus-visible { outline:1px solid var(--vscode-focusBorder, #007fd4); outline-offset:1px; border-radius:2px; }
-  #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; max-height:25vh; overflow-y:auto; padding:3px 2px; }
+  #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; max-height:25vh; overflow-y:auto; padding:4px; }
   #ask-controls .acts button { flex:0 1 auto; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #ask-controls .acts button.approval-btn {
     color:var(--vscode-button-foreground, #ffffff);

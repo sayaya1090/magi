@@ -3746,7 +3746,7 @@ test('§5.6: renderChatHtml defines secondary styling for inspection buttons and
   assert.ok(html.includes('#ask-controls .acts button.approval-btn'), 'defines approval-btn rules');
   assert.ok(html.includes('#ask-controls .acts button.inspect-btn'), 'defines inspect-btn rules');
   assert.ok(html.includes('#ask-controls .jump-btn:focus-visible'), 'defines focus-visible rule for jump-btn');
-  assert.ok(html.includes('overflow-y:auto; padding:3px 2px;'), 'defines safe padding on .acts to prevent focus ring clipping');
+  assert.ok(html.includes('overflow-y:auto; padding:4px;'), 'defines safe padding on .acts to prevent focus ring clipping');
   assert.ok(html.includes('button.file-nav-btn:focus-visible'), 'defines focus-visible rule for file-nav-btn');
   assert.ok(html.includes('.approval-btn:focus-visible'), 'defines focus-visible for approval-btn');
   assert.ok(html.includes('.inspect-btn:focus-visible'), 'defines focus-visible for inspect-btn');

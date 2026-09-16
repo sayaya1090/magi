@@ -1705,6 +1705,137 @@ const bundles = [
           await recoveryBtn.click();
           await page.locator('#say').fill('');
         }
+      },
+      {
+        id: 'asks_synthetic_ime_composition_and_recovery_lock',
+        name: '브라우저 합성 IME 이벤트 조합 중 Enter 억제, 완료 후 전송, 복구 초안 버퍼 보호 검증 (§5.6)',
+        run: async (page) => {
+          // Scope: Synthetic DOM events (CompositionEvent, KeyboardEvent keyCode 229, isComposing: true).
+          // OS native IME remains unverified.
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-ime-synth',
+            rows: [{ who: 'agent', label: 'magi', text: '합성 IME 테스트' }]
+          }));
+
+          const say = page.locator('#say');
+          await say.focus();
+
+          // 1. Synthetic composition 'ㅎ' -> '하' -> '한' with intermediate Enter (keyCode 229, isComposing: true)
+          await page.evaluate(() => {
+            const el = document.getElementById('say');
+            el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+            el.value = 'ㅎ';
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: 'ㅎ' }));
+            el.value = '하';
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: '하' }));
+            el.value = '한';
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: '한' }));
+
+            const composingEnter = new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 229,
+              which: 229,
+              isComposing: true,
+              bubbles: true,
+              cancelable: true
+            });
+            el.dispatchEvent(composingEnter);
+          });
+
+          let posted = await page.evaluate(() => window.__posted);
+          assert.equal(posted.filter((m) => m.kind === 'say').length, 0, 'Enter during synthetic composition must NOT send message');
+
+          // Complete syllable '한' and compose '글'
+          await page.evaluate(() => {
+            const el = document.getElementById('say');
+            el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '한' }));
+            el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+            el.value = '한글';
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: '글' }));
+            el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '글' }));
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+
+            const normalEnter = new KeyboardEvent('keydown', {
+              key: 'Enter',
+              code: 'Enter',
+              keyCode: 13,
+              which: 13,
+              isComposing: false,
+              bubbles: true,
+              cancelable: true
+            });
+            el.dispatchEvent(normalEnter);
+          });
+
+          posted = await page.evaluate(() => window.__posted);
+          const sayMessages = posted.filter((m) => m.kind === 'say');
+          assert.equal(sayMessages.length, 1, 'Exactly one message sent on final Enter');
+          assert.equal(sayMessages[0].text, '한글', 'Sent text must match exact Korean text without duplication');
+          assert.equal(await say.inputValue(), '', 'Textarea must be cleared after send');
+
+          // 2. Recovery draft copy button protection during active composition
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-ime-synth',
+            ask: {
+              kind: 'question',
+              callId: 'q-ime-synth-fail',
+              what: '복구 초안 보호 확인',
+              options: ['확인']
+            }
+          }));
+
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await say.fill('실패할 답변 본문');
+
+          const postedBefore = await page.evaluate(() => window.__posted.length);
+          await page.locator('#send').click();
+          await page.waitForFunction((len) => window.__posted.length > len, postedBefore);
+
+          const replyMsg = await page.evaluate(() => window.__posted.filter((m) => m.kind === 'reply' && m.callId === 'q-ime-synth-fail').slice(-1)[0]);
+          assert.ok(replyMsg);
+
+          await page.evaluate((payload) => window.postMessage(payload, '*'), createReplyResultMessage({
+            callId: 'q-ime-synth-fail',
+            ok: false,
+            error: 'simulated error',
+          }, replyMsg));
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+          await page.locator('#recovery-btn').click();
+          await page.waitForSelector('#recovery-panel:not([hidden])');
+
+          const copyBtn = page.locator('#recovery-items .copy-btn');
+          await copyBtn.waitFor();
+          assert.equal(await copyBtn.isDisabled(), false, 'Copy button initially enabled');
+
+          // Active composition in composer disables copy button
+          await page.evaluate(() => {
+            const el = document.getElementById('say');
+            el.value = '작성 ';
+            el.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true, data: '' }));
+            el.value = '작성 중';
+            el.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: '중' }));
+          });
+          await page.waitForTimeout(50);
+          assert.equal(await copyBtn.isDisabled(), true, 'Copy button disabled during active composition to protect buffer');
+
+          // End composition re-enables copy button
+          await page.evaluate(() => {
+            const el = document.getElementById('say');
+            el.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '중' }));
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          });
+          await page.waitForTimeout(50);
+          assert.equal(await copyBtn.isDisabled(), false, 'Copy button re-enabled after compositionend');
+
+          // Cleanup
+          await page.locator('#recovery-items .delete-btn').click();
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');
+          await page.locator('#recovery-btn').click();
+          await say.fill('');
+        }
       }
     ]
   },
@@ -2630,20 +2761,54 @@ const bundles = [
             d.disabled = false;
           });
 
-          // 4D. Focus ring boundary geometry verification: safe padding in .acts prevents outline clipping
-          await diffBtn.focus();
-          const focusRingGeometry = await page.evaluate(() => {
-            const diff = document.querySelector('#ask-controls .acts button.diff-btn');
+          // 4D. Focus ring boundary geometry verification: dynamic outlineWidth + outlineOffset calculation
+          // Reads computed outlineWidth and outlineOffset, computes outer ring boundary, and compares against .acts
+          // scroll container client/border boundaries across all 4 directions (no arbitrary hardcoded margins).
+          const ringCheckResult = await page.evaluate(() => {
             const acts = document.querySelector('#ask-controls .acts');
-            const diffRect = diff.getBoundingClientRect();
             const actsRect = acts.getBoundingClientRect();
-            return {
-              topOffset: diffRect.top - actsRect.top,
-              leftOffset: diffRect.left - actsRect.left,
-            };
+            const clientTop = actsRect.top + acts.clientTop;
+            const clientLeft = actsRect.left + acts.clientLeft;
+            const clientBottom = clientTop + acts.clientHeight;
+            const clientRight = clientLeft + acts.clientWidth;
+
+            const buttons = Array.from(acts.querySelectorAll('button'));
+            return buttons.map((btn) => {
+              const bRect = btn.getBoundingClientRect();
+              const bStyle = window.getComputedStyle(btn);
+              const outlineWidth = parseFloat(bStyle.outlineWidth) || 1;
+              const outlineOffset = parseFloat(bStyle.outlineOffset) || 0;
+              const ringSpan = outlineWidth + outlineOffset; // 3px
+
+              const ringTop = bRect.top - ringSpan;
+              const ringBottom = bRect.bottom + ringSpan;
+              const ringLeft = bRect.left - ringSpan;
+              const ringRight = bRect.right + ringSpan;
+
+              return {
+                text: btn.textContent?.trim(),
+                outlineWidth,
+                outlineOffset,
+                ringSpan,
+                topMargin: bRect.top - clientTop,
+                bottomMargin: clientBottom - bRect.bottom,
+                leftMargin: bRect.left - clientLeft,
+                rightMargin: clientRight - bRect.right,
+                clippedTop: ringTop < clientTop - 0.5,
+                clippedBottom: ringBottom > clientBottom + 0.5,
+                clippedLeft: ringLeft < clientLeft - 0.5,
+                clippedRight: ringRight > clientRight + 0.5,
+              };
+            });
           });
-          assert.ok(focusRingGeometry.topOffset >= 2.5, 'top offset inside .acts must be >= 2.5px to accommodate 2px outline-offset');
-          assert.ok(focusRingGeometry.leftOffset >= 1.5, 'left offset inside .acts must be >= 1.5px to accommodate 2px outline-offset');
+
+          for (const item of ringCheckResult) {
+            assert.ok(item.ringSpan >= 3, `${item.text} ringSpan must be >= 3px (1px outline + 2px offset)`);
+            assert.equal(item.clippedTop, false, `${item.text} top ring must not be clipped by .acts (top margin: ${item.topMargin}px vs ring: ${item.ringSpan}px)`);
+            assert.equal(item.clippedBottom, false, `${item.text} bottom ring must not be clipped by .acts (bottom margin: ${item.bottomMargin}px vs ring: ${item.ringSpan}px)`);
+            assert.equal(item.clippedLeft, false, `${item.text} left ring must not be clipped by .acts (left margin: ${item.leftMargin}px vs ring: ${item.ringSpan}px)`);
+            assert.equal(item.clippedRight, false, `${item.text} right ring must not be clipped by .acts (right margin: ${item.rightMargin}px vs ring: ${item.ringSpan}px)`);
+          }
 
           // 4E. Keyboard activation: Enter on openBtn, Enter on diffBtn, Space on allowBtn
           await openBtn.focus();
@@ -2771,7 +2936,7 @@ const bundles = [
           const hcAllowBorderColor = await activeAllow.evaluate((el) => window.getComputedStyle(el).borderColor);
           assert.equal(hcAllowBorderColor, 'rgb(111, 193, 255)', 'contrastBorder is applied to primary approval button');
 
-          // 6. Viewports testing: 320x600 and 420x700
+          // 6. Viewports testing: 320x600 and 420x700 with full 4-direction ring clipping verification
           for (const [vpW, vpH] of [[320, 600], [420, 700]]) {
             await page.setViewportSize({ width: vpW, height: vpH });
             const controlsRect = await page.locator('#ask-controls').evaluate((el) => {
@@ -2791,7 +2956,103 @@ const bundles = [
               assert.ok(rect.right <= vpW, `${name} button does not overflow horizontally at ${vpW}x${vpH}`);
               assert.ok(rect.bottom <= vpH, `${name} button does not overflow vertically at ${vpW}x${vpH}`);
             }
+
+            // Verify first button (diff) and last button (always) rings in this viewport
+            const ringChecks = await page.evaluate(() => {
+              const acts = document.querySelector('#ask-controls .acts');
+              const actsRect = acts.getBoundingClientRect();
+              const clientTop = actsRect.top + acts.clientTop;
+              const clientLeft = actsRect.left + acts.clientLeft;
+              const clientBottom = clientTop + acts.clientHeight;
+              const clientRight = clientLeft + acts.clientWidth;
+
+              const buttons = Array.from(acts.querySelectorAll('button'));
+              return buttons.map((btn) => {
+                const bRect = btn.getBoundingClientRect();
+                const bStyle = window.getComputedStyle(btn);
+                const outlineWidth = parseFloat(bStyle.outlineWidth) || 1;
+                const outlineOffset = parseFloat(bStyle.outlineOffset) || 0;
+                const ringSpan = outlineWidth + outlineOffset;
+                return {
+                  text: btn.textContent?.trim(),
+                  clippedTop: (bRect.top - ringSpan) < clientTop - 0.5,
+                  clippedBottom: (bRect.bottom + ringSpan) > clientBottom + 0.5,
+                  clippedLeft: (bRect.left - ringSpan) < clientLeft - 0.5,
+                  clippedRight: (bRect.right + ringSpan) > clientRight + 0.5,
+                };
+              });
+            });
+
+            for (const rc of ringChecks) {
+              assert.equal(rc.clippedTop, false, `${rc.text} top ring not clipped at ${vpW}x${vpH}`);
+              assert.equal(rc.clippedBottom, false, `${rc.text} bottom ring not clipped at ${vpW}x${vpH}`);
+              assert.equal(rc.clippedLeft, false, `${rc.text} left ring not clipped at ${vpW}x${vpH}`);
+              assert.equal(rc.clippedRight, false, `${rc.text} right ring not clipped at ${vpW}x${vpH}`);
+            }
           }
+
+          // 7. Wrapped rows and max-height scrollable .acts clipping verification
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            ask: {
+              kind: 'question',
+              callId: 'q-multi-wrap',
+              what: '다중 선택지 줄바꿈 및 스크롤 링 검증',
+              options: [
+                '선택지 1번 아주 긴 텍스트 항목',
+                '선택지 2번 긴 텍스트 항목',
+                '선택지 3번 긴 텍스트 항목',
+                '선택지 4번 긴 텍스트 항목',
+                '선택지 5번 긴 텍스트 항목',
+                '선택지 6번 긴 텍스트 항목',
+                '선택지 7번 긴 텍스트 항목',
+                '선택지 8번 긴 텍스트 항목',
+              ]
+            }
+          }));
+          await page.waitForSelector('#ask-controls .acts button');
+
+          // Verify at 320x600 that options wrap and trigger overflow-y: auto
+          await page.setViewportSize({ width: 320, height: 600 });
+          const scrollWrapMetrics = await page.evaluate(() => {
+            const acts = document.querySelector('#ask-controls .acts');
+            const hasScroll = acts.scrollHeight > acts.clientHeight;
+            const buttons = Array.from(acts.querySelectorAll('button'));
+
+            // Check first button when scrolled to top
+            acts.scrollTop = 0;
+            const firstBtn = buttons[0];
+            const fRect = firstBtn.getBoundingClientRect();
+            const aRect = acts.getBoundingClientRect();
+            const clientTop = aRect.top + acts.clientTop;
+            const clientLeft = aRect.left + acts.clientLeft;
+            const clientBottom = clientTop + acts.clientHeight;
+            const clientRight = clientLeft + acts.clientWidth;
+
+            const fStyle = window.getComputedStyle(firstBtn);
+            const fSpan = (parseFloat(fStyle.outlineWidth) || 1) + (parseFloat(fStyle.outlineOffset) || 0);
+
+            // Scroll to bottom and check last button
+            acts.scrollTop = acts.scrollHeight;
+            const lastBtn = buttons[buttons.length - 1];
+            const lRect = lastBtn.getBoundingClientRect();
+            const lStyle = window.getComputedStyle(lastBtn);
+            const lSpan = (parseFloat(lStyle.outlineWidth) || 1) + (parseFloat(lStyle.outlineOffset) || 0);
+
+            return {
+              hasScroll,
+              firstBtnClippedTop: (fRect.top - fSpan) < clientTop - 0.5,
+              firstBtnClippedLeft: (fRect.left - fSpan) < clientLeft - 0.5,
+              lastBtnClippedBottom: (lRect.bottom + lSpan) > clientBottom + 0.5,
+              lastBtnClippedRight: (lRect.right + lSpan) > clientRight + 0.5,
+            };
+          });
+
+          assert.ok(scrollWrapMetrics.hasScroll, '8 options in 320x600 must trigger overflow-y: auto in .acts');
+          assert.equal(scrollWrapMetrics.firstBtnClippedTop, false, 'first wrapped button top ring not clipped when scrolled to top');
+          assert.equal(scrollWrapMetrics.firstBtnClippedLeft, false, 'first wrapped button left ring not clipped');
+          assert.equal(scrollWrapMetrics.lastBtnClippedBottom, false, 'last wrapped button bottom ring not clipped when scrolled to bottom');
+          assert.equal(scrollWrapMetrics.lastBtnClippedRight, false, 'last wrapped button right ring not clipped');
 
           // Clean up styles and restore default viewport
           await page.evaluate(() => {
