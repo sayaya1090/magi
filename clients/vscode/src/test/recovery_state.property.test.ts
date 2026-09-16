@@ -177,30 +177,73 @@ test('§5.8.4 Property: Distinct sources, kinds, or texts are never merged', () 
     '§5.8.4 Property: Distinct sources, kinds, or texts are never merged',
     fc.property(
       arbNonBlankString,
-      arbNonBlankString,
       arbCompanionKey,
-      (text1, text2, compKey) => {
-        // Ensure text1 and text2 are distinct
-        const distinctText2 = text1 === text2 ? text2 + '_distinct' : text2;
-        const mgr = createRecoveryState();
+      arbCompanionKey,
+      arbSessionId,
+      arbSessionId,
+      arbCallId,
+      arbCallId,
+      arbTaskId,
+      arbTaskId,
+      (text, comp1, comp2, sess1, sess2, call1, call2, task1, task2) => {
+        const c2 = comp1 === comp2 ? comp2 + '-diff' : comp2;
+        const s2 = sess1 === sess2 ? sess2 + '-diff' : sess2;
+        const q2 = call1 === call2 ? call2 + '-diff' : call2;
+        const t2 = task1 === task2 ? task2 + '-diff' : task2;
 
-        const item1 = mgr.register({
-          kind: 'reply_failed',
-          text: text1,
-          companionKey: compKey,
-          eventKey: 'key-1',
-        });
-        const item2 = mgr.register({
-          kind: 'reply_failed',
-          text: distinctText2,
-          companionKey: compKey,
-          eventKey: 'key-2',
-        });
+        // 1. Different companionKeys: same text, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, eventKey: 'c-1' });
+          const itemB = mgr.register({ kind: 'reply_failed', text, companionKey: c2, eventKey: 'c-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
 
-        assert.ok(item1 !== undefined);
-        assert.ok(item2 !== undefined);
-        assert.notEqual(item1!.recoveryId, item2!.recoveryId, 'Different texts must produce distinct recovery items');
-        assert.equal(mgr.listItems().length, 2);
+        // 2. Different sessionIds: same text, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, sessionId: sess1, eventKey: 's-1' });
+          const itemB = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, sessionId: s2, eventKey: 's-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
+
+        // 3. Different callIds: same text, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, sessionId: sess1, callId: call1, eventKey: 'q-1' });
+          const itemB = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, sessionId: sess1, callId: q2, eventKey: 'q-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
+
+        // 4. Different creationTaskIds: same text, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'session_creation_failed', text, companionKey: comp1, creationTaskId: task1, eventKey: 't-1' });
+          const itemB = mgr.register({ kind: 'session_creation_failed', text, companionKey: comp1, creationTaskId: t2, eventKey: 't-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
+
+        // 5. Different kinds: same text, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, eventKey: 'k-1' });
+          const itemB = mgr.register({ kind: 'session_creation_failed', text, companionKey: comp1, eventKey: 'k-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
+
+        // 6. Different texts: same context, never merged
+        {
+          const mgr = createRecoveryState();
+          const itemA = mgr.register({ kind: 'reply_failed', text, companionKey: comp1, eventKey: 'txt-1' });
+          const itemB = mgr.register({ kind: 'reply_failed', text: text + '_other', companionKey: comp1, eventKey: 'txt-2' });
+          assert.notEqual(itemA?.recoveryId, itemB?.recoveryId);
+          assert.equal(mgr.listItems().length, 2);
+        }
       }
     )
   );
@@ -218,42 +261,45 @@ test('§5.8.4 Property: Deleted recovery item cannot be resurrected by replaying
         const mgr = createRecoveryState();
         const eventKey = 'consumed-event-key-1';
 
-        // 1. Register initial item
-        const item = mgr.register({
+        // 1. Initial failure registered with eventKey
+        const item1 = mgr.register({
           kind,
           text: initialText,
           companionKey: compKey,
           eventKey,
         });
-        assert.ok(item !== undefined);
-        assert.equal(mgr.listItems().length, 1);
+        assert.ok(item1 !== undefined);
+        const recId1 = item1!.recoveryId;
+        assert.equal(mgr.isEventConsumed(eventKey), true);
 
-        // 2. Explicitly delete the item
-        const deleted = mgr.deleteItem(item!.recoveryId);
-        assert.equal(deleted, true);
-        assert.equal(mgr.getItem(item!.recoveryId), undefined);
+        // 2. User deletes the recovery item explicitly
+        const delRes = mgr.deleteItem(recId1);
+        assert.equal(delRes, true);
+        assert.equal(mgr.getItem(recId1), undefined);
         assert.equal(mgr.listItems().length, 0);
 
-        // 3. Replay the exact consumed eventKey
-        const replayed = mgr.register({
+        // 3. Stale event with the consumed eventKey is replayed -> MUST NOT resurrect item
+        const replayRes = mgr.register({
           kind,
           text: initialText,
           companionKey: compKey,
           eventKey,
         });
-        assert.equal(replayed, undefined, 'Replay of consumed event must return undefined');
-        assert.equal(mgr.listItems().length, 0, 'Deleted item must NOT be resurrected');
+        assert.equal(replayRes, undefined, 'Replaying consumed eventKey after deletion must return undefined');
+        assert.equal(mgr.getItem(recId1), undefined, 'Deleted item must not be resurrected');
+        assert.equal(mgr.listItems().length, 0, 'Storage must remain empty');
 
-        // 4. A brand new failure with a new eventKey must register successfully
+        // 4. A NEW event with a DIFFERENT eventKey CAN be registered cleanly
         const newItem = mgr.register({
           kind,
           text: nextText,
           companionKey: compKey,
-          eventKey: 'fresh-new-event-key-2',
+          eventKey: 'new-unconsumed-key-2',
         });
-        assert.ok(newItem !== undefined);
-        assert.notEqual(newItem!.recoveryId, item!.recoveryId);
+        assert.ok(newItem !== undefined, 'New eventKey must be registered cleanly');
+        assert.notEqual(newItem!.recoveryId, recId1, 'New item must have a fresh recoveryId');
         assert.equal(mgr.listItems().length, 1);
+        assert.equal(mgr.listItems()[0].text, nextText);
       }
     )
   );
@@ -273,8 +319,15 @@ test('§5.8.4 Property: Multi-step random command sequence maintains sorting, is
         error?: string;
       }
     | {
+        type: 'replay';
+        eventKeyIndex: number;
+      }
+    | {
         type: 'delete';
         index: number;
+      }
+    | {
+        type: 'clear';
       }
     | {
         type: 'filter';
@@ -296,8 +349,15 @@ test('§5.8.4 Property: Multi-step random command sequence maintains sorting, is
       error: fc.oneof(fc.constant(undefined), fc.constant('error: timeout'), fc.constant('error: connection reset')),
     }),
     fc.record({
+      type: fc.constant('replay' as const),
+      eventKeyIndex: fc.integer({ min: 0, max: 50 }),
+    }),
+    fc.record({
       type: fc.constant('delete' as const),
       index: fc.integer({ min: 0, max: 20 }),
+    }),
+    fc.record({
+      type: fc.constant('clear' as const),
     }),
     fc.record({
       type: fc.constant('filter' as const),
@@ -313,6 +373,7 @@ test('§5.8.4 Property: Multi-step random command sequence maintains sorting, is
       fc.array(arbCommand, { minLength: 1, maxLength: 40 }),
       (commands) => {
         const mgr = createRecoveryState();
+        const consumedKeys: string[] = [];
 
         for (const cmd of commands) {
           if (cmd.type === 'register') {
@@ -323,6 +384,21 @@ test('§5.8.4 Property: Multi-step random command sequence maintains sorting, is
             } else if (res) {
               assert.ok(res.text.length > 0);
               assert.ok(res.seq >= 1);
+              if (cmd.eventKey && !consumedKeys.includes(cmd.eventKey)) {
+                consumedKeys.push(cmd.eventKey);
+              }
+            }
+          } else if (cmd.type === 'replay') {
+            if (consumedKeys.length > 0) {
+              const key = consumedKeys[cmd.eventKeyIndex % consumedKeys.length];
+              const replayRes = mgr.register({
+                kind: 'reply_failed',
+                text: 'replay attempt text',
+                companionKey: '/workspace/repo-a',
+                eventKey: key,
+              });
+              assert.equal(replayRes, undefined, 'Replaying already consumed eventKey must return undefined');
+              assert.equal(mgr.isEventConsumed(key), true);
             }
           } else if (cmd.type === 'delete') {
             const current = mgr.listItems();
@@ -332,6 +408,10 @@ test('§5.8.4 Property: Multi-step random command sequence maintains sorting, is
               assert.equal(delRes, true);
               assert.equal(mgr.getItem(target.recoveryId), undefined);
             }
+          } else if (cmd.type === 'clear') {
+            mgr.clear();
+            assert.equal(mgr.listItems().length, 0);
+            consumedKeys.length = 0;
           } else if (cmd.type === 'filter') {
             const filtered = mgr.listItems({
               companionKey: cmd.companionKey,

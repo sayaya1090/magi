@@ -451,23 +451,33 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
       arbCompanionKey,
       arbSessionId,
       arbCallId,
+      arbCallId,
+      arbNonBlankString,
       arbNonBlankString,
       arbNonBlankString,
       arbKoreanOrAsciiString,
       fc.boolean(),
-      (compKey, sessionId, callId, recoveryText, questionDraft, generalDraft, hasGeneralDraft) => {
+      (compKey, sessionId, callId, lockCallId, recoveryText, questionDraft, lockReplyText, generalDraft, hasGeneralDraft) => {
+        const targetLockQ = lockCallId === callId ? lockCallId + '-locked' : lockCallId;
         const mgr = createAnswerState();
         mgr.switchContext(compKey, sessionId);
 
         const gDraft = hasGeneralDraft ? (generalDraft.length > 0 ? generalDraft : '기존 일반 초안') : '';
         mgr.onInputChange(gDraft);
 
-        // Enter answer mode for question
+        // 1. Create an active in-flight reply on targetLockQ to verify in-flight preservation
+        mgr.onAskChange({ kind: 'question', callId: targetLockQ, what: 'Lock Question' });
+        const subInFlight = mgr.submitReply(targetLockQ, lockReplyText, true, 'Lock Question');
+        assert.equal(subInFlight.ok, true);
+        const inFlightAttemptId = subInFlight.attemptId!;
+        assert.equal(mgr.isInFlight(targetLockQ), true);
+
+        // 2. Setup question draft for callId in answer mode
         mgr.onAskChange({ kind: 'question', callId, what: 'Question with recovery' });
         mgr.enterAnswerMode(callId, 'Question with recovery', gDraft);
         mgr.onInputChange(questionDraft);
 
-        // Register recovery item
+        // 3. Register recovery item
         const item = mgr.getRecoveryState().register({
           companionKey: compKey,
           sessionId,
@@ -479,7 +489,7 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
         const recoveryId = item!.recoveryId;
 
         if (gDraft.length > 0) {
-          // 1. Without append confirmation: rejected with requires_confirm
+          // Without append confirmation: rejected with requires_confirm
           const rej = mgr.applyRecoveryDraft({
             recoveryId,
             append: false,
@@ -488,11 +498,14 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
           assert.equal(rej.ok, false);
           assert.equal(rej.reason, 'requires_confirm');
           assert.equal(rej.existingDraft, gDraft);
-          // Question draft is saved and general draft is unchanged
           assert.equal(mgr.getQuestionDraft(callId), questionDraft);
           assert.equal(mgr.getGeneralDraft(), gDraft);
 
-          // 2. With append confirmation: confirmed and appended
+          // In-flight lock on targetLockQ MUST remain untouched
+          assert.equal(mgr.isInFlight(targetLockQ), true);
+          assert.equal(mgr.getInFlight(targetLockQ)!.attemptId, inFlightAttemptId);
+
+          // With append confirmation: confirmed and appended
           const app = mgr.applyRecoveryDraft({
             recoveryId,
             append: true,
@@ -504,6 +517,10 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
           assert.equal(app.nextInputText, expectedCombined);
           assert.equal(mgr.getGeneralDraft(), expectedCombined);
           assert.equal(mgr.getQuestionDraft(callId), questionDraft);
+
+          // In-flight lock on targetLockQ MUST still remain untouched
+          assert.equal(mgr.isInFlight(targetLockQ), true);
+          assert.equal(mgr.getInFlight(targetLockQ)!.attemptId, inFlightAttemptId);
         } else {
           // Empty general draft: direct copy
           const app = mgr.applyRecoveryDraft({
@@ -516,6 +533,10 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
           assert.equal(app.nextInputText, recoveryText);
           assert.equal(mgr.getGeneralDraft(), recoveryText);
           assert.equal(mgr.getQuestionDraft(callId), questionDraft);
+
+          // In-flight lock on targetLockQ MUST remain untouched
+          assert.equal(mgr.isInFlight(targetLockQ), true);
+          assert.equal(mgr.getInFlight(targetLockQ)!.attemptId, inFlightAttemptId);
         }
 
         // Invariant: Recovery item in recoveryState is NOT deleted or altered
@@ -528,14 +549,31 @@ test('§5.8.4 Property: applyRecoveryDraft requires confirmation when general dr
 });
 
 test('§5.8.4 Property: Multi-step random command sequence for answer_state maintains invariants', () => {
+  interface DispatchedAttempt {
+    attemptId: number;
+    callId: string;
+    companionKey: string;
+    sessionId: string;
+    generation?: number;
+    webviewId?: string;
+    submittedText: string;
+    isChoice: boolean;
+    resolved: boolean;
+  }
+
   type StateCommand =
     | { type: 'switch'; comp: string; sess: string; input: string }
     | { type: 'type'; text: string }
     | { type: 'ask'; callId: string; what: string }
     | { type: 'enter'; callId: string }
     | { type: 'exit' }
-    | { type: 'submitReply'; isChoice: boolean }
-    | { type: 'replyResult'; ok: boolean; mismatch: boolean }
+    | { type: 'submitReply'; callId: string; text: string; isChoice: boolean }
+    | {
+        type: 'replyResult';
+        attemptIndex: number;
+        variant: 'valid' | 'mismatched_id' | 'mismatched_comp' | 'mismatched_sess' | 'stale_replay';
+        ok: boolean;
+      }
     | { type: 'applyRecovery'; append: boolean };
 
   const arbStateCommand: fc.Arbitrary<StateCommand> = fc.oneof(
@@ -563,12 +601,22 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
     }),
     fc.record({
       type: fc.constant('submitReply' as const),
+      callId: arbCallId,
+      text: arbKoreanOrAsciiString,
       isChoice: fc.boolean(),
     }),
     fc.record({
       type: fc.constant('replyResult' as const),
+      attemptIndex: fc.integer({ min: 0, max: 100 }),
+      variant: fc.constantFrom(
+        'valid' as const,
+        'valid' as const,
+        'mismatched_id' as const,
+        'mismatched_comp' as const,
+        'mismatched_sess' as const,
+        'stale_replay' as const
+      ),
       ok: fc.boolean(),
-      mismatch: fc.boolean(),
     }),
     fc.record({
       type: fc.constant('applyRecovery' as const),
@@ -583,15 +631,37 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
       (commands) => {
         const mgr = createAnswerState();
         let currentInput = '';
-        let currentAsk: AskEvent | null = null;
-        let lastDispatchedAttempt: {
-          callId: string;
-          attemptId: number;
-          comp: string;
-          sess: string;
-          gen?: number;
-          wvid?: string;
-        } | null = null;
+        let currentAsk: AskEvent | null = {
+          kind: 'question',
+          callId: 'q-init',
+          what: 'Initial Question',
+        };
+
+        // Initialize with context and an active ask
+        mgr.switchContext('/workspace/repo-a', 'sess-1');
+        mgr.onAskChange(currentAsk);
+
+        // Initial submission to ensure baseline attempt exists in ledger
+        const initSub = mgr.submitReply('q-init', 'initial valid reply', true, 'Initial Question');
+        assert.equal(initSub.ok, true);
+        assert.ok(typeof initSub.attemptId === 'number' && initSub.attemptId > 0);
+
+        const ledger: DispatchedAttempt[] = [
+          {
+            attemptId: initSub.attemptId!,
+            callId: 'q-init',
+            companionKey: '/workspace/repo-a',
+            sessionId: 'sess-1',
+            generation: initSub.generation,
+            webviewId: initSub.webviewId,
+            submittedText: 'initial valid reply',
+            isChoice: true,
+            resolved: false,
+          },
+        ];
+
+        let submitsExecuted = 1;
+        let resultsExecuted = 0;
 
         for (const cmd of commands) {
           if (cmd.type === 'switch') {
@@ -602,7 +672,13 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
             currentInput = res.nextInputText;
           } else if (cmd.type === 'type') {
             currentInput = cmd.text;
-            mgr.onInputChange(cmd.text);
+            const target = mgr.onInputChange(cmd.text);
+            const ctx = mgr.getCurrentContext();
+            if (target.target === 'general') {
+              assert.equal(mgr.getGeneralDraft(ctx.companionKey, ctx.sessionId), cmd.text);
+            } else {
+              assert.equal(mgr.getQuestionDraft(target.target, ctx.companionKey, ctx.sessionId), cmd.text);
+            }
           } else if (cmd.type === 'ask') {
             currentAsk = {
               kind: 'question',
@@ -624,43 +700,162 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
               currentInput = modeRes.nextInputText;
             }
           } else if (cmd.type === 'submitReply') {
-            const targetQ = mgr.getPendingQuestion();
-            if (targetQ) {
-              const res = mgr.submitReply(targetQ, currentInput, cmd.isChoice);
-              if (res.ok && res.attemptId) {
-                const ctx = mgr.getCurrentContext();
-                lastDispatchedAttempt = {
-                  callId: targetQ,
-                  attemptId: res.attemptId,
-                  comp: ctx.companionKey,
-                  sess: ctx.sessionId,
-                  gen: res.generation,
-                  wvid: res.webviewId,
-                };
-                if (res.nextInputText !== undefined) {
-                  currentInput = res.nextInputText;
-                }
+            const ctx = mgr.getCurrentContext();
+            const inFlightBefore = mgr.isInFlight(cmd.callId, ctx.companionKey, ctx.sessionId);
+            const isBlank = !cmd.text.trim();
+
+            const res = mgr.submitReply(cmd.callId, cmd.text, cmd.isChoice);
+            if (isBlank) {
+              assert.equal(res.ok, false);
+              assert.equal(res.error, 'empty');
+              assert.equal(mgr.isInFlight(cmd.callId, ctx.companionKey, ctx.sessionId), inFlightBefore);
+            } else if (inFlightBefore) {
+              assert.equal(res.ok, false);
+              assert.equal(res.error, 'in_flight');
+              assert.equal(mgr.isInFlight(cmd.callId, ctx.companionKey, ctx.sessionId), true);
+            } else {
+              assert.equal(res.ok, true);
+              assert.ok(typeof res.attemptId === 'number' && res.attemptId > 0);
+              assert.equal(mgr.isInFlight(cmd.callId, ctx.companionKey, ctx.sessionId), true);
+              ledger.push({
+                attemptId: res.attemptId!,
+                callId: cmd.callId,
+                companionKey: ctx.companionKey,
+                sessionId: ctx.sessionId,
+                generation: res.generation,
+                webviewId: res.webviewId,
+                submittedText: cmd.isChoice ? cmd.text : cmd.text.trim(),
+                isChoice: cmd.isChoice,
+                resolved: false,
+              });
+              submitsExecuted++;
+              if (res.nextInputText !== undefined) {
+                currentInput = res.nextInputText;
               }
             }
           } else if (cmd.type === 'replyResult') {
-            if (lastDispatchedAttempt) {
-              const att = lastDispatchedAttempt;
-              const event: ReplyResultEvent = {
-                callId: att.callId,
-                attemptId: cmd.mismatch ? 999999 : att.attemptId,
-                ok: cmd.ok,
-                error: cmd.ok ? undefined : 'Command error',
-                companionKey: att.comp,
-                session: att.sess,
-                generation: att.gen,
-                webviewId: att.wvid,
-              };
-              const outcome = mgr.onReplyResult(event, currentAsk);
-              if (outcome.nextInputText !== undefined) {
-                currentInput = outcome.nextInputText;
-              }
-              if (!cmd.mismatch) {
-                lastDispatchedAttempt = null;
+            if (ledger.length > 0) {
+              const target = ledger[cmd.attemptIndex % ledger.length];
+              const ctx = mgr.getCurrentContext();
+
+              if (cmd.variant === 'valid' && !target.resolved) {
+                // Must be in flight before applying valid result
+                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), true);
+                const activeGeneralBefore = mgr.getGeneralDraft(ctx.companionKey, ctx.sessionId);
+                const activePendingBefore = mgr.getPendingQuestion(ctx.companionKey, ctx.sessionId);
+
+                const event: ReplyResultEvent = {
+                  callId: target.callId,
+                  attemptId: target.attemptId,
+                  ok: cmd.ok,
+                  error: cmd.ok ? undefined : 'Command error',
+                  companionKey: target.companionKey,
+                  session: target.sessionId,
+                  generation: target.generation,
+                  webviewId: target.webviewId,
+                };
+
+                const outcome = mgr.onReplyResult(event, currentAsk);
+                assert.equal(outcome.handled, true, 'Valid replyResult must be handled by state manager');
+                // Lock must be released
+                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), false);
+
+                // If result belongs to non-active context, active context must NOT be mutated
+                const isCurrent =
+                  target.companionKey === ctx.companionKey && target.sessionId === ctx.sessionId;
+                if (!isCurrent) {
+                  if (!cmd.ok) {
+                    assert.equal(outcome.restoredInStoreOnly, true);
+                  }
+                  assert.equal(mgr.getGeneralDraft(ctx.companionKey, ctx.sessionId), activeGeneralBefore);
+                  assert.equal(mgr.getPendingQuestion(ctx.companionKey, ctx.sessionId), activePendingBefore);
+                }
+
+                if (outcome.nextInputText !== undefined) {
+                  currentInput = outcome.nextInputText;
+                }
+
+                target.resolved = true;
+                resultsExecuted++;
+              } else if (cmd.variant === 'mismatched_id') {
+                const badEvent: ReplyResultEvent = {
+                  callId: target.callId,
+                  attemptId: target.attemptId + 999999,
+                  ok: cmd.ok,
+                  error: cmd.ok ? undefined : 'Bad attempt error',
+                  companionKey: target.companionKey,
+                  session: target.sessionId,
+                  generation: target.generation,
+                  webviewId: target.webviewId,
+                };
+                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const outcome = mgr.onReplyResult(badEvent, currentAsk);
+                assert.equal(outcome.handled, false, 'Mismatched attemptId must be rejected');
+                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
+                resultsExecuted++;
+              } else if (cmd.variant === 'mismatched_comp') {
+                const badEvent: ReplyResultEvent = {
+                  callId: target.callId,
+                  attemptId: target.attemptId,
+                  ok: cmd.ok,
+                  error: cmd.ok ? undefined : 'Bad companion error',
+                  companionKey: target.companionKey + '-wrong',
+                  session: target.sessionId,
+                  generation: target.generation,
+                  webviewId: target.webviewId,
+                };
+                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const outcome = mgr.onReplyResult(badEvent, currentAsk);
+                assert.equal(outcome.handled, false, 'Mismatched companionKey must be rejected');
+                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
+                resultsExecuted++;
+              } else if (cmd.variant === 'mismatched_sess') {
+                const badEvent: ReplyResultEvent = {
+                  callId: target.callId,
+                  attemptId: target.attemptId,
+                  ok: cmd.ok,
+                  error: cmd.ok ? undefined : 'Bad session error',
+                  companionKey: target.companionKey,
+                  session: target.sessionId + '-wrong',
+                  generation: target.generation,
+                  webviewId: target.webviewId,
+                };
+                const inFlightBefore = mgr.isInFlight(target.callId, target.companionKey, target.sessionId);
+                const outcome = mgr.onReplyResult(badEvent, currentAsk);
+                assert.equal(outcome.handled, false, 'Mismatched session must be rejected');
+                assert.equal(mgr.isInFlight(target.callId, target.companionKey, target.sessionId), inFlightBefore);
+                resultsExecuted++;
+              } else {
+                // If variant is stale_replay or target was already resolved:
+                if (!target.resolved) {
+                  // Resolve it first so it becomes genuinely resolved
+                  const resolveEvent: ReplyResultEvent = {
+                    callId: target.callId,
+                    attemptId: target.attemptId,
+                    ok: true,
+                    companionKey: target.companionKey,
+                    session: target.sessionId,
+                    generation: target.generation,
+                    webviewId: target.webviewId,
+                  };
+                  const res = mgr.onReplyResult(resolveEvent, currentAsk);
+                  assert.equal(res.handled, true, 'Initial resolution must succeed before stale replay');
+                  target.resolved = true;
+                }
+                // Replay after resolution must be rejected
+                const staleEvent: ReplyResultEvent = {
+                  callId: target.callId,
+                  attemptId: target.attemptId,
+                  ok: cmd.ok,
+                  error: cmd.ok ? undefined : 'Stale replay error',
+                  companionKey: target.companionKey,
+                  session: target.sessionId,
+                  generation: target.generation,
+                  webviewId: target.webviewId,
+                };
+                const outcome = mgr.onReplyResult(staleEvent, currentAsk);
+                assert.equal(outcome.handled, false, 'Stale replay of resolved attempt must not be handled');
+                resultsExecuted++;
               }
             }
           } else if (cmd.type === 'applyRecovery') {
@@ -681,16 +876,20 @@ test('§5.8.4 Property: Multi-step random command sequence for answer_state main
             }
           }
 
-          // Core Invariant check after each command:
-          // In-flight attempts have valid attemptId > 0
-          const ctx = mgr.getCurrentContext();
-          const q = mgr.getPendingQuestion();
-          if (q && mgr.isInFlight(q, ctx.companionKey, ctx.sessionId)) {
-            const inflight = mgr.getInFlight(q, ctx.companionKey, ctx.sessionId);
-            assert.ok(inflight !== undefined);
-            assert.ok(inflight!.attemptId > 0);
+          // Core Invariants check after each command:
+          // 1. Check in-flight attempts have valid attemptId > 0
+          for (const att of ledger) {
+            if (!att.resolved) {
+              const inFlight = mgr.getInFlight(att.callId, att.companionKey, att.sessionId);
+              if (inFlight && inFlight.attemptId === att.attemptId) {
+                assert.ok(inFlight.attemptId > 0);
+                assert.equal(mgr.isInFlight(att.callId, att.companionKey, att.sessionId), true);
+              }
+            }
           }
         }
+
+        assert.ok(submitsExecuted >= 1, 'At least 1 submit must have executed');
       }
     )
   );
