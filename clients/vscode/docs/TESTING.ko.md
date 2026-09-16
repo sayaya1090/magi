@@ -121,6 +121,8 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `a11y_evaluator.test.ts` (접근성 결과 판정) | **axe-core 접근성 감사 결과 판정 및 불완전(incomplete) 검사 탐지 검증 (§5.8).** 테스트 지원 모듈(`src/test/support/a11y_evaluator.ts`)을 통해 위반(`violations`)이나 미판정(`incomplete`) 발생 시 즉시 실패를 판별하고 요약 문자열 및 상세 에러(`ruleId`, `impact`, `target`, `failureSummary`)를 생성하는지 검증합니다 |
 | `webview.test.ts` (Valibot 메시지 스키마 경계 검증) | ★ **Valibot 기반 12대 웹뷰→호스트 메시지 스키마 정밀 검증 (§5.8.3).** 원시값·null·배열·미등록 kind 거절, 정의되지 않은 미등록 필드 제거(strip), 원문 식별자 공백 보존(`trim` 미수행) 및 공백 전용 식별자 거절, 빈 텍스트 허용, 숫자 정수/양수 경계(`attemptId > 0`, `generation >= 0`), 선택 필드 계약(`open.seq: undefined` 명시 보존, `say.creationTaskId` 생략) 및 비정상 수신 메시지에 대한 호스트/웹뷰 상태 불변을 전수 검증합니다 |
 | `webview.test.ts` (구형 파서 100% deep equality 대조 및 open.seq 비숫자 폴백) | ★ **구형 파서(`98a733aa`) 100% deep equality 대조 및 호스트 open 도달 검증 (§5.8.3).** 테스트 지원 모듈(`src/test/support/legacy_protocol_parser.ts`)로 제품 VSIX에서 격리된 원본 수동 파서와 Valibot 파서를 전수 대조합니다. `open.seq`의 누락, 명시적 `undefined`, `null`, 문자열('12'), 객체, 배열, 불리언, 유한수, 소수, 음수, NaN, Infinity 등 40여 개 경계 입력을 검증하고, 비숫자 `seq` 폴백이 실제 호스트 `resolveAndOpenFile`의 ask 분기에 정상 도달함을 검증합니다 |
+| `answer_state.property.test.ts` (fast-check 답변 및 초안 상태 속성 기반 회귀 검사) | ★ **임의 이벤트 순서에서의 초안 격리·잠금·복구 불변식 검증 (§5.8.4).** fast-check 기반 속성 테스트로 컴패니언·세션·질문 간 초안 격리, 동일 질문 중복 제출 차단(`in_flight`), A 제출 뒤 B 수정 후 A 실패 시 B 초안 보호 및 원문 A 복구 보존, A 실패 후 B 재전송 시 A 중복 결과에 대한 B 활성 잠금 보호, 문맥 전환 후 늦은 결과의 격리, 중복 결과 멱등성, 공백 거절(`empty`), `applyRecoveryDraft` 확인 및 이어 붙이기(`G + "\n\n" + text`), 40단계 무작위 명령 시퀀스 불변식을 전수 검증합니다 |
+| `recovery_state.property.test.ts` (fast-check 복구 저장소 상태 속성 기반 회귀 검사) | ★ **실패 초안 복구 모델의 등록·합산·삭제·정렬 불변식 검증 (§5.8.4).** 빈 문자열 거부 및 공백·개행·한글 원문 보존, 동일 `eventKey` 재생 멱등성(시도 횟수 불변), 동일 실패 건 합산(횟수 증가·seq 갱신·최신 오류 반영 및 stale 오류 제거), 이기종 출처·종류·원문의 엄격한 격리, 삭제된 항목의 동일 사건 재생 부활 차단 및 신규 사건 등록, 40단계 무작위 명령 시퀀스의 seq 역순 정렬 및 문맥 격리를 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -932,3 +934,73 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과.
    - **패키징:** `npm run package` 무경고 빌드 성공 (60개 파일, 239.3 KB, `node_modules` 미포함 및 인라인 번들 독립 실행 확인).
    - **Go idebridge 테스트:** `go test -count=1 ./internal/adapter/idebridge` 100% 통과 (9.5s).
+
+---
+
+## §5.8.4 fast-check 기반 상태 모듈 속성 기반 회귀 검사 (Property-Based Testing)
+
+UI·RxJS·프로토콜 계층과 분리된 순수 상태 모듈(`createAnswerState`, `createRecoveryState`)을 대상으로, 비동기 이벤트의 도착 순서 역전·중복 수신·문맥 전환·경합 상황에서 초안과 전송 잠금이 상호 오염되지 않는 불변식을 fast-check 속성 기반 테스트로 전수 검증합니다.
+
+### 1. 의존성 및 설치 사양
+- **라이브러리 및 버전:** `fast-check@4.10.1` (MIT 라이선스).
+- **설치 위치:** `clients/vscode/package.json`의 `devDependencies` 및 `package-lock.json`.
+- **배포 격리:** VSIX 패키징(`vsce package --no-dependencies`) 및 esbuild 번들 대상에서 완전 제외되며, 제품 런타임 코드에는 외부 `fast-check` 임포트가 일체 존재하지 않습니다.
+- **상태 관리 코드 보존:** 새 라이브러리 도입을 이유로 제품 상태 관리 코드(`answer_state.ts`, `recovery_state.ts`)를 재작성하지 않고 순수 공개 API만 호출하며, 내부 Map이나 버전을 복제한 제2의 상태 관리기를 두지 않고 최소한의 독립 장부로 검증합니다.
+
+### 2. 테스트 스위트 구조 및 역할
+- **공통 테스트 헬퍼 (`src/test/support/fc_helpers.ts`):**
+  - `getFcParameters(defaultNumRuns = 100)`:
+    - 기본 속성당 100회 실행(`numRuns: 100`), `endOnFailure: true` 설정.
+    - 환경 변수 `MAGI_FC_SEED`: 정수 파싱 검증을 수행하며, 정수가 아닐 경우 명시적인 오류 메시지(`Value must be a valid integer`)를 던집니다.
+    - 환경 변수 `MAGI_FC_PATH`: shrink 트리 내 정확한 리플레이 경로를 주입합니다.
+  - `assertProperty`:
+    - 속성 실행 시간을 밀리초 단위로 측정합니다.
+    - 실패 시 `seed`, `path`, 축소된 반례, 속성명, 그리고 재현 가능한 `node --test --test-name-pattern` 실행 명령을 명확한 배너 형태로 콘솔에 출력합니다.
+  - **공통 생성기:**
+    - `arbKoreanOrAsciiString`: 빈 문자열, 다중 공백, 개행, 앞뒤 공백 한글, 일반 한글, 영문/파일명.
+    - `arbBlankString`: `''`, `'   '`, `'\t\t'`, `'\n\n'`, `'  \t \n '`.
+    - `arbNonBlankString`: 최소 1자 이상의 유효한 비공백 문자열.
+
+- **복구 저장소 속성 검사 (`src/test/recovery_state.property.test.ts` — 6개 속성):**
+  1. `Empty string is never registered and whitespace is preserved verbatim in recovery_state`: 빈 문자열(`""`)은 등록 거부(`null` 반환), 공백·개행·한글·특수문자 원문은 변형 없이 보존.
+  2. `Duplicate eventKey replay is strictly idempotent and does not increment attempts`: 동일한 `eventKey` 사건의 재수신은 엄격히 멱등하며, 항목 수와 `attempts` 횟수를 증가시키지 않음.
+  3. `Merging identical failures increments attempts, updates seq, and clears stale error`: 동일 문맥·작업·종류·원문의 서로 다른 실패 사건은 기존 항목에 합산(attempts 증가, seq 갱신), 신규 이벤트에 에러가 없으면 이전 에러 제거.
+  4. `Distinct sources, kinds, or texts are never merged`: 다른 컴패니언, 세션, callId, 종류, 텍스트를 가진 사건은 절대 합산되지 않고 독립 항목으로 분리 등록.
+  5. `Deleted recovery item cannot be resurrected by replaying consumed event`: 사용자가 명시적으로 삭제한 항목은 이미 소비된 동일 `eventKey` 재생으로 부활하지 않으며, 새로운 `eventKey`의 실패는 신규 항목으로 정상 등록.
+  6. `Multi-step random command sequence maintains sorting, isolation, and deletion invariants`: 최대 40단계 무작위 명령(register, duplicate, replay, delete, clear) 실행 후 `seq` 내림차순 정렬, 문맥 격리, 삭제 불변식 보장.
+
+- **답변 및 초안 상태 속성 검사 (`src/test/answer_state.property.test.ts` — 9개 속성):**
+  1. `Draft isolation across companions, sessions, and questions`: 서로 다른 컴패니언 키, 세션 ID, 질문 간 일반 초안 및 질문 초안의 완전 격리와 문맥 전환 복원 보장.
+  2. `In-flight locking and duplicate submission prevention per context`: 질문 답변 진행 중 중복 제출 시 `{ ok: false, error: 'in_flight' }` 거절, 기존 attemptId 및 잠금 유지, 타 문맥의 동일 callId 독립성 보장.
+  3. `A submitted -> B modified -> A failed protects modified draft B and preserves A in recovery`: 질문 답변 A 제출 후 사용자가 초안 B로 수정하고 서버에서 A 실패 응답 수신 시, 사용자 초안 B를 덮어쓰지 않고 보호하며 복구 목록에는 제출 당시 원문 A 보존 및 일반 초안 유지.
+  4. `A failed -> B resubmitted -> A duplicate result arrives protects in-flight attempt B`: A 실패 후 사용자가 B를 재전송한 상태에서 A의 지연/중복 결과가 도착하더라도 활성 상태인 B의 잠금과 attemptId를 해제하거나 오염시키지 않음.
+  5. `Late result across context switch updates target context storage without mutating active context`: 문맥 전환 후 이전 문맥의 지연 결과 수신 시 타깃 문맥의 저장소만 안전하게 갱신하고 현재 활성 화면의 입력창·모드·초안은 일체 변경하지 않음(`restoredInStoreOnly: true`).
+  6. `Duplicate onReplyResult is strictly idempotent`: 동일한 `ReplyResultEvent`의 중복 수신 시 복구 항목이나 실패 초안 목록이 추가로 늘어나지 않는 엄격한 멱등성 보장.
+  7. `Blank and whitespace-only text is rejected by submitReply with { ok: false, error: "empty" }`: 공백/개행 전용 텍스트 제출은 즉시 거부되며 in-flight 잠금을 유발하지 않음.
+  8. `applyRecoveryDraft requires confirmation when general draft exists and preserves drafts and in-flight locks`: 기존 일반 초안이 있을 때 확인 없는 복사 거부(`requires_confirm`), 확인 시 `G + "\n\n" + text` 결합, 답변 모드에서 복사 시 작성 중이던 질문 초안 보존, 질문 잠금 및 원본 복구 항목 불변 보장.
+  9. `Multi-step random command sequence for answer_state maintains invariants`: 문맥 전환, 입력, 모드 변경, 제출, 결과 수신, 복구 적용 등 최대 40단계 무작위 명령 시퀀스 실행 후 모든 in-flight 잠금의 attemptId 정합성(`> 0`) 및 상태 불변식 검증.
+
+### 3. 실패 재현 및 환경 변수 실행
+fast-check 실패 발생 시 콘솔에 출력된 `MAGI_FC_SEED`와 `MAGI_FC_PATH`를 사용하여 특정 실패 사례를 단 1회 실행으로 정확히 재현할 수 있습니다:
+
+```sh
+# 특정 속성만 단독 재현 실행 (--test-name-pattern 활용)
+MAGI_FC_SEED=1190287046 MAGI_FC_PATH="0" node --test --test-name-pattern="§5.8.4 Property: A submitted -> B modified -> A failed" clients/vscode/out/test/*.property.test.js
+
+# 전체 속성 테스트 단독 실행
+node --test clients/vscode/out/test/*.property.test.js
+```
+
+잘못된 `MAGI_FC_SEED`(예: 문자열) 전달 시 `Invalid MAGI_FC_SEED environment variable: "...". Value must be a valid integer.` 에러와 함께 즉시 안전하게 중단됩니다.
+
+### 4. 결함 탐지력 검증 (임시 변조 테스트)
+속성 테스트의 실질적인 회귀 차단 능력을 검증하기 위해 제품 코드에 의도적 결함을 주입하여 테스트 실패를 실측했습니다:
+- **주입 변조:** `answer_state.ts`의 `onReplyResult`에서 `modifiedSinceAttempt` 판정을 강제로 `false`로 고정하여(사용자가 수정했더라도 이전 실패 원문으로 강제 덮어쓰기 허용).
+- **실행 결과:** `§5.8.4 Property: A submitted -> B modified -> A failed protects modified draft B and preserves A in recovery` 속성이 1회 실행 직후 즉각 실패:
+  ```text
+  AssertionError [ERR_ASSERTION]: Draft B must not be overwritten by failed attempt A
+  + actual - expected
+  + 'JJ'
+  - '5#vuKmI!;ge'
+  ```
+- **원복:** 변조 코드를 즉시 원래 계약대로 원복하고 15개 속성 테스트가 100% 통과함을 재확인했습니다.
