@@ -241,8 +241,12 @@ for (const [kind, cases] of Object.entries(testCases)) {
         typeof legacyRes.seq === 'number' &&
         Number.isNaN(legacyRes.seq);
     } else {
-      match = (legacyRes === undefined && productRes === undefined) ||
-        (JSON.stringify(legacyRes) === JSON.stringify(productRes));
+      try {
+        assert.deepStrictEqual(productRes, legacyRes);
+        match = true;
+      } catch {
+        match = false;
+      }
     }
 
     if (!match) {
@@ -255,10 +259,15 @@ for (const [kind, cases] of Object.entries(testCases)) {
 }
 
 console.log(`\nParity result: ${valibotMismatches} mismatches found against legacy parser.\n`);
+if (valibotMismatches > 0) {
+  console.error(`Benchmark parity check failed: ${valibotMismatches} mismatches detected.`);
+  process.exit(1);
+}
 
 // ── 4. Benchmark Parsing Performance (Accurate message counting) ──
 
 console.log('=== 2. PARSING PERFORMANCE ===');
+console.log('  Scope                : full product parser (WebviewToHost) vs Zod representative schemas');
 const ITER = 10000;
 const PARSES_PER_ITER = 2; // sampleSay + sampleReply
 const TOTAL_PARSES = ITER * PARSES_PER_ITER;

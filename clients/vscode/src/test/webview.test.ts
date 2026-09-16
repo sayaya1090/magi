@@ -5,14 +5,21 @@ import * as path from 'path';
 import { TestScheduler } from 'rxjs/testing';
 
 import * as v from 'valibot';
-import { parseWebviewToHostMessage, WebviewToHostMessage, OpenMessageSchema } from '../core/webview_protocol';
-import { legacyParseWebviewToHostMessage } from './support/legacy_protocol_parser';
+import {
+  parseWebviewToHostMessage,
+  WebviewToHostMessage,
+  OpenMessageSchema,
+  parseHostToWebviewMessage,
+} from '../core/webview_protocol';
+import {
+  legacyParseWebviewToHostMessage,
+  legacyParseHostToWebviewMessage,
+} from './support/legacy_protocol_parser';
 import { resolveAndOpenFile } from '../core/nav';
 import { AskStore } from '../core/diff';
 import {
   createWebviewActionAdapter,
   dispatchHostMessage,
-  parseHostToWebviewMessage,
   createWebviewReceiveHandlers,
   createWebviewInputAdapter,
   createSuggestController,
@@ -1084,6 +1091,349 @@ test('§5.8.3 Item 4: Non-numeric seq fallback in open message reaches host reso
     assert.equal(openedDocs[0].path, targetAbsPath);
     assert.equal(notes.length, 0, 'No warning note should be posted for valid ask open');
   }
+});
+
+test('§5.8.3 Host-to-Webview: Strict 100% deepStrictEqual parity against legacy parser (commit c6e042f4) across all kinds and edge cases', () => {
+  const row1 = { who: 'user', label: 'User', text: 'hello' };
+  const row2 = { who: 'agent', label: 'Assistant', text: 'response', outputId: 'out-1', extraField: 'preserve' };
+  const ask1 = {
+    callId: 'call-1',
+    what: 'Allow edit?',
+    kind: 'permission',
+    options: ['yes', 'no'],
+    report: [{ key: 'file', text: 'main.ts' }],
+    args: '--write',
+    reason: 'safe',
+    diff: '+ line',
+    diffKind: 'sides',
+    filePath: 'main.ts',
+    index: 1,
+    total: 3,
+    since: 's0',
+    extraAskData: { nested: true },
+  };
+
+  const parityCases: unknown[] = [
+    // 1. Primitive and invalid roots
+    null,
+    undefined,
+    123,
+    'a string',
+    true,
+    false,
+    [],
+    [1, 2, 3],
+    {},
+    { kind: 'unknown_kind' },
+    { kind: 123 },
+    { notKind: 'rows' },
+
+    // 2. rows
+    { kind: 'rows' },
+    { kind: 'rows', session: '', rows: [], refs: [] }, // empty session allowed
+    { kind: 'rows', session: '   ', rows: [], refs: [] }, // blank session allowed
+    { kind: 'rows', session: 'sess-1', rows: [row1, row2], refs: ['ref1', 'ref2'] },
+    {
+      kind: 'rows',
+      session: 'sess-1',
+      rows: [row1],
+      ask: ask1,
+      refs: ['ref1'],
+      companionKey: 'ckey',
+      generation: 3,
+      webviewId: 'wvid',
+    },
+    { kind: 'rows', session: 'sess-1', rows: [row1], ask: null, refs: [] },
+    { kind: 'rows', session: 'sess-1', rows: [row1], ask: undefined, refs: [] },
+    // Optional field drop behavior on invalid type without rejecting the message
+    { kind: 'rows', session: 's1', rows: [], refs: [], companionKey: 123 },
+    { kind: 'rows', session: 's1', rows: [], refs: [], generation: 'not-a-number' },
+    { kind: 'rows', session: 's1', rows: [], refs: [], webviewId: null },
+    { kind: 'rows', session: 's1', rows: [], refs: [], companionKey: {}, generation: [], webviewId: 999 },
+    // Invalid rows rejection
+    { kind: 'rows', session: 123, rows: [], refs: [] },
+    { kind: 'rows', session: 's1', rows: 'not-array', refs: [] },
+    { kind: 'rows', session: 's1', rows: [null], refs: [] },
+    { kind: 'rows', session: 's1', rows: [{ who: 'user' }], refs: [] }, // missing label, text
+    { kind: 'rows', session: 's1', rows: [{ who: 'user', label: 'u', text: 't', outputId: 123 }], refs: [] }, // outputId non-string
+    { kind: 'rows', session: 's1', rows: [], refs: 'not-array' },
+    { kind: 'rows', session: 's1', rows: [], refs: [123] },
+    // Invalid ask rejection
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: 'not-object' },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: [] },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: '', what: 'w', kind: 'question' } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 123, kind: 'question' } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'unknown' } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'question', options: [1] } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'question', report: [null] } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'question', report: [{ key: 'k' }] } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'question', diffKind: 'invalid' } },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c', what: 'w', kind: 'question', index: 'not-number' } },
+
+    // 3. compose
+    { kind: 'compose' },
+    { kind: 'compose', text: 'draft text' },
+    { kind: 'compose', text: '' },
+    { kind: 'compose', text: '  spaces  ' },
+    { kind: 'compose', text: 123 },
+    { kind: 'compose', text: null },
+
+    // 4. mentions
+    { kind: 'mentions' },
+    { kind: 'mentions', files: ['a.ts', 123, 'b.ts', null, undefined, {}], reqId: 1, target: 'composer' },
+    { kind: 'mentions', files: ['a.ts'], reqId: NaN, target: 'composer' },
+    { kind: 'mentions', files: ['a.ts'], reqId: Infinity, target: 'composer' },
+    { kind: 'mentions', files: ['a.ts'], reqId: -Infinity, target: 'composer' },
+    { kind: 'mentions', files: 'not-array', reqId: 1, target: 'composer' },
+    { kind: 'mentions', files: [], reqId: 'not-number', target: 'composer' },
+    { kind: 'mentions', files: [], reqId: 1, target: 123 },
+
+    // 5. suggestion
+    { kind: 'suggestion' },
+    { kind: 'suggestion', text: 'suggested', reqId: 10, target: 'composer' },
+    { kind: 'suggestion', text: '', reqId: 0, target: 'composer' },
+    { kind: 'suggestion', text: 'text', reqId: NaN, target: 'composer' },
+    { kind: 'suggestion', text: 'text', reqId: Infinity, target: 'composer' },
+    { kind: 'suggestion', text: 123, reqId: 1, target: 'composer' },
+    { kind: 'suggestion', text: 'text', reqId: 'one', target: 'composer' },
+
+    // 6. sessionCreated
+    { kind: 'sessionCreated' },
+    { kind: 'sessionCreated', companionKey: 'k', session: 's', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'sessionCreated', companionKey: '  k  ', session: '  s  ', creationTaskId: '  t  ', webviewId: '  w  ' },
+    { kind: 'sessionCreated', companionKey: '', session: 's', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'sessionCreated', companionKey: '   ', session: 's', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'sessionCreated', companionKey: 'k', session: '', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'sessionCreated', companionKey: 'k', session: 's', creationTaskId: '', webviewId: 'w' },
+    { kind: 'sessionCreated', companionKey: 'k', session: 's', creationTaskId: 't', webviewId: '' },
+
+    // 7. sessionCreationFailed
+    { kind: 'sessionCreationFailed' },
+    { kind: 'sessionCreationFailed', companionKey: 'k', creationTaskId: 't', webviewId: 'w' }, // error omitted -> explicit error: undefined
+    { kind: 'sessionCreationFailed', companionKey: 'k', creationTaskId: 't', webviewId: 'w', error: 'boom' },
+    { kind: 'sessionCreationFailed', companionKey: 'k', creationTaskId: 't', webviewId: 'w', error: 123 }, // non-string error -> undefined
+    { kind: 'sessionCreationFailed', companionKey: '  k  ', creationTaskId: '  t  ', webviewId: '  w  ' },
+    { kind: 'sessionCreationFailed', companionKey: '', creationTaskId: 't', webviewId: 'w' },
+
+    // 8. replyResult
+    { kind: 'replyResult' },
+    {
+      kind: 'replyResult',
+      callId: 'c1',
+      attemptId: 1,
+      ok: true,
+      companionKey: 'k1',
+      session: 's1',
+      generation: 0,
+      webviewId: 'w1',
+    }, // error & text omitted -> explicit undefined keys
+    {
+      kind: 'replyResult',
+      callId: '  c1  ',
+      attemptId: 5,
+      ok: false,
+      companionKey: '  k1  ',
+      session: '  s1  ',
+      generation: 2,
+      webviewId: '  w1  ',
+      error: 'failed',
+      text: 'answer text',
+    },
+    {
+      kind: 'replyResult',
+      callId: 'c1',
+      attemptId: 1,
+      ok: true,
+      companionKey: 'k1',
+      session: 's1',
+      generation: 0,
+      webviewId: 'w1',
+      error: 999, // non-string -> undefined
+      text: null, // non-string -> undefined
+    },
+    { kind: 'replyResult', callId: 'c1', attemptId: 0, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // attemptId <= 0
+    { kind: 'replyResult', callId: 'c1', attemptId: -1, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'replyResult', callId: 'c1', attemptId: 1.5, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'replyResult', callId: 'c1', attemptId: 1, ok: 'yes', companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // non-bool ok
+    { kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: 'k', session: 's', generation: -1, webviewId: 'w' }, // neg generation
+    { kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: 'k', session: 's', generation: 1.5, webviewId: 'w' },
+
+    // 9. state
+    { kind: 'state' },
+    { kind: 'state', state: { state: 'idle' }, note: { text: 'ready' } },
+    { kind: 'state', state: { state: 'running', asking: 'permission', doing: 'bash' }, note: { text: 'working', offerStart: true } },
+    { kind: 'state', state: { state: 'idle', asking: 123, doing: null }, note: { text: 'ok', offerStart: 1 } }, // boolean coercion on offerStart
+    { kind: 'state', state: { state: 123 }, note: { text: 'ok' } },
+    { kind: 'state', state: { state: 'idle' }, note: { text: 123 } },
+
+    // 10. info
+    { kind: 'info' },
+    { kind: 'info', state: 'idle', label: 'Ready', version: '0.1.0' }, // optional fields -> explicit undefined keys
+    {
+      kind: 'info',
+      state: 'idle',
+      label: 'Ready',
+      version: '0.1.0',
+      model: 'flash',
+      backend: 'gemini',
+      permission: 'safe',
+      council: 'active',
+      socket: '/tmp/magi.sock',
+    },
+    { kind: 'info', state: 'idle', label: 'Ready', version: '0.1.0', model: 123, backend: null },
+    { kind: 'info', state: 123, label: 'Ready', version: '0.1.0' },
+    { kind: 'info', state: 'idle', label: null, version: '0.1.0' },
+    { kind: 'info', state: 'idle', label: 'Ready', version: undefined },
+
+    // 11. note
+    { kind: 'note' },
+    { kind: 'note', text: 'connected' },
+    { kind: 'note', text: '' },
+    { kind: 'note', text: 123 },
+    { kind: 'note', text: null },
+  ];
+
+  for (let i = 0; i < parityCases.length; i++) {
+    const raw = parityCases[i];
+    const valibotRes = parseHostToWebviewMessage(raw);
+    const legacyRes = legacyParseHostToWebviewMessage(raw);
+
+    // Special check for NaN in mentions/suggestion reqId
+    if (valibotRes && legacyRes && (valibotRes.kind === 'mentions' || valibotRes.kind === 'suggestion')) {
+      if (typeof valibotRes.reqId === 'number' && Number.isNaN(valibotRes.reqId)) {
+        assert.equal(typeof (legacyRes as any).reqId, 'number');
+        assert.ok(Number.isNaN((legacyRes as any).reqId));
+        continue;
+      }
+    }
+
+    assert.deepStrictEqual(
+      valibotRes,
+      legacyRes,
+      `HostToWebview Parity mismatch at index #${i}: ${JSON.stringify(raw)}`
+    );
+  }
+});
+
+test('§5.8.3 Host-to-Webview: Strict object identity preservation for rows elements, ask, and refs, preserving unlisted nested properties', () => {
+  const originalRow = {
+    who: 'agent',
+    label: 'Magi Agent',
+    text: 'Code reviewed successfully.',
+    outputId: 'out-42',
+    seq: 101,
+    draft: false,
+    extraNestedMeta: { author: 'daemon', timestamp: 123456789 },
+  };
+
+  const originalAsk = {
+    callId: 'call-99',
+    what: 'Confirm terminal command execution?',
+    kind: 'permission' as const,
+    options: ['allow', 'deny'],
+    report: [{ key: 'command', text: 'ls -la' }],
+    args: 'ls -la',
+    reason: 'directory listing',
+    diffKind: 'none' as const,
+    filePath: 'workspace/root',
+    index: 2,
+    total: 5,
+    since: 'init',
+    customPayload: { dangerous: false, verified: true },
+  };
+
+  const originalRefs = ['src/core/webview_protocol.ts', 'src/web/chat_adapter.ts'];
+
+  const rawRowsMessage = {
+    kind: 'rows',
+    session: 'sess-identity-test',
+    rows: [originalRow],
+    ask: originalAsk,
+    refs: originalRefs,
+    companionKey: 'companion-1',
+    generation: 1,
+    webviewId: 'webview-main',
+    extraTopLevelIgnored: 'discard-me',
+  };
+
+  const parsed = parseHostToWebviewMessage(rawRowsMessage);
+  assert.ok(parsed);
+  assert.equal(parsed.kind, 'rows');
+
+  if (parsed.kind === 'rows') {
+    // 1. Strict object reference equality
+    assert.strictEqual(parsed.rows[0], originalRow, 'Row element reference must be strictly identical');
+    assert.strictEqual(parsed.ask, originalAsk, 'Ask object reference must be strictly identical');
+    assert.strictEqual(parsed.refs, originalRefs, 'Refs array reference must be strictly identical');
+
+    // 2. Unlisted/nested property preservation
+    assert.equal((parsed.rows[0] as any).seq, 101);
+    assert.equal((parsed.rows[0] as any).draft, false);
+    assert.deepStrictEqual((parsed.rows[0] as any).extraNestedMeta, { author: 'daemon', timestamp: 123456789 });
+    assert.deepStrictEqual((parsed.ask as any).customPayload, { dangerous: false, verified: true });
+
+    // 3. Top-level unknown keys stripped in parsed result
+    assert.equal('extraTopLevelIgnored' in parsed, false, 'Top-level unlisted properties must be stripped');
+  }
+});
+
+test('§5.8.3 Host-to-Webview: In-flight question, draft, DOM, and answer mode resiliency against malformed host messages via dispatchHostMessage', () => {
+  let rowsCalled = 0;
+  let replyResultCalled = 0;
+
+  const handlers = {
+    onRows() {
+      rowsCalled++;
+    },
+    onReplyResult() {
+      replyResultCalled++;
+    },
+  };
+
+  // 1. Dispatching malformed payloads returns false and does not invoke handlers
+  const malformedPayloads = [
+    null,
+    undefined,
+    { kind: 'rows', rows: 'invalid-non-array' },
+    { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c1', kind: 'unknown_kind' } },
+    { kind: 'rows', session: 's1', rows: [{ who: 'u' }] }, // invalid row
+    { kind: 'replyResult', callId: 'c1', attemptId: -1, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // negative attemptId
+    { kind: 'sessionCreated', companionKey: '', session: 's', creationTaskId: 't', webviewId: 'w' }, // empty key
+    { kind: 'unregistered_kind', data: 123 },
+  ];
+
+  for (const bad of malformedPayloads) {
+    const res = dispatchHostMessage(bad, handlers);
+    assert.equal(res, false, `dispatchHostMessage must return false for malformed payload: ${JSON.stringify(bad)}`);
+  }
+
+  assert.equal(rowsCalled, 0, 'No rows handler should have been called for malformed payloads');
+  assert.equal(replyResultCalled, 0, 'No replyResult handler should have been called for malformed payloads');
+
+  // 2. Valid payloads dispatch correctly and invoke appropriate handler
+  const validRows = {
+    kind: 'rows',
+    session: 's1',
+    rows: [{ who: 'user', label: 'U', text: 'msg' }],
+    refs: [],
+  };
+  const validRes = dispatchHostMessage(validRows, handlers);
+  assert.equal(validRes, true, 'dispatchHostMessage must return true for valid payload');
+  assert.equal(rowsCalled, 1, 'onRows handler must be invoked exactly once');
+
+  const validReplyResult = {
+    kind: 'replyResult',
+    callId: 'c1',
+    attemptId: 1,
+    ok: true,
+    companionKey: 'k',
+    session: 's',
+    generation: 0,
+    webviewId: 'w',
+  };
+  const replyRes = dispatchHostMessage(validReplyResult, handlers);
+  assert.equal(replyRes, true);
+  assert.equal(replyResultCalled, 1);
 });
 
 test('createWebviewActionAdapter formats and guards outbound messages', () => {

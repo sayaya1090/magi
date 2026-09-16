@@ -881,13 +881,38 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - `build_assets.test.ts`에 7대 필수 입력 검증 및 `vm` 격리 샌드박스 검증(`require` 호출 금지 가드 하에서 파싱 동작 확인)을 추가했습니다.
      - `npm run package` 후 독립 임시 디렉터리에 `magi-0.2.0.vsix`를 압축 해제하고, `node_modules`가 전혀 없는 환경에서 `extension/out/core/webview_protocol.js`를 로드하여 정상 파싱됨을 실측 검증했습니다.
      - VSIX 번들 파일 수는 **60개 그대로 유지**되며, 패키지 크기는 233.12 KB에서 235.74 KB로 단 **+2.62 KB**만 증가했습니다.
+   - **E. 2차 구현 범위: 호스트 → 웹뷰 메시지 검증 전환 (`parseHostToWebviewMessage`):**
+     - `src/core/webview_protocol.ts`에 `RowsMessageSchema`, `ComposeMessageSchema`, `MentionsMessageSchema`, `SuggestionMessageSchema`, `SessionCreatedMessageSchema`, `SessionCreationFailedMessageSchema`, `ReplyResultMessageSchema`, `StateMessageSchema`, `InfoMessageSchema`, `NoteMessageSchema` 등 10종의 `HostToWebviewMessage` Valibot 스키마를 선언하고, `export type HostToWebviewMessage = v.InferOutput<typeof HostToWebviewMessageSchema>;`로 타입을 일원화했습니다.
+     - `src/web/chat_adapter.ts`에서 기존 210여 줄의 수동 파서 코드를 전량 제거하고, `core/webview_protocol.ts`의 컴파일된 검증 파서를 재익스포트(`export { parseHostToWebviewMessage } from '../core/webview_protocol';`)하도록 통합했습니다.
+     - **출력 계약 및 레거시 동작 완전 보존:**
+       - **`rows`:** `session`은 빈 문자열(`""`)도 유효하게 수용합니다. `ask`가 누락/null/undefined인 경우 `ask: null`로 정규화합니다. `rows`의 각 원소(`PaintedRow`), `ask`, `refs`는 원본 참조를 보존(`assert.strictEqual`)하며 미지정 필드 및 중첩 자료를 삭제하지 않습니다. `companionKey`/`webviewId`는 문자열일 때만, `generation`은 number일 때만 추가하여 잘못된 선택 필드 하나 때문에 전체 메시지가 거부되지 않도록 방어했습니다.
+       - **`mentions`:** `files` 배열에서 문자열 원소만 필터링하여 보존하며(혼합 배열 전체 거부 안 함), `reqId`는 `NaN`, `Infinity` 등 런타임 숫자 동작을 보존했습니다.
+       - **`sessionCreated`/`sessionCreationFailed`:** 원문 식별자의 앞뒤 공백을 변형 없이 보존하며(trim 배제), `sessionCreationFailed`는 `error: undefined` 명시적 키를 유지합니다.
+       - **`replyResult`:** 양의 정수 `attemptId`, 음이 아닌 정수 `generation`, 불리언 `ok`, 비어 있지 않은 식별자를 엄격 검증하며, 생략된 `error` 및 `text`에 대해 명시적 `undefined` 키를 보존합니다.
+       - **`state`:** `state.state` 문자열 검증, `asking: undefined`, `doing: undefined` 키 보존, `note.offerStart`에 대한 `Boolean()` 형변환을 유지합니다.
+       - **`info`:** 필수 필드 문자열 검증 및 선택 필드 5종(`model`, `backend`, `permission`, `council`, `socket`)에 대한 명시적 `undefined` 키 보존을 유지합니다.
+     - **기준 파서 격리 보존 (`src/test/support/legacy_protocol_parser.ts`):**
+       - 커밋 `c6e042f4` 시점의 손코딩 파서를 `legacyParseHostToWebviewMessage`로 격리 보존했습니다 (.vscodeignore에 의해 VSIX 패키지에서 100% 제외).
+     - **100% Deep Strict Equality 대조 및 객체 참조 동일성 검증 (`webview.test.ts`):**
+       - 60여 개 대표·경계·비정상 입력에 대해 `parseHostToWebviewMessage`와 `legacyParseHostToWebviewMessage`의 `assert.deepStrictEqual` 전수 일치(불일치 0건)를 확인했습니다.
+       - `rows[0]`, `ask`, `refs`의 `assert.strictEqual` 참조 일치 및 중첩/미지정 필드 보존을 검증했습니다.
+     - **수신 경로 격리 검증 (`dispatchHostMessage`):**
+       - 비정상 payload 디스패치 시 파서가 안전하게 거절(`false` 반환)하며 이벤트 핸들러 미호출, DOM 미오염, 초안 및 질문 잠금 상태 보존을 검증했습니다.
+     - **웹뷰 어댑터 번들 크기 변화:**
+       - 변경 전: 131,489 bytes (128.41 KB)
+       - 변경 후: 149,628 bytes (146.12 KB) (+18,139 bytes, 웹뷰 번들에 Valibot 검증 함수 인라인 포함)
+       - VSIX 패키지: 60개 파일, 239.3 KB (무의존성 패키징 및 node_modules 없는 격리 환경 실행 확인).
+     - **비교 도구(`tools/benchmark-message-schemas.mjs`) 정돈:**
+       - `JSON.stringify` 대신 `assert.deepStrictEqual` 대조를 적용하고, 불일치 발생 시 즉시 프로세스 종료 코드 1(`process.exit(1)`)을 반환하도록 개선했습니다.
+       - 의도적 불일치 주입 시 exit code 1로 비정상 종료됨을 실측 확인했습니다.
+       - 성능 측정 표제에 "전체 제품 파서(WebviewToHost) vs Zod 대표 스키마" 비교 범위를 명시했습니다.
 
 7. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공 (TypeScript 컴파일 및 웹뷰/호스트 에셋 번들 생성).
-   - **단위 테스트 (`npm test`):** 총 478개 테스트 전수 통과 (471 pass, 0 fail, 7 skip).
+   - **단위 테스트 (`npm test`):** 총 484개 테스트 전수 통과 (477 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):**
-     - 정방향: 39개 시나리오(기존 32개 + a11y 7개) 100% 통과 (pageerror 0건).
-     - 번들 역순 (`--reverse`): 39개 시나리오 100% 통과.
-     - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과 (36회 분석 요약 로그 출력 확인).
-   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 235.74 KB, `node_modules` 미포함 및 인라인 번들 독립 실행 확인).
-   - **Go idebridge 테스트:** `go test -count=1 ./internal/adapter/idebridge` 100% 통과 (9.7s).
+     - 자산 사전 검증 (`--verify-assets`): 3개 번들 전수 통과.
+     - 정방향: 39개 시나리오(기존 32개 + a11y 7개) 100% 통과 (axe-core 36회 분석 violations=0, incomplete=0).
+     - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과.
+   - **패키징:** `npm run package` 무경고 빌드 성공 (60개 파일, 239.3 KB, `node_modules` 미포함 및 인라인 번들 독립 실행 확인).
+   - **Go idebridge 테스트:** `go test -count=1 ./internal/adapter/idebridge` 100% 통과 (9.5s).
