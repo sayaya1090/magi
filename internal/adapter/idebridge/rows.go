@@ -225,6 +225,9 @@ type Row struct {
 	// Folded marks rows shut by default — reasoning, tool bodies.
 	Folded bool `json:"folded,omitempty"`
 
+	// OutputID is the read-only output document ID for finalized assistant text or tool result.
+	OutputID string `json:"outputId,omitempty"`
+
 	// Summary is this row as ONE line, for a screen that draws a list.
 	//
 	// ⚠ **It exists because the bodies are now whole.** The arguments a call was made with and the

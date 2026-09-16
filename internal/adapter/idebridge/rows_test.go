@@ -307,6 +307,7 @@ func TestTheRowFieldsMatchTheKotlinCopy(t *testing.T) {
 			"`evidence` 문장 안에 넣는다 — 같은 사실, 다른 모양.",
 		"fileNav": "도구 계약에서 추출한 구조화된 파일·줄 이동 정보. VS Code 클라이언트에서 먼저 도입되었으며 젯브레인 변경은 이번 범위에서 제외됐다.",
 		"rawArgs": "도구 호출의 전체 원문 인자. 요약(args)과 분리하여 웹뷰에서 상세 펼치기를 제공한다.",
+		"outputId": "확정된 답변이나 도구 결과의 읽기 전용 가상 문서 식별자. VS Code 클라이언트에서 먼저 도입되었으며 젯브레인 변경은 이번 범위에서 제외됐다.",
 	}
 	// 이쪽 사본에만 있는 칸도 사유와 함께. **이 절반이 없어서 시간이 사라질 뻔했다.**
 	copyOnly := map[string]string{
