@@ -11,6 +11,7 @@ import {
   createWebviewReceiveHandlers,
   createWebviewInputAdapter,
   createSuggestController,
+  createWebviewRecoveryController,
   classifyDiffLines,
   renderMarkdown,
   WebviewBridge,
@@ -2523,5 +2524,547 @@ test('§4.5 Item 4: 충돌 없는 완료 및 추가 작성 없는 완료의 DOM 
   inputAdapter.dispose();
 });
 
+class RecoveryTestDomNode {
+  nodeType = 1;
+  tagName: string;
+  _text = '';
+  value = '';
+  placeholder = '';
+  hidden = false;
+  disabled = false;
+  checked = false;
+  className = '';
+  type = '';
+  dataset: Record<string, string> = {};
+  attributes: Record<string, string> = {};
+  childNodes: RecoveryTestDomNode[] = [];
+  parentNode: RecoveryTestDomNode | null = null;
+  listeners: Record<string, ((e?: any) => void)[]> = {};
 
+  constructor(tag = 'div') {
+    this.tagName = tag.toUpperCase();
+  }
+
+  get ownerDocument(): any {
+    return recoveryTestDoc;
+  }
+
+  get textContent(): string {
+    if (this.nodeType === 3) return this._text;
+    return this.childNodes.map((c) => c.textContent).join('');
+  }
+  set textContent(val: string) {
+    this._text = val;
+    this.childNodes = [];
+    if (this.nodeType === 3) {
+      this._text = val;
+    } else if (val !== '') {
+      const tn = new RecoveryTestDomNode('#text');
+      tn.nodeType = 3;
+      tn._text = val;
+      this.appendChild(tn);
+    }
+  }
+
+  appendChild(child: RecoveryTestDomNode): RecoveryTestDomNode {
+    child.parentNode = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  append(...nodes: (RecoveryTestDomNode | string)[]): void {
+    for (const n of nodes) {
+      if (typeof n === 'string') {
+        const tn = new RecoveryTestDomNode('#text');
+        tn.nodeType = 3;
+        tn._text = n;
+        this.appendChild(tn);
+      } else {
+        this.appendChild(n);
+      }
+    }
+  }
+
+  setAttribute(k: string, v: string) {
+    this.attributes[k] = v;
+  }
+  getAttribute(k: string): string | null {
+    return this.attributes[k] ?? null;
+  }
+  removeAttribute(k: string) {
+    delete this.attributes[k];
+  }
+
+  addEventListener(type: string, fn: (e?: any) => void) {
+    if (!this.listeners[type]) this.listeners[type] = [];
+    this.listeners[type].push(fn);
+  }
+  removeEventListener(type: string, fn: (e?: any) => void) {
+    if (this.listeners[type]) {
+      this.listeners[type] = this.listeners[type].filter((f) => f !== fn);
+    }
+  }
+  dispatchEvent(type: string, ev?: any) {
+    for (const fn of [...(this.listeners[type] || [])]) {
+      fn(ev);
+    }
+  }
+
+  click() {
+    this.dispatchEvent('click', { type: 'click', target: this });
+  }
+
+  focus() {}
+  setSelectionRange() {}
+
+  querySelectorAll<T = RecoveryTestDomNode>(selector: string): T[] {
+    const classes = selector.split(',').map((s) => s.trim().replace(/^\./, ''));
+    const results: RecoveryTestDomNode[] = [];
+    const check = (node: RecoveryTestDomNode) => {
+      const nodeClasses = (node.className || '').split(/\s+/).filter(Boolean);
+      if (classes.some((cls) => nodeClasses.includes(cls))) {
+        results.push(node);
+      }
+      for (const child of node.childNodes) {
+        check(child);
+      }
+    };
+    for (const child of this.childNodes) {
+      check(child);
+    }
+    return results as unknown as T[];
+  }
+
+  querySelector<T = RecoveryTestDomNode>(selector: string): T | null {
+    const list = this.querySelectorAll<T>(selector);
+    return list.length > 0 ? list[0] : null;
+  }
+}
+
+const recoveryTestDoc = {
+  createElement(tag: string) {
+    return new RecoveryTestDomNode(tag);
+  },
+  createTextNode(text: string) {
+    const n = new RecoveryTestDomNode('#text');
+    n.nodeType = 3;
+    n._text = text;
+    return n;
+  },
+};
+
+function createRecoveryHarness() {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const recoveryBtn = new RecoveryTestDomNode('button');
+  const recoveryPanel = new RecoveryTestDomNode('div');
+  recoveryPanel.hidden = true;
+  const recoveryItemsEl = new RecoveryTestDomNode('div');
+  const recoveryScopeAll = new RecoveryTestDomNode('input');
+  recoveryScopeAll.type = 'checkbox';
+  const recoveryStatus = new RecoveryTestDomNode('div');
+  const say = new RecoveryTestDomNode('textarea');
+  const replyModeEl = new RecoveryTestDomNode('div');
+  replyModeEl.hidden = true;
+  const replyTargetEl = new RecoveryTestDomNode('span');
+  const replyCancelEl = new RecoveryTestDomNode('button');
+  const noteEl = new RecoveryTestDomNode('div');
+  const hintEl = new RecoveryTestDomNode('div');
+  const sendBtn = new RecoveryTestDomNode('button');
+
+  const inputAdapter = createWebviewInputAdapter(
+    {
+      say: say as any,
+      sendBtn: sendBtn as any,
+      replyModeEl: replyModeEl as any,
+      replyTargetEl: replyTargetEl as any,
+      replyCancelEl: replyCancelEl as any,
+      noteEl: noteEl as any,
+      hintEl: hintEl as any,
+    },
+    actions,
+    state,
+  );
+
+  let currentCompanionKey = '/workspace';
+  let currentSession = 'session-1';
+
+  const recoveryController = createWebviewRecoveryController({
+    elements: {
+      recoveryBtn: recoveryBtn as any,
+      recoveryPanel: recoveryPanel as any,
+      recoveryItemsEl: recoveryItemsEl as any,
+      recoveryScopeAll: recoveryScopeAll as any,
+      recoveryStatus: recoveryStatus as any,
+      say: say as any,
+    },
+    answerState: state,
+    inputAdapter,
+    document: recoveryTestDoc as any,
+    getCurrentCompanionKey: () => currentCompanionKey,
+    getCurrentSession: () => currentSession,
+  });
+
+  function registerReplyFailure(companionKey: string, session: string, callId: string, text: string, error: string, what = 'Q') {
+    state.switchContext(companionKey, session, {
+      activeAsk: { kind: 'question', callId, what } as any,
+    });
+    const sub = state.submitReply(callId, text);
+    if (sub.ok && sub.attemptId !== undefined) {
+      state.onReplyResult({
+        callId,
+        attemptId: sub.attemptId,
+        ok: false,
+        error,
+        companionKey,
+        session,
+      }, { kind: 'question', callId, what } as any);
+    }
+  }
+
+  function setGeneralDraft(companionKey: string, session: string, text: string) {
+    state.switchContext(companionKey, session);
+    state.onInputChange(text);
+  }
+
+  return {
+    posted,
+    state,
+    inputAdapter,
+    recoveryController,
+    elements: {
+      recoveryBtn,
+      recoveryPanel,
+      recoveryItemsEl,
+      recoveryScopeAll,
+      recoveryStatus,
+      say,
+      replyModeEl,
+      replyTargetEl,
+      replyCancelEl,
+      noteEl,
+      hintEl,
+      sendBtn,
+    },
+    getContext: () => ({ companionKey: currentCompanionKey, session: currentSession }),
+    setContext: (companionKey: string, session: string) => {
+      currentCompanionKey = companionKey;
+      currentSession = session;
+    },
+    registerReplyFailure,
+    setGeneralDraft,
+  };
+}
+
+test('§4.6 UI Item 1: 복구 초안 등록 및 뱃지 카운트 표시, 패널 토글, 기본 범위 필터링', () => {
+  const h = createRecoveryHarness();
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 0');
+  assert.equal(h.elements.recoveryPanel.hidden, true);
+  assert.equal(h.elements.recoveryBtn.getAttribute('aria-expanded'), 'false');
+
+  // Register a failed reply in session-1
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-1', 'FAILED ANSWER 1', 'connection dropped', 'Q1');
+
+  h.recoveryController.refresh();
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 1');
+
+  // Toggle panel open
+  h.elements.recoveryBtn.click();
+  assert.equal(h.elements.recoveryPanel.hidden, false);
+  assert.equal(h.elements.recoveryBtn.getAttribute('aria-expanded'), 'true');
+  assert.equal(h.recoveryController.isOpen(), true);
+
+  const items = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item');
+  assert.equal(items.length, 1);
+
+  // Register another failed reply in session-2
+  h.registerReplyFailure('/workspace', 'session-2', 'ask-2', 'FAILED ANSWER 2', 'session closed', 'Q2');
+
+  h.recoveryController.refresh();
+  // Default scope is current session (session-1), so only 1 item visible
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 1');
+  assert.equal(h.elements.recoveryItemsEl.querySelectorAll('.recovery-item').length, 1);
+
+  // Enable scopeAll
+  h.recoveryController.setScopeAll(true);
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 2');
+  assert.equal(h.elements.recoveryItemsEl.querySelectorAll('.recovery-item').length, 2);
+
+  // Close panel
+  h.elements.recoveryBtn.click();
+  assert.equal(h.elements.recoveryPanel.hidden, true);
+  assert.equal(h.elements.recoveryBtn.getAttribute('aria-expanded'), 'false');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 2: 전문 보기 토글 및 XSS 안전성 (textContent 원문 보존)', () => {
+  const h = createRecoveryHarness();
+  const rawEvilText = '<script>alert("xss")</script>\n  <div>spaced</div>\n\nline3';
+
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-html', rawEvilText, 'eval error', 'HTML Q');
+
+  h.recoveryController.open();
+  const fullBtn = h.elements.recoveryItemsEl.querySelector('.fulltext-btn');
+  assert.ok(fullBtn, 'fulltext button must be present');
+  assert.equal(fullBtn.textContent, '전문 보기');
+
+  // Click fulltext
+  fullBtn.click();
+  const fullBtnAfter = h.elements.recoveryItemsEl.querySelector('.fulltext-btn');
+  assert.ok(fullBtnAfter);
+  assert.equal(fullBtnAfter.textContent, '전문 닫기');
+  const fullPre = h.elements.recoveryItemsEl.querySelector('.recovery-full-text');
+  assert.ok(fullPre, 'full text pre element must be rendered');
+  assert.equal(fullPre.textContent, rawEvilText, 'full text must match raw string verbatim');
+
+  // Toggle off
+  fullBtnAfter.click();
+  assert.equal(h.elements.recoveryItemsEl.querySelector('.recovery-full-text'), null);
+  const fullBtnClosed = h.elements.recoveryItemsEl.querySelector('.fulltext-btn');
+  assert.ok(fullBtnClosed);
+  assert.equal(fullBtnClosed.textContent, '전문 보기');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 3: 일반 초안 G가 빈 상태에서 복사 - 직접 복사, 일반 모드 전환, 전송 0회, 복구 항목 보존', () => {
+  const h = createRecoveryHarness();
+
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-1', 'FAILED RECOVERY TEXT', 'server error', 'Q');
+
+  // Enter answer mode with empty general draft
+  h.inputAdapter.onContextChange('/workspace', 'session-1', { kind: 'question', callId: 'ask-1', what: 'Q' } as any, 0, 'v1');
+  assert.equal(h.elements.replyModeEl.hidden, false, 'should be in answer mode');
+
+  h.recoveryController.open();
+  const copyBtn = h.elements.recoveryItemsEl.querySelector('.copy-btn');
+  assert.ok(copyBtn, 'copy button present');
+
+  copyBtn.click();
+
+  // Switched to general mode, text copied verbatim
+  assert.equal(h.elements.replyModeEl.hidden, true, 'switched to general mode');
+  assert.equal(h.elements.say.value, 'FAILED RECOVERY TEXT', 'input value has failed text');
+  assert.equal(h.state.getGeneralDraft('/workspace', 'session-1'), 'FAILED RECOVERY TEXT');
+
+  // Verify 0 postMessages dispatched
+  assert.equal(h.posted.length, 0, 'copy must NOT post any say or reply messages');
+
+  // Original recovery item remains in list
+  assert.equal(h.state.listRecoveryItems({ companionKey: '/workspace', sessionId: 'session-1' }).length, 1);
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 4: 일반 초안 G가 있는 상태에서 복사 - 이어 붙이기 확인/취소, 원문 결합 (G + "\\n\\n" + text), Q 저장', () => {
+  const h = createRecoveryHarness();
+
+  // Set existing general draft G
+  h.elements.say.value = 'EXISTING_G';
+  h.setGeneralDraft('/workspace', 'session-1', 'EXISTING_G');
+
+  // Register failed text
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-q', 'FAILED_Q_TEXT', 'network drop', 'Q');
+
+  // Switch to answer mode and type answer draft
+  h.inputAdapter.onContextChange('/workspace', 'session-1', { kind: 'question', callId: 'ask-q', what: 'Q' } as any, 0, 'v1');
+  h.elements.say.value = 'MY_ANSWER_DRAFT';
+
+  h.recoveryController.open();
+  const copyBtn = h.elements.recoveryItemsEl.querySelector('.copy-btn');
+  assert.ok(copyBtn, 'copy button present');
+  copyBtn.click();
+
+  // Confirm box appears, mode remains answer mode
+  const confirmBox = h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box');
+  assert.ok(confirmBox, 'confirm box must be shown');
+  assert.equal(h.elements.replyModeEl.hidden, false, 'mode unchanged before confirm');
+  assert.equal(h.elements.say.value, 'MY_ANSWER_DRAFT', 'say input untouched before confirm');
+
+  // Test Cancel
+  const cancelBtn = confirmBox.querySelector('.confirm-cancel-btn');
+  assert.ok(cancelBtn, 'cancel button present');
+  cancelBtn.click();
+
+  assert.equal(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'), null, 'confirm box dismissed');
+  assert.equal(h.elements.say.value, 'MY_ANSWER_DRAFT', 'say input untouched on cancel');
+  assert.equal(h.elements.replyModeEl.hidden, false, 'mode still answer mode');
+  assert.equal(h.posted.length, 0, 'no messages posted on cancel');
+
+  // Click copy again -> click append
+  const copyBtn2 = h.elements.recoveryItemsEl.querySelector('.copy-btn');
+  assert.ok(copyBtn2);
+  copyBtn2.click();
+
+  const appendBtn = h.elements.recoveryItemsEl.querySelector('.confirm-append-btn');
+  assert.ok(appendBtn, 'append button present');
+  appendBtn.click();
+
+  // Result: G + "\n\n" + text, general mode active, answer draft preserved in questionDrafts
+  const expectedCombined = 'EXISTING_G\n\nFAILED_Q_TEXT';
+  assert.equal(h.elements.say.value, expectedCombined, 'say input contains combined text');
+  assert.equal(h.elements.replyModeEl.hidden, true, 'switched to general mode');
+  assert.equal(h.state.getGeneralDraft('/workspace', 'session-1'), expectedCombined);
+  assert.equal(h.state.getQuestionDraft('ask-q', '/workspace', 'session-1'), 'MY_ANSWER_DRAFT', 'answer draft preserved');
+  assert.equal(h.posted.length, 0, '0 messages posted on append');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 5: 확인 중 세션 이동 또는 항목 삭제 시 복사 취소 (stale confirm 방지)', () => {
+  const h = createRecoveryHarness();
+  h.setGeneralDraft('/workspace', 'session-1', 'PRE_G');
+
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-s', 'STALE_TEXT', 'err', 'QS');
+
+  h.recoveryController.open();
+  const copyBtn = h.elements.recoveryItemsEl.querySelector('.copy-btn');
+  assert.ok(copyBtn);
+  copyBtn.click();
+  assert.ok(h.elements.recoveryItemsEl.querySelector('.recovery-confirm-box'));
+
+  // Switch context to session-2 before confirming
+  h.setContext('/workspace', 'session-2');
+  const res = h.recoveryController.confirmAppend(h.state.listRecoveryItems({ companionKey: '/workspace', sessionId: 'session-1' })[0].recoveryId);
+  assert.equal(res, false, 'confirmAppend must fail when session changed');
+  assert.equal(h.elements.recoveryStatus.textContent, '문맥이 변경되어 복사가 취소되었습니다.');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 6: 명시적 삭제 - 복구 항목 제거, 뱃지 카운트 감소, 다른 초안 불변, 0회 전송', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-d', 'DEL_TEXT', 'fail', 'QD');
+
+  h.recoveryController.open();
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 1');
+
+  const delBtn = h.elements.recoveryItemsEl.querySelector('.delete-btn');
+  assert.ok(delBtn);
+  delBtn.click();
+
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 0');
+  assert.equal(h.state.listRecoveryItems({ companionKey: '/workspace', sessionId: 'session-1' }).length, 0);
+  assert.ok(h.elements.recoveryItemsEl.querySelector('.recovery-empty'));
+  assert.equal(h.posted.length, 0, 'delete must not dispatch RPC or messages');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 7: IME 한글 조합 중 복사/이어 붙이기 비활성화 및 자동 실행 차단', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'ask-ime', 'IME_TEXT', 'fail', 'QI');
+
+  h.recoveryController.open();
+  const copyBtn = h.elements.recoveryItemsEl.querySelector('.copy-btn') as RecoveryTestDomNode;
+  assert.ok(copyBtn);
+  assert.equal(copyBtn.disabled, false);
+
+  // Trigger compositionstart
+  h.elements.say.dispatchEvent('compositionstart');
+  assert.equal(h.recoveryController.isComposing(), true);
+  assert.equal(copyBtn.disabled, true, 'copy button must be disabled during IME composition');
+
+  // Attempting copy returns false
+  const item = h.state.listRecoveryItems({ companionKey: '/workspace', sessionId: 'session-1' })[0];
+  const copied = h.recoveryController.copyDraft(item.recoveryId);
+  assert.equal(copied, false, 'copyDraft must reject while composing');
+
+  // Trigger compositionend
+  h.elements.say.dispatchEvent('compositionend');
+  assert.equal(h.recoveryController.isComposing(), false);
+  assert.equal(copyBtn.disabled, false, 'copy button re-enabled after compositionend');
+  assert.equal(h.elements.say.value, '', 'compositionend must NOT auto-execute copy');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6 UI Item 8: receiveHandlers 연동 검증 (replyResult 실패, sessionCreationFailed, sessionCreated conflict 직후 자동 refresh)', () => {
+  const h = createRecoveryHarness();
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter: h.inputAdapter,
+    answerState: h.state,
+    recoveryController: h.recoveryController,
+    getCurrentAsk: () => ({ kind: 'question', callId: 'ask-auto', what: 'AutoQ' } as any),
+    getCurrentSession: () => 'session-1',
+    setCurrentSession: () => {},
+    getCurrentCompanionKey: () => '/workspace',
+    setCurrentCompanionKey: () => {},
+    clearExpandedCallIds: () => {},
+    drawRows: () => {},
+    drawAsk: () => {},
+    drawRefs: () => {},
+    drawState: () => {},
+    drawInfo: () => {},
+    setNoteText: () => {},
+    getNoteText: () => '',
+  });
+
+  // 1. replyResult failed
+  h.state.switchContext('/workspace', 'session-1', {
+    activeAsk: { kind: 'question', callId: 'ask-auto', what: 'AutoQ' } as any,
+    webviewId: 'view-auto',
+  });
+  const sub = h.state.submitReply('ask-auto', 'INFLIGHT_TEXT');
+  assert.ok(sub.ok && sub.attemptId !== undefined);
+
+  dispatchHostMessage({
+    kind: 'replyResult',
+    callId: 'ask-auto',
+    attemptId: sub.attemptId,
+    ok: false,
+    error: 'fail on wire',
+    companionKey: '/workspace',
+    session: 'session-1',
+    generation: sub.generation ?? 0,
+    webviewId: 'view-auto',
+  }, handlers);
+
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 1', 'badge automatically updated after replyResult failure');
+
+  // 2. sessionCreationFailed
+  h.state.registerCreationTask('/workspace', 'task-fail-1', 'view-auto', 'UNSENT_CREATION_DRAFT');
+  dispatchHostMessage({
+    kind: 'sessionCreationFailed',
+    companionKey: '/workspace',
+    creationTaskId: 'task-fail-1',
+    webviewId: 'view-auto',
+    error: 'daemon refused',
+  }, handlers);
+
+  assert.equal(h.elements.recoveryBtn.textContent, '복구 초안 2', 'badge updated after sessionCreationFailed');
+
+  // 3. sessionCreated with conflict
+  // Seed task draft
+  h.state.registerCreationTask('/workspace', 'task-conflict-1', 'view-conf', 'CONFLICT_DRAFT');
+  h.setGeneralDraft('/workspace', 'sess-conf', 'EXISTING_IN_SESS');
+
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-conf',
+    creationTaskId: 'task-conflict-1',
+    webviewId: 'view-conf',
+  }, handlers);
+
+  // Switch context to sess-conf to check badge
+  h.setContext('/workspace', 'sess-conf');
+  h.recoveryController.refresh();
+  const confItems = h.state.listRecoveryItems({ companionKey: '/workspace', sessionId: 'sess-conf' });
+  assert.ok(confItems.some((i) => i.reason.includes('충돌') && i.text === 'CONFLICT_DRAFT'));
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
 

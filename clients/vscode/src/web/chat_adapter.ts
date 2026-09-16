@@ -15,6 +15,7 @@ import type {
 import type { Ask } from '../core/touched';
 import type { Activity } from '../core/activity';
 import type { AnswerStateManager, AskEvent } from '../core/answer_state';
+import type { RecoveryItem } from '../core/recovery_state';
 
 export interface WebviewBridge {
   postMessage(message: WebviewToHostMessage): void;
@@ -1067,9 +1068,408 @@ export function createWebviewInputAdapter(
   };
 }
 
+export interface RecoveryElements {
+  recoveryBtn: HTMLElement;
+  recoveryPanel: HTMLElement;
+  recoveryItemsEl: HTMLElement;
+  recoveryScopeAll?: HTMLInputElement | null;
+  recoveryStatus?: HTMLElement | null;
+  say: HTMLTextAreaElement;
+}
+
+export interface RecoveryControllerOptions {
+  elements: RecoveryElements;
+  answerState: AnswerStateManager;
+  inputAdapter: WebviewInputAdapter;
+  getCurrentCompanionKey: () => string;
+  getCurrentSession: () => string;
+  document?: { createElement(tag: string): any };
+}
+
+export interface RecoveryController {
+  refresh(): void;
+  open(): void;
+  close(): void;
+  toggle(): void;
+  isOpen(): boolean;
+  setScopeAll(all: boolean): void;
+  getScopeAll(): boolean;
+  toggleFullText(recoveryId: string): void;
+  isFullTextOpen(recoveryId: string): boolean;
+  copyDraft(recoveryId: string): boolean;
+  confirmAppend(recoveryId: string): boolean;
+  cancelConfirm(recoveryId: string): void;
+  deleteItem(recoveryId: string): boolean;
+  setComposing(composing: boolean): void;
+  isComposing(): boolean;
+  getPendingConfirmId(): string | null;
+  dispose(): void;
+}
+
+export function createWebviewRecoveryController(options: RecoveryControllerOptions): RecoveryController {
+  const { elements, answerState, inputAdapter, getCurrentCompanionKey, getCurrentSession } = options;
+  const { recoveryBtn, recoveryPanel, recoveryItemsEl, recoveryScopeAll, recoveryStatus, say } = elements;
+  const doc = options.document || (recoveryItemsEl && (recoveryItemsEl as any).ownerDocument) || (typeof document !== 'undefined' ? document : undefined);
+
+  let panelOpen = false;
+  let scopeAll = false;
+  let isComposing = false;
+  const openFullTexts = new Set<string>();
+  let pendingConfirmId: string | null = null;
+  let confirmSession: string = '';
+  let confirmCompanion: string = '';
+
+  function setStatus(msg: string): void {
+    if (recoveryStatus) {
+      recoveryStatus.textContent = msg;
+    }
+  }
+
+  function getVisibleItems(): RecoveryItem[] {
+    const compKey = getCurrentCompanionKey();
+    const sessId = getCurrentSession();
+    if (!scopeAll) {
+      return answerState.listRecoveryItems({
+        companionKey: compKey,
+        sessionId: sessId,
+      });
+    } else {
+      return answerState.listRecoveryItems({
+        companionKey: compKey,
+        includeOtherSessions: true,
+      });
+    }
+  }
+
+  function updateButtonsDisabled(): void {
+    const copyBtns = recoveryItemsEl.querySelectorAll<HTMLButtonElement>('.copy-btn, .confirm-append-btn');
+    copyBtns.forEach((b) => {
+      b.disabled = isComposing;
+    });
+  }
+
+  function refresh(): void {
+    const items = getVisibleItems();
+    recoveryBtn.textContent = '복구 초안 ' + items.length;
+    recoveryBtn.setAttribute('aria-label', '복구 초안 ' + items.length + '개');
+    if (recoveryScopeAll) {
+      recoveryScopeAll.checked = scopeAll;
+    }
+
+    if (!panelOpen) {
+      recoveryPanel.hidden = true;
+      recoveryBtn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+
+    recoveryPanel.hidden = false;
+    recoveryBtn.setAttribute('aria-expanded', 'true');
+    recoveryItemsEl.textContent = '';
+
+    if (!doc) return;
+
+    if (items.length === 0) {
+      const emptyEl = doc.createElement('div');
+      emptyEl.className = 'recovery-empty';
+      emptyEl.textContent = '보관 중인 복구 초안이 없습니다.';
+      recoveryItemsEl.append(emptyEl);
+      return;
+    }
+
+    for (const item of items) {
+      const itemEl = doc.createElement('div');
+      itemEl.className = 'recovery-item';
+      itemEl.dataset.recoveryId = item.recoveryId;
+
+      const metaEl = doc.createElement('div');
+      metaEl.className = 'recovery-meta';
+      const originText = item.creationTaskId
+        ? '생성 작업: ' + item.creationTaskId
+        : '세션: ' + (item.sessionId || '미지정');
+      metaEl.textContent = originText + ' · 발생: ' + item.attempts + '회';
+      itemEl.append(metaEl);
+
+      const titleEl = doc.createElement('div');
+      titleEl.className = 'recovery-title';
+      titleEl.textContent = item.title;
+      itemEl.append(titleEl);
+
+      const reasonEl = doc.createElement('div');
+      reasonEl.className = 'recovery-reason';
+      reasonEl.textContent = item.reason;
+      itemEl.append(reasonEl);
+
+      const previewEl = doc.createElement('div');
+      previewEl.className = 'recovery-preview';
+      previewEl.textContent = item.text.length > 80 ? item.text.slice(0, 80) + '…' : item.text;
+      itemEl.append(previewEl);
+
+      const isFullOpen = openFullTexts.has(item.recoveryId);
+      if (isFullOpen) {
+        const fullPre = doc.createElement('pre');
+        fullPre.className = 'recovery-full-text';
+        fullPre.textContent = item.text;
+        itemEl.append(fullPre);
+      }
+
+      const actsEl = doc.createElement('div');
+      actsEl.className = 'recovery-actions';
+
+      const fullBtn = doc.createElement('button');
+      fullBtn.type = 'button';
+      fullBtn.className = 'fulltext-btn';
+      fullBtn.textContent = isFullOpen ? '전문 닫기' : '전문 보기';
+      fullBtn.setAttribute('aria-expanded', isFullOpen ? 'true' : 'false');
+      fullBtn.addEventListener('click', () => {
+        toggleFullText(item.recoveryId);
+      });
+      actsEl.append(fullBtn);
+
+      const copyBtn = doc.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'copy-btn';
+      copyBtn.textContent = '일반 초안으로 복사';
+      copyBtn.disabled = isComposing;
+      copyBtn.addEventListener('click', () => {
+        if (isComposing) return;
+        copyDraft(item.recoveryId);
+      });
+      actsEl.append(copyBtn);
+
+      const delBtn = doc.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'delete-btn';
+      delBtn.textContent = '삭제';
+      delBtn.addEventListener('click', () => {
+        deleteItem(item.recoveryId);
+      });
+      actsEl.append(delBtn);
+
+      itemEl.append(actsEl);
+
+      if (pendingConfirmId === item.recoveryId) {
+        const confirmBox = doc.createElement('div');
+        confirmBox.className = 'recovery-confirm-box';
+
+        const msgSpan = doc.createElement('div');
+        msgSpan.className = 'recovery-confirm-msg';
+        msgSpan.textContent = '작성 중인 일반 초안이 있습니다. 이어 붙이시겠습니까?';
+        confirmBox.append(msgSpan);
+
+        const appendBtn = doc.createElement('button');
+        appendBtn.type = 'button';
+        appendBtn.className = 'confirm-append-btn';
+        appendBtn.textContent = '이어 붙이기';
+        appendBtn.disabled = isComposing;
+        appendBtn.addEventListener('click', () => {
+          if (isComposing) return;
+          confirmAppend(item.recoveryId);
+        });
+        confirmBox.append(appendBtn);
+
+        const cancelBtn = doc.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'confirm-cancel-btn';
+        cancelBtn.textContent = '취소';
+        cancelBtn.addEventListener('click', () => {
+          cancelConfirm(item.recoveryId);
+        });
+        confirmBox.append(cancelBtn);
+
+        itemEl.append(confirmBox);
+      }
+
+      recoveryItemsEl.append(itemEl);
+    }
+  }
+
+  function toggleFullText(recoveryId: string): void {
+    if (openFullTexts.has(recoveryId)) {
+      openFullTexts.delete(recoveryId);
+    } else {
+      openFullTexts.add(recoveryId);
+    }
+    refresh();
+  }
+
+  function copyDraft(recoveryId: string): boolean {
+    if (isComposing) return false;
+    const item = answerState.getRecoveryItem(recoveryId);
+    if (!item) return false;
+
+    const compKey = getCurrentCompanionKey();
+    const sessId = getCurrentSession();
+    const res = answerState.applyRecoveryDraft({
+      recoveryId,
+      companionKey: compKey,
+      sessionId: sessId,
+      currentInputText: say.value,
+      append: false,
+    });
+
+    if (!res.ok) {
+      if (res.reason === 'requires_confirm') {
+        pendingConfirmId = recoveryId;
+        confirmSession = sessId;
+        confirmCompanion = compKey;
+        setStatus('이어 붙이기 확인이 필요합니다.');
+        refresh();
+        return true;
+      }
+      return false;
+    }
+
+    inputAdapter.clearAutoCompletion();
+    inputAdapter.applyGeneralModeUI(res.nextInputText);
+    say.focus();
+    setStatus('일반 초안으로 복사되었습니다.');
+    refresh();
+    return true;
+  }
+
+  function confirmAppend(recoveryId: string): boolean {
+    if (isComposing) return false;
+    const compKey = getCurrentCompanionKey();
+    const sessId = getCurrentSession();
+
+    if (pendingConfirmId !== recoveryId || sessId !== confirmSession || compKey !== confirmCompanion) {
+      pendingConfirmId = null;
+      setStatus('문맥이 변경되어 복사가 취소되었습니다.');
+      refresh();
+      return false;
+    }
+
+    const item = answerState.getRecoveryItem(recoveryId);
+    if (!item) {
+      pendingConfirmId = null;
+      setStatus('항목이 삭제되어 복사가 취소되었습니다.');
+      refresh();
+      return false;
+    }
+
+    const res = answerState.applyRecoveryDraft({
+      recoveryId,
+      companionKey: compKey,
+      sessionId: sessId,
+      currentInputText: say.value,
+      append: true,
+    });
+
+    pendingConfirmId = null;
+    if (!res.ok) {
+      setStatus('복사 적용에 실패했습니다.');
+      refresh();
+      return false;
+    }
+
+    inputAdapter.clearAutoCompletion();
+    inputAdapter.applyGeneralModeUI(res.nextInputText);
+    say.focus();
+    setStatus('일반 초안에 이어 붙였습니다.');
+    refresh();
+    return true;
+  }
+
+  function cancelConfirm(recoveryId: string): void {
+    if (pendingConfirmId === recoveryId) {
+      pendingConfirmId = null;
+      setStatus('복사가 취소되었습니다.');
+      refresh();
+    }
+  }
+
+  function deleteItem(recoveryId: string): boolean {
+    if (pendingConfirmId === recoveryId) {
+      pendingConfirmId = null;
+    }
+    openFullTexts.delete(recoveryId);
+    const deleted = answerState.deleteRecoveryItem(recoveryId);
+    if (deleted) {
+      setStatus('복구 초안이 삭제되었습니다.');
+      refresh();
+    }
+    return deleted;
+  }
+
+  function onBtnClick(): void {
+    panelOpen = !panelOpen;
+    refresh();
+  }
+
+  function onScopeChange(): void {
+    if (recoveryScopeAll) {
+      scopeAll = recoveryScopeAll.checked;
+      refresh();
+    }
+  }
+
+  function onCompositionStart(): void {
+    isComposing = true;
+    updateButtonsDisabled();
+  }
+
+  function onCompositionEnd(): void {
+    isComposing = false;
+    updateButtonsDisabled();
+  }
+
+  recoveryBtn.addEventListener('click', onBtnClick);
+  if (recoveryScopeAll) {
+    recoveryScopeAll.addEventListener('change', onScopeChange);
+  }
+  say.addEventListener('compositionstart', onCompositionStart);
+  say.addEventListener('compositionend', onCompositionEnd);
+
+  // Initial render
+  refresh();
+
+  return {
+    refresh,
+    open(): void {
+      panelOpen = true;
+      refresh();
+    },
+    close(): void {
+      panelOpen = false;
+      refresh();
+    },
+    toggle(): void {
+      panelOpen = !panelOpen;
+      refresh();
+    },
+    isOpen: () => panelOpen,
+    setScopeAll(val: boolean): void {
+      scopeAll = val;
+      refresh();
+    },
+    getScopeAll: () => scopeAll,
+    toggleFullText,
+    isFullTextOpen: (id: string) => openFullTexts.has(id),
+    copyDraft,
+    confirmAppend,
+    cancelConfirm,
+    deleteItem,
+    setComposing(val: boolean): void {
+      isComposing = val;
+      updateButtonsDisabled();
+    },
+    isComposing: () => isComposing,
+    getPendingConfirmId: () => pendingConfirmId,
+    dispose(): void {
+      recoveryBtn.removeEventListener('click', onBtnClick);
+      if (recoveryScopeAll) {
+        recoveryScopeAll.removeEventListener('change', onScopeChange);
+      }
+      say.removeEventListener('compositionstart', onCompositionStart);
+      say.removeEventListener('compositionend', onCompositionEnd);
+    },
+  };
+}
+
 export interface WebviewReceiveAdapterOptions {
   inputAdapter: WebviewInputAdapter;
   answerState: AnswerStateManager;
+  recoveryController?: RecoveryController;
   getCurrentAsk: () => Ask | null;
   getCurrentSession: () => string;
   setCurrentSession: (s: string) => void;
@@ -1147,6 +1547,7 @@ export function createWebviewReceiveHandlers(
       if (options.getNoteText() === 'sending…') {
         options.setNoteText('');
       }
+      options.recoveryController?.refresh();
     },
     onCompose(payload) {
       options.inputAdapter.handleCompose(payload.text);
@@ -1168,12 +1569,15 @@ export function createWebviewReceiveHandlers(
           options.setCurrentWebviewId(payload.webviewId);
         }
       }
+      options.recoveryController?.refresh();
     },
     onSessionCreationFailed(payload) {
       options.inputAdapter.onSessionCreationFailed?.(payload);
+      options.recoveryController?.refresh();
     },
     onReplyResult(payload) {
       options.inputAdapter.handleReplyResult(payload, options.getCurrentAsk());
+      options.recoveryController?.refresh();
     },
     onState(m) {
       options.drawState(m.note);

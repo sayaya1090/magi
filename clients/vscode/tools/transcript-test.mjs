@@ -981,6 +981,146 @@ const bundles = [
           // 정리
           await page.locator('#say').fill('');
         }
+      },
+      {
+        id: 'asks_recovery_list_ui_and_continuous_workflow',
+        name: '실패 답변 등록 → 복구 목록 열기 → 전문 → 답변 모드에서 복사 취소/확정(이어 붙이기) → 삭제 및 0회 전송 검증 (§4.6)',
+        run: async (page) => {
+          // 1. 초기 상태 검증: #recovery-btn 텍스트가 '복구 초안 0', #recovery-panel hidden
+          const recoveryBtn = page.locator('#recovery-btn');
+          const recoveryPanel = page.locator('#recovery-panel');
+          assert.equal(await recoveryBtn.textContent(), '복구 초안 0');
+          assert.equal(await recoveryPanel.evaluate((el) => el.hidden), true);
+
+          // 2. 세션 1에 질문 등록 및 답변 작성, 전송
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-rec-1',
+            rows: [{ who: 'agent', label: 'magi', text: 'question ask' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-rec-1',
+              what: '작업을 진행할까요?',
+              options: ['예', '아니오']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+
+          const failedAnswerText = '진행하겠습니다. <script>alert("xss")</script>\nLine 2';
+          await page.locator('#say').fill(failedAnswerText);
+
+          // #send 클릭으로 전송 -> in-flight 등록
+          const postedLenBeforeSend = await page.evaluate(() => window.__posted.length);
+          await page.locator('#send').click();
+          await page.waitForFunction((len) => window.__posted.length > len, postedLenBeforeSend);
+          const replyMsg = await page.evaluate(() => window.__posted.filter((m) => m.kind === 'reply' && m.callId === 'q-rec-1').slice(-1)[0]);
+          assert.ok(replyMsg, 'reply message must be dispatched');
+
+          // 3. 실패 결과(replyResult ok: false) 수신
+          await page.evaluate((payload) => window.postMessage(payload, '*'), createReplyResultMessage({
+            callId: 'q-rec-1',
+            ok: false,
+            error: 'daemon communication failure',
+          }, replyMsg));
+
+          // 복구 뱃지 갱신 확인
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+          assert.equal(await recoveryBtn.textContent(), '복구 초안 1');
+
+          // 4. 복구 버튼 클릭 -> 패널 열림 확인
+          await recoveryBtn.click();
+          assert.equal(await recoveryPanel.evaluate((el) => el.hidden), false);
+          assert.equal(await recoveryBtn.getAttribute('aria-expanded'), 'true');
+
+          // 안내 문구 및 항목 검증
+          const notice = page.locator('.recovery-notice');
+          assert.equal(await notice.textContent(), '이 창에서 임시 보관 중');
+          const recoveryItem = page.locator('.recovery-item');
+          assert.equal(await recoveryItem.count(), 1);
+          assert.ok((await recoveryItem.locator('.recovery-reason').textContent()).includes('답변 전송을 확인하지 못함'));
+
+          // 5. 전문 보기 클릭 -> XSS 안전성 및 원문 보존 검증
+          const fulltextBtn = recoveryItem.locator('.fulltext-btn');
+          assert.equal(await fulltextBtn.textContent(), '전문 보기');
+          await fulltextBtn.click();
+          await page.waitForSelector('.recovery-full-text');
+          assert.equal(await fulltextBtn.textContent(), '전문 닫기');
+
+          const preText = await recoveryItem.locator('.recovery-full-text').evaluate((el) => el.textContent);
+          assert.equal(preText, failedAnswerText, 'full text must match raw text verbatim including script tags and newlines');
+
+          // 전문 접기
+          await fulltextBtn.click();
+          assert.equal(await recoveryItem.locator('.recovery-full-text').count(), 0);
+
+          // 6. 답변 모드 및 일반 초안 G가 있는 상태에서 복사 시도
+          // 먼저 일반 모드로 나가서 일반 초안 G 입력
+          await page.locator('#reply-cancel').click(); // exit answer mode
+          await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
+          const existingG = '기존에 작성 중이던 일반 초안 메모';
+          await page.locator('#say').fill(existingG);
+
+          // 다시 답변 모드 진입하여 질문 답변 Q 입력
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          const currentAnswerDraft = '새로 입력 중인 답변 Q';
+          await page.locator('#say').fill(currentAnswerDraft);
+
+          // 복사 버튼 클릭 -> 일반 초안 G가 있으므로 인라인 확인 상자("이어 붙이기 / 취소") 노출
+          const postMessagesBeforeCopy = await page.evaluate(() => window.__posted.length);
+          const copyBtn = recoveryItem.locator('.copy-btn');
+          await copyBtn.click();
+
+          await page.waitForSelector('.recovery-confirm-box');
+          const confirmBox = recoveryItem.locator('.recovery-confirm-box');
+          assert.ok(await confirmBox.isVisible());
+
+          // 6A. 취소 클릭
+          const cancelBtn = confirmBox.locator('.confirm-cancel-btn');
+          await cancelBtn.click();
+          assert.equal(await recoveryItem.locator('.recovery-confirm-box').count(), 0, 'confirm box dismissed on cancel');
+          assert.equal(await page.locator('#say').inputValue(), currentAnswerDraft, 'answer draft untouched on cancel');
+          assert.equal(await page.locator('#reply-mode').isVisible(), true, 'still in answer mode on cancel');
+
+          // 6B. 다시 복사 클릭 -> 이어 붙이기 클릭
+          await copyBtn.click();
+          await page.waitForSelector('.recovery-confirm-box');
+          const appendBtn = recoveryItem.locator('.confirm-append-btn');
+          await appendBtn.click();
+
+          // 검증: G + "\n\n" + failedAnswerText, 답변 모드 해제(일반 모드), 자동완성 무효화
+          const expectedCombined = existingG + '\n\n' + failedAnswerText;
+          await page.waitForFunction((exp) => document.getElementById('say').value === exp, expectedCombined);
+          assert.equal(await page.locator('#reply-mode').evaluate((el) => el.hidden), true, 'switched to general mode');
+          assert.equal(await page.locator('#say').inputValue(), expectedCombined);
+
+          // 단언: 복구 조작 중 호스트로 say 또는 reply postMessage가 0회 발생했는지 확인 (§4.6.5)
+          const postMessagesAfterAppend = await page.evaluate(() => window.__posted.length);
+          assert.equal(postMessagesAfterAppend, postMessagesBeforeCopy, 'recovery copy must NOT post any say or reply messages');
+
+          // 7. 명시적 삭제: .delete-btn 클릭 -> 항목 제거 및 뱃지 0 갱신
+          const deleteBtn = recoveryItem.locator('.delete-btn');
+          await deleteBtn.click();
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');
+          assert.equal(await page.locator('.recovery-item').count(), 0);
+          assert.ok(await page.locator('.recovery-empty').isVisible());
+          assert.equal(await page.locator('#say').inputValue(), expectedCombined, 'composer input preserved after delete');
+
+          // 8. 320×600 및 420×700 뷰포트에서 레이아웃 접근 검증 (§4.6.5)
+          await page.setViewportSize({ width: 320, height: 600 });
+          assert.ok(await page.locator('#topbar').isVisible());
+          assert.ok(await page.locator('#say').isVisible());
+
+          await page.setViewportSize({ width: 420, height: 700 });
+          assert.ok(await page.locator('#topbar').isVisible());
+          assert.ok(await page.locator('#say').isVisible());
+
+          // 패널 닫기 및 정리
+          await recoveryBtn.click();
+          assert.equal(await recoveryPanel.evaluate((el) => el.hidden), true);
+          await page.locator('#say').fill('');
+        }
       }
     ]
   },

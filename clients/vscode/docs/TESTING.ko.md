@@ -116,6 +116,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `output.test.ts` (원문 조회 및 스냅샷 관리) | **확정 답변·도구 결과 원문 조회, 서식 직렬화, 결정론적 URI 및 스냅샷 수명 검증 (§3.1–§3.3).** 완성된 모델 답변 및 도구 결과의 원문을 100자 축약·트림·줄바꿈 변환 없이 확정 이벤트로부터 원형 그대로 복원하는지 검증합니다. 도구 결과의 성공·실패(`isError`) 무관 열기 지원, 구조화된 결과의 JSON 직렬화 및 `(JSON)` 제목 표기, 유효한 빈 문자열(`""`)과 자료 없음(`null`/`undefined`)의 엄격한 구분, 도구 호출 `seq`와 결과 이벤트 `seq` 분리 매핑, 콜론(`:`)이 포함된 `callId`의 인코딩 왕복 보존 및 확정 결과용 필수 `resultSeq` 검증, 추가 토큰·빈 seq·잘못된 숫자의 엄격한 거부, 불변 스냅샷 캐시의 중복 쓰기 방지, 캐시 한도 1 환경에서의 임시 보호(`protectTemp`), 참조 카운트 기반 중첩 보호 및 멱등 해제, 탭 닫힘 연동 정리(`evictExcess`) 및 모든 항목 핀 고정 시 일시 초과 허용을 순수 단위 수준에서 전수 검증합니다. |
 | `output_provider.test.ts` (가상 문서 프로바이더 및 호스트 디스패치) | **읽기 전용 가상 문서 프로바이더(`magi-output`) 및 호스트 메시지 디스패치 검증 (§3.1–§3.4).** VS Code API(`vscode.workspace.registerTextDocumentContentProvider`, `openTextDocument`, `showTextDocument`)와의 연동을 검증합니다. `openTextDocument` 및 `showTextDocument` 예외 발생 시 비정상 종료 없이 `opened: false` 및 오류 사유로 안전하게 변환, 실패 시 `finally`를 통한 임시 보호 즉각 해제 및 캐시 누수 방지, `setTextDocumentLanguage`가 반환한 신규 문서 인스턴스를 `showTextDocument`에 전달, 언어 전환 중 발생하는 닫기(`close`) 이벤트에서의 생성 중 스냅샷 보호 유지, 언어 모드 설정 실패 시 원문 보기 유지 및 경고(`warning`) 반환, 동일 항목 재클릭 시 결정론적 URI 기반 탭 재사용, 다른 세션·컴패니언 간 동일 seq/callId 자료 격리, 탭 닫기(`onDidCloseTextDocument`) 이벤트 수신 시 초과 캐시 즉시 정리, `Chat.fromView`의 실패 및 경고 안내(`note`) 1회 표출과 입력/질문 모드 무변경 보존, 그리고 `Chat.dispose` 시 프로바이더·등록·구독이 중복 없이 정확히 1회씩 해제됨을 모의 호스트 환경에서 전수 검증합니다. (실제 VS Code IDE 실물 실행은 미실시) |
 | `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 작업 초안 인메모리 복구 모델, 등록·중복합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** 검증 통과한 `replyResult`의 `ok=false` 시 저장된 `inFlight.text` 등록, 빈 문자열 거절 및 공백/개행 원문 보존, HTML 특수문자 보존, 동일 세션·질문·원문의 반복 실패 중복 합산 및 횟수·최신 오류 갱신, 소비된 이벤트 재유입 무시, 명시적 삭제 후 재등록 방지 및 새 실패 시 새 ID 발급, `sessionCreationFailed` 및 `conflict=true` 생성 작업 초안의 복구 저장소 등록, 일반 초안 비어 있을 때 복사 및 비어 있지 않을 때 `G + "\n\n" + text` 결합 적용, 확인 취소 시 상태 보존, 타 세션 이동/삭제 시 복사 취소 등을 순수 모델 수준에서 전수 검증합니다 |
+| `webview.test.ts` (복구 목록 UI 제어 및 DOM 동기화) | **실패 답변·생성 초안 복구 웹뷰 UI 제어기 및 이벤트 동기화 검증 (§4.6).** `#recovery-btn` 뱃지 수와 패널 토글, 전체 컴패니언 범위 필터(`recoveryScopeAll`), 전문 보기/접기 토글 및 XSS 방어(원문 `textContent` 무변형 보존), 빈 일반 초안 복사 시 원문 복원·답변 모드 해제 및 호스트 `postMessage` 미발생(0건) 보장, 비어 있지 않은 일반 초안 시 인라인 확인 상자 노출·취소 시 상태 보존·이어 붙이기 확인 시 `G + "\n\n" + text` 결합 및 질문 초안 보존, 조작 중 세션 변경 시 확인 취소 및 오염 차단, 명시적 삭제 클릭 시 항목 제거·뱃지 0·빈 상태 표출, IME 조합 중(`compositionstart`/`compositionend`) 복사·삭제 버튼 비활성화 및 자동 제출 방지, `receiveHandlers`의 `replyResult`(ok=false)·`sessionCreationFailed`·`sessionCreated`(conflict=true) 이벤트 수신 시 복구 목록 자동 갱신을 단위 수준에서 전수 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -283,6 +284,64 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **저장된 전송 텍스트 강제:** 답변 실패 시 응답 `m.text`가 누락되거나 변조되어도 반드시 저장된 `inFlight.text`를 복구 저장소에 등록합니다. A 전송 후 B로 수정한 상태에서 A 실패 시 현재 입력/초안 B를 보존하고 복구 목록에는 A가 기록됩니다.
    - **일반 초안 복사 및 이어붙이기 결합:** `applyRecoveryDraft`는 일반 초안 `G`가 비어 있으면 원문을 그대로 일반 초안에 복사합니다. `G`가 존재할 경우 즉시 덮어쓰지 않고 `requiresConfirmation: true`를 반환하며, 사용자가 확인 시 정확히 `G + "\n\n" + text`로 결합합니다 (`G`와 `text` 모두 trim하지 않음).
    - **문맥 및 상태 보존:** 복사 확인 전 취소 시 일반 초안, 질문 초안, 답변 모드가 100% 보존됩니다. 조작 중 세션이 바뀌거나 복구 항목이 삭제되면 복사 적용이 거절(`false`)됩니다.
+3. **검증 결과:**
+   - `npm test`: 총 436개 단위 테스트 100% 통과 (0 fail, 7 skip).
+   - 모델 수준 테스트: `recovery_state.test.ts` (시나리오 1–8 전수 통과).
+
+### 실패 답변·생성 초안 웹뷰 UI 및 브라우저 검증 사양 (2026-09-16, §4.6 Commit 2)
+
+`chat_adapter.ts`, `chat_html.ts`, `webview.test.ts`, `transcript-test.mjs`에 걸쳐 웹뷰 상단 복구 UI 컨트롤, DOM 어댑터 동기화, 사용자 상호작용 및 브라우저 시각 렌더링을 전수 검증했습니다:
+
+1. **복구 UI 컨트롤 및 접근성 (`chat_html.ts`, `chat_adapter.ts`):**
+   - **상단바 뱃지 단추 (`#recovery-btn`):** 상단 도구 모음에 `복구 초안 N` 텍스트를 노출하며, 복구 가능한 항목이 0건이면 `복구 초안 0`, 1건 이상이면 건수를 실시간 갱신합니다. `aria-expanded`, `aria-controls="recovery-panel"` 접근성 속성을 갖추고 패널의 열림/닫힘 상태를 제어합니다.
+   - **복구 패널 (`#recovery-panel`):** 기본 `hidden` 상태이며 단추 클릭 시 토글됩니다. 상단에 경고 색상의 고정 안내 문구(`이 창에서 임시 보관 중`, `#cca700`)와 전체 컴패니언 세션 필터 체크박스(`#recovery-scope-all`, '이 컴패니언의 다른 대화')를 제공합니다.
+   - **복구 카드 항목 (`.recovery-item`):**
+     - 머리글: 세션 식별자 및 누적 실패 횟수 (`세션: sess-main · 발생: N회`)
+     - 제목: 질문 ID 또는 작업 식별자
+     - 실패 사유: 빨간색 강조 텍스트 (`답변 전송을 확인하지 못함: <오류메시지>`)
+     - 본문: 2줄 클램프 미리보기 (`.recovery-preview-text`) 및 `전문 보기` / `전문 닫기` 토글 단추 (`.fulltext-btn`)
+     - 전문 영역: 등폭 폰트와 스크롤 컨테이너를 갖춘 원형 텍스트 블록 (`.recovery-full-text`, `white-space: pre-wrap`)
+     - 작업 단추: `일반 초안으로 복사` (`.copy-btn`) 및 `삭제` (`.delete-btn`)
+   - **인라인 확인 상자 (`.recovery-confirm-box`):** 일반 초안 `G`에 이미 작성 중인 내용이 있을 때 복사 단추를 누르면 팝업 대화상자 대신 카드 내부에 인라인 확인 상자(`일반 초안에 작성 중인 내용이 있습니다. 이어 붙이시겠습니까?`)와 `이어 붙이기`(`.confirm-append-btn`), `취소`(`.confirm-cancel-btn`) 단추가 나타납니다.
+   - **원문 보존 및 XSS 방어:** 모든 텍스트 렌더링은 `element.textContent`를 통해서만 주입되며 `<script>`, `<div>` 등 HTML 마크업이 포함되어도 태그가 실행되거나 변형되지 않고 원문 그대로 보존됩니다.
+   - **무전송(0 postMessage) 보장:** 뱃지 클릭, 패널 토글, 전문 펼침/접힘, 복사, 이어 붙이기, 삭제 등 복구 목록의 모든 조작 과정에서 호스트(`vscode.postMessage`)로 `say`나 `reply` 메시지가 일체 발생하지 않습니다 (호스트 전송 0건).
+
+2. **단위 및 통합 검증 파이프라인 (`webview.test.ts` 8개 시나리오):**
+   - **시나리오 1 (뱃지 카운트 & 패널 토글 & 세션 범위 필터):** 등록 건수에 따른 뱃지 숫자 갱신, 패널 토글과 `aria-expanded` 정합성, 현재 세션 필터링 및 '이 컴패니언의 다른 대화' 체크박스 토글 시 타 세션 항목 노출/숨김 검증.
+   - **시나리오 2 (전문 보기 토글 및 XSS 방어):** '전문 보기' 클릭 시 `.recovery-full-text` 노출 및 '전문 닫기' 라벨 변경, HTML 스크립트 태그 및 줄바꿈 문자의 `textContent` 원문 일치 검증.
+   - **시나리오 3 (빈 G 복사 및 답변 모드 해제):** 일반 초안 `G`가 비어 있을 때 즉시 복사되어 `#say.value`에 입력되고, 답변 모드였던 경우 답변 모드가 해제되어 일반 입력 모드로 안전 전환되며, 호스트 전송 메시지가 0건임을 단언.
+   - **시나리오 4 (기존 G 존재 시 확인 상자 및 이어 붙이기):** 기존 `G`가 있을 때 복사 시 인라인 확인 상자 노출, 취소 클릭 시 `G`·질문 초안 `Q`·답변 모드 원형 보존, 이어 붙이기 클릭 시 정확히 `G + "\n\n" + text` 결합 반영, 질문 초안 `Q` 보존, 일반 모드 전환, 0 postMessage 단언.
+   - **시나리오 5 (세션 변경 시 지연 확인 취소):** 확인 상자가 열린 상태에서 다른 세션으로 이동 시 대기 중이던 확인 상태가 자동 취소되고 타 세션 초안 오염을 완벽히 차단.
+   - **시나리오 6 (명시적 삭제 및 빈 상태):** 삭제 단추 클릭 시 해당 항목 제거, 뱃지 수 0 갱신, '복구할 실패 초안이 없습니다' 안내 노출, 0 postMessage 단언.
+   - **시나리오 7 (IME 한글 조합 가드):** 한글 입력 중(`compositionstart`) 복사·삭제 버튼이 비활성화되며 엔터나 스페이스로 복구 명령이 오발행되지 않도록 방어하고, 조합 완료(`compositionend`) 시 버튼이 정상 복원됨을 검증.
+   - **시나리오 8 (`receiveHandlers` 실시간 연동):** `replyResult`(ok=false), `sessionCreationFailed`, `sessionCreated`(conflict=true) 이벤트 수신 시 복구 목록 컨트롤러가 즉시 재렌더링(`refresh`)되어 뱃지와 목록이 갱신됨을 호스트 디스패치 레벨에서 검증.
+
+3. **브라우저 하네스 E2E 검증 (`transcript-test.mjs`):**
+   - 신규 브라우저 시나리오 `asks_recovery_list_ui_and_continuous_workflow` 추가:
+     - 질문에 실패 답변 전송 후 `replyResult(ok: false)` 수신 시 상단바 `복구 초안 1` 뱃지 갱신 확인.
+     - 패널 오픈 후 안내 문구(`이 창에서 임시 보관 중`)와 오류 사유 실측 검증.
+     - `전문 보기` 토글 후 `<script>` 태그와 다중 행 개행 원문이 그대로 보존됨을 확인.
+     - 답변 모드에서 기존 `G` 작성 상태로 복사 클릭 시 인라인 확인 상자 노출, 취소 후 상태 보존, 이어 붙이기 클릭 시 결합 확인.
+     - 전체 복구 동작 중 호스트 `say`/`reply` 메시지 0건 발생 단언.
+     - `삭제` 클릭 후 항목 제거 및 `복구 초안 0` 복원 확인.
+   - 정방향 및 `--reverse` 역순 26개 시나리오 전수 통과 (0 fail).
+
+4. **시각 회귀 실측 스냅샷 및 뷰포트 지표 (Playwright Chromium):**
+   - 4개 시각 스냅샷 캡처 완료 (`docs/img/ide/`):
+     - `09_recovery_list_dark_420.png`: 다크 테마, 420×700 뷰포트, 전문 보기 펼침 상태.
+     - `10_recovery_list_light_420.png`: 라이트 테마, 420×700 뷰포트, 전문 보기 펼침 상태.
+     - `11_recovery_list_dark_320.png`: 다크 테마, 320×600 좁은 뷰포트, 미리보기 접힘 상태.
+     - `12_recovery_list_light_320.png`: 라이트 테마, 320×600 좁은 뷰포트, 미리보기 접힘 상태.
+   - 실측 `getBoundingClientRect` 지표:
+     - **420×700 (Dark / Light):** `#topbar` 420×21 (top: 0, left: 0), `#recovery-btn` 65×19 (top: 2, left: 6), `#recovery-panel` 400×219 (top: 29, left: 10), `.recovery-item` 400×167 (top: 64, left: 10), `#say` 351×39 (top: 653, left: 10).
+     - **320×600 (Dark / Light):** `#topbar` 320×21 (top: 0, left: 0), `#recovery-btn` 65×19 (top: 2, left: 6), `#recovery-panel` 300×180 (top: 29, left: 10), `.recovery-item` 300×128 (top: 64, left: 10), `#say` 251×39 (top: 553, left: 10).
+     - 좁은 뷰포트(320px)에서도 카드와 버튼이 가로 스크롤을 유발하지 않고 10px 좌우 여백 내에서 안정적으로 래핑됨을 실측 확인.
+
+5. **검증 결과 및 미검증 범위:**
+   - `npm test --prefix clients/vscode`: 총 444개 단위 테스트 100% 통과 (0 fail, 7 skip).
+   - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 26개 시나리오 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
+   - **미검증 범위 (Unverified Scope):** OS 네이티브 윈도우 그래픽 렌더러 및 하드웨어 키보드 IME 조합(Windows/macOS 네이티브 입력기 이벤트)은 헤드리스 Chromium 가상 이벤트로 대체 검증되었으며, 파일 시스템 영구 저장(SQLite/디스크 저장/TTL)은 본 인메모리 수명 명세 범위에 따라 포함되지 않습니다.
+
 
 
 

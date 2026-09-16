@@ -15,14 +15,34 @@ if (!fs.existsSync(src)) {
 
 fs.mkdirSync(outDir, { recursive: true });
 const compiled = fs.readFileSync(src, 'utf8');
+const recoverySrc = path.join(root, 'out', 'core', 'recovery_state.js');
+let recoveryCompiled = '';
+if (fs.existsSync(recoverySrc)) {
+  recoveryCompiled = fs.readFileSync(recoverySrc, 'utf8');
+}
 const wrapped = `// Auto-generated from out/core/answer_state.js for webview. Do not edit directly.
 var createAnswerState;
+var createRecoveryState;
 (function () {
   var exports = {};
+  var recoveryExports = {};
+  (function (exports) {
+    ${recoveryCompiled}
+  })(recoveryExports);
+  createRecoveryState = recoveryExports.createRecoveryState;
+
+  function require(id) {
+    if (id === './recovery_state' || id === '../core/recovery_state') {
+      return recoveryExports;
+    }
+    throw new Error('Cannot require ' + id);
+  }
+
 ${compiled}
   createAnswerState = exports.createAnswerState;
   if (typeof window !== 'undefined') {
     window.createAnswerState = createAnswerState;
+    window.createRecoveryState = createRecoveryState;
   }
 })();
 `;
@@ -46,6 +66,7 @@ var parseHostToWebviewMessage;
 var dispatchHostMessage;
 var classifyDiffLines;
 var renderMarkdown;
+var createWebviewRecoveryController;
 (function () {
   var exports = typeof module !== 'undefined' && module.exports ? module.exports : {};
 ${adapterCompiled}
@@ -57,6 +78,7 @@ ${adapterCompiled}
   dispatchHostMessage = exports.dispatchHostMessage;
   classifyDiffLines = exports.classifyDiffLines;
   renderMarkdown = exports.renderMarkdown;
+  createWebviewRecoveryController = exports.createWebviewRecoveryController;
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
     window.createWebviewInputAdapter = createWebviewInputAdapter;
@@ -66,6 +88,7 @@ ${adapterCompiled}
     window.dispatchHostMessage = dispatchHostMessage;
     window.classifyDiffLines = classifyDiffLines;
     window.renderMarkdown = renderMarkdown;
+    window.createWebviewRecoveryController = createWebviewRecoveryController;
   }
   if (typeof module !== 'undefined' && module.exports) {
     module.exports.createWebviewActionAdapter = createWebviewActionAdapter;
@@ -76,6 +99,7 @@ ${adapterCompiled}
     module.exports.dispatchHostMessage = dispatchHostMessage;
     module.exports.classifyDiffLines = classifyDiffLines;
     module.exports.renderMarkdown = renderMarkdown;
+    module.exports.createWebviewRecoveryController = createWebviewRecoveryController;
   }
 })();
 `;

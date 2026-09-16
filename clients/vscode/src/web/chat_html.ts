@@ -71,7 +71,42 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   /* The companion itself, folded away. A gear rather than "…": the card is what this companion is
      RUNNING ON and what you can change about it, and a gear is the word every editor already uses
      for that — "…" says "more of the same", which this is not. */
-  #topbar { display:flex; justify-content:flex-end; padding:2px 6px 0; }
+  #topbar { display:flex; justify-content:space-between; align-items:center; padding:2px 6px 0; }
+  .recovery-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
+    border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer; font-size:.85em; padding:2px 6px; }
+  .recovery-btn:hover, .recovery-btn[aria-expanded="true"] { color:var(--vscode-foreground); background:var(--vscode-toolbar-hoverBackground, rgba(128,128,128,0.15)); }
+  .recovery-btn:focus-visible { outline:1px solid var(--vscode-focusBorder); }
+  .recovery-panel { border-bottom:1px solid var(--vscode-panel-border); padding:8px 0 12px; margin-bottom:8px; }
+  .recovery-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px; font-size:.85em; }
+  .recovery-notice { color:var(--vscode-editorWarning-foreground, #cca700); font-weight:500; }
+  .recovery-scope-label { color:var(--vscode-descriptionForeground); cursor:pointer; display:flex; align-items:center; gap:4px; font-size:.85em; }
+  .recovery-empty { font-size:.85em; color:var(--vscode-descriptionForeground); padding:6px 0; font-style:italic; }
+  .recovery-items { display:flex; flex-direction:column; gap:8px; }
+  .recovery-item { border:1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius:4px;
+    padding:8px 10px; background:var(--vscode-editor-background, rgba(0,0,0,0.02)); }
+  .recovery-meta { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px; font-size:.8em; color:var(--vscode-descriptionForeground); margin-bottom:4px; }
+  .recovery-title { font-weight:600; font-size:.9em; color:var(--vscode-foreground); margin-bottom:4px; word-break:break-word; }
+  .recovery-reason { font-size:.85em; color:var(--vscode-errorForeground); margin-bottom:4px; word-break:break-word; }
+  .recovery-preview { font-size:.85em; color:var(--vscode-descriptionForeground); opacity:.85; margin-bottom:6px;
+    white-space:pre-wrap; word-break:break-word; max-height:3em; overflow:hidden; text-overflow:ellipsis; }
+  .recovery-full-text { font-family:var(--vscode-editor-font-family, monospace); font-size:.85em; margin:6px 0;
+    padding:6px 8px; background:var(--vscode-editorWidget-background, rgba(128,128,128,0.1));
+    border:1px solid var(--vscode-widget-border, var(--vscode-panel-border)); border-radius:3px;
+    white-space:pre-wrap; word-break:break-word; }
+  .recovery-actions { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-top:6px; }
+  .recovery-actions button { font-size:.85em; padding:3px 8px; }
+  .recovery-actions .copy-btn { color:var(--vscode-button-foreground); background:var(--vscode-button-background); }
+  .recovery-actions .copy-btn:hover:not(:disabled) { background:var(--vscode-button-hoverBackground); }
+  .recovery-actions .delete-btn { color:var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+    background:var(--vscode-button-secondaryBackground, transparent); border:1px solid var(--vscode-button-border, var(--vscode-panel-border)); }
+  .recovery-actions .delete-btn:hover:not(:disabled) { background:var(--vscode-button-secondaryHoverBackground, rgba(128,128,128,0.2)); }
+  .recovery-actions .fulltext-btn { background:none; border:none; color:var(--vscode-textLink-foreground); cursor:pointer; padding:0 2px; text-decoration:underline; }
+  .recovery-actions button:disabled { opacity:.5; cursor:not-allowed; }
+  .recovery-confirm-box { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px;
+    padding:6px 8px; background:var(--vscode-editorWarning-background, rgba(204,167,0,0.1));
+    border:1px solid var(--vscode-editorWarning-foreground, #cca700); border-radius:3px; font-size:.85em; }
+  .recovery-confirm-msg { font-weight:500; color:var(--vscode-editorWarning-foreground, #cca700); flex:1 1 100%; margin-bottom:4px; }
+  .recovery-status { font-size:.8em; color:var(--vscode-descriptionForeground); margin-top:4px; }
   #more { background:none; border:none; cursor:pointer; font-size:1.05em; line-height:1;
     color:var(--vscode-descriptionForeground); padding:2px 4px; }
   #more:hover, #more[aria-expanded="true"] { color:var(--vscode-foreground); }
@@ -203,9 +238,9 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
            border:none; border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
-<div id="topbar"><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></div>
+<div id="topbar"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></div>
 <div id="info" hidden></div>
-<div id="scroll"><div id="rows"></div><div id="ask-body" hidden></div></div>
+<div id="scroll"><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><div id="ask-body" hidden></div></div>
 <div id="ask-controls" hidden></div><div id="note"></div><div id="refs"></div>
 <div id="hint"></div>
 <div id="reply-mode" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></div>
@@ -226,6 +261,11 @@ const noteEl = document.getElementById('note');
 const say = document.getElementById('say');
 const refsEl = document.getElementById('refs');
 const hint = document.getElementById('hint');
+const recoveryBtn = document.getElementById('recovery-btn');
+const recoveryPanel = document.getElementById('recovery-panel');
+const recoveryItemsEl = document.getElementById('recovery-items');
+const recoveryScopeAll = document.getElementById('recovery-scope-all');
+const recoveryStatus = document.getElementById('recovery-status');
 let currentAsk = null;
 let currentAskCallId = null;
 function askedAt(iso) {
@@ -511,6 +551,20 @@ const inputAdapter = createWebviewInputAdapter({
   noteEl,
   hintEl: hint,
 }, actions, answerState);
+const recoveryController = createWebviewRecoveryController({
+  elements: {
+    recoveryBtn,
+    recoveryPanel,
+    recoveryItemsEl,
+    recoveryScopeAll,
+    recoveryStatus,
+    say,
+  },
+  answerState,
+  inputAdapter,
+  getCurrentCompanionKey: () => currentCompanionKey,
+  getCurrentSession: () => currentSession,
+});
 function drawState(note) {
   noteEl.textContent = '';
   if (!note || !note.text) return;
@@ -694,6 +748,7 @@ function draw(rs) {
 const receiveHandlers = createWebviewReceiveHandlers({
   inputAdapter,
   answerState,
+  recoveryController,
   getCurrentAsk: () => currentAsk,
   getCurrentSession: () => currentSession,
   setCurrentSession: (s) => { currentSession = s; },
