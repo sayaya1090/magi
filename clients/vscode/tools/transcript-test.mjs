@@ -712,10 +712,13 @@ const bundles = [
           assert.ok(replyAttempt1.attemptId > 0);
 
           // Condition 17: Duplicate reply blocked while attempt 1 is in-flight
-          await page.locator('#ask-controls button:text("1. 옵션 Alpha")').click();
-          assert.equal(await page.locator('#note').textContent(), 'reply already in flight…');
+          const alphaBtn = page.locator('#ask-controls button:text("1. 옵션 Alpha")');
+          assert.equal(await alphaBtn.isDisabled(), true, 'choice button is disabled while attempt 1 is in-flight');
+          assert.equal(await page.locator('#ask-controls').getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
           await page.locator('#ask-controls button:text("직접 입력")').click();
-          await page.locator('#send').click();
+          assert.equal(await page.locator('#send').isDisabled(), true, 'send button disabled in answer mode while in-flight');
+          await page.locator('#say').press('Enter');
           assert.equal(await page.locator('#note').textContent(), 'reply already in flight…');
 
           // Condition 16: User edits to '수정된 답변 B', late failure for attempt 1 arrives
@@ -838,10 +841,11 @@ const bundles = [
           assert.equal(await page.locator('#reply-mode').isVisible(), true, 'reply-mode preserved against stale attempt A arrival');
 
           // In-flight lock for B remains active
-          await page.locator('#send').click();
+          assert.equal(await page.locator('#send').isDisabled(), true, 'send button disabled in answer mode while in-flight');
+          await page.locator('#say').press('Enter');
           assert.equal(await page.locator('#note').textContent(), 'reply already in flight…', 'lock for attempt B still active');
-          await page.locator('#ask-controls button:text("1. 옵션 1")').click();
-          assert.equal(await page.locator('#note').textContent(), 'reply already in flight…', 'choice click blocked by in-flight lock B');
+          const opt1Btn = page.locator('#ask-controls button:text("1. 옵션 1")');
+          assert.equal(await opt1Btn.isDisabled(), true, 'choice click blocked by in-flight lock B');
 
           // Step 5: B의 실제 성공 응답 도착 -> 정상 처리 및 잠금 해제
           await page.evaluate((att) => window.postMessage({
@@ -2038,9 +2042,9 @@ const bundles = [
               }
             }));
             await page.waitForFunction((expected) => {
-              const li = document.querySelector('#ask-body ol.choices li');
-              return li && li.textContent && li.textContent.includes(expected);
-            }, '아주아주 긴 첫 번째 배포 전략');
+              const sum = document.querySelector('#ask-controls .summary-text');
+              return sum && sum.textContent && sum.textContent.includes(expected);
+            }, `긴 선택지 뷰포트 ${vp.width}x${vp.height}`);
 
             // 본문 전문 DOM 접근 확인
             const liItems = await page.locator('#ask-body ol.choices li').allTextContents();
@@ -2075,6 +2079,213 @@ const bundles = [
             rows: [],
             ask: null
           }));
+        }
+      },
+      {
+        id: 'asks_in_flight_progress_indicator_and_disabled_controls',
+        name: '질문 답변 전송 중 표시, disabled 범위 격리, rows 재수신 보존 및 세션 문맥 전환 (§5.6)',
+        run: async (page) => {
+          // 1. 일반 초안 G가 있는 선택형 질문 수신
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-1',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '전송 중 표시 검증 질문' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-inflight-controls',
+              what: '배포 환경을 선택해주세요',
+              options: ['1. 프로덕션 환경', '2. 스테이징 환경']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 프로덕션 환경")');
+
+          // 초기 상태: aria-busy 없음, .ask-status 비어있음, 선택지 버튼 활성화
+          const askControls = page.locator('#ask-controls');
+          assert.equal(await askControls.getAttribute('aria-busy'), null);
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '');
+          const choiceBtns = page.locator('#ask-controls button.choice-btn');
+          assert.equal(await choiceBtns.count(), 2);
+          assert.equal(await choiceBtns.nth(0).isDisabled(), false);
+          assert.equal(await choiceBtns.nth(1).isDisabled(), false);
+
+          // 일반 작업 초안 G 입력
+          const say = page.locator('#say');
+          await say.fill('일반 작업 초안 G');
+          const sendBtn = page.locator('#send');
+          assert.equal(await sendBtn.isDisabled(), false);
+
+          // 2. 선택지 버튼(1. 프로덕션 환경) 클릭 -> reply 1회 전송
+          const postedLen1 = await page.evaluate(() => window.__posted.length);
+          await choiceBtns.nth(0).click();
+
+          const postedAfter1 = await page.evaluate(() => window.__posted);
+          const replyMsgs1 = postedAfter1.slice(postedLen1).filter(m => m.kind === 'reply' && m.callId === 'q-inflight-controls');
+          assert.equal(replyMsgs1.length, 1, 'Exactly one reply sent on choice button click');
+          const attempt1 = replyMsgs1[0];
+          assert.equal(attempt1.text, '1. 프로덕션 환경');
+          assert.ok(attempt1.attemptId > 0);
+
+          // 전송 중 상태 단언: aria-busy === 'true', .ask-status === '답변 전송 중…'
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+
+          // 선택지 버튼만 disabled === true, 라벨 및 title 유지
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+          assert.equal(await choiceBtns.nth(1).isDisabled(), true);
+          assert.equal(await choiceBtns.nth(0).textContent(), '1. 프로덕션 환경');
+          assert.equal(await choiceBtns.nth(0).getAttribute('title'), '1. 프로덕션 환경');
+
+          // 직접 입력 버튼, 본문 이동 버튼은 disabled === false (유지)
+          const directBtn = page.locator('#ask-controls button.direct-btn');
+          const jumpBtn = page.locator('#ask-controls button.jump-btn');
+          assert.equal(await directBtn.isDisabled(), false);
+          assert.equal(await jumpBtn.isDisabled(), false);
+
+          // 일반 모드이므로 일반 초안 G 보존 및 composer sendBtn 활성화 (일반 작업 전송 가능)
+          assert.equal(await say.inputValue(), '일반 작업 초안 G');
+          assert.equal(await sendBtn.isDisabled(), false);
+
+          // 3. 직접 입력 진입 -> 답변 모드에서는 sendBtn disabled === true (재제출 차단), 새 초안 B 작성 가능
+          await directBtn.click();
+          assert.equal(await page.locator('#reply-mode').isVisible(), true);
+          assert.equal(await sendBtn.isDisabled(), true, 'composer send button disabled in answer mode while in-flight');
+
+          await say.fill('수정 초안 B');
+          // Enter 시도 시 in-flight 가드 작동
+          await say.press('Enter');
+          assert.equal(await page.locator('#note').textContent(), 'reply already in flight…');
+
+          // Esc 취소 -> 일반 모드 복귀: 초안 G 복원, sendBtn 활성화, 선택지 버튼은 계속 disabled
+          await page.keyboard.press('Escape');
+          assert.equal(await page.locator('#reply-mode').isHidden(), true);
+          assert.equal(await say.inputValue(), '일반 작업 초안 G');
+          assert.equal(await sendBtn.isDisabled(), false);
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+
+          // 4. Stale 및 ID 없는 replyResult 주입 -> in-flight 해제되지 않음
+          await page.evaluate(() => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-inflight-controls',
+            ok: false,
+            error: 'no id response',
+            text: '무효'
+          }, '*'));
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-inflight-controls',
+            attemptId: 999999,
+            ok: true,
+            session: att.session || 'sess-inflight-1',
+            companionKey: att.companionKey || '/workspace',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview'
+          }, '*'), attempt1);
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+
+          // 5. 같은 callId를 가진 다른 세션으로 이동 -> 진행 표시 및 disabled 미혼합
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-2',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '세션 2 다른 질문' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-inflight-controls',
+              what: '세션 2 배포 환경',
+              options: ['선택지 S2-A', '선택지 S2-B']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 선택지 S2-A")');
+          assert.equal(await askControls.getAttribute('aria-busy'), null);
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '');
+          const choiceBtnsS2 = page.locator('#ask-controls button.choice-btn');
+          assert.equal(await choiceBtnsS2.nth(0).isDisabled(), false);
+          assert.equal(await choiceBtnsS2.nth(1).isDisabled(), false);
+
+          // 원래 세션으로 복귀 -> 저장소 상태에 맞게 진행 표시 및 disabled 복원
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-1',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '전송 중 표시 검증 질문' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-inflight-controls',
+              what: '배포 환경을 선택해주세요',
+              options: ['1. 프로덕션 환경', '2. 스테이징 환경']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 프로덕션 환경")');
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+
+          // 6. 전송 중 rows 재수신 -> 진행 표시 및 disabled 상태 보존
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-1',
+            companionKey: '/workspace',
+            rows: [
+              { who: 'agent', label: 'magi', text: '전송 중 표시 검증 질문' },
+              { who: 'agent', label: 'magi', text: '추가 업데이트 스트림' }
+            ],
+            ask: {
+              kind: 'question',
+              callId: 'q-inflight-controls',
+              what: '배포 환경을 선택해주세요',
+              options: ['1. 프로덕션 환경', '2. 스테이징 환경']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 프로덕션 환경")');
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '답변 전송 중…');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+
+          // 7. 유효 결과 도착 -> 진행 표시 해제 및 버튼 활성화
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-inflight-controls',
+            attemptId: att.attemptId,
+            ok: true,
+            session: att.session || 'sess-inflight-1',
+            companionKey: att.companionKey || '/workspace',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview'
+          }, '*'), attempt1);
+
+          assert.equal(await askControls.getAttribute('aria-busy'), null);
+          assert.equal(await page.locator('#ask-controls .ask-status').textContent(), '');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), false);
+          assert.equal(await choiceBtns.nth(1).isDisabled(), false);
+
+          // 8. 320x600 및 420x700 뷰포트에서 Tab 탐색 및 본문/컨트롤 접근성 확인
+          for (const vp of [{ width: 320, height: 600 }, { width: 420, height: 700 }]) {
+            await page.setViewportSize(vp);
+            await jumpBtn.focus();
+            assert.equal(await page.evaluate(() => document.activeElement.classList.contains('jump-btn')), true);
+            await page.keyboard.press('Tab');
+            assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#ask-controls .acts button')[0]), true);
+            await page.keyboard.press('Tab');
+            assert.equal(await page.evaluate(() => document.activeElement === document.querySelectorAll('#ask-controls .acts button')[1]), true);
+            await page.keyboard.press('Tab');
+            assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls button.direct-btn')), true);
+          }
+
+          // Cleanup
+          await page.setViewportSize({ width: 420, height: 700 });
+          await say.fill('');
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-1',
+            companionKey: '/workspace',
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
         }
       }
     ]

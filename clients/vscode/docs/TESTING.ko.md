@@ -608,3 +608,58 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
    - **단위 테스트 (`npm test`):** 총 466개 테스트 전수 통과 (459 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 30개 시나리오 100% 통과 (pageerror 0건).
+
+---
+
+### §5.6 질문 답변 전송 중 표시 및 disabled 조작 상태 격리 (In-Flight Progress & Control State)
+
+1. **상태의 출처 및 UI 갱신 배선 (`src/web/chat_adapter.ts`):**
+   - 별도의 pending Set이나 DOM 타이머를 두지 않고, `src/core/answer_state.ts`의 단일 진실 원천(`answerState.isInFlight(callId, companionKey, session)`)을 직접 조회하여 UI 상태를 반영합니다.
+   - `updateInFlightUI` 순수 헬퍼 함수를 통해 어댑터와 HTML 간 최소 표시 갱신을 수행하며, 입력값·초안·자동완성·포커스를 변경하거나 `drawAsk` 전체를 불필요하게 재호출하지 않습니다.
+   - 갱신 트리거 배선:
+     - 선택지 제출 수락 직후 (`submitChoice`)
+     - 일반 전송 수락 직후 (`send`)
+     - `replyResult` 결과 처리 직후 (`handleReplyResult`)
+     - 문맥 전환 및 답변 모드 진입/해제 (`onContextChange`, `enterAnswerMode`, `exitAnswerMode`)
+     - 신규 세션 생성 및 바인딩 시 (`onSessionCreated`)
+     - 새 스트림 수신 직후 (`onRows`, `drawAsk` 완료 시점)
+   - 세션·컴패니언·질문 callId를 복합 확인하여, 다른 세션으로 이동 시 해당 세션의 저장소 상태에 따라 표시를 분리하고, 복귀 시 이전 in-flight 상태를 완벽히 복원합니다.
+
+2. **사용자 인터랙션 및 비활성화(disabled) 격리 범위 (`src/web/chat_html.ts`):**
+   - **조작 영역 aria-busy 및 상태 문구:** 현재 질문이 전송 중일 때 `#ask-controls`에 `aria-busy="true"`를 설정하고, `span.ask-status[role="status"][aria-live="polite"]`에 `'답변 전송 중…'` 문구를 표출합니다 (종료 시 `aria-busy` 제거 및 빈 텍스트 초기화, `:empty` 시 CSS 숨김).
+   - **선택지 버튼 (`button.choice-btn`):** 전송 중인 질문의 선택지 버튼만 `disabled = true`로 설정하여 중복 클릭을 차단하되, 버튼 라벨과 원문 `title` 툴팁은 그대로 유지합니다.
+   - **비차단 조작 유지:**
+     - '직접 입력' 버튼(`button.direct-btn`)과 '질문으로 이동' 버튼(`button.jump-btn`)은 전송 중에도 활성화(`disabled = false`) 상태를 유지하여 질문 탐색과 초안 작성을 보장합니다.
+     - 복구 초안 조회/복사, 일반 작업 작성은 계속 허용됩니다.
+   - **답변 모드 및 composer 격리:**
+     - 직접 입력으로 진입하여 새 초안 B를 수정할 수 있으며, **오직 전송 중인 동일 질문의 답변 모드일 때만** composer의 전송 버튼(`sendBtn`)을 `disabled = true`로 설정합니다.
+     - Esc 취소나 직접 복귀를 통해 일반 모드로 돌아오면 `sendBtn`은 즉시 활성화되어 일반 작업 전송(`say`)이 가능합니다.
+   - **상태 머신 가드 불변:** UI 비활성화 외에도 어댑터 내부의 Enter 키 및 submit 가드(`answerState.isInFlight`)를 유지하여 DOM 조작이나 키보드 이벤트로 인한 중복 전송을 원천 차단합니다.
+
+3. **자동화 검증 (`webview.test.ts` & `transcript-test.mjs`):**
+   - **단위 테스트 (`webview.test.ts`):**
+     - `renderChatHtml` CSS 선언 (`#ask-controls .ask-status`, `:empty`, button:disabled) 및 `sumRow` 요소 구조 검증.
+     - `updateInFlightUI`: aria-busy, status text, choice-btn 비활성화, direct-btn/jump-btn 유지, 답변 모드 시 sendBtn 격리, 질문 교체/종료 시 즉시 해제 검증.
+     - `WebviewInputAdapter`: 선택지 전송 수명주기, 일반 초안 G 보존, 답변 모드 진입 시 sendBtn 비활성화 및 Esc 복귀 시 복원, Stale attemptId(999) 및 ID 없는 응답 무시, 세션 간 격리 및 복귀 시 복원 전수 검증.
+   - **브라우저 E2E 하네스 (`transcript-test.mjs` - `asks_in_flight_progress_indicator_and_disabled_controls`):**
+     - 일반 초안 G가 있는 상태에서 선택지 전송 → `reply` 1회, aria-busy="true", '답변 전송 중…', choice-btn disabled, direct/jump enabled, G 보존, sendBtn enabled 실측.
+     - 직접 입력 진입 → 답변 모드에서 sendBtn disabled, 수정 초안 B 작성 후 Enter 가드 확인.
+     - Esc 취소 → 일반 모드 복귀, sendBtn enabled, choice-btn disabled 유지 확인.
+     - ID 없는 결과 및 stale attemptId(999999) 주입 시 잠금 유지 확인.
+     - 세션 2 전환 시 in-flight 해제, 세션 1 복귀 시 in-flight 복원 확인.
+     - 전송 중 rows 재수신 스트림에서도 in-flight 표시 및 disabled 보존 확인.
+     - 유효한 결과 도착 시 in-flight 해제, 상태 문구 제거, choice-btn 활성화 확인.
+     - 320×600 및 420×700 뷰포트에서 Tab 순차 탐색(`jumpBtn` → choice 1 → choice 2 → directBtn) 및 접근성 실측.
+
+4. **화면 캡처 증거 및 환경 구분:**
+   - **Chromium 모의 실행 캡처:**
+     - `docs/img/ide/16_choices_in_flight_dark.png`: 선택지 제출 후 '답변 전송 중…' 문구 표출, aria-busy="true", 선택지 버튼 disabled, 일반 초안 보존 및 composer Send 버튼 활성화 상태.
+     - `docs/img/ide/17_choices_in_flight_answer_mode_dark.png`: 전송 중인 질문에서 '직접 입력' 진입 시 새 초안 B 작성 허용 및 composer 전송 버튼 disabled 격리 상태.
+     - `docs/img/ide/18_choices_in_flight_failed_restored_dark.png`: 네트워크 실패 응답 도착 후 복구 뱃지 카운트 증가, 전송 중 표시 해제 및 버튼 재활성화 상태.
+   - **환경 구분 안내:** 본 캡처 및 E2E 테스트는 Chromium 모의 웹뷰 실행 환경 기준이며, 실제 IDE 웹뷰 및 OS 네이티브 IME 실물 인수는 별도로 진행됩니다.
+
+5. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공.
+   - **단위 테스트 (`npm test`):** 총 469개 테스트 전수 통과 (462 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 31개 시나리오 100% 통과 (pageerror 0건).
+

@@ -470,6 +470,9 @@ export interface WebviewInputElements {
   replyCancelEl?: HTMLElement | null;
   noteEl?: HTMLElement | null;
   hintEl?: HTMLElement | null;
+  askControlsEl?: HTMLElement | null;
+  getCurrentAsk?: () => Ask | null;
+  onInFlightChange?: (state: { inFlight: boolean; answeringThisAsk: boolean }) => void;
 }
 
 export interface SuggestController {
@@ -636,7 +639,75 @@ export interface WebviewInputAdapter {
   getActiveCreationTaskId?(): string | null;
   getCurrentSession?(): string;
   getCurrentCompanionKey?(): string;
+  updateInFlightStatus?(): void;
   dispose(): void;
+}
+
+export interface InFlightUIOptions {
+  askControlsEl?: HTMLElement | null;
+  sendBtn?: HTMLElement | null;
+  getAsk: () => Ask | null;
+  answerState: AnswerStateManager;
+  getCurrentCompanionKey: () => string;
+  getCurrentSession: () => string;
+}
+
+export interface InFlightUIResult {
+  inFlight: boolean;
+  answeringThisAsk: boolean;
+}
+
+export function updateInFlightUI(options: InFlightUIOptions): InFlightUIResult {
+  const { askControlsEl, sendBtn, getAsk, answerState, getCurrentCompanionKey, getCurrentSession } = options;
+  const currentAsk = getAsk ? getAsk() : null;
+  const companionKey = getCurrentCompanionKey ? getCurrentCompanionKey() : '';
+  const session = getCurrentSession ? getCurrentSession() : '';
+
+  const inFlight = (currentAsk && currentAsk.kind === 'question' && currentAsk.callId)
+    ? answerState.isInFlight(currentAsk.callId, companionKey, session)
+    : false;
+
+  const pendingQ = answerState.getPendingQuestion(companionKey, session);
+  const answeringThisAsk = Boolean(pendingQ && currentAsk && pendingQ === currentAsk.callId);
+
+  if (askControlsEl) {
+    if (inFlight) {
+      if (typeof askControlsEl.setAttribute === 'function' && askControlsEl.getAttribute('aria-busy') !== 'true') {
+        askControlsEl.setAttribute('aria-busy', 'true');
+      }
+    } else {
+      if (typeof askControlsEl.removeAttribute === 'function' && askControlsEl.hasAttribute?.('aria-busy')) {
+        askControlsEl.removeAttribute('aria-busy');
+      }
+    }
+    const statusEl = typeof askControlsEl.querySelector === 'function'
+      ? (askControlsEl.querySelector('.ask-status') as HTMLElement | null)
+      : null;
+    if (statusEl) {
+      const text = inFlight ? '답변 전송 중…' : '';
+      if (statusEl.textContent !== text) {
+        statusEl.textContent = text;
+      }
+    }
+    const choiceBtns = typeof askControlsEl.querySelectorAll === 'function'
+      ? askControlsEl.querySelectorAll<HTMLButtonElement>('button.choice-btn')
+      : [];
+    for (let i = 0; i < choiceBtns.length; i++) {
+      if (choiceBtns[i].disabled !== inFlight) {
+        choiceBtns[i].disabled = inFlight;
+      }
+    }
+  }
+
+  if (sendBtn) {
+    const shouldDisableSend = inFlight && answeringThisAsk;
+    const btn = sendBtn as HTMLButtonElement;
+    if (btn.disabled !== shouldDisableSend) {
+      btn.disabled = shouldDisableSend;
+    }
+  }
+
+  return { inFlight, answeringThisAsk };
 }
 
 export function createWebviewInputAdapter(
@@ -653,6 +724,28 @@ export function createWebviewInputAdapter(
   let currentWebviewId = '';
   let creationSeq = 0;
   let activeCreationTaskId: string | null = null;
+
+  function updateInFlightStatus(): void {
+    if (elements.askControlsEl || elements.getCurrentAsk || elements.sendBtn) {
+      updateInFlightUI({
+        askControlsEl: elements.askControlsEl,
+        sendBtn: elements.sendBtn,
+        getAsk: elements.getCurrentAsk || (() => null),
+        answerState,
+        getCurrentCompanionKey: () => currentCompanionKey,
+        getCurrentSession: () => currentSession,
+      });
+    }
+    if (elements.onInFlightChange) {
+      const ask = elements.getCurrentAsk ? elements.getCurrentAsk() : null;
+      const inFlight = (ask && ask.kind === 'question' && ask.callId)
+        ? answerState.isInFlight(ask.callId, currentCompanionKey, currentSession)
+        : false;
+      const pendingQ = answerState.getPendingQuestion(currentCompanionKey, currentSession);
+      const answeringThisAsk = Boolean(pendingQ && ask && pendingQ === ask.callId);
+      elements.onInFlightChange({ inFlight, answeringThisAsk });
+    }
+  }
 
   function clearAutoCompletion(): void {
     suggestCtrl.invalidate();
@@ -697,6 +790,7 @@ export function createWebviewInputAdapter(
     }
     const res = answerState.enterAnswerMode(callId, label, say.value);
     applyAnswerModeUI(res.label, res.nextInputText);
+    updateInFlightStatus();
   }
 
   function exitAnswerMode(): void {
@@ -705,6 +799,7 @@ export function createWebviewInputAdapter(
     if (activeCreationTaskId && !currentSession) {
       answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, res.nextInputText || '');
     }
+    updateInFlightStatus();
   }
 
   function onContextChange(
@@ -744,6 +839,7 @@ export function createWebviewInputAdapter(
         applyGeneralModeUI(res.nextInputText);
       }
     }
+    updateInFlightStatus();
   }
 
   function onSessionCreated(payload: {
@@ -821,6 +917,7 @@ export function createWebviewInputAdapter(
           : (res.draft ?? switchRes.nextInputText ?? '');
         applyGeneralModeUI(displayText);
       }
+      updateInFlightStatus();
     }
 
     return { accepted: true, transitioned, conflict: res.conflict };
@@ -877,6 +974,7 @@ export function createWebviewInputAdapter(
       if (res.exitAnswerMode) {
         applyGeneralModeUI(res.nextInputText);
       }
+      updateInFlightStatus();
     } else {
       let creationTaskId: string | undefined = undefined;
       if (!currentSession) {
@@ -925,6 +1023,7 @@ export function createWebviewInputAdapter(
     if (res.exitAnswerMode) {
       applyGeneralModeUI(res.nextInputText);
     }
+    updateInFlightStatus();
     if (typeof res.attemptId === 'number') {
       const comp = res.companionKey || currentCompanionKey;
       const sess = res.session || currentSession;
@@ -991,10 +1090,10 @@ export function createWebviewInputAdapter(
     currentAsk: Ask | null
   ): void {
     const res = answerState.onReplyResult(m, currentAsk as unknown as AskEvent | null);
-    if (!res.handled) return;
     if (res.reenterAnswerMode) {
       applyAnswerModeUI(res.targetLabel, res.nextInputText);
     }
+    updateInFlightStatus();
   }
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -1069,6 +1168,7 @@ export function createWebviewInputAdapter(
     getActiveCreationTaskId: () => activeCreationTaskId,
     getCurrentSession: () => currentSession,
     getCurrentCompanionKey: () => currentCompanionKey,
+    updateInFlightStatus,
     dispose(): void {
       suggestCtrl.dispose();
       say.removeEventListener('keydown', onKeyDown);
@@ -1175,6 +1275,7 @@ export function createWebviewReceiveHandlers(
       options.drawRows(payload.rows);
       options.drawAsk(payload.ask);
       options.drawRefs(payload.refs);
+      options.inputAdapter.updateInFlightStatus?.();
 
       if (scrollEl) {
         if (wasAtBottom) {
@@ -1210,6 +1311,7 @@ export function createWebviewReceiveHandlers(
           options.setCurrentWebviewId(payload.webviewId);
         }
         options.recoveryController?.onContextChange?.(payload.companionKey, payload.session);
+        options.inputAdapter.updateInFlightStatus?.();
       }
       options.recoveryController?.refresh();
     },

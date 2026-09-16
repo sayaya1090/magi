@@ -190,12 +190,17 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #ask-controls .summary-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85em; flex-shrink:0; }
   #ask-controls .summary-text { color:var(--vscode-descriptionForeground); overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #ask-controls .ask-status { font-size:.85em; color:var(--vscode-editorWarning-foreground, #cca700);
+    flex:none; font-weight:500; margin:0 4px; }
+  #ask-controls .ask-status:empty { display:none; }
   #ask-controls .jump-btn { background:none; border:none; color:var(--vscode-textLink-foreground);
     cursor:pointer; padding:0; font-size:inherit; flex:none; text-decoration:none; }
   #ask-controls .jump-btn:hover { text-decoration:underline; }
   #ask-controls .jump-btn:focus-visible { outline:1px solid var(--vscode-focusBorder, #007fd4); outline-offset:1px; border-radius:2px; }
   #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; max-height:25vh; overflow-y:auto; padding:4px; scroll-padding:4px; }
   #ask-controls .acts button { flex:0 1 auto; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; scroll-margin:4px; }
+  #ask-controls .acts button:disabled { opacity:.5; cursor:not-allowed; }
+  #bar button:disabled { opacity:.5; cursor:not-allowed; }
   #ask-controls .acts button.approval-btn {
     color:var(--vscode-button-foreground, #ffffff);
     background:var(--vscode-button-background, #0e639c);
@@ -338,6 +343,8 @@ function drawAsk(a) {
     askBodyEl.textContent = '';
     askControlsEl.hidden = true;
     askControlsEl.textContent = '';
+    askControlsEl.removeAttribute('aria-busy');
+    inputAdapter.updateInFlightStatus?.();
     return;
   }
   if (currentAskCallId === a.callId) return;
@@ -386,6 +393,10 @@ function drawAsk(a) {
   const targetPath = (a.filePath || '').trim();
   const fileTag = targetPath ? ' · ' + baseName(targetPath) : '';
   sumText.textContent = labelPrefix + a.what + fileTag + countTag;
+  const askStatusEl = document.createElement('span');
+  askStatusEl.className = 'ask-status';
+  askStatusEl.setAttribute('role', 'status');
+  askStatusEl.setAttribute('aria-live', 'polite');
   const jumpBtn = document.createElement('button');
   jumpBtn.className = 'jump-btn';
   jumpBtn.textContent = '질문으로 이동';
@@ -393,7 +404,7 @@ function drawAsk(a) {
   jumpBtn.addEventListener('click', () => {
     askBodyEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   });
-  sumRow.append(sumText, jumpBtn);
+  sumRow.append(sumText, askStatusEl, jumpBtn);
   askControlsEl.append(sumRow);
 
   const acts = document.createElement('div');
@@ -501,6 +512,7 @@ function drawAsk(a) {
   for (let i = 0; i < formattedChoices.items.length; i++) {
     const item = formattedChoices.items[i];
     const b = document.createElement('button');
+    b.className = 'choice-btn';
     b.textContent = item.buttonLabel;
     b.title = item.raw;
     b.addEventListener('click', () => {
@@ -509,6 +521,7 @@ function drawAsk(a) {
     acts.append(b);
   }
   const free = document.createElement('button');
+  free.className = 'direct-btn';
   free.textContent = '직접 입력';
   free.title = '입력창에서 직접 답변 작성';
   free.addEventListener('click', () => { inputAdapter.enterAnswerMode(a.callId, a.what); });
@@ -517,6 +530,7 @@ function drawAsk(a) {
   if (formattedChoices.items.length === 0) {
     inputAdapter.enterAnswerMode(a.callId, a.what);
   }
+  inputAdapter.updateInFlightStatus?.();
 }
 const moreEl = document.getElementById('more');
 const infoEl = document.getElementById('info');
@@ -583,6 +597,8 @@ const inputAdapter = createWebviewInputAdapter({
   replyCancelEl,
   noteEl,
   hintEl: hint,
+  askControlsEl,
+  getCurrentAsk: () => currentAsk,
 }, actions, answerState);
 const recoveryController = createWebviewRecoveryController({
   elements: {

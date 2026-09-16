@@ -95,6 +95,7 @@ var dispatchHostMessage;
 var classifyDiffLines;
 var renderMarkdown;
 var formatChoiceOptions;
+var updateInFlightUI;
 var createWebviewRecoveryController;
 var createRecoveryView;
 var captureSelection;
@@ -149,6 +150,7 @@ ${contents['chat_adapter']}
   classifyDiffLines = exports.classifyDiffLines;
   renderMarkdown = exports.renderMarkdown;
   formatChoiceOptions = exports.formatChoiceOptions;
+  updateInFlightUI = exports.updateInFlightUI;
   createWebviewRecoveryController = exports.createWebviewRecoveryController;
   createRecoveryView = exports.createRecoveryView;
   captureSelection = exports.captureSelection;
@@ -166,6 +168,7 @@ ${contents['chat_adapter']}
     window.classifyDiffLines = classifyDiffLines;
     window.renderMarkdown = renderMarkdown;
     window.formatChoiceOptions = formatChoiceOptions;
+    window.updateInFlightUI = updateInFlightUI;
     window.createWebviewRecoveryController = createWebviewRecoveryController;
     window.createRecoveryView = createRecoveryView;
     window.captureSelection = captureSelection;
@@ -183,6 +186,7 @@ ${contents['chat_adapter']}
     module.exports.classifyDiffLines = classifyDiffLines;
     module.exports.renderMarkdown = renderMarkdown;
     module.exports.formatChoiceOptions = formatChoiceOptions;
+    module.exports.updateInFlightUI = updateInFlightUI;
     module.exports.createWebviewRecoveryController = createWebviewRecoveryController;
     module.exports.createRecoveryView = createRecoveryView;
     module.exports.captureSelection = captureSelection;

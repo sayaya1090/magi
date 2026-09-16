@@ -20,6 +20,7 @@ import {
   classifyDiffLines,
   renderMarkdown,
   formatChoiceOptions,
+  updateInFlightUI,
   WebviewBridge,
 } from '../web/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
@@ -3874,6 +3875,289 @@ test('§5.6: renderChatHtml defines choices.hide-marker CSS and connects formatC
   // Verify JS usage in drawAsk
   assert.ok(html.includes('formatChoiceOptions(a.options)'), 'drawAsk calls formatChoiceOptions with a.options');
   assert.ok(html.includes('formattedChoices.hideListMarker ? \'choices hide-marker\' : \'choices\''), 'sets hide-marker class conditionally');
+});
+
+test('§5.6: renderChatHtml defines ask-status, disabled button CSS, and connects in-flight indicator', () => {
+  const html = renderChatHtml({
+    cspSource: "'self'",
+    nonce: 'test-nonce',
+    scriptUri: '/out/web/answer_state.js',
+    adapterUri: '/out/web/chat_adapter.bundle.js',
+  });
+
+  // 1. CSS definitions
+  assert.ok(html.includes('#ask-controls .ask-status'), 'defines .ask-status CSS');
+  assert.ok(html.includes('#ask-controls .ask-status:empty { display:none; }'), 'hides empty .ask-status');
+  assert.ok(html.includes('#ask-controls .acts button:disabled { opacity:.5; cursor:not-allowed; }'), 'defines disabled style for choice buttons');
+  assert.ok(html.includes('#bar button:disabled { opacity:.5; cursor:not-allowed; }'), 'defines disabled style for composer send button');
+
+  // 2. HTML and JS wiring in drawAsk
+  assert.ok(html.includes("askStatusEl.className = 'ask-status'"), 'creates askStatusEl in drawAsk');
+  assert.ok(html.includes("askStatusEl.setAttribute('role', 'status')"), 'sets role="status" on askStatusEl');
+  assert.ok(html.includes("b.className = 'choice-btn'"), 'marks choice buttons with choice-btn class');
+  assert.ok(html.includes("free.className = 'direct-btn'"), 'marks direct answer button with direct-btn class');
+  assert.ok(html.includes('inputAdapter.updateInFlightStatus?.()'), 'calls updateInFlightStatus in drawAsk');
+  assert.ok(html.includes('askControlsEl,'), 'passes askControlsEl to createWebviewInputAdapter');
+  assert.ok(html.includes('getCurrentAsk: () => currentAsk'), 'passes getCurrentAsk to createWebviewInputAdapter');
+});
+
+test('§5.6: updateInFlightUI manages aria-busy, status text, choice-btn disabling, and composer send button isolation', () => {
+  const answerState = createAnswerState();
+  const companionKey = '/workspace';
+  const session = 'sess-1';
+  answerState.switchContext(companionKey, session);
+
+  // Mock DOM elements
+  const attributes: Record<string, string> = {};
+  const statusEl = { textContent: '' };
+  const choiceBtn1 = { disabled: false, className: 'choice-btn', textContent: '1. 옵션 A' };
+  const choiceBtn2 = { disabled: false, className: 'choice-btn', textContent: '2. 옵션 B' };
+  const directBtn = { disabled: false, className: 'direct-btn', textContent: '직접 입력' };
+  const jumpBtn = { disabled: false, className: 'jump-btn', textContent: '질문으로 이동' };
+  const sendBtn = { disabled: false, textContent: 'Send' };
+
+  const askControlsEl = {
+    setAttribute: (k: string, v: string) => { attributes[k] = v; },
+    removeAttribute: (k: string) => { delete attributes[k]; },
+    getAttribute: (k: string) => attributes[k],
+    hasAttribute: (k: string) => k in attributes,
+    querySelector: (sel: string) => (sel === '.ask-status' ? statusEl : null),
+    querySelectorAll: (sel: string) => {
+      if (sel === 'button.choice-btn') return [choiceBtn1, choiceBtn2];
+      return [];
+    },
+  } as any;
+
+  let currentAsk: Ask | null = {
+    kind: 'question',
+    callId: 'call-1',
+    what: '어떤 작업을 진행할까요?',
+    options: ['옵션 A', '옵션 B'],
+  };
+
+  const options = {
+    askControlsEl,
+    sendBtn: sendBtn as any,
+    getAsk: () => currentAsk,
+    answerState,
+    getCurrentCompanionKey: () => companionKey,
+    getCurrentSession: () => session,
+  };
+
+  // 1. Initially not in flight
+  const res0 = updateInFlightUI(options);
+  assert.equal(res0.inFlight, false);
+  assert.equal(res0.answeringThisAsk, false);
+  assert.equal(attributes['aria-busy'], undefined);
+  assert.equal(statusEl.textContent, '');
+  assert.equal(choiceBtn1.disabled, false);
+  assert.equal(choiceBtn2.disabled, false);
+  assert.equal(directBtn.disabled, false);
+  assert.equal(jumpBtn.disabled, false);
+  assert.equal(sendBtn.disabled, false);
+
+  // 2. Submit reply for call-1 -> in flight!
+  answerState.submitReply('call-1', '옵션 A', true);
+  assert.equal(answerState.isInFlight('call-1', companionKey, session), true);
+
+  const res1 = updateInFlightUI(options);
+  assert.equal(res1.inFlight, true);
+  assert.equal(res1.answeringThisAsk, false, 'not in answer mode currently (general mode)');
+  assert.equal(attributes['aria-busy'], 'true', 'must set aria-busy="true" on askControlsEl');
+  assert.equal(statusEl.textContent, '답변 전송 중…', 'must display "답변 전송 중…" in role=status element');
+  assert.equal(choiceBtn1.disabled, true, 'choice button 1 must be disabled');
+  assert.equal(choiceBtn2.disabled, true, 'choice button 2 must be disabled');
+  assert.equal(directBtn.disabled, false, 'direct answer button must remain enabled');
+  assert.equal(jumpBtn.disabled, false, 'jump button must remain enabled');
+  assert.equal(sendBtn.disabled, false, 'general send button must remain enabled while in general mode');
+
+  // 3. Re-enter answer mode for call-1 while in flight
+  answerState.enterAnswerMode('call-1', '어떤 작업을 진행할까요?');
+  const res2 = updateInFlightUI(options);
+  assert.equal(res2.inFlight, true);
+  assert.equal(res2.answeringThisAsk, true);
+  assert.equal(sendBtn.disabled, true, 'send button must be disabled when in answer mode for in-flight question');
+
+  // 4. Exit answer mode back to general mode while still in flight
+  answerState.exitAnswerMode();
+  const res3 = updateInFlightUI(options);
+  assert.equal(res3.inFlight, true);
+  assert.equal(res3.answeringThisAsk, false);
+  assert.equal(sendBtn.disabled, false, 'send button must be re-enabled when returning to general mode');
+  assert.equal(choiceBtn1.disabled, true, 'choice buttons must remain disabled');
+
+  // 5. Reply result arrives (success) -> in-flight cleared
+  answerState.onReplyResult({
+    callId: 'call-1',
+    attemptId: 1,
+    ok: true,
+    companionKey,
+    session,
+    generation: 0,
+    webviewId: '',
+  }, currentAsk as any);
+  assert.equal(answerState.isInFlight('call-1', companionKey, session), false);
+
+  const res4 = updateInFlightUI(options);
+  assert.equal(res4.inFlight, false);
+  assert.equal(attributes['aria-busy'], undefined, 'aria-busy must be removed when in-flight completes');
+  assert.equal(statusEl.textContent, '', 'status text must be cleared');
+  assert.equal(choiceBtn1.disabled, false, 'choice buttons must be re-enabled');
+  assert.equal(choiceBtn2.disabled, false);
+  assert.equal(sendBtn.disabled, false);
+
+  // 6. When question is replaced or null
+  currentAsk = null;
+  const res5 = updateInFlightUI(options);
+  assert.equal(res5.inFlight, false);
+  assert.equal(attributes['aria-busy'], undefined);
+  assert.equal(statusEl.textContent, '');
+});
+
+test('§5.6: WebviewInputAdapter in-flight lifecycle integration (choice send, direct mode toggle, stale results, and context switch)', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const attributes: Record<string, string> = {};
+  const statusEl = { textContent: '' };
+  const choiceBtn1 = { disabled: false, className: 'choice-btn', textContent: '1. 선택지 1', title: '선택지 1 원문' };
+  const choiceBtn2 = { disabled: false, className: 'choice-btn', textContent: '2. 선택지 2', title: '선택지 2 원문' };
+  const directBtn = { disabled: false, className: 'direct-btn', textContent: '직접 입력' };
+  const jumpBtn = { disabled: false, className: 'jump-btn', textContent: '질문으로 이동' };
+
+  const askControlsEl = {
+    setAttribute: (k: string, v: string) => { attributes[k] = v; },
+    removeAttribute: (k: string) => { delete attributes[k]; },
+    getAttribute: (k: string) => attributes[k],
+    hasAttribute: (k: string) => k in attributes,
+    querySelector: (sel: string) => (sel === '.ask-status' ? statusEl : null),
+    querySelectorAll: (sel: string) => {
+      if (sel === 'button.choice-btn') return [choiceBtn1, choiceBtn2];
+      return [];
+    },
+  } as any;
+
+  let currentAsk: Ask | null = {
+    kind: 'question',
+    callId: 'ask-target-1',
+    what: '선택지를 골라주세요',
+    options: ['선택지 1 원문', '선택지 2 원문'],
+  };
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '일반 초안 G',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: 'Send', disabled: false, addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+    askControlsEl,
+    getCurrentAsk: () => currentAsk,
+  };
+
+  const adapter = createWebviewInputAdapter(elements, actions, state);
+  adapter.onContextChange('/workspace', 'sess-A', currentAsk, 0, 'view-1');
+  elements.say.value = '일반 초안 G';
+  state.onInputChange('일반 초안 G');
+
+  // Initially: general draft G in say, Send button enabled, choice buttons enabled
+  assert.equal(elements.say.value, '일반 초안 G');
+  assert.equal(elements.sendBtn.disabled, false);
+  assert.equal(choiceBtn1.disabled, false);
+  assert.equal(attributes['aria-busy'], undefined);
+
+  // 1. Submit Choice 1
+  const submitChoiceOk = adapter.submitChoice('ask-target-1', '선택지 1 원문');
+  assert.equal(submitChoiceOk, true);
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].kind, 'reply');
+  assert.equal(posted[0].callId, 'ask-target-1');
+  assert.equal(posted[0].attemptId, 1);
+
+  // In-flight state verified:
+  assert.equal(attributes['aria-busy'], 'true');
+  assert.equal(statusEl.textContent, '답변 전송 중…');
+  assert.equal(choiceBtn1.disabled, true);
+  assert.equal(choiceBtn2.disabled, true);
+  assert.equal(directBtn.disabled, false);
+  assert.equal(jumpBtn.disabled, false);
+  // General draft G preserved and general send enabled!
+  assert.equal(elements.say.value, '일반 초안 G');
+  assert.equal(elements.sendBtn.textContent, 'Send');
+  assert.equal(elements.sendBtn.disabled, false);
+
+  // 2. Click '직접 입력' -> enters answer mode
+  adapter.enterAnswerMode('ask-target-1', '선택지를 골라주세요');
+  assert.equal(elements.replyModeEl.hidden, false);
+  assert.equal(elements.sendBtn.textContent, '답변');
+  assert.equal(elements.sendBtn.disabled, true, 'send button in answer mode must be disabled while in flight');
+
+  // User writes draft B in textarea
+  elements.say.value = '수정 초안 B';
+  listeners['input']?.({});
+
+  // 3. User cancels / escapes back to general mode
+  adapter.exitAnswerMode();
+  assert.equal(elements.replyModeEl.hidden, true);
+  assert.equal(elements.sendBtn.textContent, 'Send');
+  assert.equal(elements.sendBtn.disabled, false, 'send button must be enabled for general say');
+  assert.equal(elements.say.value, '일반 초안 G', 'general draft G must be restored');
+  assert.equal(choiceBtn1.disabled, true, 'choice buttons remain disabled while in flight');
+
+  // 4. Stale replyResult for unknown attempt arrives -> must not unlock!
+  adapter.handleReplyResult({
+    callId: 'ask-target-1',
+    attemptId: 999, // stale attempt
+    ok: true,
+    companionKey: '/workspace',
+    session: 'sess-A',
+    generation: 0,
+    webviewId: 'view-1',
+  }, currentAsk);
+  assert.equal(attributes['aria-busy'], 'true', 'stale attempt must not clear in-flight');
+  assert.equal(statusEl.textContent, '답변 전송 중…');
+  assert.equal(choiceBtn1.disabled, true);
+
+  // 5. Context switch to session sess-B (no in-flight here)
+  adapter.onContextChange('/workspace', 'sess-B', null, 0, 'view-1');
+  assert.equal(attributes['aria-busy'], undefined, 'sess-B has no in-flight');
+  assert.equal(statusEl.textContent, '');
+  assert.equal(choiceBtn1.disabled, false);
+
+  // Context switch back to sess-A -> in-flight restored!
+  adapter.onContextChange('/workspace', 'sess-A', currentAsk, 0, 'view-1');
+  assert.equal(attributes['aria-busy'], 'true', 'sess-A in-flight restored');
+  assert.equal(statusEl.textContent, '답변 전송 중…');
+  assert.equal(choiceBtn1.disabled, true);
+
+  // 6. Valid replyResult for attempt 1 arrives -> in-flight unlocked!
+  adapter.handleReplyResult({
+    callId: 'ask-target-1',
+    attemptId: 1,
+    ok: true,
+    companionKey: '/workspace',
+    session: 'sess-A',
+    generation: 0,
+    webviewId: 'view-1',
+  }, currentAsk);
+  assert.equal(attributes['aria-busy'], undefined, 'valid replyResult clears in-flight');
+  assert.equal(statusEl.textContent, '');
+  assert.equal(choiceBtn1.disabled, false);
+  assert.equal(choiceBtn2.disabled, false);
+  assert.equal(elements.sendBtn.disabled, false);
+
+  adapter.dispose();
 });
 
 
