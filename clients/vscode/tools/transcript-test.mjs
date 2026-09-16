@@ -17,6 +17,7 @@ import {
 const execFileAsync = promisify(execFile);
 const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
 const { chromium } = require('playwright');
+const { AxeBuilder } = require('@axe-core/playwright');
 
 // Single source of truth for asset routing and URL resolution (§2.1)
 export const TEST_ORIGIN = 'http://magi.test';
@@ -3662,8 +3663,346 @@ const bundles = [
         }
       }
     ]
+  },
+  {
+    name: 'a11y',
+    description: 'axe-core 접근성 감사 (§5.8)',
+    scenarios: [
+      {
+        id: 'a11y_state_1_conversation',
+        name: '일반 대화 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [
+              { who: 'user', label: 'User', text: '프로젝트 설정을 확인해줘' },
+              { who: 'agent', label: 'Magi', text: '다음과 같이 설정을 확인했습니다:\n- 포트: 8080\n- 모드: 프로덕션' },
+              { who: 'council', label: 'Council', text: '합의 완료', cite: 'diff --git a/config.json b/config.json', keep: '기존 타임아웃 유지' },
+            ],
+            refs: ['src/config.ts']
+          }));
+          await page.waitForSelector('.row.agent');
+          await runA11yStateAudit(page, {
+            stateId: 'state_1_conversation',
+            allowedColorContrastSelectors: [],
+          });
+        }
+      },
+      {
+        id: 'a11y_state_2_multiple_choice',
+        name: '선택형 질문 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [{ who: 'agent', label: 'Magi', text: '배포 환경을 선택해 주세요.' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-mc-a11y',
+              what: '배포 대상 클러스터를 선택하세요',
+              options: ['클러스터 A (서울 리전)', '클러스터 B (도쿄 리전)'],
+              index: 1,
+              total: 1,
+              report: [{ key: 'tried', text: '사전 헬스체크 통과' }]
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 클러스터 A (서울 리전)")');
+          await runA11yStateAudit(page, {
+            stateId: 'state_2_multiple_choice',
+            allowedColorContrastSelectors: [],
+          });
+        }
+      },
+      {
+        id: 'a11y_state_3_answer_mode',
+        name: '답변 모드 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          await runA11yStateAudit(page, {
+            stateId: 'state_3_answer_mode',
+            allowedColorContrastSelectors: ['.reply-tag', '#reply-target'],
+          });
+          await page.keyboard.press('Escape');
+          await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
+        }
+      },
+      {
+        id: 'a11y_state_4_permission_diff',
+        name: '승인 패널 (diff) 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-a11y',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'Magi', text: '다음 파일 변경을 승인하시겠습니까?' }],
+            ask: {
+              kind: 'permission',
+              callId: 'perm-a11y-1',
+              what: 'write_file',
+              filePath: 'src/main.ts',
+              diffKind: 'patch',
+              diff: '--- a/src/main.ts\n+++ b/src/main.ts\n@@ -1,3 +1,3 @@\n-const v = 1;\n+const v = 2;\n',
+              reason: '버전 범프 적용'
+            }
+          }));
+          await page.waitForSelector('#ask-controls .acts button.approval-btn');
+          await runA11yStateAudit(page, {
+            stateId: 'state_4_permission_diff',
+            allowedColorContrastSelectors: ['.diff-hunk-header'],
+          });
+        }
+      },
+      {
+        id: 'a11y_state_5_recovery_and_append',
+        name: '복구 목록 및 이어 붙이기 확인 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          // Send answer to generate failed recovery item
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-rec-a11y-bundle',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '복구 감사용 질문' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-rec-a11y-bundle',
+              what: '복구 항목 생성 질문',
+              options: ['선택 1']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('실패할 답변 내용');
+          await page.locator('#send').click();
+
+          const replyMsg = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-rec-a11y-bundle').slice(-1)[0]);
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-rec-a11y-bundle',
+            attemptId: att.attemptId,
+            ok: false,
+            error: '전송 실패 오류',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'sess-rec-a11y-bundle',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), replyMsg);
+
+          await page.waitForFunction(() => document.getElementById('recovery-btn').textContent.includes('1'));
+          await page.locator('#recovery-btn').click();
+          await page.waitForFunction(() => !document.getElementById('recovery-panel').hidden);
+
+          // Exit answer mode, write general draft, click copy to show confirm box
+          await page.locator('#reply-cancel').click();
+          await page.locator('#say').fill('기존 작성 중이던 일반 초안');
+          await page.locator('.recovery-item .copy-btn').click();
+          await page.waitForSelector('.recovery-confirm-box');
+
+          await runA11yStateAudit(page, {
+            stateId: 'state_5_recovery_and_append',
+            allowedColorContrastSelectors: ['.recovery-notice', '.recovery-confirm-msg'],
+          });
+
+          // Clean up confirm box and close recovery panel
+          const cancelBtn = page.locator('.recovery-confirm-box .confirm-cancel-btn');
+          if (await cancelBtn.count() > 0) {
+            await cancelBtn.click();
+          }
+          await page.locator('#recovery-btn').click();
+          await page.locator('#say').fill('');
+        }
+      },
+      {
+        id: 'a11y_state_6_inflight_question',
+        name: '질문 전송 중 화면 3개 테마 × 2개 뷰포트 axe-core 감사 (§5.8)',
+        run: async (page) => {
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-a11y-bundle',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '작업 진행 확인' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-inflight-bundle',
+              what: '실행 확인 질문',
+              options: ['진행', '취소']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("1. 진행")');
+          await page.locator('#ask-controls button:text("1. 진행")').click();
+          await page.waitForFunction(() => document.querySelector('#ask-controls').getAttribute('aria-busy') === 'true');
+
+          await runA11yStateAudit(page, {
+            stateId: 'state_6_inflight_question',
+            allowedColorContrastSelectors: ['.ask-status'],
+          });
+
+          // Dismiss question
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-inflight-a11y-bundle',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: '완료' }],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+        }
+      }
+    ]
   }
 ];
+
+const A11Y_THEMES = {
+  dark: {
+    '--vscode-font-family': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    '--vscode-font-size': '13px',
+    '--vscode-foreground': '#cccccc',
+    '--vscode-panel-background': '#1e1e1e',
+    '--vscode-panel-border': '#333333',
+    '--vscode-editor-background': '#1e1e1e',
+    '--vscode-editor-foreground': '#cccccc',
+    '--vscode-focusBorder': '#007fd4',
+    '--vscode-textLink-foreground': '#3794ff',
+    '--vscode-textLink-activeForeground': '#3794ff',
+    '--vscode-descriptionForeground': '#8b949e',
+    '--vscode-button-background': '#0e639c',
+    '--vscode-button-foreground': '#ffffff',
+    '--vscode-button-hoverBackground': '#1177bb',
+    '--vscode-button-secondaryBackground': '#3a3d41',
+    '--vscode-button-secondaryForeground': '#ffffff',
+    '--vscode-button-secondaryHoverBackground': '#45494e',
+    '--vscode-input-background': '#3c3c3c',
+    '--vscode-input-foreground': '#cccccc',
+    '--vscode-input-border': '#3c3c3c',
+    '--vscode-editorWarning-foreground': '#cca700',
+    '--vscode-editorWarning-background': 'rgba(204,167,0,0.1)',
+    '--vscode-errorForeground': '#f14c4c',
+    '--vscode-editorError-foreground': '#f14c4c',
+    '--vscode-badge-background': '#4d4d4d',
+    '--vscode-badge-foreground': '#ffffff',
+    '--vscode-editorWidget-background': '#252526',
+    '--vscode-sideBarSectionHeader-background': 'rgba(128,128,128,0.15)',
+    '--vscode-sideBarSectionHeader-foreground': '#cccccc',
+    '--vscode-editor-lineHighlightBackground': 'rgba(128,128,128,0.08)',
+  },
+  light: {
+    '--vscode-font-family': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    '--vscode-font-size': '13px',
+    '--vscode-foreground': '#616161',
+    '--vscode-panel-background': '#ffffff',
+    '--vscode-panel-border': '#e5e5e5',
+    '--vscode-editor-background': '#ffffff',
+    '--vscode-editor-foreground': '#616161',
+    '--vscode-focusBorder': '#0090f1',
+    '--vscode-textLink-foreground': '#006ab1',
+    '--vscode-textLink-activeForeground': '#006ab1',
+    '--vscode-descriptionForeground': '#717171',
+    '--vscode-button-background': '#007acc',
+    '--vscode-button-foreground': '#ffffff',
+    '--vscode-button-hoverBackground': '#0062a3',
+    '--vscode-button-secondaryBackground': '#5f6a79',
+    '--vscode-button-secondaryForeground': '#ffffff',
+    '--vscode-button-secondaryHoverBackground': '#4d5664',
+    '--vscode-input-background': '#ffffff',
+    '--vscode-input-foreground': '#616161',
+    '--vscode-input-border': '#cecece',
+    '--vscode-editorWarning-foreground': '#b8860b',
+    '--vscode-editorWarning-background': 'rgba(184,134,11,0.1)',
+    '--vscode-errorForeground': '#e51400',
+    '--vscode-editorError-foreground': '#e51400',
+    '--vscode-badge-background': '#c4c4c4',
+    '--vscode-badge-foreground': '#333333',
+    '--vscode-editorWidget-background': '#f3f3f3',
+    '--vscode-sideBarSectionHeader-background': 'rgba(0,0,0,0.05)',
+    '--vscode-sideBarSectionHeader-foreground': '#333333',
+    '--vscode-editor-lineHighlightBackground': 'rgba(0,0,0,0.04)',
+  },
+  highContrast: {
+    '--vscode-font-family': 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    '--vscode-font-size': '13px',
+    '--vscode-foreground': '#ffffff',
+    '--vscode-panel-background': '#000000',
+    '--vscode-panel-border': '#6fc3df',
+    '--vscode-editor-background': '#000000',
+    '--vscode-editor-foreground': '#ffffff',
+    '--vscode-focusBorder': '#f38518',
+    '--vscode-contrastBorder': '#6fc3df',
+    '--vscode-textLink-foreground': '#3794ff',
+    '--vscode-textLink-activeForeground': '#3794ff',
+    '--vscode-descriptionForeground': '#ffffff',
+    '--vscode-button-background': '#000000',
+    '--vscode-button-foreground': '#ffffff',
+    '--vscode-button-border': '#6fc3df',
+    '--vscode-button-hoverBackground': '#000000',
+    '--vscode-button-secondaryBackground': '#000000',
+    '--vscode-button-secondaryForeground': '#ffffff',
+    '--vscode-button-secondaryHoverBackground': '#000000',
+    '--vscode-input-background': '#000000',
+    '--vscode-input-foreground': '#ffffff',
+    '--vscode-input-border': '#6fc3df',
+    '--vscode-editorWarning-foreground': '#00ffff',
+    '--vscode-editorWarning-background': 'rgba(0,255,255,0.1)',
+    '--vscode-errorForeground': '#ff0000',
+    '--vscode-editorError-foreground': '#ff0000',
+    '--vscode-badge-background': '#000000',
+    '--vscode-badge-foreground': '#ffffff',
+    '--vscode-editorWidget-background': '#000000',
+    '--vscode-sideBarSectionHeader-background': '#000000',
+    '--vscode-sideBarSectionHeader-foreground': '#ffffff',
+    '--vscode-editor-lineHighlightBackground': 'rgba(255,255,255,0.1)',
+  }
+};
+
+async function injectA11yTheme(page, themeVars) {
+  await page.evaluate((vars) => {
+    for (const [k, v] of Object.entries(vars)) {
+      document.documentElement.style.setProperty(k, v);
+    }
+  }, themeVars);
+}
+
+async function runA11yStateAudit(page, { stateId, allowedColorContrastSelectors = [] }) {
+  const viewports = [[320, 600], [420, 700]];
+  for (const [themeName, themeVars] of Object.entries(A11Y_THEMES)) {
+    await injectA11yTheme(page, themeVars);
+    for (const [w, h] of viewports) {
+      await page.setViewportSize({ width: w, height: h });
+      const results = await new AxeBuilder({ page }).analyze();
+
+      // Check structural violations: NO non-color-contrast violations allowed anywhere
+      const nonContrastViolations = results.violations.filter(v => v.id !== 'color-contrast');
+      assert.deepEqual(
+        nonContrastViolations,
+        [],
+        `[${stateId}] Unexpected accessibility violations in ${themeName} ${w}x${h}: ${nonContrastViolations.map(v => v.id).join(', ')}`
+      );
+
+      // In dark and highContrast themes, zero violations permitted
+      if (themeName !== 'light') {
+        assert.deepEqual(
+          results.violations,
+          [],
+          `[${stateId}] Accessibility violations in ${themeName} ${w}x${h}: ${results.violations.map(v => v.id).join(', ')}`
+        );
+      } else {
+        // In light theme, only narrow, documented theme-variable-dependent color-contrast exceptions permitted
+        const contrastViolations = results.violations.filter(v => v.id === 'color-contrast');
+        if (allowedColorContrastSelectors.length === 0) {
+          assert.deepEqual(
+            contrastViolations,
+            [],
+            `[${stateId}] Unexpected color-contrast violations in light ${w}x${h}`
+          );
+        } else {
+          for (const cv of contrastViolations) {
+            const invalidNodes = cv.nodes.filter(n => {
+              const targetStr = n.target.join(' ');
+              return !allowedColorContrastSelectors.some(sel => targetStr.includes(sel));
+            });
+            assert.deepEqual(
+              invalidNodes.map(n => n.target.join(' ')),
+              [],
+              `[${stateId}] Unexpected color-contrast nodes in light ${w}x${h}`
+            );
+          }
+        }
+      }
+    }
+  }
+}
 
 // Parse CLI arguments: --bundle=<name>, --reverse, --verify-assets
 const args = process.argv.slice(2);

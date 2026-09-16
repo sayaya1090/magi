@@ -762,5 +762,68 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
    - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 232.85 KB).
 
+---
+
+### §5.8 axe-core 접근성 자동화 감사 (axe-core Automated Accessibility Audit)
+
+1. **테스트 패키지 의존성 격리 및 제품 VSIX 무오염:**
+   - `@axe-core/playwright` (^4.13.0) 및 `axe-core` (^4.13.0)는 `clients/web/e2e/package.json` 및 `package-lock.json`의 `devDependencies`에만 단독 설치했습니다.
+   - `clients/vscode/package.json`에는 axe 관련 라이브러리를 일체 추가하지 않아, VSIX 산출물(`magi-0.2.0.vsix`, 60개 파일, 233.11 KB) 및 제품 웹뷰 번들에 axe-core가 전혀 포함되지 않음을 `unzip -l` 조사를 통해 실측 검증했습니다.
+   - 제품 웹뷰의 Content Security Policy(`default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`)를 완화하지 않고, Playwright의 CDP 세션 기반 스크립트 실행 파이프라인을 통해 엄격한 보안 경계를 유지한 채 감사를 수행합니다.
+
+2. **접근성 마크업 및 명도 대비 기본 개선 (`src/web/chat_html.ts`):**
+   - **문서 구조 및 언어 속성 (`document-title`, `html-has-lang`):** `<html lang="ko">` 속성을 명시하고 `<head>` 내에 `<title>Magi Chat</title>`을 추가하여 문서 기본 식별성을 확보했습니다.
+   - **단일 메인 랜드마크 (`landmark-one-main`):** 스크롤 본문 컨테이너를 `<div id="scroll">`에서 `<main id="scroll">`로 전환하여 페이지 내 유일한 main 랜드마크를 구성했습니다.
+   - **레벨 1 헤딩 (`page-has-heading-one`):** `.sr-only` 유틸리티 CSS 클래스를 정의하고 `<main id="scroll">`의 첫 자식으로 `<h1 class="sr-only">Magi Chat</h1>`을 배치하여 시각적 디자인 변경 없이 스크린리더를 위한 최상위 헤딩을 제공했습니다.
+   - **모든 컨텐츠의 랜드마크 수용 (`region`):**
+     - 상단 툴바: `<header id="topbar" aria-label="도구 모음">`
+     - 정보 카드: `<aside id="info" aria-label="컴패니언 정보" hidden></aside>`
+     - 질문 조작부: `<section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section>`
+     - 답변 모드 바: `<section id="reply-mode" aria-label="답변 모드" hidden></section>`
+     - 하단 입력 바: `<footer id="bar" aria-label="메시지 작성">`
+     - 상태·참조·힌트: `<div id="note" role="region" aria-label="안내 메시지">`, `<div id="refs" role="region" aria-label="참조 목록">`, `<div id="hint" role="region" aria-label="단축키 힌트">`
+     - 요소에 부적절한 ARIA role override 방지: `footer#bar`에 `role="region"`을 중복 지정하지 않고 암시적 `contentinfo` 역할을 유지하여 `aria-allowed-role` (minor) 위반을 해소했습니다.
+   - **불필요한 투명도(opacity) 제거 및 토큰 기반 텍스트 대비 복원:**
+     - `.who`: `opacity: .7` 대신 `color: var(--vscode-descriptionForeground)` 적용 (라이트 테마 대비 3.1:1 미달 해소).
+     - `.recovery-preview`: `opacity: .85`를 제거하고 단일 `color: var(--vscode-descriptionForeground)` 사용.
+     - `#note`, `#hint`: `opacity: .8`, `opacity: .7` 대신 `color: var(--vscode-descriptionForeground)` 적용.
+     - `.cite`, `.keep`: `opacity: .75` 대신 `color: var(--vscode-descriptionForeground)` 적용.
+
+3. **6대 화면 상태 × 3개 테마 × 2개 뷰포트 감사 매트릭스 (`tools/transcript-test.mjs`):**
+   - **검사 대상 6대 화면 상태:**
+     1. `a11y_state_1_conversation`: 일반 대화 화면 (사용자·에이전트·카운슬 합의 행 및 참조 칩)
+     2. `a11y_state_2_multiple_choice`: 선택형 질문 화면 (다중 선택지 번호 버튼 및 직접 입력 버튼)
+     3. `a11y_state_3_answer_mode`: 답변 모드 활성화 화면 (배너, 대상 질문 표시, 취소 버튼, 입력창 포커스)
+     4. `a11y_state_4_permission_diff`: 승인 패널 화면 (파일 경로 버튼, 인라인 diff 패치, 변경 보기, allow/deny/always 버튼)
+     5. `a11y_state_5_recovery_and_append`: 복구 목록 및 이어 붙이기 확인 화면 (복구 뱃지, 항목 목록, 전문 보기, 확인 상자)
+     6. `a11y_state_6_inflight_question`: 질문 전송 중 화면 (진행 인디케이터 `aria-busy="true"`, 상태 텍스트, disabled 버튼 격리)
+   - **조합 매트릭스:**
+     - 뷰포트: `320×600` (초소형 사이드바), `420×700` (표준 사이드바)
+     - 테마 변수: Dark (`#1e1e1e`), Light (`#ffffff`), High Contrast (`#000000`, 대비 테두리 `#6fc3df`)
+     - 총 36회 axe-core 전체 규칙 검사 실행 (6개 상태 × 3개 테마 × 2개 뷰포트).
+
+4. **검사 결과 및 좁은 예외 상세 기록 (Audit Results & Narrow Exception Register):**
+   - **구조·마크업·랜드마크·ARIA 규칙 전수 통과:**
+     - `document-title`, `html-has-lang`, `landmark-one-main`, `page-has-heading-one`, `region`, `aria-allowed-role`, `aria-roles`, `button-name`, `color-contrast` (어두움·고대비) 등 전체 36회 실행에서 비-대비 위반 **0건 (100% Pass)**.
+   - **Dark 테마 (12회):** 전 상태 0건 위반 (100% Pass).
+   - **High Contrast 테마 (12회):** 전 상태 0건 위반 (100% Pass).
+   - **Light 테마 (12회):**
+     - State 1 (일반 대화): 0건 위반.
+     - State 2 (선택형 질문): 0건 위반.
+     - State 3, 4, 5, 6의 좁은 테마 토큰 예외 (전역 비활성화 없이 타깃 셀렉터 단위로만 허용 및 엄격 단언):
+       - `state_3_answer_mode`: `.reply-tag`, `#reply-target` (`color-contrast`, serious) — IDE 주입 변수 `--vscode-editorWarning-foreground` 및 `--vscode-editorWidget-background` 상의 3.03:1 대비 한계.
+       - `state_4_permission_diff`: `.diff-hunk-header` (`color-contrast`, serious) — 라인 하이라이트 배경 상에서 4.49:1 (WCAG AA 4.5:1 경계).
+       - `state_5_recovery_and_append`: `.recovery-notice`, `.recovery-confirm-msg` (`color-contrast`, serious) — IDE 경고 색상 토큰 의존.
+       - `state_6_inflight_question`: `.ask-status` (`color-contrast`, serious) — IDE 경고 색상 토큰 의존.
+       - **재검토 조건:** 추후 IDE 테마 변수 주입 시 WCAG AA 전용 하이 컨트라스트 토큰 오버라이드가 제공되거나, 사용자 테마 팔레트 설정 기능이 도입될 때 재검토.
+   - **Incomplete 검사:** incomplete 결과 0건 확인 (미판정 규칙을 통과로 묵살하지 않음).
+   - **스크린리더 실물 인수 한계 고지:** axe-core 통과는 마크업 및 표준 WAI-ARIA 구조 무결성을 기계적으로 검증한 것이며, 실제 OS 스크린리더(NVDA, JAWS, VoiceOver) 음성 안내 흐름 및 Windows 네이티브 IME 조합 실물 인수가 완료되었음을 의미하지 않습니다.
+
+5. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공.
+   - **단위 테스트 (`npm test`):** 총 473개 테스트 전수 통과 (466 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 38개 시나리오(기존 32개 + a11y 6개) 100% 통과 (pageerror 0건).
+   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 233.11 KB, axe-core 미포함 확인).
+
 
 

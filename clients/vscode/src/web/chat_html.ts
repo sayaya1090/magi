@@ -14,11 +14,14 @@ export interface RenderChatHtmlOptions {
 export function renderChatHtml(options: RenderChatHtmlOptions): string {
   const { nonce, cspSource, scriptUri, adapterUri } = options;
   const csp = `default-src 'none'; style-src ${cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${cspSource};`;
-  return `<!DOCTYPE html><html><head>
+  return `<!DOCTYPE html><html lang="ko"><head>
 <meta charset="UTF-8">
+<title>Magi Chat</title>
 <meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
   /* Every colour is the editor's. Nothing here picks one. */
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+             overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border-width:0; }
   body { margin:0; font-family:var(--vscode-font-family); font-size:var(--vscode-font-size);
          color:var(--vscode-foreground); background:var(--vscode-panel-background);
          display:flex; flex-direction:column; height:100vh; }
@@ -26,7 +29,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #rows { margin:0; padding:0; }
   #scroll { flex:1; min-height:0; overflow-y:auto; padding:8px 10px; }
   .row { margin:0 0 8px; white-space:pre-wrap; word-break:break-word; }
-  .who { font-size:.85em; opacity:.7; margin-bottom:2px; }
+  .who { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:2px; }
   .user { border-left:2px solid var(--vscode-focusBorder); padding-left:8px; }
   .pending { opacity:.75; }
   /* Parked, not being worked on. Its own mark because "asked and waiting" and "shelved until
@@ -87,7 +90,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .recovery-meta { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:4px; font-size:.8em; color:var(--vscode-descriptionForeground); margin-bottom:4px; }
   .recovery-title { font-weight:600; font-size:.9em; color:var(--vscode-foreground); margin-bottom:4px; word-break:break-word; }
   .recovery-reason { font-size:.85em; color:var(--vscode-errorForeground); margin-bottom:4px; word-break:break-word; }
-  .recovery-preview { font-size:.85em; color:var(--vscode-descriptionForeground); opacity:.85; margin-bottom:6px;
+  .recovery-preview { font-size:.85em; color:var(--vscode-descriptionForeground); margin-bottom:6px;
     white-space:pre-wrap; word-break:break-word; max-height:3em; overflow:hidden; text-overflow:ellipsis; }
   .recovery-full-text { font-family:var(--vscode-editor-font-family, monospace); font-size:.85em; margin:6px 0;
     padding:6px 8px; background:var(--vscode-editorWidget-background, rgba(128,128,128,0.1));
@@ -241,9 +244,9 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
      (magi looks the fragment up in what the member was shown), and a reader can only check what
      is drawn as it is. Capped, because one member's evidence must not push the round off screen.
      The keep is the member's own prose, so it stays in the reading font. */
-  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.75; margin-top:2px;
+  .cite { font-family:var(--vscode-editor-font-family); font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px;
     max-height:9em; overflow:auto; }
-  .keep { font-size:.9em; opacity:.75; margin-top:2px; }
+  .keep { font-size:.9em; color:var(--vscode-descriptionForeground); margin-top:2px; }
   /* Keep reasoning in the outer transcript flow, including its original line breaks. */
   .thought { font-family:var(--vscode-editor-font-family); font-size:.9em; opacity:.6;
     margin-top:2px; white-space:pre-wrap; }
@@ -251,8 +254,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
      what it is: something a tool produced, with a place to find it. */
   .image { opacity:.75; font-family:var(--vscode-editor-font-family); font-size:.9em; }
   .council { border-left:2px solid var(--vscode-textLink-foreground); padding-left:8px; }
-  #note { padding:6px 10px; opacity:.8; font-size:.9em; }
-  #hint { padding:0 10px 4px; font-size:.85em; opacity:.7; font-family:var(--vscode-editor-font-family); }
+  #note { padding:6px 10px; color:var(--vscode-descriptionForeground); font-size:.9em; }
+  #hint { padding:0 10px 4px; font-size:.85em; color:var(--vscode-descriptionForeground); font-family:var(--vscode-editor-font-family); }
   #refs { display:flex; flex-wrap:wrap; gap:4px; padding:0 10px 6px; }
   .chip { font-size:.85em; padding:1px 6px; border-radius:9px;
           color:var(--vscode-badge-foreground); background:var(--vscode-badge-background); }
@@ -274,13 +277,13 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
            border:none; border-radius:2px; padding:4px 10px; cursor:pointer; }
   button:hover { background:var(--vscode-button-hoverBackground); }
 </style></head><body>
-<div id="topbar"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></div>
-<div id="info" hidden></div>
-<div id="scroll"><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><div id="ask-body" hidden></div></div>
-<div id="ask-controls" hidden></div><div id="note"></div><div id="refs"></div>
-<div id="hint"></div>
-<div id="reply-mode" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></div>
-<div id="bar"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></div>
+<header id="topbar" aria-label="도구 모음"><button id="recovery-btn" class="recovery-btn" type="button" aria-expanded="false" aria-controls="recovery-panel">복구 초안 0</button><button id="more" title="This companion" aria-label="This companion" aria-expanded="false">⚙</button></header>
+<aside id="info" aria-label="컴패니언 정보" hidden></aside>
+<main id="scroll"><h1 class="sr-only">Magi Chat</h1><div id="recovery-panel" class="recovery-panel" hidden><div class="recovery-header"><span class="recovery-notice">이 창에서 임시 보관 중</span><label class="recovery-scope-label"><input type="checkbox" id="recovery-scope-all"> 이 컴패니언의 다른 대화</label></div><div id="recovery-items" class="recovery-items"></div><div id="recovery-status" class="recovery-status" aria-live="polite"></div></div><div id="rows"></div><div id="ask-body" hidden></div></main>
+<section id="ask-controls" aria-label="질문 및 승인 조작" hidden></section><div id="note" role="region" aria-label="안내 메시지"></div><div id="refs" role="region" aria-label="참조 목록"></div>
+<div id="hint" role="region" aria-label="단축키 힌트"></div>
+<section id="reply-mode" aria-label="답변 모드" hidden><span class="reply-tag">[답변 모드]</span><span id="reply-target" class="reply-target"></span><button id="reply-cancel" class="cancel-btn" title="일반 입력으로 전환 (Esc)">✕ 취소</button></section>
+<footer id="bar" aria-label="메시지 작성"><textarea id="say" rows="1" aria-label="Message the companion"></textarea><button id="send">Send</button></footer>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 <script nonce="${nonce}" src="${adapterUri}"></script>
 <script nonce="${nonce}">
