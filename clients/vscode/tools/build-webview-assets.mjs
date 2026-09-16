@@ -3,31 +3,68 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const root = path.join(__dirname, '..');
-const src = path.join(root, 'out', 'core', 'answer_state.js');
+
+let root = path.join(__dirname, '..');
+for (const arg of process.argv.slice(2)) {
+  if (arg.startsWith('--root=')) {
+    root = path.resolve(arg.slice(7));
+  } else if (!arg.startsWith('--')) {
+    root = path.resolve(arg);
+  }
+}
+if (process.env.MAGI_BUILD_ROOT) {
+  root = path.resolve(process.env.MAGI_BUILD_ROOT);
+}
+
+const answerStateSrc = path.join(root, 'out', 'core', 'answer_state.js');
+const recoveryStateSrc = path.join(root, 'out', 'core', 'recovery_state.js');
+const domInteractionSrc = path.join(root, 'out', 'web', 'dom_interaction.js');
+const recoveryViewSrc = path.join(root, 'out', 'web', 'recovery_view.js');
+const recoveryControllerSrc = path.join(root, 'out', 'web', 'recovery_controller.js');
+const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
+
 const outDir = path.join(root, 'out', 'web');
-const dst = path.join(outDir, 'answer_state.js');
+const answerStateDst = path.join(outDir, 'answer_state.js');
+const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
 
-if (!fs.existsSync(src)) {
-  console.error('out/core/answer_state.js not found. Run tsc -p . first.');
-  process.exit(1);
+// 1. Single list of required inputs (§4.7 P2)
+const requiredInputs = [
+  { id: 'answer_state', name: 'out/core/answer_state.js', path: answerStateSrc },
+  { id: 'recovery_state', name: 'out/core/recovery_state.js', path: recoveryStateSrc },
+  { id: 'dom_interaction', name: 'out/web/dom_interaction.js', path: domInteractionSrc },
+  { id: 'recovery_view', name: 'out/web/recovery_view.js', path: recoveryViewSrc },
+  { id: 'recovery_controller', name: 'out/web/recovery_controller.js', path: recoveryControllerSrc },
+  { id: 'chat_adapter', name: 'out/web/chat_adapter.js', path: adapterSrc },
+];
+
+// 2. Validate existence of all required inputs BEFORE touching/writing any output file
+for (const req of requiredInputs) {
+  if (!fs.existsSync(req.path)) {
+    console.error(`${req.name} not found at ${req.path}. Run 'tsc -p .' first.`);
+    process.exit(1);
+  }
 }
 
-fs.mkdirSync(outDir, { recursive: true });
-const compiled = fs.readFileSync(src, 'utf8');
-const recoverySrc = path.join(root, 'out', 'core', 'recovery_state.js');
-let recoveryCompiled = '';
-if (fs.existsSync(recoverySrc)) {
-  recoveryCompiled = fs.readFileSync(recoverySrc, 'utf8');
+// 3. Read all inputs into memory
+const contents = {};
+for (const req of requiredInputs) {
+  try {
+    contents[req.id] = fs.readFileSync(req.path, 'utf8');
+  } catch (err) {
+    console.error(`Failed to read ${req.name} at ${req.path}: ${err.message}. Run 'tsc -p .' first.`);
+    process.exit(1);
+  }
 }
-const wrapped = `// Auto-generated from out/core/answer_state.js for webview. Do not edit directly.
+
+// 4. Construct answer_state.js bundle
+const answerStateWrapped = `// Auto-generated from out/core/answer_state.js for webview. Do not edit directly.
 var createAnswerState;
 var createRecoveryState;
 (function () {
   var exports = {};
   var recoveryExports = {};
   (function (exports) {
-    ${recoveryCompiled}
+${contents['recovery_state']}
   })(recoveryExports);
   createRecoveryState = recoveryExports.createRecoveryState;
 
@@ -38,7 +75,7 @@ var createRecoveryState;
     throw new Error('Cannot require ' + id);
   }
 
-${compiled}
+${contents['answer_state']}
   createAnswerState = exports.createAnswerState;
   if (typeof window !== 'undefined') {
     window.createAnswerState = createAnswerState;
@@ -47,34 +84,7 @@ ${compiled}
 })();
 `;
 
-fs.writeFileSync(dst, wrapped, 'utf8');
-
-// Bundle chat_adapter.js and recovery modules (§4.7)
-const domInteractionSrc = path.join(root, 'out', 'web', 'dom_interaction.js');
-const recoveryViewSrc = path.join(root, 'out', 'web', 'recovery_view.js');
-const recoveryControllerSrc = path.join(root, 'out', 'web', 'recovery_controller.js');
-const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
-const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
-
-const requiredFiles = [
-  { name: 'out/web/dom_interaction.js', path: domInteractionSrc },
-  { name: 'out/web/recovery_view.js', path: recoveryViewSrc },
-  { name: 'out/web/recovery_controller.js', path: recoveryControllerSrc },
-  { name: 'out/web/chat_adapter.js', path: adapterSrc },
-];
-
-for (const req of requiredFiles) {
-  if (!fs.existsSync(req.path)) {
-    console.error(`${req.name} not found at ${req.path}. Run 'tsc -p .' first.`);
-    process.exit(1);
-  }
-}
-
-const domInteractionCompiled = fs.readFileSync(domInteractionSrc, 'utf8');
-const recoveryViewCompiled = fs.readFileSync(recoveryViewSrc, 'utf8');
-const recoveryControllerCompiled = fs.readFileSync(recoveryControllerSrc, 'utf8');
-const adapterCompiled = fs.readFileSync(adapterSrc, 'utf8');
-
+// 5. Construct chat_adapter.bundle.js bundle
 const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js and recovery modules for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
@@ -104,21 +114,21 @@ var moveDomChild;
   var domInteractionMod = { exports: {} };
   modules['dom_interaction'] = domInteractionMod;
   (function (module, exports) {
-${domInteractionCompiled}
+${contents['dom_interaction']}
   })(domInteractionMod, domInteractionMod.exports);
 
   // 2. recovery_view
   var recoveryViewMod = { exports: {} };
   modules['recovery_view'] = recoveryViewMod;
   (function (module, exports) {
-${recoveryViewCompiled}
+${contents['recovery_view']}
   })(recoveryViewMod, recoveryViewMod.exports);
 
   // 3. recovery_controller
   var recoveryControllerMod = { exports: {} };
   modules['recovery_controller'] = recoveryControllerMod;
   (function (module, exports) {
-${recoveryControllerCompiled}
+${contents['recovery_controller']}
   })(recoveryControllerMod, recoveryControllerMod.exports);
 
   // 4. chat_adapter
@@ -126,7 +136,7 @@ ${recoveryControllerCompiled}
   modules['chat_adapter'] = adapterMod;
   var exports = adapterMod.exports;
   (function (module, exports) {
-${adapterCompiled}
+${contents['chat_adapter']}
   })(adapterMod, adapterMod.exports);
 
   createWebviewActionAdapter = exports.createWebviewActionAdapter;
@@ -178,5 +188,8 @@ ${adapterCompiled}
   }
 })();
 `;
-fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
 
+// 6. Write both output files together after all inputs are verified and read
+fs.mkdirSync(outDir, { recursive: true });
+fs.writeFileSync(answerStateDst, answerStateWrapped, 'utf8');
+fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');

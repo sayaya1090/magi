@@ -117,6 +117,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `output_provider.test.ts` (가상 문서 프로바이더 및 호스트 디스패치) | **읽기 전용 가상 문서 프로바이더(`magi-output`) 및 호스트 메시지 디스패치 검증 (§3.1–§3.4).** VS Code API(`vscode.workspace.registerTextDocumentContentProvider`, `openTextDocument`, `showTextDocument`)와의 연동을 검증합니다. `openTextDocument` 및 `showTextDocument` 예외 발생 시 비정상 종료 없이 `opened: false` 및 오류 사유로 안전하게 변환, 실패 시 `finally`를 통한 임시 보호 즉각 해제 및 캐시 누수 방지, `setTextDocumentLanguage`가 반환한 신규 문서 인스턴스를 `showTextDocument`에 전달, 언어 전환 중 발생하는 닫기(`close`) 이벤트에서의 생성 중 스냅샷 보호 유지, 언어 모드 설정 실패 시 원문 보기 유지 및 경고(`warning`) 반환, 동일 항목 재클릭 시 결정론적 URI 기반 탭 재사용, 다른 세션·컴패니언 간 동일 seq/callId 자료 격리, 탭 닫기(`onDidCloseTextDocument`) 이벤트 수신 시 초과 캐시 즉시 정리, `Chat.fromView`의 실패 및 경고 안내(`note`) 1회 표출과 입력/질문 모드 무변경 보존, 그리고 `Chat.dispose` 시 프로바이더·등록·구독이 중복 없이 정확히 1회씩 해제됨을 모의 호스트 환경에서 전수 검증합니다. (실제 VS Code IDE 실물 실행은 미실시) |
 | `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 작업 초안 인메모리 복구 모델, 등록·중복합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** 검증 통과한 `replyResult`의 `ok=false` 시 저장된 `inFlight.text` 등록, 빈 문자열 거절 및 공백/개행 원문 보존, HTML 특수문자 보존, 동일 세션·질문·원문의 반복 실패 중복 합산 및 횟수·최신 오류 갱신, 소비된 이벤트 재유입 무시, 명시적 삭제 후 재등록 방지 및 새 실패 시 새 ID 발급, `sessionCreationFailed` 및 `conflict=true` 생성 작업 초안의 복구 저장소 등록, 일반 초안 비어 있을 때 복사 및 비어 있지 않을 때 `G + "\n\n" + text` 결합 적용, 확인 취소 시 상태 보존, 타 세션 이동/삭제 시 복사 취소 등을 순수 모델 수준에서 전수 검증합니다 |
 | `webview.test.ts` (복구 목록 UI 제어 및 DOM 동기화) | **실패 답변·생성 초안 복구 웹뷰 UI 제어기 및 이벤트 동기화 검증 (§4.6).** `#recovery-btn` 뱃지 수와 패널 토글, 전체 컴패니언 범위 필터(`recoveryScopeAll`), 전문 보기/접기 토글 및 XSS 방어(원문 `textContent` 무변형 보존), 빈 일반 초안 복사 시 원문 복원·답변 모드 해제 및 호스트 `postMessage` 미발생(0건) 보장, 비어 있지 않은 일반 초안 시 인라인 확인 상자 노출·취소 시 상태 보존·이어 붙이기 확인 시 `G + "\n\n" + text` 결합 및 질문 초안 보존, 조작 중 세션 변경 시 확인 취소 및 오염 차단, 명시적 삭제 클릭 시 항목 제거·뱃지 0·빈 상태 표출, IME 조합 중(`compositionstart`/`compositionend`) 복사·삭제 버튼 비활성화 및 자동 제출 방지, `receiveHandlers`의 `replyResult`(ok=false)·`sessionCreationFailed`·`sessionCreated`(conflict=true) 이벤트 수신 시 복구 목록 자동 갱신을 단위 수준에서 전수 검증합니다 |
+| `build_assets.test.ts` (웹뷰 에셋 번들러 필수 입력 검사 및 원자적 출력) | **웹뷰 에셋 번들러(`build-webview-assets.mjs`) 필수 입력 검증 및 원자적 번들링 검증 (§4.7 P2).** 6대 필수 입력(`out/core/answer_state.js`, `out/core/recovery_state.js`, `out/web/dom_interaction.js`, `out/web/recovery_view.js`, `out/web/recovery_controller.js`, `out/web/chat_adapter.js`) 중 단 하나라도 누락될 경우 자식 프로세스가 종료 코드 1, 누락 경로 및 재빌드 안내(`Run 'tsc -p .' first.`)를 표준 에러로 출력하고 기존 배포 산출물을 전혀 덮어쓰지 않는지 격리 임시 디렉터리에서 검증합니다. 모든 입력이 존재할 때는 정상 종료(코드 0) 후 생성된 번들에서 `createAnswerState`와 복구 컨트롤러/뷰 export가 온전히 동작함을 샌드박스 실행으로 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -468,9 +469,39 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 4. **검증 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공 (contract 복사, TypeScript 컴파일, 웹뷰 통합 번들 생성 완료).
-   - **단위 테스트 (`npm test`):** 총 462개 테스트 전수 통과 (455 pass, 0 fail, 7 skip).
+   - **단위 테스트 (`npm test`):** 총 463개 테스트 전수 통과 (456 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail, 브라우저 콘솔 pageerror 및 require 미정의 0건).
    - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
+---
+
+### §4.7 번들 필수 입력 검사 누락 보완 (P2 리뷰 결함 해결)
+
+1. **6대 필수 입력 단일 목록 검사 및 대체 분기 제거 (`tools/build-webview-assets.mjs`):**
+   - `answer_state`, `recovery_state`, `dom_interaction`, `recovery_view`, `recovery_controller`, `chat_adapter` 6대 컴파일 결과를 단일 필수 입력 목록(`requiredInputs`)으로 등록.
+   - `recovery_state.js`의 빈 문자열 대체(`recoveryCompiled = ''`) 분기를 완전히 제거하고 필수 검사 대상으로 통합하여, 누락 시 런타임 `createRecoveryState is not a function` 오류가 배포 산출물에 유입되는 것을 원천 차단했습니다.
+
+2. **사전 전수 검증 및 원자적 번들링 (Atomicity):**
+   - 6개 모든 입력 파일의 존재 여부(`fs.existsSync`) 및 읽기 성공(`fs.readFileSync`)을 인메모리 버퍼에 확보한 뒤에만 출력 디렉터리 생성 및 파일 쓰기를 시작합니다.
+   - 입력 파일이 단 하나라도 누락되거나 읽기에 실패하면 출력 파일(`out/web/answer_state.js`, `out/web/chat_adapter.bundle.js`)에 일체 손을 대지 않고 기존 상태를 유지하며, 표준 에러로 누락 경로 및 재빌드 안내(`Run 'tsc -p .' first.`)를 출력하고 종료 코드 1로 즉시 중단합니다.
+
+3. **자식 프로세스 격리 테스트 (`src/test/build_assets.test.ts`):**
+   - `os.tmpdir()` 산하 격리 임시 디렉터리에 6대 컴파일 산출물을 복사하고, 배포 대상 위치에 식별 센티넬(`SENTINEL`)을 미리 기록합니다.
+   - 6개 입력을 하나씩 누락시킨 뒤 번들러 자식 프로세스(`build-webview-assets.mjs --root=<tempDir>`)를 실행하여:
+     - 프로세스가 정확히 종료 코드 1로 실패하는지 단언.
+     - 표준 에러(`stderr`)에 누락된 파일 경로와 `Run 'tsc -p .' first.` 문구가 포함되는지 검증.
+     - 기존 배포 산출물(`answer_state.js`, `chat_adapter.bundle.js`)의 센티넬 내용이 전혀 변경되지 않고 보존(불변)되는지 검증.
+   - 6개 입력이 모두 존재할 때 번들러가 종료 코드 0으로 성공하며, Node `vm` 샌드박스 실행을 통해:
+     - `answer_state.js`: `createAnswerState` 및 내부 `createRecoveryState`, `listItems` 메서드가 정상 인스턴스화되는지 검증.
+     - `chat_adapter.bundle.js`: `createWebviewActionAdapter`, `createWebviewInputAdapter`, `createSuggestController`, `createWebviewReceiveHandlers`, `createWebviewRecoveryController`, `createRecoveryView`, `captureSelection`, `restoreSelection`, `restoreFocus`, `moveDomChild` 등 10개 핵심 전역 함수가 정상 바인딩되는지 검증.
+   - 실제 작업 디렉터리의 `out/` 파일은 일체 삭제하거나 수정하지 않고 테스트 종료 후 임시 디렉터리를 완전 삭제합니다.
+
+4. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공 (수정된 번들러로 에셋 2종 정상 생성).
+   - **단위 테스트 (`npm test`):** 총 463개 테스트 전수 통과 (456 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 27개 시나리오 100% 통과 (pageerror 0건).
+   - **미검증 범위 (Unverified Scope):** 실제 OS IME(Windows/macOS IME 한글 조합 등)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다.
+
 
 
 
