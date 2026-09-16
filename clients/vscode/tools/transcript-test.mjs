@@ -2566,20 +2566,96 @@ const bundles = [
           assert.deepEqual(postedAfterInspect[postedBefore + 1], { kind: 'diff', session: 'sess-perm-56', callId: 'perm-inspect-56' });
           assert.ok(!postedAfterInspect.slice(postedBefore).some((m) => m.kind === 'answer' || m.kind === 'reply' || m.kind === 'say'), 'inspection clicks never answer/reply/say');
 
-          // 4. Keyboard Tab / Enter / Space navigation & decision dispatch
-          // 4A. Focus openBtn and press Enter -> kind: 'open'
+          // 4. Sequential Keyboard Tab / Shift+Tab navigation, disabled skip, and focus ring boundary
+          const jumpBtn = page.locator('#ask-controls button.jump-btn');
+          await jumpBtn.waitFor();
+
+          // 4A. Sequential Tab navigation chain: openBtn -> jumpBtn -> diffBtn -> allow -> deny -> always -> #say -> #send
+          await openBtn.focus();
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-body .file-target button.file-nav-btn')), true, 'openBtn has initial focus');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls button.jump-btn')), true, 'Tab lands on jumpBtn');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.diff-btn')), true, 'Tab lands on diffBtn');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-allow')), true, 'Tab lands on allowBtn');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-deny')), true, 'Tab lands on denyBtn');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-always')), true, 'Tab lands on alwaysBtn');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#say')), true, 'Tab lands on composer #say');
+
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#send')), true, 'Tab lands on #send');
+
+          // 4B. Reverse Shift+Tab navigation chain: #send -> #say -> always -> deny -> allow -> diffBtn -> jumpBtn -> openBtn
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#say')), true, 'Shift+Tab lands back on #say');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-always')), true, 'Shift+Tab lands back on alwaysBtn');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-deny')), true, 'Shift+Tab lands back on denyBtn');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-allow')), true, 'Shift+Tab lands back on allowBtn');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.diff-btn')), true, 'Shift+Tab lands back on diffBtn');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls button.jump-btn')), true, 'Shift+Tab lands back on jumpBtn');
+
+          await page.keyboard.press('Shift+Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-body .file-target button.file-nav-btn')), true, 'Shift+Tab lands back on openBtn');
+
+          // 4C. Disabled diffBtn exclusion from Tab order
+          await page.evaluate(() => {
+            const d = document.querySelector('#ask-controls .acts button.diff-btn');
+            d.disabled = true;
+          });
+          await jumpBtn.focus();
+          await page.keyboard.press('Tab');
+          assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls .acts button.decision-allow')), true, 'Tab from jumpBtn skips disabled diffBtn directly to allowBtn');
+          await page.evaluate(() => {
+            const d = document.querySelector('#ask-controls .acts button.diff-btn');
+            d.disabled = false;
+          });
+
+          // 4D. Focus ring boundary geometry verification: safe padding in .acts prevents outline clipping
+          await diffBtn.focus();
+          const focusRingGeometry = await page.evaluate(() => {
+            const diff = document.querySelector('#ask-controls .acts button.diff-btn');
+            const acts = document.querySelector('#ask-controls .acts');
+            const diffRect = diff.getBoundingClientRect();
+            const actsRect = acts.getBoundingClientRect();
+            return {
+              topOffset: diffRect.top - actsRect.top,
+              leftOffset: diffRect.left - actsRect.left,
+            };
+          });
+          assert.ok(focusRingGeometry.topOffset >= 2.5, 'top offset inside .acts must be >= 2.5px to accommodate 2px outline-offset');
+          assert.ok(focusRingGeometry.leftOffset >= 1.5, 'left offset inside .acts must be >= 1.5px to accommodate 2px outline-offset');
+
+          // 4E. Keyboard activation: Enter on openBtn, Enter on diffBtn, Space on allowBtn
           await openBtn.focus();
           await page.keyboard.press('Enter');
           const postedAfterKbOpen = await page.evaluate(() => window.__posted);
           assert.equal(postedAfterKbOpen[postedAfterKbOpen.length - 1].kind, 'open');
 
-          // 4B. Focus diffBtn and press Enter -> kind: 'diff'
           await diffBtn.focus();
           await page.keyboard.press('Enter');
           const postedAfterKbDiff = await page.evaluate(() => window.__posted);
           assert.equal(postedAfterKbDiff[postedAfterKbDiff.length - 1].kind, 'diff');
 
-          // 4C. Focus allowBtn and press Space -> kind: 'answer', decision: 'allow' (exactly 1)
           await allowBtn.focus();
           await page.keyboard.press('Space');
           const postedAfterAllow = await page.evaluate(() => window.__posted);
@@ -2648,11 +2724,13 @@ const bundles = [
           const activeAlways = page.locator('#ask-controls .acts button:text("always")');
 
           // 5. Theme tokens verification: Dark, Light, High Contrast
+          await page.mouse.move(0, 0);
           // 5A. Dark theme variables
           await page.evaluate(() => {
             document.documentElement.style.setProperty('--vscode-button-background', '#0e639c');
             document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
             document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#3a3d41');
+            document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#45494e');
             document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#ffffff');
             document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
             document.documentElement.style.removeProperty('--vscode-contrastBorder');
@@ -2673,6 +2751,7 @@ const bundles = [
             document.documentElement.style.setProperty('--vscode-button-background', '#005fb8');
             document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
             document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#e5e5e5');
+            document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#d0d0d0');
             document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#3b3b3b');
           });
 

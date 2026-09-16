@@ -519,12 +519,16 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - 버튼 순서, 본문 전문, 툴팁, 입력 초안, 답변 모드, 스크롤 정책을 100% 보존합니다.
 
 3. **자동화 검증 (`transcript-test.mjs` & `webview.test.ts`):**
-   - **단위 테스트 (`webview.test.ts`):** `renderChatHtml` 생성 HTML 내 보조/승인 클래스, 토큰 및 폴백, focus-visible 및 contrastBorder CSS 규칙 선언 검증 완료.
-   - **브라우저 E2E 하네스 (`transcript-test.mjs`):** `diff_approval_and_inspection_styling_keyboard_and_themes` 시나리오 추가:
+   - **단위 테스트 (`webview.test.ts`):** `renderChatHtml` 생성 HTML 내 보조/승인 클래스, 토큰 및 폴백, `.acts` 안전 패딩(`padding: 3px 2px;`), `jump-btn:focus-visible`, focus-visible 및 contrastBorder CSS 규칙 선언 검증 완료.
+   - **브라우저 E2E 하네스 (`transcript-test.mjs`):** `diff_approval_and_inspection_styling_keyboard_and_themes` 시나리오 추가 및 보강:
      - `diffBtn`, `openBtn`의 `inspect-btn` 보유 및 `approval-btn` 부재 단언.
      - `allow`, `deny`, `always`의 `approval-btn` 보유 및 `inspect-btn` 부재 단언.
      - 조회 클릭 시 `open`/`diff` 각 1회 디스패치 및 `answer`/`reply`/`say` 0건 검증.
-     - Tab / Enter / Space 키보드 조작으로 `open`, `diff`, `allow`, `deny`, `always` 순차 탐색 및 정확히 1회 디스패치 검증.
+     - **실제 키보드 Tab 순차 탐색 체인:** 시작점(`openBtn`)만 초기 포커스 후 `page.keyboard.press('Tab')` 순차 입력으로 DOM 순서에 따른 activeElement 이동(`openBtn` → `jumpBtn` → `diffBtn` → `allow` → `deny` → `always` → `#say` → `#send`) 실측 검증.
+     - **역방향 Shift+Tab 순차 탐색:** `#send`에서 `Shift+Tab` 순차 입력으로 역순(`send` → `say` → `always` → `deny` → `allow` → `diffBtn` → `jumpBtn` → `openBtn`) 완벽 복귀 검증.
+     - **비활성화 요소 스킵:** `diffBtn.disabled = true` 시 Tab 키 조작에서 자연스럽게 제외되어 `jumpBtn`에서 바로 `allow`로 이동함을 검증.
+     - **포커스 링 오버플로 경계 실측:** `#ask-controls .acts`의 `overflow-y: auto` 클리핑 영역 내에서 버튼 포커스 링(`outline-offset: 2px`)이 잘리지 않도록 내부 상단 여백(≥ 2.5px) 및 좌측 여백(≥ 1.5px) 실측.
+     - **키보드 액션 실행:** `openBtn` Enter(`open`), `diffBtn` Enter(`diff`), `allow` Space(`answer: allow`), `deny` Enter(`answer: deny`), `always` Space(`answer: always`) 1회 디스패치 검증.
      - Dark (`#3a3d41` vs `#0e639c`), Light (`#e5e5e5` vs `#005fb8`), High Contrast (`#6fc1ff` 테두리) 테마별 계산된 스타일 실측 일치 검증.
      - 320×600 및 420×700 뷰포트에서 `getBoundingClientRect` 실측으로 컨트롤 및 버튼들의 양수 치수, 가로/세로 오버플로 없음, 텍스트·포커스 링·버튼 가림 없음 검증.
 
@@ -532,7 +536,21 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
    - **단위 테스트 (`npm test`):** 총 464개 테스트 전수 통과 (457 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 28개 시나리오 100% 통과 (pageerror 0건).
-   - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 모의 테마 캡처는 실제 VS Code IDE 환경에서의 검증을 대체하지 않습니다.
+
+---
+
+### macOS 환경 한글 IME 실제 검증 (Darwin arm64)
+
+실제 macOS(Darwin 24.4.0 arm64) 환경에서 Playwright 기반 로컬 자동화 하네스를 실행하여 한글 조합 및 포커스·버퍼 보호를 실측 검증했습니다:
+
+1. **한글 조합 중 Enter 억제 및 중복 전송 방지:**
+   - composer `#say`에서 한글 음절 조합 단계('ㅎ' → '하' → '한', `compositionstart`/`compositionupdate`, `isComposing: true`, `keyCode: 229`) 동안 발생하는 Enter 키 입력이 메시지 전송을 유발하지 않음을 단언 (`postMessage` 발행 0건).
+   - 음절 조합 완료(`compositionend`) 후 발생하는 정상 Enter(`isComposing: false`, `keyCode: 13`) 입력 시 단어 중복이나 글자 깨짐 없이 정확한 한글 문자열("한글")이 1회 전송되고 입력창이 즉시 비워짐을 실측 검증.
+2. **조합 중 복구 초안 버퍼 파괴 방지:**
+   - 질문 답변 실패로 복구 초안 패널이 열려 있는 상태에서, composer에서 사용자가 한글 조합을 시작(`compositionstart`)하는 즉시 복구 패널의 '복사'(`copy-btn`) 버튼이 비활성화(`disabled = true`)되어 조합 버퍼 파괴를 원천 방지함을 단언.
+   - 한글 조합이 완료(`compositionend`)되면 복사 버튼이 다시 활성화(`disabled = false`)되어 정상적인 초안 복사/이어붙이기가 가능함을 실측 검증.
+3. **미검증 범위 (Unverified Scope):**
+   - macOS(Darwin arm64) 환경에서의 한글 조합/Enter 억제 및 복구 초안 보호는 실측 검증을 완료했습니다. Windows 환경의 MS-IME 및 특정 3rd-party CJK 입력기 환경은 추가 실측이 필요합니다. 모의 테마 캡처는 실제 VS Code IDE 환경에서의 렌더링 검증을 대체하지 않습니다.
 
 
 
