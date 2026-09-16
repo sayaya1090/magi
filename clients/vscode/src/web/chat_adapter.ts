@@ -668,7 +668,16 @@ export function createWebviewInputAdapter(
     say.placeholder = '답변을 입력하세요 (Esc로 취소)…';
     sendBtn.textContent = '답변';
     if (text !== undefined) say.value = text;
-    say.focus();
+    const doc = say ? say.ownerDocument : (typeof document !== 'undefined' ? document : null);
+    const inRecovery = !!(
+      doc &&
+      doc.activeElement &&
+      typeof doc.activeElement.closest === 'function' &&
+      doc.activeElement.closest('#recovery-panel')
+    );
+    if (!inRecovery) {
+      say.focus();
+    }
   }
 
   function applyGeneralModeUI(text?: string): void {
@@ -1198,6 +1207,68 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
 
     if (!doc) return;
 
+    // Pre-refresh capture of active element and selection within recoveryItemsEl (§4.6)
+    let focusedRecoveryId: string | null = null;
+    let focusedAction: 'full' | 'copy' | 'del' | 'append' | 'cancel' | null = null;
+    const activeEl = doc ? (doc.activeElement as HTMLElement | null) : null;
+
+    if (activeEl && (activeEl === recoveryItemsEl || (typeof recoveryItemsEl.contains === 'function' && recoveryItemsEl.contains(activeEl)))) {
+      for (const [id, entry] of renderedItems) {
+        if (entry.root === activeEl || (typeof entry.root.contains === 'function' && entry.root.contains(activeEl))) {
+          focusedRecoveryId = id;
+          if (activeEl === entry.fullBtn || (activeEl.classList && activeEl.classList.contains && activeEl.classList.contains('fulltext-btn'))) {
+            focusedAction = 'full';
+          } else if (activeEl === entry.copyBtn || (activeEl.classList && activeEl.classList.contains && activeEl.classList.contains('copy-btn'))) {
+            focusedAction = 'copy';
+          } else if (activeEl === entry.delBtn || (activeEl.classList && activeEl.classList.contains && activeEl.classList.contains('delete-btn'))) {
+            focusedAction = 'del';
+          } else if (activeEl === entry.appendBtn || (activeEl.classList && activeEl.classList.contains && activeEl.classList.contains('confirm-append-btn'))) {
+            focusedAction = 'append';
+          } else if (activeEl === entry.cancelBtn || (activeEl.classList && activeEl.classList.contains && activeEl.classList.contains('confirm-cancel-btn'))) {
+            focusedAction = 'cancel';
+          }
+          break;
+        }
+      }
+    }
+
+    interface CapturedSelection {
+      recoveryId: string;
+      startOffset: number;
+      endOffset: number;
+    }
+    let capturedSelection: CapturedSelection | null = null;
+
+    const win = doc ? ((doc as any).defaultView || (typeof window !== 'undefined' ? window : null)) : null;
+    const sel = win && typeof win.getSelection === 'function' ? win.getSelection() : null;
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.anchorNode && sel.focusNode) {
+      if (typeof recoveryItemsEl.contains === 'function' && (recoveryItemsEl.contains(sel.anchorNode) || recoveryItemsEl.contains(sel.focusNode))) {
+        for (const [id, entry] of renderedItems) {
+          if (entry.fullPre && typeof entry.root.contains === 'function' && entry.root.contains(sel.anchorNode)) {
+            try {
+              const range = sel.getRangeAt(0);
+              const pre = entry.fullPre;
+              if (typeof doc.createRange === 'function') {
+                const preRange = doc.createRange();
+                preRange.selectNodeContents(pre);
+                preRange.setEnd(range.startContainer, range.startOffset);
+                const start = preRange.toString().length;
+                const len = range.toString().length;
+                capturedSelection = {
+                  recoveryId: id,
+                  startOffset: start,
+                  endOffset: start + len,
+                };
+              }
+            } catch {
+              // Ignore if selection cannot be computed
+            }
+            break;
+          }
+        }
+      }
+    }
+
     if (items.length === 0) {
       for (const entry of renderedItems.values()) {
         entry.root.remove();
@@ -1397,15 +1468,73 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
       }
     }
 
-    // 3. Ensure proper order in DOM
-    const elChildren = (recoveryItemsEl.children || (recoveryItemsEl as any).childNodes || []) as unknown as HTMLElement[];
+    // 3. Ensure proper order in DOM (§4.6)
+    // Use state-preserving DOM move (Element.moveBefore) if available, with safe fallback to insertBefore
+    const canMoveBefore = typeof (recoveryItemsEl as any).moveBefore === 'function';
     for (let i = 0; i < items.length; i++) {
       const entry = renderedItems.get(items[i].recoveryId);
-      if (entry && elChildren[i] !== entry.root) {
-        if (typeof recoveryItemsEl.insertBefore === 'function') {
-          recoveryItemsEl.insertBefore(entry.root, elChildren[i] || null);
+      if (!entry) continue;
+      const elChildren = (recoveryItemsEl.children || (recoveryItemsEl as any).childNodes || []) as unknown as HTMLElement[];
+      if (elChildren[i] !== entry.root) {
+        const refNode = elChildren[i] || null;
+        if (canMoveBefore) {
+          try {
+            (recoveryItemsEl as any).moveBefore(entry.root, refNode);
+          } catch {
+            if (typeof recoveryItemsEl.insertBefore === 'function') {
+              recoveryItemsEl.insertBefore(entry.root, refNode);
+            } else {
+              recoveryItemsEl.append(entry.root);
+            }
+          }
+        } else if (typeof recoveryItemsEl.insertBefore === 'function') {
+          recoveryItemsEl.insertBefore(entry.root, refNode);
         } else {
           recoveryItemsEl.append(entry.root);
+        }
+      }
+    }
+
+    // 4. Restore focus if it was inside a recovery item before refresh (§4.6)
+    if (focusedRecoveryId && focusedAction) {
+      const focusedEntry = renderedItems.get(focusedRecoveryId);
+      if (focusedEntry) {
+        let targetEl: HTMLElement | null = null;
+        if (focusedAction === 'full') targetEl = focusedEntry.fullBtn;
+        else if (focusedAction === 'copy') targetEl = focusedEntry.copyBtn;
+        else if (focusedAction === 'del') targetEl = focusedEntry.delBtn;
+        else if (focusedAction === 'append') targetEl = focusedEntry.appendBtn;
+        else if (focusedAction === 'cancel') targetEl = focusedEntry.cancelBtn;
+
+        if (targetEl && doc.activeElement !== targetEl && typeof targetEl.focus === 'function') {
+          try {
+            targetEl.focus({ preventScroll: true });
+          } catch {
+            targetEl.focus();
+          }
+        }
+      }
+    }
+
+    // 5. Restore text selection if it was inside a recovery item before refresh (§4.6)
+    if (capturedSelection && win && sel && doc) {
+      const selEntry = renderedItems.get(capturedSelection.recoveryId);
+      if (selEntry && selEntry.fullPre && typeof doc.createRange === 'function') {
+        const pre = selEntry.fullPre;
+        const textNode = pre.firstChild || pre;
+        const textLen = textNode.textContent ? textNode.textContent.length : 0;
+        const start = Math.max(0, Math.min(capturedSelection.startOffset, textLen));
+        const end = Math.max(0, Math.min(capturedSelection.endOffset, textLen));
+        if (start <= end && textLen > 0) {
+          try {
+            const newRange = doc.createRange();
+            newRange.setStart(textNode, start);
+            newRange.setEnd(textNode, end);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+          } catch {
+            // Ignore if range could not be applied
+          }
         }
       }
     }

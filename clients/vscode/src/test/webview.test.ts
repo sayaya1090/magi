@@ -2619,6 +2619,10 @@ class RecoveryTestDomNode {
   }
   setSelectionRange() {}
 
+  get firstChild(): RecoveryTestDomNode | null {
+    return this.childNodes[0] || null;
+  }
+
   get children(): RecoveryTestDomNode[] {
     return this.childNodes.filter((c) => c.nodeType !== 3);
   }
@@ -2655,8 +2659,8 @@ class RecoveryTestDomNode {
       }
       this.parentNode = null;
     }
-    if (recoveryTestDoc.activeElement === this) {
-      recoveryTestDoc.activeElement = null;
+    if (recoveryTestDoc.activeElement && (this === recoveryTestDoc.activeElement || this.contains(recoveryTestDoc.activeElement))) {
+      recoveryTestDoc.activeElement = recoveryTestDoc.body;
     }
   }
 
@@ -2694,7 +2698,47 @@ class RecoveryTestDomNode {
   }
 }
 
+class MockRange {
+  startContainer: any = null;
+  startOffset: number = 0;
+  endContainer: any = null;
+  endOffset: number = 0;
+  selectNodeContents(node: any) {
+    this.startContainer = node;
+    this.startOffset = 0;
+    this.endContainer = node;
+    this.endOffset = (node.textContent || '').length;
+  }
+  setStart(node: any, offset: number) {
+    this.startContainer = node;
+    this.startOffset = offset;
+  }
+  setEnd(node: any, offset: number) {
+    this.endContainer = node;
+    this.endOffset = offset;
+  }
+  toString() {
+    const text = this.startContainer?.textContent || '';
+    return text.slice(this.startOffset, this.endOffset);
+  }
+}
+
+let mockSelectionRange: MockRange | null = null;
+const mockSelection = {
+  get rangeCount() { return mockSelectionRange ? 1 : 0; },
+  get isCollapsed() { return !mockSelectionRange || (mockSelectionRange.startContainer === mockSelectionRange.endContainer && mockSelectionRange.startOffset === mockSelectionRange.endOffset); },
+  get anchorNode() { return mockSelectionRange?.startContainer; },
+  get focusNode() { return mockSelectionRange?.endContainer; },
+  getRangeAt(_i: number) { return mockSelectionRange; },
+  removeAllRanges() { mockSelectionRange = null; },
+  addRange(r: MockRange) { mockSelectionRange = r; },
+  toString() { return mockSelectionRange ? mockSelectionRange.toString() : ''; },
+};
+
+const recoveryTestDocBody = new RecoveryTestDomNode('body');
+
 const recoveryTestDoc = {
+  body: recoveryTestDocBody,
   activeElement: null as RecoveryTestDomNode | null,
   createElement(tag: string) {
     return new RecoveryTestDomNode(tag);
@@ -2704,6 +2748,14 @@ const recoveryTestDoc = {
     n.nodeType = 3;
     n._text = text;
     return n;
+  },
+  createRange() {
+    return new MockRange();
+  },
+  defaultView: {
+    getSelection() {
+      return mockSelection;
+    },
   },
 };
 
@@ -2766,7 +2818,7 @@ function createRecoveryHarness() {
     state.switchContext(companionKey, session, {
       activeAsk: { kind: 'question', callId, what } as any,
     });
-    const sub = state.submitReply(callId, text);
+    const sub = state.submitReply(callId, text, false, what);
     if (sub.ok && sub.attemptId !== undefined) {
       state.onReplyResult({
         callId,
@@ -3244,5 +3296,105 @@ test('§4.6.3: 세션 전환 시 복사 확인 즉시 취소 (S1 확인 상자 -
   h.recoveryController.dispose();
   h.inputAdapter.dispose();
 });
+
+test('§4.6: 복구 목록 재정렬 시 활성 단추 포커스 보존 (A 등록 -> B 등록 [B, A] -> A 포커스 -> A 재실패 [A, B] -> 포커스 유지)', () => {
+  const h = createRecoveryHarness();
+  // 1. A 등록, 그 다음 B 등록 -> 순서는 [B, A]
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A', 'errA', 'Item A');
+  h.registerReplyFailure('/workspace', 'session-1', 'qB', 'TEXT_B', 'errB', 'Item B');
+
+  h.recoveryController.open();
+  const itemsBefore = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  assert.equal(itemsBefore.length, 2);
+  // itemsBefore[0] is B, itemsBefore[1] is A
+  assert.equal(itemsBefore[0].querySelector('.recovery-title')?.textContent, 'Item B');
+  assert.equal(itemsBefore[1].querySelector('.recovery-title')?.textContent, 'Item A');
+
+  const itemANode = itemsBefore[1];
+  const copyBtnA = itemANode.querySelector('.copy-btn') as RecoveryTestDomNode;
+  assert.ok(copyBtnA);
+
+  // 2. 아래쪽 A의 복사 버튼에 포커스 설정
+  copyBtnA.focus();
+  assert.equal(recoveryTestDoc.activeElement, copyBtnA, 'copy button of item A is focused');
+
+  // 3. A의 새로운 실패 도착 -> A가 최신이 되면서 순서가 [A, B]로 역전
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A', 'errA_new', 'Item A');
+  h.recoveryController.refresh();
+
+  const itemsAfter = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  assert.equal(itemsAfter.length, 2);
+  // Order must now be [A, B] (§4.6)
+  assert.equal(itemsAfter[0].querySelector('.recovery-title')?.textContent, 'Item A');
+  assert.equal(itemsAfter[1].querySelector('.recovery-title')?.textContent, 'Item B');
+
+  // DOM node instance must be preserved
+  assert.equal(itemsAfter[0], itemANode, 'item A DOM node must be reused across reordering');
+  // Focus must be preserved on item A's copy button even after moving! (§4.6)
+  assert.equal(recoveryTestDoc.activeElement, copyBtnA, 'activeElement must remain on copy button of item A across reordering');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 복구 목록 재정렬 시 전문 텍스트 선택(Selection) 보존', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A_LONG_CONTENT', 'errA', 'Item A');
+  h.registerReplyFailure('/workspace', 'session-1', 'qB', 'TEXT_B_LONG_CONTENT', 'errB', 'Item B');
+
+  h.recoveryController.open();
+  // Items are [B, A]
+  const itemsBefore = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  const itemA = itemsBefore[1];
+  const fullBtnA = itemA.querySelector('.fulltext-btn') as RecoveryTestDomNode;
+  fullBtnA.click(); // Open full text for A
+
+  const preA = itemA.querySelector('.recovery-full-text') as RecoveryTestDomNode;
+  assert.ok(preA);
+
+  // Set mock selection inside preA: range from offset 2 to 7 ('XT_A_')
+  const r = recoveryTestDoc.createRange();
+  r.setStart(preA.firstChild || preA, 2);
+  r.setEnd(preA.firstChild || preA, 7);
+  recoveryTestDoc.defaultView.getSelection().removeAllRanges();
+  recoveryTestDoc.defaultView.getSelection().addRange(r);
+
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), 'XT_A_');
+
+  // Reorder: A fails again -> A becomes top item [A, B]
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A_LONG_CONTENT', 'errA_new', 'Item A');
+  h.recoveryController.refresh();
+
+  // Selection must be preserved across reorder!
+  const selAfter = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(selAfter.rangeCount, 1);
+  assert.equal(selAfter.toString(), 'XT_A_', 'text selection must be preserved across reordering');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: composer 포커스 상태에서 복구 목록 재정렬 시 composer 포커스 불변 (포커스 탈취 방지)', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A', 'errA', 'Item A');
+  h.registerReplyFailure('/workspace', 'session-1', 'qB', 'TEXT_B', 'errB', 'Item B');
+
+  h.recoveryController.open();
+
+  // User is typing in composer (#say)
+  h.elements.say.focus();
+  assert.equal(recoveryTestDoc.activeElement, h.elements.say);
+
+  // Reorder occurs due to incoming failure on A
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A', 'errA_new', 'Item A');
+  h.recoveryController.refresh();
+
+  // Focus must STAY on composer, NOT stolen by recovery list! (§4.6)
+  assert.equal(recoveryTestDoc.activeElement, h.elements.say, 'focus must NOT be stolen from composer on reorder');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
 
 

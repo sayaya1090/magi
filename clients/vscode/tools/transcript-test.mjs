@@ -1193,53 +1193,163 @@ const bundles = [
 
           await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 2');
 
-          // 2. 패널 열기 및 첫번째 항목의 delete-btn에 포커스
+          // 2. 패널 열기: 발생순에 따라 [B, A] (B: 최신 항목 0번, A: 아래쪽 항목 1번)
           await recoveryBtn.click();
           assert.equal(await recoveryPanel.evaluate((el) => el.hidden), false);
 
           const items = page.locator('.recovery-item');
           assert.equal(await items.count(), 2);
+          const itemBText = await items.nth(0).locator('.recovery-preview').textContent();
+          const itemAText = await items.nth(1).locator('.recovery-preview').textContent();
+          assert.ok(itemBText.includes('포커스 두번째 답변'), 'Item B is top item');
+          assert.ok(itemAText.includes('포커스 첫번째 답변'), 'Item A is bottom item');
 
-          // Mark first item DOM node with a property to verify node preservation
-          await page.evaluate(() => {
-            const first = document.querySelector('.recovery-item');
-            if (first) first.__marker_id = 'preserved_node_1';
+          // 아래쪽 항목 A의 DOM 노드에 마커를 붙여 노드 재사용(인스턴스 불변) 검증 준비
+          await items.nth(1).evaluate((el) => {
+            el.__marker_id = 'preserved_node_A';
           });
 
-          // Focus on copy button of first item
-          await page.evaluate(() => {
-            const btn = document.querySelector('.recovery-item .copy-btn');
-            if (btn) btn.focus();
-          });
-          const focusedBefore = await page.evaluate(() => document.activeElement?.className);
-          assert.ok(focusedBefore.includes('copy-btn'));
+          // 전문(full text) 열기 및 텍스트 선택(Selection) 설정
+          await items.nth(1).locator('.fulltext-btn').click();
+          const preA = items.nth(1).locator('.recovery-full-text');
+          assert.ok(await preA.isVisible());
 
-          // 3. Streaming rows arrives for same session -> verify node identity and focus preserved
+          // 3. A 재실패 준비: 질문 1 다시 전송하여 in-flight 상태로 만듦
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             session: 'session-focus',
             companionKey: '/workspace',
-            rows: [{ who: 'agent', label: 'magi', text: 'streamed row 3' }],
+            rows: [{ who: 'agent', label: 'magi', text: 'turn 1 retry' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-focus-1',
+              what: '질문 1 포커스 재시도',
+              options: ['선택 1']
+            }
           }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('포커스 첫번째 답변');
+          await page.locator('#send').click();
+
+          const postedF1Retry = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-1').slice(-1)[0]);
+          assert.ok(postedF1Retry, 'in-flight retry for item A posted');
+
+          // in-flight 상태에서 아래쪽 항목 A(인덱스 1)의 복사 버튼에 포커스 설정 및 pre 텍스트 선택
+          await items.nth(1).locator('.copy-btn').focus();
+          await page.evaluate(() => {
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const preEl = itemAEl?.querySelector('.recovery-full-text');
+            if (preEl) {
+              const textNode = preEl.firstChild || preEl;
+              const range = document.createRange();
+              range.setStart(textNode, 0);
+              range.setEnd(textNode, 3); // '포커스'
+              const sel = window.getSelection();
+              sel.removeAllRanges();
+              sel.addRange(range);
+            }
+          });
+
+          const focusedBeforeReorder = await page.evaluate(() => {
+            const active = document.activeElement;
+            return {
+              className: active?.className || '',
+              parentItemText: active?.closest('.recovery-item')?.querySelector('.recovery-preview')?.textContent || ''
+            };
+          });
+          assert.ok(focusedBeforeReorder.className.includes('copy-btn'));
+          assert.ok(focusedBeforeReorder.parentItemText.includes('포커스 첫번째 답변'));
+          assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '포커스');
+
+          // 4. A 재실패 응답 도착 -> [B, A]에서 [A, B]로 순서 재정렬 (§4.6)
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-focus-1',
+            attemptId: att.attemptId,
+            ok: false,
+            error: 'fail 1 again',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'session-focus',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedF1Retry);
           await page.waitForTimeout(50);
 
-          const marker = await page.evaluate(() => document.querySelector('.recovery-item')?.__marker_id);
-          assert.equal(marker, 'preserved_node_1', 'DOM node instance must be reused across rows updates');
-          const focusedAfter = await page.evaluate(() => document.activeElement?.className);
-          assert.ok(focusedAfter.includes('copy-btn'), 'focus must remain on copy-btn after rows updates');
+          // DOM 순서가 [A, B]로 바뀌었음을 확인
+          const itemsAfterReorder = page.locator('.recovery-item');
+          assert.equal(await itemsAfterReorder.count(), 2);
+          const firstText = await itemsAfterReorder.nth(0).locator('.recovery-preview').textContent();
+          const secondText = await itemsAfterReorder.nth(1).locator('.recovery-preview').textContent();
+          assert.ok(firstText.includes('포커스 첫번째 답변'), 'Item A must now be at index 0');
+          assert.ok(secondText.includes('포커스 두번째 답변'), 'Item B must now be at index 1');
 
-          // 4. Delete item 1 while focused on its delete-btn -> focus moves to item 2's delete-btn
-          await page.evaluate(() => {
-            const del = document.querySelector('.recovery-item .delete-btn');
-            if (del) del.focus();
+          // A의 DOM 노드가 새로 생성되지 않고 기존 인스턴스 그대로 유지됨을 확인
+          const markerAfter = await itemsAfterReorder.nth(0).evaluate((el) => el.__marker_id);
+          assert.equal(markerAfter, 'preserved_node_A', 'Item A DOM node instance must be preserved across reorder');
+
+          // document.activeElement가 여전히 A의 '복사' 버튼을 가리키고 있음을 확인 (body나 상위 컨테이너로 튀지 않음)
+          const focusedAfterReorder = await page.evaluate(() => {
+            const active = document.activeElement;
+            return {
+              tagName: active?.tagName,
+              className: active?.className || '',
+              parentItemText: active?.closest('.recovery-item')?.querySelector('.recovery-preview')?.textContent || ''
+            };
           });
-          await page.locator('.recovery-item').first().locator('.delete-btn').click();
+          assert.equal(focusedAfterReorder.tagName, 'BUTTON');
+          assert.ok(focusedAfterReorder.className.includes('copy-btn'), 'activeElement must remain on copy-btn');
+          assert.ok(focusedAfterReorder.parentItemText.includes('포커스 첫번째 답변'), 'activeElement must remain on item A');
+
+          // 전문(full text) 텍스트 선택 영역이 재정렬 후에도 그대로 유지되는지 검사
+          const selectionAfterReorder = await page.evaluate(() => window.getSelection()?.toString());
+          assert.equal(selectionAfterReorder, '포커스', 'Text selection inside pre must be preserved across reorder');
+
+          // 그 상태에서 Enter 키 입력을 주었을 때 복사(또는 충돌 확인 UI)가 정상 1회 트리거됨을 확인
+          const postedLenBeforeEnter = await page.evaluate(() => window.__posted.length);
+          await page.keyboard.press('Enter');
+          await page.waitForTimeout(50);
+
+          const confirmBoxCount = await page.locator('.recovery-confirm-box').count();
+          const sayVal = await page.locator('#say').inputValue();
+          assert.ok(confirmBoxCount > 0 || sayVal.includes('포커스 첫번째 답변'), 'copy action must be triggered via Enter on focused button');
+
+          // 복구 목록 조작 중 백엔드로 say/reply 전송 0회 유지
+          const postedAfterEnter = await page.evaluate(() => window.__posted);
+          const newTransmissions = postedAfterEnter.slice(postedLenBeforeEnter).filter((m) => m.kind === 'say' || m.kind === 'reply');
+          assert.equal(newTransmissions.length, 0, '0 backend transmissions during recovery copy');
+
+          // 확인 상자가 열렸다면 취소
+          if (confirmBoxCount > 0) {
+            await page.locator('.confirm-cancel-btn').click();
+          }
+
+          // 5. composer(#say)에 포커스가 있는 상태에서 스트리밍 도착 및 인접 항목 삭제 시 포커스 탈취 방지 (§4.6)
+          await page.locator('#say').focus();
+          assert.equal(await page.evaluate(() => document.activeElement?.id), 'say');
+
+          // rows 수신 시 composer 포커스 유지
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'streamed row after reorder' }],
+          }));
+          await page.waitForTimeout(50);
+          assert.equal(await page.evaluate(() => document.activeElement?.id), 'say', 'focus must stay on #say after rows update');
+
+          // 인접 항목 B 삭제 시에도 composer 포커스 유지 (목록으로 탈취되지 않음)
+          await page.evaluate(() => {
+            const items = document.querySelectorAll('.recovery-item');
+            if (items[1]) {
+              const del = items[1].querySelector('.delete-btn');
+              if (del) del.click();
+            }
+          });
           await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
+          assert.equal(await page.evaluate(() => document.activeElement?.id), 'say', 'focus must stay on #say after adjacent item deletion');
 
-          const focusedAfterDel1 = await page.evaluate(() => document.activeElement?.className);
-          assert.ok(focusedAfterDel1.includes('delete-btn'), 'focus must shift to next item delete button');
-
-          // 5. Delete remaining item -> focus returns to #recovery-btn
-          await page.locator('.recovery-item').first().locator('.delete-btn').click();
+          // 6. 삭제 시 포커스 보존: 남은 항목 A의 삭제 버튼에 포커스 후 삭제 시 recovery-btn 복귀
+          await page.locator('.recovery-item .delete-btn').focus();
+          await page.locator('.recovery-item .delete-btn').click();
           await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');
           const focusedAfterAllDel = await page.evaluate(() => document.activeElement?.id);
           assert.equal(focusedAfterAllDel, 'recovery-btn', 'focus must return to #recovery-btn when last item deleted');

@@ -368,6 +368,44 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향 및 `--reverse` 역순 모두 100% 통과 (0 fail).
    - **미검증 범위 (Unverified Scope):** OS 창 레벨 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
 
+---
+
+### §4.6 복구 목록 재정렬 시 포커스·선택 보존 (P2 리뷰 잔여 결함 해결)
+
+1. **복구 목록 DOM 재정렬 시 포커스·선택 손실 원인 및 해결:**
+   - **Chromium 노드 이동 포커스 유실 결함:** Chromium/WebKit 렌더러에서는 `recoveryItemsEl.insertBefore`로 기존 DOM 노드의 순서를 변경할 때, 이동 중인 노드 내부의 `activeElement`가 `document.body`로 즉시 블러(blur)되어 사용자의 키보드 포커스가 날아가는 구조적 결함이 있었습니다.
+   - **사전 캡처 및 복원 파이프라인:**
+     - `refresh()` 시작 시 목록 내부의 활성 요소(`focusedRecoveryId`, `focusedAction`: `full` | `copy` | `del` | `append` | `cancel`)와 전문(full text) 텍스트 드래그 선택 영역(`capturedSelection`: `recoveryId`, `startOffset`, `endOffset`)을 사전에 안전하게 스냅샷합니다.
+     - **상태 보존 DOM 이동 (`moveBefore` 우선):** 최신 웹 표준/Chromium 126+의 `Element.prototype.moveBefore`를 우선 시도하여 노드 탈착 없는 상태 보존 이동을 수행하고, 미지원 브라우저나 예외 발생 시 `insertBefore`로 폴백합니다.
+     - **동기적 포커스 복원 (`preventScroll: true`):** 재정렬 직후 캡처된 대상 단추에 `targetEl.focus({ preventScroll: true })`를 동기 호출하여 스크롤 위치를 고정한 채 포커스를 원래 단추로 즉각 복원합니다.
+     - **선택 영역 복원:** 전문 pre가 열려 있는 경우 `doc.createRange()`로 원본 텍스트 오프셋에 맞게 `Selection`의 범위를 복원합니다.
+     - **composer 포커스 보호 및 탈취 방지:** 활성 포커스가 목록 외부(`recoveryItemsEl` 밖)나 작성창(`#say`)에 있었던 경우 `focusedRecoveryId`가 `null`로 유지되어 composer 포커스를 절대로 빼앗지 않습니다. 또한 `applyAnswerModeUI`에서 사용자가 `#recovery-panel` 내부를 조작 중일 때는 `say.focus()` 호출을 차단하여 복구 목록 조작 중 비동기 응답 도착으로 인한 포커스 강탈을 원천 차단했습니다.
+
+2. **단위 테스트 파이프라인 (`webview.test.ts` 3개 시나리오 추가):**
+   - **시나리오 1 (재정렬 시 활성 단추 포커스 보존):** A 등록 → B 등록 [B, A] 상태에서 아래쪽 항목 A의 복사 버튼 포커스 → A의 새 실패 도착으로 [A, B] 재정렬 발생 시, A의 DOM 노드 인스턴스가 유지되고 `activeElement`가 A의 복사 버튼을 그대로 유지함을 단언.
+   - **시나리오 2 (재정렬 시 전문 텍스트 선택 보존):** 전문 보기 열기 후 pre 텍스트의 부분 범위를 드래그 선택한 상태에서 [B, A] → [A, B] 재정렬이 발생해도 `window.getSelection().toString()` 문자열 선택 범위가 정확히 보존됨을 검증.
+   - **시나리오 3 (composer 포커스 보호):** 사용자가 composer(`#say`)에 포커스를 둔 상태에서 재정렬이 일어나도 포커스가 복구 목록으로 탈취되지 않고 `#say`에 온전히 남아 있음을 단언.
+
+3. **브라우저 하네스 E2E 검증 (`transcript-test.mjs`):**
+   - `asks_recovery_node_focus_and_context_switch` 시나리오 강화:
+     - 복구 목록에 항목 A, B가 등록된 상태(발생순 [B, A])에서 아래쪽 항목 A의 DOM 노드에 `__marker_id = 'preserved_node_A'` 마킹 및 '복사' 버튼에 포커스 설정.
+     - A의 전문 열기 및 `'포커스'` 텍스트 선택.
+     - A의 재실패 도착으로 목록이 [A, B]로 실시간 재정렬될 때:
+       - DOM 순서가 [A, B]로 변경되었음을 실측.
+       - A의 DOM 노드가 새로 생성되지 않고 기존 인스턴스 그대로 유지됨을 단언 (`__marker_id === 'preserved_node_A'`).
+       - `document.activeElement`가 여전히 A의 '복사' 버튼을 가리키고 있음을 확인 (`body`나 상위 컨테이너로 튀지 않음).
+       - 전문(full text) 텍스트 선택 영역 `'포커스'`가 그대로 유지됨을 실측.
+       - 그 상태에서 `page.keyboard.press('Enter')` 키 입력을 주었을 때 복사(또는 충돌 확인 UI)가 정상 1회 트리거됨을 확인.
+       - 복구 목록 조작 중 백엔드로의 `say`/`reply` 전송이 0회임을 단언.
+     - composer(`#say`)에 포커스가 있는 상태에서 스트리밍 rows 수신 및 인접 항목 B 삭제가 발생해도 composer 포커스가 목록으로 빼앗기지 않고 `#say`에 유지됨을 검증.
+     - 남은 항목 A의 삭제 버튼에 포커스 후 삭제 시 `#recovery-btn`으로 포커스 복귀 및 세션 전환 시 확인 상자 즉시 취소 왕복 검증.
+
+4. **검증 통과 현황:**
+   - **단위 테스트 (`npm test`):** 총 455개 테스트 전수 통과 (448 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail).
+   - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
+
 
 
 
