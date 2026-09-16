@@ -2662,6 +2662,9 @@ class RecoveryTestDomNode {
     if (recoveryTestDoc.activeElement && (this === recoveryTestDoc.activeElement || this.contains(recoveryTestDoc.activeElement))) {
       recoveryTestDoc.activeElement = recoveryTestDoc.body;
     }
+    if (mockSelection.anchorNode && (this === mockSelection.anchorNode || this.contains(mockSelection.anchorNode))) {
+      mockSelection.removeAllRanges();
+    }
   }
 
   contains(other: RecoveryTestDomNode | null): boolean {
@@ -2672,6 +2675,26 @@ class RecoveryTestDomNode {
       curr = curr.parentNode;
     }
     return false;
+  }
+
+  get nodeValue(): string {
+    return this.nodeType === 3 ? this._text : '';
+  }
+
+  compareDocumentPosition(other: RecoveryTestDomNode): number {
+    if (this === other) return 0;
+    const all: RecoveryTestDomNode[] = [];
+    const walk = (n: RecoveryTestDomNode) => {
+      all.push(n);
+      for (const c of n.childNodes) walk(c);
+    };
+    let root: RecoveryTestDomNode = this;
+    while (root.parentNode) root = root.parentNode;
+    walk(root);
+    const thisIdx = all.indexOf(this);
+    const otherIdx = all.indexOf(other);
+    if (thisIdx === -1 || otherIdx === -1) return 1;
+    return thisIdx < otherIdx ? 4 : 2;
   }
 
   querySelectorAll<T = RecoveryTestDomNode>(selector: string): T[] {
@@ -2724,14 +2747,50 @@ class MockRange {
 }
 
 let mockSelectionRange: MockRange | null = null;
+let mockAnchorNode: any = null;
+let mockAnchorOffset: number = 0;
+let mockFocusNode: any = null;
+let mockFocusOffset: number = 0;
+
 const mockSelection = {
   get rangeCount() { return mockSelectionRange ? 1 : 0; },
-  get isCollapsed() { return !mockSelectionRange || (mockSelectionRange.startContainer === mockSelectionRange.endContainer && mockSelectionRange.startOffset === mockSelectionRange.endOffset); },
-  get anchorNode() { return mockSelectionRange?.startContainer; },
-  get focusNode() { return mockSelectionRange?.endContainer; },
+  get isCollapsed() {
+    return !mockSelectionRange || (mockAnchorNode === mockFocusNode && mockAnchorOffset === mockFocusOffset);
+  },
+  get anchorNode() { return mockAnchorNode; },
+  get anchorOffset() { return mockAnchorOffset; },
+  get focusNode() { return mockFocusNode; },
+  get focusOffset() { return mockFocusOffset; },
   getRangeAt(_i: number) { return mockSelectionRange; },
-  removeAllRanges() { mockSelectionRange = null; },
-  addRange(r: MockRange) { mockSelectionRange = r; },
+  removeAllRanges() {
+    mockSelectionRange = null;
+    mockAnchorNode = null;
+    mockAnchorOffset = 0;
+    mockFocusNode = null;
+    mockFocusOffset = 0;
+  },
+  addRange(r: MockRange) {
+    mockSelectionRange = r;
+    mockAnchorNode = r.startContainer;
+    mockAnchorOffset = r.startOffset;
+    mockFocusNode = r.endContainer;
+    mockFocusOffset = r.endOffset;
+  },
+  setBaseAndExtent(anchorNode: any, anchorOffset: number, focusNode: any, focusOffset: number) {
+    mockAnchorNode = anchorNode;
+    mockAnchorOffset = anchorOffset;
+    mockFocusNode = focusNode;
+    mockFocusOffset = focusOffset;
+    const r = new MockRange();
+    if (anchorNode === focusNode && anchorOffset > focusOffset) {
+      r.setStart(focusNode, focusOffset);
+      r.setEnd(anchorNode, anchorOffset);
+    } else {
+      r.setStart(anchorNode, anchorOffset);
+      r.setEnd(focusNode, focusOffset);
+    }
+    mockSelectionRange = r;
+  },
   toString() { return mockSelectionRange ? mockSelectionRange.toString() : ''; },
 };
 
@@ -2751,6 +2810,9 @@ const recoveryTestDoc = {
   },
   createRange() {
     return new MockRange();
+  },
+  contains(node: any): boolean {
+    return this.body.contains(node);
   },
   defaultView: {
     getSelection() {
@@ -3392,6 +3454,164 @@ test('§4.6: composer 포커스 상태에서 복구 목록 재정렬 시 compose
   // Focus must STAY on composer, NOT stolen by recovery list! (§4.6)
   assert.equal(recoveryTestDoc.activeElement, h.elements.say, 'focus must NOT be stolen from composer on reorder');
 
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 전문 열린 상태에서 사유(reason) 선택 후 refresh 시 본문으로 변환되지 않고 사유 선택 보존', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'ACTUAL_CONTENT_A', '답변 전송을 확인하지 못함: timeout', 'Item A');
+
+  h.recoveryController.open();
+  const items = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  const itemA = items[0];
+
+  // Open full text
+  const fullBtn = itemA.querySelector('.fulltext-btn') as RecoveryTestDomNode;
+  fullBtn.click();
+  const fullPre = itemA.querySelector('.recovery-full-text') as RecoveryTestDomNode;
+  assert.ok(fullPre, 'full text must be rendered');
+
+  // Select text inside reasonEl ('답변 전송')
+  const reasonEl = itemA.querySelector('.recovery-reason') as RecoveryTestDomNode;
+  assert.ok(reasonEl);
+  const reasonTextNode = reasonEl.firstChild || reasonEl;
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(reasonTextNode, 0, reasonTextNode, 5);
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), '답변 전송');
+  assert.equal(recoveryTestDoc.defaultView.getSelection().anchorNode, reasonTextNode);
+
+  // Call refresh() with no order change
+  h.recoveryController.refresh();
+
+  // Selection must REMAIN on reasonTextNode, NOT transformed into fullPre or 'ACTUA' (§4.6)
+  const selAfter = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(selAfter.toString(), '답변 전송', 'selection must remain on reason, not transformed to full text');
+  assert.equal(selAfter.anchorNode, reasonTextNode, 'anchorNode must still be reasonTextNode');
+  assert.equal(selAfter.focusNode, reasonTextNode, 'focusNode must still be reasonTextNode');
+  assert.equal(selAfter.anchorOffset, 0);
+  assert.equal(selAfter.focusOffset, 5);
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 제목(title) 및 미리보기(preview) 선택 후 refresh 시 선택 보존', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'PREVIEW_AND_FULL_TEXT_SAMPLE', 'err', 'Custom Title');
+
+  h.recoveryController.open();
+  const itemA = h.elements.recoveryItemsEl.querySelector('.recovery-item') as RecoveryTestDomNode;
+
+  // 1. Title selection
+  const titleEl = itemA.querySelector('.recovery-title') as RecoveryTestDomNode;
+  const titleText = titleEl.firstChild || titleEl;
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(titleText, 0, titleText, 6); // 'Custom'
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), 'Custom');
+
+  h.recoveryController.refresh();
+  let sel = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(sel.toString(), 'Custom');
+  assert.equal(sel.anchorNode, titleText);
+
+  // 2. Preview selection
+  const previewEl = itemA.querySelector('.recovery-preview') as RecoveryTestDomNode;
+  const prevText = previewEl.firstChild || previewEl;
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(prevText, 0, prevText, 7); // 'PREVIEW'
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), 'PREVIEW');
+
+  h.recoveryController.refresh();
+  sel = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(sel.toString(), 'PREVIEW');
+  assert.equal(sel.anchorNode, prevText);
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 전문 내부 역방향 선택(backwards selection) 후 재정렬 시 역방향 및 노드·오프셋 보존', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A_LONG_CONTENT', 'errA', 'Item A');
+  h.registerReplyFailure('/workspace', 'session-1', 'qB', 'TEXT_B_LONG_CONTENT', 'errB', 'Item B');
+
+  h.recoveryController.open();
+  const itemsBefore = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  const itemA = itemsBefore[1];
+  itemA.querySelector('.fulltext-btn')?.click(); // Open full text for A
+
+  const preA = itemA.querySelector('.recovery-full-text') as RecoveryTestDomNode;
+  const textNodeA = preA.firstChild || preA;
+
+  // Set backward selection: anchor at 7, focus at 2 ('XT_A_')
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(textNodeA, 7, textNodeA, 2);
+  let sel = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(sel.anchorOffset, 7);
+  assert.equal(sel.focusOffset, 2);
+  assert.equal(sel.toString(), 'XT_A_');
+
+  // Reorder: A fails again -> A becomes top item [A, B]
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'TEXT_A_LONG_CONTENT', 'errA_new', 'Item A');
+  h.recoveryController.refresh();
+
+  // Backward selection direction and offsets must be preserved (§4.6)
+  sel = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(sel.anchorNode, textNodeA);
+  assert.equal(sel.focusNode, textNodeA);
+  assert.equal(sel.anchorOffset, 7, 'anchorOffset must remain 7 (backward start)');
+  assert.equal(sel.focusOffset, 2, 'focusOffset must remain 2 (backward end)');
+  assert.equal(sel.toString(), 'XT_A_');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 선택 항목 삭제 시 옛 오프셋을 새 본문에 clamp하지 않고 선택 해제/무효화', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'ITEM_A_TEXT', 'errA', 'Item A');
+  h.registerReplyFailure('/workspace', 'session-1', 'qB', 'ITEM_B_TEXT', 'errB', 'Item B');
+
+  h.recoveryController.open();
+  const items = h.elements.recoveryItemsEl.querySelectorAll('.recovery-item') as RecoveryTestDomNode[];
+  const itemA = items[0];
+  const titleA = itemA.querySelector('.recovery-title') as RecoveryTestDomNode;
+
+  // Select text in item A
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(titleA.firstChild || titleA, 0, titleA.firstChild || titleA, 4);
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), 'Item');
+
+  // Delete item A
+  itemA.querySelector('.delete-btn')?.click();
+
+  // Selection must not be clamped onto item B's text! It should be removed/cleared (§4.6)
+  const selAfter = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(selAfter.rangeCount, 0, 'selection must be cleared on node deletion');
+
+  h.recoveryController.dispose();
+  h.inputAdapter.dispose();
+});
+
+test('§4.6: 목록 밖 선택은 갱신 과정에서 지우거나 교체하지 않음', () => {
+  const h = createRecoveryHarness();
+  h.registerReplyFailure('/workspace', 'session-1', 'qA', 'ITEM_A_TEXT', 'errA', 'Item A');
+
+  h.recoveryController.open();
+
+  // User selected text in composer (#say) or another outside element
+  const outsideNode = recoveryTestDoc.createElement('span');
+  outsideNode.textContent = 'OUTSIDE_SELECTION_TEXT';
+  recoveryTestDoc.body.appendChild(outsideNode);
+
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(outsideNode.firstChild || outsideNode, 0, outsideNode.firstChild || outsideNode, 7); // 'OUTSIDE'
+  assert.equal(recoveryTestDoc.defaultView.getSelection().toString(), 'OUTSIDE');
+
+  // Refresh recovery list
+  h.recoveryController.refresh();
+
+  // Outside selection must remain untouched! (§4.6)
+  const selAfter = recoveryTestDoc.defaultView.getSelection();
+  assert.equal(selAfter.toString(), 'OUTSIDE', 'outside selection must be untouched across recovery refresh');
+  assert.equal(selAfter.anchorNode, outsideNode.firstChild || outsideNode);
+
+  outsideNode.remove();
   h.recoveryController.dispose();
   h.inputAdapter.dispose();
 });

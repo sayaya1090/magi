@@ -400,10 +400,52 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - composer(`#say`)에 포커스가 있는 상태에서 스트리밍 rows 수신 및 인접 항목 B 삭제가 발생해도 composer 포커스가 목록으로 빼앗기지 않고 `#say`에 유지됨을 검증.
      - 남은 항목 A의 삭제 버튼에 포커스 후 삭제 시 `#recovery-btn`으로 포커스 복귀 및 세션 전환 시 확인 상자 즉시 취소 왕복 검증.
 
-4. **검증 통과 현황:**
+4. **검증 통과 현황 (1차 포커스 보존):**
    - **단위 테스트 (`npm test`):** 총 455개 테스트 전수 통과 (448 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail).
    - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
+---
+
+### §4.6 선택 복원 범위를 실제 선택 노드로 제한 (P2 리뷰 결함 해결)
+
+1. **문제 정의 및 P2 결함 원인:**
+   - `chat_adapter.ts:refresh`에서 전문이 열려 있을 때 선택의 anchor가 항목 root 안에 있으면 전문(`entry.fullPre`) 내부 선택으로 오판하는 결함이 있었습니다.
+   - 선택 경계를 `fullPre`가 아닌 `root.contains`로 검사함에 따라, 전문을 열고 같은 항목의 사유(`reasonEl`), 제목(`titleEl`), 미리보기(`previewEl`) 등을 선택한 뒤 순서 변화 없이 동일한 rows로 refresh만 호출해도 선택이 본문 `fullPre`의 시작 부분으로 강제 변환되었습니다.
+   - 또한 옛 선택 오프셋을 새 본문 길이에 맞추어 무조건 clamp하는 처리가 다른 노드나 삭제된 범위를 유효한 범위인 것처럼 둔갑시키는 원인이었습니다.
+
+2. **해결 내용 및 엄격한 불변식:**
+   - **원래 선택 상태의 완벽한 보관:** 원래 선택의 `anchorNode`, `focusNode`, `anchorOffset`, `focusOffset`, 선택 방향(`isBackwards`), 기대 텍스트(`expectedText`)를 온전히 캡처합니다.
+   - **전문(fullPre) 범위 한정:** Range의 시작(`startContainer`)과 끝(`endContainer`)이 모두 동일한 `entry.fullPre` 내부 텍스트 노드인 경우에만 전문 오프셋 변환을 허용합니다. 사유·제목·미리보기·다른 항목·목록 밖을 걸친 선택은 결코 전문으로 변환하지 않고 원본 노드·오프셋 기반으로 격리합니다.
+   - **불필요한 Selection 재설정 방지:** DOM 이동 전후 선택이 이미 동일한 경우 `removeAllRanges`/`addRange`를 호출하지 않아 불필요한 브라우저 선택 변경 이벤트를 차단합니다.
+   - **클램핑(clamping) 제거 및 브라우저 정상 삭제 동작 준수:** 노드가 문서에 연결되어 있는지(`isConnected`, `doc.contains`, `recoveryItemsEl.contains`), 오프셋이 실제 노드 길이 내인지(`offset <= nodeLen`), 텍스트가 기대 텍스트와 일치하는지 엄격히 검증합니다. 선택한 텍스트가 변경되었거나 노드가 삭제된 경우 clamp하지 않고 복원을 건너뛰어 브라우저의 정상 삭제 동작을 따릅니다.
+   - **목록 밖 선택 보존:** 목록 외부의 선택은 갱신 과정에서 지우거나 교체하지 않고 원본을 보존합니다.
+   - **역방향 선택 및 스크롤 고정:** `Selection.setBaseAndExtent` API를 우선 활용하여 역방향 선택(`anchorOffset > focusOffset`)의 방향성을 완벽히 복원하며, 선택 복원으로 인해 스크롤 위치가 튀지 않도록 보장합니다.
+
+3. **단위 테스트 파이프라인 (`webview.test.ts` 5개 시나리오 추가):**
+   - 전문 열린 상태에서 사유(`reason`) 선택 후 refresh 시 본문으로 변환되지 않고 사유 선택 보존.
+   - 제목(`title`) 및 미리보기(`preview`) 선택 후 refresh 시 선택 보존.
+   - 전문 내부 역방향 선택(backwards selection) 후 재정렬 시 역방향 및 노드·오프셋 보존.
+   - 선택 항목 삭제 시 옛 오프셋을 새 본문에 clamp하지 않고 선택 해제/무효화.
+   - 목록 밖 선택은 갱신 과정에서 지우거나 교체하지 않음.
+
+4. **브라우저 하네스 E2E 검증 (`transcript-test.mjs`):**
+   - `asks_recovery_node_focus_and_context_switch` 시나리오 내 8개 세부 시나리오 전수 검증:
+     - 1) 전문 열린 상태에서 사유(`reasonEl`) 선택 후 동일 rows 갱신 시 `anchorNode`/`focusNode` 및 오프셋, 문자열 보존 실측.
+     - 2) 제목(`titleEl`) 선택 후 동일 rows 갱신 시 선택 보존.
+     - 3) 미리보기(`previewEl`) 선택 후 동일 rows 갱신 시 선택 보존.
+     - 4) 두 항목에 걸친 선택 시 안전 갱신 및 선택 보존.
+     - 5) 목록 밖 선택 불변 보존.
+     - 6) 전문 내부 역방향 선택 후 `moveBefore` 재정렬 시 역방향 및 텍스트 선택 보존 + Enter 키 1회 동작 + 백엔드 0회 전송.
+     - 7) `listEl.moveBefore = undefined` 설정으로 `insertBefore` 폴백 경로를 강제하여 [A, B] -> [B, A] 재정렬 시 포커스/전문 선택 복원 + Space 키 1회 동작 + 백엔드 0회 전송 실측.
+     - 8) composer 포커스 상태에서 선택 항목 삭제 시 selection이 clamp되지 않고 해제/무효화됨 확인 및 마지막 항목 삭제 시 `#recovery-btn` 포커스 복귀.
+
+5. **검증 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공 (contract 복사, TypeScript 컴파일, 웹뷰 번들 생성 완료).
+   - **단위 테스트 (`npm test`):** 총 460개 테스트 전수 통과 (453 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail).
+   - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
 
 
 

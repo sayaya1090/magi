@@ -1209,12 +1209,137 @@ const bundles = [
             el.__marker_id = 'preserved_node_A';
           });
 
-          // 전문(full text) 열기 및 텍스트 선택(Selection) 설정
+          // 전문(full text) 열기
           await items.nth(1).locator('.fulltext-btn').click();
           const preA = items.nth(1).locator('.recovery-full-text');
           assert.ok(await preA.isVisible());
 
-          // 3. A 재실패 준비: 질문 1 다시 전송하여 in-flight 상태로 만듦
+          // 2-1. 전문 열린 상태에서 사유(recovery-reason) 선택 후 동일 rows 갱신 시 사유 선택 보존 (§4.6 Item 4)
+          await page.evaluate(() => {
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const reasonEl = itemAEl?.querySelector('.recovery-reason');
+            const tn = reasonEl?.firstChild || reasonEl;
+            window.getSelection().setBaseAndExtent(tn, 0, tn, 5);
+          });
+          assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '답변 전송');
+
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'rows update for reason selection' }],
+          }));
+          await page.waitForTimeout(50);
+
+          const reasonCheck = await page.evaluate(() => {
+            const sel = window.getSelection();
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const reasonEl = itemAEl?.querySelector('.recovery-reason');
+            const tn = reasonEl?.firstChild || reasonEl;
+            return {
+              text: sel.toString(),
+              anchorMatches: sel.anchorNode === tn,
+              focusMatches: sel.focusNode === tn,
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+            };
+          });
+          assert.equal(reasonCheck.text, '답변 전송', 'selection must remain on reason text, not converted to full text');
+          assert.equal(reasonCheck.anchorMatches, true, 'anchorNode must still be reasonEl text node');
+          assert.equal(reasonCheck.focusMatches, true, 'focusNode must still be reasonEl text node');
+          assert.equal(reasonCheck.anchorOffset, 0);
+          assert.equal(reasonCheck.focusOffset, 5);
+
+          // 2-2. 제목(recovery-title) 선택 후 rows 갱신 시 선택 보존 (§4.6 Item 4)
+          await page.evaluate(() => {
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const titleEl = itemAEl?.querySelector('.recovery-title');
+            const tn = titleEl?.firstChild || titleEl;
+            window.getSelection().setBaseAndExtent(tn, 0, tn, 4);
+          });
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'rows update for title selection' }],
+          }));
+          await page.waitForTimeout(50);
+          const titleCheck = await page.evaluate(() => {
+            const sel = window.getSelection();
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const titleEl = itemAEl?.querySelector('.recovery-title');
+            const tn = titleEl?.firstChild || titleEl;
+            return {
+              anchorMatches: sel.anchorNode === tn,
+              focusMatches: sel.focusNode === tn,
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+            };
+          });
+          assert.equal(titleCheck.anchorMatches, true, 'anchorNode must still be titleEl text node');
+          assert.equal(titleCheck.focusMatches, true, 'focusNode must still be titleEl text node');
+          assert.equal(titleCheck.anchorOffset, 0);
+          assert.equal(titleCheck.focusOffset, 4);
+
+          // 2-3. 미리보기(recovery-preview) 선택 후 rows 갱신 시 선택 보존 (§4.6 Item 4)
+          await page.evaluate(() => {
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const prevEl = itemAEl?.querySelector('.recovery-preview');
+            const tn = prevEl?.firstChild || prevEl;
+            window.getSelection().setBaseAndExtent(tn, 0, tn, 4);
+          });
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'rows update for preview selection' }],
+          }));
+          await page.waitForTimeout(50);
+          const prevCheck = await page.evaluate(() => {
+            const sel = window.getSelection();
+            const itemAEl = document.querySelectorAll('.recovery-item')[1];
+            const prevEl = itemAEl?.querySelector('.recovery-preview');
+            const tn = prevEl?.firstChild || prevEl;
+            return {
+              anchorMatches: sel.anchorNode === tn,
+              focusMatches: sel.focusNode === tn,
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+            };
+          });
+          assert.equal(prevCheck.anchorMatches, true, 'anchorNode must still be previewEl text node');
+          assert.equal(prevCheck.focusMatches, true, 'focusNode must still be previewEl text node');
+          assert.equal(prevCheck.anchorOffset, 0);
+          assert.equal(prevCheck.focusOffset, 4);
+
+          // 2-4. 두 항목에 걸친 선택 시 안전 갱신 (§4.6 Item 4)
+          await page.evaluate(() => {
+            const items = document.querySelectorAll('.recovery-item');
+            const tnB = items[0].querySelector('.recovery-title')?.firstChild || items[0];
+            const tnA = items[1].querySelector('.recovery-title')?.firstChild || items[1];
+            window.getSelection().setBaseAndExtent(tnB, 0, tnA, 2);
+          });
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'rows update cross item' }],
+          }));
+          await page.waitForTimeout(50);
+
+          // 2-5. 목록 밖 선택은 갱신 과정에서 지우거나 교체하지 않음 (§4.6 Item 4)
+          await page.evaluate(() => {
+            const row = document.querySelector('.row-agent');
+            const tn = row?.firstChild || row;
+            window.getSelection().setBaseAndExtent(tn, 0, tn, 5);
+          });
+          const outsideTextBefore = await page.evaluate(() => window.getSelection()?.toString());
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'rows update outside selection' }],
+          }));
+          await page.waitForTimeout(50);
+          const outsideTextAfter = await page.evaluate(() => window.getSelection()?.toString());
+          assert.equal(outsideTextAfter, outsideTextBefore, 'outside selection must remain untouched across refresh');
+
+          // 3. 전문 내부 역방향 선택(backwards selection) 및 moveBefore 재정렬 검증 (§4.6 Item 4, 5)
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             session: 'session-focus',
             companionKey: '/workspace',
@@ -1234,34 +1359,35 @@ const bundles = [
           const postedF1Retry = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-1').slice(-1)[0]);
           assert.ok(postedF1Retry, 'in-flight retry for item A posted');
 
-          // in-flight 상태에서 아래쪽 항목 A(인덱스 1)의 복사 버튼에 포커스 설정 및 pre 텍스트 선택
+          // in-flight 상태에서 아래쪽 항목 A(인덱스 1)의 복사 버튼에 포커스 설정 및 pre 내부 역방향 선택 설정 (anchor: 3, focus: 0 -> '포커스')
           await items.nth(1).locator('.copy-btn').focus();
           await page.evaluate(() => {
             const itemAEl = document.querySelectorAll('.recovery-item')[1];
             const preEl = itemAEl?.querySelector('.recovery-full-text');
             if (preEl) {
               const textNode = preEl.firstChild || preEl;
-              const range = document.createRange();
-              range.setStart(textNode, 0);
-              range.setEnd(textNode, 3); // '포커스'
-              const sel = window.getSelection();
-              sel.removeAllRanges();
-              sel.addRange(range);
+              window.getSelection().setBaseAndExtent(textNode, 3, textNode, 0);
             }
           });
 
-          const focusedBeforeReorder = await page.evaluate(() => {
+          const backwardBeforeReorder = await page.evaluate(() => {
+            const sel = window.getSelection();
             const active = document.activeElement;
             return {
               className: active?.className || '',
-              parentItemText: active?.closest('.recovery-item')?.querySelector('.recovery-preview')?.textContent || ''
+              parentItemText: active?.closest('.recovery-item')?.querySelector('.recovery-preview')?.textContent || '',
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+              text: sel.toString(),
             };
           });
-          assert.ok(focusedBeforeReorder.className.includes('copy-btn'));
-          assert.ok(focusedBeforeReorder.parentItemText.includes('포커스 첫번째 답변'));
-          assert.equal(await page.evaluate(() => window.getSelection()?.toString()), '포커스');
+          assert.ok(backwardBeforeReorder.className.includes('copy-btn'));
+          assert.ok(backwardBeforeReorder.parentItemText.includes('포커스 첫번째 답변'));
+          assert.equal(backwardBeforeReorder.anchorOffset, 3);
+          assert.equal(backwardBeforeReorder.focusOffset, 0);
+          assert.equal(backwardBeforeReorder.text, '포커스');
 
-          // 4. A 재실패 응답 도착 -> [B, A]에서 [A, B]로 순서 재정렬 (§4.6)
+          // 4. A 재실패 응답 도착 -> [B, A]에서 [A, B]로 순서 재정렬 (moveBefore 경로)
           await page.evaluate((att) => window.postMessage({
             kind: 'replyResult',
             callId: 'q-focus-1',
@@ -1300,11 +1426,27 @@ const bundles = [
           assert.ok(focusedAfterReorder.className.includes('copy-btn'), 'activeElement must remain on copy-btn');
           assert.ok(focusedAfterReorder.parentItemText.includes('포커스 첫번째 답변'), 'activeElement must remain on item A');
 
-          // 전문(full text) 텍스트 선택 영역이 재정렬 후에도 그대로 유지되는지 검사
-          const selectionAfterReorder = await page.evaluate(() => window.getSelection()?.toString());
-          assert.equal(selectionAfterReorder, '포커스', 'Text selection inside pre must be preserved across reorder');
+          // 전문(full text) 역방향 텍스트 선택이 재정렬 후에도 방향 및 오프셋 유지 검사 (§4.6 Item 4)
+          const backwardAfterReorder = await page.evaluate(() => {
+            const sel = window.getSelection();
+            const itemAEl = document.querySelectorAll('.recovery-item')[0];
+            const preEl = itemAEl?.querySelector('.recovery-full-text');
+            const tn = preEl?.firstChild || preEl;
+            return {
+              anchorMatches: sel.anchorNode === tn,
+              focusMatches: sel.focusNode === tn,
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+              text: sel.toString(),
+            };
+          });
+          assert.equal(backwardAfterReorder.anchorMatches, true, 'anchorNode preserved in backward selection');
+          assert.equal(backwardAfterReorder.focusMatches, true, 'focusNode preserved in backward selection');
+          assert.equal(backwardAfterReorder.anchorOffset, 3, 'anchorOffset must remain 3 (backward start)');
+          assert.equal(backwardAfterReorder.focusOffset, 0, 'focusOffset must remain 0 (backward end)');
+          assert.equal(backwardAfterReorder.text, '포커스');
 
-          // 그 상태에서 Enter 키 입력을 주었을 때 복사(또는 충돌 확인 UI)가 정상 1회 트리거됨을 확인
+          // Enter 키 입력 시 복사/확인 정상 1회 트리거 및 0회 say/reply 전송 확인
           const postedLenBeforeEnter = await page.evaluate(() => window.__posted.length);
           await page.keyboard.press('Enter');
           await page.waitForTimeout(50);
@@ -1313,17 +1455,139 @@ const bundles = [
           const sayVal = await page.locator('#say').inputValue();
           assert.ok(confirmBoxCount > 0 || sayVal.includes('포커스 첫번째 답변'), 'copy action must be triggered via Enter on focused button');
 
-          // 복구 목록 조작 중 백엔드로 say/reply 전송 0회 유지
           const postedAfterEnter = await page.evaluate(() => window.__posted);
           const newTransmissions = postedAfterEnter.slice(postedLenBeforeEnter).filter((m) => m.kind === 'say' || m.kind === 'reply');
           assert.equal(newTransmissions.length, 0, '0 backend transmissions during recovery copy');
 
-          // 확인 상자가 열렸다면 취소
           if (confirmBoxCount > 0) {
             await page.locator('.confirm-cancel-btn').click();
           }
 
-          // 5. composer(#say)에 포커스가 있는 상태에서 스트리밍 도착 및 인접 항목 삭제 시 포커스 탈취 방지 (§4.6)
+          // 5. moveBefore 비활성화 환경 (insertBefore 폴백 경로) 검증 (§4.6 Item 5)
+          await page.evaluate(() => {
+            const listEl = document.getElementById('recovery-items');
+            if (listEl) {
+              listEl.__saved_moveBefore = listEl.moveBefore;
+              listEl.moveBefore = undefined; // Force insertBefore fallback path
+            }
+          });
+
+          // 이제 항목 B의 재실패로 [A, B]에서 다시 [B, A]로 재정렬 발생
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'session-focus',
+            companionKey: '/workspace',
+            rows: [{ who: 'agent', label: 'magi', text: 'turn 2 retry' }],
+            ask: {
+              kind: 'question',
+              callId: 'q-focus-2',
+              what: '질문 2 포커스 재시도',
+              options: ['선택 2']
+            }
+          }));
+          await page.waitForSelector('#ask-controls button:text("직접 입력")');
+          await page.locator('#ask-controls button:text("직접 입력")').click();
+          await page.locator('#say').fill('포커스 두번째 답변');
+          await page.locator('#send').click();
+
+          const postedF2Retry = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-focus-2').slice(-1)[0]);
+          assert.ok(postedF2Retry);
+
+          // 현재 [A, B]에서 아래쪽 항목 B(인덱스 1)의 복사 버튼 포커스 및 전문 열기/선택
+          await itemsAfterReorder.nth(1).locator('.fulltext-btn').click();
+          await itemsAfterReorder.nth(1).locator('.copy-btn').focus();
+          await page.evaluate(() => {
+            const itemBEl = document.querySelectorAll('.recovery-item')[1];
+            const preEl = itemBEl?.querySelector('.recovery-full-text');
+            if (preEl) {
+              const tn = preEl.firstChild || preEl;
+              window.getSelection().setBaseAndExtent(tn, 0, tn, 3); // '포커스'
+            }
+          });
+
+          // B 재실패 도착 -> insertBefore 폴백을 통해 [A, B]에서 [B, A]로 재정렬
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-focus-2',
+            attemptId: att.attemptId,
+            ok: false,
+            error: 'fail 2 again fallback',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'session-focus',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedF2Retry);
+          await page.waitForTimeout(50);
+
+          // insertBefore 폴백 경로에서도 DOM 순서가 [B, A]로 변경되었음을 확인
+          const itemsFallback = page.locator('.recovery-item');
+          assert.equal(await itemsFallback.count(), 2);
+          const fbFirstText = await itemsFallback.nth(0).locator('.recovery-preview').textContent();
+          const fbSecondText = await itemsFallback.nth(1).locator('.recovery-preview').textContent();
+          assert.ok(fbFirstText.includes('포커스 두번째 답변'), 'Item B is now at index 0 via insertBefore fallback');
+          assert.ok(fbSecondText.includes('포커스 첫번째 답변'), 'Item A is now at index 1 via insertBefore fallback');
+
+          // insertBefore 폴백에서도 document.activeElement가 B의 복사 버튼으로 동기 복원됨을 확인
+          const activeFallback = await page.evaluate(() => {
+            const active = document.activeElement;
+            return {
+              tagName: active?.tagName,
+              className: active?.className || '',
+              parentItemText: active?.closest('.recovery-item')?.querySelector('.recovery-preview')?.textContent || ''
+            };
+          });
+          assert.equal(activeFallback.tagName, 'BUTTON');
+          assert.ok(activeFallback.className.includes('copy-btn'), 'activeElement must remain on copy-btn via fallback');
+          assert.ok(activeFallback.parentItemText.includes('포커스 두번째 답변'), 'activeElement must remain on item B via fallback');
+
+          // insertBefore 폴백에서도 전문 텍스트 선택이 동기 복원됨을 확인
+          const selFallback = await page.evaluate(() => {
+            const sel = window.getSelection();
+            const itemBEl = document.querySelectorAll('.recovery-item')[0];
+            const preEl = itemBEl?.querySelector('.recovery-full-text');
+            const tn = preEl?.firstChild || preEl;
+            return {
+              anchorMatches: sel.anchorNode === tn,
+              focusMatches: sel.focusNode === tn,
+              anchorOffset: sel.anchorOffset,
+              focusOffset: sel.focusOffset,
+              text: sel.toString(),
+            };
+          });
+          assert.equal(selFallback.anchorMatches, true, 'anchorNode restored via fallback');
+          assert.equal(selFallback.focusMatches, true, 'focusNode restored via fallback');
+          assert.equal(selFallback.anchorOffset, 0);
+          assert.equal(selFallback.focusOffset, 3);
+          assert.equal(selFallback.text, '포커스');
+
+          // Space 키 입력 시 복사/확인 정상 1회 트리거 및 0회 전송 확인
+          const postedLenBeforeSpace = await page.evaluate(() => window.__posted.length);
+          await page.keyboard.press('Space');
+          await page.waitForTimeout(50);
+
+          const confirmBoxFbCount = await page.locator('.recovery-confirm-box').count();
+          const sayValFb = await page.locator('#say').inputValue();
+          assert.ok(confirmBoxFbCount > 0 || sayValFb.includes('포커스 두번째 답변'), 'copy action must be triggered via Space on focused button');
+
+          const postedAfterSpace = await page.evaluate(() => window.__posted);
+          const spaceTransmissions = postedAfterSpace.slice(postedLenBeforeSpace).filter((m) => m.kind === 'say' || m.kind === 'reply');
+          assert.equal(spaceTransmissions.length, 0, '0 backend transmissions during recovery copy via Space');
+
+          if (confirmBoxFbCount > 0) {
+            await page.locator('.confirm-cancel-btn').click();
+          }
+
+          // moveBefore 복구
+          await page.evaluate(() => {
+            const listEl = document.getElementById('recovery-items');
+            if (listEl && listEl.__saved_moveBefore !== undefined) {
+              listEl.moveBefore = listEl.__saved_moveBefore;
+              delete listEl.__saved_moveBefore;
+            } else if (listEl) {
+              delete listEl.moveBefore;
+            }
+          });
+
+          // 6. composer(#say) 포커스 보호 및 선택 항목 삭제 시 정상 삭제 동작 검증 (§4.6 Item 3, 4)
           await page.locator('#say').focus();
           assert.equal(await page.evaluate(() => document.activeElement?.id), 'say');
 
@@ -1331,12 +1595,21 @@ const bundles = [
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             session: 'session-focus',
             companionKey: '/workspace',
-            rows: [{ who: 'agent', label: 'magi', text: 'streamed row after reorder' }],
+            rows: [{ who: 'agent', label: 'magi', text: 'streamed row after fallback' }],
           }));
           await page.waitForTimeout(50);
           assert.equal(await page.evaluate(() => document.activeElement?.id), 'say', 'focus must stay on #say after rows update');
 
-          // 인접 항목 B 삭제 시에도 composer 포커스 유지 (목록으로 탈취되지 않음)
+          // 인접 항목 A(인덱스 1)의 제목 텍스트 선택 후 삭제 -> 선택 해제/무효화 및 composer 포커스 유지
+          await page.evaluate(() => {
+            const items = document.querySelectorAll('.recovery-item');
+            if (items[1]) {
+              const tn = items[1].querySelector('.recovery-title')?.firstChild || items[1];
+              window.getSelection().setBaseAndExtent(tn, 0, tn, 4);
+            }
+          });
+          assert.ok((await page.evaluate(() => window.getSelection()?.toString().length)) > 0);
+
           await page.evaluate(() => {
             const items = document.querySelectorAll('.recovery-item');
             if (items[1]) {
@@ -1347,7 +1620,18 @@ const bundles = [
           await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 1');
           assert.equal(await page.evaluate(() => document.activeElement?.id), 'say', 'focus must stay on #say after adjacent item deletion');
 
-          // 6. 삭제 시 포커스 보존: 남은 항목 A의 삭제 버튼에 포커스 후 삭제 시 recovery-btn 복귀
+          // 선택 항목이 삭제되었으므로 옛 오프셋이 남아 있는 항목 B에 clamp되어 재지정되지 않음 확인 (§4.6 Item 3, 4)
+          const selAfterItemDeleted = await page.evaluate(() => {
+            const sel = window.getSelection();
+            return {
+              isCollapsed: sel.isCollapsed,
+              rangeCount: sel.rangeCount,
+              text: sel.toString(),
+            };
+          });
+          assert.ok(selAfterItemDeleted.isCollapsed || selAfterItemDeleted.rangeCount === 0 || selAfterItemDeleted.text === '', 'selection must not be clamped onto surviving item');
+
+          // 7. 남은 항목 B의 삭제 버튼에 포커스 후 삭제 시 recovery-btn 복귀
           await page.locator('.recovery-item .delete-btn').focus();
           await page.locator('.recovery-item .delete-btn').click();
           await page.waitForFunction(() => document.getElementById('recovery-btn').textContent === '복구 초안 0');

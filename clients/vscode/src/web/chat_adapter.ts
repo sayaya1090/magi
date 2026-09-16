@@ -1233,39 +1233,47 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
     }
 
     interface CapturedSelection {
-      recoveryId: string;
-      startOffset: number;
-      endOffset: number;
+      anchorNode: Node;
+      anchorOffset: number;
+      focusNode: Node;
+      focusOffset: number;
+      isBackwards: boolean;
+      expectedText: string;
     }
     let capturedSelection: CapturedSelection | null = null;
 
     const win = doc ? ((doc as any).defaultView || (typeof window !== 'undefined' ? window : null)) : null;
     const sel = win && typeof win.getSelection === 'function' ? win.getSelection() : null;
     if (sel && sel.rangeCount > 0 && !sel.isCollapsed && sel.anchorNode && sel.focusNode) {
-      if (typeof recoveryItemsEl.contains === 'function' && (recoveryItemsEl.contains(sel.anchorNode) || recoveryItemsEl.contains(sel.focusNode))) {
-        for (const [id, entry] of renderedItems) {
-          if (entry.fullPre && typeof entry.root.contains === 'function' && entry.root.contains(sel.anchorNode)) {
-            try {
-              const range = sel.getRangeAt(0);
-              const pre = entry.fullPre;
-              if (typeof doc.createRange === 'function') {
-                const preRange = doc.createRange();
-                preRange.selectNodeContents(pre);
-                preRange.setEnd(range.startContainer, range.startOffset);
-                const start = preRange.toString().length;
-                const len = range.toString().length;
-                capturedSelection = {
-                  recoveryId: id,
-                  startOffset: start,
-                  endOffset: start + len,
-                };
-              }
-            } catch {
-              // Ignore if selection cannot be computed
+      const anchorNode = sel.anchorNode;
+      const focusNode = sel.focusNode;
+      const anchorInRecovery = typeof recoveryItemsEl.contains === 'function' && recoveryItemsEl.contains(anchorNode);
+      const focusInRecovery = typeof recoveryItemsEl.contains === 'function' && recoveryItemsEl.contains(focusNode);
+
+      // Only capture if selection involves recoveryItemsEl. Outside selections are untouched (§4.6)
+      if (anchorInRecovery || focusInRecovery) {
+        let isBackwards = false;
+        try {
+          if (anchorNode === focusNode) {
+            isBackwards = sel.anchorOffset > sel.focusOffset;
+          } else if (typeof anchorNode.compareDocumentPosition === 'function') {
+            const pos = anchorNode.compareDocumentPosition(focusNode);
+            if (pos & Node.DOCUMENT_POSITION_PRECEDING) {
+              isBackwards = true;
             }
-            break;
           }
+        } catch {
+          isBackwards = false;
         }
+
+        capturedSelection = {
+          anchorNode,
+          anchorOffset: sel.anchorOffset,
+          focusNode,
+          focusOffset: sel.focusOffset,
+          isBackwards,
+          expectedText: sel.toString(),
+        };
       }
     }
 
@@ -1518,22 +1526,85 @@ export function createWebviewRecoveryController(options: RecoveryControllerOptio
 
     // 5. Restore text selection if it was inside a recovery item before refresh (§4.6)
     if (capturedSelection && win && sel && doc) {
-      const selEntry = renderedItems.get(capturedSelection.recoveryId);
-      if (selEntry && selEntry.fullPre && typeof doc.createRange === 'function') {
-        const pre = selEntry.fullPre;
-        const textNode = pre.firstChild || pre;
-        const textLen = textNode.textContent ? textNode.textContent.length : 0;
-        const start = Math.max(0, Math.min(capturedSelection.startOffset, textLen));
-        const end = Math.max(0, Math.min(capturedSelection.endOffset, textLen));
-        if (start <= end && textLen > 0) {
-          try {
-            const newRange = doc.createRange();
-            newRange.setStart(textNode, start);
-            newRange.setEnd(textNode, end);
-            sel.removeAllRanges();
-            sel.addRange(newRange);
-          } catch {
-            // Ignore if range could not be applied
+      // 2. DOM 이동 전후 선택이 이미 같으면 removeAllRanges/addRange를 호출하지 않습니다 (§4.6)
+      let alreadyIdentical = false;
+      try {
+        if (
+          sel.rangeCount > 0 &&
+          sel.anchorNode === capturedSelection.anchorNode &&
+          sel.anchorOffset === capturedSelection.anchorOffset &&
+          sel.focusNode === capturedSelection.focusNode &&
+          sel.focusOffset === capturedSelection.focusOffset
+        ) {
+          alreadyIdentical = true;
+        }
+      } catch {
+        alreadyIdentical = false;
+      }
+
+      if (!alreadyIdentical) {
+        // 변한 경우에만 원래 살아 있는 노드·오프셋으로 복원합니다 (§4.6)
+        const { anchorNode, anchorOffset, focusNode, focusOffset, isBackwards, expectedText } = capturedSelection;
+
+        const docHasNode = (node: Node | null): boolean => {
+          if (!node) return false;
+          if (typeof (node as any).isConnected === 'boolean' && !(node as any).isConnected) return false;
+          if (typeof doc.contains === 'function' && doc.contains(node)) return true;
+          if (doc.body && typeof doc.body.contains === 'function' && doc.body.contains(node)) return true;
+          if (typeof recoveryItemsEl.contains === 'function' && recoveryItemsEl.contains(node)) return true;
+          return false;
+        };
+
+        // 3. 노드가 삭제됐다면 무효 범위를 적용하지 않고 브라우저의 정상 삭제 동작을 따름 (§4.6)
+        if (docHasNode(anchorNode) && docHasNode(focusNode)) {
+          const anchorLen = anchorNode.nodeType === 3
+            ? (anchorNode.nodeValue ? anchorNode.nodeValue.length : 0)
+            : anchorNode.childNodes.length;
+          const focusLen = focusNode.nodeType === 3
+            ? (focusNode.nodeValue ? focusNode.nodeValue.length : 0)
+            : focusNode.childNodes.length;
+
+          // 3. 옛 오프셋을 새 본문에 clamp해 적용하지 않음 (범위 초과 시 미적용) (§4.6)
+          if (anchorOffset <= anchorLen && focusOffset <= focusLen) {
+            let textMatches = true;
+            try {
+              if (typeof doc.createRange === 'function') {
+                const testRange = doc.createRange();
+                if (isBackwards) {
+                  testRange.setStart(focusNode, focusOffset);
+                  testRange.setEnd(anchorNode, anchorOffset);
+                } else {
+                  testRange.setStart(anchorNode, anchorOffset);
+                  testRange.setEnd(focusNode, focusOffset);
+                }
+                if (testRange.toString() !== expectedText) {
+                  textMatches = false;
+                }
+              }
+            } catch {
+              textMatches = false;
+            }
+
+            if (textMatches) {
+              try {
+                if (typeof sel.setBaseAndExtent === 'function') {
+                  sel.setBaseAndExtent(anchorNode, anchorOffset, focusNode, focusOffset);
+                } else if (typeof doc.createRange === 'function') {
+                  const restoreRange = doc.createRange();
+                  if (isBackwards) {
+                    restoreRange.setStart(focusNode, focusOffset);
+                    restoreRange.setEnd(anchorNode, anchorOffset);
+                  } else {
+                    restoreRange.setStart(anchorNode, anchorOffset);
+                    restoreRange.setEnd(focusNode, focusOffset);
+                  }
+                  sel.removeAllRanges();
+                  sel.addRange(restoreRange);
+                }
+              } catch {
+                // Ignore if selection could not be applied
+              }
+            }
           }
         }
       }
