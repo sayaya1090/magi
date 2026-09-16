@@ -1291,21 +1291,22 @@ test('§5.8.3 Host-to-Webview: Strict 100% deepStrictEqual parity against legacy
     { kind: 'note', text: '' },
     { kind: 'note', text: 123 },
     { kind: 'note', text: null },
+
+    // 12. Arrays with named properties vs empty/invalid arrays (§5.8.3 boundary equivalence)
+    Object.assign([], { kind: 'note', text: 'ready' }),
+    { kind: 'rows', session: 's', refs: [], rows: [Object.assign([], { who: 'agent', label: 'magi', text: 'answer' })] },
+    Object.assign([], { kind: 'state', state: { state: 'idle' }, note: Object.assign([], { text: 'ready', offerStart: false }) }),
+    Object.assign([], { kind: 'state', state: Object.assign([], { state: 'idle' }), note: { text: 'ready', offerStart: true } }),
+    [],
+    [1, 2, 3],
+    Object.assign([], { kind: 'rows', session: 123 }),
+    Object.assign([], { kind: 'note' }), // missing text
   ];
 
   for (let i = 0; i < parityCases.length; i++) {
     const raw = parityCases[i];
     const valibotRes = parseHostToWebviewMessage(raw);
     const legacyRes = legacyParseHostToWebviewMessage(raw);
-
-    // Special check for NaN in mentions/suggestion reqId
-    if (valibotRes && legacyRes && (valibotRes.kind === 'mentions' || valibotRes.kind === 'suggestion')) {
-      if (typeof valibotRes.reqId === 'number' && Number.isNaN(valibotRes.reqId)) {
-        assert.equal(typeof (legacyRes as any).reqId, 'number');
-        assert.ok(Number.isNaN((legacyRes as any).reqId));
-        continue;
-      }
-    }
 
     assert.deepStrictEqual(
       valibotRes,
@@ -1374,31 +1375,66 @@ test('§5.8.3 Host-to-Webview: Strict object identity preservation for rows elem
 
     // 3. Top-level unknown keys stripped in parsed result
     assert.equal('extraTopLevelIgnored' in parsed, false, 'Top-level unlisted properties must be stripped');
+
+    // 4. Array row element reference and attached properties preservation (§5.8.3)
+    const arrayRow = Object.assign([], { who: 'agent', label: 'magi', text: 'array row', extraMeta: 42 });
+    const rawWithArrayRow = {
+      kind: 'rows',
+      session: 's',
+      rows: [arrayRow],
+      refs: [],
+    };
+    const parsedArrayRow = parseHostToWebviewMessage(rawWithArrayRow);
+    assert.ok(parsedArrayRow && parsedArrayRow.kind === 'rows');
+    assert.strictEqual(parsedArrayRow.rows[0], arrayRow, 'Array row element reference must be strictly identical');
+    assert.equal((parsedArrayRow.rows[0] as any).extraMeta, 42);
   }
 });
 
-test('§5.8.3 Host-to-Webview: In-flight question, draft, DOM, and answer mode resiliency against malformed host messages via dispatchHostMessage', () => {
+test('§5.8.3 Host-to-Webview: Malformed host payloads rejected by parser and handlers not invoked via dispatchHostMessage', () => {
   let rowsCalled = 0;
+  let composeCalled = 0;
+  let mentionsCalled = 0;
+  let suggestionCalled = 0;
+  let sessionCreatedCalled = 0;
+  let sessionCreationFailedCalled = 0;
   let replyResultCalled = 0;
+  let stateCalled = 0;
+  let infoCalled = 0;
+  let noteCalled = 0;
 
   const handlers = {
-    onRows() {
-      rowsCalled++;
-    },
-    onReplyResult() {
-      replyResultCalled++;
-    },
+    onRows() { rowsCalled++; },
+    onCompose() { composeCalled++; },
+    onMentions() { mentionsCalled++; },
+    onSuggestion() { suggestionCalled++; },
+    onSessionCreated() { sessionCreatedCalled++; },
+    onSessionCreationFailed() { sessionCreationFailedCalled++; },
+    onReplyResult() { replyResultCalled++; },
+    onState() { stateCalled++; },
+    onInfo() { infoCalled++; },
+    onNote() { noteCalled++; },
   };
 
-  // 1. Dispatching malformed payloads returns false and does not invoke handlers
+  // 1. Dispatching malformed payloads returns false and does not invoke any handlers
   const malformedPayloads = [
     null,
     undefined,
+    [],
+    [1, 2, 3],
     { kind: 'rows', rows: 'invalid-non-array' },
     { kind: 'rows', session: 's1', rows: [], refs: [], ask: { callId: 'c1', kind: 'unknown_kind' } },
     { kind: 'rows', session: 's1', rows: [{ who: 'u' }] }, // invalid row
-    { kind: 'replyResult', callId: 'c1', attemptId: -1, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // negative attemptId
+    { kind: 'compose', text: 123 },
+    { kind: 'mentions', files: 'not-array', reqId: 1, target: 'composer' },
+    { kind: 'suggestion', text: 'text', reqId: 'non-number', target: 'composer' },
     { kind: 'sessionCreated', companionKey: '', session: 's', creationTaskId: 't', webviewId: 'w' }, // empty key
+    { kind: 'sessionCreationFailed', companionKey: 'k', creationTaskId: '', webviewId: 'w' }, // empty task id
+    { kind: 'replyResult', callId: 'c1', attemptId: -1, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // negative attemptId
+    { kind: 'replyResult', callId: 'c1', attemptId: 0, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' }, // zero attemptId
+    { kind: 'state', state: 'invalid-state-obj', note: { text: 'ok' } },
+    { kind: 'info', state: 'idle', label: 123, version: '1' },
+    { kind: 'note', text: 123 },
     { kind: 'unregistered_kind', data: 123 },
   ];
 
@@ -1408,32 +1444,45 @@ test('§5.8.3 Host-to-Webview: In-flight question, draft, DOM, and answer mode r
   }
 
   assert.equal(rowsCalled, 0, 'No rows handler should have been called for malformed payloads');
+  assert.equal(composeCalled, 0, 'No compose handler should have been called for malformed payloads');
+  assert.equal(mentionsCalled, 0, 'No mentions handler should have been called for malformed payloads');
+  assert.equal(suggestionCalled, 0, 'No suggestion handler should have been called for malformed payloads');
+  assert.equal(sessionCreatedCalled, 0, 'No sessionCreated handler should have been called for malformed payloads');
+  assert.equal(sessionCreationFailedCalled, 0, 'No sessionCreationFailed handler should have been called for malformed payloads');
   assert.equal(replyResultCalled, 0, 'No replyResult handler should have been called for malformed payloads');
+  assert.equal(stateCalled, 0, 'No state handler should have been called for malformed payloads');
+  assert.equal(infoCalled, 0, 'No info handler should have been called for malformed payloads');
+  assert.equal(noteCalled, 0, 'No note handler should have been called for malformed payloads');
 
-  // 2. Valid payloads dispatch correctly and invoke appropriate handler
-  const validRows = {
-    kind: 'rows',
-    session: 's1',
-    rows: [{ who: 'user', label: 'U', text: 'msg' }],
-    refs: [],
-  };
-  const validRes = dispatchHostMessage(validRows, handlers);
-  assert.equal(validRes, true, 'dispatchHostMessage must return true for valid payload');
-  assert.equal(rowsCalled, 1, 'onRows handler must be invoked exactly once');
+  // 2. Valid payloads dispatch correctly and invoke each appropriate handler exactly once
+  const validMessages = [
+    { kind: 'rows', session: 's1', rows: [{ who: 'user', label: 'U', text: 'msg' }], refs: [] },
+    { kind: 'compose', text: 'draft' },
+    { kind: 'mentions', files: ['a.ts'], reqId: 1, target: 'composer' },
+    { kind: 'suggestion', text: 'tip', reqId: 2, target: 'composer' },
+    { kind: 'sessionCreated', companionKey: 'k', session: 's', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'sessionCreationFailed', companionKey: 'k', creationTaskId: 't', webviewId: 'w' },
+    { kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'state', state: { state: 'idle' }, note: { text: 'ready', offerStart: false } },
+    { kind: 'info', state: 'idle', label: 'Ready', version: '0.1.0' },
+    { kind: 'note', text: 'hello' },
+  ];
 
-  const validReplyResult = {
-    kind: 'replyResult',
-    callId: 'c1',
-    attemptId: 1,
-    ok: true,
-    companionKey: 'k',
-    session: 's',
-    generation: 0,
-    webviewId: 'w',
-  };
-  const replyRes = dispatchHostMessage(validReplyResult, handlers);
-  assert.equal(replyRes, true);
+  for (const valid of validMessages) {
+    const res = dispatchHostMessage(valid, handlers);
+    assert.equal(res, true, `dispatchHostMessage must return true for valid payload: ${JSON.stringify(valid)}`);
+  }
+
+  assert.equal(rowsCalled, 1);
+  assert.equal(composeCalled, 1);
+  assert.equal(mentionsCalled, 1);
+  assert.equal(suggestionCalled, 1);
+  assert.equal(sessionCreatedCalled, 1);
+  assert.equal(sessionCreationFailedCalled, 1);
   assert.equal(replyResultCalled, 1);
+  assert.equal(stateCalled, 1);
+  assert.equal(infoCalled, 1);
+  assert.equal(noteCalled, 1);
 });
 
 test('createWebviewActionAdapter formats and guards outbound messages', () => {

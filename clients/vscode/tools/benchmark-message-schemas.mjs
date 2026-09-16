@@ -213,7 +213,7 @@ const testCases = {
     { name: 'valid non-numeric seq string falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: '12' } },
     { name: 'valid non-numeric seq null falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: null } },
     { name: 'valid non-numeric seq object falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: {} } },
-    { name: 'valid numeric NaN preserved as number', raw: { kind: 'open', session: 's1', callId: 'c1', seq: NaN }, isNaN: true },
+    { name: 'valid numeric NaN preserved as number', raw: { kind: 'open', session: 's1', callId: 'c1', seq: NaN } },
     { name: 'valid numeric Infinity preserved', raw: { kind: 'open', session: 's1', callId: 'c1', seq: Infinity } },
   ],
 };
@@ -231,22 +231,11 @@ for (const [kind, cases] of Object.entries(testCases)) {
     const productRes = parseWebviewToHostMessage(tc.raw);
 
     let match = false;
-    if (tc.isNaN) {
-      match = productRes !== undefined &&
-        legacyRes !== undefined &&
-        productRes.kind === 'open' &&
-        legacyRes.kind === 'open' &&
-        typeof productRes.seq === 'number' &&
-        Number.isNaN(productRes.seq) &&
-        typeof legacyRes.seq === 'number' &&
-        Number.isNaN(legacyRes.seq);
-    } else {
-      try {
-        assert.deepStrictEqual(productRes, legacyRes);
-        match = true;
-      } catch {
-        match = false;
-      }
+    try {
+      assert.deepStrictEqual(productRes, legacyRes);
+      match = true;
+    } catch {
+      match = false;
     }
 
     if (!match) {

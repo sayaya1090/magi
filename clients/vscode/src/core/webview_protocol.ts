@@ -162,7 +162,7 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
 // ── Host to Webview Schemas ──
 
 export const PaintedRowSchema = v.custom<PaintedRow>((r) => {
-  if (!r || typeof r !== 'object' || Array.isArray(r)) return false;
+  if (!r || typeof r !== 'object') return false;
   const rowObj = r as Record<string, unknown>;
   return (
     typeof rowObj.who === 'string' &&
@@ -455,7 +455,7 @@ export type HostToWebviewMessage = v.InferOutput<typeof HostToWebviewMessageSche
  * Returns parsed message if valid according to schema, otherwise undefined.
  */
 export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  if (!raw || typeof raw !== 'object') return undefined;
   const res = v.safeParse(HostToWebviewMessageSchema, raw);
   return res.success ? res.output : undefined;
 }

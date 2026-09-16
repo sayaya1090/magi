@@ -912,6 +912,22 @@ const bundles = [
             window.postMessage({ kind: 'rows', rows: [] }, '*');
             // Malformed rows (non-string refs)
             window.postMessage({ kind: 'rows', session: 's1', rows: [], refs: [123] }, '*');
+            // Malformed ask: valid rows/session/refs context but unregistered ask.kind (§5.8.3)
+            window.postMessage({
+              kind: 'rows',
+              session: 's-default',
+              rows: [
+                { who: 'user', label: 'You', text: '이전 사용자 입력' },
+                { who: 'agent', label: 'magi', text: '이전 에이전트 답변' }
+              ],
+              refs: [],
+              ask: {
+                kind: 'unregistered_ask_kind',
+                callId: 'q-malformed-guard',
+                what: '보존되어야 할 질문 제목',
+                options: ['옵션 A', '옵션 B']
+              }
+            }, '*');
             // Malformed replyResult (empty callId)
             window.postMessage({ kind: 'replyResult', callId: '', attemptId: 1, ok: true }, '*');
             // Malformed state (missing note)
@@ -946,6 +962,94 @@ const bundles = [
             askControlsHtml: document.getElementById('ask-controls').innerHTML,
           }));
           assert.deepEqual(afterState, beforeState, 'DOM, question, input composer, and draft were preserved without mutation');
+
+          // 6. Submit answer to engage in-flight lock (§5.8.3)
+          const postedBeforeReplyCount = await page.evaluate(() => window.__posted.length);
+          await page.locator('#send').click();
+
+          // Wait for reply to be posted to host
+          await page.waitForFunction((prevCount) => window.__posted.length > prevCount, postedBeforeReplyCount);
+          const replyAttempt = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply').slice(-1)[0]);
+          assert.ok(replyAttempt, 'Reply attempt must have been dispatched');
+
+          // Verify in-flight lock engaged: askControls aria-busy is true, choice buttons disabled
+          const askControls = page.locator('#ask-controls');
+          const choiceBtns = page.locator('#ask-controls button.choice-btn');
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true);
+
+          // Enter direct answer mode to test draft & mode retention while in-flight
+          await page.locator('#ask-controls button.direct-btn').click();
+          await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
+          const sendBtn = page.locator('#send');
+          assert.equal(await sendBtn.isDisabled(), true, 'Send button must be disabled in answer mode while in-flight');
+
+          // Write new modification draft while in-flight
+          await page.locator('#say').fill('수정 답변 초안 보존');
+          const postedAfterReplyCount = await page.evaluate(() => window.__posted.length);
+
+          // 7. Inject malformed replyResult with all context fields matched but attemptId: 0
+          await page.evaluate((att) => {
+            window.postMessage({
+              kind: 'replyResult',
+              callId: att.callId,
+              attemptId: 0, // invalid attemptId (must be integer >= 1)
+              ok: true,
+              session: att.session,
+              companionKey: att.companionKey,
+              generation: att.generation,
+              webviewId: att.webviewId,
+            }, '*');
+          }, replyAttempt);
+
+          // FIFO sync to ensure malformed message has been processed by window listener
+          await page.evaluate(() => new Promise((resolve) => {
+            window.addEventListener('message', function onSync(e) {
+              if (e.data && e.data.__syncGuardReply) {
+                window.removeEventListener('message', onSync);
+                resolve();
+              }
+            });
+            window.postMessage({ __syncGuardReply: true }, '*');
+          }));
+
+          // Verify state, draft, mode, body, button lock, and posted count are strictly maintained
+          assert.equal(await page.locator('#say').inputValue(), '수정 답변 초안 보존', 'Draft must be preserved after malformed replyResult');
+          assert.equal(await page.locator('#reply-mode').isVisible(), true, 'Answer mode must remain active');
+          assert.equal(await askControls.getAttribute('aria-busy'), 'true', 'aria-busy must remain true');
+          assert.equal(await sendBtn.isDisabled(), true, 'Send button must remain locked');
+          assert.equal(await choiceBtns.nth(0).isDisabled(), true, 'Choice buttons must remain locked');
+          assert.equal(await page.evaluate(() => window.__posted.length), postedAfterReplyCount, 'No unexpected message dispatched');
+          assert.match(await page.locator('#ask-body').textContent(), /보존되어야 할 질문 제목/, 'Question body preserved');
+
+          // 8. Send valid replyResult to verify normal unlock and release
+          await page.evaluate((att) => {
+            window.postMessage({
+              kind: 'replyResult',
+              callId: att.callId,
+              attemptId: att.attemptId,
+              ok: true,
+              session: att.session,
+              companionKey: att.companionKey,
+              generation: att.generation,
+              webviewId: att.webviewId,
+            }, '*');
+          }, replyAttempt);
+
+          // FIFO sync
+          await page.evaluate(() => new Promise((resolve) => {
+            window.addEventListener('message', function onSync(e) {
+              if (e.data && e.data.__syncGuardNormal) {
+                window.removeEventListener('message', onSync);
+                resolve();
+              }
+            });
+            window.postMessage({ __syncGuardNormal: true }, '*');
+          }));
+
+          // In-flight released
+          assert.equal(await askControls.getAttribute('aria-busy'), null, 'aria-busy must be cleared after valid replyResult');
+          assert.equal(await sendBtn.isDisabled(), false, 'Send button unlocked after valid replyResult');
 
           // Clean up: cancel answer mode and dismiss ask
           await page.keyboard.press('Escape');

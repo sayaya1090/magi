@@ -906,10 +906,26 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
        - `JSON.stringify` 대신 `assert.deepStrictEqual` 대조를 적용하고, 불일치 발생 시 즉시 프로세스 종료 코드 1(`process.exit(1)`)을 반환하도록 개선했습니다.
        - 의도적 불일치 주입 시 exit code 1로 비정상 종료됨을 실측 확인했습니다.
        - 성능 측정 표제에 "전체 제품 파서(WebviewToHost) vs Zod 대표 스키마" 비교 범위를 명시했습니다.
+     - **F. Valibot 전환의 경계 동등성·검증 표현 보완 (§5.8.3 후속 보완):**
+       - **배열에 이름 붙은 속성이 있는 경우의 기존 허용 범위 복원:**
+         - `src/core/webview_protocol.ts`의 `PaintedRowSchema` 및 `parseHostToWebviewMessage` 진입부에서 새로 추가되었던 `Array.isArray` 거부 검사를 제거하여, 구형 파서와 동일하게 속성이 부여된 배열(`Object.assign([], { kind: 'note', text: 'ready' })`, `rows: [Object.assign([], { who: 'agent', label: 'magi', text: 'answer' })]`)을 정상 수용하도록 복원했습니다.
+         - 속성이 없는 일반 빈 배열(`[]`, `[1, 2, 3]`) 및 잘못된 속성 배열은 계속 거부(`undefined`)됨을 검증했습니다.
+         - 웹뷰→호스트(`parseWebviewToHostMessage`) 및 `isAsk`의 기존 배열 거부는 계약대로 그대로 유지했습니다.
+         - `rows` 내 배열 원소의 참조 동일성(`assert.strictEqual`) 및 추가 메타 필드 보존을 검증했습니다.
+       - **NaN에서도 결과 전체를 `assert.deepStrictEqual`로 대조:**
+         - `webview.test.ts` 및 `tools/benchmark-message-schemas.mjs`에서 기존의 NaN 전용 우회 분기(`if (tc.isNaN) ... continue`)를 전면 제거하고, Node.js의 엄격 깊은 동등성 지원을 활용하여 모든 결과를 `assert.deepStrictEqual`로 1:1 대조하도록 개선했습니다.
+         - 정상 NaN 사례 통과 및 임시 변조(NaN 유지 상태에서 target/session 변조 주입) 시 단위 테스트와 비교 도구 모두 `exit code: 1` 비정상 종료됨을 실측 확인했습니다 (주입 코드는 제품에 미반영).
+       - **디스패치 단위 테스트와 브라우저 검증 범위 구분:**
+         - `webview.test.ts`의 테스트명을 실제 단언 내용인 `§5.8.3 Host-to-Webview: Malformed host payloads rejected by parser and handlers not invoked via dispatchHostMessage`로 맞추고, 전체 10개 핸들러(`onRows`, `onCompose`, `onMentions`, `onSuggestion`, `onSessionCreated`, `onSessionCreationFailed`, `onReplyResult`, `onState`, `onInfo`, `onNote`)에 대한 스파이를 등록하여 비정상 payload 시 모든 핸들러 미호출(0회), 정상 payload 시 각 핸들러 1회 호출을 엄밀히 단언했습니다.
+         - 브라우저 하네스(`transcript-test.mjs`의 `asks_malformed_payload_rejected_without_mutation`):
+           - 정상 rows/session/refs 문맥에 `ask.kind`만 미등록 값인 메시지 주입 시 파서 거절 및 기존 DOM·질문·초안 상태 보존을 확인했습니다.
+           - 질문 답변 제출 후 in-flight 잠금(`aria-busy="true"`, 선택지 disabled, 답변 모드 내 sendBtn disabled) 상태에서 현재 시도 문맥은 맞추고 `attemptId: 0`인 비정상 `replyResult` 주입 시 초안·모드·본문·버튼 잠금 및 전송 횟수가 완벽히 유지됨을 확인했습니다.
+           - 마지막에 정상 `replyResult` 수신 시 정상 잠금 해제(`aria-busy` 제거 및 버튼 잠금 해제)를 확인했습니다.
 
 7. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공 (TypeScript 컴파일 및 웹뷰/호스트 에셋 번들 생성).
    - **단위 테스트 (`npm test`):** 총 484개 테스트 전수 통과 (477 pass, 0 fail, 7 skip).
+   - **비교 도구 (`benchmark-message-schemas.mjs`):** 0 mismatches found against legacy parser (대표 3종 메시지 20,000회 파싱 완료).
    - **브라우저 테스트 (`transcript-test.mjs`):**
      - 자산 사전 검증 (`--verify-assets`): 3개 번들 전수 통과.
      - 정방향: 39개 시나리오(기존 32개 + a11y 7개) 100% 통과 (axe-core 36회 분석 violations=0, incomplete=0).
