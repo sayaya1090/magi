@@ -20,7 +20,7 @@ export interface PanelNoteInfo {
 
 export type WebviewToHostMessage =
   | { kind: 'ready' }
-  | { kind: 'say'; text: string }
+  | { kind: 'say'; text: string; creationTaskId?: string }
   | { kind: 'start' }
   | { kind: 'run'; command: string }
   | { kind: 'drop' }
@@ -56,22 +56,42 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
     case 'drop':
       return { kind };
 
-    case 'say':
+    case 'say': {
       if (typeof m.text !== 'string') return undefined;
-      return { kind: 'say', text: m.text };
+      let creationTaskId: string | undefined;
+      if (m.creationTaskId !== undefined) {
+        if (typeof m.creationTaskId !== 'string' || m.creationTaskId.trim().length === 0) {
+          return undefined;
+        }
+        creationTaskId = m.creationTaskId;
+      }
+      return creationTaskId !== undefined
+        ? { kind: 'say', text: m.text, creationTaskId }
+        : { kind: 'say', text: m.text };
+    }
 
     case 'run':
       if (typeof m.command !== 'string' || !m.command) return undefined;
       return { kind: 'run', command: m.command };
 
     case 'diff':
-      if (typeof m.session !== 'string' || !m.session || typeof m.callId !== 'string' || !m.callId) {
+      if (
+        typeof m.session !== 'string' ||
+        m.session.trim().length === 0 ||
+        typeof m.callId !== 'string' ||
+        m.callId.trim().length === 0
+      ) {
         return undefined;
       }
       return { kind: 'diff', session: m.session, callId: m.callId };
 
     case 'open':
-      if (typeof m.session !== 'string' || !m.session || typeof m.callId !== 'string' || !m.callId) {
+      if (
+        typeof m.session !== 'string' ||
+        m.session.trim().length === 0 ||
+        typeof m.callId !== 'string' ||
+        m.callId.trim().length === 0
+      ) {
         return undefined;
       }
       return {
@@ -84,16 +104,21 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
     case 'output':
       if (
         typeof m.session !== 'string' ||
-        !m.session ||
+        m.session.trim().length === 0 ||
         typeof m.outputId !== 'string' ||
-        !m.outputId
+        m.outputId.trim().length === 0
       ) {
         return undefined;
       }
       return { kind: 'output', session: m.session, outputId: m.outputId };
 
     case 'answer':
-      if (typeof m.callId !== 'string' || !m.callId || typeof m.decision !== 'string' || !m.decision) {
+      if (
+        typeof m.callId !== 'string' ||
+        m.callId.trim().length === 0 ||
+        typeof m.decision !== 'string' ||
+        m.decision.trim().length === 0
+      ) {
         return undefined;
       }
       return { kind: 'answer', callId: m.callId, decision: m.decision };
@@ -101,32 +126,32 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
     case 'reply': {
       if (
         typeof m.callId !== 'string' ||
-        !m.callId.trim() ||
+        m.callId.trim().length === 0 ||
         typeof m.text !== 'string' ||
         typeof m.attemptId !== 'number' ||
         !Number.isInteger(m.attemptId) ||
         m.attemptId <= 0 ||
         typeof m.companionKey !== 'string' ||
-        !m.companionKey.trim() ||
+        m.companionKey.trim().length === 0 ||
         typeof m.session !== 'string' ||
-        !m.session.trim() ||
+        m.session.trim().length === 0 ||
         typeof m.generation !== 'number' ||
         !Number.isInteger(m.generation) ||
         m.generation < 0 ||
         typeof m.webviewId !== 'string' ||
-        !m.webviewId.trim()
+        m.webviewId.trim().length === 0
       ) {
         return undefined;
       }
       return {
         kind: 'reply',
-        callId: m.callId.trim(),
+        callId: m.callId,
         text: m.text,
         attemptId: m.attemptId,
-        companionKey: m.companionKey.trim(),
-        session: m.session.trim(),
+        companionKey: m.companionKey,
+        session: m.session,
         generation: m.generation,
-        webviewId: m.webviewId.trim(),
+        webviewId: m.webviewId,
       };
     }
 
@@ -179,6 +204,7 @@ export type HostToWebviewMessage =
       companionKey: string;
       session: string;
       creationTaskId?: string;
+      webviewId?: string;
     }
   | {
       kind: 'replyResult';

@@ -421,19 +421,25 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         let pendingCreation: Promise<string> | null = null;
         if (!targetSid) {
           if (!this.sessionCreating) {
-            const creationTaskId = 'create-' + (++this.creationSeq);
+            const creationTaskId = (m as any).creationTaskId || ('create-' + (++this.creationSeq));
+            const capturedView = this.view;
+            const capturedWebviewId = this.currentWebviewId;
+            const capturedCompanionKey = this.companion.workdir;
             const promise = (async () => {
               const created = await this.companion.ask('session-new');
               const sid = created?.session ?? '';
               if (!sid) {
                 throw new Error(created?.error ?? 'the companion could not open a conversation.');
               }
-              this.post({
-                kind: 'sessionCreated',
-                companionKey: this.companion.workdir,
-                session: sid,
-                creationTaskId,
-              });
+              if (this.view === capturedView && this.currentWebviewId === capturedWebviewId) {
+                this.post({
+                  kind: 'sessionCreated',
+                  companionKey: capturedCompanionKey,
+                  session: sid,
+                  creationTaskId,
+                  webviewId: capturedWebviewId,
+                });
+              }
               return sid;
             })();
             this.sessionCreating = promise;

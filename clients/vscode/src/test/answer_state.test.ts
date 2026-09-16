@@ -462,40 +462,56 @@ test('Scenario 10: onReplyResult webviewId 불일치 시 in-flight 및 초안 �
   assert.equal(state.getQuestionDraft('q1'), '답변 초안 view2');
 });
 
-test('Scenario 11: bindUnconfirmedSession 생명주기 및 대상 초안 충돌 방지 검증 (§4.5 Item 3)', () => {
+test('Scenario 11: bindUnconfirmedSession 생명주기 및 대상 초안 충돌 방지 검증 (§4.5 Item 1, Item 3)', () => {
   const state = createAnswerState();
 
   // 1. 빈 세션 (C1, '')에서 초안 작성
-  state.switchContext('/ws-1', '');
+  state.switchContext('/ws-1', '', { webviewId: 'view-1' });
   state.onInputChange('C1 빈 세션에서 작성한 새 작업 초안');
   assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
 
+  // 미등록 creationTaskId 완료 시도는 폴백 없이 거절 (false 반환, §4.5 Item 1)
+  assert.equal(state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'unregistered-task-id', 'view-1'), false);
+
+  // 작업 등록: 생성 시작 시 작업 ID 등록
+  const regOk = state.registerCreationTask('/ws-1', 'task-create-1', 'view-1', 'C1 빈 세션에서 작성한 새 작업 초안');
+  assert.equal(regOk, true);
+
   // 2. 일반 switchContext로 기존 세션 S2로 이동 (creationTaskId 없음)
-  state.switchContext('/ws-1', 'session-2');
+  state.switchContext('/ws-1', 'session-2', { webviewId: 'view-1' });
   // S2로 자동 이전되지 않고 S2의 일반 초안은 비어 있어야 함
   assert.equal(state.getGeneralDraft('/ws-1', 'session-2'), '');
   // 빈 세션의 초안은 온전히 유지
   assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
 
   // 3. 다른 컴패니언 C2로 이동해도 영향 없음
-  state.switchContext('/ws-2', 'session-other');
+  state.switchContext('/ws-2', 'session-other', { webviewId: 'view-1' });
   assert.equal(state.getGeneralDraft('/ws-2', 'session-other'), '');
   assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
 
   // 4. 대상 세션에 이미 초안이 있는 상태에서 bindUnconfirmedSession 시도시 기존 초안 보존 및 손실 방지
-  state.switchContext('/ws-1', 'session-has-draft');
+  state.switchContext('/ws-1', 'session-has-draft', { webviewId: 'view-1' });
   state.onInputChange('이미 존재하는 S3 초안');
-  const bindConflict = state.bindUnconfirmedSession('/ws-1', 'session-has-draft', 'task-create-1');
+  const bindConflict = state.bindUnconfirmedSession('/ws-1', 'session-has-draft', 'task-create-1', 'view-1');
   assert.equal(bindConflict, false);
   assert.equal(state.getGeneralDraft('/ws-1', 'session-has-draft'), '이미 존재하는 S3 초안');
-  // 미확정 초안도 사라지지 않고 유지
-  assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
+  // 등록된 작업 초안도 사라지지 않고 유지
+  assert.equal(state.getCreationTask('/ws-1', 'task-create-1')?.draft, 'C1 빈 세션에서 작성한 새 작업 초안');
 
-  // 5. 생성 결과 세션 S1에 명시적 바인딩 성공
-  const bindSuccess = state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'task-create-1');
+  // 다른 웹뷰의 완료 시도는 무시됨 (§4.5 Item 1)
+  const bindWrongView = state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'task-create-1', 'view-other');
+  assert.equal(bindWrongView, false);
+
+  // 5. 원래 웹뷰에서 생성 결과 세션 S1에 명시적 바인딩 성공
+  const bindSuccess = state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'task-create-1', 'view-1');
   assert.equal(bindSuccess, true);
   assert.equal(state.getGeneralDraft('/ws-1', 'session-created-1'), 'C1 빈 세션에서 작성한 새 작업 초안');
+  assert.equal(state.getCreationTask('/ws-1', 'task-create-1')?.status, 'completed');
   // 바인딩 완료 후 미확정 초안은 정리됨
   assert.equal(state.getGeneralDraft('/ws-1', ''), '');
+
+  // 6. 동일 작업 재완료 시도는 무시 (중복 완료 방지, §4.5 Item 1)
+  const duplicateBind = state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'task-create-1', 'view-1');
+  assert.equal(duplicateBind, false);
 });
 

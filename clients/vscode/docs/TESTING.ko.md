@@ -217,10 +217,22 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 2. **누락·잘못된 문맥 거절 및 현재 세션 보정 금지 (P1):**
    - **프로토콜 파서 엄격화 (`webview.test.ts`):** 웹뷰의 `reply` 및 호스트의 `replyResult`에 완전한 문맥(`companionKey`, `session`, `generation`, `webviewId`)을 필수로 요구합니다. 공백·빈 문자열, 0 이하의 시도 식별자(`attemptId <= 0`), 음수 세대(`generation < 0`), 잘못된 타입(문자열 대신 숫자 등)은 파서 경계에서 즉시 `undefined`로 거절합니다.
    - **호스트 컴패니언 및 웹뷰 대조 (`chat_host.test.ts`):** 수신된 메시지의 `companionKey`가 실제 호스트 컴패니언 경로와 일치하지 않거나, 현재 활성 웹뷰 식별자와 다르면 현재 세션(`this.sid`)으로 보정하지 않고 즉시 무시하여 데몬 RPC 0회를 보장합니다.
-3. **미확정 초안의 생성 작업 귀속 및 손실 방지 (P2):**
-   - **일반 세션 전환 시 자동 이전 배제 (`answer_state.test.ts` Scenario 11):** 빈 세션(`prevSess === ''`)에서 작성한 작업 초안을 일반 `switchContext`로 기존 세션(S2)이나 다른 컴패니언(C2)으로 이동할 때 자동으로 이전하지 않고 원본 `(companionKey, '')`에 격리 보존합니다.
-   - **작업 완료 명시적 바인딩 및 충돌 방지 (`bindUnconfirmedSession`):** `chat.ts`의 `session-new` 완료 시 `{ kind: 'sessionCreated', companionKey, session, creationTaskId }` 이벤트를 발행하여 해당 작업에 의해서만 1회 귀속시킵니다. 대상 세션에 이미 작성된 초안이 존재하는 경우 기존 초안을 덮어쓰거나 합치지 않고 미확정 초안을 유지하여 데이터 유실을 차단합니다.
-   - **브라우저 테스트 하네스 전수 통과 (`transcript-test.mjs`):** `transcript-fixtures.mjs`의 `createRowsMessage`와 `createReplyResultMessage`에 기본 문맥 계약을 적용하고, 25개 브라우저 테스트를 정방향과 역순(`--reverse`)으로 모두 구동하여 0개 실패로 검증합니다.
+### 생성 작업 귀속 연결과 식별자 원문 보존 검증 사양 (2026-09-16, §4.5 P2 Phase 3)
+
+`webview_protocol.ts`, `answer_state.ts`, `chat.ts`, `chat_adapter.ts`에 걸쳐 생성 작업 생명주기 배선, 빈 세션 초안 귀속 및 식별자 원문 보존 계약을 검증합니다:
+
+1. **생성 작업을 초안 저장부터 완료까지 연결 (P2):**
+   - **생성 작업 식별자 발급 및 등록 (`registerCreationTask`, `updateCreationTaskDraft`):** 빈 세션(`currentSession === ''`)에서 사용자가 메시지를 전송하거나 초안을 작성할 때 웹뷰 입력 어댑터가 `creationTaskId = 'create-' + (++creationSeq)`를 발급하고 `registerCreationTask`로 등록합니다. 생성 중 입력창에 추가 타이핑한 내용도 `updateCreationTaskDraft`를 통해 해당 생성 작업의 초안으로 계속 갱신됩니다.
+   - **미등록 ID 폴백 제거 및 엄격한 작업 귀속 (`bindUnconfirmedSession`):** `bindUnconfirmedSession`은 `creationTaskId`를 필수로 요구하며, 등록되지 않은 임의의 ID는 빈 세션(`(companionKey, '')`)으로 폴백하지 않고 즉시 `false`를 반환합니다. 이미 완료된 작업의 중복 완료 시도, 다른 웹뷰 인스턴스(`webviewId` 불일치)의 완료 통지도 무시됩니다.
+   - **대상 초안 충돌 방지 및 임시 자료 보존:** 생성 결과 세션에 이미 사용자의 초안이 존재하는 경우 기존 초안을 덮어쓰거나 합치지 않고 등록된 생성 작업의 초안을 온전히 보존하며 바인딩을 거절(`false`)합니다.
+   - **`onSessionCreated`의 답변 모드 오염 방지:** 세션 생성 통지 시 현재 웹뷰가 해당 세션의 답변 모드(질문 카드 활성 또는 `replyModeEl` 노출)에 있다면 `#say.value`가 비어 있더라도 일반 초안을 삽입하지 않습니다. 일반 모드로 복귀했을 때만 일반 초안이 올바르게 복원됩니다.
+   - **호스트 뷰 캡처 기반 `sessionCreated` 유출 차단 (`chat_host.test.ts`):** 호스트의 `session-new` 비동기 호출 시작 시점의 `this.view`와 `this.currentWebviewId`를 클로저에 캡처하여, 생성 도중 웹뷰가 재배치되거나 닫힌 경우 옛 뷰나 신규 뷰에 `sessionCreated`가 발행되지 않도록 차단합니다.
+2. **식별자 검증에서 원문 보존 (P2):**
+   - **원문 식별자 보존:** `parseWebviewToHostMessage`와 `parseHostToWebviewMessage`에서 `value.trim().length > 0`은 유효성 검사에만 사용하고 반환값에 `.trim()`을 적용하지 않고 원문 그대로 전달합니다 (`reply`, `replyResult`, `sessionCreated`, `open`, `diff`, `output`, `answer`).
+   - **끝 공백을 가진 디렉터리 경로 왕복 검증 (`chat_host.test.ts`):** 끝 공백을 가진 워크디렉터리(`/workspace/dir `)로 `reply`를 보냈을 때 호스트 컴패니언 경로 대조를 통과하여 정확히 1회의 RPC가 호출되고, 원래 `companionKey`가 원본 그대로 `replyResult`로 반환되어 웹뷰의 in-flight 잠금이 정상 해제됨을 단언합니다. 공백뿐인 값(`'   '`)은 파서 경계에서 계속 엄격히 거절됩니다.
+3. **검증 결과:**
+   - `npm test`: 총 415개 단위 테스트 100% 통과 (0 fail, 7 skip).
+   - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
 
 
 

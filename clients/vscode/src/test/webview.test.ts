@@ -1023,10 +1023,10 @@ test('createWebviewInputAdapter controls answer mode and submits responses', () 
     state,
   );
 
-  // 1. General say submission
+  // 1. General say submission (in empty session, creationTaskId is issued)
   sayEl.value = 'hello agent';
   inputAdapter.send();
-  assert.deepEqual(posted.pop(), { kind: 'say', text: 'hello agent' });
+  assert.deepEqual(posted.pop(), { kind: 'say', text: 'hello agent', creationTaskId: 'create-1' });
   assert.equal(sayEl.value, '');
 
   // 2. Enter answer mode
@@ -1691,6 +1691,232 @@ test('Programmatic input modifications (handleCompose and Tab) invalidate in-fli
   inputAdapter.handleSuggestion(' stale trailing', curReqId, 'general');
   assert.equal(ctrl.getSuggestion(), '');
   assert.equal(elements.hintEl.textContent, '');
+
+  inputAdapter.dispose();
+});
+
+test('§4.5 Item 2: 식별자 검증에서 원문 보존 (Trailing whitespace preserved verbatim, whitespace-only rejected)', () => {
+  const dirWithSpace = '/workspace/project dir ';
+  const sessWithSpace = 'sess-42 ';
+  const callIdWithSpace = 'call-99 ';
+  const webviewIdWithSpace = 'view-1 ';
+
+  // 1. parseWebviewToHostMessage: reply carries verbatim identifiers
+  const parsedReply = parseWebviewToHostMessage({
+    kind: 'reply',
+    callId: callIdWithSpace,
+    text: '내용',
+    attemptId: 1,
+    companionKey: dirWithSpace,
+    session: sessWithSpace,
+    generation: 1,
+    webviewId: webviewIdWithSpace,
+  });
+  assert.ok(parsedReply);
+  assert.equal(parsedReply?.kind, 'reply');
+  if (parsedReply?.kind === 'reply') {
+    assert.equal(parsedReply.companionKey, dirWithSpace, 'companionKey with trailing space must be preserved verbatim');
+    assert.equal(parsedReply.session, sessWithSpace, 'session with trailing space must be preserved verbatim');
+    assert.equal(parsedReply.callId, callIdWithSpace, 'callId with trailing space must be preserved verbatim');
+    assert.equal(parsedReply.webviewId, webviewIdWithSpace, 'webviewId with trailing space must be preserved verbatim');
+  }
+
+  // 2. parseHostToWebviewMessage: replyResult and sessionCreated carry verbatim identifiers
+  const parsedResult = parseHostToWebviewMessage({
+    kind: 'replyResult',
+    callId: callIdWithSpace,
+    attemptId: 1,
+    ok: true,
+    companionKey: dirWithSpace,
+    session: sessWithSpace,
+    generation: 1,
+    webviewId: webviewIdWithSpace,
+  });
+  assert.ok(parsedResult);
+  if (parsedResult?.kind === 'replyResult') {
+    assert.equal(parsedResult.companionKey, dirWithSpace);
+    assert.equal(parsedResult.session, sessWithSpace);
+    assert.equal(parsedResult.callId, callIdWithSpace);
+    assert.equal(parsedResult.webviewId, webviewIdWithSpace);
+  }
+
+  const parsedCreated = parseHostToWebviewMessage({
+    kind: 'sessionCreated',
+    companionKey: dirWithSpace,
+    session: sessWithSpace,
+    creationTaskId: 'create-1 ',
+    webviewId: webviewIdWithSpace,
+  });
+  assert.ok(parsedCreated);
+  if (parsedCreated?.kind === 'sessionCreated') {
+    assert.equal(parsedCreated.companionKey, dirWithSpace);
+    assert.equal(parsedCreated.session, sessWithSpace);
+    assert.equal(parsedCreated.creationTaskId, 'create-1 ');
+    assert.equal(parsedCreated.webviewId, webviewIdWithSpace);
+  }
+
+  // 3. 공백뿐인 식별자는 엄격 거절
+  assert.equal(parseWebviewToHostMessage({
+    kind: 'reply',
+    callId: '   ',
+    text: '내용',
+    attemptId: 1,
+    companionKey: dirWithSpace,
+    session: sessWithSpace,
+    generation: 1,
+    webviewId: webviewIdWithSpace,
+  }), undefined, 'whitespace-only callId must be rejected');
+
+  assert.equal(parseWebviewToHostMessage({
+    kind: 'reply',
+    callId: callIdWithSpace,
+    text: '내용',
+    attemptId: 1,
+    companionKey: '   ',
+    session: sessWithSpace,
+    generation: 1,
+    webviewId: webviewIdWithSpace,
+  }), undefined, 'whitespace-only companionKey must be rejected');
+
+  assert.equal(parseHostToWebviewMessage({
+    kind: 'replyResult',
+    callId: callIdWithSpace,
+    attemptId: 1,
+    ok: true,
+    companionKey: '   ',
+    session: sessWithSpace,
+    generation: 1,
+    webviewId: webviewIdWithSpace,
+  }), undefined, 'whitespace-only companionKey in replyResult must be rejected');
+});
+
+test('§4.5 Item 1: onSessionCreated 모드 일치 검증 - 답변 모드일 때 일반 초안 삽입 금지', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+
+  // 1. 빈 세션에서 초안 작성 및 생성 시작
+  inputAdapter.onContextChange('/ws', '', null, 0, 'view-1');
+  elements.say.value = '첫 메시지';
+  inputAdapter.send();
+  const sayMsg = posted.pop();
+  assert.ok(sayMsg.creationTaskId);
+
+  // 생성 진행 중 사용자가 새 일반 초안 작성
+  elements.say.value = '새 작업 추가 초안';
+  listeners['input']?.({});
+
+  // 2. 답변 모드로 진입 (예: 긴급 질문 도착)
+  inputAdapter.enterAnswerMode('urgent-q', '긴급 확인');
+  assert.equal(elements.replyModeEl.hidden, false);
+  elements.say.value = ''; // 답변 입력창이 비어 있음
+
+  // 3. sessionCreated 이벤트 도착
+  inputAdapter.onSessionCreated?.({
+    companionKey: '/ws',
+    session: 'sess-created',
+    creationTaskId: sayMsg.creationTaskId,
+    webviewId: 'view-1',
+  });
+
+  // 답변 모드이므로 일반 초안이 say.value에 삽입되어서는 안 됨! (§4.5 Item 1)
+  assert.equal(elements.say.value, '', 'general draft must NOT be injected while in answer mode');
+  // 그러나 상태 저장소에는 정상 바인딩되어 있어야 함
+  assert.equal(state.getGeneralDraft('/ws', 'sess-created'), '새 작업 추가 초안');
+
+  // 4. 답변 모드를 종료하고 일반 모드로 돌아왔을 때 일반 초안 복원 확인
+  inputAdapter.exitAnswerMode();
+  assert.equal(elements.replyModeEl.hidden, true);
+  assert.equal(elements.say.value, '새 작업 추가 초안');
+
+  inputAdapter.dispose();
+});
+
+test('§4.5 Item 1: 실제 어댑터로 생성 시작 -> 작성 -> 다른 세션 이동 -> 완료 연결 시 세션 격리 검증', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+
+  // 1. 빈 세션 C1/''에서 메시지 전송으로 생성 시작
+  inputAdapter.onContextChange('/workspace', '', null, 0, 'view-1');
+  elements.say.value = 'M1 전송';
+  inputAdapter.send();
+  const sayMsg = posted.pop();
+  assert.equal(sayMsg.kind, 'say');
+  assert.ok(sayMsg.creationTaskId);
+  const taskId = sayMsg.creationTaskId;
+
+  // 2. 생성이 완료되기 전에 사용자가 추가 초안 M2 작성
+  elements.say.value = 'M2 추가 초안';
+  listeners['input']?.({});
+
+  // 3. 다른 세션 S2로 이동
+  inputAdapter.onContextChange('/workspace', 'sess-2', null, 0, 'view-1');
+  assert.equal(elements.say.value, '', 'sess-2 must start with empty draft');
+
+  // 사용자가 S2에서 작업 진행
+  elements.say.value = 'S2 진행 중 초안';
+  listeners['input']?.({});
+
+  // 4. 이제 호스트로부터 최초 생성 요청 S1의 sessionCreated 도착
+  inputAdapter.onSessionCreated?.({
+    companionKey: '/workspace',
+    session: 'sess-1-created',
+    creationTaskId: taskId,
+    webviewId: 'view-1',
+  });
+
+  // 현재 화면은 S2이므로 S2의 입력창은 영향받지 않아야 함 (§4.5 Item 1)
+  assert.equal(elements.say.value, 'S2 진행 중 초안', 'S2 input must not be changed when S1 completes');
+
+  // S1 생성 세션에 M2 초안이 정상 귀속되어 있어야 함
+  assert.equal(state.getGeneralDraft('/workspace', 'sess-1-created'), 'M2 추가 초안');
+
+  // 5. 나중에 S1으로 전환했을 때 M2 초안이 복원됨
+  inputAdapter.onContextChange('/workspace', 'sess-1-created', null, 0, 'view-1');
+  assert.equal(elements.say.value, 'M2 추가 초안');
 
   inputAdapter.dispose();
 });

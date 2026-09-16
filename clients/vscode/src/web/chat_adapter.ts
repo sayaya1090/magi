@@ -31,7 +31,7 @@ export interface WebviewActionAdapter {
     attemptId: number,
     context: { companionKey: string; session: string; generation: number; webviewId: string }
   ): boolean;
-  say(text: string): boolean;
+  say(text: string, creationTaskId?: string): boolean;
   act(command: string): boolean;
   suggest(text: string, reqId: number, target: string): boolean;
   mention(text: string, reqId: number, target: string): boolean;
@@ -78,6 +78,7 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
     ): boolean {
       if (
         !callId ||
+        callId.trim().length === 0 ||
         typeof attemptId !== 'number' ||
         !Number.isInteger(attemptId) ||
         attemptId <= 0 ||
@@ -87,11 +88,14 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
       }
       if (
         !context.companionKey ||
+        context.companionKey.trim().length === 0 ||
         !context.session ||
+        context.session.trim().length === 0 ||
         typeof context.generation !== 'number' ||
         !Number.isInteger(context.generation) ||
         context.generation < 0 ||
-        !context.webviewId
+        !context.webviewId ||
+        context.webviewId.trim().length === 0
       ) {
         return false;
       }
@@ -108,10 +112,14 @@ export function createWebviewActionAdapter(vs: WebviewBridge): WebviewActionAdap
       return true;
     },
 
-    say(text: string): boolean {
+    say(text: string, creationTaskId?: string): boolean {
       const trimmed = text.trim();
       if (!trimmed) return false;
-      vs.postMessage({ kind: 'say', text: trimmed });
+      const msg: WebviewToHostMessage = { kind: 'say', text: trimmed };
+      if (creationTaskId && typeof creationTaskId === 'string' && creationTaskId.trim().length > 0) {
+        msg.creationTaskId = creationTaskId;
+      }
+      vs.postMessage(msg);
       return true;
     },
 
@@ -174,6 +182,7 @@ export interface HostMessageHandlers {
     companionKey: string;
     session: string;
     creationTaskId?: string;
+    webviewId?: string;
   }): void;
   onReplyResult?(payload: {
     callId: string;
@@ -292,50 +301,63 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
   } else if (kind === 'sessionCreated') {
     if (
       typeof m.companionKey !== 'string' ||
-      !m.companionKey.trim() ||
+      m.companionKey.trim().length === 0 ||
       typeof m.session !== 'string' ||
-      !m.session.trim()
+      m.session.trim().length === 0
     ) {
       return undefined;
     }
-    return {
+    let creationTaskId: string | undefined = undefined;
+    if (m.creationTaskId !== undefined) {
+      if (typeof m.creationTaskId !== 'string' || m.creationTaskId.trim().length === 0) {
+        return undefined;
+      }
+      creationTaskId = m.creationTaskId;
+    }
+    let webviewId: string | undefined = undefined;
+    if (m.webviewId !== undefined) {
+      if (typeof m.webviewId !== 'string' || m.webviewId.trim().length === 0) {
+        return undefined;
+      }
+      webviewId = m.webviewId;
+    }
+    const msg: HostToWebviewMessage = {
       kind: 'sessionCreated',
-      companionKey: m.companionKey.trim(),
-      session: m.session.trim(),
-      creationTaskId:
-        typeof m.creationTaskId === 'string' && m.creationTaskId.trim()
-          ? m.creationTaskId.trim()
-          : undefined,
+      companionKey: m.companionKey,
+      session: m.session,
     };
+    if (creationTaskId !== undefined) (msg as any).creationTaskId = creationTaskId;
+    if (webviewId !== undefined) (msg as any).webviewId = webviewId;
+    return msg;
   } else if (kind === 'replyResult') {
     if (
       typeof m.callId !== 'string' ||
-      !m.callId.trim() ||
+      m.callId.trim().length === 0 ||
       typeof m.attemptId !== 'number' ||
       !Number.isInteger(m.attemptId) ||
       m.attemptId <= 0 ||
       typeof m.ok !== 'boolean' ||
       typeof m.companionKey !== 'string' ||
-      !m.companionKey.trim() ||
+      m.companionKey.trim().length === 0 ||
       typeof m.session !== 'string' ||
-      !m.session.trim() ||
+      m.session.trim().length === 0 ||
       typeof m.generation !== 'number' ||
       !Number.isInteger(m.generation) ||
       m.generation < 0 ||
       typeof m.webviewId !== 'string' ||
-      !m.webviewId.trim()
+      m.webviewId.trim().length === 0
     ) {
       return undefined;
     }
     return {
       kind: 'replyResult',
-      callId: m.callId.trim(),
+      callId: m.callId,
       attemptId: m.attemptId,
       ok: m.ok,
-      companionKey: m.companionKey.trim(),
-      session: m.session.trim(),
+      companionKey: m.companionKey,
+      session: m.session,
       generation: m.generation,
-      webviewId: m.webviewId.trim(),
+      webviewId: m.webviewId,
       error: typeof m.error === 'string' ? m.error : undefined,
       text: typeof m.text === 'string' ? m.text : undefined,
     };
@@ -559,6 +581,7 @@ export interface WebviewInputAdapter {
     companionKey: string;
     session: string;
     creationTaskId?: string;
+    webviewId?: string;
   }): void;
   send(): void;
   submitChoice(callId: string, option: string): boolean;
@@ -596,6 +619,8 @@ export function createWebviewInputAdapter(
   let currentSession = '';
   let currentGeneration: number | undefined = undefined;
   let currentWebviewId = '';
+  let creationSeq = 0;
+  let activeCreationTaskId: string | null = null;
 
   function clearAutoCompletion(): void {
     suggestCtrl.invalidate();
@@ -664,6 +689,7 @@ export function createWebviewInputAdapter(
         activeAsk: activeAsk as unknown as AskEvent | null,
         generation,
         webviewId: currentWebviewId,
+        creationTaskId: (prevSess === '' && activeCreationTaskId) ? activeCreationTaskId : undefined,
       });
       if (res.enterAnswerMode) {
         applyAnswerModeUI(res.label, res.nextInputText);
@@ -677,16 +703,37 @@ export function createWebviewInputAdapter(
     companionKey: string;
     session: string;
     creationTaskId?: string;
+    webviewId?: string;
   }): void {
+    if (!payload.creationTaskId) return;
     answerState.bindUnconfirmedSession(
       payload.companionKey,
       payload.session,
-      payload.creationTaskId
+      payload.creationTaskId,
+      payload.webviewId || currentWebviewId
     );
+    if (activeCreationTaskId === payload.creationTaskId) {
+      activeCreationTaskId = null;
+    }
     if (
       currentCompanionKey === payload.companionKey &&
-      currentSession === payload.session
+      currentSession === ''
     ) {
+      currentSession = payload.session;
+      const pendingQ = answerState.getPendingQuestion();
+      const activeAskEvent = pendingQ ? { kind: 'question' as const, callId: pendingQ } : null;
+      answerState.switchContext(currentCompanionKey, currentSession, {
+        currentInputText: say.value,
+        activeAsk: activeAskEvent,
+        webviewId: currentWebviewId,
+      });
+    }
+    const isCurrent =
+      currentCompanionKey === payload.companionKey &&
+      currentSession === payload.session;
+    const isGeneralMode =
+      !answerState.getPendingQuestion() && (!replyModeEl || replyModeEl.hidden);
+    if (isCurrent && isGeneralMode) {
       const draft = answerState.getGeneralDraft(
         payload.companionKey,
         payload.session
@@ -730,10 +777,21 @@ export function createWebviewInputAdapter(
         applyGeneralModeUI(res.nextInputText);
       }
     } else {
+      let creationTaskId: string | undefined = undefined;
+      if (!currentSession) {
+        creationTaskId = 'create-' + (++creationSeq);
+        activeCreationTaskId = creationTaskId;
+        answerState.registerCreationTask(
+          currentCompanionKey,
+          creationTaskId,
+          currentWebviewId,
+          ''
+        );
+      }
       const res = answerState.submitSay(t);
       if (!res.ok) return;
       clearAutoCompletion();
-      actions.say(res.text ?? t);
+      actions.say(res.text ?? t, creationTaskId);
       say.value = res.nextInputText ?? '';
     }
     if (hintEl) hintEl.textContent = '';
@@ -783,6 +841,9 @@ export function createWebviewInputAdapter(
     const lead = text || '';
     say.value = lead + say.value;
     answerState.onInputChange(say.value);
+    if (activeCreationTaskId && !currentSession) {
+      answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, say.value);
+    }
     say.focus();
     say.setSelectionRange(lead.length, lead.length);
   }
@@ -843,6 +904,9 @@ export function createWebviewInputAdapter(
       e.preventDefault();
       say.value += suggestion;
       answerState.onInputChange(say.value);
+      if (activeCreationTaskId && !currentSession) {
+        answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, say.value);
+      }
       clearAutoCompletion();
     }
   };
@@ -851,6 +915,9 @@ export function createWebviewInputAdapter(
     if (hintEl) hintEl.textContent = '';
     const v = say.value;
     const target = answerState.onInputChange(v).target;
+    if (activeCreationTaskId && !currentSession) {
+      answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, v);
+    }
     suggestCtrl.scheduleInput({
       text: v,
       target,

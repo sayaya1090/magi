@@ -482,6 +482,87 @@ test('Chat §4.5 Item 3: session-new 성공 시 sessionCreated 이벤트 발행 
   assert.equal(sessionCreatedMsg.session, 'sess-new-42');
   assert.equal(sessionCreatedMsg.companionKey, '/workspace');
   assert.ok(sessionCreatedMsg.creationTaskId, 'creationTaskId must be provided');
+  assert.equal(sessionCreatedMsg.webviewId, 'view-1');
+});
+
+test('Chat §4.5 Item 2: 끝 공백을 가진 companionKey(/workspace/dir )로 rows -> reply -> 호스트 RPC -> replyResult 원본 왕복 검증', async () => {
+  const workdirWithSpace = '/workspace/dir ';
+  const sessionWithSpace = 'sess-trailing ';
+  const callIdWithSpace = 'q-trailing ';
+
+  const companion = createMockCompanion();
+  companion.workdir = workdirWithSpace;
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const mockView = createMockWebviewView();
+  (chat as any).openStream = async () => {};
+  chat.resolveWebviewView(mockView.view as any);
+  chat.showSession(sessionWithSpace);
+
+  // reply 전송 (식별자에 끝 공백 포함)
+  await chat.fromView({
+    kind: 'reply',
+    callId: callIdWithSpace,
+    text: '답변 내용',
+    attemptId: 10,
+    companionKey: workdirWithSpace,
+    session: sessionWithSpace,
+    generation: 1,
+    webviewId: 'view-1',
+  }, 'view-1');
+
+  // 1. 호스트 RPC 1회 호출 검증
+  const answerCalls = companion.calls.filter((c) => c.door === 'answer');
+  assert.equal(answerCalls.length, 1, 'trailing whitespace in companionKey must not block RPC');
+  assert.equal(answerCalls[0].payload.session, sessionWithSpace);
+  assert.equal(answerCalls[0].payload.callId, callIdWithSpace);
+  assert.equal(answerCalls[0].payload.answer, '답변 내용');
+
+  // 2. replyResult에 원래 companionKey, session, callId가 원본 그대로 반환되는지 검증
+  const replyResultMsg = mockView.messages.find((m: any) => m.kind === 'replyResult');
+  assert.ok(replyResultMsg, 'replyResult must be posted');
+  assert.equal(replyResultMsg.ok, true);
+  assert.equal(replyResultMsg.companionKey, workdirWithSpace, 'original companionKey with trailing space must be preserved');
+  assert.equal(replyResultMsg.session, sessionWithSpace, 'original session must be preserved');
+  assert.equal(replyResultMsg.callId, callIdWithSpace, 'original callId must be preserved');
+  assert.equal(replyResultMsg.webviewId, 'view-1');
+});
+
+test('Chat §4.5 Item 1: V1 session-new 대기 중 V2 전환 시 V1 sessionCreated 차단 검증', async () => {
+  const companion = createMockCompanion();
+  let resolveSessionNew!: (val: any) => void;
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'session-new') {
+      return new Promise((res) => { resolveSessionNew = res; });
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).openStream = async () => {};
+
+  // 1. V1 연결 및 생성 시작
+  const mockV1 = createMockWebviewView();
+  chat.resolveWebviewView(mockV1.view as any); // currentWebviewId = 'view-1'
+  const sayPromise = chat.fromView({ kind: 'say', text: 'V1 작업 시작', creationTaskId: 'create-v1' }, 'view-1');
+
+  // 2. 생성이 대기 중인 상태에서 V2 연결 (웹뷰 재생성)
+  const mockV2 = createMockWebviewView();
+  chat.resolveWebviewView(mockV2.view as any); // currentWebviewId = 'view-2'
+
+  // 3. 이제 V1의 session-new가 성공 응답을 수신
+  resolveSessionNew({ session: 'sess-new-for-v1' });
+  await sayPromise;
+
+  // 4. V2에는 V1의 sessionCreated가 유출되지 않아야 함 (§4.5 Item 1)
+  const v2SessionCreated = mockV2.messages.filter((m: any) => m.kind === 'sessionCreated');
+  assert.equal(v2SessionCreated.length, 0, 'sessionCreated from old view must not be posted to new view');
+
+  // 5. V1에도 view 교체로 인해 전달되지 않음
+  const v1SessionCreated = mockV1.messages.filter((m: any) => m.kind === 'sessionCreated');
+  assert.equal(v1SessionCreated.length, 0, 'sessionCreated must not be posted to replaced view');
 });
 
 

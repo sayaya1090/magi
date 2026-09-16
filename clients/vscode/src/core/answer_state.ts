@@ -108,6 +108,14 @@ export interface ReplyResultOutcome {
   session?: string;
 }
 
+export interface CreationTaskInfo {
+  companionKey: string;
+  creationTaskId: string;
+  webviewId?: string;
+  draft: string;
+  status: 'pending' | 'completed' | 'failed';
+}
+
 export interface AnswerStateManager {
   getState(companionKey?: string, sessionId?: string): AnswerStateSnapshot;
   getPendingQuestion(companionKey?: string, sessionId?: string): string | null;
@@ -123,10 +131,31 @@ export interface AnswerStateManager {
     sessionId: string,
     options?: ContextSwitchOptions
   ): ContextSwitchResult;
+  registerCreationTask(
+    companionKey: string,
+    creationTaskId: string,
+    webviewId?: string,
+    draft?: string
+  ): boolean;
+  updateCreationTaskDraft(
+    companionKey: string,
+    creationTaskId: string,
+    draft: string
+  ): boolean;
+  getCreationTask(
+    companionKey: string,
+    creationTaskId: string
+  ): CreationTaskInfo | undefined;
+  failCreationTask(
+    companionKey: string,
+    creationTaskId: string,
+    error?: string
+  ): boolean;
   bindUnconfirmedSession(
     companionKey: string,
     newSessionId: string,
-    creationTaskId?: string
+    creationTaskId?: string,
+    webviewId?: string
   ): boolean;
   enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult;
   exitAnswerMode(currentInputText?: string): ModeChangeResult;
@@ -154,7 +183,7 @@ function makeContextKey(companionKey: string, sessionId: string): string {
 
 export function createAnswerState(): AnswerStateManager {
   const contexts = new Map<string, SessionDraftState>();
-  const unconfirmedDrafts = new Map<string, string>();
+  const creationTasks = new Map<string, CreationTaskInfo>();
   const attemptToContext = new Map<number, {
     companionKey: string;
     sessionId: string;
@@ -168,8 +197,75 @@ export function createAnswerState(): AnswerStateManager {
   let currentWebviewId = '';
   let replyAttemptSeq = 0;
 
-  function makeUnconfirmedKey(companionKey: string, creationTaskId?: string): string {
+  function makeTaskKey(companionKey: string, creationTaskId: string): string {
     return JSON.stringify([companionKey || '', creationTaskId || '']);
+  }
+
+  function registerCreationTask(
+    companionKey: string,
+    creationTaskId: string,
+    webviewId?: string,
+    draft?: string
+  ): boolean {
+    if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
+      return false;
+    }
+    const key = makeTaskKey(companionKey, creationTaskId);
+    if (creationTasks.has(key)) {
+      return false;
+    }
+    creationTasks.set(key, {
+      companionKey: companionKey || '',
+      creationTaskId,
+      webviewId,
+      draft: draft ?? '',
+      status: 'pending',
+    });
+    return true;
+  }
+
+  function updateCreationTaskDraft(
+    companionKey: string,
+    creationTaskId: string,
+    draft: string
+  ): boolean {
+    if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
+      return false;
+    }
+    const key = makeTaskKey(companionKey, creationTaskId);
+    const task = creationTasks.get(key);
+    if (!task || task.status !== 'pending') {
+      return false;
+    }
+    task.draft = draft;
+    return true;
+  }
+
+  function getCreationTask(
+    companionKey: string,
+    creationTaskId: string
+  ): CreationTaskInfo | undefined {
+    const key = makeTaskKey(companionKey, creationTaskId);
+    const task = creationTasks.get(key);
+    if (!task) return undefined;
+    return { ...task };
+  }
+
+  function failCreationTask(
+    companionKey: string,
+    creationTaskId: string,
+    _error?: string
+  ): boolean {
+    if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
+      return false;
+    }
+    const key = makeTaskKey(companionKey, creationTaskId);
+    const task = creationTasks.get(key);
+    if (!task || task.status !== 'pending') {
+      return false;
+    }
+    task.status = 'failed';
+    return true;
   }
 
   function getSessionState(companionKey: string, sessionId: string): SessionDraftState {
@@ -311,7 +407,19 @@ export function createAnswerState(): AnswerStateManager {
       } else {
         oldState.generalDraft = currentText;
         if (prevSess === '' && options?.creationTaskId) {
-          unconfirmedDrafts.set(makeUnconfirmedKey(currentCompanionKey, options.creationTaskId), currentText);
+          const key = makeTaskKey(currentCompanionKey, options.creationTaskId);
+          const task = creationTasks.get(key);
+          if (task && task.status === 'pending') {
+            task.draft = currentText;
+          } else if (!task) {
+            creationTasks.set(key, {
+              companionKey: currentCompanionKey,
+              creationTaskId: options.creationTaskId,
+              webviewId: options.webviewId || currentWebviewId,
+              draft: currentText,
+              status: 'pending',
+            });
+          }
         }
       }
     }
@@ -458,35 +566,38 @@ export function createAnswerState(): AnswerStateManager {
   function bindUnconfirmedSession(
     companionKey: string,
     newSessionId: string,
-    creationTaskId?: string
+    creationTaskId?: string,
+    webviewId?: string
   ): boolean {
+    if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
+      return false;
+    }
     const compKey = companionKey || '';
     const newSess = newSessionId || '';
-    if (!newSess) return false;
+    if (!newSess.trim()) return false;
 
-    const taskKey = makeUnconfirmedKey(compKey, creationTaskId);
-    let draft = unconfirmedDrafts.get(taskKey);
-    let fromTask = Boolean(draft);
-    if (!draft) {
-      const unconfirmedState = contexts.get(makeContextKey(compKey, ''));
-      if (unconfirmedState && unconfirmedState.generalDraft) {
-        draft = unconfirmedState.generalDraft;
-      }
+    const taskKey = makeTaskKey(compKey, creationTaskId);
+    const task = creationTasks.get(taskKey);
+    if (!task) {
+      return false;
     }
-    if (!draft) return false;
-
-    const targetState = getSessionState(compKey, newSess);
-    // 대상에 이미 초안이 있다면 덮어쓰거나 합치지 않고 임시 초안을 유지 (§4.5 Item 3)
-    if (targetState.generalDraft) {
+    if (task.status !== 'pending') {
+      return false;
+    }
+    if (webviewId && task.webviewId && task.webviewId !== webviewId) {
       return false;
     }
 
-    targetState.generalDraft = draft;
-    if (fromTask) {
-      unconfirmedDrafts.delete(taskKey);
+    const targetState = getSessionState(compKey, newSess);
+    if (targetState.generalDraft && targetState.generalDraft.length > 0) {
+      return false;
     }
+
+    targetState.generalDraft = task.draft;
+    task.status = 'completed';
+
     const emptyState = contexts.get(makeContextKey(compKey, ''));
-    if (emptyState && emptyState.generalDraft === draft) {
+    if (emptyState && emptyState.generalDraft === task.draft) {
       emptyState.generalDraft = '';
     }
     return true;
@@ -663,6 +774,10 @@ export function createAnswerState(): AnswerStateManager {
     getFailedDrafts,
     getCurrentContext,
     switchContext,
+    registerCreationTask,
+    updateCreationTaskDraft,
+    getCreationTask,
+    failCreationTask,
     bindUnconfirmedSession,
     enterAnswerMode,
     exitAnswerMode,
