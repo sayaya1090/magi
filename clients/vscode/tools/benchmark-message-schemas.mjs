@@ -1,408 +1,77 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 
-const require = createRequire(path.resolve('clients/vscode/package.json'));
-const esbuild = require('esbuild');
-const v = require('valibot');
+// Resolve paths based on import.meta.url (cwd-independent)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const vscodeRoot = path.resolve(__dirname, '..');
+const packageJsonPath = path.join(vscodeRoot, 'package.json');
+const req = createRequire(packageJsonPath);
 
-let z;
-try {
-  z = require('zod').z;
-} catch {
-  // Zod is an optional benchmark comparison target.
-}
+const esbuild = req('esbuild');
+const v = req('valibot');
 
-// ── 1. Reference hand-written parsers (commit 98a733aa) ──
-
-function legacyParseSay(m) {
-  if (typeof m.text !== 'string') return undefined;
-  let creationTaskId;
-  if (m.creationTaskId !== undefined) {
-    if (typeof m.creationTaskId !== 'string' || m.creationTaskId.trim().length === 0) {
-      return undefined;
+function getPackageVersion(packageName) {
+  try {
+    const entry = req.resolve(packageName);
+    let cur = path.dirname(entry);
+    while (cur && cur !== path.dirname(cur)) {
+      const candidate = path.join(cur, 'package.json');
+      if (fs.existsSync(candidate)) {
+        const pkg = JSON.parse(fs.readFileSync(candidate, 'utf8'));
+        if (pkg.name === packageName) return pkg.version;
+      }
+      cur = path.dirname(cur);
     }
-    creationTaskId = m.creationTaskId;
+  } catch {
+    // not found
   }
-  return creationTaskId !== undefined
-    ? { kind: 'say', text: m.text, creationTaskId }
-    : { kind: 'say', text: m.text };
+  return null;
 }
 
-function legacyParseReply(m) {
-  if (
-    typeof m.callId !== 'string' ||
-    m.callId.trim().length === 0 ||
-    typeof m.text !== 'string' ||
-    typeof m.attemptId !== 'number' ||
-    !Number.isInteger(m.attemptId) ||
-    m.attemptId <= 0 ||
-    typeof m.companionKey !== 'string' ||
-    m.companionKey.trim().length === 0 ||
-    typeof m.session !== 'string' ||
-    m.session.trim().length === 0 ||
-    typeof m.generation !== 'number' ||
-    !Number.isInteger(m.generation) ||
-    m.generation < 0 ||
-    typeof m.webviewId !== 'string' ||
-    m.webviewId.trim().length === 0
-  ) {
-    return undefined;
+const valibotVersion = getPackageVersion('valibot') || 'unknown';
+const zodVersion = getPackageVersion('zod');
+
+let z = null;
+if (zodVersion) {
+  try {
+    z = req('zod').z;
+  } catch {
+    z = null;
   }
-  return {
-    kind: 'reply',
-    callId: m.callId,
-    text: m.text,
-    attemptId: m.attemptId,
-    companionKey: m.companionKey,
-    session: m.session,
-    generation: m.generation,
-    webviewId: m.webviewId,
-  };
 }
 
-function legacyParseOpen(m) {
-  if (
-    typeof m.session !== 'string' ||
-    m.session.trim().length === 0 ||
-    typeof m.callId !== 'string' ||
-    m.callId.trim().length === 0
-  ) {
-    return undefined;
-  }
-  return {
-    kind: 'open',
-    session: m.session,
-    callId: m.callId,
-    seq: typeof m.seq === 'number' ? m.seq : undefined,
-  };
+// ── 1. Reusing compiled parsers ──
+// Ensure out/ exists (user must run build prior to benchmark)
+const legacyParserPath = path.join(vscodeRoot, 'out', 'test', 'support', 'legacy_protocol_parser.js');
+const productParserPath = path.join(vscodeRoot, 'out', 'core', 'webview_protocol.js');
+
+if (!fs.existsSync(legacyParserPath) || !fs.existsSync(productParserPath)) {
+  console.error('Error: compiled parsers not found. Please run "npm run build --prefix clients/vscode" first.');
+  process.exit(1);
 }
 
-function legacyParseRows(m) {
-  if (!Array.isArray(m.rows)) return undefined;
-  if (typeof m.session !== 'string') return undefined;
-  if (!Array.isArray(m.refs) || !m.refs.every((r) => typeof r === 'string')) return undefined;
+const { legacyParseWebviewToHostMessage } = req(legacyParserPath);
+const { parseWebviewToHostMessage } = req(productParserPath);
 
-  const rows = [];
-  for (const r of m.rows) {
-    if (!r || typeof r !== 'object') return undefined;
-    const rowObj = r;
-    if (
-      typeof rowObj.who !== 'string' ||
-      typeof rowObj.label !== 'string' ||
-      typeof rowObj.text !== 'string' ||
-      (rowObj.outputId !== undefined && typeof rowObj.outputId !== 'string')
-    ) {
-      return undefined;
-    }
-    rows.push(r);
-  }
-
-  let ask = null;
-  if (m.ask !== undefined && m.ask !== null) {
-    if (typeof m.ask !== 'object' || Array.isArray(m.ask)) return undefined;
-    const askObj = m.ask;
-    if (typeof askObj.callId !== 'string' || !askObj.callId) return undefined;
-    if (typeof askObj.what !== 'string') return undefined;
-    if (askObj.kind !== 'permission' && askObj.kind !== 'question') return undefined;
-    if (
-      askObj.options !== undefined &&
-      (!Array.isArray(askObj.options) || !askObj.options.every((o) => typeof o === 'string'))
-    ) {
-      return undefined;
-    }
-    if (
-      askObj.report !== undefined &&
-      (!Array.isArray(askObj.report) ||
-        !askObj.report.every(
-          (item) =>
-            item &&
-            typeof item === 'object' &&
-            typeof item.key === 'string' &&
-            typeof item.text === 'string'
-        ))
-    ) {
-      return undefined;
-    }
-    if (askObj.args !== undefined && typeof askObj.args !== 'string') return undefined;
-    if (askObj.reason !== undefined && typeof askObj.reason !== 'string') return undefined;
-    if (askObj.diff !== undefined && typeof askObj.diff !== 'string') return undefined;
-    if (
-      askObj.diffKind !== undefined &&
-      askObj.diffKind !== 'sides' &&
-      askObj.diffKind !== 'patch' &&
-      askObj.diffKind !== 'none'
-    ) {
-      return undefined;
-    }
-    if (askObj.filePath !== undefined && typeof askObj.filePath !== 'string') return undefined;
-    if (askObj.index !== undefined && typeof askObj.index !== 'number') return undefined;
-    if (askObj.total !== undefined && typeof askObj.total !== 'number') return undefined;
-    if (askObj.since !== undefined && typeof askObj.since !== 'string') return undefined;
-    ask = m.ask;
-  }
-
-  const rowsMsg = {
-    kind: 'rows',
-    session: m.session,
-    rows,
-    ask,
-    refs: m.refs,
-  };
-  if (typeof m.companionKey === 'string') rowsMsg.companionKey = m.companionKey;
-  if (typeof m.generation === 'number') rowsMsg.generation = m.generation;
-  if (typeof m.webviewId === 'string') rowsMsg.webviewId = m.webviewId;
-  return rowsMsg;
+console.log('================================================================');
+console.log(' Message Schema Benchmark & Parity Verification');
+console.log('================================================================');
+console.log(` Valibot (installed) : ${valibotVersion}`);
+if (zodVersion) {
+  console.log(` Zod (installed)     : ${zodVersion}`);
+} else {
+  console.log(` Zod (installed)     : not installed (skipped in this run)`);
 }
+console.log(` Target scope        : representative subset (say, reply, open)`);
+console.log(` Legacy baseline     : commit 98a733aa (src/test/support/legacy_protocol_parser.ts)`);
+console.log(` Product parser      : compiled out/core/webview_protocol.js`);
+console.log('================================================================\n');
 
-function legacyParseReplyResult(m) {
-  if (
-    typeof m.callId !== 'string' ||
-    m.callId.trim().length === 0 ||
-    typeof m.attemptId !== 'number' ||
-    !Number.isInteger(m.attemptId) ||
-    m.attemptId <= 0 ||
-    typeof m.ok !== 'boolean' ||
-    typeof m.companionKey !== 'string' ||
-    m.companionKey.trim().length === 0 ||
-    typeof m.session !== 'string' ||
-    m.session.trim().length === 0 ||
-    typeof m.generation !== 'number' ||
-    !Number.isInteger(m.generation) ||
-    m.generation < 0 ||
-    typeof m.webviewId !== 'string' ||
-    m.webviewId.trim().length === 0
-  ) {
-    return undefined;
-  }
-  return {
-    kind: 'replyResult',
-    callId: m.callId,
-    attemptId: m.attemptId,
-    ok: m.ok,
-    companionKey: m.companionKey,
-    session: m.session,
-    generation: m.generation,
-    webviewId: m.webviewId,
-    error: typeof m.error === 'string' ? m.error : undefined,
-    text: typeof m.text === 'string' ? m.text : undefined,
-  };
-}
-
-// ── 2. Valibot Schemas (v1.5.0) ──
-
-const NonEmptyStringV = v.pipe(
-  v.string(),
-  v.check((s) => s.trim().length > 0)
-);
-
-const PositiveIntegerV = v.pipe(
-  v.number(),
-  v.integer(),
-  v.minValue(1)
-);
-
-const NonNegativeIntegerV = v.pipe(
-  v.number(),
-  v.integer(),
-  v.minValue(0)
-);
-
-const SaySchemaV = v.object({
-  kind: v.literal('say'),
-  text: v.string(),
-  creationTaskId: v.optional(NonEmptyStringV),
-});
-
-const ReplySchemaV = v.object({
-  kind: v.literal('reply'),
-  callId: NonEmptyStringV,
-  text: v.string(),
-  attemptId: PositiveIntegerV,
-  companionKey: NonEmptyStringV,
-  session: NonEmptyStringV,
-  generation: NonNegativeIntegerV,
-  webviewId: NonEmptyStringV,
-});
-
-const OpenSchemaV = v.object({
-  kind: v.literal('open'),
-  session: NonEmptyStringV,
-  callId: NonEmptyStringV,
-  seq: v.optional(v.custom((_val) => true)),
-});
-
-const PaintedRowSchemaV = v.object({
-  who: v.string(),
-  label: v.string(),
-  text: v.string(),
-  outputId: v.optional(v.string()),
-});
-
-const AskReportItemSchemaV = v.object({
-  key: v.string(),
-  text: v.string(),
-});
-
-const AskSchemaV = v.object({
-  callId: v.pipe(v.string(), v.check((s) => s.length > 0)),
-  what: v.string(),
-  kind: v.union([v.literal('permission'), v.literal('question')]),
-  options: v.optional(v.array(v.string())),
-  report: v.optional(v.array(AskReportItemSchemaV)),
-  args: v.optional(v.string()),
-  reason: v.optional(v.string()),
-  diff: v.optional(v.string()),
-  diffKind: v.optional(v.union([v.literal('sides'), v.literal('patch'), v.literal('none')])),
-  filePath: v.optional(v.string()),
-  index: v.optional(v.number()),
-  total: v.optional(v.number()),
-  since: v.optional(v.string()),
-});
-
-const RowsSchemaV = v.object({
-  kind: v.literal('rows'),
-  session: v.string(),
-  rows: v.array(PaintedRowSchemaV),
-  ask: v.nullable(AskSchemaV),
-  refs: v.array(v.string()),
-  companionKey: v.optional(v.string()),
-  generation: v.optional(v.number()),
-  webviewId: v.optional(v.string()),
-});
-
-const ReplyResultSchemaV = v.object({
-  kind: v.literal('replyResult'),
-  callId: NonEmptyStringV,
-  attemptId: PositiveIntegerV,
-  ok: v.boolean(),
-  companionKey: NonEmptyStringV,
-  session: NonEmptyStringV,
-  generation: NonNegativeIntegerV,
-  webviewId: NonEmptyStringV,
-  error: v.optional(v.string()),
-  text: v.optional(v.string()),
-});
-
-function valibotParse(schema, raw) {
-  const res = v.safeParse(schema, raw);
-  if (!res.success) return undefined;
-  const out = res.output;
-  if (out.kind === 'open') {
-    return {
-      kind: 'open',
-      session: out.session,
-      callId: out.callId,
-      seq: typeof out.seq === 'number' ? out.seq : undefined,
-    };
-  }
-  return out;
-}
-
-// ── 3. Zod Schemas (Optional Comparison) ──
-
-let zodParse = null;
-let SaySchemaZ, ReplySchemaZ, OpenSchemaZ, RowsSchemaZ, ReplyResultSchemaZ;
-
-if (z) {
-  const NonEmptyStringZ = z.string().refine((s) => s.trim().length > 0);
-  const PositiveIntegerZ = z.number().int().min(1);
-  const NonNegativeIntegerZ = z.number().int().min(0);
-
-  SaySchemaZ = z.object({
-    kind: z.literal('say'),
-    text: z.string(),
-    creationTaskId: NonEmptyStringZ.optional(),
-  });
-
-  ReplySchemaZ = z.object({
-    kind: z.literal('reply'),
-    callId: NonEmptyStringZ,
-    text: z.string(),
-    attemptId: PositiveIntegerZ,
-    companionKey: NonEmptyStringZ,
-    session: NonEmptyStringZ,
-    generation: NonNegativeIntegerZ,
-    webviewId: NonEmptyStringZ,
-  });
-
-  OpenSchemaZ = z.object({
-    kind: z.literal('open'),
-    session: NonEmptyStringZ,
-    callId: NonEmptyStringZ,
-    seq: z.any().optional(),
-  });
-
-  const PaintedRowSchemaZ = z.object({
-    who: z.string(),
-    label: z.string(),
-    text: z.string(),
-    outputId: z.string().optional(),
-  });
-
-  const AskReportItemSchemaZ = z.object({
-    key: z.string(),
-    text: z.string(),
-  });
-
-  const AskSchemaZ = z.object({
-    callId: z.string().min(1),
-    what: z.string(),
-    kind: z.union([z.literal('permission'), z.literal('question')]),
-    options: z.array(z.string()).optional(),
-    report: z.array(AskReportItemSchemaZ).optional(),
-    args: z.string().optional(),
-    reason: z.string().optional(),
-    diff: z.string().optional(),
-    diffKind: z.union([z.literal('sides'), z.literal('patch'), z.literal('none')]).optional(),
-    filePath: z.string().optional(),
-    index: z.number().optional(),
-    total: z.number().optional(),
-    since: z.string().optional(),
-  });
-
-  RowsSchemaZ = z.object({
-    kind: z.literal('rows'),
-    session: z.string(),
-    rows: z.array(PaintedRowSchemaZ),
-    ask: AskSchemaZ.nullable(),
-    refs: z.array(z.string()),
-    companionKey: z.string().optional(),
-    generation: z.number().optional(),
-    webviewId: z.string().optional(),
-  });
-
-  ReplyResultSchemaZ = z.object({
-    kind: z.literal('replyResult'),
-    callId: NonEmptyStringZ,
-    attemptId: PositiveIntegerZ,
-    ok: z.boolean(),
-    companionKey: NonEmptyStringZ,
-    session: NonEmptyStringZ,
-    generation: NonNegativeIntegerZ,
-    webviewId: NonEmptyStringZ,
-    error: z.string().optional(),
-    text: z.string().optional(),
-  });
-
-  zodParse = function (schema, raw) {
-    const res = schema.safeParse(raw);
-    if (!res.success) return undefined;
-    const out = res.data;
-    if (out.kind === 'open') {
-      return {
-        kind: 'open',
-        session: out.session,
-        callId: out.callId,
-        seq: typeof out.seq === 'number' ? out.seq : undefined,
-      };
-    }
-    return out;
-  };
-}
-
-// ── 4. Test Cases for Representative Messages ──
+// ── 2. Test Cases for Representative Messages ──
 
 const testCases = {
   say: [
@@ -523,19 +192,6 @@ const testCases = {
       },
     },
     {
-      name: 'invalid generation float',
-      raw: {
-        kind: 'reply',
-        callId: 'c',
-        text: 't',
-        attemptId: 1,
-        companionKey: 'k',
-        session: 's',
-        generation: 0.5,
-        webviewId: 'w',
-      },
-    },
-    {
       name: 'invalid missing session',
       raw: {
         kind: 'reply',
@@ -554,170 +210,59 @@ const testCases = {
     { name: 'valid preserves padded identifiers', raw: { kind: 'open', session: '  s1  ', callId: '  c1  ' } },
     { name: 'invalid empty callId', raw: { kind: 'open', session: 's1', callId: '' } },
     { name: 'invalid whitespace session', raw: { kind: 'open', session: '   ', callId: 'c1' } },
-    { name: 'valid non-numeric seq falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: '12' } },
-    { name: 'valid null seq falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: null } },
-  ],
-  rows: [
-    {
-      name: 'valid minimal rows',
-      raw: {
-        kind: 'rows',
-        session: 's1',
-        rows: [{ who: 'user', label: 'You', text: 'hi' }],
-        ask: null,
-        refs: ['file.ts'],
-      },
-    },
-    {
-      name: 'valid with ask and options',
-      raw: {
-        kind: 'rows',
-        session: 's1',
-        rows: [],
-        ask: {
-          callId: 'c1',
-          what: 'Choose',
-          kind: 'question',
-          options: ['a', 'b'],
-        },
-        refs: [],
-        companionKey: 'k1',
-        generation: 1,
-        webviewId: 'w1',
-      },
-    },
-    {
-      name: 'invalid rows non-array',
-      raw: { kind: 'rows', session: 's1', rows: 'not-an-array', ask: null, refs: [] },
-    },
-    {
-      name: 'invalid refs element non-string',
-      raw: { kind: 'rows', session: 's1', rows: [], ask: null, refs: [123] },
-    },
-    {
-      name: 'invalid ask missing callId',
-      raw: { kind: 'rows', session: 's1', rows: [], ask: { what: 'test', kind: 'question' }, refs: [] },
-    },
-  ],
-  replyResult: [
-    {
-      name: 'valid success',
-      raw: {
-        kind: 'replyResult',
-        callId: 'c1',
-        attemptId: 1,
-        ok: true,
-        companionKey: 'k1',
-        session: 's1',
-        generation: 0,
-        webviewId: 'w1',
-      },
-    },
-    {
-      name: 'valid with error and text',
-      raw: {
-        kind: 'replyResult',
-        callId: 'c1',
-        attemptId: 2,
-        ok: false,
-        companionKey: 'k1',
-        session: 's1',
-        generation: 1,
-        webviewId: 'w1',
-        error: 'Timeout',
-        text: 'Draft text',
-      },
-    },
-    {
-      name: 'invalid ok non-boolean',
-      raw: {
-        kind: 'replyResult',
-        callId: 'c1',
-        attemptId: 1,
-        ok: 'true',
-        companionKey: 'k1',
-        session: 's1',
-        generation: 0,
-        webviewId: 'w1',
-      },
-    },
+    { name: 'valid non-numeric seq string falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: '12' } },
+    { name: 'valid non-numeric seq null falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: null } },
+    { name: 'valid non-numeric seq object falls back to undefined', raw: { kind: 'open', session: 's1', callId: 'c1', seq: {} } },
+    { name: 'valid numeric NaN preserved as number', raw: { kind: 'open', session: 's1', callId: 'c1', seq: NaN }, isNaN: true },
+    { name: 'valid numeric Infinity preserved', raw: { kind: 'open', session: 's1', callId: 'c1', seq: Infinity } },
   ],
 };
 
-// ── 5. Run Parity Verification ──
+// ── 3. Run Parity Verification ──
 
-console.log('=== 1. PARITY VERIFICATION (Legacy vs Valibot' + (z ? ' vs Zod' : '') + ') ===\n');
-
-const currentParsers = {
-  say: legacyParseSay,
-  reply: legacyParseReply,
-  open: legacyParseOpen,
-  rows: legacyParseRows,
-  replyResult: legacyParseReplyResult,
-};
-
-const valibotSchemas = {
-  say: SaySchemaV,
-  reply: ReplySchemaV,
-  open: OpenSchemaV,
-  rows: RowsSchemaV,
-  replyResult: ReplyResultSchemaV,
-};
+console.log('=== 1. PARITY VERIFICATION (Product vs Legacy Baseline) ===\n');
 
 let valibotMismatches = 0;
-let zodMismatches = 0;
 
 for (const [kind, cases] of Object.entries(testCases)) {
   console.log(`Checking [${kind}] (${cases.length} cases)...`);
-  const curP = currentParsers[kind];
-  const vSchema = valibotSchemas[kind];
-
   for (const tc of cases) {
-    const curRes = curP(tc.raw);
-    const vRes = valibotParse(vSchema, tc.raw);
+    const legacyRes = legacyParseWebviewToHostMessage(tc.raw);
+    const productRes = parseWebviewToHostMessage(tc.raw);
 
-    const vMatch = (curRes === undefined && vRes === undefined) ||
-      (JSON.stringify(curRes) === JSON.stringify(vRes));
-    if (!vMatch) {
-      console.log(`  [Valibot MISMATCH] ${tc.name}`);
-      console.log(`    Expected:`, curRes);
-      console.log(`    Actual:  `, vRes);
-      valibotMismatches++;
+    let match = false;
+    if (tc.isNaN) {
+      match = productRes !== undefined &&
+        legacyRes !== undefined &&
+        productRes.kind === 'open' &&
+        legacyRes.kind === 'open' &&
+        typeof productRes.seq === 'number' &&
+        Number.isNaN(productRes.seq) &&
+        typeof legacyRes.seq === 'number' &&
+        Number.isNaN(legacyRes.seq);
+    } else {
+      match = (legacyRes === undefined && productRes === undefined) ||
+        (JSON.stringify(legacyRes) === JSON.stringify(productRes));
     }
 
-    if (z && zodParse) {
-      const zSchema = {
-        say: SaySchemaZ,
-        reply: ReplySchemaZ,
-        open: OpenSchemaZ,
-        rows: RowsSchemaZ,
-        replyResult: ReplyResultSchemaZ,
-      }[kind];
-      const zRes = zodParse(zSchema, tc.raw);
-      const zMatch = (curRes === undefined && zRes === undefined) ||
-        (JSON.stringify(curRes) === JSON.stringify(zRes));
-      if (!zMatch) {
-        console.log(`  [Zod MISMATCH] ${tc.name}`);
-        console.log(`    Expected:`, curRes);
-        console.log(`    Actual:  `, zRes);
-        zodMismatches++;
-      }
+    if (!match) {
+      console.log(`  [Valibot MISMATCH] ${tc.name}`);
+      console.log(`    Expected:`, legacyRes);
+      console.log(`    Actual:  `, productRes);
+      valibotMismatches++;
     }
   }
 }
 
-console.log(`\nParity result:`);
-console.log(`  Valibot mismatches: ${valibotMismatches}`);
-if (z) {
-  console.log(`  Zod mismatches:     ${zodMismatches}`);
-} else {
-  console.log(`  Zod:                not installed (skipped)`);
-}
+console.log(`\nParity result: ${valibotMismatches} mismatches found against legacy parser.\n`);
 
-// ── 6. Benchmark Parsing Performance ──
+// ── 4. Benchmark Parsing Performance (Accurate message counting) ──
 
-console.log('\n=== 2. PARSING PERFORMANCE (10,000 runs) ===');
+console.log('=== 2. PARSING PERFORMANCE ===');
 const ITER = 10000;
+const PARSES_PER_ITER = 2; // sampleSay + sampleReply
+const TOTAL_PARSES = ITER * PARSES_PER_ITER;
+
 const sampleSay = { kind: 'say', text: 'Hello, world!', creationTaskId: 'task-123' };
 const sampleReply = {
   kind: 'reply',
@@ -730,43 +275,61 @@ const sampleReply = {
   webviewId: 'wv-001',
 };
 
-// Hand-written legacy
+// Hand-written legacy parser
 let t0 = performance.now();
 for (let i = 0; i < ITER; i++) {
-  legacyParseSay(sampleSay);
-  legacyParseReply(sampleReply);
+  legacyParseWebviewToHostMessage(sampleSay);
+  legacyParseWebviewToHostMessage(sampleReply);
 }
-const curTime = performance.now() - t0;
+const legacyTime = performance.now() - t0;
 
-// Valibot
+// Compiled product parser (Valibot)
 t0 = performance.now();
 for (let i = 0; i < ITER; i++) {
-  valibotParse(SaySchemaV, sampleSay);
-  valibotParse(ReplySchemaV, sampleReply);
+  parseWebviewToHostMessage(sampleSay);
+  parseWebviewToHostMessage(sampleReply);
 }
-const vTime = performance.now() - t0;
+const productTime = performance.now() - t0;
 
-console.log(`  Hand-written parser  : ${curTime.toFixed(2)} ms`);
-console.log(`  Valibot (v1.5.0)     : ${vTime.toFixed(2)} ms (${(vTime / curTime).toFixed(1)}x hand-written)`);
+console.log(`  Iterations           : ${ITER.toLocaleString()} (${TOTAL_PARSES.toLocaleString()} total message parses)`);
+console.log(`  Legacy parser (hand) : ${legacyTime.toFixed(2)} ms (avg ${(legacyTime / TOTAL_PARSES * 1000).toFixed(2)} µs/msg)`);
+console.log(`  Product parser (v${valibotVersion}): ${productTime.toFixed(2)} ms (avg ${(productTime / TOTAL_PARSES * 1000).toFixed(2)} µs/msg, ${(productTime / legacyTime).toFixed(1)}x baseline)`);
 
-if (z && zodParse) {
+if (z) {
+  const NonEmptyStringZ = z.string().refine((s) => s.trim().length > 0);
+  const PositiveIntZ = z.number().int().min(1);
+  const NonNegIntZ = z.number().int().min(0);
+  const SaySchemaZ = z.object({ kind: z.literal('say'), text: z.string(), creationTaskId: NonEmptyStringZ.optional() });
+  const ReplySchemaZ = z.object({
+    kind: z.literal('reply'),
+    callId: NonEmptyStringZ,
+    text: z.string(),
+    attemptId: PositiveIntZ,
+    companionKey: NonEmptyStringZ,
+    session: NonEmptyStringZ,
+    generation: NonNegIntZ,
+    webviewId: NonEmptyStringZ,
+  });
+
   t0 = performance.now();
   for (let i = 0; i < ITER; i++) {
-    zodParse(SaySchemaZ, sampleSay);
-    zodParse(ReplySchemaZ, sampleReply);
+    SaySchemaZ.safeParse(sampleSay);
+    ReplySchemaZ.safeParse(sampleReply);
   }
-  const zTime = performance.now() - t0;
-  console.log(`  Zod                  : ${zTime.toFixed(2)} ms (${(zTime / curTime).toFixed(1)}x hand-written)`);
+  const zodTime = performance.now() - t0;
+  console.log(`  Zod (v${zodVersion})        : ${zodTime.toFixed(2)} ms (avg ${(zodTime / TOTAL_PARSES * 1000).toFixed(2)} µs/msg, ${(zodTime / legacyTime).toFixed(1)}x baseline)`);
+} else {
+  console.log(`  Zod                  : not installed (skipped in this run)`);
 }
 
-// ── 7. Bundle Size Measurement ──
+// ── 5. Bundle Size Measurement in Unique Temporary Directory ──
 
-console.log('\n=== 3. BUNDLE SIZE MEASUREMENT (esbuild tree-shaking) ===');
+console.log('\n=== 3. BUNDLE SIZE MEASUREMENT (esbuild CJS tree-shaking) ===');
 
-const tmpDir = path.join(process.cwd(), 'clients', 'vscode', 'out', 'benchmark_tmp');
-fs.mkdirSync(tmpDir, { recursive: true });
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'magi_bench_'));
 
-const valibotEntry = `
+try {
+  const valibotEntry = `
 import * as v from 'valibot';
 const NonEmptyStringV = v.pipe(v.string(), v.check((s) => s.trim().length > 0));
 const PositiveIntV = v.pipe(v.number(), v.integer(), v.minValue(1));
@@ -782,7 +345,12 @@ const ReplySchema = v.object({
   generation: NonNegIntV,
   webviewId: NonEmptyStringV,
 });
-const OpenSchema = v.object({ kind: v.literal('open'), session: NonEmptyStringV, callId: NonEmptyStringV, seq: v.optional(v.custom(() => true)) });
+const OpenSchema = v.object({
+  kind: v.literal('open'),
+  session: NonEmptyStringV,
+  callId: NonEmptyStringV,
+  seq: v.optional(v.pipe(v.unknown(), v.transform((val) => typeof val === 'number' ? val : undefined))),
+});
 const WebviewToHostSchema = v.union([SaySchema, ReplySchema, OpenSchema]);
 export function parse(raw) {
   const res = v.safeParse(WebviewToHostSchema, raw);
@@ -790,30 +358,33 @@ export function parse(raw) {
 }
 `;
 
-const vFile = path.join(tmpDir, 'valibot_entry.js');
-fs.writeFileSync(vFile, valibotEntry);
+  const vFile = path.join(tmpDir, 'valibot_entry.js');
+  fs.writeFileSync(vFile, valibotEntry);
 
-function measureBundle(entryPath, minify = false) {
-  const res = esbuild.buildSync({
-    entryPoints: [entryPath],
-    bundle: true,
-    format: 'cjs',
-    minify,
-    write: false,
-    nodePaths: [path.join(process.cwd(), 'clients', 'vscode', 'node_modules')],
-  });
-  return res.outputFiles[0].contents.length;
-}
+  const extraNodePaths = (process.env.NODE_PATH || '').split(path.delimiter).filter(Boolean);
+  const nodePaths = [path.join(vscodeRoot, 'node_modules'), ...extraNodePaths];
 
-const vRawSize = measureBundle(vFile, false);
-const vMinSize = measureBundle(vFile, true);
+  function measureBundle(entryPath, minify = false) {
+    const res = esbuild.buildSync({
+      entryPoints: [entryPath],
+      bundle: true,
+      format: 'cjs',
+      minify,
+      write: false,
+      nodePaths,
+    });
+    return res.outputFiles[0].contents.length;
+  }
 
-console.log(`  Valibot (v1.5.0):`);
-console.log(`    Unminified bundle : ${vRawSize.toLocaleString()} bytes (${(vRawSize / 1024).toFixed(2)} KB)`);
-console.log(`    Minified bundle   : ${vMinSize.toLocaleString()} bytes (${(vMinSize / 1024).toFixed(2)} KB)`);
+  const vRawSize = measureBundle(vFile, false);
+  const vMinSize = measureBundle(vFile, true);
 
-if (z) {
-  const zodEntry = `
+  console.log(`  Valibot (v${valibotVersion}):`);
+  console.log(`    Unminified bundle : ${vRawSize.toLocaleString()} bytes (${(vRawSize / 1024).toFixed(2)} KB)`);
+  console.log(`    Minified bundle   : ${vMinSize.toLocaleString()} bytes (${(vMinSize / 1024).toFixed(2)} KB)`);
+
+  if (zodVersion) {
+    const zodEntry = `
 import { z } from 'zod';
 const NonEmptyStringZ = z.string().refine((s) => s.trim().length > 0);
 const PositiveIntZ = z.number().int().min(1);
@@ -836,22 +407,21 @@ export function parse(raw) {
   return res.success ? res.data : undefined;
 }
 `;
-  const zFile = path.join(tmpDir, 'zod_entry.js');
-  fs.writeFileSync(zFile, zodEntry);
-
-  const zRawSize = measureBundle(zFile, false);
-  const zMinSize = measureBundle(zFile, true);
-
-  console.log(`  Zod (v4.6.5):`);
-  console.log(`    Unminified bundle : ${zRawSize.toLocaleString()} bytes (${(zRawSize / 1024).toFixed(2)} KB)`);
-  console.log(`    Minified bundle   : ${zMinSize.toLocaleString()} bytes (${(zMinSize / 1024).toFixed(2)} KB)`);
-  console.log(`  Difference: Zod is +${((zMinSize - vMinSize) / 1024).toFixed(2)} KB larger (${(zMinSize / vMinSize).toFixed(1)}x)`);
-}
-
-// Clean up temp
-try {
+    const zFile = path.join(tmpDir, 'zod_entry.js');
+    fs.writeFileSync(zFile, zodEntry);
+    const zRawSize = measureBundle(zFile, false);
+    const zMinSize = measureBundle(zFile, true);
+    console.log(`  Zod (v${zodVersion}):`);
+    console.log(`    Unminified bundle : ${zRawSize.toLocaleString()} bytes (${(zRawSize / 1024).toFixed(2)} KB)`);
+    console.log(`    Minified bundle   : ${zMinSize.toLocaleString()} bytes (${(zMinSize / 1024).toFixed(2)} KB)`);
+    console.log(`  Difference: Zod is +${((zMinSize - vMinSize) / 1024).toFixed(2)} KB larger (${(zMinSize / vMinSize).toFixed(1)}x)`);
+  } else {
+    console.log(`  Zod                  : skipped (not installed in this workspace; reference measurement: minified ~443 KB)`);
+  }
+} finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-} catch {
-  // ignore
 }
-console.log('\n=== DONE ===\n');
+
+console.log('\n================================================================');
+console.log(' Benchmark Completed Successfully');
+console.log('================================================================\n');

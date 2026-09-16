@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TestScheduler } from 'rxjs/testing';
 
-import { parseWebviewToHostMessage, WebviewToHostMessage } from '../core/webview_protocol';
+import * as v from 'valibot';
+import { parseWebviewToHostMessage, WebviewToHostMessage, OpenMessageSchema } from '../core/webview_protocol';
 import { legacyParseWebviewToHostMessage } from './support/legacy_protocol_parser';
 import { resolveAndOpenFile } from '../core/nav';
 import { AskStore } from '../core/diff';
@@ -799,6 +800,72 @@ test('§5.8.3: Malformed inbound messages to host or webview do not throw, corru
       assert.equal(result, undefined, `Malformed payload must be rejected: ${JSON.stringify(bad)}`);
     }
   }
+});
+
+test('§5.8.3 Item 1: OpenMessageSchema direct safeParse and parseWebviewToHostMessage both adhere to non-number fallback and number preservation contract', () => {
+  const cases: { inputSeq: unknown; expectedSeq: unknown; isNaN?: boolean }[] = [
+    { inputSeq: '12', expectedSeq: undefined },
+    { inputSeq: null, expectedSeq: undefined },
+    { inputSeq: 'forty-two', expectedSeq: undefined },
+    { inputSeq: {}, expectedSeq: undefined },
+    { inputSeq: [], expectedSeq: undefined },
+    { inputSeq: true, expectedSeq: undefined },
+    { inputSeq: false, expectedSeq: undefined },
+    { inputSeq: undefined, expectedSeq: undefined },
+    { inputSeq: 42, expectedSeq: 42 },
+    { inputSeq: 0, expectedSeq: 0 },
+    { inputSeq: -5, expectedSeq: -5 },
+    { inputSeq: 3.14, expectedSeq: 3.14 },
+    { inputSeq: NaN, expectedSeq: NaN, isNaN: true },
+    { inputSeq: Infinity, expectedSeq: Infinity },
+    { inputSeq: -Infinity, expectedSeq: -Infinity },
+  ];
+
+  for (const c of cases) {
+    const rawWithSeq = { kind: 'open', session: 's1', callId: 'c1', seq: c.inputSeq };
+
+    // 1. Direct schema safeParse
+    const schemaRes = v.safeParse(OpenMessageSchema, rawWithSeq);
+    assert.equal(schemaRes.success, true, `Schema parse must succeed for seq: ${String(c.inputSeq)}`);
+    if (schemaRes.success) {
+      assert.equal(schemaRes.output.kind, 'open');
+      assert.equal(schemaRes.output.session, 's1');
+      assert.equal(schemaRes.output.callId, 'c1');
+      if (c.isNaN) {
+        assert.equal(typeof schemaRes.output.seq, 'number');
+        assert.ok(Number.isNaN(schemaRes.output.seq), 'NaN must be preserved as NaN number');
+      } else {
+        assert.equal(schemaRes.output.seq, c.expectedSeq);
+      }
+    }
+
+    // 2. Public parseWebviewToHostMessage
+    const parsed = parseWebviewToHostMessage(rawWithSeq);
+    assert.ok(parsed, `Public parser must return message for seq: ${String(c.inputSeq)}`);
+    assert.equal(parsed.kind, 'open');
+    assert.equal(parsed.session, 's1');
+    assert.equal(parsed.callId, 'c1');
+    assert.ok(Object.prototype.hasOwnProperty.call(parsed, 'seq'), 'Explicit seq property must exist on return object');
+    if (c.isNaN) {
+      assert.equal(typeof parsed.seq, 'number');
+      assert.ok(Number.isNaN(parsed.seq), 'NaN must be preserved as NaN number');
+    } else {
+      assert.equal(parsed.seq, c.expectedSeq);
+    }
+  }
+
+  // Also verify omitted seq in direct schema and public parser
+  const omitted = { kind: 'open', session: 's1', callId: 'c1' };
+  const schemaOmitted = v.safeParse(OpenMessageSchema, omitted);
+  assert.equal(schemaOmitted.success, true);
+  if (schemaOmitted.success) {
+    assert.equal(schemaOmitted.output.seq, undefined);
+  }
+  const parsedOmitted = parseWebviewToHostMessage(omitted);
+  assert.ok(parsedOmitted);
+  assert.equal(parsedOmitted.kind, 'open');
+  assert.ok(Object.prototype.hasOwnProperty.call(parsedOmitted, 'seq'), 'Omitted seq must preserve explicit seq: undefined property');
+  assert.equal(parsedOmitted.seq, undefined);
 });
 
 test('§5.8.3 Item 3: Strict 100% deep equality parity against legacy parser (commit 98a733aa) across normal, edge, and invalid inputs', () => {

@@ -836,25 +836,35 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 6. **§5.8.3 Valibot 스키마 기반 메시지 검증 전환 (Valibot Schema-Based Protocol Validation):**
    - **A. Valibot vs Zod 비교 측정 및 재현 경로 (`tools/benchmark-message-schemas.mjs`):**
-     - 대표 5종 메시지(`say`, `reply`, `open`, `rows`, `replyResult`) 및 30여 개 대표 픽스처를 통해 구형 손코딩 파서와의 동등성(Parity), 번들 크기, 파싱 성능을 실측 비교했습니다.
-     - **재현 경로:** `node clients/vscode/tools/benchmark-message-schemas.mjs` (Node.js v24, esbuild v0.28.2, CJS 번들 및 minification 측정).
+     - 대표 3종 메시지(`say`, `reply`, `open`)의 30여 개 대표 픽스처를 통해 구형 손코딩 파서와의 동등성(Parity), 번들 크기, 파싱 성능을 실측 비교했습니다.
+     - **실행 버전 동적 감지:** 실행 시점의 패키지 `package.json` 메타데이터로부터 실제 설치된 버전(Valibot v1.5.0)을 동적으로 읽어오며, Zod 미설치 환경에서는 Zod 측정을 안전하게 스킵하고 안내합니다.
+     - **Zod 비교 격리 재현 절차 (제품 의존성 미오염):**
+       ```sh
+       TMP_ZOD=$(mktemp -d)
+       npm install --prefix "$TMP_ZOD" zod@4.6.5
+       NODE_PATH="$TMP_ZOD/node_modules" node clients/vscode/tools/benchmark-message-schemas.mjs
+       rm -rf "$TMP_ZOD"
+       ```
      - **스키마 엔트리 번들 크기 (esbuild CJS 번들링 실측):**
-       - Valibot (v1.5.0): Unminified 13.52 KB (13,848 bytes), Minified **5.84 KB** (5,979 bytes).
-       - Zod (v4.6.5): Unminified 738.90 KB (756,635 bytes), Minified **443.26 KB** (453,895 bytes).
-       - 단일 스키마 진입점을 CJS로 독립 번들링할 때, Valibot은 함수형 모듈러 아키텍처 덕분에 필요한 검증 함수만 포함되어 **5.84 KB**로 번들링되는 반면, Zod는 코어 클래스 및 내부 모듈 의존성으로 인해 해당 엔트리에서 **443.26 KB**의 산출물을 형성했습니다.
-     - **파싱 성능 (10,000회 연속 실행 실측):**
-       - 수동 손코딩 파서: ~0.94 ms – 1.04 ms
-       - Valibot: ~6.54 ms – 10.69 ms
-       - Zod: ~5.85 ms
-       - 10,000회 실행 기준 Valibot과 Zod 모두 1회 파싱당 약 0.0006 ms – 0.001 ms 수준이며, 웹뷰 사용자의 상호작용 및 IPC 메시지 수신 빈도에 비추어 볼 때 실질적인 지연 영향은 미미합니다.
+       - Valibot (v1.5.0): Unminified 13.81 KB (14,137 bytes), Minified **5.94 KB** (6,084 bytes).
+       - Zod (v4.6.5): Unminified 745.33 KB (763,216 bytes), Minified **443.25 KB** (453,892 bytes).
+       - 단일 스키마 진입점을 CJS로 독립 번들링할 때, Valibot은 함수형 모듈러 아키텍처 덕분에 필요한 검증 함수만 포함되어 **5.94 KB**로 번들링되는 반면, Zod는 코어 클래스 및 내부 모듈 의존성으로 인해 해당 엔트리에서 **443.25 KB**의 산출물을 형성했습니다.
+     - **파싱 성능 (10,000회 루프 = 총 20,000회 메시지 파싱 실측):**
+       - 10,000회 루프에서 say와 reply를 각각 실행하므로 총 20,000회 메시지 파싱 기준입니다.
+       - 수동 손코딩 구형 파서: ~1.03 ms – 1.20 ms (메시지당 평균 ~0.05 µs – 0.06 µs)
+       - Valibot (v1.5.0): ~26.32 ms – 34.95 ms (메시지당 평균 ~1.32 µs – 1.75 µs)
+       - Zod (v4.6.5): ~6.45 ms (메시지당 평균 ~0.32 µs)
+       - 웹뷰 사용자의 상호작용 및 IPC 메시지 수신 빈도에 비추어 볼 때 메시지당 1 µs 안팎의 파싱 비용은 실질적인 사용자 체감 지연에 영향을 주지 않습니다.
      - **채택 근거:** VSIX 무의존성(`--no-dependencies`) 배포 환경에서 호스트 인라인 번들 크기를 최소화하기 위해 경량 모듈러 구조를 갖춘 **Valibot**을 채택했습니다.
    - **B. 1차 구현 범위 및 입력 계약 보완 (웹뷰 → 호스트 메시지):**
-     - `src/core/webview_protocol.ts`의 12대 `WebviewToHostMessage`(`ready`, `start`, `drop`, `say`, `run`, `diff`, `open`, `output`, `answer`, `reply`, `mention`, `suggest`)를 Valibot 스키마로 선언하고, `export type WebviewToHostMessage = v.InferOutput<typeof WebviewToHostMessageSchema>;`로 타입을 직접 추론하도록 일원화했습니다. 기존 120여 줄의 수동 파싱 로직을 전량 대체했습니다.
+     - `src/core/webview_protocol.ts`의 12대 `WebviewToHostMessage`(`ready`, `start`, `drop`, `say`, `run`, `diff`, `open`, `output`, `answer`, `reply`, `mention`, `suggest`)를 Valibot 스키마로 선언하고, `export type WebviewToHostMessage = v.InferOutput<typeof WebviewToHostMessageSchema>;`로 타입을 직접 추론하도록 일원화했습니다.
      - 외부 진입 함수 `parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | undefined` 계약을 엄격히 유지하여, 잘못된 입력에 대해 예외 투척이나 호스트/웹뷰 상태 오염 없이 안전하게 `undefined`를 반환합니다.
      - `trim`/`coerce`를 통한 입력 변형을 일체 배제하고, `v.check((s) => s.trim().length > 0)`를 사용하여 원문 식별자(`callId`, `companionKey`, `session`, `webviewId`)의 공백을 변형 없이 그대로 전달합니다.
-     - **`open.seq` 비숫자 폴백 계약 복원 (P2 회귀 해결):**
-       - 구형 파서는 `{kind:'open', session:'s', callId:'c', seq:'12'}` 또는 `seq:null` 수신 시 요청 전체를 거절하지 않고 `seq: undefined`로 폴백하면서 객체에 명시적 `seq` 키를 유지했습니다.
-       - 이를 위해 `OpenMessageSchema`에서 `seq: v.optional(v.custom<number>((_val) => true))`로 스키마를 유연하게 수용하고, `parseWebviewToHostMessage` 반환부에서 `seq: typeof out.seq === 'number' ? out.seq : undefined`로 정규화하여 문자열의 숫자 강제 변환 없이 기존 폴백 계약을 완벽히 복원했습니다.
+     - **`open.seq` 스키마 출력과 추론 타입 일치 (`seq: number | undefined`):**
+       - `OpenMessageSchema`에서 `seq: v.optional(v.pipe(v.unknown(), v.transform((val) => typeof val === 'number' ? val : undefined)))`로 명시적 변환 스키마를 선언했습니다.
+       - 이를 통해 스키마의 `InferOutput` 타입이 `number | undefined`로 정확히 추론되며, `v.safeParse(OpenMessageSchema, ...)`를 직접 호출하더라도 문자열(`'12'`), null, 객체 등 비숫자 입력이 `seq: undefined`로 안전하게 변환됩니다.
+       - `typeof val === 'number'`이므로 유한수, 소수, 음수뿐 아니라 `NaN`, `Infinity`, `-Infinity` 등 유효한 number 타입은 `undefined`로 바꾸지 않고 원값을 그대로 보존합니다 (`NaN`은 number 타입 보존이며 비숫자 폴백과 구분).
+       - 공개 파서 `parseWebviewToHostMessage` 반환부에서도 `seq: typeof out.seq === 'number' ? out.seq : undefined`로 정규화하여, `seq` 생략 시에도 반환 객체에 명시적 `seq: undefined` 키를 보존하는 계약을 유지했습니다.
      - **숫자 필드 경계 동작 보존:**
        - `mention`/`suggest`의 `reqId`는 구형 코드(`typeof m.reqId !== 'number'`)와 동일하게 `typeof input === 'number'` 커스텀 검증기를 적용하여 NaN, Infinity 등 런타임 숫자 동작을 보존했습니다.
        - `reply`의 `attemptId`(양의 정수) 및 `generation`(음이 아닌 정수)의 엄격 검증 계약은 그대로 보존했습니다.

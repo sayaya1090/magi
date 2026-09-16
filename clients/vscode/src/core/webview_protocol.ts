@@ -64,7 +64,12 @@ export const OpenMessageSchema = v.object({
   kind: v.literal('open'),
   session: NonEmptyStringSchema,
   callId: NonEmptyStringSchema,
-  seq: v.optional(v.custom<number>((_val) => true)),
+  seq: v.optional(
+    v.pipe(
+      v.unknown(),
+      v.transform((val) => (typeof val === 'number' ? val : undefined)),
+    ),
+  ),
 });
 
 export const OutputMessageSchema = v.object({
