@@ -418,12 +418,14 @@
     "test": "npm run contract && tsc -p . && node tools/build-webview-assets.mjs && node --test out/test/*.test.js",
     "package": "npm run contract && tsc -p . && node tools/build-webview-assets.mjs && npx --yes @vscode/vsce package --no-dependencies",
     "test:live": "tsc -p . && node tools/build-webview-assets.mjs && node out/live/run.js",
-    "contract": "node -e \"require('fs').copyFileSync('../contract/core-release.properties','core-release.properties')\""
+    "contract": "node -e \"require('fs').copyFileSync('../contract/core-release.properties','core-release.properties'); require('fs').copyFileSync('../../LICENSE','LICENSE')\""
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.106.0",
     "@vscode/test-electron": "^3.1.0",
+    "esbuild": "^0.28.2",
+    "rxjs": "^7.8.2",
     "typescript": "^5.5.0"
   }
 }

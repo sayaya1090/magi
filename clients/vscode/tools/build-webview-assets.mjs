@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,8 +85,25 @@ ${contents['answer_state']}
 })();
 `;
 
-// 5. Construct chat_adapter.bundle.js bundle
-const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js and recovery modules for webview. Do not edit directly.
+// 5. Construct chat_adapter.bundle.js bundle using esbuild (§5.7)
+let bundledCode = '';
+try {
+  const esbuildRes = esbuild.buildSync({
+    entryPoints: [adapterSrc],
+    bundle: true,
+    format: 'iife',
+    globalName: 'MagiAdapter',
+    write: false,
+    nodePaths: [path.join(__dirname, '..', 'node_modules')],
+    logLevel: 'silent',
+  });
+  bundledCode = esbuildRes.outputFiles[0].text;
+} catch (err) {
+  console.error(`esbuild failed to bundle ${adapterSrc}: ${err.message}`);
+  process.exit(1);
+}
+
+const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js and dependencies for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
 var createSuggestController;
@@ -102,61 +120,27 @@ var captureSelection;
 var restoreSelection;
 var restoreFocus;
 var moveDomChild;
+
 (function () {
-  var modules = {};
-  function require(id) {
-    var key = id.replace(/^\\.\\//, '').replace(/\\.js$/, '');
-    if (modules[key]) {
-      return modules[key].exports;
-    }
-    throw new Error('Cannot require ' + id + ' in webview bundle');
-  }
+${bundledCode}
 
-  // 1. dom_interaction
-  var domInteractionMod = { exports: {} };
-  modules['dom_interaction'] = domInteractionMod;
-  (function (module, exports) {
-${contents['dom_interaction']}
-  })(domInteractionMod, domInteractionMod.exports);
-
-  // 2. recovery_view
-  var recoveryViewMod = { exports: {} };
-  modules['recovery_view'] = recoveryViewMod;
-  (function (module, exports) {
-${contents['recovery_view']}
-  })(recoveryViewMod, recoveryViewMod.exports);
-
-  // 3. recovery_controller
-  var recoveryControllerMod = { exports: {} };
-  modules['recovery_controller'] = recoveryControllerMod;
-  (function (module, exports) {
-${contents['recovery_controller']}
-  })(recoveryControllerMod, recoveryControllerMod.exports);
-
-  // 4. chat_adapter
-  var adapterMod = { exports: typeof module !== 'undefined' && module.exports ? module.exports : {} };
-  modules['chat_adapter'] = adapterMod;
-  var exports = adapterMod.exports;
-  (function (module, exports) {
-${contents['chat_adapter']}
-  })(adapterMod, adapterMod.exports);
-
-  createWebviewActionAdapter = exports.createWebviewActionAdapter;
-  createWebviewInputAdapter = exports.createWebviewInputAdapter;
-  createSuggestController = exports.createSuggestController;
-  createWebviewReceiveHandlers = exports.createWebviewReceiveHandlers;
-  parseHostToWebviewMessage = exports.parseHostToWebviewMessage;
-  dispatchHostMessage = exports.dispatchHostMessage;
-  classifyDiffLines = exports.classifyDiffLines;
-  renderMarkdown = exports.renderMarkdown;
-  formatChoiceOptions = exports.formatChoiceOptions;
-  updateInFlightUI = exports.updateInFlightUI;
-  createWebviewRecoveryController = exports.createWebviewRecoveryController;
-  createRecoveryView = exports.createRecoveryView;
-  captureSelection = exports.captureSelection;
-  restoreSelection = exports.restoreSelection;
-  restoreFocus = exports.restoreFocus;
-  moveDomChild = exports.moveDomChild;
+  var exp = typeof MagiAdapter !== 'undefined' ? MagiAdapter : {};
+  createWebviewActionAdapter = exp.createWebviewActionAdapter;
+  createWebviewInputAdapter = exp.createWebviewInputAdapter;
+  createSuggestController = exp.createSuggestController;
+  createWebviewReceiveHandlers = exp.createWebviewReceiveHandlers;
+  parseHostToWebviewMessage = exp.parseHostToWebviewMessage;
+  dispatchHostMessage = exp.dispatchHostMessage;
+  classifyDiffLines = exp.classifyDiffLines;
+  renderMarkdown = exp.renderMarkdown;
+  formatChoiceOptions = exp.formatChoiceOptions;
+  updateInFlightUI = exp.updateInFlightUI;
+  createWebviewRecoveryController = exp.createWebviewRecoveryController;
+  createRecoveryView = exp.createRecoveryView;
+  captureSelection = exp.captureSelection;
+  restoreSelection = exp.restoreSelection;
+  restoreFocus = exp.restoreFocus;
+  moveDomChild = exp.moveDomChild;
 
   if (typeof window !== 'undefined') {
     window.createWebviewActionAdapter = createWebviewActionAdapter;
@@ -196,6 +180,7 @@ ${contents['chat_adapter']}
   }
 })();
 `;
+
 
 // 6. Write both output files together after all inputs are verified and read
 fs.mkdirSync(outDir, { recursive: true });
