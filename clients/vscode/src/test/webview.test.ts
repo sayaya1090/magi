@@ -12,6 +12,11 @@ import {
   createWebviewInputAdapter,
   createSuggestController,
   createWebviewRecoveryController,
+  createRecoveryView,
+  captureSelection,
+  restoreSelection,
+  moveDomChild,
+  restoreFocus,
   classifyDiffLines,
   renderMarkdown,
   WebviewBridge,
@@ -3616,5 +3621,108 @@ test('§4.6: 목록 밖 선택은 갱신 과정에서 지우거나 교체하지 
   h.inputAdapter.dispose();
 });
 
+test('§4.7: recovery_view 직접 호출 - ID 기반 클릭 콜백 및 오래된 본문 캡처 방지 검증', () => {
+  const container = recoveryTestDoc.createElement('div') as unknown as HTMLElement;
+  const calledActions: { action: string; id: string }[] = [];
 
+  const view = createRecoveryView({
+    containerEl: container,
+    document: recoveryTestDoc,
+    callbacks: {
+      onToggleFullText: (id) => calledActions.push({ action: 'toggleFullText', id }),
+      onCopyDraft: (id) => calledActions.push({ action: 'copyDraft', id }),
+      onDeleteItem: (id) => calledActions.push({ action: 'deleteItem', id }),
+      onConfirmAppend: (id) => calledActions.push({ action: 'confirmAppend', id }),
+      onCancelConfirm: (id) => calledActions.push({ action: 'cancelConfirm', id }),
+    },
+  });
+
+  const mockItem = {
+    recoveryId: 'rec-test-1',
+    scopeKey: 'test-key',
+    kind: 'reply_failed' as const,
+    companionKey: 'comp-1',
+    sessionId: 'sess-1',
+    text: 'INITIAL_TEXT',
+    attempts: 1,
+    firstFailedAt: Date.now(),
+    lastFailedAt: Date.now(),
+    createdAt: Date.now(),
+    seq: 1,
+    title: 'Test Title',
+    reason: 'Test Reason',
+  };
+
+  // Render 1 item with open fulltext and pending confirm
+  view.render([mockItem], {
+    openFullTexts: new Set(['rec-test-1']),
+    pendingConfirmId: 'rec-test-1',
+    isComposing: false,
+  });
+
+  const itemEl = (container as unknown as RecoveryTestDomNode).querySelector('.recovery-item') as RecoveryTestDomNode;
+  assert.ok(itemEl);
+  assert.equal(itemEl.dataset.recoveryId, 'rec-test-1');
+  assert.equal(itemEl.querySelector('.recovery-title')?.textContent, 'Test Title');
+  assert.equal(itemEl.querySelector('.recovery-reason')?.textContent, 'Test Reason');
+  assert.equal(itemEl.querySelector('.recovery-full-text')?.textContent, 'INITIAL_TEXT');
+
+  // Click buttons: callbacks must receive recoveryId without stale text closures
+  (itemEl.querySelector('.fulltext-btn') as RecoveryTestDomNode).click();
+  (itemEl.querySelector('.copy-btn') as RecoveryTestDomNode).click();
+  (itemEl.querySelector('.confirm-append-btn') as RecoveryTestDomNode).click();
+  (itemEl.querySelector('.confirm-cancel-btn') as RecoveryTestDomNode).click();
+  (itemEl.querySelector('.delete-btn') as RecoveryTestDomNode).click();
+
+  assert.deepEqual(calledActions, [
+    { action: 'toggleFullText', id: 'rec-test-1' },
+    { action: 'copyDraft', id: 'rec-test-1' },
+    { action: 'confirmAppend', id: 'rec-test-1' },
+    { action: 'cancelConfirm', id: 'rec-test-1' },
+    { action: 'deleteItem', id: 'rec-test-1' },
+  ]);
+
+  view.clear();
+  assert.equal(container.children.length, 0);
+});
+
+test('§4.7: dom_interaction 직접 호출 - moveDomChild 및 captureSelection/restoreSelection 경계 검증', () => {
+  const container = recoveryTestDoc.createElement('div') as unknown as HTMLElement;
+  const childA = recoveryTestDoc.createElement('div') as unknown as HTMLElement;
+  childA.textContent = 'NodeA';
+  const childB = recoveryTestDoc.createElement('div') as unknown as HTMLElement;
+  childB.textContent = 'NodeB';
+  container.append(childA, childB);
+
+  // 1. moveDomChild moves childB before childA
+  moveDomChild(container, childB, childA);
+  assert.equal(container.children[0], childB);
+  assert.equal(container.children[1], childA);
+
+  // 2. captureSelection returns null when selection is outside container
+  const outside = recoveryTestDoc.createElement('div');
+  outside.textContent = 'Outside';
+  recoveryTestDoc.body.appendChild(outside);
+  recoveryTestDoc.defaultView.getSelection().setBaseAndExtent(outside.firstChild || outside, 0, outside.firstChild || outside, 3);
+
+  const captured = captureSelection(container, recoveryTestDoc);
+  assert.equal(captured, null, 'captureSelection must ignore selections outside container');
+
+  // 3. restoreSelection safely handles null
+  restoreSelection(null, container, recoveryTestDoc);
+
+  // 4. restoreFocus calls focus on target with preventScroll
+  let focusCalled = false;
+  let preventScrollOption = false;
+  childA.focus = (opt?: any) => {
+    focusCalled = true;
+    if (opt?.preventScroll) preventScrollOption = true;
+  };
+  restoreFocus(childA, recoveryTestDoc);
+  assert.ok(focusCalled);
+  assert.ok(preventScrollOption);
+
+  outside.remove();
+  (container as unknown as RecoveryTestDomNode).remove();
+});
 

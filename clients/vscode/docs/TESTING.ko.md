@@ -446,6 +446,33 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail).
    - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
 
+---
+
+### §4.7 복구 UI 책임 분리 리팩터링
+
+1. **파일별 책임 분리:**
+   - `web/dom_interaction.ts`: 포커스·선택 캡처 및 복원(`captureSelection`, `restoreSelection`, `restoreFocus`), 상태 보존 노드 이동(`moveDomChild`). DOM 전용 보조 함수로서 복구 자료 구조체나 세션·전송 정책을 일체 알지 못하며 순수 DOM 계약만을 보장합니다.
+   - `web/recovery_view.ts`: `recoveryId`별 DOM 노드 인스턴스 관리, 필드 갱신, 순서 정렬, 항목 제거(`createRecoveryView`, `RenderedItemEntry`). 상태 모듈 대신 표시할 항목(`RecoveryItem[]`)과 조작 콜백(`RecoveryViewCallbacks`)을 주입받으며, 모든 클릭 콜백은 `recoveryId`만을 전달하여 렌더 시점의 오래된 텍스트 클로저 캡처를 원천 방지합니다.
+   - `web/recovery_controller.ts`: `createWebviewRecoveryController` 및 패널 상태, 스코프 필터, 이어 붙이기 확인(`pendingConfirmId`), IME 조합 감지(`isComposing`), 복사/삭제 조작 소유. 복구 자료 자체는 기존 `core/recovery_state`(`AnswerStateManager`)만 소유하며, 에디터 조작은 `RecoveryInputTarget` 인터페이스로 주입받아 순환 의존을 배제합니다.
+   - `web/chat_adapter.ts`: 기존 생성 함수 및 타입들을 re-export하여 외부 호출부 및 하위 호환을 100% 유지하며, 수신 핸들러와의 배선만 간결하게 유지합니다. 새 모듈들이 `chat_adapter`를 런타임 import하지 않도록 단방향 의존성을 엄격히 준수합니다.
+
+2. **브라우저 번들 연결 (`tools/build-webview-assets.mjs`):**
+   - 기존 배포 산출물 `answer_state.js`, `chat_adapter.bundle.js` 및 전역 export 이름을 유지합니다.
+   - 새 복구 모듈들(`dom_interaction`, `recovery_view`, `recovery_controller`, `chat_adapter`)을 `chat_adapter.bundle.js` 내부에 모듈 테이블 및 내부 `require` 레지스트리로 결합하여 웹뷰 `<script>` 태그나 추가 자산 라우트 증설 없이 브라우저 환경에서 CommonJS `require` 부재 오류를 원천 차단했습니다.
+   - 필수 입력 파일 누락 시 빌드 단계에서 경로 및 재빌드 안내를 출력하고 즉시 실패하도록 강제했습니다.
+   - Node export와 브라우저 전역 export(`window.*`)가 100% 동일한 구현을 공유합니다.
+
+3. **단위 테스트 파이프라인 (`webview.test.ts` 2개 시나리오 추가):**
+   - `§4.7: recovery_view 직접 호출 - ID 기반 클릭 콜백 및 오래된 본문 캡처 방지 검증`: 모의 컨테이너에 직접 뷰를 렌더링하고 버튼 클릭 시 `recoveryId`가 인자로 전달됨과 DOM 요소 생성을 검증.
+   - `§4.7: dom_interaction 직접 호출 - moveDomChild 및 captureSelection/restoreSelection 경계 검증`: DOM 이동 fallback 분기, 컨테이너 외부 선택 무시, 포커스 옵션 전달 검증.
+
+4. **검증 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공 (contract 복사, TypeScript 컴파일, 웹뷰 통합 번들 생성 완료).
+   - **단위 테스트 (`npm test`):** 총 462개 테스트 전수 통과 (455 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** 4개 번들 27개 시나리오 정방향, 역방향(`--reverse`), 자산 사전 검증(`--verify-assets`) 100% 전수 통과 (0 fail, 브라우저 콘솔 pageerror 및 require 미정의 0건).
+   - **미검증 범위 (Unverified Scope):** OS 수준 그래픽 합성 및 OS 네이티브 한글/다국어 IME 이벤트(Windows/macOS OS IME)는 Chromium 가상 이벤트로 대체 검증되었으며 **실제 OS IME는 미검증** 상태입니다. 인메모리 세션 수명 규칙에 따라 파일 시스템 디스크 영구 저장은 본 범위에 포함되지 않습니다.
+
+
 
 
 
