@@ -118,6 +118,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 작업 초안 인메모리 복구 모델, 등록·중복합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** 검증 통과한 `replyResult`의 `ok=false` 시 저장된 `inFlight.text` 등록, 빈 문자열 거절 및 공백/개행 원문 보존, HTML 특수문자 보존, 동일 세션·질문·원문의 반복 실패 중복 합산 및 횟수·최신 오류 갱신, 소비된 이벤트 재유입 무시, 명시적 삭제 후 재등록 방지 및 새 실패 시 새 ID 발급, `sessionCreationFailed` 및 `conflict=true` 생성 작업 초안의 복구 저장소 등록, 일반 초안 비어 있을 때 복사 및 비어 있지 않을 때 `G + "\n\n" + text` 결합 적용, 확인 취소 시 상태 보존, 타 세션 이동/삭제 시 복사 취소 등을 순수 모델 수준에서 전수 검증합니다 |
 | `webview.test.ts` (복구 목록 UI 제어 및 DOM 동기화) | **실패 답변·생성 초안 복구 웹뷰 UI 제어기 및 이벤트 동기화 검증 (§4.6).** `#recovery-btn` 뱃지 수와 패널 토글, 전체 컴패니언 범위 필터(`recoveryScopeAll`), 전문 보기/접기 토글 및 XSS 방어(원문 `textContent` 무변형 보존), 빈 일반 초안 복사 시 원문 복원·답변 모드 해제 및 호스트 `postMessage` 미발생(0건) 보장, 비어 있지 않은 일반 초안 시 인라인 확인 상자 노출·취소 시 상태 보존·이어 붙이기 확인 시 `G + "\n\n" + text` 결합 및 질문 초안 보존, 조작 중 세션 변경 시 확인 취소 및 오염 차단, 명시적 삭제 클릭 시 항목 제거·뱃지 0·빈 상태 표출, IME 조합 중(`compositionstart`/`compositionend`) 복사·삭제 버튼 비활성화 및 자동 제출 방지, `receiveHandlers`의 `replyResult`(ok=false)·`sessionCreationFailed`·`sessionCreated`(conflict=true) 이벤트 수신 시 복구 목록 자동 갱신을 단위 수준에서 전수 검증합니다 |
 | `build_assets.test.ts` (웹뷰 에셋 번들러 필수 입력 검사 및 입력 실패 시 출력 보존) | **웹뷰 에셋 번들러(`build-webview-assets.mjs`) 필수 입력 검증 및 입력 실패 시 출력 보존 검증 (§4.7 P2).** 6대 필수 입력(`out/core/answer_state.js`, `out/core/recovery_state.js`, `out/web/dom_interaction.js`, `out/web/recovery_view.js`, `out/web/recovery_controller.js`, `out/web/chat_adapter.js`) 중 단 하나라도 누락될 경우 자식 프로세스가 종료 코드 1, 누락 경로 및 재빌드 안내(`Run 'tsc -p .' first.`)를 표준 에러로 출력하고 기존 배포 산출물을 전혀 덮어쓰지 않는지 격리 임시 디렉터리에서 검증합니다. 모든 입력이 존재할 때는 정상 종료(코드 0) 후 생성된 번들에서 `createAnswerState`와 복구 컨트롤러/뷰 export가 온전히 동작함을 샌드박스 실행으로 검증합니다 |
+| `a11y_evaluator.test.ts` (접근성 판정 및 예외 격리) | **axe-core 접근성 감사 결과 판정, incomplete 탐지, 및 엄격한 셀렉터 토큰 예외 매칭 검증 (§5.8).** 가짜 axe 결과(성공 케이스, 새 incomplete 발생 실패 케이스, 허용 예외 매칭 케이스, 허용 외 위반 실패 케이스, 부분 문자열 오탐 방지 케이스)를 입력하여, 예외 밖 위반 및 불완전(incomplete) 항목이 실패로 드러나고 문서화된 정확한 셀렉터 토큰(예: `.ask-status` vs `.ask-status-other`)만 허용되는지 순수 단위 수준에서 전수 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -802,28 +803,44 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - 테마 변수: Dark (`#1e1e1e`), Light (`#ffffff`), High Contrast (`#000000`, 대비 테두리 `#6fc3df`)
      - 총 36회 axe-core 전체 규칙 검사 실행 (6개 상태 × 3개 테마 × 2개 뷰포트).
 
-4. **검사 결과 및 좁은 예외 상세 기록 (Audit Results & Narrow Exception Register):**
+4. **검사 결과 및 허용 예외 0건 달성 (Audit Results & Zero Exceptions):**
    - **구조·마크업·랜드마크·ARIA 규칙 전수 통과:**
-     - `document-title`, `html-has-lang`, `landmark-one-main`, `page-has-heading-one`, `region`, `aria-allowed-role`, `aria-roles`, `button-name`, `color-contrast` (어두움·고대비) 등 전체 36회 실행에서 비-대비 위반 **0건 (100% Pass)**.
+     - `document-title`, `html-has-lang`, `landmark-one-main`, `page-has-heading-one`, `region`, `aria-allowed-role`, `aria-roles`, `button-name` 등 전체 36회 실행에서 비-대비 위반 **0건 (100% Pass)**.
    - **Dark 테마 (12회):** 전 상태 0건 위반 (100% Pass).
    - **High Contrast 테마 (12회):** 전 상태 0건 위반 (100% Pass).
    - **Light 테마 (12회):**
      - State 1 (일반 대화): 0건 위반.
      - State 2 (선택형 질문): 0건 위반.
-     - State 3, 4, 5, 6의 좁은 테마 토큰 예외 (전역 비활성화 없이 타깃 셀렉터 단위로만 허용 및 엄격 단언):
-       - `state_3_answer_mode`: `.reply-tag`, `#reply-target` (`color-contrast`, serious) — IDE 주입 변수 `--vscode-editorWarning-foreground` 및 `--vscode-editorWidget-background` 상의 3.03:1 대비 한계.
-       - `state_4_permission_diff`: `.diff-hunk-header` (`color-contrast`, serious) — 라인 하이라이트 배경 상에서 4.49:1 (WCAG AA 4.5:1 경계).
-       - `state_5_recovery_and_append`: `.recovery-notice`, `.recovery-confirm-msg` (`color-contrast`, serious) — IDE 경고 색상 토큰 의존.
-       - `state_6_inflight_question`: `.ask-status` (`color-contrast`, serious) — IDE 경고 색상 토큰 의존.
-       - **재검토 조건:** 추후 IDE 테마 변수 주입 시 WCAG AA 전용 하이 컨트라스트 토큰 오버라이드가 제공되거나, 사용자 테마 팔레트 설정 기능이 도입될 때 재검토.
-   - **Incomplete 검사:** incomplete 결과 0건 확인 (미판정 규칙을 통과로 묵살하지 않음).
+     - State 3 (답변 모드): `#reply-mode` 및 `.reply-tag` 텍스트 토큰을 `editorWidget-foreground` / `foreground`로 개선하고 좌측 테두리 악센트로 경고 의미를 보존하여 **0건 위반 (예외 없음)**.
+     - State 4 (승인 패널): `.diff-hunk-header` 텍스트 토큰을 `editor-foreground` 및 `font-weight: 600`으로 개선하여 **0건 위반 (예외 없음)**.
+     - State 5 (복구 목록 및 확인): `.recovery-notice` 및 `.recovery-confirm-msg` 텍스트 토큰을 `editor-foreground` 및 좌측 테두리 악센트로 개선하여 **0건 위반 (예외 없음)**.
+     - State 6 (질문 전송 중): `.ask-status` 텍스트 토큰을 `editor-foreground` 및 좌측 테두리 악센트로 개선하여 **0건 위반 (예외 없음)**.
+     - **결과:** 라이트 테마를 포함한 모든 상태에서 임시 허용 예외를 전량 삭제하고 **허용 예외 0건 (`allowedExceptions: []`)**으로 전수 통과를 달성했습니다.
+   - **Incomplete 검사:** incomplete 결과 0건 확인 (미판정 규칙을 통과로 묵살하지 않으며, 신규 incomplete 발생 시 자동 실패 판정).
    - **스크린리더 실물 인수 한계 고지:** axe-core 통과는 마크업 및 표준 WAI-ARIA 구조 무결성을 기계적으로 검증한 것이며, 실제 OS 스크린리더(NVDA, JAWS, VoiceOver) 음성 안내 흐름 및 Windows 네이티브 IME 조합 실물 인수가 완료되었음을 의미하지 않습니다.
 
-5. **파이프라인 통과 현황:**
+5. **§5.8 Item 2 감사 신뢰성 및 테마 잔류 보완:**
+   - **A. 테마 잔류 제거 (`ALL_A11Y_THEME_KEYS` & `removeProperty`):**
+     - 테마 주입기가 소유한 변수 전체의 합집합(`ALL_A11Y_THEME_KEYS`)을 계산하고, 테마 교체 시 이전 변수를 `removeProperty`로 선행 제거한 뒤 새 변수를 주입하도록 개선했습니다.
+     - `a11y_state_7_theme_transition_cleanliness` 테스트를 추가하여 `highContrast -> dark -> light` 및 `highContrast -> light -> dark` 전환 시 고대비 전용 변수(`--vscode-contrastBorder`, `--vscode-button-border`)가 다크/라이트 테마에 잔류하지 않음을 실측 단언했습니다.
+     - CLI `--reverse-themes` 플래그를 추가하여 테마 역순 순회(`highContrast -> light -> dark`)에서도 동일하게 36회 감사가 100% 통과함을 검증했습니다.
+   - **B. 결과 분류와 예외 판정의 독립 모듈화 (`src/core/a11y_evaluator.ts`):**
+     - 순수 결과 판정 헬퍼 `evaluateAxeAudit`와 엄격한 셀렉터 토큰 매처 `matchesTargetSelector`를 분리 구현했습니다.
+     - `node.target` 배열에 대해 정규식 기반 토큰 경계 검사를 수행하여 `.ask-status-other`가 `.ask-status`로 오탐 허용되던 결함을 차단했습니다.
+     - `src/test/a11y_evaluator.test.ts`에 가짜 axe 결과 7개 시나리오(성공, 미허용 위반 실패, 불완전 incomplete 실패, 허용 예외 통과, 부분 문자열 오탐 차단, 테마/상태 제약)를 추가하여 판정 엔진의 신뢰성을 독립 검증했습니다.
+     - 브라우저 하네스 `runA11yStateAudit`도 동일한 `evaluateAxeAudit` 헬퍼를 직접 호출하여 단일 판정 기준을 공유하도록 통합했습니다.
+   - **C. 밝은 테마 텍스트 대비 개선 및 불필요한 예외 전량 삭제 (`src/web/chat_html.ts`):**
+     - 일반 상태/안내 문장(답변 태그, 복구 안내, 확인 문구, 전송 중 문구, diff 구간 제목)의 텍스트 색상을 읽기용 토큰(`editor-foreground`, `foreground`, `editorWidget-foreground`)으로 변경하고, 경고·강조 의미는 문구와 3px 좌측 테두리(`var(--vscode-editorWarning-foreground, #cca700)`)로 전달하도록 재설계했습니다.
+     - 라이트 테마의 모든 텍스트 명도 대비율이 WCAG AA 4.5:1 기준을 대폭 상회(5.5:1 ~ 11:1)하게 됨에 따라 기존 4개 상태의 좁은 임시 예외를 전량 제거했습니다.
+
+6. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
-   - **단위 테스트 (`npm test`):** 총 473개 테스트 전수 통과 (466 pass, 0 fail, 7 skip).
-   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 38개 시나리오(기존 32개 + a11y 6개) 100% 통과 (pageerror 0건).
-   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 233.11 KB, axe-core 미포함 확인).
+   - **단위 테스트 (`npm test`):** 총 480개 테스트 전수 통과 (473 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):**
+     - 정방향: 39개 시나리오(기존 32개 + a11y 7개) 100% 통과 (pageerror 0건).
+     - 번들 역순 (`--reverse`): 39개 시나리오 100% 통과.
+     - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과.
+   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 61개 파일, 234.81 KB, axe-core 미포함 확인).
 
 
 

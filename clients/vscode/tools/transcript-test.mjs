@@ -18,6 +18,8 @@ const execFileAsync = promisify(execFile);
 const require = createRequire(new URL('../../web/e2e/package.json', import.meta.url));
 const { chromium } = require('playwright');
 const { AxeBuilder } = require('@axe-core/playwright');
+const localRequire = createRequire(import.meta.url);
+const { evaluateAxeAudit } = localRequire('../out/core/a11y_evaluator.js');
 
 // Single source of truth for asset routing and URL resolution (§2.1)
 export const TEST_ORIGIN = 'http://magi.test';
@@ -3683,7 +3685,7 @@ const bundles = [
           await page.waitForSelector('.row.agent');
           await runA11yStateAudit(page, {
             stateId: 'state_1_conversation',
-            allowedColorContrastSelectors: [],
+            allowedExceptions: [],
           });
         }
       },
@@ -3706,7 +3708,7 @@ const bundles = [
           await page.waitForSelector('#ask-controls button:text("1. 클러스터 A (서울 리전)")');
           await runA11yStateAudit(page, {
             stateId: 'state_2_multiple_choice',
-            allowedColorContrastSelectors: [],
+            allowedExceptions: [],
           });
         }
       },
@@ -3718,7 +3720,7 @@ const bundles = [
           await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
           await runA11yStateAudit(page, {
             stateId: 'state_3_answer_mode',
-            allowedColorContrastSelectors: ['.reply-tag', '#reply-target'],
+            allowedExceptions: [],
           });
           await page.keyboard.press('Escape');
           await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
@@ -3745,7 +3747,7 @@ const bundles = [
           await page.waitForSelector('#ask-controls .acts button.approval-btn');
           await runA11yStateAudit(page, {
             stateId: 'state_4_permission_diff',
-            allowedColorContrastSelectors: ['.diff-hunk-header'],
+            allowedExceptions: [],
           });
         }
       },
@@ -3795,7 +3797,7 @@ const bundles = [
 
           await runA11yStateAudit(page, {
             stateId: 'state_5_recovery_and_append',
-            allowedColorContrastSelectors: ['.recovery-notice', '.recovery-confirm-msg'],
+            allowedExceptions: [],
           });
 
           // Clean up confirm box and close recovery panel
@@ -3828,7 +3830,7 @@ const bundles = [
 
           await runA11yStateAudit(page, {
             stateId: 'state_6_inflight_question',
-            allowedColorContrastSelectors: ['.ask-status'],
+            allowedExceptions: [],
           });
 
           // Dismiss question
@@ -3839,6 +3841,56 @@ const bundles = [
             ask: null
           }));
           await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+        }
+      },
+      {
+        id: 'a11y_state_7_theme_transition_cleanliness',
+        name: '고대비 -> 다크 -> 라이트 전환 시 잔류 변수 완전 제거 검증 (§5.8 Item A)',
+        run: async (page) => {
+          // 1. Inject highContrast
+          await injectA11yTheme(page, A11Y_THEMES.highContrast);
+          let borders = await page.evaluate(() => ({
+            cb: document.documentElement.style.getPropertyValue('--vscode-contrastBorder'),
+            bb: document.documentElement.style.getPropertyValue('--vscode-button-border'),
+          }));
+          assert.equal(borders.cb, '#6fc3df', 'highContrast must define --vscode-contrastBorder');
+          assert.equal(borders.bb, '#6fc3df', 'highContrast must define --vscode-button-border');
+
+          // 2. Switch to dark: highContrast-specific borders must be completely wiped
+          await injectA11yTheme(page, A11Y_THEMES.dark);
+          borders = await page.evaluate(() => ({
+            cb: document.documentElement.style.getPropertyValue('--vscode-contrastBorder'),
+            bb: document.documentElement.style.getPropertyValue('--vscode-button-border'),
+          }));
+          assert.equal(borders.cb, '', 'dark theme must not retain --vscode-contrastBorder from highContrast');
+          assert.equal(borders.bb, '', 'dark theme must not retain --vscode-button-border from highContrast');
+
+          // 3. Switch to light: borders must still be wiped
+          await injectA11yTheme(page, A11Y_THEMES.light);
+          borders = await page.evaluate(() => ({
+            cb: document.documentElement.style.getPropertyValue('--vscode-contrastBorder'),
+            bb: document.documentElement.style.getPropertyValue('--vscode-button-border'),
+          }));
+          assert.equal(borders.cb, '', 'light theme must not retain --vscode-contrastBorder from highContrast');
+          assert.equal(borders.bb, '', 'light theme must not retain --vscode-button-border from highContrast');
+
+          // 4. Reverse sequence: highContrast -> light -> dark
+          await injectA11yTheme(page, A11Y_THEMES.highContrast);
+          await injectA11yTheme(page, A11Y_THEMES.light);
+          borders = await page.evaluate(() => ({
+            cb: document.documentElement.style.getPropertyValue('--vscode-contrastBorder'),
+            bb: document.documentElement.style.getPropertyValue('--vscode-button-border'),
+          }));
+          assert.equal(borders.cb, '', 'light theme must not retain --vscode-contrastBorder in reverse sequence');
+          assert.equal(borders.bb, '', 'light theme must not retain --vscode-button-border in reverse sequence');
+
+          await injectA11yTheme(page, A11Y_THEMES.dark);
+          borders = await page.evaluate(() => ({
+            cb: document.documentElement.style.getPropertyValue('--vscode-contrastBorder'),
+            bb: document.documentElement.style.getPropertyValue('--vscode-button-border'),
+          }));
+          assert.equal(borders.cb, '', 'dark theme must not retain --vscode-contrastBorder in reverse sequence');
+          assert.equal(borders.bb, '', 'dark theme must not retain --vscode-button-border in reverse sequence');
         }
       }
     ]
@@ -3946,68 +3998,75 @@ const A11Y_THEMES = {
   }
 };
 
+const ALL_A11Y_THEME_KEYS = Array.from(
+  new Set(Object.values(A11Y_THEMES).flatMap(theme => Object.keys(theme)))
+);
+
 async function injectA11yTheme(page, themeVars) {
-  await page.evaluate((vars) => {
+  await page.evaluate(({ allKeys, vars }) => {
+    for (const k of allKeys) {
+      document.documentElement.style.removeProperty(k);
+    }
     for (const [k, v] of Object.entries(vars)) {
       document.documentElement.style.setProperty(k, v);
     }
-  }, themeVars);
+  }, { allKeys: ALL_A11Y_THEME_KEYS, vars: themeVars });
 }
 
-async function runA11yStateAudit(page, { stateId, allowedColorContrastSelectors = [] }) {
+async function runA11yStateAudit(page, { stateId, allowedExceptions = [] }) {
   const viewports = [[320, 600], [420, 700]];
-  for (const [themeName, themeVars] of Object.entries(A11Y_THEMES)) {
+  const themeEntries = isReverseThemes
+    ? Object.entries(A11Y_THEMES).slice().reverse()
+    : Object.entries(A11Y_THEMES);
+
+  for (const [themeName, themeVars] of themeEntries) {
     await injectA11yTheme(page, themeVars);
+
+    // Verify no highContrast residuals leaked into dark or light (§5.8 Item A)
+    if (themeName !== 'highContrast') {
+      const lingeringBorders = await page.evaluate(() => {
+        const style = document.documentElement.style;
+        return {
+          contrastBorder: style.getPropertyValue('--vscode-contrastBorder'),
+          buttonBorder: style.getPropertyValue('--vscode-button-border'),
+        };
+      });
+      assert.equal(
+        lingeringBorders.contrastBorder,
+        '',
+        `[${stateId}] Leaked --vscode-contrastBorder lingering in ${themeName} theme`
+      );
+      assert.equal(
+        lingeringBorders.buttonBorder,
+        '',
+        `[${stateId}] Leaked --vscode-button-border lingering in ${themeName} theme`
+      );
+    }
+
     for (const [w, h] of viewports) {
       await page.setViewportSize({ width: w, height: h });
-      const results = await new AxeBuilder({ page }).analyze();
+      const rawResults = await new AxeBuilder({ page }).analyze();
 
-      // Check structural violations: NO non-color-contrast violations allowed anywhere
-      const nonContrastViolations = results.violations.filter(v => v.id !== 'color-contrast');
-      assert.deepEqual(
-        nonContrastViolations,
-        [],
-        `[${stateId}] Unexpected accessibility violations in ${themeName} ${w}x${h}: ${nonContrastViolations.map(v => v.id).join(', ')}`
+      const evaluation = evaluateAxeAudit(
+        rawResults,
+        { stateId, themeName, viewport: { width: w, height: h } },
+        allowedExceptions
       );
 
-      // In dark and highContrast themes, zero violations permitted
-      if (themeName !== 'light') {
-        assert.deepEqual(
-          results.violations,
-          [],
-          `[${stateId}] Accessibility violations in ${themeName} ${w}x${h}: ${results.violations.map(v => v.id).join(', ')}`
-        );
-      } else {
-        // In light theme, only narrow, documented theme-variable-dependent color-contrast exceptions permitted
-        const contrastViolations = results.violations.filter(v => v.id === 'color-contrast');
-        if (allowedColorContrastSelectors.length === 0) {
-          assert.deepEqual(
-            contrastViolations,
-            [],
-            `[${stateId}] Unexpected color-contrast violations in light ${w}x${h}`
-          );
-        } else {
-          for (const cv of contrastViolations) {
-            const invalidNodes = cv.nodes.filter(n => {
-              const targetStr = n.target.join(' ');
-              return !allowedColorContrastSelectors.some(sel => targetStr.includes(sel));
-            });
-            assert.deepEqual(
-              invalidNodes.map(n => n.target.join(' ')),
-              [],
-              `[${stateId}] Unexpected color-contrast nodes in light ${w}x${h}`
-            );
-          }
-        }
-      }
+      assert.equal(
+        evaluation.passed,
+        true,
+        `[${stateId}] Accessibility audit failed in ${themeName} ${w}x${h}:\n${evaluation.errorMessages.join('\n')}`
+      );
     }
   }
 }
 
-// Parse CLI arguments: --bundle=<name>, --reverse, --verify-assets
+// Parse CLI arguments: --bundle=<name>, --reverse, --reverse-themes, --verify-assets
 const args = process.argv.slice(2);
 let selectedBundleName = null;
 let isReverse = false;
+let isReverseThemes = false;
 let verifyAssetsOnly = false;
 
 for (const arg of args) {
@@ -4015,6 +4074,8 @@ for (const arg of args) {
     selectedBundleName = arg.slice('--bundle='.length).trim();
   } else if (arg === '--reverse') {
     isReverse = true;
+  } else if (arg === '--reverse-themes') {
+    isReverseThemes = true;
   } else if (arg === '--verify-assets') {
     verifyAssetsOnly = true;
   }

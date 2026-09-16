@@ -81,7 +81,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .recovery-btn:focus-visible { outline:1px solid var(--vscode-focusBorder); }
   .recovery-panel { border-bottom:1px solid var(--vscode-panel-border); padding:8px 0 12px; margin-bottom:8px; }
   .recovery-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:8px; font-size:.85em; }
-  .recovery-notice { color:var(--vscode-editorWarning-foreground, #cca700); font-weight:500; }
+  .recovery-notice { color:var(--vscode-editor-foreground, var(--vscode-foreground)); font-weight:600; border-left:3px solid var(--vscode-editorWarning-foreground, #cca700); padding-left:5px; }
   .recovery-scope-label { color:var(--vscode-descriptionForeground); cursor:pointer; display:flex; align-items:center; gap:4px; font-size:.85em; }
   .recovery-empty { font-size:.85em; color:var(--vscode-descriptionForeground); padding:6px 0; font-style:italic; }
   .recovery-items { display:flex; flex-direction:column; gap:8px; }
@@ -108,7 +108,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   .recovery-confirm-box { display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:6px;
     padding:6px 8px; background:var(--vscode-editorWarning-background, rgba(204,167,0,0.1));
     border:1px solid var(--vscode-editorWarning-foreground, #cca700); border-radius:3px; font-size:.85em; }
-  .recovery-confirm-msg { font-weight:500; color:var(--vscode-editorWarning-foreground, #cca700); flex:1 1 100%; margin-bottom:4px; }
+  .recovery-confirm-msg { font-weight:600; color:var(--vscode-editor-foreground, var(--vscode-foreground)); flex:1 1 100%; margin-bottom:4px; }
   .recovery-status { font-size:.8em; color:var(--vscode-descriptionForeground); margin-top:4px; }
   #more { background:none; border:none; cursor:pointer; font-size:1.05em; line-height:1;
     color:var(--vscode-descriptionForeground); padding:2px 4px; }
@@ -150,7 +150,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     border-top:1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
     margin-top:6px; padding-top:3px; padding-bottom:3px; }
   .diff-file-header:first-child { border-top:none; margin-top:0; }
-  .diff-hunk-header { color:var(--vscode-descriptionForeground, #8b949e); font-weight:500;
+  .diff-hunk-header { color:var(--vscode-editor-foreground, inherit); font-weight:600;
     margin:4px 0 2px 0; padding-top:2px; padding-bottom:2px;
     background:var(--vscode-editor-lineHighlightBackground, rgba(128, 128, 128, 0.08)); }
   .diff-plain { color:var(--vscode-editor-foreground, inherit); }
@@ -193,8 +193,8 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #ask-controls .summary-row { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:.85em; flex-shrink:0; }
   #ask-controls .summary-text { color:var(--vscode-descriptionForeground); overflow:hidden;
     text-overflow:ellipsis; white-space:nowrap; flex:1; }
-  #ask-controls .ask-status { font-size:.85em; color:var(--vscode-editorWarning-foreground, #cca700);
-    flex:none; font-weight:500; margin:0 4px; }
+  #ask-controls .ask-status { font-size:.85em; color:var(--vscode-editor-foreground, var(--vscode-foreground));
+    flex:none; font-weight:500; margin:0 4px; border-left:2px solid var(--vscode-editorWarning-foreground, #cca700); padding-left:4px; }
   #ask-controls .ask-status:empty { display:none; }
   #ask-controls .jump-btn { background:none; border:none; color:var(--vscode-textLink-foreground);
     cursor:pointer; padding:0; font-size:inherit; flex:none; text-decoration:none; }
@@ -261,8 +261,9 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
           color:var(--vscode-badge-foreground); background:var(--vscode-badge-background); }
   #reply-mode { display:flex; justify-content:space-between; align-items:center; padding:4px 10px;
     font-size:.85em; background:var(--vscode-editorWidget-background, #252526);
-    border-top:1px solid var(--vscode-panel-border, #333); color:var(--vscode-descriptionForeground, #ccc); }
-  #reply-mode .reply-tag { font-weight:600; color:var(--vscode-editorWarning-foreground, #cca700); margin-right:6px; flex:none; }
+    border-top:1px solid var(--vscode-panel-border, #333); color:var(--vscode-editorWidget-foreground, var(--vscode-foreground, #ccc)); }
+  #reply-mode .reply-tag { font-weight:600; color:var(--vscode-editorWidget-foreground, var(--vscode-foreground)); margin-right:6px; flex:none;
+    border-left:3px solid var(--vscode-editorWarning-foreground, #cca700); padding-left:4px; }
   #reply-mode .reply-target { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
   #reply-mode .cancel-btn { background:transparent; color:var(--vscode-textLink-foreground, #3794ff); border:none; padding:0 4px;
     font-size:inherit; cursor:pointer; flex:none; margin-left:8px; }
