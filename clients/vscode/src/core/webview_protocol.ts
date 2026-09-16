@@ -64,7 +64,7 @@ export const OpenMessageSchema = v.object({
   kind: v.literal('open'),
   session: NonEmptyStringSchema,
   callId: NonEmptyStringSchema,
-  seq: v.optional(v.number()),
+  seq: v.optional(v.custom<number>((_val) => true)),
 });
 
 export const OutputMessageSchema = v.object({
@@ -93,14 +93,14 @@ export const ReplyMessageSchema = v.object({
 export const MentionMessageSchema = v.object({
   kind: v.literal('mention'),
   text: v.string(),
-  reqId: v.number(),
+  reqId: v.custom<number>((input) => typeof input === 'number'),
   target: v.string(),
 });
 
 export const SuggestMessageSchema = v.object({
   kind: v.literal('suggest'),
   text: v.string(),
-  reqId: v.number(),
+  reqId: v.custom<number>((input) => typeof input === 'number'),
   target: v.string(),
 });
 
@@ -133,13 +133,13 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
   if (!res.success) return undefined;
   const out = res.output;
 
-  // Preserve exact legacy property contract for open (seq is explicitly undefined when omitted)
+  // Preserve exact legacy property contract for open (seq is explicitly undefined when omitted or non-number)
   if (out.kind === 'open') {
     return {
       kind: 'open',
       session: out.session,
       callId: out.callId,
-      seq: out.seq !== undefined ? out.seq : undefined,
+      seq: typeof out.seq === 'number' ? out.seq : undefined,
     };
   }
 

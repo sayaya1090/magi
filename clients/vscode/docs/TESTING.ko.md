@@ -120,6 +120,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `build_assets.test.ts` (웹뷰 에셋 번들러 필수 입력 검사 및 입력 실패 시 출력 보존) | **웹뷰 및 호스트 프로토콜 에셋 번들러(`build-webview-assets.mjs`) 필수 입력 검증 및 입력 실패 시 출력 보존 검증 (§4.7 P2, §5.7, §5.8.3).** 7대 필수 입력(`src/web/chat_adapter.ts`, `src/core/webview_protocol.ts` 등) 중 하나라도 빠지면 자식 프로세스가 종료 코드 1과 재빌드 안내를 출력하고 기존 배포 산출물을 덮어쓰지 않습니다. 모든 입력이 존재할 때는 웹뷰 ESM 번들과 호스트 Valibot CJS 인라인 번들을 생성하고 샌드박스에서 정상 동작함을 검증합니다 |
 | `a11y_evaluator.test.ts` (접근성 결과 판정) | **axe-core 접근성 감사 결과 판정 및 불완전(incomplete) 검사 탐지 검증 (§5.8).** 테스트 지원 모듈(`src/test/support/a11y_evaluator.ts`)을 통해 위반(`violations`)이나 미판정(`incomplete`) 발생 시 즉시 실패를 판별하고 요약 문자열 및 상세 에러(`ruleId`, `impact`, `target`, `failureSummary`)를 생성하는지 검증합니다 |
 | `webview.test.ts` (Valibot 메시지 스키마 경계 검증) | ★ **Valibot 기반 12대 웹뷰→호스트 메시지 스키마 정밀 검증 (§5.8.3).** 원시값·null·배열·미등록 kind 거절, 정의되지 않은 미등록 필드 제거(strip), 원문 식별자 공백 보존(`trim` 미수행) 및 공백 전용 식별자 거절, 빈 텍스트 허용, 숫자 정수/양수 경계(`attemptId > 0`, `generation >= 0`), 선택 필드 계약(`open.seq: undefined` 명시 보존, `say.creationTaskId` 생략) 및 비정상 수신 메시지에 대한 호스트/웹뷰 상태 불변을 전수 검증합니다 |
+| `webview.test.ts` (구형 파서 100% deep equality 대조 및 open.seq 비숫자 폴백) | ★ **구형 파서(`98a733aa`) 100% deep equality 대조 및 호스트 open 도달 검증 (§5.8.3).** 테스트 지원 모듈(`src/test/support/legacy_protocol_parser.ts`)로 제품 VSIX에서 격리된 원본 수동 파서와 Valibot 파서를 전수 대조합니다. `open.seq`의 누락, 명시적 `undefined`, `null`, 문자열('12'), 객체, 배열, 불리언, 유한수, 소수, 음수, NaN, Infinity 등 40여 개 경계 입력을 검증하고, 비숫자 `seq` 폴백이 실제 호스트 `resolveAndOpenFile`의 ask 분기에 정상 도달함을 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -834,24 +835,38 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - 라이트 테마의 모든 텍스트 명도 대비율이 WCAG AA 4.5:1 기준을 대폭 상회(5.5:1 ~ 11:1)하게 됨에 따라 기존 4개 상태의 좁은 임시 예외를 전량 제거했습니다.
 
 6. **§5.8.3 Valibot 스키마 기반 메시지 검증 전환 (Valibot Schema-Based Protocol Validation):**
-   - **A. Valibot vs Zod 비교 분석 및 선택 근거:**
-     - 대표 5종 메시지(`say`, `reply`, `open`, `rows`, `replyResult`) 및 102개 다양성 테스트 케이스를 통해 현행 수동 파서와의 동등성(Parity), 번들 크기, 파싱 성능을 실측 비교했습니다.
-     - **번들 크기 (esbuild 트리쉐이킹 실측):**
-       - Valibot (v1.5.0): Unminified 13.07 KB (13,386 bytes), Minified **5.64 KB** (5,773 bytes).
+   - **A. Valibot vs Zod 비교 측정 및 재현 경로 (`tools/benchmark-message-schemas.mjs`):**
+     - 대표 5종 메시지(`say`, `reply`, `open`, `rows`, `replyResult`) 및 30여 개 대표 픽스처를 통해 구형 손코딩 파서와의 동등성(Parity), 번들 크기, 파싱 성능을 실측 비교했습니다.
+     - **재현 경로:** `node clients/vscode/tools/benchmark-message-schemas.mjs` (Node.js v24, esbuild v0.28.2, CJS 번들 및 minification 측정).
+     - **스키마 엔트리 번들 크기 (esbuild CJS 번들링 실측):**
+       - Valibot (v1.5.0): Unminified 13.52 KB (13,848 bytes), Minified **5.84 KB** (5,979 bytes).
        - Zod (v4.6.5): Unminified 738.90 KB (756,635 bytes), Minified **443.26 KB** (453,895 bytes).
-       - Zod는 단일 모놀리식 클래스 구조로 인해 트리쉐이킹 후에도 전체 코어가 번들에 유입되어 VSIX 크기를 약 3배로 증가시키는 반면, Valibot은 함수형 모듈러 아키텍처 덕분에 단 **5.64 KB**(Zod 대비 1/78 수준, 98.7% 절감)로 번들링됩니다.
-     - **파싱 성능 (10,000회 실행):**
-       - 수동 손코딩: ~1.04 ms
-       - Valibot: ~6.54 ms
+       - 단일 스키마 진입점을 CJS로 독립 번들링할 때, Valibot은 함수형 모듈러 아키텍처 덕분에 필요한 검증 함수만 포함되어 **5.84 KB**로 번들링되는 반면, Zod는 코어 클래스 및 내부 모듈 의존성으로 인해 해당 엔트리에서 **443.26 KB**의 산출물을 형성했습니다.
+     - **파싱 성능 (10,000회 연속 실행 실측):**
+       - 수동 손코딩 파서: ~0.94 ms – 1.04 ms
+       - Valibot: ~6.54 ms – 10.69 ms
        - Zod: ~5.85 ms
-       - 두 라이브러리 모두 1회 파싱당 약 0.0006 ms 수준으로 IPC 처리량 대비 오버헤드가 무시할 수 있는 수준입니다.
-     - **선택:** 초경량 크기, 제로 런타임 오버헤드, 모듈러 트리쉐이킹 이점을 갖춘 **Valibot**을 채택하고 Zod는 패키지에서 완전히 배제했습니다.
-   - **B. 1차 구현 범위 (웹뷰 → 호스트 메시지):**
-     - `src/core/webview_protocol.ts`의 12대 `WebviewToHostMessage`(`ready`, `start`, `drop`, `say`, `run`, `diff`, `open`, `output`, `answer`, `reply`, `mention`, `suggest`)를 Valibot 스키마로 선언하고, `export type WebviewToHostMessage = v.InferOutput<typeof WebviewToHostMessageSchema>;`로 타입을 직접 추론하도록 일원화했습니다. 기존 120여 줄의 수동 파싱 로직을 전량 제거했습니다.
+       - 10,000회 실행 기준 Valibot과 Zod 모두 1회 파싱당 약 0.0006 ms – 0.001 ms 수준이며, 웹뷰 사용자의 상호작용 및 IPC 메시지 수신 빈도에 비추어 볼 때 실질적인 지연 영향은 미미합니다.
+     - **채택 근거:** VSIX 무의존성(`--no-dependencies`) 배포 환경에서 호스트 인라인 번들 크기를 최소화하기 위해 경량 모듈러 구조를 갖춘 **Valibot**을 채택했습니다.
+   - **B. 1차 구현 범위 및 입력 계약 보완 (웹뷰 → 호스트 메시지):**
+     - `src/core/webview_protocol.ts`의 12대 `WebviewToHostMessage`(`ready`, `start`, `drop`, `say`, `run`, `diff`, `open`, `output`, `answer`, `reply`, `mention`, `suggest`)를 Valibot 스키마로 선언하고, `export type WebviewToHostMessage = v.InferOutput<typeof WebviewToHostMessageSchema>;`로 타입을 직접 추론하도록 일원화했습니다. 기존 120여 줄의 수동 파싱 로직을 전량 대체했습니다.
      - 외부 진입 함수 `parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | undefined` 계약을 엄격히 유지하여, 잘못된 입력에 대해 예외 투척이나 호스트/웹뷰 상태 오염 없이 안전하게 `undefined`를 반환합니다.
      - `trim`/`coerce`를 통한 입력 변형을 일체 배제하고, `v.check((s) => s.trim().length > 0)`를 사용하여 원문 식별자(`callId`, `companionKey`, `session`, `webviewId`)의 공백을 변형 없이 그대로 전달합니다.
-     - 선택 필드 계약 보존: `open.seq` 생략 시 명시적 `seq: undefined` 프로퍼티 생성 계약 및 `say.creationTaskId` 생략 시 프로퍼티 키 제외 계약을 100% 보존했습니다.
-   - **C. 호스트 런타임 의존성 격리 및 번들링 파이프라인 (`build-webview-assets.mjs`):**
+     - **`open.seq` 비숫자 폴백 계약 복원 (P2 회귀 해결):**
+       - 구형 파서는 `{kind:'open', session:'s', callId:'c', seq:'12'}` 또는 `seq:null` 수신 시 요청 전체를 거절하지 않고 `seq: undefined`로 폴백하면서 객체에 명시적 `seq` 키를 유지했습니다.
+       - 이를 위해 `OpenMessageSchema`에서 `seq: v.optional(v.custom<number>((_val) => true))`로 스키마를 유연하게 수용하고, `parseWebviewToHostMessage` 반환부에서 `seq: typeof out.seq === 'number' ? out.seq : undefined`로 정규화하여 문자열의 숫자 강제 변환 없이 기존 폴백 계약을 완벽히 복원했습니다.
+     - **숫자 필드 경계 동작 보존:**
+       - `mention`/`suggest`의 `reqId`는 구형 코드(`typeof m.reqId !== 'number'`)와 동일하게 `typeof input === 'number'` 커스텀 검증기를 적용하여 NaN, Infinity 등 런타임 숫자 동작을 보존했습니다.
+       - `reply`의 `attemptId`(양의 정수) 및 `generation`(음이 아닌 정수)의 엄격 검증 계약은 그대로 보존했습니다.
+   - **C. 구형 파서(`98a733aa`) 100% Deep Equality 대조 및 엔드투엔드 도달 검증:**
+     - **테스트 전용 구형 파서 격리 (`src/test/support/legacy_protocol_parser.ts`):**
+       - 제품 VSIX 패키지에 구형 파서가 포함되지 않도록 `src/test/support/` 경로에 `legacyParseWebviewToHostMessage`를 격리 배치했습니다.
+     - **100% Deep Equality 대조 테스트 (`webview.test.ts`):**
+       - 원시값, 잘못된 루트, 빈 객체, extra 필드 제거, 12개 kind별 정상/경계/비정상 픽스처 40여 개에 대해 `legacyParseWebviewToHostMessage(raw)`와 `parseWebviewToHostMessage(raw)`의 반환값을 `assert.deepEqual`로 1:1 전수 비교하여 불일치 0건(100% Pass)을 달성했습니다.
+       - `open.seq`의 생략, 명시적 `undefined`, `null`, 문자열('12'), 빈 문자열, 객체, 배열, 유한수, 소수, 음수, NaN, Infinity 등 모든 경계 조건에서 구형 파서와 완벽히 동일한 출력을 생성함을 입증했습니다.
+     - **호스트 `resolveAndOpenFile` 도달 검증:**
+       - 비숫자 seq(`'12'`, `null`, `'forty-two'`, `{}`)를 담은 open 요청이 `parseWebviewToHostMessage`에서 `seq: undefined`로 안전하게 폴백된 뒤, 호스트의 `resolveAndOpenFile`의 ask 분기에 정상 도달하여 대상 파일이 안전하게 열림(`openedDocs[0].path === targetAbsPath`)을 엔드투엔드로 검증했습니다.
+   - **D. 호스트 런타임 의존성 격리 및 번들링 파이프라인 (`build-webview-assets.mjs`):**
      - VS Code 확장의 `node_modules/**` 패키징 제외 정책 및 `vsce package --no-dependencies` 하에서 `out/core/webview_protocol.js`가 외부 `require('valibot')`에 의존할 경우 발생하는 런타임 `MODULE_NOT_FOUND` 결함을 방지하기 위해, `tools/build-webview-assets.mjs` 빌드 단계에서 esbuild(platform=node, format=cjs, bundle=true)를 통해 Valibot 런타임을 `out/core/webview_protocol.js` 단일 파일(16.6 KB)로 인라인 번들링했습니다.
      - `build_assets.test.ts`에 7대 필수 입력 검증 및 `vm` 격리 샌드박스 검증(`require` 호출 금지 가드 하에서 파싱 동작 확인)을 추가했습니다.
      - `npm run package` 후 독립 임시 디렉터리에 `magi-0.2.0.vsix`를 압축 해제하고, `node_modules`가 전혀 없는 환경에서 `extension/out/core/webview_protocol.js`를 로드하여 정상 파싱됨을 실측 검증했습니다.

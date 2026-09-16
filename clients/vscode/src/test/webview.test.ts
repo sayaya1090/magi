@@ -5,6 +5,9 @@ import * as path from 'path';
 import { TestScheduler } from 'rxjs/testing';
 
 import { parseWebviewToHostMessage, WebviewToHostMessage } from '../core/webview_protocol';
+import { legacyParseWebviewToHostMessage } from './support/legacy_protocol_parser';
+import { resolveAndOpenFile } from '../core/nav';
+import { AskStore } from '../core/diff';
 import {
   createWebviewActionAdapter,
   dispatchHostMessage,
@@ -795,6 +798,224 @@ test('§5.8.3: Malformed inbound messages to host or webview do not throw, corru
     } else {
       assert.equal(result, undefined, `Malformed payload must be rejected: ${JSON.stringify(bad)}`);
     }
+  }
+});
+
+test('§5.8.3 Item 3: Strict 100% deep equality parity against legacy parser (commit 98a733aa) across normal, edge, and invalid inputs', () => {
+  const parityCases: any[] = [
+    // 1. Primitive and invalid roots
+    null,
+    undefined,
+    true,
+    false,
+    0,
+    123,
+    'not an object',
+    [],
+    [1, 2, 3],
+    {},
+    { kind: '' },
+    { kind: 'unknown' },
+    { kind: 999 },
+
+    // 2. ready, start, drop
+    { kind: 'ready' },
+    { kind: 'ready', extra: 123 },
+    { kind: 'start' },
+    { kind: 'start', extra: 'foo' },
+    { kind: 'drop' },
+    { kind: 'drop', extra: [1] },
+
+    // 3. open.seq comprehensive boundary cases
+    { kind: 'open', session: 's1', callId: 'c1' }, // omitted
+    { kind: 'open', session: 's1', callId: 'c1', seq: undefined }, // explicit undefined
+    { kind: 'open', session: 's1', callId: 'c1', seq: null }, // null
+    { kind: 'open', session: 's1', callId: 'c1', seq: '12' }, // string number
+    { kind: 'open', session: 's1', callId: 'c1', seq: '' }, // empty string
+    { kind: 'open', session: 's1', callId: 'c1', seq: '   ' }, // blank string
+    { kind: 'open', session: 's1', callId: 'c1', seq: 'forty-two' }, // text string
+    { kind: 'open', session: 's1', callId: 'c1', seq: {} }, // object
+    { kind: 'open', session: 's1', callId: 'c1', seq: [] }, // array
+    { kind: 'open', session: 's1', callId: 'c1', seq: [12] }, // non-empty array
+    { kind: 'open', session: 's1', callId: 'c1', seq: true }, // boolean true
+    { kind: 'open', session: 's1', callId: 'c1', seq: false }, // boolean false
+    { kind: 'open', session: 's1', callId: 'c1', seq: 0 }, // zero
+    { kind: 'open', session: 's1', callId: 'c1', seq: 12 }, // positive int
+    { kind: 'open', session: 's1', callId: 'c1', seq: -1 }, // negative int
+    { kind: 'open', session: 's1', callId: 'c1', seq: 3.14159 }, // float
+    { kind: 'open', session: 's1', callId: 'c1', seq: NaN }, // NaN
+    { kind: 'open', session: 's1', callId: 'c1', seq: Infinity }, // Infinity
+    { kind: 'open', session: 's1', callId: 'c1', seq: -Infinity }, // -Infinity
+    { kind: 'open', session: '  s1  ', callId: '  c1  ', seq: '12' }, // whitespace identifiers with string seq
+    { kind: 'open', session: 's1', callId: 'c1', seq: '12', extra: 'strip-me' }, // extra field
+    { kind: 'open', session: '', callId: 'c1', seq: '12' }, // invalid session
+    { kind: 'open', session: '   ', callId: 'c1', seq: '12' }, // blank session
+    { kind: 'open', session: 's1', callId: '', seq: '12' }, // invalid callId
+    { kind: 'open', session: 's1', callId: '   ', seq: '12' }, // blank callId
+    { kind: 'open', session: 's1' }, // missing callId
+    { kind: 'open', callId: 'c1' }, // missing session
+
+    // 4. mention & suggest reqId boundaries
+    { kind: 'mention', text: 'hi', reqId: 0, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: 7, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: -5, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: 3.14, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: NaN, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: Infinity, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: -Infinity, target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: '7', target: 'composer' },
+    { kind: 'mention', text: 'hi', reqId: null, target: 'composer' },
+    { kind: 'mention', text: 'hi', target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: 0, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: 8, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: -2, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: 1.23, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: NaN, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: Infinity, target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: '8', target: 'composer' },
+    { kind: 'suggest', text: 'let x', reqId: null, target: 'composer' },
+
+    // 5. say creationTaskId boundaries
+    { kind: 'say', text: 'msg' },
+    { kind: 'say', text: 'msg', creationTaskId: undefined },
+    { kind: 'say', text: 'msg', creationTaskId: 'task-1' },
+    { kind: 'say', text: 'msg', creationTaskId: '  padded  ' },
+    { kind: 'say', text: 'msg', creationTaskId: '' },
+    { kind: 'say', text: 'msg', creationTaskId: '   ' },
+    { kind: 'say', text: 'msg', creationTaskId: 123 },
+    { kind: 'say', text: 'msg', creationTaskId: null },
+
+    // 6. run command boundaries
+    { kind: 'run', command: 'magi.compact' },
+    { kind: 'run', command: '   ' }, // legacy permits non-empty length string
+    { kind: 'run', command: '' }, // empty string rejected
+    { kind: 'run', command: 123 },
+    { kind: 'run' },
+
+    // 7. diff & output & answer boundaries
+    { kind: 'diff', session: 's1', callId: 'c1' },
+    { kind: 'diff', session: '  s1  ', callId: '  c1  ' },
+    { kind: 'diff', session: '', callId: 'c1' },
+    { kind: 'diff', session: 's1', callId: '   ' },
+    { kind: 'output', session: 's1', outputId: 'out1' },
+    { kind: 'output', session: 's1', outputId: '' },
+    { kind: 'answer', callId: 'c1', decision: 'allow' },
+    { kind: 'answer', callId: 'c1', decision: '' },
+    { kind: 'answer', callId: '   ', decision: 'allow' },
+
+    // 8. reply full boundaries
+    {
+      kind: 'reply',
+      callId: 'c1',
+      text: 'text',
+      attemptId: 1,
+      companionKey: 'k1',
+      session: 's1',
+      generation: 0,
+      webviewId: 'w1',
+    },
+    {
+      kind: 'reply',
+      callId: '  c1  ',
+      text: '',
+      attemptId: 2,
+      companionKey: '  k1  ',
+      session: '  s1  ',
+      generation: 1,
+      webviewId: '  w1  ',
+    },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 0, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: -1, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1.5, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: NaN, companionKey: 'k', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1, companionKey: 'k', session: 's', generation: -1, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1, companionKey: 'k', session: 's', generation: 1.5, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1, companionKey: 'k', session: 's', generation: NaN, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1, companionKey: '', session: 's', generation: 0, webviewId: 'w' },
+    { kind: 'reply', callId: 'c1', text: 't', attemptId: 1, companionKey: 'k', session: '   ', generation: 0, webviewId: 'w' },
+  ];
+
+  for (let i = 0; i < parityCases.length; i++) {
+    const raw = parityCases[i];
+    const valibotRes = parseWebviewToHostMessage(raw);
+    const legacyRes = legacyParseWebviewToHostMessage(raw);
+
+    assert.deepEqual(
+      valibotRes,
+      legacyRes,
+      `Parity mismatch at index #${i}: ${JSON.stringify(raw)}`
+    );
+  }
+});
+
+test('§5.8.3 Item 4: Non-numeric seq fallback in open message reaches host resolveAndOpenFile ask branch safely', async () => {
+  const notes: string[] = [];
+  const openedDocs: { path: string; line?: number }[] = [];
+
+  const mockOpener = {
+    async openDocument(absPath: string, line?: number) {
+      openedDocs.push({ path: absPath, line });
+      return { opened: true, line };
+    },
+  };
+
+  const workdir = '/test/workspace';
+  const targetRelPath = 'src/app.ts';
+  const targetAbsPath = `${workdir}/${targetRelPath}`;
+
+  const asks = new AskStore(10);
+  asks.record(
+    {
+      callId: 'call-ask-123',
+      what: 'edit',
+      kind: 'permission',
+      args: JSON.stringify({ path: targetRelPath }),
+    },
+    workdir,
+    'sess-1'
+  );
+
+  const mockFs: any = {
+    existsSync(p: string) { return p === targetAbsPath; },
+    statSync(_p: string) { return { isDirectory: () => false }; },
+  };
+
+  const nonNumericPayloads = [
+    { kind: 'open', session: 'sess-1', callId: 'call-ask-123', seq: '12' },
+    { kind: 'open', session: 'sess-1', callId: 'call-ask-123', seq: null },
+    { kind: 'open', session: 'sess-1', callId: 'call-ask-123', seq: 'forty-two' },
+    { kind: 'open', session: 'sess-1', callId: 'call-ask-123', seq: {} },
+    { kind: 'open', session: 'sess-1', callId: 'call-ask-123' }, // omitted
+  ];
+
+  for (const payload of nonNumericPayloads) {
+    notes.length = 0;
+    openedDocs.length = 0;
+
+    // 1. Webview message parsed through Valibot schema
+    const parsed = parseWebviewToHostMessage(payload);
+    assert.ok(parsed, `Parsed message must not be undefined for: ${JSON.stringify(payload)}`);
+    assert.equal(parsed.kind, 'open');
+    assert.equal(parsed.seq, undefined, 'Non-numeric seq must fallback to undefined');
+
+    // 2. Dispatch to host resolveAndOpenFile
+    const ok = await resolveAndOpenFile({
+      m: parsed,
+      session: 'sess-1',
+      companionWorkdir: workdir,
+      companionState: 'connected',
+      asks,
+      events: [],
+      postNote: (text) => notes.push(text),
+      opener: mockOpener,
+      pathLib: path.posix,
+      fsLib: mockFs,
+    });
+
+    assert.equal(ok, true, `resolveAndOpenFile must succeed via ask fallback for ${JSON.stringify(payload)}`);
+    assert.equal(openedDocs.length, 1);
+    assert.equal(openedDocs[0].path, targetAbsPath);
+    assert.equal(notes.length, 0, 'No warning note should be posted for valid ask open');
   }
 });
 
