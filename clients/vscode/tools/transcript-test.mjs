@@ -19,7 +19,7 @@ const require = createRequire(new URL('../../web/e2e/package.json', import.meta.
 const { chromium } = require('playwright');
 const { AxeBuilder } = require('@axe-core/playwright');
 const localRequire = createRequire(import.meta.url);
-const { evaluateAxeAudit } = localRequire('../out/core/a11y_evaluator.js');
+const { evaluateAxeAudit } = localRequire('../out/test/support/a11y_evaluator.js');
 
 // Single source of truth for asset routing and URL resolution (§2.1)
 export const TEST_ORIGIN = 'http://magi.test';
@@ -3685,7 +3685,6 @@ const bundles = [
           await page.waitForSelector('.row.agent');
           await runA11yStateAudit(page, {
             stateId: 'state_1_conversation',
-            allowedExceptions: [],
           });
         }
       },
@@ -3708,7 +3707,6 @@ const bundles = [
           await page.waitForSelector('#ask-controls button:text("1. 클러스터 A (서울 리전)")');
           await runA11yStateAudit(page, {
             stateId: 'state_2_multiple_choice',
-            allowedExceptions: [],
           });
         }
       },
@@ -3720,7 +3718,6 @@ const bundles = [
           await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
           await runA11yStateAudit(page, {
             stateId: 'state_3_answer_mode',
-            allowedExceptions: [],
           });
           await page.keyboard.press('Escape');
           await page.waitForFunction(() => document.getElementById('reply-mode').hidden);
@@ -3747,7 +3744,6 @@ const bundles = [
           await page.waitForSelector('#ask-controls .acts button.approval-btn');
           await runA11yStateAudit(page, {
             stateId: 'state_4_permission_diff',
-            allowedExceptions: [],
           });
         }
       },
@@ -3797,7 +3793,6 @@ const bundles = [
 
           await runA11yStateAudit(page, {
             stateId: 'state_5_recovery_and_append',
-            allowedExceptions: [],
           });
 
           // Clean up confirm box and close recovery panel
@@ -3830,7 +3825,6 @@ const bundles = [
 
           await runA11yStateAudit(page, {
             stateId: 'state_6_inflight_question',
-            allowedExceptions: [],
           });
 
           // Dismiss question
@@ -4013,7 +4007,7 @@ async function injectA11yTheme(page, themeVars) {
   }, { allKeys: ALL_A11Y_THEME_KEYS, vars: themeVars });
 }
 
-async function runA11yStateAudit(page, { stateId, allowedExceptions = [] }) {
+async function runA11yStateAudit(page, { stateId }) {
   const viewports = [[320, 600], [420, 700]];
   const themeEntries = isReverseThemes
     ? Object.entries(A11Y_THEMES).slice().reverse()
@@ -4049,9 +4043,10 @@ async function runA11yStateAudit(page, { stateId, allowedExceptions = [] }) {
 
       const evaluation = evaluateAxeAudit(
         rawResults,
-        { stateId, themeName, viewport: { width: w, height: h } },
-        allowedExceptions
+        { stateId, themeName, viewport: { width: w, height: h } }
       );
+
+      console.log(`    [a11y] ${evaluation.summary}`);
 
       assert.equal(
         evaluation.passed,

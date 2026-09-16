@@ -118,7 +118,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 초안 복구 모델, 등록·합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** `replyResult` 실패 시 전송했던 초안을 인메모리 저장소에 등록합니다. 공백과 개행 원문, HTML 특수문자를 그대로 보존하며, 동일한 실패가 반복되면 횟수와 최신 오류만 갱신합니다. 사용자가 명시적으로 삭제한 항목은 다시 등록되지 않고, 새 실패에는 새 ID를 발급합니다. 일반 초안이 비어 있을 때는 바로 복사하고, 이미 초안이 있으면 `G + "\n\n" + text`로 결합합니다 |
 | `webview.test.ts` (복구 목록 UI 제어 및 DOM 동기화) | **실패 답변·생성 초안 복구 웹뷰 UI 제어기 및 이벤트 동기화 검증 (§4.6).** 복구 패널의 뱃지 숫자, 패널 열고 닫기, 컴패니언 전체 필터를 검증합니다. 전문 보기 시 원문 `textContent`를 변형 없이 유지해 XSS를 방지합니다. 초안 복사 시 호스트 메시지를 발행하지 않고 화면 입력창만 채우며, 이미 작성 중인 초안이 있으면 인라인 확인 상자를 띄웁니다. 한글 조합 중에는 복사와 삭제 버튼을 잠가 조합 버퍼 파괴를 막고, 실패 이벤트가 도착하면 목록을 즉시 새로고침합니다 |
 | `build_assets.test.ts` (웹뷰 에셋 번들러 필수 입력 검사 및 입력 실패 시 출력 보존) | **웹뷰 에셋 번들러(`build-webview-assets.mjs`) 필수 입력 검증 및 입력 실패 시 출력 보존 검증 (§4.7 P2, §5.7).** 6대 필수 입력(`src/web/chat_adapter.ts`, `out/core/answer_state.js` 등) 중 하나라도 빠지면 자식 프로세스가 종료 코드 1과 재빌드 안내를 출력하고 기존 배포 산출물을 덮어쓰지 않습니다. 모든 입력이 존재할 때는 ESM 입력 기반 트리쉐이킹 번들을 만들고 샌드박스에서 정상 동작함을 검증합니다 |
-| `a11y_evaluator.test.ts` (접근성 결과 판정) | **axe-core 접근성 감사 결과 분류, incomplete 탐지 및 엄격한 셀렉터 토큰 매칭 검증 (§5.8).** 가짜 axe 결과를 입력하여 예외 밖 위반과 불완전(incomplete) 항목이 즉시 실패로 드러나는지 검증합니다. `.ask-status` 예외가 `.ask-status-other`까지 허용하던 부분 문자열 오탐을 정규식 토큰 경계로 차단하고, 테마와 상태 경계가 일치할 때만 문서화된 예외로 분류하는지 확인합니다 |
+| `a11y_evaluator.test.ts` (접근성 결과 판정) | **axe-core 접근성 감사 결과 판정 및 불완전(incomplete) 검사 탐지 검증 (§5.8).** 테스트 지원 모듈(`src/test/support/a11y_evaluator.ts`)을 통해 위반(`violations`)이나 미판정(`incomplete`) 발생 시 즉시 실패를 판별하고 요약 문자열 및 상세 에러(`ruleId`, `impact`, `target`, `failureSummary`)를 생성하는지 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -824,20 +824,19 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - 테마 주입기가 소유한 변수 전체의 합집합(`ALL_A11Y_THEME_KEYS`)을 계산하고, 테마 교체 시 이전 변수를 `removeProperty`로 선행 제거한 뒤 새 변수를 주입하도록 개선했습니다.
      - `a11y_state_7_theme_transition_cleanliness` 테스트를 추가하여 `highContrast -> dark -> light` 및 `highContrast -> light -> dark` 전환 시 고대비 전용 변수(`--vscode-contrastBorder`, `--vscode-button-border`)가 다크/라이트 테마에 잔류하지 않음을 실측 단언했습니다.
      - CLI `--reverse-themes` 플래그를 추가하여 테마 역순 순회(`highContrast -> light -> dark`)에서도 동일하게 36회 감사가 100% 통과함을 검증했습니다.
-   - **B. 결과 분류와 예외 판정의 독립 모듈화 (`src/core/a11y_evaluator.ts`):**
-     - 순수 결과 판정 헬퍼 `evaluateAxeAudit`와 엄격한 셀렉터 토큰 매처 `matchesTargetSelector`를 분리 구현했습니다.
-     - `node.target` 배열에 대해 정규식 기반 토큰 경계 검사를 수행하여 `.ask-status-other`가 `.ask-status`로 오탐 허용되던 결함을 차단했습니다.
-     - `src/test/a11y_evaluator.test.ts`에 가짜 axe 결과 7개 시나리오(성공, 미허용 위반 실패, 불완전 incomplete 실패, 허용 예외 통과, 부분 문자열 오탐 차단, 테마/상태 제약)를 추가하여 판정 엔진의 신뢰성을 독립 검증했습니다.
-     - 브라우저 하네스 `runA11yStateAudit`도 동일한 `evaluateAxeAudit` 헬퍼를 직접 호출하여 단일 판정 기준을 공유하도록 통합했습니다.
+   - **B. 테스트 도구 분리 및 불필요한 예외 엔진 제거 (`src/test/support/a11y_evaluator.ts`):**
+     - 하네스 전용 판정 모듈을 제품 영역(`src/core/`)에서 테스트 지원 영역(`src/test/support/a11y_evaluator.ts`)으로 이동하여 VSIX 산출물(60개 파일)에서 완전히 제외했습니다 (`unzip -l` 검증 완료).
+     - 모든 감사 대상이 허용 예외 0건 상태이므로 복잡한 CSS 셀렉터 매처와 예외 규칙 엔진을 전량 제거하고, `violations`나 `incomplete` 발견 시 즉시 실패를 판별하는 단순·엄격한 정책으로 리팩터링했습니다.
+     - 브라우저 실행기(`runA11yStateAudit`)가 36회(6개 상태 × 3개 테마 × 2개 뷰포트) 분석 시마다 화면·테마·크기별 위반/미판정 요약 로그(`[a11y] [state] theme WxH: violations=0, incomplete=0`)를 출력하도록 개선했습니다. 실패 시에는 `ruleId`, `impact`, `target`, `failureSummary`가 에러 메시지에 온전히 보존됩니다.
    - **C. 밝은 테마 텍스트 대비 개선 및 불필요한 예외 전량 삭제 (`src/web/chat_html.ts`):**
      - 일반 상태/안내 문장(답변 태그, 복구 안내, 확인 문구, 전송 중 문구, diff 구간 제목)의 텍스트 색상을 읽기용 토큰(`editor-foreground`, `foreground`, `editorWidget-foreground`)으로 변경하고, 경고·강조 의미는 문구와 3px 좌측 테두리(`var(--vscode-editorWarning-foreground, #cca700)`)로 전달하도록 재설계했습니다.
      - 라이트 테마의 모든 텍스트 명도 대비율이 WCAG AA 4.5:1 기준을 대폭 상회(5.5:1 ~ 11:1)하게 됨에 따라 기존 4개 상태의 좁은 임시 예외를 전량 제거했습니다.
 
 6. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
-   - **단위 테스트 (`npm test`):** 총 480개 테스트 전수 통과 (473 pass, 0 fail, 7 skip).
+   - **단위 테스트 (`npm test`):** 총 476개 테스트 전수 통과 (469 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):**
      - 정방향: 39개 시나리오(기존 32개 + a11y 7개) 100% 통과 (pageerror 0건).
      - 번들 역순 (`--reverse`): 39개 시나리오 100% 통과.
-     - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과.
-   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 61개 파일, 234.81 KB, axe-core 미포함 확인).
+     - 테마 역순 (`--reverse-themes`): 39개 시나리오 100% 통과 (36회 분석 요약 로그 출력 확인).
+   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 233.12 KB, `a11y_evaluator` 및 axe-core 미포함 확인).
