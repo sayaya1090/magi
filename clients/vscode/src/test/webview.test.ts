@@ -675,6 +675,129 @@ test('parseWebviewToHostMessage strictly rejects malformed or incomplete message
   assert.equal(parseWebviewToHostMessage({ kind: 'answer', decision: 'allow' }), undefined, 'missing callId');
 });
 
+test('§5.8.3: parseWebviewToHostMessage comprehensively validates boundaries across all 12 kinds with Valibot schema', () => {
+  // 1. Primitive and invalid structures rejected
+  for (const invalid of [null, undefined, true, false, 0, 123, 'string', [], [1, 2], {}, { kind: '' }, { kind: 'unknown' }]) {
+    assert.equal(parseWebviewToHostMessage(invalid), undefined);
+  }
+
+  // 2. Extra/unknown fields are stripped from returned object
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'ready', extraField: 123, unknownMeta: 'strip-me' }),
+    { kind: 'ready' }
+  );
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'say', text: 'hi', extraField: 123 }),
+    { kind: 'say', text: 'hi' }
+  );
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'say', text: 'hi', creationTaskId: 'task-1', extra: 99 }),
+    { kind: 'say', text: 'hi', creationTaskId: 'task-1' }
+  );
+
+  // 3. Verbatim identifiers preserved without trimming
+  const rawReply = {
+    kind: 'reply',
+    callId: '  call-1  ',
+    text: '  response verbatim  ',
+    attemptId: 1,
+    companionKey: '  key-1  ',
+    session: '  sess-1  ',
+    generation: 0,
+    webviewId: '  wv-1  ',
+  };
+  const parsedReply = parseWebviewToHostMessage(rawReply);
+  assert.ok(parsedReply && parsedReply.kind === 'reply');
+  assert.equal(parsedReply.callId, '  call-1  ');
+  assert.equal(parsedReply.text, '  response verbatim  ');
+  assert.equal(parsedReply.companionKey, '  key-1  ');
+  assert.equal(parsedReply.session, '  sess-1  ');
+  assert.equal(parsedReply.webviewId, '  wv-1  ');
+
+  // 4. Blank-only identifiers strictly rejected
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, callId: '   ' }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, companionKey: '   ' }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, session: '   ' }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, webviewId: '   ' }), undefined);
+
+  // 5. Empty string in text fields is permitted (not blank-checked)
+  assert.deepEqual(
+    parseWebviewToHostMessage({ ...rawReply, text: '' }),
+    {
+      kind: 'reply',
+      callId: '  call-1  ',
+      text: '',
+      attemptId: 1,
+      companionKey: '  key-1  ',
+      session: '  sess-1  ',
+      generation: 0,
+      webviewId: '  wv-1  ',
+    }
+  );
+
+  // 6. Numeric boundaries (attemptId > 0 integer, generation >= 0 integer)
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, attemptId: 0 }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, attemptId: -1 }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, attemptId: 1.5 }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, generation: -1 }), undefined);
+  assert.equal(parseWebviewToHostMessage({ ...rawReply, generation: 0.5 }), undefined);
+
+  // 7. Optional field contracts (open.seq explicit undefined, say.creationTaskId omitted if not given)
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'open', session: 's1', callId: 'c1' }),
+    { kind: 'open', session: 's1', callId: 'c1', seq: undefined }
+  );
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'open', session: 's1', callId: 'c1', seq: 10 }),
+    { kind: 'open', session: 's1', callId: 'c1', seq: 10 }
+  );
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'say', text: 'msg' }),
+    { kind: 'say', text: 'msg' }
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(parseWebviewToHostMessage({ kind: 'say', text: 'msg' }), 'creationTaskId'),
+    false
+  );
+  assert.deepEqual(
+    parseWebviewToHostMessage({ kind: 'say', text: 'msg', creationTaskId: 't1' }),
+    { kind: 'say', text: 'msg', creationTaskId: 't1' }
+  );
+  assert.equal(parseWebviewToHostMessage({ kind: 'say', text: 'msg', creationTaskId: '' }), undefined);
+  assert.equal(parseWebviewToHostMessage({ kind: 'say', text: 'msg', creationTaskId: '   ' }), undefined);
+
+  // 8. run.command permits non-empty text, rejects empty string
+  assert.deepEqual(parseWebviewToHostMessage({ kind: 'run', command: '  spaced  ' }), { kind: 'run', command: '  spaced  ' });
+  assert.equal(parseWebviewToHostMessage({ kind: 'run', command: '' }), undefined);
+});
+
+test('§5.8.3: Malformed inbound messages to host or webview do not throw, corrupt state, or alter DOM', () => {
+  // Test that feeding garbage payloads to parseWebviewToHostMessage produces undefined safely
+  const garbagePayloads = [
+    { kind: 'say', text: 12345 },
+    { kind: 'reply', callId: null },
+    { kind: 'open', session: '', callId: 'c1' },
+    { kind: 'diff', session: 's1', callId: '' },
+    { kind: 'output', session: '', outputId: 'out' },
+    { kind: 'answer', callId: 'c1', decision: '' },
+    { kind: 'mention', reqId: 'not-a-number' },
+    { kind: 'suggest', target: 999 },
+    { kind: 'drop', extra: [1, 2, 3] },
+  ];
+
+  for (const bad of garbagePayloads) {
+    let result: any;
+    assert.doesNotThrow(() => {
+      result = parseWebviewToHostMessage(bad);
+    }, `Parser must not throw on payload: ${JSON.stringify(bad)}`);
+    if (bad.kind === 'drop') {
+      assert.deepEqual(result, { kind: 'drop' }); // drop has no fields, extras stripped
+    } else {
+      assert.equal(result, undefined, `Malformed payload must be rejected: ${JSON.stringify(bad)}`);
+    }
+  }
+});
+
 test('createWebviewActionAdapter formats and guards outbound messages', () => {
   const posted: WebviewToHostMessage[] = [];
   const bridge: WebviewBridge = {

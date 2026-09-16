@@ -18,9 +18,11 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
   try {
     const tempCoreDir = path.join(tempDir, 'out', 'core');
     const tempWebDir = path.join(tempDir, 'out', 'web');
+    const tempSrcCoreDir = path.join(tempDir, 'src', 'core');
     const tempSrcWebDir = path.join(tempDir, 'src', 'web');
     await mkdir(tempCoreDir, { recursive: true });
     await mkdir(tempWebDir, { recursive: true });
+    await mkdir(tempSrcCoreDir, { recursive: true });
     await mkdir(tempSrcWebDir, { recursive: true });
 
     const requiredFiles = [
@@ -30,22 +32,26 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
       { name: 'src/web/recovery_view.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_view.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_view.ts') },
       { name: 'src/web/recovery_controller.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_controller.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_controller.ts') },
       { name: 'src/web/chat_adapter.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_adapter.ts'), tempPath: path.join(tempSrcWebDir, 'chat_adapter.ts') },
+      { name: 'src/core/webview_protocol.ts', realPath: path.join(realRoot, 'src', 'core', 'webview_protocol.ts'), tempPath: path.join(tempSrcCoreDir, 'webview_protocol.ts') },
     ];
 
-    // Copy all 6 compiled files to isolated tempDir
+    // Copy all 7 files to isolated tempDir
     for (const file of requiredFiles) {
       await cp(file.realPath, file.tempPath);
     }
 
     const dstAnswerState = path.join(tempWebDir, 'answer_state.js');
     const dstAdapterBundle = path.join(tempWebDir, 'chat_adapter.bundle.js');
+    const dstProtocolBundle = path.join(tempCoreDir, 'webview_protocol.js');
 
     const SENTINEL_ANSWER = '// PRE-EXISTING_ANSWER_STATE_SENTINEL';
     const SENTINEL_ADAPTER = '// PRE-EXISTING_ADAPTER_BUNDLE_SENTINEL';
+    const SENTINEL_PROTOCOL = '// PRE-EXISTING_PROTOCOL_BUNDLE_SENTINEL';
 
     // Set sentinel contents on destination files to verify they are untouched on error
     await writeFile(dstAnswerState, SENTINEL_ANSWER, 'utf8');
     await writeFile(dstAdapterBundle, SENTINEL_ADAPTER, 'utf8');
+    await writeFile(dstProtocolBundle, SENTINEL_PROTOCOL, 'utf8');
 
     // 1. Missing each required input one by one -> must exit 1, output error and hint, and leave outputs untouched
     for (const file of requiredFiles) {
@@ -60,11 +66,13 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
         assert.ok(err.stderr.includes(file.name), `stderr must mention missing file ${file.name}`);
         assert.ok(err.stderr.includes("Run 'tsc -p .' first."), `stderr must include rebuild hint`);
 
-        // Assert existing output files were not touched or overwritten (§4.7 P2)
+        // Assert existing output files were not touched or overwritten (§4.7 P2, §5.8.3)
         const currentAnswer = await readFile(dstAnswerState, 'utf8');
         const currentAdapter = await readFile(dstAdapterBundle, 'utf8');
+        const currentProtocol = await readFile(dstProtocolBundle, 'utf8');
         assert.equal(currentAnswer, SENTINEL_ANSWER, `dst answer_state.js must remain untouched on missing ${file.name}`);
         assert.equal(currentAdapter, SENTINEL_ADAPTER, `dst chat_adapter.bundle.js must remain untouched on missing ${file.name}`);
+        assert.equal(currentProtocol, SENTINEL_PROTOCOL, `dst webview_protocol.js must remain untouched on missing ${file.name}`);
       }
 
       // Restore file before testing next
@@ -123,7 +131,28 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
     assert.equal(typeof adapterSandbox.restoreSelection, 'function');
     assert.equal(typeof adapterSandbox.restoreFocus, 'function');
     assert.equal(typeof adapterSandbox.moveDomChild, 'function');
+
+    // Verify webview_protocol.js execution in sandboxed CJS context
+    const generatedProtocolBundle = await readFile(dstProtocolBundle, 'utf8');
+    assert.notEqual(generatedProtocolBundle, SENTINEL_PROTOCOL);
+
+    const protocolSandbox: any = {
+      exports: {},
+      module: { exports: {} },
+      require: () => { throw new Error('Standalone bundle must not require external modules'); },
+    };
+    protocolSandbox.module.exports = protocolSandbox.exports;
+    vm.createContext(protocolSandbox);
+    vm.runInContext(generatedProtocolBundle, protocolSandbox);
+
+    const exportedProtocol = protocolSandbox.module.exports;
+    assert.equal(typeof exportedProtocol.parseWebviewToHostMessage, 'function');
+    const parsedReady = exportedProtocol.parseWebviewToHostMessage({ kind: 'ready' });
+    assert.ok(parsedReady);
+    assert.equal(parsedReady.kind, 'ready');
+    assert.equal(exportedProtocol.parseWebviewToHostMessage({ kind: 'say' }), undefined);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+

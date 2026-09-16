@@ -23,12 +23,15 @@ const domInteractionSrc = path.join(root, 'src', 'web', 'dom_interaction.ts');
 const recoveryViewSrc = path.join(root, 'src', 'web', 'recovery_view.ts');
 const recoveryControllerSrc = path.join(root, 'src', 'web', 'recovery_controller.ts');
 const adapterSrc = path.join(root, 'src', 'web', 'chat_adapter.ts');
+const protocolSrc = path.join(root, 'src', 'core', 'webview_protocol.ts');
 
 const outDir = path.join(root, 'out', 'web');
+const coreDir = path.join(root, 'out', 'core');
 const answerStateDst = path.join(outDir, 'answer_state.js');
 const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
+const protocolDst = path.join(coreDir, 'webview_protocol.js');
 
-// 1. Single list of required inputs (§4.7, §5.7)
+// 1. Single list of required inputs (§4.7, §5.7, §5.8)
 const requiredInputs = [
   { id: 'answer_state', name: 'out/core/answer_state.js', path: answerStateSrc },
   { id: 'recovery_state', name: 'out/core/recovery_state.js', path: recoveryStateSrc },
@@ -36,6 +39,7 @@ const requiredInputs = [
   { id: 'recovery_view', name: 'src/web/recovery_view.ts', path: recoveryViewSrc },
   { id: 'recovery_controller', name: 'src/web/recovery_controller.ts', path: recoveryControllerSrc },
   { id: 'chat_adapter', name: 'src/web/chat_adapter.ts', path: adapterSrc },
+  { id: 'webview_protocol', name: 'src/core/webview_protocol.ts', path: protocolSrc },
 ];
 
 // 2. Validate existence of all required inputs BEFORE touching/writing any output file
@@ -186,7 +190,30 @@ ${bundledCode}
 `;
 
 
-// 6. Write both output files together after all inputs are verified and read
+// 6. Construct webview_protocol.js bundle for host with inlined Valibot runtime (§5.8.3)
+let protocolBundledCode = '';
+try {
+  const esbuildProtocol = esbuild.buildSync({
+    entryPoints: [protocolSrc],
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    write: false,
+    nodePaths: [
+      path.join(root, 'node_modules'),
+      path.join(__dirname, '..', 'node_modules'),
+    ],
+    logLevel: 'silent',
+  });
+  protocolBundledCode = esbuildProtocol.outputFiles[0].text;
+} catch (err) {
+  console.error(`esbuild failed to bundle ${protocolSrc}: ${err.message}`);
+  process.exit(1);
+}
+
+// 7. Write all output files together after all inputs are verified and compiled
 fs.mkdirSync(outDir, { recursive: true });
+fs.mkdirSync(coreDir, { recursive: true });
 fs.writeFileSync(answerStateDst, answerStateWrapped, 'utf8');
 fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
+fs.writeFileSync(protocolDst, protocolBundledCode, 'utf8');

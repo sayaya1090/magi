@@ -1,10 +1,4 @@
-/**
- * Discriminated union message protocol between VS Code host and chat webview.
- *
- * Invariant: Every message kind specifies its required fields.
- * Runtime parsing at the boundary rejects malformed payloads without silent fallback.
- */
-
+import * as v from 'valibot';
 import { Row } from './transcript';
 import { Ask } from './touched';
 import { Activity } from './activity';
@@ -16,161 +10,149 @@ export interface PanelNoteInfo {
   offerStart: boolean;
 }
 
-// ── Webview to Host Messages ──
+// ── Shared Schema Atoms ──
 
-export type WebviewToHostMessage =
-  | { kind: 'ready' }
-  | { kind: 'say'; text: string; creationTaskId?: string }
-  | { kind: 'start' }
-  | { kind: 'run'; command: string }
-  | { kind: 'drop' }
-  | { kind: 'diff'; session: string; callId: string }
-  | { kind: 'open'; session: string; callId: string; seq?: number }
-  | { kind: 'output'; session: string; outputId: string }
-  | { kind: 'answer'; callId: string; decision: string }
-  | {
-      kind: 'reply';
-      callId: string;
-      text: string;
-      attemptId: number;
-      companionKey: string;
-      session: string;
-      generation: number;
-      webviewId: string;
-    }
-  | { kind: 'mention'; text: string; reqId: number; target: string }
-  | { kind: 'suggest'; text: string; reqId: number; target: string };
+export const NonEmptyStringSchema = v.pipe(
+  v.string(),
+  v.check((s) => s.trim().length > 0, 'Must not be blank')
+);
+
+export const PositiveIntegerSchema = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(1)
+);
+
+export const NonNegativeIntegerSchema = v.pipe(
+  v.number(),
+  v.integer(),
+  v.minValue(0)
+);
+
+// ── Webview to Host Schemas ──
+
+export const ReadyMessageSchema = v.object({
+  kind: v.literal('ready'),
+});
+
+export const StartMessageSchema = v.object({
+  kind: v.literal('start'),
+});
+
+export const DropMessageSchema = v.object({
+  kind: v.literal('drop'),
+});
+
+export const SayMessageSchema = v.object({
+  kind: v.literal('say'),
+  text: v.string(),
+  creationTaskId: v.optional(NonEmptyStringSchema),
+});
+
+export const RunMessageSchema = v.object({
+  kind: v.literal('run'),
+  command: v.pipe(v.string(), v.minLength(1)),
+});
+
+export const DiffMessageSchema = v.object({
+  kind: v.literal('diff'),
+  session: NonEmptyStringSchema,
+  callId: NonEmptyStringSchema,
+});
+
+export const OpenMessageSchema = v.object({
+  kind: v.literal('open'),
+  session: NonEmptyStringSchema,
+  callId: NonEmptyStringSchema,
+  seq: v.optional(v.number()),
+});
+
+export const OutputMessageSchema = v.object({
+  kind: v.literal('output'),
+  session: NonEmptyStringSchema,
+  outputId: NonEmptyStringSchema,
+});
+
+export const AnswerMessageSchema = v.object({
+  kind: v.literal('answer'),
+  callId: NonEmptyStringSchema,
+  decision: NonEmptyStringSchema,
+});
+
+export const ReplyMessageSchema = v.object({
+  kind: v.literal('reply'),
+  callId: NonEmptyStringSchema,
+  text: v.string(),
+  attemptId: PositiveIntegerSchema,
+  companionKey: NonEmptyStringSchema,
+  session: NonEmptyStringSchema,
+  generation: NonNegativeIntegerSchema,
+  webviewId: NonEmptyStringSchema,
+});
+
+export const MentionMessageSchema = v.object({
+  kind: v.literal('mention'),
+  text: v.string(),
+  reqId: v.number(),
+  target: v.string(),
+});
+
+export const SuggestMessageSchema = v.object({
+  kind: v.literal('suggest'),
+  text: v.string(),
+  reqId: v.number(),
+  target: v.string(),
+});
+
+export const WebviewToHostMessageSchema = v.union([
+  ReadyMessageSchema,
+  StartMessageSchema,
+  DropMessageSchema,
+  SayMessageSchema,
+  RunMessageSchema,
+  DiffMessageSchema,
+  OpenMessageSchema,
+  OutputMessageSchema,
+  AnswerMessageSchema,
+  ReplyMessageSchema,
+  MentionMessageSchema,
+  SuggestMessageSchema,
+]);
+
+// ── Inferred Type ──
+
+export type WebviewToHostMessage = v.InferOutput<typeof WebviewToHostMessageSchema>;
 
 /**
- * Runtime validation of messages received from the webview boundary.
+ * Runtime validation of messages received from the webview boundary using Valibot schemas.
  * Returns parsed message if valid according to schema, otherwise undefined.
  */
 export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const m = raw as Record<string, unknown>;
-  const kind = typeof m.kind === 'string' ? m.kind : '';
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const res = v.safeParse(WebviewToHostMessageSchema, raw);
+  if (!res.success) return undefined;
+  const out = res.output;
 
-  switch (kind) {
-    case 'ready':
-    case 'start':
-    case 'drop':
-      return { kind };
-
-    case 'say': {
-      if (typeof m.text !== 'string') return undefined;
-      let creationTaskId: string | undefined;
-      if (m.creationTaskId !== undefined) {
-        if (typeof m.creationTaskId !== 'string' || m.creationTaskId.trim().length === 0) {
-          return undefined;
-        }
-        creationTaskId = m.creationTaskId;
-      }
-      return creationTaskId !== undefined
-        ? { kind: 'say', text: m.text, creationTaskId }
-        : { kind: 'say', text: m.text };
-    }
-
-    case 'run':
-      if (typeof m.command !== 'string' || !m.command) return undefined;
-      return { kind: 'run', command: m.command };
-
-    case 'diff':
-      if (
-        typeof m.session !== 'string' ||
-        m.session.trim().length === 0 ||
-        typeof m.callId !== 'string' ||
-        m.callId.trim().length === 0
-      ) {
-        return undefined;
-      }
-      return { kind: 'diff', session: m.session, callId: m.callId };
-
-    case 'open':
-      if (
-        typeof m.session !== 'string' ||
-        m.session.trim().length === 0 ||
-        typeof m.callId !== 'string' ||
-        m.callId.trim().length === 0
-      ) {
-        return undefined;
-      }
-      return {
-        kind: 'open',
-        session: m.session,
-        callId: m.callId,
-        seq: typeof m.seq === 'number' ? m.seq : undefined,
-      };
-
-    case 'output':
-      if (
-        typeof m.session !== 'string' ||
-        m.session.trim().length === 0 ||
-        typeof m.outputId !== 'string' ||
-        m.outputId.trim().length === 0
-      ) {
-        return undefined;
-      }
-      return { kind: 'output', session: m.session, outputId: m.outputId };
-
-    case 'answer':
-      if (
-        typeof m.callId !== 'string' ||
-        m.callId.trim().length === 0 ||
-        typeof m.decision !== 'string' ||
-        m.decision.trim().length === 0
-      ) {
-        return undefined;
-      }
-      return { kind: 'answer', callId: m.callId, decision: m.decision };
-
-    case 'reply': {
-      if (
-        typeof m.callId !== 'string' ||
-        m.callId.trim().length === 0 ||
-        typeof m.text !== 'string' ||
-        typeof m.attemptId !== 'number' ||
-        !Number.isInteger(m.attemptId) ||
-        m.attemptId <= 0 ||
-        typeof m.companionKey !== 'string' ||
-        m.companionKey.trim().length === 0 ||
-        typeof m.session !== 'string' ||
-        m.session.trim().length === 0 ||
-        typeof m.generation !== 'number' ||
-        !Number.isInteger(m.generation) ||
-        m.generation < 0 ||
-        typeof m.webviewId !== 'string' ||
-        m.webviewId.trim().length === 0
-      ) {
-        return undefined;
-      }
-      return {
-        kind: 'reply',
-        callId: m.callId,
-        text: m.text,
-        attemptId: m.attemptId,
-        companionKey: m.companionKey,
-        session: m.session,
-        generation: m.generation,
-        webviewId: m.webviewId,
-      };
-    }
-
-    case 'mention':
-      if (typeof m.text !== 'string' || typeof m.reqId !== 'number' || typeof m.target !== 'string') {
-        return undefined;
-      }
-      return { kind: 'mention', text: m.text, reqId: m.reqId, target: m.target };
-
-    case 'suggest':
-      if (typeof m.text !== 'string' || typeof m.reqId !== 'number' || typeof m.target !== 'string') {
-        return undefined;
-      }
-      return { kind: 'suggest', text: m.text, reqId: m.reqId, target: m.target };
-
-    default:
-      return undefined;
+  // Preserve exact legacy property contract for open (seq is explicitly undefined when omitted)
+  if (out.kind === 'open') {
+    return {
+      kind: 'open',
+      session: out.session,
+      callId: out.callId,
+      seq: out.seq !== undefined ? out.seq : undefined,
+    };
   }
+
+  // Preserve exact legacy property contract for say (omit key if undefined)
+  if (out.kind === 'say') {
+    return out.creationTaskId !== undefined
+      ? { kind: 'say', text: out.text, creationTaskId: out.creationTaskId }
+      : { kind: 'say', text: out.text };
+  }
+
+  return out;
 }
+
 
 // ── Host to Webview Messages ──
 

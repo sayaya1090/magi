@@ -426,6 +426,7 @@
     "@vscode/test-electron": "^3.1.0",
     "esbuild": "^0.28.2",
     "rxjs": "^7.8.2",
-    "typescript": "^5.5.0"
+    "typescript": "^5.5.0",
+    "valibot": "^1.5.0"
   }
 }
