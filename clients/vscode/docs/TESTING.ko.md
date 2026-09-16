@@ -115,6 +115,7 @@ VS Code 인스턴스 없이 순수 Node.js 런타임 상에서 동작하며, 프
 | `preflight.test.ts` (자산 번들 선행 검사 및 파일 URL 정규화) | **웹뷰 필수 번들 선행 검사 및 파일 URL 정규화 검증.** `chat_html.js`·`answer_state.js`·`chat_adapter.bundle.js` 번들 누락 시 자식 프로세스가 종료 코드 1과 함께 누락 경로 및 빌드 안내를 표준 에러로 출력하는지 격리 임시 디렉터리에서 검증합니다. Windows 드라이브 문자(`C:\...`), 공백, `#` 특수문자가 포함된 경로가 URL 해시(#)로 잘리지 않고 `pathToFileURL`을 통해 올바른 `file:///` 경로로 정규화되는지 단위 테스트로 대조합니다. (Windows 경로 변환 단위 검증이며 Windows 실물 실행과는 구분됩니다) |
 | `output.test.ts` (원문 조회 및 스냅샷 관리) | **확정 답변·도구 결과 원문 조회, 서식 직렬화, 결정론적 URI 및 스냅샷 수명 검증 (§3.1–§3.3).** 완성된 모델 답변 및 도구 결과의 원문을 100자 축약·트림·줄바꿈 변환 없이 확정 이벤트로부터 원형 그대로 복원하는지 검증합니다. 도구 결과의 성공·실패(`isError`) 무관 열기 지원, 구조화된 결과의 JSON 직렬화 및 `(JSON)` 제목 표기, 유효한 빈 문자열(`""`)과 자료 없음(`null`/`undefined`)의 엄격한 구분, 도구 호출 `seq`와 결과 이벤트 `seq` 분리 매핑, 콜론(`:`)이 포함된 `callId`의 인코딩 왕복 보존 및 확정 결과용 필수 `resultSeq` 검증, 추가 토큰·빈 seq·잘못된 숫자의 엄격한 거부, 불변 스냅샷 캐시의 중복 쓰기 방지, 캐시 한도 1 환경에서의 임시 보호(`protectTemp`), 참조 카운트 기반 중첩 보호 및 멱등 해제, 탭 닫힘 연동 정리(`evictExcess`) 및 모든 항목 핀 고정 시 일시 초과 허용을 순수 단위 수준에서 전수 검증합니다. |
 | `output_provider.test.ts` (가상 문서 프로바이더 및 호스트 디스패치) | **읽기 전용 가상 문서 프로바이더(`magi-output`) 및 호스트 메시지 디스패치 검증 (§3.1–§3.4).** VS Code API(`vscode.workspace.registerTextDocumentContentProvider`, `openTextDocument`, `showTextDocument`)와의 연동을 검증합니다. `openTextDocument` 및 `showTextDocument` 예외 발생 시 비정상 종료 없이 `opened: false` 및 오류 사유로 안전하게 변환, 실패 시 `finally`를 통한 임시 보호 즉각 해제 및 캐시 누수 방지, `setTextDocumentLanguage`가 반환한 신규 문서 인스턴스를 `showTextDocument`에 전달, 언어 전환 중 발생하는 닫기(`close`) 이벤트에서의 생성 중 스냅샷 보호 유지, 언어 모드 설정 실패 시 원문 보기 유지 및 경고(`warning`) 반환, 동일 항목 재클릭 시 결정론적 URI 기반 탭 재사용, 다른 세션·컴패니언 간 동일 seq/callId 자료 격리, 탭 닫기(`onDidCloseTextDocument`) 이벤트 수신 시 초과 캐시 즉시 정리, `Chat.fromView`의 실패 및 경고 안내(`note`) 1회 표출과 입력/질문 모드 무변경 보존, 그리고 `Chat.dispose` 시 프로바이더·등록·구독이 중복 없이 정확히 1회씩 해제됨을 모의 호스트 환경에서 전수 검증합니다. (실제 VS Code IDE 실물 실행은 미실시) |
+| `recovery_state.test.ts` (실패 답변·생성 작업 초안 인메모리 복구 관리) | **실패 답변·생성 작업 초안 인메모리 복구 모델, 등록·중복합산·소비 이벤트 및 복사·삭제 검증 (§4.6).** 검증 통과한 `replyResult`의 `ok=false` 시 저장된 `inFlight.text` 등록, 빈 문자열 거절 및 공백/개행 원문 보존, HTML 특수문자 보존, 동일 세션·질문·원문의 반복 실패 중복 합산 및 횟수·최신 오류 갱신, 소비된 이벤트 재유입 무시, 명시적 삭제 후 재등록 방지 및 새 실패 시 새 ID 발급, `sessionCreationFailed` 및 `conflict=true` 생성 작업 초안의 복구 저장소 등록, 일반 초안 비어 있을 때 복사 및 비어 있지 않을 때 `G + "\n\n" + text` 결합 적용, 확인 취소 시 상태 보존, 타 세션 이동/삭제 시 복사 취소 등을 순수 모델 수준에서 전수 검증합니다 |
 
 ```sh
 cd clients/vscode && npx tsc -p . && node --test 'out/test/*.test.js'
@@ -267,6 +268,22 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 3. **검증 결과:**
    - `npm test`: 총 429개 단위 테스트 100% 통과 (0 fail, 7 skip).
    - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
+
+### 실패 답변·생성 초안 인메모리 복구 목록 사양 (2026-09-16, §4.6 Commit 1)
+
+`core/recovery_state.ts`, `core/answer_state.ts`, `test/recovery_state.test.ts`에 걸쳐 실패 답변 및 생성 작업 초안의 인메모리 복구 모델, 수명, 중복 합산, 복사 및 삭제 계약을 검증합니다:
+
+1. **복구 자료 모델과 등록 계약 (`recovery_state.ts`):**
+   - **대상 자료 3종 등록:** 검증 통과한 `replyResult`의 `ok=false` 시 저장된 `inFlight.text` 등록 (`reply_failed`), `sessionCreationFailed` 시 작업 미전송 draft 등록 (`session_creation_failed`), `sessionCreated`의 `conflict=true` 시 작업 draft 등록 (`session_creation_conflict`).
+   - **원문 보존 및 빈 문자열 거절:** 빈 문자열(`""`)은 등록을 거절하고, 공백·개행만 있는 문자열(`"   \n  "`)이나 HTML 특수문자(`<script>`, `<div>`)는 trim이나 이스케이프 없이 원문 그대로 보존합니다.
+   - **중복 합산과 소비 이벤트 관리:** 동일 컴패니언·세션·질문(또는 작업)·종류·동일 원문의 반복 실패는 단일 항목으로 합산하여 시도 횟수(`attempts`)와 최신 오류(`error`, `reason`)를 갱신하고 최신 발생 순 정렬 번호(`seq`)를 부여합니다. 이미 처리된 `eventKey`가 재유입되면 횟수를 늘리지 않고 무시합니다.
+   - **명시적 삭제와 격리:** 항목 삭제(`deleteItem`)는 해당 `recoveryId`만 제거하며 다른 초안이나 in-flight에 영향을 주지 않습니다. 삭제된 과거 사건의 이벤트가 재도착해도 부활하지 않으며, 사용자가 이후 새 시도로 같은 내용을 보내 다시 실패하면 새 `recoveryId`가 발급됩니다.
+   - **정상 완료 격리:** 정상 완료(`conflict: false`)된 생성 작업 초안이나 성공한 답변은 복구 목록에 등록되지 않으며, 후속 성공이 기존 실패 항목을 자동 삭제하지 않습니다.
+2. **답변 상태 머신 연동 및 일반 초안 복사 (`answer_state.ts`):**
+   - **저장된 전송 텍스트 강제:** 답변 실패 시 응답 `m.text`가 누락되거나 변조되어도 반드시 저장된 `inFlight.text`를 복구 저장소에 등록합니다. A 전송 후 B로 수정한 상태에서 A 실패 시 현재 입력/초안 B를 보존하고 복구 목록에는 A가 기록됩니다.
+   - **일반 초안 복사 및 이어붙이기 결합:** `applyRecoveryDraft`는 일반 초안 `G`가 비어 있으면 원문을 그대로 일반 초안에 복사합니다. `G`가 존재할 경우 즉시 덮어쓰지 않고 `requiresConfirmation: true`를 반환하며, 사용자가 확인 시 정확히 `G + "\n\n" + text`로 결합합니다 (`G`와 `text` 모두 trim하지 않음).
+   - **문맥 및 상태 보존:** 복사 확인 전 취소 시 일반 초안, 질문 초안, 답변 모드가 100% 보존됩니다. 조작 중 세션이 바뀌거나 복구 항목이 삭제되면 복사 적용이 거절(`false`)됩니다.
+
 
 
 

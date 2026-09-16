@@ -5,6 +5,13 @@
  * Pure logic without DOM or VS Code dependencies.
  */
 
+import {
+  createRecoveryState,
+  RecoveryFilter,
+  RecoveryItem,
+  RecoveryStateManager,
+} from './recovery_state';
+
 export interface InFlightReply {
   attemptId: number;
   text: string;
@@ -13,6 +20,23 @@ export interface InFlightReply {
   session?: string;
   generation?: number;
   webviewId?: string;
+}
+
+export interface ApplyRecoveryDraftOptions {
+  recoveryId: string;
+  companionKey?: string;
+  sessionId?: string;
+  append?: boolean;
+  currentInputText?: string;
+}
+
+export interface ApplyRecoveryDraftResult {
+  ok: boolean;
+  reason?: 'not_found' | 'context_mismatch' | 'requires_confirm';
+  item?: RecoveryItem;
+  existingDraft?: string;
+  nextInputText?: string;
+  exitAnswerMode?: boolean;
 }
 
 export interface ContextSwitchOptions {
@@ -172,6 +196,11 @@ export interface AnswerStateManager {
   submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult;
   submitSay(text: string): SubmitResult;
   onReplyResult(m: ReplyResultEvent, currentActiveAsk?: AskEvent | null): ReplyResultOutcome;
+  getRecoveryState(): RecoveryStateManager;
+  listRecoveryItems(filter?: RecoveryFilter): RecoveryItem[];
+  getRecoveryItem(recoveryId: string): RecoveryItem | undefined;
+  deleteRecoveryItem(recoveryId: string): boolean;
+  applyRecoveryDraft(options: ApplyRecoveryDraftOptions): ApplyRecoveryDraftResult;
 }
 
 interface SessionDraftState {
@@ -187,7 +216,8 @@ function makeContextKey(companionKey: string, sessionId: string): string {
   return JSON.stringify([companionKey || '', sessionId || '']);
 }
 
-export function createAnswerState(): AnswerStateManager {
+export function createAnswerState(recoveryStateManager?: RecoveryStateManager): AnswerStateManager {
+  const recovery = recoveryStateManager || createRecoveryState();
   const contexts = new Map<string, SessionDraftState>();
   const creationTasks = new Map<string, CreationTaskInfo>();
   const attemptToContext = new Map<number, {
@@ -274,6 +304,17 @@ export function createAnswerState(): AnswerStateManager {
     if (error !== undefined) {
       task.error = error;
     }
+    if (task.draft && task.draft.length > 0) {
+      recovery.register({
+        companionKey,
+        creationTaskId,
+        kind: 'session_creation_failed',
+        text: task.draft,
+        error,
+        reason: error ? `대화 생성 실패: ${error}` : '대화 생성 실패',
+        eventKey: `create_fail:${companionKey}:${creationTaskId}`,
+      });
+    }
     return true;
   }
 
@@ -325,6 +366,15 @@ export function createAnswerState(): AnswerStateManager {
     const fDrafts: Record<string, string[]> = {};
     for (const k of Object.keys(s.failedDrafts)) {
       fDrafts[k] = s.failedDrafts[k].slice();
+    }
+    const fromRec = recovery.listItems({ companionKey: compKey, sessionId: sessId });
+    for (const it of fromRec) {
+      if (it.kind === 'reply_failed' && it.callId) {
+        if (!fDrafts[it.callId]) fDrafts[it.callId] = [];
+        if (!fDrafts[it.callId].includes(it.text)) {
+          fDrafts[it.callId].push(it.text);
+        }
+      }
     }
     const infReplies: Record<string, InFlightReply> = {};
     for (const k of Object.keys(s.inFlightReplies)) {
@@ -390,6 +440,10 @@ export function createAnswerState(): AnswerStateManager {
   }
 
   function getFailedDrafts(callId: string, companionKey?: string, sessionId?: string): string[] {
+    const fromRecovery = recovery.getFailedDrafts(callId, companionKey, sessionId);
+    if (fromRecovery.length > 0) {
+      return fromRecovery.slice();
+    }
     const s = (companionKey !== undefined && sessionId !== undefined)
       ? getSessionState(companionKey, sessionId)
       : currentSessionState();
@@ -601,6 +655,17 @@ export function createAnswerState(): AnswerStateManager {
     const hasExistingDraft = Boolean(targetState.generalDraft && targetState.generalDraft.length > 0);
     if (hasExistingDraft) {
       task.status = 'completed';
+      if (task.draft && task.draft.length > 0) {
+        recovery.register({
+          companionKey: compKey,
+          sessionId: newSess,
+          creationTaskId,
+          kind: 'session_creation_conflict',
+          text: task.draft,
+          reason: '기존 초안과 충돌하여 별도 보관',
+          eventKey: `create_conflict:${compKey}:${creationTaskId}`,
+        });
+      }
       return {
         ok: true,
         conflict: true,
@@ -728,6 +793,7 @@ export function createAnswerState(): AnswerStateManager {
       return { handled: false, reason: 'webview_mismatch' };
     }
 
+    const inFlightText = inFlight.text;
     delete targetState.inFlightReplies[m.callId];
     attemptToContext.delete(m.attemptId);
 
@@ -752,12 +818,25 @@ export function createAnswerState(): AnswerStateManager {
       };
     }
 
+    // Register into recovery state using saved inFlight.text (NOT m.text, §4.6.1)
+    if (inFlightText && inFlightText.length > 0) {
+      recovery.register({
+        companionKey: attemptMeta.companionKey,
+        sessionId: attemptMeta.sessionId,
+        callId: m.callId,
+        kind: 'reply_failed',
+        text: inFlightText,
+        error: m.error,
+        eventKey: `reply:${attemptMeta.companionKey}:${attemptMeta.sessionId}:${m.callId}:${m.attemptId}`,
+      });
+    }
+
     if (!targetState.failedDrafts[m.callId]) targetState.failedDrafts[m.callId] = [];
-    targetState.failedDrafts[m.callId].push(m.text || '');
+    targetState.failedDrafts[m.callId].push(inFlightText);
 
     const modifiedSinceAttempt = currentVer > inFlight.version;
     if (!modifiedSinceAttempt) {
-      targetState.questionDrafts[m.callId] = m.text || targetState.questionDrafts[m.callId] || '';
+      targetState.questionDrafts[m.callId] = inFlightText || (m.text !== undefined ? m.text : (targetState.questionDrafts[m.callId] || ''));
       if (isCurrentContext && currentActiveAsk && currentActiveAsk.callId === m.callId) {
         targetState.pendingQuestion = m.callId;
         return {
@@ -780,6 +859,67 @@ export function createAnswerState(): AnswerStateManager {
       restoredInStoreOnly: true,
       companionKey: attemptMeta.companionKey,
       session: attemptMeta.sessionId
+    };
+  }
+
+  function applyRecoveryDraft(options: ApplyRecoveryDraftOptions): ApplyRecoveryDraftResult {
+    const item = recovery.getItem(options.recoveryId);
+    if (!item) {
+      return { ok: false, reason: 'not_found' };
+    }
+
+    const compKey = options.companionKey !== undefined ? options.companionKey : currentCompanionKey;
+    const sessId = options.sessionId !== undefined ? options.sessionId : currentSessionId;
+    if (compKey !== currentCompanionKey || sessId !== currentSessionId) {
+      return { ok: false, reason: 'context_mismatch' };
+    }
+
+    const s = currentSessionState();
+
+    // 1. If currently in answer mode, save latest DOM answer draft (§4.6.3)
+    if (s.pendingQuestion && options.currentInputText !== undefined) {
+      s.questionDrafts[s.pendingQuestion] = options.currentInputText;
+    }
+
+    // 2. Read latest general draft (§4.6.3: "이어 붙이기 직전 G를 다시 읽어, 확인창을 연 뒤 수정한 일반 초안을 덮어쓰지 않습니다.")
+    if (!s.pendingQuestion && options.currentInputText !== undefined) {
+      s.generalDraft = options.currentInputText;
+    }
+
+    const currentG = s.generalDraft || '';
+
+    // 3. If general draft G is not empty, require confirmation before appending
+    if (currentG.length > 0) {
+      if (!options.append) {
+        return {
+          ok: false,
+          reason: 'requires_confirm',
+          item: { ...item },
+          existingDraft: currentG,
+        };
+      }
+      // Confirmed append: exact G + "\n\n" + text (do not trim G or text, §4.6.3)
+      const combined = currentG + '\n\n' + item.text;
+      s.generalDraft = combined;
+      const wasAnswer = Boolean(s.pendingQuestion);
+      s.pendingQuestion = null;
+      return {
+        ok: true,
+        item: { ...item },
+        nextInputText: combined,
+        exitAnswerMode: wasAnswer,
+      };
+    }
+
+    // 4. Empty general draft: copy verbatim and exit answer mode
+    s.generalDraft = item.text;
+    const wasAnswer = Boolean(s.pendingQuestion);
+    s.pendingQuestion = null;
+    return {
+      ok: true,
+      item: { ...item },
+      nextInputText: item.text,
+      exitAnswerMode: wasAnswer,
     };
   }
 
@@ -807,6 +947,11 @@ export function createAnswerState(): AnswerStateManager {
     onCompose,
     submitReply,
     submitSay,
-    onReplyResult
+    onReplyResult,
+    getRecoveryState: () => recovery,
+    listRecoveryItems: (filter) => recovery.listItems(filter),
+    getRecoveryItem: (recoveryId) => recovery.getItem(recoveryId),
+    deleteRecoveryItem: (recoveryId) => recovery.deleteItem(recoveryId),
+    applyRecoveryDraft,
   };
 }

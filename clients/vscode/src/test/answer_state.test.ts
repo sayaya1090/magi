@@ -131,7 +131,7 @@ test('Scenario 4: 질문 교체 후 이전 요청 실패, ID 없는 응답, 중�
 
   // 1. 중복 제출 차단 검증
   state.enterAnswerMode('q1', '질문 1');
-  const sub1 = state.submitReply('q1', '답변 1');
+  const sub1 = state.submitReply('q1', 'q1에 보냈던 내용');
   assert.equal(sub1.ok, true);
   assert.equal(sub1.attemptId, 1);
   assert.equal(state.isInFlight('q1'), true);
