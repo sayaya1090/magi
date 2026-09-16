@@ -565,4 +565,91 @@ test('Chat §4.5 Item 1: V1 session-new 대기 중 V2 전환 시 V1 sessionCreat
   assert.equal(v1SessionCreated.length, 0, 'sessionCreated must not be posted to replaced view');
 });
 
+test('Chat §4.5 Item 1: 생성 대기 중 A/B 연속 전송 시 session-new RPC 1회 및 큐 순서 보장 검증', async () => {
+  const companion = createMockCompanion();
+  let resolveSessionNew!: (val: any) => void;
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'session-new') {
+      return new Promise((res) => { resolveSessionNew = res; });
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).openStream = async () => {};
+  const mockView = createMockWebviewView();
+  chat.resolveWebviewView(mockView.view as any);
+
+  // 1. A 전송 (create-1 작업으로 session-new 개시)
+  const aPromise = chat.fromView({ kind: 'say', text: '메시지 A', creationTaskId: 'create-1' }, 'view-1');
+
+  // 2. 생성이 대기 중인 상태에서 B 전송 (동일한 create-1 작업 재사용)
+  const bPromise = chat.fromView({ kind: 'say', text: '메시지 B', creationTaskId: 'create-1' }, 'view-1');
+
+  // session-new 완료 전에는 session-new 호출이 단 1회여야 함 (RPC 1회)
+  const sessionNewCallsBefore = companion.calls.filter((c) => c.door === 'session-new');
+  assert.equal(sessionNewCallsBefore.length, 1, 'session-new must only be called once for consecutive sends');
+
+  // 3. session-new 해결
+  resolveSessionNew({ session: 'sess-ab-123' });
+  await Promise.all([aPromise, bPromise]);
+
+  // session-new 호출은 여전히 1회
+  const sessionNewCallsAfter = companion.calls.filter((c) => c.door === 'session-new');
+  assert.equal(sessionNewCallsAfter.length, 1, 'session-new RPC count must remain exactly 1');
+
+  // 4. sessionCreated 이벤트는 최초 1회 발행되고 creationTaskId는 create-1이어야 함
+  const createdEvents = mockView.messages.filter((m: any) => m.kind === 'sessionCreated');
+  assert.equal(createdEvents.length, 1, 'sessionCreated must be emitted once');
+  assert.equal(createdEvents[0].session, 'sess-ab-123');
+  assert.equal(createdEvents[0].creationTaskId, 'create-1');
+  assert.equal(createdEvents[0].webviewId, 'view-1');
+
+  // 5. A와 B는 올바른 큐 순서대로 전송되어야 함
+  const submitCalls = companion.calls.filter((c) => c.door === 'submit' || c.door === 'steer');
+  assert.equal(submitCalls.length, 2, 'both A and B must be submitted');
+  assert.equal(submitCalls[0].payload.text, '메시지 A');
+  assert.equal(submitCalls[0].payload.session, 'sess-ab-123');
+  assert.equal(submitCalls[1].payload.text, '메시지 B');
+  assert.equal(submitCalls[1].payload.session, 'sess-ab-123');
+});
+
+test('Chat §4.5 Item 1: session-new 실패 시 sessionCreationFailed 이벤트 및 giveBack 발행 검증', async () => {
+  const companion = createMockCompanion();
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'session-new') {
+      return { ok: false, error: 'daemon offline' };
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).openStream = async () => {};
+  const mockView = createMockWebviewView();
+  chat.resolveWebviewView(mockView.view as any);
+
+  await chat.fromView({ kind: 'say', text: '실패할 메시지', creationTaskId: 'create-fail-1' }, 'view-1');
+
+  // 1. sessionCreationFailed 이벤트 발행 검증
+  const failEvent = mockView.messages.find((m: any) => m.kind === 'sessionCreationFailed');
+  assert.ok(failEvent, 'sessionCreationFailed event must be posted');
+  assert.equal(failEvent.creationTaskId, 'create-fail-1');
+  assert.equal(failEvent.companionKey, '/workspace');
+  assert.equal(failEvent.webviewId, 'view-1');
+  assert.equal(failEvent.error, 'daemon offline');
+
+  // 2. giveBack에 의해 note와 compose가 전송되었는지 확인
+  const noteMsg = mockView.messages.find((m: any) => m.kind === 'note');
+  assert.ok(noteMsg);
+  assert.ok(noteMsg.text.includes('daemon offline'));
+
+  const composeMsg = mockView.messages.find((m: any) => m.kind === 'compose');
+  assert.ok(composeMsg);
+  assert.equal(composeMsg.text, '실패할 메시지');
+});
+
 

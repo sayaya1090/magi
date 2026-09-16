@@ -203,8 +203,15 @@ export type HostToWebviewMessage =
       kind: 'sessionCreated';
       companionKey: string;
       session: string;
-      creationTaskId?: string;
-      webviewId?: string;
+      creationTaskId: string;
+      webviewId: string;
+    }
+  | {
+      kind: 'sessionCreationFailed';
+      companionKey: string;
+      creationTaskId: string;
+      webviewId: string;
+      error?: string;
     }
   | {
       kind: 'replyResult';

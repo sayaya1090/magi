@@ -114,7 +114,13 @@ export interface CreationTaskInfo {
   webviewId?: string;
   draft: string;
   status: 'pending' | 'completed' | 'failed';
+  error?: string;
 }
+
+export type BindSessionResult =
+  | { ok: true; conflict: false; draft: string }
+  | { ok: true; conflict: true; taskDraft: string; existingDraft: string }
+  | { ok: false; reason: 'missing_id' | 'not_found' | 'not_pending' | 'webview_mismatch' };
 
 export interface AnswerStateManager {
   getState(companionKey?: string, sessionId?: string): AnswerStateSnapshot;
@@ -156,7 +162,7 @@ export interface AnswerStateManager {
     newSessionId: string,
     creationTaskId?: string,
     webviewId?: string
-  ): boolean;
+  ): BindSessionResult;
   enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult;
   exitAnswerMode(currentInputText?: string): ModeChangeResult;
   onAskChange(a: AskEvent | null | undefined, currentInputText?: string): ModeChangeResult;
@@ -254,7 +260,7 @@ export function createAnswerState(): AnswerStateManager {
   function failCreationTask(
     companionKey: string,
     creationTaskId: string,
-    _error?: string
+    error?: string
   ): boolean {
     if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
       return false;
@@ -265,6 +271,9 @@ export function createAnswerState(): AnswerStateManager {
       return false;
     }
     task.status = 'failed';
+    if (error !== undefined) {
+      task.error = error;
+    }
     return true;
   }
 
@@ -568,29 +577,36 @@ export function createAnswerState(): AnswerStateManager {
     newSessionId: string,
     creationTaskId?: string,
     webviewId?: string
-  ): boolean {
+  ): BindSessionResult {
     if (!creationTaskId || typeof creationTaskId !== 'string' || creationTaskId.trim().length === 0) {
-      return false;
+      return { ok: false, reason: 'missing_id' };
     }
     const compKey = companionKey || '';
     const newSess = newSessionId || '';
-    if (!newSess.trim()) return false;
+    if (!newSess.trim()) return { ok: false, reason: 'missing_id' };
 
     const taskKey = makeTaskKey(compKey, creationTaskId);
     const task = creationTasks.get(taskKey);
     if (!task) {
-      return false;
+      return { ok: false, reason: 'not_found' };
     }
     if (task.status !== 'pending') {
-      return false;
+      return { ok: false, reason: 'not_pending' };
     }
     if (webviewId && task.webviewId && task.webviewId !== webviewId) {
-      return false;
+      return { ok: false, reason: 'webview_mismatch' };
     }
 
     const targetState = getSessionState(compKey, newSess);
-    if (targetState.generalDraft && targetState.generalDraft.length > 0) {
-      return false;
+    const hasExistingDraft = Boolean(targetState.generalDraft && targetState.generalDraft.length > 0);
+    if (hasExistingDraft) {
+      task.status = 'completed';
+      return {
+        ok: true,
+        conflict: true,
+        taskDraft: task.draft,
+        existingDraft: targetState.generalDraft,
+      };
     }
 
     targetState.generalDraft = task.draft;
@@ -600,7 +616,11 @@ export function createAnswerState(): AnswerStateManager {
     if (emptyState && emptyState.generalDraft === task.draft) {
       emptyState.generalDraft = '';
     }
-    return true;
+    return {
+      ok: true,
+      conflict: false,
+      draft: task.draft,
+    };
   }
 
   function submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult {

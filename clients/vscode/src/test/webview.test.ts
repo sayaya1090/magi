@@ -17,6 +17,7 @@ import {
 } from '../web/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
 import { State, notRunning, panelNote } from '../core/activity';
+import type { Ask } from '../core/touched';
 
 const IDE = path.join(__dirname, '..', '..', 'src', 'ide');
 const WEB = path.join(__dirname, '..', '..', 'src', 'web');
@@ -892,13 +893,28 @@ test('parseHostToWebviewMessage validates schema and rejects malformed payloads'
 
   // sessionCreated
   assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated' }), undefined, 'missing sessionCreated fields rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '', session: 's1' }), undefined, 'empty companionKey rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: '' }), undefined, 'empty session rejected');
-  assert.deepEqual(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', creationTaskId: 'task-1' }), {
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '', session: 's1', creationTaskId: 'task-1', webviewId: 'v1' }), undefined, 'empty companionKey rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: '', creationTaskId: 'task-1', webviewId: 'v1' }), undefined, 'empty session rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', creationTaskId: '', webviewId: 'v1' }), undefined, 'empty creationTaskId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', webviewId: 'v1' }), undefined, 'missing creationTaskId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', creationTaskId: 'task-1' }), undefined, 'missing webviewId rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', creationTaskId: 'task-1', webviewId: 'v1' }), {
     kind: 'sessionCreated',
     companionKey: '/ws',
     session: 's1',
     creationTaskId: 'task-1',
+    webviewId: 'v1',
+  });
+
+  // sessionCreationFailed
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreationFailed' }), undefined, 'missing fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreationFailed', companionKey: '/ws', creationTaskId: 'task-1' }), undefined, 'missing webviewId rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'sessionCreationFailed', companionKey: '/ws', creationTaskId: 'task-1', webviewId: 'v1', error: 'boom' }), {
+    kind: 'sessionCreationFailed',
+    companionKey: '/ws',
+    creationTaskId: 'task-1',
+    webviewId: 'v1',
+    error: 'boom',
   });
 
   // mentions
@@ -935,6 +951,7 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
     onNote: () => { handled.push('note'); },
     onReplyResult: () => { handled.push('replyResult'); },
     onSessionCreated: () => { handled.push('sessionCreated'); },
+    onSessionCreationFailed: () => { handled.push('sessionCreationFailed'); },
     onMentions: () => { handled.push('mentions'); },
     onSuggestion: () => { handled.push('suggestion'); },
   };
@@ -966,11 +983,19 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
     companionKey: '/ws',
     session: 's1',
     creationTaskId: 'task-1',
+    webviewId: 'v1',
+  }, handlers), true);
+  assert.equal(dispatchHostMessage({
+    kind: 'sessionCreationFailed',
+    companionKey: '/ws',
+    creationTaskId: 'task-1',
+    webviewId: 'v1',
+    error: 'fail',
   }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'mentions', files: ['a.ts'], reqId: 1, target: 'general' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'suggestion', text: 'complete', reqId: 2, target: 'general' }, handlers), true);
 
-  assert.deepEqual(handled, ['rows', 'state', 'info', 'compose', 'note', 'replyResult', 'sessionCreated', 'mentions', 'suggestion']);
+  assert.deepEqual(handled, ['rows', 'state', 'info', 'compose', 'note', 'replyResult', 'sessionCreated', 'sessionCreationFailed', 'mentions', 'suggestion']);
 });
 
 test('createWebviewInputAdapter controls answer mode and submits responses', () => {
@@ -1917,6 +1942,302 @@ test('§4.5 Item 1: 실제 어댑터로 생성 시작 -> 작성 -> 다른 세션
   // 5. 나중에 S1으로 전환했을 때 M2 초안이 복원됨
   inputAdapter.onContextChange('/workspace', 'sess-1-created', null, 0, 'view-1');
   assert.equal(elements.say.value, 'M2 추가 초안');
+
+  inputAdapter.dispose();
+});
+
+test('§4.5 Item 1: 빈 세션 연속 전송 동일 작업 귀속, 전송 B 미복원, DRAFT 작성 S2 이동 복원 및 실패 재시도 검증', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+  inputAdapter.onContextChange('/ws', '', null, 0, 'view-1');
+
+  // 1. A 전송 -> 빈 세션이므로 create-1 발급
+  elements.say.value = 'A 메시지';
+  inputAdapter.send();
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].text, 'A 메시지');
+  assert.equal(posted[0].creationTaskId, 'create-1');
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1');
+
+  // 2. session-new 대기 중 B 작성 및 전송 -> 동일한 create-1 작업 재사용 (§4.5 Item 1)
+  elements.say.value = 'B 메시지';
+  listeners['input']?.({});
+  inputAdapter.send();
+  assert.equal(posted.length, 2);
+  assert.equal(posted[1].text, 'B 메시지');
+  assert.equal(posted[1].creationTaskId, 'create-1', 'B send must reuse active creationTaskId create-1');
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1');
+
+  // 전송 직후 작업 초안은 ''이어야 함 (B가 미전송 초안으로 되살아나지 않아야 함)
+  assert.equal(state.getCreationTask('/ws', 'create-1')?.draft, '');
+
+  // 3. 추가 작성 없이 바로 완료된 경우: B가 복원되지 않고 빈 입력 유지 (§4.5 Item 1)
+  inputAdapter.onSessionCreated?.({
+    companionKey: '/ws',
+    session: 'sess-done-no-draft',
+    creationTaskId: 'create-1',
+    webviewId: 'view-1',
+  });
+  assert.equal(elements.say.value, '', 'sent message B must NOT be resurrected as draft');
+  assert.equal(state.getGeneralDraft('/ws', 'sess-done-no-draft'), '');
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), null, 'creation task must be cleared on completion');
+
+  // 4. 새 빈 세션에서 A 전송 -> B 전송 -> DRAFT 작성 -> S2 이동 -> S1 완료 시나리오
+  inputAdapter.onContextChange('/ws', '', null, 0, 'view-1');
+  elements.say.value = 'A2 메시지';
+  inputAdapter.send();
+  assert.equal(posted[2].creationTaskId, 'create-2');
+
+  elements.say.value = 'B2 메시지';
+  listeners['input']?.({});
+  inputAdapter.send();
+  assert.equal(posted[3].creationTaskId, 'create-2', 'B2 must reuse create-2');
+
+  // B2 전송 후 사용자가 DRAFT 작성
+  elements.say.value = 'DRAFT 후속 메모';
+  listeners['input']?.({});
+  assert.equal(state.getCreationTask('/ws', 'create-2')?.draft, 'DRAFT 후속 메모');
+
+  // S2로 이동
+  inputAdapter.onContextChange('/ws', 'sess-2', null, 0, 'view-1');
+  elements.say.value = 'S2 기존 작업';
+  listeners['input']?.({});
+
+  // S1(create-2) 완료 이벤트 도착
+  inputAdapter.onSessionCreated?.({
+    companionKey: '/ws',
+    session: 'sess-1-complete',
+    creationTaskId: 'create-2',
+    webviewId: 'view-1',
+  });
+
+  // S2 입력창은 불변이어야 함 (§4.5 Item 1)
+  assert.equal(elements.say.value, 'S2 기존 작업', 'S2 input must remain untouched when S1 completes');
+
+  // S1으로 복귀 시 DRAFT가 복원되고 B2는 복원되지 않음
+  inputAdapter.onContextChange('/ws', 'sess-1-complete', null, 0, 'view-1');
+  assert.equal(elements.say.value, 'DRAFT 후속 메모', 'DRAFT must be restored on returning to S1');
+
+  // 5. 생성 실패 -> 재시도 시 원래 자료 보존 및 새 작업 ID 발급 검증
+  inputAdapter.onContextChange('/ws', '', null, 0, 'view-1');
+  elements.say.value = '실패할 요청';
+  inputAdapter.send();
+  assert.equal(posted[4].creationTaskId, 'create-3');
+
+  // 실패 이벤트 수신
+  inputAdapter.onSessionCreationFailed?.({
+    companionKey: '/ws',
+    creationTaskId: 'create-3',
+    webviewId: 'view-1',
+    error: 'connection refused',
+  });
+
+  // 활성 생성 작업 ID가 초기화되었는지 확인
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), null);
+  // 원래 작업 자료는 보존되어 있어야 함
+  const failedTask = state.getCreationTask('/ws', 'create-3');
+  assert.equal(failedTask?.status, 'failed');
+  assert.equal(failedTask?.error, 'connection refused');
+
+  // 재시도 전송 시 새 ID create-4 발급 확인
+  elements.say.value = '재시도 요청';
+  inputAdapter.send();
+  assert.equal(posted[5].creationTaskId, 'create-4', 'retry send must issue new creationTaskId');
+  assert.equal(state.getCreationTask('/ws', 'create-4')?.status, 'pending');
+  // create-3은 여전히 failed로 보존
+  assert.equal(state.getCreationTask('/ws', 'create-3')?.status, 'failed');
+
+  inputAdapter.dispose();
+});
+
+test('§4.5 Item 2: dispatchHostMessage -> receiveHandlers -> inputAdapter 거절 수신 경로 전체 상태 불변 및 유효 충돌·직후 rows 검증', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: 'Send', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+  let currentSession = '';
+  let currentCompanionKey = '/workspace';
+  let currentWebviewId = 'view-1';
+  let currentAsk: Ask | null = null;
+  const drawnRows: any[] = [];
+
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter,
+    answerState: state,
+    getCurrentAsk: () => currentAsk,
+    getCurrentSession: () => currentSession,
+    setCurrentSession: (s: string) => { currentSession = s; },
+    getCurrentCompanionKey: () => currentCompanionKey,
+    setCurrentCompanionKey: (k: string) => { currentCompanionKey = k; },
+    getCurrentWebviewId: () => currentWebviewId,
+    setCurrentWebviewId: (w: string) => { currentWebviewId = w; },
+    clearExpandedCallIds: () => {},
+    resetCurrentAsk: () => { currentAsk = null; },
+    drawRows: (r) => { drawnRows.push(r); },
+    drawAsk: () => {},
+    drawRefs: () => {},
+    drawState: () => {},
+    drawInfo: () => {},
+    setNoteText: () => {},
+    getNoteText: () => '',
+  });
+
+  // 초기 상태: 빈 세션에서 첫 메시지 전송 후 DRAFT 작성
+  inputAdapter.onContextChange('/workspace', '', null, 0, 'view-1');
+  elements.say.value = 'M1 전송';
+  inputAdapter.send();
+  const taskId = posted[0].creationTaskId;
+  assert.equal(taskId, 'create-1');
+
+  elements.say.value = 'CURRENT_DRAFT_TEXT';
+  listeners['input']?.({});
+
+  // 기준 상태 스냅샷
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1');
+  assert.equal(inputAdapter.getCurrentSession?.(), '');
+  assert.equal(currentSession, '');
+  assert.equal(elements.say.value, 'CURRENT_DRAFT_TEXT');
+  assert.equal(elements.replyModeEl.hidden, true);
+
+  // 1. 미등록 task ID의 sessionCreated 주입 -> 거절되어 전체 상태 불변이어야 함 (§4.5 Item 2)
+  const rejected1 = dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-unrelated-1',
+    creationTaskId: 'unregistered-task-id',
+    webviewId: 'view-1',
+  }, handlers);
+  assert.equal(rejected1, true, 'message format was valid and dispatched');
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1', 'activeCreationTaskId must NOT be cleared on rejection');
+  assert.equal(inputAdapter.getCurrentSession?.(), '', 'inputAdapter session must NOT change on rejection');
+  assert.equal(currentSession, '', 'receiveHandlers session must NOT change on rejection');
+  assert.equal(elements.say.value, 'CURRENT_DRAFT_TEXT', 'say.value must NOT change on rejection');
+  assert.equal(elements.replyModeEl.hidden, true, 'reply mode must NOT change on rejection');
+
+  // 2. 다른 웹뷰 ID의 sessionCreated 주입 -> 거절되어 전체 상태 불변 (§4.5 Item 2)
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-unrelated-2',
+    creationTaskId: 'create-1',
+    webviewId: 'view-old-wrong',
+  }, handlers);
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1');
+  assert.equal(inputAdapter.getCurrentSession?.(), '');
+  assert.equal(currentSession, '');
+  assert.equal(elements.say.value, 'CURRENT_DRAFT_TEXT');
+
+  // 3. 다른 컴패니언의 sessionCreated 주입 -> 거절되어 전체 상태 불변 (§4.5 Item 2)
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace-other',
+    session: 'sess-unrelated-3',
+    creationTaskId: 'create-1',
+    webviewId: 'view-1',
+  }, handlers);
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), 'create-1');
+  assert.equal(inputAdapter.getCurrentSession?.(), '');
+  assert.equal(currentSession, '');
+  assert.equal(elements.say.value, 'CURRENT_DRAFT_TEXT');
+
+  // 4. 대상 세션에 이미 초안이 있는 유효 생성 완료 (초안 충돌 분기) (§4.5 Item 2)
+  // 대상 세션 sess-conflict에 기존 초안 준비
+  state.switchContext('/workspace', 'sess-conflict', { webviewId: 'view-1' });
+  state.onInputChange('TARGET_EXISTING_DRAFT');
+  // 다시 빈 세션으로 복귀
+  state.switchContext('/workspace', '', { webviewId: 'view-1' });
+  elements.say.value = 'CURRENT_DRAFT_TEXT';
+
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-conflict',
+    creationTaskId: 'create-1',
+    webviewId: 'view-1',
+  }, handlers);
+
+  // 유효한 완료이므로:
+  // - activeCreationTaskId는 해제됨
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), null);
+  // - 세션 전환은 양쪽 모두 일관되게 'sess-conflict'로 동기화됨 (§4.5 Item 2)
+  assert.equal(inputAdapter.getCurrentSession?.(), 'sess-conflict');
+  assert.equal(currentSession, 'sess-conflict');
+  // - 대상의 기존 초안은 보존되고 원래 작업 자료도 보존됨
+  assert.equal(state.getGeneralDraft('/workspace', 'sess-conflict'), 'TARGET_EXISTING_DRAFT');
+  assert.equal(state.getCreationTask('/workspace', 'create-1')?.draft, 'CURRENT_DRAFT_TEXT');
+  assert.equal(state.getCreationTask('/workspace', 'create-1')?.status, 'completed');
+
+  // 5. 중복 완료 주입 -> 이미 completed 상태이므로 거절되고 상태 불변 (§4.5 Item 2)
+  const prevVal = elements.say.value;
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-conflict',
+    creationTaskId: 'create-1',
+    webviewId: 'view-1',
+  }, handlers);
+  assert.equal(inputAdapter.getCurrentSession?.(), 'sess-conflict');
+  assert.equal(currentSession, 'sess-conflict');
+  assert.equal(elements.say.value, prevVal);
+
+  // 6. sessionCreated 직후 rows 수신 시 비대칭 없이 정상 수신 검증 (§4.5 Item 2)
+  drawnRows.length = 0;
+  dispatchHostMessage({
+    kind: 'rows',
+    session: 'sess-conflict',
+    rows: [{ who: 'magi', label: 'magi', text: '작업 완료' }],
+    ask: null,
+    refs: [],
+    companionKey: '/workspace',
+    webviewId: 'view-1',
+  }, handlers);
+
+  assert.equal(drawnRows.length, 1);
+  assert.equal(currentSession, 'sess-conflict');
+  assert.equal(inputAdapter.getCurrentSession?.(), 'sess-conflict');
+  assert.equal(state.getGeneralDraft('/workspace', 'sess-conflict'), 'TARGET_EXISTING_DRAFT');
 
   inputAdapter.dispose();
 });

@@ -234,6 +234,23 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - `npm test`: 총 415개 단위 테스트 100% 통과 (0 fail, 7 skip).
    - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
 
+### 생성 작업 연속 전송 귀속과 거절 수신 격리 사양 (2026-09-16, §4.5 Phase 4)
+
+`webview_protocol.ts`, `answer_state.ts`, `chat.ts`, `chat_adapter.ts`에 걸쳐 생성 대기 중 연속 전송의 단일 작업 귀속 및 거절된 완료 이벤트 격리 계약을 검증합니다:
+
+1. **같은 생성 대기 중 전송은 하나의 작업에 귀속 (P2):**
+   - **활성 생성 작업 재사용 (`activeCreationTaskId`):** 빈 세션에서 A 전송 후 세션 생성이 완료되기 전에 B를 추가 전송할 때, 새 ID를 발급하지 않고 기존 활성 작업 식별자(`create-1`)를 재사용합니다. 호스트의 단일 `sessionCreating` Promise와 웹뷰의 생성 작업이 1:1로 대응하며 데몬 `session-new` RPC는 1회만 호출됩니다. B 전송이 차단되지 않으며 submit/steer 큐 순서가 그대로 유지됩니다.
+   - **전송 후 작업 초안 동기화 및 부활 방지:** B를 전송한 즉시 작업 초안을 빈 문자열(`''`)로 동기화하여 이미 전송한 B가 차후 미전송 초안으로 되살아나지 않도록 합니다. 이후 작성한 DRAFT만 해당 생성 작업에 보존되며, 모드 전환(`enterAnswerMode`/`exitAnswerMode`), `compose`, `Tab`, 일반 입력(`onInput`) 모두 동일한 저장 경로를 공유합니다.
+   - **생성 실패 생명주기와 자료 보존 (`failCreationTask`, `sessionCreationFailed`):** `session-new` 실패 시 호스트가 `sessionCreationFailed` 이벤트를 발행하고, 웹뷰는 `failCreationTask`를 통해 작업 상태를 `'failed'`로 기록하고 오류와 작성 초안을 삭제 없이 보존합니다. 실패 후 활성 작업 ID는 초기화되어 재시도 시 새 ID(`create-2`)가 발급되며 실패한 작업 자료와 격리됩니다.
+2. **거절한 완료 이벤트는 어댑터 상태도 바꾸지 않기 (P2):**
+   - **파서 경계에서 작업·웹뷰 식별자 필수화:** `parseHostToWebviewMessage`에서 `sessionCreated` 수신 시 `creationTaskId`와 `webviewId`를 비어 있지 않은 문자열로 필수로 요구하며, 누락 시 `undefined`로 거절하고 현재 값으로 보정하지 않습니다.
+   - **수신 경로 거절 시 전체 상태 불변:** `dispatchHostMessage` → `receiveHandlers` → `inputAdapter`로 미등록 ID, 다른 웹뷰, 다른 컴패니언, 중복 완료(`not_pending`)가 유입될 경우, 활성 작업 ID(`activeCreationTaskId`), 현재 세션, `AnswerState` 문맥, DOM 입력(`say.value`), 답변 모드, 자동완성을 일체 변경하지 않고 100% 보존합니다.
+   - **명시적 결과 타입 분리와 초안 충돌 처리 (`BindSessionResult`):** `bindUnconfirmedSession`은 단순 boolean 대신 `BindSessionResult` 유니온(`ok: true, conflict: false`, `ok: true, conflict: true`, `ok: false, reason`)을 반환합니다. 유효한 생성이지만 대상 세션에 이미 초안이 존재하는 경우 세션 생성 사실(작업 `status: 'completed'`)을 기록하고 세션 전환을 수행하되, 대상의 기존 초안과 원래 작업 자료를 덮어쓰지 않고 각각 보존합니다.
+   - **세션 전환 순서 일치 및 직후 rows 동기화:** `inputAdapter.onSessionCreated`의 전환 결과(`transitioned`)를 `receiveHandlers`와 동기화하여 양쪽의 현재 세션이 동시에 갱신됩니다. `sessionCreated` 직후 곧바로 `rows` 이벤트가 도착하더라도 비대칭 상태로 인한 오작동(이전 입력을 엉뚱한 문맥에 재저장하거나 문맥을 잘못 리셋) 없이 안정적으로 수신합니다.
+3. **검증 결과:**
+   - `npm test`: 총 427개 단위 테스트 100% 통과 (0 fail, 7 skip).
+   - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
+
 
 
 

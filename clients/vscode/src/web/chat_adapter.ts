@@ -181,8 +181,14 @@ export interface HostMessageHandlers {
   onSessionCreated?(payload: {
     companionKey: string;
     session: string;
-    creationTaskId?: string;
-    webviewId?: string;
+    creationTaskId: string;
+    webviewId: string;
+  }): void;
+  onSessionCreationFailed?(payload: {
+    companionKey: string;
+    creationTaskId: string;
+    webviewId: string;
+    error?: string;
   }): void;
   onReplyResult?(payload: {
     callId: string;
@@ -303,32 +309,39 @@ export function parseHostToWebviewMessage(raw: unknown): HostToWebviewMessage | 
       typeof m.companionKey !== 'string' ||
       m.companionKey.trim().length === 0 ||
       typeof m.session !== 'string' ||
-      m.session.trim().length === 0
+      m.session.trim().length === 0 ||
+      typeof m.creationTaskId !== 'string' ||
+      m.creationTaskId.trim().length === 0 ||
+      typeof m.webviewId !== 'string' ||
+      m.webviewId.trim().length === 0
     ) {
       return undefined;
     }
-    let creationTaskId: string | undefined = undefined;
-    if (m.creationTaskId !== undefined) {
-      if (typeof m.creationTaskId !== 'string' || m.creationTaskId.trim().length === 0) {
-        return undefined;
-      }
-      creationTaskId = m.creationTaskId;
-    }
-    let webviewId: string | undefined = undefined;
-    if (m.webviewId !== undefined) {
-      if (typeof m.webviewId !== 'string' || m.webviewId.trim().length === 0) {
-        return undefined;
-      }
-      webviewId = m.webviewId;
-    }
-    const msg: HostToWebviewMessage = {
+    return {
       kind: 'sessionCreated',
       companionKey: m.companionKey,
       session: m.session,
+      creationTaskId: m.creationTaskId,
+      webviewId: m.webviewId,
     };
-    if (creationTaskId !== undefined) (msg as any).creationTaskId = creationTaskId;
-    if (webviewId !== undefined) (msg as any).webviewId = webviewId;
-    return msg;
+  } else if (kind === 'sessionCreationFailed') {
+    if (
+      typeof m.companionKey !== 'string' ||
+      m.companionKey.trim().length === 0 ||
+      typeof m.creationTaskId !== 'string' ||
+      m.creationTaskId.trim().length === 0 ||
+      typeof m.webviewId !== 'string' ||
+      m.webviewId.trim().length === 0
+    ) {
+      return undefined;
+    }
+    return {
+      kind: 'sessionCreationFailed',
+      companionKey: m.companionKey,
+      creationTaskId: m.creationTaskId,
+      webviewId: m.webviewId,
+      error: typeof m.error === 'string' ? m.error : undefined,
+    };
   } else if (kind === 'replyResult') {
     if (
       typeof m.callId !== 'string' ||
@@ -428,6 +441,9 @@ export function dispatchHostMessage(raw: unknown, handlers: HostMessageHandlers)
     return true;
   } else if (m.kind === 'sessionCreated') {
     handlers.onSessionCreated?.(m);
+    return true;
+  } else if (m.kind === 'sessionCreationFailed') {
+    handlers.onSessionCreationFailed?.(m);
     return true;
   } else if (m.kind === 'replyResult') {
     handlers.onReplyResult?.(m);
@@ -563,6 +579,12 @@ export function createSuggestController(): SuggestController {
   };
 }
 
+export interface SessionCreatedResult {
+  accepted: boolean;
+  transitioned: boolean;
+  conflict: boolean;
+}
+
 export interface WebviewInputAdapter {
   enterAnswerMode(callId: string, label?: string): void;
   exitAnswerMode(): void;
@@ -580,8 +602,14 @@ export interface WebviewInputAdapter {
   onSessionCreated?(payload: {
     companionKey: string;
     session: string;
-    creationTaskId?: string;
-    webviewId?: string;
+    creationTaskId: string;
+    webviewId: string;
+  }): SessionCreatedResult;
+  onSessionCreationFailed?(payload: {
+    companionKey: string;
+    creationTaskId: string;
+    webviewId: string;
+    error?: string;
   }): void;
   send(): void;
   submitChoice(callId: string, option: string): boolean;
@@ -604,6 +632,9 @@ export interface WebviewInputAdapter {
   ): void;
   getSuggestReqId(): number;
   getSuggestController(): SuggestController;
+  getActiveCreationTaskId?(): string | null;
+  getCurrentSession?(): string;
+  getCurrentCompanionKey?(): string;
   dispose(): void;
 }
 
@@ -651,6 +682,9 @@ export function createWebviewInputAdapter(
   }
 
   function enterAnswerMode(callId: string, label?: string): void {
+    if (activeCreationTaskId && !currentSession) {
+      answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, say.value);
+    }
     const res = answerState.enterAnswerMode(callId, label, say.value);
     applyAnswerModeUI(res.label, res.nextInputText);
   }
@@ -658,6 +692,9 @@ export function createWebviewInputAdapter(
   function exitAnswerMode(): void {
     const res = answerState.exitAnswerMode(say.value);
     applyGeneralModeUI(res.nextInputText);
+    if (activeCreationTaskId && !currentSession) {
+      answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, res.nextInputText || '');
+    }
   }
 
   function onContextChange(
@@ -702,24 +739,43 @@ export function createWebviewInputAdapter(
   function onSessionCreated(payload: {
     companionKey: string;
     session: string;
-    creationTaskId?: string;
-    webviewId?: string;
-  }): void {
-    if (!payload.creationTaskId) return;
-    answerState.bindUnconfirmedSession(
+    creationTaskId: string;
+    webviewId: string;
+  }): SessionCreatedResult {
+    // 1. Context validation: companionKey and webviewId must match if current values are known
+    if (
+      (currentWebviewId && payload.webviewId !== currentWebviewId) ||
+      (currentCompanionKey && payload.companionKey !== currentCompanionKey)
+    ) {
+      return { accepted: false, transitioned: false, conflict: false };
+    }
+
+    // 2. Process completion via answerState
+    const res = answerState.bindUnconfirmedSession(
       payload.companionKey,
       payload.session,
       payload.creationTaskId,
-      payload.webviewId || currentWebviewId
+      payload.webviewId
     );
+
+    if (!res.ok) {
+      // Rejection: keep activeCreationTaskId, currentSession, AnswerState, DOM input, mode, and autocompletion completely untouched!
+      return { accepted: false, transitioned: false, conflict: false };
+    }
+
+    // Valid completion:
     if (activeCreationTaskId === payload.creationTaskId) {
       activeCreationTaskId = null;
     }
-    if (
+
+    let transitioned = false;
+    const isCurrentEmptySession =
       currentCompanionKey === payload.companionKey &&
-      currentSession === ''
-    ) {
+      currentSession === '';
+
+    if (isCurrentEmptySession) {
       currentSession = payload.session;
+      transitioned = true;
       const pendingQ = answerState.getPendingQuestion();
       const activeAskEvent = pendingQ ? { kind: 'question' as const, callId: pendingQ } : null;
       answerState.switchContext(currentCompanionKey, currentSession, {
@@ -728,19 +784,43 @@ export function createWebviewInputAdapter(
         webviewId: currentWebviewId,
       });
     }
-    const isCurrent =
+
+    const isCurrentSessionNow =
       currentCompanionKey === payload.companionKey &&
       currentSession === payload.session;
     const isGeneralMode =
       !answerState.getPendingQuestion() && (!replyModeEl || replyModeEl.hidden);
-    if (isCurrent && isGeneralMode) {
-      const draft = answerState.getGeneralDraft(
-        payload.companionKey,
-        payload.session
-      );
-      if (draft && !say.value) {
-        say.value = draft;
+
+    if (isCurrentSessionNow && isGeneralMode) {
+      if (!res.conflict) {
+        if (res.draft && !say.value) {
+          say.value = res.draft;
+        }
+      } else {
+        if (res.existingDraft && !say.value) {
+          say.value = res.existingDraft;
+        }
       }
+    }
+
+    return { accepted: true, transitioned, conflict: res.conflict };
+  }
+
+  function onSessionCreationFailed(payload: {
+    companionKey: string;
+    creationTaskId: string;
+    webviewId: string;
+    error?: string;
+  }): void {
+    if (
+      (currentWebviewId && payload.webviewId !== currentWebviewId) ||
+      (currentCompanionKey && payload.companionKey !== currentCompanionKey)
+    ) {
+      return;
+    }
+    answerState.failCreationTask(payload.companionKey, payload.creationTaskId, payload.error);
+    if (activeCreationTaskId === payload.creationTaskId) {
+      activeCreationTaskId = null;
     }
   }
 
@@ -779,20 +859,28 @@ export function createWebviewInputAdapter(
     } else {
       let creationTaskId: string | undefined = undefined;
       if (!currentSession) {
-        creationTaskId = 'create-' + (++creationSeq);
-        activeCreationTaskId = creationTaskId;
-        answerState.registerCreationTask(
-          currentCompanionKey,
-          creationTaskId,
-          currentWebviewId,
-          ''
-        );
+        if (!activeCreationTaskId) {
+          creationTaskId = 'create-' + (++creationSeq);
+          activeCreationTaskId = creationTaskId;
+          answerState.registerCreationTask(
+            currentCompanionKey,
+            creationTaskId,
+            currentWebviewId,
+            ''
+          );
+        } else {
+          creationTaskId = activeCreationTaskId;
+          answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, '');
+        }
       }
       const res = answerState.submitSay(t);
       if (!res.ok) return;
       clearAutoCompletion();
       actions.say(res.text ?? t, creationTaskId);
       say.value = res.nextInputText ?? '';
+      if (activeCreationTaskId && !currentSession) {
+        answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, '');
+      }
     }
     if (hintEl) hintEl.textContent = '';
     if (noteEl) {
@@ -947,6 +1035,7 @@ export function createWebviewInputAdapter(
     onSessionChange,
     onContextChange,
     onSessionCreated,
+    onSessionCreationFailed,
     send,
     submitChoice,
     handleCompose,
@@ -955,6 +1044,9 @@ export function createWebviewInputAdapter(
     handleReplyResult,
     getSuggestReqId: () => suggestCtrl.getReqId(),
     getSuggestController: () => suggestCtrl,
+    getActiveCreationTaskId: () => activeCreationTaskId,
+    getCurrentSession: () => currentSession,
+    getCurrentCompanionKey: () => currentCompanionKey,
     dispose(): void {
       suggestCtrl.dispose();
       say.removeEventListener('keydown', onKeyDown);
@@ -1056,7 +1148,19 @@ export function createWebviewReceiveHandlers(
       options.inputAdapter.handleSuggestion(payload.text, payload.reqId, payload.target);
     },
     onSessionCreated(payload) {
-      options.inputAdapter.onSessionCreated?.(payload);
+      const res = options.inputAdapter.onSessionCreated?.(payload);
+      if (res?.transitioned) {
+        options.setCurrentSession(payload.session);
+        if (payload.companionKey && options.setCurrentCompanionKey) {
+          options.setCurrentCompanionKey(payload.companionKey);
+        }
+        if (payload.webviewId && options.setCurrentWebviewId) {
+          options.setCurrentWebviewId(payload.webviewId);
+        }
+      }
+    },
+    onSessionCreationFailed(payload) {
+      options.inputAdapter.onSessionCreationFailed?.(payload);
     },
     onReplyResult(payload) {
       options.inputAdapter.handleReplyResult(payload, options.getCurrentAsk());
