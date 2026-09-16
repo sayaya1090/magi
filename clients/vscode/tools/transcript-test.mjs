@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { createRowsMessage } from './transcript-fixtures.mjs';
+import { createRowsMessage, createReplyResultMessage } from './transcript-fixtures.mjs';
 import {
   runPreflight,
   toDirectoryUrl,
@@ -451,6 +451,10 @@ const bundles = [
         name: '자유 텍스트 질문 자동 답변 모드 진입 및 일반 초안 격리·복원 (Condition 9)',
         run: async (page) => {
           await page.setViewportSize({ width: 420, height: 600 });
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            rows: [],
+            ask: null
+          }));
           await page.locator('#say').fill('새 작업 초안 작성 중...');
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             rows: [{ who: 'agent', label: 'magi', text: 'turn' }],
@@ -548,7 +552,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'companion refused to accept answer',
-            text: '거절될 답변 내용'
+            text: '거절될 답변 내용',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), postedReject1);
 
           // Webview re-enters answer mode for q-reject and restores failed draft
@@ -568,7 +576,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'no companion is listening on this workspace.',
-            text: '재시도할 답변'
+            text: '재시도할 답변',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), postedReject2);
           await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
           assert.equal(await page.locator('#say').inputValue(), '재시도할 답변', 'disconnected reply restored into answer mode');
@@ -606,7 +618,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'timeout',
-            text: '구 질문 답변'
+            text: '구 질문 답변',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), postedReject3);
 
           assert.equal(await page.locator('#say').inputValue(), '신규 질문에 타이핑 중인 답변', 'late failure response from old question did not overwrite current question draft');
@@ -653,7 +669,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'network timeout',
-            text: '답변 A'
+            text: '답변 A',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), replyAttempt1);
 
           assert.equal(await page.locator('#say').inputValue(), '수정된 답변 B', 'fresh revision B was NOT overwritten by stale failure of A');
@@ -669,7 +689,11 @@ const bundles = [
             kind: 'replyResult',
             callId: 'q-stale',
             attemptId: att.attemptId,
-            ok: true
+            ok: true,
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), replyAttempt2);
 
           // Dismiss question
@@ -709,7 +733,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'initial failure',
-            text: '답변 A'
+            text: '답변 A',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), attemptA);
           await page.waitForFunction(() => !document.getElementById('reply-mode').hidden);
           assert.equal(await page.locator('#say').inputValue(), '답변 A');
@@ -742,7 +770,11 @@ const bundles = [
             attemptId: att.attemptId,
             ok: false,
             error: 'stale duplicate error for A',
-            text: '답변 A'
+            text: '답변 A',
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), attemptA);
 
           assert.equal(await page.locator('#say').inputValue(), '답변 B', 'draft B preserved against stale attempt A arrival');
@@ -759,7 +791,11 @@ const bundles = [
             kind: 'replyResult',
             callId: 'q-resend-test',
             attemptId: att.attemptId,
-            ok: true
+            ok: true,
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
           }, '*'), attemptB);
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             rows: [{ who: 'agent', label: 'magi', text: 'turn done' }],
@@ -1051,7 +1087,16 @@ const bundles = [
 
           // Clear in-flight reply for q-ac1
           const postedQAc1 = await page.evaluate(() => window.__posted.filter(m => m.kind === 'reply' && m.callId === 'q-ac1').slice(-1)[0]);
-          await page.evaluate((att) => window.postMessage({ kind: 'replyResult', callId: 'q-ac1', attemptId: att.attemptId, ok: true }, '*'), postedQAc1);
+          await page.evaluate((att) => window.postMessage({
+            kind: 'replyResult',
+            callId: 'q-ac1',
+            attemptId: att.attemptId,
+            ok: true,
+            companionKey: att.companionKey || '/workspace',
+            session: att.session || 'test-session',
+            generation: att.generation ?? 0,
+            webviewId: att.webviewId || 'test-webview',
+          }, '*'), postedQAc1);
 
           // 15B: Choice click also clears autocompletion
           await page.locator('#ask-controls button:text("직접 입력")').click();

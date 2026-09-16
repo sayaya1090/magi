@@ -514,8 +514,26 @@ test('parseWebviewToHostMessage parses valid messages according to schema', () =
   );
 
   assert.deepEqual(
-    parseWebviewToHostMessage({ kind: 'reply', callId: 'c1', text: 'my answer', attemptId: 3 }),
-    { kind: 'reply', callId: 'c1', text: 'my answer', attemptId: 3 },
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'my answer',
+      attemptId: 3,
+      companionKey: '/work/ws',
+      session: 'sess1',
+      generation: 1,
+      webviewId: 'view-1',
+    }),
+    {
+      kind: 'reply',
+      callId: 'c1',
+      text: 'my answer',
+      attemptId: 3,
+      companionKey: '/work/ws',
+      session: 'sess1',
+      generation: 1,
+      webviewId: 'view-1',
+    },
   );
 
   assert.deepEqual(
@@ -547,16 +565,94 @@ test('parseWebviewToHostMessage strictly rejects malformed or incomplete message
   assert.equal(parseWebviewToHostMessage({ kind: 'diff', callId: 'c1' }), undefined, 'missing session');
   assert.equal(parseWebviewToHostMessage({ kind: 'diff', session: 's1' }), undefined, 'missing callId');
 
-  // Missing required fields on reply
+  // Missing or invalid required fields on reply
   assert.equal(
     parseWebviewToHostMessage({ kind: 'reply', callId: 'c1', text: 'abc' }),
     undefined,
     'missing attemptId',
   );
   assert.equal(
-    parseWebviewToHostMessage({ kind: 'reply', text: 'abc', attemptId: 1 }),
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      text: 'abc',
+      attemptId: 1,
+      companionKey: '/ws',
+      session: 's1',
+      generation: 0,
+      webviewId: 'v1',
+    }),
     undefined,
     'missing callId',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'abc',
+      attemptId: 0,
+      companionKey: '/ws',
+      session: 's1',
+      generation: 0,
+      webviewId: 'v1',
+    }),
+    undefined,
+    'non-positive attemptId',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'abc',
+      attemptId: 1,
+      companionKey: '',
+      session: 's1',
+      generation: 0,
+      webviewId: 'v1',
+    }),
+    undefined,
+    'missing companionKey',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'abc',
+      attemptId: 1,
+      companionKey: '/ws',
+      session: '',
+      generation: 0,
+      webviewId: 'v1',
+    }),
+    undefined,
+    'missing session',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'abc',
+      attemptId: 1,
+      companionKey: '/ws',
+      session: 's1',
+      generation: -1,
+      webviewId: 'v1',
+    }),
+    undefined,
+    'negative generation',
+  );
+  assert.equal(
+    parseWebviewToHostMessage({
+      kind: 'reply',
+      callId: 'c1',
+      text: 'abc',
+      attemptId: 1,
+      companionKey: '/ws',
+      session: 's1',
+      generation: 0,
+      webviewId: '',
+    }),
+    undefined,
+    'missing webviewId',
   );
 
   // Missing required fields on run
@@ -581,7 +677,11 @@ test('createWebviewActionAdapter formats and guards outbound messages', () => {
   assert.equal(adapter.openDiff('', 'c1'), false);
   assert.equal(adapter.answer('', 'allow'), false);
   assert.equal(adapter.answer('c1', ''), false);
-  assert.equal(adapter.reply('', 'txt', 1), false);
+  assert.equal(adapter.reply('', 'txt', 1, { companionKey: '/ws', session: 's1', generation: 0, webviewId: 'v1' }), false);
+  assert.equal(adapter.reply('c1', 'txt', 0, { companionKey: '/ws', session: 's1', generation: 0, webviewId: 'v1' }), false);
+  assert.equal(adapter.reply('c1', 'txt', 1, { companionKey: '', session: 's1', generation: 0, webviewId: 'v1' }), false);
+  assert.equal(adapter.reply('c1', 'txt', 1, { companionKey: '/ws', session: '', generation: 0, webviewId: 'v1' }), false);
+  assert.equal(adapter.reply('c1', 'txt', 1, { companionKey: '/ws', session: 's1', generation: 0, webviewId: '' }), false);
   assert.equal(adapter.say('   '), false);
   assert.equal(adapter.act('   '), false);
 
@@ -598,8 +698,22 @@ test('createWebviewActionAdapter formats and guards outbound messages', () => {
   assert.equal(adapter.answer('call1', 'allow'), true);
   assert.deepEqual(posted.pop(), { kind: 'answer', callId: 'call1', decision: 'allow' });
 
-  assert.equal(adapter.reply('call1', 'answer text', 2), true);
-  assert.deepEqual(posted.pop(), { kind: 'reply', callId: 'call1', text: 'answer text', attemptId: 2 });
+  assert.equal(adapter.reply('call1', 'answer text', 2, {
+    companionKey: '/ws',
+    session: 'sess1',
+    generation: 1,
+    webviewId: 'view-1',
+  }), true);
+  assert.deepEqual(posted.pop(), {
+    kind: 'reply',
+    callId: 'call1',
+    text: 'answer text',
+    attemptId: 2,
+    companionKey: '/ws',
+    session: 'sess1',
+    generation: 1,
+    webviewId: 'view-1',
+  });
 
   assert.equal(adapter.say('hello companion'), true);
   assert.deepEqual(posted.pop(), { kind: 'say', text: 'hello companion' });
@@ -746,16 +860,45 @@ test('parseHostToWebviewMessage validates schema and rejects malformed payloads'
   // replyResult
   assert.equal(parseHostToWebviewMessage({ kind: 'replyResult' }), undefined, 'missing replyResult fields rejected');
   assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1' }), undefined, 'missing attemptId/ok rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: '', attemptId: 1, ok: true }), undefined, 'empty callId rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: '1', ok: true }), undefined, 'non-number attemptId rejected');
-  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: 'yes' }), undefined, 'non-boolean ok rejected');
-  assert.deepEqual(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, text: 'ans' }), {
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: '', attemptId: 1, ok: true, companionKey: '/ws', session: 's1', generation: 0, webviewId: 'v1' }), undefined, 'empty callId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: '1', ok: true, companionKey: '/ws', session: 's1', generation: 0, webviewId: 'v1' }), undefined, 'non-number attemptId rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: 'yes', companionKey: '/ws', session: 's1', generation: 0, webviewId: 'v1' }), undefined, 'non-boolean ok rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: '', session: 's1', generation: 0, webviewId: 'v1' }), undefined, 'empty companionKey rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: '/ws', session: '', generation: 0, webviewId: 'v1' }), undefined, 'empty session rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: '/ws', session: 's1', generation: -1, webviewId: 'v1' }), undefined, 'negative generation rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true, companionKey: '/ws', session: 's1', generation: 0, webviewId: '' }), undefined, 'empty webviewId rejected');
+  assert.deepEqual(parseHostToWebviewMessage({
+    kind: 'replyResult',
+    callId: 'c1',
+    attemptId: 1,
+    ok: true,
+    text: 'ans',
+    companionKey: '/ws',
+    session: 's1',
+    generation: 0,
+    webviewId: 'v1',
+  }), {
     kind: 'replyResult',
     callId: 'c1',
     attemptId: 1,
     ok: true,
     error: undefined,
     text: 'ans',
+    companionKey: '/ws',
+    session: 's1',
+    generation: 0,
+    webviewId: 'v1',
+  });
+
+  // sessionCreated
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated' }), undefined, 'missing sessionCreated fields rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '', session: 's1' }), undefined, 'empty companionKey rejected');
+  assert.equal(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: '' }), undefined, 'empty session rejected');
+  assert.deepEqual(parseHostToWebviewMessage({ kind: 'sessionCreated', companionKey: '/ws', session: 's1', creationTaskId: 'task-1' }), {
+    kind: 'sessionCreated',
+    companionKey: '/ws',
+    session: 's1',
+    creationTaskId: 'task-1',
   });
 
   // mentions
@@ -791,6 +934,7 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
     onCompose: () => { handled.push('compose'); },
     onNote: () => { handled.push('note'); },
     onReplyResult: () => { handled.push('replyResult'); },
+    onSessionCreated: () => { handled.push('sessionCreated'); },
     onMentions: () => { handled.push('mentions'); },
     onSuggestion: () => { handled.push('suggestion'); },
   };
@@ -807,11 +951,26 @@ test('dispatchHostMessage validates and safely dispatches inbound host messages'
   assert.equal(dispatchHostMessage({ kind: 'info', state: 'idle', label: 'idle', version: '1.0' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'compose', text: 'prefix' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'note', text: 'notice' }, handlers), true);
-  assert.equal(dispatchHostMessage({ kind: 'replyResult', callId: 'c1', attemptId: 1, ok: true }, handlers), true);
+  assert.equal(dispatchHostMessage({
+    kind: 'replyResult',
+    callId: 'c1',
+    attemptId: 1,
+    ok: true,
+    companionKey: '/ws',
+    session: 's1',
+    generation: 0,
+    webviewId: 'v1',
+  }, handlers), true);
+  assert.equal(dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/ws',
+    session: 's1',
+    creationTaskId: 'task-1',
+  }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'mentions', files: ['a.ts'], reqId: 1, target: 'general' }, handlers), true);
   assert.equal(dispatchHostMessage({ kind: 'suggestion', text: 'complete', reqId: 2, target: 'general' }, handlers), true);
 
-  assert.deepEqual(handled, ['rows', 'state', 'info', 'compose', 'note', 'replyResult', 'mentions', 'suggestion']);
+  assert.deepEqual(handled, ['rows', 'state', 'info', 'compose', 'note', 'replyResult', 'sessionCreated', 'mentions', 'suggestion']);
 });
 
 test('createWebviewInputAdapter controls answer mode and submits responses', () => {
@@ -877,9 +1036,19 @@ test('createWebviewInputAdapter controls answer mode and submits responses', () 
   assert.equal(sendEl.textContent, '답변');
 
   // 3. Submit choice
+  inputAdapter.onContextChange('/work/ws', 'sess-1', null, 0, 'view-1');
   const choiceOk = inputAdapter.submitChoice('q1', 'yes');
   assert.equal(choiceOk, true);
-  assert.deepEqual(posted.pop(), { kind: 'reply', callId: 'q1', text: 'yes', attemptId: 1 });
+  assert.deepEqual(posted.pop(), {
+    kind: 'reply',
+    callId: 'q1',
+    text: 'yes',
+    attemptId: 1,
+    companionKey: '/work/ws',
+    session: 'sess-1',
+    generation: 0,
+    webviewId: 'view-1',
+  });
   assert.equal(replyModeEl.hidden, true);
   assert.equal(sendEl.textContent, 'Send');
 

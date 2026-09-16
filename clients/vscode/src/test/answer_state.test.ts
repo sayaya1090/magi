@@ -339,8 +339,8 @@ test('Scenario 7: 동일 sessionId에 서로 다른 companionKey (C1 vs C2) 격�
 
 test('Scenario 8: 스냅샷 불변성 (Snapshot Immutability) 검증 (§4.5 Item 4)', () => {
   const state = createAnswerState();
-  state.switchContext('/workspace', 'sess-immut', { currentInputText: '원래 일반 초안' });
-  state.enterAnswerMode('q-immut', '불변 질문', state.getGeneralDraft());
+  state.switchContext('/workspace', 'sess-immut');
+  state.enterAnswerMode('q-immut', '불변 질문', '원래 일반 초안');
   state.onInputChange('원래 질문 초안');
 
   const sub = state.submitReply('q-immut', '원래 질문 초안');
@@ -379,5 +379,123 @@ test('Scenario 8: 스냅샷 불변성 (Snapshot Immutability) 검증 (§4.5 Item
     inFlight.text = '외부에서 변조';
     assert.notEqual(state.getInFlight('q-immut')?.text, '외부에서 변조');
   }
+});
+
+test('Scenario 9: onReplyResult generation 불일치 시 in-flight 및 초안 불변 검증 (§4.5 Item 1)', () => {
+  const state = createAnswerState();
+  state.switchContext('/workspace', 'sess-gen', { generation: 2, webviewId: 'view-1' });
+  state.enterAnswerMode('q1', '질문 1');
+  state.onInputChange('답변 초안 gen2');
+
+  const sub = state.submitReply('q1', '답변 초안 gen2');
+  assert.equal(sub.ok, true);
+  assert.equal(sub.attemptId, 1);
+  assert.equal(sub.generation, 2);
+  assert.equal(sub.webviewId, 'view-1');
+  assert.equal(state.isInFlight('q1'), true);
+
+  // generation 1의 동일 문맥 성공 결과가 지연 도착
+  const lateRes = state.onReplyResult({
+    callId: 'q1',
+    attemptId: 1,
+    ok: true,
+    text: '답변 초안 gen2',
+    companionKey: '/workspace',
+    session: 'sess-gen',
+    generation: 1,
+    webviewId: 'view-1',
+  });
+
+  // 불일치로 처리 거부되어야 함
+  assert.equal(lateRes.handled, false);
+  assert.equal(lateRes.reason, 'generation_mismatch');
+
+  // in-flight 및 초안이 유지되어야 함
+  assert.equal(state.isInFlight('q1'), true);
+  assert.equal(state.getQuestionDraft('q1'), '답변 초안 gen2');
+
+  // 올바른 generation 2 결과 도착 시 정상 처리
+  const validRes = state.onReplyResult({
+    callId: 'q1',
+    attemptId: 1,
+    ok: true,
+    text: '답변 초안 gen2',
+    companionKey: '/workspace',
+    session: 'sess-gen',
+    generation: 2,
+    webviewId: 'view-1',
+  });
+  assert.equal(validRes.handled, true);
+  assert.equal(validRes.ok, true);
+  assert.equal(state.isInFlight('q1'), false);
+  assert.equal(state.getQuestionDraft('q1'), '');
+});
+
+test('Scenario 10: onReplyResult webviewId 불일치 시 in-flight 및 초안 불변 검증 (§4.5 Item 1)', () => {
+  const state = createAnswerState();
+  state.switchContext('/workspace', 'sess-wid', { generation: 1, webviewId: 'view-2' });
+  state.enterAnswerMode('q1', '질문 1');
+  state.onInputChange('답변 초안 view2');
+
+  const sub = state.submitReply('q1', '답변 초안 view2');
+  assert.equal(sub.ok, true);
+  assert.equal(sub.webviewId, 'view-2');
+  assert.equal(state.isInFlight('q1'), true);
+
+  // 이전 웹뷰(view-1) 식별자를 가진 결과가 지연 도착
+  const staleRes = state.onReplyResult({
+    callId: 'q1',
+    attemptId: sub.attemptId,
+    ok: true,
+    text: '답변 초안 view2',
+    companionKey: '/workspace',
+    session: 'sess-wid',
+    generation: 1,
+    webviewId: 'view-1',
+  });
+
+  assert.equal(staleRes.handled, false);
+  assert.equal(staleRes.reason, 'webview_mismatch');
+
+  // in-flight 및 초안이 삭제되지 않고 보존
+  assert.equal(state.isInFlight('q1'), true);
+  assert.equal(state.getQuestionDraft('q1'), '답변 초안 view2');
+});
+
+test('Scenario 11: bindUnconfirmedSession 생명주기 및 대상 초안 충돌 방지 검증 (§4.5 Item 3)', () => {
+  const state = createAnswerState();
+
+  // 1. 빈 세션 (C1, '')에서 초안 작성
+  state.switchContext('/ws-1', '');
+  state.onInputChange('C1 빈 세션에서 작성한 새 작업 초안');
+  assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
+
+  // 2. 일반 switchContext로 기존 세션 S2로 이동 (creationTaskId 없음)
+  state.switchContext('/ws-1', 'session-2');
+  // S2로 자동 이전되지 않고 S2의 일반 초안은 비어 있어야 함
+  assert.equal(state.getGeneralDraft('/ws-1', 'session-2'), '');
+  // 빈 세션의 초안은 온전히 유지
+  assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
+
+  // 3. 다른 컴패니언 C2로 이동해도 영향 없음
+  state.switchContext('/ws-2', 'session-other');
+  assert.equal(state.getGeneralDraft('/ws-2', 'session-other'), '');
+  assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
+
+  // 4. 대상 세션에 이미 초안이 있는 상태에서 bindUnconfirmedSession 시도시 기존 초안 보존 및 손실 방지
+  state.switchContext('/ws-1', 'session-has-draft');
+  state.onInputChange('이미 존재하는 S3 초안');
+  const bindConflict = state.bindUnconfirmedSession('/ws-1', 'session-has-draft', 'task-create-1');
+  assert.equal(bindConflict, false);
+  assert.equal(state.getGeneralDraft('/ws-1', 'session-has-draft'), '이미 존재하는 S3 초안');
+  // 미확정 초안도 사라지지 않고 유지
+  assert.equal(state.getGeneralDraft('/ws-1', ''), 'C1 빈 세션에서 작성한 새 작업 초안');
+
+  // 5. 생성 결과 세션 S1에 명시적 바인딩 성공
+  const bindSuccess = state.bindUnconfirmedSession('/ws-1', 'session-created-1', 'task-create-1');
+  assert.equal(bindSuccess, true);
+  assert.equal(state.getGeneralDraft('/ws-1', 'session-created-1'), 'C1 빈 세션에서 작성한 새 작업 초안');
+  // 바인딩 완료 후 미확정 초안은 정리됨
+  assert.equal(state.getGeneralDraft('/ws-1', ''), '');
 });
 

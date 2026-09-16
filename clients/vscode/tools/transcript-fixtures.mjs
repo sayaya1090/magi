@@ -11,9 +11,30 @@ export function createRowsMessage(overrides = {}) {
   const msg = {
     kind: 'rows',
     session: 'test-session',
+    companionKey: '/workspace',
+    generation: 0,
+    webviewId: 'test-webview',
     rows: [],
     ask: null,
     refs: [],
+    ...overrides,
+  };
+  return msg;
+}
+
+/**
+ * Creates a valid host-to-webview 'replyResult' message satisfying WebviewProtocol contracts.
+ */
+export function createReplyResultMessage(overrides = {}, sourceAttempt = {}) {
+  const msg = {
+    kind: 'replyResult',
+    callId: overrides.callId || sourceAttempt.callId || 'test-call',
+    attemptId: overrides.attemptId !== undefined ? overrides.attemptId : (sourceAttempt.attemptId ?? 1),
+    ok: overrides.ok !== undefined ? overrides.ok : true,
+    companionKey: overrides.companionKey || sourceAttempt.companionKey || '/workspace',
+    session: overrides.session || sourceAttempt.session || 'test-session',
+    generation: overrides.generation !== undefined ? overrides.generation : (sourceAttempt.generation ?? 0),
+    webviewId: overrides.webviewId || sourceAttempt.webviewId || 'test-webview',
     ...overrides,
   };
   return msg;

@@ -12,12 +12,15 @@ export interface InFlightReply {
   companionKey?: string;
   session?: string;
   generation?: number;
+  webviewId?: string;
 }
 
 export interface ContextSwitchOptions {
   currentInputText?: string;
   activeAsk?: AskEvent | null;
   generation?: number;
+  webviewId?: string;
+  creationTaskId?: string;
 }
 
 export interface ContextSwitchResult {
@@ -41,6 +44,8 @@ export interface AnswerStateSnapshot {
   replyAttemptSeq: number;
   companionKey?: string;
   sessionId?: string;
+  generation?: number;
+  webviewId?: string;
 }
 
 export interface AskEvent {
@@ -60,6 +65,7 @@ export interface ReplyResultEvent {
   companionKey?: string;
   session?: string;
   generation?: number;
+  webviewId?: string;
 }
 
 export interface SubmitResult {
@@ -71,6 +77,7 @@ export interface SubmitResult {
   companionKey?: string;
   session?: string;
   generation?: number;
+  webviewId?: string;
   error?: string;
   message?: string;
   exitAnswerMode?: boolean;
@@ -110,12 +117,17 @@ export interface AnswerStateManager {
   getInFlight(callId: string, companionKey?: string, sessionId?: string): InFlightReply | undefined;
   getDraftVersion(callId: string, companionKey?: string, sessionId?: string): number;
   getFailedDrafts(callId: string, companionKey?: string, sessionId?: string): string[];
-  getCurrentContext(): { companionKey: string; sessionId: string; generation?: number };
+  getCurrentContext(): { companionKey: string; sessionId: string; generation?: number; webviewId?: string };
   switchContext(
     companionKey: string,
     sessionId: string,
     options?: ContextSwitchOptions
   ): ContextSwitchResult;
+  bindUnconfirmedSession(
+    companionKey: string,
+    newSessionId: string,
+    creationTaskId?: string
+  ): boolean;
   enterAnswerMode(callId: string, label?: string, currentInputText?: string): ModeChangeResult;
   exitAnswerMode(currentInputText?: string): ModeChangeResult;
   onAskChange(a: AskEvent | null | undefined, currentInputText?: string): ModeChangeResult;
@@ -142,11 +154,23 @@ function makeContextKey(companionKey: string, sessionId: string): string {
 
 export function createAnswerState(): AnswerStateManager {
   const contexts = new Map<string, SessionDraftState>();
-  const attemptToContext = new Map<number, { companionKey: string; sessionId: string; callId: string }>();
+  const unconfirmedDrafts = new Map<string, string>();
+  const attemptToContext = new Map<number, {
+    companionKey: string;
+    sessionId: string;
+    callId: string;
+    generation: number;
+    webviewId: string;
+  }>();
   let currentCompanionKey = '';
   let currentSessionId = '';
   let currentGeneration: number | undefined = undefined;
+  let currentWebviewId = '';
   let replyAttemptSeq = 0;
+
+  function makeUnconfirmedKey(companionKey: string, creationTaskId?: string): string {
+    return JSON.stringify([companionKey || '', creationTaskId || '']);
+  }
 
   function getSessionState(companionKey: string, sessionId: string): SessionDraftState {
     const key = makeContextKey(companionKey, sessionId);
@@ -169,11 +193,12 @@ export function createAnswerState(): AnswerStateManager {
     return getSessionState(currentCompanionKey, currentSessionId);
   }
 
-  function getCurrentContext(): { companionKey: string; sessionId: string; generation?: number } {
+  function getCurrentContext(): { companionKey: string; sessionId: string; generation?: number; webviewId?: string } {
     return {
       companionKey: currentCompanionKey,
       sessionId: currentSessionId,
-      generation: currentGeneration
+      generation: currentGeneration,
+      webviewId: currentWebviewId,
     };
   }
 
@@ -210,7 +235,9 @@ export function createAnswerState(): AnswerStateManager {
       inFlightReplies: infReplies,
       replyAttemptSeq,
       companionKey: compKey,
-      sessionId: sessId
+      sessionId: sessId,
+      generation: currentGeneration,
+      webviewId: currentWebviewId,
     };
   }
 
@@ -283,25 +310,20 @@ export function createAnswerState(): AnswerStateManager {
         oldState.questionDrafts[oldState.pendingQuestion] = currentText;
       } else {
         oldState.generalDraft = currentText;
+        if (prevSess === '' && options?.creationTaskId) {
+          unconfirmedDrafts.set(makeUnconfirmedKey(currentCompanionKey, options.creationTaskId), currentText);
+        }
       }
     }
 
-    // 세션 미확정 초안(prevSess === '')은 최초 세션 생성/도착 완료(targetSess !== '') 시 해당 세션에만 귀속 (§4.3)
-    if (prevSess === '' && targetSess !== '') {
-      const targetKey = makeContextKey(targetComp, targetSess);
-      const targetState = contexts.get(targetKey);
-      if ((!targetState || !targetState.generalDraft) && oldState.generalDraft) {
-        const dest = targetState || getSessionState(targetComp, targetSess);
-        dest.generalDraft = oldState.generalDraft;
-        oldState.generalDraft = '';
-      }
-    }
-
-    // 2. 문맥 전환
+    // 2. 문맥 전환 (일반 switchContext에서는 미확정 초안을 자동 이전하지 않음 - §4.5 Item 3)
     currentCompanionKey = targetComp;
     currentSessionId = targetSess;
     if (options?.generation !== undefined) {
       currentGeneration = options.generation;
+    }
+    if (options?.webviewId !== undefined) {
+      currentWebviewId = options.webviewId;
     }
 
     // 3. 새 문맥 상태 복원 및 실제 대기 질문으로 답변 모드 결정
@@ -433,6 +455,43 @@ export function createAnswerState(): AnswerStateManager {
     return { nextInputText: v, leadLength: lead.length, target: 'general' };
   }
 
+  function bindUnconfirmedSession(
+    companionKey: string,
+    newSessionId: string,
+    creationTaskId?: string
+  ): boolean {
+    const compKey = companionKey || '';
+    const newSess = newSessionId || '';
+    if (!newSess) return false;
+
+    const taskKey = makeUnconfirmedKey(compKey, creationTaskId);
+    let draft = unconfirmedDrafts.get(taskKey);
+    let fromTask = Boolean(draft);
+    if (!draft) {
+      const unconfirmedState = contexts.get(makeContextKey(compKey, ''));
+      if (unconfirmedState && unconfirmedState.generalDraft) {
+        draft = unconfirmedState.generalDraft;
+      }
+    }
+    if (!draft) return false;
+
+    const targetState = getSessionState(compKey, newSess);
+    // 대상에 이미 초안이 있다면 덮어쓰거나 합치지 않고 임시 초안을 유지 (§4.5 Item 3)
+    if (targetState.generalDraft) {
+      return false;
+    }
+
+    targetState.generalDraft = draft;
+    if (fromTask) {
+      unconfirmedDrafts.delete(taskKey);
+    }
+    const emptyState = contexts.get(makeContextKey(compKey, ''));
+    if (emptyState && emptyState.generalDraft === draft) {
+      emptyState.generalDraft = '';
+    }
+    return true;
+  }
+
   function submitReply(callId: string, text: string, isChoice?: boolean): SubmitResult {
     const t = (text || '').trim();
     if (!t) return { ok: false, error: 'empty' };
@@ -450,14 +509,17 @@ export function createAnswerState(): AnswerStateManager {
       version: ver,
       companionKey: currentCompanionKey,
       session: currentSessionId,
-      generation: currentGeneration
+      generation: currentGeneration ?? 0,
+      webviewId: currentWebviewId,
     };
     s.inFlightReplies[callId] = inFlightRecord;
     s.questionDrafts[callId] = finalText;
     attemptToContext.set(attemptId, {
       companionKey: currentCompanionKey,
       sessionId: currentSessionId,
-      callId
+      callId,
+      generation: currentGeneration ?? 0,
+      webviewId: currentWebviewId,
     });
 
     const wasAnswering = s.pendingQuestion === callId;
@@ -473,7 +535,8 @@ export function createAnswerState(): AnswerStateManager {
       attemptId,
       companionKey: currentCompanionKey,
       session: currentSessionId,
-      generation: currentGeneration,
+      generation: currentGeneration ?? 0,
+      webviewId: currentWebviewId,
       exitAnswerMode: wasAnswering,
       nextInputText: s.generalDraft,
       clearAutoCompletion: true
@@ -492,6 +555,7 @@ export function createAnswerState(): AnswerStateManager {
       companionKey: currentCompanionKey,
       session: currentSessionId,
       generation: currentGeneration,
+      webviewId: currentWebviewId,
       nextInputText: '',
       clearAutoCompletion: true
     };
@@ -514,19 +578,33 @@ export function createAnswerState(): AnswerStateManager {
     if (m.session !== undefined && m.session !== attemptMeta.sessionId) {
       return { handled: false, reason: 'context_mismatch' };
     }
+    if (m.generation !== undefined && m.generation !== attemptMeta.generation) {
+      return { handled: false, reason: 'generation_mismatch' };
+    }
+    if (m.webviewId !== undefined && m.webviewId !== attemptMeta.webviewId) {
+      return { handled: false, reason: 'webview_mismatch' };
+    }
 
     const targetState = getSessionState(attemptMeta.companionKey, attemptMeta.sessionId);
     const inFlight = targetState.inFlightReplies[m.callId];
     if (!inFlight || inFlight.attemptId !== m.attemptId) {
       return { handled: false, reason: 'mismatched_attempt_id' };
     }
+    if (m.generation !== undefined && inFlight.generation !== m.generation) {
+      return { handled: false, reason: 'generation_mismatch' };
+    }
+    if (m.webviewId !== undefined && inFlight.webviewId !== m.webviewId) {
+      return { handled: false, reason: 'webview_mismatch' };
+    }
+
     delete targetState.inFlightReplies[m.callId];
     attemptToContext.delete(m.attemptId);
 
     const isCurrentContext =
       attemptMeta.companionKey === currentCompanionKey &&
       attemptMeta.sessionId === currentSessionId &&
-      (m.generation === undefined || currentGeneration === undefined || m.generation === currentGeneration);
+      attemptMeta.webviewId === currentWebviewId &&
+      (currentGeneration === undefined || attemptMeta.generation === currentGeneration);
 
     const currentVer = targetState.draftVersions[m.callId] || 0;
     if (m.ok) {
@@ -585,6 +663,7 @@ export function createAnswerState(): AnswerStateManager {
     getFailedDrafts,
     getCurrentContext,
     switchContext,
+    bindUnconfirmedSession,
     enterAnswerMode,
     exitAnswerMode,
     onAskChange,

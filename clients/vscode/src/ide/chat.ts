@@ -51,12 +51,34 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
     );
   }
 
+  private webviewSeq = 0;
+  private currentWebviewId = '';
+  private creationSeq = 0;
+
   resolveWebviewView(view: vscode.WebviewView): void {
+    this.webviewSeq++;
+    const webviewId = 'view-' + this.webviewSeq;
+    this.currentWebviewId = webviewId;
     this.view = view;
     view.webview.options = { enableScripts: true, localResourceRoots: [this.extUri] };
     view.webview.html = this.html(view.webview);
-    this.subs.push(view.webview.onDidReceiveMessage((m) => this.fromView(m)));
-    view.onDidDispose(() => { this.view = null; this.stream?.close(); this.stream = null; });
+    const capturedView = view;
+    const capturedWebviewId = webviewId;
+    this.subs.push(
+      view.webview.onDidReceiveMessage((m) => {
+        if (this.view !== capturedView || this.currentWebviewId !== capturedWebviewId) {
+          return;
+        }
+        void this.fromView(m, capturedWebviewId);
+      })
+    );
+    view.onDidDispose(() => {
+      if (this.view === capturedView) {
+        this.view = null;
+        this.stream?.close();
+        this.stream = null;
+      }
+    });
     void this.openStream();
   }
 
@@ -191,6 +213,7 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       refs: this.refs.map(refText),
       companionKey: this.companion.workdir,
       generation: this.generation,
+      webviewId: this.currentWebviewId,
     });
     // What the companion changed on disk, so the editor is not showing yesterday's file next to a
     // row that says it was rewritten. Never over a dirty buffer — see Edits.
@@ -369,7 +392,8 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
       : `magi wrote ${path} in this conversation (line ${line}).`;
   }
 
-  /* visible for testing */ async fromView(raw: unknown): Promise<void> {
+  /* visible for testing */ async fromView(raw: unknown, callerWebviewId?: string): Promise<void> {
+    if (callerWebviewId && callerWebviewId !== this.currentWebviewId) return;
     const m = parseWebviewToHostMessage(raw);
     if (!m) return;
     switch (m.kind) {
@@ -397,12 +421,19 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         let pendingCreation: Promise<string> | null = null;
         if (!targetSid) {
           if (!this.sessionCreating) {
+            const creationTaskId = 'create-' + (++this.creationSeq);
             const promise = (async () => {
               const created = await this.companion.ask('session-new');
               const sid = created?.session ?? '';
               if (!sid) {
                 throw new Error(created?.error ?? 'the companion could not open a conversation.');
               }
+              this.post({
+                kind: 'sessionCreated',
+                companionKey: this.companion.workdir,
+                session: sid,
+                creationTaskId,
+              });
               return sid;
             })();
             this.sessionCreating = promise;
@@ -575,33 +606,46 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
         break;
       }
       case 'reply': {
-        // A QUESTION, not a permission. Its own door, because what it takes is a sentence and not
-        // a verdict — sending "allow" to a question would answer something nobody asked.
-        const said = m.text ?? '';
+        // Strict context verification: view identity, webviewId, and companionKey (§4.5 Item 1, Item 2)
+        if (callerWebviewId && callerWebviewId !== this.currentWebviewId) return;
+        if (this.currentWebviewId && m.webviewId !== this.currentWebviewId) return;
+        if (m.companionKey !== this.companion.workdir) return;
+
         const attemptId = m.attemptId;
-        const targetSid = m.session !== undefined ? m.session : this.sid;
-        const companionKey = m.companionKey !== undefined ? m.companionKey : this.companion.workdir;
-        const generation = m.generation !== undefined ? m.generation : this.generation;
+        const targetSid = m.session;
+        const companionKey = m.companionKey;
+        const generation = m.generation;
+        const webviewId = m.webviewId;
+        const callId = m.callId;
+        const said = m.text ?? '';
+
         const a = await this.companion.ask('answer', {
           session: targetSid,
-          callId: m.callId,
+          callId,
           answer: said,
         });
+
+        // Do not post results to a newer webview instance if webview was recreated during await (§4.5 Item 1)
+        if (this.currentWebviewId && this.currentWebviewId !== webviewId) {
+          return;
+        }
+
         if (a?.ok) {
           this.post({
             kind: 'replyResult',
-            callId: m.callId,
+            callId,
             attemptId,
             ok: true,
             companionKey,
             session: targetSid,
             generation,
+            webviewId,
           });
         } else {
           const err = a?.error ?? 'no companion is listening on this workspace.';
           this.post({
             kind: 'replyResult',
-            callId: m.callId,
+            callId,
             attemptId,
             ok: false,
             error: err,
@@ -609,8 +653,16 @@ export class Chat implements vscode.WebviewViewProvider, vscode.Disposable {
             companionKey,
             session: targetSid,
             generation,
+            webviewId,
           });
-          this.post({ kind: 'note', text: `not sent — ${err}` });
+          // Failure note is ONLY posted if current active context matches failed target context (§4.5 Item 1)
+          if (
+            this.sid === targetSid &&
+            this.companion.workdir === companionKey &&
+            (!this.currentWebviewId || this.currentWebviewId === webviewId)
+          ) {
+            this.post({ kind: 'note', text: `not sent — ${err}` });
+          }
         }
         break;
       }

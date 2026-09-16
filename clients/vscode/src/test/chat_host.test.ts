@@ -36,6 +36,7 @@ const origLoad = (Module as any)._load;
       },
       window: {
         createTextEditorDecorationType: () => ({ dispose() {} }),
+        visibleTextEditors: [],
       },
       ThemeColor: class {
         constructor(public id: string) {}
@@ -72,6 +73,28 @@ function createMockCompanion() {
       return { ok: true };
     },
   };
+}
+
+function createMockWebviewView() {
+  const listeners: ((m: any) => void)[] = [];
+  const messages: any[] = [];
+  const view = {
+    webview: {
+      options: {},
+      html: '',
+      onDidReceiveMessage(fn: (m: any) => void) {
+        listeners.push(fn);
+        return { dispose() {} };
+      },
+      postMessage(m: any) {
+        messages.push(m);
+      },
+    },
+    onDidDispose(_fn: () => void) {
+      return { dispose() {} };
+    },
+  };
+  return { view, listeners, messages };
 }
 
 test('Chat B0: consecutive sends during session creation delay call session-new once and route second to steer', async () => {
@@ -297,16 +320,15 @@ test('Chat B0 / §4.5: reply 전송 대기 중 화면 이동 및 구 웹뷰 응�
   };
 
   const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
-  const posted: any[] = [];
-  (chat as any).post = (m: any) => posted.push(m);
-  (chat as any).draw = () => {};
+  const mockView = createMockWebviewView();
   (chat as any).openStream = async () => {};
+  chat.resolveWebviewView(mockView.view as any);
 
   // 1. Initial session S1
   chat.showSession('sess-1');
   assert.equal(chat.session, 'sess-1');
 
-  // 2. Webview sends reply for sess-1 with generation 1
+  // 2. Webview sends reply for sess-1 with generation 1 and webviewId view-1
   const replyPromise = chat.fromView({
     kind: 'reply',
     callId: 'q-s1',
@@ -314,8 +336,9 @@ test('Chat B0 / §4.5: reply 전송 대기 중 화면 이동 및 구 웹뷰 응�
     attemptId: 42,
     session: 'sess-1',
     companionKey: '/workspace',
-    generation: 1
-  });
+    generation: 1,
+    webviewId: 'view-1',
+  }, 'view-1');
 
   // 3. While answer call is still in-flight, user switches screen to sess-2
   chat.showSession('sess-2');
@@ -332,43 +355,133 @@ test('Chat B0 / §4.5: reply 전송 대기 중 화면 이동 및 구 웹뷰 응�
   assert.equal(answerCalls[0].payload.callId, 'q-s1');
   assert.equal(answerCalls[0].payload.answer, 'sess-1에 대한 답변');
 
-  // 6. Verify posted replyResult carries sess-1, generation 1, attemptId 42 (does not coerce to sess-2)
-  const replyResultMsg = posted.find((m) => m.kind === 'replyResult');
+  // 6. Verify posted replyResult carries sess-1, generation 1, attemptId 42, webviewId view-1
+  const replyResultMsg = mockView.messages.find((m: any) => m.kind === 'replyResult');
   assert.ok(replyResultMsg, 'replyResult must be posted');
   assert.equal(replyResultMsg.callId, 'q-s1');
   assert.equal(replyResultMsg.attemptId, 42);
   assert.equal(replyResultMsg.session, 'sess-1');
   assert.equal(replyResultMsg.companionKey, '/workspace');
   assert.equal(replyResultMsg.generation, 1);
+  assert.equal(replyResultMsg.webviewId, 'view-1');
   assert.equal(replyResultMsg.ok, true);
+});
 
-  // 7. Legacy caller (no session in message): pinned at start of call
-  let resolveAnswerLegacy!: (val: any) => void;
+test('Chat §4.5 Item 2: 누락·잘못된 문맥·다른 컴패니언·옛 웹뷰 요청은 상태 불변 및 RPC 0회', async () => {
+  const companion = createMockCompanion();
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const mockView = createMockWebviewView();
+  (chat as any).openStream = async () => {};
+  chat.resolveWebviewView(mockView.view as any); // currentWebviewId = 'view-1'
+  chat.showSession('sess-1');
+
+  // Case 1: 누락된 session
+  await chat.fromView({ kind: 'reply', callId: 'q1', text: 'ans', attemptId: 1, companionKey: '/workspace', generation: 1, webviewId: 'view-1' }, 'view-1');
+  // Case 2: 누락된 webviewId
+  await chat.fromView({ kind: 'reply', callId: 'q1', text: 'ans', attemptId: 1, companionKey: '/workspace', session: 'sess-1', generation: 1 }, 'view-1');
+  // Case 3: 다른 companionKey
+  await chat.fromView({ kind: 'reply', callId: 'q1', text: 'ans', attemptId: 1, companionKey: '/wrong/path', session: 'sess-1', generation: 1, webviewId: 'view-1' }, 'view-1');
+  // Case 4: 오래된 webviewId (view-0 vs current view-1)
+  await chat.fromView({ kind: 'reply', callId: 'q1', text: 'ans', attemptId: 1, companionKey: '/workspace', session: 'sess-1', generation: 1, webviewId: 'view-0' }, 'view-0');
+  // Case 5: attemptId <= 0
+  await chat.fromView({ kind: 'reply', callId: 'q1', text: 'ans', attemptId: 0, companionKey: '/workspace', session: 'sess-1', generation: 1, webviewId: 'view-1' }, 'view-1');
+
+  const answerCalls = companion.calls.filter((c) => c.door === 'answer');
+  assert.equal(answerCalls.length, 0, 'all mismatched/malformed replies must yield 0 RPC calls');
+});
+
+test('Chat §4.5 Item 1: 실제 resolveWebviewView V1 -> V2 호출 시 V1 늦은 응답 격리 및 V2 불변 검증', async () => {
+  const companion = createMockCompanion();
+  let resolveV1Answer!: (val: any) => void;
+
   companion.ask = async (door: string, payload?: any): Promise<any> => {
     companion.calls.push({ door, payload });
     if (door === 'answer') {
-      return new Promise((res) => { resolveAnswerLegacy = res; });
+      return new Promise((res) => { resolveV1Answer = res; });
     }
     return { ok: true };
   };
 
-  const legacyReplyPromise = chat.fromView({
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  (chat as any).openStream = async () => {};
+
+  // 1. Resolve V1 (webviewId = 'view-1')
+  const mockV1 = createMockWebviewView();
+  chat.resolveWebviewView(mockV1.view as any);
+  chat.showSession('sess-1');
+
+  // 2. V1 sends reply (attempt 1) -> starts in-flight RPC
+  const v1ReplyPromise = chat.fromView({
     kind: 'reply',
-    callId: 'q-legacy',
-    text: '레거시 답변',
-    attemptId: 99
+    callId: 'q-common',
+    text: 'V1 답변',
+    attemptId: 1,
+    companionKey: '/workspace',
+    session: 'sess-1',
+    generation: 1,
+    webviewId: 'view-1',
+  }, 'view-1');
+
+  // 3. Webview recreated: Resolve V2 (webviewId = 'view-2')
+  const mockV2 = createMockWebviewView();
+  chat.resolveWebviewView(mockV2.view as any);
+
+  // V1 listener trying to send message is rejected before RPC
+  const initialCallCount = companion.calls.length;
+  mockV1.listeners[0]({
+    kind: 'reply',
+    callId: 'q-common',
+    text: 'V1 늦은 새 메시지',
+    attemptId: 2,
+    companionKey: '/workspace',
+    session: 'sess-1',
+    generation: 1,
+    webviewId: 'view-1',
   });
+  assert.equal(companion.calls.length, initialCallCount, 'V1 listener must be rejected before RPC');
 
-  // Switch screen to sess-3 while legacy reply is in flight
-  chat.showSession('sess-3');
-  resolveAnswerLegacy({ error: 'failed' });
-  await legacyReplyPromise;
+  // 4. Now V1 in-flight answer RPC resolves with failure
+  resolveV1Answer({ error: 'rpc failed' });
+  await v1ReplyPromise;
 
-  // Legacy caller was pinned to sess-2 (current session when call started)
-  const legacyResultMsg = posted.filter((m) => m.kind === 'replyResult' && m.callId === 'q-legacy')[0];
-  assert.ok(legacyResultMsg);
-  assert.equal(legacyResultMsg.session, 'sess-2');
-  assert.notEqual(legacyResultMsg.session, 'sess-3');
+  // 5. V2 must remain completely unaffected (no replyResult or note posted to V2)
+  const v2ReplyResults = mockV2.messages.filter((m: any) => m.kind === 'replyResult');
+  assert.equal(v2ReplyResults.length, 0, 'V1 RPC completion must not post replyResult to V2');
+  const v2Notes = mockV2.messages.filter((m: any) => m.kind === 'note');
+  assert.equal(v2Notes.length, 0, 'V1 failure must not post note to V2');
+});
+
+test('Chat §4.5 Item 3: session-new 성공 시 sessionCreated 이벤트 발행 검증', async () => {
+  const companion = createMockCompanion();
+  let resolveSessionNew!: (val: any) => void;
+
+  companion.ask = async (door: string, payload?: any): Promise<any> => {
+    companion.calls.push({ door, payload });
+    if (door === 'session-new') {
+      return new Promise((res) => { resolveSessionNew = res; });
+    }
+    return { ok: true };
+  };
+
+  const chat = new Chat(companion as any, { fsPath: '/ext', scheme: 'file' } as any);
+  const mockView = createMockWebviewView();
+  (chat as any).openStream = async () => {};
+  chat.resolveWebviewView(mockView.view as any);
+
+  const sayPromise = chat.fromView({ kind: 'say', text: '새 작업 시작' }, 'view-1');
+  resolveSessionNew({ session: 'sess-new-42' });
+  await sayPromise;
+
+  const sessionCreatedMsg = mockView.messages.find((m: any) => m.kind === 'sessionCreated');
+  assert.ok(sessionCreatedMsg, 'sessionCreated must be posted on session-new resolution');
+  assert.equal(sessionCreatedMsg.session, 'sess-new-42');
+  assert.equal(sessionCreatedMsg.companionKey, '/workspace');
+  assert.ok(sessionCreatedMsg.creationTaskId, 'creationTaskId must be provided');
 });
 
 

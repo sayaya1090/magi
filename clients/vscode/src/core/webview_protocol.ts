@@ -33,9 +33,10 @@ export type WebviewToHostMessage =
       callId: string;
       text: string;
       attemptId: number;
-      companionKey?: string;
-      session?: string;
-      generation?: number;
+      companionKey: string;
+      session: string;
+      generation: number;
+      webviewId: string;
     }
   | { kind: 'mention'; text: string; reqId: number; target: string }
   | { kind: 'suggest'; text: string; reqId: number; target: string };
@@ -100,22 +101,33 @@ export function parseWebviewToHostMessage(raw: unknown): WebviewToHostMessage | 
     case 'reply': {
       if (
         typeof m.callId !== 'string' ||
-        !m.callId ||
+        !m.callId.trim() ||
         typeof m.text !== 'string' ||
-        typeof m.attemptId !== 'number'
+        typeof m.attemptId !== 'number' ||
+        !Number.isInteger(m.attemptId) ||
+        m.attemptId <= 0 ||
+        typeof m.companionKey !== 'string' ||
+        !m.companionKey.trim() ||
+        typeof m.session !== 'string' ||
+        !m.session.trim() ||
+        typeof m.generation !== 'number' ||
+        !Number.isInteger(m.generation) ||
+        m.generation < 0 ||
+        typeof m.webviewId !== 'string' ||
+        !m.webviewId.trim()
       ) {
         return undefined;
       }
-      const parsed: WebviewToHostMessage = {
+      return {
         kind: 'reply',
-        callId: m.callId,
+        callId: m.callId.trim(),
         text: m.text,
         attemptId: m.attemptId,
+        companionKey: m.companionKey.trim(),
+        session: m.session.trim(),
+        generation: m.generation,
+        webviewId: m.webviewId.trim(),
       };
-      if (typeof m.companionKey === 'string') (parsed as any).companionKey = m.companionKey;
-      if (typeof m.session === 'string') (parsed as any).session = m.session;
-      if (typeof m.generation === 'number') (parsed as any).generation = m.generation;
-      return parsed;
     }
 
     case 'mention':
@@ -158,19 +170,27 @@ export type HostToWebviewMessage =
       refs: string[];
       companionKey?: string;
       generation?: number;
+      webviewId?: string;
     }
   | { kind: 'compose'; text: string }
   | { kind: 'note'; text: string }
+  | {
+      kind: 'sessionCreated';
+      companionKey: string;
+      session: string;
+      creationTaskId?: string;
+    }
   | {
       kind: 'replyResult';
       callId: string;
       attemptId: number;
       ok: boolean;
+      companionKey: string;
+      session: string;
+      generation: number;
+      webviewId: string;
       error?: string;
       text?: string;
-      companionKey?: string;
-      session?: string;
-      generation?: number;
     }
   | { kind: 'mentions'; files: string[]; reqId: number; target: string }
   | { kind: 'suggestion'; text: string; reqId: number; target: string };

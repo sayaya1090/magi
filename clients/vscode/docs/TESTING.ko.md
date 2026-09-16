@@ -204,7 +204,23 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **스냅샷 불변성 보장 (Scenario 8):** `getState()`가 반환한 스냅샷의 중첩 배열(`failedDrafts`)과 객체(`questionDrafts`, `inFlightReplies`), 그리고 `getInFlight()`가 반환한 복사본을 외부에서 임의로 수정(`push`, 필드 재할당)하더라도 `AnswerStateManager` 내부의 실제 상태 및 후속 `getState()` 결과가 변조되지 않음을 단언합니다.
 2. **호스트 세션 고정 및 결과 귀속 (`chat_host.test.ts`):**
    - **답변 전송 대기 중 화면 이동 격리:** 웹뷰가 `sess-1`에 대한 질문 답변(`reply`)을 전송한 직후 데몬 통신 지연 중에 사용자가 화면을 `sess-2`로 전환하더라도, 데몬 RPC(`companion.ask('answer')`)는 최초 전송된 `sess-1`을 대상으로 호출되며, 통신 완료 후 웹뷰로 통지되는 `replyResult` 이벤트 역시 `this.sid`로 재조회하여 오염시키지 않고 호출 시점에 확정된 `targetSid = 'sess-1'`, `generation`을 유지하여 발행합니다.
-   - **레거시 호출자 보정 및 문맥 고정:** 세션 필드가 누락된 레거시 메시지가 도착하더라도 메서드 진입 시점의 `this.sid`를 고정(`pin`)하여 비동기 처리 중간에 발생한 화면 전환이 결과 통지의 세션을 왜곡하지 않도록 방어합니다.
+   - **실패 안내(`note`)의 활성 문맥 격리:** `sess-1` 답변 실패 시 현재 화면이 `sess-2`로 이동해 있다면 S2 사용자 화면에 `not sent` 안내를 노출하지 않고 S1 상태 저장소만 갱신하여 다른 세션으로의 알림 누수를 방지합니다.
+
+### 문맥 검증과 웹뷰 세대 보완 사양 (2026-09-16, §4.5 P1/P2)
+
+`webview_protocol.ts`, `answer_state.ts`, `chat.ts`, `chat_adapter.ts`에 걸쳐 웹뷰 재생성 생명주기 분리, 엄격한 문맥 검증, 미확정 초안의 작업 귀속 계약을 검증합니다:
+
+1. **웹뷰 인스턴스 생명주기와 결과 격리 (P1):**
+   - **웹뷰 식별자 발급 및 전 구간 전파:** 화면 세대(`generation`)와 독립적으로 `resolveWebviewView` 호출마다 고유한 웹뷰 식별자(`view-${seq}`)를 발급하고, `rows` → `reply` → `replyResult` 전체 메시지 경로에 전달합니다.
+   - **오래된 뷰 메시지 사전 차단 및 결과 격리 (`chat_host.test.ts`):** 실제 `resolveWebviewView`를 V1 → V2로 연속 호출했을 때, V1에 등록된 수신 리스너나 구 웹뷰 식별자를 담은 요청은 호스트 RPC 호출 전에 거절(RPC 0회)되며, V1에서 기동된 비동기 통신이 지연 완료되더라도 V2로 결과 메시지나 실패 `note`가 전달되지 않고 V2의 상태가 완벽히 불변임을 단언합니다.
+   - **상태 머신의 선행 문맥 전수 검증 (`answer_state.test.ts` Scenarios 9, 10):** `onReplyResult`는 in-flight 삭제나 초안 갱신을 수행하기 전에 문맥(`companionKey`, `session`, `callId`, `attemptId`, `generation`, `webviewId`)이 저장된 시도 메타데이터와 일치하는지 **가장 먼저** 검사합니다. 세대 불일치(`generation_mismatch`)나 웹뷰 식별자 불일치(`webview_mismatch`) 시 처리를 거절하고 in-flight 잠금과 작성 초안을 삭제 없이 100% 보존합니다.
+2. **누락·잘못된 문맥 거절 및 현재 세션 보정 금지 (P1):**
+   - **프로토콜 파서 엄격화 (`webview.test.ts`):** 웹뷰의 `reply` 및 호스트의 `replyResult`에 완전한 문맥(`companionKey`, `session`, `generation`, `webviewId`)을 필수로 요구합니다. 공백·빈 문자열, 0 이하의 시도 식별자(`attemptId <= 0`), 음수 세대(`generation < 0`), 잘못된 타입(문자열 대신 숫자 등)은 파서 경계에서 즉시 `undefined`로 거절합니다.
+   - **호스트 컴패니언 및 웹뷰 대조 (`chat_host.test.ts`):** 수신된 메시지의 `companionKey`가 실제 호스트 컴패니언 경로와 일치하지 않거나, 현재 활성 웹뷰 식별자와 다르면 현재 세션(`this.sid`)으로 보정하지 않고 즉시 무시하여 데몬 RPC 0회를 보장합니다.
+3. **미확정 초안의 생성 작업 귀속 및 손실 방지 (P2):**
+   - **일반 세션 전환 시 자동 이전 배제 (`answer_state.test.ts` Scenario 11):** 빈 세션(`prevSess === ''`)에서 작성한 작업 초안을 일반 `switchContext`로 기존 세션(S2)이나 다른 컴패니언(C2)으로 이동할 때 자동으로 이전하지 않고 원본 `(companionKey, '')`에 격리 보존합니다.
+   - **작업 완료 명시적 바인딩 및 충돌 방지 (`bindUnconfirmedSession`):** `chat.ts`의 `session-new` 완료 시 `{ kind: 'sessionCreated', companionKey, session, creationTaskId }` 이벤트를 발행하여 해당 작업에 의해서만 1회 귀속시킵니다. 대상 세션에 이미 작성된 초안이 존재하는 경우 기존 초안을 덮어쓰거나 합치지 않고 미확정 초안을 유지하여 데이터 유실을 차단합니다.
+   - **브라우저 테스트 하네스 전수 통과 (`transcript-test.mjs`):** `transcript-fixtures.mjs`의 `createRowsMessage`와 `createReplyResultMessage`에 기본 문맥 계약을 적용하고, 25개 브라우저 테스트를 정방향과 역순(`--reverse`)으로 모두 구동하여 0개 실패로 검증합니다.
 
 
 

@@ -500,6 +500,7 @@ const answerState = createAnswerState();
 let currentCompanionKey = '';
 let currentSession = '';
 let currentGeneration = undefined;
+let currentWebviewId = '';
 const expandedCallIds = new Set();
 const inputAdapter = createWebviewInputAdapter({
   say,
@@ -700,6 +701,8 @@ const receiveHandlers = createWebviewReceiveHandlers({
   setCurrentCompanionKey: (k) => { currentCompanionKey = k; },
   getCurrentGeneration: () => currentGeneration,
   setCurrentGeneration: (g) => { currentGeneration = g; },
+  getCurrentWebviewId: () => currentWebviewId,
+  setCurrentWebviewId: (w) => { currentWebviewId = w; },
   clearExpandedCallIds: () => expandedCallIds.clear(),
   resetCurrentAsk: () => { currentAsk = null; currentAskCallId = null; },
   drawRows: draw,
