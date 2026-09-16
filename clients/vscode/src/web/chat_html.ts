@@ -156,6 +156,7 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
     cursor:pointer; padding:0 2px; font-family:inherit; font-size:inherit;
     text-decoration:underline; text-underline-offset:2px; display:inline; vertical-align:baseline; }
   button.file-nav-btn:hover { color:var(--vscode-textLink-activeForeground); }
+  button.file-nav-btn:focus-visible { outline:1px solid var(--vscode-focusBorder, #007fd4); outline-offset:1px; border-radius:2px; }
   .args-toggle-btn { background:none; border:1px solid var(--vscode-button-border, var(--vscode-panel-border));
     border-radius:2px; color:var(--vscode-descriptionForeground); cursor:pointer;
     padding:0 4px; font-size:.8em; line-height:1.2; vertical-align:baseline; display:inline-block; }
@@ -193,6 +194,34 @@ export function renderChatHtml(options: RenderChatHtmlOptions): string {
   #ask-controls .jump-btn:hover { text-decoration:underline; }
   #ask-controls .acts { display:flex; flex-wrap:wrap; gap:6px; max-height:25vh; overflow-y:auto; }
   #ask-controls .acts button { flex:0 1 auto; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #ask-controls .acts button.approval-btn {
+    color:var(--vscode-button-foreground, #ffffff);
+    background:var(--vscode-button-background, #0e639c);
+    border:1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent));
+  }
+  #ask-controls .acts button.approval-btn:hover:not(:disabled) {
+    background:var(--vscode-button-hoverBackground, #1177bb);
+  }
+  #ask-controls .acts button.approval-btn:focus-visible {
+    outline:1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset:2px;
+  }
+  #ask-controls .acts button.inspect-btn {
+    color:var(--vscode-button-secondaryForeground, var(--vscode-foreground, #ffffff));
+    background:var(--vscode-button-secondaryBackground, #3a3d41);
+    border:1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent));
+  }
+  #ask-controls .acts button.inspect-btn:hover:not(:disabled) {
+    background:var(--vscode-button-secondaryHoverBackground, #45494e);
+  }
+  #ask-controls .acts button.inspect-btn:focus-visible {
+    outline:1px solid var(--vscode-focusBorder, #007fd4);
+    outline-offset:2px;
+  }
+  #ask-controls .acts button.inspect-btn:disabled {
+    opacity:.5;
+    cursor:not-allowed;
+  }
   /* A failure's own words. Its colour is the editor's error colour — the same meaning the glyph
      carries, so the two cannot say different things. */
   .out { color:var(--vscode-errorForeground); font-size:.9em; white-space:pre-wrap; margin-top:2px; }
@@ -377,7 +406,7 @@ function drawAsk(a) {
       fileEl.textContent = '파일: ';
       const openBtn = document.createElement('button');
       openBtn.type = 'button';
-      openBtn.className = 'file-nav-btn';
+      openBtn.className = 'file-nav-btn inspect-btn';
       openBtn.textContent = targetPath;
       openBtn.title = '파일 열기 (현재 파일)';
       openBtn.setAttribute('aria-label', '파일 열기 (현재 파일): ' + targetPath);
@@ -417,7 +446,8 @@ function drawAsk(a) {
     const canDiff = a.diffKind === 'sides' || a.diffKind === 'patch';
     if (canDiff) {
       const diffBtn = document.createElement('button');
-      diffBtn.className = 'diff-btn';
+      diffBtn.type = 'button';
+      diffBtn.className = 'diff-btn inspect-btn';
       diffBtn.textContent = '변경 보기';
       diffBtn.title = '변경 보기 (승인 당시 비교 자료)';
       diffBtn.setAttribute('aria-label', '변경 보기 (승인 당시 비교 자료)');
@@ -431,6 +461,8 @@ function drawAsk(a) {
     /* The three words the core spells. One vocabulary, so the two cannot drift. */
     for (const d of ['allow', 'deny', 'always']) {
       const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'approval-btn decision-' + d;
       b.textContent = d;
       b.addEventListener('click', () => actions.answer(a.callId, d));
       acts.append(b);

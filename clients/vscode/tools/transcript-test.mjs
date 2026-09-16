@@ -2513,6 +2513,217 @@ const bundles = [
           const disabledBtn = page.locator('.row.agent .output-open-btn');
           assert.equal(await disabledBtn.isDisabled(), true, 'output button is disabled when session is unconfirmed');
         }
+      },
+      {
+        id: 'diff_approval_and_inspection_styling_keyboard_and_themes',
+        name: '승인 패널 조회 보조 조작 스타일, 승인 분리, 키보드 접근 및 테마/뷰포트 가림 검증 (§5.6)',
+        run: async (page) => {
+          // 1. Deliver permission ask with diff and file target
+          const permAsk = {
+            kind: 'permission',
+            callId: 'perm-inspect-56',
+            diffKind: 'sides',
+            what: 'edit src/auth.ts',
+            filePath: 'src/auth.ts',
+            args: JSON.stringify({ path: 'src/auth.ts', old: 'var token = ""', new: 'const token = "secure"' }),
+            reason: 'harden auth token security',
+            diff: '--- a/src/auth.ts\n+++ b/src/auth.ts\n@@ -1 +1 @@\n-var token = ""\n+const token = "secure"\n'
+          };
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [{ who: 'agent', label: 'magi', text: '승인 요청' }],
+            ask: permAsk
+          }));
+
+          await page.waitForSelector('#ask-controls .acts');
+          const diffBtn = page.locator('#ask-controls .acts button.diff-btn');
+          await diffBtn.waitFor();
+          const openBtn = page.locator('#ask-body .file-target button.file-nav-btn');
+          await openBtn.waitFor();
+
+          const allowBtn = page.locator('#ask-controls .acts button:text("allow")');
+          const denyBtn = page.locator('#ask-controls .acts button:text("deny")');
+          const alwaysBtn = page.locator('#ask-controls .acts button:text("always")');
+
+          // 2. Assert inspection vs approval classes
+          assert.equal(await diffBtn.evaluate((el) => el.classList.contains('inspect-btn')), true, 'diff button has inspect-btn class');
+          assert.equal(await diffBtn.evaluate((el) => el.classList.contains('approval-btn')), false, 'diff button does not have approval-btn class');
+          assert.equal(await openBtn.evaluate((el) => el.classList.contains('inspect-btn')), true, 'file nav button has inspect-btn class');
+          assert.equal(await openBtn.evaluate((el) => el.classList.contains('approval-btn')), false, 'file nav button does not have approval-btn class');
+
+          for (const btn of [allowBtn, denyBtn, alwaysBtn]) {
+            assert.equal(await btn.evaluate((el) => el.classList.contains('approval-btn')), true, 'decision button has approval-btn class');
+            assert.equal(await btn.evaluate((el) => el.classList.contains('inspect-btn')), false, 'decision button does not have inspect-btn class');
+          }
+
+          // 3. Inspection clicks dispatch open / diff only (0 answer, 0 reply, 0 say)
+          const postedBefore = await page.evaluate(() => window.__posted.length);
+          await openBtn.click();
+          await diffBtn.click();
+          const postedAfterInspect = await page.evaluate(() => window.__posted);
+          assert.equal(postedAfterInspect.length, postedBefore + 2, 'inspection clicks dispatched 2 messages');
+          assert.deepEqual(postedAfterInspect[postedBefore], { kind: 'open', session: 'sess-perm-56', callId: 'perm-inspect-56' });
+          assert.deepEqual(postedAfterInspect[postedBefore + 1], { kind: 'diff', session: 'sess-perm-56', callId: 'perm-inspect-56' });
+          assert.ok(!postedAfterInspect.slice(postedBefore).some((m) => m.kind === 'answer' || m.kind === 'reply' || m.kind === 'say'), 'inspection clicks never answer/reply/say');
+
+          // 4. Keyboard Tab / Enter / Space navigation & decision dispatch
+          // 4A. Focus openBtn and press Enter -> kind: 'open'
+          await openBtn.focus();
+          await page.keyboard.press('Enter');
+          const postedAfterKbOpen = await page.evaluate(() => window.__posted);
+          assert.equal(postedAfterKbOpen[postedAfterKbOpen.length - 1].kind, 'open');
+
+          // 4B. Focus diffBtn and press Enter -> kind: 'diff'
+          await diffBtn.focus();
+          await page.keyboard.press('Enter');
+          const postedAfterKbDiff = await page.evaluate(() => window.__posted);
+          assert.equal(postedAfterKbDiff[postedAfterKbDiff.length - 1].kind, 'diff');
+
+          // 4C. Focus allowBtn and press Space -> kind: 'answer', decision: 'allow' (exactly 1)
+          await allowBtn.focus();
+          await page.keyboard.press('Space');
+          const postedAfterAllow = await page.evaluate(() => window.__posted);
+          const allowMsg = postedAfterAllow[postedAfterAllow.length - 1];
+          assert.deepEqual(allowMsg, { kind: 'answer', callId: 'perm-inspect-56', decision: 'allow' });
+
+          // 4D. Deliver next ask and test deny with Enter key
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [{ who: 'agent', label: 'magi', text: '두 번째 승인 요청' }],
+            ask: { ...permAsk, callId: 'perm-inspect-57' }
+          }));
+          await page.waitForSelector('#ask-controls .acts');
+          const denyBtn2 = page.locator('#ask-controls .acts button:text("deny")');
+          await denyBtn2.focus();
+          await page.keyboard.press('Enter');
+          const postedAfterDeny = await page.evaluate(() => window.__posted);
+          const denyMsg = postedAfterDeny[postedAfterDeny.length - 1];
+          assert.deepEqual(denyMsg, { kind: 'answer', callId: 'perm-inspect-57', decision: 'deny' });
+
+          // 4E. Deliver third ask and test always with Space key
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [{ who: 'agent', label: 'magi', text: '세 번째 승인 요청' }],
+            ask: { ...permAsk, callId: 'perm-inspect-58' }
+          }));
+          await page.waitForSelector('#ask-controls .acts');
+          const alwaysBtn3 = page.locator('#ask-controls .acts button:text("always")');
+          await alwaysBtn3.focus();
+          await page.keyboard.press('Space');
+          const postedAfterAlways = await page.evaluate(() => window.__posted);
+          const alwaysMsg = postedAfterAlways[postedAfterAlways.length - 1];
+          assert.deepEqual(alwaysMsg, { kind: 'answer', callId: 'perm-inspect-58', decision: 'always' });
+
+          // Deliver final ask for theme & viewport inspection
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [{ who: 'agent', label: 'magi', text: '테마 측정 승인 요청' }],
+            ask: { ...permAsk, callId: 'perm-inspect-59' }
+          }));
+          await page.waitForSelector('#ask-controls .acts');
+          const activeDiff = page.locator('#ask-controls .acts button.diff-btn');
+          const activeAllow = page.locator('#ask-controls .acts button:text("allow")');
+          const activeDeny = page.locator('#ask-controls .acts button:text("deny")');
+          const activeAlways = page.locator('#ask-controls .acts button:text("always")');
+
+          // 5. Theme tokens verification: Dark, Light, High Contrast
+          // 5A. Dark theme variables
+          await page.evaluate(() => {
+            document.documentElement.style.setProperty('--vscode-button-background', '#0e639c');
+            document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
+            document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#3a3d41');
+            document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#ffffff');
+            document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
+            document.documentElement.style.removeProperty('--vscode-contrastBorder');
+          });
+
+          const darkDiffBg = await activeDiff.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          const darkAllowBg = await activeAllow.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          const darkDenyBg = await activeDeny.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          const darkAlwaysBg = await activeAlways.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+
+          assert.equal(darkDiffBg, 'rgb(58, 61, 65)', 'diff secondary background matches dark token #3a3d41');
+          assert.equal(darkAllowBg, 'rgb(14, 99, 156)', 'allow primary background matches dark token #0e639c');
+          assert.equal(darkDenyBg, 'rgb(14, 99, 156)', 'deny has same primary background as allow (no danger red)');
+          assert.equal(darkAlwaysBg, 'rgb(14, 99, 156)', 'always has same primary background as allow');
+
+          // 5B. Light theme variables
+          await page.evaluate(() => {
+            document.documentElement.style.setProperty('--vscode-button-background', '#005fb8');
+            document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
+            document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#e5e5e5');
+            document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#3b3b3b');
+          });
+
+          const lightDiffBg = await activeDiff.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          const lightAllowBg = await activeAllow.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          assert.equal(lightDiffBg, 'rgb(229, 229, 229)', 'diff secondary background matches light token #e5e5e5');
+          assert.equal(lightAllowBg, 'rgb(0, 95, 184)', 'allow primary background matches light token #005fb8');
+
+          // 5C. High contrast variables & border
+          await page.evaluate(() => {
+            document.documentElement.style.setProperty('--vscode-contrastBorder', '#6fc1ff');
+            document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
+          });
+
+          const hcBorderColor = await activeDiff.evaluate((el) => window.getComputedStyle(el).borderColor);
+          assert.equal(hcBorderColor, 'rgb(111, 193, 255)', 'contrastBorder is applied to secondary diff button');
+          const hcAllowBorderColor = await activeAllow.evaluate((el) => window.getComputedStyle(el).borderColor);
+          assert.equal(hcAllowBorderColor, 'rgb(111, 193, 255)', 'contrastBorder is applied to primary approval button');
+
+          // 6. Viewports testing: 320x600 and 420x700
+          for (const [vpW, vpH] of [[320, 600], [420, 700]]) {
+            await page.setViewportSize({ width: vpW, height: vpH });
+            const controlsRect = await page.locator('#ask-controls').evaluate((el) => {
+              const r = el.getBoundingClientRect();
+              return { width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+            });
+            assert.ok(controlsRect.width > 0 && controlsRect.height > 0, 'ask controls is visible');
+            assert.ok(controlsRect.right <= vpW, `ask controls does not overflow right at ${vpW}x${vpH}`);
+            assert.ok(controlsRect.bottom <= vpH, `ask controls does not overflow bottom at ${vpW}x${vpH}`);
+
+            for (const [name, locator] of [['diff', activeDiff], ['allow', activeAllow], ['deny', activeDeny], ['always', activeAlways]]) {
+              const rect = await locator.evaluate((el) => {
+                const r = el.getBoundingClientRect();
+                return { width: r.width, height: r.height, right: r.right, bottom: r.bottom };
+              });
+              assert.ok(rect.width > 0 && rect.height > 0, `${name} button has positive dimensions`);
+              assert.ok(rect.right <= vpW, `${name} button does not overflow horizontally at ${vpW}x${vpH}`);
+              assert.ok(rect.bottom <= vpH, `${name} button does not overflow vertically at ${vpW}x${vpH}`);
+            }
+          }
+
+          // Clean up styles and restore default viewport
+          await page.evaluate(() => {
+            document.documentElement.style.removeProperty('--vscode-contrastBorder');
+            document.documentElement.style.removeProperty('--vscode-button-background');
+            document.documentElement.style.removeProperty('--vscode-button-foreground');
+            document.documentElement.style.removeProperty('--vscode-button-secondaryBackground');
+            document.documentElement.style.removeProperty('--vscode-button-secondaryForeground');
+          });
+          await page.setViewportSize({ width: 420, height: 700 });
+        }
       }
     ]
   }

@@ -22,6 +22,7 @@ import {
   WebviewBridge,
 } from '../web/chat_adapter';
 import { createAnswerState } from '../core/answer_state';
+import { renderChatHtml } from '../web/chat_html';
 import { State, notRunning, panelNote } from '../core/activity';
 import type { Ask } from '../core/touched';
 
@@ -3724,5 +3725,33 @@ test('§4.7: dom_interaction 직접 호출 - moveDomChild 및 captureSelection/r
 
   outside.remove();
   (container as unknown as RecoveryTestDomNode).remove();
+});
+
+test('§5.6: renderChatHtml defines secondary styling for inspection buttons and distinct approval buttons', () => {
+  const html = renderChatHtml({
+    cspSource: "'self'",
+    nonce: 'test-nonce',
+    scriptUri: '/out/web/answer_state.js',
+    adapterUri: '/out/web/chat_adapter.bundle.js',
+  });
+
+  // Verify secondary tokens and fallback definitions
+  assert.ok(html.includes('--vscode-button-secondaryBackground, #3a3d41'), 'defines fallback for secondaryBackground');
+  assert.ok(html.includes('--vscode-button-secondaryForeground'), 'defines secondaryForeground');
+  assert.ok(html.includes('--vscode-button-secondaryHoverBackground, #45494e'), 'defines fallback for secondaryHoverBackground');
+  assert.ok(html.includes('--vscode-contrastBorder'), 'defines contrastBorder token');
+  assert.ok(html.includes('--vscode-focusBorder'), 'defines focusBorder token');
+
+  // Verify button classes and rules
+  assert.ok(html.includes('#ask-controls .acts button.approval-btn'), 'defines approval-btn rules');
+  assert.ok(html.includes('#ask-controls .acts button.inspect-btn'), 'defines inspect-btn rules');
+  assert.ok(html.includes('button.file-nav-btn:focus-visible'), 'defines focus-visible rule for file-nav-btn');
+  assert.ok(html.includes('.approval-btn:focus-visible'), 'defines focus-visible for approval-btn');
+  assert.ok(html.includes('.inspect-btn:focus-visible'), 'defines focus-visible for inspect-btn');
+
+  // Verify JavaScript drawAsk sets inspect-btn and approval-btn classes
+  assert.ok(html.includes("'file-nav-btn inspect-btn'"), 'sets inspect-btn on target file open button');
+  assert.ok(html.includes("'diff-btn inspect-btn'"), 'sets inspect-btn on diffBtn');
+  assert.ok(html.includes("'approval-btn decision-' + d"), 'sets approval-btn on decision buttons');
 });
 
