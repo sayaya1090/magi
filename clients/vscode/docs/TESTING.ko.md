@@ -251,6 +251,24 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - `npm test`: 총 427개 단위 테스트 100% 통과 (0 fail, 7 skip).
    - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
 
+### 생성 완료의 초안 충돌 시 화면·저장 상태 일치 사양 (2026-09-16, §4.5 Phase 5)
+
+`chat_adapter.ts`, `webview.test.ts`에 걸쳐 생성 완료의 초안 충돌 시 화면과 상태 저장소 불일치 결함을 해소하고 회귀 검증을 보강했습니다:
+
+1. **화면·저장소 상태 일치와 초안 충돌 처리 (`chat_adapter.ts:onSessionCreated`):**
+   - **대상 문맥 입력의 무조건 렌더링:** 빈 문맥(`''`)에서 생성 결과 세션(`payload.session`)으로 전환할 때 현재 입력창(`say.value`)이 비어 있는지와 무관하게 대상 문맥의 입력을 화면에 렌더링합니다. 바인딩 결과(`res`)와 `switchContext`의 반환값을 결합하여 일반 모드 충돌 시 `EXISTING`을 `#say.value`에 표시합니다.
+   - **작업 자료 격리 보존:** 빈 세션에서 작성 중이던 `NEW DRAFT`는 완료된 생성 작업 자료(`creationTasks.get(taskKey)`)에 `draft: 'NEW DRAFT'`, `status: 'completed'`로 온전히 보존되며 자동 병합·전송·삭제되지 않습니다.
+   - **타 세션 열람 및 답변 모드 보호:** 사용자가 생성 대기 중 이미 다른 세션(예: S2)으로 이동한 경우 현재 화면/입력창을 일체 변경하지 않습니다. 답변 모드에서는 일반 초안을 삽입하지 않으며 질문 초안과 답변 모드가 그대로 유지됩니다.
+   - **자동완성 및 대기 타이머 무효화:** 문맥 전환 때문에 입력 대상이 달라진 경우 `suggestCtrl.onSessionChange(currentSession)` 및 `clearAutoCompletion()`을 즉시 호출하여 디바운스 타이머를 취소하고 힌트를 무효화해 이전 힌트가 엉뚱한 세션에 삽입되지 않도록 합니다.
+2. **회귀 검증 파이프라인 (`dispatchHostMessage → receiveHandlers → inputAdapter`, `webview.test.ts`):**
+   - **전체 시나리오 왕복 검증:** S1에 `EXISTING` 저장 → 빈 세션에서 생성 시작(`create-1`) → `NEW DRAFT` 작성 → S1 생성 완료(`conflict: true`) → 직후 S1 `rows` 도착 → S2 이동 → S1 복귀 전체 경로에서, 각 단계마다 S1 입력과 저장소(`AnswerState.generalDraft`)가 `EXISTING`으로 일치하고, 생성 작업 자료는 `NEW DRAFT`로 온전히 격리 보존됨을 실측 단언합니다.
+   - **복귀 후 수정 및 전송 검증:** S1 복귀 후 입력 수정(`EXISTING MODIFIED`)과 실제 전송 시 S1 세션으로 올바르게 발행(신규 생성 작업 ID 미부착)되고, 전송 후 S1 입력/저장소가 비워지며 작업 자료(`NEW DRAFT`)는 계속 보존됨을 검증합니다.
+   - **충돌 없는 완료 및 추가 작성 없는 완료 검증:** 충돌 없는 완료 시 `NEW DRAFT`가 S1 DOM 입력 및 저장소에 동시 반영되고, 추가 작성 없는 완료 시 DOM 입력과 저장소가 빈 문자열로 일치함을 DOM과 `AnswerState` 스냅샷 양쪽에서 모두 단언합니다.
+3. **검증 결과:**
+   - `npm test`: 총 429개 단위 테스트 100% 통과 (0 fail, 7 skip).
+   - 브라우저 테스트 (`transcript-test.mjs`): 4개 번들 25개 브라우저 테스트 정방향 및 `--reverse` 역순 모두 0 fail 전수 통과.
+
+
 
 
 

@@ -750,6 +750,13 @@ export function createWebviewInputAdapter(
       return { accepted: false, transitioned: false, conflict: false };
     }
 
+    // Ensure active creation task draft is synced with current say.value if still pending in empty session in general mode
+    const pendingQBefore = answerState.getPendingQuestion();
+    const isAnswerModeBefore = Boolean(pendingQBefore) || Boolean(replyModeEl && !replyModeEl.hidden);
+    if (!isAnswerModeBefore && activeCreationTaskId && activeCreationTaskId === payload.creationTaskId && currentSession === '') {
+      answerState.updateCreationTaskDraft(currentCompanionKey, activeCreationTaskId, say.value);
+    }
+
     // 2. Process completion via answerState
     const res = answerState.bindUnconfirmedSession(
       payload.companionKey,
@@ -776,30 +783,33 @@ export function createWebviewInputAdapter(
     if (isCurrentEmptySession) {
       currentSession = payload.session;
       transitioned = true;
+
+      // 문맥 전환 때문에 입력 대상이 달라진 경우 자동완성·대기 타이머를 무효화 (§4.5 Item 2)
+      suggestCtrl.onSessionChange(currentSession);
+      clearAutoCompletion();
+
       const pendingQ = answerState.getPendingQuestion();
+      const isAnswerMode = Boolean(pendingQ) || Boolean(replyModeEl && !replyModeEl.hidden);
       const activeAskEvent = pendingQ ? { kind: 'question' as const, callId: pendingQ } : null;
-      answerState.switchContext(currentCompanionKey, currentSession, {
-        currentInputText: say.value,
+
+      const switchRes = answerState.switchContext(currentCompanionKey, currentSession, {
+        currentInputText: isAnswerMode ? say.value : undefined,
         activeAsk: activeAskEvent,
         webviewId: currentWebviewId,
       });
-    }
 
-    const isCurrentSessionNow =
-      currentCompanionKey === payload.companionKey &&
-      currentSession === payload.session;
-    const isGeneralMode =
-      !answerState.getPendingQuestion() && (!replyModeEl || replyModeEl.hidden);
-
-    if (isCurrentSessionNow && isGeneralMode) {
-      if (!res.conflict) {
-        if (res.draft && !say.value) {
-          say.value = res.draft;
+      if (isAnswerMode || switchRes.enterAnswerMode) {
+        // 답변 모드에서는 일반 초안을 삽입하지 않으며 질문 초안과 모드가 유지돼야 함 (§4.5 Item 2)
+        if (pendingQ) {
+          answerState.onInputChange(say.value);
         }
       } else {
-        if (res.existingDraft && !say.value) {
-          say.value = res.existingDraft;
-        }
+        // 일반 모드: 빈 문맥에서 생성 결과 세션으로 전환할 때 현재 입력이 비어 있는지와 무관하게 대상 문맥의 입력을 렌더링 (§4.5 Item 1)
+        // 일반 모드 충돌이면 EXISTING을 표시하고 NEW DRAFT는 완료된 생성 작업 자료로 보존 (§4.5 Item 1)
+        const displayText = res.conflict
+          ? (res.existingDraft ?? switchRes.nextInputText ?? '')
+          : (res.draft ?? switchRes.nextInputText ?? '');
+        applyGeneralModeUI(displayText);
       }
     }
 

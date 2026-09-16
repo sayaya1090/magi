@@ -2204,8 +2204,10 @@ test('§4.5 Item 2: dispatchHostMessage -> receiveHandlers -> inputAdapter 거�
   // - 세션 전환은 양쪽 모두 일관되게 'sess-conflict'로 동기화됨 (§4.5 Item 2)
   assert.equal(inputAdapter.getCurrentSession?.(), 'sess-conflict');
   assert.equal(currentSession, 'sess-conflict');
-  // - 대상의 기존 초안은 보존되고 원래 작업 자료도 보존됨
+  // - 대상의 기존 초안은 DOM 입력과 저장소에 모두 일치하게 반영되고 원래 작업 자료도 보존됨 (§4.5 Item 1)
+  assert.equal(elements.say.value, 'TARGET_EXISTING_DRAFT', 'say.value must render existing draft on conflict');
   assert.equal(state.getGeneralDraft('/workspace', 'sess-conflict'), 'TARGET_EXISTING_DRAFT');
+  assert.equal(state.getState('/workspace', 'sess-conflict').generalDraft, 'TARGET_EXISTING_DRAFT');
   assert.equal(state.getCreationTask('/workspace', 'create-1')?.draft, 'CURRENT_DRAFT_TEXT');
   assert.equal(state.getCreationTask('/workspace', 'create-1')?.status, 'completed');
 
@@ -2241,5 +2243,285 @@ test('§4.5 Item 2: dispatchHostMessage -> receiveHandlers -> inputAdapter 거�
 
   inputAdapter.dispose();
 });
+
+test('§4.5 Item 3: dispatchHostMessage -> receiveHandlers -> inputAdapter 충돌 시 화면·저장 상태 일치 회귀 검증 (S1 EXISTING -> 빈 세션 생성 시작 -> NEW DRAFT 작성 -> S1 conflict -> 직후 rows -> S2 이동 -> S1 복귀 및 수정 전송)', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+  let currentSession = '';
+  let currentCompanionKey = '/workspace';
+  let currentGeneration: number | undefined = 0;
+  let currentWebviewId = 'view-1';
+  const drawnRows: any[] = [];
+
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter,
+    answerState: state,
+    getCurrentAsk: () => null,
+    getCurrentSession: () => currentSession,
+    setCurrentSession: (s) => { currentSession = s; },
+    getCurrentCompanionKey: () => currentCompanionKey,
+    setCurrentCompanionKey: (k) => { currentCompanionKey = k; },
+    getCurrentGeneration: () => currentGeneration,
+    setCurrentGeneration: (g) => { currentGeneration = g; },
+    getCurrentWebviewId: () => currentWebviewId,
+    setCurrentWebviewId: (w) => { currentWebviewId = w; },
+    clearExpandedCallIds: () => {},
+    drawRows: (rows) => { drawnRows.push(...rows); },
+    drawAsk: () => {},
+    drawRefs: () => {},
+    drawState: () => {},
+    drawInfo: () => {},
+    setNoteText: () => {},
+    getNoteText: () => '',
+  });
+
+  // 1. S1에 EXISTING 저장
+  inputAdapter.onContextChange('/workspace', 's1', null, 0, 'view-1');
+  currentSession = 's1';
+  elements.say.value = 'EXISTING';
+  listeners['input']?.({});
+  assert.equal(elements.say.value, 'EXISTING', 'Step 1: S1 DOM input is EXISTING');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING', 'Step 1: S1 storage is EXISTING');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING');
+
+  // 2. 빈 세션에서 생성 시작
+  inputAdapter.onContextChange('/workspace', '', null, 0, 'view-1');
+  currentSession = '';
+  assert.equal(elements.say.value, '', 'Step 2: empty session starts with empty input');
+  elements.say.value = 'INIT_SEND';
+  inputAdapter.send();
+  const sayMsg = posted.pop();
+  assert.equal(sayMsg.kind, 'say');
+  assert.equal(sayMsg.text, 'INIT_SEND');
+  assert.ok(sayMsg.creationTaskId);
+  const taskId = sayMsg.creationTaskId;
+  assert.equal(inputAdapter.getActiveCreationTaskId?.(), taskId);
+
+  // 3. NEW DRAFT 작성
+  elements.say.value = 'NEW DRAFT';
+  listeners['input']?.({});
+  assert.equal(elements.say.value, 'NEW DRAFT', 'Step 3: DOM input has NEW DRAFT');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'Step 3: task draft has NEW DRAFT');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.status, 'pending');
+
+  // 4. S1 생성 완료(conflict)
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 's1',
+    creationTaskId: taskId,
+    webviewId: 'view-1',
+  }, handlers);
+
+  assert.equal(inputAdapter.getCurrentSession?.(), 's1');
+  assert.equal(currentSession, 's1');
+  assert.equal(elements.say.value, 'EXISTING', 'Step 4: S1 DOM input must be EXISTING on conflict');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING', 'Step 4: S1 storage must be EXISTING');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING', 'Step 4: S1 snapshot must be EXISTING');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'Step 4: creation task data must preserve NEW DRAFT');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.status, 'completed');
+
+  // 5. 직후 S1 rows
+  drawnRows.length = 0;
+  dispatchHostMessage({
+    kind: 'rows',
+    companionKey: '/workspace',
+    session: 's1',
+    rows: [{ who: 'magi', label: 'magi', text: 'response 1' }],
+    ask: null,
+    refs: [],
+    webviewId: 'view-1',
+  }, handlers);
+
+  assert.equal(drawnRows.length, 1);
+  assert.equal(inputAdapter.getCurrentSession?.(), 's1');
+  assert.equal(currentSession, 's1');
+  assert.equal(elements.say.value, 'EXISTING', 'Step 5: DOM input remains EXISTING after rows');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING', 'Step 5: storage remains EXISTING after rows');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'Step 5: task draft remains NEW DRAFT');
+
+  // 6. S2 이동
+  dispatchHostMessage({
+    kind: 'rows',
+    companionKey: '/workspace',
+    session: 's2',
+    rows: [],
+    ask: null,
+    refs: [],
+    webviewId: 'view-1',
+  }, handlers);
+  assert.equal(currentSession, 's2');
+  assert.equal(elements.say.value, '', 'Step 6: S2 has empty input');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING', 'Step 6: S1 storage not clobbered when moving to S2');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'Step 6: task draft remains NEW DRAFT');
+
+  // 7. S1 복귀
+  dispatchHostMessage({
+    kind: 'rows',
+    companionKey: '/workspace',
+    session: 's1',
+    rows: [{ who: 'magi', label: 'magi', text: 'response 1' }],
+    ask: null,
+    refs: [],
+    webviewId: 'view-1',
+  }, handlers);
+  assert.equal(currentSession, 's1');
+  assert.equal(inputAdapter.getCurrentSession?.(), 's1');
+  assert.equal(elements.say.value, 'EXISTING', 'Step 7: DOM input restored to EXISTING upon return to S1');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING', 'Step 7: S1 storage restored to EXISTING upon return');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'Step 7: task draft remains NEW DRAFT');
+
+  // 8. 복귀 후 입력 수정과 실제 전송도 대상 세션과 일치하는지 확인
+  elements.say.value = 'EXISTING MODIFIED';
+  listeners['input']?.({});
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), 'EXISTING MODIFIED');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, 'EXISTING MODIFIED');
+
+  inputAdapter.send();
+  const sendMsg = posted.pop();
+  assert.equal(sendMsg.kind, 'say');
+  assert.equal(sendMsg.text, 'EXISTING MODIFIED');
+  assert.equal(sendMsg.creationTaskId, undefined, 'sending in s1 must not include creationTaskId');
+  assert.equal(elements.say.value, '', 'DOM input cleared after send');
+  assert.equal(state.getGeneralDraft('/workspace', 's1'), '', 'S1 storage cleared after send');
+  assert.equal(state.getState('/workspace', 's1').generalDraft, '');
+  assert.equal(state.getCreationTask('/workspace', taskId)?.draft, 'NEW DRAFT', 'task draft preserved as NEW DRAFT');
+
+  inputAdapter.dispose();
+});
+
+test('§4.5 Item 4: 충돌 없는 완료 및 추가 작성 없는 완료의 DOM 입력과 상태 모듈 스냅샷 일치 검증', () => {
+  const posted: any[] = [];
+  const bridge = { postMessage: (m: any) => posted.push(m) };
+  const actions = createWebviewActionAdapter(bridge);
+  const state = createAnswerState();
+
+  const listeners: Record<string, (e: any) => void> = {};
+  const elements = {
+    say: {
+      value: '',
+      placeholder: '',
+      focus() {},
+      setSelectionRange() {},
+      addEventListener: (type: string, fn: any) => { listeners[type] = fn; },
+      removeEventListener: () => {},
+    } as any,
+    sendBtn: { textContent: '', addEventListener() {}, removeEventListener() {} } as any,
+    replyModeEl: { hidden: true } as any,
+    replyTargetEl: { textContent: '' } as any,
+    replyCancelEl: { addEventListener() {}, removeEventListener() {} } as any,
+    noteEl: { textContent: '' } as any,
+    hintEl: { textContent: '' } as any,
+  };
+
+  const inputAdapter = createWebviewInputAdapter(elements, actions, state);
+  let currentSession = '';
+  let currentCompanionKey = '/workspace';
+  let currentGeneration: number | undefined = 0;
+  let currentWebviewId = 'view-1';
+
+  const handlers = createWebviewReceiveHandlers({
+    inputAdapter,
+    answerState: state,
+    getCurrentAsk: () => null,
+    getCurrentSession: () => currentSession,
+    setCurrentSession: (s) => { currentSession = s; },
+    getCurrentCompanionKey: () => currentCompanionKey,
+    setCurrentCompanionKey: (k) => { currentCompanionKey = k; },
+    getCurrentGeneration: () => currentGeneration,
+    setCurrentGeneration: (g) => { currentGeneration = g; },
+    getCurrentWebviewId: () => currentWebviewId,
+    setCurrentWebviewId: (w) => { currentWebviewId = w; },
+    clearExpandedCallIds: () => {},
+    drawRows: () => {},
+    drawAsk: () => {},
+    drawRefs: () => {},
+    drawState: () => {},
+    drawInfo: () => {},
+    setNoteText: () => {},
+    getNoteText: () => '',
+  });
+
+  // A. 충돌 없는 완료 (빈 세션에서 전송 후 새 초안 작성 -> 충돌 없이 완료 연결)
+  inputAdapter.onContextChange('/workspace', '', null, 0, 'view-1');
+  elements.say.value = 'M_FIRST';
+  inputAdapter.send();
+  const say1 = posted.pop();
+  const task1 = say1.creationTaskId;
+
+  elements.say.value = 'NEW_DRAFT_NO_CONFLICT';
+  listeners['input']?.({});
+  assert.equal(elements.say.value, 'NEW_DRAFT_NO_CONFLICT');
+
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-no-conflict',
+    creationTaskId: task1,
+    webviewId: 'view-1',
+  }, handlers);
+
+  assert.equal(currentSession, 'sess-no-conflict');
+  assert.equal(inputAdapter.getCurrentSession?.(), 'sess-no-conflict');
+  assert.equal(elements.say.value, 'NEW_DRAFT_NO_CONFLICT', 'DOM input must show draft when no conflict');
+  assert.equal(state.getGeneralDraft('/workspace', 'sess-no-conflict'), 'NEW_DRAFT_NO_CONFLICT');
+  assert.equal(state.getState('/workspace', 'sess-no-conflict').generalDraft, 'NEW_DRAFT_NO_CONFLICT');
+  assert.equal(state.getCreationTask('/workspace', task1)?.draft, 'NEW_DRAFT_NO_CONFLICT');
+  assert.equal(state.getCreationTask('/workspace', task1)?.status, 'completed');
+
+  // B. 추가 작성 없는 완료 (빈 세션에서 전송 후 추가 입력 없이 즉시 완료 연결)
+  inputAdapter.onContextChange('/workspace', '', null, 0, 'view-1');
+  currentSession = '';
+  elements.say.value = 'M_SECOND';
+  inputAdapter.send();
+  const say2 = posted.pop();
+  const task2 = say2.creationTaskId;
+
+  assert.equal(elements.say.value, '', 'input cleared on send');
+
+  dispatchHostMessage({
+    kind: 'sessionCreated',
+    companionKey: '/workspace',
+    session: 'sess-fresh-empty',
+    creationTaskId: task2,
+    webviewId: 'view-1',
+  }, handlers);
+
+  assert.equal(currentSession, 'sess-fresh-empty');
+  assert.equal(inputAdapter.getCurrentSession?.(), 'sess-fresh-empty');
+  assert.equal(elements.say.value, '', 'DOM input remains empty when no draft was typed');
+  assert.equal(state.getGeneralDraft('/workspace', 'sess-fresh-empty'), '');
+  assert.equal(state.getState('/workspace', 'sess-fresh-empty').generalDraft, '');
+  assert.equal(state.getCreationTask('/workspace', task2)?.draft, '');
+  assert.equal(state.getCreationTask('/workspace', task2)?.status, 'completed');
+
+  inputAdapter.dispose();
+});
+
 
 
