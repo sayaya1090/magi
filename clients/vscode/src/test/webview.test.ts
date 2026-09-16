@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
+import { TestScheduler } from 'rxjs/testing';
 
 import { parseWebviewToHostMessage, WebviewToHostMessage } from '../core/webview_protocol';
 import {
@@ -1605,6 +1606,174 @@ test('SuggestController manages debounce timer, bumps reqId on invalidate, and r
   assert.equal(ctrl.getCurrentSession(), 'session-xyz');
   assert.equal(ctrl.getCurrentTarget(), 'general');
   assert.equal(ctrl.acceptSuggestion('late suggestion', 4, 'q2'), false, 'late suggestion after session change must be rejected');
+
+  ctrl.dispose();
+});
+
+test('§5.7 RxJS TestScheduler: virtual time debounce, invalidation, empty input cancellation, and dispose', () => {
+  const ts = new TestScheduler((actual, expected) => {
+    assert.deepEqual(actual, expected);
+  });
+
+  ts.run(({ flush }) => {
+    const dispatched: any[] = [];
+    const mockActions = {
+      suggest: (text: string, reqId: number, target: string) => dispatched.push({ kind: 'suggest', text, reqId, target }),
+      mention: (name: string, reqId: number, target: string) => dispatched.push({ kind: 'mention', name, reqId, target }),
+    } as any;
+
+    const ctrl = createSuggestController({ scheduler: ts });
+
+    // 1. Multiple consecutive inputs -> only latest request dispatched after delay
+    ctrl.scheduleInput({ text: 'first input', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.scheduleInput({ text: 'second input', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.scheduleInput({ text: 'third input is latest', target: 'general', actions: mockActions, delayMs: 100 });
+
+    flush();
+
+    assert.equal(dispatched.length, 1, 'Only latest input dispatched');
+    assert.equal(dispatched[0].text, 'third input is latest');
+    assert.equal(dispatched[0].reqId, 3);
+    dispatched.length = 0;
+
+    // 2. Invalidation right before delay fires cancels scheduling
+    ctrl.scheduleInput({ text: 'pending input to cancel', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.invalidate();
+    flush();
+    assert.equal(dispatched.length, 0, 'Invalidated schedule must not dispatch');
+
+    // 3. Empty input or input < 4 chars immediately cancels previous pending timer
+    ctrl.scheduleInput({ text: 'valid long input', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.scheduleInput({ text: 'abc', target: 'general', actions: mockActions, delayMs: 100 });
+    flush();
+    assert.equal(dispatched.length, 0, 'Short input cancelled pending timer and dispatched nothing');
+
+    ctrl.scheduleInput({ text: 'valid long input', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.scheduleInput({ text: '', target: 'general', actions: mockActions, delayMs: 100 });
+    flush();
+    assert.equal(dispatched.length, 0, 'Empty input cancelled pending timer and dispatched nothing');
+
+    // 4. Dispose unhooks everything
+    ctrl.scheduleInput({ text: 'disposed input test', target: 'general', actions: mockActions, delayMs: 100 });
+    ctrl.dispose();
+    flush();
+    assert.equal(dispatched.length, 0, 'Disposed controller must not dispatch');
+    assert.equal(ctrl.acceptSuggestion('some result', 7, 'general'), false, 'Dispose rejects suggestions');
+    assert.equal(ctrl.acceptMentions(['foo.ts'], 7, 'general'), false, 'Dispose rejects mentions');
+  });
+});
+
+test('§5.7: Request A dispatched -> Input B arrives -> Stale A response rejected during B debounce -> B dispatched and accepted', async () => {
+  const ctrl = createSuggestController();
+  const dispatched: any[] = [];
+  const mockActions = {
+    suggest: (text: string, reqId: number, target: string) => dispatched.push({ kind: 'suggest', text, reqId, target }),
+    mention: (name: string, reqId: number, target: string) => dispatched.push({ kind: 'mention', name, reqId, target }),
+  } as any;
+
+  // 1. User types input A
+  const reqIdA = ctrl.scheduleInput({
+    text: 'search query A',
+    target: 'general',
+    actions: mockActions,
+    delayMs: 30,
+  });
+  assert.equal(reqIdA, 1);
+
+  // Wait for A timer to fire and dispatch
+  await new Promise((r) => setTimeout(r, 45));
+  assert.equal(dispatched.length, 1);
+  assert.deepEqual(dispatched[0], { kind: 'suggest', text: 'search query A', reqId: 1, target: 'general' });
+
+  // 2. User types input B (which starts B debounce)
+  const reqIdB = ctrl.scheduleInput({
+    text: 'search query B updated',
+    target: 'general',
+    actions: mockActions,
+    delayMs: 50,
+  });
+  assert.equal(reqIdB, 2);
+
+  // 3. While B is waiting in its debounce timer (20ms in), response for A arrives!
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(dispatched.length, 1, 'B should still be waiting in debounce timer');
+
+  // Response for A arrives with reqId 1
+  const acceptedA = ctrl.acceptSuggestion('old completion for A', reqIdA, 'general');
+  assert.equal(acceptedA, false, 'Late response for A must be rejected during B debounce');
+  assert.equal(ctrl.getSuggestion(), '', 'Active suggestion must remain empty');
+
+  // 4. B debounce timer fires and dispatches
+  await new Promise((r) => setTimeout(r, 45));
+  assert.equal(dispatched.length, 2);
+  assert.deepEqual(dispatched[1], { kind: 'suggest', text: 'search query B updated', reqId: 2, target: 'general' });
+
+  // Response for B arrives with reqId 2
+  const acceptedB = ctrl.acceptSuggestion('new completion for B', reqIdB, 'general');
+  assert.equal(acceptedB, true, 'Matching response for B must be accepted');
+  assert.equal(ctrl.getSuggestion(), 'new completion for B');
+
+  ctrl.dispose();
+});
+
+test('§5.7: Mention to suggest switch and action error resiliency in RxJS suggest stream', async () => {
+  const ctrl = createSuggestController();
+  const dispatched: any[] = [];
+  let shouldThrow = false;
+  const mockActions = {
+    suggest: (text: string, reqId: number, target: string) => {
+      if (shouldThrow) {
+        throw new Error('Network / postMessage failure');
+      }
+      dispatched.push({ kind: 'suggest', text, reqId, target });
+    },
+    mention: (name: string, reqId: number, target: string) => {
+      dispatched.push({ kind: 'mention', name, reqId, target });
+    },
+  } as any;
+
+  // 1. Switch from mention to suggestion before debounce fires
+  ctrl.scheduleInput({
+    text: 'hello @filename',
+    target: 'q1',
+    actions: mockActions,
+    delayMs: 30,
+  });
+  // Switch to normal suggestion before 30ms
+  ctrl.scheduleInput({
+    text: 'hello world regular',
+    target: 'q1',
+    actions: mockActions,
+    delayMs: 30,
+  });
+
+  await new Promise((r) => setTimeout(r, 45));
+  assert.equal(dispatched.length, 1);
+  assert.deepEqual(dispatched[0], { kind: 'suggest', text: 'hello world regular', reqId: 2, target: 'q1' });
+  dispatched.length = 0;
+
+  // 2. Action error resiliency: when an action throws, the stream remains alive for subsequent inputs
+  shouldThrow = true;
+  ctrl.scheduleInput({
+    text: 'trigger throwing action',
+    target: 'q1',
+    actions: mockActions,
+    delayMs: 20,
+  });
+  await new Promise((r) => setTimeout(r, 35));
+  assert.equal(dispatched.length, 0, 'Throwing action caught safely');
+
+  // Next input works without stream termination
+  shouldThrow = false;
+  ctrl.scheduleInput({
+    text: 'recovered next input',
+    target: 'q1',
+    actions: mockActions,
+    delayMs: 20,
+  });
+  await new Promise((r) => setTimeout(r, 35));
+  assert.equal(dispatched.length, 1);
+  assert.deepEqual(dispatched[0], { kind: 'suggest', text: 'recovered next input', reqId: 4, target: 'q1' });
 
   ctrl.dispose();
 });

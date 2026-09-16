@@ -482,6 +482,7 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - `recovery_state.js`의 빈 문자열 대체(`recoveryCompiled = ''`) 분기를 완전히 제거하고 필수 검사 대상으로 통합하여, 누락 시 런타임 `createRecoveryState is not a function` 오류가 배포 산출물에 유입되는 것을 원천 차단했습니다.
 
 2. **사전 전수 검증 및 입력 실패 시 기존 출력 보존:**
+   - 보장 범위는 **입력 누락·읽기 실패 시 기존 출력 보존**입니다. 두 출력은 순서대로 쓰므로 쓰기 도중 실패·프로세스 종료까지 원자적이지 않으며, 이를 위해 임의의 파일 시스템 트랜잭션을 추가하지 않습니다.
    - 6개 모든 입력 파일의 존재 여부(`fs.existsSync`) 및 읽기 성공(`fs.readFileSync`)을 인메모리 버퍼에 확보한 뒤에만 출력 디렉터리 생성 및 파일 쓰기를 시작합니다.
    - 입력 파일이 단 하나라도 누락되거나 읽기에 실패하면 출력 파일(`out/web/answer_state.js`, `out/web/chat_adapter.bundle.js`)에 일체 손을 대지 않고 기존 상태를 유지하며, 표준 에러로 누락 경로 및 재빌드 안내(`Run 'tsc -p .' first.`)를 출력하고 종료 코드 1로 즉시 중단합니다.
 
@@ -705,5 +706,55 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
    - **단위 테스트 (`npm test`):** 총 470개 테스트 전수 통과 (463 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
+
+---
+
+### §5.7 RxJS 도입과 이벤트 흐름 리팩터링 (RxJS Adoption & Event Stream Refactoring)
+
+1. **적용 경계 및 번들/패키징 기반 (`esbuild`, `rxjs`):**
+   - `clients/vscode/package.json` `devDependencies`에 `esbuild` (^0.28.2), `rxjs` (^7.8.2) 의존성을 추가하고 lockfile을 갱신했습니다.
+   - `vsce package --no-dependencies` 실행 시 루트 `LICENSE`를 요구하므로 `package.json`의 `contract` 스크립트에서 `../../LICENSE`를 `LICENSE`로 동기화 복사하도록 구성하고 `.gitignore`에 등록하여 `LICENSE.txt`가 VSIX 내부에 올바르게 포함되도록 보장했습니다.
+   - `tools/build-webview-assets.mjs`에서 기존 수동 모듈 require 조립 대신 `esbuild.buildSync` 기반 IIFE 번들링(`MagiAdapter`)을 적용하여 `rxjs` 및 관련 의존성을 `chat_adapter.bundle.js` 내부에 단독 포함하도록 빌더를 전환했습니다. 브라우저 웹뷰에서 CDN, eval, 런타임 네트워크 로딩은 일체 발생하지 않습니다.
+   - 6대 필수 입력 사전 검증(누락 시 프로세스 종료 코드 1, 기존 출력 산출물 보존) 계약을 유지하여 `src/test/build_assets.test.ts` 격리 테스트를 100% 통과했습니다.
+
+2. **`createSuggestController` RxJS 스트림 리팩터링 (`src/web/chat_adapter.ts`):**
+   - 기존 컨트롤러의 `let timer: ReturnType<typeof setTimeout> | null = null;`, `clearTimeout(timer)` 등 수동 타이머 관리 코드를 전량 제거했습니다.
+   - `Subject<SuggestCommand>` + `switchMap` + `timer(delayMs, scheduler)` + `takeUntil(destroy$)` 파이프라인으로 재설계했습니다.
+   - `answer_state.ts`, `recovery_state.ts`는 초안·복구 자료·전송 시도의 단일 정본(Single Source of Truth)으로 유지하며, Subject 내부에 이중 상태를 보관하지 않습니다.
+   - 빈 입력(`''`) 및 3글자 이하 미충족 입력도 이전 대기 작업을 즉시 무효화해야 하므로 debounce 앞에서 누락시키지 않고 `switchMap` 내부에서 `EMPTY`로 반환하여 이전 작업을 즉각 취소합니다.
+   - 외부 `switchMap`에서 즉시 전환하고 내부 `timer`로 지연시켜 새 입력 후 지연 시간 동안 옛 응답이 적용되는 결함을 원천 차단했습니다.
+   - `dispose()` 시 `destroy$` 완료 및 `subscription.unsubscribe()`를 통해 대기 중인 모든 타이머와 구독을 완전 해제하고, dispose 이후 새 입력 스케줄링 및 늦은 응답 수신을 차단했습니다.
+   - 개별 액션 디스패치를 try-catch 및 `catchError(() => EMPTY)`로 감싸 오류 발생 시에도 상위 이벤트 스트림이 종료되지 않고 다음 입력을 지속 처리하도록 보장했습니다.
+   - `options.scheduler` (기본값 `asyncScheduler`)를 지원하여 RxJS `TestScheduler` 기반 가상 시간 테스트가 가능하도록 구성했습니다.
+
+3. **가상 시간 및 스트림 경계 검증 (`src/test/webview.test.ts`):**
+   - **`§5.7 RxJS TestScheduler: virtual time debounce, invalidation, empty input cancellation, and dispose`:**
+     - TestScheduler 가상 시간 환경에서 연속 3회 입력 시 이전 작업이 즉시 취소되고 최신 1회만 디스패치됨을 실측 검증.
+     - 지연 만료 직전 `invalidate()` 호출 시 0건 디스패치 검증.
+     - 3글자 이하 단축 입력(`'abc'`) 및 빈 문자열(`''`) 주입 시 대기 타이머 즉시 취소 및 0건 디스패치 검증.
+     - `dispose()` 후 입력 디스패치 차단 및 `acceptSuggestion`/`acceptMentions` 거절 검증.
+   - **`§5.7: Request A dispatched -> Input B arrives -> Stale A response rejected during B debounce -> B dispatched and accepted`:**
+     - A 요청 발행 완료 후 사용자 입력 B 주입(디바운스 타이머 가동).
+     - B 디바운스 대기 중 A 응답 도착 시 `reqId` 불일치로 즉시 거절(`acceptSuggestion === false`, 초안 변경 0건).
+     - B 디바운스 만료 후 B 요청 발행, B 응답 도착 시 정상 수락(`acceptSuggestion === true`, 초안 갱신).
+   - **`§5.7: Mention to suggest switch and action error resiliency in RxJS suggest stream`:**
+     - `@` 멘션 입력 후 디바운스 중 일반 텍스트로 변경 시 멘션 취소 및 일반 제안 디스패치 검증.
+     - `actions.suggest` 호출 시 예외 발생 후에도 스트림이 살아있어 다음 입력이 정상 스케줄링/디스패치됨을 검증.
+
+4. **배포 자산 메트릭 및 비교 (Byte Size & Code Removal):**
+   - **배포 자산 크기:**
+     - `chat_adapter.bundle.js`: 87KB (간이 CommonJS 모듈 조립) → 457KB (esbuild IIFE 번들링 + RxJS 7.8.2 의존성 내장).
+     - VSIX 패키지 크기: `magi-0.2.0.vsix` 총 60개 파일 (267.95 KB, 무경고 패키징 성공).
+   - **제거된 수동 코드:**
+     - `chat_adapter.ts` 내 `let timer: ReturnType<typeof setTimeout> | null = null;` 관리 변수 제거.
+     - `clearTimeout(timer)` 수동 호출 및 `timer = null` 초기화 분기 코드 전량 삭제.
+     - `setTimeout` 콜백 등록 로직을 선언적 RxJS `timer` + `switchMap` 스트림으로 완전 대체.
+
+5. **파이프라인 통과 현황:**
+   - **빌드:** `npm run build --prefix clients/vscode` 성공 (esbuild 번들링 정상 완료).
+   - **단위 테스트 (`npm test`):** 총 473개 테스트 전수 통과 (466 pass, 0 fail, 7 skip).
+   - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
+   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일).
+
 
 

@@ -16,6 +16,17 @@ import type { Ask } from '../core/touched';
 import type { Activity } from '../core/activity';
 import type { AnswerStateManager, AskEvent } from '../core/answer_state';
 import type { RecoveryController } from './recovery_controller';
+import {
+  Subject,
+  timer,
+  EMPTY,
+  asyncScheduler,
+  SchedulerLike,
+  switchMap,
+  tap,
+  catchError,
+  takeUntil,
+} from 'rxjs';
 
 export interface WebviewBridge {
   postMessage(message: WebviewToHostMessage): void;
@@ -475,6 +486,10 @@ export interface WebviewInputElements {
   onInFlightChange?: (state: { inFlight: boolean; answeringThisAsk: boolean }) => void;
 }
 
+export interface SuggestControllerOptions {
+  scheduler?: SchedulerLike;
+}
+
 export interface SuggestController {
   invalidate(): void;
   onSessionChange(session: string): void;
@@ -495,25 +510,74 @@ export interface SuggestController {
   dispose(): void;
 }
 
-export function createSuggestController(): SuggestController {
+export function createSuggestController(options?: SuggestControllerOptions): SuggestController {
   let reqId = 0;
-  let timer: ReturnType<typeof setTimeout> | null = null;
   let currentSession = '';
   let activeTarget = 'general';
   let activeSuggestion = '';
   let activeMentions: string[] = [];
+  let disposed = false;
+
+  const destroy$ = new Subject<void>();
+  type SuggestCommand =
+    | {
+        type: 'schedule';
+        reqId: number;
+        text: string;
+        target: string;
+        actions: WebviewActionAdapter;
+        delayMs: number;
+      }
+    | {
+        type: 'invalidate';
+      };
+
+  const command$ = new Subject<SuggestCommand>();
+  const scheduler: SchedulerLike = options?.scheduler ?? asyncScheduler;
+
+  const subscription = command$
+    .pipe(
+      takeUntil(destroy$),
+      switchMap((cmd) => {
+        if (cmd.type === 'invalidate') {
+          return EMPTY;
+        }
+        const text = cmd.text;
+        const at = /(^|\s)@([^\s@]{2,})$/.exec(text);
+        const meetsSuggest = !at && text.trim().length > 3;
+        if (!at && !meetsSuggest) {
+          return EMPTY;
+        }
+
+        return timer(cmd.delayMs, scheduler).pipe(
+          tap(() => {
+            if (disposed) return;
+            try {
+              if (at) {
+                cmd.actions.mention(at[2], cmd.reqId, cmd.target);
+              } else {
+                cmd.actions.suggest(text, cmd.reqId, cmd.target);
+              }
+            } catch {
+              // 오류는 해당 요청 범위에서 처리하고 다음 입력 스트림까지 종료시키지 않습니다.
+            }
+          }),
+          catchError(() => EMPTY)
+        );
+      })
+    )
+    .subscribe();
 
   function invalidate(): void {
-    if (timer) {
-      clearTimeout(timer);
-      timer = null;
-    }
+    if (disposed) return;
     reqId++;
     activeSuggestion = '';
     activeMentions = [];
+    command$.next({ type: 'invalidate' });
   }
 
   function onSessionChange(session: string): void {
+    if (disposed) return;
     if (currentSession !== session) {
       currentSession = session;
       invalidate();
@@ -521,32 +585,34 @@ export function createSuggestController(): SuggestController {
     }
   }
 
-  function scheduleInput(options: {
+  function scheduleInput(opts: {
     text: string;
     target: string;
     actions: WebviewActionAdapter;
     delayMs?: number;
   }): number {
-    invalidate();
-    activeTarget = options.target;
+    if (disposed) return reqId;
+    reqId++;
+    activeSuggestion = '';
+    activeMentions = [];
+    activeTarget = opts.target;
     const thisReqId = reqId;
-    const target = options.target;
-    const text = options.text;
-    const delay = options.delayMs ?? 450;
+    const delay = opts.delayMs ?? 450;
 
-    const at = /(^|\s)@([^\s@]{2,})$/.exec(text);
-    timer = setTimeout(() => {
-      if (at) {
-        options.actions.mention(at[2], thisReqId, target);
-      } else if (text.trim().length > 3) {
-        options.actions.suggest(text, thisReqId, target);
-      }
-    }, delay);
+    command$.next({
+      type: 'schedule',
+      reqId: thisReqId,
+      text: opts.text,
+      target: opts.target,
+      actions: opts.actions,
+      delayMs: delay,
+    });
 
     return thisReqId;
   }
 
   function acceptMentions(files: string[], rId?: number, target?: string): boolean {
+    if (disposed) return false;
     if (rId !== undefined && rId !== reqId) return false;
     if (target !== undefined && target !== activeTarget) return false;
     activeMentions = files || [];
@@ -554,6 +620,7 @@ export function createSuggestController(): SuggestController {
   }
 
   function acceptSuggestion(text: string, rId?: number, target?: string): boolean {
+    if (disposed) return false;
     if (rId !== undefined && rId !== reqId) return false;
     if (target !== undefined && target !== activeTarget) return false;
     activeSuggestion = text || '';
@@ -575,10 +642,14 @@ export function createSuggestController(): SuggestController {
     getCurrentTarget: () => activeTarget,
     getCurrentSession: () => currentSession,
     dispose(): void {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
+      if (disposed) return;
+      disposed = true;
+      destroy$.next();
+      destroy$.complete();
+      command$.complete();
+      subscription.unsubscribe();
+      activeSuggestion = '';
+      activeMentions = [];
     },
   };
 }
