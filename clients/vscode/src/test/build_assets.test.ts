@@ -18,16 +18,18 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
   try {
     const tempCoreDir = path.join(tempDir, 'out', 'core');
     const tempWebDir = path.join(tempDir, 'out', 'web');
+    const tempSrcWebDir = path.join(tempDir, 'src', 'web');
     await mkdir(tempCoreDir, { recursive: true });
     await mkdir(tempWebDir, { recursive: true });
+    await mkdir(tempSrcWebDir, { recursive: true });
 
     const requiredFiles = [
       { name: 'out/core/answer_state.js', realPath: path.join(realRoot, 'out', 'core', 'answer_state.js'), tempPath: path.join(tempCoreDir, 'answer_state.js') },
       { name: 'out/core/recovery_state.js', realPath: path.join(realRoot, 'out', 'core', 'recovery_state.js'), tempPath: path.join(tempCoreDir, 'recovery_state.js') },
-      { name: 'out/web/dom_interaction.js', realPath: path.join(realRoot, 'out', 'web', 'dom_interaction.js'), tempPath: path.join(tempWebDir, 'dom_interaction.js') },
-      { name: 'out/web/recovery_view.js', realPath: path.join(realRoot, 'out', 'web', 'recovery_view.js'), tempPath: path.join(tempWebDir, 'recovery_view.js') },
-      { name: 'out/web/recovery_controller.js', realPath: path.join(realRoot, 'out', 'web', 'recovery_controller.js'), tempPath: path.join(tempWebDir, 'recovery_controller.js') },
-      { name: 'out/web/chat_adapter.js', realPath: path.join(realRoot, 'out', 'web', 'chat_adapter.js'), tempPath: path.join(tempWebDir, 'chat_adapter.js') },
+      { name: 'src/web/dom_interaction.ts', realPath: path.join(realRoot, 'src', 'web', 'dom_interaction.ts'), tempPath: path.join(tempSrcWebDir, 'dom_interaction.ts') },
+      { name: 'src/web/recovery_view.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_view.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_view.ts') },
+      { name: 'src/web/recovery_controller.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_controller.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_controller.ts') },
+      { name: 'src/web/chat_adapter.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_adapter.ts'), tempPath: path.join(tempSrcWebDir, 'chat_adapter.ts') },
     ];
 
     // Copy all 6 compiled files to isolated tempDir

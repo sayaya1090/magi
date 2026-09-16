@@ -741,20 +741,26 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - `@` 멘션 입력 후 디바운스 중 일반 텍스트로 변경 시 멘션 취소 및 일반 제안 디스패치 검증.
      - `actions.suggest` 호출 시 예외 발생 후에도 스트림이 살아있어 다음 입력이 정상 스케줄링/디스패치됨을 검증.
 
-4. **배포 자산 메트릭 및 비교 (Byte Size & Code Removal):**
-   - **배포 자산 크기:**
-     - `chat_adapter.bundle.js`: 87KB (간이 CommonJS 모듈 조립) → 457KB (esbuild IIFE 번들링 + RxJS 7.8.2 의존성 내장).
-     - VSIX 패키지 크기: `magi-0.2.0.vsix` 총 60개 파일 (267.95 KB, 무경고 패키징 성공).
+4. **배포 자산 메트릭 및 ESM 입력 트리쉐이킹 비교 (Byte Size & Tree-Shaking Metrics):**
+   - **ESM 번들 입력 전환 (`src/web/chat_adapter.ts`):**
+     - 기존 tsc 컴파일 산출물(CommonJS `out/web/chat_adapter.js`)은 RxJS의 `require("rxjs")` 호출로 인해 esbuild의 정적 트리쉐이킹이 제한되어 불필요한 연산자 및 클래스가 대량 포함되었습니다.
+     - `tools/build-webview-assets.mjs`의 번들 진입점을 ESM 정보를 온전히 보존한 `src/web/chat_adapter.ts`(및 `src/web/dom_interaction.ts`, `src/web/recovery_view.ts`, `src/web/recovery_controller.ts`)로 전환하여 esbuild의 정적 ESM 트리쉐이킹을 활성화했습니다.
+     - `src/test/build_assets.test.ts` 격리 테스트 픽스처도 새 ESM 입력 계약(`src/web/*.ts`)에 맞춰 갱신하여, 각 입력 누락 시 종료 코드 1과 기존 출력 산출물 불변 보존, 샌드박스 바인딩을 동일하게 검증했습니다.
+   - **메트릭 비교:**
+     - **IIFE 번들 본체 크기:** 464,482 B (CJS 입력) → **128,063 B (ESM 입력)** (336,419 B / **72.4% 감소**, 축소 옵션 없는 순수 번들).
+     - **배포 래퍼 포함 파일 크기 (`out/web/chat_adapter.bundle.js`):** 467,908 B (~457 KB) → **131,489 B (~128 KB)**.
+     - **esbuild metafile 모듈 기여도:** 분석된 모듈 228개 중 최종 출력에 실제 기여한 모듈은 **50개**로 최적화됨.
+     - **VSIX 패키지 크기 (`magi-0.2.0.vsix`):** 267.95 KB → **232.85 KB** (`out/web` 산출물 총합 624.66 KB → 296.13 KB로 대폭 경량화, 60개 파일 무경고 패키징 성공).
    - **제거된 수동 코드:**
      - `chat_adapter.ts` 내 `let timer: ReturnType<typeof setTimeout> | null = null;` 관리 변수 제거.
      - `clearTimeout(timer)` 수동 호출 및 `timer = null` 초기화 분기 코드 전량 삭제.
      - `setTimeout` 콜백 등록 로직을 선언적 RxJS `timer` + `switchMap` 스트림으로 완전 대체.
 
 5. **파이프라인 통과 현황:**
-   - **빌드:** `npm run build --prefix clients/vscode` 성공 (esbuild 번들링 정상 완료).
+   - **빌드:** `npm run build --prefix clients/vscode` 성공 (ESM 입력 기반 esbuild 최적 번들링 완료).
    - **단위 테스트 (`npm test`):** 총 473개 테스트 전수 통과 (466 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 32개 시나리오 100% 통과 (pageerror 0건).
-   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일).
+   - **패키징:** `npm run package` 무경고 빌드 성공 (`LICENSE.txt` 포함 60개 파일, 232.85 KB).
 
 
 

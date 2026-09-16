@@ -19,23 +19,23 @@ if (process.env.MAGI_BUILD_ROOT) {
 
 const answerStateSrc = path.join(root, 'out', 'core', 'answer_state.js');
 const recoveryStateSrc = path.join(root, 'out', 'core', 'recovery_state.js');
-const domInteractionSrc = path.join(root, 'out', 'web', 'dom_interaction.js');
-const recoveryViewSrc = path.join(root, 'out', 'web', 'recovery_view.js');
-const recoveryControllerSrc = path.join(root, 'out', 'web', 'recovery_controller.js');
-const adapterSrc = path.join(root, 'out', 'web', 'chat_adapter.js');
+const domInteractionSrc = path.join(root, 'src', 'web', 'dom_interaction.ts');
+const recoveryViewSrc = path.join(root, 'src', 'web', 'recovery_view.ts');
+const recoveryControllerSrc = path.join(root, 'src', 'web', 'recovery_controller.ts');
+const adapterSrc = path.join(root, 'src', 'web', 'chat_adapter.ts');
 
 const outDir = path.join(root, 'out', 'web');
 const answerStateDst = path.join(outDir, 'answer_state.js');
 const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
 
-// 1. Single list of required inputs (§4.7 P2)
+// 1. Single list of required inputs (§4.7, §5.7)
 const requiredInputs = [
   { id: 'answer_state', name: 'out/core/answer_state.js', path: answerStateSrc },
   { id: 'recovery_state', name: 'out/core/recovery_state.js', path: recoveryStateSrc },
-  { id: 'dom_interaction', name: 'out/web/dom_interaction.js', path: domInteractionSrc },
-  { id: 'recovery_view', name: 'out/web/recovery_view.js', path: recoveryViewSrc },
-  { id: 'recovery_controller', name: 'out/web/recovery_controller.js', path: recoveryControllerSrc },
-  { id: 'chat_adapter', name: 'out/web/chat_adapter.js', path: adapterSrc },
+  { id: 'dom_interaction', name: 'src/web/dom_interaction.ts', path: domInteractionSrc },
+  { id: 'recovery_view', name: 'src/web/recovery_view.ts', path: recoveryViewSrc },
+  { id: 'recovery_controller', name: 'src/web/recovery_controller.ts', path: recoveryControllerSrc },
+  { id: 'chat_adapter', name: 'src/web/chat_adapter.ts', path: adapterSrc },
 ];
 
 // 2. Validate existence of all required inputs BEFORE touching/writing any output file
@@ -94,7 +94,11 @@ try {
     format: 'iife',
     globalName: 'MagiAdapter',
     write: false,
-    nodePaths: [path.join(__dirname, '..', 'node_modules')],
+    nodePaths: [
+      path.join(root, 'node_modules'),
+      path.join(__dirname, '..', 'node_modules'),
+    ],
+    metafile: true,
     logLevel: 'silent',
   });
   bundledCode = esbuildRes.outputFiles[0].text;
@@ -103,7 +107,7 @@ try {
   process.exit(1);
 }
 
-const adapterWrapped = `// Auto-generated from out/web/chat_adapter.js and dependencies for webview. Do not edit directly.
+const adapterWrapped = `// Auto-generated from src/web/chat_adapter.ts and dependencies for webview. Do not edit directly.
 var createWebviewActionAdapter;
 var createWebviewInputAdapter;
 var createSuggestController;
