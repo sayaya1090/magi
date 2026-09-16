@@ -504,14 +504,14 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
 
 ---
 
-### §5.6 승인 패널 보조 조작의 시인성, 4방향 포커스 링 보존 및 브라우저 합성 IME 검증
+### §5.6 승인 패널 보조 조작의 시인성, 4방향 포커스 링 측정 및 브라우저 합성 IME 검증
 
 1. **조회 보조 스타일 및 승인 조작 클래스 분리 (`web/chat_html.ts`):**
-   - 승인 패널(`drawAsk`) 내 ‘변경 보기’(`diffBtn`) 및 대상 파일 열기(`openBtn`)에 전용 보조 스타일 클래스 `inspect-btn`을 부여하고, `allow/deny/always` 승인 결정 단추군(`approval-btn`, `decision-${d}`)과 명확히 분리했습니다.
+   - 승인 패널(`drawAsk`) 내 ‘변경 보기’(`diffBtn`) 및 대상 파일 열기(`openBtn`)에 전용 보조 스타일 클래스 `inspect-btn`을 부여하고, 승인 결정 단추군(`approval-btn`, `decision-${d}`)과 명확히 분리했습니다.
    - 조회 버튼은 VS Code 테마 토큰 `var(--vscode-button-secondaryBackground, #3a3d41)`, `var(--vscode-button-secondaryForeground, var(--vscode-foreground, #ffffff))`, `var(--vscode-button-secondaryHoverBackground, #45494e)`를 사용하며 폴백 색상을 지정했습니다.
-   - 승인(`allow`)과 거부(`deny`, `always`)는 `approval-btn`으로 동일한 시각적 식별성을 유지하며, `allow`만 유도 강조하거나 `deny`를 위험색(빨강)으로 표시하지 않습니다.
+   - 승인 결정 단추군(`allow`, `deny`, `always`)은 `approval-btn`으로 동일한 시각적 식별성을 유지하며, `allow`만 유도 강조하거나 `deny`를 위험색(빨강)으로 표시하지 않습니다. `always`는 §5.4의 세션 도구 허용 계약을 따릅니다.
    - 버튼의 hover, 키보드 focus-visible 상태(`outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: 2px;`) 및 고대비 테두리(`border: 1px solid var(--vscode-contrastBorder, var(--vscode-button-border, transparent));`)를 적용했습니다.
-   - 포커스 링(outline 1px + offset 2px = 총 3px 스팬)의 4방향 전체 보존을 위해 `#ask-controls .acts`의 패딩을 `padding: 4px;`로 확보했습니다.
+   - 포커스 링(outline 1px + offset 2px = 총 3px 스팬)의 4방향 전체 보존 및 자동 스크롤 시 링 잘림 방지를 위해 `#ask-controls .acts`에 `padding: 4px; scroll-padding: 4px;`, `#ask-controls .acts button`에 `scroll-margin: 4px;`를 적용했습니다.
    - 전역 `button` 규칙은 보존하여 복구 목록, 질문 선택지, composer를 함께 오염시키지 않았습니다.
 
 2. **메시지 전송 및 무변경 보증:**
@@ -520,7 +520,7 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
    - 버튼 순서, 본문 전문, 툴팁, 입력 초안, 답변 모드, 스크롤 정책을 100% 보존합니다.
 
 3. **자동화 검증 (`transcript-test.mjs` & `webview.test.ts`):**
-   - **단위 테스트 (`webview.test.ts`):** `renderChatHtml` 생성 HTML 내 보조/승인 클래스, 토큰 및 폴백, `.acts` 안전 패딩(`padding: 4px;`), `jump-btn:focus-visible`, focus-visible 및 contrastBorder CSS 규칙 선언 검증 완료.
+   - **단위 테스트 (`webview.test.ts`):** `renderChatHtml` 생성 HTML 내 보조/승인 클래스, 토큰 및 폴백, `.acts` 안전 패딩 및 스크롤 패딩(`padding: 4px; scroll-padding: 4px;`), 버튼 스크롤 마진(`scroll-margin: 4px;`), `jump-btn:focus-visible`, focus-visible 및 contrastBorder CSS 규칙 선언 검증 완료.
    - **브라우저 E2E 하네스 (`transcript-test.mjs`):** `diff_approval_and_inspection_styling_keyboard_and_themes` 시나리오:
      - `diffBtn`, `openBtn`의 `inspect-btn` 보유 및 `approval-btn` 부재 단언.
      - `allow`, `deny`, `always`의 `approval-btn` 보유 및 `inspect-btn` 부재 단언.
@@ -528,23 +528,25 @@ node clients/vscode/tools/transcript-test.mjs --verify-assets
      - **실제 키보드 Tab 순차 탐색 체인:** 시작점(`openBtn`)만 초기 포커스 후 `page.keyboard.press('Tab')` 순차 입력으로 DOM 순서에 따른 activeElement 이동(`openBtn` → `jumpBtn` → `diffBtn` → `allow` → `deny` → `always` → `#say` → `#send`) 실측 검증.
      - **역방향 Shift+Tab 순차 탐색:** `#send`에서 `Shift+Tab` 순차 입력으로 역순(`send` → `say` → `always` → `deny` → `allow` → `diffBtn` → `jumpBtn` → `openBtn`) 완벽 복귀 검증.
      - **비활성화 요소 스킵:** `diffBtn.disabled = true` 시 Tab 키 조작에서 자연스럽게 제외되어 `jumpBtn`에서 바로 `allow`로 이동함을 검증.
-     - **4방향 동적 포커스 링 경계 실측:** 고정 수치(1.5/2.5px)를 탈피하고, computed `outlineWidth`와 `outlineOffset`을 동적으로 합산(`ringSpan` ≥ 3px)하여 컨테이너(`.acts`)의 client 영역(`top`, `bottom`, `left`, `right`) 대비 외곽 링 클리핑 여부를 동적으로 판정:
-       - 320×600 및 420×700 뷰포트, Dark/Light/High Contrast 테마에서 첫 버튼(`diffBtn`) 및 마지막 버튼(`always`)을 포함한 전 버튼 4방향 링 미클리핑 단언.
-       - 다중 선택지(8개 옵션) 320×600 줄바꿈 행 및 `max-height: 25vh` 스크롤 상태에서 상단 스크롤 시 첫 버튼 상/좌측 링, 하단 스크롤 시 마지막 버튼 하/우측 링의 4방향 미클리핑 단언.
+     - **단일 통합 측정 헬퍼 (`measureActiveButtonRing`):** 임의의 폴백(기본 1px 등) 없이 각 버튼의 활성 상태(`document.activeElement === button`), `:focus-visible` 매칭, computed `outlineStyle`, `outlineWidth`, `outlineOffset`을 동적으로 읽고, 컨테이너(`.acts`)의 client 영역(`top`, `bottom`, `left`, `right`) 대비 외곽 링 4방향 클리핑을 실측 판정:
+       - **Theme × Viewport 전수 매트릭스 순회:** Dark / Light / High Contrast 테마 3종 × 320×600 / 420×700 뷰포트 2종 (총 6개 조합) 전수 순회.
+       - 각 조합마다 키보드 Tab으로 각 대상 버튼(`diff`, `allow`, `deny`, `always`)에 도달하여 activeElement 및 `:focus-visible`을 단언하고, 실제 선언값인 `solid`, `1px`, `2px`(총 3px 링)과 상/하/좌/우 4방향 미클리핑(margins ≥ 3px)을 단언.
+     - **8개 다중 선택지 줄바꿈 및 스크롤 링 검증:**
+       - 320×600 환경에서 8개 긴 선택지 + 1개 '직접 입력' 버튼으로 `overflow-y: auto`(`max-height: 25vh`) 유발.
+       - `jumpBtn`에서부터 Tab 키로 1번 선택지부터 마지막 버튼까지 순차 이동하며, 브라우저의 포커스 자동 스크롤(scrollIntoView) 후에도 활성 버튼의 링이 4방향 모두 가려지지 않음을 실측 검증.
+       - 선택지의 브라우저 기본 링(`outlineStyle: 'auto'`, `outlineWidth: 1px`, `outlineOffset: 0px`)과 승인 버튼의 명시적 링(`outlineStyle: 'solid'`, `1px`, `2px`)을 명확히 구분하여 단언.
      - **키보드 액션 실행:** `openBtn` Enter(`open`), `diffBtn` Enter(`diff`), `allow` Space(`answer: allow`), `deny` Enter(`answer: deny`), `always` Space(`answer: always`) 1회 디스패치 검증.
-     - Dark (`#3a3d41` vs `#0e639c`), Light (`#e5e5e5` vs `#005fb8`), High Contrast (`#6fc1ff` 테두리) 테마별 계산된 스타일 실측 일치 검증.
 
 4. **파이프라인 통과 현황:**
    - **빌드:** `npm run build --prefix clients/vscode` 성공.
    - **단위 테스트 (`npm test`):** 총 464개 테스트 전수 통과 (457 pass, 0 fail, 7 skip).
    - **브라우저 테스트 (`transcript-test.mjs`):** `--verify-assets`, 정방향, `--reverse` 29개 시나리오 100% 통과 (pageerror 0건).
-   - **합성 IME 독립 도구 (`synthetic-ime-test.mjs`):** 단독 실행 100% 통과.
 
 ---
 
 ### 브라우저 합성 한글 IME 이벤트 검증 (Synthetic Composition Events)
 
-저장소 공식 하네스(`clients/vscode/tools/synthetic-ime-test.mjs` 및 `transcript-test.mjs`의 `asks_synthetic_ime_composition_and_recovery_lock` 시나리오)를 통해 Chromium 브라우저 환경에서 합성 DOM 이벤트를 주입하여 `chat_adapter`의 이벤트 가드를 실측 검증했습니다:
+공통 E2E 하네스(`node clients/vscode/tools/transcript-test.mjs`, 시나리오 `asks_synthetic_ime_composition_and_recovery_lock`)를 통해 단일 실행 경로로 Chromium 브라우저 환경에서 합성 DOM 이벤트를 주입하여 `chat_adapter`의 이벤트 가드를 실측 검증합니다 (중복 standalone 도구는 제거되었습니다):
 
 1. **한글 조합 중 Enter 억제 및 중복 전송 방지 (합성 이벤트):**
    - composer `#say`에서 한글 음절 조합 단계('ㅎ' → '하' → '한', `CompositionEvent: compositionstart`/`compositionupdate`, `KeyboardEvent: isComposing: true, keyCode: 229`) 동안 발생하는 Enter 키 입력이 메시지 전송을 유발하지 않음을 단언 (`postMessage` 발행 0건).

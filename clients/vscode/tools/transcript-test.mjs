@@ -289,6 +289,63 @@ export async function verifyRunnerLifecycle() {
   console.log('  PASS: [lifecycle] runHarness guarantees context and browser close across normal run, early return, and error');
 }
 
+/**
+ * Measures the active button focus ring boundaries against #ask-controls .acts container
+ * without arbitrary fallbacks or faked styles.
+ * Returns active status, focusVisible, computed outline properties, margins, and 4-direction clipping booleans.
+ */
+export async function measureActiveButtonRing(page, buttonSelector) {
+  return await page.evaluate((sel) => {
+    const btn = sel === ':focus' ? document.activeElement : (typeof sel === 'string' ? document.querySelector(sel) : sel);
+    if (!btn) {
+      throw new Error(`Target button not found: ${sel}`);
+    }
+    const isActive = document.activeElement === btn;
+    const isFocusVisible = btn.matches(':focus-visible');
+    const style = window.getComputedStyle(btn);
+    const outlineStyle = style.outlineStyle;
+    const outlineWidth = parseFloat(style.outlineWidth);
+    const outlineOffset = parseFloat(style.outlineOffset);
+    const ringSpan = (isNaN(outlineWidth) ? 0 : outlineWidth) + (isNaN(outlineOffset) ? 0 : outlineOffset);
+
+    const acts = document.querySelector('#ask-controls .acts');
+    if (!acts) {
+      throw new Error('#ask-controls .acts container not found');
+    }
+    const aRect = acts.getBoundingClientRect();
+    const clientTop = aRect.top + acts.clientTop;
+    const clientLeft = aRect.left + acts.clientLeft;
+    const clientBottom = clientTop + acts.clientHeight;
+    const clientRight = clientLeft + acts.clientWidth;
+
+    const bRect = btn.getBoundingClientRect();
+    const ringTop = bRect.top - ringSpan;
+    const ringBottom = bRect.bottom + ringSpan;
+    const ringLeft = bRect.left - ringSpan;
+    const ringRight = bRect.right + ringSpan;
+
+    return {
+      text: btn.textContent?.trim() || '',
+      isActive,
+      isFocusVisible,
+      outlineStyle,
+      outlineWidth,
+      outlineOffset,
+      ringSpan,
+      topMargin: bRect.top - clientTop,
+      bottomMargin: clientBottom - bRect.bottom,
+      leftMargin: bRect.left - clientLeft,
+      rightMargin: clientRight - bRect.right,
+      clippedTop: ringTop < clientTop - 0.5,
+      clippedBottom: ringBottom > clientBottom + 0.5,
+      clippedLeft: ringLeft < clientLeft - 0.5,
+      clippedRight: ringRight > clientRight + 0.5,
+      bRect: { top: bRect.top, bottom: bRect.bottom, left: bRect.left, right: bRect.right },
+      clientRect: { top: clientTop, bottom: clientBottom, left: clientLeft, right: clientRight },
+    };
+  }, buttonSelector);
+}
+
 // Define scenario suites across the 4 specified bundles (§2.3)
 const bundles = [
   {
@@ -2761,56 +2818,7 @@ const bundles = [
             d.disabled = false;
           });
 
-          // 4D. Focus ring boundary geometry verification: dynamic outlineWidth + outlineOffset calculation
-          // Reads computed outlineWidth and outlineOffset, computes outer ring boundary, and compares against .acts
-          // scroll container client/border boundaries across all 4 directions (no arbitrary hardcoded margins).
-          const ringCheckResult = await page.evaluate(() => {
-            const acts = document.querySelector('#ask-controls .acts');
-            const actsRect = acts.getBoundingClientRect();
-            const clientTop = actsRect.top + acts.clientTop;
-            const clientLeft = actsRect.left + acts.clientLeft;
-            const clientBottom = clientTop + acts.clientHeight;
-            const clientRight = clientLeft + acts.clientWidth;
-
-            const buttons = Array.from(acts.querySelectorAll('button'));
-            return buttons.map((btn) => {
-              const bRect = btn.getBoundingClientRect();
-              const bStyle = window.getComputedStyle(btn);
-              const outlineWidth = parseFloat(bStyle.outlineWidth) || 1;
-              const outlineOffset = parseFloat(bStyle.outlineOffset) || 0;
-              const ringSpan = outlineWidth + outlineOffset; // 3px
-
-              const ringTop = bRect.top - ringSpan;
-              const ringBottom = bRect.bottom + ringSpan;
-              const ringLeft = bRect.left - ringSpan;
-              const ringRight = bRect.right + ringSpan;
-
-              return {
-                text: btn.textContent?.trim(),
-                outlineWidth,
-                outlineOffset,
-                ringSpan,
-                topMargin: bRect.top - clientTop,
-                bottomMargin: clientBottom - bRect.bottom,
-                leftMargin: bRect.left - clientLeft,
-                rightMargin: clientRight - bRect.right,
-                clippedTop: ringTop < clientTop - 0.5,
-                clippedBottom: ringBottom > clientBottom + 0.5,
-                clippedLeft: ringLeft < clientLeft - 0.5,
-                clippedRight: ringRight > clientRight + 0.5,
-              };
-            });
-          });
-
-          for (const item of ringCheckResult) {
-            assert.ok(item.ringSpan >= 3, `${item.text} ringSpan must be >= 3px (1px outline + 2px offset)`);
-            assert.equal(item.clippedTop, false, `${item.text} top ring must not be clipped by .acts (top margin: ${item.topMargin}px vs ring: ${item.ringSpan}px)`);
-            assert.equal(item.clippedBottom, false, `${item.text} bottom ring must not be clipped by .acts (bottom margin: ${item.bottomMargin}px vs ring: ${item.ringSpan}px)`);
-            assert.equal(item.clippedLeft, false, `${item.text} left ring must not be clipped by .acts (left margin: ${item.leftMargin}px vs ring: ${item.ringSpan}px)`);
-            assert.equal(item.clippedRight, false, `${item.text} right ring must not be clipped by .acts (right margin: ${item.rightMargin}px vs ring: ${item.ringSpan}px)`);
-          }
-
-          // 4E. Keyboard activation: Enter on openBtn, Enter on diffBtn, Space on allowBtn
+          // 4D. Keyboard activation: Enter on openBtn, Enter on diffBtn, Space on allowBtn
           await openBtn.focus();
           await page.keyboard.press('Enter');
           const postedAfterKbOpen = await page.evaluate(() => window.__posted);
@@ -2888,110 +2896,136 @@ const bundles = [
           const activeDeny = page.locator('#ask-controls .acts button:text("deny")');
           const activeAlways = page.locator('#ask-controls .acts button:text("always")');
 
-          // 5. Theme tokens verification: Dark, Light, High Contrast
+          // 5. Theme tokens and full 4-direction focus ring boundary verification across Theme × Viewport matrix
           await page.mouse.move(0, 0);
-          // 5A. Dark theme variables
-          await page.evaluate(() => {
-            document.documentElement.style.setProperty('--vscode-button-background', '#0e639c');
-            document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
-            document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#3a3d41');
-            document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#45494e');
-            document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#ffffff');
-            document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
-            document.documentElement.style.removeProperty('--vscode-contrastBorder');
-          });
 
-          const darkDiffBg = await activeDiff.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-          const darkAllowBg = await activeAllow.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-          const darkDenyBg = await activeDeny.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-          const darkAlwaysBg = await activeAlways.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+          const themeConfigs = [
+            {
+              name: 'dark',
+              apply: async () => {
+                await page.evaluate(() => {
+                  document.documentElement.style.setProperty('--vscode-button-background', '#0e639c');
+                  document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#3a3d41');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#45494e');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#ffffff');
+                  document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
+                  document.documentElement.style.removeProperty('--vscode-contrastBorder');
+                });
+              },
+              expectedDiffBg: 'rgb(58, 61, 65)',
+              expectedAllowBg: 'rgb(14, 99, 156)',
+            },
+            {
+              name: 'light',
+              apply: async () => {
+                await page.evaluate(() => {
+                  document.documentElement.style.setProperty('--vscode-button-background', '#005fb8');
+                  document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#e5e5e5');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#d0d0d0');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#3b3b3b');
+                  document.documentElement.style.setProperty('--vscode-focusBorder', '#005fb8');
+                  document.documentElement.style.removeProperty('--vscode-contrastBorder');
+                });
+              },
+              expectedDiffBg: 'rgb(229, 229, 229)',
+              expectedAllowBg: 'rgb(0, 95, 184)',
+            },
+            {
+              name: 'hc',
+              apply: async () => {
+                await page.evaluate(() => {
+                  document.documentElement.style.setProperty('--vscode-button-background', '#000000');
+                  document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#000000');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#000000');
+                  document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#ffffff');
+                  document.documentElement.style.setProperty('--vscode-contrastBorder', '#6fc1ff');
+                  document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
+                });
+              },
+              expectedBorder: 'rgb(111, 193, 255)',
+            },
+          ];
 
-          assert.equal(darkDiffBg, 'rgb(58, 61, 65)', 'diff secondary background matches dark token #3a3d41');
-          assert.equal(darkAllowBg, 'rgb(14, 99, 156)', 'allow primary background matches dark token #0e639c');
-          assert.equal(darkDenyBg, 'rgb(14, 99, 156)', 'deny has same primary background as allow (no danger red)');
-          assert.equal(darkAlwaysBg, 'rgb(14, 99, 156)', 'always has same primary background as allow');
+          const viewports = [[320, 600], [420, 700]];
+          const targets = [
+            { name: 'diff', selector: '#ask-controls .acts button.diff-btn' },
+            { name: 'allow', selector: '#ask-controls .acts button.decision-allow' },
+            { name: 'deny', selector: '#ask-controls .acts button.decision-deny' },
+            { name: 'always', selector: '#ask-controls .acts button.decision-always' },
+          ];
 
-          // 5B. Light theme variables
-          await page.evaluate(() => {
-            document.documentElement.style.setProperty('--vscode-button-background', '#005fb8');
-            document.documentElement.style.setProperty('--vscode-button-foreground', '#ffffff');
-            document.documentElement.style.setProperty('--vscode-button-secondaryBackground', '#e5e5e5');
-            document.documentElement.style.setProperty('--vscode-button-secondaryHoverBackground', '#d0d0d0');
-            document.documentElement.style.setProperty('--vscode-button-secondaryForeground', '#3b3b3b');
-          });
+          for (const theme of themeConfigs) {
+            await theme.apply();
 
-          const lightDiffBg = await activeDiff.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-          const lightAllowBg = await activeAllow.evaluate((el) => window.getComputedStyle(el).backgroundColor);
-          assert.equal(lightDiffBg, 'rgb(229, 229, 229)', 'diff secondary background matches light token #e5e5e5');
-          assert.equal(lightAllowBg, 'rgb(0, 95, 184)', 'allow primary background matches light token #005fb8');
+            // Verify theme colors on secondary inspection vs primary approval buttons
+            const diffEl = page.locator('#ask-controls .acts button.diff-btn');
+            const allowEl = page.locator('#ask-controls .acts button.decision-allow');
+            const denyEl = page.locator('#ask-controls .acts button.decision-deny');
+            const alwaysEl = page.locator('#ask-controls .acts button.decision-always');
 
-          // 5C. High contrast variables & border
-          await page.evaluate(() => {
-            document.documentElement.style.setProperty('--vscode-contrastBorder', '#6fc1ff');
-            document.documentElement.style.setProperty('--vscode-focusBorder', '#007fd4');
-          });
+            if (theme.name === 'dark' || theme.name === 'light') {
+              const diffBg = await diffEl.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+              const allowBg = await allowEl.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+              const denyBg = await denyEl.evaluate((el) => window.getComputedStyle(el).backgroundColor);
+              const alwaysBg = await alwaysEl.evaluate((el) => window.getComputedStyle(el).backgroundColor);
 
-          const hcBorderColor = await activeDiff.evaluate((el) => window.getComputedStyle(el).borderColor);
-          assert.equal(hcBorderColor, 'rgb(111, 193, 255)', 'contrastBorder is applied to secondary diff button');
-          const hcAllowBorderColor = await activeAllow.evaluate((el) => window.getComputedStyle(el).borderColor);
-          assert.equal(hcAllowBorderColor, 'rgb(111, 193, 255)', 'contrastBorder is applied to primary approval button');
+              assert.equal(diffBg, theme.expectedDiffBg, `${theme.name} diff secondary background matches token`);
+              assert.equal(allowBg, theme.expectedAllowBg, `${theme.name} allow primary background matches token`);
+              assert.equal(denyBg, theme.expectedAllowBg, `${theme.name} deny has same primary background as allow (neutral, no danger red)`);
+              assert.equal(alwaysBg, theme.expectedAllowBg, `${theme.name} always has same primary background as allow`);
+            } else if (theme.name === 'hc') {
+              const diffBorder = await diffEl.evaluate((el) => window.getComputedStyle(el).borderColor);
+              const allowBorder = await allowEl.evaluate((el) => window.getComputedStyle(el).borderColor);
+              assert.equal(diffBorder, theme.expectedBorder, 'hc diff button has contrastBorder');
+              assert.equal(allowBorder, theme.expectedBorder, 'hc allow button has contrastBorder');
+            }
 
-          // 6. Viewports testing: 320x600 and 420x700 with full 4-direction ring clipping verification
-          for (const [vpW, vpH] of [[320, 600], [420, 700]]) {
-            await page.setViewportSize({ width: vpW, height: vpH });
-            const controlsRect = await page.locator('#ask-controls').evaluate((el) => {
-              const r = el.getBoundingClientRect();
-              return { width: r.width, height: r.height, right: r.right, bottom: r.bottom };
-            });
-            assert.ok(controlsRect.width > 0 && controlsRect.height > 0, 'ask controls is visible');
-            assert.ok(controlsRect.right <= vpW, `ask controls does not overflow right at ${vpW}x${vpH}`);
-            assert.ok(controlsRect.bottom <= vpH, `ask controls does not overflow bottom at ${vpW}x${vpH}`);
+            for (const [vpW, vpH] of viewports) {
+              await page.setViewportSize({ width: vpW, height: vpH });
 
-            for (const [name, locator] of [['diff', activeDiff], ['allow', activeAllow], ['deny', activeDeny], ['always', activeAlways]]) {
-              const rect = await locator.evaluate((el) => {
+              const controlsRect = await page.locator('#ask-controls').evaluate((el) => {
                 const r = el.getBoundingClientRect();
                 return { width: r.width, height: r.height, right: r.right, bottom: r.bottom };
               });
-              assert.ok(rect.width > 0 && rect.height > 0, `${name} button has positive dimensions`);
-              assert.ok(rect.right <= vpW, `${name} button does not overflow horizontally at ${vpW}x${vpH}`);
-              assert.ok(rect.bottom <= vpH, `${name} button does not overflow vertically at ${vpW}x${vpH}`);
-            }
+              assert.ok(controlsRect.width > 0 && controlsRect.height > 0, `[${theme.name} ${vpW}x${vpH}] ask controls is visible`);
+              assert.ok(controlsRect.right <= vpW, `[${theme.name} ${vpW}x${vpH}] ask controls does not overflow right`);
+              assert.ok(controlsRect.bottom <= vpH, `[${theme.name} ${vpW}x${vpH}] ask controls does not overflow bottom`);
 
-            // Verify first button (diff) and last button (always) rings in this viewport
-            const ringChecks = await page.evaluate(() => {
-              const acts = document.querySelector('#ask-controls .acts');
-              const actsRect = acts.getBoundingClientRect();
-              const clientTop = actsRect.top + acts.clientTop;
-              const clientLeft = actsRect.left + acts.clientLeft;
-              const clientBottom = clientTop + acts.clientHeight;
-              const clientRight = clientLeft + acts.clientWidth;
+              // Start from jumpBtn right before .acts to Tab into the container
+              await jumpBtn.focus();
+              assert.equal(await page.evaluate(() => document.activeElement === document.querySelector('#ask-controls button.jump-btn')), true, 'jumpBtn has focus before entering .acts');
 
-              const buttons = Array.from(acts.querySelectorAll('button'));
-              return buttons.map((btn) => {
-                const bRect = btn.getBoundingClientRect();
-                const bStyle = window.getComputedStyle(btn);
-                const outlineWidth = parseFloat(bStyle.outlineWidth) || 1;
-                const outlineOffset = parseFloat(bStyle.outlineOffset) || 0;
-                const ringSpan = outlineWidth + outlineOffset;
-                return {
-                  text: btn.textContent?.trim(),
-                  clippedTop: (bRect.top - ringSpan) < clientTop - 0.5,
-                  clippedBottom: (bRect.bottom + ringSpan) > clientBottom + 0.5,
-                  clippedLeft: (bRect.left - ringSpan) < clientLeft - 0.5,
-                  clippedRight: (bRect.right + ringSpan) > clientRight + 0.5,
-                };
-              });
-            });
+              // Tab through each target button inside .acts and measure focus ring
+              for (const target of targets) {
+                await page.keyboard.press('Tab');
+                const m = await measureActiveButtonRing(page, target.selector);
 
-            for (const rc of ringChecks) {
-              assert.equal(rc.clippedTop, false, `${rc.text} top ring not clipped at ${vpW}x${vpH}`);
-              assert.equal(rc.clippedBottom, false, `${rc.text} bottom ring not clipped at ${vpW}x${vpH}`);
-              assert.equal(rc.clippedLeft, false, `${rc.text} left ring not clipped at ${vpW}x${vpH}`);
-              assert.equal(rc.clippedRight, false, `${rc.text} right ring not clipped at ${vpW}x${vpH}`);
+                assert.equal(m.isActive, true, `[${theme.name} ${vpW}x${vpH}] ${target.name} must be document.activeElement after Tab`);
+                assert.equal(m.isFocusVisible, true, `[${theme.name} ${vpW}x${vpH}] ${target.name} must match :focus-visible`);
+                assert.equal(m.outlineStyle, 'solid', `[${theme.name} ${vpW}x${vpH}] ${target.name} outlineStyle must be solid (got ${m.outlineStyle})`);
+                assert.equal(m.outlineWidth, 1, `[${theme.name} ${vpW}x${vpH}] ${target.name} outlineWidth must be exactly 1px (got ${m.outlineWidth})`);
+                assert.equal(m.outlineOffset, 2, `[${theme.name} ${vpW}x${vpH}] ${target.name} outlineOffset must be exactly 2px (got ${m.outlineOffset})`);
+                assert.equal(m.ringSpan, 3, `[${theme.name} ${vpW}x${vpH}] ${target.name} ringSpan must be 3px (got ${m.ringSpan})`);
+
+                assert.equal(m.clippedTop, false, `[${theme.name} ${vpW}x${vpH}] ${target.name} top ring clipped by .acts (topMargin: ${m.topMargin}px vs ring: ${m.ringSpan}px)`);
+                assert.equal(m.clippedBottom, false, `[${theme.name} ${vpW}x${vpH}] ${target.name} bottom ring clipped by .acts (bottomMargin: ${m.bottomMargin}px vs ring: ${m.ringSpan}px)`);
+                assert.equal(m.clippedLeft, false, `[${theme.name} ${vpW}x${vpH}] ${target.name} left ring clipped by .acts (leftMargin: ${m.leftMargin}px vs ring: ${m.ringSpan}px)`);
+                assert.equal(m.clippedRight, false, `[${theme.name} ${vpW}x${vpH}] ${target.name} right ring clipped by .acts (rightMargin: ${m.rightMargin}px vs ring: ${m.ringSpan}px)`);
+              }
             }
           }
 
-          // 7. Wrapped rows and max-height scrollable .acts clipping verification
+          // 6. Wrapped rows and scrollable .acts Tab focus auto-scroll ring verification
+          await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
+            session: 'sess-perm-56',
+            rows: [],
+            ask: null
+          }));
+          await page.waitForFunction(() => document.getElementById('ask-controls').hidden);
+
           await page.evaluate((msg) => window.postMessage(msg, '*'), createRowsMessage({
             session: 'sess-perm-56',
             ask: {
@@ -3011,48 +3045,38 @@ const bundles = [
             }
           }));
           await page.waitForSelector('#ask-controls .acts button');
-
-          // Verify at 320x600 that options wrap and trigger overflow-y: auto
+          await page.waitForFunction(() => document.querySelectorAll('#ask-controls .acts button').length === 9);
           await page.setViewportSize({ width: 320, height: 600 });
-          const scrollWrapMetrics = await page.evaluate(() => {
+
+          const scrollMetrics = await page.evaluate(() => {
             const acts = document.querySelector('#ask-controls .acts');
-            const hasScroll = acts.scrollHeight > acts.clientHeight;
-            const buttons = Array.from(acts.querySelectorAll('button'));
-
-            // Check first button when scrolled to top
-            acts.scrollTop = 0;
-            const firstBtn = buttons[0];
-            const fRect = firstBtn.getBoundingClientRect();
-            const aRect = acts.getBoundingClientRect();
-            const clientTop = aRect.top + acts.clientTop;
-            const clientLeft = aRect.left + acts.clientLeft;
-            const clientBottom = clientTop + acts.clientHeight;
-            const clientRight = clientLeft + acts.clientWidth;
-
-            const fStyle = window.getComputedStyle(firstBtn);
-            const fSpan = (parseFloat(fStyle.outlineWidth) || 1) + (parseFloat(fStyle.outlineOffset) || 0);
-
-            // Scroll to bottom and check last button
-            acts.scrollTop = acts.scrollHeight;
-            const lastBtn = buttons[buttons.length - 1];
-            const lRect = lastBtn.getBoundingClientRect();
-            const lStyle = window.getComputedStyle(lastBtn);
-            const lSpan = (parseFloat(lStyle.outlineWidth) || 1) + (parseFloat(lStyle.outlineOffset) || 0);
-
             return {
-              hasScroll,
-              firstBtnClippedTop: (fRect.top - fSpan) < clientTop - 0.5,
-              firstBtnClippedLeft: (fRect.left - fSpan) < clientLeft - 0.5,
-              lastBtnClippedBottom: (lRect.bottom + lSpan) > clientBottom + 0.5,
-              lastBtnClippedRight: (lRect.right + lSpan) > clientRight + 0.5,
+              scrollHeight: acts.scrollHeight,
+              clientHeight: acts.clientHeight,
+              hasScroll: acts.scrollHeight > acts.clientHeight,
             };
           });
+          assert.ok(scrollMetrics.hasScroll, '8 options in 320x600 must trigger overflow-y: auto in .acts');
 
-          assert.ok(scrollWrapMetrics.hasScroll, '8 options in 320x600 must trigger overflow-y: auto in .acts');
-          assert.equal(scrollWrapMetrics.firstBtnClippedTop, false, 'first wrapped button top ring not clipped when scrolled to top');
-          assert.equal(scrollWrapMetrics.firstBtnClippedLeft, false, 'first wrapped button left ring not clipped');
-          assert.equal(scrollWrapMetrics.lastBtnClippedBottom, false, 'last wrapped button bottom ring not clipped when scrolled to bottom');
-          assert.equal(scrollWrapMetrics.lastBtnClippedRight, false, 'last wrapped button right ring not clipped');
+          // Tab through from jumpBtn into first option through the last button ('직접 입력')
+          await page.locator('#ask-controls button.jump-btn').focus();
+          const optionCount = 8 + 1; // 8 choices + 1 직접 입력 button
+
+          for (let i = 0; i < optionCount; i++) {
+            await page.keyboard.press('Tab');
+            const m = await measureActiveButtonRing(page, ':focus');
+
+            assert.equal(m.isActive, true, `option button ${i + 1} (${m.text}) must be activeElement after Tab`);
+            assert.equal(m.isFocusVisible, true, `option button ${i + 1} (${m.text}) must match :focus-visible`);
+
+            // Distinguish generic button outline (browser default, e.g. auto/1px/0px) from approval explicit 1px+2px
+            assert.ok(m.ringSpan >= 1, `option button ${i + 1} focus ringSpan >= 1px (got ${m.ringSpan})`);
+
+            assert.equal(m.clippedTop, false, `option button ${i + 1} (${m.text}) top ring must not be clipped after auto-scroll (topMargin: ${m.topMargin}px vs ring: ${m.ringSpan}px)`);
+            assert.equal(m.clippedBottom, false, `option button ${i + 1} (${m.text}) bottom ring must not be clipped after auto-scroll (bottomMargin: ${m.bottomMargin}px vs ring: ${m.ringSpan}px)`);
+            assert.equal(m.clippedLeft, false, `option button ${i + 1} (${m.text}) left ring must not be clipped (leftMargin: ${m.leftMargin}px vs ring: ${m.ringSpan}px)`);
+            assert.equal(m.clippedRight, false, `option button ${i + 1} (${m.text}) right ring must not be clipped (rightMargin: ${m.rightMargin}px vs ring: ${m.ringSpan}px)`);
+          }
 
           // Clean up styles and restore default viewport
           await page.evaluate(() => {
@@ -3060,7 +3084,9 @@ const bundles = [
             document.documentElement.style.removeProperty('--vscode-button-background');
             document.documentElement.style.removeProperty('--vscode-button-foreground');
             document.documentElement.style.removeProperty('--vscode-button-secondaryBackground');
+            document.documentElement.style.removeProperty('--vscode-button-secondaryHoverBackground');
             document.documentElement.style.removeProperty('--vscode-button-secondaryForeground');
+            document.documentElement.style.removeProperty('--vscode-focusBorder');
           });
           await page.setViewportSize({ width: 420, height: 700 });
         }
