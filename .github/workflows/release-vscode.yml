@@ -59,6 +59,7 @@ jobs:
           ' "${{ steps.v.outputs.version }}"
           npm run package -- --allow-missing-repository
           ls -l ./*.vsix
+          node tools/verify-vsix.mjs "magi-${{ steps.v.outputs.version }}.vsix" --expected-version="${{ steps.v.outputs.version }}"
 
       - name: release
         env:

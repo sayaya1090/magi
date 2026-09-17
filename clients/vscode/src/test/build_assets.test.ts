@@ -208,59 +208,203 @@ test('§5.8.5 generate-third-party-licenses: validates presence, check mode, and
   assert.match(stdout, /THIRD_PARTY_LICENSES\.txt is up to date/);
 });
 
-test('§5.8.5 VSIX package contents: unzips magi-0.2.0.vsix and asserts THIRD_PARTY_LICENSES.txt and isolated execution', async () => {
+test('§5.8.5 VSIX package verification: rejects missing files via API and CLI with exit code 1 and path diagnostics', async () => {
   const rootDir = path.resolve(__dirname, '..', '..');
-  const vsixPath = path.join(rootDir, 'magi-0.2.0.vsix');
-  if (!existsSync(vsixPath)) {
-    return;
+  const verifyScript = path.join(rootDir, 'tools', 'verify-vsix.mjs');
+  const { verifyVsixArchive } = await import(path.join(rootDir, 'tools', 'verify-vsix.mjs') as any);
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+
+  // 1. API: Missing path throws error containing the non-existent path
+  const nonExistentPath = path.join(rootDir, 'non-existent-artifact-999.vsix');
+  await assert.rejects(
+    async () => {
+      await verifyVsixArchive(nonExistentPath, { rootDir });
+    },
+    (err: any) => {
+      assert.ok(err.message.includes(nonExistentPath), 'Error message must contain missing VSIX path');
+      return true;
+    }
+  );
+
+  // 2. CLI: Invocation without arguments exits with code 1
+  try {
+    await execFileAsync(process.execPath, [verifyScript]);
+    assert.fail('CLI without arguments should have failed with exit code 1');
+  } catch (err: any) {
+    assert.equal(err.code, 1, 'CLI without arguments must exit with code 1');
+    assert.match(err.stderr, /Missing required VSIX archive path/);
   }
 
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-unpack-test-'));
+  // 3. CLI: Invocation with non-existent path exits with code 1 and reports path in stderr
   try {
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execFileAsync = promisify(execFile);
-    await execFileAsync('unzip', ['-q', vsixPath, '-d', tempDir]);
+    await execFileAsync(process.execPath, [verifyScript, nonExistentPath]);
+    assert.fail('CLI with non-existent path should have failed with exit code 1');
+  } catch (err: any) {
+    assert.equal(err.code, 1, 'CLI with non-existent path must exit with code 1');
+    assert.ok(err.stderr.includes(nonExistentPath), 'Stderr must include non-existent file path');
+  }
+});
 
-    // 1. Assert license notices
-    const unpackedLicensePath = path.join(tempDir, 'extension', 'LICENSE.txt');
-    const unpackedThirdPartyPath = path.join(tempDir, 'extension', 'THIRD_PARTY_LICENSES.txt');
-    assert.ok(existsSync(unpackedLicensePath), 'extension/LICENSE.txt must exist in VSIX');
-    assert.ok(existsSync(unpackedThirdPartyPath), 'extension/THIRD_PARTY_LICENSES.txt must exist in VSIX');
+test('§5.8.5 VSIX regression tests: rejects license mismatch, bundle mismatch, forbidden files, and validates valid archive with spaces/custom version', async () => {
+  const rootDir = path.resolve(__dirname, '..', '..');
+  const { verifyVsixArchive } = await import(path.join(rootDir, 'tools', 'verify-vsix.mjs') as any);
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
 
-    const thirdPartyText = await readFile(unpackedThirdPartyPath, 'utf8');
-    assert.match(thirdPartyText, /Copyright \(c\) 2014 Vitaly Puzrin, Alex Kocharin\./);
-    assert.match(thirdPartyText, /Permission is hereby granted, free of charge/);
+  const baseTempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-reg-'));
+  try {
+    // Helper to create a zip/vsix archive from an extension folder layout
+    const makeVsix = async (
+      outVsixPath: string,
+      customFiles: {
+        version?: string;
+        omitThirdParty?: boolean;
+        tamperThirdParty?: boolean;
+        tamperBundle?: boolean;
+        includeNodeModules?: boolean;
+        includeTestDir?: boolean;
+      } = {}
+    ) => {
+      const stageDir = await mkdtemp(path.join(baseTempDir, 'stage-'));
+      const extDir = path.join(stageDir, 'extension');
+      await mkdir(path.join(extDir, 'out', 'web'), { recursive: true });
 
-    // 2. Assert zero external node_modules in package
-    const unpackedNodeModules = path.join(tempDir, 'extension', 'node_modules');
-    assert.equal(existsSync(unpackedNodeModules), false, 'VSIX must not contain node_modules directory');
+      // package.json
+      const pkg = {
+        name: 'magi',
+        version: customFiles.version || '0.2.0',
+        publisher: 'sayaya1090',
+      };
+      await writeFile(path.join(extDir, 'package.json'), JSON.stringify(pkg, null, 2));
 
-    // 3. Assert standalone execution of webview bundles
-    const unpackedChatAdapter = path.join(tempDir, 'extension', 'out', 'web', 'chat_adapter.bundle.js');
-    const unpackedMarkdownRender = path.join(tempDir, 'extension', 'out', 'web', 'markdown_render.js');
-    assert.ok(existsSync(unpackedChatAdapter));
-    assert.ok(existsSync(unpackedMarkdownRender));
+      // LICENSE.txt
+      const licenseBytes = await readFile(path.join(rootDir, 'LICENSE'));
+      await writeFile(path.join(extDir, 'LICENSE.txt'), licenseBytes);
 
-    const adapterJs = await readFile(unpackedChatAdapter, 'utf8');
-    assert.equal(adapterJs.includes("require('markdown-it')"), false);
-    assert.equal(adapterJs.includes('require("markdown-it")'), false);
+      // THIRD_PARTY_LICENSES.txt
+      if (!customFiles.omitThirdParty) {
+        let thirdPartyBytes = await readFile(path.join(rootDir, 'THIRD_PARTY_LICENSES.txt'));
+        if (customFiles.tamperThirdParty) {
+          thirdPartyBytes = Buffer.from(thirdPartyBytes.toString('utf8') + '\n// Tampered trailing line\n');
+        }
+        await writeFile(path.join(extDir, 'THIRD_PARTY_LICENSES.txt'), thirdPartyBytes);
+      }
 
-    const renderJs = await readFile(unpackedMarkdownRender, 'utf8');
-    assert.equal(renderJs.includes("require('markdown-it')"), false);
-    assert.equal(renderJs.includes('require("markdown-it")'), false);
+      // core-release.properties
+      if (existsSync(path.join(rootDir, 'core-release.properties'))) {
+        const coreProps = await readFile(path.join(rootDir, 'core-release.properties'));
+        await writeFile(path.join(extDir, 'core-release.properties'), coreProps);
+      }
 
-    const sandbox: any = {
-      exports: {},
-      module: { exports: {} },
-      require: () => { throw new Error('External require not allowed'); },
+      // Bundles
+      let chatAdapterBytes = await readFile(path.join(rootDir, 'out', 'web', 'chat_adapter.bundle.js'));
+      if (customFiles.tamperBundle) {
+        chatAdapterBytes = Buffer.from('console.log("tampered bundle");');
+      }
+      await writeFile(path.join(extDir, 'out', 'web', 'chat_adapter.bundle.js'), chatAdapterBytes);
+
+      const renderBytes = await readFile(path.join(rootDir, 'out', 'web', 'markdown_render.js'));
+      await writeFile(path.join(extDir, 'out', 'web', 'markdown_render.js'), renderBytes);
+
+      // Forbidden dirs if requested
+      if (customFiles.includeNodeModules) {
+        await mkdir(path.join(extDir, 'node_modules', 'evil-pkg'), { recursive: true });
+        await writeFile(path.join(extDir, 'node_modules', 'evil-pkg', 'index.js'), '// evil');
+      }
+      if (customFiles.includeTestDir) {
+        await mkdir(path.join(extDir, 'out', 'test'), { recursive: true });
+        await writeFile(path.join(extDir, 'out', 'test', 'dummy.test.js'), '// test');
+      }
+
+      // Create zip archive
+      await mkdir(path.dirname(outVsixPath), { recursive: true });
+      await execFileAsync('zip', ['-rq', outVsixPath, 'extension'], { cwd: stageDir });
+      await rm(stageDir, { recursive: true, force: true });
     };
-    sandbox.module.exports = sandbox.exports;
-    vm.createContext(sandbox);
-    vm.runInContext(renderJs, sandbox);
-    assert.equal(typeof sandbox.module.exports.renderMarkdown, 'function');
+
+    // Case 1: Missing THIRD_PARTY_LICENSES.txt
+    const vsixMissingThirdParty = path.join(baseTempDir, 'missing-license.vsix');
+    await makeVsix(vsixMissingThirdParty, { omitThirdParty: true });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixMissingThirdParty, { rootDir });
+      },
+      /THIRD_PARTY_LICENSES\.txt/
+    );
+
+    // Case 2: Tampered THIRD_PARTY_LICENSES.txt (byte-level mismatch)
+    const vsixTamperedThirdParty = path.join(baseTempDir, 'tampered-license.vsix');
+    await makeVsix(vsixTamperedThirdParty, { tamperThirdParty: true });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixTamperedThirdParty, { rootDir });
+      },
+      /byte-for-byte/
+    );
+
+    // Case 3: Version mismatch
+    const vsixVersionMismatch = path.join(baseTempDir, 'version-mismatch.vsix');
+    await makeVsix(vsixVersionMismatch, { version: '0.9.9' });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixVersionMismatch, { rootDir, expectedVersion: '1.0.0' });
+      },
+      /version mismatch/
+    );
+
+    // Case 4: Bundle tampering (stale or modified bundle)
+    const vsixTamperedBundle = path.join(baseTempDir, 'tampered-bundle.vsix');
+    await makeVsix(vsixTamperedBundle, { tamperBundle: true });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixTamperedBundle, { rootDir });
+      },
+      /chat_adapter\.bundle\.js must match built/
+    );
+
+    // Case 5: Forbidden node_modules directory included
+    const vsixWithNodeModules = path.join(baseTempDir, 'with-node-modules.vsix');
+    await makeVsix(vsixWithNodeModules, { includeNodeModules: true });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixWithNodeModules, { rootDir });
+      },
+      /node_modules/
+    );
+
+    // Case 6: Forbidden out/test directory included
+    const vsixWithTest = path.join(baseTempDir, 'with-test.vsix');
+    await makeVsix(vsixWithTest, { includeTestDir: true });
+    await assert.rejects(
+      async () => {
+        await verifyVsixArchive(vsixWithTest, { rootDir });
+      },
+      /out\/test/
+    );
+
+    // Case 7: Valid custom archive with version 1.5.0 and path with spaces
+    const spacePathDir = path.join(baseTempDir, 'magi custom space path dir');
+    const validCustomVsix = path.join(spacePathDir, 'magi release 1.5.0.vsix');
+    await makeVsix(validCustomVsix, { version: '1.5.0' });
+    const verifyResult = await verifyVsixArchive(validCustomVsix, {
+      rootDir,
+      expectedVersion: '1.5.0',
+    });
+    assert.equal(verifyResult.version, '1.5.0');
+    assert.ok(verifyResult.sizeBytes > 0);
+    assert.ok(verifyResult.fileCount >= 5);
+
+    // Case 8: Existing root artifact if present
+    const rootVsix = path.join(rootDir, 'magi-0.2.0.vsix');
+    if (existsSync(rootVsix)) {
+      const rootRes = await verifyVsixArchive(rootVsix, { rootDir, expectedVersion: '0.2.0' });
+      assert.equal(rootRes.version, '0.2.0');
+    }
   } finally {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(baseTempDir, { recursive: true, force: true });
   }
 });
 

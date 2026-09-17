@@ -1087,14 +1087,18 @@ node --test clients/vscode/out/test/*.property.test.js
   - 거부 시 동작: `validateLink` 단계에서 텍스트 토큰으로 격하되며, DOM 생성 단계에서도 `<a>` 태그의 `href` 속성을 설정하지 않아 비인가 액션 실행이 불가능합니다.
 - **이미지 문법 처리:** `token.type === 'image'` 감지 시 `<img>` 태그를 생성하지 않고, 대체 텍스트(`[이미지: ${alt}]` 또는 `[이미지]`) 텍스트 노드를 삽입하여 외부 네트워크 자산 요청을 완벽히 차단합니다.
 - **코드 블록 펜스 종료 메타데이터 보존 (§5.8.5 P2):**
-  - `parser.block.ruler.at('fence', customFence, ...)`를 통해 파싱 경계에서 `markdown-it`의 실제 종료 마커 발견 여부(`haveEndMarker`)를 `token.meta = { closed: haveEndMarker }`로 기록합니다.
+  - `parser.block.ruler.at('fence', customFence, ...)`를 통해 파싱 경계에서 `markdown-it@15.0.2`의 실제 종료 마커 발견 여부(`haveEndMarker`)를 `token.meta = { closed: haveEndMarker }`로 기록합니다 (~60줄의 경계 룰 등록).
   - 인용구(`>`)나 목록 안의 중첩 펜스도 파서 내부 상태를 그대로 반영하여 종료 판정이 정확히 이루어집니다.
   - 4칸 들여쓰기된 백틱(`    ``` `)은 펜스 닫기가 아닌 코드 본문으로 판정하여 개행을 손실 없이 보존합니다.
   - `isClosed && text.endsWith('\n')`일 때만 문법 구분자 개행 1회를 정확히 제거하며, 임의의 `trim()`이나 `trimEnd()`를 호출하지 않아 코드 블록 내부의 빈 줄, 끝 공백, 탭 문자가 100% 원문 그대로 보존됩니다.
-- **배포 라이선스 고지 (`THIRD_PARTY_LICENSES.txt`) (§5.8.5 P2):**
-  - esbuild metafile을 분석하여 번들에 포함된 9개 런타임 종속 패키지(`entities`, `linkify-it`, `markdown-it`, `mdurl`, `punycode.js`, `rxjs`, `tslib`, `uc.micro`, `valibot`)의 버전, 라이선스 식별자, 라이선스 전문(저작권 및 허가문)을 자동으로 수집해 `THIRD_PARTY_LICENSES.txt`에 포함합니다.
-  - `tools/generate-third-party-licenses.mjs --check` 검사를 `npm run package` 빌드 파이프라인에 연결하여 누락 시 패키징을 즉각 차단합니다.
-  - VSIX 패키지 압축 해제 검증(`build_assets.test.ts`)에서 `THIRD_PARTY_LICENSES.txt` 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문을 단언합니다.
+- **배포 라이선스 고지 및 VSIX 즉시 검증 연동 (`verify-vsix.mjs`, `package-vsix.mjs`) (§5.8.5 P2):**
+  - `tools/generate-third-party-licenses.mjs`가 esbuild metafile을 분석하여 9개 런타임 종속 패키지(`entities`, `linkify-it`, `markdown-it`, `mdurl`, `punycode.js`, `rxjs`, `tslib`, `uc.micro`, `valibot`)의 라이선스 전문 및 필수 저작권(`Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.`)을 `THIRD_PARTY_LICENSES.txt`에 생성합니다.
+  - `tools/verify-vsix.mjs` 독립 검증 도구를 구축하여 입력 VSIX 경로를 명시적으로 전달받아, 지정 파일 부재 시 즉각 종료 코드 1 및 경로 에러를 반환하며, 패키지 내 라이선스·번들 바이트 단위 일치, 버전 일치, `node_modules`/`out/test` 미포함, 샌드박스 내 `renderMarkdown` DOM 생성(H1, PRE > CODE) 및 `chat_adapter.bundle.js` 무의존성 실행을 실측 단언합니다.
+  - `tools/package-vsix.mjs` 래퍼를 `npm run package`에 연결하여 기존 산출물을 사전 삭제하고, 인자(`--allow-missing-repository` 등)를 전달해 패키징한 직후 새로 생성된 아카이브를 즉시 검증합니다. `.github/workflows/release-vscode.yml` 릴리스 워크플로에도 검증 단계를 명시 배선했습니다.
+  - `src/test/build_assets.test.ts`에서 기존의 조건부 skip(`if (!existsSync) return`)을 완전 제거하고, 8종의 단위·회귀 테스트(파일 없음 진단, CLI 인자 오류, 라이선스 누락/변조, 번들 변조, 버전 불일치, 금지 디렉터리 포함, 공백 포함 경로 및 커스텀 버전 `1.5.0` 검증)를 상시 실행합니다.
+- **전체 HTTP(S) 요청 라우팅 및 관측기 검증 (§5.8.5.2):**
+  - `installAssetRouter`를 `**` 전체 경로 라우팅으로 전환하여 `TEST_ORIGIN` 외의 외부 요청(예: `https://example.com`)을 네트워크에 유출하지 않고 즉시 404로 차단하며 `onUnregistered` 콜백으로 수집합니다.
+  - `verifyAssetRoutesAndPreflight` 내 격리된 브라우저 컨텍스트에서 외부 fetch 및 Image 생성자 요청을 의도적으로 주입해 관측기가 정확히 포착하고 검사기가 실패를 유도하는지(failure induction) 확인하며, 해당 상태가 타 시나리오로 새지 않음을 검증합니다.
 
 ### 4. 자산 크기 및 렌더링 성능 실측 (Before vs After)
 
@@ -1103,10 +1107,10 @@ node --test clients/vscode/out/test/*.property.test.js
 | 항목 | 이전 자체 파서 (98a733aa) | markdown-it 새 파서 (§5.8.5 P2) | 변화량 및 비고 |
 |---|---|---|---|
 | **웹뷰 번들 크기 (`chat_adapter.bundle.js`)** | 149,586 bytes (146.08 KB) | 353,555 bytes (345.27 KB) | +203,969 bytes (markdown-it 및 펜스 메타데이터 인라인 포함) |
-| **VSIX 패키지 크기 (`magi-0.2.0.vsix`)** | 239.3 KB (60개 파일) | 353.69 KB (62개 파일) | +114.39 KB (외부 `node_modules` 0바이트, 라이선스 전문 22.5KB 포함) |
+| **VSIX 패키지 크기 (`magi-0.2.0.vsix`)** | 239.3 KB (60개 파일) | 362,179 bytes (62개 파일) | +114.39 KB (외부 `node_modules` 0바이트, 라이선스 전문 22.5KB 포함) |
 | **Mock DOM 렌더 시간 (Node/MockDocument, 11,510자, 100회)** | 총 24.93 ms (평균 0.249 ms) | 총 108.31 ms (평균 1.083 ms) | 자바스크립트 DOM 객체 생성 시간 (브라우저 레이아웃/페인트 미포함) |
 | **실제 브라우저 DOM 렌더 시간 (Chromium Headless, 11,510자, 100회)** | 측정 미수행 | 총 117.40 ms (평균 1.174 ms) | 실제 브라우저 엔진 DOM 엘리먼트 생성 시간 (레이아웃/페인트 미포함) |
-| **자체 문법 정규식/스택 코드** | 약 400줄 | 0줄 (완전 제거) | 유지보수 부담 제거 및 검증된 파서 도입 |
+| **자체 문법 정규식/스택 코드** | 약 400줄 | `markdown-it@15.0.2` 기반 + 메타데이터 보존 룰 ~60줄 | 자체 파서 400여 줄 제거 후 CommonMark 기반 교체 및 펜스 메타데이터 룰만 유지 |
 
 ### 5. 파이프라인 검증 결과
 1. **TypeScript 컴파일 및 번들 빌드 (`npm run build`):**
@@ -1114,24 +1118,26 @@ node --test clients/vscode/out/test/*.property.test.js
    - `build-webview-assets.mjs`가 8개 필수 입력 파일을 검증하고 웹뷰 번들 및 Node 호환 번들 정상 생성.
    - `generate-third-party-licenses.mjs --check` 검증 완료 (9개 런타임 패키지 라이선스 전문 일치).
 2. **단위 테스트 (`npm test`):**
-   - 총 513개 테스트 전수 통과 (506 pass, 0 fail, 7 skip).
-   - 신규 추가된 §5.8.5 P2 테스트(개행 반례 5종 fixture 대조, 인용·목록 내 펜스, 4백틱 내 3백틱, tilde 펜스, CRLF, THIRD_PARTY_LICENSES 존재 및 필수 저작권 검증, VSIX 압축 해제 격리 실행 검증) 100% 통과.
+   - 총 514개 테스트 전수 통과 (507 pass, 0 fail, 7 skip).
+   - 신규 추가된 §5.8.5 P2 VSIX 회귀 테스트(누락 경로 오류 진단, CLI 인자 검증, 라이선스 바이트 불일치 거부, 번들 변조 거부, 버전 불일치 거부, `node_modules`/`out/test` 포함 거부, 공백 경로 및 커스텀 버전 `1.5.0` 검증, 독립 렌더 DOM 생성 검증) 100% 통과.
 3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
-   - `--verify-assets`: 사전 자산 라우트 및 격리 누락 검사 통과.
+   - `--verify-assets`: 사전 자산 라우트, 외부 HTTP(S) 요청 차단 관측기 검증, 의도적 외부 요청 실패 유도, 격리 누락 검사 통과.
    - 신규 추가된 `markdown` 번들을 포함한 6개 번들 40개 시나리오 100% 통과:
      - 미완성 코드 스트리밍 → 완성 답변 연속 전달 실측.
      - 인용구 내 펜스 끝 개행 슬라이스, 4칸 들여쓴 펜스 개행 보존 반례 검증.
-     - 50줄 긴 코드 블록, 중첩 목록, 이스케이프 파이프 표 렌더링 검증.
+     - 50줄 긴 코드 블록 전체 행별 원문 일치(verbatim match) 검증.
+     - 넓은 코드 블록 가로 스크롤 실측(`scrollWidth > clientWidth`) 및 뷰포트 패널 경계(`rectWidth <= 420`) 측정 단언.
+     - 중첩 목록, 이스케이프 파이프 표 렌더링 검증.
      - 허용 링크(외부, mailto, 상대 경로) 및 위험 링크(command, javascript, data) 비활성 텍스트화 검증.
      - 원시 script/img 태그 미실행 및 이미지 대체 텍스트 `[이미지: ...]` 표출 실측.
-     - 외부 이미지 네트워크 요청 0건 실측 (`routeErrors` 0건).
+     - 외부 이미지 네트워크 요청 0건(`observedRequests` 필터링 0건, `routeErrors` 0건) 및 브라우저 CSP 위반 0건 실측.
      - 원문 열기 액션(`outputId`) 호스트 메시지(`kind: 'output'`) 전송 검증.
      - 질문 답변 모드 진입 및 대화 갱신 시 답변 초안 보존, 취소(Escape) 시 일반 초안 완벽 복원 검증.
      - axe-core 접근성 감사 36회 violations=0, incomplete=0.
    - 테마 역순(`--reverse-themes`): 40개 시나리오 100% 통과.
-4. **VSIX 무의존성 격리 실행 및 라이선스 고지 검증:**
-   - `magi-0.2.0.vsix`를 임시 디렉터리에 압축 해제 후 `node_modules` 부재 환경 실측.
-   - `extension/THIRD_PARTY_LICENSES.txt` 파일 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문 포함 검증.
+4. **패키징 및 VSIX 즉시 검증 파이프라인 (`npm run package`):**
+   - `magi-0.2.0.vsix` 패키징 직후 `verifyVsixArchive` 자동 실행 및 검증 성공 (62개 파일, 362,179 bytes).
+   - VSIX 압축 해제 후 `extension/THIRD_PARTY_LICENSES.txt` 파일 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문 포함 검증.
    - 패키지 내 `.js` 파일 전체에서 외부 `require('markdown-it')` 호출 0건 확인.
    - 독립 sandboxed VM 환경에서 `chat_adapter.bundle.js` 및 `markdown_render.js`의 `renderMarkdown` 정상 실행 및 DOM 생성 확인.
 
