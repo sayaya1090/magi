@@ -122,16 +122,72 @@ const parser = new MarkdownItConstructor({
 });
 parser.validateLink = isSafeUrl;
 
-function isFenceClosed(token: Token, src: string): boolean {
-  if (!token.map) return false;
-  const [, end] = token.map;
-  const lines = src.split(/\r?\n/);
-  const lastLine = lines[end - 1] ?? '';
-  const marker = token.markup?.[0] || '`';
-  const fenceLen = token.markup?.length || 3;
-  const regex = new RegExp('^\\s*\\' + marker + '{' + fenceLen + ',}\\s*$');
-  return regex.test(lastLine);
+// Custom fence rule to preserve exact fence closing state at the parse boundary (§5.8.5)
+function customFence(state: any, startLine: number, endLine: number, silent: boolean): boolean {
+  let pos = state.bMarks[startLine] + state.tShift[startLine];
+  const max = state.eMarks[startLine];
+  let haveEndMarker = false;
+
+  if (state.sCount[startLine] - state.blkIndent >= 4) { return false; }
+  if (pos + 3 > max) { return false; }
+
+  const marker = state.src.charCodeAt(pos);
+  if (marker !== 0x7E/* ~ */ && marker !== 0x60 /* ` */) { return false; }
+
+  const mem = pos;
+  pos = state.skipChars(pos, marker);
+  const len = pos - mem;
+  if (len < 3) { return false; }
+
+  const markup = state.src.slice(mem, pos);
+  const params = state.src.slice(pos, max);
+
+  if (marker === 0x60 /* ` */) {
+    if (params.indexOf(String.fromCharCode(marker)) >= 0) { return false; }
+  }
+
+  if (silent) { return true; }
+
+  let nextLine = startLine;
+  for (;;) {
+    nextLine++;
+    if (nextLine >= endLine) { break; }
+
+    pos = state.bMarks[nextLine] + state.tShift[nextLine];
+    const lineMax = state.eMarks[nextLine];
+
+    if (pos < lineMax && state.sCount[nextLine] < state.blkIndent) { break; }
+    if (state.src.charCodeAt(pos) !== marker) { continue; }
+    if (state.sCount[nextLine] - state.blkIndent >= 4) { continue; }
+
+    const markerStart = pos;
+    pos = state.skipChars(pos, marker);
+    if (pos - markerStart < len) { continue; }
+
+    pos = state.skipSpaces(pos);
+    if (pos < lineMax) { continue; }
+
+    haveEndMarker = true;
+    break;
+  }
+
+  const initialIndent = state.sCount[startLine];
+  state.line = nextLine + (haveEndMarker ? 1 : 0);
+
+  const token = state.push('fence', 'code', 0);
+  token.info = params;
+  token.content = state.getLines(startLine + 1, nextLine, initialIndent, true);
+  token.markup = markup;
+  token.map = [startLine, state.line];
+  token.meta = { closed: haveEndMarker };
+
+  return true;
 }
+
+const existingFenceRule = parser.block.ruler.__rules__.find((r: any) => r.name === 'fence');
+parser.block.ruler.at('fence', customFence, {
+  alt: (existingFenceRule?.alt || ['paragraph', 'reference', 'blockquote', 'list']).slice(),
+});
 
 /**
  * Renders Markdown into a DOM container using purely safe DOM methods
@@ -266,7 +322,7 @@ export function renderMarkdown(
           text = text.slice(0, -1);
         }
       } else {
-        const closed = isFenceClosed(t, markdown);
+        const closed = Boolean((t.meta as any)?.closed);
         if (closed && text.endsWith('\n')) {
           text = text.slice(0, -1);
         }

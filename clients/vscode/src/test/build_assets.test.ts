@@ -3,6 +3,7 @@ import * as assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import * as path from 'node:path';
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm, mkdir, cp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as vm from 'node:vm';
@@ -180,4 +181,88 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test('§5.8.5 generate-third-party-licenses: validates presence, check mode, and required notices', async () => {
+  const rootDir = path.resolve(__dirname, '..', '..');
+  const licensesPath = path.join(rootDir, 'THIRD_PARTY_LICENSES.txt');
+  assert.ok(existsSync(licensesPath), 'THIRD_PARTY_LICENSES.txt must exist');
+
+  const content = await readFile(licensesPath, 'utf8');
+
+  // Verify markdown-it copyright and MIT license notice
+  assert.match(content, /Package:\s*markdown-it@/, 'markdown-it must be included in runtime third-party licenses');
+  assert.match(content, /Copyright \(c\) 2014 Vitaly Puzrin, Alex Kocharin\./, 'markdown-it copyright notice must be present verbatim');
+  assert.match(content, /Permission is hereby granted, free of charge/, 'markdown-it permission notice must be present verbatim');
+
+  // Verify entities and valibot and rxjs
+  assert.match(content, /Package:\s*entities@/);
+  assert.match(content, /Package:\s*valibot@/);
+  assert.match(content, /Package:\s*rxjs@/);
+
+  // Verify tool --check mode succeeds via execFile
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  const generatorScript = path.join(rootDir, 'tools', 'generate-third-party-licenses.mjs');
+  const { stdout } = await execFileAsync(process.execPath, [generatorScript, '--check', `--root=${rootDir}`]);
+  assert.match(stdout, /THIRD_PARTY_LICENSES\.txt is up to date/);
+});
+
+test('§5.8.5 VSIX package contents: unzips magi-0.2.0.vsix and asserts THIRD_PARTY_LICENSES.txt and isolated execution', async () => {
+  const rootDir = path.resolve(__dirname, '..', '..');
+  const vsixPath = path.join(rootDir, 'magi-0.2.0.vsix');
+  if (!existsSync(vsixPath)) {
+    return;
+  }
+
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'magi-vsix-unpack-test-'));
+  try {
+    const { execFile } = await import('node:child_process');
+    const { promisify } = await import('node:util');
+    const execFileAsync = promisify(execFile);
+    await execFileAsync('unzip', ['-q', vsixPath, '-d', tempDir]);
+
+    // 1. Assert license notices
+    const unpackedLicensePath = path.join(tempDir, 'extension', 'LICENSE.txt');
+    const unpackedThirdPartyPath = path.join(tempDir, 'extension', 'THIRD_PARTY_LICENSES.txt');
+    assert.ok(existsSync(unpackedLicensePath), 'extension/LICENSE.txt must exist in VSIX');
+    assert.ok(existsSync(unpackedThirdPartyPath), 'extension/THIRD_PARTY_LICENSES.txt must exist in VSIX');
+
+    const thirdPartyText = await readFile(unpackedThirdPartyPath, 'utf8');
+    assert.match(thirdPartyText, /Copyright \(c\) 2014 Vitaly Puzrin, Alex Kocharin\./);
+    assert.match(thirdPartyText, /Permission is hereby granted, free of charge/);
+
+    // 2. Assert zero external node_modules in package
+    const unpackedNodeModules = path.join(tempDir, 'extension', 'node_modules');
+    assert.equal(existsSync(unpackedNodeModules), false, 'VSIX must not contain node_modules directory');
+
+    // 3. Assert standalone execution of webview bundles
+    const unpackedChatAdapter = path.join(tempDir, 'extension', 'out', 'web', 'chat_adapter.bundle.js');
+    const unpackedMarkdownRender = path.join(tempDir, 'extension', 'out', 'web', 'markdown_render.js');
+    assert.ok(existsSync(unpackedChatAdapter));
+    assert.ok(existsSync(unpackedMarkdownRender));
+
+    const adapterJs = await readFile(unpackedChatAdapter, 'utf8');
+    assert.equal(adapterJs.includes("require('markdown-it')"), false);
+    assert.equal(adapterJs.includes('require("markdown-it")'), false);
+
+    const renderJs = await readFile(unpackedMarkdownRender, 'utf8');
+    assert.equal(renderJs.includes("require('markdown-it')"), false);
+    assert.equal(renderJs.includes('require("markdown-it")'), false);
+
+    const sandbox: any = {
+      exports: {},
+      module: { exports: {} },
+      require: () => { throw new Error('External require not allowed'); },
+    };
+    sandbox.module.exports = sandbox.exports;
+    vm.createContext(sandbox);
+    vm.runInContext(renderJs, sandbox);
+    assert.equal(typeof sandbox.module.exports.renderMarkdown, 'function');
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+
 

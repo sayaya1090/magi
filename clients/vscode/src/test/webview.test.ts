@@ -2405,6 +2405,48 @@ test('§5.8.5 renderMarkdown preserves trailing newlines, spaces, and empty line
   assert.equal(code4.textContent, 'const a = 1;\nconst b = 2;');
 });
 
+test('§5.8.5 renderMarkdown code fence termination fixtures and newline preservation (§5.8.5 P2)', () => {
+  function findCode(node: MockElement): MockElement | null {
+    if (node.tagName === 'CODE' && (node.parentNode as MockElement)?.tagName === 'PRE') return node;
+    for (const ch of node.childNodes) {
+      if (ch.nodeType === 1) {
+        const found = findCode(ch as MockElement);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  const fixtures = [
+    { input: '> ```ts\n> const x = 1;\n> ```', expected: 'const x = 1;' },
+    { input: '```ts\nconst x = 1;\n    ```\n', expected: 'const x = 1;\n    ```\n' },
+    { input: '```ts\nconst x = 1;', expected: 'const x = 1;' },
+    { input: '```ts\nconst x = 1;\n', expected: 'const x = 1;\n' },
+    { input: '```ts\nconst x = 1;\n```', expected: 'const x = 1;' },
+  ];
+
+  for (const f of fixtures) {
+    const container = render(f.input);
+    const code = findCode(container);
+    assert.ok(code, `code element must exist for ${JSON.stringify(f.input)}`);
+    assert.equal(code.textContent, f.expected, `textContent must match expected for ${JSON.stringify(f.input)}`);
+  }
+
+  const edgeCases = [
+    { name: 'fence in list', input: '- item\n  ```ts\n  const x = 1;\n  ```', expected: 'const x = 1;' },
+    { name: 'tilde fence', input: '~~~js\nconsole.log(1);\n~~~', expected: 'console.log(1);' },
+    { name: '4 backtick containing 3 backticks', input: '````md\n```ts\nconst a = 1;\n```\n````', expected: '```ts\nconst a = 1;\n```' },
+    { name: 'crlf quote fence', input: '> ```ts\r\n> const x = 1;\r\n> ```', expected: 'const x = 1;' },
+  ];
+
+  for (const ec of edgeCases) {
+    const container = render(ec.input);
+    const code = findCode(container);
+    assert.ok(code, `code element must exist for ${ec.name}`);
+    assert.equal(code.textContent, ec.expected, `textContent must match for ${ec.name}`);
+  }
+});
+
 test('§5.8.5 renderMarkdown preserves escaped pipes and cell alignment in tables', () => {
   const tableMd = '| Left | Center | Right |\n| :--- | :---: | ---: |\n| A \\| B | `code \\| val` | 123 |';
   const container = render(tableMd);

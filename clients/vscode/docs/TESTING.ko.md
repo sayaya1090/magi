@@ -1030,7 +1030,7 @@ node --test clients/vscode/out/test/*.property.test.js
 웹뷰 어댑터(`src/web/chat_adapter.ts`)에서 정규식과 수동 스택으로 처리하던 약 400줄의 자체 마크다운 파서를 CommonMark 명세 준수 검증 파서인 `markdown-it` 기반의 안전한 토큰-to-DOM 렌더러(`src/web/markdown_render.ts`)로 전면 교체했습니다. 기존 대화·질문·초안·복구 상태 머신 및 편집창 연동 계약은 그대로 보존하고, 문법 분석을 라이브러리에 위임하면서도 `innerHTML`을 일체 사용하지 않는 순수 DOM 생성과 엄격한 URL/이미지 보안 정책을 적용했습니다.
 
 ### 1. 의존성 및 패키징 사양
-- **라이브러리 및 버전:** `markdown-it@15.0.2` (MIT 라이선스), `@types/markdown-it@14.1.2` (MIT 라이선스).
+- **라이브러리 및 버전:** `markdown-it@15.0.2` (MIT 라이선스), `@types/markdown-it@14.2.0` (MIT 라이선스).
 - **설치 위치:** `clients/vscode/package.json`의 `devDependencies` 및 `package-lock.json`.
 - **배포 및 번들 격리:**
   - 웹뷰 배포 번들(`out/web/chat_adapter.bundle.js`)에 `markdown-it` 전체 런타임이 인라인 번들링되어 런타임 `node_modules` 의존성이 0바이트입니다.
@@ -1042,7 +1042,7 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ### 2. 마크다운 문법 변환 상세 비교표 (현재 파서 vs markdown-it 새 파서)
 
-| 영역 | 입력 예제 | 현재 파서 (98a733aa) | markdown-it 새 파서 | 유지 또는 의도된 차이 / 사유 |
+| 영역 | 입력 예제 | 이전 파서 (98a733aa) | markdown-it 새 파서 | 유지 또는 의도된 차이 / 사유 |
 |---|---|---|---|---|
 | **기본 문법** | `# H1` ~ `###### H6` | `<h1>`~`<h6>` 태그 생성 | `<h1>`~`<h6>` 태그 생성 | **유지:** 제목 태그 레벨 및 텍스트 노드 100% 일치 |
 | 기본 문법 | `**bold**`, `*italic*`, `***both***` | `<strong>`, `<em>`, `<strong><em>` 생성 | `<strong>`, `<em>`, `<em><strong>` 생성 | **유지:** 강조 태그 생성 및 중첩 텍스트 보존 |
@@ -1062,14 +1062,16 @@ node --test clients/vscode/out/test/*.property.test.js
 | 코드 펜스 | ```` ````markdown\n```ts\n...```\n```` ```` | 내부 3-백틱 펜스 보존 | 내부 3-백틱 펜스 보존 | **유지:** 상위 백틱 길이 기반 중첩 코드 블록 보존 |
 | 코드 펜스 | ```` ```python\ndef stream():\n    pass ```` (미완성) | `<pre data-lang="python"><code>...</code></pre>` | `<pre data-lang="python"><code>...</code></pre>` | **유지:** 스트리밍 중 닫히지 않은 펜스도 안전하게 `<pre><code>` 렌더링 |
 | 코드 펜스 | `    const a = 1;` (4칸 들여쓰기) | 일반 문단(`<p>`)으로 취급 | `<pre><code>const a = 1;</code></pre>` | **의도된 차이:** CommonMark 표준 명세에 따른 4칸 들여쓰기 코드 블록 지원 |
+| 코드 펜스 | `> ```ts\n> const x = 1;\n> ``` ` (인용 안 펜스) | 정규식 미완성 오인으로 끝 개행 잔류 | `const x = 1;` (정상 슬라이스) | **개선 (§5.8.5 P2):** 파싱 경계에서 `token.meta = { closed: haveEndMarker }`를 보존하여 인용 문맥에서도 정확히 종료 판정 |
+| 코드 펜스 | ```` ```ts\nconst x = 1;\n    ```\n ```` (4칸 들여쓴 펜스) | 닫는 펜스로 오인해 코드 끝 개행 삭제 | `const x = 1;\n    ```\n` (원문 보존) | **개선 (§5.8.5 P2):** 4칸 들여쓰기된 백틱은 종료 마커가 아닌 코드 본문이므로 개행 보존 |
 | 코드 펜스 | 코드 끝 빈 줄 / 끝 공백 보존 | `codeLines.join('\n')`으로 보존 | 닫힌 펜스 기준 마지막 개행 1회 슬라이스, 임의 `trim`/`trimEnd` 배제 | **유지:** 끝 빈 줄 및 공백 문자 손실 없는 100% 원문 보존 |
 | 코드 펜스 | ```` ```diff\n-old\n+new\n``` ```` | `classifyDiffLines`를 통한 `.diff-line` 클래스 부여 | `classifyDiffLines`를 통한 `.diff-line` 클래스 부여 | **유지:** 언어가 `diff`/`patch`일 때만 diff 구문 분석 엔진 연결 |
 | 코드 펜스 | ```` ```\n+ 1\n- 2\n``` ```` (언어 미지정) | diff 추측 없이 일반 코드 텍스트 유지 | diff 추측 없이 일반 코드 텍스트 유지 | **유지:** 언어 식별자가 없는 일반 코드의 +/-를 diff로 오인하지 않음 |
 | **링크·HTML** | `[Open](https://example.com)` | `<a href="..." target="_blank" rel="noreferrer noopener">` | `<a href="..." target="_blank" rel="noreferrer noopener">` | **유지:** 외부 링크 보안 속성 및 새 창 열기 동작 보존 |
 | 링크·HTML | `http:`, `https:`, `mailto:`, 상대 경로, `#` | 정상 앵커 엘리먼트 생성 | 정상 앵커 엘리먼트 생성 | **유지:** 승인된 안전 스킴 100% 동작 보존 |
-| 링크·HTML | `[run](command:workbench.action)` | `<a>` 링크 생성 (보안 취약점) | **실행 링크 미생성**, 비활성 텍스트로 안전 보존 | **의도된 차이:** §5.8.5 보안 요구사항에 따라 `command:` 스킴 실행 원천 차단 |
+| 링크·HTML | `[run](command:workbench.action)` | `<a>` 링크 생성 (웹뷰 enableCommandUris 미허용 상태) | **실행 링크 미생성**, 비활성 텍스트로 안전 보존 | **의도된 차이:** §5.8.5 보안 요구사항에 따라 웹뷰 내 `command:` 스킴 실행 링크 원천 차단 |
 | 링크·HTML | `[pwn](javascript:alert(1))` | 텍스트 원문 보존, 앵커 미생성 | **실행 링크 미생성**, 텍스트 원문 보존 | **유지:** `javascript:` 실행 차단 |
-| 링크·HTML | `[data](data:text/html,evil)` | 브라우저별 허용 위험 존재 | **실행 링크 미생성**, 텍스트 원문 보존 | **의도된 차이:** `data:` URI 스킴 차단 |
+| 링크·HTML | `[data](data:text/html,evil)` | 텍스트 원문 보존, 앵커 미생성 | **실행 링크 미생성**, 텍스트 원문 보존 | **유지:** `data:` URI 스킴 차단 |
 | 링크·HTML | `<script>alert(1)</script>`, `<img onerror=...>` | 텍스트 노드로 보존 (태그 미생성) | 텍스트 노드로 보존 (태그 미생성) | **유지:** `html: false` 및 텍스트 노드 경로로 XSS 원천 차단 |
 | 링크·HTML | `![Alt](https://example.com/a.png)` | `! <a href="...">Alt</a>` (느낌표 + 링크) | `[이미지: Alt]` 텍스트 노드로 안전 표출 | **의도된 차이:** 외부 이미지 요청 차단(네트워크 요청 0건) 및 명확한 대체 텍스트 표출 |
 | **화면 계약** | 빈 문자열 `""` | `container.textContent = ""` (자식 0개) | `container.textContent = ""` (자식 0개) | **유지:** 빈 입력 시 컨테이너 비우기 계약 보존 |
@@ -1081,35 +1083,56 @@ node --test clients/vscode/out/test/*.property.test.js
 - **URL 검증기 (`isSafeUrl`):**
   - 허용 목록: `https:`, `http:`, `mailto:`, 상대 경로(`./`, `../`, `/` — 단 `//` 프로토콜 상대 URL 제외), 앵커(`#`).
   - 거부 목록: `command:`, `javascript:`, `data:`, `vbscript:`, `file:`.
-  - 우회 방어: 제어문자(`\u0000`~`\u001F`, `\u007F`) 및 공백 제거 후 소문자 접두사 대조, URL 파서 이중 검증.
+  - 우회 방어: 제어문자(`\u0000`~`\u001F`, `\u007F`) 및 공백 제거 후 소문자 허용 스킴 접두사 대조.
   - 거부 시 동작: `validateLink` 단계에서 텍스트 토큰으로 격하되며, DOM 생성 단계에서도 `<a>` 태그의 `href` 속성을 설정하지 않아 비인가 액션 실행이 불가능합니다.
 - **이미지 문법 처리:** `token.type === 'image'` 감지 시 `<img>` 태그를 생성하지 않고, 대체 텍스트(`[이미지: ${alt}]` 또는 `[이미지]`) 텍스트 노드를 삽입하여 외부 네트워크 자산 요청을 완벽히 차단합니다.
-- **코드 블록 개행 보존:** markdown-it이 닫힌 펜스에 부여하는 마지막 `\n`에 한해 1회만 정확히 제거하며, 임의의 `trim()`이나 `trimEnd()`를 호출하지 않아 코드 블록 내부의 빈 줄, 끝 공백, 탭 문자가 100% 원문 그대로 보존됩니다.
+- **코드 블록 펜스 종료 메타데이터 보존 (§5.8.5 P2):**
+  - `parser.block.ruler.at('fence', customFence, ...)`를 통해 파싱 경계에서 `markdown-it`의 실제 종료 마커 발견 여부(`haveEndMarker`)를 `token.meta = { closed: haveEndMarker }`로 기록합니다.
+  - 인용구(`>`)나 목록 안의 중첩 펜스도 파서 내부 상태를 그대로 반영하여 종료 판정이 정확히 이루어집니다.
+  - 4칸 들여쓰기된 백틱(`    ``` `)은 펜스 닫기가 아닌 코드 본문으로 판정하여 개행을 손실 없이 보존합니다.
+  - `isClosed && text.endsWith('\n')`일 때만 문법 구분자 개행 1회를 정확히 제거하며, 임의의 `trim()`이나 `trimEnd()`를 호출하지 않아 코드 블록 내부의 빈 줄, 끝 공백, 탭 문자가 100% 원문 그대로 보존됩니다.
+- **배포 라이선스 고지 (`THIRD_PARTY_LICENSES.txt`) (§5.8.5 P2):**
+  - esbuild metafile을 분석하여 번들에 포함된 9개 런타임 종속 패키지(`entities`, `linkify-it`, `markdown-it`, `mdurl`, `punycode.js`, `rxjs`, `tslib`, `uc.micro`, `valibot`)의 버전, 라이선스 식별자, 라이선스 전문(저작권 및 허가문)을 자동으로 수집해 `THIRD_PARTY_LICENSES.txt`에 포함합니다.
+  - `tools/generate-third-party-licenses.mjs --check` 검사를 `npm run package` 빌드 파이프라인에 연결하여 누락 시 패키징을 즉각 차단합니다.
+  - VSIX 패키지 압축 해제 검증(`build_assets.test.ts`)에서 `THIRD_PARTY_LICENSES.txt` 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문을 단언합니다.
 
 ### 4. 자산 크기 및 렌더링 성능 실측 (Before vs After)
 
-| 항목 | 자체 파서 (98a733aa) | markdown-it 새 파서 (§5.8.5) | 변화량 및 비고 |
+동일 장비(macOS Apple Silicon, Node.js v24.4.1), 동일 대표 긴 응답(11,510자, 100회 반복) 기준:
+
+| 항목 | 이전 자체 파서 (98a733aa) | markdown-it 새 파서 (§5.8.5 P2) | 변화량 및 비고 |
 |---|---|---|---|
-| **웹뷰 번들 크기 (`chat_adapter.bundle.js`)** | 149,586 bytes (146.08 KB) | 351,730 bytes (343.48 KB) | +202,144 bytes (+197.4 KB, markdown-it 인라인 포함) |
-| **VSIX 패키지 크기 (`magi-0.2.0.vsix`)** | 239.3 KB (60개 파일) | 347.05 KB (61개 파일) | +107.75 KB (외부 `node_modules` 0바이트) |
-| **대표 긴 답변 렌더링 시간 (11,510자, 100회)** | 총 24.93 ms (평균 0.249 ms) | 총 96.88 ms (평균 0.969 ms) | 응답당 1ms 미만으로 UI 스레드 체감 영향 없음 |
+| **웹뷰 번들 크기 (`chat_adapter.bundle.js`)** | 149,586 bytes (146.08 KB) | 353,555 bytes (345.27 KB) | +203,969 bytes (markdown-it 및 펜스 메타데이터 인라인 포함) |
+| **VSIX 패키지 크기 (`magi-0.2.0.vsix`)** | 239.3 KB (60개 파일) | 353.69 KB (62개 파일) | +114.39 KB (외부 `node_modules` 0바이트, 라이선스 전문 22.5KB 포함) |
+| **Mock DOM 렌더 시간 (Node/MockDocument, 11,510자, 100회)** | 총 24.93 ms (평균 0.249 ms) | 총 108.31 ms (평균 1.083 ms) | 자바스크립트 DOM 객체 생성 시간 (브라우저 레이아웃/페인트 미포함) |
+| **실제 브라우저 DOM 렌더 시간 (Chromium Headless, 11,510자, 100회)** | 측정 미수행 | 총 117.40 ms (평균 1.174 ms) | 실제 브라우저 엔진 DOM 엘리먼트 생성 시간 (레이아웃/페인트 미포함) |
 | **자체 문법 정규식/스택 코드** | 약 400줄 | 0줄 (완전 제거) | 유지보수 부담 제거 및 검증된 파서 도입 |
 
 ### 5. 파이프라인 검증 결과
 1. **TypeScript 컴파일 및 번들 빌드 (`npm run build`):**
    - `tsc -p .` 무경고 컴파일 완료.
    - `build-webview-assets.mjs`가 8개 필수 입력 파일을 검증하고 웹뷰 번들 및 Node 호환 번들 정상 생성.
+   - `generate-third-party-licenses.mjs --check` 검증 완료 (9개 런타임 패키지 라이선스 전문 일치).
 2. **단위 테스트 (`npm test`):**
-   - 총 510개 테스트 전수 통과 (503 pass, 0 fail, 7 skip).
-   - 신규 추가된 §5.8.5 경계 테스트(URL 우회 검증, command/data 링크 거부, 이미지 텍스트화, 코드 블록 공백 보존, 테이블 이스케이프 파이프, 번들 선행 검사) 100% 통과.
+   - 총 513개 테스트 전수 통과 (506 pass, 0 fail, 7 skip).
+   - 신규 추가된 §5.8.5 P2 테스트(개행 반례 5종 fixture 대조, 인용·목록 내 펜스, 4백틱 내 3백틱, tilde 펜스, CRLF, THIRD_PARTY_LICENSES 존재 및 필수 저작권 검증, VSIX 압축 해제 격리 실행 검증) 100% 통과.
 3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
    - `--verify-assets`: 사전 자산 라우트 및 격리 누락 검사 통과.
-   - 정방향 5개 번들 39개 시나리오 100% 통과 (axe-core 접근성 감사 36회 violations=0, incomplete=0).
-   - 테마 역순(`--reverse-themes`): 39개 시나리오 100% 통과.
-4. **VSIX 무의존성 격리 실행 검증:**
+   - 신규 추가된 `markdown` 번들을 포함한 6개 번들 40개 시나리오 100% 통과:
+     - 미완성 코드 스트리밍 → 완성 답변 연속 전달 실측.
+     - 인용구 내 펜스 끝 개행 슬라이스, 4칸 들여쓴 펜스 개행 보존 반례 검증.
+     - 50줄 긴 코드 블록, 중첩 목록, 이스케이프 파이프 표 렌더링 검증.
+     - 허용 링크(외부, mailto, 상대 경로) 및 위험 링크(command, javascript, data) 비활성 텍스트화 검증.
+     - 원시 script/img 태그 미실행 및 이미지 대체 텍스트 `[이미지: ...]` 표출 실측.
+     - 외부 이미지 네트워크 요청 0건 실측 (`routeErrors` 0건).
+     - 원문 열기 액션(`outputId`) 호스트 메시지(`kind: 'output'`) 전송 검증.
+     - 질문 답변 모드 진입 및 대화 갱신 시 답변 초안 보존, 취소(Escape) 시 일반 초안 완벽 복원 검증.
+     - axe-core 접근성 감사 36회 violations=0, incomplete=0.
+   - 테마 역순(`--reverse-themes`): 40개 시나리오 100% 통과.
+4. **VSIX 무의존성 격리 실행 및 라이선스 고지 검증:**
    - `magi-0.2.0.vsix`를 임시 디렉터리에 압축 해제 후 `node_modules` 부재 환경 실측.
+   - `extension/THIRD_PARTY_LICENSES.txt` 파일 존재 및 `Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.` 전문 포함 검증.
    - 패키지 내 `.js` 파일 전체에서 외부 `require('markdown-it')` 호출 0건 확인.
    - 독립 sandboxed VM 환경에서 `chat_adapter.bundle.js` 및 `markdown_render.js`의 `renderMarkdown` 정상 실행 및 DOM 생성 확인.
-5. **Go idebridge 테스트:**
-   - `go test -count=1 ./internal/adapter/idebridge` 100% 통과 (9.7s).
+
 
