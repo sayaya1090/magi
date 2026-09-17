@@ -252,3 +252,9 @@ export const markdownScenario = {
     }
   }
 };
+
+export const markdownBundle = {
+  name: 'markdown',
+  description: 'markdown-it 렌더링·스트리밍·보안 및 화면 계약 (§5.8.5)',
+  scenarios: [markdownScenario],
+};
