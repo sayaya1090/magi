@@ -1141,4 +1141,61 @@ node --test clients/vscode/out/test/*.property.test.js
    - 패키지 내 `.js` 파일 전체에서 외부 `require('markdown-it')` 호출 0건 확인.
    - 독립 sandboxed VM 환경에서 `chat_adapter.bundle.js` 및 `markdown_render.js`의 `renderMarkdown` 정상 실행 및 DOM 생성 확인.
 
+---
 
+### §5.8.5 VSIX 일반 테스트 격리 및 `package-vsix.mjs` 옵션 경로 일치 (P2)
+
+#### 1. 일반 테스트의 로컬 VSIX 의존성 완전 제거
+- **배경 및 결함 원인:**
+  - `src/test/build_assets.test.ts` Case 8은 프로젝트 루트에 `magi-0.2.0.vsix` 파일이 존재할 경우 자동으로 `verifyVsixArchive`를 수행하도록 되어 있었습니다.
+  - 이로 인해 `npm test`가 소스 코드를 빌드한 후, 이전에 패키징되어 있던 구버전 아카이브와 번들 바이트(`chat_adapter.bundle.js` 등)를 비교하면서 주석 추가나 정상적인 소스 수정만으로도 테스트가 실패하는 결함이 발생했습니다.
+- **해결 및 격리 정책:**
+  - `build_assets.test.ts`에서 루트 아카이브를 탐색하는 Case 8을 완전히 제거했습니다.
+  - 일반 단위·회귀 테스트는 테스트 실행 중 격리된 임시 디렉터리(`mkdtemp`)에 동적으로 생성한 fixture 아카이브만을 사용합니다.
+  - `npm test` 수행 전 사용자의 로컬 VSIX를 삭제하거나 강제로 재패키징하지 않으며, 저장소 루트의 VSIX 파일 유무 및 내용이 테스트 결과에 일체 영향을 미치지 않습니다.
+  - **3가지 루트 상태 독립성 실측 검증:**
+    - `mock-extension-root` 및 실제 저장소 루트에서 다음 3개 상태를 순차 검증하여 동일한 테스트 성공 결과를 확인했습니다:
+      1. 루트에 VSIX 없음 (정상 통과)
+      2. 이전 빌드 또는 바이트 불일치 VSIX 있음 (정상 통과, 루트 파일 미수정 및 mtime 보존)
+      3. 잘못된 내용의 손상된 파일(corrupted non-zip) 있음 (정상 통과, 루트 파일 미삭제 및 내용 보존)
+
+#### 2. `package-vsix.mjs` vsce 옵션 및 산출물 경로 일치
+- **배경 및 결함 원인:**
+  - 기존 래퍼는 기본 파일명을 `magi-0.2.0.vsix`로 고정 추정하여 vsce로 전달했습니다.
+  - `--target <arch>` (예: `--target linux-x64`) 지정 시 vsce는 `magi-linux-x64-0.2.0.vsix`를 생성했으나, 래퍼는 고정 이름을 찾다가 파일이 없다고 판정하여 종료 코드 1로 실패했습니다.
+  - `--out <기존 디렉터리>` 지정 시 vsce는 해당 디렉터리 내부에 VSIX를 생성하는 것이 정상 동작이었으나, 래퍼가 패키징 전 대상 경로에 무조건 `unlink()`를 호출하여 디렉터리에 대한 `unlink` 시도로 macOS/Linux에서 `EPERM`/`EISDIR` 오류가 발생했습니다.
+- **해결 및 사양 일치:**
+  - `resolvePackageConfig(rawArgs, context)` 함수를 통해 옵션 파싱 및 산출물 경로 해석을 일원화했습니다.
+  - **플랫폼 타깃 감지:** `--target <target>`, `-t <target>`, `--target=<target>`, `-t=<target>`을 모두 파싱하여 타깃이 지정된 경우 기본 파일명을 `${name}-${target}-${version}.vsix`로, 미지정 시 `${name}-${version}.vsix`로 자동 결정합니다.
+  - **출력 경로 구분 및 디렉터리 보호:**
+    - `--out <path>` 또는 `-o <path>`가 가리키는 경로가 실존 디렉터리(`stat.isDirectory()`)인 경우, 최종 산출물 경로를 `path.join(path, defaultFileName)`으로 합성합니다. 디렉터리 자체는 절대로 삭제하거나 `unlink`하지 않습니다.
+    - 이전 빌드의 잔여 파일 정리는 계산된 최종 `.vsix` 파일 경로가 이미 실존하는 일반 파일(`stat.isFile()`)일 때만 `unlink`를 호출합니다.
+  - **옵션 보존 및 에러 처리:**
+    - 기존의 `-o`, `--out`, `--out=`, `-o=`, `--target`, `-t`, `--allow-missing-repository` 및 공백을 포함한 경로 전달을 100% 보존합니다.
+    - 중복 옵션 입력 시 vsce/commander 규칙에 맞추어 마지막 인자가 우선 적용됩니다.
+    - 옵션 값 누락 시 명확한 에러(`Missing argument for option: ${arg}`)를 반환합니다.
+    - 패키징 후 `verifyVsixArchive(targetVsix, { expectedVersion: pkgVersion, rootDir })`를 호출하여 생성된 파일만을 엄격히 검증합니다.
+
+#### 3. 종합 검증 결과
+1. **단위 테스트 (`npm test`):**
+   - 총 518개 테스트 전수 통과 (511 pass, 0 fail, 7 skip).
+   - 신규 추가된 §5.8.5 테스트 4개 시나리오 100% 통과:
+     - 루트 VSIX 3가지 상태(부재, 구버전, 손상) 격리 및 불변 검증.
+     - `resolvePackageConfig` 11개 세부 조건(기본값, `--target`, `-t`, `=` 표기, 공백 파일, 공백 디렉터리, 타깃+디렉터리 조합, 커스텀 버전 `0.3.5`, 중복 옵션 순서, 누락 인자 에러 8종) 검증.
+     - `packageVsix` mock runner 실행 검증 (인자 전달, 잔여 파일 unlink, 디렉터리 보존, verifyFn 호출).
+     - 실제 vsce 프로세스 실행 검증 (`--target linux-x64 --out <공백 포함 디렉터리>` 실제 아카이브 62개 파일 패키징 및 즉시 검증 통과).
+2. **패키징 CLI 검증 (`tools/package-vsix.mjs`):**
+   - `npm run package` 기본 실행: `magi-0.2.0.vsix` 생성 및 즉시 검증 성공 (62개 파일, 362,179 bytes).
+   - `node tools/package-vsix.mjs --out <subDir>`: `subDir/magi-0.2.0.vsix` 정상 생성.
+   - `node tools/package-vsix.mjs --target linux-x64 --out <subDir>`: `subDir/magi-linux-x64-0.2.0.vsix` 정상 생성 및 검증 통과.
+   - `node tools/package-vsix.mjs -o "<subDir>/my custom package.vsix"`: 공백 포함 커스텀 파일 정상 생성 및 검증 통과.
+3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
+   - `--verify-assets`: 통과.
+   - 기본 실행: 6개 번들 40개 시나리오 통과 (axe-core 36/36 위반 0건).
+   - `--reverse-themes`: 40개 시나리오 통과.
+
+#### 4. 미검증 범위 (Unverified Scope)
+- **미검증 항목:**
+  - 실제 Windows 물리 머신 환경에서의 네이티브 실행 (Node 22 Ubuntu CI 및 macOS 환경에서만 자동 검증됨).
+  - 실제 VS Code IDE GUI 상에서의 대화형 확장 설치 및 메뉴 클릭 동작.
+  - OS 수준 스크린리더(NVDA, JAWS, VoiceOver) 음성 출력 및 실제 키보드 포커스 음성 안내.
