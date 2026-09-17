@@ -52,6 +52,7 @@ export async function resolvePackageConfig(rawArgs = [], context = {}) {
   let targetArch = null;
   let outPath = null;
   let versionOverride = null;
+  const otherTokens = [];
 
   for (let i = 0; i < rawArgs.length; i++) {
     const arg = rawArgs[i];
@@ -89,10 +90,13 @@ export async function resolvePackageConfig(rawArgs = [], context = {}) {
       if (i + 1 >= rawArgs.length) {
         throw new Error(`Missing argument for option: ${arg}`);
       }
-      i++; // skip option value
-    } else if (!arg.startsWith('-')) {
-      // Positional version argument
-      versionOverride = arg;
+      otherTokens.push(arg, rawArgs[++i]);
+    } else {
+      if (!arg.startsWith('-')) {
+        // Positional version argument
+        versionOverride = arg;
+      }
+      otherTokens.push(arg);
     }
   }
 
@@ -121,6 +125,14 @@ export async function resolvePackageConfig(rawArgs = [], context = {}) {
     }
   }
 
+  const normalizedArgs = [...otherTokens];
+  if (targetArch !== null) {
+    normalizedArgs.push('--target', targetArch);
+  }
+  if (outPath !== null) {
+    normalizedArgs.push('--out', outPath);
+  }
+
   return {
     targetVsix,
     targetArch,
@@ -128,6 +140,7 @@ export async function resolvePackageConfig(rawArgs = [], context = {}) {
     versionOverride,
     pkgVersion,
     defaultFileName,
+    normalizedArgs,
   };
 }
 
@@ -142,7 +155,7 @@ export async function resolvePackageConfig(rawArgs = [], context = {}) {
  * @param {Function} [options.verifyFn] Custom verification function (defaults to verifyVsixArchive).
  * @param {Function} [options.onStdout]
  * @param {Function} [options.onStderr]
- * @returns {Promise<{ version: string, fileCount: number, sizeBytes: number, vsixPath: string }>}
+ * @returns {Promise<{ version: string, fileCount: number, sizeBytes: number, vsixPath: string, vsceArgs: string[], normalizedArgs: string[] }>}
  */
 export async function packageVsix(rawArgs = [], options = {}) {
   const rootDir = options.rootDir
@@ -156,7 +169,7 @@ export async function packageVsix(rawArgs = [], options = {}) {
   }
 
   const config = await resolvePackageConfig(rawArgs, { rootDir, pkg });
-  const { targetVsix, pkgVersion } = config;
+  const { targetVsix, pkgVersion, normalizedArgs } = config;
 
   // Stale artifact removal: only unlink if target is an existing regular file.
   // Never unlink an existing directory!
@@ -171,7 +184,7 @@ export async function packageVsix(rawArgs = [], options = {}) {
 
   console.log(`Packaging VS Code extension ${pkg.name}@${pkgVersion} -> ${targetVsix}...`);
 
-  const vsceArgs = ['package', '--no-dependencies', ...rawArgs];
+  const vsceArgs = ['package', '--no-dependencies', ...normalizedArgs];
   const execAsync = options.execRunner || execFileAsync;
 
   try {
@@ -206,7 +219,12 @@ export async function packageVsix(rawArgs = [], options = {}) {
   console.log(`Verifying packaged VSIX archive immediately: ${targetVsix}...`);
   const verifyFn = options.verifyFn || verifyVsixArchive;
   const res = await verifyFn(targetVsix, { expectedVersion: pkgVersion, rootDir });
-  return res;
+  return {
+    ...res,
+    targetVsix,
+    vsceArgs,
+    normalizedArgs,
+  };
 }
 
 // Direct CLI invocation

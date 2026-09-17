@@ -491,58 +491,78 @@ test('§5.8.5: package-vsix resolvePackageConfig parses vsce options, target arc
     const cfgTarget1 = await resolvePackageConfig(['--target', 'linux-x64'], { rootDir, pkg });
     assert.equal(cfgTarget1.targetVsix, path.resolve(rootDir, 'magi-linux-x64-0.2.0.vsix'));
     assert.equal(cfgTarget1.targetArch, 'linux-x64');
+    assert.deepEqual(cfgTarget1.normalizedArgs, ['--target', 'linux-x64']);
 
     // 3. -t win32-arm64
     const cfgTarget2 = await resolvePackageConfig(['-t', 'win32-arm64'], { rootDir, pkg });
     assert.equal(cfgTarget2.targetVsix, path.resolve(rootDir, 'magi-win32-arm64-0.2.0.vsix'));
     assert.equal(cfgTarget2.targetArch, 'win32-arm64');
+    assert.deepEqual(cfgTarget2.normalizedArgs, ['--target', 'win32-arm64']);
 
     // 4. --target=darwin-arm64 and -t=alpine-x64
     const cfgTargetEq1 = await resolvePackageConfig(['--target=darwin-arm64'], { rootDir, pkg });
     assert.equal(cfgTargetEq1.targetVsix, path.resolve(rootDir, 'magi-darwin-arm64-0.2.0.vsix'));
     assert.equal(cfgTargetEq1.targetArch, 'darwin-arm64');
+    assert.deepEqual(cfgTargetEq1.normalizedArgs, ['--target', 'darwin-arm64']);
 
     const cfgTargetEq2 = await resolvePackageConfig(['-t=alpine-x64'], { rootDir, pkg });
     assert.equal(cfgTargetEq2.targetVsix, path.resolve(rootDir, 'magi-alpine-x64-0.2.0.vsix'));
     assert.equal(cfgTargetEq2.targetArch, 'alpine-x64');
+    assert.deepEqual(cfgTargetEq2.normalizedArgs, ['--target', 'alpine-x64']);
 
-    // 5. Explicit file with spaces via -o and --out=
+    // 5. Explicit file with spaces via -o, --out=, and -o=
     const customFilePath = path.join(tempDir, 'custom dir with space', 'my artifact 0.2.0.vsix');
     const cfgFile1 = await resolvePackageConfig(['-o', customFilePath], { rootDir, pkg });
     assert.equal(cfgFile1.targetVsix, customFilePath);
+    assert.deepEqual(cfgFile1.normalizedArgs, ['--out', customFilePath]);
 
     const cfgFile2 = await resolvePackageConfig([`--out=${customFilePath}`], { rootDir, pkg });
     assert.equal(cfgFile2.targetVsix, customFilePath);
+    assert.deepEqual(cfgFile2.normalizedArgs, ['--out', customFilePath]);
 
-    // 6. Existing directory with spaces via --out
+    const cfgFileShortEq = await resolvePackageConfig([`-o=${customFilePath}`], { rootDir, pkg });
+    assert.equal(cfgFileShortEq.targetVsix, customFilePath);
+    assert.deepEqual(cfgFileShortEq.normalizedArgs, ['--out', customFilePath]);
+
+    // 6. Existing directory with spaces via --out and -o=
     const existingDirWithSpaces = path.join(tempDir, 'magi release folder with space');
     await mkdir(existingDirWithSpaces, { recursive: true });
 
     const cfgDir = await resolvePackageConfig(['--out', existingDirWithSpaces], { rootDir, pkg });
     assert.equal(cfgDir.targetVsix, path.join(existingDirWithSpaces, 'magi-0.2.0.vsix'));
+    assert.deepEqual(cfgDir.normalizedArgs, ['--out', existingDirWithSpaces]);
     assert.ok(existsSync(existingDirWithSpaces), 'Existing directory must remain intact');
 
-    // 7. Combined --target and --out directory
-    const cfgTargetDir = await resolvePackageConfig(['--target', 'linux-x64', '--out', existingDirWithSpaces], { rootDir, pkg });
+    const cfgDirShortEq = await resolvePackageConfig([`-o=${existingDirWithSpaces}`], { rootDir, pkg });
+    assert.equal(cfgDirShortEq.targetVsix, path.join(existingDirWithSpaces, 'magi-0.2.0.vsix'));
+    assert.deepEqual(cfgDirShortEq.normalizedArgs, ['--out', existingDirWithSpaces]);
+
+    // 7. Combined -t= and -o= existing directory
+    const cfgTargetDir = await resolvePackageConfig(['-t=linux-x64', `-o=${existingDirWithSpaces}`], { rootDir, pkg });
     assert.equal(cfgTargetDir.targetVsix, path.join(existingDirWithSpaces, 'magi-linux-x64-0.2.0.vsix'));
+    assert.deepEqual(cfgTargetDir.normalizedArgs, ['--target', 'linux-x64', '--out', existingDirWithSpaces]);
 
     // 8. Custom version and --allow-missing-repository
     const cfgVersion = await resolvePackageConfig(['0.3.5', '--allow-missing-repository'], { rootDir, pkg });
     assert.equal(cfgVersion.targetVsix, path.resolve(rootDir, 'magi-0.3.5.vsix'));
     assert.equal(cfgVersion.pkgVersion, '0.3.5');
+    assert.deepEqual(cfgVersion.normalizedArgs, ['0.3.5', '--allow-missing-repository']);
 
     // 9. Combined custom version + target + out directory
-    const cfgVerTargetDir = await resolvePackageConfig(['1.5.0', '--target', 'win32-x64', '--out', existingDirWithSpaces], { rootDir, pkg });
+    const cfgVerTargetDir = await resolvePackageConfig(['1.5.0', '-t=win32-x64', `-o=${existingDirWithSpaces}`], { rootDir, pkg });
     assert.equal(cfgVerTargetDir.targetVsix, path.join(existingDirWithSpaces, 'magi-win32-x64-1.5.0.vsix'));
     assert.equal(cfgVerTargetDir.pkgVersion, '1.5.0');
+    assert.deepEqual(cfgVerTargetDir.normalizedArgs, ['1.5.0', '--target', 'win32-x64', '--out', existingDirWithSpaces]);
 
-    // 10. Duplicate options order handling (last one wins)
-    const cfgDupOut = await resolvePackageConfig(['--out', 'first.vsix', '--out', 'second.vsix'], { rootDir, pkg });
+    // 10. Duplicate options order handling (last one wins, earlier consumed options not duplicated)
+    const cfgDupOut = await resolvePackageConfig(['-o=first.vsix', '--allow-missing-repository', '-o=second.vsix'], { rootDir, pkg });
     assert.equal(cfgDupOut.targetVsix, path.resolve(rootDir, 'second.vsix'));
+    assert.deepEqual(cfgDupOut.normalizedArgs, ['--allow-missing-repository', '--out', 'second.vsix']);
 
-    const cfgDupTarget = await resolvePackageConfig(['--target', 'linux-x64', '--target', 'win32-x64'], { rootDir, pkg });
+    const cfgDupTarget = await resolvePackageConfig(['--target', 'linux-x64', '-t=win32-x64'], { rootDir, pkg });
     assert.equal(cfgDupTarget.targetArch, 'win32-x64');
     assert.equal(cfgDupTarget.targetVsix, path.resolve(rootDir, 'magi-win32-x64-0.2.0.vsix'));
+    assert.deepEqual(cfgDupTarget.normalizedArgs, ['--target', 'win32-x64']);
 
     // 11. Missing option arguments validation
     await assert.rejects(async () => {
@@ -581,7 +601,7 @@ test('§5.8.5: package-vsix resolvePackageConfig parses vsce options, target arc
   }
 });
 
-test('§5.8.5: packageVsix executes vsce with correct args, preserves directories, unlinks stale target files, and validates output', async () => {
+test('§5.8.5: packageVsix executes vsce with normalized args, preserves directories, unlinks stale target files, and validates output', async () => {
   const rootDir = path.resolve(__dirname, '..', '..');
   const { packageVsix } = await import(path.join(rootDir, 'tools', 'package-vsix.mjs') as any);
   const pkg = { name: 'magi', version: '0.2.0' };
@@ -600,11 +620,39 @@ test('§5.8.5: packageVsix executes vsce with correct args, preserves directorie
     let verifiedTarget = '';
     let verifiedVersion = '';
 
+    // Mock runner faithfully simulates vsce:
+    // If an unnormalized -o= or -t= is passed, vsce treats '=' as part of value.
     const mockExecRunner = async (cmd: string, args: string[]) => {
       executedCommand = cmd;
       executedArgs = args;
-      // When vsce executes, it generates targetFile
-      await writeFile(targetFile, 'new valid package content');
+
+      let outVal: string | null = null;
+      let targetVal: string | null = null;
+
+      for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--out' || args[i] === '-o') {
+          outVal = args[++i];
+        } else if (args[i].startsWith('-o=')) {
+          outVal = args[i].slice(2); // '=path' in vsce
+        } else if (args[i] === '--target' || args[i] === '-t') {
+          targetVal = args[++i];
+        } else if (args[i].startsWith('-t=')) {
+          targetVal = args[i].slice(2); // '=target' in vsce -> invalid target!
+          throw new Error(`'${targetVal}' is not a valid VS Code target.`);
+        }
+      }
+
+      const fileName = targetVal ? `magi-${targetVal}-0.2.0.vsix` : `magi-0.2.0.vsix`;
+      let genFile: string;
+      if (outVal && existsSync(outVal) && (await stat(outVal)).isDirectory()) {
+        genFile = path.join(outVal, fileName);
+      } else if (outVal) {
+        genFile = outVal;
+      } else {
+        genFile = path.resolve(rootDir, fileName);
+      }
+
+      await writeFile(genFile, 'new valid package content');
       return { stdout: 'vsce mock success', stderr: '' };
     };
 
@@ -614,7 +662,14 @@ test('§5.8.5: packageVsix executes vsce with correct args, preserves directorie
       return { version: opts.expectedVersion, fileCount: 62, sizeBytes: 12345, vsixPath };
     };
 
-    const res = await packageVsix(['--target', 'linux-x64', '--out', outDir, '--allow-missing-repository'], {
+    // Pass -t=linux-x64 and -o=<outDir> with duplicate earlier options
+    const res = await packageVsix([
+      '-o=stale.vsix',
+      '-t=darwin-arm64',
+      '-t=linux-x64',
+      `-o=${outDir}`,
+      '--allow-missing-repository',
+    ], {
       rootDir,
       pkg,
       execRunner: mockExecRunner,
@@ -623,16 +678,17 @@ test('§5.8.5: packageVsix executes vsce with correct args, preserves directorie
 
     assert.equal(res.version, '0.2.0');
     assert.equal(executedCommand, 'npx');
+    // Verify executedArgs has normalized options and no duplicate or leaked -t= / -o= tokens
     assert.deepEqual(executedArgs, [
       '--yes',
       '@vscode/vsce',
       'package',
       '--no-dependencies',
+      '--allow-missing-repository',
       '--target',
       'linux-x64',
       '--out',
       outDir,
-      '--allow-missing-repository',
     ]);
     assert.equal(verifiedTarget, targetFile);
     assert.equal(verifiedVersion, '0.2.0');
@@ -642,7 +698,7 @@ test('§5.8.5: packageVsix executes vsce with correct args, preserves directorie
   }
 });
 
-test('§5.8.5: packageVsix real vsce packaging for --target linux-x64 and --out directory', async () => {
+test('§5.8.5: packageVsix real vsce packaging for -o=artifact, -t=linux-x64, and --out directory', async () => {
   const rootDir = path.resolve(__dirname, '..', '..');
   const { packageVsix } = await import(path.join(rootDir, 'tools', 'package-vsix.mjs') as any);
 
@@ -651,14 +707,25 @@ test('§5.8.5: packageVsix real vsce packaging for --target linux-x64 and --out 
     const outDir = path.join(tempDir, 'dist with space');
     await mkdir(outDir, { recursive: true });
 
-    // Test real vsce packaging with --target linux-x64 and --out <outDir>
-    const res = await packageVsix(['--target', 'linux-x64', '--out', outDir], { rootDir });
-    assert.equal(res.version, '0.2.0');
-    assert.ok(res.fileCount >= 60, `File count must be >= 60, got ${res.fileCount}`);
-    assert.ok(res.sizeBytes > 0);
-    assert.equal(res.vsixPath, path.join(outDir, 'magi-linux-x64-0.2.0.vsix'));
+    // 1. Test real vsce packaging with -o=custom.vsix
+    const customArtifact = path.join(outDir, 'my custom artifact.vsix');
+    const res1 = await packageVsix([`-o=${customArtifact}`], { rootDir });
+    assert.equal(res1.version, '0.2.0');
+    assert.ok(res1.fileCount >= 60);
+    assert.equal(res1.vsixPath, customArtifact);
+    assert.ok(existsSync(customArtifact), 'customArtifact must exist');
+    // Assert no '=my custom artifact.vsix' file was generated
+    const badFile = path.join(outDir, '=' + path.basename(customArtifact));
+    assert.equal(existsSync(badFile), false, '= prefixed artifact must NOT be created');
+
+    // 2. Test real vsce packaging with -t=linux-x64 and -o=outDir
+    const res2 = await packageVsix(['-t=linux-x64', `-o=${outDir}`], { rootDir });
+    assert.equal(res2.version, '0.2.0');
+    assert.ok(res2.fileCount >= 60);
+    assert.ok(res2.sizeBytes > 0);
+    assert.equal(res2.vsixPath, path.join(outDir, 'magi-linux-x64-0.2.0.vsix'));
     assert.ok(existsSync(outDir), 'outDir must remain intact as a directory');
-    assert.ok(existsSync(res.vsixPath), 'Output package must exist');
+    assert.ok(existsSync(res2.vsixPath), 'Output target package must exist');
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
