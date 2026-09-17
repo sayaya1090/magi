@@ -23,12 +23,14 @@ const domInteractionSrc = path.join(root, 'src', 'web', 'dom_interaction.ts');
 const recoveryViewSrc = path.join(root, 'src', 'web', 'recovery_view.ts');
 const recoveryControllerSrc = path.join(root, 'src', 'web', 'recovery_controller.ts');
 const adapterSrc = path.join(root, 'src', 'web', 'chat_adapter.ts');
+const markdownRenderSrc = path.join(root, 'src', 'web', 'markdown_render.ts');
 const protocolSrc = path.join(root, 'src', 'core', 'webview_protocol.ts');
 
 const outDir = path.join(root, 'out', 'web');
 const coreDir = path.join(root, 'out', 'core');
 const answerStateDst = path.join(outDir, 'answer_state.js');
 const adapterDst = path.join(outDir, 'chat_adapter.bundle.js');
+const markdownRenderDst = path.join(outDir, 'markdown_render.js');
 const protocolDst = path.join(coreDir, 'webview_protocol.js');
 
 // 1. Single list of required inputs (§4.7, §5.7, §5.8)
@@ -38,6 +40,7 @@ const requiredInputs = [
   { id: 'dom_interaction', name: 'src/web/dom_interaction.ts', path: domInteractionSrc },
   { id: 'recovery_view', name: 'src/web/recovery_view.ts', path: recoveryViewSrc },
   { id: 'recovery_controller', name: 'src/web/recovery_controller.ts', path: recoveryControllerSrc },
+  { id: 'markdown_render', name: 'src/web/markdown_render.ts', path: markdownRenderSrc },
   { id: 'chat_adapter', name: 'src/web/chat_adapter.ts', path: adapterSrc },
   { id: 'webview_protocol', name: 'src/core/webview_protocol.ts', path: protocolSrc },
 ];
@@ -211,9 +214,31 @@ try {
   process.exit(1);
 }
 
+// 6.5. Construct markdown_render.js bundle with inlined markdown-it (§5.8.5)
+let markdownRenderBundledCode = '';
+try {
+  const esbuildMd = esbuild.buildSync({
+    entryPoints: [markdownRenderSrc],
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    write: false,
+    nodePaths: [
+      path.join(root, 'node_modules'),
+      path.join(__dirname, '..', 'node_modules'),
+    ],
+    logLevel: 'silent',
+  });
+  markdownRenderBundledCode = esbuildMd.outputFiles[0].text;
+} catch (err) {
+  console.error(`esbuild failed to bundle ${markdownRenderSrc}: ${err.message}`);
+  process.exit(1);
+}
+
 // 7. Write all output files together after all inputs are verified and compiled
 fs.mkdirSync(outDir, { recursive: true });
 fs.mkdirSync(coreDir, { recursive: true });
 fs.writeFileSync(answerStateDst, answerStateWrapped, 'utf8');
 fs.writeFileSync(adapterDst, adapterWrapped, 'utf8');
+fs.writeFileSync(markdownRenderDst, markdownRenderBundledCode, 'utf8');
 fs.writeFileSync(protocolDst, protocolBundledCode, 'utf8');

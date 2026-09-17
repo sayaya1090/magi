@@ -31,6 +31,7 @@ import {
   restoreFocus,
   classifyDiffLines,
   renderMarkdown,
+  isSafeUrl,
   formatChoiceOptions,
   updateInFlightUI,
   WebviewBridge,
@@ -2144,12 +2145,14 @@ test('renderMarkdown parses blockquotes', () => {
   const bq = container.childNodes[0] as MockElement;
   assert.equal(bq.tagName, 'BLOCKQUOTE');
   assert.equal(collectText(bq), 'Line 1\nLine 2 with bold');
-  const strong = bq.childNodes.find(n => n.tagName === 'STRONG');
-  assert.ok(strong, 'blockquote should contain strong tag for bold');
+  const p = bq.childNodes[0] as MockElement;
+  assert.equal(p.tagName, 'P');
+  const strong = p.childNodes.find(n => n.tagName === 'STRONG');
+  assert.ok(strong, 'blockquote paragraph should contain strong tag for bold');
 });
 
 test('renderMarkdown parses unordered lists', () => {
-  const md = '- item 1\n- item 2 with `code`\n* item 3';
+  const md = '- item 1\n- item 2 with `code`\n- item 3';
   const container = render(md);
   assert.equal(container.childNodes.length, 1);
   const ul = container.childNodes[0] as MockElement;
@@ -2160,6 +2163,16 @@ test('renderMarkdown parses unordered lists', () => {
   const code = ul.childNodes[1].childNodes.find(n => n.tagName === 'CODE');
   assert.ok(code, 'li should contain code element');
   assert.equal(code?.textContent, 'code');
+});
+
+test('renderMarkdown separates lists when bullet marker changes (- to *) according to CommonMark', () => {
+  const md = '- item 1\n- item 2\n* item 3';
+  const container = render(md);
+  assert.equal(container.childNodes.length, 2, 'marker change must separate into two UL elements');
+  assert.equal(container.childNodes[0].tagName, 'UL');
+  assert.equal(container.childNodes[1].tagName, 'UL');
+  assert.equal(container.childNodes[0].childNodes.length, 2);
+  assert.equal(container.childNodes[1].childNodes.length, 1);
 });
 
 test('renderMarkdown parses ordered lists', () => {
@@ -2310,6 +2323,107 @@ test('classifyDiffLines and renderMarkdown correctly classify hunk-internal dele
   const codeNonDiff = preNonDiff.childNodes[0] as MockElement;
   assert.equal(codeNonDiff.childNodes.length, 0); // plain text node inside code
   assert.equal(codeNonDiff.textContent, '+ 1\n- 2');
+});
+
+test('§5.8.5 isSafeUrl validates permitted and dangerous URL schemes with bypass attempts', () => {
+  // Safe protocols & relative
+  assert.equal(isSafeUrl('https://example.com'), true);
+  assert.equal(isSafeUrl('http://localhost:3000/api'), true);
+  assert.equal(isSafeUrl('mailto:developer@example.com'), true);
+  assert.equal(isSafeUrl('#section-1'), true);
+  assert.equal(isSafeUrl('./relative/path.ts'), true);
+  assert.equal(isSafeUrl('../parent/file.go'), true);
+  assert.equal(isSafeUrl('/root/path/file.rs'), true);
+
+  // Dangerous schemes must be rejected
+  assert.equal(isSafeUrl('javascript:alert(1)'), false);
+  assert.equal(isSafeUrl('JAVASCRIPT:alert(1)'), false);
+  assert.equal(isSafeUrl('  javascript:alert(1)'), false);
+  assert.equal(isSafeUrl('java\tscript:alert(1)'), false);
+  assert.equal(isSafeUrl('java\x00script:alert(1)'), false);
+  assert.equal(isSafeUrl('command:workbench.action.terminal.new'), false);
+  assert.equal(isSafeUrl('COMMAND:workbench.action.quit'), false);
+  assert.equal(isSafeUrl('  command:magi.start'), false);
+  assert.equal(isSafeUrl('data:text/html,<script>alert(1)</script>'), false);
+  assert.equal(isSafeUrl('DATA:image/svg+xml;base64,...'), false);
+  assert.equal(isSafeUrl('vbscript:msgbox(1)'), false);
+  assert.equal(isSafeUrl('file:///etc/passwd'), false);
+  assert.equal(isSafeUrl(''), false);
+  assert.equal(isSafeUrl('   '), false);
+});
+
+test('§5.8.5 renderMarkdown strictly rejects command: and data: links without creating actionable href', () => {
+  const md = '[run command](command:workbench.action.terminal.new) and [steal](data:text/html,<script>alert(1)</script>)';
+  const container = render(md);
+  const p = container.childNodes[0] as MockElement;
+  const a = p.childNodes.find(n => n.tagName === 'A');
+  assert.equal(a, undefined, 'command: and data: links must not produce an <a> tag');
+  const text = collectText(p);
+  assert.ok(text.includes('command:workbench.action.terminal.new'));
+  assert.ok(text.includes('data:text/html'));
+});
+
+test('§5.8.5 renderMarkdown renders image syntax as safe text representation with zero network requests', () => {
+  const md = 'Here is an image: ![Architecture Diagram](https://example.com/arch.png "Arch") and empty alt: ![](https://example.com/test.png)';
+  const container = render(md);
+  const p = container.childNodes[0] as MockElement;
+  const img = p.childNodes.find(n => n.tagName === 'IMG');
+  assert.equal(img, undefined, '<img> tag must not be created');
+  const text = collectText(p);
+  assert.ok(text.includes('[이미지: Architecture Diagram]'));
+  assert.ok(text.includes('[이미지]'));
+});
+
+test('§5.8.5 renderMarkdown preserves trailing newlines, spaces, and empty lines in closed and unclosed code fences', () => {
+  // 1. Closed fence with trailing empty line inside code block
+  const closedWithEmptyLine = '```ts\nconst x = 1;\n\n```';
+  const container1 = render(closedWithEmptyLine);
+  const pre1 = container1.childNodes[0] as MockElement;
+  const code1 = pre1.childNodes[0] as MockElement;
+  assert.equal(code1.textContent, 'const x = 1;\n', 'trailing empty line inside fence must be preserved verbatim');
+
+  // 2. Closed fence with trailing spaces on the last line
+  const closedWithSpaces = '```ts\nconst y = 2;   \n```';
+  const container2 = render(closedWithSpaces);
+  const pre2 = container2.childNodes[0] as MockElement;
+  const code2 = pre2.childNodes[0] as MockElement;
+  assert.equal(code2.textContent, 'const y = 2;   ', 'trailing spaces must not be trimmed by trim/trimEnd');
+
+  // 3. Unclosed streaming fence with trailing newline
+  const unclosedWithNl = '```python\ndef stream():\n    pass\n';
+  const container3 = render(unclosedWithNl);
+  const pre3 = container3.childNodes[0] as MockElement;
+  const code3 = pre3.childNodes[0] as MockElement;
+  assert.equal(code3.textContent, 'def stream():\n    pass\n', 'unclosed fence trailing newline must be preserved');
+
+  // 4. 4-space indented code block
+  const indentedBlock = '    const a = 1;\n    const b = 2;';
+  const container4 = render(indentedBlock);
+  const pre4 = container4.childNodes[0] as MockElement;
+  assert.equal(pre4.tagName, 'PRE');
+  const code4 = pre4.childNodes[0] as MockElement;
+  assert.equal(code4.textContent, 'const a = 1;\nconst b = 2;');
+});
+
+test('§5.8.5 renderMarkdown preserves escaped pipes and cell alignment in tables', () => {
+  const tableMd = '| Left | Center | Right |\n| :--- | :---: | ---: |\n| A \\| B | `code \\| val` | 123 |';
+  const container = render(tableMd);
+  const table = container.childNodes[0] as MockElement;
+  assert.equal(table.tagName, 'TABLE');
+  const thead = table.childNodes[0] as MockElement;
+  assert.equal(thead.tagName, 'THEAD');
+  const tbody = table.childNodes[1] as MockElement;
+  const tr = tbody.childNodes[0] as MockElement;
+  assert.equal(tr.childNodes.length, 3);
+
+  // Escaped pipe in cell text
+  const td1 = tr.childNodes[0] as MockElement;
+  assert.equal(collectText(td1), 'A | B', 'escaped pipe must be parsed as literal pipe character');
+
+  const td2 = tr.childNodes[1] as MockElement;
+  const code = td2.childNodes.find(n => n.tagName === 'CODE');
+  assert.ok(code);
+  assert.equal(code?.textContent, 'code | val');
 });
 
 test('host notRunning state roundtrip delivers offerStart and note to handler', () => {

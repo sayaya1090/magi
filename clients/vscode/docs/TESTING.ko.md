@@ -1022,3 +1022,94 @@ node --test clients/vscode/out/test/*.property.test.js
    - **실행 결과:** `§5.8.4 Property: Multi-step random command sequence for answer_state maintains invariants` 속성이 seed `101006089`, path `'0:0:0:0:0:0'`에서 1회 실행(5회 축소) 후 즉각 실패:
      `AssertionError [ERR_ASSERTION]: Initial mismatched attemptId must not corrupt state: generalDraft: 'REVIEW_CORRUPTION' !== ''`.
 - **원복:** 모든 변조 코드를 원래 계약대로 원복한 뒤 15개 속성 테스트 및 5개 헬퍼 테스트가 100% 통과함을 확인했습니다.
+
+---
+
+## §5.8.5 markdown-it 기반 자체 마크다운 파서 전환 검증
+
+웹뷰 어댑터(`src/web/chat_adapter.ts`)에서 정규식과 수동 스택으로 처리하던 약 400줄의 자체 마크다운 파서를 CommonMark 명세 준수 검증 파서인 `markdown-it` 기반의 안전한 토큰-to-DOM 렌더러(`src/web/markdown_render.ts`)로 전면 교체했습니다. 기존 대화·질문·초안·복구 상태 머신 및 편집창 연동 계약은 그대로 보존하고, 문법 분석을 라이브러리에 위임하면서도 `innerHTML`을 일체 사용하지 않는 순수 DOM 생성과 엄격한 URL/이미지 보안 정책을 적용했습니다.
+
+### 1. 의존성 및 패키징 사양
+- **라이브러리 및 버전:** `markdown-it@15.0.2` (MIT 라이선스), `@types/markdown-it@14.1.2` (MIT 라이선스).
+- **설치 위치:** `clients/vscode/package.json`의 `devDependencies` 및 `package-lock.json`.
+- **배포 및 번들 격리:**
+  - 웹뷰 배포 번들(`out/web/chat_adapter.bundle.js`)에 `markdown-it` 전체 런타임이 인라인 번들링되어 런타임 `node_modules` 의존성이 0바이트입니다.
+  - Node/테스트 격리 환경을 위해 `out/web/markdown_render.js` 역시 `build-webview-assets.mjs`에서 `platform: 'node'`로 인라인 번들링되어 VSIX 패키지 내부에 외부 `require('markdown-it')`가 일체 남지 않습니다.
+- **파서 인스턴스 구성:**
+  - 단일 파서 인스턴스를 생성하여 재사용합니다 (`new MarkdownIt({ html: false, breaks: true, linkify: false, typographer: false })`).
+  - 자동 URL 감지(`linkify: false`), 스마트 따옴표/문장부호 변형(`typographer: false`), HTML 실행(`html: false`)을 비활성화하여 예기치 않은 변형 및 XSS 경로를 원천 차단합니다.
+  - 문단 내 개행(`breaks: true`), GFM 표(`table`), 취소선(`strikethrough`) 기본 활성화를 검증했습니다.
+
+### 2. 마크다운 문법 변환 상세 비교표 (현재 파서 vs markdown-it 새 파서)
+
+| 영역 | 입력 예제 | 현재 파서 (98a733aa) | markdown-it 새 파서 | 유지 또는 의도된 차이 / 사유 |
+|---|---|---|---|---|
+| **기본 문법** | `# H1` ~ `###### H6` | `<h1>`~`<h6>` 태그 생성 | `<h1>`~`<h6>` 태그 생성 | **유지:** 제목 태그 레벨 및 텍스트 노드 100% 일치 |
+| 기본 문법 | `**bold**`, `*italic*`, `***both***` | `<strong>`, `<em>`, `<strong><em>` 생성 | `<strong>`, `<em>`, `<em><strong>` 생성 | **유지:** 강조 태그 생성 및 중첩 텍스트 보존 |
+| 기본 문법 | `~~strikethrough~~` | `<del>` 태그 생성 | `<del>` 태그 생성 (`s_open`을 `del`로 매핑) | **유지:** 기존 CSS 스타일링 및 DOM 태그명 호환 |
+| 기본 문법 | `` `inline code` `` | `<code>` 태그 생성 | `<code>` 태그 생성 | **유지:** 인라인 코드 엘리먼트 및 textContent 보존 |
+| 기본 문법 | `---`, `***`, `___` | `<hr>` 태그 생성 | `<hr>` 태그 생성 | **유지:** 구분선 엘리먼트 생성 |
+| 기본 문법 | `> Line 1\n> Line 2 with **bold**` | `<blockquote>Line 1<br>Line 2 with <strong>bold</strong></blockquote>` | `<blockquote><p>Line 1<br>Line 2 with <strong>bold</strong></p></blockquote>` | **의도된 차이:** CommonMark 표준 명세에 따라 인용구 내부에 문단(`<p>`) 엘리먼트 계층 생성. 내부 텍스트, `<br>`, 강조 태그 온전 보존 |
+| 기본 문법 | `문단 1\n문단 1 둘째줄\n\n문단 2` | `<p>문단 1<br>문단 1 둘째줄</p><p>문단 2</p>` | `<p>문단 1<br>문단 1 둘째줄</p><p>문단 2</p>` | **유지:** `breaks: true` 옵션으로 소프트 개행 시 `<br>` 생성 정책 동일 유지 |
+| **목록·표** | `- item 1\n- item 2 with `code`\n- item 3` | `<ul><li>item 1</li>...</ul>` | `<ul><li>item 1</li>...</ul>` | **유지:** 순서 없는 목록 계층 및 타이트 목록 텍스트 직접 보존 |
+| 목록·표 | `- item 1\n* item 2` (불릿 기호 혼용) | 단일 `<ul>`에 2개 `<li>` 강제 결합 | `<ul><li>item 1</li></ul><ul><li>item 2</li></ul>` | **의도된 차이:** CommonMark §5.2 표준에 따라 불릿 마커 기호(`-` vs `*`) 변경 시 목록 분리 처리 |
+| 목록·표 | `3. third\n4. fourth` | `<ol start="3">` 속성 및 프로퍼티 설정 | `<ol start="3">` 속성 및 프로퍼티 설정 | **유지:** 순서 있는 목록 시작 번호 `start` 어트리뷰트/프로퍼티 보존 |
+| 목록·표 | `- parent 1\n  - child 1\n- parent 2` | `<ul><li>parent 1<ul><li>child 1</li></ul></li>...` | `<ul><li>parent 1<ul><li>child 1</li></ul></li>...` | **유지:** 부모 `li` 내부 자식 `ul`/`ol` 중첩 DOM 계층 완벽 일치 |
+| 목록·표 | `| H1 | H2 |\n|---|---|\n| C1 | C2 |` | `<table><thead>...<tbody>...` | `<table><thead>...<tbody>...` | **유지:** 표 머리글(`thead`), 본문(`tbody`), 셀(`th`, `td`) 순서 보존 |
+| 목록·표 | `| :--- | :---: | ---: |` (정렬) | 정렬 속성 미지원 (무시) | `th`/`td`에 정렬 스타일 속성 부여 | **의도된 차이:** markdown-it 표준 표 파서를 통한 텍스트 정렬 속성 지원 |
+| 목록·표 | `| Code \| Desc |` (이스케이프 파이프) | 단순 `split('\|')`로 셀 구조 파괴/오염 | `<td>Code \| Desc</td>`로 안전 파싱 | **의도된 차이:** 이스케이프된 파이프 문자열을 셀 내부 리터럴로 정확히 인식하여 표 레이아웃 보호 |
+| **코드 펜스** | ```` ```typescript\nconst x = 1;\n``` ```` | `<pre data-lang="typescript"><code>const x = 1;</code></pre>` | `<pre data-lang="typescript"><code>const x = 1;</code></pre>` | **유지:** 코드 블록 `data-lang` 속성 및 코드 원문 textContent 보존 |
+| 코드 펜스 | ```` ````markdown\n```ts\n...```\n```` ```` | 내부 3-백틱 펜스 보존 | 내부 3-백틱 펜스 보존 | **유지:** 상위 백틱 길이 기반 중첩 코드 블록 보존 |
+| 코드 펜스 | ```` ```python\ndef stream():\n    pass ```` (미완성) | `<pre data-lang="python"><code>...</code></pre>` | `<pre data-lang="python"><code>...</code></pre>` | **유지:** 스트리밍 중 닫히지 않은 펜스도 안전하게 `<pre><code>` 렌더링 |
+| 코드 펜스 | `    const a = 1;` (4칸 들여쓰기) | 일반 문단(`<p>`)으로 취급 | `<pre><code>const a = 1;</code></pre>` | **의도된 차이:** CommonMark 표준 명세에 따른 4칸 들여쓰기 코드 블록 지원 |
+| 코드 펜스 | 코드 끝 빈 줄 / 끝 공백 보존 | `codeLines.join('\n')`으로 보존 | 닫힌 펜스 기준 마지막 개행 1회 슬라이스, 임의 `trim`/`trimEnd` 배제 | **유지:** 끝 빈 줄 및 공백 문자 손실 없는 100% 원문 보존 |
+| 코드 펜스 | ```` ```diff\n-old\n+new\n``` ```` | `classifyDiffLines`를 통한 `.diff-line` 클래스 부여 | `classifyDiffLines`를 통한 `.diff-line` 클래스 부여 | **유지:** 언어가 `diff`/`patch`일 때만 diff 구문 분석 엔진 연결 |
+| 코드 펜스 | ```` ```\n+ 1\n- 2\n``` ```` (언어 미지정) | diff 추측 없이 일반 코드 텍스트 유지 | diff 추측 없이 일반 코드 텍스트 유지 | **유지:** 언어 식별자가 없는 일반 코드의 +/-를 diff로 오인하지 않음 |
+| **링크·HTML** | `[Open](https://example.com)` | `<a href="..." target="_blank" rel="noreferrer noopener">` | `<a href="..." target="_blank" rel="noreferrer noopener">` | **유지:** 외부 링크 보안 속성 및 새 창 열기 동작 보존 |
+| 링크·HTML | `http:`, `https:`, `mailto:`, 상대 경로, `#` | 정상 앵커 엘리먼트 생성 | 정상 앵커 엘리먼트 생성 | **유지:** 승인된 안전 스킴 100% 동작 보존 |
+| 링크·HTML | `[run](command:workbench.action)` | `<a>` 링크 생성 (보안 취약점) | **실행 링크 미생성**, 비활성 텍스트로 안전 보존 | **의도된 차이:** §5.8.5 보안 요구사항에 따라 `command:` 스킴 실행 원천 차단 |
+| 링크·HTML | `[pwn](javascript:alert(1))` | 텍스트 원문 보존, 앵커 미생성 | **실행 링크 미생성**, 텍스트 원문 보존 | **유지:** `javascript:` 실행 차단 |
+| 링크·HTML | `[data](data:text/html,evil)` | 브라우저별 허용 위험 존재 | **실행 링크 미생성**, 텍스트 원문 보존 | **의도된 차이:** `data:` URI 스킴 차단 |
+| 링크·HTML | `<script>alert(1)</script>`, `<img onerror=...>` | 텍스트 노드로 보존 (태그 미생성) | 텍스트 노드로 보존 (태그 미생성) | **유지:** `html: false` 및 텍스트 노드 경로로 XSS 원천 차단 |
+| 링크·HTML | `![Alt](https://example.com/a.png)` | `! <a href="...">Alt</a>` (느낌표 + 링크) | `[이미지: Alt]` 텍스트 노드로 안전 표출 | **의도된 차이:** 외부 이미지 요청 차단(네트워크 요청 0건) 및 명확한 대체 텍스트 표출 |
+| **화면 계약** | 빈 문자열 `""` | `container.textContent = ""` (자식 0개) | `container.textContent = ""` (자식 0개) | **유지:** 빈 입력 시 컨테이너 비우기 계약 보존 |
+| 화면 계약 | `{ document: mockDoc }` 주입 | 주입된 가상 Document 사용 | 주입된 가상 Document 우선 사용 | **유지:** 헤드리스 하네스 및 브라우저 환경 호환 보존 |
+| 화면 계약 | 네이티브 편집창 열기 (`outputId`) | 원문 텍스트 기반 가상 문서 조회 | 원문 텍스트 기반 가상 문서 조회 | **유지:** 렌더링 결과와 무관하게 호스트 원문 데이터 보존 |
+
+### 3. DOM 생성 및 보안 경계 사양
+- **`innerHTML` 배제:** `doc.createElement`, `doc.createTextNode`, `doc.appendChild`만을 사용하여 DOM 트리를 구성합니다.
+- **URL 검증기 (`isSafeUrl`):**
+  - 허용 목록: `https:`, `http:`, `mailto:`, 상대 경로(`./`, `../`, `/` — 단 `//` 프로토콜 상대 URL 제외), 앵커(`#`).
+  - 거부 목록: `command:`, `javascript:`, `data:`, `vbscript:`, `file:`.
+  - 우회 방어: 제어문자(`\u0000`~`\u001F`, `\u007F`) 및 공백 제거 후 소문자 접두사 대조, URL 파서 이중 검증.
+  - 거부 시 동작: `validateLink` 단계에서 텍스트 토큰으로 격하되며, DOM 생성 단계에서도 `<a>` 태그의 `href` 속성을 설정하지 않아 비인가 액션 실행이 불가능합니다.
+- **이미지 문법 처리:** `token.type === 'image'` 감지 시 `<img>` 태그를 생성하지 않고, 대체 텍스트(`[이미지: ${alt}]` 또는 `[이미지]`) 텍스트 노드를 삽입하여 외부 네트워크 자산 요청을 완벽히 차단합니다.
+- **코드 블록 개행 보존:** markdown-it이 닫힌 펜스에 부여하는 마지막 `\n`에 한해 1회만 정확히 제거하며, 임의의 `trim()`이나 `trimEnd()`를 호출하지 않아 코드 블록 내부의 빈 줄, 끝 공백, 탭 문자가 100% 원문 그대로 보존됩니다.
+
+### 4. 자산 크기 및 렌더링 성능 실측 (Before vs After)
+
+| 항목 | 자체 파서 (98a733aa) | markdown-it 새 파서 (§5.8.5) | 변화량 및 비고 |
+|---|---|---|---|
+| **웹뷰 번들 크기 (`chat_adapter.bundle.js`)** | 149,586 bytes (146.08 KB) | 351,730 bytes (343.48 KB) | +202,144 bytes (+197.4 KB, markdown-it 인라인 포함) |
+| **VSIX 패키지 크기 (`magi-0.2.0.vsix`)** | 239.3 KB (60개 파일) | 347.05 KB (61개 파일) | +107.75 KB (외부 `node_modules` 0바이트) |
+| **대표 긴 답변 렌더링 시간 (11,510자, 100회)** | 총 24.93 ms (평균 0.249 ms) | 총 96.88 ms (평균 0.969 ms) | 응답당 1ms 미만으로 UI 스레드 체감 영향 없음 |
+| **자체 문법 정규식/스택 코드** | 약 400줄 | 0줄 (완전 제거) | 유지보수 부담 제거 및 검증된 파서 도입 |
+
+### 5. 파이프라인 검증 결과
+1. **TypeScript 컴파일 및 번들 빌드 (`npm run build`):**
+   - `tsc -p .` 무경고 컴파일 완료.
+   - `build-webview-assets.mjs`가 8개 필수 입력 파일을 검증하고 웹뷰 번들 및 Node 호환 번들 정상 생성.
+2. **단위 테스트 (`npm test`):**
+   - 총 510개 테스트 전수 통과 (503 pass, 0 fail, 7 skip).
+   - 신규 추가된 §5.8.5 경계 테스트(URL 우회 검증, command/data 링크 거부, 이미지 텍스트화, 코드 블록 공백 보존, 테이블 이스케이프 파이프, 번들 선행 검사) 100% 통과.
+3. **브라우저 테스트 하네스 (`transcript-test.mjs`):**
+   - `--verify-assets`: 사전 자산 라우트 및 격리 누락 검사 통과.
+   - 정방향 5개 번들 39개 시나리오 100% 통과 (axe-core 접근성 감사 36회 violations=0, incomplete=0).
+   - 테마 역순(`--reverse-themes`): 39개 시나리오 100% 통과.
+4. **VSIX 무의존성 격리 실행 검증:**
+   - `magi-0.2.0.vsix`를 임시 디렉터리에 압축 해제 후 `node_modules` 부재 환경 실측.
+   - 패키지 내 `.js` 파일 전체에서 외부 `require('markdown-it')` 호출 0건 확인.
+   - 독립 sandboxed VM 환경에서 `chat_adapter.bundle.js` 및 `markdown_render.js`의 `renderMarkdown` 정상 실행 및 DOM 생성 확인.
+5. **Go idebridge 테스트:**
+   - `go test -count=1 ./internal/adapter/idebridge` 100% 통과 (9.7s).
+

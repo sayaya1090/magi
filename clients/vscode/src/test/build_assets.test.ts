@@ -32,6 +32,7 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
       { name: 'src/web/recovery_view.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_view.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_view.ts') },
       { name: 'src/web/recovery_controller.ts', realPath: path.join(realRoot, 'src', 'web', 'recovery_controller.ts'), tempPath: path.join(tempSrcWebDir, 'recovery_controller.ts') },
       { name: 'src/web/chat_adapter.ts', realPath: path.join(realRoot, 'src', 'web', 'chat_adapter.ts'), tempPath: path.join(tempSrcWebDir, 'chat_adapter.ts') },
+      { name: 'src/web/markdown_render.ts', realPath: path.join(realRoot, 'src', 'web', 'markdown_render.ts'), tempPath: path.join(tempSrcWebDir, 'markdown_render.ts') },
       { name: 'src/core/webview_protocol.ts', realPath: path.join(realRoot, 'src', 'core', 'webview_protocol.ts'), tempPath: path.join(tempSrcCoreDir, 'webview_protocol.ts') },
     ];
 
@@ -42,15 +43,18 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
 
     const dstAnswerState = path.join(tempWebDir, 'answer_state.js');
     const dstAdapterBundle = path.join(tempWebDir, 'chat_adapter.bundle.js');
+    const dstMarkdownRender = path.join(tempWebDir, 'markdown_render.js');
     const dstProtocolBundle = path.join(tempCoreDir, 'webview_protocol.js');
 
     const SENTINEL_ANSWER = '// PRE-EXISTING_ANSWER_STATE_SENTINEL';
     const SENTINEL_ADAPTER = '// PRE-EXISTING_ADAPTER_BUNDLE_SENTINEL';
+    const SENTINEL_MARKDOWN = '// PRE-EXISTING_MARKDOWN_RENDER_SENTINEL';
     const SENTINEL_PROTOCOL = '// PRE-EXISTING_PROTOCOL_BUNDLE_SENTINEL';
 
     // Set sentinel contents on destination files to verify they are untouched on error
     await writeFile(dstAnswerState, SENTINEL_ANSWER, 'utf8');
     await writeFile(dstAdapterBundle, SENTINEL_ADAPTER, 'utf8');
+    await writeFile(dstMarkdownRender, SENTINEL_MARKDOWN, 'utf8');
     await writeFile(dstProtocolBundle, SENTINEL_PROTOCOL, 'utf8');
 
     // 1. Missing each required input one by one -> must exit 1, output error and hint, and leave outputs untouched
@@ -66,12 +70,14 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
         assert.ok(err.stderr.includes(file.name), `stderr must mention missing file ${file.name}`);
         assert.ok(err.stderr.includes("Run 'tsc -p .' first."), `stderr must include rebuild hint`);
 
-        // Assert existing output files were not touched or overwritten (§4.7 P2, §5.8.3)
+        // Assert existing output files were not touched or overwritten (§4.7 P2, §5.8.3, §5.8.5)
         const currentAnswer = await readFile(dstAnswerState, 'utf8');
         const currentAdapter = await readFile(dstAdapterBundle, 'utf8');
+        const currentMarkdown = await readFile(dstMarkdownRender, 'utf8');
         const currentProtocol = await readFile(dstProtocolBundle, 'utf8');
         assert.equal(currentAnswer, SENTINEL_ANSWER, `dst answer_state.js must remain untouched on missing ${file.name}`);
         assert.equal(currentAdapter, SENTINEL_ADAPTER, `dst chat_adapter.bundle.js must remain untouched on missing ${file.name}`);
+        assert.equal(currentMarkdown, SENTINEL_MARKDOWN, `dst markdown_render.js must remain untouched on missing ${file.name}`);
         assert.equal(currentProtocol, SENTINEL_PROTOCOL, `dst webview_protocol.js must remain untouched on missing ${file.name}`);
       }
 
@@ -151,6 +157,25 @@ test('build-webview-assets: child process exits with code 1 and preserves existi
     assert.ok(parsedReady);
     assert.equal(parsedReady.kind, 'ready');
     assert.equal(exportedProtocol.parseWebviewToHostMessage({ kind: 'say' }), undefined);
+
+    // Verify markdown_render.js execution in sandboxed CJS context (§5.8.5)
+    const generatedMarkdownRender = await readFile(dstMarkdownRender, 'utf8');
+    assert.notEqual(generatedMarkdownRender, SENTINEL_MARKDOWN);
+
+    const markdownSandbox: any = {
+      exports: {},
+      module: { exports: {} },
+      require: () => { throw new Error('Standalone bundle must not require external modules'); },
+    };
+    markdownSandbox.module.exports = markdownSandbox.exports;
+    vm.createContext(markdownSandbox);
+    vm.runInContext(generatedMarkdownRender, markdownSandbox);
+
+    const exportedMarkdown = markdownSandbox.module.exports;
+    assert.equal(typeof exportedMarkdown.renderMarkdown, 'function');
+    assert.equal(typeof exportedMarkdown.isSafeUrl, 'function');
+    assert.equal(exportedMarkdown.isSafeUrl('https://example.com'), true);
+    assert.equal(exportedMarkdown.isSafeUrl('command:workbench.action'), false);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
