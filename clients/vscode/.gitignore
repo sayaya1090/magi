@@ -4,3 +4,4 @@ node_modules/
 .vscode-test/
 core-release.properties
 LICENSE
+tools/transcript/artifacts/
