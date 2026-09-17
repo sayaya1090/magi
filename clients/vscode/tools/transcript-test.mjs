@@ -47,7 +47,13 @@ export {
 export { checkRequiredBundles as verifyRequiredBundles };
 
 // Pre-flight check and dynamic HTML preparation (§2.2, §5.8.6)
-const html = await prepareChatHtml();
+let html;
+try {
+  html = await prepareChatHtml();
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
 
 
 /**

@@ -1203,42 +1203,44 @@ node --test clients/vscode/out/test/*.property.test.js
 
 ---
 
-### §5.8.6 @playwright/test 실행 관리 시범 전환 (P3 / markdown 시나리오)
+### §5.8.6 @playwright/test 실행 관리 시범 전환 및 실패 처리 보완 (P3)
 
 #### 1. 공유 코드 추출 및 아키텍처 경계
 - **배경 및 목표:**
-  - `tools/transcript-test.mjs`가 직접 수행하던 브라우저 프로세스 실행·컨텍스트 수명 관리·오류 관측·리포팅을 표준 `@playwright/test` 러너로 이전할 수 있는지 검증하기 위해, `markdown` 묶음(`markdown_streaming_and_security_contract`) 1건을 대상으로 시범 전환을 수행했습니다.
-  - 제품 의존성(`package.json`)에 `@playwright/test`를 중복 추가하지 않고, 저장소에 기설치된 `clients/web/e2e` 환경을 `createRequire`로 안전하게 공유했습니다.
+  - `tools/transcript-test.mjs`가 직접 관리하던 브라우저 수명·실패 기록·리포트를 표준 `@playwright/test` 러너로 이전할 수 있는지 검증하기 위해, `markdown` 묶음(`markdown_streaming_and_security_contract`) 1건을 대상으로 시범 전환을 수행했습니다.
+  - 제품 의존성(`package.json`)에 `@playwright/test`를 중복 추가하지 않고, 저장소의 `clients/web/e2e` 환경을 `createRequire`로 안전하게 공유했습니다.
 - **도구 전용 공유 모듈 추출:**
   - `clients/vscode/tools/transcript/environment.mjs`:
     - 단일 진실 원천 상수: `TEST_ORIGIN`, `ASSET_PATHS`, `ASSET_URLS`, `DEFAULT_WEB_OUT_DIR`
-    - `prepareChatHtml`: 반드시 `asset-preflight.mjs` 검사가 성공한 후에만 `renderChatHtml`을 동적으로 import하며, 번들 부재를 빈 HTML이나 자동 빌드로 숨기지 않습니다. `baseDir` 및 `process.env.MAGI_WEB_OUT_DIR` 오버라이드를 지원합니다. 모듈 import 시점에는 사전 검사나 브라우저 실행 부작용이 발생하지 않습니다.
+    - `prepareChatHtml`: 반드시 `asset-preflight.mjs` 검사가 성공한 후에만 `renderChatHtml`을 동적으로 import합니다. 번들 누락 시 `checkRequiredBundles`의 구조화된 누락 경로 및 빌드 안내를 담은 `Error`를 던지며, fixture 내에서 `process.exit`를 호출하지 않습니다 (`MAGI_WEB_OUT_DIR` 오버라이드 지원).
     - `installAcquireVsCodeApi`: `postMessage` 자동 패칭 없는 엄격한 VS Code API 모의 구현을 주입합니다.
-    - `attachErrorCollectors`: `pageerror` 및 `console.error` 리스너와 미등록/외부 요청 기록기(`handleUnregisteredRequest`)를 바인딩하고 해제하는 `detach` 함수를 제공합니다.
+    - `attachErrorCollectors`: `pageerror`, `console.error`, 미등록/외부 요청 기록기(`handleUnregisteredRequest`)를 연결하고 해제하는 `detach` 함수를 제공합니다.
     - `installAssetRouter`: 라우팅된 경로 외 모든 외부 요청 및 미등록 URL을 404로 차단하고 콜백으로 기록합니다.
   - `clients/vscode/tools/transcript/scenarios/markdown.mjs`:
-    - `markdown_streaming_and_security_contract` 시나리오(`id`, `name`, `run`)를 독립 모듈로 분리하여, 기존 수동 하네스와 신규 Playwright 러너가 동일한 `run(page)` 함수를 100% 공유합니다 (검증 문자열, DOM 단언, 초안 검사 중복 0건).
+    - `markdown_streaming_and_security_contract` 시나리오(`id`, `name`, `run`)를 독립 모듈로 분리하여, 기존 수동 하네스와 Playwright 러너가 동일한 `run(page)` 함수를 100% 공유합니다 (검증 문자열, DOM 단언, 초안 검사 중복 0건).
+  - `clients/vscode/tools/transcript/fixtures.mjs`:
+    - 공유 커스텀 `page` fixture를 독립 모듈로 분리하여, 일반 테스트(`markdown.spec.mjs`)와 격리 실패 검사(`failure-injection.spec.mjs`)가 동일한 fixture 구현을 공유합니다.
+    - 수명주기 전 과정을 `try / finally`로 감싸 `collector.detach()` 해제를 보장하며, `testInfo`를 통해 본문 실패 여부를 확인합니다.
 
-#### 2. Playwright 시범 설정 및 Fixture 구현
-- **설정 파일 (`tools/transcript/playwright.config.mjs`):**
-  - `testDir`: `clients/vscode/tools/transcript`
-  - `testMatch`: `/markdown\.spec\.mjs$/` (콘솔 E2E 및 타 테스트 수집 방지)
-  - `workers: 1`, `fullyParallel: false`, `retries: 0` (결정론적 실행 및 자동 재시도 은폐 방지)
-  - `outputDir`: `clients/vscode/tools/transcript/artifacts/` (`.vscodeignore`의 `tools/**` 및 `.gitignore`에 의해 배포 VSIX 및 git 추적에서 격리)
-  - `use: { trace: 'retain-on-failure', screenshot: 'only-on-failure' }`
-- **테스트 및 Fixture (`tools/transcript/markdown.spec.mjs`):**
-  - Playwright Test가 `browser`, `context`, `page`의 라이프사이클을 전담 관리합니다.
-  - 커스텀 fixture는 페이지 생성 직후 사전 검사 및 HTML 준비(`prepareChatHtml`), 오류 관측기 연결(`attachErrorCollectors`), mock API 주입(`installAcquireVsCodeApi`), 엄격 자산 라우터(`installAssetRouter`)를 차례로 구성한 뒤 `TEST_ORIGIN`으로 이동합니다.
-  - Fixture 종료 시 리스너를 해제하고, **본문 단언 실패가 뒤의 정리 오류로 가려지지 않도록** 본문 예외가 없을 때에만 수집된 `errors`와 `routeErrors`의 0건 불변식을 단언합니다.
+#### 2. 실패 처리 및 진단 정밀화
+- **준비 단계 번들 누락 처리 (P2):**
+  - `prepareChatHtml`이 `process.exit` 대신 정식 `Error`를 던져 Playwright가 fixture setup 에러로 정상 수신합니다.
+  - `worker process exited unexpectedly` 비정상 종료 문구 없이, 누락 경로와 빌드 명령이 포함된 정식 테스트 실패로 보고되며, 생성된 자원이 정상 정리됩니다.
+- **본문 실패 판정 및 수집 오류 첨부 연결 (P3):**
+  - Fixture의 세 번째 인자인 `testInfo`로 실제 본문 실행 결과를 확인합니다 (`testInfo.status !== 'passed' || testInfo.errors.length > 0`).
+  - 이미 본문 단언이 실패했거나 시간 초과한 경우, collector 단언을 추가 실행하지 않아 최초 실패 원인이 가려지거나 왜곡되는 현상을 차단합니다.
+  - 대신 수집된 `errors`와 `routeErrors`를 `collector-errors.json` 첨부 자료(attachment)로 보존하여 디버깅 맥락을 유지합니다.
+  - 본문이 정상 종료된 경우에만 collector 단언을 실행하여 미등록 자산 요청, pageerror, console.error를 실패로 판정합니다.
 
 #### 3. 6대 시범 완료 기준 실측 검증
 
 | 확인 항목 | 필요한 증거 | 실측 결과 |
 |---|---|---|
-| **정상 실행** | 동일 markdown 시나리오가 기존 하네스와 새 실행기에서 각각 통과, 코드 전문·개행·초안·출력 액션 검사 동일 | **통과:** 기존 `transcript-test.mjs --bundle=markdown` (1 passed) 및 `playwright test` (1 passed, 389ms) 모두 100% 동일 단언 통과 |
-| **번들 누락** | 격리된 입력 경로에서 누락 파일과 빌드 안내를 출력하고 종료 코드 1, 자동 빌드로 회피하지 않음 | **통과:** `MAGI_WEB_OUT_DIR=/tmp/nonexistent-bundle-test` 주입 시 `Missing required webview asset bundle: .../chat_html.js\nRun 'npm run build ...' first.` 출력 및 종료 코드 1 확인 |
-| **실패 탐지** | 의도적인 외부 요청 또는 잘못된 기대값을 격리 fixture에 주입했을 때 새 실행 경로가 실패·종료 코드 1을 반환함 | **통과:** `MAGI_INJECT_FAILURE=bad_expectation` 및 `MAGI_INJECT_FAILURE=external_request` 주입 시 각각 `AssertionError`와 함께 종료 코드 1 반환 |
-| **정리·진단** | 위 실패 뒤 context/browser가 정리되고 trace·스크린샷이 실제로 남음, 실패 로그에 시나리오 ID가 보임 | **통과:** 프로세스 누수 없이 정상 종료, 실패 로그에 `[markdown_streaming_and_security_contract]` 명시, `artifacts/.../test-failed-1.png` 및 `trace.zip` 정상 보존 확인 |
+| **정상 실행** | 동일 markdown 시나리오가 기존 하네스와 새 실행기에서 각각 통과, 코드 전문·개행·초안·출력 액션 검사 동일 | **통과:** 기존 `transcript-test.mjs --bundle=markdown` (1 passed) 및 `playwright test` (1 passed, 377ms) 모두 100% 동일 단언 통과 |
+| **번들 누락** | 격리된 입력 경로에서 누락 파일과 빌드 안내를 출력하고 종료 코드 1, 워커 비정상 종료 없이 정식 준비 오류로 처리 | **통과:** `MAGI_WEB_OUT_DIR=/tmp/nonexistent-bundle-test` 실행 시 정식 `Error: Missing required webview asset bundle: .../chat_html.js\nRun 'npm run build ...' first.` 출력 및 종료 코드 1 반환 (unexpected worker exit 0건, context/browser 정상 정리) |
+| **실패 탐지 1 (수집 오류)** | 본문 정상 + console.error 발생 시 collector 단언 실패 | **통과:** `[failure_injection_1_console_error]` 실행 시 `AssertionError: Page/console errors occurred during test: ...` 발생, 종료 코드 1, trace·스크린샷 보존 확인 |
+| **실패 탐지 2 (최초 단언 보존)** | 본문 단언 실패 + console.error 발생 시 최초 단언 보존 및 collector 단언 생략, 첨부 자료 보존 | **통과:** `[failure_injection_2_assertion_and_console]` 실행 시 최초 단언인 `AssertionError: Primary assertion failed`만 테스트 오류로 보존, collector 단언 생략, `collector-errors.json` 첨부 파일로 보존 확인 |
+| **실패 탐지 3 (라우터 거절)** | 본문 정상 + 허용하지 않은 자산 요청 시 라우터 404 및 routeErrors 단언 실패 | **통과:** `[failure_injection_3_unregistered_route]` 실행 시 CSP 허용 동일 출처의 `/out/web/chat_adapter.bundle.js.broken` 스크립트 요청이 라우터 404 반환 후 `AssertionError: Unregistered route errors occurred during test: Unregistered asset requested: http://magi.test/...`로 실패, 요청 URL 진단 명시 및 종료 코드 1 확인 |
 | **기존 회귀** | 기존 --verify-assets·기본 40개·--reverse·--reverse-themes 결과 유지, 기존 의미의 역순은 묶음 순서임을 명시 | **통과:** `--verify-assets` 통과, 기본 6개 묶음 40개 통과, `--reverse`(묶음 실행 역순) 40개 통과, `--reverse-themes`(테마 주입 역순) 40개 통과 |
 | **배포 격리** | package와 VSIX 필수 검사 통과, 새 spec·Playwright 런타임·trace·리포트가 VSIX에 들어가지 않음 | **통과:** `npm run package` 즉시 검증 성공 (62개 파일, 362,179 bytes, `tools/**` 완전 제외) |
 
@@ -1248,9 +1250,9 @@ node --test clients/vscode/out/test/*.property.test.js
   - 수동 모의 검증 함수 `verifyRunnerLifecycle` (mock 브라우저 닫기 횟수 측정)
   - 수동 CLI 옵션 파서 (`--bundle`, `--reverse`, `--reverse-themes`, `--verify-assets`)
   - `main()` 내 자체 카운터(`totalPassed`, `totalFailed`, `failures`) 및 요약 콘솔 출력 로직
-- **현재 단일 page를 공유하여 순차 실행되는 묶음 현황:**
+- **현재 단일 page를 공유하여 순차 실행되는 묶음 현황 (총 40개):**
   - `layout` (4개 시나리오: 동일 page에서 스크롤·점프·포커스·뷰포트 순차 검증)
-  - `asks` (10개 시나리오: 동일 page에서 답변 모드, Esc 복원, 전송 실패 복구, 늦은 실패 무시, 중복 전송, 세션 왕복 초안 보존, 복구 패널, IME, 선택지 번호, in-flight 순차 상태 전이)
+  - `asks` (14개 시나리오: 동일 page에서 답변 모드, Esc 복원, 전송 실패 복구, 늦은 실패 무시, 중복 전송, 세션 왕복 초안 보존, 복구 패널, IME, 선택지 번호, in-flight 순차 상태 전이)
   - `autocomplete` (2개 시나리오: 동일 page에서 모드 전환 무효화, 전송/클릭 취소 순차 검증)
   - `diff` (12개 시나리오: 동일 page에서 승인 패널, diff 접기/펼치기, 버튼 바인딩, 액션 전송 순차 검증)
   - `a11y` (7개 시나리오: 동일 page에서 상태 1~6 화면 및 상태 7 테마 전환 잔류값 검증)
@@ -1272,10 +1274,9 @@ node clients/vscode/tools/transcript-test.mjs --reverse-themes     # 테마 주�
 # 3. Playwright 시범 러너 검증 (markdown 시나리오 1건)
 npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs
 
-# 4. Playwright 시범 러너 진단 및 실패 격리 검증
-MAGI_WEB_OUT_DIR=/tmp/nonexistent-bundle-test npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs  # 번들 누락 (종료 코드 1)
-MAGI_INJECT_FAILURE=bad_expectation npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs            # 기대값 불일치 (trace/screenshot 생성, 종료 코드 1)
-MAGI_INJECT_FAILURE=external_request npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs           # 외부 요청 및 CSP 위반 (종료 코드 1)
+# 4. Playwright 시범 러너 번들 누락 진단 및 실패 격리 검증 (모두 종료 코드 1)
+MAGI_WEB_OUT_DIR=/tmp/nonexistent-bundle-test npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs
+PLAYWRIGHT_TEST_MATCH=failure-injection npx --prefix clients/web/e2e playwright test -c clients/vscode/tools/transcript/playwright.config.mjs
 
 # 5. 패키징 및 VSIX 격리 검증 (62개 파일, 362KB)
 npm run package --prefix clients/vscode
@@ -1286,4 +1287,5 @@ npm run package --prefix clients/vscode
   - 실제 Windows 물리 머신 환경에서의 네이티브 실행 (Node 22 Ubuntu CI 및 macOS 환경에서만 자동 검증됨).
   - 실제 VS Code IDE GUI 상에서의 대화형 확장 설치 및 메뉴 클릭 동작.
   - OS 수준 스크린리더(NVDA, JAWS, VoiceOver) 음성 출력 및 실제 키보드 포커스 음성 안내.
+
 

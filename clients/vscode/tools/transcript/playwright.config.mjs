@@ -7,9 +7,13 @@ const { defineConfig } = require('@playwright/test');
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
+const testMatch = process.env.PLAYWRIGHT_TEST_MATCH
+  ? new RegExp(process.env.PLAYWRIGHT_TEST_MATCH)
+  : /markdown\.spec\.mjs$/;
+
 export default defineConfig({
   testDir: currentDir,
-  testMatch: /markdown\.spec\.mjs$/,
+  testMatch,
   workers: 1,
   fullyParallel: false,
   retries: 0,

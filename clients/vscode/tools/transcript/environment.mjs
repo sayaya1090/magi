@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import {
-  runPreflight,
+  checkRequiredBundles,
   toDirectoryUrl,
 } from '../asset-preflight.mjs';
 
@@ -24,16 +24,15 @@ export const DEFAULT_WEB_OUT_DIR = new URL('../../out/web/', import.meta.url);
 
 /**
  * Prepares the chat webview HTML strictly AFTER asset preflight succeeds (§2.2, §5.8.6).
- * Never hides bundle missing errors with empty HTML or automatic build.
+ * Throws an Error with missing bundle path and build instructions if preflight fails.
+ * Never hides bundle missing errors with empty HTML, automatic build, or process.exit.
  *
  * @param {object} [options]
  * @param {string} [options.origin]
  * @param {object} [options.assetUrls]
  * @param {string} [options.nonce]
  * @param {string | URL} [options.baseDir]
- * @param {(code: number) => void} [options.exit]
- * @param {(msg: string) => void} [options.logError]
- * @returns {Promise<string | null>}
+ * @returns {Promise<string>}
  */
 export async function prepareChatHtml(options = {}) {
   const {
@@ -41,14 +40,12 @@ export async function prepareChatHtml(options = {}) {
     assetUrls = ASSET_URLS,
     nonce = 'test-nonce',
     baseDir = process.env.MAGI_WEB_OUT_DIR || DEFAULT_WEB_OUT_DIR,
-    exit = (code) => process.exit(code),
-    logError = console.error,
   } = options;
 
-  // 1. Preflight check runs first
-  const ok = runPreflight(baseDir, { exit, logError });
-  if (!ok) {
-    return null;
+  // 1. Preflight check runs first: throw structured Error without exiting worker process (§5.8.6 Item 1)
+  const preflightResult = checkRequiredBundles(baseDir);
+  if (!preflightResult.ok) {
+    throw new Error(preflightResult.errorMessage);
   }
 
   // 2. Dynamic import evaluated strictly AFTER preflight check succeeds
